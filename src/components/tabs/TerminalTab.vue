@@ -4,8 +4,12 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { listen } from "@tauri-apps/api/event";
-import { ptySpawn, ptyWrite, ptyResize, ptyKill } from "../../lib/tauri";
+import { ptySpawn, ptySpawnTmux, ptyWrite, ptyResize, ptyKill } from "../../lib/tauri";
 import "@xterm/xterm/css/xterm.css";
+
+const props = defineProps<{
+  tmuxSession?: string;
+}>();
 
 const termRef = ref<HTMLDivElement>();
 let terminal: Terminal | null = null;
@@ -14,6 +18,9 @@ let ptyId: string | null = null;
 let unlistenOutput: (() => void) | null = null;
 let unlistenExit: (() => void) | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+let lastCols = 0;
+let lastRows = 0;
 
 onMounted(async () => {
   if (!termRef.value) return;
@@ -27,6 +34,7 @@ onMounted(async () => {
       cursor: "#cccccc",
       selectionBackground: "#264f78",
     },
+    scrollback: 5000,
     cursorBlink: true,
     allowProposedApi: true,
   });
@@ -60,28 +68,41 @@ onMounted(async () => {
     }
   );
 
-  // Spawn PTY
-  const result = await ptySpawn(cols, rows);
+  // Spawn PTY (tmux or plain bash)
+  const result = props.tmuxSession
+    ? await ptySpawnTmux(props.tmuxSession, cols, rows)
+    : await ptySpawn(cols, rows);
   ptyId = result.id;
+
+  lastCols = terminal.cols;
+  lastRows = terminal.rows;
 
   // Forward keyboard input to PTY
   terminal.onData((data) => {
     if (ptyId) {
-      ptyWrite(ptyId, data);
+      ptyWrite(ptyId, data).catch(() => {});
     }
   });
 
-  // Handle resize
+  // Handle resize with debounce to avoid flooding IPC during drag
   resizeObserver = new ResizeObserver(() => {
-    if (fitAddon && terminal && ptyId) {
-      fitAddon.fit();
-      ptyResize(ptyId, terminal.cols, terminal.rows);
-    }
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (fitAddon && terminal && ptyId) {
+        fitAddon.fit();
+        if (terminal.cols !== lastCols || terminal.rows !== lastRows) {
+          lastCols = terminal.cols;
+          lastRows = terminal.rows;
+          ptyResize(ptyId, lastCols, lastRows);
+        }
+      }
+    }, 100);
   });
   resizeObserver.observe(termRef.value);
 });
 
 onUnmounted(() => {
+  if (resizeTimer) clearTimeout(resizeTimer);
   resizeObserver?.disconnect();
   unlistenOutput?.();
   unlistenExit?.();

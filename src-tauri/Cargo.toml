@@ -35,5 +35,9 @@ name = "verify_pty"
 path = "src/bin/verify_pty.rs"
 
 [[bin]]
+name = "verify_tmux"
+path = "src/bin/verify_tmux.rs"
+
+[[bin]]
 name = "verify_bollard"
 path = "src/bin/verify_bollard.rs"

@@ -8,6 +8,10 @@ export async function ptySpawn(cols: number, rows: number): Promise<PtySpawnResu
   return invoke<PtySpawnResult>("pty_spawn", { cols, rows });
 }
 
+export async function ptySpawnTmux(sessionName: string, cols: number, rows: number): Promise<PtySpawnResult> {
+  return invoke<PtySpawnResult>("pty_spawn_tmux", { sessionName, cols, rows });
+}
+
 export async function ptyWrite(id: string, data: string): Promise<void> {
   return invoke("pty_write", { id, data });
 }

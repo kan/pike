@@ -8,8 +8,8 @@
 ### 設計思想
 - **軽さ最優先**: Monaco は使わない。CodeMirror 6 のみ。拡張機能システムは作らない
 - **タブ統一**: エディタ・ターミナル・Docker logs をすべて同一タブで扱う
-- **Rust はステートレスに**: セッション永続化は tmux に委譲、Rust は I/O ブリッジに徹する
-- **外部依存は明示**: rg なければ grep、tmux なければ通常 PTY、と graceful degrade する
+- **Rust はステートレスに**: Rust は I/O ブリッジに徹する。セッション復帰は各ツールの resume 機能（`claude --continue` 等）に委譲
+- **外部依存は明示**: rg なければ grep、と graceful degrade する。tmux はオプション機能
 
 ### ターゲット環境
 - **OS**: Windows 11（メイン開発・動作環境）
@@ -145,20 +145,23 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ### PTY / WSL2
 - PTY 管理は `portable-pty` クレートを使う（ConPTY 対応済み）
-- spawn コマンドは `wsl.exe`、引数で tmux or bash を指定
+- spawn コマンドは `wsl.exe`、引数で bash を指定
 - 環境変数 `TERM=xterm-256color` を必ず渡す
-- tmux 起動時は `-2` フラグ（256色強制）を付ける
-- リサイズは `pty.resize()` → tmux 側は自動追従
+- リサイズは `pty.resize()` で PTY サイズを更新
 
-### tmux セッション管理
-- セッション名はプロジェクト ID + タブ種別で命名: `devterm-{project_id}-{tab_id}`
-- 起動時: `tmux has-session -t <name>` で生存確認 → attach or new-session
-- Rust 側は tmux の状態を持たない（ステートレス）
+### セッション復帰
+- AI エージェントのセッション復帰は各ツールの resume 機能に委譲
+  - Claude Code: `claude --continue`
+  - Codex: 対応する resume オプション
+- tmux はオプション機能として `pty_spawn_tmux` コマンドで利用可能（必須ではない）
 
 ### Docker / bollard
-- Windows 側から `//./pipe/docker_engine` に接続（Docker Desktop WSL2 backend が公開）
-- WSL2 内の `/var/run/docker.sock` は使わない
-- `bollard::Docker::connect_with_named_pipe_defaults()` で接続
+- フォールバック戦略で接続（musql と同一パターン）:
+  1. `Docker::connect_with_local_defaults()` — named pipe / DOCKER_HOST 環境変数
+  2. `Docker::connect_with_http("tcp://127.0.0.1:2375")` — WSL2 dockerd (unencrypted)
+  3. `Docker::connect_with_http("tcp://127.0.0.1:2376")` — WSL2 dockerd (encrypted)
+- 各接続で `ping()` して到達確認、最初に成功したものを使う
+- Docker Desktop なしでも WSL2 の dockerd が TCP を公開していれば接続可能
 
 ### CodeMirror 6
 - シンタックスハイライトのみ、LSP・補完は実装しない
