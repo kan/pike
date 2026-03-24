@@ -161,6 +161,15 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - プロジェクト切替時: 全タブ kill → pinnedTabs 復元（なければ Claude Code 固定タブを自動作成）
 - Windows プロジェクトでは「+」ボタン横のドロップダウンでデフォルト以外のシェルも選択可能
 
+### ファイルツリー / エディタ
+- Rust `fs` モジュールが WSL/Windows 両対応のファイル操作を提供（list_dir / read_file / write_file）
+- WSL: `wsl.exe find`, `wsl.exe cat`, `wsl.exe bash -c "cat > ..."` 経由
+- Windows: `std::fs` 直接アクセス
+- ファイルサイズ事前チェック（2MB 制限）
+- CodeMirror 6 でエディタタブ。oneDark テーマ、29言語のシンタックスハイライト対応
+- Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）
+- ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
+
 ### Git 統合
 - `git` CLI 経由（WSL/Windows 両対応）。`git2` クレートは使わない
 - Rust 側 `build_git_command` が ShellConfig に応じて `wsl.exe git` / `git` を組み立て

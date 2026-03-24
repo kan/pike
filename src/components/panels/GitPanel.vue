@@ -6,6 +6,7 @@ import { useTabStore } from "../../stores/tabs";
 import { useSidebarStore } from "../../stores/sidebar";
 import { gitDiff, gitShowFiles, gitDiffCommit } from "../../lib/tauri";
 import { fileIcon } from "../../lib/fileIcons";
+import { gitStatusColor } from "../../lib/paths";
 import type { GitFileChange } from "../../types/git";
 
 const gitStore = useGitStore();
@@ -18,16 +19,6 @@ const commitMsg = ref("");
 // Commit tree expansion
 const expandedCommits = ref<Set<string>>(new Set());
 const commitFiles = ref<Record<string, GitFileChange[]>>({});
-
-function statusColor(s: string): string {
-  switch (s) {
-    case "M": return "var(--git-modify)";
-    case "A": return "var(--git-add)";
-    case "D": return "var(--git-delete)";
-    case "R": return "var(--accent)";
-    default:  return "var(--git-untracked)";
-  }
-}
 
 function relativeDate(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -162,7 +153,7 @@ onUnmounted(() => {
           @click="openDiffTab(file.path, true)"
         >
           <span class="file-icon">{{ fileIcon(file.path) }}</span>
-          <span class="file-status" :style="{ color: statusColor(file.status) }">{{ file.status }}</span>
+          <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path">{{ file.path }}</span>
           <button class="file-action" title="Unstage" @click.stop="gitStore.unstageFiles([file.path])">-</button>
         </div>
@@ -183,7 +174,7 @@ onUnmounted(() => {
           @click="openDiffTab(file.path, false)"
         >
           <span class="file-icon">{{ fileIcon(file.path) }}</span>
-          <span class="file-status" :style="{ color: statusColor(file.status) }">{{ file.status }}</span>
+          <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path">{{ file.path }}</span>
           <button class="file-action" title="Stage" @click.stop="gitStore.stageFiles([file.path])">+</button>
         </div>
@@ -220,7 +211,7 @@ onUnmounted(() => {
               @click.stop="openCommitDiffTab(entry.hash, file.path)"
             >
               <span class="file-icon">{{ fileIcon(file.path) }}</span>
-              <span class="file-status" :style="{ color: statusColor(file.status) }">{{ file.status }}</span>
+              <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
               <span class="file-path">{{ file.path }}</span>
             </div>
           </div>

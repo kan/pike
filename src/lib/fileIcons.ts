@@ -28,8 +28,10 @@ const NAME_ICONS: Record<string, string> = {
   'cmakelists.txt': '🔧',
 }
 
+import { basename as getBasename } from './paths';
+
 export function fileIcon(path: string): string {
-  const name = path.split('/').pop()?.toLowerCase() ?? ''
+  const name = getBasename(path).toLowerCase()
   if (NAME_ICONS[name]) return NAME_ICONS[name]
   const ext = name.split('.').pop() ?? ''
   return EXT_ICONS[ext] ?? '📄'

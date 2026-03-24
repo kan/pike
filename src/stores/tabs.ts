@@ -2,7 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ptyKill } from '../lib/tauri'
 import { ptyRouter } from '../composables/usePtyRouter'
-import type { Tab, TerminalTab, DiffTab, ShellType } from '../types/tab'
+import type { Tab, TerminalTab, EditorTab, DiffTab, ShellType } from '../types/tab'
+import { basename } from '../lib/paths'
 
 let counter = 0
 
@@ -79,6 +80,27 @@ export const useTabStore = defineStore('tabs', () => {
     }
   }
 
+  function addEditorTab(options: { path: string }): string {
+    const existing = tabs.value.find(
+      (t): t is EditorTab => t.kind === 'editor' && t.path === options.path
+    )
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    const fileName = basename(options.path)
+    tabs.value.push({
+      id,
+      kind: 'editor',
+      title: fileName,
+      pinned: false,
+      path: options.path,
+    })
+    activeTabId.value = id
+    return id
+  }
+
   function addDiffTab(options: {
     filePath: string
     diff: string
@@ -99,7 +121,7 @@ export const useTabStore = defineStore('tabs', () => {
       return existing.id
     }
     const id = genId()
-    const fileName = options.filePath.split('/').pop() ?? options.filePath
+    const fileName = basename(options.filePath)
     const title = options.commitHash
       ? `${fileName} (${options.commitHash.slice(0, 7)})`
       : `${fileName} (diff)`
@@ -148,6 +170,7 @@ export const useTabStore = defineStore('tabs', () => {
     activeTabId,
     activeTab,
     addTerminalTab,
+    addEditorTab,
     addDiffTab,
     closeTab,
     clearAllTabs,

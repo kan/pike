@@ -17,6 +17,12 @@ export function useKeyboardShortcuts() {
     // Don't handle shortcuts when the switcher is open
     if (projectStore.showSwitcher) return
 
+    // Ctrl+S: prevent browser save dialog (EditorTab handles save via CodeMirror)
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault()
+      return
+    }
+
     // Ctrl+W: close active tab
     if (e.ctrlKey && e.key === 'w') {
       if (tabStore.activeTabId) {

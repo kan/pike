@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onUnmounted } from "vue";
+import { ref, onUnmounted } from "vue";
 import { useSidebarStore } from "../../stores/sidebar";
 import { useGitStore } from "../../stores/git";
 import type { SidebarPanel } from "../../types/tab";
@@ -9,6 +9,8 @@ import GitPanel from "../panels/GitPanel.vue";
 
 const sidebar = useSidebarStore();
 const gitStore = useGitStore();
+
+const fileTreeRef = ref<{ refresh: () => void } | null>(null);
 
 const icons: { panel: SidebarPanel; label: string; icon: string }[] = [
   { panel: "files", label: "Files", icon: "🗂" },
@@ -68,6 +70,9 @@ onUnmounted(() => {
     <aside v-if="sidebar.isPanelOpen" class="panel" :style="{ width: sidebar.panelWidth + 'px' }">
       <div class="panel-header">
         <span>{{ icons.find((i) => i.panel === sidebar.activePanel)?.label }}</span>
+        <div v-if="sidebar.activePanel === 'files'" class="header-actions">
+          <button class="header-btn" title="Refresh" @click="fileTreeRef?.refresh()">R</button>
+        </div>
         <div v-if="sidebar.activePanel === 'git'" class="header-actions">
           <button class="header-btn" :class="{ spinning: gitStore.pulling }" :disabled="gitStore.pulling" title="Pull" @click="gitStore.pull()">↓</button>
           <button class="header-btn" :class="{ spinning: gitStore.pushing }" :disabled="gitStore.pushing" title="Push" @click="gitStore.push()">↑</button>
@@ -75,7 +80,7 @@ onUnmounted(() => {
       </div>
       <div class="panel-content">
         <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
-        <FileTreePanel v-else-if="sidebar.activePanel === 'files'" />
+        <FileTreePanel v-else-if="sidebar.activePanel === 'files'" ref="fileTreeRef" />
         <GitPanel v-else-if="sidebar.activePanel === 'git'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>

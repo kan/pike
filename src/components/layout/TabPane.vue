@@ -6,6 +6,7 @@ import type { Tab, ShellType } from "../../types/tab";
 import { isWindowsShell, WINDOWS_SHELLS, shellToType } from "../../types/tab";
 import TerminalTab from "../tabs/TerminalTab.vue";
 import DiffTab from "../tabs/DiffTab.vue";
+import EditorTab from "../tabs/EditorTab.vue";
 
 const tabStore = useTabStore();
 const projectStore = useProjectStore();
@@ -16,6 +17,10 @@ const terminalTabs = computed(() =>
 
 const diffTabs = computed(() =>
   tabStore.tabs.filter((t) => t.kind === "diff")
+);
+
+const editorTabs = computed(() =>
+  tabStore.tabs.filter((t) => t.kind === "editor")
 );
 
 const isWindows = computed(() =>
@@ -153,6 +158,12 @@ onUnmounted(() => {
       />
       <DiffTab
         v-for="tab in diffTabs"
+        :key="tab.id"
+        :tab-id="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <EditorTab
+        v-for="tab in editorTabs"
         :key="tab.id"
         :tab-id="tab.id"
         v-show="tab.id === tabStore.activeTabId"

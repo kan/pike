@@ -1,0 +1,98 @@
+import { LanguageSupport, StreamLanguage } from "@codemirror/language";
+import { javascript } from "@codemirror/lang-javascript";
+import { rust } from "@codemirror/lang-rust";
+import { markdown } from "@codemirror/lang-markdown";
+import { yaml } from "@codemirror/lang-yaml";
+import { html } from "@codemirror/lang-html";
+import { json } from "@codemirror/lang-json";
+import { php } from "@codemirror/lang-php";
+import { go } from "@codemirror/legacy-modes/mode/go";
+import { shell } from "@codemirror/legacy-modes/mode/shell";
+import { python } from "@codemirror/legacy-modes/mode/python";
+import { ruby } from "@codemirror/legacy-modes/mode/ruby";
+import { perl } from "@codemirror/legacy-modes/mode/perl";
+import { swift } from "@codemirror/legacy-modes/mode/swift";
+import { c, cpp, java, csharp, kotlin, scala, objectiveC } from "@codemirror/legacy-modes/mode/clike";
+import { css as cssMode, sCSS } from "@codemirror/legacy-modes/mode/css";
+import { standardSQL } from "@codemirror/legacy-modes/mode/sql";
+import { lua } from "@codemirror/legacy-modes/mode/lua";
+import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
+import { diff } from "@codemirror/legacy-modes/mode/diff";
+import { powerShell } from "@codemirror/legacy-modes/mode/powershell";
+import { nginx } from "@codemirror/legacy-modes/mode/nginx";
+import { protobuf } from "@codemirror/legacy-modes/mode/protobuf";
+
+function legacy(mode: Parameters<typeof StreamLanguage.define>[0]): LanguageSupport {
+  return new LanguageSupport(StreamLanguage.define(mode));
+}
+
+const EXT_MAP: Record<string, () => LanguageSupport> = {
+  // Official CM6 packages
+  ts: () => javascript({ typescript: true }),
+  tsx: () => javascript({ typescript: true, jsx: true }),
+  js: () => javascript(),
+  jsx: () => javascript({ jsx: true }),
+  mjs: () => javascript(),
+  rs: () => rust(),
+  md: () => markdown(),
+  yaml: () => yaml(),
+  yml: () => yaml(),
+  vue: () => html(),
+  html: () => html(),
+  htm: () => html(),
+  svg: () => html(),
+  json: () => json(),
+  jsonc: () => json(),
+  php: () => php(),
+  phtml: () => php(),
+  // Legacy modes
+  go: () => legacy(go),
+  sh: () => legacy(shell),
+  bash: () => legacy(shell),
+  zsh: () => legacy(shell),
+  py: () => legacy(python),
+  rb: () => legacy(ruby),
+  pl: () => legacy(perl),
+  pm: () => legacy(perl),
+  java: () => legacy(java),
+  kt: () => legacy(kotlin),
+  kts: () => legacy(kotlin),
+  scala: () => legacy(scala),
+  swift: () => legacy(swift),
+  c: () => legacy(c),
+  h: () => legacy(c),
+  cpp: () => legacy(cpp),
+  cc: () => legacy(cpp),
+  cxx: () => legacy(cpp),
+  hpp: () => legacy(cpp),
+  cs: () => legacy(csharp),
+  m: () => legacy(objectiveC),
+  css: () => legacy(cssMode),
+  scss: () => legacy(sCSS),
+  sql: () => legacy(standardSQL),
+  lua: () => legacy(lua),
+  dockerfile: () => legacy(dockerFile),
+  toml: () => legacy(toml),
+  diff: () => legacy(diff),
+  patch: () => legacy(diff),
+  ps1: () => legacy(powerShell),
+  psm1: () => legacy(powerShell),
+  conf: () => legacy(nginx),
+  proto: () => legacy(protobuf),
+};
+
+const NAME_MAP: Record<string, () => LanguageSupport> = {
+  dockerfile: () => legacy(dockerFile),
+  makefile: () => legacy(shell),
+  ".bashrc": () => legacy(shell),
+  ".zshrc": () => legacy(shell),
+  ".gitignore": () => legacy(shell),
+};
+
+export function getLanguage(filename: string): LanguageSupport | null {
+  const name = filename.split(/[/\\]/).pop()?.toLowerCase() ?? "";
+  if (NAME_MAP[name]) return NAME_MAP[name]();
+  const ext = name.split(".").pop() ?? "";
+  return EXT_MAP[ext]?.() ?? null;
+}

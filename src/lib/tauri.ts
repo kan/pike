@@ -76,6 +76,25 @@ export async function projectDelete(id: string): Promise<void> {
   return invoke("project_delete", { id });
 }
 
+// Filesystem
+
+export interface FsEntry {
+  name: string;
+  isDir: boolean;
+}
+
+export async function fsListDir(shell: ShellType, path: string): Promise<FsEntry[]> {
+  return invoke<FsEntry[]>("fs_list_dir", { shell, path });
+}
+
+export async function fsReadFile(shell: ShellType, path: string): Promise<string> {
+  return invoke<string>("fs_read_file", { shell, path });
+}
+
+export async function fsWriteFile(shell: ShellType, path: string, content: string): Promise<void> {
+  return invoke("fs_write_file", { shell, path, content });
+}
+
 // Git
 
 export async function gitStatus(root: string, shell: ShellType): Promise<GitStatusResult> {

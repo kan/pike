@@ -1,3 +1,4 @@
+mod fs;
 mod git;
 mod project;
 mod pty;
@@ -42,6 +43,9 @@ pub fn run() {
             project::project_create,
             project::project_update,
             project::project_delete,
+            fs::fs_list_dir,
+            fs::fs_read_file,
+            fs::fs_write_file,
             git::git_status,
             git::git_log,
             git::git_diff,
