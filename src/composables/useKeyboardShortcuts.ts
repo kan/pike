@@ -1,11 +1,23 @@
 import { onMounted, onUnmounted } from 'vue'
 import { useTabStore } from '../stores/tabs'
+import { useProjectStore } from '../stores/project'
 
 export function useKeyboardShortcuts() {
   const tabStore = useTabStore()
+  const projectStore = useProjectStore()
 
   function onKeyDown(e: KeyboardEvent) {
-    // Ctrl+W: close active tab (pinned tabs are protected by store)
+    // Ctrl+Shift+P: project switcher
+    if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+      e.preventDefault()
+      projectStore.toggleSwitcher()
+      return
+    }
+
+    // Don't handle shortcuts when the switcher is open
+    if (projectStore.showSwitcher) return
+
+    // Ctrl+W: close active tab
     if (e.ctrlKey && e.key === 'w') {
       if (tabStore.activeTabId) {
         e.preventDefault()
@@ -17,7 +29,12 @@ export function useKeyboardShortcuts() {
     // Ctrl+T: new terminal tab
     if (e.ctrlKey && e.key === 't') {
       e.preventDefault()
-      tabStore.addTerminalTab()
+      const project = projectStore.currentProject
+      tabStore.addTerminalTab(
+        project
+          ? { cwd: project.root, shell: project.shell }
+          : undefined
+      )
       return
     }
 

@@ -1,13 +1,22 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from "vue";
+import { ref, computed, nextTick, onUnmounted } from "vue";
 import { useTabStore } from "../../stores/tabs";
-import type { Tab } from "../../types/tab";
+import { useProjectStore } from "../../stores/project";
+import type { Tab, ShellType } from "../../types/tab";
+import { isWindowsShell, WINDOWS_SHELLS, shellToType } from "../../types/tab";
 import TerminalTab from "../tabs/TerminalTab.vue";
 
 const tabStore = useTabStore();
+const projectStore = useProjectStore();
 
 const terminalTabs = computed(() =>
   tabStore.tabs.filter((t) => t.kind === "terminal")
+);
+
+const isWindows = computed(() =>
+  projectStore.currentProject
+    ? isWindowsShell(projectStore.currentProject.shell)
+    : false
 );
 
 function kindIcon(kind: Tab["kind"]): string {
@@ -19,6 +28,39 @@ function kindIcon(kind: Tab["kind"]): string {
     case "docker-logs":
       return "~";
   }
+}
+
+function addTab(shellOverride?: ShellType) {
+  const project = projectStore.currentProject;
+  tabStore.addTerminalTab(
+    project
+      ? { cwd: project.root, shell: shellOverride ?? project.shell }
+      : undefined
+  );
+}
+
+// Shell dropdown for Windows projects
+const showShellMenu = ref(false);
+
+function toggleShellMenu() {
+  if (showShellMenu.value) {
+    closeShellMenu();
+    return;
+  }
+  showShellMenu.value = true;
+  nextTick(() => {
+    window.addEventListener("mousedown", closeShellMenu, { once: true });
+  });
+}
+
+function closeShellMenu() {
+  window.removeEventListener("mousedown", closeShellMenu);
+  showShellMenu.value = false;
+}
+
+function addTabWithShell(kind: 'cmd' | 'powershell' | 'git-bash') {
+  addTab(shellToType(kind));
+  closeShellMenu();
 }
 
 // Context menu
@@ -41,6 +83,11 @@ function onTabContextMenu(e: MouseEvent, tabId: string) {
 function closeContextMenu() {
   contextMenu.value = null;
 }
+
+onUnmounted(() => {
+  window.removeEventListener("mousedown", closeShellMenu);
+  window.removeEventListener("mousedown", closeContextMenu);
+});
 </script>
 
 <template>
@@ -70,9 +117,23 @@ function closeContextMenu() {
           </button>
         </div>
       </div>
-      <button class="tab-add" title="New Terminal (Ctrl+T)" @click="tabStore.addTerminalTab()">
-        +
-      </button>
+      <div class="tab-add-group">
+        <button class="tab-add" title="New Terminal (Ctrl+T)" @click="addTab()">+</button>
+        <button
+          v-if="isWindows"
+          class="tab-add-arrow"
+          title="Open with different shell"
+          @click.stop="toggleShellMenu"
+        >v</button>
+      </div>
+      <!-- Shell dropdown -->
+      <div v-if="showShellMenu" class="shell-menu" @mousedown.stop>
+        <button
+          v-for="s in WINDOWS_SHELLS"
+          :key="s.kind"
+          @click="addTabWithShell(s.kind)"
+        >{{ s.label }}</button>
+      </div>
     </div>
 
     <!-- Tab Content -->
@@ -86,7 +147,12 @@ function closeContextMenu() {
 
       <!-- Empty state -->
       <div v-if="tabStore.tabs.length === 0" class="empty-state">
-        Press Ctrl+T to open a terminal
+        <template v-if="projectStore.currentProject">
+          Press Ctrl+T to open a terminal
+        </template>
+        <template v-else>
+          Open a project to get started (Ctrl+Shift+P)
+        </template>
       </div>
     </div>
 
@@ -95,6 +161,7 @@ function closeContextMenu() {
       v-if="contextMenu && contextTab"
       class="context-menu"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      @mousedown.stop
     >
       <button @click="tabStore.togglePin(contextMenu!.tabId); closeContextMenu()">
         {{ contextTab.pinned ? 'Unpin Tab' : 'Pin Tab' }}
@@ -127,6 +194,7 @@ function closeContextMenu() {
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
   user-select: none;
+  position: relative;
 }
 
 .tabs-scroll {
@@ -136,7 +204,6 @@ function closeContextMenu() {
   overflow-y: hidden;
 }
 
-/* Hide scrollbar but keep scrollable */
 .tabs-scroll::-webkit-scrollbar {
   height: 0;
 }
@@ -215,6 +282,11 @@ function closeContextMenu() {
   color: var(--text-active);
 }
 
+.tab-add-group {
+  display: flex;
+  flex-shrink: 0;
+}
+
 .tab-add {
   display: flex;
   align-items: center;
@@ -232,6 +304,55 @@ function closeContextMenu() {
 .tab-add:hover {
   color: var(--text-active);
   background: var(--tab-hover-bg);
+}
+
+.tab-add-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 10px;
+  font-family: monospace;
+  border-left: 1px solid var(--border);
+}
+
+.tab-add-arrow:hover {
+  color: var(--text-active);
+  background: var(--tab-hover-bg);
+}
+
+.shell-menu {
+  position: absolute;
+  right: 0;
+  top: var(--tabbar-height);
+  z-index: 1000;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 0;
+  min-width: 160px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.shell-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shell-menu button:hover {
+  background: var(--accent);
+  color: var(--text-active);
 }
 
 .tab-content {

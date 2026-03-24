@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Tab } from '../types/tab'
+import { ptyKill } from '../lib/tauri'
+import { ptyRouter } from '../composables/usePtyRouter'
+import type { Tab, TerminalTab, ShellType } from '../types/tab'
 
 let counter = 0
 
@@ -16,14 +18,24 @@ export const useTabStore = defineStore('tabs', () => {
     tabs.value.find((t) => t.id === activeTabId.value) ?? null
   )
 
-  function addTerminalTab(options?: { title?: string; pinned?: boolean }): string {
-    const id = genId()
+  function addTerminalTab(options?: {
+    id?: string
+    title?: string
+    pinned?: boolean
+    autoStart?: string
+    cwd?: string
+    shell?: ShellType
+  }): string {
+    const id = options?.id ?? genId()
     tabs.value.push({
       id,
       kind: 'terminal',
       title: options?.title ?? 'Shell',
       pinned: options?.pinned ?? false,
       ptyId: null,
+      autoStart: options?.autoStart,
+      cwd: options?.cwd,
+      shell: options?.shell,
     })
     activeTabId.value = id
     return id
@@ -37,10 +49,21 @@ export const useTabStore = defineStore('tabs', () => {
     tabs.value.splice(idx, 1)
 
     if (activeTabId.value === id) {
-      // Select adjacent tab: prefer right, then left, then null
       const next = tabs.value[idx] ?? tabs.value[idx - 1] ?? null
       activeTabId.value = next?.id ?? null
     }
+  }
+
+  async function clearAllTabs() {
+    const kills = tabs.value
+      .filter((t): t is TerminalTab & { ptyId: string } => t.kind === 'terminal' && !!t.ptyId)
+      .map((t) => {
+        ptyRouter.unregister(t.ptyId)
+        return ptyKill(t.ptyId).catch(() => {})
+      })
+    await Promise.allSettled(kills)
+    tabs.value = []
+    activeTabId.value = null
   }
 
   function setActiveTab(id: string) {
@@ -53,6 +76,13 @@ export const useTabStore = defineStore('tabs', () => {
     const tab = tabs.value.find((t) => t.id === tabId)
     if (tab && tab.kind === 'terminal') {
       tab.ptyId = ptyId
+    }
+  }
+
+  function setTabTitle(id: string, title: string) {
+    const tab = tabs.value.find((t) => t.id === id)
+    if (tab) {
+      tab.title = title
     }
   }
 
@@ -81,8 +111,10 @@ export const useTabStore = defineStore('tabs', () => {
     activeTab,
     addTerminalTab,
     closeTab,
+    clearAllTabs,
     setActiveTab,
     setPtyId,
+    setTabTitle,
     togglePin,
     cycleTab,
   }

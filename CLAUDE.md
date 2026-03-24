@@ -13,8 +13,9 @@
 
 ### ターゲット環境
 - **OS**: Windows 11（メイン開発・動作環境）
-- **実体**: WSL2 (Ubuntu) 上のシェル・プロセス、その上の Docker コンテナ
+- **実行環境**: WSL2 上のシェル・Docker コンテナ、または Windows ホスト上のシェル
 - **GUI**: Tauri v2 webview (Windows ネイティブプロセス)
+- **対応シェル**: WSL bash / cmd.exe / PowerShell / Git Bash
 
 ---
 
@@ -54,7 +55,7 @@
 ## ディレクトリ構成
 
 ```
-devterm/
+hearth/
 ├── CLAUDE.md                  # このファイル
 ├── MILESTONE.md               # マイルストーン・進捗管理
 ├── src-tauri/
@@ -62,42 +63,39 @@ devterm/
 │   ├── tauri.conf.json
 │   └── src/
 │       ├── main.rs            # Tauri エントリポイント
+│       ├── lib.rs             # Tauri Builder 設定・コマンド登録
+│       ├── types.rs           # ShellConfig 等の共通型定義
 │       ├── pty/
-│       │   ├── mod.rs         # PTY 管理・ConPTY ラッパー
-│       │   └── session.rs     # tmux セッション管理
-│       ├── git/
-│       │   └── mod.rs         # git2 ラッパー
-│       ├── fs/
-│       │   └── mod.rs         # ファイルツリー・notify
-│       ├── search/
-│       │   └── mod.rs         # rg/grep ラッパー
-│       ├── docker/
-│       │   └── mod.rs         # bollard ラッパー
+│       │   └── mod.rs         # PTY 管理（WSL/cmd/PowerShell/Git Bash 対応）
 │       └── project/
-│           └── mod.rs         # プロジェクト設定の永続化
+│           └── mod.rs         # プロジェクト CRUD・WSL ディストロ検出
 ├── src/                       # Vue/TypeScript フロント
-│   ├── App.vue
+│   ├── App.vue                # ルート（PTY ルーター初期化・プロジェクト復元）
 │   ├── main.ts
+│   ├── types/
+│   │   ├── tab.ts             # Tab Union type・ShellType・共通ヘルパー
+│   │   └── project.ts         # ProjectConfig・PinnedTabDef
 │   ├── components/
+│   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
 │   │   ├── layout/
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル
-│   │   │   └── TabPane.vue    # タブバー + コンテンツ
+│   │   │   └── TabPane.vue    # タブバー + コンテンツ + シェル選択
 │   │   ├── panels/
-│   │   │   ├── FileTree.vue
-│   │   │   ├── GitPanel.vue
-│   │   │   ├── SearchPanel.vue
-│   │   │   ├── DockerPanel.vue
-│   │   │   └── ProjectPanel.vue
+│   │   │   ├── FileTreePanel.vue  # ファイルツリー（stub）
+│   │   │   └── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除
 │   │   └── tabs/
-│   │       ├── TerminalTab.vue   # xterm.js
-│   │       ├── EditorTab.vue     # CodeMirror 6
-│   │       └── DockerLogsTab.vue
+│   │       └── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts         # サイドバー状態
-│   │   └── project.ts         # 現在のプロジェクト
-│   └── lib/
-│       └── tauri.ts           # IPC ラッパー
+│   │   └── project.ts         # プロジェクト管理・切替・永続化
+│   ├── composables/
+│   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P
+│   │   └── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出
+│   ├── lib/
+│   │   └── tauri.ts           # IPC ラッパー
+│   └── assets/
+│       └── theme.css          # CSS Variables テーマ定義
 └── .claude/
     └── rules/
         ├── rust.md            # Rust 実装ルール
@@ -143,11 +141,25 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ## 重要な技術メモ
 
-### PTY / WSL2
+### PTY / シェル対応
 - PTY 管理は `portable-pty` クレートを使う（ConPTY 対応済み）
-- spawn コマンドは `wsl.exe`、引数で bash を指定
-- 環境変数 `TERM=xterm-256color` を必ず渡す
+- `pty_spawn` コマンドが `ShellConfig` に応じてシェルを起動:
+  - WSL: `wsl.exe [-d distro] [--cd path] bash`
+  - cmd: `cmd.exe`
+  - PowerShell: `powershell.exe -NoLogo`
+  - Git Bash: `C:\Program Files\Git\bin\bash.exe --login`（自動検出）
+- 環境変数 `TERM=xterm-256color` を cmd 以外に設定
 - リサイズは `pty.resize()` で PTY サイズを更新
+- `autoStart` 対応: PTY spawn 後に指定コマンドを自動実行（例: `claude`）
+
+### プロジェクト管理
+- プロジェクト設定は `%APPDATA%/com.tauri.dev/projects/{id}/project.json` に保存
+- 最後に開いたプロジェクト ID を `last_project.txt` に永続化し、起動時に自動復元
+- プロジェクトは WSL / Windows の2プラットフォームに対応
+- WSL プロジェクト: ディストロ指定、ルートは WSL パス
+- Windows プロジェクト: デフォルトシェル（cmd/PowerShell/Git Bash）選択、ルートは Windows パス
+- プロジェクト切替時: 全タブ kill → pinnedTabs 復元（なければ Claude Code 固定タブを自動作成）
+- Windows プロジェクトでは「+」ボタン横のドロップダウンでデフォルト以外のシェルも選択可能
 
 ### セッション復帰
 - AI エージェントのセッション復帰は各ツールの resume 機能に委譲

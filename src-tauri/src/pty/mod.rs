@@ -1,3 +1,4 @@
+use crate::types::ShellConfig;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -159,28 +160,86 @@ fn spawn_pty_with_command(
     Ok(PtySpawnResult { id })
 }
 
+fn find_git_bash() -> Result<String, String> {
+    let candidates = [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+    ];
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return Ok(path.to_string());
+        }
+    }
+    // Try PATH
+    if let Ok(output) = std::process::Command::new("where").arg("git").output() {
+        if let Ok(git_path) = String::from_utf8(output.stdout) {
+            if let Some(line) = git_path.lines().next() {
+                let git_dir = std::path::Path::new(line.trim());
+                if let Some(parent) = git_dir.parent().and_then(|p| p.parent()) {
+                    let bash = parent.join("bin").join("bash.exe");
+                    if bash.exists() {
+                        return Ok(bash.to_string_lossy().into_owned());
+                    }
+                }
+            }
+        }
+    }
+    Err("Git Bash not found. Install Git for Windows.".into())
+}
+
 #[tauri::command]
 pub async fn pty_spawn(
     cols: u16,
     rows: u16,
+    cwd: Option<String>,
+    shell: Option<ShellConfig>,
     app: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<PtySpawnResult, String> {
-    let mut cmd = CommandBuilder::new("wsl.exe");
-    cmd.arg("bash");
-    cmd.env("TERM", "xterm-256color");
+    let mut cmd = match &shell {
+        None | Some(ShellConfig::Wsl { .. }) => {
+            let mut c = CommandBuilder::new("wsl.exe");
+            if let Some(ShellConfig::Wsl { distro }) = &shell {
+                c.args(&["-d", distro]);
+            }
+            if let Some(dir) = &cwd {
+                c.args(&["--cd", dir]);
+            }
+            c.arg("bash");
+            c
+        }
+        Some(ShellConfig::Cmd) => {
+            let mut c = CommandBuilder::new("cmd.exe");
+            if let Some(dir) = &cwd {
+                c.cwd(dir);
+            }
+            c
+        }
+        Some(ShellConfig::Powershell) => {
+            let mut c = CommandBuilder::new("powershell.exe");
+            c.arg("-NoLogo");
+            if let Some(dir) = &cwd {
+                c.cwd(dir);
+            }
+            c
+        }
+        Some(ShellConfig::GitBash) => {
+            let bash_path = find_git_bash()?;
+            let mut c = CommandBuilder::new(bash_path);
+            c.arg("--login");
+            if let Some(dir) = &cwd {
+                c.cwd(dir);
+            }
+            c
+        }
+    };
+    if !matches!(shell, Some(ShellConfig::Cmd)) {
+        cmd.env("TERM", "xterm-256color");
+    }
     spawn_pty_with_command(cmd, cols, rows, app, &state)
 }
 
-fn validate_session_name(name: &str) -> Result<(), String> {
-    if name.is_empty() || name.len() > 64 {
-        return Err("Session name must be 1-64 characters".to_string());
-    }
-    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
-        return Err("Session name must contain only [a-zA-Z0-9_-]".to_string());
-    }
-    Ok(())
-}
+use crate::types::validate_slug;
 
 #[tauri::command]
 pub async fn pty_spawn_tmux(
@@ -190,7 +249,7 @@ pub async fn pty_spawn_tmux(
     app: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<PtySpawnResult, String> {
-    validate_session_name(&session_name)?;
+    validate_slug(&session_name, "Session name")?;
     let tmux_cmd = format!(
         "tmux has-session -t {name} 2>/dev/null && tmux -2 attach-session -t {name} || tmux -2 new-session -s {name}",
         name = session_name

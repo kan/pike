@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useSidebarStore } from "../../stores/sidebar";
 import type { SidebarPanel } from "../../types/tab";
+import ProjectPanel from "../panels/ProjectPanel.vue";
+import FileTreePanel from "../panels/FileTreePanel.vue";
 
 const sidebar = useSidebarStore();
 
@@ -32,7 +34,9 @@ const icons: { panel: SidebarPanel; label: string; icon: string }[] = [
         {{ icons.find((i) => i.panel === sidebar.activePanel)?.label }}
       </div>
       <div class="panel-content">
-        <span class="placeholder">{{ sidebar.activePanel }} panel (M3+)</span>
+        <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
+        <FileTreePanel v-else-if="sidebar.activePanel === 'files'" />
+        <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
     </aside>
   </div>

@@ -2,7 +2,7 @@
 
 ## 現在のマイルストーン
 
-**→ M2: レイアウトシェル ✅ 完了**
+**→ M3: プロジェクト管理 ✅ 完了**
 
 ---
 
@@ -12,7 +12,7 @@
 |---|------|------|------|
 | M1 | PTY スパイク | コア技術の動作検証 | ✅ 完了 |
 | M2 | レイアウトシェル | UI 骨格の構築 | ✅ 完了 |
-| M3 | プロジェクト管理 | プロジェクト切替の実装 | ⬜ 未着手 |
+| M3 | プロジェクト管理 | プロジェクト切替の実装 | ✅ 完了 |
 | M4 | Git パネル | git2 統合 | ⬜ 未着手 |
 | M5 | ファイルツリー + エディタタブ | ファイル操作 | ⬜ 未着手 |
 | M6 | Docker パネル | コンテナ管理 | ⬜ 未着手 |
@@ -123,28 +123,31 @@ M1 の PTY をベースに、アプリとして使えるレイアウトを構築
 「プロジェクトを開く = 状態がすべて復元される」体験の実装。
 
 ### 完了条件
-- [ ] プロジェクト一覧の登録・削除・切替ができる
-- [ ] fzf 風のインクリメンタル検索スイッチャーが動く（Ctrl+Shift+P）
-- [ ] プロジェクトごとに `~/.config/devterm/{project_id}/` にデータを保存する
-- [ ] プロジェクト切替でファイルツリーのルートが変わる
-- [ ] プロジェクト切替でタブ配置が復元される（固定タブ定義を読み込む）
+- [x] プロジェクト一覧の登録・削除・切替ができる
+- [x] fzf 風のインクリメンタル検索スイッチャーが動く（Ctrl+Shift+P）
+- [x] プロジェクトごとに `~/.config/devterm/{project_id}/` にデータを保存する
+- [x] プロジェクト切替でファイルツリーのルートが変わる
+- [x] プロジェクト切替でタブ配置が復元される（固定タブ定義を読み込む）
 
 ### データ構造
 
 ```json
-// ~/.config/devterm/{project_id}/project.json
+// %APPDATA%/com.tauri.dev/projects/{project_id}/project.json
 {
   "id": "my-api",
   "name": "my-api",
   "root": "/home/user/projects/my-api",
-  "wsl_distro": "Ubuntu",
-  "pinned_tabs": [
-    { "id": "cc", "kind": "terminal", "title": "Claude Code", "auto_start": "claude" },
-    { "id": "codex", "kind": "terminal", "title": "Codex", "auto_start": "codex" }
+  "shell": { "kind": "wsl", "distro": "Ubuntu" },
+  "pinnedTabs": [
+    { "id": "cc", "kind": "terminal", "title": "Claude Code", "autoStart": "claude" }
   ],
-  "last_opened": "2025-01-01T00:00:00Z"
+  "lastOpened": "2025-01-01T00:00:00Z"
 }
 ```
+
+> **shell** は `{ "kind": "wsl", "distro": "..." }` / `{ "kind": "cmd" }` /
+> `{ "kind": "powershell" }` / `{ "kind": "git-bash" }` のいずれか。
+> **pinnedTabs** が空の場合、プロジェクト切替時に Claude Code の固定タブが自動作成される。
 
 ---
 

@@ -23,6 +23,46 @@ let resizeTimer: ReturnType<typeof setTimeout> | null = null;
 let lastCols = 0;
 let lastRows = 0;
 
+const SHELL_EXECUTABLES = new Set([
+  'wsl.exe', 'wsl', 'cmd.exe', 'cmd', 'powershell.exe', 'powershell',
+  'pwsh.exe', 'pwsh', 'bash.exe', 'bash', 'sh', 'zsh', 'fish',
+]);
+
+const SHELL_WINDOW_TITLES = new Set([
+  'windows powershell', 'command prompt', 'administrator: windows powershell',
+]);
+
+function parseTerminalTitle(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  // Full Windows paths like "C:\Windows\System32\wsl.exe"
+  if (/^[a-zA-Z]:\\/.test(t)) {
+    const base = t.split('\\').pop()!;
+    if (SHELL_EXECUTABLES.has(base.toLowerCase())) return null;
+    return base.replace(/\.exe$/i, '');
+  }
+  // Known shell window titles
+  if (SHELL_WINDOW_TITLES.has(t.toLowerCase())) return null;
+  // Bare shell executable names
+  if (SHELL_EXECUTABLES.has(t.toLowerCase())) return null;
+  // "user@host: ~/path" → path part
+  let cleaned = t;
+  const colonSpace = cleaned.lastIndexOf(': ');
+  if (colonSpace !== -1) cleaned = cleaned.slice(colonSpace + 2);
+  // "MINGW64:/c/Users/..." → path part
+  const prefixColon = cleaned.indexOf(':');
+  if (prefixColon !== -1 && prefixColon < cleaned.length - 1 && cleaned[prefixColon + 1] === '/') {
+    cleaned = cleaned.slice(prefixColon + 1);
+  }
+  cleaned = cleaned.trim();
+  // Path → last component
+  if (cleaned.includes('/') || cleaned.includes('\\')) {
+    const last = cleaned.split(/[/\\]/).filter(Boolean).pop();
+    if (last) cleaned = last;
+  }
+  return cleaned || null;
+}
+
 function doFit() {
   if (!fitAddon || !terminal || !ptyId) return;
   fitAddon.fit();
@@ -71,8 +111,13 @@ onMounted(async () => {
   const cols = terminal.cols;
   const rows = terminal.rows;
 
+  const tabData = tabStore.tabs.find((t) => t.id === props.tabId);
+  const spawnOpts = tabData?.kind === 'terminal'
+    ? { cwd: tabData.cwd, shell: tabData.shell }
+    : undefined;
+
   try {
-    const result = await ptySpawn(cols, rows);
+    const result = await ptySpawn(cols, rows, spawnOpts);
     ptyId = result.id;
     tabStore.setPtyId(props.tabId, ptyId);
   } catch (e) {
@@ -87,12 +132,48 @@ onMounted(async () => {
     (code) => termRef_.write(`\r\n[Process exited with code ${code}]\r\n`)
   );
 
+  if (tabData?.kind === 'terminal') {
+    const isWsl = !tabData.shell || tabData.shell.kind === 'wsl';
+    const currentPtyId = ptyId;
+    const initLines: string[] = [];
+
+    if (isWsl) {
+      // Set up bash title reporting: show running command, revert to dir on prompt
+      const titleSetup =
+        '__hearth_prompt() { printf \'\\e]0;%s\\a\' "${PWD##*/}"; }; ' +
+        'PROMPT_COMMAND="__hearth_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; ' +
+        'trap \'[[ "$BASH_COMMAND" == _* ]] || printf "\\e]0;%s\\a" "${BASH_COMMAND%% *}"\' DEBUG';
+      initLines.push(titleSetup);
+    }
+
+    if (tabData.autoStart) {
+      initLines.push('clear && ' + tabData.autoStart);
+    } else if (initLines.length > 0) {
+      initLines.push('clear');
+    }
+
+    if (initLines.length > 0) {
+      setTimeout(() => {
+        termRef_.clear();
+        ptyWrite(currentPtyId, initLines.join('\n') + '\n').catch(() => {});
+      }, 500);
+    }
+  }
+
   lastCols = terminal.cols;
   lastRows = terminal.rows;
 
   terminal.onData((data) => {
     if (ptyId) {
       ptyWrite(ptyId, data).catch(() => {});
+    }
+  });
+
+  terminal.onTitleChange((raw) => {
+    if (!raw) return;
+    const title = parseTerminalTitle(raw);
+    if (title) {
+      tabStore.setTabTitle(props.tabId, title);
     }
   });
 
@@ -115,12 +196,21 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="termRef" class="terminal-container"></div>
+  <div class="terminal-wrapper">
+    <div ref="termRef" class="terminal-inner"></div>
+  </div>
 </template>
 
 <style scoped>
-.terminal-container {
+.terminal-wrapper {
   position: absolute;
   inset: 0;
+  padding: 10px;
+  box-sizing: border-box;
+}
+
+.terminal-inner {
+  width: 100%;
+  height: 100%;
 }
 </style>
