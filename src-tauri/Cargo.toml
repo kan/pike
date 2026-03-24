@@ -31,6 +31,7 @@ bollard = "0.18"
 futures-util = "0.3"
 base64 = "0.22.1"
 encoding_rs = "0.8.35"
+serde_yaml = "0.9.34"
 
 [[bin]]
 name = "verify_pty"

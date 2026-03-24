@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ShellType } from "../types/tab";
 import type { ProjectConfig } from "../types/project";
 import type { GitStatusResult, GitLogEntry, GitFileChange } from "../types/git";
+import type { ComposeService, ContainerInfo } from "../types/docker";
 
 // PTY
 
@@ -172,4 +173,38 @@ export async function gitShowFile(root: string, shell: ShellType, hash: string, 
 
 export async function gitLogFile(root: string, shell: ShellType, path: string, count?: number): Promise<GitLogEntry[]> {
   return invoke<GitLogEntry[]>("git_log_file", { root, shell, path, count: count ?? null });
+}
+
+// Docker
+
+export async function dockerPing(): Promise<boolean> {
+  return invoke<boolean>("docker_ping");
+}
+
+export async function dockerComposeServices(root: string, shell: ShellType): Promise<ComposeService[]> {
+  return invoke<ComposeService[]>("docker_compose_services", { root, shell });
+}
+
+export async function dockerListContainers(): Promise<ContainerInfo[]> {
+  return invoke<ContainerInfo[]>("docker_list_containers");
+}
+
+export async function dockerStart(containerId: string): Promise<void> {
+  return invoke("docker_start", { containerId });
+}
+
+export async function dockerStop(containerId: string): Promise<void> {
+  return invoke("docker_stop", { containerId });
+}
+
+export async function dockerRestart(containerId: string): Promise<void> {
+  return invoke("docker_restart", { containerId });
+}
+
+export async function dockerLogsStart(containerId: string): Promise<string> {
+  return invoke<string>("docker_logs_start", { containerId });
+}
+
+export async function dockerLogsStop(streamId: string): Promise<void> {
+  return invoke("docker_logs_stop", { streamId });
 }

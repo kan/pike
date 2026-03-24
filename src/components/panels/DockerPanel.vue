@@ -1,0 +1,211 @@
+<script setup lang="ts">
+import { computed, watch, onMounted, onUnmounted } from "vue";
+import { useDockerStore } from "../../stores/docker";
+import { useTabStore } from "../../stores/tabs";
+import { useProjectStore } from "../../stores/project";
+import { useSidebarStore } from "../../stores/sidebar";
+
+const dockerStore = useDockerStore();
+const tabStore = useTabStore();
+const projectStore = useProjectStore();
+const sidebar = useSidebarStore();
+
+function stateColor(state: string): string {
+  switch (state) {
+    case "running": return "var(--git-add)";
+    case "exited": return "var(--text-secondary)";
+    case "restarting": return "var(--git-modify)";
+    case "paused": return "var(--git-modify)";
+    default: return "var(--text-secondary)";
+  }
+}
+
+// Match compose services to their containers
+const serviceContainers = computed(() => {
+  const result: Record<string, typeof dockerStore.containers[0] | undefined> = {};
+  for (const svc of dockerStore.composeServices) {
+    result[svc.name] = dockerStore.containers.find(
+      (c) => c.composeService === svc.name
+    );
+  }
+  return result;
+});
+
+function openLogs(containerId: string, containerName: string) {
+  tabStore.addDockerLogsTab({ containerId, containerName });
+}
+
+function refreshIfActive() {
+  if (sidebar.activePanel === "docker") {
+    dockerStore.refreshAll();
+    dockerStore.startPolling();
+  } else {
+    dockerStore.stopPolling();
+  }
+}
+
+watch(() => sidebar.activePanel, refreshIfActive);
+watch(() => projectStore.currentProject?.id, () => {
+  if (sidebar.activePanel === "docker") dockerStore.refreshAll();
+});
+
+onMounted(refreshIfActive);
+onUnmounted(() => dockerStore.stopPolling());
+</script>
+
+<template>
+  <div class="docker-panel">
+    <div v-if="!dockerStore.connected" class="empty">
+      Docker not reachable
+    </div>
+
+    <template v-else>
+      <div v-if="!dockerStore.composeServices.length" class="empty">
+        No compose file found
+      </div>
+
+      <div v-else class="section">
+        <div class="section-header">Services</div>
+        <div
+          v-for="svc in dockerStore.composeServices"
+          :key="svc.name"
+          class="container-item"
+        >
+          <span
+            class="state-dot"
+            :style="{ background: stateColor(serviceContainers[svc.name]?.state ?? '') }"
+          ></span>
+          <span class="c-name">{{ svc.name }}</span>
+          <span class="c-status">{{ serviceContainers[svc.name]?.status ?? "not created" }}</span>
+          <div class="c-actions">
+            <template v-if="serviceContainers[svc.name]">
+              <button
+                v-if="serviceContainers[svc.name]!.state !== 'running'"
+                title="Start"
+                @click="dockerStore.startContainer(serviceContainers[svc.name]!.id)"
+              >S</button>
+              <button
+                v-if="serviceContainers[svc.name]!.state === 'running'"
+                title="Stop"
+                @click="dockerStore.stopContainer(serviceContainers[svc.name]!.id)"
+              >X</button>
+              <button
+                title="Restart"
+                @click="dockerStore.restartContainer(serviceContainers[svc.name]!.id)"
+              >R</button>
+              <button
+                title="Logs"
+                @click="openLogs(serviceContainers[svc.name]!.id, svc.name)"
+              >L</button>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="dockerStore.error" class="error-msg">{{ dockerStore.error }}</div>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.docker-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+}
+
+.section-header {
+  padding: 4px 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+
+.container-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.container-item:hover {
+  background: var(--tab-hover-bg);
+}
+
+.state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.c-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.c-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.c-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.container-item:hover .c-actions {
+  opacity: 1;
+}
+
+.c-actions button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: monospace;
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.c-actions button:hover {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.empty {
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+  padding: 16px 0;
+}
+
+.error-msg {
+  color: var(--danger);
+  font-size: 11px;
+  padding: 4px;
+}
+</style>

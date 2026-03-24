@@ -6,6 +6,7 @@ import type { SidebarPanel } from "../../types/tab";
 import ProjectPanel from "../panels/ProjectPanel.vue";
 import FileTreePanel from "../panels/FileTreePanel.vue";
 import GitPanel from "../panels/GitPanel.vue";
+import DockerPanel from "../panels/DockerPanel.vue";
 
 const sidebar = useSidebarStore();
 const gitStore = useGitStore();
@@ -82,6 +83,7 @@ onUnmounted(() => {
         <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
         <FileTreePanel v-else-if="sidebar.activePanel === 'files'" ref="fileTreeRef" />
         <GitPanel v-else-if="sidebar.activePanel === 'git'" />
+        <DockerPanel v-else-if="sidebar.activePanel === 'docker'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
       <div class="resize-handle" @mousedown="onResizeStart"></div>

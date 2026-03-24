@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ptyKill } from '../lib/tauri'
 import { ptyRouter } from '../composables/usePtyRouter'
-import type { Tab, TerminalTab, EditorTab, DiffTab, PreviewTab, HistoryTab, ShellType } from '../types/tab'
+import type { Tab, TerminalTab, EditorTab, DiffTab, PreviewTab, HistoryTab, DockerLogsTab, ShellType } from '../types/tab'
 import { basename } from '../lib/paths'
 
 let counter = 0
@@ -141,6 +141,27 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  function addDockerLogsTab(options: { containerId: string; containerName: string }): string {
+    const existing = tabs.value.find(
+      (t): t is DockerLogsTab => t.kind === 'docker-logs' && t.containerId === options.containerId
+    )
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    tabs.value.push({
+      id,
+      kind: 'docker-logs',
+      title: `${options.containerName} logs`,
+      pinned: false,
+      containerId: options.containerId,
+      containerName: options.containerName,
+    })
+    activeTabId.value = id
+    return id
+  }
+
   function addHistoryTab(options: { filePath: string }): string {
     const existing = tabs.value.find(
       (t): t is HistoryTab => t.kind === 'history' && t.filePath === options.filePath
@@ -233,6 +254,7 @@ export const useTabStore = defineStore('tabs', () => {
     addEditorTab,
     addPreviewTab,
     addHistoryTab,
+    addDockerLogsTab,
     addDiffTab,
     closeTab,
     clearAllTabs,

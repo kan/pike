@@ -9,6 +9,7 @@ import { useProjectStore } from "./stores/project";
 import { useGitStore } from "./stores/git";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
 import { ptyRouter } from "./composables/usePtyRouter";
+import { dockerLogRouter } from "./composables/useDockerLogRouter";
 
 const projectStore = useProjectStore();
 const gitStore = useGitStore();
@@ -37,7 +38,7 @@ watch(
 );
 
 onMounted(async () => {
-  await ptyRouter.init();
+  await Promise.all([ptyRouter.init(), dockerLogRouter.init()]);
   await projectStore.restoreLastProject();
 });
 </script>

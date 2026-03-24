@@ -185,6 +185,15 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - diff タブ: 左右分割表示、文字単位ハイライト（common prefix/suffix 方式）
 - コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
 
+### Docker 統合
+- `bollard` クレートで Docker API に接続（named pipe → TCP:2375 → TCP:2376 フォールバック）
+- クライアントは `OnceCell` でキャッシュし、毎コマンドの再接続を回避
+- compose.yml を `serde_yaml` でパースしてサービス一覧表示
+- コンテナ状態を compose ラベル（`com.docker.compose.service`）でサービスにマッチ
+- start / stop / restart を UI から実行、5秒ポーリングで状態更新
+- ログストリーミングは 50ms バッファリング + Tauri イベント emit
+- DockerLogsTab は xterm.js ベース（読み取り専用、`convertEol: true`）
+
 ### セッション復帰
 - AI エージェントのセッション復帰は各ツールの resume 機能に委譲
   - Claude Code: `claude --continue`

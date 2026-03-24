@@ -9,6 +9,7 @@ import DiffTab from "../tabs/DiffTab.vue";
 import EditorTab from "../tabs/EditorTab.vue";
 import PreviewTab from "../tabs/PreviewTab.vue";
 import HistoryTab from "../tabs/HistoryTab.vue";
+import DockerLogsTab from "../tabs/DockerLogsTab.vue";
 
 const tabStore = useTabStore();
 const projectStore = useProjectStore();
@@ -33,6 +34,10 @@ const historyTabs = computed(() =>
   tabStore.tabs.filter((t) => t.kind === "history")
 );
 
+const dockerLogsTabs = computed(() =>
+  tabStore.tabs.filter((t) => t.kind === "docker-logs")
+);
+
 const isWindows = computed(() =>
   projectStore.currentProject
     ? isWindowsShell(projectStore.currentProject.shell)
@@ -53,6 +58,8 @@ function kindIcon(kind: Tab["kind"]): string {
       return "P";
     case "history":
       return "H";
+    case "docker-logs":
+      return "~";
   }
 }
 
@@ -190,6 +197,12 @@ onUnmounted(() => {
       />
       <HistoryTab
         v-for="tab in historyTabs"
+        :key="tab.id"
+        :tab-id="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <DockerLogsTab
+        v-for="tab in dockerLogsTabs"
         :key="tab.id"
         :tab-id="tab.id"
         v-show="tab.id === tabStore.activeTabId"

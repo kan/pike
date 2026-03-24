@@ -1,3 +1,4 @@
+mod docker;
 mod fs;
 mod git;
 mod project;
@@ -13,6 +14,10 @@ pub fn run() {
     tauri::Builder::default()
         .manage(pty::PtyState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+        })
+        .manage(docker::DockerState {
+            log_streams: Arc::new(Mutex::new(HashMap::new())),
+            client: tokio::sync::OnceCell::new(),
         })
         .setup(|app| {
             let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
@@ -50,6 +55,14 @@ pub fn run() {
             fs::fs_rename,
             fs::fs_delete,
             fs::fs_copy,
+            docker::docker_ping,
+            docker::docker_compose_services,
+            docker::docker_list_containers,
+            docker::docker_start,
+            docker::docker_stop,
+            docker::docker_restart,
+            docker::docker_logs_start,
+            docker::docker_logs_stop,
             git::git_status,
             git::git_log,
             git::git_diff,
