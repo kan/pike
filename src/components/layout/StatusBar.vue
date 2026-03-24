@@ -3,6 +3,7 @@ import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import { useProjectStore } from "../../stores/project";
 import { useGitStore } from "../../stores/git";
 import { useEditorInfo } from "../../composables/useEditorInfo";
+import { GitBranch } from "lucide-vue-next";
 
 const projectStore = useProjectStore();
 const gitStore = useGitStore();
@@ -148,7 +149,7 @@ onUnmounted(() => {
 
     <div v-if="gitStore.status" class="branch-area">
       <button class="status-item clickable" @click="openBranchSwitcher">
-        <span class="branch-icon">🌿</span>
+        <GitBranch :size="14" :stroke-width="2" class="branch-icon" />
         <span>{{ gitStore.status.branch }}</span>
         <span v-if="gitStore.status.isDirty" class="dirty-dot"></span>
       </button>
@@ -268,7 +269,7 @@ onUnmounted(() => {
 }
 
 .branch-icon {
-  font-size: 11px;
+  flex-shrink: 0;
 }
 
 .dirty-dot {

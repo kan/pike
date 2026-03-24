@@ -77,11 +77,12 @@ hearth/
 │   │   └── project.ts         # ProjectConfig・PinnedTabDef
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
+│   │   ├── ConfirmDialog.vue    # カスタム確認ダイアログ（Teleport）
 │   │   ├── layout/
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル
 │   │   │   └── TabPane.vue    # タブバー + コンテンツ + シェル選択
 │   │   ├── panels/
-│   │   │   ├── FileTreePanel.vue  # ファイルツリー（stub）
+│   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   └── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除
 │   │   └── tabs/
 │   │       └── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
@@ -91,8 +92,10 @@ hearth/
 │   │   └── project.ts         # プロジェクト管理・切替・永続化
 │   ├── composables/
 │   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P
+│   │   ├── useConfirmDialog.ts      # カスタム確認ダイアログ composable
 │   │   └── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出
 │   ├── lib/
+│   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
 │   │   └── tauri.ts           # IPC ラッパー
 │   └── assets/
 │       └── theme.css          # CSS Variables テーマ定義
@@ -172,16 +175,16 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - 画像プレビュータブ（base64 経由）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
 - 文字コード対応: `encoding_rs` で自動検出 + 指定エンコードでの開き直し/保存（StatusBar 2段階 UI）
 - 改行コード LF/CRLF 切替（StatusBar クリック）、保存時に適用
-- ファイルツリーコンテキストメニュー: リネーム（インライン入力）、削除（confirm）、Git History（専用タブ）
+- ファイルツリーコンテキストメニュー: リネーム（インライン入力）、削除（カスタム confirm ダイアログ）、Git History（専用タブ）
 - ドラッグ&ドロップ移動 + Ctrl でコピー（`dragDropEnabled: false` で Tauri ネイティブ D&D を無効化）
-- ダーティエディタタブの閉じ確認ダイアログ
+- ダーティエディタタブの閉じ確認ダイアログ（カスタム confirm）
 - WSL コマンドにパス引数前の `--` を付与（フラグ injection 防止）
 
 ### Git 統合
 - `git` CLI 経由（WSL/Windows 両対応）。`git2` クレートは使わない
 - Rust 側 `build_git_command` が ShellConfig に応じて `wsl.exe git` / `git` を組み立て
 - ステータスバーにブランチ名+ダーティ表示、クリックでブランチ切替
-- Git パネル: ステージング/アンステージ、コミット、push/pull、コミットツリー展開
+- Git パネル: ステージング/アンステージ、コミット、push/pull/refresh、コミットツリー展開
 - diff タブ: 左右分割表示、文字単位ハイライト（common prefix/suffix 方式）
 - コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
 
@@ -190,7 +193,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - クライアントは `OnceCell` でキャッシュし、毎コマンドの再接続を回避
 - compose.yml を `serde_yaml` でパースしてサービス一覧表示
 - コンテナ状態を compose ラベル（`com.docker.compose.service`）でサービスにマッチ
-- start / stop / restart を UI から実行、5秒ポーリングで状態更新
+- start / stop / restart / refresh を UI から実行、5秒ポーリングで状態更新
 - ログストリーミングは 50ms バッファリング + Tauri イベント emit
 - DockerLogsTab は xterm.js ベース（読み取り専用、`convertEol: true`）
 
@@ -214,6 +217,22 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - シンタックスハイライトのみ、LSP・補完は実装しない
 - 言語パッケージは使うもの（Go, Rust, TypeScript, Vue, YAML 等）だけ import
 - ファイル保存は `Ctrl+S` → `invoke('fs_write_file', ...)`
+
+### アイコン
+- UI アイコンは `lucide-vue-next` で統一（サイドバー・タブ・パネルボタン等）
+- ファイルアイコンは `material-file-icons` の SVG（`getIcon(name).svg`）
+- `src/lib/fileIcons.ts` でファイル名 → SVG のキャッシュ付きラッパーを提供
+- SVG は `v-html` で注入、`:deep(svg) { width: 16px; height: 16px }` でサイズ制御
+
+### カスタム確認ダイアログ
+- `window.confirm()` は WebView のオリジン URL がタイトルに表示されるため使わない
+- `src/composables/useConfirmDialog.ts` が `confirmDialog(msg): Promise<boolean>` を提供
+- `src/components/ConfirmDialog.vue` を `App.vue` に配置（Teleport で body 直下に描画）
+- Enter で OK、Escape / オーバーレイクリックでキャンセル
+
+### ウィンドウ状態永続化
+- `tauri-plugin-window-state` でウィンドウサイズ・位置・最大化状態を自動保存・復元
+- サイドバーの展開状態（activePanel）と幅は `localStorage` で永続化
 
 ### 検索 (rg / grep)
 - 起動時に `which rg` で backend 判定、以降固定

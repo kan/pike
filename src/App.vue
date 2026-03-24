@@ -5,6 +5,7 @@ import SideBar from "./components/layout/SideBar.vue";
 import TabPane from "./components/layout/TabPane.vue";
 import StatusBar from "./components/layout/StatusBar.vue";
 import ProjectSwitcher from "./components/ProjectSwitcher.vue";
+import ConfirmDialog from "./components/ConfirmDialog.vue";
 import { useProjectStore } from "./stores/project";
 import { useTabStore } from "./stores/tabs";
 import { useGitStore } from "./stores/git";
@@ -56,6 +57,7 @@ onMounted(async () => {
     </div>
     <StatusBar />
     <ProjectSwitcher />
+    <ConfirmDialog />
   </div>
 </template>
 

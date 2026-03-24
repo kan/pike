@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ptyKill } from '../lib/tauri'
+import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
 import type { Tab, TerminalTab, EditorTab, DiffTab, PreviewTab, HistoryTab, DockerLogsTab, ShellType } from '../types/tab'
 import type { SessionTabDef, LastSession } from '../types/project'
@@ -43,7 +44,7 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function closeTab(id: string) {
+  async function closeTab(id: string) {
     const idx = tabs.value.findIndex((t) => t.id === id)
     if (idx === -1) return
     if (tabs.value[idx].pinned) return
@@ -51,7 +52,7 @@ export const useTabStore = defineStore('tabs', () => {
     // Confirm close if editor tab has unsaved changes (title ends with *)
     const tab = tabs.value[idx]
     if (tab.kind === 'editor' && tab.title.endsWith(' *')) {
-      if (!confirm(`"${tab.title.slice(0, -2)}" has unsaved changes. Close without saving?`)) {
+      if (!await confirmDialog(`"${tab.title.slice(0, -2)}" has unsaved changes. Close without saving?`)) {
         return
       }
     }

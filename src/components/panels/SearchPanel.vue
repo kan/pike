@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from "vue";
 import { useSearchStore } from "../../stores/search";
 import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
+import { Regex } from "lucide-vue-next";
 
 const searchStore = useSearchStore();
 const projectStore = useProjectStore();
@@ -77,7 +78,7 @@ onMounted(() => {
           :class="{ active: isRegex }"
           title="Use Regex"
           @click="isRegex = !isRegex"
-        >.*</button>
+        ><Regex :size="14" :stroke-width="2" /></button>
         <input
           v-model="globInclude"
           class="glob-input"
@@ -150,15 +151,16 @@ onMounted(() => {
 }
 
 .option-btn {
-  padding: 2px 8px;
+  padding: 2px 6px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
-  font-family: monospace;
   cursor: pointer;
   border-radius: 3px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .option-btn.active {

@@ -32,6 +32,7 @@ futures-util = "0.3"
 base64 = "0.22.1"
 encoding_rs = "0.8.35"
 serde_yaml = "0.9.34"
+tauri-plugin-window-state = "2.4.1"
 
 [[bin]]
 name = "verify_pty"

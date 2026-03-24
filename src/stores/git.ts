@@ -23,25 +23,31 @@ export const useGitStore = defineStore('git', () => {
   const pulling = ref(false)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
-  let refreshing = false
+  const refreshing = ref(false)
+  let refreshGuard = false
 
   function getProject() {
     const projectStore = useProjectStore()
     return projectStore.currentProject
   }
 
-  async function refreshStatus() {
-    if (refreshing) return
+  async function refreshStatus(showProgress = false) {
+    if (refreshGuard) return
     const project = getProject()
     if (!project) return
-    refreshing = true
+    refreshGuard = true
+    if (showProgress) refreshing.value = true
+    const minDelay = showProgress ? new Promise(r => setTimeout(r, 300)) : null
     try {
-      status.value = await gitStatus(project.root, project.shell)
+      const [s] = await Promise.all([gitStatus(project.root, project.shell), minDelay])
+      status.value = s
       error.value = null
     } catch (e) {
       error.value = String(e)
+      if (minDelay) await minDelay
     } finally {
-      refreshing = false
+      refreshGuard = false
+      refreshing.value = false
     }
   }
 
@@ -156,6 +162,7 @@ export const useGitStore = defineStore('git', () => {
     error,
     pushing,
     pulling,
+    refreshing,
     refreshStatus,
     refreshLog,
     stageFiles,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from "vue";
+import { ref, onUnmounted, type Component } from "vue";
 import { useSidebarStore } from "../../stores/sidebar";
 import { useGitStore } from "../../stores/git";
 import type { SidebarPanel } from "../../types/tab";
@@ -9,19 +9,22 @@ import GitPanel from "../panels/GitPanel.vue";
 import DockerPanel from "../panels/DockerPanel.vue";
 import SearchPanel from "../panels/SearchPanel.vue";
 import { useSearchStore } from "../../stores/search";
+import { useDockerStore } from "../../stores/docker";
+import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader } from "lucide-vue-next";
 
 const sidebar = useSidebarStore();
 const gitStore = useGitStore();
 const searchStore = useSearchStore();
+const dockerStore = useDockerStore();
 
-const fileTreeRef = ref<{ refresh: () => void } | null>(null);
+const fileTreeRef = ref<{ refresh: () => void; refreshing: boolean } | null>(null);
 
-const icons: { panel: SidebarPanel; label: string; icon: string }[] = [
-  { panel: "files", label: "Files", icon: "🗂" },
-  { panel: "git", label: "Git", icon: "🌿" },
-  { panel: "search", label: "Search", icon: "🔍" },
-  { panel: "docker", label: "Docker", icon: "🐋" },
-  { panel: "projects", label: "Projects", icon: "📁" },
+const icons: { panel: SidebarPanel; label: string; icon: Component }[] = [
+  { panel: "files", label: "Files", icon: Files },
+  { panel: "git", label: "Git", icon: GitBranch },
+  { panel: "search", label: "Search", icon: Search },
+  { panel: "docker", label: "Docker", icon: Container },
+  { panel: "projects", label: "Projects", icon: FolderOpen },
 ];
 
 let dragging = false;
@@ -68,21 +71,37 @@ onUnmounted(() => {
         :title="item.label"
         @click="sidebar.togglePanel(item.panel)"
       >
-        <span class="icon">{{ item.icon }}</span>
+        <component :is="item.icon" :size="22" :stroke-width="1.5" class="icon" />
       </button>
     </nav>
     <aside v-if="sidebar.isPanelOpen" class="panel" :style="{ width: sidebar.panelWidth + 'px' }">
       <div class="panel-header">
         <span>{{ icons.find((i) => i.panel === sidebar.activePanel)?.label }}</span>
         <div v-if="sidebar.activePanel === 'files'" class="header-actions">
-          <button class="header-btn" title="Refresh" @click="fileTreeRef?.refresh()">R</button>
+          <button class="header-btn" title="Refresh" @click="fileTreeRef?.refresh()">
+            <RefreshCw :size="14" :stroke-width="2" :class="{ spin: fileTreeRef?.refreshing }" />
+          </button>
         </div>
         <div v-if="sidebar.activePanel === 'search'" class="header-actions">
           <span class="backend-badge">{{ searchStore.backend ?? '...' }}</span>
         </div>
         <div v-if="sidebar.activePanel === 'git'" class="header-actions">
-          <button class="header-btn" :class="{ spinning: gitStore.pulling }" :disabled="gitStore.pulling" title="Pull" @click="gitStore.pull()">↓</button>
-          <button class="header-btn" :class="{ spinning: gitStore.pushing }" :disabled="gitStore.pushing" title="Push" @click="gitStore.push()">↑</button>
+          <button class="header-btn" :disabled="gitStore.pulling" title="Pull" @click="gitStore.pull()">
+            <Loader v-if="gitStore.pulling" :size="14" :stroke-width="2" class="spin" />
+            <ArrowDown v-else :size="14" :stroke-width="2" />
+          </button>
+          <button class="header-btn" :disabled="gitStore.pushing" title="Push" @click="gitStore.push()">
+            <Loader v-if="gitStore.pushing" :size="14" :stroke-width="2" class="spin" />
+            <ArrowUp v-else :size="14" :stroke-width="2" />
+          </button>
+          <button class="header-btn" :disabled="gitStore.refreshing" title="Refresh" @click="gitStore.refreshStatus(true); gitStore.refreshLog()">
+            <RefreshCw :size="14" :stroke-width="2" :class="{ spin: gitStore.refreshing }" />
+          </button>
+        </div>
+        <div v-if="sidebar.activePanel === 'docker'" class="header-actions">
+          <button class="header-btn" :disabled="dockerStore.refreshing" title="Refresh" @click="dockerStore.refreshContainers(true)">
+            <RefreshCw :size="14" :stroke-width="2" :class="{ spin: dockerStore.refreshing }" />
+          </button>
         </div>
       </div>
       <div class="panel-content">
@@ -147,8 +166,11 @@ onUnmounted(() => {
 }
 
 .icon {
-  font-size: 20px;
-  line-height: 1;
+  color: var(--text-secondary);
+}
+
+.icon-button.active .icon {
+  color: var(--text-active);
 }
 
 .panel {
@@ -202,7 +224,7 @@ onUnmounted(() => {
   cursor: default;
 }
 
-.header-btn.spinning {
+.header-btn .spin {
   animation: spin 1s linear infinite;
 }
 
@@ -211,11 +233,6 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--accent);
   text-transform: lowercase;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
 }
 
 .panel-content {

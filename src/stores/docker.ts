@@ -18,22 +18,28 @@ export const useDockerStore = defineStore('docker', () => {
   const error = ref<string | null>(null)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
-  let refreshing = false
+  const refreshing = ref(false)
+  let refreshGuard = false
 
   async function checkConnection() {
     connected.value = await dockerPing().catch(() => false)
   }
 
-  async function refreshContainers() {
-    if (refreshing) return
-    refreshing = true
+  async function refreshContainers(showProgress = false) {
+    if (refreshGuard) return
+    refreshGuard = true
+    if (showProgress) refreshing.value = true
+    const minDelay = showProgress ? new Promise(r => setTimeout(r, 300)) : null
     try {
-      containers.value = await dockerListContainers()
+      const [c] = await Promise.all([dockerListContainers(), minDelay])
+      containers.value = c
       error.value = null
     } catch (e) {
       error.value = String(e)
+      if (minDelay) await minDelay
     } finally {
-      refreshing = false
+      refreshGuard = false
+      refreshing.value = false
     }
   }
 
@@ -101,6 +107,7 @@ export const useDockerStore = defineStore('docker', () => {
     containers,
     composeServices,
     error,
+    refreshing,
     refreshAll,
     refreshContainers,
     startContainer,

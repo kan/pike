@@ -10,6 +10,8 @@ import EditorTab from "../tabs/EditorTab.vue";
 import PreviewTab from "../tabs/PreviewTab.vue";
 import HistoryTab from "../tabs/HistoryTab.vue";
 import DockerLogsTab from "../tabs/DockerLogsTab.vue";
+import { Terminal, Pin, X, Plus, ChevronDown, ScrollText } from "lucide-vue-next";
+import { fileIconSvg } from "../../lib/fileIcons";
 
 const tabStore = useTabStore();
 const projectStore = useProjectStore();
@@ -44,23 +46,12 @@ const isWindows = computed(() =>
     : false
 );
 
-function kindIcon(kind: Tab["kind"]): string {
-  switch (kind) {
-    case "terminal":
-      return ">";
-    case "editor":
-      return "#";
-    case "docker-logs":
-      return "~";
-    case "diff":
-      return "d";
-    case "preview":
-      return "P";
-    case "history":
-      return "H";
-    case "docker-logs":
-      return "~";
-  }
+function tabFileIconSvg(tab: Tab): string | null {
+  if (tab.kind === "editor") return fileIconSvg(tab.path);
+  if (tab.kind === "preview") return fileIconSvg(tab.path);
+  if (tab.kind === "diff") return fileIconSvg(tab.filePath);
+  if (tab.kind === "history") return fileIconSvg(tab.filePath);
+  return null;
 }
 
 function addTab(shellOverride?: ShellType) {
@@ -137,8 +128,10 @@ onUnmounted(() => {
           @mousedown.middle.prevent="tabStore.closeTab(tab.id)"
           @contextmenu="onTabContextMenu($event, tab.id)"
         >
-          <span v-if="tab.pinned" class="tab-pin" title="Pinned">*</span>
-          <span class="tab-icon">{{ kindIcon(tab.kind) }}</span>
+          <Pin v-if="tab.pinned" :size="12" :stroke-width="2" class="tab-pin" title="Pinned" />
+          <span v-if="tabFileIconSvg(tab)" class="tab-icon tab-icon-svg" v-html="tabFileIconSvg(tab)" />
+          <Terminal v-else-if="tab.kind === 'terminal'" :size="14" :stroke-width="1.5" class="tab-icon" />
+          <ScrollText v-else-if="tab.kind === 'docker-logs'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <span class="tab-title">{{ tab.title }}</span>
           <button
             v-if="!tab.pinned"
@@ -146,18 +139,18 @@ onUnmounted(() => {
             title="Close"
             @click.stop="tabStore.closeTab(tab.id)"
           >
-            x
+            <X :size="14" :stroke-width="2" />
           </button>
         </div>
       </div>
       <div class="tab-add-group">
-        <button class="tab-add" title="New Terminal (Ctrl+T)" @click="addTab()">+</button>
+        <button class="tab-add" title="New Terminal (Ctrl+T)" @click="addTab()"><Plus :size="16" :stroke-width="2" /></button>
         <button
           v-if="isWindows"
           class="tab-add-arrow"
           title="Open with different shell"
           @click.stop="toggleShellMenu"
-        >v</button>
+        ><ChevronDown :size="12" :stroke-width="2" /></button>
       </div>
       <!-- Shell dropdown -->
       <div v-if="showShellMenu" class="shell-menu" @mousedown.stop>
@@ -301,15 +294,26 @@ onUnmounted(() => {
 
 .tab-pin {
   color: var(--accent);
-  font-size: 14px;
   flex-shrink: 0;
 }
 
 .tab-icon {
   flex-shrink: 0;
-  font-family: monospace;
-  font-size: 11px;
-  opacity: 0.6;
+  opacity: 0.7;
+}
+
+.tab-icon-svg {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+}
+
+.tab-icon-svg :deep(svg) {
+  width: 16px;
+  height: 16px;
 }
 
 .tab-title {
@@ -329,8 +333,6 @@ onUnmounted(() => {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 12px;
-  font-family: monospace;
   border-radius: 3px;
   flex-shrink: 0;
   opacity: 0;
@@ -359,8 +361,6 @@ onUnmounted(() => {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 18px;
-  font-family: monospace;
   flex-shrink: 0;
 }
 
@@ -378,8 +378,6 @@ onUnmounted(() => {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 10px;
-  font-family: monospace;
   border-left: 1px solid var(--border);
 }
 

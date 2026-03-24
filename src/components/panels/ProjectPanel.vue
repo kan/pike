@@ -3,8 +3,10 @@ import { ref, computed, onMounted, watch } from "vue";
 import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
 import { detectWslDistros } from "../../lib/tauri";
+import { confirmDialog } from "../../composables/useConfirmDialog";
 import { ptyRouter } from "../../composables/usePtyRouter";
 import type { ProjectConfig } from "../../types/project";
+import { Pencil, Trash2 } from "lucide-vue-next";
 import {
   shellLabel,
   shellToPlatform,
@@ -129,6 +131,8 @@ async function onSaveEdit() {
 }
 
 async function onDelete(id: string) {
+  const project = projectStore.projects.find(p => p.id === id);
+  if (!await confirmDialog(`Delete project "${project?.name ?? id}"?`)) return;
   await projectStore.removeProject(id);
   if (editingId.value === id) editingId.value = null;
 }
@@ -200,8 +204,8 @@ async function onDelete(id: string) {
             <span class="project-shell">{{ shellLabel(project.shell) }}</span>
           </div>
           <div class="item-actions">
-            <button class="action-btn" title="Edit" @click.stop="startEdit(project)">e</button>
-            <button class="action-btn danger" title="Delete" @click.stop="onDelete(project.id)">x</button>
+            <button class="action-btn" title="Edit" @click.stop="startEdit(project)"><Pencil :size="12" :stroke-width="2" /></button>
+            <button class="action-btn danger" title="Delete" @click.stop="onDelete(project.id)"><Trash2 :size="12" :stroke-width="2" /></button>
           </div>
         </div>
       </template>

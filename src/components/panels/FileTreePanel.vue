@@ -5,8 +5,10 @@ import { useTabStore } from "../../stores/tabs";
 import { useSidebarStore } from "../../stores/sidebar";
 import { useGitStore } from "../../stores/git";
 import { fsListDir, fsReadFileBase64, fsRename, fsDelete, fsCopy, type FsEntry } from "../../lib/tauri";
-import { fileIcon } from "../../lib/fileIcons";
+import { confirmDialog } from "../../composables/useConfirmDialog";
+import { fileIconSvg } from "../../lib/fileIcons";
 import { gitStatusColor, isImageFile, mimeType, basename } from "../../lib/paths";
+import { ChevronRight, ChevronDown, Loader, Folder, FolderOpen } from "lucide-vue-next";
 
 const projectStore = useProjectStore();
 const tabStore = useTabStore();
@@ -133,7 +135,7 @@ async function deleteItem() {
   const path = ctxMenu.value.path;
   const name = basename(path);
   closeCtxMenu();
-  if (!confirm(`Delete "${name}"?`)) return;
+  if (!await confirmDialog(`Delete "${name}"?`)) return;
   await fsDelete(project.shell, path);
   const s = sep();
   const parentDir = path.substring(0, path.lastIndexOf(s));
@@ -211,11 +213,19 @@ async function onDrop(e: DragEvent, path: string, isDir: boolean) {
   }
 }
 
+const refreshing = ref(false);
+
 async function refresh() {
   const root = projectStore.currentProject?.root;
   if (!root) return;
-  const paths = [root, ...expanded.value];
-  await Promise.all(paths.map((p) => loadDir(p)));
+  refreshing.value = true;
+  const minDelay = new Promise(r => setTimeout(r, 300));
+  try {
+    const paths = [root, ...expanded.value];
+    await Promise.all([...paths.map((p) => loadDir(p)), minDelay]);
+  } finally {
+    refreshing.value = false;
+  }
 }
 
 interface FlatNode {
@@ -269,7 +279,7 @@ onMounted(() => {
   }
 });
 
-defineExpose({ refresh });
+defineExpose({ refresh, refreshing });
 </script>
 
 <template>
@@ -306,10 +316,16 @@ defineExpose({ refresh });
           @drop="onDrop($event, node.path, node.entry.isDir)"
         >
           <span v-if="node.entry.isDir" class="tree-chevron">
-            {{ loading.has(node.path) ? '..' : expanded.has(node.path) ? 'v' : '>' }}
+            <Loader v-if="loading.has(node.path)" :size="12" :stroke-width="2" class="spinning" />
+            <ChevronDown v-else-if="expanded.has(node.path)" :size="12" :stroke-width="2" />
+            <ChevronRight v-else :size="12" :stroke-width="2" />
           </span>
           <span v-else class="tree-chevron-space"></span>
-          <span class="tree-icon">{{ node.entry.isDir ? '📁' : fileIcon(node.entry.name) }}</span>
+          <span v-if="node.entry.isDir" class="tree-icon tree-icon-folder">
+            <FolderOpen v-if="expanded.has(node.path)" :size="16" :stroke-width="1.5" />
+            <Folder v-else :size="16" :stroke-width="1.5" />
+          </span>
+          <span v-else class="tree-icon tree-icon-svg" v-html="fileIconSvg(node.entry.name)"></span>
           <span class="tree-name" :style="gitStatusMap.has(node.path) ? { color: gitStatusColor(gitStatusMap.get(node.path)!) } : undefined">{{ node.entry.name }}</span>
         </div>
       </template>
@@ -350,12 +366,12 @@ defineExpose({ refresh });
 }
 
 .tree-chevron {
-  font-family: monospace;
-  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 12px;
   flex-shrink: 0;
   color: var(--text-secondary);
-  text-align: center;
 }
 
 .tree-chevron-space {
@@ -366,8 +382,23 @@ defineExpose({ refresh });
 .tree-icon {
   flex-shrink: 0;
   width: 16px;
-  font-size: 12px;
-  text-align: center;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-icon-folder {
+  color: var(--accent);
+}
+
+.tree-icon-svg :deep(svg) {
+  width: 16px;
+  height: 16px;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
 }
 
 .tree-name {

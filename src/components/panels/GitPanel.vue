@@ -5,8 +5,9 @@ import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
 import { useSidebarStore } from "../../stores/sidebar";
 import { gitDiff, gitShowFiles, gitDiffCommit, gitShowFile } from "../../lib/tauri";
-import { fileIcon } from "../../lib/fileIcons";
+import { fileIconSvg } from "../../lib/fileIcons";
 import { gitStatusColor, relativeDate } from "../../lib/paths";
+import { ChevronRight, ChevronDown, Plus, Minus } from "lucide-vue-next";
 import type { GitFileChange } from "../../types/git";
 
 const gitStore = useGitStore();
@@ -193,10 +194,10 @@ onUnmounted(() => {
           @click="openDiffTab(file.path, true)"
           @contextmenu="onFileContext($event, file.path, { staged: true })"
         >
-          <span class="file-icon">{{ fileIcon(file.path) }}</span>
+          <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path">{{ file.path }}</span>
-          <button class="file-action" title="Unstage" @click.stop="gitStore.unstageFiles([file.path])">-</button>
+          <button class="file-action" title="Unstage" @click.stop="gitStore.unstageFiles([file.path])"><Minus :size="12" :stroke-width="2" /></button>
         </div>
       </div>
 
@@ -215,10 +216,10 @@ onUnmounted(() => {
           @click="openDiffTab(file.path, false)"
           @contextmenu="onFileContext($event, file.path, { staged: false })"
         >
-          <span class="file-icon">{{ fileIcon(file.path) }}</span>
+          <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path">{{ file.path }}</span>
-          <button class="file-action" title="Stage" @click.stop="gitStore.stageFiles([file.path])">+</button>
+          <button class="file-action" title="Stage" @click.stop="gitStore.stageFiles([file.path])"><Plus :size="12" :stroke-width="2" /></button>
         </div>
       </div>
 
@@ -239,7 +240,7 @@ onUnmounted(() => {
             @mouseenter="onCommitEnter(entry, $event)"
             @mouseleave="onCommitLeave"
           >
-            <span class="expand-icon">{{ expandedCommits.has(entry.hash) ? "v" : ">" }}</span>
+            <span class="expand-icon"><ChevronDown v-if="expandedCommits.has(entry.hash)" :size="12" :stroke-width="2" /><ChevronRight v-else :size="12" :stroke-width="2" /></span>
             <span class="log-message">{{ entry.message.split('\n')[0] }}</span>
             <span class="log-meta">{{ relativeDate(entry.date) }}</span>
           </div>
@@ -253,7 +254,7 @@ onUnmounted(() => {
               @click.stop="openCommitDiffTab(entry.hash, file.path)"
               @contextmenu="onFileContext($event, file.path, { hash: entry.hash })"
             >
-              <span class="file-icon">{{ fileIcon(file.path) }}</span>
+              <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
               <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
               <span class="file-path">{{ file.path }}</span>
             </div>
@@ -393,8 +394,15 @@ onUnmounted(() => {
 .file-icon {
   flex-shrink: 0;
   width: 16px;
-  font-size: 12px;
-  text-align: center;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-icon :deep(svg) {
+  width: 16px;
+  height: 16px;
 }
 
 .file-status {
@@ -422,8 +430,6 @@ onUnmounted(() => {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 14px;
-  font-family: monospace;
   cursor: pointer;
   border-radius: 3px;
   display: flex;
@@ -462,9 +468,10 @@ onUnmounted(() => {
 }
 
 .expand-icon {
-  font-family: monospace;
-  font-size: 10px;
-  width: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
   flex-shrink: 0;
   color: var(--text-secondary);
 }

@@ -4,6 +4,7 @@ import { useDockerStore } from "../../stores/docker";
 import { useTabStore } from "../../stores/tabs";
 import { useProjectStore } from "../../stores/project";
 import { useSidebarStore } from "../../stores/sidebar";
+import { Play, Square, RefreshCw, ScrollText } from "lucide-vue-next";
 
 const dockerStore = useDockerStore();
 const tabStore = useTabStore();
@@ -83,20 +84,20 @@ onUnmounted(() => dockerStore.stopPolling());
                 v-if="serviceContainers[svc.name]!.state !== 'running'"
                 title="Start"
                 @click="dockerStore.startContainer(serviceContainers[svc.name]!.id)"
-              >S</button>
+              ><Play :size="12" :stroke-width="2" /></button>
               <button
                 v-if="serviceContainers[svc.name]!.state === 'running'"
                 title="Stop"
                 @click="dockerStore.stopContainer(serviceContainers[svc.name]!.id)"
-              >X</button>
+              ><Square :size="12" :stroke-width="2" /></button>
               <button
                 title="Restart"
                 @click="dockerStore.restartContainer(serviceContainers[svc.name]!.id)"
-              >R</button>
+              ><RefreshCw :size="12" :stroke-width="2" /></button>
               <button
                 title="Logs"
                 @click="openLogs(serviceContainers[svc.name]!.id, svc.name)"
-              >L</button>
+              ><ScrollText :size="12" :stroke-width="2" /></button>
             </template>
           </div>
         </div>
@@ -182,8 +183,6 @@ onUnmounted(() => dockerStore.stopPolling());
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 11px;
-  font-family: monospace;
   cursor: pointer;
   border-radius: 3px;
   display: flex;
