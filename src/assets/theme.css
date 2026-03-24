@@ -1,0 +1,17 @@
+:root {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d2d;
+  --text-primary: #cccccc;
+  --text-secondary: #969696;
+  --text-active: #ffffff;
+  --accent: #007acc;
+  --border: #404040;
+  --tab-active-bg: #1e1e1e;
+  --tab-inactive-bg: #2d2d2d;
+  --tab-hover-bg: #353535;
+  --danger: #f44747;
+  --sidebar-width: 48px;
+  --panel-width: 250px;
+  --tabbar-height: 36px;
+}

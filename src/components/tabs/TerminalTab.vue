@@ -1,26 +1,48 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { listen } from "@tauri-apps/api/event";
-import { ptySpawn, ptySpawnTmux, ptyWrite, ptyResize, ptyKill } from "../../lib/tauri";
+import { ptySpawn, ptyWrite, ptyResize, ptyKill } from "../../lib/tauri";
+import { useTabStore } from "../../stores/tabs";
+import { ptyRouter } from "../../composables/usePtyRouter";
 import "@xterm/xterm/css/xterm.css";
 
 const props = defineProps<{
-  tmuxSession?: string;
+  tabId: string;
 }>();
+
+const tabStore = useTabStore();
 
 const termRef = ref<HTMLDivElement>();
 let terminal: Terminal | null = null;
 let fitAddon: FitAddon | null = null;
 let ptyId: string | null = null;
-let unlistenOutput: (() => void) | null = null;
-let unlistenExit: (() => void) | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let resizeTimer: ReturnType<typeof setTimeout> | null = null;
 let lastCols = 0;
 let lastRows = 0;
+
+function doFit() {
+  if (!fitAddon || !terminal || !ptyId) return;
+  fitAddon.fit();
+  if (terminal.cols > 0 && terminal.rows > 0 &&
+      (terminal.cols !== lastCols || terminal.rows !== lastRows)) {
+    lastCols = terminal.cols;
+    lastRows = terminal.rows;
+    ptyResize(ptyId, lastCols, lastRows);
+  }
+}
+
+// When this tab becomes active, refit to handle size changes while hidden
+watch(
+  () => tabStore.activeTabId,
+  (newId) => {
+    if (newId === props.tabId) {
+      nextTick(() => doFit());
+    }
+  }
+);
 
 onMounted(async () => {
   if (!termRef.value) return;
@@ -49,54 +71,34 @@ onMounted(async () => {
   const cols = terminal.cols;
   const rows = terminal.rows;
 
-  // Listen for PTY output before spawning
-  unlistenOutput = await listen<{ id: string; data: string }>(
-    "pty_output",
-    (event) => {
-      if (event.payload.id === ptyId && terminal) {
-        terminal.write(event.payload.data);
-      }
-    }
-  );
+  try {
+    const result = await ptySpawn(cols, rows);
+    ptyId = result.id;
+    tabStore.setPtyId(props.tabId, ptyId);
+  } catch (e) {
+    terminal.write(`\r\n[Failed to spawn PTY: ${e}]\r\n`);
+    return;
+  }
 
-  unlistenExit = await listen<{ id: string; code: number }>(
-    "pty_exit",
-    (event) => {
-      if (event.payload.id === ptyId && terminal) {
-        terminal.write(`\r\n[Process exited with code ${event.payload.code}]\r\n`);
-      }
-    }
+  const termRef_ = terminal;
+  ptyRouter.register(
+    ptyId,
+    (data) => termRef_.write(data),
+    (code) => termRef_.write(`\r\n[Process exited with code ${code}]\r\n`)
   );
-
-  // Spawn PTY (tmux or plain bash)
-  const result = props.tmuxSession
-    ? await ptySpawnTmux(props.tmuxSession, cols, rows)
-    : await ptySpawn(cols, rows);
-  ptyId = result.id;
 
   lastCols = terminal.cols;
   lastRows = terminal.rows;
 
-  // Forward keyboard input to PTY
   terminal.onData((data) => {
     if (ptyId) {
       ptyWrite(ptyId, data).catch(() => {});
     }
   });
 
-  // Handle resize with debounce to avoid flooding IPC during drag
   resizeObserver = new ResizeObserver(() => {
     if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      if (fitAddon && terminal && ptyId) {
-        fitAddon.fit();
-        if (terminal.cols !== lastCols || terminal.rows !== lastRows) {
-          lastCols = terminal.cols;
-          lastRows = terminal.rows;
-          ptyResize(ptyId, lastCols, lastRows);
-        }
-      }
-    }, 100);
+    resizeTimer = setTimeout(() => doFit(), 100);
   });
   resizeObserver.observe(termRef.value);
 });
@@ -104,10 +106,9 @@ onMounted(async () => {
 onUnmounted(() => {
   if (resizeTimer) clearTimeout(resizeTimer);
   resizeObserver?.disconnect();
-  unlistenOutput?.();
-  unlistenExit?.();
   if (ptyId) {
-    ptyKill(ptyId);
+    ptyRouter.unregister(ptyId);
+    ptyKill(ptyId).catch(() => {});
   }
   terminal?.dispose();
 });
@@ -119,7 +120,7 @@ onUnmounted(() => {
 
 <style scoped>
 .terminal-container {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
 }
 </style>
