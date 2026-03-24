@@ -21,6 +21,26 @@ pub struct PinnedTabDef {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SessionTabDef {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub pinned: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_start: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastSession {
+    pub tabs: Vec<SessionTabDef>,
+    pub active_tab_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
     pub id: String,
     pub name: String,
@@ -28,6 +48,8 @@ pub struct ProjectConfig {
     pub shell: ShellConfig,
     pub pinned_tabs: Vec<PinnedTabDef>,
     pub last_opened: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_session: Option<LastSession>,
 }
 
 fn projects_dir(state: &ProjectState) -> PathBuf {

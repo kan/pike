@@ -194,10 +194,12 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - ログストリーミングは 50ms バッファリング + Tauri イベント emit
 - DockerLogsTab は xterm.js ベース（読み取り専用、`convertEol: true`）
 
-### セッション復帰
-- AI エージェントのセッション復帰は各ツールの resume 機能に委譲
-  - Claude Code: `claude --continue`
-  - Codex: 対応する resume オプション
+### セッション永続化
+- タブの並び順・アクティブタブ・種別を `ProjectConfig.lastSession` に保存
+- Pinia `$subscribe` でタブ変更を検知 → 1秒デバウンスで `project.json` に書き出し
+- `beforeunload` で即時保存（best-effort、async なので保証なし）
+- プロジェクト復元時: `lastSession` があればそこから復元、なければ `pinnedTabs` にフォールバック
+- AI エージェントのセッション復帰は各ツールの resume 機能に委譲（`RESUME_MAP` で `claude` → `claude --continue` に変換）
 - tmux はオプション機能として `pty_spawn_tmux` コマンドで利用可能（必須ではない）
 
 ### Docker / bollard

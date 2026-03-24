@@ -6,12 +6,14 @@ import TabPane from "./components/layout/TabPane.vue";
 import StatusBar from "./components/layout/StatusBar.vue";
 import ProjectSwitcher from "./components/ProjectSwitcher.vue";
 import { useProjectStore } from "./stores/project";
+import { useTabStore } from "./stores/tabs";
 import { useGitStore } from "./stores/git";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
 import { ptyRouter } from "./composables/usePtyRouter";
 import { dockerLogRouter } from "./composables/useDockerLogRouter";
 
 const projectStore = useProjectStore();
+const tabStore = useTabStore();
 const gitStore = useGitStore();
 
 useKeyboardShortcuts();
@@ -40,6 +42,9 @@ watch(
 onMounted(async () => {
   await Promise.all([ptyRouter.init(), dockerLogRouter.init()]);
   await projectStore.restoreLastProject();
+
+  tabStore.$subscribe(() => projectStore.saveSessionDebounced());
+  window.addEventListener('beforeunload', () => projectStore.saveSessionNow());
 });
 </script>
 

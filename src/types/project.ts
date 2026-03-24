@@ -7,6 +7,20 @@ export interface PinnedTabDef {
   autoStart?: string
 }
 
+export interface SessionTabDef {
+  id: string
+  kind: 'terminal' | 'editor'
+  title: string
+  pinned: boolean
+  autoStart?: string
+  path?: string
+}
+
+export interface LastSession {
+  tabs: SessionTabDef[]
+  activeTabId: string | null
+}
+
 export interface ProjectConfig {
   id: string
   name: string
@@ -14,4 +28,5 @@ export interface ProjectConfig {
   shell: ShellType
   pinnedTabs: PinnedTabDef[]
   lastOpened: string
+  lastSession?: LastSession
 }

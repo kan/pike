@@ -12,10 +12,21 @@ import {
 import { useTabStore } from './tabs'
 import { useSearchStore } from './search'
 
+const RESUME_MAP: Record<string, string> = {
+  'claude': 'claude --continue',
+}
+
+function resolveResumeCommand(autoStart?: string): string | undefined {
+  if (!autoStart) return undefined
+  return RESUME_MAP[autoStart] ?? autoStart
+}
+
 export const useProjectStore = defineStore('project', () => {
   const projects = ref<ProjectConfig[]>([])
   const currentProject = ref<ProjectConfig | null>(null)
   const showSwitcher = ref(false)
+
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
 
   async function loadProjects() {
     projects.value = await projectList()
@@ -31,13 +42,13 @@ export const useProjectStore = defineStore('project', () => {
         return
       }
     }
-    // No last project — open switcher to prompt user
     if (projects.value.length > 0) {
       showSwitcher.value = true
     }
   }
 
   async function switchProject(id: string) {
+    if (saveTimer) clearTimeout(saveTimer)
     const tabStore = useTabStore()
     const searchStore = useSearchStore()
     const project = projects.value.find((p) => p.id === id)
@@ -45,7 +56,6 @@ export const useProjectStore = defineStore('project', () => {
 
     searchStore.clear()
     searchStore.backend = null
-
     await tabStore.clearAllTabs()
 
     project.lastOpened = new Date().toISOString()
@@ -56,27 +66,63 @@ export const useProjectStore = defineStore('project', () => {
 
     currentProject.value = project
 
-    for (const def of project.pinnedTabs) {
-      tabStore.addTerminalTab({
-        id: def.id,
-        title: def.title,
-        pinned: true,
-        autoStart: def.autoStart,
-        cwd: project.root,
-        shell: project.shell,
-      })
+    if (project.lastSession && project.lastSession.tabs.length > 0) {
+      for (const def of project.lastSession.tabs) {
+        if (def.kind === 'terminal') {
+          tabStore.addTerminalTab({
+            id: def.id,
+            title: def.title,
+            pinned: def.pinned,
+            autoStart: def.pinned ? resolveResumeCommand(def.autoStart) : undefined,
+            cwd: project.root,
+            shell: project.shell,
+          })
+        } else if (def.kind === 'editor' && def.path) {
+          tabStore.addEditorTab({ path: def.path })
+        }
+      }
+      if (project.lastSession.activeTabId) {
+        tabStore.setActiveTab(project.lastSession.activeTabId)
+      }
+    } else {
+      for (const def of project.pinnedTabs) {
+        tabStore.addTerminalTab({
+          id: def.id,
+          title: def.title,
+          pinned: true,
+          autoStart: def.autoStart,
+          cwd: project.root,
+          shell: project.shell,
+        })
+      }
+      if (project.pinnedTabs.length === 0) {
+        tabStore.addTerminalTab({
+          id: 'cc',
+          title: 'Claude Code',
+          pinned: true,
+          autoStart: 'claude',
+          cwd: project.root,
+          shell: project.shell,
+        })
+      }
     }
+  }
 
-    if (project.pinnedTabs.length === 0) {
-      tabStore.addTerminalTab({
-        id: 'cc',
-        title: 'Claude Code',
-        pinned: true,
-        autoStart: 'claude',
-        cwd: project.root,
-        shell: project.shell,
-      })
-    }
+  async function flushSession() {
+    if (!currentProject.value) return
+    currentProject.value.lastSession = useTabStore().snapshotSession()
+    await projectUpdate(currentProject.value).catch(() => {})
+  }
+
+  function saveSessionDebounced() {
+    if (!currentProject.value) return
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(flushSession, 1000)
+  }
+
+  async function saveSessionNow() {
+    if (saveTimer) clearTimeout(saveTimer)
+    await flushSession()
   }
 
   async function addProject(config: ProjectConfig) {
@@ -114,6 +160,8 @@ export const useProjectStore = defineStore('project', () => {
     loadProjects,
     restoreLastProject,
     switchProject,
+    saveSessionDebounced,
+    saveSessionNow,
     addProject,
     saveProject,
     removeProject,

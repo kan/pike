@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { ptyKill } from '../lib/tauri'
 import { ptyRouter } from '../composables/usePtyRouter'
 import type { Tab, TerminalTab, EditorTab, DiffTab, PreviewTab, HistoryTab, DockerLogsTab, ShellType } from '../types/tab'
+import type { SessionTabDef, LastSession } from '../types/project'
 import { basename } from '../lib/paths'
 
 let counter = 0
@@ -250,6 +251,22 @@ export const useTabStore = defineStore('tabs', () => {
     activeTabId.value = tabs.value[nextIdx].id
   }
 
+  function snapshotSession(): LastSession {
+    const sessionTabs: SessionTabDef[] = tabs.value
+      .filter((t) => t.kind === 'terminal' || t.kind === 'editor')
+      .map((t) => {
+        const base = { id: t.id, kind: t.kind as 'terminal' | 'editor', title: t.title, pinned: t.pinned }
+        if (t.kind === 'terminal') {
+          return { ...base, autoStart: t.autoStart }
+        }
+        if (t.kind === 'editor') {
+          return { ...base, path: t.path }
+        }
+        return base
+      })
+    return { tabs: sessionTabs, activeTabId: activeTabId.value }
+  }
+
   return {
     tabs,
     activeTabId,
@@ -267,5 +284,6 @@ export const useTabStore = defineStore('tabs', () => {
     setTabTitle,
     togglePin,
     cycleTab,
+    snapshotSession,
   }
 })
