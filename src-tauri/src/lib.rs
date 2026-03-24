@@ -1,3 +1,4 @@
+mod git;
 mod project;
 mod pty;
 mod types;
@@ -41,6 +42,14 @@ pub fn run() {
             project::project_create,
             project::project_update,
             project::project_delete,
+            git::git_status,
+            git::git_log,
+            git::git_diff,
+            git::git_stage,
+            git::git_unstage,
+            git::git_commit,
+            git::git_branch_list,
+            git::git_checkout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

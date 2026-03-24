@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ShellType } from "../types/tab";
 import type { ProjectConfig } from "../types/project";
+import type { GitStatusResult, GitLogEntry } from "../types/git";
 
 // PTY
 
@@ -73,4 +74,38 @@ export async function projectUpdate(config: ProjectConfig): Promise<void> {
 
 export async function projectDelete(id: string): Promise<void> {
   return invoke("project_delete", { id });
+}
+
+// Git
+
+export async function gitStatus(root: string, shell: ShellType): Promise<GitStatusResult> {
+  return invoke<GitStatusResult>("git_status", { root, shell });
+}
+
+export async function gitLog(root: string, shell: ShellType, count?: number): Promise<GitLogEntry[]> {
+  return invoke<GitLogEntry[]>("git_log", { root, shell, count: count ?? null });
+}
+
+export async function gitDiff(root: string, shell: ShellType, path: string, staged: boolean): Promise<string> {
+  return invoke<string>("git_diff", { root, shell, path, staged });
+}
+
+export async function gitStage(root: string, shell: ShellType, paths: string[]): Promise<void> {
+  return invoke("git_stage", { root, shell, paths });
+}
+
+export async function gitUnstage(root: string, shell: ShellType, paths: string[]): Promise<void> {
+  return invoke("git_unstage", { root, shell, paths });
+}
+
+export async function gitCommit(root: string, shell: ShellType, message: string): Promise<void> {
+  return invoke("git_commit", { root, shell, message });
+}
+
+export async function gitBranchList(root: string, shell: ShellType): Promise<string[]> {
+  return invoke<string[]>("git_branch_list", { root, shell });
+}
+
+export async function gitCheckout(root: string, shell: ShellType, branch: string): Promise<void> {
+  return invoke("git_checkout", { root, shell, branch });
 }

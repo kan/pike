@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { onUnmounted } from "vue";
 import { useSidebarStore } from "../../stores/sidebar";
 import type { SidebarPanel } from "../../types/tab";
 import ProjectPanel from "../panels/ProjectPanel.vue";
 import FileTreePanel from "../panels/FileTreePanel.vue";
+import GitPanel from "../panels/GitPanel.vue";
 
 const sidebar = useSidebarStore();
 
@@ -13,10 +15,42 @@ const icons: { panel: SidebarPanel; label: string; icon: string }[] = [
   { panel: "docker", label: "Docker", icon: "🐋" },
   { panel: "projects", label: "Projects", icon: "📁" },
 ];
+
+let dragging = false;
+let startX = 0;
+let startWidth = 0;
+
+function onResizeStart(e: MouseEvent) {
+  dragging = true;
+  startX = e.clientX;
+  startWidth = sidebar.panelWidth;
+  document.addEventListener("mousemove", onResizeMove);
+  document.addEventListener("mouseup", onResizeEnd);
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+}
+
+function onResizeMove(e: MouseEvent) {
+  if (!dragging) return;
+  sidebar.setPanelWidth(startWidth + (e.clientX - startX));
+}
+
+function onResizeEnd() {
+  dragging = false;
+  document.removeEventListener("mousemove", onResizeMove);
+  document.removeEventListener("mouseup", onResizeEnd);
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+}
+
+onUnmounted(() => {
+  document.removeEventListener("mousemove", onResizeMove);
+  document.removeEventListener("mouseup", onResizeEnd);
+});
 </script>
 
 <template>
-  <div class="sidebar" :class="{ 'panel-open': sidebar.isPanelOpen }">
+  <div class="sidebar">
     <nav class="icon-strip">
       <button
         v-for="item in icons"
@@ -29,15 +63,17 @@ const icons: { panel: SidebarPanel; label: string; icon: string }[] = [
         <span class="icon">{{ item.icon }}</span>
       </button>
     </nav>
-    <aside v-if="sidebar.isPanelOpen" class="panel">
+    <aside v-if="sidebar.isPanelOpen" class="panel" :style="{ width: sidebar.panelWidth + 'px' }">
       <div class="panel-header">
         {{ icons.find((i) => i.panel === sidebar.activePanel)?.label }}
       </div>
       <div class="panel-content">
         <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
         <FileTreePanel v-else-if="sidebar.activePanel === 'files'" />
+        <GitPanel v-else-if="sidebar.activePanel === 'git'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
+      <div class="resize-handle" @mousedown="onResizeStart"></div>
     </aside>
   </div>
 </template>
@@ -96,7 +132,7 @@ const icons: { panel: SidebarPanel; label: string; icon: string }[] = [
 }
 
 .panel {
-  width: var(--panel-width);
+  position: relative;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -117,6 +153,21 @@ const icons: { panel: SidebarPanel; label: string; icon: string }[] = [
   flex: 1;
   overflow-y: auto;
   padding: 12px;
+}
+
+.resize-handle {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.resize-handle:hover {
+  background: var(--accent);
+  opacity: 0.3;
 }
 
 .placeholder {
