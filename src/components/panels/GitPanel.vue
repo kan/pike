@@ -1,15 +1,23 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { ref, watch, onMounted, onUnmounted } from "vue";
 import { useGitStore } from "../../stores/git";
 import { useProjectStore } from "../../stores/project";
+import { useTabStore } from "../../stores/tabs";
 import { useSidebarStore } from "../../stores/sidebar";
+import { gitDiff, gitShowFiles, gitDiffCommit } from "../../lib/tauri";
+import { fileIcon } from "../../lib/fileIcons";
+import type { GitFileChange } from "../../types/git";
 
 const gitStore = useGitStore();
 const projectStore = useProjectStore();
+const tabStore = useTabStore();
 const sidebar = useSidebarStore();
 
 const commitMsg = ref("");
-const showLog = ref(false);
+
+// Commit tree expansion
+const expandedCommits = ref<Set<string>>(new Set());
+const commitFiles = ref<Record<string, GitFileChange[]>>({});
 
 function statusColor(s: string): string {
   switch (s) {
@@ -19,19 +27,6 @@ function statusColor(s: string): string {
     case "R": return "var(--accent)";
     default:  return "var(--git-untracked)";
   }
-}
-
-function diffLineClass(line: string): string {
-  if (line.startsWith("@@")) return "diff-hunk";
-  if (line.startsWith("+")) return "diff-add";
-  if (line.startsWith("-")) return "diff-del";
-  return "";
-}
-
-async function onCommit() {
-  if (!commitMsg.value.trim() || !gitStore.status?.staged.length) return;
-  await gitStore.commitChanges(commitMsg.value.trim());
-  commitMsg.value = "";
 }
 
 function relativeDate(iso: string): string {
@@ -46,6 +41,66 @@ function relativeDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+async function onCommit() {
+  if (!commitMsg.value.trim() || !gitStore.status?.staged.length) return;
+  await gitStore.commitChanges(commitMsg.value.trim());
+  commitMsg.value = "";
+}
+
+async function openDiffTab(path: string, staged: boolean) {
+  const project = projectStore.currentProject;
+  if (!project) return;
+  const diff = await gitDiff(project.root, project.shell, path, staged);
+  tabStore.addDiffTab({ filePath: path, diff, staged });
+}
+
+async function toggleCommitExpand(hash: string) {
+  if (expandedCommits.value.has(hash)) {
+    expandedCommits.value.delete(hash);
+    delete commitFiles.value[hash];
+    return;
+  }
+  expandedCommits.value.add(hash);
+  if (!commitFiles.value[hash]) {
+    const project = projectStore.currentProject;
+    if (!project) return;
+    try {
+      commitFiles.value[hash] = await gitShowFiles(project.root, project.shell, hash);
+    } catch {
+      commitFiles.value[hash] = [];
+    }
+  }
+}
+
+async function openCommitDiffTab(hash: string, path: string) {
+  const project = projectStore.currentProject;
+  if (!project) return;
+  const diff = await gitDiffCommit(project.root, project.shell, hash, path);
+  tabStore.addDiffTab({ filePath: path, diff, commitHash: hash });
+}
+
+import type { GitLogEntry } from "../../types/git";
+
+const hoveredCommit = ref<GitLogEntry | null>(null);
+const tooltipPos = ref({ x: 0, y: 0 });
+let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+
+function onCommitEnter(entry: GitLogEntry, e: MouseEvent) {
+  if (tooltipTimer) clearTimeout(tooltipTimer);
+  const target = e.currentTarget as HTMLElement;
+  tooltipTimer = setTimeout(() => {
+    hoveredCommit.value = entry;
+    const rect = target.getBoundingClientRect();
+    tooltipPos.value = { x: rect.left, y: rect.top - 4 };
+  }, 400);
+}
+
+function onCommitLeave() {
+  if (tooltipTimer) clearTimeout(tooltipTimer);
+  tooltipTimer = null;
+  hoveredCommit.value = null;
+}
+
 function refreshIfActive() {
   if (sidebar.activePanel === "git" && projectStore.currentProject) {
     gitStore.refreshStatus();
@@ -55,11 +110,15 @@ function refreshIfActive() {
 
 watch(() => sidebar.activePanel, refreshIfActive);
 watch(() => projectStore.currentProject, () => {
-  gitStore.selectedDiff = null;
+  expandedCommits.value.clear();
+  commitFiles.value = {};
   refreshIfActive();
 });
 
 onMounted(refreshIfActive);
+onUnmounted(() => {
+  if (tooltipTimer) clearTimeout(tooltipTimer);
+});
 </script>
 
 <template>
@@ -100,9 +159,9 @@ onMounted(refreshIfActive);
           v-for="file in gitStore.status.staged"
           :key="'s-' + file.path"
           class="file-item"
-          :class="{ selected: gitStore.selectedDiff?.path === file.path && gitStore.selectedDiff?.staged }"
-          @click="gitStore.loadDiff(file.path, true)"
+          @click="openDiffTab(file.path, true)"
         >
+          <span class="file-icon">{{ fileIcon(file.path) }}</span>
           <span class="file-status" :style="{ color: statusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path">{{ file.path }}</span>
           <button class="file-action" title="Unstage" @click.stop="gitStore.unstageFiles([file.path])">-</button>
@@ -121,20 +180,13 @@ onMounted(refreshIfActive);
           v-for="file in gitStore.status.unstaged"
           :key="'u-' + file.path"
           class="file-item"
-          :class="{ selected: gitStore.selectedDiff?.path === file.path && !gitStore.selectedDiff?.staged }"
-          @click="gitStore.loadDiff(file.path, false)"
+          @click="openDiffTab(file.path, false)"
         >
+          <span class="file-icon">{{ fileIcon(file.path) }}</span>
           <span class="file-status" :style="{ color: statusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path">{{ file.path }}</span>
           <button class="file-action" title="Stage" @click.stop="gitStore.stageFiles([file.path])">+</button>
         </div>
-      </div>
-
-      <!-- Diff -->
-      <div v-if="gitStore.selectedDiff" class="diff-section">
-        <div class="diff-header">{{ gitStore.selectedDiff.path }}</div>
-        <pre class="diff-content"><template v-for="(line, i) in gitStore.selectedDiff.diff.split('\n')" :key="i"><span :class="diffLineClass(line)">{{ line }}
-</span></template></pre>
       </div>
 
       <!-- No changes -->
@@ -142,25 +194,57 @@ onMounted(refreshIfActive);
         No changes
       </div>
 
-      <!-- Log -->
+      <!-- Commits -->
       <div class="file-section">
-        <div class="section-header clickable" @click="showLog = !showLog">
-          <span>{{ showLog ? "v" : ">" }} Recent Commits</span>
+        <div class="section-header">
+          <span>Recent Commits</span>
         </div>
-        <div v-if="showLog" class="log-list">
-          <div v-for="entry in gitStore.logEntries" :key="entry.hash" class="log-item">
-            <span class="log-hash">{{ entry.hash.slice(0, 7) }}</span>
-            <span class="log-message">{{ entry.message }}</span>
-            <span class="log-meta">{{ entry.author }}, {{ relativeDate(entry.date) }}</span>
+        <div v-for="entry in gitStore.logEntries" :key="entry.hash" class="commit-group">
+          <div
+            class="log-item"
+            @click="toggleCommitExpand(entry.hash)"
+            @mouseenter="onCommitEnter(entry, $event)"
+            @mouseleave="onCommitLeave"
+          >
+            <span class="expand-icon">{{ expandedCommits.has(entry.hash) ? "v" : ">" }}</span>
+            <span class="log-message">{{ entry.message.split('\n')[0] }}</span>
+            <span class="log-meta">{{ relativeDate(entry.date) }}</span>
           </div>
-          <div v-if="!gitStore.logEntries.length" class="empty">No commits</div>
+          <div v-if="expandedCommits.has(entry.hash)" class="commit-files">
+            <div v-if="!commitFiles[entry.hash]" class="empty small">Loading...</div>
+            <div
+              v-else
+              v-for="file in commitFiles[entry.hash]"
+              :key="file.path"
+              class="file-item indent"
+              @click.stop="openCommitDiffTab(entry.hash, file.path)"
+            >
+              <span class="file-icon">{{ fileIcon(file.path) }}</span>
+              <span class="file-status" :style="{ color: statusColor(file.status) }">{{ file.status }}</span>
+              <span class="file-path">{{ file.path }}</span>
+            </div>
+          </div>
         </div>
+        <div v-if="!gitStore.logEntries.length" class="empty">No commits</div>
       </div>
     </template>
 
     <template v-else>
       <div class="empty">Loading...</div>
     </template>
+
+    <!-- Commit tooltip -->
+    <Teleport to="body">
+      <div
+        v-if="hoveredCommit"
+        class="commit-tooltip"
+        :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
+      >
+        <div class="tooltip-meta">{{ hoveredCommit.hash.slice(0, 10) }}</div>
+        <div class="tooltip-meta">{{ hoveredCommit.author }} &middot; {{ hoveredCommit.date }}</div>
+        <div class="tooltip-message">{{ hoveredCommit.message }}</div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -226,14 +310,6 @@ onMounted(refreshIfActive);
   color: var(--text-secondary);
 }
 
-.section-header.clickable {
-  cursor: pointer;
-}
-
-.section-header.clickable:hover {
-  color: var(--text-primary);
-}
-
 .section-action {
   padding: 1px 6px;
   border: none;
@@ -252,7 +328,7 @@ onMounted(refreshIfActive);
 .file-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 3px 4px;
   border-radius: 3px;
   cursor: pointer;
@@ -263,8 +339,15 @@ onMounted(refreshIfActive);
   background: var(--tab-hover-bg);
 }
 
-.file-item.selected {
-  background: var(--bg-tertiary);
+.file-item.indent {
+  padding-left: 20px;
+}
+
+.file-icon {
+  flex-shrink: 0;
+  width: 16px;
+  font-size: 12px;
+  text-align: center;
 }
 
 .file-status {
@@ -312,45 +395,7 @@ onMounted(refreshIfActive);
   color: var(--text-active);
 }
 
-.diff-section {
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.diff-header {
-  padding: 4px 8px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border);
-}
-
-.diff-content {
-  margin: 0;
-  padding: 4px 8px;
-  font-size: 11px;
-  font-family: "PlemolJP Console NF", "Cascadia Code", monospace;
-  line-height: 1.5;
-  overflow-x: auto;
-  max-height: 300px;
-  overflow-y: auto;
-  background: var(--bg-primary);
-}
-
-.diff-add {
-  color: var(--git-add);
-}
-
-.diff-del {
-  color: var(--git-delete);
-}
-
-.diff-hunk {
-  color: var(--accent);
-}
-
-.log-list {
+.commit-group {
   display: flex;
   flex-direction: column;
 }
@@ -358,16 +403,23 @@ onMounted(refreshIfActive);
 .log-item {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 4px;
   padding: 3px 4px;
   font-size: 12px;
+  cursor: pointer;
+  border-radius: 3px;
 }
 
-.log-hash {
+.log-item:hover {
+  background: var(--tab-hover-bg);
+}
+
+.expand-icon {
   font-family: monospace;
-  font-size: 11px;
-  color: var(--accent);
+  font-size: 10px;
+  width: 10px;
   flex-shrink: 0;
+  color: var(--text-secondary);
 }
 
 .log-message {
@@ -386,10 +438,51 @@ onMounted(refreshIfActive);
   white-space: nowrap;
 }
 
+.commit-files {
+  display: flex;
+  flex-direction: column;
+}
+
 .empty {
   color: var(--text-secondary);
   font-size: 12px;
   text-align: center;
   padding: 16px 0;
+}
+
+.empty.small {
+  padding: 4px 0;
+  font-size: 11px;
+}
+
+</style>
+
+<style>
+.commit-tooltip {
+  position: fixed;
+  z-index: 2000;
+  transform: translateY(-100%);
+  max-width: 420px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tooltip-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.tooltip-message {
+  font-size: 12px;
+  color: var(--text-active);
+  margin-top: 4px;
+  line-height: 1.5;
 }
 </style>

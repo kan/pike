@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ShellType } from "../types/tab";
 import type { ProjectConfig } from "../types/project";
-import type { GitStatusResult, GitLogEntry } from "../types/git";
+import type { GitStatusResult, GitLogEntry, GitFileChange } from "../types/git";
 
 // PTY
 
@@ -108,4 +108,20 @@ export async function gitBranchList(root: string, shell: ShellType): Promise<str
 
 export async function gitCheckout(root: string, shell: ShellType, branch: string): Promise<void> {
   return invoke("git_checkout", { root, shell, branch });
+}
+
+export async function gitPush(root: string, shell: ShellType): Promise<string> {
+  return invoke<string>("git_push", { root, shell });
+}
+
+export async function gitPull(root: string, shell: ShellType): Promise<string> {
+  return invoke<string>("git_pull", { root, shell });
+}
+
+export async function gitShowFiles(root: string, shell: ShellType, hash: string): Promise<GitFileChange[]> {
+  return invoke<GitFileChange[]>("git_show_files", { root, shell, hash });
+}
+
+export async function gitDiffCommit(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
+  return invoke<string>("git_diff_commit", { root, shell, hash, path });
 }

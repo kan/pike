@@ -5,12 +5,17 @@ import { useProjectStore } from "../../stores/project";
 import type { Tab, ShellType } from "../../types/tab";
 import { isWindowsShell, WINDOWS_SHELLS, shellToType } from "../../types/tab";
 import TerminalTab from "../tabs/TerminalTab.vue";
+import DiffTab from "../tabs/DiffTab.vue";
 
 const tabStore = useTabStore();
 const projectStore = useProjectStore();
 
 const terminalTabs = computed(() =>
   tabStore.tabs.filter((t) => t.kind === "terminal")
+);
+
+const diffTabs = computed(() =>
+  tabStore.tabs.filter((t) => t.kind === "diff")
 );
 
 const isWindows = computed(() =>
@@ -27,6 +32,8 @@ function kindIcon(kind: Tab["kind"]): string {
       return "#";
     case "docker-logs":
       return "~";
+    case "diff":
+      return "d";
   }
 }
 
@@ -140,6 +147,12 @@ onUnmounted(() => {
     <div class="tab-content">
       <TerminalTab
         v-for="tab in terminalTabs"
+        :key="tab.id"
+        :tab-id="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <DiffTab
+        v-for="tab in diffTabs"
         :key="tab.id"
         :tab-id="tab.id"
         v-show="tab.id === tabStore.activeTabId"

@@ -161,6 +161,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - プロジェクト切替時: 全タブ kill → pinnedTabs 復元（なければ Claude Code 固定タブを自動作成）
 - Windows プロジェクトでは「+」ボタン横のドロップダウンでデフォルト以外のシェルも選択可能
 
+### Git 統合
+- `git` CLI 経由（WSL/Windows 両対応）。`git2` クレートは使わない
+- Rust 側 `build_git_command` が ShellConfig に応じて `wsl.exe git` / `git` を組み立て
+- ステータスバーにブランチ名+ダーティ表示、クリックでブランチ切替
+- Git パネル: ステージング/アンステージ、コミット、push/pull、コミットツリー展開
+- diff タブ: 左右分割表示、文字単位ハイライト（common prefix/suffix 方式）
+- コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
+
 ### セッション復帰
 - AI エージェントのセッション復帰は各ツールの resume 機能に委譲
   - Claude Code: `claude --continue`

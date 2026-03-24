@@ -4,21 +4,23 @@ import type { GitStatusResult, GitLogEntry } from '../types/git'
 import {
   gitStatus,
   gitLog,
-  gitDiff,
   gitStage,
   gitUnstage,
   gitCommit,
   gitBranchList,
   gitCheckout,
+  gitPush,
+  gitPull,
 } from '../lib/tauri'
 import { useProjectStore } from './project'
 
 export const useGitStore = defineStore('git', () => {
   const status = ref<GitStatusResult | null>(null)
   const logEntries = ref<GitLogEntry[]>([])
-  const selectedDiff = ref<{ path: string; staged: boolean; diff: string } | null>(null)
   const branches = ref<string[]>([])
   const error = ref<string | null>(null)
+  const pushing = ref(false)
+  const pulling = ref(false)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let refreshing = false
@@ -53,27 +55,11 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function loadDiff(path: string, staged: boolean) {
-    const project = getProject()
-    if (!project) return
-    if (selectedDiff.value?.path === path && selectedDiff.value?.staged === staged) {
-      selectedDiff.value = null
-      return
-    }
-    try {
-      const diff = await gitDiff(project.root, project.shell, path, staged)
-      selectedDiff.value = { path, staged, diff }
-    } catch (e) {
-      selectedDiff.value = { path, staged, diff: String(e) }
-    }
-  }
-
   async function stageFiles(paths: string[]) {
     const project = getProject()
     if (!project) return
     try {
       await gitStage(project.root, project.shell, paths)
-      selectedDiff.value = null
       await refreshStatus()
     } catch (e) {
       error.value = String(e)
@@ -85,7 +71,6 @@ export const useGitStore = defineStore('git', () => {
     if (!project) return
     try {
       await gitUnstage(project.root, project.shell, paths)
-      selectedDiff.value = null
       await refreshStatus()
     } catch (e) {
       error.value = String(e)
@@ -97,10 +82,37 @@ export const useGitStore = defineStore('git', () => {
     if (!project) return
     try {
       await gitCommit(project.root, project.shell, message)
-      selectedDiff.value = null
       await Promise.all([refreshStatus(), refreshLog()])
     } catch (e) {
       error.value = String(e)
+    }
+  }
+
+  async function push() {
+    const project = getProject()
+    if (!project) return
+    pushing.value = true
+    try {
+      await gitPush(project.root, project.shell)
+      await refreshStatus()
+    } catch (e) {
+      error.value = String(e)
+    } finally {
+      pushing.value = false
+    }
+  }
+
+  async function pull() {
+    const project = getProject()
+    if (!project) return
+    pulling.value = true
+    try {
+      await gitPull(project.root, project.shell)
+      await Promise.all([refreshStatus(), refreshLog()])
+    } catch (e) {
+      error.value = String(e)
+    } finally {
+      pulling.value = false
     }
   }
 
@@ -140,15 +152,17 @@ export const useGitStore = defineStore('git', () => {
   return {
     status,
     logEntries,
-    selectedDiff,
     branches,
     error,
+    pushing,
+    pulling,
     refreshStatus,
     refreshLog,
-    loadDiff,
     stageFiles,
     unstageFiles,
     commitChanges,
+    push,
+    pull,
     loadBranches,
     checkoutBranch,
     startPolling,

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { onUnmounted } from "vue";
 import { useSidebarStore } from "../../stores/sidebar";
+import { useGitStore } from "../../stores/git";
 import type { SidebarPanel } from "../../types/tab";
 import ProjectPanel from "../panels/ProjectPanel.vue";
 import FileTreePanel from "../panels/FileTreePanel.vue";
 import GitPanel from "../panels/GitPanel.vue";
 
 const sidebar = useSidebarStore();
+const gitStore = useGitStore();
 
 const icons: { panel: SidebarPanel; label: string; icon: string }[] = [
   { panel: "files", label: "Files", icon: "🗂" },
@@ -65,7 +67,11 @@ onUnmounted(() => {
     </nav>
     <aside v-if="sidebar.isPanelOpen" class="panel" :style="{ width: sidebar.panelWidth + 'px' }">
       <div class="panel-header">
-        {{ icons.find((i) => i.panel === sidebar.activePanel)?.label }}
+        <span>{{ icons.find((i) => i.panel === sidebar.activePanel)?.label }}</span>
+        <div v-if="sidebar.activePanel === 'git'" class="header-actions">
+          <button class="header-btn" :class="{ spinning: gitStore.pulling }" :disabled="gitStore.pulling" title="Pull" @click="gitStore.pull()">↓</button>
+          <button class="header-btn" :class="{ spinning: gitStore.pushing }" :disabled="gitStore.pushing" title="Push" @click="gitStore.push()">↑</button>
+        </div>
       </div>
       <div class="panel-content">
         <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
@@ -140,6 +146,9 @@ onUnmounted(() => {
 }
 
 .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 8px 12px;
   font-size: 11px;
   font-weight: 600;
@@ -147,6 +156,45 @@ onUnmounted(() => {
   letter-spacing: 0.05em;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
+}
+
+.header-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.header-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-btn:hover:not(:disabled) {
+  background: var(--tab-hover-bg);
+  color: var(--text-active);
+}
+
+.header-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.header-btn.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .panel-content {

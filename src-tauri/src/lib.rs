@@ -50,6 +50,10 @@ pub fn run() {
             git::git_commit,
             git::git_branch_list,
             git::git_checkout,
+            git::git_push,
+            git::git_pull,
+            git::git_show_files,
+            git::git_diff_commit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

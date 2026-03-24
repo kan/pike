@@ -92,6 +92,17 @@ export type DockerLogsTab = {
   containerName: string
 }
 
-export type Tab = TerminalTab | EditorTab | DockerLogsTab
+export type DiffTab = {
+  id: string
+  kind: 'diff'
+  title: string
+  pinned: boolean
+  filePath: string
+  diff: string
+  commitHash?: string
+  staged?: boolean
+}
+
+export type Tab = TerminalTab | EditorTab | DockerLogsTab | DiffTab
 
 export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects'

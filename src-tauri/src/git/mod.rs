@@ -27,6 +27,19 @@ pub struct GitLogEntry {
     pub message: String,
 }
 
+fn truncate_diff(output: String) -> String {
+    const MAX: usize = 100_000;
+    if output.len() > MAX {
+        let mut end = MAX;
+        while end > 0 && !output.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...\n\n[Diff truncated at 100KB]", &output[..end])
+    } else {
+        output
+    }
+}
+
 fn build_git_command(shell: &ShellConfig, root: &str, args: &[&str]) -> Command {
     match shell {
         ShellConfig::Wsl { distro } => {
@@ -116,16 +129,18 @@ fn parse_status(output: &str) -> GitStatusResult {
 }
 
 fn parse_log(output: &str) -> Vec<GitLogEntry> {
+    // Records separated by NUL NUL, fields by NUL
     output
-        .lines()
-        .filter_map(|line| {
-            let parts: Vec<&str> = line.splitn(4, '\0').collect();
+        .split("\0\0")
+        .filter_map(|record| {
+            let record = record.trim_matches('\n');
+            let parts: Vec<&str> = record.splitn(4, '\0').collect();
             if parts.len() == 4 {
                 Some(GitLogEntry {
                     hash: parts[0].to_string(),
                     author: parts[1].to_string(),
                     date: parts[2].to_string(),
-                    message: parts[3].to_string(),
+                    message: parts[3].trim().to_string(),
                 })
             } else {
                 None
@@ -159,7 +174,7 @@ pub async fn git_log(
         run_git(
             &shell,
             &root,
-            &["log", "--format=%H%x00%an%x00%aI%x00%s", "-n", &n],
+            &["log", "--format=%H%x00%an%x00%aI%x00%B%x00%x00", "-n", &n],
         )
     })
     .await
@@ -183,20 +198,7 @@ pub async fn git_diff(
         args.push("--");
         args.push(&path);
         let output = run_git(&shell, &root, &args)?;
-        // Truncate very large diffs
-        if output.len() > 100_000 {
-            // Find a safe UTF-8 boundary near 100KB
-            let mut end = 100_000;
-            while end > 0 && !output.is_char_boundary(end) {
-                end -= 1;
-            }
-            Ok(format!(
-                "{}...\n\n[Diff truncated at 100KB]",
-                &output[..end]
-            ))
-        } else {
-            Ok(output)
-        }
+        Ok(truncate_diff(output))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -277,6 +279,79 @@ pub async fn git_checkout(
     tokio::task::spawn_blocking(move || {
         run_git(&shell, &root, &["checkout", &branch])?;
         Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_push(
+    root: String,
+    shell: ShellConfig,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || run_git(&shell, &root, &["push"]))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_pull(
+    root: String,
+    shell: ShellConfig,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || run_git(&shell, &root, &["pull"]))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_show_files(
+    root: String,
+    shell: ShellConfig,
+    hash: String,
+) -> Result<Vec<GitFileChange>, String> {
+    let output = tokio::task::spawn_blocking(move || {
+        run_git(&shell, &root, &["show", "--pretty=", "--name-status", &hash])
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    Ok(output
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+            let mut parts = line.splitn(2, '\t');
+            let status = parts.next()?.chars().next()?.to_string();
+            let path = parts.next()?.to_string();
+            // For renames (R100\told\tnew), take the new path
+            let path = path.split('\t').last().unwrap_or(&path).to_string();
+            Some(GitFileChange { path, status })
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn git_diff_commit(
+    root: String,
+    shell: ShellConfig,
+    hash: String,
+    path: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        // Try parent diff first, fall back to --root for initial commit
+        let result = run_git(
+            &shell,
+            &root,
+            &["diff", &format!("{hash}~1"), &hash, "--", &path],
+        );
+        let output = match result {
+            Ok(o) => o,
+            Err(_) => run_git(&shell, &root, &["diff", "--root", &hash, "--", &path])?,
+        };
+        Ok(truncate_diff(output))
     })
     .await
     .map_err(|e| e.to_string())?

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ptyKill } from '../lib/tauri'
 import { ptyRouter } from '../composables/usePtyRouter'
-import type { Tab, TerminalTab, ShellType } from '../types/tab'
+import type { Tab, TerminalTab, DiffTab, ShellType } from '../types/tab'
 
 let counter = 0
 
@@ -79,6 +79,44 @@ export const useTabStore = defineStore('tabs', () => {
     }
   }
 
+  function addDiffTab(options: {
+    filePath: string
+    diff: string
+    commitHash?: string
+    staged?: boolean
+  }): string {
+    // Reuse existing diff tab for the same file+context
+    const existing = tabs.value.find(
+      (t): t is DiffTab =>
+        t.kind === 'diff' &&
+        t.filePath === options.filePath &&
+        t.commitHash === options.commitHash &&
+        t.staged === options.staged
+    )
+    if (existing) {
+      existing.diff = options.diff
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    const fileName = options.filePath.split('/').pop() ?? options.filePath
+    const title = options.commitHash
+      ? `${fileName} (${options.commitHash.slice(0, 7)})`
+      : `${fileName} (diff)`
+    tabs.value.push({
+      id,
+      kind: 'diff',
+      title,
+      pinned: false,
+      filePath: options.filePath,
+      diff: options.diff,
+      commitHash: options.commitHash,
+      staged: options.staged,
+    })
+    activeTabId.value = id
+    return id
+  }
+
   function setTabTitle(id: string, title: string) {
     const tab = tabs.value.find((t) => t.id === id)
     if (tab) {
@@ -110,6 +148,7 @@ export const useTabStore = defineStore('tabs', () => {
     activeTabId,
     activeTab,
     addTerminalTab,
+    addDiffTab,
     closeTab,
     clearAllTabs,
     setActiveTab,
