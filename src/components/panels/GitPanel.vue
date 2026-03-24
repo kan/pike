@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from "vue";
+import { ref, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useGitStore } from "../../stores/git";
 import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
 import { useSidebarStore } from "../../stores/sidebar";
-import { gitDiff, gitShowFiles, gitDiffCommit } from "../../lib/tauri";
+import { gitDiff, gitShowFiles, gitDiffCommit, gitShowFile } from "../../lib/tauri";
 import { fileIcon } from "../../lib/fileIcons";
-import { gitStatusColor } from "../../lib/paths";
+import { gitStatusColor, relativeDate } from "../../lib/paths";
 import type { GitFileChange } from "../../types/git";
 
 const gitStore = useGitStore();
@@ -20,17 +20,7 @@ const commitMsg = ref("");
 const expandedCommits = ref<Set<string>>(new Set());
 const commitFiles = ref<Record<string, GitFileChange[]>>({});
 
-function relativeDate(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
+
 
 async function onCommit() {
   if (!commitMsg.value.trim() || !gitStore.status?.staged.length) return;
@@ -92,6 +82,56 @@ function onCommitLeave() {
   hoveredCommit.value = null;
 }
 
+// File context menu (shared between CHANGES and COMMITS)
+const fileCtx = ref<{
+  x: number; y: number; path: string;
+  hash?: string; staged?: boolean;
+} | null>(null);
+
+function onFileContext(e: MouseEvent, path: string, opts: { hash?: string; staged?: boolean }) {
+  e.preventDefault();
+  e.stopPropagation();
+  fileCtx.value = { x: e.clientX, y: e.clientY, path, ...opts };
+  nextTick(() => {
+    window.addEventListener("mousedown", closeFileCtx, { once: true });
+  });
+}
+
+function closeFileCtx() {
+  fileCtx.value = null;
+}
+
+async function ctxOpenDiff() {
+  if (!fileCtx.value) return;
+  const { path, hash, staged } = fileCtx.value;
+  closeFileCtx();
+  if (hash) {
+    await openCommitDiffTab(hash, path);
+  } else {
+    await openDiffTab(path, staged ?? false);
+  }
+}
+
+async function ctxOpenFile() {
+  if (!fileCtx.value) return;
+  const { path, hash } = fileCtx.value;
+  closeFileCtx();
+  if (hash) {
+    const project = projectStore.currentProject;
+    if (!project) return;
+    const content = await gitShowFile(project.root, project.shell, hash, path);
+    tabStore.addEditorTab({
+      path, readOnly: true, initialContent: content,
+      titleSuffix: ` (${hash.slice(0, 7)})`,
+    });
+  } else {
+    const root = projectStore.currentProject?.root;
+    if (!root) return;
+    const sep = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\';
+    tabStore.addEditorTab({ path: root + sep + path });
+  }
+}
+
 function refreshIfActive() {
   if (sidebar.activePanel === "git" && projectStore.currentProject) {
     gitStore.refreshStatus();
@@ -151,6 +191,7 @@ onUnmounted(() => {
           :key="'s-' + file.path"
           class="file-item"
           @click="openDiffTab(file.path, true)"
+          @contextmenu="onFileContext($event, file.path, { staged: true })"
         >
           <span class="file-icon">{{ fileIcon(file.path) }}</span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
@@ -172,6 +213,7 @@ onUnmounted(() => {
           :key="'u-' + file.path"
           class="file-item"
           @click="openDiffTab(file.path, false)"
+          @contextmenu="onFileContext($event, file.path, { staged: false })"
         >
           <span class="file-icon">{{ fileIcon(file.path) }}</span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
@@ -209,6 +251,7 @@ onUnmounted(() => {
               :key="file.path"
               class="file-item indent"
               @click.stop="openCommitDiffTab(entry.hash, file.path)"
+              @contextmenu="onFileContext($event, file.path, { hash: entry.hash })"
             >
               <span class="file-icon">{{ fileIcon(file.path) }}</span>
               <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
@@ -234,6 +277,19 @@ onUnmounted(() => {
         <div class="tooltip-meta">{{ hoveredCommit.hash.slice(0, 10) }}</div>
         <div class="tooltip-meta">{{ hoveredCommit.author }} &middot; {{ hoveredCommit.date }}</div>
         <div class="tooltip-message">{{ hoveredCommit.message }}</div>
+      </div>
+    </Teleport>
+
+    <!-- File context menu (CHANGES + COMMITS) -->
+    <Teleport to="body">
+      <div
+        v-if="fileCtx"
+        class="commit-file-ctx"
+        :style="{ left: fileCtx.x + 'px', top: fileCtx.y + 'px' }"
+        @mousedown.stop
+      >
+        <button @click="ctxOpenDiff">Open Diff</button>
+        <button @click="ctxOpenFile">Open File</button>
       </div>
     </Teleport>
   </div>
@@ -475,5 +531,33 @@ onUnmounted(() => {
   color: var(--text-active);
   margin-top: 4px;
   line-height: 1.5;
+}
+
+.commit-file-ctx {
+  position: fixed;
+  z-index: 2000;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 0;
+  min-width: 140px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.commit-file-ctx button {
+  display: block;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.commit-file-ctx button:hover {
+  background: var(--accent);
+  color: var(--text-active);
 }
 </style>

@@ -1,4 +1,6 @@
+use base64::Engine as _;
 use crate::types::ShellConfig;
+use encoding_rs::Encoding;
 use serde::Serialize;
 use std::io::Write as IoWrite;
 use std::process::Command;
@@ -99,17 +101,19 @@ fn list_dir_native(path: &str) -> Result<Vec<FsEntry>, String> {
     Ok(dirs)
 }
 
-#[tauri::command]
-pub async fn fs_read_file(
-    shell: ShellConfig,
-    path: String,
-) -> Result<String, String> {
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileReadResult {
+    pub content: String,
+    pub encoding: String,
+}
+
+fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Vec<u8>, String> {
     const MAX_SIZE: u64 = 2_000_000;
-    tokio::task::spawn_blocking(move || match &shell {
+    match shell {
         ShellConfig::Wsl { distro } => {
-            // Check size first to avoid reading huge files
             let size_out = Command::new("wsl.exe")
-                .args(["-d", distro, "stat", "-c", "%s", &path])
+                .args(["-d", distro, "stat", "-c", "%s", "--", path])
                 .output()
                 .map_err(|e| e.to_string())?;
             if let Ok(size_str) = String::from_utf8(size_out.stdout) {
@@ -120,7 +124,7 @@ pub async fn fs_read_file(
                 }
             }
             let output = Command::new("wsl.exe")
-                .args(["-d", distro, "cat", &path])
+                .args(["-d", distro, "cat", "--", path])
                 .output()
                 .map_err(|e| e.to_string())?;
             if !output.status.success() {
@@ -129,27 +133,73 @@ pub async fn fs_read_file(
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }
-            Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+            Ok(output.stdout)
         }
         _ => {
-            let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+            let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
             if meta.len() > MAX_SIZE {
                 return Err("File too large (>2MB)".into());
             }
-            std::fs::read_to_string(&path).map_err(|e| e.to_string())
+            std::fs::read(path).map_err(|e| e.to_string())
         }
+    }
+}
+
+fn decode_bytes(bytes: &[u8], encoding_name: Option<&str>) -> FileReadResult {
+    if let Some(name) = encoding_name {
+        if let Some(enc) = Encoding::for_label(name.as_bytes()) {
+            let (content, actual_enc, _) = enc.decode(bytes);
+            return FileReadResult {
+                content: content.into_owned(),
+                encoding: actual_enc.name().to_string(),
+            };
+        }
+    }
+    // Auto-detect: try UTF-8 first, then sniff BOM / fallback
+    match std::str::from_utf8(bytes) {
+        Ok(s) => FileReadResult {
+            content: s.to_string(),
+            encoding: "UTF-8".to_string(),
+        },
+        Err(_) => {
+            // Try Shift_JIS as common fallback for Japanese environments
+            let (content, enc, _) = encoding_rs::SHIFT_JIS.decode(bytes);
+            FileReadResult {
+                content: content.into_owned(),
+                encoding: enc.name().to_string(),
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn fs_read_file(
+    shell: ShellConfig,
+    path: String,
+    encoding: Option<String>,
+) -> Result<FileReadResult, String> {
+    tokio::task::spawn_blocking(move || {
+        let bytes = read_raw_bytes(&shell, &path)?;
+        Ok(decode_bytes(&bytes, encoding.as_deref()))
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub async fn fs_write_file(
-    shell: ShellConfig,
-    path: String,
-    content: String,
-) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || match &shell {
+fn encode_content(content: &str, encoding_name: Option<&str>) -> Vec<u8> {
+    if let Some(name) = encoding_name {
+        if name != "UTF-8" {
+            if let Some(enc) = Encoding::for_label(name.as_bytes()) {
+                let (bytes, _, _) = enc.encode(content);
+                return bytes.into_owned();
+            }
+        }
+    }
+    content.as_bytes().to_vec()
+}
+
+fn write_bytes(shell: &ShellConfig, path: &str, bytes: &[u8]) -> Result<(), String> {
+    match shell {
         ShellConfig::Wsl { distro } => {
             let mut child = Command::new("wsl.exe")
                 .args([
@@ -164,9 +214,7 @@ pub async fn fs_write_file(
                 .map_err(|e| e.to_string())?;
 
             if let Some(mut stdin) = child.stdin.take() {
-                stdin
-                    .write_all(content.as_bytes())
-                    .map_err(|e| e.to_string())?;
+                stdin.write_all(bytes).map_err(|e| e.to_string())?;
             }
 
             let status = child.wait().map_err(|e| e.to_string())?;
@@ -175,10 +223,167 @@ pub async fn fs_write_file(
             }
             Ok(())
         }
+        _ => std::fs::write(path, bytes).map_err(|e| e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn fs_write_file(
+    shell: ShellConfig,
+    path: String,
+    content: String,
+    encoding: Option<String>,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let bytes = encode_content(&content, encoding.as_deref());
+        write_bytes(&shell, &path, &bytes)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn fs_read_file_base64(
+    shell: ShellConfig,
+    path: String,
+) -> Result<String, String> {
+    const MAX_SIZE: u64 = 10_000_000;
+    tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { distro } => {
+            let size_out = Command::new("wsl.exe")
+                .args(["-d", distro, "stat", "-c", "%s", "--", &path])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if let Ok(size_str) = String::from_utf8(size_out.stdout) {
+                if let Ok(size) = size_str.trim().parse::<u64>() {
+                    if size > MAX_SIZE {
+                        return Err("File too large (>10MB)".into());
+                    }
+                }
+            }
+            let output = Command::new("wsl.exe")
+                .args(["-d", distro, "base64", "-w0", "--", &path])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output.status.success() {
+                return Err(format!(
+                    "Failed to read file: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        }
         _ => {
-            std::fs::write(&path, &content).map_err(|e| e.to_string())
+            let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+            if meta.len() > MAX_SIZE {
+                return Err("File too large (>10MB)".into());
+            }
+            let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+            Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
         }
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn fs_rename(
+    shell: ShellConfig,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { distro } => {
+            let output = Command::new("wsl.exe")
+                .args(["-d", distro, "mv", "--", &old_path, &new_path])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+            }
+            Ok(())
+        }
+        _ => std::fs::rename(&old_path, &new_path).map_err(|e| e.to_string()),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn fs_delete(
+    shell: ShellConfig,
+    path: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { distro } => {
+            let output = Command::new("wsl.exe")
+                .args(["-d", distro, "rm", "-rf", "--", &path])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+            }
+            Ok(())
+        }
+        _ => {
+            let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+            if meta.is_dir() {
+                std::fs::remove_dir_all(&path).map_err(|e| e.to_string())
+            } else {
+                std::fs::remove_file(&path).map_err(|e| e.to_string())
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn fs_copy(
+    shell: ShellConfig,
+    source: String,
+    dest: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { distro } => {
+            let output = Command::new("wsl.exe")
+                .args(["-d", distro, "cp", "-r", "--", &source, &dest])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+            }
+            Ok(())
+        }
+        _ => {
+            let meta = std::fs::metadata(&source).map_err(|e| e.to_string())?;
+            if meta.is_dir() {
+                copy_dir_recursive(&source, &dest)
+            } else {
+                std::fs::copy(&source, &dest)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn copy_dir_recursive(src: &str, dst: &str) -> Result<(), String> {
+    std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let src_path = entry.path();
+        let dst_path = std::path::Path::new(dst).join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(
+                src_path.to_str().unwrap_or(""),
+                dst_path.to_str().unwrap_or(""),
+            )?;
+        } else {
+            std::fs::copy(&src_path, &dst_path).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }

@@ -356,3 +356,38 @@ pub async fn git_diff_commit(
     .await
     .map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub async fn git_show_file(
+    root: String,
+    shell: ShellConfig,
+    hash: String,
+    path: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&shell, &root, &["show", &format!("{hash}:{path}")])
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_log_file(
+    root: String,
+    shell: ShellConfig,
+    path: String,
+    count: Option<u32>,
+) -> Result<Vec<GitLogEntry>, String> {
+    let n = count.unwrap_or(20).to_string();
+    let output = tokio::task::spawn_blocking(move || {
+        run_git(
+            &shell,
+            &root,
+            &["log", "--format=%H%x00%an%x00%aI%x00%s%x00%x00", "-n", &n, "--", &path],
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    Ok(parse_log(&output))
+}

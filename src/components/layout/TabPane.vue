@@ -7,6 +7,8 @@ import { isWindowsShell, WINDOWS_SHELLS, shellToType } from "../../types/tab";
 import TerminalTab from "../tabs/TerminalTab.vue";
 import DiffTab from "../tabs/DiffTab.vue";
 import EditorTab from "../tabs/EditorTab.vue";
+import PreviewTab from "../tabs/PreviewTab.vue";
+import HistoryTab from "../tabs/HistoryTab.vue";
 
 const tabStore = useTabStore();
 const projectStore = useProjectStore();
@@ -21,6 +23,14 @@ const diffTabs = computed(() =>
 
 const editorTabs = computed(() =>
   tabStore.tabs.filter((t) => t.kind === "editor")
+);
+
+const previewTabs = computed(() =>
+  tabStore.tabs.filter((t) => t.kind === "preview")
+);
+
+const historyTabs = computed(() =>
+  tabStore.tabs.filter((t) => t.kind === "history")
 );
 
 const isWindows = computed(() =>
@@ -39,6 +49,10 @@ function kindIcon(kind: Tab["kind"]): string {
       return "~";
     case "diff":
       return "d";
+    case "preview":
+      return "P";
+    case "history":
+      return "H";
   }
 }
 
@@ -164,6 +178,18 @@ onUnmounted(() => {
       />
       <EditorTab
         v-for="tab in editorTabs"
+        :key="tab.id"
+        :tab-id="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <PreviewTab
+        v-for="tab in previewTabs"
+        :key="tab.id"
+        :tab-id="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <HistoryTab
+        v-for="tab in historyTabs"
         :key="tab.id"
         :tab-id="tab.id"
         v-show="tab.id === tabStore.activeTabId"

@@ -7,25 +7,65 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { useTabStore } from "../../stores/tabs";
 import { useProjectStore } from "../../stores/project";
 import { fsReadFile, fsWriteFile } from "../../lib/tauri";
-import { getLanguage } from "../../lib/languages";
-import { basename } from "../../lib/paths";
+import { getLanguage, getLanguageLabel } from "../../lib/languages";
+import { basename, extension } from "../../lib/paths";
+import { useEditorInfo } from "../../composables/useEditorInfo";
+import { marked } from "marked";
 import type { EditorTab } from "../../types/tab";
 
 const props = defineProps<{ tabId: string }>();
 const tabStore = useTabStore();
 const projectStore = useProjectStore();
+const editorInfo = useEditorInfo();
 
 const tab = computed(() =>
   tabStore.tabs.find((t): t is EditorTab => t.id === props.tabId && t.kind === "editor")
 );
 
 const editorRef = ref<HTMLDivElement>();
+const previewRef = ref<HTMLDivElement>();
 let editorView: EditorView | null = null;
 const loading = ref(true);
 const saving = ref(false);
 const error = ref<string | null>(null);
 let savedContent = "";
 const isDirty = ref(false);
+const currentEncoding = ref("UTF-8");
+const currentLineEnding = ref<'LF' | 'CRLF'>('LF');
+
+// Markdown preview
+const viewMode = ref<'edit' | 'split' | 'preview'>('edit');
+const debouncedDocVersion = ref(0);
+let docVersionTimer: ReturnType<typeof setTimeout> | null = null;
+let syncingScroll = false;
+
+function bumpDocVersion() {
+  if (docVersionTimer) clearTimeout(docVersionTimer);
+  docVersionTimer = setTimeout(() => {
+    debouncedDocVersion.value++;
+  }, 250);
+}
+
+const isMarkdown = computed(() => {
+  if (!tab.value) return false;
+  const ext = extension(tab.value.path);
+  return ext === 'md' || ext === 'markdown';
+});
+
+const showEditor = computed(() => viewMode.value !== 'preview');
+const showPreview = computed(() => viewMode.value !== 'edit');
+
+const previewHtml = computed(() => {
+  void debouncedDocVersion.value;
+  if (!showPreview.value || !editorView) return '';
+  return marked.parse(editorView.state.doc.toString()) as string;
+});
+
+function updateTitle() {
+  if (!tab.value) return;
+  const baseName = basename(tab.value.path) + (tab.value.readOnly ? '' : '');
+  tabStore.setTabTitle(props.tabId, isDirty.value ? baseName + " *" : baseName);
+}
 
 function updateDirtyState() {
   if (!editorView) return;
@@ -33,23 +73,44 @@ function updateDirtyState() {
   const dirty = current !== savedContent;
   if (dirty !== isDirty.value) {
     isDirty.value = dirty;
-    if (tab.value) {
-      const baseName = basename(tab.value.path);
-      tabStore.setTabTitle(props.tabId, dirty ? baseName + " *" : baseName);
-    }
+    updateTitle();
   }
 }
 
-async function save() {
-  if (!editorView || !tab.value || saving.value) return;
+function updateCursorInfo() {
+  if (!editorView || !tab.value) return;
+  if (tabStore.activeTabId !== props.tabId) return;
+  const pos = editorView.state.selection.main.head;
+  const line = editorView.state.doc.lineAt(pos);
+  editorInfo.update({
+    line: line.number,
+    col: pos - line.from + 1,
+    encoding: currentEncoding.value,
+    lineEnding: currentLineEnding.value,
+    fileType: getLanguageLabel(tab.value.path),
+    tabId: props.tabId,
+  });
+}
+
+async function save(overrideEncoding?: string) {
+  if (!editorView || !tab.value || saving.value || tab.value.readOnly) return;
   const project = projectStore.currentProject;
   if (!project) return;
 
+  const enc = overrideEncoding ?? currentEncoding.value;
   saving.value = true;
   try {
-    const content = editorView.state.doc.toString();
-    await fsWriteFile(project.shell, tab.value.path, content);
-    savedContent = content;
+    let content = editorView.state.doc.toString();
+    if (currentLineEnding.value === 'CRLF') {
+      content = content.replace(/\n/g, '\r\n');
+    }
+    await fsWriteFile(project.shell, tab.value.path, content,
+      enc !== 'UTF-8' ? enc : undefined);
+    if (overrideEncoding) {
+      currentEncoding.value = enc;
+      updateCursorInfo();
+    }
+    savedContent = editorView.state.doc.toString();
     updateDirtyState();
   } catch (e) {
     error.value = String(e);
@@ -58,73 +119,192 @@ async function save() {
   }
 }
 
+async function loadContent(encoding?: string): Promise<string> {
+  if (!tab.value) throw new Error('No tab');
+
+  if (tab.value.initialContent !== undefined) {
+    savedContent = tab.value.initialContent;
+    currentEncoding.value = 'UTF-8';
+    currentLineEnding.value = tab.value.initialContent.includes('\r\n') ? 'CRLF' : 'LF';
+    return savedContent;
+  }
+
+  const project = projectStore.currentProject;
+  if (!project) throw new Error('No project');
+
+  const result = await fsReadFile(project.shell, tab.value.path, encoding);
+  currentEncoding.value = result.encoding;
+  // Detect and normalize line endings for CodeMirror (which uses \n internally)
+  currentLineEnding.value = result.content.includes('\r\n') ? 'CRLF' : 'LF';
+  const normalized = result.content.replace(/\r\n/g, '\n');
+  savedContent = normalized;
+  return normalized;
+}
+
+function createEditorView(container: HTMLElement, content: string) {
+  const isReadOnly = tab.value?.readOnly ?? false;
+  const lang = tab.value ? getLanguage(tab.value.path) : null;
+  const extensions = [
+    oneDark,
+    lineNumbers(),
+    highlightActiveLine(),
+    EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        updateDirtyState();
+        bumpDocVersion();
+      }
+      if (update.selectionSet || update.docChanged) updateCursorInfo();
+    }),
+    EditorView.theme({
+      "&": { height: "100%", fontSize: "13px" },
+      ".cm-scroller": {
+        fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
+      },
+    }),
+  ];
+  if (!isReadOnly) {
+    extensions.push(keymap.of([
+      ...defaultKeymap,
+      indentWithTab,
+      { key: "Mod-s", run: () => { save(); return true; } },
+    ]));
+  } else {
+    extensions.push(EditorState.readOnly.of(true));
+    extensions.push(keymap.of(defaultKeymap));
+  }
+  if (lang) extensions.push(lang);
+
+  return new EditorView({
+    state: EditorState.create({ doc: content, extensions }),
+    parent: container,
+  });
+}
+
+async function reopenWithEncoding(encoding: string) {
+  if (!editorRef.value || !tab.value) return;
+  loading.value = true;
+  try {
+    editorView?.destroy();
+    editorView = null;
+    const content = await loadContent(encoding);
+    if (!editorRef.value) return;
+    loading.value = false;
+    editorView = createEditorView(editorRef.value, content);
+    if (viewMode.value === 'split') {
+      editorView.scrollDOM.addEventListener('scroll', onEditorScroll);
+    }
+    isDirty.value = false;
+    updateTitle();
+    updateCursorInfo();
+  } catch (e) {
+    loading.value = false;
+    error.value = String(e);
+  }
+}
+
+function changeLineEnding(le: 'LF' | 'CRLF') {
+  currentLineEnding.value = le;
+  // Mark as dirty since the save output will differ
+  if (!isDirty.value) {
+    isDirty.value = true;
+    updateTitle();
+  }
+  updateCursorInfo();
+}
+
 onMounted(async () => {
   if (!editorRef.value || !tab.value) return;
-  const project = projectStore.currentProject;
-  if (!project) return;
 
   try {
-    const content = await fsReadFile(project.shell, tab.value.path);
-    if (!editorRef.value) return; // component unmounted during load
-    savedContent = content;
+    const content = await loadContent();
+    if (!editorRef.value) return;
     loading.value = false;
+    editorView = createEditorView(editorRef.value, content);
+    updateCursorInfo();
 
-    const lang = getLanguage(tab.value.path);
-    const extensions = [
-      oneDark,
-      lineNumbers(),
-      highlightActiveLine(),
-      keymap.of([
-        ...defaultKeymap,
-        indentWithTab,
-        { key: "Mod-s", run: () => { save(); return true; } },
-      ]),
-      EditorView.updateListener.of((update) => {
-        if (update.docChanged) updateDirtyState();
-      }),
-      EditorView.theme({
-        "&": {
-          height: "100%",
-          fontSize: "13px",
-        },
-        ".cm-scroller": {
-          fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
-        },
-      }),
-    ];
-    if (lang) extensions.push(lang);
-
-    editorView = new EditorView({
-      state: EditorState.create({ doc: content, extensions }),
-      parent: editorRef.value,
-    });
+    // Register callbacks for StatusBar to change encoding/line ending
+    editorInfo.registerCallbacks(
+      (enc) => reopenWithEncoding(enc),
+      (le) => changeLineEnding(le),
+      (enc) => save(enc),
+    );
   } catch (e) {
     loading.value = false;
     error.value = String(e);
   }
 });
 
-// Refit editor when tab becomes active
+// Scroll sync
+function onEditorScroll() {
+  if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return;
+  const scroller = editorView.scrollDOM;
+  const ratio = scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight || 1);
+  syncingScroll = true;
+  previewRef.value.scrollTop = ratio * (previewRef.value.scrollHeight - previewRef.value.clientHeight);
+  requestAnimationFrame(() => { syncingScroll = false; });
+}
+
+function onPreviewScroll() {
+  if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return;
+  const preview = previewRef.value;
+  const ratio = preview.scrollTop / (preview.scrollHeight - preview.clientHeight || 1);
+  syncingScroll = true;
+  const scroller = editorView.scrollDOM;
+  scroller.scrollTop = ratio * (scroller.scrollHeight - scroller.clientHeight);
+  requestAnimationFrame(() => { syncingScroll = false; });
+}
+
+watch(
+  () => viewMode.value,
+  (mode) => {
+    if (mode === 'split' && editorView) {
+      editorView.scrollDOM.addEventListener('scroll', onEditorScroll);
+    } else if (editorView) {
+      editorView.scrollDOM.removeEventListener('scroll', onEditorScroll);
+    }
+  }
+);
+
 watch(
   () => tabStore.activeTabId,
   (id) => {
     if (id === props.tabId && editorView) {
       editorView.requestMeasure();
+      updateCursorInfo();
+      editorInfo.registerCallbacks(
+        (enc) => reopenWithEncoding(enc),
+        (le) => changeLineEnding(le),
+      );
+    } else if (id !== props.tabId) {
+      editorInfo.clear();
     }
   }
 );
 
 onUnmounted(() => {
+  if (docVersionTimer) clearTimeout(docVersionTimer);
+  editorView?.scrollDOM.removeEventListener('scroll', onEditorScroll);
   editorView?.destroy();
   editorView = null;
+  if (tabStore.activeTabId === props.tabId) {
+    editorInfo.clear();
+  }
 });
 </script>
 
 <template>
   <div class="editor-tab">
+    <div v-if="isMarkdown && !loading && !error" class="preview-toolbar">
+      <button class="preview-toggle" :class="{ active: viewMode === 'edit' }" @click="viewMode = 'edit'">Edit</button>
+      <button class="preview-toggle" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'">Split</button>
+      <button class="preview-toggle" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'">Preview</button>
+    </div>
     <div v-if="loading" class="editor-status">Loading...</div>
     <div v-else-if="error" class="editor-status error">{{ error }}</div>
-    <div ref="editorRef" class="editor-container"></div>
+    <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error">
+      <div v-show="showEditor" ref="editorRef" class="editor-container"></div>
+      <div v-if="showPreview" ref="previewRef" class="md-preview" v-html="previewHtml" @scroll="onPreviewScroll"></div>
+    </div>
     <div v-if="saving" class="save-indicator">Saving...</div>
   </div>
 </template>
@@ -138,14 +318,126 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
+.preview-toolbar {
+  display: flex;
+  gap: 1px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.preview-toggle {
+  padding: 3px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.preview-toggle.active {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.preview-toggle:hover:not(.active) {
+  background: var(--tab-hover-bg);
+}
+
+.editor-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.editor-body.split {
+  flex-direction: row;
+}
+
+.editor-body.split > .editor-container,
+.editor-body.split > .md-preview {
+  width: 50%;
+  border-right: 1px solid var(--border);
+}
+
+.editor-body.split > .md-preview {
+  border-right: none;
+}
+
 .editor-container {
   flex: 1;
   overflow: auto;
+  min-width: 0;
 }
 
 .editor-container :deep(.cm-editor) {
   height: 100%;
 }
+
+.md-preview {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 24px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.md-preview :deep(h1),
+.md-preview :deep(h2),
+.md-preview :deep(h3),
+.md-preview :deep(h4) {
+  color: var(--text-active);
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+}
+
+.md-preview :deep(h1) { font-size: 1.8em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.md-preview :deep(h2) { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+.md-preview :deep(h3) { font-size: 1.15em; }
+
+.md-preview :deep(code) {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: "PlemolJP Console NF", "Cascadia Code", monospace;
+  font-size: 0.9em;
+}
+
+.md-preview :deep(pre) {
+  background: var(--bg-tertiary);
+  padding: 12px 16px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.md-preview :deep(pre code) {
+  background: transparent;
+  padding: 0;
+}
+
+.md-preview :deep(blockquote) {
+  border-left: 3px solid var(--accent);
+  margin: 0;
+  padding: 4px 16px;
+  color: var(--text-secondary);
+}
+
+.md-preview :deep(a) { color: var(--accent); }
+
+.md-preview :deep(table) { border-collapse: collapse; width: 100%; }
+.md-preview :deep(th),
+.md-preview :deep(td) { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
+.md-preview :deep(th) { background: var(--bg-tertiary); }
+
+.md-preview :deep(img) { max-width: 100%; }
+.md-preview :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+.md-preview :deep(ul),
+.md-preview :deep(ol) { padding-left: 1.5em; }
 
 .editor-status {
   display: flex;

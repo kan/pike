@@ -1,4 +1,4 @@
-# DevTerm
+# Hearth
 
 軽量な AI コーディング特化開発環境。Tauri v2 (Rust + Vue/TypeScript) 製、Windows 向け。
 

@@ -169,6 +169,13 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - CodeMirror 6 でエディタタブ。oneDark テーマ、29言語のシンタックスハイライト対応
 - Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）
 - ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
+- 画像プレビュータブ（base64 経由）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
+- 文字コード対応: `encoding_rs` で自動検出 + 指定エンコードでの開き直し/保存（StatusBar 2段階 UI）
+- 改行コード LF/CRLF 切替（StatusBar クリック）、保存時に適用
+- ファイルツリーコンテキストメニュー: リネーム（インライン入力）、削除（confirm）、Git History（専用タブ）
+- ドラッグ&ドロップ移動 + Ctrl でコピー（`dragDropEnabled: false` で Tauri ネイティブ D&D を無効化）
+- ダーティエディタタブの閉じ確認ダイアログ
+- WSL コマンドにパス引数前の `--` を付与（フラグ injection 防止）
 
 ### Git 統合
 - `git` CLI 経由（WSL/Windows 両対応）。`git2` クレートは使わない

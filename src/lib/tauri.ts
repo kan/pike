@@ -87,12 +87,33 @@ export async function fsListDir(shell: ShellType, path: string): Promise<FsEntry
   return invoke<FsEntry[]>("fs_list_dir", { shell, path });
 }
 
-export async function fsReadFile(shell: ShellType, path: string): Promise<string> {
-  return invoke<string>("fs_read_file", { shell, path });
+export interface FileReadResult {
+  content: string;
+  encoding: string;
 }
 
-export async function fsWriteFile(shell: ShellType, path: string, content: string): Promise<void> {
-  return invoke("fs_write_file", { shell, path, content });
+export async function fsReadFile(shell: ShellType, path: string, encoding?: string): Promise<FileReadResult> {
+  return invoke<FileReadResult>("fs_read_file", { shell, path, encoding: encoding ?? null });
+}
+
+export async function fsWriteFile(shell: ShellType, path: string, content: string, encoding?: string): Promise<void> {
+  return invoke("fs_write_file", { shell, path, content, encoding: encoding ?? null });
+}
+
+export async function fsReadFileBase64(shell: ShellType, path: string): Promise<string> {
+  return invoke<string>("fs_read_file_base64", { shell, path });
+}
+
+export async function fsRename(shell: ShellType, oldPath: string, newPath: string): Promise<void> {
+  return invoke("fs_rename", { shell, oldPath, newPath });
+}
+
+export async function fsDelete(shell: ShellType, path: string): Promise<void> {
+  return invoke("fs_delete", { shell, path });
+}
+
+export async function fsCopy(shell: ShellType, source: string, dest: string): Promise<void> {
+  return invoke("fs_copy", { shell, source, dest });
 }
 
 // Git
@@ -143,4 +164,12 @@ export async function gitShowFiles(root: string, shell: ShellType, hash: string)
 
 export async function gitDiffCommit(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
   return invoke<string>("git_diff_commit", { root, shell, hash, path });
+}
+
+export async function gitShowFile(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
+  return invoke<string>("git_show_file", { root, shell, hash, path });
+}
+
+export async function gitLogFile(root: string, shell: ShellType, path: string, count?: number): Promise<GitLogEntry[]> {
+  return invoke<GitLogEntry[]>("git_log_file", { root, shell, path, count: count ?? null });
 }

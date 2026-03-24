@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { ptyKill } from '../lib/tauri'
 import { ptyRouter } from '../composables/usePtyRouter'
-import type { Tab, TerminalTab, EditorTab, DiffTab, ShellType } from '../types/tab'
+import type { Tab, TerminalTab, EditorTab, DiffTab, PreviewTab, HistoryTab, ShellType } from '../types/tab'
 import { basename } from '../lib/paths'
 
 let counter = 0
@@ -47,6 +47,14 @@ export const useTabStore = defineStore('tabs', () => {
     if (idx === -1) return
     if (tabs.value[idx].pinned) return
 
+    // Confirm close if editor tab has unsaved changes (title ends with *)
+    const tab = tabs.value[idx]
+    if (tab.kind === 'editor' && tab.title.endsWith(' *')) {
+      if (!confirm(`"${tab.title.slice(0, -2)}" has unsaved changes. Close without saving?`)) {
+        return
+      }
+    }
+
     tabs.value.splice(idx, 1)
 
     if (activeTabId.value === id) {
@@ -80,22 +88,74 @@ export const useTabStore = defineStore('tabs', () => {
     }
   }
 
-  function addEditorTab(options: { path: string }): string {
-    const existing = tabs.value.find(
-      (t): t is EditorTab => t.kind === 'editor' && t.path === options.path
-    )
-    if (existing) {
-      activeTabId.value = existing.id
-      return existing.id
+  function addEditorTab(options: {
+    path: string
+    readOnly?: boolean
+    initialContent?: string
+    titleSuffix?: string
+  }): string {
+    // For read-only tabs with initialContent, don't deduplicate (each revision is unique)
+    if (!options.initialContent) {
+      const existing = tabs.value.find(
+        (t): t is EditorTab => t.kind === 'editor' && t.path === options.path && !t.readOnly
+      )
+      if (existing) {
+        activeTabId.value = existing.id
+        return existing.id
+      }
     }
     const id = genId()
-    const fileName = basename(options.path)
+    const fileName = basename(options.path) + (options.titleSuffix ?? '')
     tabs.value.push({
       id,
       kind: 'editor',
       title: fileName,
       pinned: false,
       path: options.path,
+      readOnly: options.readOnly,
+      initialContent: options.initialContent,
+    })
+    activeTabId.value = id
+    return id
+  }
+
+  function addPreviewTab(options: { path: string; dataUrl: string }): string {
+    const existing = tabs.value.find(
+      (t): t is PreviewTab => t.kind === 'preview' && t.path === options.path
+    )
+    if (existing) {
+      existing.dataUrl = options.dataUrl
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    tabs.value.push({
+      id,
+      kind: 'preview',
+      title: basename(options.path),
+      pinned: false,
+      path: options.path,
+      dataUrl: options.dataUrl,
+    })
+    activeTabId.value = id
+    return id
+  }
+
+  function addHistoryTab(options: { filePath: string }): string {
+    const existing = tabs.value.find(
+      (t): t is HistoryTab => t.kind === 'history' && t.filePath === options.filePath
+    )
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    tabs.value.push({
+      id,
+      kind: 'history',
+      title: basename(options.filePath) + ' (history)',
+      pinned: false,
+      filePath: options.filePath,
     })
     activeTabId.value = id
     return id
@@ -171,6 +231,8 @@ export const useTabStore = defineStore('tabs', () => {
     activeTab,
     addTerminalTab,
     addEditorTab,
+    addPreviewTab,
+    addHistoryTab,
     addDiffTab,
     closeTab,
     clearAllTabs,

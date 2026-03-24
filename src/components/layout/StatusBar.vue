@@ -2,9 +2,11 @@
 import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import { useProjectStore } from "../../stores/project";
 import { useGitStore } from "../../stores/git";
+import { useEditorInfo } from "../../composables/useEditorInfo";
 
 const projectStore = useProjectStore();
 const gitStore = useGitStore();
+const editorInfo = useEditorInfo();
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)
 watch(
@@ -16,6 +18,61 @@ watch(
   },
   { immediate: true }
 );
+
+// Encoding dropdown (2-step: pick encoding → pick action)
+const encodings = ['UTF-8', 'Shift_JIS', 'EUC-JP', 'ISO-2022-JP', 'ISO-8859-1', 'UTF-16LE', 'UTF-16BE', 'Windows-1252'];
+const showEncodingMenu = ref(false);
+const showEncodingAction = ref(false);
+const selectedEncoding = ref('');
+const showLineEndingMenu = ref(false);
+
+function toggleEncodingMenu() {
+  showLineEndingMenu.value = false;
+  showEncodingAction.value = false;
+  showEncodingMenu.value = !showEncodingMenu.value;
+  if (showEncodingMenu.value) {
+    nextTick(() => window.addEventListener("mousedown", closeEncodingMenu, { once: true }));
+  }
+}
+
+function closeEncodingMenu() {
+  showEncodingMenu.value = false;
+  showEncodingAction.value = false;
+}
+
+function selectEncoding(enc: string) {
+  selectedEncoding.value = enc;
+  showEncodingMenu.value = false;
+  showEncodingAction.value = true;
+  nextTick(() => window.addEventListener("mousedown", closeEncodingMenu, { once: true }));
+}
+
+function reopenWithEncoding() {
+  closeEncodingMenu();
+  editorInfo.requestEncodingChange(selectedEncoding.value);
+}
+
+function saveWithEncoding() {
+  closeEncodingMenu();
+  editorInfo.requestSaveWithEncoding(selectedEncoding.value);
+}
+
+function toggleLineEndingMenu() {
+  showEncodingMenu.value = false;
+  showLineEndingMenu.value = !showLineEndingMenu.value;
+  if (showLineEndingMenu.value) {
+    nextTick(() => window.addEventListener("mousedown", closeLineEndingMenu, { once: true }));
+  }
+}
+
+function closeLineEndingMenu() {
+  showLineEndingMenu.value = false;
+}
+
+function selectLineEnding(le: 'LF' | 'CRLF') {
+  closeLineEndingMenu();
+  editorInfo.requestLineEndingChange(le);
+}
 
 // Branch switcher dropdown
 const showBranches = ref(false);
@@ -48,6 +105,8 @@ async function onSelectBranch(branch: string) {
 
 onUnmounted(() => {
   window.removeEventListener("mousedown", closeBranches);
+  window.removeEventListener("mousedown", closeEncodingMenu);
+  window.removeEventListener("mousedown", closeLineEndingMenu);
   gitStore.stopPolling();
 });
 </script>
@@ -62,6 +121,30 @@ onUnmounted(() => {
     </button>
 
     <div class="spacer"></div>
+
+    <!-- Editor info -->
+    <template v-if="editorInfo.current.value">
+      <span class="status-text">Ln {{ editorInfo.current.value.line }}, Col {{ editorInfo.current.value.col }}</span>
+      <div class="status-dropdown-area">
+        <button class="status-item clickable small" @click="toggleEncodingMenu">{{ editorInfo.current.value.encoding }}</button>
+        <div v-if="showEncodingMenu" class="status-dropdown" @mousedown.stop>
+          <button v-for="enc in encodings" :key="enc" @click="selectEncoding(enc)">{{ enc }}</button>
+        </div>
+        <div v-if="showEncodingAction" class="status-dropdown" @mousedown.stop>
+          <div class="dropdown-label">{{ selectedEncoding }}</div>
+          <button @click="reopenWithEncoding">Reopen with this encoding</button>
+          <button @click="saveWithEncoding">Save with this encoding</button>
+        </div>
+      </div>
+      <div class="status-dropdown-area">
+        <button class="status-item clickable small" @click="toggleLineEndingMenu">{{ editorInfo.current.value.lineEnding }}</button>
+        <div v-if="showLineEndingMenu" class="status-dropdown" @mousedown.stop>
+          <button @click="selectLineEnding('LF')">LF (Unix)</button>
+          <button @click="selectLineEnding('CRLF')">CRLF (Windows)</button>
+        </div>
+      </div>
+      <span class="status-text">{{ editorInfo.current.value.fileType }}</span>
+    </template>
 
     <div v-if="gitStore.status" class="branch-area">
       <button class="status-item clickable" @click="openBranchSwitcher">
@@ -130,6 +213,58 @@ onUnmounted(() => {
 
 .spacer {
   flex: 1;
+}
+
+.status-text {
+  padding: 0 6px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.status-item.small {
+  font-size: 11px;
+  padding: 0 4px;
+}
+
+.status-dropdown-area {
+  position: relative;
+}
+
+.status-dropdown {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  min-width: 140px;
+  max-height: 250px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+}
+
+.status-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.status-dropdown button:hover {
+  background: var(--tab-hover-bg);
+}
+
+.dropdown-label {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
 }
 
 .branch-icon {

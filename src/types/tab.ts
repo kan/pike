@@ -81,6 +81,17 @@ export type EditorTab = {
   title: string
   pinned: boolean
   path: string
+  readOnly?: boolean
+  initialContent?: string
+}
+
+export type PreviewTab = {
+  id: string
+  kind: 'preview'
+  title: string
+  pinned: boolean
+  path: string
+  dataUrl: string
 }
 
 export type DockerLogsTab = {
@@ -103,6 +114,14 @@ export type DiffTab = {
   staged?: boolean
 }
 
-export type Tab = TerminalTab | EditorTab | DockerLogsTab | DiffTab
+export type HistoryTab = {
+  id: string
+  kind: 'history'
+  title: string
+  pinned: boolean
+  filePath: string
+}
+
+export type Tab = TerminalTab | EditorTab | DockerLogsTab | DiffTab | PreviewTab | HistoryTab
 
 export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects'

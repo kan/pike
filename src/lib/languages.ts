@@ -90,6 +90,31 @@ const NAME_MAP: Record<string, () => LanguageSupport> = {
   ".gitignore": () => legacy(shell),
 };
 
+const LABEL_MAP: Record<string, string> = {
+  ts: 'TypeScript', tsx: 'TypeScript (JSX)',
+  js: 'JavaScript', jsx: 'JavaScript (JSX)', mjs: 'JavaScript',
+  rs: 'Rust', go: 'Go', py: 'Python', rb: 'Ruby',
+  pl: 'Perl', pm: 'Perl', java: 'Java', kt: 'Kotlin', kts: 'Kotlin',
+  scala: 'Scala', swift: 'Swift', c: 'C', h: 'C', cpp: 'C++',
+  cc: 'C++', cxx: 'C++', hpp: 'C++', cs: 'C#', m: 'Objective-C',
+  php: 'PHP', phtml: 'PHP', json: 'JSON', jsonc: 'JSON',
+  md: 'Markdown', yaml: 'YAML', yml: 'YAML', toml: 'TOML',
+  html: 'HTML', htm: 'HTML', vue: 'Vue', svg: 'SVG',
+  css: 'CSS', scss: 'SCSS', sql: 'SQL', lua: 'Lua',
+  sh: 'Shell', bash: 'Shell', zsh: 'Shell',
+  ps1: 'PowerShell', psm1: 'PowerShell',
+  dockerfile: 'Dockerfile', diff: 'Diff', patch: 'Diff',
+  conf: 'Nginx', proto: 'Protobuf',
+};
+
+export function getLanguageLabel(filename: string): string {
+  const name = filename.split(/[/\\]/).pop()?.toLowerCase() ?? '';
+  if (name === 'dockerfile') return 'Dockerfile';
+  if (name === 'makefile') return 'Makefile';
+  const ext = name.split('.').pop() ?? '';
+  return LABEL_MAP[ext] ?? 'Plain Text';
+}
+
 export function getLanguage(filename: string): LanguageSupport | null {
   const name = filename.split(/[/\\]/).pop()?.toLowerCase() ?? "";
   if (NAME_MAP[name]) return NAME_MAP[name]();

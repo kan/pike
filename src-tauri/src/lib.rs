@@ -46,6 +46,10 @@ pub fn run() {
             fs::fs_list_dir,
             fs::fs_read_file,
             fs::fs_write_file,
+            fs::fs_read_file_base64,
+            fs::fs_rename,
+            fs::fs_delete,
+            fs::fs_copy,
             git::git_status,
             git::git_log,
             git::git_diff,
@@ -57,6 +61,8 @@ pub fn run() {
             git::git_push,
             git::git_pull,
             git::git_show_files,
+            git::git_show_file,
+            git::git_log_file,
             git::git_diff_commit,
         ])
         .run(tauri::generate_context!())
