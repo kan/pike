@@ -10,6 +10,7 @@ import {
   projectSetLast,
 } from '../lib/tauri'
 import { useTabStore } from './tabs'
+import { useSearchStore } from './search'
 
 export const useProjectStore = defineStore('project', () => {
   const projects = ref<ProjectConfig[]>([])
@@ -38,8 +39,12 @@ export const useProjectStore = defineStore('project', () => {
 
   async function switchProject(id: string) {
     const tabStore = useTabStore()
+    const searchStore = useSearchStore()
     const project = projects.value.find((p) => p.id === id)
     if (!project) return
+
+    searchStore.clear()
+    searchStore.backend = null
 
     await tabStore.clearAllTabs()
 

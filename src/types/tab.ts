@@ -83,6 +83,7 @@ export type EditorTab = {
   path: string
   readOnly?: boolean
   initialContent?: string
+  initialLine?: number
 }
 
 export type PreviewTab = {

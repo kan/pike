@@ -218,6 +218,8 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - rg: `rg --json -F/-e --glob` でパース容易な出力
 - grep: `grep -rn --include/--exclude` でフォールバック
 - フロントには検索バックエンドをバッジ表示
+- 結果クリックでエディタタブを開き、`initialLine` で該当行にジャンプ
+- 最大 500 件で truncate、デバウンス 300ms
 
 ---
 

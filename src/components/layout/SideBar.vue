@@ -7,9 +7,12 @@ import ProjectPanel from "../panels/ProjectPanel.vue";
 import FileTreePanel from "../panels/FileTreePanel.vue";
 import GitPanel from "../panels/GitPanel.vue";
 import DockerPanel from "../panels/DockerPanel.vue";
+import SearchPanel from "../panels/SearchPanel.vue";
+import { useSearchStore } from "../../stores/search";
 
 const sidebar = useSidebarStore();
 const gitStore = useGitStore();
+const searchStore = useSearchStore();
 
 const fileTreeRef = ref<{ refresh: () => void } | null>(null);
 
@@ -74,6 +77,9 @@ onUnmounted(() => {
         <div v-if="sidebar.activePanel === 'files'" class="header-actions">
           <button class="header-btn" title="Refresh" @click="fileTreeRef?.refresh()">R</button>
         </div>
+        <div v-if="sidebar.activePanel === 'search'" class="header-actions">
+          <span class="backend-badge">{{ searchStore.backend ?? '...' }}</span>
+        </div>
         <div v-if="sidebar.activePanel === 'git'" class="header-actions">
           <button class="header-btn" :class="{ spinning: gitStore.pulling }" :disabled="gitStore.pulling" title="Pull" @click="gitStore.pull()">↓</button>
           <button class="header-btn" :class="{ spinning: gitStore.pushing }" :disabled="gitStore.pushing" title="Push" @click="gitStore.push()">↑</button>
@@ -83,6 +89,7 @@ onUnmounted(() => {
         <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
         <FileTreePanel v-else-if="sidebar.activePanel === 'files'" ref="fileTreeRef" />
         <GitPanel v-else-if="sidebar.activePanel === 'git'" />
+        <SearchPanel v-else-if="sidebar.activePanel === 'search'" />
         <DockerPanel v-else-if="sidebar.activePanel === 'docker'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
@@ -197,6 +204,13 @@ onUnmounted(() => {
 
 .header-btn.spinning {
   animation: spin 1s linear infinite;
+}
+
+.backend-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: lowercase;
 }
 
 @keyframes spin {

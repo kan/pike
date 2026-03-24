@@ -1,6 +1,7 @@
 mod docker;
 mod fs;
 mod git;
+mod search;
 mod project;
 mod pty;
 mod types;
@@ -63,6 +64,8 @@ pub fn run() {
             docker::docker_restart,
             docker::docker_logs_start,
             docker::docker_logs_stop,
+            search::search_detect_backend,
+            search::search_execute,
             git::git_status,
             git::git_log,
             git::git_diff,

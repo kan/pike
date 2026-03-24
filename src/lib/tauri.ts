@@ -3,6 +3,7 @@ import type { ShellType } from "../types/tab";
 import type { ProjectConfig } from "../types/project";
 import type { GitStatusResult, GitLogEntry, GitFileChange } from "../types/git";
 import type { ComposeService, ContainerInfo } from "../types/docker";
+import type { SearchResult, SearchBackend } from "../types/search";
 
 // PTY
 
@@ -173,6 +174,30 @@ export async function gitShowFile(root: string, shell: ShellType, hash: string, 
 
 export async function gitLogFile(root: string, shell: ShellType, path: string, count?: number): Promise<GitLogEntry[]> {
   return invoke<GitLogEntry[]>("git_log_file", { root, shell, path, count: count ?? null });
+}
+
+// Search
+
+export async function searchDetectBackend(shell: ShellType): Promise<SearchBackend> {
+  return invoke<SearchBackend>("search_detect_backend", { shell });
+}
+
+export async function searchExecute(
+  shell: ShellType,
+  root: string,
+  query: string,
+  backend: SearchBackend,
+  isRegex: boolean,
+  globInclude?: string,
+  globExclude?: string,
+  maxResults?: number,
+): Promise<SearchResult> {
+  return invoke<SearchResult>("search_execute", {
+    shell, root, query, backend, isRegex,
+    globInclude: globInclude ?? null,
+    globExclude: globExclude ?? null,
+    maxResults: maxResults ?? null,
+  });
 }
 
 // Docker

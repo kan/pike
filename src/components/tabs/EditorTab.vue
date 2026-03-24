@@ -212,6 +212,17 @@ function changeLineEnding(le: 'LF' | 'CRLF') {
   updateCursorInfo();
 }
 
+function jumpToLine(lineNum?: number) {
+  if (!lineNum || !editorView) return;
+  const docLines = editorView.state.doc.lines;
+  const line = editorView.state.doc.line(Math.min(lineNum, docLines));
+  editorView.dispatch({
+    selection: { anchor: line.from },
+    effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+  });
+  if (tab.value) tab.value.initialLine = undefined;
+}
+
 onMounted(async () => {
   if (!editorRef.value || !tab.value) return;
 
@@ -220,6 +231,7 @@ onMounted(async () => {
     if (!editorRef.value) return;
     loading.value = false;
     editorView = createEditorView(editorRef.value, content);
+    jumpToLine(tab.value?.initialLine);
     updateCursorInfo();
 
     // Register callbacks for StatusBar to change encoding/line ending
@@ -253,6 +265,14 @@ function onPreviewScroll() {
   scroller.scrollTop = ratio * (scroller.scrollHeight - scroller.clientHeight);
   requestAnimationFrame(() => { syncingScroll = false; });
 }
+
+// Jump to line when initialLine changes on an existing tab
+watch(
+  () => tab.value?.initialLine,
+  (lineNum) => {
+    if (lineNum) jumpToLine(lineNum);
+  }
+);
 
 watch(
   () => viewMode.value,

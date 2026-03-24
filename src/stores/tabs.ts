@@ -93,13 +93,16 @@ export const useTabStore = defineStore('tabs', () => {
     readOnly?: boolean
     initialContent?: string
     titleSuffix?: string
+    initialLine?: number
   }): string {
-    // For read-only tabs with initialContent, don't deduplicate (each revision is unique)
     if (!options.initialContent) {
       const existing = tabs.value.find(
         (t): t is EditorTab => t.kind === 'editor' && t.path === options.path && !t.readOnly
       )
       if (existing) {
+        if (options.initialLine) {
+          existing.initialLine = options.initialLine
+        }
         activeTabId.value = existing.id
         return existing.id
       }
@@ -114,6 +117,7 @@ export const useTabStore = defineStore('tabs', () => {
       path: options.path,
       readOnly: options.readOnly,
       initialContent: options.initialContent,
+      initialLine: options.initialLine,
     })
     activeTabId.value = id
     return id
