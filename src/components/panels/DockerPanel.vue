@@ -4,7 +4,8 @@ import { useDockerStore } from "../../stores/docker";
 import { useTabStore } from "../../stores/tabs";
 import { useProjectStore } from "../../stores/project";
 import { useSidebarStore } from "../../stores/sidebar";
-import { Play, Square, RefreshCw, ScrollText } from "lucide-vue-next";
+import { Play, Square, RefreshCw, ScrollText, Terminal } from "lucide-vue-next";
+import { dockerDetectShell } from "../../lib/tauri";
 
 const dockerStore = useDockerStore();
 const tabStore = useTabStore();
@@ -34,6 +35,20 @@ const serviceContainers = computed(() => {
 
 function openLogs(containerId: string, containerName: string) {
   tabStore.addDockerLogsTab({ containerId, containerName });
+}
+
+async function openShell(containerId: string, containerName: string) {
+  try {
+    const shell = await dockerDetectShell(containerId);
+    const project = projectStore.currentProject;
+    tabStore.addTerminalTab({
+      title: `${containerName} shell`,
+      shell: project?.shell,
+      autoStart: `docker exec -it ${containerId} ${shell}`,
+    });
+  } catch (e) {
+    dockerStore.error = String(e);
+  }
 }
 
 function refreshIfActive() {
@@ -98,6 +113,11 @@ onUnmounted(() => dockerStore.stopPolling());
                 title="Logs"
                 @click="openLogs(serviceContainers[svc.name]!.id, svc.name)"
               ><ScrollText :size="12" :stroke-width="2" /></button>
+              <button
+                v-if="serviceContainers[svc.name]!.state === 'running'"
+                title="Shell"
+                @click="openShell(serviceContainers[svc.name]!.id, svc.name)"
+              ><Terminal :size="12" :stroke-width="2" /></button>
             </template>
           </div>
         </div>

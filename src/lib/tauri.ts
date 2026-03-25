@@ -244,6 +244,10 @@ export async function dockerLogsStop(streamId: string): Promise<void> {
   return invoke("docker_logs_stop", { streamId });
 }
 
+export async function dockerDetectShell(containerId: string): Promise<string> {
+  return invoke<string>("docker_detect_shell", { containerId });
+}
+
 // Font
 
 export async function fontListMonospace(): Promise<string[]> {

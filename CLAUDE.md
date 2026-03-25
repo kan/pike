@@ -211,6 +211,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - start / stop / restart / refresh を UI から実行、5秒ポーリングで状態更新
 - ログストリーミングは 50ms バッファリング + Tauri イベント emit
 - DockerLogsTab は xterm.js ベース（読み取り専用、`convertEol: true`）
+- `docker exec` シェル: bollard exec API でコンテナ内シェルを検出（bash → sh フォールバック）、プロジェクトのシェル内で `docker exec -it` を autoStart 実行
 
 ### セッション永続化
 - タブの並び順・アクティブタブ・種別を `ProjectConfig.lastSession` に保存

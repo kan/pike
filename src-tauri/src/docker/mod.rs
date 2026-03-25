@@ -3,6 +3,7 @@ use bollard::container::{
     ListContainersOptions, LogsOptions, RestartContainerOptions, StartContainerOptions,
     StopContainerOptions,
 };
+use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::Docker;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -283,6 +284,47 @@ pub async fn docker_logs_start(
         .insert(stream_id.clone(), handle);
 
     Ok(stream_id)
+}
+
+#[tauri::command]
+pub async fn docker_detect_shell(
+    container_id: String,
+    state: State<'_, DockerState>,
+) -> Result<String, String> {
+    let docker = get_docker(&state).await?;
+    let exec = docker
+        .create_exec(
+            &container_id,
+            CreateExecOptions::<&str> {
+                cmd: Some(vec!["sh", "-c", "test -x /bin/bash && echo bash || echo sh"]),
+                attach_stdout: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut shell_name = String::new();
+    if let StartExecResults::Attached { mut output, .. } =
+        docker.start_exec(&exec.id, None).await.map_err(|e| e.to_string())?
+    {
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while let Some(Ok(msg)) = output.next().await {
+                shell_name.push_str(&msg.to_string());
+            }
+        })
+        .await;
+        if result.is_err() {
+            return Err("Shell detection timed out".into());
+        }
+    }
+
+    let name = shell_name.trim();
+    if name == "bash" {
+        Ok("/bin/bash".to_string())
+    } else {
+        Ok("/bin/sh".to_string())
+    }
 }
 
 #[tauri::command]

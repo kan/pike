@@ -95,6 +95,7 @@ pub fn run() {
             docker::docker_restart,
             docker::docker_logs_start,
             docker::docker_logs_stop,
+            docker::docker_detect_shell,
             search::search_detect_backend,
             search::search_execute,
             git::git_status,
