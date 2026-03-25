@@ -176,6 +176,16 @@ export async function gitLogFile(root: string, shell: ShellType, path: string, c
   return invoke<GitLogEntry[]>("git_log_file", { root, shell, path, count: count ?? null });
 }
 
+export interface GitDiffLines {
+  added: [number, number][]
+  modified: [number, number][]
+  deleted: number[]
+}
+
+export async function gitDiffLines(root: string, shell: ShellType, path: string): Promise<GitDiffLines> {
+  return invoke<GitDiffLines>("git_diff_lines", { root, shell, path });
+}
+
 // Search
 
 export async function searchDetectBackend(shell: ShellType): Promise<SearchBackend> {

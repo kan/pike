@@ -6,6 +6,7 @@ export interface EditorInfo {
   encoding: string
   lineEnding: 'LF' | 'CRLF'
   fileType: string
+  tabSize: number
   tabId: string
 }
 

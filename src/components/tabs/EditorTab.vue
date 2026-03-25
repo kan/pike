@@ -1,22 +1,35 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { EditorView, lineNumbers, highlightActiveLine, keymap } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
-import { defaultKeymap, indentWithTab } from "@codemirror/commands";
+import { EditorState, Compartment } from "@codemirror/state";
+import { defaultKeymap, indentWithTab, history, historyKeymap, undo, redo } from "@codemirror/commands";
+import { indentUnit } from "@codemirror/language";
+import { highlightSelectionMatches } from "@codemirror/search";
+import { editorSearch, searchKeymap } from "../../lib/editorSearch";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { useTabStore } from "../../stores/tabs";
 import { useProjectStore } from "../../stores/project";
-import { fsReadFile, fsWriteFile } from "../../lib/tauri";
+import { useSettingsStore } from "../../stores/settings";
+import { fsReadFile, fsWriteFile, gitDiffLines } from "../../lib/tauri";
 import { getLanguage, getLanguageLabel } from "../../lib/languages";
 import { basename, extension } from "../../lib/paths";
 import { useEditorInfo } from "../../composables/useEditorInfo";
+import { gitDiffGutter, setDiffLines } from "../../lib/editorGitGutter";
+import { minimap } from "../../lib/editorMinimap";
 import { marked } from "marked";
 import type { EditorTab } from "../../types/tab";
 
 const props = defineProps<{ tabId: string }>();
 const tabStore = useTabStore();
 const projectStore = useProjectStore();
+const settingsStore = useSettingsStore();
 const editorInfo = useEditorInfo();
+
+// Dynamic compartments for settings that can change at runtime
+const minimapCompartment = new Compartment();
+const wordWrapCompartment = new Compartment();
+const tabSizeCompartment = new Compartment();
+const indentUnitCompartment = new Compartment();
 
 const tab = computed(() =>
   tabStore.tabs.find((t): t is EditorTab => t.id === props.tabId && t.kind === "editor")
@@ -88,6 +101,7 @@ function updateCursorInfo() {
     encoding: currentEncoding.value,
     lineEnding: currentLineEnding.value,
     fileType: getLanguageLabel(tab.value.path),
+    tabSize: settingsStore.editorTabSize,
     tabId: props.tabId,
   });
 }
@@ -112,6 +126,7 @@ async function save(overrideEncoding?: string) {
     }
     savedContent = editorView.state.doc.toString();
     updateDirtyState();
+    refreshDiffGutter();
   } catch (e) {
     error.value = String(e);
   } finally {
@@ -141,13 +156,91 @@ async function loadContent(encoding?: string): Promise<string> {
   return normalized;
 }
 
+// --- Git diff gutter ---
+async function refreshDiffGutter() {
+  if (!editorView || !tab.value || tab.value.readOnly || tab.value.initialContent !== undefined) return;
+  const project = projectStore.currentProject;
+  if (!project) return;
+  try {
+    const diff = await gitDiffLines(project.root, project.shell, tab.value.path);
+    editorView?.dispatch({ effects: setDiffLines.of(diff) });
+  } catch {
+    // Not a git repo or file not tracked — ignore
+  }
+}
+
+// --- Context menu ---
+const ctxMenu = ref<{ x: number; y: number } | null>(null);
+
+function onEditorContextMenu(e: MouseEvent) {
+  e.preventDefault();
+  ctxHasSelection.value = editorView ? !editorView.state.selection.main.empty : false;
+  ctxMenu.value = { x: e.clientX, y: e.clientY };
+  nextTick(() => {
+    window.addEventListener("mousedown", closeCtxMenu, { once: true });
+  });
+}
+
+function closeCtxMenu() {
+  ctxMenu.value = null;
+}
+
+function execUndo() {
+  closeCtxMenu();
+  if (editorView) undo(editorView);
+}
+
+function execRedo() {
+  closeCtxMenu();
+  if (editorView) redo(editorView);
+}
+
+function execCut() {
+  closeCtxMenu();
+  if (!editorView) return;
+  editorView.focus();
+  document.execCommand('cut');
+}
+
+function execCopy() {
+  closeCtxMenu();
+  if (!editorView) return;
+  editorView.focus();
+  document.execCommand('copy');
+}
+
+async function execPaste() {
+  closeCtxMenu();
+  if (!editorView) return;
+  const text = await navigator.clipboard.readText();
+  if (text) editorView.dispatch(editorView.state.replaceSelection(text));
+}
+
+function openGitHistory() {
+  closeCtxMenu();
+  if (!tab.value) return;
+  tabStore.addHistoryTab({ filePath: tab.value.path });
+}
+
+const isReadOnlyTab = computed(() => tab.value?.readOnly ?? false);
+// Snapshot selection state when context menu opens (not reactive — avoids stale computed)
+const ctxHasSelection = ref(false);
+
+
 function createEditorView(container: HTMLElement, content: string) {
   const isReadOnly = tab.value?.readOnly ?? false;
   const lang = tab.value ? getLanguage(tab.value.path) : null;
+  const hasFile = tab.value && !tab.value.initialContent;
   const extensions = [
     oneDark,
     lineNumbers(),
     highlightActiveLine(),
+    history(),
+    editorSearch(),
+    highlightSelectionMatches(),
+    tabSizeCompartment.of(EditorState.tabSize.of(settingsStore.editorTabSize)),
+    indentUnitCompartment.of(indentUnit.of(' '.repeat(settingsStore.editorTabSize))),
+    wordWrapCompartment.of(settingsStore.editorWordWrap ? EditorView.lineWrapping : []),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         updateDirtyState();
@@ -160,17 +253,32 @@ function createEditorView(container: HTMLElement, content: string) {
       ".cm-scroller": {
         fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
       },
+      ".cm-searchMatch": {
+        backgroundColor: "rgba(255, 213, 0, 0.25)",
+      },
+      ".cm-searchMatch-selected": {
+        backgroundColor: "rgba(255, 213, 0, 0.5)",
+      },
     }),
   ];
+
+  // Git diff gutter + minimap (only for real files)
+  if (hasFile) {
+    extensions.push(gitDiffGutter());
+    extensions.push(minimapCompartment.of(settingsStore.editorMinimap ? minimap() : []));
+  }
+
   if (!isReadOnly) {
     extensions.push(keymap.of([
+      ...searchKeymap,
+      ...historyKeymap,
       ...defaultKeymap,
       indentWithTab,
       { key: "Mod-s", run: () => { save(); return true; } },
     ]));
   } else {
     extensions.push(EditorState.readOnly.of(true));
-    extensions.push(keymap.of(defaultKeymap));
+    extensions.push(keymap.of([...searchKeymap, ...historyKeymap, ...defaultKeymap]));
   }
   if (lang) extensions.push(lang);
 
@@ -196,6 +304,7 @@ async function reopenWithEncoding(encoding: string) {
     isDirty.value = false;
     updateTitle();
     updateCursorInfo();
+    refreshDiffGutter();
   } catch (e) {
     loading.value = false;
     error.value = String(e);
@@ -233,6 +342,7 @@ onMounted(async () => {
     editorView = createEditorView(editorRef.value, content);
     jumpToLine(tab.value?.initialLine);
     updateCursorInfo();
+    refreshDiffGutter();
 
     // Register callbacks for StatusBar to change encoding/line ending
     editorInfo.registerCallbacks(
@@ -301,6 +411,25 @@ watch(
   }
 );
 
+// Live-apply editor settings changes
+watch(() => settingsStore.editorMinimap, (on) => {
+  if (!editorView) return;
+  editorView.dispatch({ effects: minimapCompartment.reconfigure(on ? minimap() : []) });
+});
+
+watch(() => settingsStore.editorWordWrap, (on) => {
+  if (!editorView) return;
+  editorView.dispatch({ effects: wordWrapCompartment.reconfigure(on ? EditorView.lineWrapping : []) });
+});
+
+watch(() => settingsStore.editorTabSize, (size) => {
+  if (!editorView) return;
+  editorView.dispatch({ effects: [
+    tabSizeCompartment.reconfigure(EditorState.tabSize.of(size)),
+    indentUnitCompartment.reconfigure(indentUnit.of(' '.repeat(size))),
+  ] });
+});
+
 onUnmounted(() => {
   if (docVersionTimer) clearTimeout(docVersionTimer);
   editorView?.scrollDOM.removeEventListener('scroll', onEditorScroll);
@@ -322,10 +451,29 @@ onUnmounted(() => {
     <div v-if="loading" class="editor-status">Loading...</div>
     <div v-else-if="error" class="editor-status error">{{ error }}</div>
     <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error">
-      <div v-show="showEditor" ref="editorRef" class="editor-container"></div>
+      <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
       <div v-if="showPreview" ref="previewRef" class="md-preview" v-html="previewHtml" @scroll="onPreviewScroll"></div>
     </div>
     <div v-if="saving" class="save-indicator">Saving...</div>
+
+    <!-- Context Menu -->
+    <Teleport to="body">
+      <div
+        v-if="ctxMenu"
+        class="editor-ctx-menu"
+        :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+        @mousedown.stop
+      >
+        <button @click="execUndo" :disabled="isReadOnlyTab">Undo</button>
+        <button @click="execRedo" :disabled="isReadOnlyTab">Redo</button>
+        <div class="ctx-separator"></div>
+        <button @click="execCut" :disabled="isReadOnlyTab || !ctxHasSelection">Cut</button>
+        <button @click="execCopy" :disabled="!ctxHasSelection">Copy</button>
+        <button @click="execPaste" :disabled="isReadOnlyTab">Paste</button>
+        <div class="ctx-separator"></div>
+        <button @click="openGitHistory">Git History</button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -483,5 +631,162 @@ onUnmounted(() => {
   background: var(--bg-secondary);
   padding: 2px 8px;
   border-radius: 3px;
+}
+</style>
+
+<style>
+/* Context menu — unscoped so Teleport works */
+.editor-ctx-menu {
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 160px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.editor-ctx-menu button {
+  display: block;
+  width: 100%;
+  padding: 5px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-ctx-menu button:hover:not(:disabled) {
+  background: var(--tab-hover-bg);
+}
+
+.editor-ctx-menu button:disabled {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  cursor: default;
+}
+
+.editor-ctx-menu .ctx-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* Custom search panel */
+.cm-panels {
+  background: transparent !important;
+  border: none !important;
+}
+
+.cm-search-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: absolute;
+  top: 4px;
+  right: 72px;
+  z-index: 10;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.cm-search-custom .search-row,
+.cm-search-custom .replace-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cm-search-custom .search-field {
+  width: 180px;
+  padding: 3px 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  outline: none;
+}
+
+.cm-search-custom .search-field:focus {
+  border-color: var(--accent);
+}
+
+.cm-search-custom .search-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.cm-search-custom .search-icon-btn:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.cm-search-custom .search-close-btn:hover {
+  color: var(--danger);
+}
+
+.cm-search-custom .search-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.cm-search-custom .search-toggle-btn:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.cm-search-custom .search-toggle-btn.active {
+  background: rgba(var(--accent-rgb, 0, 122, 204), 0.2);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.cm-search-custom .search-match-info {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 60px;
+  text-align: center;
+  white-space: nowrap;
+  padding: 0 2px;
+}
+
+.cm-search-custom .toggle-replace {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+
+.cm-search-custom .replace-row {
+  padding-left: 20px;
 }
 </style>

@@ -23,6 +23,12 @@ export function useKeyboardShortcuts() {
       return
     }
 
+    // Ctrl+F / Ctrl+H: prevent browser find dialog (CodeMirror search handles it)
+    if (e.ctrlKey && (e.key === 'f' || e.key === 'h')) {
+      e.preventDefault()
+      return
+    }
+
     // Ctrl+W: close active tab
     if (e.ctrlKey && e.key === 'w') {
       if (tabStore.activeTabId) {

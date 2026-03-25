@@ -126,6 +126,7 @@ onUnmounted(() => {
     <!-- Editor info -->
     <template v-if="editorInfo.current.value">
       <span class="status-text">Ln {{ editorInfo.current.value.line }}, Col {{ editorInfo.current.value.col }}</span>
+      <span class="status-text">Spaces: {{ editorInfo.current.value.tabSize }}</span>
       <div class="status-dropdown-area">
         <button class="status-item clickable small" @click="toggleEncodingMenu">{{ editorInfo.current.value.encoding }}</button>
         <div v-if="showEncodingMenu" class="status-dropdown" @mousedown.stop>

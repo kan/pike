@@ -391,3 +391,101 @@ pub async fn git_log_file(
 
     Ok(parse_log(&output))
 }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitDiffLines {
+    pub added: Vec<[u32; 2]>,
+    pub modified: Vec<[u32; 2]>,
+    pub deleted: Vec<u32>,
+}
+
+fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
+    let mut added = Vec::new();
+    let mut modified = Vec::new();
+    let mut deleted = Vec::new();
+
+    let mut new_line: u32 = 0;
+    let mut pending_del = false;
+    let mut add_start: Option<u32> = None;
+    let mut mod_start: Option<u32> = None;
+
+    fn flush_range(start: &mut Option<u32>, end: u32, out: &mut Vec<[u32; 2]>) {
+        if let Some(s) = start.take() {
+            out.push([s, end]);
+        }
+    }
+
+    for line in diff_output.lines() {
+        if line.starts_with("@@") {
+            flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);
+            flush_range(&mut mod_start, new_line.saturating_sub(1), &mut modified);
+            if pending_del {
+                deleted.push(new_line);
+                pending_del = false;
+            }
+            // Parse @@ -old,count +new,count @@
+            if let Some(plus) = line.find('+') {
+                let rest = &line[plus + 1..];
+                let num_end = rest.find(|c: char| c == ',' || c == ' ').unwrap_or(rest.len());
+                if let Ok(n) = rest[..num_end].parse::<u32>() {
+                    new_line = n;
+                }
+            }
+            continue;
+        }
+        if line.starts_with("diff ") || line.starts_with("index ") || line.starts_with("---") || line.starts_with("+++") {
+            continue;
+        }
+        if line.starts_with('-') {
+            flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);
+            if !pending_del {
+                pending_del = true;
+            }
+        } else if line.starts_with('+') {
+            if pending_del {
+                pending_del = false;
+                if mod_start.is_none() {
+                    mod_start = Some(new_line);
+                }
+            } else if mod_start.is_none() {
+                if add_start.is_none() {
+                    add_start = Some(new_line);
+                }
+            }
+            new_line += 1;
+        } else {
+            flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);
+            flush_range(&mut mod_start, new_line.saturating_sub(1), &mut modified);
+            if pending_del {
+                deleted.push(new_line);
+                pending_del = false;
+            }
+            new_line += 1;
+        }
+    }
+    flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);
+    flush_range(&mut mod_start, new_line.saturating_sub(1), &mut modified);
+    if pending_del {
+        deleted.push(new_line);
+    }
+
+    GitDiffLines { added, modified, deleted }
+}
+
+#[tauri::command]
+pub async fn git_diff_lines(
+    root: String,
+    shell: ShellConfig,
+    path: String,
+) -> Result<GitDiffLines, String> {
+    tokio::task::spawn_blocking(move || {
+        let output = run_git(&shell, &root, &["diff", "HEAD", "--", &path]);
+        match output {
+            Ok(diff) => Ok(parse_diff_lines(&diff)),
+            Err(_) => Ok(GitDiffLines { added: vec![], modified: vec![], deleted: vec![] }),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

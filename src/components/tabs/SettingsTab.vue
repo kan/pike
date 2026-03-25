@@ -141,6 +141,40 @@ const PREVIEW_LINES = [
           </div>
         </div>
       </section>
+
+      <!-- Editor -->
+      <section class="settings-section">
+        <h3 class="section-title">Editor</h3>
+
+        <div class="setting-row">
+          <label class="setting-label">Minimap</label>
+          <div class="mode-toggle">
+            <button class="mode-btn" :class="{ active: settings.editorMinimap }" @click="settings.editorMinimap = true">ON</button>
+            <button class="mode-btn" :class="{ active: !settings.editorMinimap }" @click="settings.editorMinimap = false">OFF</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label">Word Wrap</label>
+          <div class="mode-toggle">
+            <button class="mode-btn" :class="{ active: settings.editorWordWrap }" @click="settings.editorWordWrap = true">ON</button>
+            <button class="mode-btn" :class="{ active: !settings.editorWordWrap }" @click="settings.editorWordWrap = false">OFF</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label">Tab Size</label>
+          <select
+            class="setting-select setting-select-narrow"
+            :value="settings.editorTabSize"
+            @change="settings.editorTabSize = parseInt(($event.target as HTMLSelectElement).value)"
+          >
+            <option :value="2">2</option>
+            <option :value="4">4</option>
+            <option :value="8">8</option>
+          </select>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -213,6 +247,10 @@ const PREVIEW_LINES = [
 .setting-select:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.setting-select-narrow {
+  min-width: 70px;
 }
 
 .font-size-control {

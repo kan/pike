@@ -87,11 +87,11 @@ hearth/
 │   │   │   └── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
-│   │       └── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダークモード）
+│   │       └── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダークモード・エディタ設定）
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts         # サイドバー状態
-│   │   ├── settings.ts        # アプリ設定（フォント・カラースキーム・ダークモード）
+│   │   ├── settings.ts        # アプリ設定（フォント・カラースキーム・ダークモード・エディタ設定）
 │   │   └── project.ts         # プロジェクト管理・切替・永続化
 │   ├── composables/
 │   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P
@@ -100,6 +100,9 @@ hearth/
 │   ├── lib/
 │   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
 │   │   ├── fontDetection.ts   # フォント名ユーティリティ（buildFontFamily/extractFontName）
+│   │   ├── editorGitGutter.ts # CodeMirror 6 git diff ガター拡張
+│   │   ├── editorMinimap.ts   # CodeMirror 6 ミニマップ（Canvas 描画）
+│   │   ├── editorSearch.ts    # CodeMirror 6 カスタム検索パネル
 │   │   └── tauri.ts           # IPC ラッパー
 │   └── assets/
 │       └── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
@@ -176,7 +179,11 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - Windows: `std::fs` 直接アクセス
 - ファイルサイズ事前チェック（2MB 制限）
 - CodeMirror 6 でエディタタブ。oneDark テーマ、29言語のシンタックスハイライト対応
-- Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）
+- Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）。Ctrl+Z/Shift+Z で Undo/Redo
+- エディタ内検索・置換: Ctrl+F / Ctrl+H でカスタム検索パネル（右上フローティング、アイコンボタン、マッチ数表示）
+- Git diff ガター: 追加行（緑）・変更行（黄）・削除行（赤三角）をガターに表示。`git_diff_lines` コマンドで行単位の差分を取得
+- ミニマップ: Canvas ベースの縮小表示、ビューポートインジケータ、クリック/ドラッグでスクロール、diff 色表示付き
+- エディタコンテキストメニュー: Undo/Redo/Cut/Copy/Paste/Git History（Teleport パターン）
 - ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
 - 画像プレビュータブ（base64 経由）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
 - 文字コード対応: `encoding_rs` で自動検出 + 指定エンコードでの開き直し/保存（StatusBar 2段階 UI）
@@ -257,6 +264,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - カラースキーム: 6種（Default Dark, Solarized Dark/Light, Monokai, Dracula, Nord）
 - フォント・サイズ変更は既存ターミナルにライブ反映、カラースキーム変更は `terminal.refresh()` + PTY resize nudge で TUI 再描画
 - 設定タブにターミナルプレビュー表示（選択中のフォント・サイズ・カラースキームを即時反映）
+- Editor セクション: ミニマップ ON/OFF、ワードラップ ON/OFF、タブサイズ（2/4/8）。CM6 Compartment でライブ反映
 - settings タブはセッション永続化の対象外（`snapshotSession` は terminal/editor のみフィルタ）
 
 ---
