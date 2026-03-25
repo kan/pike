@@ -141,6 +141,24 @@ const PREVIEW_LINES = [
           </div>
         </div>
       </section>
+
+      <!-- Git -->
+      <section class="settings-section">
+        <h3 class="section-title">Git</h3>
+        <div class="setting-row setting-row-block">
+          <label class="setting-label">SSH Command</label>
+          <input
+            type="text"
+            class="setting-input"
+            :value="settings.sshCommand"
+            @change="settings.sshCommand = ($event.target as HTMLInputElement).value.trim()"
+            placeholder="e.g. C:/Windows/System32/OpenSSH/ssh.exe"
+          />
+          <span class="setting-hint">
+            Git push/pull で使用する SSH コマンド。空欄の場合は git config の設定を使用します。
+          </span>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -213,6 +231,29 @@ const PREVIEW_LINES = [
 .setting-select:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.setting-input {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  box-sizing: border-box;
+}
+
+.setting-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.setting-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .font-size-control {

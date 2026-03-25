@@ -13,6 +13,7 @@ import {
   gitPull,
 } from '../lib/tauri'
 import { useProjectStore } from './project'
+import { useSettingsStore } from './settings'
 
 export const useGitStore = defineStore('git', () => {
   const status = ref<GitStatusResult | null>(null)
@@ -99,7 +100,8 @@ export const useGitStore = defineStore('git', () => {
     if (!project) return
     pushing.value = true
     try {
-      await gitPush(project.root, project.shell)
+      const ssh = useSettingsStore().sshCommand || undefined
+      await gitPush(project.root, project.shell, ssh)
       await refreshStatus()
     } catch (e) {
       error.value = String(e)
@@ -113,7 +115,8 @@ export const useGitStore = defineStore('git', () => {
     if (!project) return
     pulling.value = true
     try {
-      await gitPull(project.root, project.shell)
+      const ssh = useSettingsStore().sshCommand || undefined
+      await gitPull(project.root, project.shell, ssh)
       await Promise.all([refreshStatus(), refreshLog()])
     } catch (e) {
       error.value = String(e)

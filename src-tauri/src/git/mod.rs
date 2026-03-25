@@ -63,9 +63,27 @@ fn build_git_command(shell: &ShellConfig, root: &str, args: &[&str]) -> Command 
 }
 
 fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, String> {
-    let output = build_git_command(shell, root, args)
-        .output()
-        .map_err(|e| format!("Failed to run git: {e}"))?;
+    run_git_with_ssh(shell, root, args, None)
+}
+
+fn run_git_with_ssh(shell: &ShellConfig, root: &str, args: &[&str], ssh_command: Option<&str>) -> Result<String, String> {
+    let mut cmd = build_git_command(shell, root, args);
+
+    if let Some(ssh) = ssh_command {
+        cmd.env("GIT_SSH_COMMAND", ssh);
+        // For WSL: WSLENV tells wsl.exe to pass this env var into the Linux environment
+        if matches!(shell, ShellConfig::Wsl { .. }) {
+            let wslenv = std::env::var("WSLENV").unwrap_or_default();
+            let new = if wslenv.is_empty() {
+                "GIT_SSH_COMMAND".to_string()
+            } else {
+                format!("{wslenv}:GIT_SSH_COMMAND")
+            };
+            cmd.env("WSLENV", new);
+        }
+    }
+
+    let output = cmd.output().map_err(|e| format!("Failed to run git: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -288,20 +306,26 @@ pub async fn git_checkout(
 pub async fn git_push(
     root: String,
     shell: ShellConfig,
+    ssh_command: Option<String>,
 ) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || run_git(&shell, &root, &["push"]))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        run_git_with_ssh(&shell, &root, &["push"], ssh_command.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn git_pull(
     root: String,
     shell: ShellConfig,
+    ssh_command: Option<String>,
 ) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || run_git(&shell, &root, &["pull"]))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        run_git_with_ssh(&shell, &root, &["pull"], ssh_command.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

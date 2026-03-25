@@ -175,18 +175,24 @@ interface PersistedSettings {
   fontSize: number
   colorSchemeName: string
   darkMode: boolean
+  sshCommand: string
 }
 
 function loadSettings(): PersistedSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return JSON.parse(raw)
+    if (raw) return { ...defaults(), ...JSON.parse(raw) }
   } catch { /* ignore */ }
+  return defaults()
+}
+
+function defaults(): PersistedSettings {
   return {
     fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
     fontSize: 14,
     colorSchemeName: 'Default Dark',
     darkMode: true,
+    sshCommand: '',
   }
 }
 
@@ -197,6 +203,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const fontSize = ref(saved.fontSize)
   const colorSchemeName = ref(saved.colorSchemeName)
   const darkMode = ref(saved.darkMode)
+  const sshCommand = ref(saved.sshCommand)
 
   // Detected monospace fonts on this system (loaded on demand from Rust)
   const availableFonts = ref<string[]>([extractFontName(saved.fontFamily)])
@@ -236,6 +243,7 @@ export const useSettingsStore = defineStore('settings', () => {
       fontSize: fontSize.value,
       colorSchemeName: colorSchemeName.value,
       darkMode: darkMode.value,
+      sshCommand: sshCommand.value,
     }))
   }
 
@@ -243,7 +251,7 @@ export const useSettingsStore = defineStore('settings', () => {
     document.documentElement.setAttribute('data-theme', darkMode.value ? 'dark' : 'light')
   }
 
-  watch([fontFamily, fontSize, colorSchemeName, darkMode], persist)
+  watch([fontFamily, fontSize, colorSchemeName, darkMode, sshCommand], persist)
   watch(darkMode, applyDarkMode, { immediate: true })
 
   return {
@@ -253,6 +261,7 @@ export const useSettingsStore = defineStore('settings', () => {
     colorSchemeName,
     colorScheme,
     darkMode,
+    sshCommand,
     xtermTheme,
     availableFonts,
     loadAvailableFonts,
