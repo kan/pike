@@ -1,10 +1,31 @@
 use crate::types::ShellConfig;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::process::Command;
 use tauri::State;
 
 pub struct SearchState {
     pub bundled_rg: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SearchBackend {
+    Rg,
+    BundledRg { path: String },
+    Grep,
+}
+
+impl SearchBackend {
+    fn is_rg(&self) -> bool {
+        matches!(self, SearchBackend::Rg | SearchBackend::BundledRg { .. })
+    }
+
+    fn rg_program(&self) -> &str {
+        match self {
+            SearchBackend::BundledRg { path } => path,
+            _ => "rg",
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -52,27 +73,22 @@ fn run_command(shell: &ShellConfig, program: &str, args: &[&str]) -> Result<(i32
 pub async fn search_detect_backend(
     shell: ShellConfig,
     state: State<'_, SearchState>,
-) -> Result<String, String> {
+) -> Result<SearchBackend, String> {
     let bundled = state.bundled_rg.clone();
     tokio::task::spawn_blocking(move || {
-        // Try system rg first
         let check_cmd = match &shell {
             ShellConfig::Wsl { .. } => "which",
             _ => "where",
         };
         if let Ok((0, _, _)) = run_command(&shell, check_cmd, &["rg"]) {
-            return Ok("rg".to_string());
+            return Ok(SearchBackend::Rg);
         }
-        // For non-WSL: try bundled rg sidecar (existence checked at startup)
         if !matches!(shell, ShellConfig::Wsl { .. }) {
-            if let Some(ref path) = bundled {
-                return Ok(format!("rg:{path}"));
+            if let Some(path) = bundled {
+                return Ok(SearchBackend::BundledRg { path });
             }
         }
-        if let Ok((0, _, _)) = run_command(&shell, check_cmd, &["grep"]) {
-            return Ok("grep".to_string());
-        }
-        Ok("grep".to_string())
+        Ok(SearchBackend::Grep)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -155,7 +171,7 @@ pub async fn search_execute(
     shell: ShellConfig,
     root: String,
     query: String,
-    backend: String,
+    backend: SearchBackend,
     is_regex: bool,
     glob_include: Option<String>,
     glob_exclude: Option<String>,
@@ -179,16 +195,7 @@ pub async fn search_execute(
     });
 
     tokio::task::spawn_blocking(move || {
-        // backend is "rg", "rg:/path/to/rg.exe", or "grep"
-        let (is_rg, rg_program) = if backend == "rg" {
-            (true, "rg".to_string())
-        } else if let Some(path) = backend.strip_prefix("rg:") {
-            (true, path.to_string())
-        } else {
-            (false, String::new())
-        };
-
-        let output = if is_rg {
+        let output = if backend.is_rg() {
             let mut args: Vec<String> = vec!["--json".to_string()];
             if !is_regex {
                 args.push("-F".to_string());
@@ -209,7 +216,7 @@ pub async fn search_execute(
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            run_command(&shell, &rg_program, &arg_refs)
+            run_command(&shell, backend.rg_program(), &arg_refs)
         } else {
             // grep
             let mut args: Vec<String> = vec!["-rn".to_string()];
@@ -244,7 +251,7 @@ pub async fn search_execute(
                 if code == 2 {
                     return Err(stderr);
                 }
-                let (mut matches, truncated) = if is_rg {
+                let (mut matches, truncated) = if backend.is_rg() {
                     parse_rg_json(&stdout)
                 } else {
                     parse_grep_output(&stdout)

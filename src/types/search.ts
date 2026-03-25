@@ -9,5 +9,11 @@ export interface SearchResult {
   truncated: boolean
 }
 
-// "rg" = system rg, "rg:/path/to/rg.exe" = bundled sidecar, "grep" = fallback
-export type SearchBackend = string
+export type SearchBackend =
+  | { kind: 'rg' }
+  | { kind: 'bundled-rg'; path: string }
+  | { kind: 'grep' }
+
+export function backendLabel(b: SearchBackend): string {
+  return b.kind === 'grep' ? 'grep' : 'rg'
+}

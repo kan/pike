@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from "vue";
 import { useSearchStore } from "../../stores/search";
 import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
+import { backendLabel } from "../../types/search";
 import { Regex } from "lucide-vue-next";
 
 const searchStore = useSearchStore();
@@ -92,7 +93,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <div v-if="searchStore.backend" class="backend-badge">{{ searchStore.backend.startsWith('rg') ? 'rg' : searchStore.backend }}</div>
+    <div v-if="searchStore.backend" class="backend-badge">{{ backendLabel(searchStore.backend) }}</div>
 
     <div v-if="searchStore.searching" class="status">Searching...</div>
     <div v-else-if="searchStore.error" class="status error">{{ searchStore.error }}</div>

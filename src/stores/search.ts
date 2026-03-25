@@ -18,9 +18,9 @@ export const useSearchStore = defineStore('search', () => {
     if (!project) return
     detecting.value = true
     try {
-      backend.value = await searchDetectBackend(project.shell) as SearchBackend
+      backend.value = await searchDetectBackend(project.shell)
     } catch {
-      backend.value = 'grep'
+      backend.value = { kind: 'grep' }
     } finally {
       detecting.value = false
     }
