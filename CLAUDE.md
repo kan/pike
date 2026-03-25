@@ -158,6 +158,8 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - 環境変数 `TERM=xterm-256color` を cmd 以外に設定
 - リサイズは `pty.resize()` で PTY サイズを更新
 - `autoStart` 対応: PTY spawn 後に指定コマンドを自動実行（例: `claude`）
+- `PtySession` に `Drop` 実装: セッション破棄時に `child.kill()` で子プロセスを確実に終了
+- ウィンドウ破棄時（`WindowEvent::Destroyed`）に全 PTY セッション・Docker log stream を一括 cleanup（main ウィンドウのみ）
 
 ### プロジェクト管理
 - プロジェクト設定は `%APPDATA%/com.tauri.dev/projects/{id}/project.json` に保存

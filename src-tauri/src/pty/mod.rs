@@ -13,8 +13,13 @@ pub struct PtyState {
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
-    #[allow(dead_code)]
     child: Box<dyn Child + Send + Sync>,
+}
+
+impl Drop for PtySession {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
 }
 
 #[derive(Clone, Serialize)]

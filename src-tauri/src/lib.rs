@@ -9,7 +9,7 @@ mod types;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,6 +36,25 @@ pub fn run() {
                 )?;
             }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::Destroyed = event {
+                if window.label() != "main" {
+                    return;
+                }
+                if let Some(state) = window.try_state::<pty::PtyState>() {
+                    if let Ok(mut sessions) = state.sessions.lock() {
+                        sessions.clear();
+                    }
+                }
+                if let Some(state) = window.try_state::<docker::DockerState>() {
+                    if let Ok(mut streams) = state.log_streams.lock() {
+                        for (_, handle) in streams.drain() {
+                            handle.abort();
+                        }
+                    }
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             pty::pty_spawn,
