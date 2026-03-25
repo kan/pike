@@ -92,6 +92,8 @@ onMounted(() => {
       </div>
     </div>
 
+    <div v-if="searchStore.backend" class="backend-badge">{{ searchStore.backend.startsWith('rg') ? 'rg' : searchStore.backend }}</div>
+
     <div v-if="searchStore.searching" class="status">Searching...</div>
     <div v-else-if="searchStore.error" class="status error">{{ searchStore.error }}</div>
     <div v-else-if="!searchStore.results.length && query" class="status">No results</div>
@@ -235,5 +237,15 @@ onMounted(() => {
 .status.truncated {
   font-size: 11px;
   padding: 4px 0;
+}
+
+.backend-badge {
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  padding: 1px 6px;
+  align-self: flex-start;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
 }
 </style>

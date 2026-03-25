@@ -9,4 +9,5 @@ export interface SearchResult {
   truncated: boolean
 }
 
-export type SearchBackend = 'rg' | 'grep' | 'findstr'
+// "rg" = system rg, "rg:/path/to/rg.exe" = bundled sidecar, "grep" = fallback
+export type SearchBackend = string

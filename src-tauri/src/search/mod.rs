@@ -1,6 +1,11 @@
 use crate::types::ShellConfig;
 use serde::Serialize;
 use std::process::Command;
+use tauri::State;
+
+pub struct SearchState {
+    pub bundled_rg: Option<String>,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,9 +51,11 @@ fn run_command(shell: &ShellConfig, program: &str, args: &[&str]) -> Result<(i32
 #[tauri::command]
 pub async fn search_detect_backend(
     shell: ShellConfig,
+    state: State<'_, SearchState>,
 ) -> Result<String, String> {
+    let bundled = state.bundled_rg.clone();
     tokio::task::spawn_blocking(move || {
-        // Try rg first
+        // Try system rg first
         let check_cmd = match &shell {
             ShellConfig::Wsl { .. } => "which",
             _ => "where",
@@ -56,10 +63,16 @@ pub async fn search_detect_backend(
         if let Ok((0, _, _)) = run_command(&shell, check_cmd, &["rg"]) {
             return Ok("rg".to_string());
         }
+        // For non-WSL: try bundled rg sidecar (existence checked at startup)
+        if !matches!(shell, ShellConfig::Wsl { .. }) {
+            if let Some(ref path) = bundled {
+                return Ok(format!("rg:{path}"));
+            }
+        }
         if let Ok((0, _, _)) = run_command(&shell, check_cmd, &["grep"]) {
             return Ok("grep".to_string());
         }
-        Ok("grep".to_string()) // fallback
+        Ok("grep".to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -166,7 +179,16 @@ pub async fn search_execute(
     });
 
     tokio::task::spawn_blocking(move || {
-        let output = if backend == "rg" {
+        // backend is "rg", "rg:/path/to/rg.exe", or "grep"
+        let (is_rg, rg_program) = if backend == "rg" {
+            (true, "rg".to_string())
+        } else if let Some(path) = backend.strip_prefix("rg:") {
+            (true, path.to_string())
+        } else {
+            (false, String::new())
+        };
+
+        let output = if is_rg {
             let mut args: Vec<String> = vec!["--json".to_string()];
             if !is_regex {
                 args.push("-F".to_string());
@@ -187,7 +209,7 @@ pub async fn search_execute(
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            run_command(&shell, "rg", &arg_refs)
+            run_command(&shell, &rg_program, &arg_refs)
         } else {
             // grep
             let mut args: Vec<String> = vec!["-rn".to_string()];
@@ -222,7 +244,7 @@ pub async fn search_execute(
                 if code == 2 {
                     return Err(stderr);
                 }
-                let (mut matches, truncated) = if backend == "rg" {
+                let (mut matches, truncated) = if is_rg {
                     parse_rg_json(&stdout)
                 } else {
                     parse_grep_output(&stdout)

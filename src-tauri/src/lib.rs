@@ -28,6 +28,16 @@ pub fn run() {
                 .map_err(|e| e.to_string())?;
             app.manage(project::ProjectState { config_dir });
 
+            // Resolve bundled rg sidecar path (externalBin places it next to the executable)
+            let rg_path = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|d| d.to_path_buf()))
+                .and_then(|dir| {
+                    let p = dir.join("rg.exe");
+                    p.exists().then(|| p.to_string_lossy().into_owned())
+                });
+            app.manage(search::SearchState { bundled_rg: rg_path });
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

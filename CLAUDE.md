@@ -58,6 +58,8 @@
 hearth/
 ├── CLAUDE.md                  # このファイル
 ├── MILESTONE.md               # マイルストーン・進捗管理
+├── scripts/
+│   └── download-rg.sh         # rg サイドカーバイナリのダウンロード
 ├── src-tauri/
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
@@ -254,6 +256,10 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - フロントには検索バックエンドをバッジ表示
 - 結果クリックでエディタタブを開き、`initialLine` で該当行にジャンプ
 - 最大 500 件で truncate、デバウンス 300ms
+- rg サイドカーバンドル: `src-tauri/binaries/rg-{target}.exe` を `externalBin` でアプリに同梱
+  - Windows プロジェクト: システム rg → バンドル版 rg → grep の順でフォールバック
+  - WSL プロジェクト: WSL の rg → WSL の grep（バンドル版は Windows バイナリのため使用不可）
+  - `scripts/download-rg.sh` でビルド前にダウンロード（バイナリは .gitignore）
 
 ### 設定画面
 - サイドバー下部の歯車アイコンからシングルトンタブとして開く
