@@ -1,6 +1,5 @@
 use crate::types::ShellConfig;
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use tauri::State;
 
 pub struct SearchState {
@@ -43,32 +42,6 @@ pub struct SearchResult {
     pub truncated: bool,
 }
 
-fn run_command(shell: &ShellConfig, program: &str, args: &[&str]) -> Result<(i32, String, String), String> {
-    let output = match shell {
-        ShellConfig::Wsl { distro } => {
-            let mut cmd = Command::new("wsl.exe");
-            cmd.arg("-d").arg(distro).arg("--").arg(program);
-            for a in args {
-                cmd.arg(a);
-            }
-            cmd.output().map_err(|e| e.to_string())?
-        }
-        _ => {
-            let mut cmd = Command::new(program);
-            for a in args {
-                cmd.arg(a);
-            }
-            cmd.output().map_err(|e| e.to_string())?
-        }
-    };
-    let code = output.status.code().unwrap_or(-1);
-    Ok((
-        code,
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-        String::from_utf8_lossy(&output.stderr).into_owned(),
-    ))
-}
-
 #[tauri::command]
 pub async fn search_detect_backend(
     shell: ShellConfig,
@@ -80,7 +53,7 @@ pub async fn search_detect_backend(
             ShellConfig::Wsl { .. } => "which",
             _ => "where",
         };
-        if let Ok((0, _, _)) = run_command(&shell, check_cmd, &["rg"]) {
+        if let Ok((0, _, _)) = shell.run(check_cmd, &["rg"]) {
             return Ok(SearchBackend::Rg);
         }
         if !matches!(shell, ShellConfig::Wsl { .. }) {
@@ -216,7 +189,7 @@ pub async fn search_execute(
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            run_command(&shell, backend.rg_program(), &arg_refs)
+            shell.run(backend.rg_program(), &arg_refs)
         } else {
             // grep
             let mut args: Vec<String> = vec!["-rn".to_string()];
@@ -243,7 +216,7 @@ pub async fn search_execute(
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            run_command(&shell, "grep", &arg_refs)
+            shell.run("grep", &arg_refs)
         };
 
         match output {

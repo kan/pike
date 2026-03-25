@@ -1,6 +1,5 @@
 use crate::types::ShellConfig;
 use serde::Serialize;
-use std::process::Command;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,39 +39,10 @@ fn truncate_diff(output: String) -> String {
     }
 }
 
-fn build_git_command(shell: &ShellConfig, root: &str, args: &[&str]) -> Command {
-    match shell {
-        ShellConfig::Wsl { distro } => {
-            let mut cmd = Command::new("wsl.exe");
-            cmd.arg("-d").arg(distro);
-            cmd.arg("git").arg("-C").arg(root);
-            for a in args {
-                cmd.arg(a);
-            }
-            cmd
-        }
-        _ => {
-            let mut cmd = Command::new("git");
-            cmd.arg("-C").arg(root);
-            for a in args {
-                cmd.arg(a);
-            }
-            cmd
-        }
-    }
-}
-
 fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, String> {
-    let output = build_git_command(shell, root, args)
-        .output()
-        .map_err(|e| format!("Failed to run git: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git error: {stderr}"));
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    let mut full_args = vec!["-C", root];
+    full_args.extend(args);
+    shell.run_stdout("git", &full_args)
 }
 
 fn parse_status(output: &str) -> GitStatusResult {

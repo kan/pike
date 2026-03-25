@@ -94,17 +94,9 @@ pub async fn docker_compose_services(
             "docker-compose.yaml",
         ] {
             let result = match &shell {
-                ShellConfig::Wsl { distro } => {
+                ShellConfig::Wsl { .. } => {
                     let path = format!("{root}/{filename}");
-                    let output = std::process::Command::new("wsl.exe")
-                        .args(["-d", distro, "cat", "--", &path])
-                        .output();
-                    match output {
-                        Ok(o) if o.status.success() => {
-                            Some(String::from_utf8_lossy(&o.stdout).into_owned())
-                        }
-                        _ => None,
-                    }
+                    shell.run_stdout("cat", &["--", &path]).ok()
                 }
                 _ => {
                     let sep = if root.contains('/') { "/" } else { "\\" };

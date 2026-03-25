@@ -3,7 +3,6 @@ use crate::types::ShellConfig;
 use encoding_rs::Encoding;
 use serde::Serialize;
 use std::io::Write as IoWrite;
-use std::process::Command;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,20 +26,20 @@ pub async fn fs_list_dir(
     path: String,
 ) -> Result<Vec<FsEntry>, String> {
     tokio::task::spawn_blocking(move || match &shell {
-        ShellConfig::Wsl { distro } => list_dir_wsl(distro, &path),
+        ShellConfig::Wsl { .. } => list_dir_wsl(&shell, &path),
         _ => list_dir_native(&path),
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-fn list_dir_wsl(distro: &str, path: &str) -> Result<Vec<FsEntry>, String> {
+fn list_dir_wsl(shell: &ShellConfig, path: &str) -> Result<Vec<FsEntry>, String> {
     let script = format!(
         "find '{}' -maxdepth 1 -mindepth 1 -printf '%y\\t%f\\n' 2>/dev/null | sort -t'\t' -k2",
         path.replace('\'', "'\\''")
     );
-    let output = Command::new("wsl.exe")
-        .args(["-d", distro, "bash", "-c", &script])
+    let output = shell
+        .command("bash", &["-c", &script])
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -111,22 +110,17 @@ pub struct FileReadResult {
 fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Vec<u8>, String> {
     const MAX_SIZE: u64 = 2_000_000;
     match shell {
-        ShellConfig::Wsl { distro } => {
-            let size_out = Command::new("wsl.exe")
-                .args(["-d", distro, "stat", "-c", "%s", "--", path])
-                .output()
-                .map_err(|e| e.to_string())?;
-            if let Ok(size_str) = String::from_utf8(size_out.stdout) {
-                if let Ok(size) = size_str.trim().parse::<u64>() {
-                    if size > MAX_SIZE {
-                        return Err("File too large (>2MB)".into());
-                    }
+        ShellConfig::Wsl { .. } => {
+            let size_str = shell.run_stdout("stat", &["-c", "%s", "--", path])?;
+            if let Ok(size) = size_str.trim().parse::<u64>() {
+                if size > MAX_SIZE {
+                    return Err("File too large (>2MB)".into());
                 }
             }
-            let output = Command::new("wsl.exe")
-                .args(["-d", distro, "cat", "--", path])
+            let output = shell
+                .command("cat", &["--", path])
                 .output()
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| format!("Failed to run cat: {e}"))?;
             if !output.status.success() {
                 return Err(format!(
                     "Failed to read file: {}",
@@ -155,14 +149,12 @@ fn decode_bytes(bytes: &[u8], encoding_name: Option<&str>) -> FileReadResult {
             };
         }
     }
-    // Auto-detect: try UTF-8 first, then sniff BOM / fallback
     match std::str::from_utf8(bytes) {
         Ok(s) => FileReadResult {
             content: s.to_string(),
             encoding: "UTF-8".to_string(),
         },
         Err(_) => {
-            // Try Shift_JIS as common fallback for Japanese environments
             let (content, enc, _) = encoding_rs::SHIFT_JIS.decode(bytes);
             FileReadResult {
                 content: content.into_owned(),
@@ -200,15 +192,10 @@ fn encode_content(content: &str, encoding_name: Option<&str>) -> Vec<u8> {
 
 fn write_bytes(shell: &ShellConfig, path: &str, bytes: &[u8]) -> Result<(), String> {
     match shell {
-        ShellConfig::Wsl { distro } => {
-            let mut child = Command::new("wsl.exe")
-                .args([
-                    "-d",
-                    distro,
-                    "bash",
-                    "-c",
-                    &format!("cat > '{}'", path.replace('\'', "'\\''")),
-                ])
+        ShellConfig::Wsl { .. } => {
+            let script = format!("cat > '{}'", path.replace('\'', "'\\''"));
+            let mut child = shell
+                .command("bash", &["-c", &script])
                 .stdin(std::process::Stdio::piped())
                 .spawn()
                 .map_err(|e| e.to_string())?;
@@ -249,29 +236,15 @@ pub async fn fs_read_file_base64(
 ) -> Result<String, String> {
     const MAX_SIZE: u64 = 10_000_000;
     tokio::task::spawn_blocking(move || match &shell {
-        ShellConfig::Wsl { distro } => {
-            let size_out = Command::new("wsl.exe")
-                .args(["-d", distro, "stat", "-c", "%s", "--", &path])
-                .output()
-                .map_err(|e| e.to_string())?;
-            if let Ok(size_str) = String::from_utf8(size_out.stdout) {
-                if let Ok(size) = size_str.trim().parse::<u64>() {
-                    if size > MAX_SIZE {
-                        return Err("File too large (>10MB)".into());
-                    }
+        ShellConfig::Wsl { .. } => {
+            let size_str = shell.run_stdout("stat", &["-c", "%s", "--", &path])?;
+            if let Ok(size) = size_str.trim().parse::<u64>() {
+                if size > MAX_SIZE {
+                    return Err("File too large (>10MB)".into());
                 }
             }
-            let output = Command::new("wsl.exe")
-                .args(["-d", distro, "base64", "-w0", "--", &path])
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !output.status.success() {
-                return Err(format!(
-                    "Failed to read file: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                ));
-            }
-            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+            let stdout = shell.run_stdout("base64", &["-w0", "--", &path])?;
+            Ok(stdout.trim().to_string())
         }
         _ => {
             let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
@@ -293,14 +266,8 @@ pub async fn fs_rename(
     new_path: String,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || match &shell {
-        ShellConfig::Wsl { distro } => {
-            let output = Command::new("wsl.exe")
-                .args(["-d", distro, "mv", "--", &old_path, &new_path])
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !output.status.success() {
-                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-            }
+        ShellConfig::Wsl { .. } => {
+            shell.run_stdout("mv", &["--", &old_path, &new_path])?;
             Ok(())
         }
         _ => std::fs::rename(&old_path, &new_path).map_err(|e| e.to_string()),
@@ -315,14 +282,8 @@ pub async fn fs_delete(
     path: String,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || match &shell {
-        ShellConfig::Wsl { distro } => {
-            let output = Command::new("wsl.exe")
-                .args(["-d", distro, "rm", "-rf", "--", &path])
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !output.status.success() {
-                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-            }
+        ShellConfig::Wsl { .. } => {
+            shell.run_stdout("rm", &["-rf", "--", &path])?;
             Ok(())
         }
         _ => {
@@ -345,14 +306,8 @@ pub async fn fs_copy(
     dest: String,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || match &shell {
-        ShellConfig::Wsl { distro } => {
-            let output = Command::new("wsl.exe")
-                .args(["-d", distro, "cp", "-r", "--", &source, &dest])
-                .output()
-                .map_err(|e| e.to_string())?;
-            if !output.status.success() {
-                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
-            }
+        ShellConfig::Wsl { .. } => {
+            shell.run_stdout("cp", &["-r", "--", &source, &dest])?;
             Ok(())
         }
         _ => {
