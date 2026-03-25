@@ -1,4 +1,5 @@
 mod docker;
+mod font;
 mod fs;
 mod git;
 mod search;
@@ -81,6 +82,7 @@ pub fn run() {
             git::git_show_file,
             git::git_log_file,
             git::git_diff_commit,
+            font::font_list_monospace,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

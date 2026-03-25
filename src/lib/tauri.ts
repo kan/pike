@@ -233,3 +233,9 @@ export async function dockerLogsStart(containerId: string): Promise<string> {
 export async function dockerLogsStop(streamId: string): Promise<void> {
   return invoke("docker_logs_stop", { streamId });
 }
+
+// Font
+
+export async function fontListMonospace(): Promise<string[]> {
+  return invoke<string[]>("font_list_monospace");
+}

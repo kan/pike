@@ -10,9 +10,11 @@ import DockerPanel from "../panels/DockerPanel.vue";
 import SearchPanel from "../panels/SearchPanel.vue";
 import { useSearchStore } from "../../stores/search";
 import { useDockerStore } from "../../stores/docker";
-import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader } from "lucide-vue-next";
+import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader, Settings } from "lucide-vue-next";
+import { useTabStore } from "../../stores/tabs";
 
 const sidebar = useSidebarStore();
+const tabStore = useTabStore();
 const gitStore = useGitStore();
 const searchStore = useSearchStore();
 const dockerStore = useDockerStore();
@@ -73,6 +75,14 @@ onUnmounted(() => {
       >
         <component :is="item.icon" :size="22" :stroke-width="1.5" class="icon" />
       </button>
+      <div class="icon-spacer" />
+      <button
+        class="icon-button"
+        title="Settings"
+        @click="tabStore.addSettingsTab()"
+      >
+        <Settings :size="22" :stroke-width="1.5" class="icon" />
+      </button>
     </nav>
     <aside v-if="sidebar.isPanelOpen" class="panel" :style="{ width: sidebar.panelWidth + 'px' }">
       <div class="panel-header">
@@ -130,7 +140,12 @@ onUnmounted(() => {
   flex-direction: column;
   width: var(--sidebar-width);
   padding-top: 4px;
+  padding-bottom: 4px;
   background: var(--bg-secondary);
+}
+
+.icon-spacer {
+  flex: 1;
 }
 
 .icon-button {

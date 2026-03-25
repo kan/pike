@@ -123,6 +123,13 @@ export type HistoryTab = {
   filePath: string
 }
 
-export type Tab = TerminalTab | EditorTab | DockerLogsTab | DiffTab | PreviewTab | HistoryTab
+export type SettingsTab = {
+  id: string
+  kind: 'settings'
+  title: string
+  pinned: boolean
+}
+
+export type Tab = TerminalTab | EditorTab | DockerLogsTab | DiffTab | PreviewTab | HistoryTab | SettingsTab
 
 export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects'

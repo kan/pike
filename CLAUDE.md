@@ -65,6 +65,7 @@ hearth/
 │       ├── main.rs            # Tauri エントリポイント
 │       ├── lib.rs             # Tauri Builder 設定・コマンド登録
 │       ├── types.rs           # ShellConfig 等の共通型定義
+│       ├── font.rs            # フォント列挙（font-kit でモノスペース検出）
 │       ├── pty/
 │       │   └── mod.rs         # PTY 管理（WSL/cmd/PowerShell/Git Bash 対応）
 │       └── project/
@@ -85,10 +86,12 @@ hearth/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   └── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除
 │   │   └── tabs/
-│   │       └── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
+│   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
+│   │       └── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダークモード）
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts         # サイドバー状態
+│   │   ├── settings.ts        # アプリ設定（フォント・カラースキーム・ダークモード）
 │   │   └── project.ts         # プロジェクト管理・切替・永続化
 │   ├── composables/
 │   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P
@@ -96,9 +99,10 @@ hearth/
 │   │   └── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出
 │   ├── lib/
 │   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
+│   │   ├── fontDetection.ts   # フォント名ユーティリティ（buildFontFamily/extractFontName）
 │   │   └── tauri.ts           # IPC ラッパー
 │   └── assets/
-│       └── theme.css          # CSS Variables テーマ定義
+│       └── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
 └── .claude/
     └── rules/
         ├── rust.md            # Rust 実装ルール
@@ -241,6 +245,17 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - フロントには検索バックエンドをバッジ表示
 - 結果クリックでエディタタブを開き、`initialLine` で該当行にジャンプ
 - 最大 500 件で truncate、デバウンス 300ms
+
+### 設定画面
+- サイドバー下部の歯車アイコンからシングルトンタブとして開く
+- 設定は `localStorage` (`hearth:settings`) に永続化
+- ダーク/ライトモード切替: `data-theme` 属性で CSS Variables を切り替え
+- ターミナルフォント: `font-kit` クレートでシステムのモノスペースフォントを列挙（`spawn_blocking` で非同期実行）
+- フォントスキャンは Settings タブを開いた時に遅延ロード（起動時には実行しない）
+- カラースキーム: 6種（Default Dark, Solarized Dark/Light, Monokai, Dracula, Nord）
+- フォント・サイズ変更は既存ターミナルにライブ反映、カラースキーム変更は `terminal.refresh()` + PTY resize nudge で TUI 再描画
+- 設定タブにターミナルプレビュー表示（選択中のフォント・サイズ・カラースキームを即時反映）
+- settings タブはセッション永続化の対象外（`snapshotSession` は terminal/editor のみフィルタ）
 
 ---
 

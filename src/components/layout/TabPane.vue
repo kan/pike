@@ -10,7 +10,8 @@ import EditorTab from "../tabs/EditorTab.vue";
 import PreviewTab from "../tabs/PreviewTab.vue";
 import HistoryTab from "../tabs/HistoryTab.vue";
 import DockerLogsTab from "../tabs/DockerLogsTab.vue";
-import { Terminal, Pin, X, Plus, ChevronDown, ScrollText } from "lucide-vue-next";
+import SettingsTab from "../tabs/SettingsTab.vue";
+import { Terminal, Pin, X, Plus, ChevronDown, ScrollText, Settings } from "lucide-vue-next";
 import { fileIconSvg } from "../../lib/fileIcons";
 
 const tabStore = useTabStore();
@@ -38,6 +39,10 @@ const historyTabs = computed(() =>
 
 const dockerLogsTabs = computed(() =>
   tabStore.tabs.filter((t) => t.kind === "docker-logs")
+);
+
+const settingsTabs = computed(() =>
+  tabStore.tabs.filter((t) => t.kind === "settings")
 );
 
 const isWindows = computed(() =>
@@ -132,6 +137,7 @@ onUnmounted(() => {
           <span v-if="tabFileIconSvg(tab)" class="tab-icon tab-icon-svg" v-html="tabFileIconSvg(tab)" />
           <Terminal v-else-if="tab.kind === 'terminal'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <ScrollText v-else-if="tab.kind === 'docker-logs'" :size="14" :stroke-width="1.5" class="tab-icon" />
+          <Settings v-else-if="tab.kind === 'settings'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <span class="tab-title">{{ tab.title }}</span>
           <button
             v-if="!tab.pinned"
@@ -198,6 +204,11 @@ onUnmounted(() => {
         v-for="tab in dockerLogsTabs"
         :key="tab.id"
         :tab-id="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <SettingsTab
+        v-for="tab in settingsTabs"
+        :key="tab.id"
         v-show="tab.id === tabStore.activeTabId"
       />
 

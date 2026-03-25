@@ -5,6 +5,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { ptySpawn, ptyWrite, ptyResize, ptyKill } from "../../lib/tauri";
 import { useTabStore } from "../../stores/tabs";
+import { useSettingsStore } from "../../stores/settings";
 import { ptyRouter } from "../../composables/usePtyRouter";
 import "@xterm/xterm/css/xterm.css";
 
@@ -13,6 +14,7 @@ const props = defineProps<{
 }>();
 
 const tabStore = useTabStore();
+const settingsStore = useSettingsStore();
 
 const termRef = ref<HTMLDivElement>();
 let terminal: Terminal | null = null;
@@ -84,18 +86,40 @@ watch(
   }
 );
 
+// Apply settings changes to live terminal
+watch(
+  () => settingsStore.xtermTheme,
+  (theme) => {
+    if (!terminal) return;
+    terminal.options.theme = theme;
+    terminal.refresh(0, terminal.rows - 1);
+    // Nudge PTY resize to make TUI apps (like Claude Code) redraw
+    if (ptyId && terminal.cols > 1) {
+      ptyResize(ptyId, terminal.cols - 1, terminal.rows);
+      setTimeout(() => {
+        if (terminal && ptyId) {
+          ptyResize(ptyId, terminal.cols, terminal.rows);
+        }
+      }, 200);
+    }
+  }
+);
+watch(
+  () => settingsStore.fontFamily,
+  (v) => { if (terminal) { terminal.options.fontFamily = v; doFit(); } }
+);
+watch(
+  () => settingsStore.fontSize,
+  (v) => { if (terminal) { terminal.options.fontSize = v; doFit(); } }
+);
+
 onMounted(async () => {
   if (!termRef.value) return;
 
   terminal = new Terminal({
-    fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
-    fontSize: 14,
-    theme: {
-      background: "#1e1e1e",
-      foreground: "#cccccc",
-      cursor: "#cccccc",
-      selectionBackground: "#264f78",
-    },
+    fontFamily: settingsStore.fontFamily,
+    fontSize: settingsStore.fontSize,
+    theme: settingsStore.xtermTheme,
     scrollback: 5000,
     cursorBlink: true,
     allowProposedApi: true,

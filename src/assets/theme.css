@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme="dark"] {
   --bg-primary: #1e1e1e;
   --bg-secondary: #252526;
   --bg-tertiary: #2d2d2d;
@@ -17,6 +18,33 @@
   --git-untracked: #969696;
   --sidebar-width: 48px;
   --tabbar-height: 36px;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.1);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+  --shadow-color: rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f3f3;
+  --bg-tertiary: #e8e8e8;
+  --text-primary: #333333;
+  --text-secondary: #717171;
+  --text-active: #000000;
+  --accent: #007acc;
+  --border: #d4d4d4;
+  --tab-active-bg: #ffffff;
+  --tab-inactive-bg: #ececec;
+  --tab-hover-bg: #e0e0e0;
+  --danger: #d32f2f;
+  --git-add: #2e7d32;
+  --git-modify: #e65100;
+  --git-delete: #d32f2f;
+  --git-untracked: #717171;
+  --sidebar-width: 48px;
+  --tabbar-height: 36px;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  --shadow-color: rgba(0, 0, 0, 0.15);
 }
 
 /* Thin overlay scrollbars */
@@ -30,12 +58,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
