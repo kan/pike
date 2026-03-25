@@ -170,16 +170,21 @@ onMounted(async () => {
       initLines.push(titleSetup);
     }
 
+    // Shell-appropriate clear + command chaining
+    const shellKind = tabData.shell?.kind;
+    const clearCmd = (shellKind === 'cmd' || shellKind === 'powershell') ? 'cls' : 'clear';
+    const chain = shellKind === 'powershell' ? '; ' : ' && ';
+
     if (tabData.autoStart) {
-      initLines.push('clear && ' + tabData.autoStart);
+      initLines.push(clearCmd + chain + tabData.autoStart);
     } else if (initLines.length > 0) {
-      initLines.push('clear');
+      initLines.push(clearCmd);
     }
 
     if (initLines.length > 0) {
       setTimeout(() => {
         termRef_.clear();
-        ptyWrite(currentPtyId, initLines.join('\n') + '\n').catch(() => {});
+        ptyWrite(currentPtyId, initLines.join('\r') + '\r').catch(() => {});
       }, 500);
     }
   }
