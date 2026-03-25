@@ -256,7 +256,6 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - フォント・サイズ変更は既存ターミナルにライブ反映、カラースキーム変更は `terminal.refresh()` + PTY resize nudge で TUI 再描画
 - 設定タブにターミナルプレビュー表示（選択中のフォント・サイズ・カラースキームを即時反映）
 - settings タブはセッション永続化の対象外（`snapshotSession` は terminal/editor のみフィルタ）
-- SSH コマンド設定: push/pull 時に `GIT_SSH_COMMAND` 環境変数として注入、WSL は `WSLENV` で伝播（※未検証）
 
 ---
 

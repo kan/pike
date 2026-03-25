@@ -152,12 +152,12 @@ export async function gitCheckout(root: string, shell: ShellType, branch: string
   return invoke("git_checkout", { root, shell, branch });
 }
 
-export async function gitPush(root: string, shell: ShellType, sshCommand?: string): Promise<string> {
-  return invoke<string>("git_push", { root, shell, sshCommand: sshCommand ?? null });
+export async function gitPush(root: string, shell: ShellType): Promise<string> {
+  return invoke<string>("git_push", { root, shell });
 }
 
-export async function gitPull(root: string, shell: ShellType, sshCommand?: string): Promise<string> {
-  return invoke<string>("git_pull", { root, shell, sshCommand: sshCommand ?? null });
+export async function gitPull(root: string, shell: ShellType): Promise<string> {
+  return invoke<string>("git_pull", { root, shell });
 }
 
 export async function gitShowFiles(root: string, shell: ShellType, hash: string): Promise<GitFileChange[]> {
