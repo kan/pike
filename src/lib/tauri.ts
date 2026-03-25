@@ -196,14 +196,13 @@ export async function searchExecute(
   shell: ShellType,
   root: string,
   query: string,
-  backend: SearchBackend,
   isRegex: boolean,
   globInclude?: string,
   globExclude?: string,
   maxResults?: number,
 ): Promise<SearchResult> {
   return invoke<SearchResult>("search_execute", {
-    shell, root, query, backend, isRegex,
+    shell, root, query, isRegex,
     globInclude: globInclude ?? null,
     globExclude: globExclude ?? null,
     maxResults: maxResults ?? null,

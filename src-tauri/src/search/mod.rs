@@ -1,14 +1,15 @@
 use crate::types::ShellConfig;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use std::sync::Mutex;
 use tauri::State;
 
 pub struct SearchState {
     pub bundled_rg: Option<String>,
+    pub detected: Mutex<Option<SearchBackend>>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum SearchBackend {
+#[derive(Clone)]
+pub(crate) enum SearchBackend {
     Rg,
     BundledRg { path: String },
     Grep,
@@ -23,6 +24,13 @@ impl SearchBackend {
         match self {
             SearchBackend::BundledRg { path } => path,
             _ => "rg",
+        }
+    }
+
+    fn label(&self) -> &str {
+        match self {
+            SearchBackend::Rg | SearchBackend::BundledRg { .. } => "rg",
+            SearchBackend::Grep => "grep",
         }
     }
 }
@@ -46,25 +54,31 @@ pub struct SearchResult {
 pub async fn search_detect_backend(
     shell: ShellConfig,
     state: State<'_, SearchState>,
-) -> Result<SearchBackend, String> {
+) -> Result<String, String> {
     let bundled = state.bundled_rg.clone();
-    tokio::task::spawn_blocking(move || {
+    let backend = tokio::task::spawn_blocking(move || {
         let check_cmd = match &shell {
             ShellConfig::Wsl { .. } => "which",
             _ => "where",
         };
         if let Ok((0, _, _)) = shell.run(check_cmd, &["rg"]) {
-            return Ok(SearchBackend::Rg);
+            return SearchBackend::Rg;
         }
         if !matches!(shell, ShellConfig::Wsl { .. }) {
             if let Some(path) = bundled {
-                return Ok(SearchBackend::BundledRg { path });
+                return SearchBackend::BundledRg { path };
             }
         }
-        Ok(SearchBackend::Grep)
+        SearchBackend::Grep
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    let label = backend.label().to_string();
+    if let Ok(mut detected) = state.detected.lock() {
+        *detected = Some(backend);
+    }
+    Ok(label)
 }
 
 const MAX_MATCHES: usize = 500;
@@ -120,7 +134,6 @@ fn parse_grep_output(output: &str) -> (Vec<SearchMatch>, bool) {
             truncated = true;
             break;
         }
-        // Format: filepath:linenum:content
         let mut parts = line.splitn(3, ':');
         let path = parts.next().unwrap_or("").to_string();
         let line_num: u32 = parts
@@ -144,11 +157,11 @@ pub async fn search_execute(
     shell: ShellConfig,
     root: String,
     query: String,
-    backend: SearchBackend,
     is_regex: bool,
     glob_include: Option<String>,
     glob_exclude: Option<String>,
     max_results: Option<u32>,
+    state: State<'_, SearchState>,
 ) -> Result<SearchResult, String> {
     if query.is_empty() {
         return Ok(SearchResult {
@@ -157,9 +170,15 @@ pub async fn search_execute(
         });
     }
 
+    let backend = state
+        .detected
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or(SearchBackend::Grep);
+
     let max = max_results.unwrap_or(MAX_MATCHES as u32) as usize;
 
-    // Auto-wrap bare patterns into glob: "ts" → "*.ts", "test" → "*test*"
     let inc_glob = glob_include.map(|g| {
         if g.contains('*') || g.contains('?') { g } else if g.contains('.') { format!("*.{}", g.trim_start_matches('.')) } else { format!("*{g}*") }
     });
@@ -191,7 +210,6 @@ pub async fn search_execute(
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
             shell.run(backend.rg_program(), &arg_refs)
         } else {
-            // grep
             let mut args: Vec<String> = vec!["-rn".to_string()];
             if !is_regex {
                 args.push("-F".to_string());

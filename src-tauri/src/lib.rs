@@ -36,7 +36,10 @@ pub fn run() {
                     let p = dir.join("rg.exe");
                     p.exists().then(|| p.to_string_lossy().into_owned())
                 });
-            app.manage(search::SearchState { bundled_rg: rg_path });
+            app.manage(search::SearchState {
+                bundled_rg: rg_path,
+                detected: std::sync::Mutex::new(None),
+            });
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(

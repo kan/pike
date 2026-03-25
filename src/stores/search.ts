@@ -20,7 +20,7 @@ export const useSearchStore = defineStore('search', () => {
     try {
       backend.value = await searchDetectBackend(project.shell)
     } catch {
-      backend.value = { kind: 'grep' }
+      backend.value = 'grep'
     } finally {
       detecting.value = false
     }
@@ -45,7 +45,6 @@ export const useSearchStore = defineStore('search', () => {
         project.shell,
         project.root,
         query,
-        backend.value,
         isRegex,
         globInclude || undefined,
         globExclude || undefined,
@@ -66,6 +65,7 @@ export const useSearchStore = defineStore('search', () => {
     truncated.value = false
     error.value = null
   }
+
 
   return {
     backend,

@@ -9,11 +9,4 @@ export interface SearchResult {
   truncated: boolean
 }
 
-export type SearchBackend =
-  | { kind: 'rg' }
-  | { kind: 'bundled-rg'; path: string }
-  | { kind: 'grep' }
-
-export function backendLabel(b: SearchBackend): string {
-  return b.kind === 'grep' ? 'grep' : 'rg'
-}
+export type SearchBackend = 'rg' | 'grep'
