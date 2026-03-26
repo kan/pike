@@ -17,6 +17,9 @@ import {
   rootPlaceholder as rootPlaceholderFn,
   WINDOWS_SHELLS,
 } from "../../types/tab";
+import { useI18n } from "../../i18n";
+
+const { t } = useI18n();
 
 const projectStore = useProjectStore();
 const tabStore = useTabStore();
@@ -132,7 +135,7 @@ async function onSaveEdit() {
 
 async function onDelete(id: string) {
   const project = projectStore.projects.find(p => p.id === id);
-  if (!await confirmDialog(`Delete project "${project?.name ?? id}"?`)) return;
+  if (!await confirmDialog(t('project.confirmDelete', { name: project?.name ?? id }))) return;
   await projectStore.removeProject(id);
   if (editingId.value === id) editingId.value = null;
 }
@@ -141,16 +144,16 @@ async function onDelete(id: string) {
 <template>
   <div class="project-panel">
     <button class="add-btn" @click="showForm = !showForm">
-      {{ showForm ? "Cancel" : "+ Add Project" }}
+      {{ showForm ? t('common.cancel') : t('project.addProject') }}
     </button>
 
     <!-- Create form -->
     <form v-if="showForm" class="form" @submit.prevent="onCreate">
-      <input v-model="formName" placeholder="Project name" required />
+      <input v-model="formName" :placeholder="t('project.projectName')" required />
       <div class="input-row">
         <input v-model="formRoot" :placeholder="createRootPlaceholder" required />
         <button type="button" class="detect-btn" :disabled="detecting" @click="detectFromTerminal">
-          {{ detecting ? "..." : "Detect" }}
+          {{ detecting ? "..." : t('project.detect') }}
         </button>
       </div>
       <div class="platform-row">
@@ -163,7 +166,7 @@ async function onDelete(id: string) {
       <select v-if="formPlatform === 'windows'" v-model="formWindowsShell">
         <option v-for="s in WINDOWS_SHELLS" :key="s.kind" :value="s.kind">{{ s.label }}</option>
       </select>
-      <button type="submit">Create</button>
+      <button type="submit">{{ t('common.create') }}</button>
     </form>
 
     <!-- Project list -->
@@ -171,7 +174,7 @@ async function onDelete(id: string) {
       <template v-for="project in projectStore.projects" :key="project.id">
         <!-- Edit mode -->
         <div v-if="editingId === project.id" class="edit-form">
-          <input v-model="editName" placeholder="Project name" />
+          <input v-model="editName" :placeholder="t('project.projectName')" />
           <input v-model="editRoot" :placeholder="editRootPlaceholder" />
           <div class="platform-row">
             <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
@@ -186,8 +189,8 @@ async function onDelete(id: string) {
             <option value="git-bash">Git Bash</option>
           </select>
           <div class="edit-actions">
-            <button type="button" class="save-btn" @click="onSaveEdit">Save</button>
-            <button type="button" class="cancel-btn" @click="cancelEdit">Cancel</button>
+            <button type="button" class="save-btn" @click="onSaveEdit">{{ t('common.save') }}</button>
+            <button type="button" class="cancel-btn" @click="cancelEdit">{{ t('common.cancel') }}</button>
           </div>
         </div>
 
@@ -204,16 +207,16 @@ async function onDelete(id: string) {
             <span class="project-shell">{{ shellLabel(project.shell) }}</span>
           </div>
           <div class="item-actions">
-            <button class="action-btn" title="Open in new window" @click.stop="openProjectWindow(project.id)"><ExternalLink :size="12" :stroke-width="2" /></button>
-            <button class="action-btn" title="Edit" @click.stop="startEdit(project)"><Pencil :size="12" :stroke-width="2" /></button>
-            <button class="action-btn danger" title="Delete" @click.stop="onDelete(project.id)"><Trash2 :size="12" :stroke-width="2" /></button>
+            <button class="action-btn" :title="t('project.openInNewWindow')" @click.stop="openProjectWindow(project.id)"><ExternalLink :size="12" :stroke-width="2" /></button>
+            <button class="action-btn" :title="t('project.edit')" @click.stop="startEdit(project)"><Pencil :size="12" :stroke-width="2" /></button>
+            <button class="action-btn danger" :title="t('common.delete')" @click.stop="onDelete(project.id)"><Trash2 :size="12" :stroke-width="2" /></button>
           </div>
         </div>
       </template>
     </div>
 
     <div v-if="projectStore.projects.length === 0 && !showForm" class="empty">
-      No projects yet
+      {{ t('project.noProjects') }}
     </div>
   </div>
 </template>

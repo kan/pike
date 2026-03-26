@@ -4,7 +4,9 @@ import { useProjectStore } from "../stores/project";
 import { detectWslDistros, openProjectWindow } from "../lib/tauri";
 import type { ProjectConfig } from "../types/project";
 import { buildShell, slugify, rootPlaceholder as rootPlaceholderFn, WINDOWS_SHELLS } from "../types/tab";
+import { useI18n } from "../i18n";
 
+const { t } = useI18n();
 const projectStore = useProjectStore();
 
 // --- Search mode ---
@@ -148,7 +150,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
           ref="inputRef"
           v-model="query"
           class="switcher-input"
-          placeholder="Switch project..."
+          :placeholder="t('projectSwitcher.placeholder')"
           @keydown="onKeyDown"
         />
 
@@ -166,27 +168,27 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             <span class="item-root">{{ project.root }}</span>
           </div>
           <div v-if="filtered.length === 0 && query" class="switcher-empty">
-            No matching projects
+            {{ t('projectSwitcher.noMatch') }}
           </div>
         </div>
 
         <!-- New project button -->
         <div v-if="!showNewForm" class="switcher-footer">
           <div class="footer-hints">
-            <span class="hint">Enter: switch</span>
-            <span class="hint">Ctrl+Enter: new window</span>
+            <span class="hint">{{ t('projectSwitcher.enterSwitch') }}</span>
+            <span class="hint">{{ t('projectSwitcher.ctrlEnterWindow') }}</span>
           </div>
-          <button class="new-project-btn" @click="openNewForm">+ New Project</button>
+          <button class="new-project-btn" @click="openNewForm">{{ t('projectSwitcher.newProject') }}</button>
         </div>
 
         <!-- New project form -->
         <div v-if="showNewForm" class="new-form">
           <div class="new-form-header">
-            <span>New Project</span>
-            <button class="back-btn" @click="resetForm">Back</button>
+            <span>{{ t('projectSwitcher.formTitle') }}</span>
+            <button class="back-btn" @click="resetForm">{{ t('common.back') }}</button>
           </div>
           <form class="new-form-body" @submit.prevent="onCreateProject">
-            <input v-model="formName" placeholder="Project name" required />
+            <input v-model="formName" :placeholder="t('project.projectName')" required />
             <input v-model="formRoot" :placeholder="formRootPlaceholder" required />
             <div class="platform-row">
               <label class="radio-label">
@@ -202,7 +204,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             <select v-if="formPlatform === 'windows'" v-model="formWindowsShell">
               <option v-for="s in WINDOWS_SHELLS" :key="s.kind" :value="s.kind">{{ s.label }}</option>
             </select>
-            <button type="submit" class="create-btn">Create & Open</button>
+            <button type="submit" class="create-btn">{{ t('projectSwitcher.createAndOpen') }}</button>
           </form>
         </div>
       </div>

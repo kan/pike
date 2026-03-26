@@ -2,6 +2,9 @@
 import { computed } from "vue";
 import { useTabStore } from "../../stores/tabs";
 import type { DiffTab } from "../../types/tab";
+import { useI18n } from "../../i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{ tabId: string }>();
 const tabStore = useTabStore();
@@ -139,11 +142,11 @@ function findLastUnpairedDel(lines: DiffLine[]): number {
 
 <template>
   <div class="diff-tab">
-    <div v-if="!tab" class="empty">Diff not found</div>
+    <div v-if="!tab" class="empty">{{ t('diff.notFound') }}</div>
     <div v-else-if="!parsedLines.length && tab.diff" class="empty">
-      {{ tab.diff.includes('Binary files') ? 'Binary file — diff not available' : tab.diff.slice(0, 200) }}
+      {{ tab.diff.includes('Binary files') ? t('diff.binary') : tab.diff.slice(0, 200) }}
     </div>
-    <div v-else-if="!parsedLines.length" class="empty">No changes</div>
+    <div v-else-if="!parsedLines.length" class="empty">{{ t('diff.noChanges') }}</div>
     <div v-else class="diff-container">
       <table class="diff-table">
         <tbody>

@@ -4,6 +4,9 @@ import { useSearchStore } from "../../stores/search";
 import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
 import { Regex } from "lucide-vue-next";
+import { useI18n } from "../../i18n";
+
+const { t } = useI18n();
 
 const searchStore = useSearchStore();
 const projectStore = useProjectStore();
@@ -68,7 +71,7 @@ onMounted(() => {
       <input
         v-model="query"
         class="search-input"
-        placeholder="Search..."
+        :placeholder="t('search.placeholder')"
         @input="onInput"
         @keydown.enter="doSearch"
       />
@@ -76,27 +79,27 @@ onMounted(() => {
         <button
           class="option-btn"
           :class="{ active: isRegex }"
-          title="Use Regex"
+          :title="t('search.useRegex')"
           @click="isRegex = !isRegex"
         ><Regex :size="14" :stroke-width="2" /></button>
         <input
           v-model="globInclude"
           class="glob-input"
-          placeholder="Include (e.g. *.ts)"
+          :placeholder="t('search.include')"
         />
         <input
           v-model="globExclude"
           class="glob-input"
-          placeholder="Exclude"
+          :placeholder="t('search.exclude')"
         />
       </div>
     </div>
 
     <div v-if="searchStore.backend" class="backend-badge">{{ searchStore.backend }}</div>
 
-    <div v-if="searchStore.searching" class="status">Searching...</div>
+    <div v-if="searchStore.searching" class="status">{{ t('search.searching') }}</div>
     <div v-else-if="searchStore.error" class="status error">{{ searchStore.error }}</div>
-    <div v-else-if="!searchStore.results.length && query" class="status">No results</div>
+    <div v-else-if="!searchStore.results.length && query" class="status">{{ t('search.noResults') }}</div>
 
     <div class="results-list">
       <div
@@ -114,7 +117,7 @@ onMounted(() => {
     </div>
 
     <div v-if="searchStore.truncated" class="status truncated">
-      Results truncated (max 500)
+      {{ t('search.truncated') }}
     </div>
   </div>
 </template>

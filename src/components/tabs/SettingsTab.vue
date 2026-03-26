@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useSettingsStore, COLOR_SCHEMES } from "../../stores/settings";
 import { Sun, Moon } from "lucide-vue-next";
+import { useI18n } from "../../i18n";
 
+const { t } = useI18n();
 const settings = useSettingsStore();
 settings.loadAvailableFonts();
 
@@ -29,31 +31,38 @@ const PREVIEW_LINES = [
 <template>
   <div class="settings-tab">
     <div class="settings-scroll">
-      <h2 class="settings-title">Settings</h2>
+      <h2 class="settings-title">{{ t('settings.title') }}</h2>
 
       <!-- Appearance -->
       <section class="settings-section">
-        <h3 class="section-title">Appearance</h3>
+        <h3 class="section-title">{{ t('settings.appearance') }}</h3>
         <div class="setting-row">
-          <label class="setting-label">Mode</label>
+          <label class="setting-label">{{ t('settings.language') }}</label>
+          <select class="setting-select" :value="settings.language" @change="settings.language = ($event.target as HTMLSelectElement).value">
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.mode') }}</label>
           <div class="mode-toggle">
             <button
               class="mode-btn"
               :class="{ active: settings.darkMode }"
               @click="settings.darkMode = true"
-              title="Dark Mode"
+              :title="t('settings.darkMode')"
             >
               <Moon :size="16" :stroke-width="1.5" />
-              <span>Dark</span>
+              <span>{{ t('settings.darkMode') }}</span>
             </button>
             <button
               class="mode-btn"
               :class="{ active: !settings.darkMode }"
               @click="settings.darkMode = false"
-              title="Light Mode"
+              :title="t('settings.lightMode')"
             >
               <Sun :size="16" :stroke-width="1.5" />
-              <span>Light</span>
+              <span>{{ t('settings.lightMode') }}</span>
             </button>
           </div>
         </div>
@@ -61,10 +70,10 @@ const PREVIEW_LINES = [
 
       <!-- Terminal -->
       <section class="settings-section">
-        <h3 class="section-title">Terminal</h3>
+        <h3 class="section-title">{{ t('settings.terminal') }}</h3>
 
         <div class="setting-row">
-          <label class="setting-label">Font</label>
+          <label class="setting-label">{{ t('settings.font') }}</label>
           <select
             class="setting-select"
             :value="settings.fontName"
@@ -79,7 +88,7 @@ const PREVIEW_LINES = [
         </div>
 
         <div class="setting-row">
-          <label class="setting-label">Font Size</label>
+          <label class="setting-label">{{ t('settings.fontSize') }}</label>
           <div class="font-size-control">
             <input
               type="range"
@@ -95,7 +104,7 @@ const PREVIEW_LINES = [
 
         <!-- Preview -->
         <div class="setting-row setting-row-block">
-          <label class="setting-label">Preview</label>
+          <label class="setting-label">{{ t('settings.preview') }}</label>
           <div
             class="terminal-preview"
             :style="{
@@ -118,7 +127,7 @@ const PREVIEW_LINES = [
         </div>
 
         <div class="setting-row setting-row-block">
-          <label class="setting-label">Color Scheme</label>
+          <label class="setting-label">{{ t('settings.colorScheme') }}</label>
           <div class="scheme-grid">
             <button
               v-for="scheme in COLOR_SCHEMES"
@@ -142,44 +151,44 @@ const PREVIEW_LINES = [
         </div>
 
         <div class="setting-row">
-          <label class="setting-label">Copy on Select</label>
+          <label class="setting-label">{{ t('settings.copyOnSelect') }}</label>
           <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.terminalCopyOnSelect }" @click="settings.terminalCopyOnSelect = true">ON</button>
-            <button class="mode-btn" :class="{ active: !settings.terminalCopyOnSelect }" @click="settings.terminalCopyOnSelect = false">OFF</button>
+            <button class="mode-btn" :class="{ active: settings.terminalCopyOnSelect }" @click="settings.terminalCopyOnSelect = true">{{ t('common.on') }}</button>
+            <button class="mode-btn" :class="{ active: !settings.terminalCopyOnSelect }" @click="settings.terminalCopyOnSelect = false">{{ t('common.off') }}</button>
           </div>
         </div>
 
         <div class="setting-row">
-          <label class="setting-label">Right Click Paste</label>
+          <label class="setting-label">{{ t('settings.rightClickPaste') }}</label>
           <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.terminalRightClickPaste }" @click="settings.terminalRightClickPaste = true">ON</button>
-            <button class="mode-btn" :class="{ active: !settings.terminalRightClickPaste }" @click="settings.terminalRightClickPaste = false">OFF</button>
+            <button class="mode-btn" :class="{ active: settings.terminalRightClickPaste }" @click="settings.terminalRightClickPaste = true">{{ t('common.on') }}</button>
+            <button class="mode-btn" :class="{ active: !settings.terminalRightClickPaste }" @click="settings.terminalRightClickPaste = false">{{ t('common.off') }}</button>
           </div>
         </div>
       </section>
 
       <!-- Editor -->
       <section class="settings-section">
-        <h3 class="section-title">Editor</h3>
+        <h3 class="section-title">{{ t('settings.editor') }}</h3>
 
         <div class="setting-row">
-          <label class="setting-label">Minimap</label>
+          <label class="setting-label">{{ t('settings.minimap') }}</label>
           <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.editorMinimap }" @click="settings.editorMinimap = true">ON</button>
-            <button class="mode-btn" :class="{ active: !settings.editorMinimap }" @click="settings.editorMinimap = false">OFF</button>
+            <button class="mode-btn" :class="{ active: settings.editorMinimap }" @click="settings.editorMinimap = true">{{ t('common.on') }}</button>
+            <button class="mode-btn" :class="{ active: !settings.editorMinimap }" @click="settings.editorMinimap = false">{{ t('common.off') }}</button>
           </div>
         </div>
 
         <div class="setting-row">
-          <label class="setting-label">Word Wrap</label>
+          <label class="setting-label">{{ t('settings.wordWrap') }}</label>
           <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.editorWordWrap }" @click="settings.editorWordWrap = true">ON</button>
-            <button class="mode-btn" :class="{ active: !settings.editorWordWrap }" @click="settings.editorWordWrap = false">OFF</button>
+            <button class="mode-btn" :class="{ active: settings.editorWordWrap }" @click="settings.editorWordWrap = true">{{ t('common.on') }}</button>
+            <button class="mode-btn" :class="{ active: !settings.editorWordWrap }" @click="settings.editorWordWrap = false">{{ t('common.off') }}</button>
           </div>
         </div>
 
         <div class="setting-row">
-          <label class="setting-label">Tab Size</label>
+          <label class="setting-label">{{ t('settings.tabSize') }}</label>
           <select
             class="setting-select setting-select-narrow"
             :value="settings.editorTabSize"

@@ -13,7 +13,9 @@ import { useDockerStore } from "../../stores/docker";
 import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader, Settings } from "lucide-vue-next";
 import { useTabStore } from "../../stores/tabs";
 import { useShortcutsModal } from "../../composables/useShortcutsModal";
+import { useI18n } from "../../i18n";
 
+const { t } = useI18n();
 const sidebar = useSidebarStore();
 const tabStore = useTabStore();
 const gitStore = useGitStore();
@@ -50,12 +52,12 @@ function openSettings() {
 
 const fileTreeRef = ref<{ refresh: () => void; refreshing: boolean } | null>(null);
 
-const icons: { panel: SidebarPanel; label: string; icon: Component }[] = [
-  { panel: "files", label: "Files", icon: Files },
-  { panel: "git", label: "Git", icon: GitBranch },
-  { panel: "search", label: "Search", icon: Search },
-  { panel: "docker", label: "Docker", icon: Container },
-  { panel: "projects", label: "Projects", icon: FolderOpen },
+const icons: { panel: SidebarPanel; labelKey: string; icon: Component }[] = [
+  { panel: "files", labelKey: "sidebar.files", icon: Files },
+  { panel: "git", labelKey: "sidebar.git", icon: GitBranch },
+  { panel: "search", labelKey: "sidebar.search", icon: Search },
+  { panel: "docker", labelKey: "sidebar.docker", icon: Container },
+  { panel: "projects", labelKey: "sidebar.projects", icon: FolderOpen },
 ];
 
 let dragging = false;
@@ -100,7 +102,7 @@ onUnmounted(() => {
         :key="item.panel"
         class="icon-button"
         :class="{ active: sidebar.activePanel === item.panel }"
-        :title="item.label"
+        :title="t(item.labelKey)"
         @click="sidebar.togglePanel(item.panel)"
       >
         <component :is="item.icon" :size="22" :stroke-width="1.5" class="icon" />
@@ -109,17 +111,17 @@ onUnmounted(() => {
       <div class="gear-wrapper">
         <div v-if="showGearMenu" class="gear-menu" @mousedown.stop>
           <button class="gear-menu-item" @click="openShortcuts">
-            <span>Keyboard Shortcuts</span>
+            <span>{{ t('sidebar.keyboardShortcuts') }}</span>
             <span class="ctx-key">Ctrl+K</span>
           </button>
           <button class="gear-menu-item" @click="openSettings">
-            <span>Settings</span>
+            <span>{{ t('sidebar.settings') }}</span>
             <span class="ctx-key">Ctrl+,</span>
           </button>
         </div>
         <button
           class="icon-button"
-          title="Settings"
+          :title="t('sidebar.settings')"
           @click="onGearClick"
         >
           <Settings :size="22" :stroke-width="1.5" class="icon" />
@@ -128,9 +130,9 @@ onUnmounted(() => {
     </nav>
     <aside v-if="sidebar.isPanelOpen" class="panel" :style="{ width: sidebar.panelWidth + 'px' }">
       <div class="panel-header">
-        <span>{{ icons.find((i) => i.panel === sidebar.activePanel)?.label }}</span>
+        <span>{{ t(icons.find((i) => i.panel === sidebar.activePanel)?.labelKey ?? '') }}</span>
         <div v-if="sidebar.activePanel === 'files'" class="header-actions">
-          <button class="header-btn" title="Refresh" @click="fileTreeRef?.refresh()">
+          <button class="header-btn" :title="t('common.refresh')" @click="fileTreeRef?.refresh()">
             <RefreshCw :size="14" :stroke-width="2" :class="{ spin: fileTreeRef?.refreshing }" />
           </button>
         </div>
@@ -138,20 +140,20 @@ onUnmounted(() => {
           <span class="backend-badge">{{ searchStore.backend ?? '...' }}</span>
         </div>
         <div v-if="sidebar.activePanel === 'git'" class="header-actions">
-          <button class="header-btn" :disabled="gitStore.pulling" title="Pull" @click="gitStore.pull()">
+          <button class="header-btn" :disabled="gitStore.pulling" :title="t('git.pull')" @click="gitStore.pull()">
             <Loader v-if="gitStore.pulling" :size="14" :stroke-width="2" class="spin" />
             <ArrowDown v-else :size="14" :stroke-width="2" />
           </button>
-          <button class="header-btn" :disabled="gitStore.pushing" title="Push" @click="gitStore.push()">
+          <button class="header-btn" :disabled="gitStore.pushing" :title="t('git.push')" @click="gitStore.push()">
             <Loader v-if="gitStore.pushing" :size="14" :stroke-width="2" class="spin" />
             <ArrowUp v-else :size="14" :stroke-width="2" />
           </button>
-          <button class="header-btn" :disabled="gitStore.refreshing" title="Refresh" @click="gitStore.refreshStatus(true); gitStore.refreshLog()">
+          <button class="header-btn" :disabled="gitStore.refreshing" :title="t('common.refresh')" @click="gitStore.refreshStatus(true); gitStore.refreshLog()">
             <RefreshCw :size="14" :stroke-width="2" :class="{ spin: gitStore.refreshing }" />
           </button>
         </div>
         <div v-if="sidebar.activePanel === 'docker'" class="header-actions">
-          <button class="header-btn" :disabled="dockerStore.refreshing" title="Refresh" @click="dockerStore.refreshContainers(true)">
+          <button class="header-btn" :disabled="dockerStore.refreshing" :title="t('common.refresh')" @click="dockerStore.refreshContainers(true)">
             <RefreshCw :size="14" :stroke-width="2" :class="{ spin: dockerStore.refreshing }" />
           </button>
         </div>

@@ -6,6 +6,7 @@ import { ptyRouter } from '../composables/usePtyRouter'
 import type { Tab, TerminalTab, EditorTab, DiffTab, PreviewTab, HistoryTab, DockerLogsTab, SettingsTab, ShellType } from '../types/tab'
 import type { SessionTabDef, LastSession } from '../types/project'
 import { basename } from '../lib/paths'
+import { t } from '../i18n'
 
 let counter = 0
 
@@ -52,7 +53,7 @@ export const useTabStore = defineStore('tabs', () => {
     // Confirm close if editor tab has unsaved changes (title ends with *)
     const tab = tabs.value[idx]
     if (tab.kind === 'editor' && tab.title.endsWith(' *')) {
-      if (!await confirmDialog(`"${tab.title.slice(0, -2)}" has unsaved changes. Close without saving?`)) {
+      if (!await confirmDialog(t('confirm.unsavedClose', { name: tab.title.slice(0, -2) }))) {
         return
       }
     }
@@ -276,8 +277,8 @@ export const useTabStore = defineStore('tabs', () => {
     if (dirtyEditors.length > 0) {
       const names = dirtyEditors.map(t => t.title.slice(0, -2)).join(', ')
       const msg = dirtyEditors.length === 1
-        ? `"${names}" has unsaved changes. Close without saving?`
-        : `${dirtyEditors.length} files have unsaved changes (${names}). Close without saving?`
+        ? t('confirm.unsavedClose', { name: names })
+        : t('confirm.unsavedCloseMulti', { count: dirtyEditors.length, names })
       if (!await confirmDialog(msg)) return
     }
 

@@ -8,7 +8,10 @@ import { useTabStore } from "../../stores/tabs";
 import { useSettingsStore } from "../../stores/settings";
 import { dockerLogRouter } from "../../composables/useDockerLogRouter";
 import type { DockerLogsTab } from "../../types/tab";
+import { useI18n } from "../../i18n";
 import "@xterm/xterm/css/xterm.css";
+
+const { t } = useI18n();
 
 const props = defineProps<{ tabId: string }>();
 const tabStore = useTabStore();
@@ -82,10 +85,10 @@ onMounted(async () => {
     dockerLogRouter.register(
       streamId,
       (data) => termRef_.write(data),
-      () => termRef_.write("\r\n[Log stream ended]\r\n")
+      () => termRef_.write(`\r\n${t('dockerLogs.ended')}\r\n`)
     );
   } catch (e) {
-    terminal.write(`\r\n[Failed to start log stream: ${e}]\r\n`);
+    terminal.write(`\r\n${t('dockerLogs.failedStart', { error: String(e) })}\r\n`);
   }
 
   resizeObserver = new ResizeObserver(() => {

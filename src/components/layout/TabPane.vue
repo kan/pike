@@ -13,7 +13,9 @@ import DockerLogsTab from "../tabs/DockerLogsTab.vue";
 import SettingsTab from "../tabs/SettingsTab.vue";
 import { Terminal, Pin, X, Plus, ChevronDown, ScrollText, Settings } from "lucide-vue-next";
 import { fileIconSvg } from "../../lib/fileIcons";
+import { useI18n } from "../../i18n";
 
+const { t } = useI18n();
 const tabStore = useTabStore();
 const projectStore = useProjectStore();
 
@@ -229,7 +231,7 @@ onUnmounted(() => {
           @drop="onDrop($event, tab.id)"
           @dragend="onDragEnd"
         >
-          <Pin v-if="tab.pinned" :size="12" :stroke-width="2" class="tab-pin" title="Pinned" />
+          <Pin v-if="tab.pinned" :size="12" :stroke-width="2" class="tab-pin" :title="t('tabs.pinned')" />
           <span v-if="tabFileIconSvg(tab)" class="tab-icon tab-icon-svg" v-html="tabFileIconSvg(tab)" />
           <Terminal v-else-if="tab.kind === 'terminal'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <ScrollText v-else-if="tab.kind === 'docker-logs'" :size="14" :stroke-width="1.5" class="tab-icon" />
@@ -238,7 +240,7 @@ onUnmounted(() => {
           <button
             v-if="!tab.pinned"
             class="tab-close"
-            title="Close"
+            :title="t('tabs.close')"
             @click.stop="tabStore.closeTab(tab.id)"
           >
             <X :size="14" :stroke-width="2" />
@@ -246,11 +248,11 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="tab-add-group">
-        <button class="tab-add" title="New Terminal (Ctrl+T)" @click="addTab()"><Plus :size="16" :stroke-width="2" /></button>
+        <button class="tab-add" :title="t('tabs.newTerminal')" @click="addTab()"><Plus :size="16" :stroke-width="2" /></button>
         <button
           v-if="isWindows"
           class="tab-add-arrow"
-          title="Open with different shell"
+          :title="t('tabs.openWithShell')"
           @click.stop="toggleShellMenu"
         ><ChevronDown :size="12" :stroke-width="2" /></button>
       </div>
@@ -311,10 +313,10 @@ onUnmounted(() => {
       <!-- Empty state -->
       <div v-if="tabStore.tabs.length === 0" class="empty-state">
         <template v-if="projectStore.currentProject">
-          Press Ctrl+T to open a terminal
+          {{ t('app.emptyTerminal') }}
         </template>
         <template v-else>
-          Open a project to get started (Ctrl+Shift+P)
+          {{ t('app.emptyProject') }}
         </template>
       </div>
     </div>
@@ -327,37 +329,37 @@ onUnmounted(() => {
       @mousedown.stop
     >
       <button @click="tabStore.togglePin(contextMenu!.tabId); closeContextMenu()">
-        {{ contextTab.pinned ? 'Unpin Tab' : 'Pin Tab' }}
+        {{ contextTab.pinned ? t('tabs.unpin') : t('tabs.pin') }}
       </button>
       <button
         v-if="!contextTab.pinned"
         @click="tabStore.closeTab(contextMenu!.tabId); closeContextMenu()"
       >
-        <span>Close Tab</span><span class="ctx-key">Ctrl+W</span>
+        <span>{{ t('tabs.closeTab') }}</span><span class="ctx-key">Ctrl+W</span>
       </button>
       <div class="context-menu-separator" />
       <button @click="tabStore.closeOtherTabs(contextMenu!.tabId); closeContextMenu()">
-        Close Others
+        {{ t('tabs.closeOthers') }}
       </button>
       <button @click="tabStore.closeTabsToRight(contextMenu!.tabId); closeContextMenu()">
-        Close to the Right
+        {{ t('tabs.closeToRight') }}
       </button>
       <button @click="tabStore.closeSavedTabs(); closeContextMenu()">
-        Close Saved
+        {{ t('tabs.closeSaved') }}
       </button>
       <button @click="tabStore.closeAllTabs(); closeContextMenu()">
-        Close All
+        {{ t('tabs.closeAll') }}
       </button>
       <template v-if="contextTabPath">
         <div class="context-menu-separator" />
         <button @click="copyPath()">
-          Copy Path
+          {{ t('tabs.copyPath') }}
         </button>
         <button
           v-if="contextTab.kind === 'editor'"
           @click="openGitHistory()"
         >
-          <span>Git History</span><span class="ctx-key">Alt+H</span>
+          <span>{{ t('tabs.gitHistory') }}</span><span class="ctx-key">Alt+H</span>
         </button>
       </template>
     </div>

@@ -4,8 +4,16 @@ import { useProjectStore } from "../../stores/project";
 import { useGitStore } from "../../stores/git";
 import { useEditorInfo } from "../../composables/useEditorInfo";
 import { GitBranch } from "lucide-vue-next";
+import { useSettingsStore } from "../../stores/settings";
+import { useI18n } from "../../i18n";
 
+const { t } = useI18n();
 const projectStore = useProjectStore();
+const settingsStore = useSettingsStore();
+
+function toggleLanguage() {
+  settingsStore.language = settingsStore.language === 'en' ? 'ja' : 'en';
+}
 const gitStore = useGitStore();
 const editorInfo = useEditorInfo();
 
@@ -125,8 +133,8 @@ onUnmounted(() => {
 
     <!-- Editor info -->
     <template v-if="editorInfo.current.value">
-      <span class="status-text">Ln {{ editorInfo.current.value.line }}, Col {{ editorInfo.current.value.col }}</span>
-      <span class="status-text">Spaces: {{ editorInfo.current.value.tabSize }}</span>
+      <span class="status-text">{{ t('statusBar.ln') }} {{ editorInfo.current.value.line }}, {{ t('statusBar.col') }} {{ editorInfo.current.value.col }}</span>
+      <span class="status-text">{{ t('statusBar.spaces') }} {{ editorInfo.current.value.tabSize }}</span>
       <div class="status-dropdown-area">
         <button class="status-item clickable small" @click="toggleEncodingMenu">{{ editorInfo.current.value.encoding }}</button>
         <div v-if="showEncodingMenu" class="status-dropdown" @mousedown.stop>
@@ -134,15 +142,15 @@ onUnmounted(() => {
         </div>
         <div v-if="showEncodingAction" class="status-dropdown" @mousedown.stop>
           <div class="dropdown-label">{{ selectedEncoding }}</div>
-          <button @click="reopenWithEncoding">Reopen with this encoding</button>
-          <button @click="saveWithEncoding">Save with this encoding</button>
+          <button @click="reopenWithEncoding">{{ t('statusBar.reopenWithEncoding') }}</button>
+          <button @click="saveWithEncoding">{{ t('statusBar.saveWithEncoding') }}</button>
         </div>
       </div>
       <div class="status-dropdown-area">
         <button class="status-item clickable small" @click="toggleLineEndingMenu">{{ editorInfo.current.value.lineEnding }}</button>
         <div v-if="showLineEndingMenu" class="status-dropdown" @mousedown.stop>
-          <button @click="selectLineEnding('LF')">LF (Unix)</button>
-          <button @click="selectLineEnding('CRLF')">CRLF (Windows)</button>
+          <button @click="selectLineEnding('LF')">{{ t('statusBar.lfUnix') }}</button>
+          <button @click="selectLineEnding('CRLF')">{{ t('statusBar.crlfWindows') }}</button>
         </div>
       </div>
       <span class="status-text">{{ editorInfo.current.value.fileType }}</span>
@@ -159,7 +167,7 @@ onUnmounted(() => {
         <input
           v-model="branchQuery"
           class="branch-search"
-          placeholder="Switch branch..."
+          :placeholder="t('git.switchBranch')"
           @keydown.esc="closeBranches"
         />
         <div class="branch-list">
@@ -173,10 +181,14 @@ onUnmounted(() => {
             {{ b }}
             <span v-if="b === gitStore.status?.branch" class="current-mark">*</span>
           </button>
-          <div v-if="!filteredBranches.length" class="branch-empty">No matching branches</div>
+          <div v-if="!filteredBranches.length" class="branch-empty">{{ t('git.noBranches') }}</div>
         </div>
       </div>
     </div>
+
+    <button class="status-item clickable small" @click="toggleLanguage">
+      {{ settingsStore.language.toUpperCase() }}
+    </button>
   </div>
 </template>
 

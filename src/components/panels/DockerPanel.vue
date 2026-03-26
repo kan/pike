@@ -6,6 +6,9 @@ import { useProjectStore } from "../../stores/project";
 import { useSidebarStore } from "../../stores/sidebar";
 import { Play, Square, RefreshCw, ScrollText, Terminal } from "lucide-vue-next";
 import { dockerDetectShell } from "../../lib/tauri";
+import { useI18n } from "../../i18n";
+
+const { t } = useI18n();
 
 const dockerStore = useDockerStore();
 const tabStore = useTabStore();
@@ -72,16 +75,16 @@ onUnmounted(() => dockerStore.stopPolling());
 <template>
   <div class="docker-panel">
     <div v-if="!dockerStore.connected" class="empty">
-      Docker not reachable
+      {{ t('docker.notReachable') }}
     </div>
 
     <template v-else>
       <div v-if="!dockerStore.composeServices.length" class="empty">
-        No compose file found
+        {{ t('docker.noCompose') }}
       </div>
 
       <div v-else class="section">
-        <div class="section-header">Services</div>
+        <div class="section-header">{{ t('docker.services') }}</div>
         <div
           v-for="svc in dockerStore.composeServices"
           :key="svc.name"
@@ -92,30 +95,30 @@ onUnmounted(() => dockerStore.stopPolling());
             :style="{ background: stateColor(serviceContainers[svc.name]?.state ?? '') }"
           ></span>
           <span class="c-name">{{ svc.name }}</span>
-          <span class="c-status">{{ serviceContainers[svc.name]?.status ?? "not created" }}</span>
+          <span class="c-status">{{ serviceContainers[svc.name]?.status ?? t('docker.notCreated') }}</span>
           <div class="c-actions">
             <template v-if="serviceContainers[svc.name]">
               <button
                 v-if="serviceContainers[svc.name]!.state !== 'running'"
-                title="Start"
+                :title="t('docker.start')"
                 @click="dockerStore.startContainer(serviceContainers[svc.name]!.id)"
               ><Play :size="12" :stroke-width="2" /></button>
               <button
                 v-if="serviceContainers[svc.name]!.state === 'running'"
-                title="Stop"
+                :title="t('docker.stop')"
                 @click="dockerStore.stopContainer(serviceContainers[svc.name]!.id)"
               ><Square :size="12" :stroke-width="2" /></button>
               <button
-                title="Restart"
+                :title="t('docker.restart')"
                 @click="dockerStore.restartContainer(serviceContainers[svc.name]!.id)"
               ><RefreshCw :size="12" :stroke-width="2" /></button>
               <button
-                title="Logs"
+                :title="t('docker.logs')"
                 @click="openLogs(serviceContainers[svc.name]!.id, svc.name)"
               ><ScrollText :size="12" :stroke-width="2" /></button>
               <button
                 v-if="serviceContainers[svc.name]!.state === 'running'"
-                title="Shell"
+                :title="t('docker.shell')"
                 @click="openShell(serviceContainers[svc.name]!.id, svc.name)"
               ><Terminal :size="12" :stroke-width="2" /></button>
             </template>

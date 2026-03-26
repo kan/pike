@@ -8,7 +8,10 @@ import { useTabStore } from "../../stores/tabs";
 import { useSettingsStore } from "../../stores/settings";
 import { ptyRouter } from "../../composables/usePtyRouter";
 import { confirmDialog } from "../../composables/useConfirmDialog";
+import { useI18n } from "../../i18n";
 import "@xterm/xterm/css/xterm.css";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   tabId: string;
@@ -146,7 +149,7 @@ onMounted(async () => {
     ptyId = result.id;
     tabStore.setPtyId(props.tabId, ptyId);
   } catch (e) {
-    terminal.write(`\r\n[Failed to spawn PTY: ${e}]\r\n`);
+    terminal.write(`\r\n${t('terminal.failedSpawn', { error: String(e) })}\r\n`);
     return;
   }
 
@@ -154,7 +157,7 @@ onMounted(async () => {
   ptyRouter.register(
     ptyId,
     (data) => termRef_.write(data),
-    (code) => termRef_.write(`\r\n[Process exited with code ${code}]\r\n`)
+    (code) => termRef_.write(`\r\n${t('terminal.exited', { code: String(code) })}\r\n`)
   );
 
   if (tabData?.kind === 'terminal') {
@@ -221,7 +224,7 @@ onMounted(async () => {
     const text = await navigator.clipboard.readText().catch(() => "");
     if (!text) return;
     if (text.includes("\n") || text.includes("\r")) {
-      if (!await confirmDialog("Paste content contains newlines. Continue?")) return;
+      if (!await confirmDialog(t('confirm.pasteNewlines'))) return;
     }
     ptyWrite(ptyId, text).catch(() => {});
   });

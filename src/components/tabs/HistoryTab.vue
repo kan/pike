@@ -6,6 +6,9 @@ import { gitLogFile, gitDiffCommit } from "../../lib/tauri";
 import type { HistoryTab } from "../../types/tab";
 import { relativeDate } from "../../lib/paths";
 import type { GitLogEntry } from "../../types/git";
+import { useI18n } from "../../i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{ tabId: string }>();
 const tabStore = useTabStore();
@@ -117,12 +120,12 @@ onMounted(async () => {
 
 <template>
   <div class="history-tab">
-    <div v-if="!tab" class="status">Not found</div>
+    <div v-if="!tab" class="status">{{ t('history.notFound') }}</div>
     <template v-else>
       <!-- Top: commit list -->
       <div class="commit-list">
-        <div v-if="loading" class="status">Loading...</div>
-        <div v-else-if="!entries.length" class="status">No history</div>
+        <div v-if="loading" class="status">{{ t('common.loading') }}</div>
+        <div v-else-if="!entries.length" class="status">{{ t('history.noHistory') }}</div>
         <div
           v-for="entry in entries"
           :key="entry.hash"
@@ -131,7 +134,7 @@ onMounted(async () => {
           :title="`${entry.hash}\n${entry.author}\n${entry.date}\n\n${entry.message}`"
           @click="selectCommit(entry.hash)"
         >
-          <span class="c-hash" :title="copiedHash === entry.hash ? 'Copied!' : 'Click to copy'" @click.stop="copyHash(entry.hash)">{{ copiedHash === entry.hash ? "Copied" : entry.hash.slice(0, 7) }}</span>
+          <span class="c-hash" :title="copiedHash === entry.hash ? t('common.copied') : 'Click to copy'" @click.stop="copyHash(entry.hash)">{{ copiedHash === entry.hash ? t('common.copied') : entry.hash.slice(0, 7) }}</span>
           <span class="c-msg">{{ entry.message.split('\n')[0] }}</span>
           <span class="c-author">{{ entry.author }}</span>
           <span class="c-date">{{ relativeDate(entry.date) }}</span>
@@ -140,8 +143,8 @@ onMounted(async () => {
 
       <!-- Bottom: diff view -->
       <div class="diff-area">
-        <div v-if="!selectedHash" class="status">Select a commit to view diff</div>
-        <div v-else-if="diffLoading" class="status">Loading diff...</div>
+        <div v-if="!selectedHash" class="status">{{ t('history.selectCommit') }}</div>
+        <div v-else-if="diffLoading" class="status">{{ t('history.loadingDiff') }}</div>
         <div v-else-if="!diffLines.length && diffText" class="status">{{ diffText.slice(0, 200) }}</div>
         <table v-else class="diff-table">
           <tbody>

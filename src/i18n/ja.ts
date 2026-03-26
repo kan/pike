@@ -1,0 +1,200 @@
+export default {
+  // Common
+  'common.ok': 'OK',
+  'common.cancel': 'キャンセル',
+  'common.loading': '読み込み中...',
+  'common.save': '保存',
+  'common.delete': '削除',
+  'common.back': '戻る',
+  'common.create': '作成',
+  'common.on': 'ON',
+  'common.off': 'OFF',
+  'common.refresh': '更新',
+  'common.copied': 'コピーしました',
+
+  // App
+  'app.title': 'hearth',
+  'app.titleWithProject': 'hearth - {name}',
+  'app.emptyTerminal': 'Ctrl+T でターミナルを開く',
+  'app.emptyProject': 'Ctrl+Shift+P でプロジェクトを開く',
+
+  // Sidebar
+  'sidebar.files': 'ファイル',
+  'sidebar.git': 'Git',
+  'sidebar.search': '検索',
+  'sidebar.docker': 'Docker',
+  'sidebar.projects': 'プロジェクト',
+  'sidebar.keyboardShortcuts': 'キーボードショートカット',
+  'sidebar.settings': '設定',
+
+  // Tabs
+  'tabs.newTerminal': '新規ターミナル (Ctrl+T)',
+  'tabs.openWithShell': '他のシェルで開く',
+  'tabs.pinned': '固定',
+  'tabs.close': '閉じる',
+  'tabs.pin': 'タブを固定',
+  'tabs.unpin': '固定を解除',
+  'tabs.closeTab': 'タブを閉じる',
+  'tabs.closeOthers': '他を閉じる',
+  'tabs.closeToRight': '右側を閉じる',
+  'tabs.closeSaved': '保存済みを閉じる',
+  'tabs.closeAll': 'すべて閉じる',
+  'tabs.copyPath': 'パスをコピー',
+  'tabs.gitHistory': 'Git 履歴',
+
+  // Editor
+  'editor.undo': '元に戻す',
+  'editor.redo': 'やり直し',
+  'editor.cut': '切り取り',
+  'editor.copy': 'コピー',
+  'editor.paste': '貼り付け',
+  'editor.gitHistory': 'Git 履歴',
+  'editor.edit': '編集',
+  'editor.split': '分割',
+  'editor.preview': 'プレビュー',
+  'editor.saving': '保存中...',
+
+  // Diff
+  'diff.notFound': '差分が見つかりません',
+  'diff.binary': 'バイナリファイル — 差分を表示できません',
+  'diff.noChanges': '変更なし',
+
+  // History
+  'history.notFound': '見つかりません',
+  'history.noHistory': '履歴なし',
+  'history.selectCommit': 'コミットを選択して差分を表示',
+  'history.loadingDiff': '差分を読み込み中...',
+
+  // Preview
+  'preview.notFound': 'プレビューが見つかりません',
+
+  // Terminal
+  'terminal.failedSpawn': '[PTY の起動に失敗: {error}]',
+  'terminal.exited': '[プロセスが終了しました (コード {code})]',
+
+  // Docker Logs
+  'dockerLogs.failedStart': '[ログストリームの開始に失敗: {error}]',
+  'dockerLogs.ended': '[ログストリームが終了しました]',
+
+  // Settings
+  'settings.title': '設定',
+  'settings.appearance': '外観',
+  'settings.terminal': 'ターミナル',
+  'settings.editor': 'エディタ',
+  'settings.language': '言語',
+  'settings.mode': 'モード',
+  'settings.darkMode': 'ダーク',
+  'settings.lightMode': 'ライト',
+  'settings.font': 'フォント',
+  'settings.fontSize': 'フォントサイズ',
+  'settings.preview': 'プレビュー',
+  'settings.colorScheme': 'カラースキーム',
+  'settings.copyOnSelect': '選択時にコピー',
+  'settings.rightClickPaste': '右クリックで貼り付け',
+  'settings.minimap': 'ミニマップ',
+  'settings.wordWrap': '折り返し',
+  'settings.tabSize': 'タブサイズ',
+
+  // File Tree
+  'fileTree.noProject': 'プロジェクトが選択されていません',
+  'fileTree.empty': '空',
+  'fileTree.rename': '名前を変更',
+  'fileTree.delete': '削除',
+  'fileTree.gitHistory': 'Git 履歴',
+  'fileTree.confirmDelete': '"{name}" を削除しますか？',
+
+  // Git Panel
+  'git.noProject': 'プロジェクトが選択されていません',
+  'git.noChanges': '変更なし',
+  'git.noCommits': 'コミットなし',
+  'git.staged': 'ステージ済み ({count})',
+  'git.changes': '変更 ({count})',
+  'git.recentCommits': 'コミット履歴',
+  'git.unstageAll': 'すべてアンステージ',
+  'git.stageAll': 'すべてステージ',
+  'git.commit': 'コミット ({count})',
+  'git.unstage': 'アンステージ',
+  'git.stage': 'ステージ',
+  'git.openDiff': '差分を開く',
+  'git.openFile': 'ファイルを開く',
+  'git.pull': 'プル',
+  'git.push': 'プッシュ',
+  'git.switchBranch': 'ブランチを切替...',
+  'git.noBranches': 'ブランチが見つかりません',
+
+  // Docker Panel
+  'docker.notReachable': 'Docker に接続できません',
+  'docker.noCompose': 'compose ファイルが見つかりません',
+  'docker.services': 'サービス',
+  'docker.notCreated': '未作成',
+  'docker.start': '開始',
+  'docker.stop': '停止',
+  'docker.restart': '再起動',
+  'docker.logs': 'ログ',
+  'docker.shell': 'シェル',
+
+  // Project Panel
+  'project.addProject': '+ プロジェクト追加',
+  'project.projectName': 'プロジェクト名',
+  'project.detect': '検出',
+  'project.openInNewWindow': '新しいウィンドウで開く',
+  'project.edit': '編集',
+  'project.confirmDelete': 'プロジェクト "{name}" を削除しますか？',
+  'project.noProjects': 'プロジェクトがありません',
+
+  // Project Switcher
+  'projectSwitcher.placeholder': 'プロジェクトを検索...',
+  'projectSwitcher.noMatch': '一致するプロジェクトがありません',
+  'projectSwitcher.enterSwitch': 'Enter: 切替',
+  'projectSwitcher.ctrlEnterWindow': 'Ctrl+Enter: 新しいウィンドウ',
+  'projectSwitcher.newProject': '+ 新規プロジェクト',
+  'projectSwitcher.formTitle': '新規プロジェクト',
+  'projectSwitcher.createAndOpen': '作成して開く',
+
+  // Search Panel
+  'search.placeholder': '検索...',
+  'search.include': '含む (例: *.ts)',
+  'search.exclude': '除外',
+  'search.useRegex': '正規表現',
+  'search.searching': '検索中...',
+  'search.noResults': '結果なし',
+  'search.truncated': '結果を切り捨てました (最大500件)',
+
+  // Keyboard Shortcuts Modal
+  'shortcuts.title': 'キーボードショートカット',
+  'shortcuts.general': '一般',
+  'shortcuts.tabs': 'タブ',
+  'shortcuts.editor': 'エディタ',
+  'shortcuts.terminal': 'ターミナル',
+  'shortcuts.projectSwitcher': 'プロジェクト切替',
+  'shortcuts.keyboardShortcuts': 'キーボードショートカット',
+  'shortcuts.settings': '設定',
+  'shortcuts.newTerminal': '新規ターミナル',
+  'shortcuts.closeTab': 'タブを閉じる',
+  'shortcuts.nextTab': '次のタブ',
+  'shortcuts.prevTab': '前のタブ',
+  'shortcuts.save': '保存',
+  'shortcuts.undo': '元に戻す',
+  'shortcuts.redo': 'やり直し',
+  'shortcuts.find': '検索',
+  'shortcuts.findReplace': '検索と置換',
+  'shortcuts.gitHistory': 'Git 履歴',
+  'shortcuts.selectCopy': 'クリップボードにコピー',
+  'shortcuts.rightClickPaste': 'クリップボードから貼り付け',
+  'shortcuts.selectText': 'テキスト選択',
+  'shortcuts.rightClick': '右クリック',
+
+  // StatusBar
+  'statusBar.ln': '行',
+  'statusBar.col': '列',
+  'statusBar.spaces': 'スペース:',
+  'statusBar.reopenWithEncoding': 'このエンコードで開き直す',
+  'statusBar.saveWithEncoding': 'このエンコードで保存',
+  'statusBar.lfUnix': 'LF (Unix)',
+  'statusBar.crlfWindows': 'CRLF (Windows)',
+
+  // Confirm Dialog
+  'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',
+  'confirm.unsavedClose': '"{name}" に未保存の変更があります。保存せずに閉じますか？',
+  'confirm.unsavedCloseMulti': '{count} 個のファイルに未保存の変更があります ({names})。保存せずに閉じますか？',
+} as Record<string, string>

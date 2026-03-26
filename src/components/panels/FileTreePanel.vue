@@ -9,6 +9,9 @@ import { confirmDialog } from "../../composables/useConfirmDialog";
 import { fileIconSvg } from "../../lib/fileIcons";
 import { gitStatusColor, isImageFile, mimeType, basename } from "../../lib/paths";
 import { ChevronRight, ChevronDown, Loader, Folder, FolderOpen } from "lucide-vue-next";
+import { useI18n } from "../../i18n";
+
+const { t } = useI18n();
 
 const projectStore = useProjectStore();
 const tabStore = useTabStore();
@@ -135,7 +138,7 @@ async function deleteItem() {
   const path = ctxMenu.value.path;
   const name = basename(path);
   closeCtxMenu();
-  if (!await confirmDialog(`Delete "${name}"?`)) return;
+  if (!await confirmDialog(t('fileTree.confirmDelete', { name }))) return;
   await fsDelete(project.shell, path);
   const s = sep();
   const parentDir = path.substring(0, path.lastIndexOf(s));
@@ -284,7 +287,7 @@ defineExpose({ refresh, refreshing });
 
 <template>
   <div class="filetree-panel">
-    <div v-if="!projectStore.currentProject" class="empty">No project selected</div>
+    <div v-if="!projectStore.currentProject" class="empty">{{ t('fileTree.noProject') }}</div>
     <template v-else>
       <template v-for="node in flatNodes" :key="node.path">
         <div
@@ -329,14 +332,14 @@ defineExpose({ refresh, refreshing });
           <span class="tree-name" :style="gitStatusMap.has(node.path) ? { color: gitStatusColor(gitStatusMap.get(node.path)!) } : undefined">{{ node.entry.name }}</span>
         </div>
       </template>
-      <div v-if="!flatNodes.length" class="empty">Empty</div>
+      <div v-if="!flatNodes.length" class="empty">{{ t('fileTree.empty') }}</div>
 
       <!-- Context menu -->
       <Teleport to="body">
         <div v-if="ctxMenu" class="tree-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @mousedown.stop>
-          <button @click="startRename(ctxMenu.path)">Rename</button>
-          <button @click="deleteItem()">Delete</button>
-          <button v-if="!ctxMenu.isDir" @click="showGitHistory()">Git History</button>
+          <button @click="startRename(ctxMenu.path)">{{ t('fileTree.rename') }}</button>
+          <button @click="deleteItem()">{{ t('fileTree.delete') }}</button>
+          <button v-if="!ctxMenu.isDir" @click="showGitHistory()">{{ t('fileTree.gitHistory') }}</button>
         </div>
       </Teleport>
 

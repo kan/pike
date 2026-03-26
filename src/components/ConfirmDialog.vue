@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from "vue";
 import { useConfirmDialog } from "../composables/useConfirmDialog";
+import { useI18n } from "../i18n";
 
+const { t } = useI18n();
 const { visible, message, respond } = useConfirmDialog();
 const okBtn = ref<HTMLButtonElement | null>(null);
 
@@ -21,8 +23,8 @@ function onKeydown(e: KeyboardEvent) {
       <div class="dialog">
         <p class="dialog-message">{{ message }}</p>
         <div class="dialog-actions">
-          <button class="btn btn-cancel" @click="respond(false)">Cancel</button>
-          <button ref="okBtn" class="btn btn-ok" @click="respond(true)">OK</button>
+          <button class="btn btn-cancel" @click="respond(false)">{{ t('common.cancel') }}</button>
+          <button ref="okBtn" class="btn btn-ok" @click="respond(true)">{{ t('common.ok') }}</button>
         </div>
       </div>
     </div>

@@ -2,7 +2,9 @@
 import { computed } from "vue";
 import { useTabStore } from "../../stores/tabs";
 import type { PreviewTab } from "../../types/tab";
+import { useI18n } from "../../i18n";
 
+const { t } = useI18n();
 const props = defineProps<{ tabId: string }>();
 const tabStore = useTabStore();
 
@@ -13,7 +15,7 @@ const tab = computed(() =>
 
 <template>
   <div class="preview-tab">
-    <div v-if="!tab" class="empty">Preview not found</div>
+    <div v-if="!tab" class="empty">{{ t('preview.notFound') }}</div>
     <div v-else class="preview-container">
       <img :src="tab.dataUrl" :alt="tab.title" />
     </div>

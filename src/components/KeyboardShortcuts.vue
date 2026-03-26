@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { watch, nextTick, ref } from "vue";
+import { watch, nextTick, ref, computed } from "vue";
 import { useShortcutsModal } from "../composables/useShortcutsModal";
+import { useI18n } from "../i18n";
 
+const { t } = useI18n();
 const { visible } = useShortcutsModal();
 const panelRef = ref<HTMLDivElement>();
 
@@ -21,43 +23,43 @@ interface ShortcutSection {
   items: { keys: string; label: string }[];
 }
 
-const sections: ShortcutSection[] = [
+const sections = computed<ShortcutSection[]>(() => [
   {
-    title: "General",
+    title: t('shortcuts.general'),
     items: [
-      { keys: "Ctrl+Shift+P", label: "Project Switcher" },
-      { keys: "Ctrl+K", label: "Keyboard Shortcuts" },
-      { keys: "Ctrl+,", label: "Settings" },
+      { keys: "Ctrl+Shift+P", label: t('shortcuts.projectSwitcher') },
+      { keys: "Ctrl+K", label: t('shortcuts.keyboardShortcuts') },
+      { keys: "Ctrl+,", label: t('shortcuts.settings') },
     ],
   },
   {
-    title: "Tabs",
+    title: t('shortcuts.tabs'),
     items: [
-      { keys: "Ctrl+T", label: "New Terminal" },
-      { keys: "Ctrl+W", label: "Close Tab" },
-      { keys: "Ctrl+PageDown", label: "Next Tab" },
-      { keys: "Ctrl+PageUp", label: "Previous Tab" },
+      { keys: "Ctrl+T", label: t('shortcuts.newTerminal') },
+      { keys: "Ctrl+W", label: t('shortcuts.closeTab') },
+      { keys: "Ctrl+PageDown", label: t('shortcuts.nextTab') },
+      { keys: "Ctrl+PageUp", label: t('shortcuts.prevTab') },
     ],
   },
   {
-    title: "Editor",
+    title: t('shortcuts.editor'),
     items: [
-      { keys: "Ctrl+S", label: "Save" },
-      { keys: "Ctrl+Z", label: "Undo" },
-      { keys: "Ctrl+Shift+Z", label: "Redo" },
-      { keys: "Ctrl+F", label: "Find" },
-      { keys: "Ctrl+H", label: "Find & Replace" },
-      { keys: "Alt+H", label: "Git History" },
+      { keys: "Ctrl+S", label: t('shortcuts.save') },
+      { keys: "Ctrl+Z", label: t('shortcuts.undo') },
+      { keys: "Ctrl+Shift+Z", label: t('shortcuts.redo') },
+      { keys: "Ctrl+F", label: t('shortcuts.find') },
+      { keys: "Ctrl+H", label: t('shortcuts.findReplace') },
+      { keys: "Alt+H", label: t('shortcuts.gitHistory') },
     ],
   },
   {
-    title: "Terminal",
+    title: t('shortcuts.terminal'),
     items: [
-      { keys: "Select text", label: "Copy to clipboard" },
-      { keys: "Right click", label: "Paste from clipboard" },
+      { keys: t('shortcuts.selectText'), label: t('shortcuts.selectCopy') },
+      { keys: t('shortcuts.rightClick'), label: t('shortcuts.rightClickPaste') },
     ],
   },
-];
+]);
 </script>
 
 <template>
@@ -70,7 +72,7 @@ const sections: ShortcutSection[] = [
     >
       <div ref="panelRef" class="shortcuts-panel" tabindex="-1">
         <div class="shortcuts-header">
-          <span class="shortcuts-title">Keyboard Shortcuts</span>
+          <span class="shortcuts-title">{{ t('shortcuts.title') }}</span>
           <button class="close-btn" @click="visible = false">&times;</button>
         </div>
         <div class="shortcuts-body">

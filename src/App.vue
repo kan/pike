@@ -14,6 +14,9 @@ import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
 import { ptyRouter } from "./composables/usePtyRouter";
 import { dockerLogRouter } from "./composables/useDockerLogRouter";
 import { getWindowProjectId } from "./lib/window";
+import { useI18n } from "./i18n";
+
+const { t } = useI18n();
 
 const projectStore = useProjectStore();
 const tabStore = useTabStore();
@@ -24,7 +27,7 @@ useKeyboardShortcuts();
 watch(
   () => projectStore.currentProject?.name,
   (name) => {
-    const title = name ? `hearth - ${name}` : "hearth";
+    const title = name ? t('app.titleWithProject', { name }) : t('app.title');
     getCurrentWindow().setTitle(title);
   },
   { immediate: true }

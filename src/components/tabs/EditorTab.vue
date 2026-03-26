@@ -18,7 +18,9 @@ import { gitDiffGutter, setDiffLines } from "../../lib/editorGitGutter";
 import { minimap } from "../../lib/editorMinimap";
 import { marked } from "marked";
 import type { EditorTab } from "../../types/tab";
+import { useI18n } from "../../i18n";
 
+const { t } = useI18n();
 const props = defineProps<{ tabId: string }>();
 const tabStore = useTabStore();
 const projectStore = useProjectStore();
@@ -444,17 +446,17 @@ onUnmounted(() => {
 <template>
   <div class="editor-tab">
     <div v-if="isMarkdown && !loading && !error" class="preview-toolbar">
-      <button class="preview-toggle" :class="{ active: viewMode === 'edit' }" @click="viewMode = 'edit'">Edit</button>
-      <button class="preview-toggle" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'">Split</button>
-      <button class="preview-toggle" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'">Preview</button>
+      <button class="preview-toggle" :class="{ active: viewMode === 'edit' }" @click="viewMode = 'edit'">{{ t('editor.edit') }}</button>
+      <button class="preview-toggle" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'">{{ t('editor.split') }}</button>
+      <button class="preview-toggle" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'">{{ t('editor.preview') }}</button>
     </div>
-    <div v-if="loading" class="editor-status">Loading...</div>
+    <div v-if="loading" class="editor-status">{{ t('common.loading') }}</div>
     <div v-else-if="error" class="editor-status error">{{ error }}</div>
     <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error">
       <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
       <div v-if="showPreview" ref="previewRef" class="md-preview" v-html="previewHtml" @scroll="onPreviewScroll"></div>
     </div>
-    <div v-if="saving" class="save-indicator">Saving...</div>
+    <div v-if="saving" class="save-indicator">{{ t('editor.saving') }}</div>
 
     <!-- Context Menu -->
     <Teleport to="body">
@@ -464,14 +466,14 @@ onUnmounted(() => {
         :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
         @mousedown.stop
       >
-        <button @click="execUndo" :disabled="isReadOnlyTab"><span>Undo</span><span class="ctx-key">Ctrl+Z</span></button>
-        <button @click="execRedo" :disabled="isReadOnlyTab"><span>Redo</span><span class="ctx-key">Ctrl+Shift+Z</span></button>
+        <button @click="execUndo" :disabled="isReadOnlyTab"><span>{{ t('editor.undo') }}</span><span class="ctx-key">Ctrl+Z</span></button>
+        <button @click="execRedo" :disabled="isReadOnlyTab"><span>{{ t('editor.redo') }}</span><span class="ctx-key">Ctrl+Shift+Z</span></button>
         <div class="ctx-separator"></div>
-        <button @click="execCut" :disabled="isReadOnlyTab || !ctxHasSelection"><span>Cut</span><span class="ctx-key">Ctrl+X</span></button>
-        <button @click="execCopy" :disabled="!ctxHasSelection"><span>Copy</span><span class="ctx-key">Ctrl+C</span></button>
-        <button @click="execPaste" :disabled="isReadOnlyTab"><span>Paste</span><span class="ctx-key">Ctrl+V</span></button>
+        <button @click="execCut" :disabled="isReadOnlyTab || !ctxHasSelection"><span>{{ t('editor.cut') }}</span><span class="ctx-key">Ctrl+X</span></button>
+        <button @click="execCopy" :disabled="!ctxHasSelection"><span>{{ t('editor.copy') }}</span><span class="ctx-key">Ctrl+C</span></button>
+        <button @click="execPaste" :disabled="isReadOnlyTab"><span>{{ t('editor.paste') }}</span><span class="ctx-key">Ctrl+V</span></button>
         <div class="ctx-separator"></div>
-        <button @click="openGitHistory"><span>Git History</span><span class="ctx-key">Alt+H</span></button>
+        <button @click="openGitHistory"><span>{{ t('editor.gitHistory') }}</span><span class="ctx-key">Alt+H</span></button>
       </div>
     </Teleport>
   </div>

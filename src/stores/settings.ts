@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { buildFontFamily, extractFontName } from '../lib/fontDetection'
 import { fontListMonospace } from '../lib/tauri'
+import { locale } from '../i18n'
 
 export interface TerminalColorScheme {
   name: string
@@ -180,6 +181,7 @@ interface PersistedSettings {
   editorTabSize: number
   terminalCopyOnSelect: boolean
   terminalRightClickPaste: boolean
+  language: string
 }
 
 function loadSettings(): PersistedSettings {
@@ -201,6 +203,7 @@ function defaults(): PersistedSettings {
     editorTabSize: 4,
     terminalCopyOnSelect: true,
     terminalRightClickPaste: true,
+    language: 'en',
   }
 }
 
@@ -216,6 +219,11 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorTabSize = ref(saved.editorTabSize)
   const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
   const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
+  const language = ref(saved.language)
+
+  // Sync language setting with i18n locale
+  locale.value = saved.language
+  watch(language, (v) => { locale.value = v })
 
   // Detected monospace fonts on this system (loaded on demand from Rust)
   const availableFonts = ref<string[]>([extractFontName(saved.fontFamily)])
@@ -260,6 +268,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorTabSize: editorTabSize.value,
       terminalCopyOnSelect: terminalCopyOnSelect.value,
       terminalRightClickPaste: terminalRightClickPaste.value,
+      language: language.value,
     }))
   }
 
@@ -267,7 +276,7 @@ export const useSettingsStore = defineStore('settings', () => {
     document.documentElement.setAttribute('data-theme', darkMode.value ? 'dark' : 'light')
   }
 
-  watch([fontFamily, fontSize, colorSchemeName, darkMode, editorMinimap, editorWordWrap, editorTabSize, terminalCopyOnSelect, terminalRightClickPaste], persist)
+  watch([fontFamily, fontSize, colorSchemeName, darkMode, editorMinimap, editorWordWrap, editorTabSize, terminalCopyOnSelect, terminalRightClickPaste, language], persist)
   watch(darkMode, applyDarkMode, { immediate: true })
 
   return {
@@ -283,6 +292,7 @@ export const useSettingsStore = defineStore('settings', () => {
     xtermTheme,
     terminalCopyOnSelect,
     terminalRightClickPaste,
+    language,
     availableFonts,
     loadAvailableFonts,
     setFontByName,

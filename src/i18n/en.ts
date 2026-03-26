@@ -1,0 +1,200 @@
+export default {
+  // Common
+  'common.ok': 'OK',
+  'common.cancel': 'Cancel',
+  'common.loading': 'Loading...',
+  'common.save': 'Save',
+  'common.delete': 'Delete',
+  'common.back': 'Back',
+  'common.create': 'Create',
+  'common.on': 'ON',
+  'common.off': 'OFF',
+  'common.refresh': 'Refresh',
+  'common.copied': 'Copied!',
+
+  // App
+  'app.title': 'hearth',
+  'app.titleWithProject': 'hearth - {name}',
+  'app.emptyTerminal': 'Press Ctrl+T to open a terminal',
+  'app.emptyProject': 'Open a project to get started (Ctrl+Shift+P)',
+
+  // Sidebar
+  'sidebar.files': 'Files',
+  'sidebar.git': 'Git',
+  'sidebar.search': 'Search',
+  'sidebar.docker': 'Docker',
+  'sidebar.projects': 'Projects',
+  'sidebar.keyboardShortcuts': 'Keyboard Shortcuts',
+  'sidebar.settings': 'Settings',
+
+  // Tabs
+  'tabs.newTerminal': 'New Terminal (Ctrl+T)',
+  'tabs.openWithShell': 'Open with different shell',
+  'tabs.pinned': 'Pinned',
+  'tabs.close': 'Close',
+  'tabs.pin': 'Pin Tab',
+  'tabs.unpin': 'Unpin Tab',
+  'tabs.closeTab': 'Close Tab',
+  'tabs.closeOthers': 'Close Others',
+  'tabs.closeToRight': 'Close to the Right',
+  'tabs.closeSaved': 'Close Saved',
+  'tabs.closeAll': 'Close All',
+  'tabs.copyPath': 'Copy Path',
+  'tabs.gitHistory': 'Git History',
+
+  // Editor
+  'editor.undo': 'Undo',
+  'editor.redo': 'Redo',
+  'editor.cut': 'Cut',
+  'editor.copy': 'Copy',
+  'editor.paste': 'Paste',
+  'editor.gitHistory': 'Git History',
+  'editor.edit': 'Edit',
+  'editor.split': 'Split',
+  'editor.preview': 'Preview',
+  'editor.saving': 'Saving...',
+
+  // Diff
+  'diff.notFound': 'Diff not found',
+  'diff.binary': 'Binary file \u2014 diff not available',
+  'diff.noChanges': 'No changes',
+
+  // History
+  'history.notFound': 'Not found',
+  'history.noHistory': 'No history',
+  'history.selectCommit': 'Select a commit to view diff',
+  'history.loadingDiff': 'Loading diff...',
+
+  // Preview
+  'preview.notFound': 'Preview not found',
+
+  // Terminal
+  'terminal.failedSpawn': '[Failed to spawn PTY: {error}]',
+  'terminal.exited': '[Process exited with code {code}]',
+
+  // Docker Logs
+  'dockerLogs.failedStart': '[Failed to start log stream: {error}]',
+  'dockerLogs.ended': '[Log stream ended]',
+
+  // Settings
+  'settings.title': 'Settings',
+  'settings.appearance': 'Appearance',
+  'settings.terminal': 'Terminal',
+  'settings.editor': 'Editor',
+  'settings.language': 'Language',
+  'settings.mode': 'Mode',
+  'settings.darkMode': 'Dark',
+  'settings.lightMode': 'Light',
+  'settings.font': 'Font',
+  'settings.fontSize': 'Font Size',
+  'settings.preview': 'Preview',
+  'settings.colorScheme': 'Color Scheme',
+  'settings.copyOnSelect': 'Copy on Select',
+  'settings.rightClickPaste': 'Right Click Paste',
+  'settings.minimap': 'Minimap',
+  'settings.wordWrap': 'Word Wrap',
+  'settings.tabSize': 'Tab Size',
+
+  // File Tree
+  'fileTree.noProject': 'No project selected',
+  'fileTree.empty': 'Empty',
+  'fileTree.rename': 'Rename',
+  'fileTree.delete': 'Delete',
+  'fileTree.gitHistory': 'Git History',
+  'fileTree.confirmDelete': 'Delete "{name}"?',
+
+  // Git Panel
+  'git.noProject': 'No project selected',
+  'git.noChanges': 'No changes',
+  'git.noCommits': 'No commits',
+  'git.staged': 'Staged ({count})',
+  'git.changes': 'Changes ({count})',
+  'git.recentCommits': 'Recent Commits',
+  'git.unstageAll': 'Unstage All',
+  'git.stageAll': 'Stage All',
+  'git.commit': 'Commit ({count})',
+  'git.unstage': 'Unstage',
+  'git.stage': 'Stage',
+  'git.openDiff': 'Open Diff',
+  'git.openFile': 'Open File',
+  'git.pull': 'Pull',
+  'git.push': 'Push',
+  'git.switchBranch': 'Switch branch...',
+  'git.noBranches': 'No matching branches',
+
+  // Docker Panel
+  'docker.notReachable': 'Docker not reachable',
+  'docker.noCompose': 'No compose file found',
+  'docker.services': 'Services',
+  'docker.notCreated': 'not created',
+  'docker.start': 'Start',
+  'docker.stop': 'Stop',
+  'docker.restart': 'Restart',
+  'docker.logs': 'Logs',
+  'docker.shell': 'Shell',
+
+  // Project Panel
+  'project.addProject': '+ Add Project',
+  'project.projectName': 'Project name',
+  'project.detect': 'Detect',
+  'project.openInNewWindow': 'Open in new window',
+  'project.edit': 'Edit',
+  'project.confirmDelete': 'Delete project "{name}"?',
+  'project.noProjects': 'No projects yet',
+
+  // Project Switcher
+  'projectSwitcher.placeholder': 'Switch project...',
+  'projectSwitcher.noMatch': 'No matching projects',
+  'projectSwitcher.enterSwitch': 'Enter: switch',
+  'projectSwitcher.ctrlEnterWindow': 'Ctrl+Enter: new window',
+  'projectSwitcher.newProject': '+ New Project',
+  'projectSwitcher.formTitle': 'New Project',
+  'projectSwitcher.createAndOpen': 'Create & Open',
+
+  // Search Panel
+  'search.placeholder': 'Search...',
+  'search.include': 'Include (e.g. *.ts)',
+  'search.exclude': 'Exclude',
+  'search.useRegex': 'Use Regex',
+  'search.searching': 'Searching...',
+  'search.noResults': 'No results',
+  'search.truncated': 'Results truncated (max 500)',
+
+  // Keyboard Shortcuts Modal
+  'shortcuts.title': 'Keyboard Shortcuts',
+  'shortcuts.general': 'General',
+  'shortcuts.tabs': 'Tabs',
+  'shortcuts.editor': 'Editor',
+  'shortcuts.terminal': 'Terminal',
+  'shortcuts.projectSwitcher': 'Project Switcher',
+  'shortcuts.keyboardShortcuts': 'Keyboard Shortcuts',
+  'shortcuts.settings': 'Settings',
+  'shortcuts.newTerminal': 'New Terminal',
+  'shortcuts.closeTab': 'Close Tab',
+  'shortcuts.nextTab': 'Next Tab',
+  'shortcuts.prevTab': 'Previous Tab',
+  'shortcuts.save': 'Save',
+  'shortcuts.undo': 'Undo',
+  'shortcuts.redo': 'Redo',
+  'shortcuts.find': 'Find',
+  'shortcuts.findReplace': 'Find & Replace',
+  'shortcuts.gitHistory': 'Git History',
+  'shortcuts.selectCopy': 'Copy to clipboard',
+  'shortcuts.rightClickPaste': 'Paste from clipboard',
+  'shortcuts.selectText': 'Select text',
+  'shortcuts.rightClick': 'Right click',
+
+  // StatusBar
+  'statusBar.ln': 'Ln',
+  'statusBar.col': 'Col',
+  'statusBar.spaces': 'Spaces:',
+  'statusBar.reopenWithEncoding': 'Reopen with this encoding',
+  'statusBar.saveWithEncoding': 'Save with this encoding',
+  'statusBar.lfUnix': 'LF (Unix)',
+  'statusBar.crlfWindows': 'CRLF (Windows)',
+
+  // Confirm Dialog
+  'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',
+  'confirm.unsavedClose': '"{name}" has unsaved changes. Close without saving?',
+  'confirm.unsavedCloseMulti': '{count} files have unsaved changes ({names}). Close without saving?',
+} as Record<string, string>

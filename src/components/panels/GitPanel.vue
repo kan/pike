@@ -9,6 +9,9 @@ import { fileIconSvg } from "../../lib/fileIcons";
 import { gitStatusColor, relativeDate } from "../../lib/paths";
 import { ChevronRight, ChevronDown, Plus, Minus } from "lucide-vue-next";
 import type { GitFileChange } from "../../types/git";
+import { useI18n } from "../../i18n";
+
+const { t } = useI18n();
 
 const gitStore = useGitStore();
 const projectStore = useProjectStore();
@@ -156,7 +159,7 @@ onUnmounted(() => {
 <template>
   <div class="git-panel">
     <template v-if="!projectStore.currentProject">
-      <div class="empty">No project selected</div>
+      <div class="empty">{{ t('git.noProject') }}</div>
     </template>
 
     <template v-else-if="gitStore.error">
@@ -176,15 +179,15 @@ onUnmounted(() => {
           class="commit-btn"
           :disabled="!commitMsg.trim() || !gitStore.status.staged.length"
           @click="onCommit"
-        >Commit ({{ gitStore.status.staged.length }})</button>
+        >{{ t('git.commit', { count: gitStore.status.staged.length }) }}</button>
       </div>
 
       <!-- Staged -->
       <div v-if="gitStore.status.staged.length" class="file-section">
         <div class="section-header">
-          <span>Staged ({{ gitStore.status.staged.length }})</span>
+          <span>{{ t('git.staged', { count: gitStore.status.staged.length }) }}</span>
           <button class="section-action" @click="gitStore.unstageFiles(gitStore.status!.staged.map(f => f.path))">
-            Unstage All
+            {{ t('git.unstageAll') }}
           </button>
         </div>
         <div
@@ -197,16 +200,16 @@ onUnmounted(() => {
           <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path">{{ file.path }}</span>
-          <button class="file-action" title="Unstage" @click.stop="gitStore.unstageFiles([file.path])"><Minus :size="12" :stroke-width="2" /></button>
+          <button class="file-action" :title="t('git.unstage')" @click.stop="gitStore.unstageFiles([file.path])"><Minus :size="12" :stroke-width="2" /></button>
         </div>
       </div>
 
       <!-- Unstaged -->
       <div v-if="gitStore.status.unstaged.length" class="file-section">
         <div class="section-header">
-          <span>Changes ({{ gitStore.status.unstaged.length }})</span>
+          <span>{{ t('git.changes', { count: gitStore.status.unstaged.length }) }}</span>
           <button class="section-action" @click="gitStore.stageFiles(gitStore.status!.unstaged.map(f => f.path))">
-            Stage All
+            {{ t('git.stageAll') }}
           </button>
         </div>
         <div
@@ -219,19 +222,19 @@ onUnmounted(() => {
           <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path">{{ file.path }}</span>
-          <button class="file-action" title="Stage" @click.stop="gitStore.stageFiles([file.path])"><Plus :size="12" :stroke-width="2" /></button>
+          <button class="file-action" :title="t('git.stage')" @click.stop="gitStore.stageFiles([file.path])"><Plus :size="12" :stroke-width="2" /></button>
         </div>
       </div>
 
       <!-- No changes -->
       <div v-if="!gitStore.status.staged.length && !gitStore.status.unstaged.length" class="empty">
-        No changes
+        {{ t('git.noChanges') }}
       </div>
 
       <!-- Commits -->
       <div class="file-section">
         <div class="section-header">
-          <span>Recent Commits</span>
+          <span>{{ t('git.recentCommits') }}</span>
         </div>
         <div v-for="entry in gitStore.logEntries" :key="entry.hash" class="commit-group">
           <div
@@ -245,7 +248,7 @@ onUnmounted(() => {
             <span class="log-meta">{{ relativeDate(entry.date) }}</span>
           </div>
           <div v-if="expandedCommits.has(entry.hash)" class="commit-files">
-            <div v-if="!commitFiles[entry.hash]" class="empty small">Loading...</div>
+            <div v-if="!commitFiles[entry.hash]" class="empty small">{{ t('common.loading') }}</div>
             <div
               v-else
               v-for="file in commitFiles[entry.hash]"
@@ -260,12 +263,12 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <div v-if="!gitStore.logEntries.length" class="empty">No commits</div>
+        <div v-if="!gitStore.logEntries.length" class="empty">{{ t('git.noCommits') }}</div>
       </div>
     </template>
 
     <template v-else>
-      <div class="empty">Loading...</div>
+      <div class="empty">{{ t('common.loading') }}</div>
     </template>
 
     <!-- Commit tooltip -->
@@ -289,8 +292,8 @@ onUnmounted(() => {
         :style="{ left: fileCtx.x + 'px', top: fileCtx.y + 'px' }"
         @mousedown.stop
       >
-        <button @click="ctxOpenDiff">Open Diff</button>
-        <button @click="ctxOpenFile">Open File</button>
+        <button @click="ctxOpenDiff">{{ t('git.openDiff') }}</button>
+        <button @click="ctxOpenFile">{{ t('git.openFile') }}</button>
       </div>
     </Teleport>
   </div>
