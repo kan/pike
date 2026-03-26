@@ -57,6 +57,12 @@ export const useTabStore = defineStore('tabs', () => {
       }
     }
 
+    // Kill PTY session before removing tab to prevent wsl.exe process leaks
+    if (tab.kind === 'terminal' && tab.ptyId) {
+      ptyRouter.unregister(tab.ptyId)
+      await ptyKill(tab.ptyId).catch(() => {})
+    }
+
     tabs.value.splice(idx, 1)
 
     if (activeTabId.value === id) {
@@ -274,6 +280,15 @@ export const useTabStore = defineStore('tabs', () => {
         : `${dirtyEditors.length} files have unsaved changes (${names}). Close without saving?`
       if (!await confirmDialog(msg)) return
     }
+
+    // Kill PTY sessions before removing tabs to prevent wsl.exe process leaks
+    const ptyKills = toClose
+      .filter((t): t is TerminalTab & { ptyId: string } => t.kind === 'terminal' && !!t.ptyId)
+      .map(t => {
+        ptyRouter.unregister(t.ptyId)
+        return ptyKill(t.ptyId).catch(() => {})
+      })
+    await Promise.allSettled(ptyKills)
 
     const idsToClose = new Set(toClose.map(t => t.id))
     tabs.value = tabs.value.filter(t => !idsToClose.has(t.id))

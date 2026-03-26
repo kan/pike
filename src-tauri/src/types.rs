@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
@@ -34,12 +35,9 @@ impl ShellConfig {
         }
     }
 
-    /// Execute and return (exit_code, stdout, stderr).
+    /// Execute with a 30 s timeout and return (exit_code, stdout, stderr).
     pub fn run(&self, program: &str, args: &[&str]) -> Result<(i32, String, String), String> {
-        let output = self
-            .command(program, args)
-            .output()
-            .map_err(|e| format!("Failed to run {program}: {e}"))?;
+        let output = self.run_with_timeout(program, args, Duration::from_secs(30))?;
         Ok((
             output.status.code().unwrap_or(-1),
             String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -47,17 +45,48 @@ impl ShellConfig {
         ))
     }
 
-    /// Execute and return stdout on success, Err on failure.
+    /// Execute with a 30 s timeout and return stdout on success, Err on failure.
     pub fn run_stdout(&self, program: &str, args: &[&str]) -> Result<String, String> {
-        let output = self
-            .command(program, args)
-            .output()
-            .map_err(|e| format!("Failed to run {program}: {e}"))?;
+        let output = self.run_with_timeout(program, args, Duration::from_secs(30))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("{program} error: {stderr}"));
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    fn run_with_timeout(
+        &self,
+        program: &str,
+        args: &[&str],
+        timeout: Duration,
+    ) -> Result<std::process::Output, String> {
+        let child = self
+            .command(program, args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to run {program}: {e}"))?;
+
+        let pid = child.id();
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        std::thread::spawn(move || {
+            let _ = tx.send(child.wait_with_output());
+        });
+
+        match rx.recv_timeout(timeout) {
+            Ok(result) => result.map_err(|e| format!("Failed to run {program}: {e}")),
+            Err(_) => {
+                // Timeout — kill the process tree to prevent wsl.exe accumulation
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+                Err(format!("{program} timed out after {}s", timeout.as_secs()))
+            }
+        }
     }
 }
 
