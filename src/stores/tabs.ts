@@ -254,6 +254,56 @@ export const useTabStore = defineStore('tabs', () => {
     }
   }
 
+  function moveTab(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return
+    if (fromIndex < 0 || fromIndex >= tabs.value.length) return
+    if (toIndex < 0 || toIndex >= tabs.value.length) return
+    const [moved] = tabs.value.splice(fromIndex, 1)
+    tabs.value.splice(toIndex, 0, moved)
+  }
+
+  async function closeTabs(ids: string[]) {
+    const toClose = tabs.value.filter(t => ids.includes(t.id) && !t.pinned)
+    if (toClose.length === 0) return
+
+    const dirtyEditors = toClose.filter(t => t.kind === 'editor' && t.title.endsWith(' *'))
+    if (dirtyEditors.length > 0) {
+      const names = dirtyEditors.map(t => t.title.slice(0, -2)).join(', ')
+      const msg = dirtyEditors.length === 1
+        ? `"${names}" has unsaved changes. Close without saving?`
+        : `${dirtyEditors.length} files have unsaved changes (${names}). Close without saving?`
+      if (!await confirmDialog(msg)) return
+    }
+
+    const idsToClose = new Set(toClose.map(t => t.id))
+    tabs.value = tabs.value.filter(t => !idsToClose.has(t.id))
+
+    if (!tabs.value.some(t => t.id === activeTabId.value)) {
+      activeTabId.value = tabs.value[tabs.value.length - 1]?.id ?? null
+    }
+  }
+
+  async function closeOtherTabs(keepId: string) {
+    await closeTabs(tabs.value.filter(t => t.id !== keepId).map(t => t.id))
+  }
+
+  async function closeTabsToRight(id: string) {
+    const idx = tabs.value.findIndex(t => t.id === id)
+    if (idx === -1) return
+    await closeTabs(tabs.value.slice(idx + 1).map(t => t.id))
+  }
+
+  async function closeSavedTabs() {
+    const ids = tabs.value
+      .filter(t => !t.pinned && !(t.kind === 'editor' && t.title.endsWith(' *')))
+      .map(t => t.id)
+    await closeTabs(ids)
+  }
+
+  async function closeAllTabs() {
+    await closeTabs(tabs.value.map(t => t.id))
+  }
+
   function cycleTab(direction: 'next' | 'prev') {
     if (tabs.value.length <= 1) return
     const idx = tabs.value.findIndex((t) => t.id === activeTabId.value)
@@ -295,6 +345,11 @@ export const useTabStore = defineStore('tabs', () => {
     addDiffTab,
     closeTab,
     clearAllTabs,
+    closeOtherTabs,
+    closeTabsToRight,
+    closeSavedTabs,
+    closeAllTabs,
+    moveTab,
     setActiveTab,
     setPtyId,
     setTabTitle,

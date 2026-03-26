@@ -92,6 +92,64 @@ function addTabWithShell(kind: 'cmd' | 'powershell' | 'git-bash') {
   closeShellMenu();
 }
 
+// Drag-and-drop reordering
+const dragTabId = ref<string | null>(null);
+const dragOverTabId = ref<string | null>(null);
+const dragSide = ref<"left" | "right">("left");
+
+function onDragStart(e: DragEvent, tabId: string) {
+  dragTabId.value = tabId;
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", tabId);
+  }
+}
+
+function onDragOver(e: DragEvent, tabId: string) {
+  if (!dragTabId.value || dragTabId.value === tabId) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const midX = rect.left + rect.width / 2;
+  dragSide.value = e.clientX < midX ? "left" : "right";
+  dragOverTabId.value = tabId;
+}
+
+function onDragLeave() {
+  dragOverTabId.value = null;
+}
+
+function onDrop(e: DragEvent, tabId: string) {
+  e.preventDefault();
+  if (!dragTabId.value || dragTabId.value === tabId) {
+    resetDrag();
+    return;
+  }
+
+  const fromIdx = tabStore.tabs.findIndex((t) => t.id === dragTabId.value);
+  let toIdx = tabStore.tabs.findIndex((t) => t.id === tabId);
+  if (fromIdx === -1 || toIdx === -1) {
+    resetDrag();
+    return;
+  }
+
+  if (dragSide.value === "right") toIdx++;
+  if (fromIdx < toIdx) toIdx--;
+
+  tabStore.moveTab(fromIdx, toIdx);
+  resetDrag();
+}
+
+function onDragEnd() {
+  resetDrag();
+}
+
+function resetDrag() {
+  dragTabId.value = null;
+  dragOverTabId.value = null;
+}
+
 // Context menu
 const contextMenu = ref<{ x: number; y: number; tabId: string } | null>(null);
 const contextTab = computed(() =>
@@ -99,6 +157,21 @@ const contextTab = computed(() =>
     ? tabStore.tabs.find((t) => t.id === contextMenu.value!.tabId) ?? null
     : null
 );
+
+const contextTabPath = computed(() => {
+  const tab = contextTab.value;
+  if (!tab) return null;
+  switch (tab.kind) {
+    case "editor":
+    case "preview":
+      return tab.path;
+    case "diff":
+    case "history":
+      return tab.filePath;
+    default:
+      return null;
+  }
+});
 
 function onTabContextMenu(e: MouseEvent, tabId: string) {
   e.preventDefault();
@@ -111,6 +184,18 @@ function onTabContextMenu(e: MouseEvent, tabId: string) {
 
 function closeContextMenu() {
   contextMenu.value = null;
+}
+
+async function copyPath() {
+  if (!contextTabPath.value) return;
+  await navigator.clipboard.writeText(contextTabPath.value);
+  closeContextMenu();
+}
+
+function openGitHistory() {
+  if (!contextTab.value || contextTab.value.kind !== "editor") return;
+  tabStore.addHistoryTab({ filePath: contextTab.value.path });
+  closeContextMenu();
 }
 
 onUnmounted(() => {
@@ -128,10 +213,21 @@ onUnmounted(() => {
           v-for="tab in tabStore.tabs"
           :key="tab.id"
           class="tab"
-          :class="{ active: tab.id === tabStore.activeTabId }"
+          :class="{
+            active: tab.id === tabStore.activeTabId,
+            dragging: tab.id === dragTabId,
+            'drag-over-left': tab.id === dragOverTabId && dragSide === 'left',
+            'drag-over-right': tab.id === dragOverTabId && dragSide === 'right',
+          }"
+          draggable="true"
           @click="tabStore.setActiveTab(tab.id)"
           @mousedown.middle.prevent="tabStore.closeTab(tab.id)"
           @contextmenu="onTabContextMenu($event, tab.id)"
+          @dragstart="onDragStart($event, tab.id)"
+          @dragover="onDragOver($event, tab.id)"
+          @dragleave="onDragLeave"
+          @drop="onDrop($event, tab.id)"
+          @dragend="onDragEnd"
         >
           <Pin v-if="tab.pinned" :size="12" :stroke-width="2" class="tab-pin" title="Pinned" />
           <span v-if="tabFileIconSvg(tab)" class="tab-icon tab-icon-svg" v-html="tabFileIconSvg(tab)" />
@@ -239,6 +335,31 @@ onUnmounted(() => {
       >
         Close Tab
       </button>
+      <div class="context-menu-separator" />
+      <button @click="tabStore.closeOtherTabs(contextMenu!.tabId); closeContextMenu()">
+        Close Others
+      </button>
+      <button @click="tabStore.closeTabsToRight(contextMenu!.tabId); closeContextMenu()">
+        Close to the Right
+      </button>
+      <button @click="tabStore.closeSavedTabs(); closeContextMenu()">
+        Close Saved
+      </button>
+      <button @click="tabStore.closeAllTabs(); closeContextMenu()">
+        Close All
+      </button>
+      <template v-if="contextTabPath">
+        <div class="context-menu-separator" />
+        <button @click="copyPath()">
+          Copy Path
+        </button>
+        <button
+          v-if="contextTab.kind === 'editor'"
+          @click="openGitHistory()"
+        >
+          Git History
+        </button>
+      </template>
     </div>
   </div>
 </template>
@@ -294,6 +415,18 @@ onUnmounted(() => {
 
 .tab:hover {
   background: var(--tab-hover-bg);
+}
+
+.tab.dragging {
+  opacity: 0.4;
+}
+
+.tab.drag-over-left {
+  box-shadow: inset 2px 0 0 0 var(--accent);
+}
+
+.tab.drag-over-right {
+  box-shadow: inset -2px 0 0 0 var(--accent);
 }
 
 .tab.active {
@@ -468,5 +601,11 @@ onUnmounted(() => {
 .context-menu button:hover {
   background: var(--accent);
   color: var(--text-active);
+}
+
+.context-menu-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
 }
 </style>

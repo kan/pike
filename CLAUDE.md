@@ -220,6 +220,10 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - プロジェクト復元時: `lastSession` があればそこから復元、なければ `pinnedTabs` にフォールバック
 - AI エージェントのセッション復帰は各ツールの resume 機能に委譲（`RESUME_MAP` で `claude` → `claude --continue` に変換）
 - tmux はオプション機能として `pty_spawn_tmux` コマンドで利用可能（必須ではない）
+- タブのドラッグ&ドロップ入れ替え（HTML5 Drag and Drop API、box-shadow でドロップ位置表示）
+- タブコンテキストメニュー: Pin/Unpin、Close、Close Others、Close to the Right、Close Saved、Close All
+  - ファイル系タブ（editor/preview/diff/history）では Copy Path、エディタタブでは Git History も表示
+  - バルク操作は pinned タブをスキップ、未保存エディタがある場合は一括確認ダイアログ
 
 ### Docker / bollard
 - フォールバック戦略で接続（musql と同一パターン）:
