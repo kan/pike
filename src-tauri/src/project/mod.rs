@@ -68,10 +68,19 @@ use crate::types::validate_slug;
 
 #[tauri::command]
 pub async fn detect_wsl_distros() -> Result<Vec<String>, String> {
-    let output = Command::new("wsl.exe")
+    let child = Command::new("wsl.exe")
         .args(["--list", "--quiet"])
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| e.to_string())?;
+    let pid = child.id();
+    let output = crate::types::wait_with_timeout(
+        pid,
+        std::time::Duration::from_secs(10),
+        "wsl --list",
+        move || child.wait_with_output(),
+    )?;
 
     let raw = &output.stdout;
     let distros = if raw.len() >= 2 && raw.len() % 2 == 0 {
