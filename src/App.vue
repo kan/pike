@@ -6,6 +6,7 @@ import TabPane from "./components/layout/TabPane.vue";
 import StatusBar from "./components/layout/StatusBar.vue";
 import ProjectSwitcher from "./components/ProjectSwitcher.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
+import KeyboardShortcuts from "./components/KeyboardShortcuts.vue";
 import { useProjectStore } from "./stores/project";
 import { useTabStore } from "./stores/tabs";
 import { useGitStore } from "./stores/git";
@@ -69,6 +70,7 @@ onMounted(async () => {
     <StatusBar />
     <ProjectSwitcher />
     <ConfirmDialog />
+    <KeyboardShortcuts />
   </div>
 </template>
 

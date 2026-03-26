@@ -55,6 +55,11 @@ impl ShellConfig {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
+    /// Execute with a 30 s timeout and return raw Output (for binary data).
+    pub fn run_raw(&self, program: &str, args: &[&str]) -> Result<std::process::Output, String> {
+        self.run_with_timeout(program, args, Duration::from_secs(30))
+    }
+
     fn run_with_timeout(
         &self,
         program: &str,
@@ -69,23 +74,33 @@ impl ShellConfig {
             .map_err(|e| format!("Failed to run {program}: {e}"))?;
 
         let pid = child.id();
-        let (tx, rx) = std::sync::mpsc::channel();
+        wait_with_timeout(pid, timeout, program, move || child.wait_with_output())
+    }
+}
 
-        std::thread::spawn(move || {
-            let _ = tx.send(child.wait_with_output());
-        });
-
-        match rx.recv_timeout(timeout) {
-            Ok(result) => result.map_err(|e| format!("Failed to run {program}: {e}")),
-            Err(_) => {
-                // Timeout — kill the process tree to prevent wsl.exe accumulation
-                let _ = Command::new("taskkill")
-                    .args(["/F", "/T", "/PID", &pid.to_string()])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
-                Err(format!("{program} timed out after {}s", timeout.as_secs()))
-            }
+/// Run a closure in a background thread with a timeout.
+/// If the timeout expires, the process tree rooted at `pid` is killed via `taskkill`.
+/// Used by both `ShellConfig::run_with_timeout` and `fs::write_bytes`.
+pub fn wait_with_timeout<T: Send + 'static>(
+    pid: u32,
+    timeout: Duration,
+    label: &str,
+    f: impl FnOnce() -> std::io::Result<T> + Send + 'static,
+) -> Result<T, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(f());
+    });
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result.map_err(|e| format!("Failed to run {label}: {e}")),
+        Err(_) => {
+            // Timeout — kill the process tree to prevent wsl.exe accumulation
+            let _ = Command::new("taskkill")
+                .args(["/F", "/T", "/PID", &pid.to_string()])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            Err(format!("{label} timed out after {}s", timeout.as_secs()))
         }
     }
 }

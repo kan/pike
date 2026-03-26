@@ -1,5 +1,5 @@
 use base64::Engine as _;
-use crate::types::ShellConfig;
+use crate::types::{ShellConfig, wait_with_timeout};
 use encoding_rs::Encoding;
 use serde::Serialize;
 use std::io::Write as IoWrite;
@@ -38,12 +38,7 @@ fn list_dir_wsl(shell: &ShellConfig, path: &str) -> Result<Vec<FsEntry>, String>
         "find '{}' -maxdepth 1 -mindepth 1 -printf '%y\\t%f\\n' 2>/dev/null | sort -t'\t' -k2",
         path.replace('\'', "'\\''")
     );
-    let output = shell
-        .command("bash", &["-c", &script])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let (_, stdout, _) = shell.run("bash", &["-c", &script])?;
     let mut dirs = Vec::new();
     let mut files = Vec::new();
 
@@ -117,10 +112,7 @@ fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Vec<u8>, String> {
                     return Err("File too large (>2MB)".into());
                 }
             }
-            let output = shell
-                .command("cat", &["--", path])
-                .output()
-                .map_err(|e| format!("Failed to run cat: {e}"))?;
+            let output = shell.run_raw("cat", &["--", path])?;
             if !output.status.success() {
                 return Err(format!(
                     "Failed to read file: {}",
@@ -200,15 +192,22 @@ fn write_bytes(shell: &ShellConfig, path: &str, bytes: &[u8]) -> Result<(), Stri
                 .spawn()
                 .map_err(|e| e.to_string())?;
 
+            let pid = child.id();
             if let Some(mut stdin) = child.stdin.take() {
                 stdin.write_all(bytes).map_err(|e| e.to_string())?;
             }
 
-            let status = child.wait().map_err(|e| e.to_string())?;
-            if !status.success() {
-                return Err("Failed to write file".into());
+            let status = wait_with_timeout(
+                pid,
+                std::time::Duration::from_secs(30),
+                "write",
+                move || child.wait(),
+            )?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err("Failed to write file".into())
             }
-            Ok(())
         }
         _ => std::fs::write(path, bytes).map_err(|e| e.to_string()),
     }

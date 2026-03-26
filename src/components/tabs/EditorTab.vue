@@ -464,14 +464,14 @@ onUnmounted(() => {
         :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
         @mousedown.stop
       >
-        <button @click="execUndo" :disabled="isReadOnlyTab">Undo</button>
-        <button @click="execRedo" :disabled="isReadOnlyTab">Redo</button>
+        <button @click="execUndo" :disabled="isReadOnlyTab"><span>Undo</span><span class="ctx-key">Ctrl+Z</span></button>
+        <button @click="execRedo" :disabled="isReadOnlyTab"><span>Redo</span><span class="ctx-key">Ctrl+Shift+Z</span></button>
         <div class="ctx-separator"></div>
-        <button @click="execCut" :disabled="isReadOnlyTab || !ctxHasSelection">Cut</button>
-        <button @click="execCopy" :disabled="!ctxHasSelection">Copy</button>
-        <button @click="execPaste" :disabled="isReadOnlyTab">Paste</button>
+        <button @click="execCut" :disabled="isReadOnlyTab || !ctxHasSelection"><span>Cut</span><span class="ctx-key">Ctrl+X</span></button>
+        <button @click="execCopy" :disabled="!ctxHasSelection"><span>Copy</span><span class="ctx-key">Ctrl+C</span></button>
+        <button @click="execPaste" :disabled="isReadOnlyTab"><span>Paste</span><span class="ctx-key">Ctrl+V</span></button>
         <div class="ctx-separator"></div>
-        <button @click="openGitHistory">Git History</button>
+        <button @click="openGitHistory"><span>Git History</span><span class="ctx-key">Alt+H</span></button>
       </div>
     </Teleport>
   </div>
@@ -648,7 +648,9 @@ onUnmounted(() => {
 }
 
 .editor-ctx-menu button {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
   padding: 5px 14px;
   border: none;
@@ -657,6 +659,7 @@ onUnmounted(() => {
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+  gap: 16px;
 }
 
 .editor-ctx-menu button:hover:not(:disabled) {

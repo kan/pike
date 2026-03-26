@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onUnmounted, type Component } from "vue";
+import { ref, nextTick, onUnmounted, type Component } from "vue";
 import { useSidebarStore } from "../../stores/sidebar";
 import { useGitStore } from "../../stores/git";
 import type { SidebarPanel } from "../../types/tab";
@@ -12,12 +12,41 @@ import { useSearchStore } from "../../stores/search";
 import { useDockerStore } from "../../stores/docker";
 import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader, Settings } from "lucide-vue-next";
 import { useTabStore } from "../../stores/tabs";
+import { useShortcutsModal } from "../../composables/useShortcutsModal";
 
 const sidebar = useSidebarStore();
 const tabStore = useTabStore();
 const gitStore = useGitStore();
 const searchStore = useSearchStore();
 const dockerStore = useDockerStore();
+const shortcutsModal = useShortcutsModal();
+const showGearMenu = ref(false);
+
+function onGearClick() {
+  showGearMenu.value = !showGearMenu.value;
+  if (showGearMenu.value) {
+    nextTick(() => {
+      window.addEventListener("mousedown", closeGearMenu, { once: true });
+    });
+  } else {
+    window.removeEventListener("mousedown", closeGearMenu);
+  }
+}
+
+function closeGearMenu() {
+  window.removeEventListener("mousedown", closeGearMenu);
+  showGearMenu.value = false;
+}
+
+function openShortcuts() {
+  closeGearMenu();
+  shortcutsModal.toggle();
+}
+
+function openSettings() {
+  closeGearMenu();
+  tabStore.addSettingsTab();
+}
 
 const fileTreeRef = ref<{ refresh: () => void; refreshing: boolean } | null>(null);
 
@@ -59,6 +88,7 @@ function onResizeEnd() {
 onUnmounted(() => {
   document.removeEventListener("mousemove", onResizeMove);
   document.removeEventListener("mouseup", onResizeEnd);
+  window.removeEventListener("mousedown", closeGearMenu);
 });
 </script>
 
@@ -76,13 +106,25 @@ onUnmounted(() => {
         <component :is="item.icon" :size="22" :stroke-width="1.5" class="icon" />
       </button>
       <div class="icon-spacer" />
-      <button
-        class="icon-button"
-        title="Settings"
-        @click="tabStore.addSettingsTab()"
-      >
-        <Settings :size="22" :stroke-width="1.5" class="icon" />
-      </button>
+      <div class="gear-wrapper">
+        <div v-if="showGearMenu" class="gear-menu" @mousedown.stop>
+          <button class="gear-menu-item" @click="openShortcuts">
+            <span>Keyboard Shortcuts</span>
+            <span class="ctx-key">Ctrl+K</span>
+          </button>
+          <button class="gear-menu-item" @click="openSettings">
+            <span>Settings</span>
+            <span class="ctx-key">Ctrl+,</span>
+          </button>
+        </div>
+        <button
+          class="icon-button"
+          title="Settings"
+          @click="onGearClick"
+        >
+          <Settings :size="22" :stroke-width="1.5" class="icon" />
+        </button>
+      </div>
     </nav>
     <aside v-if="sidebar.isPanelOpen" class="panel" :style="{ width: sidebar.panelWidth + 'px' }">
       <div class="panel-header">
@@ -146,6 +188,51 @@ onUnmounted(() => {
 
 .icon-spacer {
   flex: 1;
+}
+
+.gear-wrapper {
+  position: relative;
+}
+
+.gear-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  min-width: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  z-index: 1000;
+}
+
+.gear-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.gear-menu-item:hover {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.gear-menu-item:hover .ctx-key {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.gear-menu-item .ctx-key {
+  margin-left: 16px;
 }
 
 .icon-button {

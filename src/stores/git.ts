@@ -145,7 +145,7 @@ export const useGitStore = defineStore('git', () => {
 
   function startPolling() {
     stopPolling()
-    pollTimer = setInterval(refreshStatus, 4000)
+    pollTimer = setInterval(refreshStatus, 10000)
   }
 
   function stopPolling() {

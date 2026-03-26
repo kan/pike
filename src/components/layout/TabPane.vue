@@ -333,7 +333,7 @@ onUnmounted(() => {
         v-if="!contextTab.pinned"
         @click="tabStore.closeTab(contextMenu!.tabId); closeContextMenu()"
       >
-        Close Tab
+        <span>Close Tab</span><span class="ctx-key">Ctrl+W</span>
       </button>
       <div class="context-menu-separator" />
       <button @click="tabStore.closeOtherTabs(contextMenu!.tabId); closeContextMenu()">
@@ -357,7 +357,7 @@ onUnmounted(() => {
           v-if="contextTab.kind === 'editor'"
           @click="openGitHistory()"
         >
-          Git History
+          <span>Git History</span><span class="ctx-key">Alt+H</span>
         </button>
       </template>
     </div>
@@ -587,7 +587,9 @@ onUnmounted(() => {
 }
 
 .context-menu button {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
   padding: 6px 16px;
   border: none;
@@ -596,11 +598,16 @@ onUnmounted(() => {
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+  gap: 16px;
 }
 
 .context-menu button:hover {
   background: var(--accent);
   color: var(--text-active);
+}
+
+.context-menu button:hover .ctx-key {
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .context-menu-separator {
