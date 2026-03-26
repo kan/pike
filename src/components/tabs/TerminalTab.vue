@@ -7,6 +7,7 @@ import { ptySpawn, ptyWrite, ptyResize, ptyKill } from "../../lib/tauri";
 import { useTabStore } from "../../stores/tabs";
 import { useSettingsStore } from "../../stores/settings";
 import { ptyRouter } from "../../composables/usePtyRouter";
+import { confirmDialog } from "../../composables/useConfirmDialog";
 import "@xterm/xterm/css/xterm.css";
 
 const props = defineProps<{
@@ -204,6 +205,25 @@ onMounted(async () => {
     if (title) {
       tabStore.setTabTitle(props.tabId, title);
     }
+  });
+
+  // Auto-copy on selection
+  terminal.onSelectionChange(() => {
+    if (!settingsStore.terminalCopyOnSelect || !terminal) return;
+    const text = terminal.getSelection();
+    if (text) navigator.clipboard.writeText(text);
+  });
+
+  // Right-click paste
+  termRef.value.addEventListener("contextmenu", async (e) => {
+    e.preventDefault();
+    if (!settingsStore.terminalRightClickPaste || !ptyId) return;
+    const text = await navigator.clipboard.readText().catch(() => "");
+    if (!text) return;
+    if (text.includes("\n") || text.includes("\r")) {
+      if (!await confirmDialog("Paste content contains newlines. Continue?")) return;
+    }
+    ptyWrite(ptyId, text).catch(() => {});
   });
 
   resizeObserver = new ResizeObserver(() => {

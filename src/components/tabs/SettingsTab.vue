@@ -140,6 +140,22 @@ const PREVIEW_LINES = [
             </button>
           </div>
         </div>
+
+        <div class="setting-row">
+          <label class="setting-label">Copy on Select</label>
+          <div class="mode-toggle">
+            <button class="mode-btn" :class="{ active: settings.terminalCopyOnSelect }" @click="settings.terminalCopyOnSelect = true">ON</button>
+            <button class="mode-btn" :class="{ active: !settings.terminalCopyOnSelect }" @click="settings.terminalCopyOnSelect = false">OFF</button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label">Right Click Paste</label>
+          <div class="mode-toggle">
+            <button class="mode-btn" :class="{ active: settings.terminalRightClickPaste }" @click="settings.terminalRightClickPaste = true">ON</button>
+            <button class="mode-btn" :class="{ active: !settings.terminalRightClickPaste }" @click="settings.terminalRightClickPaste = false">OFF</button>
+          </div>
+        </div>
       </section>
 
       <!-- Editor -->

@@ -178,6 +178,8 @@ interface PersistedSettings {
   editorMinimap: boolean
   editorWordWrap: boolean
   editorTabSize: number
+  terminalCopyOnSelect: boolean
+  terminalRightClickPaste: boolean
 }
 
 function loadSettings(): PersistedSettings {
@@ -197,6 +199,8 @@ function defaults(): PersistedSettings {
     editorMinimap: true,
     editorWordWrap: false,
     editorTabSize: 4,
+    terminalCopyOnSelect: true,
+    terminalRightClickPaste: true,
   }
 }
 
@@ -210,6 +214,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorMinimap = ref(saved.editorMinimap)
   const editorWordWrap = ref(saved.editorWordWrap)
   const editorTabSize = ref(saved.editorTabSize)
+  const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
+  const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
 
   // Detected monospace fonts on this system (loaded on demand from Rust)
   const availableFonts = ref<string[]>([extractFontName(saved.fontFamily)])
@@ -252,6 +258,8 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMinimap: editorMinimap.value,
       editorWordWrap: editorWordWrap.value,
       editorTabSize: editorTabSize.value,
+      terminalCopyOnSelect: terminalCopyOnSelect.value,
+      terminalRightClickPaste: terminalRightClickPaste.value,
     }))
   }
 
@@ -259,7 +267,7 @@ export const useSettingsStore = defineStore('settings', () => {
     document.documentElement.setAttribute('data-theme', darkMode.value ? 'dark' : 'light')
   }
 
-  watch([fontFamily, fontSize, colorSchemeName, darkMode, editorMinimap, editorWordWrap, editorTabSize], persist)
+  watch([fontFamily, fontSize, colorSchemeName, darkMode, editorMinimap, editorWordWrap, editorTabSize, terminalCopyOnSelect, terminalRightClickPaste], persist)
   watch(darkMode, applyDarkMode, { immediate: true })
 
   return {
@@ -273,6 +281,8 @@ export const useSettingsStore = defineStore('settings', () => {
     editorWordWrap,
     editorTabSize,
     xtermTheme,
+    terminalCopyOnSelect,
+    terminalRightClickPaste,
     availableFonts,
     loadAvailableFonts,
     setFontByName,
