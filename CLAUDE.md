@@ -1,8 +1,8 @@
-# DevTerm — Claude Code ガイド
+# Pike — Claude Code ガイド
 
 ## プロジェクト概要
 
-**DevTerm** は Tauri v2 (Rust + Vue/TypeScript) で構築する Windows 向け軽量開発環境。
+**Pike** は Tauri v2 (Rust + Vue/TypeScript) で構築する Windows 向け軽量開発環境。
 「AI エージェント × ターミナル」に特化し、VS Code より大幅に軽いことが最重要の差別化点。
 
 ### 設計思想
@@ -55,7 +55,7 @@
 ## ディレクトリ構成
 
 ```
-hearth/
+pike/
 ├── CLAUDE.md                  # このファイル
 ├── MILESTONE.md               # マイルストーン・進捗管理
 ├── scripts/
@@ -278,7 +278,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ### 設定画面
 - サイドバー下部の歯車アイコンからシングルトンタブとして開く
-- 設定は `localStorage` (`hearth:settings`) に永続化
+- 設定は `localStorage` (`pike:settings`) に永続化
 - ダーク/ライトモード切替: `data-theme` 属性で CSS Variables を切り替え
 - ターミナルフォント: `font-kit` クレートでシステムのモノスペースフォントを列挙（`spawn_blocking` で非同期実行）
 - フォントスキャンは Settings タブを開いた時に遅延ロード（起動時には実行しない）

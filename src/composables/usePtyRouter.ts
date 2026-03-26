@@ -44,7 +44,7 @@ function unregister(ptyId: string) {
 
 function detectCwd(ptyId: string): Promise<string> {
   return new Promise((resolve) => {
-    const marker = `__HEARTH_CWD_${Date.now()}__`;
+    const marker = `__PIKE_CWD_${Date.now()}__`;
     const original = outputHandlers.get(ptyId);
     let buffer = "";
     let capturing = false;

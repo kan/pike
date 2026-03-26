@@ -13,8 +13,8 @@ export default {
   'common.copied': 'コピーしました',
 
   // App
-  'app.title': 'hearth',
-  'app.titleWithProject': 'hearth - {name}',
+  'app.title': 'pike',
+  'app.titleWithProject': 'pike - {name}',
   'app.emptyTerminal': 'Ctrl+T でターミナルを開く',
   'app.emptyProject': 'Ctrl+Shift+P でプロジェクトを開く',
 

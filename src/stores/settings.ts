@@ -169,7 +169,7 @@ export const COLOR_SCHEMES: TerminalColorScheme[] = [
   },
 ]
 
-const STORAGE_KEY = 'hearth:settings'
+const STORAGE_KEY = 'pike:settings'
 
 interface PersistedSettings {
   fontFamily: string

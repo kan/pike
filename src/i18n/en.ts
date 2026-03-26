@@ -13,8 +13,8 @@ export default {
   'common.copied': 'Copied!',
 
   // App
-  'app.title': 'hearth',
-  'app.titleWithProject': 'hearth - {name}',
+  'app.title': 'pike',
+  'app.titleWithProject': 'pike - {name}',
   'app.emptyTerminal': 'Press Ctrl+T to open a terminal',
   'app.emptyProject': 'Open a project to get started (Ctrl+Shift+P)',
 

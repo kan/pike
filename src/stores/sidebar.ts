@@ -2,8 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { SidebarPanel } from '../types/tab'
 
-const PANEL_WIDTH_KEY = 'hearth:panelWidth'
-const ACTIVE_PANEL_KEY = 'hearth:activePanel'
+const PANEL_WIDTH_KEY = 'pike:panelWidth'
+const ACTIVE_PANEL_KEY = 'pike:activePanel'
 const DEFAULT_PANEL_WIDTH = 250
 
 const VALID_PANELS: SidebarPanel[] = ['files', 'git', 'search', 'docker', 'projects']

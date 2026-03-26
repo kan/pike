@@ -1,5 +1,5 @@
 {
-  "name": "hearth",
+  "name": "pike",
   "version": "1.0.0",
   "description": "軽量な AI コーディング特化開発環境。Tauri v2 (Rust + Vue/TypeScript) 製、Windows 向け。",
   "type": "module",

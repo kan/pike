@@ -168,8 +168,8 @@ onMounted(async () => {
     if (isWsl) {
       // Set up bash title reporting: show running command, revert to dir on prompt
       const titleSetup =
-        '__hearth_prompt() { printf \'\\e]0;%s\\a\' "${PWD##*/}"; }; ' +
-        'PROMPT_COMMAND="__hearth_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; ' +
+        '__pike_prompt() { printf \'\\e]0;%s\\a\' "${PWD##*/}"; }; ' +
+        'PROMPT_COMMAND="__pike_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; ' +
         'trap \'[[ "$BASH_COMMAND" == _* ]] || printf "\\e]0;%s\\a" "${BASH_COMMAND%% *}"\' DEBUG';
       initLines.push(titleSetup);
     }

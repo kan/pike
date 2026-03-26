@@ -22,7 +22,7 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
         return Ok(());
     }
     match WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
-        .title("Hearth")
+        .title("Pike")
         .inner_size(800.0, 600.0)
         .resizable(true)
         .disable_drag_drop_handler()
