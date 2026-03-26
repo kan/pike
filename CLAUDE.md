@@ -105,7 +105,8 @@ hearth/
 │   │   ├── editorGitGutter.ts # CodeMirror 6 git diff ガター拡張
 │   │   ├── editorMinimap.ts   # CodeMirror 6 ミニマップ（Canvas 描画）
 │   │   ├── editorSearch.ts    # CodeMirror 6 カスタム検索パネル
-│   │   └── tauri.ts           # IPC ラッパー
+│   │   ├── tauri.ts           # IPC ラッパー
+│   │   └── window.ts          # ウィンドウラベル判定（main / project-{id}）
 │   └── assets/
 │       └── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
 └── .claude/
@@ -232,6 +233,15 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
   3. `Docker::connect_with_http("tcp://127.0.0.1:2376")` — WSL2 dockerd (encrypted)
 - 各接続で `ping()` して到達確認、最初に成功したものを使う
 - Docker Desktop なしでも WSL2 の dockerd が TCP を公開していれば接続可能
+
+### マルチウィンドウ
+- ProjectSwitcher の Ctrl+Enter または ProjectPanel の ExternalLink ボタンで新ウィンドウにプロジェクトを開く
+- ウィンドウラベル `project-{id}` でプロジェクトを識別。同一プロジェクトの二重起動は既存ウィンドウをフォーカス
+- Tauri v2 の各ウィンドウは独立 JS コンテキスト → Pinia ストアは自然にウィンドウごとに分離
+- PTY/Docker イベントは `app.emit()` で全ウィンドウにブロードキャスト、ルーターが ID でフィルタ
+- 子ウィンドウは `last_project.txt` を更新しない（main ウィンドウのみ）
+- main ウィンドウ close → アプリ終了 + 全 PTY/Docker session cleanup
+- 子ウィンドウ close → `beforeunload` で session 保存 + PTY kill（ベストエフォート）
 
 ### CodeMirror 6
 - シンタックスハイライトのみ、LSP・補完は実装しない

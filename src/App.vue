@@ -12,6 +12,7 @@ import { useGitStore } from "./stores/git";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
 import { ptyRouter } from "./composables/usePtyRouter";
 import { dockerLogRouter } from "./composables/useDockerLogRouter";
+import { getWindowProjectId } from "./lib/window";
 
 const projectStore = useProjectStore();
 const tabStore = useTabStore();
@@ -40,12 +41,22 @@ watch(
   }
 );
 
+const windowProjectId = getWindowProjectId();
+
 onMounted(async () => {
   await Promise.all([ptyRouter.init(), dockerLogRouter.init()]);
-  await projectStore.restoreLastProject();
+
+  if (windowProjectId) {
+    await projectStore.loadProjects();
+    await projectStore.switchProject(windowProjectId, { updateLastProject: false });
+  } else {
+    await projectStore.restoreLastProject();
+  }
 
   tabStore.$subscribe(() => projectStore.saveSessionDebounced());
-  window.addEventListener('beforeunload', () => projectStore.saveSessionNow());
+  window.addEventListener("beforeunload", () => {
+    projectStore.saveSessionNow();
+  });
 });
 </script>
 

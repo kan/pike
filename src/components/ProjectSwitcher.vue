@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue";
 import { useProjectStore } from "../stores/project";
-import { detectWslDistros } from "../lib/tauri";
+import { detectWslDistros, openProjectWindow } from "../lib/tauri";
 import type { ProjectConfig } from "../types/project";
 import { buildShell, slugify, rootPlaceholder as rootPlaceholderFn, WINDOWS_SHELLS } from "../types/tab";
 
@@ -124,7 +124,11 @@ function onKeyDown(e: KeyboardEvent) {
     e.preventDefault();
     const selected = filtered.value[selectedIdx.value];
     if (selected) {
-      projectStore.switchProject(selected.id);
+      if (e.ctrlKey) {
+        openProjectWindow(selected.id);
+      } else {
+        projectStore.switchProject(selected.id);
+      }
       projectStore.showSwitcher = false;
     }
     return;
@@ -168,6 +172,10 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 
         <!-- New project button -->
         <div v-if="!showNewForm" class="switcher-footer">
+          <div class="footer-hints">
+            <span class="hint">Enter: switch</span>
+            <span class="hint">Ctrl+Enter: new window</span>
+          </div>
           <button class="new-project-btn" @click="openNewForm">+ New Project</button>
         </div>
 
@@ -299,6 +307,17 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 .switcher-footer {
   border-top: 1px solid var(--border);
   padding: 6px;
+}
+
+.footer-hints {
+  display: flex;
+  gap: 12px;
+  padding: 2px 8px 4px;
+}
+
+.hint {
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 .new-project-btn {

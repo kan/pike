@@ -47,7 +47,7 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  async function switchProject(id: string) {
+  async function switchProject(id: string, opts?: { updateLastProject?: boolean }) {
     if (saveTimer) clearTimeout(saveTimer)
     const tabStore = useTabStore()
     const searchStore = useSearchStore()
@@ -59,9 +59,10 @@ export const useProjectStore = defineStore('project', () => {
     await tabStore.clearAllTabs()
 
     project.lastOpened = new Date().toISOString()
+    const shouldUpdateLast = opts?.updateLastProject ?? true
     await Promise.all([
       projectUpdate(project).catch(() => {}),
-      projectSetLast(id).catch(() => {}),
+      shouldUpdateLast ? projectSetLast(id).catch(() => {}) : Promise.resolve(),
     ])
 
     currentProject.value = project

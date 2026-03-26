@@ -2,11 +2,11 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
-import { detectWslDistros } from "../../lib/tauri";
+import { detectWslDistros, openProjectWindow } from "../../lib/tauri";
 import { confirmDialog } from "../../composables/useConfirmDialog";
 import { ptyRouter } from "../../composables/usePtyRouter";
 import type { ProjectConfig } from "../../types/project";
-import { Pencil, Trash2 } from "lucide-vue-next";
+import { Pencil, Trash2, ExternalLink } from "lucide-vue-next";
 import {
   shellLabel,
   shellToPlatform,
@@ -204,6 +204,7 @@ async function onDelete(id: string) {
             <span class="project-shell">{{ shellLabel(project.shell) }}</span>
           </div>
           <div class="item-actions">
+            <button class="action-btn" title="Open in new window" @click.stop="openProjectWindow(project.id)"><ExternalLink :size="12" :stroke-width="2" /></button>
             <button class="action-btn" title="Edit" @click.stop="startEdit(project)"><Pencil :size="12" :stroke-width="2" /></button>
             <button class="action-btn danger" title="Delete" @click.stop="onDelete(project.id)"><Trash2 :size="12" :stroke-width="2" /></button>
           </div>
@@ -371,7 +372,7 @@ async function onDelete(id: string) {
 .project-item {
   position: relative;
   padding: 8px;
-  padding-right: 48px;
+  padding-right: 64px;
   border-radius: 3px;
   cursor: pointer;
 }

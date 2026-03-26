@@ -247,6 +247,12 @@ export async function dockerDetectShell(containerId: string): Promise<string> {
   return invoke<string>("docker_detect_shell", { containerId });
 }
 
+// Window
+
+export async function openProjectWindow(projectId: string): Promise<void> {
+  return invoke("open_project_window", { projectId });
+}
+
 // Font
 
 export async function fontListMonospace(): Promise<string[]> {

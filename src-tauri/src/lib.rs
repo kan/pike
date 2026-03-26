@@ -9,7 +9,35 @@ mod types;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, WindowEvent};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+
+/// Prefix for project window labels. Must match PROJECT_WINDOW_PREFIX in src/lib/window.ts
+const PROJECT_WINDOW_PREFIX: &str = "project-";
+
+#[tauri::command]
+async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), String> {
+    let label = format!("{}{}", PROJECT_WINDOW_PREFIX, project_id);
+    if let Some(window) = app.get_webview_window(&label) {
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    match WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
+        .title("Hearth")
+        .inner_size(800.0, 600.0)
+        .resizable(true)
+        .disable_drag_drop_handler()
+        .build()
+    {
+        Ok(_) => Ok(()),
+        Err(_) => {
+            // Window was likely created by a concurrent call; focus it
+            if let Some(w) = app.get_webview_window(&label) {
+                w.set_focus().map_err(|e| e.to_string())?;
+            }
+            Ok(())
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -70,6 +98,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            open_project_window,
             pty::pty_spawn,
             pty::pty_spawn_tmux,
             pty::pty_write,
