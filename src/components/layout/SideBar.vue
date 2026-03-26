@@ -201,7 +201,7 @@ onUnmounted(() => {
   bottom: 100%;
   left: 0;
   margin-bottom: 4px;
-  min-width: 200px;
+  white-space: nowrap;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 4px;
