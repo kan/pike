@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useSettingsStore, COLOR_SCHEMES } from "../../stores/settings";
+import { EDITOR_THEMES } from "../../lib/editorThemes";
 import { Sun, Moon } from "lucide-vue-next";
 import { useI18n } from "../../i18n";
 
@@ -171,6 +172,26 @@ const PREVIEW_LINES = [
       <section class="settings-section">
         <h3 class="section-title">{{ t('settings.editor') }}</h3>
 
+        <div class="setting-row setting-row-block">
+          <label class="setting-label">{{ t('settings.editorTheme') }}</label>
+          <div class="scheme-grid">
+            <button
+              v-for="theme in EDITOR_THEMES"
+              :key="theme.name"
+              class="scheme-card"
+              :class="{ active: settings.editorThemeName === theme.name }"
+              @click="settings.editorThemeName = theme.name"
+            >
+              <div class="scheme-preview" :style="{ background: theme.background, color: theme.foreground }">
+                <span>fn</span>
+                <span :style="{ color: theme.accent }">main</span>
+                <span>()</span>
+              </div>
+              <span class="scheme-name">{{ theme.name }}</span>
+            </button>
+          </div>
+        </div>
+
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.minimap') }}</label>
           <div class="mode-toggle">
@@ -209,6 +230,8 @@ const PREVIEW_LINES = [
   position: absolute;
   inset: 0;
   overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .settings-scroll {

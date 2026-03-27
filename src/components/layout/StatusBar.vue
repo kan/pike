@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick, onUnmounted } from "vue";
 import { useProjectStore } from "../../stores/project";
 import { useGitStore } from "../../stores/git";
 import { useEditorInfo } from "../../composables/useEditorInfo";
-import { GitBranch } from "lucide-vue-next";
+import { GitBranch, FolderOpen } from "lucide-vue-next";
 import { useSettingsStore } from "../../stores/settings";
 import { useI18n } from "../../i18n";
 
@@ -126,6 +126,7 @@ onUnmounted(() => {
       class="status-item clickable"
       @click="projectStore.toggleSwitcher()"
     >
+      <FolderOpen :size="14" :stroke-width="2" />
       {{ projectStore.currentProject?.name ?? "No project" }}
     </button>
 
@@ -198,7 +199,7 @@ onUnmounted(() => {
   align-items: center;
   height: 24px;
   min-height: 24px;
-  background: var(--accent);
+  background: var(--statusbar-bg);
   padding: 0 8px;
   font-size: 12px;
   color: var(--text-active);

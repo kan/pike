@@ -121,6 +121,7 @@ onUnmounted(() => {
   inset: 0;
   padding: 10px;
   box-sizing: border-box;
+  background: v-bind('settingsStore.colorScheme.background');
 }
 
 .logs-container {

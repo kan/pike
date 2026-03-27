@@ -91,6 +91,7 @@ export default {
   'settings.colorScheme': 'カラースキーム',
   'settings.copyOnSelect': '選択時にコピー',
   'settings.rightClickPaste': '右クリックで貼り付け',
+  'settings.editorTheme': 'テーマ',
   'settings.minimap': 'ミニマップ',
   'settings.wordWrap': '折り返し',
   'settings.tabSize': 'タブサイズ',

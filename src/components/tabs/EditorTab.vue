@@ -6,7 +6,7 @@ import { defaultKeymap, indentWithTab, history, historyKeymap, undo, redo } from
 import { indentUnit } from "@codemirror/language";
 import { highlightSelectionMatches } from "@codemirror/search";
 import { editorSearch, searchKeymap } from "../../lib/editorSearch";
-import { oneDark } from "@codemirror/theme-one-dark";
+import { getEditorTheme } from "../../lib/editorThemes";
 import { useTabStore } from "../../stores/tabs";
 import { useProjectStore } from "../../stores/project";
 import { useSettingsStore } from "../../stores/settings";
@@ -28,6 +28,7 @@ const settingsStore = useSettingsStore();
 const editorInfo = useEditorInfo();
 
 // Dynamic compartments for settings that can change at runtime
+const themeCompartment = new Compartment();
 const minimapCompartment = new Compartment();
 const wordWrapCompartment = new Compartment();
 const tabSizeCompartment = new Compartment();
@@ -234,7 +235,7 @@ function createEditorView(container: HTMLElement, content: string) {
   const lang = tab.value ? getLanguage(tab.value.path) : null;
   const hasFile = tab.value && !tab.value.initialContent;
   const extensions = [
-    oneDark,
+    themeCompartment.of(getEditorTheme(settingsStore.editorThemeName).extension),
     lineNumbers(),
     highlightActiveLine(),
     history(),
@@ -414,6 +415,11 @@ watch(
 );
 
 // Live-apply editor settings changes
+watch(() => settingsStore.editorThemeName, (name) => {
+  if (!editorView) return;
+  editorView.dispatch({ effects: themeCompartment.reconfigure(getEditorTheme(name).extension) });
+});
+
 watch(() => settingsStore.editorMinimap, (on) => {
   if (!editorView) return;
   editorView.dispatch({ effects: minimapCompartment.reconfigure(on ? minimap() : []) });

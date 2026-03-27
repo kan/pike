@@ -91,6 +91,7 @@ export default {
   'settings.colorScheme': 'Color Scheme',
   'settings.copyOnSelect': 'Copy on Select',
   'settings.rightClickPaste': 'Right Click Paste',
+  'settings.editorTheme': 'Theme',
   'settings.minimap': 'Minimap',
   'settings.wordWrap': 'Word Wrap',
   'settings.tabSize': 'Tab Size',

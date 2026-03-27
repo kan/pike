@@ -20,6 +20,7 @@
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(255, 255, 255, 0.1);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+  --statusbar-bg: #1b1b1b;
   --shadow-color: rgba(0, 0, 0, 0.4);
 }
 
@@ -44,6 +45,7 @@
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  --statusbar-bg: #e0e0e0;
   --shadow-color: rgba(0, 0, 0, 0.15);
 }
 

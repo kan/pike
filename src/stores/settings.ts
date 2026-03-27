@@ -176,6 +176,7 @@ interface PersistedSettings {
   fontSize: number
   colorSchemeName: string
   darkMode: boolean
+  editorThemeName: string
   editorMinimap: boolean
   editorWordWrap: boolean
   editorTabSize: number
@@ -198,6 +199,7 @@ function defaults(): PersistedSettings {
     fontSize: 14,
     colorSchemeName: 'Default Dark',
     darkMode: true,
+    editorThemeName: 'One Dark',
     editorMinimap: true,
     editorWordWrap: false,
     editorTabSize: 4,
@@ -214,6 +216,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const fontSize = ref(saved.fontSize)
   const colorSchemeName = ref(saved.colorSchemeName)
   const darkMode = ref(saved.darkMode)
+  const editorThemeName = ref(saved.editorThemeName)
   const editorMinimap = ref(saved.editorMinimap)
   const editorWordWrap = ref(saved.editorWordWrap)
   const editorTabSize = ref(saved.editorTabSize)
@@ -263,6 +266,7 @@ export const useSettingsStore = defineStore('settings', () => {
       fontSize: fontSize.value,
       colorSchemeName: colorSchemeName.value,
       darkMode: darkMode.value,
+      editorThemeName: editorThemeName.value,
       editorMinimap: editorMinimap.value,
       editorWordWrap: editorWordWrap.value,
       editorTabSize: editorTabSize.value,
@@ -276,7 +280,7 @@ export const useSettingsStore = defineStore('settings', () => {
     document.documentElement.setAttribute('data-theme', darkMode.value ? 'dark' : 'light')
   }
 
-  watch([fontFamily, fontSize, colorSchemeName, darkMode, editorMinimap, editorWordWrap, editorTabSize, terminalCopyOnSelect, terminalRightClickPaste, language], persist)
+  watch([fontFamily, fontSize, colorSchemeName, darkMode, editorThemeName, editorMinimap, editorWordWrap, editorTabSize, terminalCopyOnSelect, terminalRightClickPaste, language], persist)
   watch(darkMode, applyDarkMode, { immediate: true })
 
   return {
@@ -286,6 +290,7 @@ export const useSettingsStore = defineStore('settings', () => {
     colorSchemeName,
     colorScheme,
     darkMode,
+    editorThemeName,
     editorMinimap,
     editorWordWrap,
     editorTabSize,
