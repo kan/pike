@@ -103,7 +103,8 @@ pike/
 │   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
 │   │   ├── fontDetection.ts   # フォント名ユーティリティ（buildFontFamily/extractFontName）
 │   │   ├── editorGitGutter.ts # CodeMirror 6 git diff ガター拡張
-│   │   ├── editorMinimap.ts   # CodeMirror 6 ミニマップ（Canvas 描画）
+│   │   ├── editorMinimap.ts   # CodeMirror 6 ミニマップ（@replit/codemirror-minimap）
+│   │   ├── editorThemes.ts   # CodeMirror 6 エディタテーマ定義（6種）
 │   │   ├── editorSearch.ts    # CodeMirror 6 カスタム検索パネル
 │   │   ├── tauri.ts           # IPC ラッパー
 │   │   └── window.ts          # ウィンドウラベル判定（main / project-{id}）
@@ -185,7 +186,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）。Ctrl+Z/Shift+Z で Undo/Redo
 - エディタ内検索・置換: Ctrl+F / Ctrl+H でカスタム検索パネル（右上フローティング、アイコンボタン、マッチ数表示）
 - Git diff ガター: 追加行（緑）・変更行（黄）・削除行（赤三角）をガターに表示。`git_diff_lines` コマンドで行単位の差分を取得
-- ミニマップ: Canvas ベースの縮小表示、ビューポートインジケータ、クリック/ドラッグでスクロール、diff 色表示付き
+- ミニマップ: `@replit/codemirror-minimap` を採用。blocks モード、シンタックスカラー反映、正確なスクロール同期、git diff ガター表示
 - エディタコンテキストメニュー: Undo/Redo/Cut/Copy/Paste/Git History（Teleport パターン）
 - ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
 - 画像プレビュータブ（base64 経由）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
