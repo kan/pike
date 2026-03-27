@@ -12,7 +12,7 @@ pub struct PtyState {
 
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
 }
 
@@ -83,7 +83,7 @@ fn spawn_pty_with_command(
             id.clone(),
             PtySession {
                 master: pair.master,
-                writer,
+                writer: Arc::new(Mutex::new(writer)),
                 child,
             },
         );
@@ -175,15 +175,28 @@ fn find_git_bash() -> Result<String, String> {
             return Ok(path.to_string());
         }
     }
-    // Try PATH
-    if let Ok(output) = std::process::Command::new("where").arg("git").output() {
-        if let Ok(git_path) = String::from_utf8(output.stdout) {
-            if let Some(line) = git_path.lines().next() {
-                let git_dir = std::path::Path::new(line.trim());
-                if let Some(parent) = git_dir.parent().and_then(|p| p.parent()) {
-                    let bash = parent.join("bin").join("bash.exe");
-                    if bash.exists() {
-                        return Ok(bash.to_string_lossy().into_owned());
+    // Try PATH (with 5s timeout to avoid hanging)
+    if let Ok(child) = std::process::Command::new("where")
+        .arg("git")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        let pid = child.id();
+        if let Ok(output) = crate::types::wait_with_timeout(
+            pid,
+            std::time::Duration::from_secs(5),
+            "where git",
+            move || child.wait_with_output(),
+        ) {
+            if let Ok(git_path) = String::from_utf8(output.stdout) {
+                if let Some(line) = git_path.lines().next() {
+                    let git_dir = std::path::Path::new(line.trim());
+                    if let Some(parent) = git_dir.parent().and_then(|p| p.parent()) {
+                        let bash = parent.join("bin").join("bash.exe");
+                        if bash.exists() {
+                            return Ok(bash.to_string_lossy().into_owned());
+                        }
                     }
                 }
             }
@@ -271,14 +284,21 @@ pub async fn pty_write(
     data: String,
     state: State<'_, PtyState>,
 ) -> Result<(), String> {
-    let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
-    let session = sessions.get_mut(&id).ok_or("Session not found")?;
-    session
-        .writer
-        .write_all(data.as_bytes())
-        .map_err(|e| e.to_string())?;
-    session.writer.flush().map_err(|e| e.to_string())?;
-    Ok(())
+    // Clone the Arc so the sessions lock is released before the write.
+    // This prevents a blocked write from deadlocking resize/kill.
+    let writer = {
+        let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        let session = sessions.get(&id).ok_or("Session not found")?;
+        Arc::clone(&session.writer)
+    };
+    tokio::task::spawn_blocking(move || {
+        let mut w = writer.lock().map_err(|e| e.to_string())?;
+        w.write_all(data.as_bytes())
+            .map_err(|e| e.to_string())?;
+        w.flush().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

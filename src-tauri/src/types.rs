@@ -94,12 +94,15 @@ pub fn wait_with_timeout<T: Send + 'static>(
     match rx.recv_timeout(timeout) {
         Ok(result) => result.map_err(|e| format!("Failed to run {label}: {e}")),
         Err(_) => {
-            // Timeout — kill the process tree to prevent wsl.exe accumulation
-            let _ = Command::new("taskkill")
-                .args(["/F", "/T", "/PID", &pid.to_string()])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
+            // Fire-and-forget so a slow taskkill doesn't block the caller
+            let pid_str = pid.to_string();
+            std::thread::spawn(move || {
+                let _ = Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid_str])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            });
             Err(format!("{label} timed out after {}s", timeout.as_secs()))
         }
     }

@@ -49,15 +49,22 @@ struct DockerLogExitPayload {
 }
 
 async fn try_connect() -> Result<Docker, String> {
+    let ping_timeout = std::time::Duration::from_secs(5);
     if let Ok(docker) = Docker::connect_with_local_defaults() {
-        if docker.ping().await.is_ok() {
+        if tokio::time::timeout(ping_timeout, docker.ping())
+            .await
+            .is_ok_and(|r| r.is_ok())
+        {
             return Ok(docker);
         }
     }
     for port in [2375, 2376] {
         let url = format!("tcp://127.0.0.1:{port}");
         if let Ok(docker) = Docker::connect_with_http(&url, 4, bollard::API_DEFAULT_VERSION) {
-            if docker.ping().await.is_ok() {
+            if tokio::time::timeout(ping_timeout, docker.ping())
+                .await
+                .is_ok_and(|r| r.is_ok())
+            {
                 return Ok(docker);
             }
         }
@@ -225,11 +232,12 @@ pub async fn docker_logs_start(
         let mut stream = docker.logs(&container_id, Some(opts));
         let mut buffer = String::new();
         let mut flush_interval = tokio::time::interval(std::time::Duration::from_millis(50));
+        let stale_timeout = std::time::Duration::from_secs(60);
 
         loop {
             tokio::select! {
-                item = stream.next() => {
-                    match item {
+                item = tokio::time::timeout(stale_timeout, stream.next()) => {
+                    match item.ok().flatten() {
                         Some(Ok(output)) => {
                             buffer.push_str(&output.to_string());
                         }

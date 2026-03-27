@@ -193,15 +193,19 @@ fn write_bytes(shell: &ShellConfig, path: &str, bytes: &[u8]) -> Result<(), Stri
                 .map_err(|e| e.to_string())?;
 
             let pid = child.id();
-            if let Some(mut stdin) = child.stdin.take() {
-                stdin.write_all(bytes).map_err(|e| e.to_string())?;
-            }
+            let stdin = child.stdin.take();
+            let bytes_owned = bytes.to_vec();
 
             let status = wait_with_timeout(
                 pid,
                 std::time::Duration::from_secs(30),
                 "write",
-                move || child.wait(),
+                move || {
+                    if let Some(mut w) = stdin {
+                        let _ = w.write_all(&bytes_owned);
+                    }
+                    child.wait()
+                },
             )?;
             if status.success() {
                 Ok(())
