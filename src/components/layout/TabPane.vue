@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onUnmounted } from "vue";
+import { ref, computed, nextTick, onUnmounted, defineAsyncComponent } from "vue";
 import { useTabStore } from "../../stores/tabs";
 import { useProjectStore } from "../../stores/project";
 import type { Tab, ShellType } from "../../types/tab";
 import { isWindowsShell, WINDOWS_SHELLS, shellToType } from "../../types/tab";
 import TerminalTab from "../tabs/TerminalTab.vue";
-import DiffTab from "../tabs/DiffTab.vue";
-import EditorTab from "../tabs/EditorTab.vue";
-import PreviewTab from "../tabs/PreviewTab.vue";
-import HistoryTab from "../tabs/HistoryTab.vue";
-import DockerLogsTab from "../tabs/DockerLogsTab.vue";
-import SettingsTab from "../tabs/SettingsTab.vue";
+const DiffTab = defineAsyncComponent(() => import("../tabs/DiffTab.vue"));
+const EditorTab = defineAsyncComponent(() => import("../tabs/EditorTab.vue"));
+const PreviewTab = defineAsyncComponent(() => import("../tabs/PreviewTab.vue"));
+const HistoryTab = defineAsyncComponent(() => import("../tabs/HistoryTab.vue"));
+const DockerLogsTab = defineAsyncComponent(() => import("../tabs/DockerLogsTab.vue"));
+const SettingsTab = defineAsyncComponent(() => import("../tabs/SettingsTab.vue"));
 import { Terminal, Pin, X, Plus, ChevronDown, ScrollText, Settings } from "lucide-vue-next";
 import { fileIconSvg } from "../../lib/fileIcons";
 import { useI18n } from "../../i18n";

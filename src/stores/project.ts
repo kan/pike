@@ -59,13 +59,14 @@ export const useProjectStore = defineStore('project', () => {
     await tabStore.clearAllTabs()
 
     project.lastOpened = new Date().toISOString()
+    currentProject.value = project
+
+    // Fire-and-forget: don't block tab restoration on metadata persistence
     const shouldUpdateLast = opts?.updateLastProject ?? true
-    await Promise.all([
+    Promise.all([
       projectUpdate(project).catch(() => {}),
       shouldUpdateLast ? projectSetLast(id).catch(() => {}) : Promise.resolve(),
     ])
-
-    currentProject.value = project
 
     if (project.lastSession && project.lastSession.tabs.length > 0) {
       for (const def of project.lastSession.tabs) {

@@ -189,7 +189,7 @@ onMounted(async () => {
       setTimeout(() => {
         termRef_.clear();
         ptyWrite(currentPtyId, initLines.join('\r') + '\r').catch(() => {});
-      }, 500);
+      }, 100);
     }
   }
 

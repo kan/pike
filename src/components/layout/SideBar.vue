@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { ref, nextTick, onUnmounted, type Component } from "vue";
+import { ref, nextTick, onUnmounted, defineAsyncComponent, type Component } from "vue";
 import { useSidebarStore } from "../../stores/sidebar";
 import { useGitStore } from "../../stores/git";
 import type { SidebarPanel } from "../../types/tab";
-import ProjectPanel from "../panels/ProjectPanel.vue";
-import FileTreePanel from "../panels/FileTreePanel.vue";
-import GitPanel from "../panels/GitPanel.vue";
-import DockerPanel from "../panels/DockerPanel.vue";
-import SearchPanel from "../panels/SearchPanel.vue";
+const ProjectPanel = defineAsyncComponent(() => import("../panels/ProjectPanel.vue"));
+const FileTreePanel = defineAsyncComponent(() => import("../panels/FileTreePanel.vue"));
+const GitPanel = defineAsyncComponent(() => import("../panels/GitPanel.vue"));
+const DockerPanel = defineAsyncComponent(() => import("../panels/DockerPanel.vue"));
+const SearchPanel = defineAsyncComponent(() => import("../panels/SearchPanel.vue"));
 import { useSearchStore } from "../../stores/search";
 import { useDockerStore } from "../../stores/docker";
 import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader, Settings } from "lucide-vue-next";
