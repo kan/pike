@@ -1,3 +1,4 @@
+mod cli;
 mod docker;
 mod font;
 mod fs;
@@ -9,7 +10,7 @@ mod types;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 /// Prefix for project window labels. Must match PROJECT_WINDOW_PREFIX in src/lib/window.ts
 const PROJECT_WINDOW_PREFIX: &str = "project-";
@@ -42,7 +43,21 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            let action = cli::parse_args(&args, &cwd);
+            if !matches!(action, cli::CliAction::None) {
+                let _ = app.emit("cli_open", &action);
+            }
+        }))
         .plugin(tauri_plugin_window_state::Builder::new().build())
+        .manage(cli::CliState {
+            initial_action: std::sync::Mutex::new(None),
+            pending: std::sync::Mutex::new(HashMap::new()),
+        })
         .manage(pty::PtyState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -68,6 +83,19 @@ pub fn run() {
                 bundled_rg: rg_path,
                 detected: std::sync::Mutex::new(None),
             });
+
+            // Parse initial CLI args and store for frontend to retrieve
+            let args: Vec<String> = std::env::args().collect();
+            let cwd = std::env::current_dir()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let action = cli::parse_args(&args, &cwd);
+            if !matches!(action, cli::CliAction::None) {
+                if let Some(state) = app.try_state::<cli::CliState>() {
+                    *state.initial_action.lock().unwrap() = Some(action);
+                }
+            }
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -98,6 +126,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            cli::cli_get_initial_action,
+            cli::cli_set_pending_action,
             open_project_window,
             pty::pty_spawn,
             pty::pty_spawn_tmux,

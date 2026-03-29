@@ -387,6 +387,14 @@ watch(
   }
 );
 
+// Reload file content when requested (e.g. from CLI)
+watch(
+  () => tab.value?.reloadRequested,
+  (val) => {
+    if (val) reopenWithEncoding(currentEncoding.value);
+  }
+);
+
 watch(
   () => viewMode.value,
   (mode) => {

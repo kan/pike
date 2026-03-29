@@ -103,6 +103,7 @@ export const useTabStore = defineStore('tabs', () => {
     initialContent?: string
     titleSuffix?: string
     initialLine?: number
+    reload?: boolean
   }): string {
     if (!options.initialContent) {
       const existing = tabs.value.find(
@@ -111,6 +112,9 @@ export const useTabStore = defineStore('tabs', () => {
       if (existing) {
         if (options.initialLine) {
           existing.initialLine = options.initialLine
+        }
+        if (options.reload) {
+          existing.reloadRequested = Date.now()
         }
         activeTabId.value = existing.id
         return existing.id

@@ -68,6 +68,7 @@ pike/
 │       ├── lib.rs             # Tauri Builder 設定・コマンド登録
 │       ├── types.rs           # ShellConfig 等の共通型定義
 │       ├── font.rs            # フォント列挙（font-kit でモノスペース検出）
+│       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
 │       ├── pty/
 │       │   └── mod.rs         # PTY 管理（WSL/cmd/PowerShell/Git Bash 対応）
 │       └── project/
@@ -98,7 +99,8 @@ pike/
 │   ├── composables/
 │   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P
 │   │   ├── useConfirmDialog.ts      # カスタム確認ダイアログ composable
-│   │   └── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出
+│   │   ├── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出
+│   │   └── useCliOpen.ts          # CLI 引数によるファイル/プロジェクト自動オープン
 │   ├── lib/
 │   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
 │   │   ├── fontDetection.ts   # フォント名ユーティリティ（buildFontFamily/extractFontName）
@@ -243,6 +245,16 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - 子ウィンドウは `last_project.txt` を更新しない（main ウィンドウのみ）
 - main ウィンドウ close → アプリ終了 + 全 PTY/Docker session cleanup
 - 子ウィンドウ close → `beforeunload` で session 保存 + PTY kill（ベストエフォート）
+
+### pike CLI
+- バイナリ名 `pike.exe`（`Cargo.toml` `[[bin]] name = "pike"`）
+- `tauri-plugin-single-instance` で二重起動を防止、引数を既存インスタンスに転送
+- `pike file.rs:42` → ファイルを開いてジャンプ、`pike open <file>` も同様
+- `pike .` / `pike <dir>` → ディレクトリに一致するプロジェクトに切替
+- ファイルパスから最も適合するプロジェクトを自動マッチ（最長 root 一致）
+- マッチしない場合は ad-hoc プロジェクトを自動作成（PowerShell）
+- 別プロジェクトのファイルは新ウィンドウで開く（`CliState.pending` でアクションを転送）
+- 既存エディタタブがある場合はフォーカス＋リロード（`reloadRequested` タイムスタンプ）
 
 ### CodeMirror 6
 - シンタックスハイライトのみ、LSP・補完は実装しない

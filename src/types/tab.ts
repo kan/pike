@@ -84,6 +84,7 @@ export type EditorTab = {
   readOnly?: boolean
   initialContent?: string
   initialLine?: number
+  reloadRequested?: number
 }
 
 export type PreviewTab = {

@@ -7,9 +7,7 @@ license = ""
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
-default-run = "app"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+default-run = "pike"
 
 [lib]
 name = "app_lib"
@@ -34,6 +32,11 @@ encoding_rs = "0.8.35"
 serde_yaml = "0.9.34"
 tauri-plugin-window-state = "2.4.1"
 font-kit = "0.14.3"
+tauri-plugin-single-instance = "2.4.0"
+
+[[bin]]
+name = "pike"
+path = "src/main.rs"
 
 [[bin]]
 name = "verify_pty"

@@ -253,6 +253,33 @@ export async function openProjectWindow(projectId: string): Promise<void> {
   return invoke("open_project_window", { projectId });
 }
 
+// CLI
+
+export interface CliOpenFile {
+  action: "openFile";
+  path: string;
+  line: number | null;
+}
+
+export interface CliOpenDirectory {
+  action: "openDirectory";
+  path: string;
+}
+
+export interface CliNone {
+  action: "none";
+}
+
+export type CliAction = CliOpenFile | CliOpenDirectory | CliNone;
+
+export async function cliGetInitialAction(): Promise<CliAction> {
+  return invoke<CliAction>("cli_get_initial_action");
+}
+
+export async function cliSetPendingAction(windowLabel: string, action: CliAction): Promise<void> {
+  return invoke("cli_set_pending_action", { windowLabel, action });
+}
+
 // Font
 
 export async function fontListMonospace(): Promise<string[]> {

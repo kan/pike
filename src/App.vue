@@ -13,6 +13,7 @@ import { useGitStore } from "./stores/git";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
 import { ptyRouter } from "./composables/usePtyRouter";
 import { dockerLogRouter } from "./composables/useDockerLogRouter";
+import { initCliOpen } from "./composables/useCliOpen";
 import { getWindowProjectId } from "./lib/window";
 import { useI18n } from "./i18n";
 
@@ -56,6 +57,8 @@ onMounted(async () => {
   } else {
     await projectStore.restoreLastProject();
   }
+
+  await initCliOpen();
 
   tabStore.$subscribe(() => projectStore.saveSessionDebounced());
   window.addEventListener("beforeunload", () => {
