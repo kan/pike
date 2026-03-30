@@ -46,7 +46,7 @@
     "marked": "^17.0.5",
     "material-file-icons": "^2.4.0",
     "pinia": "^3.0.4",
-    "vue": "^3.5.30"
+    "vue": "^3.5.31"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.10.1",
