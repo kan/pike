@@ -2,7 +2,7 @@
 
 ## 現在のマイルストーン
 
-**→ M9: Polish（進行中）**
+**→ M11: File Watcher（未着手）**
 
 ---
 
@@ -13,300 +13,148 @@
 | M1 | PTY スパイク | コア技術の動作検証 | ✅ 完了 |
 | M2 | レイアウトシェル | UI 骨格の構築 | ✅ 完了 |
 | M3 | プロジェクト管理 | プロジェクト切替の実装 | ✅ 完了 |
-| M4 | Git パネル | git CLI 統合 | ✅ 完了 |
-| M4.5 | Git パネル拡張 | diff タブ・コミットツリー | ✅ 完了 |
-| M5 | ファイルツリー + エディタタブ | ファイル操作 | ✅ 完了 |
-| M5.5 | ファイル操作拡張 | プレビュー・文字コード・D&D | ✅ 完了 |
-| M6 | Docker パネル | コンテナ管理 | ✅ 完了 |
+| M4 | Git パネル | git CLI 統合・diff タブ・コミットツリー | ✅ 完了 |
+| M5 | ファイルツリー + エディタ | ファイル操作・プレビュー・文字コード・D&D | ✅ 完了 |
+| M6 | Docker パネル | コンテナ管理・ログ・exec | ✅ 完了 |
 | M7 | 検索パネル | rg/grep 統合 | ✅ 完了 |
 | M8 | セッション永続化 | プロジェクト状態・resume 連携 | ✅ 完了 |
-| M9 | Polish | UX 改善・キーバインド整備 | 🔧 進行中 |
-| M10 | Release | CI/CD・配布・自動更新 | ⏳ 未着手 |
+| M9 | Polish | UX 改善・キーバインド・i18n・CLI・マルチウィンドウ | ✅ 完了 |
+| M10 | Release | CI/CD・配布・自動更新・セキュリティ | 🔧 ほぼ完了 |
+| M11 | File Watcher | ファイル変更検知・自動リフレッシュ | ⏳ 未着手 |
+| M12 | Developer UX | クイックオープン・ターミナル通知・ログ可視化 | ⏳ 未着手 |
+| M13 | AI Diff Viewer | AI 差分提案の diff 表示 | ⏳ 未着手 |
 
 ---
 
-## M1: PTY スパイク
+## 完了済みマイルストーン（M1–M10）
 
-### 目的
-「Windows Tauri → WSL2 → Claude Code」の構造が動くことを最小コードで確認する。
-この検証が通らない場合、アーキテクチャの根本見直しが必要になる。
+<details>
+<summary>M1: PTY スパイク</summary>
 
-### 完了条件（すべて満たすこと）
+Windows Tauri → WSL2 → Claude Code の構造が動くことを最小コードで確認。
+PTY 接続、tmux 経由接続、Claude Code TUI 描画、Docker socket 接続を検証。
+</details>
 
-**Step 1-A: 基本 PTY 接続**
-- [x] Tauri アプリウィンドウに xterm.js が表示される
-- [x] `wsl.exe bash` を PTY で spawn できる
-- [x] キーボード入力が WSL2 の bash に届く
-- [x] bash の出力が xterm.js に表示される
-- [x] ウィンドウリサイズで xterm.js と PTY のサイズが追従する
+<details>
+<summary>M2: レイアウトシェル</summary>
 
-**Step 1-B: tmux 経由接続（オプション — 検証済み、必須パスではない）**
-- [x] `wsl.exe tmux new-session -s test` で tmux セッションを起動できる
-- [x] セッションが既存なら `tmux attach-session -t test` でアタッチできる
-- [x] アプリを閉じて再起動しても tmux セッションが生きていれば再接続できる
+左アイコンナビ、タブバー（追加・切替・クローズ・固定）、複数ターミナル同時動作、リサイズ追従。
+</details>
 
-> **設計判断**: AI エージェント (claude/codex) のセッション復帰は各ツール自身の
-> resume 機能（`claude --continue` 等）に委譲する。tmux はオプション機能として
-> コードを残すが、必須依存にはしない。
+<details>
+<summary>M3: プロジェクト管理</summary>
 
-**Step 1-C: Claude Code の TUI 描画**
-- [x] PTY 上で `claude` コマンドを起動できる
-- [x] Claude Code の TUI（色・Unicode・カーソル移動）が崩れない
-- [x] ターミナルリサイズ後も表示が正しく再描画される
-- [x] Ctrl+C 等の特殊キーが正しく伝達される
+プロジェクト一覧 CRUD、fzf 風スイッチャー（Ctrl+Shift+P）、プロジェクトごとのデータ保存、切替時のファイルツリー・タブ復元。
+</details>
 
-> **既知制限**: IME（CorvusSKK）のインライン変換がターミナル内に表示されない
-> （アプリ外の候補ウィンドウには出る）。xterm.js の制限。M9 で対応検討。
+<details>
+<summary>M4: Git パネル + 拡張</summary>
 
-**Step 1-D: Docker socket 接続（別途 cargo run で検証）**
-- [x] Windows 側 Rust から bollard で Docker に接続できる（TCP フォールバック対応）
-- [x] `docker ps` 相当（コンテナ一覧取得）が動く
-- [x] コンテナのログストリームを取得できる
+ブランチ表示・ステージング・コミット・push/pull、diff タブ（左右分割・文字単位ハイライト）、コミットツリー展開、ファイルツリー git ステータスアイコン。
+</details>
 
-### スコープ外（M1 では実装しない）
-- UI の見た目・レイアウト（最小限の HTML で十分）
-- タブ管理
-- プロジェクト管理
-- エラーハンドリングの作り込み
+<details>
+<summary>M5: ファイルツリー + エディタ + 拡張</summary>
 
-### 主要な依存クレート
+CodeMirror 6（29言語）、Ctrl+S 保存、画像プレビュー、Markdown プレビュー（3モード・スクロール同期）、文字コード・改行コード対応、コンテキストメニュー（リネーム・削除・Git History）、D&D 移動/コピー。
+</details>
 
-```toml
-[dependencies]
-tauri = { version = "2", features = [] }
-portable-pty = "0.8"
-bollard = "0.17"
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-```
+<details>
+<summary>M6: Docker パネル</summary>
 
-### 主要な npm パッケージ
+compose.yml パース、コンテナ状態表示、start/stop/restart、ログストリーミング、docker exec シェル。
+</details>
 
-```json
-{
-  "@xterm/xterm": "^5",
-  "@xterm/addon-fit": "^0.10",
-  "@xterm/addon-web-links": "^6"
-}
-```
+<details>
+<summary>M7: 検索パネル</summary>
 
-### 検証時の注意点
+rg/grep 自動検出、部分一致・正規表現・glob、結果クリックでエディタジャンプ、500件 truncate。
+</details>
 
-- `TERM=xterm-256color` を PTY spawn 時の環境変数に必ず含める
-- tmux 起動時は `tmux -2 new-session ...` で 256 色を強制する
-- xterm.js の `FitAddon` で初期サイズを設定してから PTY を spawn すること
-  （サイズ不明のまま spawn すると後のリサイズが効かないことがある）
-- WSLInterop 関連の問題が出た場合は `/proc/sys/fs/binfmt_misc/WSLInterop` を確認
+<details>
+<summary>M8: セッション永続化</summary>
 
----
+タブ並び順・アクティブタブの保存・復元、固定タブ resume 引数（claude --continue 等）、アプリ再起動で自動再接続。
+</details>
 
-## M2: レイアウトシェル
+<details>
+<summary>M9: Polish</summary>
 
-### 目的
-M1 の PTY をベースに、アプリとして使えるレイアウトを構築する。
+キーバインド整備、フォント・カラースキーム設定、起動高速化（~145ms）、タブ D&D 入れ替え、タブコンテキストメニュー、PTY 孤立防止、rg サイドカーバンドル、Lucide + material-file-icons、ミニマップ、エディタ内検索・置換、git diff ガター、ターミナルコピペ、ダーク/ライトモード、i18n、マルチウィンドウ、pike CLI、独自アイコン、リポジトリ公開。
+</details>
 
-### 完了条件
-- [x] 左アイコンナビ（5アイコン）でパネル切替ができる
-- [x] タブバーが表示され、タブの追加・切替・クローズができる
-- [x] 固定タブ（pinned）が Ctrl+W で閉じられない
-- [x] ターミナルタブが複数同時に動作する（各タブが独立した PTY を持つ）
-- [x] タブの種別（terminal / editor / docker-logs）を Union type で管理している
-- [x] ウィンドウ全体のリサイズでアクティブタブの PTY サイズが追従する
+<details>
+<summary>M10: Release</summary>
 
-### スコープ外
-- 各パネルの中身（ファイルツリー等）は仮実装で良い
-- セッション永続化は M8 で実装
+GitHub Actions（Windows ビルド・リリース自動アップロード）、Dependabot、Security Check（cargo audit + npm audit）、tauri-plugin-updater（署名・latest.json・Settings UI・通知ドット）、v0.1.0/v0.1.1 リリース、CSP 有効化、DOMPurify 導入、SECURITY.md。
 
----
-
-## M3: プロジェクト管理
-
-### 目的
-「プロジェクトを開く = 状態がすべて復元される」体験の実装。
-
-### 完了条件
-- [x] プロジェクト一覧の登録・削除・切替ができる
-- [x] fzf 風のインクリメンタル検索スイッチャーが動く（Ctrl+Shift+P）
-- [x] プロジェクトごとに `~/.config/pike/{project_id}/` にデータを保存する
-- [x] プロジェクト切替でファイルツリーのルートが変わる
-- [x] プロジェクト切替でタブ配置が復元される（固定タブ定義を読み込む）
-
-### データ構造
-
-```json
-// %APPDATA%/com.tauri.dev/projects/{project_id}/project.json
-{
-  "id": "my-api",
-  "name": "my-api",
-  "root": "/home/user/projects/my-api",
-  "shell": { "kind": "wsl", "distro": "Ubuntu" },
-  "pinnedTabs": [
-    { "id": "cc", "kind": "terminal", "title": "Claude Code", "autoStart": "claude" }
-  ],
-  "lastOpened": "2025-01-01T00:00:00Z"
-}
-```
-
-> **shell** は `{ "kind": "wsl", "distro": "..." }` / `{ "kind": "cmd" }` /
-> `{ "kind": "powershell" }` / `{ "kind": "git-bash" }` のいずれか。
-> **pinnedTabs** が空の場合、プロジェクト切替時に Claude Code の固定タブが自動作成される。
-
----
-
-## M4: Git パネル
-
-### 完了条件
-- [x] 現在のブランチ名・ダーティ状態をサイドバーに表示
-- [x] ステージング/アンステージ操作ができる
-- [x] コミットログ一覧（50件）が表示される
-- [x] diff ビューア（読み取り専用）が動く
-- [x] ファイルツリーにgit ステータスアイコンが表示される
-
----
-
-## M4.5: Git パネル拡張
-
-### 目的
-Git パネルの UX を改善し、diff をタブで表示できるようにする。
-
-### 完了条件
-- [x] CHANGES のファイルに拡張子ベースのアイコンを付ける
-- [x] CHANGES のファイルクリックで左右分割 diff タブを開く
-- [x] RECENT COMMITS の各行はコミットメッセージを最大幅で表示（ハッシュは省略）
-- [x] COMMITS の各行ホバーでコミットメッセージ全文・ハッシュ等をツールチップ表示
-- [x] COMMITS をツリー表示にし、クリックで変更ファイル一覧を展開
-- [x] COMMITS の変更ファイルクリックで diff タブを開く（CHANGES と同様）
-
----
-
-## M5: ファイルツリー + エディタタブ
-
-### 完了条件
-- [x] プロジェクトルート以下のファイルツリーが表示される
-- [x] ファイルクリックでエディタタブが開く
-- [x] CodeMirror 6 でシンタックスハイライトが動く（29言語対応）
-- [x] Ctrl+S で保存できる
-- [x] ファイルツリーにリフレッシュボタン（手動更新）
-- [x] 対象言語: TS/JS, Rust, Go, Python, Ruby, Perl, Java, Kotlin, Swift, C/C++/C#, PHP, HTML/Vue, CSS/SCSS, Markdown, YAML, JSON, SQL, Shell, Dockerfile, TOML, Lua, diff, PowerShell, nginx, Protobuf
-
----
-
-## M5.5: ファイル操作拡張
-
-### 目的
-エディタとファイルツリーの UX を実用レベルに引き上げる。
-
-### 完了条件
-
-**プレビュー**
-- [x] 画像ファイル（png/jpg/gif/svg/webp）を開いたらプレビュータブを表示
-- [x] Markdown ファイルのプレビュー表示（Edit/Split/Preview 3モード + スクロール同期）
-
-**エディタ情報表示**
-- [x] フッターにカーソル位置（行:列）、文字コード、改行コード、ファイルタイプを表示
-- [x] 文字コード指定での開き直し・保存をサポート（encoding_rs + StatusBar 2段階UI）
-- [x] 改行コードの変更をサポート（LF/CRLF）
-
-**ファイルツリー操作**
-- [x] コンテキストメニュー: 名前の変更、ファイル削除
-- [x] コンテキストメニュー: Git History 表示
-- [x] ドラッグ&ドロップによるファイル/フォルダ移動
-- [x] Ctrl+ドラッグでコピー
-
-**Git パネル連携**
-- [x] COMMITS/CHANGES のファイルにコンテキストメニュー追加（「変更を開く」「ファイルを開く」）
-
----
-
-## M6: Docker パネル
-
-### 完了条件
-- [x] compose.yml を読み取ってサービス一覧を表示する
-- [x] bollard でコンテナの実行状態を取得・表示する
-- [x] start / stop / restart コマンドを UI から実行できる
-- [x] 「ログを開く」でDockerLogsタブが生成される
-- [x] ログストリームがリアルタイムで表示される
-
-### スコープ外
-- `docker exec`（M9 に移動済み）
-
----
-
-## M7: 検索パネル
-
-### 完了条件
-- [x] 起動時に rg の存在を確認、なければ grep にフォールバック
-- [x] 使用バックエンドをパネル上部にバッジ表示
-- [x] 部分一致・正規表現・glob include/exclude が動く
-- [x] 結果を `ファイルパス:行番号  該当行の抜粋` でフラット表示
-- [x] 結果行クリックでエディタタブを開いて該当行にジャンプ
-
----
-
-## M8: セッション永続化
-
-### 完了条件
-- [x] 固定タブのプロセス再起動時に resume 引数（`claude --continue` 等）で復帰する
-- [x] タブの並び順・アクティブタブを project.json に保存・復元する
-- [x] アプリ再起動で固定タブが自動的に再接続される
-- [ ] （オプション）tmux 経由のセッション保持も選択可能
-
----
-
-## M9: Polish
-
-### 完了条件
-- [x] キーバインド整備（Ctrl+PageDown/Up でタブ切替、Ctrl+, で設定、Alt+H で Git History、Undo/Redo 強化）
-- [x] ターミナルのフォント・カラースキームを設定から変えられる
-- [x] アプリ起動時間が 1 秒以内（計測 ~145ms。非起動時コンポーネント遅延読込、autoStart 遅延短縮、metadata 保存 fire-and-forget 化）
-- [x] タブをドラッグで入れ替え
-- [x] タブのコンテキストメニューを拡充(全て閉じる等)
-- [x] クラッシュ時の PTY プロセス孤立を防ぐ（PtySession Drop + WindowEvent::Destroyed で cleanup）
-- [x] IME インライン変換対応（環境依存で再現せず保留。xterm.js v7 リリース時に取り込み検討）
-- [x] rg のサイドカーバンドル（externalBin でアプリ同梱、Windows プロジェクトで自動フォールバック）
-- [x] アイコンライブラリ導入（Lucide + material-file-icons）とアプリ全体のアイコン見直し
-- [x] `docker exec` でコンテナ内シェルに入る機能（bollard でシェル検出、autoStart で実行）
-- [x] エディタ ミニマップ（@replit/codemirror-minimap、シンタックスカラー・スクロール同期・diff 色表示）
-- [x] エディタ内検索・置換（Ctrl+F / Ctrl+H、カスタムパネル、アイコンボタン、マッチ数表示）
-- [x] エディタ git diff 変更行強調（追加/変更行をガター表示、ミニマップにも反映）
-- [x] ターミナルのコピー&ペースト（選択時自動コピー・右クリックペースト・改行確認・設定 ON/OFF）
-- [x] ダーク/ライトモード切替（設定タブから変更可能）
-- [x] i18n 対応（日本語/英語、設定タブ+StatusBar で切替、全 UI テキスト多言語化）
-- [x] Git が参照する SSH プロセスの切り替え対応（1Password SSH Agent 等 → gitconfig の core.sshCommand で対応）
-- [x] プロジェクトを別ウィンドウで開く機能（マルチウィンドウ対応）
-- [x] pike CLI（`pike` / `pike open <file>` で外部・内部ターミナルからファイル/プロジェクトを開く。single-instance でウィンドウ転送、プロジェクト自動マッチ・ad-hoc 作成、既存タブリロード対応）
-- [x] SearchBackend を stringly-typed から tagged enum に移行（Rust: serde tagged enum, TS: discriminated union）
-- [x] WSL コマンド実行の共通化（ShellConfig::command/run/run_stdout に統合、search/git/fs/docker で使用）
-- [x] 独自アイコンへの差し替え（pike-icon.png → `cargo tauri icon` で全サイズ生成）
-- [x] リポジトリ公開（MIT LICENSE 追加、Cargo.toml/package.json のライセンス・author 統一、.gitignore 安全ネット追加、GitHub で public に切替）
-
----
-
-## M10: Release
-
-### 目的
-Pike v0.1.0 を公開配布し、継続的なビルド・更新・セキュリティの仕組みを整える。
-musql の既存 CI/CD 構成を参考にする。
-
-### 完了条件
-
-**CI / CD（GitHub Actions）**
-- [x] GitHub Actions で Windows ビルド（NSIS installer + MSI）
-- [x] GitHub Releases への自動アップロード（タグ push トリガー）
+残タスク:
 - [ ] MSIX パッケージ生成（Microsoft Store 配布用）
-- [x] Dependabot 設定（npm + Cargo の依存更新 PR 自動作成）
-- [x] Security check ワークフロー（`cargo audit` + `npm audit`）
-
-**セルフアップデート**
-- [x] `tauri-plugin-updater` 導入（GitHub Releases の latest.json を参照）
-- [x] 歯車アイコンメニューに「更新を確認」を追加
-- [x] 更新がある場合、歯車アイコンに通知ドットを表示
-- [x] メニューに「更新してリスタート」を追加、クリックでダウンロード→再起動
-
-**配布**
-- [x] バージョン v0.1.0 を tauri.conf.json に設定
 - [ ] Microsoft Store への初回申請・公開
+</details>
+
+---
+
+## M11: File Watcher
+
+### 目的
+AI エージェントや外部ツールによるファイル変更をリアルタイムに検知し、ファイルツリーとエディタに反映する。
+
+### 完了条件
+
+**ファイルツリー自動リフレッシュ**
+- [ ] プロジェクトルート以下のファイル変更を監視する（Rust 側 `notify` クレート or WSL `inotifywait`）
+- [ ] ファイルの追加・削除・リネームでファイルツリーが自動更新される
+- [ ] 大量の変更（git checkout 等）でもパフォーマンスが劣化しない（デバウンス・バッチ処理）
+
+**エディタの外部変更検知**
+- [ ] 開いているファイルが外部で変更されたことを検知する
+- [ ] 未編集（クリーン）のタブは自動で最新内容にリロードする
+- [ ] 編集中（ダーティ）のタブは警告ダイアログを表示し、ユーザーに選択させる（リロード / 上書き保存 / 無視）
+- [ ] 外部で削除されたファイルのタブに警告を表示する
+
+**ファイルツリー新規作成**
+- [ ] コンテキストメニューに「新規ファイル」「新規フォルダ」を追加
+- [ ] インライン入力で名前を指定して作成
+
+---
+
+## M12: Developer UX
+
+### 目的
+日常のコーディングワークフローを加速する UX 機能を追加する。
+
+### 完了条件
+
+**クイックオープン（Ctrl+P）**
+- [ ] `rg --files` でプロジェクト内のファイル一覧を取得
+- [ ] fzf 風ファジーマッチでインクリメンタル絞り込み
+- [ ] Enter でエディタタブを開く（`:行番号` でジャンプも可）
+- [ ] 最近開いたファイルを上位に表示
+
+**ターミナルアクティビティ通知**
+- [ ] バックグラウンドのターミナルタブで出力があった場合、タブにインジケータを表示
+- [ ] プロセス終了時にタブタイトルまたはアイコンで通知
+- [ ] 固定タブ（Claude Code 等）の完了検知に対応
+
+**ログ可視化**
+- [ ] Settings タブにログファイルパスを表示
+- [ ] 「ログフォルダを開く」ボタンで Explorer / ファイルマネージャを起動
+
+---
+
+## M13: AI Diff Viewer
+
+### 目的
+AI エージェントが提案したコード変更を Pike の diff ビューアで確認・適用できるようにする。
+
+### 完了条件
+
+- [ ] AI エージェントの出力（ターミナル）から diff / patch 形式のテキストを検出する
+- [ ] 検出した差分を Pike の既存 diff タブ（左右分割・文字単位ハイライト）で表示する
+- [ ] diff タブから「適用」「破棄」を選択できる
+- [ ] 複数ファイルにまたがる差分をファイル単位で一覧表示する
+- [ ] `pike diff <file>` CLI で外部から diff タブを開ける
 
 ---
 
