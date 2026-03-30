@@ -26,7 +26,18 @@ Built with Tauri v2 (Rust + Vue/TypeScript). Windows-first.
 - **i18n** — Japanese / English
 - **pike CLI** — `pike file.rs:42` to open files, `pike <dir>` to switch projects
 
-## Getting Started
+## Install
+
+Download the latest installer from [GitHub Releases](https://github.com/kan/pike/releases/latest):
+
+| File | Description |
+|------|-------------|
+| `Pike_x.x.x_x64-setup.exe` | Windows installer (NSIS) — recommended |
+| `Pike_x.x.x_x64_en-US.msi` | Windows installer (MSI) |
+
+After installation, Pike will check for updates automatically. You can also check manually from the gear menu.
+
+## Build from Source
 
 ### Prerequisites
 
@@ -36,7 +47,7 @@ Built with Tauri v2 (Rust + Vue/TypeScript). Windows-first.
 - [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
 - **WSL2** (optional — for WSL shell and Docker integration)
 
-### Build & Run
+### Build & run
 
 ```bash
 # Install dependencies
