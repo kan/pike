@@ -1,10 +1,10 @@
 [package]
-name = "app"
+name = "pike"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "Lightweight AI-coding-focused development environment"
+authors = ["Kan Fushihara <kan.fushihara@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/kan/pike"
 edition = "2021"
 rust-version = "1.77.2"
 default-run = "pike"

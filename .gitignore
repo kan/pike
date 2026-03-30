@@ -5,3 +5,13 @@ src-tauri/binaries/
 .claude/settings.local.json
 src-tauri/icons/android/
 src-tauri/icons/ios/
+
+# Secrets / credentials (safety net)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json

@@ -1,16 +1,16 @@
 {
   "name": "pike",
-  "version": "1.0.0",
-  "description": "軽量な AI コーディング特化開発環境。Tauri v2 (Rust + Vue/TypeScript) 製、Windows 向け。",
+  "version": "0.1.0",
+  "description": "Lightweight AI-coding-focused development environment built with Tauri v2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "tauri": "tauri"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["tauri", "vue", "rust", "ide", "ai", "terminal"],
+  "author": "Kan Fushihara <kan.fushihara@gmail.com>",
+  "license": "MIT",
   "dependencies": {
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-html": "^6.4.11",
