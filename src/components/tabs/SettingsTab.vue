@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { useSettingsStore, COLOR_SCHEMES } from "../../stores/settings";
 import { EDITOR_THEMES } from "../../lib/editorThemes";
-import { Sun, Moon } from "lucide-vue-next";
+import { Sun, Moon, Loader } from "lucide-vue-next";
 import { useI18n } from "../../i18n";
+import { useUpdater } from "../../composables/useUpdater";
 
 const { t } = useI18n();
 const settings = useSettingsStore();
 settings.loadAvailableFonts();
+
+const updater = useUpdater();
 
 function onFontSizeInput(e: Event) {
   const val = parseInt((e.target as HTMLInputElement).value, 10);
@@ -221,6 +224,45 @@ const PREVIEW_LINES = [
           </select>
         </div>
       </section>
+
+      <!-- About / Update -->
+      <section class="settings-section">
+        <h3 class="section-title">{{ t('settings.about') }}</h3>
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.version') }}</label>
+          <span class="version-value">{{ updater.appVersion.value }}</span>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.checkUpdate') }}</label>
+          <div class="update-actions">
+            <button
+              v-if="updater.state.value === 'idle' || updater.state.value === 'upToDate' || updater.state.value === 'error'"
+              class="update-btn"
+              @click="updater.checkForUpdate"
+            >{{ t('settings.checkUpdate') }}</button>
+            <button v-else-if="updater.state.value === 'checking'" class="update-btn" disabled>
+              <Loader :size="14" :stroke-width="2" class="spin" />
+              {{ t('settings.checking') }}
+            </button>
+            <button v-else-if="updater.state.value === 'available'" class="update-btn update-btn-primary" @click="updater.downloadAndInstall">
+              {{ t('settings.updateAndRestart') }}
+            </button>
+            <button v-else-if="updater.state.value === 'downloading'" class="update-btn" disabled>
+              <Loader :size="14" :stroke-width="2" class="spin" />
+              {{ t('settings.downloading') }}
+            </button>
+            <span v-if="updater.state.value === 'available'" class="update-info">
+              {{ t('settings.updateAvailable', { version: updater.updateVersion.value }) }}
+            </span>
+            <span v-else-if="updater.state.value === 'upToDate'" class="update-info update-ok">
+              {{ t('settings.upToDate') }}
+            </span>
+            <span v-else-if="updater.state.value === 'error'" class="update-info update-err">
+              {{ t('settings.updateError') }}
+            </span>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
@@ -430,5 +472,68 @@ const PREVIEW_LINES = [
 .scheme-card.active .scheme-name {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* About / Update */
+.version-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.update-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.update-btn:hover:not(:disabled) {
+  background: var(--tab-hover-bg);
+}
+
+.update-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.update-btn-primary {
+  background: var(--accent);
+  color: var(--text-active);
+  border-color: var(--accent);
+}
+
+.update-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.update-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.update-ok {
+  color: #4caf50;
+}
+
+.update-err {
+  color: #f44336;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }
 </style>

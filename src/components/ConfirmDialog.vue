@@ -4,7 +4,7 @@ import { useConfirmDialog } from "../composables/useConfirmDialog";
 import { useI18n } from "../i18n";
 
 const { t } = useI18n();
-const { visible, message, respond } = useConfirmDialog();
+const { visible, message, infoOnly, respond } = useConfirmDialog();
 const okBtn = ref<HTMLButtonElement | null>(null);
 
 watch(visible, (val) => {
@@ -19,11 +19,11 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="overlay" @click.self="respond(false)" @keydown="onKeydown">
+    <div v-if="visible" class="overlay" @click.self="respond(infoOnly ? true : false)" @keydown="onKeydown">
       <div class="dialog">
         <p class="dialog-message">{{ message }}</p>
         <div class="dialog-actions">
-          <button class="btn btn-cancel" @click="respond(false)">{{ t('common.cancel') }}</button>
+          <button v-if="!infoOnly" class="btn btn-cancel" @click="respond(false)">{{ t('common.cancel') }}</button>
           <button ref="okBtn" class="btn btn-ok" @click="respond(true)">{{ t('common.ok') }}</button>
         </div>
       </div>

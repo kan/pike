@@ -277,6 +277,19 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `tauri-plugin-window-state` でウィンドウサイズ・位置・最大化状態を自動保存・復元
 - サイドバーの展開状態（activePanel）と幅は `localStorage` で永続化
 
+### セルフアップデート
+- `tauri-plugin-updater` + `tauri-plugin-process` で GitHub Releases の `latest.json` を参照
+- 署名キー: `~/.tauri/pike.key`（秘密鍵）、公開鍵は `tauri.conf.json` の `plugins.updater.pubkey` に埋め込み
+- CI: `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` を GitHub Secrets に設定
+- Settings タブの About セクションに「更新を確認」ボタン + 「更新して再起動」ボタン
+- SideBar 歯車アイコンに更新通知ドット（起動時に `check()` でバックグラウンド確認）
+- `bundle.createUpdaterArtifacts: true` で `.sig` ファイルを自動生成
+
+### CI/CD
+- `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-apps/tauri-action@v0` が Windows ビルド → GitHub Releases にドラフトアップロード
+- `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
+- `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
+
 ### 検索 (rg / grep)
 - 起動時に `which rg` で backend 判定、以降固定
 - rg: `rg --json -F/-e --glob` でパース容易な出力

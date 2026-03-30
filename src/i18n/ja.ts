@@ -95,6 +95,15 @@ export default {
   'settings.minimap': 'ミニマップ',
   'settings.wordWrap': '折り返し',
   'settings.tabSize': 'タブサイズ',
+  'settings.about': 'バージョン情報',
+  'settings.version': 'バージョン',
+  'settings.checkUpdate': '更新を確認',
+  'settings.checking': '確認中...',
+  'settings.updateAvailable': '更新あり: v{version}',
+  'settings.updateAndRestart': '更新して再起動',
+  'settings.downloading': 'ダウンロード中...',
+  'settings.upToDate': '最新です',
+  'settings.updateError': '更新の確認に失敗しました',
 
   // File Tree
   'fileTree.noProject': 'プロジェクトが選択されていません',

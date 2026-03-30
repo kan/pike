@@ -27,6 +27,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/rg"
     ],
@@ -37,5 +38,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY5QjdDQURGMTkxNTFDQ0MKUldUTUhCVVozOHEzYVlwOW5PUHYyL0FaQzhNaXI2VEM1U2luTXNPNFdWT2JPbFlQemd4dXVxd3EK",
+      "endpoints": [
+        "https://github.com/kan/pike/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

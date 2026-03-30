@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, nextTick, onUnmounted, defineAsyncComponent, type Component } from "vue";
+import { ref, nextTick, onMounted, onUnmounted, defineAsyncComponent, type Component } from "vue";
 import { useSidebarStore } from "../../stores/sidebar";
 import { useGitStore } from "../../stores/git";
 import type { SidebarPanel } from "../../types/tab";
@@ -14,6 +14,8 @@ import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, 
 import { useTabStore } from "../../stores/tabs";
 import { useShortcutsModal } from "../../composables/useShortcutsModal";
 import { useI18n } from "../../i18n";
+import { useUpdater } from "../../composables/useUpdater";
+import { infoDialog } from "../../composables/useConfirmDialog";
 
 const { t } = useI18n();
 const sidebar = useSidebarStore();
@@ -23,6 +25,11 @@ const searchStore = useSearchStore();
 const dockerStore = useDockerStore();
 const shortcutsModal = useShortcutsModal();
 const showGearMenu = ref(false);
+const updater = useUpdater();
+
+onMounted(() => {
+  updater.checkOnceInBackground();
+});
 
 function onGearClick() {
   showGearMenu.value = !showGearMenu.value;
@@ -48,6 +55,18 @@ function openShortcuts() {
 function openSettings() {
   closeGearMenu();
   tabStore.addSettingsTab();
+}
+
+async function checkUpdate() {
+  closeGearMenu();
+  await updater.checkForUpdate();
+  if (updater.hasUpdate.value) {
+    tabStore.addSettingsTab();
+  } else if (updater.state.value === 'upToDate') {
+    await infoDialog(t('settings.upToDate'));
+  } else {
+    await infoDialog(t('settings.updateError'));
+  }
 }
 
 const fileTreeRef = ref<{ refresh: () => void; refreshing: boolean } | null>(null);
@@ -110,6 +129,11 @@ onUnmounted(() => {
       <div class="icon-spacer" />
       <div class="gear-wrapper">
         <div v-if="showGearMenu" class="gear-menu" @mousedown.stop>
+          <button class="gear-menu-item" @click="checkUpdate">
+            <span>{{ t('settings.checkUpdate') }}</span>
+            <span v-if="updater.hasUpdate.value" class="update-badge">NEW</span>
+          </button>
+          <div class="gear-menu-divider" />
           <button class="gear-menu-item" @click="openShortcuts">
             <span>{{ t('sidebar.keyboardShortcuts') }}</span>
             <span class="ctx-key">Ctrl+K</span>
@@ -125,6 +149,7 @@ onUnmounted(() => {
           @click="onGearClick"
         >
           <Settings :size="22" :stroke-width="1.5" class="icon" />
+          <span v-if="updater.hasUpdate.value" class="update-dot" />
         </button>
       </div>
     </nav>
@@ -363,5 +388,32 @@ onUnmounted(() => {
 .placeholder {
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.update-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f44336;
+  pointer-events: none;
+}
+
+.gear-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.update-badge {
+  font-size: 9px;
+  font-weight: 700;
+  background: #f44336;
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 8px;
 }
 </style>

@@ -95,6 +95,15 @@ export default {
   'settings.minimap': 'Minimap',
   'settings.wordWrap': 'Word Wrap',
   'settings.tabSize': 'Tab Size',
+  'settings.about': 'About',
+  'settings.version': 'Version',
+  'settings.checkUpdate': 'Check for Updates',
+  'settings.checking': 'Checking...',
+  'settings.updateAvailable': 'Update available: v{version}',
+  'settings.updateAndRestart': 'Update & Restart',
+  'settings.downloading': 'Downloading...',
+  'settings.upToDate': 'You are up to date',
+  'settings.updateError': 'Update check failed',
 
   // File Tree
   'fileTree.noProject': 'No project selected',

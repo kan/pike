@@ -292,20 +292,20 @@ musql の既存 CI/CD 構成を参考にする。
 ### 完了条件
 
 **CI / CD（GitHub Actions）**
-- [ ] GitHub Actions で Windows ビルド（NSIS installer + MSI）
-- [ ] GitHub Releases への自動アップロード（タグ push トリガー）
+- [x] GitHub Actions で Windows ビルド（NSIS installer + MSI）
+- [x] GitHub Releases への自動アップロード（タグ push トリガー）
 - [ ] MSIX パッケージ生成（Microsoft Store 配布用）
-- [ ] Dependabot 設定（npm + Cargo の依存更新 PR 自動作成）
-- [ ] Security check ワークフロー（`cargo audit` + `npm audit`）
+- [x] Dependabot 設定（npm + Cargo の依存更新 PR 自動作成）
+- [x] Security check ワークフロー（`cargo audit` + `npm audit`）
 
 **セルフアップデート**
-- [ ] `tauri-plugin-updater` 導入（GitHub Releases の latest.json を参照）
-- [ ] 歯車アイコンメニューに「更新を確認」を追加
-- [ ] 更新がある場合、歯車アイコンに通知ドットを表示
-- [ ] メニューに「更新してリスタート」を追加、クリックでダウンロード→再起動
+- [x] `tauri-plugin-updater` 導入（GitHub Releases の latest.json を参照）
+- [x] 歯車アイコンメニューに「更新を確認」を追加
+- [x] 更新がある場合、歯車アイコンに通知ドットを表示
+- [x] メニューに「更新してリスタート」を追加、クリックでダウンロード→再起動
 
 **配布**
-- [ ] バージョン v0.1.0 を tauri.conf.json に設定
+- [x] バージョン v0.1.0 を tauri.conf.json に設定
 - [ ] Microsoft Store への初回申請・公開
 
 ---
