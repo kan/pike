@@ -316,6 +316,65 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ---
 
+## リリース手順
+
+新しいバージョンをリリースする際は、以下の手順を順番に実行する。
+
+### 1. バージョン番号の更新
+
+3ファイルのバージョンを一致させる（例: `0.2.0`）:
+
+- `src-tauri/tauri.conf.json` → `"version": "X.Y.Z"`
+- `package.json` → `"version": "X.Y.Z"`
+- `src-tauri/Cargo.toml` → `version = "X.Y.Z"`
+
+### 2. CHANGELOG.md の更新
+
+`CHANGELOG.md` の先頭に新しいセクションを追加する。
+
+### 3. コミット & プッシュ
+
+```bash
+git add -A && git commit -m "Bump version to vX.Y.Z"
+git push origin main
+```
+
+### 4. Security Check の確認
+
+GitHub Actions の `Security Check` ワークフローが成功することを確認する。
+
+### 5. タグの作成 & プッシュ
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+タグ push で `Release` ワークフローが自動起動し、Windows ビルド → GitHub Releases にドラフトアップロードされる。
+
+### 6. リリースの公開
+
+ワークフロー完了後、GitHub Releases でドラフトを確認し、リリースノートを記載して公開する:
+
+```bash
+gh release edit vX.Y.Z --repo kan/pike --draft=false --notes "$(cat <<'EOF'
+## Pike vX.Y.Z
+
+### Changes
+- ...
+
+EOF
+)"
+```
+
+### 注意事項
+
+- `tauri-action` は `tauri.conf.json` の `version` をリリース名・タグ名の `__VERSION__` に埋め込む。**必ずタグを打つ前にバージョンを更新すること**
+- `TAURI_SIGNING_PRIVATE_KEY` が GitHub Secrets に設定されていること（署名なしビルドは updater で検証失敗する）
+- タグを打ち直す場合: `git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z` → 修正後に再タグ
+
+---
+
 @import .claude/rules/rust.md
 @import .claude/rules/frontend.md
 @import .claude/rules/testing.md

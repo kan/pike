@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.1] - 2026-03-30
+
+### Security
+
+- Markdown プレビューの XSS 脆弱性を修正 (DOMPurify によるサニタイズ)
+- Content Security Policy (CSP) を有効化し、インラインスクリプト実行を禁止
+- プロジェクト操作コマンドに path traversal 防御を追加
+
+### Dependencies
+
+- bollard 0.18 → 0.20 (API 移行対応)
+- portable-pty 0.8 → 0.9
+- TypeScript 5.9 → 6.0
+- actions/checkout v4 → v6, actions/setup-node v4 → v6
+
 ## [0.1.0] - 2026-03-30
 
 Initial public release.
