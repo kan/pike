@@ -17,6 +17,7 @@ import { useEditorInfo } from "../../composables/useEditorInfo";
 import { gitDiffGutter, setDiffLines } from "../../lib/editorGitGutter";
 import { minimap } from "../../lib/editorMinimap";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import type { EditorTab } from "../../types/tab";
 import { useI18n } from "../../i18n";
 
@@ -74,7 +75,7 @@ const showPreview = computed(() => viewMode.value !== 'edit');
 const previewHtml = computed(() => {
   void debouncedDocVersion.value;
   if (!showPreview.value || !editorView) return '';
-  return marked.parse(editorView.state.doc.toString()) as string;
+  return DOMPurify.sanitize(marked.parse(editorView.state.doc.toString()) as string);
 });
 
 function updateTitle() {

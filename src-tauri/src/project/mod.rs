@@ -158,6 +158,7 @@ pub async fn project_get(
     id: String,
     state: State<'_, ProjectState>,
 ) -> Result<ProjectConfig, String> {
+    validate_slug(&id, "Project ID")?;
     let path = project_file(&state, &id);
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     serde_json::from_str(&content).map_err(|e| e.to_string())
@@ -181,6 +182,7 @@ pub async fn project_update(
     config: ProjectConfig,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
+    validate_slug(&config.id, "Project ID")?;
     let path = project_file(&state, &config.id);
     if !path.exists() {
         return Err(format!("Project '{}' not found", config.id));
@@ -195,6 +197,7 @@ pub async fn project_delete(
     id: String,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
+    validate_slug(&id, "Project ID")?;
     let dir = projects_dir(&state).join(&id);
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
