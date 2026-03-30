@@ -1,5 +1,5 @@
 use crate::types::ShellConfig;
-use bollard::container::{
+use bollard::query_parameters::{
     ListContainersOptions, LogsOptions, RestartContainerOptions, StartContainerOptions,
     StopContainerOptions,
 };
@@ -143,7 +143,7 @@ pub async fn docker_list_containers(
     state: State<'_, DockerState>,
 ) -> Result<Vec<ContainerInfo>, String> {
     let docker = get_docker(&state).await?;
-    let opts = ListContainersOptions::<String> {
+    let opts = ListContainersOptions {
         all: true,
         ..Default::default()
     };
@@ -165,7 +165,7 @@ pub async fn docker_list_containers(
                     .trim_start_matches('/')
                     .to_string(),
                 image: c.image.unwrap_or_default(),
-                state: c.state.unwrap_or_default(),
+                state: c.state.map(|s| s.to_string()).unwrap_or_default(),
                 status: c.status.unwrap_or_default(),
                 compose_service: labels.get("com.docker.compose.service").cloned(),
                 compose_project: labels.get("com.docker.compose.project").cloned(),
@@ -181,7 +181,7 @@ pub async fn docker_start(
 ) -> Result<(), String> {
     let docker = get_docker(&state).await?;
     docker
-        .start_container(&container_id, None::<StartContainerOptions<String>>)
+        .start_container(&container_id, None::<StartContainerOptions>)
         .await
         .map_err(|e| e.to_string())
 }
@@ -220,7 +220,7 @@ pub async fn docker_logs_start(
     let stream_id = uuid::Uuid::new_v4().to_string();
     let sid = stream_id.clone();
 
-    let opts = LogsOptions::<String> {
+    let opts = LogsOptions {
         follow: true,
         stdout: true,
         stderr: true,

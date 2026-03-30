@@ -1,6 +1,6 @@
 ///! Docker (bollard) 接続確認
 ///! Usage: cargo run --bin verify_bollard
-use bollard::container::{ListContainersOptions, LogsOptions};
+use bollard::query_parameters::{ListContainersOptions, LogsOptions};
 use bollard::Docker;
 use futures_util::StreamExt;
 
@@ -73,7 +73,7 @@ async fn main() {
 
     // Step 3: List containers
     println!("[3] Listing containers...");
-    let options = ListContainersOptions::<String> {
+    let options = ListContainersOptions {
         all: true,
         ..Default::default()
     };
@@ -88,7 +88,7 @@ async fn main() {
                         .as_ref()
                         .map(|n| n.join(", "))
                         .unwrap_or_default();
-                    let state = container.state.as_deref().unwrap_or("unknown");
+                    let state = container.state.as_ref().map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
                     let image = container.image.as_deref().unwrap_or("unknown");
                     println!("    {} | {} | {}", names, state, image);
                 }
@@ -106,7 +106,7 @@ async fn main() {
     println!("[4] Testing log stream...");
     let running = containers
         .iter()
-        .find(|c| c.state.as_deref() == Some("running"));
+        .find(|c| c.state.as_ref().map(|s| s.to_string()).as_deref() == Some("running"));
 
     match running {
         Some(container) => {
@@ -119,7 +119,7 @@ async fn main() {
             println!("    Streaming logs from: {} ({})", names, &id[..12]);
             println!("    (showing last 10 lines + 3 seconds of live tail)\n---");
 
-            let log_options = LogsOptions::<String> {
+            let log_options = LogsOptions {
                 stdout: true,
                 stderr: true,
                 tail: "10".to_string(),
