@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2] - 2026-03-30
+
+### Fixed
+
+- Windows リリースビルドで wsl.exe 等のコンソールウィンドウが表示される問題を修正 (CREATE_NO_WINDOW)
+- セルフアップデーターの署名パスワード環境変数を明示的に設定
+
 ## [0.1.1] - 2026-03-30
 
 ### Security
