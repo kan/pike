@@ -258,7 +258,7 @@ const PREVIEW_LINES = [
               {{ t('settings.upToDate') }}
             </span>
             <span v-else-if="updater.state.value === 'error'" class="update-info update-err">
-              {{ t('settings.updateError') }}
+              {{ t('settings.updateError') }}{{ updater.errorMessage.value ? ': ' + updater.errorMessage.value : '' }}
             </span>
           </div>
         </div>

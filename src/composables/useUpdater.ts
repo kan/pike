@@ -9,6 +9,7 @@ const state = ref<UpdateState>('idle')
 const pendingUpdate = ref<Update | null>(null)
 const updateVersion = ref('')
 const appVersion = ref('')
+const errorMessage = ref('')
 
 let initialCheckDone = false
 let versionLoaded = false
@@ -32,7 +33,8 @@ export function useUpdater() {
       } else {
         state.value = 'upToDate'
       }
-    } catch {
+    } catch (e) {
+      errorMessage.value = String(e)
       state.value = 'error'
     }
   }
@@ -43,7 +45,8 @@ export function useUpdater() {
     try {
       await pendingUpdate.value.downloadAndInstall()
       await relaunch()
-    } catch {
+    } catch (e) {
+      errorMessage.value = String(e)
       state.value = 'error'
     }
   }
@@ -66,6 +69,7 @@ export function useUpdater() {
     state,
     appVersion,
     updateVersion,
+    errorMessage,
     hasUpdate,
     checkForUpdate,
     downloadAndInstall,

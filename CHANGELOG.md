@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] - 2026-03-30
+
+### Fixed
+
+- セルフアップデーターの「更新して再起動」が失敗する問題を修正 (`process:default` capability 追加)
+- アップデートエラー時に具体的なエラーメッセージを表示するよう改善
+
 ## [0.1.2] - 2026-03-30
 
 ### Fixed
