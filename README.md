@@ -56,8 +56,8 @@ npm install
 # Download bundled ripgrep binary
 bash scripts/download-rg.sh
 
-# Development
-npm run tauri dev
+# Development (can run alongside installed Pike)
+npm run tauri:dev
 
 # Production build
 npm run tauri build

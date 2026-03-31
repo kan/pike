@@ -246,6 +246,12 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - main ウィンドウ close → アプリ終了 + 全 PTY/Docker session cleanup
 - 子ウィンドウ close → `beforeunload` で session 保存 + PTY kill（ベストエフォート）
 
+### 開発ビルド
+- `npm run tauri:dev` で開発版を起動（`tauri.dev.conf.json` で identifier を `com.pike.dev.debug` に上書き）
+- インストール版 Pike (`com.pike.dev`) と開発版 (`com.pike.dev.debug`) は single-instance が別扱いになるため共存可能
+- `import.meta.env.DEV` が true の場合、ウィンドウタイトルに `[DEBUG]` プレフィックスを付与
+- `npm run tauri dev` は identifier が本番と同一のため、インストール版と競合する点に注意
+
 ### pike CLI
 - バイナリ名 `pike.exe`（`Cargo.toml` `[[bin]] name = "pike"`）
 - `tauri-plugin-single-instance` で二重起動を防止、引数を既存インスタンスに転送

@@ -25,10 +25,13 @@ const gitStore = useGitStore();
 
 useKeyboardShortcuts();
 
+const isDebug = import.meta.env.DEV;
+
 watch(
   () => projectStore.currentProject?.name,
   (name) => {
-    const title = name ? t('app.titleWithProject', { name }) : t('app.title');
+    const base = name ? t('app.titleWithProject', { name }) : t('app.title');
+    const title = isDebug ? `[DEBUG] ${base}` : base;
     getCurrentWindow().setTitle(title);
   },
   { immediate: true }
