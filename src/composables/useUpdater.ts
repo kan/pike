@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, type Raw, markRaw } from 'vue'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { getVersion } from '@tauri-apps/api/app'
@@ -6,7 +6,7 @@ import { getVersion } from '@tauri-apps/api/app'
 type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'upToDate' | 'error'
 
 const state = ref<UpdateState>('idle')
-const pendingUpdate = ref<Update | null>(null)
+const pendingUpdate = ref<Raw<Update> | null>(null)
 const updateVersion = ref('')
 const appVersion = ref('')
 const errorMessage = ref('')
@@ -27,7 +27,7 @@ export function useUpdater() {
     try {
       const update = await check()
       if (update) {
-        pendingUpdate.value = update
+        pendingUpdate.value = markRaw(update)
         updateVersion.value = update.version
         state.value = 'available'
       } else {
@@ -57,7 +57,7 @@ export function useUpdater() {
     check()
       .then((update) => {
         if (update) {
-          pendingUpdate.value = update
+          pendingUpdate.value = markRaw(update)
           updateVersion.value = update.version
           state.value = 'available'
         }
