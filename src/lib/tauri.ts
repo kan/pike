@@ -118,6 +118,24 @@ export async function fsCopy(shell: ShellType, source: string, dest: string): Pr
   return invoke("fs_copy", { shell, source, dest });
 }
 
+export async function fsCreateFile(shell: ShellType, path: string): Promise<void> {
+  return invoke("fs_create_file", { shell, path });
+}
+
+export async function fsCreateDir(shell: ShellType, path: string): Promise<void> {
+  return invoke("fs_create_dir", { shell, path });
+}
+
+// Watcher
+
+export async function fsWatchStart(shell: ShellType, root: string): Promise<string> {
+  return invoke<string>("fs_watch_start", { shell, root });
+}
+
+export async function fsWatchStop(watcherId: string): Promise<void> {
+  return invoke("fs_watch_stop", { watcherId });
+}
+
 // Git
 
 export async function gitStatus(root: string, shell: ShellType): Promise<GitStatusResult> {

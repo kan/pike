@@ -71,6 +71,8 @@ pike/
 │       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
 │       ├── pty/
 │       │   └── mod.rs         # PTY 管理（WSL/cmd/PowerShell/Git Bash 対応）
+│       ├── watcher/
+│       │   └── mod.rs         # ファイル監視（notify + WSL inotifywait）
 │       └── project/
 │           └── mod.rs         # プロジェクト CRUD・WSL ディストロ検出
 ├── src/                       # Vue/TypeScript フロント
@@ -90,7 +92,10 @@ pike/
 │   │   │   └── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
-│   │       └── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダークモード・エディタ設定）
+│   │       ├── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダークモード・エディタ設定）
+│   │       ├── CsvTab.vue         # CSV/TSV テーブルプレビュー
+│   │       ├── PdfTab.vue         # PDF プレビュー（iframe）
+│   │       └── MermaidTab.vue     # Mermaid ダイアグラムプレビュー
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts         # サイドバー状態
@@ -100,6 +105,7 @@ pike/
 │   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P
 │   │   ├── useConfirmDialog.ts      # カスタム確認ダイアログ composable
 │   │   ├── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出
+│   │   ├── useFsWatcher.ts        # ファイル監視イベントルーター
 │   │   └── useCliOpen.ts          # CLI 引数によるファイル/プロジェクト自動オープン
 │   ├── lib/
 │   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
@@ -295,6 +301,24 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-apps/tauri-action@v0` が Windows ビルド → GitHub Releases にドラフトアップロード
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
 - `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
+
+### ファイル監視 (File Watcher)
+- Windows プロジェクト: `notify` クレート（v7）で `ReadDirectoryChangesW` ベースの再帰監視
+- WSL プロジェクト: `wsl.exe inotifywait -m -r` を長寿命サブプロセスとして起動（`inotify-tools` 必要、未インストール時は graceful degrade）
+- イベントバッチ処理: 200ms デバウンス + 1s max wait でフロントに送信
+- `IGNORED_DIRS` (.git, node_modules 等) をフィルタ
+- `fs_changed` イベントで `changedDirs`（ツリー更新用）+ `changedFiles`（エディタ更新用）を送信
+- エディタ外部変更検知: clean タブは自動リロード、dirty タブはインライン警告バー（Reload/Overwrite/Dismiss）
+- 自己書き込み除外: `markRecentlySaved()` で 2秒 TTL のパス Set を管理
+- ウィンドウ破棄時に全 watcher 停止（`watcher::stop_all`）
+- Rust `WatcherState` を `AppState` で管理、`fs_watch_start` / `fs_watch_stop` コマンド
+
+### プレビュー拡張
+- CSV/TSV: `CsvTab` でテーブル表示、RFC 4180 準拠パーサ（引用符対応）、10,000行 truncate、sticky ヘッダ
+- PDF: `PdfTab` で `<iframe src="data:application/pdf;base64,...">` による WebView2 内蔵レンダリング
+- Mermaid: `MermaidTab` で `.mermaid`/`.mmd` ファイルを SVG 描画（Preview/Source 切替）
+- Markdown 内 mermaid: `EditorTab` の previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
+- ファイルツリー `openFile()` が拡張子で csv/tsv/pdf/mermaid/mmd を判定し適切なタブを開く
 
 ### 検索 (rg / grep)
 - 起動時に `which rg` で backend 判定、以降固定

@@ -13,6 +13,7 @@ import { useGitStore } from "./stores/git";
 import { useKeyboardShortcuts } from "./composables/useKeyboardShortcuts";
 import { ptyRouter } from "./composables/usePtyRouter";
 import { dockerLogRouter } from "./composables/useDockerLogRouter";
+import { fsWatcher, isRecentlySaved, type FsChangeEntry } from "./composables/useFsWatcher";
 import { initCliOpen } from "./composables/useCliOpen";
 import { getWindowProjectId } from "./lib/window";
 import { useI18n } from "./i18n";
@@ -49,10 +50,34 @@ watch(
   }
 );
 
+// File watcher lifecycle
+watch(
+  () => projectStore.currentProject?.id,
+  async () => {
+    const project = projectStore.currentProject;
+    if (project) {
+      await fsWatcher.start(project.shell, project.root);
+    } else {
+      await fsWatcher.stop();
+    }
+  }
+);
+
+fsWatcher.onFileChange((files: FsChangeEntry[]) => {
+  for (const change of files) {
+    if (isRecentlySaved(change.path)) continue;
+    for (const tab of tabStore.tabs) {
+      if (tab.kind === 'editor' && tab.path === change.path) {
+        tab.externalChange = change.kind === 'delete' ? 'deleted' : 'modified';
+      }
+    }
+  }
+});
+
 const windowProjectId = getWindowProjectId();
 
 onMounted(async () => {
-  await Promise.all([ptyRouter.init(), dockerLogRouter.init()]);
+  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init()]);
 
   if (windowProjectId) {
     await projectStore.loadProjects();

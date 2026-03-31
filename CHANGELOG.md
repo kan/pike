@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-03-31
+
+### Features
+
+- **ファイル監視** — プロジェクト内のファイル変更をリアルタイム検知し、ファイルツリーを自動更新
+  - Windows: `notify` クレート (ReadDirectoryChangesW)
+  - WSL: `inotifywait` (inotify-tools)。未インストール時はファイルツリーに導入案内を表示
+  - 200ms デバウンス + 1s max wait のバッチ処理で大量変更に対応
+- **エディタ外部変更検知** — 開いているファイルが外部で変更された場合に自動リロード（未保存時は警告バー表示）
+- **ファイルツリー新規作成** — コンテキストメニュー（フォルダ）とヘッダボタンから新規ファイル・フォルダを作成可能。ファイル作成後は自動でエディタタブを開く
+- **CSV/TSV プレビュー** — エディタの Edit/Split/Preview トグルでテーブル表示。引用符対応パーサ、10,000行 truncate
+- **PDF プレビュー** — WebView2 内蔵レンダリング（iframe + base64）
+- **Mermaid プレビュー** — `.mermaid`/`.mmd` ファイルを Edit/Split/Preview トグルで SVG 描画。ズーム機能付き
+- **Markdown 内 Mermaid** — ` ```mermaid ` コードブロックをプレビュー内で SVG にインライン描画
+
+### Dependencies
+
+- `notify` 7 (Rust ファイル監視クレート)
+- `mermaid` 11 (Mermaid ダイアグラム描画)
+
 ## [0.1.4] - 2026-03-31
 
 ### Fixed

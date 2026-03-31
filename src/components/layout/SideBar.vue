@@ -10,7 +10,7 @@ const DockerPanel = defineAsyncComponent(() => import("../panels/DockerPanel.vue
 const SearchPanel = defineAsyncComponent(() => import("../panels/SearchPanel.vue"));
 import { useSearchStore } from "../../stores/search";
 import { useDockerStore } from "../../stores/docker";
-import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader, Settings } from "lucide-vue-next";
+import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader, Settings, FilePlus, FolderPlus } from "lucide-vue-next";
 import { useTabStore } from "../../stores/tabs";
 import { useShortcutsModal } from "../../composables/useShortcutsModal";
 import { useI18n } from "../../i18n";
@@ -69,7 +69,7 @@ async function checkUpdate() {
   }
 }
 
-const fileTreeRef = ref<{ refresh: () => void; refreshing: boolean } | null>(null);
+const fileTreeRef = ref<{ refresh: () => void; refreshing: boolean; startCreateAtRoot: (type: 'file' | 'dir') => void } | null>(null);
 
 const icons: { panel: SidebarPanel; labelKey: string; icon: Component }[] = [
   { panel: "files", labelKey: "sidebar.files", icon: Files },
@@ -157,6 +157,12 @@ onUnmounted(() => {
       <div class="panel-header">
         <span>{{ t(icons.find((i) => i.panel === sidebar.activePanel)?.labelKey ?? '') }}</span>
         <div v-if="sidebar.activePanel === 'files'" class="header-actions">
+          <button class="header-btn" :title="t('fileTree.newFile')" @click="fileTreeRef?.startCreateAtRoot('file')">
+            <FilePlus :size="14" :stroke-width="2" />
+          </button>
+          <button class="header-btn" :title="t('fileTree.newFolder')" @click="fileTreeRef?.startCreateAtRoot('dir')">
+            <FolderPlus :size="14" :stroke-width="2" />
+          </button>
           <button class="header-btn" :title="t('common.refresh')" @click="fileTreeRef?.refresh()">
             <RefreshCw :size="14" :stroke-width="2" :class="{ spin: fileTreeRef?.refreshing }" />
           </button>

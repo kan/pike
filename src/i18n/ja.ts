@@ -53,6 +53,12 @@ export default {
   'editor.split': '分割',
   'editor.preview': 'プレビュー',
   'editor.saving': '保存中...',
+  'editor.save': '保存',
+  'editor.externalModified': 'ファイルがディスク上で変更されました。',
+  'editor.externalDeleted': 'ファイルがディスク上から削除されました。',
+  'editor.reload': '再読み込み',
+  'editor.overwrite': '上書き保存',
+  'editor.dismiss': '無視',
 
   // Diff
   'diff.notFound': '差分が見つかりません',
@@ -113,6 +119,9 @@ export default {
   'fileTree.delete': '削除',
   'fileTree.gitHistory': 'Git 履歴',
   'fileTree.confirmDelete': '"{name}" を削除しますか？',
+  'fileTree.newFile': '新規ファイル',
+  'fileTree.newFolder': '新規フォルダ',
+  'fileTree.inotifyMissing': 'ファイル監視が利用できません。WSL で以下を実行:',
 
   // Git Panel
   'git.noProject': 'プロジェクトが選択されていません',
@@ -208,4 +217,11 @@ export default {
   'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',
   'confirm.unsavedClose': '"{name}" に未保存の変更があります。保存せずに閉じますか？',
   'confirm.unsavedCloseMulti': '{count} 個のファイルに未保存の変更があります ({names})。保存せずに閉じますか？',
+
+  // CSV Preview
+  'csv.truncated': '先頭 {max} 行のみ表示しています。',
+
+  // Mermaid Preview
+  'mermaid.source': 'ソース',
+  'mermaid.reset': 'リセット',
 } as Record<string, string>

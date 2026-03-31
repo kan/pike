@@ -11,6 +11,7 @@ const PreviewTab = defineAsyncComponent(() => import("../tabs/PreviewTab.vue"));
 const HistoryTab = defineAsyncComponent(() => import("../tabs/HistoryTab.vue"));
 const DockerLogsTab = defineAsyncComponent(() => import("../tabs/DockerLogsTab.vue"));
 const SettingsTab = defineAsyncComponent(() => import("../tabs/SettingsTab.vue"));
+const PdfTab = defineAsyncComponent(() => import("../tabs/PdfTab.vue"));
 import { Terminal, Pin, X, Plus, ChevronDown, ScrollText, Settings } from "lucide-vue-next";
 import { fileIconSvg } from "../../lib/fileIcons";
 import { useI18n } from "../../i18n";
@@ -47,6 +48,10 @@ const settingsTabs = computed(() =>
   tabStore.tabs.filter((t) => t.kind === "settings")
 );
 
+const pdfTabs = computed(() =>
+  tabStore.tabs.filter((t) => t.kind === "pdf")
+);
+
 const isWindows = computed(() =>
   projectStore.currentProject
     ? isWindowsShell(projectStore.currentProject.shell)
@@ -58,6 +63,7 @@ function tabFileIconSvg(tab: Tab): string | null {
   if (tab.kind === "preview") return fileIconSvg(tab.path);
   if (tab.kind === "diff") return fileIconSvg(tab.filePath);
   if (tab.kind === "history") return fileIconSvg(tab.filePath);
+  if (tab.kind === "pdf") return fileIconSvg(tab.path);
   return null;
 }
 
@@ -166,6 +172,7 @@ const contextTabPath = computed(() => {
   switch (tab.kind) {
     case "editor":
     case "preview":
+    case "pdf":
       return tab.path;
     case "diff":
     case "history":
@@ -307,6 +314,12 @@ onUnmounted(() => {
       <SettingsTab
         v-for="tab in settingsTabs"
         :key="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <PdfTab
+        v-for="tab in pdfTabs"
+        :key="tab.id"
+        :tab-id="tab.id"
         v-show="tab.id === tabStore.activeTabId"
       />
 

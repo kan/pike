@@ -85,6 +85,7 @@ export type EditorTab = {
   initialContent?: string
   initialLine?: number
   reloadRequested?: number
+  externalChange?: 'modified' | 'deleted'
 }
 
 export type PreviewTab = {
@@ -131,6 +132,14 @@ export type SettingsTab = {
   pinned: boolean
 }
 
-export type Tab = TerminalTab | EditorTab | DockerLogsTab | DiffTab | PreviewTab | HistoryTab | SettingsTab
+export type PdfTab = {
+  id: string
+  kind: 'pdf'
+  title: string
+  pinned: boolean
+  path: string
+}
+
+export type Tab = TerminalTab | EditorTab | DockerLogsTab | DiffTab | PreviewTab | HistoryTab | SettingsTab | PdfTab
 
 export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects'

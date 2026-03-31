@@ -11,6 +11,7 @@ import { useTabStore } from "../../stores/tabs";
 import { useProjectStore } from "../../stores/project";
 import { useSettingsStore } from "../../stores/settings";
 import { fsReadFile, fsWriteFile, gitDiffLines } from "../../lib/tauri";
+import { markRecentlySaved } from "../../composables/useFsWatcher";
 import { getLanguage, getLanguageLabel } from "../../lib/languages";
 import { basename, extension } from "../../lib/paths";
 import { useEditorInfo } from "../../composables/useEditorInfo";
@@ -41,6 +42,7 @@ const tab = computed(() =>
 
 const editorRef = ref<HTMLDivElement>();
 const previewRef = ref<HTMLDivElement>();
+const mermaidRef = ref<HTMLDivElement>();
 let editorView: EditorView | null = null;
 const loading = ref(true);
 const saving = ref(false);
@@ -63,19 +65,129 @@ function bumpDocVersion() {
   }, 250);
 }
 
-const isMarkdown = computed(() => {
-  if (!tab.value) return false;
-  const ext = extension(tab.value.path);
-  return ext === 'md' || ext === 'markdown';
-});
+const fileExt = computed(() => tab.value ? extension(tab.value.path) : '');
+const isMarkdown = computed(() => fileExt.value === 'md' || fileExt.value === 'markdown');
+const isCsv = computed(() => fileExt.value === 'csv' || fileExt.value === 'tsv');
+const isMermaid = computed(() => fileExt.value === 'mermaid' || fileExt.value === 'mmd');
+const hasPreview = computed(() => isMarkdown.value || isCsv.value || isMermaid.value);
 
 const showEditor = computed(() => viewMode.value !== 'preview');
 const showPreview = computed(() => viewMode.value !== 'edit');
 
+const SVG_PURIFY_OPTS = {
+  ADD_TAGS: ['svg', 'g', 'path', 'rect', 'circle', 'line', 'polyline', 'polygon', 'text', 'tspan', 'defs', 'clipPath', 'use', 'marker', 'foreignObject', 'style'],
+  ADD_ATTR: ['viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'transform', 'x', 'y', 'cx', 'cy', 'r', 'rx', 'ry', 'width', 'height', 'points', 'text-anchor', 'dominant-baseline', 'font-size', 'font-family', 'font-weight', 'clip-path', 'marker-end', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'dx', 'dy', 'preserveAspectRatio', 'startOffset', 'data-id', 'data-node-id', 'data-look'],
+};
+
+function buildCsvPreview(text: string): string {
+  const ext = fileExt.value;
+  const delimiter = ext === 'tsv' ? '\t' : ',';
+  const lines = text.split(/\r?\n/).filter(l => l.length > 0);
+  if (lines.length === 0) return '<p>Empty</p>';
+
+  function parseLine(line: string): string[] {
+    const result: string[] = [];
+    let current = '', inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
+        else if (ch === '"') inQuotes = false;
+        else current += ch;
+      } else {
+        if (ch === '"') inQuotes = true;
+        else if (ch === delimiter) { result.push(current); current = ''; }
+        else current += ch;
+      }
+    }
+    result.push(current);
+    return result;
+  }
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const maxRows = 10000;
+  const headers = parseLine(lines[0]);
+  let html = '<table><thead><tr><th>#</th>';
+  for (const h of headers) html += `<th>${esc(h)}</th>`;
+  html += '</tr></thead><tbody>';
+  const rowCount = Math.min(lines.length - 1, maxRows);
+  for (let i = 0; i < rowCount; i++) {
+    const cells = parseLine(lines[i + 1]);
+    html += `<tr><td class="csv-row-num">${i + 1}</td>`;
+    for (const c of cells) html += `<td>${esc(c)}</td>`;
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  if (lines.length - 1 > maxRows) html += `<p style="text-align:center;color:var(--text-secondary);font-size:12px">${esc(t('csv.truncated', { max: String(maxRows) }))}</p>`;
+  return html;
+}
+
 const previewHtml = computed(() => {
   void debouncedDocVersion.value;
   if (!showPreview.value || !editorView) return '';
-  return DOMPurify.sanitize(marked.parse(editorView.state.doc.toString()) as string);
+  const text = editorView.state.doc.toString();
+  if (isCsv.value) return buildCsvPreview(text);
+  if (isMermaid.value) return ''; // rendered asynchronously
+  return DOMPurify.sanitize(marked.parse(text) as string, SVG_PURIFY_OPTS);
+});
+
+const mermaidZoom = ref(1);
+
+async function renderStandaloneMermaid() {
+  await nextTick();
+  if (!mermaidRef.value || !editorView) return;
+  const source = editorView.state.doc.toString().trim();
+  if (!source) { mermaidRef.value.innerHTML = ''; return; }
+  try {
+    const { getMermaid } = await import('../../lib/mermaid');
+    const mermaid = await getMermaid();
+    const id = `mermaid-${props.tabId}-${Date.now()}`;
+    const { svg } = await mermaid.render(id, source);
+    mermaidRef.value.innerHTML = `<div class="mermaid-inline">${svg}</div>`;
+  } catch (e) {
+    const pre = document.createElement('pre');
+    pre.className = 'mermaid-render-error';
+    pre.textContent = String(e);
+    mermaidRef.value.replaceChildren(pre);
+  }
+}
+
+async function renderMarkdownMermaid() {
+  await nextTick();
+  if (!previewRef.value) return;
+  const codeBlocks = previewRef.value.querySelectorAll('code.language-mermaid');
+  if (codeBlocks.length === 0) return;
+  try {
+    const { getMermaid } = await import('../../lib/mermaid');
+    const mermaid = await getMermaid();
+    let idx = 0;
+    for (const block of codeBlocks) {
+      const pre = block.parentElement;
+      if (!pre || pre.tagName !== 'PRE') continue;
+      const source = block.textContent ?? '';
+      try {
+        const id = `md-mermaid-${props.tabId}-${idx++}-${Date.now()}`;
+        const { svg } = await mermaid.render(id, source.trim());
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mermaid-inline';
+        wrapper.innerHTML = svg;
+        pre.replaceWith(wrapper);
+      } catch {
+        // Leave code block as-is on syntax error
+      }
+    }
+  } catch {
+    // mermaid not available
+  }
+}
+
+// Standalone mermaid: re-render on content or view mode changes
+watch([debouncedDocVersion, showPreview], () => {
+  if (isMermaid.value && showPreview.value) renderStandaloneMermaid();
+});
+// Markdown mermaid: re-render after previewHtml is set
+watch(previewHtml, () => {
+  if (isMarkdown.value) renderMarkdownMermaid();
 });
 
 function updateTitle() {
@@ -122,6 +234,7 @@ async function save(overrideEncoding?: string) {
     if (currentLineEnding.value === 'CRLF') {
       content = content.replace(/\n/g, '\r\n');
     }
+    markRecentlySaved(tab.value.path);
     await fsWriteFile(project.shell, tab.value.path, content,
       enc !== 'UTF-8' ? enc : undefined);
     if (overrideEncoding) {
@@ -396,6 +509,44 @@ watch(
   }
 );
 
+// External file change detection
+const externalChangeNotice = ref<'modified' | 'deleted' | null>(null);
+let pendingReload: ReturnType<typeof setTimeout> | null = null;
+
+watch(
+  () => tab.value?.externalChange,
+  (change) => {
+    if (!change || !tab.value) return;
+    tab.value.externalChange = undefined;
+
+    if (change === 'deleted') {
+      externalChangeNotice.value = 'deleted';
+      return;
+    }
+    // modified — debounce to coalesce burst events
+    if (!isDirty.value) {
+      if (pendingReload) clearTimeout(pendingReload);
+      pendingReload = setTimeout(() => { pendingReload = null; reopenWithEncoding(currentEncoding.value); }, 300);
+    } else {
+      externalChangeNotice.value = 'modified';
+    }
+  }
+);
+
+function reloadExternal() {
+  externalChangeNotice.value = null;
+  reopenWithEncoding(currentEncoding.value);
+}
+
+function overwriteExternal() {
+  externalChangeNotice.value = null;
+  save();
+}
+
+function dismissExternal() {
+  externalChangeNotice.value = null;
+}
+
 watch(
   () => viewMode.value,
   (mode) => {
@@ -460,16 +611,52 @@ onUnmounted(() => {
 
 <template>
   <div class="editor-tab">
-    <div v-if="isMarkdown && !loading && !error" class="preview-toolbar">
+    <div v-if="hasPreview && !loading && !error" class="preview-toolbar">
       <button class="preview-toggle" :class="{ active: viewMode === 'edit' }" @click="viewMode = 'edit'">{{ t('editor.edit') }}</button>
       <button class="preview-toggle" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'">{{ t('editor.split') }}</button>
       <button class="preview-toggle" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'">{{ t('editor.preview') }}</button>
+      <template v-if="isMermaid && showPreview">
+        <span class="toolbar-spacer" />
+        <button class="preview-toggle" @click="mermaidZoom = Math.max(0.25, mermaidZoom - 0.25)">−</button>
+        <span class="zoom-label">{{ Math.round(mermaidZoom * 100) }}%</span>
+        <button class="preview-toggle" @click="mermaidZoom = Math.min(4, mermaidZoom + 0.25)">+</button>
+        <button class="preview-toggle" @click="mermaidZoom = 1">{{ t('mermaid.reset') }}</button>
+      </template>
+    </div>
+    <!-- External change warning bar -->
+    <div v-if="externalChangeNotice === 'modified'" class="external-change-bar">
+      <span>{{ t('editor.externalModified') }}</span>
+      <div class="external-change-actions">
+        <button @click="reloadExternal">{{ t('editor.reload') }}</button>
+        <button @click="overwriteExternal">{{ t('editor.overwrite') }}</button>
+        <button @click="dismissExternal">{{ t('editor.dismiss') }}</button>
+      </div>
+    </div>
+    <div v-if="externalChangeNotice === 'deleted'" class="external-change-bar warning">
+      <span>{{ t('editor.externalDeleted') }}</span>
+      <div class="external-change-actions">
+        <button @click="save()">{{ t('editor.save') }}</button>
+        <button @click="dismissExternal">{{ t('editor.dismiss') }}</button>
+      </div>
     </div>
     <div v-if="loading" class="editor-status">{{ t('common.loading') }}</div>
     <div v-else-if="error" class="editor-status error">{{ error }}</div>
     <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error">
       <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
-      <div v-if="showPreview" ref="previewRef" class="md-preview" v-html="previewHtml" @scroll="onPreviewScroll"></div>
+      <div
+        v-if="showPreview && !isMermaid"
+        ref="previewRef"
+        class="preview-pane"
+        :class="{ 'md-preview': isMarkdown, 'csv-preview': isCsv }"
+        v-html="previewHtml"
+        @scroll="onPreviewScroll"
+      ></div>
+      <div
+        v-if="showPreview && isMermaid"
+        ref="mermaidRef"
+        class="preview-pane mermaid-preview"
+        :style="{ '--mermaid-zoom': mermaidZoom }"
+      ></div>
     </div>
     <div v-if="saving" class="save-indicator">{{ t('editor.saving') }}</div>
 
@@ -531,6 +718,18 @@ onUnmounted(() => {
   background: var(--tab-hover-bg);
 }
 
+.toolbar-spacer {
+  flex: 1;
+}
+
+.zoom-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 36px;
+  text-align: center;
+  line-height: 24px;
+}
+
 .editor-body {
   flex: 1;
   display: flex;
@@ -544,12 +743,12 @@ onUnmounted(() => {
 }
 
 .editor-body.split > .editor-container,
-.editor-body.split > .md-preview {
+.editor-body.split > .preview-pane {
   width: 50%;
   border-right: 1px solid var(--border);
 }
 
-.editor-body.split > .md-preview {
+.editor-body.split > .preview-pane {
   border-right: none;
 }
 
@@ -620,9 +819,80 @@ onUnmounted(() => {
 .md-preview :deep(th) { background: var(--bg-tertiary); }
 
 .md-preview :deep(img) { max-width: 100%; }
+.md-preview :deep(.mermaid-inline) { text-align: center; margin: 16px 0; }
+.md-preview :deep(.mermaid-inline svg) { max-width: 100%; height: auto; }
 .md-preview :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
 .md-preview :deep(ul),
 .md-preview :deep(ol) { padding-left: 1.5em; }
+
+.csv-preview {
+  flex: 1;
+  overflow: auto;
+}
+
+.csv-preview :deep(table) {
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.csv-preview :deep(th),
+.csv-preview :deep(td) {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.csv-preview :deep(th) {
+  background: var(--bg-tertiary);
+  color: var(--text-active);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.csv-preview :deep(tbody tr:hover) {
+  background: var(--tab-hover-bg);
+}
+
+.csv-preview :deep(.csv-row-num) {
+  color: var(--text-secondary);
+  text-align: right;
+  min-width: 40px;
+  font-size: 11px;
+}
+
+.mermaid-preview {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8px;
+}
+
+.mermaid-preview :deep(.mermaid-inline) {
+  width: 100%;
+  transform: scale(var(--mermaid-zoom, 1));
+  transform-origin: top center;
+}
+
+.mermaid-preview :deep(.mermaid-inline svg) {
+  display: block;
+  margin: 0 auto;
+  height: auto;
+}
+
+.mermaid-preview :deep(.mermaid-render-error) {
+  color: var(--danger);
+  font-size: 13px;
+  white-space: pre-wrap;
+  font-family: monospace;
+}
 
 .editor-status {
   display: flex;
@@ -648,6 +918,43 @@ onUnmounted(() => {
   background: var(--bg-secondary);
   padding: 2px 8px;
   border-radius: 3px;
+}
+
+.external-change-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--accent);
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.external-change-bar.warning {
+  border-bottom-color: var(--danger);
+}
+
+.external-change-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.external-change-actions button {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.external-change-actions button:hover {
+  background: var(--accent);
+  color: var(--text-active);
+  border-color: var(--accent);
 }
 </style>
 

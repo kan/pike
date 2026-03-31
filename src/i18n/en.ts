@@ -53,6 +53,12 @@ export default {
   'editor.split': 'Split',
   'editor.preview': 'Preview',
   'editor.saving': 'Saving...',
+  'editor.save': 'Save',
+  'editor.externalModified': 'This file has been changed on disk.',
+  'editor.externalDeleted': 'This file has been deleted from disk.',
+  'editor.reload': 'Reload',
+  'editor.overwrite': 'Overwrite',
+  'editor.dismiss': 'Dismiss',
 
   // Diff
   'diff.notFound': 'Diff not found',
@@ -113,6 +119,9 @@ export default {
   'fileTree.delete': 'Delete',
   'fileTree.gitHistory': 'Git History',
   'fileTree.confirmDelete': 'Delete "{name}"?',
+  'fileTree.newFile': 'New File',
+  'fileTree.newFolder': 'New Folder',
+  'fileTree.inotifyMissing': 'File watching unavailable. Install in WSL:',
 
   // Git Panel
   'git.noProject': 'No project selected',
@@ -208,4 +217,11 @@ export default {
   'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',
   'confirm.unsavedClose': '"{name}" has unsaved changes. Close without saving?',
   'confirm.unsavedCloseMulti': '{count} files have unsaved changes ({names}). Close without saving?',
+
+  // CSV Preview
+  'csv.truncated': 'Showing first {max} rows only.',
+
+  // Mermaid Preview
+  'mermaid.source': 'Source',
+  'mermaid.reset': 'Reset',
 } as Record<string, string>

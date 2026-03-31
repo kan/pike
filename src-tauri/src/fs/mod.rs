@@ -11,7 +11,7 @@ pub struct FsEntry {
     pub is_dir: bool,
 }
 
-const IGNORED_DIRS: &[&str] = &[
+pub const IGNORED_DIRS: &[&str] = &[
     ".git", "node_modules", "__pycache__", ".next", ".nuxt",
     "target", "dist", "build", ".cache", ".venv", "venv",
 ];
@@ -323,6 +323,41 @@ pub async fn fs_copy(
                     .map_err(|e| e.to_string())
             }
         }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn fs_create_file(
+    shell: ShellConfig,
+    path: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { .. } => {
+            shell.run_stdout("touch", &["--", &path])?;
+            Ok(())
+        }
+        _ => {
+            std::fs::File::create(&path).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn fs_create_dir(
+    shell: ShellConfig,
+    path: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { .. } => {
+            shell.run_stdout("mkdir", &["-p", "--", &path])?;
+            Ok(())
+        }
+        _ => std::fs::create_dir(&path).map_err(|e| e.to_string()),
     })
     .await
     .map_err(|e| e.to_string())?

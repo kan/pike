@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { ptyKill } from '../lib/tauri'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
-import type { Tab, TerminalTab, EditorTab, DiffTab, PreviewTab, HistoryTab, DockerLogsTab, SettingsTab, ShellType } from '../types/tab'
+import type { Tab, TerminalTab, EditorTab, DiffTab, PreviewTab, HistoryTab, DockerLogsTab, SettingsTab, PdfTab, ShellType } from '../types/tab'
 import type { SessionTabDef, LastSession } from '../types/project'
 import { basename } from '../lib/paths'
 import { t } from '../i18n'
@@ -213,6 +213,20 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  function addPdfTab(options: { path: string }): string {
+    const existing = tabs.value.find(
+      (t): t is PdfTab => t.kind === 'pdf' && t.path === options.path
+    )
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    tabs.value.push({ id, kind: 'pdf', title: basename(options.path), pinned: false, path: options.path })
+    activeTabId.value = id
+    return id
+  }
+
   function addDiffTab(options: {
     filePath: string
     diff: string
@@ -363,6 +377,7 @@ export const useTabStore = defineStore('tabs', () => {
     addDockerLogsTab,
     addSettingsTab,
     addDiffTab,
+    addPdfTab,
     closeTab,
     clearAllTabs,
     closeOtherTabs,

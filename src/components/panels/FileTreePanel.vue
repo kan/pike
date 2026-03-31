@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
 import { useSidebarStore } from "../../stores/sidebar";
 import { useGitStore } from "../../stores/git";
-import { fsListDir, fsReadFileBase64, fsRename, fsDelete, fsCopy, type FsEntry } from "../../lib/tauri";
+import { fsListDir, fsReadFileBase64, fsRename, fsDelete, fsCopy, fsCreateFile, fsCreateDir, type FsEntry } from "../../lib/tauri";
 import { confirmDialog } from "../../composables/useConfirmDialog";
+import { fsWatcher } from "../../composables/useFsWatcher";
 import { fileIconSvg } from "../../lib/fileIcons";
-import { gitStatusColor, isImageFile, mimeType, basename } from "../../lib/paths";
+import { gitStatusColor, isImageFile, mimeType, basename, extension } from "../../lib/paths";
 import { ChevronRight, ChevronDown, Loader, Folder, FolderOpen } from "lucide-vue-next";
 import { useI18n } from "../../i18n";
 
@@ -75,12 +76,15 @@ const gitStatusMap = computed(() => {
 });
 
 async function openFile(path: string) {
+  const ext = extension(path);
   if (isImageFile(path)) {
     const project = projectStore.currentProject;
     if (!project) return;
     const base64 = await fsReadFileBase64(project.shell, path);
     const dataUrl = `data:${mimeType(path)};base64,${base64}`;
     tabStore.addPreviewTab({ path, dataUrl });
+  } else if (ext === 'pdf') {
+    tabStore.addPdfTab({ path });
   } else {
     tabStore.addEditorTab({ path });
   }
@@ -90,6 +94,8 @@ async function openFile(path: string) {
 const ctxMenu = ref<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
 const renaming = ref<string | null>(null);
 const renameValue = ref("");
+const creating = ref<{ parentPath: string; type: 'file' | 'dir' } | null>(null);
+const createValue = ref("");
 
 function onContextMenu(e: MouseEvent, path: string, isDir: boolean) {
   e.preventDefault();
@@ -143,6 +149,57 @@ async function deleteItem() {
   const s = sep();
   const parentDir = path.substring(0, path.lastIndexOf(s));
   await loadDir(parentDir);
+}
+
+function startCreate(type: 'file' | 'dir', targetDir?: string) {
+  if (!targetDir && ctxMenu.value) {
+    targetDir = ctxMenu.value.path;
+  }
+  if (!targetDir) {
+    targetDir = projectStore.currentProject?.root;
+  }
+  closeCtxMenu();
+  if (!targetDir) return;
+  if (!expanded.value.has(targetDir)) {
+    expanded.value.add(targetDir);
+    loadDir(targetDir);
+  }
+  creating.value = { parentPath: targetDir, type };
+  createValue.value = "";
+  nextTick(() => {
+    const input = document.querySelector('.create-input') as HTMLInputElement;
+    input?.focus();
+  });
+}
+
+function startCreateAtRoot(type: 'file' | 'dir') {
+  startCreate(type, projectStore.currentProject?.root);
+}
+
+async function commitCreate() {
+  if (!creating.value || !createValue.value.trim()) {
+    creating.value = null;
+    return;
+  }
+  const project = projectStore.currentProject;
+  if (!project) return;
+  const s = sep();
+  const newPath = creating.value.parentPath + s + createValue.value.trim();
+  const isFile = creating.value.type === 'file';
+  try {
+    if (isFile) {
+      await fsCreateFile(project.shell, newPath);
+    } else {
+      await fsCreateDir(project.shell, newPath);
+    }
+    await loadDir(creating.value.parentPath);
+    if (isFile) {
+      tabStore.addEditorTab({ path: newPath });
+    }
+  } catch (err) {
+    await confirmDialog(String(err));
+  }
+  creating.value = null;
 }
 
 function showGitHistory() {
@@ -222,7 +279,7 @@ async function onDrop(e: DragEvent, path: string, isDir: boolean) {
     const sourceDir = source.substring(0, source.lastIndexOf(s));
     await Promise.all([loadDir(sourceDir), loadDir(targetDir)]);
   } catch (err) {
-    alert(String(err));
+    confirmDialog(String(err));
   }
 }
 
@@ -292,13 +349,49 @@ onMounted(() => {
   }
 });
 
-defineExpose({ refresh, refreshing });
+function refreshDirs(dirs: string[]) {
+  const root = projectStore.currentProject?.root;
+  if (!root) return;
+  const relevantDirs = dirs.filter(
+    (d) => d === root || expanded.value.has(d)
+  );
+  if (relevantDirs.length > 0) {
+    Promise.all(relevantDirs.map((d) => loadDir(d)));
+  }
+}
+
+const unsubWatcher = fsWatcher.onDirChange(refreshDirs);
+onUnmounted(unsubWatcher);
+
+defineExpose({ refresh, refreshing, startCreateAtRoot });
 </script>
 
 <template>
   <div class="filetree-panel">
     <div v-if="!projectStore.currentProject" class="empty">{{ t('fileTree.noProject') }}</div>
     <template v-else>
+      <div v-if="fsWatcher.startError.value" class="watcher-notice">
+        <span>{{ t('fileTree.inotifyMissing') }}</span>
+        <code>sudo apt install inotify-tools</code>
+      </div>
+      <!-- Create input at root level -->
+      <div
+        v-if="creating && creating.parentPath === projectStore.currentProject?.root"
+        class="tree-item"
+        :style="{ paddingLeft: '4px' }"
+      >
+        <span class="tree-chevron-space"></span>
+        <span v-if="creating.type === 'dir'" class="tree-icon tree-icon-folder"><Folder :size="16" :stroke-width="1.5" /></span>
+        <span v-else class="tree-chevron-space"></span>
+        <input
+          class="create-input"
+          v-model="createValue"
+          :placeholder="creating.type === 'file' ? t('fileTree.newFile') : t('fileTree.newFolder')"
+          @keydown.enter="commitCreate"
+          @keydown.esc="creating = null"
+          @blur="commitCreate"
+        />
+      </div>
       <template v-for="node in flatNodes" :key="node.path">
         <div
           v-if="renaming === node.path"
@@ -341,12 +434,35 @@ defineExpose({ refresh, refreshing });
           <span v-else class="tree-icon tree-icon-svg" v-html="fileIconSvg(node.entry.name)"></span>
           <span class="tree-name" :style="gitStatusMap.has(node.path) ? { color: gitStatusColor(gitStatusMap.get(node.path)!) } : undefined">{{ node.entry.name }}</span>
         </div>
+        <!-- Create input inside this directory -->
+        <div
+          v-if="creating && creating.parentPath === node.path && node.entry.isDir"
+          class="tree-item"
+          :style="{ paddingLeft: ((node.depth + 1) * 16 + 4) + 'px' }"
+        >
+          <span class="tree-chevron-space"></span>
+          <span v-if="creating.type === 'dir'" class="tree-icon tree-icon-folder"><Folder :size="16" :stroke-width="1.5" /></span>
+          <span v-else class="tree-chevron-space"></span>
+          <input
+            class="create-input"
+            v-model="createValue"
+            :placeholder="creating.type === 'file' ? t('fileTree.newFile') : t('fileTree.newFolder')"
+            @keydown.enter="commitCreate"
+            @keydown.esc="creating = null"
+            @blur="commitCreate"
+          />
+        </div>
       </template>
       <div v-if="!flatNodes.length" class="empty">{{ t('fileTree.empty') }}</div>
 
       <!-- Context menu -->
       <Teleport to="body">
         <div v-if="ctxMenu" class="tree-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @mousedown.stop>
+          <template v-if="ctxMenu.isDir">
+            <button @click="startCreate('file')">{{ t('fileTree.newFile') }}</button>
+            <button @click="startCreate('dir')">{{ t('fileTree.newFolder') }}</button>
+            <div class="tree-ctx-separator"></div>
+          </template>
           <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>
           <button @click="startRename(ctxMenu.path)">{{ t('fileTree.rename') }}</button>
           <button @click="deleteItem()">{{ t('fileTree.delete') }}</button>
@@ -359,6 +475,25 @@ defineExpose({ refresh, refreshing });
 </template>
 
 <style scoped>
+.watcher-notice {
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  line-height: 1.5;
+}
+
+.watcher-notice code {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--accent);
+  font-family: "Cascadia Code", monospace;
+  user-select: all;
+}
+
 .filetree-panel {
   display: flex;
   flex-direction: column;
@@ -427,7 +562,8 @@ defineExpose({ refresh, refreshing });
   outline-offset: -1px;
 }
 
-.rename-input {
+.rename-input,
+.create-input {
   flex: 1;
   min-width: 0;
   padding: 1px 4px;
@@ -474,6 +610,12 @@ defineExpose({ refresh, refreshing });
 .tree-ctx-menu button:hover {
   background: var(--accent);
   color: var(--text-active);
+}
+
+.tree-ctx-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
 }
 
 

@@ -7,6 +7,7 @@ mod search;
 mod project;
 mod pty;
 mod types;
+mod watcher;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -63,6 +64,9 @@ pub fn run() {
         .manage(pty::PtyState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
         })
+        .manage(watcher::WatcherState {
+            handles: Arc::new(Mutex::new(HashMap::new())),
+        })
         .manage(docker::DockerState {
             log_streams: Arc::new(Mutex::new(HashMap::new())),
             client: tokio::sync::OnceCell::new(),
@@ -118,6 +122,9 @@ pub fn run() {
                         sessions.clear();
                     }
                 }
+                if let Some(state) = window.try_state::<watcher::WatcherState>() {
+                    watcher::stop_all(&state);
+                }
                 if let Some(state) = window.try_state::<docker::DockerState>() {
                     if let Ok(mut streams) = state.log_streams.lock() {
                         for (_, handle) in streams.drain() {
@@ -151,6 +158,10 @@ pub fn run() {
             fs::fs_rename,
             fs::fs_delete,
             fs::fs_copy,
+            fs::fs_create_file,
+            fs::fs_create_dir,
+            watcher::fs_watch_start,
+            watcher::fs_watch_stop,
             docker::docker_ping,
             docker::docker_compose_services,
             docker::docker_list_containers,
