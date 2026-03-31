@@ -108,6 +108,7 @@ export default {
   // File Tree
   'fileTree.noProject': 'No project selected',
   'fileTree.empty': 'Empty',
+  'fileTree.copyPath': 'Copy Relative Path',
   'fileTree.rename': 'Rename',
   'fileTree.delete': 'Delete',
   'fileTree.gitHistory': 'Git History',

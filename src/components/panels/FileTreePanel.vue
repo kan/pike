@@ -148,11 +148,21 @@ async function deleteItem() {
 function showGitHistory() {
   if (!ctxMenu.value) return;
   const filePath = ctxMenu.value.path;
+  closeCtxMenu();
+  tabStore.addHistoryTab({ filePath: relativePath(filePath) });
+}
+
+function relativePath(absPath: string): string {
   const s = sep();
   const root = projectStore.currentProject?.root ?? '';
-  const rel = filePath.startsWith(root + s) ? filePath.slice(root.length + s.length) : filePath;
+  return absPath.startsWith(root + s) ? absPath.slice(root.length + s.length) : absPath;
+}
+
+function copyRelativePath() {
+  if (!ctxMenu.value) return;
+  const rel = relativePath(ctxMenu.value.path);
+  navigator.clipboard.writeText(rel);
   closeCtxMenu();
-  tabStore.addHistoryTab({ filePath: rel });
 }
 
 // Drag & Drop
@@ -337,6 +347,7 @@ defineExpose({ refresh, refreshing });
       <!-- Context menu -->
       <Teleport to="body">
         <div v-if="ctxMenu" class="tree-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @mousedown.stop>
+          <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>
           <button @click="startRename(ctxMenu.path)">{{ t('fileTree.rename') }}</button>
           <button @click="deleteItem()">{{ t('fileTree.delete') }}</button>
           <button v-if="!ctxMenu.isDir" @click="showGitHistory()">{{ t('fileTree.gitHistory') }}</button>

@@ -108,6 +108,7 @@ export default {
   // File Tree
   'fileTree.noProject': 'プロジェクトが選択されていません',
   'fileTree.empty': '空',
+  'fileTree.copyPath': '相対パスをコピー',
   'fileTree.rename': '名前を変更',
   'fileTree.delete': '削除',
   'fileTree.gitHistory': 'Git 履歴',
