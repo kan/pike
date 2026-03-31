@@ -176,7 +176,7 @@ fn find_git_bash() -> Result<String, String> {
         }
     }
     // Try PATH (with 5s timeout to avoid hanging)
-    if let Ok(child) = std::process::Command::new("where")
+    if let Ok(child) = crate::types::silent_command("where")
         .arg("git")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

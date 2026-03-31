@@ -2,6 +2,17 @@ use serde::{Deserialize, Serialize};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+/// Create a Command with CREATE_NO_WINDOW on Windows to prevent console window flashing.
+pub fn silent_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ShellConfig {
@@ -18,7 +29,7 @@ impl ShellConfig {
     pub fn command(&self, program: &str, args: &[&str]) -> Command {
         match self {
             ShellConfig::Wsl { distro } => {
-                let mut cmd = Command::new("wsl.exe");
+                let mut cmd = silent_command("wsl.exe");
                 cmd.arg("-d").arg(distro).arg("--").arg(program);
                 for a in args {
                     cmd.arg(a);
@@ -26,7 +37,7 @@ impl ShellConfig {
                 cmd
             }
             _ => {
-                let mut cmd = Command::new(program);
+                let mut cmd = silent_command(program);
                 for a in args {
                     cmd.arg(a);
                 }
@@ -97,7 +108,7 @@ pub fn wait_with_timeout<T: Send + 'static>(
             // Fire-and-forget so a slow taskkill doesn't block the caller
             let pid_str = pid.to_string();
             std::thread::spawn(move || {
-                let _ = Command::new("taskkill")
+                let _ = silent_command("taskkill")
                     .args(["/F", "/T", "/PID", &pid_str])
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())

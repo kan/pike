@@ -1,8 +1,8 @@
-use crate::types::ShellConfig;
+use crate::types::{ShellConfig, silent_command};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+
 use tauri::State;
 
 pub struct ProjectState {
@@ -68,7 +68,7 @@ use crate::types::validate_slug;
 
 #[tauri::command]
 pub async fn detect_wsl_distros() -> Result<Vec<String>, String> {
-    let child = Command::new("wsl.exe")
+    let child = silent_command("wsl.exe")
         .args(["--list", "--quiet"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
