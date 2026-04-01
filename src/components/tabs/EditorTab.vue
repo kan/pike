@@ -10,7 +10,8 @@ import { getEditorTheme } from "../../lib/editorThemes";
 import { useTabStore } from "../../stores/tabs";
 import { useProjectStore } from "../../stores/project";
 import { useSettingsStore } from "../../stores/settings";
-import { fsReadFile, fsWriteFile, gitDiffLines } from "../../lib/tauri";
+import { fsReadFile, fsWriteFile, gitDiffLines, openUrl } from "../../lib/tauri";
+import { confirmDialog } from "../../composables/useConfirmDialog";
 import { markRecentlySaved } from "../../composables/useFsWatcher";
 import { getLanguage, getLanguageLabel } from "../../lib/languages";
 import { basename, extension } from "../../lib/paths";
@@ -495,6 +496,83 @@ function onPreviewScroll() {
   requestAnimationFrame(() => { syncingScroll = false; });
 }
 
+function resolveLocalPath(href: string): string | null {
+  const project = projectStore.currentProject;
+  if (!project || !tab.value) return null;
+
+  // Prevent opening arbitrary protocol handlers (mailto:, javascript:, data:, etc.)
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href) && !(/^[a-zA-Z]:\\/.test(href))) return null;
+
+  // Decode URL-encoded characters (%20 → space, etc.)
+  try { href = decodeURIComponent(href); } catch { return null; }
+
+  const root = project.root;
+  const isWsl = project.shell.kind === 'wsl';
+  const sep = isWsl ? '/' : '\\';
+
+  // Determine the directory containing the current file
+  const filePath = tab.value.path;
+  const lastSep = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+  const dir = lastSep > 0 ? filePath.slice(0, lastSep) : root;
+
+  // Normalize all separators to forward slash for resolution, then convert back
+  const joined = (dir + '/' + href).replace(/\\/g, '/');
+  const parts = joined.split('/');
+
+  // Resolve . and .. segments, preserving leading empty string for absolute paths
+  const resolved: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part === '.') continue;
+    if (part === '' && i > 0) continue; // skip empty parts except the leading one
+    if (part === '..') {
+      // Don't pop past the root (keep at least the drive letter or leading empty string)
+      if (resolved.length > 1) resolved.pop();
+    } else {
+      resolved.push(part);
+    }
+  }
+
+  const fullPath = resolved.join(sep);
+
+  // Security: ensure the resolved path is within the project root
+  const normalizedRoot = root.replace(/[/\\]+$/, '');
+  const normalizedFull = fullPath.replace(/[/\\]+$/, '');
+  // Case-insensitive comparison on Windows
+  const rootCheck = isWsl ? normalizedFull : normalizedFull.toLowerCase();
+  const rootPrefix = isWsl ? normalizedRoot : normalizedRoot.toLowerCase();
+  if (rootCheck !== rootPrefix && !rootCheck.startsWith(rootPrefix + (isWsl ? '/' : '\\'))) {
+    return null;
+  }
+
+  return fullPath;
+}
+
+async function onPreviewClick(e: MouseEvent) {
+  const target = (e.target as HTMLElement).closest('a');
+  if (!target) return;
+  const href = target.getAttribute('href');
+  if (!href) return;
+  e.preventDefault();
+
+  // External URL → confirm + open in browser
+  if (href.startsWith('http://') || href.startsWith('https://')) {
+    if (await confirmDialog(t('confirm.openUrl', { url: href }))) {
+      openUrl(href);
+    }
+    return;
+  }
+
+  // Fragment-only links (e.g. #heading) → ignore
+  if (href.startsWith('#')) return;
+
+  // Local file link → resolve and open in editor
+  const resolved = resolveLocalPath(href);
+  if (resolved) {
+    tabStore.addEditorTab({ path: resolved });
+  }
+}
+
 // Jump to line when initialLine changes on an existing tab
 watch(
   () => tab.value?.initialLine,
@@ -652,6 +730,7 @@ onUnmounted(() => {
         :class="{ 'md-preview': isMarkdown, 'csv-preview': isCsv, 'svg-preview': isSvg }"
         v-html="previewHtml"
         @scroll="onPreviewScroll"
+        @click="onPreviewClick"
       ></div>
       <div
         v-if="showPreview && isMermaid"

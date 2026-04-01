@@ -26,6 +26,7 @@ export default {
   'sidebar.projects': 'Projects',
   'sidebar.keyboardShortcuts': 'Keyboard Shortcuts',
   'sidebar.settings': 'Settings',
+  'sidebar.github': 'GitHub',
 
   // Tabs
   'tabs.newTerminal': 'New Terminal (Ctrl+T)',
@@ -233,6 +234,7 @@ export default {
   // Confirm Dialog
   'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',
   'confirm.unsavedClose': '"{name}" has unsaved changes. Close without saving?',
+  'confirm.openUrl': 'Open {url} in external browser?',
   'confirm.unsavedCloseMulti': '{count} files have unsaved changes ({names}). Close without saving?',
 
   // CSV Preview

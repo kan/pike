@@ -47,6 +47,25 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
 }
 
 #[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    // Allowlist: only http/https URLs to prevent opening arbitrary protocols
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("Only http/https URLs are allowed".to_string());
+    }
+    tokio::task::spawn_blocking(move || {
+        // Use explorer.exe which delegates to ShellExecuteW internally,
+        // avoiding cmd.exe shell metacharacter injection (&, |, >, etc.)
+        types::silent_command("explorer.exe")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 async fn pick_folder() -> Result<Option<String>, String> {
     tokio::task::spawn_blocking(|| {
         let output = types::silent_command("powershell.exe")
@@ -164,6 +183,7 @@ pub fn run() {
             cli::cli_get_initial_action,
             cli::cli_set_pending_action,
             open_project_window,
+            open_url,
             pick_folder,
             pty::pty_spawn,
             pty::pty_spawn_tmux,

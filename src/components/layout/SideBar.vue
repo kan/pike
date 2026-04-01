@@ -12,6 +12,8 @@ import { useSearchStore } from "../../stores/search";
 import { useDockerStore } from "../../stores/docker";
 import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader, Settings, FilePlus, FolderPlus } from "lucide-vue-next";
 import { useTabStore } from "../../stores/tabs";
+import { openUrl } from "../../lib/tauri";
+import { confirmDialog } from "../../composables/useConfirmDialog";
 import { useShortcutsModal } from "../../composables/useShortcutsModal";
 import { useI18n } from "../../i18n";
 import { useUpdater } from "../../composables/useUpdater";
@@ -55,6 +57,13 @@ function openShortcuts() {
 function openSettings() {
   closeGearMenu();
   tabStore.addSettingsTab();
+}
+
+async function openGitHub() {
+  closeGearMenu();
+  if (await confirmDialog(t('confirm.openUrl', { url: 'https://github.com/kan/pike' }))) {
+    openUrl('https://github.com/kan/pike');
+  }
 }
 
 async function checkUpdate() {
@@ -141,6 +150,10 @@ onUnmounted(() => {
           <button class="gear-menu-item" @click="openSettings">
             <span>{{ t('sidebar.settings') }}</span>
             <span class="ctx-key">Ctrl+,</span>
+          </button>
+          <div class="gear-menu-divider" />
+          <button class="gear-menu-item" @click="openGitHub">
+            <span>{{ t('sidebar.github') }}</span>
           </button>
         </div>
         <button

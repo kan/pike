@@ -26,6 +26,7 @@ export default {
   'sidebar.projects': 'プロジェクト',
   'sidebar.keyboardShortcuts': 'キーボードショートカット',
   'sidebar.settings': '設定',
+  'sidebar.github': 'GitHub',
 
   // Tabs
   'tabs.newTerminal': '新規ターミナル (Ctrl+T)',
@@ -233,6 +234,7 @@ export default {
   // Confirm Dialog
   'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',
   'confirm.unsavedClose': '"{name}" に未保存の変更があります。保存せずに閉じますか？',
+  'confirm.openUrl': '{url} を外部ブラウザで開きます。よろしいですか？',
   'confirm.unsavedCloseMulti': '{count} 個のファイルに未保存の変更があります ({names})。保存せずに閉じますか？',
 
   // CSV Preview

@@ -275,6 +275,10 @@ export async function openProjectWindow(projectId: string): Promise<void> {
   return invoke("open_project_window", { projectId });
 }
 
+export async function openUrl(url: string): Promise<void> {
+  return invoke("open_url", { url });
+}
+
 export async function pickFolder(): Promise<string | null> {
   return invoke<string | null>("pick_folder");
 }

@@ -112,6 +112,7 @@ pike/
 │   ├── lib/
 │   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
 │   │   ├── fontDetection.ts   # フォント名ユーティリティ（buildFontFamily/extractFontName）
+│   │   ├── gitGraph.ts        # ブランチマージグラフ描画（レーン割当 + SVG）
 │   │   ├── editorGitGutter.ts # CodeMirror 6 git diff ガター拡張
 │   │   ├── editorMinimap.ts   # CodeMirror 6 ミニマップ（@replit/codemirror-minimap）
 │   │   ├── editorThemes.ts   # CodeMirror 6 エディタテーマ定義（6種）
@@ -178,8 +179,8 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `PtySession` に `Drop` 実装: セッション破棄時に `child.kill()` で子プロセスを確実に終了
 - ウィンドウ破棄時（`WindowEvent::Destroyed`）に全 PTY セッション・Docker log stream を一括 cleanup（main ウィンドウのみ）
 - タブ切替時の TUI 再描画: `nextTick` → `requestAnimationFrame` → `terminal.refresh()` + PTY resize nudge（1col 縮小→復元で SIGWINCH 発火）
-- ターミナルアクティビティ通知: 非アクティブタブの出力でドット表示（`hasActivity`）、プロセス終了で終了コードバッジ（`exitCode`）
-- デスクトップ通知: バックグラウンドタブの PTY 終了時に `Notification` API でトースト通知。`onclick` でウィンドウフォーカス + タブ切替。`ptyRouter.onGlobalExit()` フック経由
+- ターミナルアクティビティ通知: 非アクティブタブの出力でドット表示（`hasActivity`）、プロセス終了で終了コードバッジ（`exitCode`）、非 pinned タブはプロセス終了 1 秒後に自動クローズ
+- デスクトップ通知: バックグラウンドタブの PTY 終了時に `Notification` API でトースト通知。`onclick` でウィンドウフォーカス + タブ切替。`ptyRouter.onGlobalExit()` フック経由。Settings で ON/OFF 切替可能
 
 ### プロジェクト管理
 - プロジェクト設定は `%APPDATA%/com.tauri.dev/projects/{id}/project.json` に保存
@@ -203,12 +204,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - エディタコンテキストメニュー: Undo/Redo/Cut/Copy/Paste/Git History（Teleport パターン）
 - ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
 - 画像プレビュータブ（base64 経由）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
+- Markdown プレビュー内リンク: 外部 URL は confirm 付きで `open_url` 経由の外部ブラウザ起動、ローカルファイルはプロジェクトルート内に限定して EditorTab で開く（`resolveLocalPath` でディレクトリトラバーサル防止 + `decodeURIComponent` 対応）
 - 文字コード対応: `encoding_rs` で自動検出 + 指定エンコードでの開き直し/保存（StatusBar 2段階 UI）
 - 改行コード LF/CRLF 切替（StatusBar クリック）、保存時に適用
 - ファイルツリーコンテキストメニュー: リネーム（インライン入力）、削除（カスタム confirm ダイアログ）、Git History（専用タブ）
 - ドラッグ&ドロップ移動 + Ctrl でコピー（`dragDropEnabled: false` で Tauri ネイティブ D&D を無効化）
 - ダーティエディタタブの閉じ確認ダイアログ（カスタム confirm）
 - WSL コマンドにパス引数前の `--` を付与（フラグ injection 防止）
+- 外部 URL オープン: `open_url` コマンドは http/https のみ許可（Rust 側でバリデーション）。`explorer.exe` 経由で開く（`cmd.exe /C start` はシェルメタ文字インジェクションの危険があるため不使用）。フロント側でも confirm ダイアログを表示
 
 ### Git 統合
 - `git` CLI 経由（WSL/Windows 両対応）。`git2` クレートは使わない
@@ -218,6 +221,8 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - diff タブ: 左右分割表示、文字単位ハイライト（common prefix/suffix 方式）
 - ahead/behind: `git status --porcelain=v2 --branch` の `# branch.ab` 行をパース。GitPanel コミットボタン下にテキスト表示、SideBar の pull/push ボタンを primary スタイルに変更
 - コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
+- ブランチマージグラフ: `git log --all` + `%P`（親ハッシュ）/`%D`（refs）で取得、`gitGraph.ts` のレーン割当アルゴリズムで SVG 描画。List / Graph 切替
+- git log フォーマット区切り: ASCII Unit Separator (`%x1f`) + Record Separator (`%x1e`) を使用（NUL だと `%D` が空のコミットでレコード区切りと衝突するため）
 
 ### Docker 統合
 - `bollard` クレートで Docker API に接続（named pipe → TCP:2375 → TCP:2376 フォールバック）
