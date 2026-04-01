@@ -186,7 +186,13 @@ onMounted(async () => {
     (code) => {
       termRef_.write(`\r\n${t('terminal.exited', { code: String(code) })}\r\n`);
       const tab = tabStore.tabs.find(t => t.id === props.tabId);
-      if (tab?.kind === 'terminal') tab.exitCode = code;
+      if (tab?.kind === 'terminal') {
+        tab.exitCode = code;
+        // Auto-close non-pinned tabs after a brief delay
+        if (!tab.pinned) {
+          setTimeout(() => tabStore.closeTab(props.tabId), 1000);
+        }
+      }
     }
   );
 
