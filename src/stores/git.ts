@@ -25,6 +25,8 @@ export const useGitStore = defineStore('git', () => {
   let pollTimer: ReturnType<typeof setInterval> | null = null
   const refreshing = ref(false)
   let refreshGuard = false
+  let logGuard = false
+  const logAllMode = ref(false)
 
   function getProject() {
     const projectStore = useProjectStore()
@@ -51,13 +53,18 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function refreshLog() {
+  async function refreshLog(all?: boolean) {
+    if (logGuard) return
     const project = getProject()
     if (!project) return
+    if (all !== undefined) logAllMode.value = all
+    logGuard = true
     try {
-      logEntries.value = await gitLog(project.root, project.shell, 50)
+      logEntries.value = await gitLog(project.root, project.shell, logAllMode.value ? 1000 : 500, logAllMode.value)
     } catch {
       logEntries.value = []
+    } finally {
+      logGuard = false
     }
   }
 

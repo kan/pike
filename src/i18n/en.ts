@@ -144,6 +144,8 @@ export default {
   'git.behind': '{count} behind',
   'git.aheadInfo': '{count} commit(s) ahead of remote',
   'git.behindInfo': '{count} commit(s) behind remote',
+  'git.listView': 'List',
+  'git.graphView': 'Graph',
   'git.switchBranch': 'Switch branch...',
   'git.noBranches': 'No matching branches',
 

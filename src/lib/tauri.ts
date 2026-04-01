@@ -142,8 +142,8 @@ export async function gitStatus(root: string, shell: ShellType): Promise<GitStat
   return invoke<GitStatusResult>("git_status", { root, shell });
 }
 
-export async function gitLog(root: string, shell: ShellType, count?: number): Promise<GitLogEntry[]> {
-  return invoke<GitLogEntry[]>("git_log", { root, shell, count: count ?? null });
+export async function gitLog(root: string, shell: ShellType, count?: number, all?: boolean): Promise<GitLogEntry[]> {
+  return invoke<GitLogEntry[]>("git_log", { root, shell, count: count ?? null, all: all ?? null });
 }
 
 export async function gitDiff(root: string, shell: ShellType, path: string, staged: boolean): Promise<string> {

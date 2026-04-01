@@ -23,6 +23,8 @@ pub struct GitFileChange {
 #[serde(rename_all = "camelCase")]
 pub struct GitLogEntry {
     pub hash: String,
+    pub parents: Vec<String>,
+    pub refs: String,
     pub author: String,
     pub date: String,
     pub message: String,
@@ -112,16 +114,39 @@ fn parse_status(output: &str) -> GitStatusResult {
     }
 }
 
+/// Field separator (ASCII Unit Separator) and record separator (ASCII Record Separator).
+/// Using these instead of NUL avoids collision when %D (refs) is empty — an empty
+/// field between two NUL bytes would be indistinguishable from a double-NUL record separator.
+const FS: char = '\x1f';
+const RS: &str = "\x1e";
+
 fn parse_log(output: &str) -> Vec<GitLogEntry> {
-    // Records separated by NUL NUL, fields by NUL
     output
-        .split("\0\0")
+        .split(RS)
         .filter_map(|record| {
             let record = record.trim_matches('\n');
-            let parts: Vec<&str> = record.splitn(4, '\0').collect();
-            if parts.len() == 4 {
+            if record.is_empty() { return None; }
+            let parts: Vec<&str> = record.splitn(6, FS).collect();
+            if parts.len() == 6 {
+                let parents = parts[1]
+                    .split_whitespace()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
                 Some(GitLogEntry {
                     hash: parts[0].to_string(),
+                    parents,
+                    refs: parts[2].trim().to_string(),
+                    author: parts[3].to_string(),
+                    date: parts[4].to_string(),
+                    message: parts[5].trim().to_string(),
+                })
+            } else if parts.len() == 4 {
+                // Backward compat: git_log_file uses 4-field format
+                Some(GitLogEntry {
+                    hash: parts[0].to_string(),
+                    parents: vec![],
+                    refs: String::new(),
                     author: parts[1].to_string(),
                     date: parts[2].to_string(),
                     message: parts[3].trim().to_string(),
@@ -152,14 +177,15 @@ pub async fn git_log(
     root: String,
     shell: ShellConfig,
     count: Option<u32>,
+    all: Option<bool>,
 ) -> Result<Vec<GitLogEntry>, String> {
     let n = count.unwrap_or(50).to_string();
     let output = tokio::task::spawn_blocking(move || {
-        run_git(
-            &shell,
-            &root,
-            &["log", "--format=%H%x00%an%x00%aI%x00%B%x00%x00", "-n", &n],
-        )
+        let mut args = vec!["log", "--format=%H%x1f%P%x1f%D%x1f%an%x1f%aI%x1f%B%x1e", "-n", &n];
+        if all.unwrap_or(false) {
+            args.push("--all");
+        }
+        run_git(&shell, &root, &args)
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -367,7 +393,7 @@ pub async fn git_log_file(
         run_git(
             &shell,
             &root,
-            &["log", "--format=%H%x00%an%x00%aI%x00%s%x00%x00", "-n", &n, "--", &path],
+            &["log", "--format=%H%x1f%an%x1f%aI%x1f%s%x1e", "-n", &n, "--", &path],
         )
     })
     .await

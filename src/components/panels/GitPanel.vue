@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { useGitStore } from "../../stores/git";
 import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
@@ -7,6 +7,7 @@ import { useSidebarStore } from "../../stores/sidebar";
 import { gitDiff, gitShowFiles, gitDiffCommit, gitShowFile } from "../../lib/tauri";
 import { fileIconSvg } from "../../lib/fileIcons";
 import { gitStatusColor, relativeDate } from "../../lib/paths";
+import { buildGraph, ROW_HEIGHT, LANE_WIDTH, DOT_RADIUS, type GraphRow } from "../../lib/gitGraph";
 import { ChevronRight, ChevronDown, Plus, Minus } from "lucide-vue-next";
 import type { GitFileChange } from "../../types/git";
 import { useI18n } from "../../i18n";
@@ -19,6 +20,23 @@ const tabStore = useTabStore();
 const sidebar = useSidebarStore();
 
 const commitMsg = ref("");
+const commitView = ref<'list' | 'graph'>('list');
+
+const graphRows = computed(() => buildGraph(gitStore.logEntries));
+const graphSvgWidth = computed(() => {
+  const maxCol = graphRows.value.reduce((m, r) => Math.max(m, r.maxCol), 0)
+  return (maxCol + 2) * LANE_WIDTH
+});
+
+function switchToGraph() {
+  commitView.value = 'graph';
+  gitStore.refreshLog(true);
+}
+
+function switchToList() {
+  commitView.value = 'list';
+  gitStore.refreshLog(false);
+}
 
 // Commit tree expansion
 const expandedCommits = ref<Set<string>>(new Set());
@@ -240,34 +258,103 @@ onUnmounted(() => {
       <div class="file-section">
         <div class="section-header">
           <span>{{ t('git.recentCommits') }}</span>
-        </div>
-        <div v-for="entry in gitStore.logEntries" :key="entry.hash" class="commit-group">
-          <div
-            class="log-item"
-            @click="toggleCommitExpand(entry.hash)"
-            @mouseenter="onCommitEnter(entry, $event)"
-            @mouseleave="onCommitLeave"
-          >
-            <span class="expand-icon"><ChevronDown v-if="expandedCommits.has(entry.hash)" :size="12" :stroke-width="2" /><ChevronRight v-else :size="12" :stroke-width="2" /></span>
-            <span class="log-message">{{ entry.message.split('\n')[0] }}</span>
-            <span class="log-meta">{{ relativeDate(entry.date) }}</span>
+          <div class="view-toggle">
+            <button class="view-btn" :class="{ active: commitView === 'list' }" @click="switchToList">{{ t('git.listView') }}</button>
+            <button class="view-btn" :class="{ active: commitView === 'graph' }" @click="switchToGraph">{{ t('git.graphView') }}</button>
           </div>
-          <div v-if="expandedCommits.has(entry.hash)" class="commit-files">
-            <div v-if="!commitFiles[entry.hash]" class="empty small">{{ t('common.loading') }}</div>
+        </div>
+
+        <!-- List view -->
+        <template v-if="commitView === 'list'">
+          <div v-for="entry in gitStore.logEntries" :key="entry.hash" class="commit-group">
             <div
-              v-else
-              v-for="file in commitFiles[entry.hash]"
-              :key="file.path"
-              class="file-item indent"
-              @click.stop="openCommitDiffTab(entry.hash, file.path)"
-              @contextmenu="onFileContext($event, file.path, { hash: entry.hash })"
+              class="log-item"
+              @click="toggleCommitExpand(entry.hash)"
+              @mouseenter="onCommitEnter(entry, $event)"
+              @mouseleave="onCommitLeave"
             >
-              <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
-              <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
-              <span class="file-path">{{ file.path }}</span>
+              <span class="expand-icon"><ChevronDown v-if="expandedCommits.has(entry.hash)" :size="12" :stroke-width="2" /><ChevronRight v-else :size="12" :stroke-width="2" /></span>
+              <span class="log-message">{{ entry.message.split('\n')[0] }}</span>
+              <span class="log-meta">{{ relativeDate(entry.date) }}</span>
+            </div>
+            <div v-if="expandedCommits.has(entry.hash)" class="commit-files">
+              <div v-if="!commitFiles[entry.hash]" class="empty small">{{ t('common.loading') }}</div>
+              <div
+                v-else
+                v-for="file in commitFiles[entry.hash]"
+                :key="file.path"
+                class="file-item indent"
+                @click.stop="openCommitDiffTab(entry.hash, file.path)"
+                @contextmenu="onFileContext($event, file.path, { hash: entry.hash })"
+              >
+                <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
+                <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
+                <span class="file-path">{{ file.path }}</span>
+              </div>
             </div>
           </div>
-        </div>
+        </template>
+
+        <!-- Graph view -->
+        <template v-if="commitView === 'graph'">
+          <div class="graph-container">
+            <div
+              v-for="(row, i) in graphRows"
+              :key="row.hash"
+              class="graph-row"
+              @click="toggleCommitExpand(row.hash)"
+              @mouseenter="gitStore.logEntries[i] && onCommitEnter(gitStore.logEntries[i], $event)"
+              @mouseleave="onCommitLeave"
+            >
+              <svg class="graph-svg" :width="graphSvgWidth" :height="ROW_HEIGHT">
+                <!-- Continuation lines -->
+                <line
+                  v-for="(line, li) in row.lines"
+                  :key="'l' + li"
+                  :x1="line.fromCol * LANE_WIDTH + LANE_WIDTH / 2"
+                  :y1="0"
+                  :x2="line.toCol * LANE_WIDTH + LANE_WIDTH / 2"
+                  :y2="ROW_HEIGHT"
+                  :stroke="line.color"
+                  stroke-width="1.5"
+                />
+                <!-- This commit's own lane continuation (above dot) -->
+                <line
+                  :x1="row.column * LANE_WIDTH + LANE_WIDTH / 2"
+                  :y1="0"
+                  :x2="row.column * LANE_WIDTH + LANE_WIDTH / 2"
+                  :y2="ROW_HEIGHT"
+                  :stroke="row.color"
+                  stroke-width="1.5"
+                />
+                <!-- Merge lines -->
+                <line
+                  v-for="(ml, mi) in row.mergeLines"
+                  :key="'m' + mi"
+                  :x1="ml.fromCol * LANE_WIDTH + LANE_WIDTH / 2"
+                  :y1="ROW_HEIGHT / 2"
+                  :x2="ml.toCol * LANE_WIDTH + LANE_WIDTH / 2"
+                  :y2="ROW_HEIGHT"
+                  :stroke="ml.color"
+                  stroke-width="1.5"
+                />
+                <!-- Commit dot -->
+                <circle
+                  :cx="row.column * LANE_WIDTH + LANE_WIDTH / 2"
+                  :cy="ROW_HEIGHT / 2"
+                  :r="row.isMerge ? DOT_RADIUS + 1 : DOT_RADIUS"
+                  :fill="row.color"
+                />
+              </svg>
+              <div class="graph-info">
+                <span v-if="row.refs" class="graph-refs">{{ row.refs }}</span>
+                <span class="graph-message">{{ gitStore.logEntries[i]?.message.split('\n')[0] }}</span>
+                <span class="graph-meta">{{ relativeDate(gitStore.logEntries[i]?.date ?? '') }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+
         <div v-if="!gitStore.logEntries.length" class="empty">{{ t('git.noCommits') }}</div>
       </div>
     </template>
@@ -510,6 +597,92 @@ onUnmounted(() => {
 .commit-files {
   display: flex;
   flex-direction: column;
+}
+
+.view-toggle {
+  display: flex;
+  gap: 2px;
+}
+
+.view-btn {
+  padding: 1px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.view-btn:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.view-btn.active {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.graph-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-row {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.graph-row:hover {
+  background: var(--tab-hover-bg);
+}
+
+.graph-svg {
+  flex-shrink: 0;
+}
+
+.graph-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  padding-right: 4px;
+}
+
+.graph-refs {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--text-active);
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.graph-message {
+  font-size: 12px;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-meta {
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .empty {

@@ -16,6 +16,11 @@
   --git-modify: #e2c08d;
   --git-delete: #f44747;
   --git-untracked: #969696;
+  --graph-lane-1: #e5c07b;
+  --graph-lane-2: #e06c75;
+  --graph-lane-3: #56b6c2;
+  --graph-lane-4: #c678dd;
+  --graph-lane-5: #98c379;
   --sidebar-width: 48px;
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(255, 255, 255, 0.1);
@@ -41,6 +46,11 @@
   --git-modify: #e65100;
   --git-delete: #d32f2f;
   --git-untracked: #717171;
+  --graph-lane-1: #b8860b;
+  --graph-lane-2: #c62828;
+  --graph-lane-3: #00838f;
+  --graph-lane-4: #7b1fa2;
+  --graph-lane-5: #2e7d32;
   --sidebar-width: 48px;
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);

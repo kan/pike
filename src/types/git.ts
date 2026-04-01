@@ -14,6 +14,8 @@ export interface GitStatusResult {
 
 export interface GitLogEntry {
   hash: string
+  parents: string[]
+  refs: string
   author: string
   date: string
   message: string
