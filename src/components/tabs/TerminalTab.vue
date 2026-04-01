@@ -237,8 +237,8 @@ onMounted(async () => {
     if (text) navigator.clipboard.writeText(text);
   });
 
-  // Right-click paste
-  termRef.value.addEventListener("contextmenu", async (e) => {
+  // Right-click paste (guard: termRef may be null if component unmounted during pty_spawn await)
+  termRef.value?.addEventListener("contextmenu", async (e) => {
     e.preventDefault();
     if (!settingsStore.terminalRightClickPaste || !ptyId) return;
     const text = await navigator.clipboard.readText().catch(() => "");
@@ -253,7 +253,7 @@ onMounted(async () => {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => doFit(), 100);
   });
-  resizeObserver.observe(termRef.value);
+  if (termRef.value) resizeObserver.observe(termRef.value);
 });
 
 onUnmounted(() => {
