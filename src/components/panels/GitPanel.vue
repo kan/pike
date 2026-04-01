@@ -7,7 +7,7 @@ import { useSidebarStore } from "../../stores/sidebar";
 import { gitDiff, gitShowFiles, gitDiffCommit, gitShowFile } from "../../lib/tauri";
 import { fileIconSvg } from "../../lib/fileIcons";
 import { gitStatusColor, relativeDate } from "../../lib/paths";
-import { buildGraph, ROW_HEIGHT, LANE_WIDTH, DOT_RADIUS, type GraphRow } from "../../lib/gitGraph";
+import { buildGraph, ROW_HEIGHT, LANE_WIDTH, DOT_RADIUS } from "../../lib/gitGraph";
 import { ChevronRight, ChevronDown, Plus, Minus } from "lucide-vue-next";
 import type { GitFileChange } from "../../types/git";
 import { useI18n } from "../../i18n";
