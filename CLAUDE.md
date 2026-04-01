@@ -309,6 +309,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `bundle.createUpdaterArtifacts: true` で `.sig` ファイルを自動生成
 
 ### CI/CD
+- `.github/workflows/ci.yml`: push/PR で `npm run build`（vue-tsc + vite）、`cargo clippy`、`cargo test` を実行（Windows runner）
 - `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-apps/tauri-action@v0` が Windows ビルド → GitHub Releases にドラフトアップロード
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
 - `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成

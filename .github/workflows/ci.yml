@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check & Test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Download rg sidecar
+        shell: bash
+        run: bash scripts/download-rg.sh
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      # Frontend: TypeScript type check + Vite build
+      - name: Vue/TypeScript check & build
+        run: npm run build
+
+      # Rust: clippy lint
+      - name: Cargo clippy
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
+
+      # Rust: unit tests
+      - name: Cargo test
+        working-directory: src-tauri
+        run: cargo test
