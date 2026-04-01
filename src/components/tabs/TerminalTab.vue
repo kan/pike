@@ -83,6 +83,7 @@ function doFit() {
 // When this tab becomes active, refit to handle size changes while hidden.
 // Use requestAnimationFrame after nextTick to ensure the DOM has fully
 // transitioned from display:none (v-show) before measuring sizes.
+// Then nudge PTY resize to force TUI apps (Claude Code etc.) to redraw.
 watch(
   () => tabStore.activeTabId,
   (newId) => {
@@ -90,9 +91,18 @@ watch(
       nextTick(() => {
         requestAnimationFrame(() => {
           doFit();
-          // Force full redraw to fix rendering artifacts after tab switch
           if (terminal) {
             terminal.refresh(0, terminal.rows - 1);
+            // Nudge PTY resize: shrink by 1 col then restore to trigger
+            // SIGWINCH, which makes TUI apps redraw their full interface
+            if (ptyId && terminal.cols > 1) {
+              ptyResize(ptyId, terminal.cols - 1, terminal.rows);
+              setTimeout(() => {
+                if (terminal && ptyId) {
+                  ptyResize(ptyId, terminal.cols, terminal.rows);
+                }
+              }, 200);
+            }
           }
         });
       });
