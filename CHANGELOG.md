@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2026-04-01
+
+### Features
+
+- **ブランチマージグラフ** — Git パネルで List / Graph 切替。`git log --all` + 親ハッシュ・refs を取得し、レーン割当アルゴリズムで分岐・マージを SVG 描画。dark/light テーマ対応のレーンカラー
+- **デスクトップ通知** — バックグラウンドタブのターミナル終了時に Windows トースト通知。Web Notification API 優先、Tauri plugin フォールバック。クリックでウィンドウフォーカス + タブ切替。Settings で ON/OFF 切替
+- **ターミナル自動クローズ** — 非 pinned ターミナルタブはプロセス終了 1 秒後に自動クローズ
+- **外部 URL オープン** — SideBar 歯車メニューに GitHub リンク追加。confirm ダイアログ付きで外部ブラウザ起動
+- **Markdown リンク処理** — プレビュー内の外部 URL は confirm → ブラウザ、ローカルファイルリンクはプロジェクトルート内に限定して EditorTab で開く（ディレクトリトラバーサル防止、URL エンコード対応）
+
+### Fixed
+
+- タブ切替時に TUI アプリ（Claude Code 等）の表示が崩れる問題を修正（PTY resize nudge で SIGWINCH 発火）
+- git log のレコード区切りを NUL → ASCII RS/FS に変更（`%D` 空文字との衝突で大半のコミットがパースできなかった問題を修正）
+- `open_url` コマンドのシェルインジェクション脆弱性を修正（`cmd.exe /C start` → `explorer.exe` + http/https バリデーション）
+
+### Dependencies
+
+- `tauri-plugin-notification` 2（デスクトップ通知フォールバック用）
+
 ## [0.2.1] - 2026-04-01
 
 ### Features
