@@ -2,7 +2,7 @@
 
 ## 現在のマイルストーン
 
-**→ M12: Developer UX（未着手）**
+**→ M13: AI Diff Viewer（未着手）**
 
 ---
 
@@ -21,7 +21,7 @@
 | M9 | Polish | UX 改善・キーバインド・i18n・CLI・マルチウィンドウ | ✅ 完了 |
 | M10 | Release | CI/CD・配布・自動更新・セキュリティ | 🔧 ほぼ完了 |
 | M11 | File Watcher | ファイル変更検知・自動リフレッシュ | ✅ 完了 |
-| M12 | Developer UX | クイックオープン・ターミナル通知・ログ可視化 | ⏳ 未着手 |
+| M12 | Developer UX | クイックオープン・ターミナル通知・Git改善・検索修正 | ✅ 完了 |
 | M13 | AI Diff Viewer | AI 差分提案の diff 表示 | ⏳ 未着手 |
 
 ---

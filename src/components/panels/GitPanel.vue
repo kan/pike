@@ -180,6 +180,11 @@ onUnmounted(() => {
           :disabled="!commitMsg.trim() || !gitStore.status.staged.length"
           @click="onCommit"
         >{{ t('git.commit', { count: gitStore.status.staged.length }) }}</button>
+        <div v-if="gitStore.status.ahead || gitStore.status.behind" class="sync-info">
+          <span v-if="gitStore.status.ahead">{{ t('git.aheadInfo', { count: gitStore.status.ahead }) }}</span>
+          <span v-if="gitStore.status.ahead && gitStore.status.behind"> · </span>
+          <span v-if="gitStore.status.behind">{{ t('git.behindInfo', { count: gitStore.status.behind }) }}</span>
+        </div>
       </div>
 
       <!-- Staged -->
@@ -342,6 +347,13 @@ onUnmounted(() => {
 .commit-btn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.sync-info {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 2px 0;
 }
 
 .file-section {

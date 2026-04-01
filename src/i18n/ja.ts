@@ -141,6 +141,8 @@ export default {
   'git.push': 'プッシュ',
   'git.ahead': '{count} 先行',
   'git.behind': '{count} 遅延',
+  'git.aheadInfo': 'リモートより {count} コミット先行',
+  'git.behindInfo': 'リモートより {count} コミット遅延',
   'git.switchBranch': 'ブランチを切替...',
   'git.noBranches': 'ブランチが見つかりません',
 

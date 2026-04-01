@@ -171,13 +171,11 @@ onUnmounted(() => {
           <span class="backend-badge">{{ searchStore.backend ?? '...' }}</span>
         </div>
         <div v-if="sidebar.activePanel === 'git'" class="header-actions">
-          <span v-if="gitStore.status?.behind" class="sync-badge behind" :title="t('git.behind', { count: gitStore.status.behind })">↓{{ gitStore.status.behind }}</span>
-          <button class="header-btn" :disabled="gitStore.pulling" :title="t('git.pull')" @click="gitStore.pull()">
+          <button class="header-btn" :class="{ primary: gitStore.status?.behind }" :disabled="gitStore.pulling" :title="t('git.pull')" @click="gitStore.pull()">
             <Loader v-if="gitStore.pulling" :size="14" :stroke-width="2" class="spin" />
             <ArrowDown v-else :size="14" :stroke-width="2" />
           </button>
-          <span v-if="gitStore.status?.ahead" class="sync-badge ahead" :title="t('git.ahead', { count: gitStore.status.ahead })">↑{{ gitStore.status.ahead }}</span>
-          <button class="header-btn" :disabled="gitStore.pushing" :title="t('git.push')" @click="gitStore.push()">
+          <button class="header-btn" :class="{ primary: gitStore.status?.ahead }" :disabled="gitStore.pushing" :title="t('git.push')" @click="gitStore.push()">
             <Loader v-if="gitStore.pushing" :size="14" :stroke-width="2" class="spin" />
             <ArrowUp v-else :size="14" :stroke-width="2" />
           </button>
@@ -365,21 +363,15 @@ onUnmounted(() => {
   animation: spin 1s linear infinite;
 }
 
-.sync-badge {
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: 3px;
-  color: #fff;
-}
-
-.sync-badge.ahead {
+.header-btn.primary {
   background: var(--accent);
+  color: var(--text-active);
+  opacity: 1;
 }
 
-.sync-badge.behind {
-  background: var(--git-modify);
+.header-btn.primary:hover:not(:disabled) {
+  background: var(--accent);
+  opacity: 0.85;
 }
 
 .backend-badge {

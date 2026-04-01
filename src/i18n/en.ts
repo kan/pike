@@ -141,6 +141,8 @@ export default {
   'git.push': 'Push',
   'git.ahead': '{count} ahead',
   'git.behind': '{count} behind',
+  'git.aheadInfo': '{count} commit(s) ahead of remote',
+  'git.behindInfo': '{count} commit(s) behind remote',
   'git.switchBranch': 'Switch branch...',
   'git.noBranches': 'No matching branches',
 
