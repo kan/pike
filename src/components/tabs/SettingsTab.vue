@@ -169,6 +169,14 @@ const PREVIEW_LINES = [
             <button class="mode-btn" :class="{ active: !settings.terminalRightClickPaste }" @click="settings.terminalRightClickPaste = false">{{ t('common.off') }}</button>
           </div>
         </div>
+
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.terminalExitNotification') }}</label>
+          <div class="mode-toggle">
+            <button class="mode-btn" :class="{ active: settings.terminalExitNotification }" @click="settings.terminalExitNotification = true">{{ t('common.on') }}</button>
+            <button class="mode-btn" :class="{ active: !settings.terminalExitNotification }" @click="settings.terminalExitNotification = false">{{ t('common.off') }}</button>
+          </div>
+        </div>
       </section>
 
       <!-- Editor -->

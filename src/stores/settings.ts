@@ -183,6 +183,7 @@ interface PersistedSettings {
   terminalCopyOnSelect: boolean
   terminalRightClickPaste: boolean
   language: string
+  terminalExitNotification: boolean
 }
 
 function loadSettings(): PersistedSettings {
@@ -206,6 +207,7 @@ function defaults(): PersistedSettings {
     terminalCopyOnSelect: true,
     terminalRightClickPaste: true,
     language: 'en',
+    terminalExitNotification: true,
   }
 }
 
@@ -223,6 +225,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
   const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
   const language = ref(saved.language)
+  const terminalExitNotification = ref(saved.terminalExitNotification)
 
   // Sync language setting with i18n locale
   locale.value = saved.language
@@ -273,6 +276,7 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalCopyOnSelect: terminalCopyOnSelect.value,
       terminalRightClickPaste: terminalRightClickPaste.value,
       language: language.value,
+      terminalExitNotification: terminalExitNotification.value,
     }))
   }
 
@@ -280,7 +284,7 @@ export const useSettingsStore = defineStore('settings', () => {
     document.documentElement.setAttribute('data-theme', darkMode.value ? 'dark' : 'light')
   }
 
-  watch([fontFamily, fontSize, colorSchemeName, darkMode, editorThemeName, editorMinimap, editorWordWrap, editorTabSize, terminalCopyOnSelect, terminalRightClickPaste, language], persist)
+  watch([fontFamily, fontSize, colorSchemeName, darkMode, editorThemeName, editorMinimap, editorWordWrap, editorTabSize, terminalCopyOnSelect, terminalRightClickPaste, language, terminalExitNotification], persist)
   watch(darkMode, applyDarkMode, { immediate: true })
 
   return {
@@ -298,6 +302,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalCopyOnSelect,
     terminalRightClickPaste,
     language,
+    terminalExitNotification,
     availableFonts,
     loadAvailableFonts,
     setFontByName,

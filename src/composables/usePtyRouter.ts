@@ -6,6 +6,7 @@ type ExitHandler = (code: number) => void;
 
 const outputHandlers = new Map<string, OutputHandler>();
 const exitHandlers = new Map<string, ExitHandler>();
+const globalExitListeners: ((id: string, code: number) => void)[] = [];
 
 let initialized = false;
 
@@ -23,7 +24,11 @@ async function init() {
   await listen<{ id: string; code: number }>(
     "pty_exit",
     (event) => {
-      exitHandlers.get(event.payload.id)?.(event.payload.code);
+      const { id, code } = event.payload;
+      exitHandlers.get(id)?.(code);
+      for (const listener of globalExitListeners) {
+        listener(id, code);
+      }
     }
   );
 }
@@ -80,4 +85,12 @@ function detectCwd(ptyId: string): Promise<string> {
   });
 }
 
-export const ptyRouter = { init, register, unregister, detectCwd };
+function onGlobalExit(listener: (id: string, code: number) => void): () => void {
+  globalExitListeners.push(listener);
+  return () => {
+    const idx = globalExitListeners.indexOf(listener);
+    if (idx !== -1) globalExitListeners.splice(idx, 1);
+  };
+}
+
+export const ptyRouter = { init, register, unregister, detectCwd, onGlobalExit };

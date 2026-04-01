@@ -16,6 +16,7 @@ import { ptyRouter } from "./composables/usePtyRouter";
 import { dockerLogRouter } from "./composables/useDockerLogRouter";
 import { fsWatcher, isRecentlySaved, type FsChangeEntry } from "./composables/useFsWatcher";
 import { initCliOpen } from "./composables/useCliOpen";
+import { initTerminalNotifications } from "./composables/useTerminalNotifications";
 import { getWindowProjectId } from "./lib/window";
 import { useI18n } from "./i18n";
 
@@ -88,6 +89,7 @@ onMounted(async () => {
   }
 
   await initCliOpen();
+  initTerminalNotifications().catch(() => {});
 
   tabStore.$subscribe(() => projectStore.saveSessionDebounced());
   window.addEventListener("beforeunload", () => {

@@ -83,6 +83,7 @@ pike/
 │   │   └── project.ts         # ProjectConfig・PinnedTabDef
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
+│   │   ├── QuickOpen.vue        # Ctrl+P クイックオープン（rg --files + fuzzy match）
 │   │   ├── ConfirmDialog.vue    # カスタム確認ダイアログ（Teleport）
 │   │   ├── layout/
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル
@@ -102,11 +103,12 @@ pike/
 │   │   ├── settings.ts        # アプリ設定（フォント・カラースキーム・ダークモード・エディタ設定）
 │   │   └── project.ts         # プロジェクト管理・切替・永続化
 │   ├── composables/
-│   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P
+│   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P/P
 │   │   ├── useConfirmDialog.ts      # カスタム確認ダイアログ composable
-│   │   ├── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出
+│   │   ├── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出 + グローバル exit フック
 │   │   ├── useFsWatcher.ts        # ファイル監視イベントルーター
-│   │   └── useCliOpen.ts          # CLI 引数によるファイル/プロジェクト自動オープン
+│   │   ├── useCliOpen.ts          # CLI 引数によるファイル/プロジェクト自動オープン
+│   │   └── useTerminalNotifications.ts  # ターミナル終了デスクトップ通知
 │   ├── lib/
 │   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
 │   │   ├── fontDetection.ts   # フォント名ユーティリティ（buildFontFamily/extractFontName）
@@ -175,6 +177,9 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `autoStart` 対応: PTY spawn 後に指定コマンドを自動実行（例: `claude`）
 - `PtySession` に `Drop` 実装: セッション破棄時に `child.kill()` で子プロセスを確実に終了
 - ウィンドウ破棄時（`WindowEvent::Destroyed`）に全 PTY セッション・Docker log stream を一括 cleanup（main ウィンドウのみ）
+- タブ切替時の TUI 再描画: `nextTick` → `requestAnimationFrame` → `terminal.refresh()` + PTY resize nudge（1col 縮小→復元で SIGWINCH 発火）
+- ターミナルアクティビティ通知: 非アクティブタブの出力でドット表示（`hasActivity`）、プロセス終了で終了コードバッジ（`exitCode`）
+- デスクトップ通知: バックグラウンドタブの PTY 終了時に `Notification` API でトースト通知。`onclick` でウィンドウフォーカス + タブ切替。`ptyRouter.onGlobalExit()` フック経由
 
 ### プロジェクト管理
 - プロジェクト設定は `%APPDATA%/com.tauri.dev/projects/{id}/project.json` に保存
@@ -211,6 +216,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - ステータスバーにブランチ名+ダーティ表示、クリックでブランチ切替
 - Git パネル: ステージング/アンステージ、コミット、push/pull/refresh、コミットツリー展開
 - diff タブ: 左右分割表示、文字単位ハイライト（common prefix/suffix 方式）
+- ahead/behind: `git status --porcelain=v2 --branch` の `# branch.ab` 行をパース。GitPanel コミットボタン下にテキスト表示、SideBar の pull/push ボタンを primary スタイルに変更
 - コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
 
 ### Docker 統合
@@ -318,6 +324,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - PDF: `PdfTab` で `<iframe src="data:application/pdf;base64,...">` による WebView2 内蔵レンダリング
 - Mermaid: `MermaidTab` で `.mermaid`/`.mmd` ファイルを SVG 描画（Preview/Source 切替）
 - Markdown 内 mermaid: `EditorTab` の previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
+- SVG: `EditorTab` の Edit/Split/Preview トグルで SVG 表示（`DOMPurify.sanitize` + `SVG_PURIFY_OPTS`）。`IMAGE_EXTS` から除外し EditorTab で開く
 - ファイルツリー `openFile()` が拡張子で csv/tsv/pdf/mermaid/mmd を判定し適切なタブを開く
 
 ### 検索 (rg / grep)
@@ -331,6 +338,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
   - Windows プロジェクト: システム rg → バンドル版 rg → grep の順でフォールバック
   - WSL プロジェクト: WSL の rg → WSL の grep（バンドル版は Windows バイナリのため使用不可）
   - `scripts/download-rg.sh` でビルド前にダウンロード（バイナリは .gitignore）
+- `list_project_files` コマンド: `rg --files` / `find` でプロジェクト内ファイル一覧取得（QuickOpen 用）
+
+### クイックオープン (Ctrl+P)
+- `QuickOpen.vue`: ProjectSwitcher と同じオーバーレイ + モーダル構造
+- `rg --files` 結果をフロントでキャッシュ、プロジェクト切替時にリセット
+- fzz 風 fuzzy match（ファイル名優先 → パスマッチ）、最近開いたファイルを上位表示
+- `filename:42` サフィックスで行番号ジャンプ対応
+- `project.showQuickOpen` で表示状態管理
 
 ### 設定画面
 - サイドバー下部の歯車アイコンからシングルトンタブとして開く
@@ -343,6 +358,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - 設定タブにターミナルプレビュー表示（選択中のフォント・サイズ・カラースキームを即時反映）
 - Editor セクション: ミニマップ ON/OFF、ワードラップ ON/OFF、タブサイズ（2/4/8）。CM6 Compartment でライブ反映
 - settings タブはセッション永続化の対象外（`snapshotSession` は terminal/editor のみフィルタ）
+- ターミナル終了デスクトップ通知: ON/OFF トグル。Web Notification API 優先、Tauri plugin フォールバック
 
 ---
 

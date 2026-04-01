@@ -110,6 +110,7 @@ export default {
   'settings.downloading': 'Downloading...',
   'settings.upToDate': 'You are up to date',
   'settings.updateError': 'Update check failed',
+  'settings.terminalExitNotification': 'Desktop notification on exit',
 
   // File Tree
   'fileTree.noProject': 'No project selected',

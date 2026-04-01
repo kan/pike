@@ -110,6 +110,7 @@ export default {
   'settings.downloading': 'ダウンロード中...',
   'settings.upToDate': '最新です',
   'settings.updateError': '更新の確認に失敗しました',
+  'settings.terminalExitNotification': 'プロセス終了時にデスクトップ通知',
 
   // File Tree
   'fileTree.noProject': 'プロジェクトが選択されていません',

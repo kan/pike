@@ -13,6 +13,7 @@
     "core:window:allow-set-focus",
     "window-state:default",
     "updater:default",
-    "process:default"
+    "process:default",
+    "notification:default"
   ]
 }
