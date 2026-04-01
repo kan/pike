@@ -227,6 +227,10 @@ export async function searchExecute(
   });
 }
 
+export async function listProjectFiles(shell: ShellType, root: string): Promise<string[]> {
+  return invoke<string[]>("list_project_files", { shell, root });
+}
+
 // Docker
 
 export async function dockerPing(): Promise<boolean> {
@@ -269,6 +273,10 @@ export async function dockerDetectShell(containerId: string): Promise<string> {
 
 export async function openProjectWindow(projectId: string): Promise<void> {
   return invoke("open_project_window", { projectId });
+}
+
+export async function pickFolder(): Promise<string | null> {
+  return invoke<string | null>("pick_folder");
 }
 
 // CLI

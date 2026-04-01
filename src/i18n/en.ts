@@ -139,6 +139,8 @@ export default {
   'git.openFile': 'Open File',
   'git.pull': 'Pull',
   'git.push': 'Push',
+  'git.ahead': '{count} ahead',
+  'git.behind': '{count} behind',
   'git.switchBranch': 'Switch branch...',
   'git.noBranches': 'No matching branches',
 
@@ -157,6 +159,9 @@ export default {
   'project.addProject': '+ Add Project',
   'project.projectName': 'Project name',
   'project.detect': 'Detect',
+  'project.browse': 'Browse...',
+  'project.sortName': 'Name',
+  'project.sortRecent': 'Recent',
   'project.openInNewWindow': 'Open in new window',
   'project.edit': 'Edit',
   'project.confirmDelete': 'Delete project "{name}"?',
@@ -170,6 +175,12 @@ export default {
   'projectSwitcher.newProject': '+ New Project',
   'projectSwitcher.formTitle': 'New Project',
   'projectSwitcher.createAndOpen': 'Create & Open',
+
+  // Quick Open
+  'quickOpen.placeholder': 'Search files by name...',
+  'quickOpen.noMatch': 'No matching files',
+  'quickOpen.enterOpen': 'Enter: open file',
+  'quickOpen.lineHint': 'Append :line to jump',
 
   // Search Panel
   'search.placeholder': 'Search...',
@@ -186,6 +197,7 @@ export default {
   'shortcuts.tabs': 'Tabs',
   'shortcuts.editor': 'Editor',
   'shortcuts.terminal': 'Terminal',
+  'shortcuts.quickOpen': 'Quick Open File',
   'shortcuts.projectSwitcher': 'Project Switcher',
   'shortcuts.keyboardShortcuts': 'Keyboard Shortcuts',
   'shortcuts.settings': 'Settings',

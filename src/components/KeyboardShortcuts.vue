@@ -27,6 +27,7 @@ const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.general'),
     items: [
+      { keys: "Ctrl+P", label: t('shortcuts.quickOpen') },
       { keys: "Ctrl+Shift+P", label: t('shortcuts.projectSwitcher') },
       { keys: "Ctrl+K", label: t('shortcuts.keyboardShortcuts') },
       { keys: "Ctrl+,", label: t('shortcuts.settings') },

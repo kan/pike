@@ -87,6 +87,11 @@ export const useTabStore = defineStore('tabs', () => {
   function setActiveTab(id: string) {
     if (tabs.value.some((t) => t.id === id)) {
       activeTabId.value = id
+      // Clear activity indicator when tab becomes active
+      const tab = tabs.value.find((t) => t.id === id)
+      if (tab?.kind === 'terminal') {
+        tab.hasActivity = false
+      }
     }
   }
 

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from "vue";
 import { useProjectStore } from "../../stores/project";
 import { useTabStore } from "../../stores/tabs";
-import { detectWslDistros, openProjectWindow } from "../../lib/tauri";
+import { detectWslDistros, openProjectWindow, pickFolder } from "../../lib/tauri";
 import { confirmDialog } from "../../composables/useConfirmDialog";
 import { ptyRouter } from "../../composables/usePtyRouter";
 import type { ProjectConfig } from "../../types/project";
@@ -23,6 +23,16 @@ const { t } = useI18n();
 
 const projectStore = useProjectStore();
 const tabStore = useTabStore();
+
+const sortMode = ref<'name' | 'recent'>('name');
+const sortedProjects = computed(() => {
+  const list = [...projectStore.projects];
+  if (sortMode.value === 'name') {
+    list.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  // 'recent' keeps original order (already sorted by lastOpened desc from backend)
+  return list;
+});
 
 const distros = ref<string[]>([]);
 const detecting = ref(false);
@@ -75,6 +85,19 @@ async function detectFromTerminal() {
     }
   } finally {
     detecting.value = false;
+  }
+}
+
+async function browseFolder(target: 'create' | 'edit') {
+  const folder = await pickFolder();
+  if (!folder) return;
+  if (target === 'create') {
+    formRoot.value = folder;
+    if (!formName.value) {
+      formName.value = folder.split(/[/\\]/).filter(Boolean).pop() ?? '';
+    }
+  } else {
+    editRoot.value = folder;
   }
 }
 
@@ -152,6 +175,9 @@ async function onDelete(id: string) {
       <input v-model="formName" :placeholder="t('project.projectName')" required />
       <div class="input-row">
         <input v-model="formRoot" :placeholder="createRootPlaceholder" required />
+        <button v-if="formPlatform === 'windows'" type="button" class="detect-btn" @click="browseFolder('create')">
+          {{ t('project.browse') }}
+        </button>
         <button type="button" class="detect-btn" :disabled="detecting" @click="detectFromTerminal">
           {{ detecting ? "..." : t('project.detect') }}
         </button>
@@ -169,13 +195,24 @@ async function onDelete(id: string) {
       <button type="submit">{{ t('common.create') }}</button>
     </form>
 
+    <!-- Sort toggle -->
+    <div class="sort-row">
+      <button class="sort-btn" :class="{ active: sortMode === 'name' }" @click="sortMode = 'name'">{{ t('project.sortName') }}</button>
+      <button class="sort-btn" :class="{ active: sortMode === 'recent' }" @click="sortMode = 'recent'">{{ t('project.sortRecent') }}</button>
+    </div>
+
     <!-- Project list -->
     <div class="project-list">
-      <template v-for="project in projectStore.projects" :key="project.id">
+      <template v-for="project in sortedProjects" :key="project.id">
         <!-- Edit mode -->
         <div v-if="editingId === project.id" class="edit-form">
           <input v-model="editName" :placeholder="t('project.projectName')" />
-          <input v-model="editRoot" :placeholder="editRootPlaceholder" />
+          <div class="input-row">
+            <input v-model="editRoot" :placeholder="editRootPlaceholder" />
+            <button v-if="editPlatform === 'windows'" type="button" class="detect-btn" @click="browseFolder('edit')">
+              {{ t('project.browse') }}
+            </button>
+          </div>
           <div class="platform-row">
             <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
             <label class="radio-label"><input type="radio" v-model="editPlatform" value="windows" /> Windows</label>
@@ -364,6 +401,31 @@ async function onDelete(id: string) {
 .cancel-btn:hover {
   color: var(--text-primary);
   background: var(--tab-hover-bg);
+}
+
+.sort-row {
+  display: flex;
+  gap: 4px;
+}
+
+.sort-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.sort-btn:hover {
+  background: var(--tab-hover-bg);
+}
+
+.sort-btn.active {
+  background: var(--accent);
+  color: var(--text-active);
+  border-color: var(--accent);
 }
 
 .project-list {

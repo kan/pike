@@ -244,6 +244,16 @@ onUnmounted(() => {
           <ScrollText v-else-if="tab.kind === 'docker-logs'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <Settings v-else-if="tab.kind === 'settings'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <span class="tab-title">{{ tab.title }}</span>
+          <span
+            v-if="tab.kind === 'terminal' && tab.exitCode != null"
+            class="tab-exit-badge"
+            :class="{ 'exit-ok': tab.exitCode === 0 }"
+            :title="'Exit code: ' + tab.exitCode"
+          >{{ tab.exitCode === 0 ? '✓' : tab.exitCode }}</span>
+          <span
+            v-else-if="tab.kind === 'terminal' && tab.hasActivity && tab.id !== tabStore.activeTabId"
+            class="tab-activity-dot"
+          />
           <button
             v-if="!tab.pinned"
             class="tab-close"
@@ -478,6 +488,28 @@ onUnmounted(() => {
 .tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tab-activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.tab-exit-badge {
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--danger);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.tab-exit-badge.exit-ok {
+  background: var(--git-add);
 }
 
 .tab-close {

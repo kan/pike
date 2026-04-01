@@ -80,12 +80,22 @@ function doFit() {
   }
 }
 
-// When this tab becomes active, refit to handle size changes while hidden
+// When this tab becomes active, refit to handle size changes while hidden.
+// Use requestAnimationFrame after nextTick to ensure the DOM has fully
+// transitioned from display:none (v-show) before measuring sizes.
 watch(
   () => tabStore.activeTabId,
   (newId) => {
     if (newId === props.tabId) {
-      nextTick(() => doFit());
+      nextTick(() => {
+        requestAnimationFrame(() => {
+          doFit();
+          // Force full redraw to fix rendering artifacts after tab switch
+          if (terminal) {
+            terminal.refresh(0, terminal.rows - 1);
+          }
+        });
+      });
     }
   }
 );
@@ -156,8 +166,18 @@ onMounted(async () => {
   const termRef_ = terminal;
   ptyRouter.register(
     ptyId,
-    (data) => termRef_.write(data),
-    (code) => termRef_.write(`\r\n${t('terminal.exited', { code: String(code) })}\r\n`)
+    (data) => {
+      termRef_.write(data);
+      if (tabStore.activeTabId !== props.tabId) {
+        const tab = tabStore.tabs.find(t => t.id === props.tabId);
+        if (tab?.kind === 'terminal') tab.hasActivity = true;
+      }
+    },
+    (code) => {
+      termRef_.write(`\r\n${t('terminal.exited', { code: String(code) })}\r\n`);
+      const tab = tabStore.tabs.find(t => t.id === props.tabId);
+      if (tab?.kind === 'terminal') tab.exitCode = code;
+    }
   );
 
   if (tabData?.kind === 'terminal') {

@@ -139,6 +139,8 @@ export default {
   'git.openFile': 'ファイルを開く',
   'git.pull': 'プル',
   'git.push': 'プッシュ',
+  'git.ahead': '{count} 先行',
+  'git.behind': '{count} 遅延',
   'git.switchBranch': 'ブランチを切替...',
   'git.noBranches': 'ブランチが見つかりません',
 
@@ -157,6 +159,9 @@ export default {
   'project.addProject': '+ プロジェクト追加',
   'project.projectName': 'プロジェクト名',
   'project.detect': '検出',
+  'project.browse': '参照...',
+  'project.sortName': '名前順',
+  'project.sortRecent': '最近使用順',
   'project.openInNewWindow': '新しいウィンドウで開く',
   'project.edit': '編集',
   'project.confirmDelete': 'プロジェクト "{name}" を削除しますか？',
@@ -170,6 +175,12 @@ export default {
   'projectSwitcher.newProject': '+ 新規プロジェクト',
   'projectSwitcher.formTitle': '新規プロジェクト',
   'projectSwitcher.createAndOpen': '作成して開く',
+
+  // Quick Open
+  'quickOpen.placeholder': 'ファイル名で検索...',
+  'quickOpen.noMatch': '一致するファイルがありません',
+  'quickOpen.enterOpen': 'Enter: ファイルを開く',
+  'quickOpen.lineHint': ':行番号 でジャンプ',
 
   // Search Panel
   'search.placeholder': '検索...',
@@ -186,6 +197,7 @@ export default {
   'shortcuts.tabs': 'タブ',
   'shortcuts.editor': 'エディタ',
   'shortcuts.terminal': 'ターミナル',
+  'shortcuts.quickOpen': 'クイックオープン',
   'shortcuts.projectSwitcher': 'プロジェクト切替',
   'shortcuts.keyboardShortcuts': 'キーボードショートカット',
   'shortcuts.settings': '設定',

@@ -8,6 +8,8 @@ export interface GitStatusResult {
   isDirty: boolean
   staged: GitFileChange[]
   unstaged: GitFileChange[]
+  ahead: number
+  behind: number
 }
 
 export interface GitLogEntry {

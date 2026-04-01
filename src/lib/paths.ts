@@ -8,7 +8,7 @@ export function extension(path: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp']);
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp']);
 
 export function isImageFile(path: string): boolean {
   return IMAGE_EXTS.has(extension(path));

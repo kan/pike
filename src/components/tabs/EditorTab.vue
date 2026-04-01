@@ -69,7 +69,8 @@ const fileExt = computed(() => tab.value ? extension(tab.value.path) : '');
 const isMarkdown = computed(() => fileExt.value === 'md' || fileExt.value === 'markdown');
 const isCsv = computed(() => fileExt.value === 'csv' || fileExt.value === 'tsv');
 const isMermaid = computed(() => fileExt.value === 'mermaid' || fileExt.value === 'mmd');
-const hasPreview = computed(() => isMarkdown.value || isCsv.value || isMermaid.value);
+const isSvg = computed(() => fileExt.value === 'svg');
+const hasPreview = computed(() => isMarkdown.value || isCsv.value || isMermaid.value || isSvg.value);
 
 const showEditor = computed(() => viewMode.value !== 'preview');
 const showPreview = computed(() => viewMode.value !== 'edit');
@@ -128,6 +129,7 @@ const previewHtml = computed(() => {
   const text = editorView.state.doc.toString();
   if (isCsv.value) return buildCsvPreview(text);
   if (isMermaid.value) return ''; // rendered asynchronously
+  if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS);
   return DOMPurify.sanitize(marked.parse(text) as string, SVG_PURIFY_OPTS);
 });
 
@@ -647,7 +649,7 @@ onUnmounted(() => {
         v-if="showPreview && !isMermaid"
         ref="previewRef"
         class="preview-pane"
-        :class="{ 'md-preview': isMarkdown, 'csv-preview': isCsv }"
+        :class="{ 'md-preview': isMarkdown, 'csv-preview': isCsv, 'svg-preview': isSvg }"
         v-html="previewHtml"
         @scroll="onPreviewScroll"
       ></div>
@@ -864,6 +866,21 @@ onUnmounted(() => {
   text-align: right;
   min-width: 40px;
   font-size: 11px;
+}
+
+.svg-preview {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg-primary);
+}
+
+.svg-preview :deep(svg) {
+  max-width: 100%;
+  height: auto;
 }
 
 .mermaid-preview {

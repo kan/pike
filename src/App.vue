@@ -5,6 +5,7 @@ import SideBar from "./components/layout/SideBar.vue";
 import TabPane from "./components/layout/TabPane.vue";
 import StatusBar from "./components/layout/StatusBar.vue";
 import ProjectSwitcher from "./components/ProjectSwitcher.vue";
+import QuickOpen from "./components/QuickOpen.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import KeyboardShortcuts from "./components/KeyboardShortcuts.vue";
 import { useProjectStore } from "./stores/project";
@@ -103,6 +104,7 @@ onMounted(async () => {
     </div>
     <StatusBar />
     <ProjectSwitcher />
+    <QuickOpen />
     <ConfirmDialog />
     <KeyboardShortcuts />
   </div>

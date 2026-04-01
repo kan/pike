@@ -20,8 +20,13 @@ const PROJECT_WINDOW_PREFIX: &str = "project-";
 async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), String> {
     let label = format!("{}{}", PROJECT_WINDOW_PREFIX, project_id);
     if let Some(window) = app.get_webview_window(&label) {
-        window.set_focus().map_err(|e| e.to_string())?;
-        return Ok(());
+        // Verify the window is actually visible — tauri-plugin-window-state may
+        // keep a stale handle for a previously closed window.
+        if window.is_visible().unwrap_or(false) {
+            window.set_focus().map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+        let _ = window.close();
     }
     match WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
         .title("Pike")
@@ -39,6 +44,26 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
             Ok(())
         }
     }
+}
+
+#[tauri::command]
+async fn pick_folder() -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(|| {
+        let output = types::silent_command("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; if($f.ShowDialog() -eq 'OK'){$f.SelectedPath}",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| e.to_string())?;
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(if path.is_empty() { None } else { Some(path) })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -138,6 +163,7 @@ pub fn run() {
             cli::cli_get_initial_action,
             cli::cli_set_pending_action,
             open_project_window,
+            pick_folder,
             pty::pty_spawn,
             pty::pty_spawn_tmux,
             pty::pty_write,
@@ -173,6 +199,7 @@ pub fn run() {
             docker::docker_detect_shell,
             search::search_detect_backend,
             search::search_execute,
+            search::list_project_files,
             git::git_status,
             git::git_log,
             git::git_diff,

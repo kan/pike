@@ -82,6 +82,53 @@ pub async fn search_detect_backend(
 }
 
 const MAX_MATCHES: usize = 500;
+const MAX_FILES: usize = 10000;
+
+#[tauri::command]
+pub async fn list_project_files(
+    shell: ShellConfig,
+    root: String,
+    state: State<'_, SearchState>,
+) -> Result<Vec<String>, String> {
+    let backend = state
+        .detected
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or(SearchBackend::Grep);
+
+    tokio::task::spawn_blocking(move || {
+        let output = if backend.is_rg() {
+            shell.run(backend.rg_program(), &["--files", "--", &root])
+        } else {
+            // Fallback to find (WSL) or dir (Windows)
+            match &shell {
+                ShellConfig::Wsl { .. } => shell.run(
+                    "find",
+                    &[&root, "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*", "-not", "-path", "*/target/*"],
+                ),
+                _ => shell.run(
+                    "cmd.exe",
+                    &["/C", &format!("dir /S /B /A:-D \"{}\"", root)],
+                ),
+            }
+        };
+
+        match output {
+            Ok((_, stdout, _)) => {
+                let files: Vec<String> = stdout
+                    .lines()
+                    .take(MAX_FILES)
+                    .map(|l| l.to_string())
+                    .collect();
+                Ok(files)
+            }
+            Err(e) => Err(e),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 
 fn parse_rg_json(output: &str) -> (Vec<SearchMatch>, bool) {
     let mut matches = Vec::new();
@@ -240,6 +287,11 @@ pub async fn search_execute(
         match output {
             Ok((code, stdout, stderr)) => {
                 if code == 2 {
+                    if !is_regex {
+                        // literal (-F) mode should never cause regex parse errors;
+                        // treat as "no results" rather than propagating a confusing error
+                        return Ok(SearchResult { matches: vec![], truncated: false });
+                    }
                     return Err(stderr);
                 }
                 let (mut matches, truncated) = if backend.is_rg() {

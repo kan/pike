@@ -8,6 +8,8 @@ pub struct GitStatusResult {
     pub is_dirty: bool,
     pub staged: Vec<GitFileChange>,
     pub unstaged: Vec<GitFileChange>,
+    pub ahead: u32,
+    pub behind: u32,
 }
 
 #[derive(Serialize)]
@@ -49,10 +51,20 @@ fn parse_status(output: &str) -> GitStatusResult {
     let mut branch = String::from("HEAD");
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
+    let mut ahead: u32 = 0;
+    let mut behind: u32 = 0;
 
     for line in output.lines() {
         if line.starts_with("# branch.head ") {
             branch = line["# branch.head ".len()..].to_string();
+        } else if line.starts_with("# branch.ab ") {
+            // Format: "# branch.ab +N -M"
+            let rest = &line["# branch.ab ".len()..];
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.len() >= 2 {
+                ahead = parts[0].trim_start_matches('+').parse().unwrap_or(0);
+                behind = parts[1].trim_start_matches('-').parse().unwrap_or(0);
+            }
         } else if line.starts_with("1 ") || line.starts_with("2 ") {
             // Changed entry: "1 XY sub mH mI mW hH hI path" or "2 XY ... path\torig"
             let parts: Vec<&str> = line.splitn(9, ' ').collect();
@@ -95,6 +107,8 @@ fn parse_status(output: &str) -> GitStatusResult {
         is_dirty,
         staged,
         unstaged,
+        ahead,
+        behind,
     }
 }
 

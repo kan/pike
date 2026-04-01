@@ -18,8 +18,15 @@ export function useKeyboardShortcuts() {
       return
     }
 
-    // Don't handle shortcuts when the switcher is open
-    if (projectStore.showSwitcher) return
+    // Ctrl+P: quick open file
+    if (e.ctrlKey && !e.shiftKey && e.key === 'p') {
+      e.preventDefault()
+      projectStore.toggleQuickOpen()
+      return
+    }
+
+    // Don't handle shortcuts when the switcher or quick open is open
+    if (projectStore.showSwitcher || projectStore.showQuickOpen) return
 
     // Ctrl+S: prevent browser save dialog (EditorTab handles save via CodeMirror)
     if (e.ctrlKey && e.key === 's') {

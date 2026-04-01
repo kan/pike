@@ -25,6 +25,7 @@ export const useProjectStore = defineStore('project', () => {
   const projects = ref<ProjectConfig[]>([])
   const currentProject = ref<ProjectConfig | null>(null)
   const showSwitcher = ref(false)
+  const showQuickOpen = ref(false)
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -155,10 +156,15 @@ export const useProjectStore = defineStore('project', () => {
     showSwitcher.value = !showSwitcher.value
   }
 
+  function toggleQuickOpen() {
+    showQuickOpen.value = !showQuickOpen.value
+  }
+
   return {
     projects,
     currentProject,
     showSwitcher,
+    showQuickOpen,
     loadProjects,
     restoreLastProject,
     switchProject,
@@ -168,5 +174,6 @@ export const useProjectStore = defineStore('project', () => {
     saveProject,
     removeProject,
     toggleSwitcher,
+    toggleQuickOpen,
   }
 })

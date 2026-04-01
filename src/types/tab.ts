@@ -73,6 +73,8 @@ export type TerminalTab = {
   autoStart?: string
   cwd?: string
   shell?: ShellType
+  hasActivity?: boolean
+  exitCode?: number | null
 }
 
 export type EditorTab = {
