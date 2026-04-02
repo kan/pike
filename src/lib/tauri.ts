@@ -52,12 +52,16 @@ export async function detectWslDistros(): Promise<string[]> {
 
 // Project — last project persistence
 
-export async function projectGetLast(): Promise<string | null> {
-  return invoke<string | null>('project_get_last')
+export async function projectGetLast(): Promise<string[]> {
+  return invoke<string[]>('project_get_last')
 }
 
-export async function projectSetLast(id: string): Promise<void> {
-  return invoke('project_set_last', { id })
+export async function projectSetLast(ids: string[]): Promise<void> {
+  return invoke('project_set_last', { ids })
+}
+
+export async function projectAddOpen(id: string): Promise<void> {
+  return invoke('project_add_open', { id })
 }
 
 // Project — CRUD

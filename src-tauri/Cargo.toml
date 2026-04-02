@@ -1,6 +1,6 @@
 [package]
 name = "pike"
-version = "0.3.1"
+version = "0.3.2"
 description = "Lightweight AI-coding-focused development environment"
 authors = ["Kan Fushihara <kan.fushihara@gmail.com>"]
 license = "MIT"

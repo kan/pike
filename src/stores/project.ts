@@ -1,6 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { projectCreate, projectDelete, projectGetLast, projectList, projectSetLast, projectUpdate } from '../lib/tauri'
+import {
+  openProjectWindow,
+  projectAddOpen,
+  projectCreate,
+  projectDelete,
+  projectGetLast,
+  projectList,
+  projectSetLast,
+  projectUpdate,
+} from '../lib/tauri'
 import type { ProjectConfig } from '../types/project'
 import { useSearchStore } from './search'
 import { useTabStore } from './tabs'
@@ -28,13 +37,22 @@ export const useProjectStore = defineStore('project', () => {
 
   async function restoreLastProject() {
     await loadProjects()
-    const lastId = await projectGetLast().catch(() => null)
-    if (lastId) {
-      const project = projects.value.find((p) => p.id === lastId)
-      if (project) {
-        await switchProject(project.id)
-        return
+    const lastIds = await projectGetLast().catch(() => [] as string[])
+    // Clear the list immediately; each window re-adds itself via projectAddOpen
+    projectSetLast([]).catch(() => {})
+    if (lastIds.length > 0) {
+      // Main window opens the first project
+      const mainId = lastIds[0]
+      if (projects.value.find((p) => p.id === mainId)) {
+        await switchProject(mainId)
       }
+      // Remaining projects open in separate windows
+      for (const id of lastIds.slice(1)) {
+        if (projects.value.find((p) => p.id === id)) {
+          openProjectWindow(id).catch(() => {})
+        }
+      }
+      return
     }
     if (projects.value.length > 0) {
       showSwitcher.value = true
@@ -59,7 +77,7 @@ export const useProjectStore = defineStore('project', () => {
     const shouldUpdateLast = opts?.updateLastProject ?? true
     Promise.all([
       projectUpdate(project).catch(() => {}),
-      shouldUpdateLast ? projectSetLast(id).catch(() => {}) : Promise.resolve(),
+      shouldUpdateLast ? projectAddOpen(id).catch(() => {}) : Promise.resolve(),
     ])
 
     if (project.lastSession && project.lastSession.tabs.length > 0) {

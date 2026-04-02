@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2026-04-02
+
+### Features
+
+- 再起動時に前回開いていた全プロジェクトを復元（複数ウィンドウ対応）
+
 ## [0.3.1] - 2026-04-02
 
 ### Fixed

@@ -103,33 +103,46 @@ pub async fn detect_wsl_distros() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn project_get_last(
     state: State<'_, ProjectState>,
-) -> Result<Option<String>, String> {
+) -> Result<Vec<String>, String> {
     let path = last_project_file(&state);
     if !path.exists() {
-        return Ok(None);
+        return Ok(vec![]);
     }
-    let id = fs::read_to_string(&path)
-        .map_err(|e| e.to_string())?
-        .trim()
-        .to_string();
-    if id.is_empty() {
-        return Ok(None);
-    }
-    // Verify the project still exists
-    if project_file(&state, &id).exists() {
-        Ok(Some(id))
-    } else {
-        Ok(None)
-    }
+    let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let ids: Vec<String> = content
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty() && project_file(&state, l).exists())
+        .collect();
+    Ok(ids)
 }
 
 #[tauri::command]
 pub async fn project_set_last(
+    ids: Vec<String>,
+    state: State<'_, ProjectState>,
+) -> Result<(), String> {
+    fs::write(last_project_file(&state), ids.join("\n")).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn project_add_open(
     id: String,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
-    fs::write(last_project_file(&state), &id).map_err(|e| e.to_string())
+    let path = last_project_file(&state);
+    let mut ids: Vec<String> = fs::read_to_string(&path)
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    if !ids.contains(&id) {
+        ids.push(id);
+    }
+    fs::write(&path, ids.join("\n")).map_err(|e| e.to_string())
 }
+
 
 #[tauri::command]
 pub async fn project_list(state: State<'_, ProjectState>) -> Result<Vec<ProjectConfig>, String> {
