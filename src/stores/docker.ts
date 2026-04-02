@@ -1,14 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { ContainerInfo, ComposeService } from '../types/docker'
 import {
-  dockerPing,
   dockerComposeServices,
   dockerListContainers,
+  dockerPing,
+  dockerRestart,
   dockerStart,
   dockerStop,
-  dockerRestart,
 } from '../lib/tauri'
+import type { ComposeService, ContainerInfo } from '../types/docker'
 import { useProjectStore } from './project'
 
 export const useDockerStore = defineStore('docker', () => {
@@ -29,7 +29,7 @@ export const useDockerStore = defineStore('docker', () => {
     if (refreshGuard) return
     refreshGuard = true
     if (showProgress) refreshing.value = true
-    const minDelay = showProgress ? new Promise(r => setTimeout(r, 300)) : null
+    const minDelay = showProgress ? new Promise((r) => setTimeout(r, 300)) : null
     try {
       const [c] = await Promise.all([dockerListContainers(), minDelay])
       containers.value = c

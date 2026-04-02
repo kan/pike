@@ -1,216 +1,194 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, onUnmounted, defineAsyncComponent } from "vue";
-import { useTabStore } from "../../stores/tabs";
-import { useProjectStore } from "../../stores/project";
-import type { Tab, ShellType } from "../../types/tab";
-import { isWindowsShell, WINDOWS_SHELLS, shellToType } from "../../types/tab";
-import TerminalTab from "../tabs/TerminalTab.vue";
-const DiffTab = defineAsyncComponent(() => import("../tabs/DiffTab.vue"));
-const EditorTab = defineAsyncComponent(() => import("../tabs/EditorTab.vue"));
-const PreviewTab = defineAsyncComponent(() => import("../tabs/PreviewTab.vue"));
-const HistoryTab = defineAsyncComponent(() => import("../tabs/HistoryTab.vue"));
-const DockerLogsTab = defineAsyncComponent(() => import("../tabs/DockerLogsTab.vue"));
-const SettingsTab = defineAsyncComponent(() => import("../tabs/SettingsTab.vue"));
-const PdfTab = defineAsyncComponent(() => import("../tabs/PdfTab.vue"));
-import { Terminal, Pin, X, Plus, ChevronDown, ScrollText, Settings } from "lucide-vue-next";
-import { fileIconSvg } from "../../lib/fileIcons";
-import { useI18n } from "../../i18n";
+import { computed, defineAsyncComponent, nextTick, onUnmounted, ref } from 'vue'
+import { useProjectStore } from '../../stores/project'
+import { useTabStore } from '../../stores/tabs'
+import type { ShellType, Tab } from '../../types/tab'
+import { isWindowsShell, shellToType, WINDOWS_SHELLS } from '../../types/tab'
+import TerminalTab from '../tabs/TerminalTab.vue'
 
-const { t } = useI18n();
-const tabStore = useTabStore();
-const projectStore = useProjectStore();
+const DiffTab = defineAsyncComponent(() => import('../tabs/DiffTab.vue'))
+const EditorTab = defineAsyncComponent(() => import('../tabs/EditorTab.vue'))
+const PreviewTab = defineAsyncComponent(() => import('../tabs/PreviewTab.vue'))
+const HistoryTab = defineAsyncComponent(() => import('../tabs/HistoryTab.vue'))
+const DockerLogsTab = defineAsyncComponent(() => import('../tabs/DockerLogsTab.vue'))
+const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue'))
+const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 
-const terminalTabs = computed(() =>
-  tabStore.tabs.filter((t) => t.kind === "terminal")
-);
+import { ChevronDown, Pin, Plus, ScrollText, Settings, Terminal, X } from 'lucide-vue-next'
+import { useI18n } from '../../i18n'
+import { fileIconSvg } from '../../lib/fileIcons'
 
-const diffTabs = computed(() =>
-  tabStore.tabs.filter((t) => t.kind === "diff")
-);
+const { t } = useI18n()
+const tabStore = useTabStore()
+const projectStore = useProjectStore()
 
-const editorTabs = computed(() =>
-  tabStore.tabs.filter((t) => t.kind === "editor")
-);
+const terminalTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'terminal'))
 
-const previewTabs = computed(() =>
-  tabStore.tabs.filter((t) => t.kind === "preview")
-);
+const diffTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'diff'))
 
-const historyTabs = computed(() =>
-  tabStore.tabs.filter((t) => t.kind === "history")
-);
+const editorTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'editor'))
 
-const dockerLogsTabs = computed(() =>
-  tabStore.tabs.filter((t) => t.kind === "docker-logs")
-);
+const previewTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'preview'))
 
-const settingsTabs = computed(() =>
-  tabStore.tabs.filter((t) => t.kind === "settings")
-);
+const historyTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'history'))
 
-const pdfTabs = computed(() =>
-  tabStore.tabs.filter((t) => t.kind === "pdf")
-);
+const dockerLogsTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'docker-logs'))
+
+const settingsTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'settings'))
+
+const pdfTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'pdf'))
 
 const isWindows = computed(() =>
-  projectStore.currentProject
-    ? isWindowsShell(projectStore.currentProject.shell)
-    : false
-);
+  projectStore.currentProject ? isWindowsShell(projectStore.currentProject.shell) : false,
+)
 
 function tabFileIconSvg(tab: Tab): string | null {
-  if (tab.kind === "editor") return fileIconSvg(tab.path);
-  if (tab.kind === "preview") return fileIconSvg(tab.path);
-  if (tab.kind === "diff") return fileIconSvg(tab.filePath);
-  if (tab.kind === "history") return fileIconSvg(tab.filePath);
-  if (tab.kind === "pdf") return fileIconSvg(tab.path);
-  return null;
+  if (tab.kind === 'editor') return fileIconSvg(tab.path)
+  if (tab.kind === 'preview') return fileIconSvg(tab.path)
+  if (tab.kind === 'diff') return fileIconSvg(tab.filePath)
+  if (tab.kind === 'history') return fileIconSvg(tab.filePath)
+  if (tab.kind === 'pdf') return fileIconSvg(tab.path)
+  return null
 }
 
 function addTab(shellOverride?: ShellType) {
-  const project = projectStore.currentProject;
-  tabStore.addTerminalTab(
-    project
-      ? { cwd: project.root, shell: shellOverride ?? project.shell }
-      : undefined
-  );
+  const project = projectStore.currentProject
+  tabStore.addTerminalTab(project ? { cwd: project.root, shell: shellOverride ?? project.shell } : undefined)
 }
 
 // Shell dropdown for Windows projects
-const showShellMenu = ref(false);
+const showShellMenu = ref(false)
 
 function toggleShellMenu() {
   if (showShellMenu.value) {
-    closeShellMenu();
-    return;
+    closeShellMenu()
+    return
   }
-  showShellMenu.value = true;
+  showShellMenu.value = true
   nextTick(() => {
-    window.addEventListener("mousedown", closeShellMenu, { once: true });
-  });
+    window.addEventListener('mousedown', closeShellMenu, { once: true })
+  })
 }
 
 function closeShellMenu() {
-  window.removeEventListener("mousedown", closeShellMenu);
-  showShellMenu.value = false;
+  window.removeEventListener('mousedown', closeShellMenu)
+  showShellMenu.value = false
 }
 
 function addTabWithShell(kind: 'cmd' | 'powershell' | 'git-bash') {
-  addTab(shellToType(kind));
-  closeShellMenu();
+  addTab(shellToType(kind))
+  closeShellMenu()
 }
 
 // Drag-and-drop reordering
-const dragTabId = ref<string | null>(null);
-const dragOverTabId = ref<string | null>(null);
-const dragSide = ref<"left" | "right">("left");
+const dragTabId = ref<string | null>(null)
+const dragOverTabId = ref<string | null>(null)
+const dragSide = ref<'left' | 'right'>('left')
 
 function onDragStart(e: DragEvent, tabId: string) {
-  dragTabId.value = tabId;
+  dragTabId.value = tabId
   if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", tabId);
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', tabId)
   }
 }
 
 function onDragOver(e: DragEvent, tabId: string) {
-  if (!dragTabId.value || dragTabId.value === tabId) return;
-  e.preventDefault();
-  if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  if (!dragTabId.value || dragTabId.value === tabId) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
 
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  const midX = rect.left + rect.width / 2;
-  dragSide.value = e.clientX < midX ? "left" : "right";
-  dragOverTabId.value = tabId;
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  const midX = rect.left + rect.width / 2
+  dragSide.value = e.clientX < midX ? 'left' : 'right'
+  dragOverTabId.value = tabId
 }
 
 function onDragLeave() {
-  dragOverTabId.value = null;
+  dragOverTabId.value = null
 }
 
 function onDrop(e: DragEvent, tabId: string) {
-  e.preventDefault();
+  e.preventDefault()
   if (!dragTabId.value || dragTabId.value === tabId) {
-    resetDrag();
-    return;
+    resetDrag()
+    return
   }
 
-  const fromIdx = tabStore.tabs.findIndex((t) => t.id === dragTabId.value);
-  let toIdx = tabStore.tabs.findIndex((t) => t.id === tabId);
+  const fromIdx = tabStore.tabs.findIndex((t) => t.id === dragTabId.value)
+  let toIdx = tabStore.tabs.findIndex((t) => t.id === tabId)
   if (fromIdx === -1 || toIdx === -1) {
-    resetDrag();
-    return;
+    resetDrag()
+    return
   }
 
-  if (dragSide.value === "right") toIdx++;
-  if (fromIdx < toIdx) toIdx--;
+  if (dragSide.value === 'right') toIdx++
+  if (fromIdx < toIdx) toIdx--
 
-  tabStore.moveTab(fromIdx, toIdx);
-  resetDrag();
+  tabStore.moveTab(fromIdx, toIdx)
+  resetDrag()
 }
 
 function onDragEnd() {
-  resetDrag();
+  resetDrag()
 }
 
 function resetDrag() {
-  dragTabId.value = null;
-  dragOverTabId.value = null;
+  dragTabId.value = null
+  dragOverTabId.value = null
 }
 
 // Context menu
-const contextMenu = ref<{ x: number; y: number; tabId: string } | null>(null);
+const contextMenu = ref<{ x: number; y: number; tabId: string } | null>(null)
 const contextTab = computed(() =>
-  contextMenu.value
-    ? tabStore.tabs.find((t) => t.id === contextMenu.value!.tabId) ?? null
-    : null
-);
+  contextMenu.value ? (tabStore.tabs.find((t) => t.id === contextMenu.value!.tabId) ?? null) : null,
+)
 
 const contextTabPath = computed(() => {
-  const tab = contextTab.value;
-  if (!tab) return null;
+  const tab = contextTab.value
+  if (!tab) return null
   switch (tab.kind) {
-    case "editor":
-    case "preview":
-    case "pdf":
-      return tab.path;
-    case "diff":
-    case "history":
-      return tab.filePath;
+    case 'editor':
+    case 'preview':
+    case 'pdf':
+      return tab.path
+    case 'diff':
+    case 'history':
+      return tab.filePath
     default:
-      return null;
+      return null
   }
-});
+})
 
 function onTabContextMenu(e: MouseEvent, tabId: string) {
-  e.preventDefault();
-  window.removeEventListener("mousedown", closeContextMenu);
-  contextMenu.value = { x: e.clientX, y: e.clientY, tabId };
+  e.preventDefault()
+  window.removeEventListener('mousedown', closeContextMenu)
+  contextMenu.value = { x: e.clientX, y: e.clientY, tabId }
   nextTick(() => {
-    window.addEventListener("mousedown", closeContextMenu, { once: true });
-  });
+    window.addEventListener('mousedown', closeContextMenu, { once: true })
+  })
 }
 
 function closeContextMenu() {
-  contextMenu.value = null;
+  contextMenu.value = null
 }
 
 async function copyPath() {
-  if (!contextTabPath.value) return;
-  await navigator.clipboard.writeText(contextTabPath.value);
-  closeContextMenu();
+  if (!contextTabPath.value) return
+  await navigator.clipboard.writeText(contextTabPath.value)
+  closeContextMenu()
 }
 
 function openGitHistory() {
-  if (!contextTab.value || contextTab.value.kind !== "editor") return;
-  tabStore.addHistoryTab({ filePath: contextTab.value.path });
-  closeContextMenu();
+  if (!contextTab.value || contextTab.value.kind !== 'editor') return
+  tabStore.addHistoryTab({ filePath: contextTab.value.path })
+  closeContextMenu()
 }
 
 onUnmounted(() => {
-  window.removeEventListener("mousedown", closeShellMenu);
-  window.removeEventListener("mousedown", closeContextMenu);
-});
+  window.removeEventListener('mousedown', closeShellMenu)
+  window.removeEventListener('mousedown', closeContextMenu)
+})
 </script>
 
 <template>

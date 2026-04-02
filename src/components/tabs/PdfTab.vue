@@ -1,38 +1,36 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
-import { useTabStore } from "../../stores/tabs";
-import { useProjectStore } from "../../stores/project";
-import { fsReadFileBase64 } from "../../lib/tauri";
-import type { PdfTab } from "../../types/tab";
-import { useI18n } from "../../i18n";
+import { computed, onMounted, ref } from 'vue'
+import { useI18n } from '../../i18n'
+import { fsReadFileBase64 } from '../../lib/tauri'
+import { useProjectStore } from '../../stores/project'
+import { useTabStore } from '../../stores/tabs'
+import type { PdfTab } from '../../types/tab'
 
-const { t } = useI18n();
-const props = defineProps<{ tabId: string }>();
-const tabStore = useTabStore();
-const projectStore = useProjectStore();
+const { t } = useI18n()
+const props = defineProps<{ tabId: string }>()
+const tabStore = useTabStore()
+const projectStore = useProjectStore()
 
-const tab = computed(() =>
-  tabStore.tabs.find((t): t is PdfTab => t.id === props.tabId && t.kind === "pdf")
-);
+const tab = computed(() => tabStore.tabs.find((t): t is PdfTab => t.id === props.tabId && t.kind === 'pdf'))
 
-const loading = ref(true);
-const error = ref<string | null>(null);
-const dataUrl = ref("");
+const loading = ref(true)
+const error = ref<string | null>(null)
+const dataUrl = ref('')
 
 onMounted(async () => {
-  if (!tab.value) return;
-  const project = projectStore.currentProject;
-  if (!project) return;
+  if (!tab.value) return
+  const project = projectStore.currentProject
+  if (!project) return
 
   try {
-    const base64 = await fsReadFileBase64(project.shell, tab.value.path);
-    dataUrl.value = `data:application/pdf;base64,${base64}`;
+    const base64 = await fsReadFileBase64(project.shell, tab.value.path)
+    dataUrl.value = `data:application/pdf;base64,${base64}`
   } catch (e) {
-    error.value = String(e);
+    error.value = String(e)
   } finally {
-    loading.value = false;
+    loading.value = false
   }
-});
+})
 </script>
 
 <template>

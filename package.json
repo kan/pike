@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json"
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/"
   },
   "keywords": [
     "tauri",
@@ -53,6 +56,7 @@
     "vue": "^3.5.31"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.10",
     "@tauri-apps/cli": "^2.10.1",
     "@vitejs/plugin-vue": "^6.0.5",
     "typescript": "^6.0.2",

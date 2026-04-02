@@ -1,125 +1,143 @@
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, defineAsyncComponent, type Component } from "vue";
-import { useSidebarStore } from "../../stores/sidebar";
-import { useGitStore } from "../../stores/git";
-import type { SidebarPanel } from "../../types/tab";
-const ProjectPanel = defineAsyncComponent(() => import("../panels/ProjectPanel.vue"));
-const FileTreePanel = defineAsyncComponent(() => import("../panels/FileTreePanel.vue"));
-const GitPanel = defineAsyncComponent(() => import("../panels/GitPanel.vue"));
-const DockerPanel = defineAsyncComponent(() => import("../panels/DockerPanel.vue"));
-const SearchPanel = defineAsyncComponent(() => import("../panels/SearchPanel.vue"));
-import { useSearchStore } from "../../stores/search";
-import { useDockerStore } from "../../stores/docker";
-import { Files, GitBranch, Search, Container, FolderOpen, RefreshCw, ArrowDown, ArrowUp, Loader, Settings, FilePlus, FolderPlus } from "lucide-vue-next";
-import { useTabStore } from "../../stores/tabs";
-import { openUrl } from "../../lib/tauri";
-import { confirmDialog } from "../../composables/useConfirmDialog";
-import { useShortcutsModal } from "../../composables/useShortcutsModal";
-import { useI18n } from "../../i18n";
-import { useUpdater } from "../../composables/useUpdater";
-import { infoDialog } from "../../composables/useConfirmDialog";
+import { type Component, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { useGitStore } from '../../stores/git'
+import { useSidebarStore } from '../../stores/sidebar'
+import type { SidebarPanel } from '../../types/tab'
 
-const { t } = useI18n();
-const sidebar = useSidebarStore();
-const tabStore = useTabStore();
-const gitStore = useGitStore();
-const searchStore = useSearchStore();
-const dockerStore = useDockerStore();
-const shortcutsModal = useShortcutsModal();
-const showGearMenu = ref(false);
-const updater = useUpdater();
+const ProjectPanel = defineAsyncComponent(() => import('../panels/ProjectPanel.vue'))
+const FileTreePanel = defineAsyncComponent(() => import('../panels/FileTreePanel.vue'))
+const GitPanel = defineAsyncComponent(() => import('../panels/GitPanel.vue'))
+const DockerPanel = defineAsyncComponent(() => import('../panels/DockerPanel.vue'))
+const SearchPanel = defineAsyncComponent(() => import('../panels/SearchPanel.vue'))
+
+import {
+  ArrowDown,
+  ArrowUp,
+  Container,
+  FilePlus,
+  Files,
+  FolderOpen,
+  FolderPlus,
+  GitBranch,
+  Loader,
+  RefreshCw,
+  Search,
+  Settings,
+} from 'lucide-vue-next'
+import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
+import { useShortcutsModal } from '../../composables/useShortcutsModal'
+import { useUpdater } from '../../composables/useUpdater'
+import { useI18n } from '../../i18n'
+import { openUrl } from '../../lib/tauri'
+import { useDockerStore } from '../../stores/docker'
+import { useSearchStore } from '../../stores/search'
+import { useTabStore } from '../../stores/tabs'
+
+const { t } = useI18n()
+const sidebar = useSidebarStore()
+const tabStore = useTabStore()
+const gitStore = useGitStore()
+const searchStore = useSearchStore()
+const dockerStore = useDockerStore()
+const shortcutsModal = useShortcutsModal()
+const showGearMenu = ref(false)
+const updater = useUpdater()
 
 onMounted(() => {
-  updater.checkOnceInBackground();
-});
+  updater.checkOnceInBackground()
+})
 
 function onGearClick() {
-  showGearMenu.value = !showGearMenu.value;
+  showGearMenu.value = !showGearMenu.value
   if (showGearMenu.value) {
     nextTick(() => {
-      window.addEventListener("mousedown", closeGearMenu, { once: true });
-    });
+      window.addEventListener('mousedown', closeGearMenu, { once: true })
+    })
   } else {
-    window.removeEventListener("mousedown", closeGearMenu);
+    window.removeEventListener('mousedown', closeGearMenu)
   }
 }
 
 function closeGearMenu() {
-  window.removeEventListener("mousedown", closeGearMenu);
-  showGearMenu.value = false;
+  window.removeEventListener('mousedown', closeGearMenu)
+  showGearMenu.value = false
 }
 
 function openShortcuts() {
-  closeGearMenu();
-  shortcutsModal.toggle();
+  closeGearMenu()
+  shortcutsModal.toggle()
 }
 
 function openSettings() {
-  closeGearMenu();
-  tabStore.addSettingsTab();
+  closeGearMenu()
+  tabStore.addSettingsTab()
 }
 
 async function openGitHub() {
-  closeGearMenu();
+  closeGearMenu()
   if (await confirmDialog(t('confirm.openUrl', { url: 'https://github.com/kan/pike' }))) {
-    openUrl('https://github.com/kan/pike');
+    openUrl('https://github.com/kan/pike')
   }
 }
 
 async function checkUpdate() {
-  closeGearMenu();
-  await updater.checkForUpdate();
+  closeGearMenu()
+  await updater.checkForUpdate()
   if (updater.hasUpdate.value) {
-    tabStore.addSettingsTab();
+    tabStore.addSettingsTab()
   } else if (updater.state.value === 'upToDate') {
-    await infoDialog(t('settings.upToDate'));
+    await infoDialog(t('settings.upToDate'))
   } else {
-    await infoDialog(t('settings.updateError'));
+    await infoDialog(t('settings.updateError'))
   }
 }
 
-const fileTreeRef = ref<{ refresh: () => void; refreshing: boolean; startCreateAtRoot: (type: 'file' | 'dir') => void } | null>(null);
+const fileTreeRef = ref<{
+  refresh: () => void
+  refreshing: boolean
+  startCreateAtRoot: (type: 'file' | 'dir') => void
+} | null>(null)
 
 const icons: { panel: SidebarPanel; labelKey: string; icon: Component }[] = [
-  { panel: "files", labelKey: "sidebar.files", icon: Files },
-  { panel: "git", labelKey: "sidebar.git", icon: GitBranch },
-  { panel: "search", labelKey: "sidebar.search", icon: Search },
-  { panel: "docker", labelKey: "sidebar.docker", icon: Container },
-  { panel: "projects", labelKey: "sidebar.projects", icon: FolderOpen },
-];
+  { panel: 'files', labelKey: 'sidebar.files', icon: Files },
+  { panel: 'git', labelKey: 'sidebar.git', icon: GitBranch },
+  { panel: 'search', labelKey: 'sidebar.search', icon: Search },
+  { panel: 'docker', labelKey: 'sidebar.docker', icon: Container },
+  { panel: 'projects', labelKey: 'sidebar.projects', icon: FolderOpen },
+]
 
-let dragging = false;
-let startX = 0;
-let startWidth = 0;
+let dragging = false
+let startX = 0
+let startWidth = 0
 
 function onResizeStart(e: MouseEvent) {
-  dragging = true;
-  startX = e.clientX;
-  startWidth = sidebar.panelWidth;
-  document.addEventListener("mousemove", onResizeMove);
-  document.addEventListener("mouseup", onResizeEnd);
-  document.body.style.cursor = "col-resize";
-  document.body.style.userSelect = "none";
+  dragging = true
+  startX = e.clientX
+  startWidth = sidebar.panelWidth
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup', onResizeEnd)
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
 }
 
 function onResizeMove(e: MouseEvent) {
-  if (!dragging) return;
-  sidebar.setPanelWidth(startWidth + (e.clientX - startX));
+  if (!dragging) return
+  sidebar.setPanelWidth(startWidth + (e.clientX - startX))
 }
 
 function onResizeEnd() {
-  dragging = false;
-  document.removeEventListener("mousemove", onResizeMove);
-  document.removeEventListener("mouseup", onResizeEnd);
-  document.body.style.cursor = "";
-  document.body.style.userSelect = "";
+  dragging = false
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeEnd)
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
 }
 
 onUnmounted(() => {
-  document.removeEventListener("mousemove", onResizeMove);
-  document.removeEventListener("mouseup", onResizeEnd);
-  window.removeEventListener("mousedown", closeGearMenu);
-});
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeEnd)
+  window.removeEventListener('mousedown', closeGearMenu)
+})
 </script>
 
 <template>

@@ -18,8 +18,8 @@ export interface GraphLine {
 export interface GraphRow {
   hash: string
   column: number
-  lines: GraphLine[]       // lines continuing through this row
-  mergeLines: GraphLine[]  // lines merging into this commit
+  lines: GraphLine[] // lines continuing through this row
+  mergeLines: GraphLine[] // lines merging into this commit
   isMerge: boolean
   color: string
   refs: string
@@ -104,7 +104,12 @@ export function buildGraph(entries: GitLogEntry[]): GraphRow[] {
       activeLanes.pop()
     }
 
-    const maxCol = Math.max(col, ...lines.map(l => Math.max(l.fromCol, l.toCol)), ...mergeLines.map(l => Math.max(l.fromCol, l.toCol)), 0)
+    const maxCol = Math.max(
+      col,
+      ...lines.map((l) => Math.max(l.fromCol, l.toCol)),
+      ...mergeLines.map((l) => Math.max(l.fromCol, l.toCol)),
+      0,
+    )
 
     rows.push({ hash: entry.hash, column: col, lines, mergeLines, isMerge, color, refs: entry.refs, maxCol })
   }

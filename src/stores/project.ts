@@ -1,19 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { projectCreate, projectDelete, projectGetLast, projectList, projectSetLast, projectUpdate } from '../lib/tauri'
 import type { ProjectConfig } from '../types/project'
-import {
-  projectList,
-  projectCreate,
-  projectUpdate,
-  projectDelete,
-  projectGetLast,
-  projectSetLast,
-} from '../lib/tauri'
-import { useTabStore } from './tabs'
 import { useSearchStore } from './search'
+import { useTabStore } from './tabs'
 
 const RESUME_MAP: Record<string, string> = {
-  'claude': 'claude --continue',
+  claude: 'claude --continue',
 }
 
 function resolveResumeCommand(autoStart?: string): string | undefined {

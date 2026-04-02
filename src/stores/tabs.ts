@@ -1,12 +1,23 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { ptyKill } from '../lib/tauri'
+import { computed, ref } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
-import type { Tab, TerminalTab, EditorTab, DiffTab, PreviewTab, HistoryTab, DockerLogsTab, SettingsTab, PdfTab, ShellType } from '../types/tab'
-import type { SessionTabDef, LastSession } from '../types/project'
-import { basename } from '../lib/paths'
 import { t } from '../i18n'
+import { basename } from '../lib/paths'
+import { ptyKill } from '../lib/tauri'
+import type { LastSession, SessionTabDef } from '../types/project'
+import type {
+  DiffTab,
+  DockerLogsTab,
+  EditorTab,
+  HistoryTab,
+  PdfTab,
+  PreviewTab,
+  SettingsTab,
+  ShellType,
+  Tab,
+  TerminalTab,
+} from '../types/tab'
 
 let counter = 0
 
@@ -18,9 +29,7 @@ export const useTabStore = defineStore('tabs', () => {
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
 
-  const activeTab = computed(() =>
-    tabs.value.find((t) => t.id === activeTabId.value) ?? null
-  )
+  const activeTab = computed(() => tabs.value.find((t) => t.id === activeTabId.value) ?? null)
 
   function addTerminalTab(options?: {
     id?: string
@@ -53,7 +62,7 @@ export const useTabStore = defineStore('tabs', () => {
     // Confirm close if editor tab has unsaved changes (title ends with *)
     const tab = tabs.value[idx]
     if (tab.kind === 'editor' && tab.title.endsWith(' *')) {
-      if (!await confirmDialog(t('confirm.unsavedClose', { name: tab.title.slice(0, -2) }))) {
+      if (!(await confirmDialog(t('confirm.unsavedClose', { name: tab.title.slice(0, -2) })))) {
         return
       }
     }
@@ -112,7 +121,7 @@ export const useTabStore = defineStore('tabs', () => {
   }): string {
     if (!options.initialContent) {
       const existing = tabs.value.find(
-        (t): t is EditorTab => t.kind === 'editor' && t.path === options.path && !t.readOnly
+        (t): t is EditorTab => t.kind === 'editor' && t.path === options.path && !t.readOnly,
       )
       if (existing) {
         if (options.initialLine) {
@@ -142,9 +151,7 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   function addPreviewTab(options: { path: string; dataUrl: string }): string {
-    const existing = tabs.value.find(
-      (t): t is PreviewTab => t.kind === 'preview' && t.path === options.path
-    )
+    const existing = tabs.value.find((t): t is PreviewTab => t.kind === 'preview' && t.path === options.path)
     if (existing) {
       existing.dataUrl = options.dataUrl
       activeTabId.value = existing.id
@@ -165,7 +172,7 @@ export const useTabStore = defineStore('tabs', () => {
 
   function addDockerLogsTab(options: { containerId: string; containerName: string }): string {
     const existing = tabs.value.find(
-      (t): t is DockerLogsTab => t.kind === 'docker-logs' && t.containerId === options.containerId
+      (t): t is DockerLogsTab => t.kind === 'docker-logs' && t.containerId === options.containerId,
     )
     if (existing) {
       activeTabId.value = existing.id
@@ -185,9 +192,7 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   function addHistoryTab(options: { filePath: string }): string {
-    const existing = tabs.value.find(
-      (t): t is HistoryTab => t.kind === 'history' && t.filePath === options.filePath
-    )
+    const existing = tabs.value.find((t): t is HistoryTab => t.kind === 'history' && t.filePath === options.filePath)
     if (existing) {
       activeTabId.value = existing.id
       return existing.id
@@ -196,7 +201,7 @@ export const useTabStore = defineStore('tabs', () => {
     tabs.value.push({
       id,
       kind: 'history',
-      title: basename(options.filePath) + ' (history)',
+      title: `${basename(options.filePath)} (history)`,
       pinned: false,
       filePath: options.filePath,
     })
@@ -205,9 +210,7 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   function addSettingsTab(): string {
-    const existing = tabs.value.find(
-      (t): t is SettingsTab => t.kind === 'settings'
-    )
+    const existing = tabs.value.find((t): t is SettingsTab => t.kind === 'settings')
     if (existing) {
       activeTabId.value = existing.id
       return existing.id
@@ -219,9 +222,7 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   function addPdfTab(options: { path: string }): string {
-    const existing = tabs.value.find(
-      (t): t is PdfTab => t.kind === 'pdf' && t.path === options.path
-    )
+    const existing = tabs.value.find((t): t is PdfTab => t.kind === 'pdf' && t.path === options.path)
     if (existing) {
       activeTabId.value = existing.id
       return existing.id
@@ -232,19 +233,14 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function addDiffTab(options: {
-    filePath: string
-    diff: string
-    commitHash?: string
-    staged?: boolean
-  }): string {
+  function addDiffTab(options: { filePath: string; diff: string; commitHash?: string; staged?: boolean }): string {
     // Reuse existing diff tab for the same file+context
     const existing = tabs.value.find(
       (t): t is DiffTab =>
         t.kind === 'diff' &&
         t.filePath === options.filePath &&
         t.commitHash === options.commitHash &&
-        t.staged === options.staged
+        t.staged === options.staged,
     )
     if (existing) {
       existing.diff = options.diff
@@ -253,9 +249,7 @@ export const useTabStore = defineStore('tabs', () => {
     }
     const id = genId()
     const fileName = basename(options.filePath)
-    const title = options.commitHash
-      ? `${fileName} (${options.commitHash.slice(0, 7)})`
-      : `${fileName} (diff)`
+    const title = options.commitHash ? `${fileName} (${options.commitHash.slice(0, 7)})` : `${fileName} (diff)`
     tabs.value.push({
       id,
       kind: 'diff',
@@ -293,54 +287,53 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   async function closeTabs(ids: string[]) {
-    const toClose = tabs.value.filter(t => ids.includes(t.id) && !t.pinned)
+    const toClose = tabs.value.filter((t) => ids.includes(t.id) && !t.pinned)
     if (toClose.length === 0) return
 
-    const dirtyEditors = toClose.filter(t => t.kind === 'editor' && t.title.endsWith(' *'))
+    const dirtyEditors = toClose.filter((t) => t.kind === 'editor' && t.title.endsWith(' *'))
     if (dirtyEditors.length > 0) {
-      const names = dirtyEditors.map(t => t.title.slice(0, -2)).join(', ')
-      const msg = dirtyEditors.length === 1
-        ? t('confirm.unsavedClose', { name: names })
-        : t('confirm.unsavedCloseMulti', { count: dirtyEditors.length, names })
-      if (!await confirmDialog(msg)) return
+      const names = dirtyEditors.map((t) => t.title.slice(0, -2)).join(', ')
+      const msg =
+        dirtyEditors.length === 1
+          ? t('confirm.unsavedClose', { name: names })
+          : t('confirm.unsavedCloseMulti', { count: dirtyEditors.length, names })
+      if (!(await confirmDialog(msg))) return
     }
 
     // Kill PTY sessions before removing tabs to prevent wsl.exe process leaks
     const ptyKills = toClose
       .filter((t): t is TerminalTab & { ptyId: string } => t.kind === 'terminal' && !!t.ptyId)
-      .map(t => {
+      .map((t) => {
         ptyRouter.unregister(t.ptyId)
         return ptyKill(t.ptyId).catch(() => {})
       })
     await Promise.allSettled(ptyKills)
 
-    const idsToClose = new Set(toClose.map(t => t.id))
-    tabs.value = tabs.value.filter(t => !idsToClose.has(t.id))
+    const idsToClose = new Set(toClose.map((t) => t.id))
+    tabs.value = tabs.value.filter((t) => !idsToClose.has(t.id))
 
-    if (!tabs.value.some(t => t.id === activeTabId.value)) {
+    if (!tabs.value.some((t) => t.id === activeTabId.value)) {
       activeTabId.value = tabs.value[tabs.value.length - 1]?.id ?? null
     }
   }
 
   async function closeOtherTabs(keepId: string) {
-    await closeTabs(tabs.value.filter(t => t.id !== keepId).map(t => t.id))
+    await closeTabs(tabs.value.filter((t) => t.id !== keepId).map((t) => t.id))
   }
 
   async function closeTabsToRight(id: string) {
-    const idx = tabs.value.findIndex(t => t.id === id)
+    const idx = tabs.value.findIndex((t) => t.id === id)
     if (idx === -1) return
-    await closeTabs(tabs.value.slice(idx + 1).map(t => t.id))
+    await closeTabs(tabs.value.slice(idx + 1).map((t) => t.id))
   }
 
   async function closeSavedTabs() {
-    const ids = tabs.value
-      .filter(t => !t.pinned && !(t.kind === 'editor' && t.title.endsWith(' *')))
-      .map(t => t.id)
+    const ids = tabs.value.filter((t) => !t.pinned && !(t.kind === 'editor' && t.title.endsWith(' *'))).map((t) => t.id)
     await closeTabs(ids)
   }
 
   async function closeAllTabs() {
-    await closeTabs(tabs.value.map(t => t.id))
+    await closeTabs(tabs.value.map((t) => t.id))
   }
 
   function cycleTab(direction: 'next' | 'prev') {
@@ -349,9 +342,7 @@ export const useTabStore = defineStore('tabs', () => {
     if (idx === -1) return
 
     const nextIdx =
-      direction === 'next'
-        ? (idx + 1) % tabs.value.length
-        : (idx - 1 + tabs.value.length) % tabs.value.length
+      direction === 'next' ? (idx + 1) % tabs.value.length : (idx - 1 + tabs.value.length) % tabs.value.length
     activeTabId.value = tabs.value[nextIdx].id
   }
 

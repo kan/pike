@@ -1,180 +1,241 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { EditorView, lineNumbers, highlightActiveLine, keymap } from "@codemirror/view";
-import { EditorState, Compartment } from "@codemirror/state";
-import { defaultKeymap, indentWithTab, history, historyKeymap, undo, redo } from "@codemirror/commands";
-import { indentUnit } from "@codemirror/language";
-import { highlightSelectionMatches } from "@codemirror/search";
-import { editorSearch, searchKeymap } from "../../lib/editorSearch";
-import { getEditorTheme } from "../../lib/editorThemes";
-import { useTabStore } from "../../stores/tabs";
-import { useProjectStore } from "../../stores/project";
-import { useSettingsStore } from "../../stores/settings";
-import { fsReadFile, fsWriteFile, gitDiffLines, openUrl } from "../../lib/tauri";
-import { confirmDialog } from "../../composables/useConfirmDialog";
-import { markRecentlySaved } from "../../composables/useFsWatcher";
-import { getLanguage, getLanguageLabel } from "../../lib/languages";
-import { basename, extension } from "../../lib/paths";
-import { useEditorInfo } from "../../composables/useEditorInfo";
-import { gitDiffGutter, setDiffLines } from "../../lib/editorGitGutter";
-import { minimap } from "../../lib/editorMinimap";
-import { marked } from "marked";
-import DOMPurify from "dompurify";
-import type { EditorTab } from "../../types/tab";
-import { useI18n } from "../../i18n";
+import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from '@codemirror/commands'
+import { indentUnit } from '@codemirror/language'
+import { highlightSelectionMatches } from '@codemirror/search'
+import { Compartment, EditorState } from '@codemirror/state'
+import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { confirmDialog } from '../../composables/useConfirmDialog'
+import { useEditorInfo } from '../../composables/useEditorInfo'
+import { markRecentlySaved } from '../../composables/useFsWatcher'
+import { useI18n } from '../../i18n'
+import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
+import { minimap } from '../../lib/editorMinimap'
+import { editorSearch, searchKeymap } from '../../lib/editorSearch'
+import { getEditorTheme } from '../../lib/editorThemes'
+import { getLanguage, getLanguageLabel } from '../../lib/languages'
+import { basename, extension } from '../../lib/paths'
+import { fsReadFile, fsWriteFile, gitDiffLines, openUrl } from '../../lib/tauri'
+import { useProjectStore } from '../../stores/project'
+import { useSettingsStore } from '../../stores/settings'
+import { useTabStore } from '../../stores/tabs'
+import type { EditorTab } from '../../types/tab'
 
-const { t } = useI18n();
-const props = defineProps<{ tabId: string }>();
-const tabStore = useTabStore();
-const projectStore = useProjectStore();
-const settingsStore = useSettingsStore();
-const editorInfo = useEditorInfo();
+const { t } = useI18n()
+const props = defineProps<{ tabId: string }>()
+const tabStore = useTabStore()
+const projectStore = useProjectStore()
+const settingsStore = useSettingsStore()
+const editorInfo = useEditorInfo()
 
 // Dynamic compartments for settings that can change at runtime
-const themeCompartment = new Compartment();
-const minimapCompartment = new Compartment();
-const wordWrapCompartment = new Compartment();
-const tabSizeCompartment = new Compartment();
-const indentUnitCompartment = new Compartment();
+const themeCompartment = new Compartment()
+const minimapCompartment = new Compartment()
+const wordWrapCompartment = new Compartment()
+const tabSizeCompartment = new Compartment()
+const indentUnitCompartment = new Compartment()
 
-const tab = computed(() =>
-  tabStore.tabs.find((t): t is EditorTab => t.id === props.tabId && t.kind === "editor")
-);
+const tab = computed(() => tabStore.tabs.find((t): t is EditorTab => t.id === props.tabId && t.kind === 'editor'))
 
-const editorRef = ref<HTMLDivElement>();
-const previewRef = ref<HTMLDivElement>();
-const mermaidRef = ref<HTMLDivElement>();
-let editorView: EditorView | null = null;
-const loading = ref(true);
-const saving = ref(false);
-const error = ref<string | null>(null);
-let savedContent = "";
-const isDirty = ref(false);
-const currentEncoding = ref("UTF-8");
-const currentLineEnding = ref<'LF' | 'CRLF'>('LF');
+const editorRef = ref<HTMLDivElement>()
+const previewRef = ref<HTMLDivElement>()
+const mermaidRef = ref<HTMLDivElement>()
+let editorView: EditorView | null = null
+const loading = ref(true)
+const saving = ref(false)
+const error = ref<string | null>(null)
+let savedContent = ''
+const isDirty = ref(false)
+const currentEncoding = ref('UTF-8')
+const currentLineEnding = ref<'LF' | 'CRLF'>('LF')
 
 // Markdown preview
-const viewMode = ref<'edit' | 'split' | 'preview'>('edit');
-const debouncedDocVersion = ref(0);
-let docVersionTimer: ReturnType<typeof setTimeout> | null = null;
-let syncingScroll = false;
+const viewMode = ref<'edit' | 'split' | 'preview'>('edit')
+const debouncedDocVersion = ref(0)
+let docVersionTimer: ReturnType<typeof setTimeout> | null = null
+let syncingScroll = false
 
 function bumpDocVersion() {
-  if (docVersionTimer) clearTimeout(docVersionTimer);
+  if (docVersionTimer) clearTimeout(docVersionTimer)
   docVersionTimer = setTimeout(() => {
-    debouncedDocVersion.value++;
-  }, 250);
+    debouncedDocVersion.value++
+  }, 250)
 }
 
-const fileExt = computed(() => tab.value ? extension(tab.value.path) : '');
-const isMarkdown = computed(() => fileExt.value === 'md' || fileExt.value === 'markdown');
-const isCsv = computed(() => fileExt.value === 'csv' || fileExt.value === 'tsv');
-const isMermaid = computed(() => fileExt.value === 'mermaid' || fileExt.value === 'mmd');
-const isSvg = computed(() => fileExt.value === 'svg');
-const hasPreview = computed(() => isMarkdown.value || isCsv.value || isMermaid.value || isSvg.value);
+const fileExt = computed(() => (tab.value ? extension(tab.value.path) : ''))
+const isMarkdown = computed(() => fileExt.value === 'md' || fileExt.value === 'markdown')
+const isCsv = computed(() => fileExt.value === 'csv' || fileExt.value === 'tsv')
+const isMermaid = computed(() => fileExt.value === 'mermaid' || fileExt.value === 'mmd')
+const isSvg = computed(() => fileExt.value === 'svg')
+const hasPreview = computed(() => isMarkdown.value || isCsv.value || isMermaid.value || isSvg.value)
 
-const showEditor = computed(() => viewMode.value !== 'preview');
-const showPreview = computed(() => viewMode.value !== 'edit');
+const showEditor = computed(() => viewMode.value !== 'preview')
+const showPreview = computed(() => viewMode.value !== 'edit')
 
 const SVG_PURIFY_OPTS = {
-  ADD_TAGS: ['svg', 'g', 'path', 'rect', 'circle', 'line', 'polyline', 'polygon', 'text', 'tspan', 'defs', 'clipPath', 'use', 'marker', 'foreignObject', 'style'],
-  ADD_ATTR: ['viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'transform', 'x', 'y', 'cx', 'cy', 'r', 'rx', 'ry', 'width', 'height', 'points', 'text-anchor', 'dominant-baseline', 'font-size', 'font-family', 'font-weight', 'clip-path', 'marker-end', 'refX', 'refY', 'orient', 'markerWidth', 'markerHeight', 'dx', 'dy', 'preserveAspectRatio', 'startOffset', 'data-id', 'data-node-id', 'data-look'],
-};
+  ADD_TAGS: [
+    'svg',
+    'g',
+    'path',
+    'rect',
+    'circle',
+    'line',
+    'polyline',
+    'polygon',
+    'text',
+    'tspan',
+    'defs',
+    'clipPath',
+    'use',
+    'marker',
+    'foreignObject',
+    'style',
+  ],
+  ADD_ATTR: [
+    'viewBox',
+    'xmlns',
+    'd',
+    'fill',
+    'stroke',
+    'stroke-width',
+    'transform',
+    'x',
+    'y',
+    'cx',
+    'cy',
+    'r',
+    'rx',
+    'ry',
+    'width',
+    'height',
+    'points',
+    'text-anchor',
+    'dominant-baseline',
+    'font-size',
+    'font-family',
+    'font-weight',
+    'clip-path',
+    'marker-end',
+    'refX',
+    'refY',
+    'orient',
+    'markerWidth',
+    'markerHeight',
+    'dx',
+    'dy',
+    'preserveAspectRatio',
+    'startOffset',
+    'data-id',
+    'data-node-id',
+    'data-look',
+  ],
+}
 
 function buildCsvPreview(text: string): string {
-  const ext = fileExt.value;
-  const delimiter = ext === 'tsv' ? '\t' : ',';
-  const lines = text.split(/\r?\n/).filter(l => l.length > 0);
-  if (lines.length === 0) return '<p>Empty</p>';
+  const ext = fileExt.value
+  const delimiter = ext === 'tsv' ? '\t' : ','
+  const lines = text.split(/\r?\n/).filter((l) => l.length > 0)
+  if (lines.length === 0) return '<p>Empty</p>'
 
   function parseLine(line: string): string[] {
-    const result: string[] = [];
-    let current = '', inQuotes = false;
+    const result: string[] = []
+    let current = '',
+      inQuotes = false
     for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
+      const ch = line[i]
       if (inQuotes) {
-        if (ch === '"' && line[i + 1] === '"') { current += '"'; i++; }
-        else if (ch === '"') inQuotes = false;
-        else current += ch;
+        if (ch === '"' && line[i + 1] === '"') {
+          current += '"'
+          i++
+        } else if (ch === '"') inQuotes = false
+        else current += ch
       } else {
-        if (ch === '"') inQuotes = true;
-        else if (ch === delimiter) { result.push(current); current = ''; }
-        else current += ch;
+        if (ch === '"') inQuotes = true
+        else if (ch === delimiter) {
+          result.push(current)
+          current = ''
+        } else current += ch
       }
     }
-    result.push(current);
-    return result;
+    result.push(current)
+    return result
   }
 
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const maxRows = 10000;
-  const headers = parseLine(lines[0]);
-  let html = '<table><thead><tr><th>#</th>';
-  for (const h of headers) html += `<th>${esc(h)}</th>`;
-  html += '</tr></thead><tbody>';
-  const rowCount = Math.min(lines.length - 1, maxRows);
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const maxRows = 10000
+  const headers = parseLine(lines[0])
+  let html = '<table><thead><tr><th>#</th>'
+  for (const h of headers) html += `<th>${esc(h)}</th>`
+  html += '</tr></thead><tbody>'
+  const rowCount = Math.min(lines.length - 1, maxRows)
   for (let i = 0; i < rowCount; i++) {
-    const cells = parseLine(lines[i + 1]);
-    html += `<tr><td class="csv-row-num">${i + 1}</td>`;
-    for (const c of cells) html += `<td>${esc(c)}</td>`;
-    html += '</tr>';
+    const cells = parseLine(lines[i + 1])
+    html += `<tr><td class="csv-row-num">${i + 1}</td>`
+    for (const c of cells) html += `<td>${esc(c)}</td>`
+    html += '</tr>'
   }
-  html += '</tbody></table>';
-  if (lines.length - 1 > maxRows) html += `<p style="text-align:center;color:var(--text-secondary);font-size:12px">${esc(t('csv.truncated', { max: String(maxRows) }))}</p>`;
-  return html;
+  html += '</tbody></table>'
+  if (lines.length - 1 > maxRows)
+    html += `<p style="text-align:center;color:var(--text-secondary);font-size:12px">${esc(t('csv.truncated', { max: String(maxRows) }))}</p>`
+  return html
 }
 
 const previewHtml = computed(() => {
-  void debouncedDocVersion.value;
-  if (!showPreview.value || !editorView) return '';
-  const text = editorView.state.doc.toString();
-  if (isCsv.value) return buildCsvPreview(text);
-  if (isMermaid.value) return ''; // rendered asynchronously
-  if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS);
-  return DOMPurify.sanitize(marked.parse(text) as string, SVG_PURIFY_OPTS);
-});
+  void debouncedDocVersion.value
+  if (!showPreview.value || !editorView) return ''
+  const text = editorView.state.doc.toString()
+  if (isCsv.value) return buildCsvPreview(text)
+  if (isMermaid.value) return '' // rendered asynchronously
+  if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS)
+  return DOMPurify.sanitize(marked.parse(text) as string, SVG_PURIFY_OPTS)
+})
 
-const mermaidZoom = ref(1);
+const mermaidZoom = ref(1)
 
 async function renderStandaloneMermaid() {
-  await nextTick();
-  if (!mermaidRef.value || !editorView) return;
-  const source = editorView.state.doc.toString().trim();
-  if (!source) { mermaidRef.value.innerHTML = ''; return; }
+  await nextTick()
+  if (!mermaidRef.value || !editorView) return
+  const source = editorView.state.doc.toString().trim()
+  if (!source) {
+    mermaidRef.value.innerHTML = ''
+    return
+  }
   try {
-    const { getMermaid } = await import('../../lib/mermaid');
-    const mermaid = await getMermaid();
-    const id = `mermaid-${props.tabId}-${Date.now()}`;
-    const { svg } = await mermaid.render(id, source);
-    mermaidRef.value.innerHTML = `<div class="mermaid-inline">${svg}</div>`;
+    const { getMermaid } = await import('../../lib/mermaid')
+    const mermaid = await getMermaid()
+    const id = `mermaid-${props.tabId}-${Date.now()}`
+    const { svg } = await mermaid.render(id, source)
+    mermaidRef.value.innerHTML = `<div class="mermaid-inline">${svg}</div>`
   } catch (e) {
-    const pre = document.createElement('pre');
-    pre.className = 'mermaid-render-error';
-    pre.textContent = String(e);
-    mermaidRef.value.replaceChildren(pre);
+    const pre = document.createElement('pre')
+    pre.className = 'mermaid-render-error'
+    pre.textContent = String(e)
+    mermaidRef.value.replaceChildren(pre)
   }
 }
 
 async function renderMarkdownMermaid() {
-  await nextTick();
-  if (!previewRef.value) return;
-  const codeBlocks = previewRef.value.querySelectorAll('code.language-mermaid');
-  if (codeBlocks.length === 0) return;
+  await nextTick()
+  if (!previewRef.value) return
+  const codeBlocks = previewRef.value.querySelectorAll('code.language-mermaid')
+  if (codeBlocks.length === 0) return
   try {
-    const { getMermaid } = await import('../../lib/mermaid');
-    const mermaid = await getMermaid();
-    let idx = 0;
+    const { getMermaid } = await import('../../lib/mermaid')
+    const mermaid = await getMermaid()
+    let idx = 0
     for (const block of codeBlocks) {
-      const pre = block.parentElement;
-      if (!pre || pre.tagName !== 'PRE') continue;
-      const source = block.textContent ?? '';
+      const pre = block.parentElement
+      if (!pre || pre.tagName !== 'PRE') continue
+      const source = block.textContent ?? ''
       try {
-        const id = `md-mermaid-${props.tabId}-${idx++}-${Date.now()}`;
-        const { svg } = await mermaid.render(id, source.trim());
-        const wrapper = document.createElement('div');
-        wrapper.className = 'mermaid-inline';
-        wrapper.innerHTML = svg;
-        pre.replaceWith(wrapper);
+        const id = `md-mermaid-${props.tabId}-${idx++}-${Date.now()}`
+        const { svg } = await mermaid.render(id, source.trim())
+        const wrapper = document.createElement('div')
+        wrapper.className = 'mermaid-inline'
+        wrapper.innerHTML = svg
+        pre.replaceWith(wrapper)
       } catch {
         // Leave code block as-is on syntax error
       }
@@ -186,34 +247,34 @@ async function renderMarkdownMermaid() {
 
 // Standalone mermaid: re-render on content or view mode changes
 watch([debouncedDocVersion, showPreview], () => {
-  if (isMermaid.value && showPreview.value) renderStandaloneMermaid();
-});
+  if (isMermaid.value && showPreview.value) renderStandaloneMermaid()
+})
 // Markdown mermaid: re-render after previewHtml is set
 watch(previewHtml, () => {
-  if (isMarkdown.value) renderMarkdownMermaid();
-});
+  if (isMarkdown.value) renderMarkdownMermaid()
+})
 
 function updateTitle() {
-  if (!tab.value) return;
-  const baseName = basename(tab.value.path) + (tab.value.readOnly ? '' : '');
-  tabStore.setTabTitle(props.tabId, isDirty.value ? baseName + " *" : baseName);
+  if (!tab.value) return
+  const baseName = basename(tab.value.path) + (tab.value.readOnly ? '' : '')
+  tabStore.setTabTitle(props.tabId, isDirty.value ? `${baseName} *` : baseName)
 }
 
 function updateDirtyState() {
-  if (!editorView) return;
-  const current = editorView.state.doc.toString();
-  const dirty = current !== savedContent;
+  if (!editorView) return
+  const current = editorView.state.doc.toString()
+  const dirty = current !== savedContent
   if (dirty !== isDirty.value) {
-    isDirty.value = dirty;
-    updateTitle();
+    isDirty.value = dirty
+    updateTitle()
   }
 }
 
 function updateCursorInfo() {
-  if (!editorView || !tab.value) return;
-  if (tabStore.activeTabId !== props.tabId) return;
-  const pos = editorView.state.selection.main.head;
-  const line = editorView.state.doc.lineAt(pos);
+  if (!editorView || !tab.value) return
+  if (tabStore.activeTabId !== props.tabId) return
+  const pos = editorView.state.selection.main.head
+  const line = editorView.state.doc.lineAt(pos)
   editorInfo.update({
     line: line.number,
     col: pos - line.from + 1,
@@ -222,135 +283,133 @@ function updateCursorInfo() {
     fileType: getLanguageLabel(tab.value.path),
     tabSize: settingsStore.editorTabSize,
     tabId: props.tabId,
-  });
+  })
 }
 
 async function save(overrideEncoding?: string) {
-  if (!editorView || !tab.value || saving.value || tab.value.readOnly) return;
-  const project = projectStore.currentProject;
-  if (!project) return;
+  if (!editorView || !tab.value || saving.value || tab.value.readOnly) return
+  const project = projectStore.currentProject
+  if (!project) return
 
-  const enc = overrideEncoding ?? currentEncoding.value;
-  saving.value = true;
+  const enc = overrideEncoding ?? currentEncoding.value
+  saving.value = true
   try {
-    let content = editorView.state.doc.toString();
+    let content = editorView.state.doc.toString()
     if (currentLineEnding.value === 'CRLF') {
-      content = content.replace(/\n/g, '\r\n');
+      content = content.replace(/\n/g, '\r\n')
     }
-    markRecentlySaved(tab.value.path);
-    await fsWriteFile(project.shell, tab.value.path, content,
-      enc !== 'UTF-8' ? enc : undefined);
+    markRecentlySaved(tab.value.path)
+    await fsWriteFile(project.shell, tab.value.path, content, enc !== 'UTF-8' ? enc : undefined)
     if (overrideEncoding) {
-      currentEncoding.value = enc;
-      updateCursorInfo();
+      currentEncoding.value = enc
+      updateCursorInfo()
     }
-    savedContent = editorView.state.doc.toString();
-    updateDirtyState();
-    refreshDiffGutter();
+    savedContent = editorView.state.doc.toString()
+    updateDirtyState()
+    refreshDiffGutter()
   } catch (e) {
-    error.value = String(e);
+    error.value = String(e)
   } finally {
-    saving.value = false;
+    saving.value = false
   }
 }
 
 async function loadContent(encoding?: string): Promise<string> {
-  if (!tab.value) throw new Error('No tab');
+  if (!tab.value) throw new Error('No tab')
 
   if (tab.value.initialContent !== undefined) {
-    savedContent = tab.value.initialContent;
-    currentEncoding.value = 'UTF-8';
-    currentLineEnding.value = tab.value.initialContent.includes('\r\n') ? 'CRLF' : 'LF';
-    return savedContent;
+    savedContent = tab.value.initialContent
+    currentEncoding.value = 'UTF-8'
+    currentLineEnding.value = tab.value.initialContent.includes('\r\n') ? 'CRLF' : 'LF'
+    return savedContent
   }
 
-  const project = projectStore.currentProject;
-  if (!project) throw new Error('No project');
+  const project = projectStore.currentProject
+  if (!project) throw new Error('No project')
 
-  const result = await fsReadFile(project.shell, tab.value.path, encoding);
-  currentEncoding.value = result.encoding;
+  const result = await fsReadFile(project.shell, tab.value.path, encoding)
+  currentEncoding.value = result.encoding
   // Detect and normalize line endings for CodeMirror (which uses \n internally)
-  currentLineEnding.value = result.content.includes('\r\n') ? 'CRLF' : 'LF';
-  const normalized = result.content.replace(/\r\n/g, '\n');
-  savedContent = normalized;
-  return normalized;
+  currentLineEnding.value = result.content.includes('\r\n') ? 'CRLF' : 'LF'
+  const normalized = result.content.replace(/\r\n/g, '\n')
+  savedContent = normalized
+  return normalized
 }
 
 // --- Git diff gutter ---
 async function refreshDiffGutter() {
-  if (!editorView || !tab.value || tab.value.readOnly || tab.value.initialContent !== undefined) return;
-  const project = projectStore.currentProject;
-  if (!project) return;
+  if (!editorView || !tab.value || tab.value.readOnly || tab.value.initialContent !== undefined) return
+  const project = projectStore.currentProject
+  if (!project) return
   try {
-    const diff = await gitDiffLines(project.root, project.shell, tab.value.path);
-    editorView?.dispatch({ effects: setDiffLines.of(diff) });
+    const diff = await gitDiffLines(project.root, project.shell, tab.value.path)
+    editorView?.dispatch({ effects: setDiffLines.of(diff) })
   } catch {
     // Not a git repo or file not tracked — ignore
   }
 }
 
 // --- Context menu ---
-const ctxMenu = ref<{ x: number; y: number } | null>(null);
+const ctxMenu = ref<{ x: number; y: number } | null>(null)
 
 function onEditorContextMenu(e: MouseEvent) {
-  e.preventDefault();
-  ctxHasSelection.value = editorView ? !editorView.state.selection.main.empty : false;
-  ctxMenu.value = { x: e.clientX, y: e.clientY };
+  e.preventDefault()
+  ctxHasSelection.value = editorView ? !editorView.state.selection.main.empty : false
+  ctxMenu.value = { x: e.clientX, y: e.clientY }
   nextTick(() => {
-    window.addEventListener("mousedown", closeCtxMenu, { once: true });
-  });
+    window.addEventListener('mousedown', closeCtxMenu, { once: true })
+  })
 }
 
 function closeCtxMenu() {
-  ctxMenu.value = null;
+  ctxMenu.value = null
 }
 
 function execUndo() {
-  closeCtxMenu();
-  if (editorView) undo(editorView);
+  closeCtxMenu()
+  if (editorView) undo(editorView)
 }
 
 function execRedo() {
-  closeCtxMenu();
-  if (editorView) redo(editorView);
+  closeCtxMenu()
+  if (editorView) redo(editorView)
 }
 
 function execCut() {
-  closeCtxMenu();
-  if (!editorView) return;
-  editorView.focus();
-  document.execCommand('cut');
+  closeCtxMenu()
+  if (!editorView) return
+  editorView.focus()
+  document.execCommand('cut')
 }
 
 function execCopy() {
-  closeCtxMenu();
-  if (!editorView) return;
-  editorView.focus();
-  document.execCommand('copy');
+  closeCtxMenu()
+  if (!editorView) return
+  editorView.focus()
+  document.execCommand('copy')
 }
 
 async function execPaste() {
-  closeCtxMenu();
-  if (!editorView) return;
-  const text = await navigator.clipboard.readText();
-  if (text) editorView.dispatch(editorView.state.replaceSelection(text));
+  closeCtxMenu()
+  if (!editorView) return
+  const text = await navigator.clipboard.readText()
+  if (text) editorView.dispatch(editorView.state.replaceSelection(text))
 }
 
 function openGitHistory() {
-  closeCtxMenu();
-  if (!tab.value) return;
-  tabStore.addHistoryTab({ filePath: tab.value.path });
+  closeCtxMenu()
+  if (!tab.value) return
+  tabStore.addHistoryTab({ filePath: tab.value.path })
 }
 
-const isReadOnlyTab = computed(() => tab.value?.readOnly ?? false);
+const isReadOnlyTab = computed(() => tab.value?.readOnly ?? false)
 // Snapshot selection state when context menu opens (not reactive — avoids stale computed)
-const ctxHasSelection = ref(false);
-
+const ctxHasSelection = ref(false)
 
 function createEditorView(container: HTMLElement, content: string) {
-  const isReadOnly = tab.value?.readOnly ?? false;
-  const lang = tab.value ? getLanguage(tab.value.path) : null;
-  const hasFile = tab.value && !tab.value.initialContent;
+  const isReadOnly = tab.value?.readOnly ?? false
+  const lang = tab.value ? getLanguage(tab.value.path) : null
+  const hasFile = tab.value && !tab.value.initialContent
   const extensions = [
     themeCompartment.of(getEditorTheme(settingsStore.editorThemeName).extension),
     lineNumbers(),
@@ -363,213 +422,229 @@ function createEditorView(container: HTMLElement, content: string) {
     wordWrapCompartment.of(settingsStore.editorWordWrap ? EditorView.lineWrapping : []),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
-        updateDirtyState();
-        bumpDocVersion();
+        updateDirtyState()
+        bumpDocVersion()
       }
-      if (update.selectionSet || update.docChanged) updateCursorInfo();
+      if (update.selectionSet || update.docChanged) updateCursorInfo()
     }),
     EditorView.theme({
-      "&": { height: "100%", fontSize: "13px" },
-      ".cm-scroller": {
+      '&': { height: '100%', fontSize: '13px' },
+      '.cm-scroller': {
         fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
       },
-      ".cm-searchMatch": {
-        backgroundColor: "rgba(255, 213, 0, 0.25)",
+      '.cm-searchMatch': {
+        backgroundColor: 'rgba(255, 213, 0, 0.25)',
       },
-      ".cm-searchMatch-selected": {
-        backgroundColor: "rgba(255, 213, 0, 0.5)",
+      '.cm-searchMatch-selected': {
+        backgroundColor: 'rgba(255, 213, 0, 0.5)',
       },
     }),
-  ];
+  ]
 
   // Git diff gutter + minimap (only for real files)
   if (hasFile) {
-    extensions.push(gitDiffGutter());
-    extensions.push(minimapCompartment.of(settingsStore.editorMinimap ? minimap() : []));
+    extensions.push(gitDiffGutter())
+    extensions.push(minimapCompartment.of(settingsStore.editorMinimap ? minimap() : []))
   }
 
   if (!isReadOnly) {
-    extensions.push(keymap.of([
-      ...searchKeymap,
-      ...historyKeymap,
-      ...defaultKeymap,
-      indentWithTab,
-      { key: "Mod-s", run: () => { save(); return true; } },
-    ]));
+    extensions.push(
+      keymap.of([
+        ...searchKeymap,
+        ...historyKeymap,
+        ...defaultKeymap,
+        indentWithTab,
+        {
+          key: 'Mod-s',
+          run: () => {
+            save()
+            return true
+          },
+        },
+      ]),
+    )
   } else {
-    extensions.push(EditorState.readOnly.of(true));
-    extensions.push(keymap.of([...searchKeymap, ...historyKeymap, ...defaultKeymap]));
+    extensions.push(EditorState.readOnly.of(true))
+    extensions.push(keymap.of([...searchKeymap, ...historyKeymap, ...defaultKeymap]))
   }
-  if (lang) extensions.push(lang);
+  if (lang) extensions.push(lang)
 
   return new EditorView({
     state: EditorState.create({ doc: content, extensions }),
     parent: container,
-  });
+  })
 }
 
 async function reopenWithEncoding(encoding: string) {
-  if (!editorRef.value || !tab.value) return;
-  loading.value = true;
+  if (!editorRef.value || !tab.value) return
+  loading.value = true
   try {
-    editorView?.destroy();
-    editorView = null;
-    const content = await loadContent(encoding);
-    if (!editorRef.value) return;
-    loading.value = false;
-    editorView = createEditorView(editorRef.value, content);
+    editorView?.destroy()
+    editorView = null
+    const content = await loadContent(encoding)
+    if (!editorRef.value) return
+    loading.value = false
+    editorView = createEditorView(editorRef.value, content)
     if (viewMode.value === 'split') {
-      editorView.scrollDOM.addEventListener('scroll', onEditorScroll);
+      editorView.scrollDOM.addEventListener('scroll', onEditorScroll)
     }
-    isDirty.value = false;
-    updateTitle();
-    updateCursorInfo();
-    refreshDiffGutter();
+    isDirty.value = false
+    updateTitle()
+    updateCursorInfo()
+    refreshDiffGutter()
   } catch (e) {
-    loading.value = false;
-    error.value = String(e);
+    loading.value = false
+    error.value = String(e)
   }
 }
 
 function changeLineEnding(le: 'LF' | 'CRLF') {
-  currentLineEnding.value = le;
+  currentLineEnding.value = le
   // Mark as dirty since the save output will differ
   if (!isDirty.value) {
-    isDirty.value = true;
-    updateTitle();
+    isDirty.value = true
+    updateTitle()
   }
-  updateCursorInfo();
+  updateCursorInfo()
 }
 
 function jumpToLine(lineNum?: number) {
-  if (!lineNum || !editorView) return;
-  const docLines = editorView.state.doc.lines;
-  const line = editorView.state.doc.line(Math.min(lineNum, docLines));
+  if (!lineNum || !editorView) return
+  const docLines = editorView.state.doc.lines
+  const line = editorView.state.doc.line(Math.min(lineNum, docLines))
   editorView.dispatch({
     selection: { anchor: line.from },
     effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
-  });
-  if (tab.value) tab.value.initialLine = undefined;
+  })
+  if (tab.value) tab.value.initialLine = undefined
 }
 
 onMounted(async () => {
-  if (!editorRef.value || !tab.value) return;
+  if (!editorRef.value || !tab.value) return
 
   try {
-    const content = await loadContent();
-    if (!editorRef.value) return;
-    loading.value = false;
-    editorView = createEditorView(editorRef.value, content);
-    jumpToLine(tab.value?.initialLine);
-    updateCursorInfo();
-    refreshDiffGutter();
+    const content = await loadContent()
+    if (!editorRef.value) return
+    loading.value = false
+    editorView = createEditorView(editorRef.value, content)
+    jumpToLine(tab.value?.initialLine)
+    updateCursorInfo()
+    refreshDiffGutter()
 
     // Register callbacks for StatusBar to change encoding/line ending
     editorInfo.registerCallbacks(
       (enc) => reopenWithEncoding(enc),
       (le) => changeLineEnding(le),
       (enc) => save(enc),
-    );
+    )
   } catch (e) {
-    loading.value = false;
-    error.value = String(e);
+    loading.value = false
+    error.value = String(e)
   }
-});
+})
 
 // Scroll sync
 function onEditorScroll() {
-  if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return;
-  const scroller = editorView.scrollDOM;
-  const ratio = scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight || 1);
-  syncingScroll = true;
-  previewRef.value.scrollTop = ratio * (previewRef.value.scrollHeight - previewRef.value.clientHeight);
-  requestAnimationFrame(() => { syncingScroll = false; });
+  if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return
+  const scroller = editorView.scrollDOM
+  const ratio = scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight || 1)
+  syncingScroll = true
+  previewRef.value.scrollTop = ratio * (previewRef.value.scrollHeight - previewRef.value.clientHeight)
+  requestAnimationFrame(() => {
+    syncingScroll = false
+  })
 }
 
 function onPreviewScroll() {
-  if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return;
-  const preview = previewRef.value;
-  const ratio = preview.scrollTop / (preview.scrollHeight - preview.clientHeight || 1);
-  syncingScroll = true;
-  const scroller = editorView.scrollDOM;
-  scroller.scrollTop = ratio * (scroller.scrollHeight - scroller.clientHeight);
-  requestAnimationFrame(() => { syncingScroll = false; });
+  if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return
+  const preview = previewRef.value
+  const ratio = preview.scrollTop / (preview.scrollHeight - preview.clientHeight || 1)
+  syncingScroll = true
+  const scroller = editorView.scrollDOM
+  scroller.scrollTop = ratio * (scroller.scrollHeight - scroller.clientHeight)
+  requestAnimationFrame(() => {
+    syncingScroll = false
+  })
 }
 
 function resolveLocalPath(href: string): string | null {
-  const project = projectStore.currentProject;
-  if (!project || !tab.value) return null;
+  const project = projectStore.currentProject
+  if (!project || !tab.value) return null
 
   // Prevent opening arbitrary protocol handlers (mailto:, javascript:, data:, etc.)
-  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href) && !(/^[a-zA-Z]:\\/.test(href))) return null;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href) && !/^[a-zA-Z]:\\/.test(href)) return null
 
   // Decode URL-encoded characters (%20 → space, etc.)
-  try { href = decodeURIComponent(href); } catch { return null; }
+  try {
+    href = decodeURIComponent(href)
+  } catch {
+    return null
+  }
 
-  const root = project.root;
-  const isWsl = project.shell.kind === 'wsl';
-  const sep = isWsl ? '/' : '\\';
+  const root = project.root
+  const isWsl = project.shell.kind === 'wsl'
+  const sep = isWsl ? '/' : '\\'
 
   // Determine the directory containing the current file
-  const filePath = tab.value.path;
-  const lastSep = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
-  const dir = lastSep > 0 ? filePath.slice(0, lastSep) : root;
+  const filePath = tab.value.path
+  const lastSep = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
+  const dir = lastSep > 0 ? filePath.slice(0, lastSep) : root
 
   // Normalize all separators to forward slash for resolution, then convert back
-  const joined = (dir + '/' + href).replace(/\\/g, '/');
-  const parts = joined.split('/');
+  const joined = `${dir}/${href}`.replace(/\\/g, '/')
+  const parts = joined.split('/')
 
   // Resolve . and .. segments, preserving leading empty string for absolute paths
-  const resolved: string[] = [];
+  const resolved: string[] = []
   for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    if (part === '.') continue;
-    if (part === '' && i > 0) continue; // skip empty parts except the leading one
+    const part = parts[i]
+    if (part === '.') continue
+    if (part === '' && i > 0) continue // skip empty parts except the leading one
     if (part === '..') {
       // Don't pop past the root (keep at least the drive letter or leading empty string)
-      if (resolved.length > 1) resolved.pop();
+      if (resolved.length > 1) resolved.pop()
     } else {
-      resolved.push(part);
+      resolved.push(part)
     }
   }
 
-  const fullPath = resolved.join(sep);
+  const fullPath = resolved.join(sep)
 
   // Security: ensure the resolved path is within the project root
-  const normalizedRoot = root.replace(/[/\\]+$/, '');
-  const normalizedFull = fullPath.replace(/[/\\]+$/, '');
+  const normalizedRoot = root.replace(/[/\\]+$/, '')
+  const normalizedFull = fullPath.replace(/[/\\]+$/, '')
   // Case-insensitive comparison on Windows
-  const rootCheck = isWsl ? normalizedFull : normalizedFull.toLowerCase();
-  const rootPrefix = isWsl ? normalizedRoot : normalizedRoot.toLowerCase();
+  const rootCheck = isWsl ? normalizedFull : normalizedFull.toLowerCase()
+  const rootPrefix = isWsl ? normalizedRoot : normalizedRoot.toLowerCase()
   if (rootCheck !== rootPrefix && !rootCheck.startsWith(rootPrefix + (isWsl ? '/' : '\\'))) {
-    return null;
+    return null
   }
 
-  return fullPath;
+  return fullPath
 }
 
 async function onPreviewClick(e: MouseEvent) {
-  const target = (e.target as HTMLElement).closest('a');
-  if (!target) return;
-  const href = target.getAttribute('href');
-  if (!href) return;
-  e.preventDefault();
+  const target = (e.target as HTMLElement).closest('a')
+  if (!target) return
+  const href = target.getAttribute('href')
+  if (!href) return
+  e.preventDefault()
 
   // External URL → confirm + open in browser
   if (href.startsWith('http://') || href.startsWith('https://')) {
     if (await confirmDialog(t('confirm.openUrl', { url: href }))) {
-      openUrl(href);
+      openUrl(href)
     }
-    return;
+    return
   }
 
   // Fragment-only links (e.g. #heading) → ignore
-  if (href.startsWith('#')) return;
+  if (href.startsWith('#')) return
 
   // Local file link → resolve and open in editor
-  const resolved = resolveLocalPath(href);
+  const resolved = resolveLocalPath(href)
   if (resolved) {
-    tabStore.addEditorTab({ path: resolved });
+    tabStore.addEditorTab({ path: resolved })
   }
 }
 
@@ -577,116 +652,133 @@ async function onPreviewClick(e: MouseEvent) {
 watch(
   () => tab.value?.initialLine,
   (lineNum) => {
-    if (lineNum) jumpToLine(lineNum);
-  }
-);
+    if (lineNum) jumpToLine(lineNum)
+  },
+)
 
 // Reload file content when requested (e.g. from CLI)
 watch(
   () => tab.value?.reloadRequested,
   (val) => {
-    if (val) reopenWithEncoding(currentEncoding.value);
-  }
-);
+    if (val) reopenWithEncoding(currentEncoding.value)
+  },
+)
 
 // External file change detection
-const externalChangeNotice = ref<'modified' | 'deleted' | null>(null);
-let pendingReload: ReturnType<typeof setTimeout> | null = null;
+const externalChangeNotice = ref<'modified' | 'deleted' | null>(null)
+let pendingReload: ReturnType<typeof setTimeout> | null = null
 
 watch(
   () => tab.value?.externalChange,
   (change) => {
-    if (!change || !tab.value) return;
-    tab.value.externalChange = undefined;
+    if (!change || !tab.value) return
+    tab.value.externalChange = undefined
 
     if (change === 'deleted') {
-      externalChangeNotice.value = 'deleted';
-      return;
+      externalChangeNotice.value = 'deleted'
+      return
     }
     // modified — debounce to coalesce burst events
     if (!isDirty.value) {
-      if (pendingReload) clearTimeout(pendingReload);
-      pendingReload = setTimeout(() => { pendingReload = null; reopenWithEncoding(currentEncoding.value); }, 300);
+      if (pendingReload) clearTimeout(pendingReload)
+      pendingReload = setTimeout(() => {
+        pendingReload = null
+        reopenWithEncoding(currentEncoding.value)
+      }, 300)
     } else {
-      externalChangeNotice.value = 'modified';
+      externalChangeNotice.value = 'modified'
     }
-  }
-);
+  },
+)
 
 function reloadExternal() {
-  externalChangeNotice.value = null;
-  reopenWithEncoding(currentEncoding.value);
+  externalChangeNotice.value = null
+  reopenWithEncoding(currentEncoding.value)
 }
 
 function overwriteExternal() {
-  externalChangeNotice.value = null;
-  save();
+  externalChangeNotice.value = null
+  save()
 }
 
 function dismissExternal() {
-  externalChangeNotice.value = null;
+  externalChangeNotice.value = null
 }
 
 watch(
   () => viewMode.value,
   (mode) => {
     if (mode === 'split' && editorView) {
-      editorView.scrollDOM.addEventListener('scroll', onEditorScroll);
+      editorView.scrollDOM.addEventListener('scroll', onEditorScroll)
     } else if (editorView) {
-      editorView.scrollDOM.removeEventListener('scroll', onEditorScroll);
+      editorView.scrollDOM.removeEventListener('scroll', onEditorScroll)
     }
-  }
-);
+  },
+)
 
 watch(
   () => tabStore.activeTabId,
   (id) => {
     if (id === props.tabId && editorView) {
-      editorView.requestMeasure();
-      updateCursorInfo();
+      editorView.requestMeasure()
+      updateCursorInfo()
       editorInfo.registerCallbacks(
         (enc) => reopenWithEncoding(enc),
         (le) => changeLineEnding(le),
-      );
+      )
     } else if (id !== props.tabId) {
-      editorInfo.clear();
+      editorInfo.clear()
     }
-  }
-);
+  },
+)
 
 // Live-apply editor settings changes
-watch(() => settingsStore.editorThemeName, (name) => {
-  if (!editorView) return;
-  editorView.dispatch({ effects: themeCompartment.reconfigure(getEditorTheme(name).extension) });
-});
+watch(
+  () => settingsStore.editorThemeName,
+  (name) => {
+    if (!editorView) return
+    editorView.dispatch({ effects: themeCompartment.reconfigure(getEditorTheme(name).extension) })
+  },
+)
 
-watch(() => settingsStore.editorMinimap, (on) => {
-  if (!editorView) return;
-  editorView.dispatch({ effects: minimapCompartment.reconfigure(on ? minimap() : []) });
-});
+watch(
+  () => settingsStore.editorMinimap,
+  (on) => {
+    if (!editorView) return
+    editorView.dispatch({ effects: minimapCompartment.reconfigure(on ? minimap() : []) })
+  },
+)
 
-watch(() => settingsStore.editorWordWrap, (on) => {
-  if (!editorView) return;
-  editorView.dispatch({ effects: wordWrapCompartment.reconfigure(on ? EditorView.lineWrapping : []) });
-});
+watch(
+  () => settingsStore.editorWordWrap,
+  (on) => {
+    if (!editorView) return
+    editorView.dispatch({ effects: wordWrapCompartment.reconfigure(on ? EditorView.lineWrapping : []) })
+  },
+)
 
-watch(() => settingsStore.editorTabSize, (size) => {
-  if (!editorView) return;
-  editorView.dispatch({ effects: [
-    tabSizeCompartment.reconfigure(EditorState.tabSize.of(size)),
-    indentUnitCompartment.reconfigure(indentUnit.of(' '.repeat(size))),
-  ] });
-});
+watch(
+  () => settingsStore.editorTabSize,
+  (size) => {
+    if (!editorView) return
+    editorView.dispatch({
+      effects: [
+        tabSizeCompartment.reconfigure(EditorState.tabSize.of(size)),
+        indentUnitCompartment.reconfigure(indentUnit.of(' '.repeat(size))),
+      ],
+    })
+  },
+)
 
 onUnmounted(() => {
-  if (docVersionTimer) clearTimeout(docVersionTimer);
-  editorView?.scrollDOM.removeEventListener('scroll', onEditorScroll);
-  editorView?.destroy();
-  editorView = null;
+  if (docVersionTimer) clearTimeout(docVersionTimer)
+  editorView?.scrollDOM.removeEventListener('scroll', onEditorScroll)
+  editorView?.destroy()
+  editorView = null
   if (tabStore.activeTabId === props.tabId) {
-    editorInfo.clear();
+    editorInfo.clear()
   }
-});
+})
 </script>
 
 <template>

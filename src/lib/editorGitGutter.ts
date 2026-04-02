@@ -1,5 +1,5 @@
 import { RangeSet, StateEffect, StateField } from '@codemirror/state'
-import { EditorView, gutter, GutterMarker } from '@codemirror/view'
+import { EditorView, GutterMarker, gutter } from '@codemirror/view'
 import type { GitDiffLines } from './tauri'
 
 class AddedMarker extends GutterMarker {
@@ -103,7 +103,8 @@ const gitGutterTheme = EditorView.baseTheme({
   '.cm-git-added': { width: '3px', height: '100%', background: '#2ea04370' },
   '.cm-git-modified': { width: '3px', height: '100%', background: '#d29922' },
   '.cm-git-deleted': {
-    width: '0', height: '0',
+    width: '0',
+    height: '0',
     borderLeft: '4px solid transparent',
     borderRight: '4px solid transparent',
     borderTop: '4px solid #f85149',

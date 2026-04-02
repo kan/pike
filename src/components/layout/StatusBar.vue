@@ -1,123 +1,123 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onUnmounted } from "vue";
-import { useProjectStore } from "../../stores/project";
-import { useGitStore } from "../../stores/git";
-import { useEditorInfo } from "../../composables/useEditorInfo";
-import { GitBranch, FolderOpen } from "lucide-vue-next";
-import { useSettingsStore } from "../../stores/settings";
-import { useI18n } from "../../i18n";
+import { FolderOpen, GitBranch } from 'lucide-vue-next'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { useEditorInfo } from '../../composables/useEditorInfo'
+import { useI18n } from '../../i18n'
+import { useGitStore } from '../../stores/git'
+import { useProjectStore } from '../../stores/project'
+import { useSettingsStore } from '../../stores/settings'
 
-const { t } = useI18n();
-const projectStore = useProjectStore();
-const settingsStore = useSettingsStore();
+const { t } = useI18n()
+const projectStore = useProjectStore()
+const settingsStore = useSettingsStore()
 
 function toggleLanguage() {
-  settingsStore.language = settingsStore.language === 'en' ? 'ja' : 'en';
+  settingsStore.language = settingsStore.language === 'en' ? 'ja' : 'en'
 }
-const gitStore = useGitStore();
-const editorInfo = useEditorInfo();
+const gitStore = useGitStore()
+const editorInfo = useEditorInfo()
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)
 watch(
   () => projectStore.currentProject?.id,
   (id) => {
     if (id) {
-      gitStore.refreshStatus();
+      gitStore.refreshStatus()
     }
   },
-  { immediate: true }
-);
+  { immediate: true },
+)
 
 // Encoding dropdown (2-step: pick encoding → pick action)
-const encodings = ['UTF-8', 'Shift_JIS', 'EUC-JP', 'ISO-2022-JP', 'ISO-8859-1', 'UTF-16LE', 'UTF-16BE', 'Windows-1252'];
-const showEncodingMenu = ref(false);
-const showEncodingAction = ref(false);
-const selectedEncoding = ref('');
-const showLineEndingMenu = ref(false);
+const encodings = ['UTF-8', 'Shift_JIS', 'EUC-JP', 'ISO-2022-JP', 'ISO-8859-1', 'UTF-16LE', 'UTF-16BE', 'Windows-1252']
+const showEncodingMenu = ref(false)
+const showEncodingAction = ref(false)
+const selectedEncoding = ref('')
+const showLineEndingMenu = ref(false)
 
 function toggleEncodingMenu() {
-  showLineEndingMenu.value = false;
-  showEncodingAction.value = false;
-  showEncodingMenu.value = !showEncodingMenu.value;
+  showLineEndingMenu.value = false
+  showEncodingAction.value = false
+  showEncodingMenu.value = !showEncodingMenu.value
   if (showEncodingMenu.value) {
-    nextTick(() => window.addEventListener("mousedown", closeEncodingMenu, { once: true }));
+    nextTick(() => window.addEventListener('mousedown', closeEncodingMenu, { once: true }))
   }
 }
 
 function closeEncodingMenu() {
-  showEncodingMenu.value = false;
-  showEncodingAction.value = false;
+  showEncodingMenu.value = false
+  showEncodingAction.value = false
 }
 
 function selectEncoding(enc: string) {
-  selectedEncoding.value = enc;
-  showEncodingMenu.value = false;
-  showEncodingAction.value = true;
-  nextTick(() => window.addEventListener("mousedown", closeEncodingMenu, { once: true }));
+  selectedEncoding.value = enc
+  showEncodingMenu.value = false
+  showEncodingAction.value = true
+  nextTick(() => window.addEventListener('mousedown', closeEncodingMenu, { once: true }))
 }
 
 function reopenWithEncoding() {
-  closeEncodingMenu();
-  editorInfo.requestEncodingChange(selectedEncoding.value);
+  closeEncodingMenu()
+  editorInfo.requestEncodingChange(selectedEncoding.value)
 }
 
 function saveWithEncoding() {
-  closeEncodingMenu();
-  editorInfo.requestSaveWithEncoding(selectedEncoding.value);
+  closeEncodingMenu()
+  editorInfo.requestSaveWithEncoding(selectedEncoding.value)
 }
 
 function toggleLineEndingMenu() {
-  showEncodingMenu.value = false;
-  showLineEndingMenu.value = !showLineEndingMenu.value;
+  showEncodingMenu.value = false
+  showLineEndingMenu.value = !showLineEndingMenu.value
   if (showLineEndingMenu.value) {
-    nextTick(() => window.addEventListener("mousedown", closeLineEndingMenu, { once: true }));
+    nextTick(() => window.addEventListener('mousedown', closeLineEndingMenu, { once: true }))
   }
 }
 
 function closeLineEndingMenu() {
-  showLineEndingMenu.value = false;
+  showLineEndingMenu.value = false
 }
 
 function selectLineEnding(le: 'LF' | 'CRLF') {
-  closeLineEndingMenu();
-  editorInfo.requestLineEndingChange(le);
+  closeLineEndingMenu()
+  editorInfo.requestLineEndingChange(le)
 }
 
 // Branch switcher dropdown
-const showBranches = ref(false);
-const branchQuery = ref("");
+const showBranches = ref(false)
+const branchQuery = ref('')
 
 const filteredBranches = computed(() => {
-  const q = branchQuery.value.toLowerCase();
-  if (!q) return gitStore.branches;
-  return gitStore.branches.filter((b) => b.toLowerCase().includes(q));
-});
+  const q = branchQuery.value.toLowerCase()
+  if (!q) return gitStore.branches
+  return gitStore.branches.filter((b) => b.toLowerCase().includes(q))
+})
 
 async function openBranchSwitcher() {
-  await gitStore.loadBranches();
-  branchQuery.value = "";
-  showBranches.value = true;
+  await gitStore.loadBranches()
+  branchQuery.value = ''
+  showBranches.value = true
   nextTick(() => {
-    window.addEventListener("mousedown", closeBranches);
-  });
+    window.addEventListener('mousedown', closeBranches)
+  })
 }
 
 function closeBranches() {
-  showBranches.value = false;
-  window.removeEventListener("mousedown", closeBranches);
+  showBranches.value = false
+  window.removeEventListener('mousedown', closeBranches)
 }
 
 async function onSelectBranch(branch: string) {
-  closeBranches();
-  await gitStore.checkoutBranch(branch);
+  closeBranches()
+  await gitStore.checkoutBranch(branch)
 }
 
 onUnmounted(() => {
-  window.removeEventListener("mousedown", closeBranches);
-  window.removeEventListener("mousedown", closeEncodingMenu);
-  window.removeEventListener("mousedown", closeLineEndingMenu);
-  gitStore.stopPolling();
-});
+  window.removeEventListener('mousedown', closeBranches)
+  window.removeEventListener('mousedown', closeEncodingMenu)
+  window.removeEventListener('mousedown', closeLineEndingMenu)
+  gitStore.stopPolling()
+})
 </script>
 
 <template>

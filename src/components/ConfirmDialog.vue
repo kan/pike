@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from "vue";
-import { useConfirmDialog } from "../composables/useConfirmDialog";
-import { useI18n } from "../i18n";
+import { nextTick, ref, watch } from 'vue'
+import { useConfirmDialog } from '../composables/useConfirmDialog'
+import { useI18n } from '../i18n'
 
-const { t } = useI18n();
-const { visible, message, infoOnly, respond } = useConfirmDialog();
-const okBtn = ref<HTMLButtonElement | null>(null);
+const { t } = useI18n()
+const { visible, message, infoOnly, respond } = useConfirmDialog()
+const okBtn = ref<HTMLButtonElement | null>(null)
 
 watch(visible, (val) => {
-  if (val) nextTick(() => okBtn.value?.focus());
-});
+  if (val) nextTick(() => okBtn.value?.focus())
+})
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === "Enter") respond(true);
-  if (e.key === "Escape") respond(false);
+  if (e.key === 'Enter') respond(true)
+  if (e.key === 'Escape') respond(false)
 }
 </script>
 

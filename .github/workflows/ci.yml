@@ -36,6 +36,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      - name: Biome lint & format check
+        run: npx biome check src/
+
       # Frontend: TypeScript type check + Vite build
       - name: Vue/TypeScript check & build
         run: npm run build

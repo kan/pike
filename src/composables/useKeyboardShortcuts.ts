@@ -1,6 +1,6 @@
 import { onMounted, onUnmounted } from 'vue'
-import { useTabStore } from '../stores/tabs'
 import { useProjectStore } from '../stores/project'
+import { useTabStore } from '../stores/tabs'
 import { useShortcutsModal } from './useShortcutsModal'
 
 export function useKeyboardShortcuts() {
@@ -53,11 +53,7 @@ export function useKeyboardShortcuts() {
     if (e.ctrlKey && e.key === 't') {
       e.preventDefault()
       const project = projectStore.currentProject
-      tabStore.addTerminalTab(
-        project
-          ? { cwd: project.root, shell: project.shell }
-          : undefined
-      )
+      tabStore.addTerminalTab(project ? { cwd: project.root, shell: project.shell } : undefined)
       return
     }
 

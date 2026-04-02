@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { locale } from '../i18n'
 import { buildFontFamily, extractFontName } from '../lib/fontDetection'
 import { fontListMonospace } from '../lib/tauri'
-import { locale } from '../i18n'
 
 export interface TerminalColorScheme {
   name: string
@@ -190,7 +190,9 @@ function loadSettings(): PersistedSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return { ...defaults(), ...JSON.parse(raw) }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return defaults()
 }
 
@@ -229,7 +231,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // Sync language setting with i18n locale
   locale.value = saved.language
-  watch(language, (v) => { locale.value = v })
+  watch(language, (v) => {
+    locale.value = v
+  })
 
   // Detected monospace fonts on this system (loaded on demand from Rust)
   const availableFonts = ref<string[]>([extractFontName(saved.fontFamily)])
@@ -238,13 +242,17 @@ export const useSettingsStore = defineStore('settings', () => {
   function loadAvailableFonts() {
     if (fontsLoaded) return
     fontsLoaded = true
-    fontListMonospace().then((fonts) => {
-      availableFonts.value = fonts
-      const current = extractFontName(fontFamily.value)
-      if (current !== 'monospace' && !fonts.includes(current)) {
-        availableFonts.value = [current, ...fonts]
-      }
-    }).catch(() => { /* fallback: keep current font */ })
+    fontListMonospace()
+      .then((fonts) => {
+        availableFonts.value = fonts
+        const current = extractFontName(fontFamily.value)
+        if (current !== 'monospace' && !fonts.includes(current)) {
+          availableFonts.value = [current, ...fonts]
+        }
+      })
+      .catch(() => {
+        /* fallback: keep current font */
+      })
   }
 
   // Current font name extracted from fontFamily string
@@ -254,9 +262,7 @@ export const useSettingsStore = defineStore('settings', () => {
     fontFamily.value = buildFontFamily(name)
   }
 
-  const colorScheme = computed(() =>
-    COLOR_SCHEMES.find((s) => s.name === colorSchemeName.value) ?? COLOR_SCHEMES[0]
-  )
+  const colorScheme = computed(() => COLOR_SCHEMES.find((s) => s.name === colorSchemeName.value) ?? COLOR_SCHEMES[0])
 
   const xtermTheme = computed(() => {
     const { name, ...theme } = colorScheme.value
@@ -264,27 +270,46 @@ export const useSettingsStore = defineStore('settings', () => {
   })
 
   function persist() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      fontFamily: fontFamily.value,
-      fontSize: fontSize.value,
-      colorSchemeName: colorSchemeName.value,
-      darkMode: darkMode.value,
-      editorThemeName: editorThemeName.value,
-      editorMinimap: editorMinimap.value,
-      editorWordWrap: editorWordWrap.value,
-      editorTabSize: editorTabSize.value,
-      terminalCopyOnSelect: terminalCopyOnSelect.value,
-      terminalRightClickPaste: terminalRightClickPaste.value,
-      language: language.value,
-      terminalExitNotification: terminalExitNotification.value,
-    }))
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        fontFamily: fontFamily.value,
+        fontSize: fontSize.value,
+        colorSchemeName: colorSchemeName.value,
+        darkMode: darkMode.value,
+        editorThemeName: editorThemeName.value,
+        editorMinimap: editorMinimap.value,
+        editorWordWrap: editorWordWrap.value,
+        editorTabSize: editorTabSize.value,
+        terminalCopyOnSelect: terminalCopyOnSelect.value,
+        terminalRightClickPaste: terminalRightClickPaste.value,
+        language: language.value,
+        terminalExitNotification: terminalExitNotification.value,
+      }),
+    )
   }
 
   function applyDarkMode() {
     document.documentElement.setAttribute('data-theme', darkMode.value ? 'dark' : 'light')
   }
 
-  watch([fontFamily, fontSize, colorSchemeName, darkMode, editorThemeName, editorMinimap, editorWordWrap, editorTabSize, terminalCopyOnSelect, terminalRightClickPaste, language, terminalExitNotification], persist)
+  watch(
+    [
+      fontFamily,
+      fontSize,
+      colorSchemeName,
+      darkMode,
+      editorThemeName,
+      editorMinimap,
+      editorWordWrap,
+      editorTabSize,
+      terminalCopyOnSelect,
+      terminalRightClickPaste,
+      language,
+      terminalExitNotification,
+    ],
+    persist,
+  )
   watch(darkMode, applyDarkMode, { immediate: true })
 
   return {

@@ -1,109 +1,109 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
-import { useProjectStore } from "../../stores/project";
-import { useTabStore } from "../../stores/tabs";
-import { detectWslDistros, openProjectWindow, pickFolder } from "../../lib/tauri";
-import { confirmDialog } from "../../composables/useConfirmDialog";
-import { ptyRouter } from "../../composables/usePtyRouter";
-import type { ProjectConfig } from "../../types/project";
-import { Pencil, Trash2, ExternalLink } from "lucide-vue-next";
+import { ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
+import { computed, onMounted, ref, watch } from 'vue'
+import { confirmDialog } from '../../composables/useConfirmDialog'
+import { ptyRouter } from '../../composables/usePtyRouter'
+import { useI18n } from '../../i18n'
+import { detectWslDistros, openProjectWindow, pickFolder } from '../../lib/tauri'
+import { useProjectStore } from '../../stores/project'
+import { useTabStore } from '../../stores/tabs'
+import type { ProjectConfig } from '../../types/project'
 import {
+  buildShell,
+  rootPlaceholder as rootPlaceholderFn,
   shellLabel,
+  shellToDistro,
   shellToPlatform,
   shellToWinKind,
-  shellToDistro,
-  buildShell,
   slugify,
-  rootPlaceholder as rootPlaceholderFn,
   WINDOWS_SHELLS,
-} from "../../types/tab";
-import { useI18n } from "../../i18n";
+} from '../../types/tab'
 
-const { t } = useI18n();
+const { t } = useI18n()
 
-const projectStore = useProjectStore();
-const tabStore = useTabStore();
+const projectStore = useProjectStore()
+const tabStore = useTabStore()
 
-const sortMode = ref<'name' | 'recent'>('name');
+const sortMode = ref<'name' | 'recent'>('name')
 const sortedProjects = computed(() => {
-  const list = [...projectStore.projects];
+  const list = [...projectStore.projects]
   if (sortMode.value === 'name') {
-    list.sort((a, b) => a.name.localeCompare(b.name));
+    list.sort((a, b) => a.name.localeCompare(b.name))
   }
   // 'recent' keeps original order (already sorted by lastOpened desc from backend)
-  return list;
-});
+  return list
+})
 
-const distros = ref<string[]>([]);
-const detecting = ref(false);
+const distros = ref<string[]>([])
+const detecting = ref(false)
 
 onMounted(async () => {
-  projectStore.loadProjects();
+  projectStore.loadProjects()
   try {
-    distros.value = await detectWslDistros();
+    distros.value = await detectWslDistros()
     if (distros.value.length > 0) {
-      formDistro.value = distros.value[0];
+      formDistro.value = distros.value[0]
     }
   } catch {
-    distros.value = ["Ubuntu"];
+    distros.value = ['Ubuntu']
   }
-});
+})
 
 // --- Create form ---
-const showForm = ref(false);
-const formName = ref("");
-const formRoot = ref("");
-const formPlatform = ref<"wsl" | "windows">("wsl");
-const formDistro = ref("Ubuntu");
-const formWindowsShell = ref<"cmd" | "powershell" | "git-bash">("powershell");
+const showForm = ref(false)
+const formName = ref('')
+const formRoot = ref('')
+const formPlatform = ref<'wsl' | 'windows'>('wsl')
+const formDistro = ref('Ubuntu')
+const formWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
 
-const createRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value));
+const createRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value))
 
 watch(showForm, async (show) => {
-  if (show) await detectFromTerminal();
-});
+  if (show) await detectFromTerminal()
+})
 
 async function detectFromTerminal() {
-  const activeTab = tabStore.activeTab;
-  if (!activeTab || activeTab.kind !== "terminal" || !activeTab.ptyId) return;
+  const activeTab = tabStore.activeTab
+  if (!activeTab || activeTab.kind !== 'terminal' || !activeTab.ptyId) return
 
   if (activeTab.shell) {
-    formPlatform.value = shellToPlatform(activeTab.shell);
-    formDistro.value = shellToDistro(activeTab.shell);
-    formWindowsShell.value = shellToWinKind(activeTab.shell);
+    formPlatform.value = shellToPlatform(activeTab.shell)
+    formDistro.value = shellToDistro(activeTab.shell)
+    formWindowsShell.value = shellToWinKind(activeTab.shell)
   }
 
-  detecting.value = true;
+  detecting.value = true
   try {
-    const cwd = await ptyRouter.detectCwd(activeTab.ptyId);
+    const cwd = await ptyRouter.detectCwd(activeTab.ptyId)
     if (cwd) {
-      formRoot.value = cwd;
+      formRoot.value = cwd
       if (!formName.value) {
-        const sep = cwd.includes("\\") ? "\\" : "/";
-        formName.value = cwd.split(sep).filter(Boolean).pop() ?? "";
+        const sep = cwd.includes('\\') ? '\\' : '/'
+        formName.value = cwd.split(sep).filter(Boolean).pop() ?? ''
       }
     }
   } finally {
-    detecting.value = false;
+    detecting.value = false
   }
 }
 
 async function browseFolder(target: 'create' | 'edit') {
-  const folder = await pickFolder();
-  if (!folder) return;
+  const folder = await pickFolder()
+  if (!folder) return
   if (target === 'create') {
-    formRoot.value = folder;
+    formRoot.value = folder
     if (!formName.value) {
-      formName.value = folder.split(/[/\\]/).filter(Boolean).pop() ?? '';
+      formName.value = folder.split(/[/\\]/).filter(Boolean).pop() ?? ''
     }
   } else {
-    editRoot.value = folder;
+    editRoot.value = folder
   }
 }
 
 async function onCreate() {
-  const id = slugify(formName.value);
-  if (!id) return;
+  const id = slugify(formName.value)
+  if (!id) return
   const config: ProjectConfig = {
     id,
     name: formName.value,
@@ -111,56 +111,56 @@ async function onCreate() {
     shell: buildShell(formPlatform.value, formDistro.value, formWindowsShell.value),
     pinnedTabs: [],
     lastOpened: new Date().toISOString(),
-  };
-  await projectStore.addProject(config);
-  showForm.value = false;
-  formName.value = "";
-  formRoot.value = "";
+  }
+  await projectStore.addProject(config)
+  showForm.value = false
+  formName.value = ''
+  formRoot.value = ''
 }
 
 // --- Edit form ---
-const editingId = ref<string | null>(null);
-const editName = ref("");
-const editRoot = ref("");
-const editPlatform = ref<"wsl" | "windows">("wsl");
-const editDistro = ref("Ubuntu");
-const editWindowsShell = ref<"cmd" | "powershell" | "git-bash">("powershell");
+const editingId = ref<string | null>(null)
+const editName = ref('')
+const editRoot = ref('')
+const editPlatform = ref<'wsl' | 'windows'>('wsl')
+const editDistro = ref('Ubuntu')
+const editWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
 
-const editRootPlaceholder = computed(() => rootPlaceholderFn(editPlatform.value));
+const editRootPlaceholder = computed(() => rootPlaceholderFn(editPlatform.value))
 
 function startEdit(project: ProjectConfig) {
-  editingId.value = project.id;
-  editName.value = project.name;
-  editRoot.value = project.root;
-  editPlatform.value = shellToPlatform(project.shell);
-  editDistro.value = shellToDistro(project.shell);
-  editWindowsShell.value = shellToWinKind(project.shell);
+  editingId.value = project.id
+  editName.value = project.name
+  editRoot.value = project.root
+  editPlatform.value = shellToPlatform(project.shell)
+  editDistro.value = shellToDistro(project.shell)
+  editWindowsShell.value = shellToWinKind(project.shell)
 }
 
 function cancelEdit() {
-  editingId.value = null;
+  editingId.value = null
 }
 
 async function onSaveEdit() {
-  if (!editingId.value) return;
-  const existing = projectStore.projects.find((p) => p.id === editingId.value);
-  if (!existing) return;
+  if (!editingId.value) return
+  const existing = projectStore.projects.find((p) => p.id === editingId.value)
+  if (!existing) return
 
   const updated: ProjectConfig = {
     ...existing,
     name: editName.value,
     root: editRoot.value,
     shell: buildShell(editPlatform.value, editDistro.value, editWindowsShell.value),
-  };
-  await projectStore.saveProject(updated);
-  editingId.value = null;
+  }
+  await projectStore.saveProject(updated)
+  editingId.value = null
 }
 
 async function onDelete(id: string) {
-  const project = projectStore.projects.find(p => p.id === id);
-  if (!await confirmDialog(t('project.confirmDelete', { name: project?.name ?? id }))) return;
-  await projectStore.removeProject(id);
-  if (editingId.value === id) editingId.value = null;
+  const project = projectStore.projects.find((p) => p.id === id)
+  if (!(await confirmDialog(t('project.confirmDelete', { name: project?.name ?? id })))) return
+  await projectStore.removeProject(id)
+  if (editingId.value === id) editingId.value = null
 }
 </script>
 

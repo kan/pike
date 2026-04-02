@@ -1,7 +1,7 @@
-import { ref, computed, type Raw, markRaw } from 'vue'
-import { check, type Update } from '@tauri-apps/plugin-updater'
-import { relaunch } from '@tauri-apps/plugin-process'
 import { getVersion } from '@tauri-apps/api/app'
+import { relaunch } from '@tauri-apps/plugin-process'
+import { check, type Update } from '@tauri-apps/plugin-updater'
+import { computed, markRaw, type Raw, ref } from 'vue'
 
 type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'upToDate' | 'error'
 

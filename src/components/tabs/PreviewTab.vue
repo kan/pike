@@ -1,16 +1,14 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { useTabStore } from "../../stores/tabs";
-import type { PreviewTab } from "../../types/tab";
-import { useI18n } from "../../i18n";
+import { computed } from 'vue'
+import { useI18n } from '../../i18n'
+import { useTabStore } from '../../stores/tabs'
+import type { PreviewTab } from '../../types/tab'
 
-const { t } = useI18n();
-const props = defineProps<{ tabId: string }>();
-const tabStore = useTabStore();
+const { t } = useI18n()
+const props = defineProps<{ tabId: string }>()
+const tabStore = useTabStore()
 
-const tab = computed(() =>
-  tabStore.tabs.find((t): t is PreviewTab => t.id === props.tabId && t.kind === "preview")
-);
+const tab = computed(() => tabStore.tabs.find((t): t is PreviewTab => t.id === props.tabId && t.kind === 'preview'))
 </script>
 
 <template>

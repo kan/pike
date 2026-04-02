@@ -1,64 +1,64 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from "vue";
-import { useProjectStore } from "../stores/project";
-import { detectWslDistros, openProjectWindow } from "../lib/tauri";
-import type { ProjectConfig } from "../types/project";
-import { buildShell, slugify, rootPlaceholder as rootPlaceholderFn, WINDOWS_SHELLS } from "../types/tab";
-import { useI18n } from "../i18n";
+import { computed, nextTick, ref, watch } from 'vue'
+import { useI18n } from '../i18n'
+import { detectWslDistros, openProjectWindow } from '../lib/tauri'
+import { useProjectStore } from '../stores/project'
+import type { ProjectConfig } from '../types/project'
+import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, WINDOWS_SHELLS } from '../types/tab'
 
-const { t } = useI18n();
-const projectStore = useProjectStore();
+const { t } = useI18n()
+const projectStore = useProjectStore()
 
 // --- Search mode ---
-const query = ref("");
-const selectedIdx = ref(0);
-const inputRef = ref<HTMLInputElement>();
+const query = ref('')
+const selectedIdx = ref(0)
+const inputRef = ref<HTMLInputElement>()
 
 const filtered = computed(() => {
-  const q = query.value.toLowerCase();
-  if (!q) return projectStore.projects;
-  return projectStore.projects.filter((p) => fuzzyMatch(p.name.toLowerCase(), q));
-});
+  const q = query.value.toLowerCase()
+  if (!q) return projectStore.projects
+  return projectStore.projects.filter((p) => fuzzyMatch(p.name.toLowerCase(), q))
+})
 
 function fuzzyMatch(text: string, pattern: string): boolean {
-  let pi = 0;
+  let pi = 0
   for (let ti = 0; ti < text.length && pi < pattern.length; ti++) {
-    if (text[ti] === pattern[pi]) pi++;
+    if (text[ti] === pattern[pi]) pi++
   }
-  return pi === pattern.length;
+  return pi === pattern.length
 }
 
 // --- New project form ---
-const showNewForm = ref(false);
-const formName = ref("");
-const formRoot = ref("");
-const formPlatform = ref<"wsl" | "windows">("wsl");
-const formDistro = ref("Ubuntu");
-const formWindowsShell = ref<"cmd" | "powershell" | "git-bash">("powershell");
-const distros = ref<string[]>([]);
-const distrosLoaded = ref(false);
+const showNewForm = ref(false)
+const formName = ref('')
+const formRoot = ref('')
+const formPlatform = ref<'wsl' | 'windows'>('wsl')
+const formDistro = ref('Ubuntu')
+const formWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
+const distros = ref<string[]>([])
+const distrosLoaded = ref(false)
 
 async function loadDistros() {
-  if (distrosLoaded.value) return;
+  if (distrosLoaded.value) return
   try {
-    distros.value = await detectWslDistros();
+    distros.value = await detectWslDistros()
     if (distros.value.length > 0) {
-      formDistro.value = distros.value[0];
+      formDistro.value = distros.value[0]
     }
   } catch {
-    distros.value = ["Ubuntu"];
+    distros.value = ['Ubuntu']
   }
-  distrosLoaded.value = true;
+  distrosLoaded.value = true
 }
 
 function openNewForm() {
-  showNewForm.value = true;
-  loadDistros();
+  showNewForm.value = true
+  loadDistros()
 }
 
 async function onCreateProject() {
-  const id = slugify(formName.value);
-  if (!id) return;
+  const id = slugify(formName.value)
+  if (!id) return
 
   const config: ProjectConfig = {
     id,
@@ -67,77 +67,77 @@ async function onCreateProject() {
     shell: buildShell(formPlatform.value, formDistro.value, formWindowsShell.value),
     pinnedTabs: [],
     lastOpened: new Date().toISOString(),
-  };
+  }
 
-  await projectStore.addProject(config);
-  await projectStore.switchProject(id);
-  projectStore.showSwitcher = false;
-  resetForm();
+  await projectStore.addProject(config)
+  await projectStore.switchProject(id)
+  projectStore.showSwitcher = false
+  resetForm()
 }
 
 function resetForm() {
-  showNewForm.value = false;
-  formName.value = "";
-  formRoot.value = "";
-  formPlatform.value = "wsl";
-  formWindowsShell.value = "powershell";
+  showNewForm.value = false
+  formName.value = ''
+  formRoot.value = ''
+  formPlatform.value = 'wsl'
+  formWindowsShell.value = 'powershell'
 }
 
 // --- Lifecycle ---
 watch(query, () => {
-  selectedIdx.value = 0;
-});
+  selectedIdx.value = 0
+})
 
 watch(
   () => projectStore.showSwitcher,
   (show) => {
     if (show) {
-      query.value = "";
-      selectedIdx.value = 0;
-      resetForm();
-      nextTick(() => inputRef.value?.focus());
+      query.value = ''
+      selectedIdx.value = 0
+      resetForm()
+      nextTick(() => inputRef.value?.focus())
     }
-  }
-);
+  },
+)
 
 function onKeyDown(e: KeyboardEvent) {
-  if (showNewForm.value) return; // Let form handle its own keys
+  if (showNewForm.value) return // Let form handle its own keys
 
-  if (e.key === "Escape") {
-    e.preventDefault();
-    projectStore.showSwitcher = false;
-    return;
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    projectStore.showSwitcher = false
+    return
   }
-  if (e.key === "ArrowDown") {
-    e.preventDefault();
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
     if (selectedIdx.value < filtered.value.length - 1) {
-      selectedIdx.value++;
+      selectedIdx.value++
     }
-    return;
+    return
   }
-  if (e.key === "ArrowUp") {
-    e.preventDefault();
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
     if (selectedIdx.value > 0) {
-      selectedIdx.value--;
+      selectedIdx.value--
     }
-    return;
+    return
   }
-  if (e.key === "Enter") {
-    e.preventDefault();
-    const selected = filtered.value[selectedIdx.value];
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    const selected = filtered.value[selectedIdx.value]
     if (selected) {
       if (e.ctrlKey) {
-        openProjectWindow(selected.id);
+        openProjectWindow(selected.id)
       } else {
-        projectStore.switchProject(selected.id);
+        projectStore.switchProject(selected.id)
       }
-      projectStore.showSwitcher = false;
+      projectStore.showSwitcher = false
     }
-    return;
+    return
   }
 }
 
-const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value));
+const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value))
 </script>
 
 <template>

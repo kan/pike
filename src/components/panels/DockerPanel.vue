@@ -1,75 +1,81 @@
 <script setup lang="ts">
-import { computed, watch, onMounted, onUnmounted } from "vue";
-import { useDockerStore } from "../../stores/docker";
-import { useTabStore } from "../../stores/tabs";
-import { useProjectStore } from "../../stores/project";
-import { useSidebarStore } from "../../stores/sidebar";
-import { Play, Square, RefreshCw, ScrollText, Terminal } from "lucide-vue-next";
-import { dockerDetectShell } from "../../lib/tauri";
-import { useI18n } from "../../i18n";
+import { Play, RefreshCw, ScrollText, Square, Terminal } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { useI18n } from '../../i18n'
+import { dockerDetectShell } from '../../lib/tauri'
+import { useDockerStore } from '../../stores/docker'
+import { useProjectStore } from '../../stores/project'
+import { useSidebarStore } from '../../stores/sidebar'
+import { useTabStore } from '../../stores/tabs'
 
-const { t } = useI18n();
+const { t } = useI18n()
 
-const dockerStore = useDockerStore();
-const tabStore = useTabStore();
-const projectStore = useProjectStore();
-const sidebar = useSidebarStore();
+const dockerStore = useDockerStore()
+const tabStore = useTabStore()
+const projectStore = useProjectStore()
+const sidebar = useSidebarStore()
 
 function stateColor(state: string): string {
   switch (state) {
-    case "running": return "var(--git-add)";
-    case "exited": return "var(--text-secondary)";
-    case "restarting": return "var(--git-modify)";
-    case "paused": return "var(--git-modify)";
-    default: return "var(--text-secondary)";
+    case 'running':
+      return 'var(--git-add)'
+    case 'exited':
+      return 'var(--text-secondary)'
+    case 'restarting':
+      return 'var(--git-modify)'
+    case 'paused':
+      return 'var(--git-modify)'
+    default:
+      return 'var(--text-secondary)'
   }
 }
 
 // Match compose services to their containers
 const serviceContainers = computed(() => {
-  const result: Record<string, typeof dockerStore.containers[0] | undefined> = {};
+  const result: Record<string, (typeof dockerStore.containers)[0] | undefined> = {}
   for (const svc of dockerStore.composeServices) {
-    result[svc.name] = dockerStore.containers.find(
-      (c) => c.composeService === svc.name
-    );
+    result[svc.name] = dockerStore.containers.find((c) => c.composeService === svc.name)
   }
-  return result;
-});
+  return result
+})
 
 function openLogs(containerId: string, containerName: string) {
-  tabStore.addDockerLogsTab({ containerId, containerName });
+  tabStore.addDockerLogsTab({ containerId, containerName })
 }
 
 async function openShell(containerId: string, containerName: string) {
   try {
-    const shell = await dockerDetectShell(containerId);
-    const project = projectStore.currentProject;
+    const shell = await dockerDetectShell(containerId)
+    const project = projectStore.currentProject
     tabStore.addTerminalTab({
       title: `${containerName} shell`,
       shell: project?.shell,
       autoStart: `docker exec -it ${containerId} ${shell}`,
-    });
+    })
   } catch (e) {
-    dockerStore.error = String(e);
+    dockerStore.error = String(e)
   }
 }
 
 function refreshIfActive() {
-  if (sidebar.activePanel === "docker") {
-    dockerStore.refreshAll();
-    dockerStore.startPolling();
+  if (sidebar.activePanel === 'docker') {
+    dockerStore.refreshAll()
+    dockerStore.startPolling()
   } else {
-    dockerStore.stopPolling();
+    dockerStore.stopPolling()
   }
 }
 
-watch(() => sidebar.activePanel, refreshIfActive);
-watch(() => projectStore.currentProject?.id, () => {
-  if (sidebar.activePanel === "docker") dockerStore.refreshAll();
-});
+watch(() => sidebar.activePanel, refreshIfActive)
+watch(
+  () => projectStore.currentProject?.id,
+  () => {
+    if (sidebar.activePanel === 'docker') dockerStore.refreshAll()
+  },
+)
 
-onMounted(refreshIfActive);
-onUnmounted(() => dockerStore.stopPolling());
+onMounted(refreshIfActive)
+onUnmounted(() => dockerStore.stopPolling())
 </script>
 
 <template>

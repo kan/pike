@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { SearchMatch, SearchBackend } from '../types/search'
 import { searchDetectBackend, searchExecute } from '../lib/tauri'
+import type { SearchBackend, SearchMatch } from '../types/search'
 import { useProjectStore } from './project'
 
 export const useSearchStore = defineStore('search', () => {
@@ -26,12 +26,7 @@ export const useSearchStore = defineStore('search', () => {
     }
   }
 
-  async function search(
-    query: string,
-    isRegex: boolean,
-    globInclude?: string,
-    globExclude?: string,
-  ) {
+  async function search(query: string, isRegex: boolean, globInclude?: string, globExclude?: string) {
     const project = useProjectStore().currentProject
     if (!project || !query.trim()) return
     if (!backend.value) await detectBackend()
@@ -65,7 +60,6 @@ export const useSearchStore = defineStore('search', () => {
     truncated.value = false
     error.value = null
   }
-
 
   return {
     backend,

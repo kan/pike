@@ -1,201 +1,199 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from "vue";
-import { useProjectStore } from "../stores/project";
-import { useTabStore } from "../stores/tabs";
-import { listProjectFiles } from "../lib/tauri";
-import { basename } from "../lib/paths";
-import { useI18n } from "../i18n";
+import { computed, nextTick, ref, watch } from 'vue'
+import { useI18n } from '../i18n'
+import { basename } from '../lib/paths'
+import { listProjectFiles } from '../lib/tauri'
+import { useProjectStore } from '../stores/project'
+import { useTabStore } from '../stores/tabs'
 
-const { t } = useI18n();
-const projectStore = useProjectStore();
-const tabStore = useTabStore();
+const { t } = useI18n()
+const projectStore = useProjectStore()
+const tabStore = useTabStore()
 
-const query = ref("");
-const selectedIdx = ref(0);
-const inputRef = ref<HTMLInputElement>();
-const files = ref<string[]>([]);
-const loading = ref(false);
-let lastProjectId: string | null = null;
+const query = ref('')
+const selectedIdx = ref(0)
+const inputRef = ref<HTMLInputElement>()
+const files = ref<string[]>([])
+const loading = ref(false)
+let lastProjectId: string | null = null
 
 // Track recently opened files (persisted in memory for the session)
-const recentFiles: string[] = [];
-const MAX_RECENT = 20;
+const recentFiles: string[] = []
+const MAX_RECENT = 20
 
 function trackRecent(path: string) {
-  const idx = recentFiles.indexOf(path);
-  if (idx !== -1) recentFiles.splice(idx, 1);
-  recentFiles.unshift(path);
-  if (recentFiles.length > MAX_RECENT) recentFiles.pop();
+  const idx = recentFiles.indexOf(path)
+  if (idx !== -1) recentFiles.splice(idx, 1)
+  recentFiles.unshift(path)
+  if (recentFiles.length > MAX_RECENT) recentFiles.pop()
 }
 
 // Parse query: support "filename:lineNumber" syntax
 const parsedQuery = computed(() => {
-  const raw = query.value;
-  const colonIdx = raw.lastIndexOf(":");
+  const raw = query.value
+  const colonIdx = raw.lastIndexOf(':')
   if (colonIdx > 0) {
-    const afterColon = raw.slice(colonIdx + 1);
-    const lineNum = parseInt(afterColon, 10);
-    if (!isNaN(lineNum) && lineNum > 0) {
-      return { pattern: raw.slice(0, colonIdx), line: lineNum };
+    const afterColon = raw.slice(colonIdx + 1)
+    const lineNum = parseInt(afterColon, 10)
+    if (!Number.isNaN(lineNum) && lineNum > 0) {
+      return { pattern: raw.slice(0, colonIdx), line: lineNum }
     }
   }
-  return { pattern: raw, line: undefined };
-});
+  return { pattern: raw, line: undefined }
+})
 
 function fuzzyMatch(text: string, pattern: string): boolean {
-  let pi = 0;
+  let pi = 0
   for (let ti = 0; ti < text.length && pi < pattern.length; ti++) {
-    if (text[ti] === pattern[pi]) pi++;
+    if (text[ti] === pattern[pi]) pi++
   }
-  return pi === pattern.length;
+  return pi === pattern.length
 }
 
-const MAX_DISPLAY = 100;
+const MAX_DISPLAY = 100
 
 const filtered = computed(() => {
-  const p = parsedQuery.value.pattern.toLowerCase();
-  const sep = files.value.length > 0 && files.value[0].includes("/") ? "/" : "\\";
+  const p = parsedQuery.value.pattern.toLowerCase()
+  const sep = files.value.length > 0 && files.value[0].includes('/') ? '/' : '\\'
 
   if (!p) {
     // Show recent files first, then all files
-    const recent = recentFiles
-      .filter((r) => files.value.includes(r))
-      .slice(0, MAX_DISPLAY);
-    if (recent.length >= MAX_DISPLAY) return recent;
-    const recentSet = new Set(recent);
-    const rest = files.value.filter((f) => !recentSet.has(f));
-    return [...recent, ...rest].slice(0, MAX_DISPLAY);
+    const recent = recentFiles.filter((r) => files.value.includes(r)).slice(0, MAX_DISPLAY)
+    if (recent.length >= MAX_DISPLAY) return recent
+    const recentSet = new Set(recent)
+    const rest = files.value.filter((f) => !recentSet.has(f))
+    return [...recent, ...rest].slice(0, MAX_DISPLAY)
   }
 
   // Fuzzy match on basename first, then full path
-  const basenameMatches: string[] = [];
-  const pathMatches: string[] = [];
+  const basenameMatches: string[] = []
+  const pathMatches: string[] = []
 
   for (const f of files.value) {
-    if (basenameMatches.length + pathMatches.length >= MAX_DISPLAY) break;
-    const name = f.split(sep).pop()?.toLowerCase() ?? "";
+    if (basenameMatches.length + pathMatches.length >= MAX_DISPLAY) break
+    const name = f.split(sep).pop()?.toLowerCase() ?? ''
     if (fuzzyMatch(name, p)) {
-      basenameMatches.push(f);
+      basenameMatches.push(f)
     } else if (fuzzyMatch(f.toLowerCase(), p)) {
-      pathMatches.push(f);
+      pathMatches.push(f)
     }
   }
 
   // Sort recent files to top within matches
-  const recentSet = new Set(recentFiles);
+  const recentSet = new Set(recentFiles)
   const sortByRecent = (a: string, b: string) => {
-    const aRecent = recentSet.has(a);
-    const bRecent = recentSet.has(b);
-    if (aRecent && !bRecent) return -1;
-    if (!aRecent && bRecent) return 1;
-    return 0;
-  };
+    const aRecent = recentSet.has(a)
+    const bRecent = recentSet.has(b)
+    if (aRecent && !bRecent) return -1
+    if (!aRecent && bRecent) return 1
+    return 0
+  }
 
-  basenameMatches.sort(sortByRecent);
-  pathMatches.sort(sortByRecent);
-  return [...basenameMatches, ...pathMatches].slice(0, MAX_DISPLAY);
-});
+  basenameMatches.sort(sortByRecent)
+  pathMatches.sort(sortByRecent)
+  return [...basenameMatches, ...pathMatches].slice(0, MAX_DISPLAY)
+})
 
 async function loadFiles() {
-  const project = projectStore.currentProject;
-  if (!project) return;
-  if (project.id === lastProjectId && files.value.length > 0) return;
+  const project = projectStore.currentProject
+  if (!project) return
+  if (project.id === lastProjectId && files.value.length > 0) return
 
-  loading.value = true;
+  loading.value = true
   try {
-    files.value = await listProjectFiles(project.shell, project.root);
-    lastProjectId = project.id;
+    files.value = await listProjectFiles(project.shell, project.root)
+    lastProjectId = project.id
   } catch {
-    files.value = [];
+    files.value = []
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
 function getDisplayPath(fullPath: string): string {
-  const root = projectStore.currentProject?.root ?? "";
+  const root = projectStore.currentProject?.root ?? ''
   if (root && fullPath.startsWith(root)) {
-    let rel = fullPath.slice(root.length);
-    if (rel.startsWith("/") || rel.startsWith("\\")) rel = rel.slice(1);
-    return rel;
+    let rel = fullPath.slice(root.length)
+    if (rel.startsWith('/') || rel.startsWith('\\')) rel = rel.slice(1)
+    return rel
   }
-  return fullPath;
+  return fullPath
 }
 
 function openSelected() {
-  const path = filtered.value[selectedIdx.value];
-  if (!path) return;
-  trackRecent(path);
+  const path = filtered.value[selectedIdx.value]
+  if (!path) return
+  trackRecent(path)
   tabStore.addEditorTab({
     path,
     initialLine: parsedQuery.value.line,
-  });
-  projectStore.showQuickOpen = false;
+  })
+  projectStore.showQuickOpen = false
 }
 
 watch(query, () => {
-  selectedIdx.value = 0;
-});
+  selectedIdx.value = 0
+})
 
 watch(
   () => projectStore.showQuickOpen,
   (show) => {
     if (show) {
-      query.value = "";
-      selectedIdx.value = 0;
-      loadFiles();
-      nextTick(() => inputRef.value?.focus());
+      query.value = ''
+      selectedIdx.value = 0
+      loadFiles()
+      nextTick(() => inputRef.value?.focus())
     }
-  }
-);
+  },
+)
 
 // Invalidate cache when project changes
 watch(
   () => projectStore.currentProject?.id,
   () => {
-    lastProjectId = null;
-    files.value = [];
-  }
-);
+    lastProjectId = null
+    files.value = []
+  },
+)
 
 function onKeyDown(e: KeyboardEvent) {
-  if (e.key === "Escape") {
-    e.preventDefault();
-    projectStore.showQuickOpen = false;
-    return;
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    projectStore.showQuickOpen = false
+    return
   }
-  if (e.key === "ArrowDown") {
-    e.preventDefault();
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
     if (selectedIdx.value < filtered.value.length - 1) {
-      selectedIdx.value++;
-      scrollToSelected();
+      selectedIdx.value++
+      scrollToSelected()
     }
-    return;
+    return
   }
-  if (e.key === "ArrowUp") {
-    e.preventDefault();
+  if (e.key === 'ArrowUp') {
+    e.preventDefault()
     if (selectedIdx.value > 0) {
-      selectedIdx.value--;
-      scrollToSelected();
+      selectedIdx.value--
+      scrollToSelected()
     }
-    return;
+    return
   }
-  if (e.key === "Enter") {
-    e.preventDefault();
-    openSelected();
-    return;
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    openSelected()
+    return
   }
 }
 
-const listRef = ref<HTMLDivElement>();
+const listRef = ref<HTMLDivElement>()
 
 function scrollToSelected() {
   nextTick(() => {
-    const container = listRef.value;
-    if (!container) return;
-    const item = container.children[selectedIdx.value] as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest" });
-  });
+    const container = listRef.value
+    if (!container) return
+    const item = container.children[selectedIdx.value] as HTMLElement | undefined
+    item?.scrollIntoView({ block: 'nearest' })
+  })
 }
 </script>
 

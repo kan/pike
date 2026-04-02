@@ -7,8 +7,14 @@ let resolveFn: (() => void) | null = null
 let confirmValue: ((value: boolean) => void) | null = null
 
 function dismiss() {
-  if (confirmValue) { confirmValue(false); confirmValue = null }
-  if (resolveFn) { resolveFn(); resolveFn = null }
+  if (confirmValue) {
+    confirmValue(false)
+    confirmValue = null
+  }
+  if (resolveFn) {
+    resolveFn()
+    resolveFn = null
+  }
 }
 
 export function confirmDialog(msg: string): Promise<boolean> {
@@ -35,8 +41,14 @@ export function infoDialog(msg: string): Promise<void> {
 export function useConfirmDialog() {
   function respond(value: boolean) {
     visible.value = false
-    if (confirmValue) { confirmValue(value); confirmValue = null; resolveFn = null }
-    else if (resolveFn) { resolveFn(); resolveFn = null }
+    if (confirmValue) {
+      confirmValue(value)
+      confirmValue = null
+      resolveFn = null
+    } else if (resolveFn) {
+      resolveFn()
+      resolveFn = null
+    }
   }
 
   return { visible, message, infoOnly, respond }

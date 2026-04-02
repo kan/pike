@@ -1,56 +1,56 @@
 <script setup lang="ts">
-import { watch, nextTick, ref, computed } from "vue";
-import { useShortcutsModal } from "../composables/useShortcutsModal";
-import { useI18n } from "../i18n";
+import { computed, nextTick, ref, watch } from 'vue'
+import { useShortcutsModal } from '../composables/useShortcutsModal'
+import { useI18n } from '../i18n'
 
-const { t } = useI18n();
-const { visible } = useShortcutsModal();
-const panelRef = ref<HTMLDivElement>();
+const { t } = useI18n()
+const { visible } = useShortcutsModal()
+const panelRef = ref<HTMLDivElement>()
 
 watch(visible, (show) => {
-  if (show) nextTick(() => panelRef.value?.focus());
-});
+  if (show) nextTick(() => panelRef.value?.focus())
+})
 
 function onKeyDown(e: KeyboardEvent) {
-  if (e.key === "Escape") {
-    e.preventDefault();
-    visible.value = false;
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    visible.value = false
   }
 }
 
 interface ShortcutSection {
-  title: string;
-  items: { keys: string; label: string }[];
+  title: string
+  items: { keys: string; label: string }[]
 }
 
 const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.general'),
     items: [
-      { keys: "Ctrl+P", label: t('shortcuts.quickOpen') },
-      { keys: "Ctrl+Shift+P", label: t('shortcuts.projectSwitcher') },
-      { keys: "Ctrl+K", label: t('shortcuts.keyboardShortcuts') },
-      { keys: "Ctrl+,", label: t('shortcuts.settings') },
+      { keys: 'Ctrl+P', label: t('shortcuts.quickOpen') },
+      { keys: 'Ctrl+Shift+P', label: t('shortcuts.projectSwitcher') },
+      { keys: 'Ctrl+K', label: t('shortcuts.keyboardShortcuts') },
+      { keys: 'Ctrl+,', label: t('shortcuts.settings') },
     ],
   },
   {
     title: t('shortcuts.tabs'),
     items: [
-      { keys: "Ctrl+T", label: t('shortcuts.newTerminal') },
-      { keys: "Ctrl+W", label: t('shortcuts.closeTab') },
-      { keys: "Ctrl+PageDown", label: t('shortcuts.nextTab') },
-      { keys: "Ctrl+PageUp", label: t('shortcuts.prevTab') },
+      { keys: 'Ctrl+T', label: t('shortcuts.newTerminal') },
+      { keys: 'Ctrl+W', label: t('shortcuts.closeTab') },
+      { keys: 'Ctrl+PageDown', label: t('shortcuts.nextTab') },
+      { keys: 'Ctrl+PageUp', label: t('shortcuts.prevTab') },
     ],
   },
   {
     title: t('shortcuts.editor'),
     items: [
-      { keys: "Ctrl+S", label: t('shortcuts.save') },
-      { keys: "Ctrl+Z", label: t('shortcuts.undo') },
-      { keys: "Ctrl+Shift+Z", label: t('shortcuts.redo') },
-      { keys: "Ctrl+F", label: t('shortcuts.find') },
-      { keys: "Ctrl+H", label: t('shortcuts.findReplace') },
-      { keys: "Alt+H", label: t('shortcuts.gitHistory') },
+      { keys: 'Ctrl+S', label: t('shortcuts.save') },
+      { keys: 'Ctrl+Z', label: t('shortcuts.undo') },
+      { keys: 'Ctrl+Shift+Z', label: t('shortcuts.redo') },
+      { keys: 'Ctrl+F', label: t('shortcuts.find') },
+      { keys: 'Ctrl+H', label: t('shortcuts.findReplace') },
+      { keys: 'Alt+H', label: t('shortcuts.gitHistory') },
     ],
   },
   {
@@ -60,7 +60,7 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: t('shortcuts.rightClick'), label: t('shortcuts.rightClickPaste') },
     ],
   },
-]);
+])
 </script>
 
 <template>

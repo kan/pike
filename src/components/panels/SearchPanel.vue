@@ -1,68 +1,61 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
-import { useSearchStore } from "../../stores/search";
-import { useProjectStore } from "../../stores/project";
-import { useTabStore } from "../../stores/tabs";
-import { Regex } from "lucide-vue-next";
-import { useI18n } from "../../i18n";
+import { Regex } from 'lucide-vue-next'
+import { onMounted, onUnmounted, ref } from 'vue'
+import { useI18n } from '../../i18n'
+import { useProjectStore } from '../../stores/project'
+import { useSearchStore } from '../../stores/search'
+import { useTabStore } from '../../stores/tabs'
 
-const { t } = useI18n();
+const { t } = useI18n()
 
-const searchStore = useSearchStore();
-const projectStore = useProjectStore();
-const tabStore = useTabStore();
+const searchStore = useSearchStore()
+const projectStore = useProjectStore()
+const tabStore = useTabStore()
 
-const query = ref("");
-const isRegex = ref(false);
-const globInclude = ref("");
-const globExclude = ref("");
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+const query = ref('')
+const isRegex = ref(false)
+const globInclude = ref('')
+const globExclude = ref('')
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
 function onInput() {
-  if (debounceTimer) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => doSearch(), 300);
+  if (debounceTimer) clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(() => doSearch(), 300)
 }
 
 function doSearch() {
   if (!query.value.trim()) {
-    searchStore.clear();
-    return;
+    searchStore.clear()
+    return
   }
-  searchStore.search(
-    query.value,
-    isRegex.value,
-    globInclude.value || undefined,
-    globExclude.value || undefined,
-  );
+  searchStore.search(query.value, isRegex.value, globInclude.value || undefined, globExclude.value || undefined)
 }
 
 function openResult(match: { path: string; line: number }) {
-  const project = projectStore.currentProject;
-  if (!project) return;
-  const s = project.shell.kind === "wsl" ? "/" : "\\";
-  const fullPath = match.path.startsWith("/") || match.path.includes(":")
-    ? match.path
-    : project.root + s + match.path;
-  tabStore.addEditorTab({ path: fullPath, initialLine: match.line });
+  const project = projectStore.currentProject
+  if (!project) return
+  const s = project.shell.kind === 'wsl' ? '/' : '\\'
+  const fullPath = match.path.startsWith('/') || match.path.includes(':') ? match.path : project.root + s + match.path
+  tabStore.addEditorTab({ path: fullPath, initialLine: match.line })
 }
 
 function relativePath(fullPath: string): string {
-  const root = projectStore.currentProject?.root;
-  if (!root) return fullPath;
-  const s = projectStore.currentProject?.shell?.kind === "wsl" ? "/" : "\\";
-  if (fullPath.startsWith(root + s)) return fullPath.slice(root.length + s.length);
-  return fullPath;
+  const root = projectStore.currentProject?.root
+  if (!root) return fullPath
+  const s = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
+  if (fullPath.startsWith(root + s)) return fullPath.slice(root.length + s.length)
+  return fullPath
 }
 
 onUnmounted(() => {
-  if (debounceTimer) clearTimeout(debounceTimer);
-});
+  if (debounceTimer) clearTimeout(debounceTimer)
+})
 
 onMounted(() => {
   if (!searchStore.backend) {
-    searchStore.detectBackend();
+    searchStore.detectBackend()
   }
-});
+})
 </script>
 
 <template>

@@ -1,121 +1,128 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
-import { useTabStore } from "../../stores/tabs";
-import { useProjectStore } from "../../stores/project";
-import { gitLogFile, gitDiffCommit } from "../../lib/tauri";
-import type { HistoryTab } from "../../types/tab";
-import { relativeDate } from "../../lib/paths";
-import type { GitLogEntry } from "../../types/git";
-import { useI18n } from "../../i18n";
+import { computed, onMounted, ref } from 'vue'
+import { useI18n } from '../../i18n'
+import { relativeDate } from '../../lib/paths'
+import { gitDiffCommit, gitLogFile } from '../../lib/tauri'
+import { useProjectStore } from '../../stores/project'
+import { useTabStore } from '../../stores/tabs'
+import type { GitLogEntry } from '../../types/git'
+import type { HistoryTab } from '../../types/tab'
 
-const { t } = useI18n();
+const { t } = useI18n()
 
-const props = defineProps<{ tabId: string }>();
-const tabStore = useTabStore();
-const projectStore = useProjectStore();
+const props = defineProps<{ tabId: string }>()
+const tabStore = useTabStore()
+const projectStore = useProjectStore()
 
-const tab = computed(() =>
-  tabStore.tabs.find((t): t is HistoryTab => t.id === props.tabId && t.kind === "history")
-);
+const tab = computed(() => tabStore.tabs.find((t): t is HistoryTab => t.id === props.tabId && t.kind === 'history'))
 
-const entries = ref<GitLogEntry[]>([]);
-const loading = ref(true);
-const selectedHash = ref<string | null>(null);
-const diffText = ref("");
-const diffLoading = ref(false);
+const entries = ref<GitLogEntry[]>([])
+const loading = ref(true)
+const selectedHash = ref<string | null>(null)
+const diffText = ref('')
+const diffLoading = ref(false)
 
 interface DiffLine {
-  left: { num: number | null; text: string; type: string };
-  right: { num: number | null; text: string; type: string };
+  left: { num: number | null; text: string; type: string }
+  right: { num: number | null; text: string; type: string }
 }
 
 function parseDiff(raw: string): DiffLine[] {
-  const lines = raw.split("\n");
-  const result: DiffLine[] = [];
-  let leftNum = 0, rightNum = 0, inHunk = false;
+  const lines = raw.split('\n')
+  const result: DiffLine[] = []
+  let leftNum = 0,
+    rightNum = 0,
+    inHunk = false
 
   for (const line of lines) {
-    if (line.startsWith("@@")) {
-      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-      if (match) { leftNum = parseInt(match[1]) - 1; rightNum = parseInt(match[2]) - 1; }
-      inHunk = true;
+    if (line.startsWith('@@')) {
+      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+      if (match) {
+        leftNum = parseInt(match[1], 10) - 1
+        rightNum = parseInt(match[2], 10) - 1
+      }
+      inHunk = true
       result.push({
-        left: { num: null, text: line, type: "hunk" },
-        right: { num: null, text: "", type: "hunk" },
-      });
-      continue;
+        left: { num: null, text: line, type: 'hunk' },
+        right: { num: null, text: '', type: 'hunk' },
+      })
+      continue
     }
-    if (!inHunk) continue;
-    if (line.startsWith("-")) {
-      leftNum++;
+    if (!inHunk) continue
+    if (line.startsWith('-')) {
+      leftNum++
       result.push({
-        left: { num: leftNum, text: line.slice(1), type: "del" },
-        right: { num: null, text: "", type: "empty" },
-      });
-    } else if (line.startsWith("+")) {
-      rightNum++;
+        left: { num: leftNum, text: line.slice(1), type: 'del' },
+        right: { num: null, text: '', type: 'empty' },
+      })
+    } else if (line.startsWith('+')) {
+      rightNum++
       // Pair with preceding unpaired del
-      let paired = -1;
+      let paired = -1
       for (let i = result.length - 1; i >= 0; i--) {
-        if (result[i].left.type === "del" && result[i].right.type === "empty") { paired = i; break; }
-        if (result[i].left.type !== "del") break;
+        if (result[i].left.type === 'del' && result[i].right.type === 'empty') {
+          paired = i
+          break
+        }
+        if (result[i].left.type !== 'del') break
       }
       if (paired !== -1) {
-        result[paired].right = { num: rightNum, text: line.slice(1), type: "add" };
+        result[paired].right = { num: rightNum, text: line.slice(1), type: 'add' }
       } else {
         result.push({
-          left: { num: null, text: "", type: "empty" },
-          right: { num: rightNum, text: line.slice(1), type: "add" },
-        });
+          left: { num: null, text: '', type: 'empty' },
+          right: { num: rightNum, text: line.slice(1), type: 'add' },
+        })
       }
-    } else if (!line.startsWith("\\")) {
-      leftNum++; rightNum++;
+    } else if (!line.startsWith('\\')) {
+      leftNum++
+      rightNum++
       result.push({
-        left: { num: leftNum, text: line.slice(1), type: "ctx" },
-        right: { num: rightNum, text: line.slice(1), type: "ctx" },
-      });
+        left: { num: leftNum, text: line.slice(1), type: 'ctx' },
+        right: { num: rightNum, text: line.slice(1), type: 'ctx' },
+      })
     }
   }
-  return result;
+  return result
 }
 
-const diffLines = computed(() => parseDiff(diffText.value));
+const diffLines = computed(() => parseDiff(diffText.value))
 
-
-
-const copiedHash = ref<string | null>(null);
+const copiedHash = ref<string | null>(null)
 
 function copyHash(hash: string) {
-  navigator.clipboard.writeText(hash);
-  copiedHash.value = hash;
-  setTimeout(() => { copiedHash.value = null; }, 1500);
+  navigator.clipboard.writeText(hash)
+  copiedHash.value = hash
+  setTimeout(() => {
+    copiedHash.value = null
+  }, 1500)
 }
 
 async function selectCommit(hash: string) {
-  const project = projectStore.currentProject;
-  if (!project || !tab.value) return;
-  selectedHash.value = hash;
-  diffLoading.value = true;
+  const project = projectStore.currentProject
+  if (!project || !tab.value) return
+  selectedHash.value = hash
+  diffLoading.value = true
   try {
-    diffText.value = await gitDiffCommit(project.root, project.shell, hash, tab.value.filePath);
+    diffText.value = await gitDiffCommit(project.root, project.shell, hash, tab.value.filePath)
   } catch (e) {
-    diffText.value = String(e);
+    diffText.value = String(e)
   } finally {
-    diffLoading.value = false;
+    diffLoading.value = false
   }
 }
 
 onMounted(async () => {
-  const project = projectStore.currentProject;
-  if (!project || !tab.value) return;
+  const project = projectStore.currentProject
+  if (!project || !tab.value) return
   try {
-    entries.value = await gitLogFile(project.root, project.shell, tab.value.filePath, 200);
+    entries.value = await gitLogFile(project.root, project.shell, tab.value.filePath, 200)
   } catch {
-    entries.value = [];
+    entries.value = []
   } finally {
-    loading.value = false;
+    loading.value = false
   }
-});
+})
 </script>
 
 <template>

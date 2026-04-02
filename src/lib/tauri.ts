@@ -1,197 +1,197 @@
-import { invoke } from "@tauri-apps/api/core";
-import type { ShellType } from "../types/tab";
-import type { ProjectConfig } from "../types/project";
-import type { GitStatusResult, GitLogEntry, GitFileChange } from "../types/git";
-import type { ComposeService, ContainerInfo } from "../types/docker";
-import type { SearchResult, SearchBackend } from "../types/search";
+import { invoke } from '@tauri-apps/api/core'
+import type { ComposeService, ContainerInfo } from '../types/docker'
+import type { GitFileChange, GitLogEntry, GitStatusResult } from '../types/git'
+import type { ProjectConfig } from '../types/project'
+import type { SearchBackend, SearchResult } from '../types/search'
+import type { ShellType } from '../types/tab'
 
 // PTY
 
 export interface PtySpawnResult {
-  id: string;
+  id: string
 }
 
 export async function ptySpawn(
   cols: number,
   rows: number,
-  opts?: { cwd?: string; shell?: ShellType }
+  opts?: { cwd?: string; shell?: ShellType },
 ): Promise<PtySpawnResult> {
-  return invoke<PtySpawnResult>("pty_spawn", {
+  return invoke<PtySpawnResult>('pty_spawn', {
     cols,
     rows,
     cwd: opts?.cwd ?? null,
     shell: opts?.shell ?? null,
-  });
+  })
 }
 
 export async function ptySpawnTmux(sessionName: string, cols: number, rows: number): Promise<PtySpawnResult> {
-  return invoke<PtySpawnResult>("pty_spawn_tmux", { sessionName, cols, rows });
+  return invoke<PtySpawnResult>('pty_spawn_tmux', { sessionName, cols, rows })
 }
 
 export async function ptyWrite(id: string, data: string): Promise<void> {
-  return invoke("pty_write", { id, data });
+  return invoke('pty_write', { id, data })
 }
 
 export async function ptyResize(id: string, cols: number, rows: number): Promise<void> {
-  return invoke("pty_resize", { id, cols, rows });
+  return invoke('pty_resize', { id, cols, rows })
 }
 
 export async function ptyKill(id: string): Promise<void> {
-  return invoke("pty_kill", { id });
+  return invoke('pty_kill', { id })
 }
 
 // Environment detection
 
 export async function detectWslDistros(): Promise<string[]> {
-  return invoke<string[]>("detect_wsl_distros");
+  return invoke<string[]>('detect_wsl_distros')
 }
 
 // Project — last project persistence
 
 export async function projectGetLast(): Promise<string | null> {
-  return invoke<string | null>("project_get_last");
+  return invoke<string | null>('project_get_last')
 }
 
 export async function projectSetLast(id: string): Promise<void> {
-  return invoke("project_set_last", { id });
+  return invoke('project_set_last', { id })
 }
 
 // Project — CRUD
 
 export async function projectList(): Promise<ProjectConfig[]> {
-  return invoke<ProjectConfig[]>("project_list");
+  return invoke<ProjectConfig[]>('project_list')
 }
 
 export async function projectGet(id: string): Promise<ProjectConfig> {
-  return invoke<ProjectConfig>("project_get", { id });
+  return invoke<ProjectConfig>('project_get', { id })
 }
 
 export async function projectCreate(config: ProjectConfig): Promise<ProjectConfig> {
-  return invoke<ProjectConfig>("project_create", { config });
+  return invoke<ProjectConfig>('project_create', { config })
 }
 
 export async function projectUpdate(config: ProjectConfig): Promise<void> {
-  return invoke("project_update", { config });
+  return invoke('project_update', { config })
 }
 
 export async function projectDelete(id: string): Promise<void> {
-  return invoke("project_delete", { id });
+  return invoke('project_delete', { id })
 }
 
 // Filesystem
 
 export interface FsEntry {
-  name: string;
-  isDir: boolean;
+  name: string
+  isDir: boolean
 }
 
 export async function fsListDir(shell: ShellType, path: string): Promise<FsEntry[]> {
-  return invoke<FsEntry[]>("fs_list_dir", { shell, path });
+  return invoke<FsEntry[]>('fs_list_dir', { shell, path })
 }
 
 export interface FileReadResult {
-  content: string;
-  encoding: string;
+  content: string
+  encoding: string
 }
 
 export async function fsReadFile(shell: ShellType, path: string, encoding?: string): Promise<FileReadResult> {
-  return invoke<FileReadResult>("fs_read_file", { shell, path, encoding: encoding ?? null });
+  return invoke<FileReadResult>('fs_read_file', { shell, path, encoding: encoding ?? null })
 }
 
 export async function fsWriteFile(shell: ShellType, path: string, content: string, encoding?: string): Promise<void> {
-  return invoke("fs_write_file", { shell, path, content, encoding: encoding ?? null });
+  return invoke('fs_write_file', { shell, path, content, encoding: encoding ?? null })
 }
 
 export async function fsReadFileBase64(shell: ShellType, path: string): Promise<string> {
-  return invoke<string>("fs_read_file_base64", { shell, path });
+  return invoke<string>('fs_read_file_base64', { shell, path })
 }
 
 export async function fsRename(shell: ShellType, oldPath: string, newPath: string): Promise<void> {
-  return invoke("fs_rename", { shell, oldPath, newPath });
+  return invoke('fs_rename', { shell, oldPath, newPath })
 }
 
 export async function fsDelete(shell: ShellType, path: string): Promise<void> {
-  return invoke("fs_delete", { shell, path });
+  return invoke('fs_delete', { shell, path })
 }
 
 export async function fsCopy(shell: ShellType, source: string, dest: string): Promise<void> {
-  return invoke("fs_copy", { shell, source, dest });
+  return invoke('fs_copy', { shell, source, dest })
 }
 
 export async function fsCreateFile(shell: ShellType, path: string): Promise<void> {
-  return invoke("fs_create_file", { shell, path });
+  return invoke('fs_create_file', { shell, path })
 }
 
 export async function fsCreateDir(shell: ShellType, path: string): Promise<void> {
-  return invoke("fs_create_dir", { shell, path });
+  return invoke('fs_create_dir', { shell, path })
 }
 
 // Watcher
 
 export async function fsWatchStart(shell: ShellType, root: string): Promise<string> {
-  return invoke<string>("fs_watch_start", { shell, root });
+  return invoke<string>('fs_watch_start', { shell, root })
 }
 
 export async function fsWatchStop(watcherId: string): Promise<void> {
-  return invoke("fs_watch_stop", { watcherId });
+  return invoke('fs_watch_stop', { watcherId })
 }
 
 // Git
 
 export async function gitStatus(root: string, shell: ShellType): Promise<GitStatusResult> {
-  return invoke<GitStatusResult>("git_status", { root, shell });
+  return invoke<GitStatusResult>('git_status', { root, shell })
 }
 
 export async function gitLog(root: string, shell: ShellType, count?: number, all?: boolean): Promise<GitLogEntry[]> {
-  return invoke<GitLogEntry[]>("git_log", { root, shell, count: count ?? null, all: all ?? null });
+  return invoke<GitLogEntry[]>('git_log', { root, shell, count: count ?? null, all: all ?? null })
 }
 
 export async function gitDiff(root: string, shell: ShellType, path: string, staged: boolean): Promise<string> {
-  return invoke<string>("git_diff", { root, shell, path, staged });
+  return invoke<string>('git_diff', { root, shell, path, staged })
 }
 
 export async function gitStage(root: string, shell: ShellType, paths: string[]): Promise<void> {
-  return invoke("git_stage", { root, shell, paths });
+  return invoke('git_stage', { root, shell, paths })
 }
 
 export async function gitUnstage(root: string, shell: ShellType, paths: string[]): Promise<void> {
-  return invoke("git_unstage", { root, shell, paths });
+  return invoke('git_unstage', { root, shell, paths })
 }
 
 export async function gitCommit(root: string, shell: ShellType, message: string): Promise<void> {
-  return invoke("git_commit", { root, shell, message });
+  return invoke('git_commit', { root, shell, message })
 }
 
 export async function gitBranchList(root: string, shell: ShellType): Promise<string[]> {
-  return invoke<string[]>("git_branch_list", { root, shell });
+  return invoke<string[]>('git_branch_list', { root, shell })
 }
 
 export async function gitCheckout(root: string, shell: ShellType, branch: string): Promise<void> {
-  return invoke("git_checkout", { root, shell, branch });
+  return invoke('git_checkout', { root, shell, branch })
 }
 
 export async function gitPush(root: string, shell: ShellType): Promise<string> {
-  return invoke<string>("git_push", { root, shell });
+  return invoke<string>('git_push', { root, shell })
 }
 
 export async function gitPull(root: string, shell: ShellType): Promise<string> {
-  return invoke<string>("git_pull", { root, shell });
+  return invoke<string>('git_pull', { root, shell })
 }
 
 export async function gitShowFiles(root: string, shell: ShellType, hash: string): Promise<GitFileChange[]> {
-  return invoke<GitFileChange[]>("git_show_files", { root, shell, hash });
+  return invoke<GitFileChange[]>('git_show_files', { root, shell, hash })
 }
 
 export async function gitDiffCommit(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
-  return invoke<string>("git_diff_commit", { root, shell, hash, path });
+  return invoke<string>('git_diff_commit', { root, shell, hash, path })
 }
 
 export async function gitShowFile(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
-  return invoke<string>("git_show_file", { root, shell, hash, path });
+  return invoke<string>('git_show_file', { root, shell, hash, path })
 }
 
 export async function gitLogFile(root: string, shell: ShellType, path: string, count?: number): Promise<GitLogEntry[]> {
-  return invoke<GitLogEntry[]>("git_log_file", { root, shell, path, count: count ?? null });
+  return invoke<GitLogEntry[]>('git_log_file', { root, shell, path, count: count ?? null })
 }
 
 export interface GitDiffLines {
@@ -201,13 +201,13 @@ export interface GitDiffLines {
 }
 
 export async function gitDiffLines(root: string, shell: ShellType, path: string): Promise<GitDiffLines> {
-  return invoke<GitDiffLines>("git_diff_lines", { root, shell, path });
+  return invoke<GitDiffLines>('git_diff_lines', { root, shell, path })
 }
 
 // Search
 
 export async function searchDetectBackend(shell: ShellType): Promise<SearchBackend> {
-  return invoke<SearchBackend>("search_detect_backend", { shell });
+  return invoke<SearchBackend>('search_detect_backend', { shell })
 }
 
 export async function searchExecute(
@@ -219,99 +219,102 @@ export async function searchExecute(
   globExclude?: string,
   maxResults?: number,
 ): Promise<SearchResult> {
-  return invoke<SearchResult>("search_execute", {
-    shell, root, query, isRegex,
+  return invoke<SearchResult>('search_execute', {
+    shell,
+    root,
+    query,
+    isRegex,
     globInclude: globInclude ?? null,
     globExclude: globExclude ?? null,
     maxResults: maxResults ?? null,
-  });
+  })
 }
 
 export async function listProjectFiles(shell: ShellType, root: string): Promise<string[]> {
-  return invoke<string[]>("list_project_files", { shell, root });
+  return invoke<string[]>('list_project_files', { shell, root })
 }
 
 // Docker
 
 export async function dockerPing(): Promise<boolean> {
-  return invoke<boolean>("docker_ping");
+  return invoke<boolean>('docker_ping')
 }
 
 export async function dockerComposeServices(root: string, shell: ShellType): Promise<ComposeService[]> {
-  return invoke<ComposeService[]>("docker_compose_services", { root, shell });
+  return invoke<ComposeService[]>('docker_compose_services', { root, shell })
 }
 
 export async function dockerListContainers(): Promise<ContainerInfo[]> {
-  return invoke<ContainerInfo[]>("docker_list_containers");
+  return invoke<ContainerInfo[]>('docker_list_containers')
 }
 
 export async function dockerStart(containerId: string): Promise<void> {
-  return invoke("docker_start", { containerId });
+  return invoke('docker_start', { containerId })
 }
 
 export async function dockerStop(containerId: string): Promise<void> {
-  return invoke("docker_stop", { containerId });
+  return invoke('docker_stop', { containerId })
 }
 
 export async function dockerRestart(containerId: string): Promise<void> {
-  return invoke("docker_restart", { containerId });
+  return invoke('docker_restart', { containerId })
 }
 
 export async function dockerLogsStart(containerId: string): Promise<string> {
-  return invoke<string>("docker_logs_start", { containerId });
+  return invoke<string>('docker_logs_start', { containerId })
 }
 
 export async function dockerLogsStop(streamId: string): Promise<void> {
-  return invoke("docker_logs_stop", { streamId });
+  return invoke('docker_logs_stop', { streamId })
 }
 
 export async function dockerDetectShell(containerId: string): Promise<string> {
-  return invoke<string>("docker_detect_shell", { containerId });
+  return invoke<string>('docker_detect_shell', { containerId })
 }
 
 // Window
 
 export async function openProjectWindow(projectId: string): Promise<void> {
-  return invoke("open_project_window", { projectId });
+  return invoke('open_project_window', { projectId })
 }
 
 export async function openUrl(url: string): Promise<void> {
-  return invoke("open_url", { url });
+  return invoke('open_url', { url })
 }
 
 export async function pickFolder(): Promise<string | null> {
-  return invoke<string | null>("pick_folder");
+  return invoke<string | null>('pick_folder')
 }
 
 // CLI
 
 export interface CliOpenFile {
-  action: "openFile";
-  path: string;
-  line: number | null;
+  action: 'openFile'
+  path: string
+  line: number | null
 }
 
 export interface CliOpenDirectory {
-  action: "openDirectory";
-  path: string;
+  action: 'openDirectory'
+  path: string
 }
 
 export interface CliNone {
-  action: "none";
+  action: 'none'
 }
 
-export type CliAction = CliOpenFile | CliOpenDirectory | CliNone;
+export type CliAction = CliOpenFile | CliOpenDirectory | CliNone
 
 export async function cliGetInitialAction(): Promise<CliAction> {
-  return invoke<CliAction>("cli_get_initial_action");
+  return invoke<CliAction>('cli_get_initial_action')
 }
 
 export async function cliSetPendingAction(windowLabel: string, action: CliAction): Promise<void> {
-  return invoke("cli_set_pending_action", { windowLabel, action });
+  return invoke('cli_set_pending_action', { windowLabel, action })
 }
 
 // Font
 
 export async function fontListMonospace(): Promise<string[]> {
-  return invoke<string[]>("font_list_monospace");
+  return invoke<string[]>('font_list_monospace')
 }

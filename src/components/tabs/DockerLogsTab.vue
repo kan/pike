@@ -1,66 +1,76 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { dockerLogsStart, dockerLogsStop } from "../../lib/tauri";
-import { useTabStore } from "../../stores/tabs";
-import { useSettingsStore } from "../../stores/settings";
-import { dockerLogRouter } from "../../composables/useDockerLogRouter";
-import type { DockerLogsTab } from "../../types/tab";
-import { useI18n } from "../../i18n";
-import "@xterm/xterm/css/xterm.css";
+import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { Terminal } from '@xterm/xterm'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { dockerLogRouter } from '../../composables/useDockerLogRouter'
+import { useI18n } from '../../i18n'
+import { dockerLogsStart, dockerLogsStop } from '../../lib/tauri'
+import { useSettingsStore } from '../../stores/settings'
+import { useTabStore } from '../../stores/tabs'
+import type { DockerLogsTab } from '../../types/tab'
+import '@xterm/xterm/css/xterm.css'
 
-const { t } = useI18n();
+const { t } = useI18n()
 
-const props = defineProps<{ tabId: string }>();
-const tabStore = useTabStore();
-const settingsStore = useSettingsStore();
+const props = defineProps<{ tabId: string }>()
+const tabStore = useTabStore()
+const settingsStore = useSettingsStore()
 
 const tab = computed(() =>
-  tabStore.tabs.find((t): t is DockerLogsTab => t.id === props.tabId && t.kind === "docker-logs")
-);
+  tabStore.tabs.find((t): t is DockerLogsTab => t.id === props.tabId && t.kind === 'docker-logs'),
+)
 
-const termRef = ref<HTMLDivElement>();
-let terminal: Terminal | null = null;
-let fitAddon: FitAddon | null = null;
-let streamId: string | null = null;
-let resizeObserver: ResizeObserver | null = null;
-let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+const termRef = ref<HTMLDivElement>()
+let terminal: Terminal | null = null
+let fitAddon: FitAddon | null = null
+let streamId: string | null = null
+let resizeObserver: ResizeObserver | null = null
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
 
 function doFit() {
-  if (!fitAddon || !terminal) return;
-  fitAddon.fit();
+  if (!fitAddon || !terminal) return
+  fitAddon.fit()
 }
 
 watch(
   () => tabStore.activeTabId,
   (id) => {
     if (id === props.tabId) {
-      nextTick(() => doFit());
+      nextTick(() => doFit())
     }
-  }
-);
+  },
+)
 
 watch(
   () => settingsStore.xtermTheme,
   (theme) => {
-    if (!terminal) return;
-    terminal.options.theme = theme;
-    terminal.refresh(0, terminal.rows - 1);
-  }
-);
+    if (!terminal) return
+    terminal.options.theme = theme
+    terminal.refresh(0, terminal.rows - 1)
+  },
+)
 watch(
   () => settingsStore.fontFamily,
-  (v) => { if (terminal) { terminal.options.fontFamily = v; doFit(); } }
-);
+  (v) => {
+    if (terminal) {
+      terminal.options.fontFamily = v
+      doFit()
+    }
+  },
+)
 watch(
   () => settingsStore.fontSize,
-  (v) => { if (terminal) { terminal.options.fontSize = v; doFit(); } }
-);
+  (v) => {
+    if (terminal) {
+      terminal.options.fontSize = v
+      doFit()
+    }
+  },
+)
 
 onMounted(async () => {
-  if (!termRef.value || !tab.value) return;
+  if (!termRef.value || !tab.value) return
 
   terminal = new Terminal({
     fontFamily: settingsStore.fontFamily,
@@ -70,43 +80,43 @@ onMounted(async () => {
     cursorBlink: false,
     disableStdin: true,
     convertEol: true,
-  });
+  })
 
-  fitAddon = new FitAddon();
-  terminal.loadAddon(fitAddon);
-  terminal.loadAddon(new WebLinksAddon());
+  fitAddon = new FitAddon()
+  terminal.loadAddon(fitAddon)
+  terminal.loadAddon(new WebLinksAddon())
 
-  terminal.open(termRef.value);
-  fitAddon.fit();
+  terminal.open(termRef.value)
+  fitAddon.fit()
 
   try {
-    streamId = await dockerLogsStart(tab.value.containerId);
-    const termRef_ = terminal;
+    streamId = await dockerLogsStart(tab.value.containerId)
+    const termRef_ = terminal
     dockerLogRouter.register(
       streamId,
       (data) => termRef_.write(data),
-      () => termRef_.write(`\r\n${t('dockerLogs.ended')}\r\n`)
-    );
+      () => termRef_.write(`\r\n${t('dockerLogs.ended')}\r\n`),
+    )
   } catch (e) {
-    terminal.write(`\r\n${t('dockerLogs.failedStart', { error: String(e) })}\r\n`);
+    terminal.write(`\r\n${t('dockerLogs.failedStart', { error: String(e) })}\r\n`)
   }
 
   resizeObserver = new ResizeObserver(() => {
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => doFit(), 100);
-  });
-  resizeObserver.observe(termRef.value);
-});
+    if (resizeTimer) clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(() => doFit(), 100)
+  })
+  resizeObserver.observe(termRef.value)
+})
 
 onUnmounted(() => {
-  if (resizeTimer) clearTimeout(resizeTimer);
-  resizeObserver?.disconnect();
+  if (resizeTimer) clearTimeout(resizeTimer)
+  resizeObserver?.disconnect()
   if (streamId) {
-    dockerLogRouter.unregister(streamId);
-    dockerLogsStop(streamId).catch(() => {});
+    dockerLogRouter.unregister(streamId)
+    dockerLogsStop(streamId).catch(() => {})
   }
-  terminal?.dispose();
-});
+  terminal?.dispose()
+})
 </script>
 
 <template>

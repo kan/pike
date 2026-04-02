@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { SidebarPanel } from '../types/tab'
 
 const PANEL_WIDTH_KEY = 'pike:panelWidth'
@@ -10,11 +10,9 @@ const VALID_PANELS: SidebarPanel[] = ['files', 'git', 'search', 'docker', 'proje
 
 export const useSidebarStore = defineStore('sidebar', () => {
   const saved = localStorage.getItem(ACTIVE_PANEL_KEY)
-  const initial = saved && VALID_PANELS.includes(saved as SidebarPanel) ? saved as SidebarPanel : null
+  const initial = saved && VALID_PANELS.includes(saved as SidebarPanel) ? (saved as SidebarPanel) : null
   const activePanel = ref<SidebarPanel | null>(initial)
-  const panelWidth = ref(
-    parseInt(localStorage.getItem(PANEL_WIDTH_KEY) ?? '', 10) || DEFAULT_PANEL_WIDTH
-  )
+  const panelWidth = ref(parseInt(localStorage.getItem(PANEL_WIDTH_KEY) ?? '', 10) || DEFAULT_PANEL_WIDTH)
 
   const isPanelOpen = computed(() => activePanel.value !== null)
 

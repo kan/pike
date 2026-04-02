@@ -1,28 +1,33 @@
-import { EditorView, type Panel, type ViewUpdate } from '@codemirror/view'
 import {
-  SearchQuery,
-  setSearchQuery,
+  closeSearchPanel,
   findNext,
   findPrevious,
-  replaceNext,
-  replaceAll,
   getSearchQuery,
-  closeSearchPanel,
+  replaceAll,
+  replaceNext,
+  SearchQuery,
   search,
   searchKeymap,
+  setSearchQuery,
 } from '@codemirror/search'
+import type { EditorView, Panel, ViewUpdate } from '@codemirror/view'
 
 // Inline SVG icons (Lucide-based, 16x16)
 const ICON = {
-  chevronUp: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>',
-  chevronDown: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  chevronUp:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>',
+  chevronDown:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
   x: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
-  replace: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5-4 4 4 4"/><path d="M5 9h10a2 2 0 0 1 2 2v1"/><path d="m15 19 4-4-4-4"/><path d="M19 15H9a2 2 0 0 1-2-2v-1"/></svg>',
-  replaceAll: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 3-4 4 4 4"/><path d="M5 7h10a2 2 0 0 1 2 2v1"/><path d="m9 13-4 4 4 4"/><path d="M5 17h10a2 2 0 0 1 2 2v1"/></svg>',
-  chevronRight: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
-  chevronDownSmall: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  replace:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5-4 4 4 4"/><path d="M5 9h10a2 2 0 0 1 2 2v1"/><path d="m15 19 4-4-4-4"/><path d="M19 15H9a2 2 0 0 1-2-2v-1"/></svg>',
+  replaceAll:
+    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 3-4 4 4 4"/><path d="M5 7h10a2 2 0 0 1 2 2v1"/><path d="m9 13-4 4 4 4"/><path d="M5 17h10a2 2 0 0 1 2 2v1"/></svg>',
+  chevronRight:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>',
+  chevronDownSmall:
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
 }
-
 
 function createSearchPanel(view: EditorView): Panel {
   let showReplace = false
@@ -100,7 +105,7 @@ function createSearchPanel(view: EditorView): Panel {
   // --- Helpers ---
   function createToggle(label: string, title: string, active: boolean): HTMLButtonElement {
     const btn = document.createElement('button')
-    btn.className = 'search-toggle-btn' + (active ? ' active' : '')
+    btn.className = `search-toggle-btn${active ? ' active' : ''}`
     btn.textContent = label
     btn.title = title
     return btn
@@ -151,7 +156,9 @@ function createSearchPanel(view: EditorView): Panel {
       cachedDocVersion = docVersion
       cachedQueryStr = queryStr
       const query = getSearchQuery(view.state)
-      if (!query.valid) { cachedTotal = 0 } else {
+      if (!query.valid) {
+        cachedTotal = 0
+      } else {
         let total = 0
         const cursor = query.getCursor(view.state.doc)
         while (!cursor.next().done) total++
@@ -219,16 +226,46 @@ function createSearchPanel(view: EditorView): Panel {
     }
   })
 
-  btnCase.addEventListener('click', () => toggleMode(btnCase, () => caseSensitive, v => caseSensitive = v))
-  btnRegex.addEventListener('click', () => toggleMode(btnRegex, () => regexp, v => regexp = v))
-  btnWord.addEventListener('click', () => toggleMode(btnWord, () => wholeWord, v => wholeWord = v))
+  btnCase.addEventListener('click', () =>
+    toggleMode(
+      btnCase,
+      () => caseSensitive,
+      (v) => (caseSensitive = v),
+    ),
+  )
+  btnRegex.addEventListener('click', () =>
+    toggleMode(
+      btnRegex,
+      () => regexp,
+      (v) => (regexp = v),
+    ),
+  )
+  btnWord.addEventListener('click', () =>
+    toggleMode(
+      btnWord,
+      () => wholeWord,
+      (v) => (wholeWord = v),
+    ),
+  )
 
-  btnPrev.addEventListener('click', () => { findPrevious(view); scheduleMatchInfo() })
-  btnNext.addEventListener('click', () => { findNext(view); scheduleMatchInfo() })
+  btnPrev.addEventListener('click', () => {
+    findPrevious(view)
+    scheduleMatchInfo()
+  })
+  btnNext.addEventListener('click', () => {
+    findNext(view)
+    scheduleMatchInfo()
+  })
   btnClose.addEventListener('click', () => closeSearchPanel(view))
 
-  btnReplaceOne.addEventListener('click', () => { replaceNext(view); scheduleMatchInfo() })
-  btnReplaceAllAction.addEventListener('click', () => { replaceAll(view); scheduleMatchInfo() })
+  btnReplaceOne.addEventListener('click', () => {
+    replaceNext(view)
+    scheduleMatchInfo()
+  })
+  btnReplaceAllAction.addEventListener('click', () => {
+    replaceAll(view)
+    scheduleMatchInfo()
+  })
 
   toggleReplaceBtn.addEventListener('click', () => {
     showReplace = !showReplace

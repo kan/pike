@@ -50,5 +50,13 @@ export function useEditorInfo() {
     onSaveWithEncoding?.(encoding)
   }
 
-  return { current, update, clear, registerCallbacks, requestEncodingChange, requestLineEndingChange, requestSaveWithEncoding }
+  return {
+    current,
+    update,
+    clear,
+    registerCallbacks,
+    requestEncodingChange,
+    requestLineEndingChange,
+    requestSaveWithEncoding,
+  }
 }

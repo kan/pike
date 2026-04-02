@@ -1,177 +1,183 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { useGitStore } from "../../stores/git";
-import { useProjectStore } from "../../stores/project";
-import { useTabStore } from "../../stores/tabs";
-import { useSidebarStore } from "../../stores/sidebar";
-import { gitDiff, gitShowFiles, gitDiffCommit, gitShowFile } from "../../lib/tauri";
-import { fileIconSvg } from "../../lib/fileIcons";
-import { gitStatusColor, relativeDate } from "../../lib/paths";
-import { buildGraph, ROW_HEIGHT, LANE_WIDTH, DOT_RADIUS } from "../../lib/gitGraph";
-import { ChevronRight, ChevronDown, Plus, Minus } from "lucide-vue-next";
-import type { GitFileChange } from "../../types/git";
-import { useI18n } from "../../i18n";
+import { ChevronDown, ChevronRight, Minus, Plus } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from '../../i18n'
+import { fileIconSvg } from '../../lib/fileIcons'
+import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
+import { gitStatusColor, relativeDate } from '../../lib/paths'
+import { gitDiff, gitDiffCommit, gitShowFile, gitShowFiles } from '../../lib/tauri'
+import { useGitStore } from '../../stores/git'
+import { useProjectStore } from '../../stores/project'
+import { useSidebarStore } from '../../stores/sidebar'
+import { useTabStore } from '../../stores/tabs'
+import type { GitFileChange } from '../../types/git'
 
-const { t } = useI18n();
+const { t } = useI18n()
 
-const gitStore = useGitStore();
-const projectStore = useProjectStore();
-const tabStore = useTabStore();
-const sidebar = useSidebarStore();
+const gitStore = useGitStore()
+const projectStore = useProjectStore()
+const tabStore = useTabStore()
+const sidebar = useSidebarStore()
 
-const commitMsg = ref("");
-const commitView = ref<'list' | 'graph'>('list');
+const commitMsg = ref('')
+const commitView = ref<'list' | 'graph'>('list')
 
-const graphRows = computed(() => buildGraph(gitStore.logEntries));
+const graphRows = computed(() => buildGraph(gitStore.logEntries))
 const graphSvgWidth = computed(() => {
   const maxCol = graphRows.value.reduce((m, r) => Math.max(m, r.maxCol), 0)
   return (maxCol + 2) * LANE_WIDTH
-});
+})
 
 function switchToGraph() {
-  commitView.value = 'graph';
-  gitStore.refreshLog(true);
+  commitView.value = 'graph'
+  gitStore.refreshLog(true)
 }
 
 function switchToList() {
-  commitView.value = 'list';
-  gitStore.refreshLog(false);
+  commitView.value = 'list'
+  gitStore.refreshLog(false)
 }
 
 // Commit tree expansion
-const expandedCommits = ref<Set<string>>(new Set());
-const commitFiles = ref<Record<string, GitFileChange[]>>({});
-
-
+const expandedCommits = ref<Set<string>>(new Set())
+const commitFiles = ref<Record<string, GitFileChange[]>>({})
 
 async function onCommit() {
-  if (!commitMsg.value.trim() || !gitStore.status?.staged.length) return;
-  await gitStore.commitChanges(commitMsg.value.trim());
-  commitMsg.value = "";
+  if (!commitMsg.value.trim() || !gitStore.status?.staged.length) return
+  await gitStore.commitChanges(commitMsg.value.trim())
+  commitMsg.value = ''
 }
 
 async function openDiffTab(path: string, staged: boolean) {
-  const project = projectStore.currentProject;
-  if (!project) return;
-  const diff = await gitDiff(project.root, project.shell, path, staged);
-  tabStore.addDiffTab({ filePath: path, diff, staged });
+  const project = projectStore.currentProject
+  if (!project) return
+  const diff = await gitDiff(project.root, project.shell, path, staged)
+  tabStore.addDiffTab({ filePath: path, diff, staged })
 }
 
 async function toggleCommitExpand(hash: string) {
   if (expandedCommits.value.has(hash)) {
-    expandedCommits.value.delete(hash);
-    delete commitFiles.value[hash];
-    return;
+    expandedCommits.value.delete(hash)
+    delete commitFiles.value[hash]
+    return
   }
-  expandedCommits.value.add(hash);
+  expandedCommits.value.add(hash)
   if (!commitFiles.value[hash]) {
-    const project = projectStore.currentProject;
-    if (!project) return;
+    const project = projectStore.currentProject
+    if (!project) return
     try {
-      commitFiles.value[hash] = await gitShowFiles(project.root, project.shell, hash);
+      commitFiles.value[hash] = await gitShowFiles(project.root, project.shell, hash)
     } catch {
-      commitFiles.value[hash] = [];
+      commitFiles.value[hash] = []
     }
   }
 }
 
 async function openCommitDiffTab(hash: string, path: string) {
-  const project = projectStore.currentProject;
-  if (!project) return;
-  const diff = await gitDiffCommit(project.root, project.shell, hash, path);
-  tabStore.addDiffTab({ filePath: path, diff, commitHash: hash });
+  const project = projectStore.currentProject
+  if (!project) return
+  const diff = await gitDiffCommit(project.root, project.shell, hash, path)
+  tabStore.addDiffTab({ filePath: path, diff, commitHash: hash })
 }
 
-import type { GitLogEntry } from "../../types/git";
+import type { GitLogEntry } from '../../types/git'
 
-const hoveredCommit = ref<GitLogEntry | null>(null);
-const tooltipPos = ref({ x: 0, y: 0 });
-let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+const hoveredCommit = ref<GitLogEntry | null>(null)
+const tooltipPos = ref({ x: 0, y: 0 })
+let tooltipTimer: ReturnType<typeof setTimeout> | null = null
 
 function onCommitEnter(entry: GitLogEntry, e: MouseEvent) {
-  if (tooltipTimer) clearTimeout(tooltipTimer);
-  const target = e.currentTarget as HTMLElement;
+  if (tooltipTimer) clearTimeout(tooltipTimer)
+  const target = e.currentTarget as HTMLElement
   tooltipTimer = setTimeout(() => {
-    hoveredCommit.value = entry;
-    const rect = target.getBoundingClientRect();
-    tooltipPos.value = { x: rect.left, y: rect.top - 4 };
-  }, 400);
+    hoveredCommit.value = entry
+    const rect = target.getBoundingClientRect()
+    tooltipPos.value = { x: rect.left, y: rect.top - 4 }
+  }, 400)
 }
 
 function onCommitLeave() {
-  if (tooltipTimer) clearTimeout(tooltipTimer);
-  tooltipTimer = null;
-  hoveredCommit.value = null;
+  if (tooltipTimer) clearTimeout(tooltipTimer)
+  tooltipTimer = null
+  hoveredCommit.value = null
 }
 
 // File context menu (shared between CHANGES and COMMITS)
 const fileCtx = ref<{
-  x: number; y: number; path: string;
-  hash?: string; staged?: boolean;
-} | null>(null);
+  x: number
+  y: number
+  path: string
+  hash?: string
+  staged?: boolean
+} | null>(null)
 
 function onFileContext(e: MouseEvent, path: string, opts: { hash?: string; staged?: boolean }) {
-  e.preventDefault();
-  e.stopPropagation();
-  fileCtx.value = { x: e.clientX, y: e.clientY, path, ...opts };
+  e.preventDefault()
+  e.stopPropagation()
+  fileCtx.value = { x: e.clientX, y: e.clientY, path, ...opts }
   nextTick(() => {
-    window.addEventListener("mousedown", closeFileCtx, { once: true });
-  });
+    window.addEventListener('mousedown', closeFileCtx, { once: true })
+  })
 }
 
 function closeFileCtx() {
-  fileCtx.value = null;
+  fileCtx.value = null
 }
 
 async function ctxOpenDiff() {
-  if (!fileCtx.value) return;
-  const { path, hash, staged } = fileCtx.value;
-  closeFileCtx();
+  if (!fileCtx.value) return
+  const { path, hash, staged } = fileCtx.value
+  closeFileCtx()
   if (hash) {
-    await openCommitDiffTab(hash, path);
+    await openCommitDiffTab(hash, path)
   } else {
-    await openDiffTab(path, staged ?? false);
+    await openDiffTab(path, staged ?? false)
   }
 }
 
 async function ctxOpenFile() {
-  if (!fileCtx.value) return;
-  const { path, hash } = fileCtx.value;
-  closeFileCtx();
+  if (!fileCtx.value) return
+  const { path, hash } = fileCtx.value
+  closeFileCtx()
   if (hash) {
-    const project = projectStore.currentProject;
-    if (!project) return;
-    const content = await gitShowFile(project.root, project.shell, hash, path);
+    const project = projectStore.currentProject
+    if (!project) return
+    const content = await gitShowFile(project.root, project.shell, hash, path)
     tabStore.addEditorTab({
-      path, readOnly: true, initialContent: content,
+      path,
+      readOnly: true,
+      initialContent: content,
       titleSuffix: ` (${hash.slice(0, 7)})`,
-    });
+    })
   } else {
-    const root = projectStore.currentProject?.root;
-    if (!root) return;
-    const sep = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\';
-    tabStore.addEditorTab({ path: root + sep + path });
+    const root = projectStore.currentProject?.root
+    if (!root) return
+    const sep = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
+    tabStore.addEditorTab({ path: root + sep + path })
   }
 }
 
 function refreshIfActive() {
-  if (sidebar.activePanel === "git" && projectStore.currentProject) {
-    gitStore.refreshStatus();
-    gitStore.refreshLog();
+  if (sidebar.activePanel === 'git' && projectStore.currentProject) {
+    gitStore.refreshStatus()
+    gitStore.refreshLog()
   }
 }
 
-watch(() => sidebar.activePanel, refreshIfActive);
-watch(() => projectStore.currentProject, () => {
-  expandedCommits.value.clear();
-  commitFiles.value = {};
-  refreshIfActive();
-});
+watch(() => sidebar.activePanel, refreshIfActive)
+watch(
+  () => projectStore.currentProject,
+  () => {
+    expandedCommits.value.clear()
+    commitFiles.value = {}
+    refreshIfActive()
+  },
+)
 
-onMounted(refreshIfActive);
+onMounted(refreshIfActive)
 onUnmounted(() => {
-  if (tooltipTimer) clearTimeout(tooltipTimer);
-});
+  if (tooltipTimer) clearTimeout(tooltipTimer)
+})
 </script>
 
 <template>

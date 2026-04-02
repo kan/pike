@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { useSettingsStore, COLOR_SCHEMES } from "../../stores/settings";
-import { EDITOR_THEMES } from "../../lib/editorThemes";
-import { Sun, Moon, Loader } from "lucide-vue-next";
-import { useI18n } from "../../i18n";
-import { useUpdater } from "../../composables/useUpdater";
+import { Loader, Moon, Sun } from 'lucide-vue-next'
+import { useUpdater } from '../../composables/useUpdater'
+import { useI18n } from '../../i18n'
+import { EDITOR_THEMES } from '../../lib/editorThemes'
+import { COLOR_SCHEMES, useSettingsStore } from '../../stores/settings'
 
-const { t } = useI18n();
-const settings = useSettingsStore();
-settings.loadAvailableFonts();
+const { t } = useI18n()
+const settings = useSettingsStore()
+settings.loadAvailableFonts()
 
-const updater = useUpdater();
+const updater = useUpdater()
 
 function onFontSizeInput(e: Event) {
-  const val = parseInt((e.target as HTMLInputElement).value, 10);
+  const val = parseInt((e.target as HTMLInputElement).value, 10)
   if (val >= 8 && val <= 32) {
-    settings.fontSize = val;
+    settings.fontSize = val
   }
 }
 
@@ -29,7 +29,7 @@ const PREVIEW_LINES = [
   { prompt: '$ ', cmd: 'echo "Hello, World!"', promptColor: 'green' },
   { text: 'Hello, World!', color: 'cyan' },
   { prompt: '$ ', cmd: '', promptColor: 'green', cursor: true },
-];
+]
 </script>
 
 <template>

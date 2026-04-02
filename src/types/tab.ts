@@ -18,18 +18,25 @@ export function isWindowsShell(shell: ShellType): boolean {
 
 export function shellToType(kind: WindowsShellKind): ShellType {
   switch (kind) {
-    case 'cmd': return { kind: 'cmd' }
-    case 'powershell': return { kind: 'powershell' }
-    case 'git-bash': return { kind: 'git-bash' }
+    case 'cmd':
+      return { kind: 'cmd' }
+    case 'powershell':
+      return { kind: 'powershell' }
+    case 'git-bash':
+      return { kind: 'git-bash' }
   }
 }
 
 export function shellLabel(shell: ShellType): string {
   switch (shell.kind) {
-    case 'wsl': return `WSL (${shell.distro})`
-    case 'cmd': return 'CMD'
-    case 'powershell': return 'PowerShell'
-    case 'git-bash': return 'Git Bash'
+    case 'wsl':
+      return `WSL (${shell.distro})`
+    case 'cmd':
+      return 'CMD'
+    case 'powershell':
+      return 'PowerShell'
+    case 'git-bash':
+      return 'Git Bash'
   }
 }
 
@@ -45,23 +52,21 @@ export function shellToDistro(shell: ShellType, fallback = 'Ubuntu'): string {
   return shell.kind === 'wsl' ? shell.distro : fallback
 }
 
-export function buildShell(
-  platform: 'wsl' | 'windows',
-  distro: string,
-  winShell: WindowsShellKind
-): ShellType {
+export function buildShell(platform: 'wsl' | 'windows', distro: string, winShell: WindowsShellKind): ShellType {
   if (platform === 'wsl') return { kind: 'wsl', distro }
   return shellToType(winShell)
 }
 
 export function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64)
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 64)
 }
 
 export function rootPlaceholder(platform: 'wsl' | 'windows'): string {
-  return platform === 'wsl'
-    ? 'WSL path (e.g. /home/user/project)'
-    : 'Path (e.g. C:\\Users\\user\\project)'
+  return platform === 'wsl' ? 'WSL path (e.g. /home/user/project)' : 'Path (e.g. C:\\Users\\user\\project)'
 }
 
 export type TerminalTab = {

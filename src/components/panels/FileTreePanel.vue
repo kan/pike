@@ -1,369 +1,380 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
-import { useProjectStore } from "../../stores/project";
-import { useTabStore } from "../../stores/tabs";
-import { useSidebarStore } from "../../stores/sidebar";
-import { useGitStore } from "../../stores/git";
-import { fsListDir, fsReadFileBase64, fsRename, fsDelete, fsCopy, fsCreateFile, fsCreateDir, type FsEntry } from "../../lib/tauri";
-import { confirmDialog } from "../../composables/useConfirmDialog";
-import { fsWatcher } from "../../composables/useFsWatcher";
-import { fileIconSvg } from "../../lib/fileIcons";
-import { gitStatusColor, isImageFile, mimeType, basename, extension } from "../../lib/paths";
-import { ChevronRight, ChevronDown, Loader, Folder, FolderOpen } from "lucide-vue-next";
-import { useI18n } from "../../i18n";
+import { ChevronDown, ChevronRight, Folder, FolderOpen, Loader } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { confirmDialog } from '../../composables/useConfirmDialog'
+import { fsWatcher } from '../../composables/useFsWatcher'
+import { useI18n } from '../../i18n'
+import { fileIconSvg } from '../../lib/fileIcons'
+import { basename, extension, gitStatusColor, isImageFile, mimeType } from '../../lib/paths'
+import {
+  type FsEntry,
+  fsCopy,
+  fsCreateDir,
+  fsCreateFile,
+  fsDelete,
+  fsListDir,
+  fsReadFileBase64,
+  fsRename,
+} from '../../lib/tauri'
+import { useGitStore } from '../../stores/git'
+import { useProjectStore } from '../../stores/project'
+import { useSidebarStore } from '../../stores/sidebar'
+import { useTabStore } from '../../stores/tabs'
 
-const { t } = useI18n();
+const { t } = useI18n()
 
-const projectStore = useProjectStore();
-const tabStore = useTabStore();
-const sidebar = useSidebarStore();
-const gitStore = useGitStore();
+const projectStore = useProjectStore()
+const tabStore = useTabStore()
+const sidebar = useSidebarStore()
+const gitStore = useGitStore()
 
-const tree = ref<Record<string, FsEntry[]>>({});
-const expanded = ref<Set<string>>(new Set());
-const loading = ref<Set<string>>(new Set());
+const tree = ref<Record<string, FsEntry[]>>({})
+const expanded = ref<Set<string>>(new Set())
+const loading = ref<Set<string>>(new Set())
 
 function sep(): string {
-  return projectStore.currentProject?.shell?.kind === "wsl" ? "/" : "\\";
+  return projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
 }
 
 function join(parent: string, child: string): string {
-  const s = sep();
-  return parent.endsWith(s) ? parent + child : parent + s + child;
+  const s = sep()
+  return parent.endsWith(s) ? parent + child : parent + s + child
 }
 
 async function loadDir(path: string) {
-  const project = projectStore.currentProject;
-  if (!project) return;
-  loading.value.add(path);
+  const project = projectStore.currentProject
+  if (!project) return
+  loading.value.add(path)
   try {
-    tree.value[path] = await fsListDir(project.shell, path);
+    tree.value[path] = await fsListDir(project.shell, path)
   } catch {
-    tree.value[path] = [];
+    tree.value[path] = []
   } finally {
-    loading.value.delete(path);
+    loading.value.delete(path)
   }
 }
 
 function toggleDir(path: string) {
   if (expanded.value.has(path)) {
-    expanded.value.delete(path);
+    expanded.value.delete(path)
   } else {
-    expanded.value.add(path);
-    if (!tree.value[path]) loadDir(path);
+    expanded.value.add(path)
+    if (!tree.value[path]) loadDir(path)
   }
 }
 
 // Precomputed git status map: full path → status string
 const gitStatusMap = computed(() => {
-  const status = gitStore.status;
-  const root = projectStore.currentProject?.root;
-  if (!status || !root) return new Map<string, string>();
-  const s = sep();
-  const map = new Map<string, string>();
+  const status = gitStore.status
+  const root = projectStore.currentProject?.root
+  if (!status || !root) return new Map<string, string>()
+  const s = sep()
+  const map = new Map<string, string>()
   for (const list of [status.unstaged, status.staged]) {
     for (const f of list) {
-      const full = root + s + f.path.replace(/\//g, s);
-      map.set(full, f.status);
+      const full = root + s + f.path.replace(/\//g, s)
+      map.set(full, f.status)
       // Propagate to parent directories
-      let dir = full;
+      let dir = full
+      // biome-ignore lint/suspicious/noAssignInExpressions: intentional assign-in-while for directory traversal
       while ((dir = dir.substring(0, dir.lastIndexOf(s))).length > root.length) {
-        if (!map.has(dir)) map.set(dir, f.status);
+        if (!map.has(dir)) map.set(dir, f.status)
       }
     }
   }
-  return map;
-});
+  return map
+})
 
 async function openFile(path: string) {
-  const ext = extension(path);
+  const ext = extension(path)
   if (isImageFile(path)) {
-    const project = projectStore.currentProject;
-    if (!project) return;
-    const base64 = await fsReadFileBase64(project.shell, path);
-    const dataUrl = `data:${mimeType(path)};base64,${base64}`;
-    tabStore.addPreviewTab({ path, dataUrl });
+    const project = projectStore.currentProject
+    if (!project) return
+    const base64 = await fsReadFileBase64(project.shell, path)
+    const dataUrl = `data:${mimeType(path)};base64,${base64}`
+    tabStore.addPreviewTab({ path, dataUrl })
   } else if (ext === 'pdf') {
-    tabStore.addPdfTab({ path });
+    tabStore.addPdfTab({ path })
   } else {
-    tabStore.addEditorTab({ path });
+    tabStore.addEditorTab({ path })
   }
 }
 
 // Context menu
-const ctxMenu = ref<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
-const renaming = ref<string | null>(null);
-const renameValue = ref("");
-const creating = ref<{ parentPath: string; type: 'file' | 'dir' } | null>(null);
-const createValue = ref("");
+const ctxMenu = ref<{ x: number; y: number; path: string; isDir: boolean } | null>(null)
+const renaming = ref<string | null>(null)
+const renameValue = ref('')
+const creating = ref<{ parentPath: string; type: 'file' | 'dir' } | null>(null)
+const createValue = ref('')
 
 function onContextMenu(e: MouseEvent, path: string, isDir: boolean) {
-  e.preventDefault();
-  ctxMenu.value = { x: e.clientX, y: e.clientY, path, isDir };
+  e.preventDefault()
+  ctxMenu.value = { x: e.clientX, y: e.clientY, path, isDir }
   nextTick(() => {
-    window.addEventListener("mousedown", closeCtxMenu, { once: true });
-  });
+    window.addEventListener('mousedown', closeCtxMenu, { once: true })
+  })
 }
 
 function closeCtxMenu() {
-  ctxMenu.value = null;
+  ctxMenu.value = null
 }
 
 function startRename(path: string) {
-  closeCtxMenu();
-  renaming.value = path;
-  renameValue.value = basename(path);
+  closeCtxMenu()
+  renaming.value = path
+  renameValue.value = basename(path)
   nextTick(() => {
-    const input = document.querySelector('.rename-input') as HTMLInputElement;
-    input?.select();
-  });
+    const input = document.querySelector('.rename-input') as HTMLInputElement
+    input?.select()
+  })
 }
 
 async function commitRename() {
   if (!renaming.value || !renameValue.value.trim()) {
-    renaming.value = null;
-    return;
+    renaming.value = null
+    return
   }
-  const project = projectStore.currentProject;
-  if (!project) return;
-  const oldPath = renaming.value;
-  const s = sep();
-  const parentDir = oldPath.substring(0, oldPath.lastIndexOf(s));
-  const newPath = parentDir + s + renameValue.value.trim();
+  const project = projectStore.currentProject
+  if (!project) return
+  const oldPath = renaming.value
+  const s = sep()
+  const parentDir = oldPath.substring(0, oldPath.lastIndexOf(s))
+  const newPath = parentDir + s + renameValue.value.trim()
   if (newPath !== oldPath) {
-    await fsRename(project.shell, oldPath, newPath);
-    await loadDir(parentDir);
+    await fsRename(project.shell, oldPath, newPath)
+    await loadDir(parentDir)
   }
-  renaming.value = null;
+  renaming.value = null
 }
 
 async function deleteItem() {
-  if (!ctxMenu.value) return;
-  const project = projectStore.currentProject;
-  if (!project) return;
-  const path = ctxMenu.value.path;
-  const name = basename(path);
-  closeCtxMenu();
-  if (!await confirmDialog(t('fileTree.confirmDelete', { name }))) return;
-  await fsDelete(project.shell, path);
-  const s = sep();
-  const parentDir = path.substring(0, path.lastIndexOf(s));
-  await loadDir(parentDir);
+  if (!ctxMenu.value) return
+  const project = projectStore.currentProject
+  if (!project) return
+  const path = ctxMenu.value.path
+  const name = basename(path)
+  closeCtxMenu()
+  if (!(await confirmDialog(t('fileTree.confirmDelete', { name })))) return
+  await fsDelete(project.shell, path)
+  const s = sep()
+  const parentDir = path.substring(0, path.lastIndexOf(s))
+  await loadDir(parentDir)
 }
 
 function startCreate(type: 'file' | 'dir', targetDir?: string) {
   if (!targetDir && ctxMenu.value) {
-    targetDir = ctxMenu.value.path;
+    targetDir = ctxMenu.value.path
   }
   if (!targetDir) {
-    targetDir = projectStore.currentProject?.root;
+    targetDir = projectStore.currentProject?.root
   }
-  closeCtxMenu();
-  if (!targetDir) return;
+  closeCtxMenu()
+  if (!targetDir) return
   if (!expanded.value.has(targetDir)) {
-    expanded.value.add(targetDir);
-    loadDir(targetDir);
+    expanded.value.add(targetDir)
+    loadDir(targetDir)
   }
-  creating.value = { parentPath: targetDir, type };
-  createValue.value = "";
+  creating.value = { parentPath: targetDir, type }
+  createValue.value = ''
   nextTick(() => {
-    const input = document.querySelector('.create-input') as HTMLInputElement;
-    input?.focus();
-  });
+    const input = document.querySelector('.create-input') as HTMLInputElement
+    input?.focus()
+  })
 }
 
 function startCreateAtRoot(type: 'file' | 'dir') {
-  startCreate(type, projectStore.currentProject?.root);
+  startCreate(type, projectStore.currentProject?.root)
 }
 
 async function commitCreate() {
   if (!creating.value || !createValue.value.trim()) {
-    creating.value = null;
-    return;
+    creating.value = null
+    return
   }
-  const project = projectStore.currentProject;
-  if (!project) return;
-  const s = sep();
-  const newPath = creating.value.parentPath + s + createValue.value.trim();
-  const isFile = creating.value.type === 'file';
+  const project = projectStore.currentProject
+  if (!project) return
+  const s = sep()
+  const newPath = creating.value.parentPath + s + createValue.value.trim()
+  const isFile = creating.value.type === 'file'
   try {
     if (isFile) {
-      await fsCreateFile(project.shell, newPath);
+      await fsCreateFile(project.shell, newPath)
     } else {
-      await fsCreateDir(project.shell, newPath);
+      await fsCreateDir(project.shell, newPath)
     }
-    await loadDir(creating.value.parentPath);
+    await loadDir(creating.value.parentPath)
     if (isFile) {
-      tabStore.addEditorTab({ path: newPath });
+      tabStore.addEditorTab({ path: newPath })
     }
   } catch (err) {
-    await confirmDialog(String(err));
+    await confirmDialog(String(err))
   }
-  creating.value = null;
+  creating.value = null
 }
 
 function showGitHistory() {
-  if (!ctxMenu.value) return;
-  const filePath = ctxMenu.value.path;
-  closeCtxMenu();
-  tabStore.addHistoryTab({ filePath: relativePath(filePath) });
+  if (!ctxMenu.value) return
+  const filePath = ctxMenu.value.path
+  closeCtxMenu()
+  tabStore.addHistoryTab({ filePath: relativePath(filePath) })
 }
 
 function relativePath(absPath: string): string {
-  const s = sep();
-  const root = projectStore.currentProject?.root ?? '';
-  return absPath.startsWith(root + s) ? absPath.slice(root.length + s.length) : absPath;
+  const s = sep()
+  const root = projectStore.currentProject?.root ?? ''
+  return absPath.startsWith(root + s) ? absPath.slice(root.length + s.length) : absPath
 }
 
 function copyRelativePath() {
-  if (!ctxMenu.value) return;
-  const rel = relativePath(ctxMenu.value.path);
-  navigator.clipboard.writeText(rel);
-  closeCtxMenu();
+  if (!ctxMenu.value) return
+  const rel = relativePath(ctxMenu.value.path)
+  navigator.clipboard.writeText(rel)
+  closeCtxMenu()
 }
 
 // Drag & Drop
-const dragPath = ref<string | null>(null);
-const dropTarget = ref<string | null>(null);
+const dragPath = ref<string | null>(null)
+const dropTarget = ref<string | null>(null)
 
 function onDragStart(e: DragEvent, path: string) {
-  dragPath.value = path;
-  e.dataTransfer?.setData("text/plain", path);
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = "all";
+  dragPath.value = path
+  e.dataTransfer?.setData('text/plain', path)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'all'
 }
 
 function onDragOver(e: DragEvent, path: string, isDir: boolean) {
-  if (!dragPath.value) return;
-  const s = sep();
-  const targetDir = isDir ? path : path.substring(0, path.lastIndexOf(s));
+  if (!dragPath.value) return
+  const s = sep()
+  const targetDir = isDir ? path : path.substring(0, path.lastIndexOf(s))
   // Prevent dropping a directory into itself or its descendants
-  if (targetDir === dragPath.value || targetDir.startsWith(dragPath.value + s)) return;
-  e.preventDefault();
-  dropTarget.value = targetDir;
+  if (targetDir === dragPath.value || targetDir.startsWith(dragPath.value + s)) return
+  e.preventDefault()
+  dropTarget.value = targetDir
   if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = e.ctrlKey ? "copy" : "move";
+    e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
   }
 }
 
 function onDragLeave() {
-  dropTarget.value = null;
+  dropTarget.value = null
 }
 
 function onDragEnd() {
-  dragPath.value = null;
-  dropTarget.value = null;
+  dragPath.value = null
+  dropTarget.value = null
 }
 
 async function onDrop(e: DragEvent, path: string, isDir: boolean) {
-  e.preventDefault();
-  const source = dragPath.value;
-  dragPath.value = null;
-  dropTarget.value = null;
-  if (!source) return;
-  const project = projectStore.currentProject;
-  if (!project) return;
+  e.preventDefault()
+  const source = dragPath.value
+  dragPath.value = null
+  dropTarget.value = null
+  if (!source) return
+  const project = projectStore.currentProject
+  if (!project) return
 
-  const s = sep();
-  const targetDir = isDir ? path : path.substring(0, path.lastIndexOf(s));
-  const name = basename(source);
-  const dest = targetDir + s + name;
+  const s = sep()
+  const targetDir = isDir ? path : path.substring(0, path.lastIndexOf(s))
+  const name = basename(source)
+  const dest = targetDir + s + name
 
-  if (source === dest) return;
+  if (source === dest) return
 
   try {
     if (e.ctrlKey) {
-      await fsCopy(project.shell, source, dest);
+      await fsCopy(project.shell, source, dest)
     } else {
-      await fsRename(project.shell, source, dest);
+      await fsRename(project.shell, source, dest)
     }
-    const sourceDir = source.substring(0, source.lastIndexOf(s));
-    await Promise.all([loadDir(sourceDir), loadDir(targetDir)]);
+    const sourceDir = source.substring(0, source.lastIndexOf(s))
+    await Promise.all([loadDir(sourceDir), loadDir(targetDir)])
   } catch (err) {
-    confirmDialog(String(err));
+    confirmDialog(String(err))
   }
 }
 
-const refreshing = ref(false);
+const refreshing = ref(false)
 
 async function refresh() {
-  const root = projectStore.currentProject?.root;
-  if (!root) return;
-  refreshing.value = true;
-  const minDelay = new Promise(r => setTimeout(r, 300));
+  const root = projectStore.currentProject?.root
+  if (!root) return
+  refreshing.value = true
+  const minDelay = new Promise((r) => setTimeout(r, 300))
   try {
-    const paths = [root, ...expanded.value];
-    await Promise.all([...paths.map((p) => loadDir(p)), minDelay]);
+    const paths = [root, ...expanded.value]
+    await Promise.all([...paths.map((p) => loadDir(p)), minDelay])
   } finally {
-    refreshing.value = false;
+    refreshing.value = false
   }
 }
 
 interface FlatNode {
-  entry: FsEntry;
-  path: string;
-  depth: number;
+  entry: FsEntry
+  path: string
+  depth: number
 }
 
 const flatNodes = computed((): FlatNode[] => {
-  const root = projectStore.currentProject?.root;
-  if (!root) return [];
-  const result: FlatNode[] = [];
+  const root = projectStore.currentProject?.root
+  if (!root) return []
+  const result: FlatNode[] = []
 
   function walk(parentPath: string, depth: number) {
-    const children = tree.value[parentPath];
-    if (!children) return;
+    const children = tree.value[parentPath]
+    if (!children) return
     for (const entry of children) {
-      const path = join(parentPath, entry.name);
-      result.push({ entry, path, depth });
+      const path = join(parentPath, entry.name)
+      result.push({ entry, path, depth })
       if (entry.isDir && expanded.value.has(path)) {
-        walk(path, depth + 1);
+        walk(path, depth + 1)
       }
     }
   }
 
-  walk(root, 0);
-  return result;
-});
+  walk(root, 0)
+  return result
+})
 
 function initTree() {
-  tree.value = {};
-  expanded.value.clear();
-  const root = projectStore.currentProject?.root;
+  tree.value = {}
+  expanded.value.clear()
+  const root = projectStore.currentProject?.root
   if (root) {
-    expanded.value.add(root);
-    loadDir(root);
+    expanded.value.add(root)
+    loadDir(root)
   }
 }
 
-watch(() => projectStore.currentProject?.id, initTree);
-watch(() => sidebar.activePanel, (panel) => {
-  if (panel === "files" && projectStore.currentProject) {
-    const root = projectStore.currentProject.root;
-    if (!tree.value[root]) initTree();
-  }
-});
+watch(() => projectStore.currentProject?.id, initTree)
+watch(
+  () => sidebar.activePanel,
+  (panel) => {
+    if (panel === 'files' && projectStore.currentProject) {
+      const root = projectStore.currentProject.root
+      if (!tree.value[root]) initTree()
+    }
+  },
+)
 
 onMounted(() => {
-  if (sidebar.activePanel === "files" && projectStore.currentProject) {
-    initTree();
+  if (sidebar.activePanel === 'files' && projectStore.currentProject) {
+    initTree()
   }
-});
+})
 
 function refreshDirs(dirs: string[]) {
-  const root = projectStore.currentProject?.root;
-  if (!root) return;
-  const relevantDirs = dirs.filter(
-    (d) => d === root || expanded.value.has(d)
-  );
+  const root = projectStore.currentProject?.root
+  if (!root) return
+  const relevantDirs = dirs.filter((d) => d === root || expanded.value.has(d))
   if (relevantDirs.length > 0) {
-    Promise.all(relevantDirs.map((d) => loadDir(d)));
+    Promise.all(relevantDirs.map((d) => loadDir(d)))
   }
 }
 
-const unsubWatcher = fsWatcher.onDirChange(refreshDirs);
-onUnmounted(unsubWatcher);
+const unsubWatcher = fsWatcher.onDirChange(refreshDirs)
+onUnmounted(unsubWatcher)
 
-defineExpose({ refresh, refreshing, startCreateAtRoot });
+defineExpose({ refresh, refreshing, startCreateAtRoot })
 </script>
 
 <template>

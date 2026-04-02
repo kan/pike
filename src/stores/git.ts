@@ -1,17 +1,17 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { GitStatusResult, GitLogEntry } from '../types/git'
 import {
-  gitStatus,
-  gitLog,
-  gitStage,
-  gitUnstage,
-  gitCommit,
   gitBranchList,
   gitCheckout,
-  gitPush,
+  gitCommit,
+  gitLog,
   gitPull,
+  gitPush,
+  gitStage,
+  gitStatus,
+  gitUnstage,
 } from '../lib/tauri'
+import type { GitLogEntry, GitStatusResult } from '../types/git'
 import { useProjectStore } from './project'
 
 export const useGitStore = defineStore('git', () => {
@@ -39,7 +39,7 @@ export const useGitStore = defineStore('git', () => {
     if (!project) return
     refreshGuard = true
     if (showProgress) refreshing.value = true
-    const minDelay = showProgress ? new Promise(r => setTimeout(r, 300)) : null
+    const minDelay = showProgress ? new Promise((r) => setTimeout(r, 300)) : null
     try {
       const [s] = await Promise.all([gitStatus(project.root, project.shell), minDelay])
       status.value = s
