@@ -11,10 +11,41 @@ mod watcher;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WebviewWindow, WindowEvent};
 
 /// Prefix for project window labels. Must match PROJECT_WINDOW_PREFIX in src/lib/window.ts
 const PROJECT_WINDOW_PREFIX: &str = "project-";
+
+/// Falls back to `true` if COM is unavailable (non-Windows, API failure).
+fn is_on_current_virtual_desktop(window: &WebviewWindow) -> bool {
+    #[cfg(windows)]
+    {
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
+        };
+        use windows::Win32::UI::Shell::{IVirtualDesktopManager, VirtualDesktopManager};
+
+        let hwnd_raw = match window.hwnd() {
+            Ok(h) => h.0 as isize,
+            Err(_) => return true,
+        };
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let manager: IVirtualDesktopManager =
+                match CoCreateInstance(&VirtualDesktopManager, None, CLSCTX_ALL) {
+                    Ok(m) => m,
+                    Err(_) => return true,
+                };
+            let hwnd = windows::Win32::Foundation::HWND(hwnd_raw as *mut _);
+            manager
+                .IsWindowOnCurrentVirtualDesktop(hwnd)
+                .map(|b| b.as_bool())
+                .unwrap_or(true)
+        }
+    }
+    #[cfg(not(windows))]
+    true
+}
 
 #[tauri::command]
 async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), String> {
@@ -89,9 +120,27 @@ async fn pick_folder() -> Result<Option<String>, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
+            // Find a window on the current virtual desktop, or create one
+            let mut focused = false;
+            for (_, window) in app.webview_windows() {
+                if is_on_current_virtual_desktop(&window) {
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                    focused = true;
+                    break;
+                }
+            }
+            if !focused {
+                let label = format!("secondary-{}", std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis());
+                let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::default())
+                    .title("Pike")
+                    .inner_size(800.0, 600.0)
+                    .resizable(true)
+                    .disable_drag_drop_handler()
+                    .build();
             }
             let action = cli::parse_args(&args, &cwd);
             if !matches!(action, cli::CliAction::None) {
