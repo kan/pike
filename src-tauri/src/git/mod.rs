@@ -57,11 +57,10 @@ fn parse_status(output: &str) -> GitStatusResult {
     let mut behind: u32 = 0;
 
     for line in output.lines() {
-        if line.starts_with("# branch.head ") {
-            branch = line["# branch.head ".len()..].to_string();
-        } else if line.starts_with("# branch.ab ") {
+        if let Some(head) = line.strip_prefix("# branch.head ") {
+            branch = head.to_string();
+        } else if let Some(rest) = line.strip_prefix("# branch.ab ") {
             // Format: "# branch.ab +N -M"
-            let rest = &line["# branch.ab ".len()..];
             let parts: Vec<&str> = rest.split_whitespace().collect();
             if parts.len() >= 2 {
                 ahead = parts[0].trim_start_matches('+').parse().unwrap_or(0);
@@ -93,9 +92,8 @@ fn parse_status(output: &str) -> GitStatusResult {
                     });
                 }
             }
-        } else if line.starts_with("? ") {
+        } else if let Some(path) = line.strip_prefix("? ") {
             // Untracked: "? path"
-            let path = &line[2..];
             unstaged.push(GitFileChange {
                 path: path.to_string(),
                 status: "?".to_string(),
@@ -337,7 +335,7 @@ pub async fn git_show_files(
             let status = parts.next()?.chars().next()?.to_string();
             let path = parts.next()?.to_string();
             // For renames (R100\told\tnew), take the new path
-            let path = path.split('\t').last().unwrap_or(&path).to_string();
+            let path = path.split('\t').next_back().unwrap_or(&path).to_string();
             Some(GitFileChange { path, status })
         })
         .collect())
@@ -437,7 +435,7 @@ fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
             // Parse @@ -old,count +new,count @@
             if let Some(plus) = line.find('+') {
                 let rest = &line[plus + 1..];
-                let num_end = rest.find(|c: char| c == ',' || c == ' ').unwrap_or(rest.len());
+                let num_end = rest.find([',', ' ']).unwrap_or(rest.len());
                 if let Ok(n) = rest[..num_end].parse::<u32>() {
                     new_line = n;
                 }
@@ -458,11 +456,10 @@ fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
                 if mod_start.is_none() {
                     mod_start = Some(new_line);
                 }
-            } else if mod_start.is_none() {
-                if add_start.is_none() {
+            } else if mod_start.is_none()
+                && add_start.is_none() {
                     add_start = Some(new_line);
                 }
-            }
             new_line += 1;
         } else {
             flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);

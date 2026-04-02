@@ -75,7 +75,7 @@ async fn try_connect() -> Result<Docker, String> {
 async fn get_docker(state: &DockerState) -> Result<Docker, String> {
     state
         .client
-        .get_or_try_init(|| try_connect())
+        .get_or_try_init(try_connect)
         .await
         .cloned()
 }

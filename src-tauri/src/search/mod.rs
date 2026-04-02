@@ -200,6 +200,7 @@ fn parse_grep_output(output: &str) -> (Vec<SearchMatch>, bool) {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn search_execute(
     shell: ShellConfig,
     root: String,

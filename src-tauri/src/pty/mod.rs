@@ -218,10 +218,10 @@ pub async fn pty_spawn(
         None | Some(ShellConfig::Wsl { .. }) => {
             let mut c = CommandBuilder::new("wsl.exe");
             if let Some(ShellConfig::Wsl { distro }) = &shell {
-                c.args(&["-d", distro]);
+                c.args(["-d", distro]);
             }
             if let Some(dir) = &cwd {
-                c.args(&["--cd", dir]);
+                c.args(["--cd", dir]);
             }
             c.arg("bash");
             c
@@ -273,7 +273,7 @@ pub async fn pty_spawn_tmux(
         name = session_name
     );
     let mut cmd = CommandBuilder::new("wsl.exe");
-    cmd.args(&["bash", "-lc", &tmux_cmd]);
+    cmd.args(["bash", "-lc", &tmux_cmd]);
     cmd.env("TERM", "xterm-256color");
     spawn_pty_with_command(cmd, cols, rows, app, &state)
 }

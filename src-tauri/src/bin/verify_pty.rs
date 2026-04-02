@@ -1,5 +1,5 @@
-///! PTY + wsl.exe の接続確認
-///! Usage: cargo run --bin verify_pty
+//! PTY + wsl.exe の接続確認
+//! Usage: cargo run --bin verify_pty
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::Read;
 

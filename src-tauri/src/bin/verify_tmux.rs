@@ -1,5 +1,5 @@
-///! tmux セッション管理の確認
-///! Usage: cargo run --bin verify_tmux
+//! tmux セッション管理の確認
+//! Usage: cargo run --bin verify_tmux
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{Read, Write};
 
@@ -61,7 +61,7 @@ fn main() {
         name = session_name
     );
     let mut cmd = CommandBuilder::new("wsl.exe");
-    cmd.args(&["bash", "-lc", &tmux_cmd]);
+    cmd.args(["bash", "-lc", &tmux_cmd]);
     cmd.env("TERM", "xterm-256color");
 
     let mut child = pair.slave.spawn_command(cmd).expect("Failed to spawn");
@@ -118,7 +118,7 @@ fn main() {
 
     // Read command output for 1 second
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
-    print!("---\n");
+    println!("---");
     while std::time::Instant::now() < deadline {
         match rx.recv_timeout(std::time::Duration::from_millis(100)) {
             Ok(Some(text)) => print!("{}", text),
