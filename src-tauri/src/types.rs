@@ -24,13 +24,13 @@ pub enum ShellConfig {
 
 impl ShellConfig {
     /// Build a Command with WSL dispatch.
-    /// WSL: `wsl.exe -d distro -- program args...`
+    /// WSL: `wsl.exe -d distro -e program args...` (bypasses bash, safe for special chars)
     /// Others: `program args...`
     pub fn command(&self, program: &str, args: &[&str]) -> Command {
         match self {
             ShellConfig::Wsl { distro } => {
                 let mut cmd = silent_command("wsl.exe");
-                cmd.arg("-d").arg(distro).arg("--").arg(program);
+                cmd.arg("-d").arg(distro).arg("-e").arg(program);
                 for a in args {
                     cmd.arg(a);
                 }
