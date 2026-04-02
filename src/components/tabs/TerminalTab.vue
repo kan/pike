@@ -96,22 +96,25 @@ watch(
   () => tabStore.activeTabId,
   (newId) => {
     if (newId === props.tabId) {
+      // Double rAF ensures v-show transition is fully resolved before measuring
       nextTick(() => {
         requestAnimationFrame(() => {
-          doFit()
-          if (terminal) {
-            terminal.refresh(0, terminal.rows - 1)
-            // Nudge PTY resize: shrink by 1 col then restore to trigger
-            // SIGWINCH, which makes TUI apps redraw their full interface
-            if (ptyId && terminal.cols > 1) {
-              ptyResize(ptyId, terminal.cols - 1, terminal.rows)
-              setTimeout(() => {
-                if (terminal && ptyId) {
-                  ptyResize(ptyId, terminal.cols, terminal.rows)
-                }
-              }, 200)
+          requestAnimationFrame(() => {
+            doFit()
+            if (terminal) {
+              const cols = terminal.cols
+              const rows = terminal.rows
+              terminal.refresh(0, rows - 1)
+              // Nudge PTY resize: shrink by 1 col then restore to trigger
+              // SIGWINCH, which makes TUI apps redraw their full interface
+              if (ptyId && cols > 1) {
+                ptyResize(ptyId, cols - 1, rows)
+                setTimeout(() => {
+                  if (ptyId) ptyResize(ptyId, cols, rows)
+                }, 50)
+              }
             }
-          }
+          })
         })
       })
     }
