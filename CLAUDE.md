@@ -308,8 +308,15 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - SideBar 歯車アイコンに更新通知ドット（起動時に `check()` でバックグラウンド確認）
 - `bundle.createUpdaterArtifacts: true` で `.sig` ファイルを自動生成
 
+### コミット前チェック
+コミット前に以下を実行し、エラー・警告がゼロであることを確認する:
+
+- **Rust**: `cargo clippy -- -D warnings`（`src-tauri/` で実行）
+- **Frontend**: `npm run lint`（= `biome check src/`）
+- **TypeScript 型検査**: `npx tsc --noEmit`
+
 ### CI/CD
-- `.github/workflows/ci.yml`: push/PR で `npm run build`（vue-tsc + vite）、`cargo clippy`、`cargo test` を実行（Windows runner）
+- `.github/workflows/ci.yml`: push/PR で `biome check`、`npm run build`（vue-tsc + vite）、`cargo clippy -- -D warnings`、`cargo test` を実行（Windows runner）
 - `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-apps/tauri-action@v0` が Windows ビルド → GitHub Releases にドラフトアップロード
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
 - `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
