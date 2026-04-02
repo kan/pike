@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-04-02
+
+### Features
+
+- **仮想デスクトップ対応** — 別デスクトップから Pike を起動した際、既存ウィンドウに切替えず新ウィンドウを開く（IVirtualDesktopManager COM API）
+- **ステータスバー改善** — バージョン表示と GitHub リポジトリリンクを追加
+- **CWD 検出改善** — Rust 側で PTY の cwd を返す方式に変更。TUI 動作中の PTY にコマンドが漏れる問題を解消
+- **通常ターミナル保証** — プロジェクト展開時に autoStart なしのターミナルタブがなければ自動追加
+
+### Fixed
+
+- タブ切替時の TUI 再描画を改善（double rAF + サイズキャプチャ）
+- clippy 警告をすべて解消、CI で `-D warnings` を有効化
+
+### Developer Experience
+
+- **Biome 導入** — フロントエンドの lint + formatter を統一。CI に `biome check` を追加
+- CI: `core.autocrlf=false` で CRLF エラー修正、`npm audit --audit-level=critical` に変更
+
 ## [0.2.2] - 2026-04-01
 
 ### Features
