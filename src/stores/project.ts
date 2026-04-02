@@ -102,6 +102,12 @@ export const useProjectStore = defineStore('project', () => {
         })
       }
     }
+
+    // Ensure at least one plain terminal tab exists (for CWD detection, etc.)
+    const hasPlainTerminal = tabStore.tabs.some((t) => t.kind === 'terminal' && !t.autoStart)
+    if (!hasPlainTerminal) {
+      tabStore.addTerminalTab({ cwd: project.root, shell: project.shell })
+    }
   }
 
   async function flushSession() {

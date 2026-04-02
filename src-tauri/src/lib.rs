@@ -239,6 +239,7 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_get_cwd,
             project::detect_wsl_distros,
             project::project_get_last,
             project::project_set_last,

@@ -2,9 +2,8 @@
 import { ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
-import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
-import { detectWslDistros, openProjectWindow, pickFolder } from '../../lib/tauri'
+import { detectWslDistros, openProjectWindow, pickFolder, ptyGetCwd } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import type { ProjectConfig } from '../../types/project'
@@ -75,7 +74,7 @@ async function detectFromTerminal() {
 
   detecting.value = true
   try {
-    const cwd = await ptyRouter.detectCwd(activeTab.ptyId)
+    const cwd = await ptyGetCwd(activeTab.ptyId)
     if (cwd) {
       formRoot.value = cwd
       if (!formName.value) {
@@ -178,7 +177,7 @@ async function onDelete(id: string) {
         <button v-if="formPlatform === 'windows'" type="button" class="detect-btn" @click="browseFolder('create')">
           {{ t('project.browse') }}
         </button>
-        <button type="button" class="detect-btn" :disabled="detecting" @click="detectFromTerminal">
+        <button v-if="formPlatform === 'wsl'" type="button" class="detect-btn" :disabled="detecting" @click="detectFromTerminal">
           {{ detecting ? "..." : t('project.detect') }}
         </button>
       </div>

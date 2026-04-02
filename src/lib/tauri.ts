@@ -40,6 +40,10 @@ export async function ptyKill(id: string): Promise<void> {
   return invoke('pty_kill', { id })
 }
 
+export async function ptyGetCwd(id: string): Promise<string | null> {
+  return invoke<string | null>('pty_get_cwd', { id })
+}
+
 // Environment detection
 
 export async function detectWslDistros(): Promise<string[]> {

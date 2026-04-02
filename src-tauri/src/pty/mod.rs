@@ -14,6 +14,7 @@ pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
+    cwd: Option<String>,
 }
 
 impl Drop for PtySession {
@@ -44,6 +45,7 @@ fn spawn_pty_with_command(
     cmd: CommandBuilder,
     cols: u16,
     rows: u16,
+    cwd: Option<String>,
     app: AppHandle,
     state: &PtyState,
 ) -> Result<PtySpawnResult, String> {
@@ -85,6 +87,7 @@ fn spawn_pty_with_command(
                 master: pair.master,
                 writer: Arc::new(Mutex::new(writer)),
                 child,
+                cwd,
             },
         );
     }
@@ -254,7 +257,7 @@ pub async fn pty_spawn(
     if !matches!(shell, Some(ShellConfig::Cmd)) {
         cmd.env("TERM", "xterm-256color");
     }
-    spawn_pty_with_command(cmd, cols, rows, app, &state)
+    spawn_pty_with_command(cmd, cols, rows, cwd, app, &state)
 }
 
 use crate::types::validate_slug;
@@ -275,7 +278,16 @@ pub async fn pty_spawn_tmux(
     let mut cmd = CommandBuilder::new("wsl.exe");
     cmd.args(["bash", "-lc", &tmux_cmd]);
     cmd.env("TERM", "xterm-256color");
-    spawn_pty_with_command(cmd, cols, rows, app, &state)
+    spawn_pty_with_command(cmd, cols, rows, None, app, &state)
+}
+
+#[tauri::command]
+pub async fn pty_get_cwd(
+    id: String,
+    state: State<'_, PtyState>,
+) -> Result<Option<String>, String> {
+    let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    Ok(sessions.get(&id).and_then(|s| s.cwd.clone()))
 }
 
 #[tauri::command]
