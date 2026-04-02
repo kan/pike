@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { FolderOpen, GitBranch } from 'lucide-vue-next'
+import { FolderOpen, GitBranch, Github } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
+import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
+import { openUrl } from '../../lib/tauri'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
@@ -16,6 +19,14 @@ function toggleLanguage() {
 }
 const gitStore = useGitStore()
 const editorInfo = useEditorInfo()
+const updater = useUpdater()
+
+async function openGitHub() {
+  const url = 'https://github.com/kan/pike'
+  if (await confirmDialog(t('confirm.openUrl', { url }))) {
+    openUrl(url)
+  }
+}
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)
 watch(
@@ -190,6 +201,10 @@ onUnmounted(() => {
     <button class="status-item clickable small" @click="toggleLanguage">
       {{ settingsStore.language.toUpperCase() }}
     </button>
+    <span v-if="updater.appVersion.value" class="status-text version">v{{ updater.appVersion.value }}</span>
+    <button class="status-item clickable github-btn" title="GitHub" @click="openGitHub">
+      <Github :size="14" :stroke-width="1.5" />
+    </button>
   </div>
 </template>
 
@@ -234,6 +249,19 @@ onUnmounted(() => {
   padding: 0 6px;
   font-size: 11px;
   opacity: 0.85;
+}
+
+.status-text.version {
+  opacity: 0.5;
+}
+
+.github-btn {
+  opacity: 0.5;
+  padding: 0 4px !important;
+}
+
+.github-btn:hover {
+  opacity: 1;
 }
 
 .status-item.small {
