@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-04-02
+
+### Fixed
+
+- WSL コマンド実行を `wsl.exe --` から `wsl.exe -e` に変更。コミットメッセージ等に括弧やクォートが含まれるとシェル構文エラーになる問題を解消
+- インストーラーが pike CLI を PATH に自動追加するよう NSIS フックを追加（アンインストール時に削除）
+
 ## [0.3.0] - 2026-04-02
 
 ### Features
