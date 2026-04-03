@@ -30,11 +30,22 @@ function stateColor(state: string): string {
   }
 }
 
-// Match compose services to their containers
+// Docker Compose derives project name from directory: lowercase, strip non-alphanumeric
+const composeProjectName = computed(() => {
+  const root = projectStore.currentProject?.root
+  if (!root) return ''
+  const dir = root.replace(/\\/g, '/').replace(/\/$/, '').split('/').pop() ?? ''
+  return dir.toLowerCase().replace(/[^a-z0-9]/g, '')
+})
+
+// Match compose services to their containers (filter by project name)
 const serviceContainers = computed(() => {
+  const project = composeProjectName.value
   const result: Record<string, (typeof dockerStore.containers)[0] | undefined> = {}
   for (const svc of dockerStore.composeServices) {
-    result[svc.name] = dockerStore.containers.find((c) => c.composeService === svc.name)
+    result[svc.name] = dockerStore.containers.find(
+      (c) => c.composeService === svc.name && (!project || c.composeProject === project),
+    )
   }
   return result
 })
