@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.3] - 2026-04-03
+
+### Features
+
+- Git パネルの unstaged ファイルに変更破棄（discard）ボタンを追加（確認ダイアログ付き）
+- Docker logs タブでも「選択時にコピー」設定を反映
+
+### Fixed
+
+- ターミナルからのコピーで改行が二重になる問題を修正（CRLF → LF 正規化）
+- 一部 IME（CorvusSKK 等）で日本語確定テキストが二重入力される問題を修正
+
 ## [0.3.2] - 2026-04-02
 
 ### Features
