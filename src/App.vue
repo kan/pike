@@ -83,7 +83,7 @@ onMounted(async () => {
 
   if (windowProjectId) {
     await projectStore.loadProjects()
-    await projectStore.switchProject(windowProjectId, { updateLastProject: false })
+    await projectStore.switchProject(windowProjectId)
   } else {
     await projectStore.restoreLastProject()
   }

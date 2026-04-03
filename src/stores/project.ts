@@ -59,7 +59,7 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  async function switchProject(id: string, opts?: { updateLastProject?: boolean }) {
+  async function switchProject(id: string) {
     if (saveTimer) clearTimeout(saveTimer)
     const tabStore = useTabStore()
     const searchStore = useSearchStore()
@@ -74,10 +74,9 @@ export const useProjectStore = defineStore('project', () => {
     currentProject.value = project
 
     // Fire-and-forget: don't block tab restoration on metadata persistence
-    const shouldUpdateLast = opts?.updateLastProject ?? true
     Promise.all([
       projectUpdate(project).catch(() => {}),
-      shouldUpdateLast ? projectAddOpen(id).catch(() => {}) : Promise.resolve(),
+      projectAddOpen(id).catch(() => {}),
     ])
 
     if (project.lastSession && project.lastSession.tabs.length > 0) {

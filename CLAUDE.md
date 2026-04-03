@@ -184,7 +184,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ### プロジェクト管理
 - プロジェクト設定は `%APPDATA%/com.tauri.dev/projects/{id}/project.json` に保存
-- 最後に開いたプロジェクト ID を `last_project.txt` に永続化し、起動時に自動復元
+- 開いている全プロジェクト ID を `last_project.txt` に永続化し、起動時に全ウィンドウを自動復元
 - プロジェクトは WSL / Windows の2プラットフォームに対応
 - WSL プロジェクト: ディストロ指定、ルートは WSL パス
 - Windows プロジェクト: デフォルトシェル（cmd/PowerShell/Git Bash）選択、ルートは Windows パス
@@ -259,7 +259,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - ウィンドウラベル `project-{id}` でプロジェクトを識別。同一プロジェクトの二重起動は既存ウィンドウをフォーカス
 - Tauri v2 の各ウィンドウは独立 JS コンテキスト → Pinia ストアは自然にウィンドウごとに分離
 - PTY/Docker イベントは `app.emit()` で全ウィンドウにブロードキャスト、ルーターが ID でフィルタ
-- 子ウィンドウは `last_project.txt` を更新しない（main ウィンドウのみ）
+- 全ウィンドウ（main + 子）が `last_project.txt` に自身のプロジェクト ID を登録し、起動時に復元
 - main ウィンドウ close → アプリ終了 + 全 PTY/Docker session cleanup
 - 子ウィンドウ close → `beforeunload` で session 保存 + PTY kill（ベストエフォート）
 
