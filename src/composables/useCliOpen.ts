@@ -18,8 +18,8 @@ function isUnderRoot(filePath: string, root: string): boolean {
 }
 
 /** Find the project whose root best matches the file path (longest root wins). */
-function findBestProject(filePath: string, projects: ProjectConfig[]): ProjectConfig | null {
-  let best: ProjectConfig | null = null
+function findBestProject(filePath: string, projects: ProjectConfig[]): ProjectConfig | undefined {
+  let best: ProjectConfig | undefined
   let bestLen = 0
   for (const p of projects) {
     if (isUnderRoot(filePath, p.root) && p.root.length > bestLen) {
@@ -28,6 +28,28 @@ function findBestProject(filePath: string, projects: ProjectConfig[]): ProjectCo
     }
   }
   return best
+}
+
+/**
+ * Parse a Windows UNC WSL path into distro + WSL path.
+ * e.g. "\\\\wsl.localhost\\Ubuntu\\home\\user" → { distro: "Ubuntu", wslPath: "/home/user" }
+ *      "\\\\wsl$\\Ubuntu\\home\\user"          → { distro: "Ubuntu", wslPath: "/home/user" }
+ */
+function parseWslUncPath(p: string): { distro: string; wslPath: string } | null {
+  const norm = p.replace(/\\/g, '/')
+  const m = norm.match(/^\/\/(wsl\.localhost|wsl\$)\/([^/]+)(\/.*)?$/)
+  if (!m) return null
+  return { distro: m[2], wslPath: m[3] || '/' }
+}
+
+/** Find WSL project matching a UNC WSL path. */
+function findWslProject(uncPath: string, projects: ProjectConfig[]): ProjectConfig | undefined {
+  const parsed = parseWslUncPath(uncPath)
+  if (!parsed) return undefined
+  const wslNorm = normalizePath(parsed.wslPath)
+  return projects.find(
+    (p) => p.shell.kind === 'wsl' && p.shell.distro === parsed.distro && normalizePath(p.root) === wslNorm,
+  )
 }
 
 /** Derive a parent directory suitable as a project root from a file path. */
@@ -46,20 +68,22 @@ async function handleAction(action: CliAction) {
 
   if (action.action === 'openFile') {
     let targetProject = findBestProject(action.path, projectStore.projects)
+      ?? findWslProject(action.path, projectStore.projects)
 
     if (!targetProject) {
-      const root = deriveProjectRoot(action.path)
+      const parsed = parseWslUncPath(action.path)
+      const root = parsed ? parsed.wslPath : deriveProjectRoot(action.path)
       const name = basename(root) || 'Untitled'
       const id = crypto.randomUUID()
       await projectStore.addProject({
         id,
         name,
         root,
-        shell: { kind: 'powershell' },
+        shell: parsed ? { kind: 'wsl', distro: parsed.distro } : { kind: 'powershell' },
         pinnedTabs: [],
         lastOpened: new Date().toISOString(),
       })
-      targetProject = projectStore.projects.find((p) => p.id === id) ?? null
+      targetProject = projectStore.projects.find((p) => p.id === id)
       if (!targetProject) return
     }
 
@@ -73,11 +97,27 @@ async function handleAction(action: CliAction) {
     }
   } else if (action.action === 'openDirectory') {
     const normalized = normalizePath(action.path)
-    const match = projectStore.projects.find((p) => normalizePath(p.root) === normalized)
-    if (match) {
-      if (projectStore.currentProject?.id !== match.id) {
-        await openProjectWindow(match.id)
-      }
+    let match = projectStore.projects.find((p) => normalizePath(p.root) === normalized)
+      ?? findWslProject(action.path, projectStore.projects)
+
+    if (!match) {
+      // Create ad-hoc project for unregistered directory
+      const parsed = parseWslUncPath(action.path)
+      const name = basename(action.path) || 'Untitled'
+      const id = crypto.randomUUID()
+      await projectStore.addProject({
+        id,
+        name,
+        root: parsed ? parsed.wslPath : action.path,
+        shell: parsed ? { kind: 'wsl', distro: parsed.distro } : { kind: 'powershell' },
+        pinnedTabs: [],
+        lastOpened: new Date().toISOString(),
+      })
+      match = projectStore.projects.find((p) => p.id === id)
+    }
+
+    if (match && projectStore.currentProject?.id !== match.id) {
+      await projectStore.switchProject(match.id)
     }
   }
 }

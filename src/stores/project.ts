@@ -74,10 +74,7 @@ export const useProjectStore = defineStore('project', () => {
     currentProject.value = project
 
     // Fire-and-forget: don't block tab restoration on metadata persistence
-    Promise.all([
-      projectUpdate(project).catch(() => {}),
-      projectAddOpen(id).catch(() => {}),
-    ])
+    Promise.all([projectUpdate(project).catch(() => {}), projectAddOpen(id).catch(() => {})])
 
     if (project.lastSession && project.lastSession.tabs.length > 0) {
       for (const def of project.lastSession.tabs) {
