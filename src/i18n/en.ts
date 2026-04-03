@@ -137,6 +137,8 @@ export default {
   'git.commit': 'Commit ({count})',
   'git.unstage': 'Unstage',
   'git.stage': 'Stage',
+  'git.discard': 'Discard Changes',
+  'git.discardConfirm': 'Discard changes to {path}? This cannot be undone.',
   'git.openDiff': 'Open Diff',
   'git.openFile': 'Open File',
   'git.pull': 'Pull',

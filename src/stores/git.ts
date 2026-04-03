@@ -4,6 +4,7 @@ import {
   gitBranchList,
   gitCheckout,
   gitCommit,
+  gitDiscardChanges,
   gitLog,
   gitPull,
   gitPush,
@@ -84,6 +85,17 @@ export const useGitStore = defineStore('git', () => {
     if (!project) return
     try {
       await gitUnstage(project.root, project.shell, paths)
+      await refreshStatus()
+    } catch (e) {
+      error.value = String(e)
+    }
+  }
+
+  async function discardChanges(paths: string[]) {
+    const project = getProject()
+    if (!project) return
+    try {
+      await gitDiscardChanges(project.root, project.shell, paths)
       await refreshStatus()
     } catch (e) {
       error.value = String(e)
@@ -174,6 +186,7 @@ export const useGitStore = defineStore('git', () => {
     refreshLog,
     stageFiles,
     unstageFiles,
+    discardChanges,
     commitChanges,
     push,
     pull,

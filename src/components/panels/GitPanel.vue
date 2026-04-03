@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, Minus, Plus } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, Minus, Plus, Undo2 } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
@@ -46,6 +47,11 @@ async function onCommit() {
   if (!commitMsg.value.trim() || !gitStore.status?.staged.length) return
   await gitStore.commitChanges(commitMsg.value.trim())
   commitMsg.value = ''
+}
+
+async function discardFile(path: string) {
+  if (!(await confirmDialog(t('git.discardConfirm', { path })))) return
+  await gitStore.discardChanges([path])
 }
 
 async function openDiffTab(path: string, staged: boolean) {
@@ -251,6 +257,7 @@ onUnmounted(() => {
           <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path">{{ file.path }}</span>
+          <button class="file-action discard" :title="t('git.discard')" @click.stop="discardFile(file.path)"><Undo2 :size="12" :stroke-width="2" /></button>
           <button class="file-action" :title="t('git.stage')" @click.stop="gitStore.stageFiles([file.path])"><Plus :size="12" :stroke-width="2" /></button>
         </div>
       </div>
@@ -554,6 +561,11 @@ onUnmounted(() => {
 .file-action:hover {
   background: var(--accent);
   color: var(--text-active);
+}
+
+.file-action.discard:hover {
+  background: var(--git-deleted, #f44747);
+  color: #fff;
 }
 
 .commit-group {

@@ -247,6 +247,23 @@ pub async fn git_unstage(
 }
 
 #[tauri::command]
+pub async fn git_discard_changes(
+    root: String,
+    shell: ShellConfig,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let mut args = vec!["checkout", "HEAD", "--"];
+        let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
+        args.extend(path_refs);
+        run_git(&shell, &root, &args)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn git_commit(
     root: String,
     shell: ShellConfig,

@@ -166,6 +166,10 @@ export async function gitUnstage(root: string, shell: ShellType, paths: string[]
   return invoke('git_unstage', { root, shell, paths })
 }
 
+export async function gitDiscardChanges(root: string, shell: ShellType, paths: string[]): Promise<void> {
+  return invoke('git_discard_changes', { root, shell, paths })
+}
+
 export async function gitCommit(root: string, shell: ShellType, message: string): Promise<void> {
   return invoke('git_commit', { root, shell, message })
 }
