@@ -258,7 +258,7 @@ onMounted(async () => {
   let lastIMETime = 0
   terminal.onData((data) => {
     if (!ptyId) return
-    if (/[^\u0000-\u007f]/.test(data)) {
+    if (data.split('').some((c) => c.charCodeAt(0) > 127)) {
       const now = Date.now()
       if (data === lastIMEData && now - lastIMETime < 30) return
       lastIMEData = data
