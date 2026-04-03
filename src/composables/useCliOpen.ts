@@ -67,8 +67,8 @@ async function handleAction(action: CliAction) {
   const tabStore = useTabStore()
 
   if (action.action === 'openFile') {
-    let targetProject = findBestProject(action.path, projectStore.projects)
-      ?? findWslProject(action.path, projectStore.projects)
+    let targetProject =
+      findBestProject(action.path, projectStore.projects) ?? findWslProject(action.path, projectStore.projects)
 
     if (!targetProject) {
       const parsed = parseWslUncPath(action.path)
@@ -97,8 +97,9 @@ async function handleAction(action: CliAction) {
     }
   } else if (action.action === 'openDirectory') {
     const normalized = normalizePath(action.path)
-    let match = projectStore.projects.find((p) => normalizePath(p.root) === normalized)
-      ?? findWslProject(action.path, projectStore.projects)
+    let match =
+      projectStore.projects.find((p) => normalizePath(p.root) === normalized) ??
+      findWslProject(action.path, projectStore.projects)
 
     if (!match) {
       // Create ad-hoc project for unregistered directory
