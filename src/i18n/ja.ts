@@ -109,6 +109,7 @@ export default {
   'settings.updateAvailable': '更新あり: v{version}',
   'settings.updateAndRestart': '更新して再起動',
   'settings.downloading': 'ダウンロード中...',
+  'settings.updateConfirm': 'v{version} に更新して再起動しますか？',
   'settings.upToDate': '最新です',
   'settings.updateError': '更新の確認に失敗しました',
   'settings.terminalExitNotification': 'プロセス終了時にデスクトップ通知',

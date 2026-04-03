@@ -109,6 +109,7 @@ export default {
   'settings.updateAvailable': 'Update available: v{version}',
   'settings.updateAndRestart': 'Update & Restart',
   'settings.downloading': 'Downloading...',
+  'settings.updateConfirm': 'Update to v{version} and restart?',
   'settings.upToDate': 'You are up to date',
   'settings.updateError': 'Update check failed',
   'settings.terminalExitNotification': 'Desktop notification on exit',

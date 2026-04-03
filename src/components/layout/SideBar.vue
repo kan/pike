@@ -82,9 +82,13 @@ async function openGitHub() {
 
 async function checkUpdate() {
   closeGearMenu()
-  await updater.checkForUpdate()
+  if (!updater.hasUpdate.value) {
+    await updater.checkForUpdate()
+  }
   if (updater.hasUpdate.value) {
-    tabStore.addSettingsTab()
+    if (await confirmDialog(t('settings.updateConfirm', { version: updater.updateVersion.value }))) {
+      await updater.downloadAndInstall()
+    }
   } else if (updater.state.value === 'upToDate') {
     await infoDialog(t('settings.upToDate'))
   } else {
