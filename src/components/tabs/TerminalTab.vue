@@ -26,6 +26,7 @@ let fitAddon: FitAddon | null = null
 let ptyId: string | null = null
 let resizeObserver: ResizeObserver | null = null
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
+let windowFocusHandler: (() => void) | null = null
 let lastCols = 0
 let lastRows = 0
 
@@ -293,6 +294,15 @@ onMounted(async () => {
     ptyWrite(ptyId, text).catch(() => {})
   })
 
+  // Re-focus xterm textarea when window regains focus from outside,
+  // so IME composition events are correctly captured by xterm.js.
+  windowFocusHandler = () => {
+    if (terminal && tabStore.activeTabId === props.tabId) {
+      terminal.focus()
+    }
+  }
+  window.addEventListener('focus', windowFocusHandler)
+
   resizeObserver = new ResizeObserver(() => {
     if (resizeTimer) clearTimeout(resizeTimer)
     resizeTimer = setTimeout(() => doFit(), 100)
@@ -301,6 +311,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (windowFocusHandler) window.removeEventListener('focus', windowFocusHandler)
   if (resizeTimer) clearTimeout(resizeTimer)
   resizeObserver?.disconnect()
   if (ptyId) {
