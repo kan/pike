@@ -276,7 +276,7 @@ onMounted(async () => {
   })
 
   terminal.onSelectionChange(() => {
-    if (!settingsStore.terminalCopyOnSelect) return
+    if (!settingsStore.terminalCopyOnSelect || !terminal) return
     const text = terminal.getSelection()
     if (text) navigator.clipboard.writeText(text.replace(/\r\n/g, '\n')).catch(() => {})
   })
