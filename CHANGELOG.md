@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.4] - 2026-04-03
+
+### Features
+
+- 更新メニューから直接セルフアップデートを実行（Settings タブを開かず confirm → 更新 → 再起動）
+
+### Fixed
+
+- Docker パネルが異なるプロジェクトの同名コンテナを表示する問題を修正（composeProject でフィルタ）
+- 再起動時に子ウィンドウが復元されない問題を修正（全ウィンドウが last_project.txt に登録）
+- pike CLI でディレクトリ指定時にプロジェクトが開かれない問題を修正（アドホックプロジェクト自動作成）
+- pike CLI の WSL UNC パス対応（既存 WSL プロジェクトとのマッチング + WSL プロジェクトとして作成）
+- 外部ウィンドウからフォーカス復帰時に IME 入力が二重になる問題を修正（xterm textarea 再フォーカス）
+
 ## [0.3.3] - 2026-04-03
 
 ### Features
