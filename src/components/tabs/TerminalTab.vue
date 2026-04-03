@@ -251,10 +251,20 @@ onMounted(async () => {
   lastCols = terminal.cols
   lastRows = terminal.rows
 
+  // IME dedup: some IMEs (e.g. CorvusSKK) can fire both compositionend and
+  // input(insertText) for the same committed text, causing onData to trigger
+  // twice. Guard by rejecting identical non-ASCII data within 30ms.
+  let lastIMEData = ''
+  let lastIMETime = 0
   terminal.onData((data) => {
-    if (ptyId) {
-      ptyWrite(ptyId, data).catch(() => {})
+    if (!ptyId) return
+    if (/[^\x00-\x7f]/.test(data)) {
+      const now = Date.now()
+      if (data === lastIMEData && now - lastIMETime < 30) return
+      lastIMEData = data
+      lastIMETime = now
     }
+    ptyWrite(ptyId, data).catch(() => {})
   })
 
   terminal.onTitleChange((raw) => {
@@ -265,11 +275,10 @@ onMounted(async () => {
     }
   })
 
-  // Auto-copy on selection
   terminal.onSelectionChange(() => {
-    if (!settingsStore.terminalCopyOnSelect || !terminal) return
+    if (!settingsStore.terminalCopyOnSelect) return
     const text = terminal.getSelection()
-    if (text) navigator.clipboard.writeText(text)
+    if (text) navigator.clipboard.writeText(text.replace(/\r\n/g, '\n')).catch(() => {})
   })
 
   // Right-click paste (guard: termRef may be null if component unmounted during pty_spawn await)

@@ -89,6 +89,12 @@ onMounted(async () => {
   terminal.open(termRef.value)
   fitAddon.fit()
 
+  terminal.onSelectionChange(() => {
+    if (!settingsStore.terminalCopyOnSelect) return
+    const text = terminal.getSelection()
+    if (text) navigator.clipboard.writeText(text.replace(/\r\n/g, '\n')).catch(() => {})
+  })
+
   try {
     streamId = await dockerLogsStart(tab.value.containerId)
     const termRef_ = terminal
