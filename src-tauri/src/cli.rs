@@ -24,12 +24,14 @@ pub async fn cli_get_initial_action(
     state: State<'_, CliState>,
     window: tauri::WebviewWindow,
 ) -> Result<CliAction, String> {
-    // Check pending actions for this specific window first
     let label = window.label().to_string();
-    if let Some(action) = state.pending.lock().map_err(|e| e.to_string())?.remove(&label) {
+    let mut pending = state.pending.lock().map_err(|e| e.to_string())?;
+    log::debug!("[cli] cli_get_initial_action: label={label}, pending_keys={:?}", pending.keys().collect::<Vec<_>>());
+    if let Some(action) = pending.remove(&label) {
+        log::debug!("[cli] found pending action for {label}: {action:?}");
         return Ok(action);
     }
-    // Fall back to initial action (main window on first launch)
+    drop(pending);
     Ok(state
         .initial_action
         .lock()
@@ -55,8 +57,13 @@ pub async fn cli_set_pending_action(
 /// Parse raw CLI args (from std::env::args or single-instance callback).
 /// `cwd` is used to resolve relative paths.
 pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
-    // Skip binary name (first arg)
-    let meaningful: Vec<&str> = args.iter().skip(1).map(|s| s.as_str()).collect();
+    // Skip binary name and known flags (--wait, --wait-id=...)
+    let meaningful: Vec<&str> = args
+        .iter()
+        .skip(1)
+        .map(|s| s.as_str())
+        .filter(|s| *s != "--wait" && !s.starts_with("--wait-id="))
+        .collect();
 
     if meaningful.is_empty() {
         return CliAction::None;
@@ -66,7 +73,6 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
     let raw_path = if meaningful[0] == "open" && meaningful.len() > 1 {
         meaningful[1]
     } else if meaningful[0].starts_with('-') {
-        // Skip flags (e.g. --flag)
         return CliAction::None;
     } else {
         meaningful[0]
@@ -75,11 +81,35 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
     resolve_path_arg(raw_path, cwd)
 }
 
+/// Extract WSL distro name from a UNC path like `\\wsl.localhost\Ubuntu\...` or `\\wsl$\Ubuntu\...`.
+fn wsl_distro_from_unc(cwd: &str) -> Option<String> {
+    let norm = cwd.replace('\\', "/");
+    let rest = norm
+        .strip_prefix("//wsl.localhost/")
+        .or_else(|| norm.strip_prefix("//wsl$/"))?;
+    rest.split('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
 fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
     let (path_str, line) = parse_path_and_line(raw);
 
     let path = PathBuf::from(path_str);
-    let abs_path = if path.is_absolute() {
+    let abs_path = if path_str.starts_with('/') {
+        // Unix-style absolute path (e.g. /home/user/file).
+        // On Windows this is NOT absolute (just root-relative to current drive).
+        // If CWD is a WSL UNC path, convert to \\wsl.localhost\{distro}\...
+        if let Some(ref distro) = wsl_distro_from_unc(cwd) {
+            PathBuf::from(format!(
+                r"\\wsl.localhost\{distro}{}",
+                path_str.replace('/', "\\")
+            ))
+        } else {
+            PathBuf::from(cwd).join(path)
+        }
+    } else if path.is_absolute() {
         path
     } else {
         PathBuf::from(cwd).join(path)
@@ -88,7 +118,10 @@ fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
     let abs_path = abs_path.canonicalize().unwrap_or(abs_path);
     let mut path_string = abs_path.to_string_lossy().into_owned();
     // Strip \\?\ prefix added by canonicalize on Windows
-    if path_string.starts_with(r"\\?\") {
+    // Also handle UNC: \\?\UNC\wsl.localhost\... → \\wsl.localhost\...
+    if path_string.starts_with(r"\\?\UNC\") {
+        path_string = format!(r"\\{}", &path_string[8..]);
+    } else if path_string.starts_with(r"\\?\") {
         path_string = path_string[4..].to_string();
     }
 
@@ -152,5 +185,57 @@ mod tests {
     fn test_parse_args_flags_ignored() {
         let args = vec!["pike.exe".to_string(), "--help".to_string()];
         assert!(matches!(parse_args(&args, "."), CliAction::None));
+    }
+
+    #[test]
+    fn test_wsl_distro_from_unc() {
+        assert_eq!(
+            wsl_distro_from_unc(r"\\wsl.localhost\Ubuntu\home\user"),
+            Some("Ubuntu".to_string())
+        );
+        assert_eq!(
+            wsl_distro_from_unc(r"\\wsl$\Debian\tmp"),
+            Some("Debian".to_string())
+        );
+        assert_eq!(wsl_distro_from_unc(r"C:\Users\foo"), None);
+    }
+
+    #[test]
+    fn test_wsl_absolute_path_conversion() {
+        let args = vec!["pike.exe".to_string(), "/home/user/file.rs".to_string()];
+        match parse_args(&args, r"\\wsl.localhost\Ubuntu\home\user") {
+            CliAction::OpenFile { path, .. } => {
+                assert!(
+                    path.starts_with(r"\\wsl.localhost\Ubuntu\home\user\file.rs"),
+                    "expected UNC path, got: {path}"
+                );
+            }
+            other => panic!("expected OpenFile, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_wait_flag_stripped() {
+        // --wait should be stripped; file.rs should still be parsed
+        let args = vec!["pike.exe".to_string(), "--wait".to_string(), "file.rs".to_string()];
+        match parse_args(&args, "C:\\project") {
+            CliAction::OpenFile { path, .. } => {
+                assert!(path.contains("file.rs"), "expected file.rs in path, got: {path}");
+            }
+            other => panic!("expected OpenFile, got: {other:?}"),
+        }
+
+        // --wait-id=xxx should also be stripped
+        let args2 = vec![
+            "pike.exe".to_string(),
+            "--wait-id=abc123".to_string(),
+            "file.rs".to_string(),
+        ];
+        match parse_args(&args2, "C:\\project") {
+            CliAction::OpenFile { path, .. } => {
+                assert!(path.contains("file.rs"), "expected file.rs in path, got: {path}");
+            }
+            other => panic!("expected OpenFile, got: {other:?}"),
+        }
     }
 }

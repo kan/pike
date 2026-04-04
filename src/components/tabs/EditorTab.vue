@@ -286,10 +286,11 @@ function updateCursorInfo() {
   })
 }
 
+/** Shell config for file I/O — falls back to PowerShell when no project is set. */
+const shellForIO = computed(() => projectStore.currentProject?.shell ?? ({ kind: 'powershell' } as const))
+
 async function save(overrideEncoding?: string) {
   if (!editorView || !tab.value || saving.value || tab.value.readOnly) return
-  const project = projectStore.currentProject
-  if (!project) return
 
   const enc = overrideEncoding ?? currentEncoding.value
   saving.value = true
@@ -299,7 +300,7 @@ async function save(overrideEncoding?: string) {
       content = content.replace(/\n/g, '\r\n')
     }
     markRecentlySaved(tab.value.path)
-    await fsWriteFile(project.shell, tab.value.path, content, enc !== 'UTF-8' ? enc : undefined)
+    await fsWriteFile(shellForIO.value, tab.value.path, content, enc !== 'UTF-8' ? enc : undefined)
     if (overrideEncoding) {
       currentEncoding.value = enc
       updateCursorInfo()
@@ -324,10 +325,7 @@ async function loadContent(encoding?: string): Promise<string> {
     return savedContent
   }
 
-  const project = projectStore.currentProject
-  if (!project) throw new Error('No project')
-
-  const result = await fsReadFile(project.shell, tab.value.path, encoding)
+  const result = await fsReadFile(shellForIO.value, tab.value.path, encoding)
   currentEncoding.value = result.encoding
   // Detect and normalize line endings for CodeMirror (which uses \n internally)
   currentLineEnding.value = result.content.includes('\r\n') ? 'CRLF' : 'LF'
@@ -340,7 +338,7 @@ async function loadContent(encoding?: string): Promise<string> {
 async function refreshDiffGutter() {
   if (!editorView || !tab.value || tab.value.readOnly || tab.value.initialContent !== undefined) return
   const project = projectStore.currentProject
-  if (!project) return
+  if (!project) return // git diff requires a project root
   try {
     const diff = await gitDiffLines(project.root, project.shell, tab.value.path)
     editorView?.dispatch({ effects: setDiffLines.of(diff) })

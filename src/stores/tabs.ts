@@ -1,10 +1,11 @@
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
 import { t } from '../i18n'
 import { basename } from '../lib/paths'
-import { ptyKill } from '../lib/tauri'
+import { ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
   DiffTab,
@@ -74,6 +75,10 @@ export const useTabStore = defineStore('tabs', () => {
     }
 
     tabs.value.splice(idx, 1)
+
+    if (tab.kind === 'editor') {
+      await signalWaitAndCloseWindow(tab.path)
+    }
 
     if (activeTabId.value === id) {
       const next = tabs.value[idx] ?? tabs.value[idx - 1] ?? null
@@ -309,11 +314,36 @@ export const useTabStore = defineStore('tabs', () => {
       })
     await Promise.allSettled(ptyKills)
 
+    // Signal all --wait processes, then close window if any were signaled
+    let shouldClose = false
+    for (const tab of toClose) {
+      if (tab.kind === 'editor') {
+        const signaled = await waitSignalByPath(tab.path).catch(() => false)
+        if (signaled) shouldClose = true
+      }
+    }
+
     const idsToClose = new Set(toClose.map((t) => t.id))
     tabs.value = tabs.value.filter((t) => !idsToClose.has(t.id))
 
     if (!tabs.value.some((t) => t.id === activeTabId.value)) {
       activeTabId.value = tabs.value[tabs.value.length - 1]?.id ?? null
+    }
+
+    if (shouldClose) {
+      await getCurrentWindow()
+        .close()
+        .catch(() => {})
+    }
+  }
+
+  /** Signal --wait processes for a file path; close window if any were waiting. */
+  async function signalWaitAndCloseWindow(path: string) {
+    const signaled = await waitSignalByPath(path).catch(() => false)
+    if (signaled) {
+      await getCurrentWindow()
+        .close()
+        .catch(() => {})
     }
   }
 

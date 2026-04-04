@@ -2,5 +2,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+  // If --wait is present and another Pike instance is running,
+  // send the args and block until editing completes (for GIT_EDITOR support).
+  // This must run before the Tauri runtime to avoid the single-instance
+  // plugin's immediate std::process::exit(0).
+  app_lib::wait::try_wait_and_exit();
+
   app_lib::run();
 }

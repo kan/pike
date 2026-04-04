@@ -7,44 +7,231 @@ mod search;
 mod project;
 mod pty;
 mod types;
+pub mod wait;
 mod watcher;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WebviewWindow, WindowEvent};
 
-/// Prefix for project window labels. Must match PROJECT_WINDOW_PREFIX in src/lib/window.ts
+/// Must match PROJECT_WINDOW_PREFIX in src/lib/window.ts
 const PROJECT_WINDOW_PREFIX: &str = "project-";
+/// Must match the prefix checked in isSecondaryWindow() in src/lib/window.ts
+const SECONDARY_PREFIX: &str = "secondary-";
 
-/// Falls back to `true` if COM is unavailable (non-Windows, API failure).
+/// Must be called outside of WM_COPYDATA / SendMessage context — COM calls
+/// fail with RPC_E_CANTCALLOUT_ININPUTSYNCCALL inside input-synchronous messages.
+/// Falls back to `true` (assume visible) when COM or the API is unavailable.
 fn is_on_current_virtual_desktop(window: &WebviewWindow) -> bool {
     #[cfg(windows)]
     {
         use windows::Win32::System::Com::{
-            CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED,
+            CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
         };
         use windows::Win32::UI::Shell::{IVirtualDesktopManager, VirtualDesktopManager};
 
         let hwnd_raw = match window.hwnd() {
             Ok(h) => h.0 as isize,
-            Err(_) => return true,
+            Err(e) => {
+                log::warn!("[vdesktop] hwnd() failed: {e}");
+                return true;
+            }
         };
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             let manager: IVirtualDesktopManager =
                 match CoCreateInstance(&VirtualDesktopManager, None, CLSCTX_ALL) {
                     Ok(m) => m,
-                    Err(_) => return true,
+                    Err(e) => {
+                        log::warn!("[vdesktop] CoCreateInstance failed: {e}");
+                        return true;
+                    }
                 };
             let hwnd = windows::Win32::Foundation::HWND(hwnd_raw as *mut _);
-            manager
-                .IsWindowOnCurrentVirtualDesktop(hwnd)
-                .map(|b| b.as_bool())
-                .unwrap_or(true)
+            match manager.IsWindowOnCurrentVirtualDesktop(hwnd) {
+                Ok(b) => {
+                    let result = b.as_bool();
+                    log::debug!(
+                        "[vdesktop] IsWindowOnCurrentVirtualDesktop({hwnd_raw:#x}) = {result}"
+                    );
+                    result
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[vdesktop] IsWindowOnCurrentVirtualDesktop failed: {e}"
+                    );
+                    true
+                }
+            }
         }
     }
     #[cfg(not(windows))]
     true
+}
+
+fn normalize_path(p: &str) -> String {
+    p.to_lowercase()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn is_under_root(file_path: &str, root: &str) -> bool {
+    let f = normalize_path(file_path);
+    let r = normalize_path(root);
+    f.starts_with(&format!("{r}/")) || f == r
+}
+
+fn load_all_projects(app: &AppHandle) -> Vec<project::ProjectConfig> {
+    let Some(state) = app.try_state::<project::ProjectState>() else {
+        return vec![];
+    };
+    project::read_all_projects(&state.config_dir)
+}
+
+fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
+    app.webview_windows()
+        .into_values()
+        .filter(is_on_current_virtual_desktop)
+        .collect()
+}
+
+fn window_project_id(label: &str) -> Option<&str> {
+    label.strip_prefix(PROJECT_WINDOW_PREFIX)
+}
+
+fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Error> {
+    WebviewWindowBuilder::new(app, label, WebviewUrl::default())
+        .title("Pike")
+        .inner_size(800.0, 600.0)
+        .resizable(true)
+        .disable_drag_drop_handler()
+        .build()
+}
+
+fn create_secondary_window(app: &AppHandle) -> String {
+    let label = format!("{SECONDARY_PREFIX}{}", uuid::Uuid::new_v4());
+    let _ = build_window(app, &label);
+    label
+}
+
+fn store_pending(app: &AppHandle, label: &str, action: cli::CliAction) {
+    if let Some(state) = app.try_state::<cli::CliState>() {
+        if let Ok(mut pending) = state.pending.lock() {
+            pending.insert(label.to_string(), action);
+        }
+    }
+}
+
+/// Send a CLI action to an existing window via event.
+fn emit_action_to(app: &AppHandle, window: &WebviewWindow, action: &cli::CliAction) {
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    let _ = app.emit_to(window.label(), "cli_open", action);
+}
+
+/// Handle the second-instance callback (deferred from WM_COPYDATA context).
+fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
+    let wait_id = wait::extract_wait_id(args);
+    let action = cli::parse_args(args, cwd);
+    log::debug!("[single-instance] args={args:?}, cwd={cwd:?}, action={action:?}, wait_id={wait_id:?}");
+
+    // --wait: register wait_id and always open in a new dedicated window
+    if let Some(ref wid) = wait_id {
+        if let cli::CliAction::OpenFile { ref path, .. } = action {
+            if let Some(state) = app.try_state::<wait::WaitState>() {
+                wait::register(&state, wid.clone(), path);
+            }
+            let label = create_secondary_window(app);
+            store_pending(app, &label, action);
+            return;
+        }
+    }
+
+    match &action {
+        cli::CliAction::None => {
+            // No args: focus existing window on current desktop, or create new
+            let windows = current_desktop_windows(app);
+            if let Some(w) = windows.first() {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            } else {
+                create_secondary_window(app);
+            }
+        }
+
+        cli::CliAction::OpenDirectory { path } => {
+            let projects = load_all_projects(app);
+            let windows = current_desktop_windows(app);
+            let norm = normalize_path(path);
+
+            // 1. Window with matching project already on this desktop? → focus
+            for w in &windows {
+                if let Some(pid) = window_project_id(w.label()) {
+                    if let Some(proj) = projects.iter().find(|p| p.id == pid) {
+                        if normalize_path(&proj.root) == norm {
+                            log::debug!("[single-instance] dir: focus project window {}", w.label());
+                            let _ = w.unminimize();
+                            let _ = w.set_focus();
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // 2. Registered project for this path? → new window for that project
+            if let Some(proj) = projects.iter().find(|p| normalize_path(&p.root) == norm) {
+                log::debug!("[single-instance] dir: open project {} in new window", proj.id);
+                let label = format!("{PROJECT_WINDOW_PREFIX}{}", proj.id);
+                store_pending(app, &label, action);
+                let _ = build_window(app, &label);
+                return;
+            }
+
+            // 3. Any project window on this desktop with matching platform? → open terminal there
+            let is_windows_path = path.len() >= 2 && path.as_bytes()[1] == b':';
+            for w in &windows {
+                if let Some(pid) = window_project_id(w.label()) {
+                    if let Some(proj) = projects.iter().find(|p| p.id == pid) {
+                        let proj_is_windows = !matches!(proj.shell, types::ShellConfig::Wsl { .. });
+                        if proj_is_windows == is_windows_path {
+                            log::debug!("[single-instance] dir: terminal in existing window {}", w.label());
+                            emit_action_to(app, w, &action);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // 4. No match → new window + terminal
+            log::debug!("[single-instance] dir: new secondary window");
+            let label = create_secondary_window(app);
+            store_pending(app, &label, action);
+        }
+
+        cli::CliAction::OpenFile { path, .. } => {
+            let projects = load_all_projects(app);
+            let windows = current_desktop_windows(app);
+
+            // 1. Window with a project that contains this file on this desktop? → open there
+            for w in &windows {
+                if let Some(pid) = window_project_id(w.label()) {
+                    if let Some(proj) = projects.iter().find(|p| p.id == pid) {
+                        if is_under_root(path, &proj.root) {
+                            log::debug!("[single-instance] file: open in project window {}", w.label());
+                            emit_action_to(app, w, &action);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // 2. No matching project window → new window + editor tab
+            log::debug!("[single-instance] file: new secondary window");
+            let label = create_secondary_window(app);
+            store_pending(app, &label, action);
+        }
+    }
 }
 
 #[tauri::command]
@@ -59,16 +246,9 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
         }
         let _ = window.close();
     }
-    match WebviewWindowBuilder::new(&app, &label, WebviewUrl::default())
-        .title("Pike")
-        .inner_size(800.0, 600.0)
-        .resizable(true)
-        .disable_drag_drop_handler()
-        .build()
-    {
+    match build_window(&app, &label) {
         Ok(_) => Ok(()),
         Err(_) => {
-            // Window was likely created by a concurrent call; focus it
             if let Some(w) = app.get_webview_window(&label) {
                 w.set_focus().map_err(|e| e.to_string())?;
             }
@@ -120,32 +300,19 @@ async fn pick_folder() -> Result<Option<String>, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-            // Find a window on the current virtual desktop, or create one
-            let mut focused = false;
-            for (_, window) in app.webview_windows() {
-                if is_on_current_virtual_desktop(&window) {
-                    let _ = window.unminimize();
-                    let _ = window.set_focus();
-                    focused = true;
-                    break;
-                }
-            }
-            if !focused {
-                let label = format!("secondary-{}", std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis());
-                let _ = WebviewWindowBuilder::new(app, &label, WebviewUrl::default())
-                    .title("Pike")
-                    .inner_size(800.0, 600.0)
-                    .resizable(true)
-                    .disable_drag_drop_handler()
-                    .build();
-            }
-            let action = cli::parse_args(&args, &cwd);
-            if !matches!(action, cli::CliAction::None) {
-                let _ = app.emit("cli_open", &action);
-            }
+            // Defer via run_on_main_thread to escape the WM_COPYDATA
+            // input-synchronous context.  COM cross-apartment calls
+            // (IVirtualDesktopManager) fail with RPC_E_CANTCALLOUT_ININPUTSYNCCALL
+            // while inside SendMessage.
+            let app_handle = app.clone();
+            let args: Vec<String> = args.to_vec();
+            let cwd = cwd.to_string();
+            std::thread::spawn(move || {
+                let app2 = app_handle.clone();
+                let _ = app_handle.run_on_main_thread(move || {
+                    handle_second_instance(&app2, &args, &cwd);
+                });
+            });
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -154,6 +321,9 @@ pub fn run() {
         .manage(cli::CliState {
             initial_action: std::sync::Mutex::new(None),
             pending: std::sync::Mutex::new(HashMap::new()),
+        })
+        .manage(wait::WaitState {
+            active: std::sync::Mutex::new(HashMap::new()),
         })
         .manage(pty::PtyState {
             sessions: Arc::new(Mutex::new(HashMap::new())),
@@ -208,6 +378,12 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::Destroyed = event {
+                // Abort any --wait processes when any window is destroyed
+                if let Some(state) = window.try_state::<wait::WaitState>() {
+                    wait::signal_abort_all(&state);
+                }
+
+                // Global cleanup only on main window destroy
                 if window.label() != "main" {
                     return;
                 }
@@ -231,6 +407,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             cli::cli_get_initial_action,
             cli::cli_set_pending_action,
+            wait::wait_signal_by_path,
             open_project_window,
             open_url,
             pick_folder,

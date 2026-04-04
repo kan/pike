@@ -4,13 +4,16 @@
   "description": "enables the default permissions",
   "windows": [
     "main",
-    "project-*"
+    "project-*",
+    "secondary-*"
   ],
   "permissions": [
     "core:default",
     "core:event:default",
     "core:window:allow-set-title",
     "core:window:allow-set-focus",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
     "window-state:default",
     "updater:default",
     "process:default",

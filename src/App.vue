@@ -8,14 +8,14 @@ import StatusBar from './components/layout/StatusBar.vue'
 import TabPane from './components/layout/TabPane.vue'
 import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
-import { initCliOpen } from './composables/useCliOpen'
+import { hasPendingCliAction, initCliOpen } from './composables/useCliOpen'
 import { dockerLogRouter } from './composables/useDockerLogRouter'
 import { type FsChangeEntry, fsWatcher, isRecentlySaved } from './composables/useFsWatcher'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { ptyRouter } from './composables/usePtyRouter'
 import { initTerminalNotifications } from './composables/useTerminalNotifications'
 import { useI18n } from './i18n'
-import { getWindowProjectId } from './lib/window'
+import { getWindowProjectId, isSecondaryWindow } from './lib/window'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
 import { useTabStore } from './stores/tabs'
@@ -84,6 +84,9 @@ onMounted(async () => {
   if (windowProjectId) {
     await projectStore.loadProjects()
     await projectStore.switchProject(windowProjectId)
+  } else if (isSecondaryWindow() && (await hasPendingCliAction())) {
+    // Secondary window with a CLI action: skip project restore.
+    // initCliOpen will open the requested tab without a project context.
   } else {
     await projectStore.restoreLastProject()
   }

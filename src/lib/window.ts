@@ -10,3 +10,7 @@ export function getWindowProjectId(): string | null {
 export function isMainWindow(): boolean {
   return windowLabel === 'main'
 }
+
+export function isSecondaryWindow(): boolean {
+  return windowLabel.startsWith('secondary-')
+}

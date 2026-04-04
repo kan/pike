@@ -325,6 +325,12 @@ export async function cliSetPendingAction(windowLabel: string, action: CliAction
   return invoke('cli_set_pending_action', { windowLabel, action })
 }
 
+// Wait (--wait / GIT_EDITOR support)
+
+export async function waitSignalByPath(path: string): Promise<boolean> {
+  return invoke<boolean>('wait_signal_by_path', { path })
+}
+
 // Font
 
 export async function fontListMonospace(): Promise<string[]> {

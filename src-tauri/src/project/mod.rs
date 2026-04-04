@@ -144,24 +144,27 @@ pub async fn project_add_open(
 }
 
 
-#[tauri::command]
-pub async fn project_list(state: State<'_, ProjectState>) -> Result<Vec<ProjectConfig>, String> {
-    let dir = projects_dir(&state);
-    if !dir.exists() {
-        return Ok(vec![]);
-    }
+/// Read all project configs from the projects directory.
+pub fn read_all_projects(config_dir: &std::path::Path) -> Vec<ProjectConfig> {
+    let dir = config_dir.join("projects");
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return vec![];
+    };
     let mut projects = Vec::new();
-    let entries = fs::read_dir(&dir).map_err(|e| e.to_string())?;
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
         let path = entry.path().join("project.json");
-        if path.exists() {
-            let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(config) = serde_json::from_str::<ProjectConfig>(&content) {
                 projects.push(config);
             }
         }
     }
+    projects
+}
+
+#[tauri::command]
+pub async fn project_list(state: State<'_, ProjectState>) -> Result<Vec<ProjectConfig>, String> {
+    let mut projects = read_all_projects(&state.config_dir);
     projects.sort_by(|a, b| b.last_opened.cmp(&a.last_opened));
     Ok(projects)
 }
