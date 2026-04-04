@@ -55,6 +55,9 @@
     "pinia": "^3.0.4",
     "vue": "^3.5.31"
   },
+  "overrides": {
+    "lodash-es": "^4.18.0"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
     "@tauri-apps/cli": "^2.10.1",
