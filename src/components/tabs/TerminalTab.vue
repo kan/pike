@@ -289,9 +289,13 @@ onMounted(async () => {
     const text = await navigator.clipboard.readText().catch(() => '')
     if (!text) return
     if (text.includes('\n') || text.includes('\r')) {
-      if (!(await confirmDialog(t('confirm.pasteNewlines')))) return
+      if (!(await confirmDialog(t('confirm.pasteNewlines')))) {
+        terminal?.focus()
+        return
+      }
     }
     ptyWrite(ptyId, text).catch(() => {})
+    terminal?.focus()
   })
 
   // Re-focus xterm textarea when window regains focus from outside,
