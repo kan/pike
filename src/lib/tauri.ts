@@ -64,6 +64,10 @@ export async function projectAddOpen(id: string): Promise<void> {
   return invoke('project_add_open', { id })
 }
 
+export async function projectRemoveOpen(id: string): Promise<void> {
+  return invoke('project_remove_open', { id })
+}
+
 // Project — CRUD
 
 export async function projectList(): Promise<ProjectConfig[]> {

@@ -127,24 +127,42 @@ pub async fn project_set_last(
     fs::write(last_project_file(&state), ids.join("\n")).map_err(|e| e.to_string())
 }
 
+fn read_open_ids(state: &ProjectState) -> Vec<String> {
+    fs::read_to_string(last_project_file(state))
+        .unwrap_or_default()
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
+fn write_open_ids(state: &ProjectState, ids: &[String]) -> Result<(), String> {
+    fs::write(last_project_file(state), ids.join("\n")).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn project_add_open(
     id: String,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
-    let path = last_project_file(&state);
-    let mut ids: Vec<String> = fs::read_to_string(&path)
-        .unwrap_or_default()
-        .lines()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect();
+    let mut ids = read_open_ids(&state);
     if !ids.contains(&id) {
         ids.push(id);
     }
-    fs::write(&path, ids.join("\n")).map_err(|e| e.to_string())
+    write_open_ids(&state, &ids)
 }
 
+#[tauri::command]
+pub async fn project_remove_open(
+    id: String,
+    state: State<'_, ProjectState>,
+) -> Result<(), String> {
+    let ids: Vec<String> = read_open_ids(&state)
+        .into_iter()
+        .filter(|l| *l != id)
+        .collect();
+    write_open_ids(&state, &ids)
+}
 
 /// Read all project configs from the projects directory.
 pub fn read_all_projects(config_dir: &std::path::Path) -> Vec<ProjectConfig> {

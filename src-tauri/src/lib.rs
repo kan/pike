@@ -448,6 +448,7 @@ pub fn run() {
             project::project_get_last,
             project::project_set_last,
             project::project_add_open,
+            project::project_remove_open,
             project::project_list,
             project::project_get,
             project::project_create,

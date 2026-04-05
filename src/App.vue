@@ -15,6 +15,7 @@ import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { ptyRouter } from './composables/usePtyRouter'
 import { initTerminalNotifications } from './composables/useTerminalNotifications'
 import { useI18n } from './i18n'
+import { projectRemoveOpen } from './lib/tauri'
 import { getWindowProjectId, isSecondaryWindow } from './lib/window'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
@@ -97,6 +98,9 @@ onMounted(async () => {
   tabStore.$subscribe(() => projectStore.saveSessionDebounced())
   window.addEventListener('beforeunload', () => {
     projectStore.saveSessionNow()
+    if (projectStore.currentProject) {
+      projectRemoveOpen(projectStore.currentProject.id)
+    }
   })
 })
 </script>
