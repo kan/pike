@@ -7,7 +7,7 @@ import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirro
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { confirmDialog } from '../../composables/useConfirmDialog'
+import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useI18n } from '../../i18n'
@@ -17,7 +17,7 @@ import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { basename, extension } from '../../lib/paths'
-import { fsReadFile, fsWriteFile, gitDiffLines, openUrl } from '../../lib/tauri'
+import { fsReadFile, fsWriteFile, gitDiffLines, openUrl, pickSaveFile } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
@@ -256,7 +256,7 @@ watch(previewHtml, () => {
 
 function updateTitle() {
   if (!tab.value) return
-  const baseName = basename(tab.value.path) + (tab.value.readOnly ? '' : '')
+  const baseName = tab.value.path ? basename(tab.value.path) : tab.value.title.replace(/ \*$/, '')
   tabStore.setTabTitle(props.tabId, isDirty.value ? `${baseName} *` : baseName)
 }
 
@@ -267,6 +267,10 @@ function updateDirtyState() {
   if (dirty !== isDirty.value) {
     isDirty.value = dirty
     updateTitle()
+  }
+  // Sync content for untitled tabs (non-reactive Map to avoid $subscribe churn)
+  if (tab.value && !tab.value.path) {
+    tabStore.untitledContent.set(props.tabId, current)
   }
 }
 
@@ -292,6 +296,22 @@ const shellForIO = computed(() => projectStore.currentProject?.shell ?? ({ kind:
 async function save(overrideEncoding?: string) {
   if (!editorView || !tab.value || saving.value || tab.value.readOnly) return
 
+  // Untitled tab: prompt for file path first
+  if (!tab.value.path) {
+    let chosen: string | null
+    if (shellForIO.value.kind === 'wsl') {
+      const root = projectStore.currentProject?.root ?? '/'
+      const defaultPath = root.endsWith('/') ? root : `${root}/`
+      chosen = await promptDialog(t('editor.saveAsPrompt'), defaultPath, t('editor.saveAsPlaceholder'))
+    } else {
+      chosen = await pickSaveFile()
+    }
+    if (!chosen) return
+    tab.value.path = chosen
+    tab.value.initialContent = undefined
+    tab.value.unsavedContent = undefined
+  }
+
   const enc = overrideEncoding ?? currentEncoding.value
   saving.value = true
   try {
@@ -307,6 +327,7 @@ async function save(overrideEncoding?: string) {
     }
     savedContent = editorView.state.doc.toString()
     updateDirtyState()
+    updateTitle()
     refreshDiffGutter()
   } catch (e) {
     error.value = String(e)

@@ -36,6 +36,7 @@ const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.tabs'),
     items: [
+      { keys: 'Ctrl+N', label: t('shortcuts.newFile') },
       { keys: 'Ctrl+T', label: t('shortcuts.newTerminal') },
       { keys: 'Ctrl+W', label: t('shortcuts.closeTab') },
       { keys: 'Ctrl+PageDown', label: t('shortcuts.nextTab') },

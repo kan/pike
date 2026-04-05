@@ -49,6 +49,13 @@ export function useKeyboardShortcuts() {
       return
     }
 
+    // Ctrl+N: new blank editor tab
+    if (e.ctrlKey && e.key === 'n') {
+      e.preventDefault()
+      tabStore.addBlankEditorTab()
+      return
+    }
+
     // Ctrl+T: new terminal tab
     if (e.ctrlKey && e.key === 't') {
       e.preventDefault()

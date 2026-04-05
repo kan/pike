@@ -29,6 +29,8 @@ export default {
   'sidebar.github': 'GitHub',
 
   // Tabs
+  'tabs.newEditor': '新規エディタ',
+  'tabs.newTerminalShort': '新規ターミナル',
   'tabs.newTerminal': '新規ターミナル (Ctrl+T)',
   'tabs.openWithShell': '他のシェルで開く',
   'tabs.pinned': '固定',
@@ -54,6 +56,10 @@ export default {
   'editor.split': '分割',
   'editor.preview': 'プレビュー',
   'editor.saving': '保存中...',
+  'editor.untitled': '無題',
+  'editor.untitledN': '無題 {n}',
+  'editor.saveAsPrompt': '保存先:',
+  'editor.saveAsPlaceholder': 'ファイルパスを入力',
   'editor.save': '保存',
   'editor.externalModified': 'ファイルがディスク上で変更されました。',
   'editor.externalDeleted': 'ファイルがディスク上から削除されました。',
@@ -210,6 +216,7 @@ export default {
   'shortcuts.projectSwitcher': 'プロジェクト切替',
   'shortcuts.keyboardShortcuts': 'キーボードショートカット',
   'shortcuts.settings': '設定',
+  'shortcuts.newFile': '新規ファイル',
   'shortcuts.newTerminal': '新規ターミナル',
   'shortcuts.closeTab': 'タブを閉じる',
   'shortcuts.nextTab': '次のタブ',

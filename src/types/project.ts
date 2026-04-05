@@ -14,6 +14,7 @@ export interface SessionTabDef {
   pinned: boolean
   autoStart?: string
   path?: string
+  content?: string
 }
 
 export interface LastSession {

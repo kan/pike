@@ -4,11 +4,12 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useI18n } from '../i18n'
 
 const { t } = useI18n()
-const { visible, message, infoOnly, respond } = useConfirmDialog()
+const { visible, message, mode, inputValue, inputPlaceholder, respond } = useConfirmDialog()
 const okBtn = ref<HTMLButtonElement | null>(null)
+const inputEl = ref<HTMLInputElement | null>(null)
 
 watch(visible, (val) => {
-  if (val) nextTick(() => okBtn.value?.focus())
+  if (val) nextTick(() => (mode.value === 'prompt' ? inputEl : okBtn).value?.focus())
 })
 
 function onKeydown(e: KeyboardEvent) {
@@ -19,11 +20,19 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="overlay" @click.self="respond(infoOnly ? true : false)" @keydown="onKeydown">
+    <div v-if="visible" class="overlay" @click.self="respond(mode === 'info' ? true : false)" @keydown="onKeydown">
       <div class="dialog">
         <p class="dialog-message">{{ message }}</p>
+        <input
+          v-if="mode === 'prompt'"
+          ref="inputEl"
+          v-model="inputValue"
+          class="dialog-input"
+          :placeholder="inputPlaceholder"
+          @keydown.enter.stop="respond(true)"
+        />
         <div class="dialog-actions">
-          <button v-if="!infoOnly" class="btn btn-cancel" @click="respond(false)">{{ t('common.cancel') }}</button>
+          <button v-if="mode !== 'info'" class="btn btn-cancel" @click="respond(false)">{{ t('common.cancel') }}</button>
           <button ref="okBtn" class="btn btn-ok" @click="respond(true)">{{ t('common.ok') }}</button>
         </div>
       </div>
@@ -58,6 +67,24 @@ function onKeydown(e: KeyboardEvent) {
   font-size: 13px;
   line-height: 1.5;
   word-break: break-word;
+}
+
+.dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  margin-bottom: 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.dialog-input:focus {
+  border-color: var(--accent);
 }
 
 .dialog-actions {

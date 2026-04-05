@@ -75,6 +75,7 @@ export const useTabStore = defineStore('tabs', () => {
     }
 
     tabs.value.splice(idx, 1)
+    untitledContent.delete(id)
 
     if (tab.kind === 'editor') {
       await signalWaitAndCloseWindow(tab.path)
@@ -94,6 +95,7 @@ export const useTabStore = defineStore('tabs', () => {
         return ptyKill(t.ptyId).catch(() => {})
       })
     await Promise.allSettled(kills)
+    untitledContent.clear()
     tabs.value = []
     activeTabId.value = null
   }
@@ -150,6 +152,29 @@ export const useTabStore = defineStore('tabs', () => {
       readOnly: options.readOnly,
       initialContent: options.initialContent,
       initialLine: options.initialLine,
+    })
+    activeTabId.value = id
+    return id
+  }
+
+  /** Non-reactive storage for untitled tab content to avoid $subscribe churn on every keystroke. */
+  const untitledContent = new Map<string, string>()
+
+  let untitledCounter = 0
+
+  function addBlankEditorTab(options?: { title?: string; content?: string }): string {
+    untitledCounter++
+    const title =
+      options?.title ?? (untitledCounter === 1 ? t('editor.untitled') : t('editor.untitledN', { n: untitledCounter }))
+    const content = options?.content ?? ''
+    const id = genId()
+    tabs.value.push({
+      id,
+      kind: 'editor',
+      title,
+      pinned: false,
+      path: '',
+      initialContent: content,
     })
     activeTabId.value = id
     return id
@@ -385,6 +410,9 @@ export const useTabStore = defineStore('tabs', () => {
           return { ...base, autoStart: t.autoStart }
         }
         if (t.kind === 'editor') {
+          if (!t.path) {
+            return { ...base, path: '', content: untitledContent.get(t.id) ?? '' }
+          }
           return { ...base, path: t.path }
         }
         return base
@@ -398,6 +426,8 @@ export const useTabStore = defineStore('tabs', () => {
     activeTab,
     addTerminalTab,
     addEditorTab,
+    addBlankEditorTab,
+    untitledContent,
     addPreviewTab,
     addHistoryTab,
     addDockerLogsTab,

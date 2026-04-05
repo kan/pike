@@ -298,6 +298,10 @@ export async function pickFolder(): Promise<string | null> {
   return invoke<string | null>('pick_folder')
 }
 
+export async function pickSaveFile(defaultName?: string): Promise<string | null> {
+  return invoke<string | null>('pick_save_file', { defaultName: defaultName ?? null })
+}
+
 // CLI
 
 export interface CliOpenFile {

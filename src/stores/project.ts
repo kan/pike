@@ -87,8 +87,12 @@ export const useProjectStore = defineStore('project', () => {
             cwd: project.root,
             shell: project.shell,
           })
-        } else if (def.kind === 'editor' && def.path) {
-          tabStore.addEditorTab({ path: def.path })
+        } else if (def.kind === 'editor') {
+          if (def.path) {
+            tabStore.addEditorTab({ path: def.path })
+          } else if (def.content !== undefined) {
+            tabStore.addBlankEditorTab({ title: def.title, content: def.content })
+          }
         }
       }
       if (project.lastSession.activeTabId) {

@@ -138,10 +138,10 @@ function resetDrag() {
   dragOverTabId.value = null
 }
 
-// Context menu
-const contextMenu = ref<{ x: number; y: number; tabId: string } | null>(null)
+// Context menu (tabId is null for tab-bar empty area)
+const contextMenu = ref<{ x: number; y: number; tabId: string | null } | null>(null)
 const contextTab = computed(() =>
-  contextMenu.value ? (tabStore.tabs.find((t) => t.id === contextMenu.value!.tabId) ?? null) : null,
+  contextMenu.value?.tabId ? (tabStore.tabs.find((t) => t.id === contextMenu.value!.tabId) ?? null) : null,
 )
 
 const contextTabPath = computed(() => {
@@ -160,13 +160,20 @@ const contextTabPath = computed(() => {
   }
 })
 
-function onTabContextMenu(e: MouseEvent, tabId: string) {
+function onTabContextMenu(e: MouseEvent, tabId: string | null) {
   e.preventDefault()
   window.removeEventListener('mousedown', closeContextMenu)
   contextMenu.value = { x: e.clientX, y: e.clientY, tabId }
   nextTick(() => {
     window.addEventListener('mousedown', closeContextMenu, { once: true })
   })
+}
+
+function onTabBarDblClick(e: MouseEvent) {
+  // Only trigger on the empty area (not on a tab or button)
+  const target = e.target as HTMLElement
+  if (target.closest('.tab') || target.closest('.tab-add-group')) return
+  tabStore.addBlankEditorTab()
 }
 
 function closeContextMenu() {
@@ -194,7 +201,7 @@ onUnmounted(() => {
 <template>
   <div class="tab-pane">
     <!-- Tab Bar -->
-    <div class="tab-bar">
+    <div class="tab-bar" @dblclick="onTabBarDblClick" @contextmenu="onTabContextMenu($event, null)">
       <div class="tabs-scroll">
         <div
           v-for="tab in tabStore.tabs"
@@ -209,7 +216,7 @@ onUnmounted(() => {
           draggable="true"
           @click="tabStore.setActiveTab(tab.id)"
           @mousedown.middle.prevent="tabStore.closeTab(tab.id)"
-          @contextmenu="onTabContextMenu($event, tab.id)"
+          @contextmenu.stop="onTabContextMenu($event, tab.id)"
           @dragstart="onDragStart($event, tab.id)"
           @dragover="onDragOver($event, tab.id)"
           @dragleave="onDragLeave"
@@ -322,27 +329,27 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Context Menu -->
+    <!-- Context Menu (on a tab) -->
     <div
       v-if="contextMenu && contextTab"
       class="context-menu"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
       @mousedown.stop
     >
-      <button @click="tabStore.togglePin(contextMenu!.tabId); closeContextMenu()">
+      <button @click="tabStore.togglePin(contextMenu!.tabId!); closeContextMenu()">
         {{ contextTab.pinned ? t('tabs.unpin') : t('tabs.pin') }}
       </button>
       <button
         v-if="!contextTab.pinned"
-        @click="tabStore.closeTab(contextMenu!.tabId); closeContextMenu()"
+        @click="tabStore.closeTab(contextMenu!.tabId!); closeContextMenu()"
       >
         <span>{{ t('tabs.closeTab') }}</span><span class="ctx-key">Ctrl+W</span>
       </button>
       <div class="context-menu-separator" />
-      <button @click="tabStore.closeOtherTabs(contextMenu!.tabId); closeContextMenu()">
+      <button @click="tabStore.closeOtherTabs(contextMenu!.tabId!); closeContextMenu()">
         {{ t('tabs.closeOthers') }}
       </button>
-      <button @click="tabStore.closeTabsToRight(contextMenu!.tabId); closeContextMenu()">
+      <button @click="tabStore.closeTabsToRight(contextMenu!.tabId!); closeContextMenu()">
         {{ t('tabs.closeToRight') }}
       </button>
       <button @click="tabStore.closeSavedTabs(); closeContextMenu()">
@@ -361,6 +368,29 @@ onUnmounted(() => {
           @click="openGitHistory()"
         >
           <span>{{ t('tabs.gitHistory') }}</span><span class="ctx-key">Alt+H</span>
+        </button>
+      </template>
+    </div>
+    <!-- Context Menu (on tab bar empty area) -->
+    <div
+      v-else-if="contextMenu && !contextMenu.tabId"
+      class="context-menu"
+      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      @mousedown.stop
+    >
+      <button @click="tabStore.addBlankEditorTab(); closeContextMenu()">
+        <span>{{ t('tabs.newEditor') }}</span><span class="ctx-key">Ctrl+N</span>
+      </button>
+      <button @click="addTab(); closeContextMenu()">
+        <span>{{ t('tabs.newTerminalShort') }}</span><span class="ctx-key">Ctrl+T</span>
+      </button>
+      <template v-if="tabStore.tabs.length > 0">
+        <div class="context-menu-separator" />
+        <button @click="tabStore.closeSavedTabs(); closeContextMenu()">
+          {{ t('tabs.closeSaved') }}
+        </button>
+        <button @click="tabStore.closeAllTabs(); closeContextMenu()">
+          {{ t('tabs.closeAll') }}
         </button>
       </template>
     </div>

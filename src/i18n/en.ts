@@ -29,6 +29,8 @@ export default {
   'sidebar.github': 'GitHub',
 
   // Tabs
+  'tabs.newEditor': 'New Editor',
+  'tabs.newTerminalShort': 'New Terminal',
   'tabs.newTerminal': 'New Terminal (Ctrl+T)',
   'tabs.openWithShell': 'Open with different shell',
   'tabs.pinned': 'Pinned',
@@ -54,6 +56,10 @@ export default {
   'editor.split': 'Split',
   'editor.preview': 'Preview',
   'editor.saving': 'Saving...',
+  'editor.untitled': 'Untitled',
+  'editor.untitledN': 'Untitled {n}',
+  'editor.saveAsPrompt': 'Save as:',
+  'editor.saveAsPlaceholder': 'Enter file path',
   'editor.save': 'Save',
   'editor.externalModified': 'This file has been changed on disk.',
   'editor.externalDeleted': 'This file has been deleted from disk.',
@@ -210,6 +216,7 @@ export default {
   'shortcuts.projectSwitcher': 'Project Switcher',
   'shortcuts.keyboardShortcuts': 'Keyboard Shortcuts',
   'shortcuts.settings': 'Settings',
+  'shortcuts.newFile': 'New File',
   'shortcuts.newTerminal': 'New Terminal',
   'shortcuts.closeTab': 'Close Tab',
   'shortcuts.nextTab': 'Next Tab',

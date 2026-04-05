@@ -296,6 +296,32 @@ async fn pick_folder() -> Result<Option<String>, String> {
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn pick_save_file(default_name: Option<String>) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        let name = default_name.unwrap_or_default();
+        // PowerShell single-quoted strings only interpret '' as escaped quote;
+        // no other characters ($, `, ;, etc.) are special inside single quotes.
+        let cmd = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             $f = New-Object System.Windows.Forms.SaveFileDialog; \
+             $f.FileName = '{}'; \
+             if($f.ShowDialog() -eq 'OK'){{$f.FileName}}",
+            name.replace('\'', "''")
+        );
+        let output = types::silent_command("powershell.exe")
+            .args(["-NoProfile", "-Command", &cmd])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|e| e.to_string())?;
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(if path.is_empty() { None } else { Some(path) })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -411,6 +437,7 @@ pub fn run() {
             open_project_window,
             open_url,
             pick_folder,
+            pick_save_file,
             pty::pty_spawn,
             pty::pty_spawn_tmux,
             pty::pty_write,
