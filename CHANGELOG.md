@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.7] - 2026-04-06
+
+### Fixed
+
+- ウィンドウを閉じた際に last_project.txt からプロジェクトが削除されず、次回起動時に閉じたプロジェクトも復元される問題を修正
+
 ## [0.3.6] - 2026-04-05
 
 ### Features
