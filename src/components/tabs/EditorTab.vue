@@ -309,7 +309,7 @@ async function save(overrideEncoding?: string) {
     if (!chosen) return
     tab.value.path = chosen
     tab.value.initialContent = undefined
-    tab.value.unsavedContent = undefined
+    tabStore.untitledContent.delete(props.tabId)
   }
 
   const enc = overrideEncoding ?? currentEncoding.value
