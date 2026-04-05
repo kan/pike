@@ -265,7 +265,7 @@ onMounted(async () => {
       lastIMEData = data
       lastIMETime = now
     }
-    ptyWrite(ptyId, data).catch(() => {})
+    ptyWrite(ptyId, data.replace(/\r\n/g, '\r')).catch(() => {})
   })
 
   terminal.onTitleChange((raw) => {
@@ -294,7 +294,7 @@ onMounted(async () => {
         return
       }
     }
-    ptyWrite(ptyId, text).catch(() => {})
+    ptyWrite(ptyId, text.replace(/\r\n/g, '\r')).catch(() => {})
     terminal?.focus()
   })
 
