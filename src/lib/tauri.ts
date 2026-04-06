@@ -186,6 +186,10 @@ export async function gitCheckout(root: string, shell: ShellType, branch: string
   return invoke('git_checkout', { root, shell, branch })
 }
 
+export async function gitFetch(root: string, shell: ShellType): Promise<void> {
+  return invoke('git_fetch', { root, shell })
+}
+
 export async function gitPush(root: string, shell: ShellType): Promise<string> {
   return invoke<string>('git_push', { root, shell })
 }

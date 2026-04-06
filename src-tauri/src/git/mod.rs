@@ -310,6 +310,16 @@ pub async fn git_checkout(
 }
 
 #[tauri::command]
+pub async fn git_fetch(root: String, shell: ShellConfig) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&shell, &root, &["fetch", "--prune"])?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn git_push(
     root: String,
     shell: ShellConfig,

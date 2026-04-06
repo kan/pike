@@ -167,6 +167,7 @@ function refreshIfActive() {
   if (sidebar.activePanel === 'git' && projectStore.currentProject) {
     gitStore.refreshStatus()
     gitStore.refreshLog()
+    gitStore.fetchInBackground()
   }
 }
 

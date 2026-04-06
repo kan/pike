@@ -486,6 +486,7 @@ pub fn run() {
             git::git_commit,
             git::git_branch_list,
             git::git_checkout,
+            git::git_fetch,
             git::git_push,
             git::git_pull,
             git::git_show_files,

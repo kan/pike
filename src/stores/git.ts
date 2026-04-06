@@ -5,6 +5,7 @@ import {
   gitCheckout,
   gitCommit,
   gitDiscardChanges,
+  gitFetch,
   gitLog,
   gitPull,
   gitPush,
@@ -24,9 +25,12 @@ export const useGitStore = defineStore('git', () => {
   const pulling = ref(false)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
+  let fetchTimer: ReturnType<typeof setInterval> | null = null
   const refreshing = ref(false)
   let refreshGuard = false
   let logGuard = false
+  let fetchGuard = false
+  let lastFetchTime = 0
   const logAllMode = ref(false)
 
   function getProject() {
@@ -162,15 +166,37 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
+  async function fetchInBackground() {
+    if (fetchGuard) return
+    if (Date.now() - lastFetchTime < 60_000) return
+    const project = getProject()
+    if (!project) return
+    fetchGuard = true
+    try {
+      await gitFetch(project.root, project.shell)
+      lastFetchTime = Date.now()
+      await refreshStatus()
+    } catch {
+      // Silently ignore fetch errors (offline, auth failure, etc.)
+    } finally {
+      fetchGuard = false
+    }
+  }
+
   function startPolling() {
     stopPolling()
     pollTimer = setInterval(refreshStatus, 10000)
+    fetchTimer = setInterval(fetchInBackground, 60000)
   }
 
   function stopPolling() {
     if (pollTimer) {
       clearInterval(pollTimer)
       pollTimer = null
+    }
+    if (fetchTimer) {
+      clearInterval(fetchTimer)
+      fetchTimer = null
     }
   }
 
@@ -192,6 +218,7 @@ export const useGitStore = defineStore('git', () => {
     pull,
     loadBranches,
     checkoutBranch,
+    fetchInBackground,
     startPolling,
     stopPolling,
   }
