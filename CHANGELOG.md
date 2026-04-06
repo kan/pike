@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.8] - 2026-04-06
+
+### Features
+
+- Git パネル表示時にバックグラウンドで `git fetch --prune` を実行し、ahead/behind 表示をリモートの最新状態に更新（60秒クールダウン付き）
+
+### Fixed
+
+- タブ切替時に xterm.js の textarea を再フォーカスし、IME インライン入力が正常に動作しない問題を修正
+
 ## [0.3.7] - 2026-04-06
 
 ### Fixed
