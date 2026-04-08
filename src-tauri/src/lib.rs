@@ -409,6 +409,15 @@ pub fn run() {
                     wait::signal_abort_all(&state);
                 }
 
+                // Authoritative cleanup: JS beforeunload is best-effort only.
+                if let Some(project_id) = window.label().strip_prefix(PROJECT_WINDOW_PREFIX) {
+                    if let Some(state) = window.try_state::<project::ProjectState>() {
+                        if let Err(e) = project::remove_open_project(&state, project_id) {
+                            log::warn!("Failed to remove project {project_id} from open list: {e}");
+                        }
+                    }
+                }
+
                 // Global cleanup only on main window destroy
                 if window.label() != "main" {
                     return;

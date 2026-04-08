@@ -152,16 +152,21 @@ pub async fn project_add_open(
     write_open_ids(&state, &ids)
 }
 
+/// Remove a project ID from last_project.txt.
+pub fn remove_open_project(state: &ProjectState, id: &str) -> Result<(), String> {
+    let ids: Vec<String> = read_open_ids(state)
+        .into_iter()
+        .filter(|l| l != id)
+        .collect();
+    write_open_ids(state, &ids)
+}
+
 #[tauri::command]
 pub async fn project_remove_open(
     id: String,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
-    let ids: Vec<String> = read_open_ids(&state)
-        .into_iter()
-        .filter(|l| *l != id)
-        .collect();
-    write_open_ids(&state, &ids)
+    remove_open_project(&state, &id)
 }
 
 /// Read all project configs from the projects directory.
