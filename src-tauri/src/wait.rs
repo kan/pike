@@ -208,8 +208,8 @@ fn send_to_first_instance(args: &[String], cwd: &str) {
         let _ = SendMessageW(
             hwnd,
             WM_COPYDATA,
-            windows::Win32::Foundation::WPARAM(0),
-            windows::Win32::Foundation::LPARAM(&cds as *const _ as isize),
+            Some(windows::Win32::Foundation::WPARAM(0)),
+            Some(windows::Win32::Foundation::LPARAM(&cds as *const _ as isize)),
         );
     }
 }
