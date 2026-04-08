@@ -69,6 +69,35 @@ fn is_on_current_virtual_desktop(window: &WebviewWindow) -> bool {
     true
 }
 
+fn iso_now() -> String {
+    let d = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = d.as_secs();
+    let s = secs % 60;
+    let m = (secs / 60) % 60;
+    let h = (secs / 3600) % 24;
+    let days = (secs / 86400) as i64;
+    // Approximate date from days since epoch (good enough for sorting)
+    let (y, mo, day) = days_to_ymd(days);
+    format!("{y:04}-{mo:02}-{day:02}T{h:02}:{m:02}:{s:02}Z")
+}
+
+fn days_to_ymd(mut days: i64) -> (i64, i64, i64) {
+    // Civil days algorithm (Howard Hinnant)
+    days += 719468;
+    let era = if days >= 0 { days } else { days - 146096 } / 146097;
+    let doe = days - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
 fn normalize_path(p: &str) -> String {
     p.to_lowercase()
         .replace('\\', "/")
@@ -87,6 +116,87 @@ fn load_all_projects(app: &AppHandle) -> Vec<project::ProjectConfig> {
         return vec![];
     };
     project::read_all_projects(&state.config_dir)
+}
+
+/// Create an ad-hoc project for an unregistered directory path.
+/// For WSL UNC paths, extracts distro and uses the native WSL path as root.
+/// For Windows paths, uses PowerShell as the default shell.
+fn create_adhoc_project(app: &AppHandle, path: &str) -> Option<project::ProjectConfig> {
+    let state = app.try_state::<project::ProjectState>()?;
+
+    let (root, shell) = if let Some(distro) = cli::wsl_distro_from_path(path) {
+        // Convert UNC path to native WSL path: \\wsl.localhost\Ubuntu\home\user → /home/user
+        let norm = path.replace('\\', "/");
+        let prefix_localhost = format!("//wsl.localhost/{distro}/");
+        let prefix_dollar = format!("//wsl$/{distro}/");
+        let wsl_path = if let Some(rest) = norm.strip_prefix(&prefix_localhost) {
+            format!("/{rest}")
+        } else if let Some(rest) = norm.strip_prefix(&prefix_dollar) {
+            format!("/{rest}")
+        } else {
+            return None;
+        };
+        (wsl_path, types::ShellConfig::Wsl { distro })
+    } else {
+        (path.to_string(), types::ShellConfig::Powershell)
+    };
+
+    // Generate a slug from the directory name
+    let dir_name = root
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("project");
+    let slug: String = dir_name
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    let base_id = if slug.is_empty() {
+        "adhoc".to_string()
+    } else {
+        slug.chars().take(48).collect()
+    };
+
+    // Ensure unique ID
+    let existing = project::read_all_projects(&state.config_dir);
+    let id = if existing.iter().any(|p| p.id == base_id) {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        format!("{}-{}", &base_id, ts % 100000)
+    } else {
+        base_id
+    };
+
+    let config = project::ProjectConfig {
+        id,
+        name: dir_name.to_string(),
+        root,
+        shell,
+        pinned_tabs: vec![],
+        last_opened: iso_now(),
+        last_session: None,
+    };
+
+    let dir = state.config_dir.join("projects").join(&config.id);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    let content = serde_json::to_string_pretty(&config).ok()?;
+    std::fs::write(dir.join("project.json"), content).ok()?;
+
+    log::debug!(
+        "[adhoc] created project id={} name={} root={} shell={:?}",
+        config.id,
+        config.name,
+        config.root,
+        config.shell
+    );
+    Some(config)
 }
 
 fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
@@ -188,25 +298,15 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
                 return;
             }
 
-            // 3. Any project window on this desktop with matching platform? → open terminal there
-            let is_windows_path = path.len() >= 2 && path.as_bytes()[1] == b':';
-            for w in &windows {
-                if let Some(pid) = window_project_id(w.label()) {
-                    if let Some(proj) = projects.iter().find(|p| p.id == pid) {
-                        let proj_is_windows = !matches!(proj.shell, types::ShellConfig::Wsl { .. });
-                        if proj_is_windows == is_windows_path {
-                            log::debug!("[single-instance] dir: terminal in existing window {}", w.label());
-                            emit_action_to(app, w, &action);
-                            return;
-                        }
-                    }
-                }
+            // 3. No registered project → create ad-hoc project and open in new window
+            log::debug!("[single-instance] dir: creating ad-hoc project for {path}");
+            if let Some(proj) = create_adhoc_project(app, path) {
+                let label = format!("{PROJECT_WINDOW_PREFIX}{}", proj.id);
+                let _ = build_window(app, &label);
+            } else {
+                let label = create_secondary_window(app);
+                store_pending(app, &label, action);
             }
-
-            // 4. No match → new window + terminal
-            log::debug!("[single-instance] dir: new secondary window");
-            let label = create_secondary_window(app);
-            store_pending(app, &label, action);
         }
 
         cli::CliAction::OpenFile { path, .. } => {

@@ -82,6 +82,10 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
 }
 
 /// Extract WSL distro name from a UNC path like `\\wsl.localhost\Ubuntu\...` or `\\wsl$\Ubuntu\...`.
+pub fn wsl_distro_from_path(path: &str) -> Option<String> {
+    wsl_distro_from_unc(path)
+}
+
 fn wsl_distro_from_unc(cwd: &str) -> Option<String> {
     let norm = cwd.replace('\\', "/");
     let rest = norm
