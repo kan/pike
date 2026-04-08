@@ -89,14 +89,15 @@ function doFit() {
   }
 }
 
-// When this tab becomes active, refit to handle size changes while hidden.
-// Use requestAnimationFrame after nextTick to ensure the DOM has fully
-// transitioned from display:none (v-show) before measuring sizes.
-// Then nudge PTY resize to force TUI apps (Claude Code etc.) to redraw.
+// Grace period: suppress hasActivity for output arriving shortly after tab activation
+// (resize nudge → SIGWINCH → prompt redraw produces spurious output)
+let lastActivatedAt = 0
+
 watch(
   () => tabStore.activeTabId,
   (newId) => {
     if (newId === props.tabId) {
+      lastActivatedAt = Date.now()
       // Double rAF ensures v-show transition is fully resolved before measuring
       nextTick(() => {
         requestAnimationFrame(() => {
@@ -199,7 +200,7 @@ onMounted(async () => {
     ptyId,
     (data) => {
       termRef_.write(data)
-      if (tabStore.activeTabId !== props.tabId) {
+      if (tabStore.activeTabId !== props.tabId && Date.now() - lastActivatedAt > 500) {
         const tab = tabStore.tabs.find((t) => t.id === props.tabId)
         if (tab?.kind === 'terminal') tab.hasActivity = true
       }
