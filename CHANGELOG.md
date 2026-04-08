@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.9] - 2026-04-08
+
+### Features
+
+- ウィンドウ非表示時に Git / Docker のポーリングを自動停止し、復帰時に再開
+- Settings タブに WSL 向け inotify-tools インストール案内バナーを表示
+- 開発版ステータスバーにコミットハッシュを表示（v0.3.9-abc1234 形式）
+
+### Fixed
+
+- セルフアップデート後に閉じたプロジェクトのウィンドウが復元される問題を修正（Rust 側 WindowEvent::Destroyed で last_project.txt を確実に更新）
+- セルフアップデート relaunch 前にセッションを明示的に保存するように修正
+
+### Security
+
+- vite 8.0.3 → 8.0.5（CVE: server.fs.deny bypass, WebSocket 経由のファイル読み取り, .map パストラバーサル）
+
+### Dependencies
+
+- windows 0.58 → 0.61, notify 7 → 8, tokio 1.50 → 1.51
+- marked 17.0.5 → 17.0.6, mermaid 11.13 → 11.14, @codemirror/view 6.40 → 6.41
+- tauri-plugin-updater 2.10.0 → 2.10.1, tauri-plugin-single-instance 2.4.0 → 2.4.1
+- dependabot に cooldown 設定を追加（サプライチェーン攻撃対策）
+
 ## [0.3.8] - 2026-04-06
 
 ### Features
