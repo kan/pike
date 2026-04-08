@@ -213,12 +213,13 @@ onMounted(async () => {
   )
 
   if (tabData?.kind === 'terminal') {
-    const isWsl = !tabData.shell || tabData.shell.kind === 'wsl'
+    const isBash = !tabData.shell || tabData.shell.kind === 'wsl' || tabData.shell.kind === 'git-bash'
     const currentPtyId = ptyId
     const initLines: string[] = []
 
-    if (isWsl) {
-      // Set up bash title reporting: show running command, revert to dir on prompt
+    if (isBash) {
+      // Set up bash title reporting: show running command, revert to dir on prompt.
+      // Also overrides stale ConPTY titles (Tauri plugin names leak into Git Bash).
       const titleSetup =
         '__pike_prompt() { printf \'\\e]0;%s\\a\\e]7;file://localhost%s\\a\' "${PWD##*/}" "$PWD"; }; ' +
         'PROMPT_COMMAND="__pike_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; ' +
