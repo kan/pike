@@ -51,16 +51,25 @@ async function resolveNotifier(): Promise<NotifyFn | null> {
 }
 
 const RE_ANSI = new RegExp(
-  '\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)' + // OSC
-    '|\\x1b\\[[0-9;]*[A-Za-z]' + // CSI
-    '|\\x1b[()][0-9A-Za-z]' + // charset
-    '|\\x1b[=>]' + // keypad
-    '|[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f]', // control chars
+  '\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)' + // OSC: \e]...\a or \e]...\e\\
+    '|\\x1b\\[[0-9;?:]*[ -/]*[@-~]' + // CSI: \e[?25h, \e[0m, \e[2J etc.
+    '|\\x1bP[^\\x1b]*\\x1b\\\\' + // DCS: \eP...\e\\
+    '|\\x1b[_^][^\\x1b]*\\x1b\\\\' + // APC/PM: \e_...\e\\ , \e^...\e\\
+    '|\\x1b[()#%][0-9A-Za-z]' + // charset/line attrs: \e(B, \e#8
+    '|\\x1b[=>NOcDEHMZ78]' + // single-char ESC sequences
+    '|[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]', // C0 control (except HT/LF/CR) + DEL
   'g',
 )
 
-function stripAnsi(s: string): string {
-  return s.replace(RE_ANSI, '')
+/** Strip escape sequences, handle \r overwrites, and clean up whitespace. */
+function cleanTerminalOutput(s: string): string {
+  const stripped = s.replace(RE_ANSI, '')
+  // Handle \r: for each line, keep only text after last \r (progress bar overwrite)
+  const lines = stripped.split('\n').map((line) => {
+    const lastCR = line.lastIndexOf('\r')
+    return (lastCR >= 0 ? line.slice(lastCR + 1) : line).trim()
+  })
+  return lines.filter(Boolean).join('\n')
 }
 
 const DEBOUNCE_MS = 1500
@@ -101,7 +110,7 @@ export async function initTerminalNotifications() {
 
   function flushOutputNotification() {
     outputTimer = null
-    const text = stripAnsi(outputBuf).trim()
+    const text = cleanTerminalOutput(outputBuf)
     outputBuf = ''
     if (!text) return
 

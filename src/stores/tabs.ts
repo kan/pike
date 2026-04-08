@@ -1,6 +1,6 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
 import { t } from '../i18n'
@@ -100,14 +100,20 @@ export const useTabStore = defineStore('tabs', () => {
     activeTabId.value = null
   }
 
-  function setActiveTab(id: string) {
-    if (tabs.value.some((t) => t.id === id)) {
-      activeTabId.value = id
-      // Clear activity indicator when tab becomes active
-      const tab = tabs.value.find((t) => t.id === id)
+  // Clear activity indicator whenever any tab becomes active,
+  // regardless of which code path changed activeTabId (setActiveTab, cycleTab, closeTab, etc.)
+  watch(activeTabId, (newId) => {
+    if (newId) {
+      const tab = tabs.value.find((t) => t.id === newId)
       if (tab?.kind === 'terminal') {
         tab.hasActivity = false
       }
+    }
+  })
+
+  function setActiveTab(id: string) {
+    if (tabs.value.some((t) => t.id === id)) {
+      activeTabId.value = id
     }
   }
 

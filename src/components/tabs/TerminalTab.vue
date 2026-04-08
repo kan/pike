@@ -79,14 +79,26 @@ function parseTerminalTitle(raw: string): string | null {
   return cleaned || null
 }
 
+// Only resize the active tab (hidden tabs have 0×0 dimensions via v-show)
 function doFit() {
   if (!fitAddon || !terminal || !ptyId) return
+  if (tabStore.activeTabId !== props.tabId) return
   fitAddon.fit()
   if (terminal.cols > 0 && terminal.rows > 0 && (terminal.cols !== lastCols || terminal.rows !== lastRows)) {
     lastCols = terminal.cols
     lastRows = terminal.rows
     ptyResize(ptyId, lastCols, lastRows)
   }
+}
+
+// Shrink by 1 col then restore to trigger SIGWINCH, making TUI apps redraw
+function nudgePtyResize(delayMs: number) {
+  if (!ptyId || !terminal || terminal.cols <= 1) return
+  const { cols, rows } = terminal
+  ptyResize(ptyId, cols - 1, rows)
+  setTimeout(() => {
+    if (ptyId) ptyResize(ptyId, cols, rows)
+  }, delayMs)
 }
 
 // Grace period: suppress hasActivity for output arriving shortly after tab activation
@@ -104,18 +116,9 @@ watch(
           requestAnimationFrame(() => {
             doFit()
             if (terminal) {
-              const cols = terminal.cols
-              const rows = terminal.rows
-              terminal.refresh(0, rows - 1)
+              terminal.refresh(0, terminal.rows - 1)
               terminal.focus()
-              // Nudge PTY resize: shrink by 1 col then restore to trigger
-              // SIGWINCH, which makes TUI apps redraw their full interface
-              if (ptyId && cols > 1) {
-                ptyResize(ptyId, cols - 1, rows)
-                setTimeout(() => {
-                  if (ptyId) ptyResize(ptyId, cols, rows)
-                }, 50)
-              }
+              nudgePtyResize(50)
             }
           })
         })
@@ -124,40 +127,31 @@ watch(
   },
 )
 
-// Apply settings changes to live terminal
+// Apply settings changes to live terminal.
+// Inactive tabs get a resize nudge when they become active (tab activation watcher above).
 watch(
   () => settingsStore.xtermTheme,
   (theme) => {
     if (!terminal) return
     terminal.options.theme = theme
     terminal.refresh(0, terminal.rows - 1)
-    // Nudge PTY resize to make TUI apps (like Claude Code) redraw
-    if (ptyId && terminal.cols > 1) {
-      ptyResize(ptyId, terminal.cols - 1, terminal.rows)
-      setTimeout(() => {
-        if (terminal && ptyId) {
-          ptyResize(ptyId, terminal.cols, terminal.rows)
-        }
-      }, 200)
-    }
+    if (tabStore.activeTabId === props.tabId) nudgePtyResize(200)
   },
 )
 watch(
   () => settingsStore.fontFamily,
   (v) => {
-    if (terminal) {
-      terminal.options.fontFamily = v
-      doFit()
-    }
+    if (!terminal) return
+    terminal.options.fontFamily = v
+    doFit()
   },
 )
 watch(
   () => settingsStore.fontSize,
   (v) => {
-    if (terminal) {
-      terminal.options.fontSize = v
-      doFit()
-    }
+    if (!terminal) return
+    terminal.options.fontSize = v
+    doFit()
   },
 )
 
