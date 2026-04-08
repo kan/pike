@@ -3176,6 +3176,7 @@ dependencies = [
  "futures-util",
  "log",
  "notify",
+ "percent-encoding",
  "portable-pty",
  "serde",
  "serde_json",

@@ -1,4 +1,5 @@
 use crate::types::ShellConfig;
+use percent_encoding::percent_decode_str;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -14,7 +15,7 @@ pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
-    cwd: Option<String>,
+    cwd: Arc<Mutex<Option<String>>>,
 }
 
 impl Drop for PtySession {
@@ -78,6 +79,7 @@ fn spawn_pty_with_command(
         .map_err(|e| e.to_string())?;
 
     let id = uuid::Uuid::new_v4().to_string();
+    let shared_cwd = Arc::new(Mutex::new(cwd));
 
     {
         let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
@@ -87,7 +89,7 @@ fn spawn_pty_with_command(
                 master: pair.master,
                 writer: Arc::new(Mutex::new(writer)),
                 child,
-                cwd,
+                cwd: Arc::clone(&shared_cwd),
             },
         );
     }
@@ -98,6 +100,8 @@ fn spawn_pty_with_command(
         let mut reader = reader;
         let mut buf = vec![0u8; 4096];
         let mut carry = Vec::new(); // Incomplete UTF-8 bytes from previous read
+        let mut osc_buf = Vec::new(); // Buffer for accumulating OSC 7 sequence
+        let mut in_osc7 = false;
         loop {
             match std::io::Read::read(&mut reader, &mut buf) {
                 Ok(0) => {
@@ -128,6 +132,8 @@ fn spawn_pty_with_command(
                         }
                     };
                     if !valid.is_empty() {
+                        // Parse OSC 7 sequences for CWD tracking
+                        extract_osc7(valid, &mut in_osc7, &mut osc_buf, &shared_cwd);
                         let _ = app.emit(
                             "pty_output",
                             PtyOutputPayload {
@@ -286,8 +292,15 @@ pub async fn pty_get_cwd(
     id: String,
     state: State<'_, PtyState>,
 ) -> Result<Option<String>, String> {
-    let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
-    Ok(sessions.get(&id).and_then(|s| s.cwd.clone()))
+    let cwd_arc = {
+        let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        let Some(session) = sessions.get(&id) else {
+            return Ok(None);
+        };
+        Arc::clone(&session.cwd)
+    };
+    let cwd = cwd_arc.lock().map_err(|e| e.to_string())?;
+    Ok(cwd.clone())
 }
 
 #[tauri::command]
@@ -339,4 +352,72 @@ pub async fn pty_kill(id: String, state: State<'_, PtyState>) -> Result<(), Stri
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     sessions.remove(&id);
     Ok(())
+}
+
+/// Scan `text` for OSC 7 sequences (`\x1b]7;file://host/path\x07`) and update
+/// the shared CWD when found.  `in_osc7` and `osc_buf` carry state across calls
+/// to handle sequences split across read boundaries.
+///
+/// Known limitation: the 4-byte prefix `\x1b]7;` must appear within a single
+/// chunk.  If a read boundary splits the prefix (e.g., chunk ends with `\x1b]`),
+/// the sequence will be missed.  In practice this is extremely unlikely with
+/// 4096-byte reads.
+fn extract_osc7(
+    text: &str,
+    in_osc7: &mut bool,
+    osc_buf: &mut Vec<u8>,
+    shared_cwd: &Arc<Mutex<Option<String>>>,
+) {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if *in_osc7 {
+            // Look for terminator: BEL (\x07) or ST (\x1b\\)
+            let is_bel = bytes[i] == 0x07;
+            let is_st = bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\';
+            if is_bel || is_st {
+                if let Some(path) = parse_osc7_url(osc_buf) {
+                    if let Ok(mut cwd) = shared_cwd.lock() {
+                        *cwd = Some(path);
+                    }
+                }
+                osc_buf.clear();
+                *in_osc7 = false;
+                if is_st {
+                    i += 1; // skip the backslash
+                }
+            } else {
+                osc_buf.push(bytes[i]);
+                if osc_buf.len() > 4096 {
+                    // Runaway sequence — abort
+                    osc_buf.clear();
+                    *in_osc7 = false;
+                }
+            }
+        } else if bytes[i] == 0x1b
+            && i + 3 < bytes.len()
+            && bytes[i + 1] == b']'
+            && bytes[i + 2] == b'7'
+            && bytes[i + 3] == b';'
+        {
+            *in_osc7 = true;
+            osc_buf.clear();
+            i += 3; // skip `]7;`, the loop increment handles the `;`
+        }
+        i += 1;
+    }
+}
+
+/// Parse an OSC 7 URL payload like `file://hostname/path` and return the path.
+fn parse_osc7_url(buf: &[u8]) -> Option<String> {
+    let s = std::str::from_utf8(buf).ok()?;
+    // Format: file://hostname/path  or  file:///path
+    let rest = s.strip_prefix("file://")?;
+    // Skip hostname (everything up to the first `/` after `//`)
+    let path = if let Some(slash_pos) = rest.find('/') {
+        &rest[slash_pos..]
+    } else {
+        return None;
+    };
+    Some(percent_decode_str(path).decode_utf8_lossy().into_owned())
 }

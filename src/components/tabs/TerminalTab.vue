@@ -225,7 +225,7 @@ onMounted(async () => {
     if (isWsl) {
       // Set up bash title reporting: show running command, revert to dir on prompt
       const titleSetup =
-        '__pike_prompt() { printf \'\\e]0;%s\\a\' "${PWD##*/}"; }; ' +
+        '__pike_prompt() { printf \'\\e]0;%s\\a\\e]7;file://localhost%s\\a\' "${PWD##*/}" "$PWD"; }; ' +
         'PROMPT_COMMAND="__pike_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; ' +
         'trap \'[[ "$BASH_COMMAND" == _* ]] || printf "\\e]0;%s\\a" "${BASH_COMMAND%% *}"\' DEBUG'
       initLines.push(titleSetup)
