@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
 import { gitStatusColor, relativeDate } from '../../lib/paths'
-import { gitDiff, gitDiffCommit, gitShowFile, gitShowFiles } from '../../lib/tauri'
+import { fsDelete, gitDiff, gitDiffCommit, gitShowFile, gitShowFiles } from '../../lib/tauri'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
@@ -52,6 +52,22 @@ async function onCommit() {
 async function discardFile(path: string) {
   if (!(await confirmDialog(t('git.discardConfirm', { path })))) return
   await gitStore.discardChanges([path])
+}
+
+async function unstageFile(file: GitFileChange) {
+  if (file.status === 'A') {
+    if (!(await confirmDialog(t('git.unstageNewConfirm', { path: file.path })))) return
+    const project = projectStore.currentProject
+    if (project) {
+      const sep = project.shell.kind === 'wsl' ? '/' : '\\'
+      const fullPath = `${project.root}${sep}${file.path}`
+      await gitStore.unstageFiles([file.path])
+      await fsDelete(project.shell, fullPath).catch(() => {})
+      await gitStore.refreshStatus()
+    }
+  } else {
+    await gitStore.unstageFiles([file.path])
+  }
 }
 
 async function openDiffTab(path: string, staged: boolean) {
@@ -235,8 +251,8 @@ onUnmounted(() => {
         >
           <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
-          <span class="file-path">{{ file.path }}</span>
-          <button class="file-action" :title="t('git.unstage')" @click.stop="gitStore.unstageFiles([file.path])"><Minus :size="12" :stroke-width="2" /></button>
+          <span class="file-path" :title="file.path">{{ file.path }}</span>
+          <button class="file-action" :title="t('git.unstage')" @click.stop="unstageFile(file)"><Minus :size="12" :stroke-width="2" /></button>
         </div>
       </div>
 
@@ -257,7 +273,7 @@ onUnmounted(() => {
         >
           <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
-          <span class="file-path">{{ file.path }}</span>
+          <span class="file-path" :title="file.path">{{ file.path }}</span>
           <button class="file-action discard" :title="t('git.discard')" @click.stop="discardFile(file.path)"><Undo2 :size="12" :stroke-width="2" /></button>
           <button class="file-action" :title="t('git.stage')" @click.stop="gitStore.stageFiles([file.path])"><Plus :size="12" :stroke-width="2" /></button>
         </div>
@@ -303,7 +319,7 @@ onUnmounted(() => {
               >
                 <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
                 <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
-                <span class="file-path">{{ file.path }}</span>
+                <span class="file-path" :title="file.path">{{ file.path }}</span>
               </div>
             </div>
           </div>

@@ -146,6 +146,7 @@ export default {
   'git.stage': 'Stage',
   'git.discard': 'Discard Changes',
   'git.discardConfirm': 'Discard changes to {path}? This cannot be undone.',
+  'git.unstageNewConfirm': 'Unstage and delete {path}? This file is new and will be removed from disk.',
   'git.openDiff': 'Open Diff',
   'git.openFile': 'Open File',
   'git.pull': 'Pull',

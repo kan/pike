@@ -146,6 +146,8 @@ export default {
   'git.stage': 'ステージ',
   'git.discard': '変更を元に戻す',
   'git.discardConfirm': '{path} の変更を破棄しますか？この操作は元に戻せません。',
+  'git.unstageNewConfirm':
+    '{path} をステージ解除してファイルを削除しますか？新規ファイルのためディスクから削除されます。',
   'git.openDiff': '差分を開く',
   'git.openFile': 'ファイルを開く',
   'git.pull': 'プル',
