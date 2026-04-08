@@ -1,3 +1,9 @@
+import type { ShellType } from '../types/tab'
+
+export function pathSep(shell?: ShellType): string {
+  return shell?.kind === 'wsl' ? '/' : '\\'
+}
+
 export function basename(path: string): string {
   return path.split(/[/\\]/).pop() ?? path
 }

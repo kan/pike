@@ -1,21 +1,13 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Loader } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
-import { basename, extension, gitStatusColor, isImageFile, mimeType } from '../../lib/paths'
-import {
-  type FsEntry,
-  fsCopy,
-  fsCreateDir,
-  fsCreateFile,
-  fsDelete,
-  fsListDir,
-  fsReadFileBase64,
-  fsRename,
-} from '../../lib/tauri'
+import { basename, extension, gitStatusColor, isImageFile, mimeType, pathSep } from '../../lib/paths'
+import { type FsEntry, fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsReadFileBase64, fsRename } from '../../lib/tauri'
+import { useFileTreeStore } from '../../stores/fileTree'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
@@ -27,13 +19,12 @@ const projectStore = useProjectStore()
 const tabStore = useTabStore()
 const sidebar = useSidebarStore()
 const gitStore = useGitStore()
+const fileTreeStore = useFileTreeStore()
 
-const tree = ref<Record<string, FsEntry[]>>({})
-const expanded = ref<Set<string>>(new Set())
-const loading = ref<Set<string>>(new Set())
+const panelEl = ref<HTMLElement | null>(null)
 
 function sep(): string {
-  return projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
+  return pathSep(projectStore.currentProject?.shell)
 }
 
 function join(parent: string, child: string): string {
@@ -41,26 +32,14 @@ function join(parent: string, child: string): string {
   return parent.endsWith(s) ? parent + child : parent + s + child
 }
 
-async function loadDir(path: string) {
-  const project = projectStore.currentProject
-  if (!project) return
-  loading.value.add(path)
-  try {
-    tree.value[path] = await fsListDir(project.shell, path)
-  } catch {
-    tree.value[path] = []
-  } finally {
-    loading.value.delete(path)
-  }
-}
-
 function toggleDir(path: string) {
-  if (expanded.value.has(path)) {
-    expanded.value.delete(path)
+  if (fileTreeStore.expanded.has(path)) {
+    fileTreeStore.expanded.delete(path)
   } else {
-    expanded.value.add(path)
-    if (!tree.value[path]) loadDir(path)
+    fileTreeStore.expanded.add(path)
+    if (!fileTreeStore.tree[path]) fileTreeStore.loadDir(path)
   }
+  fileTreeStore.saveExpanded()
 }
 
 // Precomputed git status map: full path → status string
@@ -86,6 +65,7 @@ const gitStatusMap = computed(() => {
 })
 
 async function openFile(path: string) {
+  fileTreeStore.selectedPath = path
   const ext = extension(path)
   if (isImageFile(path)) {
     const project = projectStore.currentProject
@@ -142,7 +122,7 @@ async function commitRename() {
   const newPath = parentDir + s + renameValue.value.trim()
   if (newPath !== oldPath) {
     await fsRename(project.shell, oldPath, newPath)
-    await loadDir(parentDir)
+    await fileTreeStore.loadDir(parentDir)
   }
   renaming.value = null
 }
@@ -158,7 +138,7 @@ async function deleteItem() {
   await fsDelete(project.shell, path)
   const s = sep()
   const parentDir = path.substring(0, path.lastIndexOf(s))
-  await loadDir(parentDir)
+  await fileTreeStore.loadDir(parentDir)
 }
 
 function startCreate(type: 'file' | 'dir', targetDir?: string) {
@@ -170,9 +150,9 @@ function startCreate(type: 'file' | 'dir', targetDir?: string) {
   }
   closeCtxMenu()
   if (!targetDir) return
-  if (!expanded.value.has(targetDir)) {
-    expanded.value.add(targetDir)
-    loadDir(targetDir)
+  if (!fileTreeStore.expanded.has(targetDir)) {
+    fileTreeStore.expanded.add(targetDir)
+    fileTreeStore.loadDir(targetDir)
   }
   creating.value = { parentPath: targetDir, type }
   createValue.value = ''
@@ -202,7 +182,7 @@ async function commitCreate() {
     } else {
       await fsCreateDir(project.shell, newPath)
     }
-    await loadDir(creating.value.parentPath)
+    await fileTreeStore.loadDir(creating.value.parentPath)
     if (isFile) {
       tabStore.addEditorTab({ path: newPath })
     }
@@ -287,7 +267,7 @@ async function onDrop(e: DragEvent, path: string, isDir: boolean) {
       await fsRename(project.shell, source, dest)
     }
     const sourceDir = source.substring(0, source.lastIndexOf(s))
-    await Promise.all([loadDir(sourceDir), loadDir(targetDir)])
+    await Promise.all([fileTreeStore.loadDir(sourceDir), fileTreeStore.loadDir(targetDir)])
   } catch (err) {
     confirmDialog(String(err))
   }
@@ -301,8 +281,8 @@ async function refresh() {
   refreshing.value = true
   const minDelay = new Promise((r) => setTimeout(r, 300))
   try {
-    const paths = [root, ...expanded.value]
-    await Promise.all([...paths.map((p) => loadDir(p)), minDelay])
+    const paths = [...fileTreeStore.expanded]
+    await Promise.all([...paths.map((p) => fileTreeStore.loadDir(p)), minDelay])
   } finally {
     refreshing.value = false
   }
@@ -320,12 +300,12 @@ const flatNodes = computed((): FlatNode[] => {
   const result: FlatNode[] = []
 
   function walk(parentPath: string, depth: number) {
-    const children = tree.value[parentPath]
+    const children = fileTreeStore.tree[parentPath]
     if (!children) return
     for (const entry of children) {
       const path = join(parentPath, entry.name)
       result.push({ entry, path, depth })
-      if (entry.isDir && expanded.value.has(path)) {
+      if (entry.isDir && fileTreeStore.expanded.has(path)) {
         walk(path, depth + 1)
       }
     }
@@ -335,39 +315,74 @@ const flatNodes = computed((): FlatNode[] => {
   return result
 })
 
-function initTree() {
-  tree.value = {}
-  expanded.value.clear()
-  const root = projectStore.currentProject?.root
-  if (root) {
-    expanded.value.add(root)
-    loadDir(root)
-  }
-}
-
-watch(() => projectStore.currentProject?.id, initTree)
+watch(
+  () => projectStore.currentProject?.id,
+  () => fileTreeStore.initTree(),
+)
 watch(
   () => sidebar.activePanel,
   (panel) => {
     if (panel === 'files' && projectStore.currentProject) {
-      const root = projectStore.currentProject.root
-      if (!tree.value[root]) initTree()
+      fileTreeStore.ensureInit()
     }
   },
 )
 
-onMounted(() => {
+watch(
+  () => tabStore.activeTab,
+  (tab) => {
+    if (!tab || tab.kind !== 'editor') return
+    if (sidebar.activePanel !== 'files') return
+    fileTreeStore.selectedPath = tab.path
+    nextTick(() => scrollToSelected())
+  },
+)
+
+function scrollToSelected() {
+  if (!fileTreeStore.selectedPath || !panelEl.value) return
+  const el = panelEl.value.querySelector('.tree-item.selected')
+  if (el) {
+    el.scrollIntoView({ block: 'nearest' })
+  }
+}
+
+async function revealActiveFile() {
+  const tab = tabStore.activeTab
+  if (!tab || tab.kind !== 'editor') return
+  const found = await fileTreeStore.revealFile(tab.path)
+  if (found) {
+    nextTick(() => scrollToSelected())
+  }
+}
+
+onMounted(async () => {
   if (sidebar.activePanel === 'files' && projectStore.currentProject) {
-    initTree()
+    fileTreeStore.ensureInit()
+    const tab = tabStore.activeTab
+    if (tab && tab.kind === 'editor') {
+      await revealActiveFile()
+    } else {
+      nextTick(() => {
+        const scrollEl = panelEl.value?.parentElement
+        if (scrollEl) scrollEl.scrollTop = fileTreeStore.scrollTop
+      })
+    }
+  }
+})
+
+onBeforeUnmount(() => {
+  const scrollEl = panelEl.value?.parentElement
+  if (scrollEl) {
+    fileTreeStore.scrollTop = scrollEl.scrollTop
   }
 })
 
 function refreshDirs(dirs: string[]) {
   const root = projectStore.currentProject?.root
   if (!root) return
-  const relevantDirs = dirs.filter((d) => d === root || expanded.value.has(d))
+  const relevantDirs = dirs.filter((d) => d === root || fileTreeStore.expanded.has(d))
   if (relevantDirs.length > 0) {
-    Promise.all(relevantDirs.map((d) => loadDir(d)))
+    Promise.all(relevantDirs.map((d) => fileTreeStore.loadDir(d)))
   }
 }
 
@@ -378,7 +393,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 </script>
 
 <template>
-  <div class="filetree-panel">
+  <div class="filetree-panel" ref="panelEl">
     <div v-if="!projectStore.currentProject" class="empty">{{ t('fileTree.noProject') }}</div>
     <template v-else>
       <div v-if="fsWatcher.startError.value" class="watcher-notice">
@@ -421,7 +436,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
         <div
           v-else
           class="tree-item"
-          :class="{ 'drop-target': dropTarget === node.path }"
+          :class="{ 'drop-target': dropTarget === node.path, selected: fileTreeStore.selectedPath === node.path }"
           :style="{ paddingLeft: (node.depth * 16 + 4) + 'px' }"
           :draggable="true"
           @click="node.entry.isDir ? toggleDir(node.path) : openFile(node.path)"
@@ -433,13 +448,13 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
           @drop="onDrop($event, node.path, node.entry.isDir)"
         >
           <span v-if="node.entry.isDir" class="tree-chevron">
-            <Loader v-if="loading.has(node.path)" :size="12" :stroke-width="2" class="spinning" />
-            <ChevronDown v-else-if="expanded.has(node.path)" :size="12" :stroke-width="2" />
+            <Loader v-if="fileTreeStore.loading.has(node.path)" :size="12" :stroke-width="2" class="spinning" />
+            <ChevronDown v-else-if="fileTreeStore.expanded.has(node.path)" :size="12" :stroke-width="2" />
             <ChevronRight v-else :size="12" :stroke-width="2" />
           </span>
           <span v-else class="tree-chevron-space"></span>
           <span v-if="node.entry.isDir" class="tree-icon tree-icon-folder">
-            <FolderOpen v-if="expanded.has(node.path)" :size="16" :stroke-width="1.5" />
+            <FolderOpen v-if="fileTreeStore.expanded.has(node.path)" :size="16" :stroke-width="1.5" />
             <Folder v-else :size="16" :stroke-width="1.5" />
           </span>
           <span v-else class="tree-icon tree-icon-svg" v-html="fileIconSvg(node.entry.name)"></span>
@@ -521,7 +536,8 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   white-space: nowrap;
 }
 
-.tree-item:hover {
+.tree-item:hover,
+.tree-item.selected {
   background: var(--tab-hover-bg);
 }
 
