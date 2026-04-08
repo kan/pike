@@ -127,7 +127,6 @@ onUnmounted(() => {
   window.removeEventListener('mousedown', closeBranches)
   window.removeEventListener('mousedown', closeEncodingMenu)
   window.removeEventListener('mousedown', closeLineEndingMenu)
-  gitStore.stopPolling()
 })
 </script>
 

@@ -18,6 +18,7 @@ export const useDockerStore = defineStore('docker', () => {
   const error = ref<string | null>(null)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
+  let visibilityHandler: (() => void) | null = null
   const refreshing = ref(false)
   let refreshGuard = false
 
@@ -90,15 +91,37 @@ export const useDockerStore = defineStore('docker', () => {
     }
   }
 
-  function startPolling() {
-    stopPolling()
+  function startTimer() {
+    clearTimer()
     pollTimer = setInterval(refreshContainers, 5000)
   }
 
-  function stopPolling() {
+  function clearTimer() {
     if (pollTimer) {
       clearInterval(pollTimer)
       pollTimer = null
+    }
+  }
+
+  function startPolling() {
+    stopPolling()
+    startTimer()
+    visibilityHandler = () => {
+      if (document.hidden) {
+        clearTimer()
+      } else {
+        refreshContainers()
+        startTimer()
+      }
+    }
+    document.addEventListener('visibilitychange', visibilityHandler)
+  }
+
+  function stopPolling() {
+    clearTimer()
+    if (visibilityHandler) {
+      document.removeEventListener('visibilitychange', visibilityHandler)
+      visibilityHandler = null
     }
   }
 

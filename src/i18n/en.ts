@@ -119,6 +119,7 @@ export default {
   'settings.upToDate': 'You are up to date',
   'settings.updateError': 'Update check failed',
   'settings.terminalExitNotification': 'Desktop notification on exit',
+  'settings.inotifyMissing': 'File watching is not available. Install inotify-tools in WSL to enable automatic file change detection:',
 
   // File Tree
   'fileTree.noProject': 'No project selected',

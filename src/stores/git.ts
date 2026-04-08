@@ -26,6 +26,7 @@ export const useGitStore = defineStore('git', () => {
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let fetchTimer: ReturnType<typeof setInterval> | null = null
+  let visibilityHandler: (() => void) | null = null
   const refreshing = ref(false)
   let refreshGuard = false
   let logGuard = false
@@ -183,13 +184,13 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  function startPolling() {
-    stopPolling()
+  function startTimers() {
+    clearTimers()
     pollTimer = setInterval(refreshStatus, 10000)
     fetchTimer = setInterval(fetchInBackground, 60000)
   }
 
-  function stopPolling() {
+  function clearTimers() {
     if (pollTimer) {
       clearInterval(pollTimer)
       pollTimer = null
@@ -197,6 +198,29 @@ export const useGitStore = defineStore('git', () => {
     if (fetchTimer) {
       clearInterval(fetchTimer)
       fetchTimer = null
+    }
+  }
+
+  function startPolling() {
+    stopPolling()
+    startTimers()
+    visibilityHandler = () => {
+      if (document.hidden) {
+        clearTimers()
+      } else {
+        refreshStatus()
+        fetchInBackground()
+        startTimers()
+      }
+    }
+    document.addEventListener('visibilitychange', visibilityHandler)
+  }
+
+  function stopPolling() {
+    clearTimers()
+    if (visibilityHandler) {
+      document.removeEventListener('visibilitychange', visibilityHandler)
+      visibilityHandler = null
     }
   }
 

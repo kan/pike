@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { Loader, Moon, Sun } from 'lucide-vue-next'
+import { Info, Loader, Moon, Sun } from 'lucide-vue-next'
+import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
@@ -36,6 +37,14 @@ const PREVIEW_LINES = [
   <div class="settings-tab">
     <div class="settings-scroll">
       <h2 class="settings-title">{{ t('settings.title') }}</h2>
+
+      <div v-if="fsWatcher.startError.value" class="inotify-banner">
+        <Info :size="16" :stroke-width="1.5" />
+        <div>
+          <span>{{ t('settings.inotifyMissing') }}</span>
+          <code>sudo apt install inotify-tools</code>
+        </div>
+      </div>
 
       <!-- Appearance -->
       <section class="settings-section">
@@ -543,5 +552,34 @@ const PREVIEW_LINES = [
 
 .spin {
   animation: spin 1s linear infinite;
+}
+
+/* inotify banner */
+.inotify-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 20px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.inotify-banner :deep(svg) {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.inotify-banner code {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--accent);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
 }
 </style>

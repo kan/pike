@@ -119,6 +119,7 @@ export default {
   'settings.upToDate': '最新です',
   'settings.updateError': '更新の確認に失敗しました',
   'settings.terminalExitNotification': 'プロセス終了時にデスクトップ通知',
+  'settings.inotifyMissing': 'ファイル監視が利用できません。WSL に inotify-tools をインストールすると、ファイル変更の自動検知が有効になります:',
 
   // File Tree
   'fileTree.noProject': 'プロジェクトが選択されていません',
