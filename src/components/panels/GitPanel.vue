@@ -70,9 +70,17 @@ async function onCommit() {
   commitMsg.value = ''
 }
 
-async function discardFile(path: string) {
-  if (!(await confirmDialog(t('git.discardConfirm', { path })))) return
-  await gitStore.discardChanges([path])
+async function discardFile(file: GitFileChange) {
+  if (!(await confirmDialog(t('git.discardConfirm', { path: file.path })))) return
+  if (file.status === '?') {
+    const project = projectStore.currentProject
+    if (!project) return
+    const s = project.shell.kind === 'wsl' ? '/' : '\\'
+    await fsDelete(project.shell, `${project.root}${s}${file.path}`)
+    await gitStore.refreshStatus()
+  } else {
+    await gitStore.discardChanges([file.path])
+  }
 }
 
 async function unstageFile(file: GitFileChange) {
@@ -293,7 +301,7 @@ onUnmounted(() => {
           <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path" :title="file.path">{{ file.path }}</span>
-          <button class="file-action discard" :title="t('git.discard')" @click.stop="discardFile(file.path)"><Undo2 :size="12" :stroke-width="2" /></button>
+          <button class="file-action discard" :title="t('git.discard')" @click.stop="discardFile(file)"><Undo2 :size="12" :stroke-width="2" /></button>
           <button class="file-action" :title="t('git.stage')" @click.stop="gitStore.stageFiles([file.path])"><Plus :size="12" :stroke-width="2" /></button>
         </div>
       </div>
