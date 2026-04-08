@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.11] - 2026-04-09
+
+### Fixed
+
+- ターミナル activity dot がタブ切替後も消えない問題を修正（ResizeObserver が非表示タブで発火 → 偽の PTY 出力を防止）
+- `cycleTab` / `closeTab` 経由のタブ切替で hasActivity がクリアされない問題を修正（watch による一元化）
+- 設定変更（テーマ・フォント）時にバックグラウンドタブに偽の activity dot が出る問題を修正
+- Git Bash タブのタイトルが Tauri プラグイン名（plugin-process 等）になる問題を修正（PROMPT_COMMAND を Git Bash にも適用）
+- デスクトップ通知の ANSI エスケープ除去を改善（CSI ?パラメータ, DCS, APC/PM, DEL 対応）
+- デスクトップ通知でプログレスバー残骸が表示される問題を修正（\\r キャリッジリターン処理追加）
+
 ## [0.3.10] - 2026-04-08
 
 ### Features
