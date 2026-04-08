@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, Minus, Plus, Undo2 } from 'lucide-vue-next'
+import { ArrowUp, ChevronDown, ChevronRight, Minus, Plus, Undo2 } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
@@ -11,7 +11,7 @@ import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
-import type { GitFileChange } from '../../types/git'
+import type { GitFileChange, GitLogEntry } from '../../types/git'
 
 const { t } = useI18n()
 
@@ -24,6 +24,27 @@ const commitMsg = ref('')
 const commitView = ref<'list' | 'graph'>('list')
 
 const graphRows = computed(() => buildGraph(gitStore.logEntries))
+
+// Compute set of unpushed commit hashes by following first-parent chain from HEAD
+const unpushedHashes = computed(() => {
+  const ahead = gitStore.status?.ahead ?? 0
+  if (ahead === 0) return new Set<string>()
+
+  const entries = gitStore.logEntries
+  if (!entries.length) return new Set<string>()
+
+  const entryMap = new Map<string, GitLogEntry>()
+  for (const e of entries) entryMap.set(e.hash, e)
+
+  const set = new Set<string>()
+  let current: string | undefined = entries[0]?.hash
+  for (let i = 0; i < ahead && current; i++) {
+    set.add(current)
+    const entry = entryMap.get(current)
+    current = entry?.parents[0]
+  }
+  return set
+})
 const graphSvgWidth = computed(() => {
   const maxCol = graphRows.value.reduce((m, r) => Math.max(m, r.maxCol), 0)
   return (maxCol + 2) * LANE_WIDTH
@@ -101,8 +122,6 @@ async function openCommitDiffTab(hash: string, path: string) {
   const diff = await gitDiffCommit(project.root, project.shell, hash, path)
   tabStore.addDiffTab({ filePath: path, diff, commitHash: hash })
 }
-
-import type { GitLogEntry } from '../../types/git'
 
 const hoveredCommit = ref<GitLogEntry | null>(null)
 const tooltipPos = ref({ x: 0, y: 0 })
@@ -299,11 +318,13 @@ onUnmounted(() => {
           <div v-for="entry in gitStore.logEntries" :key="entry.hash" class="commit-group">
             <div
               class="log-item"
+              :class="{ unpushed: unpushedHashes.has(entry.hash) }"
               @click="toggleCommitExpand(entry.hash)"
               @mouseenter="onCommitEnter(entry, $event)"
               @mouseleave="onCommitLeave"
             >
               <span class="expand-icon"><ChevronDown v-if="expandedCommits.has(entry.hash)" :size="12" :stroke-width="2" /><ChevronRight v-else :size="12" :stroke-width="2" /></span>
+              <ArrowUp v-if="unpushedHashes.has(entry.hash)" class="unpushed-icon" :size="12" :stroke-width="2.5" />
               <span class="log-message">{{ entry.message.split('\n')[0] }}</span>
               <span class="log-meta">{{ relativeDate(entry.date) }}</span>
             </div>
@@ -332,6 +353,7 @@ onUnmounted(() => {
               v-for="(row, i) in graphRows"
               :key="row.hash"
               class="graph-row"
+              :class="{ unpushed: unpushedHashes.has(row.hash) }"
               @click="toggleCommitExpand(row.hash)"
               @mouseenter="gitStore.logEntries[i] && onCommitEnter(gitStore.logEntries[i], $event)"
               @mouseleave="onCommitLeave"
@@ -374,9 +396,12 @@ onUnmounted(() => {
                   :cy="ROW_HEIGHT / 2"
                   :r="row.isMerge ? DOT_RADIUS + 1 : DOT_RADIUS"
                   :fill="row.color"
+                  :stroke="unpushedHashes.has(row.hash) ? 'var(--text-active)' : 'none'"
+                  :stroke-width="unpushedHashes.has(row.hash) ? 1.5 : 0"
                 />
               </svg>
               <div class="graph-info">
+                <ArrowUp v-if="unpushedHashes.has(row.hash)" class="unpushed-icon" :size="12" :stroke-width="2.5" />
                 <span v-if="row.refs" class="graph-refs">{{ row.refs }}</span>
                 <span class="graph-message">{{ gitStore.logEntries[i]?.message.split('\n')[0] }}</span>
                 <span class="graph-meta">{{ relativeDate(gitStore.logEntries[i]?.date ?? '') }}</span>
@@ -604,6 +629,16 @@ onUnmounted(() => {
   background: var(--tab-hover-bg);
 }
 
+.log-item.unpushed {
+  border-left: 2px solid var(--accent);
+  padding-left: 2px;
+}
+
+.unpushed-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 .expand-icon {
   display: flex;
   align-items: center;
@@ -674,6 +709,10 @@ onUnmounted(() => {
 
 .graph-row:hover {
   background: var(--tab-hover-bg);
+}
+
+.graph-row.unpushed {
+  border-left: 2px solid var(--accent);
 }
 
 .graph-svg {
