@@ -21,6 +21,9 @@ const gitStore = useGitStore()
 const editorInfo = useEditorInfo()
 const updater = useUpdater()
 
+declare const __GIT_COMMIT_HASH__: string
+const devHash = import.meta.env.DEV && __GIT_COMMIT_HASH__ ? `-${__GIT_COMMIT_HASH__}` : ''
+
 async function openGitHub() {
   const url = 'https://github.com/kan/pike'
   if (await confirmDialog(t('confirm.openUrl', { url }))) {
@@ -200,7 +203,7 @@ onUnmounted(() => {
     <button class="status-item clickable small" @click="toggleLanguage">
       {{ settingsStore.language.toUpperCase() }}
     </button>
-    <span v-if="updater.appVersion.value" class="status-text version">v{{ updater.appVersion.value }}</span>
+    <span v-if="updater.appVersion.value" class="status-text version">v{{ updater.appVersion.value }}{{ devHash }}</span>
     <button class="status-item clickable github-btn" title="GitHub" @click="openGitHub">
       <Github :size="14" :stroke-width="1.5" />
     </button>
