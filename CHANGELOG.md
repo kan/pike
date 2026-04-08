@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.10] - 2026-04-08
+
+### Features
+
+- Git パネルのコミットログで未 push コミットを可視化（アクセントカラー左ボーダー + ↑アイコン）
+- ファイルツリーの展開状態・スクロール位置をパネル切替時に保持、展開パスを localStorage に永続化
+- エディタタブフォーカス時にファイルツリー内の該当ファイルを自動選択・スクロール
+- ウィンドウ非フォーカス時にアクティブターミナルの出力をデスクトップ通知（1.5s デバウンス、ANSI ストリップ）
+- pike CLI で未登録ディレクトリを開いた際に ad-hoc プロジェクトを自動作成（WSL/Windows 対応）
+
+### Fixed
+
+- pike CLI で WSL 未登録ディレクトリを開くと既存ウィンドウに誤ルーティングされる問題を修正
+- プロジェクトパネルの「検出」ボタンが初期 CWD を返す問題を修正（OSC 7 による CWD リアルタイム追跡）
+- Git パネルで未追跡ファイルの discard が git checkout エラーになる問題を修正（fsDelete にフォールバック）
+- ターミナルタブの activity dot が resize nudge の SIGWINCH 応答で常時点灯する問題を修正
+
 ## [0.3.9] - 2026-04-08
 
 ### Features
