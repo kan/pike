@@ -111,7 +111,7 @@ pub async fn codex_start_session(
 
     // Start or resume thread
     let tid = if let Some(existing_tid) = thread_id {
-        match sess.resume_thread(&existing_tid).await {
+        match sess.resume_thread(&existing_tid, &cwd).await {
             Ok(()) => existing_tid,
             Err(e) => {
                 log::warn!("[codex] Failed to resume thread {existing_tid}: {e}, starting new");

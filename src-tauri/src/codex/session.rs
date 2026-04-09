@@ -59,21 +59,34 @@ impl ThreadSession {
         let sandbox_policy = self.runtime.default_sandbox_policy();
         let sandbox_trusted = self.runtime.codex_sandbox_trusted();
         let approval = if sandbox_trusted { "on-request" } else { "untrusted" };
+
+        // Load AGENTS.md or CLAUDE.md as developer instructions
+        let developer_instructions = load_developer_instructions(cwd);
+        if let Some(ref file) = developer_instructions {
+            log::info!(
+                "[codex-session] Loaded developer instructions ({} bytes)",
+                file.len()
+            );
+        }
+
         log::info!(
             "[codex-session] Starting thread for {}: sandboxPolicy={}, approval={approval}",
             self.window_label,
             sandbox_policy
         );
+
+        let mut params = json!({
+            "cwd": linux_cwd,
+            "sandboxPolicy": sandbox_policy,
+            "approvalPolicy": approval,
+        });
+        if let Some(instructions) = developer_instructions {
+            params["developerInstructions"] = json!(instructions);
+        }
+
         let resp: ThreadStartResponse = self
             .client
-            .request(
-                "thread/start",
-                &json!({
-                    "cwd": linux_cwd,
-                    "sandboxPolicy": sandbox_policy,
-                    "approvalPolicy": approval,
-                }),
-            )
+            .request("thread/start", &params)
             .await?;
         let tid = resp.thread.id;
         *self.thread_id.lock().await = Some(tid.clone());
@@ -81,10 +94,19 @@ impl ThreadSession {
         Ok(tid)
     }
 
-    pub async fn resume_thread(&self, thread_id: &str) -> Result<(), String> {
+    pub async fn resume_thread(&self, thread_id: &str, cwd: &str) -> Result<(), String> {
+        let developer_instructions = load_developer_instructions(cwd);
+        let mut params = json!({ "threadId": thread_id });
+        if let Some(instructions) = developer_instructions {
+            log::info!(
+                "[codex-session] Loaded developer instructions for resume ({} bytes)",
+                instructions.len()
+            );
+            params["developerInstructions"] = json!(instructions);
+        }
         let _: serde_json::Value = self
             .client
-            .request("thread/resume", &json!({ "threadId": thread_id }))
+            .request("thread/resume", &params)
             .await?;
         *self.thread_id.lock().await = Some(thread_id.to_string());
         log::info!("[codex-session] Thread resumed: {thread_id}");
@@ -232,4 +254,21 @@ impl ThreadSession {
             }
         });
     }
+}
+
+/// Load developer instructions from AGENTS.md or CLAUDE.md in the project root.
+/// Returns None if neither file exists or is readable.
+fn load_developer_instructions(cwd: &str) -> Option<String> {
+    let root = std::path::Path::new(cwd);
+    for filename in ["AGENTS.md", "CLAUDE.md"] {
+        let path = root.join(filename);
+        match std::fs::read_to_string(&path) {
+            Ok(content) if !content.trim().is_empty() => {
+                log::info!("[codex-session] Using {filename} from {}", path.display());
+                return Some(content);
+            }
+            _ => continue,
+        }
+    }
+    None
 }
