@@ -7,6 +7,7 @@ import {
   Loader,
   LogIn,
   LogOut,
+  MessageSquarePlus,
   Send,
   Square,
   Terminal as TerminalIcon,
@@ -44,6 +45,11 @@ function renderMarkdown(text: string): string {
   // Only cache completed (non-streaming) text to avoid unbounded growth
   if (text.length > 0 && text.length < 50000) mdCache.set(text, html)
   return html
+}
+
+async function startNewConversation() {
+  await codex.newConversation()
+  await ensureConnected()
 }
 
 async function ensureConnected() {
@@ -89,6 +95,7 @@ watch(() => {
   const last = codex.messages[codex.messages.length - 1]
   return last?.text?.length ?? 0
 }, scrollToBottom)
+watch(() => codex.scrollTrigger, scrollToBottom)
 
 onMounted(async () => {
   await ensureConnected()
@@ -116,9 +123,14 @@ onMounted(async () => {
       </div>
       <div v-else class="auth-bar auth-bar-ok">
         <span>{{ codex.authState.status === 'authenticated' ? (codex.authState as { email: string | null }).email ?? 'ChatGPT' : '' }}</span>
-        <button class="btn-sm btn-ghost" @click="codex.logout()">
-          <LogOut :size="14" :stroke-width="2" />
-        </button>
+        <div class="auth-actions">
+          <button class="btn-sm btn-ghost" :title="t('codex.newConversation')" @click="startNewConversation">
+            <MessageSquarePlus :size="14" :stroke-width="2" />
+          </button>
+          <button class="btn-sm btn-ghost" :title="t('codex.signOut')" @click="codex.logout()">
+            <LogOut :size="14" :stroke-width="2" />
+          </button>
+        </div>
       </div>
 
       <!-- Version warning -->
@@ -150,14 +162,17 @@ onMounted(async () => {
               <template v-else-if="seg.kind === 'item'">
                 <div class="msg-item">
                   <template v-if="seg.item.type === 'commandExecution'">
-                    <div class="item-command">
-                      <Loader v-if="!seg.item.completed" :size="12" :stroke-width="2" class="spin item-icon" />
-                      <TerminalIcon v-else :size="12" :stroke-width="2" class="item-icon" />
-                      <code>{{ seg.item.data.command ?? 'Running command...' }}</code>
-                      <span v-if="seg.item.completed && seg.item.data.exitCode != null" class="item-exit" :class="{ ok: seg.item.data.exitCode === 0 }">
-                        {{ seg.item.data.exitCode === 0 ? '✓' : `exit ${seg.item.data.exitCode}` }}
-                      </span>
-                    </div>
+                    <details class="item-details" :open="!seg.item.completed || undefined">
+                      <summary class="item-command">
+                        <Loader v-if="!seg.item.completed" :size="12" :stroke-width="2" class="spin item-icon" />
+                        <TerminalIcon v-else :size="12" :stroke-width="2" class="item-icon" />
+                        <code>{{ seg.item.data.command ?? 'Running command...' }}</code>
+                        <span v-if="seg.item.completed && seg.item.data.exitCode != null" class="item-exit" :class="{ ok: seg.item.data.exitCode === 0 }">
+                          {{ seg.item.data.exitCode === 0 ? '✓' : `exit ${seg.item.data.exitCode}` }}
+                        </span>
+                      </summary>
+                      <pre v-if="seg.item.data.output" class="item-output">{{ seg.item.data.output }}</pre>
+                    </details>
                   </template>
                   <template v-else-if="seg.item.type === 'fileChange'">
                     <div class="item-command">
@@ -277,6 +292,11 @@ onMounted(async () => {
 
 .auth-bar-ok {
   color: var(--text-primary);
+}
+
+.auth-actions {
+  display: flex;
+  gap: 2px;
 }
 
 .btn-sm {
@@ -426,6 +446,34 @@ onMounted(async () => {
 
 .item-exit.ok {
   color: var(--success, #98c379);
+}
+
+.item-details {
+  margin: 4px 0;
+}
+
+.item-details summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.item-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.item-output {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
 }
 
 .input-area {

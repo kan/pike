@@ -92,6 +92,7 @@ export const useCodexStore = defineStore('codex', () => {
   const pendingFileApproval = ref<FileChangeApprovalRequest | null>(null)
   const codexVersion = ref<string | null>(null)
   const versionWarning = ref<string | null>(null)
+  const scrollTrigger = ref(0)
 
   function currentAgentMsg(): ChatMessage | undefined {
     for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -268,6 +269,36 @@ export const useCodexStore = defineStore('codex', () => {
     msg.segments.push({ kind: 'item', item: msg.items[msg.items.length - 1] })
   }
 
+  // Buffer command output deltas and flush on a timer to avoid O(n^2) string
+  // concatenation and per-delta Vue reactivity updates.
+  const outputBuffers = new Map<string, string>()
+  let outputFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+  function handleCommandOutputDelta(itemId: string, delta: string) {
+    outputBuffers.set(itemId, (outputBuffers.get(itemId) ?? '') + delta)
+    if (!outputFlushTimer) {
+      outputFlushTimer = setTimeout(flushOutputBuffers, 100)
+    }
+  }
+
+  function flushOutputBuffers() {
+    outputFlushTimer = null
+    for (const [itemId, buffered] of outputBuffers) {
+      for (let i = messages.value.length - 1; i >= 0; i--) {
+        const item = messages.value[i].items.find((it) => it.id === itemId)
+        if (item) {
+          const current = (item.data.output as string) ?? ''
+          // Cap at 50KB to prevent memory issues with verbose commands
+          const combined = current + buffered
+          item.data.output = combined.length > 50000 ? `…${combined.slice(-50000)}` : combined
+          break
+        }
+      }
+    }
+    outputBuffers.clear()
+    scrollTrigger.value++
+  }
+
   function handleItemCompleted(itemId: string, itemData?: Record<string, unknown>) {
     for (let i = messages.value.length - 1; i >= 0; i--) {
       const item = messages.value[i].items.find((it) => it.id === itemId)
@@ -296,6 +327,17 @@ export const useCodexStore = defineStore('codex', () => {
     }
   }
 
+  /** Start a new conversation: disconnect, clear history, remove saved threadId. */
+  async function newConversation() {
+    clearMessages()
+    await disconnect()
+    const projectStore = useProjectStore()
+    if (projectStore.currentProject) {
+      projectStore.currentProject.codexThreadId = undefined
+      projectUpdate(projectStore.currentProject).catch(() => {})
+    }
+  }
+
   return {
     connected,
     authState,
@@ -306,6 +348,7 @@ export const useCodexStore = defineStore('codex', () => {
     pendingFileApproval,
     codexVersion,
     versionWarning,
+    scrollTrigger,
     startSession,
     disconnect,
     login,
@@ -315,9 +358,11 @@ export const useCodexStore = defineStore('codex', () => {
     handleMessageDelta,
     handleTurnCompleted,
     handleItemStarted,
+    handleCommandOutputDelta,
     handleItemCompleted,
     handleAuthUpdated,
     respondApproval,
     clearMessages,
+    newConversation,
   }
 })

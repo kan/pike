@@ -90,6 +90,11 @@ export async function initCodexRouter() {
     }
   })
 
+  // --- Command execution output ---
+  await win.listen<{ delta: string; itemId: string }>('codex://item/commandExecution/outputDelta', (event) => {
+    codex.handleCommandOutputDelta(event.payload.itemId, event.payload.delta)
+  })
+
   // --- Item lifecycle (v1 fallback) ---
   await win.listen<Record<string, unknown>>('codex://codex/event/item_completed', (event) => {
     const p = event.payload
