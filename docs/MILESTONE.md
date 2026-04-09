@@ -2,7 +2,7 @@
 
 ## 現在のマイルストーン
 
-**→ M13: AI Diff Viewer（未着手）**
+**→ M14: Codex IDE 統合強化**
 
 ---
 
@@ -22,7 +22,8 @@
 | M10 | Release | CI/CD・配布・自動更新・セキュリティ | 🔧 ほぼ完了 |
 | M11 | File Watcher | ファイル変更検知・自動リフレッシュ | ✅ 完了 |
 | M12 | Developer UX | クイックオープン・ターミナル通知・Git改善・検索修正 | ✅ 完了 |
-| M13 | AI Diff Viewer | AI 差分提案の diff 表示 | ⏳ 未着手 |
+| M13 | Codex Delegation | Codex App Server 統合・チャットUI・マルチウィンドウ | ✅ 完了 |
+| M14 | Codex IDE 統合強化 | Diff連携・スラッシュコマンド・通知・コンテキスト注入 | ⏳ 未着手 |
 
 ---
 
@@ -95,85 +96,114 @@ GitHub Actions（Windows ビルド・リリース自動アップロード）、D
 
 ---
 
-## M11: File Watcher
+## M11: File Watcher ✅
 
-### 目的
-AI エージェントや外部ツールによるファイル変更をリアルタイムに検知し、ファイルツリーとエディタに反映する。
+<details>
+<summary>完了条件</summary>
 
-### 完了条件
-
-**ファイルツリー自動リフレッシュ**
-- [x] プロジェクトルート以下のファイル変更を監視する（Rust 側 `notify` クレート or WSL `inotifywait`）
-- [x] ファイルの追加・削除・リネームでファイルツリーが自動更新される
-- [x] 大量の変更（git checkout 等）でもパフォーマンスが劣化しない（デバウンス・バッチ処理）
-
-**エディタの外部変更検知**
-- [x] 開いているファイルが外部で変更されたことを検知する
-- [x] 未編集（クリーン）のタブは自動で最新内容にリロードする
-- [x] 編集中（ダーティ）のタブは警告ダイアログを表示し、ユーザーに選択させる（リロード / 上書き保存 / 無視）
-- [x] 外部で削除されたファイルのタブに警告を表示する
-
-**ファイルツリー新規作成**
-- [x] コンテキストメニューに「新規ファイル」「新規フォルダ」を追加
-- [x] インライン入力で名前を指定して作成
-
-**プレビュー拡張**
-- [x] Mermaid プレビュー（`.mermaid` / `.mmd` 拡張子で単独プレビュー、Markdown 内の ` ```mermaid ` コードブロックをインライン描画）
-- [x] PDF プレビュー（`<iframe>` or `pdf.js` でタブ内表示）
-- [x] CSV / TSV プレビュー（テーブル表示）
+- [x] プロジェクトルート以下のファイル変更を監視（notify / inotifywait）
+- [x] ファイルツリー自動更新（デバウンス・バッチ処理）
+- [x] エディタ外部変更検知（クリーン→自動リロード、ダーティ→警告ダイアログ）
+- [x] ファイルツリー新規作成（インライン入力）
+- [x] プレビュー拡張（Mermaid / PDF / CSV・TSV）
+</details>
 
 ---
 
-## M12: Developer UX
+## M12: Developer UX ✅
 
-### 目的
-日常のコーディングワークフローを加速する UX 機能を追加する。
+<details>
+<summary>完了条件</summary>
 
-### 完了条件
-
-**クイックオープン（Ctrl+P）**
-- [x] `rg --files` でプロジェクト内のファイル一覧を取得
-- [x] fzf 風ファジーマッチでインクリメンタル絞り込み
-- [x] Enter でエディタタブを開く（`:行番号` でジャンプも可）
-- [x] 最近開いたファイルを上位に表示
-
-**ターミナルアクティビティ通知**
-- [x] バックグラウンドのターミナルタブで出力があった場合、タブにインジケータを表示
-- [x] プロセス終了時にタブタイトルまたはアイコンで通知
-- [x] 固定タブ（Claude Code 等）の完了検知に対応
-
-**検索パネル修正**
-- [x] 正規表現 OFF 時に `(` 等の特殊文字を含むクエリでエラーになる問題を修正（`-F` フラグが正しく効いていない可能性を調査）
-
-**Git パネル改善**
-- [x] リモートとの差分件数を表示（ahead / behind カウント）
-- [x] pull 対象・push 対象がある場合にインジケータで通知
-- [x] unstageするボタンを追加
-
-**プロジェクトパネル改善**
-- [x] Windows プロジェクトの「抽出」ボタンでフォルダ選択ダイアログを表示する（現在は手動パス入力のみ）
-- [x] プロジェクト一覧をアルファベット順にソート、またはドラッグ&ドロップで並び替え可能にする
-- [x] 「別ウィンドウで開く」ボタンで新ウィンドウが開かずに既存の別プロジェクトウィンドウに切り替わるバグを調査・修正
-
-**プレビュー拡張**
-- [x] SVG プレビュー（CSV/Markdown と同様に Edit/Split/Preview トグルで表示）
-
-**ターミナル表示崩れ修正**
-- [x] ターミナルタブから別タブへ移動して戻った際に表示が崩れる事象を調査・修正
+- [x] クイックオープン（Ctrl+P、rg --files、ファジーマッチ、:行番号ジャンプ）
+- [x] ターミナルアクティビティ通知（バッジ・プロセス終了検知・デスクトップ通知）
+- [x] 検索パネル修正（-F フラグ）
+- [x] Git ahead/behind 表示・unstage ボタン
+- [x] プロジェクトパネル改善（フォルダ選択・ソート・別ウィンドウバグ修正）
+- [x] SVG プレビュー（Edit/Split/Preview トグル）
+- [x] ターミナルタブ切替時の表示崩れ修正
+</details>
 
 ---
 
-## M13: AI Diff Viewer
+## M13: Codex Delegation ✅
+
+<details>
+<summary>完了条件</summary>
+
+- [x] CodexRuntime trait（Windows native / WSL 切替）+ npm .cmd パーサー
+- [x] JSON-RPC over stdio クライアント（双方向通信・initialize handshake）
+- [x] ChatGPT OAuth 認証フロー（自動ログイン）
+- [x] Thread/Turn ライフサイクル管理・ストリーミング応答表示
+- [x] Approval ダイアログ（コマンド実行・ファイル変更の承認）
+- [x] エディタコンテキスト自動注入（ファイルパス・カーソル位置）
+- [x] Codex バージョン互換性チェック
+- [x] Windows: externalSandbox + Job Object でクラッシュ回避
+- [x] WSL: workspace-write sandbox（Linux sandbox は安定）
+- [x] マルチウィンドウ対応（HashMap\<window_label, CodexSession\>、emit_to ルーティング）
+- [x] セッション永続化（threadId + チャット履歴 IndexedDB 最大200件）
+- [x] Codex タブのセッション復元
+</details>
+
+---
+
+## M14: Codex IDE 統合強化
 
 ### 目的
-AI エージェントが提案したコード変更を Pike の diff ビューアで確認・適用できるようにする。
+Codex を Pike の IDE 機能と深く統合し、diff プレビュー・スラッシュコマンド・通知・コンテキスト注入により実用的な coding agent 体験を実現する。
 
 ### 完了条件
+
+**Diff 連携**
+- [ ] `turn/diff/updated` 通知で受け取った unified diff を Pike の DiffTab で表示
+- [ ] Codex チャットタイムライン上の FileChange アイテムをクリックで diff タブを開く
+- [ ] diff タブから Accept / Reject 操作で `item/fileChange/requestApproval` に応答
+- [ ] diff 適用後にファイルツリーとエディタを自動リフレッシュ
+
+**スラッシュコマンド**
+- [ ] `/compact` — `thread/compact/start` で会話コンテキストを圧縮
+- [ ] `/clear` — チャット履歴クリア + 新規スレッド開始
+- [ ] `/model` — `model/list` でモデル一覧取得 + `turn/start` の `model` パラメータで切替
+- [ ] `/read <path>` — 指定ファイルの内容をコンテキストに注入（`input` に `type: "text"` で追加）
+- [ ] `/diff` — 現在の作業ツリーの git diff を取得してコンテキストに注入
+- [ ] コマンドパレット風 UI（`/` 入力でドロップダウン補完）
+
+**@ メンション補完**
+- [ ] チャット入力欄で `@` を入力するとプロジェクト内ファイルパスの補完候補を表示
+- [ ] `rg --files` の結果をキャッシュし、ファジーマッチで絞り込み
+- [ ] 選択されたファイルの内容を turn の `input` にコンテキストとして追加
+- [ ] `@` + ディレクトリパスでディレクトリ内のファイル一覧も注入可能に
 
 **デスクトップ通知**
-- [ ] ターミナルプロセス終了時にバックグラウンドタブの場合 Windows トースト通知を送信
-- [ ] 通知クリックで Pike をフォーカスし該当タブに切替
-- [ ] Settings にデスクトップ通知 ON/OFF トグル追加
+- [ ] Codex の turn 完了時、Codex タブが非アクティブ（ウィンドウがアクティブでも別タブ表示中なら対象）ならトースト通知 + タブに青ドット表示
+- [ ] Approval リクエスト到着時に同条件で通知（ユーザー操作が必要な旨を伝える）
+- [ ] 通知クリックで Pike をフォーカスし Codex タブに切替、青ドットをクリア
+- [ ] Settings に Codex 通知 ON/OFF トグル追加
+- [ ] 既存のターミナル通知が仮想デスクトップ切替時に発火しない不具合を修正（`isOnCurrentVirtualDesktop` チェックが通知抑制に誤用されている問題）
+
+**AGENTS.md / CLAUDE.md 連携**
+- [ ] プロジェクトルートの `AGENTS.md` を検出し、`thread/start` の `developerInstructions` に自動注入
+- [ ] `AGENTS.md` が存在しない場合は `CLAUDE.md` にフォールバック
+- [ ] いずれも存在しない場合はスキップ（エラーにしない）
+- [ ] Codex タブの UI に「AGENTS.md detected」/「CLAUDE.md detected」インジケータ表示
+
+**Sandbox 設定 UI**
+- [ ] Settings タブに Codex セクション追加
+- [ ] sandbox モード選択（workspace-write / danger-full-access / externalSandbox）
+- [ ] approval ポリシー選択（untrusted / on-failure / on-request / never）
+- [ ] Windows で workspace-write 選択時は警告を表示（クラッシュリスクの説明）
+
+**チャット UX 改善**
+- [ ] コマンド実行結果の stdout/stderr をチャット内に折りたたみ表示
+- [ ] FileChange アイテムに変更ファイルパスと変更行数のサマリーを表示
+- [ ] エージェントの reasoning/thinking サマリーを折りたたみ表示
+- [ ] チャット履歴の検索機能
+- [ ] ターン単位のロールバック（`thread/rollback`）
+
+**その他**
+- [ ] Codex プロセス異常終了時の自動再接続とエラー表示
+- [ ] トークン使用量の表示（`thread/tokenUsage/updated` から取得）
+- [ ] 複数スレッド管理（`thread/list` で一覧取得、切替 UI）
 
 ---
 
