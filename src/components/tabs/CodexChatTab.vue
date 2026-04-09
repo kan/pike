@@ -17,13 +17,11 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { useCodexStore } from '../../stores/codex'
 import { useProjectStore } from '../../stores/project'
-import { useTabStore } from '../../stores/tabs'
 import ApprovalDialog from '../codex/ApprovalDialog.vue'
 
 const { t } = useI18n()
 const codex = useCodexStore()
 const projectStore = useProjectStore()
-const tabStore = useTabStore()
 
 const input = ref('')
 const messageListRef = ref<HTMLDivElement | null>(null)

@@ -240,7 +240,7 @@ onUnmounted(() => {
             :title="'Exit code: ' + tab.exitCode"
           >{{ tab.exitCode === 0 ? '✓' : tab.exitCode }}</span>
           <span
-            v-else-if="tab.kind === 'terminal' && tab.hasActivity && tab.id !== tabStore.activeTabId"
+            v-else-if="(tab.kind === 'terminal' || tab.kind === 'codex-chat') && tab.hasActivity && tab.id !== tabStore.activeTabId"
             class="tab-activity-dot"
           />
           <button

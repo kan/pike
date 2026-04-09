@@ -1,6 +1,36 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { resolveNotifier } from '../lib/notify'
 import { useCodexStore } from '../stores/codex'
+import { useSettingsStore } from '../stores/settings'
+import { useTabStore } from '../stores/tabs'
 import type { CodexAuthState } from '../types/codex'
+import type { CodexChatTab } from '../types/tab'
+
+function isCodexTabVisible(): boolean {
+  const activeTab = useTabStore().activeTab
+  return activeTab?.kind === 'codex-chat' && document.visibilityState === 'visible' && document.hasFocus()
+}
+
+function findCodexTab(): CodexChatTab | undefined {
+  return useTabStore().tabs.find((t): t is CodexChatTab => t.kind === 'codex-chat')
+}
+
+function markCodexActivity() {
+  const tab = findCodexTab()
+  if (tab && tab.id !== useTabStore().activeTabId) {
+    tab.hasActivity = true
+  }
+}
+
+function focusCodexTab() {
+  const tab = findCodexTab()
+  if (tab) {
+    const win = getCurrentWindow()
+    win.unminimize().catch(() => {})
+    win.setFocus().catch(() => {})
+    useTabStore().setActiveTab(tab.id)
+  }
+}
 
 function parseAccountUpdated(params: Record<string, unknown>): CodexAuthState {
   const account = params.account as Record<string, unknown> | undefined
@@ -27,7 +57,9 @@ export async function initCodexRouter() {
   initialized = true
 
   const codex = useCodexStore()
+  const settings = useSettingsStore()
   const win = getCurrentWindow()
+  const notify = await resolveNotifier()
 
   // --- Streaming text delta (v2) ---
   // Codex sends both v1 (codex/event/agent_message_content_delta) and v2
@@ -46,9 +78,12 @@ export async function initCodexRouter() {
   })
 
   // --- Turn lifecycle (v2) ---
-  await win.listen('codex://turn/completed', (event) => {
-    console.log('[codex-event] turn/completed', event.payload)
+  await win.listen('codex://turn/completed', () => {
     codex.handleTurnCompleted()
+    if (settings.codexNotification && !isCodexTabVisible()) {
+      markCodexActivity()
+      notify?.('Codex', 'Turn completed', focusCodexTab)
+    }
   })
 
   await win.listen('codex://turn/started', (event) => {
@@ -122,7 +157,6 @@ export async function initCodexRouter() {
 
   // --- Approval requests ---
   await win.listen<Record<string, unknown>>('codex://approval/command', (event) => {
-    console.log('[codex-event] approval/command', event.payload)
     const p = event.payload
     codex.pendingCommandApproval = {
       requestId: p.requestId as number | string,
@@ -134,10 +168,13 @@ export async function initCodexRouter() {
       environment: (p.environment as string) ?? '',
       sandboxTrusted: p.sandboxTrusted !== false,
     }
+    if (settings.codexNotification && !isCodexTabVisible()) {
+      markCodexActivity()
+      notify?.('Codex', `Approval required: ${(p.command as string) ?? 'command'}`, focusCodexTab)
+    }
   })
 
   await win.listen<Record<string, unknown>>('codex://approval/file', (event) => {
-    console.log('[codex-event] approval/file', event.payload)
     const p = event.payload
     codex.pendingFileApproval = {
       requestId: p.requestId as number | string,
@@ -147,6 +184,10 @@ export async function initCodexRouter() {
       reason: (p.reason as string) ?? null,
       environment: (p.environment as string) ?? '',
       sandboxTrusted: p.sandboxTrusted !== false,
+    }
+    if (settings.codexNotification && !isCodexTabVisible()) {
+      markCodexActivity()
+      notify?.('Codex', 'File change approval required', focusCodexTab)
     }
   })
 

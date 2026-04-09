@@ -152,6 +152,7 @@ export type CodexChatTab = {
   kind: 'codex-chat'
   title: string
   pinned: boolean
+  hasActivity?: boolean
 }
 
 export type Tab =

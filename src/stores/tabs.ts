@@ -106,7 +106,7 @@ export const useTabStore = defineStore('tabs', () => {
   watch(activeTabId, (newId) => {
     if (newId) {
       const tab = tabs.value.find((t) => t.id === newId)
-      if (tab?.kind === 'terminal') {
+      if (tab && (tab.kind === 'terminal' || tab.kind === 'codex-chat')) {
         tab.hasActivity = false
       }
     }
