@@ -256,4 +256,27 @@ export default {
   // Mermaid Preview
   'mermaid.source': 'Source',
   'mermaid.reset': 'Reset',
+
+  // Codex
+  'codex.title': 'Codex',
+  'codex.description': 'Chat with OpenAI Codex agent to edit code, run commands, and more.',
+  'codex.connect': 'Connect',
+  'codex.connecting': 'Connecting to Codex...',
+  'codex.notSignedIn': 'Not signed in',
+  'codex.signIn': 'Sign in with ChatGPT',
+  'codex.emptyChat': 'Ask Codex anything about your code',
+  'codex.inputPlaceholder': 'Ask Codex...',
+  'codex.send': 'Send',
+  'codex.stop': 'Stop',
+  'codex.approvalCommand': 'Codex wants to run a command',
+  'codex.approvalFile': 'Codex wants to modify files',
+  'codex.cwd': 'Working directory',
+  'codex.accept': 'Accept',
+  'codex.acceptForSession': 'Accept for Session',
+  'codex.decline': 'Decline',
+  'codex.cancel': 'Cancel',
+  'codex.thinking': 'Thinking...',
+  'codex.processing': 'Working...',
+  'codex.fileChange': 'Modifying files...',
+  'codex.sandboxWarning': "Codex's built-in sandbox is disabled on Windows. Please review commands carefully.",
 } as Record<string, string>

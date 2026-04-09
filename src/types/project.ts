@@ -30,4 +30,5 @@ export interface ProjectConfig {
   pinnedTabs: PinnedTabDef[]
   lastOpened: string
   lastSession?: LastSession
+  codexThreadId?: string
 }

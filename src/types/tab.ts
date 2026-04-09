@@ -147,6 +147,22 @@ export type PdfTab = {
   path: string
 }
 
-export type Tab = TerminalTab | EditorTab | DockerLogsTab | DiffTab | PreviewTab | HistoryTab | SettingsTab | PdfTab
+export type CodexChatTab = {
+  id: string
+  kind: 'codex-chat'
+  title: string
+  pinned: boolean
+}
+
+export type Tab =
+  | TerminalTab
+  | EditorTab
+  | DockerLogsTab
+  | DiffTab
+  | PreviewTab
+  | HistoryTab
+  | SettingsTab
+  | PdfTab
+  | CodexChatTab
 
 export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects'

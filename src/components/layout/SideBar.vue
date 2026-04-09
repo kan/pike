@@ -13,6 +13,7 @@ const SearchPanel = defineAsyncComponent(() => import('../panels/SearchPanel.vue
 import {
   ArrowDown,
   ArrowUp,
+  Bot,
   Container,
   FilePlus,
   Files,
@@ -158,6 +159,13 @@ onUnmounted(() => {
         <component :is="item.icon" :size="22" :stroke-width="1.5" class="icon" />
       </button>
       <div class="icon-spacer" />
+      <button
+        class="icon-button"
+        :title="t('codex.title')"
+        @click="tabStore.addCodexChatTab()"
+      >
+        <Bot :size="22" :stroke-width="1.5" class="icon" />
+      </button>
       <div class="gear-wrapper">
         <div v-if="showGearMenu" class="gear-menu" @mousedown.stop>
           <button class="gear-menu-item" @click="checkUpdate">

@@ -8,6 +8,7 @@ import { basename } from '../lib/paths'
 import { ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
+  CodexChatTab,
   DiffTab,
   DockerLogsTab,
   EditorTab,
@@ -257,6 +258,18 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  function addCodexChatTab(options?: { pinned?: boolean }): string {
+    const existing = tabs.value.find((t): t is CodexChatTab => t.kind === 'codex-chat')
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    tabs.value.push({ id, kind: 'codex-chat', title: 'Codex', pinned: options?.pinned ?? false })
+    activeTabId.value = id
+    return id
+  }
+
   function addPdfTab(options: { path: string }): string {
     const existing = tabs.value.find((t): t is PdfTab => t.kind === 'pdf' && t.path === options.path)
     if (existing) {
@@ -438,6 +451,7 @@ export const useTabStore = defineStore('tabs', () => {
     addHistoryTab,
     addDockerLogsTab,
     addSettingsTab,
+    addCodexChatTab,
     addDiffTab,
     addPdfTab,
     closeTab,

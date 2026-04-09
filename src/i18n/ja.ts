@@ -257,4 +257,27 @@ export default {
   // Mermaid Preview
   'mermaid.source': 'ソース',
   'mermaid.reset': 'リセット',
+
+  // Codex
+  'codex.title': 'Codex',
+  'codex.description': 'OpenAI Codex エージェントとチャットしてコード編集やコマンド実行ができます。',
+  'codex.connect': '接続',
+  'codex.connecting': 'Codex に接続中...',
+  'codex.notSignedIn': '未サインイン',
+  'codex.signIn': 'ChatGPT でサインイン',
+  'codex.emptyChat': 'コードについて何でも聞いてください',
+  'codex.inputPlaceholder': 'Codex に質問...',
+  'codex.send': '送信',
+  'codex.stop': '停止',
+  'codex.approvalCommand': 'Codex がコマンドの実行を要求しています',
+  'codex.approvalFile': 'Codex がファイルの変更を要求しています',
+  'codex.cwd': '作業ディレクトリ',
+  'codex.accept': '許可',
+  'codex.acceptForSession': 'セッション中許可',
+  'codex.decline': '拒否',
+  'codex.cancel': 'キャンセル',
+  'codex.thinking': '思考中...',
+  'codex.processing': '処理中...',
+  'codex.fileChange': 'ファイルを変更中...',
+  'codex.sandboxWarning': 'Windows環境ではCodexのsandboxは無効化されています。コマンドの内容を慎重にご確認ください。',
 } as Record<string, string>
