@@ -76,12 +76,6 @@ pub async fn start_chatgpt_login(client: &AppServerClient) -> Result<Option<Stri
     Ok(resp.url)
 }
 
-/// Cancel an in-progress login.
-pub async fn cancel_login(client: &AppServerClient) -> Result<(), String> {
-    let _: serde_json::Value = client.request("account/login/cancel", &json!({})).await?;
-    Ok(())
-}
-
 /// Log out of the current account.
 pub async fn logout(client: &AppServerClient) -> Result<(), String> {
     let _: serde_json::Value = client.request("account/logout", &json!({})).await?;

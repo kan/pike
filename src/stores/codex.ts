@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { useEditorInfo } from '../composables/useEditorInfo'
+import { deleteChatHistory, loadChatHistory, saveChatHistory } from '../lib/codexHistory'
 import {
   type ApprovalDecision,
   type CodexEditorContext,
@@ -13,6 +14,7 @@ import {
   codexRespondApproval,
   codexStartSession,
   codexSubmitTurn,
+  projectUpdate,
 } from '../lib/tauri'
 import type {
   ChatMessage,
@@ -22,6 +24,7 @@ import type {
   TurnItem,
 } from '../types/codex'
 import type { ShellType } from '../types/tab'
+import { useProjectStore } from './project'
 import { useTabStore } from './tabs'
 
 let msgCounter = 0
@@ -71,6 +74,14 @@ function getEditorContext(): CodexEditorContext | null {
   return null
 }
 
+function saveThreadIdToProject(threadId: string) {
+  const projectStore = useProjectStore()
+  if (projectStore.currentProject) {
+    projectStore.currentProject.codexThreadId = threadId
+    projectUpdate(projectStore.currentProject).catch(() => {})
+  }
+}
+
 export const useCodexStore = defineStore('codex', () => {
   const connected = ref(false)
   const authState = ref<CodexAuthState>({ status: 'unknown' })
@@ -104,6 +115,16 @@ export const useCodexStore = defineStore('codex', () => {
       const tid = await codexStartSession(shell, cwd, threadId ?? null)
       currentThreadId.value = tid
       connected.value = true
+
+      // Restore chat history from IndexedDB
+      const history = await loadChatHistory(tid)
+      if (history.length > 0) {
+        messages.value = history
+      }
+
+      // Persist threadId to project config for session resumption
+      saveThreadIdToProject(tid)
+
       try {
         authState.value = await codexAuthStatus()
       } catch {
@@ -228,6 +249,13 @@ export const useCodexStore = defineStore('codex', () => {
     const msg = currentAgentMsg()
     if (msg) msg.completed = true
     isGenerating.value = false
+    persistHistory()
+  }
+
+  function persistHistory() {
+    if (currentThreadId.value) {
+      saveChatHistory(currentThreadId.value, messages.value).catch(() => {})
+    }
   }
 
   function handleItemStarted(item: TurnItem) {
@@ -263,6 +291,9 @@ export const useCodexStore = defineStore('codex', () => {
 
   function clearMessages() {
     messages.value = []
+    if (currentThreadId.value) {
+      deleteChatHistory(currentThreadId.value).catch(() => {})
+    }
   }
 
   return {

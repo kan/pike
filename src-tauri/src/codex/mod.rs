@@ -4,76 +4,70 @@ pub mod protocol;
 pub mod runtime;
 pub mod session;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::types::ShellConfig;
+use protocol::client::AppServerClient;
 use runtime::CodexRuntime;
 
-/// Global Codex state managed by Tauri.
+/// Per-window Codex session: client + runtime + thread session.
+pub struct CodexSession {
+    pub client: Arc<AppServerClient>,
+    #[allow(dead_code)]
+    pub runtime: Arc<dyn CodexRuntime>,
+    pub thread_session: Option<session::ThreadSession>,
+}
+
+impl CodexSession {
+    pub async fn shutdown(&self) {
+        self.client.shutdown().await;
+    }
+}
+
+/// Global Codex state: a map of window label → session.
 /// Uses tokio::sync::Mutex because lock guards are held across await points.
-/// The client is wrapped in Arc so it can be shared between state and session.
 pub struct CodexState {
-    pub client: Arc<tokio::sync::Mutex<Option<Arc<protocol::client::AppServerClient>>>>,
-    pub runtime: Arc<tokio::sync::Mutex<Option<Arc<dyn CodexRuntime>>>>,
-    pub session: Arc<tokio::sync::Mutex<Option<session::ThreadSession>>>,
+    pub sessions: Arc<tokio::sync::Mutex<HashMap<String, CodexSession>>>,
 }
 
 impl Default for CodexState {
     fn default() -> Self {
         Self {
-            client: Arc::new(tokio::sync::Mutex::new(None)),
-            runtime: Arc::new(tokio::sync::Mutex::new(None)),
-            session: Arc::new(tokio::sync::Mutex::new(None)),
+            sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Get client from a session map, or return an error.
+fn get_client<'a>(
+    sessions: &'a HashMap<String, CodexSession>,
+    window_id: &str,
+) -> Result<&'a Arc<AppServerClient>, String> {
+    sessions
+        .get(window_id)
+        .map(|s| &s.client)
+        .ok_or_else(|| "Codex not connected".to_string())
+}
+
+/// Get thread session from a session map, or return an error.
+fn get_thread_session<'a>(
+    sessions: &'a HashMap<String, CodexSession>,
+    window_id: &str,
+) -> Result<&'a session::ThreadSession, String> {
+    sessions
+        .get(window_id)
+        .and_then(|s| s.thread_session.as_ref())
+        .ok_or_else(|| "No active Codex session".to_string())
 }
 
 // ---------------------------------------------------------------------------
 // Tauri Commands
 // ---------------------------------------------------------------------------
-
-/// Connect to the Codex app-server for the given shell environment and working directory.
-#[tauri::command]
-pub async fn codex_connect(
-    shell: ShellConfig,
-    cwd: String,
-    _app: tauri::AppHandle,
-    state: tauri::State<'_, CodexState>,
-) -> Result<(), String> {
-    // Shut down existing client if any
-    {
-        let mut client_guard = state.client.lock().await;
-        if let Some(old_client) = client_guard.take() {
-            old_client.shutdown().await;
-        }
-    }
-
-    let rt: Arc<dyn CodexRuntime> = Arc::from(runtime::runtime_for_shell(&shell));
-    let client = protocol::client::AppServerClient::connect(rt.as_ref(), &cwd).await?;
-
-    *state.runtime.lock().await = Some(rt.clone());
-    *state.client.lock().await = Some(Arc::new(client));
-
-    log::info!("[codex] Connected to app-server for {:?} at {cwd}", shell);
-    Ok(())
-}
-
-/// Disconnect from the Codex app-server.
-#[tauri::command]
-pub async fn codex_disconnect(
-    state: tauri::State<'_, CodexState>,
-) -> Result<(), String> {
-    *state.session.lock().await = None;
-    {
-        let mut client_guard = state.client.lock().await;
-        if let Some(old_client) = client_guard.take() {
-            old_client.shutdown().await;
-        }
-    }
-    *state.runtime.lock().await = None;
-    log::info!("[codex] Disconnected");
-    Ok(())
-}
 
 /// Check if codex CLI is available in the given shell environment.
 #[tauri::command]
@@ -82,24 +76,107 @@ pub async fn codex_check_available(shell: ShellConfig) -> Result<String, String>
     rt.codex_version()
 }
 
-/// Get current authentication status.
+/// Start a Codex session for this window: connect, authenticate, start/resume thread.
+#[tauri::command]
+pub async fn codex_start_session(
+    shell: ShellConfig,
+    cwd: String,
+    thread_id: Option<String>,
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, CodexState>,
+) -> Result<String, String> {
+    let window_id = window.label().to_string();
+
+    // Shut down existing session for this window if any
+    {
+        let mut sessions = state.sessions.lock().await;
+        if let Some(old) = sessions.remove(&window_id) {
+            old.shutdown().await;
+        }
+    }
+
+    // Connect
+    let rt: Arc<dyn CodexRuntime> = Arc::from(runtime::runtime_for_shell(&shell));
+    let client = Arc::new(AppServerClient::connect(rt.as_ref(), &cwd).await?);
+    log::info!("[codex] Connected for window {window_id} at {cwd}");
+
+    // Create thread session
+    let sess = session::ThreadSession::new(
+        client.clone(),
+        rt.clone(),
+        app,
+        window_id.clone(),
+    );
+
+    // Start or resume thread
+    let tid = if let Some(existing_tid) = thread_id {
+        match sess.resume_thread(&existing_tid).await {
+            Ok(()) => existing_tid,
+            Err(e) => {
+                log::warn!("[codex] Failed to resume thread {existing_tid}: {e}, starting new");
+                sess.start_thread(&cwd).await?
+            }
+        }
+    } else {
+        sess.start_thread(&cwd).await?
+    };
+
+    // Start event forwarding
+    sess.start_notification_forwarder();
+    sess.start_approval_handler().await;
+
+    // Store session
+    {
+        let mut sessions = state.sessions.lock().await;
+        sessions.insert(
+            window_id,
+            CodexSession {
+                client,
+                runtime: rt,
+                thread_session: Some(sess),
+            },
+        );
+    }
+
+    Ok(tid)
+}
+
+/// Disconnect the Codex session for this window.
+#[tauri::command]
+pub async fn codex_disconnect(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, CodexState>,
+) -> Result<(), String> {
+    let window_id = window.label();
+    let mut sessions = state.sessions.lock().await;
+    if let Some(old) = sessions.remove(window_id) {
+        old.shutdown().await;
+    }
+    log::info!("[codex] Disconnected window {window_id}");
+    Ok(())
+}
+
+/// Get current authentication status for this window's session.
 #[tauri::command]
 pub async fn codex_auth_status(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, CodexState>,
 ) -> Result<auth::AuthState, String> {
-    let guard = state.client.lock().await;
-    let client = guard.as_ref().ok_or("Codex not connected")?;
+    let sessions = state.sessions.lock().await;
+    let client = get_client(&sessions, window.label())?;
     auth::check_auth_status(client).await
 }
 
 /// Start ChatGPT OAuth login flow.
 #[tauri::command]
 pub async fn codex_auth_login_chatgpt(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, CodexState>,
 ) -> Result<(), String> {
     let url = {
-        let guard = state.client.lock().await;
-        let client = guard.as_ref().ok_or("Codex not connected")?;
+        let sessions = state.sessions.lock().await;
+        let client = get_client(&sessions, window.label())?;
         auth::start_chatgpt_login(client).await?
     };
     if let Some(url) = url {
@@ -116,112 +193,51 @@ pub async fn codex_auth_login_chatgpt(
     Ok(())
 }
 
-/// Cancel an in-progress login.
-#[tauri::command]
-pub async fn codex_auth_cancel_login(
-    state: tauri::State<'_, CodexState>,
-) -> Result<(), String> {
-    let guard = state.client.lock().await;
-    let client = guard.as_ref().ok_or("Codex not connected")?;
-    auth::cancel_login(client).await
-}
-
 /// Log out of the current account.
 #[tauri::command]
 pub async fn codex_auth_logout(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, CodexState>,
 ) -> Result<(), String> {
-    let guard = state.client.lock().await;
-    let client = guard.as_ref().ok_or("Codex not connected")?;
+    let sessions = state.sessions.lock().await;
+    let client = get_client(&sessions, window.label())?;
     auth::logout(client).await
 }
 
-/// Start a Codex session: connect, start/resume thread, begin forwarding events.
-#[tauri::command]
-pub async fn codex_start_session(
-    shell: ShellConfig,
-    cwd: String,
-    thread_id: Option<String>,
-    app: tauri::AppHandle,
-    state: tauri::State<'_, CodexState>,
-) -> Result<String, String> {
-    // Connect if not already connected
-    {
-        let guard = state.client.lock().await;
-        if guard.is_none() {
-            drop(guard);
-            codex_connect(shell, cwd.clone(), app.clone(), state.clone()).await?;
-        }
-    }
-
-    // Get Arc clone of client — client stays in state for auth commands
-    let client = {
-        let guard = state.client.lock().await;
-        guard.as_ref().ok_or("Codex not connected")?.clone()
-    };
-
-    let rt = state
-        .runtime
-        .lock()
-        .await
-        .clone()
-        .ok_or("Runtime not set")?;
-
-    let sess = session::ThreadSession::new(client, rt, app);
-
-    // Start or resume thread
-    let tid = if let Some(existing_tid) = thread_id {
-        match sess.resume_thread(&existing_tid).await {
-            Ok(()) => existing_tid,
-            Err(e) => {
-                log::warn!("[codex] Failed to resume thread {existing_tid}: {e}, starting new");
-                sess.start_thread(&cwd).await?
-            }
-        }
-    } else {
-        sess.start_thread(&cwd).await?
-    };
-
-    // Start notification/approval forwarding
-    sess.start_notification_forwarder();
-    sess.start_approval_handler().await;
-
-    *state.session.lock().await = Some(sess);
-
-    Ok(tid)
-}
-
-/// Submit a prompt to the active Codex session, optionally with editor context.
+/// Submit a prompt to this window's Codex session.
 #[tauri::command]
 pub async fn codex_submit_turn(
     prompt: String,
     editor_context: Option<session::EditorContext>,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, CodexState>,
 ) -> Result<(), String> {
-    let guard = state.session.lock().await;
-    let sess = guard.as_ref().ok_or("No active Codex session")?;
+    let sessions = state.sessions.lock().await;
+    let sess = get_thread_session(&sessions, window.label())?;
     sess.submit_turn(prompt, editor_context).await
 }
 
-/// Interrupt the current Codex turn.
+/// Interrupt the current turn for this window's session.
 #[tauri::command]
 pub async fn codex_interrupt_turn(
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, CodexState>,
 ) -> Result<(), String> {
-    let guard = state.session.lock().await;
-    let sess = guard.as_ref().ok_or("No active Codex session")?;
+    let sessions = state.sessions.lock().await;
+    let sess = get_thread_session(&sessions, window.label())?;
     sess.interrupt_turn().await
 }
 
-/// Respond to an approval request from the Codex app-server.
+/// Respond to an approval request for this window's session.
 #[tauri::command]
 pub async fn codex_respond_approval(
     request_id: serde_json::Value,
     decision: approval::ApprovalDecision,
+    window: tauri::WebviewWindow,
     state: tauri::State<'_, CodexState>,
 ) -> Result<(), String> {
-    let guard = state.session.lock().await;
-    let sess = guard.as_ref().ok_or("No active Codex session")?;
+    let sessions = state.sessions.lock().await;
+    let sess = get_thread_session(&sessions, window.label())?;
 
     let id: protocol::messages::RequestId =
         serde_json::from_value(request_id).map_err(|e| format!("Invalid request ID: {e}"))?;

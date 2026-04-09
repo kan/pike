@@ -422,9 +422,9 @@ export const useTabStore = defineStore('tabs', () => {
 
   function snapshotSession(): LastSession {
     const sessionTabs: SessionTabDef[] = tabs.value
-      .filter((t) => t.kind === 'terminal' || t.kind === 'editor')
+      .filter((t) => t.kind === 'terminal' || t.kind === 'editor' || t.kind === 'codex-chat')
       .map((t) => {
-        const base = { id: t.id, kind: t.kind as 'terminal' | 'editor', title: t.title, pinned: t.pinned }
+        const base = { id: t.id, kind: t.kind as SessionTabDef['kind'], title: t.title, pinned: t.pinned }
         if (t.kind === 'terminal') {
           return { ...base, autoStart: t.autoStart }
         }

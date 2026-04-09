@@ -93,6 +93,8 @@ export const useProjectStore = defineStore('project', () => {
           } else if (def.content !== undefined) {
             tabStore.addBlankEditorTab({ title: def.title, content: def.content })
           }
+        } else if (def.kind === 'codex-chat') {
+          tabStore.addCodexChatTab({ pinned: def.pinned })
         }
       }
       if (project.lastSession.activeTabId) {

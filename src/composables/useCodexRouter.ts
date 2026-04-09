@@ -1,4 +1,4 @@
-import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useCodexStore } from '../stores/codex'
 import type { CodexAuthState } from '../types/codex'
 
@@ -27,6 +27,7 @@ export async function initCodexRouter() {
   initialized = true
 
   const codex = useCodexStore()
+  const win = getCurrentWindow()
 
   // --- Streaming text delta (v2) ---
   // Codex sends both v1 (codex/event/agent_message_content_delta) and v2
@@ -35,7 +36,7 @@ export async function initCodexRouter() {
   let lastDeltaKey = ''
   let lastDeltaTime = 0
 
-  await listen<{ delta: string; itemId: string }>('codex://item/agentMessage/delta', (event) => {
+  await win.listen<{ delta: string; itemId: string }>('codex://item/agentMessage/delta', (event) => {
     const key = `${event.payload.itemId}:${event.payload.delta}`
     const now = Date.now()
     if (key === lastDeltaKey && now - lastDeltaTime < 50) return
@@ -45,24 +46,24 @@ export async function initCodexRouter() {
   })
 
   // --- Turn lifecycle (v2) ---
-  await listen('codex://turn/completed', (event) => {
+  await win.listen('codex://turn/completed', (event) => {
     console.log('[codex-event] turn/completed', event.payload)
     codex.handleTurnCompleted()
   })
 
-  await listen('codex://turn/started', (event) => {
+  await win.listen('codex://turn/started', (event) => {
     console.log('[codex-event] turn/started', event.payload)
     codex.isGenerating = true
   })
 
   // --- Turn lifecycle (v1 fallback) ---
-  await listen('codex://codex/event/task_completed', (event) => {
+  await win.listen('codex://codex/event/task_completed', (event) => {
     console.log('[codex-event] task_completed (v1 fallback)', event.payload)
     codex.handleTurnCompleted()
   })
 
   // --- Item lifecycle (v2) ---
-  await listen<Record<string, unknown>>('codex://item/started', (event) => {
+  await win.listen<Record<string, unknown>>('codex://item/started', (event) => {
     const p = event.payload
     const item = p.item as Record<string, unknown> | undefined
     if (item) {
@@ -78,7 +79,7 @@ export async function initCodexRouter() {
     }
   })
 
-  await listen<Record<string, unknown>>('codex://item/completed', (event) => {
+  await win.listen<Record<string, unknown>>('codex://item/completed', (event) => {
     const p = event.payload
     const item = p.item as Record<string, unknown> | undefined
     if (item) {
@@ -90,7 +91,7 @@ export async function initCodexRouter() {
   })
 
   // --- Item lifecycle (v1 fallback) ---
-  await listen<Record<string, unknown>>('codex://codex/event/item_completed', (event) => {
+  await win.listen<Record<string, unknown>>('codex://codex/event/item_completed', (event) => {
     const p = event.payload
     const msg = p.msg as Record<string, unknown> | undefined
     const item = msg?.item as Record<string, unknown> | undefined
@@ -100,12 +101,12 @@ export async function initCodexRouter() {
   })
 
   // --- Auth ---
-  await listen<Record<string, unknown>>('codex://account/updated', (event) => {
+  await win.listen<Record<string, unknown>>('codex://account/updated', (event) => {
     const state = parseAccountUpdated(event.payload)
     codex.handleAuthUpdated(state)
   })
 
-  await listen('codex://account/login/completed', async () => {
+  await win.listen('codex://account/login/completed', async () => {
     try {
       const { codexAuthStatus } = await import('../lib/tauri')
       codex.handleAuthUpdated(await codexAuthStatus())
@@ -115,7 +116,7 @@ export async function initCodexRouter() {
   })
 
   // --- Approval requests ---
-  await listen<Record<string, unknown>>('codex://approval/command', (event) => {
+  await win.listen<Record<string, unknown>>('codex://approval/command', (event) => {
     console.log('[codex-event] approval/command', event.payload)
     const p = event.payload
     codex.pendingCommandApproval = {
@@ -130,7 +131,7 @@ export async function initCodexRouter() {
     }
   })
 
-  await listen<Record<string, unknown>>('codex://approval/file', (event) => {
+  await win.listen<Record<string, unknown>>('codex://approval/file', (event) => {
     console.log('[codex-event] approval/file', event.payload)
     const p = event.payload
     codex.pendingFileApproval = {
@@ -145,7 +146,7 @@ export async function initCodexRouter() {
   })
 
   // --- Error ---
-  await listen<{ message?: string }>('codex://error', (event) => {
+  await win.listen<{ message?: string }>('codex://error', (event) => {
     console.error('[codex-event] error', event.payload)
   })
 }

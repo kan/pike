@@ -521,6 +521,19 @@ pub fn run() {
                     }
                 }
 
+                // Per-window Codex cleanup
+                if let Some(state) = window.try_state::<codex::CodexState>() {
+                    let label = window.label().to_string();
+                    let sessions = state.sessions.clone();
+                    tokio::spawn(async move {
+                        let mut map = sessions.lock().await;
+                        if let Some(session) = map.remove(&label) {
+                            log::info!("[codex] Cleaning up session for window {label}");
+                            session.shutdown().await;
+                        }
+                    });
+                }
+
                 // Global cleanup only on main window destroy
                 if window.label() != "main" {
                     return;
@@ -607,14 +620,12 @@ pub fn run() {
             git::git_diff_commit,
             git::git_diff_lines,
             font::font_list_monospace,
-            codex::codex_connect,
-            codex::codex_disconnect,
             codex::codex_check_available,
+            codex::codex_start_session,
+            codex::codex_disconnect,
             codex::codex_auth_status,
             codex::codex_auth_login_chatgpt,
-            codex::codex_auth_cancel_login,
             codex::codex_auth_logout,
-            codex::codex_start_session,
             codex::codex_submit_turn,
             codex::codex_interrupt_turn,
             codex::codex_respond_approval,

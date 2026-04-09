@@ -50,7 +50,7 @@ async function ensureConnected() {
   if (codex.connected) return
   const project = projectStore.currentProject
   if (!project) return
-  await codex.startSession(project.shell, project.root)
+  await codex.startSession(project.shell, project.root, project.codexThreadId)
 }
 
 async function submit() {
@@ -369,6 +369,12 @@ onMounted(async () => {
 .msg-text :deep(pre code) {
   background: none;
   padding: 0;
+}
+
+.msg-text :deep(a) {
+  color: var(--accent);
+  text-decoration: none;
+  pointer-events: none;
 }
 
 .msg-text :deep(p) {
