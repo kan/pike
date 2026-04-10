@@ -24,7 +24,7 @@ async function respond(decision: ApprovalDecision) {
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="approval-overlay" @click="respond('cancel')">
+    <div v-if="show" class="approval-overlay">
       <div class="approval-dialog" @click.stop>
         <!-- Sandbox warning for Windows -->
         <div v-if="!sandboxTrusted" class="sandbox-warning">
