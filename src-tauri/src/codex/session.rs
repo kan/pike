@@ -236,6 +236,23 @@ impl ThreadSession {
         Ok(())
     }
 
+    pub async fn rollback_turn(&self) -> Result<(), String> {
+        let thread_id = self
+            .thread_id
+            .lock()
+            .await
+            .clone()
+            .ok_or("No active thread")?;
+
+        let _: serde_json::Value = self
+            .client
+            .request("thread/rollback", &json!({ "threadId": thread_id }))
+            .await?;
+
+        log::info!("[codex-session] Turn rolled back");
+        Ok(())
+    }
+
     pub async fn interrupt_turn(&self) -> Result<(), String> {
         let thread_id = self
             .thread_id

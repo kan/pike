@@ -428,6 +428,10 @@ export async function codexCompactThread(): Promise<void> {
   return invoke('codex_compact_thread')
 }
 
+export async function codexRollbackTurn(): Promise<void> {
+  return invoke('codex_rollback_turn')
+}
+
 export type ApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'cancel'
 
 export async function codexRespondApproval(requestId: number | string, decision: ApprovalDecision): Promise<void> {

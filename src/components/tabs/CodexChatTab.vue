@@ -3,12 +3,14 @@ import DOMPurify from 'dompurify'
 import {
   AlertTriangle,
   Bot,
+  BrainCircuit,
   FileCode,
   FileEdit,
   Loader,
   LogIn,
   LogOut,
   MessageSquarePlus,
+  Search,
   Send,
   Square,
   Terminal as TerminalIcon,
@@ -20,17 +22,22 @@ import { basename, fuzzyMatch, toRelativePath } from '../../lib/paths'
 import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../lib/tauri'
 import { useCodexStore } from '../../stores/codex'
 import { useProjectStore } from '../../stores/project'
+import { useTabStore } from '../../stores/tabs'
 import { isWindowsShell } from '../../types/tab'
+import type { TurnItem } from '../../types/codex'
 import ApprovalDialog from '../codex/ApprovalDialog.vue'
 
 const { t } = useI18n()
 const codex = useCodexStore()
 const projectStore = useProjectStore()
+const tabStore = useTabStore()
 
 const input = ref('')
 const messageListRef = ref<HTMLDivElement | null>(null)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const userScrolledUp = ref(false)
+const searchQuery = ref('')
+const showSearch = ref(false)
 
 const marked = new Marked()
 
@@ -47,6 +54,69 @@ function renderMarkdown(text: string): string {
   // Only cache completed (non-streaming) text to avoid unbounded growth
   if (text.length > 0 && text.length < 50000) mdCache.set(text, html)
   return html
+}
+
+// Search
+const searchMatchIds = computed(() => {
+  if (!searchQuery.value) return new Set<string>()
+  const q = searchQuery.value.toLowerCase()
+  const ids = new Set<string>()
+  for (const m of codex.messages) {
+    if (m.text.toLowerCase().includes(q)) ids.add(m.id)
+    for (const seg of m.segments) {
+      if (seg.kind === 'text' && seg.text.toLowerCase().includes(q)) {
+        ids.add(m.id)
+        break
+      }
+    }
+  }
+  return ids
+})
+const searchMatchList = computed(() => codex.messages.filter((m) => searchMatchIds.value.has(m.id)))
+const searchCurrentIdx = ref(0)
+
+function toggleSearch() {
+  showSearch.value = !showSearch.value
+  if (!showSearch.value) {
+    searchQuery.value = ''
+    searchCurrentIdx.value = 0
+  } else {
+    nextTick(() => {
+      const el = document.querySelector('.search-input') as HTMLInputElement | null
+      el?.focus()
+    })
+  }
+}
+
+function searchNav(delta: number) {
+  const count = searchMatchList.value.length
+  if (count === 0) return
+  searchCurrentIdx.value = (searchCurrentIdx.value + delta + count) % count
+  scrollToSearchMatch()
+}
+
+function scrollToSearchMatch() {
+  const msg = searchMatchList.value[searchCurrentIdx.value]
+  if (!msg) return
+  const el = messageListRef.value?.querySelector(`[data-msg-id="${msg.id}"]`) as HTMLElement | null
+  el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+/** Extract reasoning text from a TurnItem, checking multiple possible field names. */
+function reasoningSummary(item: TurnItem): string | null {
+  for (const key of ['summary', 'text', 'content']) {
+    const v = item.data[key]
+    if (typeof v === 'string' && v.trim()) return v
+  }
+  return null
+}
+
+// Open diff tab for a FileChange item
+function openFileChangeDiff(item: TurnItem) {
+  const filePath = item.data.filePath as string | undefined
+  const diff = item.data.diff as string | undefined
+  if (!filePath) return
+  tabStore.addDiffTab({ filePath, diff: diff ?? '' })
 }
 
 async function startNewConversation() {
@@ -94,6 +164,7 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/read', description: t('codex.cmdRead'), hasArgs: true },
   { name: '/diff', description: t('codex.cmdDiff'), hasArgs: false },
   { name: '/model', description: t('codex.cmdModel'), hasArgs: true },
+  { name: '/rollback', description: t('codex.cmdRollback'), hasArgs: false },
   { name: '/sandbox', description: t('codex.cmdSandbox'), hasArgs: true },
   { name: '/approval', description: t('codex.cmdApproval'), hasArgs: true },
 ]
@@ -149,6 +220,15 @@ async function handleSlashCommand(text: string): Promise<boolean> {
         codex.addSystemMessage(t('codex.compacting'))
         await codex.compactThread()
         codex.addSystemMessage(t('codex.compactDone'))
+      } catch (e) {
+        codex.addSystemMessage(`Error: ${e}`)
+      }
+      return true
+
+    case '/rollback':
+      try {
+        await codex.rollbackTurn()
+        codex.addSystemMessage(t('codex.rollbackDone'))
       } catch (e) {
         codex.addSystemMessage(`Error: ${e}`)
       }
@@ -647,6 +727,9 @@ onUnmounted(() => {
       <div v-else class="auth-bar auth-bar-ok">
         <span>{{ codex.authState.status === 'authenticated' ? (codex.authState as { email: string | null }).email ?? 'ChatGPT' : '' }}</span>
         <div class="auth-actions">
+          <button class="btn-sm btn-ghost" :title="t('codex.search')" @click="toggleSearch">
+            <Search :size="14" :stroke-width="2" />
+          </button>
           <button class="btn-sm btn-ghost" :title="t('codex.newConversation')" @click="startNewConversation">
             <MessageSquarePlus :size="14" :stroke-width="2" />
           </button>
@@ -673,6 +756,24 @@ onUnmounted(() => {
         <span>{{ codex.versionWarning }}</span>
       </div>
 
+      <!-- Search bar -->
+      <div v-if="showSearch" class="search-bar">
+        <Search :size="14" :stroke-width="2" class="search-icon" />
+        <input
+          v-model="searchQuery"
+          :placeholder="t('codex.searchPlaceholder')"
+          class="search-input"
+          @keydown.escape="toggleSearch"
+          @keydown.enter.exact="searchNav(1)"
+          @keydown.shift.enter="searchNav(-1)"
+        />
+        <template v-if="searchQuery">
+          <span class="search-count">{{ searchMatchList.length > 0 ? searchCurrentIdx + 1 : 0 }} / {{ searchMatchList.length }}</span>
+          <button class="btn-search-nav" @click="searchNav(-1)" :disabled="searchMatchList.length === 0">&uarr;</button>
+          <button class="btn-search-nav" @click="searchNav(1)" :disabled="searchMatchList.length === 0">&darr;</button>
+        </template>
+      </div>
+
       <!-- Messages -->
       <div class="message-list" ref="messageListRef" @scroll="onScroll">
         <div v-if="codex.messages.length === 0" class="empty-chat">
@@ -682,8 +783,9 @@ onUnmounted(() => {
         <div
           v-for="msg in codex.messages"
           :key="msg.id"
+          :data-msg-id="msg.id"
           class="message"
-          :class="msg.role"
+          :class="[msg.role, { 'search-hit': searchQuery && searchMatchIds.has(msg.id), 'search-current': searchMatchList[searchCurrentIdx]?.id === msg.id }]"
         >
           <div v-if="msg.role === 'user'" class="msg-user">{{ msg.text }}</div>
           <div v-else class="msg-agent">
@@ -709,7 +811,7 @@ onUnmounted(() => {
                     </details>
                   </template>
                   <template v-else-if="seg.item.type === 'fileChange'">
-                    <div class="item-command">
+                    <div class="item-command item-clickable" @click="openFileChangeDiff(seg.item)">
                       <Loader v-if="!seg.item.completed" :size="12" :stroke-width="2" class="spin item-icon" />
                       <FileEdit v-else :size="12" :stroke-width="2" class="item-icon" />
                       <span v-if="seg.item.data.filePath" class="item-filepath">{{ seg.item.data.filePath }}</span>
@@ -719,6 +821,15 @@ onUnmounted(() => {
                         <span v-if="seg.item.data.deletions" class="diff-del">-{{ seg.item.data.deletions }}</span>
                       </span>
                     </div>
+                  </template>
+                  <template v-else-if="seg.item.type === 'reasoning' && reasoningSummary(seg.item)">
+                    <details class="item-details">
+                      <summary class="item-command item-reasoning">
+                        <BrainCircuit :size="12" :stroke-width="2" class="item-icon" />
+                        <span>{{ t('codex.reasoning') }}</span>
+                      </summary>
+                      <div class="item-reasoning-text" v-html="renderMarkdown(reasoningSummary(seg.item)!)" />
+                    </details>
                   </template>
                 </div>
               </template>
@@ -1051,6 +1162,95 @@ onUnmounted(() => {
   white-space: pre-wrap;
   word-break: break-all;
   color: var(--text-secondary);
+}
+
+.item-clickable {
+  cursor: pointer;
+}
+
+.item-clickable:hover {
+  background: var(--tab-hover-bg);
+}
+
+.item-reasoning {
+  color: var(--text-secondary);
+}
+
+.item-reasoning-text {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.item-reasoning-text :deep(p) {
+  margin: 0 0 4px;
+}
+
+/* Search bar */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.search-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.search-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.btn-search-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-search-nav:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--tab-hover-bg);
+}
+
+.btn-search-nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.message.search-hit {
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+}
+
+.message.search-current {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-left-color: var(--accent);
 }
 
 .info-bar {

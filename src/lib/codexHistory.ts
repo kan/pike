@@ -36,7 +36,7 @@ function txStore(db: IDBDatabase, mode: IDBTransactionMode): IDBObjectStore {
 export async function saveChatHistory(threadId: string, messages: ChatMessage[]): Promise<void> {
   try {
     const db = await openDb()
-    const trimmed = messages.slice(-MAX_MESSAGES).map((m) => structuredClone(toRaw(m)))
+    const trimmed = JSON.parse(JSON.stringify(messages.slice(-MAX_MESSAGES).map(toRaw)))
     return new Promise((resolve, reject) => {
       const req = txStore(db, 'readwrite').put(trimmed, threadId)
       req.onsuccess = () => resolve()

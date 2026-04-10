@@ -11,6 +11,7 @@ import {
   codexAuthStatus,
   codexCheckAvailable,
   codexCompactThread,
+  codexRollbackTurn,
   codexDisconnect,
   codexInterruptTurn,
   codexModelList,
@@ -301,6 +302,22 @@ export const useCodexStore = defineStore('codex', () => {
     selectedModel.value = modelId
   }
 
+  async function rollbackTurn() {
+    try {
+      await codexRollbackTurn()
+      // Remove the last agent + user message pair from the UI
+      while (messages.value.length > 0) {
+        const last = messages.value[messages.value.length - 1]
+        messages.value.pop()
+        if (last.role === 'user') break
+      }
+      persistHistory()
+    } catch (e) {
+      console.error('[codex] rollback error:', e)
+      throw e
+    }
+  }
+
   async function compactThread() {
     try {
       await codexCompactThread()
@@ -499,6 +516,7 @@ export const useCodexStore = defineStore('codex', () => {
     logout,
     submitTurn,
     compactThread,
+    rollbackTurn,
     listModels,
     setModel,
     interruptTurn,

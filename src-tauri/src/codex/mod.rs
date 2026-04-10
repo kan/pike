@@ -245,6 +245,17 @@ pub async fn codex_interrupt_turn(
     sess.interrupt_turn().await
 }
 
+/// Roll back the last turn for this window's session.
+#[tauri::command]
+pub async fn codex_rollback_turn(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, CodexState>,
+) -> Result<(), String> {
+    let sessions = state.sessions.lock().await;
+    let sess = get_thread_session(&sessions, window.label())?;
+    sess.rollback_turn().await
+}
+
 /// Compact the current thread's context.
 #[tauri::command]
 pub async fn codex_compact_thread(

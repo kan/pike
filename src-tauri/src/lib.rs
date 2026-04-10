@@ -630,6 +630,7 @@ pub fn run() {
             codex::codex_submit_turn,
             codex::codex_interrupt_turn,
             codex::codex_respond_approval,
+            codex::codex_rollback_turn,
             codex::codex_compact_thread,
             codex::codex_model_list,
         ])

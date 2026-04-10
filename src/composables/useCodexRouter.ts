@@ -107,10 +107,11 @@ export async function initCodexRouter() {
         command: item.command as string | undefined,
         status: item.status as string | undefined,
       }
-      // Enrich fileChange items with file path and reason
       if (type === 'fileChange') {
         data.filePath = item.filePath as string | undefined
         data.reason = item.reason as string | undefined
+      } else if (type === 'reasoning') {
+        data.summary = item.summary as string | undefined
       }
       codex.handleItemStarted({ type, id: (item.id as string) ?? '', data, completed: false })
     }
@@ -124,7 +125,9 @@ export async function initCodexRouter() {
         exitCode: item.exitCode as number | undefined,
         text: item.text as string | undefined,
       }
-      // Enrich fileChange completion with additions/deletions
+      if (item.type === 'reasoning') {
+        completedData.summary = item.summary as string | undefined
+      }
       if (item.type === 'fileChange') {
         completedData.filePath = item.filePath as string | undefined
         completedData.additions = item.additions as number | undefined
