@@ -27,11 +27,36 @@ import type {
   FileChangeApprovalRequest,
   TurnItem,
 } from '../types/codex'
-import type { ShellType } from '../types/tab'
+import { isWindowsShell, type ShellType } from '../types/tab'
 import { useProjectStore } from './project'
 import { useTabStore } from './tabs'
 
 let msgCounter = 0
+
+// ---------------------------------------------------------------------------
+// Per-project Codex settings (localStorage)
+// ---------------------------------------------------------------------------
+
+const CODEX_SETTINGS_PREFIX = 'pike:codex:'
+
+interface CodexProjectSettings {
+  sandboxMode: string | null
+  approvalPolicy: string | null
+}
+
+function loadCodexProjectSettings(projectId: string): CodexProjectSettings {
+  try {
+    const raw = localStorage.getItem(`${CODEX_SETTINGS_PREFIX}${projectId}`)
+    if (raw) return { sandboxMode: null, approvalPolicy: null, ...JSON.parse(raw) }
+  } catch {
+    /* ignore */
+  }
+  return { sandboxMode: null, approvalPolicy: null }
+}
+
+function saveCodexProjectSettings(projectId: string, settings: CodexProjectSettings) {
+  localStorage.setItem(`${CODEX_SETTINGS_PREFIX}${projectId}`, JSON.stringify(settings))
+}
 
 /** Cached editor context — persists after switching away from the editor tab. */
 let lastEditorContext: CodexEditorContext | null = null
@@ -100,6 +125,10 @@ export const useCodexStore = defineStore('codex', () => {
   const detectedInstructionsFile = ref<string | null>(null)
   const selectedModel = ref<string | null>(null)
   const availableModels = ref<CodexModelInfo[]>([])
+  const tokenUsage = ref<{ input: number; output: number } | null>(null)
+  const disconnectReason = ref<string | null>(null)
+  const sandboxMode = ref<string | null>(null)
+  const approvalPolicy = ref<string | null>(null)
 
   function currentAgentMsg(): ChatMessage | undefined {
     for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -120,14 +149,29 @@ export const useCodexStore = defineStore('codex', () => {
         throw new Error(`Codex CLI not found: ${e}`)
       }
 
-      const tid = await codexStartSession(shell, cwd, threadId ?? null)
+      // Load per-project Codex settings
+      const projectStore = useProjectStore()
+      const projectId = projectStore.currentProject?.id
+      if (projectId) {
+        const projSettings = loadCodexProjectSettings(projectId)
+        sandboxMode.value = projSettings.sandboxMode
+        approvalPolicy.value = projSettings.approvalPolicy
+      }
+      // Windows (non-WSL) always uses externalSandbox
+      const effectiveSandbox = isWindowsShell(shell) ? 'externalSandbox' : sandboxMode.value
+      const tid = await codexStartSession(shell, cwd, threadId ?? null, effectiveSandbox, approvalPolicy.value)
       currentThreadId.value = tid
       connected.value = true
+      disconnectReason.value = null
+      tokenUsage.value = null
 
-      // Restore chat history from IndexedDB
-      const history = await loadChatHistory(tid)
-      if (history.length > 0) {
-        messages.value = history
+      // Restore chat history from IndexedDB (only if messages are empty — preserves
+      // in-memory messages across disconnect/reconnect cycles)
+      if (messages.value.length === 0) {
+        const history = await loadChatHistory(tid)
+        if (history.length > 0) {
+          messages.value = history
+        }
       }
 
       // Persist threadId to project config for session resumption
@@ -207,16 +251,17 @@ export const useCodexStore = defineStore('codex', () => {
     }
   }
 
-  async function submitTurn(prompt: string) {
+  async function submitTurn(prompt: string, displayText?: string) {
     const userMsg: ChatMessage = {
       id: `msg-${++msgCounter}`,
       role: 'user',
-      text: prompt,
+      text: displayText ?? prompt,
       segments: [],
       items: [],
       completed: true,
     }
     messages.value.push(userMsg)
+    persistHistory()
 
     const agentMsg: ChatMessage = {
       id: `msg-${++msgCounter}`,
@@ -297,10 +342,15 @@ export const useCodexStore = defineStore('codex', () => {
     persistHistory()
   }
 
+  let persistTimer: ReturnType<typeof setTimeout> | null = null
   function persistHistory() {
-    if (currentThreadId.value) {
-      saveChatHistory(currentThreadId.value, messages.value).catch(() => {})
-    }
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      if (currentThreadId.value) {
+        saveChatHistory(currentThreadId.value, messages.value).catch(() => {})
+      }
+    }, 300)
   }
 
   function handleItemStarted(item: TurnItem) {
@@ -358,6 +408,37 @@ export const useCodexStore = defineStore('codex', () => {
     authState.value = state
   }
 
+  function updateProjectSetting<K extends keyof CodexProjectSettings>(field: K, value: CodexProjectSettings[K]) {
+    const projectId = useProjectStore().currentProject?.id
+    if (projectId) {
+      const s = loadCodexProjectSettings(projectId)
+      s[field] = value
+      saveCodexProjectSettings(projectId, s)
+    }
+  }
+
+  function setSandboxMode(mode: string | null) {
+    sandboxMode.value = mode
+    updateProjectSetting('sandboxMode', mode)
+  }
+
+  function setApprovalPolicy(policy: string | null) {
+    approvalPolicy.value = policy
+    updateProjectSetting('approvalPolicy', policy)
+  }
+
+  function handleTokenUsage(usage: { input: number; output: number }) {
+    tokenUsage.value = usage
+  }
+
+  function handleDisconnect(reason: string) {
+    connected.value = false
+    isGenerating.value = false
+    disconnectReason.value = reason
+    const msg = currentAgentMsg()
+    if (msg) msg.completed = true
+  }
+
   async function respondApproval(requestId: number | string, decision: ApprovalDecision) {
     await codexRespondApproval(requestId, decision)
     pendingCommandApproval.value = null
@@ -373,6 +454,7 @@ export const useCodexStore = defineStore('codex', () => {
       items: [],
       completed: true,
     })
+    persistHistory()
   }
 
   function clearMessages() {
@@ -406,6 +488,10 @@ export const useCodexStore = defineStore('codex', () => {
     scrollTrigger,
     detectedInstructionsFile,
     selectedModel,
+    tokenUsage,
+    disconnectReason,
+    sandboxMode,
+    approvalPolicy,
     availableModels,
     startSession,
     disconnect,
@@ -423,6 +509,10 @@ export const useCodexStore = defineStore('codex', () => {
     handleItemCompleted,
     handleAuthUpdated,
     respondApproval,
+    setSandboxMode,
+    setApprovalPolicy,
+    handleTokenUsage,
+    handleDisconnect,
     addSystemMessage,
     clearMessages,
     newConversation,

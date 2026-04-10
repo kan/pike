@@ -119,6 +119,8 @@ export default {
   'settings.upToDate': 'You are up to date',
   'settings.updateError': 'Update check failed',
   'settings.terminalExitNotification': 'Desktop notification on exit',
+  'settings.codex': 'Codex',
+  'settings.codexNotification': 'Codex desktop notifications',
   'settings.inotifyMissing':
     'File watching is not available. Install inotify-tools in WSL to enable automatic file change detection:',
 
@@ -294,4 +296,20 @@ export default {
   'codex.modelAvailable': 'Available models',
   'codex.modelUsage': 'Use `/model <id>` to switch.',
   'codex.modelSet': 'Model switched to',
+  'codex.disconnected': 'Codex process disconnected.',
+  'codex.reconnect': 'Reconnect',
+  'codex.cmdSandbox': 'View or set sandbox mode (WSL only)',
+  'codex.cmdApproval': 'View or set approval policy',
+  'codex.sandboxCurrent': 'Current sandbox mode',
+  'codex.sandboxUsage': 'Use `/sandbox <mode>` to change. Modes: `workspaceWrite`, `dangerFullAccess`, `default`',
+  'codex.sandboxSet': 'Sandbox mode set to',
+  'codex.sandboxRestart': 'Restart the conversation (`/clear`) to apply.',
+  'codex.sandboxInvalid': 'Invalid mode. Valid options',
+  'codex.sandboxWindowsFixed': 'Sandbox mode is fixed to `externalSandbox` on Windows.',
+  'codex.approvalCurrent': 'Current approval policy',
+  'codex.approvalUsage':
+    'Use `/approval <policy>` to change. Policies: `untrusted`, `on-failure`, `on-request`, `never`, `default`',
+  'codex.approvalSet': 'Approval policy set to',
+  'codex.approvalRestart': 'Restart the conversation (`/clear`) to apply.',
+  'codex.approvalInvalid': 'Invalid policy. Valid options',
 } as Record<string, string>

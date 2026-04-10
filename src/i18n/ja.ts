@@ -119,6 +119,8 @@ export default {
   'settings.upToDate': '最新です',
   'settings.updateError': '更新の確認に失敗しました',
   'settings.terminalExitNotification': 'プロセス終了時にデスクトップ通知',
+  'settings.codex': 'Codex',
+  'settings.codexNotification': 'Codex デスクトップ通知',
   'settings.inotifyMissing':
     'ファイル監視が利用できません。WSL に inotify-tools をインストールすると、ファイル変更の自動検知が有効になります:',
 
@@ -295,4 +297,20 @@ export default {
   'codex.modelAvailable': '利用可能なモデル',
   'codex.modelUsage': '`/model <id>` で切り替えできます。',
   'codex.modelSet': 'モデルを切り替えました',
+  'codex.disconnected': 'Codex プロセスが切断されました。',
+  'codex.reconnect': '再接続',
+  'codex.cmdSandbox': 'Sandbox モードの表示・設定（WSL のみ）',
+  'codex.cmdApproval': '承認ポリシーの表示・設定',
+  'codex.sandboxCurrent': '現在の Sandbox モード',
+  'codex.sandboxUsage': '`/sandbox <mode>` で変更。モード: `workspaceWrite`, `dangerFullAccess`, `default`',
+  'codex.sandboxSet': 'Sandbox モードを設定しました',
+  'codex.sandboxRestart': '会話を再起動（`/clear`）すると反映されます。',
+  'codex.sandboxInvalid': '無効なモードです。有効な値',
+  'codex.sandboxWindowsFixed': 'Windows 環境では Sandbox モードは `externalSandbox` 固定です。',
+  'codex.approvalCurrent': '現在の承認ポリシー',
+  'codex.approvalUsage':
+    '`/approval <policy>` で変更。ポリシー: `untrusted`, `on-failure`, `on-request`, `never`, `default`',
+  'codex.approvalSet': '承認ポリシーを設定しました',
+  'codex.approvalRestart': '会話を再起動（`/clear`）すると反映されます。',
+  'codex.approvalInvalid': '無効なポリシーです。有効な値',
 } as Record<string, string>

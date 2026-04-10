@@ -64,11 +64,19 @@ impl ThreadSession {
         }
     }
 
-    pub async fn start_thread(&self, cwd: &str) -> Result<String, String> {
+    pub async fn start_thread(
+        &self,
+        cwd: &str,
+        sandbox_override: Option<&str>,
+        approval_override: Option<&str>,
+    ) -> Result<String, String> {
         let linux_cwd = self.runtime.translate_path_to_codex(cwd);
-        let sandbox_policy = self.runtime.default_sandbox_policy();
+        let sandbox_policy = sandbox_override
+            .map(|s| json!({"type": s}))
+            .unwrap_or_else(|| self.runtime.default_sandbox_policy());
         let sandbox_trusted = self.runtime.codex_sandbox_trusted();
-        let approval = if sandbox_trusted { "on-request" } else { "untrusted" };
+        let approval = approval_override
+            .unwrap_or(if sandbox_trusted { "on-request" } else { "untrusted" });
 
         // Load AGENTS.md or CLAUDE.md as developer instructions
         let developer_instructions = load_developer_instructions(cwd);
@@ -266,6 +274,12 @@ impl ThreadSession {
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                             log::info!("[codex-notif] Channel closed for {target}");
+                            // Notify frontend that the Codex process has disconnected
+                            let _ = app.emit_to(
+                                &target,
+                                "codex://disconnect",
+                                &json!({"reason": "channel_closed"}),
+                            );
                             break;
                         }
                     }

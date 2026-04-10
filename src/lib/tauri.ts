@@ -377,8 +377,20 @@ export async function codexAuthLogout(): Promise<void> {
   return invoke('codex_auth_logout')
 }
 
-export async function codexStartSession(shell: ShellType, cwd: string, threadId: string | null): Promise<string> {
-  return invoke<string>('codex_start_session', { shell, cwd, threadId })
+export async function codexStartSession(
+  shell: ShellType,
+  cwd: string,
+  threadId: string | null,
+  sandboxMode?: string | null,
+  approvalPolicy?: string | null,
+): Promise<string> {
+  return invoke<string>('codex_start_session', {
+    shell,
+    cwd,
+    threadId,
+    sandboxMode: sandboxMode ?? null,
+    approvalPolicy: approvalPolicy ?? null,
+  })
 }
 
 export interface CodexEditorContext {

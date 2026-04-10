@@ -102,15 +102,17 @@ export async function initCodexRouter() {
     const p = event.payload
     const item = p.item as Record<string, unknown> | undefined
     if (item) {
-      codex.handleItemStarted({
-        type: (item.type as string) ?? 'unknown',
-        id: (item.id as string) ?? '',
-        data: {
-          command: item.command as string | undefined,
-          status: item.status as string | undefined,
-        },
-        completed: false,
-      })
+      const type = (item.type as string) ?? 'unknown'
+      const data: Record<string, unknown> = {
+        command: item.command as string | undefined,
+        status: item.status as string | undefined,
+      }
+      // Enrich fileChange items with file path and reason
+      if (type === 'fileChange') {
+        data.filePath = item.filePath as string | undefined
+        data.reason = item.reason as string | undefined
+      }
+      codex.handleItemStarted({ type, id: (item.id as string) ?? '', data, completed: false })
     }
   })
 
@@ -118,10 +120,17 @@ export async function initCodexRouter() {
     const p = event.payload
     const item = p.item as Record<string, unknown> | undefined
     if (item) {
-      codex.handleItemCompleted((item.id as string) ?? '', {
+      const completedData: Record<string, unknown> = {
         exitCode: item.exitCode as number | undefined,
         text: item.text as string | undefined,
-      })
+      }
+      // Enrich fileChange completion with additions/deletions
+      if (item.type === 'fileChange') {
+        completedData.filePath = item.filePath as string | undefined
+        completedData.additions = item.additions as number | undefined
+        completedData.deletions = item.deletions as number | undefined
+      }
+      codex.handleItemCompleted((item.id as string) ?? '', completedData)
     }
   })
 
@@ -189,6 +198,25 @@ export async function initCodexRouter() {
       markCodexActivity()
       notify?.('Codex', 'File change approval required', focusCodexTab)
     }
+  })
+
+  // --- Token usage ---
+  await win.listen<Record<string, unknown>>('codex://thread/tokenUsage/updated', (event) => {
+    const p = event.payload
+    const usage = p.usage as Record<string, unknown> | undefined
+    if (usage) {
+      codex.handleTokenUsage({
+        input: (usage.inputTokens as number) ?? (usage.input as number) ?? 0,
+        output: (usage.outputTokens as number) ?? (usage.output as number) ?? 0,
+      })
+    }
+  })
+
+  // --- Disconnect ---
+  await win.listen<Record<string, unknown>>('codex://disconnect', (event) => {
+    const reason = (event.payload?.reason as string) ?? 'unknown'
+    console.warn('[codex-event] disconnect:', reason)
+    codex.handleDisconnect(reason)
   })
 
   // --- Error ---

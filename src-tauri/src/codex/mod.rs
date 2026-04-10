@@ -78,10 +78,13 @@ pub async fn codex_check_available(shell: ShellConfig) -> Result<String, String>
 
 /// Start a Codex session for this window: connect, authenticate, start/resume thread.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn codex_start_session(
     shell: ShellConfig,
     cwd: String,
     thread_id: Option<String>,
+    sandbox_mode: Option<String>,
+    approval_policy: Option<String>,
     window: tauri::WebviewWindow,
     app: tauri::AppHandle,
     state: tauri::State<'_, CodexState>,
@@ -110,16 +113,18 @@ pub async fn codex_start_session(
     );
 
     // Start or resume thread
+    let sandbox_ref = sandbox_mode.as_deref();
+    let approval_ref = approval_policy.as_deref();
     let tid = if let Some(existing_tid) = thread_id {
         match sess.resume_thread(&existing_tid, &cwd).await {
             Ok(()) => existing_tid,
             Err(e) => {
                 log::warn!("[codex] Failed to resume thread {existing_tid}: {e}, starting new");
-                sess.start_thread(&cwd).await?
+                sess.start_thread(&cwd, sandbox_ref, approval_ref).await?
             }
         }
     } else {
-        sess.start_thread(&cwd).await?
+        sess.start_thread(&cwd, sandbox_ref, approval_ref).await?
     };
 
     // Start event forwarding

@@ -20,6 +20,7 @@ import { basename, fuzzyMatch, toRelativePath } from '../../lib/paths'
 import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../lib/tauri'
 import { useCodexStore } from '../../stores/codex'
 import { useProjectStore } from '../../stores/project'
+import { isWindowsShell } from '../../types/tab'
 import ApprovalDialog from '../codex/ApprovalDialog.vue'
 
 const { t } = useI18n()
@@ -53,11 +54,28 @@ async function startNewConversation() {
   await ensureConnected()
 }
 
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
+let connecting = false
+async function reconnect() {
+  codex.disconnectReason = null
+  await ensureConnected()
+}
+
 async function ensureConnected() {
-  if (codex.connected) return
-  const project = projectStore.currentProject
-  if (!project) return
-  await codex.startSession(project.shell, project.root, project.codexThreadId)
+  if (codex.connected || connecting) return
+  connecting = true
+  try {
+    const project = projectStore.currentProject
+    if (!project) return
+    await codex.startSession(project.shell, project.root, project.codexThreadId)
+  } finally {
+    connecting = false
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +94,8 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/read', description: t('codex.cmdRead'), hasArgs: true },
   { name: '/diff', description: t('codex.cmdDiff'), hasArgs: false },
   { name: '/model', description: t('codex.cmdModel'), hasArgs: true },
+  { name: '/sandbox', description: t('codex.cmdSandbox'), hasArgs: true },
+  { name: '/approval', description: t('codex.cmdApproval'), hasArgs: true },
 ]
 
 const showSlashMenu = ref(false)
@@ -108,7 +128,11 @@ function selectSlashCommand(cmd: SlashCommand) {
     input.value = cmd.name
   }
   showSlashMenu.value = false
-  inputRef.value?.focus()
+  // Trigger completion menu for commands with args (programmatic value change doesn't fire input event)
+  nextTick(() => {
+    onInput()
+    inputRef.value?.focus()
+  })
 }
 
 async function handleSlashCommand(text: string): Promise<boolean> {
@@ -195,6 +219,46 @@ async function handleSlashCommand(text: string): Promise<boolean> {
       return true
     }
 
+    case '/sandbox': {
+      const arg = parts.slice(1).join(' ').trim()
+      const project = projectStore.currentProject
+      const isWindows = project && isWindowsShell(project.shell)
+      if (isWindows) {
+        codex.addSystemMessage(t('codex.sandboxWindowsFixed'))
+        return true
+      }
+      if (!arg) {
+        const current = codex.sandboxMode ?? '(default)'
+        codex.addSystemMessage(`${t('codex.sandboxCurrent')}: **${current}**\n\n${t('codex.sandboxUsage')}`)
+      } else {
+        const valid = ['workspaceWrite', 'dangerFullAccess', 'default']
+        if (valid.includes(arg)) {
+          codex.setSandboxMode(arg === 'default' ? null : arg)
+          codex.addSystemMessage(`${t('codex.sandboxSet')}: **${arg}**\n\n${t('codex.sandboxRestart')}`)
+        } else {
+          codex.addSystemMessage(`${t('codex.sandboxInvalid')}: ${valid.join(', ')}`)
+        }
+      }
+      return true
+    }
+
+    case '/approval': {
+      const arg = parts.slice(1).join(' ').trim()
+      if (!arg) {
+        const current = codex.approvalPolicy ?? '(default)'
+        codex.addSystemMessage(`${t('codex.approvalCurrent')}: **${current}**\n\n${t('codex.approvalUsage')}`)
+      } else {
+        const valid = ['untrusted', 'on-failure', 'on-request', 'never', 'default']
+        if (valid.includes(arg)) {
+          codex.setApprovalPolicy(arg === 'default' ? null : arg)
+          codex.addSystemMessage(`${t('codex.approvalSet')}: **${arg}**\n\n${t('codex.approvalRestart')}`)
+        } else {
+          codex.addSystemMessage(`${t('codex.approvalInvalid')}: ${valid.join(', ')}`)
+        }
+      }
+      return true
+    }
+
     default:
       return false
   }
@@ -208,7 +272,8 @@ const showMentionMenu = ref(false)
 const mentionFilter = ref('')
 const mentionSelectedIdx = ref(0)
 const mentionAnchorPos = ref(-1) // caret position of the '@' or start of path
-const mentionMode = ref<'at' | 'slash-read'>('at') // which context triggered the menu
+const mentionMode = ref<'at' | 'slash-read' | 'slash-options'>('at')
+const slashArgOptions = ref<string[]>([]) // fixed options for slash-options mode
 const projectFiles = ref<string[]>([])
 const projectFilesLoaded = ref(false)
 
@@ -220,11 +285,17 @@ const relativeFiles = computed(() => {
   return projectFiles.value.map((f) => toRelativePath(f, root))
 })
 
-const filteredMentionFiles = computed(() => {
+const filteredMentionItems = computed(() => {
+  // Fixed options mode (e.g. /sandbox, /approval)
+  if (mentionMode.value === 'slash-options') {
+    if (!mentionFilter.value) return slashArgOptions.value
+    const q = mentionFilter.value.toLowerCase()
+    return slashArgOptions.value.filter((o) => o.toLowerCase().startsWith(q))
+  }
+  // File completion mode
   const files = relativeFiles.value
   if (!mentionFilter.value) return files.slice(0, MAX_MENTION_RESULTS)
   const pat = mentionFilter.value
-  // Score: basename match ranks higher than path match
   const results: { path: string; score: number }[] = []
   for (const p of files) {
     const name = basename(p)
@@ -256,16 +327,27 @@ function updateMentionMenu() {
   const text = input.value
   const cursor = el.selectionStart ?? text.length
 
-  // Check for /read <partial> pattern first
-  const readMatch = text.match(/^\/read\s+(.*)$/i)
-  if (readMatch) {
-    const partial = readMatch[1]
+  // Check for slash commands with arg completion: /read, /sandbox, /approval
+  const argMatch = text.match(/^\/(read|sandbox|approval)\s+(.*)/i)
+  if (argMatch) {
+    const cmd = argMatch[1].toLowerCase()
+    const partial = argMatch[2]
+    // Anchor at the arg start position (after "/cmd ")
+    mentionAnchorPos.value = text.length - partial.length
     mentionFilter.value = partial
-    mentionAnchorPos.value = text.indexOf(readMatch[1])
     mentionSelectedIdx.value = 0
-    mentionMode.value = 'slash-read'
+
+    if (cmd === 'read') {
+      mentionMode.value = 'slash-read'
+      loadProjectFiles()
+    } else if (cmd === 'sandbox') {
+      mentionMode.value = 'slash-options'
+      slashArgOptions.value = ['workspaceWrite', 'dangerFullAccess', 'externalSandbox', 'default']
+    } else {
+      mentionMode.value = 'slash-options'
+      slashArgOptions.value = ['untrusted', 'on-failure', 'on-request', 'never', 'default']
+    }
     showMentionMenu.value = true
-    loadProjectFiles()
     return
   }
 
@@ -292,13 +374,14 @@ function updateMentionMenu() {
   }
 }
 
-function selectMentionFile(filePath: string) {
+function selectMentionItem(item: string) {
   const el = inputRef.value
   if (!el) return
 
-  if (mentionMode.value === 'slash-read') {
-    // Replace /read <partial> with /read <filePath>
-    input.value = `/read ${filePath}`
+  if (mentionMode.value === 'slash-read' || mentionMode.value === 'slash-options') {
+    // Replace command arg: /cmd <partial> → /cmd <item>
+    const cmdPrefix = input.value.slice(0, mentionAnchorPos.value)
+    input.value = `${cmdPrefix}${item}`
     showMentionMenu.value = false
     nextTick(() => {
       const newPos = input.value.length
@@ -306,14 +389,14 @@ function selectMentionFile(filePath: string) {
       el.focus()
     })
   } else {
-    // Replace @partial with @filePath
+    // Replace @partial with @item
     const cursor = el.selectionStart ?? input.value.length
     const before = input.value.slice(0, mentionAnchorPos.value)
     const after = input.value.slice(cursor)
-    input.value = `${before}@${filePath} ${after}`
+    input.value = `${before}@${item} ${after}`
     showMentionMenu.value = false
     nextTick(() => {
-      const newPos = before.length + 1 + filePath.length + 1
+      const newPos = before.length + 1 + item.length + 1
       el.setSelectionRange(newPos, newPos)
       el.focus()
     })
@@ -383,7 +466,7 @@ async function resolveFileMentions(text: string): Promise<{ cleanText: string; c
           .trim()
       : text
 
-  return { cleanText: cleanText || text, contextParts }
+  return { cleanText: cleanText || text, contextParts, resolvedPaths: [...resolvedMentions] }
 }
 
 // ---------------------------------------------------------------------------
@@ -391,8 +474,8 @@ async function resolveFileMentions(text: string): Promise<{ cleanText: string; c
 // ---------------------------------------------------------------------------
 
 function onInput() {
-  // Check for /read <path> — show file completion instead of slash menu
-  if (/^\/read\s+/i.test(input.value)) {
+  // Check for slash commands with arg completion
+  if (/^\/(read|sandbox|approval)\s+/i.test(input.value)) {
     showSlashMenu.value = false
     updateMentionMenu()
     return
@@ -421,10 +504,14 @@ async function submit() {
   }
 
   // Resolve @file mentions
-  const { cleanText, contextParts } = await resolveFileMentions(text)
-  const fullPrompt = contextParts.length > 0 ? `${contextParts.join('\n\n')}\n\n${cleanText}` : cleanText
-
-  await codex.submitTurn(fullPrompt)
+  const { cleanText, contextParts, resolvedPaths } = await resolveFileMentions(text)
+  if (contextParts.length > 0) {
+    const fullPrompt = `${contextParts.join('\n\n')}\n\n${cleanText}`
+    const displayText = `${resolvedPaths.map((p) => `@${p}`).join(' ')}\n${cleanText}`
+    await codex.submitTurn(fullPrompt, displayText)
+  } else {
+    await codex.submitTurn(cleanText)
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -459,7 +546,7 @@ function onKeydown(e: KeyboardEvent) {
   if (showMentionMenu.value) {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      mentionSelectedIdx.value = Math.min(mentionSelectedIdx.value + 1, filteredMentionFiles.value.length - 1)
+      mentionSelectedIdx.value = Math.min(mentionSelectedIdx.value + 1, filteredMentionItems.value.length - 1)
       return
     }
     if (e.key === 'ArrowUp') {
@@ -468,10 +555,10 @@ function onKeydown(e: KeyboardEvent) {
       return
     }
     if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-      const selected = filteredMentionFiles.value[mentionSelectedIdx.value]
+      const selected = filteredMentionItems.value[mentionSelectedIdx.value]
       if (selected) {
         e.preventDefault()
-        selectMentionFile(selected)
+        selectMentionItem(selected)
         return
       }
     }
@@ -534,8 +621,15 @@ onUnmounted(() => {
 
 <template>
   <div class="codex-chat-wrapper">
+    <!-- Disconnected — offer reconnect -->
+    <div v-if="codex.disconnectReason" class="auth-panel">
+      <AlertTriangle :size="32" :stroke-width="1.5" class="disconnect-icon" />
+      <p>{{ t('codex.disconnected') }}</p>
+      <button class="btn-primary" @click="reconnect">{{ t('codex.reconnect') }}</button>
+    </div>
+
     <!-- Connecting -->
-    <div v-if="!isConnected" class="auth-panel">
+    <div v-else-if="!isConnected" class="auth-panel">
       <Loader :size="32" :stroke-width="2" class="spin" />
       <p>{{ t('codex.connecting') }}</p>
     </div>
@@ -562,10 +656,15 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- AGENTS.md / CLAUDE.md indicator -->
-      <div v-if="codex.detectedInstructionsFile" class="instructions-indicator">
-        <FileCode :size="12" :stroke-width="2" />
-        <span>{{ codex.detectedInstructionsFile }} detected</span>
+      <!-- AGENTS.md / CLAUDE.md indicator + token usage -->
+      <div v-if="codex.detectedInstructionsFile || codex.tokenUsage" class="info-bar">
+        <span v-if="codex.detectedInstructionsFile" class="info-indicator instructions">
+          <FileCode :size="12" :stroke-width="2" />
+          {{ codex.detectedInstructionsFile }}
+        </span>
+        <span v-if="codex.tokenUsage" class="info-indicator tokens">
+          {{ formatTokens(codex.tokenUsage.input) }} in / {{ formatTokens(codex.tokenUsage.output) }} out
+        </span>
       </div>
 
       <!-- Version warning -->
@@ -613,7 +712,12 @@ onUnmounted(() => {
                     <div class="item-command">
                       <Loader v-if="!seg.item.completed" :size="12" :stroke-width="2" class="spin item-icon" />
                       <FileEdit v-else :size="12" :stroke-width="2" class="item-icon" />
-                      <span>{{ t('codex.fileChange') }}</span>
+                      <span v-if="seg.item.data.filePath" class="item-filepath">{{ seg.item.data.filePath }}</span>
+                      <span v-else>{{ t('codex.fileChange') }}</span>
+                      <span v-if="seg.item.completed && (seg.item.data.additions != null || seg.item.data.deletions != null)" class="item-diff-stats">
+                        <span v-if="seg.item.data.additions" class="diff-add">+{{ seg.item.data.additions }}</span>
+                        <span v-if="seg.item.data.deletions" class="diff-del">-{{ seg.item.data.deletions }}</span>
+                      </span>
                     </div>
                   </template>
                 </div>
@@ -650,18 +754,23 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- @ mention menu -->
-        <div v-if="showMentionMenu && filteredMentionFiles.length > 0" class="mention-menu">
+        <!-- Completion menu (files or options) -->
+        <div v-if="showMentionMenu && filteredMentionItems.length > 0" class="mention-menu">
           <div
-            v-for="(file, idx) in filteredMentionFiles"
-            :key="file"
+            v-for="(item, idx) in filteredMentionItems"
+            :key="item"
             class="mention-menu-item"
             :class="{ selected: idx === mentionSelectedIdx }"
-            @click="selectMentionFile(file)"
+            @click="selectMentionItem(item)"
             @mouseenter="mentionSelectedIdx = idx"
           >
-            <span class="mention-filename">{{ basename(file) }}</span>
-            <span class="mention-path">{{ file }}</span>
+            <template v-if="mentionMode === 'slash-options'">
+              <span class="mention-option">{{ item }}</span>
+            </template>
+            <template v-else>
+              <span class="mention-filename">{{ basename(item) }}</span>
+              <span class="mention-path">{{ item }}</span>
+            </template>
           </div>
         </div>
 
@@ -944,15 +1053,55 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 
-.instructions-indicator {
+.info-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.info-indicator {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 12px;
-  background: rgba(152, 195, 121, 0.1);
-  border-bottom: 1px solid rgba(152, 195, 121, 0.2);
-  font-size: 11px;
+}
+
+.info-indicator.instructions {
   color: #98c379;
+}
+
+.info-indicator.tokens {
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+
+.disconnect-icon {
+  color: var(--danger, #e06c75);
+  opacity: 0.7;
+}
+
+.item-filepath {
+  color: var(--text-primary);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 11px;
+}
+
+.item-diff-stats {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.diff-add {
+  color: var(--success, #98c379);
+}
+
+.diff-del {
+  color: var(--danger, #e06c75);
 }
 
 .input-area {
@@ -1073,6 +1222,12 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.mention-option {
+  color: var(--accent);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 12px;
 }
 
 .btn-send {
