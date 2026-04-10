@@ -143,6 +143,8 @@ async function ensureConnected() {
     const project = projectStore.currentProject
     if (!project) return
     await codex.startSession(project.shell, project.root, project.codexThreadId)
+  } catch (e) {
+    codex.disconnectReason = String(e)
   } finally {
     connecting = false
   }
@@ -707,6 +709,7 @@ onUnmounted(() => {
     <div v-if="codex.disconnectReason" class="auth-panel">
       <AlertTriangle :size="32" :stroke-width="1.5" class="disconnect-icon" />
       <p>{{ t('codex.disconnected') }}</p>
+      <p class="disconnect-detail">{{ codex.disconnectReason }}</p>
       <button class="btn-primary" @click="reconnect">{{ t('codex.reconnect') }}</button>
     </div>
 
@@ -1283,6 +1286,14 @@ onUnmounted(() => {
 .disconnect-icon {
   color: var(--danger, #e06c75);
   opacity: 0.7;
+}
+
+.disconnect-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-word;
+  max-width: 400px;
+  text-align: center;
 }
 
 .item-filepath {
