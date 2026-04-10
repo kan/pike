@@ -484,9 +484,11 @@ function selectMentionItem(item: string) {
 }
 
 /** Extract @file mentions from the prompt and load their contents. */
-async function resolveFileMentions(text: string): Promise<{ cleanText: string; contextParts: string[] }> {
+async function resolveFileMentions(
+  text: string,
+): Promise<{ cleanText: string; contextParts: string[]; resolvedPaths: string[] }> {
   const project = projectStore.currentProject
-  if (!project) return { cleanText: text, contextParts: [] }
+  if (!project) return { cleanText: text, contextParts: [], resolvedPaths: [] }
 
   const mentionRegex = /@([\w./_\\:-]+)/g
   const mentions = new Set<string>()
