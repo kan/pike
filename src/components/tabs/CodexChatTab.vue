@@ -23,8 +23,8 @@ import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../l
 import { useCodexStore } from '../../stores/codex'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
-import { isWindowsShell } from '../../types/tab'
 import type { TurnItem } from '../../types/codex'
+import { isWindowsShell } from '../../types/tab'
 import ApprovalDialog from '../codex/ApprovalDialog.vue'
 
 const { t } = useI18n()
