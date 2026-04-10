@@ -52,6 +52,8 @@ pub struct ProjectConfig {
     pub last_opened: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_session: Option<LastSession>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codex_thread_id: Option<String>,
 }
 
 fn projects_dir(state: &ProjectState) -> PathBuf {

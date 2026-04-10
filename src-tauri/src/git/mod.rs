@@ -212,6 +212,17 @@ pub async fn git_diff(
     .map_err(|e| e.to_string())?
 }
 
+/// Get the full working tree diff (all unstaged changes).
+#[tauri::command]
+pub async fn git_diff_working(root: String, shell: ShellConfig) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let output = run_git(&shell, &root, &["diff"])?;
+        Ok(truncate_diff(output))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn git_stage(
     root: String,

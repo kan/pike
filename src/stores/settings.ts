@@ -184,6 +184,7 @@ interface PersistedSettings {
   terminalRightClickPaste: boolean
   language: string
   terminalExitNotification: boolean
+  codexNotification: boolean
 }
 
 function loadSettings(): PersistedSettings {
@@ -210,6 +211,7 @@ function defaults(): PersistedSettings {
     terminalRightClickPaste: true,
     language: 'en',
     terminalExitNotification: true,
+    codexNotification: true,
   }
 }
 
@@ -228,6 +230,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
   const language = ref(saved.language)
   const terminalExitNotification = ref(saved.terminalExitNotification)
+  const codexNotification = ref(saved.codexNotification)
 
   // Sync language setting with i18n locale
   locale.value = saved.language
@@ -285,6 +288,7 @@ export const useSettingsStore = defineStore('settings', () => {
         terminalRightClickPaste: terminalRightClickPaste.value,
         language: language.value,
         terminalExitNotification: terminalExitNotification.value,
+        codexNotification: codexNotification.value,
       }),
     )
   }
@@ -307,6 +311,7 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalRightClickPaste,
       language,
       terminalExitNotification,
+      codexNotification,
     ],
     persist,
   )
@@ -328,6 +333,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalRightClickPaste,
     language,
     terminalExitNotification,
+    codexNotification,
     availableFonts,
     loadAvailableFonts,
     setFontByName,

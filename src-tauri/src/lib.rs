@@ -1,4 +1,5 @@
 mod cli;
+mod codex;
 mod docker;
 mod font;
 mod fs;
@@ -180,6 +181,7 @@ fn create_adhoc_project(app: &AppHandle, path: &str) -> Option<project::ProjectC
         pinned_tabs: vec![],
         last_opened: iso_now(),
         last_session: None,
+        codex_thread_id: None,
     };
 
     let dir = state.config_dir.join("projects").join(&config.id);
@@ -461,6 +463,7 @@ pub fn run() {
             log_streams: Arc::new(Mutex::new(HashMap::new())),
             client: tokio::sync::OnceCell::new(),
         })
+        .manage(codex::CodexState::default())
         .setup(|app| {
             let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(config_dir.join("projects"))
@@ -516,6 +519,19 @@ pub fn run() {
                             log::warn!("Failed to remove project {project_id} from open list: {e}");
                         }
                     }
+                }
+
+                // Per-window Codex cleanup
+                if let Some(state) = window.try_state::<codex::CodexState>() {
+                    let label = window.label().to_string();
+                    let sessions = state.sessions.clone();
+                    tokio::spawn(async move {
+                        let mut map = sessions.lock().await;
+                        if let Some(session) = map.remove(&label) {
+                            log::info!("[codex] Cleaning up session for window {label}");
+                            session.shutdown().await;
+                        }
+                    });
                 }
 
                 // Global cleanup only on main window destroy
@@ -603,7 +619,20 @@ pub fn run() {
             git::git_log_file,
             git::git_diff_commit,
             git::git_diff_lines,
+            git::git_diff_working,
             font::font_list_monospace,
+            codex::codex_check_available,
+            codex::codex_start_session,
+            codex::codex_disconnect,
+            codex::codex_auth_status,
+            codex::codex_auth_login_chatgpt,
+            codex::codex_auth_logout,
+            codex::codex_submit_turn,
+            codex::codex_interrupt_turn,
+            codex::codex_respond_approval,
+            codex::codex_rollback_turn,
+            codex::codex_compact_thread,
+            codex::codex_model_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,54 +1,9 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { type NotifyFn, resolveNotifier } from '../lib/notify'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
 import type { TerminalTab } from '../types/tab'
 import { ptyRouter } from './usePtyRouter'
-
-type NotifyFn = (title: string, body: string, onClick?: () => void) => void
-
-async function resolveNotifier(): Promise<NotifyFn | null> {
-  // Try Web Notification API
-  if ('Notification' in window) {
-    if (Notification.permission === 'granted') {
-      return (title, body, onClick) => {
-        const n = new Notification(title, { body })
-        if (onClick)
-          n.onclick = () => {
-            onClick()
-            n.close()
-          }
-      }
-    }
-    if (Notification.permission !== 'denied') {
-      const result = await Notification.requestPermission()
-      if (result === 'granted') {
-        return (title, body, onClick) => {
-          const n = new Notification(title, { body })
-          if (onClick)
-            n.onclick = () => {
-              onClick()
-              n.close()
-            }
-        }
-      }
-    }
-  }
-  // Fallback to Tauri plugin (no click support)
-  try {
-    const { isPermissionGranted, requestPermission, sendNotification } = await import('@tauri-apps/plugin-notification')
-    let permitted = await isPermissionGranted()
-    if (!permitted) {
-      const perm = await requestPermission()
-      permitted = perm === 'granted'
-    }
-    if (permitted) {
-      return (title, body) => sendNotification({ title, body })
-    }
-  } catch {
-    // plugin not available
-  }
-  return null
-}
 
 const RE_ANSI = new RegExp(
   '\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)' + // OSC: \e]...\a or \e]...\e\\
@@ -97,7 +52,8 @@ export async function initTerminalNotifications() {
 
     const tab = tabStore.tabs.find((t): t is TerminalTab => t.kind === 'terminal' && t.ptyId === id)
     if (!tab) return
-    if (tab.id === tabStore.activeTabId && document.hasFocus()) return
+    // Notify if tab is not active, OR if window is not focused (including virtual desktop switch)
+    if (tab.id === tabStore.activeTabId && document.visibilityState === 'visible' && document.hasFocus()) return
 
     const tabId = tab.id
     notify('Pike', `"${tab.title}" exited with code ${code}`, () => focusTab(tabId))

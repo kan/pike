@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-04-10
+
+### Features
+
+- **スラッシュコマンド**: `/clear`, `/compact`, `/read`, `/diff`, `/model`, `/rollback`, `/sandbox`, `/approval` — コマンドパレット風 UI 付き
+- **@ メンション補完**: `@` でプロジェクト内ファイルパスをファジーマッチ補完、ファイル/ディレクトリ内容をコンテキストに自動注入
+- **AGENTS.md / CLAUDE.md インジケータ**: 検出時に Codex タブに表示
+- **Sandbox / Approval 設定**: プロジェクト単位で localStorage 保存、スラッシュコマンドで切替（Windows は externalSandbox 固定）
+- **トークン使用量表示**: `thread/tokenUsage/updated` イベントから取得し info-bar に表示
+- **Codex 自動再接続**: プロセス切断検知 + 再接続 UI
+- **Reasoning/thinking 折りたたみ表示**: summary/text/content をフォールバック検索
+- **チャット履歴検索**: ハイライト + 上下ナビゲーション + スクロール追従
+- **ターン単位ロールバック**: `thread/rollback` RPC + `/rollback` コマンド
+- **FileChange サマリー**: ファイルパス・変更行数を表示、クリックで diff タブを開く
+- **Settings タブ セクションナビ**: 左サイドバーにセクション一覧、クリックでスムーススクロール
+- **モデル切替**: `/model` で一覧表示・切替（`model/list` + `turn/start` model パラメータ）
+- **`/read` ファイル補完**: `/read ` 入力時に @ メンションと同じファイル補完 UI を表示
+
+### Improved
+
+- チャット上の @ メンションはファイル内容を非表示（displayText 分離）
+- `fuzzyMatch` / `toRelativePath` を `src/lib/paths.ts` に共通化
+- `persistHistory` にデバウンス追加（300ms）
+- `loadProjectFiles` ガードを boolean フラグに修正
+- AGENTS.md 検出を `fsReadFile` に変更（WSL 対応）
+- `structuredClone` の DataCloneError を修正（JSON シリアライズに置換）
+- チャット履歴復元の改善（disconnect/reconnect 時のメッセージ保護）
+
 ## [0.3.11] - 2026-04-09
 
 ### Fixed

@@ -9,7 +9,7 @@ export interface PinnedTabDef {
 
 export interface SessionTabDef {
   id: string
-  kind: 'terminal' | 'editor'
+  kind: 'terminal' | 'editor' | 'codex-chat'
   title: string
   pinned: boolean
   autoStart?: string
@@ -30,4 +30,5 @@ export interface ProjectConfig {
   pinnedTabs: PinnedTabDef[]
   lastOpened: string
   lastSession?: LastSession
+  codexThreadId?: string
 }

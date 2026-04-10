@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Info, Loader, Moon, Sun } from 'lucide-vue-next'
+import { ref } from 'vue'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
@@ -19,6 +20,35 @@ function onFontSizeInput(e: Event) {
   }
 }
 
+// Section navigation
+const sections = [
+  { id: 'appearance', i18nKey: 'settings.appearance' },
+  { id: 'terminal', i18nKey: 'settings.terminal' },
+  { id: 'editor', i18nKey: 'settings.editor' },
+  { id: 'codex', i18nKey: 'settings.codex' },
+  { id: 'about', i18nKey: 'settings.about' },
+]
+const activeSection = ref('appearance')
+
+function scrollToSection(id: string) {
+  activeSection.value = id
+  const el = document.getElementById(`settings-${id}`)
+  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function onSettingsScroll(e: Event) {
+  const container = e.target as HTMLElement
+  const scrollTop = container.scrollTop + 40
+  for (let i = sections.length - 1; i >= 0; i--) {
+    const el = document.getElementById(`settings-${sections[i].id}`)
+    if (el && el.offsetTop <= scrollTop) {
+      activeSection.value = sections[i].id
+      return
+    }
+  }
+  activeSection.value = sections[0].id
+}
+
 const PREVIEW_LINES = [
   { prompt: '$ ', cmd: 'git status', promptColor: 'green' },
   { text: 'On branch main', color: 'foreground' },
@@ -35,7 +65,16 @@ const PREVIEW_LINES = [
 
 <template>
   <div class="settings-tab">
-    <div class="settings-scroll">
+    <nav class="settings-nav">
+      <button
+        v-for="sec in sections"
+        :key="sec.id"
+        class="nav-item"
+        :class="{ active: activeSection === sec.id }"
+        @click="scrollToSection(sec.id)"
+      >{{ t(sec.i18nKey) }}</button>
+    </nav>
+    <div class="settings-scroll" @scroll="onSettingsScroll">
       <h2 class="settings-title">{{ t('settings.title') }}</h2>
 
       <div v-if="fsWatcher.startError.value" class="inotify-banner">
@@ -47,7 +86,7 @@ const PREVIEW_LINES = [
       </div>
 
       <!-- Appearance -->
-      <section class="settings-section">
+      <section id="settings-appearance" class="settings-section">
         <h3 class="section-title">{{ t('settings.appearance') }}</h3>
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.language') }}</label>
@@ -82,7 +121,7 @@ const PREVIEW_LINES = [
       </section>
 
       <!-- Terminal -->
-      <section class="settings-section">
+      <section id="settings-terminal" class="settings-section">
         <h3 class="section-title">{{ t('settings.terminal') }}</h3>
 
         <div class="setting-row">
@@ -189,7 +228,7 @@ const PREVIEW_LINES = [
       </section>
 
       <!-- Editor -->
-      <section class="settings-section">
+      <section id="settings-editor" class="settings-section">
         <h3 class="section-title">{{ t('settings.editor') }}</h3>
 
         <div class="setting-row setting-row-block">
@@ -242,8 +281,21 @@ const PREVIEW_LINES = [
         </div>
       </section>
 
+      <!-- Codex -->
+      <section id="settings-codex" class="settings-section">
+        <h3 class="section-title">Codex</h3>
+
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.codexNotification') }}</label>
+          <div class="mode-toggle">
+            <button class="mode-btn" :class="{ active: settings.codexNotification }" @click="settings.codexNotification = true">{{ t('common.on') }}</button>
+            <button class="mode-btn" :class="{ active: !settings.codexNotification }" @click="settings.codexNotification = false">{{ t('common.off') }}</button>
+          </div>
+        </div>
+      </section>
+
       <!-- About / Update -->
-      <section class="settings-section">
+      <section id="settings-about" class="settings-section">
         <h3 class="section-title">{{ t('settings.about') }}</h3>
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.version') }}</label>
@@ -288,12 +340,49 @@ const PREVIEW_LINES = [
 .settings-tab {
   position: absolute;
   inset: 0;
+  display: flex;
   overflow: hidden;
   background: var(--bg-primary);
   color: var(--text-primary);
 }
 
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 24px 0 24px 16px;
+  width: 120px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+}
+
+.nav-item {
+  display: block;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.nav-item.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 .settings-scroll {
+  flex: 1;
   height: 100%;
   overflow-y: auto;
   padding: 24px 32px;

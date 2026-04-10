@@ -8,6 +8,7 @@ import { basename } from '../lib/paths'
 import { ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
+  CodexChatTab,
   DiffTab,
   DockerLogsTab,
   EditorTab,
@@ -105,7 +106,7 @@ export const useTabStore = defineStore('tabs', () => {
   watch(activeTabId, (newId) => {
     if (newId) {
       const tab = tabs.value.find((t) => t.id === newId)
-      if (tab?.kind === 'terminal') {
+      if (tab && (tab.kind === 'terminal' || tab.kind === 'codex-chat')) {
         tab.hasActivity = false
       }
     }
@@ -253,6 +254,18 @@ export const useTabStore = defineStore('tabs', () => {
     }
     const id = genId()
     tabs.value.push({ id, kind: 'settings', title: 'Settings', pinned: false })
+    activeTabId.value = id
+    return id
+  }
+
+  function addCodexChatTab(options?: { pinned?: boolean }): string {
+    const existing = tabs.value.find((t): t is CodexChatTab => t.kind === 'codex-chat')
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    tabs.value.push({ id, kind: 'codex-chat', title: 'Codex', pinned: options?.pinned ?? false })
     activeTabId.value = id
     return id
   }
@@ -409,9 +422,9 @@ export const useTabStore = defineStore('tabs', () => {
 
   function snapshotSession(): LastSession {
     const sessionTabs: SessionTabDef[] = tabs.value
-      .filter((t) => t.kind === 'terminal' || t.kind === 'editor')
+      .filter((t) => t.kind === 'terminal' || t.kind === 'editor' || t.kind === 'codex-chat')
       .map((t) => {
-        const base = { id: t.id, kind: t.kind as 'terminal' | 'editor', title: t.title, pinned: t.pinned }
+        const base = { id: t.id, kind: t.kind as SessionTabDef['kind'], title: t.title, pinned: t.pinned }
         if (t.kind === 'terminal') {
           return { ...base, autoStart: t.autoStart }
         }
@@ -438,6 +451,7 @@ export const useTabStore = defineStore('tabs', () => {
     addHistoryTab,
     addDockerLogsTab,
     addSettingsTab,
+    addCodexChatTab,
     addDiffTab,
     addPdfTab,
     closeTab,

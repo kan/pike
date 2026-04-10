@@ -57,7 +57,9 @@
 ```
 pike/
 ├── CLAUDE.md                  # このファイル
-├── MILESTONE.md               # マイルストーン・進捗管理
+├── docs/
+│   ├── MILESTONE.md           # マイルストーン・進捗管理
+│   └── pike-codex-*.md        # Codex連携 実装指示書
 ├── scripts/
 │   └── download-rg.sh         # rg サイドカーバイナリのダウンロード
 ├── src-tauri/
@@ -132,9 +134,9 @@ pike/
 
 ## 現在のフォーカス
 
-**→ MILESTONE.md の「現在のマイルストーン」セクションを参照**
+**→ docs/MILESTONE.md の「現在のマイルストーン」セクションを参照**
 
-実装を始める前に必ず MILESTONE.md で現在の M番号と完了条件を確認すること。
+実装を始める前に必ず docs/MILESTONE.md で現在の M番号と完了条件を確認すること。
 
 ---
 

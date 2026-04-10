@@ -11,6 +11,7 @@ import {
   projectUpdate,
 } from '../lib/tauri'
 import type { ProjectConfig } from '../types/project'
+import { useCodexStore } from './codex'
 import { useSearchStore } from './search'
 import { useTabStore } from './tabs'
 
@@ -68,6 +69,10 @@ export const useProjectStore = defineStore('project', () => {
 
     searchStore.clear()
     searchStore.backend = null
+
+    // Disconnect Codex session before clearing tabs (prevents stale state on project switch)
+    await useCodexStore().disconnect()
+
     await tabStore.clearAllTabs()
 
     project.lastOpened = new Date().toISOString()
@@ -93,6 +98,8 @@ export const useProjectStore = defineStore('project', () => {
           } else if (def.content !== undefined) {
             tabStore.addBlankEditorTab({ title: def.title, content: def.content })
           }
+        } else if (def.kind === 'codex-chat') {
+          tabStore.addCodexChatTab({ pinned: def.pinned })
         }
       }
       if (project.lastSession.activeTabId) {
