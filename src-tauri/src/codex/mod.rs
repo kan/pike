@@ -209,12 +209,24 @@ pub async fn codex_auth_logout(
 pub async fn codex_submit_turn(
     prompt: String,
     editor_context: Option<session::EditorContext>,
+    model: Option<String>,
     window: tauri::WebviewWindow,
     state: tauri::State<'_, CodexState>,
 ) -> Result<(), String> {
     let sessions = state.sessions.lock().await;
     let sess = get_thread_session(&sessions, window.label())?;
-    sess.submit_turn(prompt, editor_context).await
+    sess.submit_turn(prompt, editor_context, model).await
+}
+
+/// List available models for this window's Codex session.
+#[tauri::command]
+pub async fn codex_model_list(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, CodexState>,
+) -> Result<Vec<session::ModelInfo>, String> {
+    let sessions = state.sessions.lock().await;
+    let sess = get_thread_session(&sessions, window.label())?;
+    sess.list_models().await
 }
 
 /// Interrupt the current turn for this window's session.
@@ -226,6 +238,17 @@ pub async fn codex_interrupt_turn(
     let sessions = state.sessions.lock().await;
     let sess = get_thread_session(&sessions, window.label())?;
     sess.interrupt_turn().await
+}
+
+/// Compact the current thread's context.
+#[tauri::command]
+pub async fn codex_compact_thread(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, CodexState>,
+) -> Result<(), String> {
+    let sessions = state.sessions.lock().await;
+    let sess = get_thread_session(&sessions, window.label())?;
+    sess.compact_thread().await
 }
 
 /// Respond to an approval request for this window's session.

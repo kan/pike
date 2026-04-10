@@ -619,6 +619,7 @@ pub fn run() {
             git::git_log_file,
             git::git_diff_commit,
             git::git_diff_lines,
+            git::git_diff_working,
             font::font_list_monospace,
             codex::codex_check_available,
             codex::codex_start_session,
@@ -629,6 +630,8 @@ pub fn run() {
             codex::codex_submit_turn,
             codex::codex_interrupt_turn,
             codex::codex_respond_approval,
+            codex::codex_compact_thread,
+            codex::codex_model_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

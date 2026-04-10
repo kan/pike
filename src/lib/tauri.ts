@@ -224,6 +224,10 @@ export async function gitDiffLines(root: string, shell: ShellType, path: string)
   return invoke<GitDiffLines>('git_diff_lines', { root, shell, path })
 }
 
+export async function gitDiffWorking(root: string, shell: ShellType): Promise<string> {
+  return invoke<string>('git_diff_working', { root, shell })
+}
+
 // Search
 
 export async function searchDetectBackend(shell: ShellType): Promise<SearchBackend> {
@@ -385,12 +389,31 @@ export interface CodexEditorContext {
   selectionEnd: number | null
 }
 
-export async function codexSubmitTurn(prompt: string, editorContext?: CodexEditorContext | null): Promise<void> {
-  return invoke('codex_submit_turn', { prompt, editorContext: editorContext ?? null })
+export async function codexSubmitTurn(
+  prompt: string,
+  editorContext?: CodexEditorContext | null,
+  model?: string | null,
+): Promise<void> {
+  return invoke('codex_submit_turn', { prompt, editorContext: editorContext ?? null, model: model ?? null })
+}
+
+export interface CodexModelInfo {
+  id: string
+  displayName: string | null
+  description: string | null
+  isDefault: boolean
+}
+
+export async function codexModelList(): Promise<CodexModelInfo[]> {
+  return invoke<CodexModelInfo[]>('codex_model_list')
 }
 
 export async function codexInterruptTurn(): Promise<void> {
   return invoke('codex_interrupt_turn')
+}
+
+export async function codexCompactThread(): Promise<void> {
+  return invoke('codex_compact_thread')
 }
 
 export type ApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'cancel'

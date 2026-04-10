@@ -55,6 +55,27 @@ export function relativeDate(iso: string): string {
   return new Date(iso).toLocaleDateString()
 }
 
+/** Case-insensitive fuzzy match: checks if all characters of `pattern` appear in order in `text`. */
+export function fuzzyMatch(text: string, pattern: string): boolean {
+  const lowerText = text.toLowerCase()
+  const lowerPattern = pattern.toLowerCase()
+  let pi = 0
+  for (let ti = 0; ti < lowerText.length && pi < lowerPattern.length; ti++) {
+    if (lowerText[ti] === lowerPattern[pi]) pi++
+  }
+  return pi === lowerPattern.length
+}
+
+/** Strip a root prefix to get a relative path. */
+export function toRelativePath(fullPath: string, root: string): string {
+  if (root && fullPath.startsWith(root)) {
+    let rel = fullPath.slice(root.length)
+    if (rel.startsWith('/') || rel.startsWith('\\')) rel = rel.slice(1)
+    return rel
+  }
+  return fullPath
+}
+
 export function gitStatusColor(status: string): string {
   switch (status) {
     case 'M':

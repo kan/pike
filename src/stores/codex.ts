@@ -5,15 +5,19 @@ import { deleteChatHistory, loadChatHistory, saveChatHistory } from '../lib/code
 import {
   type ApprovalDecision,
   type CodexEditorContext,
+  type CodexModelInfo,
   codexAuthLoginChatGpt,
   codexAuthLogout,
   codexAuthStatus,
   codexCheckAvailable,
+  codexCompactThread,
   codexDisconnect,
   codexInterruptTurn,
+  codexModelList,
   codexRespondApproval,
   codexStartSession,
   codexSubmitTurn,
+  fsReadFile,
   projectUpdate,
 } from '../lib/tauri'
 import type {
@@ -93,6 +97,9 @@ export const useCodexStore = defineStore('codex', () => {
   const codexVersion = ref<string | null>(null)
   const versionWarning = ref<string | null>(null)
   const scrollTrigger = ref(0)
+  const detectedInstructionsFile = ref<string | null>(null)
+  const selectedModel = ref<string | null>(null)
+  const availableModels = ref<CodexModelInfo[]>([])
 
   function currentAgentMsg(): ChatMessage | undefined {
     for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -125,6 +132,19 @@ export const useCodexStore = defineStore('codex', () => {
 
       // Persist threadId to project config for session resumption
       saveThreadIdToProject(tid)
+
+      // Detect AGENTS.md / CLAUDE.md by attempting to read each file
+      detectedInstructionsFile.value = null
+      const sep = shell.kind === 'wsl' ? '/' : '\\'
+      for (const name of ['AGENTS.md', 'CLAUDE.md']) {
+        try {
+          await fsReadFile(shell, `${cwd}${sep}${name}`)
+          detectedInstructionsFile.value = name
+          break
+        } catch {
+          // File doesn't exist, try next
+        }
+      }
 
       try {
         authState.value = await codexAuthStatus()
@@ -212,12 +232,36 @@ export const useCodexStore = defineStore('codex', () => {
     try {
       // Gather editor context from the currently active editor tab
       const editorCtx = getEditorContext()
-      await codexSubmitTurn(prompt, editorCtx)
+      await codexSubmitTurn(prompt, editorCtx, selectedModel.value)
     } catch (e) {
       agentMsg.text = `Error: ${e}`
       agentMsg.segments = [{ kind: 'text', text: `Error: ${e}` }]
       agentMsg.completed = true
       isGenerating.value = false
+    }
+  }
+
+  async function listModels(): Promise<CodexModelInfo[]> {
+    try {
+      const models = await codexModelList()
+      availableModels.value = models
+      return models
+    } catch (e) {
+      console.error('[codex] listModels error:', e)
+      throw e
+    }
+  }
+
+  function setModel(modelId: string | null) {
+    selectedModel.value = modelId
+  }
+
+  async function compactThread() {
+    try {
+      await codexCompactThread()
+    } catch (e) {
+      console.error('[codex] compact error:', e)
+      throw e
     }
   }
 
@@ -320,6 +364,17 @@ export const useCodexStore = defineStore('codex', () => {
     pendingFileApproval.value = null
   }
 
+  function addSystemMessage(text: string) {
+    messages.value.push({
+      id: `sys-${Date.now()}`,
+      role: 'agent',
+      text,
+      segments: [{ kind: 'text', text }],
+      items: [],
+      completed: true,
+    })
+  }
+
   function clearMessages() {
     messages.value = []
     if (currentThreadId.value) {
@@ -349,11 +404,17 @@ export const useCodexStore = defineStore('codex', () => {
     codexVersion,
     versionWarning,
     scrollTrigger,
+    detectedInstructionsFile,
+    selectedModel,
+    availableModels,
     startSession,
     disconnect,
     login,
     logout,
     submitTurn,
+    compactThread,
+    listModels,
+    setModel,
     interruptTurn,
     handleMessageDelta,
     handleTurnCompleted,
@@ -362,6 +423,7 @@ export const useCodexStore = defineStore('codex', () => {
     handleItemCompleted,
     handleAuthUpdated,
     respondApproval,
+    addSystemMessage,
     clearMessages,
     newConversation,
   }

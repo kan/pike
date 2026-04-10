@@ -3,6 +3,7 @@ import DOMPurify from 'dompurify'
 import {
   AlertTriangle,
   Bot,
+  FileCode,
   FileEdit,
   Loader,
   LogIn,
@@ -13,8 +14,10 @@ import {
   Terminal as TerminalIcon,
 } from 'lucide-vue-next'
 import { Marked } from 'marked'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
+import { basename, fuzzyMatch, toRelativePath } from '../../lib/paths'
+import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../lib/tauri'
 import { useCodexStore } from '../../stores/codex'
 import { useProjectStore } from '../../stores/project'
 import ApprovalDialog from '../codex/ApprovalDialog.vue'
@@ -57,16 +60,428 @@ async function ensureConnected() {
   await codex.startSession(project.shell, project.root, project.codexThreadId)
 }
 
+// ---------------------------------------------------------------------------
+// Slash commands
+// ---------------------------------------------------------------------------
+
+interface SlashCommand {
+  name: string
+  description: string
+  hasArgs: boolean
+}
+
+const SLASH_COMMANDS: SlashCommand[] = [
+  { name: '/clear', description: t('codex.cmdClear'), hasArgs: false },
+  { name: '/compact', description: t('codex.cmdCompact'), hasArgs: false },
+  { name: '/read', description: t('codex.cmdRead'), hasArgs: true },
+  { name: '/diff', description: t('codex.cmdDiff'), hasArgs: false },
+  { name: '/model', description: t('codex.cmdModel'), hasArgs: true },
+]
+
+const showSlashMenu = ref(false)
+const slashFilter = ref('')
+const slashSelectedIdx = ref(0)
+
+const filteredSlashCommands = computed(() => {
+  if (!slashFilter.value) return SLASH_COMMANDS
+  const q = slashFilter.value.toLowerCase()
+  return SLASH_COMMANDS.filter((c) => c.name.slice(1).startsWith(q))
+})
+
+function updateSlashMenu() {
+  const text = input.value
+  // Show slash menu when input starts with '/' and cursor is on the first line
+  if (text.startsWith('/') && !text.includes('\n')) {
+    const afterSlash = text.slice(1).split(/\s/)[0]
+    slashFilter.value = afterSlash
+    showSlashMenu.value = true
+    slashSelectedIdx.value = 0
+  } else {
+    showSlashMenu.value = false
+  }
+}
+
+function selectSlashCommand(cmd: SlashCommand) {
+  if (cmd.hasArgs) {
+    input.value = `${cmd.name} `
+  } else {
+    input.value = cmd.name
+  }
+  showSlashMenu.value = false
+  inputRef.value?.focus()
+}
+
+async function handleSlashCommand(text: string): Promise<boolean> {
+  const parts = text.split(/\s+/)
+  const cmd = parts[0].toLowerCase()
+
+  switch (cmd) {
+    case '/clear':
+      await startNewConversation()
+      return true
+
+    case '/compact':
+      try {
+        codex.addSystemMessage(t('codex.compacting'))
+        await codex.compactThread()
+        codex.addSystemMessage(t('codex.compactDone'))
+      } catch (e) {
+        codex.addSystemMessage(`Error: ${e}`)
+      }
+      return true
+
+    case '/read': {
+      const path = parts.slice(1).join(' ').trim()
+      if (!path) {
+        codex.addSystemMessage(t('codex.readUsage'))
+        return true
+      }
+      try {
+        const project = projectStore.currentProject
+        if (!project) return true
+        const sep = project.shell.kind === 'wsl' ? '/' : '\\'
+        const fullPath = path.startsWith('/') || path.includes(':') ? path : `${project.root}${sep}${path}`
+        const result = await fsReadFile(project.shell, fullPath)
+        const prompt = `[File: ${path}]\n\`\`\`\n${result.content}\n\`\`\`\n\nI've attached the content of \`${path}\` above. What would you like to know about it?`
+        await codex.submitTurn(prompt)
+      } catch (e) {
+        codex.addSystemMessage(`Failed to read ${path}: ${e}`)
+      }
+      return true
+    }
+
+    case '/diff': {
+      try {
+        const project = projectStore.currentProject
+        if (!project) return true
+        const diff = await gitDiffWorking(project.root, project.shell)
+        if (!diff.trim()) {
+          codex.addSystemMessage(t('codex.diffEmpty'))
+          return true
+        }
+        const prompt = `[Git working tree diff]\n\`\`\`diff\n${diff}\n\`\`\`\n\nI've attached the current git diff. Please review the changes.`
+        await codex.submitTurn(prompt)
+      } catch (e) {
+        codex.addSystemMessage(`Failed to get diff: ${e}`)
+      }
+      return true
+    }
+
+    case '/model': {
+      const modelArg = parts.slice(1).join(' ').trim()
+      if (!modelArg) {
+        // List available models
+        try {
+          const models = await codex.listModels()
+          const current = codex.selectedModel ?? '(default)'
+          const list = models
+            .map((m) => {
+              const name = m.displayName ?? m.id
+              const def = m.isDefault ? ' **(default)**' : ''
+              const desc = m.description ? ` — ${m.description}` : ''
+              return `- \`${m.id}\` ${name}${def}${desc}`
+            })
+            .join('\n')
+          codex.addSystemMessage(
+            `${t('codex.modelCurrent')}: **${current}**\n\n${t('codex.modelAvailable')}:\n${list}\n\n${t('codex.modelUsage')}`,
+          )
+        } catch (e) {
+          codex.addSystemMessage(`Failed to list models: ${e}`)
+        }
+      } else {
+        codex.setModel(modelArg)
+        codex.addSystemMessage(`${t('codex.modelSet')}: **${modelArg}**`)
+      }
+      return true
+    }
+
+    default:
+      return false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// @ mention completion
+// ---------------------------------------------------------------------------
+
+const showMentionMenu = ref(false)
+const mentionFilter = ref('')
+const mentionSelectedIdx = ref(0)
+const mentionAnchorPos = ref(-1) // caret position of the '@' or start of path
+const mentionMode = ref<'at' | 'slash-read'>('at') // which context triggered the menu
+const projectFiles = ref<string[]>([])
+const projectFilesLoaded = ref(false)
+
+const MAX_MENTION_RESULTS = 20
+
+/** Project files as relative paths from root. */
+const relativeFiles = computed(() => {
+  const root = projectStore.currentProject?.root ?? ''
+  return projectFiles.value.map((f) => toRelativePath(f, root))
+})
+
+const filteredMentionFiles = computed(() => {
+  const files = relativeFiles.value
+  if (!mentionFilter.value) return files.slice(0, MAX_MENTION_RESULTS)
+  const pat = mentionFilter.value
+  // Score: basename match ranks higher than path match
+  const results: { path: string; score: number }[] = []
+  for (const p of files) {
+    const name = basename(p)
+    if (name.toLowerCase().includes(pat.toLowerCase())) {
+      results.push({ path: p, score: 2 })
+    } else if (fuzzyMatch(p, pat)) {
+      results.push({ path: p, score: 1 })
+    }
+    if (results.length >= 100) break
+  }
+  results.sort((a, b) => b.score - a.score)
+  return results.slice(0, MAX_MENTION_RESULTS).map((r) => r.path)
+})
+
+async function loadProjectFiles() {
+  const project = projectStore.currentProject
+  if (!project || projectFilesLoaded.value) return
+  projectFilesLoaded.value = true
+  try {
+    projectFiles.value = await listProjectFiles(project.shell, project.root)
+  } catch {
+    // ignore
+  }
+}
+
+function updateMentionMenu() {
+  const el = inputRef.value
+  if (!el) return
+  const text = input.value
+  const cursor = el.selectionStart ?? text.length
+
+  // Check for /read <partial> pattern first
+  const readMatch = text.match(/^\/read\s+(.*)$/i)
+  if (readMatch) {
+    const partial = readMatch[1]
+    mentionFilter.value = partial
+    mentionAnchorPos.value = text.indexOf(readMatch[1])
+    mentionSelectedIdx.value = 0
+    mentionMode.value = 'slash-read'
+    showMentionMenu.value = true
+    loadProjectFiles()
+    return
+  }
+
+  // Find the last '@' before the cursor that is not preceded by a non-space char
+  let atIdx = -1
+  for (let i = cursor - 1; i >= 0; i--) {
+    if (text[i] === '@' && (i === 0 || /\s/.test(text[i - 1]))) {
+      atIdx = i
+      break
+    }
+    if (/\s/.test(text[i])) break
+  }
+
+  if (atIdx >= 0) {
+    const partial = text.slice(atIdx + 1, cursor)
+    mentionFilter.value = partial
+    mentionAnchorPos.value = atIdx
+    mentionSelectedIdx.value = 0
+    mentionMode.value = 'at'
+    showMentionMenu.value = true
+    loadProjectFiles()
+  } else {
+    showMentionMenu.value = false
+  }
+}
+
+function selectMentionFile(filePath: string) {
+  const el = inputRef.value
+  if (!el) return
+
+  if (mentionMode.value === 'slash-read') {
+    // Replace /read <partial> with /read <filePath>
+    input.value = `/read ${filePath}`
+    showMentionMenu.value = false
+    nextTick(() => {
+      const newPos = input.value.length
+      el.setSelectionRange(newPos, newPos)
+      el.focus()
+    })
+  } else {
+    // Replace @partial with @filePath
+    const cursor = el.selectionStart ?? input.value.length
+    const before = input.value.slice(0, mentionAnchorPos.value)
+    const after = input.value.slice(cursor)
+    input.value = `${before}@${filePath} ${after}`
+    showMentionMenu.value = false
+    nextTick(() => {
+      const newPos = before.length + 1 + filePath.length + 1
+      el.setSelectionRange(newPos, newPos)
+      el.focus()
+    })
+  }
+}
+
+/** Extract @file mentions from the prompt and load their contents. */
+async function resolveFileMentions(text: string): Promise<{ cleanText: string; contextParts: string[] }> {
+  const project = projectStore.currentProject
+  if (!project) return { cleanText: text, contextParts: [] }
+
+  const mentionRegex = /@([\w./_\\:-]+)/g
+  const mentions = new Set<string>()
+  for (const m of text.matchAll(mentionRegex)) {
+    mentions.add(m[1])
+  }
+
+  const contextParts: string[] = []
+  const sep = project.shell.kind === 'wsl' ? '/' : '\\'
+
+  const MAX_DIR_FILES = 20
+  const resolvedMentions = new Set<string>()
+
+  for (const path of mentions) {
+    const fullPath = path.startsWith('/') || path.includes(':') ? path : `${project.root}${sep}${path}`
+    // Try as file first
+    try {
+      const result = await fsReadFile(project.shell, fullPath)
+      contextParts.push(`[File: ${path}]\n\`\`\`\n${result.content}\n\`\`\``)
+      resolvedMentions.add(path)
+      continue
+    } catch {
+      // Not a file, try as directory
+    }
+    // Try as directory — read files in parallel
+    try {
+      const entries = await fsListDir(project.shell, fullPath)
+      const fileEntries = entries.filter((e) => !e.isDir).slice(0, MAX_DIR_FILES)
+      if (fileEntries.length === 0) continue
+      const results = await Promise.allSettled(
+        fileEntries.map(async (entry) => {
+          const filePath = `${fullPath}${sep}${entry.name}`
+          const result = await fsReadFile(project.shell, filePath)
+          return `[${path}${sep}${entry.name}]\n\`\`\`\n${result.content}\n\`\`\``
+        }),
+      )
+      const fileParts = results
+        .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+        .map((r) => r.value)
+      if (fileParts.length > 0) {
+        contextParts.push(`[Directory: ${path}] (${fileParts.length} files)\n\n${fileParts.join('\n\n')}`)
+        resolvedMentions.add(path)
+      }
+    } catch {
+      // Not a valid path, leave as-is
+    }
+  }
+
+  // Remove resolved @mentions from the display text
+  const cleanText =
+    resolvedMentions.size > 0
+      ? text
+          .replace(mentionRegex, (full, p) => {
+            if (resolvedMentions.has(p)) return ''
+            return full
+          })
+          .trim()
+      : text
+
+  return { cleanText: cleanText || text, contextParts }
+}
+
+// ---------------------------------------------------------------------------
+// Input handling
+// ---------------------------------------------------------------------------
+
+function onInput() {
+  // Check for /read <path> — show file completion instead of slash menu
+  if (/^\/read\s+/i.test(input.value)) {
+    showSlashMenu.value = false
+    updateMentionMenu()
+    return
+  }
+  updateSlashMenu()
+  if (!showSlashMenu.value) {
+    updateMentionMenu()
+  } else {
+    showMentionMenu.value = false
+  }
+}
+
 async function submit() {
   const text = input.value.trim()
   if (!text || codex.isGenerating) return
   input.value = ''
+  showSlashMenu.value = false
+  showMentionMenu.value = false
   await ensureConnected()
   userScrolledUp.value = false
-  await codex.submitTurn(text)
+
+  // Handle slash commands
+  if (text.startsWith('/')) {
+    const handled = await handleSlashCommand(text)
+    if (handled) return
+  }
+
+  // Resolve @file mentions
+  const { cleanText, contextParts } = await resolveFileMentions(text)
+  const fullPrompt = contextParts.length > 0 ? `${contextParts.join('\n\n')}\n\n${cleanText}` : cleanText
+
+  await codex.submitTurn(fullPrompt)
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // Handle slash menu navigation
+  if (showSlashMenu.value) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      slashSelectedIdx.value = Math.min(slashSelectedIdx.value + 1, filteredSlashCommands.value.length - 1)
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      slashSelectedIdx.value = Math.max(slashSelectedIdx.value - 1, 0)
+      return
+    }
+    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+      const selected = filteredSlashCommands.value[slashSelectedIdx.value]
+      if (selected) {
+        e.preventDefault()
+        selectSlashCommand(selected)
+        return
+      }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      showSlashMenu.value = false
+      return
+    }
+  }
+
+  // Handle mention menu navigation
+  if (showMentionMenu.value) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      mentionSelectedIdx.value = Math.min(mentionSelectedIdx.value + 1, filteredMentionFiles.value.length - 1)
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      mentionSelectedIdx.value = Math.max(mentionSelectedIdx.value - 1, 0)
+      return
+    }
+    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+      const selected = filteredMentionFiles.value[mentionSelectedIdx.value]
+      if (selected) {
+        e.preventDefault()
+        selectMentionFile(selected)
+        return
+      }
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      showMentionMenu.value = false
+      return
+    }
+  }
+
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     submit()
@@ -88,6 +503,17 @@ function scrollToBottom() {
   })
 }
 
+// Close menus on outside click
+function onDocumentClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (!target.closest('.slash-menu') && !target.closest('.input-area')) {
+    showSlashMenu.value = false
+  }
+  if (!target.closest('.mention-menu') && !target.closest('.input-area')) {
+    showMentionMenu.value = false
+  }
+}
+
 watch(() => codex.messages.length, scrollToBottom)
 watch(() => {
   const last = codex.messages[codex.messages.length - 1]
@@ -96,8 +522,13 @@ watch(() => {
 watch(() => codex.scrollTrigger, scrollToBottom)
 
 onMounted(async () => {
+  document.addEventListener('click', onDocumentClick)
   await ensureConnected()
   inputRef.value?.focus()
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
 })
 </script>
 
@@ -129,6 +560,12 @@ onMounted(async () => {
             <LogOut :size="14" :stroke-width="2" />
           </button>
         </div>
+      </div>
+
+      <!-- AGENTS.md / CLAUDE.md indicator -->
+      <div v-if="codex.detectedInstructionsFile" class="instructions-indicator">
+        <FileCode :size="12" :stroke-width="2" />
+        <span>{{ codex.detectedInstructionsFile }} detected</span>
       </div>
 
       <!-- Version warning -->
@@ -198,31 +635,64 @@ onMounted(async () => {
 
       <!-- Input -->
       <div class="input-area">
-        <textarea
-          ref="inputRef"
-          v-model="input"
-          :placeholder="t('codex.inputPlaceholder')"
-          :disabled="!isAuthenticated"
-          rows="1"
-          @keydown="onKeydown"
-        />
-        <button
-          v-if="codex.isGenerating"
-          class="btn-send btn-stop"
-          :title="t('codex.stop')"
-          @click="codex.interruptTurn()"
-        >
-          <Square :size="16" :stroke-width="2" />
-        </button>
-        <button
-          v-else
-          class="btn-send"
-          :disabled="!input.trim() || !isAuthenticated"
-          :title="t('codex.send')"
-          @click="submit()"
-        >
-          <Send :size="16" :stroke-width="2" />
-        </button>
+        <!-- Slash command menu -->
+        <div v-if="showSlashMenu && filteredSlashCommands.length > 0" class="slash-menu">
+          <div
+            v-for="(cmd, idx) in filteredSlashCommands"
+            :key="cmd.name"
+            class="slash-menu-item"
+            :class="{ selected: idx === slashSelectedIdx }"
+            @click="selectSlashCommand(cmd)"
+            @mouseenter="slashSelectedIdx = idx"
+          >
+            <span class="slash-cmd-name">{{ cmd.name }}</span>
+            <span class="slash-cmd-desc">{{ cmd.description }}</span>
+          </div>
+        </div>
+
+        <!-- @ mention menu -->
+        <div v-if="showMentionMenu && filteredMentionFiles.length > 0" class="mention-menu">
+          <div
+            v-for="(file, idx) in filteredMentionFiles"
+            :key="file"
+            class="mention-menu-item"
+            :class="{ selected: idx === mentionSelectedIdx }"
+            @click="selectMentionFile(file)"
+            @mouseenter="mentionSelectedIdx = idx"
+          >
+            <span class="mention-filename">{{ basename(file) }}</span>
+            <span class="mention-path">{{ file }}</span>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <textarea
+            ref="inputRef"
+            v-model="input"
+            :placeholder="t('codex.inputPlaceholder')"
+            :disabled="!isAuthenticated"
+            rows="1"
+            @keydown="onKeydown"
+            @input="onInput"
+          />
+          <button
+            v-if="codex.isGenerating"
+            class="btn-send btn-stop"
+            :title="t('codex.stop')"
+            @click="codex.interruptTurn()"
+          >
+            <Square :size="16" :stroke-width="2" />
+          </button>
+          <button
+            v-else
+            class="btn-send"
+            :disabled="!input.trim() || !isAuthenticated"
+            :title="t('codex.send')"
+            @click="submit()"
+          >
+            <Send :size="16" :stroke-width="2" />
+          </button>
+        </div>
       </div>
     </template>
 
@@ -474,16 +944,33 @@ onMounted(async () => {
   color: var(--text-secondary);
 }
 
-.input-area {
+.instructions-indicator {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  background: rgba(152, 195, 121, 0.1);
+  border-bottom: 1px solid rgba(152, 195, 121, 0.2);
+  font-size: 11px;
+  color: #98c379;
+}
+
+.input-area {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   padding: 8px 12px;
   border-top: 1px solid var(--border);
   background: var(--bg-secondary);
 }
 
-.input-area textarea {
+.input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.input-row textarea {
   flex: 1;
   resize: none;
   border: 1px solid var(--border);
@@ -498,8 +985,94 @@ onMounted(async () => {
   max-height: 120px;
 }
 
-.input-area textarea:focus {
+.input-row textarea:focus {
   border-color: var(--accent);
+}
+
+/* Slash command menu */
+.slash-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 12px;
+  right: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.2);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  margin-bottom: 4px;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.slash-menu-item.selected {
+  background: var(--bg-tertiary);
+}
+
+.slash-cmd-name {
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.slash-cmd-desc {
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* @ mention menu */
+.mention-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 12px;
+  right: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.2);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 100;
+  margin-bottom: 4px;
+}
+
+.mention-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.mention-menu-item.selected {
+  background: var(--bg-tertiary);
+}
+
+.mention-filename {
+  color: var(--text-primary);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.mention-path {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .btn-send {

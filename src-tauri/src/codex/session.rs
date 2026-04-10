@@ -38,6 +38,16 @@ struct ThreadInfo {
     id: String,
 }
 
+/// Model information returned by `model/list`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelInfo {
+    pub id: String,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    pub is_default: bool,
+}
+
 impl ThreadSession {
     pub fn new(
         client: Arc<AppServerClient>,
@@ -113,10 +123,51 @@ impl ThreadSession {
         Ok(())
     }
 
+    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, String> {
+        let resp: serde_json::Value = self
+            .client
+            .request("model/list", &json!({}))
+            .await?;
+        log::debug!("[codex-session] model/list response: {resp}");
+
+        // Parse flexibly: response may be { data: [...] }, { models: [...] }, or [...]
+        let arr = resp
+            .get("data")
+            .and_then(|v| v.as_array())
+            .or_else(|| resp.get("models").and_then(|v| v.as_array()))
+            .or_else(|| resp.as_array())
+            .ok_or_else(|| format!("Unexpected model/list response: {resp}"))?;
+
+        let models: Vec<ModelInfo> = arr
+            .iter()
+            .filter_map(|v| {
+                let id = v.get("id").and_then(|x| x.as_str())?;
+                Some(ModelInfo {
+                    id: id.to_string(),
+                    display_name: v
+                        .get("displayName")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string()),
+                    description: v
+                        .get("description")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string()),
+                    is_default: v
+                        .get("isDefault")
+                        .and_then(|b| b.as_bool())
+                        .unwrap_or(false),
+                })
+            })
+            .collect();
+
+        Ok(models)
+    }
+
     pub async fn submit_turn(
         &self,
         prompt: String,
         editor_context: Option<EditorContext>,
+        model: Option<String>,
     ) -> Result<(), String> {
         let thread_id = self
             .thread_id
@@ -144,17 +195,36 @@ impl ThreadSession {
             prompt
         };
 
+        let mut params = json!({
+            "threadId": thread_id,
+            "input": [{ "type": "text", "text": full_prompt }],
+        });
+        if let Some(m) = model {
+            params["model"] = json!(m);
+        }
+
         let _: serde_json::Value = self
             .client
-            .request(
-                "turn/start",
-                &json!({
-                    "threadId": thread_id,
-                    "input": [{ "type": "text", "text": full_prompt }],
-                }),
-            )
+            .request("turn/start", &params)
             .await?;
 
+        Ok(())
+    }
+
+    pub async fn compact_thread(&self) -> Result<(), String> {
+        let thread_id = self
+            .thread_id
+            .lock()
+            .await
+            .clone()
+            .ok_or("No active thread")?;
+
+        let _: serde_json::Value = self
+            .client
+            .request("thread/compact/start", &json!({ "threadId": thread_id }))
+            .await?;
+
+        log::info!("[codex-session] Thread compacted");
         Ok(())
     }
 
