@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { onMounted, watch } from 'vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
@@ -17,7 +18,7 @@ import { ptyRouter } from './composables/usePtyRouter'
 import { initTerminalNotifications } from './composables/useTerminalNotifications'
 import { useI18n } from './i18n'
 import { projectRemoveOpen } from './lib/tauri'
-import { getWindowProjectId, isSecondaryWindow } from './lib/window'
+import { getWindowProjectId, isMainWindow, isSecondaryWindow } from './lib/window'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
 import { useTabStore } from './stores/tabs'
@@ -103,6 +104,19 @@ onMounted(async () => {
       projectRemoveOpen(projectStore.currentProject.id)
     }
   })
+
+  // Main window: save session + stop background work when hiding,
+  // and destroy self when all project windows have closed.
+  if (isMainWindow()) {
+    listen('window-hide-requested', async () => {
+      await projectStore.saveSessionNow()
+      gitStore.stopPolling()
+      await fsWatcher.stop()
+    })
+    listen('app-should-exit', () => {
+      getCurrentWindow().destroy()
+    })
+  }
 })
 </script>
 

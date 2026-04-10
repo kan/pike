@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
 pub struct PtyState {
     pub sessions: Arc<Mutex<HashMap<String, PtySession>>>,
@@ -16,6 +16,7 @@ pub struct PtySession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
     cwd: Arc<Mutex<Option<String>>>,
+    window_label: String,
 }
 
 impl Drop for PtySession {
@@ -47,6 +48,7 @@ fn spawn_pty_with_command(
     cols: u16,
     rows: u16,
     cwd: Option<String>,
+    window_label: String,
     app: AppHandle,
     state: &PtyState,
 ) -> Result<PtySpawnResult, String> {
@@ -90,6 +92,7 @@ fn spawn_pty_with_command(
                 writer: Arc::new(Mutex::new(writer)),
                 child,
                 cwd: Arc::clone(&shared_cwd),
+                window_label,
             },
         );
     }
@@ -220,6 +223,7 @@ pub async fn pty_spawn(
     rows: u16,
     cwd: Option<String>,
     shell: Option<ShellConfig>,
+    window: WebviewWindow,
     app: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<PtySpawnResult, String> {
@@ -263,7 +267,7 @@ pub async fn pty_spawn(
     if !matches!(shell, Some(ShellConfig::Cmd)) {
         cmd.env("TERM", "xterm-256color");
     }
-    spawn_pty_with_command(cmd, cols, rows, cwd, app, &state)
+    spawn_pty_with_command(cmd, cols, rows, cwd, window.label().to_string(), app, &state)
 }
 
 use crate::types::validate_slug;
@@ -273,6 +277,7 @@ pub async fn pty_spawn_tmux(
     session_name: String,
     cols: u16,
     rows: u16,
+    window: WebviewWindow,
     app: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<PtySpawnResult, String> {
@@ -284,7 +289,7 @@ pub async fn pty_spawn_tmux(
     let mut cmd = CommandBuilder::new("wsl.exe");
     cmd.args(["bash", "-lc", &tmux_cmd]);
     cmd.env("TERM", "xterm-256color");
-    spawn_pty_with_command(cmd, cols, rows, None, app, &state)
+    spawn_pty_with_command(cmd, cols, rows, None, window.label().to_string(), app, &state)
 }
 
 #[tauri::command]
@@ -352,6 +357,13 @@ pub async fn pty_kill(id: String, state: State<'_, PtyState>) -> Result<(), Stri
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     sessions.remove(&id);
     Ok(())
+}
+
+/// Remove all PTY sessions belonging to a specific window.
+pub fn cleanup_for_window(state: &PtyState, label: &str) {
+    if let Ok(mut sessions) = state.sessions.lock() {
+        sessions.retain(|_, session| session.window_label != label);
+    }
 }
 
 /// Scan `text` for OSC 7 sequences (`\x1b]7;file://host/path\x07`) and update

@@ -468,7 +468,10 @@ pub fn run() {
             let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(config_dir.join("projects"))
                 .map_err(|e| e.to_string())?;
-            app.manage(project::ProjectState { config_dir });
+            app.manage(project::ProjectState {
+                config_dir,
+                window_projects: std::sync::Mutex::new(HashMap::new()),
+            });
 
             // Resolve bundled rg sidecar path (externalBin places it next to the executable)
             let rg_path = std::env::current_exe()
@@ -506,53 +509,100 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::Destroyed = event {
-                // Abort any --wait processes when any window is destroyed
-                if let Some(state) = window.try_state::<wait::WaitState>() {
-                    wait::signal_abort_all(&state);
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    // Hide main instead of closing: Tauri tears down the async
+                    // runtime when main is destroyed, which panics tokio::spawn
+                    // in Codex cleanup while project windows are still active.
+                    if window.label() == "main" {
+                        let has_others = window.app_handle().webview_windows()
+                            .keys()
+                            .any(|l| l != "main");
+                        if has_others {
+                            api.prevent_close();
+                            let _ = window.emit("window-hide-requested", ());
+                            if let Some(state) = window.try_state::<pty::PtyState>() {
+                                pty::cleanup_for_window(&state, "main");
+                            }
+                            if let Some(state) = window.try_state::<project::ProjectState>() {
+                                if let Some(pid) = project::take_window_project(&state, "main") {
+                                    let _ = project::remove_open_project(&state, &pid);
+                                }
+                            }
+                            let _ = window.hide();
+                        }
+                    }
                 }
+                WindowEvent::Destroyed => {
+                    // Abort any --wait processes when any window is destroyed
+                    if let Some(state) = window.try_state::<wait::WaitState>() {
+                        wait::signal_abort_all(&state);
+                    }
 
-                // Authoritative cleanup: JS beforeunload is best-effort only.
-                if let Some(project_id) = window.label().strip_prefix(PROJECT_WINDOW_PREFIX) {
+                    // Authoritative cleanup: JS beforeunload is best-effort only.
                     if let Some(state) = window.try_state::<project::ProjectState>() {
-                        if let Err(e) = project::remove_open_project(&state, project_id) {
-                            log::warn!("Failed to remove project {project_id} from open list: {e}");
+                        let project_id = window_project_id(window.label())
+                            .map(|s| s.to_string())
+                            .or_else(|| project::take_window_project(&state, window.label()));
+                        if let Some(pid) = project_id {
+                            if let Err(e) = project::remove_open_project(&state, &pid) {
+                                log::warn!("Failed to remove project {pid} from open list: {e}");
+                            }
                         }
                     }
-                }
 
-                // Per-window Codex cleanup
-                if let Some(state) = window.try_state::<codex::CodexState>() {
-                    let label = window.label().to_string();
-                    let sessions = state.sessions.clone();
-                    tokio::spawn(async move {
-                        let mut map = sessions.lock().await;
-                        if let Some(session) = map.remove(&label) {
-                            log::info!("[codex] Cleaning up session for window {label}");
-                            session.shutdown().await;
+                    // Per-window Codex cleanup (guard against missing runtime on shutdown)
+                    if let Some(state) = window.try_state::<codex::CodexState>() {
+                        let label = window.label().to_string();
+                        let sessions = state.sessions.clone();
+                        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                            handle.spawn(async move {
+                                let mut map = sessions.lock().await;
+                                if let Some(session) = map.remove(&label) {
+                                    log::info!("[codex] Cleaning up session for window {label}");
+                                    session.shutdown().await;
+                                }
+                            });
                         }
-                    });
-                }
+                    }
 
-                // Global cleanup only on main window destroy
-                if window.label() != "main" {
-                    return;
-                }
-                if let Some(state) = window.try_state::<pty::PtyState>() {
-                    if let Ok(mut sessions) = state.sessions.lock() {
-                        sessions.clear();
+                    if let Some(state) = window.try_state::<pty::PtyState>() {
+                        pty::cleanup_for_window(&state, window.label());
                     }
-                }
-                if let Some(state) = window.try_state::<watcher::WatcherState>() {
-                    watcher::stop_all(&state);
-                }
-                if let Some(state) = window.try_state::<docker::DockerState>() {
-                    if let Ok(mut streams) = state.log_streams.lock() {
-                        for (_, handle) in streams.drain() {
-                            handle.abort();
+
+                    // Single snapshot of all windows for remaining-window checks
+                    let windows = window.app_handle().webview_windows();
+                    let current = window.label();
+
+                    // If this was the last visible project window, tell the
+                    // hidden main to exit so the app shuts down gracefully.
+                    if current != "main" {
+                        let has_visible_project = windows.iter().any(|(l, w)| {
+                            l.as_str() != current
+                                && l.as_str() != "main"
+                                && w.is_visible().unwrap_or(false)
+                        });
+                        if !has_visible_project {
+                            let _ = window.app_handle().emit("app-should-exit", ());
+                        }
+                    }
+
+                    // Global cleanup only when the last window is closing
+                    if windows.keys().any(|l| l != current) {
+                        return;
+                    }
+                    if let Some(state) = window.try_state::<watcher::WatcherState>() {
+                        watcher::stop_all(&state);
+                    }
+                    if let Some(state) = window.try_state::<docker::DockerState>() {
+                        if let Ok(mut streams) = state.log_streams.lock() {
+                            for (_, handle) in streams.drain() {
+                                handle.abort();
+                            }
                         }
                     }
                 }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![

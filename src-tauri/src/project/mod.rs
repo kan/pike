@@ -1,12 +1,16 @@
 use crate::types::{ShellConfig, silent_command};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
-use tauri::State;
+use tauri::{State, WebviewWindow};
 
 pub struct ProjectState {
     pub config_dir: PathBuf,
+    /// Maps window label → project ID for cleanup when the window is destroyed.
+    pub window_projects: Mutex<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,13 +149,23 @@ fn write_open_ids(state: &ProjectState, ids: &[String]) -> Result<(), String> {
 #[tauri::command]
 pub async fn project_add_open(
     id: String,
+    window: WebviewWindow,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
+    // Track window → project mapping for cleanup on window destroy
+    if let Ok(mut map) = state.window_projects.lock() {
+        map.insert(window.label().to_string(), id.clone());
+    }
     let mut ids = read_open_ids(&state);
     if !ids.contains(&id) {
         ids.push(id);
     }
     write_open_ids(&state, &ids)
+}
+
+/// Remove and return the project ID associated with a window label.
+pub fn take_window_project(state: &ProjectState, window_label: &str) -> Option<String> {
+    state.window_projects.lock().ok().and_then(|mut map| map.remove(window_label))
 }
 
 /// Remove a project ID from last_project.txt.
