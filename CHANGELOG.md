@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-04-11
+
+### Fixed
+
+- メインウィンドウを閉じると他のプロジェクトウィンドウも一緒に終了する問題を修正（main ウィンドウは非表示にし、最後の project ウィンドウが閉じた時にアプリ終了）
+- Codex 承認モーダルのオーバーレイクリックでキャンセルされる問題を修正
+- Codex CLI 未インストール時に接続中スピナーで固まる問題を修正
+
 ## [0.4.0] - 2026-04-10
 
 ### Features
