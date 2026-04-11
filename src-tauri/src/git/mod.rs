@@ -49,6 +49,15 @@ fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, Str
     shell.run_stdout("git", &full_args)
 }
 
+/// Like `run_git` but returns stdout regardless of exit code. Used for
+/// commands like `git diff --no-index` that exit with code 1 when files differ.
+fn run_git_raw_stdout(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, String> {
+    let mut full_args = vec!["-C", root];
+    full_args.extend(args);
+    let output = shell.run_raw("git", &full_args)?;
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 fn parse_status(output: &str) -> GitStatusResult {
     let mut branch = String::from("HEAD");
     let mut staged = Vec::new();
@@ -162,7 +171,7 @@ pub async fn git_status(
     shell: ShellConfig,
 ) -> Result<GitStatusResult, String> {
     let output = tokio::task::spawn_blocking(move || {
-        run_git(&shell, &root, &["status", "--porcelain=v2", "--branch"])
+        run_git(&shell, &root, &["status", "--porcelain=v2", "--branch", "--untracked-files=all"])
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -197,8 +206,16 @@ pub async fn git_diff(
     shell: ShellConfig,
     path: String,
     staged: bool,
+    untracked: bool,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
+        // Untracked files have no diff against HEAD; synthesize a "new file"
+        // diff via --no-index against the null device.
+        if untracked {
+            let args = ["diff", "--no-index", "--", shell.null_device(), &path];
+            let output = run_git_raw_stdout(&shell, &root, &args)?;
+            return Ok(truncate_diff(output));
+        }
         let mut args = vec!["diff"];
         if staged {
             args.push("--cached");

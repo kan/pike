@@ -158,8 +158,14 @@ export async function gitLog(root: string, shell: ShellType, count?: number, all
   return invoke<GitLogEntry[]>('git_log', { root, shell, count: count ?? null, all: all ?? null })
 }
 
-export async function gitDiff(root: string, shell: ShellType, path: string, staged: boolean): Promise<string> {
-  return invoke<string>('git_diff', { root, shell, path, staged })
+export async function gitDiff(
+  root: string,
+  shell: ShellType,
+  path: string,
+  staged: boolean,
+  untracked = false,
+): Promise<string> {
+  return invoke<string>('git_diff', { root, shell, path, staged, untracked })
 }
 
 export async function gitStage(root: string, shell: ShellType, paths: string[]): Promise<void> {

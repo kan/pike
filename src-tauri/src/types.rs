@@ -71,6 +71,14 @@ impl ShellConfig {
         self.run_with_timeout(program, args, Duration::from_secs(30))
     }
 
+    /// Path to the null device for this shell environment.
+    pub fn null_device(&self) -> &'static str {
+        match self {
+            ShellConfig::Wsl { .. } => "/dev/null",
+            _ => "NUL",
+        }
+    }
+
     fn run_with_timeout(
         &self,
         program: &str,

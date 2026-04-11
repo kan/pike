@@ -99,10 +99,10 @@ async function unstageFile(file: GitFileChange) {
   }
 }
 
-async function openDiffTab(path: string, staged: boolean) {
+async function openDiffTab(path: string, staged: boolean, untracked = false) {
   const project = projectStore.currentProject
   if (!project) return
-  const diff = await gitDiff(project.root, project.shell, path, staged)
+  const diff = await gitDiff(project.root, project.shell, path, staged, untracked)
   tabStore.addDiffTab({ filePath: path, diff, staged })
 }
 
@@ -158,9 +158,10 @@ const fileCtx = ref<{
   path: string
   hash?: string
   staged?: boolean
+  untracked?: boolean
 } | null>(null)
 
-function onFileContext(e: MouseEvent, path: string, opts: { hash?: string; staged?: boolean }) {
+function onFileContext(e: MouseEvent, path: string, opts: { hash?: string; staged?: boolean; untracked?: boolean }) {
   e.preventDefault()
   e.stopPropagation()
   fileCtx.value = { x: e.clientX, y: e.clientY, path, ...opts }
@@ -175,12 +176,12 @@ function closeFileCtx() {
 
 async function ctxOpenDiff() {
   if (!fileCtx.value) return
-  const { path, hash, staged } = fileCtx.value
+  const { path, hash, staged, untracked } = fileCtx.value
   closeFileCtx()
   if (hash) {
     await openCommitDiffTab(hash, path)
   } else {
-    await openDiffTab(path, staged ?? false)
+    await openDiffTab(path, staged ?? false, untracked ?? false)
   }
 }
 
@@ -295,8 +296,8 @@ onUnmounted(() => {
           v-for="file in gitStore.status.unstaged"
           :key="'u-' + file.path"
           class="file-item"
-          @click="openDiffTab(file.path, false)"
-          @contextmenu="onFileContext($event, file.path, { staged: false })"
+          @click="openDiffTab(file.path, false, file.status === '?')"
+          @contextmenu="onFileContext($event, file.path, { staged: false, untracked: file.status === '?' })"
         >
           <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
