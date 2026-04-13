@@ -18,7 +18,7 @@ export const useDockerStore = defineStore('docker', () => {
   const error = ref<string | null>(null)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
-  let visibilityHandler: (() => void) | null = null
+  let pollAbort: AbortController | null = null
   const refreshing = ref(false)
   let refreshGuard = false
 
@@ -105,24 +105,30 @@ export const useDockerStore = defineStore('docker', () => {
 
   function startPolling() {
     stopPolling()
-    startTimer()
-    visibilityHandler = () => {
-      if (document.hidden) {
+    if (document.hasFocus()) startTimer()
+    pollAbort = new AbortController()
+    const { signal } = pollAbort
+    window.addEventListener(
+      'blur',
+      () => {
         clearTimer()
-      } else {
+      },
+      { signal },
+    )
+    window.addEventListener(
+      'focus',
+      () => {
         refreshContainers()
         startTimer()
-      }
-    }
-    document.addEventListener('visibilitychange', visibilityHandler)
+      },
+      { signal },
+    )
   }
 
   function stopPolling() {
     clearTimer()
-    if (visibilityHandler) {
-      document.removeEventListener('visibilitychange', visibilityHandler)
-      visibilityHandler = null
-    }
+    pollAbort?.abort()
+    pollAbort = null
   }
 
   return {

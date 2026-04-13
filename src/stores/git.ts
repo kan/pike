@@ -26,12 +26,13 @@ export const useGitStore = defineStore('git', () => {
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let fetchTimer: ReturnType<typeof setInterval> | null = null
-  let visibilityHandler: (() => void) | null = null
+  let pollAbort: AbortController | null = null
   const refreshing = ref(false)
   let refreshGuard = false
   let logGuard = false
   let fetchGuard = false
   let lastFetchTime = 0
+  let windowFocused = true
   const logAllMode = ref(false)
 
   function getProject() {
@@ -169,7 +170,14 @@ export const useGitStore = defineStore('git', () => {
 
   async function fetchInBackground() {
     if (fetchGuard) return
-    if (Date.now() - lastFetchTime < 60_000) return
+    if (!windowFocused) return
+    const elapsed = Date.now() - lastFetchTime
+    if (lastFetchTime > 0 && elapsed < 60_000) return
+    // Likely resumed from sleep — defer until next normal cycle
+    if (lastFetchTime > 0 && elapsed > 300_000) {
+      lastFetchTime = Date.now()
+      return
+    }
     const project = getProject()
     if (!project) return
     fetchGuard = true
@@ -203,25 +211,33 @@ export const useGitStore = defineStore('git', () => {
 
   function startPolling() {
     stopPolling()
-    startTimers()
-    visibilityHandler = () => {
-      if (document.hidden) {
+    windowFocused = document.hasFocus()
+    if (windowFocused) startTimers()
+    pollAbort = new AbortController()
+    const { signal } = pollAbort
+    window.addEventListener(
+      'blur',
+      () => {
+        windowFocused = false
         clearTimers()
-      } else {
+      },
+      { signal },
+    )
+    window.addEventListener(
+      'focus',
+      () => {
+        windowFocused = true
         refreshStatus()
-        fetchInBackground()
         startTimers()
-      }
-    }
-    document.addEventListener('visibilitychange', visibilityHandler)
+      },
+      { signal },
+    )
   }
 
   function stopPolling() {
     clearTimers()
-    if (visibilityHandler) {
-      document.removeEventListener('visibilitychange', visibilityHandler)
-      visibilityHandler = null
-    }
+    pollAbort?.abort()
+    pollAbort = null
   }
 
   return {
