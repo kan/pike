@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter};
@@ -271,40 +270,28 @@ impl ThreadSession {
     }
 
     /// Spawn a task that forwards Codex notifications to this window only.
-    pub fn start_notification_forwarder(&self) {
-        let mut rx = self.client.subscribe_notifications();
+    pub async fn start_notification_forwarder(&self) {
+        let rx = self.client.take_notifications().await;
+        let Some(mut rx) = rx else {
+            log::warn!("[codex-session] Notification receiver already taken");
+            return;
+        };
         let app = self.app_handle.clone();
         let target = self.window_label.clone();
 
         tokio::spawn(async move {
-            let result = std::panic::AssertUnwindSafe(async {
-                loop {
-                    match rx.recv().await {
-                        Ok(notif) => {
-                            let event_name = format!("codex://{}", notif.method);
-                            if let Err(e) = app.emit_to(&target, &event_name, &notif.params) {
-                                log::error!("[codex-notif] Failed to emit to {target}: {e}");
-                            }
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            log::warn!("[codex-notif] Lagged by {n} messages");
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            log::info!("[codex-notif] Channel closed for {target}");
-                            // Notify frontend that the Codex process has disconnected
-                            let _ = app.emit_to(
-                                &target,
-                                "codex://disconnect",
-                                &json!({"reason": "channel_closed"}),
-                            );
-                            break;
-                        }
-                    }
+            while let Some(notif) = rx.recv().await {
+                let event_name = format!("codex://{}", notif.method);
+                if let Err(e) = app.emit_to(&target, &event_name, &notif.params) {
+                    log::error!("[codex-notif] Failed to emit to {target}: {e}");
                 }
-            });
-            if let Err(e) = result.catch_unwind().await {
-                log::error!("[codex-notif] PANIC in notification forwarder: {e:?}");
             }
+            log::info!("[codex-notif] Channel closed for {target}");
+            let _ = app.emit_to(
+                &target,
+                "codex://disconnect",
+                &json!({"reason": "channel_closed"}),
+            );
         });
     }
 

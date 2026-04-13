@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 
 use super::messages::*;
 use crate::codex::runtime::CodexRuntime;
@@ -42,8 +42,10 @@ pub struct AppServerClient {
     next_id: AtomicU64,
     /// Pending request responses keyed by request ID.
     pending: Arc<Mutex<PendingMap>>,
-    /// Broadcast channel for server notifications.
-    notification_tx: broadcast::Sender<ServerNotification>,
+    /// Channel for server notifications (unbounded to avoid dropping messages).
+    notification_tx: mpsc::UnboundedSender<ServerNotification>,
+    /// Receiver slot for notifications (taken once by the forwarder).
+    notification_rx_slot: Arc<Mutex<Option<mpsc::UnboundedReceiver<ServerNotification>>>>,
     /// Channel for server-initiated requests (approval etc.).
     server_request_tx: mpsc::Sender<ServerRequest>,
     /// For creating new receivers for server requests.
@@ -68,7 +70,7 @@ impl AppServerClient {
 
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(64);
         let pending: Arc<Mutex<PendingMap>> = Arc::new(Mutex::new(HashMap::new()));
-        let (notification_tx, _) = broadcast::channel::<ServerNotification>(2048);
+        let (notification_tx, notification_rx) = mpsc::unbounded_channel::<ServerNotification>();
         let (server_request_tx, server_request_rx) = mpsc::channel::<ServerRequest>(32);
 
         let mut task_handles = Vec::new();
@@ -197,6 +199,7 @@ impl AppServerClient {
             next_id: AtomicU64::new(1),
             pending,
             notification_tx,
+            notification_rx_slot: Arc::new(Mutex::new(Some(notification_rx))),
             server_request_tx,
             server_request_rx_factory: Arc::new(Mutex::new(Some(server_request_rx))),
             child_handle: Arc::new(Mutex::new(Some(child))),
@@ -289,10 +292,10 @@ impl AppServerClient {
             .map_err(|_| "Failed to send notification — channel closed".to_string())
     }
 
-    /// Subscribe to server notifications.
+    /// Take the notification receiver. Can only be called once.
     #[allow(dead_code)]
-    pub fn subscribe_notifications(&self) -> broadcast::Receiver<ServerNotification> {
-        self.notification_tx.subscribe()
+    pub async fn take_notifications(&self) -> Option<mpsc::UnboundedReceiver<ServerNotification>> {
+        self.notification_rx_slot.lock().await.take()
     }
 
     /// Take the server request receiver. Can only be called once.

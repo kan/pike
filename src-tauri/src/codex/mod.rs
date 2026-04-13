@@ -128,7 +128,7 @@ pub async fn codex_start_session(
     };
 
     // Start event forwarding
-    sess.start_notification_forwarder();
+    sess.start_notification_forwarder().await;
     sess.start_approval_handler().await;
 
     // Store session
