@@ -13,7 +13,6 @@ type PendingMap = HashMap<u64, oneshot::Sender<Result<serde_json::Value, JsonRpc
 
 /// A server-initiated request that the client must respond to.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct ServerRequest {
     pub id: RequestId,
     pub method: String,
@@ -22,7 +21,6 @@ pub struct ServerRequest {
 
 /// A server-initiated notification.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ServerNotification {
     pub method: String,
     pub params: serde_json::Value,
@@ -34,7 +32,6 @@ pub struct ServerNotification {
 /// - A writer task that sends JSON lines to the child's stdin
 /// - A reader task that parses JSON lines from stdout and dispatches them
 /// - A stderr task that logs the child's stderr output
-#[allow(dead_code)]
 pub struct AppServerClient {
     /// Channel to send serialized JSON lines to the writer task.
     stdin_tx: mpsc::Sender<String>,
@@ -42,14 +39,10 @@ pub struct AppServerClient {
     next_id: AtomicU64,
     /// Pending request responses keyed by request ID.
     pending: Arc<Mutex<PendingMap>>,
-    /// Channel for server notifications (unbounded to avoid dropping messages).
-    notification_tx: mpsc::UnboundedSender<ServerNotification>,
     /// Receiver slot for notifications (taken once by the forwarder).
     notification_rx_slot: Arc<Mutex<Option<mpsc::UnboundedReceiver<ServerNotification>>>>,
-    /// Channel for server-initiated requests (approval etc.).
-    server_request_tx: mpsc::Sender<ServerRequest>,
-    /// For creating new receivers for server requests.
-    server_request_rx_factory: Arc<Mutex<Option<mpsc::Receiver<ServerRequest>>>>,
+    /// Receiver slot for server requests (taken once by the approval handler).
+    server_request_rx_slot: Arc<Mutex<Option<mpsc::Receiver<ServerRequest>>>>,
     /// Handle to the child process for cleanup.
     child_handle: Arc<Mutex<Option<tokio::process::Child>>>,
     /// Handles for the spawned tasks.
@@ -98,8 +91,6 @@ impl AppServerClient {
 
         // Reader task: reads JSON lines from child stdout and dispatches
         let pending_clone = pending.clone();
-        let notif_tx = notification_tx.clone();
-        let srv_req_tx = server_request_tx.clone();
         let reader_handle = tokio::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut lines = reader.lines();
@@ -147,13 +138,13 @@ impl AppServerClient {
                             }
                             Ok(IncomingMessage::ServerRequest { id, method, params }) => {
                                 log::debug!("[codex-reader] Server request: {method} (id={id:?})");
-                                if let Err(e) = srv_req_tx.send(ServerRequest { id, method, params }).await {
+                                if let Err(e) = server_request_tx.send(ServerRequest { id, method, params }).await {
                                     log::error!("[codex-reader] Failed to forward server request: {e}");
                                 }
                             }
                             Ok(IncomingMessage::Notification { method, params }) => {
                                 log::debug!("[codex-reader] Notification: {method}");
-                                if let Err(e) = notif_tx.send(ServerNotification { method: method.clone(), params }) {
+                                if let Err(e) = notification_tx.send(ServerNotification { method: method.clone(), params }) {
                                     log::warn!("[codex-reader] No notification subscribers for {method}: {e}");
                                 }
                             }
@@ -198,10 +189,8 @@ impl AppServerClient {
             stdin_tx,
             next_id: AtomicU64::new(1),
             pending,
-            notification_tx,
             notification_rx_slot: Arc::new(Mutex::new(Some(notification_rx))),
-            server_request_tx,
-            server_request_rx_factory: Arc::new(Mutex::new(Some(server_request_rx))),
+            server_request_rx_slot: Arc::new(Mutex::new(Some(server_request_rx))),
             child_handle: Arc::new(Mutex::new(Some(child))),
             task_handles: Arc::new(Mutex::new(task_handles)),
         };
@@ -293,19 +282,16 @@ impl AppServerClient {
     }
 
     /// Take the notification receiver. Can only be called once.
-    #[allow(dead_code)]
     pub async fn take_notifications(&self) -> Option<mpsc::UnboundedReceiver<ServerNotification>> {
         self.notification_rx_slot.lock().await.take()
     }
 
     /// Take the server request receiver. Can only be called once.
-    #[allow(dead_code)]
     pub async fn take_server_requests(&self) -> Option<mpsc::Receiver<ServerRequest>> {
-        self.server_request_rx_factory.lock().await.take()
+        self.server_request_rx_slot.lock().await.take()
     }
 
     /// Respond to a server-initiated request.
-    #[allow(dead_code)]
     pub async fn respond_to_server(
         &self,
         id: RequestId,
