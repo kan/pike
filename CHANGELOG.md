@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2] - 2026-04-13
+
+### Fixed
+
+- ウィンドウ非アクティブ時・スリープ復帰時に git fetch / Docker ポーリングが走り続ける問題を修正（1Password SSH 鍵承認の頻発を解消）
+- 外部ツールが作成した新規ディレクトリがファイルツリーに反映されない問題を修正（キャッシュ無効化 + 展開時の常時リロード）
+- Codex 長時間コマンド実行後に応答がなくなる問題を修正（broadcast チャネルのメッセージドロップを mpsc::unbounded に変更して解消）
+- git パネルで未追跡ディレクトリが file アイコン + 空 diff になる問題を修正
+
+### Improved
+
+- Codex client から不要な `#[allow(dead_code)]` と未使用フィールドを除去、チャネル sender を reader タスクに move して disconnect 検知を改善
+
 ## [0.4.1] - 2026-04-11
 
 ### Fixed
