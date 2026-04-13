@@ -99,6 +99,20 @@ export const useFileTreeStore = defineStore('fileTree', () => {
     }
   }
 
+  function invalidateDir(path: string) {
+    if (path in tree.value && !expanded.value.has(path)) {
+      delete tree.value[path]
+    }
+  }
+
+  function invalidateCollapsed() {
+    for (const path of Object.keys(tree.value)) {
+      if (!expanded.value.has(path)) {
+        delete tree.value[path]
+      }
+    }
+  }
+
   async function revealFile(filePath: string): Promise<boolean> {
     const root = useProjectStore().currentProject?.root
     if (!root) return false
@@ -139,6 +153,8 @@ export const useFileTreeStore = defineStore('fileTree', () => {
     initTree,
     ensureInit,
     revealFile,
+    invalidateDir,
+    invalidateCollapsed,
     saveExpanded,
   }
 })

@@ -37,7 +37,7 @@ function toggleDir(path: string) {
     fileTreeStore.expanded.delete(path)
   } else {
     fileTreeStore.expanded.add(path)
-    if (!fileTreeStore.tree[path]) fileTreeStore.loadDir(path)
+    fileTreeStore.loadDir(path)
   }
   fileTreeStore.saveExpanded()
 }
@@ -281,6 +281,7 @@ async function refresh() {
   refreshing.value = true
   const minDelay = new Promise((r) => setTimeout(r, 300))
   try {
+    fileTreeStore.invalidateCollapsed()
     const paths = [...fileTreeStore.expanded]
     await Promise.all([...paths.map((p) => fileTreeStore.loadDir(p)), minDelay])
   } finally {
@@ -380,9 +381,16 @@ onBeforeUnmount(() => {
 function refreshDirs(dirs: string[]) {
   const root = projectStore.currentProject?.root
   if (!root) return
-  const relevantDirs = dirs.filter((d) => d === root || fileTreeStore.expanded.has(d))
-  if (relevantDirs.length > 0) {
-    Promise.all(relevantDirs.map((d) => fileTreeStore.loadDir(d)))
+  const toReload: string[] = []
+  for (const d of dirs) {
+    if (d === root || fileTreeStore.expanded.has(d)) {
+      toReload.push(d)
+    } else {
+      fileTreeStore.invalidateDir(d)
+    }
+  }
+  if (toReload.length > 0) {
+    Promise.all(toReload.map((d) => fileTreeStore.loadDir(d)))
   }
 }
 
