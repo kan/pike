@@ -4,12 +4,14 @@ export interface TaskDefinition {
   name: string
   command: string
   runner: TaskRunner
+  cwd?: string
 }
 
 export interface TaskGroup {
   runner: TaskRunner
   label: string
   sourceFile: string
+  cwd: string
   tasks: TaskDefinition[]
 }
 

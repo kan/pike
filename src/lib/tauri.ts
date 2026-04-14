@@ -318,8 +318,16 @@ export async function saveAllWindowState(): Promise<void> {
 
 // Tasks
 
-export async function taskListMakefileTargets(shell: ShellType, root: string): Promise<{ name: string }[]> {
-  return invoke<{ name: string }[]>('task_list_makefile_targets', { shell, root })
+interface TaskDiscoverResult {
+  runner: string
+  label: string
+  sourceFile: string
+  cwd: string
+  tasks: { name: string; command: string; runner: string }[]
+}
+
+export async function taskDiscover(shell: ShellType, root: string): Promise<TaskDiscoverResult[]> {
+  return invoke<TaskDiscoverResult[]>('task_discover', { shell, root })
 }
 
 export async function openUrl(url: string): Promise<void> {

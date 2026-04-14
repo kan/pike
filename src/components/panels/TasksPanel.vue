@@ -41,10 +41,10 @@ defineExpose({ refresh })
           :key="`${group.runner}:${task.name}`"
           class="task-item"
           :title="task.command"
-          @click="taskStore.runTask(task)"
+          @click="taskStore.runTask(task, group)"
         >
           <span class="task-name">{{ task.name }}</span>
-          <button class="task-run" @click.stop="taskStore.runTask(task)">
+          <button class="task-run" @click.stop="taskStore.runTask(task, group)">
             <Play :size="12" :stroke-width="2" />
           </button>
         </div>
@@ -78,8 +78,6 @@ defineExpose({ refresh })
   padding: 4px 12px;
   font-size: 11px;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
 .group-source {

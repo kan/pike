@@ -639,7 +639,7 @@ pub fn run() {
             wait::wait_signal_by_path,
             open_project_window,
             save_all_window_state,
-            tasks::task_list_makefile_targets,
+            tasks::task_discover,
             open_url,
             pick_folder,
             pick_save_file,

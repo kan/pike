@@ -16,11 +16,11 @@ pub(crate) enum SearchBackend {
 }
 
 impl SearchBackend {
-    fn is_rg(&self) -> bool {
+    pub(crate) fn is_rg(&self) -> bool {
         matches!(self, SearchBackend::Rg | SearchBackend::BundledRg { .. })
     }
 
-    fn rg_program(&self) -> &str {
+    pub(crate) fn rg_program(&self) -> &str {
         match self {
             SearchBackend::BundledRg { path } => path,
             _ => "rg",
