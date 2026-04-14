@@ -2,6 +2,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { computed, markRaw, type Raw, ref } from 'vue'
+import { saveAllWindowState } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
 
 type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'upToDate' | 'error'
@@ -45,8 +46,9 @@ export function useUpdater() {
     state.value = 'downloading'
     try {
       await pendingUpdate.value.downloadAndInstall()
-      // relaunch() bypasses beforeunload, so save session explicitly
+      // relaunch() bypasses beforeunload, so save state explicitly
       await useProjectStore().saveSessionNow()
+      await saveAllWindowState().catch(() => {})
       await relaunch()
     } catch (e) {
       errorMessage.value = String(e)

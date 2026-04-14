@@ -312,6 +312,10 @@ export async function openProjectWindow(projectId: string): Promise<void> {
   return invoke('open_project_window', { projectId })
 }
 
+export async function saveAllWindowState(): Promise<void> {
+  return invoke('save_all_window_state')
+}
+
 export async function openUrl(url: string): Promise<void> {
   return invoke('open_url', { url })
 }

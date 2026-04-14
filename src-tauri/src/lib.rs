@@ -13,7 +13,9 @@ mod watcher;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WebviewWindow, WindowEvent};
+use tauri_plugin_window_state::{AppHandleExt as _, StateFlags};
 
 /// Must match PROJECT_WINDOW_PREFIX in src/lib/window.ts
 const PROJECT_WINDOW_PREFIX: &str = "project-";
@@ -360,6 +362,11 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
 }
 
 #[tauri::command]
+fn save_all_window_state(app: AppHandle) -> Result<(), String> {
+    app.save_window_state(StateFlags::all()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
     // Allowlist: only http/https URLs to prevent opening arbitrary protocols
     if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -602,6 +609,26 @@ pub fn run() {
                         }
                     }
                 }
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                    // Trailing-edge debounce: save only after 500ms of quiet
+                    static GENERATION: AtomicU64 = AtomicU64::new(0);
+                    static TASK_RUNNING: AtomicBool = AtomicBool::new(false);
+                    GENERATION.fetch_add(1, Ordering::Relaxed);
+                    if !TASK_RUNNING.swap(true, Ordering::Relaxed) {
+                        let app = window.app_handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            loop {
+                                let gen = GENERATION.load(Ordering::Relaxed);
+                                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                                if GENERATION.load(Ordering::Relaxed) == gen {
+                                    let _ = app.save_window_state(StateFlags::all());
+                                    TASK_RUNNING.store(false, Ordering::Relaxed);
+                                    break;
+                                }
+                            }
+                        });
+                    }
+                }
                 _ => {}
             }
         })
@@ -610,6 +637,7 @@ pub fn run() {
             cli::cli_set_pending_action,
             wait::wait_signal_by_path,
             open_project_window,
+            save_all_window_state,
             open_url,
             pick_folder,
             pick_save_file,
