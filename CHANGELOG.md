@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3] - 2026-04-14
+
+### Features
+
+- **画像ペースト / ファイルドラッグ**: Codex チャット・ターミナルにクリップボード画像をペースト → `.pike/uploads/` に保存 → `@パス` メンション挿入。ファイルツリー / OS からのドラッグ&ドロップにも対応
+- **Codex 承認モーダルにファイルパス表示**: ファイル変更承認リクエストで対象ファイルのパスを表示（`item/started` の `changes[]` からバックフィル）
+- **Codex ステータスバー**: sandbox / approval モードをアイコン付きバッジで表示（クリックで補完付きコマンド入力）。CLAUDE.md / AGENTS.md バッジをクリックでエディタタブに開く
+- **スラッシュコマンド UX 改善**: 引数なしコマンド（`/clear` 等）がメニュー選択で即実行。補完リストにオプション説明を表示（日英対応）。sandbox / approval 変更時に自動再接続
+
+### Improved
+
+- Rust `ensure_dir` ヘルパー抽出（`fs_create_dir` と `fs_write_file_base64` で共有）
+- `isAbsolutePath()` ユーティリティを `paths.ts` に追加
+
 ## [0.4.2] - 2026-04-13
 
 ### Fixed
