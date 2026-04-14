@@ -327,4 +327,5 @@ export default {
   'codex.opt.granular': 'ツールごとに制御',
   'codex.opt.never': '全て自動承認',
   'codex.opt.default': 'プラットフォーム既定',
+  'codex.imagePasteFailed': '貼り付け画像の保存に失敗しました',
 } as Record<string, string>

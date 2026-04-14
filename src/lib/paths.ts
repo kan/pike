@@ -4,6 +4,10 @@ export function pathSep(shell?: ShellType): string {
   return shell?.kind === 'wsl' ? '/' : '\\'
 }
 
+export function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || /^[A-Z]:\\/i.test(path) || path.startsWith('\\\\')
+}
+
 export function basename(path: string): string {
   return path.split(/[/\\]/).pop() ?? path
 }

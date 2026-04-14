@@ -19,8 +19,9 @@ import {
 } from 'lucide-vue-next'
 import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { getClipboardImages, saveImageFile } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
-import { basename, fuzzyMatch, toRelativePath } from '../../lib/paths'
+import { basename, fuzzyMatch, isAbsolutePath, isImageFile, toRelativePath } from '../../lib/paths'
 import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../lib/tauri'
 import { useCodexStore } from '../../stores/codex'
 import { useProjectStore } from '../../stores/project'
@@ -78,6 +79,72 @@ function openInstructionsFile() {
   if (!name || !project) return
   const sep = project.shell.kind === 'wsl' ? '/' : '\\'
   tabStore.addEditorTab({ path: `${project.root}${sep}${name}` })
+}
+
+function insertAtCursor(text: string) {
+  const el = inputRef.value
+  if (!el) {
+    input.value += text
+    return
+  }
+  const start = el.selectionStart ?? input.value.length
+  const before = input.value.slice(0, start)
+  const after = input.value.slice(el.selectionEnd ?? start)
+  input.value = `${before}${text}${after}`
+  nextTick(() => {
+    const pos = start + text.length
+    el.setSelectionRange(pos, pos)
+    el.focus()
+  })
+}
+
+async function handleImageFiles(files: File[]) {
+  for (const file of files) {
+    try {
+      const relPath = await saveImageFile(file)
+      insertAtCursor(`@${relPath} `)
+    } catch (e) {
+      codex.addSystemMessage(`${t('codex.imagePasteFailed')}: ${e}`)
+    }
+  }
+}
+
+function onPaste(e: ClipboardEvent) {
+  const images = getClipboardImages(e)
+  if (images.length === 0) return
+  e.preventDefault()
+  handleImageFiles(images)
+}
+
+function onDragOver(e: DragEvent) {
+  if (e.dataTransfer?.types.includes('Files') || e.dataTransfer?.types.includes('text/plain')) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  }
+}
+
+async function onDrop(e: DragEvent) {
+  const project = projectStore.currentProject
+  if (!project) return
+
+  const textData = e.dataTransfer?.getData('text/plain')
+  if (textData && isAbsolutePath(textData)) {
+    const relPath = toRelativePath(textData, project.root)
+    insertAtCursor(`@${relPath} `)
+    return
+  }
+
+  // OS file drop
+  if (e.dataTransfer?.files.length) {
+    const imageFiles = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+    if (imageFiles.length > 0) {
+      await handleImageFiles(imageFiles)
+      return
+    }
+    // Non-image files: just insert path-like mention with filename
+    for (const file of e.dataTransfer.files) {
+      insertAtCursor(`@${file.name} `)
+    }
+  }
 }
 
 // Memoized markdown rendering — avoids re-parsing unchanged segments on every reactive update
@@ -555,6 +622,13 @@ async function resolveFileMentions(
 
   for (const path of mentions) {
     const fullPath = path.startsWith('/') || path.includes(':') ? path : `${project.root}${sep}${path}`
+
+    if (isImageFile(path) || path.endsWith('.svg')) {
+      contextParts.push(`[Image file: ${fullPath}]\nPlease examine this image file.`)
+      resolvedMentions.add(path)
+      continue
+    }
+
     // Try as file first
     try {
       const result = await fsReadFile(project.shell, fullPath)
@@ -957,6 +1031,9 @@ onUnmounted(() => {
             rows="1"
             @keydown="onKeydown"
             @input="onInput"
+            @paste="onPaste"
+            @dragover.prevent="onDragOver"
+            @drop.prevent="onDrop"
           />
           <button
             v-if="codex.isGenerating"

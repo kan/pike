@@ -638,6 +638,7 @@ pub fn run() {
             fs::fs_copy,
             fs::fs_create_file,
             fs::fs_create_dir,
+            fs::fs_write_file_base64,
             watcher::fs_watch_start,
             watcher::fs_watch_stop,
             docker::docker_ping,

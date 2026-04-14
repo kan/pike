@@ -326,4 +326,5 @@ export default {
   'codex.opt.granular': 'Per-tool control',
   'codex.opt.never': 'Auto-approve all',
   'codex.opt.default': 'Platform default',
+  'codex.imagePasteFailed': 'Failed to save pasted image',
 } as Record<string, string>

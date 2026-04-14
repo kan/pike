@@ -4,8 +4,10 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
+import { getClipboardImages, saveImageFile } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
+import { isAbsolutePath } from '../../lib/paths'
 import { ptyKill, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
@@ -293,6 +295,51 @@ onMounted(async () => {
     }
     ptyWrite(ptyId, text.replace(/\r\n/g, '\r')).catch(() => {})
     terminal?.focus()
+  })
+
+  termRef.value?.addEventListener('paste', async (e: Event) => {
+    const ce = e as ClipboardEvent
+    const images = getClipboardImages(ce)
+    if (images.length === 0 || !ptyId) return
+    ce.preventDefault()
+    ce.stopPropagation()
+    for (const file of images) {
+      try {
+        const relPath = await saveImageFile(file)
+        ptyWrite(ptyId, relPath).catch(() => {})
+      } catch {
+        // silently ignore — non-critical feature
+      }
+    }
+    terminal?.focus()
+  })
+
+  termRef.value?.addEventListener('dragover', (e: DragEvent) => {
+    if (e.dataTransfer?.types.includes('text/plain') || e.dataTransfer?.types.includes('Files')) {
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    }
+  })
+  termRef.value?.addEventListener('drop', (e: DragEvent) => {
+    e.preventDefault()
+    if (!ptyId) return
+    const path = e.dataTransfer?.getData('text/plain')
+    if (path && isAbsolutePath(path)) {
+      const quoted = path.includes(' ') ? `"${path}"` : path
+      ptyWrite(ptyId, quoted).catch(() => {})
+      terminal?.focus()
+      return
+    }
+    if (e.dataTransfer?.files.length) {
+      for (const file of e.dataTransfer.files) {
+        if (file.type.startsWith('image/')) {
+          saveImageFile(file)
+            .then((relPath) => ptyWrite(ptyId!, relPath))
+            .catch(() => {})
+        }
+      }
+      terminal?.focus()
+    }
   })
 
   // Re-focus xterm textarea when window regains focus from outside,

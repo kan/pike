@@ -347,17 +347,57 @@ pub async fn fs_create_file(
     .map_err(|e| e.to_string())?
 }
 
+fn ensure_dir(shell: &ShellConfig, dir: &str) -> Result<(), String> {
+    match shell {
+        ShellConfig::Wsl { .. } => {
+            shell.run_stdout("mkdir", &["-p", "--", dir])?;
+            Ok(())
+        }
+        _ => std::fs::create_dir_all(dir).map_err(|e| e.to_string()),
+    }
+}
+
 #[tauri::command]
 pub async fn fs_create_dir(
     shell: ShellConfig,
     path: String,
 ) -> Result<(), String> {
-    tokio::task::spawn_blocking(move || match &shell {
-        ShellConfig::Wsl { .. } => {
-            shell.run_stdout("mkdir", &["-p", "--", &path])?;
-            Ok(())
+    tokio::task::spawn_blocking(move || ensure_dir(&shell, &path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+
+#[tauri::command]
+pub async fn fs_write_file_base64(
+    shell: ShellConfig,
+    path: String,
+    data: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&data)
+            .map_err(|e| format!("base64 decode error: {e}"))?;
+        if bytes.len() > MAX_IMAGE_SIZE {
+            return Err(format!(
+                "File too large ({} bytes, max {})",
+                bytes.len(),
+                MAX_IMAGE_SIZE
+            ));
         }
-        _ => std::fs::create_dir(&path).map_err(|e| e.to_string()),
+        // Ensure parent directory exists
+        let parent = match &shell {
+            ShellConfig::Wsl { .. } => path.rsplit_once('/').map(|(p, _)| p.to_string()),
+            _ => std::path::Path::new(&path)
+                .parent()
+                .and_then(|p| p.to_str())
+                .map(|s| s.to_string()),
+        };
+        if let Some(dir) = parent {
+            let _ = ensure_dir(&shell, &dir);
+        }
+        write_bytes(&shell, &path, &bytes)
     })
     .await
     .map_err(|e| e.to_string())?

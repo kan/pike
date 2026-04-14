@@ -138,6 +138,10 @@ export async function fsCreateDir(shell: ShellType, path: string): Promise<void>
   return invoke('fs_create_dir', { shell, path })
 }
 
+export async function fsWriteFileBase64(shell: ShellType, path: string, data: string): Promise<void> {
+  return invoke('fs_write_file_base64', { shell, path, data })
+}
+
 // Watcher
 
 export async function fsWatchStart(shell: ShellType, root: string): Promise<string> {
