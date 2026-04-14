@@ -12,6 +12,8 @@ import {
   MessageSquarePlus,
   Search,
   Send,
+  Shield,
+  ShieldCheck,
   Square,
   Terminal as TerminalIcon,
 } from 'lucide-vue-next'
@@ -43,6 +45,40 @@ const marked = new Marked()
 
 const isAuthenticated = computed(() => codex.authState.status === 'authenticated')
 const isConnected = computed(() => codex.connected)
+
+const effectiveSandbox = computed(() => {
+  if (codex.sandboxMode) return codex.sandboxMode
+  const project = projectStore.currentProject
+  return project && isWindowsShell(project.shell) ? 'externalSandbox' : 'workspaceWrite'
+})
+
+const effectiveApproval = computed(() => {
+  if (codex.approvalPolicy) return codex.approvalPolicy
+  const project = projectStore.currentProject
+  const isWindows = project && isWindowsShell(project.shell)
+  return isWindows ? 'untrusted' : 'on-request'
+})
+
+function prefillCommand(cmd: string) {
+  input.value = cmd
+  // Directly open the arg completion menu
+  showSlashMenu.value = false
+  mentionAnchorPos.value = cmd.length
+  mentionFilter.value = ''
+  mentionSelectedIdx.value = 0
+  mentionMode.value = 'slash-options'
+  slashArgOptions.value = /^\/sandbox/i.test(cmd) ? SANDBOX_OPTIONS : APPROVAL_OPTIONS
+  showMentionMenu.value = true
+  nextTick(() => inputRef.value?.focus())
+}
+
+function openInstructionsFile() {
+  const name = codex.detectedInstructionsFile
+  const project = projectStore.currentProject
+  if (!name || !project) return
+  const sep = project.shell.kind === 'wsl' ? '/' : '\\'
+  tabStore.addEditorTab({ path: `${project.root}${sep}${name}` })
+}
 
 // Memoized markdown rendering — avoids re-parsing unchanged segments on every reactive update
 const mdCache = new Map<string, string>()
@@ -154,6 +190,21 @@ async function ensureConnected() {
 // Slash commands
 // ---------------------------------------------------------------------------
 
+const SANDBOX_OPTIONS = ['workspaceWrite', 'dangerFullAccess', 'externalSandbox', 'default']
+const APPROVAL_OPTIONS = ['untrusted', 'on-failure', 'on-request', 'granular', 'never', 'default']
+
+const OPTION_DESC_KEYS: Record<string, string> = {
+  workspaceWrite: 'codex.opt.workspaceWrite',
+  dangerFullAccess: 'codex.opt.dangerFullAccess',
+  externalSandbox: 'codex.opt.externalSandbox',
+  untrusted: 'codex.opt.untrusted',
+  'on-failure': 'codex.opt.onFailure',
+  'on-request': 'codex.opt.onRequest',
+  granular: 'codex.opt.granular',
+  never: 'codex.opt.never',
+  default: 'codex.opt.default',
+}
+
 interface SlashCommand {
   name: string
   description: string
@@ -195,17 +246,18 @@ function updateSlashMenu() {
 }
 
 function selectSlashCommand(cmd: SlashCommand) {
+  showSlashMenu.value = false
   if (cmd.hasArgs) {
     input.value = `${cmd.name} `
+    // Trigger completion menu for commands with args (programmatic value change doesn't fire input event)
+    nextTick(() => {
+      onInput()
+      inputRef.value?.focus()
+    })
   } else {
     input.value = cmd.name
+    submit()
   }
-  showSlashMenu.value = false
-  // Trigger completion menu for commands with args (programmatic value change doesn't fire input event)
-  nextTick(() => {
-    onInput()
-    inputRef.value?.focus()
-  })
 }
 
 async function handleSlashCommand(text: string): Promise<boolean> {
@@ -313,12 +365,12 @@ async function handleSlashCommand(text: string): Promise<boolean> {
         const current = codex.sandboxMode ?? '(default)'
         codex.addSystemMessage(`${t('codex.sandboxCurrent')}: **${current}**\n\n${t('codex.sandboxUsage')}`)
       } else {
-        const valid = ['workspaceWrite', 'dangerFullAccess', 'default']
-        if (valid.includes(arg)) {
+        if (SANDBOX_OPTIONS.includes(arg)) {
           codex.setSandboxMode(arg === 'default' ? null : arg)
-          codex.addSystemMessage(`${t('codex.sandboxSet')}: **${arg}**\n\n${t('codex.sandboxRestart')}`)
+          codex.addSystemMessage(`${t('codex.sandboxSet')}: **${arg}**`)
+          await startNewConversation()
         } else {
-          codex.addSystemMessage(`${t('codex.sandboxInvalid')}: ${valid.join(', ')}`)
+          codex.addSystemMessage(`${t('codex.sandboxInvalid')}: ${SANDBOX_OPTIONS.join(', ')}`)
         }
       }
       return true
@@ -330,12 +382,12 @@ async function handleSlashCommand(text: string): Promise<boolean> {
         const current = codex.approvalPolicy ?? '(default)'
         codex.addSystemMessage(`${t('codex.approvalCurrent')}: **${current}**\n\n${t('codex.approvalUsage')}`)
       } else {
-        const valid = ['untrusted', 'on-failure', 'on-request', 'never', 'default']
-        if (valid.includes(arg)) {
+        if (APPROVAL_OPTIONS.includes(arg)) {
           codex.setApprovalPolicy(arg === 'default' ? null : arg)
-          codex.addSystemMessage(`${t('codex.approvalSet')}: **${arg}**\n\n${t('codex.approvalRestart')}`)
+          codex.addSystemMessage(`${t('codex.approvalSet')}: **${arg}**`)
+          await startNewConversation()
         } else {
-          codex.addSystemMessage(`${t('codex.approvalInvalid')}: ${valid.join(', ')}`)
+          codex.addSystemMessage(`${t('codex.approvalInvalid')}: ${APPROVAL_OPTIONS.join(', ')}`)
         }
       }
       return true
@@ -422,12 +474,9 @@ function updateMentionMenu() {
     if (cmd === 'read') {
       mentionMode.value = 'slash-read'
       loadProjectFiles()
-    } else if (cmd === 'sandbox') {
-      mentionMode.value = 'slash-options'
-      slashArgOptions.value = ['workspaceWrite', 'dangerFullAccess', 'externalSandbox', 'default']
     } else {
       mentionMode.value = 'slash-options'
-      slashArgOptions.value = ['untrusted', 'on-failure', 'on-request', 'never', 'default']
+      slashArgOptions.value = cmd === 'sandbox' ? SANDBOX_OPTIONS : APPROVAL_OPTIONS
     }
     showMentionMenu.value = true
     return
@@ -744,9 +793,17 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- AGENTS.md / CLAUDE.md indicator + token usage -->
-      <div v-if="codex.detectedInstructionsFile || codex.tokenUsage" class="info-bar">
-        <span v-if="codex.detectedInstructionsFile" class="info-indicator instructions">
+      <!-- Status bar: sandbox/approval mode, instructions file, token usage -->
+      <div v-if="codex.connected" class="info-bar">
+        <span class="info-indicator sandbox clickable" :title="`/sandbox ${effectiveSandbox}`" @click.stop="prefillCommand('/sandbox ')">
+          <Shield :size="12" :stroke-width="2" />
+          {{ effectiveSandbox }}
+        </span>
+        <span class="info-indicator approval clickable" :title="`/approval ${effectiveApproval}`" @click.stop="prefillCommand('/approval ')">
+          <ShieldCheck :size="12" :stroke-width="2" />
+          {{ effectiveApproval }}
+        </span>
+        <span v-if="codex.detectedInstructionsFile" class="info-indicator instructions clickable" @click="openInstructionsFile">
           <FileCode :size="12" :stroke-width="2" />
           {{ codex.detectedInstructionsFile }}
         </span>
@@ -882,6 +939,7 @@ onUnmounted(() => {
           >
             <template v-if="mentionMode === 'slash-options'">
               <span class="mention-option">{{ item }}</span>
+              <span v-if="OPTION_DESC_KEYS[item]" class="mention-option-desc">{{ t(OPTION_DESC_KEYS[item]) }}</span>
             </template>
             <template v-else>
               <span class="mention-filename">{{ basename(item) }}</span>
@@ -1274,6 +1332,22 @@ onUnmounted(() => {
   gap: 4px;
 }
 
+.info-indicator.clickable {
+  cursor: pointer;
+}
+
+.info-indicator.clickable:hover {
+  opacity: 0.8;
+}
+
+.info-indicator.sandbox {
+  color: #61afef;
+}
+
+.info-indicator.approval {
+  color: #d19a66;
+}
+
 .info-indicator.instructions {
   color: #98c379;
 }
@@ -1441,6 +1515,12 @@ onUnmounted(() => {
   color: var(--accent);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
   font-size: 12px;
+}
+
+.mention-option-desc {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-left: auto;
 }
 
 .btn-send {
