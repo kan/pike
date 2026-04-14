@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.4] - 2026-04-14
+
+### Features
+
+- **タスクランナー**: package.json / Makefile / deno.json を再帰検出し、サイドバーパネルで一覧表示・実行。.gitignore を尊重、サブディレクトリのタスクは正しい CWD で実行
+- **QuickOpen コマンドパレット化**: Ctrl+P で複数モードに対応
+  - `>` タスク実行、`@` タブ切替、`:` 行ジャンプ、`!` Git ブランチ切替、`?` ヘルプ
+
+### Fixed
+
+- セルフアップデート後にウィンドウ位置・サイズが復元されない問題を修正（Moved/Resized で trailing-edge デバウンス保存 + relaunch 前の明示保存）
+
 ## [0.4.3] - 2026-04-14
 
 ### Features
