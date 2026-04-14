@@ -24,6 +24,7 @@ export default {
   'sidebar.search': 'Search',
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'Projects',
+  'sidebar.tasks': 'Tasks',
   'sidebar.keyboardShortcuts': 'Keyboard Shortcuts',
   'sidebar.settings': 'Settings',
   'sidebar.github': 'GitHub',
@@ -201,6 +202,8 @@ export default {
   'quickOpen.noMatch': 'No matching files',
   'quickOpen.enterOpen': 'Enter: open file',
   'quickOpen.lineHint': 'Append :line to jump',
+  'quickOpen.enterRun': 'Enter: run task',
+  'quickOpen.taskHint': 'Type > to search tasks',
 
   // Search Panel
   'search.placeholder': 'Search...',
@@ -327,4 +330,6 @@ export default {
   'codex.opt.never': 'Auto-approve all',
   'codex.opt.default': 'Platform default',
   'codex.imagePasteFailed': 'Failed to save pasted image',
+  // Tasks
+  'tasks.noFiles': 'No task files found',
 } as Record<string, string>

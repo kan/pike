@@ -7,6 +7,7 @@ mod git;
 mod search;
 mod project;
 mod pty;
+mod tasks;
 mod types;
 pub mod wait;
 mod watcher;
@@ -638,6 +639,7 @@ pub fn run() {
             wait::wait_signal_by_path,
             open_project_window,
             save_all_window_state,
+            tasks::task_list_makefile_targets,
             open_url,
             pick_folder,
             pick_save_file,

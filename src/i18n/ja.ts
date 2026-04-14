@@ -24,6 +24,7 @@ export default {
   'sidebar.search': '検索',
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'プロジェクト',
+  'sidebar.tasks': 'タスク',
   'sidebar.keyboardShortcuts': 'キーボードショートカット',
   'sidebar.settings': '設定',
   'sidebar.github': 'GitHub',
@@ -202,6 +203,8 @@ export default {
   'quickOpen.noMatch': '一致するファイルがありません',
   'quickOpen.enterOpen': 'Enter: ファイルを開く',
   'quickOpen.lineHint': ':行番号 でジャンプ',
+  'quickOpen.enterRun': 'Enter: タスク実行',
+  'quickOpen.taskHint': '> でタスク検索',
 
   // Search Panel
   'search.placeholder': '検索...',
@@ -328,4 +331,6 @@ export default {
   'codex.opt.never': '全て自動承認',
   'codex.opt.default': 'プラットフォーム既定',
   'codex.imagePasteFailed': '貼り付け画像の保存に失敗しました',
+  // Tasks
+  'tasks.noFiles': 'タスクファイルが見つかりません',
 } as Record<string, string>

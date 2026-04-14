@@ -316,6 +316,12 @@ export async function saveAllWindowState(): Promise<void> {
   return invoke('save_all_window_state')
 }
 
+// Tasks
+
+export async function taskListMakefileTargets(shell: ShellType, root: string): Promise<{ name: string }[]> {
+  return invoke<{ name: string }[]>('task_list_makefile_targets', { shell, root })
+}
+
 export async function openUrl(url: string): Promise<void> {
   return invoke('open_url', { url })
 }

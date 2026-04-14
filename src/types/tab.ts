@@ -166,4 +166,4 @@ export type Tab =
   | PdfTab
   | CodexChatTab
 
-export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects'
+export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects' | 'tasks'

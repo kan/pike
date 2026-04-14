@@ -9,6 +9,7 @@ const FileTreePanel = defineAsyncComponent(() => import('../panels/FileTreePanel
 const GitPanel = defineAsyncComponent(() => import('../panels/GitPanel.vue'))
 const DockerPanel = defineAsyncComponent(() => import('../panels/DockerPanel.vue'))
 const SearchPanel = defineAsyncComponent(() => import('../panels/SearchPanel.vue'))
+const TasksPanel = defineAsyncComponent(() => import('../panels/TasksPanel.vue'))
 
 import {
   ArrowDown,
@@ -20,6 +21,7 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
+  ListTodo,
   Loader,
   RefreshCw,
   Search,
@@ -102,6 +104,7 @@ const fileTreeRef = ref<{
   refreshing: boolean
   startCreateAtRoot: (type: 'file' | 'dir') => void
 } | null>(null)
+const tasksRef = ref<{ refresh: () => void } | null>(null)
 
 const icons: { panel: SidebarPanel; labelKey: string; icon: Component }[] = [
   { panel: 'files', labelKey: 'sidebar.files', icon: Files },
@@ -109,6 +112,7 @@ const icons: { panel: SidebarPanel; labelKey: string; icon: Component }[] = [
   { panel: 'search', labelKey: 'sidebar.search', icon: Search },
   { panel: 'docker', labelKey: 'sidebar.docker', icon: Container },
   { panel: 'projects', labelKey: 'sidebar.projects', icon: FolderOpen },
+  { panel: 'tasks', labelKey: 'sidebar.tasks', icon: ListTodo },
 ]
 
 let dragging = false
@@ -231,6 +235,11 @@ onUnmounted(() => {
             <RefreshCw :size="14" :stroke-width="2" :class="{ spin: dockerStore.refreshing }" />
           </button>
         </div>
+        <div v-if="sidebar.activePanel === 'tasks'" class="header-actions">
+          <button class="header-btn" :title="t('common.refresh')" @click="tasksRef?.refresh()">
+            <RefreshCw :size="14" :stroke-width="2" />
+          </button>
+        </div>
       </div>
       <div class="panel-content">
         <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
@@ -238,6 +247,7 @@ onUnmounted(() => {
         <GitPanel v-else-if="sidebar.activePanel === 'git'" />
         <SearchPanel v-else-if="sidebar.activePanel === 'search'" />
         <DockerPanel v-else-if="sidebar.activePanel === 'docker'" />
+        <TasksPanel v-else-if="sidebar.activePanel === 'tasks'" ref="tasksRef" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
       <div class="resize-handle" @mousedown="onResizeStart"></div>

@@ -5,10 +5,14 @@ import { basename } from '../lib/paths'
 import { listProjectFiles } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
+import { useTaskStore } from '../stores/tasks'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
+const taskStore = useTaskStore()
+
+const isTaskMode = computed(() => query.value.startsWith('>'))
 
 const query = ref('')
 const selectedIdx = ref(0)
@@ -51,6 +55,14 @@ function fuzzyMatch(text: string, pattern: string): boolean {
 }
 
 const MAX_DISPLAY = 100
+
+const filteredTasks = computed(() => {
+  if (!isTaskMode.value) return []
+  const q = query.value.slice(1).trim().toLowerCase()
+  const all = taskStore.allTasks
+  if (!q) return all
+  return all.filter((t) => t.name.toLowerCase().includes(q) || t.command.toLowerCase().includes(q))
+})
 
 const filtered = computed(() => {
   const p = parsedQuery.value.pattern.toLowerCase()
@@ -121,6 +133,13 @@ function getDisplayPath(fullPath: string): string {
 }
 
 function openSelected() {
+  if (isTaskMode.value) {
+    const task = filteredTasks.value[selectedIdx.value]
+    if (!task) return
+    taskStore.runTask(task)
+    projectStore.showQuickOpen = false
+    return
+  }
   const path = filtered.value[selectedIdx.value]
   if (!path) return
   trackRecent(path)
@@ -142,6 +161,7 @@ watch(
       query.value = ''
       selectedIdx.value = 0
       loadFiles()
+      if (taskStore.taskGroups.length === 0) taskStore.refresh()
       nextTick(() => inputRef.value?.focus())
     }
   },
@@ -156,6 +176,8 @@ watch(
   },
 )
 
+const itemCount = computed(() => (isTaskMode.value ? filteredTasks.value.length : filtered.value.length))
+
 function onKeyDown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.preventDefault()
@@ -164,7 +186,7 @@ function onKeyDown(e: KeyboardEvent) {
   }
   if (e.key === 'ArrowDown') {
     e.preventDefault()
-    if (selectedIdx.value < filtered.value.length - 1) {
+    if (selectedIdx.value < itemCount.value - 1) {
       selectedIdx.value++
       scrollToSelected()
     }
@@ -211,25 +233,41 @@ function scrollToSelected() {
         <div ref="listRef" class="quickopen-list">
           <div v-if="loading" class="quickopen-empty">{{ t('common.loading') }}</div>
           <template v-else>
-            <div
-              v-for="(file, i) in filtered"
-              :key="file"
-              class="quickopen-item"
-              :class="{ selected: i === selectedIdx }"
-              @click="selectedIdx = i; openSelected()"
-              @mouseenter="selectedIdx = i"
-            >
-              <span class="item-name">{{ basename(file) }}</span>
-              <span class="item-path">{{ getDisplayPath(file) }}</span>
-            </div>
-            <div v-if="filtered.length === 0 && query" class="quickopen-empty">
+            <template v-if="isTaskMode">
+              <div
+                v-for="(task, i) in filteredTasks"
+                :key="`${task.runner}:${task.name}`"
+                class="quickopen-item"
+                :class="{ selected: i === selectedIdx }"
+                @click="selectedIdx = i; openSelected()"
+                @mouseenter="selectedIdx = i"
+              >
+                <span class="item-runner">{{ task.runner }}</span>
+                <span class="item-name">{{ task.name }}</span>
+                <span class="item-path">{{ task.command }}</span>
+              </div>
+            </template>
+            <template v-else>
+              <div
+                v-for="(file, i) in filtered"
+                :key="file"
+                class="quickopen-item"
+                :class="{ selected: i === selectedIdx }"
+                @click="selectedIdx = i; openSelected()"
+                @mouseenter="selectedIdx = i"
+              >
+                <span class="item-name">{{ basename(file) }}</span>
+                <span class="item-path">{{ getDisplayPath(file) }}</span>
+              </div>
+            </template>
+            <div v-if="itemCount === 0 && query" class="quickopen-empty">
               {{ t('quickOpen.noMatch') }}
             </div>
           </template>
         </div>
         <div class="quickopen-footer">
-          <span class="hint">{{ t('quickOpen.enterOpen') }}</span>
-          <span class="hint">{{ t('quickOpen.lineHint') }}</span>
+          <span class="hint">{{ isTaskMode ? t('quickOpen.enterRun') : t('quickOpen.enterOpen') }}</span>
+          <span class="hint">{{ isTaskMode ? t('quickOpen.taskHint') : t('quickOpen.lineHint') }}</span>
         </div>
       </div>
     </div>
@@ -290,6 +328,15 @@ function scrollToSelected() {
 
 .quickopen-item.selected {
   background: var(--accent);
+}
+
+.item-runner {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 .item-name {
