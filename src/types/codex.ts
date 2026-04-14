@@ -43,6 +43,7 @@ export interface FileChangeApprovalRequest {
   threadId: string
   turnId: string
   reason: string | null
+  filePath: string | null
   environment: string
   sandboxTrusted: boolean
 }

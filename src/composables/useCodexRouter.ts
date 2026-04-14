@@ -108,8 +108,17 @@ export async function initCodexRouter() {
         status: item.status as string | undefined,
       }
       if (type === 'fileChange') {
-        data.filePath = item.filePath as string | undefined
+        // Extract file path from changes[] array or legacy filePath field
+        const changes = item.changes as Array<Record<string, unknown>> | undefined
+        const filePath = changes?.[0]?.path as string | undefined ?? item.filePath as string | undefined
+        data.filePath = filePath
+        data.changes = changes
         data.reason = item.reason as string | undefined
+        // Backfill filePath if approval request arrived before item/started
+        const pending = codex.pendingFileApproval
+        if (pending && pending.itemId === (item.id as string) && !pending.filePath && filePath) {
+          pending.filePath = filePath
+        }
       } else if (type === 'reasoning') {
         data.summary = item.summary as string | undefined
       }
@@ -188,18 +197,30 @@ export async function initCodexRouter() {
 
   await win.listen<Record<string, unknown>>('codex://approval/file', (event) => {
     const p = event.payload
+    const itemId = (p.itemId as string) ?? ''
+    // Look up filePath from the matching item/started event
+    const msgs = codex.messages
+    let fileItem: Record<string, unknown> | undefined
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role !== 'agent') continue
+      fileItem = msgs[i].items.find((it) => it.id === itemId)?.data
+      if (fileItem) break
+    }
+    const filePath = (fileItem?.filePath as string) ?? null
     codex.pendingFileApproval = {
       requestId: p.requestId as number | string,
-      itemId: (p.itemId as string) ?? '',
+      itemId,
       threadId: (p.threadId as string) ?? '',
       turnId: (p.turnId as string) ?? '',
       reason: (p.reason as string) ?? null,
+      filePath,
       environment: (p.environment as string) ?? '',
       sandboxTrusted: p.sandboxTrusted !== false,
     }
     if (settings.codexNotification && !isCodexTabVisible()) {
       markCodexActivity()
-      notify?.('Codex', 'File change approval required', focusCodexTab)
+      const desc = filePath ? `File change: ${filePath}` : 'File change approval required'
+      notify?.('Codex', desc, focusCodexTab)
     }
   })
 

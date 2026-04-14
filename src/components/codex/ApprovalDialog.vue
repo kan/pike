@@ -54,6 +54,9 @@ async function respond(decision: ApprovalDecision) {
             <span>{{ t('codex.approvalFile') }}</span>
           </div>
           <div class="approval-env">{{ codex.pendingFileApproval.environment }}</div>
+          <div v-if="codex.pendingFileApproval.filePath" class="approval-filepath">
+            <code>{{ codex.pendingFileApproval.filePath }}</code>
+          </div>
           <div v-if="codex.pendingFileApproval.reason" class="approval-reason">
             {{ codex.pendingFileApproval.reason }}
           </div>
@@ -151,6 +154,21 @@ async function respond(decision: ApprovalDecision) {
   font-size: 11px;
   color: var(--text-secondary);
   margin-bottom: 12px;
+}
+
+.approval-filepath {
+  background: var(--bg-tertiary);
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  overflow-x: auto;
+}
+
+.approval-filepath code {
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .approval-reason {
