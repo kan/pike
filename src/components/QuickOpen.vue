@@ -422,7 +422,7 @@ const footerHints = computed(() => {
                 @mouseenter="selectedIdx = i"
               >
                 <span class="item-name">{{ branch }}</span>
-                <span v-if="branch === gitStore.branch" class="item-path">current</span>
+                <span v-if="branch === gitStore.status?.branch" class="item-path">current</span>
               </div>
             </template>
 
