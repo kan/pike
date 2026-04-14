@@ -306,7 +306,8 @@ export default {
   'codex.cmdSandbox': 'View or set sandbox mode (WSL only)',
   'codex.cmdApproval': 'View or set approval policy',
   'codex.sandboxCurrent': 'Current sandbox mode',
-  'codex.sandboxUsage': 'Use `/sandbox <mode>` to change. Modes: `workspaceWrite`, `dangerFullAccess`, `externalSandbox`, `default`',
+  'codex.sandboxUsage':
+    'Use `/sandbox <mode>` to change. Modes: `workspaceWrite`, `dangerFullAccess`, `externalSandbox`, `default`',
   'codex.sandboxSet': 'Sandbox mode set to',
   'codex.sandboxInvalid': 'Invalid mode. Valid options',
   'codex.sandboxWindowsFixed': 'Sandbox mode is fixed to `externalSandbox` on Windows.',

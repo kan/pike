@@ -110,7 +110,7 @@ export async function initCodexRouter() {
       if (type === 'fileChange') {
         // Extract file path from changes[] array or legacy filePath field
         const changes = item.changes as Array<Record<string, unknown>> | undefined
-        const filePath = changes?.[0]?.path as string | undefined ?? item.filePath as string | undefined
+        const filePath = (changes?.[0]?.path as string | undefined) ?? (item.filePath as string | undefined)
         data.filePath = filePath
         data.changes = changes
         data.reason = item.reason as string | undefined

@@ -212,8 +212,8 @@ export const useCodexStore = defineStore('codex', () => {
       versionWarning.value = `Unknown Codex version: ${version}`
       return
     }
-    const major = Number.parseInt(match[1])
-    const minor = Number.parseInt(match[2])
+    const major = Number.parseInt(match[1], 10)
+    const minor = Number.parseInt(match[2], 10)
     // Pike 0.4.0 was developed against Codex 0.104.0 - 0.118.0
     if (major === 0 && minor < 100) {
       versionWarning.value = `Codex ${version} may not be compatible (expected 0.100+)`

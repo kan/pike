@@ -307,7 +307,8 @@ export default {
   'codex.cmdSandbox': 'Sandbox モードの表示・設定（WSL のみ）',
   'codex.cmdApproval': '承認ポリシーの表示・設定',
   'codex.sandboxCurrent': '現在の Sandbox モード',
-  'codex.sandboxUsage': '`/sandbox <mode>` で変更。モード: `workspaceWrite`, `dangerFullAccess`, `externalSandbox`, `default`',
+  'codex.sandboxUsage':
+    '`/sandbox <mode>` で変更。モード: `workspaceWrite`, `dangerFullAccess`, `externalSandbox`, `default`',
   'codex.sandboxSet': 'Sandbox モードを設定しました',
   'codex.sandboxInvalid': '無効なモードです。有効な値',
   'codex.sandboxWindowsFixed': 'Windows 環境では Sandbox モードは `externalSandbox` 固定です。',
