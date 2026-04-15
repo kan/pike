@@ -71,6 +71,13 @@ pike/
 │       ├── types.rs           # ShellConfig 等の共通型定義
 │       ├── font.rs            # フォント列挙（font-kit でモノスペース検出）
 │       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
+│       ├── agent/
+│       │   ├── mod.rs         # 統一エージェント API モジュール
+│       │   ├── types.rs       # AgentRuntime trait・AgentEvent・AgentCapabilities
+│       │   ├── commands.rs    # agent_* Tauri コマンド（13個）
+│       │   ├── state.rs       # ウィンドウ別セッション管理
+│       │   ├── codex_runtime.rs  # Codex app-server → AgentRuntime 実装
+│       │   └── acp_runtime.rs    # ACP JSON-RPC → AgentRuntime 実装
 │       ├── pty/
 │       │   └── mod.rs         # PTY 管理（WSL/cmd/PowerShell/Git Bash 対応）
 │       ├── watcher/
@@ -82,7 +89,8 @@ pike/
 │   ├── main.ts
 │   ├── types/
 │   │   ├── tab.ts             # Tab Union type・ShellType・共通ヘルパー
-│   │   └── project.ts         # ProjectConfig・PinnedTabDef
+│   │   ├── project.ts         # ProjectConfig・PinnedTabDef
+│   │   └── agent.ts           # AgentEvent・AgentCapabilities・AgentAuthState
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
 │   │   ├── QuickOpen.vue        # Ctrl+P クイックオープン（rg --files + fuzzy match）
@@ -93,8 +101,11 @@ pike/
 │   │   ├── panels/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   └── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除
+│   │   ├── agent/
+│   │   │   └── AgentApprovalDialog.vue  # 統一 approval ダイアログ
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
+│   │       ├── AgentChatTab.vue   # 統一エージェントチャット（Codex / Claude Code）
 │   │       ├── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダークモード・エディタ設定）
 │   │       ├── CsvTab.vue         # CSV/TSV テーブルプレビュー
 │   │       ├── PdfTab.vue         # PDF プレビュー（iframe）
@@ -103,14 +114,16 @@ pike/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts         # サイドバー状態
 │   │   ├── settings.ts        # アプリ設定（フォント・カラースキーム・ダークモード・エディタ設定）
-│   │   └── project.ts         # プロジェクト管理・切替・永続化
+│   │   ├── project.ts         # プロジェクト管理・切替・永続化
+│   │   └── agent.ts           # 統一エージェント状態管理（agent_* API 使用）
 │   ├── composables/
 │   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P/P
 │   │   ├── useConfirmDialog.ts      # カスタム確認ダイアログ composable
 │   │   ├── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出 + グローバル exit フック
 │   │   ├── useFsWatcher.ts        # ファイル監視イベントルーター
 │   │   ├── useCliOpen.ts          # CLI 引数によるファイル/プロジェクト自動オープン
-│   │   └── useTerminalNotifications.ts  # ターミナル終了デスクトップ通知
+│   │   ├── useTerminalNotifications.ts  # ターミナル終了デスクトップ通知
+│   │   └── useAgentRouter.ts      # agent:// イベントルーター（統一エージェント API）
 │   ├── lib/
 │   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
 │   │   ├── fontDetection.ts   # フォント名ユーティリティ（buildFontFamily/extractFontName）
@@ -309,6 +322,18 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - Settings タブの About セクションに「更新を確認」ボタン + 「更新して再起動」ボタン
 - SideBar 歯車アイコンに更新通知ドット（起動時に `check()` でバックグラウンド確認）
 - `bundle.createUpdaterArtifacts: true` で `.sig` ファイルを自動生成
+
+### Agent Runtime（統一エージェント API）
+- `src-tauri/src/agent/` に `AgentRuntime` trait を定義。Codex app-server と ACP (Agent Client Protocol) の両方を同一インターフェースで扱う
+- `AgentRuntime` trait: `start_session`, `submit_turn`, `interrupt_turn`, `respond_approval`, `auth_status` 等
+- `CodexAppServerRuntime`: 既存の `codex/` モジュールを wrap。`codex://` ではなく `agent://` イベントを emit
+- `ACPRuntime`: `claude-agent-acp` 等の ACP 対応エージェントと JSON-RPC over stdio で通信
+- `AgentEvent` enum: 両プロトコルの通知を統一表現（MessageDelta, ItemStarted, ApprovalCommandRequest 等）
+- `AgentCapabilities`: runtime ごとのサポート機能を宣言（モデル選択、ロールバック、sandbox 設定等）
+- Tauri commands: `agent_start_session`, `agent_submit_turn` 等 13 個。既存の `codex_*` commands と並行して登録
+- フロント: `stores/agent.ts` (Pinia), `composables/useAgentRouter.ts` (event router), `types/agent.ts`
+- `AgentChatTab.vue`: `agent-chat` タブ。capabilities に応じて UI を条件分岐（auth bar, sandbox 表示等）
+- 既存の `codex-chat` タブ（`CodexChatTab.vue` + `codex` store）は互換性のため維持。新規セッションは `agent-chat` タブを使用
 
 ### コミット前チェック
 コミット前に以下を実行し、エラー・警告がゼロであることを確認する:

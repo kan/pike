@@ -467,6 +467,91 @@ export async function codexRespondApproval(requestId: number | string, decision:
   return invoke('codex_respond_approval', { requestId, decision })
 }
 
+// Agent (unified API — works with Codex, Claude Code, and other ACP agents)
+
+import type {
+  AgentApprovalDecision,
+  AgentAuthState,
+  AgentCapabilities,
+  AgentEditorContext,
+  AgentModelInfo,
+  AgentType,
+} from '../types/agent'
+
+export async function agentCheckAvailable(agentType: AgentType, shell: ShellType): Promise<string> {
+  return invoke<string>('agent_check_available', { agentType, shell })
+}
+
+export async function agentStartSession(
+  agentType: AgentType,
+  shell: ShellType,
+  cwd: string,
+  sessionId?: string | null,
+  sandboxMode?: string | null,
+  approvalPolicy?: string | null,
+): Promise<string> {
+  return invoke<string>('agent_start_session', {
+    agentType,
+    shell,
+    cwd,
+    sessionId: sessionId ?? null,
+    sandboxMode: sandboxMode ?? null,
+    approvalPolicy: approvalPolicy ?? null,
+  })
+}
+
+export async function agentCapabilities(): Promise<AgentCapabilities> {
+  return invoke<AgentCapabilities>('agent_capabilities')
+}
+
+export async function agentSubmitTurn(
+  prompt: string,
+  editorContext?: AgentEditorContext | null,
+  model?: string | null,
+): Promise<void> {
+  return invoke('agent_submit_turn', {
+    prompt,
+    editorContext: editorContext ?? null,
+    model: model ?? null,
+  })
+}
+
+export async function agentInterruptTurn(): Promise<void> {
+  return invoke('agent_interrupt_turn')
+}
+
+export async function agentRollbackTurn(): Promise<void> {
+  return invoke('agent_rollback_turn')
+}
+
+export async function agentCompact(): Promise<void> {
+  return invoke('agent_compact')
+}
+
+export async function agentRespondApproval(requestId: unknown, decision: AgentApprovalDecision): Promise<void> {
+  return invoke('agent_respond_approval', { requestId, decision })
+}
+
+export async function agentAuthStatus(): Promise<AgentAuthState> {
+  return invoke<AgentAuthState>('agent_auth_status')
+}
+
+export async function agentAuthLogin(): Promise<void> {
+  return invoke('agent_auth_login')
+}
+
+export async function agentAuthLogout(): Promise<void> {
+  return invoke('agent_auth_logout')
+}
+
+export async function agentListModels(): Promise<AgentModelInfo[]> {
+  return invoke<AgentModelInfo[]>('agent_list_models')
+}
+
+export async function agentDisconnect(): Promise<void> {
+  return invoke('agent_disconnect')
+}
+
 // Claude Usage
 
 export async function claudeUsageGet(projectRoot: string): Promise<ClaudeUsageResult> {

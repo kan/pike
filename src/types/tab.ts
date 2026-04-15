@@ -155,6 +155,16 @@ export type CodexChatTab = {
   hasActivity?: boolean
 }
 
+export type AgentChatTab = {
+  id: string
+  kind: 'agent-chat'
+  title: string
+  pinned: boolean
+  hasActivity?: boolean
+  /** Which agent runtime to use */
+  agentType: 'codex' | 'claude-code'
+}
+
 export type Tab =
   | TerminalTab
   | EditorTab
@@ -165,5 +175,6 @@ export type Tab =
   | SettingsTab
   | PdfTab
   | CodexChatTab
+  | AgentChatTab
 
 export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects' | 'tasks'

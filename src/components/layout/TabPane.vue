@@ -14,6 +14,7 @@ const DockerLogsTab = defineAsyncComponent(() => import('../tabs/DockerLogsTab.v
 const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 const CodexChatTab = defineAsyncComponent(() => import('../tabs/CodexChatTab.vue'))
+const AgentChatTab = defineAsyncComponent(() => import('../tabs/AgentChatTab.vue'))
 
 import { Bot, ChevronDown, Pin, Plus, ScrollText, Settings, Terminal, X } from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
@@ -40,6 +41,8 @@ const settingsTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'sett
 const pdfTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'pdf'))
 
 const codexChatTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'codex-chat'))
+
+const agentChatTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'agent-chat'))
 
 const isWindows = computed(() =>
   projectStore.currentProject ? isWindowsShell(projectStore.currentProject.shell) : false,
@@ -231,7 +234,7 @@ onUnmounted(() => {
           <Terminal v-else-if="tab.kind === 'terminal'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <ScrollText v-else-if="tab.kind === 'docker-logs'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <Settings v-else-if="tab.kind === 'settings'" :size="14" :stroke-width="1.5" class="tab-icon" />
-          <Bot v-else-if="tab.kind === 'codex-chat'" :size="14" :stroke-width="1.5" class="tab-icon" />
+          <Bot v-else-if="tab.kind === 'codex-chat' || tab.kind === 'agent-chat'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <span class="tab-title">{{ tab.title }}</span>
           <span
             v-if="tab.kind === 'terminal' && tab.exitCode != null"
@@ -240,7 +243,7 @@ onUnmounted(() => {
             :title="'Exit code: ' + tab.exitCode"
           >{{ tab.exitCode === 0 ? '✓' : tab.exitCode }}</span>
           <span
-            v-else-if="(tab.kind === 'terminal' || tab.kind === 'codex-chat') && tab.hasActivity && tab.id !== tabStore.activeTabId"
+            v-else-if="(tab.kind === 'terminal' || tab.kind === 'codex-chat' || tab.kind === 'agent-chat') && tab.hasActivity && tab.id !== tabStore.activeTabId"
             class="tab-activity-dot"
           />
           <button
@@ -323,6 +326,11 @@ onUnmounted(() => {
       />
       <CodexChatTab
         v-for="tab in codexChatTabs"
+        :key="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <AgentChatTab
+        v-for="tab in agentChatTabs"
         :key="tab.id"
         v-show="tab.id === tabStore.activeTabId"
       />

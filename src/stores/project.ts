@@ -100,6 +100,8 @@ export const useProjectStore = defineStore('project', () => {
           }
         } else if (def.kind === 'codex-chat') {
           tabStore.addCodexChatTab({ pinned: def.pinned })
+        } else if (def.kind === 'agent-chat') {
+          tabStore.addAgentChatTab({ pinned: def.pinned })
         }
       }
       if (project.lastSession.activeTabId) {

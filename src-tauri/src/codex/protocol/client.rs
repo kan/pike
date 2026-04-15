@@ -223,6 +223,29 @@ impl AppServerClient {
         Ok(client)
     }
 
+    /// Construct an `AppServerClient` from pre-built parts.
+    ///
+    /// Used by `ACPRuntime` which sets up its own reader/writer tasks but
+    /// needs the same request/response machinery.
+    pub fn from_parts(
+        stdin_tx: mpsc::Sender<String>,
+        pending: Arc<Mutex<PendingMap>>,
+        notification_rx: mpsc::UnboundedReceiver<ServerNotification>,
+        server_request_rx: mpsc::Receiver<ServerRequest>,
+        child: tokio::process::Child,
+        task_handles: Vec<tokio::task::JoinHandle<()>>,
+    ) -> Self {
+        Self {
+            stdin_tx,
+            next_id: AtomicU64::new(1),
+            pending,
+            notification_rx_slot: Arc::new(Mutex::new(Some(notification_rx))),
+            server_request_rx_slot: Arc::new(Mutex::new(Some(server_request_rx))),
+            child_handle: Arc::new(Mutex::new(Some(child))),
+            task_handles: Arc::new(Mutex::new(task_handles)),
+        }
+    }
+
     /// Send a JSON-RPC request and wait for the response.
     pub async fn request<P: serde::Serialize, R: serde::de::DeserializeOwned>(
         &self,

@@ -1,3 +1,4 @@
+mod agent;
 mod claude_usage;
 mod cli;
 mod codex;
@@ -186,6 +187,7 @@ fn create_adhoc_project(app: &AppHandle, path: &str) -> Option<project::ProjectC
         last_opened: iso_now(),
         last_session: None,
         codex_thread_id: None,
+        agent_session_id: None,
     };
 
     let dir = state.config_dir.join("projects").join(&config.id);
@@ -473,6 +475,7 @@ pub fn run() {
             client: tokio::sync::OnceCell::new(),
         })
         .manage(codex::CodexState::default())
+        .manage(agent::state::AgentState::default())
         .setup(|app| {
             let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(config_dir.join("projects"))
@@ -570,6 +573,21 @@ pub fn run() {
                                 if let Some(session) = map.remove(&label) {
                                     log::info!("[codex] Cleaning up session for window {label}");
                                     session.shutdown().await;
+                                }
+                            });
+                        }
+                    }
+
+                    // Per-window agent cleanup
+                    if let Some(state) = window.try_state::<agent::state::AgentState>() {
+                        let label = window.label().to_string();
+                        let sessions = state.sessions.clone();
+                        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                            handle.spawn(async move {
+                                let mut map = sessions.lock().await;
+                                if let Some(session) = map.remove(&label) {
+                                    log::info!("[agent] Cleaning up session for window {label}");
+                                    let _ = session.runtime.shutdown().await;
                                 }
                             });
                         }
@@ -716,6 +734,19 @@ pub fn run() {
             codex::codex_compact_thread,
             codex::codex_model_list,
             claude_usage::claude_usage_get,
+            agent::commands::agent_check_available,
+            agent::commands::agent_start_session,
+            agent::commands::agent_capabilities,
+            agent::commands::agent_submit_turn,
+            agent::commands::agent_interrupt_turn,
+            agent::commands::agent_rollback_turn,
+            agent::commands::agent_compact,
+            agent::commands::agent_respond_approval,
+            agent::commands::agent_auth_status,
+            agent::commands::agent_auth_login,
+            agent::commands::agent_auth_logout,
+            agent::commands::agent_list_models,
+            agent::commands::agent_disconnect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

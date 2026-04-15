@@ -9,7 +9,7 @@ export interface PinnedTabDef {
 
 export interface SessionTabDef {
   id: string
-  kind: 'terminal' | 'editor' | 'codex-chat'
+  kind: 'terminal' | 'editor' | 'codex-chat' | 'agent-chat'
   title: string
   pinned: boolean
   autoStart?: string
@@ -31,4 +31,6 @@ export interface ProjectConfig {
   lastOpened: string
   lastSession?: LastSession
   codexThreadId?: string
+  /** Unified agent session ID (used by agent store for session resume) */
+  agentSessionId?: string
 }

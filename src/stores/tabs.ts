@@ -8,6 +8,7 @@ import { basename } from '../lib/paths'
 import { ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
+  AgentChatTab,
   CodexChatTab,
   DiffTab,
   DockerLogsTab,
@@ -106,7 +107,7 @@ export const useTabStore = defineStore('tabs', () => {
   watch(activeTabId, (newId) => {
     if (newId) {
       const tab = tabs.value.find((t) => t.id === newId)
-      if (tab && (tab.kind === 'terminal' || tab.kind === 'codex-chat')) {
+      if (tab && (tab.kind === 'terminal' || tab.kind === 'codex-chat' || tab.kind === 'agent-chat')) {
         tab.hasActivity = false
       }
     }
@@ -270,6 +271,20 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  function addAgentChatTab(options?: { pinned?: boolean; agentType?: 'codex' | 'claude-code' }): string {
+    const existing = tabs.value.find((t): t is AgentChatTab => t.kind === 'agent-chat')
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    const agentType = options?.agentType ?? 'codex'
+    const title = agentType === 'claude-code' ? 'Claude Code' : 'Codex'
+    tabs.value.push({ id, kind: 'agent-chat', title, pinned: options?.pinned ?? false, agentType })
+    activeTabId.value = id
+    return id
+  }
+
   function addPdfTab(options: { path: string }): string {
     const existing = tabs.value.find((t): t is PdfTab => t.kind === 'pdf' && t.path === options.path)
     if (existing) {
@@ -422,7 +437,7 @@ export const useTabStore = defineStore('tabs', () => {
 
   function snapshotSession(): LastSession {
     const sessionTabs: SessionTabDef[] = tabs.value
-      .filter((t) => t.kind === 'terminal' || t.kind === 'editor' || t.kind === 'codex-chat')
+      .filter((t) => t.kind === 'terminal' || t.kind === 'editor' || t.kind === 'codex-chat' || t.kind === 'agent-chat')
       .map((t) => {
         const base = { id: t.id, kind: t.kind as SessionTabDef['kind'], title: t.title, pinned: t.pinned }
         if (t.kind === 'terminal') {
@@ -452,6 +467,7 @@ export const useTabStore = defineStore('tabs', () => {
     addDockerLogsTab,
     addSettingsTab,
     addCodexChatTab,
+    addAgentChatTab,
     addDiffTab,
     addPdfTab,
     closeTab,

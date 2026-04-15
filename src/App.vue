@@ -9,6 +9,7 @@ import StatusBar from './components/layout/StatusBar.vue'
 import TabPane from './components/layout/TabPane.vue'
 import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
+import { initAgentRouter } from './composables/useAgentRouter'
 import { hasPendingCliAction, initCliOpen } from './composables/useCliOpen'
 import { initCodexRouter } from './composables/useCodexRouter'
 import { dockerLogRouter } from './composables/useDockerLogRouter'
@@ -86,7 +87,7 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
 const windowProjectId = getWindowProjectId()
 
 onMounted(async () => {
-  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initCodexRouter()])
+  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initCodexRouter(), initAgentRouter()])
 
   if (windowProjectId) {
     await projectStore.loadProjects()

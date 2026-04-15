@@ -58,6 +58,9 @@ pub struct ProjectConfig {
     pub last_session: Option<LastSession>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_thread_id: Option<String>,
+    /// Unified agent session ID (used by agent store for session resume).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
 }
 
 fn projects_dir(state: &ProjectState) -> PathBuf {
