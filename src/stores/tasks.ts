@@ -52,7 +52,7 @@ export const useTaskStore = defineStore('tasks', () => {
     if (!project) return
     const command = RUNNER_COMMANDS[task.runner](task.name)
     const cwd = group?.cwd ?? task.cwd ?? project.root
-    useTabStore().addTerminalTab({ title: command, autoStart: command, cwd })
+    useTabStore().addTerminalTab({ title: command, autoStart: command, cwd, shell: project.shell })
   }
 
   const allTasks = computed(() => taskGroups.value.flatMap((g) => g.tasks.map((t) => ({ ...t, cwd: g.cwd }))))
