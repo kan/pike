@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import type { ClaudeUsageResult } from '../types/claudeUsage'
 import type { ComposeService, ContainerInfo } from '../types/docker'
 import type { GitFileChange, GitLogEntry, GitStatusResult } from '../types/git'
 import type { ProjectConfig } from '../types/project'
@@ -464,4 +465,10 @@ export type ApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'canc
 
 export async function codexRespondApproval(requestId: number | string, decision: ApprovalDecision): Promise<void> {
   return invoke('codex_respond_approval', { requestId, decision })
+}
+
+// Claude Usage
+
+export async function claudeUsageGet(projectRoot: string): Promise<ClaudeUsageResult> {
+  return invoke<ClaudeUsageResult>('claude_usage_get', { projectRoot })
 }

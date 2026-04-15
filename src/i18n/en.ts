@@ -262,6 +262,11 @@ export default {
   'statusBar.saveWithEncoding': 'Save with this encoding',
   'statusBar.lfUnix': 'LF (Unix)',
   'statusBar.crlfWindows': 'CRLF (Windows)',
+  'statusBar.ccIn': 'in',
+  'statusBar.ccOut': 'out',
+  'statusBar.ccCache': 'cache',
+  'statusBar.ccCacheCreate': 'cache write',
+  'statusBar.ccSession': 'Claude Code Session',
 
   // Confirm Dialog
   'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',

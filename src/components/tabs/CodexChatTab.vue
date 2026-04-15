@@ -21,6 +21,7 @@ import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getClipboardImages, saveImageFile } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
+import { formatTokens } from '../../lib/format'
 import { basename, fuzzyMatch, isAbsolutePath, isImageFile, toRelativePath } from '../../lib/paths'
 import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../lib/tauri'
 import { useCodexStore } from '../../stores/codex'
@@ -225,12 +226,6 @@ function openFileChangeDiff(item: TurnItem) {
 async function startNewConversation() {
   await codex.newConversation()
   await ensureConnected()
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
-  return String(n)
 }
 
 let connecting = false

@@ -263,6 +263,11 @@ export default {
   'statusBar.saveWithEncoding': 'このエンコードで保存',
   'statusBar.lfUnix': 'LF (Unix)',
   'statusBar.crlfWindows': 'CRLF (Windows)',
+  'statusBar.ccIn': '入力',
+  'statusBar.ccOut': '出力',
+  'statusBar.ccCache': 'キャッシュ',
+  'statusBar.ccCacheCreate': 'キャッシュ書込',
+  'statusBar.ccSession': 'Claude Code セッション',
 
   // Confirm Dialog
   'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',

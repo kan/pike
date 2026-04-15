@@ -19,6 +19,7 @@ import { initTerminalNotifications } from './composables/useTerminalNotification
 import { useI18n } from './i18n'
 import { projectRemoveOpen } from './lib/tauri'
 import { getWindowProjectId, isMainWindow, isSecondaryWindow } from './lib/window'
+import { useClaudeUsageStore } from './stores/claudeUsage'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
 import { useTabStore } from './stores/tabs'
@@ -28,6 +29,7 @@ const { t } = useI18n()
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
 const gitStore = useGitStore()
+const claudeUsageStore = useClaudeUsageStore()
 
 useKeyboardShortcuts()
 
@@ -49,8 +51,10 @@ watch(
   (id) => {
     if (id) {
       gitStore.startPolling()
+      claudeUsageStore.startPolling()
     } else {
       gitStore.stopPolling()
+      claudeUsageStore.stopPolling()
     }
   },
 )
@@ -111,6 +115,7 @@ onMounted(async () => {
     listen('window-hide-requested', async () => {
       await projectStore.saveSessionNow()
       gitStore.stopPolling()
+      claudeUsageStore.stopPolling()
       await fsWatcher.stop()
     })
     listen('app-should-exit', () => {

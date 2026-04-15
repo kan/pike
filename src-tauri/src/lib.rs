@@ -1,3 +1,4 @@
+mod claude_usage;
 mod cli;
 mod codex;
 mod docker;
@@ -714,6 +715,7 @@ pub fn run() {
             codex::codex_rollback_turn,
             codex::codex_compact_thread,
             codex::codex_model_list,
+            claude_usage::claude_usage_get,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
