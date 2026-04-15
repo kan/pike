@@ -21,7 +21,7 @@ import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getClipboardImages, saveImageFile } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
-import { formatTokens } from '../../lib/format'
+import { formatCost, formatTokens } from '../../lib/format'
 import { basename, fuzzyMatch, isAbsolutePath, isImageFile, toRelativePath } from '../../lib/paths'
 import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../lib/tauri'
 import { useCodexStore } from '../../stores/codex'
@@ -878,6 +878,7 @@ onUnmounted(() => {
         </span>
         <span v-if="codex.tokenUsage" class="info-indicator tokens">
           {{ formatTokens(codex.tokenUsage.input) }} in / {{ formatTokens(codex.tokenUsage.output) }} out
+          <span v-if="codex.estimatedCostUsd !== null" class="token-cost">~{{ formatCost(codex.estimatedCostUsd) }}</span>
         </span>
       </div>
 
@@ -1427,6 +1428,11 @@ onUnmounted(() => {
 .info-indicator.tokens {
   margin-left: auto;
   color: var(--text-secondary);
+}
+
+.token-cost {
+  opacity: 0.7;
+  margin-left: 4px;
 }
 
 .disconnect-icon {

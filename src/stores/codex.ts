@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useEditorInfo } from '../composables/useEditorInfo'
 import { deleteChatHistory, loadChatHistory, saveChatHistory } from '../lib/codexHistory'
+import { estimateOpenAICost } from '../lib/format'
 import {
   type ApprovalDecision,
   type CodexEditorContext,
@@ -127,6 +128,10 @@ export const useCodexStore = defineStore('codex', () => {
   const selectedModel = ref<string | null>(null)
   const availableModels = ref<CodexModelInfo[]>([])
   const tokenUsage = ref<{ input: number; output: number } | null>(null)
+  const estimatedCostUsd = computed<number | null>(() => {
+    if (!tokenUsage.value || !selectedModel.value) return null
+    return estimateOpenAICost(selectedModel.value, tokenUsage.value.input, tokenUsage.value.output)
+  })
   const disconnectReason = ref<string | null>(null)
   const sandboxMode = ref<string | null>(null)
   const approvalPolicy = ref<string | null>(null)
@@ -506,6 +511,7 @@ export const useCodexStore = defineStore('codex', () => {
     detectedInstructionsFile,
     selectedModel,
     tokenUsage,
+    estimatedCostUsd,
     disconnectReason,
     sandboxMode,
     approvalPolicy,
