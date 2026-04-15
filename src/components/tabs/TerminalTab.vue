@@ -281,37 +281,54 @@ onMounted(async () => {
     if (text) navigator.clipboard.writeText(text.replace(/\r\n/g, '\n')).catch(() => {})
   })
 
-  // Right-click paste (guard: termRef may be null if component unmounted during pty_spawn await)
-  termRef.value?.addEventListener('contextmenu', async (e) => {
-    e.preventDefault()
-    if (!settingsStore.terminalRightClickPaste || !ptyId) return
-    const text = await navigator.clipboard.readText().catch(() => '')
-    if (!text) return
+  // Shared paste helper: confirm newlines, normalize line endings, write to PTY.
+  // Rust pty_write handles chunking internally to avoid ConPTY pipe buffer overflow.
+  async function pasteText(text: string) {
+    if (!ptyId) return
     if (text.includes('\n') || text.includes('\r')) {
       if (!(await confirmDialog(t('confirm.pasteNewlines')))) {
         terminal?.focus()
         return
       }
     }
-    ptyWrite(ptyId, text.replace(/\r\n/g, '\r')).catch(() => {})
+    await ptyWrite(ptyId, text.replace(/\r\n/g, '\r').replace(/\n/g, '\r'))
     terminal?.focus()
+  }
+
+  // Right-click paste (guard: termRef may be null if component unmounted during pty_spawn await)
+  termRef.value?.addEventListener('contextmenu', async (e) => {
+    e.preventDefault()
+    if (!settingsStore.terminalRightClickPaste || !ptyId) return
+    const text = await navigator.clipboard.readText().catch(() => '')
+    if (text) await pasteText(text)
   })
 
+  // Explicit paste handler — xterm.js default paste can lose data with large text on ConPTY.
   termRef.value?.addEventListener('paste', async (e: Event) => {
     const ce = e as ClipboardEvent
+    if (!ptyId) return
+
     const images = getClipboardImages(ce)
-    if (images.length === 0 || !ptyId) return
+    if (images.length > 0) {
+      ce.preventDefault()
+      ce.stopPropagation()
+      for (const file of images) {
+        try {
+          const relPath = await saveImageFile(file)
+          ptyWrite(ptyId, relPath).catch(() => {})
+        } catch {
+          // silently ignore — non-critical feature
+        }
+      }
+      terminal?.focus()
+      return
+    }
+
+    const text = ce.clipboardData?.getData('text/plain')
+    if (!text) return
     ce.preventDefault()
     ce.stopPropagation()
-    for (const file of images) {
-      try {
-        const relPath = await saveImageFile(file)
-        ptyWrite(ptyId, relPath).catch(() => {})
-      } catch {
-        // silently ignore — non-critical feature
-      }
-    }
-    terminal?.focus()
+    await pasteText(text)
   })
 
   termRef.value?.addEventListener('dragover', (e: DragEvent) => {

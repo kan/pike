@@ -323,9 +323,14 @@ pub async fn pty_write(
     };
     tokio::task::spawn_blocking(move || {
         let mut w = writer.lock().map_err(|e| e.to_string())?;
-        w.write_all(data.as_bytes())
-            .map_err(|e| e.to_string())?;
-        w.flush().map_err(|e| e.to_string())
+        // Write in chunks to avoid overwhelming ConPTY pipe buffer (typically 4KB on Windows).
+        // Flushing after each chunk ensures data is pushed through before sending more.
+        const CHUNK_SIZE: usize = 4096;
+        for chunk in data.as_bytes().chunks(CHUNK_SIZE) {
+            w.write_all(chunk).map_err(|e| e.to_string())?;
+            w.flush().map_err(|e| e.to_string())?;
+        }
+        Ok(())
     })
     .await
     .map_err(|e| e.to_string())?
