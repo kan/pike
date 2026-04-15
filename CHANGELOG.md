@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.5] - 2026-04-15
+
+### Features
+
+- **Claude Code トークン使用量表示**: StatusBar にアクティブセッションの入力/出力トークン数と推定コストをリアルタイム表示。クリックでモデル別内訳ドロップダウン
+- **Codex トークンコスト推定**: Codex タブの info-bar にモデル別推定コスト (~$X.XX) を追加
+
+### Fixed
+
+- タスクランナーが Windows プロジェクトでも WSL ターミナルを開いていた問題を修正（プロジェクトのデフォルトシェルを使用するよう変更）
+- ターミナルへの長文ペーストが途切れる問題を修正（ConPTY パイプバッファ溢れ対策のチャンク書き込み + 明示的ペーストハンドリング）
+- 右クリックペーストで Unix 改行 (bare LF) が正規化されていなかったバグを修正
+
+### Improved
+
+- `formatTokens` / `formatCost` を共有ユーティリティ (`src/lib/format.ts`) に抽出
+- ターミナルペースト処理を共有ヘルパーに統合（右クリック / Ctrl+V の重複排除）
+
 ## [0.4.4] - 2026-04-14
 
 ### Features
