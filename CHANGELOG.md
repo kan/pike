@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-04-16
+
+### Features
+
+- **統一エージェント API**: AgentRuntime trait による Codex / Claude Code (ACP) の統一抽象化。UI は runtime を意識せず動作
+- **Claude Code (ACP) 対応**: Agent Client Protocol (JSON-RPC over stdio) で `claude-agent-acp` と通信。自動インストール対応
+- **マルチエージェントタブ**: 1ウィンドウ内で複数のエージェントタブを独立運用可能。Claude と Codex の同時利用、同じ Claude の複数セッションに対応
+- **セッション名表示**: ACP の `session_info_update` からセッションタイトルを取得し info-bar とタブタイトルに反映
+- **初期固定タブ変更**: デフォルト固定タブを Claude Code autoStart ターミナルからネイティブ Agent タブに変更
+- **QuickOpen にエージェントコマンド**: `> Claude` / `> Codex` で新規エージェントタブを作成
+
+### Fixed
+
+- ターミナル貼り付けの途切れを修正（capture フェーズで xterm.js 二重書き込み防止 + bracket paste mode 対応）
+
+### Improved
+
+- トークン使用量表示を StatusBar から AgentTab の info-bar に移動・統一
+- UI 表記を Claude Code → Claude に統一
+
 ## [0.4.5] - 2026-04-15
 
 ### Features
