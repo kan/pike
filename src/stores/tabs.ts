@@ -262,10 +262,11 @@ export const useTabStore = defineStore('tabs', () => {
     const agentType = options?.agentType ?? 'claude-code'
     const existing = tabs.value.find((t): t is AgentChatTab => t.kind === 'agent-chat')
     if (existing) {
-      // Update agent type if caller explicitly requested a different one
       if (existing.agentType !== agentType) {
         existing.agentType = agentType
-        existing.title = agentType === 'claude-code' ? 'Claude Code' : 'Codex'
+        existing.title = agentType === 'claude-code' ? 'Claude' : 'Codex'
+        // Signal AgentChatTab to reconnect with the new type
+        existing.switchRequested = Date.now()
       }
       activeTabId.value = existing.id
       return existing.id

@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { Cpu, FolderOpen, GitBranch, Github } from 'lucide-vue-next'
+import { FolderOpen, GitBranch, Github } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
-import { formatCost, formatTokens } from '../../lib/format'
 import { openUrl } from '../../lib/tauri'
-import { useClaudeUsageStore } from '../../stores/claudeUsage'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
@@ -19,7 +17,6 @@ const settingsStore = useSettingsStore()
 function toggleLanguage() {
   settingsStore.language = settingsStore.language === 'en' ? 'ja' : 'en'
 }
-const claudeUsageStore = useClaudeUsageStore()
 const gitStore = useGitStore()
 const editorInfo = useEditorInfo()
 const updater = useUpdater()
@@ -32,19 +29,6 @@ async function openGitHub() {
   if (await confirmDialog(t('confirm.openUrl', { url }))) {
     openUrl(url)
   }
-}
-
-const showClaudeUsage = ref(false)
-
-function toggleClaudeUsage() {
-  showClaudeUsage.value = !showClaudeUsage.value
-  if (showClaudeUsage.value) {
-    nextTick(() => window.addEventListener('mousedown', closeClaudeUsage, { once: true }))
-  }
-}
-
-function closeClaudeUsage() {
-  showClaudeUsage.value = false
 }
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)
@@ -187,28 +171,6 @@ onUnmounted(() => {
       <span class="status-text">{{ editorInfo.current.value.fileType }}</span>
     </template>
 
-    <!-- Claude Code usage -->
-    <div v-if="claudeUsageStore.usage?.active" class="status-dropdown-area">
-      <button class="status-item clickable small cc-usage" @click="toggleClaudeUsage">
-        <Cpu :size="12" :stroke-width="2" />
-        <span>{{ formatTokens(claudeUsageStore.usage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(claudeUsageStore.usage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
-        <span v-if="claudeUsageStore.usage.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(claudeUsageStore.usage.estimatedCostUsd) }}</span>
-      </button>
-      <div v-if="showClaudeUsage" class="status-dropdown cc-dropdown" @mousedown.stop>
-        <div class="dropdown-label">{{ t('statusBar.ccSession') }}</div>
-        <div v-for="m in claudeUsageStore.usage.models" :key="m.model" class="cc-model-row">
-          <div class="cc-model-name">{{ m.model }}</div>
-          <div class="cc-model-stats">
-            <span>{{ t('statusBar.ccIn') }}: {{ formatTokens(m.inputTokens) }}</span>
-            <span>{{ t('statusBar.ccOut') }}: {{ formatTokens(m.outputTokens) }}</span>
-            <span>{{ t('statusBar.ccCache') }}: {{ formatTokens(m.cacheReadTokens) }}</span>
-            <span>{{ t('statusBar.ccCacheCreate') }}: {{ formatTokens(m.cacheCreationTokens) }}</span>
-            <span v-if="m.costUsd !== null" class="cc-cost">{{ formatCost(m.costUsd) }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div v-if="gitStore.status" class="branch-area">
       <button class="status-item clickable" @click="openBranchSwitcher">
         <GitBranch :size="14" :stroke-width="2" class="branch-icon" />
@@ -349,38 +311,6 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
-}
-
-.cc-usage {
-  gap: 4px;
-  opacity: 0.85;
-}
-
-.cc-cost {
-  opacity: 0.7;
-}
-
-.cc-dropdown {
-  min-width: 240px;
-}
-
-.cc-model-row {
-  padding: 4px 12px;
-}
-
-.cc-model-name {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-active);
-  margin-bottom: 2px;
-}
-
-.cc-model-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text-primary);
 }
 
 .branch-icon {
