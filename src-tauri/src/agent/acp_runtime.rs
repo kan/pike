@@ -61,6 +61,35 @@ impl Default for AcpAgentConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Build a shell command string with basic quoting for `bash -lc`.
+/// Prepends `$HOME/.local/bin` to PATH for npm --prefix installs.
+fn build_shell_command(command: &str, args: &[String]) -> String {
+    let mut parts = Vec::with_capacity(1 + args.len());
+    parts.push(shell_quote(command));
+    for arg in args {
+        parts.push(shell_quote(arg));
+    }
+    // Ensure ~/.local/bin is in PATH (npm --prefix "$HOME/.local" installs there)
+    format!("PATH=\"$HOME/.local/bin:$PATH\" {}", parts.join(" "))
+}
+
+/// Quote a string for safe use in a bash command.
+fn shell_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    // If it contains no special characters, return as-is
+    if s.chars().all(|c| c.is_alphanumeric() || "-_./=@:+".contains(c)) {
+        return s.to_string();
+    }
+    // Wrap in single quotes, escaping embedded single quotes
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+// ---------------------------------------------------------------------------
 // ACP process runtime (environment abstraction)
 // ---------------------------------------------------------------------------
 
@@ -84,18 +113,9 @@ impl AcpProcessRuntime {
 
         let mut cmd = if is_wsl {
             let distro = env_name.split(" (WSL)").next().unwrap_or("Ubuntu");
+            let acp_cmd = build_shell_command(&self.config.command, &self.config.args);
             let mut c = Command::new("wsl.exe");
-            c.args([
-                "--cd",
-                &linux_dir,
-                "-d",
-                distro,
-                "--",
-                &self.config.command,
-            ]);
-            for arg in &self.config.args {
-                c.arg(arg);
-            }
+            c.args(["--cd", &linux_dir, "-d", distro, "--", "bash", "-lc", &acp_cmd]);
             c
         } else {
             // On Windows, npm-installed binaries are .cmd files.
@@ -139,6 +159,7 @@ impl AcpProcessRuntime {
 /// message framing.
 pub struct ACPRuntime {
     config: AcpAgentConfig,
+    shell: ShellConfig,
     codex_runtime: Arc<dyn CodexRuntime>,
     client: Arc<AppServerClient>,
     session_id: Mutex<Option<String>>,
@@ -184,6 +205,7 @@ impl ACPRuntime {
 
         Ok(Self {
             config: agent_config,
+            shell,
             codex_runtime,
             client,
             session_id: Mutex::new(None),
@@ -362,34 +384,7 @@ impl AgentRuntime for ACPRuntime {
     }
 
     async fn check_available(&self) -> Result<String, String> {
-        // Try to get version by running `<command> --version`
-        let is_wsl = self.codex_runtime.display_environment_name().contains("WSL");
-        if is_wsl {
-            let distro = self
-                .codex_runtime
-                .display_environment_name()
-                .split(" (WSL)")
-                .next()
-                .unwrap_or("Ubuntu")
-                .to_string();
-            let shell = ShellConfig::Wsl { distro };
-            let output = shell.run_stdout(&self.config.command, &["--version"])?;
-            Ok(output.trim().to_string())
-        } else {
-            // On Windows, npm-installed binaries are .cmd files — use cmd /C
-            let mut cmd = crate::types::silent_command("cmd.exe");
-            cmd.args(["/C", &self.config.command, "--version"]);
-            let output = cmd
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .output()
-                .map_err(|e| format!("Failed to run {} --version: {e}", self.config.command))?;
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("{} --version failed: {stderr}", self.config.command));
-            }
-            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-        }
+        super::commands::check_acp_available(&self.config, &self.shell)
     }
 
     async fn start_session(&self, config: SessionConfig) -> Result<String, String> {

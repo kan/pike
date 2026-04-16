@@ -61,10 +61,19 @@ pub async fn agent_ensure_installed(
         let timeout = std::time::Duration::from_secs(120);
 
         // On Windows, `npm` is a .cmd batch file — must run via `cmd /C`.
-        // On WSL, ShellConfig::command dispatches through wsl.exe correctly.
+        // On WSL, global npm install requires root. Install to ~/.local instead.
+        // Use bash -lc so nvm/fnm managed npm is found via ~/.profile PATH.
         let child = match &shell_clone {
             ShellConfig::Wsl { .. } => shell_clone
-                .command("npm", &["install", "-g", ACP_NPM_PACKAGE])
+                .command(
+                    "bash",
+                    &[
+                        "-lc",
+                        &format!(
+                            "npm install -g --prefix \"$HOME/.local\" {ACP_NPM_PACKAGE}"
+                        ),
+                    ],
+                )
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn(),
@@ -100,9 +109,12 @@ pub async fn agent_ensure_installed(
 
 /// Check if the ACP binary is available and return its version.
 /// On Windows, npm-installed binaries are `.cmd` files, so we must run via `cmd /C`.
-fn check_acp_available(config: &AcpAgentConfig, shell: &ShellConfig) -> Result<String, String> {
+pub fn check_acp_available(config: &AcpAgentConfig, shell: &ShellConfig) -> Result<String, String> {
     match shell {
-        ShellConfig::Wsl { .. } => shell.run_stdout(&config.command, &["--version"]),
+        ShellConfig::Wsl { .. } => {
+            let cmd = format!("PATH=\"$HOME/.local/bin:$PATH\" {} --version", config.command);
+            shell.run_stdout("bash", &["-lc", &cmd])
+        }
         _ => {
             let mut cmd = crate::types::silent_command("cmd.exe");
             cmd.args(["/C", &config.command, "--version"]);
