@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2026-04-16
+
+### Features
+
+- **スラッシュコマンドメニュー動的拡張**: ACP の `availableCommands` から `/commit`, `/simplify` 等のスキルをメニューに自動追加
+
+### Fixed
+
+- WSL での claude-agent-acp インストール権限エラー (`EACCES`) を修正 — `--prefix "$HOME/.local"` でユーザーローカルにインストール
+- WSL での ACP バイナリ検出を `bash -lc` 経由に変更 (nvm/fnm の PATH 対応)
+
 ## [0.5.0] - 2026-04-16
 
 ### Features
