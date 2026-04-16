@@ -11,8 +11,8 @@ import {
   projectUpdate,
 } from '../lib/tauri'
 import type { ProjectConfig } from '../types/project'
-import { useCodexStore } from './codex'
 import { useSearchStore } from './search'
+import { useSettingsStore } from './settings'
 import { useTabStore } from './tabs'
 
 const RESUME_MAP: Record<string, string> = {
@@ -70,9 +70,6 @@ export const useProjectStore = defineStore('project', () => {
     searchStore.clear()
     searchStore.backend = null
 
-    // Disconnect Codex session before clearing tabs (prevents stale state on project switch)
-    await useCodexStore().disconnect()
-
     await tabStore.clearAllTabs()
 
     project.lastOpened = new Date().toISOString()
@@ -98,10 +95,10 @@ export const useProjectStore = defineStore('project', () => {
           } else if (def.content !== undefined) {
             tabStore.addBlankEditorTab({ title: def.title, content: def.content })
           }
-        } else if (def.kind === 'codex-chat') {
-          tabStore.addCodexChatTab({ pinned: def.pinned })
-        } else if (def.kind === 'agent-chat') {
-          tabStore.addAgentChatTab({ pinned: def.pinned })
+        } else if (def.kind === 'codex-chat' || def.kind === 'agent-chat') {
+          const settings = useSettingsStore()
+          const agentType = settings.agentDefault === 'ask' ? 'claude-code' : settings.agentDefault
+          tabStore.addAgentChatTab({ pinned: def.pinned, agentType })
         }
       }
       if (project.lastSession.activeTabId) {

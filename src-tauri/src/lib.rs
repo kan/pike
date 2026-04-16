@@ -735,6 +735,7 @@ pub fn run() {
             codex::codex_model_list,
             claude_usage::claude_usage_get,
             agent::commands::agent_check_available,
+            agent::commands::agent_ensure_installed,
             agent::commands::agent_start_session,
             agent::commands::agent_capabilities,
             agent::commands::agent_submit_turn,

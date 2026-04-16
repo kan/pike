@@ -147,14 +147,6 @@ export type PdfTab = {
   path: string
 }
 
-export type CodexChatTab = {
-  id: string
-  kind: 'codex-chat'
-  title: string
-  pinned: boolean
-  hasActivity?: boolean
-}
-
 export type AgentChatTab = {
   id: string
   kind: 'agent-chat'
@@ -174,7 +166,6 @@ export type Tab =
   | HistoryTab
   | SettingsTab
   | PdfTab
-  | CodexChatTab
   | AgentChatTab
 
 export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects' | 'tasks'

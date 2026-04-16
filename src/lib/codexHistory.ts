@@ -1,5 +1,5 @@
 import { toRaw } from 'vue'
-import type { ChatMessage } from '../types/codex'
+import type { ChatMessage } from '../types/chat'
 
 const DB_NAME = 'pike-codex'
 const DB_VERSION = 1

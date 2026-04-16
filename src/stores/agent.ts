@@ -17,6 +17,7 @@ import {
   agentCheckAvailable,
   agentCompact,
   agentDisconnect,
+  agentEnsureInstalled,
   agentInterruptTurn,
   agentListModels,
   agentRespondApproval,
@@ -37,9 +38,10 @@ import type {
   FileApprovalRequest,
   GenericApprovalRequest,
 } from '../types/agent'
-import type { ChatMessage, TurnItem } from '../types/codex'
+import type { ChatMessage, TurnItem } from '../types/chat'
 import { isWindowsShell, type ShellType } from '../types/tab'
 import { useProjectStore } from './project'
+import { useSettingsStore } from './settings'
 import { useTabStore } from './tabs'
 
 let msgCounter = 0
@@ -127,6 +129,8 @@ export const useAgentStore = defineStore('agent', () => {
   const pendingGenericApproval = ref<GenericApprovalRequest | null>(null)
   const agentVersion = ref<string | null>(null)
   const versionWarning = ref<string | null>(null)
+  /** Non-null while auto-installing the agent binary */
+  const installStatus = ref<string | null>(null)
   const scrollTrigger = ref(0)
   const detectedInstructionsFile = ref<string | null>(null)
   const selectedModel = ref<string | null>(null)
@@ -150,19 +154,28 @@ export const useAgentStore = defineStore('agent', () => {
 
   // --- Actions ---
 
-  async function startSession(shell: ShellType, cwd: string, sessionId?: string) {
+  async function startSession(shell: ShellType, cwd: string, sessionId?: string, requestedAgentType?: AgentType) {
     try {
       // Load per-project settings
       const projectStore = useProjectStore()
       const projectId = projectStore.currentProject?.id
       if (projectId) {
         const projSettings = loadAgentProjectSettings(projectId)
-        agentType.value = projSettings.agentType
         sandboxMode.value = projSettings.sandboxMode
         approvalPolicy.value = projSettings.approvalPolicy
       }
+      // Determine agent type: explicit request > per-project > global setting > fallback
+      if (requestedAgentType) {
+        agentType.value = requestedAgentType
+      } else if (projectId) {
+        const projSettings = loadAgentProjectSettings(projectId)
+        agentType.value = projSettings.agentType
+      } else {
+        const settings = useSettingsStore()
+        agentType.value = settings.agentDefault === 'ask' ? 'claude-code' : settings.agentDefault
+      }
 
-      // Check agent availability
+      // Check agent availability — auto-install for claude-code if missing
       try {
         const ver = await agentCheckAvailable(agentType.value, shell)
         agentVersion.value = ver
@@ -170,7 +183,20 @@ export const useAgentStore = defineStore('agent', () => {
           checkCodexVersionCompatibility(ver)
         }
       } catch (e) {
-        throw new Error(`${agentType.value} not found: ${e}`)
+        if (agentType.value === 'claude-code') {
+          installStatus.value = 'installing'
+          try {
+            const ver = await agentEnsureInstalled(agentType.value, shell)
+            agentVersion.value = ver
+          } catch (installErr) {
+            installStatus.value = null
+            throw new Error(`Failed to install claude-agent-acp: ${installErr}`)
+          } finally {
+            installStatus.value = null
+          }
+        } else {
+          throw new Error(`${agentType.value} not found: ${e}`)
+        }
       }
 
       // Windows (non-WSL) always uses externalSandbox for Codex
@@ -538,6 +564,7 @@ export const useAgentStore = defineStore('agent', () => {
     tokenUsage,
     estimatedCostUsd,
     disconnectReason,
+    installStatus,
     sandboxMode,
     approvalPolicy,
     availableModels,

@@ -27,7 +27,7 @@ import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../l
 import { useAgentStore } from '../../stores/agent'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
-import type { TurnItem } from '../../types/codex'
+import type { TurnItem } from '../../types/chat'
 import { isWindowsShell } from '../../types/tab'
 import AgentApprovalDialog from '../agent/AgentApprovalDialog.vue'
 
@@ -44,6 +44,12 @@ const searchQuery = ref('')
 const showSearch = ref(false)
 
 const marked = new Marked()
+
+/** Display name for the current agent — used in UI labels */
+const agentDisplayName = computed(() => {
+  if (agent.agentType === 'claude-code') return 'Claude'
+  return 'Codex'
+})
 
 const isAuthenticated = computed(() => {
   // Agents without auth flow are always considered authenticated
@@ -244,7 +250,10 @@ async function ensureConnected() {
   try {
     const project = projectStore.currentProject
     if (!project) return
-    await agent.startSession(project.shell, project.root, project.agentSessionId)
+    // Pass the tab's agentType so the store uses the correct runtime
+    const agentTab = tabStore.tabs.find((t) => t.kind === 'agent-chat')
+    const requestedType = agentTab?.kind === 'agent-chat' ? agentTab.agentType : undefined
+    await agent.startSession(project.shell, project.root, project.agentSessionId, requestedType)
   } catch (e) {
     agent.disconnectReason = String(e)
   } finally {
@@ -827,10 +836,17 @@ onUnmounted(() => {
 
 <template>
   <div class="agent-chat-wrapper">
+    <!-- Installing agent binary -->
+    <div v-if="agent.installStatus" class="auth-panel">
+      <Loader :size="32" :stroke-width="2" class="spin" />
+      <p>{{ t('agent.installing') }}</p>
+      <p class="disconnect-detail">{{ t('agent.installingDetail') }}</p>
+    </div>
+
     <!-- Disconnected — offer reconnect -->
-    <div v-if="agent.disconnectReason" class="auth-panel">
+    <div v-else-if="agent.disconnectReason" class="auth-panel">
       <AlertTriangle :size="32" :stroke-width="1.5" class="disconnect-icon" />
-      <p>{{ t('codex.disconnected') }}</p>
+      <p>{{ t('codex.disconnected', { agent: agentDisplayName }) }}</p>
       <p class="disconnect-detail">{{ agent.disconnectReason }}</p>
       <button class="btn-primary" @click="reconnect">{{ t('codex.reconnect') }}</button>
     </div>
@@ -838,7 +854,7 @@ onUnmounted(() => {
     <!-- Connecting -->
     <div v-else-if="!isConnected" class="auth-panel">
       <Loader :size="32" :stroke-width="2" class="spin" />
-      <p>{{ t('codex.connecting') }}</p>
+      <p>{{ t('codex.connecting', { agent: agentDisplayName }) }}</p>
     </div>
 
     <!-- Main Chat UI -->
@@ -915,7 +931,7 @@ onUnmounted(() => {
       <div class="message-list" ref="messageListRef" @scroll="onScroll">
         <div v-if="agent.messages.length === 0" class="empty-chat">
           <Bot :size="32" :stroke-width="1" />
-          <p>{{ t('codex.emptyChat') }}</p>
+          <p>{{ t('codex.emptyChat', { agent: agentDisplayName }) }}</p>
         </div>
         <div
           v-for="msg in agent.messages"
@@ -1027,7 +1043,7 @@ onUnmounted(() => {
           <textarea
             ref="inputRef"
             v-model="input"
-            :placeholder="t('codex.inputPlaceholder')"
+            :placeholder="t('codex.inputPlaceholder', { agent: agentDisplayName })"
             :disabled="!isAuthenticated"
             rows="1"
             @keydown="onKeydown"

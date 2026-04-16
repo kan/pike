@@ -98,7 +98,10 @@ impl AcpProcessRuntime {
             }
             c
         } else {
-            let mut c = Command::new(&self.config.command);
+            // On Windows, npm-installed binaries are .cmd files.
+            // Use `cmd /C` to resolve them correctly.
+            let mut c = Command::new("cmd.exe");
+            c.arg("/C").arg(&self.config.command);
             for arg in &self.config.args {
                 c.arg(arg);
             }
@@ -204,11 +207,18 @@ impl ACPRuntime {
         tokio::spawn(async move {
             while let Some(notif) = rx.recv().await {
                 let events = acp_notification_to_agent_events(&notif.method, &notif.params);
+                if events.is_empty() {
+                    let preview = notif.params.to_string();
+                    let preview = if preview.len() > 300 { &preview[..300] } else { &preview };
+                    log::debug!("[acp-bridge] 0 events from {}: {preview}", notif.method);
+                } else {
+                    log::debug!("[acp-bridge] {} event(s) from {}", events.len(), notif.method);
+                }
                 for event in events {
                     emitter.emit(event);
                 }
             }
-            log::info!("[acp-agent] Notification channel closed");
+            log::debug!("[acp-agent] Notification channel closed");
             emitter.emit(AgentEvent::Disconnected {
                 reason: "channel_closed".to_string(),
             });
@@ -232,24 +242,39 @@ impl ACPRuntime {
 
                 match req.method.as_str() {
                     "session/request_permission" => {
-                        let tool_name = req
+                        // ACP spec: toolCall is a nested object with camelCase fields
+                        let tool_call = req
                             .params
-                            .get("tool_name")
+                            .get("toolCall")
+                            .cloned()
+                            .unwrap_or(json!({}));
+                        let tool_name = tool_call
+                            .get("toolName")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown")
                             .to_string();
-                        let tool_arguments = req
-                            .params
-                            .get("tool_arguments")
+                        let tool_input = tool_call
+                            .get("toolInput")
                             .cloned()
                             .unwrap_or(json!({}));
+                        let tool_call_id = tool_call
+                            .get("toolCallId")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         let options = req
                             .params
                             .get("options")
                             .and_then(|v| v.as_array())
                             .map(|arr| {
                                 arr.iter()
-                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                    .filter_map(|v| {
+                                        // ACP PermissionOption has optionId + name + kind
+                                        v.get("optionId")
+                                            .and_then(|id| id.as_str())
+                                            .map(|s| s.to_string())
+                                            .or_else(|| v.as_str().map(|s| s.to_string()))
+                                    })
                                     .collect()
                             })
                             .unwrap_or_default();
@@ -257,22 +282,17 @@ impl ACPRuntime {
                         // Map to command/file approval if recognizable
                         let event = match tool_name.as_str() {
                             "terminal" | "bash" | "shell" | "execute_command" => {
-                                let command = tool_arguments
+                                let command = tool_input
                                     .get("command")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string());
-                                let cwd = tool_arguments
+                                let cwd = tool_input
                                     .get("cwd")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string());
                                 AgentEvent::ApprovalCommandRequest {
                                     request_id,
-                                    item_id: req
-                                        .params
-                                        .get("tool_call_id")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
+                                    item_id: tool_call_id,
                                     command,
                                     cwd,
                                     payload: req.params.clone(),
@@ -280,19 +300,14 @@ impl ACPRuntime {
                             }
                             "write_text_file" | "fs/write_text_file"
                             | "edit" | "write" => {
-                                let file_path = tool_arguments
+                                let file_path = tool_input
                                     .get("path")
-                                    .or_else(|| tool_arguments.get("file_path"))
+                                    .or_else(|| tool_input.get("file_path"))
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string());
                                 AgentEvent::ApprovalFileRequest {
                                     request_id,
-                                    item_id: req
-                                        .params
-                                        .get("tool_call_id")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
+                                    item_id: tool_call_id,
                                     file_path,
                                     reason: None,
                                     payload: req.params.clone(),
@@ -302,7 +317,7 @@ impl ACPRuntime {
                                 AgentEvent::ApprovalGenericRequest {
                                     request_id,
                                     tool_name,
-                                    tool_arguments,
+                                    tool_arguments: tool_input,
                                     options,
                                     payload: req.params.clone(),
                                 }
@@ -359,8 +374,9 @@ impl AgentRuntime for ACPRuntime {
             let output = shell.run_stdout(&self.config.command, &["--version"])?;
             Ok(output.trim().to_string())
         } else {
-            let mut cmd = crate::types::silent_command(&self.config.command);
-            cmd.arg("--version");
+            // On Windows, npm-installed binaries are .cmd files — use cmd /C
+            let mut cmd = crate::types::silent_command("cmd.exe");
+            cmd.args(["/C", &self.config.command, "--version"]);
             let output = cmd
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -383,7 +399,11 @@ impl AgentRuntime for ACPRuntime {
                 .client
                 .request::<_, serde_json::Value>(
                     "session/load",
-                    &json!({ "session_id": existing_id }),
+                    &json!({
+                        "sessionId": existing_id,
+                        "cwd": linux_cwd,
+                        "mcpServers": [],
+                    }),
                 )
                 .await
             {
@@ -407,15 +427,16 @@ impl AgentRuntime for ACPRuntime {
             .request(
                 "session/new",
                 &json!({
-                    "working_directory": linux_cwd,
+                    "cwd": linux_cwd,
+                    "mcpServers": [],
                 }),
             )
             .await?;
 
         let session_id = resp
-            .get("session_id")
+            .get("sessionId")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| format!("session/new response missing session_id: {resp}"))?
+            .ok_or_else(|| format!("session/new response missing sessionId: {resp}"))?
             .to_string();
 
         *self.session_id.lock().await = Some(session_id.clone());
@@ -457,16 +478,39 @@ impl AgentRuntime for ACPRuntime {
             prompt
         };
 
-        let _: serde_json::Value = self
-            .client
-            .request(
-                "session/prompt",
-                &json!({
-                    "session_id": session_id,
-                    "content": [{ "type": "text", "text": full_prompt }],
-                }),
-            )
-            .await?;
+        // Fire the request in a background task — session/prompt blocks until
+        // the entire turn completes (by ACP spec). Streaming updates arrive as
+        // session/update notifications via the notification bridge.
+        let client = self.client.clone();
+        let emitter = self.emitter.clone();
+        let sid = session_id.clone();
+
+        log::debug!("[acp-agent] Sending session/prompt for session {sid}");
+
+        tokio::spawn(async move {
+            log::debug!("[acp-agent] session/prompt background task started");
+            match client
+                .request::<_, serde_json::Value>(
+                    "session/prompt",
+                    &json!({
+                        "sessionId": sid,
+                        "prompt": [{ "type": "text", "text": full_prompt }],
+                    }),
+                )
+                .await
+            {
+                Ok(resp) => {
+                    log::debug!("[acp-agent] session/prompt completed: {resp}");
+                    emitter.emit(AgentEvent::TurnCompleted);
+                }
+                Err(e) => {
+                    log::error!("[acp-agent] session/prompt error: {e}");
+                    emitter.emit(AgentEvent::Disconnected {
+                        reason: format!("session/prompt failed: {e}"),
+                    });
+                }
+            }
+        });
 
         Ok(())
     }
@@ -479,9 +523,9 @@ impl AgentRuntime for ACPRuntime {
             .clone()
             .ok_or("No active ACP session")?;
 
-        let _: serde_json::Value = self
-            .client
-            .request("session/cancel", &json!({ "session_id": session_id }))
+        // session/cancel is a notification (one-way), not a request
+        self.client
+            .notify("session/cancel", &json!({ "sessionId": session_id }))
             .await?;
 
         Ok(())
@@ -503,11 +547,21 @@ impl AgentRuntime for ACPRuntime {
         let id: RequestId =
             serde_json::from_value(request_id).map_err(|e| format!("Invalid request ID: {e}"))?;
 
+        // ACP spec: response is { outcome: { outcome: "selected", optionId: "..." } }
+        // or { outcome: { outcome: "cancelled" } }
         let response = match decision {
-            ApprovalDecision::Allow => json!("allow_once"),
-            ApprovalDecision::AllowAlways => json!("allow_always"),
-            ApprovalDecision::Reject => json!("reject"),
-            ApprovalDecision::Cancel => json!("reject"),
+            ApprovalDecision::Allow => json!({
+                "outcome": { "outcome": "selected", "optionId": "allow_once" }
+            }),
+            ApprovalDecision::AllowAlways => json!({
+                "outcome": { "outcome": "selected", "optionId": "allow_always" }
+            }),
+            ApprovalDecision::Reject => json!({
+                "outcome": { "outcome": "selected", "optionId": "reject_once" }
+            }),
+            ApprovalDecision::Cancel => json!({
+                "outcome": { "outcome": "cancelled" }
+            }),
         };
 
         self.client.respond_to_server(id, response).await
@@ -650,8 +704,9 @@ async fn connect_acp_client(
                             continue;
                         }
                     };
-                    match parse_incoming(value) {
+                    match parse_incoming(value.clone()) {
                         Ok(IncomingMessage::Response { id, result }) => {
+                            log::debug!("[acp-reader] Response id={id:?}");
                             if let RequestId::Num(n) = id {
                                 let mut map = pending_clone.lock().await;
                                 if let Some(tx) = map.remove(&n) {
@@ -660,7 +715,7 @@ async fn connect_acp_client(
                             }
                         }
                         Ok(IncomingMessage::Error { id, error }) => {
-                            log::warn!("[acp-reader] Error response: {error}");
+                            log::warn!("[acp-reader] Error response id={id:?}: {error}");
                             if let RequestId::Num(n) = id {
                                 let mut map = pending_clone.lock().await;
                                 if let Some(tx) = map.remove(&n) {
@@ -669,7 +724,7 @@ async fn connect_acp_client(
                             }
                         }
                         Ok(IncomingMessage::ServerRequest { id, method, params }) => {
-                            log::debug!("[acp-reader] Server request: {method} (id={id:?})");
+                            log::debug!("[acp-reader] ServerRequest: {method} (id={id:?})");
                             if let Err(e) = server_request_tx
                                 .send(ServerRequest { id, method, params })
                                 .await
@@ -690,7 +745,10 @@ async fn connect_acp_client(
                             }
                         }
                         Err(e) => {
-                            log::warn!("[acp-reader] Unrecognized message: {e}");
+                            // Log the raw message to understand what we're getting
+                            let preview = value.to_string();
+                            let preview = if preview.len() > 200 { &preview[..200] } else { &preview };
+                            log::warn!("[acp-reader] Unrecognized message: {e} — raw: {preview}");
                         }
                     }
                 }
@@ -737,12 +795,21 @@ async fn connect_acp_client(
     );
 
     // ACP initialize handshake
+    // ACP spec uses camelCase and protocolVersion 0 (bumped only for breaking changes).
+    // See: https://agentclientprotocol.com/protocol/schema
     let init_params = json!({
-        "client_info": {
+        "protocolVersion": 0,
+        "clientInfo": {
             "name": "pike",
             "version": env!("CARGO_PKG_VERSION"),
         },
-        "protocol_version": 1,
+        "clientCapabilities": {
+            "fs": {
+                "readTextFile": false,
+                "writeTextFile": false,
+            },
+            "terminal": false,
+        },
     });
 
     log::info!("[acp-agent] Sending initialize request...");
@@ -830,6 +897,9 @@ fn acp_notification_to_agent_events(
 }
 
 /// Parse an ACP `session/update` notification into one or more `AgentEvent`s.
+///
+/// ACP session/update uses a discriminated union on the `sessionUpdate` field
+/// within the `update` object. All field names are camelCase per the ACP spec.
 fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
     let mut events = Vec::new();
 
@@ -838,56 +908,110 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
         None => return events,
     };
 
+    // ACP discriminates update type via "sessionUpdate" field
     let update_type = update
-        .get("type")
+        .get("sessionUpdate")
+        // Fallback to "type" for forward compatibility
+        .or_else(|| update.get("type"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
     match update_type {
         // Agent message chunk (streaming text)
-        "message" => {
-            if let Some(content) = update.get("content").and_then(|v| v.as_str()) {
+        // ACP sends content as {"text": "...", "type": "text"} or as a plain string
+        "agent_message_chunk" | "message" => {
+            let text = update
+                .get("content")
+                .and_then(|v| {
+                    // Object form: {"text": "...", "type": "text"}
+                    v.get("text")
+                        .and_then(|t| t.as_str())
+                        // Plain string form
+                        .or_else(|| v.as_str())
+                })
+                .unwrap_or("");
+            if !text.is_empty() {
                 events.push(AgentEvent::MessageDelta {
-                    delta: content.to_string(),
+                    delta: text.to_string(),
                     item_id: update
-                        .get("message_id")
+                        .get("messageId")
+                        .or_else(|| update.get("message_id"))
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string()),
                 });
             }
             // Check for role to detect turn boundaries
             if let Some("assistant") = update.get("role").and_then(|v| v.as_str()) {
-                if update.get("stop_reason").is_some() {
+                if update.get("stopReason").or(update.get("stop_reason")).is_some() {
                     events.push(AgentEvent::TurnCompleted);
                 }
             }
         }
 
-        // Thought/reasoning chunk
-        "thought" | "thinking" => {
-            let summary = update.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let item_id = update
-                .get("thought_id")
-                .or_else(|| update.get("id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("thought")
-                .to_string();
-            events.push(AgentEvent::Reasoning {
-                item_id,
-                summary,
-            });
+        // User message chunk
+        "user_message_chunk" => {
+            // Usually ignored by the UI, but log for debugging
+            log::debug!("[acp-agent] User message chunk received");
         }
 
-        // Tool call
+        // Tool call update (camelCase: toolCallUpdate wraps a ToolCallUpdate object)
+        "tool_call_update" => {
+            let tool_call = update
+                .get("toolCallUpdate")
+                .unwrap_or(update);
+            let tool_call_id = tool_call
+                .get("toolCallId")
+                .or_else(|| tool_call.get("tool_call_id"))
+                .or_else(|| tool_call.get("id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let tool_name = tool_call
+                .get("toolName")
+                .or_else(|| tool_call.get("tool_name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+
+            // If the tool call has content, it's completed; otherwise it's starting
+            let has_content = tool_call
+                .get("content")
+                .and_then(|v| v.as_array())
+                .map(|a| !a.is_empty())
+                .unwrap_or(false);
+
+            if has_content {
+                events.push(AgentEvent::ItemCompleted {
+                    item_id: tool_call_id,
+                    data: update.clone(),
+                });
+            } else {
+                let item_type = match tool_name {
+                    "bash" | "terminal" | "shell" | "execute_command" => {
+                        "commandExecution"
+                    }
+                    "write_text_file" | "edit" | "write" => "fileChange",
+                    _ => tool_name,
+                };
+                events.push(AgentEvent::ItemStarted {
+                    item_type: item_type.to_string(),
+                    item_id: tool_call_id,
+                    data: update.clone(),
+                });
+            }
+        }
+
+        // Legacy tool_call / tool_result (for agents that use older format)
         "tool_call" => {
             let tool_call_id = update
-                .get("tool_call_id")
+                .get("toolCallId")
+                .or_else(|| update.get("tool_call_id"))
                 .or_else(|| update.get("id"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
             let tool_name = update
-                .get("tool_name")
+                .get("toolName")
+                .or_else(|| update.get("tool_name"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
             let status = update
@@ -897,7 +1021,6 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
 
             match status {
                 "pending" | "in_progress" => {
-                    // Map tool name to item type
                     let item_type = match tool_name {
                         "bash" | "terminal" | "shell" | "execute_command" => {
                             "commandExecution"
@@ -921,10 +1044,10 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
             }
         }
 
-        // Tool result
         "tool_result" => {
             let tool_call_id = update
-                .get("tool_call_id")
+                .get("toolCallId")
+                .or_else(|| update.get("tool_call_id"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
@@ -935,31 +1058,53 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
         }
 
         // Plan update (map to reasoning)
-        "plan" => {
-            let summary = update.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+        "plan_update" | "plan" => {
+            let plan = update.get("plan").unwrap_or(update);
+            let summary = plan.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
             events.push(AgentEvent::Reasoning {
                 item_id: "plan".to_string(),
                 summary,
             });
         }
 
-        // Token usage
-        "usage" | "token_usage" => {
+        // Thought/reasoning chunk
+        "thought" | "thinking" => {
+            let summary = update.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let item_id = update
+                .get("thoughtId")
+                .or_else(|| update.get("id"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("thought")
+                .to_string();
+            events.push(AgentEvent::Reasoning {
+                item_id,
+                summary,
+            });
+        }
+
+        // Token usage — ACP sends "usage_update" with {used, size, cost}
+        // and also the prompt response includes detailed usage
+        "usage_update" | "usage" | "token_usage" => {
             let input = update
-                .get("input_tokens")
+                .get("inputTokens")
+                .or_else(|| update.get("input_tokens"))
                 .or_else(|| update.get("input"))
+                .or_else(|| update.get("used"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
             let output = update
-                .get("output_tokens")
+                .get("outputTokens")
+                .or_else(|| update.get("output_tokens"))
                 .or_else(|| update.get("output"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
             let cached_read = update
-                .get("cache_read_input_tokens")
+                .get("cacheReadInputTokens")
+                .or_else(|| update.get("cache_read_input_tokens"))
                 .and_then(|v| v.as_u64());
             let cached_write = update
-                .get("cache_creation_input_tokens")
+                .get("cacheCreationInputTokens")
+                .or_else(|| update.get("cache_creation_input_tokens"))
                 .and_then(|v| v.as_u64());
             events.push(AgentEvent::TokenUsage {
                 input,
@@ -967,6 +1112,21 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
                 cached_read,
                 cached_write,
             });
+        }
+
+        // Available commands update (e.g., slash commands)
+        "available_commands_update" => {
+            log::debug!("[acp-agent] Available commands update received");
+        }
+
+        // Config option update
+        "config_option_update" => {
+            log::debug!("[acp-agent] Config option update received");
+        }
+
+        // Session info update (title, etc.)
+        "session_info_update" => {
+            log::debug!("[acp-agent] Session info update received");
         }
 
         // Stop reason / turn end

@@ -25,7 +25,7 @@ const sections = [
   { id: 'appearance', i18nKey: 'settings.appearance' },
   { id: 'terminal', i18nKey: 'settings.terminal' },
   { id: 'editor', i18nKey: 'settings.editor' },
-  { id: 'codex', i18nKey: 'settings.codex' },
+  { id: 'agent', i18nKey: 'settings.agent' },
   { id: 'about', i18nKey: 'settings.about' },
 ]
 const activeSection = ref('appearance')
@@ -281,9 +281,22 @@ const PREVIEW_LINES = [
         </div>
       </section>
 
-      <!-- Codex -->
-      <section id="settings-codex" class="settings-section">
-        <h3 class="section-title">Codex</h3>
+      <!-- Agent -->
+      <section id="settings-agent" class="settings-section">
+        <h3 class="section-title">{{ t('settings.agent') }}</h3>
+
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.agentDefault') }}</label>
+          <select
+            class="setting-select"
+            :value="settings.agentDefault"
+            @change="settings.agentDefault = ($event.target as HTMLSelectElement).value as any"
+          >
+            <option value="claude-code">Claude Code</option>
+            <option value="codex">Codex</option>
+            <option value="ask">{{ t('settings.agentAskEachTime') }}</option>
+          </select>
+        </div>
 
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.codexNotification') }}</label>

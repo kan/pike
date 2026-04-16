@@ -7,6 +7,7 @@ import { useGitStore } from '../stores/git'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
 import { useTaskStore } from '../stores/tasks'
+import type { AgentType } from '../types/agent'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -116,13 +117,58 @@ const filteredFiles = computed(() => {
   return [...basenameMatches, ...pathMatches].slice(0, MAX_DISPLAY)
 })
 
-// --- Task mode ---
-const filteredTasks = computed(() => {
+// --- Task mode (includes built-in commands + project tasks) ---
+interface CommandItem {
+  kind: 'command'
+  name: string
+  description: string
+  action: () => void
+}
+
+interface TaskItem {
+  kind: 'task'
+  name: string
+  command: string
+  runner: string
+  cwd?: string
+}
+
+type PaletteItem = CommandItem | TaskItem
+
+const builtinCommands = computed<CommandItem[]>(() => [
+  {
+    kind: 'command',
+    name: 'Claude Code',
+    description: t('quickOpen.cmdClaudeCode'),
+    action: () => tabStore.addAgentChatTab({ agentType: 'claude-code' as AgentType }),
+  },
+  {
+    kind: 'command',
+    name: 'Codex',
+    description: t('quickOpen.cmdCodex'),
+    action: () => tabStore.addAgentChatTab({ agentType: 'codex' as AgentType }),
+  },
+  {
+    kind: 'command',
+    name: t('quickOpen.cmdSettings'),
+    description: t('quickOpen.cmdSettingsDesc'),
+    action: () => tabStore.addSettingsTab(),
+  },
+])
+
+const filteredPalette = computed<PaletteItem[]>(() => {
   if (mode.value !== 'task') return []
   const q = query.value.slice(1).trim().toLowerCase()
-  const all = taskStore.allTasks
-  if (!q) return all
-  return all.filter((t) => t.name.toLowerCase().includes(q) || t.command.toLowerCase().includes(q))
+
+  const cmds: PaletteItem[] = builtinCommands.value
+    .filter((c) => !q || c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q))
+    .map((c) => ({ ...c }))
+
+  const tasks: PaletteItem[] = taskStore.allTasks
+    .filter((t) => !q || t.name.toLowerCase().includes(q) || t.command.toLowerCase().includes(q))
+    .map((t) => ({ kind: 'task' as const, name: t.name, command: t.command, runner: t.runner, cwd: t.cwd }))
+
+  return [...cmds, ...tasks]
 })
 
 // --- Tab mode ---
@@ -157,7 +203,7 @@ const itemCount = computed(() => {
     case 'file':
       return filteredFiles.value.length
     case 'task':
-      return filteredTasks.value.length
+      return filteredPalette.value.length
     case 'tab':
       return filteredTabs.value.length
     case 'branch':
@@ -217,9 +263,13 @@ function openSelected() {
       break
     }
     case 'task': {
-      const task = filteredTasks.value[selectedIdx.value]
-      if (!task) return
-      taskStore.runTask(task)
+      const item = filteredPalette.value[selectedIdx.value]
+      if (!item) return
+      if (item.kind === 'command') {
+        item.action()
+      } else {
+        taskStore.runTask(item)
+      }
       break
     }
     case 'tab': {
@@ -380,19 +430,26 @@ const footerHints = computed(() => {
               </div>
             </template>
 
-            <!-- Task mode -->
+            <!-- Task / Command mode -->
             <template v-else-if="mode === 'task'">
               <div
-                v-for="(task, i) in filteredTasks"
-                :key="`${task.runner}:${task.name}`"
+                v-for="(item, i) in filteredPalette"
+                :key="item.kind === 'command' ? `cmd:${item.name}` : `${item.runner}:${item.name}`"
                 class="quickopen-item"
                 :class="{ selected: i === selectedIdx }"
                 @click="selectedIdx = i; openSelected()"
                 @mouseenter="selectedIdx = i"
               >
-                <span class="item-runner">{{ task.runner }}</span>
-                <span class="item-name">{{ task.name }}</span>
-                <span class="item-path">{{ task.command }}</span>
+                <template v-if="item.kind === 'command'">
+                  <span class="item-runner">{{ t('quickOpen.command') }}</span>
+                  <span class="item-name">{{ item.name }}</span>
+                  <span class="item-path">{{ item.description }}</span>
+                </template>
+                <template v-else>
+                  <span class="item-runner">{{ item.runner }}</span>
+                  <span class="item-name">{{ item.name }}</span>
+                  <span class="item-path">{{ item.command }}</span>
+                </template>
               </div>
             </template>
 

@@ -11,7 +11,6 @@ import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import { initAgentRouter } from './composables/useAgentRouter'
 import { hasPendingCliAction, initCliOpen } from './composables/useCliOpen'
-import { initCodexRouter } from './composables/useCodexRouter'
 import { dockerLogRouter } from './composables/useDockerLogRouter'
 import { type FsChangeEntry, fsWatcher, isRecentlySaved } from './composables/useFsWatcher'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
@@ -87,7 +86,7 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
 const windowProjectId = getWindowProjectId()
 
 onMounted(async () => {
-  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initCodexRouter(), initAgentRouter()])
+  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initAgentRouter()])
 
   if (windowProjectId) {
     await projectStore.loadProjects()

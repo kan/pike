@@ -382,91 +382,6 @@ export async function fontListMonospace(): Promise<string[]> {
   return invoke<string[]>('font_list_monospace')
 }
 
-// Codex
-
-import type { CodexAuthState } from '../types/codex'
-
-export async function codexDisconnect(): Promise<void> {
-  return invoke('codex_disconnect')
-}
-
-export async function codexCheckAvailable(shell: ShellType): Promise<string> {
-  return invoke<string>('codex_check_available', { shell })
-}
-
-export async function codexAuthStatus(): Promise<CodexAuthState> {
-  return invoke<CodexAuthState>('codex_auth_status')
-}
-
-export async function codexAuthLoginChatGpt(): Promise<void> {
-  return invoke('codex_auth_login_chatgpt')
-}
-
-export async function codexAuthLogout(): Promise<void> {
-  return invoke('codex_auth_logout')
-}
-
-export async function codexStartSession(
-  shell: ShellType,
-  cwd: string,
-  threadId: string | null,
-  sandboxMode?: string | null,
-  approvalPolicy?: string | null,
-): Promise<string> {
-  return invoke<string>('codex_start_session', {
-    shell,
-    cwd,
-    threadId,
-    sandboxMode: sandboxMode ?? null,
-    approvalPolicy: approvalPolicy ?? null,
-  })
-}
-
-export interface CodexEditorContext {
-  path: string
-  line: number | null
-  col: number | null
-  selectionStart: number | null
-  selectionEnd: number | null
-}
-
-export async function codexSubmitTurn(
-  prompt: string,
-  editorContext?: CodexEditorContext | null,
-  model?: string | null,
-): Promise<void> {
-  return invoke('codex_submit_turn', { prompt, editorContext: editorContext ?? null, model: model ?? null })
-}
-
-export interface CodexModelInfo {
-  id: string
-  displayName: string | null
-  description: string | null
-  isDefault: boolean
-}
-
-export async function codexModelList(): Promise<CodexModelInfo[]> {
-  return invoke<CodexModelInfo[]>('codex_model_list')
-}
-
-export async function codexInterruptTurn(): Promise<void> {
-  return invoke('codex_interrupt_turn')
-}
-
-export async function codexCompactThread(): Promise<void> {
-  return invoke('codex_compact_thread')
-}
-
-export async function codexRollbackTurn(): Promise<void> {
-  return invoke('codex_rollback_turn')
-}
-
-export type ApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'cancel'
-
-export async function codexRespondApproval(requestId: number | string, decision: ApprovalDecision): Promise<void> {
-  return invoke('codex_respond_approval', { requestId, decision })
-}
-
 // Agent (unified API — works with Codex, Claude Code, and other ACP agents)
 
 import type {
@@ -480,6 +395,10 @@ import type {
 
 export async function agentCheckAvailable(agentType: AgentType, shell: ShellType): Promise<string> {
   return invoke<string>('agent_check_available', { agentType, shell })
+}
+
+export async function agentEnsureInstalled(agentType: AgentType, shell: ShellType): Promise<string> {
+  return invoke<string>('agent_ensure_installed', { agentType, shell })
 }
 
 export async function agentStartSession(

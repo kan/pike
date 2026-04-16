@@ -171,6 +171,8 @@ export const COLOR_SCHEMES: TerminalColorScheme[] = [
 
 const STORAGE_KEY = 'pike:settings'
 
+export type AgentDefault = 'claude-code' | 'codex' | 'ask'
+
 interface PersistedSettings {
   fontFamily: string
   fontSize: number
@@ -185,6 +187,7 @@ interface PersistedSettings {
   language: string
   terminalExitNotification: boolean
   codexNotification: boolean
+  agentDefault: AgentDefault
 }
 
 function loadSettings(): PersistedSettings {
@@ -212,6 +215,7 @@ function defaults(): PersistedSettings {
     language: 'en',
     terminalExitNotification: true,
     codexNotification: true,
+    agentDefault: 'claude-code' as AgentDefault,
   }
 }
 
@@ -231,6 +235,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const language = ref(saved.language)
   const terminalExitNotification = ref(saved.terminalExitNotification)
   const codexNotification = ref(saved.codexNotification)
+  const agentDefault = ref<AgentDefault>(saved.agentDefault)
 
   // Sync language setting with i18n locale
   locale.value = saved.language
@@ -289,6 +294,7 @@ export const useSettingsStore = defineStore('settings', () => {
         language: language.value,
         terminalExitNotification: terminalExitNotification.value,
         codexNotification: codexNotification.value,
+        agentDefault: agentDefault.value,
       }),
     )
   }
@@ -312,6 +318,7 @@ export const useSettingsStore = defineStore('settings', () => {
       language,
       terminalExitNotification,
       codexNotification,
+      agentDefault,
     ],
     persist,
   )
@@ -334,6 +341,7 @@ export const useSettingsStore = defineStore('settings', () => {
     language,
     terminalExitNotification,
     codexNotification,
+    agentDefault,
     availableFonts,
     loadAvailableFonts,
     setFontByName,

@@ -8,6 +8,8 @@ import type { AgentApprovalDecision } from '../../types/agent'
 const { t } = useI18n()
 const agent = useAgentStore()
 
+const agentDisplayName = computed(() => (agent.agentType === 'claude-code' ? 'Claude' : 'Codex'))
+
 const show = computed(
   () =>
     agent.pendingCommandApproval !== null ||
@@ -60,7 +62,7 @@ function respondGenericOption(option: string) {
         <template v-if="agent.pendingCommandApproval">
           <div class="approval-header">
             <Terminal :size="18" :stroke-width="2" />
-            <span>{{ t('codex.approvalCommand') }}</span>
+            <span>{{ t('codex.approvalCommand', { agent: agentDisplayName }) }}</span>
           </div>
           <div v-if="environment" class="approval-env">{{ environment }}</div>
           <div class="approval-command">
@@ -75,7 +77,7 @@ function respondGenericOption(option: string) {
         <template v-else-if="agent.pendingFileApproval">
           <div class="approval-header">
             <Shield :size="18" :stroke-width="2" />
-            <span>{{ t('codex.approvalFile') }}</span>
+            <span>{{ t('codex.approvalFile', { agent: agentDisplayName }) }}</span>
           </div>
           <div v-if="environment" class="approval-env">{{ environment }}</div>
           <div v-if="agent.pendingFileApproval.filePath" class="approval-filepath">
