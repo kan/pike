@@ -207,6 +207,11 @@ export async function initAgentRouter() {
     }
   })
 
+  // --- Session info (title) ---
+  await listenAgent('agent://session-info', (tabId, p) => {
+    agent.handleSessionInfo(tabId, (p.title as string) ?? null)
+  })
+
   // --- Token usage ---
   await listenAgent('agent://token-usage', (tabId, p) => {
     agent.handleTokenUsage(tabId, {

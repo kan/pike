@@ -335,7 +335,7 @@ export const useTabStore = defineStore('tabs', () => {
 
   function setTabTitle(id: string, title: string) {
     const tab = tabs.value.find((t) => t.id === id)
-    if (tab) {
+    if (tab && tab.title !== title) {
       tab.title = title
     }
   }

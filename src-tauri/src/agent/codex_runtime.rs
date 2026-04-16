@@ -65,6 +65,7 @@ impl EventEmitter for TauriEventEmitter {
             AgentEvent::AuthUpdated { .. } => "agent://auth-updated",
             AgentEvent::TokenUsage { .. } => "agent://token-usage",
             AgentEvent::Reasoning { .. } => "agent://reasoning",
+            AgentEvent::SessionInfoUpdated { .. } => "agent://session-info",
             AgentEvent::Disconnected { .. } => "agent://disconnect",
             AgentEvent::Error { .. } => "agent://error",
         };

@@ -1128,7 +1128,14 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
 
         // Session info update (title, etc.)
         "session_info_update" => {
-            log::debug!("[acp-agent] Session info update received");
+            let title = update
+                .get("title")
+                .or_else(|| update.get("sessionTitle"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            if title.is_some() {
+                events.push(AgentEvent::SessionInfoUpdated { title });
+            }
         }
 
         // Stop reason / turn end

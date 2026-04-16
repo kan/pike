@@ -133,6 +133,7 @@ export interface AgentSessionState {
   disconnectReason: string | null
   sandboxMode: string | null
   approvalPolicy: string | null
+  sessionTitle: string | null
 }
 
 function createDefaultSession(agentType: AgentType = 'codex'): AgentSessionState {
@@ -159,6 +160,7 @@ function createDefaultSession(agentType: AgentType = 'codex'): AgentSessionState
     disconnectReason: null,
     sandboxMode: null,
     approvalPolicy: null,
+    sessionTitle: null,
   }
 }
 
@@ -382,6 +384,7 @@ export const useAgentStore = defineStore('agent', () => {
       s.connected = false
       s.currentSessionId = null
       s.isGenerating = false
+      s.sessionTitle = null
     }
   }
 
@@ -586,6 +589,11 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
+  function handleSessionInfo(tabId: string, title: string | null) {
+    const s = sessions[tabId]
+    if (s && title) s.sessionTitle = title
+  }
+
   function handleDisconnect(tabId: string, reason: string) {
     const s = sessions[tabId]
     if (!s) return
@@ -693,6 +701,7 @@ export const useAgentStore = defineStore('agent', () => {
     handleItemCompleted,
     handleAuthUpdated,
     handleTokenUsage,
+    handleSessionInfo,
     handleDisconnect,
   }
 })

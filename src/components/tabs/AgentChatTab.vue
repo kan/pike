@@ -845,6 +845,13 @@ watch(() => {
 }, scrollToBottom)
 watch(() => s.value.scrollTrigger, scrollToBottom)
 
+watch(
+  () => s.value.sessionTitle,
+  (title) => {
+    tabStore.setTabTitle(props.tabId, title ?? agentDisplayName.value)
+  },
+)
+
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
   await ensureConnected()
@@ -907,6 +914,7 @@ onUnmounted(() => {
       <!-- Status bar: agent type, sandbox/approval mode, instructions file, token usage -->
       <div v-if="s.connected" class="info-bar">
         <span class="info-indicator agent-type">{{ s.capabilities?.displayName ?? s.agentType }}</span>
+        <span v-if="s.sessionTitle" class="info-indicator session-title" :title="s.sessionTitle">{{ s.sessionTitle }}</span>
         <span v-if="s.capabilities?.supportsSandboxConfig" class="info-indicator sandbox clickable" :title="`/sandbox ${effectiveSandbox}`" @click.stop="prefillCommand('/sandbox ')">
           <Shield :size="12" :stroke-width="2" />
           {{ effectiveSandbox }}
@@ -1480,6 +1488,14 @@ onUnmounted(() => {
 .info-indicator.agent-type {
   font-weight: 600;
   color: var(--accent);
+}
+
+.info-indicator.session-title {
+  color: var(--text-primary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .info-indicator.sandbox {

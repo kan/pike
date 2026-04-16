@@ -241,6 +241,11 @@ pub enum AgentEvent {
         reason: String,
     },
 
+    /// Session metadata updated (e.g. title set by agent after first turn).
+    SessionInfoUpdated {
+        title: Option<String>,
+    },
+
     /// Non-fatal error from the agent.
     Error {
         message: String,

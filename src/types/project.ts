@@ -2,9 +2,10 @@ import type { ShellType } from './tab'
 
 export interface PinnedTabDef {
   id: string
-  kind: 'terminal'
+  kind: 'terminal' | 'agent-chat'
   title: string
   autoStart?: string
+  agentType?: string
 }
 
 export interface SessionTabDef {

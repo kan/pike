@@ -108,24 +108,24 @@ export const useProjectStore = defineStore('project', () => {
       }
     } else {
       for (const def of project.pinnedTabs) {
-        tabStore.addTerminalTab({
-          id: def.id,
-          title: def.title,
-          pinned: true,
-          autoStart: def.autoStart,
-          cwd: project.root,
-          shell: project.shell,
-        })
+        if (def.kind === 'agent-chat') {
+          tabStore.addAgentChatTab({
+            pinned: true,
+            agentType: (def.agentType as 'codex' | 'claude-code') ?? 'claude-code',
+          })
+        } else {
+          tabStore.addTerminalTab({
+            id: def.id,
+            title: def.title,
+            pinned: true,
+            autoStart: def.autoStart,
+            cwd: project.root,
+            shell: project.shell,
+          })
+        }
       }
       if (project.pinnedTabs.length === 0) {
-        tabStore.addTerminalTab({
-          id: 'cc',
-          title: 'Claude Code',
-          pinned: true,
-          autoStart: 'claude',
-          cwd: project.root,
-          shell: project.shell,
-        })
+        tabStore.addAgentChatTab({ pinned: true, agentType: 'claude-code' })
       }
     }
 
