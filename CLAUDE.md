@@ -340,7 +340,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 - **Rust**: `cargo clippy -- -D warnings`（`src-tauri/` で実行）
 - **Frontend**: `npm run lint`（= `biome check src/`）
-- **TypeScript 型検査**: `npx tsc --noEmit`
+- **TypeScript 型検査**: `npx vue-tsc --noEmit`（`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
 
 ### CI/CD
 - `.github/workflows/ci.yml`: push/PR で `biome check`、`npm run build`（vue-tsc + vite）、`cargo clippy -- -D warnings`、`cargo test` を実行（Windows runner）

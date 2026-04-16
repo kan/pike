@@ -77,9 +77,10 @@ export const useTabStore = defineStore('tabs', () => {
     // Disconnect agent session and clean up per-tab state
     if (tab.kind === 'agent-chat') {
       agentDisconnect(tab.id).catch(() => {})
-      // Lazy import to avoid circular dependency at module level
       const { useAgentStore } = await import('../stores/agent')
+      const { cleanupAgentRouterTab } = await import('../composables/useAgentRouter')
       useAgentStore().removeSession(tab.id)
+      cleanupAgentRouterTab(tab.id)
     }
 
     tabs.value.splice(idx, 1)
@@ -115,8 +116,12 @@ export const useTabStore = defineStore('tabs', () => {
     if (agentTabs.length === 0) return
     await Promise.allSettled(agentTabs.map((t) => agentDisconnect(t.id).catch(() => {})))
     const { useAgentStore } = await import('../stores/agent')
+    const { cleanupAgentRouterTab } = await import('../composables/useAgentRouter')
     const agentStore = useAgentStore()
-    for (const t of agentTabs) agentStore.removeSession(t.id)
+    for (const t of agentTabs) {
+      agentStore.removeSession(t.id)
+      cleanupAgentRouterTab(t.id)
+    }
   }
 
   // Clear activity indicator whenever any tab becomes active,

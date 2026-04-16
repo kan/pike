@@ -13,6 +13,7 @@ import {
   agentAuthLogin,
   agentAuthLogout,
   agentAuthStatus,
+  agentCapabilities,
   agentCheckAvailable,
   agentCompact,
   agentDisconnect,
@@ -311,6 +312,13 @@ export const useAgentStore = defineStore('agent', () => {
       s.disconnectReason = null
       s.tokenUsage = null
       updateEstimatedCost(s)
+
+      // Fetch capabilities from the runtime
+      try {
+        s.capabilities = await agentCapabilities(tabId)
+      } catch {
+        // ignore — capabilities are optional
+      }
 
       // Restore chat history
       if (s.messages.length === 0) {

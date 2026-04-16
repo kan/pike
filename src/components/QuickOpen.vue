@@ -8,6 +8,7 @@ import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
 import { useTaskStore } from '../stores/tasks'
 import type { AgentType } from '../types/agent'
+import type { TaskRunner } from '../types/tasks'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -129,7 +130,7 @@ interface TaskItem {
   kind: 'task'
   name: string
   command: string
-  runner: string
+  runner: TaskRunner
   cwd?: string
 }
 

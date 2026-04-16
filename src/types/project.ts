@@ -31,6 +31,4 @@ export interface ProjectConfig {
   pinnedTabs: PinnedTabDef[]
   lastOpened: string
   lastSession?: LastSession
-  /** Unified agent session ID (used by agent store for session resume) */
-  agentSessionId?: string
 }

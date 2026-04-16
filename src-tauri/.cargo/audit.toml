@@ -1,0 +1,12 @@
+# Ignore advisories in transitive dependencies that Pike cannot fix directly.
+# These are upstream issues in Tauri's dependency tree.
+# Review periodically and remove once upstream releases fixes.
+
+[advisories]
+ignore = [
+    # rustls-webpki: URI name constraints — via tauri (reqwest → rustls)
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    # rand 0.9.2 unsound with custom logger — via tauri-plugin-notification
+    "RUSTSEC-2026-0097",
+]

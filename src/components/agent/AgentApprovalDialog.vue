@@ -13,25 +13,16 @@ const s = computed(() => agent.getSession(props.tabId))
 
 const agentDisplayName = computed(() => (s.value.agentType === 'claude-code' ? 'Claude' : 'Codex'))
 
-const show = computed(
-  () =>
-    s.value.pendingCommandApproval !== null ||
-    s.value.pendingFileApproval !== null ||
-    s.value.pendingGenericApproval !== null,
+const pendingRequest = computed(
+  () => s.value.pendingCommandApproval ?? s.value.pendingFileApproval ?? s.value.pendingGenericApproval,
 )
 
-const sandboxTrusted = computed(() => {
-  const req = s.value.pendingCommandApproval ?? s.value.pendingFileApproval ?? s.value.pendingGenericApproval
-  return req?.payload?.sandboxTrusted !== false
-})
-
-const environment = computed(() => {
-  const req = s.value.pendingCommandApproval ?? s.value.pendingFileApproval ?? s.value.pendingGenericApproval
-  return (req?.payload?.environment as string) ?? null
-})
+const show = computed(() => pendingRequest.value !== null)
+const sandboxTrusted = computed(() => pendingRequest.value?.payload?.sandboxTrusted !== false)
+const environment = computed(() => (pendingRequest.value?.payload?.environment as string) ?? null)
 
 async function respond(decision: AgentApprovalDecision) {
-  const req = s.value.pendingCommandApproval ?? s.value.pendingFileApproval ?? s.value.pendingGenericApproval
+  const req = pendingRequest.value
   if (!req) return
   await agent.respondApproval(props.tabId, req.requestId, decision)
 }

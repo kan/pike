@@ -130,7 +130,6 @@ onUnmounted(() => {
   window.removeEventListener('mousedown', closeBranches)
   window.removeEventListener('mousedown', closeEncodingMenu)
   window.removeEventListener('mousedown', closeLineEndingMenu)
-  window.removeEventListener('mousedown', closeClaudeUsage)
 })
 </script>
 

@@ -38,9 +38,12 @@ function focusAgentTab(tabId: string) {
   }
 }
 
-/** Extract tabId from an event payload (added by Rust TabEvent wrapper). */
-function extractTabId(payload: Record<string, unknown>): string | null {
-  return (payload.tabId as string) ?? null
+// Per-tab dedup state (module scope so cleanupAgentRouterTab can access)
+const lastDelta = new Map<string, { key: string; time: number }>()
+
+/** Clean up per-tab router state when a tab is closed. */
+export function cleanupAgentRouterTab(tabId: string) {
+  lastDelta.delete(tabId)
 }
 
 let initialized = false
@@ -54,14 +57,25 @@ export async function initAgentRouter() {
   const win = getCurrentWindow()
   const notify = await resolveNotifier()
 
-  // --- Message delta ---
-  // Per-tab dedup state
-  const lastDelta = new Map<string, { key: string; time: number }>()
+  /** Listen for an agent event, extracting tabId and guarding against missing values. */
+  function listenAgent(event: string, handler: (tabId: string, payload: Record<string, unknown>) => void) {
+    return win.listen<Record<string, unknown>>(event, (e) => {
+      const tabId = (e.payload.tabId as string) ?? null
+      if (!tabId) return
+      handler(tabId, e.payload)
+    })
+  }
 
-  await win.listen<Record<string, unknown>>('agent://message-delta', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  /** Send desktop notification if the agent tab is in the background. */
+  function notifyIfBackground(tabId: string, description: string) {
+    if (settings.codexNotification && !isAgentTabVisible(tabId)) {
+      markAgentActivity(tabId)
+      notify?.('Agent', description, () => focusAgentTab(tabId))
+    }
+  }
+
+  // --- Message delta ---
+  await listenAgent('agent://message-delta', (tabId, p) => {
     const delta = (p.delta as string) ?? ''
     const itemId = (p.itemId as string) ?? ''
 
@@ -75,28 +89,18 @@ export async function initAgentRouter() {
   })
 
   // --- Turn lifecycle ---
-  await win.listen<Record<string, unknown>>('agent://turn-started', (event) => {
-    const tabId = extractTabId(event.payload)
-    if (!tabId) return
+  await listenAgent('agent://turn-started', (tabId) => {
     const s = agent.getExistingSession(tabId)
     if (s) s.isGenerating = true
   })
 
-  await win.listen<Record<string, unknown>>('agent://turn-completed', (event) => {
-    const tabId = extractTabId(event.payload)
-    if (!tabId) return
+  await listenAgent('agent://turn-completed', (tabId) => {
     agent.handleTurnCompleted(tabId)
-    if (settings.codexNotification && !isAgentTabVisible(tabId)) {
-      markAgentActivity(tabId)
-      notify?.('Agent', 'Turn completed', () => focusAgentTab(tabId))
-    }
+    notifyIfBackground(tabId, 'Turn completed')
   })
 
   // --- Item lifecycle ---
-  await win.listen<Record<string, unknown>>('agent://item-started', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  await listenAgent('agent://item-started', (tabId, p) => {
     const itemType = (p.itemType as string) ?? ''
     const itemId = (p.itemId as string) ?? ''
     const data: Record<string, unknown> = { ...(p.data as Record<string, unknown>) }
@@ -117,18 +121,10 @@ export async function initAgentRouter() {
       }
     }
 
-    agent.handleItemStarted(tabId, {
-      type: itemType,
-      id: itemId,
-      data,
-      completed: false,
-    })
+    agent.handleItemStarted(tabId, { type: itemType, id: itemId, data, completed: false })
   })
 
-  await win.listen<Record<string, unknown>>('agent://item-completed', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  await listenAgent('agent://item-completed', (tabId, p) => {
     const itemId = (p.itemId as string) ?? ''
     const pData = (p.data as Record<string, unknown>) ?? {}
     const completedData: Record<string, unknown> = {}
@@ -144,18 +140,12 @@ export async function initAgentRouter() {
   })
 
   // --- Command output ---
-  await win.listen<Record<string, unknown>>('agent://command-output-delta', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  await listenAgent('agent://command-output-delta', (tabId, p) => {
     agent.handleCommandOutputDelta(tabId, (p.itemId as string) ?? '', (p.delta as string) ?? '')
   })
 
   // --- Approval requests ---
-  await win.listen<Record<string, unknown>>('agent://approval-command', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  await listenAgent('agent://approval-command', (tabId, p) => {
     const s = agent.getExistingSession(tabId)
     if (!s) return
     s.pendingCommandApproval = {
@@ -165,16 +155,10 @@ export async function initAgentRouter() {
       cwd: (p.cwd as string) ?? null,
       payload: (p.payload as Record<string, unknown>) ?? {},
     }
-    if (settings.codexNotification && !isAgentTabVisible(tabId)) {
-      markAgentActivity(tabId)
-      notify?.('Agent', `Approval required: ${(p.command as string) ?? 'action'}`, () => focusAgentTab(tabId))
-    }
+    notifyIfBackground(tabId, `Approval required: ${(p.command as string) ?? 'action'}`)
   })
 
-  await win.listen<Record<string, unknown>>('agent://approval-file', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  await listenAgent('agent://approval-file', (tabId, p) => {
     const s = agent.getExistingSession(tabId)
     if (!s) return
     const itemId = (p.itemId as string) ?? ''
@@ -192,17 +176,10 @@ export async function initAgentRouter() {
       reason: (p.reason as string) ?? null,
       payload: (p.payload as Record<string, unknown>) ?? {},
     }
-    if (settings.codexNotification && !isAgentTabVisible(tabId)) {
-      markAgentActivity(tabId)
-      const desc = filePath ? `File change: ${filePath}` : 'File change approval required'
-      notify?.('Agent', desc, () => focusAgentTab(tabId))
-    }
+    notifyIfBackground(tabId, filePath ? `File change: ${filePath}` : 'File change approval required')
   })
 
-  await win.listen<Record<string, unknown>>('agent://approval-generic', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  await listenAgent('agent://approval-generic', (tabId, p) => {
     const s = agent.getExistingSession(tabId)
     if (!s) return
     s.pendingGenericApproval = {
@@ -212,17 +189,11 @@ export async function initAgentRouter() {
       options: (p.options as string[]) ?? [],
       payload: (p.payload as Record<string, unknown>) ?? {},
     }
-    if (settings.codexNotification && !isAgentTabVisible(tabId)) {
-      markAgentActivity(tabId)
-      notify?.('Agent', `Permission required: ${p.toolName}`, () => focusAgentTab(tabId))
-    }
+    notifyIfBackground(tabId, `Permission required: ${p.toolName}`)
   })
 
   // --- Auth ---
-  await win.listen<Record<string, unknown>>('agent://auth-updated', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  await listenAgent('agent://auth-updated', (tabId, p) => {
     const state = p.state as AgentAuthState | undefined
     if (state) {
       agent.handleAuthUpdated(tabId, state)
@@ -237,10 +208,7 @@ export async function initAgentRouter() {
   })
 
   // --- Token usage ---
-  await win.listen<Record<string, unknown>>('agent://token-usage', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  await listenAgent('agent://token-usage', (tabId, p) => {
     agent.handleTokenUsage(tabId, {
       input: (p.input as number) ?? 0,
       output: (p.output as number) ?? 0,
@@ -248,17 +216,14 @@ export async function initAgentRouter() {
   })
 
   // --- Disconnect ---
-  await win.listen<Record<string, unknown>>('agent://disconnect', (event) => {
-    const p = event.payload
-    const tabId = extractTabId(p)
-    if (!tabId) return
+  await listenAgent('agent://disconnect', (tabId, p) => {
     const reason = (p.reason as string) ?? 'unknown'
     console.warn('[agent-event] disconnect:', tabId, reason)
     agent.handleDisconnect(tabId, reason)
   })
 
   // --- Error ---
-  await win.listen<Record<string, unknown>>('agent://error', (event) => {
-    console.error('[agent-event] error', event.payload)
+  await listenAgent('agent://error', (tabId, p) => {
+    console.error('[agent-event] error', tabId, p)
   })
 }
