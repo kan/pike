@@ -281,21 +281,20 @@ onMounted(async () => {
     if (text) navigator.clipboard.writeText(text.replace(/\r\n/g, '\n')).catch(() => {})
   })
 
-  // Shared paste helper: confirm newlines, normalize line endings, write to PTY.
-  // Rust pty_write handles chunking internally to avoid ConPTY pipe buffer overflow.
+  // Delegate to terminal.paste() for bracket paste mode support and to avoid
+  // ConPTY truncation (Rust pty_write chunks at 4KB).
   async function pasteText(text: string) {
-    if (!ptyId) return
+    if (!ptyId || !terminal) return
     if (text.includes('\n') || text.includes('\r')) {
       if (!(await confirmDialog(t('confirm.pasteNewlines')))) {
-        terminal?.focus()
+        terminal.focus()
         return
       }
     }
-    await ptyWrite(ptyId, text.replace(/\r\n/g, '\r').replace(/\n/g, '\r'))
-    terminal?.focus()
+    terminal.paste(text)
+    terminal.focus()
   }
 
-  // Right-click paste (guard: termRef may be null if component unmounted during pty_spawn await)
   termRef.value?.addEventListener('contextmenu', async (e) => {
     e.preventDefault()
     if (!settingsStore.terminalRightClickPaste || !ptyId) return
@@ -303,33 +302,35 @@ onMounted(async () => {
     if (text) await pasteText(text)
   })
 
-  // Explicit paste handler — xterm.js default paste can lose data with large text on ConPTY.
-  termRef.value?.addEventListener('paste', async (e: Event) => {
-    const ce = e as ClipboardEvent
-    if (!ptyId) return
+  // Capture phase prevents xterm.js from also handling paste (double-write).
+  termRef.value?.addEventListener(
+    'paste',
+    async (e: Event) => {
+      const ce = e as ClipboardEvent
+      if (!ptyId || !terminal) return
 
-    const images = getClipboardImages(ce)
-    if (images.length > 0) {
       ce.preventDefault()
       ce.stopPropagation()
-      for (const file of images) {
-        try {
-          const relPath = await saveImageFile(file)
-          ptyWrite(ptyId, relPath).catch(() => {})
-        } catch {
-          // silently ignore — non-critical feature
-        }
-      }
-      terminal?.focus()
-      return
-    }
 
-    const text = ce.clipboardData?.getData('text/plain')
-    if (!text) return
-    ce.preventDefault()
-    ce.stopPropagation()
-    await pasteText(text)
-  })
+      const images = getClipboardImages(ce)
+      if (images.length > 0) {
+        for (const file of images) {
+          try {
+            const relPath = await saveImageFile(file)
+            ptyWrite(ptyId, relPath).catch(() => {})
+          } catch {
+            // silently ignore
+          }
+        }
+        terminal.focus()
+        return
+      }
+
+      const text = ce.clipboardData?.getData('text/plain')
+      if (text) await pasteText(text)
+    },
+    { capture: true },
+  )
 
   termRef.value?.addEventListener('dragover', (e: DragEvent) => {
     if (e.dataTransfer?.types.includes('text/plain') || e.dataTransfer?.types.includes('Files')) {
