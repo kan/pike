@@ -64,16 +64,19 @@ impl Default for AcpAgentConfig {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Build a shell command string with basic quoting for `bash -lc`.
-/// Prepends `$HOME/.local/bin` to PATH for npm --prefix installs.
+/// User-local binary paths to prepend to PATH in non-login shell contexts.
+/// Login shell (`bash -l`) can hang without a tty, so we use `bash -c` and
+/// explicitly add directories where npm/bun/fnm install binaries.
+pub(super) const WSL_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin";
+
+/// Build a shell command string with quoting for `bash -c`.
 fn build_shell_command(command: &str, args: &[String]) -> String {
     let mut parts = Vec::with_capacity(1 + args.len());
     parts.push(shell_quote(command));
     for arg in args {
         parts.push(shell_quote(arg));
     }
-    // Ensure ~/.local/bin is in PATH (npm --prefix "$HOME/.local" installs there)
-    format!("PATH=\"$HOME/.local/bin:$PATH\" {}", parts.join(" "))
+    format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" {}", parts.join(" "))
 }
 
 /// Quote a string for safe use in a bash command.
@@ -115,7 +118,7 @@ impl AcpProcessRuntime {
             let distro = env_name.split(" (WSL)").next().unwrap_or("Ubuntu");
             let acp_cmd = build_shell_command(&self.config.command, &self.config.args);
             let mut c = Command::new("wsl.exe");
-            c.args(["--cd", &linux_dir, "-d", distro, "--", "bash", "-lc", &acp_cmd]);
+            c.args(["--cd", &linux_dir, "-d", distro, "--", "bash", "-c", &acp_cmd]);
             c
         } else {
             // On Windows, npm-installed binaries are .cmd files.

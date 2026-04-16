@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use super::acp_runtime::{ACPRuntime, AcpAgentConfig};
+use super::acp_runtime::{ACPRuntime, AcpAgentConfig, WSL_EXTRA_PATH};
 use super::codex_runtime::CodexAppServerRuntime;
 use super::state::{AgentSession, AgentState};
 use super::types::{
@@ -62,15 +62,15 @@ pub async fn agent_ensure_installed(
 
         // On Windows, `npm` is a .cmd batch file — must run via `cmd /C`.
         // On WSL, global npm install requires root. Install to ~/.local instead.
-        // Use bash -lc so nvm/fnm managed npm is found via ~/.profile PATH.
+        // Use bash -c (not -lc) to avoid .profile hang in non-tty contexts.
         let child = match &shell_clone {
             ShellConfig::Wsl { .. } => shell_clone
                 .command(
                     "bash",
                     &[
-                        "-lc",
+                        "-c",
                         &format!(
-                            "npm install -g --prefix \"$HOME/.local\" {ACP_NPM_PACKAGE}"
+                            "PATH=\"{WSL_EXTRA_PATH}:$PATH\" npm install -g --prefix \"$HOME/.local\" {ACP_NPM_PACKAGE}"
                         ),
                     ],
                 )
@@ -111,9 +111,10 @@ pub async fn agent_ensure_installed(
 /// On Windows, npm-installed binaries are `.cmd` files, so we must run via `cmd /C`.
 pub fn check_acp_available(config: &AcpAgentConfig, shell: &ShellConfig) -> Result<String, String> {
     match shell {
+        // bash -c (not -lc) avoids .profile hang in non-tty contexts (e.g. release builds)
         ShellConfig::Wsl { .. } => {
-            let cmd = format!("PATH=\"$HOME/.local/bin:$PATH\" {} --version", config.command);
-            shell.run_stdout("bash", &["-lc", &cmd])
+            let cmd = format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" {} --version", config.command);
+            shell.run_stdout("bash", &["-c", &cmd])
         }
         _ => {
             let mut cmd = crate::types::silent_command("cmd.exe");
