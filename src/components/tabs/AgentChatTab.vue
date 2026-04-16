@@ -32,11 +32,19 @@ import type { TurnItem } from '../../types/chat'
 import { isWindowsShell } from '../../types/tab'
 import AgentApprovalDialog from '../agent/AgentApprovalDialog.vue'
 
+const props = defineProps<{ tabId: string }>()
+
 const { t } = useI18n()
 const agent = useAgentStore()
 const claudeUsage = useClaudeUsageStore()
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
+
+const s = computed(() => agent.getSession(props.tabId))
+const agentTab = computed(() => {
+  const tab = tabStore.tabs.find((t) => t.id === props.tabId)
+  return tab?.kind === 'agent-chat' ? tab : null
+})
 
 const input = ref('')
 const messageListRef = ref<HTMLDivElement | null>(null)
@@ -56,25 +64,25 @@ const marked = new Marked()
 
 /** Display name for the current agent — used in UI labels */
 const agentDisplayName = computed(() => {
-  if (agent.agentType === 'claude-code') return 'Claude'
+  if (agentTab.value?.agentType === 'claude-code') return 'Claude'
   return 'Codex'
 })
 
 const isAuthenticated = computed(() => {
   // Agents without auth flow are always considered authenticated
-  if (agent.capabilities && !agent.capabilities.supportsAuthFlow) return true
-  return agent.authState.status === 'authenticated'
+  if (s.value.capabilities && !s.value.capabilities.supportsAuthFlow) return true
+  return s.value.authState.status === 'authenticated'
 })
-const isConnected = computed(() => agent.connected)
+const isConnected = computed(() => s.value.connected)
 
 const effectiveSandbox = computed(() => {
-  if (agent.sandboxMode) return agent.sandboxMode
+  if (s.value.sandboxMode) return s.value.sandboxMode
   const project = projectStore.currentProject
   return project && isWindowsShell(project.shell) ? 'externalSandbox' : 'workspaceWrite'
 })
 
 const effectiveApproval = computed(() => {
-  if (agent.approvalPolicy) return agent.approvalPolicy
+  if (s.value.approvalPolicy) return s.value.approvalPolicy
   const project = projectStore.currentProject
   const isWindows = project && isWindowsShell(project.shell)
   return isWindows ? 'untrusted' : 'on-request'
@@ -94,7 +102,7 @@ function prefillCommand(cmd: string) {
 }
 
 function openInstructionsFile() {
-  const name = agent.detectedInstructionsFile
+  const name = s.value.detectedInstructionsFile
   const project = projectStore.currentProject
   if (!name || !project) return
   const sep = project.shell.kind === 'wsl' ? '/' : '\\'
@@ -124,7 +132,7 @@ async function handleImageFiles(files: File[]) {
       const relPath = await saveImageFile(file)
       insertAtCursor(`@${relPath} `)
     } catch (e) {
-      agent.addSystemMessage(`${t('codex.imagePasteFailed')}: ${e}`)
+      agent.addSystemMessage(props.tabId, `${t('codex.imagePasteFailed')}: ${e}`)
     }
   }
 }
@@ -184,7 +192,7 @@ const searchMatchIds = computed(() => {
   if (!searchQuery.value) return new Set<string>()
   const q = searchQuery.value.toLowerCase()
   const ids = new Set<string>()
-  for (const m of agent.messages) {
+  for (const m of s.value.messages) {
     if (m.text.toLowerCase().includes(q)) ids.add(m.id)
     for (const seg of m.segments) {
       if (seg.kind === 'text' && seg.text.toLowerCase().includes(q)) {
@@ -195,7 +203,7 @@ const searchMatchIds = computed(() => {
   }
   return ids
 })
-const searchMatchList = computed(() => agent.messages.filter((m) => searchMatchIds.value.has(m.id)))
+const searchMatchList = computed(() => s.value.messages.filter((m) => searchMatchIds.value.has(m.id)))
 const searchCurrentIdx = ref(0)
 
 function toggleSearch() {
@@ -243,28 +251,26 @@ function openFileChangeDiff(item: TurnItem) {
 }
 
 async function startNewConversation() {
-  await agent.newConversation()
+  await agent.newConversation(props.tabId)
   await ensureConnected()
 }
 
 let connecting = false
 async function reconnect() {
-  agent.disconnectReason = null
+  s.value.disconnectReason = null
   await ensureConnected()
 }
 
 async function ensureConnected() {
-  if (agent.connected || connecting) return
+  if (s.value.connected || connecting) return
   connecting = true
   try {
     const project = projectStore.currentProject
     if (!project) return
-    // Pass the tab's agentType so the store uses the correct runtime
-    const agentTab = tabStore.tabs.find((t) => t.kind === 'agent-chat')
-    const requestedType = agentTab?.kind === 'agent-chat' ? agentTab.agentType : undefined
-    await agent.startSession(project.shell, project.root, project.agentSessionId, requestedType)
+    const requestedType = agentTab.value?.agentType ?? undefined
+    await agent.startSession(props.tabId, project.shell, project.root, undefined, requestedType)
   } catch (e) {
-    agent.disconnectReason = String(e)
+    s.value.disconnectReason = String(e)
   } finally {
     connecting = false
   }
@@ -355,27 +361,27 @@ async function handleSlashCommand(text: string): Promise<boolean> {
 
     case '/compact':
       try {
-        agent.addSystemMessage(t('codex.compacting'))
-        await agent.compactThread()
-        agent.addSystemMessage(t('codex.compactDone'))
+        agent.addSystemMessage(props.tabId, t('codex.compacting'))
+        await agent.compactThread(props.tabId)
+        agent.addSystemMessage(props.tabId, t('codex.compactDone'))
       } catch (e) {
-        agent.addSystemMessage(`Error: ${e}`)
+        agent.addSystemMessage(props.tabId, `Error: ${e}`)
       }
       return true
 
     case '/rollback':
       try {
-        await agent.rollbackTurn()
-        agent.addSystemMessage(t('codex.rollbackDone'))
+        await agent.rollbackTurn(props.tabId)
+        agent.addSystemMessage(props.tabId, t('codex.rollbackDone'))
       } catch (e) {
-        agent.addSystemMessage(`Error: ${e}`)
+        agent.addSystemMessage(props.tabId, `Error: ${e}`)
       }
       return true
 
     case '/read': {
       const path = parts.slice(1).join(' ').trim()
       if (!path) {
-        agent.addSystemMessage(t('codex.readUsage'))
+        agent.addSystemMessage(props.tabId, t('codex.readUsage'))
         return true
       }
       try {
@@ -385,9 +391,9 @@ async function handleSlashCommand(text: string): Promise<boolean> {
         const fullPath = path.startsWith('/') || path.includes(':') ? path : `${project.root}${sep}${path}`
         const result = await fsReadFile(project.shell, fullPath)
         const prompt = `[File: ${path}]\n\`\`\`\n${result.content}\n\`\`\`\n\nI've attached the content of \`${path}\` above. What would you like to know about it?`
-        await agent.submitTurn(prompt)
+        await agent.submitTurn(props.tabId, prompt)
       } catch (e) {
-        agent.addSystemMessage(`Failed to read ${path}: ${e}`)
+        agent.addSystemMessage(props.tabId, `Failed to read ${path}: ${e}`)
       }
       return true
     }
@@ -398,13 +404,13 @@ async function handleSlashCommand(text: string): Promise<boolean> {
         if (!project) return true
         const diff = await gitDiffWorking(project.root, project.shell)
         if (!diff.trim()) {
-          agent.addSystemMessage(t('codex.diffEmpty'))
+          agent.addSystemMessage(props.tabId, t('codex.diffEmpty'))
           return true
         }
         const prompt = `[Git working tree diff]\n\`\`\`diff\n${diff}\n\`\`\`\n\nI've attached the current git diff. Please review the changes.`
-        await agent.submitTurn(prompt)
+        await agent.submitTurn(props.tabId, prompt)
       } catch (e) {
-        agent.addSystemMessage(`Failed to get diff: ${e}`)
+        agent.addSystemMessage(props.tabId, `Failed to get diff: ${e}`)
       }
       return true
     }
@@ -414,8 +420,8 @@ async function handleSlashCommand(text: string): Promise<boolean> {
       if (!modelArg) {
         // List available models
         try {
-          const models = await agent.listModels()
-          const current = agent.selectedModel ?? '(default)'
+          const models = await agent.listModels(props.tabId)
+          const current = s.value.selectedModel ?? '(default)'
           const list = models
             .map((m) => {
               const name = m.displayName ?? m.id
@@ -425,14 +431,15 @@ async function handleSlashCommand(text: string): Promise<boolean> {
             })
             .join('\n')
           agent.addSystemMessage(
+            props.tabId,
             `${t('codex.modelCurrent')}: **${current}**\n\n${t('codex.modelAvailable')}:\n${list}\n\n${t('codex.modelUsage')}`,
           )
         } catch (e) {
-          agent.addSystemMessage(`Failed to list models: ${e}`)
+          agent.addSystemMessage(props.tabId, `Failed to list models: ${e}`)
         }
       } else {
-        agent.setModel(modelArg)
-        agent.addSystemMessage(`${t('codex.modelSet')}: **${modelArg}**`)
+        agent.setModel(props.tabId, modelArg)
+        agent.addSystemMessage(props.tabId, `${t('codex.modelSet')}: **${modelArg}**`)
       }
       return true
     }
@@ -442,19 +449,22 @@ async function handleSlashCommand(text: string): Promise<boolean> {
       const project = projectStore.currentProject
       const isWindows = project && isWindowsShell(project.shell)
       if (isWindows) {
-        agent.addSystemMessage(t('codex.sandboxWindowsFixed'))
+        agent.addSystemMessage(props.tabId, t('codex.sandboxWindowsFixed'))
         return true
       }
       if (!arg) {
-        const current = agent.sandboxMode ?? '(default)'
-        agent.addSystemMessage(`${t('codex.sandboxCurrent')}: **${current}**\n\n${t('codex.sandboxUsage')}`)
+        const current = s.value.sandboxMode ?? '(default)'
+        agent.addSystemMessage(
+          props.tabId,
+          `${t('codex.sandboxCurrent')}: **${current}**\n\n${t('codex.sandboxUsage')}`,
+        )
       } else {
         if (SANDBOX_OPTIONS.includes(arg)) {
-          agent.setSandboxMode(arg === 'default' ? null : arg)
-          agent.addSystemMessage(`${t('codex.sandboxSet')}: **${arg}**`)
+          agent.setSandboxMode(props.tabId, arg === 'default' ? null : arg)
+          agent.addSystemMessage(props.tabId, `${t('codex.sandboxSet')}: **${arg}**`)
           await startNewConversation()
         } else {
-          agent.addSystemMessage(`${t('codex.sandboxInvalid')}: ${SANDBOX_OPTIONS.join(', ')}`)
+          agent.addSystemMessage(props.tabId, `${t('codex.sandboxInvalid')}: ${SANDBOX_OPTIONS.join(', ')}`)
         }
       }
       return true
@@ -463,15 +473,18 @@ async function handleSlashCommand(text: string): Promise<boolean> {
     case '/approval': {
       const arg = parts.slice(1).join(' ').trim()
       if (!arg) {
-        const current = agent.approvalPolicy ?? '(default)'
-        agent.addSystemMessage(`${t('codex.approvalCurrent')}: **${current}**\n\n${t('codex.approvalUsage')}`)
+        const current = s.value.approvalPolicy ?? '(default)'
+        agent.addSystemMessage(
+          props.tabId,
+          `${t('codex.approvalCurrent')}: **${current}**\n\n${t('codex.approvalUsage')}`,
+        )
       } else {
         if (APPROVAL_OPTIONS.includes(arg)) {
-          agent.setApprovalPolicy(arg === 'default' ? null : arg)
-          agent.addSystemMessage(`${t('codex.approvalSet')}: **${arg}**`)
+          agent.setApprovalPolicy(props.tabId, arg === 'default' ? null : arg)
+          agent.addSystemMessage(props.tabId, `${t('codex.approvalSet')}: **${arg}**`)
           await startNewConversation()
         } else {
-          agent.addSystemMessage(`${t('codex.approvalInvalid')}: ${APPROVAL_OPTIONS.join(', ')}`)
+          agent.addSystemMessage(props.tabId, `${t('codex.approvalInvalid')}: ${APPROVAL_OPTIONS.join(', ')}`)
         }
       }
       return true
@@ -714,7 +727,7 @@ function onInput() {
 
 async function submit() {
   const text = input.value.trim()
-  if (!text || agent.isGenerating) return
+  if (!text || s.value.isGenerating) return
   input.value = ''
   showSlashMenu.value = false
   showMentionMenu.value = false
@@ -732,9 +745,9 @@ async function submit() {
   if (contextParts.length > 0) {
     const fullPrompt = `${contextParts.join('\n\n')}\n\n${cleanText}`
     const displayText = `${resolvedPaths.map((p) => `@${p}`).join(' ')}\n${cleanText}`
-    await agent.submitTurn(fullPrompt, displayText)
+    await agent.submitTurn(props.tabId, fullPrompt, displayText)
   } else {
-    await agent.submitTurn(cleanText)
+    await agent.submitTurn(props.tabId, cleanText)
   }
 }
 
@@ -825,12 +838,12 @@ function onDocumentClick(e: MouseEvent) {
   }
 }
 
-watch(() => agent.messages.length, scrollToBottom)
+watch(() => s.value.messages.length, scrollToBottom)
 watch(() => {
-  const last = agent.messages[agent.messages.length - 1]
+  const last = s.value.messages[s.value.messages.length - 1]
   return last?.text?.length ?? 0
 }, scrollToBottom)
-watch(() => agent.scrollTrigger, scrollToBottom)
+watch(() => s.value.scrollTrigger, scrollToBottom)
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
@@ -846,17 +859,17 @@ onUnmounted(() => {
 <template>
   <div class="agent-chat-wrapper">
     <!-- Installing agent binary -->
-    <div v-if="agent.installStatus" class="auth-panel">
+    <div v-if="s.installStatus" class="auth-panel">
       <Loader :size="32" :stroke-width="2" class="spin" />
       <p>{{ t('agent.installing') }}</p>
       <p class="disconnect-detail">{{ t('agent.installingDetail') }}</p>
     </div>
 
     <!-- Disconnected — offer reconnect -->
-    <div v-else-if="agent.disconnectReason" class="auth-panel">
+    <div v-else-if="s.disconnectReason" class="auth-panel">
       <AlertTriangle :size="32" :stroke-width="1.5" class="disconnect-icon" />
       <p>{{ t('codex.disconnected', { agent: agentDisplayName }) }}</p>
-      <p class="disconnect-detail">{{ agent.disconnectReason }}</p>
+      <p class="disconnect-detail">{{ s.disconnectReason }}</p>
       <button class="btn-primary" @click="reconnect">{{ t('codex.reconnect') }}</button>
     </div>
 
@@ -869,15 +882,15 @@ onUnmounted(() => {
     <!-- Main Chat UI -->
     <template v-else>
       <!-- Auth bar (only for agents that support auth flow) -->
-      <div v-if="agent.capabilities?.supportsAuthFlow && !isAuthenticated" class="auth-bar">
+      <div v-if="s.capabilities?.supportsAuthFlow && !isAuthenticated" class="auth-bar">
         <span>{{ t('codex.notSignedIn') }}</span>
-        <button class="btn-sm" @click="agent.login()">
+        <button class="btn-sm" @click="agent.login(props.tabId)">
           <LogIn :size="14" :stroke-width="2" />
           {{ t('codex.signIn') }}
         </button>
       </div>
       <div v-else class="auth-bar auth-bar-ok">
-        <span>{{ agent.authState.status === 'authenticated' ? (agent.authState as { email: string | null }).email ?? (agent.capabilities?.displayName ?? '') : '' }}</span>
+        <span>{{ s.authState.status === 'authenticated' ? (s.authState as { email: string | null }).email ?? (s.capabilities?.displayName ?? '') : '' }}</span>
         <div class="auth-actions">
           <button class="btn-sm btn-ghost" :title="t('codex.search')" @click="toggleSearch">
             <Search :size="14" :stroke-width="2" />
@@ -885,29 +898,29 @@ onUnmounted(() => {
           <button class="btn-sm btn-ghost" :title="t('codex.newConversation')" @click="startNewConversation">
             <MessageSquarePlus :size="14" :stroke-width="2" />
           </button>
-          <button v-if="agent.capabilities?.supportsAuthFlow" class="btn-sm btn-ghost" :title="t('codex.signOut')" @click="agent.logout()">
+          <button v-if="s.capabilities?.supportsAuthFlow" class="btn-sm btn-ghost" :title="t('codex.signOut')" @click="agent.logout(props.tabId)">
             <LogOut :size="14" :stroke-width="2" />
           </button>
         </div>
       </div>
 
       <!-- Status bar: agent type, sandbox/approval mode, instructions file, token usage -->
-      <div v-if="agent.connected" class="info-bar">
-        <span class="info-indicator agent-type">{{ agent.capabilities?.displayName ?? agent.agentType }}</span>
-        <span v-if="agent.capabilities?.supportsSandboxConfig" class="info-indicator sandbox clickable" :title="`/sandbox ${effectiveSandbox}`" @click.stop="prefillCommand('/sandbox ')">
+      <div v-if="s.connected" class="info-bar">
+        <span class="info-indicator agent-type">{{ s.capabilities?.displayName ?? s.agentType }}</span>
+        <span v-if="s.capabilities?.supportsSandboxConfig" class="info-indicator sandbox clickable" :title="`/sandbox ${effectiveSandbox}`" @click.stop="prefillCommand('/sandbox ')">
           <Shield :size="12" :stroke-width="2" />
           {{ effectiveSandbox }}
         </span>
-        <span v-if="agent.capabilities?.supportsApprovalConfig" class="info-indicator approval clickable" :title="`/approval ${effectiveApproval}`" @click.stop="prefillCommand('/approval ')">
+        <span v-if="s.capabilities?.supportsApprovalConfig" class="info-indicator approval clickable" :title="`/approval ${effectiveApproval}`" @click.stop="prefillCommand('/approval ')">
           <ShieldCheck :size="12" :stroke-width="2" />
           {{ effectiveApproval }}
         </span>
-        <span v-if="agent.detectedInstructionsFile" class="info-indicator instructions clickable" @click="openInstructionsFile">
+        <span v-if="s.detectedInstructionsFile" class="info-indicator instructions clickable" @click="openInstructionsFile">
           <FileCode :size="12" :stroke-width="2" />
-          {{ agent.detectedInstructionsFile }}
+          {{ s.detectedInstructionsFile }}
         </span>
         <!-- Claude Code: rich per-model usage (click for detail) -->
-        <div v-if="agent.agentType === 'claude-code' && claudeUsage.usage?.active" class="token-area">
+        <div v-if="agentTab?.agentType === 'claude-code' && claudeUsage.usage?.active" class="token-area">
           <span class="info-indicator tokens clickable" @click.stop="toggleTokenDetail">
             {{ formatTokens(claudeUsage.usage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(claudeUsage.usage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}
             <span v-if="claudeUsage.usage.estimatedCostUsd !== null" class="token-cost">~{{ formatCost(claudeUsage.usage.estimatedCostUsd) }}</span>
@@ -927,16 +940,16 @@ onUnmounted(() => {
           </div>
         </div>
         <!-- Codex / other: simple token count -->
-        <span v-else-if="agent.tokenUsage" class="info-indicator tokens">
-          {{ formatTokens(agent.tokenUsage.input) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(agent.tokenUsage.output) }} {{ t('statusBar.ccOut') }}
-          <span v-if="agent.estimatedCostUsd !== null" class="token-cost">~{{ formatCost(agent.estimatedCostUsd) }}</span>
+        <span v-else-if="s.tokenUsage" class="info-indicator tokens">
+          {{ formatTokens(s.tokenUsage.input) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(s.tokenUsage.output) }} {{ t('statusBar.ccOut') }}
+          <span v-if="s.estimatedCostUsd !== null" class="token-cost">~{{ formatCost(s.estimatedCostUsd) }}</span>
         </span>
       </div>
 
       <!-- Version warning -->
-      <div v-if="agent.versionWarning" class="version-warning">
+      <div v-if="s.versionWarning" class="version-warning">
         <AlertTriangle :size="14" :stroke-width="2" />
-        <span>{{ agent.versionWarning }}</span>
+        <span>{{ s.versionWarning }}</span>
       </div>
 
       <!-- Search bar -->
@@ -959,12 +972,12 @@ onUnmounted(() => {
 
       <!-- Messages -->
       <div class="message-list" ref="messageListRef" @scroll="onScroll">
-        <div v-if="agent.messages.length === 0" class="empty-chat">
+        <div v-if="s.messages.length === 0" class="empty-chat">
           <Bot :size="32" :stroke-width="1" />
           <p>{{ t('codex.emptyChat', { agent: agentDisplayName }) }}</p>
         </div>
         <div
-          v-for="msg in agent.messages"
+          v-for="msg in s.messages"
           :key="msg.id"
           :data-msg-id="msg.id"
           class="message"
@@ -1083,10 +1096,10 @@ onUnmounted(() => {
             @drop.prevent="onDrop"
           />
           <button
-            v-if="agent.isGenerating"
+            v-if="s.isGenerating"
             class="btn-send btn-stop"
             :title="t('codex.stop')"
-            @click="agent.interruptTurn()"
+            @click="agent.interruptTurn(props.tabId)"
           >
             <Square :size="16" :stroke-width="2" />
           </button>
@@ -1104,7 +1117,7 @@ onUnmounted(() => {
     </template>
 
     <!-- Approval Dialogs -->
-    <AgentApprovalDialog />
+    <AgentApprovalDialog :tab-id="props.tabId" />
   </div>
 </template>
 

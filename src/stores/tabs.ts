@@ -5,10 +5,9 @@ import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
 import { t } from '../i18n'
 import { basename } from '../lib/paths'
-import { ptyKill, waitSignalByPath } from '../lib/tauri'
+import { agentDisconnect, ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
-  AgentChatTab,
   DiffTab,
   DockerLogsTab,
   EditorTab,
@@ -75,6 +74,14 @@ export const useTabStore = defineStore('tabs', () => {
       await ptyKill(tab.ptyId).catch(() => {})
     }
 
+    // Disconnect agent session and clean up per-tab state
+    if (tab.kind === 'agent-chat') {
+      agentDisconnect(tab.id).catch(() => {})
+      // Lazy import to avoid circular dependency at module level
+      const { useAgentStore } = await import('../stores/agent')
+      useAgentStore().removeSession(tab.id)
+    }
+
     tabs.value.splice(idx, 1)
     untitledContent.delete(id)
 
@@ -96,9 +103,20 @@ export const useTabStore = defineStore('tabs', () => {
         return ptyKill(t.ptyId).catch(() => {})
       })
     await Promise.allSettled(kills)
+    await cleanupAgentTabs(tabs.value)
     untitledContent.clear()
     tabs.value = []
     activeTabId.value = null
+  }
+
+  /** Disconnect and clean up all agent-chat tabs in the given list. */
+  async function cleanupAgentTabs(tabList: Tab[]) {
+    const agentTabs = tabList.filter((t) => t.kind === 'agent-chat')
+    if (agentTabs.length === 0) return
+    await Promise.allSettled(agentTabs.map((t) => agentDisconnect(t.id).catch(() => {})))
+    const { useAgentStore } = await import('../stores/agent')
+    const agentStore = useAgentStore()
+    for (const t of agentTabs) agentStore.removeSession(t.id)
   }
 
   // Clear activity indicator whenever any tab becomes active,
@@ -260,17 +278,6 @@ export const useTabStore = defineStore('tabs', () => {
 
   function addAgentChatTab(options?: { pinned?: boolean; agentType?: 'codex' | 'claude-code' }): string {
     const agentType = options?.agentType ?? 'claude-code'
-    const existing = tabs.value.find((t): t is AgentChatTab => t.kind === 'agent-chat')
-    if (existing) {
-      if (existing.agentType !== agentType) {
-        existing.agentType = agentType
-        existing.title = agentType === 'claude-code' ? 'Claude' : 'Codex'
-        // Signal AgentChatTab to reconnect with the new type
-        existing.switchRequested = Date.now()
-      }
-      activeTabId.value = existing.id
-      return existing.id
-    }
     const id = genId()
     const title = agentType === 'claude-code' ? 'Claude' : 'Codex'
     tabs.value.push({ id, kind: 'agent-chat', title, pinned: options?.pinned ?? false, agentType })
@@ -365,6 +372,7 @@ export const useTabStore = defineStore('tabs', () => {
         return ptyKill(t.ptyId).catch(() => {})
       })
     await Promise.allSettled(ptyKills)
+    await cleanupAgentTabs(toClose)
 
     // Signal all --wait processes, then close window if any were signaled
     let shouldClose = false
@@ -441,6 +449,9 @@ export const useTabStore = defineStore('tabs', () => {
             return { ...base, path: '', content: untitledContent.get(t.id) ?? '' }
           }
           return { ...base, path: t.path }
+        }
+        if (t.kind === 'agent-chat') {
+          return { ...base, agentType: t.agentType }
         }
         return base
       })

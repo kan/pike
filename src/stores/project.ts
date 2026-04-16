@@ -97,7 +97,9 @@ export const useProjectStore = defineStore('project', () => {
           }
         } else if (def.kind === 'codex-chat' || def.kind === 'agent-chat') {
           const settings = useSettingsStore()
-          const agentType = settings.agentDefault === 'ask' ? 'claude-code' : settings.agentDefault
+          const agentType =
+            (def.agentType as 'codex' | 'claude-code') ??
+            (settings.agentDefault === 'ask' ? 'claude-code' : settings.agentDefault)
           tabStore.addAgentChatTab({ pinned: def.pinned, agentType })
         }
       }

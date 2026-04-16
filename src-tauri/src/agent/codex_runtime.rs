@@ -24,17 +24,28 @@ use crate::types::ShellConfig;
 /// Forwards `AgentEvent`s as Tauri events to a specific window.
 ///
 /// Events are emitted with the prefix `agent://` followed by the event type.
-/// The frontend listens for these and dispatches to the agent store.
+/// Each payload includes `tabId` so the frontend can route to the correct tab.
 pub struct TauriEventEmitter {
     app_handle: AppHandle,
     window_label: String,
+    tab_id: String,
+}
+
+/// Wraps an `AgentEvent` with `tabId` for frontend routing.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TabEvent {
+    tab_id: String,
+    #[serde(flatten)]
+    event: AgentEvent,
 }
 
 impl TauriEventEmitter {
-    pub fn new(app_handle: AppHandle, window_label: String) -> Self {
+    pub fn new(app_handle: AppHandle, window_label: String, tab_id: String) -> Self {
         Self {
             app_handle,
             window_label,
+            tab_id,
         }
     }
 }
@@ -57,9 +68,13 @@ impl EventEmitter for TauriEventEmitter {
             AgentEvent::Disconnected { .. } => "agent://disconnect",
             AgentEvent::Error { .. } => "agent://error",
         };
+        let payload = TabEvent {
+            tab_id: self.tab_id.clone(),
+            event,
+        };
         if let Err(e) = self
             .app_handle
-            .emit_to(&self.window_label, event_name, &event)
+            .emit_to(&self.window_label, event_name, &payload)
         {
             log::error!(
                 "[agent-emit] Failed to emit {event_name} to {}: {e}",
@@ -90,17 +105,19 @@ impl CodexAppServerRuntime {
         cwd: &str,
         app_handle: AppHandle,
         window_label: String,
+        tab_id: String,
     ) -> Result<Self, String> {
         let codex_runtime: Arc<dyn CodexRuntime> =
             Arc::from(crate::codex::runtime::runtime_for_shell(&shell));
         let client = Arc::new(AppServerClient::connect(codex_runtime.as_ref(), cwd).await?);
         log::info!(
-            "[codex-agent] Connected for window {window_label} at {cwd}"
+            "[codex-agent] Connected for tab {tab_id} (window {window_label}) at {cwd}"
         );
 
         let emitter = Arc::new(TauriEventEmitter::new(
             app_handle.clone(),
             window_label.clone(),
+            tab_id,
         ));
 
         let thread_session = Arc::new(ThreadSession::new(

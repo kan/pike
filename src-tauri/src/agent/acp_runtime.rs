@@ -153,6 +153,7 @@ impl ACPRuntime {
         agent_config: AcpAgentConfig,
         app_handle: tauri::AppHandle,
         window_label: String,
+        tab_id: String,
     ) -> Result<Self, String> {
         let codex_runtime: Arc<dyn CodexRuntime> =
             Arc::from(runtime::runtime_for_shell(&shell));
@@ -173,10 +174,11 @@ impl ACPRuntime {
         let emitter = Arc::new(TauriEventEmitter::new(
             app_handle,
             window_label.clone(),
+            tab_id.clone(),
         ));
 
         log::info!(
-            "[acp-agent] Connected {} for window {window_label} at {cwd}",
+            "[acp-agent] Connected {} for tab {tab_id} (window {window_label}) at {cwd}",
             agent_config.name
         );
 

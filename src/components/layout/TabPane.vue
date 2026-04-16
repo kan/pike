@@ -324,6 +324,7 @@ onUnmounted(() => {
       <AgentChatTab
         v-for="tab in agentChatTabs"
         :key="tab.id"
+        :tab-id="tab.id"
         v-show="tab.id === tabStore.activeTabId"
       />
 

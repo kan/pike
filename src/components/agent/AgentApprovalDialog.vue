@@ -5,36 +5,39 @@ import { useI18n } from '../../i18n'
 import { useAgentStore } from '../../stores/agent'
 import type { AgentApprovalDecision } from '../../types/agent'
 
+const props = defineProps<{ tabId: string }>()
+
 const { t } = useI18n()
 const agent = useAgentStore()
+const s = computed(() => agent.getSession(props.tabId))
 
-const agentDisplayName = computed(() => (agent.agentType === 'claude-code' ? 'Claude' : 'Codex'))
+const agentDisplayName = computed(() => (s.value.agentType === 'claude-code' ? 'Claude' : 'Codex'))
 
 const show = computed(
   () =>
-    agent.pendingCommandApproval !== null ||
-    agent.pendingFileApproval !== null ||
-    agent.pendingGenericApproval !== null,
+    s.value.pendingCommandApproval !== null ||
+    s.value.pendingFileApproval !== null ||
+    s.value.pendingGenericApproval !== null,
 )
 
 const sandboxTrusted = computed(() => {
-  const req = agent.pendingCommandApproval ?? agent.pendingFileApproval ?? agent.pendingGenericApproval
+  const req = s.value.pendingCommandApproval ?? s.value.pendingFileApproval ?? s.value.pendingGenericApproval
   return req?.payload?.sandboxTrusted !== false
 })
 
 const environment = computed(() => {
-  const req = agent.pendingCommandApproval ?? agent.pendingFileApproval ?? agent.pendingGenericApproval
+  const req = s.value.pendingCommandApproval ?? s.value.pendingFileApproval ?? s.value.pendingGenericApproval
   return (req?.payload?.environment as string) ?? null
 })
 
 async function respond(decision: AgentApprovalDecision) {
-  const req = agent.pendingCommandApproval ?? agent.pendingFileApproval ?? agent.pendingGenericApproval
+  const req = s.value.pendingCommandApproval ?? s.value.pendingFileApproval ?? s.value.pendingGenericApproval
   if (!req) return
-  await agent.respondApproval(req.requestId, decision)
+  await agent.respondApproval(props.tabId, req.requestId, decision)
 }
 
 function respondGenericOption(option: string) {
-  const req = agent.pendingGenericApproval
+  const req = s.value.pendingGenericApproval
   if (!req) return
   // Map well-known option strings to AgentApprovalDecision
   const mapping: Record<string, AgentApprovalDecision> = {
@@ -44,7 +47,7 @@ function respondGenericOption(option: string) {
     cancel: 'cancel',
   }
   const decision = mapping[option] ?? 'allow'
-  agent.respondApproval(req.requestId, decision)
+  agent.respondApproval(props.tabId, req.requestId, decision)
 }
 </script>
 
@@ -59,51 +62,51 @@ function respondGenericOption(option: string) {
         </div>
 
         <!-- Command Approval -->
-        <template v-if="agent.pendingCommandApproval">
+        <template v-if="s.pendingCommandApproval">
           <div class="approval-header">
             <Terminal :size="18" :stroke-width="2" />
             <span>{{ t('codex.approvalCommand', { agent: agentDisplayName }) }}</span>
           </div>
           <div v-if="environment" class="approval-env">{{ environment }}</div>
           <div class="approval-command">
-            <code>{{ agent.pendingCommandApproval.command ?? '(unknown command)' }}</code>
+            <code>{{ s.pendingCommandApproval.command ?? '(unknown command)' }}</code>
           </div>
-          <div v-if="agent.pendingCommandApproval.cwd" class="approval-cwd">
-            {{ t('codex.cwd') }}: {{ agent.pendingCommandApproval.cwd }}
+          <div v-if="s.pendingCommandApproval.cwd" class="approval-cwd">
+            {{ t('codex.cwd') }}: {{ s.pendingCommandApproval.cwd }}
           </div>
         </template>
 
         <!-- File Change Approval -->
-        <template v-else-if="agent.pendingFileApproval">
+        <template v-else-if="s.pendingFileApproval">
           <div class="approval-header">
             <Shield :size="18" :stroke-width="2" />
             <span>{{ t('codex.approvalFile', { agent: agentDisplayName }) }}</span>
           </div>
           <div v-if="environment" class="approval-env">{{ environment }}</div>
-          <div v-if="agent.pendingFileApproval.filePath" class="approval-filepath">
-            <code>{{ agent.pendingFileApproval.filePath }}</code>
+          <div v-if="s.pendingFileApproval.filePath" class="approval-filepath">
+            <code>{{ s.pendingFileApproval.filePath }}</code>
           </div>
-          <div v-if="agent.pendingFileApproval.reason" class="approval-reason">
-            {{ agent.pendingFileApproval.reason }}
+          <div v-if="s.pendingFileApproval.reason" class="approval-reason">
+            {{ s.pendingFileApproval.reason }}
           </div>
         </template>
 
         <!-- Generic Approval -->
-        <template v-else-if="agent.pendingGenericApproval">
+        <template v-else-if="s.pendingGenericApproval">
           <div class="approval-header">
             <Wrench :size="18" :stroke-width="2" />
-            <span>Tool: {{ agent.pendingGenericApproval.toolName }}</span>
+            <span>Tool: {{ s.pendingGenericApproval.toolName }}</span>
           </div>
           <div v-if="environment" class="approval-env">{{ environment }}</div>
           <div
-            v-if="Object.keys(agent.pendingGenericApproval.toolArguments).length > 0"
+            v-if="Object.keys(s.pendingGenericApproval.toolArguments).length > 0"
             class="approval-command"
           >
-            <code>{{ JSON.stringify(agent.pendingGenericApproval.toolArguments, null, 2) }}</code>
+            <code>{{ JSON.stringify(s.pendingGenericApproval.toolArguments, null, 2) }}</code>
           </div>
-          <div v-if="agent.pendingGenericApproval.options.length > 0" class="approval-actions">
+          <div v-if="s.pendingGenericApproval.options.length > 0" class="approval-actions">
             <button
-              v-for="option in agent.pendingGenericApproval.options"
+              v-for="option in s.pendingGenericApproval.options"
               :key="option"
               class="btn"
               :class="{
@@ -121,7 +124,7 @@ function respondGenericOption(option: string) {
 
         <!-- Standard actions for command/file approvals -->
         <div
-          v-if="!agent.pendingGenericApproval || agent.pendingGenericApproval.options.length === 0"
+          v-if="!s.pendingGenericApproval || s.pendingGenericApproval.options.length === 0"
           class="approval-actions"
         >
           <button class="btn approval-accept" @click="respond('allow')">

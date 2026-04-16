@@ -3,6 +3,9 @@
 //! These commands replace the codex_* commands with agent_* equivalents that
 //! work with any AgentRuntime implementation. The frontend calls these through
 //! `invoke('agent_*', { ... })`.
+//!
+//! All session-dependent commands take a `tab_id` parameter to identify the
+//! agent session. This allows multiple agent tabs per window.
 
 use std::sync::Arc;
 
@@ -19,10 +22,10 @@ use crate::types::ShellConfig;
 // ---------------------------------------------------------------------------
 
 async fn get_runtime(
-    window: &tauri::WebviewWindow,
+    tab_id: &str,
     state: &AgentState,
 ) -> Result<Arc<dyn super::types::AgentRuntime>, String> {
-    state.get_runtime(window.label()).await
+    state.get_runtime(tab_id).await
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +121,6 @@ fn check_acp_available(config: &AcpAgentConfig, shell: &ShellConfig) -> Result<S
 }
 
 /// Check if an agent is available in the given shell environment.
-/// `agent_type`: "codex" or "claude-code".
 #[tauri::command]
 pub async fn agent_check_available(
     agent_type: String,
@@ -137,11 +139,11 @@ pub async fn agent_check_available(
     }
 }
 
-/// Start an agent session for this window.
-/// `agent_type`: "codex" or "claude-code".
+/// Start an agent session for a specific tab.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn agent_start_session(
+    tab_id: String,
     agent_type: String,
     shell: ShellConfig,
     cwd: String,
@@ -163,12 +165,18 @@ pub async fn agent_start_session(
 
     let runtime: Arc<dyn super::types::AgentRuntime> = match agent_type.as_str() {
         "codex" => {
-            let rt = CodexAppServerRuntime::connect(shell, &cwd, app, window_label.clone()).await?;
+            let rt = CodexAppServerRuntime::connect(
+                shell, &cwd, app, window_label.clone(), tab_id.clone(),
+            )
+            .await?;
             Arc::new(rt)
         }
         "claude-code" => {
             let acp_config = AcpAgentConfig::default();
-            let rt = ACPRuntime::connect(shell, &cwd, acp_config, app, window_label.clone()).await?;
+            let rt = ACPRuntime::connect(
+                shell, &cwd, acp_config, app, window_label.clone(), tab_id.clone(),
+            )
+            .await?;
             Arc::new(rt)
         }
         _ => return Err(format!("Unknown agent type: {agent_type}")),
@@ -178,10 +186,11 @@ pub async fn agent_start_session(
 
     state
         .insert(
-            window_label,
+            tab_id,
             AgentSession {
                 runtime,
                 agent_type,
+                window_label,
             },
         )
         .await;
@@ -189,120 +198,119 @@ pub async fn agent_start_session(
     Ok(tid)
 }
 
-/// Get the capabilities of the active agent for this window.
+/// Get the capabilities of the agent for a specific tab.
 #[tauri::command]
 pub async fn agent_capabilities(
-    window: tauri::WebviewWindow,
+    tab_id: String,
     state: tauri::State<'_, AgentState>,
 ) -> Result<AgentCapabilities, String> {
-    let rt = get_runtime(&window, &state).await?;
+    let rt = get_runtime(&tab_id, &state).await?;
     Ok(rt.capabilities())
 }
 
-/// Submit a user prompt to the active agent.
+/// Submit a user prompt to the agent.
 #[tauri::command]
 pub async fn agent_submit_turn(
+    tab_id: String,
     prompt: String,
     editor_context: Option<EditorContext>,
     model: Option<String>,
-    window: tauri::WebviewWindow,
     state: tauri::State<'_, AgentState>,
 ) -> Result<(), String> {
-    log::debug!("[agent] agent_submit_turn called: prompt={}", &prompt[..prompt.len().min(80)]);
-    let rt = get_runtime(&window, &state).await?;
+    log::debug!("[agent] agent_submit_turn tab={tab_id}: prompt={}", &prompt[..prompt.len().min(80)]);
+    let rt = get_runtime(&tab_id, &state).await?;
     rt.submit_turn(prompt, editor_context, model).await
 }
 
 /// Interrupt the current turn.
 #[tauri::command]
 pub async fn agent_interrupt_turn(
-    window: tauri::WebviewWindow,
+    tab_id: String,
     state: tauri::State<'_, AgentState>,
 ) -> Result<(), String> {
-    let rt = get_runtime(&window, &state).await?;
+    let rt = get_runtime(&tab_id, &state).await?;
     rt.interrupt_turn().await
 }
 
 /// Roll back the last turn.
 #[tauri::command]
 pub async fn agent_rollback_turn(
-    window: tauri::WebviewWindow,
+    tab_id: String,
     state: tauri::State<'_, AgentState>,
 ) -> Result<(), String> {
-    let rt = get_runtime(&window, &state).await?;
+    let rt = get_runtime(&tab_id, &state).await?;
     rt.rollback_turn().await
 }
 
 /// Compact the conversation context.
 #[tauri::command]
 pub async fn agent_compact(
-    window: tauri::WebviewWindow,
+    tab_id: String,
     state: tauri::State<'_, AgentState>,
 ) -> Result<(), String> {
-    let rt = get_runtime(&window, &state).await?;
+    let rt = get_runtime(&tab_id, &state).await?;
     rt.compact().await
 }
 
 /// Respond to an approval request.
 #[tauri::command]
 pub async fn agent_respond_approval(
+    tab_id: String,
     request_id: serde_json::Value,
     decision: ApprovalDecision,
-    window: tauri::WebviewWindow,
     state: tauri::State<'_, AgentState>,
 ) -> Result<(), String> {
-    let rt = get_runtime(&window, &state).await?;
+    let rt = get_runtime(&tab_id, &state).await?;
     rt.respond_approval(request_id, decision).await
 }
 
 /// Get authentication status.
 #[tauri::command]
 pub async fn agent_auth_status(
-    window: tauri::WebviewWindow,
+    tab_id: String,
     state: tauri::State<'_, AgentState>,
 ) -> Result<AgentAuthState, String> {
-    let rt = get_runtime(&window, &state).await?;
+    let rt = get_runtime(&tab_id, &state).await?;
     rt.auth_status().await
 }
 
 /// Start the auth login flow.
 #[tauri::command]
 pub async fn agent_auth_login(
-    window: tauri::WebviewWindow,
+    tab_id: String,
     state: tauri::State<'_, AgentState>,
 ) -> Result<(), String> {
-    let rt = get_runtime(&window, &state).await?;
+    let rt = get_runtime(&tab_id, &state).await?;
     rt.auth_login().await
 }
 
 /// Log out.
 #[tauri::command]
 pub async fn agent_auth_logout(
-    window: tauri::WebviewWindow,
+    tab_id: String,
     state: tauri::State<'_, AgentState>,
 ) -> Result<(), String> {
-    let rt = get_runtime(&window, &state).await?;
+    let rt = get_runtime(&tab_id, &state).await?;
     rt.auth_logout().await
 }
 
 /// List available models.
 #[tauri::command]
 pub async fn agent_list_models(
-    window: tauri::WebviewWindow,
+    tab_id: String,
     state: tauri::State<'_, AgentState>,
 ) -> Result<Vec<ModelInfo>, String> {
-    let rt = get_runtime(&window, &state).await?;
+    let rt = get_runtime(&tab_id, &state).await?;
     rt.list_models().await
 }
 
-/// Disconnect the agent session for this window.
+/// Disconnect the agent session for a specific tab.
 #[tauri::command]
 pub async fn agent_disconnect(
-    window: tauri::WebviewWindow,
+    tab_id: String,
     state: tauri::State<'_, AgentState>,
 ) -> Result<(), String> {
-    let window_id = window.label().to_string();
-    state.remove(&window_id).await;
-    log::info!("[agent] Disconnected window {window_id}");
+    state.remove(&tab_id).await;
+    log::info!("[agent] Disconnected tab {tab_id}");
     Ok(())
 }

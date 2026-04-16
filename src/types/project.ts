@@ -15,6 +15,7 @@ export interface SessionTabDef {
   autoStart?: string
   path?: string
   content?: string
+  agentType?: string
 }
 
 export interface LastSession {

@@ -1,12 +1,11 @@
 /**
- * Unified agent store — works with Codex, Claude Code, and other ACP agents.
+ * Unified agent store — manages multiple per-tab agent sessions.
  *
- * This store mirrors the structure of the codex store but uses the unified
- * agent_* Tauri commands and agent:// events. The UI can use this store
- * regardless of which runtime backs the agent session.
+ * Each agent-chat tab has its own independent session state (messages,
+ * connection, approval requests, etc.). The store is keyed by tab ID.
  */
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { reactive } from 'vue'
 import { useEditorInfo } from '../composables/useEditorInfo'
 import { deleteChatHistory, loadChatHistory, saveChatHistory } from '../lib/codexHistory'
 import { estimateOpenAICost } from '../lib/format'
@@ -25,7 +24,6 @@ import {
   agentStartSession,
   agentSubmitTurn,
   fsReadFile,
-  projectUpdate,
 } from '../lib/tauri'
 import type {
   AgentApprovalDecision,
@@ -72,7 +70,7 @@ function saveAgentProjectSettings(projectId: string, settings: AgentProjectSetti
   localStorage.setItem(`${AGENT_SETTINGS_PREFIX}${projectId}`, JSON.stringify(settings))
 }
 
-/** Cached editor context */
+/** Cached editor context (global, shared across sessions) */
 let lastEditorContext: AgentEditorContext | null = null
 
 function getEditorContext(): AgentEditorContext | null {
@@ -107,134 +105,228 @@ function getEditorContext(): AgentEditorContext | null {
   return null
 }
 
-function saveSessionIdToProject(sessionId: string) {
-  const projectStore = useProjectStore()
-  if (projectStore.currentProject) {
-    projectStore.currentProject.agentSessionId = sessionId
-    projectUpdate(projectStore.currentProject).catch(() => {})
+// ---------------------------------------------------------------------------
+// Per-session state
+// ---------------------------------------------------------------------------
+
+export interface AgentSessionState {
+  connected: boolean
+  agentType: AgentType
+  capabilities: AgentCapabilities | null
+  authState: AgentAuthState
+  messages: ChatMessage[]
+  isGenerating: boolean
+  currentSessionId: string | null
+  pendingCommandApproval: CommandApprovalRequest | null
+  pendingFileApproval: FileApprovalRequest | null
+  pendingGenericApproval: GenericApprovalRequest | null
+  agentVersion: string | null
+  versionWarning: string | null
+  installStatus: string | null
+  scrollTrigger: number
+  detectedInstructionsFile: string | null
+  selectedModel: string | null
+  availableModels: AgentModelInfo[]
+  tokenUsage: { input: number; output: number } | null
+  estimatedCostUsd: number | null
+  disconnectReason: string | null
+  sandboxMode: string | null
+  approvalPolicy: string | null
+}
+
+function createDefaultSession(agentType: AgentType = 'codex'): AgentSessionState {
+  return {
+    connected: false,
+    agentType,
+    capabilities: null,
+    authState: { status: 'unknown' },
+    messages: [],
+    isGenerating: false,
+    currentSessionId: null,
+    pendingCommandApproval: null,
+    pendingFileApproval: null,
+    pendingGenericApproval: null,
+    agentVersion: null,
+    versionWarning: null,
+    installStatus: null,
+    scrollTrigger: 0,
+    detectedInstructionsFile: null,
+    selectedModel: null,
+    availableModels: [],
+    tokenUsage: null,
+    estimatedCostUsd: null,
+    disconnectReason: null,
+    sandboxMode: null,
+    approvalPolicy: null,
   }
 }
 
-export const useAgentStore = defineStore('agent', () => {
-  // --- State ---
-  const connected = ref(false)
-  const agentType = ref<AgentType>('codex')
-  const capabilities = ref<AgentCapabilities | null>(null)
-  const authState = ref<AgentAuthState>({ status: 'unknown' })
-  const messages = ref<ChatMessage[]>([])
-  const isGenerating = ref(false)
-  const currentSessionId = ref<string | null>(null)
-  const pendingCommandApproval = ref<CommandApprovalRequest | null>(null)
-  const pendingFileApproval = ref<FileApprovalRequest | null>(null)
-  const pendingGenericApproval = ref<GenericApprovalRequest | null>(null)
-  const agentVersion = ref<string | null>(null)
-  const versionWarning = ref<string | null>(null)
-  /** Non-null while auto-installing the agent binary */
-  const installStatus = ref<string | null>(null)
-  const scrollTrigger = ref(0)
-  const detectedInstructionsFile = ref<string | null>(null)
-  const selectedModel = ref<string | null>(null)
-  const availableModels = ref<AgentModelInfo[]>([])
-  const tokenUsage = ref<{ input: number; output: number } | null>(null)
-  const estimatedCostUsd = computed<number | null>(() => {
-    if (!tokenUsage.value || !selectedModel.value) return null
-    return estimateOpenAICost(selectedModel.value, tokenUsage.value.input, tokenUsage.value.output)
-  })
-  const disconnectReason = ref<string | null>(null)
-  const sandboxMode = ref<string | null>(null)
-  const approvalPolicy = ref<string | null>(null)
+// Per-session timers/buffers (not reactive — plain Maps)
+const outputBuffers = new Map<string, Map<string, string>>()
+const outputFlushTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-  function currentAgentMsg(): ChatMessage | undefined {
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      const m = messages.value[i]
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
+
+export const useAgentStore = defineStore('agent', () => {
+  const sessions = reactive<Record<string, AgentSessionState>>({})
+
+  /** Get or create a session for a tab. Use for UI/action code that needs auto-creation. */
+  function getSession(tabId: string): AgentSessionState {
+    if (!sessions[tabId]) {
+      const tabStore = useTabStore()
+      const tab = tabStore.tabs.find((t) => t.id === tabId)
+      const agentType: AgentType = tab?.kind === 'agent-chat' ? tab.agentType : 'claude-code'
+      sessions[tabId] = createDefaultSession(agentType)
+    }
+    return sessions[tabId]
+  }
+
+  /** Get a session only if it exists. Use in event handlers to avoid resurrecting closed tabs. */
+  function getExistingSession(tabId: string): AgentSessionState | undefined {
+    return sessions[tabId]
+  }
+
+  function removeSession(tabId: string) {
+    delete sessions[tabId]
+    // Clean up timers
+    const pt = persistTimers.get(tabId)
+    if (pt) {
+      clearTimeout(pt)
+      persistTimers.delete(tabId)
+    }
+    const oft = outputFlushTimers.get(tabId)
+    if (oft) {
+      clearTimeout(oft)
+      outputFlushTimers.delete(tabId)
+    }
+    outputBuffers.delete(tabId)
+  }
+
+  // --- Helpers ---
+
+  function currentAgentMsg(tabId: string): ChatMessage | undefined {
+    const s = sessions[tabId]
+    if (!s) return undefined
+    for (let i = s.messages.length - 1; i >= 0; i--) {
+      const m = s.messages[i]
       if (m.role === 'agent' && !m.completed) return m
     }
     return undefined
   }
 
+  function persistHistory(tabId: string) {
+    const existing = persistTimers.get(tabId)
+    if (existing) clearTimeout(existing)
+    persistTimers.set(
+      tabId,
+      setTimeout(() => {
+        persistTimers.delete(tabId)
+        const s = sessions[tabId]
+        if (s?.currentSessionId) {
+          saveChatHistory(s.currentSessionId, s.messages).catch(() => {})
+        }
+      }, 300),
+    )
+  }
+
+  function updateEstimatedCost(s: AgentSessionState) {
+    if (s.tokenUsage && s.selectedModel) {
+      s.estimatedCostUsd = estimateOpenAICost(s.selectedModel, s.tokenUsage.input, s.tokenUsage.output)
+    } else {
+      s.estimatedCostUsd = null
+    }
+  }
+
   // --- Actions ---
 
-  async function startSession(shell: ShellType, cwd: string, sessionId?: string, requestedAgentType?: AgentType) {
+  async function startSession(
+    tabId: string,
+    shell: ShellType,
+    cwd: string,
+    sessionId?: string,
+    requestedAgentType?: AgentType,
+  ) {
+    const s = getSession(tabId)
     try {
       // Load per-project settings
       const projectStore = useProjectStore()
       const projectId = projectStore.currentProject?.id
       if (projectId) {
         const projSettings = loadAgentProjectSettings(projectId)
-        sandboxMode.value = projSettings.sandboxMode
-        approvalPolicy.value = projSettings.approvalPolicy
+        s.sandboxMode = projSettings.sandboxMode
+        s.approvalPolicy = projSettings.approvalPolicy
+        if (!requestedAgentType) {
+          s.agentType = projSettings.agentType
+        }
       }
-      // Determine agent type: explicit request > per-project > global setting > fallback
       if (requestedAgentType) {
-        agentType.value = requestedAgentType
-      } else if (projectId) {
-        const projSettings = loadAgentProjectSettings(projectId)
-        agentType.value = projSettings.agentType
-      } else {
+        s.agentType = requestedAgentType
+      } else if (!projectId) {
         const settings = useSettingsStore()
-        agentType.value = settings.agentDefault === 'ask' ? 'claude-code' : settings.agentDefault
+        s.agentType = settings.agentDefault === 'ask' ? 'claude-code' : settings.agentDefault
       }
 
       // Check agent availability — auto-install for claude-code if missing
       try {
-        const ver = await agentCheckAvailable(agentType.value, shell)
-        agentVersion.value = ver
-        if (agentType.value === 'codex') {
-          checkCodexVersionCompatibility(ver)
+        const ver = await agentCheckAvailable(s.agentType, shell)
+        s.agentVersion = ver
+        if (s.agentType === 'codex') {
+          checkCodexVersionCompatibility(s, ver)
         }
       } catch (e) {
-        if (agentType.value === 'claude-code') {
-          installStatus.value = 'installing'
+        if (s.agentType === 'claude-code') {
+          s.installStatus = 'installing'
           try {
-            const ver = await agentEnsureInstalled(agentType.value, shell)
-            agentVersion.value = ver
+            const ver = await agentEnsureInstalled(s.agentType, shell)
+            s.agentVersion = ver
           } catch (installErr) {
-            installStatus.value = null
+            s.installStatus = null
             throw new Error(`Failed to install claude-agent-acp: ${installErr}`)
           } finally {
-            installStatus.value = null
+            s.installStatus = null
           }
         } else {
-          throw new Error(`${agentType.value} not found: ${e}`)
+          throw new Error(`${s.agentType} not found: ${e}`)
         }
       }
 
       // Windows (non-WSL) always uses externalSandbox for Codex
-      const effectiveSandbox =
-        agentType.value === 'codex' && isWindowsShell(shell) ? 'externalSandbox' : sandboxMode.value
+      const effectiveSandbox = s.agentType === 'codex' && isWindowsShell(shell) ? 'externalSandbox' : s.sandboxMode
 
       const sid = await agentStartSession(
-        agentType.value,
+        tabId,
+        s.agentType,
         shell,
         cwd,
         sessionId ?? null,
         effectiveSandbox,
-        approvalPolicy.value,
+        s.approvalPolicy,
       )
 
-      currentSessionId.value = sid
-      connected.value = true
-      disconnectReason.value = null
-      tokenUsage.value = null
+      s.currentSessionId = sid
+      s.connected = true
+      s.disconnectReason = null
+      s.tokenUsage = null
+      updateEstimatedCost(s)
 
       // Restore chat history
-      if (messages.value.length === 0) {
+      if (s.messages.length === 0) {
         const history = await loadChatHistory(sid)
         if (history.length > 0) {
-          messages.value = history
+          s.messages = history
         }
       }
 
-      // Persist session ID
-      saveSessionIdToProject(sid)
-
       // Detect AGENTS.md / CLAUDE.md
-      detectedInstructionsFile.value = null
+      s.detectedInstructionsFile = null
       const sep = shell.kind === 'wsl' ? '/' : '\\'
       for (const name of ['AGENTS.md', 'CLAUDE.md']) {
         try {
           await fsReadFile(shell, `${cwd}${sep}${name}`)
-          detectedInstructionsFile.value = name
+          s.detectedInstructionsFile = name
           break
         } catch {
           // File doesn't exist
@@ -243,12 +335,12 @@ export const useAgentStore = defineStore('agent', () => {
 
       // Check auth (if supported)
       try {
-        authState.value = await agentAuthStatus()
+        s.authState = await agentAuthStatus(tabId)
       } catch {
         // ignore
       }
-      if (capabilities.value?.supportsAuthFlow && authState.value.status !== 'authenticated') {
-        await login()
+      if (s.capabilities?.supportsAuthFlow && s.authState.status !== 'authenticated') {
+        await login(tabId)
       }
     } catch (e) {
       console.error('[agent] Failed to start session:', e)
@@ -256,52 +348,58 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  function checkCodexVersionCompatibility(version: string) {
+  function checkCodexVersionCompatibility(s: AgentSessionState, version: string) {
     const match = version.match(/(\d+)\.(\d+)\.(\d+)/)
     if (!match) {
-      versionWarning.value = `Unknown version: ${version}`
+      s.versionWarning = `Unknown version: ${version}`
       return
     }
     const major = Number.parseInt(match[1], 10)
     const minor = Number.parseInt(match[2], 10)
     if (major === 0 && minor < 100) {
-      versionWarning.value = `Version ${version} may not be compatible (expected 0.100+)`
+      s.versionWarning = `Version ${version} may not be compatible (expected 0.100+)`
     } else {
-      versionWarning.value = null
+      s.versionWarning = null
     }
   }
 
-  async function disconnect() {
+  async function disconnect(tabId: string) {
     try {
-      await agentDisconnect()
+      await agentDisconnect(tabId)
     } catch (e) {
       console.error('[agent] disconnect error:', e)
     }
-    connected.value = false
-    currentSessionId.value = null
-    isGenerating.value = false
-  }
-
-  async function login() {
-    authState.value = { status: 'authenticating' }
-    try {
-      await agentAuthLogin()
-    } catch (e) {
-      console.error('[agent] login error:', e)
-      authState.value = { status: 'error', message: String(e) }
+    const s = sessions[tabId]
+    if (s) {
+      s.connected = false
+      s.currentSessionId = null
+      s.isGenerating = false
     }
   }
 
-  async function logout() {
+  async function login(tabId: string) {
+    const s = getSession(tabId)
+    s.authState = { status: 'authenticating' }
     try {
-      await agentAuthLogout()
-      authState.value = { status: 'unauthenticated' }
+      await agentAuthLogin(tabId)
+    } catch (e) {
+      console.error('[agent] login error:', e)
+      s.authState = { status: 'error', message: String(e) }
+    }
+  }
+
+  async function logout(tabId: string) {
+    const s = getSession(tabId)
+    try {
+      await agentAuthLogout(tabId)
+      s.authState = { status: 'unauthenticated' }
     } catch (e) {
       console.error('[agent] logout error:', e)
     }
   }
 
-  async function submitTurn(prompt: string, displayText?: string) {
+  async function submitTurn(tabId: string, prompt: string, displayText?: string) {
+    const s = getSession(tabId)
     const userMsg: ChatMessage = {
       id: `msg-${++msgCounter}`,
       role: 'user',
@@ -310,8 +408,8 @@ export const useAgentStore = defineStore('agent', () => {
       items: [],
       completed: true,
     }
-    messages.value.push(userMsg)
-    persistHistory()
+    s.messages.push(userMsg)
+    persistHistory(tabId)
 
     const agentMsg: ChatMessage = {
       id: `msg-${++msgCounter}`,
@@ -321,24 +419,25 @@ export const useAgentStore = defineStore('agent', () => {
       items: [],
       completed: false,
     }
-    messages.value.push(agentMsg)
-    isGenerating.value = true
+    s.messages.push(agentMsg)
+    s.isGenerating = true
 
     try {
       const editorCtx = getEditorContext()
-      await agentSubmitTurn(prompt, editorCtx, selectedModel.value)
+      await agentSubmitTurn(tabId, prompt, editorCtx, s.selectedModel)
     } catch (e) {
       agentMsg.text = `Error: ${e}`
       agentMsg.segments = [{ kind: 'text', text: `Error: ${e}` }]
       agentMsg.completed = true
-      isGenerating.value = false
+      s.isGenerating = false
     }
   }
 
-  async function listModels(): Promise<AgentModelInfo[]> {
+  async function listModels(tabId: string): Promise<AgentModelInfo[]> {
+    const s = getSession(tabId)
     try {
-      const models = await agentListModels()
-      availableModels.value = models
+      const models = await agentListModels(tabId)
+      s.availableModels = models
       return models
     } catch (e) {
       console.error('[agent] listModels error:', e)
@@ -346,49 +445,53 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  function setModel(modelId: string | null) {
-    selectedModel.value = modelId
+  function setModel(tabId: string, modelId: string | null) {
+    const s = getSession(tabId)
+    s.selectedModel = modelId
+    updateEstimatedCost(s)
   }
 
-  async function rollbackTurn() {
+  async function rollbackTurn(tabId: string) {
+    const s = getSession(tabId)
     try {
-      await agentRollbackTurn()
-      while (messages.value.length > 0) {
-        const last = messages.value[messages.value.length - 1]
-        messages.value.pop()
+      await agentRollbackTurn(tabId)
+      while (s.messages.length > 0) {
+        const last = s.messages[s.messages.length - 1]
+        s.messages.pop()
         if (last.role === 'user') break
       }
-      persistHistory()
+      persistHistory(tabId)
     } catch (e) {
       console.error('[agent] rollback error:', e)
       throw e
     }
   }
 
-  async function compactThread() {
+  async function compactThread(tabId: string) {
     try {
-      await agentCompact()
+      await agentCompact(tabId)
     } catch (e) {
       console.error('[agent] compact error:', e)
       throw e
     }
   }
 
-  async function interruptTurn() {
+  async function interruptTurn(tabId: string) {
+    const s = getSession(tabId)
     try {
-      await agentInterruptTurn()
+      await agentInterruptTurn(tabId)
     } catch (e) {
       console.error('[agent] interrupt error:', e)
     }
-    isGenerating.value = false
-    const msg = currentAgentMsg()
+    s.isGenerating = false
+    const msg = currentAgentMsg(tabId)
     if (msg) msg.completed = true
   }
 
   // --- Event handlers (called from useAgentRouter) ---
 
-  function handleMessageDelta(delta: string) {
-    const msg = currentAgentMsg()
+  function handleMessageDelta(tabId: string, delta: string) {
+    const msg = currentAgentMsg(tabId)
     if (!msg) return
     msg.text += delta
     const lastSeg = msg.segments[msg.segments.length - 1]
@@ -399,47 +502,44 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  function handleTurnCompleted() {
-    const msg = currentAgentMsg()
+  function handleTurnCompleted(tabId: string) {
+    const s = sessions[tabId]
+    if (!s) return
+    const msg = currentAgentMsg(tabId)
     if (msg) msg.completed = true
-    isGenerating.value = false
-    persistHistory()
+    s.isGenerating = false
+    persistHistory(tabId)
   }
 
-  let persistTimer: ReturnType<typeof setTimeout> | null = null
-  function persistHistory() {
-    if (persistTimer) clearTimeout(persistTimer)
-    persistTimer = setTimeout(() => {
-      persistTimer = null
-      if (currentSessionId.value) {
-        saveChatHistory(currentSessionId.value, messages.value).catch(() => {})
-      }
-    }, 300)
-  }
-
-  function handleItemStarted(item: TurnItem) {
-    const msg = currentAgentMsg()
+  function handleItemStarted(tabId: string, item: TurnItem) {
+    const msg = currentAgentMsg(tabId)
     if (!msg) return
     if (msg.items.some((i) => i.id === item.id)) return
     msg.items.push({ ...item, completed: false })
     msg.segments.push({ kind: 'item', item: msg.items[msg.items.length - 1] })
   }
 
-  const outputBuffers = new Map<string, string>()
-  let outputFlushTimer: ReturnType<typeof setTimeout> | null = null
-
-  function handleCommandOutputDelta(itemId: string, delta: string) {
-    outputBuffers.set(itemId, (outputBuffers.get(itemId) ?? '') + delta)
-    if (!outputFlushTimer) {
-      outputFlushTimer = setTimeout(flushOutputBuffers, 100)
+  function handleCommandOutputDelta(tabId: string, itemId: string, delta: string) {
+    if (!outputBuffers.has(tabId)) outputBuffers.set(tabId, new Map())
+    const buf = outputBuffers.get(tabId)!
+    buf.set(itemId, (buf.get(itemId) ?? '') + delta)
+    if (!outputFlushTimers.has(tabId)) {
+      outputFlushTimers.set(
+        tabId,
+        setTimeout(() => flushOutputBuffers(tabId), 100),
+      )
     }
   }
 
-  function flushOutputBuffers() {
-    outputFlushTimer = null
-    for (const [itemId, buffered] of outputBuffers) {
-      for (let i = messages.value.length - 1; i >= 0; i--) {
-        const item = messages.value[i].items.find((it) => it.id === itemId)
+  function flushOutputBuffers(tabId: string) {
+    outputFlushTimers.delete(tabId)
+    const buf = outputBuffers.get(tabId)
+    if (!buf) return
+    const s = sessions[tabId]
+    if (!s) return
+    for (const [itemId, buffered] of buf) {
+      for (let i = s.messages.length - 1; i >= 0; i--) {
+        const item = s.messages[i].items.find((it) => it.id === itemId)
         if (item) {
           const current = (item.data.output as string) ?? ''
           const combined = current + buffered
@@ -448,13 +548,15 @@ export const useAgentStore = defineStore('agent', () => {
         }
       }
     }
-    outputBuffers.clear()
-    scrollTrigger.value++
+    buf.clear()
+    s.scrollTrigger++
   }
 
-  function handleItemCompleted(itemId: string, itemData?: Record<string, unknown>) {
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      const item = messages.value[i].items.find((it) => it.id === itemId)
+  function handleItemCompleted(tabId: string, itemId: string, itemData?: Record<string, unknown>) {
+    const s = sessions[tabId]
+    if (!s) return
+    for (let i = s.messages.length - 1; i >= 0; i--) {
+      const item = s.messages[i].items.find((it) => it.id === itemId)
       if (item) {
         item.completed = true
         if (itemData) Object.assign(item.data, itemData)
@@ -463,60 +565,72 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  function handleAuthUpdated(state: AgentAuthState) {
-    authState.value = state
+  function handleAuthUpdated(tabId: string, state: AgentAuthState) {
+    const s = sessions[tabId]
+    if (s) s.authState = state
   }
 
-  function handleTokenUsage(usage: { input: number; output: number }) {
-    tokenUsage.value = usage
+  function handleTokenUsage(tabId: string, usage: { input: number; output: number }) {
+    const s = sessions[tabId]
+    if (s) {
+      s.tokenUsage = usage
+      updateEstimatedCost(s)
+    }
   }
 
-  function handleDisconnect(reason: string) {
-    connected.value = false
-    isGenerating.value = false
-    disconnectReason.value = reason
-    const msg = currentAgentMsg()
+  function handleDisconnect(tabId: string, reason: string) {
+    const s = sessions[tabId]
+    if (!s) return
+    s.connected = false
+    s.isGenerating = false
+    s.disconnectReason = reason
+    const msg = currentAgentMsg(tabId)
     if (msg) msg.completed = true
   }
 
-  async function respondApproval(requestId: unknown, decision: AgentApprovalDecision) {
-    await agentRespondApproval(requestId, decision)
-    pendingCommandApproval.value = null
-    pendingFileApproval.value = null
-    pendingGenericApproval.value = null
+  async function respondApproval(tabId: string, requestId: unknown, decision: AgentApprovalDecision) {
+    await agentRespondApproval(tabId, requestId, decision)
+    const s = sessions[tabId]
+    if (s) {
+      s.pendingCommandApproval = null
+      s.pendingFileApproval = null
+      s.pendingGenericApproval = null
+    }
   }
 
   function setAgentType(type: AgentType) {
-    agentType.value = type
     const projectId = useProjectStore().currentProject?.id
     if (projectId) {
-      const s = loadAgentProjectSettings(projectId)
-      s.agentType = type
-      saveAgentProjectSettings(projectId, s)
+      const settings = loadAgentProjectSettings(projectId)
+      settings.agentType = type
+      saveAgentProjectSettings(projectId, settings)
     }
   }
 
   function updateProjectSetting<K extends keyof AgentProjectSettings>(field: K, value: AgentProjectSettings[K]) {
     const projectId = useProjectStore().currentProject?.id
     if (projectId) {
-      const s = loadAgentProjectSettings(projectId)
-      s[field] = value
-      saveAgentProjectSettings(projectId, s)
+      const settings = loadAgentProjectSettings(projectId)
+      settings[field] = value
+      saveAgentProjectSettings(projectId, settings)
     }
   }
 
-  function setSandboxMode(mode: string | null) {
-    sandboxMode.value = mode
+  function setSandboxMode(tabId: string, mode: string | null) {
+    const s = getSession(tabId)
+    s.sandboxMode = mode
     updateProjectSetting('sandboxMode', mode)
   }
 
-  function setApprovalPolicy(policy: string | null) {
-    approvalPolicy.value = policy
+  function setApprovalPolicy(tabId: string, policy: string | null) {
+    const s = getSession(tabId)
+    s.approvalPolicy = policy
     updateProjectSetting('approvalPolicy', policy)
   }
 
-  function addSystemMessage(text: string) {
-    messages.value.push({
+  function addSystemMessage(tabId: string, text: string) {
+    const s = getSession(tabId)
+    s.messages.push({
       id: `sys-${Date.now()}`,
       role: 'agent',
       text,
@@ -524,50 +638,27 @@ export const useAgentStore = defineStore('agent', () => {
       items: [],
       completed: true,
     })
-    persistHistory()
+    persistHistory(tabId)
   }
 
-  function clearMessages() {
-    messages.value = []
-    if (currentSessionId.value) {
-      deleteChatHistory(currentSessionId.value).catch(() => {})
+  function clearMessages(tabId: string) {
+    const s = getSession(tabId)
+    s.messages = []
+    if (s.currentSessionId) {
+      deleteChatHistory(s.currentSessionId).catch(() => {})
     }
   }
 
-  async function newConversation() {
-    clearMessages()
-    await disconnect()
-    const projectStore = useProjectStore()
-    if (projectStore.currentProject) {
-      projectStore.currentProject.agentSessionId = undefined
-      projectUpdate(projectStore.currentProject).catch(() => {})
-    }
+  async function newConversation(tabId: string) {
+    clearMessages(tabId)
+    await disconnect(tabId)
   }
 
   return {
-    // State
-    connected,
-    agentType,
-    capabilities,
-    authState,
-    messages,
-    isGenerating,
-    currentSessionId,
-    pendingCommandApproval,
-    pendingFileApproval,
-    pendingGenericApproval,
-    agentVersion,
-    versionWarning,
-    scrollTrigger,
-    detectedInstructionsFile,
-    selectedModel,
-    tokenUsage,
-    estimatedCostUsd,
-    disconnectReason,
-    installStatus,
-    sandboxMode,
-    approvalPolicy,
-    availableModels,
+    sessions,
+    getSession,
+    getExistingSession,
+    removeSession,
     // Actions
     startSession,
     disconnect,

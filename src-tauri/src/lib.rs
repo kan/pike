@@ -578,17 +578,13 @@ pub fn run() {
                         }
                     }
 
-                    // Per-window agent cleanup
-                    if let Some(state) = window.try_state::<agent::state::AgentState>() {
+                    // Per-window agent cleanup (shuts down all tabs in this window)
+                    if let Some(agent_state) = window.try_state::<agent::state::AgentState>() {
                         let label = window.label().to_string();
-                        let sessions = state.sessions.clone();
+                        let state = agent_state.inner().clone();
                         if let Ok(handle) = tokio::runtime::Handle::try_current() {
                             handle.spawn(async move {
-                                let mut map = sessions.lock().await;
-                                if let Some(session) = map.remove(&label) {
-                                    log::info!("[agent] Cleaning up session for window {label}");
-                                    let _ = session.runtime.shutdown().await;
-                                }
+                                state.remove_by_window(&label).await;
                             });
                         }
                     }

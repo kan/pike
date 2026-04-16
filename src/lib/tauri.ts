@@ -402,6 +402,7 @@ export async function agentEnsureInstalled(agentType: AgentType, shell: ShellTyp
 }
 
 export async function agentStartSession(
+  tabId: string,
   agentType: AgentType,
   shell: ShellType,
   cwd: string,
@@ -410,6 +411,7 @@ export async function agentStartSession(
   approvalPolicy?: string | null,
 ): Promise<string> {
   return invoke<string>('agent_start_session', {
+    tabId,
     agentType,
     shell,
     cwd,
@@ -419,56 +421,62 @@ export async function agentStartSession(
   })
 }
 
-export async function agentCapabilities(): Promise<AgentCapabilities> {
-  return invoke<AgentCapabilities>('agent_capabilities')
+export async function agentCapabilities(tabId: string): Promise<AgentCapabilities> {
+  return invoke<AgentCapabilities>('agent_capabilities', { tabId })
 }
 
 export async function agentSubmitTurn(
+  tabId: string,
   prompt: string,
   editorContext?: AgentEditorContext | null,
   model?: string | null,
 ): Promise<void> {
   return invoke('agent_submit_turn', {
+    tabId,
     prompt,
     editorContext: editorContext ?? null,
     model: model ?? null,
   })
 }
 
-export async function agentInterruptTurn(): Promise<void> {
-  return invoke('agent_interrupt_turn')
+export async function agentInterruptTurn(tabId: string): Promise<void> {
+  return invoke('agent_interrupt_turn', { tabId })
 }
 
-export async function agentRollbackTurn(): Promise<void> {
-  return invoke('agent_rollback_turn')
+export async function agentRollbackTurn(tabId: string): Promise<void> {
+  return invoke('agent_rollback_turn', { tabId })
 }
 
-export async function agentCompact(): Promise<void> {
-  return invoke('agent_compact')
+export async function agentCompact(tabId: string): Promise<void> {
+  return invoke('agent_compact', { tabId })
 }
 
-export async function agentRespondApproval(requestId: unknown, decision: AgentApprovalDecision): Promise<void> {
-  return invoke('agent_respond_approval', { requestId, decision })
+export async function agentRespondApproval(
+  tabId: string,
+  requestId: unknown,
+  decision: AgentApprovalDecision,
+): Promise<void> {
+  return invoke('agent_respond_approval', { tabId, requestId, decision })
 }
 
-export async function agentAuthStatus(): Promise<AgentAuthState> {
-  return invoke<AgentAuthState>('agent_auth_status')
+export async function agentAuthStatus(tabId: string): Promise<AgentAuthState> {
+  return invoke<AgentAuthState>('agent_auth_status', { tabId })
 }
 
-export async function agentAuthLogin(): Promise<void> {
-  return invoke('agent_auth_login')
+export async function agentAuthLogin(tabId: string): Promise<void> {
+  return invoke('agent_auth_login', { tabId })
 }
 
-export async function agentAuthLogout(): Promise<void> {
-  return invoke('agent_auth_logout')
+export async function agentAuthLogout(tabId: string): Promise<void> {
+  return invoke('agent_auth_logout', { tabId })
 }
 
-export async function agentListModels(): Promise<AgentModelInfo[]> {
-  return invoke<AgentModelInfo[]>('agent_list_models')
+export async function agentListModels(tabId: string): Promise<AgentModelInfo[]> {
+  return invoke<AgentModelInfo[]>('agent_list_models', { tabId })
 }
 
-export async function agentDisconnect(): Promise<void> {
-  return invoke('agent_disconnect')
+export async function agentDisconnect(tabId: string): Promise<void> {
+  return invoke('agent_disconnect', { tabId })
 }
 
 // Claude Usage
