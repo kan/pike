@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.3] - 2026-04-16
+
+### Fixed
+
+- WSL で claude-agent-acp の検出が `--version` ハングで失敗する問題を修正（`which` による存在確認に変更）
+
 ## [0.5.2] - 2026-04-16
 
 ### Fixed
