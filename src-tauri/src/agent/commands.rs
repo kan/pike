@@ -108,25 +108,25 @@ pub async fn agent_ensure_installed(
 }
 
 /// Check if the ACP binary is available and return its version.
-/// On Windows, npm-installed binaries are `.cmd` files, so we must run via `cmd /C`.
+/// Check if the ACP binary exists. Uses `which`/`where` instead of `--version`
+/// because claude-agent-acp is a JSON-RPC server that hangs on `--version`.
 pub fn check_acp_available(config: &AcpAgentConfig, shell: &ShellConfig) -> Result<String, String> {
     match shell {
-        // bash -c (not -lc) avoids .profile hang in non-tty contexts (e.g. release builds)
         ShellConfig::Wsl { .. } => {
-            let cmd = format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" {} --version", config.command);
-            shell.run_stdout("bash", &["-c", &cmd])
+            let cmd = format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" which {}", config.command);
+            let path = shell.run_stdout("bash", &["-c", &cmd])?;
+            Ok(path.trim().to_string())
         }
         _ => {
             let mut cmd = crate::types::silent_command("cmd.exe");
-            cmd.args(["/C", &config.command, "--version"]);
+            cmd.args(["/C", "where", &config.command]);
             let output = cmd
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .output()
                 .map_err(|e| format!("{} not found: {e}", config.command))?;
             if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("{} not found: {stderr}", config.command));
+                return Err(format!("{} not found", config.command));
             }
             Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
         }
