@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.2] - 2026-04-16
+
+### Fixed
+
+- リリース版で WSL プロジェクトの Claude タブが起動しない問題を修正 (`bash -l` が非 tty 環境でハング)
+- `bash -lc` → `bash -c` + 明示的 PATH prepend に変更
+- WSL_EXTRA_PATH 定数で PATH 管理を統一、install コマンドの `$HOME/.local/bin` 欠落を修正
+
 ## [0.5.1] - 2026-04-16
 
 ### Features
