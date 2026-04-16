@@ -29,6 +29,13 @@ export interface AgentModelInfo {
   isDefault: boolean
 }
 
+/** Slash command advertised by an agent runtime */
+export interface AgentCommandInfo {
+  name: string
+  description: string
+  inputHint: string | null
+}
+
 /** Approval decision sent back to the runtime */
 export type AgentApprovalDecision = 'allow' | 'allowAlways' | 'reject' | 'cancel'
 

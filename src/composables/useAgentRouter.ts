@@ -9,7 +9,7 @@ import { resolveNotifier } from '../lib/notify'
 import { useAgentStore } from '../stores/agent'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
-import type { AgentAuthState } from '../types/agent'
+import type { AgentAuthState, AgentCommandInfo } from '../types/agent'
 import type { AgentChatTab } from '../types/tab'
 
 function isAgentTabVisible(tabId: string): boolean {
@@ -210,6 +210,12 @@ export async function initAgentRouter() {
   // --- Session info (title) ---
   await listenAgent('agent://session-info', (tabId, p) => {
     agent.handleSessionInfo(tabId, (p.title as string) ?? null)
+  })
+
+  // --- Available commands (slash commands from ACP) ---
+  await listenAgent('agent://available-commands', (tabId, p) => {
+    const raw = p.commands as AgentCommandInfo[] | undefined
+    if (raw) agent.handleAvailableCommands(tabId, raw)
   })
 
   // --- Token usage ---

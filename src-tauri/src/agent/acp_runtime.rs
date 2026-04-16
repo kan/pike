@@ -1113,7 +1113,21 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
 
         // Available commands update (e.g., slash commands)
         "available_commands_update" => {
-            log::debug!("[acp-agent] Available commands update received");
+            let commands: Vec<AgentCommandInfo> = update
+                .get("availableCommands")
+                .and_then(|v| v.as_array())
+                .map(|cmds| {
+                    cmds.iter()
+                        .filter_map(|c| {
+                            let name = c.get("name")?.as_str()?.to_string();
+                            let description = c.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let input_hint = c.get("input").and_then(|v| v.get("hint")).and_then(|v| v.as_str()).map(|s| s.to_string());
+                            Some(AgentCommandInfo { name, description, input_hint })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            events.push(AgentEvent::AvailableCommandsUpdated { commands });
         }
 
         // Config option update

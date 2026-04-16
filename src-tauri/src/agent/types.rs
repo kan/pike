@@ -246,10 +246,24 @@ pub enum AgentEvent {
         title: Option<String>,
     },
 
+    /// Available slash commands from the agent runtime.
+    AvailableCommandsUpdated {
+        commands: Vec<AgentCommandInfo>,
+    },
+
     /// Non-fatal error from the agent.
     Error {
         message: String,
     },
+}
+
+/// Slash command advertised by an agent runtime.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentCommandInfo {
+    pub name: String,
+    pub description: String,
+    pub input_hint: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

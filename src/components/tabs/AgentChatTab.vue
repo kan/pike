@@ -301,7 +301,7 @@ interface SlashCommand {
   hasArgs: boolean
 }
 
-const SLASH_COMMANDS: SlashCommand[] = [
+const PIKE_COMMANDS: SlashCommand[] = [
   { name: '/clear', description: t('codex.cmdClear'), hasArgs: false },
   { name: '/compact', description: t('codex.cmdCompact'), hasArgs: false },
   { name: '/read', description: t('codex.cmdRead'), hasArgs: true },
@@ -312,14 +312,29 @@ const SLASH_COMMANDS: SlashCommand[] = [
   { name: '/approval', description: t('codex.cmdApproval'), hasArgs: true },
 ]
 
+const pikeCommandNames = new Set(PIKE_COMMANDS.map((c) => c.name))
+
+// Pike-local commands take priority over ACP remote commands
+const allSlashCommands = computed<SlashCommand[]>(() => {
+  const acpCommands: SlashCommand[] = s.value.availableCommands
+    .map((c) => ({
+      name: c.name.startsWith('/') ? c.name : `/${c.name}`,
+      description: c.description,
+      hasArgs: c.inputHint !== null,
+    }))
+    .filter((c) => !pikeCommandNames.has(c.name))
+  return [...PIKE_COMMANDS, ...acpCommands]
+})
+
 const showSlashMenu = ref(false)
 const slashFilter = ref('')
 const slashSelectedIdx = ref(0)
 
 const filteredSlashCommands = computed(() => {
-  if (!slashFilter.value) return SLASH_COMMANDS
+  const cmds = allSlashCommands.value
+  if (!slashFilter.value) return cmds
   const q = slashFilter.value.toLowerCase()
-  return SLASH_COMMANDS.filter((c) => c.name.slice(1).startsWith(q))
+  return cmds.filter((c) => c.name.slice(1).startsWith(q))
 })
 
 function updateSlashMenu() {
