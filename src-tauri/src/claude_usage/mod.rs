@@ -281,7 +281,7 @@ fn get_usage_for_project(project_root: &str) -> Result<ClaudeUsageResult, String
         });
     }
 
-    models.sort_by(|a, b| b.output_tokens.cmp(&a.output_tokens));
+    models.sort_by_key(|m| std::cmp::Reverse(m.output_tokens));
 
     Ok(ClaudeUsageResult {
         active: true,

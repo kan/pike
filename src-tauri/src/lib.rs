@@ -522,27 +522,25 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             match event {
-                WindowEvent::CloseRequested { api, .. } => {
+                WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                     // Hide main instead of closing: Tauri tears down the async
                     // runtime when main is destroyed, which panics tokio::spawn
                     // in Codex cleanup while project windows are still active.
-                    if window.label() == "main" {
-                        let has_others = window.app_handle().webview_windows()
-                            .keys()
-                            .any(|l| l != "main");
-                        if has_others {
-                            api.prevent_close();
-                            let _ = window.emit("window-hide-requested", ());
-                            if let Some(state) = window.try_state::<pty::PtyState>() {
-                                pty::cleanup_for_window(&state, "main");
-                            }
-                            if let Some(state) = window.try_state::<project::ProjectState>() {
-                                if let Some(pid) = project::take_window_project(&state, "main") {
-                                    let _ = project::remove_open_project(&state, &pid);
-                                }
-                            }
-                            let _ = window.hide();
+                    let has_others = window.app_handle().webview_windows()
+                        .keys()
+                        .any(|l| l != "main");
+                    if has_others {
+                        api.prevent_close();
+                        let _ = window.emit("window-hide-requested", ());
+                        if let Some(state) = window.try_state::<pty::PtyState>() {
+                            pty::cleanup_for_window(&state, "main");
                         }
+                        if let Some(state) = window.try_state::<project::ProjectState>() {
+                            if let Some(pid) = project::take_window_project(&state, "main") {
+                                let _ = project::remove_open_project(&state, &pid);
+                            }
+                        }
+                        let _ = window.hide();
                     }
                 }
                 WindowEvent::Destroyed => {

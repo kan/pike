@@ -89,8 +89,8 @@ fn list_dir_native(path: &str) -> Result<Vec<FsEntry>, String> {
         }
     }
 
-    dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    dirs.sort_by_key(|e| e.name.to_lowercase());
+    files.sort_by_key(|e| e.name.to_lowercase());
     dirs.extend(files);
     Ok(dirs)
 }
