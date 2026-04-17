@@ -414,6 +414,8 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `package.json` → `"version": "X.Y.Z"`
 - `src-tauri/Cargo.toml` → `version = "X.Y.Z"`
 
+その後 `cd src-tauri && cargo check` を実行して `Cargo.lock` の `pike` エントリを新バージョンに追従させる（実行しないと lockfile drift が発生して後続で別コミットでの同期が必要になる）。
+
 ### 2. CHANGELOG.md の更新
 
 `CHANGELOG.md` の先頭に新しいセクションを追加する。
@@ -421,9 +423,12 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 ### 3. コミット & プッシュ
 
 ```bash
-git add -A && git commit -m "Bump version to vX.Y.Z"
+git add src-tauri/tauri.conf.json package.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+git commit -m "Bump version to vX.Y.Z"
 git push origin main
 ```
+
+**Cargo.lock を含めること**。忘れると作業ツリーに drift が残り、あとから `chore: Cargo.lock を vX.Y.Z に同期` という追加コミットが必要になる（過去に何度も発生）。
 
 ### 4. Security Check の確認
 
