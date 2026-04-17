@@ -21,11 +21,9 @@ import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getClipboardImages, saveImageFile } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
-import { formatCost, formatTokens } from '../../lib/format'
 import { basename, fuzzyMatch, isAbsolutePath, isImageFile, toRelativePath } from '../../lib/paths'
 import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../lib/tauri'
 import { useAgentStore } from '../../stores/agent'
-import { useClaudeUsageStore } from '../../stores/claudeUsage'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import type { TurnItem } from '../../types/chat'
@@ -36,7 +34,6 @@ const props = defineProps<{ tabId: string }>()
 
 const { t } = useI18n()
 const agent = useAgentStore()
-const claudeUsage = useClaudeUsageStore()
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
 
@@ -52,13 +49,6 @@ const inputRef = ref<HTMLTextAreaElement | null>(null)
 const userScrolledUp = ref(false)
 const searchQuery = ref('')
 const showSearch = ref(false)
-const showTokenDetail = ref(false)
-function toggleTokenDetail() {
-  showTokenDetail.value = !showTokenDetail.value
-  if (showTokenDetail.value) {
-    nextTick(() => window.addEventListener('mousedown', () => (showTokenDetail.value = false), { once: true }))
-  }
-}
 
 const marked = new Marked()
 
@@ -926,7 +916,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Status bar: agent type, sandbox/approval mode, instructions file, token usage -->
+      <!-- Status bar: agent type, sandbox/approval mode, instructions file -->
       <div v-if="s.connected" class="info-bar">
         <span class="info-indicator agent-type">{{ s.capabilities?.displayName ?? s.agentType }}</span>
         <span v-if="s.sessionTitle" class="info-indicator session-title" :title="s.sessionTitle">{{ s.sessionTitle }}</span>
@@ -941,31 +931,6 @@ onUnmounted(() => {
         <span v-if="s.detectedInstructionsFile" class="info-indicator instructions clickable" @click="openInstructionsFile">
           <FileCode :size="12" :stroke-width="2" />
           {{ s.detectedInstructionsFile }}
-        </span>
-        <!-- Claude Code: rich per-model usage (click for detail) -->
-        <div v-if="agentTab?.agentType === 'claude-code' && claudeUsage.usage?.active" class="token-area">
-          <span class="info-indicator tokens clickable" @click.stop="toggleTokenDetail">
-            {{ formatTokens(claudeUsage.usage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(claudeUsage.usage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}
-            <span v-if="claudeUsage.usage.estimatedCostUsd !== null" class="token-cost">~{{ formatCost(claudeUsage.usage.estimatedCostUsd) }}</span>
-          </span>
-          <div v-if="showTokenDetail" class="token-detail-dropdown" @mousedown.stop>
-            <div class="token-detail-label">{{ t('statusBar.ccSession') }}</div>
-            <div v-for="m in claudeUsage.usage.models" :key="m.model" class="token-detail-row">
-              <div class="token-detail-model">{{ m.model }}</div>
-              <div class="token-detail-stats">
-                <span>{{ t('statusBar.ccIn') }}: {{ formatTokens(m.inputTokens) }}</span>
-                <span>{{ t('statusBar.ccOut') }}: {{ formatTokens(m.outputTokens) }}</span>
-                <span>{{ t('statusBar.ccCache') }}: {{ formatTokens(m.cacheReadTokens) }}</span>
-                <span>{{ t('statusBar.ccCacheCreate') }}: {{ formatTokens(m.cacheCreationTokens) }}</span>
-                <span v-if="m.costUsd !== null" class="token-cost">{{ formatCost(m.costUsd) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- Codex / other: simple token count -->
-        <span v-else-if="s.tokenUsage" class="info-indicator tokens">
-          {{ formatTokens(s.tokenUsage.input) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(s.tokenUsage.output) }} {{ t('statusBar.ccOut') }}
-          <span v-if="s.estimatedCostUsd !== null" class="token-cost">~{{ formatCost(s.estimatedCostUsd) }}</span>
         </span>
       </div>
 
@@ -1523,63 +1488,6 @@ onUnmounted(() => {
 
 .info-indicator.instructions {
   color: #98c379;
-}
-
-.token-area {
-  position: relative;
-  margin-left: auto;
-}
-
-.info-indicator.tokens {
-  margin-left: auto;
-  color: var(--text-secondary);
-}
-
-.token-area .info-indicator.tokens {
-  margin-left: 0;
-}
-
-.token-cost {
-  opacity: 0.7;
-  margin-left: 4px;
-}
-
-.token-detail-dropdown {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  z-index: 10;
-  min-width: 240px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
-.token-detail-label {
-  padding: 4px 12px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border);
-}
-
-.token-detail-row {
-  padding: 4px 12px;
-}
-
-.token-detail-model {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-active);
-  margin-bottom: 2px;
-}
-
-.token-detail-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text-primary);
 }
 
 .disconnect-icon {

@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { FolderOpen, GitBranch, Github } from 'lucide-vue-next'
+import { Cpu, FolderOpen, GitBranch, Github } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
+import { formatCost, formatTokens } from '../../lib/format'
 import { openUrl } from '../../lib/tauri'
+import { useAgentStore } from '../../stores/agent'
+import { useClaudeUsageStore } from '../../stores/claudeUsage'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
+import { useTabStore } from '../../stores/tabs'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -20,6 +24,29 @@ function toggleLanguage() {
 const gitStore = useGitStore()
 const editorInfo = useEditorInfo()
 const updater = useUpdater()
+const claudeUsageStore = useClaudeUsageStore()
+const agentStore = useAgentStore()
+const tabStore = useTabStore()
+
+const codexSession = computed(() => {
+  const tab = tabStore.activeTab
+  if (!tab || tab.kind !== 'agent-chat' || tab.agentType !== 'codex') return null
+  const s = agentStore.getExistingSession(tab.id)
+  return s?.tokenUsage ? s : null
+})
+
+const showClaudeUsage = ref(false)
+
+function toggleClaudeUsage() {
+  showClaudeUsage.value = !showClaudeUsage.value
+  if (showClaudeUsage.value) {
+    nextTick(() => window.addEventListener('mousedown', closeClaudeUsage, { once: true }))
+  }
+}
+
+function closeClaudeUsage() {
+  showClaudeUsage.value = false
+}
 
 declare const __GIT_COMMIT_HASH__: string
 const devHash = import.meta.env.DEV && __GIT_COMMIT_HASH__ ? `-${__GIT_COMMIT_HASH__}` : ''
@@ -130,6 +157,7 @@ onUnmounted(() => {
   window.removeEventListener('mousedown', closeBranches)
   window.removeEventListener('mousedown', closeEncodingMenu)
   window.removeEventListener('mousedown', closeLineEndingMenu)
+  window.removeEventListener('mousedown', closeClaudeUsage)
 })
 </script>
 
@@ -169,6 +197,33 @@ onUnmounted(() => {
       </div>
       <span class="status-text">{{ editorInfo.current.value.fileType }}</span>
     </template>
+
+    <div v-if="codexSession?.tokenUsage" class="status-item small cc-usage">
+      <Cpu :size="12" :stroke-width="2" />
+      <span>{{ formatTokens(codexSession.tokenUsage.input) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(codexSession.tokenUsage.output) }} {{ t('statusBar.ccOut') }}</span>
+      <span v-if="codexSession.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(codexSession.estimatedCostUsd) }}</span>
+    </div>
+
+    <div v-else-if="claudeUsageStore.usage?.active" class="status-dropdown-area">
+      <button class="status-item clickable small cc-usage" @click="toggleClaudeUsage">
+        <Cpu :size="12" :stroke-width="2" />
+        <span>{{ formatTokens(claudeUsageStore.usage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(claudeUsageStore.usage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
+        <span v-if="claudeUsageStore.usage.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(claudeUsageStore.usage.estimatedCostUsd) }}</span>
+      </button>
+      <div v-if="showClaudeUsage" class="status-dropdown cc-dropdown" @mousedown.stop>
+        <div class="dropdown-label">{{ t('statusBar.ccSession') }}</div>
+        <div v-for="m in claudeUsageStore.usage.models" :key="m.model" class="cc-model-row">
+          <div class="cc-model-name">{{ m.model }}</div>
+          <div class="cc-model-stats">
+            <span>{{ t('statusBar.ccIn') }}: {{ formatTokens(m.inputTokens) }}</span>
+            <span>{{ t('statusBar.ccOut') }}: {{ formatTokens(m.outputTokens) }}</span>
+            <span>{{ t('statusBar.ccCache') }}: {{ formatTokens(m.cacheReadTokens) }}</span>
+            <span>{{ t('statusBar.ccCacheCreate') }}: {{ formatTokens(m.cacheCreationTokens) }}</span>
+            <span v-if="m.costUsd !== null" class="cc-cost">{{ formatCost(m.costUsd) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div v-if="gitStore.status" class="branch-area">
       <button class="status-item clickable" @click="openBranchSwitcher">
@@ -310,6 +365,38 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
+}
+
+.cc-usage {
+  gap: 4px;
+  opacity: 0.85;
+}
+
+.cc-cost {
+  opacity: 0.7;
+}
+
+.cc-dropdown {
+  min-width: 240px;
+}
+
+.cc-model-row {
+  padding: 4px 12px;
+}
+
+.cc-model-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-active);
+  margin-bottom: 2px;
+}
+
+.cc-model-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-primary);
 }
 
 .branch-icon {
