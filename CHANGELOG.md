@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.4] - 2026-04-18
+
+### Features
+
+- トークン使用量表示を StatusBar に移動・統合（Claude Code はモデル別内訳ドロップダウン、Codex は active agent-chat タブのセッション usage を表示）
+
+### Fixed
+
+- Rust 1.95 の clippy 警告（`unnecessary_sort_by` / `collapsible_match`）に対応
+
 ## [0.5.3] - 2026-04-16
 
 ### Fixed
