@@ -61,7 +61,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
     "@tauri-apps/cli": "^2.10.1",
-    "@vitejs/plugin-vue": "^6.0.5",
+    "@vitejs/plugin-vue": "^6.0.6",
     "typescript": "^6.0.2",
     "vite": "^8.0.5",
     "vue-tsc": "^3.2.6"
