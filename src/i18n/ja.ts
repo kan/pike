@@ -286,6 +286,13 @@ export default {
   // CSV Preview
   'csv.truncated': '先頭 {max} 行のみ表示しています。',
 
+  // JSON Preview
+  'json.empty': '(空のファイル)',
+  'json.parseError': 'JSON のパースに失敗しました',
+  'json.stringPopup': '文字列プレビュー',
+  'json.stringTruncated': '先頭 {max} 文字のみ表示しています。',
+  'jsonl.truncated': '先頭 {max} 件のみ表示しています。',
+
   // Mermaid Preview
   'mermaid.source': 'ソース',
   'mermaid.reset': 'リセット',

@@ -44,6 +44,8 @@ const EXT_MAP: Record<string, () => LanguageSupport> = {
   svg: () => html(),
   json: () => json(),
   jsonc: () => json(),
+  jsonl: () => json(),
+  ndjson: () => json(),
   php: () => php(),
   phtml: () => php(),
   // Legacy modes

@@ -69,7 +69,29 @@ const isMarkdown = computed(() => fileExt.value === 'md' || fileExt.value === 'm
 const isCsv = computed(() => fileExt.value === 'csv' || fileExt.value === 'tsv')
 const isMermaid = computed(() => fileExt.value === 'mermaid' || fileExt.value === 'mmd')
 const isSvg = computed(() => fileExt.value === 'svg')
-const hasPreview = computed(() => isMarkdown.value || isCsv.value || isMermaid.value || isSvg.value)
+const isJson = computed(() => fileExt.value === 'json' || fileExt.value === 'jsonc')
+const isJsonl = computed(() => fileExt.value === 'jsonl' || fileExt.value === 'ndjson')
+
+const jsonTokens = computed(() => getEditorTheme(settingsStore.editorThemeName).tokens)
+
+const JSON_POPUP_MAX_LEN = 50_000
+const jsonStringPopup = ref<{ content: string; x: number; y: number; truncated: boolean } | null>(null)
+
+function openJsonStringPopup(content: string, x: number, y: number) {
+  const maxWidth = 560
+  const margin = 8
+  const clampedX = Math.min(Math.max(margin, x), window.innerWidth - maxWidth - margin)
+  const truncated = content.length > JSON_POPUP_MAX_LEN
+  const body = truncated ? content.slice(0, JSON_POPUP_MAX_LEN) : content
+  jsonStringPopup.value = { content: body, x: clampedX, y, truncated }
+}
+
+function closeJsonStringPopup() {
+  jsonStringPopup.value = null
+}
+const hasPreview = computed(
+  () => isMarkdown.value || isCsv.value || isMermaid.value || isSvg.value || isJson.value || isJsonl.value,
+)
 
 const showEditor = computed(() => viewMode.value !== 'preview')
 const showPreview = computed(() => viewMode.value !== 'edit')
@@ -163,22 +185,85 @@ function buildCsvPreview(text: string): string {
     return result
   }
 
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const maxRows = 10000
   const headers = parseLine(lines[0])
   let html = '<table><thead><tr><th>#</th>'
-  for (const h of headers) html += `<th>${esc(h)}</th>`
+  for (const h of headers) html += `<th>${escapeHtml(h)}</th>`
   html += '</tr></thead><tbody>'
   const rowCount = Math.min(lines.length - 1, maxRows)
   for (let i = 0; i < rowCount; i++) {
     const cells = parseLine(lines[i + 1])
     html += `<tr><td class="csv-row-num">${i + 1}</td>`
-    for (const c of cells) html += `<td>${esc(c)}</td>`
+    for (const c of cells) html += `<td>${escapeHtml(c)}</td>`
     html += '</tr>'
   }
   html += '</tbody></table>'
   if (lines.length - 1 > maxRows)
-    html += `<p style="text-align:center;color:var(--text-secondary);font-size:12px">${esc(t('csv.truncated', { max: String(maxRows) }))}</p>`
+    html += `<p style="text-align:center;color:var(--text-secondary);font-size:12px">${escapeHtml(t('csv.truncated', { max: String(maxRows) }))}</p>`
+  return html
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function highlightJson(pretty: string): string {
+  const escaped = escapeHtml(pretty)
+  return escaped.replace(
+    /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")(\s*:)?|\b(true|false)\b|\b(null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    (_match, strVal, colon, boolVal, nullVal, numVal) => {
+      if (strVal) {
+        if (colon) return `<span class="json-key">${strVal}</span>${colon}`
+        const expandable = /\\[nr]/.test(strVal)
+        const cls = expandable ? 'json-string json-string-expandable' : 'json-string'
+        return `<span class="${cls}">${strVal}</span>`
+      }
+      if (boolVal) return `<span class="json-bool">${boolVal}</span>`
+      if (nullVal) return `<span class="json-null">${nullVal}</span>`
+      return `<span class="json-number">${numVal}</span>`
+    },
+  )
+}
+
+function buildJsonPreview(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed) return `<div class="json-empty">${escapeHtml(t('json.empty'))}</div>`
+  try {
+    const parsed = JSON.parse(trimmed)
+    const pretty = JSON.stringify(parsed, null, 2)
+    return `<pre class="json-pretty">${highlightJson(pretty)}</pre>`
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return `<div class="json-error"><div class="json-error-title">${escapeHtml(t('json.parseError'))}</div><pre>${escapeHtml(msg)}</pre></div>`
+  }
+}
+
+function buildJsonlPreview(text: string): string {
+  const lines = text.split(/\r?\n/)
+  const maxRecords = 1000
+  let html = '<div class="jsonl-list">'
+  let displayed = 0
+  let total = 0
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (!line.trim()) continue
+    total++
+    if (displayed >= maxRecords) continue
+    displayed++
+    const lineNum = i + 1
+    try {
+      const parsed = JSON.parse(line)
+      const pretty = JSON.stringify(parsed, null, 2)
+      html += `<div class="jsonl-record"><div class="jsonl-index">${lineNum}</div><pre class="json-pretty">${highlightJson(pretty)}</pre></div>`
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      html += `<div class="jsonl-record jsonl-record-error"><div class="jsonl-index">${lineNum}</div><div class="json-error"><pre>${escapeHtml(msg)}</pre></div></div>`
+    }
+  }
+  html += '</div>'
+  if (total > maxRecords) {
+    html += `<p class="jsonl-truncated">${escapeHtml(t('jsonl.truncated', { max: String(maxRecords) }))}</p>`
+  }
   return html
 }
 
@@ -189,6 +274,8 @@ const previewHtml = computed(() => {
   if (isCsv.value) return buildCsvPreview(text)
   if (isMermaid.value) return '' // rendered asynchronously
   if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS)
+  if (isJson.value) return buildJsonPreview(text)
+  if (isJsonl.value) return buildJsonlPreview(text)
   return DOMPurify.sanitize(marked.parse(text) as string, SVG_PURIFY_OPTS)
 })
 
@@ -538,7 +625,14 @@ function jumpToLine(lineNum?: number) {
   if (tab.value) tab.value.initialLine = undefined
 }
 
+function onGlobalKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && jsonStringPopup.value) {
+    closeJsonStringPopup()
+  }
+}
+
 onMounted(async () => {
+  document.addEventListener('keydown', onGlobalKeyDown)
   if (!editorRef.value || !tab.value) return
 
   try {
@@ -643,6 +737,19 @@ function resolveLocalPath(href: string): string | null {
 }
 
 async function onPreviewClick(e: MouseEvent) {
+  const strEl = (e.target as HTMLElement).closest('.json-string-expandable')
+  if (strEl) {
+    try {
+      const raw = strEl.textContent ?? ''
+      const decoded = JSON.parse(raw)
+      const rect = strEl.getBoundingClientRect()
+      openJsonStringPopup(String(decoded), rect.left, rect.bottom + 4)
+    } catch {
+      /* skip malformed */
+    }
+    return
+  }
+
   const target = (e.target as HTMLElement).closest('a')
   if (!target) return
   const href = target.getAttribute('href')
@@ -790,6 +897,7 @@ watch(
 )
 
 onUnmounted(() => {
+  document.removeEventListener('keydown', onGlobalKeyDown)
   if (docVersionTimer) clearTimeout(docVersionTimer)
   editorView?.scrollDOM.removeEventListener('scroll', onEditorScroll)
   editorView?.destroy()
@@ -838,7 +946,12 @@ onUnmounted(() => {
         v-if="showPreview && !isMermaid"
         ref="previewRef"
         class="preview-pane"
-        :class="{ 'md-preview': isMarkdown, 'csv-preview': isCsv, 'svg-preview': isSvg }"
+        :class="{
+          'md-preview': isMarkdown,
+          'csv-preview': isCsv,
+          'svg-preview': isSvg,
+          'json-preview': isJson || isJsonl,
+        }"
         v-html="previewHtml"
         @scroll="onPreviewScroll"
         @click="onPreviewClick"
@@ -868,6 +981,29 @@ onUnmounted(() => {
         <button @click="execPaste" :disabled="isReadOnlyTab"><span>{{ t('editor.paste') }}</span><span class="ctx-key">Ctrl+V</span></button>
         <div class="ctx-separator"></div>
         <button @click="openGitHistory"><span>{{ t('editor.gitHistory') }}</span><span class="ctx-key">Alt+H</span></button>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div
+        v-if="jsonStringPopup"
+        class="json-string-popup-backdrop"
+        @mousedown="closeJsonStringPopup"
+      >
+        <div
+          class="json-string-popup"
+          :style="{ left: jsonStringPopup.x + 'px', top: jsonStringPopup.y + 'px' }"
+          @mousedown.stop
+        >
+          <div class="json-string-popup-header">
+            <span>{{ t('json.stringPopup') }}</span>
+            <button class="json-string-popup-close" @click="closeJsonStringPopup">×</button>
+          </div>
+          <pre class="json-string-popup-body">{{ jsonStringPopup.content }}</pre>
+          <div v-if="jsonStringPopup.truncated" class="json-string-popup-footer">
+            {{ t('json.stringTruncated', { max: String(JSON_POPUP_MAX_LEN) }) }}
+          </div>
+        </div>
       </div>
     </Teleport>
   </div>
@@ -1058,6 +1194,118 @@ onUnmounted(() => {
   font-size: 11px;
 }
 
+.json-preview {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  font-family: var(--terminal-font, 'Cascadia Code', 'Fira Code', monospace);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.json-preview :deep(.json-pretty) {
+  margin: 0;
+  white-space: pre;
+  color: var(--text-primary);
+  tab-size: 2;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.json-preview :deep(.json-key) {
+  color: v-bind('jsonTokens.key');
+}
+
+.json-preview :deep(.json-string) {
+  color: v-bind('jsonTokens.string');
+}
+
+.json-preview :deep(.json-string-expandable) {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.json-preview :deep(.json-string-expandable:hover) {
+  filter: brightness(1.2);
+}
+
+.json-preview :deep(.json-number) {
+  color: v-bind('jsonTokens.number');
+}
+
+.json-preview :deep(.json-bool) {
+  color: v-bind('jsonTokens.bool');
+}
+
+.json-preview :deep(.json-null) {
+  color: v-bind('jsonTokens.null');
+}
+
+.json-preview :deep(.json-empty) {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.json-preview :deep(.json-error) {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid #ff5370;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+
+.json-preview :deep(.json-error-title) {
+  color: #ff5370;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.json-preview :deep(.json-error pre) {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+
+.json-preview :deep(.jsonl-list) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.json-preview :deep(.jsonl-record) {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+}
+
+.json-preview :deep(.jsonl-record-error) {
+  border-left: 3px solid #ff5370;
+}
+
+.json-preview :deep(.jsonl-index) {
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: right;
+  user-select: none;
+  padding-top: 2px;
+}
+
+.json-preview :deep(.jsonl-truncated) {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-top: 12px;
+}
+
 .svg-preview {
   flex: 1;
   overflow: auto;
@@ -1207,6 +1455,79 @@ onUnmounted(() => {
   height: 1px;
   background: var(--border);
   margin: 4px 0;
+}
+
+/* JSON string popup */
+.json-string-popup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+}
+
+.json-string-popup {
+  position: fixed;
+  z-index: 9999;
+  max-width: 560px;
+  max-height: 60vh;
+  min-width: 240px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.json-string-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  user-select: none;
+}
+
+.json-string-popup-close {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.json-string-popup-close:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.json-string-popup-body {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  color: var(--text-primary);
+  font-family: var(--terminal-font, 'Cascadia Code', 'Fira Code', monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.json-string-popup-footer {
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: center;
 }
 
 /* Custom search panel */

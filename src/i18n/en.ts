@@ -285,6 +285,13 @@ export default {
   // CSV Preview
   'csv.truncated': 'Showing first {max} rows only.',
 
+  // JSON Preview
+  'json.empty': '(empty file)',
+  'json.parseError': 'Failed to parse JSON',
+  'json.stringPopup': 'String Preview',
+  'json.stringTruncated': 'Showing first {max} characters only.',
+  'jsonl.truncated': 'Showing first {max} records only.',
+
   // Mermaid Preview
   'mermaid.source': 'Source',
   'mermaid.reset': 'Reset',

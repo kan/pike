@@ -4,12 +4,21 @@ import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 
+export interface EditorThemeTokens {
+  key: string // propertyName (e.g. JSON keys)
+  string: string
+  number: string
+  bool: string
+  null: string
+}
+
 export interface EditorThemeDef {
   name: string
   dark: boolean
   background: string
   foreground: string
   accent: string // representative color for preview (e.g. function name color)
+  tokens: EditorThemeTokens
   extension: Extension
 }
 
@@ -19,6 +28,7 @@ const oneDarkDef: EditorThemeDef = {
   background: '#282c34',
   foreground: '#abb2bf',
   accent: '#98c379',
+  tokens: { key: '#e06c75', string: '#98c379', number: '#d19a66', bool: '#d19a66', null: '#d19a66' },
   extension: oneDark,
 }
 
@@ -58,6 +68,7 @@ const defaultLight: EditorThemeDef = {
   background: '#ffffff',
   foreground: '#333333',
   accent: '#6f42c1',
+  tokens: { key: '#005cc5', string: '#032f62', number: '#005cc5', bool: '#005cc5', null: '#005cc5' },
   extension: makeTheme('#ffffff', '#333333', '#f5f5f5', '#999999', '#d7d4f0', '#f5f5f5', false, [
     { tag: tags.keyword, color: '#d73a49' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#333333' },
@@ -89,6 +100,7 @@ const dracula: EditorThemeDef = {
   background: '#282a36',
   foreground: '#f8f8f2',
   accent: '#50fa7b',
+  tokens: { key: '#66d9ef', string: '#f1fa8c', number: '#bd93f9', bool: '#bd93f9', null: '#bd93f9' },
   extension: makeTheme('#282a36', '#f8f8f2', '#282a36', '#6272a4', '#44475a', '#2c2e3a', true, [
     { tag: tags.keyword, color: '#ff79c6' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#f8f8f2' },
@@ -117,6 +129,7 @@ const nord: EditorThemeDef = {
   background: '#2e3440',
   foreground: '#d8dee9',
   accent: '#88c0d0',
+  tokens: { key: '#8fbcbb', string: '#a3be8c', number: '#b48ead', bool: '#b48ead', null: '#b48ead' },
   extension: makeTheme('#2e3440', '#d8dee9', '#2e3440', '#4c566a', '#434c5e', '#353b49', true, [
     { tag: tags.keyword, color: '#81a1c1' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#d8dee9' },
@@ -145,6 +158,7 @@ const solarizedLight: EditorThemeDef = {
   background: '#fdf6e3',
   foreground: '#657b83',
   accent: '#268bd2',
+  tokens: { key: '#268bd2', string: '#2aa198', number: '#d33682', bool: '#d33682', null: '#d33682' },
   extension: makeTheme('#fdf6e3', '#657b83', '#eee8d5', '#93a1a1', '#eee8d5', '#f5efdc', false, [
     { tag: tags.keyword, color: '#859900' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#657b83' },
@@ -173,6 +187,7 @@ const monokai: EditorThemeDef = {
   background: '#272822',
   foreground: '#f8f8f2',
   accent: '#a6e22e',
+  tokens: { key: '#66d9ef', string: '#e6db74', number: '#ae81ff', bool: '#ae81ff', null: '#ae81ff' },
   extension: makeTheme('#272822', '#f8f8f2', '#272822', '#90908a', '#49483e', '#3e3d32', true, [
     { tag: tags.keyword, color: '#f92672' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#f8f8f2' },
