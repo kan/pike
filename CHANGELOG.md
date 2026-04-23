@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.5] - 2026-04-23
+
+### Features
+
+- **JSON/JSONL 整形プレビュー**: `.json` / `.jsonc` / `.jsonl` / `.ndjson` に Edit/Split/Preview トグル。キー/文字列/数値/bool/null を色分け（エディタテーマの token 色に追従）。JSONL は 1000 件で truncate、エラー行はカード単位で表示
+- **JSON 文字列ポップアップ**: `\n` / `\r` を含む文字列値をクリックすると、デコード済み（実改行）のポップアップを表示（50KB でキャップ）
+- **ターミナル / エージェントチャットの URL クリック**: xterm.js (TerminalTab / DockerLogsTab) と AgentChatTab のメッセージ内リンクで、http(s) のみ confirm ダイアログ経由で外部ブラウザを起動
+- `openUrlWithConfirm` ヘルパーに各 callsite (EditorTab / StatusBar / SideBar 含む) を統合
+
+### Security
+
+- **rustls-webpki** 0.103.10 → 0.103.13 (RUSTSEC-2026-0104: CRL パースでの reachable panic)
+- **dompurify** ^3.3.3 → ^3.4.1 (Dependabot alert: ADD_TAGS/FORBID_TAGS bypass)
+- **rand** 0.9.2 → 0.9.4 (Dependabot alert: `rand::rng()` unsoundness)
+
+### Dependencies
+
+- tokio 1.51.0 → 1.51.1
+- vite 8.0.5 → 8.0.8 (dev)
+- @biomejs/biome 2.4.10 → 2.4.11 (dev)
+- @vitejs/plugin-vue 6.0.5 → 6.0.6 (dev)
+- actions/setup-node 6 → 6.3.0 (GitHub Actions)
+
 ## [0.5.4] - 2026-04-18
 
 ### Features
