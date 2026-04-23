@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { Cpu, FolderOpen, GitBranch, Github } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
-import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { formatCost, formatTokens } from '../../lib/format'
-import { openUrl } from '../../lib/tauri'
+import { openUrlWithConfirm } from '../../lib/tauri'
 import { useAgentStore } from '../../stores/agent'
 import { useClaudeUsageStore } from '../../stores/claudeUsage'
 import { useGitStore } from '../../stores/git'
@@ -52,10 +51,7 @@ declare const __GIT_COMMIT_HASH__: string
 const devHash = import.meta.env.DEV && __GIT_COMMIT_HASH__ ? `-${__GIT_COMMIT_HASH__}` : ''
 
 async function openGitHub() {
-  const url = 'https://github.com/kan/pike'
-  if (await confirmDialog(t('confirm.openUrl', { url }))) {
-    openUrl(url)
-  }
+  await openUrlWithConfirm('https://github.com/kan/pike')
 }
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)

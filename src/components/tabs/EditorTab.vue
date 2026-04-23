@@ -7,7 +7,7 @@ import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirro
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
+import { promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useI18n } from '../../i18n'
@@ -17,7 +17,7 @@ import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { basename, extension } from '../../lib/paths'
-import { fsReadFile, fsWriteFile, gitDiffLines, openUrl, pickSaveFile } from '../../lib/tauri'
+import { fsReadFile, fsWriteFile, gitDiffLines, openUrlWithConfirm, pickSaveFile } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
@@ -756,15 +756,11 @@ async function onPreviewClick(e: MouseEvent) {
   if (!href) return
   e.preventDefault()
 
-  // External URL → confirm + open in browser
   if (href.startsWith('http://') || href.startsWith('https://')) {
-    if (await confirmDialog(t('confirm.openUrl', { url: href }))) {
-      openUrl(href)
-    }
+    await openUrlWithConfirm(href)
     return
   }
 
-  // Fragment-only links (e.g. #heading) → ignore
   if (href.startsWith('#')) return
 
   // Local file link → resolve and open in editor

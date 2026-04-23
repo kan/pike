@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
+import { confirmDialog } from '../composables/useConfirmDialog'
+import { t } from '../i18n'
 import type { ClaudeUsageResult } from '../types/claudeUsage'
 import type { ComposeService, ContainerInfo } from '../types/docker'
 import type { GitFileChange, GitLogEntry, GitStatusResult } from '../types/git'
@@ -333,6 +335,13 @@ export async function taskDiscover(shell: ShellType, root: string): Promise<Task
 
 export async function openUrl(url: string): Promise<void> {
   return invoke('open_url', { url })
+}
+
+export async function openUrlWithConfirm(url: string): Promise<void> {
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return
+  if (await confirmDialog(t('confirm.openUrl', { url }))) {
+    await openUrl(url)
+  }
 }
 
 export async function pickFolder(): Promise<string | null> {

@@ -31,7 +31,7 @@ import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
-import { openUrl } from '../../lib/tauri'
+import { openUrlWithConfirm } from '../../lib/tauri'
 import { useDockerStore } from '../../stores/docker'
 import { useSearchStore } from '../../stores/search'
 import { useSettingsStore } from '../../stores/settings'
@@ -104,9 +104,7 @@ function openSettings() {
 
 async function openGitHub() {
   closeGearMenu()
-  if (await confirmDialog(t('confirm.openUrl', { url: 'https://github.com/kan/pike' }))) {
-    openUrl('https://github.com/kan/pike')
-  }
+  await openUrlWithConfirm('https://github.com/kan/pike')
 }
 
 async function checkUpdate() {

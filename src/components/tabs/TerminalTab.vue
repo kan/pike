@@ -8,7 +8,7 @@ import { getClipboardImages, saveImageFile } from '../../composables/useImagePas
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { isAbsolutePath } from '../../lib/paths'
-import { ptyKill, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
+import { openUrlWithConfirm, ptyKill, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import '@xterm/xterm/css/xterm.css'
@@ -171,7 +171,7 @@ onMounted(async () => {
 
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
-  terminal.loadAddon(new WebLinksAddon())
+  terminal.loadAddon(new WebLinksAddon((_e, uri) => openUrlWithConfirm(uri)))
 
   terminal.open(termRef.value)
   fitAddon.fit()

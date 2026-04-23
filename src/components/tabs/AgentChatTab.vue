@@ -22,7 +22,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getClipboardImages, saveImageFile } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
 import { basename, fuzzyMatch, isAbsolutePath, isImageFile, toRelativePath } from '../../lib/paths'
-import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles } from '../../lib/tauri'
+import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles, openUrlWithConfirm } from '../../lib/tauri'
 import { useAgentStore } from '../../stores/agent'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
@@ -163,6 +163,14 @@ async function onDrop(e: DragEvent) {
       insertAtCursor(`@${file.name} `)
     }
   }
+}
+
+async function onMessageClick(e: MouseEvent) {
+  const anchor = (e.target as HTMLElement | null)?.closest('a')
+  const href = anchor?.getAttribute('href')
+  if (!href || (!href.startsWith('http://') && !href.startsWith('https://'))) return
+  e.preventDefault()
+  await openUrlWithConfirm(href)
 }
 
 // Memoized markdown rendering — avoids re-parsing unchanged segments on every reactive update
@@ -959,7 +967,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Messages -->
-      <div class="message-list" ref="messageListRef" @scroll="onScroll">
+      <div class="message-list" ref="messageListRef" @scroll="onScroll" @click="onMessageClick">
         <div v-if="s.messages.length === 0" class="empty-chat">
           <Bot :size="32" :stroke-width="1" />
           <p>{{ t('codex.emptyChat', { agent: agentDisplayName }) }}</p>

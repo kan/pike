@@ -5,7 +5,7 @@ import { Terminal } from '@xterm/xterm'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { dockerLogRouter } from '../../composables/useDockerLogRouter'
 import { useI18n } from '../../i18n'
-import { dockerLogsStart, dockerLogsStop } from '../../lib/tauri'
+import { dockerLogsStart, dockerLogsStop, openUrlWithConfirm } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { DockerLogsTab } from '../../types/tab'
@@ -84,7 +84,7 @@ onMounted(async () => {
 
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
-  terminal.loadAddon(new WebLinksAddon())
+  terminal.loadAddon(new WebLinksAddon((_e, uri) => openUrlWithConfirm(uri)))
 
   terminal.open(termRef.value)
   fitAddon.fit()
