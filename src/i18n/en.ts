@@ -25,6 +25,7 @@ export default {
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'Projects',
   'sidebar.tasks': 'Tasks',
+  'sidebar.outline': 'Outline',
   'sidebar.keyboardShortcuts': 'Keyboard Shortcuts',
   'sidebar.settings': 'Settings',
   'sidebar.github': 'GitHub',
@@ -370,4 +371,10 @@ export default {
   'codex.imagePasteFailed': 'Failed to save pasted image',
   // Tasks
   'tasks.noFiles': 'No task files found',
+  // Outline
+  'outline.empty': 'No file opened',
+  'outline.unsupported': 'No outline available for this file',
+  'outline.noSymbols': 'No symbols found',
+  'outline.tabOutline': 'Outline',
+  'outline.tabHistory': 'History',
 } as Record<string, string>

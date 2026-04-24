@@ -10,6 +10,7 @@ const GitPanel = defineAsyncComponent(() => import('../panels/GitPanel.vue'))
 const DockerPanel = defineAsyncComponent(() => import('../panels/DockerPanel.vue'))
 const SearchPanel = defineAsyncComponent(() => import('../panels/SearchPanel.vue'))
 const TasksPanel = defineAsyncComponent(() => import('../panels/TasksPanel.vue'))
+const OutlinePanel = defineAsyncComponent(() => import('../panels/OutlinePanel.vue'))
 
 import {
   ArrowDown,
@@ -22,6 +23,7 @@ import {
   FolderPlus,
   GitBranch,
   ListTodo,
+  ListTree,
   Loader,
   RefreshCw,
   Search,
@@ -132,6 +134,7 @@ const tasksRef = ref<{ refresh: () => void } | null>(null)
 
 const icons: { panel: SidebarPanel; labelKey: string; icon: Component }[] = [
   { panel: 'files', labelKey: 'sidebar.files', icon: Files },
+  { panel: 'outline', labelKey: 'sidebar.outline', icon: ListTree },
   { panel: 'git', labelKey: 'sidebar.git', icon: GitBranch },
   { panel: 'search', labelKey: 'sidebar.search', icon: Search },
   { panel: 'docker', labelKey: 'sidebar.docker', icon: Container },
@@ -279,6 +282,7 @@ onUnmounted(() => {
         <SearchPanel v-else-if="sidebar.activePanel === 'search'" />
         <DockerPanel v-else-if="sidebar.activePanel === 'docker'" />
         <TasksPanel v-else-if="sidebar.activePanel === 'tasks'" ref="tasksRef" />
+        <OutlinePanel v-else-if="sidebar.activePanel === 'outline'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
       <div class="resize-handle" @mousedown="onResizeStart"></div>

@@ -10,6 +10,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
+import { useOutlineSource } from '../../composables/useOutlineSource'
 import { useI18n } from '../../i18n'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { minimap } from '../../lib/editorMinimap'
@@ -29,6 +30,7 @@ const tabStore = useTabStore()
 const projectStore = useProjectStore()
 const settingsStore = useSettingsStore()
 const editorInfo = useEditorInfo()
+const outlineSource = useOutlineSource()
 
 // Dynamic compartments for settings that can change at runtime
 const themeCompartment = new Compartment()
@@ -62,6 +64,16 @@ function bumpDocVersion() {
   docVersionTimer = setTimeout(() => {
     debouncedDocVersion.value++
   }, 250)
+}
+
+function registerOutlineSource() {
+  if (!editorView || !tab.value) return
+  outlineSource.set({
+    tabId: props.tabId,
+    path: tab.value.path ?? '',
+    langId: tab.value.path ? extension(tab.value.path) : '',
+    view: editorView,
+  })
 }
 
 const fileExt = computed(() => (tab.value ? extension(tab.value.path) : ''))
@@ -530,6 +542,7 @@ function createEditorView(container: HTMLElement, content: string) {
       if (update.docChanged) {
         updateDirtyState()
         bumpDocVersion()
+        outlineSource.bumpVersion(props.tabId)
       }
       if (update.selectionSet || update.docChanged) updateCursorInfo()
     }),
@@ -598,6 +611,9 @@ async function reopenWithEncoding(encoding: string) {
     updateTitle()
     updateCursorInfo()
     refreshDiffGutter()
+    if (tabStore.activeTabId === props.tabId) {
+      registerOutlineSource()
+    }
   } catch (e) {
     loading.value = false
     error.value = String(e)
@@ -650,6 +666,10 @@ onMounted(async () => {
       (le) => changeLineEnding(le),
       (enc) => save(enc),
     )
+
+    if (tabStore.activeTabId === props.tabId) {
+      registerOutlineSource()
+    }
   } catch (e) {
     loading.value = false
     error.value = String(e)
@@ -848,8 +868,10 @@ watch(
         (enc) => reopenWithEncoding(enc),
         (le) => changeLineEnding(le),
       )
+      registerOutlineSource()
     } else if (id !== props.tabId) {
       editorInfo.clear()
+      outlineSource.clear(props.tabId)
     }
   },
 )
@@ -901,6 +923,7 @@ onUnmounted(() => {
   if (tabStore.activeTabId === props.tabId) {
     editorInfo.clear()
   }
+  outlineSource.clear(props.tabId)
 })
 </script>
 

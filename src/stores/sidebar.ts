@@ -6,7 +6,7 @@ const PANEL_WIDTH_KEY = 'pike:panelWidth'
 const ACTIVE_PANEL_KEY = 'pike:activePanel'
 const DEFAULT_PANEL_WIDTH = 250
 
-const VALID_PANELS: SidebarPanel[] = ['files', 'git', 'search', 'docker', 'projects', 'tasks']
+const VALID_PANELS: SidebarPanel[] = ['files', 'git', 'search', 'docker', 'projects', 'tasks', 'outline']
 
 export const useSidebarStore = defineStore('sidebar', () => {
   const saved = localStorage.getItem(ACTIVE_PANEL_KEY)

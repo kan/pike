@@ -25,6 +25,7 @@ export default {
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'プロジェクト',
   'sidebar.tasks': 'タスク',
+  'sidebar.outline': 'アウトライン',
   'sidebar.keyboardShortcuts': 'キーボードショートカット',
   'sidebar.settings': '設定',
   'sidebar.github': 'GitHub',
@@ -371,4 +372,10 @@ export default {
   'codex.imagePasteFailed': '貼り付け画像の保存に失敗しました',
   // Tasks
   'tasks.noFiles': 'タスクファイルが見つかりません',
+  // Outline
+  'outline.empty': 'ファイルが開かれていません',
+  'outline.unsupported': 'このファイルのアウトラインには対応していません',
+  'outline.noSymbols': 'シンボルが見つかりません',
+  'outline.tabOutline': 'アウトライン',
+  'outline.tabHistory': '履歴',
 } as Record<string, string>

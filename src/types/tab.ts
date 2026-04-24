@@ -168,4 +168,4 @@ export type Tab =
   | PdfTab
   | AgentChatTab
 
-export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects' | 'tasks'
+export type SidebarPanel = 'files' | 'git' | 'search' | 'docker' | 'projects' | 'tasks' | 'outline'
