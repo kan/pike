@@ -19,6 +19,8 @@ const props = defineProps<{
   tabId: string
 }>()
 
+const SPAWN_GRACE_PERIOD_MS = 2000
+
 const tabStore = useTabStore()
 const settingsStore = useSettingsStore()
 
@@ -188,12 +190,6 @@ onMounted(async () => {
     ptyId = result.id
     spawnedAt = Date.now()
     tabStore.setPtyId(props.tabId, ptyId)
-    // Clear any stale state from prior mounts (defensive)
-    const tab = tabStore.tabs.find((t) => t.id === props.tabId)
-    if (tab?.kind === 'terminal') {
-      tab.exitCode = undefined
-      tab.hasActivity = false
-    }
   } catch (e) {
     terminal.write(`\r\n${t('terminal.failedSpawn', { error: String(e) })}\r\n`)
     const tab = tabStore.tabs.find((t) => t.id === props.tabId)
@@ -217,11 +213,11 @@ onMounted(async () => {
       const tab = tabStore.tabs.find((t) => t.id === props.tabId)
       if (tab?.kind === 'terminal') {
         tab.exitCode = code
-        // Suppress auto-close if the PTY died within 2s of spawn — this is
-        // almost always a failed autoStart or a bad shell config, and the user
-        // needs to see the error instead of the tab vanishing.
+        // A PTY that dies within the grace period is almost always a failed
+        // autoStart or bad shell config — keep the tab so the user can read
+        // the error instead of having it vanish.
         const aliveFor = Date.now() - spawnedAt
-        if (!tab.pinned && aliveFor >= 2000) {
+        if (!tab.pinned && aliveFor >= SPAWN_GRACE_PERIOD_MS) {
           setTimeout(() => tabStore.closeTab(props.tabId), 1000)
         }
       }

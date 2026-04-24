@@ -64,14 +64,14 @@ impl Default for AcpAgentConfig {
 // Helpers
 // ---------------------------------------------------------------------------
 
-pub(super) use crate::types::{WSL_EXTRA_PATH, shell_quote};
+pub(super) use crate::types::{WSL_EXTRA_PATH, bash_quote};
 
 /// Build a shell command string with quoting for `bash -c`.
 fn build_shell_command(command: &str, args: &[String]) -> String {
     let mut parts = Vec::with_capacity(1 + args.len());
-    parts.push(shell_quote(command));
+    parts.push(bash_quote(command));
     for arg in args {
-        parts.push(shell_quote(arg));
+        parts.push(bash_quote(arg));
     }
     format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" {}", parts.join(" "))
 }
