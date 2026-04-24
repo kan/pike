@@ -21,6 +21,8 @@ import type { OutlineKind, OutlineNode } from '../../../lib/outline'
 const props = defineProps<{
   nodes: OutlineNode[]
   depth?: number
+  selectedId?: string | null
+  forceExpandedIds?: Set<string>
 }>()
 
 const emit = defineEmits<(e: 'select', node: OutlineNode) => void>()
@@ -38,6 +40,7 @@ function toggle(id: string, e: MouseEvent) {
 }
 
 function isCollapsed(id: string): boolean {
+  if (props.forceExpandedIds?.has(id)) return false
   return collapsed.value.has(id)
 }
 
@@ -75,6 +78,8 @@ function iconFor(kind: OutlineKind): Component {
     <template v-for="node in nodes" :key="node.id">
       <div
         class="tree-item"
+        :class="{ selected: node.id === selectedId }"
+        :data-node-id="node.id"
         :style="{ paddingLeft: level * 12 + 4 + 'px' }"
         @click="emit('select', node)"
       >
@@ -97,6 +102,8 @@ function iconFor(kind: OutlineKind): Component {
         v-if="node.children.length > 0 && !isCollapsed(node.id)"
         :nodes="node.children"
         :depth="level + 1"
+        :selected-id="selectedId"
+        :force-expanded-ids="forceExpandedIds"
         @select="(n) => emit('select', n)"
       />
     </template>
@@ -123,6 +130,14 @@ function iconFor(kind: OutlineKind): Component {
 
 .tree-item:hover {
   background: var(--tab-hover-bg);
+}
+
+.tree-item.selected {
+  background: var(--tab-active-bg, var(--tab-hover-bg));
+}
+
+.tree-item.selected .tree-name {
+  color: var(--text-active);
 }
 
 .tree-chevron {

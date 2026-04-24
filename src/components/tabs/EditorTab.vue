@@ -544,7 +544,10 @@ function createEditorView(container: HTMLElement, content: string) {
         bumpDocVersion()
         outlineSource.bumpVersion(props.tabId)
       }
-      if (update.selectionSet || update.docChanged) updateCursorInfo()
+      if (update.selectionSet || update.docChanged) {
+        updateCursorInfo()
+        outlineSource.updateCaret(props.tabId, update.state.selection.main.head)
+      }
     }),
     EditorView.theme({
       '&': { height: '100%', fontSize: '13px' },

@@ -77,7 +77,63 @@ const status = computed<Status>(() => {
 
 const nodes = computed<OutlineNode[]>(() => (result.value?.kind === 'ok' ? result.value.nodes : []))
 
+const debouncedCaret = ref<number | null>(null)
+let caretTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(
+  () => outlineSource.caretPosition.value,
+  (c) => {
+    const src = outlineSource.current.value
+    if (!c || !src || c.tabId !== src.tabId) {
+      debouncedCaret.value = null
+      return
+    }
+    if (caretTimer) clearTimeout(caretTimer)
+    caretTimer = setTimeout(() => {
+      debouncedCaret.value = c.offset
+    }, 150)
+  },
+  { immediate: true },
+)
+
+const selectedPath = computed<OutlineNode[]>(() => {
+  const caret = debouncedCaret.value
+  if (caret === null) return []
+  const path: OutlineNode[] = []
+  findPath(nodes.value, caret, path)
+  return path
+})
+
+function findPath(list: OutlineNode[], caret: number, acc: OutlineNode[]): boolean {
+  for (const n of list) {
+    if (caret >= n.from && caret <= n.to) {
+      acc.push(n)
+      findPath(n.children, caret, acc)
+      return true
+    }
+  }
+  return false
+}
+
+const selectedId = computed<string | null>(() => {
+  const p = selectedPath.value
+  return p.length > 0 ? p[p.length - 1].id : null
+})
+const forceExpandedIds = computed(() => new Set(selectedPath.value.slice(0, -1).map((n) => n.id)))
+
 const bodyRef = ref<HTMLDivElement | null>(null)
+
+watch(selectedId, async (id) => {
+  if (!id || !bodyRef.value) return
+  await nextTick()
+  const el = bodyRef.value.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`)
+  if (!el) return
+  const itemRect = el.getBoundingClientRect()
+  const bodyRect = bodyRef.value.getBoundingClientRect()
+  if (itemRect.top < bodyRect.top || itemRect.bottom > bodyRect.bottom) {
+    el.scrollIntoView({ block: 'nearest' })
+  }
+})
 
 function onBodyScroll() {
   const tabId = outlineSource.current.value?.tabId
@@ -122,7 +178,13 @@ watch(
         <div v-else-if="status === 'too-large'" class="empty">{{ t('outline.tooLarge') }}</div>
         <div v-else-if="status === 'unsupported'" class="empty">{{ t('outline.unsupported') }}</div>
         <div v-else-if="status === 'empty'" class="empty">{{ t('outline.noSymbols') }}</div>
-        <OutlineTreeView v-else :nodes="nodes" @select="onSelect" />
+        <OutlineTreeView
+          v-else
+          :nodes="nodes"
+          :selected-id="selectedId"
+          :force-expanded-ids="forceExpandedIds"
+          @select="onSelect"
+        />
       </template>
       <div v-else class="empty">—</div>
     </div>
