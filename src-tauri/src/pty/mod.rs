@@ -106,13 +106,13 @@ fn spawn_pty_with_command(
     {
         let wait_id = id.clone();
         let wait_app = app.clone();
-        let wait_flag = Arc::clone(&exit_emitted);
+        let exit_emitted_flag = Arc::clone(&exit_emitted);
         std::thread::spawn(move || {
             let code = child
                 .wait()
                 .map(|s| s.exit_code() as i32)
                 .unwrap_or(-1);
-            if !wait_flag.swap(true, Ordering::SeqCst) {
+            if !exit_emitted_flag.swap(true, Ordering::SeqCst) {
                 let _ = wait_app.emit(
                     "pty_exit",
                     PtyExitPayload { id: wait_id, code },

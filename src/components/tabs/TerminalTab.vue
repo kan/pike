@@ -21,6 +21,22 @@ const props = defineProps<{
 
 const SPAWN_GRACE_PERIOD_MS = 2000
 
+/**
+ * Build the command line that runs `autoStart` in the spawned shell.
+ * When `closeOnExit` is true, wraps the command so the shell exits with the
+ * command's status (→ PTY closes → non-pinned tabs auto-close).
+ */
+function buildAutoStartLine(autoStart: string, shellKind: string | undefined, closeOnExit?: boolean): string {
+  if (closeOnExit) {
+    if (shellKind === 'cmd') return `cls & ${autoStart} & exit /B %ERRORLEVEL%`
+    if (shellKind === 'powershell') return `cls; ${autoStart}; exit $LASTEXITCODE`
+    return `clear; ${autoStart}; exit`
+  }
+  const clearCmd = shellKind === 'cmd' || shellKind === 'powershell' ? 'cls' : 'clear'
+  const chain = shellKind === 'powershell' ? '; ' : ' && '
+  return clearCmd + chain + autoStart
+}
+
 const tabStore = useTabStore()
 const settingsStore = useSettingsStore()
 
@@ -239,25 +255,11 @@ onMounted(async () => {
       initLines.push(titleSetup)
     }
 
-    // Shell-appropriate clear + command chaining
     const shellKind = tabData.shell?.kind
     const clearCmd = shellKind === 'cmd' || shellKind === 'powershell' ? 'cls' : 'clear'
-    const chain = shellKind === 'powershell' ? '; ' : ' && '
 
     if (tabData.autoStart) {
-      if (tabData.closeOnExit) {
-        // Wrap so the shell exits with the command's exit code → PTY closes →
-        // the pty_exit handler's auto-close path fires.
-        if (shellKind === 'cmd') {
-          initLines.push(`cls & ${tabData.autoStart} & exit /B %ERRORLEVEL%`)
-        } else if (shellKind === 'powershell') {
-          initLines.push(`cls; ${tabData.autoStart}; exit $LASTEXITCODE`)
-        } else {
-          initLines.push(`clear; ${tabData.autoStart}; exit`)
-        }
-      } else {
-        initLines.push(clearCmd + chain + tabData.autoStart)
-      }
+      initLines.push(buildAutoStartLine(tabData.autoStart, shellKind, tabData.closeOnExit))
     } else if (initLines.length > 0) {
       initLines.push(clearCmd)
     }
