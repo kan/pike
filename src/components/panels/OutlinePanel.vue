@@ -5,6 +5,7 @@ import { useOutlineSource } from '../../composables/useOutlineSource'
 import { useI18n } from '../../i18n'
 import { extractOutline, type OutlineNode, type OutlineResult } from '../../lib/outline'
 import { basename } from '../../lib/paths'
+import OutlineHistoryView from './outline/OutlineHistoryView.vue'
 import OutlineTreeView from './outline/OutlineTreeView.vue'
 
 const { t } = useI18n()
@@ -76,6 +77,12 @@ const status = computed<Status>(() => {
 })
 
 const nodes = computed<OutlineNode[]>(() => (result.value?.kind === 'ok' ? result.value.nodes : []))
+const currentPath = computed(() => outlineSource.current.value?.path ?? '')
+
+// Fall back to outline tab when the current file has no path (untitled).
+watch(currentPath, (path) => {
+  if (!path && activeTab.value === 'history') activeTab.value = 'outline'
+})
 
 const debouncedCaret = ref<number | null>(null)
 let caretTimer: ReturnType<typeof setTimeout> | null = null
@@ -165,8 +172,8 @@ watch(
       <button
         class="outline-tab"
         :class="{ active: activeTab === 'history' }"
-        disabled
-        :title="'Coming soon'"
+        :disabled="!currentPath"
+        @click="activeTab = 'history'"
       >
         {{ t('outline.tabHistory') }}
       </button>
@@ -186,7 +193,10 @@ watch(
           @select="onSelect"
         />
       </template>
-      <div v-else class="empty">—</div>
+      <template v-else-if="activeTab === 'history'">
+        <div v-if="!currentPath" class="empty">{{ t('outline.empty') }}</div>
+        <OutlineHistoryView v-else :file-path="currentPath" />
+      </template>
     </div>
   </div>
 </template>
