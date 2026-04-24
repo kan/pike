@@ -1,4 +1,5 @@
 import type { ExtractContext, Extractor, OutlineKind, OutlineNode } from '../types'
+import { buildLineOffsets, lineStart } from './_util'
 
 const MODIFIER =
   /^(public|private|fileprivate|internal|open|final|static|mutating|override|required|convenience|indirect|lazy|dynamic|weak|unowned|@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?)\s+/
@@ -18,18 +19,6 @@ interface RawDecl {
   to: number
 }
 
-function offsetOfLine(text: string, lineNum: number): number {
-  let pos = 0
-  let line = 1
-  while (line < lineNum && pos < text.length) {
-    const nl = text.indexOf('\n', pos)
-    if (nl < 0) return text.length
-    pos = nl + 1
-    line++
-  }
-  return pos
-}
-
 function stripModifiers(s: string): string {
   s = s.replace(CLASS_AS_MODIFIER, '')
   let changed = true
@@ -46,6 +35,7 @@ function stripModifiers(s: string): string {
 
 export const swiftExtractor: Extractor = (text: string, _ctx: ExtractContext) => {
   const lines = text.split('\n')
+  const offsets = buildLineOffsets(text)
   const items: RawDecl[] = []
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -70,7 +60,7 @@ export const swiftExtractor: Extractor = (text: string, _ctx: ExtractContext) =>
 
     if (!kind || !name) continue
     const lineNum = i + 1
-    const from = offsetOfLine(text, lineNum) + indent
+    const from = lineStart(offsets, lineNum) + indent
     const to = from + line.trimEnd().length - indent
     items.push({ indent, kind, name, line: lineNum, from, to })
   }

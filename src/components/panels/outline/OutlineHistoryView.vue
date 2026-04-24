@@ -17,6 +17,9 @@ const entries = ref<GitLogEntry[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
+// Bumped on every load start — in-flight loads for a stale path are discarded.
+let loadToken = 0
+
 watch(
   () => props.filePath,
   (path) => loadHistory(path),
@@ -24,6 +27,7 @@ watch(
 )
 
 async function loadHistory(path: string) {
+  const token = ++loadToken
   const project = projectStore.currentProject
   if (!project || !path) {
     entries.value = []
@@ -32,12 +36,15 @@ async function loadHistory(path: string) {
   loading.value = true
   error.value = null
   try {
-    entries.value = await gitLogFile(project.root, project.shell, path, 200)
+    const result = await gitLogFile(project.root, project.shell, path, 200)
+    if (token !== loadToken) return
+    entries.value = result
   } catch (e) {
+    if (token !== loadToken) return
     entries.value = []
     error.value = String(e)
   } finally {
-    loading.value = false
+    if (token === loadToken) loading.value = false
   }
 }
 

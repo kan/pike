@@ -1,4 +1,5 @@
 import type { ExtractContext, Extractor, OutlineKind, OutlineNode } from '../types'
+import { buildLineOffsets, lineStart } from './_util'
 
 const DECL_RE = /^(\s*)(class|module|def)\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_]*[?!=]?)/
 
@@ -11,20 +12,9 @@ interface RawDecl {
   to: number
 }
 
-function offsetOfLine(text: string, lineNum: number): number {
-  let pos = 0
-  let line = 1
-  while (line < lineNum && pos < text.length) {
-    const nl = text.indexOf('\n', pos)
-    if (nl < 0) return text.length
-    pos = nl + 1
-    line++
-  }
-  return pos
-}
-
 export const rubyExtractor: Extractor = (text: string, _ctx: ExtractContext) => {
   const lines = text.split('\n')
+  const offsets = buildLineOffsets(text)
   const items: RawDecl[] = []
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -34,7 +24,7 @@ export const rubyExtractor: Extractor = (text: string, _ctx: ExtractContext) => 
     const kind = m[2] as 'class' | 'module' | 'def'
     const name = m[3]
     const lineNum = i + 1
-    const from = offsetOfLine(text, lineNum) + indent
+    const from = lineStart(offsets, lineNum) + indent
     const to = from + line.trimEnd().length - indent
     items.push({ indent, kind, name, line: lineNum, from, to })
   }

@@ -1,18 +1,7 @@
 import type { ExtractContext, Extractor, OutlineNode } from '../types'
+import { buildLineOffsets, lineStart } from './_util'
 
 const TABLE_RE = /^\s*(\[\[?)\s*([^\]]+?)\s*\]\]?\s*$/
-
-function offsetOfLine(text: string, lineNum: number): number {
-  let pos = 0
-  let line = 1
-  while (line < lineNum && pos < text.length) {
-    const nl = text.indexOf('\n', pos)
-    if (nl < 0) return text.length
-    pos = nl + 1
-    line++
-  }
-  return pos
-}
 
 function splitKey(key: string): string[] {
   const parts: string[] = []
@@ -38,6 +27,7 @@ function splitKey(key: string): string[] {
 
 export const tomlExtractor: Extractor = (text: string, _ctx: ExtractContext) => {
   const lines = text.split('\n')
+  const offsets = buildLineOffsets(text)
   const root: OutlineNode[] = []
   // Map of dotted key → node at that level (for nesting).
   const seen = new Map<string, OutlineNode>()
@@ -51,7 +41,7 @@ export const tomlExtractor: Extractor = (text: string, _ctx: ExtractContext) => 
     const parts = splitKey(rawKey)
     if (parts.length === 0) continue
     const lineNum = i + 1
-    const from = offsetOfLine(text, lineNum)
+    const from = lineStart(offsets, lineNum)
     const to = from + line.trimEnd().length
 
     let parent: OutlineNode | null = null

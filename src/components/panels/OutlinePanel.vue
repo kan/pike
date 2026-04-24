@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { EditorView } from '@codemirror/view'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useOutlineSource } from '../../composables/useOutlineSource'
 import { useI18n } from '../../i18n'
 import { extractOutline, type OutlineNode, type OutlineResult } from '../../lib/outline'
@@ -157,6 +157,11 @@ watch(
     bodyRef.value.scrollTop = outlineSource.scrollPositions.get(tabId) ?? 0
   },
 )
+
+onBeforeUnmount(() => {
+  if (versionTimer) clearTimeout(versionTimer)
+  if (caretTimer) clearTimeout(caretTimer)
+})
 </script>
 
 <template>

@@ -1,18 +1,7 @@
 import type { ExtractContext, Extractor, OutlineNode } from '../types'
+import { buildLineOffsets, lineStart } from './_util'
 
 const ASSIGN_RE = /^([A-Za-z_][A-Za-z0-9_]*)\s*[:+?]?=/
-
-function offsetOfLine(text: string, lineNum: number): number {
-  let pos = 0
-  let line = 1
-  while (line < lineNum && pos < text.length) {
-    const nl = text.indexOf('\n', pos)
-    if (nl < 0) return text.length
-    pos = nl + 1
-    line++
-  }
-  return pos
-}
 
 /** Extract target names from a rule line like `foo bar: deps` → ['foo', 'bar']. */
 function parseTargetLine(line: string): string[] | null {
@@ -43,13 +32,14 @@ function parseTargetLine(line: string): string[] | null {
 
 export const makefileExtractor: Extractor = (text: string, _ctx: ExtractContext) => {
   const lines = text.split('\n')
+  const offsets = buildLineOffsets(text)
   const nodes: OutlineNode[] = []
   const seen = new Set<string>()
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     const lineNum = i + 1
-    const lineStart = offsetOfLine(text, lineNum)
+    const lineStartOffset = lineStart(offsets, lineNum)
 
     // Top-level variable assignment (skip indented/recipe lines)
     if (!line.startsWith('\t')) {
@@ -58,12 +48,12 @@ export const makefileExtractor: Extractor = (text: string, _ctx: ExtractContext)
         const indent = line.length - line.trimStart().length
         const name = am[1]
         nodes.push({
-          id: `variable:${name}:${lineNum}:${lineStart + indent}`,
+          id: `variable:${name}:${lineNum}:${lineStartOffset + indent}`,
           name,
           kind: 'variable',
           line: lineNum,
-          from: lineStart + indent,
-          to: lineStart + line.trimEnd().length,
+          from: lineStartOffset + indent,
+          to: lineStartOffset + line.trimEnd().length,
           children: [],
         })
         continue
@@ -80,12 +70,12 @@ export const makefileExtractor: Extractor = (text: string, _ctx: ExtractContext)
       if (seen.has(key)) continue
       seen.add(key)
       nodes.push({
-        id: `function:${name}:${lineNum}:${lineStart}`,
+        id: `function:${name}:${lineNum}:${lineStartOffset}`,
         name,
         kind: 'function',
         line: lineNum,
-        from: lineStart,
-        to: lineStart + line.trimEnd().length,
+        from: lineStartOffset,
+        to: lineStartOffset + line.trimEnd().length,
         children: [],
       })
     }
