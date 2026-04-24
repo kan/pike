@@ -218,10 +218,7 @@ onMounted(async () => {
         // the error instead of having it vanish.
         const aliveFor = Date.now() - spawnedAt
         if (!tab.pinned && aliveFor >= SPAWN_GRACE_PERIOD_MS) {
-          // Task tabs close quickly once the command is truly done; plain tabs
-          // that exit linger a bit longer so accidental closures are noticed.
-          const delay = tab.closeOnExit ? 300 : 1000
-          setTimeout(() => tabStore.closeTab(props.tabId), delay)
+          setTimeout(() => tabStore.closeTab(props.tabId), 1000)
         }
       }
     },
