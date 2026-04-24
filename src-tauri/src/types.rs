@@ -13,6 +13,23 @@ pub fn silent_command(program: &str) -> Command {
     cmd
 }
 
+/// User-local binary paths to prepend to PATH when invoking WSL commands that
+/// may need to find user-installed binaries (signing programs, hooks,
+/// credential helpers). `bash -l` would pick these up via `.profile`, but we
+/// use `bash -c` (non-login) to avoid tty-related hangs.
+pub const WSL_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.cargo/bin:$HOME/go/bin:/usr/local/bin";
+
+/// Quote a string for safe interpolation into a `bash -c` command.
+pub fn shell_quote(s: &str) -> String {
+    if s.is_empty() {
+        return "''".to_string();
+    }
+    if s.chars().all(|c| c.is_alphanumeric() || "-_./=@:+".contains(c)) {
+        return s.to_string();
+    }
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ShellConfig {
@@ -59,6 +76,39 @@ impl ShellConfig {
     /// Execute with a 30 s timeout and return stdout on success, Err on failure.
     pub fn run_stdout(&self, program: &str, args: &[&str]) -> Result<String, String> {
         let output = self.run_with_timeout(program, args, Duration::from_secs(30))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("{program} error: {stderr}"));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    /// WSL: route through `bash -c` with `WSL_EXTRA_PATH` prepended so user-installed
+    /// binaries (signing programs, git hooks) resolve. Other shells behave like `run_stdout`.
+    pub fn run_stdout_with_user_path(&self, program: &str, args: &[&str]) -> Result<String, String> {
+        let mut cmd = match self {
+            ShellConfig::Wsl { distro } => {
+                let mut parts = Vec::with_capacity(1 + args.len());
+                parts.push(shell_quote(program));
+                for a in args {
+                    parts.push(shell_quote(a));
+                }
+                let script = format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" {}", parts.join(" "));
+                let mut cmd = silent_command("wsl.exe");
+                cmd.arg("-d").arg(distro).arg("-e").arg("bash").arg("-c").arg(script);
+                cmd
+            }
+            _ => self.command(program, args),
+        };
+        let child = cmd
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to run {program}: {e}"))?;
+        let pid = child.id();
+        let output = wait_with_timeout(pid, Duration::from_secs(30), program, move || {
+            child.wait_with_output()
+        })?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("{program} error: {stderr}"));

@@ -298,7 +298,10 @@ pub async fn git_commit(
     message: String,
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        run_git(&shell, &root, &["commit", "-m", &message])?;
+        // Route through user-PATH variant so commit hooks, gpg.ssh.program,
+        // and other user-installed binaries resolve (Pike's default WSL spawn
+        // bypasses bash and misses ~/.local/bin, ~/bin, etc.).
+        shell.run_stdout_with_user_path("git", &["-C", &root, "commit", "-m", &message])?;
         Ok(())
     })
     .await

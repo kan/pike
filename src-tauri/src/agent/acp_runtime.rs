@@ -64,10 +64,7 @@ impl Default for AcpAgentConfig {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// User-local binary paths to prepend to PATH in non-login shell contexts.
-/// Login shell (`bash -l`) can hang without a tty, so we use `bash -c` and
-/// explicitly add directories where npm/bun/fnm install binaries.
-pub(super) const WSL_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin";
+pub(super) use crate::types::{WSL_EXTRA_PATH, shell_quote};
 
 /// Build a shell command string with quoting for `bash -c`.
 fn build_shell_command(command: &str, args: &[String]) -> String {
@@ -77,19 +74,6 @@ fn build_shell_command(command: &str, args: &[String]) -> String {
         parts.push(shell_quote(arg));
     }
     format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" {}", parts.join(" "))
-}
-
-/// Quote a string for safe use in a bash command.
-fn shell_quote(s: &str) -> String {
-    if s.is_empty() {
-        return "''".to_string();
-    }
-    // If it contains no special characters, return as-is
-    if s.chars().all(|c| c.is_alphanumeric() || "-_./=@:+".contains(c)) {
-        return s.to_string();
-    }
-    // Wrap in single quotes, escaping embedded single quotes
-    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 // ---------------------------------------------------------------------------
