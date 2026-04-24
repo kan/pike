@@ -1,9 +1,10 @@
 use crate::types::ShellConfig;
 use percent_encoding::percent_decode_str;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
@@ -14,14 +15,14 @@ pub struct PtyState {
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    child: Box<dyn Child + Send + Sync>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
     cwd: Arc<Mutex<Option<String>>>,
     window_label: String,
 }
 
 impl Drop for PtySession {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        let _ = self.killer.kill();
     }
 }
 
@@ -63,10 +64,11 @@ fn spawn_pty_with_command(
 
     let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
 
-    let child = pair
+    let mut child = pair
         .slave
         .spawn_command(cmd)
         .map_err(|e| e.to_string())?;
+    let killer = child.clone_killer();
 
     drop(pair.slave);
 
@@ -82,6 +84,7 @@ fn spawn_pty_with_command(
 
     let id = uuid::Uuid::new_v4().to_string();
     let shared_cwd = Arc::new(Mutex::new(cwd));
+    let exit_emitted = Arc::new(AtomicBool::new(false));
 
     {
         let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
@@ -90,15 +93,37 @@ fn spawn_pty_with_command(
             PtySession {
                 master: pair.master,
                 writer: Arc::new(Mutex::new(writer)),
-                child,
+                killer,
                 cwd: Arc::clone(&shared_cwd),
                 window_label,
             },
         );
     }
 
+    // Waiter thread: emits `pty_exit` when the child actually exits, with its
+    // real status code. Windows ConPTY can keep the master open past child
+    // death, so the reader thread's EOF alone is unreliable.
+    {
+        let wait_id = id.clone();
+        let wait_app = app.clone();
+        let wait_flag = Arc::clone(&exit_emitted);
+        std::thread::spawn(move || {
+            let code = child
+                .wait()
+                .map(|s| s.exit_code() as i32)
+                .unwrap_or(-1);
+            if !wait_flag.swap(true, Ordering::SeqCst) {
+                let _ = wait_app.emit(
+                    "pty_exit",
+                    PtyExitPayload { id: wait_id, code },
+                );
+            }
+        });
+    }
+
     // Spawn reader thread to forward PTY output to frontend
     let read_id = id.clone();
+    let reader_flag = Arc::clone(&exit_emitted);
     std::thread::spawn(move || {
         let mut reader = reader;
         let mut buf = vec![0u8; 4096];
@@ -108,13 +133,15 @@ fn spawn_pty_with_command(
         loop {
             match std::io::Read::read(&mut reader, &mut buf) {
                 Ok(0) => {
-                    let _ = app.emit(
-                        "pty_exit",
-                        PtyExitPayload {
-                            id: read_id.clone(),
-                            code: 0,
-                        },
-                    );
+                    if !reader_flag.swap(true, Ordering::SeqCst) {
+                        let _ = app.emit(
+                            "pty_exit",
+                            PtyExitPayload {
+                                id: read_id.clone(),
+                                code: 0,
+                            },
+                        );
+                    }
                     break;
                 }
                 Ok(n) => {
@@ -161,13 +188,15 @@ fn spawn_pty_with_command(
                     }
                 }
                 Err(_) => {
-                    let _ = app.emit(
-                        "pty_exit",
-                        PtyExitPayload {
-                            id: read_id.clone(),
-                            code: -1,
-                        },
-                    );
+                    if !reader_flag.swap(true, Ordering::SeqCst) {
+                        let _ = app.emit(
+                            "pty_exit",
+                            PtyExitPayload {
+                                id: read_id.clone(),
+                                code: -1,
+                            },
+                        );
+                    }
                     break;
                 }
             }
