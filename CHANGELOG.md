@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-04-25
+
+### Features
+
+- **アウトラインパネル**: サイドバーにシンボルアウトラインを表示（11 言語 + 新規 7 言語）。カーソル位置追従ハイライト、祖先自動展開、scrollIntoView。Outline / History 2タブ構成でファイル別 git log も表示（行クリックで diff タブを開く）
+  - 対応言語: Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / YAML / JSON に加え **Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile** を追加
+  - untitled タブ・大ファイル・未対応言語をそれぞれ区別したメッセージ
+  - タブ別スクロール位置保持
+- **初期プロジェクトで Agent タブを自動作成しない**: 空プロジェクトは通常ターミナル 1 タブのみを開く
+- **タスクタブの自動クローズ**: Tasks パネルから起動したコマンド完了時にタブが自動で閉じる（`closeOnExit` オプション + シェル別 exit ラップ）
+
+### Fixed
+
+- **Git コミット時の signing エラー**: WSL プロジェクトで `git-ssh-sign` 等ユーザー設置バイナリが解決できずコミットが失敗していた問題を修正。`bash -c` 経由で `WSL_EXTRA_PATH` を前置して spawn
+- **PTY 終了検知の信頼性向上**: Windows ConPTY が子プロセス終了後も master に EOF を流さないケースで `pty_exit` が emit されずタブが閉じなかった問題を修正。`child.wait()` を監視する waiter thread を追加、正確な exit code を反映
+- **起動直後の PTY 即死を吸収するグレース期間**: spawn 後 2 秒未満で exit した場合は自動クローズをスキップし、エラー内容を読める状態にする
+- **spawn 失敗の可視化**: `pty_spawn` 失敗時に `exitCode = -1` をセットしタブバッジで失敗を可視化
+
+### Refactored
+
+- アウトライン行オフセット処理を `buildLineOffsets` / `lineStart` に共通化（O(N²) → O(N) + O(1)）
+- `types.rs` に `WSL_EXTRA_PATH` / `bash_quote` / `spawn_stdout` を集約し、ACP ランタイムと共有
+
 ## [0.5.5] - 2026-04-23
 
 ### Features
