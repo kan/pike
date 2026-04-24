@@ -4,6 +4,7 @@ import { goExtractor } from './extractors/go'
 import { htmlExtractor } from './extractors/html'
 import { jsonExtractor } from './extractors/json'
 import { kotlinExtractor } from './extractors/kotlin'
+import { makefileExtractor } from './extractors/makefile'
 import { markdownExtractor } from './extractors/markdown'
 import { perlExtractor } from './extractors/perl'
 import { phpExtractor } from './extractors/php'
@@ -62,5 +63,8 @@ function pickExtractor(langId: string, filename: string): Extractor | null {
   if (langId === 'php' || langId === 'phtml') return phpExtractor
   if (langId === 'toml') return tomlExtractor
   if (langId === 'dockerfile' || /^dockerfile(\..*)?$/i.test(filename)) return dockerfileExtractor
+  if (langId === 'mk' || langId === 'mak' || langId === 'makefile' || /^(gnu)?makefile(\..*)?$/i.test(filename)) {
+    return makefileExtractor
+  }
   return null
 }
