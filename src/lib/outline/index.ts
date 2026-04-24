@@ -1,11 +1,17 @@
 import { cssExtractor } from './extractors/css'
+import { dockerfileExtractor } from './extractors/dockerfile'
 import { goExtractor } from './extractors/go'
 import { htmlExtractor } from './extractors/html'
 import { jsonExtractor } from './extractors/json'
+import { kotlinExtractor } from './extractors/kotlin'
 import { markdownExtractor } from './extractors/markdown'
 import { perlExtractor } from './extractors/perl'
+import { phpExtractor } from './extractors/php'
 import { pythonExtractor } from './extractors/python'
+import { rubyExtractor } from './extractors/ruby'
 import { rustExtractor } from './extractors/rust'
+import { swiftExtractor } from './extractors/swift'
+import { tomlExtractor } from './extractors/toml'
 import { typescriptExtractor } from './extractors/typescript'
 import { vueExtractor } from './extractors/vue'
 import { yamlExtractor } from './extractors/yaml'
@@ -36,7 +42,7 @@ export function extractOutline(text: string, ctx: ExtractContext): OutlineResult
   }
 }
 
-function pickExtractor(langId: string, _filename: string): Extractor | null {
+function pickExtractor(langId: string, filename: string): Extractor | null {
   if (langId === 'md' || langId === 'markdown') return markdownExtractor
   if (langId === 'ts' || langId === 'tsx' || langId === 'js' || langId === 'jsx' || langId === 'mjs') {
     return typescriptExtractor
@@ -50,5 +56,11 @@ function pickExtractor(langId: string, _filename: string): Extractor | null {
   if (langId === 'pl' || langId === 'pm') return perlExtractor
   if (langId === 'yaml' || langId === 'yml') return yamlExtractor
   if (langId === 'json' || langId === 'jsonc') return jsonExtractor
+  if (langId === 'rb') return rubyExtractor
+  if (langId === 'kt' || langId === 'kts') return kotlinExtractor
+  if (langId === 'swift') return swiftExtractor
+  if (langId === 'php' || langId === 'phtml') return phpExtractor
+  if (langId === 'toml') return tomlExtractor
+  if (langId === 'dockerfile' || /^dockerfile(\..*)?$/i.test(filename)) return dockerfileExtractor
   return null
 }
