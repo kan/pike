@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { EditorView } from '@codemirror/view'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useOutlineSource } from '../../composables/useOutlineSource'
 import { useI18n } from '../../i18n'
-import { extractOutline, type OutlineNode } from '../../lib/outline'
+import { extractOutline, type OutlineNode, type OutlineResult } from '../../lib/outline'
 import { basename } from '../../lib/paths'
 import OutlineTreeView from './outline/OutlineTreeView.vue'
 
@@ -13,8 +13,7 @@ const outlineSource = useOutlineSource()
 type OutlineTab = 'outline' | 'history'
 const activeTab = ref<OutlineTab>('outline')
 
-/** null = unsupported language; [] = supported but no symbols. */
-const outline = ref<OutlineNode[] | null>(null)
+const result = ref<OutlineResult | null>(null)
 const debouncedVersion = ref(0)
 let versionTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -28,18 +27,21 @@ watch(
   },
 )
 
-// Re-extract on source change (immediate) or debounced doc change.
 watch([() => outlineSource.current.value?.tabId, debouncedVersion], () => recompute(), { immediate: true })
 
 function recompute() {
   const src = outlineSource.current.value
   if (!src) {
-    outline.value = null
+    result.value = null
+    return
+  }
+  if (!src.path) {
+    result.value = null
     return
   }
   const text = src.view.state.doc.toString()
-  outline.value = extractOutline(text, {
-    filename: src.path ? basename(src.path) : '',
+  result.value = extractOutline(text, {
+    filename: basename(src.path),
     langId: src.langId,
     state: src.view.state,
   })
@@ -59,12 +61,39 @@ function onSelect(node: OutlineNode) {
   view.focus()
 }
 
-const status = computed<'no-source' | 'unsupported' | 'empty' | 'ok'>(() => {
-  if (!outlineSource.current.value) return 'no-source'
-  if (outline.value === null) return 'unsupported'
-  if (outline.value.length === 0) return 'empty'
+type Status = 'no-source' | 'untitled' | 'too-large' | 'unsupported' | 'empty' | 'ok'
+
+const status = computed<Status>(() => {
+  const src = outlineSource.current.value
+  if (!src) return 'no-source'
+  if (!src.path) return 'untitled'
+  const r = result.value
+  if (!r) return 'no-source'
+  if (r.kind === 'too-large') return 'too-large'
+  if (r.kind === 'unsupported') return 'unsupported'
+  if (r.nodes.length === 0) return 'empty'
   return 'ok'
 })
+
+const nodes = computed<OutlineNode[]>(() => (result.value?.kind === 'ok' ? result.value.nodes : []))
+
+const bodyRef = ref<HTMLDivElement | null>(null)
+
+function onBodyScroll() {
+  const tabId = outlineSource.current.value?.tabId
+  if (!tabId || !bodyRef.value) return
+  outlineSource.scrollPositions.set(tabId, bodyRef.value.scrollTop)
+}
+
+watch(
+  () => outlineSource.current.value?.tabId,
+  async (tabId) => {
+    if (!tabId) return
+    await nextTick()
+    if (!bodyRef.value) return
+    bodyRef.value.scrollTop = outlineSource.scrollPositions.get(tabId) ?? 0
+  },
+)
 </script>
 
 <template>
@@ -86,12 +115,14 @@ const status = computed<'no-source' | 'unsupported' | 'empty' | 'ok'>(() => {
         {{ t('outline.tabHistory') }}
       </button>
     </div>
-    <div class="outline-body">
+    <div class="outline-body" ref="bodyRef" @scroll="onBodyScroll">
       <template v-if="activeTab === 'outline'">
         <div v-if="status === 'no-source'" class="empty">{{ t('outline.empty') }}</div>
+        <div v-else-if="status === 'untitled'" class="empty">{{ t('outline.untitled') }}</div>
+        <div v-else-if="status === 'too-large'" class="empty">{{ t('outline.tooLarge') }}</div>
         <div v-else-if="status === 'unsupported'" class="empty">{{ t('outline.unsupported') }}</div>
         <div v-else-if="status === 'empty'" class="empty">{{ t('outline.noSymbols') }}</div>
-        <OutlineTreeView v-else :nodes="outline ?? []" @select="onSelect" />
+        <OutlineTreeView v-else :nodes="nodes" @select="onSelect" />
       </template>
       <div v-else class="empty">—</div>
     </div>

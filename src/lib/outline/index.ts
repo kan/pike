@@ -13,25 +13,26 @@ import type { ExtractContext, Extractor, OutlineNode } from './types'
 
 export type { ExtractContext, OutlineKind, OutlineNode } from './types'
 
+export type OutlineResult = { kind: 'ok'; nodes: OutlineNode[] } | { kind: 'too-large' } | { kind: 'unsupported' }
+
 /** Skip extraction for excessively large files. */
 const MAX_BYTES = 5 * 1024 * 1024
 const MAX_LINES = 50_000
 
-/**
- * Returns OutlineNode tree for the given file, or null if the language is
- * not supported. Empty array means "supported but no symbols".
- */
-export function extractOutline(text: string, ctx: ExtractContext): OutlineNode[] | null {
-  if (text.length > MAX_BYTES) return null
-  if (ctx.state.doc.lines > MAX_LINES) return null
+export function extractOutline(text: string, ctx: ExtractContext): OutlineResult {
+  if (text.length > MAX_BYTES || ctx.state.doc.lines > MAX_LINES) {
+    return { kind: 'too-large' }
+  }
 
   const extractor = pickExtractor(ctx.langId, ctx.filename)
-  if (!extractor) return null
+  if (!extractor) return { kind: 'unsupported' }
 
   try {
-    return extractor(text, ctx)
+    const nodes = extractor(text, ctx)
+    if (!nodes) return { kind: 'unsupported' }
+    return { kind: 'ok', nodes }
   } catch {
-    return null
+    return { kind: 'unsupported' }
   }
 }
 

@@ -376,6 +376,8 @@ export default {
   'outline.empty': 'ファイルが開かれていません',
   'outline.unsupported': 'このファイルのアウトラインには対応していません',
   'outline.noSymbols': 'シンボルが見つかりません',
+  'outline.untitled': '無題タブはアウトラインに対応していません',
+  'outline.tooLarge': 'ファイルが大きいためアウトラインをスキップしました',
   'outline.tabOutline': 'アウトライン',
   'outline.tabHistory': '履歴',
 } as Record<string, string>

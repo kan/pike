@@ -375,6 +375,8 @@ export default {
   'outline.empty': 'No file opened',
   'outline.unsupported': 'No outline available for this file',
   'outline.noSymbols': 'No symbols found',
+  'outline.untitled': 'Outline unavailable for untitled tabs',
+  'outline.tooLarge': 'File too large — outline extraction skipped',
   'outline.tabOutline': 'Outline',
   'outline.tabHistory': 'History',
 } as Record<string, string>

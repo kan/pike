@@ -15,6 +15,9 @@ export interface OutlineSource {
 
 const current = shallowRef<OutlineSource | null>(null)
 
+/** Per-tab scroll position for the outline panel body. Persists across panel remounts. */
+const scrollPositions = new Map<string, number>()
+
 export function useOutlineSource() {
   function set(src: Omit<OutlineSource, 'version'>) {
     current.value = { ...src, version: 0 }
@@ -24,6 +27,7 @@ export function useOutlineSource() {
     if (!tabId || current.value?.tabId === tabId) {
       current.value = null
     }
+    if (tabId) scrollPositions.delete(tabId)
   }
 
   function bumpVersion(tabId: string) {
@@ -31,5 +35,5 @@ export function useOutlineSource() {
     current.value = { ...current.value, version: current.value.version + 1 }
   }
 
-  return { current, set, clear, bumpVersion }
+  return { current, set, clear, bumpVersion, scrollPositions }
 }
