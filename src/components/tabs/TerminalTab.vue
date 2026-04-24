@@ -182,12 +182,23 @@ onMounted(async () => {
   const tabData = tabStore.tabs.find((t) => t.id === props.tabId)
   const spawnOpts = tabData?.kind === 'terminal' ? { cwd: tabData.cwd, shell: tabData.shell } : undefined
 
+  let spawnedAt = 0
   try {
     const result = await ptySpawn(cols, rows, spawnOpts)
     ptyId = result.id
+    spawnedAt = Date.now()
     tabStore.setPtyId(props.tabId, ptyId)
+    // Clear any stale state from prior mounts (defensive)
+    const tab = tabStore.tabs.find((t) => t.id === props.tabId)
+    if (tab?.kind === 'terminal') {
+      tab.exitCode = undefined
+      tab.hasActivity = false
+    }
   } catch (e) {
     terminal.write(`\r\n${t('terminal.failedSpawn', { error: String(e) })}\r\n`)
+    const tab = tabStore.tabs.find((t) => t.id === props.tabId)
+    // -1 indicates spawn failure so the badge distinguishes it from a real exit code
+    if (tab?.kind === 'terminal') tab.exitCode = -1
     return
   }
 
@@ -206,8 +217,11 @@ onMounted(async () => {
       const tab = tabStore.tabs.find((t) => t.id === props.tabId)
       if (tab?.kind === 'terminal') {
         tab.exitCode = code
-        // Auto-close non-pinned tabs after a brief delay
-        if (!tab.pinned) {
+        // Suppress auto-close if the PTY died within 2s of spawn — this is
+        // almost always a failed autoStart or a bad shell config, and the user
+        // needs to see the error instead of the tab vanishing.
+        const aliveFor = Date.now() - spawnedAt
+        if (!tab.pinned && aliveFor >= 2000) {
           setTimeout(() => tabStore.closeTab(props.tabId), 1000)
         }
       }
