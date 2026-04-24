@@ -124,9 +124,6 @@ export const useProjectStore = defineStore('project', () => {
           })
         }
       }
-      if (project.pinnedTabs.length === 0) {
-        tabStore.addAgentChatTab({ pinned: true, agentType: 'claude-code' })
-      }
     }
 
     // Ensure at least one plain terminal tab exists (for CWD detection, etc.)
