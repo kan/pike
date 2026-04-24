@@ -76,6 +76,8 @@ export type TerminalTab = {
   pinned: boolean
   ptyId: string | null
   autoStart?: string
+  /** When true (with autoStart), wrap the command so the shell exits on completion. */
+  closeOnExit?: boolean
   cwd?: string
   shell?: ShellType
   hasActivity?: boolean

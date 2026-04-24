@@ -37,6 +37,7 @@ export const useTabStore = defineStore('tabs', () => {
     title?: string
     pinned?: boolean
     autoStart?: string
+    closeOnExit?: boolean
     cwd?: string
     shell?: ShellType
   }): string {
@@ -48,6 +49,7 @@ export const useTabStore = defineStore('tabs', () => {
       pinned: options?.pinned ?? false,
       ptyId: null,
       autoStart: options?.autoStart,
+      closeOnExit: options?.closeOnExit,
       cwd: options?.cwd,
       shell: options?.shell,
     })

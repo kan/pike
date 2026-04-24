@@ -218,7 +218,10 @@ onMounted(async () => {
         // the error instead of having it vanish.
         const aliveFor = Date.now() - spawnedAt
         if (!tab.pinned && aliveFor >= SPAWN_GRACE_PERIOD_MS) {
-          setTimeout(() => tabStore.closeTab(props.tabId), 1000)
+          // Task tabs close quickly once the command is truly done; plain tabs
+          // that exit linger a bit longer so accidental closures are noticed.
+          const delay = tab.closeOnExit ? 300 : 1000
+          setTimeout(() => tabStore.closeTab(props.tabId), delay)
         }
       }
     },
@@ -245,7 +248,19 @@ onMounted(async () => {
     const chain = shellKind === 'powershell' ? '; ' : ' && '
 
     if (tabData.autoStart) {
-      initLines.push(clearCmd + chain + tabData.autoStart)
+      if (tabData.closeOnExit) {
+        // Wrap so the shell exits with the command's exit code → PTY closes →
+        // the pty_exit handler's auto-close path fires.
+        if (shellKind === 'cmd') {
+          initLines.push(`cls & ${tabData.autoStart} & exit /B %ERRORLEVEL%`)
+        } else if (shellKind === 'powershell') {
+          initLines.push(`cls; ${tabData.autoStart}; exit $LASTEXITCODE`)
+        } else {
+          initLines.push(`clear; ${tabData.autoStart}; exit`)
+        }
+      } else {
+        initLines.push(clearCmd + chain + tabData.autoStart)
+      }
     } else if (initLines.length > 0) {
       initLines.push(clearCmd)
     }
