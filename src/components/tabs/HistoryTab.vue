@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
+import { formatLineRange } from '../../lib/format'
 import { relativeDate } from '../../lib/paths'
-import { gitDiffCommit, gitLogFile } from '../../lib/tauri'
+import { gitDiffCommit, gitLogFile, gitLogFileLines } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import type { GitLogEntry } from '../../types/git'
@@ -21,6 +22,26 @@ const loading = ref(true)
 const selectedHash = ref<string | null>(null)
 const diffText = ref('')
 const diffLoading = ref(false)
+const searchQuery = ref('')
+
+const filteredEntries = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return entries.value
+  return entries.value.filter((e) => {
+    return e.hash.toLowerCase().includes(q) || e.message.toLowerCase().includes(q) || e.author.toLowerCase().includes(q)
+  })
+})
+
+const lineRangeLabel = computed(() => {
+  const range = tab.value?.lineRange
+  return range ? formatLineRange(range) : ''
+})
+
+const countLabel = computed(() => {
+  const total = entries.value.length
+  if (!searchQuery.value.trim()) return t('history.count', { total: String(total) })
+  return t('history.countFiltered', { filtered: String(filteredEntries.value.length), total: String(total) })
+})
 
 interface DiffLine {
   left: { num: number | null; text: string; type: string }
@@ -116,7 +137,19 @@ onMounted(async () => {
   const project = projectStore.currentProject
   if (!project || !tab.value) return
   try {
-    entries.value = await gitLogFile(project.root, project.shell, tab.value.filePath, 200)
+    const range = tab.value.lineRange
+    if (range) {
+      entries.value = await gitLogFileLines(
+        project.root,
+        project.shell,
+        tab.value.filePath,
+        range.start,
+        range.end,
+        200,
+      )
+    } else {
+      entries.value = await gitLogFile(project.root, project.shell, tab.value.filePath, 200)
+    }
   } catch {
     entries.value = []
   } finally {
@@ -129,12 +162,23 @@ onMounted(async () => {
   <div class="history-tab">
     <div v-if="!tab" class="status">{{ t('history.notFound') }}</div>
     <template v-else>
+      <div class="history-header">
+        <span v-if="lineRangeLabel" class="range-badge">{{ lineRangeLabel }}</span>
+        <input
+          v-model="searchQuery"
+          class="search-input"
+          type="text"
+          :placeholder="t('history.searchPlaceholder')"
+        />
+        <span class="count">{{ countLabel }}</span>
+      </div>
       <!-- Top: commit list -->
       <div class="commit-list">
         <div v-if="loading" class="status">{{ t('common.loading') }}</div>
         <div v-else-if="!entries.length" class="status">{{ t('history.noHistory') }}</div>
+        <div v-else-if="!filteredEntries.length" class="status">{{ t('history.noMatch') }}</div>
         <div
-          v-for="entry in entries"
+          v-for="entry in filteredEntries"
           :key="entry.hash"
           class="commit-row"
           :class="{ selected: entry.hash === selectedHash }"
@@ -176,6 +220,48 @@ onMounted(async () => {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-primary);
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex: 0 0 auto;
+}
+
+.range-badge {
+  font-family: monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--text-active);
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: var(--accent);
+}
+
+.count {
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 .commit-list {

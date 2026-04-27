@@ -54,6 +54,7 @@ export default {
   'editor.copy': 'Copy',
   'editor.paste': 'Paste',
   'editor.gitHistory': 'Git History',
+  'editor.gitHistoryRange': 'Git History ({range})',
   'editor.edit': 'Edit',
   'editor.split': 'Split',
   'editor.preview': 'Preview',
@@ -77,8 +78,12 @@ export default {
   // History
   'history.notFound': 'Not found',
   'history.noHistory': 'No history',
+  'history.noMatch': 'No matching commits',
   'history.selectCommit': 'Select a commit to view diff',
   'history.loadingDiff': 'Loading diff...',
+  'history.searchPlaceholder': 'Filter by hash, message, or author',
+  'history.count': '{total} commits',
+  'history.countFiltered': '{filtered} / {total}',
 
   // Preview
   'preview.notFound': 'Preview not found',

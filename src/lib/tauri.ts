@@ -227,6 +227,24 @@ export async function gitLogFile(root: string, shell: ShellType, path: string, c
   return invoke<GitLogEntry[]>('git_log_file', { root, shell, path, count: count ?? null })
 }
 
+export async function gitLogFileLines(
+  root: string,
+  shell: ShellType,
+  path: string,
+  startLine: number,
+  endLine: number,
+  count?: number,
+): Promise<GitLogEntry[]> {
+  return invoke<GitLogEntry[]>('git_log_file_lines', {
+    root,
+    shell,
+    path,
+    startLine,
+    endLine,
+    count: count ?? null,
+  })
+}
+
 export interface GitDiffLines {
   added: [number, number][]
   modified: [number, number][]

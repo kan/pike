@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
 import { t } from '../i18n'
+import { formatLineRange } from '../lib/format'
 import { basename } from '../lib/paths'
 import { agentDisconnect, ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
@@ -253,19 +254,28 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function addHistoryTab(options: { filePath: string }): string {
-    const existing = tabs.value.find((t): t is HistoryTab => t.kind === 'history' && t.filePath === options.filePath)
+  function addHistoryTab(options: { filePath: string; lineRange?: { start: number; end: number } }): string {
+    const range = options.lineRange
+    const existing = tabs.value.find(
+      (t): t is HistoryTab =>
+        t.kind === 'history' &&
+        t.filePath === options.filePath &&
+        t.lineRange?.start === range?.start &&
+        t.lineRange?.end === range?.end,
+    )
     if (existing) {
       activeTabId.value = existing.id
       return existing.id
     }
     const id = genId()
+    const suffix = range ? `(${formatLineRange(range)})` : '(history)'
     tabs.value.push({
       id,
       kind: 'history',
-      title: `${basename(options.filePath)} (history)`,
+      title: `${basename(options.filePath)} ${suffix}`,
       pinned: false,
       filePath: options.filePath,
+      lineRange: range,
     })
     activeTabId.value = id
     return id

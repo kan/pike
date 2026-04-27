@@ -16,6 +16,7 @@ import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { minimap } from '../../lib/editorMinimap'
 import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
+import { formatLineRange } from '../../lib/format'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { basename, extension } from '../../lib/paths'
 import { fsReadFile, fsWriteFile, gitDiffLines, openUrlWithConfirm, pickSaveFile } from '../../lib/tauri'
@@ -469,14 +470,30 @@ async function refreshDiffGutter() {
 
 // --- Context menu ---
 const ctxMenu = ref<{ x: number; y: number } | null>(null)
+const ctxLineRange = ref<{ start: number; end: number } | null>(null)
 
 function onEditorContextMenu(e: MouseEvent) {
   e.preventDefault()
   ctxHasSelection.value = editorView ? !editorView.state.selection.main.empty : false
+  ctxLineRange.value = computeContextLineRange(e)
   ctxMenu.value = { x: e.clientX, y: e.clientY }
   nextTick(() => {
     window.addEventListener('mousedown', closeCtxMenu, { once: true })
   })
+}
+
+function computeContextLineRange(e: MouseEvent): { start: number; end: number } | null {
+  if (!editorView) return null
+  const sel = editorView.state.selection.main
+  if (!sel.empty) {
+    const start = editorView.state.doc.lineAt(sel.from).number
+    const end = editorView.state.doc.lineAt(sel.to).number
+    return { start, end }
+  }
+  const pos = editorView.posAtCoords({ x: e.clientX, y: e.clientY })
+  if (pos == null) return null
+  const line = editorView.state.doc.lineAt(pos).number
+  return { start: line, end: line }
 }
 
 function closeCtxMenu() {
@@ -519,6 +536,19 @@ function openGitHistory() {
   if (!tab.value) return
   tabStore.addHistoryTab({ filePath: tab.value.path })
 }
+
+function openGitHistoryForLine() {
+  const range = ctxLineRange.value
+  closeCtxMenu()
+  if (!tab.value || !range) return
+  tabStore.addHistoryTab({ filePath: tab.value.path, lineRange: range })
+}
+
+const gitHistoryLineLabel = computed(() => {
+  const range = ctxLineRange.value
+  if (!range) return t('editor.gitHistoryRange', { range: '' })
+  return t('editor.gitHistoryRange', { range: formatLineRange(range) })
+})
 
 const isReadOnlyTab = computed(() => tab.value?.readOnly ?? false)
 // Snapshot selection state when context menu opens (not reactive — avoids stale computed)
@@ -1003,6 +1033,9 @@ onUnmounted(() => {
         <button @click="execPaste" :disabled="isReadOnlyTab"><span>{{ t('editor.paste') }}</span><span class="ctx-key">Ctrl+V</span></button>
         <div class="ctx-separator"></div>
         <button @click="openGitHistory"><span>{{ t('editor.gitHistory') }}</span><span class="ctx-key">Alt+H</span></button>
+        <button @click="openGitHistoryForLine" :disabled="!ctxLineRange">
+          <span>{{ gitHistoryLineLabel }}</span>
+        </button>
       </div>
     </Teleport>
 

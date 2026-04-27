@@ -1,3 +1,7 @@
+export function formatLineRange(range: { start: number; end: number }): string {
+  return range.start === range.end ? `L${range.start}` : `L${range.start}-${range.end}`
+}
+
 export function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`

@@ -132,6 +132,8 @@ export type HistoryTab = {
   title: string
   pinned: boolean
   filePath: string
+  /** When set, show commits that modified the given inclusive line range only (`git log -L`). */
+  lineRange?: { start: number; end: number }
 }
 
 export type SettingsTab = {

@@ -711,6 +711,7 @@ pub fn run() {
             git::git_show_files,
             git::git_show_file,
             git::git_log_file,
+            git::git_log_file_lines,
             git::git_diff_commit,
             git::git_diff_lines,
             git::git_diff_working,

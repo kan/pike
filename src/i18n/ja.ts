@@ -54,6 +54,7 @@ export default {
   'editor.copy': 'コピー',
   'editor.paste': '貼り付け',
   'editor.gitHistory': 'Git 履歴',
+  'editor.gitHistoryRange': 'Git 履歴 ({range})',
   'editor.edit': '編集',
   'editor.split': '分割',
   'editor.preview': 'プレビュー',
@@ -77,8 +78,12 @@ export default {
   // History
   'history.notFound': '見つかりません',
   'history.noHistory': '履歴なし',
+  'history.noMatch': '一致するコミットなし',
   'history.selectCommit': 'コミットを選択して差分を表示',
   'history.loadingDiff': '差分を読み込み中...',
+  'history.searchPlaceholder': 'ハッシュ・メッセージ・作者で絞り込み',
+  'history.count': '{total} 件',
+  'history.countFiltered': '{filtered} / {total} 件',
 
   // Preview
   'preview.notFound': 'プレビューが見つかりません',

@@ -458,6 +458,44 @@ pub async fn git_log_file(
     Ok(parse_log(&output))
 }
 
+/// Get commits that modified a specific line range of a file using `git log -L`.
+/// Note: `git log -L` ignores `-n`, so we truncate the parsed result instead.
+#[tauri::command]
+pub async fn git_log_file_lines(
+    root: String,
+    shell: ShellConfig,
+    path: String,
+    start_line: u32,
+    end_line: u32,
+    count: Option<u32>,
+) -> Result<Vec<GitLogEntry>, String> {
+    if start_line == 0 || end_line < start_line {
+        return Err("invalid line range".to_string());
+    }
+    let range = format!("{},{}:{}", start_line, end_line, path);
+    let output = tokio::task::spawn_blocking(move || {
+        run_git(
+            &shell,
+            &root,
+            &[
+                "log",
+                "--format=%H%x1f%an%x1f%aI%x1f%s%x1e",
+                "-s",
+                "-L",
+                &range,
+            ],
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let mut entries = parse_log(&output);
+    if let Some(n) = count {
+        entries.truncate(n as usize);
+    }
+    Ok(entries)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitDiffLines {
