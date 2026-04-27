@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from '../../i18n'
+import { parseDiff } from '../../lib/diffParser'
 import { useTabStore } from '../../stores/tabs'
 import type { DiffTab } from '../../types/tab'
 
@@ -11,133 +12,7 @@ const tabStore = useTabStore()
 
 const tab = computed(() => tabStore.tabs.find((t): t is DiffTab => t.id === props.tabId && t.kind === 'diff'))
 
-interface Segment {
-  text: string
-  highlight: boolean
-}
-
-interface DiffSide {
-  num: number | null
-  segments: Segment[]
-  type: string
-}
-
-interface DiffLine {
-  left: DiffSide
-  right: DiffSide
-}
-
-function plain(text: string): Segment[] {
-  return [{ text, highlight: false }]
-}
-
-// Compute character-level diff between two strings
-function charDiff(oldStr: string, newStr: string): { left: Segment[]; right: Segment[] } {
-  // Find common prefix
-  let prefix = 0
-  while (prefix < oldStr.length && prefix < newStr.length && oldStr[prefix] === newStr[prefix]) {
-    prefix++
-  }
-  // Find common suffix (not overlapping with prefix)
-  let suffixOld = oldStr.length
-  let suffixNew = newStr.length
-  while (suffixOld > prefix && suffixNew > prefix && oldStr[suffixOld - 1] === newStr[suffixNew - 1]) {
-    suffixOld--
-    suffixNew--
-  }
-
-  const left: Segment[] = []
-  const right: Segment[] = []
-
-  if (prefix > 0) {
-    left.push({ text: oldStr.slice(0, prefix), highlight: false })
-    right.push({ text: newStr.slice(0, prefix), highlight: false })
-  }
-  const oldMid = oldStr.slice(prefix, suffixOld)
-  const newMid = newStr.slice(prefix, suffixNew)
-  if (oldMid) left.push({ text: oldMid, highlight: true })
-  if (newMid) right.push({ text: newMid, highlight: true })
-  if (suffixOld < oldStr.length) {
-    left.push({ text: oldStr.slice(suffixOld), highlight: false })
-    right.push({ text: newStr.slice(suffixNew), highlight: false })
-  }
-
-  return {
-    left: left.length ? left : [{ text: '', highlight: false }],
-    right: right.length ? right : [{ text: '', highlight: false }],
-  }
-}
-
-const parsedLines = computed((): DiffLine[] => {
-  if (!tab.value) return []
-  const lines = tab.value.diff.split('\n')
-  const result: DiffLine[] = []
-  let leftNum = 0
-  let rightNum = 0
-  let inHunk = false
-
-  for (const line of lines) {
-    if (line.startsWith('@@')) {
-      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
-      if (match) {
-        leftNum = parseInt(match[1], 10) - 1
-        rightNum = parseInt(match[2], 10) - 1
-      }
-      inHunk = true
-      result.push({
-        left: { num: null, segments: plain(line), type: 'hunk' },
-        right: { num: null, segments: plain(''), type: 'hunk' },
-      })
-      continue
-    }
-
-    if (!inHunk) continue
-
-    if (line.startsWith('-')) {
-      leftNum++
-      result.push({
-        left: { num: leftNum, segments: plain(line.slice(1)), type: 'del' },
-        right: { num: null, segments: plain(''), type: 'empty' },
-      })
-    } else if (line.startsWith('+')) {
-      rightNum++
-      const lastUnpaired = findLastUnpairedDel(result)
-      if (lastUnpaired !== -1) {
-        // Compute character-level highlight for paired lines
-        const oldText = result[lastUnpaired].left.segments.map((s) => s.text).join('')
-        const newText = line.slice(1)
-        const { left: leftSegs, right: rightSegs } = charDiff(oldText, newText)
-        result[lastUnpaired].left.segments = leftSegs
-        result[lastUnpaired].right = { num: rightNum, segments: rightSegs, type: 'add' }
-      } else {
-        result.push({
-          left: { num: null, segments: plain(''), type: 'empty' },
-          right: { num: rightNum, segments: plain(line.slice(1)), type: 'add' },
-        })
-      }
-    } else if (line.startsWith('\\')) {
-      // skip
-    } else {
-      leftNum++
-      rightNum++
-      result.push({
-        left: { num: leftNum, segments: plain(line.slice(1)), type: 'ctx' },
-        right: { num: rightNum, segments: plain(line.slice(1)), type: 'ctx' },
-      })
-    }
-  }
-
-  return result
-})
-
-function findLastUnpairedDel(lines: DiffLine[]): number {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const r = lines[i]
-    if (r.left.type === 'del' && r.right.type === 'empty') return i
-    if (r.left.type !== 'del') break
-  }
-  return -1
-}
+const parsedLines = computed(() => (tab.value ? parseDiff(tab.value.diff, { charLevel: true }) : []))
 </script>
 
 <template>

@@ -28,8 +28,10 @@ export const useGitStore = defineStore('git', () => {
   let fetchTimer: ReturnType<typeof setInterval> | null = null
   let pollAbort: AbortController | null = null
   const refreshing = ref(false)
-  let refreshGuard = false
-  let logGuard = false
+  let statusInFlight: Promise<void> | null = null
+  let statusPending: Promise<void> | null = null
+  let logInFlight: Promise<void> | null = null
+  let logPending: Promise<void> | null = null
   let fetchGuard = false
   let lastFetchTime = 0
   let windowFocused = true
@@ -40,11 +42,9 @@ export const useGitStore = defineStore('git', () => {
     return projectStore.currentProject
   }
 
-  async function refreshStatus(showProgress = false) {
-    if (refreshGuard) return
+  async function doRefreshStatus(showProgress: boolean): Promise<void> {
     const project = getProject()
     if (!project) return
-    refreshGuard = true
     if (showProgress) refreshing.value = true
     const minDelay = showProgress ? new Promise((r) => setTimeout(r, 300)) : null
     try {
@@ -55,24 +55,54 @@ export const useGitStore = defineStore('git', () => {
       error.value = String(e)
       if (minDelay) await minDelay
     } finally {
-      refreshGuard = false
       refreshing.value = false
     }
   }
 
-  async function refreshLog(all?: boolean) {
-    if (logGuard) return
+  // Coalescing wrapper: keeps at most one in-flight + one pending refresh.
+  // Callers that arrive while a refresh is running get scheduled into the
+  // pending slot so post-action state is never silently dropped.
+  async function refreshStatus(showProgress = false): Promise<void> {
+    if (statusInFlight) {
+      if (statusPending) return statusPending
+      statusPending = statusInFlight
+        .then(() => doRefreshStatus(showProgress))
+        .finally(() => {
+          statusPending = null
+        })
+      return statusPending
+    }
+    statusInFlight = doRefreshStatus(showProgress).finally(() => {
+      statusInFlight = null
+    })
+    return statusInFlight
+  }
+
+  async function doRefreshLog(): Promise<void> {
     const project = getProject()
     if (!project) return
-    if (all !== undefined) logAllMode.value = all
-    logGuard = true
     try {
       logEntries.value = await gitLog(project.root, project.shell, logAllMode.value ? 1000 : 500, logAllMode.value)
     } catch {
       logEntries.value = []
-    } finally {
-      logGuard = false
     }
+  }
+
+  async function refreshLog(all?: boolean): Promise<void> {
+    if (all !== undefined) logAllMode.value = all
+    if (logInFlight) {
+      if (logPending) return logPending
+      logPending = logInFlight
+        .then(() => doRefreshLog())
+        .finally(() => {
+          logPending = null
+        })
+      return logPending
+    }
+    logInFlight = doRefreshLog().finally(() => {
+      logInFlight = null
+    })
+    return logInFlight
   }
 
   async function stageFiles(paths: string[]) {

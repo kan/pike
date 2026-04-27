@@ -394,10 +394,25 @@ pub async fn pty_kill(id: String, state: State<'_, PtyState>) -> Result<(), Stri
 }
 
 /// Remove all PTY sessions belonging to a specific window.
+///
+/// Explicitly calls `killer.kill()` on each removed session before dropping it.
+/// `PtySession::drop` also kills, but doing it here makes the intent clear and
+/// decouples cleanup correctness from field declaration order.
 pub fn cleanup_for_window(state: &PtyState, label: &str) {
-    if let Ok(mut sessions) = state.sessions.lock() {
-        sessions.retain(|_, session| session.window_label != label);
-    }
+    let mut sessions = match state.sessions.lock() {
+        Ok(g) => g,
+        // Poisoned mutex: a previous holder panicked. Recover the inner map so
+        // we still tear down children rather than leaving them orphaned.
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    sessions.retain(|_, session| {
+        if session.window_label == label {
+            let _ = session.killer.kill();
+            false
+        } else {
+            true
+        }
+    });
 }
 
 /// Scan `text` for OSC 7 sequences (`\x1b]7;file://host/path\x07`) and update

@@ -8,15 +8,24 @@ export interface FsChangeEntry {
   kind: 'create' | 'modify' | 'delete'
 }
 
-const recentlySaved = new Set<string>()
+const SAVE_TTL_MS = 2000
+
+// Path -> absolute timestamp until which fs events for this path are
+// considered "self-induced". Map (not setTimeout) so that rapid successive
+// saves correctly extend the window — a previous setTimeout would otherwise
+// fire mid-window and prematurely drop the mark.
+const recentlySavedUntil = new Map<string, number>()
 
 export function markRecentlySaved(path: string) {
-  recentlySaved.add(path)
-  setTimeout(() => recentlySaved.delete(path), 2000)
+  recentlySavedUntil.set(path, Date.now() + SAVE_TTL_MS)
 }
 
 export function isRecentlySaved(path: string): boolean {
-  return recentlySaved.has(path)
+  const expires = recentlySavedUntil.get(path)
+  if (expires === undefined) return false
+  if (Date.now() < expires) return true
+  recentlySavedUntil.delete(path)
+  return false
 }
 
 interface FsChangedPayload {

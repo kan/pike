@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
+import { parseDiff } from '../../lib/diffParser'
 import { formatLineRange } from '../../lib/format'
 import { relativeDate } from '../../lib/paths'
 import { gitDiffCommit, gitLogFile, gitLogFileLines } from '../../lib/tauri'
@@ -42,70 +43,6 @@ const countLabel = computed(() => {
   if (!searchQuery.value.trim()) return t('history.count', { total: String(total) })
   return t('history.countFiltered', { filtered: String(filteredEntries.value.length), total: String(total) })
 })
-
-interface DiffLine {
-  left: { num: number | null; text: string; type: string }
-  right: { num: number | null; text: string; type: string }
-}
-
-function parseDiff(raw: string): DiffLine[] {
-  const lines = raw.split('\n')
-  const result: DiffLine[] = []
-  let leftNum = 0,
-    rightNum = 0,
-    inHunk = false
-
-  for (const line of lines) {
-    if (line.startsWith('@@')) {
-      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
-      if (match) {
-        leftNum = parseInt(match[1], 10) - 1
-        rightNum = parseInt(match[2], 10) - 1
-      }
-      inHunk = true
-      result.push({
-        left: { num: null, text: line, type: 'hunk' },
-        right: { num: null, text: '', type: 'hunk' },
-      })
-      continue
-    }
-    if (!inHunk) continue
-    if (line.startsWith('-')) {
-      leftNum++
-      result.push({
-        left: { num: leftNum, text: line.slice(1), type: 'del' },
-        right: { num: null, text: '', type: 'empty' },
-      })
-    } else if (line.startsWith('+')) {
-      rightNum++
-      // Pair with preceding unpaired del
-      let paired = -1
-      for (let i = result.length - 1; i >= 0; i--) {
-        if (result[i].left.type === 'del' && result[i].right.type === 'empty') {
-          paired = i
-          break
-        }
-        if (result[i].left.type !== 'del') break
-      }
-      if (paired !== -1) {
-        result[paired].right = { num: rightNum, text: line.slice(1), type: 'add' }
-      } else {
-        result.push({
-          left: { num: null, text: '', type: 'empty' },
-          right: { num: rightNum, text: line.slice(1), type: 'add' },
-        })
-      }
-    } else if (!line.startsWith('\\')) {
-      leftNum++
-      rightNum++
-      result.push({
-        left: { num: leftNum, text: line.slice(1), type: 'ctx' },
-        right: { num: rightNum, text: line.slice(1), type: 'ctx' },
-      })
-    }
-  }
-  return result
-}
 
 const diffLines = computed(() => parseDiff(diffText.value))
 
@@ -201,9 +138,9 @@ onMounted(async () => {
           <tbody>
             <tr v-for="(row, i) in diffLines" :key="i" class="diff-row">
               <td class="line-num" :class="row.left.type">{{ row.left.num ?? "" }}</td>
-              <td class="line-content" :class="row.left.type">{{ row.left.text }}</td>
+              <td class="line-content" :class="row.left.type">{{ row.left.segments[0]?.text ?? '' }}</td>
               <td class="line-num" :class="row.right.type">{{ row.right.num ?? "" }}</td>
-              <td class="line-content" :class="row.right.type">{{ row.right.text }}</td>
+              <td class="line-content" :class="row.right.type">{{ row.right.segments[0]?.text ?? '' }}</td>
             </tr>
           </tbody>
         </table>
