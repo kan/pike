@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2] - 2026-05-02
+
+### Features
+
+- **Git パネル: コミットの右クリックメニュー**: List / Graph 両ビューで対応。コミットハッシュ / 短ハッシュ / メッセージのコピー、このコミットからブランチ作成、リモート (GitHub / GitLab / Bitbucket / Codeberg) のコミットページを開く（origin URL から自動判定、未対応 origin は非表示）
+- **ステータスバーのリポジトリリンク**: 右下のアイコンが固定の Pike GitHub リンクから現在プロジェクトの origin TOP に変更。プロバイダに応じてアイコン切替（GitHub / GitLab / Bitbucket=Archive、Codeberg / 未対応はリンク自体非表示、汎用は GitBranch）
+- **ターミナルの Ctrl+V 画像貼付**: xterm.js が keydown で Ctrl+V を SYN(`\x16`) として食ってしまい `paste` イベントが発火しない問題を `attachCustomKeyEventHandler` で横取りして解決。Ctrl+Shift+V も同様
+- **ターミナルの右クリック画像貼付**: 従来は `readText()` のみで画像クリップボードを拾えなかった。`navigator.clipboard.read()` で `image/*` を優先取得し `.pike/uploads/` に保存→相対パスを PTY に書込
+
+### Refactored
+
+- `src/lib/gitRemote.ts`: `buildCommitLink` / `buildRepoLink` を共通の `parseRemote` + `RemoteLink` 型で統合。provider key を返すので呼び出し側がアイコン選択可能
+- `useGitStore` に `remoteUrl` を移管（StatusBar / GitPanel 両方が利用するため）
+- `useImagePaste.ts` に `readClipboardImages()` 追加（Async Clipboard API 経由、`getClipboardImages` の sibling）
+
+### Documentation
+
+- `CLAUDE.md` に「コミット & push 運用ルール」セクションを追加（個人開発のため Claude は main 直接コミット、push はユーザに委ねる）
+
 ## [0.6.1] - 2026-05-02
 
 ### Security
