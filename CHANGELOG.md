@@ -4,9 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [0.6.1] - 2026-05-02
 
+### Security
+
+- **marked** 17.0.6 → 18.0.3（GHSA: tokenizer 無限再帰による OOM DoS / high severity）
+
 ### Dependencies
 
-- **marked** 17.0.6 → 18.0.1（block token / GFM table の改行処理 fix）
+
 - **vite** 8.0.8 → 8.0.10
 - **@biomejs/biome** 2.4.11 → 2.4.13（`assist/source/organizeImports` 厳格化に伴い `src/env.d.ts` を整形）
 - **vue-tsc** 3.2.6 → 3.2.7
