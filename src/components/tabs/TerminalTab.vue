@@ -319,12 +319,10 @@ onMounted(async () => {
     terminal.focus()
   }
 
-  termRef.value?.addEventListener('contextmenu', async (e) => {
-    e.preventDefault()
-    if (!settingsStore.terminalRightClickPaste || !ptyId) return
-
-    // 画像優先: navigator.clipboard.read() で ClipboardItem を取得し image/* があれば保存
-    // (readText だけでは画像が拾えない)
+  // Async Clipboard API 経由で画像優先 → なければテキストの順で paste。
+  // 右クリックと Ctrl+V (xterm が keydown で食う) の両方から呼ぶ。
+  async function pasteFromClipboard(source: string) {
+    if (!ptyId) return
     try {
       const items = await navigator.clipboard.read()
       for (const item of items) {
@@ -335,20 +333,41 @@ onMounted(async () => {
           const file = new File([blob], `clipboard.${ext}`, { type: imageType })
           try {
             const relPath = await saveImageFile(file)
-            ptyWrite(ptyId, relPath).catch(() => {})
+            console.log(`[terminal:${source}] saved image →`, relPath)
+            ptyWrite(ptyId, relPath).catch((err) => {
+              console.error(`[terminal:${source}] ptyWrite failed:`, err)
+            })
           } catch (err) {
-            console.error('[terminal:rclick-paste] saveImageFile failed:', err)
+            console.error(`[terminal:${source}] saveImageFile failed:`, err)
           }
           terminal?.focus()
           return
         }
       }
-    } catch {
-      // permission denied / unsupported / clipboard に何も無い → text fallback
+    } catch (err) {
+      console.log(`[terminal:${source}] clipboard.read() unavailable, fallback to text:`, err)
     }
 
     const text = await navigator.clipboard.readText().catch(() => '')
     if (text) await pasteText(text)
+  }
+
+  termRef.value?.addEventListener('contextmenu', async (e) => {
+    e.preventDefault()
+    if (!settingsStore.terminalRightClickPaste || !ptyId) return
+    await pasteFromClipboard('rclick-paste')
+  })
+
+  // xterm.js は Windows で Ctrl+V を SYN(\x16) として PTY に流すので、
+  // 通常の `paste` イベントが発火しない → keydown レベルで横取りする。
+  // Ctrl+Shift+V も同じ扱いに（Windows Terminal 互換）。
+  terminal.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown') return true
+    if (!e.ctrlKey || e.altKey || e.metaKey) return true
+    if (e.key.toLowerCase() !== 'v') return true
+    e.preventDefault()
+    pasteFromClipboard('ctrl-v')
+    return false
   })
 
   // Capture phase prevents xterm.js from also handling paste (double-write).
