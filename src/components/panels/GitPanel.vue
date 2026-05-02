@@ -12,7 +12,6 @@ import {
   gitCreateBranch,
   gitDiff,
   gitDiffCommit,
-  gitRemoteUrl,
   gitShowFile,
   gitShowFiles,
   openUrlWithConfirm,
@@ -161,25 +160,10 @@ function onCommitLeave() {
   hoveredCommit.value = null
 }
 
-const remoteUrl = ref<string | null>(null)
-const commitLink = computed(() =>
-  commitCtx.value ? buildCommitLink(remoteUrl.value, commitCtx.value.entry.hash) : null,
-)
-
-async function loadRemoteUrl() {
-  const project = projectStore.currentProject
-  if (!project) {
-    remoteUrl.value = null
-    return
-  }
-  try {
-    remoteUrl.value = await gitRemoteUrl(project.root, project.shell)
-  } catch {
-    remoteUrl.value = null
-  }
-}
-
 const commitCtx = ref<{ x: number; y: number; entry: GitLogEntry } | null>(null)
+const commitLink = computed(() =>
+  commitCtx.value ? buildCommitLink(gitStore.remoteUrl, commitCtx.value.entry.hash) : null,
+)
 
 function onCommitContext(e: MouseEvent, entry: GitLogEntry) {
   e.preventDefault()
@@ -309,15 +293,11 @@ watch(
   () => {
     expandedCommits.value.clear()
     commitFiles.value = {}
-    loadRemoteUrl()
     refreshIfActive()
   },
 )
 
-onMounted(() => {
-  loadRemoteUrl()
-  refreshIfActive()
-})
+onMounted(refreshIfActive)
 onUnmounted(() => {
   if (tooltipTimer) clearTimeout(tooltipTimer)
 })

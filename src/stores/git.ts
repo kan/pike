@@ -9,6 +9,7 @@ import {
   gitLog,
   gitPull,
   gitPush,
+  gitRemoteUrl,
   gitStage,
   gitStatus,
   gitUnstage,
@@ -20,6 +21,7 @@ export const useGitStore = defineStore('git', () => {
   const status = ref<GitStatusResult | null>(null)
   const logEntries = ref<GitLogEntry[]>([])
   const branches = ref<string[]>([])
+  const remoteUrl = ref<string | null>(null)
   const error = ref<string | null>(null)
   const pushing = ref(false)
   const pulling = ref(false)
@@ -187,6 +189,19 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
+  async function loadRemoteUrl() {
+    const project = getProject()
+    if (!project) {
+      remoteUrl.value = null
+      return
+    }
+    try {
+      remoteUrl.value = await gitRemoteUrl(project.root, project.shell)
+    } catch {
+      remoteUrl.value = null
+    }
+  }
+
   async function checkoutBranch(branch: string) {
     const project = getProject()
     if (!project) return
@@ -241,6 +256,7 @@ export const useGitStore = defineStore('git', () => {
 
   function startPolling() {
     stopPolling()
+    loadRemoteUrl()
     windowFocused = document.hasFocus()
     if (windowFocused) startTimers()
     pollAbort = new AbortController()
@@ -274,6 +290,7 @@ export const useGitStore = defineStore('git', () => {
     status,
     logEntries,
     branches,
+    remoteUrl,
     error,
     pushing,
     pulling,
@@ -287,6 +304,7 @@ export const useGitStore = defineStore('git', () => {
     push,
     pull,
     loadBranches,
+    loadRemoteUrl,
     checkoutBranch,
     fetchInBackground,
     startPolling,

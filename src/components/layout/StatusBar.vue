@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Cpu, FolderOpen, GitBranch, Github } from 'lucide-vue-next'
+import { Cpu, FolderOpen, GitBranch, Github, Gitlab } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { formatCost, formatTokens } from '../../lib/format'
+import { buildRepoLink } from '../../lib/gitRemote'
 import { openUrlWithConfirm } from '../../lib/tauri'
 import { useAgentStore } from '../../stores/agent'
 import { useClaudeUsageStore } from '../../stores/claudeUsage'
@@ -50,8 +51,21 @@ function closeClaudeUsage() {
 declare const __GIT_COMMIT_HASH__: string
 const devHash = import.meta.env.DEV && __GIT_COMMIT_HASH__ ? `-${__GIT_COMMIT_HASH__}` : ''
 
-async function openGitHub() {
-  await openUrlWithConfirm('https://github.com/kan/pike')
+const repoLink = computed(() => buildRepoLink(gitStore.remoteUrl))
+const repoIcon = computed(() => {
+  switch (repoLink.value?.provider) {
+    case 'github':
+      return Github
+    case 'gitlab':
+      return Gitlab
+    // bitbucket / codeberg は lucide に専用アイコンが無いため汎用 Git アイコンで代用
+    default:
+      return GitBranch
+  }
+})
+
+async function openProjectRepo() {
+  if (repoLink.value) await openUrlWithConfirm(repoLink.value.url)
 }
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)
@@ -255,8 +269,13 @@ onUnmounted(() => {
       {{ settingsStore.language.toUpperCase() }}
     </button>
     <span v-if="updater.appVersion.value" class="status-text version">v{{ updater.appVersion.value }}{{ devHash }}</span>
-    <button class="status-item clickable github-btn" title="GitHub" @click="openGitHub">
-      <Github :size="14" :stroke-width="1.5" />
+    <button
+      v-if="repoLink"
+      class="status-item clickable github-btn"
+      :title="repoLink.label"
+      @click="openProjectRepo"
+    >
+      <component :is="repoIcon" :size="14" :stroke-width="1.5" />
     </button>
   </div>
 </template>

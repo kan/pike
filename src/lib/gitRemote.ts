@@ -1,7 +1,7 @@
-// origin URL から既知のホスティングサービスを検出し、コミットページの URL を組み立てる。
-// 未知のホストは null を返し、UI 側で「リモートで開く」メニューを非表示にする。
+// origin URL から既知のホスティングサービスを検出し、コミット / リポジトリ TOP の URL を組み立てる。
+// 未知のホストは null を返し、UI 側で関連メニュー / ボタンを非表示にする。
 
-type Provider = 'github' | 'gitlab' | 'bitbucket' | 'codeberg'
+export type Provider = 'github' | 'gitlab' | 'bitbucket' | 'codeberg'
 
 const PROVIDERS: Record<string, { provider: Provider; label: string }> = {
   'github.com': { provider: 'github', label: 'GitHub' },
@@ -13,9 +13,7 @@ const PROVIDERS: Record<string, { provider: Provider; label: string }> = {
 interface ParsedRemote {
   provider: Provider
   label: string
-  host: string
-  owner: string
-  repo: string
+  baseUrl: string
 }
 
 function parseRemote(url: string | null): ParsedRemote | null {
@@ -46,32 +44,38 @@ function parseRemote(url: string | null): ParsedRemote | null {
   // owner/repo 形式想定 (GitLab はグループ多段あり)
   const segments = path.split('/').filter(Boolean)
   if (segments.length < 2) return null
-  const repo = segments.pop() as string
+  const repo = (segments.pop() as string).replace(/\.git$/, '')
   const owner = segments.join('/')
-  return { ...meta, host, owner, repo: repo.replace(/\.git$/, '') }
+  return { ...meta, baseUrl: `https://${host}/${owner}/${repo}` }
 }
 
-export interface CommitLink {
+export interface RemoteLink {
   url: string
   label: string
+  provider: Provider
 }
 
-export function buildCommitLink(remoteUrl: string | null, hash: string): CommitLink | null {
+export function buildCommitLink(remoteUrl: string | null, hash: string): RemoteLink | null {
   const parsed = parseRemote(remoteUrl)
   if (!parsed) return null
-  const base = `https://${parsed.host}/${parsed.owner}/${parsed.repo}`
   let url: string
   switch (parsed.provider) {
     case 'github':
     case 'codeberg':
-      url = `${base}/commit/${hash}`
+      url = `${parsed.baseUrl}/commit/${hash}`
       break
     case 'gitlab':
-      url = `${base}/-/commit/${hash}`
+      url = `${parsed.baseUrl}/-/commit/${hash}`
       break
     case 'bitbucket':
-      url = `${base}/commits/${hash}`
+      url = `${parsed.baseUrl}/commits/${hash}`
       break
   }
-  return { url, label: parsed.label }
+  return { url, label: parsed.label, provider: parsed.provider }
+}
+
+export function buildRepoLink(remoteUrl: string | null): RemoteLink | null {
+  const parsed = parseRemote(remoteUrl)
+  if (!parsed) return null
+  return { url: parsed.baseUrl, label: parsed.label, provider: parsed.provider }
 }
