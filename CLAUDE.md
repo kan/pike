@@ -342,6 +342,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - **Frontend**: `npm run lint`（= `biome check src/`）
 - **TypeScript 型検査**: `npx vue-tsc --noEmit`（`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
 
+### コミット & push 運用ルール
+個人開発のため PR レビューは原則不要。Claude が変更を加えた場合は以下のフローを厳守:
+
+1. **`main` ブランチに直接コミット**（feature ブランチや PR は作らない）
+2. **`git push` は実行しない** — push の判断はユーザに委ねる（main への直接 push はリポジトリ設定で禁止されているが、ユーザはローカル確認後に自分で push する運用）
+3. ユーザから明示的に「PR にして」「ブランチ切って」等の指示があった場合のみ、その指示に従う
+4. **リリース時のバージョン bump も同様**: `main` に直接コミット、push はユーザが実行
+
 ### CI/CD
 - `.github/workflows/ci.yml`: push/PR で `biome check`、`npm run build`（vue-tsc + vite）、`cargo clippy -- -D warnings`、`cargo test` を実行（Windows runner）
 - `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-apps/tauri-action@v0` が Windows ビルド → GitHub Releases にドラフトアップロード
