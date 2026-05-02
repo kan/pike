@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Cpu, FolderOpen, GitBranch, Github, Gitlab, PaintBucket } from 'lucide-vue-next'
+import { Archive, Cpu, FolderOpen, GitBranch, Github, Gitlab } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
@@ -59,7 +59,7 @@ const repoIcon = computed(() => {
     case 'gitlab':
       return Gitlab
     case 'bitbucket':
-      return PaintBucket
+      return Archive
     // codeberg は lucide に専用アイコンが無いため汎用 Git アイコンで代用
     default:
       return GitBranch
