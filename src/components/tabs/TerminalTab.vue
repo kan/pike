@@ -322,6 +322,31 @@ onMounted(async () => {
   termRef.value?.addEventListener('contextmenu', async (e) => {
     e.preventDefault()
     if (!settingsStore.terminalRightClickPaste || !ptyId) return
+
+    // 画像優先: navigator.clipboard.read() で ClipboardItem を取得し image/* があれば保存
+    // (readText だけでは画像が拾えない)
+    try {
+      const items = await navigator.clipboard.read()
+      for (const item of items) {
+        const imageType = item.types.find((tp) => tp.startsWith('image/'))
+        if (imageType) {
+          const blob = await item.getType(imageType)
+          const ext = imageType.split('/')[1] || 'png'
+          const file = new File([blob], `clipboard.${ext}`, { type: imageType })
+          try {
+            const relPath = await saveImageFile(file)
+            ptyWrite(ptyId, relPath).catch(() => {})
+          } catch (err) {
+            console.error('[terminal:rclick-paste] saveImageFile failed:', err)
+          }
+          terminal?.focus()
+          return
+        }
+      }
+    } catch {
+      // permission denied / unsupported / clipboard に何も無い → text fallback
+    }
+
     const text = await navigator.clipboard.readText().catch(() => '')
     if (text) await pasteText(text)
   })
@@ -336,21 +361,36 @@ onMounted(async () => {
       ce.preventDefault()
       ce.stopPropagation()
 
+      const cd = ce.clipboardData
+      console.log('[terminal:paste] event', {
+        types: cd?.types ?? [],
+        itemsLength: cd?.items.length ?? 0,
+        itemKinds: cd ? Array.from(cd.items).map((i) => `${i.kind}:${i.type}`) : [],
+        filesLength: cd?.files.length ?? 0,
+        fileNames: cd ? Array.from(cd.files).map((f) => `${f.name} (${f.type}, ${f.size}B)`) : [],
+      })
+
       const images = getClipboardImages(ce)
+      console.log('[terminal:paste] images extracted:', images.length)
+
       if (images.length > 0) {
         for (const file of images) {
           try {
             const relPath = await saveImageFile(file)
-            ptyWrite(ptyId, relPath).catch(() => {})
-          } catch {
-            // silently ignore
+            console.log('[terminal:paste] saved image →', relPath)
+            ptyWrite(ptyId, relPath).catch((err) => {
+              console.error('[terminal:paste] ptyWrite failed:', err)
+            })
+          } catch (err) {
+            console.error('[terminal:paste] saveImageFile failed:', err)
           }
         }
         terminal.focus()
         return
       }
 
-      const text = ce.clipboardData?.getData('text/plain')
+      const text = cd?.getData('text/plain')
+      console.log('[terminal:paste] text fallback:', text ? `${text.length} chars` : 'none')
       if (text) await pasteText(text)
     },
     { capture: true },
