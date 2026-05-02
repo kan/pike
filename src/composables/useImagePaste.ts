@@ -47,6 +47,28 @@ export function getClipboardImages(e: ClipboardEvent): File[] {
   return files
 }
 
+/**
+ * Async Clipboard API 経由で現在のクリップボード上の画像を取得。
+ * Ctrl+V を keydown で食う xterm 経由の paste 等、ClipboardEvent が
+ * 取れない経路でも使える。permission denied / 画像なしは空配列を返す。
+ */
+export async function readClipboardImages(): Promise<File[]> {
+  try {
+    const items = await navigator.clipboard.read()
+    const files: File[] = []
+    for (const item of items) {
+      const imageType = item.types.find((t) => t.startsWith('image/'))
+      if (imageType) {
+        const blob = await item.getType(imageType)
+        files.push(new File([blob], 'clipboard', { type: imageType }))
+      }
+    }
+    return files
+  } catch {
+    return []
+  }
+}
+
 /** Save an image file to .pike/uploads/ and return the relative path. */
 export async function saveImageFile(file: File): Promise<string> {
   const project = useProjectStore().currentProject

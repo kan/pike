@@ -4,7 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
-import { getClipboardImages, saveImageFile } from '../../composables/useImagePaste'
+import { readClipboardImages, saveImageFile } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { isAbsolutePath } from '../../lib/paths'
@@ -319,35 +319,22 @@ onMounted(async () => {
     terminal.focus()
   }
 
-  // Async Clipboard API 経由で画像優先 → なければテキストの順で paste。
-  // 右クリックと Ctrl+V (xterm が keydown で食う) の両方から呼ぶ。
-  async function pasteFromClipboard(source: string) {
+  // 画像優先 → なければテキストの順で paste。右クリックと Ctrl+V の両方から呼ぶ。
+  async function pasteFromClipboard() {
     if (!ptyId) return
-    try {
-      const items = await navigator.clipboard.read()
-      for (const item of items) {
-        const imageType = item.types.find((tp) => tp.startsWith('image/'))
-        if (imageType) {
-          const blob = await item.getType(imageType)
-          const ext = imageType.split('/')[1] || 'png'
-          const file = new File([blob], `clipboard.${ext}`, { type: imageType })
-          try {
-            const relPath = await saveImageFile(file)
-            console.log(`[terminal:${source}] saved image →`, relPath)
-            ptyWrite(ptyId, relPath).catch((err) => {
-              console.error(`[terminal:${source}] ptyWrite failed:`, err)
-            })
-          } catch (err) {
-            console.error(`[terminal:${source}] saveImageFile failed:`, err)
-          }
-          terminal?.focus()
-          return
+    const images = await readClipboardImages()
+    if (images.length > 0) {
+      for (const file of images) {
+        try {
+          const relPath = await saveImageFile(file)
+          ptyWrite(ptyId, relPath).catch((err) => console.error('[terminal] ptyWrite failed:', err))
+        } catch (err) {
+          console.error('[terminal] saveImageFile failed:', err)
         }
       }
-    } catch (err) {
-      console.log(`[terminal:${source}] clipboard.read() unavailable, fallback to text:`, err)
+      terminal?.focus()
+      return
     }
-
     const text = await navigator.clipboard.readText().catch(() => '')
     if (text) await pasteText(text)
   }
@@ -355,7 +342,7 @@ onMounted(async () => {
   termRef.value?.addEventListener('contextmenu', async (e) => {
     e.preventDefault()
     if (!settingsStore.terminalRightClickPaste || !ptyId) return
-    await pasteFromClipboard('rclick-paste')
+    await pasteFromClipboard()
   })
 
   // xterm.js は Windows で Ctrl+V を SYN(\x16) として PTY に流すので、
@@ -366,54 +353,9 @@ onMounted(async () => {
     if (!e.ctrlKey || e.altKey || e.metaKey) return true
     if (e.key.toLowerCase() !== 'v') return true
     e.preventDefault()
-    pasteFromClipboard('ctrl-v')
+    pasteFromClipboard()
     return false
   })
-
-  // Capture phase prevents xterm.js from also handling paste (double-write).
-  termRef.value?.addEventListener(
-    'paste',
-    async (e: Event) => {
-      const ce = e as ClipboardEvent
-      if (!ptyId || !terminal) return
-
-      ce.preventDefault()
-      ce.stopPropagation()
-
-      const cd = ce.clipboardData
-      console.log('[terminal:paste] event', {
-        types: cd?.types ?? [],
-        itemsLength: cd?.items.length ?? 0,
-        itemKinds: cd ? Array.from(cd.items).map((i) => `${i.kind}:${i.type}`) : [],
-        filesLength: cd?.files.length ?? 0,
-        fileNames: cd ? Array.from(cd.files).map((f) => `${f.name} (${f.type}, ${f.size}B)`) : [],
-      })
-
-      const images = getClipboardImages(ce)
-      console.log('[terminal:paste] images extracted:', images.length)
-
-      if (images.length > 0) {
-        for (const file of images) {
-          try {
-            const relPath = await saveImageFile(file)
-            console.log('[terminal:paste] saved image →', relPath)
-            ptyWrite(ptyId, relPath).catch((err) => {
-              console.error('[terminal:paste] ptyWrite failed:', err)
-            })
-          } catch (err) {
-            console.error('[terminal:paste] saveImageFile failed:', err)
-          }
-        }
-        terminal.focus()
-        return
-      }
-
-      const text = cd?.getData('text/plain')
-      console.log('[terminal:paste] text fallback:', text ? `${text.length} chars` : 'none')
-      if (text) await pasteText(text)
-    },
-    { capture: true },
-  )
 
   termRef.value?.addEventListener('dragover', (e: DragEvent) => {
     if (e.dataTransfer?.types.includes('text/plain') || e.dataTransfer?.types.includes('Files')) {
