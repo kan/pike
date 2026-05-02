@@ -340,6 +340,56 @@ pub async fn git_checkout(
     .map_err(|e| e.to_string())?
 }
 
+fn validate_ref_name(name: &str) -> Result<(), String> {
+    // 最低限のフラグ injection 対策と git のリファレンス命名規約に沿った検証
+    if name.is_empty() {
+        return Err("branch name is empty".to_string());
+    }
+    if name.starts_with('-') {
+        return Err("branch name cannot start with '-'".to_string());
+    }
+    if name
+        .chars()
+        .any(|c| c.is_control() || matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+    {
+        return Err("branch name contains invalid characters".to_string());
+    }
+    if name.contains("..") || name.contains("@{") {
+        return Err("branch name contains invalid sequence".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn git_create_branch(
+    root: String,
+    shell: ShellConfig,
+    name: String,
+    start_point: String,
+) -> Result<(), String> {
+    validate_ref_name(&name)?;
+    validate_ref_name(&start_point)?;
+    tokio::task::spawn_blocking(move || {
+        run_git(&shell, &root, &["branch", &name, &start_point])?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn git_remote_url(
+    root: String,
+    shell: ShellConfig,
+) -> Result<Option<String>, String> {
+    let output = tokio::task::spawn_blocking(move || {
+        run_git(&shell, &root, &["remote", "get-url", "origin"])
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(output.ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+}
+
 #[tauri::command]
 pub async fn git_fetch(root: String, shell: ShellConfig) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {

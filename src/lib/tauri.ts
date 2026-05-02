@@ -199,6 +199,14 @@ export async function gitCheckout(root: string, shell: ShellType, branch: string
   return invoke('git_checkout', { root, shell, branch })
 }
 
+export async function gitCreateBranch(root: string, shell: ShellType, name: string, startPoint: string): Promise<void> {
+  return invoke('git_create_branch', { root, shell, name, startPoint })
+}
+
+export async function gitRemoteUrl(root: string, shell: ShellType): Promise<string | null> {
+  return invoke<string | null>('git_remote_url', { root, shell })
+}
+
 export async function gitFetch(root: string, shell: ShellType): Promise<void> {
   return invoke('git_fetch', { root, shell })
 }

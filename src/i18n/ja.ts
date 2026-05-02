@@ -174,6 +174,13 @@ export default {
   'git.graphView': 'グラフ',
   'git.switchBranch': 'ブランチを切替...',
   'git.noBranches': 'ブランチが見つかりません',
+  'git.copyHash': 'コミットハッシュをコピー',
+  'git.copyShortHash': '短いハッシュをコピー',
+  'git.copyMessage': 'コミットメッセージをコピー',
+  'git.createBranchFromCommit': 'このコミットからブランチを作成...',
+  'git.createBranchPrompt': '{hash} から作成する新しいブランチ名:',
+  'git.createBranchFailed': 'ブランチ作成に失敗しました: {error}',
+  'git.openOnProvider': '{provider} で開く',
 
   // Docker Panel
   'docker.notReachable': 'Docker に接続できません',

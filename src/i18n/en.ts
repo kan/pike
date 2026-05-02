@@ -173,6 +173,13 @@ export default {
   'git.graphView': 'Graph',
   'git.switchBranch': 'Switch branch...',
   'git.noBranches': 'No matching branches',
+  'git.copyHash': 'Copy commit hash',
+  'git.copyShortHash': 'Copy short hash',
+  'git.copyMessage': 'Copy commit message',
+  'git.createBranchFromCommit': 'Create branch from this commit...',
+  'git.createBranchPrompt': 'New branch name from {hash}:',
+  'git.createBranchFailed': 'Failed to create branch: {error}',
+  'git.openOnProvider': 'Open on {provider}',
 
   // Docker Panel
   'docker.notReachable': 'Docker not reachable',

@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import { ArrowUp, ChevronDown, ChevronRight, Minus, Plus, Undo2 } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { confirmDialog } from '../../composables/useConfirmDialog'
+import { confirmDialog, infoDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
+import { buildCommitLink } from '../../lib/gitRemote'
 import { gitStatusColor, relativeDate } from '../../lib/paths'
-import { fsDelete, gitDiff, gitDiffCommit, gitShowFile, gitShowFiles } from '../../lib/tauri'
+import {
+  fsDelete,
+  gitCreateBranch,
+  gitDiff,
+  gitDiffCommit,
+  gitRemoteUrl,
+  gitShowFile,
+  gitShowFiles,
+  openUrlWithConfirm,
+} from '../../lib/tauri'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
@@ -151,6 +161,82 @@ function onCommitLeave() {
   hoveredCommit.value = null
 }
 
+const remoteUrl = ref<string | null>(null)
+const commitLink = computed(() =>
+  commitCtx.value ? buildCommitLink(remoteUrl.value, commitCtx.value.entry.hash) : null,
+)
+
+async function loadRemoteUrl() {
+  const project = projectStore.currentProject
+  if (!project) {
+    remoteUrl.value = null
+    return
+  }
+  try {
+    remoteUrl.value = await gitRemoteUrl(project.root, project.shell)
+  } catch {
+    remoteUrl.value = null
+  }
+}
+
+const commitCtx = ref<{ x: number; y: number; entry: GitLogEntry } | null>(null)
+
+function onCommitContext(e: MouseEvent, entry: GitLogEntry) {
+  e.preventDefault()
+  e.stopPropagation()
+  // 同じメニューを開きっぱなしで右クリックされた場合に古い listener が残らないよう先に外す
+  window.removeEventListener('mousedown', closeCommitCtx)
+  commitCtx.value = { x: e.clientX, y: e.clientY, entry }
+  nextTick(() => {
+    window.addEventListener('mousedown', closeCommitCtx, { once: true })
+  })
+}
+
+function closeCommitCtx() {
+  commitCtx.value = null
+  window.removeEventListener('mousedown', closeCommitCtx)
+}
+
+async function ctxCopyHash() {
+  if (!commitCtx.value) return
+  await navigator.clipboard.writeText(commitCtx.value.entry.hash)
+  closeCommitCtx()
+}
+
+async function ctxCopyShortHash() {
+  if (!commitCtx.value) return
+  await navigator.clipboard.writeText(commitCtx.value.entry.hash.slice(0, 7))
+  closeCommitCtx()
+}
+
+async function ctxCopyMessage() {
+  if (!commitCtx.value) return
+  await navigator.clipboard.writeText(commitCtx.value.entry.message)
+  closeCommitCtx()
+}
+
+async function ctxCreateBranch() {
+  if (!commitCtx.value) return
+  const entry = commitCtx.value.entry
+  closeCommitCtx()
+  const project = projectStore.currentProject
+  if (!project) return
+  const name = await promptDialog(t('git.createBranchPrompt', { hash: entry.hash.slice(0, 7) }), '', 'feature/...')
+  if (!name) return
+  try {
+    await gitCreateBranch(project.root, project.shell, name.trim(), entry.hash)
+    await gitStore.refreshLog()
+  } catch (e) {
+    await infoDialog(t('git.createBranchFailed', { error: String(e) }))
+  }
+}
+
+async function ctxOpenOnRemote() {
+  const link = commitLink.value
+  closeCommitCtx()
+  if (link) await openUrlWithConfirm(link.url)
+}
+
 // File context menu (shared between CHANGES and COMMITS)
 const fileCtx = ref<{
   x: number
@@ -164,6 +250,7 @@ const fileCtx = ref<{
 function onFileContext(e: MouseEvent, path: string, opts: { hash?: string; staged?: boolean; untracked?: boolean }) {
   e.preventDefault()
   e.stopPropagation()
+  window.removeEventListener('mousedown', closeFileCtx)
   fileCtx.value = { x: e.clientX, y: e.clientY, path, ...opts }
   nextTick(() => {
     window.addEventListener('mousedown', closeFileCtx, { once: true })
@@ -172,6 +259,7 @@ function onFileContext(e: MouseEvent, path: string, opts: { hash?: string; stage
 
 function closeFileCtx() {
   fileCtx.value = null
+  window.removeEventListener('mousedown', closeFileCtx)
 }
 
 async function ctxOpenDiff() {
@@ -221,11 +309,15 @@ watch(
   () => {
     expandedCommits.value.clear()
     commitFiles.value = {}
+    loadRemoteUrl()
     refreshIfActive()
   },
 )
 
-onMounted(refreshIfActive)
+onMounted(() => {
+  loadRemoteUrl()
+  refreshIfActive()
+})
 onUnmounted(() => {
   if (tooltipTimer) clearTimeout(tooltipTimer)
 })
@@ -329,6 +421,7 @@ onUnmounted(() => {
               class="log-item"
               :class="{ unpushed: unpushedHashes.has(entry.hash) }"
               @click="toggleCommitExpand(entry.hash)"
+              @contextmenu="onCommitContext($event, entry)"
               @mouseenter="onCommitEnter(entry, $event)"
               @mouseleave="onCommitLeave"
             >
@@ -364,6 +457,7 @@ onUnmounted(() => {
               class="graph-row"
               :class="{ unpushed: unpushedHashes.has(row.hash) }"
               @click="toggleCommitExpand(row.hash)"
+              @contextmenu="gitStore.logEntries[i] && onCommitContext($event, gitStore.logEntries[i])"
               @mouseenter="gitStore.logEntries[i] && onCommitEnter(gitStore.logEntries[i], $event)"
               @mouseleave="onCommitLeave"
             >
@@ -450,6 +544,26 @@ onUnmounted(() => {
       >
         <button @click="ctxOpenDiff">{{ t('git.openDiff') }}</button>
         <button @click="ctxOpenFile">{{ t('git.openFile') }}</button>
+      </div>
+    </Teleport>
+
+    <!-- Commit context menu -->
+    <Teleport to="body">
+      <div
+        v-if="commitCtx"
+        class="commit-file-ctx"
+        :style="{ left: commitCtx.x + 'px', top: commitCtx.y + 'px' }"
+        @mousedown.stop
+      >
+        <button @click="ctxCopyHash">{{ t('git.copyHash') }}</button>
+        <button @click="ctxCopyShortHash">{{ t('git.copyShortHash') }}</button>
+        <button @click="ctxCopyMessage">{{ t('git.copyMessage') }}</button>
+        <div class="ctx-separator" />
+        <button @click="ctxCreateBranch">{{ t('git.createBranchFromCommit') }}</button>
+        <template v-if="commitLink">
+          <div class="ctx-separator" />
+          <button @click="ctxOpenOnRemote">{{ t('git.openOnProvider', { provider: commitLink.label }) }}</button>
+        </template>
       </div>
     </Teleport>
   </div>
@@ -837,5 +951,11 @@ onUnmounted(() => {
 .commit-file-ctx button:hover {
   background: var(--accent);
   color: var(--text-active);
+}
+
+.commit-file-ctx .ctx-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 </style>
