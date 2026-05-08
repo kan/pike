@@ -1,6 +1,6 @@
 import type { ShellType } from '../types/tab'
 
-export function pathSep(shell?: ShellType): string {
+export function pathSep(shell?: ShellType): '/' | '\\' {
   return shell?.kind === 'wsl' ? '/' : '\\'
 }
 
@@ -10,6 +10,36 @@ export function isAbsolutePath(path: string): boolean {
 
 export function basename(path: string): string {
   return path.split(/[/\\]/).pop() ?? path
+}
+
+/** Drop the last path segment. Returns the directory portion (no trailing separator). */
+export function dirname(path: string): string {
+  const idx = path.search(/[/\\][^/\\]*$/)
+  if (idx <= 0) return path
+  return path.slice(0, idx)
+}
+
+/**
+ * Resolve a relative path against a base directory using the given separator.
+ * Collapses `.` / `..` segments. Mixed `/` and `\` are normalized to `sep`.
+ */
+export function joinPath(baseDir: string, rel: string, sep: '/' | '\\' = '/'): string {
+  const isWindows = sep === '\\'
+  const normalize = (s: string) => (isWindows ? s.replace(/\//g, '\\') : s.replace(/\\/g, '/'))
+  const base = normalize(baseDir)
+  const r = normalize(rel)
+  const baseParts = base.split(sep).filter((p, i) => p.length > 0 || i === 0)
+  const relParts = r.split(sep)
+  for (const part of relParts) {
+    if (part === '' || part === '.') continue
+    if (part === '..') {
+      if (baseParts.length > 1) baseParts.pop()
+    } else {
+      baseParts.push(part)
+    }
+  }
+  // Preserve leading `\\` on UNC paths (basically a no-op via the filter above)
+  return baseParts.join(sep)
 }
 
 export function extension(path: string): string {

@@ -13,6 +13,7 @@ import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useOutlineSource } from '../../composables/useOutlineSource'
 import { useI18n } from '../../i18n'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
+import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
 import { minimap } from '../../lib/editorMinimap'
 import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
@@ -597,6 +598,28 @@ function createEditorView(container: HTMLElement, content: string) {
   if (hasFile) {
     extensions.push(gitDiffGutter())
     extensions.push(minimapCompartment.of(settingsStore.editorMinimap ? minimap() : []))
+  }
+
+  // Go-to-definition (only for real files; previews / readonly snapshots skipped)
+  if (hasFile) {
+    extensions.push(
+      jumpToDefinitionExtension({
+        getContext: () => {
+          const t = tab.value
+          const project = projectStore.currentProject
+          if (!t?.path || !project) return null
+          return {
+            filePath: t.path,
+            projectRoot: project.root,
+            shell: project.shell,
+            langId: extension(t.path),
+          }
+        },
+        onJump: (target) => {
+          tabStore.addEditorTab({ path: target.path, initialLine: target.line })
+        },
+      }),
+    )
   }
 
   if (!isReadOnly) {

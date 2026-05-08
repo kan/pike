@@ -704,6 +704,7 @@ pub fn run() {
             fs::fs_create_file,
             fs::fs_create_dir,
             fs::fs_write_file_base64,
+            fs::fs_resolve_first_existing,
             watcher::fs_watch_start,
             watcher::fs_watch_stop,
             docker::docker_ping,

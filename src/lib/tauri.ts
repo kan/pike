@@ -145,6 +145,10 @@ export async function fsWriteFileBase64(shell: ShellType, path: string, data: st
   return invoke('fs_write_file_base64', { shell, path, data })
 }
 
+export async function fsResolveFirstExisting(shell: ShellType, candidates: string[]): Promise<string | null> {
+  return invoke<string | null>('fs_resolve_first_existing', { shell, candidates })
+}
+
 // Watcher
 
 export async function fsWatchStart(shell: ShellType, root: string): Promise<string> {

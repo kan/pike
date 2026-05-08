@@ -403,6 +403,56 @@ pub async fn fs_write_file_base64(
     .map_err(|e| e.to_string())?
 }
 
+/// Return the first candidate path that exists as a regular file (not dir).
+/// Used by import resolution to probe extension/index variants in one round-trip.
+#[tauri::command]
+pub async fn fs_resolve_first_existing(
+    shell: ShellConfig,
+    candidates: Vec<String>,
+) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { .. } => resolve_first_existing_wsl(&shell, &candidates),
+        _ => Ok(resolve_first_existing_native(&candidates)),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn resolve_first_existing_native(candidates: &[String]) -> Option<String> {
+    for path in candidates {
+        if let Ok(meta) = std::fs::metadata(path) {
+            if meta.is_file() {
+                return Some(path.clone());
+            }
+        }
+    }
+    None
+}
+
+fn resolve_first_existing_wsl(
+    shell: &ShellConfig,
+    candidates: &[String],
+) -> Result<Option<String>, String> {
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    // Single bash call: print first candidate that is a regular file.
+    let mut script = String::new();
+    for path in candidates {
+        let escaped = path.replace('\'', "'\\''");
+        script.push_str(&format!(
+            "if [ -f '{escaped}' ]; then printf '%s' '{escaped}'; exit 0; fi\n"
+        ));
+    }
+    let (_, stdout, _) = shell.run("bash", &["-c", &script])?;
+    let trimmed = stdout.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed.to_string()))
+    }
+}
+
 fn copy_dir_recursive(src: &str, dst: &str) -> Result<(), String> {
     std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
     for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
