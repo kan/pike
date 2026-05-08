@@ -288,6 +288,9 @@ export default {
   'statusBar.ccCache': 'cache',
   'statusBar.ccCacheCreate': 'cache write',
   'statusBar.ccSession': 'Claude Code Session',
+  'jumpTo.searching': 'Searching for definition...',
+  'jumpTo.opened': 'Opened {name}',
+  'jumpTo.notFound': 'Definition not found',
 
   // Confirm Dialog
   'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',

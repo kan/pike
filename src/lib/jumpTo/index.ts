@@ -16,7 +16,7 @@ import type { ShellType } from '../../types/tab'
 import { extractOutline, type OutlineNode } from '../outline'
 import { fsReadFile } from '../tauri'
 import { findDefinitionInFile, wordAt } from './findInFile'
-import { findImportAt, findImportForName, importedNameFor, parseImports } from './parseImports'
+import { findImportAt, findImportForName, importedNameFor, parseImportsCached } from './parseImports'
 import { resolveImport } from './resolveImport'
 import { looksLikeCustomComponent, resolveVueComponent, tagNameAt } from './vueComponent'
 
@@ -41,11 +41,36 @@ export interface JumpContext {
   langId: string
 }
 
+/**
+ * Sync, IPC-free pre-check used by hover decoration. Returns true when
+ * something at `offset` *might* resolve — without doing any filesystem work.
+ * The actual click handler still runs `jumpToDefinition` for the real lookup.
+ */
+export function isJumpableAt(ctx: JumpContext): boolean {
+  const text = ctx.state.doc.toString()
+  const imports = parseImportsCached(ctx.state.doc, text, ctx.langId)
+
+  if (findImportAt(imports, ctx.offset)) return true
+
+  if (ctx.langId === 'vue') {
+    const tag = tagNameAt(text, ctx.offset)
+    if (tag && looksLikeCustomComponent(tag.name)) return true
+  }
+
+  const word = wordAt(ctx.state, ctx.offset)
+  if (!word) return false
+
+  const local = findDefinitionInFile(word.text, ctx.state, ctx.langId)
+  if (local && !(ctx.offset >= local.from && ctx.offset <= local.to)) return true
+
+  return findImportForName(imports, word.text) !== null
+}
+
 export async function jumpToDefinition(ctx: JumpContext): Promise<JumpResult | null> {
   const text = ctx.state.doc.toString()
 
   // 1. Click on an import path string → open file
-  const imports = parseImports(text, ctx.langId)
+  const imports = parseImportsCached(ctx.state.doc, text, ctx.langId)
   const onImport = findImportAt(imports, ctx.offset)
   if (onImport) {
     const resolved = await resolveImport({
@@ -69,6 +94,7 @@ export async function jumpToDefinition(ctx: JumpContext): Promise<JumpResult | n
         fromFile: ctx.filePath,
         projectRoot: ctx.projectRoot,
         shell: ctx.shell,
+        imports,
       })
       if (resolved) return { target: { path: resolved } }
       return null

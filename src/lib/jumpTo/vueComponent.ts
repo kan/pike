@@ -10,8 +10,10 @@
  */
 
 import type { ShellType } from '../../types/tab'
-import { parseImports } from './parseImports'
-import { resolveImport } from './resolveImport'
+import { pathSep } from '../paths'
+import { fsReadFile } from '../tauri'
+import { findImportForName, type ImportEntry, parseImports } from './parseImports'
+import { findNearestUpward, resolveImport } from './resolveImport'
 
 export interface VueComponentResolveOpts {
   componentName: string
@@ -19,22 +21,20 @@ export interface VueComponentResolveOpts {
   fromFile: string
   projectRoot: string
   shell: ShellType
+  /** Already-parsed imports (caller passes the cached list to avoid reparsing). */
+  imports?: ImportEntry[]
 }
 
 export async function resolveVueComponent(opts: VueComponentResolveOpts): Promise<string | null> {
   const { componentName, sfcText, fromFile, projectRoot, shell } = opts
   const target = toPascalCase(componentName)
-  const imports = parseImports(sfcText, 'vue')
+  const imports = opts.imports ?? parseImports(sfcText, 'vue')
 
   // 1. Direct import binding (script setup, or any plain import)
   for (const imp of imports) {
-    if (imp.defaultName === target) {
-      return resolveImport({ importPath: imp.source, fromFile, projectRoot, shell, langId: 'vue' })
-    }
-    if (imp.namespaceName === target) {
-      return resolveImport({ importPath: imp.source, fromFile, projectRoot, shell, langId: 'vue' })
-    }
-    if (imp.named.some((n) => n.local === target)) {
+    const matched =
+      imp.defaultName === target || imp.namespaceName === target || imp.named.some((n) => n.local === target)
+    if (matched) {
       return resolveImport({ importPath: imp.source, fromFile, projectRoot, shell, langId: 'vue' })
     }
   }
@@ -49,11 +49,85 @@ export async function resolveVueComponent(opts: VueComponentResolveOpts): Promis
     }
   }
 
-  return null
+  // 3. Globally registered via `app.component('Name', X)` in main.{ts,js,...}
+  const globals = await loadGlobalComponents(fromFile, projectRoot, shell)
+  return globals.get(target) ?? null
 }
 
 function toPascalCase(name: string): string {
   return name.replace(/(?:^|-)([a-z])/g, (_, c: string) => c.toUpperCase())
+}
+
+// --- Global components (app.component / Vue.component in main.{ts,js,...}) ---
+
+const MAIN_FILENAMES = ['main.ts', 'main.js', 'main.mjs', 'main.cjs'] as const
+
+const globalComponentsCache = new Map<string, Promise<Map<string, string>>>()
+
+/** Drop the global component cache. Call when project changes or main file is edited. */
+export function clearGlobalComponentsCache(): void {
+  globalComponentsCache.clear()
+}
+
+async function loadGlobalComponents(
+  fromFile: string,
+  projectRoot: string,
+  shell: ShellType,
+): Promise<Map<string, string>> {
+  const sep = pathSep(shell)
+  const mainPath = await findNearestUpward(fromFile, projectRoot, sep, shell, MAIN_FILENAMES)
+  if (!mainPath) return EMPTY_MAP
+  const cached = globalComponentsCache.get(mainPath)
+  if (cached) return cached
+  const promise = parseGlobalComponents(mainPath, projectRoot, shell)
+  globalComponentsCache.set(mainPath, promise)
+  return promise
+}
+
+const EMPTY_MAP: Map<string, string> = new Map()
+
+async function parseGlobalComponents(
+  mainPath: string,
+  projectRoot: string,
+  shell: ShellType,
+): Promise<Map<string, string>> {
+  let text: string
+  try {
+    const result = await fsReadFile(shell, mainPath)
+    text = result.content
+  } catch {
+    return EMPTY_MAP
+  }
+
+  const mainLang = mainPath.endsWith('.ts') ? 'ts' : 'js'
+  const imports = parseImports(text, mainLang)
+
+  // Match `app.component('Name', LocalIdent)` and `Vue.component(...)`.
+  // The `\b` after `component` prevents false matches against e.g. `componentName(...)`.
+  const re = /\.component\b\s*\(\s*(['"`])([^'"`]+)\1\s*,\s*(\w+)\s*\)/g
+  const out = new Map<string, string>()
+
+  // Resolve imports in parallel — each call may hit IPC for path probing.
+  const tasks: Promise<void>[] = []
+  for (const m of text.matchAll(re)) {
+    const registeredName = m[2]
+    const localName = m[3]
+    const imp = findImportForName(imports, localName)
+    if (!imp) continue
+    tasks.push(
+      resolveImport({
+        importPath: imp.source,
+        fromFile: mainPath,
+        projectRoot,
+        shell,
+        langId: mainLang,
+      }).then((resolved) => {
+        if (resolved) out.set(toPascalCase(registeredName), resolved)
+      }),
+    )
+  }
+  await Promise.all(tasks)
+  return out
 }
 
 /**

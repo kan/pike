@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Archive, Cpu, FolderOpen, GitBranch, Github, Gitlab } from 'lucide-vue-next'
+import { AlertTriangle, Archive, Check, Cpu, FolderOpen, GitBranch, Github, Gitlab, Loader2 } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
@@ -12,6 +12,7 @@ import { useClaudeUsageStore } from '../../stores/claudeUsage'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
+import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 
 const { t } = useI18n()
@@ -27,6 +28,21 @@ const updater = useUpdater()
 const claudeUsageStore = useClaudeUsageStore()
 const agentStore = useAgentStore()
 const tabStore = useTabStore()
+const statusMessageStore = useStatusMessageStore()
+
+const statusIcon = computed(() => {
+  switch (statusMessageStore.variant) {
+    case 'loading':
+      return Loader2
+    case 'success':
+      return Check
+    case 'warn':
+    case 'error':
+      return AlertTriangle
+    default:
+      return null
+  }
+})
 
 const codexSession = computed(() => {
   const tab = tabStore.activeTab
@@ -183,6 +199,23 @@ onUnmounted(() => {
       {{ projectStore.currentProject?.name ?? "No project" }}
     </button>
 
+    <Transition name="status-msg">
+      <div
+        v-if="statusMessageStore.visible"
+        class="status-message"
+        :class="`variant-${statusMessageStore.variant}`"
+      >
+        <component
+          :is="statusIcon"
+          v-if="statusIcon"
+          :size="12"
+          :stroke-width="2"
+          :class="{ 'spin-icon': statusMessageStore.variant === 'loading' }"
+        />
+        <span>{{ statusMessageStore.text }}</span>
+      </div>
+    </Transition>
+
     <div class="spacer"></div>
 
     <!-- Editor info -->
@@ -317,6 +350,52 @@ onUnmounted(() => {
 
 .spacer {
   flex: 1;
+}
+
+.status-message {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 480px;
+}
+
+.status-message.variant-success {
+  color: var(--git-add, #4caf50);
+}
+
+.status-message.variant-warn,
+.status-message.variant-error {
+  color: var(--git-modify, #e0c46c);
+}
+
+.status-message.variant-loading,
+.status-message.variant-info {
+  opacity: 0.85;
+}
+
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.status-msg-enter-active,
+.status-msg-leave-active {
+  transition: opacity 150ms ease;
+}
+
+.status-msg-enter-from,
+.status-msg-leave-to {
+  opacity: 0;
 }
 
 .status-text {

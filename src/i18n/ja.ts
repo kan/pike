@@ -289,6 +289,9 @@ export default {
   'statusBar.ccCache': 'キャッシュ',
   'statusBar.ccCacheCreate': 'キャッシュ書込',
   'statusBar.ccSession': 'Claude Code セッション',
+  'jumpTo.searching': '定義を検索中...',
+  'jumpTo.opened': '{name} を開きました',
+  'jumpTo.notFound': '定義が見つかりませんでした',
 
   // Confirm Dialog
   'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',

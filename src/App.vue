@@ -17,6 +17,8 @@ import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { ptyRouter } from './composables/usePtyRouter'
 import { initTerminalNotifications } from './composables/useTerminalNotifications'
 import { useI18n } from './i18n'
+import { clearAliasCache } from './lib/jumpTo/resolveImport'
+import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { projectRemoveOpen } from './lib/tauri'
 import { getWindowProjectId, isMainWindow, isSecondaryWindow } from './lib/window'
 import { useClaudeUsageStore } from './stores/claudeUsage'
@@ -63,6 +65,10 @@ watch(
 watch(
   () => projectStore.currentProject?.id,
   async () => {
+    // Drop jumpTo caches when switching projects so resolved paths don't
+    // bleed across projects.
+    clearAliasCache()
+    clearGlobalComponentsCache()
     const project = projectStore.currentProject
     if (project) {
       await fsWatcher.start(project.shell, project.root)
@@ -72,8 +78,21 @@ watch(
   },
 )
 
+const ALIAS_CONFIG_NAMES = /[\\/](?:tsconfig|jsconfig)\.json$|[\\/]vite\.config\.(?:[mc]?js|ts)$/
+const MAIN_FILE_NAMES = /[\\/]main\.(?:[mc]?js|ts)$/
+
 fsWatcher.onFileChange((files: FsChangeEntry[]) => {
+  let aliasInvalidated = false
+  let globalsInvalidated = false
   for (const change of files) {
+    if (!aliasInvalidated && ALIAS_CONFIG_NAMES.test(change.path)) {
+      clearAliasCache()
+      aliasInvalidated = true
+    }
+    if (!globalsInvalidated && MAIN_FILE_NAMES.test(change.path)) {
+      clearGlobalComponentsCache()
+      globalsInvalidated = true
+    }
     if (isRecentlySaved(change.path)) continue
     for (const tab of tabStore.tabs) {
       if (tab.kind === 'editor' && tab.path === change.path) {

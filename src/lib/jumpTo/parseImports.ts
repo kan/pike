@@ -166,6 +166,21 @@ function parseImportsGo(text: string): ImportEntry[] {
 }
 
 /**
+ * Memoized version of `parseImports` keyed by the underlying CodeMirror
+ * `Text` instance — stable across non-doc-changing transactions, so hover
+ * lookups don't re-run regex on every mousemove.
+ */
+const importsCache = new WeakMap<object, { langId: string; imports: ImportEntry[] }>()
+
+export function parseImportsCached(textKey: object, fullText: string, langId: string): ImportEntry[] {
+  const cached = importsCache.get(textKey)
+  if (cached && cached.langId === langId) return cached.imports
+  const imports = parseImports(fullText, langId)
+  importsCache.set(textKey, { langId, imports })
+  return imports
+}
+
+/**
  * Find the import entry whose source range contains the given offset.
  * Used by the editor extension to detect Ctrl+click on an import path.
  */

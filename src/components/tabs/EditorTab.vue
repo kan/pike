@@ -23,6 +23,7 @@ import { basename, extension } from '../../lib/paths'
 import { fsReadFile, fsWriteFile, gitDiffLines, openUrlWithConfirm, pickSaveFile } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
+import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import type { EditorTab } from '../../types/tab'
 
@@ -33,6 +34,7 @@ const projectStore = useProjectStore()
 const settingsStore = useSettingsStore()
 const editorInfo = useEditorInfo()
 const outlineSource = useOutlineSource()
+const statusMessageStore = useStatusMessageStore()
 
 // Dynamic compartments for settings that can change at runtime
 const themeCompartment = new Compartment()
@@ -617,6 +619,19 @@ function createEditorView(container: HTMLElement, content: string) {
         },
         onJump: (target) => {
           tabStore.addEditorTab({ path: target.path, initialLine: target.line })
+        },
+        onStatus: (status) => {
+          if (status.kind === 'searching') {
+            statusMessageStore.show({ text: t('jumpTo.searching'), variant: 'loading' })
+          } else if (status.kind === 'opened') {
+            statusMessageStore.show({
+              text: t('jumpTo.opened', { name: basename(status.target.path) }),
+              variant: 'success',
+              durationMs: 2500,
+            })
+          } else {
+            statusMessageStore.show({ text: t('jumpTo.notFound'), variant: 'warn', durationMs: 2500 })
+          }
         },
       }),
     )

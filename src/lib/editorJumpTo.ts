@@ -12,7 +12,7 @@
 import { type Extension, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import type { ShellType } from '../types/tab'
-import { type JumpTarget, jumpToDefinition } from './jumpTo'
+import { isJumpableAt, type JumpTarget, jumpToDefinition } from './jumpTo'
 
 export interface JumpToContext {
   filePath: string
@@ -21,12 +21,16 @@ export interface JumpToContext {
   langId: string
 }
 
+export type JumpStatus = { kind: 'searching' } | { kind: 'opened'; target: JumpTarget } | { kind: 'not-found' }
+
 export interface JumpToOptions {
   /** Returns null when context isn't ready (e.g. before file is loaded). */
   getContext: () => JumpToContext | null
   onJump: (target: JumpTarget) => void
   /** Called when multiple candidates are found. */
   onPickCandidate?: (candidates: JumpTarget[]) => void
+  /** Progress / outcome reporting for the StatusBar. */
+  onStatus?: (status: JumpStatus) => void
 }
 
 const setHoverRange = StateEffect.define<{ from: number; to: number } | null>()
@@ -71,20 +75,18 @@ export function jumpToDefinitionExtension(opts: JumpToOptions): Extension {
         if (offset == null) return false
         const ctx = opts.getContext()
         if (!ctx) return false
-        // Don't preventDefault yet — let CM place the caret first, then we
-        // run the lookup async.
         event.preventDefault()
         runJump(view, offset, ctx, opts)
         return true
       },
       mousemove(event, view) {
         if (!isModKey(event)) {
-          if (hasHover(view)) view.dispatch({ effects: setHoverRange.of(null) })
+          clearHover(view)
           return false
         }
         const offset = view.posAtCoords({ x: event.clientX, y: event.clientY })
         if (offset == null) {
-          view.dispatch({ effects: setHoverRange.of(null) })
+          clearHover(view)
           return false
         }
         const ctx = opts.getContext()
@@ -93,7 +95,7 @@ export function jumpToDefinitionExtension(opts: JumpToOptions): Extension {
         return false
       },
       mouseleave(_event, view) {
-        view.dispatch({ effects: setHoverRange.of(null) })
+        clearHover(view)
         return false
       },
       keydown(event, view) {
@@ -105,15 +107,11 @@ export function jumpToDefinitionExtension(opts: JumpToOptions): Extension {
           runJump(view, offset, ctx, opts)
           return true
         }
-        if (event.key === 'Control' || event.key === 'Meta') {
-          // Force-refresh hover decoration on next mousemove
-          return false
-        }
         return false
       },
       keyup(event, view) {
         if (event.key === 'Control' || event.key === 'Meta') {
-          if (hasHover(view)) view.dispatch({ effects: setHoverRange.of(null) })
+          clearHover(view)
         }
         return false
       },
@@ -122,9 +120,7 @@ export function jumpToDefinitionExtension(opts: JumpToOptions): Extension {
     ViewPlugin.fromClass(
       class {
         update(update: ViewUpdate) {
-          if (update.geometryChanged && hasHover(update.view)) {
-            update.view.dispatch({ effects: setHoverRange.of(null) })
-          }
+          if (update.geometryChanged) clearHover(update.view)
         }
       },
     ),
@@ -140,33 +136,39 @@ function hasHover(view: EditorView): boolean {
   return view.state.field(hoverField).size > 0
 }
 
-let hoverToken = 0
+function clearHover(view: EditorView): void {
+  if (hasHover(view)) view.dispatch({ effects: setHoverRange.of(null) })
+}
 
 function scheduleHover(view: EditorView, offset: number, ctx: JumpToContext): void {
-  const myToken = ++hoverToken
-  // Run the lookup off the event handler. We don't need a debounce because
-  // jumpToDefinition is fast (regex + Lezer + maybe one fs probe).
-  ;(async () => {
-    try {
-      const res = await jumpToDefinition({
-        state: view.state,
-        offset,
-        filePath: ctx.filePath,
-        projectRoot: ctx.projectRoot,
-        shell: ctx.shell,
-        langId: ctx.langId,
-      })
-      if (myToken !== hoverToken) return
-      if (!res?.target && !res?.candidates?.length) {
-        view.dispatch({ effects: setHoverRange.of(null) })
-        return
-      }
-      const range = wordRangeAt(view, offset)
-      if (range) view.dispatch({ effects: setHoverRange.of(range) })
-    } catch {
-      /* swallow — hover is best-effort */
-    }
-  })()
+  // Hover uses the sync IPC-free pre-check — running the full async resolver
+  // (which may read tsconfig / vite.config from disk) on every mousemove is
+  // too expensive. The actual click handler still runs the full resolver.
+  const jumpable = isJumpableAt({
+    state: view.state,
+    offset,
+    filePath: ctx.filePath,
+    projectRoot: ctx.projectRoot,
+    shell: ctx.shell,
+    langId: ctx.langId,
+  })
+  if (!jumpable) {
+    clearHover(view)
+    return
+  }
+  const range = wordRangeAt(view, offset)
+  if (!range) {
+    clearHover(view)
+    return
+  }
+  // Skip dispatch when the same range is already highlighted.
+  const cur = view.state.field(hoverField)
+  let same = false
+  cur.between(range.from, range.to, (from, to) => {
+    if (from === range.from && to === range.to) same = true
+    return false
+  })
+  if (!same) view.dispatch({ effects: setHoverRange.of(range) })
 }
 
 function wordRangeAt(view: EditorView, offset: number): { from: number; to: number } | null {
@@ -183,6 +185,7 @@ function wordRangeAt(view: EditorView, offset: number): { from: number; to: numb
 }
 
 async function runJump(view: EditorView, offset: number, ctx: JumpToContext, opts: JumpToOptions): Promise<void> {
+  opts.onStatus?.({ kind: 'searching' })
   try {
     const res = await jumpToDefinition({
       state: view.state,
@@ -192,22 +195,28 @@ async function runJump(view: EditorView, offset: number, ctx: JumpToContext, opt
       shell: ctx.shell,
       langId: ctx.langId,
     })
-    view.dispatch({ effects: setHoverRange.of(null) })
-    if (!res) return
-    if (res.target) {
-      opts.onJump(res.target)
+    clearHover(view)
+
+    const target = pickTarget(res)
+    if (target) {
+      opts.onJump(target)
+      opts.onStatus?.({ kind: 'opened', target })
       return
     }
-    if (res.candidates && res.candidates.length > 0) {
-      if (res.candidates.length === 1) {
-        opts.onJump(res.candidates[0])
-      } else if (opts.onPickCandidate) {
-        opts.onPickCandidate(res.candidates)
-      } else {
-        opts.onJump(res.candidates[0])
-      }
+    if (res?.candidates && res.candidates.length > 1 && opts.onPickCandidate) {
+      opts.onPickCandidate(res.candidates)
+      // Picker takes over from here; don't emit a status.
+      return
     }
+    opts.onStatus?.({ kind: 'not-found' })
   } catch {
-    /* swallow — no-op when jump fails */
+    opts.onStatus?.({ kind: 'not-found' })
   }
+}
+
+function pickTarget(res: { target?: JumpTarget; candidates?: JumpTarget[] } | null): JumpTarget | null {
+  if (!res) return null
+  if (res.target) return res.target
+  if (res.candidates && res.candidates.length === 1) return res.candidates[0]
+  return null
 }
