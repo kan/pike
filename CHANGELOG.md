@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-05-09
+
+### Features
+
+- **エディタの定義ジャンプ (Ctrl+Click / F12)**: TS/JS/Vue/Go の import 文の path を Ctrl+Click でファイル open。識別子は同一ファイル内宣言 (Lezer 構文木) と import 経由のクロスファイル定義の両方に対応。Vue カスタムコンポーネント `<MyComponent>` / `<my-component>` は `<script setup>` の PascalCase import + Options-API `components: { ... }` + main.{ts,js} の `app.component('Name', X)` グローバル登録の 3 段で解決
+- **path alias 解決**: tsconfig.json / jsconfig.json の `compilerOptions.paths` と vite.config.{ts,js,mjs,cjs} の `resolve.alias` を両方サポート。`path.resolve(__dirname, ...)` / `fileURLToPath(new URL(...))` / リテラル文字列 / 配列 `{ find, replacement }` 形式に対応。fromFile から projectRoot まで祖先方向に config を探索（モノレポ対応）。設定ファイル変更で自動 invalidate
+- **ステータスバーに jumpTo の進捗・結果表示**: 検索中スピナー / 開いたファイル名（成功）/ 定義が見つかりません（失敗）。汎用 statusMessage Pinia store を新設
+- **Pike ターミナル内で起動した `pike <file>` をそのウィンドウのエディタで開く**: PTY spawn 時に `PIKE_WINDOW_LABEL` 環境変数を注入（WSL は WSLENV 経由）。pike CLI が二次インスタンスから WM_COPYDATA で `--from-window=<label>` を送り、既存ウィンドウの `OpenFile` 経路で最優先解決
+
+### Bug Fixes
+
+- **ウィンドウを閉じると Pike 全体が終了する問題** (#53): main が visible な状態で別ウィンドウを閉じた時に `app-should-exit` が誤発火していた。main が hidden の時のみ emit するよう条件を追加
+- **検索パネルの include/exclude グロブ入力で再検索が走らない** (#55): `@input` ハンドラ未配線。regex トグルにも同じ問題があったので合わせて修正
+
+### Documentation
+
+- `CLAUDE.md` に「コミット前にユーザ動作確認 OK を取る」運用ルールを追記
+
 ## [0.6.2] - 2026-05-02
 
 ### Features
