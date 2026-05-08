@@ -31,6 +31,11 @@ function doSearch() {
   searchStore.search(query.value, isRegex.value, globInclude.value || undefined, globExclude.value || undefined)
 }
 
+function toggleRegex() {
+  isRegex.value = !isRegex.value
+  if (query.value.trim()) doSearch()
+}
+
 function openResult(match: { path: string; line: number }) {
   const project = projectStore.currentProject
   if (!project) return
@@ -73,17 +78,21 @@ onMounted(() => {
           class="option-btn"
           :class="{ active: isRegex }"
           :title="t('search.useRegex')"
-          @click="isRegex = !isRegex"
+          @click="toggleRegex"
         ><Regex :size="14" :stroke-width="2" /></button>
         <input
           v-model="globInclude"
           class="glob-input"
           :placeholder="t('search.include')"
+          @input="onInput"
+          @keydown.enter="doSearch"
         />
         <input
           v-model="globExclude"
           class="glob-input"
           :placeholder="t('search.exclude')"
+          @input="onInput"
+          @keydown.enter="doSearch"
         />
       </div>
     </div>
