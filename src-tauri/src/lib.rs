@@ -595,15 +595,20 @@ pub fn run() {
                     let windows = window.app_handle().webview_windows();
                     let current = window.label();
 
-                    // If this was the last visible project window, tell the
-                    // hidden main to exit so the app shuts down gracefully.
+                    // If main is already hidden and this was the last visible
+                    // project window, tell the hidden main to destroy itself so
+                    // the app shuts down gracefully. When main is still visible,
+                    // the user is working there — never trigger app exit.
                     if current != "main" {
+                        let main_visible = windows
+                            .iter()
+                            .any(|(l, w)| l.as_str() == "main" && w.is_visible().unwrap_or(false));
                         let has_visible_project = windows.iter().any(|(l, w)| {
                             l.as_str() != current
                                 && l.as_str() != "main"
                                 && w.is_visible().unwrap_or(false)
                         });
-                        if !has_visible_project {
+                        if !main_visible && !has_visible_project {
                             let _ = window.app_handle().emit("app-should-exit", ());
                         }
                     }
