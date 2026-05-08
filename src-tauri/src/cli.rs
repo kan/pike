@@ -54,15 +54,25 @@ pub async fn cli_set_pending_action(
     Ok(())
 }
 
+/// Extract `--from-window=<label>` from args (set by pike CLI when invoked
+/// from inside a Pike terminal — see PIKE_WINDOW_LABEL forwarding in wait.rs).
+pub fn extract_from_window(args: &[String]) -> Option<String> {
+    args.iter()
+        .find_map(|a| a.strip_prefix("--from-window=").map(|s| s.to_string()))
+        .filter(|s| !s.is_empty())
+}
+
 /// Parse raw CLI args (from std::env::args or single-instance callback).
 /// `cwd` is used to resolve relative paths.
 pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
-    // Skip binary name and known flags (--wait, --wait-id=...)
+    // Skip binary name and known flags (--wait, --wait-id=..., --from-window=...)
     let meaningful: Vec<&str> = args
         .iter()
         .skip(1)
         .map(|s| s.as_str())
-        .filter(|s| *s != "--wait" && !s.starts_with("--wait-id="))
+        .filter(|s| {
+            *s != "--wait" && !s.starts_with("--wait-id=") && !s.starts_with("--from-window=")
+        })
         .collect();
 
     if meaningful.is_empty() {
@@ -216,6 +226,30 @@ mod tests {
             }
             other => panic!("expected OpenFile, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_from_window_flag_stripped_and_extracted() {
+        let args = vec![
+            "pike.exe".to_string(),
+            "--from-window=project-abc".to_string(),
+            "file.rs".to_string(),
+        ];
+        match parse_args(&args, "C:\\project") {
+            CliAction::OpenFile { path, .. } => {
+                assert!(path.contains("file.rs"), "got: {path}");
+            }
+            other => panic!("expected OpenFile, got: {other:?}"),
+        }
+        assert_eq!(extract_from_window(&args), Some("project-abc".to_string()));
+
+        // Empty value yields None
+        let empty = vec!["pike.exe".to_string(), "--from-window=".to_string()];
+        assert_eq!(extract_from_window(&empty), None);
+
+        // Missing flag yields None
+        let none = vec!["pike.exe".to_string(), "file.rs".to_string()];
+        assert_eq!(extract_from_window(&none), None);
     }
 
     #[test]

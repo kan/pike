@@ -95,6 +95,72 @@ fn signal_event(name: &str) {
 #[cfg(not(windows))]
 fn signal_event(_name: &str) {}
 
+/// Probe the single-instance mutex to determine whether another Pike instance
+/// is already running. Creates+closes the mutex; safe to call multiple times
+/// from the same (second) process.
+#[cfg(windows)]
+fn is_second_instance() -> bool {
+    let mutex_name = encode_wide(&format!("{APP_ID}{SI_MUTEX_SUFFIX}"));
+    unsafe {
+        use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
+        use windows::Win32::System::Threading::CreateMutexW;
+
+        let handle = CreateMutexW(None, true, windows::core::PCWSTR(mutex_name.as_ptr()));
+        let already = GetLastError() == ERROR_ALREADY_EXISTS;
+        if let Ok(h) = handle {
+            let _ = CloseHandle(h);
+        }
+        already
+    }
+}
+
+/// If pike CLI was invoked from inside a Pike terminal (PIKE_WINDOW_LABEL set
+/// by pty_spawn) and another Pike instance is already running, forward the args
+/// with `--from-window=<label>` appended, then exit. Returns immediately if not
+/// applicable, letting normal flow proceed.
+///
+/// Skips when `--wait` is present (handled by `try_wait_and_exit`) or when
+/// argv has no meaningful payload (no point routing an empty action).
+#[cfg(windows)]
+pub fn try_forward_pty_origin_and_exit() {
+    let label = match std::env::var("PIKE_WINDOW_LABEL") {
+        Ok(s) if !s.is_empty() => s,
+        _ => return,
+    };
+
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|a| a == "--wait") {
+        return;
+    }
+
+    let has_payload = args
+        .iter()
+        .skip(1)
+        .any(|a| !a.starts_with("--wait-id=") && !a.starts_with("--from-window="));
+    if !has_payload {
+        return;
+    }
+
+    if !is_second_instance() {
+        return;
+    }
+
+    let mut augmented = args;
+    augmented.push(format!("--from-window={label}"));
+
+    let cwd = std::env::current_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+
+    send_to_first_instance(&augmented, &cwd);
+    std::process::exit(0);
+}
+
+#[cfg(not(windows))]
+pub fn try_forward_pty_origin_and_exit() {}
+
 /// Called early in main(), before the Tauri runtime.
 /// If `--wait` is in args and an existing Pike instance is running,
 /// this function sends the args to that instance, blocks until the
@@ -107,21 +173,7 @@ pub fn try_wait_and_exit() {
         return;
     }
 
-    // Check if another instance is already running via the single-instance mutex.
-    let mutex_name = encode_wide(&format!("{APP_ID}{SI_MUTEX_SUFFIX}"));
-    let is_second = unsafe {
-        use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
-        use windows::Win32::System::Threading::CreateMutexW;
-
-        let handle = CreateMutexW(None, true, windows::core::PCWSTR(mutex_name.as_ptr()));
-        let already = GetLastError() == ERROR_ALREADY_EXISTS;
-        if let Ok(h) = handle {
-            let _ = CloseHandle(h);
-        }
-        already
-    };
-
-    if !is_second {
+    if !is_second_instance() {
         return;
     }
 

@@ -244,6 +244,9 @@ fn store_pending(app: &AppHandle, label: &str, action: cli::CliAction) {
 /// Send a CLI action to an existing window via event.
 fn emit_action_to(app: &AppHandle, window: &WebviewWindow, action: &cli::CliAction) {
     let _ = window.unminimize();
+    // show() handles the case where the window is hidden (e.g. main was
+    // closed and the app is still running with a hidden main).
+    let _ = window.show();
     let _ = window.set_focus();
     let _ = app.emit_to(window.label(), "cli_open", action);
 }
@@ -251,8 +254,11 @@ fn emit_action_to(app: &AppHandle, window: &WebviewWindow, action: &cli::CliActi
 /// Handle the second-instance callback (deferred from WM_COPYDATA context).
 fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
     let wait_id = wait::extract_wait_id(args);
+    let from_window = cli::extract_from_window(args);
     let action = cli::parse_args(args, cwd);
-    log::debug!("[single-instance] args={args:?}, cwd={cwd:?}, action={action:?}, wait_id={wait_id:?}");
+    log::debug!(
+        "[single-instance] args={args:?}, cwd={cwd:?}, action={action:?}, wait_id={wait_id:?}, from_window={from_window:?}"
+    );
 
     // --wait: register wait_id and always open in a new dedicated window
     if let Some(ref wid) = wait_id {
@@ -318,6 +324,17 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
         }
 
         cli::CliAction::OpenFile { path, .. } => {
+            // 0. Invoked from inside a Pike terminal? Route to that window
+            // unconditionally — the user explicitly chose where to launch it.
+            if let Some(ref label) = from_window {
+                if let Some(w) = app.get_webview_window(label) {
+                    log::debug!("[single-instance] file: open in originating window {label}");
+                    emit_action_to(app, &w, &action);
+                    return;
+                }
+                log::debug!("[single-instance] file: from_window {label} not found, falling back");
+            }
+
             let projects = load_all_projects(app);
             let windows = current_desktop_windows(app);
 

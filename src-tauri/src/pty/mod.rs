@@ -206,6 +206,28 @@ fn spawn_pty_with_command(
     Ok(PtySpawnResult { id })
 }
 
+/// Inject `PIKE_WINDOW_LABEL` so child processes (including pike CLI invoked
+/// from the shell) can identify the originating Pike window. For WSL, also
+/// add the var to `WSLENV` so it propagates into the Linux side and is then
+/// inherited by Windows binaries (pike.exe) launched via WSL interop.
+fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, is_wsl: bool) {
+    cmd.env("PIKE_WINDOW_LABEL", label);
+    if is_wsl {
+        let existing = std::env::var("WSLENV").unwrap_or_default();
+        let already_present = existing
+            .split(':')
+            .any(|s| s.split('/').next() == Some("PIKE_WINDOW_LABEL"));
+        if !already_present {
+            let new_val = if existing.is_empty() {
+                "PIKE_WINDOW_LABEL/u".to_string()
+            } else {
+                format!("{existing}:PIKE_WINDOW_LABEL/u")
+            };
+            cmd.env("WSLENV", new_val);
+        }
+    }
+}
+
 fn find_git_bash() -> Result<String, String> {
     let candidates = [
         r"C:\Program Files\Git\bin\bash.exe",
@@ -296,6 +318,8 @@ pub async fn pty_spawn(
     if !matches!(shell, Some(ShellConfig::Cmd)) {
         cmd.env("TERM", "xterm-256color");
     }
+    let is_wsl = matches!(shell, None | Some(ShellConfig::Wsl { .. }));
+    apply_pike_env(&mut cmd, window.label(), is_wsl);
     spawn_pty_with_command(cmd, cols, rows, cwd, window.label().to_string(), app, &state)
 }
 
@@ -318,6 +342,7 @@ pub async fn pty_spawn_tmux(
     let mut cmd = CommandBuilder::new("wsl.exe");
     cmd.args(["bash", "-lc", &tmux_cmd]);
     cmd.env("TERM", "xterm-256color");
+    apply_pike_env(&mut cmd, window.label(), true);
     spawn_pty_with_command(cmd, cols, rows, None, window.label().to_string(), app, &state)
 }
 
