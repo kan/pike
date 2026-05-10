@@ -52,7 +52,7 @@ function innerText(el: SyntaxNode, text: string): string {
   // Strip tags iteratively so nested patterns like `<scr<x>ipt>` don't leave
   // `<script>` after a single pass.
   let stripped = text.slice(start, end)
-  for (;;) {
+  while (true) {
     const next = stripped.replace(/<[^>]+>/g, '')
     if (next === stripped) break
     stripped = next

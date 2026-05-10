@@ -98,7 +98,7 @@ async function resolveAlias(
     const matched = matchPattern(importPath, entry.pattern)
     if (matched === null) continue
     for (const tgt of entry.targets) {
-      const replaced = tgt.includes('*') ? tgt.replaceAll('*', matched) : tgt
+      const replaced = tgt.replaceAll('*', matched)
       const absTarget = joinPath(map.baseUrl, replaced, sep)
       const resolved = await resolveByCandidates(absTarget, sep, shell)
       if (resolved) return resolved
