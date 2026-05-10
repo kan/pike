@@ -126,7 +126,8 @@ impl ThreadSession {
             .request("thread/resume", &params)
             .await?;
         *self.thread_id.lock().await = Some(thread_id.to_string());
-        log::info!("[codex-session] Thread resumed: {thread_id}");
+        log::info!("[codex-session] Thread resumed");
+        log::debug!("[codex-session] Resumed thread id: {thread_id}");
         Ok(())
     }
 

@@ -394,13 +394,13 @@ impl AgentRuntime for ACPRuntime {
                 Ok(_) => {
                     *self.session_id.lock().await = Some(existing_id.clone());
                     self.start_event_forwarding().await;
-                    log::info!("[acp-agent] Session loaded: {existing_id}");
+                    log::info!("[acp-agent] Session loaded");
+                    log::debug!("[acp-agent] Loaded session id: {existing_id}");
                     return Ok(existing_id.clone());
                 }
                 Err(e) => {
-                    log::warn!(
-                        "[acp-agent] Failed to load session {existing_id}: {e}, creating new"
-                    );
+                    log::warn!("[acp-agent] Failed to load session: {e}, creating new");
+                    log::debug!("[acp-agent] Failed session id: {existing_id}");
                 }
             }
         }

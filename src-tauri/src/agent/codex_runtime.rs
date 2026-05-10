@@ -295,9 +295,8 @@ impl AgentRuntime for CodexAppServerRuntime {
             {
                 Ok(()) => existing_tid,
                 Err(e) => {
-                    log::warn!(
-                        "[codex-agent] Failed to resume thread {existing_tid}: {e}, starting new"
-                    );
+                    log::warn!("[codex-agent] Failed to resume thread: {e}, starting new");
+                    log::debug!("[codex-agent] Failed thread id: {existing_tid}");
                     self.thread_session
                         .start_thread(&config.cwd, sandbox_ref, approval_ref)
                         .await?
