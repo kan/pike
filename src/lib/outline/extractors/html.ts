@@ -49,12 +49,15 @@ function innerText(el: SyntaxNode, text: string): string {
   const start = open.to
   const end = close ? close.from : el.to
   if (end <= start) return ''
-  return text
-    .slice(start, end)
-    .replace(/<[^>]+>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 80)
+  // Strip tags iteratively so nested patterns like `<scr<x>ipt>` don't leave
+  // `<script>` after a single pass.
+  let stripped = text.slice(start, end)
+  for (;;) {
+    const next = stripped.replace(/<[^>]+>/g, '')
+    if (next === stripped) break
+    stripped = next
+  }
+  return stripped.replace(/\s+/g, ' ').trim().slice(0, 80)
 }
 
 function inspectElement(el: SyntaxNode, text: string): ElementInfo | null {

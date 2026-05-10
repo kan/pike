@@ -139,7 +139,7 @@ function findOptionsApiAlias(sfcText: string, componentName: string): string | n
   // Find a non-setup script block (heuristic: any <script> block).
   // The same technique works whether or not `setup` is present; if the
   // pattern doesn't appear we fall through.
-  const scriptRe = /<script\b[^>]*>([\s\S]*?)<\/script>/g
+  const scriptRe = /<script\b[^>]*>([\s\S]*?)<\/script>/gi
   for (const scriptMatch of sfcText.matchAll(scriptRe)) {
     const body = scriptMatch[1]
     // components: { ... }
