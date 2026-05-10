@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.1] - 2026-05-10
+
+### Bug Fixes
+
+- **WSL ターミナルから `pike <file>` を実行するとファイルが開けない**: `resolve_path_arg` が UNC パス (`\\wsl.localhost\<distro>\...`) のままアクションに格納していたため、WSL プロジェクトの root（ネイティブパス）と `is_under_root` がマッチせず、`fs_read_file` が `wsl.exe bash -c "cat ..."` で UNC を解決できなかった。`unc_to_wsl_native` で canonicalize 後にネイティブパスへ変換するよう修正
+- **WSL ターミナルから起動した `pike <file>` が別のウィンドウで開く**: WSLENV のフラグ `/u` は Win32 → WSL 方向のみで、WSL bash から起動した pike.exe (Win32 binary) には `PIKE_WINDOW_LABEL` が伝搬しなかった。フラグなし（双方向のデフォルト）に変更し、`--from-window` が確実に付与されるようにした
+
 ## [0.7.0] - 2026-05-09
 
 ### Features
