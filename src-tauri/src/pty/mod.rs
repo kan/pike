@@ -210,6 +210,11 @@ fn spawn_pty_with_command(
 /// from the shell) can identify the originating Pike window. For WSL, also
 /// add the var to `WSLENV` so it propagates into the Linux side and is then
 /// inherited by Windows binaries (pike.exe) launched via WSL interop.
+///
+/// WSLENV flags: `/u` is Win32→WSL only and `/w` is WSL→Win32 only. We need
+/// both directions (env enters WSL bash, then a pike.exe spawned from bash
+/// must inherit it back), so we use no flag — the documented bidirectional
+/// default — with no path translation.
 fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, is_wsl: bool) {
     cmd.env("PIKE_WINDOW_LABEL", label);
     if is_wsl {
@@ -219,9 +224,9 @@ fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, is_wsl: bool) {
             .any(|s| s.split('/').next() == Some("PIKE_WINDOW_LABEL"));
         if !already_present {
             let new_val = if existing.is_empty() {
-                "PIKE_WINDOW_LABEL/u".to_string()
+                "PIKE_WINDOW_LABEL".to_string()
             } else {
-                format!("{existing}:PIKE_WINDOW_LABEL/u")
+                format!("{existing}:PIKE_WINDOW_LABEL")
             };
             cmd.env("WSLENV", new_val);
         }

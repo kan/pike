@@ -107,6 +107,24 @@ fn wsl_distro_from_unc(cwd: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Convert `\\wsl.localhost\<distro>\<rest>` (or `\\wsl$\...`) to the native
+/// WSL path `/<rest>`. Returns None for non-WSL paths.
+///
+/// WSL projects in Pike store native paths (e.g. `/home/kan/foo`), and
+/// `fs_read_file` runs the path verbatim inside `wsl.exe bash -c "cat ..."`,
+/// where UNC paths are unreachable. We always emit native paths from the CLI
+/// for WSL targets so both project-root matching and file I/O work.
+fn unc_to_wsl_native(path: &str) -> Option<String> {
+    let norm = path.replace('\\', "/");
+    let rest = norm
+        .strip_prefix("//wsl.localhost/")
+        .or_else(|| norm.strip_prefix("//wsl$/"))?;
+    let mut parts = rest.splitn(2, '/');
+    parts.next().filter(|s| !s.is_empty())?;
+    let tail = parts.next().unwrap_or("");
+    Some(format!("/{tail}"))
+}
+
 fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
     let (path_str, line) = parse_path_and_line(raw);
 
@@ -130,6 +148,7 @@ fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
     };
 
     let abs_path = abs_path.canonicalize().unwrap_or(abs_path);
+    let is_dir = abs_path.is_dir();
     let mut path_string = abs_path.to_string_lossy().into_owned();
     // Strip \\?\ prefix added by canonicalize on Windows
     // Also handle UNC: \\?\UNC\wsl.localhost\... → \\wsl.localhost\...
@@ -139,7 +158,14 @@ fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
         path_string = path_string[4..].to_string();
     }
 
-    if abs_path.is_dir() {
+    // Convert WSL UNC paths to native (\\wsl.localhost\Ubuntu\home\... → /home/...).
+    // WSL projects store native roots and fs_read_file passes the path into
+    // `wsl.exe bash -c "cat ..."`, which can't resolve UNC paths.
+    if let Some(native) = unc_to_wsl_native(&path_string) {
+        path_string = native;
+    }
+
+    if is_dir {
         CliAction::OpenDirectory { path: path_string }
     } else {
         CliAction::OpenFile {
@@ -216,12 +242,56 @@ mod tests {
 
     #[test]
     fn test_wsl_absolute_path_conversion() {
+        // /home/user/file.rs from a WSL UNC cwd should resolve to a native
+        // WSL path (not UNC), so it matches WSL project roots and is readable
+        // inside `wsl.exe bash -c "cat ..."`.
         let args = vec!["pike.exe".to_string(), "/home/user/file.rs".to_string()];
         match parse_args(&args, r"\\wsl.localhost\Ubuntu\home\user") {
             CliAction::OpenFile { path, .. } => {
-                assert!(
-                    path.starts_with(r"\\wsl.localhost\Ubuntu\home\user\file.rs"),
-                    "expected UNC path, got: {path}"
+                assert_eq!(path, "/home/user/file.rs");
+            }
+            other => panic!("expected OpenFile, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_unc_to_wsl_native() {
+        assert_eq!(
+            unc_to_wsl_native(r"\\wsl.localhost\Ubuntu\home\user\file.rs"),
+            Some("/home/user/file.rs".to_string())
+        );
+        assert_eq!(
+            unc_to_wsl_native(r"\\wsl$\Debian\tmp\foo"),
+            Some("/tmp/foo".to_string())
+        );
+        // Distro root (no tail)
+        assert_eq!(
+            unc_to_wsl_native(r"\\wsl.localhost\Ubuntu"),
+            Some("/".to_string())
+        );
+        // Non-WSL paths pass through
+        assert_eq!(unc_to_wsl_native(r"C:\Users\foo"), None);
+        assert_eq!(unc_to_wsl_native(r"\\server\share\foo"), None);
+    }
+
+    #[test]
+    fn test_wsl_relative_path_from_unc_cwd() {
+        // Relative path resolved against a WSL UNC cwd should also become
+        // native WSL — this is the common case (`pike file.md` from inside
+        // a WSL terminal where cwd is reported as the UNC view).
+        // Use a guaranteed-nonexistent path so canonicalize can't rewrite it.
+        let args = vec![
+            "pike.exe".to_string(),
+            "pike-test-nonexistent.md".to_string(),
+        ];
+        match parse_args(
+            &args,
+            r"\\wsl.localhost\Ubuntu\home\pike-test-user\does-not-exist",
+        ) {
+            CliAction::OpenFile { path, .. } => {
+                assert_eq!(
+                    path,
+                    "/home/pike-test-user/does-not-exist/pike-test-nonexistent.md"
                 );
             }
             other => panic!("expected OpenFile, got: {other:?}"),
