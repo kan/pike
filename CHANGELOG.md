@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2] - 2026-05-10
+
+### Security
+
+- **Dependabot**: tauri 2.10.0 → 2.11.1 (Origin Confusion 対策, GHSA-7c8b-pj7c-cf2v)、npm uuid を package.json overrides で 11.1.1 に強制（mermaid 11.14.0 が pin する transitive 経由）。rand 0.7.3 / 0.8.5 (GHSA-cq8v-f236-94qc) は build-dependency 経由でしか取り込まれていないため shipped binary には影響なしと判断し dismiss
+- **CodeQL (JS)**: jumpTo / outline の正規表現とサニタイズを修正（path mapping 置換を `replaceAll` に、Vue SFC `<script>` 抽出に `i` フラグ追加、HTML タグ除去を不変点まで反復するループに変更）
+- **CodeQL (Rust)**: Codex / ACP のスレッド・セッション ID（UUID、機密ではないが CodeQL に sensitive と誤検知される）を info ログから外し、debug レベルに分離
+
 ## [0.7.1] - 2026-05-10
 
 ### Bug Fixes
