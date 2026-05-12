@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.3] - 2026-05-13
+
+### Bug Fixes
+
+- **WSL ターミナルから `pike .` で自動作成されるプロジェクトが Windows になる (#62)**: `resolve_path_arg` が UNC パス (`\\wsl.localhost\<distro>\...`) を WSL ネイティブパスへ変換する際にディストロ情報が失われており、`create_adhoc_project` が `/home/...` を Windows のルート相対パスと区別できず PowerShell プロジェクトとしてフォールバックしていた。`CliAction::OpenDirectory` に distro を載せて ad-hoc 生成側へ引き回し、ネイティブパス＋distro ヒントの組で WSL シェルとして生成するように修正。合わせて `wsl_distro_from_unc` / `unc_to_wsl_native` の二重パースを `split_wsl_unc` に統合
+- **Claude Code を実行しているタブの activity 通知が激しすぎる (#63)**: TerminalTab が PTY 出力のたびに `hasActivity=true` をセットしていたため、Claude Code のようにトークンをストリームし続ける TUI を動かしているとバックグラウンドタブのドットが常時点灯していた。ユーザーアクション要求のシグナルである BEL (`\x07`) を xterm の `onBell` で捕捉してその時だけマークするよう変更。合わせて TerminalTab / useAgentRouter / tabs ストアに散らばっていた `hasActivity` ミューテートを `tabStore.markTabActivity` に集約（active タブ判定・タブ種別ガード・no-op ガードを 1 箇所に）
+
 ## [0.7.2] - 2026-05-10
 
 ### Security
