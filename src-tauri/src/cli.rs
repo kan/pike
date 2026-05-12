@@ -7,8 +7,15 @@ use tauri::State;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum CliAction {
-    OpenFile { path: String, line: Option<u32> },
-    OpenDirectory { path: String },
+    OpenFile {
+        path: String,
+        line: Option<u32>,
+    },
+    OpenDirectory {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distro: Option<String>,
+    },
     None,
 }
 
@@ -93,36 +100,26 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
 
 /// Extract WSL distro name from a UNC path like `\\wsl.localhost\Ubuntu\...` or `\\wsl$\Ubuntu\...`.
 pub fn wsl_distro_from_path(path: &str) -> Option<String> {
-    wsl_distro_from_unc(path)
+    split_wsl_unc(path).map(|(distro, _)| distro)
 }
 
-fn wsl_distro_from_unc(cwd: &str) -> Option<String> {
-    let norm = cwd.replace('\\', "/");
-    let rest = norm
-        .strip_prefix("//wsl.localhost/")
-        .or_else(|| norm.strip_prefix("//wsl$/"))?;
-    rest.split('/')
-        .next()
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-}
-
-/// Convert `\\wsl.localhost\<distro>\<rest>` (or `\\wsl$\...`) to the native
-/// WSL path `/<rest>`. Returns None for non-WSL paths.
+/// Parse a WSL UNC path into `(distro, native_path)`. Accepts both
+/// `\\wsl.localhost\<distro>\<rest>` and `\\wsl$\<distro>\<rest>`.
 ///
 /// WSL projects in Pike store native paths (e.g. `/home/kan/foo`), and
 /// `fs_read_file` runs the path verbatim inside `wsl.exe bash -c "cat ..."`,
 /// where UNC paths are unreachable. We always emit native paths from the CLI
-/// for WSL targets so both project-root matching and file I/O work.
-fn unc_to_wsl_native(path: &str) -> Option<String> {
+/// for WSL targets so both project-root matching and file I/O work — and we
+/// preserve the distro alongside so ad-hoc projects can be created as WSL.
+fn split_wsl_unc(path: &str) -> Option<(String, String)> {
     let norm = path.replace('\\', "/");
     let rest = norm
         .strip_prefix("//wsl.localhost/")
         .or_else(|| norm.strip_prefix("//wsl$/"))?;
     let mut parts = rest.splitn(2, '/');
-    parts.next().filter(|s| !s.is_empty())?;
+    let distro = parts.next().filter(|s| !s.is_empty())?.to_string();
     let tail = parts.next().unwrap_or("");
-    Some(format!("/{tail}"))
+    Some((distro, format!("/{tail}")))
 }
 
 fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
@@ -133,7 +130,7 @@ fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
         // Unix-style absolute path (e.g. /home/user/file).
         // On Windows this is NOT absolute (just root-relative to current drive).
         // If CWD is a WSL UNC path, convert to \\wsl.localhost\{distro}\...
-        if let Some(ref distro) = wsl_distro_from_unc(cwd) {
+        if let Some(distro) = wsl_distro_from_path(cwd) {
             PathBuf::from(format!(
                 r"\\wsl.localhost\{distro}{}",
                 path_str.replace('/', "\\")
@@ -158,15 +155,19 @@ fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
         path_string = path_string[4..].to_string();
     }
 
-    // Convert WSL UNC paths to native (\\wsl.localhost\Ubuntu\home\... → /home/...).
-    // WSL projects store native roots and fs_read_file passes the path into
-    // `wsl.exe bash -c "cat ..."`, which can't resolve UNC paths.
-    if let Some(native) = unc_to_wsl_native(&path_string) {
+    // For WSL UNC paths, swap in the native form and keep the distro so
+    // ad-hoc project creation can build a WSL project (native path alone
+    // is ambiguous with a Windows root-relative path).
+    let distro = split_wsl_unc(&path_string).map(|(d, native)| {
         path_string = native;
-    }
+        d
+    });
 
     if is_dir {
-        CliAction::OpenDirectory { path: path_string }
+        CliAction::OpenDirectory {
+            path: path_string,
+            distro,
+        }
     } else {
         CliAction::OpenFile {
             path: path_string,
@@ -228,16 +229,16 @@ mod tests {
     }
 
     #[test]
-    fn test_wsl_distro_from_unc() {
+    fn test_wsl_distro_from_path() {
         assert_eq!(
-            wsl_distro_from_unc(r"\\wsl.localhost\Ubuntu\home\user"),
+            wsl_distro_from_path(r"\\wsl.localhost\Ubuntu\home\user"),
             Some("Ubuntu".to_string())
         );
         assert_eq!(
-            wsl_distro_from_unc(r"\\wsl$\Debian\tmp"),
+            wsl_distro_from_path(r"\\wsl$\Debian\tmp"),
             Some("Debian".to_string())
         );
-        assert_eq!(wsl_distro_from_unc(r"C:\Users\foo"), None);
+        assert_eq!(wsl_distro_from_path(r"C:\Users\foo"), None);
     }
 
     #[test]
@@ -255,23 +256,23 @@ mod tests {
     }
 
     #[test]
-    fn test_unc_to_wsl_native() {
+    fn test_split_wsl_unc() {
         assert_eq!(
-            unc_to_wsl_native(r"\\wsl.localhost\Ubuntu\home\user\file.rs"),
-            Some("/home/user/file.rs".to_string())
+            split_wsl_unc(r"\\wsl.localhost\Ubuntu\home\user\file.rs"),
+            Some(("Ubuntu".to_string(), "/home/user/file.rs".to_string()))
         );
         assert_eq!(
-            unc_to_wsl_native(r"\\wsl$\Debian\tmp\foo"),
-            Some("/tmp/foo".to_string())
+            split_wsl_unc(r"\\wsl$\Debian\tmp\foo"),
+            Some(("Debian".to_string(), "/tmp/foo".to_string()))
         );
         // Distro root (no tail)
         assert_eq!(
-            unc_to_wsl_native(r"\\wsl.localhost\Ubuntu"),
-            Some("/".to_string())
+            split_wsl_unc(r"\\wsl.localhost\Ubuntu"),
+            Some(("Ubuntu".to_string(), "/".to_string()))
         );
         // Non-WSL paths pass through
-        assert_eq!(unc_to_wsl_native(r"C:\Users\foo"), None);
-        assert_eq!(unc_to_wsl_native(r"\\server\share\foo"), None);
+        assert_eq!(split_wsl_unc(r"C:\Users\foo"), None);
+        assert_eq!(split_wsl_unc(r"\\server\share\foo"), None);
     }
 
     #[test]

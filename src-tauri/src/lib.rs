@@ -126,8 +126,14 @@ fn load_all_projects(app: &AppHandle) -> Vec<project::ProjectConfig> {
 
 /// Create an ad-hoc project for an unregistered directory path.
 /// For WSL UNC paths, extracts distro and uses the native WSL path as root.
+/// For native WSL paths (e.g. /home/user/foo), uses the `distro_hint` captured
+/// by the CLI parser before UNC→native conversion erased the distro context.
 /// For Windows paths, uses PowerShell as the default shell.
-fn create_adhoc_project(app: &AppHandle, path: &str) -> Option<project::ProjectConfig> {
+fn create_adhoc_project(
+    app: &AppHandle,
+    path: &str,
+    distro_hint: Option<&str>,
+) -> Option<project::ProjectConfig> {
     let state = app.try_state::<project::ProjectState>()?;
 
     let (root, shell) = if let Some(distro) = cli::wsl_distro_from_path(path) {
@@ -143,6 +149,15 @@ fn create_adhoc_project(app: &AppHandle, path: &str) -> Option<project::ProjectC
             return None;
         };
         (wsl_path, types::ShellConfig::Wsl { distro })
+    } else if let Some(distro) = distro_hint {
+        // Path is already native WSL — CLI parser converted UNC→native and
+        // passed the distro through CliAction so we can recover it here.
+        (
+            path.to_string(),
+            types::ShellConfig::Wsl {
+                distro: distro.to_string(),
+            },
+        )
     } else {
         (path.to_string(), types::ShellConfig::Powershell)
     };
@@ -284,7 +299,7 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
             }
         }
 
-        cli::CliAction::OpenDirectory { path } => {
+        cli::CliAction::OpenDirectory { path, distro } => {
             let projects = load_all_projects(app);
             let windows = current_desktop_windows(app);
             let norm = normalize_path(path);
@@ -314,7 +329,7 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
 
             // 3. No registered project → create ad-hoc project and open in new window
             log::debug!("[single-instance] dir: creating ad-hoc project for {path}");
-            if let Some(proj) = create_adhoc_project(app, path) {
+            if let Some(proj) = create_adhoc_project(app, path, distro.as_deref()) {
                 let label = format!("{PROJECT_WINDOW_PREFIX}{}", proj.id);
                 let _ = build_window(app, &label);
             } else {

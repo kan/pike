@@ -393,6 +393,10 @@ export interface CliOpenFile {
 export interface CliOpenDirectory {
   action: 'openDirectory'
   path: string
+  /** WSL distro hint captured by the CLI parser when the path was originally
+   *  a WSL UNC path (\\wsl.localhost\<distro>\...). Used by ad-hoc project
+   *  creation in Rust; not used by the frontend. */
+  distro?: string | null
 }
 
 export interface CliNone {
