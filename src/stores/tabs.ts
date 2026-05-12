@@ -151,6 +151,14 @@ export const useTabStore = defineStore('tabs', () => {
     }
   }
 
+  function markTabActivity(tabId: string) {
+    if (activeTabId.value === tabId) return
+    const tab = tabs.value.find((t) => t.id === tabId)
+    if (!tab || (tab.kind !== 'terminal' && tab.kind !== 'agent-chat')) return
+    if (tab.hasActivity) return
+    tab.hasActivity = true
+  }
+
   function addEditorTab(options: {
     path: string
     readOnly?: boolean
@@ -502,6 +510,7 @@ export const useTabStore = defineStore('tabs', () => {
     setTabTitle,
     togglePin,
     cycleTab,
+    markTabActivity,
     snapshotSession,
   }
 })

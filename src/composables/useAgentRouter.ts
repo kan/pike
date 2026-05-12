@@ -21,13 +21,6 @@ function findAgentTab(tabId: string): AgentChatTab | undefined {
   return useTabStore().tabs.find((t): t is AgentChatTab => t.kind === 'agent-chat' && t.id === tabId)
 }
 
-function markAgentActivity(tabId: string) {
-  const tab = findAgentTab(tabId)
-  if (tab && tab.id !== useTabStore().activeTabId) {
-    tab.hasActivity = true
-  }
-}
-
 function focusAgentTab(tabId: string) {
   const tab = findAgentTab(tabId)
   if (tab) {
@@ -54,6 +47,7 @@ export async function initAgentRouter() {
 
   const agent = useAgentStore()
   const settings = useSettingsStore()
+  const tabs = useTabStore()
   const win = getCurrentWindow()
   const notify = await resolveNotifier()
 
@@ -69,7 +63,7 @@ export async function initAgentRouter() {
   /** Send desktop notification if the agent tab is in the background. */
   function notifyIfBackground(tabId: string, description: string) {
     if (settings.codexNotification && !isAgentTabVisible(tabId)) {
-      markAgentActivity(tabId)
+      tabs.markTabActivity(tabId)
       notify?.('Agent', description, () => focusAgentTab(tabId))
     }
   }

@@ -121,8 +121,8 @@ function nudgePtyResize(delayMs: number) {
   }, delayMs)
 }
 
-// Grace period: suppress hasActivity for output arriving shortly after tab activation
-// (resize nudge → SIGWINCH → prompt redraw produces spurious output)
+// Grace period: suppress hasActivity for bells arriving shortly after tab activation
+// (some TUIs ring the bell on focus/redraw).
 let lastActivatedAt = 0
 
 watch(
@@ -214,15 +214,19 @@ onMounted(async () => {
     return
   }
 
+  // Bell-driven activity: TUIs (Claude Code, shells with `\a` in PS1, etc.)
+  // ring BEL when they want attention. Marking activity on every byte of
+  // output was too noisy for agents that stream tokens continuously.
+  terminal.onBell(() => {
+    if (Date.now() - lastActivatedAt <= 500) return
+    tabStore.markTabActivity(props.tabId)
+  })
+
   const termRef_ = terminal
   ptyRouter.register(
     ptyId,
     (data) => {
       termRef_.write(data)
-      if (tabStore.activeTabId !== props.tabId && Date.now() - lastActivatedAt > 500) {
-        const tab = tabStore.tabs.find((t) => t.id === props.tabId)
-        if (tab?.kind === 'terminal') tab.hasActivity = true
-      }
     },
     (code) => {
       termRef_.write(`\r\n${t('terminal.exited', { code: String(code) })}\r\n`)
