@@ -25,7 +25,7 @@ tauri-plugin-log = "2"
 portable-pty = "0.9"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
-bollard = "0.20"
+bollard = "0.21"
 futures-util = "0.3"
 base64 = "0.22.1"
 encoding_rs = "0.8.35"
