@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-05-19
+
+### Features
+
+- **プロジェクトの任意グループ分類**: `ProjectConfig.group?: string` フィールドを追加し、ProjectPanel でプロジェクトをグループバー配下に折りたたみ可能に表示。グループ一覧と表示順は `%APPDATA%/com.tauri.dev/groups.json` に明示的に永続化（プロジェクト未割当の空グループも保持）、`project_groups_list` / `project_groups_save` コマンドで CRUD。未分類プロジェクトはリスト直下にフラット表示、グループバーは bg-tertiary + accent 左ボーダー + バッジカウントで視認性を確保。バーの鉛筆で一括リネーム、✕ で削除（所属プロジェクトは ungroup）、「+ グループを追加」ボタンで空グループ作成。プロジェクトの編集フォームではコンボボックス形式（既存グループ select + 「+ 新規グループ...」で input に切替）。プロジェクト項目をグループバーへドラッグ&ドロップで所属変更。折りたたみ状態は `localStorage` (`pike:project-group-collapsed`) に永続化、グループ削除時に該当エントリを prune
+
+### Refactored
+
+- **localStorage の try/catch + JSON 化を `lib/storage.ts` に集約**: `loadJson<T>(key, fallback)` / `saveJson(key, value)` の 2 関数を新設。4 箇所で重複していた `try { JSON.parse(getItem) } catch { fallback }` / `setItem(key, JSON.stringify(value))` パターンを `stores/agent.ts`, `stores/fileTree.ts`, `stores/settings.ts`, `components/panels/ProjectPanel.vue` で置き換え
+- **D&D の state + start/end を `composables/useDragAndDrop.ts` に集約**: `dragId` / `dragOverTarget` の 2 ref と、`startDrag` / `resetDrag` の定型処理を共通化。`TabPane.vue`（タブ並び替え）、`FileTreePanel.vue`（ファイル移動/コピー）、`ProjectPanel.vue`（グループ割当）の 3 箇所で重複していた state 宣言と dataTransfer のセットアップが 1 行に
+- **ProjectPanel を GroupComboBox / ProjectListItem に分割**: ProjectPanel.vue は -389/+55 行となり、編集モードと表示モードの DOM を 1 箇所で保守できるようになった。GroupComboBox は select と新規グループ input の切替コンボを v-model 駆動の独立コンポーネントに（作成フォーム＋編集フォームの 3 箇所重複を統合）。ProjectListItem は 1 プロジェクトの表示/編集モード切替と D&D をカプセル化（ungrouped と grouped の 2 箇所重複を統合）
+
+### Bug Fixes
+
+- **vite ビルド時の EMFILE 警告**: `optimizeDeps.entries: ["index.html"]` を明示し、rolldown-vite が `src-tauri/target/doc/` 配下の cargo doc 生成物（winapi のドキュメント ~5000 ファイル）まで scan しに行く問題を解消。最終ビルドは元々成功していたが warning 4000+ 件とビルド時間の浪費があった
+
+### Dependencies
+
+- **Cargo**: bollard 0.20.2 → 0.21.0、tauri-plugin-single-instance 2.4.1 → 2.4.2、tokio 1.52.1 → 1.52.3
+- **npm**: vue 3.5.33 → 3.5.34、@codemirror/view 6.41.1 → 6.42.1、dompurify 3.4.1 → 3.4.2、vue-tsc 3.2.7 → 3.2.8 (dev)、@biomejs/biome 2.4.13 → 2.4.15 (dev)
+
 ## [0.7.3] - 2026-05-13
 
 ### Bug Fixes
