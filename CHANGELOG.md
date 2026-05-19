@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2026-05-19
+
+### Bug Fixes
+
+- **プロジェクトグループ名のリネーム入力で 1 文字打つごとに全選択される**: ProjectPanel のグループバーで鉛筆ボタンを押した後、`:ref="setRenameInputRef"` の関数 ref が再レンダ毎に呼ばれて `.focus()` + `.select()` を発火していたため入力が事実上不可能だった。要素を `renameInputEl` ref に保存するだけにして、`startRenameGroup` から `nextTick` 後に 1 度だけ focus + select を呼ぶよう変更
+
 ## [0.8.0] - 2026-05-19
 
 ### Features
