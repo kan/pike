@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { pathSep } from '../lib/paths'
+import { loadJson, saveJson } from '../lib/storage'
 import type { FsEntry } from '../lib/tauri'
 import { fsListDir } from '../lib/tauri'
 import { useProjectStore } from './project'
@@ -24,21 +25,13 @@ export const useFileTreeStore = defineStore('fileTree', () => {
     saveTimer = setTimeout(() => {
       const pid = currentProjectId
       if (!pid) return
-      try {
-        localStorage.setItem(storageKey(pid), JSON.stringify([...expanded.value]))
-      } catch {}
+      saveJson(storageKey(pid), [...expanded.value])
     }, 500)
   }
 
   function loadSavedExpanded(projectId: string): string[] {
-    try {
-      const raw = localStorage.getItem(storageKey(projectId))
-      if (!raw) return []
-      const parsed = JSON.parse(raw)
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
-    }
+    const parsed = loadJson<unknown>(storageKey(projectId), [])
+    return Array.isArray(parsed) ? (parsed as string[]) : []
   }
 
   function sep(): string {

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2, X } from
 import { computed, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
+import { loadJson, saveJson } from '../../lib/storage'
 import { detectWslDistros, openProjectWindow, pickFolder, ptyGetCwd } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
@@ -47,20 +48,10 @@ const groupSections = computed<Array<{ name: string; projects: ProjectConfig[] }
   }))
 })
 
-const collapsed = ref<Set<string>>(new Set())
-try {
-  const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY)
-  if (raw) collapsed.value = new Set(JSON.parse(raw) as string[])
-} catch {
-  // ignore
-}
+const collapsed = ref<Set<string>>(new Set(loadJson<string[]>(COLLAPSE_STORAGE_KEY, [])))
 
 function persistCollapsed() {
-  try {
-    localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(collapsed.value)))
-  } catch {
-    // ignore
-  }
+  saveJson(COLLAPSE_STORAGE_KEY, Array.from(collapsed.value))
 }
 
 function isCollapsed(name: string): boolean {

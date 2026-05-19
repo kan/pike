@@ -9,6 +9,7 @@ import { reactive } from 'vue'
 import { useEditorInfo } from '../composables/useEditorInfo'
 import { deleteChatHistory, loadChatHistory, saveChatHistory } from '../lib/codexHistory'
 import { estimateOpenAICost } from '../lib/format'
+import { loadJson, saveJson } from '../lib/storage'
 import {
   agentAuthLogin,
   agentAuthLogout,
@@ -59,17 +60,16 @@ interface AgentProjectSettings {
 }
 
 function loadAgentProjectSettings(projectId: string): AgentProjectSettings {
-  try {
-    const raw = localStorage.getItem(`${AGENT_SETTINGS_PREFIX}${projectId}`)
-    if (raw) return { agentType: 'codex', sandboxMode: null, approvalPolicy: null, ...JSON.parse(raw) }
-  } catch {
-    /* ignore */
+  return {
+    agentType: 'codex',
+    sandboxMode: null,
+    approvalPolicy: null,
+    ...loadJson<Partial<AgentProjectSettings>>(`${AGENT_SETTINGS_PREFIX}${projectId}`, {}),
   }
-  return { agentType: 'codex', sandboxMode: null, approvalPolicy: null }
 }
 
 function saveAgentProjectSettings(projectId: string, settings: AgentProjectSettings) {
-  localStorage.setItem(`${AGENT_SETTINGS_PREFIX}${projectId}`, JSON.stringify(settings))
+  saveJson(`${AGENT_SETTINGS_PREFIX}${projectId}`, settings)
 }
 
 /** Cached editor context (global, shared across sessions) */

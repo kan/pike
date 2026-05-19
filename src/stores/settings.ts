@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { locale } from '../i18n'
 import { buildFontFamily, extractFontName } from '../lib/fontDetection'
+import { loadJson, saveJson } from '../lib/storage'
 import { fontListMonospace } from '../lib/tauri'
 
 export interface TerminalColorScheme {
@@ -191,13 +192,7 @@ interface PersistedSettings {
 }
 
 function loadSettings(): PersistedSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { ...defaults(), ...JSON.parse(raw) }
-  } catch {
-    /* ignore */
-  }
-  return defaults()
+  return { ...defaults(), ...loadJson<Partial<PersistedSettings>>(STORAGE_KEY, {}) }
 }
 
 function defaults(): PersistedSettings {
@@ -278,25 +273,22 @@ export const useSettingsStore = defineStore('settings', () => {
   })
 
   function persist() {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        fontFamily: fontFamily.value,
-        fontSize: fontSize.value,
-        colorSchemeName: colorSchemeName.value,
-        darkMode: darkMode.value,
-        editorThemeName: editorThemeName.value,
-        editorMinimap: editorMinimap.value,
-        editorWordWrap: editorWordWrap.value,
-        editorTabSize: editorTabSize.value,
-        terminalCopyOnSelect: terminalCopyOnSelect.value,
-        terminalRightClickPaste: terminalRightClickPaste.value,
-        language: language.value,
-        terminalExitNotification: terminalExitNotification.value,
-        codexNotification: codexNotification.value,
-        agentDefault: agentDefault.value,
-      }),
-    )
+    saveJson(STORAGE_KEY, {
+      fontFamily: fontFamily.value,
+      fontSize: fontSize.value,
+      colorSchemeName: colorSchemeName.value,
+      darkMode: darkMode.value,
+      editorThemeName: editorThemeName.value,
+      editorMinimap: editorMinimap.value,
+      editorWordWrap: editorWordWrap.value,
+      editorTabSize: editorTabSize.value,
+      terminalCopyOnSelect: terminalCopyOnSelect.value,
+      terminalRightClickPaste: terminalRightClickPaste.value,
+      language: language.value,
+      terminalExitNotification: terminalExitNotification.value,
+      codexNotification: codexNotification.value,
+      agentDefault: agentDefault.value,
+    })
   }
 
   function applyDarkMode() {
