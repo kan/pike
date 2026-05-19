@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight, Pencil, Plus, X } from 'lucide-vue-next'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
@@ -73,18 +73,18 @@ function focusOnMount(el: Element | unknown) {
 
 const renamingGroup = ref<string | null>(null)
 const renameValue = ref('')
+const renameInputEl = ref<HTMLInputElement>()
 
 function setRenameInputRef(el: Element | unknown) {
-  const input = el as HTMLInputElement | null
-  if (input) {
-    input.focus()
-    input.select()
-  }
+  renameInputEl.value = (el as HTMLInputElement | null) ?? undefined
 }
 
-function startRenameGroup(name: string) {
+async function startRenameGroup(name: string) {
   renamingGroup.value = name
   renameValue.value = name
+  await nextTick()
+  renameInputEl.value?.focus()
+  renameInputEl.value?.select()
 }
 
 async function commitRenameGroup() {
