@@ -1,24 +1,25 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2, X } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, Pencil, Plus, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
 import { loadJson, saveJson } from '../../lib/storage'
-import { detectWslDistros, openProjectWindow, pickFolder, ptyGetCwd } from '../../lib/tauri'
+import { detectWslDistros, pickFolder, ptyGetCwd } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import type { ProjectConfig } from '../../types/project'
 import {
   buildShell,
   rootPlaceholder as rootPlaceholderFn,
-  shellLabel,
   shellToDistro,
   shellToPlatform,
   shellToWinKind,
   slugify,
   WINDOWS_SHELLS,
 } from '../../types/tab'
+import GroupComboBox from './GroupComboBox.vue'
+import ProjectListItem from './ProjectListItem.vue'
 
 const { t } = useI18n()
 
@@ -26,7 +27,6 @@ const projectStore = useProjectStore()
 const tabStore = useTabStore()
 
 const COLLAPSE_STORAGE_KEY = 'pike:project-group-collapsed'
-const NEW_GROUP_TOKEN = '__new__'
 
 const sortMode = ref<'name' | 'recent'>('name')
 
@@ -174,12 +174,10 @@ onMounted(async () => {
   }
 })
 
-// --- Create form ---
 const showForm = ref(false)
 const formName = ref('')
 const formRoot = ref('')
-const formGroupSelect = ref('') // '' = none, NEW_GROUP_TOKEN = new mode, otherwise group name
-const formGroupNew = ref('')
+const formGroup = ref<string | undefined>(undefined)
 const formPlatform = ref<'wsl' | 'windows'>('wsl')
 const formDistro = ref('Ubuntu')
 const formWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
@@ -189,15 +187,6 @@ const createRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.valu
 watch(showForm, async (show) => {
   if (show) await detectFromTerminal()
 })
-
-function resolvedGroup(select: string, newName: string): string | undefined {
-  if (select === NEW_GROUP_TOKEN) {
-    const trimmed = newName.trim()
-    return trimmed ? trimmed : undefined
-  }
-  const trimmed = select.trim()
-  return trimmed ? trimmed : undefined
-}
 
 async function detectFromTerminal() {
   const activeTab = tabStore.activeTab
@@ -224,23 +213,18 @@ async function detectFromTerminal() {
   }
 }
 
-async function browseFolder(target: 'create' | 'edit') {
+async function browseCreateFolder() {
   const folder = await pickFolder()
   if (!folder) return
-  if (target === 'create') {
-    formRoot.value = folder
-    if (!formName.value) {
-      formName.value = folder.split(/[/\\]/).filter(Boolean).pop() ?? ''
-    }
-  } else {
-    editRoot.value = folder
+  formRoot.value = folder
+  if (!formName.value) {
+    formName.value = folder.split(/[/\\]/).filter(Boolean).pop() ?? ''
   }
 }
 
 async function onCreate() {
   const id = slugify(formName.value)
   if (!id) return
-  const group = resolvedGroup(formGroupSelect.value, formGroupNew.value)
   const config: ProjectConfig = {
     id,
     name: formName.value,
@@ -248,59 +232,21 @@ async function onCreate() {
     shell: buildShell(formPlatform.value, formDistro.value, formWindowsShell.value),
     pinnedTabs: [],
     lastOpened: new Date().toISOString(),
-    group,
+    group: formGroup.value,
   }
   await projectStore.addProject(config)
-  if (group) await projectStore.addGroup(group)
+  if (formGroup.value) await projectStore.addGroup(formGroup.value)
   showForm.value = false
   formName.value = ''
   formRoot.value = ''
-  formGroupSelect.value = ''
-  formGroupNew.value = ''
+  formGroup.value = undefined
 }
 
 const editingId = ref<string | null>(null)
-const editName = ref('')
-const editRoot = ref('')
-const editGroupSelect = ref('')
-const editGroupNew = ref('')
-const editPlatform = ref<'wsl' | 'windows'>('wsl')
-const editDistro = ref('Ubuntu')
-const editWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
 
-const editRootPlaceholder = computed(() => rootPlaceholderFn(editPlatform.value))
-
-function startEdit(project: ProjectConfig) {
-  editingId.value = project.id
-  editName.value = project.name
-  editRoot.value = project.root
-  const g = project.group?.trim() ?? ''
-  editGroupSelect.value = g
-  editGroupNew.value = ''
-  editPlatform.value = shellToPlatform(project.shell)
-  editDistro.value = shellToDistro(project.shell)
-  editWindowsShell.value = shellToWinKind(project.shell)
-}
-
-function cancelEdit() {
-  editingId.value = null
-}
-
-async function onSaveEdit() {
-  if (!editingId.value) return
-  const existing = projectStore.projects.find((p) => p.id === editingId.value)
-  if (!existing) return
-
-  const group = resolvedGroup(editGroupSelect.value, editGroupNew.value)
-  const updated: ProjectConfig = {
-    ...existing,
-    name: editName.value,
-    root: editRoot.value,
-    shell: buildShell(editPlatform.value, editDistro.value, editWindowsShell.value),
-    group,
-  }
+async function onSaveEdit(updated: ProjectConfig) {
   await projectStore.saveProject(updated)
-  if (group) await projectStore.addGroup(group)
+  if (updated.group) await projectStore.addGroup(updated.group)
   editingId.value = null
 }
 
@@ -322,7 +268,7 @@ async function onDelete(id: string) {
       <input v-model="formName" :placeholder="t('project.projectName')" required />
       <div class="input-row">
         <input v-model="formRoot" :placeholder="createRootPlaceholder" required />
-        <button v-if="formPlatform === 'windows'" type="button" class="detect-btn" @click="browseFolder('create')">
+        <button v-if="formPlatform === 'windows'" type="button" class="detect-btn" @click="browseCreateFolder">
           {{ t('project.browse') }}
         </button>
         <button v-if="formPlatform === 'wsl'" type="button" class="detect-btn" :disabled="detecting" @click="detectFromTerminal">
@@ -330,23 +276,7 @@ async function onDelete(id: string) {
         </button>
       </div>
 
-      <div class="group-combo">
-        <select v-if="formGroupSelect !== NEW_GROUP_TOKEN" v-model="formGroupSelect">
-          <option value="">{{ t('project.groupSelectNone') }}</option>
-          <option v-for="g in projectStore.groups" :key="g" :value="g">{{ g }}</option>
-          <option :value="NEW_GROUP_TOKEN">{{ t('project.groupSelectNew') }}</option>
-        </select>
-        <div v-else class="combo-new">
-          <input
-            :ref="focusOnMount"
-            v-model="formGroupNew"
-            :placeholder="t('project.groupNewPlaceholder')"
-          />
-          <button type="button" class="combo-cancel" @click="formGroupSelect = ''; formGroupNew = ''">
-            <X :size="12" :stroke-width="2" />
-          </button>
-        </div>
-      </div>
+      <GroupComboBox v-model="formGroup" :groups="projectStore.groups" />
 
       <div class="platform-row">
         <label class="radio-label"><input type="radio" v-model="formPlatform" value="wsl" /> WSL</label>
@@ -367,69 +297,24 @@ async function onDelete(id: string) {
     </div>
 
     <div class="project-list">
-      <template v-for="project in ungroupedProjects" :key="project.id">
-        <div v-if="editingId === project.id" class="edit-form">
-          <input v-model="editName" :placeholder="t('project.projectName')" />
-          <div class="input-row">
-            <input v-model="editRoot" :placeholder="editRootPlaceholder" />
-            <button v-if="editPlatform === 'windows'" type="button" class="detect-btn" @click="browseFolder('edit')">
-              {{ t('project.browse') }}
-            </button>
-          </div>
-          <div class="group-combo">
-            <select v-if="editGroupSelect !== NEW_GROUP_TOKEN" v-model="editGroupSelect">
-              <option value="">{{ t('project.groupSelectNone') }}</option>
-              <option v-for="g in projectStore.groups" :key="g" :value="g">{{ g }}</option>
-              <option :value="NEW_GROUP_TOKEN">{{ t('project.groupSelectNew') }}</option>
-            </select>
-            <div v-else class="combo-new">
-              <input :ref="focusOnMount" v-model="editGroupNew" :placeholder="t('project.groupNewPlaceholder')" />
-              <button type="button" class="combo-cancel" @click="editGroupSelect = ''; editGroupNew = ''">
-                <X :size="12" :stroke-width="2" />
-              </button>
-            </div>
-          </div>
-          <div class="platform-row">
-            <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
-            <label class="radio-label"><input type="radio" v-model="editPlatform" value="windows" /> Windows</label>
-          </div>
-          <select v-if="editPlatform === 'wsl'" v-model="editDistro">
-            <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
-          </select>
-          <select v-if="editPlatform === 'windows'" v-model="editWindowsShell">
-            <option value="cmd">Command Prompt</option>
-            <option value="powershell">PowerShell</option>
-            <option value="git-bash">Git Bash</option>
-          </select>
-          <div class="edit-actions">
-            <button type="button" class="save-btn" @click="onSaveEdit">{{ t('common.save') }}</button>
-            <button type="button" class="cancel-btn" @click="cancelEdit">{{ t('common.cancel') }}</button>
-          </div>
-        </div>
-        <div
-          v-else
-          class="project-item"
-          :class="{
-            active: projectStore.currentProject?.id === project.id,
-            dragging: draggingProjectId === project.id,
-          }"
-          draggable="true"
-          @dragstart="onDragStartProject($event, project.id)"
-          @dragend="onDragEndProject"
-          @click="projectStore.switchProject(project.id)"
-        >
-          <div class="project-name">{{ project.name }}</div>
-          <div class="project-meta">
-            <span class="project-root">{{ project.root }}</span>
-            <span class="project-shell">{{ shellLabel(project.shell) }}</span>
-          </div>
-          <div class="item-actions">
-            <button class="action-btn" :title="t('project.openInNewWindow')" @click.stop="openProjectWindow(project.id)"><ExternalLink :size="12" :stroke-width="2" /></button>
-            <button class="action-btn" :title="t('project.edit')" @click.stop="startEdit(project)"><Pencil :size="12" :stroke-width="2" /></button>
-            <button class="action-btn danger" :title="t('common.delete')" @click.stop="onDelete(project.id)"><Trash2 :size="12" :stroke-width="2" /></button>
-          </div>
-        </div>
-      </template>
+      <ProjectListItem
+        v-for="project in ungroupedProjects"
+        :key="project.id"
+        :project="project"
+        :editing="editingId === project.id"
+        :grouped="false"
+        :active="projectStore.currentProject?.id === project.id"
+        :dragging="draggingProjectId === project.id"
+        :groups="projectStore.groups"
+        :distros="distros"
+        @select="projectStore.switchProject(project.id)"
+        @request-edit="editingId = project.id"
+        @cancel-edit="editingId = null"
+        @save="onSaveEdit"
+        @delete="onDelete(project.id)"
+        @drag-start="onDragStartProject($event, project.id)"
+        @drag-end="onDragEndProject"
+      />
 
       <template v-for="group in groupSections" :key="group.name">
         <div
@@ -466,73 +351,26 @@ async function onDelete(id: string) {
         </div>
 
         <template v-if="!isCollapsed(group.name)">
-          <template v-for="project in group.projects" :key="project.id">
-            <div v-if="editingId === project.id" class="edit-form">
-              <input v-model="editName" :placeholder="t('project.projectName')" />
-              <div class="input-row">
-                <input v-model="editRoot" :placeholder="editRootPlaceholder" />
-                <button v-if="editPlatform === 'windows'" type="button" class="detect-btn" @click="browseFolder('edit')">
-                  {{ t('project.browse') }}
-                </button>
-              </div>
-              <div class="group-combo">
-                <select v-if="editGroupSelect !== NEW_GROUP_TOKEN" v-model="editGroupSelect">
-                  <option value="">{{ t('project.groupSelectNone') }}</option>
-                  <option v-for="g in projectStore.groups" :key="g" :value="g">{{ g }}</option>
-                  <option :value="NEW_GROUP_TOKEN">{{ t('project.groupSelectNew') }}</option>
-                </select>
-                <div v-else class="combo-new">
-                  <input :ref="focusOnMount" v-model="editGroupNew" :placeholder="t('project.groupNewPlaceholder')" />
-                  <button type="button" class="combo-cancel" @click="editGroupSelect = ''; editGroupNew = ''">
-                    <X :size="12" :stroke-width="2" />
-                  </button>
-                </div>
-              </div>
-              <div class="platform-row">
-                <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
-                <label class="radio-label"><input type="radio" v-model="editPlatform" value="windows" /> Windows</label>
-              </div>
-              <select v-if="editPlatform === 'wsl'" v-model="editDistro">
-                <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
-              </select>
-              <select v-if="editPlatform === 'windows'" v-model="editWindowsShell">
-                <option value="cmd">Command Prompt</option>
-                <option value="powershell">PowerShell</option>
-                <option value="git-bash">Git Bash</option>
-              </select>
-              <div class="edit-actions">
-                <button type="button" class="save-btn" @click="onSaveEdit">{{ t('common.save') }}</button>
-                <button type="button" class="cancel-btn" @click="cancelEdit">{{ t('common.cancel') }}</button>
-              </div>
-            </div>
-
-            <div
-              v-else
-              class="project-item grouped"
-              :class="{
-                active: projectStore.currentProject?.id === project.id,
-                dragging: draggingProjectId === project.id,
-              }"
-              draggable="true"
-              @dragstart="onDragStartProject($event, project.id)"
-              @dragend="onDragEndProject"
-              @click="projectStore.switchProject(project.id)"
-            >
-              <div class="project-name">{{ project.name }}</div>
-              <div class="project-meta">
-                <span class="project-root">{{ project.root }}</span>
-                <span class="project-shell">{{ shellLabel(project.shell) }}</span>
-              </div>
-              <div class="item-actions">
-                <button class="action-btn" :title="t('project.openInNewWindow')" @click.stop="openProjectWindow(project.id)"><ExternalLink :size="12" :stroke-width="2" /></button>
-                <button class="action-btn" :title="t('project.edit')" @click.stop="startEdit(project)"><Pencil :size="12" :stroke-width="2" /></button>
-                <button class="action-btn danger" :title="t('common.delete')" @click.stop="onDelete(project.id)"><Trash2 :size="12" :stroke-width="2" /></button>
-              </div>
-            </div>
-          </template>
+          <ProjectListItem
+            v-for="project in group.projects"
+            :key="project.id"
+            :project="project"
+            :editing="editingId === project.id"
+            :grouped="true"
+            :active="projectStore.currentProject?.id === project.id"
+            :dragging="draggingProjectId === project.id"
+            :groups="projectStore.groups"
+            :distros="distros"
+            @select="projectStore.switchProject(project.id)"
+            @request-edit="editingId = project.id"
+            @cancel-edit="editingId = null"
+            @save="onSaveEdit"
+            @delete="onDelete(project.id)"
+            @drag-start="onDragStartProject($event, project.id)"
+            @drag-end="onDragEndProject"
+          />
         </template>
       </template>
-
       <div v-if="!showAddGroup" class="add-group-row">
         <button class="add-group-btn" @click="openAddGroup">
           <Plus :size="12" :stroke-width="2" /> {{ t('project.addGroup') }}
@@ -577,23 +415,14 @@ async function onDelete(id: string) {
   background: var(--tab-hover-bg);
 }
 
-.form,
-.edit-form {
+.form {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.edit-form {
-  padding: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 3px;
-}
-
 .form input,
-.form select,
-.edit-form input,
-.edit-form select {
+.form select {
   padding: 4px 8px;
   border: 1px solid var(--border);
   background: var(--bg-primary);
@@ -604,9 +433,7 @@ async function onDelete(id: string) {
 }
 
 .form input:focus,
-.form select:focus,
-.edit-form input:focus,
-.edit-form select:focus {
+.form select:focus {
   border-color: var(--accent);
 }
 
@@ -628,44 +455,6 @@ async function onDelete(id: string) {
 .input-row input {
   flex: 1;
   min-width: 0;
-}
-
-.group-combo {
-  display: flex;
-}
-
-.group-combo select {
-  flex: 1;
-}
-
-.combo-new {
-  display: flex;
-  gap: 4px;
-  flex: 1;
-}
-
-.combo-new input {
-  flex: 1;
-  min-width: 0;
-}
-
-.combo-cancel {
-  width: 24px;
-  padding: 0;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.combo-cancel:hover {
-  background: var(--tab-hover-bg);
-  color: var(--text-primary);
 }
 
 .platform-row {
@@ -706,37 +495,6 @@ async function onDelete(id: string) {
 .detect-btn:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-.edit-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.save-btn {
-  flex: 1;
-  padding: 4px 8px;
-  border: none;
-  background: var(--accent);
-  color: var(--text-active);
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 3px;
-}
-
-.cancel-btn {
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 3px;
-}
-
-.cancel-btn:hover {
-  color: var(--text-primary);
-  background: var(--tab-hover-bg);
 }
 
 .sort-row {
@@ -884,98 +642,6 @@ async function onDelete(id: string) {
 }
 
 .group-action-btn.danger:hover {
-  background: var(--danger);
-}
-
-.project-item {
-  position: relative;
-  padding: 8px;
-  padding-right: 64px;
-  border-radius: 3px;
-  cursor: pointer;
-}
-
-.project-item.grouped {
-  padding-left: 16px;
-}
-
-.project-item:hover {
-  background: var(--tab-hover-bg);
-}
-
-.project-item.active {
-  background: var(--bg-tertiary);
-  border-left: 2px solid var(--accent);
-}
-
-.project-item.dragging {
-  opacity: 0.4;
-}
-
-.project-name {
-  font-size: 13px;
-  color: var(--text-primary);
-}
-
-.project-meta {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.project-root {
-  font-size: 11px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
-.project-shell {
-  font-size: 10px;
-  color: var(--text-secondary);
-  opacity: 0.7;
-  flex-shrink: 0;
-}
-
-.item-actions {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-}
-
-.project-item:hover .item-actions {
-  opacity: 1;
-}
-
-.action-btn {
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-family: monospace;
-  cursor: pointer;
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.action-btn:hover {
-  background: var(--accent);
-  color: var(--text-active);
-}
-
-.action-btn.danger:hover {
   background: var(--danger);
 }
 
