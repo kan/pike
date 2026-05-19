@@ -204,6 +204,14 @@ export default {
   'project.edit': '編集',
   'project.confirmDelete': 'プロジェクト "{name}" を削除しますか？',
   'project.noProjects': 'プロジェクトがありません',
+  'project.group': 'グループ',
+  'project.groupSelectNone': '（グループなし）',
+  'project.groupSelectNew': '+ 新規グループ...',
+  'project.groupNewPlaceholder': '新しいグループ名',
+  'project.addGroup': '+ グループを追加',
+  'project.renameGroup': 'グループ名を変更',
+  'project.deleteGroup': 'グループを削除',
+  'project.confirmDeleteGroup': 'グループ "{name}" を削除しますか？（所属プロジェクトはグループなしに戻ります）',
 
   // Project Switcher
   'projectSwitcher.placeholder': 'プロジェクトを検索...',

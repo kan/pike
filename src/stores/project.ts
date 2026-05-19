@@ -6,6 +6,8 @@ import {
   projectCreate,
   projectDelete,
   projectGetLast,
+  projectGroupsList,
+  projectGroupsSave,
   projectList,
   projectSetLast,
   projectUpdate,
@@ -26,6 +28,7 @@ function resolveResumeCommand(autoStart?: string): string | undefined {
 
 export const useProjectStore = defineStore('project', () => {
   const projects = ref<ProjectConfig[]>([])
+  const groups = ref<string[]>([])
   const currentProject = ref<ProjectConfig | null>(null)
   const showSwitcher = ref(false)
   const showQuickOpen = ref(false)
@@ -34,6 +37,72 @@ export const useProjectStore = defineStore('project', () => {
 
   async function loadProjects() {
     projects.value = await projectList()
+  }
+
+  async function loadGroups() {
+    try {
+      const stored = await projectGroupsList()
+      const set = new Set(stored)
+      let added = false
+      for (const p of projects.value) {
+        const g = p.group?.trim()
+        if (g && !set.has(g)) {
+          stored.push(g)
+          set.add(g)
+          added = true
+        }
+      }
+      groups.value = stored
+      if (added) await persistGroups()
+    } catch {
+      groups.value = []
+    }
+  }
+
+  async function persistGroups() {
+    try {
+      await projectGroupsSave(groups.value)
+    } catch {
+      // best-effort
+    }
+  }
+
+  async function addGroup(name: string) {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    if (groups.value.includes(trimmed)) return
+    groups.value = [...groups.value, trimmed]
+    await persistGroups()
+  }
+
+  async function renameGroup(oldName: string, newName: string) {
+    const trimmed = newName.trim()
+    if (!trimmed || trimmed === oldName) return
+    if (groups.value.includes(trimmed)) {
+      // merge into existing group
+      groups.value = groups.value.filter((g) => g !== oldName)
+    } else {
+      groups.value = groups.value.map((g) => (g === oldName ? trimmed : g))
+    }
+    await persistGroups()
+    const targets = projects.value.filter((p) => p.group === oldName)
+    await Promise.all(targets.map((p) => saveProject({ ...p, group: trimmed })))
+  }
+
+  async function removeGroup(name: string) {
+    groups.value = groups.value.filter((g) => g !== name)
+    await persistGroups()
+    const targets = projects.value.filter((p) => p.group === name)
+    await Promise.all(targets.map((p) => saveProject({ ...p, group: undefined })))
+  }
+
+  async function setProjectGroup(projectId: string, group: string | undefined) {
+    const project = projects.value.find((p) => p.id === projectId)
+    if (!project) return
+    const normalized = group?.trim() ? group.trim() : undefined
+    if (project.group === normalized) return
+    await saveProject({ ...project, group: normalized })
+    if (normalized) await addGroup(normalized)
   }
 
   async function restoreLastProject() {
@@ -184,10 +253,16 @@ export const useProjectStore = defineStore('project', () => {
 
   return {
     projects,
+    groups,
     currentProject,
     showSwitcher,
     showQuickOpen,
     loadProjects,
+    loadGroups,
+    addGroup,
+    renameGroup,
+    removeGroup,
+    setProjectGroup,
     restoreLastProject,
     switchProject,
     saveSessionDebounced,

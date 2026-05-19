@@ -61,6 +61,9 @@ pub struct ProjectConfig {
     /// Unified agent session ID (used by agent store for session resume).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_session_id: Option<String>,
+    /// Optional free-text group label for organizing projects in the panel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 fn projects_dir(state: &ProjectState) -> PathBuf {
@@ -73,6 +76,34 @@ fn project_file(state: &ProjectState, id: &str) -> PathBuf {
 
 fn last_project_file(state: &ProjectState) -> PathBuf {
     state.config_dir.join("last_project.txt")
+}
+
+fn groups_file(state: &ProjectState) -> PathBuf {
+    state.config_dir.join("groups.json")
+}
+
+#[tauri::command]
+pub async fn project_groups_list(
+    state: State<'_, ProjectState>,
+) -> Result<Vec<String>, String> {
+    match fs::read_to_string(groups_file(&state)) {
+        Ok(content) => serde_json::from_str::<Vec<String>>(&content).map_err(|e| e.to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn project_groups_save(
+    groups: Vec<String>,
+    state: State<'_, ProjectState>,
+) -> Result<(), String> {
+    let path = groups_file(&state);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let content = serde_json::to_string_pretty(&groups).map_err(|e| e.to_string())?;
+    fs::write(path, content).map_err(|e| e.to_string())
 }
 
 use crate::types::validate_slug;

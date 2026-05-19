@@ -203,6 +203,14 @@ export default {
   'project.edit': 'Edit',
   'project.confirmDelete': 'Delete project "{name}"?',
   'project.noProjects': 'No projects yet',
+  'project.group': 'Group',
+  'project.groupSelectNone': '(No group)',
+  'project.groupSelectNew': '+ New group...',
+  'project.groupNewPlaceholder': 'New group name',
+  'project.addGroup': '+ Add Group',
+  'project.renameGroup': 'Rename group',
+  'project.deleteGroup': 'Delete group',
+  'project.confirmDeleteGroup': 'Delete group "{name}"? (Projects will become ungrouped.)',
 
   // Project Switcher
   'projectSwitcher.placeholder': 'Switch project...',

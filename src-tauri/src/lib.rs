@@ -203,6 +203,7 @@ fn create_adhoc_project(
         last_session: None,
         codex_thread_id: None,
         agent_session_id: None,
+        group: None,
     };
 
     let dir = state.config_dir.join("projects").join(&config.id);
@@ -709,6 +710,8 @@ pub fn run() {
             project::project_create,
             project::project_update,
             project::project_delete,
+            project::project_groups_list,
+            project::project_groups_save,
             fs::fs_list_dir,
             fs::fs_read_file,
             fs::fs_write_file,

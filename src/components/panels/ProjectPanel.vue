@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
@@ -23,21 +23,165 @@ const { t } = useI18n()
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
 
+const COLLAPSE_STORAGE_KEY = 'pike:project-group-collapsed'
+const NEW_GROUP_TOKEN = '__new__'
+
 const sortMode = ref<'name' | 'recent'>('name')
-const sortedProjects = computed(() => {
-  const list = [...projectStore.projects]
+
+function sortByMode(list: ProjectConfig[]): ProjectConfig[] {
+  const arr = [...list]
   if (sortMode.value === 'name') {
-    list.sort((a, b) => a.name.localeCompare(b.name))
+    arr.sort((a, b) => a.name.localeCompare(b.name))
   }
-  // 'recent' keeps original order (already sorted by lastOpened desc from backend)
-  return list
+  return arr
+}
+
+const ungroupedProjects = computed<ProjectConfig[]>(() => {
+  return sortByMode(projectStore.projects.filter((p) => !p.group?.trim()))
 })
+
+const groupSections = computed<Array<{ name: string; projects: ProjectConfig[] }>>(() => {
+  return projectStore.groups.map((name) => ({
+    name,
+    projects: sortByMode(projectStore.projects.filter((p) => p.group?.trim() === name)),
+  }))
+})
+
+const collapsed = ref<Set<string>>(new Set())
+try {
+  const raw = localStorage.getItem(COLLAPSE_STORAGE_KEY)
+  if (raw) collapsed.value = new Set(JSON.parse(raw) as string[])
+} catch {
+  // ignore
+}
+
+function persistCollapsed() {
+  try {
+    localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(Array.from(collapsed.value)))
+  } catch {
+    // ignore
+  }
+}
+
+function isCollapsed(name: string): boolean {
+  return collapsed.value.has(name)
+}
+
+function toggleGroup(name: string) {
+  const next = new Set(collapsed.value)
+  if (next.has(name)) next.delete(name)
+  else next.add(name)
+  collapsed.value = next
+  persistCollapsed()
+}
+
+function focusOnMount(el: Element | unknown) {
+  ;(el as HTMLInputElement | null)?.focus()
+}
+
+const renamingGroup = ref<string | null>(null)
+const renameValue = ref('')
+
+function setRenameInputRef(el: Element | unknown) {
+  const input = el as HTMLInputElement | null
+  if (input) {
+    input.focus()
+    input.select()
+  }
+}
+
+function startRenameGroup(name: string) {
+  renamingGroup.value = name
+  renameValue.value = name
+}
+
+async function commitRenameGroup() {
+  const oldName = renamingGroup.value
+  if (!oldName) return
+  const newName = renameValue.value.trim()
+  renamingGroup.value = null
+  if (!newName || newName === oldName) return
+  await projectStore.renameGroup(oldName, newName)
+}
+
+function cancelRenameGroup() {
+  renamingGroup.value = null
+}
+
+const showAddGroup = ref(false)
+const newGroupName = ref('')
+
+function openAddGroup() {
+  showAddGroup.value = true
+  newGroupName.value = ''
+}
+
+async function commitAddGroup() {
+  const name = newGroupName.value.trim()
+  showAddGroup.value = false
+  newGroupName.value = ''
+  if (!name) return
+  await projectStore.addGroup(name)
+}
+
+function cancelAddGroup() {
+  showAddGroup.value = false
+  newGroupName.value = ''
+}
+
+async function onDeleteGroup(name: string) {
+  if (!(await confirmDialog(t('project.confirmDeleteGroup', { name })))) return
+  if (collapsed.value.has(name)) {
+    const next = new Set(collapsed.value)
+    next.delete(name)
+    collapsed.value = next
+    persistCollapsed()
+  }
+  await projectStore.removeGroup(name)
+}
+
+const draggingProjectId = ref<string | null>(null)
+const dragOverGroup = ref<string | null>(null)
+
+function onDragStartProject(e: DragEvent, projectId: string) {
+  draggingProjectId.value = projectId
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', projectId)
+  }
+}
+
+function onDragEndProject() {
+  draggingProjectId.value = null
+  dragOverGroup.value = null
+}
+
+function onDragOverGroup(e: DragEvent, groupName: string) {
+  if (!draggingProjectId.value) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  dragOverGroup.value = groupName
+}
+
+function onDragLeaveGroup() {
+  dragOverGroup.value = null
+}
+
+async function onDropGroup(e: DragEvent, groupName: string) {
+  e.preventDefault()
+  const id = draggingProjectId.value
+  draggingProjectId.value = null
+  dragOverGroup.value = null
+  if (!id) return
+  await projectStore.setProjectGroup(id, groupName || undefined)
+}
 
 const distros = ref<string[]>([])
 const detecting = ref(false)
 
 onMounted(async () => {
-  projectStore.loadProjects()
+  await projectStore.loadProjects()
+  await projectStore.loadGroups()
   try {
     distros.value = await detectWslDistros()
     if (distros.value.length > 0) {
@@ -52,6 +196,8 @@ onMounted(async () => {
 const showForm = ref(false)
 const formName = ref('')
 const formRoot = ref('')
+const formGroupSelect = ref('') // '' = none, NEW_GROUP_TOKEN = new mode, otherwise group name
+const formGroupNew = ref('')
 const formPlatform = ref<'wsl' | 'windows'>('wsl')
 const formDistro = ref('Ubuntu')
 const formWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
@@ -61,6 +207,15 @@ const createRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.valu
 watch(showForm, async (show) => {
   if (show) await detectFromTerminal()
 })
+
+function resolvedGroup(select: string, newName: string): string | undefined {
+  if (select === NEW_GROUP_TOKEN) {
+    const trimmed = newName.trim()
+    return trimmed ? trimmed : undefined
+  }
+  const trimmed = select.trim()
+  return trimmed ? trimmed : undefined
+}
 
 async function detectFromTerminal() {
   const activeTab = tabStore.activeTab
@@ -103,6 +258,7 @@ async function browseFolder(target: 'create' | 'edit') {
 async function onCreate() {
   const id = slugify(formName.value)
   if (!id) return
+  const group = resolvedGroup(formGroupSelect.value, formGroupNew.value)
   const config: ProjectConfig = {
     id,
     name: formName.value,
@@ -110,17 +266,22 @@ async function onCreate() {
     shell: buildShell(formPlatform.value, formDistro.value, formWindowsShell.value),
     pinnedTabs: [],
     lastOpened: new Date().toISOString(),
+    group,
   }
   await projectStore.addProject(config)
+  if (group) await projectStore.addGroup(group)
   showForm.value = false
   formName.value = ''
   formRoot.value = ''
+  formGroupSelect.value = ''
+  formGroupNew.value = ''
 }
 
-// --- Edit form ---
 const editingId = ref<string | null>(null)
 const editName = ref('')
 const editRoot = ref('')
+const editGroupSelect = ref('')
+const editGroupNew = ref('')
 const editPlatform = ref<'wsl' | 'windows'>('wsl')
 const editDistro = ref('Ubuntu')
 const editWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
@@ -131,6 +292,9 @@ function startEdit(project: ProjectConfig) {
   editingId.value = project.id
   editName.value = project.name
   editRoot.value = project.root
+  const g = project.group?.trim() ?? ''
+  editGroupSelect.value = g
+  editGroupNew.value = ''
   editPlatform.value = shellToPlatform(project.shell)
   editDistro.value = shellToDistro(project.shell)
   editWindowsShell.value = shellToWinKind(project.shell)
@@ -145,13 +309,16 @@ async function onSaveEdit() {
   const existing = projectStore.projects.find((p) => p.id === editingId.value)
   if (!existing) return
 
+  const group = resolvedGroup(editGroupSelect.value, editGroupNew.value)
   const updated: ProjectConfig = {
     ...existing,
     name: editName.value,
     root: editRoot.value,
     shell: buildShell(editPlatform.value, editDistro.value, editWindowsShell.value),
+    group,
   }
   await projectStore.saveProject(updated)
+  if (group) await projectStore.addGroup(group)
   editingId.value = null
 }
 
@@ -169,7 +336,6 @@ async function onDelete(id: string) {
       {{ showForm ? t('common.cancel') : t('project.addProject') }}
     </button>
 
-    <!-- Create form -->
     <form v-if="showForm" class="form" @submit.prevent="onCreate">
       <input v-model="formName" :placeholder="t('project.projectName')" required />
       <div class="input-row">
@@ -181,6 +347,25 @@ async function onDelete(id: string) {
           {{ detecting ? "..." : t('project.detect') }}
         </button>
       </div>
+
+      <div class="group-combo">
+        <select v-if="formGroupSelect !== NEW_GROUP_TOKEN" v-model="formGroupSelect">
+          <option value="">{{ t('project.groupSelectNone') }}</option>
+          <option v-for="g in projectStore.groups" :key="g" :value="g">{{ g }}</option>
+          <option :value="NEW_GROUP_TOKEN">{{ t('project.groupSelectNew') }}</option>
+        </select>
+        <div v-else class="combo-new">
+          <input
+            :ref="focusOnMount"
+            v-model="formGroupNew"
+            :placeholder="t('project.groupNewPlaceholder')"
+          />
+          <button type="button" class="combo-cancel" @click="formGroupSelect = ''; formGroupNew = ''">
+            <X :size="12" :stroke-width="2" />
+          </button>
+        </div>
+      </div>
+
       <div class="platform-row">
         <label class="radio-label"><input type="radio" v-model="formPlatform" value="wsl" /> WSL</label>
         <label class="radio-label"><input type="radio" v-model="formPlatform" value="windows" /> Windows</label>
@@ -194,16 +379,13 @@ async function onDelete(id: string) {
       <button type="submit">{{ t('common.create') }}</button>
     </form>
 
-    <!-- Sort toggle -->
     <div class="sort-row">
       <button class="sort-btn" :class="{ active: sortMode === 'name' }" @click="sortMode = 'name'">{{ t('project.sortName') }}</button>
       <button class="sort-btn" :class="{ active: sortMode === 'recent' }" @click="sortMode = 'recent'">{{ t('project.sortRecent') }}</button>
     </div>
 
-    <!-- Project list -->
     <div class="project-list">
-      <template v-for="project in sortedProjects" :key="project.id">
-        <!-- Edit mode -->
+      <template v-for="project in ungroupedProjects" :key="project.id">
         <div v-if="editingId === project.id" class="edit-form">
           <input v-model="editName" :placeholder="t('project.projectName')" />
           <div class="input-row">
@@ -211,6 +393,19 @@ async function onDelete(id: string) {
             <button v-if="editPlatform === 'windows'" type="button" class="detect-btn" @click="browseFolder('edit')">
               {{ t('project.browse') }}
             </button>
+          </div>
+          <div class="group-combo">
+            <select v-if="editGroupSelect !== NEW_GROUP_TOKEN" v-model="editGroupSelect">
+              <option value="">{{ t('project.groupSelectNone') }}</option>
+              <option v-for="g in projectStore.groups" :key="g" :value="g">{{ g }}</option>
+              <option :value="NEW_GROUP_TOKEN">{{ t('project.groupSelectNew') }}</option>
+            </select>
+            <div v-else class="combo-new">
+              <input :ref="focusOnMount" v-model="editGroupNew" :placeholder="t('project.groupNewPlaceholder')" />
+              <button type="button" class="combo-cancel" @click="editGroupSelect = ''; editGroupNew = ''">
+                <X :size="12" :stroke-width="2" />
+              </button>
+            </div>
           </div>
           <div class="platform-row">
             <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
@@ -229,12 +424,16 @@ async function onDelete(id: string) {
             <button type="button" class="cancel-btn" @click="cancelEdit">{{ t('common.cancel') }}</button>
           </div>
         </div>
-
-        <!-- Display mode -->
         <div
           v-else
           class="project-item"
-          :class="{ active: projectStore.currentProject?.id === project.id }"
+          :class="{
+            active: projectStore.currentProject?.id === project.id,
+            dragging: draggingProjectId === project.id,
+          }"
+          draggable="true"
+          @dragstart="onDragStartProject($event, project.id)"
+          @dragend="onDragEndProject"
           @click="projectStore.switchProject(project.id)"
         >
           <div class="project-name">{{ project.name }}</div>
@@ -249,6 +448,124 @@ async function onDelete(id: string) {
           </div>
         </div>
       </template>
+
+      <template v-for="group in groupSections" :key="group.name">
+        <div
+          class="group-header"
+          :class="{ 'drag-over': dragOverGroup === group.name }"
+          @dragover="onDragOverGroup($event, group.name)"
+          @dragleave="onDragLeaveGroup"
+          @drop="onDropGroup($event, group.name)"
+        >
+          <button class="group-toggle" @click="toggleGroup(group.name)">
+            <ChevronDown v-if="!isCollapsed(group.name)" :size="12" :stroke-width="2" />
+            <ChevronRight v-else :size="12" :stroke-width="2" />
+            <span v-if="renamingGroup !== group.name" class="group-name">{{ group.name }}</span>
+            <input
+              v-else
+              :ref="setRenameInputRef"
+              v-model="renameValue"
+              class="group-rename-input"
+              @click.stop
+              @keydown.enter.prevent="commitRenameGroup"
+              @keydown.escape.prevent="cancelRenameGroup"
+              @blur="commitRenameGroup"
+            />
+            <span class="group-count">{{ group.projects.length }}</span>
+          </button>
+          <template v-if="renamingGroup !== group.name">
+            <button class="group-action-btn" :title="t('project.renameGroup')" @click.stop="startRenameGroup(group.name)">
+              <Pencil :size="11" :stroke-width="2" />
+            </button>
+            <button class="group-action-btn danger" :title="t('project.deleteGroup')" @click.stop="onDeleteGroup(group.name)">
+              <X :size="12" :stroke-width="2" />
+            </button>
+          </template>
+        </div>
+
+        <template v-if="!isCollapsed(group.name)">
+          <template v-for="project in group.projects" :key="project.id">
+            <div v-if="editingId === project.id" class="edit-form">
+              <input v-model="editName" :placeholder="t('project.projectName')" />
+              <div class="input-row">
+                <input v-model="editRoot" :placeholder="editRootPlaceholder" />
+                <button v-if="editPlatform === 'windows'" type="button" class="detect-btn" @click="browseFolder('edit')">
+                  {{ t('project.browse') }}
+                </button>
+              </div>
+              <div class="group-combo">
+                <select v-if="editGroupSelect !== NEW_GROUP_TOKEN" v-model="editGroupSelect">
+                  <option value="">{{ t('project.groupSelectNone') }}</option>
+                  <option v-for="g in projectStore.groups" :key="g" :value="g">{{ g }}</option>
+                  <option :value="NEW_GROUP_TOKEN">{{ t('project.groupSelectNew') }}</option>
+                </select>
+                <div v-else class="combo-new">
+                  <input :ref="focusOnMount" v-model="editGroupNew" :placeholder="t('project.groupNewPlaceholder')" />
+                  <button type="button" class="combo-cancel" @click="editGroupSelect = ''; editGroupNew = ''">
+                    <X :size="12" :stroke-width="2" />
+                  </button>
+                </div>
+              </div>
+              <div class="platform-row">
+                <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
+                <label class="radio-label"><input type="radio" v-model="editPlatform" value="windows" /> Windows</label>
+              </div>
+              <select v-if="editPlatform === 'wsl'" v-model="editDistro">
+                <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
+              </select>
+              <select v-if="editPlatform === 'windows'" v-model="editWindowsShell">
+                <option value="cmd">Command Prompt</option>
+                <option value="powershell">PowerShell</option>
+                <option value="git-bash">Git Bash</option>
+              </select>
+              <div class="edit-actions">
+                <button type="button" class="save-btn" @click="onSaveEdit">{{ t('common.save') }}</button>
+                <button type="button" class="cancel-btn" @click="cancelEdit">{{ t('common.cancel') }}</button>
+              </div>
+            </div>
+
+            <div
+              v-else
+              class="project-item grouped"
+              :class="{
+                active: projectStore.currentProject?.id === project.id,
+                dragging: draggingProjectId === project.id,
+              }"
+              draggable="true"
+              @dragstart="onDragStartProject($event, project.id)"
+              @dragend="onDragEndProject"
+              @click="projectStore.switchProject(project.id)"
+            >
+              <div class="project-name">{{ project.name }}</div>
+              <div class="project-meta">
+                <span class="project-root">{{ project.root }}</span>
+                <span class="project-shell">{{ shellLabel(project.shell) }}</span>
+              </div>
+              <div class="item-actions">
+                <button class="action-btn" :title="t('project.openInNewWindow')" @click.stop="openProjectWindow(project.id)"><ExternalLink :size="12" :stroke-width="2" /></button>
+                <button class="action-btn" :title="t('project.edit')" @click.stop="startEdit(project)"><Pencil :size="12" :stroke-width="2" /></button>
+                <button class="action-btn danger" :title="t('common.delete')" @click.stop="onDelete(project.id)"><Trash2 :size="12" :stroke-width="2" /></button>
+              </div>
+            </div>
+          </template>
+        </template>
+      </template>
+
+      <div v-if="!showAddGroup" class="add-group-row">
+        <button class="add-group-btn" @click="openAddGroup">
+          <Plus :size="12" :stroke-width="2" /> {{ t('project.addGroup') }}
+        </button>
+      </div>
+      <div v-else class="add-group-input-row">
+        <input
+          :ref="focusOnMount"
+          v-model="newGroupName"
+          :placeholder="t('project.groupNewPlaceholder')"
+          @keydown.enter.prevent="commitAddGroup"
+          @keydown.escape.prevent="cancelAddGroup"
+          @blur="commitAddGroup"
+        />
+      </div>
     </div>
 
     <div v-if="projectStore.projects.length === 0 && !showForm" class="empty">
@@ -329,6 +646,44 @@ async function onDelete(id: string) {
 .input-row input {
   flex: 1;
   min-width: 0;
+}
+
+.group-combo {
+  display: flex;
+}
+
+.group-combo select {
+  flex: 1;
+}
+
+.combo-new {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.combo-new input {
+  flex: 1;
+  min-width: 0;
+}
+
+.combo-cancel {
+  width: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.combo-cancel:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
 }
 
 .platform-row {
@@ -433,12 +788,133 @@ async function onDelete(id: string) {
   gap: 2px;
 }
 
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 8px;
+  padding: 0 2px 0 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.group-header.drag-over {
+  background: color-mix(in srgb, var(--accent) 30%, var(--bg-tertiary));
+  border-color: var(--accent);
+}
+
+.group-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  border-radius: 3px;
+  text-align: left;
+  min-width: 0;
+}
+
+.group-toggle :deep(svg) {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.group-toggle:hover {
+  color: var(--text-primary);
+}
+
+.group-toggle:hover .group-name {
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+.group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.group-count {
+  color: var(--text-secondary);
+  opacity: 0.7;
+  font-weight: 400;
+  font-size: 10px;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.group-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--accent);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 3px;
+  outline: none;
+}
+
+.group-action-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.group-header:hover .group-action-btn {
+  opacity: 1;
+}
+
+.group-action-btn:hover {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.group-action-btn.danger:hover {
+  background: var(--danger);
+}
+
 .project-item {
   position: relative;
   padding: 8px;
   padding-right: 64px;
   border-radius: 3px;
   cursor: pointer;
+}
+
+.project-item.grouped {
+  padding-left: 16px;
 }
 
 .project-item:hover {
@@ -448,6 +924,10 @@ async function onDelete(id: string) {
 .project-item.active {
   background: var(--bg-tertiary);
   border-left: 2px solid var(--accent);
+}
+
+.project-item.dragging {
+  opacity: 0.4;
 }
 
 .project-name {
@@ -515,6 +995,46 @@ async function onDelete(id: string) {
 
 .action-btn.danger:hover {
   background: var(--danger);
+}
+
+.add-group-row {
+  margin-top: 6px;
+}
+
+.add-group-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.add-group-btn:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.add-group-input-row {
+  margin-top: 6px;
+}
+
+.add-group-input-row input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--accent);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  border-radius: 3px;
+  outline: none;
 }
 
 .empty {

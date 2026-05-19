@@ -205,6 +205,11 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - Windows プロジェクト: デフォルトシェル（cmd/PowerShell/Git Bash）選択、ルートは Windows パス
 - プロジェクト切替時: 全タブ kill → pinnedTabs 復元（なければ Claude Code 固定タブを自動作成）
 - Windows プロジェクトでは「+」ボタン横のドロップダウンでデフォルト以外のシェルも選択可能
+- プロジェクトのグループ分け: `ProjectConfig.group?: string` で各プロジェクトの所属グループを保持。グループ一覧と表示順は `%APPDATA%/com.tauri.dev/groups.json` に明示的に永続化（プロジェクト未割当の空グループも保持可能）。`project_groups_list` / `project_groups_save` コマンドで CRUD
+- ProjectPanel UI: 未分類プロジェクトはリスト直下にフラット表示（ヘッダーなし）、グループ所属はグループバー配下に折りたたみ可能で配置。「+ グループを追加」ボタンで空グループを作成、グループバーの鉛筆で一括リネーム（所属プロジェクトの `group` も更新）、✕ で削除（所属プロジェクトは ungroup）
+- プロジェクトの編集フォームではコンボボックス形式: `<select>` で「グループなし / 既存グループ / + 新規グループ...」、新規選択で text input に切替
+- ドラッグ&ドロップ: プロジェクト項目をグループバーにドロップすると `setProjectGroup` で所属を変更
+- 折りたたみ状態は `localStorage` (`pike:project-group-collapsed`) に永続化
 
 ### ファイルツリー / エディタ
 - Rust `fs` モジュールが WSL/Windows 両対応のファイル操作を提供（list_dir / read_file / write_file）

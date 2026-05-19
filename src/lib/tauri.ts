@@ -93,6 +93,14 @@ export async function projectDelete(id: string): Promise<void> {
   return invoke('project_delete', { id })
 }
 
+export async function projectGroupsList(): Promise<string[]> {
+  return invoke<string[]>('project_groups_list')
+}
+
+export async function projectGroupsSave(groups: string[]): Promise<void> {
+  return invoke('project_groups_save', { groups })
+}
+
 // Filesystem
 
 export interface FsEntry {
