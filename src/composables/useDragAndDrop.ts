@@ -14,8 +14,8 @@ export interface UseDragAndDropReturn<ID extends string> {
 export function useDragAndDrop<ID extends string = string>(
   effectAllowed: DataTransfer['effectAllowed'] = 'move',
 ): UseDragAndDropReturn<ID> {
-  const dragId = ref<ID | null>(null) as Ref<ID | null>
-  const dragOverTarget = ref<ID | null>(null) as Ref<ID | null>
+  const dragId: Ref<ID | null> = ref(null)
+  const dragOverTarget: Ref<ID | null> = ref(null)
 
   function startDrag(e: DragEvent, id: ID) {
     dragId.value = id
