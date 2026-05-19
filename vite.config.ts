@@ -18,6 +18,12 @@ export default defineConfig({
     __GIT_COMMIT_HASH__: JSON.stringify(gitCommitHash()),
   },
   clearScreen: false,
+  // Limit dep-scan to the actual app entry. Without this, rolldown-vite crawls
+  // every *.html in the repo and chokes on src-tauri/target/doc (cargo doc
+  // output, ~5000 winapi HTML files) with EMFILE.
+  optimizeDeps: {
+    entries: ["index.html"],
+  },
   server: {
     port: 1420,
     strictPort: true,
