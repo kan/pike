@@ -2,6 +2,7 @@
 import { ChevronDown, ChevronRight, ExternalLink, Pencil, Plus, Trash2, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
+import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
 import { loadJson, saveJson } from '../../lib/storage'
 import { detectWslDistros, openProjectWindow, pickFolder, ptyGetCwd } from '../../lib/tauri'
@@ -131,21 +132,12 @@ async function onDeleteGroup(name: string) {
   await projectStore.removeGroup(name)
 }
 
-const draggingProjectId = ref<string | null>(null)
-const dragOverGroup = ref<string | null>(null)
-
-function onDragStartProject(e: DragEvent, projectId: string) {
-  draggingProjectId.value = projectId
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', projectId)
-  }
-}
-
-function onDragEndProject() {
-  draggingProjectId.value = null
-  dragOverGroup.value = null
-}
+const {
+  dragId: draggingProjectId,
+  dragOverTarget: dragOverGroup,
+  startDrag: onDragStartProject,
+  resetDrag: onDragEndProject,
+} = useDragAndDrop<string>()
 
 function onDragOverGroup(e: DragEvent, groupName: string) {
   if (!draggingProjectId.value) return
@@ -161,8 +153,7 @@ function onDragLeaveGroup() {
 async function onDropGroup(e: DragEvent, groupName: string) {
   e.preventDefault()
   const id = draggingProjectId.value
-  draggingProjectId.value = null
-  dragOverGroup.value = null
+  onDragEndProject()
   if (!id) return
   await projectStore.setProjectGroup(id, groupName || undefined)
 }

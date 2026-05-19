@@ -2,6 +2,7 @@
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Loader } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
+import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
@@ -213,14 +214,12 @@ function copyRelativePath() {
 }
 
 // Drag & Drop
-const dragPath = ref<string | null>(null)
-const dropTarget = ref<string | null>(null)
-
-function onDragStart(e: DragEvent, path: string) {
-  dragPath.value = path
-  e.dataTransfer?.setData('text/plain', path)
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'all'
-}
+const {
+  dragId: dragPath,
+  dragOverTarget: dropTarget,
+  startDrag: onDragStart,
+  resetDrag: onDragEnd,
+} = useDragAndDrop<string>('all')
 
 function onDragOver(e: DragEvent, path: string, isDir: boolean) {
   if (!dragPath.value) return
@@ -239,16 +238,10 @@ function onDragLeave() {
   dropTarget.value = null
 }
 
-function onDragEnd() {
-  dragPath.value = null
-  dropTarget.value = null
-}
-
 async function onDrop(e: DragEvent, path: string, isDir: boolean) {
   e.preventDefault()
   const source = dragPath.value
-  dragPath.value = null
-  dropTarget.value = null
+  onDragEnd()
   if (!source) return
   const project = projectStore.currentProject
   if (!project) return

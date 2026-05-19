@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onUnmounted, ref } from 'vue'
+import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import type { ShellType, Tab } from '../../types/tab'
@@ -84,17 +85,8 @@ function addTabWithShell(kind: 'cmd' | 'powershell' | 'git-bash') {
 }
 
 // Drag-and-drop reordering
-const dragTabId = ref<string | null>(null)
-const dragOverTabId = ref<string | null>(null)
+const { dragId: dragTabId, dragOverTarget: dragOverTabId, startDrag: onDragStart, resetDrag } = useDragAndDrop<string>()
 const dragSide = ref<'left' | 'right'>('left')
-
-function onDragStart(e: DragEvent, tabId: string) {
-  dragTabId.value = tabId
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', tabId)
-  }
-}
 
 function onDragOver(e: DragEvent, tabId: string) {
   if (!dragTabId.value || dragTabId.value === tabId) return
@@ -132,14 +124,7 @@ function onDrop(e: DragEvent, tabId: string) {
   resetDrag()
 }
 
-function onDragEnd() {
-  resetDrag()
-}
-
-function resetDrag() {
-  dragTabId.value = null
-  dragOverTabId.value = null
-}
+const onDragEnd = resetDrag
 
 // Context menu (tabId is null for tab-bar empty area)
 const contextMenu = ref<{ x: number; y: number; tabId: string | null } | null>(null)
