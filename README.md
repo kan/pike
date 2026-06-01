@@ -16,15 +16,22 @@ Built with Tauri v2 (Rust + Vue/TypeScript). Windows-first.
 ## Features
 
 - **Multi-terminal tabs** — xterm.js + PTY (WSL / cmd / PowerShell / Git Bash)
-- **AI agent ready** — Claude Code, Codex etc. as pinned tabs with session resume (`claude --continue`)
-- **File editor** — CodeMirror 6 with syntax highlighting (29 languages), minimap, search & replace, git diff gutter
-- **Git panel** — staging, commit, push/pull, diff viewer, commit tree
+- **AI agents** — Claude Code & Codex as unified chat tabs (Agent runtime over ACP / Codex app-server), session resume, slash commands, `@`-mention file context
+- **File editor** — CodeMirror 6 with syntax highlighting (30+ languages), minimap, search & replace, git diff gutter, jump-to-definition (Ctrl+Click / F12)
+- **Previews** — Markdown, Mermaid, CSV/TSV, JSON/JSONL, SVG, images, PDF
+- **Symbol outline** — outline panel (18 languages) with cursor follow + per-file git history
+- **Task runner** — auto-discovers `package.json` / `Makefile` / `deno.json` scripts and runs them in a terminal tab
+- **Command palette** — `Ctrl+P` for files, `>` tasks, `@` tabs, `:` line jump, `!` git branch
+- **Git panel** — staging, commit, push/pull, diff viewer, commit & branch graph
 - **Docker panel** — compose services, start/stop/restart, live logs, `docker exec` shell
 - **Project search** — ripgrep (bundled) / grep fallback
+- **File tree** — drag & drop, rename, delete, git status icons, file watcher auto-refresh
+- **Multi-window** — open projects in separate windows
 - **Session persistence** — tab order, active tab, pinned tabs auto-restored on restart
 - **Dark / Light mode** — switchable from settings
 - **i18n** — Japanese / English
-- **pike CLI** — `pike file.rs:42` to open files, `pike <dir>` to switch projects
+- **Self-updater** — auto check & update from GitHub Releases
+- **pike CLI** — `pike file.rs:42` to open files, `pike <dir>` to switch projects, `--wait` for `GIT_EDITOR`
 
 ## Install
 
@@ -42,7 +49,7 @@ After installation, Pike will check for updates automatically. You can also chec
 ### Prerequisites
 
 - **Windows 11**
-- **Node.js** >= 18
+- **Node.js** >= 20
 - **Rust** >= 1.77
 - [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
 - **WSL2** (optional — for WSL shell and Docker integration)
@@ -83,7 +90,7 @@ Tauri WebView (Windows)
 ├── Vue 3 + Pinia (UI)
 │   ├── xterm.js terminals
 │   ├── CodeMirror 6 editor
-│   └── Panels — file tree, git, search, docker, projects
+│   └── Panels — file tree, git, search, docker, projects, tasks, outline
 ├── Tauri IPC
 └── Rust backend
     ├── portable-pty — PTY management
