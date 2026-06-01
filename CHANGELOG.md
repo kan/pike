@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2] - 2026-06-01
+
+### Dependencies
+
+- **セキュリティ修正**: Dependabot alert 5 件（すべて medium）を解消
+  - **mermaid** 11.14.0 → 11.15.0: Gantt チャートの Infinite Loop DoS、state diagram の `classDef` による HTML injection、configuration / `classDefs` による CSS injection（計 4 件）
+  - **tar** 0.4.45 → 0.4.46 (transitive): PAX header desynchronization issue
+- **npm (dependabot)**: vite 8.0.10 → 8.0.13、@vitejs/plugin-vue 6.0.6 → 6.0.7、@tauri-apps/cli 2.11.1 → 2.11.2、dompurify 3.4.2 → 3.4.5、codemirror 関連 2 件
+- **Cargo (dependabot)**: tauri 2.11.1 → 2.11.2、tauri-build 2.6.1 → 2.6.2
+
 ## [0.8.1] - 2026-05-19
 
 ### Bug Fixes
