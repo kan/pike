@@ -34,6 +34,8 @@
 │  │ 🔍 search  │  └──────────────────────────────────┘  │
 │  │ 🐋 docker  │                                         │
 │  │ 📁 projects│                                         │
+│  │ 📋 tasks   │                                         │
+│  │ 🔭 outline │                                         │
 │  └────────────┘                                         │
 └──────────────┬──────────────────────────────────────────┘
                │ Tauri IPC (invoke / events)
@@ -42,7 +44,7 @@
 │  pty_manager   git_manager   fs_watcher   search         │
 │  project_store docker_client                             │
 └──────────────┬──────────────────────────────────────────┘
-               │ wsl.exe spawn / bollard / git2 / notify
+               │ wsl.exe spawn / bollard / git CLI / notify
 ┌──────────────▼──────────────────────────────────────────┐
 │  WSL2 (Ubuntu)                                           │
 │  tmux sessions ← Claude Code / bash / etc.              │
@@ -68,72 +70,93 @@ pike/
 │   └── src/
 │       ├── main.rs            # Tauri エントリポイント
 │       ├── lib.rs             # Tauri Builder 設定・コマンド登録
-│       ├── types.rs           # ShellConfig 等の共通型定義
+│       ├── types.rs           # ShellConfig・WSL_EXTRA_PATH・bash_quote 等の共通型/ヘルパー
 │       ├── font.rs            # フォント列挙（font-kit でモノスペース検出）
 │       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
+│       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
 │       ├── agent/
 │       │   ├── mod.rs         # 統一エージェント API モジュール
 │       │   ├── types.rs       # AgentRuntime trait・AgentEvent・AgentCapabilities
-│       │   ├── commands.rs    # agent_* Tauri コマンド（13個）
+│       │   ├── commands.rs    # agent_* Tauri コマンド
 │       │   ├── state.rs       # ウィンドウ別セッション管理
 │       │   ├── codex_runtime.rs  # Codex app-server → AgentRuntime 実装
 │       │   └── acp_runtime.rs    # ACP JSON-RPC → AgentRuntime 実装
+│       ├── codex/             # Codex app-server プロトコル実装（agent/codex_runtime が wrap）
+│       │   ├── mod.rs  auth.rs  approval.rs  runtime.rs  session.rs
+│       │   └── protocol/      # client.rs / items.rs / messages.rs / mod.rs
+│       ├── claude_usage/
+│       │   └── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
 │       ├── pty/
 │       │   └── mod.rs         # PTY 管理（WSL/cmd/PowerShell/Git Bash 対応）
 │       ├── watcher/
 │       │   └── mod.rs         # ファイル監視（notify + WSL inotifywait）
-│       └── project/
-│           └── mod.rs         # プロジェクト CRUD・WSL ディストロ検出
+│       ├── project/
+│       │   └── mod.rs         # プロジェクト CRUD・WSL ディストロ検出・グループ永続化
+│       ├── fs/
+│       │   └── mod.rs         # WSL/Windows 両対応ファイル操作・IGNORED_DIRS
+│       ├── git/
+│       │   └── mod.rs         # git CLI ブリッジ（status/log/diff/commit/push/pull 等）
+│       ├── docker/
+│       │   └── mod.rs         # bollard クライアント・compose パース・ログストリーム
+│       ├── search/
+│       │   └── mod.rs         # rg/grep バックエンド判定・検索・list_project_files
+│       ├── tasks.rs           # package.json/Makefile/deno.json のタスク再帰検出
+│       └── bin/               # 検証バイナリ（verify_pty / verify_tmux / verify_bollard）
 ├── src/                       # Vue/TypeScript フロント
 │   ├── App.vue                # ルート（PTY ルーター初期化・プロジェクト復元）
 │   ├── main.ts
+│   ├── i18n/                  # 国際化（日英）: index.ts（useI18n/locale）+ en.ts / ja.ts
 │   ├── types/
-│   │   ├── tab.ts             # Tab Union type・ShellType・共通ヘルパー
+│   │   ├── tab.ts             # Tab Union type・ShellType・SidebarPanel・共通ヘルパー
 │   │   ├── project.ts         # ProjectConfig・PinnedTabDef
-│   │   └── agent.ts           # AgentEvent・AgentCapabilities・AgentAuthState
+│   │   ├── agent.ts           # AgentEvent・AgentCapabilities・AgentAuthState
+│   │   ├── chat.ts  claudeUsage.ts  docker.ts  git.ts  search.ts  tasks.ts
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
-│   │   ├── QuickOpen.vue        # Ctrl+P クイックオープン（rg --files + fuzzy match）
-│   │   ├── ConfirmDialog.vue    # カスタム確認ダイアログ（Teleport）
+│   │   ├── QuickOpen.vue        # Ctrl+P コマンドパレット（ファイル/>タスク/@タブ/:行/!ブランチ/?ヘルプ）
+│   │   ├── ConfirmDialog.vue    # カスタム確認ダイアログ（Teleport、prompt 入力対応）
+│   │   ├── KeyboardShortcuts.vue # ショートカット一覧モーダル
 │   │   ├── layout/
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル
-│   │   │   └── TabPane.vue    # タブバー + コンテンツ + シェル選択
+│   │   │   ├── TabPane.vue    # タブバー + コンテンツ + シェル選択
+│   │   │   └── StatusBar.vue  # ブランチ/ahead-behind/トークン使用量/エンコード/改行/repo リンク
 │   │   ├── panels/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
-│   │   │   └── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除
+│   │   │   ├── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除（GroupComboBox/ProjectListItem に分割）
+│   │   │   ├── GroupComboBox.vue  ProjectListItem.vue
+│   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
+│   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
+│   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── agent/
 │   │   │   └── AgentApprovalDialog.vue  # 統一 approval ダイアログ
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
 │   │       ├── AgentChatTab.vue   # 統一エージェントチャット（Codex / Claude Code）
-│   │       ├── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダークモード・エディタ設定）
-│   │       ├── CsvTab.vue         # CSV/TSV テーブルプレビュー
+│   │       ├── EditorTab.vue      # CodeMirror 6 + Edit/Split/Preview（md/csv/json/svg/mermaid）
+│   │       ├── PreviewTab.vue     # 画像プレビュー（base64 dataUrl）
 │   │       ├── PdfTab.vue         # PDF プレビュー（iframe）
-│   │       └── MermaidTab.vue     # Mermaid ダイアグラムプレビュー
+│   │       ├── DiffTab.vue        # 左右分割 diff
+│   │       ├── HistoryTab.vue     # ファイル別 git log（git log -L 行範囲対応）
+│   │       ├── DockerLogsTab.vue  # コンテナログ（xterm 読み取り専用）
+│   │       └── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダーク・エディタ・言語）
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
-│   │   ├── sidebar.ts         # サイドバー状態
-│   │   ├── settings.ts        # アプリ設定（フォント・カラースキーム・ダークモード・エディタ設定）
-│   │   ├── project.ts         # プロジェクト管理・切替・永続化
-│   │   └── agent.ts           # 統一エージェント状態管理（agent_* API 使用）
+│   │   ├── sidebar.ts  settings.ts  project.ts  agent.ts
+│   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts
+│   │   ├── claudeUsage.ts     # トークン使用量
+│   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
 │   ├── composables/
-│   │   ├── useKeyboardShortcuts.ts  # Ctrl+T/W/Tab/Shift+P/P
-│   │   ├── useConfirmDialog.ts      # カスタム確認ダイアログ composable
-│   │   ├── usePtyRouter.ts         # PTY イベント集中ルーター + CWD 検出 + グローバル exit フック
-│   │   ├── useFsWatcher.ts        # ファイル監視イベントルーター
-│   │   ├── useCliOpen.ts          # CLI 引数によるファイル/プロジェクト自動オープン
-│   │   ├── useTerminalNotifications.ts  # ターミナル終了デスクトップ通知
-│   │   └── useAgentRouter.ts      # agent:// イベントルーター（統一エージェント API）
+│   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts
+│   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts
+│   │   ├── useAgentRouter.ts  useDockerLogRouter.ts  useTerminalNotifications.ts
+│   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
+│   │   ├── useOutlineSource.ts  useUpdater.ts
 │   ├── lib/
-│   │   ├── fileIcons.ts       # material-file-icons ラッパー（キャッシュ付き）
-│   │   ├── fontDetection.ts   # フォント名ユーティリティ（buildFontFamily/extractFontName）
-│   │   ├── gitGraph.ts        # ブランチマージグラフ描画（レーン割当 + SVG）
-│   │   ├── editorGitGutter.ts # CodeMirror 6 git diff ガター拡張
-│   │   ├── editorMinimap.ts   # CodeMirror 6 ミニマップ（@replit/codemirror-minimap）
-│   │   ├── editorThemes.ts   # CodeMirror 6 エディタテーマ定義（6種）
-│   │   ├── editorSearch.ts    # CodeMirror 6 カスタム検索パネル
-│   │   ├── tauri.ts           # IPC ラッパー
-│   │   └── window.ts          # ウィンドウラベル判定（main / project-{id}）
+│   │   ├── fileIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
+│   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  languages.ts  mermaid.ts  codexHistory.ts
+│   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts  editorJumpTo.ts
+│   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent）
+│   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 18 言語）
 │   └── assets/
 │       └── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
 └── .claude/
@@ -335,10 +358,60 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `ACPRuntime`: `claude-agent-acp` 等の ACP 対応エージェントと JSON-RPC over stdio で通信
 - `AgentEvent` enum: 両プロトコルの通知を統一表現（MessageDelta, ItemStarted, ApprovalCommandRequest 等）
 - `AgentCapabilities`: runtime ごとのサポート機能を宣言（モデル選択、ロールバック、sandbox 設定等）
-- Tauri commands: `agent_start_session`, `agent_submit_turn` 等 13 個。既存の `codex_*` commands と並行して登録
+- Tauri commands: `agent_start_session`, `agent_submit_turn` 等の `agent_*` 群
 - フロント: `stores/agent.ts` (Pinia), `composables/useAgentRouter.ts` (event router), `types/agent.ts`
-- `AgentChatTab.vue`: `agent-chat` タブ。capabilities に応じて UI を条件分岐（auth bar, sandbox 表示等）
-- 既存の `codex-chat` タブ（`CodexChatTab.vue` + `codex` store）は互換性のため維持。新規セッションは `agent-chat` タブを使用
+- `AgentChatTab.vue`: `agent-chat` タブ（`agentType: 'codex' | 'claude-code'`）。capabilities に応じて UI を条件分岐（auth bar, sandbox 表示等）。Codex / Claude のチャットはこの 1 タブに統合済み（旧 `CodexChatTab.vue` + `codex` store は廃止）
+- バックエンドの `codex/` モジュール（app-server プロトコル）は `agent/codex_runtime.rs` が wrap する形で存続
+
+### トークン使用量表示（Claude usage）
+- `src-tauri/src/claude_usage/` が `~/.claude` 配下のログを解析し、セッションのトークン使用量を集計
+- StatusBar にアクティブセッションの入力/出力トークン数と推定コストを表示。クリックでモデル別内訳ドロップダウン
+- Codex は active な agent-chat タブのセッション usage（`thread/tokenUsage/updated` 由来）を表示
+- フロント: `stores/claudeUsage.ts` + `types/claudeUsage.ts`、整形は `lib/format.ts` の `formatTokens` / `formatCost`
+
+### タスクランナー（Tasks パネル）
+- `tasks` サイドバーパネル。`src-tauri/src/tasks.rs` の `task_discover` がプロジェクトルートを**最大深さ 5**で再帰走査し、`package.json` / `Makefile` / `deno.json` を検出
+- `package.json` の `scripts`、Makefile のターゲット、deno tasks をそれぞれ「グループ」として一覧表示（ラベルに相対ディレクトリ名を付与）
+- 除外: `IGNORED_DIRS`（`.git node_modules __pycache__ .next .nuxt target dist build .cache .venv venv`）
+- `.gitignore` を尊重するのは **rg バックエンド使用時のみ**（`rg --files --max-depth 5 -g <glob>`）。rg が無く `find`(WSL)/walkdir(Windows) フォールバックの場合は `.gitignore` を見ず `IGNORED_DIRS` のみで除外するため、ネストした `package.json` がより多く出る
+- タスク実行はプロジェクトのデフォルトシェルで `autoStart` + `closeOnExit`（完了でタブ自動クローズ）。サブディレクトリのタスクは正しい CWD で起動
+- フロント: `stores/tasks.ts` + `components/panels/TasksPanel.vue` + `types/tasks.ts`
+
+### アウトラインパネル（Outline）
+- `outline` サイドバーパネル。`lib/outline/` の言語別 extractor（18 言語: Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / YAML / JSON / Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile）でシンボルを抽出
+- カーソル位置追従ハイライト・祖先自動展開・scrollIntoView、タブ別スクロール位置保持
+- Outline / History 2 タブ構成（`OutlineTreeView.vue` / `OutlineHistoryView.vue`）。History はファイル別 git log を表示、行クリックで diff タブを開く
+- 行オフセットは `buildLineOffsets` / `lineStart` で O(N) 前計算（`composables/useOutlineSource.ts`）
+
+### 定義ジャンプ（Ctrl+Click / F12）
+- `lib/editorJumpTo.ts` + `lib/jumpTo/`。TS/JS/Vue/Go の import パスを Ctrl+Click でファイル open
+- 識別子は同一ファイル内宣言（Lezer 構文木）と import 経由のクロスファイル定義の両方に対応
+- Vue カスタムコンポーネントは `<script setup>` の PascalCase import / Options-API `components` / `app.component()` グローバル登録の 3 段で解決
+- path alias 解決: tsconfig/jsconfig の `compilerOptions.paths` と vite.config の `resolve.alias`（祖先方向に config 探索、モノレポ対応、設定変更で自動 invalidate）
+- 進捗・結果は `stores/statusMessage.ts` 経由で StatusBar に表示（スピナー / 開いたファイル名 / 見つからない）
+
+### QuickOpen コマンドパレット（Ctrl+P）
+- 先頭文字でモード切替: 無印=ファイル fuzzy open、`>`=タスク実行、`@`=タブ切替、`:`=行ジャンプ、`!`=Git ブランチ切替、`?`=ヘルプ
+- `> Claude` / `> Codex` で新規エージェントタブ作成。`filename:42` で行番号ジャンプ
+- `rg --files` の結果をフロントでキャッシュ、プロジェクト切替時にリセット
+
+### 国際化（i18n）
+- `src/i18n/`: `index.ts` が `useI18n()` / 標準関数 `t` / `locale` ref（デフォルト `en`）を提供、`en.ts` / `ja.ts` がメッセージ辞書
+- `messages` は `locale` に対する `computed` でリアクティブ（locale 切替で即時反映）。ストア等コンポーネント外では `t` を直接 import
+- `{name}` プレースホルダを `replaceAll` で展開。言語切替は Settings タブ
+
+### 画像ペースト
+- `composables/useImagePaste.ts`。ターミナル（xterm）/ エージェントチャットにクリップボード画像をペースト → `.pike/uploads/` に保存 → 相対パス（または `@パス` メンション）を挿入
+- xterm は Ctrl+V を SYN(`\x16`) として食うため `attachCustomKeyEventHandler` で横取り。右クリックは `navigator.clipboard.read()` で `image/*` を優先取得
+- ファイルツリー / OS からのドラッグ&ドロップにも対応
+
+### ショートカット一覧モーダル
+- `components/KeyboardShortcuts.vue` + `composables/useShortcutsModal.ts`。登録済みショートカットの一覧を表示
+
+### `pike --wait`（GIT_EDITOR 連携）
+- `src-tauri/src/wait.rs`。`GIT_EDITOR="pike.exe --wait"` でコミットメッセージ編集に対応
+- 二次インスタンスが WM_COPYDATA（single-instance プラグインの規約）でファイルパスを既存ウィンドウに転送、`WaitState` で wait_id ↔ パスを管理
+- エディタタブを閉じると待機中プロセスが解放され、ウィンドウも自動で閉じる
 
 ### コミット前チェック
 コミット前に以下を実行し、エラー・警告がゼロであることを確認する:
@@ -374,12 +447,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - Rust `WatcherState` を `AppState` で管理、`fs_watch_start` / `fs_watch_stop` コマンド
 
 ### プレビュー拡張
-- CSV/TSV: `CsvTab` でテーブル表示、RFC 4180 準拠パーサ（引用符対応）、10,000行 truncate、sticky ヘッダ
-- PDF: `PdfTab` で `<iframe src="data:application/pdf;base64,...">` による WebView2 内蔵レンダリング
-- Mermaid: `MermaidTab` で `.mermaid`/`.mmd` ファイルを SVG 描画（Preview/Source 切替）
-- Markdown 内 mermaid: `EditorTab` の previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
-- SVG: `EditorTab` の Edit/Split/Preview トグルで SVG 表示（`DOMPurify.sanitize` + `SVG_PURIFY_OPTS`）。`IMAGE_EXTS` から除外し EditorTab で開く
-- ファイルツリー `openFile()` が拡張子で csv/tsv/pdf/mermaid/mmd を判定し適切なタブを開く
+- CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）
+  - CSV/TSV: `buildCsvPreview` でテーブル化（RFC 4180 準拠の引用符対応パーサ、10,000 行 truncate、sticky ヘッダ）
+  - Mermaid (`.mermaid`/`.mmd`): `renderStandaloneMermaid` が `lib/mermaid.ts` の `getMermaid()` を遅延 import して SVG 描画（ズーム対応）
+  - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
+  - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
+- Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
+- 画像: `PreviewTab.vue`（base64 dataUrl を `<img>` 表示）。PDF: `PdfTab.vue`（`<iframe src="data:application/pdf;base64,...">` による WebView2 内蔵レンダリング）
+- ファイルツリー `openFile()` が拡張子で画像→PreviewTab / PDF→PdfTab / その他→EditorTab を振り分ける
 
 ### 検索 (rg / grep)
 - 起動時に `which rg` で backend 判定、以降固定
