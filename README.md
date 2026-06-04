@@ -23,6 +23,7 @@ Built with Tauri v2 (Rust + Vue/TypeScript). Windows-first.
 - **Task runner** — auto-discovers `package.json` / `Makefile` / `deno.json` scripts and runs them in a terminal tab
 - **Command palette** — `Ctrl+P` for files, `>` tasks, `@` tabs, `:` line jump, `!` git branch
 - **Git panel** — staging, commit, push/pull, diff viewer, commit & branch graph
+- **Git worktree switcher** — status-bar selector re-points the file tree / git / search / tasks / docker / editor at a selected worktree, for reviewing parallel agent work in one window
 - **Docker panel** — compose services, start/stop/restart, live logs, `docker exec` shell
 - **Project search** — ripgrep (bundled) / grep fallback
 - **File tree** — drag & drop, rename, delete, git status icons, file watcher auto-refresh

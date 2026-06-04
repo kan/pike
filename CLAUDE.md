@@ -119,7 +119,7 @@ pike/
 │   │   ├── layout/
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル
 │   │   │   ├── TabPane.vue    # タブバー + コンテンツ + シェル選択
-│   │   │   └── StatusBar.vue  # ブランチ/ahead-behind/トークン使用量/エンコード/改行/repo リンク
+│   │   │   └── StatusBar.vue  # ブランチ/worktree セレクタ/ahead-behind/トークン使用量/エンコード/改行/repo リンク
 │   │   ├── panels/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   ├── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除（GroupComboBox/ProjectListItem に分割）
@@ -142,7 +142,7 @@ pike/
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts  settings.ts  project.ts  agent.ts
-│   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts
+│   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
 │   │   ├── claudeUsage.ts     # トークン使用量
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
 │   ├── composables/
@@ -266,6 +266,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
 - ブランチマージグラフ: `git log --all` + `%P`（親ハッシュ）/`%D`（refs）で取得、`gitGraph.ts` のレーン割当アルゴリズムで SVG 描画。List / Graph 切替
 - git log フォーマット区切り: ASCII Unit Separator (`%x1f`) + Record Separator (`%x1e`) を使用（NUL だと `%D` が空のコミットでレコード区切りと衝突するため）
+
+### Git worktree 連動
+- `git_worktree_list` コマンド（`git worktree list --porcelain` をパース）が `{ path, branch, head, isBare, isDetached, isMain }[]` を返す。bare クローン構成では bare エントリを main 扱いせず**最初の非 bare** を `isMain` とし、`prunable`（ディレクトリ消失）worktree は一覧から除外
+- **参照ルートの単一の真実**: `stores/project.ts` の `activeRoot`（非 null computed = `activeWorktreeRoot ?? currentProject.root ?? ''`）。file tree / git / search / tasks / docker、およびエディタの git 操作（diff ガター・History・定義ジャンプ・MD リンク解決）はすべて `project.root` ではなく `activeRoot` を参照する。root 相対操作で残る `project.root` 直参照は worktree 追従漏れのサイン（ターミナル cwd / agent cwd / 画像アップロード先など意図的にプロジェクト固定の箇所を除く）
+- `stores/worktree.ts`: worktree 一覧・`setActiveWorktree(w)`（`isMain` フラグで null/パスを決定。文字列一致に依存しない）・focus 連動ポーリング（`gitStore.status` が非 null の git リポジトリのみ。同一ウィンドウ内ターミナルでの `git worktree add` を反映、古い load 結果は projectId で stale ガード）
+- ステータスバーの worktree セレクタ（`FolderGit2`、worktree が 2 つ以上の時のみ表示）。選択で 5 パネル + エディタを再読込
+- fs watcher は App.vue の `watch(activeRoot)` 単一所有で再ポイント（worktree 切替・プロジェクト切替の両方をカバー。リポジトリ外の worktree でも更新を取得）
+- 切替単位はウィンドウ（プロジェクト）ごとに 1 つ。起動時は常に main worktree（`activeWorktreeRoot=null`）から開始、セッション非永続。タブ切替による自動追従は未実装（agent を root で起動し内部で worktree を選ぶ運用では cwd ベース検出が効かないため手動セレクタを主軸とする。将来 agent タブ常用時に再検討）
 
 ### Docker 統合
 - `bollard` クレートで Docker API に接続（named pipe → TCP:2375 → TCP:2376 フォールバック）
