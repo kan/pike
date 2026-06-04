@@ -59,7 +59,7 @@ export const useFileTreeStore = defineStore('fileTree', () => {
     scrollTop.value = 0
     selectedPath.value = null
     const project = projectStore.currentProject
-    const root = project?.root
+    const root = projectStore.activeRoot
     currentProjectId = project?.id ?? null
     if (!root) return
 
@@ -86,7 +86,7 @@ export const useFileTreeStore = defineStore('fileTree', () => {
       initTree()
       return
     }
-    const root = projectStore.currentProject?.root
+    const root = projectStore.activeRoot
     if (root && !tree.value[root]) {
       initTree()
     }
@@ -107,7 +107,7 @@ export const useFileTreeStore = defineStore('fileTree', () => {
   }
 
   async function revealFile(filePath: string): Promise<boolean> {
-    const root = useProjectStore().currentProject?.root
+    const root = useProjectStore().activeRoot
     if (!root) return false
 
     const s = sep()

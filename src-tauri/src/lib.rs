@@ -745,6 +745,7 @@ pub fn run() {
             git::git_discard_changes,
             git::git_commit,
             git::git_branch_list,
+            git::git_worktree_list,
             git::git_checkout,
             git::git_create_branch,
             git::git_remote_url,

@@ -403,7 +403,7 @@ async function save(overrideEncoding?: string) {
   if (!tab.value.path) {
     let chosen: string | null
     if (shellForIO.value.kind === 'wsl') {
-      const root = projectStore.currentProject?.root ?? '/'
+      const root = projectStore.activeRoot || '/'
       const defaultPath = root.endsWith('/') ? root : `${root}/`
       chosen = await promptDialog(t('editor.saveAsPrompt'), defaultPath, t('editor.saveAsPlaceholder'))
     } else {
@@ -464,7 +464,7 @@ async function refreshDiffGutter() {
   const project = projectStore.currentProject
   if (!project) return // git diff requires a project root
   try {
-    const diff = await gitDiffLines(project.root, project.shell, tab.value.path)
+    const diff = await gitDiffLines(projectStore.activeRoot, project.shell, tab.value.path)
     editorView?.dispatch({ effects: setDiffLines.of(diff) })
   } catch {
     // Not a git repo or file not tracked — ignore
@@ -612,7 +612,7 @@ function createEditorView(container: HTMLElement, content: string) {
           if (!t?.path || !project) return null
           return {
             filePath: t.path,
-            projectRoot: project.root,
+            projectRoot: projectStore.activeRoot,
             shell: project.shell,
             langId: extension(t.path),
           }
@@ -785,7 +785,7 @@ function resolveLocalPath(href: string): string | null {
     return null
   }
 
-  const root = project.root
+  const root = projectStore.activeRoot
   const isWsl = project.shell.kind === 'wsl'
   const sep = isWsl ? '/' : '\\'
 

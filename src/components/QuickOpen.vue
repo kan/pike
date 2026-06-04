@@ -46,7 +46,7 @@ const HELP_ITEMS = [
 // --- File mode ---
 const files = ref<string[]>([])
 const loading = ref(false)
-let lastProjectId: string | null = null
+let lastFilesRoot: string | null = null
 
 const recentFiles: string[] = []
 const MAX_RECENT = 20
@@ -220,11 +220,12 @@ const itemCount = computed(() => {
 async function loadFiles() {
   const project = projectStore.currentProject
   if (!project) return
-  if (project.id === lastProjectId && files.value.length > 0) return
+  const root = projectStore.activeRoot
+  if (root === lastFilesRoot && files.value.length > 0) return
   loading.value = true
   try {
-    files.value = await listProjectFiles(project.shell, project.root)
-    lastProjectId = project.id
+    files.value = await listProjectFiles(project.shell, root)
+    lastFilesRoot = root
   } catch {
     files.value = []
   } finally {
@@ -236,7 +237,7 @@ async function loadBranches() {
   const project = projectStore.currentProject
   if (!project) return
   try {
-    branches.value = await gitBranchList(project.root, project.shell)
+    branches.value = await gitBranchList(projectStore.activeRoot, project.shell)
   } catch {
     branches.value = []
   }
@@ -244,7 +245,7 @@ async function loadBranches() {
 
 // --- Display helpers ---
 function getDisplayPath(fullPath: string): string {
-  const root = projectStore.currentProject?.root ?? ''
+  const root = projectStore.activeRoot
   if (root && fullPath.startsWith(root)) {
     let rel = fullPath.slice(root.length)
     if (rel.startsWith('/') || rel.startsWith('\\')) rel = rel.slice(1)
@@ -284,7 +285,7 @@ function openSelected() {
       if (!branch) return
       const project = projectStore.currentProject
       if (!project) return
-      gitCheckout(project.root, project.shell, branch)
+      gitCheckout(projectStore.activeRoot, project.shell, branch)
         .then(() => gitStore.refreshStatus(true))
         .catch(() => {})
       break
@@ -331,7 +332,7 @@ watch(
 watch(
   () => projectStore.currentProject?.id,
   () => {
-    lastProjectId = null
+    lastFilesRoot = null
     files.value = []
     branches.value = []
   },

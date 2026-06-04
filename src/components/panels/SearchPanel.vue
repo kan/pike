@@ -40,12 +40,13 @@ function openResult(match: { path: string; line: number }) {
   const project = projectStore.currentProject
   if (!project) return
   const s = project.shell.kind === 'wsl' ? '/' : '\\'
-  const fullPath = match.path.startsWith('/') || match.path.includes(':') ? match.path : project.root + s + match.path
+  const fullPath =
+    match.path.startsWith('/') || match.path.includes(':') ? match.path : projectStore.activeRoot + s + match.path
   tabStore.addEditorTab({ path: fullPath, initialLine: match.line })
 }
 
 function relativePath(fullPath: string): string {
-  const root = projectStore.currentProject?.root
+  const root = projectStore.activeRoot
   if (!root) return fullPath
   const s = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
   if (fullPath.startsWith(root + s)) return fullPath.slice(root.length + s.length)

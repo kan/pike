@@ -12,7 +12,8 @@ export const useTaskStore = defineStore('tasks', () => {
   let refreshPromise: Promise<void> | null = null
 
   async function doRefresh() {
-    const project = useProjectStore().currentProject
+    const projectStore = useProjectStore()
+    const project = projectStore.currentProject
     if (!project) {
       taskGroups.value = []
       return
@@ -20,7 +21,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
     loading.value = true
     try {
-      const groups = await taskDiscover(project.shell, project.root)
+      const groups = await taskDiscover(project.shell, projectStore.activeRoot)
       taskGroups.value = groups.map((g) => ({
         runner: g.runner as TaskRunner,
         label: g.label,
@@ -48,10 +49,11 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   function runTask(task: TaskDefinition, group?: TaskGroup) {
-    const project = useProjectStore().currentProject
+    const projectStore = useProjectStore()
+    const project = projectStore.currentProject
     if (!project) return
     const command = RUNNER_COMMANDS[task.runner](task.name)
-    const cwd = group?.cwd ?? task.cwd ?? project.root
+    const cwd = group?.cwd ?? task.cwd ?? projectStore.activeRoot
     useTabStore().addTerminalTab({
       title: command,
       autoStart: command,

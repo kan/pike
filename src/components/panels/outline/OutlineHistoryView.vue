@@ -36,7 +36,7 @@ async function loadHistory(path: string) {
   loading.value = true
   error.value = null
   try {
-    const result = await gitLogFile(project.root, project.shell, path, 200)
+    const result = await gitLogFile(projectStore.activeRoot, project.shell, path, 200)
     if (token !== loadToken) return
     entries.value = result
   } catch (e) {
@@ -52,7 +52,7 @@ async function openCommitDiff(hash: string) {
   const project = projectStore.currentProject
   if (!project) return
   try {
-    const diff = await gitDiffCommit(project.root, project.shell, hash, props.filePath)
+    const diff = await gitDiffCommit(projectStore.activeRoot, project.shell, hash, props.filePath)
     tabStore.addDiffTab({ filePath: props.filePath, diff, commitHash: hash })
   } catch (e) {
     error.value = String(e)

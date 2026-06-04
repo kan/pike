@@ -44,13 +44,19 @@ export const useGitStore = defineStore('git', () => {
     return projectStore.currentProject
   }
 
+  // The active worktree root (single source of truth in the project store).
+  // Callers guard on getProject() first, so this is always a real path.
+  function getRoot(): string {
+    return useProjectStore().activeRoot
+  }
+
   async function doRefreshStatus(showProgress: boolean): Promise<void> {
     const project = getProject()
     if (!project) return
     if (showProgress) refreshing.value = true
     const minDelay = showProgress ? new Promise((r) => setTimeout(r, 300)) : null
     try {
-      const [s] = await Promise.all([gitStatus(project.root, project.shell), minDelay])
+      const [s] = await Promise.all([gitStatus(getRoot(), project.shell), minDelay])
       status.value = s
       error.value = null
     } catch (e) {
@@ -84,7 +90,7 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) return
     try {
-      logEntries.value = await gitLog(project.root, project.shell, logAllMode.value ? 1000 : 500, logAllMode.value)
+      logEntries.value = await gitLog(getRoot(), project.shell, logAllMode.value ? 1000 : 500, logAllMode.value)
     } catch {
       logEntries.value = []
     }
@@ -111,7 +117,7 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) return
     try {
-      await gitStage(project.root, project.shell, paths)
+      await gitStage(getRoot(), project.shell, paths)
       await refreshStatus()
     } catch (e) {
       error.value = String(e)
@@ -122,7 +128,7 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) return
     try {
-      await gitUnstage(project.root, project.shell, paths)
+      await gitUnstage(getRoot(), project.shell, paths)
       await refreshStatus()
     } catch (e) {
       error.value = String(e)
@@ -133,7 +139,7 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) return
     try {
-      await gitDiscardChanges(project.root, project.shell, paths)
+      await gitDiscardChanges(getRoot(), project.shell, paths)
       await refreshStatus()
     } catch (e) {
       error.value = String(e)
@@ -144,7 +150,7 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) return
     try {
-      await gitCommit(project.root, project.shell, message)
+      await gitCommit(getRoot(), project.shell, message)
       await Promise.all([refreshStatus(), refreshLog()])
     } catch (e) {
       error.value = String(e)
@@ -156,7 +162,7 @@ export const useGitStore = defineStore('git', () => {
     if (!project) return
     pushing.value = true
     try {
-      await gitPush(project.root, project.shell)
+      await gitPush(getRoot(), project.shell)
       await refreshStatus()
     } catch (e) {
       error.value = String(e)
@@ -170,7 +176,7 @@ export const useGitStore = defineStore('git', () => {
     if (!project) return
     pulling.value = true
     try {
-      await gitPull(project.root, project.shell)
+      await gitPull(getRoot(), project.shell)
       await Promise.all([refreshStatus(), refreshLog()])
     } catch (e) {
       error.value = String(e)
@@ -183,7 +189,7 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) return
     try {
-      branches.value = await gitBranchList(project.root, project.shell)
+      branches.value = await gitBranchList(getRoot(), project.shell)
     } catch {
       branches.value = []
     }
@@ -196,7 +202,7 @@ export const useGitStore = defineStore('git', () => {
       return
     }
     try {
-      remoteUrl.value = await gitRemoteUrl(project.root, project.shell)
+      remoteUrl.value = await gitRemoteUrl(getRoot(), project.shell)
     } catch {
       remoteUrl.value = null
     }
@@ -206,7 +212,7 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) return
     try {
-      await gitCheckout(project.root, project.shell, branch)
+      await gitCheckout(getRoot(), project.shell, branch)
       await Promise.all([refreshStatus(), refreshLog()])
     } catch (e) {
       error.value = String(e)
@@ -227,7 +233,7 @@ export const useGitStore = defineStore('git', () => {
     if (!project) return
     fetchGuard = true
     try {
-      await gitFetch(project.root, project.shell)
+      await gitFetch(getRoot(), project.shell)
       lastFetchTime = Date.now()
       await refreshStatus()
     } catch {

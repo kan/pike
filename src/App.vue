@@ -25,12 +25,14 @@ import { useClaudeUsageStore } from './stores/claudeUsage'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
 import { useTabStore } from './stores/tabs'
+import { useWorktreeStore } from './stores/worktree'
 
 const { t } = useI18n()
 
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
 const gitStore = useGitStore()
+const worktreeStore = useWorktreeStore()
 const claudeUsageStore = useClaudeUsageStore()
 
 useKeyboardShortcuts()
@@ -53,25 +55,29 @@ watch(
   (id) => {
     if (id) {
       gitStore.startPolling()
+      worktreeStore.startPolling()
       claudeUsageStore.startPolling()
     } else {
       gitStore.stopPolling()
+      worktreeStore.stopPolling()
+      worktreeStore.reset()
       claudeUsageStore.stopPolling()
     }
   },
 )
 
-// File watcher lifecycle
+// File watcher lifecycle — keyed on the active root so it follows worktree
+// switches (not just project switches) from a single owner.
 watch(
-  () => projectStore.currentProject?.id,
-  async () => {
-    // Drop jumpTo caches when switching projects so resolved paths don't
-    // bleed across projects.
+  () => projectStore.activeRoot,
+  async (root) => {
+    // Drop jumpTo caches when the root changes so resolved paths don't bleed
+    // across projects or worktrees (which may have different config).
     clearAliasCache()
     clearGlobalComponentsCache()
     const project = projectStore.currentProject
-    if (project) {
-      await fsWatcher.start(project.shell, project.root)
+    if (project && root) {
+      await fsWatcher.start(project.shell, root)
     } else {
       await fsWatcher.stop()
     }

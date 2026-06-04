@@ -20,3 +20,12 @@ export interface GitLogEntry {
   date: string
   message: string
 }
+
+export interface GitWorktree {
+  path: string
+  branch: string | null
+  head: string | null
+  isBare: boolean
+  isDetached: boolean
+  isMain: boolean
+}

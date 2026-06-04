@@ -32,7 +32,7 @@ function stateColor(state: string): string {
 
 // Docker Compose derives project name from directory: lowercase, strip non-alphanumeric
 const composeProjectName = computed(() => {
-  const root = projectStore.currentProject?.root
+  const root = projectStore.activeRoot
   if (!root) return ''
   const dir = root.replace(/\\/g, '/').replace(/\/$/, '').split('/').pop() ?? ''
   return dir.toLowerCase().replace(/[^a-z0-9]/g, '')

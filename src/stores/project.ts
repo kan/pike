@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import {
   openProjectWindow,
   projectAddOpen,
@@ -32,6 +32,17 @@ export const useProjectStore = defineStore('project', () => {
   const currentProject = ref<ProjectConfig | null>(null)
   const showSwitcher = ref(false)
   const showQuickOpen = ref(false)
+
+  // The git worktree the file tree / git / search / tasks / docker / editor
+  // surfaces currently reference. `null` means the project's main root. Reset
+  // whenever the project changes; switching worktrees is window-scoped and not
+  // persisted.
+  const activeWorktreeRoot = ref<string | null>(null)
+  // Single source of truth for "which root do root-relative operations use".
+  // Always a string (empty only when no project is open), so callers never need
+  // their own `?? project.root` fallback — any remaining `project.root` read for
+  // a root-relative operation is a bug that forgot to follow the worktree.
+  const activeRoot = computed<string>(() => activeWorktreeRoot.value ?? currentProject.value?.root ?? '')
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -138,6 +149,7 @@ export const useProjectStore = defineStore('project', () => {
 
     searchStore.clear()
     searchStore.backend = null
+    activeWorktreeRoot.value = null
 
     await tabStore.clearAllTabs()
 
@@ -257,6 +269,8 @@ export const useProjectStore = defineStore('project', () => {
     currentProject,
     showSwitcher,
     showQuickOpen,
+    activeWorktreeRoot,
+    activeRoot,
     loadProjects,
     loadGroups,
     addGroup,

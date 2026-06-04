@@ -30,6 +30,21 @@ pub struct GitLogEntry {
     pub message: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitWorktree {
+    /// Absolute path of the worktree (native form for the project's shell).
+    pub path: String,
+    /// Short branch name (refs/heads/ stripped), or None when detached/bare.
+    pub branch: Option<String>,
+    /// Commit the worktree's HEAD points at.
+    pub head: Option<String>,
+    pub is_bare: bool,
+    pub is_detached: bool,
+    /// The first entry reported by git is the repository's main working tree.
+    pub is_main: bool,
+}
+
 fn truncate_diff(output: String) -> String {
     const MAX: usize = 100_000;
     if output.len() > MAX {
@@ -324,6 +339,83 @@ pub async fn git_branch_list(
         .map(|l| l.trim_start_matches('*').trim().to_string())
         .filter(|l| !l.is_empty())
         .collect())
+}
+
+#[derive(Default)]
+struct WorktreeRecord {
+    path: Option<String>,
+    head: Option<String>,
+    branch: Option<String>,
+    is_bare: bool,
+    is_detached: bool,
+    is_prunable: bool,
+}
+
+fn parse_worktrees(output: &str) -> Vec<GitWorktree> {
+    let mut worktrees = Vec::new();
+    let mut rec = WorktreeRecord::default();
+
+    // `git worktree list --porcelain` emits blank-line-separated records.
+    // Prunable worktrees (directory gone / pruneable) are skipped: selecting one
+    // would point the panels at a missing path. `is_main` is assigned later to
+    // the first non-bare entry, since a bare-clone layout lists `bare` first.
+    let flush = |rec: &mut WorktreeRecord, worktrees: &mut Vec<GitWorktree>| {
+        if let Some(p) = rec.path.take() {
+            if !rec.is_prunable {
+                worktrees.push(GitWorktree {
+                    path: p,
+                    branch: rec.branch.take(),
+                    head: rec.head.take(),
+                    is_bare: rec.is_bare,
+                    is_detached: rec.is_detached,
+                    is_main: false,
+                });
+            }
+        }
+        *rec = WorktreeRecord::default();
+    };
+
+    for line in output.lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            flush(&mut rec, &mut worktrees);
+        } else if let Some(p) = line.strip_prefix("worktree ") {
+            rec.path = Some(p.to_string());
+        } else if let Some(h) = line.strip_prefix("HEAD ") {
+            rec.head = Some(h.to_string());
+        } else if let Some(b) = line.strip_prefix("branch ") {
+            rec.branch = Some(b.strip_prefix("refs/heads/").unwrap_or(b).to_string());
+        } else if line == "bare" {
+            rec.is_bare = true;
+        } else if line == "detached" {
+            rec.is_detached = true;
+        } else if line == "prunable" || line.starts_with("prunable ") {
+            rec.is_prunable = true;
+        }
+        // `locked` annotations are ignored (a locked worktree is still valid).
+    }
+    // Final record may not be followed by a trailing blank line.
+    flush(&mut rec, &mut worktrees);
+
+    // The repository's main working tree is the first non-bare entry.
+    if let Some(w) = worktrees.iter_mut().find(|w| !w.is_bare) {
+        w.is_main = true;
+    }
+    worktrees
+}
+
+#[tauri::command]
+pub async fn git_worktree_list(
+    root: String,
+    shell: ShellConfig,
+) -> Result<Vec<GitWorktree>, String> {
+    let output = tokio::task::spawn_blocking(move || {
+        run_git(&shell, &root, &["worktree", "list", "--porcelain"])
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    Ok(parse_worktrees(&output))
 }
 
 #[tauri::command]
@@ -641,4 +733,86 @@ pub async fn git_diff_lines(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_multiple_worktrees() {
+        let out = "worktree /home/user/repo
+HEAD aaa111
+branch refs/heads/main
+
+worktree /home/user/repo-feat
+HEAD bbb222
+branch refs/heads/feat
+
+worktree /home/user/repo-det
+HEAD ccc333
+detached
+";
+        let wts = parse_worktrees(out);
+        assert_eq!(wts.len(), 3);
+
+        assert_eq!(wts[0].path, "/home/user/repo");
+        assert_eq!(wts[0].branch.as_deref(), Some("main"));
+        assert_eq!(wts[0].head.as_deref(), Some("aaa111"));
+        assert!(wts[0].is_main);
+        assert!(!wts[0].is_detached);
+
+        assert_eq!(wts[1].path, "/home/user/repo-feat");
+        assert_eq!(wts[1].branch.as_deref(), Some("feat"));
+        assert!(!wts[1].is_main);
+
+        assert_eq!(wts[2].path, "/home/user/repo-det");
+        assert!(wts[2].branch.is_none());
+        assert!(wts[2].is_detached);
+    }
+
+    #[test]
+    fn parses_final_record_without_trailing_blank_line() {
+        let out = "worktree /repo
+HEAD aaa
+branch refs/heads/main";
+        let wts = parse_worktrees(out);
+        assert_eq!(wts.len(), 1);
+        assert_eq!(wts[0].branch.as_deref(), Some("main"));
+        assert!(wts[0].is_main);
+    }
+
+    #[test]
+    fn bare_entry_is_not_main_first_working_tree_is() {
+        let out = "worktree /repo/.bare
+bare
+
+worktree /repo/main
+HEAD aaa
+branch refs/heads/main
+";
+        let wts = parse_worktrees(out);
+        assert_eq!(wts.len(), 2);
+        assert!(wts[0].is_bare);
+        assert!(!wts[0].is_main, "the bare entry must not be treated as main");
+        assert!(wts[1].is_main, "the first working tree is main");
+        assert_eq!(wts[1].branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn prunable_worktrees_are_skipped() {
+        let out = "worktree /repo
+HEAD aaa
+branch refs/heads/main
+
+worktree /repo-gone
+HEAD bbb
+branch refs/heads/gone
+prunable gitdir file points to non-existent location
+";
+        let wts = parse_worktrees(out);
+        assert_eq!(wts.len(), 1);
+        assert_eq!(wts[0].path, "/repo");
+        assert!(wts[0].is_main);
+    }
 }

@@ -85,7 +85,7 @@ async function discardFile(file: GitFileChange) {
     const project = projectStore.currentProject
     if (!project) return
     const s = project.shell.kind === 'wsl' ? '/' : '\\'
-    await fsDelete(project.shell, `${project.root}${s}${file.path}`)
+    await fsDelete(project.shell, `${projectStore.activeRoot}${s}${file.path}`)
     await gitStore.refreshStatus()
   } else {
     await gitStore.discardChanges([file.path])
@@ -98,7 +98,7 @@ async function unstageFile(file: GitFileChange) {
     const project = projectStore.currentProject
     if (project) {
       const sep = project.shell.kind === 'wsl' ? '/' : '\\'
-      const fullPath = `${project.root}${sep}${file.path}`
+      const fullPath = `${projectStore.activeRoot}${sep}${file.path}`
       await gitStore.unstageFiles([file.path])
       await fsDelete(project.shell, fullPath).catch(() => {})
       await gitStore.refreshStatus()
@@ -111,7 +111,7 @@ async function unstageFile(file: GitFileChange) {
 async function openDiffTab(path: string, staged: boolean, untracked = false) {
   const project = projectStore.currentProject
   if (!project) return
-  const diff = await gitDiff(project.root, project.shell, path, staged, untracked)
+  const diff = await gitDiff(projectStore.activeRoot, project.shell, path, staged, untracked)
   tabStore.addDiffTab({ filePath: path, diff, staged })
 }
 
@@ -126,7 +126,7 @@ async function toggleCommitExpand(hash: string) {
     const project = projectStore.currentProject
     if (!project) return
     try {
-      commitFiles.value[hash] = await gitShowFiles(project.root, project.shell, hash)
+      commitFiles.value[hash] = await gitShowFiles(projectStore.activeRoot, project.shell, hash)
     } catch {
       commitFiles.value[hash] = []
     }
@@ -136,7 +136,7 @@ async function toggleCommitExpand(hash: string) {
 async function openCommitDiffTab(hash: string, path: string) {
   const project = projectStore.currentProject
   if (!project) return
-  const diff = await gitDiffCommit(project.root, project.shell, hash, path)
+  const diff = await gitDiffCommit(projectStore.activeRoot, project.shell, hash, path)
   tabStore.addDiffTab({ filePath: path, diff, commitHash: hash })
 }
 
@@ -208,7 +208,7 @@ async function ctxCreateBranch() {
   const name = await promptDialog(t('git.createBranchPrompt', { hash: entry.hash.slice(0, 7) }), '', 'feature/...')
   if (!name) return
   try {
-    await gitCreateBranch(project.root, project.shell, name.trim(), entry.hash)
+    await gitCreateBranch(projectStore.activeRoot, project.shell, name.trim(), entry.hash)
     await gitStore.refreshLog()
   } catch (e) {
     await infoDialog(t('git.createBranchFailed', { error: String(e) }))
@@ -264,7 +264,7 @@ async function ctxOpenFile() {
   if (hash) {
     const project = projectStore.currentProject
     if (!project) return
-    const content = await gitShowFile(project.root, project.shell, hash, path)
+    const content = await gitShowFile(projectStore.activeRoot, project.shell, hash, path)
     tabStore.addEditorTab({
       path,
       readOnly: true,
@@ -272,7 +272,7 @@ async function ctxOpenFile() {
       titleSuffix: ` (${hash.slice(0, 7)})`,
     })
   } else {
-    const root = projectStore.currentProject?.root
+    const root = projectStore.activeRoot
     if (!root) return
     const sep = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
     tabStore.addEditorTab({ path: root + sep + path })

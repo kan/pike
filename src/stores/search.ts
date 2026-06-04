@@ -27,7 +27,8 @@ export const useSearchStore = defineStore('search', () => {
   }
 
   async function search(query: string, isRegex: boolean, globInclude?: string, globExclude?: string) {
-    const project = useProjectStore().currentProject
+    const projectStore = useProjectStore()
+    const project = projectStore.currentProject
     if (!project || !query.trim()) return
     if (!backend.value) await detectBackend()
     if (!backend.value) return
@@ -38,7 +39,7 @@ export const useSearchStore = defineStore('search', () => {
     try {
       const result = await searchExecute(
         project.shell,
-        project.root,
+        projectStore.activeRoot,
         query,
         isRegex,
         globInclude || undefined,

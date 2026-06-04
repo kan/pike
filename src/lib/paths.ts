@@ -4,6 +4,11 @@ export function pathSep(shell?: ShellType): '/' | '\\' {
   return shell?.kind === 'wsl' ? '/' : '\\'
 }
 
+/** Rewrite every separator in `path` to `sep` (mixed `/` and `\` are unified). */
+export function normalizeSep(path: string, sep: '/' | '\\' = '/'): string {
+  return sep === '\\' ? path.replace(/\//g, '\\') : path.replace(/\\/g, '/')
+}
+
 export function isAbsolutePath(path: string): boolean {
   return path.startsWith('/') || /^[A-Z]:\\/i.test(path) || path.startsWith('\\\\')
 }
@@ -24,10 +29,8 @@ export function dirname(path: string): string {
  * Collapses `.` / `..` segments. Mixed `/` and `\` are normalized to `sep`.
  */
 export function joinPath(baseDir: string, rel: string, sep: '/' | '\\' = '/'): string {
-  const isWindows = sep === '\\'
-  const normalize = (s: string) => (isWindows ? s.replace(/\//g, '\\') : s.replace(/\\/g, '/'))
-  const base = normalize(baseDir)
-  const r = normalize(rel)
+  const base = normalizeSep(baseDir, sep)
+  const r = normalizeSep(rel, sep)
   const baseParts = base.split(sep).filter((p, i) => p.length > 0 || i === 0)
   const relParts = r.split(sep)
   for (const part of relParts) {

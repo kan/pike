@@ -3,7 +3,7 @@ import { confirmDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
 import type { ClaudeUsageResult } from '../types/claudeUsage'
 import type { ComposeService, ContainerInfo } from '../types/docker'
-import type { GitFileChange, GitLogEntry, GitStatusResult } from '../types/git'
+import type { GitFileChange, GitLogEntry, GitStatusResult, GitWorktree } from '../types/git'
 import type { ProjectConfig } from '../types/project'
 import type { SearchBackend, SearchResult } from '../types/search'
 import type { ShellType } from '../types/tab'
@@ -205,6 +205,10 @@ export async function gitCommit(root: string, shell: ShellType, message: string)
 
 export async function gitBranchList(root: string, shell: ShellType): Promise<string[]> {
   return invoke<string[]>('git_branch_list', { root, shell })
+}
+
+export async function gitWorktreeList(root: string, shell: ShellType): Promise<GitWorktree[]> {
+  return invoke<GitWorktree[]>('git_worktree_list', { root, shell })
 }
 
 export async function gitCheckout(root: string, shell: ShellType, branch: string): Promise<void> {

@@ -1,11 +1,23 @@
 <script setup lang="ts">
-import { AlertTriangle, Archive, Check, Cpu, FolderOpen, GitBranch, Github, Gitlab, Loader2 } from 'lucide-vue-next'
+import {
+  AlertTriangle,
+  Archive,
+  Check,
+  Cpu,
+  FolderGit2,
+  FolderOpen,
+  GitBranch,
+  Github,
+  Gitlab,
+  Loader2,
+} from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
+import { basename } from '../../lib/paths'
 import { openUrlWithConfirm } from '../../lib/tauri'
 import { useAgentStore } from '../../stores/agent'
 import { useClaudeUsageStore } from '../../stores/claudeUsage'
@@ -14,6 +26,8 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
+import { useWorktreeStore } from '../../stores/worktree'
+import type { GitWorktree } from '../../types/git'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -23,6 +37,7 @@ function toggleLanguage() {
   settingsStore.language = settingsStore.language === 'en' ? 'ja' : 'en'
 }
 const gitStore = useGitStore()
+const worktreeStore = useWorktreeStore()
 const editorInfo = useEditorInfo()
 const updater = useUpdater()
 const claudeUsageStore = useClaudeUsageStore()
@@ -96,6 +111,37 @@ watch(
   },
   { immediate: true },
 )
+
+// Worktree switcher dropdown
+const showWorktrees = ref(false)
+
+const worktreeLabel = computed(() => {
+  const active = worktreeStore.worktrees.find((w) => worktreeStore.isActive(w))
+  if (active) return basename(active.path)
+  const root = projectStore.activeRoot
+  return root ? basename(root) : ''
+})
+
+async function openWorktreeSwitcher() {
+  await worktreeStore.loadWorktrees()
+  showWorktrees.value = true
+  nextTick(() => window.addEventListener('mousedown', closeWorktrees))
+}
+
+function closeWorktrees() {
+  showWorktrees.value = false
+  window.removeEventListener('mousedown', closeWorktrees)
+}
+
+async function onSelectWorktree(w: GitWorktree) {
+  closeWorktrees()
+  await worktreeStore.setActiveWorktree(w)
+}
+
+function worktreeBranchLabel(w: GitWorktree): string {
+  if (w.isDetached) return t('worktree.detached')
+  return w.branch ?? ''
+}
 
 // Encoding dropdown (2-step: pick encoding → pick action)
 const encodings = ['UTF-8', 'Shift_JIS', 'EUC-JP', 'ISO-2022-JP', 'ISO-8859-1', 'UTF-16LE', 'UTF-16BE', 'Windows-1252']
@@ -183,6 +229,7 @@ async function onSelectBranch(branch: string) {
 
 onUnmounted(() => {
   window.removeEventListener('mousedown', closeBranches)
+  window.removeEventListener('mousedown', closeWorktrees)
   window.removeEventListener('mousedown', closeEncodingMenu)
   window.removeEventListener('mousedown', closeLineEndingMenu)
   window.removeEventListener('mousedown', closeClaudeUsage)
@@ -266,6 +313,32 @@ onUnmounted(() => {
             <span>{{ t('statusBar.ccCacheCreate') }}: {{ formatTokens(m.cacheCreationTokens) }}</span>
             <span v-if="m.costUsd !== null" class="cc-cost">{{ formatCost(m.costUsd) }}</span>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="worktreeStore.hasMultiple" class="branch-area">
+      <button class="status-item clickable" :title="t('worktree.tooltip')" @click="openWorktreeSwitcher">
+        <FolderGit2 :size="14" :stroke-width="2" class="branch-icon" />
+        <span>{{ worktreeLabel }}</span>
+      </button>
+
+      <div v-if="showWorktrees" class="branch-dropdown" @mousedown.stop>
+        <div class="dropdown-label">{{ t('worktree.switch') }}</div>
+        <div class="branch-list">
+          <button
+            v-for="w in worktreeStore.worktrees"
+            :key="w.path"
+            class="branch-option worktree-option"
+            :class="{ current: worktreeStore.isActive(w) }"
+            @click="onSelectWorktree(w)"
+          >
+            <span class="worktree-name">
+              {{ basename(w.path) }}
+              <span class="worktree-branch">{{ worktreeBranchLabel(w) }}</span>
+            </span>
+            <span v-if="worktreeStore.isActive(w)" class="current-mark">*</span>
+          </button>
         </div>
       </div>
     </div>
@@ -571,6 +644,20 @@ onUnmounted(() => {
 
 .current-mark {
   color: var(--accent);
+}
+
+.worktree-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.worktree-branch {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .branch-empty {

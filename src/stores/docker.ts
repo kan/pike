@@ -45,13 +45,14 @@ export const useDockerStore = defineStore('docker', () => {
   }
 
   async function refreshComposeServices() {
-    const project = useProjectStore().currentProject
+    const projectStore = useProjectStore()
+    const project = projectStore.currentProject
     if (!project) {
       composeServices.value = []
       return
     }
     try {
-      composeServices.value = await dockerComposeServices(project.root, project.shell)
+      composeServices.value = await dockerComposeServices(projectStore.activeRoot, project.shell)
     } catch {
       composeServices.value = []
     }
@@ -139,6 +140,7 @@ export const useDockerStore = defineStore('docker', () => {
     refreshing,
     refreshAll,
     refreshContainers,
+    refreshComposeServices,
     startContainer,
     stopContainer,
     restartContainer,

@@ -46,7 +46,7 @@ function toggleDir(path: string) {
 // Precomputed git status map: full path → status string
 const gitStatusMap = computed(() => {
   const status = gitStore.status
-  const root = projectStore.currentProject?.root
+  const root = projectStore.activeRoot
   if (!status || !root) return new Map<string, string>()
   const s = sep()
   const map = new Map<string, string>()
@@ -147,7 +147,7 @@ function startCreate(type: 'file' | 'dir', targetDir?: string) {
     targetDir = ctxMenu.value.path
   }
   if (!targetDir) {
-    targetDir = projectStore.currentProject?.root
+    targetDir = projectStore.activeRoot || undefined
   }
   closeCtxMenu()
   if (!targetDir) return
@@ -164,7 +164,7 @@ function startCreate(type: 'file' | 'dir', targetDir?: string) {
 }
 
 function startCreateAtRoot(type: 'file' | 'dir') {
-  startCreate(type, projectStore.currentProject?.root)
+  startCreate(type, projectStore.activeRoot || undefined)
 }
 
 async function commitCreate() {
@@ -202,7 +202,7 @@ function showGitHistory() {
 
 function relativePath(absPath: string): string {
   const s = sep()
-  const root = projectStore.currentProject?.root ?? ''
+  const root = projectStore.activeRoot
   return absPath.startsWith(root + s) ? absPath.slice(root.length + s.length) : absPath
 }
 
@@ -269,7 +269,7 @@ async function onDrop(e: DragEvent, path: string, isDir: boolean) {
 const refreshing = ref(false)
 
 async function refresh() {
-  const root = projectStore.currentProject?.root
+  const root = projectStore.activeRoot
   if (!root) return
   refreshing.value = true
   const minDelay = new Promise((r) => setTimeout(r, 300))
@@ -289,7 +289,7 @@ interface FlatNode {
 }
 
 const flatNodes = computed((): FlatNode[] => {
-  const root = projectStore.currentProject?.root
+  const root = projectStore.activeRoot
   if (!root) return []
   const result: FlatNode[] = []
 
@@ -372,7 +372,7 @@ onBeforeUnmount(() => {
 })
 
 function refreshDirs(dirs: string[]) {
-  const root = projectStore.currentProject?.root
+  const root = projectStore.activeRoot
   if (!root) return
   const toReload: string[] = []
   for (const d of dirs) {
@@ -403,7 +403,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
       </div>
       <!-- Create input at root level -->
       <div
-        v-if="creating && creating.parentPath === projectStore.currentProject?.root"
+        v-if="creating && creating.parentPath === projectStore.activeRoot"
         class="tree-item"
         :style="{ paddingLeft: '4px' }"
       >
