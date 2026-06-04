@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-06-04
+
+### Features
+
+- **git worktree 連動**: ステータスバーに worktree セレクタ（`FolderGit2` アイコン、worktree が複数ある時のみ表示）を追加。選択した worktree に **file tree / git / search / tasks / docker / editor（git ガター・History・定義ジャンプ・リンク解決）** が追従する。AI エージェントを別 worktree で並行作業させた結果のレビュー（差分確認・ファイル閲覧・タスク実行）をワンクリックで切り替えられる
+  - バックエンドに `git_worktree_list` コマンドを追加（`git worktree list --porcelain` をパース）。bare クローン構成では bare エントリを main 扱いせず最初の作業ツリーを main とし、prunable（ディレクトリ消失）worktree は一覧から除外。パーサのユニットテストを追加
+  - 参照ルートを project ストアの単一ゲッター `activeRoot` に集約。fs watcher も `activeRoot` 駆動の単一所有に統一し、worktree 切替でファイルツリーがリアクティブに追従（リポジトリ外の worktree でも更新を取得）
+  - worktree 一覧は focus 連動ポーリングで同期（git リポジトリのみ。同一ウィンドウ内のターミナルで `git worktree add` してもセレクタに反映）。current 判定は backend の `isMain` フラグ基準でパスの大小文字/形式差に非依存
+  - 切替単位はウィンドウ（プロジェクト）ごとに 1 つ。起動時は常に main worktree から開始（セッション非永続）。タブ切替による自動追従は今回は見送り（エージェントを root で起動し内部で worktree を選ぶ運用では cwd ベース検出が効かないため、手動セレクタを主軸とする）
+
 ## [0.8.2] - 2026-06-01
 
 ### Dependencies
