@@ -5,6 +5,9 @@ use serde::Serialize;
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusResult {
     pub branch: String,
+    /// Current HEAD commit oid (from `# branch.oid`), or "(initial)" before the
+    /// first commit. Used by the frontend to detect when the commit log changed.
+    pub head: String,
     pub is_dirty: bool,
     pub staged: Vec<GitFileChange>,
     pub unstaged: Vec<GitFileChange>,
@@ -75,13 +78,16 @@ fn run_git_raw_stdout(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<
 
 fn parse_status(output: &str) -> GitStatusResult {
     let mut branch = String::from("HEAD");
+    let mut head = String::from("(initial)");
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
     let mut ahead: u32 = 0;
     let mut behind: u32 = 0;
 
     for line in output.lines() {
-        if let Some(head) = line.strip_prefix("# branch.head ") {
+        if let Some(oid) = line.strip_prefix("# branch.oid ") {
+            head = oid.to_string();
+        } else if let Some(head) = line.strip_prefix("# branch.head ") {
             branch = head.to_string();
         } else if let Some(rest) = line.strip_prefix("# branch.ab ") {
             // Format: "# branch.ab +N -M"
@@ -128,6 +134,7 @@ fn parse_status(output: &str) -> GitStatusResult {
     let is_dirty = !staged.is_empty() || !unstaged.is_empty();
     GitStatusResult {
         branch,
+        head,
         is_dirty,
         staged,
         unstaged,

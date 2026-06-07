@@ -5,6 +5,8 @@ export interface GitFileChange {
 
 export interface GitStatusResult {
   branch: string
+  /** Current HEAD commit oid, or "(initial)" before the first commit. */
+  head: string
   isDirty: boolean
   staged: GitFileChange[]
   unstaged: GitFileChange[]

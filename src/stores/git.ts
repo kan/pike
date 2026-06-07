@@ -38,6 +38,10 @@ export const useGitStore = defineStore('git', () => {
   let lastFetchTime = 0
   let windowFocused = true
   const logAllMode = ref(false)
+  // Status from the previous poll. When HEAD/ahead/behind change between polls —
+  // e.g. a commit made in a terminal, a pull, or a branch switch — the commit
+  // log is stale and must be refreshed alongside the status.
+  let lastStatus: GitStatusResult | null = null
 
   function getProject() {
     const projectStore = useProjectStore()
@@ -59,6 +63,16 @@ export const useGitStore = defineStore('git', () => {
       const [s] = await Promise.all([gitStatus(getRoot(), project.shell), minDelay])
       status.value = s
       error.value = null
+      // Auto-refresh the commit log when the repo's commit state changed since
+      // the last poll. Skip the very first observation to avoid a redundant
+      // load (the panel loads the log explicitly on open).
+      if (
+        lastStatus &&
+        (s.head !== lastStatus.head || s.ahead !== lastStatus.ahead || s.behind !== lastStatus.behind)
+      ) {
+        void refreshLog()
+      }
+      lastStatus = s
     } catch (e) {
       error.value = String(e)
       if (minDelay) await minDelay
@@ -262,6 +276,7 @@ export const useGitStore = defineStore('git', () => {
 
   function startPolling() {
     stopPolling()
+    lastStatus = null
     loadRemoteUrl()
     windowFocused = document.hasFocus()
     if (windowFocused) startTimers()
