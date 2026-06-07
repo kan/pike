@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2026-06-07
+
+### Bug Fixes
+
+- **未 push コミット発生時に Git パネルのコミット一覧が古いまま更新されない**: ポーリングでは `git status` のみ更新していたため、ターミナル等での外部コミットで ahead マークは自動表示されるのにコミットログ一覧が stale なままだった。`git status --porcelain=v2 --branch` の `# branch.oid` から HEAD コミット oid を取得して `GitStatusResult.head` として公開し（追加の git 呼び出しなし）、ポーリング時に HEAD / ahead / behind の変化を検知して `refreshLog()` を発火するよう変更。HEAD oid で比較するため、外部コミット・amend・ブランチ切替・pull/fetch をすべて捕捉できる
+
 ## [0.9.0] - 2026-06-04
 
 ### Features
