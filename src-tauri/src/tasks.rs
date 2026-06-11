@@ -1,4 +1,3 @@
-use crate::fs::IGNORED_DIRS;
 use crate::search::SearchState;
 use crate::types::ShellConfig;
 use serde::Serialize;
@@ -211,60 +210,8 @@ fn find_task_files(
         }
     }
 
-    // Fallback: find (WSL) or walkdir-like approach (Windows)
-    match shell {
-        ShellConfig::Wsl { .. } => {
-            let prune_expr: String = IGNORED_DIRS
-                .iter()
-                .map(|d| format!("-name '{d}'"))
-                .collect::<Vec<_>>()
-                .join(" -o ");
-            let name_expr: String = TASK_FILE_GLOBS
-                .iter()
-                .map(|g| format!("-name '{g}'"))
-                .collect::<Vec<_>>()
-                .join(" -o ");
-            let script = format!(
-                "find '{}' -maxdepth {MAX_DEPTH} \\( {prune_expr} \\) -prune -o \\( {name_expr} \\) -print",
-                root.replace('\'', "'\\''"),
-            );
-            shell
-                .run_stdout("bash", &["-c", &script])
-                .ok()
-                .map(|s| s.lines().map(|l| l.to_string()).collect())
-                .unwrap_or_default()
-        }
-        _ => {
-            let mut results = Vec::new();
-            walk_for_task_files(std::path::Path::new(root), &mut results, 0);
-            results
-        }
-    }
-}
-
-fn walk_for_task_files(dir: &std::path::Path, results: &mut Vec<String>, depth: u32) {
-    if depth >= MAX_DEPTH {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            if IGNORED_DIRS.contains(&name.as_str()) {
-                continue;
-            }
-            walk_for_task_files(&entry.path(), results, depth + 1);
-        } else {
-            let lower = name.to_lowercase();
-            if TASK_FILE_GLOBS.iter().any(|g| g.to_lowercase() == lower) {
-                if let Some(path) = entry.path().to_str() {
-                    results.push(path.to_string());
-                }
-            }
-        }
-    }
+    // Fallback (no .gitignore awareness): shared find/walk helper.
+    crate::fs::walk_files_by_name(shell, root, TASK_FILE_GLOBS, MAX_DEPTH)
 }
 
 fn parse_package_json(content: &str) -> Vec<DiscoveredTask> {

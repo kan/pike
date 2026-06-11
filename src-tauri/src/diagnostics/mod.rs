@@ -11,7 +11,6 @@
 //! Commands run in the directory of the manifest that triggered them, so the
 //! file paths in their output resolve relative to that directory.
 
-use crate::fs::IGNORED_DIRS;
 use crate::types::ShellConfig;
 use serde::Serialize;
 use std::time::Duration;
@@ -134,44 +133,47 @@ pub async fn diagnostics_run(
         .map_err(|e| e.to_string())
 }
 
+/// Max checkers to run at once. Each is a heavy subprocess (cargo/tsc are
+/// themselves parallel), so a small cap avoids thrashing on big monorepos.
+const MAX_CONCURRENCY: usize = 4;
+
 fn run(shell: &ShellConfig, root: &str) -> DiagnosticsResult {
     let sep = if root.contains('/') || matches!(shell, ShellConfig::Wsl { .. }) {
         '/'
     } else {
         '\\'
     };
-    let manifests = find_manifests(shell, root);
+    let names: Vec<&str> = PROVIDERS.iter().map(|p| p.manifest).collect();
+    let manifests = crate::fs::walk_files_by_name(shell, root, &names, MAX_DEPTH);
+
+    // Flatten to independent (provider, dir) tasks, then run them concurrently
+    // (bounded). Checkers don't share state, so order doesn't matter.
+    let tasks: Vec<(&ProviderSpec, String)> = PROVIDERS
+        .iter()
+        .flat_map(|spec| {
+            dirs_for(&manifests, spec.manifest, root, sep)
+                .into_iter()
+                .map(move |dir| (spec, dir))
+        })
+        .collect();
 
     let mut diagnostics = Vec::new();
     let mut providers = Vec::new();
     let timeout = Duration::from_secs(TIMEOUT_SECS);
 
-    for spec in PROVIDERS {
-        let dirs = dirs_for(&manifests, spec.manifest, root, sep);
-        for dir in dirs {
-            let dir_rel = rel_path(&dir, root, sep);
-            let command = command_for(spec.name, shell, &dir);
-            match shell.run_shell_line(&dir, command, timeout) {
-                Ok((_code, stdout, stderr)) => {
-                    let parsed = parse(spec.name, &stdout, &stderr, &dir, root, sep, spec.source);
-                    providers.push(ProviderRun {
-                        name: spec.name.to_string(),
-                        dir: dir_rel,
-                        ok: true,
-                        error: None,
-                        count: parsed.len(),
-                    });
-                    diagnostics.extend(parsed);
+    for chunk in tasks.chunks(MAX_CONCURRENCY) {
+        std::thread::scope(|s| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|(spec, dir)| s.spawn(move || run_one(shell, spec, dir, root, sep, timeout)))
+                .collect();
+            for handle in handles {
+                if let Ok((provider, mut parsed)) = handle.join() {
+                    providers.push(provider);
+                    diagnostics.append(&mut parsed);
                 }
-                Err(e) => providers.push(ProviderRun {
-                    name: spec.name.to_string(),
-                    dir: dir_rel,
-                    ok: false,
-                    error: Some(e),
-                    count: 0,
-                }),
             }
-        }
+        });
     }
 
     dedup(&mut diagnostics);
@@ -184,6 +186,43 @@ fn run(shell: &ShellConfig, root: &str) -> DiagnosticsResult {
         diagnostics,
         providers,
         truncated,
+    }
+}
+
+/// Run one checker in one directory and parse its output. Always returns a
+/// `ProviderRun` (ok or error) plus any diagnostics found.
+fn run_one(
+    shell: &ShellConfig,
+    spec: &ProviderSpec,
+    dir: &str,
+    root: &str,
+    sep: char,
+    timeout: Duration,
+) -> (ProviderRun, Vec<Diagnostic>) {
+    let dir_rel = rel_path(dir, root, sep);
+    let command = command_for(spec.name, shell, dir);
+    match shell.run_shell_line(dir, command, timeout) {
+        Ok((_code, stdout, stderr)) => {
+            let parsed = parse(spec.name, &stdout, &stderr, dir, root, sep, spec.source);
+            let run = ProviderRun {
+                name: spec.name.to_string(),
+                dir: dir_rel,
+                ok: true,
+                error: None,
+                count: parsed.len(),
+            };
+            (run, parsed)
+        }
+        Err(e) => (
+            ProviderRun {
+                name: spec.name.to_string(),
+                dir: dir_rel,
+                ok: false,
+                error: Some(e),
+                count: 0,
+            },
+            vec![],
+        ),
     }
 }
 
@@ -405,60 +444,6 @@ fn parse_tsc(stdout: &str, dir: &str, root: &str, sep: char, source: &str) -> Ve
         });
     }
     out
-}
-
-/// Find all manifest files up to MAX_DEPTH, skipping IGNORED_DIRS.
-fn find_manifests(shell: &ShellConfig, root: &str) -> Vec<String> {
-    match shell {
-        ShellConfig::Wsl { .. } => {
-            let prune: String = IGNORED_DIRS
-                .iter()
-                .map(|d| format!("-name '{d}'"))
-                .collect::<Vec<_>>()
-                .join(" -o ");
-            let names: String = PROVIDERS
-                .iter()
-                .map(|p| format!("-name '{}'", p.manifest))
-                .collect::<Vec<_>>()
-                .join(" -o ");
-            let script = format!(
-                "find '{}' -maxdepth {MAX_DEPTH} \\( {prune} \\) -prune -o \\( {names} \\) -print",
-                root.replace('\'', "'\\''"),
-            );
-            shell
-                .run_stdout("bash", &["-c", &script])
-                .ok()
-                .map(|s| s.lines().map(|l| l.to_string()).collect())
-                .unwrap_or_default()
-        }
-        _ => {
-            let mut results = Vec::new();
-            walk(std::path::Path::new(root), &mut results, 0);
-            results
-        }
-    }
-}
-
-fn walk(dir: &std::path::Path, results: &mut Vec<String>, depth: u32) {
-    if depth >= MAX_DEPTH {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            if IGNORED_DIRS.contains(&name.as_str()) {
-                continue;
-            }
-            walk(&entry.path(), results, depth + 1);
-        } else if PROVIDERS.iter().any(|p| p.manifest == name) {
-            if let Some(path) = entry.path().to_str() {
-                results.push(path.to_string());
-            }
-        }
-    }
 }
 
 #[cfg(test)]

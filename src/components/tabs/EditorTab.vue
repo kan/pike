@@ -20,7 +20,7 @@ import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
 import { formatLineRange } from '../../lib/format'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
-import { basename, extension, normalizeSep, pathSep, toRelativePath } from '../../lib/paths'
+import { basename, extension } from '../../lib/paths'
 import { fsReadFile, fsWriteFile, gitDiffLines, openUrlWithConfirm, pickSaveFile } from '../../lib/tauri'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useProjectStore } from '../../stores/project'
@@ -480,24 +480,16 @@ async function refreshDiffGutter() {
 let lastDiagCount = 0
 function refreshDiagnosticsLayer() {
   if (!editorView || !tab.value?.path) return
-  const sep = pathSep(shellForIO.value)
-  const rel = normalizeSep(toRelativePath(tab.value.path, projectStore.activeRoot), sep)
-  const abs = normalizeSep(tab.value.path, sep)
-  const list: EditorDiagnostic[] = diagStore.diagnostics
-    .filter((d) => {
-      const f = normalizeSep(d.file, sep)
-      return f === rel || f === abs
-    })
-    .map((d) => ({
-      line: d.line,
-      column: d.column,
-      endLine: d.endLine ?? undefined,
-      endColumn: d.endColumn ?? undefined,
-      severity: d.severity,
-      message: d.message,
-      source: d.source,
-      code: d.code ?? undefined,
-    }))
+  const list: EditorDiagnostic[] = diagStore.forFile(tab.value.path).map((d) => ({
+    line: d.line,
+    column: d.column,
+    endLine: d.endLine ?? undefined,
+    endColumn: d.endColumn ?? undefined,
+    severity: d.severity,
+    message: d.message,
+    source: d.source,
+    code: d.code ?? undefined,
+  }))
   // Most open files have no diagnostics — skip the no-op transaction when this
   // file was already clean (avoids an empty dispatch per tab on every re-check).
   if (list.length === 0 && lastDiagCount === 0) return

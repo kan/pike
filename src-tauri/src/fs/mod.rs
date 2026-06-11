@@ -20,6 +20,78 @@ fn should_ignore(name: &str) -> bool {
     name.starts_with(".DS_Store") || IGNORED_DIRS.contains(&name)
 }
 
+/// Recursively find files whose name matches any of `names` (case-insensitive),
+/// up to `max_depth` levels, skipping `IGNORED_DIRS`. Returns absolute paths in
+/// the shell's native form. Shared by task discovery and diagnostics.
+///
+/// WSL uses a single `find` invocation; native uses `walkdir`-style recursion.
+/// Note: this does not consult `.gitignore` (callers that want that use `rg`
+/// first and fall back to this).
+pub fn walk_files_by_name(
+    shell: &ShellConfig,
+    root: &str,
+    names: &[&str],
+    max_depth: u32,
+) -> Vec<String> {
+    match shell {
+        ShellConfig::Wsl { .. } => {
+            let prune: String = IGNORED_DIRS
+                .iter()
+                .map(|d| format!("-name '{d}'"))
+                .collect::<Vec<_>>()
+                .join(" -o ");
+            let name_expr: String = names
+                .iter()
+                .map(|n| format!("-name '{n}'"))
+                .collect::<Vec<_>>()
+                .join(" -o ");
+            let script = format!(
+                "find '{}' -maxdepth {max_depth} \\( {prune} \\) -prune -o \\( {name_expr} \\) -print",
+                root.replace('\'', "'\\''"),
+            );
+            shell
+                .run_stdout("bash", &["-c", &script])
+                .ok()
+                .map(|s| s.lines().map(|l| l.to_string()).collect())
+                .unwrap_or_default()
+        }
+        _ => {
+            let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+            let mut results = Vec::new();
+            walk_native(std::path::Path::new(root), &lower, max_depth, 0, &mut results);
+            results
+        }
+    }
+}
+
+fn walk_native(
+    dir: &std::path::Path,
+    lower_names: &[String],
+    max_depth: u32,
+    depth: u32,
+    results: &mut Vec<String>,
+) {
+    if depth >= max_depth {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            if IGNORED_DIRS.contains(&name.as_str()) {
+                continue;
+            }
+            walk_native(&entry.path(), lower_names, max_depth, depth + 1, results);
+        } else if lower_names.contains(&name.to_lowercase()) {
+            if let Some(p) = entry.path().to_str() {
+                results.push(p.to_string());
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn fs_list_dir(
     shell: ShellConfig,

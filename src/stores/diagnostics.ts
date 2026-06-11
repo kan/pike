@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { normalizeSep, toRelativePath } from '../lib/paths'
 import { diagnosticsRun } from '../lib/tauri'
 import type { Diagnostic, ProviderRun } from '../types/diagnostics'
 import { useProjectStore } from './project'
@@ -81,6 +82,28 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     return groups
   })
 
+  // Diagnostics indexed by file (canonical '/' separator), built once per run.
+  // Lets each editor tab look up its file in O(1) instead of scanning the array.
+  const byFile = computed(() => {
+    const m = new Map<string, Diagnostic[]>()
+    for (const d of diagnostics.value) {
+      const key = normalizeSep(d.file, '/')
+      const arr = m.get(key)
+      if (arr) arr.push(d)
+      else m.set(key, [d])
+    }
+    return m
+  })
+
+  /** Diagnostics for one file, matched by its root-relative or absolute path.
+   *  Resolves the project root internally (single source of truth). */
+  function forFile(absPath: string): Diagnostic[] {
+    const root = useProjectStore().activeRoot
+    const rel = normalizeSep(toRelativePath(absPath, root), '/')
+    const abs = normalizeSep(absPath, '/')
+    return byFile.value.get(rel) ?? byFile.value.get(abs) ?? []
+  }
+
   async function run() {
     const projectStore = useProjectStore()
     const project = projectStore.currentProject
@@ -148,6 +171,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     warningCount,
     total,
     grouped,
+    forFile,
     run,
     triggerAutoRun,
     clear,
