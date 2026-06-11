@@ -174,6 +174,12 @@ const STORAGE_KEY = 'pike:settings'
 
 export type AgentDefault = 'claude-code' | 'codex' | 'ask'
 
+/** A one-click command the terminal can inject (e.g. `claude --continue`). */
+export interface AgentCommand {
+  label: string
+  command: string
+}
+
 interface PersistedSettings {
   fontFamily: string
   fontSize: number
@@ -189,6 +195,7 @@ interface PersistedSettings {
   terminalExitNotification: boolean
   codexNotification: boolean
   agentDefault: AgentDefault
+  agentCommands: AgentCommand[]
 }
 
 function loadSettings(): PersistedSettings {
@@ -211,6 +218,10 @@ function defaults(): PersistedSettings {
     terminalExitNotification: true,
     codexNotification: true,
     agentDefault: 'claude-code' as AgentDefault,
+    agentCommands: [
+      { label: 'Claude', command: 'claude' },
+      { label: 'Claude (continue)', command: 'claude --continue' },
+    ],
   }
 }
 
@@ -231,6 +242,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const terminalExitNotification = ref(saved.terminalExitNotification)
   const codexNotification = ref(saved.codexNotification)
   const agentDefault = ref<AgentDefault>(saved.agentDefault)
+  const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
 
   // Sync language setting with i18n locale
   locale.value = saved.language
@@ -288,6 +300,7 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalExitNotification: terminalExitNotification.value,
       codexNotification: codexNotification.value,
       agentDefault: agentDefault.value,
+      agentCommands: agentCommands.value,
     })
   }
 
@@ -314,6 +327,8 @@ export const useSettingsStore = defineStore('settings', () => {
     ],
     persist,
   )
+  // agentCommands is an array — deep-watch so in-place edits persist too.
+  watch(agentCommands, persist, { deep: true })
   watch(darkMode, applyDarkMode, { immediate: true })
 
   return {
@@ -334,6 +349,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalExitNotification,
     codexNotification,
     agentDefault,
+    agentCommands,
     availableFonts,
     loadAvailableFonts,
     setFontByName,

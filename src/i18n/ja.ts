@@ -99,6 +99,7 @@ export default {
   // Terminal
   'terminal.failedSpawn': '[PTY の起動に失敗: {error}]',
   'terminal.exited': '[プロセスが終了しました (コード {code})]',
+  'terminal.agentLaunch': 'コーディングエージェントを起動',
 
   // Docker Logs
   'dockerLogs.failedStart': '[ログストリームの開始に失敗: {error}]',
@@ -119,6 +120,11 @@ export default {
   'settings.colorScheme': 'カラースキーム',
   'settings.copyOnSelect': '選択時にコピー',
   'settings.rightClickPaste': '右クリックで貼り付け',
+  'settings.agentCommands': 'ターミナルのエージェントボタン',
+  'settings.agentCommandsHint': '現在のターミナルに注入するクイック起動コマンド（例: clear && claude）。',
+  'settings.agentCommandLabel': 'ラベル',
+  'settings.agentCommandCommand': 'コマンド',
+  'settings.addAgentCommand': 'コマンドを追加',
   'settings.editorTheme': 'テーマ',
   'settings.minimap': 'ミニマップ',
   'settings.wordWrap': '折り返し',

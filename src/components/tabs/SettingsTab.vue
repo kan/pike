@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Info, Loader, Moon, Sun } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Info, Loader, Moon, Plus, Sun, Trash2 } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
@@ -18,6 +18,23 @@ function onFontSizeInput(e: Event) {
   if (val >= 8 && val <= 32) {
     settings.fontSize = val
   }
+}
+
+function addAgentCommand() {
+  settings.agentCommands.push({ label: '', command: '' })
+}
+
+function removeAgentCommand(index: number) {
+  settings.agentCommands.splice(index, 1)
+}
+
+function moveAgentCommand(index: number, dir: -1 | 1) {
+  const to = index + dir
+  const list = settings.agentCommands
+  if (to < 0 || to >= list.length) return
+  const moved = list[index]
+  list[index] = list[to]
+  list[to] = moved
 }
 
 // Section navigation
@@ -224,6 +241,31 @@ const PREVIEW_LINES = [
             <button class="mode-btn" :class="{ active: settings.terminalExitNotification }" @click="settings.terminalExitNotification = true">{{ t('common.on') }}</button>
             <button class="mode-btn" :class="{ active: !settings.terminalExitNotification }" @click="settings.terminalExitNotification = false">{{ t('common.off') }}</button>
           </div>
+        </div>
+
+        <div class="setting-block">
+          <label class="setting-label">{{ t('settings.agentCommands') }}</label>
+          <p class="setting-hint">{{ t('settings.agentCommandsHint') }}</p>
+          <div class="agent-cmd-list">
+            <div v-for="(cmd, i) in settings.agentCommands" :key="i" class="agent-cmd-row">
+              <div class="agent-cmd-reorder">
+                <button class="icon-btn" :disabled="i === 0" :title="'↑'" @click="moveAgentCommand(i, -1)">
+                  <ChevronUp :size="14" :stroke-width="2" />
+                </button>
+                <button class="icon-btn" :disabled="i === settings.agentCommands.length - 1" :title="'↓'" @click="moveAgentCommand(i, 1)">
+                  <ChevronDown :size="14" :stroke-width="2" />
+                </button>
+              </div>
+              <input v-model="cmd.label" class="agent-cmd-input label" :placeholder="t('settings.agentCommandLabel')" />
+              <input v-model="cmd.command" class="agent-cmd-input cmd" :placeholder="t('settings.agentCommandCommand')" />
+              <button class="icon-btn danger" :title="t('common.delete')" @click="removeAgentCommand(i)">
+                <Trash2 :size="14" :stroke-width="2" />
+              </button>
+            </div>
+          </div>
+          <button class="add-cmd-btn" @click="addAgentCommand">
+            <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentCommand') }}
+          </button>
         </div>
       </section>
 
@@ -683,5 +725,110 @@ const PREVIEW_LINES = [
   font-size: 12px;
   color: var(--accent);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.setting-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.setting-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.agent-cmd-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-cmd-reorder {
+  display: flex;
+  flex-direction: column;
+}
+
+.agent-cmd-reorder .icon-btn {
+  height: 14px;
+}
+
+.agent-cmd-input {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  border-radius: 3px;
+  outline: none;
+}
+
+.agent-cmd-input:focus {
+  border-color: var(--accent);
+}
+
+.agent-cmd-input.label {
+  flex: 0 0 130px;
+  min-width: 0;
+}
+
+.agent-cmd-input.cmd {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--text-active);
+  background: var(--tab-hover-bg);
+}
+
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.icon-btn.danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.add-cmd-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.add-cmd-btn:hover {
+  background: var(--tab-hover-bg);
+  border-color: var(--accent);
 }
 </style>

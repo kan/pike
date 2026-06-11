@@ -99,6 +99,7 @@ export default {
   // Terminal
   'terminal.failedSpawn': '[Failed to spawn PTY: {error}]',
   'terminal.exited': '[Process exited with code {code}]',
+  'terminal.agentLaunch': 'Launch coding agent',
 
   // Docker Logs
   'dockerLogs.failedStart': '[Failed to start log stream: {error}]',
@@ -119,6 +120,11 @@ export default {
   'settings.colorScheme': 'Color Scheme',
   'settings.copyOnSelect': 'Copy on Select',
   'settings.rightClickPaste': 'Right Click Paste',
+  'settings.agentCommands': 'Terminal Agent Buttons',
+  'settings.agentCommandsHint': 'Quick-launch commands injected into the current terminal (e.g. clear && claude).',
+  'settings.agentCommandLabel': 'Label',
+  'settings.agentCommandCommand': 'Command',
+  'settings.addAgentCommand': 'Add command',
   'settings.editorTheme': 'Theme',
   'settings.minimap': 'Minimap',
   'settings.wordWrap': 'Word Wrap',

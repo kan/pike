@@ -2,7 +2,8 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
-import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { Bot, ChevronDown } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { readClipboardImages, saveImageFile } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
@@ -39,6 +40,36 @@ function buildAutoStartLine(autoStart: string, shellKind: string | undefined, cl
 
 const tabStore = useTabStore()
 const settingsStore = useSettingsStore()
+
+// One-click coding-agent launchers (`clear && claude` etc.), injected into the
+// current shell. Configurable in Settings; the first entry is the primary button.
+const agentCommands = computed(() => settingsStore.agentCommands)
+const agentMenuOpen = ref(false)
+// Hidden while a full-screen TUI owns the alternate screen buffer (vim, less,
+// lazygit, …) so the launcher can't inject text into a running program.
+const inAltScreen = ref(false)
+
+function runAgentCommand(command: string) {
+  agentMenuOpen.value = false
+  if (!ptyId) return
+  const tabData = tabStore.tabs.find((t) => t.id === props.tabId)
+  const shellKind = tabData?.kind === 'terminal' ? tabData.shell?.kind : undefined
+  const line = buildAutoStartLine(command, shellKind, false)
+  ptyWrite(ptyId, `${line}\r`).catch(() => {})
+  terminal?.focus()
+}
+
+function toggleAgentMenu() {
+  agentMenuOpen.value = !agentMenuOpen.value
+  if (agentMenuOpen.value) {
+    nextTick(() => window.addEventListener('mousedown', closeAgentMenu, { once: true }))
+  }
+}
+
+function closeAgentMenu() {
+  window.removeEventListener('mousedown', closeAgentMenu)
+  agentMenuOpen.value = false
+}
 
 const termRef = ref<HTMLDivElement>()
 let terminal: Terminal | null = null
@@ -193,6 +224,11 @@ onMounted(async () => {
 
   terminal.open(termRef.value)
   fitAddon.fit()
+
+  terminal.buffer.onBufferChange((buf) => {
+    inAltScreen.value = buf.type === 'alternate'
+    if (inAltScreen.value) closeAgentMenu()
+  })
 
   const cols = terminal.cols
   const rows = terminal.rows
@@ -407,6 +443,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (windowFocusHandler) window.removeEventListener('focus', windowFocusHandler)
+  window.removeEventListener('mousedown', closeAgentMenu)
   if (resizeTimer) clearTimeout(resizeTimer)
   resizeObserver?.disconnect()
   if (ptyId) {
@@ -419,6 +456,29 @@ onUnmounted(() => {
 
 <template>
   <div class="terminal-wrapper">
+    <div v-if="agentCommands.length && !inAltScreen" class="agent-launch" :class="{ open: agentMenuOpen }">
+      <button
+        class="agent-btn primary"
+        :title="agentCommands[0].command"
+        @click="runAgentCommand(agentCommands[0].command)"
+      >
+        <Bot :size="14" :stroke-width="2" />
+      </button>
+      <button class="agent-btn caret" :title="t('terminal.agentLaunch')" @click="toggleAgentMenu">
+        <ChevronDown :size="12" :stroke-width="2" />
+      </button>
+      <div v-if="agentMenuOpen" class="agent-menu" @mousedown.stop>
+        <button
+          v-for="(c, i) in agentCommands"
+          :key="i"
+          class="agent-menu-item"
+          @click="runAgentCommand(c.command)"
+        >
+          <span class="agent-menu-label">{{ c.label }}</span>
+          <span class="agent-menu-cmd">{{ c.command }}</span>
+        </button>
+      </div>
+    </div>
     <div ref="termRef" class="terminal-inner"></div>
   </div>
 </template>
@@ -435,5 +495,93 @@ onUnmounted(() => {
 .terminal-inner {
   width: 100%;
   height: 100%;
+}
+
+.agent-launch {
+  position: absolute;
+  top: 6px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  opacity: 0.3;
+  transition: opacity 0.15s;
+}
+
+.terminal-wrapper:hover .agent-launch,
+.agent-launch.open {
+  opacity: 1;
+}
+
+.agent-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.agent-btn.primary {
+  border-radius: 4px 0 0 4px;
+  border-right: none;
+}
+
+.agent-btn.caret {
+  border-radius: 0 4px 4px 0;
+  padding: 0 2px;
+}
+
+.agent-btn:hover {
+  color: var(--text-active);
+  background: var(--tab-hover-bg);
+}
+
+.agent-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 180px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  z-index: 10;
+}
+
+.agent-menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.agent-menu-item:hover {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.agent-menu-label {
+  font-size: 12px;
+}
+
+.agent-menu-cmd {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.agent-menu-item:hover .agent-menu-cmd {
+  color: rgba(255, 255, 255, 0.7);
 }
 </style>
