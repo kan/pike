@@ -12,6 +12,7 @@ import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useOutlineSource } from '../../composables/useOutlineSource'
 import { useI18n } from '../../i18n'
+import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
 import { minimap } from '../../lib/editorMinimap'
@@ -19,8 +20,9 @@ import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
 import { formatLineRange } from '../../lib/format'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
-import { basename, extension } from '../../lib/paths'
+import { basename, extension, normalizeSep, pathSep, toRelativePath } from '../../lib/paths'
 import { fsReadFile, fsWriteFile, gitDiffLines, openUrlWithConfirm, pickSaveFile } from '../../lib/tauri'
+import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
@@ -35,6 +37,7 @@ const settingsStore = useSettingsStore()
 const editorInfo = useEditorInfo()
 const outlineSource = useOutlineSource()
 const statusMessageStore = useStatusMessageStore()
+const diagStore = useDiagnosticsStore()
 
 // Dynamic compartments for settings that can change at runtime
 const themeCompartment = new Compartment()
@@ -432,6 +435,7 @@ async function save(overrideEncoding?: string) {
     updateDirtyState()
     updateTitle()
     refreshDiffGutter()
+    diagStore.triggerAutoRun()
   } catch (e) {
     error.value = String(e)
   } finally {
@@ -470,6 +474,41 @@ async function refreshDiffGutter() {
     // Not a git repo or file not tracked — ignore
   }
 }
+
+// --- Diagnostics squiggles ---
+// Push the subset of store diagnostics that belong to this file into the editor.
+let lastDiagCount = 0
+function refreshDiagnosticsLayer() {
+  if (!editorView || !tab.value?.path) return
+  const sep = pathSep(shellForIO.value)
+  const rel = normalizeSep(toRelativePath(tab.value.path, projectStore.activeRoot), sep)
+  const abs = normalizeSep(tab.value.path, sep)
+  const list: EditorDiagnostic[] = diagStore.diagnostics
+    .filter((d) => {
+      const f = normalizeSep(d.file, sep)
+      return f === rel || f === abs
+    })
+    .map((d) => ({
+      line: d.line,
+      column: d.column,
+      endLine: d.endLine ?? undefined,
+      endColumn: d.endColumn ?? undefined,
+      severity: d.severity,
+      message: d.message,
+      source: d.source,
+      code: d.code ?? undefined,
+    }))
+  // Most open files have no diagnostics — skip the no-op transaction when this
+  // file was already clean (avoids an empty dispatch per tab on every re-check).
+  if (list.length === 0 && lastDiagCount === 0) return
+  lastDiagCount = list.length
+  editorView.dispatch({ effects: setDiagnostics.of(list) })
+}
+
+watch(
+  () => diagStore.diagnostics,
+  () => refreshDiagnosticsLayer(),
+)
 
 // --- Context menu ---
 const ctxMenu = ref<{ x: number; y: number } | null>(null)
@@ -596,9 +635,10 @@ function createEditorView(container: HTMLElement, content: string) {
     }),
   ]
 
-  // Git diff gutter + minimap (only for real files)
+  // Git diff gutter + diagnostics squiggles + minimap (only for real files)
   if (hasFile) {
     extensions.push(gitDiffGutter())
+    extensions.push(diagnosticsExtension())
     extensions.push(minimapCompartment.of(settingsStore.editorMinimap ? minimap() : []))
   }
 
@@ -682,6 +722,7 @@ async function reopenWithEncoding(encoding: string) {
     updateTitle()
     updateCursorInfo()
     refreshDiffGutter()
+    refreshDiagnosticsLayer()
     if (tabStore.activeTabId === props.tabId) {
       registerOutlineSource()
     }
@@ -730,6 +771,7 @@ onMounted(async () => {
     jumpToLine(tab.value?.initialLine)
     updateCursorInfo()
     refreshDiffGutter()
+    refreshDiagnosticsLayer()
 
     // Register callbacks for StatusBar to change encoding/line ending
     editorInfo.registerCallbacks(

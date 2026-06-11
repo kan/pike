@@ -22,6 +22,7 @@ import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { projectRemoveOpen } from './lib/tauri'
 import { getWindowProjectId, isMainWindow, isSecondaryWindow } from './lib/window'
 import { useClaudeUsageStore } from './stores/claudeUsage'
+import { useDiagnosticsStore } from './stores/diagnostics'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
 import { useTabStore } from './stores/tabs'
@@ -34,6 +35,7 @@ const tabStore = useTabStore()
 const gitStore = useGitStore()
 const worktreeStore = useWorktreeStore()
 const claudeUsageStore = useClaudeUsageStore()
+const diagStore = useDiagnosticsStore()
 
 useKeyboardShortcuts()
 
@@ -106,6 +108,9 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
       }
     }
   }
+  // Re-check diagnostics on source changes (throttled; no-op until the user has
+  // opened the Problems panel at least once).
+  diagStore.triggerAutoRun()
 })
 
 const windowProjectId = getWindowProjectId()

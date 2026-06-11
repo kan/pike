@@ -105,8 +105,31 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     }
   }
 
+  // Auto-run: re-check on save / fs-watcher changes, but throttled so a burst
+  // of edits can't spawn back-to-back cargo/tsc runs. Only active once the user
+  // has opened the panel at least once (lastRunAt set) — we never kick off a
+  // heavy check in the background unprompted.
+  const MIN_INTERVAL_MS = 15_000
+  const DEBOUNCE_MS = 1_500
+  let autoTimer: ReturnType<typeof setTimeout> | null = null
+
+  function triggerAutoRun() {
+    if (!lastRunAt.value || autoTimer) return
+    const since = Date.now() - lastRunAt.value
+    const wait = Math.max(DEBOUNCE_MS, MIN_INTERVAL_MS - since)
+    autoTimer = setTimeout(() => {
+      autoTimer = null
+      if (!running.value) run()
+      else triggerAutoRun() // a run is in flight — retry after it settles
+    }, wait)
+  }
+
   function clear() {
     seq++
+    if (autoTimer) {
+      clearTimeout(autoTimer)
+      autoTimer = null
+    }
     diagnostics.value = []
     providers.value = []
     truncated.value = false
@@ -126,6 +149,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     total,
     grouped,
     run,
+    triggerAutoRun,
     clear,
   }
 })

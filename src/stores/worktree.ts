@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { normalizeSep, pathSep } from '../lib/paths'
 import { gitWorktreeList } from '../lib/tauri'
 import type { GitWorktree } from '../types/git'
+import { useDiagnosticsStore } from './diagnostics'
 import { useDockerStore } from './docker'
 import { useFileTreeStore } from './fileTree'
 import { useGitStore } from './git'
@@ -77,6 +78,7 @@ export const useWorktreeStore = defineStore('worktree', () => {
 
     fileTree.initTree()
     search.clear()
+    useDiagnosticsStore().clear()
     await Promise.all([
       git.refreshStatus(),
       git.refreshLog(),

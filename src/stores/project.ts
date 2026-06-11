@@ -13,6 +13,7 @@ import {
   projectUpdate,
 } from '../lib/tauri'
 import type { ProjectConfig } from '../types/project'
+import { useDiagnosticsStore } from './diagnostics'
 import { useSearchStore } from './search'
 import { useSettingsStore } from './settings'
 import { useTabStore } from './tabs'
@@ -149,6 +150,7 @@ export const useProjectStore = defineStore('project', () => {
 
     searchStore.clear()
     searchStore.backend = null
+    useDiagnosticsStore().clear()
     activeWorktreeRoot.value = null
 
     await tabStore.clearAllTabs()
