@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { type Component, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { type Component, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useGitStore } from '../../stores/git'
 import { useSidebarStore } from '../../stores/sidebar'
 import type { SidebarPanel } from '../../types/tab'
@@ -11,11 +11,13 @@ const DockerPanel = defineAsyncComponent(() => import('../panels/DockerPanel.vue
 const SearchPanel = defineAsyncComponent(() => import('../panels/SearchPanel.vue'))
 const TasksPanel = defineAsyncComponent(() => import('../panels/TasksPanel.vue'))
 const OutlinePanel = defineAsyncComponent(() => import('../panels/OutlinePanel.vue'))
+const DiagnosticsPanel = defineAsyncComponent(() => import('../panels/DiagnosticsPanel.vue'))
 
 import {
   ArrowDown,
   ArrowUp,
   Bot,
+  CircleAlert,
   Container,
   FilePlus,
   Files,
@@ -34,6 +36,7 @@ import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { openUrlWithConfirm } from '../../lib/tauri'
+import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useDockerStore } from '../../stores/docker'
 import { useSearchStore } from '../../stores/search'
 import { useSettingsStore } from '../../stores/settings'
@@ -44,6 +47,7 @@ const sidebar = useSidebarStore()
 const tabStore = useTabStore()
 const gitStore = useGitStore()
 const searchStore = useSearchStore()
+const diagStore = useDiagnosticsStore()
 const dockerStore = useDockerStore()
 const settingsStore = useSettingsStore()
 const shortcutsModal = useShortcutsModal()
@@ -132,15 +136,52 @@ const fileTreeRef = ref<{
 } | null>(null)
 const tasksRef = ref<{ refresh: () => void } | null>(null)
 
-const icons: { panel: SidebarPanel; labelKey: string; icon: Component }[] = [
+interface BadgeInfo {
+  count: number
+  danger?: boolean
+}
+interface IconDef {
+  panel: SidebarPanel
+  labelKey: string
+  icon: Component
+  /** Optional count badge resolver — returns null when nothing to show. */
+  badge?: () => BadgeInfo | null
+}
+
+const icons: IconDef[] = [
   { panel: 'files', labelKey: 'sidebar.files', icon: Files },
   { panel: 'outline', labelKey: 'sidebar.outline', icon: ListTree },
-  { panel: 'git', labelKey: 'sidebar.git', icon: GitBranch },
+  {
+    panel: 'git',
+    labelKey: 'sidebar.git',
+    icon: GitBranch,
+    badge: () => {
+      const s = gitStore.status
+      if (!s) return null
+      const n = s.staged.length + s.unstaged.length
+      return n > 0 ? { count: n } : null
+    },
+  },
   { panel: 'search', labelKey: 'sidebar.search', icon: Search },
+  {
+    panel: 'diagnostics',
+    labelKey: 'sidebar.diagnostics',
+    icon: CircleAlert,
+    badge: () => (diagStore.total > 0 ? { count: diagStore.total, danger: diagStore.errorCount > 0 } : null),
+  },
   { panel: 'docker', labelKey: 'sidebar.docker', icon: Container },
   { panel: 'projects', labelKey: 'sidebar.projects', icon: FolderOpen },
   { panel: 'tasks', labelKey: 'sidebar.tasks', icon: ListTodo },
 ]
+
+/** panel → current badge, recomputed once per reactive change (not per render). */
+const badges = computed(() => {
+  const map: Partial<Record<SidebarPanel, BadgeInfo | null>> = {}
+  for (const item of icons) {
+    if (item.badge) map[item.panel] = item.badge()
+  }
+  return map
+})
 
 let dragging = false
 let startX = 0
@@ -189,6 +230,11 @@ onUnmounted(() => {
         @click="sidebar.togglePanel(item.panel)"
       >
         <component :is="item.icon" :size="22" :stroke-width="1.5" class="icon" />
+        <span
+          v-if="badges[item.panel]"
+          class="count-badge"
+          :class="{ danger: badges[item.panel]?.danger }"
+        >{{ badges[item.panel]?.count }}</span>
       </button>
       <div class="icon-spacer" />
       <div class="bot-wrapper">
@@ -274,6 +320,11 @@ onUnmounted(() => {
             <RefreshCw :size="14" :stroke-width="2" />
           </button>
         </div>
+        <div v-if="sidebar.activePanel === 'diagnostics'" class="header-actions">
+          <button class="header-btn" :disabled="diagStore.running" :title="t('common.refresh')" @click="diagStore.run()">
+            <RefreshCw :size="14" :stroke-width="2" :class="{ spin: diagStore.running }" />
+          </button>
+        </div>
       </div>
       <div class="panel-content">
         <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
@@ -283,6 +334,7 @@ onUnmounted(() => {
         <DockerPanel v-else-if="sidebar.activePanel === 'docker'" />
         <TasksPanel v-else-if="sidebar.activePanel === 'tasks'" ref="tasksRef" />
         <OutlinePanel v-else-if="sidebar.activePanel === 'outline'" />
+        <DiagnosticsPanel v-else-if="sidebar.activePanel === 'diagnostics'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
       <div class="resize-handle" @mousedown="onResizeStart"></div>
@@ -539,6 +591,29 @@ onUnmounted(() => {
   border-radius: 50%;
   background: #f44336;
   pointer-events: none;
+}
+
+.count-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--text-secondary);
+  color: var(--bg-secondary);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.count-badge.danger {
+  background: #f44336;
+  color: #fff;
 }
 
 .gear-menu-divider {

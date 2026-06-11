@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
 import type { ClaudeUsageResult } from '../types/claudeUsage'
+import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeService, ContainerInfo } from '../types/docker'
 import type { GitFileChange, GitLogEntry, GitStatusResult, GitWorktree } from '../types/git'
 import type { ProjectConfig } from '../types/project'
@@ -373,6 +374,12 @@ interface TaskDiscoverResult {
 
 export async function taskDiscover(shell: ShellType, root: string): Promise<TaskDiscoverResult[]> {
   return invoke<TaskDiscoverResult[]>('task_discover', { shell, root })
+}
+
+// Diagnostics
+
+export async function diagnosticsRun(shell: ShellType, root: string): Promise<DiagnosticsResult> {
+  return invoke<DiagnosticsResult>('diagnostics_run', { shell, root })
 }
 
 export async function openUrl(url: string): Promise<void> {

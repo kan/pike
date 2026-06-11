@@ -26,9 +26,17 @@ export default {
   'sidebar.projects': 'Projects',
   'sidebar.tasks': 'Tasks',
   'sidebar.outline': 'Outline',
+  'sidebar.diagnostics': 'Problems',
   'sidebar.keyboardShortcuts': 'Keyboard Shortcuts',
   'sidebar.settings': 'Settings',
   'sidebar.github': 'GitHub',
+
+  // Diagnostics
+  'diagnostics.running': 'Checking…',
+  'diagnostics.idle': 'Press refresh to check for problems',
+  'diagnostics.noProblems': 'No problems found',
+  'diagnostics.providerFailed': 'checker failed',
+  'diagnostics.truncated': 'Results truncated',
 
   // Tabs
   'tabs.newEditor': 'New Editor',

@@ -2,6 +2,7 @@ mod agent;
 mod claude_usage;
 mod cli;
 mod codex;
+mod diagnostics;
 mod docker;
 mod font;
 mod fs;
@@ -691,6 +692,7 @@ pub fn run() {
             open_project_window,
             save_all_window_state,
             tasks::task_discover,
+            diagnostics::diagnostics_run,
             open_url,
             pick_folder,
             pick_save_file,

@@ -26,9 +26,17 @@ export default {
   'sidebar.projects': 'プロジェクト',
   'sidebar.tasks': 'タスク',
   'sidebar.outline': 'アウトライン',
+  'sidebar.diagnostics': '問題',
   'sidebar.keyboardShortcuts': 'キーボードショートカット',
   'sidebar.settings': '設定',
   'sidebar.github': 'GitHub',
+
+  // Diagnostics
+  'diagnostics.running': 'チェック中…',
+  'diagnostics.idle': '更新ボタンで問題をチェック',
+  'diagnostics.noProblems': '問題は見つかりませんでした',
+  'diagnostics.providerFailed': 'チェッカー失敗',
+  'diagnostics.truncated': '結果は省略されました',
 
   // Tabs
   'tabs.newEditor': '新規エディタ',

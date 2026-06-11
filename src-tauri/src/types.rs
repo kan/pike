@@ -105,6 +105,57 @@ impl ShellConfig {
         self.run_with_timeout(program, args, Duration::from_secs(30))
     }
 
+    /// Run a shell command line inside `dir`, returning (exit_code, stdout, stderr)
+    /// regardless of exit status (build/lint tools exit non-zero when they find
+    /// problems). PATH is augmented so user toolchains (cargo, go, npx) resolve.
+    ///
+    /// WSL routes through `bash -c` (with `WSL_EXTRA_PATH` prepended). Every
+    /// Windows shell routes through `cmd /C` — diagnostic tools live on the
+    /// Windows PATH regardless of the project's interactive shell, and cmd honors
+    /// PATHEXT so `npx`/`tsc` shims (.cmd) resolve.
+    pub fn run_shell_line(
+        &self,
+        dir: &str,
+        line: &str,
+        timeout: Duration,
+    ) -> Result<(i32, String, String), String> {
+        let cmd = match self {
+            ShellConfig::Wsl { distro } => {
+                let script = format!(
+                    "cd {} && PATH=\"{WSL_EXTRA_PATH}:$PATH\" {line}",
+                    bash_quote(dir)
+                );
+                let mut c = silent_command("wsl.exe");
+                c.arg("-d").arg(distro).arg("-e").arg("bash").arg("-c").arg(script);
+                c
+            }
+            _ => {
+                // `current_dir` + `raw_arg` avoids the cmd.exe/Rust quoting clash
+                // that `cmd /C "cd /d ..."` triggers; cmd starts in `dir`, so
+                // relative tools (node_modules/.bin, npx) resolve correctly.
+                let mut c = silent_command("cmd.exe");
+                c.current_dir(dir);
+                c.arg("/C");
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    c.raw_arg(line);
+                }
+                #[cfg(not(windows))]
+                {
+                    c.arg(line);
+                }
+                c
+            }
+        };
+        let output = spawn_with_timeout(cmd, "shell", timeout)?;
+        Ok((
+            output.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        ))
+    }
+
     /// Path to the null device for this shell environment.
     pub fn null_device(&self) -> &'static str {
         match self {
@@ -119,29 +170,29 @@ impl ShellConfig {
         args: &[&str],
         timeout: Duration,
     ) -> Result<std::process::Output, String> {
-        let child = self
-            .command(program, args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to run {program}: {e}"))?;
-
-        let pid = child.id();
-        wait_with_timeout(pid, timeout, program, move || child.wait_with_output())
+        spawn_with_timeout(self.command(program, args), program, timeout)
     }
 }
 
-/// Spawn a prepared Command, wait up to 30 s, and return stdout on success.
-fn spawn_stdout(mut cmd: Command, label: &str) -> Result<String, String> {
+/// Pipe stdout/stderr, spawn `cmd`, and wait up to `timeout`, returning the raw
+/// Output regardless of exit status (the process tree is killed on timeout).
+fn spawn_with_timeout(
+    mut cmd: Command,
+    label: &str,
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
     let child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to run {label}: {e}"))?;
     let pid = child.id();
-    let output = wait_with_timeout(pid, Duration::from_secs(30), label, move || {
-        child.wait_with_output()
-    })?;
+    wait_with_timeout(pid, timeout, label, move || child.wait_with_output())
+}
+
+/// Spawn a prepared Command, wait up to 30 s, and return stdout on success.
+fn spawn_stdout(cmd: Command, label: &str) -> Result<String, String> {
+    let output = spawn_with_timeout(cmd, label, Duration::from_secs(30))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("{label} error: {stderr}"));
