@@ -150,10 +150,10 @@ pike/
 │   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts
 │   │   ├── useAgentRouter.ts  useDockerLogRouter.ts  useTerminalNotifications.ts
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
-│   │   ├── useOutlineSource.ts  useUpdater.ts
+│   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
 │   ├── lib/
 │   │   ├── fileIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
-│   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  languages.ts  mermaid.ts  codexHistory.ts
+│   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  languages.ts  mermaid.ts  codexHistory.ts  terminalLinks.ts
 │   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts  editorJumpTo.ts
 │   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent）
 │   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 18 言語）
@@ -219,6 +219,17 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - タブ切替時の TUI 再描画: `nextTick` → `requestAnimationFrame` → `terminal.refresh()` + PTY resize nudge（1col 縮小→復元で SIGWINCH 発火）
 - ターミナルアクティビティ通知: 非アクティブタブの出力でドット表示（`hasActivity`）、プロセス終了で終了コードバッジ（`exitCode`）、非 pinned タブはプロセス終了 1 秒後に自動クローズ
 - デスクトップ通知: バックグラウンドタブの PTY 終了時に `Notification` API でトースト通知。`onclick` でウィンドウフォーカス + タブ切替。`ptyRouter.onGlobalExit()` フック経由。Settings で ON/OFF 切替可能
+
+### ターミナルの coding agent 補助（#89）
+`claude` 等をターミナルで使う運用を、Pike の既存機能（エディタ / 診断）と橋渡しする一連の機能。注入はすべて `ptyWrite` 経由。
+
+- **起動ボタン**: ターミナル右上のフローティング split ボタン（`TerminalTab.vue`）。主＝先頭コマンド / ▾＝一覧。クリックで `agentCommands`（`pike:settings`）を**シェル対応の clear プレフィックス付き**（cmd=`cls`、PowerShell=`clear; `、bash=`clear && `）で注入＋Enter。`buildAutoStartLine` のロジックを流用。代替画面（alternate screen）検出で vim/less 等の全画面 TUI 中は非表示
+- **定型プロンプト挿入ボタン**: 起動ボタンの隣の2つ目のドロップダウン。`agentPrompts`（`{ label, text }[]`、`pike:settings`）を**ブラケットペースト（`ESC[200~…ESC[201~`）で挿入のみ・Enter なし**（複数行も1入力として届き途中確定しない）。2つのメニューは相互排他、alt-screen 中は非表示。挿入の primitive は `lib/tauri.ts` の `ptyPasteText`
+- **出力の `file:line` クリックでエディタを開く**: `lib/terminalLinks.ts` の `findPathLinks`（インライン `path:line(:col)` 検出。拡張子必須で誤検出抑制、Windows ドライブ・URL 除外）＋ rg/grep の heading 出力対応（マッチ行の行番号 → 直近のファイル名見出しを辿る）。`TerminalTab.vue` が xterm の link provider として登録（ワイド文字対応の char→セル列マップで範囲を正確化）。相対パスは `activeRoot` 起点で解決し `addEditorTab({ path, initialLine })`
+- **エディタ選択範囲・診断をターミナルへ注入**: `composables/useTerminalInject.ts` の `injectToTerminal(text)` が注入先ターミナルを解決（**`lastTerminalId`（直近アクティブなターミナル）→ アクティブタブ → pinned → 任意**）し `ptyPasteText` で挿入、当該タブをアクティブ化。注入先が無ければ statusMessage で通知。`stores/tabs.ts` の `lastTerminalId` は `activeTabId` watcher で更新（タブ閉じは use 時の liveness 再チェックで自己修復）
+  - EditorTab: 右クリック「ターミナルに送る」（選択時のみ）→ `relpath:行` 参照 + 選択本文を注入
+  - DiagnosticsPanel: 各行ホバーの 🤖 ボタン → `t('diagnostics.fixPrompt')`（i18n、UI 言語追従）で修正依頼文を注入
+- **設定**: `agentCommands` / `agentPrompts` は Settings の Terminal セクションで追加/編集/削除/並べ替え。両方とも `pike:settings` の配列で deep-watch 永続化
 
 ### プロジェクト管理
 - プロジェクト設定は `%APPDATA%/com.tauri.dev/projects/{id}/project.json` に保存

@@ -16,6 +16,7 @@ Built with Tauri v2 (Rust + Vue/TypeScript). Windows-first.
 ## Features
 
 - **Multi-terminal tabs** — xterm.js + PTY (WSL / cmd / PowerShell / Git Bash)
+- **Terminal agent helpers** — for running `claude` & co. in a terminal: one-click launch/prompt buttons (configurable), clickable `file:line` in output (incl. `rg`/`grep`) to open the editor, and "send to terminal" from an editor selection or a diagnostic row
 - **AI agents** — Claude Code & Codex as unified chat tabs (Agent runtime over ACP / Codex app-server), session resume, slash commands, `@`-mention file context
 - **File editor** — CodeMirror 6 with syntax highlighting (30+ languages), minimap, search & replace, git diff gutter, jump-to-definition (Ctrl+Click / F12)
 - **Previews** — Markdown, Mermaid, CSV/TSV, JSON/JSONL, SVG, images, PDF
