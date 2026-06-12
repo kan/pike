@@ -37,6 +37,8 @@ export default {
   'diagnostics.noProblems': '問題は見つかりませんでした',
   'diagnostics.providerFailed': 'チェッカー失敗',
   'diagnostics.truncated': '結果は省略されました',
+  'diagnostics.askFix': 'エージェントに修正を依頼',
+  'diagnostics.fixPrompt': '{loc} の {source} エラーを直して: {message}',
 
   // Tabs
   'tabs.newEditor': '新規エディタ',
@@ -63,6 +65,7 @@ export default {
   'editor.paste': '貼り付け',
   'editor.gitHistory': 'Git 履歴',
   'editor.gitHistoryRange': 'Git 履歴 ({range})',
+  'editor.sendToTerminal': 'ターミナルに送る',
   'editor.edit': '編集',
   'editor.split': '分割',
   'editor.preview': 'プレビュー',
@@ -101,6 +104,7 @@ export default {
   'terminal.exited': '[プロセスが終了しました (コード {code})]',
   'terminal.agentLaunch': 'コーディングエージェントを起動',
   'terminal.promptInject': '保存したプロンプトを挿入',
+  'terminal.injectNoTarget': '送信先のターミナルがありません',
 
   // Docker Logs
   'dockerLogs.failedStart': '[ログストリームの開始に失敗: {error}]',

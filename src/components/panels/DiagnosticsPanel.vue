@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { CircleAlert, TriangleAlert } from 'lucide-vue-next'
+import { Bot, CircleAlert, TriangleAlert } from 'lucide-vue-next'
 import { onMounted } from 'vue'
+import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { basename, isAbsolutePath, pathSep } from '../../lib/paths'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
@@ -18,6 +19,12 @@ function openDiagnostic(d: Diagnostic) {
   if (!project) return
   const fullPath = isAbsolutePath(d.file) ? d.file : projectStore.activeRoot + pathSep(project.shell) + d.file
   tabStore.addEditorTab({ path: fullPath, initialLine: d.line })
+}
+
+// Inject a fix request for this diagnostic into the terminal agent.
+function askAgentFix(d: Diagnostic) {
+  const loc = `${d.file}:${d.line}:${d.column}`
+  injectToTerminal(t('diagnostics.fixPrompt', { loc, source: d.source, message: d.message }))
 }
 
 const fileName = basename
@@ -74,6 +81,9 @@ onMounted(() => {
           <TriangleAlert v-else :size="13" class="sev warning" />
           <span class="diag-msg">{{ d.message }}</span>
           <span class="diag-loc">{{ d.line }}:{{ d.column }}</span>
+          <button class="diag-action" :title="t('diagnostics.askFix')" @click.stop="askAgentFix(d)">
+            <Bot :size="13" :stroke-width="2" />
+          </button>
         </div>
       </div>
     </div>
@@ -215,5 +225,30 @@ onMounted(() => {
   flex-shrink: 0;
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+.diag-action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0;
+}
+
+.diag-row:hover .diag-action {
+  opacity: 1;
+}
+
+.diag-action:hover {
+  background: var(--accent);
+  color: var(--text-active);
 }
 </style>

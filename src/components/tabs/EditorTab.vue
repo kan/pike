@@ -11,6 +11,7 @@ import { promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useOutlineSource } from '../../composables/useOutlineSource'
+import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
@@ -20,7 +21,7 @@ import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
 import { formatLineRange } from '../../lib/format'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
-import { basename, extension } from '../../lib/paths'
+import { basename, extension, toRelativePath } from '../../lib/paths'
 import { fsReadFile, fsWriteFile, gitDiffLines, openUrlWithConfirm, pickSaveFile } from '../../lib/tauri'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useProjectStore } from '../../stores/project'
@@ -565,6 +566,21 @@ async function execPaste() {
   if (text) editorView.dispatch(editorView.state.replaceSelection(text))
 }
 
+// Send the current selection to a terminal as a `relpath:lines` reference plus
+// the selected text, so the user can ask their agent about that exact code.
+function sendSelectionToTerminal() {
+  closeCtxMenu()
+  if (!editorView || !tab.value) return
+  const sel = editorView.state.selection.main
+  if (sel.empty) return
+  const text = editorView.state.doc.sliceString(sel.from, sel.to)
+  const start = editorView.state.doc.lineAt(sel.from).number
+  const end = editorView.state.doc.lineAt(sel.to).number
+  const rel = toRelativePath(tab.value.path, projectStore.activeRoot)
+  const loc = start === end ? `${rel}:${start}` : `${rel}:${start}-${end}`
+  injectToTerminal(`${loc}\n${text}`)
+}
+
 function openGitHistory() {
   closeCtxMenu()
   if (!tab.value) return
@@ -1103,6 +1119,8 @@ onUnmounted(() => {
         <button @click="execCut" :disabled="isReadOnlyTab || !ctxHasSelection"><span>{{ t('editor.cut') }}</span><span class="ctx-key">Ctrl+X</span></button>
         <button @click="execCopy" :disabled="!ctxHasSelection"><span>{{ t('editor.copy') }}</span><span class="ctx-key">Ctrl+C</span></button>
         <button @click="execPaste" :disabled="isReadOnlyTab"><span>{{ t('editor.paste') }}</span><span class="ctx-key">Ctrl+V</span></button>
+        <div class="ctx-separator"></div>
+        <button @click="sendSelectionToTerminal" :disabled="!ctxHasSelection"><span>{{ t('editor.sendToTerminal') }}</span></button>
         <div class="ctx-separator"></div>
         <button @click="openGitHistory"><span>{{ t('editor.gitHistory') }}</span><span class="ctx-key">Alt+H</span></button>
         <button @click="openGitHistoryForLine" :disabled="!ctxLineRange">

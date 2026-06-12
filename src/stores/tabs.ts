@@ -30,6 +30,9 @@ function genId(): string {
 export const useTabStore = defineStore('tabs', () => {
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
+  // Most recently activated terminal tab — the default target for "send to
+  // terminal" actions triggered from non-terminal tabs (editor, diagnostics).
+  const lastTerminalId = ref<string | null>(null)
 
   const activeTab = computed(() => tabs.value.find((t) => t.id === activeTabId.value) ?? null)
 
@@ -135,6 +138,7 @@ export const useTabStore = defineStore('tabs', () => {
       if (tab && (tab.kind === 'terminal' || tab.kind === 'agent-chat')) {
         tab.hasActivity = false
       }
+      if (tab?.kind === 'terminal') lastTerminalId.value = newId
     }
   })
 
@@ -487,6 +491,7 @@ export const useTabStore = defineStore('tabs', () => {
     tabs,
     activeTabId,
     activeTab,
+    lastTerminalId,
     addTerminalTab,
     addEditorTab,
     addBlankEditorTab,

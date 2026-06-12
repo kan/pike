@@ -36,6 +36,15 @@ export async function ptyWrite(id: string, data: string): Promise<void> {
   return invoke('pty_write', { id, data })
 }
 
+/**
+ * Inject text into a PTY via bracketed paste (no trailing CR), so multi-line
+ * content arrives as one input that the foreground program (a shell, or an agent
+ * like `claude`) does not submit until the user presses Enter.
+ */
+export async function ptyPasteText(id: string, text: string): Promise<void> {
+  return ptyWrite(id, `\x1b[200~${text}\x1b[201~`)
+}
+
 export async function ptyResize(id: string, cols: number, rows: number): Promise<void> {
   return invoke('pty_resize', { id, cols, rows })
 }

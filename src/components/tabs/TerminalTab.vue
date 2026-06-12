@@ -9,7 +9,7 @@ import { readClipboardImages, saveImageFile } from '../../composables/useImagePa
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
-import { openUrlWithConfirm, ptyKill, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
+import { openUrlWithConfirm, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import {
   asPathHeader,
   findPathLinks,
@@ -168,7 +168,7 @@ function closeAgentMenu() {
 function injectPrompt(text: string) {
   promptMenuOpen.value = false
   if (!ptyId) return
-  ptyWrite(ptyId, `\x1b[200~${text}\x1b[201~`).catch(() => {})
+  ptyPasteText(ptyId, text).catch(() => {})
   terminal?.focus()
 }
 

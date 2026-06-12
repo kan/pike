@@ -37,6 +37,8 @@ export default {
   'diagnostics.noProblems': 'No problems found',
   'diagnostics.providerFailed': 'checker failed',
   'diagnostics.truncated': 'Results truncated',
+  'diagnostics.askFix': 'Ask agent to fix',
+  'diagnostics.fixPrompt': 'Fix this {source} error at {loc}: {message}',
 
   // Tabs
   'tabs.newEditor': 'New Editor',
@@ -63,6 +65,7 @@ export default {
   'editor.paste': 'Paste',
   'editor.gitHistory': 'Git History',
   'editor.gitHistoryRange': 'Git History ({range})',
+  'editor.sendToTerminal': 'Send to terminal',
   'editor.edit': 'Edit',
   'editor.split': 'Split',
   'editor.preview': 'Preview',
@@ -101,6 +104,7 @@ export default {
   'terminal.exited': '[Process exited with code {code}]',
   'terminal.agentLaunch': 'Launch coding agent',
   'terminal.promptInject': 'Insert a saved prompt',
+  'terminal.injectNoTarget': 'No terminal to send to',
 
   // Docker Logs
   'dockerLogs.failedStart': '[Failed to start log stream: {error}]',
