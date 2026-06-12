@@ -37,6 +37,23 @@ function moveAgentCommand(index: number, dir: -1 | 1) {
   list[to] = moved
 }
 
+function addAgentPrompt() {
+  settings.agentPrompts.push({ label: '', text: '' })
+}
+
+function removeAgentPrompt(index: number) {
+  settings.agentPrompts.splice(index, 1)
+}
+
+function moveAgentPrompt(index: number, dir: -1 | 1) {
+  const to = index + dir
+  const list = settings.agentPrompts
+  if (to < 0 || to >= list.length) return
+  const moved = list[index]
+  list[index] = list[to]
+  list[to] = moved
+}
+
 // Section navigation
 const sections = [
   { id: 'appearance', i18nKey: 'settings.appearance' },
@@ -265,6 +282,31 @@ const PREVIEW_LINES = [
           </div>
           <button class="add-cmd-btn" @click="addAgentCommand">
             <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentCommand') }}
+          </button>
+        </div>
+
+        <div class="setting-block">
+          <label class="setting-label">{{ t('settings.agentPrompts') }}</label>
+          <p class="setting-hint">{{ t('settings.agentPromptsHint') }}</p>
+          <div class="agent-cmd-list">
+            <div v-for="(p, i) in settings.agentPrompts" :key="i" class="agent-cmd-row prompt-row">
+              <div class="agent-cmd-reorder">
+                <button class="icon-btn" :disabled="i === 0" :title="'↑'" @click="moveAgentPrompt(i, -1)">
+                  <ChevronUp :size="14" :stroke-width="2" />
+                </button>
+                <button class="icon-btn" :disabled="i === settings.agentPrompts.length - 1" :title="'↓'" @click="moveAgentPrompt(i, 1)">
+                  <ChevronDown :size="14" :stroke-width="2" />
+                </button>
+              </div>
+              <input v-model="p.label" class="agent-cmd-input label" :placeholder="t('settings.agentPromptLabel')" />
+              <textarea v-model="p.text" class="agent-cmd-input prompt-text" rows="2" :placeholder="t('settings.agentPromptText')" />
+              <button class="icon-btn danger" :title="t('common.delete')" @click="removeAgentPrompt(i)">
+                <Trash2 :size="14" :stroke-width="2" />
+              </button>
+            </div>
+          </div>
+          <button class="add-cmd-btn" @click="addAgentPrompt">
+            <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentPrompt') }}
           </button>
         </div>
       </section>
@@ -784,6 +826,19 @@ const PREVIEW_LINES = [
   flex: 1;
   min-width: 0;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+/* Prompt rows hold a multi-line textarea — align controls to the top. */
+.prompt-row {
+  align-items: flex-start;
+}
+
+.agent-cmd-input.prompt-text {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
 }
 
 .icon-btn {

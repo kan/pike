@@ -100,6 +100,7 @@ export default {
   'terminal.failedSpawn': '[PTY の起動に失敗: {error}]',
   'terminal.exited': '[プロセスが終了しました (コード {code})]',
   'terminal.agentLaunch': 'コーディングエージェントを起動',
+  'terminal.promptInject': '保存したプロンプトを挿入',
 
   // Docker Logs
   'dockerLogs.failedStart': '[ログストリームの開始に失敗: {error}]',
@@ -125,6 +126,11 @@ export default {
   'settings.agentCommandLabel': 'ラベル',
   'settings.agentCommandCommand': 'コマンド',
   'settings.addAgentCommand': 'コマンドを追加',
+  'settings.agentPrompts': 'ターミナルのプロンプト',
+  'settings.agentPromptsHint': '現在のターミナルに挿入する定型指示文（送信は Enter を自分で押す）。',
+  'settings.agentPromptLabel': 'ラベル',
+  'settings.agentPromptText': 'プロンプト本文',
+  'settings.addAgentPrompt': 'プロンプトを追加',
   'settings.editorTheme': 'テーマ',
   'settings.minimap': 'ミニマップ',
   'settings.wordWrap': '折り返し',

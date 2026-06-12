@@ -180,6 +180,12 @@ export interface AgentCommand {
   command: string
 }
 
+/** A reusable instruction snippet injected (as text, not submitted) into the terminal. */
+export interface AgentPrompt {
+  label: string
+  text: string
+}
+
 interface PersistedSettings {
   fontFamily: string
   fontSize: number
@@ -196,6 +202,7 @@ interface PersistedSettings {
   codexNotification: boolean
   agentDefault: AgentDefault
   agentCommands: AgentCommand[]
+  agentPrompts: AgentPrompt[]
 }
 
 function loadSettings(): PersistedSettings {
@@ -222,6 +229,11 @@ function defaults(): PersistedSettings {
       { label: 'Claude', command: 'claude' },
       { label: 'Claude (continue)', command: 'claude --continue' },
     ],
+    agentPrompts: [
+      { label: '続けて', text: 'はい、続けてください' },
+      { label: '説明', text: '上のコードが何をしているか説明して。' },
+      { label: 'エラー修正', text: '上のエラーを修正して。' },
+    ],
   }
 }
 
@@ -243,6 +255,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const codexNotification = ref(saved.codexNotification)
   const agentDefault = ref<AgentDefault>(saved.agentDefault)
   const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
+  const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
 
   // Sync language setting with i18n locale
   locale.value = saved.language
@@ -301,6 +314,7 @@ export const useSettingsStore = defineStore('settings', () => {
       codexNotification: codexNotification.value,
       agentDefault: agentDefault.value,
       agentCommands: agentCommands.value,
+      agentPrompts: agentPrompts.value,
     })
   }
 
@@ -327,8 +341,9 @@ export const useSettingsStore = defineStore('settings', () => {
     ],
     persist,
   )
-  // agentCommands is an array — deep-watch so in-place edits persist too.
+  // agentCommands / agentPrompts are arrays — deep-watch so in-place edits persist too.
   watch(agentCommands, persist, { deep: true })
+  watch(agentPrompts, persist, { deep: true })
   watch(darkMode, applyDarkMode, { immediate: true })
 
   return {
@@ -350,6 +365,7 @@ export const useSettingsStore = defineStore('settings', () => {
     codexNotification,
     agentDefault,
     agentCommands,
+    agentPrompts,
     availableFonts,
     loadAvailableFonts,
     setFontByName,

@@ -2,7 +2,7 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
-import { Bot, ChevronDown } from 'lucide-vue-next'
+import { Bot, ChevronDown, MessageSquareText } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { readClipboardImages, saveImageFile } from '../../composables/useImagePaste'
@@ -54,6 +54,10 @@ const projectStore = useProjectStore()
 // current shell. Configurable in Settings; the first entry is the primary button.
 const agentCommands = computed(() => settingsStore.agentCommands)
 const agentMenuOpen = ref(false)
+// Reusable instruction snippets injected (as text, not submitted) into the
+// running agent in the current terminal. Configurable in Settings.
+const agentPrompts = computed(() => settingsStore.agentPrompts)
+const promptMenuOpen = ref(false)
 // Hidden while a full-screen TUI owns the alternate screen buffer (vim, less,
 // lazygit, …) so the launcher can't inject text into a running program.
 const inAltScreen = ref(false)
@@ -146,6 +150,7 @@ function registerPathLinks(term: Terminal) {
 }
 
 function toggleAgentMenu() {
+  closePromptMenu()
   agentMenuOpen.value = !agentMenuOpen.value
   if (agentMenuOpen.value) {
     nextTick(() => window.addEventListener('mousedown', closeAgentMenu, { once: true }))
@@ -155,6 +160,29 @@ function toggleAgentMenu() {
 function closeAgentMenu() {
   window.removeEventListener('mousedown', closeAgentMenu)
   agentMenuOpen.value = false
+}
+
+// Inject a prompt's text into the current PTY. Bracketed paste keeps a multi-line
+// prompt as one input (no early submit); no trailing CR — the user reviews and
+// presses Enter themselves.
+function injectPrompt(text: string) {
+  promptMenuOpen.value = false
+  if (!ptyId) return
+  ptyWrite(ptyId, `\x1b[200~${text}\x1b[201~`).catch(() => {})
+  terminal?.focus()
+}
+
+function togglePromptMenu() {
+  closeAgentMenu()
+  promptMenuOpen.value = !promptMenuOpen.value
+  if (promptMenuOpen.value) {
+    nextTick(() => window.addEventListener('mousedown', closePromptMenu, { once: true }))
+  }
+}
+
+function closePromptMenu() {
+  window.removeEventListener('mousedown', closePromptMenu)
+  promptMenuOpen.value = false
 }
 
 const termRef = ref<HTMLDivElement>()
@@ -314,7 +342,10 @@ onMounted(async () => {
 
   terminal.buffer.onBufferChange((buf) => {
     inAltScreen.value = buf.type === 'alternate'
-    if (inAltScreen.value) closeAgentMenu()
+    if (inAltScreen.value) {
+      closeAgentMenu()
+      closePromptMenu()
+    }
   })
 
   const cols = terminal.cols
@@ -531,6 +562,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (windowFocusHandler) window.removeEventListener('focus', windowFocusHandler)
   window.removeEventListener('mousedown', closeAgentMenu)
+  window.removeEventListener('mousedown', closePromptMenu)
   if (resizeTimer) clearTimeout(resizeTimer)
   resizeObserver?.disconnect()
   if (ptyId) {
@@ -543,27 +575,47 @@ onUnmounted(() => {
 
 <template>
   <div class="terminal-wrapper">
-    <div v-if="agentCommands.length && !inAltScreen" class="agent-launch" :class="{ open: agentMenuOpen }">
-      <button
-        class="agent-btn primary"
-        :title="agentCommands[0].command"
-        @click="runAgentCommand(agentCommands[0].command)"
-      >
-        <Bot :size="14" :stroke-width="2" />
-      </button>
-      <button class="agent-btn caret" :title="t('terminal.agentLaunch')" @click="toggleAgentMenu">
-        <ChevronDown :size="12" :stroke-width="2" />
-      </button>
-      <div v-if="agentMenuOpen" class="agent-menu" @mousedown.stop>
-        <button
-          v-for="(c, i) in agentCommands"
-          :key="i"
-          class="agent-menu-item"
-          @click="runAgentCommand(c.command)"
-        >
-          <span class="agent-menu-label">{{ c.label }}</span>
-          <span class="agent-menu-cmd">{{ c.command }}</span>
+    <div v-if="!inAltScreen && (agentCommands.length || agentPrompts.length)" class="term-toolbar">
+      <div v-if="agentPrompts.length" class="agent-launch" :class="{ open: promptMenuOpen }">
+        <button class="agent-btn solo" :title="t('terminal.promptInject')" @click="togglePromptMenu">
+          <MessageSquareText :size="14" :stroke-width="2" />
+          <ChevronDown :size="12" :stroke-width="2" />
         </button>
+        <div v-if="promptMenuOpen" class="agent-menu" @mousedown.stop>
+          <button
+            v-for="(p, i) in agentPrompts"
+            :key="i"
+            class="agent-menu-item"
+            :title="p.text"
+            @click="injectPrompt(p.text)"
+          >
+            <span class="agent-menu-label">{{ p.label }}</span>
+            <span class="agent-menu-cmd">{{ p.text.split('\n')[0] }}</span>
+          </button>
+        </div>
+      </div>
+      <div v-if="agentCommands.length" class="agent-launch" :class="{ open: agentMenuOpen }">
+        <button
+          class="agent-btn primary"
+          :title="agentCommands[0].command"
+          @click="runAgentCommand(agentCommands[0].command)"
+        >
+          <Bot :size="14" :stroke-width="2" />
+        </button>
+        <button class="agent-btn caret" :title="t('terminal.agentLaunch')" @click="toggleAgentMenu">
+          <ChevronDown :size="12" :stroke-width="2" />
+        </button>
+        <div v-if="agentMenuOpen" class="agent-menu" @mousedown.stop>
+          <button
+            v-for="(c, i) in agentCommands"
+            :key="i"
+            class="agent-menu-item"
+            @click="runAgentCommand(c.command)"
+          >
+            <span class="agent-menu-label">{{ c.label }}</span>
+            <span class="agent-menu-cmd">{{ c.command }}</span>
+          </button>
+        </div>
       </div>
     </div>
     <div ref="termRef" class="terminal-inner"></div>
@@ -584,19 +636,25 @@ onUnmounted(() => {
   height: 100%;
 }
 
-.agent-launch {
+.term-toolbar {
   position: absolute;
   top: 6px;
   right: 16px;
   z-index: 5;
   display: flex;
+  gap: 6px;
   opacity: 0.3;
   transition: opacity 0.15s;
 }
 
-.terminal-wrapper:hover .agent-launch,
-.agent-launch.open {
+.terminal-wrapper:hover .term-toolbar,
+.term-toolbar:has(.agent-launch.open) {
   opacity: 1;
+}
+
+.agent-launch {
+  position: relative;
+  display: flex;
 }
 
 .agent-btn {
@@ -619,6 +677,11 @@ onUnmounted(() => {
 .agent-btn.caret {
   border-radius: 0 4px 4px 0;
   padding: 0 2px;
+}
+
+.agent-btn.solo {
+  border-radius: 4px;
+  gap: 1px;
 }
 
 .agent-btn:hover {

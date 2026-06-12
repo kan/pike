@@ -100,6 +100,7 @@ export default {
   'terminal.failedSpawn': '[Failed to spawn PTY: {error}]',
   'terminal.exited': '[Process exited with code {code}]',
   'terminal.agentLaunch': 'Launch coding agent',
+  'terminal.promptInject': 'Insert a saved prompt',
 
   // Docker Logs
   'dockerLogs.failedStart': '[Failed to start log stream: {error}]',
@@ -125,6 +126,12 @@ export default {
   'settings.agentCommandLabel': 'Label',
   'settings.agentCommandCommand': 'Command',
   'settings.addAgentCommand': 'Add command',
+  'settings.agentPrompts': 'Terminal Prompts',
+  'settings.agentPromptsHint':
+    'Reusable instruction snippets inserted into the current terminal (you press Enter to send).',
+  'settings.agentPromptLabel': 'Label',
+  'settings.agentPromptText': 'Prompt text',
+  'settings.addAgentPrompt': 'Add prompt',
   'settings.editorTheme': 'Theme',
   'settings.minimap': 'Minimap',
   'settings.wordWrap': 'Word Wrap',
