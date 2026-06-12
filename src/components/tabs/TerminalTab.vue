@@ -8,8 +8,16 @@ import { confirmDialog } from '../../composables/useConfirmDialog'
 import { readClipboardImages, saveImageFile } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
-import { isAbsolutePath } from '../../lib/paths'
+import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
 import { openUrlWithConfirm, ptyKill, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
+import {
+  asPathHeader,
+  findPathLinks,
+  isRgBodyLine,
+  type PathLinkTarget,
+  parseRgMatchLine,
+} from '../../lib/terminalLinks'
+import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import '@xterm/xterm/css/xterm.css'
@@ -40,6 +48,7 @@ function buildAutoStartLine(autoStart: string, shellKind: string | undefined, cl
 
 const tabStore = useTabStore()
 const settingsStore = useSettingsStore()
+const projectStore = useProjectStore()
 
 // One-click coding-agent launchers (`clear && claude` etc.), injected into the
 // current shell. Configurable in Settings; the first entry is the primary button.
@@ -57,6 +66,83 @@ function runAgentCommand(command: string) {
   const line = buildAutoStartLine(command, shellKind, false)
   ptyWrite(ptyId, `${line}\r`).catch(() => {})
   terminal?.focus()
+}
+
+// Resolve a `path:line` link from terminal output to an editor tab. Relative
+// paths resolve against `activeRoot` (same base as search / diagnostics).
+function openPathLink(target: PathLinkTarget) {
+  const project = projectStore.currentProject
+  if (!project) return
+  const sep = pathSep(project.shell)
+  const full = isAbsolutePath(target.path) ? target.path : joinPath(projectStore.activeRoot, target.path, sep)
+  tabStore.addEditorTab({ path: full, initialLine: target.line })
+}
+
+// Walk up from a rg/grep match line to its filename header (matches are grouped
+// under a bare path when rg writes to a TTY). Stops at the first non-body line.
+function findHeaderPathAbove(term: Terminal, y: number): string | null {
+  for (let yy = y - 1; yy >= 1 && yy >= y - 500; yy--) {
+    const line = term.buffer.active.getLine(yy - 1)
+    if (!line) return null
+    const s = line.translateToString(true).trim()
+    if (s === '') return null // blank line = group boundary, no header reached
+    if (isRgBodyLine(s)) continue // another match / context line — keep climbing
+    return asPathHeader(s) // header path, or null if it's an unrelated line
+  }
+  return null
+}
+
+// Register a link provider that makes `path:line(:col)` references clickable, plus
+// rg/grep grouped output (line number → header path). Builds a char→cell-column
+// map per row so ranges stay correct across wide chars.
+function registerPathLinks(term: Terminal) {
+  term.registerLinkProvider({
+    provideLinks(y, callback) {
+      const bufLine = term.buffer.active.getLine(y - 1)
+      if (!bufLine) {
+        callback(undefined)
+        return
+      }
+      let text = ''
+      const colAt: number[] = []
+      for (let x = 0; x < bufLine.length; x++) {
+        const cell = bufLine.getCell(x)
+        if (!cell) continue
+        if (cell.getWidth() === 0) continue // trailing cell of a wide char
+        const chars = cell.getChars() || ' '
+        for (let k = 0; k < chars.length; k++) colAt.push(x + 1)
+        text += chars
+      }
+      const links: ReturnType<typeof makeLink>[] = []
+      const makeLink = (start: number, end: number, target: PathLinkTarget) => ({
+        text: text.slice(start, end + 1),
+        range: { start: { x: colAt[start] ?? 1, y }, end: { x: colAt[end] ?? term.cols, y } },
+        activate: () => openPathLink(target),
+      })
+
+      const matches = findPathLinks(text)
+      for (const mt of matches) {
+        links.push(makeLink(mt.index, mt.index + mt.length - 1, mt))
+      }
+
+      if (matches.length === 0) {
+        // rg/grep grouped match line: link the leading line number to its header.
+        const rg = parseRgMatchLine(text)
+        if (rg) {
+          const header = findHeaderPathAbove(term, y)
+          if (header) links.push(makeLink(0, rg.numLen - 1, { path: header, line: rg.line }))
+        }
+        // A bare path line (rg header, `ls` of one file): open it at line 1.
+        const header = asPathHeader(text)
+        if (header) {
+          const start = text.indexOf(header)
+          links.push(makeLink(start, start + header.length - 1, { path: header, line: 1 }))
+        }
+      }
+
+      callback(links.length > 0 ? links : undefined)
+    },
+  })
 }
 
 function toggleAgentMenu() {
@@ -221,6 +307,7 @@ onMounted(async () => {
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
   terminal.loadAddon(new WebLinksAddon((_e, uri) => openUrlWithConfirm(uri)))
+  registerPathLinks(terminal)
 
   terminal.open(termRef.value)
   fitAddon.fit()
