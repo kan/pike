@@ -98,6 +98,15 @@ export default {
 
   // Preview
   'preview.notFound': 'プレビューが見つかりません',
+  'preview.zoomIn': '拡大',
+  'preview.zoomOut': '縮小',
+  'preview.resetZoom': '100% に戻す',
+  'preview.fit': 'ウィンドウに合わせる',
+  'preview.rotateLeft': '左に回転',
+  'preview.rotateRight': '右に回転',
+  'preview.flip': '左右反転',
+  'preview.checkerboard': '透過グリッドの切替',
+  'preview.reset': '表示をリセット',
 
   // Terminal
   'terminal.failedSpawn': '[PTY の起動に失敗: {error}]',

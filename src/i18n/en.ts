@@ -98,6 +98,15 @@ export default {
 
   // Preview
   'preview.notFound': 'Preview not found',
+  'preview.zoomIn': 'Zoom in',
+  'preview.zoomOut': 'Zoom out',
+  'preview.resetZoom': 'Reset to 100%',
+  'preview.fit': 'Fit to window',
+  'preview.rotateLeft': 'Rotate left',
+  'preview.rotateRight': 'Rotate right',
+  'preview.flip': 'Flip horizontal',
+  'preview.checkerboard': 'Toggle transparency grid',
+  'preview.reset': 'Reset view',
 
   // Terminal
   'terminal.failedSpawn': '[Failed to spawn PTY: {error}]',

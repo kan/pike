@@ -5,6 +5,7 @@ src-tauri/binaries/
 .claude/settings.local.json
 src-tauri/icons/android/
 src-tauri/icons/ios/
+test-assets/
 
 # Secrets / credentials (safety net)
 .env
