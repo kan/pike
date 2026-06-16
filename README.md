@@ -19,7 +19,7 @@ Built with Tauri v2 (Rust + Vue/TypeScript). Windows-first.
 - **Terminal agent helpers** — for running `claude` & co. in a terminal: one-click launch/prompt buttons (configurable), clickable `file:line` in output (incl. `rg`/`grep`) to open the editor, and "send to terminal" from an editor selection or a diagnostic row
 - **AI agents** — Claude Code & Codex as unified chat tabs (Agent runtime over ACP / Codex app-server), session resume, slash commands, `@`-mention file context
 - **File editor** — CodeMirror 6 with syntax highlighting (30+ languages), minimap, search & replace, git diff gutter, jump-to-definition (Ctrl+Click / F12)
-- **Previews** — Markdown, Mermaid, CSV/TSV, JSON/JSONL, SVG, images, PDF
+- **Previews** — Markdown, Mermaid, CSV/TSV, JSON/JSONL, SVG, PDF, and an **image viewer** with zoom / 100% / fit, 90° rotate, flip, drag-pan, Ctrl+wheel zoom, and a transparency grid (view-only — never edits the file)
 - **Symbol outline** — outline panel (18 languages) with cursor follow + per-file git history
 - **Task runner** — auto-discovers `package.json` / `Makefile` / `deno.json` scripts and runs them in a terminal tab
 - **Command palette** — `Ctrl+P` for files, `>` tasks, `@` tabs, `:` line jump, `!` git branch

@@ -133,7 +133,7 @@ pike/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
 │   │       ├── AgentChatTab.vue   # 統一エージェントチャット（Codex / Claude Code）
 │   │       ├── EditorTab.vue      # CodeMirror 6 + Edit/Split/Preview（md/csv/json/svg/mermaid）
-│   │       ├── PreviewTab.vue     # 画像プレビュー（base64 dataUrl）
+│   │       ├── PreviewTab.vue     # 画像ビューワ（ズーム/回転/反転/パン/fit、表示専用）
 │   │       ├── PdfTab.vue         # PDF プレビュー（iframe）
 │   │       ├── DiffTab.vue        # 左右分割 diff
 │   │       ├── HistoryTab.vue     # ファイル別 git log（git log -L 行範囲対応）
@@ -257,7 +257,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - ミニマップ: `@replit/codemirror-minimap` を採用。blocks モード、シンタックスカラー反映、正確なスクロール同期、git diff ガター表示
 - エディタコンテキストメニュー: Undo/Redo/Cut/Copy/Paste/Git History（Teleport パターン）
 - ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
-- 画像プレビュータブ（base64 経由）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
+- 画像ビューワタブ（base64 経由、ズーム/回転/反転/パン/fit の表示専用操作）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
 - Markdown プレビュー内リンク: 外部 URL は confirm 付きで `open_url` 経由の外部ブラウザ起動、ローカルファイルはプロジェクトルート内に限定して EditorTab で開く（`resolveLocalPath` でディレクトリトラバーサル防止 + `decodeURIComponent` 対応）
 - 文字コード対応: `encoding_rs` で自動検出 + 指定エンコードでの開き直し/保存（StatusBar 2段階 UI）
 - 改行コード LF/CRLF 切替（StatusBar クリック）、保存時に適用
@@ -472,7 +472,13 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
   - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
   - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
 - Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
-- 画像: `PreviewTab.vue`（base64 dataUrl を `<img>` 表示）。PDF: `PdfTab.vue`（`<iframe src="data:application/pdf;base64,...">` による WebView2 内蔵レンダリング）
+- 画像: `PreviewTab.vue`（base64 dataUrl を `<img>` 表示）。上部ツールバーで**表示専用**（ファイルは無変更）のビューワ操作を提供:
+  - 拡大 / 縮小 / 100% / ウィンドウに合わせる（fit）、左右 90° 回転・左右反転
+  - スクロールコンテナは flex 中央寄せを使わず**ステージ側 `margin: auto`** で中央寄せ（`align-items: center` だと画像がビューポートより大きいとき上端がスクロール領域外に押し出され到達不能になる不具合を回避）。スクロール領域は**回転後のバウンディングボックス**（`stageW`/`stageH` computed）が駆動
+  - ズームは transform scale ではなく img の width/height で表現し、回転・反転は `translate(-50%,-50%) rotate() scaleX()` の transform で適用
+  - `applyZoom` がズーム前後のスクロール比から `scrollLeft/Top` を補正し、カーソル（または中央）位置を固定。Ctrl+ホイールズーム / ドラッグでパン（`canPan` 時のみ、グローバル mousemove/mouseup は `onUnmounted` でも除去）/ ダブルクリックで fit⇔100%
+  - キーボード（canvas に `tabindex="0"`）: `+`/`-` ズーム、`0`=100%、`f`=fit、`r`/`Shift+R`=回転。透過グリッド（チェッカーボード）背景の切替、画像実寸（W×H）表示。ツールバー文言は `preview.*` i18n（日英）
+- PDF: `PdfTab.vue`（`<iframe src="data:application/pdf;base64,...">` による WebView2 内蔵レンダリング）
 - ファイルツリー `openFile()` が拡張子で画像→PreviewTab / PDF→PdfTab / その他→EditorTab を振り分ける
 
 ### 検索 (rg / grep)
