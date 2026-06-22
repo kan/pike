@@ -272,6 +272,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - Rust 側 `build_git_command` が ShellConfig に応じて `wsl.exe git` / `git` を組み立て
 - ステータスバーにブランチ名+ダーティ表示、クリックでブランチ切替
 - Git パネル: ステージング/アンステージ、コミット、push/pull/refresh、コミットツリー展開
+- コンフリクト（unmerged）表示: `parse_status` が porcelain v2 の `u ` 行をパースし `GitStatusResult.conflicted`（status は XY コード `UU`/`AA` 等）に格納。GitPanel 最上部の専用「Conflicts」セクションでパスを赤字（`--danger`）表示、クリックで作業ツリーのファイルをエディタで開く（解消ツールは未実装）。SideBar の Git バッジ件数に conflicted を加算し、コンフリクト時は danger（赤）バッジ。エディタは `lib/editorConflict.ts`（CodeMirror ViewPlugin）でマーカー行（`<<<<<<<`/`|||||||`/`=======`/`>>>>>>>`）と各セクション本文を色分けハイライト（半透明オーバーレイで両テーマ対応、表示のみ）
 - diff タブ: 左右分割表示、文字単位ハイライト（common prefix/suffix 方式）
 - ahead/behind: `git status --porcelain=v2 --branch` の `# branch.ab` 行をパース。GitPanel コミットボタン下にテキスト表示、SideBar の pull/push ボタンを primary スタイルに変更
 - コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
@@ -426,6 +427,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ### ショートカット一覧モーダル
 - `components/KeyboardShortcuts.vue` + `composables/useShortcutsModal.ts`。登録済みショートカットの一覧を表示
+- WebView リロード抑止: `composables/useKeyboardShortcuts.ts` が Ctrl+R / Ctrl+Shift+R / F5 を `preventDefault`。誤操作でのリロード（全 PTY セッション破棄＝実質再起動）を防ぐ。ターミナルの Ctrl+R（bash 逆方向検索）は xterm がイベントを消費するため影響なし
 
 ### `pike --wait`（GIT_EDITOR 連携）
 - `src-tauri/src/wait.rs`。`GIT_EDITOR="pike.exe --wait"` でコミットメッセージ編集に対応
