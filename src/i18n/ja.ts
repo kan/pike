@@ -185,6 +185,8 @@ export default {
   'git.noCommits': 'コミットなし',
   'git.staged': 'ステージ済み ({count})',
   'git.changes': '変更 ({count})',
+  'git.conflicts': 'コンフリクト ({count})',
+  'git.openConflict': 'ファイルを開いて解消',
   'git.recentCommits': 'コミット履歴',
   'git.unstageAll': 'すべてアンステージ',
   'git.stageAll': 'すべてステージ',

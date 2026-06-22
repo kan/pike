@@ -186,6 +186,8 @@ export default {
   'git.noCommits': 'No commits',
   'git.staged': 'Staged ({count})',
   'git.changes': 'Changes ({count})',
+  'git.conflicts': 'Conflicts ({count})',
+  'git.openConflict': 'Open file to resolve',
   'git.recentCommits': 'Recent Commits',
   'git.unstageAll': 'Unstage All',
   'git.stageAll': 'Stage All',

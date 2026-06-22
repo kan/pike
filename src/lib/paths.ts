@@ -113,7 +113,11 @@ export function toRelativePath(fullPath: string, root: string): string {
   return fullPath
 }
 
+// Porcelain v2 XY codes for unmerged (conflict) paths.
+const CONFLICT_STATUSES = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU'])
+
 export function gitStatusColor(status: string): string {
+  if (CONFLICT_STATUSES.has(status)) return 'var(--danger)'
   switch (status) {
     case 'M':
       return 'var(--git-modify)'

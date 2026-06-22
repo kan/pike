@@ -158,8 +158,8 @@ const icons: IconDef[] = [
     badge: () => {
       const s = gitStore.status
       if (!s) return null
-      const n = s.staged.length + s.unstaged.length
-      return n > 0 ? { count: n } : null
+      const n = s.staged.length + s.unstaged.length + s.conflicted.length
+      return n > 0 ? { count: n, danger: s.conflicted.length > 0 } : null
     },
   },
   { panel: 'search', labelKey: 'sidebar.search', icon: Search },

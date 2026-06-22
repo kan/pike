@@ -10,6 +10,8 @@ export interface GitStatusResult {
   isDirty: boolean
   staged: GitFileChange[]
   unstaged: GitFileChange[]
+  /** Unmerged paths (merge/rebase conflicts). `status` is the XY code (e.g. "UU"). */
+  conflicted: GitFileChange[]
   ahead: number
   behind: number
 }

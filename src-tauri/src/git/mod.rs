@@ -11,6 +11,9 @@ pub struct GitStatusResult {
     pub is_dirty: bool,
     pub staged: Vec<GitFileChange>,
     pub unstaged: Vec<GitFileChange>,
+    /// Unmerged paths (merge/rebase conflicts), from porcelain v2 `u ` lines.
+    /// `status` holds the two-letter XY code (e.g. "UU", "AA", "DD").
+    pub conflicted: Vec<GitFileChange>,
     pub ahead: u32,
     pub behind: u32,
 }
@@ -81,6 +84,7 @@ fn parse_status(output: &str) -> GitStatusResult {
     let mut head = String::from("(initial)");
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
+    let mut conflicted = Vec::new();
     let mut ahead: u32 = 0;
     let mut behind: u32 = 0;
 
@@ -122,6 +126,16 @@ fn parse_status(output: &str) -> GitStatusResult {
                     });
                 }
             }
+        } else if line.starts_with("u ") {
+            // Unmerged entry: "u XY sub m1 m2 m3 mW h1 h2 h3 path"
+            // (no rename, so the path is the final field and contains no \t).
+            let parts: Vec<&str> = line.splitn(11, ' ').collect();
+            if parts.len() >= 11 {
+                conflicted.push(GitFileChange {
+                    path: parts[10].to_string(),
+                    status: parts[1].to_string(),
+                });
+            }
         } else if let Some(path) = line.strip_prefix("? ") {
             // Untracked: "? path"
             unstaged.push(GitFileChange {
@@ -131,13 +145,14 @@ fn parse_status(output: &str) -> GitStatusResult {
         }
     }
 
-    let is_dirty = !staged.is_empty() || !unstaged.is_empty();
+    let is_dirty = !staged.is_empty() || !unstaged.is_empty() || !conflicted.is_empty();
     GitStatusResult {
         branch,
         head,
         is_dirty,
         staged,
         unstaged,
+        conflicted,
         ahead,
         behind,
     }
@@ -804,6 +819,29 @@ branch refs/heads/main
         assert!(!wts[0].is_main, "the bare entry must not be treated as main");
         assert!(wts[1].is_main, "the first working tree is main");
         assert_eq!(wts[1].branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn parses_unmerged_conflict_entries() {
+        // Porcelain v2: `u` lines for conflicts, `1` for a staged change, `?` for untracked.
+        let out = "# branch.oid abc123
+# branch.head main
+1 M. N... 100644 100644 100644 hhh iii staged.txt
+u UU N... 100644 100644 100644 100644 h1 h2 h3 conflict.txt
+u AA N... 000000 100644 100644 100644 h1 h2 h3 both added.txt
+? untracked.txt
+";
+        let st = parse_status(out);
+        assert_eq!(st.conflicted.len(), 2);
+        assert_eq!(st.conflicted[0].path, "conflict.txt");
+        assert_eq!(st.conflicted[0].status, "UU");
+        // Path with a space must survive (splitn(11) keeps the remainder intact).
+        assert_eq!(st.conflicted[1].path, "both added.txt");
+        assert_eq!(st.conflicted[1].status, "AA");
+        // Conflicts must not leak into staged/unstaged.
+        assert_eq!(st.staged.len(), 1);
+        assert_eq!(st.unstaged.len(), 1);
+        assert!(st.is_dirty);
     }
 
     #[test]

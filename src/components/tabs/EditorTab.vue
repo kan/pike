@@ -13,6 +13,7 @@ import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useOutlineSource } from '../../composables/useOutlineSource'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
+import { conflictHighlight } from '../../lib/editorConflict'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
@@ -615,6 +616,7 @@ function createEditorView(container: HTMLElement, content: string) {
     history(),
     editorSearch(),
     highlightSelectionMatches(),
+    conflictHighlight(),
     tabSizeCompartment.of(EditorState.tabSize.of(settingsStore.editorTabSize)),
     indentUnitCompartment.of(indentUnit.of(' '.repeat(settingsStore.editorTabSize))),
     wordWrapCompartment.of(settingsStore.editorWordWrap ? EditorView.lineWrapping : []),

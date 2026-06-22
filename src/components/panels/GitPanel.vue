@@ -115,6 +115,15 @@ async function openDiffTab(path: string, staged: boolean, untracked = false) {
   tabStore.addDiffTab({ filePath: path, diff, staged })
 }
 
+// Open the working-tree copy of a conflicted file so the user can resolve the
+// conflict markers in the editor. (Resolution tooling itself is out of scope — issue #95.)
+function openConflictFile(path: string) {
+  const root = projectStore.activeRoot
+  if (!root) return
+  const sep = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
+  tabStore.addEditorTab({ path: root + sep + path })
+}
+
 async function toggleCommitExpand(hash: string) {
   if (expandedCommits.value.has(hash)) {
     expandedCommits.value.delete(hash)
@@ -334,6 +343,24 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- Conflicts (unmerged paths) -->
+      <div v-if="gitStore.status.conflicted.length" class="file-section">
+        <div class="section-header">
+          <span>{{ t('git.conflicts', { count: gitStore.status.conflicted.length }) }}</span>
+        </div>
+        <div
+          v-for="file in gitStore.status.conflicted"
+          :key="'c-' + file.path"
+          class="file-item conflict"
+          :title="t('git.openConflict')"
+          @click="openConflictFile(file.path)"
+        >
+          <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
+          <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
+          <span class="file-path conflict-path" :title="file.path">{{ file.path }}</span>
+        </div>
+      </div>
+
       <!-- Staged -->
       <div v-if="gitStore.status.staged.length" class="file-section">
         <div class="section-header">
@@ -380,7 +407,7 @@ onUnmounted(() => {
       </div>
 
       <!-- No changes -->
-      <div v-if="!gitStore.status.staged.length && !gitStore.status.unstaged.length" class="empty">
+      <div v-if="!gitStore.status.staged.length && !gitStore.status.unstaged.length && !gitStore.status.conflicted.length" class="empty">
         {{ t('git.noChanges') }}
       </div>
 
@@ -681,6 +708,11 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-primary);
+}
+
+.file-path.conflict-path {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .file-action {
