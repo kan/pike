@@ -190,7 +190,7 @@ watch(showForm, async (show) => {
 
 async function detectFromTerminal() {
   const activeTab = tabStore.activeTab
-  if (!activeTab || activeTab.kind !== 'terminal' || !activeTab.ptyId) return
+  if (activeTab?.kind !== 'terminal' || !activeTab.ptyId) return
 
   if (activeTab.shell) {
     formPlatform.value = shellToPlatform(activeTab.shell)

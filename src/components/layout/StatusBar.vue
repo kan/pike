@@ -61,7 +61,7 @@ const statusIcon = computed(() => {
 
 const codexSession = computed(() => {
   const tab = tabStore.activeTab
-  if (!tab || tab.kind !== 'agent-chat' || tab.agentType !== 'codex') return null
+  if (tab?.kind !== 'agent-chat' || tab.agentType !== 'codex') return null
   const s = agentStore.getExistingSession(tab.id)
   return s?.tokenUsage ? s : null
 })

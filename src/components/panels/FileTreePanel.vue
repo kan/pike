@@ -325,7 +325,7 @@ watch(
 watch(
   () => tabStore.activeTab,
   (tab) => {
-    if (!tab || tab.kind !== 'editor') return
+    if (tab?.kind !== 'editor') return
     if (sidebar.activePanel !== 'files') return
     fileTreeStore.selectedPath = tab.path
     nextTick(() => scrollToSelected())
@@ -342,7 +342,7 @@ function scrollToSelected() {
 
 async function revealActiveFile() {
   const tab = tabStore.activeTab
-  if (!tab || tab.kind !== 'editor') return
+  if (tab?.kind !== 'editor') return
   const found = await fileTreeStore.revealFile(tab.path)
   if (found) {
     nextTick(() => scrollToSelected())

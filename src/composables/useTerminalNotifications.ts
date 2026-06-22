@@ -84,7 +84,7 @@ export async function initTerminalNotifications() {
 
     // Only notify for the active terminal tab
     const activeTab = tabStore.activeTab
-    if (!activeTab || activeTab.kind !== 'terminal' || activeTab.ptyId !== id) return
+    if (activeTab?.kind !== 'terminal' || activeTab.ptyId !== id) return
 
     // Accumulate and debounce
     if (outputPtyId !== id) {

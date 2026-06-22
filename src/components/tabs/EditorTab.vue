@@ -334,7 +334,7 @@ async function renderMarkdownMermaid() {
     let idx = 0
     for (const block of codeBlocks) {
       const pre = block.parentElement
-      if (!pre || pre.tagName !== 'PRE') continue
+      if (pre?.tagName !== 'PRE') continue
       const source = block.textContent ?? ''
       try {
         const id = `md-mermaid-${props.tabId}-${idx++}-${Date.now()}`

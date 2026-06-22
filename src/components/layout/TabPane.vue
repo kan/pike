@@ -175,7 +175,7 @@ async function copyPath() {
 }
 
 function openGitHistory() {
-  if (!contextTab.value || contextTab.value.kind !== 'editor') return
+  if (contextTab.value?.kind !== 'editor') return
   tabStore.addHistoryTab({ filePath: contextTab.value.path })
   closeContextMenu()
 }
