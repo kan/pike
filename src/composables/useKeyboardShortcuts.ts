@@ -9,6 +9,14 @@ export function useKeyboardShortcuts() {
   const shortcutsModal = useShortcutsModal()
 
   function onKeyDown(e: KeyboardEvent) {
+    // Block the WebView reload accelerators (Ctrl+R, Ctrl+Shift+R, F5). A stray
+    // reload tears down every PTY/terminal session, which looks like an app
+    // restart (issue #96). Vite HMR still reloads on file change during dev.
+    if ((e.ctrlKey && (e.key === 'r' || e.key === 'R')) || e.key === 'F5') {
+      e.preventDefault()
+      return
+    }
+
     if (!e.ctrlKey && !e.altKey) return
 
     // Ctrl+Shift+P: project switcher
