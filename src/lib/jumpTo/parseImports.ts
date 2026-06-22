@@ -111,7 +111,7 @@ function parseImportHead(head: string, entry: ImportEntry): void {
 
 function parseImportsVue(text: string): ImportEntry[] {
   const out: ImportEntry[] = []
-  const re = /<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi
+  const re = /<script\b[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi
   for (const m of text.matchAll(re)) {
     const inner = m[1]
     const innerStart = (m.index ?? 0) + m[0].indexOf(inner)
