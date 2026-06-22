@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2026-06-23
+
+### Features
+
+- **Git パネルでコンフリクト中のファイルを表示（#95）**: `git status` の unmerged（porcelain v2 `u` 行）をパースし、Git パネル最上部の専用「Conflicts」セクションにファイルパスを赤字表示。クリックで作業ツリーのファイルをエディタで開く（コンフリクト解消ツール自体は対象外）。サイドバーの Git バッジ件数にコンフリクト数を加算し、コンフリクト時は赤バッジで表示
+- **エディタのコンフリクトマーカー・ハイライト**: `<<<<<<<` / `|||||||` / `=======` / `>>>>>>>` のマーカー行と各セクション本文を色分け表示（ours/base/theirs、半透明オーバーレイで両テーマ対応、表示のみ）
+
+### Bug Fixes
+
+- **Ctrl+R / F5 による意図しないリロードを抑止（#96）**: WebView のリロードアクセラレータ（Ctrl+R / Ctrl+Shift+R / F5）を `preventDefault` し、誤操作で全 PTY セッションが破棄される（実質再起動）のを防止。ターミナル内の Ctrl+R（bash 逆方向検索）は従来どおり動作
+
+### Security / Maintenance
+
+- `dompurify` を 3.4.11 に更新（Dependabot alert 解消）
+- CodeQL の `js/bad-tag-filter` 指摘に対応し、定義ジャンプの `<script>` 解析正規表現を堅牢化
+- 依存更新: vue 3.5.38 / @codemirror/view 6.43.1 / uuid 1.23.3 / @biomejs/biome 2.5.0 / vue-tsc 3.3.5 / actions/checkout 7.0.0
+
 ## [0.11.0] - 2026-06-16
 
 ### Features
