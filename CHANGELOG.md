@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.14.0] - 2026-06-25
+
+### Features
+
+- **クリップボード/ドラッグ&ドロップでの任意ファイル添付**: これまで画像専用だったペースト/D&D を任意ファイル（PDF 等）に汎用化。クリップボード/D&D のファイルを `.pike/uploads/` に保存し、パスを挿入する（エージェントチャットは `@パス` メンション、ターミナルは bare path）
+  - 判別は file か string か（`ClipboardEvent` の `item.kind`、D&D は `dataTransfer.files`）。テキストは長さに関係なくインライン貼り付けのまま
+  - 元ファイル名を保持（`stem-{hex}.ext`、衝突回避）。名前を持たないクリップボード blob は生成名にフォールバック
+  - 初回保存時に各プロジェクトへ `.pike/.gitignore`（中身 `*`）を書き込み、退避ファイルを repo から除外
+  - 小さいテキストファイルのインライン展開（設定 `inlineSmallTextFiles`、既定 OFF / 閾値 4KB）を AgentChatTab 限定で追加
+  - アップロード上限 50MB。超過・失敗時はファイル名・サイズ・上限を明示したエラーを通知
+
+### Bug Fixes
+
+- **AI Agents のトークン使用量が WSL プロジェクトで表示されない問題を修正（#107）**: WSL で動く `claude` のログは WSL ホーム (`~/.claude`) に書かれるため、Windows の `%USERPROFILE%\.claude` しか見ていなかった。WSL では `\\wsl.localhost\<distro>` 経由で WSL ホームの `.claude` を読むよう対応（pid 生存確認も WSL 内で実行）
+- **プロジェクトパスのエンコードを Claude 本体の方式に一致（#108）**: `~/.claude/projects/<dir>` 名の生成で `: \ /` のみ `-` 置換していたため、ドット・アンダースコア・空白を含むパスで不一致になり使用量が出なかった。Claude の `cwd.replace(/[^a-zA-Z0-9]/g, "-")` に合わせ、全非英数字を `-` に置換
+- **CLI のファイルオープンが全ウィンドウで発火していた問題を修正**: `cli_open` イベントを `getCurrentWindow().listen()` で自ウィンドウにスコープし、ルーティング済みの宛先ウィンドウだけが開くようにした（プロジェクト外ファイルを開くと他ウィンドウもエラーになっていた）
+
 ## [0.13.1] - 2026-06-25
 
 ### Bug Fixes
