@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.1] - 2026-06-25
+
+### Bug Fixes
+
+- **Claude Code のフルスクリーンレンダーモードでプロンプト注入ボタンが表示されない問題を修正**: 新フルスクリーンレンダーは alternate screen buffer を使うため、pike が「全画面 TUI（vim/less 等）＝テキスト注入不可」と判定してターミナルツールバーを丸ごと隠していた。本来プロンプトを注入したい対象（走っている Claude Code）が、まさにボタンを隠す条件になっていた
+  - launch ボタンとプロンプト注入ボタンの表示条件を分離。launch ボタンは従来通り alt-screen で非表示
+  - プロンプト注入ボタンは alt-screen 中でもマウスレポーティングが有効な場合（Claude Code 等のインタラクティブエージェント）に表示。素の vim/less（マウスレポートなし）では非表示を維持
+  - `terminal.modes.mouseTrackingMode` を DECSET/DECRST（`CSI ? Pm h|l`）の CSI ハンドラ経由で追跡
+
 ## [0.13.0] - 2026-06-25
 
 ### Features
