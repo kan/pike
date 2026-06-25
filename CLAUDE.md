@@ -322,6 +322,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - ウィンドウラベル `project-{id}` でプロジェクトを識別。同一プロジェクトの二重起動は既存ウィンドウをフォーカス
 - Tauri v2 の各ウィンドウは独立 JS コンテキスト → Pinia ストアは自然にウィンドウごとに分離
 - PTY/Docker イベントは `app.emit()` で全ウィンドウにブロードキャスト、ルーターが ID でフィルタ
+- **特定ウィンドウ宛てイベントの受信は `getCurrentWindow().listen()` を使う**（`@tauri-apps/api/event` の素の `listen()` は使わない）: Rust が `app.emit_to(label, …)` で 1 ウィンドウに送っても、素の `listen()` はデフォルト target が `Any` のため**全ウィンドウで発火**する。`cli_open` のようにルーティング済みの宛先ウィンドウだけで処理したいイベントは、必ず `getCurrentWindow().listen()`（target = 自ラベル）で受ける（過去に `useCliOpen` が素の `listen()` を使い、外部ファイルを開くと全ウィンドウが開こうとしてエラーになった）。全ブロードキャスト＋ID フィルタ方式（PTY/Docker）とは使い分ける
 - 全ウィンドウ（main + 子）が `last_project.txt` に自身のプロジェクト ID を登録し、起動時に復元
 - main ウィンドウ close → アプリ終了 + 全 PTY/Docker session cleanup
 - 子ウィンドウ close → `beforeunload` で session 保存 + PTY kill（ベストエフォート）

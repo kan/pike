@@ -1,4 +1,4 @@
-import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { type CliAction, cliGetInitialAction } from '../lib/tauri'
 import { useTabStore } from '../stores/tabs'
 
@@ -38,7 +38,11 @@ export async function initCliOpen() {
   if (initialized) return
   initialized = true
 
-  await listen<CliAction>('cli_open', (event) => {
+  // Scope to THIS window: the Rust side targets a specific window via
+  // `emit_to(label)`. The global `listen` (target `Any`) would fire in every
+  // window, so opening an external file from one terminal made all other
+  // windows try (and fail) to open it too.
+  await getCurrentWindow().listen<CliAction>('cli_open', (event) => {
     handleActionLocal(event.payload)
   })
 
