@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.13.0] - 2026-06-25
+
+### Features
+
+- **設定の外部 JSON 同期（パス指定方式）（#105）**: pike 自体に同期サービスは持たせず、環境非依存の設定（`pike:settings`）をユーザ指定パスの JSON ファイルにミラーする機能を追加。保存先を Dropbox / OneDrive / git などの同期フォルダに向ければ、複数 PC 間で設定を共有できる
+  - 起動時に同期ファイルがあれば読み込んで内部ストレージ（localStorage）へ反映
+  - 設定変更時は debounce（1.5s）でまとめて JSON へ自動書き出し
+  - Settings に「設定の同期」セクションを追加（パス入力 + ネイティブ保存ダイアログの参照ボタン + 「今すぐ書き出す」/「ファイルから読み込む」）
+  - 同期対象は `pike:settings` 全般（フォント・配色・エディタ・ターミナルのコマンド/プロンプト等）。プロジェクト一覧・グループ・`last_project`・同期ファイルパス自体（環境依存）は対象外
+
+### Bug Fixes
+
+- **Claude Code のフルスクリーンレンダーモードで選択コピーが効かない問題を修正（#104）**: 新フルスクリーンレンダー（`/tui fullscreen`）はマウスレポーティングを有効化するため xterm のローカル選択が発生せず、claude が送る `OSC 52` クリップボード書き込みも pike が未処理で破棄していた。`terminal.parser.registerOscHandler(52)` で OSC 52 書き込み要求を処理し、base64 を UTF-8 として decode してクリップボードへ反映するよう対応（読み取り要求は漏洩防止のため無視）
+- **フルスクリーンモードで右クリック貼り付けが二重に発動する問題を修正（#106）**: マウスレポーティング有効時は右クリックが claude 側にも渡り、claude 自身の貼り付けと pike の貼り付けが二重化していた。`terminal.modes.mouseTrackingMode` が有効な場合は pike 側の右クリック貼り付けをスキップしてアプリに委ねる
+
 ## [0.12.0] - 2026-06-23
 
 ### Features
@@ -640,6 +655,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.13.0]: https://github.com/kan/pike/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/kan/pike/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/kan/pike/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/kan/pike/compare/v0.9.0...v0.10.0
