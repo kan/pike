@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { locale } from '../i18n'
 import { buildFontFamily, extractFontName } from '../lib/fontDetection'
 import { loadJson, saveJson } from '../lib/storage'
-import { fontListMonospace } from '../lib/tauri'
+import { fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 
 export interface TerminalColorScheme {
   name: string
@@ -171,6 +171,12 @@ export const COLOR_SCHEMES: TerminalColorScheme[] = [
 ]
 
 const STORAGE_KEY = 'pike:settings'
+// The external sync-file path is itself environment-specific (the Dropbox
+// folder differs per PC), so it is stored separately and never written into the
+// synced payload.
+const SYNC_PATH_KEY = 'pike:sync-path'
+// Debounce window for mirroring settings changes out to the sync file.
+const SYNC_WRITE_DEBOUNCE_MS = 1500
 
 export type AgentDefault = 'claude-code' | 'codex' | 'ask'
 
@@ -297,8 +303,9 @@ export const useSettingsStore = defineStore('settings', () => {
     return theme
   })
 
-  function persist() {
-    saveJson(STORAGE_KEY, {
+  /** Snapshot the persistable (environment-independent) settings. */
+  function snapshot(): PersistedSettings {
+    return {
       fontFamily: fontFamily.value,
       fontSize: fontSize.value,
       colorSchemeName: colorSchemeName.value,
@@ -315,7 +322,97 @@ export const useSettingsStore = defineStore('settings', () => {
       agentDefault: agentDefault.value,
       agentCommands: agentCommands.value,
       agentPrompts: agentPrompts.value,
-    })
+    }
+  }
+
+  function persist() {
+    saveJson(STORAGE_KEY, snapshot())
+  }
+
+  /** Apply a settings payload (from the sync file) onto the live refs. */
+  function applySettings(s: PersistedSettings) {
+    fontFamily.value = s.fontFamily
+    fontSize.value = s.fontSize
+    colorSchemeName.value = s.colorSchemeName
+    darkMode.value = s.darkMode
+    editorThemeName.value = s.editorThemeName
+    editorMinimap.value = s.editorMinimap
+    editorWordWrap.value = s.editorWordWrap
+    editorTabSize.value = s.editorTabSize
+    terminalCopyOnSelect.value = s.terminalCopyOnSelect
+    terminalRightClickPaste.value = s.terminalRightClickPaste
+    language.value = s.language
+    terminalExitNotification.value = s.terminalExitNotification
+    codexNotification.value = s.codexNotification
+    agentDefault.value = s.agentDefault
+    agentCommands.value = s.agentCommands
+    agentPrompts.value = s.agentPrompts
+  }
+
+  // --- External settings-sync file ---------------------------------------
+  // Pike has no built-in sync service; instead it mirrors `snapshot()` to a
+  // JSON file at a user-chosen host path (point it at Dropbox/OneDrive/git).
+  const syncFilePath = ref(loadJson<string>(SYNC_PATH_KEY, ''))
+  // 'idle' | 'saved' | 'loaded' | 'error'
+  const syncStatus = ref<'idle' | 'saved' | 'loaded' | 'error'>('idle')
+  const syncMessage = ref('')
+  let importing = false
+  let syncWriteTimer: ReturnType<typeof setTimeout> | null = null
+
+  watch(syncFilePath, (v) => saveJson(SYNC_PATH_KEY, v))
+
+  /** Write the current settings out to the sync file. */
+  async function exportToSyncFile(): Promise<boolean> {
+    if (!syncFilePath.value) return false
+    try {
+      await settingsSyncWrite(syncFilePath.value, JSON.stringify(snapshot(), null, 2))
+      syncStatus.value = 'saved'
+      syncMessage.value = ''
+      return true
+    } catch (e) {
+      syncStatus.value = 'error'
+      syncMessage.value = String(e)
+      return false
+    }
+  }
+
+  /** Load settings from the sync file and apply them. */
+  async function importFromSyncFile(): Promise<boolean> {
+    if (!syncFilePath.value) return false
+    try {
+      const raw = await settingsSyncRead(syncFilePath.value)
+      const parsed = JSON.parse(raw)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        throw new Error('invalid settings file')
+      }
+      importing = true
+      applySettings({ ...defaults(), ...(parsed as Partial<PersistedSettings>) })
+      await nextTick() // let change-watchers flush while writes are suppressed
+      importing = false
+      persist() // mirror the imported settings into localStorage
+      syncStatus.value = 'loaded'
+      syncMessage.value = ''
+      return true
+    } catch (e) {
+      importing = false
+      syncStatus.value = 'error'
+      syncMessage.value = String(e)
+      return false
+    }
+  }
+
+  function scheduleSyncWrite() {
+    if (!syncFilePath.value || importing) return
+    if (syncWriteTimer) clearTimeout(syncWriteTimer)
+    syncWriteTimer = setTimeout(() => {
+      syncWriteTimer = null
+      void exportToSyncFile()
+    }, SYNC_WRITE_DEBOUNCE_MS)
+  }
+
+  function onSettingsChanged() {
+    persist()
+    scheduleSyncWrite()
   }
 
   function applyDarkMode() {
@@ -339,12 +436,15 @@ export const useSettingsStore = defineStore('settings', () => {
       codexNotification,
       agentDefault,
     ],
-    persist,
+    onSettingsChanged,
   )
   // agentCommands / agentPrompts are arrays — deep-watch so in-place edits persist too.
-  watch(agentCommands, persist, { deep: true })
-  watch(agentPrompts, persist, { deep: true })
+  watch(agentCommands, onSettingsChanged, { deep: true })
+  watch(agentPrompts, onSettingsChanged, { deep: true })
   watch(darkMode, applyDarkMode, { immediate: true })
+
+  // On startup, pull the latest settings from the sync file (if configured).
+  if (syncFilePath.value) void importFromSyncFile()
 
   return {
     fontFamily,
@@ -369,5 +469,10 @@ export const useSettingsStore = defineStore('settings', () => {
     availableFonts,
     loadAvailableFonts,
     setFontByName,
+    syncFilePath,
+    syncStatus,
+    syncMessage,
+    exportToSyncFile,
+    importFromSyncFile,
   }
 })

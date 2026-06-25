@@ -167,6 +167,16 @@ export async function fsResolveFirstExisting(shell: ShellType, candidates: strin
   return invoke<string | null>('fs_resolve_first_existing', { shell, candidates })
 }
 
+// Settings sync (external JSON file at a user-chosen host path)
+
+export async function settingsSyncRead(path: string): Promise<string> {
+  return invoke<string>('settings_sync_read', { path })
+}
+
+export async function settingsSyncWrite(path: string, content: string): Promise<void> {
+  return invoke('settings_sync_write', { path, content })
+}
+
 // Watcher
 
 export async function fsWatchStart(shell: ShellType, root: string): Promise<string> {

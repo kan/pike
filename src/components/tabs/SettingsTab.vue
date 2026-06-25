@@ -5,6 +5,7 @@ import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
+import { pickSaveFile } from '../../lib/tauri'
 import { COLOR_SCHEMES, useSettingsStore } from '../../stores/settings'
 
 const { t } = useI18n()
@@ -12,6 +13,11 @@ const settings = useSettingsStore()
 settings.loadAvailableFonts()
 
 const updater = useUpdater()
+
+async function browseSyncFile() {
+  const path = await pickSaveFile('pike-settings.json')
+  if (path) settings.syncFilePath = path
+}
 
 function onFontSizeInput(e: Event) {
   const val = parseInt((e.target as HTMLInputElement).value, 10)
@@ -60,6 +66,7 @@ const sections = [
   { id: 'terminal', i18nKey: 'settings.terminal' },
   { id: 'editor', i18nKey: 'settings.editor' },
   { id: 'agent', i18nKey: 'settings.agent' },
+  { id: 'sync', i18nKey: 'settings.sync' },
   { id: 'about', i18nKey: 'settings.about' },
 ]
 const activeSection = ref('appearance')
@@ -387,6 +394,40 @@ const PREVIEW_LINES = [
           <div class="mode-toggle">
             <button class="mode-btn" :class="{ active: settings.codexNotification }" @click="settings.codexNotification = true">{{ t('common.on') }}</button>
             <button class="mode-btn" :class="{ active: !settings.codexNotification }" @click="settings.codexNotification = false">{{ t('common.off') }}</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings Sync -->
+      <section id="settings-sync" class="settings-section">
+        <h3 class="section-title">{{ t('settings.sync') }}</h3>
+        <div class="setting-row setting-row-block">
+          <label class="setting-label">{{ t('settings.syncFilePath') }}</label>
+          <p class="setting-hint">{{ t('settings.syncHint') }}</p>
+          <div class="sync-path-row">
+            <input
+              v-model="settings.syncFilePath"
+              class="agent-cmd-input sync-path-input"
+              type="text"
+              spellcheck="false"
+              :placeholder="t('settings.syncFilePathPlaceholder')"
+            />
+            <button type="button" class="detect-btn" @click="browseSyncFile">
+              {{ t('project.browse') }}
+            </button>
+          </div>
+          <div class="sync-actions">
+            <button class="update-btn" :disabled="!settings.syncFilePath" @click="settings.exportToSyncFile()">
+              {{ t('settings.syncExport') }}
+            </button>
+            <button class="update-btn" :disabled="!settings.syncFilePath" @click="settings.importFromSyncFile()">
+              {{ t('settings.syncImport') }}
+            </button>
+            <span v-if="settings.syncStatus === 'saved'" class="update-info update-ok">{{ t('settings.syncSaved') }}</span>
+            <span v-else-if="settings.syncStatus === 'loaded'" class="update-info update-ok">{{ t('settings.syncLoaded') }}</span>
+            <span v-else-if="settings.syncStatus === 'error'" class="update-info update-err">
+              {{ t('settings.syncError') }}{{ settings.syncMessage ? ': ' + settings.syncMessage : '' }}
+            </span>
           </div>
         </div>
       </section>
@@ -820,6 +861,42 @@ const PREVIEW_LINES = [
 .agent-cmd-input.label {
   flex: 0 0 130px;
   min-width: 0;
+}
+
+.sync-path-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sync-path-input {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.detect-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.detect-btn:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .agent-cmd-input.cmd {
