@@ -5,7 +5,7 @@ import { Terminal } from '@xterm/xterm'
 import { Bot, ChevronDown, MessageSquareText } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
-import { readClipboardImages, saveImageFile } from '../../composables/useImagePaste'
+import { MAX_UPLOAD_SIZE, readClipboardImages, saveUploadFile, toMb } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
@@ -19,6 +19,7 @@ import {
 } from '../../lib/terminalLinks'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
+import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import '@xterm/xterm/css/xterm.css'
 
@@ -49,6 +50,7 @@ function buildAutoStartLine(autoStart: string, shellKind: string | undefined, cl
 const tabStore = useTabStore()
 const settingsStore = useSettingsStore()
 const projectStore = useProjectStore()
+const statusMessage = useStatusMessageStore()
 
 // One-click coding-agent launchers (`clear && claude` etc.), injected into the
 // current shell. Configurable in Settings; the first entry is the primary button.
@@ -531,19 +533,35 @@ onMounted(async () => {
     terminal.focus()
   }
 
+  // A pasted/dropped file: upload it and write the relative path (terminal uses a
+  // bare path, no @ mention). Inline expansion is intentionally agent-chat-only.
+  async function writeFileToPty(file: File) {
+    if (!ptyId) return
+    const name = file.name || 'file'
+    if (file.size > MAX_UPLOAD_SIZE) {
+      statusMessage.show({
+        text: t('upload.tooLarge', { name, size: String(toMb(file.size)), max: String(toMb(MAX_UPLOAD_SIZE)) }),
+        variant: 'error',
+        durationMs: 8000,
+      })
+      return
+    }
+    try {
+      const rel = await saveUploadFile(file)
+      ptyWrite(ptyId, rel).catch((err) => console.error('[terminal] ptyWrite failed:', err))
+    } catch (err) {
+      console.error('[terminal] file paste failed:', err)
+      statusMessage.show({ text: t('upload.failed', { name, error: String(err) }), variant: 'error', durationMs: 8000 })
+    }
+  }
+
   // 画像優先 → なければテキストの順で paste。右クリックと Ctrl+V の両方から呼ぶ。
+  // (xterm 経由の Ctrl+V は async Clipboard API の制約で画像とテキストのみ取得可能)
   async function pasteFromClipboard() {
     if (!ptyId) return
     const images = await readClipboardImages()
     if (images.length > 0) {
-      for (const file of images) {
-        try {
-          const relPath = await saveImageFile(file)
-          ptyWrite(ptyId, relPath).catch((err) => console.error('[terminal] ptyWrite failed:', err))
-        } catch (err) {
-          console.error('[terminal] saveImageFile failed:', err)
-        }
-      }
+      for (const file of images) await writeFileToPty(file)
       terminal?.focus()
       return
     }
@@ -590,13 +608,7 @@ onMounted(async () => {
       return
     }
     if (e.dataTransfer?.files.length) {
-      for (const file of e.dataTransfer.files) {
-        if (file.type.startsWith('image/')) {
-          saveImageFile(file)
-            .then((relPath) => ptyWrite(ptyId!, relPath))
-            .catch(() => {})
-        }
-      }
+      for (const file of e.dataTransfer.files) void writeFileToPty(file)
       terminal?.focus()
     }
   })

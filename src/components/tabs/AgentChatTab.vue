@@ -19,7 +19,13 @@ import {
 } from 'lucide-vue-next'
 import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { getClipboardImages, saveImageFile } from '../../composables/useImagePaste'
+import {
+  getClipboardFiles,
+  MAX_UPLOAD_SIZE,
+  saveUploadFile,
+  toMb,
+  tryInlineFile,
+} from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
 import { basename, fuzzyMatch, isAbsolutePath, isImageFile, toRelativePath } from '../../lib/paths'
 import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles, openUrlWithConfirm } from '../../lib/tauri'
@@ -116,22 +122,36 @@ function insertAtCursor(text: string) {
   })
 }
 
-async function handleImageFiles(files: File[]) {
+async function handleUploadFiles(files: File[]) {
   for (const file of files) {
+    const name = file.name || 'file'
+    if (file.size > MAX_UPLOAD_SIZE) {
+      agent.addSystemMessage(
+        props.tabId,
+        t('upload.tooLarge', { name, size: String(toMb(file.size)), max: String(toMb(MAX_UPLOAD_SIZE)) }),
+      )
+      continue
+    }
     try {
-      const relPath = await saveImageFile(file)
-      insertAtCursor(`@${relPath} `)
+      // Small text files can be expanded inline (opt-in); everything else uploads.
+      const inline = await tryInlineFile(file)
+      if (inline !== null) {
+        insertAtCursor(inline)
+      } else {
+        const relPath = await saveUploadFile(file)
+        insertAtCursor(`@${relPath} `)
+      }
     } catch (e) {
-      agent.addSystemMessage(props.tabId, `${t('codex.imagePasteFailed')}: ${e}`)
+      agent.addSystemMessage(props.tabId, t('upload.failed', { name, error: String(e) }))
     }
   }
 }
 
 function onPaste(e: ClipboardEvent) {
-  const images = getClipboardImages(e)
-  if (images.length === 0) return
+  const files = getClipboardFiles(e)
+  if (files.length === 0) return // text-only paste → let the textarea inline it
   e.preventDefault()
-  handleImageFiles(images)
+  handleUploadFiles(files)
 }
 
 function onDragOver(e: DragEvent) {
@@ -151,17 +171,9 @@ async function onDrop(e: DragEvent) {
     return
   }
 
-  // OS file drop
+  // OS file drop — upload any file type (or inline if small & text).
   if (e.dataTransfer?.files.length) {
-    const imageFiles = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
-    if (imageFiles.length > 0) {
-      await handleImageFiles(imageFiles)
-      return
-    }
-    // Non-image files: just insert path-like mention with filename
-    for (const file of e.dataTransfer.files) {
-      insertAtCursor(`@${file.name} `)
-    }
+    await handleUploadFiles(Array.from(e.dataTransfer.files))
   }
 }
 
@@ -877,7 +889,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="agent-chat-wrapper">
+  <div class="agent-chat-wrapper" @dragover.prevent="onDragOver" @drop.prevent="onDrop">
     <!-- Installing agent binary -->
     <div v-if="s.installStatus" class="auth-panel">
       <Loader :size="32" :stroke-width="2" class="spin" />
@@ -1088,8 +1100,6 @@ onUnmounted(() => {
             @keydown="onKeydown"
             @input="onInput"
             @paste="onPaste"
-            @dragover.prevent="onDragOver"
-            @drop.prevent="onDrop"
           />
           <button
             v-if="s.isGenerating"

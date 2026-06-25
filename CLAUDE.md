@@ -420,9 +420,13 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `messages` は `locale` に対する `computed` でリアクティブ（locale 切替で即時反映）。ストア等コンポーネント外では `t` を直接 import
 - `{name}` プレースホルダを `replaceAll` で展開。言語切替は Settings タブ
 
-### 画像ペースト
-- `composables/useImagePaste.ts`。ターミナル（xterm）/ エージェントチャットにクリップボード画像をペースト → `.pike/uploads/` に保存 → 相対パス（または `@パス` メンション）を挿入
-- xterm は Ctrl+V を SYN(`\x16`) として食うため `attachCustomKeyEventHandler` で横取り。右クリックは `navigator.clipboard.read()` で `image/*` を優先取得
+### ファイル/画像ペースト
+- `composables/useImagePaste.ts`。クリップボード/D&D のファイルを `.pike/uploads/` に保存 → 相対パスを挿入（エージェントチャットは `@パス` メンション、ターミナルは bare path）。画像専用ではなく**任意のファイル**が対象（PDF 等も可）
+- 判別は **file か string か**（`ClipboardEvent` は `item.kind === 'file'`、D&D は `dataTransfer.files`）。テキスト（string）は長さに関係なくインライン貼り付けのまま
+- 保存ファイル名は元名を保持（`stem-{hex}.ext`、衝突回避）。名前を持たないクリップボード blob（画像等）は `upload-{ts}-{hex}.{ext}` を生成
+- 初回保存時に各プロジェクトへ `.pike/.gitignore`（中身 `*`）を書き込み、退避ファイルを repo から除外
+- **小ファイルのインライン展開**（設定 `inlineSmallTextFiles`、既定OFF / 閾値 `inlineSmallTextThreshold` 既定4KB）: **AgentChatTab 限定**。ファイルがサイズ上限以下 **かつ** 中身が UTF-8 テキスト（`isProbablyText` で NUL/不正バイト判定）なら、アップロードせず内容を直接挿入。PDF・画像等のバイナリは常にアップロード。ターミナルへのドロップは常にアップロード（`tryInlineFile` は使わない）
+- xterm は Ctrl+V を SYN(`\x16`) として食うため `attachCustomKeyEventHandler` で横取り。右クリック/Ctrl+V は `navigator.clipboard.read()` 経由だが、この API は**画像とテキストのみ**返す（任意ファイルは取得不可）→ ターミナルへの任意ファイル投入は D&D が主経路
 - ファイルツリー / OS からのドラッグ&ドロップにも対応
 
 ### ショートカット一覧モーダル

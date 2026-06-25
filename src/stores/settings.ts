@@ -203,6 +203,8 @@ interface PersistedSettings {
   editorTabSize: number
   terminalCopyOnSelect: boolean
   terminalRightClickPaste: boolean
+  inlineSmallTextFiles: boolean
+  inlineSmallTextThreshold: number
   language: string
   terminalExitNotification: boolean
   codexNotification: boolean
@@ -227,6 +229,8 @@ function defaults(): PersistedSettings {
     editorTabSize: 4,
     terminalCopyOnSelect: true,
     terminalRightClickPaste: true,
+    inlineSmallTextFiles: false,
+    inlineSmallTextThreshold: 4096,
     language: 'en',
     terminalExitNotification: true,
     codexNotification: true,
@@ -256,6 +260,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorTabSize = ref(saved.editorTabSize)
   const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
   const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
+  const inlineSmallTextFiles = ref(saved.inlineSmallTextFiles)
+  const inlineSmallTextThreshold = ref(saved.inlineSmallTextThreshold)
   const language = ref(saved.language)
   const terminalExitNotification = ref(saved.terminalExitNotification)
   const codexNotification = ref(saved.codexNotification)
@@ -316,6 +322,8 @@ export const useSettingsStore = defineStore('settings', () => {
       editorTabSize: editorTabSize.value,
       terminalCopyOnSelect: terminalCopyOnSelect.value,
       terminalRightClickPaste: terminalRightClickPaste.value,
+      inlineSmallTextFiles: inlineSmallTextFiles.value,
+      inlineSmallTextThreshold: inlineSmallTextThreshold.value,
       language: language.value,
       terminalExitNotification: terminalExitNotification.value,
       codexNotification: codexNotification.value,
@@ -341,6 +349,8 @@ export const useSettingsStore = defineStore('settings', () => {
     editorTabSize.value = s.editorTabSize
     terminalCopyOnSelect.value = s.terminalCopyOnSelect
     terminalRightClickPaste.value = s.terminalRightClickPaste
+    inlineSmallTextFiles.value = s.inlineSmallTextFiles
+    inlineSmallTextThreshold.value = s.inlineSmallTextThreshold
     language.value = s.language
     terminalExitNotification.value = s.terminalExitNotification
     codexNotification.value = s.codexNotification
@@ -431,6 +441,8 @@ export const useSettingsStore = defineStore('settings', () => {
       editorTabSize,
       terminalCopyOnSelect,
       terminalRightClickPaste,
+      inlineSmallTextFiles,
+      inlineSmallTextThreshold,
       language,
       terminalExitNotification,
       codexNotification,
@@ -460,6 +472,8 @@ export const useSettingsStore = defineStore('settings', () => {
     xtermTheme,
     terminalCopyOnSelect,
     terminalRightClickPaste,
+    inlineSmallTextFiles,
+    inlineSmallTextThreshold,
     language,
     terminalExitNotification,
     codexNotification,

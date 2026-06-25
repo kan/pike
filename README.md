@@ -17,21 +17,24 @@ Built with Tauri v2 (Rust + Vue/TypeScript). Windows-first.
 
 - **Multi-terminal tabs** — xterm.js + PTY (WSL / cmd / PowerShell / Git Bash)
 - **Terminal agent helpers** — for running `claude` & co. in a terminal: one-click launch/prompt buttons (configurable), clickable `file:line` in output (incl. `rg`/`grep`) to open the editor, and "send to terminal" from an editor selection or a diagnostic row
-- **AI agents** — Claude Code & Codex as unified chat tabs (Agent runtime over ACP / Codex app-server), session resume, slash commands, `@`-mention file context
-- **File editor** — CodeMirror 6 with syntax highlighting (30+ languages), minimap, search & replace, git diff gutter, merge-conflict marker highlighting, jump-to-definition (Ctrl+Click / F12)
+- **AI agents** — Claude Code & Codex as unified chat tabs (Agent runtime over ACP / Codex app-server), session resume, slash commands, `@`-mention file context, token-usage & cost in the status bar
+- **Clipboard & drag-drop attach** — paste or drop any file (images, PDFs, …) to save it under `.pike/uploads/` and insert its path (`@`-mention in agent chat, bare path in terminal); plain text always pastes inline, and small text files can optionally expand inline instead of uploading (agent chat only)
+- **File editor** — CodeMirror 6 with syntax highlighting (30+ languages), minimap, search & replace, git diff gutter, merge-conflict marker highlighting, jump-to-definition (Ctrl+Click / F12), encoding detection & LF/CRLF switching
 - **Previews** — Markdown, Mermaid, CSV/TSV, JSON/JSONL, SVG, PDF, and an **image viewer** with zoom / 100% / fit, 90° rotate, flip, drag-pan, Ctrl+wheel zoom, and a transparency grid (view-only — never edits the file)
 - **Symbol outline** — outline panel (18 languages) with cursor follow + per-file git history
 - **Task runner** — auto-discovers `package.json` / `Makefile` / `deno.json` scripts and runs them in a terminal tab
-- **Command palette** — `Ctrl+P` for files, `>` tasks, `@` tabs, `:` line jump, `!` git branch
+- **Command palette** — `Ctrl+P` for files, `>` tasks / new agent, `@` tabs, `:` line jump, `!` git branch, `?` help
 - **Git panel** — staging, commit, push/pull, diff viewer, commit & branch graph, merge-conflict (unmerged) files shown in a red Conflicts section
 - **Git worktree switcher** — status-bar selector re-points the file tree / git / search / tasks / docker / editor at a selected worktree, for reviewing parallel agent work in one window
 - **Docker panel** — compose services, start/stop/restart, live logs, `docker exec` shell
 - **Project search** — ripgrep (bundled) / grep fallback
 - **File tree** — drag & drop, rename, delete, git status icons, file watcher auto-refresh
+- **Project management** — register WSL / Windows projects, organize them into collapsible groups, drag & drop between groups
 - **Multi-window** — open projects in separate windows
 - **Session persistence** — tab order, active tab, pinned tabs auto-restored on restart
 - **Dark / Light mode** — switchable from settings
 - **i18n** — Japanese / English
+- **Settings sync** — mirror environment-independent settings to an external JSON file (point it at a Dropbox/OneDrive/git folder) to share across PCs
 - **Self-updater** — auto check & update from GitHub Releases
 - **pike CLI** — `pike file.rs:42` to open files, `pike <dir>` to switch projects, `--wait` for `GIT_EDITOR`
 

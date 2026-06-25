@@ -134,6 +134,10 @@ export default {
   'settings.colorScheme': 'カラースキーム',
   'settings.copyOnSelect': '選択時にコピー',
   'settings.rightClickPaste': '右クリックで貼り付け',
+  'settings.inlineSmallTextFiles': '小さいテキストファイルをインライン展開',
+  'settings.inlineSmallTextFilesHint':
+    'Claude/Codex チャット入力でファイルを貼り付け/ドロップしたとき、テキストかつサイズ上限以下なら、アップロードせず内容を直接挿入します。上限超過・バイナリ（およびターミナルへのドロップ）は常に .pike/uploads/ に保存します。',
+  'settings.inlineSmallTextThreshold': 'インライン展開のサイズ上限（バイト）',
   'settings.agentCommands': 'ターミナルのエージェントボタン',
   'settings.agentCommandsHint': '現在のターミナルに注入するクイック起動コマンド（例: clear && claude）。',
   'settings.agentCommandLabel': 'ラベル',
@@ -441,7 +445,8 @@ export default {
   'codex.opt.granular': 'ツールごとに制御',
   'codex.opt.never': '全て自動承認',
   'codex.opt.default': 'プラットフォーム既定',
-  'codex.imagePasteFailed': '貼り付け画像の保存に失敗しました',
+  'upload.tooLarge': '「{name}」は大きすぎて添付できません: {size} MB（上限 {max} MB）',
+  'upload.failed': '「{name}」の添付に失敗しました: {error}',
   // Tasks
   'tasks.noFiles': 'タスクファイルが見つかりません',
   // Outline

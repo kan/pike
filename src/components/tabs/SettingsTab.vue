@@ -259,6 +259,21 @@ const PREVIEW_LINES = [
           </div>
         </div>
 
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.inlineSmallTextFiles') }}</label>
+            <div class="mode-toggle">
+              <button class="mode-btn" :class="{ active: settings.inlineSmallTextFiles }" @click="settings.inlineSmallTextFiles = true">{{ t('common.on') }}</button>
+              <button class="mode-btn" :class="{ active: !settings.inlineSmallTextFiles }" @click="settings.inlineSmallTextFiles = false">{{ t('common.off') }}</button>
+            </div>
+          </div>
+          <p class="setting-hint">{{ t('settings.inlineSmallTextFilesHint') }}</p>
+          <div v-if="settings.inlineSmallTextFiles" class="setting-row">
+            <label class="setting-label">{{ t('settings.inlineSmallTextThreshold') }}</label>
+            <input v-model.number="settings.inlineSmallTextThreshold" type="number" min="0" step="1024" class="number-input" />
+          </div>
+        </div>
+
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.terminalExitNotification') }}</label>
           <div class="mode-toggle">
@@ -585,6 +600,22 @@ const PREVIEW_LINES = [
 
 .setting-select-narrow {
   min-width: 70px;
+}
+
+.number-input {
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  width: 120px;
+}
+
+.number-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .font-size-control {

@@ -134,6 +134,10 @@ export default {
   'settings.colorScheme': 'Color Scheme',
   'settings.copyOnSelect': 'Copy on Select',
   'settings.rightClickPaste': 'Right Click Paste',
+  'settings.inlineSmallTextFiles': 'Expand small text files inline',
+  'settings.inlineSmallTextFilesHint':
+    'In the Claude/Codex chat input, when you paste or drop a file, inline its content instead of uploading it if the file is text and at or below the size limit. Larger or binary files (and all terminal drops) are always saved to .pike/uploads/.',
+  'settings.inlineSmallTextThreshold': 'Inline size limit (bytes)',
   'settings.agentCommands': 'Terminal Agent Buttons',
   'settings.agentCommandsHint': 'Quick-launch commands injected into the current terminal (e.g. clear && claude).',
   'settings.agentCommandLabel': 'Label',
@@ -441,7 +445,8 @@ export default {
   'codex.opt.granular': 'Per-tool control',
   'codex.opt.never': 'Auto-approve all',
   'codex.opt.default': 'Platform default',
-  'codex.imagePasteFailed': 'Failed to save pasted image',
+  'upload.tooLarge': '“{name}” is too large to attach: {size} MB (max {max} MB)',
+  'upload.failed': 'Failed to attach “{name}”: {error}',
   // Tasks
   'tasks.noFiles': 'No task files found',
   // Outline

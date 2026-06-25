@@ -439,7 +439,9 @@ pub async fn fs_create_dir(
         .map_err(|e| e.to_string())?
 }
 
-const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+// Upload cap for pasted/dropped files. Keep in sync with `MAX_UPLOAD_SIZE` in
+// src/composables/useImagePaste.ts.
+const MAX_UPLOAD_SIZE: usize = 50 * 1024 * 1024; // 50 MB
 
 #[tauri::command]
 pub async fn fs_write_file_base64(
@@ -451,11 +453,11 @@ pub async fn fs_write_file_base64(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(&data)
             .map_err(|e| format!("base64 decode error: {e}"))?;
-        if bytes.len() > MAX_IMAGE_SIZE {
+        if bytes.len() > MAX_UPLOAD_SIZE {
             return Err(format!(
                 "File too large ({} bytes, max {})",
                 bytes.len(),
-                MAX_IMAGE_SIZE
+                MAX_UPLOAD_SIZE
             ));
         }
         // Ensure parent directory exists
