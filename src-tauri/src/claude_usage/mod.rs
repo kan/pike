@@ -1,8 +1,10 @@
+use crate::types::ShellConfig;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -119,10 +121,44 @@ fn calculate_cost(pricing: &ModelPricing, counts: &TokenCounts) -> f64 {
         / 1_000_000.0
 }
 
-fn claude_home() -> Option<PathBuf> {
-    std::env::var("USERPROFILE")
-        .ok()
-        .map(|p| PathBuf::from(p).join(".claude"))
+/// Resolve the `.claude` data directory for the given shell.
+/// - Windows shells: `%USERPROFILE%\.claude`.
+/// - WSL: the distro's home `.claude`, reached over the `\\wsl.localhost\…` (or
+///   legacy `\\wsl$\…`) UNC share, since `claude` running inside WSL writes its
+///   logs to the Linux home, not the Windows profile.
+fn claude_home(shell: &ShellConfig) -> Option<PathBuf> {
+    match shell {
+        ShellConfig::Wsl { distro } => wsl_claude_dir_cached(shell, distro),
+        _ => std::env::var("USERPROFILE")
+            .ok()
+            .map(|p| PathBuf::from(p).join(".claude")),
+    }
+}
+
+/// Resolve (and cache per distro) the WSL `.claude` directory as a Windows UNC
+/// path. Spawns `wsl.exe` for `$HOME` and probes the share only on the first
+/// success; later polls reuse the cached path. Not cached on failure, so it
+/// keeps retrying until `claude` has actually run inside the distro.
+fn wsl_claude_dir_cached(shell: &ShellConfig, distro: &str) -> Option<PathBuf> {
+    static CACHE: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(dir) = cache.lock().ok()?.get(distro) {
+        return Some(dir.clone());
+    }
+    // `echo $HOME` → e.g. "/home/kan"; take the last line in case of any banner.
+    let raw = shell.run_stdout("bash", &["-c", "echo $HOME"]).ok()?;
+    let home = raw.lines().last().unwrap_or_default().trim().trim_end_matches('/');
+    if home.is_empty() {
+        return None;
+    }
+    let tail = format!("{}\\.claude", home.replace('/', "\\"));
+    // Modern share host is `wsl.localhost`; older Windows builds use `wsl$`.
+    let dir = ["wsl.localhost", "wsl$"]
+        .into_iter()
+        .map(|host| PathBuf::from(format!("\\\\{host}\\{distro}{tail}")))
+        .find(|p| p.is_dir())?;
+    cache.lock().ok()?.insert(distro.to_string(), dir.clone());
+    Some(dir)
 }
 
 fn encode_project_path(root: &str) -> String {
@@ -154,32 +190,66 @@ fn is_process_alive(_pid: u64) -> bool {
     false
 }
 
-fn find_active_sessions(project_root: &str) -> Vec<SessionInfo> {
-    let Some(claude_dir) = claude_home() else {
-        return Vec::new();
-    };
+/// Set of still-running pids among `pids`. WSL goes through the distro (Linux
+/// pids are meaningless to the Windows process APIs); other shells use the
+/// Windows process API directly.
+fn alive_pids(shell: &ShellConfig, pids: &[u64]) -> HashSet<u64> {
+    match shell {
+        ShellConfig::Wsl { .. } => alive_pids_wsl(shell, pids),
+        _ => pids.iter().copied().filter(|&p| is_process_alive(p)).collect(),
+    }
+}
+
+/// One `wsl.exe` call that echoes each still-running pid. The trailing `; true`
+/// keeps the whole script's exit status 0 even when the last `kill -0` fails —
+/// otherwise `run_stdout` would treat it as an error and discard the stdout that
+/// already named the live pids.
+fn alive_pids_wsl(shell: &ShellConfig, pids: &[u64]) -> HashSet<u64> {
+    if pids.is_empty() {
+        return HashSet::new();
+    }
+    let checks = pids
+        .iter()
+        .map(|p| format!("kill -0 {p} 2>/dev/null && echo {p}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let script = format!("{checks}; true");
+    let out = shell.run_stdout("bash", &["-c", &script]).unwrap_or_default();
+    out.lines().filter_map(|l| l.trim().parse::<u64>().ok()).collect()
+}
+
+/// Match a session's cwd against the project root. Windows paths compare
+/// case-insensitively (`normalize_path`); WSL paths are case-sensitive.
+fn paths_match(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
+    match shell {
+        ShellConfig::Wsl { .. } => cwd.trim_end_matches('/') == root.trim_end_matches('/'),
+        _ => normalize_path(cwd) == normalize_path(root),
+    }
+}
+
+fn find_active_sessions(shell: &ShellConfig, claude_dir: &Path, project_root: &str) -> Vec<SessionInfo> {
     let sessions_dir = claude_dir.join("sessions");
     let Ok(entries) = fs::read_dir(&sessions_dir) else {
         return Vec::new();
     };
 
-    let normalized_root = normalize_path(project_root);
-    let mut result = Vec::new();
-
+    let mut candidates: Vec<SessionInfo> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_some_and(|e| e == "json") {
             if let Ok(content) = fs::read_to_string(&path) {
                 if let Ok(info) = serde_json::from_str::<SessionInfo>(&content) {
-                    if normalize_path(&info.cwd) == normalized_root && is_process_alive(info.pid) {
-                        result.push(info);
+                    if paths_match(shell, &info.cwd, project_root) {
+                        candidates.push(info);
                     }
                 }
             }
         }
     }
 
-    result
+    let pids: Vec<u64> = candidates.iter().map(|c| c.pid).collect();
+    let alive = alive_pids(shell, &pids);
+    candidates.into_iter().filter(|c| alive.contains(&c.pid)).collect()
 }
 
 fn aggregate_jsonl(jsonl_path: &PathBuf) -> HashMap<String, TokenCounts> {
@@ -217,15 +287,15 @@ fn aggregate_jsonl(jsonl_path: &PathBuf) -> HashMap<String, TokenCounts> {
     by_model
 }
 
-fn get_usage_for_project(project_root: &str) -> Result<ClaudeUsageResult, String> {
-    let sessions = find_active_sessions(project_root);
+fn get_usage_for_project(shell: &ShellConfig, project_root: &str) -> Result<ClaudeUsageResult, String> {
+    let Some(claude_dir) = claude_home(shell) else {
+        return Ok(ClaudeUsageResult::default());
+    };
+
+    let sessions = find_active_sessions(shell, &claude_dir, project_root);
     if sessions.is_empty() {
         return Ok(ClaudeUsageResult::default());
     }
-
-    let Some(claude_dir) = claude_home() else {
-        return Ok(ClaudeUsageResult::default());
-    };
 
     let encoded = encode_project_path(project_root);
     let projects_dir = claude_dir.join("projects").join(&encoded);
@@ -297,8 +367,11 @@ fn get_usage_for_project(project_root: &str) -> Result<ClaudeUsageResult, String
 }
 
 #[tauri::command]
-pub async fn claude_usage_get(project_root: String) -> Result<ClaudeUsageResult, String> {
-    tokio::task::spawn_blocking(move || get_usage_for_project(&project_root))
+pub async fn claude_usage_get(
+    shell: ShellConfig,
+    project_root: String,
+) -> Result<ClaudeUsageResult, String> {
+    tokio::task::spawn_blocking(move || get_usage_for_project(&shell, &project_root))
         .await
         .map_err(|e| e.to_string())?
 }

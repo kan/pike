@@ -562,6 +562,6 @@ export async function agentDisconnect(tabId: string): Promise<void> {
 
 // Claude Usage
 
-export async function claudeUsageGet(projectRoot: string): Promise<ClaudeUsageResult> {
-  return invoke<ClaudeUsageResult>('claude_usage_get', { projectRoot })
+export async function claudeUsageGet(shell: ShellType, projectRoot: string): Promise<ClaudeUsageResult> {
+  return invoke<ClaudeUsageResult>('claude_usage_get', { shell, projectRoot })
 }

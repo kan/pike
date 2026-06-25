@@ -12,18 +12,17 @@ export const useClaudeUsageStore = defineStore('claudeUsage', () => {
   let refreshGuard = false
   let windowFocused = true
 
-  function getProjectRoot(): string | null {
-    const projectStore = useProjectStore()
-    return projectStore.currentProject?.root ?? null
+  function getProject() {
+    return useProjectStore().currentProject ?? null
   }
 
   async function refreshUsage() {
     if (refreshGuard) return
-    const root = getProjectRoot()
-    if (!root) return
+    const project = getProject()
+    if (!project?.root) return
     refreshGuard = true
     try {
-      const result = await claudeUsageGet(root)
+      const result = await claudeUsageGet(project.shell, project.root)
       const prev = usage.value
       if (
         prev &&
