@@ -161,8 +161,19 @@ fn wsl_claude_dir_cached(shell: &ShellConfig, distro: &str) -> Option<PathBuf> {
     Some(dir)
 }
 
+/// Encode a project root the way Claude Code names its `~/.claude/projects/<dir>`:
+/// every character that is not an ASCII letter or digit becomes `-`. This mirrors
+/// Claude's `cwd.replace(/[^a-zA-Z0-9]/g, "-")`, so dots/underscores/spaces/etc.
+/// all collapse to `-` (not just the path separators we handled before).
+///
+/// NOTE: Claude additionally truncates encodings longer than 200 chars and
+/// appends a hash of the original path. That (rare) case is not replicated here,
+/// so usage will not resolve for project paths whose encoded form exceeds 200
+/// chars.
 fn encode_project_path(root: &str) -> String {
-    root.replace([':', '\\', '/'], "-")
+    root.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 fn normalize_path(p: &str) -> String {
@@ -374,4 +385,26 @@ pub async fn claude_usage_get(
     tokio::task::spawn_blocking(move || get_usage_for_project(&shell, &project_root))
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_project_path;
+
+    #[test]
+    fn encode_matches_claude_scheme() {
+        // Path separators / drive colon (the cases that already worked).
+        assert_eq!(encode_project_path("C:\\Users\\kanfu"), "C--Users-kanfu");
+        assert_eq!(
+            encode_project_path("/home/kan/d-project-media"),
+            "-home-kan-d-project-media"
+        );
+        // Regression for #108: dots, underscores, spaces and non-ASCII all
+        // collapse to '-', matching Claude's /[^a-zA-Z0-9]/g.
+        assert_eq!(encode_project_path("/home/kan/my.project"), "-home-kan-my-project");
+        assert_eq!(encode_project_path("C:\\Users\\foo\\app.v2"), "C--Users-foo-app-v2");
+        assert_eq!(encode_project_path("/home/kan/a_b c"), "-home-kan-a-b-c");
+        // Non-ASCII (each scalar → '-'): "/x/é.z" → '-' x '-' '-' '-' z.
+        assert_eq!(encode_project_path("/x/é.z"), "-x---z");
+    }
 }
