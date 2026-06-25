@@ -348,6 +348,29 @@ onMounted(async () => {
     }
   })
 
+  // OSC 52 clipboard write: fullscreen TUIs that enable mouse reporting
+  // (Claude Code's fullscreen render mode, vim, etc.) capture mouse drags
+  // themselves, so xterm never forms a local selection and our copy-on-select
+  // never fires. Such apps instead emit `OSC 52 ; c ; <base64>` to put the
+  // selected text on the clipboard. xterm has no built-in handler for this, so
+  // we register one. Write-only — clipboard *read* requests ('?') are ignored
+  // to avoid leaking clipboard contents to the running program.
+  terminal.parser.registerOscHandler(52, (data) => {
+    const sep = data.indexOf(';')
+    if (sep === -1) return false
+    const payload = data.slice(sep + 1)
+    if (payload === '?' || payload === '') return true // read request — ignore but consume
+    let text: string
+    try {
+      const bytes = Uint8Array.from(atob(payload), (c) => c.charCodeAt(0))
+      text = new TextDecoder('utf-8').decode(bytes)
+    } catch {
+      return false
+    }
+    if (text) navigator.clipboard.writeText(text).catch(() => {})
+    return true
+  })
+
   const cols = terminal.cols
   const rows = terminal.rows
 
