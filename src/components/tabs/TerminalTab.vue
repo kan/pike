@@ -61,6 +61,18 @@ const promptMenuOpen = ref(false)
 // Hidden while a full-screen TUI owns the alternate screen buffer (vim, less,
 // lazygit, …) so the launcher can't inject text into a running program.
 const inAltScreen = ref(false)
+// True while the foreground app has mouse reporting enabled. Claude Code's
+// fullscreen render mode (and other interactive agents) enable it; plain
+// vim/less don't. We use this to keep the prompt-inject button available even
+// in the alternate screen — that's exactly when you want to feed a running
+// agent a snippet — while still hiding it for pure editors/pagers.
+const mouseActive = ref(false)
+
+// The launcher only makes sense when nothing is running fullscreen.
+const showAgentLaunch = computed(() => !inAltScreen.value && agentCommands.value.length > 0)
+// The prompt-inject button also shows in the alt-screen when an interactive,
+// mouse-reporting app (an agent) owns it.
+const showPromptInject = computed(() => (!inAltScreen.value || mouseActive.value) && agentPrompts.value.length > 0)
 
 function runAgentCommand(command: string) {
   agentMenuOpen.value = false
@@ -371,6 +383,25 @@ onMounted(async () => {
     return true
   })
 
+  // Track mouse-reporting state to decide whether the alt-screen app is an
+  // interactive agent (keep prompt-inject available) or a plain editor (hide).
+  // DECSET/DECRST private modes use `CSI ? Pm h|l`; re-read the canonical
+  // `terminal.modes` after xterm applies the sequence (we return false so the
+  // default handler still runs, then sync on a microtask).
+  const syncMouseMode = () => {
+    queueMicrotask(() => {
+      if (terminal) mouseActive.value = terminal.modes.mouseTrackingMode !== 'none'
+    })
+  }
+  terminal.parser.registerCsiHandler({ prefix: '?', final: 'h' }, () => {
+    syncMouseMode()
+    return false
+  })
+  terminal.parser.registerCsiHandler({ prefix: '?', final: 'l' }, () => {
+    syncMouseMode()
+    return false
+  })
+
   const cols = terminal.cols
   const rows = terminal.rows
 
@@ -602,8 +633,8 @@ onUnmounted(() => {
 
 <template>
   <div class="terminal-wrapper">
-    <div v-if="!inAltScreen && (agentCommands.length || agentPrompts.length)" class="term-toolbar">
-      <div v-if="agentPrompts.length" class="agent-launch" :class="{ open: promptMenuOpen }">
+    <div v-if="showAgentLaunch || showPromptInject" class="term-toolbar">
+      <div v-if="showPromptInject" class="agent-launch" :class="{ open: promptMenuOpen }">
         <button class="agent-btn solo" :title="t('terminal.promptInject')" @click="togglePromptMenu">
           <MessageSquareText :size="14" :stroke-width="2" />
           <ChevronDown :size="12" :stroke-width="2" />
@@ -621,7 +652,7 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
-      <div v-if="agentCommands.length" class="agent-launch" :class="{ open: agentMenuOpen }">
+      <div v-if="showAgentLaunch" class="agent-launch" :class="{ open: agentMenuOpen }">
         <button
           class="agent-btn primary"
           :title="agentCommands[0].command"
