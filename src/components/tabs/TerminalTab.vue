@@ -5,7 +5,13 @@ import { Terminal } from '@xterm/xterm'
 import { Bot, ChevronDown, MessageSquareText } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
-import { MAX_UPLOAD_SIZE, readClipboardImages, saveUploadFile, toMb } from '../../composables/useImagePaste'
+import {
+  MAX_UPLOAD_SIZE,
+  readClipboardImages,
+  saveUploadFile,
+  toMb,
+  UploadTooLargeError,
+} from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
@@ -538,20 +544,25 @@ onMounted(async () => {
   async function writeFileToPty(file: File) {
     if (!ptyId) return
     const name = file.name || 'file'
-    if (file.size > MAX_UPLOAD_SIZE) {
-      statusMessage.show({
-        text: t('upload.tooLarge', { name, size: String(toMb(file.size)), max: String(toMb(MAX_UPLOAD_SIZE)) }),
-        variant: 'error',
-        durationMs: 8000,
-      })
-      return
-    }
     try {
       const rel = await saveUploadFile(file)
-      ptyWrite(ptyId, rel).catch((err) => console.error('[terminal] ptyWrite failed:', err))
+      // Trailing space delimits consecutive paths when several files are dropped.
+      ptyWrite(ptyId, `${rel} `).catch((err) => console.error('[terminal] ptyWrite failed:', err))
     } catch (err) {
-      console.error('[terminal] file paste failed:', err)
-      statusMessage.show({ text: t('upload.failed', { name, error: String(err) }), variant: 'error', durationMs: 8000 })
+      if (err instanceof UploadTooLargeError) {
+        statusMessage.show({
+          text: t('upload.tooLarge', { name, size: String(toMb(err.fileSize)), max: String(toMb(MAX_UPLOAD_SIZE)) }),
+          variant: 'error',
+          durationMs: 8000,
+        })
+      } else {
+        console.error('[terminal] file paste failed:', err)
+        statusMessage.show({
+          text: t('upload.failed', { name, error: String(err) }),
+          variant: 'error',
+          durationMs: 8000,
+        })
+      }
     }
   }
 
@@ -608,8 +619,12 @@ onMounted(async () => {
       return
     }
     if (e.dataTransfer?.files.length) {
-      for (const file of e.dataTransfer.files) void writeFileToPty(file)
-      terminal?.focus()
+      // Sequential so multiple dropped paths are written in order, not interleaved.
+      const files = Array.from(e.dataTransfer.files)
+      void (async () => {
+        for (const file of files) await writeFileToPty(file)
+        terminal?.focus()
+      })()
     }
   })
 

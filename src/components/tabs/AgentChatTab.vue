@@ -25,6 +25,7 @@ import {
   saveUploadFile,
   toMb,
   tryInlineFile,
+  UploadTooLargeError,
 } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
 import { basename, fuzzyMatch, isAbsolutePath, isImageFile, toRelativePath } from '../../lib/paths'
@@ -125,24 +126,24 @@ function insertAtCursor(text: string) {
 async function handleUploadFiles(files: File[]) {
   for (const file of files) {
     const name = file.name || 'file'
-    if (file.size > MAX_UPLOAD_SIZE) {
-      agent.addSystemMessage(
-        props.tabId,
-        t('upload.tooLarge', { name, size: String(toMb(file.size)), max: String(toMb(MAX_UPLOAD_SIZE)) }),
-      )
-      continue
-    }
     try {
       // Small text files can be expanded inline (opt-in); everything else uploads.
-      const inline = await tryInlineFile(file)
-      if (inline !== null) {
-        insertAtCursor(inline)
+      const probed = await tryInlineFile(file)
+      if (probed?.text != null) {
+        insertAtCursor(`${probed.text} `)
       } else {
-        const relPath = await saveUploadFile(file)
+        const relPath = await saveUploadFile(file, probed?.bytes)
         insertAtCursor(`@${relPath} `)
       }
     } catch (e) {
-      agent.addSystemMessage(props.tabId, t('upload.failed', { name, error: String(e) }))
+      if (e instanceof UploadTooLargeError) {
+        agent.addSystemMessage(
+          props.tabId,
+          t('upload.tooLarge', { name, size: String(toMb(e.fileSize)), max: String(toMb(MAX_UPLOAD_SIZE)) }),
+        )
+      } else {
+        agent.addSystemMessage(props.tabId, t('upload.failed', { name, error: String(e) }))
+      }
     }
   }
 }
@@ -155,12 +156,20 @@ function onPaste(e: ClipboardEvent) {
 }
 
 function onDragOver(e: DragEvent) {
+  // Only an authenticated, connected chat can accept an attachment.
+  if (!isAuthenticated.value) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    return
+  }
   if (e.dataTransfer?.types.includes('Files') || e.dataTransfer?.types.includes('text/plain')) {
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
   }
 }
 
 async function onDrop(e: DragEvent) {
+  // The drop zone is the whole chat wrapper, which is mounted even while an
+  // auth/install panel is showing — ignore drops until the input is usable.
+  if (!isAuthenticated.value) return
   const project = projectStore.currentProject
   if (!project) return
 

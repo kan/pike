@@ -1,11 +1,21 @@
 import { pathSep } from '../lib/paths'
-import { fsCreateDir, fsWriteFile, fsWriteFileBase64 } from '../lib/tauri'
+import { fsCreateDir, fsReadFile, fsWriteFile, fsWriteFileBase64 } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
+import type { ShellType } from '../types/tab'
 
 const UPLOADS_DIR = '.pike/uploads'
 /** Max upload size. Keep in sync with Rust `MAX_UPLOAD_SIZE` in fs/mod.rs. */
 export const MAX_UPLOAD_SIZE = 50 * 1024 * 1024 // 50 MB
+
+/** Thrown by saveUploadFile when a file exceeds MAX_UPLOAD_SIZE, so callers can
+ * show a localized "too large" message without re-checking the threshold. */
+export class UploadTooLargeError extends Error {
+  constructor(readonly fileSize: number) {
+    super(`File too large (${toMb(fileSize)}MB, max ${toMb(MAX_UPLOAD_SIZE)}MB)`)
+    this.name = 'UploadTooLargeError'
+  }
+}
 
 /** Human-readable MB, rounded, for size messages. */
 export function toMb(bytes: number): number {
@@ -14,6 +24,16 @@ export function toMb(bytes: number): number {
 
 function rand4(): string {
   return Math.random().toString(16).slice(2, 6)
+}
+
+// Monotonic per-session counter folded into every filename so two concurrent
+// uploads of identically named files can never resolve to the same path (rand4
+// alone is only 16 bits). The increment is synchronous, so even parallel
+// saveUploadFile calls get distinct ids.
+let uploadSeq = 0
+function uniqueId(): string {
+  uploadSeq += 1
+  return `${uploadSeq.toString(36)}${rand4()}`
 }
 
 function extFromMime(mime: string): string {
@@ -49,9 +69,16 @@ function buildFilename(file: File): string {
     const dot = file.name.lastIndexOf('.')
     const stem = dot > 0 ? file.name.slice(0, dot) : file.name
     const ext = dot > 0 ? file.name.slice(dot + 1) : extFromMime(file.type)
-    return `${sanitize(stem)}-${rand4()}.${sanitize(ext)}`
+    return `${sanitize(stem)}-${uniqueId()}.${sanitize(ext)}`
   }
-  return `upload-${Date.now()}-${rand4()}.${extFromMime(file.type)}`
+  return `upload-${Date.now()}-${uniqueId()}.${extFromMime(file.type)}`
+}
+
+/** base64-encode a small byte buffer (avoids a second full read of the File). */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = ''
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  return btoa(bin)
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -107,32 +134,38 @@ export async function readClipboardImages(): Promise<File[]> {
 
 /** Ensure .pike/uploads/ exists and drop a .pike/.gitignore once per session. */
 const gitignoreEnsured = new Set<string>()
-async function ensureUploadsDir(shell: Parameters<typeof fsWriteFile>[0], root: string): Promise<string> {
+async function ensureUploadsDir(shell: ShellType, root: string): Promise<string> {
   const sep = pathSep(shell)
   const pikeDir = `${root}${sep}.pike`
   const uploadDir = `${pikeDir}${sep}uploads`
   await fsCreateDir(shell, uploadDir).catch(() => {})
   if (!gitignoreEnsured.has(root)) {
     gitignoreEnsured.add(root)
-    // .pike is tool-managed scratch space — keep it out of the user's repo.
-    fsWriteFile(shell, `${pikeDir}${sep}.gitignore`, '*\n').catch(() => {})
+    // .pike is tool-managed scratch space — keep it out of the user's repo, but
+    // never clobber a .gitignore the user may have hand-edited: write only if absent.
+    const giPath = `${pikeDir}${sep}.gitignore`
+    fsReadFile(shell, giPath).catch(() => fsWriteFile(shell, giPath, '*\n').catch(() => {}))
   }
   return uploadDir
 }
 
-/** Save any file to .pike/uploads/ and return the relative path. */
-export async function saveUploadFile(file: File): Promise<string> {
+/**
+ * Save any file to .pike/uploads/ and return the relative path. Throws
+ * UploadTooLargeError when the file exceeds MAX_UPLOAD_SIZE. When `bytes` is
+ * supplied (already read by the caller, e.g. tryInlineFile) it is reused to
+ * avoid a second full read of the File.
+ */
+export async function saveUploadFile(file: File, bytes?: Uint8Array): Promise<string> {
   const project = useProjectStore().currentProject
   if (!project) throw new Error('No active project')
-  if (file.size > MAX_UPLOAD_SIZE)
-    throw new Error(`File too large (${toMb(file.size)}MB, max ${toMb(MAX_UPLOAD_SIZE)}MB)`)
+  if (file.size > MAX_UPLOAD_SIZE) throw new UploadTooLargeError(file.size)
 
   const sep = pathSep(project.shell)
   const filename = buildFilename(file)
   const uploadDir = await ensureUploadsDir(project.shell, project.root)
   const fullPath = `${uploadDir}${sep}${filename}`
 
-  const base64 = await fileToBase64(file)
+  const base64 = bytes ? bytesToBase64(bytes) : await fileToBase64(file)
   await fsWriteFileBase64(project.shell, fullPath, base64)
 
   return `${UPLOADS_DIR.replaceAll('/', sep)}${sep}${filename}`
@@ -156,15 +189,20 @@ function isProbablyText(bytes: Uint8Array): boolean {
 }
 
 /**
- * When "inline small text files" is enabled and the file is small enough and
- * looks like text, return its decoded content (to splat inline instead of
- * uploading). Otherwise return null — the caller should upload via saveUploadFile.
+ * Probe a small file for inline expansion. Returns:
+ *  - `null`  → not probed (feature off, empty, or larger than the inline
+ *              threshold) → caller should upload via saveUploadFile(file).
+ *  - `{ text, bytes }` → file was read. `text` is the decoded content when it
+ *              looks like UTF-8 text (inline it), or `null` for binary (caller
+ *              should upload, passing `bytes` back to avoid a second read).
  */
-export async function tryInlineFile(file: File): Promise<string | null> {
+export async function tryInlineFile(file: File): Promise<{ text: string | null; bytes: Uint8Array } | null> {
   const settings = useSettingsStore()
   if (!settings.inlineSmallTextFiles) return null
+  // Empty files have no content to inline — upload them so a path is still produced.
+  if (file.size === 0) return null
   if (file.size > settings.inlineSmallTextThreshold) return null
   const bytes = new Uint8Array(await file.arrayBuffer())
-  if (!isProbablyText(bytes)) return null
-  return new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+  const text = isProbablyText(bytes) ? new TextDecoder('utf-8', { fatal: false }).decode(bytes) : null
+  return { text, bytes }
 }
