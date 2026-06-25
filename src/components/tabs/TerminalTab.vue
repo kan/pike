@@ -523,6 +523,10 @@ onMounted(async () => {
   termRef.value?.addEventListener('contextmenu', async (e) => {
     e.preventDefault()
     if (!settingsStore.terminalRightClickPaste || !ptyId) return
+    // When the app enables mouse reporting (Claude Code fullscreen mode, etc.),
+    // xterm forwards the right-button press to the PTY and the app does its own
+    // paste. Doing ours too would paste twice — let the app handle it.
+    if (terminal && terminal.modes.mouseTrackingMode !== 'none') return
     await pasteFromClipboard()
   })
 
