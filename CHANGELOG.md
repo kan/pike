@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.0] - 2026-06-28
+
+### Features
+
+- **間接 Codex (CLI) のトークン使用量を StatusBar に表示**: Claude の codex スキルや `codex` を呼ぶスクリプト等、Pike の agent runtime を経由しない Codex の利用状況を `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` から集計し、Claude usage と並べて表示する
+  - `session_meta.cwd` を `project_root` と突き合わせ、`token_count` イベントの `total_token_usage`（累計）と `rate_limits.used_percent` を集計。pid が無いため動作中判定はファイル mtime（直近 300 秒・最新 14 日分の日付ディレクトリ走査・未来 mtime は fresh 扱い）
+  - StatusBar に Bot アイコンで「トークン in/out + 5h 利用率%」を表示、クリックでモデル・キャッシュ・推論・5h/週間レートの内訳ドロップダウン。native codex agent-chat タブが active な時は CLI 表示を抑制（二重表示回避）
+  - コストはモデル別に集計し cached を割引単価で計算（`gpt-5*-codex` は単価未登録のため費用は出さず利用率% を主指標に）
+  - 共通化: cwd↔root 一致判定（`cwd_matches_root`）と WSL ホーム解決（`wsl_home_subdir_cached`）を `types.rs` に集約して `claude_usage` と共有。フロントのポーリング基盤は `createUsageStore` ファクトリに集約（全フィールド deep 比較で rate%・cached 等も再描画）
+
 ## [0.14.0] - 2026-06-25
 
 ### Features
@@ -681,6 +691,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.15.0]: https://github.com/kan/pike/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/kan/pike/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/kan/pike/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/kan/pike/compare/v0.12.0...v0.13.0
