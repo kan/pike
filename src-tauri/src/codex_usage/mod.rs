@@ -292,7 +292,7 @@ fn get_usage_for_project(
     }
     // Newest first: account-wide fields (model, rate limits, session id) come from
     // the most recently written session.
-    files.sort_by(|a, b| b.1.cmp(&a.1));
+    files.sort_by_key(|f| std::cmp::Reverse(f.1));
 
     let mut totals = TokenUsage::default();
     // Per-model totals drive cost: each session may run a different model, so
