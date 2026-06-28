@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
 import type { ClaudeUsageResult } from '../types/claudeUsage'
+import type { CodexUsageResult } from '../types/codexUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeService, ContainerInfo } from '../types/docker'
 import type { GitFileChange, GitLogEntry, GitStatusResult, GitWorktree } from '../types/git'
@@ -564,4 +565,10 @@ export async function agentDisconnect(tabId: string): Promise<void> {
 
 export async function claudeUsageGet(shell: ShellType, projectRoot: string): Promise<ClaudeUsageResult> {
   return invoke<ClaudeUsageResult>('claude_usage_get', { shell, projectRoot })
+}
+
+// Codex Usage (indirect CLI sessions from ~/.codex rollouts)
+
+export async function codexUsageGet(shell: ShellType, projectRoot: string): Promise<CodexUsageResult> {
+  return invoke<CodexUsageResult>('codex_usage_get', { shell, projectRoot })
 }

@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// Create a Command with CREATE_NO_WINDOW on Windows to prevent console window flashing.
@@ -228,6 +231,50 @@ pub fn wait_with_timeout<T: Send + 'static>(
             Err(format!("{label} timed out after {}s", timeout.as_secs()))
         }
     }
+}
+
+/// Canonicalize a Windows-style path for case-insensitive comparison: forward
+/// slashes → backslashes, trailing separators stripped, lowercased.
+fn normalize_win_path(p: &str) -> String {
+    p.replace('/', "\\").trim_end_matches('\\').to_lowercase()
+}
+
+/// Match a session/agent cwd against a project root. Windows paths compare
+/// case-insensitively; WSL paths are case-sensitive (trailing `/` ignored).
+/// Shared by `claude_usage` and `codex_usage` (the single comparison that
+/// decides whether a tool session belongs to the current project).
+pub fn cwd_matches_root(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
+    match shell {
+        ShellConfig::Wsl { .. } => cwd.trim_end_matches('/') == root.trim_end_matches('/'),
+        _ => normalize_win_path(cwd) == normalize_win_path(root),
+    }
+}
+
+/// Resolve (and cache per `(distro, subdir)`) a WSL home subdirectory — e.g.
+/// `.claude`, `.codex` — as a Windows UNC path. Spawns `wsl.exe` for `$HOME` and
+/// probes the modern `\\wsl.localhost\…` share (falling back to legacy `\\wsl$\…`)
+/// once; later calls reuse the cached path. Not cached on failure, so it keeps
+/// retrying until the tool has actually written into the distro.
+pub fn wsl_home_subdir_cached(shell: &ShellConfig, distro: &str, subdir: &str) -> Option<PathBuf> {
+    static CACHE: OnceLock<Mutex<HashMap<(String, String), PathBuf>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = (distro.to_string(), subdir.to_string());
+    if let Some(dir) = cache.lock().ok()?.get(&key) {
+        return Some(dir.clone());
+    }
+    // `echo $HOME` → e.g. "/home/kan"; take the last line in case of any banner.
+    let raw = shell.run_stdout("bash", &["-c", "echo $HOME"]).ok()?;
+    let home = raw.lines().last().unwrap_or_default().trim().trim_end_matches('/');
+    if home.is_empty() {
+        return None;
+    }
+    let tail = format!("{}\\{}", home.replace('/', "\\"), subdir);
+    let dir = ["wsl.localhost", "wsl$"]
+        .into_iter()
+        .map(|host| PathBuf::from(format!("\\\\{host}\\{distro}{tail}")))
+        .find(|p| p.is_dir())?;
+    cache.lock().ok()?.insert(key, dir.clone());
+    Some(dir)
 }
 
 pub fn validate_slug(value: &str, label: &str) -> Result<(), String> {

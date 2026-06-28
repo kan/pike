@@ -388,7 +388,9 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `src-tauri/src/claude_usage/` が `~/.claude` 配下のログを解析し、セッションのトークン使用量を集計
 - StatusBar にアクティブセッションの入力/出力トークン数と推定コストを表示。クリックでモデル別内訳ドロップダウン
 - Codex は active な agent-chat タブのセッション usage（`thread/tokenUsage/updated` 由来）を表示
-- フロント: `stores/claudeUsage.ts` + `types/claudeUsage.ts`、整形は `lib/format.ts` の `formatTokens` / `formatCost`
+- **間接 Codex（CLI）usage**: Claude の codex スキルや `codex` を呼ぶスクリプト等、Pike の agent runtime を経由しない Codex も `src-tauri/src/codex_usage/` が `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` を解析して集計。`session_meta.cwd` を `project_root` と突き合わせ、`token_count` イベントの `total_token_usage`（累計）と `rate_limits.used_percent` を取得。pid が無いため**動作中判定はファイル mtime（直近 `ACTIVE_WINDOW_SECS`=300 秒、長いターンでもチラつかない幅）**。day-dir は session 開始日のフォルダに書かれるため最新 `SCAN_DAY_DIRS`=14 日分を走査（数字名の日付ディレクトリのみ。stat→mtime フィルタなので負荷は軽い）。未来 mtime（WSL/Windows 時計ズレ）は age 0=fresh 扱い。コストは**モデル別に集計**し cached を割引単価で計算（`input_tokens` は cached を含む）。StatusBar には Claude usage と**並べて** Bot アイコンで「トークン in/out + 5h 利用率%」を表示（クリックでモデル・キャッシュ・推論・5h/週間レート内訳）。native codex agent-chat タブが active な時はそちらを優先し CLI 表示は抑制（二重表示回避）。`gpt-5*-codex` は単価未登録のため費用は出さず利用率%を主指標とする
+- cwd↔root 一致判定（`cwd_matches_root`）と WSL ホーム解決（`wsl_home_subdir_cached`）は `types.rs` の共通ヘルパーで、`claude_usage` / `codex_usage` が共有
+- フロント: ポーリング基盤は `stores/usageStore.ts` の `createUsageStore(id, fetcher)` ファクトリに集約（全フィールド deep 比較で rate%・cached 等も再描画）。`stores/claudeUsage.ts` / `stores/codexUsage.ts` は薄いラッパー。型は `types/claudeUsage.ts` / `types/codexUsage.ts`、整形は `lib/format.ts` の `formatTokens` / `formatCost`
 
 ### タスクランナー（Tasks パネル）
 - `tasks` サイドバーパネル。`src-tauri/src/tasks.rs` の `task_discover` がプロジェクトルートを**最大深さ 5**で再帰走査し、`package.json` / `Makefile` / `deno.json` を検出

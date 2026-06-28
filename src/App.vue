@@ -22,6 +22,7 @@ import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { projectRemoveOpen } from './lib/tauri'
 import { getWindowProjectId, isMainWindow, isSecondaryWindow } from './lib/window'
 import { useClaudeUsageStore } from './stores/claudeUsage'
+import { useCodexUsageStore } from './stores/codexUsage'
 import { useDiagnosticsStore } from './stores/diagnostics'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
@@ -35,6 +36,7 @@ const tabStore = useTabStore()
 const gitStore = useGitStore()
 const worktreeStore = useWorktreeStore()
 const claudeUsageStore = useClaudeUsageStore()
+const codexUsageStore = useCodexUsageStore()
 const diagStore = useDiagnosticsStore()
 
 useKeyboardShortcuts()
@@ -59,11 +61,13 @@ watch(
       gitStore.startPolling()
       worktreeStore.startPolling()
       claudeUsageStore.startPolling()
+      codexUsageStore.startPolling()
     } else {
       gitStore.stopPolling()
       worktreeStore.stopPolling()
       worktreeStore.reset()
       claudeUsageStore.stopPolling()
+      codexUsageStore.stopPolling()
     }
   },
 )
@@ -146,6 +150,7 @@ onMounted(async () => {
       await projectStore.saveSessionNow()
       gitStore.stopPolling()
       claudeUsageStore.stopPolling()
+      codexUsageStore.stopPolling()
       await fsWatcher.stop()
     })
     listen('app-should-exit', () => {

@@ -1,10 +1,9 @@
-use crate::types::ShellConfig;
+use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -128,37 +127,11 @@ fn calculate_cost(pricing: &ModelPricing, counts: &TokenCounts) -> f64 {
 ///   logs to the Linux home, not the Windows profile.
 fn claude_home(shell: &ShellConfig) -> Option<PathBuf> {
     match shell {
-        ShellConfig::Wsl { distro } => wsl_claude_dir_cached(shell, distro),
+        ShellConfig::Wsl { distro } => wsl_home_subdir_cached(shell, distro, ".claude"),
         _ => std::env::var("USERPROFILE")
             .ok()
             .map(|p| PathBuf::from(p).join(".claude")),
     }
-}
-
-/// Resolve (and cache per distro) the WSL `.claude` directory as a Windows UNC
-/// path. Spawns `wsl.exe` for `$HOME` and probes the share only on the first
-/// success; later polls reuse the cached path. Not cached on failure, so it
-/// keeps retrying until `claude` has actually run inside the distro.
-fn wsl_claude_dir_cached(shell: &ShellConfig, distro: &str) -> Option<PathBuf> {
-    static CACHE: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(dir) = cache.lock().ok()?.get(distro) {
-        return Some(dir.clone());
-    }
-    // `echo $HOME` → e.g. "/home/kan"; take the last line in case of any banner.
-    let raw = shell.run_stdout("bash", &["-c", "echo $HOME"]).ok()?;
-    let home = raw.lines().last().unwrap_or_default().trim().trim_end_matches('/');
-    if home.is_empty() {
-        return None;
-    }
-    let tail = format!("{}\\.claude", home.replace('/', "\\"));
-    // Modern share host is `wsl.localhost`; older Windows builds use `wsl$`.
-    let dir = ["wsl.localhost", "wsl$"]
-        .into_iter()
-        .map(|host| PathBuf::from(format!("\\\\{host}\\{distro}{tail}")))
-        .find(|p| p.is_dir())?;
-    cache.lock().ok()?.insert(distro.to_string(), dir.clone());
-    Some(dir)
 }
 
 /// Encode a project root the way Claude Code names its `~/.claude/projects/<dir>`:
@@ -174,10 +147,6 @@ fn encode_project_path(root: &str) -> String {
     root.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
-}
-
-fn normalize_path(p: &str) -> String {
-    p.replace('/', "\\").trim_end_matches('\\').to_lowercase()
 }
 
 #[cfg(windows)]
@@ -229,15 +198,6 @@ fn alive_pids_wsl(shell: &ShellConfig, pids: &[u64]) -> HashSet<u64> {
     out.lines().filter_map(|l| l.trim().parse::<u64>().ok()).collect()
 }
 
-/// Match a session's cwd against the project root. Windows paths compare
-/// case-insensitively (`normalize_path`); WSL paths are case-sensitive.
-fn paths_match(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
-    match shell {
-        ShellConfig::Wsl { .. } => cwd.trim_end_matches('/') == root.trim_end_matches('/'),
-        _ => normalize_path(cwd) == normalize_path(root),
-    }
-}
-
 fn find_active_sessions(shell: &ShellConfig, claude_dir: &Path, project_root: &str) -> Vec<SessionInfo> {
     let sessions_dir = claude_dir.join("sessions");
     let Ok(entries) = fs::read_dir(&sessions_dir) else {
@@ -250,7 +210,7 @@ fn find_active_sessions(shell: &ShellConfig, claude_dir: &Path, project_root: &s
         if path.extension().is_some_and(|e| e == "json") {
             if let Ok(content) = fs::read_to_string(&path) {
                 if let Ok(info) = serde_json::from_str::<SessionInfo>(&content) {
-                    if paths_match(shell, &info.cwd, project_root) {
+                    if cwd_matches_root(shell, &info.cwd, project_root) {
                         candidates.push(info);
                     }
                 }

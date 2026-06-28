@@ -2,6 +2,7 @@
 import {
   AlertTriangle,
   Archive,
+  Bot,
   Check,
   Cpu,
   FolderGit2,
@@ -21,6 +22,7 @@ import { basename } from '../../lib/paths'
 import { openUrlWithConfirm } from '../../lib/tauri'
 import { useAgentStore } from '../../stores/agent'
 import { useClaudeUsageStore } from '../../stores/claudeUsage'
+import { useCodexUsageStore } from '../../stores/codexUsage'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
@@ -41,6 +43,7 @@ const worktreeStore = useWorktreeStore()
 const editorInfo = useEditorInfo()
 const updater = useUpdater()
 const claudeUsageStore = useClaudeUsageStore()
+const codexUsageStore = useCodexUsageStore()
 const agentStore = useAgentStore()
 const tabStore = useTabStore()
 const statusMessageStore = useStatusMessageStore()
@@ -77,6 +80,28 @@ function toggleClaudeUsage() {
 
 function closeClaudeUsage() {
   showClaudeUsage.value = false
+}
+
+// Codex used indirectly (a Claude codex skill / a script calling the `codex` CLI)
+// shows up in ~/.codex rollouts. Suppress it when a native Codex agent-chat tab is
+// active — `codexSession` above already covers that case more precisely.
+const codexCliUsage = computed(() => {
+  if (codexSession.value) return null
+  const u = codexUsageStore.usage
+  return u?.active ? u : null
+})
+
+const showCodexUsage = ref(false)
+
+function toggleCodexUsage() {
+  showCodexUsage.value = !showCodexUsage.value
+  if (showCodexUsage.value) {
+    nextTick(() => window.addEventListener('mousedown', closeCodexUsage, { once: true }))
+  }
+}
+
+function closeCodexUsage() {
+  showCodexUsage.value = false
 }
 
 declare const __GIT_COMMIT_HASH__: string
@@ -233,6 +258,7 @@ onUnmounted(() => {
   window.removeEventListener('mousedown', closeEncodingMenu)
   window.removeEventListener('mousedown', closeLineEndingMenu)
   window.removeEventListener('mousedown', closeClaudeUsage)
+  window.removeEventListener('mousedown', closeCodexUsage)
 })
 </script>
 
@@ -290,13 +316,7 @@ onUnmounted(() => {
       <span class="status-text">{{ editorInfo.current.value.fileType }}</span>
     </template>
 
-    <div v-if="codexSession?.tokenUsage" class="status-item small cc-usage">
-      <Cpu :size="12" :stroke-width="2" />
-      <span>{{ formatTokens(codexSession.tokenUsage.input) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(codexSession.tokenUsage.output) }} {{ t('statusBar.ccOut') }}</span>
-      <span v-if="codexSession.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(codexSession.estimatedCostUsd) }}</span>
-    </div>
-
-    <div v-else-if="claudeUsageStore.usage?.active" class="status-dropdown-area">
+    <div v-if="claudeUsageStore.usage?.active" class="status-dropdown-area">
       <button class="status-item clickable small cc-usage" @click="toggleClaudeUsage">
         <Cpu :size="12" :stroke-width="2" />
         <span>{{ formatTokens(claudeUsageStore.usage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(claudeUsageStore.usage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
@@ -312,6 +332,44 @@ onUnmounted(() => {
             <span>{{ t('statusBar.ccCache') }}: {{ formatTokens(m.cacheReadTokens) }}</span>
             <span>{{ t('statusBar.ccCacheCreate') }}: {{ formatTokens(m.cacheCreationTokens) }}</span>
             <span v-if="m.costUsd !== null" class="cc-cost">{{ formatCost(m.costUsd) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Native Codex agent-chat tab (precise, event-driven) -->
+    <div v-if="codexSession?.tokenUsage" class="status-item small cc-usage">
+      <Bot :size="12" :stroke-width="2" />
+      <span>{{ formatTokens(codexSession.tokenUsage.input) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(codexSession.tokenUsage.output) }} {{ t('statusBar.ccOut') }}</span>
+      <span v-if="codexSession.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(codexSession.estimatedCostUsd) }}</span>
+    </div>
+
+    <!-- Codex used indirectly via the CLI (Claude skill / scripts), from ~/.codex rollouts -->
+    <div v-else-if="codexCliUsage" class="status-dropdown-area">
+      <button class="status-item clickable small cc-usage" :title="t('statusBar.codexCli')" @click="toggleCodexUsage">
+        <Bot :size="12" :stroke-width="2" />
+        <span>{{ formatTokens(codexCliUsage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(codexCliUsage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
+        <span v-if="codexCliUsage.rateLimitPrimary" class="cc-cost">{{ t('statusBar.codexRate5h') }} {{ codexCliUsage.rateLimitPrimary.usedPercent.toFixed(0) }}%</span>
+      </button>
+      <div v-if="showCodexUsage" class="status-dropdown cc-dropdown" @mousedown.stop>
+        <div class="dropdown-label">
+          {{ t('statusBar.codexSession') }}<template v-if="codexCliUsage.sessionCount > 1"> ({{ codexCliUsage.sessionCount }} {{ t('statusBar.codexSessions') }})</template>
+        </div>
+        <div class="cc-model-row">
+          <div class="cc-model-name">{{ codexCliUsage.model ?? 'codex' }}</div>
+          <div class="cc-model-stats">
+            <span>{{ t('statusBar.ccIn') }}: {{ formatTokens(codexCliUsage.totalInputTokens) }}</span>
+            <span>{{ t('statusBar.ccOut') }}: {{ formatTokens(codexCliUsage.totalOutputTokens) }}</span>
+            <span>{{ t('statusBar.codexCached') }}: {{ formatTokens(codexCliUsage.totalCachedInputTokens) }}</span>
+            <span>{{ t('statusBar.codexReasoning') }}: {{ formatTokens(codexCliUsage.totalReasoningTokens) }}</span>
+            <span v-if="codexCliUsage.estimatedCostUsd !== null" class="cc-cost">{{ formatCost(codexCliUsage.estimatedCostUsd) }}</span>
+          </div>
+        </div>
+        <div v-if="codexCliUsage.rateLimitPrimary || codexCliUsage.rateLimitSecondary" class="cc-model-row">
+          <div class="cc-model-name">{{ t('statusBar.codexRate') }}</div>
+          <div class="cc-model-stats">
+            <span v-if="codexCliUsage.rateLimitPrimary">{{ t('statusBar.codexRate5h') }}: {{ codexCliUsage.rateLimitPrimary.usedPercent.toFixed(1) }}%</span>
+            <span v-if="codexCliUsage.rateLimitSecondary">{{ t('statusBar.codexRateWeekly') }}: {{ codexCliUsage.rateLimitSecondary.usedPercent.toFixed(1) }}%</span>
           </div>
         </div>
       </div>
