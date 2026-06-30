@@ -2,7 +2,7 @@
 import DOMPurify from 'dompurify'
 import { ArrowUp, Home, RefreshCw } from 'lucide-vue-next'
 import { marked } from 'marked'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { fetchManual, isMarkdownPage, MANUAL_INDEX, manualRawUrl, resolveManualPath } from '../../lib/manual'
 import { createHeadingSlugger } from '../../lib/slug'
@@ -45,10 +45,39 @@ function splitPage(p: string): [string, string] {
   return [p.slice(0, i), anchor]
 }
 
+/** Tear down any image-load listeners wired up by the previous anchor scroll. */
+let cancelAnchorReflow: (() => void) | null = null
+
 function scrollToAnchor(id: string) {
-  containerRef.value
-    ?.querySelector(`#${CSS.escape(id)}`)
-    ?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+  cancelAnchorReflow?.()
+  cancelAnchorReflow = null
+
+  const c = containerRef.value
+  if (!c) return
+  const target = () => c.querySelector(`#${CSS.escape(id)}`)
+  target()?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+
+  // Images above the anchor are fetched from GitHub and still have zero height at
+  // this point; once they load the page reflows and pushes the heading away from
+  // where we just scrolled. Re-snap to the target as each pending image settles.
+  const pending = Array.from(c.querySelectorAll('img')).filter((img) => !img.complete)
+  if (pending.length === 0) return
+  let remaining = pending.length
+  const onSettle = () => {
+    target()?.scrollIntoView({ block: 'start' })
+    if (--remaining === 0) cancelAnchorReflow?.()
+  }
+  for (const img of pending) {
+    img.addEventListener('load', onSettle)
+    img.addEventListener('error', onSettle)
+  }
+  cancelAnchorReflow = () => {
+    for (const img of pending) {
+      img.removeEventListener('load', onSettle)
+      img.removeEventListener('error', onSettle)
+    }
+    cancelAnchorReflow = null
+  }
 }
 
 async function render(path: string, force = false) {
@@ -127,10 +156,7 @@ function onClick(e: MouseEvent) {
     } catch {
       /* raw */
     }
-    if (id)
-      containerRef.value
-        ?.querySelector(`#${CSS.escape(id)}`)
-        ?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+    if (id) scrollToAnchor(id)
     return
   }
   // Relative link → another manual page (navigate) or open externally.
@@ -160,6 +186,8 @@ watch(
   },
   { immediate: true },
 )
+
+onUnmounted(() => cancelAnchorReflow?.())
 </script>
 
 <template>
