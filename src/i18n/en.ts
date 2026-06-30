@@ -30,6 +30,8 @@ export default {
 
   // TODO panel
   'todo.openFile': 'Open todo.md',
+  'todo.clearAll': 'Clear all',
+  'todo.clearConfirm': 'Delete all tasks. Are you sure?',
   'todo.add': 'Add task',
   'todo.addPlaceholder': 'Add a task…',
   'todo.empty': 'No tasks yet. Add one above.',

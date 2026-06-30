@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Check, FileText, Plus, Trash2 } from 'lucide-vue-next'
+import { Check, Eraser, FileText, Plus, Trash2 } from 'lucide-vue-next'
 import { nextTick, ref } from 'vue'
+import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
 import { useProjectStore } from '../../stores/project'
@@ -58,6 +59,10 @@ function onDrop(id: string) {
 function openFile() {
   if (todo.filePath) tabStore.addEditorTab({ path: todo.filePath })
 }
+
+async function clearAll() {
+  if (await confirmDialog(t('todo.clearConfirm'))) todo.clear()
+}
 </script>
 
 <template>
@@ -66,9 +71,19 @@ function openFile() {
     <template v-else>
       <div class="todo-top">
         <span class="progress">{{ todo.progress.done }} / {{ todo.progress.total }}</span>
-        <button class="icon-btn" :title="t('todo.openFile')" @click="openFile">
-          <FileText :size="14" :stroke-width="2" />
-        </button>
+        <div class="todo-top-actions">
+          <button class="icon-btn" :title="t('todo.openFile')" @click="openFile">
+            <FileText :size="14" :stroke-width="2" />
+          </button>
+          <button
+            class="icon-btn danger"
+            :title="t('todo.clearAll')"
+            :disabled="todo.tasks.length === 0"
+            @click="clearAll"
+          >
+            <Eraser :size="14" :stroke-width="2" />
+          </button>
+        </div>
       </div>
 
       <div class="todo-add">
@@ -152,6 +167,12 @@ function openFile() {
 .progress {
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+}
+
+.todo-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .todo-add {

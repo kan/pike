@@ -131,6 +131,13 @@ export const useTodoStore = defineStore('todo', () => {
     scheduleSave()
   }
 
+  /** Remove every task line, keeping headings and free-text (raw) lines. */
+  function clear() {
+    if (!tasks.value.length) return
+    lines.value = lines.value.filter((l) => l.kind !== 'task')
+    scheduleSave()
+  }
+
   /** Reorder: move the dragged task to just before the drop-target task. */
   function move(fromId: string, toId: string) {
     if (fromId === toId) return
@@ -157,7 +164,7 @@ export const useTodoStore = defineStore('todo', () => {
     if (path && files.some((f) => f.path === path && !isRecentlySaved(f.path))) void load()
   })
 
-  return { lines, tasks, progress, loading, filePath, load, toggle, setText, remove, add, move }
+  return { lines, tasks, progress, loading, filePath, load, toggle, setText, remove, add, move, clear }
 })
 
 if (import.meta.hot) {

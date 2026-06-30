@@ -30,6 +30,8 @@ export default {
 
   // TODO パネル
   'todo.openFile': 'todo.md を開く',
+  'todo.clearAll': 'すべてクリア',
+  'todo.clearConfirm': 'すべてのタスクを削除します。よろしいですか？',
   'todo.add': 'タスクを追加',
   'todo.addPlaceholder': 'タスクを追加…',
   'todo.empty': 'タスクはありません。上の入力から追加できます。',
