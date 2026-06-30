@@ -3,9 +3,15 @@
  * Font enumeration is done via Rust (font-kit) — see font_list_monospace command.
  */
 
-/** Quote a font family for CSS, escaping single quotes (e.g. a font named O'Hara). */
+/** Quote a font family for CSS (e.g. a font named O'Hara). Escapes backslashes
+ *  first, then single quotes, so a name ending in `\` can't break out of the
+ *  quoted string. Strips control chars that can't appear in a CSS string. */
 function quoteFamily(name: string): string {
-  return `'${name.replace(/'/g, "\\'")}'`
+  const escaped = name
+    .replace(/[\n\r\f]/g, ' ')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+  return `'${escaped}'`
 }
 
 export function buildFontFamily(fontName: string): string {
