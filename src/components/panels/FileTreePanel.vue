@@ -111,13 +111,22 @@ function closeCtxMenu() {
   ctxMenu.value = null
 }
 
-function startRename(path: string) {
+function startRename(path: string, isDir: boolean) {
   closeCtxMenu()
   renaming.value = path
-  renameValue.value = basename(path)
+  const name = basename(path)
+  renameValue.value = name
   nextTick(() => {
     const input = document.querySelector('.rename-input') as HTMLInputElement
-    input?.select()
+    if (!input) return
+    input.focus()
+    // Select the stem only (exclude the extension), so retyping the name keeps
+    // the suffix. A leading dot (dotfiles like `.gitignore`) or directories have
+    // no extension to skip → select all. setSelectionRange needs focus first
+    // (select() focuses implicitly, setSelectionRange does not).
+    const dot = name.lastIndexOf('.')
+    if (!isDir && dot > 0) input.setSelectionRange(0, dot)
+    else input.select()
   })
 }
 
@@ -568,7 +577,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
             <div class="tree-ctx-separator"></div>
           </template>
           <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>
-          <button @click="startRename(ctxMenu.path)">{{ t('fileTree.rename') }}</button>
+          <button @click="startRename(ctxMenu.path, ctxMenu.isDir)">{{ t('fileTree.rename') }}</button>
           <button @click="deleteItem()">{{ t('fileTree.delete') }}</button>
           <button v-if="!ctxMenu.isDir" @click="showGitHistory()">{{ t('fileTree.gitHistory') }}</button>
         </div>
