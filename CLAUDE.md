@@ -181,6 +181,33 @@ pike/
 - **docs/manual/** … ユーザーマニュアル（日本語）。使い方・操作手順はここに集約し、拡充する。
 - **CLAUDE.md（本ファイル）** … AI 開発のための情報（構造・技術メモ・規約）。ユーザー向けの使い方は書かない。
 
+### ドキュメント校正ルール
+
+**CLAUDE.md を除くドキュメント（README.md・`docs/manual/` 配下）を更新・追加したら、コミット前に必ず校正する。**（CLAUDE.md 自身は密な技術仕様なので対象外）
+
+1. **textlint（機械チェック）** を npx で実行し、ai-writing 系の指摘を 0 にする:
+
+   ```bash
+   npx --yes --package textlint \
+     --package textlint-rule-preset-ai-writing \
+     --package textlint-rule-preset-ja-technical-writing \
+     -- textlint --rule preset-ai-writing --rule preset-ja-technical-writing \
+     README.md docs/manual/*.md
+   ```
+   （リポジトリに textlint は未導入。実行は npx で都度行う）
+
+2. **`japanese-tech-writing` スキル**（判断ベース）で、textlint が拾えない空句・冗長・演出・論証を点検する。
+
+3. **守る表記規約**（textlint とスキル整形の両立で確立済み）:
+   - 箇条書きの太字ラベルの区切りは**全角コロン**で `**用語**：説明` と書く。半角コロン `:` は `no-ai-list-formatting` に触れるため使わない。
+   - 地の文・見出しで **em ダッシュ `—` を使わない**（全角コロンか句読点にする）。
+   - 誇張語（「大幅に」等）・LLM 空句（「重要なのは」「正面から」「多角的」等）を使わない。
+   - 二重助詞・一文内の過多カンマ（4 個以上）を避ける。
+
+4. **据え置いてよい指摘**: `no-mix-dearu-desumasu`（本文の「です・ます」と箇条書き・表セルの体言止めの混在）と、列挙が主因の `sentence-length`。マニュアルとして自然なので無理に潰さない。
+
+5. **見出しを変更したら、ページ内アンカー（`](#...)`）との整合を確認する**。Pike のプレビューは見出しテキストを「小文字化＋`[^\p{L}\p{N}_\s-]` 除去＋空白→ハイフン」で slug 化して `id` を振る（`src/lib/slug.ts`）。アンカーはこの slug 規則に一致させる。
+
 ---
 
 ## Tauri IPC 規約
