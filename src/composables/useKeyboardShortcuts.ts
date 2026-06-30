@@ -17,6 +17,13 @@ export function useKeyboardShortcuts() {
       return
     }
 
+    // F1: open the user manual
+    if (e.key === 'F1') {
+      e.preventDefault()
+      tabStore.addManualTab()
+      return
+    }
+
     if (!e.ctrlKey && !e.altKey) return
 
     // Ctrl+Shift+P: project switcher

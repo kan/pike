@@ -4,6 +4,7 @@ import { computed, nextTick, onUnmounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
 import { useTabStore } from '../../stores/tabs'
 import type { PreviewTab } from '../../types/tab'
+import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const props = defineProps<{ tabId: string }>()
@@ -219,6 +220,7 @@ function onKeyDown(e: KeyboardEvent) {
         <button class="tb-btn" :title="t('preview.reset')" @click="resetView"><RefreshCw :size="16" /></button>
         <span class="spacer" />
         <span v-if="naturalW" class="dims">{{ naturalW }} × {{ naturalH }}</span>
+        <HelpButton page="editor-and-preview.md#画像ビューア" :size="16" />
       </div>
       <div
         ref="canvas"

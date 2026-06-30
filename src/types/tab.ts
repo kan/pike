@@ -163,6 +163,15 @@ export type AgentChatTab = {
   agentType: 'codex' | 'claude-code'
 }
 
+export type ManualTab = {
+  id: string
+  kind: 'manual'
+  title: string
+  pinned: boolean
+  /** Repo-relative path of the current manual page, e.g. docs/manual/README.md */
+  page: string
+}
+
 export type Tab =
   | TerminalTab
   | EditorTab
@@ -173,6 +182,7 @@ export type Tab =
   | SettingsTab
   | PdfTab
   | AgentChatTab
+  | ManualTab
 
 export type SidebarPanel =
   | 'files'

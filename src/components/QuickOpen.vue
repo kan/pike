@@ -34,7 +34,8 @@ const selectedIdx = ref(0)
 const inputRef = ref<HTMLInputElement>()
 
 // --- Help items ---
-const HELP_ITEMS = [
+const HELP_ITEMS: { prefix: string; description: string; action?: 'manual' }[] = [
+  { prefix: 'F1', description: 'quickOpen.helpManual', action: 'manual' },
   { prefix: '', description: 'quickOpen.helpFile' },
   { prefix: '>', description: 'quickOpen.helpTask' },
   { prefix: '@', description: 'quickOpen.helpTab' },
@@ -301,6 +302,10 @@ function openSelected() {
     case 'help': {
       const item = HELP_ITEMS[selectedIdx.value]
       if (item) {
+        if (item.action === 'manual') {
+          tabStore.addManualTab()
+          break // close
+        }
         query.value = item.prefix
         return // don't close
       }

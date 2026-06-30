@@ -5,6 +5,7 @@ import { fsReadFileBase64 } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import type { PdfTab } from '../../types/tab'
+import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const props = defineProps<{ tabId: string }>()
@@ -35,6 +36,7 @@ onMounted(async () => {
 
 <template>
   <div class="pdf-tab">
+    <HelpButton page="editor-and-preview.md#pdf-プレビュー" :size="16" class="pdf-help" />
     <div v-if="loading" class="pdf-status">{{ t('common.loading') }}</div>
     <div v-else-if="error" class="pdf-status error">{{ error }}</div>
     <iframe v-else :src="dataUrl" class="pdf-frame" />
@@ -68,5 +70,13 @@ onMounted(async () => {
   border: none;
   width: 100%;
   height: 100%;
+}
+
+.pdf-help {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  z-index: 5;
+  background: var(--bg-tertiary);
 }
 </style>

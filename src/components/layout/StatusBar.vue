@@ -30,6 +30,7 @@ import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import { useWorktreeStore } from '../../stores/worktree'
 import type { GitWorktree } from '../../types/git'
+import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -323,7 +324,10 @@ onUnmounted(() => {
         <span v-if="claudeUsageStore.usage.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(claudeUsageStore.usage.estimatedCostUsd) }}</span>
       </button>
       <div v-if="showClaudeUsage" class="status-dropdown cc-dropdown" @mousedown.stop>
-        <div class="dropdown-label">{{ t('statusBar.ccSession') }}</div>
+        <div class="dropdown-label">
+          <span>{{ t('statusBar.ccSession') }}</span>
+          <HelpButton page="terminal-and-agents.md#トークン使用量とコスト" :size="13" />
+        </div>
         <div v-for="m in claudeUsageStore.usage.models" :key="m.model" class="cc-model-row">
           <div class="cc-model-name">{{ m.model }}</div>
           <div class="cc-model-stats">
@@ -353,7 +357,8 @@ onUnmounted(() => {
       </button>
       <div v-if="showCodexUsage" class="status-dropdown cc-dropdown" @mousedown.stop>
         <div class="dropdown-label">
-          {{ t('statusBar.codexSession') }}<template v-if="codexCliUsage.sessionCount > 1"> ({{ codexCliUsage.sessionCount }} {{ t('statusBar.codexSessions') }})</template>
+          <span>{{ t('statusBar.codexSession') }}<template v-if="codexCliUsage.sessionCount > 1"> ({{ codexCliUsage.sessionCount }} {{ t('statusBar.codexSessions') }})</template></span>
+          <HelpButton page="terminal-and-agents.md#トークン使用量とコスト" :size="13" />
         </div>
         <div class="cc-model-row">
           <div class="cc-model-name">{{ codexCliUsage.model ?? 'codex' }}</div>
@@ -382,7 +387,10 @@ onUnmounted(() => {
       </button>
 
       <div v-if="showWorktrees" class="branch-dropdown" @mousedown.stop>
-        <div class="dropdown-label">{{ t('worktree.switch') }}</div>
+        <div class="dropdown-label">
+          <span>{{ t('worktree.switch') }}</span>
+          <HelpButton page="git.md#worktree" :size="13" />
+        </div>
         <div class="branch-list">
           <button
             v-for="w in worktreeStore.worktrees"
@@ -571,7 +579,7 @@ onUnmounted(() => {
   padding: 4px 0;
 }
 
-.status-dropdown button {
+.status-dropdown button:not(.help-btn) {
   display: block;
   width: 100%;
   padding: 5px 12px;
@@ -583,12 +591,15 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.status-dropdown button:hover {
+.status-dropdown button:not(.help-btn):hover {
   background: var(--tab-hover-bg);
 }
 
 .dropdown-label {
-  padding: 4px 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 12px;
   font-size: 11px;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);

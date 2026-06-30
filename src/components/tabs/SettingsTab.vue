@@ -8,6 +8,7 @@ import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { pickSaveFile } from '../../lib/tauri'
 import { COLOR_SCHEMES, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, useSettingsStore } from '../../stores/settings'
+import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
@@ -165,7 +166,7 @@ const PREVIEW_LINES = [
 
       <!-- Appearance -->
       <section id="settings-appearance" class="settings-section">
-        <h3 class="section-title">{{ t('settings.appearance') }}</h3>
+        <h3 class="section-title">{{ t('settings.appearance') }}<HelpButton page="settings.md#外観テーマフォントui-サイズ" :size="15" /></h3>
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.language') }}</label>
           <select class="setting-select" :value="settings.language" @change="settings.language = ($event.target as HTMLSelectElement).value">
@@ -226,7 +227,7 @@ const PREVIEW_LINES = [
 
       <!-- Terminal -->
       <section id="settings-terminal" class="settings-section">
-        <h3 class="section-title">{{ t('settings.terminal') }}</h3>
+        <h3 class="section-title">{{ t('settings.terminal') }}<HelpButton page="settings.md#ターミナル" :size="15" /></h3>
 
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.font') }}</label>
@@ -398,7 +399,7 @@ const PREVIEW_LINES = [
 
       <!-- Editor -->
       <section id="settings-editor" class="settings-section">
-        <h3 class="section-title">{{ t('settings.editor') }}</h3>
+        <h3 class="section-title">{{ t('settings.editor') }}<HelpButton page="settings.md#エディタ" :size="15" /></h3>
 
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.editorFont') }}</label>
@@ -482,7 +483,7 @@ const PREVIEW_LINES = [
 
       <!-- Agent -->
       <section id="settings-agent" class="settings-section">
-        <h3 class="section-title">{{ t('settings.agent') }}</h3>
+        <h3 class="section-title">{{ t('settings.agent') }}<HelpButton page="settings.md#エージェント" :size="15" /></h3>
 
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.agentDefault') }}</label>
@@ -508,7 +509,7 @@ const PREVIEW_LINES = [
 
       <!-- Settings Sync -->
       <section id="settings-sync" class="settings-section">
-        <h3 class="section-title">{{ t('settings.sync') }}</h3>
+        <h3 class="section-title">{{ t('settings.sync') }}<HelpButton page="settings.md#設定の同期" :size="15" /></h3>
         <div class="setting-row setting-row-block">
           <label class="setting-label">{{ t('settings.syncFilePath') }}</label>
           <p class="setting-hint">{{ t('settings.syncHint') }}</p>
@@ -542,7 +543,7 @@ const PREVIEW_LINES = [
 
       <!-- About / Update -->
       <section id="settings-about" class="settings-section">
-        <h3 class="section-title">{{ t('settings.about') }}</h3>
+        <h3 class="section-title">{{ t('settings.about') }}<HelpButton page="settings.md#更新about" :size="15" /></h3>
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.version') }}</label>
           <span class="version-value">{{ updater.appVersion.value }}</span>
@@ -651,6 +652,9 @@ const PREVIEW_LINES = [
 }
 
 .section-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 13px;
   font-weight: 600;
   text-transform: uppercase;

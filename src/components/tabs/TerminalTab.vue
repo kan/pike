@@ -27,6 +27,7 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
+import HelpButton from '../HelpButton.vue'
 import '@xterm/xterm/css/xterm.css'
 
 const { t } = useI18n()
@@ -702,6 +703,7 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
+      <HelpButton page="terminal-and-agents.md#エージェント起動ボタン--プロンプト挿入" :size="14" class="term-help" />
     </div>
     <div ref="termRef" class="terminal-inner"></div>
   </div>

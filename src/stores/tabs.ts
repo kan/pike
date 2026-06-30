@@ -5,6 +5,7 @@ import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
 import { t } from '../i18n'
 import { formatLineRange } from '../lib/format'
+import { MANUAL_INDEX } from '../lib/manual'
 import { basename } from '../lib/paths'
 import { agentDisconnect, ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
@@ -13,6 +14,7 @@ import type {
   DockerLogsTab,
   EditorTab,
   HistoryTab,
+  ManualTab,
   PdfTab,
   PreviewTab,
   SettingsTab,
@@ -307,6 +309,20 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  /** Open (or focus) the singleton manual viewer, navigating it to `page`. */
+  function addManualTab(page: string = MANUAL_INDEX): string {
+    const existing = tabs.value.find((t): t is ManualTab => t.kind === 'manual')
+    if (existing) {
+      existing.page = page
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    tabs.value.push({ id, kind: 'manual', title: 'Manual', pinned: false, page })
+    activeTabId.value = id
+    return id
+  }
+
   function addAgentChatTab(options?: { pinned?: boolean; agentType?: 'codex' | 'claude-code' }): string {
     const agentType = options?.agentType ?? 'claude-code'
     const id = genId()
@@ -502,6 +518,7 @@ export const useTabStore = defineStore('tabs', () => {
     addHistoryTab,
     addDockerLogsTab,
     addSettingsTab,
+    addManualTab,
     addAgentChatTab,
     addDiffTab,
     addPdfTab,

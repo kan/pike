@@ -44,6 +44,7 @@ import { useSearchStore } from '../../stores/search'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import { useTodoStore } from '../../stores/todo'
+import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const sidebar = useSidebarStore()
@@ -110,6 +111,11 @@ function openShortcuts() {
 function openSettings() {
   closeGearMenu()
   tabStore.addSettingsTab()
+}
+
+function openManual() {
+  closeGearMenu()
+  tabStore.addManualTab()
 }
 
 async function openGitHub() {
@@ -183,6 +189,21 @@ const icons: IconDef[] = [
     badge: () => (todoStore.progress.remaining > 0 ? { count: todoStore.progress.remaining } : null),
   },
 ]
+
+/** panel → manual-relative help target (`page#anchor`). Panels without a manual
+ *  section (todo, etc.) are omitted and show no `?` button. */
+const PANEL_HELP: Partial<Record<SidebarPanel, string>> = {
+  files: 'panels.md#ファイルツリー',
+  git: 'git.md',
+  search: 'panels.md#検索ripgrep--grep',
+  docker: 'panels.md#docker',
+  projects: 'projects-and-windows.md',
+  tasks: 'panels.md#タスク',
+  todo: 'panels.md#todoやること',
+  outline: 'panels.md#アウトライン',
+  diagnostics: 'panels.md#problems診断',
+}
+const panelHelp = computed(() => (sidebar.activePanel ? PANEL_HELP[sidebar.activePanel] : undefined))
 
 /** panel → current badge, recomputed once per reactive change (not per render). */
 const badges = computed(() => {
@@ -278,6 +299,10 @@ onUnmounted(() => {
             <span class="ctx-key">Ctrl+,</span>
           </button>
           <div class="gear-menu-divider" />
+          <button class="gear-menu-item" @click="openManual">
+            <span>{{ t('sidebar.manual') }}</span>
+            <span class="ctx-key">F1</span>
+          </button>
           <button class="gear-menu-item" @click="openGitHub">
             <span>{{ t('sidebar.github') }}</span>
           </button>
@@ -294,7 +319,7 @@ onUnmounted(() => {
     </nav>
     <aside v-if="sidebar.isPanelOpen" class="panel" :style="{ width: sidebar.panelWidth + 'px' }">
       <div class="panel-header">
-        <span>{{ t(icons.find((i) => i.panel === sidebar.activePanel)?.labelKey ?? '') }}</span>
+        <span class="panel-title">{{ t(icons.find((i) => i.panel === sidebar.activePanel)?.labelKey ?? '') }}</span>
         <div v-if="sidebar.activePanel === 'files'" class="header-actions">
           <button class="header-btn" :title="t('fileTree.newFile')" @click="fileTreeRef?.startCreateAtRoot('file')">
             <FilePlus :size="14" :stroke-width="2" />
@@ -337,6 +362,7 @@ onUnmounted(() => {
             <RefreshCw :size="14" :stroke-width="2" :class="{ spin: diagStore.running }" />
           </button>
         </div>
+        <HelpButton v-if="panelHelp" :page="panelHelp" :size="15" class="panel-help" />
       </div>
       <div class="panel-content">
         <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
@@ -515,6 +541,18 @@ onUnmounted(() => {
   letter-spacing: 0.05em;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
+}
+
+.panel-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-help {
+  margin-left: 2px;
 }
 
 .header-actions {

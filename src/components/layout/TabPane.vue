@@ -13,10 +13,11 @@ const PreviewTab = defineAsyncComponent(() => import('../tabs/PreviewTab.vue'))
 const HistoryTab = defineAsyncComponent(() => import('../tabs/HistoryTab.vue'))
 const DockerLogsTab = defineAsyncComponent(() => import('../tabs/DockerLogsTab.vue'))
 const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue'))
+const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 const AgentChatTab = defineAsyncComponent(() => import('../tabs/AgentChatTab.vue'))
 
-import { Bot, ChevronDown, Pin, Plus, ScrollText, Settings, Terminal, X } from 'lucide-vue-next'
+import { BookOpen, Bot, ChevronDown, Pin, Plus, ScrollText, Settings, Terminal, X } from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 
@@ -37,6 +38,8 @@ const historyTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'histo
 const dockerLogsTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'docker-logs'))
 
 const settingsTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'settings'))
+
+const manualTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'manual'))
 
 const pdfTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'pdf'))
 
@@ -216,6 +219,7 @@ onUnmounted(() => {
           <Terminal v-else-if="tab.kind === 'terminal'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <ScrollText v-else-if="tab.kind === 'docker-logs'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <Settings v-else-if="tab.kind === 'settings'" :size="14" :stroke-width="1.5" class="tab-icon" />
+          <BookOpen v-else-if="tab.kind === 'manual'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <Bot v-else-if="tab.kind === 'agent-chat'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <span class="tab-title">{{ tab.title }}</span>
           <span
@@ -298,6 +302,12 @@ onUnmounted(() => {
       <SettingsTab
         v-for="tab in settingsTabs"
         :key="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <ManualTab
+        v-for="tab in manualTabs"
+        :key="tab.id"
+        :tab-id="tab.id"
         v-show="tab.id === tabStore.activeTabId"
       />
       <PdfTab

@@ -40,6 +40,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import type { EditorTab } from '../../types/tab'
+import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const props = defineProps<{ tabId: string }>()
@@ -1175,6 +1176,8 @@ onUnmounted(() => {
         <button class="preview-toggle" @click="mermaidZoom = Math.min(4, mermaidZoom + 0.25)">+</button>
         <button class="preview-toggle" @click="mermaidZoom = 1">{{ t('mermaid.reset') }}</button>
       </template>
+      <span class="toolbar-spacer" />
+      <HelpButton page="editor-and-preview.md" :size="15" />
     </div>
     <!-- External change warning bar -->
     <div v-if="externalChangeNotice === 'modified'" class="external-change-bar">

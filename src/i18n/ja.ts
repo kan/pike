@@ -39,6 +39,13 @@ export default {
   'sidebar.keyboardShortcuts': 'キーボードショートカット',
   'sidebar.settings': '設定',
   'sidebar.github': 'GitHub',
+  'sidebar.manual': 'ユーザーマニュアル',
+
+  // マニュアルビューア
+  'manual.back': '戻る',
+  'manual.home': '目次',
+  'manual.openHelp': 'この機能のヘルプを開く',
+  'manual.loadError': 'マニュアルの読み込みに失敗しました。ネットワーク接続を確認してください。',
 
   // Diagnostics
   'diagnostics.running': 'チェック中…',
@@ -314,6 +321,7 @@ export default {
   'quickOpen.helpLine': '現在のエディタで行ジャンプ',
   'quickOpen.helpBranch': 'Git ブランチ切替',
   'quickOpen.helpHelp': 'このヘルプを表示',
+  'quickOpen.helpManual': 'ユーザーマニュアルを開く',
   'quickOpen.command': 'cmd',
   'quickOpen.cmdClaudeCode': 'Claude Code エージェントを開く',
   'quickOpen.cmdCodex': 'Codex エージェントを開く',
@@ -339,6 +347,7 @@ export default {
   'shortcuts.projectSwitcher': 'プロジェクト切替',
   'shortcuts.keyboardShortcuts': 'キーボードショートカット',
   'shortcuts.settings': '設定',
+  'shortcuts.manual': 'ユーザーマニュアル',
   'shortcuts.newFile': '新規ファイル',
   'shortcuts.newTerminal': '新規ターミナル',
   'shortcuts.closeTab': 'タブを閉じる',

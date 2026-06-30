@@ -39,6 +39,13 @@ export default {
   'sidebar.keyboardShortcuts': 'Keyboard Shortcuts',
   'sidebar.settings': 'Settings',
   'sidebar.github': 'GitHub',
+  'sidebar.manual': 'User Manual',
+
+  // Manual viewer
+  'manual.back': 'Back',
+  'manual.home': 'Contents',
+  'manual.openHelp': 'Open help for this',
+  'manual.loadError': 'Failed to load the manual. Check your network connection.',
 
   // Diagnostics
   'diagnostics.running': 'Checking…',
@@ -314,6 +321,7 @@ export default {
   'quickOpen.helpLine': 'Go to line in current editor',
   'quickOpen.helpBranch': 'Switch git branch',
   'quickOpen.helpHelp': 'Show this help',
+  'quickOpen.helpManual': 'Open user manual',
   'quickOpen.command': 'cmd',
   'quickOpen.cmdClaudeCode': 'Open Claude Code agent',
   'quickOpen.cmdCodex': 'Open Codex agent',
@@ -339,6 +347,7 @@ export default {
   'shortcuts.projectSwitcher': 'Project Switcher',
   'shortcuts.keyboardShortcuts': 'Keyboard Shortcuts',
   'shortcuts.settings': 'Settings',
+  'shortcuts.manual': 'User manual',
   'shortcuts.newFile': 'New File',
   'shortcuts.newTerminal': 'New Terminal',
   'shortcuts.closeTab': 'Close Tab',
