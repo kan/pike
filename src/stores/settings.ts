@@ -1,9 +1,11 @@
+import { emit, listen } from '@tauri-apps/api/event'
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale } from '../i18n'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
+import { windowLabel } from '../lib/window'
 
 export interface TerminalColorScheme {
   name: string
@@ -177,6 +179,10 @@ const STORAGE_KEY = 'pike:settings'
 const SYNC_PATH_KEY = 'pike:sync-path'
 // Debounce window for mirroring settings changes out to the sync file.
 const SYNC_WRITE_DEBOUNCE_MS = 1500
+// Cross-window settings sync: broadcast changes so every open Pike window stays
+// in sync (new windows already read the shared localStorage at startup).
+const SETTINGS_CHANGED_EVENT = 'pike://settings-changed'
+const BROADCAST_DEBOUNCE_MS = 150
 // Base UI font size that maps to 100% (zoom = 1). The whole UI chrome is scaled
 // proportionally via CSS `zoom`, so changing the size never breaks the layout.
 export const UI_FONT_BASE = 13
@@ -462,6 +468,10 @@ export const useSettingsStore = defineStore('settings', () => {
   const syncMessage = ref('')
   let importing = false
   let syncWriteTimer: ReturnType<typeof setTimeout> | null = null
+  // True while applying a snapshot received from another window — suppresses
+  // re-persisting to the sync file and re-broadcasting (avoids feedback loops).
+  let applyingRemote = false
+  let broadcastTimer: ReturnType<typeof setTimeout> | null = null
 
   watch(syncFilePath, (v) => saveJson(SYNC_PATH_KEY, v))
 
@@ -506,7 +516,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function scheduleSyncWrite() {
-    if (!syncFilePath.value || importing) return
+    if (!syncFilePath.value || importing || applyingRemote) return
     if (syncWriteTimer) clearTimeout(syncWriteTimer)
     syncWriteTimer = setTimeout(() => {
       syncWriteTimer = null
@@ -514,9 +524,34 @@ export const useSettingsStore = defineStore('settings', () => {
     }, SYNC_WRITE_DEBOUNCE_MS)
   }
 
+  // Broadcast the current settings to every other open Pike window (debounced).
+  function scheduleBroadcast() {
+    if (importing || applyingRemote) return
+    if (broadcastTimer) clearTimeout(broadcastTimer)
+    broadcastTimer = setTimeout(() => {
+      broadcastTimer = null
+      void emit(SETTINGS_CHANGED_EVENT, { from: windowLabel, payload: snapshot() })
+    }, BROADCAST_DEBOUNCE_MS)
+  }
+
+  // Apply a snapshot pushed from another window without echoing it back out.
+  async function applyRemoteSettings(payload: PersistedSettings) {
+    applyingRemote = true
+    applySettings(sanitize({ ...defaults(), ...payload }))
+    await nextTick() // let change-watchers flush while writes/broadcast are suppressed
+    applyingRemote = false
+    persist() // mirror into this window's localStorage too
+  }
+
+  listen<{ from: string; payload: PersistedSettings }>(SETTINGS_CHANGED_EVENT, (event) => {
+    if (event.payload.from === windowLabel) return // ignore our own broadcast
+    void applyRemoteSettings(event.payload.payload)
+  })
+
   function onSettingsChanged() {
     persist()
     scheduleSyncWrite()
+    scheduleBroadcast()
   }
 
   function applyDarkMode() {
