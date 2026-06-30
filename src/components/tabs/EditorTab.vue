@@ -23,8 +23,15 @@ import { getEditorTheme } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { formatLineRange } from '../../lib/format'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
-import { basename, extension, toRelativePath } from '../../lib/paths'
-import { fsReadFile, fsWriteFile, gitDiffLines, openUrlWithConfirm, pickSaveFile } from '../../lib/tauri'
+import { basename, extension, isImageFile, mimeType, toRelativePath } from '../../lib/paths'
+import {
+  fsReadFile,
+  fsReadFileBase64,
+  fsWriteFile,
+  gitDiffLines,
+  openUrlWithConfirm,
+  pickSaveFile,
+} from '../../lib/tauri'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
@@ -367,9 +374,35 @@ async function renderMarkdownMermaid() {
 watch([debouncedDocVersion, showPreview], () => {
   if (isMermaid.value && showPreview.value) renderStandaloneMermaid()
 })
-// Markdown mermaid: re-render after previewHtml is set
+// Resolve <img> tags pointing at local files (relative to the markdown file) into
+// inline data URLs. The Tauri webview can't load disk-relative `src` paths on its
+// own, so a Markdown like `![x](img/foo.png)` would otherwise show a broken image.
+async function resolveMarkdownImages() {
+  await nextTick()
+  const container = previewRef.value
+  const project = projectStore.currentProject
+  if (!container || !project || !tab.value) return
+  for (const img of container.querySelectorAll('img')) {
+    const src = img.getAttribute('src')
+    // Skip external (http/https) and already-inlined (data:) sources.
+    if (!src || /^(?:https?:|data:)/i.test(src)) continue
+    const resolved = resolveLocalPath(src) // stays within the project root
+    if (!resolved || !isImageFile(resolved)) continue
+    try {
+      const base64 = await fsReadFileBase64(project.shell, resolved)
+      img.src = `data:${mimeType(resolved)};base64,${base64}`
+    } catch {
+      // leave the image broken if it can't be read
+    }
+  }
+}
+
+// Markdown mermaid / local images: re-process after previewHtml is set
 watch(previewHtml, () => {
-  if (isMarkdown.value) renderMarkdownMermaid()
+  if (isMarkdown.value) {
+    renderMarkdownMermaid()
+    resolveMarkdownImages()
+  }
 })
 
 function updateTitle() {
