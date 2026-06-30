@@ -216,6 +216,7 @@ interface PersistedSettings {
   editorMinimap: boolean
   editorWordWrap: boolean
   editorTabSize: number
+  previewSmoothScroll: boolean
   terminalCopyOnSelect: boolean
   terminalRightClickPaste: boolean
   inlineSmallTextFiles: boolean
@@ -277,6 +278,7 @@ function defaults(): PersistedSettings {
     editorMinimap: true,
     editorWordWrap: false,
     editorTabSize: 4,
+    previewSmoothScroll: true,
     terminalCopyOnSelect: true,
     terminalRightClickPaste: true,
     inlineSmallTextFiles: false,
@@ -312,6 +314,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorMinimap = ref(saved.editorMinimap)
   const editorWordWrap = ref(saved.editorWordWrap)
   const editorTabSize = ref(saved.editorTabSize)
+  const previewSmoothScroll = ref(saved.previewSmoothScroll)
   const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
   const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
   const inlineSmallTextFiles = ref(saved.inlineSmallTextFiles)
@@ -416,6 +419,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMinimap: editorMinimap.value,
       editorWordWrap: editorWordWrap.value,
       editorTabSize: editorTabSize.value,
+      previewSmoothScroll: previewSmoothScroll.value,
       terminalCopyOnSelect: terminalCopyOnSelect.value,
       terminalRightClickPaste: terminalRightClickPaste.value,
       inlineSmallTextFiles: inlineSmallTextFiles.value,
@@ -447,6 +451,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMinimap.value = s.editorMinimap
     editorWordWrap.value = s.editorWordWrap
     editorTabSize.value = s.editorTabSize
+    previewSmoothScroll.value = s.previewSmoothScroll
     terminalCopyOnSelect.value = s.terminalCopyOnSelect
     terminalRightClickPaste.value = s.terminalRightClickPaste
     inlineSmallTextFiles.value = s.inlineSmallTextFiles
@@ -572,6 +577,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMinimap,
       editorWordWrap,
       editorTabSize,
+      previewSmoothScroll,
       terminalCopyOnSelect,
       terminalRightClickPaste,
       inlineSmallTextFiles,
@@ -611,6 +617,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMinimap,
     editorWordWrap,
     editorTabSize,
+    previewSmoothScroll,
     xtermTheme,
     terminalCopyOnSelect,
     terminalRightClickPaste,

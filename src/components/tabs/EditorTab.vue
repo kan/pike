@@ -5,6 +5,7 @@ import { highlightSelectionMatches } from '@codemirror/search'
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
 import DOMPurify from 'dompurify'
+import { ArrowUp } from 'lucide-vue-next'
 import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { promptDialog } from '../../composables/useConfirmDialog'
@@ -24,6 +25,7 @@ import { buildFontFamily } from '../../lib/fontDetection'
 import { formatLineRange } from '../../lib/format'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { basename, extension, isImageFile, mimeType, toRelativePath } from '../../lib/paths'
+import { createHeadingSlugger } from '../../lib/slug'
 import {
   fsReadFile,
   fsReadFileBase64,
@@ -81,6 +83,9 @@ const currentLineEnding = ref<'LF' | 'CRLF'>('LF')
 
 // Markdown preview
 const viewMode = ref<'edit' | 'split' | 'preview'>('edit')
+// Floating "back to top" button: shown once the preview is scrolled past this.
+const previewScrolled = ref(false)
+const BACK_TO_TOP_THRESHOLD = 300
 const debouncedDocVersion = ref(0)
 let docVersionTimer: ReturnType<typeof setTimeout> | null = null
 let syncingScroll = false
@@ -397,12 +402,30 @@ async function resolveMarkdownImages() {
   }
 }
 
-// Markdown mermaid / local images: re-process after previewHtml is set
+// Give preview headings GitHub-style ids so in-page `#anchor` links can scroll.
+async function assignHeadingIds() {
+  await nextTick()
+  const container = previewRef.value
+  if (!container) return
+  const slug = createHeadingSlugger()
+  for (const h of container.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+    h.id = slug(h.textContent ?? '')
+  }
+}
+
+// Markdown mermaid / local images / heading ids: re-process after previewHtml is set
 watch(previewHtml, () => {
   if (isMarkdown.value) {
     renderMarkdownMermaid()
     resolveMarkdownImages()
+    assignHeadingIds()
   }
+})
+
+// Switching view mode re-creates the preview pane at the top — hide the
+// back-to-top button. (Not reset on every edit, so it stays put while typing.)
+watch(viewMode, () => {
+  previewScrolled.value = false
 })
 
 function updateTitle() {
@@ -819,6 +842,13 @@ onMounted(async () => {
     if (!editorRef.value) return
     loading.value = false
     editorView = createEditorView(editorRef.value, content)
+    // Open in the requested view mode (e.g. 'preview' from a Markdown link). Set
+    // it after the editor exists so the preview computes its content right away.
+    // One-shot: consume it so it isn't persisted / re-forced on session restore.
+    if (tab.value?.initialViewMode) {
+      if (hasPreview.value) viewMode.value = tab.value.initialViewMode
+      tab.value.initialViewMode = undefined
+    }
     jumpToLine(tab.value?.initialLine)
     updateCursorInfo()
     refreshDiffGutter()
@@ -853,6 +883,9 @@ function onEditorScroll() {
 }
 
 function onPreviewScroll() {
+  // Toggle the floating "back to top" button (works in preview-only mode too,
+  // before the split-only scroll-sync early-return below).
+  if (previewRef.value) previewScrolled.value = previewRef.value.scrollTop > BACK_TO_TOP_THRESHOLD
   if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return
   const preview = previewRef.value
   const ratio = preview.scrollTop / (preview.scrollHeight - preview.clientHeight || 1)
@@ -862,6 +895,15 @@ function onPreviewScroll() {
   requestAnimationFrame(() => {
     syncingScroll = false
   })
+}
+
+/** Scroll behaviour for in-preview navigation (anchors, back-to-top). */
+function previewScrollBehavior(): ScrollBehavior {
+  return settingsStore.previewSmoothScroll ? 'smooth' : 'auto'
+}
+
+function scrollPreviewToTop() {
+  previewRef.value?.scrollTo({ top: 0, behavior: previewScrollBehavior() })
 }
 
 function resolveLocalPath(href: string): string | null {
@@ -945,12 +987,32 @@ async function onPreviewClick(e: MouseEvent) {
     return
   }
 
-  if (href.startsWith('#')) return
+  // In-page anchor → scroll the preview to the matching heading id.
+  if (href.startsWith('#')) {
+    // Tolerate malformed `%` sequences (decodeURIComponent would throw).
+    let id = href.slice(1)
+    try {
+      id = decodeURIComponent(id)
+    } catch {
+      /* use the raw value */
+    }
+    if (id)
+      previewRef.value
+        ?.querySelector(`#${CSS.escape(id)}`)
+        ?.scrollIntoView({ behavior: previewScrollBehavior(), block: 'start' })
+    return
+  }
 
   // Local file link → resolve and open in editor
   const resolved = resolveLocalPath(href)
   if (resolved) {
-    tabStore.addEditorTab({ path: resolved })
+    // Markdown → Markdown: keep the reader in the same preview/split mode.
+    const ext = extension(resolved)
+    const targetIsMarkdown = ext === 'md' || ext === 'markdown'
+    tabStore.addEditorTab({
+      path: resolved,
+      initialViewMode: targetIsMarkdown && viewMode.value !== 'edit' ? viewMode.value : undefined,
+    })
   }
 }
 
@@ -1154,6 +1216,14 @@ onUnmounted(() => {
         class="preview-pane mermaid-preview"
         :style="{ '--mermaid-zoom': mermaidZoom }"
       ></div>
+      <button
+        v-if="showPreview && !isMermaid && previewScrolled"
+        class="back-to-top"
+        :title="t('editor.backToTop')"
+        @click="scrollPreviewToTop"
+      >
+        <ArrowUp :size="18" :stroke-width="2" />
+      </button>
     </div>
     <div v-if="saving" class="save-indicator">{{ t('editor.saving') }}</div>
 
@@ -1261,6 +1331,35 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+  position: relative;
+}
+
+/* Floating "back to top" button, shown over the bottom-right of the preview. */
+.back-to-top {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0.75;
+  box-shadow: 0 2px 8px var(--shadow-color);
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.back-to-top:hover {
+  opacity: 1;
+  color: var(--text-active);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .editor-body.split {

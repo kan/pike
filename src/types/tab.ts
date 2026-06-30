@@ -93,6 +93,8 @@ export type EditorTab = {
   readOnly?: boolean
   initialContent?: string
   initialLine?: number
+  /** View mode to open the tab in (e.g. 'preview' when opened from a Markdown link). */
+  initialViewMode?: 'edit' | 'split' | 'preview'
   reloadRequested?: number
   externalChange?: 'modified' | 'deleted'
 }

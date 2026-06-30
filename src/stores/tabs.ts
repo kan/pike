@@ -169,6 +169,7 @@ export const useTabStore = defineStore('tabs', () => {
     initialContent?: string
     titleSuffix?: string
     initialLine?: number
+    initialViewMode?: EditorTab['initialViewMode']
     reload?: boolean
   }): string {
     if (!options.initialContent) {
@@ -197,6 +198,7 @@ export const useTabStore = defineStore('tabs', () => {
       readOnly: options.readOnly,
       initialContent: options.initialContent,
       initialLine: options.initialLine,
+      initialViewMode: options.initialViewMode,
     })
     activeTabId.value = id
     return id

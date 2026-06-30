@@ -80,6 +80,7 @@ export default {
   'editor.reload': '再読み込み',
   'editor.overwrite': '上書き保存',
   'editor.dismiss': '無視',
+  'editor.backToTop': 'TOP へ戻る',
 
   // Diff
   'diff.notFound': '差分が見つかりません',
@@ -159,6 +160,7 @@ export default {
   'settings.minimap': 'ミニマップ',
   'settings.wordWrap': '折り返し',
   'settings.tabSize': 'タブサイズ',
+  'settings.previewSmoothScroll': 'スムーススクロール（プレビュー）',
   'settings.about': 'バージョン情報',
   'settings.version': 'バージョン',
   'settings.checkUpdate': '更新を確認',

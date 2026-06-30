@@ -80,6 +80,7 @@ export default {
   'editor.reload': 'Reload',
   'editor.overwrite': 'Overwrite',
   'editor.dismiss': 'Dismiss',
+  'editor.backToTop': 'Back to top',
 
   // Diff
   'diff.notFound': 'Diff not found',
@@ -160,6 +161,7 @@ export default {
   'settings.minimap': 'Minimap',
   'settings.wordWrap': 'Word Wrap',
   'settings.tabSize': 'Tab Size',
+  'settings.previewSmoothScroll': 'Smooth scroll (preview)',
   'settings.about': 'About',
   'settings.version': 'Version',
   'settings.checkUpdate': 'Check for Updates',

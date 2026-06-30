@@ -470,6 +470,14 @@ const PREVIEW_LINES = [
             <option :value="8">8</option>
           </select>
         </div>
+
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.previewSmoothScroll') }}</label>
+          <div class="mode-toggle">
+            <button class="mode-btn" :class="{ active: settings.previewSmoothScroll }" @click="settings.previewSmoothScroll = true">{{ t('common.on') }}</button>
+            <button class="mode-btn" :class="{ active: !settings.previewSmoothScroll }" @click="settings.previewSmoothScroll = false">{{ t('common.off') }}</button>
+          </div>
+        </div>
       </section>
 
       <!-- Agent -->
