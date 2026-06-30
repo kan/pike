@@ -5,105 +5,81 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-Lightweight AI-coding-focused development environment — a fast alternative to VS Code for terminal-centric workflows.
+**「AI エージェント × ターミナル」に特化した、軽量な Windows 向け開発環境です。** ターミナル中心のワークフローにおける、VS Code の軽量な代替を目指しています。
 
-Built with Tauri v2 (Rust + Vue/TypeScript). Windows-first.
+Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としています。
 
-![Editor with file tree](docs/screenshot-editor.png)
+![エディタとファイルツリー](docs/screenshot-editor.png)
 
-![Git panel with Claude Code](docs/screenshot-git.png)
+![Git パネルと Claude Code](docs/screenshot-git.png)
 
-## Features
+## 主な機能
 
-- **Multi-terminal tabs** — xterm.js + PTY (WSL / cmd / PowerShell / Git Bash)
-- **Terminal agent helpers** — for running `claude` & co. in a terminal: one-click launch/prompt buttons (configurable), clickable `file:line` in output (incl. `rg`/`grep`) to open the editor, and "send to terminal" from an editor selection or a diagnostic row
-- **AI agents** — Claude Code & Codex as unified chat tabs (Agent runtime over ACP / Codex app-server), session resume, slash commands, `@`-mention file context, token-usage & cost in the status bar
-- **Clipboard & drag-drop attach** — paste or drop any file (images, PDFs, …) to save it under `.pike/uploads/` and insert its path (`@`-mention in agent chat, bare path in terminal); plain text always pastes inline, and small text files can optionally expand inline instead of uploading (agent chat only)
-- **File editor** — CodeMirror 6 with syntax highlighting (30+ languages), minimap, search & replace, git diff gutter, merge-conflict marker highlighting, jump-to-definition (Ctrl+Click / F12), encoding detection & LF/CRLF switching
-- **Previews** — Markdown, Mermaid, CSV/TSV, JSON/JSONL, SVG, PDF, and an **image viewer** with zoom / 100% / fit, 90° rotate, flip, drag-pan, Ctrl+wheel zoom, and a transparency grid (view-only — never edits the file)
-- **Symbol outline** — outline panel (18 languages) with cursor follow + per-file git history
-- **Task runner** — auto-discovers `package.json` / `Makefile` / `deno.json` scripts and runs them in a terminal tab
-- **Command palette** — `Ctrl+P` for files, `>` tasks / new agent, `@` tabs, `:` line jump, `!` git branch, `?` help
-- **Git panel** — staging, commit, push/pull, diff viewer, commit & branch graph, merge-conflict (unmerged) files shown in a red Conflicts section
-- **Git worktree switcher** — status-bar selector re-points the file tree / git / search / tasks / docker / editor at a selected worktree, for reviewing parallel agent work in one window
-- **Docker panel** — compose services, start/stop/restart, live logs, `docker exec` shell
-- **Project search** — ripgrep (bundled) / grep fallback
-- **File tree** — drag & drop, rename, delete, git status icons, file watcher auto-refresh
-- **Project management** — register WSL / Windows projects, organize them into collapsible groups, drag & drop between groups
-- **Multi-window** — open projects in separate windows
-- **Session persistence** — tab order, active tab, pinned tabs auto-restored on restart
-- **Dark / Light mode** — switchable from settings
-- **i18n** — Japanese / English
-- **Settings sync** — mirror environment-independent settings to an external JSON file (point it at a Dropbox/OneDrive/git folder) to share across PCs
-- **Self-updater** — auto check & update from GitHub Releases
-- **pike CLI** — `pike file.rs:42` to open files, `pike <dir>` to switch projects, `--wait` for `GIT_EDITOR`
+- **マルチターミナル** — xterm.js + PTY（WSL / cmd / PowerShell / Git Bash）
+- **AI エージェント** — Claude Code と Codex を統一チャットタブで。`@` メンションでのファイル参照、セッション復帰、トークン使用量・コスト表示
+- **ターミナルの AI 補助** — `claude` 等をターミナルで使うための、ワンクリック起動 / 定型プロンプト挿入、出力中の `file:line` クリックでエディタを開く、エディタ選択範囲や診断をターミナルへ送る
+- **エディタ** — CodeMirror 6（30+ 言語）、ミニマップ、検索・置換、git diff ガター、コンフリクト表示、定義ジャンプ、文字コード/改行コード対応
+- **プレビュー** — Markdown / Mermaid / CSV / JSON / SVG / PDF、表示専用の画像ビューア
+- **Git** — ステージング、コミット、push/pull、diff、コミットグラフ、コンフリクト表示、worktree 切替
+- **サイドバーパネル** — ファイルツリー、検索（ripgrep 同梱）、Docker、タスクランナー、アウトライン、Problems
+- **プロジェクト管理** — WSL / Windows プロジェクト、グループ整理、マルチウィンドウ、セッション復元
+- **設定** — UI / ターミナル / エディタの個別フォント設定、ダーク/ライト、日英 i18n、設定同期、自動更新
+- **pike CLI** — `pike file.rs:42` でファイルを開く、`pike <dir>` でプロジェクト切替、`--wait` で `GIT_EDITOR` 連携
 
-## Install
+## 使い方
 
-Download the latest installer from [GitHub Releases](https://github.com/kan/pike/releases/latest):
+詳しい使い方は **[ユーザーマニュアル](docs/manual/README.md)** を参照してください。
 
-| File | Description |
-|------|-------------|
-| `Pike_x.x.x_x64-setup.exe` | Windows installer (NSIS) — recommended |
-| `Pike_x.x.x_x64_en-US.msi` | Windows installer (MSI) |
+- [はじめに（インストール・初回起動・画面構成）](docs/manual/getting-started.md)
+- [プロジェクトとウィンドウ](docs/manual/projects-and-windows.md)
+- [ターミナルと AI エージェント](docs/manual/terminal-and-agents.md)
+- [エディタとプレビュー](docs/manual/editor-and-preview.md)
+- [Git](docs/manual/git.md)
+- [サイドバーパネル](docs/manual/panels.md)
+- [設定](docs/manual/settings.md)
+- [ショートカットと CLI](docs/manual/shortcuts-and-cli.md)
 
-After installation, Pike will check for updates automatically. You can also check manually from the gear menu.
+## インストール
 
-## Build from Source
+[GitHub Releases](https://github.com/kan/pike/releases/latest) から最新のインストーラをダウンロードして実行します。
 
-### Prerequisites
+| ファイル | 種類 |
+|----------|------|
+| `Pike_x.x.x_x64-setup.exe` | Windows インストーラ（NSIS、推奨） |
+| `Pike_x.x.x_x64_en-US.msi` | Windows インストーラ（MSI） |
+
+インストール後は自動でアップデートを確認します。手動で確認するときは歯車メニュー →「更新を確認」から行えます。
+
+## ソースからビルド
+
+### 必要なもの
 
 - **Windows 11**
 - **Node.js** >= 20
 - **Rust** >= 1.77
-- [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
-- **WSL2** (optional — for WSL shell and Docker integration)
+- [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/)
+- **WSL2**（任意 — WSL シェルや Docker 連携を使う場合）
 
-### Build & run
+### ビルドと実行
 
 ```bash
-# Install dependencies
+# 依存をインストール
 npm install
 
-# Download bundled ripgrep binary
+# 同梱用の ripgrep バイナリをダウンロード
 bash scripts/download-rg.sh
 
-# Development (can run alongside installed Pike)
+# 開発版（インストール版と共存して起動できます）
 npm run tauri:dev
 
-# Production build
+# 本番ビルド
 npm run tauri build
 ```
 
-### pike CLI
+## 開発・コントリビュート
 
-```bash
-# Open a file (jumps to line 42)
-pike src/main.rs:42
+アーキテクチャ、実装ルール、コミット規約などの開発者向け情報は **[CLAUDE.md](CLAUDE.md)** にまとまっています。
 
-# Open a directory as project
-pike .
-
-# Open file via subcommand
-pike open path/to/file.ts
-```
-
-## Architecture
-
-```
-Tauri WebView (Windows)
-├── Vue 3 + Pinia (UI)
-│   ├── xterm.js terminals
-│   ├── CodeMirror 6 editor
-│   └── Panels — file tree, git, search, docker, projects, tasks, outline
-├── Tauri IPC
-└── Rust backend
-    ├── portable-pty — PTY management
-    ├── bollard — Docker API
-    ├── git CLI wrapper (WSL + Windows)
-    └── File system ops (WSL + Windows)
-```
-
-## License
+## ライセンス
 
 [MIT](LICENSE)

@@ -1,14 +1,11 @@
 # テスト方針
 
-## M1（スパイク）フェーズ
-- 自動テストは書かない
-- 動作確認は MILESTONE.md のチェックリストを手動で消化する
-- PTY / tmux / bollard の接続検証は `src-tauri/src/bin/` に小さい検証バイナリを作って `cargo run --bin verify_xxx` で確認する
-
-## M2 以降
+## 基本方針
+- 自動テストは最小限。動作確認は手動（GUI で実挙動を確認）で行う
 - Rust のユニットテストは純粋なロジック（パース処理等）にのみ書く
-- PTY / Docker / git2 などの外部プロセス依存部分は統合テストの対象外
+- PTY / Docker / git などの外部プロセス依存部分は統合テストの対象外
 - Vue コンポーネントのテストは当面スコープ外
+- PTY / tmux / bollard の接続検証は `src-tauri/src/bin/` に小さい検証バイナリを作って `cargo run --bin verify_xxx` で確認する
 
 ## 検証バイナリの置き場
 ```
