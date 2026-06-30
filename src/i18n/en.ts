@@ -94,6 +94,8 @@ export default {
   'editor.externalModified': 'This file has been changed on disk.',
   'editor.externalDeleted': 'This file has been deleted from disk.',
   'editor.reload': 'Reload',
+  'editor.reloadFromDisk': 'Reload from disk',
+  'editor.reloadDiscardConfirm': 'Discard unsaved changes and reload from disk?',
   'editor.overwrite': 'Overwrite',
   'editor.dismiss': 'Dismiss',
   'editor.backToTop': 'Back to top',

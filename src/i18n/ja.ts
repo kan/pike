@@ -94,6 +94,8 @@ export default {
   'editor.externalModified': 'ファイルがディスク上で変更されました。',
   'editor.externalDeleted': 'ファイルがディスク上から削除されました。',
   'editor.reload': '再読み込み',
+  'editor.reloadFromDisk': 'ディスクから再読み込み',
+  'editor.reloadDiscardConfirm': '未保存の変更を破棄してディスクから読み直しますか？',
   'editor.overwrite': '上書き保存',
   'editor.dismiss': '無視',
   'editor.backToTop': 'TOP へ戻る',

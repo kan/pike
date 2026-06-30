@@ -5,10 +5,10 @@ import { highlightSelectionMatches } from '@codemirror/search'
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
 import DOMPurify from 'dompurify'
-import { ArrowUp } from 'lucide-vue-next'
+import { ArrowUp, RefreshCw } from 'lucide-vue-next'
 import { marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { promptDialog } from '../../composables/useConfirmDialog'
+import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useOutlineSource } from '../../composables/useOutlineSource'
@@ -139,6 +139,13 @@ const hasPreview = computed(
 
 const showEditor = computed(() => viewMode.value !== 'preview')
 const showPreview = computed(() => viewMode.value !== 'edit')
+
+// Header (plain editor): breadcrumb from the project root to the file.
+const breadcrumbSegments = computed(() => {
+  const p = tab.value?.path
+  if (!p) return []
+  return toRelativePath(p, projectStore.activeRoot).split(/[/\\]/).filter(Boolean)
+})
 
 const SVG_PURIFY_OPTS = {
   ADD_TAGS: [
@@ -1065,6 +1072,13 @@ function reloadExternal() {
   reopenWithEncoding(currentEncoding.value)
 }
 
+/** Reload the file from disk (header button). Confirms before discarding unsaved edits. */
+async function reloadFromDisk() {
+  if (isDirty.value && !(await confirmDialog(t('editor.reloadDiscardConfirm')))) return
+  externalChangeNotice.value = null
+  reopenWithEncoding(currentEncoding.value)
+}
+
 function overwriteExternal() {
   externalChangeNotice.value = null
   save()
@@ -1178,6 +1192,21 @@ onUnmounted(() => {
       </template>
       <span class="toolbar-spacer" />
       <HelpButton page="editor-and-preview.md" :size="15" />
+    </div>
+    <!-- Plain editor header: breadcrumb + reload + help -->
+    <div v-if="!hasPreview && !loading && !error && tab?.path" class="editor-header">
+      <div class="breadcrumb">
+        <template v-for="(seg, i) in breadcrumbSegments" :key="i">
+          <span v-if="i > 0" class="crumb-sep">›</span>
+          <span class="crumb" :class="{ leaf: i === breadcrumbSegments.length - 1 }">{{ seg }}</span>
+        </template>
+      </div>
+      <div class="editor-header-actions">
+        <button class="header-icon-btn" :title="t('editor.reloadFromDisk')" @click="reloadFromDisk">
+          <RefreshCw :size="14" :stroke-width="2" />
+        </button>
+        <HelpButton page="editor-and-preview.md" :size="15" />
+      </div>
     </div>
     <!-- External change warning bar -->
     <div v-if="externalChangeNotice === 'modified'" class="external-change-bar">
@@ -1295,6 +1324,69 @@ onUnmounted(() => {
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px 3px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.breadcrumb {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.crumb {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crumb.leaf {
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.crumb-sep {
+  margin: 0 4px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.editor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.header-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.header-icon-btn:hover {
+  color: var(--text-active);
+  background: var(--tab-hover-bg);
 }
 
 .preview-toggle {
