@@ -25,7 +25,16 @@ export default {
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'Projects',
   'sidebar.tasks': 'Tasks',
+  'sidebar.todo': 'TODO',
   'sidebar.outline': 'Outline',
+
+  // TODO panel
+  'todo.openFile': 'Open todo.md',
+  'todo.add': 'Add task',
+  'todo.addPlaceholder': 'Add a task…',
+  'todo.empty': 'No tasks yet. Add one above.',
+  'todo.markDone': 'Mark done',
+  'todo.markUndone': 'Mark undone',
   'sidebar.diagnostics': 'Problems',
   'sidebar.keyboardShortcuts': 'Keyboard Shortcuts',
   'sidebar.settings': 'Settings',

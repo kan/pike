@@ -12,6 +12,7 @@ const SearchPanel = defineAsyncComponent(() => import('../panels/SearchPanel.vue
 const TasksPanel = defineAsyncComponent(() => import('../panels/TasksPanel.vue'))
 const OutlinePanel = defineAsyncComponent(() => import('../panels/OutlinePanel.vue'))
 const DiagnosticsPanel = defineAsyncComponent(() => import('../panels/DiagnosticsPanel.vue'))
+const TodoPanel = defineAsyncComponent(() => import('../panels/TodoPanel.vue'))
 
 import {
   ArrowDown,
@@ -27,6 +28,7 @@ import {
   ListTodo,
   ListTree,
   Loader,
+  Play,
   RefreshCw,
   Search,
   Settings,
@@ -41,6 +43,7 @@ import { useDockerStore } from '../../stores/docker'
 import { useSearchStore } from '../../stores/search'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
+import { useTodoStore } from '../../stores/todo'
 
 const { t } = useI18n()
 const sidebar = useSidebarStore()
@@ -49,6 +52,7 @@ const gitStore = useGitStore()
 const searchStore = useSearchStore()
 const diagStore = useDiagnosticsStore()
 const dockerStore = useDockerStore()
+const todoStore = useTodoStore()
 const settingsStore = useSettingsStore()
 const shortcutsModal = useShortcutsModal()
 const showGearMenu = ref(false)
@@ -171,7 +175,13 @@ const icons: IconDef[] = [
   },
   { panel: 'docker', labelKey: 'sidebar.docker', icon: Container },
   { panel: 'projects', labelKey: 'sidebar.projects', icon: FolderOpen },
-  { panel: 'tasks', labelKey: 'sidebar.tasks', icon: ListTodo },
+  { panel: 'tasks', labelKey: 'sidebar.tasks', icon: Play },
+  {
+    panel: 'todo',
+    labelKey: 'sidebar.todo',
+    icon: ListTodo,
+    badge: () => (todoStore.progress.remaining > 0 ? { count: todoStore.progress.remaining } : null),
+  },
 ]
 
 /** panel → current badge, recomputed once per reactive change (not per render). */
@@ -335,6 +345,7 @@ onUnmounted(() => {
         <SearchPanel v-else-if="sidebar.activePanel === 'search'" />
         <DockerPanel v-else-if="sidebar.activePanel === 'docker'" />
         <TasksPanel v-else-if="sidebar.activePanel === 'tasks'" ref="tasksRef" />
+        <TodoPanel v-else-if="sidebar.activePanel === 'todo'" />
         <OutlinePanel v-else-if="sidebar.activePanel === 'outline'" />
         <DiagnosticsPanel v-else-if="sidebar.activePanel === 'diagnostics'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
