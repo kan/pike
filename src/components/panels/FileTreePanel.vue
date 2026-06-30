@@ -1,13 +1,24 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Loader } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
-import { confirmDialog } from '../../composables/useConfirmDialog'
+import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { fsWatcher } from '../../composables/useFsWatcher'
+import { fileToBase64 } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { basename, extension, gitStatusColor, isImageFile, mimeType, pathSep } from '../../lib/paths'
-import { type FsEntry, fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsReadFileBase64, fsRename } from '../../lib/tauri'
+import {
+  type FsEntry,
+  fsCopy,
+  fsCreateDir,
+  fsCreateFile,
+  fsDelete,
+  fsListDir,
+  fsReadFileBase64,
+  fsRename,
+  fsWriteFileBase64,
+} from '../../lib/tauri'
 import { useFileTreeStore } from '../../stores/fileTree'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
@@ -222,15 +233,19 @@ const {
 } = useDragAndDrop<string>('all')
 
 function onDragOver(e: DragEvent, path: string, isDir: boolean) {
-  if (!dragPath.value) return
   const s = sep()
   const targetDir = isDir ? path : path.substring(0, path.lastIndexOf(s))
-  // Prevent dropping a directory into itself or its descendants
-  if (targetDir === dragPath.value || targetDir.startsWith(dragPath.value + s)) return
+  const external = !dragPath.value && !!e.dataTransfer?.types.includes('Files')
+  if (dragPath.value) {
+    // Prevent dropping a directory into itself or its descendants
+    if (targetDir === dragPath.value || targetDir.startsWith(dragPath.value + s)) return
+  } else if (!external) {
+    return
+  }
   e.preventDefault()
   dropTarget.value = targetDir
   if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
+    e.dataTransfer.dropEffect = external ? 'copy' : e.ctrlKey ? 'copy' : 'move'
   }
 }
 
@@ -238,23 +253,56 @@ function onDragLeave() {
   dropTarget.value = null
 }
 
+/** Does an entry named `name` already exist directly under `dir`? */
+async function destExists(shell: Parameters<typeof fsListDir>[0], dir: string, name: string): Promise<boolean> {
+  try {
+    const entries = await fsListDir(shell, dir)
+    return entries.some((en) => en.name === name)
+  } catch {
+    return false
+  }
+}
+
 async function onDrop(e: DragEvent, path: string, isDir: boolean) {
   e.preventDefault()
   const source = dragPath.value
+  const isCopy = e.ctrlKey
+  // The DataTransfer is neutered after the first await, so snapshot the external
+  // files synchronously (kind/getAsFile/webkitGetAsEntry must run during the event).
+  const dropped: { file: File; isDir: boolean }[] = []
+  if (!source && e.dataTransfer) {
+    const items = e.dataTransfer.items
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i]
+      if (it.kind !== 'file') continue
+      const entry = it.webkitGetAsEntry?.()
+      const file = it.getAsFile()
+      if (file) dropped.push({ file, isDir: !!entry?.isDirectory })
+    }
+  }
   onDragEnd()
-  if (!source) return
+
   const project = projectStore.currentProject
   if (!project) return
-
   const s = sep()
   const targetDir = isDir ? path : path.substring(0, path.lastIndexOf(s))
+
+  // External files dropped from the OS (Explorer etc.) → copy into the target dir.
+  if (!source) {
+    if (dropped.length) await copyExternalFiles(project.shell, targetDir, dropped)
+    return
+  }
+
   const name = basename(source)
   const dest = targetDir + s + name
-
   if (source === dest) return
 
+  if (await destExists(project.shell, targetDir, name)) {
+    if (!(await confirmDialog(t('fileTree.confirmOverwrite', { name })))) return
+  }
+
   try {
-    if (e.ctrlKey) {
+    if (isCopy) {
       await fsCopy(project.shell, source, dest)
     } else {
       await fsRename(project.shell, source, dest)
@@ -264,6 +312,35 @@ async function onDrop(e: DragEvent, path: string, isDir: boolean) {
   } catch (err) {
     confirmDialog(String(err))
   }
+}
+
+/** Copy externally-dropped files into `targetDir` by content (confirm overwrites). */
+async function copyExternalFiles(
+  shell: Parameters<typeof fsListDir>[0],
+  targetDir: string,
+  files: { file: File; isDir: boolean }[],
+) {
+  const s = sep()
+  const skippedDirs: string[] = []
+  let copied = false
+  for (const { file, isDir } of files) {
+    if (isDir) {
+      skippedDirs.push(file.name)
+      continue
+    }
+    if (await destExists(shell, targetDir, file.name)) {
+      if (!(await confirmDialog(t('fileTree.confirmOverwrite', { name: file.name })))) continue
+    }
+    try {
+      const base64 = await fileToBase64(file)
+      await fsWriteFileBase64(shell, targetDir + s + file.name, base64)
+      copied = true
+    } catch (err) {
+      await confirmDialog(String(err))
+    }
+  }
+  if (copied) await fileTreeStore.loadDir(targetDir)
+  if (skippedDirs.length) await infoDialog(t('fileTree.dirDropUnsupported', { names: skippedDirs.join(', ') }))
 }
 
 const refreshing = ref(false)

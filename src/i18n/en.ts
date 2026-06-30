@@ -217,6 +217,8 @@ export default {
   'fileTree.delete': 'Delete',
   'fileTree.gitHistory': 'Git History',
   'fileTree.confirmDelete': 'Delete "{name}"?',
+  'fileTree.confirmOverwrite': '"{name}" already exists here. Overwrite?',
+  'fileTree.dirDropUnsupported': 'Dropping folders is not supported yet: {names}',
   'fileTree.newFile': 'New File',
   'fileTree.newFolder': 'New Folder',
   'fileTree.inotifyMissing': 'File watching unavailable. Install in WSL:',

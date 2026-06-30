@@ -216,6 +216,8 @@ export default {
   'fileTree.delete': '削除',
   'fileTree.gitHistory': 'Git 履歴',
   'fileTree.confirmDelete': '"{name}" を削除しますか？',
+  'fileTree.confirmOverwrite': '"{name}" は既に存在します。上書きしますか？',
+  'fileTree.dirDropUnsupported': 'フォルダのドロップは未対応です：{names}',
   'fileTree.newFile': '新規ファイル',
   'fileTree.newFolder': '新規フォルダ',
   'fileTree.inotifyMissing': 'ファイル監視が利用できません。WSL で以下を実行:',

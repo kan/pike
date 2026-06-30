@@ -81,7 +81,8 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin)
 }
 
-function fileToBase64(file: File): Promise<string> {
+/** Read a File's bytes as base64 (no data-URL prefix). */
+export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
