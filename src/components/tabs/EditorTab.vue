@@ -20,6 +20,7 @@ import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
 import { minimap } from '../../lib/editorMinimap'
 import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
+import { buildFontFamily } from '../../lib/fontDetection'
 import { formatLineRange } from '../../lib/format'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { basename, extension, toRelativePath } from '../../lib/paths'
@@ -47,6 +48,15 @@ const minimapCompartment = new Compartment()
 const wordWrapCompartment = new Compartment()
 const tabSizeCompartment = new Compartment()
 const indentUnitCompartment = new Compartment()
+const fontCompartment = new Compartment()
+
+/** Editor font theme driven by the editor's own font settings. */
+function fontTheme() {
+  return EditorView.theme({
+    '&': { fontSize: `${settingsStore.editorFontSize}px` },
+    '.cm-scroller': { fontFamily: buildFontFamily(settingsStore.editorFontName) },
+  })
+}
 
 const tab = computed(() => tabStore.tabs.find((t): t is EditorTab => t.id === props.tabId && t.kind === 'editor'))
 
@@ -631,11 +641,9 @@ function createEditorView(container: HTMLElement, content: string) {
         outlineSource.updateCaret(props.tabId, update.state.selection.main.head)
       }
     }),
+    fontCompartment.of(fontTheme()),
     EditorView.theme({
-      '&': { height: '100%', fontSize: '13px' },
-      '.cm-scroller': {
-        fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
-      },
+      '&': { height: '100%' },
       '.cm-searchMatch': {
         backgroundColor: 'rgba(255, 213, 0, 0.25)',
       },
@@ -1034,6 +1042,15 @@ watch(
         indentUnitCompartment.reconfigure(indentUnit.of(' '.repeat(size))),
       ],
     })
+  },
+)
+
+// The editor has its own font family / size — apply changes live.
+watch(
+  () => [settingsStore.editorFontName, settingsStore.editorFontSize],
+  () => {
+    if (!editorView) return
+    editorView.dispatch({ effects: fontCompartment.reconfigure(fontTheme()) })
   },
 )
 

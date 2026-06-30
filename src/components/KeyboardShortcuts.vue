@@ -68,7 +68,7 @@ const sections = computed<ShortcutSection[]>(() => [
   <Teleport to="body">
     <div
       v-if="visible"
-      class="shortcuts-overlay"
+      class="shortcuts-overlay ui-zoom"
       @mousedown.self="visible = false"
       @keydown="onKeyDown"
     >

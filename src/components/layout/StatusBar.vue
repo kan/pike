@@ -263,7 +263,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="status-bar">
+  <div class="status-bar ui-zoom">
     <button
       class="status-item clickable"
       @click="projectStore.toggleSwitcher()"

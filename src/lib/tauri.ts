@@ -464,6 +464,10 @@ export async function fontListMonospace(): Promise<string[]> {
   return invoke<string[]>('font_list_monospace')
 }
 
+export async function fontListAll(): Promise<string[]> {
+  return invoke<string[]>('font_list_all')
+}
+
 // Agent (unified API — works with Codex, Claude Code, and other ACP agents)
 
 import type {

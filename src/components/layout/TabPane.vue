@@ -189,7 +189,7 @@ onUnmounted(() => {
 <template>
   <div class="tab-pane">
     <!-- Tab Bar -->
-    <div class="tab-bar" @dblclick="onTabBarDblClick" @contextmenu="onTabContextMenu($event, null)">
+    <div class="tab-bar ui-zoom" @dblclick="onTabBarDblClick" @contextmenu="onTabContextMenu($event, null)">
       <div class="tabs-scroll">
         <div
           v-for="tab in tabStore.tabs"

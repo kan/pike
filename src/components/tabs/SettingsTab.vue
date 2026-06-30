@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronUp, Info, Loader, Moon, Plus, Sun, Trash2 } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
+import { buildFontFamily } from '../../lib/fontDetection'
 import { pickSaveFile } from '../../lib/tauri'
-import { COLOR_SCHEMES, useSettingsStore } from '../../stores/settings'
+import { COLOR_SCHEMES, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, useSettingsStore } from '../../stores/settings'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
 settings.loadAvailableFonts()
+settings.loadAvailableUiFonts()
+
+// CSS font-family for the editor preview swatch (built from the editor font name).
+const editorFontFamily = computed(() => buildFontFamily(settings.editorFontName))
 
 const updater = useUpdater()
 
@@ -24,6 +29,35 @@ function onFontSizeInput(e: Event) {
   if (val >= 8 && val <= 32) {
     settings.fontSize = val
   }
+}
+
+function onEditorFontSizeInput(e: Event) {
+  const val = parseInt((e.target as HTMLInputElement).value, 10)
+  if (val >= 8 && val <= 32) {
+    settings.editorFontSize = val
+  }
+}
+
+// The UI font size zooms the whole chrome, which shifts this settings pane as it
+// changes. To keep dragging smooth, track a draft for the live label and only
+// commit (re-zoom) when the user releases the slider.
+const uiFontSizeDraft = ref(settings.uiFontSize)
+watch(
+  () => settings.uiFontSize,
+  (v) => {
+    uiFontSizeDraft.value = v
+  },
+)
+
+function onUiFontSizeInput(e: Event) {
+  const val = parseInt((e.target as HTMLInputElement).value, 10)
+  if (val >= UI_FONT_SIZE_MIN && val <= UI_FONT_SIZE_MAX) {
+    uiFontSizeDraft.value = val
+  }
+}
+
+function onUiFontSizeCommit() {
+  settings.uiFontSize = uiFontSizeDraft.value
 }
 
 function addAgentCommand() {
@@ -78,11 +112,13 @@ function scrollToSection(id: string) {
 }
 
 function onSettingsScroll(e: Event) {
+  // Use viewport rects (not offsetTop) so the active-section detection stays
+  // correct when the content is scaled via the UI-font zoom.
   const container = e.target as HTMLElement
-  const scrollTop = container.scrollTop + 40
+  const threshold = container.getBoundingClientRect().top + 40
   for (let i = sections.length - 1; i >= 0; i--) {
     const el = document.getElementById(`settings-${sections[i].id}`)
-    if (el && el.offsetTop <= scrollTop) {
+    if (el && el.getBoundingClientRect().top <= threshold) {
       activeSection.value = sections[i].id
       return
     }
@@ -106,7 +142,7 @@ const PREVIEW_LINES = [
 
 <template>
   <div class="settings-tab">
-    <nav class="settings-nav">
+    <nav class="settings-nav ui-zoom">
       <button
         v-for="sec in sections"
         :key="sec.id"
@@ -116,6 +152,7 @@ const PREVIEW_LINES = [
       >{{ t(sec.i18nKey) }}</button>
     </nav>
     <div class="settings-scroll" @scroll="onSettingsScroll">
+      <div class="settings-zoom ui-zoom">
       <h2 class="settings-title">{{ t('settings.title') }}</h2>
 
       <div v-if="fsWatcher.startError.value" class="inotify-banner">
@@ -158,6 +195,32 @@ const PREVIEW_LINES = [
               <span>{{ t('settings.lightMode') }}</span>
             </button>
           </div>
+        </div>
+
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.uiFont') }}</label>
+            <select class="setting-select" v-model="settings.uiFontFamily">
+              <option value="">{{ t('settings.uiFontDefault') }}</option>
+              <option v-for="font in settings.availableUiFonts" :key="font" :value="font">{{ font }}</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.uiFontSize') }}</label>
+            <div class="font-size-control">
+              <input
+                type="range"
+                :min="UI_FONT_SIZE_MIN"
+                :max="UI_FONT_SIZE_MAX"
+                :value="uiFontSizeDraft"
+                @input="onUiFontSizeInput"
+                @change="onUiFontSizeCommit"
+                class="setting-range"
+              />
+              <span class="font-size-value" :style="{ fontSize: uiFontSizeDraft + 'px' }">{{ uiFontSizeDraft }}px</span>
+            </div>
+          </div>
+          <p class="setting-hint">{{ t('settings.uiFontHint') }}</p>
         </div>
       </section>
 
@@ -229,7 +292,7 @@ const PREVIEW_LINES = [
               :class="{ active: settings.colorSchemeName === scheme.name }"
               @click="settings.colorSchemeName = scheme.name"
             >
-              <div class="scheme-preview" :style="{ background: scheme.background }">
+              <div class="scheme-preview" :style="{ background: scheme.background, fontFamily: settings.fontFamily }">
                 <span :style="{ color: scheme.foreground }">abc</span>
                 <span :style="{ color: scheme.red }">err</span>
                 <span :style="{ color: scheme.green }">ok</span>
@@ -337,6 +400,28 @@ const PREVIEW_LINES = [
       <section id="settings-editor" class="settings-section">
         <h3 class="section-title">{{ t('settings.editor') }}</h3>
 
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.editorFont') }}</label>
+          <select class="setting-select" v-model="settings.editorFontName">
+            <option v-for="font in settings.availableFonts" :key="font" :value="font">{{ font }}</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.editorFontSize') }}</label>
+          <div class="font-size-control">
+            <input
+              type="range"
+              min="8"
+              max="32"
+              :value="settings.editorFontSize"
+              @input="onEditorFontSizeInput"
+              class="setting-range"
+            />
+            <span class="font-size-value">{{ settings.editorFontSize }}px</span>
+          </div>
+        </div>
+
         <div class="setting-row setting-row-block">
           <label class="setting-label">{{ t('settings.editorTheme') }}</label>
           <div class="scheme-grid">
@@ -347,7 +432,7 @@ const PREVIEW_LINES = [
               :class="{ active: settings.editorThemeName === theme.name }"
               @click="settings.editorThemeName = theme.name"
             >
-              <div class="scheme-preview" :style="{ background: theme.background, color: theme.foreground }">
+              <div class="scheme-preview" :style="{ background: theme.background, color: theme.foreground, fontFamily: editorFontFamily }">
                 <span>fn</span>
                 <span :style="{ color: theme.accent }">main</span>
                 <span>()</span>
@@ -485,6 +570,7 @@ const PREVIEW_LINES = [
           </div>
         </div>
       </section>
+      </div>
     </div>
   </div>
 </template>
@@ -497,6 +583,9 @@ const PREVIEW_LINES = [
   overflow: hidden;
   background: var(--bg-primary);
   color: var(--text-primary);
+  /* Always show the settings screen itself in the system font, so it stays a
+     stable, legible reference no matter which UI font the user picks. */
+  font-family: system-ui, -apple-system, sans-serif;
 }
 
 .settings-nav {

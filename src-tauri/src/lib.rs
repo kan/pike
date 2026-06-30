@@ -766,6 +766,7 @@ pub fn run() {
             git::git_diff_lines,
             git::git_diff_working,
             font::font_list_monospace,
+            font::font_list_all,
             codex::codex_check_available,
             codex::codex_start_session,
             codex::codex_disconnect,

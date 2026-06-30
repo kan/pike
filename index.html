@@ -14,8 +14,12 @@
         overflow: hidden;
         background: var(--bg-primary, #1e1e1e);
         color: var(--text-primary, #cccccc);
-        font-family: system-ui, -apple-system, sans-serif;
+        font-family: var(--app-font-family, system-ui, -apple-system, sans-serif);
       }
+      /* UI chrome (sidebar, tab bar, status bar, dialogs, menus) scales with the
+         UI font size by applying `zoom: var(--ui-zoom)` — see the .ui-zoom helper
+         in theme.css. Tab content (terminal/editor/…) is intentionally left
+         unzoomed so it keeps its own independent font settings. */
     </style>
   </head>
   <body>

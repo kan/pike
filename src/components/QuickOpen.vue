@@ -405,7 +405,7 @@ const footerHints = computed(() => {
 
 <template>
   <Teleport to="body">
-    <div v-if="projectStore.showQuickOpen" class="quickopen-overlay" @mousedown.self="projectStore.showQuickOpen = false">
+    <div v-if="projectStore.showQuickOpen" class="quickopen-overlay ui-zoom" @mousedown.self="projectStore.showQuickOpen = false">
       <div class="quickopen">
         <input
           ref="inputRef"

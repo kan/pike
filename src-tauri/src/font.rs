@@ -36,3 +36,19 @@ pub async fn font_list_monospace() -> Result<Vec<String>, String> {
     .await
     .map_err(|e| e.to_string())?
 }
+
+/// List all font families installed on the system (for the UI / app font picker).
+/// Unlike `font_list_monospace`, this returns every family without the monospace
+/// heuristic, so proportional (sans-serif) UI fonts show up too.
+#[tauri::command]
+pub async fn font_list_all() -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(|| {
+        let source = SystemSource::new();
+        let mut families = source.all_families().map_err(|e| e.to_string())?;
+        families.sort();
+        families.dedup();
+        Ok(families)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

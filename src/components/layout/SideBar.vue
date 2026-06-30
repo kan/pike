@@ -199,7 +199,9 @@ function onResizeStart(e: MouseEvent) {
 
 function onResizeMove(e: MouseEvent) {
   if (!dragging) return
-  sidebar.setPanelWidth(startWidth + (e.clientX - startX))
+  // The sidebar carries the UI zoom, so a viewport-px mouse delta corresponds to
+  // delta / zoom logical px on the (zoomed) panel width.
+  sidebar.setPanelWidth(startWidth + (e.clientX - startX) / settingsStore.uiZoom)
 }
 
 function onResizeEnd() {
@@ -219,7 +221,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="sidebar">
+  <div class="sidebar ui-zoom">
     <nav class="icon-strip">
       <button
         v-for="item in icons"

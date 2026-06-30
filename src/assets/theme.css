@@ -93,3 +93,12 @@
   color: var(--text-secondary);
   flex-shrink: 0;
 }
+
+/* UI font-size scaling: applied to chrome roots (sidebar, tab bar, status bar,
+   dialogs, context menus) so the whole UI grows/shrinks proportionally without
+   converting every hard-coded px. Tab content (terminal/editor/…) keeps its own
+   font settings and must NOT carry this class. --ui-zoom is set from the
+   settings store (1 = 100%). */
+.ui-zoom {
+  zoom: var(--ui-zoom, 1);
+}

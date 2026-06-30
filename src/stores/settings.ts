@@ -1,9 +1,9 @@
-import { defineStore } from 'pinia'
+import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale } from '../i18n'
-import { buildFontFamily, extractFontName } from '../lib/fontDetection'
+import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { loadJson, saveJson } from '../lib/storage'
-import { fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
+import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 
 export interface TerminalColorScheme {
   name: string
@@ -177,6 +177,11 @@ const STORAGE_KEY = 'pike:settings'
 const SYNC_PATH_KEY = 'pike:sync-path'
 // Debounce window for mirroring settings changes out to the sync file.
 const SYNC_WRITE_DEBOUNCE_MS = 1500
+// Base UI font size that maps to 100% (zoom = 1). The whole UI chrome is scaled
+// proportionally via CSS `zoom`, so changing the size never breaks the layout.
+export const UI_FONT_BASE = 13
+export const UI_FONT_SIZE_MIN = 9
+export const UI_FONT_SIZE_MAX = 20
 
 export type AgentDefault = 'claude-code' | 'codex' | 'ask'
 
@@ -195,6 +200,10 @@ export interface AgentPrompt {
 interface PersistedSettings {
   fontFamily: string
   fontSize: number
+  editorFontName: string
+  editorFontSize: number
+  uiFontFamily: string
+  uiFontSize: number
   colorSchemeName: string
   darkMode: boolean
   editorThemeName: string
@@ -213,14 +222,49 @@ interface PersistedSettings {
   agentPrompts: AgentPrompt[]
 }
 
+// Font-size slider bounds (terminal + editor); UI font size uses UI_FONT_SIZE_*.
+const FONT_SIZE_MIN = 8
+const FONT_SIZE_MAX = 32
+
+function clampSize(n: unknown, min: number, max: number, fallback: number): number {
+  return typeof n === 'number' && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback
+}
+
+function cleanName(v: unknown, fallback: string): string {
+  return typeof v === 'string' && v.trim() ? v.trim() : fallback
+}
+
+/**
+ * Guard against corrupt persisted/synced values (wrong types, out-of-range):
+ * clamp font sizes into range — a bad `uiFontSize` like 0 would otherwise zoom
+ * the whole UI to invisible and divide-by-zero in the sidebar resize — and fall
+ * back empty/non-string font names.
+ */
+function sanitize(s: PersistedSettings): PersistedSettings {
+  const d = defaults()
+  return {
+    ...s,
+    fontFamily: cleanName(s.fontFamily, d.fontFamily),
+    fontSize: clampSize(s.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX, d.fontSize),
+    editorFontName: cleanName(s.editorFontName, d.editorFontName),
+    editorFontSize: clampSize(s.editorFontSize, FONT_SIZE_MIN, FONT_SIZE_MAX, d.editorFontSize),
+    // uiFontFamily '' is valid (= System Default), so it is intentionally not coerced.
+    uiFontSize: clampSize(s.uiFontSize, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX, d.uiFontSize),
+  }
+}
+
 function loadSettings(): PersistedSettings {
-  return { ...defaults(), ...loadJson<Partial<PersistedSettings>>(STORAGE_KEY, {}) }
+  return sanitize({ ...defaults(), ...loadJson<Partial<PersistedSettings>>(STORAGE_KEY, {}) })
 }
 
 function defaults(): PersistedSettings {
   return {
     fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
     fontSize: 14,
+    editorFontName: 'PlemolJP Console NF',
+    editorFontSize: 14,
+    uiFontFamily: '',
+    uiFontSize: UI_FONT_BASE,
     colorSchemeName: 'Default Dark',
     darkMode: true,
     editorThemeName: 'One Dark',
@@ -252,6 +296,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const fontFamily = ref(saved.fontFamily)
   const fontSize = ref(saved.fontSize)
+  const editorFontName = ref(saved.editorFontName)
+  const editorFontSize = ref(saved.editorFontSize)
+  const uiFontFamily = ref(saved.uiFontFamily)
+  const uiFontSize = ref(saved.uiFontSize)
   const colorSchemeName = ref(saved.colorSchemeName)
   const darkMode = ref(saved.darkMode)
   const editorThemeName = ref(saved.editorThemeName)
@@ -275,8 +323,9 @@ export const useSettingsStore = defineStore('settings', () => {
     locale.value = v
   })
 
-  // Detected monospace fonts on this system (loaded on demand from Rust)
-  const availableFonts = ref<string[]>([extractFontName(saved.fontFamily)])
+  // Detected monospace fonts on this system (loaded on demand from Rust).
+  // Shared by the terminal and the editor font pickers (both are code surfaces).
+  const availableFonts = ref<string[]>([...new Set([extractFontName(saved.fontFamily), saved.editorFontName])])
   let fontsLoaded = false
 
   function loadAvailableFonts() {
@@ -284,15 +333,52 @@ export const useSettingsStore = defineStore('settings', () => {
     fontsLoaded = true
     fontListMonospace()
       .then((fonts) => {
-        availableFonts.value = fonts
-        const current = extractFontName(fontFamily.value)
-        if (current !== 'monospace' && !fonts.includes(current)) {
-          availableFonts.value = [current, ...fonts]
+        // Keep any currently-selected font (terminal or editor) visible even if
+        // the monospace heuristic didn't detect it.
+        const extras: string[] = []
+        for (const name of [extractFontName(fontFamily.value), editorFontName.value]) {
+          if (name !== 'monospace' && !fonts.includes(name) && !extras.includes(name)) {
+            extras.push(name)
+          }
+        }
+        availableFonts.value = [...extras, ...fonts]
+      })
+      .catch(() => {
+        /* fallback: keep current font */
+      })
+  }
+
+  // All installed font families (for the UI/app font picker), loaded on demand.
+  const availableUiFonts = ref<string[]>(saved.uiFontFamily ? [saved.uiFontFamily] : [])
+  let uiFontsLoaded = false
+
+  function loadAvailableUiFonts() {
+    if (uiFontsLoaded) return
+    uiFontsLoaded = true
+    fontListAll()
+      .then((fonts) => {
+        availableUiFonts.value = fonts
+        const current = uiFontFamily.value
+        if (current && !fonts.includes(current)) {
+          availableUiFonts.value = [current, ...fonts]
         }
       })
       .catch(() => {
         /* fallback: keep current font */
       })
+  }
+
+  /** CSS font-family value for the UI font ('' → system default stack). */
+  const uiFontFamilyCss = computed(() => buildUiFontFamily(uiFontFamily.value))
+
+  /** Chrome zoom factor (1 = 100%). Mirrors the `--ui-zoom` CSS variable. */
+  const uiZoom = computed(() => uiFontSize.value / UI_FONT_BASE)
+
+  /** Apply the UI font + size (as a chrome-wide zoom) to the document root. */
+  function applyUiAppearance() {
+    const root = document.documentElement
+    root.style.setProperty('--app-font-family', uiFontFamilyCss.value)
+    root.style.setProperty('--ui-zoom', String(uiZoom.value))
   }
 
   // Current font name extracted from fontFamily string
@@ -314,6 +400,10 @@ export const useSettingsStore = defineStore('settings', () => {
     return {
       fontFamily: fontFamily.value,
       fontSize: fontSize.value,
+      editorFontName: editorFontName.value,
+      editorFontSize: editorFontSize.value,
+      uiFontFamily: uiFontFamily.value,
+      uiFontSize: uiFontSize.value,
       colorSchemeName: colorSchemeName.value,
       darkMode: darkMode.value,
       editorThemeName: editorThemeName.value,
@@ -341,6 +431,10 @@ export const useSettingsStore = defineStore('settings', () => {
   function applySettings(s: PersistedSettings) {
     fontFamily.value = s.fontFamily
     fontSize.value = s.fontSize
+    editorFontName.value = s.editorFontName
+    editorFontSize.value = s.editorFontSize
+    uiFontFamily.value = s.uiFontFamily
+    uiFontSize.value = s.uiFontSize
     colorSchemeName.value = s.colorSchemeName
     darkMode.value = s.darkMode
     editorThemeName.value = s.editorThemeName
@@ -396,7 +490,7 @@ export const useSettingsStore = defineStore('settings', () => {
         throw new Error('invalid settings file')
       }
       importing = true
-      applySettings({ ...defaults(), ...(parsed as Partial<PersistedSettings>) })
+      applySettings(sanitize({ ...defaults(), ...(parsed as Partial<PersistedSettings>) }))
       await nextTick() // let change-watchers flush while writes are suppressed
       importing = false
       persist() // mirror the imported settings into localStorage
@@ -433,6 +527,10 @@ export const useSettingsStore = defineStore('settings', () => {
     [
       fontFamily,
       fontSize,
+      editorFontName,
+      editorFontSize,
+      uiFontFamily,
+      uiFontSize,
       colorSchemeName,
       darkMode,
       editorThemeName,
@@ -454,6 +552,7 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(agentCommands, onSettingsChanged, { deep: true })
   watch(agentPrompts, onSettingsChanged, { deep: true })
   watch(darkMode, applyDarkMode, { immediate: true })
+  watch([uiFontFamily, uiFontSize], applyUiAppearance, { immediate: true })
 
   // On startup, pull the latest settings from the sync file (if configured).
   if (syncFilePath.value) void importFromSyncFile()
@@ -462,6 +561,14 @@ export const useSettingsStore = defineStore('settings', () => {
     fontFamily,
     fontName,
     fontSize,
+    editorFontName,
+    editorFontSize,
+    uiFontFamily,
+    uiFontSize,
+    uiFontFamilyCss,
+    uiZoom,
+    availableUiFonts,
+    loadAvailableUiFonts,
     colorSchemeName,
     colorScheme,
     darkMode,
@@ -490,3 +597,11 @@ export const useSettingsStore = defineStore('settings', () => {
     importFromSyncFile,
   }
 })
+
+// Make the store HMR-friendly: without this, editing this file during `vite dev`
+// hot-swaps the module but Pinia keeps the *old* store instance, so newly-added
+// state (e.g. editorFontName) reads as undefined and writes go nowhere until a
+// full reload. acceptHMRUpdate swaps the running store in place instead.
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useSettingsStore, import.meta.hot))
+}
