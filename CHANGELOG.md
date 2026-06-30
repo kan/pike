@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0] - 2026-06-30
+
+### Features
+
+- **アプリ全体の外観（UI フォント・サイズ）とエディタ専用フォントを設定可能に（#109）**: これまでターミナルのフォント/サイズのみだった設定を、アプリ UI（システムフォント）とエディタにも拡張
+  - **UI フォント（ファミリ／サイズ）**: Settings の外観セクションで選択。サイズはサイドバー・タブバー・ステータスバー・各種ダイアログ等のクローム領域に CSS `zoom`（`--ui-zoom`）を一律適用して比例スケールし、px ハードコードを変換せずレイアウト崩れを回避。ターミナル/エディタの canvas は非ズーム。サイドバー幅のリサイズはズーム分を補正
+  - **エディタ専用フォント／サイズ**: ターミナルとは独立した設定を追加し、Settings の Editor セクション先頭に配置。CodeMirror に Compartment 経由で即時反映
+  - 設定タブ自体も UI サイズに追従（本文はシステムフォントで安定表示）。サイズ変更中は数値ラベルのみライブ追従し、確定（リリース）時にズーム適用
+  - カラースキーム／エディタテーマの凡例にそれぞれターミナル／エディタフォントを反映
+  - 全フォント列挙コマンド `font_list_all` を追加（UI フォント選択用、proportional フォントも対象）
+  - 永続データ（localStorage／同期ファイル）の `sanitize` を追加: フォントサイズの範囲クランプ（`uiFontSize=0` による UI 不可視・ゼロ除算を防止）と空/非文字列フォント名のフォールバック、CSS のシングルクォートをエスケープ
+
+### Bug Fixes
+
+- **設定変更を全 Pike ウィンドウへ反映（#110）**: これまで設定はそれを変更したウィンドウにしか反映されず、他のウィンドウでは古い値のままだった。PTY/Docker と同じ「全ウィンドウへ broadcast + 自ラベルで除外」パターンで解消
+  - 設定変更時に `pike://settings-changed` イベントでスナップショットを全ウィンドウへ配信（150ms デバウンス）。受信側は `applySettings` + `sanitize` で反映し、`applyingRemote` フラグで再配信・同期ファイル書き込みを抑止してフィードバックループを防止
+  - 新規ウィンドウは従来どおり起動時に共有 localStorage を読むため、既存（broadcast）・新規（localStorage）の両方で整合
+
 ## [0.15.0] - 2026-06-28
 
 ### Features
@@ -691,6 +709,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.16.0]: https://github.com/kan/pike/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/kan/pike/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/kan/pike/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/kan/pike/compare/v0.13.0...v0.13.1
