@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use tauri::{State, WebviewWindow};
+use tauri::{Emitter, Manager, State, WebviewWindow};
 
 pub struct ProjectState {
     pub config_dir: PathBuf,
@@ -64,6 +64,9 @@ pub struct ProjectConfig {
     /// Optional free-text group label for organizing projects in the panel.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// Optional preset accent color (hex) for identifying windows/projects.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 fn projects_dir(state: &ProjectState) -> PathBuf {
@@ -268,9 +271,17 @@ pub async fn project_create(
     Ok(config)
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectUpdatedPayload {
+    source_label: String,
+    config: ProjectConfig,
+}
+
 #[tauri::command]
 pub async fn project_update(
     config: ProjectConfig,
+    window: WebviewWindow,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
     validate_slug(&config.id, "Project ID")?;
@@ -280,6 +291,17 @@ pub async fn project_update(
     }
     let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     fs::write(path, content).map_err(|e| e.to_string())?;
+
+    // Broadcast so other windows refresh their in-memory copy; without this,
+    // their full-object writes (session flush / project switch) would revert
+    // the edit with stale data.
+    let _ = window.app_handle().emit(
+        "project_updated",
+        ProjectUpdatedPayload {
+            source_label: window.label().to_string(),
+            config,
+        },
+    );
     Ok(())
 }
 

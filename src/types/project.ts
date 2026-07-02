@@ -33,4 +33,6 @@ export interface ProjectConfig {
   lastOpened: string
   lastSession?: LastSession
   group?: string
+  /** Preset accent color (hex) for identifying windows/projects */
+  color?: string
 }

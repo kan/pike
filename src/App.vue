@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { onMounted, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import SideBar from './components/layout/SideBar.vue'
@@ -20,6 +20,7 @@ import { useI18n } from './i18n'
 import { clearAliasCache } from './lib/jumpTo/resolveImport'
 import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { normalizeSep } from './lib/paths'
+import { projectColorValue } from './lib/projectColors'
 import { projectRemoveOpen } from './lib/tauri'
 import { getWindowProjectId, isMainWindow, isSecondaryWindow } from './lib/window'
 import { useClaudeRateStore } from './stores/claudeRate'
@@ -30,6 +31,7 @@ import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
 import { useTabStore } from './stores/tabs'
 import { useWorktreeStore } from './stores/worktree'
+import type { ProjectConfig } from './types/project'
 
 const { t } = useI18n()
 
@@ -45,6 +47,9 @@ const diagStore = useDiagnosticsStore()
 useKeyboardShortcuts()
 
 const isDebug = import.meta.env.DEV
+
+// Window-wide project accent line: tells coexisting windows apart at a glance
+const projectAccent = computed(() => projectColorValue(projectStore.currentProject?.color))
 
 watch(
   () => projectStore.currentProject?.name,
@@ -143,6 +148,15 @@ onMounted(async () => {
   await initCliOpen()
   initTerminalNotifications().catch(() => {})
 
+  // Broadcast + self-filter (PTY/Docker と同方式): keep every window's
+  // in-memory project copies fresh so stale full-object writes (flushSession /
+  // switchProject) can't clobber edits made in another window.
+  const ownLabel = getCurrentWindow().label
+  listen<{ sourceLabel: string; config: ProjectConfig }>('project_updated', (event) => {
+    if (event.payload.sourceLabel === ownLabel) return
+    projectStore.applyExternalUpdate(event.payload.config)
+  })
+
   tabStore.$subscribe(() => projectStore.saveSessionDebounced())
   window.addEventListener('beforeunload', () => {
     projectStore.saveSessionNow()
@@ -171,6 +185,7 @@ onMounted(async () => {
 
 <template>
   <div class="app">
+    <div v-if="projectAccent" class="project-accent" :style="{ background: projectAccent }"></div>
     <div class="app-main">
       <SideBar />
       <TabPane />
@@ -185,6 +200,7 @@ onMounted(async () => {
 
 <style scoped>
 .app {
+  position: relative;
   width: 100vw;
   height: 100vh;
   display: flex;
@@ -196,5 +212,15 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   min-height: 0;
+}
+
+.project-accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  z-index: 100;
+  pointer-events: none;
 }
 </style>

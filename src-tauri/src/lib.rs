@@ -207,6 +207,7 @@ fn create_adhoc_project(
         codex_thread_id: None,
         agent_session_id: None,
         group: None,
+        color: None,
     };
 
     let dir = state.config_dir.join("projects").join(&config.id);

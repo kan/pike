@@ -12,6 +12,8 @@ import {
   shellToPlatform,
   shellToWinKind,
 } from '../../types/tab'
+import ColorDot from '../ColorDot.vue'
+import ColorSelect from './ColorSelect.vue'
 import GroupComboBox from './GroupComboBox.vue'
 
 const props = defineProps<{
@@ -39,6 +41,7 @@ const { t } = useI18n()
 const editName = ref('')
 const editRoot = ref('')
 const editGroup = ref<string | undefined>(undefined)
+const editColor = ref<string | undefined>(undefined)
 const editPlatform = ref<'wsl' | 'windows'>('wsl')
 const editDistro = ref('Ubuntu')
 const editWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
@@ -52,6 +55,7 @@ watch(
     editName.value = props.project.name
     editRoot.value = props.project.root
     editGroup.value = props.project.group?.trim() || undefined
+    editColor.value = props.project.color
     editPlatform.value = shellToPlatform(props.project.shell)
     editDistro.value = shellToDistro(props.project.shell)
     editWindowsShell.value = shellToWinKind(props.project.shell)
@@ -71,6 +75,7 @@ function onSave() {
     root: editRoot.value,
     shell: buildShell(editPlatform.value, editDistro.value, editWindowsShell.value),
     group: editGroup.value,
+    color: editColor.value,
   })
 }
 </script>
@@ -85,6 +90,7 @@ function onSave() {
       </button>
     </div>
     <GroupComboBox v-model="editGroup" :groups="groups" />
+    <ColorSelect v-model="editColor" />
     <div class="platform-row">
       <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
       <label class="radio-label"><input type="radio" v-model="editPlatform" value="windows" /> Windows</label>
@@ -112,7 +118,9 @@ function onSave() {
     @dragend="emit('drag-end')"
     @click="emit('select')"
   >
-    <div class="project-name">{{ project.name }}</div>
+    <div class="project-name">
+      <ColorDot :color="project.color" />{{ project.name }}
+    </div>
     <div class="project-meta">
       <span class="project-root">{{ project.root }}</span>
       <span class="project-shell">{{ shellLabel(project.shell) }}</span>
@@ -255,6 +263,9 @@ function onSave() {
 .project-name {
   font-size: 13px;
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .project-meta {

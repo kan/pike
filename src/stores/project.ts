@@ -249,6 +249,17 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  // Apply a project_updated broadcast from another window: refresh in-memory
+  // copies so this window's full-object writes don't revert the edit. The
+  // window-local live session is kept (this window owns it while open).
+  function applyExternalUpdate(config: ProjectConfig) {
+    const idx = projects.value.findIndex((p) => p.id === config.id)
+    if (idx !== -1) projects.value[idx] = config
+    if (currentProject.value?.id === config.id) {
+      currentProject.value = { ...config, lastSession: currentProject.value.lastSession }
+    }
+  }
+
   async function removeProject(id: string) {
     await projectDelete(id)
     projects.value = projects.value.filter((p) => p.id !== id)
@@ -285,6 +296,7 @@ export const useProjectStore = defineStore('project', () => {
     saveSessionNow,
     addProject,
     saveProject,
+    applyExternalUpdate,
     removeProject,
     toggleSwitcher,
     toggleQuickOpen,

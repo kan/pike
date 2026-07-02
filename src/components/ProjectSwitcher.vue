@@ -5,6 +5,8 @@ import { detectWslDistros, openProjectWindow } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
 import type { ProjectConfig } from '../types/project'
 import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, WINDOWS_SHELLS } from '../types/tab'
+import ColorDot from './ColorDot.vue'
+import ColorSelect from './panels/ColorSelect.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -35,6 +37,7 @@ const formRoot = ref('')
 const formPlatform = ref<'wsl' | 'windows'>('wsl')
 const formDistro = ref('Ubuntu')
 const formWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
+const formColor = ref<string | undefined>(undefined)
 const distros = ref<string[]>([])
 const distrosLoaded = ref(false)
 
@@ -67,6 +70,7 @@ async function onCreateProject() {
     shell: buildShell(formPlatform.value, formDistro.value, formWindowsShell.value),
     pinnedTabs: [],
     lastOpened: new Date().toISOString(),
+    color: formColor.value,
   }
 
   await projectStore.addProject(config)
@@ -81,6 +85,7 @@ function resetForm() {
   formRoot.value = ''
   formPlatform.value = 'wsl'
   formWindowsShell.value = 'powershell'
+  formColor.value = undefined
 }
 
 // --- Lifecycle ---
@@ -164,7 +169,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             @click="projectStore.switchProject(project.id); projectStore.showSwitcher = false"
             @mouseenter="selectedIdx = i"
           >
-            <span class="item-name">{{ project.name }}</span>
+            <span class="item-name"><ColorDot :color="project.color" />{{ project.name }}</span>
             <span class="item-root">{{ project.root }}</span>
           </div>
           <div v-if="filtered.length === 0 && query" class="switcher-empty">
@@ -204,6 +209,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             <select v-if="formPlatform === 'windows'" v-model="formWindowsShell">
               <option v-for="s in WINDOWS_SHELLS" :key="s.kind" :value="s.kind">{{ s.label }}</option>
             </select>
+            <ColorSelect v-model="formColor" />
             <button type="submit" class="create-btn">{{ t('projectSwitcher.createAndOpen') }}</button>
           </form>
         </div>
@@ -281,6 +287,9 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
   font-size: 13px;
   color: var(--text-primary);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .switcher-item.selected .item-name {

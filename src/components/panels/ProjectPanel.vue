@@ -18,6 +18,7 @@ import {
   slugify,
   WINDOWS_SHELLS,
 } from '../../types/tab'
+import ColorSelect from './ColorSelect.vue'
 import GroupComboBox from './GroupComboBox.vue'
 import ProjectListItem from './ProjectListItem.vue'
 
@@ -178,6 +179,7 @@ const showForm = ref(false)
 const formName = ref('')
 const formRoot = ref('')
 const formGroup = ref<string | undefined>(undefined)
+const formColor = ref<string | undefined>(undefined)
 const formPlatform = ref<'wsl' | 'windows'>('wsl')
 const formDistro = ref('Ubuntu')
 const formWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
@@ -233,6 +235,7 @@ async function onCreate() {
     pinnedTabs: [],
     lastOpened: new Date().toISOString(),
     group: formGroup.value,
+    color: formColor.value,
   }
   await projectStore.addProject(config)
   if (formGroup.value) await projectStore.addGroup(formGroup.value)
@@ -240,6 +243,7 @@ async function onCreate() {
   formName.value = ''
   formRoot.value = ''
   formGroup.value = undefined
+  formColor.value = undefined
 }
 
 const editingId = ref<string | null>(null)
@@ -277,6 +281,7 @@ async function onDelete(id: string) {
       </div>
 
       <GroupComboBox v-model="formGroup" :groups="projectStore.groups" />
+      <ColorSelect v-model="formColor" />
 
       <div class="platform-row">
         <label class="radio-label"><input type="radio" v-model="formPlatform" value="wsl" /> WSL</label>

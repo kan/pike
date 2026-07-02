@@ -278,6 +278,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - プロジェクトの編集フォームではコンボボックス形式: `<select>` で「グループなし / 既存グループ / + 新規グループ...」、新規選択で text input に切替
 - ドラッグ&ドロップ: プロジェクト項目をグループバーにドロップすると `setProjectGroup` で所属を変更
 - 折りたたみ状態は `localStorage` (`pike:project-group-collapsed`) に永続化
+- プロジェクトカラー（#121）: `ProjectConfig.color?: string` は**プリセット名**（'red' 等）を保存し、hex は描画時に `lib/projectColors.ts` の `projectColorValue` で解決（パレット調整が config 移行なしで効く。手編集の生 hex `#rrggbb` のみ許容し、`url()` 等の任意 CSS 値は style バインドに到達しない）。プリセット 8 色は musql と同一パレット、name が i18n キー `projectColor.{name}` を兼ねる。選択 UI は `panels/ColorSelect.vue`（スウォッチ付きカスタムドロップダウン。close は他メニューと同じ「open 時に window mousedown を once で張る + ルートで `@mousedown.stop`」方式）で、ProjectPanel の作成・編集フォームと ProjectSwitcher の新規作成モーダルに配置。表示はカラードット共通コンポーネント `ColorDot.vue`（ProjectPanel 一覧・ProjectSwitcher）と、**App.vue のウィンドウ左端 3px 縦アクセントライン**（absolute overlay、`pointer-events: none`。サイドバー内だと折りたたみ時に見えないため window レベル。上端の横ラインは悪目立ちするため左端に変更）。**クロスウィンドウ同期**: `project_update` が書き込み後に `project_updated`（`{ sourceLabel, config }`）を全ウィンドウへ emit、各ウィンドウは自ラベルを除外して `applyExternalUpdate` で in-memory コピー（projects 配列 + currentProject、lastSession はウィンドウローカル保持）を更新。これが無いと flushSession / switchProject の全量書き戻しが他ウィンドウの編集を古いデータで消す（lost update）
 
 ### ファイルツリー / エディタ
 - Rust `fs` モジュールが WSL/Windows 両対応のファイル操作を提供（list_dir / read_file / write_file）
