@@ -429,8 +429,8 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - フロント: ポーリング基盤は `stores/usageStore.ts` の `createUsageStore(id, fetcher)` ファクトリに集約（全フィールド deep 比較で rate%・cached 等も再描画。`refreshUsage(force)` で fetcher に force を伝搬）。`stores/claudeUsage.ts` / `stores/codexUsage.ts` / `stores/claudeRate.ts` は薄いラッパー（claudeRate の fetcher は claudeUsage の active を `sessionActive` として渡す）。型は `types/claudeUsage.ts` / `types/codexUsage.ts`、整形は `lib/format.ts` の `formatTokens` / `formatCost`。StatusBar の Claude 項目はトークン集計とレート%チップを統合表示（セッション非 active でもレート取得済みなら「Claude 5時間 N%」を表示、ドロップダウンに枠別利用率・リセット時刻・手動更新ボタン）
 
 ### タスクランナー（Tasks パネル）
-- `tasks` サイドバーパネル。`src-tauri/src/tasks.rs` の `task_discover` がプロジェクトルートを**最大深さ 5**で再帰走査し、`package.json` / `Makefile` / `deno.json` を検出
-- `package.json` の `scripts`、Makefile のターゲット、deno tasks をそれぞれ「グループ」として一覧表示（ラベルに相対ディレクトリ名を付与）
+- `tasks` サイドバーパネル。`src-tauri/src/tasks.rs` の `task_discover` がプロジェクトルートを**最大深さ 5**で再帰走査し、`package.json` / `Makefile` / `deno.json` / `Cargo.toml` を検出
+- `package.json` の `scripts`、Makefile のターゲット、deno tasks、cargo（#122: 標準サブコマンド build/check/test/clippy/fmt + `[[bin]]` ごとの `run --bin {name}` を合成。パースは `toml` クレート。**Tauri 判定はマニフェスト隣の `tauri.conf.json` 存在**（tauri-cli 自身の契約。依存名スキャンだとプラグイン開発リポジトリ等で誤検出）で `tauri dev`/`tauri build` を追加。`src/main.rs` があれば `run`（`[[bin]]` 併存時は `run --bin {package名}`）。**workspace メンバーは標準セットを出さない**（ルートと重複して洪水になるため。bins/tauri/run のみ）。bin/package 名は Makefile と同じ文字種検証（英数 `-_.`）でシェルメタ文字注入を防止。`tauri.conf.json`/`main.rs` は existence-only マーカーとしてグロブに含め content は読まない。`[package]`/`[workspace]` を持たない Cargo.toml は対象外。vendor/ 配下は全タスク検出から除外、読み込みは `MAX_TASK_FILES`=300 で打ち切り）をそれぞれ「グループ」として一覧表示（ラベルに相対ディレクトリ名を付与）
 - 除外: `IGNORED_DIRS`（`.git node_modules __pycache__ .next .nuxt target dist build .cache .venv venv`）
 - `.gitignore` を尊重するのは **rg バックエンド使用時のみ**（`rg --files --max-depth 5 -g <glob>`）。rg が無く `find`(WSL)/walkdir(Windows) フォールバックの場合は `.gitignore` を見ず `IGNORED_DIRS` のみで除外するため、ネストした `package.json` がより多く出る
 - タスク実行はプロジェクトのデフォルトシェルで `autoStart` + `closeOnExit`（完了でタブ自動クローズ）。サブディレクトリのタスクは正しい CWD で起動

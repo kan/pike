@@ -63,7 +63,9 @@ export const useTaskStore = defineStore('tasks', () => {
     })
   }
 
-  const allTasks = computed(() => taskGroups.value.flatMap((g) => g.tasks.map((t) => ({ ...t, cwd: g.cwd }))))
+  const allTasks = computed(() =>
+    taskGroups.value.flatMap((g) => g.tasks.map((t) => ({ ...t, cwd: g.cwd, groupLabel: g.label }))),
+  )
 
   return { taskGroups, loading, refresh, runTask, allTasks }
 })

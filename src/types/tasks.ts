@@ -1,4 +1,4 @@
-export type TaskRunner = 'npm' | 'make' | 'deno'
+export type TaskRunner = 'npm' | 'make' | 'deno' | 'cargo'
 
 export interface TaskDefinition {
   name: string
@@ -19,4 +19,5 @@ export const RUNNER_COMMANDS: Record<TaskRunner, (name: string) => string> = {
   npm: (name) => `npm run ${name}`,
   make: (name) => `make ${name}`,
   deno: (name) => `deno task ${name}`,
+  cargo: (name) => `cargo ${name}`,
 }

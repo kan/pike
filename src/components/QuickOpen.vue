@@ -133,6 +133,7 @@ interface TaskItem {
   command: string
   runner: TaskRunner
   cwd?: string
+  groupLabel: string
 }
 
 type PaletteItem = CommandItem | TaskItem
@@ -168,7 +169,14 @@ const filteredPalette = computed<PaletteItem[]>(() => {
 
   const tasks: PaletteItem[] = taskStore.allTasks
     .filter((t) => !q || t.name.toLowerCase().includes(q) || t.command.toLowerCase().includes(q))
-    .map((t) => ({ kind: 'task' as const, name: t.name, command: t.command, runner: t.runner, cwd: t.cwd }))
+    .map((t) => ({
+      kind: 'task' as const,
+      name: t.name,
+      command: t.command,
+      runner: t.runner,
+      cwd: t.cwd,
+      groupLabel: t.groupLabel,
+    }))
 
   return [...cmds, ...tasks]
 })
@@ -441,7 +449,7 @@ const footerHints = computed(() => {
             <template v-else-if="mode === 'task'">
               <div
                 v-for="(item, i) in filteredPalette"
-                :key="item.kind === 'command' ? `cmd:${item.name}` : `${item.runner}:${item.name}`"
+                :key="item.kind === 'command' ? `cmd:${item.name}` : `${item.cwd ?? ''}:${item.name}`"
                 class="quickopen-item"
                 :class="{ selected: i === selectedIdx }"
                 @click="selectedIdx = i; openSelected()"
@@ -455,7 +463,7 @@ const footerHints = computed(() => {
                 <template v-else>
                   <span class="item-runner">{{ item.runner }}</span>
                   <span class="item-name">{{ item.name }}</span>
-                  <span class="item-path">{{ item.command }}</span>
+                  <span class="item-path">{{ item.groupLabel }} · {{ item.command }}</span>
                 </template>
               </div>
             </template>

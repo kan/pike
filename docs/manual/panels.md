@@ -46,7 +46,7 @@
 
 ## タスク
 
-**📋 タスク** アイコンで開きます。プロジェクトを最大深さ 5 まで走査し、`package.json` の scripts / Makefile のターゲット / `deno.json` の tasks を検出して一覧表示します。
+**📋 タスク** アイコンで開きます。プロジェクトを最大深さ 5 まで走査し、`package.json` の scripts / Makefile のターゲット / `deno.json` の tasks を検出して一覧表示します。`Cargo.toml` も対象で、build・test・clippy などの標準サブコマンドと、`run` / `run --bin` などの実行タスクを表示します。Tauri アプリ（`tauri.conf.json` があるディレクトリ）では `tauri dev` / `tauri build` も表示します。
 
 ![タスクパネル](img/tasks.png)
 

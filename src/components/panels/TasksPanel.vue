@@ -31,14 +31,14 @@ defineExpose({ refresh })
     <div v-if="taskStore.loading" class="empty">{{ t('common.loading') }}</div>
     <div v-else-if="taskStore.taskGroups.length === 0" class="empty">{{ t('tasks.noFiles') }}</div>
     <template v-else>
-      <div v-for="group in taskStore.taskGroups" :key="group.runner" class="task-group">
+      <div v-for="group in taskStore.taskGroups" :key="group.sourceFile" class="task-group">
         <div class="group-header">
           <span class="group-label">{{ group.label }}</span>
           <span class="group-source">{{ group.sourceFile }}</span>
         </div>
         <div
           v-for="task in group.tasks"
-          :key="`${group.runner}:${task.name}`"
+          :key="`${group.sourceFile}:${task.name}`"
           class="task-item"
           :title="task.command"
           @click="taskStore.runTask(task, group)"
