@@ -1,3 +1,5 @@
+pub mod tunnel;
+
 use crate::types::ShellConfig;
 use bollard::query_parameters::{
     ListContainersOptions, LogsOptions, RestartContainerOptions, StartContainerOptions,
@@ -15,6 +17,17 @@ use tokio::sync::OnceCell;
 pub struct DockerState {
     pub log_streams: Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub client: OnceCell<Docker>,
+    /// App identifier (com.pike.dev / com.pike.dev.debug), set at setup.
+    /// Scopes tunnel containers so coexisting instances don't sweep each
+    /// other's tunnels.
+    pub instance_id: std::sync::OnceLock<String>,
+    /// Set once this session creates a tunnel; gates exit-time cleanup so
+    /// app exit isn't delayed when Docker was merely browsed.
+    pub tunnels_created: std::sync::atomic::AtomicBool,
+}
+
+pub fn instance_owner(state: &DockerState) -> String {
+    state.instance_id.get().cloned().unwrap_or_default()
 }
 
 #[derive(Serialize)]
@@ -35,6 +48,13 @@ pub struct ComposeService {
     pub name: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerListResult {
+    pub containers: Vec<ContainerInfo>,
+    pub tunnels: Vec<tunnel::TunnelInfo>,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DockerLogPayload {
@@ -48,7 +68,16 @@ struct DockerLogExitPayload {
     stream_id: String,
 }
 
-async fn try_connect() -> Result<Docker, String> {
+async fn try_connect(owner: String) -> Result<Docker, String> {
+    let docker = connect_any().await?;
+    // First successful connection in this process: sweep stale tunnel
+    // containers left behind by a crashed session of this instance.
+    let sweep = docker.clone();
+    tokio::spawn(async move { tunnel::cleanup_all(&sweep, &owner).await });
+    Ok(docker)
+}
+
+async fn connect_any() -> Result<Docker, String> {
     let ping_timeout = std::time::Duration::from_secs(5);
     if let Ok(docker) = Docker::connect_with_local_defaults() {
         if tokio::time::timeout(ping_timeout, docker.ping())
@@ -73,9 +102,10 @@ async fn try_connect() -> Result<Docker, String> {
 }
 
 async fn get_docker(state: &DockerState) -> Result<Docker, String> {
+    let owner = instance_owner(state);
     state
         .client
-        .get_or_try_init(try_connect)
+        .get_or_try_init(|| try_connect(owner))
         .await
         .cloned()
 }
@@ -141,37 +171,57 @@ pub async fn docker_compose_services(
 #[tauri::command]
 pub async fn docker_list_containers(
     state: State<'_, DockerState>,
-) -> Result<Vec<ContainerInfo>, String> {
+) -> Result<ContainerListResult, String> {
     let docker = get_docker(&state).await?;
+    let owner = instance_owner(&state);
     let opts = ListContainersOptions {
         all: true,
         ..Default::default()
     };
-    let containers = docker
+    let summaries = docker
         .list_containers(Some(opts))
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(containers
-        .into_iter()
-        .map(|c| {
-            let labels = c.labels.unwrap_or_default();
-            ContainerInfo {
-                id: c.id.unwrap_or_default(),
-                name: c
-                    .names
-                    .and_then(|n| n.first().cloned())
-                    .unwrap_or_default()
-                    .trim_start_matches('/')
-                    .to_string(),
-                image: c.image.unwrap_or_default(),
-                state: c.state.map(|s| s.to_string()).unwrap_or_default(),
-                status: c.status.unwrap_or_default(),
-                compose_service: labels.get("com.docker.compose.service").cloned(),
-                compose_project: labels.get("com.docker.compose.project").cloned(),
+    // Single pass: tunnel containers become TunnelInfo (own instance,
+    // running only) instead of a second list_containers round-trip.
+    let mut result = ContainerListResult {
+        containers: Vec::new(),
+        tunnels: Vec::new(),
+    };
+    for c in summaries {
+        if c.labels
+            .as_ref()
+            .is_some_and(|l| l.contains_key(tunnel::TUNNEL_LABEL))
+        {
+            let running = c
+                .state
+                .as_ref()
+                .is_some_and(|s| s.to_string() == "running");
+            if running {
+                if let Some(t) = tunnel::tunnel_from_summary(&c, &owner) {
+                    result.tunnels.push(t);
+                }
             }
-        })
-        .collect())
+            continue;
+        }
+        let labels = c.labels.unwrap_or_default();
+        result.containers.push(ContainerInfo {
+            id: c.id.unwrap_or_default(),
+            name: c
+                .names
+                .and_then(|n| n.first().cloned())
+                .unwrap_or_default()
+                .trim_start_matches('/')
+                .to_string(),
+            image: c.image.unwrap_or_default(),
+            state: c.state.map(|s| s.to_string()).unwrap_or_default(),
+            status: c.status.unwrap_or_default(),
+            compose_service: labels.get("com.docker.compose.service").cloned(),
+            compose_project: labels.get("com.docker.compose.project").cloned(),
+        });
+    }
+    Ok(result)
 }
 
 #[tauri::command]

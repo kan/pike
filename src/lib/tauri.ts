@@ -4,7 +4,7 @@ import { t } from '../i18n'
 import type { ClaudeRateLimits, ClaudeUsageResult } from '../types/claudeUsage'
 import type { CodexUsageResult } from '../types/codexUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
-import type { ComposeService, ContainerInfo } from '../types/docker'
+import type { ComposeService, ContainerListResult, TunnelInfo } from '../types/docker'
 import type { GitFileChange, GitLogEntry, GitStatusResult, GitWorktree } from '../types/git'
 import type { ProjectConfig } from '../types/project'
 import type { SearchBackend, SearchResult } from '../types/search'
@@ -344,8 +344,8 @@ export async function dockerComposeServices(root: string, shell: ShellType): Pro
   return invoke<ComposeService[]>('docker_compose_services', { root, shell })
 }
 
-export async function dockerListContainers(): Promise<ContainerInfo[]> {
-  return invoke<ContainerInfo[]>('docker_list_containers')
+export async function dockerListContainers(): Promise<ContainerListResult> {
+  return invoke<ContainerListResult>('docker_list_containers')
 }
 
 export async function dockerStart(containerId: string): Promise<void> {
@@ -370,6 +370,18 @@ export async function dockerLogsStop(streamId: string): Promise<void> {
 
 export async function dockerDetectShell(containerId: string): Promise<string> {
   return invoke<string>('docker_detect_shell', { containerId })
+}
+
+export async function dockerTunnelCreate(containerId: string, port: number): Promise<TunnelInfo> {
+  return invoke<TunnelInfo>('docker_tunnel_create', { containerId, port })
+}
+
+export async function dockerTunnelStop(tunnelId: string): Promise<void> {
+  return invoke('docker_tunnel_stop', { tunnelId })
+}
+
+export async function dockerContainerPorts(containerId: string): Promise<number[]> {
+  return invoke<number[]>('docker_container_ports', { containerId })
 }
 
 // Window

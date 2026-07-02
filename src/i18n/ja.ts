@@ -276,6 +276,12 @@ export default {
   'docker.restart': '再起動',
   'docker.logs': 'ログ',
   'docker.shell': 'シェル',
+  'docker.forward': 'ポートフォワード',
+  'docker.forwardPrompt': 'フォワードするコンテナ内ポート',
+  'docker.invalidPort': 'ポート番号が不正です',
+  'docker.openBrowser': 'ブラウザで開く',
+  'docker.stopForward': 'フォワードを停止',
+  'docker.orphanTunnels': 'その他のフォワード',
 
   // Project Panel
   'project.addProject': '+ プロジェクト追加',

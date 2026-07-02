@@ -509,10 +509,16 @@ pub fn run() {
         .manage(docker::DockerState {
             log_streams: Arc::new(Mutex::new(HashMap::new())),
             client: tokio::sync::OnceCell::new(),
+            instance_id: std::sync::OnceLock::new(),
+            tunnels_created: std::sync::atomic::AtomicBool::new(false),
         })
         .manage(codex::CodexState::default())
         .manage(agent::state::AgentState::default())
         .setup(|app| {
+            if let Some(state) = app.try_state::<docker::DockerState>() {
+                let _ = state.instance_id.set(app.config().identifier.clone());
+            }
+
             let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(config_dir.join("projects"))
                 .map_err(|e| e.to_string())?;
@@ -740,6 +746,9 @@ pub fn run() {
             docker::docker_logs_start,
             docker::docker_logs_stop,
             docker::docker_detect_shell,
+            docker::tunnel::docker_tunnel_create,
+            docker::tunnel::docker_tunnel_stop,
+            docker::tunnel::docker_container_ports,
             search::search_detect_backend,
             search::search_execute,
             search::list_project_files,
@@ -797,6 +806,26 @@ pub fn run() {
             agent::commands::agent_list_models,
             agent::commands::agent_disconnect,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Stop this instance's socat tunnel containers before the
+                // process exits. Only when this session actually created a
+                // tunnel (avoids stalling exit on a hung daemon); leftovers
+                // from a hard kill are swept on next connect by label.
+                if let Some(state) = app_handle.try_state::<docker::DockerState>() {
+                    let created = state
+                        .tunnels_created
+                        .load(std::sync::atomic::Ordering::Relaxed);
+                    if let (true, Some(docker)) = (created, state.client.get()) {
+                        let owner = docker::instance_owner(&state);
+                        let _ = tauri::async_runtime::block_on(tokio::time::timeout(
+                            std::time::Duration::from_secs(3),
+                            docker::tunnel::cleanup_all(docker, &owner),
+                        ));
+                    }
+                }
+            }
+        });
 }

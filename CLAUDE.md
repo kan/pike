@@ -330,6 +330,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - ログストリーミングは 50ms バッファリング + Tauri イベント emit
 - DockerLogsTab は xterm.js ベース（読み取り専用、`convertEol: true`）
 - `docker exec` シェル: bollard exec API でコンテナ内シェルを検出（bash → sh フォールバック）、プロジェクトのシェル内で `docker exec -it` を autoStart 実行
+- ポートフォワード（#120）: `docker/tunnel.rs`。未公開ポートへ `alpine/socat` 一時コンテナ（`auto_remove` + `pike.tunnel*` ラベル、対象と同一ネットワーク優先=非 bridge）で `127.0.0.1` から転送。**owner ラベル**（`pike.tunnel.owner`=アプリ identifier、setup で `DockerState.instance_id` に設定）でインスタンススコープ化し、共存する installed/dev が互いのトンネルを掃除しない。**ローカルポートはデーモン割当**（`host_port=""` → start 後 inspect で取得。ホスト側プローブは TOCTOU と WSL2 名前空間不一致があるため不使用）。**接続先はカスタムネットワークならコンテナ名**（Docker 内蔵 DNS。restart/recreate の IP 変化に追従）、bridge のみ IP。start 失敗時は手動ロールバック削除（auto_remove は start 前に効かない）。作成後に TCP 接続プローブで readiness 確認（best-effort ~1s）。トンネル一覧は `docker_list_containers` が 1 回の list を `{ containers, tunnels }`（`ContainerListResult`）に分配して返す（running + 自 owner のみ。専用 list コマンドなし、ポーリングの API 往復も 1 回）。掃除は初回 Docker 接続時（自 owner のクラッシュ残骸をラベル sweep、`join_all` 並列）と `RunEvent::Exit`（このセッションで作成した場合のみ=`tunnels_created` フラグ、3 秒 timeout 付き `block_on`。Exit コールバックは Tauri の teardown 前に走りランタイムは生存）。停止は remove 失敗を伝搬（auto_remove 競合で消滅済みなら成功扱い）。ポート候補は inspect の `exposed_ports`（EXPOSE / compose expose 由来、`/tcp` のみ）。UI は DockerPanel 実行中サービス行の Cable ボタン → `promptDialog` でポート入力 → サービス行直下にトンネル行（`open_url` で開く / 停止）。対象コンテナが消えた/再作成されたトンネルは「その他のフォワード」セクションに表示して停止可能にする。作成中ガードは `tunnelBusy: string[]`（コンテナ別）
 
 ### セッション永続化
 - タブの並び順・アクティブタブ・種別を `ProjectConfig.lastSession` に保存

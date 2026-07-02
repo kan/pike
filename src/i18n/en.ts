@@ -276,6 +276,12 @@ export default {
   'docker.restart': 'Restart',
   'docker.logs': 'Logs',
   'docker.shell': 'Shell',
+  'docker.forward': 'Forward port',
+  'docker.forwardPrompt': 'Container port to forward',
+  'docker.invalidPort': 'Invalid port number',
+  'docker.openBrowser': 'Open in browser',
+  'docker.stopForward': 'Stop port forwarding',
+  'docker.orphanTunnels': 'Other forwards',
 
   // Project Panel
   'project.addProject': '+ Add Project',

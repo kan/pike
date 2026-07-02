@@ -7,14 +7,18 @@ import {
   dockerRestart,
   dockerStart,
   dockerStop,
+  dockerTunnelCreate,
+  dockerTunnelStop,
 } from '../lib/tauri'
-import type { ComposeService, ContainerInfo } from '../types/docker'
+import type { ComposeService, ContainerInfo, TunnelInfo } from '../types/docker'
 import { useProjectStore } from './project'
 
 export const useDockerStore = defineStore('docker', () => {
   const connected = ref(false)
   const containers = ref<ContainerInfo[]>([])
   const composeServices = ref<ComposeService[]>([])
+  const tunnels = ref<TunnelInfo[]>([])
+  const tunnelBusy = ref<string[]>([])
   const error = ref<string | null>(null)
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -32,8 +36,9 @@ export const useDockerStore = defineStore('docker', () => {
     if (showProgress) refreshing.value = true
     const minDelay = showProgress ? new Promise((r) => setTimeout(r, 300)) : null
     try {
-      const [c] = await Promise.all([dockerListContainers(), minDelay])
-      containers.value = c
+      const [r] = await Promise.all([dockerListContainers(), minDelay])
+      containers.value = r.containers
+      tunnels.value = r.tunnels
       error.value = null
     } catch (e) {
       error.value = String(e)
@@ -92,6 +97,27 @@ export const useDockerStore = defineStore('docker', () => {
     }
   }
 
+  async function createTunnel(containerId: string, port: number) {
+    tunnelBusy.value = [...tunnelBusy.value, containerId]
+    try {
+      await dockerTunnelCreate(containerId, port)
+      await refreshContainers()
+    } catch (e) {
+      error.value = String(e)
+    } finally {
+      tunnelBusy.value = tunnelBusy.value.filter((id) => id !== containerId)
+    }
+  }
+
+  async function stopTunnel(tunnelId: string) {
+    try {
+      await dockerTunnelStop(tunnelId)
+      await refreshContainers()
+    } catch (e) {
+      error.value = String(e)
+    }
+  }
+
   function startTimer() {
     clearTimer()
     pollTimer = setInterval(refreshContainers, 5000)
@@ -136,6 +162,8 @@ export const useDockerStore = defineStore('docker', () => {
     connected,
     containers,
     composeServices,
+    tunnels,
+    tunnelBusy,
     error,
     refreshing,
     refreshAll,
@@ -144,6 +172,8 @@ export const useDockerStore = defineStore('docker', () => {
     startContainer,
     stopContainer,
     restartContainer,
+    createTunnel,
+    stopTunnel,
     startPolling,
     stopPolling,
   }
