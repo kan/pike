@@ -1,3 +1,5 @@
+pub mod rate;
+
 use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};

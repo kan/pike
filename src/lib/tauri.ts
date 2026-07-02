@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
-import type { ClaudeUsageResult } from '../types/claudeUsage'
+import type { ClaudeRateLimits, ClaudeUsageResult } from '../types/claudeUsage'
 import type { CodexUsageResult } from '../types/codexUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeService, ContainerInfo } from '../types/docker'
@@ -569,6 +569,19 @@ export async function agentDisconnect(tabId: string): Promise<void> {
 
 export async function claudeUsageGet(shell: ShellType, projectRoot: string): Promise<ClaudeUsageResult> {
   return invoke<ClaudeUsageResult>('claude_usage_get', { shell, projectRoot })
+}
+
+/**
+ * Rate-limit usage via `claude -p "/usage"`. Rust caches the (slow) CLI call;
+ * `sessionActive` picks the short refresh TTL, `force` bypasses the cache.
+ */
+export async function claudeUsageRateGet(
+  shell: ShellType,
+  projectRoot: string,
+  sessionActive: boolean,
+  force = false,
+): Promise<ClaudeRateLimits> {
+  return invoke<ClaudeRateLimits>('claude_usage_rate_get', { shell, projectRoot, sessionActive, force })
 }
 
 // Codex Usage (indirect CLI sessions from ~/.codex rollouts)

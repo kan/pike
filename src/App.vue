@@ -22,6 +22,7 @@ import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { normalizeSep } from './lib/paths'
 import { projectRemoveOpen } from './lib/tauri'
 import { getWindowProjectId, isMainWindow, isSecondaryWindow } from './lib/window'
+import { useClaudeRateStore } from './stores/claudeRate'
 import { useClaudeUsageStore } from './stores/claudeUsage'
 import { useCodexUsageStore } from './stores/codexUsage'
 import { useDiagnosticsStore } from './stores/diagnostics'
@@ -37,6 +38,7 @@ const tabStore = useTabStore()
 const gitStore = useGitStore()
 const worktreeStore = useWorktreeStore()
 const claudeUsageStore = useClaudeUsageStore()
+const claudeRateStore = useClaudeRateStore()
 const codexUsageStore = useCodexUsageStore()
 const diagStore = useDiagnosticsStore()
 
@@ -62,12 +64,14 @@ watch(
       gitStore.startPolling()
       worktreeStore.startPolling()
       claudeUsageStore.startPolling()
+      claudeRateStore.startPolling()
       codexUsageStore.startPolling()
     } else {
       gitStore.stopPolling()
       worktreeStore.stopPolling()
       worktreeStore.reset()
       claudeUsageStore.stopPolling()
+      claudeRateStore.stopPolling()
       codexUsageStore.stopPolling()
     }
   },
@@ -154,6 +158,7 @@ onMounted(async () => {
       await projectStore.saveSessionNow()
       gitStore.stopPolling()
       claudeUsageStore.stopPolling()
+      claudeRateStore.stopPolling()
       codexUsageStore.stopPolling()
       await fsWatcher.stop()
     })

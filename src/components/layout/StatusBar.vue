@@ -11,6 +11,7 @@ import {
   Github,
   Gitlab,
   Loader2,
+  RefreshCw,
 } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useEditorInfo } from '../../composables/useEditorInfo'
@@ -21,6 +22,7 @@ import { buildRepoLink } from '../../lib/gitRemote'
 import { basename } from '../../lib/paths'
 import { openUrlWithConfirm } from '../../lib/tauri'
 import { useAgentStore } from '../../stores/agent'
+import { useClaudeRateStore } from '../../stores/claudeRate'
 import { useClaudeUsageStore } from '../../stores/claudeUsage'
 import { useCodexUsageStore } from '../../stores/codexUsage'
 import { useGitStore } from '../../stores/git'
@@ -32,7 +34,7 @@ import { useWorktreeStore } from '../../stores/worktree'
 import type { GitWorktree } from '../../types/git'
 import HelpButton from '../HelpButton.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const projectStore = useProjectStore()
 const settingsStore = useSettingsStore()
 
@@ -69,6 +71,84 @@ const codexSession = computed(() => {
   const s = agentStore.getExistingSession(tab.id)
   return s?.tokenUsage ? s : null
 })
+
+const claudeRateStore = useClaudeRateStore()
+
+// Rate-limit windows from `claude -p "/usage"` (account-wide, not per-session).
+const claudeRate = computed(() => {
+  const r = claudeRateStore.usage
+  return r?.active ? r : null
+})
+
+// The 5h session window — the headline number for the status-bar chip.
+// No fallback to other windows: a weekly quota must not be labeled "5h".
+const claudeRateSession = computed(() => claudeRate.value?.windows.find((w) => w.kind === 'session') ?? null)
+
+/** Short UI label per window kind; unrecognized windows show the raw CLI label. */
+function rateWindowLabel(w: { kind: string; label: string }): string {
+  if (w.kind === 'session') return t('statusBar.rate5h')
+  if (w.kind === 'weekAll') return t('statusBar.rateWeekly')
+  return w.label
+}
+
+const RESET_MONTHS: Record<string, number> = {
+  Jan: 1,
+  Feb: 2,
+  Mar: 3,
+  Apr: 4,
+  May: 5,
+  Jun: 6,
+  Jul: 7,
+  Aug: 8,
+  Sep: 9,
+  Oct: 10,
+  Nov: 11,
+  Dec: 12,
+}
+
+/**
+ * The CLI prints reset times with an English month name ("Jul 2, 2:40pm
+ * (Asia/Tokyo)"). For the ja locale, rewrite just the date part to numeric
+ * ("7/2 2:40pm (Asia/Tokyo)"). Text-level rewrite only — the time is already
+ * in the user's timezone, so no time math is needed or attempted.
+ */
+function localizedResetLabel(resetsAt: string): string {
+  if (locale.value !== 'ja') return resetsAt
+  return resetsAt.replace(
+    /([A-Z][a-z]{2}) (\d{1,2})(?:, (\d{4}))?,?/,
+    (match, mon: string, day: string, year?: string) => {
+      const m = RESET_MONTHS[mon]
+      if (!m) return match
+      return year ? `${year}/${m}/${day}` : `${m}/${day}`
+    },
+  )
+}
+
+/** Color emphasis for a usage percentage: yellow past 80%, red past 90%. */
+function rateLevelClass(pct: number): string {
+  if (pct > 90) return 'rate-danger'
+  if (pct > 80) return 'rate-warn'
+  return ''
+}
+
+const rateFetchedAtLabel = computed(() => {
+  const r = claudeRate.value
+  if (!r?.fetchedAt) return ''
+  const time = new Date(r.fetchedAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return t('statusBar.ccRateFetchedAt', { time })
+})
+
+const rateRefreshing = ref(false)
+
+async function refreshRateLimits() {
+  if (rateRefreshing.value) return
+  rateRefreshing.value = true
+  try {
+    await claudeRateStore.refreshUsage(true)
+  } finally {
+    rateRefreshing.value = false
+  }
+}
 
 const showClaudeUsage = ref(false)
 
@@ -317,25 +397,49 @@ onUnmounted(() => {
       <span class="status-text">{{ editorInfo.current.value.fileType }}</span>
     </template>
 
-    <div v-if="claudeUsageStore.usage?.active" class="status-dropdown-area">
+    <div v-if="claudeUsageStore.usage?.active || claudeRate" class="status-dropdown-area">
       <button class="status-item clickable small cc-usage" @click="toggleClaudeUsage">
         <Cpu :size="12" :stroke-width="2" />
-        <span>{{ formatTokens(claudeUsageStore.usage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(claudeUsageStore.usage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
-        <span v-if="claudeUsageStore.usage.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(claudeUsageStore.usage.estimatedCostUsd) }}</span>
+        <template v-if="claudeUsageStore.usage?.active">
+          <span>{{ formatTokens(claudeUsageStore.usage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(claudeUsageStore.usage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
+          <span v-if="claudeUsageStore.usage.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(claudeUsageStore.usage.estimatedCostUsd) }}</span>
+        </template>
+        <span v-else>{{ t('statusBar.ccName') }}</span>
+        <span v-if="claudeRateSession" class="cc-cost" :class="rateLevelClass(claudeRateSession.usedPercent)">{{ t('statusBar.rate5h') }} {{ claudeRateSession.usedPercent.toFixed(0) }}%</span>
       </button>
       <div v-if="showClaudeUsage" class="status-dropdown cc-dropdown" @mousedown.stop>
         <div class="dropdown-label">
-          <span>{{ t('statusBar.ccSession') }}</span>
+          <span>{{ claudeUsageStore.usage?.active ? t('statusBar.ccSession') : t('statusBar.rate') }}</span>
           <HelpButton page="terminal-and-agents.md#トークン使用量とコスト" :size="13" />
         </div>
-        <div v-for="m in claudeUsageStore.usage.models" :key="m.model" class="cc-model-row">
-          <div class="cc-model-name">{{ m.model }}</div>
-          <div class="cc-model-stats">
-            <span>{{ t('statusBar.ccIn') }}: {{ formatTokens(m.inputTokens) }}</span>
-            <span>{{ t('statusBar.ccOut') }}: {{ formatTokens(m.outputTokens) }}</span>
-            <span>{{ t('statusBar.ccCache') }}: {{ formatTokens(m.cacheReadTokens) }}</span>
-            <span>{{ t('statusBar.ccCacheCreate') }}: {{ formatTokens(m.cacheCreationTokens) }}</span>
-            <span v-if="m.costUsd !== null" class="cc-cost">{{ formatCost(m.costUsd) }}</span>
+        <template v-if="claudeUsageStore.usage?.active">
+          <div v-for="m in claudeUsageStore.usage.models" :key="m.model" class="cc-model-row">
+            <div class="cc-model-name">{{ m.model }}</div>
+            <div class="cc-model-stats">
+              <span>{{ t('statusBar.ccIn') }}: {{ formatTokens(m.inputTokens) }}</span>
+              <span>{{ t('statusBar.ccOut') }}: {{ formatTokens(m.outputTokens) }}</span>
+              <span>{{ t('statusBar.ccCache') }}: {{ formatTokens(m.cacheReadTokens) }}</span>
+              <span>{{ t('statusBar.ccCacheCreate') }}: {{ formatTokens(m.cacheCreationTokens) }}</span>
+              <span v-if="m.costUsd !== null" class="cc-cost">{{ formatCost(m.costUsd) }}</span>
+            </div>
+          </div>
+        </template>
+        <div v-if="claudeRate" class="cc-model-row">
+          <div class="cc-model-name cc-rate-name">
+            <span>{{ t('statusBar.rate') }}</span>
+            <button
+              class="rate-refresh"
+              :title="t('statusBar.ccRateRefresh')"
+              :disabled="rateRefreshing"
+              @click="refreshRateLimits"
+            >
+              <RefreshCw :size="11" :stroke-width="2" :class="{ 'spin-icon': rateRefreshing }" />
+            </button>
+            <span v-if="rateFetchedAtLabel" class="cc-rate-resets">{{ rateFetchedAtLabel }}</span>
+          </div>
+          <div v-for="w in claudeRate.windows" :key="w.label" class="cc-rate-row">
+            <span class="cc-rate-window" :class="rateLevelClass(w.usedPercent)">{{ rateWindowLabel(w) }}: {{ w.usedPercent.toFixed(0) }}%</span>
+            <span v-if="w.resetsAt" class="cc-rate-resets">{{ t('statusBar.ccRateResets', { when: localizedResetLabel(w.resetsAt) }) }}</span>
           </div>
         </div>
       </div>
@@ -353,7 +457,7 @@ onUnmounted(() => {
       <button class="status-item clickable small cc-usage" :title="t('statusBar.codexCli')" @click="toggleCodexUsage">
         <Bot :size="12" :stroke-width="2" />
         <span>{{ formatTokens(codexCliUsage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(codexCliUsage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
-        <span v-if="codexCliUsage.rateLimitPrimary" class="cc-cost">{{ t('statusBar.codexRate5h') }} {{ codexCliUsage.rateLimitPrimary.usedPercent.toFixed(0) }}%</span>
+        <span v-if="codexCliUsage.rateLimitPrimary" class="cc-cost">{{ t('statusBar.rate5h') }} {{ codexCliUsage.rateLimitPrimary.usedPercent.toFixed(0) }}%</span>
       </button>
       <div v-if="showCodexUsage" class="status-dropdown cc-dropdown" @mousedown.stop>
         <div class="dropdown-label">
@@ -371,10 +475,10 @@ onUnmounted(() => {
           </div>
         </div>
         <div v-if="codexCliUsage.rateLimitPrimary || codexCliUsage.rateLimitSecondary" class="cc-model-row">
-          <div class="cc-model-name">{{ t('statusBar.codexRate') }}</div>
+          <div class="cc-model-name">{{ t('statusBar.rate') }}</div>
           <div class="cc-model-stats">
-            <span v-if="codexCliUsage.rateLimitPrimary">{{ t('statusBar.codexRate5h') }}: {{ codexCliUsage.rateLimitPrimary.usedPercent.toFixed(1) }}%</span>
-            <span v-if="codexCliUsage.rateLimitSecondary">{{ t('statusBar.codexRateWeekly') }}: {{ codexCliUsage.rateLimitSecondary.usedPercent.toFixed(1) }}%</span>
+            <span v-if="codexCliUsage.rateLimitPrimary">{{ t('statusBar.rate5h') }}: {{ codexCliUsage.rateLimitPrimary.usedPercent.toFixed(1) }}%</span>
+            <span v-if="codexCliUsage.rateLimitSecondary">{{ t('statusBar.rateWeekly') }}: {{ codexCliUsage.rateLimitSecondary.usedPercent.toFixed(1) }}%</span>
           </div>
         </div>
       </div>
@@ -579,7 +683,8 @@ onUnmounted(() => {
   padding: 4px 0;
 }
 
-.status-dropdown button:not(.help-btn) {
+/* Full-width menu items — exclude inline icon buttons (help, rate refresh). */
+.status-dropdown button:not(.help-btn):not(.rate-refresh) {
   display: block;
   width: 100%;
   padding: 5px 12px;
@@ -591,7 +696,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.status-dropdown button:not(.help-btn):hover {
+.status-dropdown button:not(.help-btn):not(.rate-refresh):hover {
   background: var(--tab-hover-bg);
 }
 
@@ -615,7 +720,14 @@ onUnmounted(() => {
 }
 
 .cc-dropdown {
-  min-width: 240px;
+  /* Fixed width + right anchor: the Claude/Codex chips sit near the right end
+     of the status bar, so a left-anchored (left: 0) dropdown would extend past
+     the window edge. Fixed width (not min-width) also stops nowrap children
+     from widening the box and spawning a horizontal scrollbar — they shrink
+     with ellipsis instead. */
+  width: 360px;
+  left: auto;
+  right: 0;
 }
 
 .cc-model-row {
@@ -635,6 +747,83 @@ onUnmounted(() => {
   gap: 8px;
   font-size: 11px;
   color: var(--text-primary);
+}
+
+.cc-rate-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  gap: 6px;
+}
+
+.cc-rate-name .cc-rate-resets {
+  margin-left: auto;
+  font-weight: 400;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* One window per line: percentage left, reset time right. */
+.cc-rate-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.cc-rate-row .cc-rate-window {
+  flex-shrink: 0;
+}
+
+.cc-rate-row .cc-rate-resets {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rate-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.rate-refresh:hover:not(:disabled) {
+  color: var(--text-active);
+}
+
+.rate-refresh:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.cc-rate-resets {
+  opacity: 0.7;
+}
+
+/* Usage-percentage emphasis: yellow past 80%, red past 90%. Overrides the
+   dimmed .cc-cost chip style so the warning color reads at full strength. */
+.rate-warn {
+  color: var(--git-modify);
+  opacity: 1;
+}
+
+.rate-danger {
+  color: var(--danger);
+  opacity: 1;
 }
 
 .branch-icon {
