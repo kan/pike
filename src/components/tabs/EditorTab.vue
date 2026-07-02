@@ -787,15 +787,21 @@ function createEditorView(container: HTMLElement, content: string) {
   })
 }
 
+// Monotonic token so overlapping loads (mount / auto-reload / manual reload)
+// don't each append an EditorView into the same container — only the latest wins.
+let loadSeq = 0
+
 async function reopenWithEncoding(encoding: string) {
   if (!editorRef.value || !tab.value) return
+  const seq = ++loadSeq
   loading.value = true
   try {
     editorView?.destroy()
     editorView = null
     const content = await loadContent(encoding)
-    if (!editorRef.value) return
+    if (seq !== loadSeq || !editorRef.value) return
     loading.value = false
+    error.value = null
     editorView = createEditorView(editorRef.value, content)
     if (viewMode.value === 'split') {
       editorView.scrollDOM.addEventListener('scroll', onEditorScroll)
@@ -805,10 +811,14 @@ async function reopenWithEncoding(encoding: string) {
     updateCursorInfo()
     refreshDiffGutter()
     refreshDiagnosticsLayer()
+    // previewHtml reads the (non-reactive) editorView — force a recompute so
+    // the preview pane reflects the reloaded document.
+    bumpDocVersion()
     if (tabStore.activeTabId === props.tabId) {
       registerOutlineSource()
     }
   } catch (e) {
+    if (seq !== loadSeq) return
     loading.value = false
     error.value = String(e)
   }
@@ -845,11 +855,14 @@ onMounted(async () => {
   document.addEventListener('keydown', onGlobalKeyDown)
   if (!editorRef.value || !tab.value) return
 
+  const seq = ++loadSeq
   try {
     const content = await loadContent()
     if (!editorRef.value) return
     loading.value = false
-    editorView = createEditorView(editorRef.value, content)
+    if (seq === loadSeq) {
+      editorView = createEditorView(editorRef.value, content)
+    }
     // Open in the requested view mode (e.g. 'preview' from a Markdown link). Set
     // it after the editor exists so the preview computes its content right away.
     // One-shot: consume it so it isn't persisted / re-forced on session restore.
@@ -1056,6 +1069,8 @@ watch(
     }
     // modified — debounce to coalesce burst events
     if (!isDirty.value) {
+      // A modify after a (transient) delete means the file is back — drop the notice.
+      externalChangeNotice.value = null
       if (pendingReload) clearTimeout(pendingReload)
       pendingReload = setTimeout(() => {
         pendingReload = null
@@ -1202,7 +1217,13 @@ onUnmounted(() => {
         </template>
       </div>
       <div class="editor-header-actions">
-        <button class="header-icon-btn" :title="t('editor.reloadFromDisk')" @click="reloadFromDisk">
+        <!-- Readonly snapshots (git show) carry initialContent — reloading from disk is meaningless there -->
+        <button
+          v-if="!tab?.readOnly && tab?.initialContent === undefined"
+          class="header-icon-btn"
+          :title="t('editor.reloadFromDisk')"
+          @click="reloadFromDisk"
+        >
           <RefreshCw :size="14" :stroke-width="2" />
         </button>
         <HelpButton page="editor-and-preview.md" :size="15" />
@@ -1225,7 +1246,12 @@ onUnmounted(() => {
       </div>
     </div>
     <div v-if="loading" class="editor-status">{{ t('common.loading') }}</div>
-    <div v-else-if="error" class="editor-status error">{{ error }}</div>
+    <div v-else-if="error" class="editor-status error">
+      <span>{{ error }}</span>
+      <button v-if="tab?.path && tab?.initialContent === undefined" class="error-retry" @click="reloadFromDisk">
+        {{ t('editor.reload') }}
+      </button>
+    </div>
     <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error">
       <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
       <div
@@ -1753,6 +1779,22 @@ onUnmounted(() => {
   color: var(--danger);
   padding: 20px;
   white-space: pre-wrap;
+  gap: 12px;
+}
+
+.error-retry {
+  padding: 3px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.error-retry:hover {
+  background: var(--tab-hover-bg);
 }
 
 .save-indicator {

@@ -19,6 +19,7 @@ import { initTerminalNotifications } from './composables/useTerminalNotification
 import { useI18n } from './i18n'
 import { clearAliasCache } from './lib/jumpTo/resolveImport'
 import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
+import { normalizeSep } from './lib/paths'
 import { projectRemoveOpen } from './lib/tauri'
 import { getWindowProjectId, isMainWindow, isSecondaryWindow } from './lib/window'
 import { useClaudeUsageStore } from './stores/claudeUsage'
@@ -106,8 +107,11 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
       globalsInvalidated = true
     }
     if (isRecentlySaved(change.path)) continue
+    // Separator-insensitive compare: tab paths can mix `/` and `\` on Windows
+    // (git emits `/`), while the native watcher always emits `\`.
+    const changedPath = normalizeSep(change.path)
     for (const tab of tabStore.tabs) {
-      if (tab.kind === 'editor' && tab.path === change.path) {
+      if (tab.kind === 'editor' && tab.path && normalizeSep(tab.path) === changedPath) {
         tab.externalChange = change.kind === 'delete' ? 'deleted' : 'modified'
       }
     }

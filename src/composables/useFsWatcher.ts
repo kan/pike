@@ -1,5 +1,6 @@
 import { listen } from '@tauri-apps/api/event'
 import { ref } from 'vue'
+import { normalizeSep } from '../lib/paths'
 import { fsWatchStart, fsWatchStop } from '../lib/tauri'
 import type { ShellType } from '../types/tab'
 
@@ -17,14 +18,17 @@ const SAVE_TTL_MS = 2000
 const recentlySavedUntil = new Map<string, number>()
 
 export function markRecentlySaved(path: string) {
-  recentlySavedUntil.set(path, Date.now() + SAVE_TTL_MS)
+  // Keys are separator-normalized: editor tab paths can mix `/` and `\` on
+  // Windows while watcher events always use `\`.
+  recentlySavedUntil.set(normalizeSep(path), Date.now() + SAVE_TTL_MS)
 }
 
 export function isRecentlySaved(path: string): boolean {
-  const expires = recentlySavedUntil.get(path)
+  const key = normalizeSep(path)
+  const expires = recentlySavedUntil.get(key)
   if (expires === undefined) return false
   if (Date.now() < expires) return true
-  recentlySavedUntil.delete(path)
+  recentlySavedUntil.delete(key)
   return false
 }
 

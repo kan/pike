@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
 import { buildCommitLink } from '../../lib/gitRemote'
-import { gitStatusColor, relativeDate } from '../../lib/paths'
+import { gitStatusColor, joinPath, pathSep, relativeDate } from '../../lib/paths'
 import {
   fsDelete,
   gitCreateBranch,
@@ -120,8 +120,9 @@ async function openDiffTab(path: string, staged: boolean, untracked = false) {
 function openConflictFile(path: string) {
   const root = projectStore.activeRoot
   if (!root) return
-  const sep = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
-  tabStore.addEditorTab({ path: root + sep + path })
+  // joinPath unifies separators — git always emits `/` while Windows tabs use `\`,
+  // and a mixed-separator tab path would not match fs-watcher events (exact compare).
+  tabStore.addEditorTab({ path: joinPath(root, path, pathSep(projectStore.currentProject?.shell)) })
 }
 
 async function toggleCommitExpand(hash: string) {
@@ -283,8 +284,7 @@ async function ctxOpenFile() {
   } else {
     const root = projectStore.activeRoot
     if (!root) return
-    const sep = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
-    tabStore.addEditorTab({ path: root + sep + path })
+    tabStore.addEditorTab({ path: joinPath(root, path, pathSep(projectStore.currentProject?.shell)) })
   }
 }
 

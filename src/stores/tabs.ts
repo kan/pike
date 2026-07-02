@@ -6,7 +6,7 @@ import { ptyRouter } from '../composables/usePtyRouter'
 import { t } from '../i18n'
 import { formatLineRange } from '../lib/format'
 import { MANUAL_INDEX } from '../lib/manual'
-import { basename } from '../lib/paths'
+import { basename, normalizeSep } from '../lib/paths'
 import { agentDisconnect, ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
@@ -175,8 +175,11 @@ export const useTabStore = defineStore('tabs', () => {
     reload?: boolean
   }): string {
     if (!options.initialContent) {
+      // Separator-insensitive dedup: the same file can be requested with `/`
+      // (git output) and `\` (file tree) on Windows — never open it twice.
+      const wanted = normalizeSep(options.path)
       const existing = tabs.value.find(
-        (t): t is EditorTab => t.kind === 'editor' && t.path === options.path && !t.readOnly,
+        (t): t is EditorTab => t.kind === 'editor' && normalizeSep(t.path) === wanted && !t.readOnly,
       )
       if (existing) {
         if (options.initialLine) {
