@@ -17,6 +17,13 @@ const TASK_FILE_GLOBS: &[&str] = &[
     "main.rs",
 ];
 
+/// `.cargo/config.toml` ([alias] section) lives in a hidden directory, so rg
+/// needs `--hidden` plus this path-qualified glob. The find/walkdir fallback
+/// matches the bare name instead; `find_task_files` filters to `.cargo/`
+/// parents so unrelated config.toml files (Hugo etc.) are never read.
+const CARGO_CONFIG_RG_GLOB: &str = "**/.cargo/config.toml";
+const CARGO_CONFIG_NAME: &str = "config.toml";
+
 const MAX_DEPTH: u32 = 5;
 
 /// Upper bound on manifests read/parsed per discovery (a committed vendor/
@@ -100,6 +107,23 @@ pub async fn task_discover(
             cargo_docs.insert(i, doc);
         }
 
+        // Pre-parse .cargo/config.toml [alias] entries, keyed by the base dir
+        // (parent of .cargo). Consumed by the sibling Cargo.toml group below;
+        // leftovers (config without a manifest, e.g. a repo root whose crate
+        // lives in a subdir) become standalone groups after the main loop.
+        let mut alias_map: std::collections::HashMap<String, (usize, Vec<DiscoveredTask>)> =
+            std::collections::HashMap::new();
+        for (i, (path, content)) in paths.iter().zip(contents.iter()).enumerate() {
+            let Some(content) = content else { continue };
+            if !file_name_of(path).eq_ignore_ascii_case(CARGO_CONFIG_NAME) {
+                continue;
+            }
+            let tasks = parse_cargo_aliases(content);
+            if !tasks.is_empty() {
+                alias_map.insert(parent_dir(&parent_dir(path)), (i, tasks));
+            }
+        }
+
         let mut groups = Vec::new();
 
         for (i, (path, content)) in paths.iter().zip(contents.iter()).enumerate() {
@@ -171,6 +195,7 @@ pub async fn task_discover(
                         });
                     }
                 }
+                "config.toml" => {} // consumed by the alias pre-pass above
                 "cargo.toml" => {
                     let Some(doc) = cargo_docs.get(&i) else { continue };
                     let dir = parent_dir(path);
@@ -182,7 +207,14 @@ pub async fn task_discover(
                         has_default_bin: main_rs_paths
                             .contains(&format!("{dir}{sep}src{sep}main.rs")),
                     };
-                    let tasks = cargo_tasks(doc, &ctx);
+                    let mut tasks = cargo_tasks(doc, &ctx);
+                    // Aliases from a sibling .cargo/config.toml go first
+                    // (user-defined beats synthesized); drop synthesized
+                    // duplicates — `cargo {name}` runs the same thing anyway
+                    if let Some((_, aliases)) = alias_map.remove(&dir) {
+                        tasks.retain(|t| aliases.iter().all(|a| a.name != t.name));
+                        tasks.splice(0..0, aliases);
+                    }
                     if !tasks.is_empty() {
                         groups.push(DiscoveredTaskGroup {
                             runner: "cargo".into(),
@@ -195,6 +227,33 @@ pub async fn task_discover(
                 }
                 _ => {}
             }
+        }
+
+        // Aliases without a sibling Cargo.toml (e.g. repo-root .cargo/config.toml
+        // for a crate living in a subdir, like musql) get their own group
+        let mut leftovers: Vec<(String, (usize, Vec<DiscoveredTask>))> =
+            alias_map.into_iter().collect();
+        leftovers.sort_by_key(|(_, (i, _))| *i);
+        for (base_dir, (i, tasks)) in leftovers {
+            let path = &paths[i];
+            let rel = if path.starts_with(&root) {
+                path[root.len()..].trim_start_matches(['/', '\\']).to_string()
+            } else {
+                path.clone()
+            };
+            let base_rel = parent_dir(&parent_dir(&rel));
+            let label_prefix = if base_rel.is_empty() {
+                String::new()
+            } else {
+                format!("{base_rel}{sep}")
+            };
+            groups.push(DiscoveredTaskGroup {
+                runner: "cargo".into(),
+                label: format!("{label_prefix}cargo alias"),
+                source_file: rel,
+                cwd: base_dir,
+                tasks,
+            });
         }
 
         Ok(groups)
@@ -267,6 +326,12 @@ fn find_task_files(
     // Committed vendored trees (cargo vendor, composer) aren't gitignored,
     // and their hundreds of manifests would flood the panel
     files.retain(|p| !p.split(['/', '\\']).any(|seg| seg == "vendor"));
+    // config.toml is only a cargo task source inside a .cargo directory
+    // (the fallback walker matches by bare file name)
+    files.retain(|p| {
+        !file_name_of(p).eq_ignore_ascii_case(CARGO_CONFIG_NAME)
+            || file_name_of(&parent_dir(p)).eq_ignore_ascii_case(".cargo")
+    });
     files
 }
 
@@ -278,11 +343,16 @@ fn find_task_files_raw(
     if let Some(b) = backend {
         if b.is_rg() {
             let depth_arg = format!("{MAX_DEPTH}");
-            let mut args: Vec<&str> = vec!["--files", "--max-depth", &depth_arg];
+            // --hidden lets rg descend into .cargo/; keep .git excluded
+            // (it is only skipped by the hidden filter we just disabled)
+            let mut args: Vec<&str> =
+                vec!["--files", "--max-depth", &depth_arg, "--hidden", "-g", "!.git"];
             for g in TASK_FILE_GLOBS {
                 args.push("-g");
                 args.push(g);
             }
+            args.push("-g");
+            args.push(CARGO_CONFIG_RG_GLOB);
             args.push("--");
             args.push(root);
             if let Ok((code, stdout, _)) = shell.run(b.rg_program(), &args) {
@@ -294,7 +364,9 @@ fn find_task_files_raw(
     }
 
     // Fallback (no .gitignore awareness): shared find/walk helper.
-    crate::fs::walk_files_by_name(shell, root, TASK_FILE_GLOBS, MAX_DEPTH)
+    let mut names: Vec<&str> = TASK_FILE_GLOBS.to_vec();
+    names.push(CARGO_CONFIG_NAME);
+    crate::fs::walk_files_by_name(shell, root, &names, MAX_DEPTH)
 }
 
 fn parse_package_json(content: &str) -> Vec<DiscoveredTask> {
@@ -454,6 +526,42 @@ fn cargo_tasks(doc: &toml::Table, ctx: &CargoContext) -> Vec<DiscoveredTask> {
             command: format!("cargo {sub}"),
             name: sub,
             runner: "cargo".into(),
+        })
+        .collect()
+}
+
+/// `.cargo/config.toml` [alias] entries run as `cargo {name}`. Only the name
+/// is interpolated into the shell line (so it gets the same metacharacter
+/// guard); the expansion is display-only — cargo resolves the alias itself.
+fn parse_cargo_aliases(content: &str) -> Vec<DiscoveredTask> {
+    let Ok(doc) = content.parse::<toml::Table>() else {
+        return vec![];
+    };
+    let Some(aliases) = doc.get("alias").and_then(|a| a.as_table()) else {
+        return vec![];
+    };
+    aliases
+        .iter()
+        .filter_map(|(name, val)| {
+            if !is_safe_cargo_name(name) {
+                return None;
+            }
+            let expansion = match val {
+                toml::Value::String(s) => s.clone(),
+                toml::Value::Array(arr) => {
+                    let parts: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+                    if parts.is_empty() {
+                        return None;
+                    }
+                    parts.join(" ")
+                }
+                _ => return None,
+            };
+            Some(DiscoveredTask {
+                name: name.clone(),
+                command: format!("cargo {expansion}"),
+                runner: "cargo".into(),
+            })
         })
         .collect()
 }
@@ -620,5 +728,36 @@ name = 'verify_tmux'
     #[test]
     fn cargo_non_manifest_yields_nothing() {
         assert!(cargo_tasks(&table("[dependencies]\nserde = \"1\"\n"), &ctx()).is_empty());
+    }
+
+    #[test]
+    fn cargo_aliases_string_and_array() {
+        let tasks = parse_cargo_aliases(
+            r#"
+[alias]
+dev = "tauri dev --config src-tauri/tauri.dev.conf.json"
+lint = ["clippy", "--", "-D", "warnings"]
+"#,
+        );
+        let names: Vec<&str> = tasks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["dev", "lint"]);
+        assert_eq!(
+            tasks[0].command,
+            "cargo tauri dev --config src-tauri/tauri.dev.conf.json"
+        );
+        assert_eq!(tasks[1].command, "cargo clippy -- -D warnings");
+    }
+
+    #[test]
+    fn cargo_alias_unsafe_name_is_excluded() {
+        let tasks = parse_cargo_aliases("[alias]\n\"a;b\" = \"build\"\nok = \"check\"\n");
+        let names: Vec<&str> = tasks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["ok"]);
+    }
+
+    #[test]
+    fn cargo_config_without_alias_yields_nothing() {
+        assert!(parse_cargo_aliases("[build]\njobs = 4\n").is_empty());
+        assert!(parse_cargo_aliases("not toml [").is_empty());
     }
 }
