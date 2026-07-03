@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.19.1] - 2026-07-03
+
+### Features
+
+- **Tasks パネルが cargo alias を検出**: `.cargo/config.toml` の `[alias]` に定義したエイリアスを `cargo {alias名}` タスクとして表示。同じディレクトリに Cargo.toml があればその cargo タスク一覧の先頭に表示し、Cargo.toml が無いディレクトリ（repo root に alias だけ置く構成など）では独立グループ「cargo alias」として表示する。ツールチップに展開後のコマンドを表示
+
 ## [0.19.0] - 2026-07-02
 
 ### Features
