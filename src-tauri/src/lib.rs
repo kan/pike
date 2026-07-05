@@ -759,6 +759,7 @@ pub fn run() {
             fs::fs_create_dir,
             fs::fs_write_file_base64,
             fs::fs_resolve_first_existing,
+            fs::fs_open_in_explorer,
             settings_sync::settings_sync_read,
             settings_sync::settings_sync_write,
             watcher::fs_watch_start,

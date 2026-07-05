@@ -15,6 +15,7 @@ import {
   fsCreateFile,
   fsDelete,
   fsListDir,
+  fsOpenInExplorer,
   fsReadFileBase64,
   fsRename,
   fsWriteFileBase64,
@@ -109,6 +110,15 @@ function onContextMenu(e: MouseEvent, path: string, isDir: boolean) {
 
 function closeCtxMenu() {
   ctxMenu.value = null
+}
+
+function openInExplorer() {
+  if (!ctxMenu.value) return
+  const shell = projectStore.currentProject?.shell
+  if (shell) {
+    fsOpenInExplorer(shell, ctxMenu.value.path).catch(() => {})
+  }
+  closeCtxMenu()
 }
 
 function startRename(path: string, isDir: boolean) {
@@ -580,6 +590,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
           <button @click="startRename(ctxMenu.path, ctxMenu.isDir)">{{ t('fileTree.rename') }}</button>
           <button @click="deleteItem()">{{ t('fileTree.delete') }}</button>
           <button v-if="!ctxMenu.isDir" @click="showGitHistory()">{{ t('fileTree.gitHistory') }}</button>
+          <button v-if="ctxMenu.isDir" @click="openInExplorer()">{{ t('fileTree.openInExplorer') }}</button>
         </div>
       </Teleport>
 

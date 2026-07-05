@@ -219,6 +219,7 @@ export default {
   'fileTree.copyPath': '相対パスをコピー',
   'fileTree.rename': '名前を変更',
   'fileTree.delete': '削除',
+  'fileTree.openInExplorer': 'エクスプローラーで開く',
   'fileTree.gitHistory': 'Git 履歴',
   'fileTree.confirmDelete': '"{name}" を削除しますか？',
   'fileTree.confirmOverwrite': '"{name}" は既に存在します。上書きしますか？',

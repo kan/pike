@@ -131,6 +131,10 @@ export interface FileReadResult {
   isNew: boolean
 }
 
+export async function fsOpenInExplorer(shell: ShellType, path: string): Promise<void> {
+  return invoke('fs_open_in_explorer', { shell, path })
+}
+
 export async function fsReadFile(
   shell: ShellType,
   path: string,

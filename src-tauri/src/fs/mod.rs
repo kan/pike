@@ -277,6 +277,28 @@ fn decode_bytes(bytes: &[u8], encoding_name: Option<&str>) -> Result<FileReadRes
 }
 
 #[tauri::command]
+pub async fn fs_open_in_explorer(shell: ShellConfig, path: String) -> Result<(), String> {
+    // WSL paths are reachable from Explorer through the \\wsl.localhost\ UNC view.
+    let win_path = match &shell {
+        ShellConfig::Wsl { distro } => {
+            format!(r"\\wsl.localhost\{distro}{}", path.replace('/', "\\"))
+        }
+        _ => path,
+    };
+    tokio::task::spawn_blocking(move || {
+        // explorer.exe delegates to ShellExecuteW internally — no cmd.exe
+        // shell-metacharacter risk (same pattern as open_url).
+        crate::types::silent_command("explorer.exe")
+            .arg(&win_path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn fs_read_file(
     shell: ShellConfig,
     path: String,

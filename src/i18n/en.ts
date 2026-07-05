@@ -220,6 +220,7 @@ export default {
   'fileTree.copyPath': 'Copy Relative Path',
   'fileTree.rename': 'Rename',
   'fileTree.delete': 'Delete',
+  'fileTree.openInExplorer': 'Open in Explorer',
   'fileTree.gitHistory': 'Git History',
   'fileTree.confirmDelete': 'Delete "{name}"?',
   'fileTree.confirmOverwrite': '"{name}" already exists here. Overwrite?',
