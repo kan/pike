@@ -289,9 +289,9 @@ pub async fn pty_spawn(
             if let Some(ShellConfig::Wsl { distro }) = &shell {
                 c.args(["-d", distro]);
             }
-            if let Some(dir) = &cwd {
-                c.args(["--cd", dir]);
-            }
+            // cwd 未指定（グローバルモード等）だと wsl.exe は Pike の Windows cwd
+            // （/mnt/c/... に変換）を継承するため、明示的に Linux ホームを指定する
+            c.args(["--cd", cwd.as_deref().unwrap_or("~")]);
             c.arg("bash");
             c
         }
