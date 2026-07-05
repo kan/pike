@@ -45,6 +45,13 @@ function join(parent: string, child: string): string {
   return parent.endsWith(s) ? parent + child : parent + s + child
 }
 
+function onItemClick(node: FlatNode) {
+  // ignored dirs open only via the context menu (Explorer) — no expand
+  if (node.entry.ignored) return
+  if (node.entry.isDir) toggleDir(node.path)
+  else openFile(node.path)
+}
+
 function toggleDir(path: string) {
   if (fileTreeStore.expanded.has(path)) {
     fileTreeStore.expanded.delete(path)
@@ -94,15 +101,15 @@ async function openFile(path: string) {
 }
 
 // Context menu
-const ctxMenu = ref<{ x: number; y: number; path: string; isDir: boolean } | null>(null)
+const ctxMenu = ref<{ x: number; y: number; path: string; isDir: boolean; ignored: boolean } | null>(null)
 const renaming = ref<string | null>(null)
 const renameValue = ref('')
 const creating = ref<{ parentPath: string; type: 'file' | 'dir' } | null>(null)
 const createValue = ref('')
 
-function onContextMenu(e: MouseEvent, path: string, isDir: boolean) {
+function onContextMenu(e: MouseEvent, path: string, isDir: boolean, ignored: boolean) {
   e.preventDefault()
-  ctxMenu.value = { x: e.clientX, y: e.clientY, path, isDir }
+  ctxMenu.value = { x: e.clientX, y: e.clientY, path, isDir, ignored }
   nextTick(() => {
     window.addEventListener('mousedown', closeCtxMenu, { once: true })
   })
@@ -251,7 +258,8 @@ const {
   resetDrag: onDragEnd,
 } = useDragAndDrop<string>('all')
 
-function onDragOver(e: DragEvent, path: string, isDir: boolean) {
+function onDragOver(e: DragEvent, path: string, isDir: boolean, ignored: boolean) {
+  if (ignored) return // no drops into ignored dirs
   const s = sep()
   const targetDir = isDir ? path : path.substring(0, path.lastIndexOf(s))
   const external = !dragPath.value && !!e.dataTransfer?.types.includes('Files')
@@ -395,7 +403,8 @@ const flatNodes = computed((): FlatNode[] => {
     for (const entry of children) {
       const path = join(parentPath, entry.name)
       result.push({ entry, path, depth })
-      if (entry.isDir && fileTreeStore.expanded.has(path)) {
+      // ignored dirs are never walked into, even if a stale expanded entry exists
+      if (entry.isDir && !entry.ignored && fileTreeStore.expanded.has(path)) {
         walk(path, depth + 1)
       }
     }
@@ -533,29 +542,29 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
         <div
           v-else
           class="tree-item"
-          :class="{ 'drop-target': dropTarget === node.path, selected: fileTreeStore.selectedPath === node.path }"
+          :class="{ 'drop-target': dropTarget === node.path, selected: fileTreeStore.selectedPath === node.path, ignored: node.entry.ignored }"
           :style="{ paddingLeft: (node.depth * 16 + 4) + 'px' }"
-          :draggable="true"
-          @click="node.entry.isDir ? toggleDir(node.path) : openFile(node.path)"
-          @contextmenu="onContextMenu($event, node.path, node.entry.isDir)"
+          :draggable="!node.entry.ignored"
+          @click="onItemClick(node)"
+          @contextmenu="onContextMenu($event, node.path, node.entry.isDir, node.entry.ignored)"
           @dragstart="onDragStart($event, node.path)"
-          @dragover="onDragOver($event, node.path, node.entry.isDir)"
+          @dragover="onDragOver($event, node.path, node.entry.isDir, node.entry.ignored)"
           @dragleave="onDragLeave"
           @dragend="onDragEnd"
           @drop="onDrop($event, node.path, node.entry.isDir)"
         >
-          <span v-if="node.entry.isDir" class="tree-chevron">
+          <span v-if="node.entry.isDir && !node.entry.ignored" class="tree-chevron">
             <Loader v-if="fileTreeStore.loading.has(node.path)" :size="12" :stroke-width="2" class="spinning" />
             <ChevronDown v-else-if="fileTreeStore.expanded.has(node.path)" :size="12" :stroke-width="2" />
             <ChevronRight v-else :size="12" :stroke-width="2" />
           </span>
           <span v-else class="tree-chevron-space"></span>
           <span v-if="node.entry.isDir" class="tree-icon tree-icon-folder">
-            <FolderOpen v-if="fileTreeStore.expanded.has(node.path)" :size="16" :stroke-width="1.5" />
+            <FolderOpen v-if="!node.entry.ignored && fileTreeStore.expanded.has(node.path)" :size="16" :stroke-width="1.5" />
             <Folder v-else :size="16" :stroke-width="1.5" />
           </span>
           <span v-else class="tree-icon tree-icon-svg" v-html="fileIconSvg(node.entry.name)"></span>
-          <span class="tree-name" :style="gitStatusMap.has(node.path) ? { color: gitStatusColor(gitStatusMap.get(node.path)!) } : undefined">{{ node.entry.name }}</span>
+          <span class="tree-name" :style="!node.entry.ignored && gitStatusMap.has(node.path) ? { color: gitStatusColor(gitStatusMap.get(node.path)!) } : undefined">{{ node.entry.name }}</span>
         </div>
         <!-- Create input inside this directory -->
         <div
@@ -581,16 +590,23 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
       <!-- Context menu -->
       <Teleport to="body">
         <div v-if="ctxMenu" class="tree-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @mousedown.stop>
-          <template v-if="ctxMenu.isDir">
-            <button @click="startCreate('file')">{{ t('fileTree.newFile') }}</button>
-            <button @click="startCreate('dir')">{{ t('fileTree.newFolder') }}</button>
-            <div class="tree-ctx-separator"></div>
+          <!-- ignored dirs: copy path / Explorer only, mutating actions stay off -->
+          <template v-if="ctxMenu.ignored">
+            <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>
+            <button @click="openInExplorer()">{{ t('fileTree.openInExplorer') }}</button>
           </template>
-          <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>
-          <button @click="startRename(ctxMenu.path, ctxMenu.isDir)">{{ t('fileTree.rename') }}</button>
-          <button @click="deleteItem()">{{ t('fileTree.delete') }}</button>
-          <button v-if="!ctxMenu.isDir" @click="showGitHistory()">{{ t('fileTree.gitHistory') }}</button>
-          <button v-if="ctxMenu.isDir" @click="openInExplorer()">{{ t('fileTree.openInExplorer') }}</button>
+          <template v-else>
+            <template v-if="ctxMenu.isDir">
+              <button @click="startCreate('file')">{{ t('fileTree.newFile') }}</button>
+              <button @click="startCreate('dir')">{{ t('fileTree.newFolder') }}</button>
+              <div class="tree-ctx-separator"></div>
+            </template>
+            <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>
+            <button @click="startRename(ctxMenu.path, ctxMenu.isDir)">{{ t('fileTree.rename') }}</button>
+            <button @click="deleteItem()">{{ t('fileTree.delete') }}</button>
+            <button v-if="!ctxMenu.isDir" @click="showGitHistory()">{{ t('fileTree.gitHistory') }}</button>
+            <button v-if="ctxMenu.isDir" @click="openInExplorer()">{{ t('fileTree.openInExplorer') }}</button>
+          </template>
         </div>
       </Teleport>
 
@@ -679,6 +695,16 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text-primary);
+}
+
+.tree-item.ignored {
+  cursor: default;
+}
+
+.tree-item.ignored .tree-name,
+.tree-item.ignored .tree-icon-folder {
+  color: var(--text-secondary);
+  opacity: 0.6;
 }
 
 .tree-item.drop-target {

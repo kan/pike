@@ -9,16 +9,15 @@ use std::io::Write as IoWrite;
 pub struct FsEntry {
     pub name: String,
     pub is_dir: bool,
+    /// Directory matches `IGNORED_DIRS`: shown dimmed in the tree, contents
+    /// are never listed (watcher/tasks/search also skip it).
+    pub ignored: bool,
 }
 
 pub const IGNORED_DIRS: &[&str] = &[
     ".git", "node_modules", "__pycache__", ".next", ".nuxt",
     "target", "dist", "build", ".cache", ".venv", "venv",
 ];
-
-fn should_ignore(name: &str) -> bool {
-    name.starts_with(".DS_Store") || IGNORED_DIRS.contains(&name)
-}
 
 /// Recursively find files whose name matches any of `names` (case-insensitive),
 /// up to `max_depth` levels, skipping `IGNORED_DIRS`. Returns absolute paths in
@@ -122,11 +121,12 @@ fn list_dir_wsl(shell: &ShellConfig, path: &str) -> Result<Vec<FsEntry>, String>
         let mut parts = line.splitn(2, '\t');
         let kind = parts.next().unwrap_or("");
         let name = parts.next().unwrap_or("").to_string();
-        if name.is_empty() || should_ignore(&name) {
+        if name.is_empty() || name.starts_with(".DS_Store") {
             continue;
         }
         let is_dir = kind == "d";
-        let entry = FsEntry { name, is_dir };
+        let ignored = is_dir && IGNORED_DIRS.contains(&name.as_str());
+        let entry = FsEntry { name, is_dir, ignored };
         if is_dir {
             dirs.push(entry);
         } else {
@@ -146,14 +146,15 @@ fn list_dir_native(path: &str) -> Result<Vec<FsEntry>, String> {
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name().to_string_lossy().into_owned();
-        if should_ignore(&name) {
+        if name.starts_with(".DS_Store") {
             continue;
         }
         let is_dir = entry
             .file_type()
             .map(|t| t.is_dir())
             .unwrap_or(false);
-        let e = FsEntry { name, is_dir };
+        let ignored = is_dir && IGNORED_DIRS.contains(&name.as_str());
+        let e = FsEntry { name, is_dir, ignored };
         if is_dir {
             dirs.push(e);
         } else {

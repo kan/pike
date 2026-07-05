@@ -117,6 +117,8 @@ export async function projectGroupsSave(groups: string[]): Promise<void> {
 export interface FsEntry {
   name: string
   isDir: boolean
+  /** IGNORED_DIRS にマッチしたディレクトリ: ツリーに淡色表示、展開不可 */
+  ignored: boolean
 }
 
 export async function fsListDir(shell: ShellType, path: string): Promise<FsEntry[]> {
