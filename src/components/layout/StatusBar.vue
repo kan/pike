@@ -21,6 +21,7 @@ import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
 import { basename } from '../../lib/paths'
 import { openUrlWithConfirm } from '../../lib/tauri'
+import { globalMode } from '../../lib/window'
 import { useAgentStore } from '../../stores/agent'
 import { useClaudeRateStore } from '../../stores/claudeRate'
 import { useClaudeUsageStore } from '../../stores/claudeUsage'
@@ -346,6 +347,7 @@ onUnmounted(() => {
 <template>
   <div class="status-bar ui-zoom">
     <button
+      v-if="!globalMode"
       class="status-item clickable"
       @click="projectStore.toggleSwitcher()"
     >

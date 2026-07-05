@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { detectWslDistros, openProjectWindow } from '../lib/tauri'
+import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import type { ProjectConfig } from '../types/project'
 import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, WINDOWS_SHELLS } from '../types/tab'
@@ -74,9 +75,24 @@ async function onCreateProject() {
   }
 
   await projectStore.addProject(config)
-  await projectStore.switchProject(id)
+  if (globalMode.value) {
+    openProjectWindow(id)
+  } else {
+    await projectStore.switchProject(id)
+  }
   projectStore.showSwitcher = false
   resetForm()
+}
+
+/** Open the picked project: global-mode windows stay project-less, so the
+ *  project always goes to its own window there. */
+function selectProject(id: string, newWindow: boolean) {
+  if (newWindow || globalMode.value) {
+    openProjectWindow(id)
+  } else {
+    projectStore.switchProject(id)
+  }
+  projectStore.showSwitcher = false
 }
 
 function resetForm() {
@@ -97,6 +113,9 @@ watch(
   () => projectStore.showSwitcher,
   (show) => {
     if (show) {
+      // Global-mode windows skip project restore at startup, so the list may
+      // not be loaded yet when the switcher is first opened there.
+      if (projectStore.projects.length === 0) projectStore.loadProjects()
       query.value = ''
       selectedIdx.value = 0
       resetForm()
@@ -131,12 +150,7 @@ function onKeyDown(e: KeyboardEvent) {
     e.preventDefault()
     const selected = filtered.value[selectedIdx.value]
     if (selected) {
-      if (e.ctrlKey) {
-        openProjectWindow(selected.id)
-      } else {
-        projectStore.switchProject(selected.id)
-      }
-      projectStore.showSwitcher = false
+      selectProject(selected.id, e.ctrlKey)
     }
     return
   }
@@ -166,7 +180,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             :key="project.id"
             class="switcher-item"
             :class="{ selected: i === selectedIdx, active: project.id === projectStore.currentProject?.id }"
-            @click="projectStore.switchProject(project.id); projectStore.showSwitcher = false"
+            @click="selectProject(project.id, false)"
             @mouseenter="selectedIdx = i"
           >
             <span class="item-name"><ColorDot :color="project.color" />{{ project.name }}</span>
@@ -180,8 +194,11 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
         <!-- New project button -->
         <div v-if="!showNewForm" class="switcher-footer">
           <div class="footer-hints">
-            <span class="hint">{{ t('projectSwitcher.enterSwitch') }}</span>
-            <span class="hint">{{ t('projectSwitcher.ctrlEnterWindow') }}</span>
+            <span v-if="globalMode" class="hint">{{ t('projectSwitcher.enterOpenWindow') }}</span>
+            <template v-else>
+              <span class="hint">{{ t('projectSwitcher.enterSwitch') }}</span>
+              <span class="hint">{{ t('projectSwitcher.ctrlEnterWindow') }}</span>
+            </template>
           </div>
           <button class="new-project-btn" @click="openNewForm">{{ t('projectSwitcher.newProject') }}</button>
         </div>

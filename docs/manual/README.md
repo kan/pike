@@ -12,6 +12,7 @@ Pike は「AI エージェント × ターミナル」に特化した、**軽量
 |--------|------|
 | [はじめに](getting-started.md) | インストール・初回起動・画面構成・最初のプロジェクト登録 |
 | [プロジェクトとウィンドウ](projects-and-windows.md) | WSL / Windows プロジェクト、グループ、マルチウィンドウ、worktree |
+| [グローバルモード](global-mode.md) | プロジェクトに依らないウィンドウ。ファイルを開く、ターミナル専用、GIT_EDITOR 連携 |
 | [ターミナルと AI エージェント](terminal-and-agents.md) | ターミナル操作、シェル選択、エージェント補助ボタン、Claude Code / Codex チャット |
 | [エディタとプレビュー](editor-and-preview.md) | コード編集、各種プレビュー、画像ビューア、定義ジャンプ、検索、文字コード |
 | [Git](git.md) | ステージング・コミット・push/pull、diff、コミットグラフ、コンフリクト、worktree |

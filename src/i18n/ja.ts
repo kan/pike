@@ -74,6 +74,7 @@ export default {
   'tabs.closeAll': 'すべて閉じる',
   'tabs.copyPath': 'パスをコピー',
   'tabs.gitHistory': 'Git 履歴',
+  'tabs.newFileBadge': '新規ファイル（保存で作成されます）',
 
   // Editor
   'editor.undo': '元に戻す',
@@ -192,6 +193,8 @@ export default {
   'settings.upToDate': '最新です',
   'settings.updateError': '更新の確認に失敗しました',
   'settings.terminalExitNotification': 'プロセス終了時にデスクトップ通知',
+  'settings.globalShell': 'グローバルモードの既定シェル',
+  'settings.globalShellHint': 'プロジェクトに依らないウィンドウで + を押した時に開くシェル。',
   'settings.sync': '設定の同期',
   'settings.syncHint':
     '環境に依存しない設定（フォント・配色・エディタ・ターミナルのコマンド/プロンプト等）を 1 つの JSON ファイルに書き出します。保存先を Dropbox など同期フォルダ内のパスにすると、複数 PC 間で共有できます。プロジェクト一覧やグループは同期されません。',
@@ -317,6 +320,7 @@ export default {
   'projectSwitcher.noMatch': '一致するプロジェクトがありません',
   'projectSwitcher.enterSwitch': 'Enter: 切替',
   'projectSwitcher.ctrlEnterWindow': 'Ctrl+Enter: 新しいウィンドウ',
+  'projectSwitcher.enterOpenWindow': 'Enter: 新しいウィンドウで開く',
   'projectSwitcher.newProject': '+ 新規プロジェクト',
   'projectSwitcher.formTitle': '新規プロジェクト',
   'projectSwitcher.createAndOpen': '作成して開く',

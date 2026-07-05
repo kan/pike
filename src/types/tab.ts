@@ -97,6 +97,8 @@ export type EditorTab = {
   initialViewMode?: 'edit' | 'split' | 'preview'
   reloadRequested?: number
   externalChange?: 'modified' | 'deleted'
+  /** File does not exist on disk yet (opened as a blank new file); cleared on first save. */
+  isNewFile?: boolean
 }
 
 export type PreviewTab = {

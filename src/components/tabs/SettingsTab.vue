@@ -6,14 +6,46 @@ import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
-import { pickSaveFile } from '../../lib/tauri'
+import { detectWslDistros, pickSaveFile } from '../../lib/tauri'
 import { COLOR_SCHEMES, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, useSettingsStore } from '../../stores/settings'
+import { type ShellType, shellToType, WINDOWS_SHELLS } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
 settings.loadAvailableFonts()
 settings.loadAvailableUiFonts()
+
+// --- Global-mode default shell ------------------------------------------
+// Options: the 3 Windows shells + every detected WSL distro. The current
+// selection stays listed even when its distro is missing from detection.
+const wslDistros = ref<string[]>([])
+detectWslDistros()
+  .then((d) => {
+    wslDistros.value = d
+  })
+  .catch(() => {})
+
+const globalShellOptions = computed<{ value: string; label: string }[]>(() => {
+  const opts = WINDOWS_SHELLS.map((s) => ({ value: s.kind, label: s.label }))
+  const distros = [...wslDistros.value]
+  const current = settings.globalShell
+  if (current.kind === 'wsl' && !distros.includes(current.distro)) {
+    distros.unshift(current.distro)
+  }
+  return [...opts, ...distros.map((d) => ({ value: `wsl:${d}`, label: `WSL (${d})` }))]
+})
+
+const globalShellValue = computed(() =>
+  settings.globalShell.kind === 'wsl' ? `wsl:${settings.globalShell.distro}` : settings.globalShell.kind,
+)
+
+function onGlobalShellChange(e: Event) {
+  const v = (e.target as HTMLSelectElement).value
+  settings.globalShell = v.startsWith('wsl:')
+    ? ({ kind: 'wsl', distro: v.slice(4) } as ShellType)
+    : shellToType(v as 'cmd' | 'powershell' | 'git-bash')
+}
 
 // CSS font-family for the editor preview swatch (built from the editor font name).
 const editorFontFamily = computed(() => buildFontFamily(settings.editorFontName))
@@ -344,6 +376,16 @@ const PREVIEW_LINES = [
             <button class="mode-btn" :class="{ active: settings.terminalExitNotification }" @click="settings.terminalExitNotification = true">{{ t('common.on') }}</button>
             <button class="mode-btn" :class="{ active: !settings.terminalExitNotification }" @click="settings.terminalExitNotification = false">{{ t('common.off') }}</button>
           </div>
+        </div>
+
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.globalShell') }}</label>
+            <select class="setting-select" :value="globalShellValue" @change="onGlobalShellChange">
+              <option v-for="opt in globalShellOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </div>
+          <p class="setting-hint">{{ t('settings.globalShellHint') }}</p>
         </div>
 
         <div class="setting-block">

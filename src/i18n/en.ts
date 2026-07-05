@@ -74,6 +74,7 @@ export default {
   'tabs.closeAll': 'Close All',
   'tabs.copyPath': 'Copy Path',
   'tabs.gitHistory': 'Git History',
+  'tabs.newFileBadge': 'New file (created on save)',
 
   // Editor
   'editor.undo': 'Undo',
@@ -193,6 +194,8 @@ export default {
   'settings.upToDate': 'You are up to date',
   'settings.updateError': 'Update check failed',
   'settings.terminalExitNotification': 'Desktop notification on exit',
+  'settings.globalShell': 'Default shell in global mode',
+  'settings.globalShellHint': 'Shell opened by + in project-independent (global) windows.',
   'settings.sync': 'Settings Sync',
   'settings.syncHint':
     'Mirror your environment-independent settings (font, colors, editor, terminal commands/prompts, etc.) to a single JSON file. Point the path at a folder synced by Dropbox/OneDrive/git to share them across PCs. Project list and groups are not synced.',
@@ -317,6 +320,7 @@ export default {
   'projectSwitcher.noMatch': 'No matching projects',
   'projectSwitcher.enterSwitch': 'Enter: switch',
   'projectSwitcher.ctrlEnterWindow': 'Ctrl+Enter: new window',
+  'projectSwitcher.enterOpenWindow': 'Enter: open in new window',
   'projectSwitcher.newProject': '+ New Project',
   'projectSwitcher.formTitle': 'New Project',
   'projectSwitcher.createAndOpen': 'Create & Open',

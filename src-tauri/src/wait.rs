@@ -22,9 +22,16 @@ const APP_ID: &str = if cfg!(debug_assertions) {
     "com.pike.dev"
 };
 
+pub struct WaitEntry {
+    /// Normalized file path the editor tab uses
+    path: String,
+    /// Label of the window that hosts the tab
+    window: String,
+}
+
 pub struct WaitState {
-    /// Maps wait_id → normalized file path
-    pub active: Mutex<HashMap<String, String>>,
+    /// Maps wait_id → waiting entry
+    pub active: Mutex<HashMap<String, WaitEntry>>,
 }
 
 pub fn extract_wait_id(args: &[String]) -> Option<String> {
@@ -32,18 +39,33 @@ pub fn extract_wait_id(args: &[String]) -> Option<String> {
         .find_map(|a| a.strip_prefix("--wait-id=").map(|s| s.to_string()))
 }
 
-pub fn register(state: &WaitState, wait_id: String, path: &str) {
+pub fn register(state: &WaitState, wait_id: String, path: &str, window: &str) {
     let norm = crate::normalize_path(path);
-    log::debug!("[wait] register: wait_id={wait_id}, norm={norm:?}");
+    log::debug!("[wait] register: wait_id={wait_id}, norm={norm:?}, window={window}");
     if let Ok(mut active) = state.active.lock() {
-        active.insert(wait_id, norm);
+        active.insert(
+            wait_id,
+            WaitEntry {
+                path: norm,
+                window: window.to_string(),
+            },
+        );
     }
 }
 
-pub fn signal_abort_all(state: &WaitState) {
+/// Abort the waiters owned by `window` (its editor tab can no longer be
+/// closed normally). Waits hosted by other windows are unaffected — global
+/// terminal windows come and go and must not release a pending GIT_EDITOR.
+pub fn signal_abort_for_window(state: &WaitState, window: &str) {
     let ids: Vec<String> = if let Ok(mut active) = state.active.lock() {
-        let ids: Vec<String> = active.keys().cloned().collect();
-        active.clear();
+        let ids: Vec<String> = active
+            .iter()
+            .filter(|(_, e)| e.window == window)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &ids {
+            active.remove(id);
+        }
         ids
     } else {
         return;
@@ -53,6 +75,12 @@ pub fn signal_abort_all(state: &WaitState) {
     }
 }
 
+/// Release a single --wait CLI that never got a wait registration
+/// (e.g. `pike --wait` with no file argument — nothing to wait on).
+pub fn signal_abort(wait_id: &str) {
+    signal_event(&format!("{EVENT_ABORT_PREFIX}{wait_id}"));
+}
+
 /// Returns true if any wait_ids were signaled.
 #[tauri::command]
 pub fn wait_signal_by_path(path: String, state: State<'_, WaitState>) -> bool {
@@ -60,7 +88,7 @@ pub fn wait_signal_by_path(path: String, state: State<'_, WaitState>) -> bool {
     let ids: Vec<String> = if let Ok(mut active) = state.active.lock() {
         let matched: Vec<String> = active
             .iter()
-            .filter(|(_, p)| **p == norm)
+            .filter(|(_, e)| e.path == norm)
             .map(|(id, _)| id.clone())
             .collect();
         for id in &matched {

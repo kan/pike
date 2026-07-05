@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onUnmounted, ref } from 'vue'
+import { type Component, computed, defineAsyncComponent, nextTick, onUnmounted, ref } from 'vue'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
+import { useShortcutsModal } from '../../composables/useShortcutsModal'
+import { detectWslDistros } from '../../lib/tauri'
+import { globalMode } from '../../lib/window'
 import { useProjectStore } from '../../stores/project'
+import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { ShellType, Tab } from '../../types/tab'
 import { isWindowsShell, shellToType, WINDOWS_SHELLS } from '../../types/tab'
@@ -17,13 +21,28 @@ const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 const AgentChatTab = defineAsyncComponent(() => import('../tabs/AgentChatTab.vue'))
 
-import { BookOpen, Bot, ChevronDown, Pin, Plus, ScrollText, Settings, Terminal, X } from 'lucide-vue-next'
+import {
+  BookOpen,
+  Bot,
+  ChevronDown,
+  GitBranch,
+  Pin,
+  Plus,
+  ScrollText,
+  Settings,
+  SquareChevronRight,
+  SquareTerminal,
+  Terminal,
+  X,
+} from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
+import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const tabStore = useTabStore()
 const projectStore = useProjectStore()
+const settings = useSettingsStore()
 
 const terminalTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'terminal'))
 
@@ -59,18 +78,75 @@ function tabFileIconSvg(tab: Tab): string | null {
 }
 
 function addTab(shellOverride?: ShellType) {
+  if (globalMode.value) {
+    // Project-independent window: "+" opens the configured default shell
+    tabStore.addTerminalTab({ shell: shellOverride ?? settings.globalShell })
+    return
+  }
   const project = projectStore.currentProject
   tabStore.addTerminalTab(project ? { cwd: project.root, shell: shellOverride ?? project.shell } : undefined)
 }
 
-// Shell dropdown for Windows projects
+// Shell dropdown: Windows projects offer the 3 Windows shells; global-mode
+// windows additionally offer every detected WSL distro.
 const showShellMenu = ref(false)
+const wslDistros = ref<string[]>([])
+let distrosRequested = false
+
+function loadWslDistros() {
+  if (distrosRequested) return
+  distrosRequested = true
+  detectWslDistros()
+    .then((d) => {
+      wslDistros.value = d
+    })
+    .catch(() => {})
+}
+
+const SHELL_MENU_ICONS: Record<ShellType['kind'], Component> = {
+  cmd: SquareTerminal,
+  powershell: SquareChevronRight,
+  'git-bash': GitBranch,
+  wsl: Terminal,
+}
+
+const shellMenuItems = computed<{ key: string; shell: ShellType; label: string }[]>(() => {
+  const win = WINDOWS_SHELLS.map((s) => ({ key: s.kind, shell: shellToType(s.kind), label: s.label }))
+  if (!globalMode.value) return win
+  // WSL first: the primary environment when Pike replaces Windows Terminal
+  const wsl = wslDistros.value.map((d) => ({
+    key: `wsl-${d}`,
+    shell: { kind: 'wsl', distro: d } as ShellType,
+    label: `WSL (${d})`,
+  }))
+  return [...wsl, ...win]
+})
+
+// Global windows have no sidebar (no gear menu) — surface its essentials
+// (shortcuts / settings / manual) from this dropdown instead.
+const shortcutsModal = useShortcutsModal()
+
+function menuOpenShortcuts() {
+  closeShellMenu()
+  shortcutsModal.toggle()
+}
+
+function menuOpenSettings() {
+  closeShellMenu()
+  tabStore.addSettingsTab()
+}
+
+function menuOpenManual() {
+  closeShellMenu()
+  tabStore.addManualTab()
+}
 
 function toggleShellMenu() {
   if (showShellMenu.value) {
     closeShellMenu()
     return
   }
+  if (globalMode.value) loadWslDistros()
   showShellMenu.value = true
   nextTick(() => {
     window.addEventListener('mousedown', closeShellMenu, { once: true })
@@ -82,8 +158,8 @@ function closeShellMenu() {
   showShellMenu.value = false
 }
 
-function addTabWithShell(kind: 'cmd' | 'powershell' | 'git-bash') {
-  addTab(shellToType(kind))
+function addTabWithShell(shell: ShellType) {
+  addTab(shell)
   closeShellMenu()
 }
 
@@ -223,6 +299,11 @@ onUnmounted(() => {
           <Bot v-else-if="tab.kind === 'agent-chat'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <span class="tab-title">{{ tab.title }}</span>
           <span
+            v-if="tab.kind === 'editor' && tab.isNewFile"
+            class="tab-new-badge"
+            :title="t('tabs.newFileBadge')"
+          >new</span>
+          <span
             v-if="tab.kind === 'terminal' && tab.exitCode != null"
             class="tab-exit-badge"
             :class="{ 'exit-ok': tab.exitCode === 0 }"
@@ -245,19 +326,39 @@ onUnmounted(() => {
       <div class="tab-add-group">
         <button class="tab-add" :title="t('tabs.newTerminal')" @click="addTab()"><Plus :size="16" :stroke-width="2" /></button>
         <button
-          v-if="isWindows"
+          v-if="isWindows || globalMode"
           class="tab-add-arrow"
           :title="t('tabs.openWithShell')"
           @click.stop="toggleShellMenu"
         ><ChevronDown :size="12" :stroke-width="2" /></button>
+        <!-- Global windows have no sidebar — give them a manual entry point -->
+        <HelpButton v-if="globalMode" page="global-mode.md" :size="15" />
       </div>
       <!-- Shell dropdown -->
       <div v-if="showShellMenu" class="shell-menu" @mousedown.stop>
         <button
-          v-for="s in WINDOWS_SHELLS"
-          :key="s.kind"
-          @click="addTabWithShell(s.kind)"
-        >{{ s.label }}</button>
+          v-for="s in shellMenuItems"
+          :key="s.key"
+          @click="addTabWithShell(s.shell)"
+        >
+          <component :is="SHELL_MENU_ICONS[s.shell.kind]" :size="14" :stroke-width="1.5" class="shell-menu-icon" />
+          <span>{{ s.label }}</span>
+        </button>
+        <template v-if="globalMode">
+          <div class="shell-menu-divider" />
+          <button @click="menuOpenShortcuts">
+            <span>{{ t('sidebar.keyboardShortcuts') }}</span>
+            <span class="ctx-key">Ctrl+K</span>
+          </button>
+          <button @click="menuOpenSettings">
+            <span>{{ t('sidebar.settings') }}</span>
+            <span class="ctx-key">Ctrl+,</span>
+          </button>
+          <button @click="menuOpenManual">
+            <span>{{ t('sidebar.manual') }}</span>
+            <span class="ctx-key">F1</span>
+          </button>
+        </template>
       </div>
     </div>
 
@@ -521,6 +622,16 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.tab-new-badge {
+  font-size: 10px;
+  line-height: 1;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--git-add);
+  color: #fff;
+  flex-shrink: 0;
+}
+
 .tab-exit-badge.exit-ok {
   background: var(--git-add);
 }
@@ -604,7 +715,9 @@ onUnmounted(() => {
 }
 
 .shell-menu button {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
   padding: 6px 16px;
   border: none;
@@ -613,6 +726,31 @@ onUnmounted(() => {
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+}
+
+.shell-menu-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.shell-menu button:hover .shell-menu-icon {
+  color: var(--text-active);
+}
+
+.shell-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.shell-menu .ctx-key {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.shell-menu button:hover .ctx-key {
+  color: var(--text-active);
 }
 
 .shell-menu button:hover {

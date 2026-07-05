@@ -20,11 +20,12 @@ const dataUrl = ref('')
 
 onMounted(async () => {
   if (!tab.value) return
-  const project = projectStore.currentProject
-  if (!project) return
+  // Global (project-less) windows read via the Windows side — same fallback
+  // as EditorTab's shellForIO.
+  const shell = projectStore.currentProject?.shell ?? ({ kind: 'powershell' } as const)
 
   try {
-    const base64 = await fsReadFileBase64(project.shell, tab.value.path)
+    const base64 = await fsReadFileBase64(shell, tab.value.path)
     dataUrl.value = `data:application/pdf;base64,${base64}`
   } catch (e) {
     error.value = String(e)

@@ -25,8 +25,9 @@ use tauri_plugin_window_state::{AppHandleExt as _, StateFlags};
 
 /// Must match PROJECT_WINDOW_PREFIX in src/lib/window.ts
 const PROJECT_WINDOW_PREFIX: &str = "project-";
-/// Must match the prefix checked in isSecondaryWindow() in src/lib/window.ts
-const SECONDARY_PREFIX: &str = "secondary-";
+/// Project-independent (global-mode) window: sidebar-less editor/terminal.
+/// Must match the prefix checked in isGlobalWindow() in src/lib/window.ts
+const GLOBAL_PREFIX: &str = "global-";
 
 /// Must be called outside of WM_COPYDATA / SendMessage context — COM calls
 /// fail with RPC_E_CANTCALLOUT_ININPUTSYNCCALL inside input-synchronous messages.
@@ -247,8 +248,8 @@ fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Er
         .build()
 }
 
-fn create_secondary_window(app: &AppHandle) -> String {
-    let label = format!("{SECONDARY_PREFIX}{}", uuid::Uuid::new_v4());
+fn create_global_window(app: &AppHandle) -> String {
+    let label = format!("{GLOBAL_PREFIX}{}", uuid::Uuid::new_v4());
     let _ = build_window(app, &label);
     label
 }
@@ -271,6 +272,17 @@ fn emit_action_to(app: &AppHandle, window: &WebviewWindow, action: &cli::CliActi
     let _ = app.emit_to(window.label(), "cli_open", action);
 }
 
+/// Path form the editor tab will use for a --wait file in a global window.
+/// WSL-native paths are rebuilt as UNC there (Windows-side file I/O), so the
+/// wait registration must match that form for close-signal lookup.
+/// Must stay in sync with `tabPathFor` in src/composables/useCliOpen.ts.
+fn wait_tab_path(f: &cli::CliFileTarget) -> String {
+    match &f.distro {
+        Some(d) => format!(r"\\wsl.localhost\{d}{}", f.path.replace('/', "\\")),
+        None => f.path.clone(),
+    }
+}
+
 /// Handle the second-instance callback (deferred from WM_COPYDATA context).
 fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
     let wait_id = wait::extract_wait_id(args);
@@ -280,28 +292,39 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
         "[single-instance] args={args:?}, cwd={cwd:?}, action={action:?}, wait_id={wait_id:?}, from_window={from_window:?}"
     );
 
-    // --wait: register wait_id and always open in a new dedicated window
+    // --wait: register wait_id and always open in a new dedicated global window.
+    // GIT_EDITOR passes exactly one file; with multiple files, the first governs.
     if let Some(ref wid) = wait_id {
-        if let cli::CliAction::OpenFile { ref path, .. } = action {
-            if let Some(state) = app.try_state::<wait::WaitState>() {
-                wait::register(&state, wid.clone(), path);
+        if let cli::CliAction::OpenFiles { ref files } = action {
+            let label = create_global_window(app);
+            if let (Some(state), Some(f)) = (app.try_state::<wait::WaitState>(), files.first()) {
+                wait::register(&state, wid.clone(), &wait_tab_path(f), &label);
             }
-            let label = create_secondary_window(app);
             store_pending(app, &label, action);
             return;
         }
+        // --wait without an openable file (bare flag, directory arg): there is
+        // nothing to wait on — release the blocked CLI immediately, then
+        // handle the action normally.
+        wait::signal_abort(wid);
     }
 
     match &action {
         cli::CliAction::None => {
-            // No args: focus existing window on current desktop, or create new
-            let windows = current_desktop_windows(app);
-            if let Some(w) = windows.first() {
-                let _ = w.unminimize();
-                let _ = w.set_focus();
-            } else {
-                create_secondary_window(app);
-            }
+            // Plain `pike` while already running: open a global terminal
+            // window (Windows Terminal replacement). Shell is inferred from
+            // the invocation cwd (WSL UNC path → that distro, else PowerShell).
+            let action = cli::terminal_action_for_cwd(cwd);
+            log::debug!("[single-instance] no args: global terminal window: {action:?}");
+            let label = create_global_window(app);
+            store_pending(app, &label, action);
+        }
+
+        cli::CliAction::OpenTerminal { .. } => {
+            // Not produced by parse_args (built from None above), but route it
+            // sanely if it ever arrives: dedicated global terminal window.
+            let label = create_global_window(app);
+            store_pending(app, &label, action);
         }
 
         cli::CliAction::OpenDirectory { path, distro } => {
@@ -338,32 +361,32 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
                 let label = format!("{PROJECT_WINDOW_PREFIX}{}", proj.id);
                 let _ = build_window(app, &label);
             } else {
-                let label = create_secondary_window(app);
+                let label = create_global_window(app);
                 store_pending(app, &label, action);
             }
         }
 
-        cli::CliAction::OpenFile { path, .. } => {
+        cli::CliAction::OpenFiles { files } => {
             // 0. Invoked from inside a Pike terminal? Route to that window
             // unconditionally — the user explicitly chose where to launch it.
             if let Some(ref label) = from_window {
                 if let Some(w) = app.get_webview_window(label) {
-                    log::debug!("[single-instance] file: open in originating window {label}");
+                    log::debug!("[single-instance] files: open in originating window {label}");
                     emit_action_to(app, &w, &action);
                     return;
                 }
-                log::debug!("[single-instance] file: from_window {label} not found, falling back");
+                log::debug!("[single-instance] files: from_window {label} not found, falling back");
             }
 
             let projects = load_all_projects(app);
             let windows = current_desktop_windows(app);
 
-            // 1. Window with a project that contains this file on this desktop? → open there
+            // 1. Window whose project contains ALL files on this desktop? → open there
             for w in &windows {
                 if let Some(pid) = window_project_id(w.label()) {
                     if let Some(proj) = projects.iter().find(|p| p.id == pid) {
-                        if is_under_root(path, &proj.root) {
-                            log::debug!("[single-instance] file: open in project window {}", w.label());
+                        if files.iter().all(|f| is_under_root(&f.path, &proj.root)) {
+                            log::debug!("[single-instance] files: open in project window {}", w.label());
                             emit_action_to(app, w, &action);
                             return;
                         }
@@ -371,9 +394,9 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
                 }
             }
 
-            // 2. No matching project window → new window + editor tab
-            log::debug!("[single-instance] file: new secondary window");
-            let label = create_secondary_window(app);
+            // 2. No matching project window → global (sidebar-less) editor window
+            log::debug!("[single-instance] files: new global window");
+            let label = create_global_window(app);
             store_pending(app, &label, action);
         }
     }
@@ -587,9 +610,11 @@ pub fn run() {
                     }
                 }
                 WindowEvent::Destroyed => {
-                    // Abort any --wait processes when any window is destroyed
+                    // Abort --wait processes hosted by THIS window (tab still
+                    // open when the window died). Other windows' waits keep
+                    // running — global terminal windows come and go freely.
                     if let Some(state) = window.try_state::<wait::WaitState>() {
-                        wait::signal_abort_all(&state);
+                        wait::signal_abort_for_window(&state, window.label());
                     }
 
                     // Authoritative cleanup: JS beforeunload is best-effort only.

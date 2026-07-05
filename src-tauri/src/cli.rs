@@ -5,16 +5,32 @@ use std::sync::Mutex;
 use tauri::State;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliFileTarget {
+    pub path: String,
+    pub line: Option<u32>,
+    /// WSL distro hint when the path was originally a WSL UNC path. Lets the
+    /// frontend rebuild a `\\wsl.localhost\...` path for project-less (global)
+    /// windows whose file I/O runs on the Windows side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distro: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "camelCase")]
 pub enum CliAction {
-    OpenFile {
-        path: String,
-        line: Option<u32>,
+    OpenFiles {
+        files: Vec<CliFileTarget>,
     },
     OpenDirectory {
         path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         distro: Option<String>,
+    },
+    /// Open a project-independent terminal tab (global terminal window).
+    OpenTerminal {
+        cwd: Option<String>,
+        shell: crate::types::ShellConfig,
     },
     None,
 }
@@ -73,7 +89,7 @@ pub fn extract_from_window(args: &[String]) -> Option<String> {
 /// `cwd` is used to resolve relative paths.
 pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
     // Skip binary name and known flags (--wait, --wait-id=..., --from-window=...)
-    let meaningful: Vec<&str> = args
+    let mut meaningful: Vec<&str> = args
         .iter()
         .skip(1)
         .map(|s| s.as_str())
@@ -82,20 +98,55 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
         })
         .collect();
 
-    if meaningful.is_empty() {
-        return CliAction::None;
+    // `pike open <path>...` subcommand — same as passing the paths directly
+    if meaningful.first() == Some(&"open") {
+        meaningful.remove(0);
     }
 
-    // `pike open <path>` subcommand
-    let raw_path = if meaningful[0] == "open" && meaningful.len() > 1 {
-        meaningful[1]
-    } else if meaningful[0].starts_with('-') {
-        return CliAction::None;
-    } else {
-        meaningful[0]
-    };
+    match meaningful.first() {
+        None => return CliAction::None,
+        Some(s) if s.starts_with('-') => return CliAction::None,
+        _ => {}
+    }
 
-    resolve_path_arg(raw_path, cwd)
+    // Multiple real-file args (drag & drop onto pike.exe, Explorer "Open with"
+    // multi-select) open one editor tab each. A directory is only meaningful
+    // as the first argument (project switch); later args that resolve to
+    // directories are ignored.
+    let mut files: Vec<CliFileTarget> = Vec::new();
+    for (i, raw) in meaningful.iter().enumerate() {
+        match resolve_path_arg(raw, cwd) {
+            ResolvedArg::Dir { path, distro } => {
+                if i == 0 {
+                    return CliAction::OpenDirectory { path, distro };
+                }
+            }
+            ResolvedArg::File(target) => files.push(target),
+        }
+    }
+
+    if files.is_empty() {
+        CliAction::None
+    } else {
+        CliAction::OpenFiles { files }
+    }
+}
+
+/// Build the OpenTerminal action for a plain `pike` invocation: WSL shell when
+/// the invocation cwd is a WSL UNC path, PowerShell otherwise. The cwd is
+/// carried over so the terminal starts where the command was run.
+pub fn terminal_action_for_cwd(cwd: &str) -> CliAction {
+    if let Some((distro, native)) = split_wsl_unc(cwd) {
+        CliAction::OpenTerminal {
+            cwd: Some(native),
+            shell: crate::types::ShellConfig::Wsl { distro },
+        }
+    } else {
+        CliAction::OpenTerminal {
+            cwd: (!cwd.is_empty()).then(|| cwd.to_string()),
+            shell: crate::types::ShellConfig::Powershell,
+        }
+    }
 }
 
 /// Extract WSL distro name from a UNC path like `\\wsl.localhost\Ubuntu\...` or `\\wsl$\Ubuntu\...`.
@@ -122,7 +173,12 @@ fn split_wsl_unc(path: &str) -> Option<(String, String)> {
     Some((distro, format!("/{tail}")))
 }
 
-fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
+enum ResolvedArg {
+    Dir { path: String, distro: Option<String> },
+    File(CliFileTarget),
+}
+
+fn resolve_path_arg(raw: &str, cwd: &str) -> ResolvedArg {
     let (path_str, line) = parse_path_and_line(raw);
 
     let path = PathBuf::from(path_str);
@@ -164,15 +220,16 @@ fn resolve_path_arg(raw: &str, cwd: &str) -> CliAction {
     });
 
     if is_dir {
-        CliAction::OpenDirectory {
+        ResolvedArg::Dir {
             path: path_string,
             distro,
         }
     } else {
-        CliAction::OpenFile {
+        ResolvedArg::File(CliFileTarget {
             path: path_string,
             line,
-        }
+            distro,
+        })
     }
 }
 
@@ -195,6 +252,17 @@ fn parse_path_and_line(raw: &str) -> (&str, Option<u32>) {
 mod tests {
     use super::*;
 
+    /// Unwrap a single-file OpenFiles action.
+    fn expect_single_file(action: CliAction) -> CliFileTarget {
+        match action {
+            CliAction::OpenFiles { files } => {
+                assert_eq!(files.len(), 1, "expected exactly 1 file, got: {files:?}");
+                files.into_iter().next().unwrap()
+            }
+            other => panic!("expected OpenFiles, got: {other:?}"),
+        }
+    }
+
     #[test]
     fn test_parse_path_and_line() {
         assert_eq!(parse_path_and_line("file.rs:42"), ("file.rs", Some(42)));
@@ -213,12 +281,46 @@ mod tests {
     #[test]
     fn test_parse_args_open_subcommand() {
         let args = vec!["pike.exe".to_string(), "open".to_string(), "file.rs".to_string()];
+        let f = expect_single_file(parse_args(&args, "C:\\project"));
+        assert!(f.path.contains("file.rs"));
+        assert_eq!(f.line, None);
+    }
+
+    #[test]
+    fn test_parse_args_multiple_files() {
+        // Drag & drop onto pike.exe / Explorer "Open with" pass multiple paths
+        let args = vec![
+            "pike.exe".to_string(),
+            "a-nonexistent.rs".to_string(),
+            "b-nonexistent.md:12".to_string(),
+        ];
         match parse_args(&args, "C:\\project") {
-            CliAction::OpenFile { path, line } => {
-                assert!(path.contains("file.rs"));
-                assert_eq!(line, None);
+            CliAction::OpenFiles { files } => {
+                assert_eq!(files.len(), 2);
+                assert!(files[0].path.contains("a-nonexistent.rs"));
+                assert_eq!(files[0].line, None);
+                assert!(files[1].path.contains("b-nonexistent.md"));
+                assert_eq!(files[1].line, Some(12));
             }
-            _ => panic!("expected OpenFile"),
+            other => panic!("expected OpenFiles, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_terminal_action_for_cwd() {
+        match terminal_action_for_cwd(r"\\wsl.localhost\Ubuntu\home\user") {
+            CliAction::OpenTerminal { cwd, shell } => {
+                assert_eq!(cwd.as_deref(), Some("/home/user"));
+                assert!(matches!(shell, crate::types::ShellConfig::Wsl { ref distro } if distro == "Ubuntu"));
+            }
+            other => panic!("expected OpenTerminal, got: {other:?}"),
+        }
+        match terminal_action_for_cwd(r"C:\Users\foo") {
+            CliAction::OpenTerminal { cwd, shell } => {
+                assert_eq!(cwd.as_deref(), Some(r"C:\Users\foo"));
+                assert!(matches!(shell, crate::types::ShellConfig::Powershell));
+            }
+            other => panic!("expected OpenTerminal, got: {other:?}"),
         }
     }
 
@@ -247,12 +349,9 @@ mod tests {
         // WSL path (not UNC), so it matches WSL project roots and is readable
         // inside `wsl.exe bash -c "cat ..."`.
         let args = vec!["pike.exe".to_string(), "/home/user/file.rs".to_string()];
-        match parse_args(&args, r"\\wsl.localhost\Ubuntu\home\user") {
-            CliAction::OpenFile { path, .. } => {
-                assert_eq!(path, "/home/user/file.rs");
-            }
-            other => panic!("expected OpenFile, got: {other:?}"),
-        }
+        let f = expect_single_file(parse_args(&args, r"\\wsl.localhost\Ubuntu\home\user"));
+        assert_eq!(f.path, "/home/user/file.rs");
+        assert_eq!(f.distro.as_deref(), Some("Ubuntu"));
     }
 
     #[test]
@@ -285,18 +384,15 @@ mod tests {
             "pike.exe".to_string(),
             "pike-test-nonexistent.md".to_string(),
         ];
-        match parse_args(
+        let f = expect_single_file(parse_args(
             &args,
             r"\\wsl.localhost\Ubuntu\home\pike-test-user\does-not-exist",
-        ) {
-            CliAction::OpenFile { path, .. } => {
-                assert_eq!(
-                    path,
-                    "/home/pike-test-user/does-not-exist/pike-test-nonexistent.md"
-                );
-            }
-            other => panic!("expected OpenFile, got: {other:?}"),
-        }
+        ));
+        assert_eq!(
+            f.path,
+            "/home/pike-test-user/does-not-exist/pike-test-nonexistent.md"
+        );
+        assert_eq!(f.distro.as_deref(), Some("Ubuntu"));
     }
 
     #[test]
@@ -306,12 +402,8 @@ mod tests {
             "--from-window=project-abc".to_string(),
             "file.rs".to_string(),
         ];
-        match parse_args(&args, "C:\\project") {
-            CliAction::OpenFile { path, .. } => {
-                assert!(path.contains("file.rs"), "got: {path}");
-            }
-            other => panic!("expected OpenFile, got: {other:?}"),
-        }
+        let f = expect_single_file(parse_args(&args, "C:\\project"));
+        assert!(f.path.contains("file.rs"), "got: {}", f.path);
         assert_eq!(extract_from_window(&args), Some("project-abc".to_string()));
 
         // Empty value yields None
@@ -327,12 +419,8 @@ mod tests {
     fn test_wait_flag_stripped() {
         // --wait should be stripped; file.rs should still be parsed
         let args = vec!["pike.exe".to_string(), "--wait".to_string(), "file.rs".to_string()];
-        match parse_args(&args, "C:\\project") {
-            CliAction::OpenFile { path, .. } => {
-                assert!(path.contains("file.rs"), "expected file.rs in path, got: {path}");
-            }
-            other => panic!("expected OpenFile, got: {other:?}"),
-        }
+        let f = expect_single_file(parse_args(&args, "C:\\project"));
+        assert!(f.path.contains("file.rs"), "expected file.rs in path, got: {}", f.path);
 
         // --wait-id=xxx should also be stripped
         let args2 = vec![
@@ -340,11 +428,7 @@ mod tests {
             "--wait-id=abc123".to_string(),
             "file.rs".to_string(),
         ];
-        match parse_args(&args2, "C:\\project") {
-            CliAction::OpenFile { path, .. } => {
-                assert!(path.contains("file.rs"), "expected file.rs in path, got: {path}");
-            }
-            other => panic!("expected OpenFile, got: {other:?}"),
-        }
+        let f2 = expect_single_file(parse_args(&args2, "C:\\project"));
+        assert!(f2.path.contains("file.rs"), "expected file.rs in path, got: {}", f2.path);
     }
 }

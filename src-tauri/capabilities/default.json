@@ -5,7 +5,7 @@
   "windows": [
     "main",
     "project-*",
-    "secondary-*"
+    "global-*"
   ],
   "permissions": [
     "core:default",

@@ -172,16 +172,34 @@ fn list_dir_native(path: &str) -> Result<Vec<FsEntry>, String> {
 pub struct FileReadResult {
     pub content: String,
     pub encoding: String,
+    /// True when the file does not exist yet: the editor opens it as a blank
+    /// "new file" (vim-like) and the first save creates it.
+    pub is_new: bool,
 }
 
-fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Vec<u8>, String> {
+/// Read a file's raw bytes. `Ok(None)` means the file does not exist.
+fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Option<Vec<u8>>, String> {
     const MAX_SIZE: u64 = 2_000_000;
     match shell {
         ShellConfig::Wsl { .. } => {
-            let size_str = shell.run_stdout("stat", &["-c", "%s", "--", path])?;
-            if let Ok(size) = size_str.trim().parse::<u64>() {
-                if size > MAX_SIZE {
-                    return Err("File too large (>2MB)".into());
+            match shell.run_stdout("stat", &["-c", "%s", "--", path]) {
+                Ok(size_str) => {
+                    if let Ok(size) = size_str.trim().parse::<u64>() {
+                        if size > MAX_SIZE {
+                            return Err("File too large (>2MB)".into());
+                        }
+                    }
+                }
+                Err(stat_err) => {
+                    // Distinguish "missing file" (new-file editor) from other
+                    // stat failures (permission, distro down, ...).
+                    let script = format!("[ -e {} ]", crate::types::bash_quote(path));
+                    if let Ok((code, _, _)) = shell.run("bash", &["-c", &script]) {
+                        if code != 0 {
+                            return Ok(None);
+                        }
+                    }
+                    return Err(stat_err);
                 }
             }
             let output = shell.run_raw("cat", &["--", path])?;
@@ -191,41 +209,71 @@ fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Vec<u8>, String> {
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }
-            Ok(output.stdout)
+            Ok(Some(output.stdout))
         }
         _ => {
-            let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+            let meta = match std::fs::metadata(path) {
+                Ok(m) => m,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(e) => return Err(e.to_string()),
+            };
             if meta.len() > MAX_SIZE {
                 return Err("File too large (>2MB)".into());
             }
-            std::fs::read(path).map_err(|e| e.to_string())
+            Ok(Some(std::fs::read(path).map_err(|e| e.to_string())?))
         }
     }
 }
 
-fn decode_bytes(bytes: &[u8], encoding_name: Option<&str>) -> FileReadResult {
+/// Bytes inspected for the binary-content guard.
+const BINARY_SNIFF_LEN: usize = 8192;
+
+fn decode_bytes(bytes: &[u8], encoding_name: Option<&str>) -> Result<FileReadResult, String> {
     if let Some(name) = encoding_name {
+        // Explicit encoding (re-open via StatusBar) is an escape hatch: no
+        // binary guard, the user asked for this interpretation.
         if let Some(enc) = Encoding::for_label(name.as_bytes()) {
             let (content, actual_enc, _) = enc.decode(bytes);
-            return FileReadResult {
+            return Ok(FileReadResult {
                 content: content.into_owned(),
                 encoding: actual_enc.name().to_string(),
-            };
+                is_new: false,
+            });
         }
     }
-    match std::str::from_utf8(bytes) {
+    // UTF-16 text legitimately contains NUL bytes — detect by BOM before the
+    // binary guard. (UTF-8 BOM falls through: from_utf8 keeps the BOM char,
+    // preserving the existing save round-trip.)
+    if let Some((enc, _)) = Encoding::for_bom(bytes) {
+        if enc == encoding_rs::UTF_16LE || enc == encoding_rs::UTF_16BE {
+            let (content, actual_enc, _) = enc.decode(bytes);
+            return Ok(FileReadResult {
+                content: content.into_owned(),
+                encoding: actual_enc.name().to_string(),
+                is_new: false,
+            });
+        }
+    }
+    // Safety net for unsupported binary formats (exe, zip, images opened via
+    // CLI/"Open with", ...): refuse instead of rendering mojibake.
+    if bytes.iter().take(BINARY_SNIFF_LEN).any(|&b| b == 0) {
+        return Err("Binary file — cannot open in the editor".into());
+    }
+    Ok(match std::str::from_utf8(bytes) {
         Ok(s) => FileReadResult {
             content: s.to_string(),
             encoding: "UTF-8".to_string(),
+            is_new: false,
         },
         Err(_) => {
             let (content, enc, _) = encoding_rs::SHIFT_JIS.decode(bytes);
             FileReadResult {
                 content: content.into_owned(),
                 encoding: enc.name().to_string(),
+                is_new: false,
             }
         }
-    }
+    })
 }
 
 #[tauri::command]
@@ -233,10 +281,20 @@ pub async fn fs_read_file(
     shell: ShellConfig,
     path: String,
     encoding: Option<String>,
+    allow_missing: Option<bool>,
 ) -> Result<FileReadResult, String> {
     tokio::task::spawn_blocking(move || {
-        let bytes = read_raw_bytes(&shell, &path)?;
-        Ok(decode_bytes(&bytes, encoding.as_deref()))
+        match read_raw_bytes(&shell, &path)? {
+            Some(bytes) => decode_bytes(&bytes, encoding.as_deref()),
+            // Editor opt-in: open a missing file as a blank new file (vim-like).
+            // Other callers (existence probes, config reads) keep the error.
+            None if allow_missing.unwrap_or(false) => Ok(FileReadResult {
+                content: String::new(),
+                encoding: "UTF-8".to_string(),
+                is_new: true,
+            }),
+            None => Err("File not found".to_string()),
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -543,4 +601,50 @@ fn copy_dir_recursive(src: &str, dst: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_bytes_utf8() {
+        let r = decode_bytes("hello\nこんにちは".as_bytes(), None).unwrap();
+        assert_eq!(r.encoding, "UTF-8");
+        assert!(r.content.contains("こんにちは"));
+    }
+
+    #[test]
+    fn decode_bytes_binary_rejected() {
+        // PNG header contains NUL-adjacent binary content; NUL byte triggers the guard
+        let bytes = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D];
+        assert!(decode_bytes(&bytes, None).is_err());
+    }
+
+    #[test]
+    fn decode_bytes_utf16_bom_is_text() {
+        // "hi" in UTF-16LE with BOM — NUL bytes present but must decode as text
+        let bytes = [0xFF, 0xFE, b'h', 0x00, b'i', 0x00];
+        let r = decode_bytes(&bytes, None).unwrap();
+        assert_eq!(r.content, "hi");
+        assert_eq!(r.encoding, "UTF-16LE");
+    }
+
+    #[test]
+    fn decode_bytes_explicit_encoding_skips_guard() {
+        // Explicit encoding is an escape hatch: no binary rejection
+        let bytes = [b'a', 0x00, b'b'];
+        assert!(decode_bytes(&bytes, Some("windows-1252")).is_ok());
+    }
+
+    #[test]
+    fn read_missing_native_file_is_new() {
+        // Missing file (even under a missing directory) → Ok(None), not Err —
+        // the editor opens it as a blank new file.
+        let r = read_raw_bytes(
+            &ShellConfig::Powershell,
+            r"C:\pike-test-definitely-missing\nope.txt",
+        );
+        assert_eq!(r, Ok(None));
+    }
 }

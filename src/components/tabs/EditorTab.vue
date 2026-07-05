@@ -508,6 +508,7 @@ async function save(overrideEncoding?: string) {
       updateCursorInfo()
     }
     savedContent = editorView.state.doc.toString()
+    tab.value.isNewFile = false
     updateDirtyState()
     updateTitle()
     refreshDiffGutter()
@@ -529,7 +530,10 @@ async function loadContent(encoding?: string): Promise<string> {
     return savedContent
   }
 
-  const result = await fsReadFile(shellForIO.value, tab.value.path, encoding)
+  // allowMissing: a nonexistent path opens as a blank new file (vim-like);
+  // the first Ctrl+S creates it. The tab shows a "new" badge until then.
+  const result = await fsReadFile(shellForIO.value, tab.value.path, encoding, { allowMissing: true })
+  tab.value.isNewFile = result.isNew
   currentEncoding.value = result.encoding
   // Detect and normalize line endings for CodeMirror (which uses \n internally)
   currentLineEnding.value = result.content.includes('\r\n') ? 'CRLF' : 'LF'

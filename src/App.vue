@@ -10,7 +10,7 @@ import TabPane from './components/layout/TabPane.vue'
 import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import { initAgentRouter } from './composables/useAgentRouter'
-import { hasPendingCliAction, initCliOpen } from './composables/useCliOpen'
+import { initCliOpen, peekInitialCliAction } from './composables/useCliOpen'
 import { dockerLogRouter } from './composables/useDockerLogRouter'
 import { type FsChangeEntry, fsWatcher, isRecentlySaved } from './composables/useFsWatcher'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
@@ -22,7 +22,7 @@ import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { normalizeSep } from './lib/paths'
 import { projectColorValue } from './lib/projectColors'
 import { projectRemoveOpen } from './lib/tauri'
-import { getWindowProjectId, isMainWindow, isSecondaryWindow } from './lib/window'
+import { getWindowProjectId, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
 import { useClaudeRateStore } from './stores/claudeRate'
 import { useClaudeUsageStore } from './stores/claudeUsage'
 import { useCodexUsageStore } from './stores/codexUsage'
@@ -132,17 +132,36 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
 
 const windowProjectId = getWindowProjectId()
 
+// Global-mode windows exist only for their tabs: closing the last one closes
+// the window (Windows Terminal-like lifecycle). --wait windows usually close
+// via the wait signal first; this also covers plain file/terminal windows.
+watch(
+  () => tabStore.tabs.length,
+  (len, prev) => {
+    if (globalMode.value && prev > 0 && len === 0) {
+      getCurrentWindow().close()
+    }
+  },
+)
+
 onMounted(async () => {
   await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initAgentRouter()])
 
   if (windowProjectId) {
     await projectStore.loadProjects()
     await projectStore.switchProject(windowProjectId)
-  } else if (isSecondaryWindow() && (await hasPendingCliAction())) {
-    // Secondary window with a CLI action: skip project restore.
-    // initCliOpen will open the requested tab without a project context.
+  } else if (isGlobalWindow()) {
+    // Global window: no project context; initCliOpen opens the requested tabs.
   } else {
-    await projectStore.restoreLastProject()
+    // Cold start with real-file args ("Open with", drag onto pike.exe,
+    // `pike file.rs`): open a lean global-mode editor instead of restoring
+    // projects. last_project.txt stays untouched for the next plain launch.
+    const initial = await peekInitialCliAction()
+    if (initial.action === 'openFiles' || initial.action === 'openTerminal') {
+      globalMode.value = true
+    } else {
+      await projectStore.restoreLastProject()
+    }
   }
 
   await initCliOpen()
@@ -187,12 +206,14 @@ onMounted(async () => {
   <div class="app">
     <div v-if="projectAccent" class="project-accent" :style="{ background: projectAccent }"></div>
     <div class="app-main">
-      <SideBar />
+      <SideBar v-if="!globalMode" />
       <TabPane />
     </div>
     <StatusBar />
+    <!-- Global mode keeps the switcher: Ctrl+Shift+P opens the picked project
+         in its own window (this window stays project-less). -->
     <ProjectSwitcher />
-    <QuickOpen />
+    <QuickOpen v-if="!globalMode" />
     <ConfirmDialog />
     <KeyboardShortcuts />
   </div>

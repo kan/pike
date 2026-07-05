@@ -372,12 +372,25 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 ### pike CLI
 - バイナリ名 `pike.exe`（`Cargo.toml` `[[bin]] name = "pike"`）
 - `tauri-plugin-single-instance` で二重起動を防止、引数を既存インスタンスに転送
-- `pike file.rs:42` → ファイルを開いてジャンプ、`pike open <file>` も同様
-- `pike .` / `pike <dir>` → ディレクトリに一致するプロジェクトに切替
-- ファイルパスから最も適合するプロジェクトを自動マッチ（最長 root 一致）
+- `pike file.rs:42` → ファイルを開いてジャンプ、`pike open <file>` も同様。**複数ファイル引数対応**（`CliAction::OpenFiles { files: Vec<CliFileTarget{path,line,distro}> }`、pike.exe へのドラッグ&ドロップ / エクスプローラー「プログラムから開く」経由）
+- `pike .` / `pike <dir>` → ディレクトリに一致するプロジェクトに切替（ディレクトリは**先頭引数のみ**有効）
 - マッチしない場合は ad-hoc プロジェクトを自動作成（PowerShell）
-- 別プロジェクトのファイルは新ウィンドウで開く（`CliState.pending` でアクションを転送）
+- ファイル引数のルーティング: `--from-window` 発ウィンドウ → **全ファイルを含む**プロジェクトウィンドウ → グローバルウィンドウの順（`CliState.pending` でアクションを転送）
 - 既存エディタタブがある場合はフォーカス＋リロード（`reloadRequested` タイムスタンプ）
+
+### グローバルモード（#123）
+- プロジェクト非依存・サイドバー無しのウィンドウ。ラベル prefix `global-`（Rust `GLOBAL_PREFIX` / front `isGlobalWindow()`、旧 `secondary-` を置換）
+- **ウィンドウラベル prefix を追加・変更したら `src-tauri/capabilities/default.json` の `windows` も更新すること**。ここはラベルのホワイトリストで、漏れると新ウィンドウで IPC（invoke / listen / set_title 等）が全部 permission エラーになり、App.vue の onMounted が途中で落ちてタブが一切開かない（DevTools コンソールの `not allowed on window "..."` が症状）
+- App.vue の `globalMode` ref が制御: SideBar / ProjectSwitcher / QuickOpen を非表示、プロジェクト復元をスキップ、**全タブを閉じるとウィンドウも close**（`tabs.length` の watch、prev>0 → 0 のみ）
+- 発動経路は 3 つ:
+  1. **エディタ**: `--wait` と、プロジェクトウィンドウに一致しないファイル引数（`global-` ウィンドウ生成 + pending）。**コールドスタートのファイル引数**（「プログラムから開く」等）は main ウィンドウが `peekInitialCliAction()` で openFiles を検知して globalMode に入る（`last_project.txt` は消費しないので次回の素の起動で全プロジェクト復元される）
+  2. **ターミナル**: 起動済みで引数なし `pike` → `CliAction::OpenTerminal { cwd, shell }`（`cli::terminal_action_for_cwd`: cwd が WSL UNC ならその distro の WSL、それ以外は PowerShell、cwd 引き継ぎ）。従来の「既存ウィンドウにフォーカス」挙動を置換（Windows Terminal 代替）
+  3. **OpenDirectory の ad-hoc 作成失敗フォールバック**（ターミナルタブ）
+- **WSL パスの UNC 化**: プロジェクト無しウィンドウのファイル I/O は Windows 側（`shellForIO` fallback = powershell）で走るため、WSL native パスは `CliFileTarget.distro` ヒントから `\\wsl.localhost\{distro}\...` に組み立てて開く（front `tabPathFor` ↔ Rust `wait_tab_path` が同期必須: --wait の解放照合はタブの path で行われる）
+- CLI で開くファイルは拡張子ルーティング（画像→PreviewTab / pdf→PdfTab / 他→EditorTab、`useCliOpen.openFileTarget`）。PdfTab は shell fallback（powershell）でプロジェクト無しでも表示可
+- **ターミナルの「+」**: グローバルモードでは Settings の `globalShell`（`ShellType`、既定 powershell）で起動。この設定はマシンの WSL distro に依存するため **`pike:sync-path` と同じマシンローカル扱い**: 独立キー `pike:global-shell` に保存し、同期ファイル・クロスウィンドウ broadcast の対象外（`sanitizeGlobalShell` で破損値ガード）。▾ ドロップダウンはグローバルモードで常時表示し、Windows 3 シェル + `detect_wsl_distros` の各 distro をアイコン付きで列挙（`SHELL_MENU_ICONS`、TabPane）。distro 検出はメニュー初回オープン時に lazy
+- **ProjectSwitcher（Ctrl+Shift+P）はグローバルモードでも使用可**。選択・新規作成は常に `openProjectWindow`（グローバルウィンドウ自身はプロジェクトレスを維持、`selectProject`）。グローバルウィンドウは起動時に projects を読まないため showSwitcher の watch で lazy load。QuickOpen（Ctrl+P）は非表示のまま
+- **バイナリ安全装置**: `fs_read_file` の自動判定時に先頭 8KB の NUL バイトで Err を返す（EditorTab がエラー表示）。UTF-16 BOM は先に BOM 判定してテキスト扱い、UTF-8 BOM は従来どおり素通し（保存ラウンドトリップ維持）。StatusBar からの明示エンコード指定はガードなし（escape hatch）
 
 ### CodeMirror 6
 - シンタックスハイライトのみ、LSP・補完は実装しない
@@ -476,8 +489,9 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ### `pike --wait`（GIT_EDITOR 連携）
 - `src-tauri/src/wait.rs`。`GIT_EDITOR="pike.exe --wait"` でコミットメッセージ編集に対応
-- 二次インスタンスが WM_COPYDATA（single-instance プラグインの規約）でファイルパスを既存ウィンドウに転送、`WaitState` で wait_id ↔ パスを管理
-- エディタタブを閉じると待機中プロセスが解放され、ウィンドウも自動で閉じる
+- 二次インスタンスが WM_COPYDATA（single-instance プラグインの規約）でファイルパスを既存ウィンドウに転送、`WaitState` で wait_id ↔ (パス, ウィンドウラベル) を管理
+- エディタタブを閉じると待機中プロセスが解放され、ウィンドウも自動で閉じる。ウィンドウ破棄時の abort は**そのウィンドウが所有する wait のみ**（グローバルターミナルウィンドウの開閉が無関係な GIT_EDITOR 待機を解放しないため）
+- **ファイル引数なしの `--wait`**（素の `pike --wait` や directory 引数）は待機対象が無いため、abort イベントで即座に CLI を解放してから通常のアクション処理に回す（解放しないと CLI が永遠にブロックする）
 
 ### コミット前チェック
 コミット前に以下を実行し、エラー・警告がゼロであることを確認する:

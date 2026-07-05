@@ -126,10 +126,23 @@ export async function fsListDir(shell: ShellType, path: string): Promise<FsEntry
 export interface FileReadResult {
   content: string
   encoding: string
+  /** True when the file does not exist yet: opened as a blank new file
+   *  (vim-like); the first save creates it. */
+  isNew: boolean
 }
 
-export async function fsReadFile(shell: ShellType, path: string, encoding?: string): Promise<FileReadResult> {
-  return invoke<FileReadResult>('fs_read_file', { shell, path, encoding: encoding ?? null })
+export async function fsReadFile(
+  shell: ShellType,
+  path: string,
+  encoding?: string,
+  options?: { allowMissing?: boolean },
+): Promise<FileReadResult> {
+  return invoke<FileReadResult>('fs_read_file', {
+    shell,
+    path,
+    encoding: encoding ?? null,
+    allowMissing: options?.allowMissing ?? null,
+  })
 }
 
 export async function fsWriteFile(shell: ShellType, path: string, content: string, encoding?: string): Promise<void> {
@@ -435,10 +448,18 @@ export async function pickSaveFile(defaultName?: string): Promise<string | null>
 
 // CLI
 
-export interface CliOpenFile {
-  action: 'openFile'
+export interface CliFileTarget {
   path: string
   line: number | null
+  /** WSL distro hint when the path was originally a WSL UNC path
+   *  (\\wsl.localhost\<distro>\...). Lets project-less (global) windows
+   *  rebuild a Windows-readable UNC path for file I/O. */
+  distro?: string | null
+}
+
+export interface CliOpenFiles {
+  action: 'openFiles'
+  files: CliFileTarget[]
 }
 
 export interface CliOpenDirectory {
@@ -450,11 +471,17 @@ export interface CliOpenDirectory {
   distro?: string | null
 }
 
+export interface CliOpenTerminal {
+  action: 'openTerminal'
+  cwd?: string | null
+  shell: ShellType
+}
+
 export interface CliNone {
   action: 'none'
 }
 
-export type CliAction = CliOpenFile | CliOpenDirectory | CliNone
+export type CliAction = CliOpenFiles | CliOpenDirectory | CliOpenTerminal | CliNone
 
 export async function cliGetInitialAction(): Promise<CliAction> {
   return invoke<CliAction>('cli_get_initial_action')

@@ -6,6 +6,7 @@ import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/font
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 import { windowLabel } from '../lib/window'
+import type { ShellType } from '../types/tab'
 
 export interface TerminalColorScheme {
   name: string
@@ -177,6 +178,10 @@ const STORAGE_KEY = 'pike:settings'
 // folder differs per PC), so it is stored separately and never written into the
 // synced payload.
 const SYNC_PATH_KEY = 'pike:sync-path'
+// The global-mode default shell references this machine's WSL distros, so it
+// is likewise machine-local: stored under its own key, excluded from the
+// synced payload and the cross-window broadcast.
+const GLOBAL_SHELL_KEY = 'pike:global-shell'
 // Debounce window for mirroring settings changes out to the sync file.
 const SYNC_WRITE_DEBOUNCE_MS = 1500
 // Cross-window settings sync: broadcast changes so every open Pike window stays
@@ -264,6 +269,19 @@ function loadSettings(): PersistedSettings {
   return sanitize({ ...defaults(), ...loadJson<Partial<PersistedSettings>>(STORAGE_KEY, {}) })
 }
 
+/** Guard the machine-local global shell against corrupt persisted values. */
+function sanitizeGlobalShell(v: unknown): ShellType {
+  if (v && typeof v === 'object' && 'kind' in v) {
+    const s = v as ShellType
+    if (s.kind === 'wsl') {
+      if (typeof s.distro === 'string' && s.distro) return { kind: 'wsl', distro: s.distro }
+    } else if (s.kind === 'cmd' || s.kind === 'powershell' || s.kind === 'git-bash') {
+      return { kind: s.kind }
+    }
+  }
+  return { kind: 'powershell' }
+}
+
 function defaults(): PersistedSettings {
   return {
     fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
@@ -325,6 +343,10 @@ export const useSettingsStore = defineStore('settings', () => {
   const agentDefault = ref<AgentDefault>(saved.agentDefault)
   const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
+
+  // Machine-local (references this PC's WSL distros — never synced/broadcast).
+  const globalShell = ref<ShellType>(sanitizeGlobalShell(loadJson<unknown>(GLOBAL_SHELL_KEY, null)))
+  watch(globalShell, (v) => saveJson(GLOBAL_SHELL_KEY, v), { deep: true })
 
   // Sync language setting with i18n locale
   locale.value = saved.language
@@ -629,6 +651,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentDefault,
     agentCommands,
     agentPrompts,
+    globalShell,
     availableFonts,
     loadAvailableFonts,
     setFontByName,
