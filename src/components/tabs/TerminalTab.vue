@@ -361,6 +361,11 @@ onMounted(async () => {
   terminal.open(termRef.value)
   fitAddon.fit()
 
+  // Newly created tabs mount after activeTabId has already changed, so the
+  // tab-activation watcher never fires for the initial activation. Without
+  // this the "+" button keeps DOM focus and typing goes nowhere (#126).
+  if (tabStore.activeTabId === props.tabId) terminal.focus()
+
   terminal.buffer.onBufferChange((buf) => {
     inAltScreen.value = buf.type === 'alternate'
     if (inAltScreen.value) {
