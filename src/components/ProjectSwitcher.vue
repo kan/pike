@@ -65,6 +65,7 @@ const formDistroOptions = computed(() => settings.visibleWslDistros(distros.valu
 const formShellOptions = computed(() => settings.windowsShellOptions(formWindowsShell.value))
 
 function openNewForm() {
+  formWindowsShell.value = settings.defaultWindowsShellKind()
   showNewForm.value = true
   loadDistros()
 }
@@ -109,7 +110,7 @@ function resetForm() {
   formName.value = ''
   formRoot.value = ''
   formPlatform.value = 'wsl'
-  formWindowsShell.value = settings.windowsShellOptions()[0]?.kind ?? 'powershell'
+  formWindowsShell.value = settings.defaultWindowsShellKind()
   formColor.value = undefined
 }
 

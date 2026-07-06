@@ -418,6 +418,12 @@ export const useSettingsStore = defineStore('settings', () => {
    * hidden flags of surviving entries are preserved.
    */
   function syncShellProfiles(distros: string[]) {
+    // An empty detection result is almost always a transient WSL-not-ready
+    // state (WSL still booting, a distro mid-(un)register, `wsl --list` blip),
+    // not "every distro was uninstalled". Treating it as authoritative would
+    // drop every WSL profile and wipe the user's hidden/order customization —
+    // which the deep watcher then persists. Skip reconciliation in that case.
+    if (distros.length === 0) return
     const detected = new Set(distros.map((d) => `wsl:${d}`))
     const kept = shellProfiles.value.filter((p) => p.shell.kind !== 'wsl' || detected.has(p.id))
     const have = new Set(kept.map((p) => p.id))
@@ -444,6 +450,18 @@ export const useSettingsStore = defineStore('settings', () => {
     return shellProfiles.value
       .filter((p) => p.shell.kind !== 'wsl' && (!p.hidden || p.shell.kind === currentKind))
       .map((p) => ({ kind: p.shell.kind as WindowsShellKind, label: shellProfileLabel(p.shell) }))
+  }
+
+  /**
+   * Default Windows shell for a fresh create/edit form (#129): prefer
+   * PowerShell when visible, else the first visible Windows shell. Keeps every
+   * form consistent instead of each picking `windowsShellOptions()[0]` (which
+   * is `cmd` in default order) or a hardcoded literal.
+   */
+  function defaultWindowsShellKind(): WindowsShellKind {
+    const opts = windowsShellOptions()
+    if (opts.some((o) => o.kind === 'powershell')) return 'powershell'
+    return opts[0]?.kind ?? 'powershell'
   }
 
   /**
@@ -763,6 +781,7 @@ export const useSettingsStore = defineStore('settings', () => {
     shellProfiles,
     syncShellProfiles,
     windowsShellOptions,
+    defaultWindowsShellKind,
     visibleWslDistros,
     availableFonts,
     loadAvailableFonts,

@@ -653,7 +653,10 @@ onMounted(async () => {
     // retained text directly as well
     if (terminal.textarea) terminal.textarea.value = ''
     requestAnimationFrame(() => {
-      if (!terminal) return
+      // Re-check liveness AND active tab: the terminal may have been disposed
+      // (tab closed) or the user may have switched tabs in the frame since the
+      // focus event — either way we must not refresh/focus this terminal.
+      if (!terminal || tabStore.activeTabId !== props.tabId) return
       terminal.refresh(0, terminal.rows - 1)
       terminal.focus()
     })
@@ -678,6 +681,9 @@ onUnmounted(() => {
     ptyKill(ptyId).catch(() => {})
   }
   terminal?.dispose()
+  // Null out so the deferred window-focus rAF (and any other late callback)
+  // sees a disposed terminal and bails instead of calling into freed xterm state.
+  terminal = null
 })
 </script>
 

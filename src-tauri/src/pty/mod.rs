@@ -234,21 +234,28 @@ fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, is_wsl: bool) {
 }
 
 /// Locate PowerShell 7+ (pwsh.exe): PATH first (MSI/winget installs register
-/// it), then the default install location.
-fn find_pwsh() -> Result<String, String> {
+/// it), then the default install location, and finally the bare name so
+/// CreateProcess resolves it via PATH / App Execution Aliases.
+///
+/// The Microsoft Store install exposes `pwsh.exe` as a 0-byte execution-alias
+/// reparse stub under `WindowsApps`, for which `is_file()` returns false — so
+/// the explicit probes miss it. Returning the bare name lets the OS resolve
+/// the alias at spawn time (a genuinely-missing pwsh then surfaces as a normal
+/// spawn failure in the terminal).
+fn find_pwsh() -> String {
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
             let p = dir.join("pwsh.exe");
             if p.is_file() {
-                return Ok(p.to_string_lossy().into_owned());
+                return p.to_string_lossy().into_owned();
             }
         }
     }
     let fallback = std::path::Path::new(r"C:\Program Files\PowerShell\7\pwsh.exe");
     if fallback.is_file() {
-        return Ok(fallback.to_string_lossy().into_owned());
+        return fallback.to_string_lossy().into_owned();
     }
-    Err("PowerShell 7 (pwsh.exe) not found. Install PowerShell 7.".into())
+    "pwsh.exe".to_string()
 }
 
 fn find_git_bash() -> Result<String, String> {
@@ -329,7 +336,7 @@ pub async fn pty_spawn(
             c
         }
         Some(ShellConfig::Pwsh) => {
-            let mut c = CommandBuilder::new(find_pwsh()?);
+            let mut c = CommandBuilder::new(find_pwsh());
             c.arg("-NoLogo");
             if let Some(dir) = &cwd {
                 c.cwd(dir);

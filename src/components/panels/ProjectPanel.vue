@@ -177,11 +177,8 @@ onMounted(async () => {
   } catch {
     distros.value = ['Ubuntu']
   }
-  // Don't preselect a hidden Windows shell in the create form
-  const shellOpts = settings.windowsShellOptions()
-  if (shellOpts.length > 0 && !shellOpts.some((o) => o.kind === formWindowsShell.value)) {
-    formWindowsShell.value = shellOpts[0].kind
-  }
+  // Preselect a sensible, visible default (PowerShell if shown) for the create form
+  formWindowsShell.value = settings.defaultWindowsShellKind()
 })
 
 // Dropdown options honor the shell profile visibility/order (#129); the

@@ -97,7 +97,9 @@ const defaultShellId = computed(() => {
 
 const shellMenuItems = computed<{ key: string; shell: ShellType; label: string; isDefault: boolean }[]>(() =>
   settings.shellProfiles
-    .filter((p) => !p.hidden && (globalMode.value || p.shell.kind !== 'wsl'))
+    // Keep the current default shell listed even if hidden, so the highlighted
+    // default is always openable and "+" and "▾" never disagree about it.
+    .filter((p) => (!p.hidden || p.id === defaultShellId.value) && (globalMode.value || p.shell.kind !== 'wsl'))
     .map((p) => ({
       key: p.id,
       shell: p.shell,
