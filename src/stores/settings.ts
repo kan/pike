@@ -275,7 +275,7 @@ function sanitizeGlobalShell(v: unknown): ShellType {
     const s = v as ShellType
     if (s.kind === 'wsl') {
       if (typeof s.distro === 'string' && s.distro) return { kind: 'wsl', distro: s.distro }
-    } else if (s.kind === 'cmd' || s.kind === 'powershell' || s.kind === 'git-bash') {
+    } else if (s.kind === 'cmd' || s.kind === 'powershell' || s.kind === 'pwsh' || s.kind === 'git-bash') {
       return { kind: s.kind }
     }
   }

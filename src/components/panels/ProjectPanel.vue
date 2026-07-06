@@ -17,6 +17,7 @@ import {
   shellToWinKind,
   slugify,
   WINDOWS_SHELLS,
+  type WindowsShellKind,
 } from '../../types/tab'
 import ColorSelect from './ColorSelect.vue'
 import GroupComboBox from './GroupComboBox.vue'
@@ -182,7 +183,7 @@ const formGroup = ref<string | undefined>(undefined)
 const formColor = ref<string | undefined>(undefined)
 const formPlatform = ref<'wsl' | 'windows'>('wsl')
 const formDistro = ref('Ubuntu')
-const formWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
+const formWindowsShell = ref<WindowsShellKind>('powershell')
 
 const createRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value))
 

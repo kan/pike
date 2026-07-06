@@ -8,7 +8,7 @@ import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { detectWslDistros, pickSaveFile } from '../../lib/tauri'
 import { COLOR_SCHEMES, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, useSettingsStore } from '../../stores/settings'
-import { type ShellType, shellToType, WINDOWS_SHELLS } from '../../types/tab'
+import { type ShellType, shellToType, WINDOWS_SHELLS, type WindowsShellKind } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
@@ -44,7 +44,7 @@ function onGlobalShellChange(e: Event) {
   const v = (e.target as HTMLSelectElement).value
   settings.globalShell = v.startsWith('wsl:')
     ? ({ kind: 'wsl', distro: v.slice(4) } as ShellType)
-    : shellToType(v as 'cmd' | 'powershell' | 'git-bash')
+    : shellToType(v as WindowsShellKind)
 }
 
 // CSS font-family for the editor preview swatch (built from the editor font name).

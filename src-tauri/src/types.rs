@@ -40,6 +40,8 @@ pub enum ShellConfig {
     Wsl { distro: String },
     Cmd,
     Powershell,
+    /// PowerShell 7+ (pwsh.exe) — Windows PowerShell 5 (`Powershell`) と併存
+    Pwsh,
     GitBash,
 }
 

@@ -106,6 +106,7 @@ function loadWslDistros() {
 const SHELL_MENU_ICONS: Record<ShellType['kind'], Component> = {
   cmd: SquareTerminal,
   powershell: SquareChevronRight,
+  pwsh: SquareChevronRight,
   'git-bash': GitBranch,
   wsl: Terminal,
 }

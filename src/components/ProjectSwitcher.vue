@@ -5,7 +5,7 @@ import { detectWslDistros, openProjectWindow } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import type { ProjectConfig } from '../types/project'
-import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, WINDOWS_SHELLS } from '../types/tab'
+import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, WINDOWS_SHELLS, type WindowsShellKind } from '../types/tab'
 import ColorDot from './ColorDot.vue'
 import ColorSelect from './panels/ColorSelect.vue'
 
@@ -37,7 +37,7 @@ const formName = ref('')
 const formRoot = ref('')
 const formPlatform = ref<'wsl' | 'windows'>('wsl')
 const formDistro = ref('Ubuntu')
-const formWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
+const formWindowsShell = ref<WindowsShellKind>('powershell')
 const formColor = ref<string | undefined>(undefined)
 const distros = ref<string[]>([])
 const distrosLoaded = ref(false)

@@ -2,18 +2,25 @@ export type ShellType =
   | { kind: 'wsl'; distro: string }
   | { kind: 'cmd' }
   | { kind: 'powershell' }
+  | { kind: 'pwsh' }
   | { kind: 'git-bash' }
 
-export type WindowsShellKind = 'cmd' | 'powershell' | 'git-bash'
+export type WindowsShellKind = 'cmd' | 'powershell' | 'pwsh' | 'git-bash'
 
 export const WINDOWS_SHELLS: { kind: WindowsShellKind; label: string }[] = [
   { kind: 'cmd', label: 'Command Prompt' },
   { kind: 'powershell', label: 'PowerShell' },
+  { kind: 'pwsh', label: 'PowerShell 7' },
   { kind: 'git-bash', label: 'Git Bash' },
 ]
 
 export function isWindowsShell(shell: ShellType): boolean {
   return shell.kind !== 'wsl'
+}
+
+/** powershell.exe / pwsh.exe: same syntax for clear (`cls`) and chaining (`;`) */
+export function isPowershellFamily(kind: string | undefined): boolean {
+  return kind === 'powershell' || kind === 'pwsh'
 }
 
 export function shellToType(kind: WindowsShellKind): ShellType {
@@ -22,6 +29,8 @@ export function shellToType(kind: WindowsShellKind): ShellType {
       return { kind: 'cmd' }
     case 'powershell':
       return { kind: 'powershell' }
+    case 'pwsh':
+      return { kind: 'pwsh' }
     case 'git-bash':
       return { kind: 'git-bash' }
   }
@@ -35,6 +44,8 @@ export function shellLabel(shell: ShellType): string {
       return 'CMD'
     case 'powershell':
       return 'PowerShell'
+    case 'pwsh':
+      return 'PowerShell 7'
     case 'git-bash':
       return 'Git Bash'
   }

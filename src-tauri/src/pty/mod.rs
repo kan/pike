@@ -233,6 +233,24 @@ fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, is_wsl: bool) {
     }
 }
 
+/// Locate PowerShell 7+ (pwsh.exe): PATH first (MSI/winget installs register
+/// it), then the default install location.
+fn find_pwsh() -> Result<String, String> {
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            let p = dir.join("pwsh.exe");
+            if p.is_file() {
+                return Ok(p.to_string_lossy().into_owned());
+            }
+        }
+    }
+    let fallback = std::path::Path::new(r"C:\Program Files\PowerShell\7\pwsh.exe");
+    if fallback.is_file() {
+        return Ok(fallback.to_string_lossy().into_owned());
+    }
+    Err("PowerShell 7 (pwsh.exe) not found. Install PowerShell 7.".into())
+}
+
 fn find_git_bash() -> Result<String, String> {
     let candidates = [
         r"C:\Program Files\Git\bin\bash.exe",
@@ -304,6 +322,14 @@ pub async fn pty_spawn(
         }
         Some(ShellConfig::Powershell) => {
             let mut c = CommandBuilder::new("powershell.exe");
+            c.arg("-NoLogo");
+            if let Some(dir) = &cwd {
+                c.cwd(dir);
+            }
+            c
+        }
+        Some(ShellConfig::Pwsh) => {
+            let mut c = CommandBuilder::new(find_pwsh()?);
             c.arg("-NoLogo");
             if let Some(dir) = &cwd {
                 c.cwd(dir);

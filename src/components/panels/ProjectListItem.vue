@@ -11,6 +11,8 @@ import {
   shellToDistro,
   shellToPlatform,
   shellToWinKind,
+  WINDOWS_SHELLS,
+  type WindowsShellKind,
 } from '../../types/tab'
 import ColorDot from '../ColorDot.vue'
 import ColorSelect from './ColorSelect.vue'
@@ -44,7 +46,7 @@ const editGroup = ref<string | undefined>(undefined)
 const editColor = ref<string | undefined>(undefined)
 const editPlatform = ref<'wsl' | 'windows'>('wsl')
 const editDistro = ref('Ubuntu')
-const editWindowsShell = ref<'cmd' | 'powershell' | 'git-bash'>('powershell')
+const editWindowsShell = ref<WindowsShellKind>('powershell')
 
 const editRootPlaceholder = computed(() => rootPlaceholderFn(editPlatform.value))
 
@@ -99,9 +101,7 @@ function onSave() {
       <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
     </select>
     <select v-if="editPlatform === 'windows'" v-model="editWindowsShell">
-      <option value="cmd">Command Prompt</option>
-      <option value="powershell">PowerShell</option>
-      <option value="git-bash">Git Bash</option>
+      <option v-for="s in WINDOWS_SHELLS" :key="s.kind" :value="s.kind">{{ s.label }}</option>
     </select>
     <div class="edit-actions">
       <button type="button" class="save-btn" @click="onSave">{{ t('common.save') }}</button>

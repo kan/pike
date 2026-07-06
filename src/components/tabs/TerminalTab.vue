@@ -27,6 +27,7 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
+import { isPowershellFamily } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 import '@xterm/xterm/css/xterm.css'
 
@@ -46,11 +47,11 @@ const SPAWN_GRACE_PERIOD_MS = 2000
 function buildAutoStartLine(autoStart: string, shellKind: string | undefined, closeOnExit?: boolean): string {
   if (closeOnExit) {
     if (shellKind === 'cmd') return `cls & ${autoStart} & exit /B %ERRORLEVEL%`
-    if (shellKind === 'powershell') return `cls; ${autoStart}; exit $LASTEXITCODE`
+    if (isPowershellFamily(shellKind)) return `cls; ${autoStart}; exit $LASTEXITCODE`
     return `clear; ${autoStart}; exit`
   }
-  const clearCmd = shellKind === 'cmd' || shellKind === 'powershell' ? 'cls' : 'clear'
-  const chain = shellKind === 'powershell' ? '; ' : ' && '
+  const clearCmd = shellKind === 'cmd' || isPowershellFamily(shellKind) ? 'cls' : 'clear'
+  const chain = isPowershellFamily(shellKind) ? '; ' : ' && '
   return clearCmd + chain + autoStart
 }
 
@@ -486,7 +487,7 @@ onMounted(async () => {
     }
 
     const shellKind = tabData.shell?.kind
-    const clearCmd = shellKind === 'cmd' || shellKind === 'powershell' ? 'cls' : 'clear'
+    const clearCmd = shellKind === 'cmd' || isPowershellFamily(shellKind) ? 'cls' : 'clear'
 
     if (tabData.autoStart) {
       initLines.push(buildAutoStartLine(tabData.autoStart, shellKind, tabData.closeOnExit))
