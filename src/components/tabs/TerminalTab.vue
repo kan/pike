@@ -629,12 +629,24 @@ onMounted(async () => {
     }
   })
 
-  // Re-focus xterm textarea when window regains focus from outside,
-  // so IME composition events are correctly captured by xterm.js.
+  // Re-focus xterm textarea when window regains focus from outside.
+  // A plain focus() leaves the hidden textarea with stale state: committed
+  // IME text is only cleared in xterm's blur handler (xterm.js #6012) and the
+  // textarea is only moved to the cursor on a re-render — so the next IME
+  // commit duplicates and the candidate window opens at the old position.
+  // Replicate the blur → re-render → focus cycle that a tab switch does
+  // implicitly (which is why switching tabs "fixed" it).
   windowFocusHandler = () => {
-    if (terminal && tabStore.activeTabId === props.tabId) {
+    if (!terminal || tabStore.activeTabId !== props.tabId) return
+    terminal.blur()
+    // blur() is a no-op unless the textarea still has DOM focus, so clear the
+    // retained text directly as well
+    if (terminal.textarea) terminal.textarea.value = ''
+    requestAnimationFrame(() => {
+      if (!terminal) return
+      terminal.refresh(0, terminal.rows - 1)
       terminal.focus()
-    }
+    })
   }
   window.addEventListener('focus', windowFocusHandler)
 
