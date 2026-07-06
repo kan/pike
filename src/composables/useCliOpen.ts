@@ -2,6 +2,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { extension, isImageFile, mimeType } from '../lib/paths'
 import { type CliAction, type CliFileTarget, cliGetInitialAction, fsReadFileBase64 } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
+import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
 import type { ShellType } from '../types/tab'
 
@@ -62,7 +63,18 @@ async function handleActionLocal(action: CliAction) {
   } else if (action.action === 'openDirectory') {
     tabStore.addTerminalTab({ cwd: action.path })
   } else if (action.action === 'openTerminal') {
-    tabStore.addTerminalTab({ cwd: action.cwd ?? undefined, shell: action.shell })
+    if (action.shell) {
+      // cwd-derived shell (invoked inside WSL): keep the invocation cwd
+      tabStore.addTerminalTab({ cwd: action.cwd ?? undefined, shell: action.shell })
+    } else {
+      // No cwd-derived shell → the user's configured default for global
+      // windows. A Windows cwd is only meaningful for Windows shells; with a
+      // WSL default it would land in /mnt/c/..., so drop it and let the
+      // terminal start at the Linux home (pty_spawn passes --cd ~).
+      const shell = useSettingsStore().globalShell
+      const cwd = shell.kind === 'wsl' ? undefined : (action.cwd ?? undefined)
+      tabStore.addTerminalTab({ cwd, shell })
+    }
   }
 }
 

@@ -30,7 +30,11 @@ pub enum CliAction {
     /// Open a project-independent terminal tab (global terminal window).
     OpenTerminal {
         cwd: Option<String>,
-        shell: crate::types::ShellConfig,
+        /// Only set when the shell is derived from the cwd (WSL UNC → that
+        /// distro). None means "no preference" — the frontend applies the
+        /// user's globalShell setting (#125).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shell: Option<crate::types::ShellConfig>,
     },
     None,
 }
@@ -133,18 +137,19 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
 }
 
 /// Build the OpenTerminal action for a plain `pike` invocation: WSL shell when
-/// the invocation cwd is a WSL UNC path, PowerShell otherwise. The cwd is
-/// carried over so the terminal starts where the command was run.
+/// the invocation cwd is a WSL UNC path, otherwise no shell preference (the
+/// frontend falls back to the globalShell setting). The cwd is carried over
+/// so the terminal starts where the command was run.
 pub fn terminal_action_for_cwd(cwd: &str) -> CliAction {
     if let Some((distro, native)) = split_wsl_unc(cwd) {
         CliAction::OpenTerminal {
             cwd: Some(native),
-            shell: crate::types::ShellConfig::Wsl { distro },
+            shell: Some(crate::types::ShellConfig::Wsl { distro }),
         }
     } else {
         CliAction::OpenTerminal {
             cwd: (!cwd.is_empty()).then(|| cwd.to_string()),
-            shell: crate::types::ShellConfig::Powershell,
+            shell: None,
         }
     }
 }
@@ -311,14 +316,15 @@ mod tests {
         match terminal_action_for_cwd(r"\\wsl.localhost\Ubuntu\home\user") {
             CliAction::OpenTerminal { cwd, shell } => {
                 assert_eq!(cwd.as_deref(), Some("/home/user"));
-                assert!(matches!(shell, crate::types::ShellConfig::Wsl { ref distro } if distro == "Ubuntu"));
+                assert!(matches!(shell, Some(crate::types::ShellConfig::Wsl { ref distro }) if distro == "Ubuntu"));
             }
             other => panic!("expected OpenTerminal, got: {other:?}"),
         }
+        // Non-WSL cwd: no shell preference — the frontend applies globalShell (#125)
         match terminal_action_for_cwd(r"C:\Users\foo") {
             CliAction::OpenTerminal { cwd, shell } => {
                 assert_eq!(cwd.as_deref(), Some(r"C:\Users\foo"));
-                assert!(matches!(shell, crate::types::ShellConfig::Powershell));
+                assert!(shell.is_none());
             }
             other => panic!("expected OpenTerminal, got: {other:?}"),
         }

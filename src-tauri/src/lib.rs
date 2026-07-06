@@ -313,7 +313,8 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
         cli::CliAction::None => {
             // Plain `pike` while already running: open a global terminal
             // window (Windows Terminal replacement). Shell is inferred from
-            // the invocation cwd (WSL UNC path → that distro, else PowerShell).
+            // the invocation cwd (WSL UNC path → that distro, else the
+            // frontend's globalShell setting).
             let action = cli::terminal_action_for_cwd(cwd);
             log::debug!("[single-instance] no args: global terminal window: {action:?}");
             let label = create_global_window(app);

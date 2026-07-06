@@ -480,7 +480,9 @@ export interface CliOpenDirectory {
 export interface CliOpenTerminal {
   action: 'openTerminal'
   cwd?: string | null
-  shell: ShellType
+  /** cwd 由来で確定する場合のみ設定（WSL UNC → その distro）。
+   *  未設定なら globalShell 設定で開く (#125) */
+  shell?: ShellType | null
 }
 
 export interface CliNone {
