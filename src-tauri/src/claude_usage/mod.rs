@@ -45,11 +45,15 @@ struct SessionInfo {
 struct JsonlLine {
     #[serde(rename = "type")]
     line_type: String,
+    #[serde(default, rename = "requestId")]
+    request_id: Option<String>,
     message: Option<MessagePart>,
 }
 
 #[derive(Debug, Deserialize)]
 struct MessagePart {
+    #[serde(default)]
+    id: Option<String>,
     model: Option<String>,
     usage: Option<UsageData>,
 }
@@ -225,39 +229,93 @@ fn find_active_sessions(shell: &ShellConfig, claude_dir: &Path, project_root: &s
     candidates.into_iter().filter(|c| alive.contains(&c.pid)).collect()
 }
 
-fn aggregate_jsonl(jsonl_path: &PathBuf) -> HashMap<String, TokenCounts> {
-    let mut by_model: HashMap<String, TokenCounts> = HashMap::new();
+/// Claude Code writes the same API response to the JSONL multiple times: while
+/// streaming, an entry is re-recorded with growing `output_tokens`, and
+/// resume/fork/compact duplicate past turns (also across session files).
+/// Naive summation over-counts ~3x (measured on real logs). Dedupe by
+/// (requestId, message.id) keeping the entry with the largest token total
+/// ("largest-wins": partial streaming values are always smaller than the final
+/// write). The accumulator is shared across all session files of a project so
+/// cross-file duplicates collapse too.
+#[derive(Debug, Default)]
+struct UsageAccumulator {
+    dedup: HashMap<(String, String), (String, TokenCounts)>,
+    /// Lines with neither requestId nor message.id — not dedupable, summed as-is.
+    keyless: HashMap<String, TokenCounts>,
+}
 
-    let Ok(file) = fs::File::open(jsonl_path) else {
-        return by_model;
-    };
-    let reader = BufReader::new(file);
+impl TokenCounts {
+    fn total(&self) -> u64 {
+        self.input + self.output + self.cache_read + self.cache_creation
+    }
+}
 
-    for line in reader.lines() {
-        let Ok(line) = line else { continue };
+impl UsageAccumulator {
+    fn add_line(&mut self, line: &str) {
         // Fast pre-filter: skip lines that can't be assistant records
         if !line.contains("\"assistant\"") {
-            continue;
+            return;
         }
-        let Ok(parsed) = serde_json::from_str::<JsonlLine>(&line) else {
-            continue;
+        let Ok(parsed) = serde_json::from_str::<JsonlLine>(line) else {
+            return;
         };
         if parsed.line_type != "assistant" {
-            continue;
+            return;
         }
-        if let Some(msg) = parsed.message {
-            if let Some(usage) = msg.usage {
-                let model = msg.model.unwrap_or_else(|| "unknown".to_string());
-                let entry = by_model.entry(model).or_default();
-                entry.input += usage.input_tokens;
-                entry.output += usage.output_tokens;
-                entry.cache_read += usage.cache_read_input_tokens;
-                entry.cache_creation += usage.cache_creation_input_tokens;
+        let Some(msg) = parsed.message else { return };
+        let Some(usage) = msg.usage else { return };
+        let model = msg.model.unwrap_or_else(|| "unknown".to_string());
+        let counts = TokenCounts {
+            input: usage.input_tokens,
+            output: usage.output_tokens,
+            cache_read: usage.cache_read_input_tokens,
+            cache_creation: usage.cache_creation_input_tokens,
+        };
+        if parsed.request_id.is_none() && msg.id.is_none() {
+            let entry = self.keyless.entry(model).or_default();
+            entry.input += counts.input;
+            entry.output += counts.output;
+            entry.cache_read += counts.cache_read;
+            entry.cache_creation += counts.cache_creation;
+            return;
+        }
+        let key = (
+            parsed.request_id.unwrap_or_default(),
+            msg.id.unwrap_or_default(),
+        );
+        match self.dedup.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if counts.total() > e.get().1.total() {
+                    *e.get_mut() = (model, counts);
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert((model, counts));
             }
         }
     }
 
-    by_model
+    fn add_file(&mut self, jsonl_path: &PathBuf) {
+        let Ok(file) = fs::File::open(jsonl_path) else {
+            return;
+        };
+        for line in BufReader::new(file).lines() {
+            let Ok(line) = line else { continue };
+            self.add_line(&line);
+        }
+    }
+
+    fn finish(self) -> HashMap<String, TokenCounts> {
+        let mut by_model = self.keyless;
+        for (model, counts) in self.dedup.into_values() {
+            let entry = by_model.entry(model).or_default();
+            entry.input += counts.input;
+            entry.output += counts.output;
+            entry.cache_read += counts.cache_read;
+            entry.cache_creation += counts.cache_creation;
+        }
+        by_model
+    }
 }
 
 fn get_usage_for_project(shell: &ShellConfig, project_root: &str) -> Result<ClaudeUsageResult, String> {
@@ -273,7 +331,7 @@ fn get_usage_for_project(shell: &ShellConfig, project_root: &str) -> Result<Clau
     let encoded = encode_project_path(project_root);
     let projects_dir = claude_dir.join("projects").join(&encoded);
 
-    let mut all_by_model: HashMap<String, TokenCounts> = HashMap::new();
+    let mut acc = UsageAccumulator::default();
     let mut first_session_id: Option<String> = None;
     let mut earliest_start: Option<u64> = None;
 
@@ -286,15 +344,9 @@ fn get_usage_for_project(shell: &ShellConfig, project_root: &str) -> Result<Clau
         }
 
         let jsonl_path = projects_dir.join(format!("{}.jsonl", session.session_id));
-        let by_model = aggregate_jsonl(&jsonl_path);
-        for (model, counts) in by_model {
-            let entry = all_by_model.entry(model).or_default();
-            entry.input += counts.input;
-            entry.output += counts.output;
-            entry.cache_read += counts.cache_read;
-            entry.cache_creation += counts.cache_creation;
-        }
+        acc.add_file(&jsonl_path);
     }
+    let all_by_model = acc.finish();
 
     let mut totals = TokenCounts::default();
     let mut total_cost = 0.0f64;
@@ -351,7 +403,47 @@ pub async fn claude_usage_get(
 
 #[cfg(test)]
 mod tests {
-    use super::encode_project_path;
+    use super::{encode_project_path, UsageAccumulator};
+
+    fn line(request_id: &str, msg_id: &str, model: &str, input: u64, output: u64) -> String {
+        format!(
+            r#"{{"type":"assistant","requestId":"{request_id}","message":{{"id":"{msg_id}","model":"{model}","usage":{{"input_tokens":{input},"output_tokens":{output}}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn dedup_largest_wins() {
+        let mut acc = UsageAccumulator::default();
+        // Streaming re-writes of the same response: output_tokens grows.
+        acc.add_line(&line("req1", "msg1", "claude-sonnet", 100, 10));
+        acc.add_line(&line("req1", "msg1", "claude-sonnet", 100, 50));
+        acc.add_line(&line("req1", "msg1", "claude-sonnet", 100, 200));
+        // A distinct API call sums normally.
+        acc.add_line(&line("req2", "msg2", "claude-sonnet", 30, 5));
+        let by_model = acc.finish();
+        let counts = &by_model["claude-sonnet"];
+        assert_eq!(counts.input, 130);
+        assert_eq!(counts.output, 205);
+    }
+
+    #[test]
+    fn dedup_keyless_lines_sum_as_is() {
+        let mut acc = UsageAccumulator::default();
+        let keyless =
+            r#"{"type":"assistant","message":{"model":"claude-sonnet","usage":{"input_tokens":10,"output_tokens":1}}}"#;
+        acc.add_line(keyless);
+        acc.add_line(keyless);
+        let by_model = acc.finish();
+        assert_eq!(by_model["claude-sonnet"].output, 2);
+    }
+
+    #[test]
+    fn dedup_non_assistant_ignored() {
+        let mut acc = UsageAccumulator::default();
+        acc.add_line(r#"{"type":"user","message":{"role":"user"}}"#);
+        acc.add_line("not json");
+        assert!(acc.finish().is_empty());
+    }
 
     #[test]
     fn encode_matches_claude_scheme() {
