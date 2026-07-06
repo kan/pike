@@ -474,9 +474,13 @@ onMounted(async () => {
     if (isBash) {
       // Set up bash title reporting: show running command, revert to dir on prompt.
       // Also overrides stale ConPTY titles (Tauri plugin names leak into Git Bash).
+      // The hook must not clobber `$?`/PIPESTATUS for prompt tools (starship's
+      // error color reads them at the start of its own precmd, #128): append
+      // after the existing PROMPT_COMMAND so those run first on pristine state,
+      // and save/restore `$?` as insurance for hooks appended after ours.
       const titleSetup =
-        '__pike_prompt() { printf \'\\e]0;%s\\a\\e]7;file://localhost%s\\a\' "${PWD##*/}" "$PWD"; }; ' +
-        'PROMPT_COMMAND="__pike_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; ' +
+        '__pike_prompt() { local __pike_st=$?; printf \'\\e]0;%s\\a\\e]7;file://localhost%s\\a\' "${PWD##*/}" "$PWD"; return $__pike_st; }; ' +
+        'PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}__pike_prompt"; ' +
         'trap \'[[ "$BASH_COMMAND" == _* ]] || printf "\\e]0;%s\\a" "${BASH_COMMAND%% *}"\' DEBUG'
       initLines.push(titleSetup)
     }
