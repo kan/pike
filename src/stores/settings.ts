@@ -6,7 +6,15 @@ import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/font
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 import { windowLabel } from '../lib/window'
-import type { ShellType } from '../types/tab'
+import {
+  type ShellProfile,
+  type ShellType,
+  shellId,
+  shellProfileLabel,
+  shellToType,
+  WINDOWS_SHELLS,
+  type WindowsShellKind,
+} from '../types/tab'
 
 export interface TerminalColorScheme {
   name: string
@@ -182,6 +190,9 @@ const SYNC_PATH_KEY = 'pike:sync-path'
 // is likewise machine-local: stored under its own key, excluded from the
 // synced payload and the cross-window broadcast.
 const GLOBAL_SHELL_KEY = 'pike:global-shell'
+// Shell profile list (#129: dropdown order / visibility) also references this
+// machine's WSL distros — same machine-local treatment as GLOBAL_SHELL_KEY.
+const SHELL_PROFILES_KEY = 'pike:shell-profiles'
 // Debounce window for mirroring settings changes out to the sync file.
 const SYNC_WRITE_DEBOUNCE_MS = 1500
 // Cross-window settings sync: broadcast changes so every open Pike window stays
@@ -269,8 +280,8 @@ function loadSettings(): PersistedSettings {
   return sanitize({ ...defaults(), ...loadJson<Partial<PersistedSettings>>(STORAGE_KEY, {}) })
 }
 
-/** Guard the machine-local global shell against corrupt persisted values. */
-function sanitizeGlobalShell(v: unknown): ShellType {
+/** Parse a persisted ShellType, or null when the value is corrupt. */
+function sanitizeShell(v: unknown): ShellType | null {
   if (v && typeof v === 'object' && 'kind' in v) {
     const s = v as ShellType
     if (s.kind === 'wsl') {
@@ -279,7 +290,53 @@ function sanitizeGlobalShell(v: unknown): ShellType {
       return { kind: s.kind }
     }
   }
-  return { kind: 'powershell' }
+  return null
+}
+
+/** Guard the machine-local global shell against corrupt persisted values. */
+function sanitizeGlobalShell(v: unknown): ShellType {
+  return sanitizeShell(v) ?? { kind: 'powershell' }
+}
+
+function defaultShellProfiles(): ShellProfile[] {
+  // WSL distros are appended by syncShellProfiles once detection runs.
+  return WINDOWS_SHELLS.map((s) => ({ id: s.kind, shell: shellToType(s.kind) }))
+}
+
+/** Guard the machine-local shell profile list against corrupt persisted values. */
+function sanitizeShellProfiles(v: unknown): ShellProfile[] {
+  if (!Array.isArray(v)) return defaultShellProfiles()
+  const out: ShellProfile[] = []
+  const seen = new Set<string>()
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue
+    const shell = sanitizeShell((item as { shell?: unknown }).shell)
+    if (!shell) continue
+    const id = shellId(shell)
+    if (seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, shell, hidden: (item as { hidden?: unknown }).hidden === true })
+  }
+  // Recover builtin Windows shells lost to corruption so they stay manageable.
+  for (const s of WINDOWS_SHELLS) {
+    if (!seen.has(s.kind)) out.push({ id: s.kind, shell: shellToType(s.kind) })
+  }
+  return ensureVisiblePerCategory(out)
+}
+
+/**
+ * Safety net for the "cannot hide everything" rule the Settings UI enforces:
+ * each present category (WSL / Windows) keeps at least one visible entry, so
+ * the dropdown can never end up empty after corrupt/hand-edited storage.
+ */
+function ensureVisiblePerCategory(list: ShellProfile[]): ShellProfile[] {
+  for (const isWsl of [true, false]) {
+    const category = list.filter((p) => (p.shell.kind === 'wsl') === isWsl)
+    if (category.length > 0 && category.every((p) => p.hidden)) {
+      category[0].hidden = false
+    }
+  }
+  return list
 }
 
 function defaults(): PersistedSettings {
@@ -347,6 +404,57 @@ export const useSettingsStore = defineStore('settings', () => {
   // Machine-local (references this PC's WSL distros — never synced/broadcast).
   const globalShell = ref<ShellType>(sanitizeGlobalShell(loadJson<unknown>(GLOBAL_SHELL_KEY, null)))
   watch(globalShell, (v) => saveJson(GLOBAL_SHELL_KEY, v), { deep: true })
+
+  // Shell profiles (#129): dropdown order / visibility. Machine-local like
+  // globalShell. WSL entries are reconciled against detection results by
+  // syncShellProfiles (callers that run detect_wsl_distros invoke it).
+  const shellProfiles = ref<ShellProfile[]>(sanitizeShellProfiles(loadJson<unknown>(SHELL_PROFILES_KEY, null)))
+  watch(shellProfiles, (v) => saveJson(SHELL_PROFILES_KEY, v), { deep: true })
+
+  /**
+   * Reconcile the profile list with the detected WSL distros: new distros are
+   * prepended (WSL first — the primary environment in global mode), stale WSL
+   * entries are dropped, missing builtin Windows shells are appended. Order and
+   * hidden flags of surviving entries are preserved.
+   */
+  function syncShellProfiles(distros: string[]) {
+    const detected = new Set(distros.map((d) => `wsl:${d}`))
+    const kept = shellProfiles.value.filter((p) => p.shell.kind !== 'wsl' || detected.has(p.id))
+    const have = new Set(kept.map((p) => p.id))
+    const newWsl: ShellProfile[] = distros
+      .filter((d) => !have.has(`wsl:${d}`))
+      .map((d) => ({ id: `wsl:${d}`, shell: { kind: 'wsl', distro: d } }))
+    const newWin: ShellProfile[] = WINDOWS_SHELLS.filter((s) => !have.has(s.kind)).map((s) => ({
+      id: s.kind,
+      shell: shellToType(s.kind),
+    }))
+    if (newWsl.length || newWin.length || kept.length !== shellProfiles.value.length) {
+      shellProfiles.value = [...newWsl, ...kept, ...newWin]
+    }
+    // Dropping stale WSL entries can leave a category all-hidden — re-apply
+    // the "at least one visible per category" rule.
+    ensureVisiblePerCategory(shellProfiles.value)
+  }
+
+  /**
+   * Windows-shell dropdown options (#129): profile order, hidden excluded.
+   * `currentKind` stays listed so a form never loses its saved selection.
+   */
+  function windowsShellOptions(currentKind?: WindowsShellKind): { kind: WindowsShellKind; label: string }[] {
+    return shellProfiles.value
+      .filter((p) => p.shell.kind !== 'wsl' && (!p.hidden || p.shell.kind === currentKind))
+      .map((p) => ({ kind: p.shell.kind as WindowsShellKind, label: shellProfileLabel(p.shell) }))
+  }
+
+  /**
+   * Filter detected WSL distros by profile visibility (#129). Distros without
+   * a profile entry (detection newer than the last sync) pass through, and
+   * `currentDistro` stays listed so a form never loses its saved selection.
+   */
+  function visibleWslDistros(detected: readonly string[], currentDistro?: string): string[] {
+    const hidden = new Set(shellProfiles.value.filter((p) => p.hidden).map((p) => p.id))
+    return detected.filter((d) => d === currentDistro || !hidden.has(`wsl:${d}`))
+  }
 
   // Sync language setting with i18n locale
   locale.value = saved.language
@@ -652,6 +760,10 @@ export const useSettingsStore = defineStore('settings', () => {
     agentCommands,
     agentPrompts,
     globalShell,
+    shellProfiles,
+    syncShellProfiles,
+    windowsShellOptions,
+    visibleWslDistros,
     availableFonts,
     loadAvailableFonts,
     setFontByName,

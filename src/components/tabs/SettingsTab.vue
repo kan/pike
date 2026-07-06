@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronUp, Info, Loader, Moon, Plus, Sun, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Info, Loader, Moon, Plus, Sun, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
+import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { detectWslDistros, pickSaveFile } from '../../lib/tauri'
 import { COLOR_SCHEMES, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, useSettingsStore } from '../../stores/settings'
-import { type ShellType, shellToType, WINDOWS_SHELLS, type WindowsShellKind } from '../../types/tab'
+import {
+  type ShellProfile,
+  type ShellType,
+  shellId,
+  shellProfileLabel,
+  shellToType,
+  type WindowsShellKind,
+} from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
@@ -17,23 +25,51 @@ settings.loadAvailableFonts()
 settings.loadAvailableUiFonts()
 
 // --- Global-mode default shell ------------------------------------------
-// Options: the 3 Windows shells + every detected WSL distro. The current
-// selection stays listed even when its distro is missing from detection.
-const wslDistros = ref<string[]>([])
+// Reconcile the shell profile list (#129) with fresh WSL detection results;
+// the default-shell options below are driven by the profile list.
 detectWslDistros()
-  .then((d) => {
-    wslDistros.value = d
-  })
+  .then((d) => settings.syncShellProfiles(d))
   .catch(() => {})
 
+// --- Shell profiles (#129) -----------------------------------------------
+const defaultShellId = computed(() => shellId(settings.globalShell))
+
+function moveShellProfile(index: number, dir: -1 | 1) {
+  const to = index + dir
+  const list = settings.shellProfiles
+  if (to < 0 || to >= list.length) return
+  const moved = list[index]
+  list[index] = list[to]
+  list[to] = moved
+}
+
+/**
+ * The last visible shell of a category (WSL / Windows) cannot be hidden, so
+ * each side always keeps at least one dropdown entry.
+ */
+function canHideShellProfile(p: ShellProfile): boolean {
+  const isWsl = p.shell.kind === 'wsl'
+  return settings.shellProfiles.filter((q) => !q.hidden && (q.shell.kind === 'wsl') === isWsl).length > 1
+}
+
+function toggleShellProfileHidden(index: number) {
+  const p = settings.shellProfiles[index]
+  if (!p.hidden && !canHideShellProfile(p)) return
+  p.hidden = !p.hidden
+}
+
+// Options follow the profile list (order included) and exclude hidden shells.
+// The current selection stays listed even when hidden or no longer detected,
+// so the select never shows a value it doesn't contain.
 const globalShellOptions = computed<{ value: string; label: string }[]>(() => {
-  const opts = WINDOWS_SHELLS.map((s) => ({ value: s.kind, label: s.label }))
-  const distros = [...wslDistros.value]
-  const current = settings.globalShell
-  if (current.kind === 'wsl' && !distros.includes(current.distro)) {
-    distros.unshift(current.distro)
+  const currentId = defaultShellId.value
+  const opts = settings.shellProfiles
+    .filter((p) => !p.hidden || p.id === currentId)
+    .map((p) => ({ value: p.id, label: shellProfileLabel(p.shell) }))
+  if (!opts.some((o) => o.value === currentId)) {
+    opts.unshift({ value: currentId, label: shellProfileLabel(settings.globalShell) })
   }
-  return [...opts, ...distros.map((d) => ({ value: `wsl:${d}`, label: `WSL (${d})` }))]
+  return opts
 })
 
 const globalShellValue = computed(() =>
@@ -386,6 +422,42 @@ const PREVIEW_LINES = [
             </select>
           </div>
           <p class="setting-hint">{{ t('settings.globalShellHint') }}</p>
+        </div>
+
+        <div class="setting-block">
+          <label class="setting-label">{{ t('settings.shellProfiles') }}</label>
+          <p class="setting-hint">{{ t('settings.shellProfilesHint') }}</p>
+          <div class="agent-cmd-list">
+            <div
+              v-for="(p, i) in settings.shellProfiles"
+              :key="p.id"
+              class="agent-cmd-row shell-profile-row"
+              :class="{ 'shell-profile-hidden': p.hidden }"
+            >
+              <div class="agent-cmd-reorder">
+                <button class="icon-btn" :disabled="i === 0" :title="'↑'" @click="moveShellProfile(i, -1)">
+                  <ChevronUp :size="14" :stroke-width="2" />
+                </button>
+                <button class="icon-btn" :disabled="i === settings.shellProfiles.length - 1" :title="'↓'" @click="moveShellProfile(i, 1)">
+                  <ChevronDown :size="14" :stroke-width="2" />
+                </button>
+              </div>
+              <component :is="SHELL_KIND_ICONS[p.shell.kind]" :size="14" :stroke-width="1.5" class="shell-profile-icon" />
+              <span class="shell-profile-label">
+                {{ shellProfileLabel(p.shell) }}
+                <span v-if="p.id === defaultShellId" class="shell-profile-default">{{ t('settings.shellProfileDefault') }}</span>
+              </span>
+              <button
+                class="icon-btn"
+                :disabled="!p.hidden && !canHideShellProfile(p)"
+                :title="p.hidden ? t('settings.shellProfileShow') : t('settings.shellProfileHide')"
+                @click="toggleShellProfileHidden(i)"
+              >
+                <EyeOff v-if="p.hidden" :size="14" :stroke-width="2" />
+                <Eye v-else :size="14" :stroke-width="2" />
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="setting-block">
@@ -1006,6 +1078,32 @@ const PREVIEW_LINES = [
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.shell-profile-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.shell-profile-label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.shell-profile-hidden .shell-profile-label,
+.shell-profile-hidden .shell-profile-icon {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+.shell-profile-default {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--text-active);
 }
 
 .agent-cmd-reorder {

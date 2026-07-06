@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { type Component, computed, defineAsyncComponent, nextTick, onUnmounted, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onUnmounted, ref } from 'vue'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
+import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { detectWslDistros } from '../../lib/tauri'
 import { globalMode } from '../../lib/window'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { ShellType, Tab } from '../../types/tab'
-import { isWindowsShell, shellToType, WINDOWS_SHELLS } from '../../types/tab'
+import { isWindowsShell, shellId, shellProfileLabel } from '../../types/tab'
 import TerminalTab from '../tabs/TerminalTab.vue'
 
 const DiffTab = defineAsyncComponent(() => import('../tabs/DiffTab.vue'))
@@ -21,20 +22,7 @@ const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 const AgentChatTab = defineAsyncComponent(() => import('../tabs/AgentChatTab.vue'))
 
-import {
-  BookOpen,
-  Bot,
-  ChevronDown,
-  GitBranch,
-  Pin,
-  Plus,
-  ScrollText,
-  Settings,
-  SquareChevronRight,
-  SquareTerminal,
-  Terminal,
-  X,
-} from 'lucide-vue-next'
+import { BookOpen, Bot, Check, ChevronDown, Pin, Plus, ScrollText, Settings, Terminal, X } from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import HelpButton from '../HelpButton.vue'
@@ -87,41 +75,36 @@ function addTab(shellOverride?: ShellType) {
   tabStore.addTerminalTab(project ? { cwd: project.root, shell: shellOverride ?? project.shell } : undefined)
 }
 
-// Shell dropdown: Windows projects offer the 3 Windows shells; global-mode
-// windows additionally offer every detected WSL distro.
+// Shell dropdown: Windows projects offer the Windows shells; global-mode
+// windows additionally offer every detected WSL distro. Order and visibility
+// come from the shell profile list managed in Settings (#129).
 const showShellMenu = ref(false)
-const wslDistros = ref<string[]>([])
 let distrosRequested = false
 
 function loadWslDistros() {
   if (distrosRequested) return
   distrosRequested = true
   detectWslDistros()
-    .then((d) => {
-      wslDistros.value = d
-    })
+    .then((d) => settings.syncShellProfiles(d))
     .catch(() => {})
 }
 
-const SHELL_MENU_ICONS: Record<ShellType['kind'], Component> = {
-  cmd: SquareTerminal,
-  powershell: SquareChevronRight,
-  pwsh: SquareChevronRight,
-  'git-bash': GitBranch,
-  wsl: Terminal,
-}
-
-const shellMenuItems = computed<{ key: string; shell: ShellType; label: string }[]>(() => {
-  const win = WINDOWS_SHELLS.map((s) => ({ key: s.kind, shell: shellToType(s.kind), label: s.label }))
-  if (!globalMode.value) return win
-  // WSL first: the primary environment when Pike replaces Windows Terminal
-  const wsl = wslDistros.value.map((d) => ({
-    key: `wsl-${d}`,
-    shell: { kind: 'wsl', distro: d } as ShellType,
-    label: `WSL (${d})`,
-  }))
-  return [...wsl, ...win]
+/** Default shell for this window — highlighted in the dropdown. */
+const defaultShellId = computed(() => {
+  const shell = globalMode.value ? settings.globalShell : projectStore.currentProject?.shell
+  return shell ? shellId(shell) : null
 })
+
+const shellMenuItems = computed<{ key: string; shell: ShellType; label: string; isDefault: boolean }[]>(() =>
+  settings.shellProfiles
+    .filter((p) => !p.hidden && (globalMode.value || p.shell.kind !== 'wsl'))
+    .map((p) => ({
+      key: p.id,
+      shell: p.shell,
+      label: shellProfileLabel(p.shell),
+      isDefault: p.id === defaultShellId.value,
+    })),
+)
 
 // Global windows have no sidebar (no gear menu) — surface its essentials
 // (shortcuts / settings / manual) from this dropdown instead.
@@ -340,10 +323,12 @@ onUnmounted(() => {
         <button
           v-for="s in shellMenuItems"
           :key="s.key"
+          :class="{ 'default-shell': s.isDefault }"
           @click="addTabWithShell(s.shell)"
         >
-          <component :is="SHELL_MENU_ICONS[s.shell.kind]" :size="14" :stroke-width="1.5" class="shell-menu-icon" />
+          <component :is="SHELL_KIND_ICONS[s.shell.kind]" :size="14" :stroke-width="1.5" class="shell-menu-icon" />
           <span>{{ s.label }}</span>
+          <Check v-if="s.isDefault" :size="12" :stroke-width="2.5" class="shell-default-check" />
         </button>
         <template v-if="globalMode">
           <div class="shell-menu-divider" />
@@ -735,6 +720,20 @@ onUnmounted(() => {
 }
 
 .shell-menu button:hover .shell-menu-icon {
+  color: var(--text-active);
+}
+
+.shell-menu button.default-shell {
+  font-weight: 600;
+}
+
+.shell-default-check {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.shell-menu button:hover .shell-default-check {
   color: var(--text-active);
 }
 

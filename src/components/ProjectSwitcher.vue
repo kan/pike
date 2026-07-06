@@ -4,13 +4,15 @@ import { useI18n } from '../i18n'
 import { detectWslDistros, openProjectWindow } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
+import { useSettingsStore } from '../stores/settings'
 import type { ProjectConfig } from '../types/project'
-import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, WINDOWS_SHELLS, type WindowsShellKind } from '../types/tab'
+import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, type WindowsShellKind } from '../types/tab'
 import ColorDot from './ColorDot.vue'
 import ColorSelect from './panels/ColorSelect.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
+const settings = useSettingsStore()
 
 // --- Search mode ---
 const query = ref('')
@@ -46,14 +48,21 @@ async function loadDistros() {
   if (distrosLoaded.value) return
   try {
     distros.value = await detectWslDistros()
-    if (distros.value.length > 0) {
-      formDistro.value = distros.value[0]
+    settings.syncShellProfiles(distros.value)
+    const visible = settings.visibleWslDistros(distros.value)
+    if (visible.length > 0) {
+      formDistro.value = visible[0]
     }
   } catch {
     distros.value = ['Ubuntu']
   }
   distrosLoaded.value = true
 }
+
+// Dropdown options honor the shell profile visibility/order (#129); the
+// current selection stays listed so the select never loses its value.
+const formDistroOptions = computed(() => settings.visibleWslDistros(distros.value, formDistro.value))
+const formShellOptions = computed(() => settings.windowsShellOptions(formWindowsShell.value))
 
 function openNewForm() {
   showNewForm.value = true
@@ -100,7 +109,7 @@ function resetForm() {
   formName.value = ''
   formRoot.value = ''
   formPlatform.value = 'wsl'
-  formWindowsShell.value = 'powershell'
+  formWindowsShell.value = settings.windowsShellOptions()[0]?.kind ?? 'powershell'
   formColor.value = undefined
 }
 
@@ -221,10 +230,10 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
               </label>
             </div>
             <select v-if="formPlatform === 'wsl'" v-model="formDistro">
-              <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
+              <option v-for="d in formDistroOptions" :key="d" :value="d">{{ d }}</option>
             </select>
             <select v-if="formPlatform === 'windows'" v-model="formWindowsShell">
-              <option v-for="s in WINDOWS_SHELLS" :key="s.kind" :value="s.kind">{{ s.label }}</option>
+              <option v-for="s in formShellOptions" :key="s.kind" :value="s.kind">{{ s.label }}</option>
             </select>
             <ColorSelect v-model="formColor" />
             <button type="submit" class="create-btn">{{ t('projectSwitcher.createAndOpen') }}</button>

@@ -3,6 +3,7 @@ import { ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { openProjectWindow, pickFolder } from '../../lib/tauri'
+import { useSettingsStore } from '../../stores/settings'
 import type { ProjectConfig } from '../../types/project'
 import {
   buildShell,
@@ -11,7 +12,6 @@ import {
   shellToDistro,
   shellToPlatform,
   shellToWinKind,
-  WINDOWS_SHELLS,
   type WindowsShellKind,
 } from '../../types/tab'
 import ColorDot from '../ColorDot.vue'
@@ -47,6 +47,13 @@ const editColor = ref<string | undefined>(undefined)
 const editPlatform = ref<'wsl' | 'windows'>('wsl')
 const editDistro = ref('Ubuntu')
 const editWindowsShell = ref<WindowsShellKind>('powershell')
+
+const settings = useSettingsStore()
+
+// Dropdown options honor the shell profile visibility/order (#129); the
+// project's saved shell stays listed even when hidden.
+const editDistroOptions = computed(() => settings.visibleWslDistros(props.distros, editDistro.value))
+const editShellOptions = computed(() => settings.windowsShellOptions(editWindowsShell.value))
 
 const editRootPlaceholder = computed(() => rootPlaceholderFn(editPlatform.value))
 
@@ -98,10 +105,10 @@ function onSave() {
       <label class="radio-label"><input type="radio" v-model="editPlatform" value="windows" /> Windows</label>
     </div>
     <select v-if="editPlatform === 'wsl'" v-model="editDistro">
-      <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
+      <option v-for="d in editDistroOptions" :key="d" :value="d">{{ d }}</option>
     </select>
     <select v-if="editPlatform === 'windows'" v-model="editWindowsShell">
-      <option v-for="s in WINDOWS_SHELLS" :key="s.kind" :value="s.kind">{{ s.label }}</option>
+      <option v-for="s in editShellOptions" :key="s.kind" :value="s.kind">{{ s.label }}</option>
     </select>
     <div class="edit-actions">
       <button type="button" class="save-btn" @click="onSave">{{ t('common.save') }}</button>

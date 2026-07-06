@@ -195,6 +195,12 @@ export default {
   'settings.terminalExitNotification': 'プロセス終了時にデスクトップ通知',
   'settings.globalShell': 'グローバルモードの既定シェル',
   'settings.globalShellHint': 'プロジェクトに依らないウィンドウで + を押した時に開くシェル。',
+  'settings.shellProfiles': 'シェル一覧',
+  'settings.shellProfilesHint':
+    'ターミナル追加の「▾」プルダウンと既定シェル選択肢の並び順・表示/非表示。WSL と Windows それぞれ最低 1 つは表示のまま維持されます。',
+  'settings.shellProfileDefault': 'デフォルト',
+  'settings.shellProfileShow': '表示する',
+  'settings.shellProfileHide': '非表示にする',
   'settings.sync': '設定の同期',
   'settings.syncHint':
     '環境に依存しない設定（フォント・配色・エディタ・ターミナルのコマンド/プロンプト等）を 1 つの JSON ファイルに書き出します。保存先を Dropbox など同期フォルダ内のパスにすると、複数 PC 間で共有できます。プロジェクト一覧やグループは同期されません。',

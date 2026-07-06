@@ -18,6 +18,29 @@ export function isWindowsShell(shell: ShellType): boolean {
   return shell.kind !== 'wsl'
 }
 
+/** Stable identity for a shell config: profile key and default-shell matching. */
+export function shellId(shell: ShellType): string {
+  return shell.kind === 'wsl' ? `wsl:${shell.distro}` : shell.kind
+}
+
+/**
+ * Terminal-add dropdown entry managed in Settings (#129): visibility and order
+ * are user-configurable. Machine-local (the WSL distro set differs per PC) —
+ * persisted outside the synced settings, like the globalShell key.
+ */
+export interface ShellProfile {
+  /** shellId(shell) — stable across sessions */
+  id: string
+  shell: ShellType
+  hidden?: boolean
+}
+
+/** Dropdown label: matches WINDOWS_SHELLS naming (not the short shellLabel form). */
+export function shellProfileLabel(shell: ShellType): string {
+  if (shell.kind === 'wsl') return `WSL (${shell.distro})`
+  return WINDOWS_SHELLS.find((s) => s.kind === shell.kind)?.label ?? shell.kind
+}
+
 /** powershell.exe / pwsh.exe: same syntax for clear (`cls`) and chaining (`;`) */
 export function isPowershellFamily(kind: string | undefined): boolean {
   return kind === 'powershell' || kind === 'pwsh'

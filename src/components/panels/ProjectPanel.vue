@@ -7,6 +7,7 @@ import { useI18n } from '../../i18n'
 import { loadJson, saveJson } from '../../lib/storage'
 import { detectWslDistros, pickFolder, ptyGetCwd } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
+import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { ProjectConfig } from '../../types/project'
 import {
@@ -16,7 +17,6 @@ import {
   shellToPlatform,
   shellToWinKind,
   slugify,
-  WINDOWS_SHELLS,
   type WindowsShellKind,
 } from '../../types/tab'
 import ColorSelect from './ColorSelect.vue'
@@ -27,6 +27,7 @@ const { t } = useI18n()
 
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
+const settings = useSettingsStore()
 
 const COLLAPSE_STORAGE_KEY = 'pike:project-group-collapsed'
 
@@ -168,13 +169,25 @@ onMounted(async () => {
   await projectStore.loadGroups()
   try {
     distros.value = await detectWslDistros()
-    if (distros.value.length > 0) {
-      formDistro.value = distros.value[0]
+    settings.syncShellProfiles(distros.value)
+    const visible = settings.visibleWslDistros(distros.value)
+    if (visible.length > 0) {
+      formDistro.value = visible[0]
     }
   } catch {
     distros.value = ['Ubuntu']
   }
+  // Don't preselect a hidden Windows shell in the create form
+  const shellOpts = settings.windowsShellOptions()
+  if (shellOpts.length > 0 && !shellOpts.some((o) => o.kind === formWindowsShell.value)) {
+    formWindowsShell.value = shellOpts[0].kind
+  }
 })
+
+// Dropdown options honor the shell profile visibility/order (#129); the
+// current selection stays listed so the select never loses its value.
+const formDistroOptions = computed(() => settings.visibleWslDistros(distros.value, formDistro.value))
+const formShellOptions = computed(() => settings.windowsShellOptions(formWindowsShell.value))
 
 const showForm = ref(false)
 const formName = ref('')
@@ -289,10 +302,10 @@ async function onDelete(id: string) {
         <label class="radio-label"><input type="radio" v-model="formPlatform" value="windows" /> Windows</label>
       </div>
       <select v-if="formPlatform === 'wsl'" v-model="formDistro">
-        <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
+        <option v-for="d in formDistroOptions" :key="d" :value="d">{{ d }}</option>
       </select>
       <select v-if="formPlatform === 'windows'" v-model="formWindowsShell">
-        <option v-for="s in WINDOWS_SHELLS" :key="s.kind" :value="s.kind">{{ s.label }}</option>
+        <option v-for="s in formShellOptions" :key="s.kind" :value="s.kind">{{ s.label }}</option>
       </select>
       <button type="submit">{{ t('common.create') }}</button>
     </form>

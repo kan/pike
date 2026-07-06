@@ -196,6 +196,12 @@ export default {
   'settings.terminalExitNotification': 'Desktop notification on exit',
   'settings.globalShell': 'Default shell in global mode',
   'settings.globalShellHint': 'Shell opened by + in project-independent (global) windows.',
+  'settings.shellProfiles': 'Shell list',
+  'settings.shellProfilesHint':
+    'Order and visibility of the terminal "▾" dropdown and the default-shell choices. At least one WSL and one Windows shell stay visible.',
+  'settings.shellProfileDefault': 'default',
+  'settings.shellProfileShow': 'Show',
+  'settings.shellProfileHide': 'Hide',
   'settings.sync': 'Settings Sync',
   'settings.syncHint':
     'Mirror your environment-independent settings (font, colors, editor, terminal commands/prompts, etc.) to a single JSON file. Point the path at a folder synced by Dropbox/OneDrive/git to share them across PCs. Project list and groups are not synced.',
