@@ -648,15 +648,25 @@ onMounted(async () => {
   // implicitly (which is why switching tabs "fixed" it).
   windowFocusHandler = () => {
     if (!terminal || tabStore.activeTabId !== props.tabId) return
-    terminal.blur()
-    // blur() is a no-op unless the textarea still has DOM focus, so clear the
-    // retained text directly as well
-    if (terminal.textarea) terminal.textarea.value = ''
+    // Defer the whole blur→refresh→focus cycle to the next frame. When the window
+    // was activated by *clicking into another Pike window's terminal*, the hidden
+    // textarea hasn't received DOM focus yet at the moment 'focus' fires (window
+    // activation precedes the click's element focus). Running blur() synchronously
+    // here is then a no-op, so xterm's blur handler never clears the committed IME
+    // text / composition state (xterm.js #6012) and the next commit duplicates.
+    // By the next frame the click's focus has landed, so blur() actually triggers
+    // the cleanup. This is the window→window case that regressed after the
+    // original fix (which only covered app→app return, where the textarea is
+    // auto-refocused before the frame).
     requestAnimationFrame(() => {
       // Re-check liveness AND active tab: the terminal may have been disposed
       // (tab closed) or the user may have switched tabs in the frame since the
       // focus event — either way we must not refresh/focus this terminal.
       if (!terminal || tabStore.activeTabId !== props.tabId) return
+      terminal.blur()
+      // blur() is a no-op unless the textarea still has DOM focus, so clear the
+      // retained text directly as well
+      if (terminal.textarea) terminal.textarea.value = ''
       terminal.refresh(0, terminal.rows - 1)
       terminal.focus()
     })
