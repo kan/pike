@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.22.1] - 2026-07-07
+
+### Bug Fixes
+
+- **Pike ウィンドウ間のターミナル移動で IME が壊れる問題を修正**: 別ウィンドウの Pike ターミナルへクリックで移動した直後の日本語入力で、確定文字の多重入力・変換候補ウィンドウの位置ずれが再発していた症状を修正。0.22.0 の IME 修正が別アプリからの復帰のみを対象にしていたのを、ウィンドウ間の移動にも対応
+- **リリース CI を tauri-action v1.0.0 に追従**: `includeUpdaterJson` が `uploadUpdaterJson` に改名されたのに合わせてワークフローを更新（更新用 `latest.json` が確実に公開されるように修正）
+
 ## [0.22.0] - 2026-07-06
 
 ### Features
