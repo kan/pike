@@ -1,23 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import { confirmDialog } from '../composables/useConfirmDialog'
-
-// invoke の唯一のチョークポイント。E2E 撮影ビルド (#142) では、パネルへ決定的な
-// ダミーデータを与えるため window.__wdio_mocks__（@wdio/tauri-service が
-// browser.tauri.mock で設定）にモックがあればそれを返す。Tauri v2 は
-// __TAURI_INTERNALS__.invoke を凍結していて monkey-patch できないため、ここで
-// 明示的に分岐する。通常ビルドでは __PIKE_E2E__ が false 定数となり、この分岐ごと
-// Rollup が除去する（本番は素の tauriInvoke のまま）。
-const invoke: typeof tauriInvoke = __PIKE_E2E__
-  ? (((cmd: string, args?: Record<string, unknown>) => {
-      const fn = (window as unknown as { __wdio_mocks__?: Record<string, unknown> }).__wdio_mocks__?.[
-        cmd
-      ]
-      if (typeof fn === 'function') {
-        return Promise.resolve((fn as (a?: unknown) => unknown)(args))
-      }
-      return tauriInvoke(cmd, args)
-    }) as typeof tauriInvoke)
-  : tauriInvoke
 import { t } from '../i18n'
 import type { ClaudeRateLimits, ClaudeUsageResult } from '../types/claudeUsage'
 import type { CodexUsageResult } from '../types/codexUsage'
@@ -27,6 +9,22 @@ import type { GitFileChange, GitLogEntry, GitStatusResult, GitWorktree } from '.
 import type { ProjectConfig } from '../types/project'
 import type { SearchBackend, SearchResult } from '../types/search'
 import type { ShellType } from '../types/tab'
+
+// invoke の唯一のチョークポイント。E2E 撮影ビルド (#142) では、パネルへ決定的な
+// ダミーデータを与えるため window.__wdio_mocks__（@wdio/tauri-service が
+// browser.tauri.mock で設定）にモックがあればそれを返す。Tauri v2 は
+// __TAURI_INTERNALS__.invoke を凍結していて monkey-patch できないため、ここで
+// 明示的に分岐する。通常ビルドでは __PIKE_E2E__ が false 定数となり、この分岐ごと
+// Rollup が除去する（本番は素の tauriInvoke のまま）。
+const invoke: typeof tauriInvoke = __PIKE_E2E__
+  ? (((cmd: string, args?: Record<string, unknown>) => {
+      const fn = (window as unknown as { __wdio_mocks__?: Record<string, unknown> }).__wdio_mocks__?.[cmd]
+      if (typeof fn === 'function') {
+        return Promise.resolve((fn as (a?: unknown) => unknown)(args))
+      }
+      return tauriInvoke(cmd, args)
+    }) as typeof tauriInvoke)
+  : tauriInvoke
 
 // PTY
 
