@@ -538,10 +538,7 @@ fn parse_osc7_url(buf: &[u8]) -> Option<String> {
     // Format: file://hostname/path  or  file:///path
     let rest = s.strip_prefix("file://")?;
     // Skip hostname (everything up to the first `/` after `//`)
-    let path = if let Some(slash_pos) = rest.find('/') {
-        &rest[slash_pos..]
-    } else {
-        return None;
-    };
+    let slash_pos = rest.find('/')?;
+    let path = &rest[slash_pos..];
     Some(percent_decode_str(path).decode_utf8_lossy().into_owned())
 }

@@ -149,10 +149,9 @@ fn create_adhoc_project(
         let prefix_dollar = format!("//wsl$/{distro}/");
         let wsl_path = if let Some(rest) = norm.strip_prefix(&prefix_localhost) {
             format!("/{rest}")
-        } else if let Some(rest) = norm.strip_prefix(&prefix_dollar) {
-            format!("/{rest}")
         } else {
-            return None;
+            let rest = norm.strip_prefix(&prefix_dollar)?;
+            format!("/{rest}")
         };
         (wsl_path, types::ShellConfig::Wsl { distro })
     } else if let Some(distro) = distro_hint {
@@ -194,7 +193,7 @@ fn create_adhoc_project(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-        format!("{}-{}", &base_id, ts % 100000)
+        format!("{}-{}", base_id, ts % 100000)
     } else {
         base_id
     };
