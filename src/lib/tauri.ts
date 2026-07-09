@@ -423,11 +423,10 @@ export async function isElevated(): Promise<boolean> {
  *  kind ('cmd' | 'powershell' | 'pwsh' | 'git-bash'). With `projectId` the admin
  *  window reopens that project in normal mode; otherwise it opens as a global
  *  terminal window (#138). */
-export async function openElevatedTerminal(shell: string, opts?: { projectId?: string; cwd?: string }): Promise<void> {
+export async function openElevatedTerminal(shell: string, opts?: { projectId?: string }): Promise<void> {
   return invoke('open_elevated_terminal', {
     shell,
     projectId: opts?.projectId ?? null,
-    cwd: opts?.cwd ?? null,
   })
 }
 

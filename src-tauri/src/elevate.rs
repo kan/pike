@@ -55,13 +55,14 @@ fn is_windows_shell_kind(kind: &str) -> bool {
 ///
 /// - `project_id` あり: 呼び出し元がプロジェクトウィンドウ。同じプロジェクトを
 ///   通常モードで開き、そのシェルのターミナルを 1 タブ開く（モード引き継ぎ）。
+///   ターミナルの cwd はプロジェクトルート（昇格側で config から解決）。
 /// - `project_id` なし: グローバルモード。グローバルターミナルとして開く。
+///
+/// 昇格プロセスへ渡す引数は固定リテラルと検証済みの値のみ（`shell` は許可リスト、
+/// `project_id` は `validate_slug`）。呼び出し元由来の自由文字列は載せない
+/// ＝ 昇格コマンドラインへの引数注入面を持たない。
 #[tauri::command]
-pub fn open_elevated_terminal(
-    shell: String,
-    project_id: Option<String>,
-    cwd: Option<String>,
-) -> Result<(), String> {
+pub fn open_elevated_terminal(shell: String, project_id: Option<String>) -> Result<(), String> {
     if !is_windows_shell_kind(&shell) {
         return Err(format!("unsupported shell for elevation: {shell}"));
     }
@@ -80,16 +81,12 @@ pub fn open_elevated_terminal(
             None => {
                 params.push("--terminal".to_string());
                 params.push(format!("--shell={shell}"));
-                if let Some(c) = cwd.filter(|c| !c.is_empty()) {
-                    params.push(format!("--cwd={c}"));
-                }
             }
         }
         run_elevated(&exe, &params)
     }
     #[cfg(not(windows))]
     {
-        let _ = cwd;
         Err("elevation is only supported on Windows".to_string())
     }
 }
@@ -100,19 +97,20 @@ fn run_elevated(exe: &std::path::Path, params: &[String]) -> Result<(), String> 
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
-    // スペースを含む引数（cwd パス）は引用符で囲む。シェル種別は許可リストで
-    // 検証済み、それ以外の引数は固定文字列なので注入の余地はない。
-    let joined = params
+    // Defense in depth: every current param is a fixed literal or a validated
+    // value (allowlisted shell kind, slug-checked project id) with no spaces or
+    // quotes, so the naive quoting below is never exercised with dangerous
+    // input. Reject anything that could break out of it (whitespace or `"`), so a
+    // future caller adding an unsanitized arg can't inject into this *elevated*
+    // command line. Full CommandLineToArgvW quoting is intentionally avoided —
+    // we simply forbid the characters that would require it.
+    if params
         .iter()
-        .map(|p| {
-            if p.contains(' ') {
-                format!("\"{p}\"")
-            } else {
-                p.clone()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
+        .any(|p| p.is_empty() || p.chars().any(|c| c == '"' || c.is_whitespace()))
+    {
+        return Err("internal: unsafe argument for elevated launch".to_string());
+    }
+    let joined = params.join(" ");
 
     let verb = HSTRING::from("runas");
     let file = HSTRING::from(&*exe.to_string_lossy());
