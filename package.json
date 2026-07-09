@@ -10,7 +10,9 @@
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "lint": "biome check src/",
     "lint:fix": "biome check --write src/",
-    "format": "biome format --write src/"
+    "format": "biome format --write src/",
+    "e2e:build": "cross-env PIKE_E2E=1 tauri build --debug --no-bundle --features e2e -c src-tauri/tauri.e2e.conf.json",
+    "e2e": "wdio run e2e/wdio.conf.ts"
   },
   "keywords": [
     "tauri",
@@ -57,14 +59,25 @@
   },
   "overrides": {
     "lodash-es": "^4.18.0",
-    "uuid": "^11.1.1"
+    "uuid": "^11.1.1",
+    "@wdio/native-utils": "2.5.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.1",
     "@tauri-apps/cli": "^2.11.3",
+    "@types/mocha": "^10.0.10",
     "@vitejs/plugin-vue": "^6.0.7",
+    "@wdio/cli": "^9.29.1",
+    "@wdio/local-runner": "^9.29.1",
+    "@wdio/mocha-framework": "^9.29.1",
+    "@wdio/spec-reporter": "^9.29.1",
+    "@wdio/tauri-plugin": "^1.2.0",
+    "@wdio/tauri-service": "^1.2.0",
+    "cross-env": "^10.1.0",
+    "tsx": "^4.23.0",
     "typescript": "^6.0.3",
     "vite": "^8.1.0",
-    "vue-tsc": "^3.3.5"
+    "vue-tsc": "^3.3.5",
+    "webdriverio": "^9.29.1"
   }
 }

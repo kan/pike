@@ -1,0 +1,6 @@
+{
+  "identifier": "com.pike.e2e",
+  "app": {
+    "withGlobalTauri": true
+  }
+}

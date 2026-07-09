@@ -537,6 +537,14 @@ pub fn run() {
     let standalone = std::env::args().any(|a| a == "--new-instance");
 
     let mut builder = tauri::Builder::default();
+
+    // WebDriver E2E 用プラグイン (issue #142)。embedded provider が WebView 内で
+    // WebDriver サーバを立てる。`e2e` feature のときだけ有効で本番には含めない。
+    #[cfg(feature = "e2e")]
+    {
+        builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+    }
+
     if !standalone {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             // Defer via run_on_main_thread to escape the WM_COPYDATA
@@ -584,6 +592,19 @@ pub fn run() {
         .setup(|app| {
             if let Some(state) = app.try_state::<docker::DockerState>() {
                 let _ = state.instance_id.set(app.config().identifier.clone());
+            }
+
+            // WebDriver E2E の capability を実行時に登録する (issue #142)。
+            // wdio-webdriver:default はプラグイン同梱の permission で、静的な
+            // capabilities/ に載せるとプラグイン非搭載の本番ビルドが壊れる。
+            // dynamic-acl で `e2e` feature 時のみ登録し、本番を無傷に保つ。
+            #[cfg(feature = "e2e")]
+            {
+                if let Err(e) =
+                    app.handle().add_capability(include_str!("../capabilities-runtime/wdio.json"))
+                {
+                    log::warn!("failed to add wdio capability: {e}");
+                }
             }
 
             let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;

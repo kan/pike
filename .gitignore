@@ -7,6 +7,9 @@ src-tauri/icons/android/
 src-tauri/icons/ios/
 test-assets/
 
+# E2E スクリーンショット撮影の出力 (issue #142)
+artifacts/
+
 # Secrets / credentials (safety net)
 .env
 .env.*

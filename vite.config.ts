@@ -16,6 +16,10 @@ export default defineConfig({
   plugins: [vue()],
   define: {
     __GIT_COMMIT_HASH__: JSON.stringify(gitCommitHash()),
+    // E2E 撮影ビルド (issue #142) でのみ true。通常ビルドでは false 定数に
+    // なり、main.ts の wdio guest 読み込み分岐ごと Rollup が dead-code
+    // elimination するのでプロダクションには一切含まれない。
+    __PIKE_E2E__: JSON.stringify(process.env.PIKE_E2E === '1'),
   },
   clearScreen: false,
   // Limit dep-scan to the actual app entry. Without this, rolldown-vite crawls

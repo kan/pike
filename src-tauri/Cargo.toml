@@ -13,6 +13,12 @@ default-run = "pike"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# E2E スクリーンショット自動化 (issue #142)。既定 OFF。`tauri build --features e2e`
+# のときだけ wdio WebDriver プラグインと dynamic-acl を有効化する。cfg(debug_assertions)
+# の target 依存はプロファイルを追従せず release にも混入するため、feature で制御する。
+e2e = ["dep:tauri-plugin-wdio-webdriver", "tauri/dynamic-acl"]
+
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 
@@ -40,6 +46,8 @@ notify = "8"
 percent-encoding = "2"
 tauri-plugin-notification = "2"
 async-trait = "0.1"
+# E2E 撮影 (issue #142)。`e2e` feature でのみ有効。本番ビルドには含まれない。
+tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
