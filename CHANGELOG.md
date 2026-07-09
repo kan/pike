@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.23.1] - 2026-07-09
+
+### Bug Fixes
+
+- **SKK など「確定を押さずに次の入力で確定する」IME で変換が消える不具合を修正**: v0.23.0 の IME 対策（変換開始時の textarea クリア）が、SKK の確定操作（Enter を押さず次の入力で確定）で確定直後のテキストを xterm が読み取る前に消していました。送信中はクリアを控え、変換が完全に終わってから textarea をリセットするようにして解消しました
+
 ## [0.23.0] - 2026-07-09
 
 ### Features
