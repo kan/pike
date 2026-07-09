@@ -14,6 +14,7 @@ mod project;
 mod pty;
 mod settings_sync;
 mod tasks;
+pub mod todo_cli;
 mod types;
 pub mod wait;
 mod watcher;

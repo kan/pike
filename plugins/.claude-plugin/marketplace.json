@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "pike",
+  "description": "Claude Code plugins that integrate with the Pike development environment.",
+  "owner": {
+    "name": "Kan Fushihara",
+    "email": "kan.fushihara@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "pike-todo",
+      "description": "Manage a Pike project's shared TODO checklist from the terminal with the `pike todo` CLI, staying in sync with Pike's TODO panel.",
+      "author": {
+        "name": "Kan Fushihara"
+      },
+      "category": "productivity",
+      "source": "./pike-todo"
+    }
+  ]
+}

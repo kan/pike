@@ -65,6 +65,9 @@ pike/
 │   │   ├── README.md          # マニュアル索引
 │   │   └── *.md               # 機能別ページ（getting-started, editor, git 等）
 │   └── *.png                  # README/マニュアル用スクリーンショット
+├── plugins/                   # エージェント（Claude Code / Codex）向けスキル・プラグイン（#139）
+│   ├── pike-todo/             # Claude Code プラグイン（pike todo CLI スキル）
+│   └── codex/pike-todo/       # Codex 用スキル（内容は Claude 版と同一）
 ├── scripts/
 │   └── download-rg.sh         # rg サイドカーバイナリのダウンロード
 ├── src-tauri/
@@ -76,6 +79,7 @@ pike/
 │       ├── types.rs           # ShellConfig・WSL_EXTRA_PATH・bash_quote 等の共通型/ヘルパー
 │       ├── font.rs            # フォント列挙（font-kit でモノスペース検出）
 │       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
+│       ├── todo_cli.rs        # `pike todo` サブコマンド（.pike/todo.md 直接操作、#139）
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
 │       ├── agent/
 │       │   ├── mod.rs         # 統一エージェント API モジュール
@@ -377,6 +381,21 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - マッチしない場合は ad-hoc プロジェクトを自動作成（PowerShell）
 - ファイル引数のルーティング: `--from-window` 発ウィンドウ → **全ファイルを含む**プロジェクトウィンドウ → グローバルウィンドウの順（`CliState.pending` でアクションを転送）
 - 既存エディタタブがある場合はフォーカス＋リロード（`reloadRequested` タイムスタンプ）
+
+### pike todo CLI（#139）
+- `pike todo ...` は TODO パネルの実体 `.pike/todo.md` を**直接読み書きして stdout に出力し exit する独立 CLI**。GUI へ IPC せず、起動していなくても動く。GUI 起動中なら `todo` store の `fsWatcher.onFileChange` がファイル変更を検知してパネルを自動リロードするため、端末⇔パネルが同期する
+- `src-tauri/src/todo_cli.rs`。`main.rs` で Tauri ランタイム起動前・**`try_forward_pty_origin_and_exit` より前**に `try_todo_and_exit()` でフック（後だと `todo` がファイルパスとして GUI へルーティングされてしまう）
+- パース/シリアライズは `src/stores/todo.ts` と同一仕様（`(\s*[-*]\s+)\[([ xX])\]` を task 行、見出し・空行・自由記述は raw として round-trip 保持。保存は `[X]`→`[x]` 正規化・末尾改行 1 個）。GUI と同じく `.pike` 生成時に `.gitignore`（`*`）を書く
+- サブコマンド: `list`（`--json` 対応、番号は 1 始まり）/ `add <text...>` / `done <n...>` / `undone <n...>` / `rm <n...>` / `clear`（タスク行のみ削除）/ `help`。番号は list 出力位置
+- TODO ファイル解決（`resolve_todo_file`）: cwd から上方向に **既存 `.pike/` を最優先**（無ければ `.git` リポジトリルート、無ければ cwd）に `.pike/todo.md`。GUI は端末を project.root で開くので通常 cwd == root、サブディレクトリからでも辿れる
+- release は `windows_subsystem = "windows"` でコンソール非割当のため、出力前に `AttachConsole(ATTACH_PARENT_PROCESS)`（`Win32_System_Console`）で親端末に接続（ConPTY 継承時は失敗するが無害）
+- エージェント（Claude Code / Codex）向けスキルは `plugins/` に配置（後述の「エージェントプラグイン」）
+
+### エージェントプラグイン（plugins/、#139）
+- `plugins/` に Claude Code / Codex 双方向けの Agent Skills（`SKILL.md` 形式は両者共通）を収録。現状は `pike todo` CLI の使い方を説明する `pike-todo` スキルのみ
+- `plugins/pike-todo/`（Claude Code プラグイン: `.claude-plugin/plugin.json` + `skills/pike-todo/SKILL.md`）、`plugins/.claude-plugin/marketplace.json`（`claude plugin marketplace add ./plugins` 用）、`plugins/codex/pike-todo/SKILL.md`（Codex 用・内容は Claude 版と同一）。導入手順は `plugins/README.md`
+- **CLI の挙動を変えたら 2 つの SKILL.md（claude 版・codex 版）を両方更新する**（同一内容の複製。drift 注意）
+- 将来 CLI の操作対象を増やす際はスキルを拡充（issue #139 の bullet 3-4 は別 issue 想定）
 
 ### グローバルモード（#123）
 - プロジェクト非依存・サイドバー無しのウィンドウ。ラベル prefix `global-`（Rust `GLOBAL_PREFIX` / front `isGlobalWindow()`、旧 `secondary-` を置換）
