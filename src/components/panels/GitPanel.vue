@@ -313,7 +313,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="git-panel">
+  <div class="git-panel" data-testid="git-panel">
     <template v-if="!projectStore.currentProject">
       <div class="empty">{{ t('git.noProject') }}</div>
     </template>

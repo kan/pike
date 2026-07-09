@@ -92,6 +92,29 @@ export async function callE2E(
   }, method)
 }
 
+// Tauri invoke をモックする（@wdio/tauri-service）。パネルへ決定的データを与える。
+export async function mockInvoke(command: string, value: unknown): Promise<void> {
+  const b = browser as unknown as {
+    tauri: { mock: (c: string) => Promise<{ mockResolvedValue: (v: unknown) => Promise<void> }> }
+  }
+  const m = await b.tauri.mock(command)
+  await m.mockResolvedValue(value)
+}
+
+// 擬似プロジェクトを差して activeRoot を確定させ、invoke 駆動パネルを有効化する。
+export async function setFakeProject(): Promise<void> {
+  await browser.execute(() => {
+    ;(window as unknown as { __pikeE2E?: { setFakeProject?: () => void } }).__pikeE2E?.setFakeProject?.()
+  })
+}
+
+// サイドバーの指定パネルを開く。
+export async function openPanel(name: string): Promise<void> {
+  await browser.execute((n) => {
+    ;(window as unknown as { __pikeE2E?: { openPanel?: (n: string) => void } }).__pikeE2E?.openPanel?.(n)
+  }, name)
+}
+
 export const MATRIX: Array<{ lang: Lang; theme: Theme }> = [
   { lang: 'ja', theme: 'light' },
   { lang: 'ja', theme: 'dark' },

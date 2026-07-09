@@ -64,6 +64,22 @@ npm run e2e
 - ▾ プルダウンは globalMode（または Windows プロジェクト）のときだけ出るため、
   `enterGlobalMode`（WSL 検出でシェルプロファイルを揃えてから globalMode に入る）で撮る。
 
+## invoke 駆動パネルの撮影（invoke モック）
+
+Git / Docker / ファイルツリー等は Rust への invoke でデータを得る。決定的な
+ダミーデータを与えて撮るには invoke モックを使う。
+
+- **モックの適用先**: Tauri v2 は `__TAURI_INTERNALS__.invoke` を凍結していて
+  monkey-patch できず、`@wdio/tauri-service` の invoke モックはアプリ自身の invoke に
+  効かない。そこで **`src/lib/tauri.ts`（唯一の invoke チョークポイント）** が e2e
+  ビルドで `window.__wdio_mocks__` を参照し、モックがあればそれを返す（`__PIKE_E2E__`
+  分岐なので本番はツリーシェイクで除去）。
+- **手順**: `mockInvoke(command, value)` でコマンド別に値を設定 → `setFakeProject()`
+  で擬似プロジェクトを差して `activeRoot` を確定 → `openPanel('git')` 等でパネルを
+  開く。パネルは開いた時に invoke でフェッチするので、モックは開く前に設定する。
+- 実装例は `e2e/specs/panels.ts`（Git パネル。`git_status` / `git_log` /
+  `git_branch_list` / `git_remote_url` / `git_worktree_list` をモック）。
+
 ## シナリオの追加
 
 `e2e/specs/*.ts` に mocha の `describe` / `it` で書く。要素は `data-testid` で特定し、

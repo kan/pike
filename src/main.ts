@@ -9,8 +9,14 @@ async function bootstrap() {
   // await する。通常ビルドでは __PIKE_E2E__ が false 定数となり、この分岐ごと
   // Rollup が除去する（guest は本番バンドルに含まれない）。
   if (__PIKE_E2E__) {
-    const { init } = await import('@wdio/tauri-plugin')
-    await init()
+    // e2e セットアップは撮影専用の補助であり、失敗しても本体の起動を止めない。
+    // invoke モックの経路は lib/tauri.ts 側（唯一の invoke チョークポイント）に持つ。
+    try {
+      const { init } = await import('@wdio/tauri-plugin')
+      await init()
+    } catch (e) {
+      console.error('[e2e] setup failed (continuing to mount):', e)
+    }
   }
 
   const app = createApp(App)
@@ -25,10 +31,12 @@ async function bootstrap() {
     const { useSettingsStore } = await import('./stores/settings')
     const { useTabStore } = await import('./stores/tabs')
     const { useProjectStore } = await import('./stores/project')
+    const { useSidebarStore } = await import('./stores/sidebar')
     const { globalMode } = await import('./lib/window')
     const settings = useSettingsStore()
     const tabs = useTabStore()
     const project = useProjectStore()
+    const sidebar = useSidebarStore()
     ;(window as unknown as { __pikeE2E?: Record<string, unknown> }).__pikeE2E = {
       setLanguage: (lang: string) => {
         settings.language = lang
@@ -59,6 +67,23 @@ async function bootstrap() {
           }
           globalMode.value = true
         })()
+      },
+      // invoke モックでパネルを撮るための擬似プロジェクト。root を持つ
+      // currentProject を差すと activeRoot が定まり、Git/Docker/ファイルツリー等の
+      // invoke 駆動パネルが有効になる。データ自体はテスト側の invoke モックが返す。
+      setFakeProject: () => {
+        project.showSwitcher = false
+        project.currentProject = {
+          id: 'e2e-demo',
+          name: 'demo-app',
+          root: 'C:/Users/dev/demo-app',
+          shell: { kind: 'powershell' },
+          pinnedTabs: [],
+          lastOpened: '2026-01-01T00:00:00Z',
+        }
+      },
+      openPanel: (name: string) => {
+        sidebar.activePanel = name as typeof sidebar.activePanel
       },
     }
   }
