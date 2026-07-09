@@ -368,6 +368,24 @@ onMounted(async () => {
   terminal.open(termRef.value)
   fitAddon.fit()
 
+  // IME robustness (xterm.js #6012 / the recurring "IME breaks until you switch
+  // tabs" bug). xterm only clears the hidden textarea's committed IME text on
+  // blur, so composing repeatedly in the same tab lets that text accumulate.
+  // On the next compositionstart xterm records the composition's start offset as
+  // the current textarea length; a stale non-zero length makes it extract the
+  // wrong substring on compositionend → duplicated / mispositioned input.
+  // Switching tabs "fixed" it only because leaving blurs the textarea (which
+  // clears it). Instead, empty the textarea at the START of every composition so
+  // each one begins at offset 0 — no tab switch needed. Capture phase on the
+  // container runs before xterm's own textarea listener records the offset.
+  termRef.value.addEventListener(
+    'compositionstart',
+    () => {
+      if (terminal?.textarea) terminal.textarea.value = ''
+    },
+    true,
+  )
+
   // Newly created tabs mount after activeTabId has already changed, so the
   // tab-activation watcher never fires for the initial activation. Without
   // this the "+" button keeps DOM focus and typing goes nowhere (#126).
