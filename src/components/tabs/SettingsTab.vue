@@ -210,7 +210,7 @@ const PREVIEW_LINES = [
 </script>
 
 <template>
-  <div class="settings-tab">
+  <div class="settings-tab" data-testid="settings-screen">
     <nav class="settings-nav ui-zoom">
       <button
         v-for="sec in sections"
@@ -424,7 +424,7 @@ const PREVIEW_LINES = [
           <p class="setting-hint">{{ t('settings.globalShellHint') }}</p>
         </div>
 
-        <div class="setting-block">
+        <div class="setting-block" data-testid="settings-shells">
           <label class="setting-label">{{ t('settings.shellProfiles') }}</label>
           <p class="setting-hint">{{ t('settings.shellProfilesHint') }}</p>
           <div class="agent-cmd-list">

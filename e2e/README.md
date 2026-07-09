@@ -41,6 +41,29 @@ npm run e2e
 
 出力は `artifacts/screenshots/` に保存する（git 管理外）。
 
+## 撮影済み画面（Phase 1）
+
+`e2e/specs/screenshots.ts` が ja/en × light/dark の 4 バリアントで撮る。
+命名規則は `{画面}-{lang}-{theme}.png`。
+
+- `project-switcher`：プロジェクト切替モーダル
+- `new-project`：新規プロジェクト作成フォーム
+- `settings`：設定画面（外観セクション）
+- `settings-shells`：設定のシェル一覧
+
+未対応の手撮り backlog: `shell-dropdown`（ターミナル追加の ▾ プルダウン）。
+これは globalMode か Windows プロジェクトのときだけ ▾ が出るため、別ウィンドウ
+文脈が必要で Phase 1 の残タスク。
+
+固定・切替の要点:
+
+- 言語・テーマ・ウィンドウサイズは `support/prepare.ts` の `prepare()` で固定。
+- 言語・テーマの切替は e2e ビルド限定の `window.__pikeE2E`（`setLanguage` /
+  `setDarkMode`）でリロードなしに行う。
+- 画面遷移は data-testid（`project-switcher` / `switcher-new-project` /
+  `new-project-form` / `settings-screen` / `settings-shells`）と、`__pikeE2E` の
+  `openSwitcher` / `closeSwitcher` / `openSettings` で行う。
+
 ## シナリオの追加
 
 `e2e/specs/*.ts` に mocha の `describe` / `it` で書く。要素は `data-testid` で特定し、

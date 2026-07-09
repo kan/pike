@@ -82,6 +82,16 @@ export async function shoot(name: string, lang: Lang, theme: Theme): Promise<voi
   await browser.saveScreenshot(path.join(shotDir, `${name}-${lang}-${theme}.png`))
 }
 
+// e2e ビルドが露出する window.__pikeE2E の副作用なしナビゲーション helper を呼ぶ。
+export async function callE2E(
+  method: 'openSwitcher' | 'closeSwitcher' | 'openSettings',
+): Promise<void> {
+  await browser.execute((m) => {
+    const api = (window as unknown as { __pikeE2E?: Record<string, () => void> }).__pikeE2E
+    api?.[m]?.()
+  }, method)
+}
+
 export const MATRIX: Array<{ lang: Lang; theme: Theme }> = [
   { lang: 'ja', theme: 'light' },
   { lang: 'ja', theme: 'dark' },

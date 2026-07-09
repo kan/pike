@@ -190,7 +190,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 <template>
   <Teleport to="body">
     <div v-if="projectStore.showSwitcher" class="switcher-overlay ui-zoom" @mousedown.self="projectStore.showSwitcher = false">
-      <div class="switcher">
+      <div class="switcher" data-testid="project-switcher">
         <!-- Search bar (hidden when creating) -->
         <input
           v-if="!showNewForm"
@@ -232,12 +232,12 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             <button class="global-mode-btn" @click="enterGlobalMode">
               <Globe :size="14" :stroke-width="2" />{{ t('projectSwitcher.openGlobal') }}
             </button>
-            <button class="new-project-btn" @click="openNewForm">{{ t('projectSwitcher.newProject') }}</button>
+            <button class="new-project-btn" data-testid="switcher-new-project" @click="openNewForm">{{ t('projectSwitcher.newProject') }}</button>
           </div>
         </div>
 
         <!-- New project form -->
-        <div v-if="showNewForm" class="new-form">
+        <div v-if="showNewForm" class="new-form" data-testid="new-project-form">
           <div class="new-form-header">
             <span>{{ t('projectSwitcher.formTitle') }}</span>
             <button class="back-btn" @click="resetForm">{{ t('common.back') }}</button>

@@ -23,13 +23,27 @@ async function bootstrap() {
   // store の reactive ref を直接更新して即時反映させる。本番では分岐ごと除去される。
   if (__PIKE_E2E__) {
     const { useSettingsStore } = await import('./stores/settings')
+    const { useTabStore } = await import('./stores/tabs')
+    const { useProjectStore } = await import('./stores/project')
     const settings = useSettingsStore()
+    const tabs = useTabStore()
+    const project = useProjectStore()
     ;(window as unknown as { __pikeE2E?: Record<string, unknown> }).__pikeE2E = {
       setLanguage: (lang: string) => {
         settings.language = lang
       },
       setDarkMode: (dark: boolean) => {
         settings.darkMode = dark
+      },
+      openSwitcher: () => {
+        project.showSwitcher = true
+      },
+      closeSwitcher: () => {
+        project.showSwitcher = false
+      },
+      openSettings: () => {
+        project.showSwitcher = false
+        tabs.addSettingsTab()
       },
     }
   }
