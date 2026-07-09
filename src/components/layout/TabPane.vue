@@ -371,6 +371,7 @@ onUnmounted(() => {
         <button
           v-if="isWindows || globalMode"
           class="tab-add-arrow"
+          data-testid="tab-add-arrow"
           :title="t('tabs.openWithShell')"
           @click.stop="toggleShellMenu"
         ><ChevronDown :size="12" :stroke-width="2" /></button>
@@ -378,7 +379,7 @@ onUnmounted(() => {
         <HelpButton v-if="globalMode" page="global-mode.md" :size="15" />
       </div>
       <!-- Shell dropdown -->
-      <div v-if="showShellMenu" class="shell-menu" @mousedown.stop>
+      <div v-if="showShellMenu" class="shell-menu" data-testid="shell-menu" @mousedown.stop>
         <button
           v-for="s in shellMenuItems"
           :key="s.key"

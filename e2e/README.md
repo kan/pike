@@ -50,10 +50,7 @@ npm run e2e
 - `new-project`：新規プロジェクト作成フォーム
 - `settings`：設定画面（外観セクション）
 - `settings-shells`：設定のシェル一覧
-
-未対応の手撮り backlog: `shell-dropdown`（ターミナル追加の ▾ プルダウン）。
-これは globalMode か Windows プロジェクトのときだけ ▾ が出るため、別ウィンドウ
-文脈が必要で Phase 1 の残タスク。
+- `shell-dropdown`：ターミナル追加の ▾ プルダウン（globalMode 文脈で撮影）
 
 固定・切替の要点:
 
@@ -61,8 +58,11 @@ npm run e2e
 - 言語・テーマの切替は e2e ビルド限定の `window.__pikeE2E`（`setLanguage` /
   `setDarkMode`）でリロードなしに行う。
 - 画面遷移は data-testid（`project-switcher` / `switcher-new-project` /
-  `new-project-form` / `settings-screen` / `settings-shells`）と、`__pikeE2E` の
-  `openSwitcher` / `closeSwitcher` / `openSettings` で行う。
+  `new-project-form` / `settings-screen` / `settings-shells` / `tab-add-arrow` /
+  `shell-menu`）と、`__pikeE2E` の `openSwitcher` / `closeSwitcher` /
+  `openSettings` / `enterGlobalMode` で行う。
+- ▾ プルダウンは globalMode（または Windows プロジェクト）のときだけ出るため、
+  `enterGlobalMode`（WSL 検出でシェルプロファイルを揃えてから globalMode に入る）で撮る。
 
 ## シナリオの追加
 

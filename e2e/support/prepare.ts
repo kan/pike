@@ -84,7 +84,7 @@ export async function shoot(name: string, lang: Lang, theme: Theme): Promise<voi
 
 // e2e ビルドが露出する window.__pikeE2E の副作用なしナビゲーション helper を呼ぶ。
 export async function callE2E(
-  method: 'openSwitcher' | 'closeSwitcher' | 'openSettings',
+  method: 'openSwitcher' | 'closeSwitcher' | 'openSettings' | 'enterGlobalMode',
 ): Promise<void> {
   await browser.execute((m) => {
     const api = (window as unknown as { __pikeE2E?: Record<string, () => void> }).__pikeE2E

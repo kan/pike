@@ -60,3 +60,23 @@ describe('screenshots: settings shells', () => {
     })
   }
 })
+
+// globalMode に入りセッション状態を変えるため、他シナリオへの影響を避けて最後に置く。
+describe('screenshots: shell dropdown', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`shell-dropdown ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      // ▾ プルダウンは globalMode（または Windows プロジェクト）のときだけ出る。
+      await callE2E('enterGlobalMode')
+      const arrow = await $('[data-testid="tab-add-arrow"]')
+      await arrow.waitForDisplayed({ timeout: 15_000 })
+      // ▾ はトグル。前イテレーションで開いたままのことがあるので、閉じている時だけ開く。
+      const menu = await $('[data-testid="shell-menu"]')
+      if (!(await menu.isDisplayed())) {
+        await arrow.click()
+      }
+      await menu.waitForDisplayed({ timeout: 10_000 })
+      await shoot('shell-dropdown', lang, theme)
+    })
+  }
+})

@@ -25,6 +25,7 @@ async function bootstrap() {
     const { useSettingsStore } = await import('./stores/settings')
     const { useTabStore } = await import('./stores/tabs')
     const { useProjectStore } = await import('./stores/project')
+    const { globalMode } = await import('./lib/window')
     const settings = useSettingsStore()
     const tabs = useTabStore()
     const project = useProjectStore()
@@ -44,6 +45,20 @@ async function bootstrap() {
       openSettings: () => {
         project.showSwitcher = false
         tabs.addSettingsTab()
+      },
+      // シェル一覧ドロップダウン(▾)は globalMode か Windows プロジェクトでのみ出る。
+      // WSL 検出でシェルプロファイルを揃えてから globalMode を立てる。
+      enterGlobalMode: () => {
+        project.showSwitcher = false
+        void (async () => {
+          try {
+            const { detectWslDistros } = await import('./lib/tauri')
+            settings.syncShellProfiles(await detectWslDistros())
+          } catch {
+            // 検出失敗時はデフォルトのプロファイルのまま globalMode に入る
+          }
+          globalMode.value = true
+        })()
       },
     }
   }
