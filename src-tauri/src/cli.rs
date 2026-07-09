@@ -102,6 +102,14 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
         })
         .collect();
 
+    // `--terminal`: force global-mode terminal launch. On cold start the main
+    // window becomes a global terminal (App.vue enters global mode for an
+    // OpenTerminal initial action); while already running it opens a new global
+    // terminal window. Carries the invocation cwd like a plain `pike` terminal.
+    if meaningful.contains(&"--terminal") {
+        return terminal_action_for_cwd(cwd);
+    }
+
     // `pike open <path>...` subcommand — same as passing the paths directly
     if meaningful.first() == Some(&"open") {
         meaningful.remove(0);
@@ -334,6 +342,27 @@ mod tests {
     fn test_parse_args_flags_ignored() {
         let args = vec!["pike.exe".to_string(), "--help".to_string()];
         assert!(matches!(parse_args(&args, "."), CliAction::None));
+    }
+
+    #[test]
+    fn test_parse_args_terminal_flag() {
+        // --terminal forces a global terminal launch, carrying the cwd.
+        let args = vec!["pike.exe".to_string(), "--terminal".to_string()];
+        match parse_args(&args, r"C:\Users\foo") {
+            CliAction::OpenTerminal { cwd, shell } => {
+                assert_eq!(cwd.as_deref(), Some(r"C:\Users\foo"));
+                assert!(shell.is_none());
+            }
+            other => panic!("expected OpenTerminal, got: {other:?}"),
+        }
+        // WSL UNC cwd → WSL shell for that distro
+        match parse_args(&args, r"\\wsl.localhost\Ubuntu\home\user") {
+            CliAction::OpenTerminal { cwd, shell } => {
+                assert_eq!(cwd.as_deref(), Some("/home/user"));
+                assert!(matches!(shell, Some(crate::types::ShellConfig::Wsl { ref distro }) if distro == "Ubuntu"));
+            }
+            other => panic!("expected OpenTerminal, got: {other:?}"),
+        }
     }
 
     #[test]

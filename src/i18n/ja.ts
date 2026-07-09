@@ -329,6 +329,7 @@ export default {
   'projectSwitcher.ctrlEnterWindow': 'Ctrl+Enter: 新しいウィンドウ',
   'projectSwitcher.enterOpenWindow': 'Enter: 新しいウィンドウで開く',
   'projectSwitcher.newProject': '+ 新規プロジェクト',
+  'projectSwitcher.openGlobal': 'グローバルモード',
   'projectSwitcher.formTitle': '新規プロジェクト',
   'projectSwitcher.createAndOpen': '作成して開く',
 

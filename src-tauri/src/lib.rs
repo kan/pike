@@ -426,6 +426,18 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
     }
 }
 
+/// Open a fresh global-mode (project-less) window with a terminal on the
+/// frontend's configured global shell. Used by the project switcher's "Global
+/// Mode" action when it can't reuse the current window (a project is active, or
+/// the window is already global).
+#[tauri::command]
+async fn open_global_window(app: AppHandle) -> Result<(), String> {
+    let label = create_global_window(&app);
+    // shell = None → the frontend applies the user's globalShell setting.
+    store_pending(&app, &label, cli::CliAction::OpenTerminal { cwd: None, shell: None });
+    Ok(())
+}
+
 #[tauri::command]
 fn save_all_window_state(app: AppHandle) -> Result<(), String> {
     app.save_window_state(StateFlags::all()).map_err(|e| e.to_string())
@@ -725,6 +737,7 @@ pub fn run() {
             cli::cli_set_pending_action,
             wait::wait_signal_by_path,
             open_project_window,
+            open_global_window,
             save_all_window_state,
             tasks::task_discover,
             diagnostics::diagnostics_run,

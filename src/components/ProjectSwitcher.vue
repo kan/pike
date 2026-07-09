@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { Globe } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
-import { detectWslDistros, openProjectWindow } from '../lib/tauri'
+import { detectWslDistros, openGlobalWindow, openProjectWindow } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
+import { useTabStore } from '../stores/tabs'
 import type { ProjectConfig } from '../types/project'
 import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, type WindowsShellKind } from '../types/tab'
 import ColorDot from './ColorDot.vue'
@@ -13,6 +15,22 @@ import ColorSelect from './panels/ColorSelect.vue'
 const { t } = useI18n()
 const projectStore = useProjectStore()
 const settings = useSettingsStore()
+
+function enterGlobalMode() {
+  projectStore.showSwitcher = false
+  if (!globalMode.value && !projectStore.currentProject) {
+    // Cold-start quick feed (project-less, non-global window): turn THIS window
+    // into global mode. Start with one terminal on the configured global shell,
+    // mirroring how a dedicated global terminal window opens.
+    globalMode.value = true
+    useTabStore().addTerminalTab({ shell: settings.globalShell })
+  } else {
+    // Opened over an active project, or already a global window: flipping in
+    // place would drop the project context, so open a separate global window
+    // and leave this one untouched.
+    openGlobalWindow()
+  }
+}
 
 // --- Search mode ---
 const query = ref('')
@@ -210,7 +228,12 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
               <span class="hint">{{ t('projectSwitcher.ctrlEnterWindow') }}</span>
             </template>
           </div>
-          <button class="new-project-btn" @click="openNewForm">{{ t('projectSwitcher.newProject') }}</button>
+          <div class="footer-buttons">
+            <button class="global-mode-btn" @click="enterGlobalMode">
+              <Globe :size="14" :stroke-width="2" />{{ t('projectSwitcher.openGlobal') }}
+            </button>
+            <button class="new-project-btn" @click="openNewForm">{{ t('projectSwitcher.newProject') }}</button>
+          </div>
         </div>
 
         <!-- New project form -->
@@ -358,8 +381,14 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
   color: var(--text-secondary);
 }
 
-.new-project-btn {
-  width: 100%;
+.footer-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.new-project-btn,
+.global-mode-btn {
+  flex: 1;
   padding: 8px;
   border: 1px dashed var(--border);
   background: transparent;
@@ -369,7 +398,15 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
   border-radius: 4px;
 }
 
-.new-project-btn:hover {
+.global-mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.new-project-btn:hover,
+.global-mode-btn:hover {
   color: var(--text-active);
   border-color: var(--accent);
   background: var(--bg-tertiary);

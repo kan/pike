@@ -136,9 +136,10 @@ export const useProjectStore = defineStore('project', () => {
       }
       return
     }
-    if (projects.value.length > 0) {
-      showSwitcher.value = true
-    }
+    // Nothing to restore: show the switcher so the user can open/create a
+    // project or switch this window into global mode. Shown even with zero
+    // projects (first-ever launch) so the global-mode entry is reachable.
+    showSwitcher.value = true
   }
 
   async function switchProject(id: string) {

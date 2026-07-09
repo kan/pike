@@ -329,6 +329,7 @@ export default {
   'projectSwitcher.ctrlEnterWindow': 'Ctrl+Enter: new window',
   'projectSwitcher.enterOpenWindow': 'Enter: open in new window',
   'projectSwitcher.newProject': '+ New Project',
+  'projectSwitcher.openGlobal': 'Global Mode',
   'projectSwitcher.formTitle': 'New Project',
   'projectSwitcher.createAndOpen': 'Create & Open',
 

@@ -409,6 +409,11 @@ export async function openProjectWindow(projectId: string): Promise<void> {
   return invoke('open_project_window', { projectId })
 }
 
+/** Open a new global-mode window with a terminal on the configured global shell. */
+export async function openGlobalWindow(): Promise<void> {
+  return invoke('open_global_window')
+}
+
 export async function saveAllWindowState(): Promise<void> {
   return invoke('save_all_window_state')
 }
