@@ -42,7 +42,32 @@ cp -r /path/to/pike/plugins/pike-todo/skills/pike-todo .claude/skills/
 ## Codex へ導入
 
 Codex はユーザーの `~/.codex/skills/`（`$CODEX_HOME/skills`）配下のスキルを読み込む。
-スキルディレクトリをそこへコピーする。
+導入方法は 2 通り。
+
+### 方法A: skill-installer で GitHub から導入（推奨）
+
+Codex 標準の `skill-installer` スキルは、任意の GitHub リポジトリのパスからスキルを
+導入できる。Codex にこう頼む。
+
+```
+kan/pike の plugins/codex/pike-todo のスキルを入れて
+```
+
+内部では次のスクリプトが走り、`~/.codex/skills/pike-todo` へ導入される。
+
+```
+install-skill-from-github.py --repo kan/pike --path plugins/codex/pike-todo
+```
+
+導入先に同名ディレクトリがあると中断する。**導入後は Codex を再起動**すると新しい
+スキルが読み込まれる。
+
+Claude のようなマーケットプレイス登録機能（任意リポジトリを登録して一覧から選ぶ）は
+Codex には無いが、この「リポジトリとパスを指定して直接 pull」で同等のことができる。
+
+### 方法B: 手動コピー
+
+スキルディレクトリを `~/.codex/skills/` へコピーする。
 
 ```bash
 mkdir -p ~/.codex/skills
