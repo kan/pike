@@ -370,21 +370,50 @@ onMounted(async () => {
 
   // IME robustness (xterm.js #6012 / the recurring "IME breaks until you switch
   // tabs" bug). xterm only clears the hidden textarea's committed IME text on
-  // blur, so composing repeatedly in the same tab lets that text accumulate.
-  // On the next compositionstart xterm records the composition's start offset as
-  // the current textarea length; a stale non-zero length makes it extract the
-  // wrong substring on compositionend → duplicated / mispositioned input.
-  // Switching tabs "fixed" it only because leaving blurs the textarea (which
-  // clears it). Instead, empty the textarea at the START of every composition so
-  // each one begins at offset 0 — no tab switch needed. Capture phase on the
-  // container runs before xterm's own textarea listener records the offset.
+  // blur, so composing repeatedly in the same tab lets that text accumulate and
+  // eventually corrupts xterm's start-offset bookkeeping (duplicated /
+  // mispositioned input). Switching tabs "fixed" it only because leaving blurs
+  // the textarea, which clears it.
+  //
+  // We must NOT simply empty the textarea on every compositionstart: IMEs such as
+  // SKK confirm the current conversion by *starting the next input* (no Enter),
+  // firing compositionend immediately followed by compositionstart. xterm reads
+  // the just-committed text from the textarea in a deferred (setTimeout 0)
+  // callback (CompositionHelper._finalizeComposition), so clearing on that
+  // compositionstart wipes the committed text before xterm reads it → the whole
+  // conversion disappears.
+  //
+  // Instead, clear the textarea only once a composition has fully finished and no
+  // new one has taken over — i.e. after xterm's deferred read has run. Guard with
+  // an in-flight flag so compositionstart never clears mid-send. The
+  // compositionend listener is on the container in BUBBLE phase, so its
+  // setTimeout is queued after xterm's own read (registered on the textarea
+  // target) and therefore runs later; the compositionstart listener stays in
+  // CAPTURE phase so, when it does clear, it precedes xterm recording the offset.
+  let imeSending = false
+  let imeComposing = false
   termRef.value.addEventListener(
     'compositionstart',
     () => {
-      if (terminal?.textarea) terminal.textarea.value = ''
+      imeComposing = true
+      // Regular repeated conversions arrive here with no send pending, so it is
+      // safe to reset the offset to 0. During an SKK confirm-by-continue streak a
+      // send is still in flight, so leave the textarea intact for xterm to read.
+      if (!imeSending && terminal?.textarea) terminal.textarea.value = ''
     },
     true,
   )
+  termRef.value.addEventListener('compositionend', () => {
+    imeComposing = false
+    imeSending = true
+    setTimeout(() => {
+      imeSending = false
+      // If a new composition has already taken over (SKK streak), leave the
+      // textarea so xterm's offset bookkeeping for it stays valid; it gets
+      // cleared once the streak finally ends with no follow-up composition.
+      if (!imeComposing && terminal?.textarea) terminal.textarea.value = ''
+    }, 0)
+  })
 
   // Newly created tabs mount after activeTabId has already changed, so the
   // tab-activation watcher never fires for the initial activation. Without
