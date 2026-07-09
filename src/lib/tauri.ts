@@ -414,6 +414,23 @@ export async function openGlobalWindow(): Promise<void> {
   return invoke('open_global_window')
 }
 
+/** Whether the current Pike process runs elevated (Windows administrator). */
+export async function isElevated(): Promise<boolean> {
+  return invoke<boolean>('is_elevated')
+}
+
+/** Relaunch Pike elevated (UAC) to open a terminal on the given Windows shell
+ *  kind ('cmd' | 'powershell' | 'pwsh' | 'git-bash'). With `projectId` the admin
+ *  window reopens that project in normal mode; otherwise it opens as a global
+ *  terminal window (#138). */
+export async function openElevatedTerminal(shell: string, opts?: { projectId?: string; cwd?: string }): Promise<void> {
+  return invoke('open_elevated_terminal', {
+    shell,
+    projectId: opts?.projectId ?? null,
+    cwd: opts?.cwd ?? null,
+  })
+}
+
 export async function saveAllWindowState(): Promise<void> {
   return invoke('save_all_window_state')
 }
@@ -490,11 +507,19 @@ export interface CliOpenTerminal {
   shell?: ShellType | null
 }
 
+/** Reopen a project in normal mode plus a terminal on the given shell.
+ *  Produced by the elevated relaunch from a project window (#138). */
+export interface CliOpenProject {
+  action: 'openProject'
+  id: string
+  shell?: ShellType | null
+}
+
 export interface CliNone {
   action: 'none'
 }
 
-export type CliAction = CliOpenFiles | CliOpenDirectory | CliOpenTerminal | CliNone
+export type CliAction = CliOpenFiles | CliOpenDirectory | CliOpenTerminal | CliOpenProject | CliNone
 
 export async function cliGetInitialAction(): Promise<CliAction> {
   return invoke<CliAction>('cli_get_initial_action')

@@ -21,8 +21,8 @@ import { clearAliasCache } from './lib/jumpTo/resolveImport'
 import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { normalizeSep } from './lib/paths'
 import { projectColorValue } from './lib/projectColors'
-import { projectRemoveOpen } from './lib/tauri'
-import { getWindowProjectId, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
+import { isElevated, projectRemoveOpen } from './lib/tauri'
+import { elevated, ephemeralWindow, getWindowProjectId, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
 import { useClaudeRateStore } from './stores/claudeRate'
 import { useClaudeUsageStore } from './stores/claudeUsage'
 import { useCodexUsageStore } from './stores/codexUsage'
@@ -52,9 +52,10 @@ const isDebug = import.meta.env.DEV
 const projectAccent = computed(() => projectColorValue(projectStore.currentProject?.color))
 
 watch(
-  () => projectStore.currentProject?.name,
-  (name) => {
-    const base = name ? t('app.titleWithProject', { name }) : t('app.title')
+  [() => projectStore.currentProject?.name, elevated],
+  ([name, isAdmin]) => {
+    let base = name ? t('app.titleWithProject', { name }) : t('app.title')
+    if (isAdmin) base = `${t('app.adminTitlePrefix')} ${base}`
     const title = isDebug ? `[DEBUG] ${base}` : base
     getCurrentWindow().setTitle(title)
   },
@@ -145,6 +146,14 @@ watch(
 )
 
 onMounted(async () => {
+  // Elevation is static per process; resolve once so the shield indicator and
+  // window title reflect an admin instance (#138).
+  isElevated()
+    .then((v) => {
+      elevated.value = v
+    })
+    .catch(() => {})
+
   await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initAgentRouter()])
 
   if (windowProjectId) {
@@ -159,6 +168,11 @@ onMounted(async () => {
     const initial = await peekInitialCliAction()
     if (initial.action === 'openFiles' || initial.action === 'openTerminal') {
       globalMode.value = true
+    } else if (initial.action === 'openProject') {
+      // Elevated admin relaunch from a project window (#138): open the project
+      // in normal mode (initCliOpen switches + adds the terminal). Mark the
+      // window ephemeral so it never persists its lean session over the real one.
+      ephemeralWindow.value = true
     } else {
       await projectStore.restoreLastProject()
     }

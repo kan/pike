@@ -12,6 +12,7 @@ import {
   projectSetLast,
   projectUpdate,
 } from '../lib/tauri'
+import { ephemeralWindow } from '../lib/window'
 import type { ProjectConfig } from '../types/project'
 import { useDiagnosticsStore } from './diagnostics'
 import { useSearchStore } from './search'
@@ -142,12 +143,15 @@ export const useProjectStore = defineStore('project', () => {
     showSwitcher.value = true
   }
 
-  async function switchProject(id: string) {
+  async function switchProject(id: string, opts?: { restoreSession?: boolean }) {
     if (saveTimer) clearTimeout(saveTimer)
     const tabStore = useTabStore()
     const searchStore = useSearchStore()
     const project = projects.value.find((p) => p.id === id)
     if (!project) return
+    // Elevated admin project window opens the project context only; the caller
+    // adds the single pinned-shell terminal, so skip session/pinned restore.
+    const restore = opts?.restoreSession !== false
 
     searchStore.clear()
     searchStore.backend = null
@@ -161,6 +165,8 @@ export const useProjectStore = defineStore('project', () => {
 
     // Fire-and-forget: don't block tab restoration on metadata persistence
     Promise.all([projectUpdate(project).catch(() => {}), projectAddOpen(id).catch(() => {})])
+
+    if (!restore) return
 
     if (project.lastSession && project.lastSession.tabs.length > 0) {
       for (const def of project.lastSession.tabs) {
@@ -218,6 +224,9 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   async function flushSession() {
+    // Ephemeral (elevated admin) window: never persist — its lean session would
+    // clobber the real one written by the non-elevated instance (#138).
+    if (ephemeralWindow.value) return
     if (!currentProject.value) return
     currentProject.value.lastSession = useTabStore().snapshotSession()
     await projectUpdate(currentProject.value).catch(() => {})

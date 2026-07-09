@@ -15,6 +15,7 @@ export default {
   // App
   'app.title': 'pike',
   'app.titleWithProject': 'pike - {name}',
+  'app.adminTitlePrefix': '[管理者]',
   'app.emptyTerminal': 'Ctrl+T でターミナルを開く',
   'app.emptyProject': 'Ctrl+Shift+P でプロジェクトを開く',
 
@@ -63,6 +64,8 @@ export default {
   'tabs.newTerminalShort': '新規ターミナル',
   'tabs.newTerminal': '新規ターミナル (Ctrl+T)',
   'tabs.openWithShell': '他のシェルで開く',
+  'tabs.openAsAdmin': '管理者権限で開く',
+  'tabs.openAsAdminHint': '右クリックで管理者権限で開く',
   'tabs.pinned': '固定',
   'tabs.close': '閉じる',
   'tabs.pin': 'タブを固定',
@@ -133,6 +136,7 @@ export default {
   // Terminal
   'terminal.failedSpawn': '[PTY の起動に失敗: {error}]',
   'terminal.exited': '[プロセスが終了しました (コード {code})]',
+  'terminal.wslElevationNotice': '管理者権限は WSL 内では効きません（root には sudo を使用）',
   'terminal.agentLaunch': 'コーディングエージェントを起動',
   'terminal.promptInject': '保存したプロンプトを挿入',
   'terminal.injectNoTarget': '送信先のターミナルがありません',
@@ -398,6 +402,8 @@ export default {
   'shortcuts.rightClick': '右クリック',
 
   // StatusBar
+  'statusBar.admin': '管理者',
+  'statusBar.adminTooltip': '管理者権限で実行中（Windows 側のみ／WSL 内では無効）',
   'statusBar.ln': '行',
   'statusBar.col': '列',
   'statusBar.spaces': 'スペース:',

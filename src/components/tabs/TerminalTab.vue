@@ -23,6 +23,7 @@ import {
   type PathLinkTarget,
   parseRgMatchLine,
 } from '../../lib/terminalLinks'
+import { elevated } from '../../lib/window'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
@@ -38,6 +39,11 @@ const props = defineProps<{
 }>()
 
 const SPAWN_GRACE_PERIOD_MS = 2000
+
+// Shown once per (elevated) process: elevation is a Windows-host attribute and
+// does not make WSL terminals root, so an admin window opening a WSL shell is
+// almost pointless (#138). Module-scoped so it fires only the first time.
+let wslElevationNoticed = false
 
 /**
  * Build the command line that runs `autoStart` in the spawned shell.
@@ -429,6 +435,11 @@ onMounted(async () => {
     ptyId = result.id
     spawnedAt = Date.now()
     tabStore.setPtyId(props.tabId, ptyId)
+    // Admin window opening a WSL shell: elevation does not carry into WSL.
+    if (elevated.value && spawnOpts?.shell?.kind === 'wsl' && !wslElevationNoticed) {
+      wslElevationNoticed = true
+      statusMessage.show({ text: t('terminal.wslElevationNotice'), variant: 'warn', durationMs: 7000 })
+    }
   } catch (e) {
     terminal.write(`\r\n${t('terminal.failedSpawn', { error: String(e) })}\r\n`)
     const tab = tabStore.tabs.find((t) => t.id === props.tabId)

@@ -23,3 +23,14 @@ export function isGlobalWindow(): boolean {
  *  window enters it on cold start with file args (App.vue sets it). UI that
  *  is project-bound (sidebar, switcher, status bar project label) hides on it. */
 export const globalMode = ref(isGlobalWindow())
+
+/** Whether this Pike process runs elevated (Windows administrator). Static per
+ *  process; App.vue resolves it once at startup via `is_elevated`. Drives the
+ *  admin indicator (status bar shield, window title). */
+export const elevated = ref(false)
+
+/** Transient window whose session must not be persisted. Set for the elevated
+ *  admin project window (#138): it runs in a separate process sharing the same
+ *  project config, so saving its lean single-terminal session would clobber the
+ *  real session written by the non-elevated instance. */
+export const ephemeralWindow = ref(false)

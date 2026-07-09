@@ -15,6 +15,7 @@ export default {
   // App
   'app.title': 'pike',
   'app.titleWithProject': 'pike - {name}',
+  'app.adminTitlePrefix': '[Admin]',
   'app.emptyTerminal': 'Press Ctrl+T to open a terminal',
   'app.emptyProject': 'Open a project to get started (Ctrl+Shift+P)',
 
@@ -63,6 +64,8 @@ export default {
   'tabs.newTerminalShort': 'New Terminal',
   'tabs.newTerminal': 'New Terminal (Ctrl+T)',
   'tabs.openWithShell': 'Open with different shell',
+  'tabs.openAsAdmin': 'Open as Administrator',
+  'tabs.openAsAdminHint': 'Right-click to open as administrator',
   'tabs.pinned': 'Pinned',
   'tabs.close': 'Close',
   'tabs.pin': 'Pin Tab',
@@ -133,6 +136,7 @@ export default {
   // Terminal
   'terminal.failedSpawn': '[Failed to spawn PTY: {error}]',
   'terminal.exited': '[Process exited with code {code}]',
+  'terminal.wslElevationNotice': "Administrator doesn't apply inside WSL — use sudo for root.",
   'terminal.agentLaunch': 'Launch coding agent',
   'terminal.promptInject': 'Insert a saved prompt',
   'terminal.injectNoTarget': 'No terminal to send to',
@@ -398,6 +402,8 @@ export default {
   'shortcuts.rightClick': 'Right click',
 
   // StatusBar
+  'statusBar.admin': 'Admin',
+  'statusBar.adminTooltip': 'Running as administrator (Windows side only; not inside WSL)',
   'statusBar.ln': 'Ln',
   'statusBar.col': 'Col',
   'statusBar.spaces': 'Spaces:',

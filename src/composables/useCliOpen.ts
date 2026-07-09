@@ -62,6 +62,20 @@ async function handleActionLocal(action: CliAction) {
     }
   } else if (action.action === 'openDirectory') {
     tabStore.addTerminalTab({ cwd: action.path })
+  } else if (action.action === 'openProject') {
+    // Elevated admin relaunch from a project window (#138): reopen the project
+    // in normal mode (session restore skipped) and add the pinned-shell terminal.
+    // A project-labelled window has already switched to it (windowProjectId path),
+    // so only switch when this window isn't on that project yet.
+    const projectStore = useProjectStore()
+    if (projectStore.currentProject?.id !== action.id) {
+      if (projectStore.projects.length === 0) await projectStore.loadProjects()
+      await projectStore.switchProject(action.id, { restoreSession: false })
+    }
+    const project = projectStore.currentProject
+    if (project && action.shell) {
+      tabStore.addTerminalTab({ cwd: project.root, shell: action.shell })
+    }
   } else if (action.action === 'openTerminal') {
     if (action.shell) {
       // cwd-derived shell (invoked inside WSL): keep the invocation cwd

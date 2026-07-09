@@ -3,8 +3,8 @@ import { computed, defineAsyncComponent, nextTick, onUnmounted, ref } from 'vue'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
-import { detectWslDistros } from '../../lib/tauri'
-import { globalMode } from '../../lib/window'
+import { detectWslDistros, openElevatedTerminal } from '../../lib/tauri'
+import { elevated, globalMode } from '../../lib/window'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
@@ -22,7 +22,19 @@ const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 const AgentChatTab = defineAsyncComponent(() => import('../tabs/AgentChatTab.vue'))
 
-import { BookOpen, Bot, Check, ChevronDown, Pin, Plus, ScrollText, Settings, Terminal, X } from 'lucide-vue-next'
+import {
+  BookOpen,
+  Bot,
+  Check,
+  ChevronDown,
+  Pin,
+  Plus,
+  ScrollText,
+  Settings,
+  ShieldPlus,
+  Terminal,
+  X,
+} from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import HelpButton from '../HelpButton.vue'
@@ -149,6 +161,50 @@ function addTabWithShell(shell: ShellType) {
   closeShellMenu()
 }
 
+// "Open as administrator" (#138): right-click a Windows-shell row in the "▾"
+// menu. Available in any window (project or global) except an already-elevated
+// one; WSL rows are excluded (WSL elevation is out of scope).
+const adminMenu = ref<{ x: number; y: number; shell: ShellType } | null>(null)
+
+function onShellRowContext(e: MouseEvent, shell: ShellType) {
+  // Suppress the default context menu on every shell row; only Windows shells
+  // (and only when not already elevated) offer the admin action.
+  e.preventDefault()
+  if (elevated.value || !isWindowsShell(shell)) return
+  // The "▾" sits at the top-right, so a menu anchored at the cursor would spill
+  // off-screen. Clamp within the viewport (estimated menu size).
+  const MENU_W = 210
+  const MENU_H = 44
+  const x = Math.max(4, Math.min(e.clientX, window.innerWidth - MENU_W))
+  const y = Math.max(4, Math.min(e.clientY, window.innerHeight - MENU_H))
+  adminMenu.value = { x, y, shell }
+  nextTick(() => {
+    window.addEventListener('mousedown', closeAdminMenu, { once: true })
+  })
+}
+
+function closeAdminMenu() {
+  window.removeEventListener('mousedown', closeAdminMenu)
+  adminMenu.value = null
+}
+
+async function openAsAdmin(shell: ShellType) {
+  const project = projectStore.currentProject
+  closeAdminMenu()
+  closeShellMenu()
+  try {
+    // Inherit the current mode: a project window reopens the same project in
+    // normal mode; a global window opens a global admin terminal.
+    if (project && !globalMode.value) {
+      await openElevatedTerminal(shell.kind, { projectId: project.id })
+    } else {
+      await openElevatedTerminal(shell.kind)
+    }
+  } catch {
+    // UAC cancelled or failed — nothing to restore; the request is a no-op.
+  }
+}
+
 // Drag-and-drop reordering
 const { dragId: dragTabId, dragOverTarget: dragOverTabId, startDrag: onDragStart, resetDrag } = useDragAndDrop<string>()
 const dragSide = ref<'left' | 'right'>('left')
@@ -248,6 +304,7 @@ function openGitHistory() {
 onUnmounted(() => {
   window.removeEventListener('mousedown', closeShellMenu)
   window.removeEventListener('mousedown', closeContextMenu)
+  window.removeEventListener('mousedown', closeAdminMenu)
 })
 </script>
 
@@ -326,7 +383,9 @@ onUnmounted(() => {
           v-for="s in shellMenuItems"
           :key="s.key"
           :class="{ 'default-shell': s.isDefault }"
+          :title="isWindowsShell(s.shell) && !elevated ? t('tabs.openAsAdminHint') : undefined"
           @click="addTabWithShell(s.shell)"
+          @contextmenu.stop="onShellRowContext($event, s.shell)"
         >
           <component :is="SHELL_KIND_ICONS[s.shell.kind]" :size="14" :stroke-width="1.5" class="shell-menu-icon" />
           <span>{{ s.label }}</span>
@@ -421,6 +480,20 @@ onUnmounted(() => {
           {{ t('app.emptyProject') }}
         </template>
       </div>
+    </div>
+
+    <!-- "Open as administrator" menu (#138). Kept outside .tab-bar.ui-zoom so
+         its position: fixed uses real viewport coords (zoom would offset it). -->
+    <div
+      v-if="adminMenu"
+      class="shell-admin-menu"
+      :style="{ left: adminMenu.x + 'px', top: adminMenu.y + 'px' }"
+      @mousedown.stop
+    >
+      <button @click="openAsAdmin(adminMenu.shell)">
+        <ShieldPlus :size="14" :stroke-width="1.5" class="shell-menu-icon" />
+        <span>{{ t('tabs.openAsAdmin') }}</span>
+      </button>
     </div>
 
     <!-- Context Menu (on a tab) -->
@@ -757,6 +830,41 @@ onUnmounted(() => {
 
 .shell-menu button:hover {
   background: var(--accent);
+  color: var(--text-active);
+}
+
+/* "Open as administrator" context menu (fixed at the cursor) */
+.shell-admin-menu {
+  position: fixed;
+  z-index: 1001;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 0;
+  min-width: 160px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.shell-admin-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shell-admin-menu button:hover {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.shell-admin-menu button:hover .shell-menu-icon {
   color: var(--text-active);
 }
 

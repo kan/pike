@@ -5,6 +5,7 @@ mod codex;
 mod codex_usage;
 mod diagnostics;
 mod docker;
+mod elevate;
 mod font;
 mod fs;
 mod git;
@@ -400,6 +401,24 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
             let label = create_global_window(app);
             store_pending(app, &label, action);
         }
+
+        cli::CliAction::OpenProject { id, .. } => {
+            // The elevated relaunch uses `--new-instance` (single-instance is
+            // skipped), so this only runs for a manual `pike --open-project=<id>`
+            // while another instance is live. Focus or open the project window;
+            // its handleActionLocal adds the pinned-shell terminal.
+            if load_all_projects(app).iter().any(|p| &p.id == id) {
+                let label = format!("{PROJECT_WINDOW_PREFIX}{id}");
+                if let Some(w) = app.get_webview_window(&label) {
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                    emit_action_to(app, &w, &action);
+                } else {
+                    store_pending(app, &label, action.clone());
+                    let _ = build_window(app, &label);
+                }
+            }
+        }
     }
 }
 
@@ -510,8 +529,15 @@ async fn pick_save_file(default_name: Option<String>) -> Result<Option<String>, 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+    // Elevated relaunch (open_elevated_terminal) passes `--new-instance`: skip
+    // single-instance so the admin process runs as its own window instead of
+    // forwarding its terminal request to the existing non-elevated instance
+    // (WM_COPYDATA from elevated → non-elevated would open the shell unelevated).
+    let standalone = std::env::args().any(|a| a == "--new-instance");
+
+    let mut builder = tauri::Builder::default();
+    if !standalone {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             // Defer via run_on_main_thread to escape the WM_COPYDATA
             // input-synchronous context.  COM cross-apartment calls
             // (IVirtualDesktopManager) fail with RPC_E_CANTCALLOUT_ININPUTSYNCCALL
@@ -525,7 +551,10 @@ pub fn run() {
                     handle_second_instance(&app2, &args, &cwd);
                 });
             });
-        }))
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
@@ -738,6 +767,8 @@ pub fn run() {
             wait::wait_signal_by_path,
             open_project_window,
             open_global_window,
+            elevate::is_elevated,
+            elevate::open_elevated_terminal,
             save_all_window_state,
             tasks::task_discover,
             diagnostics::diagnostics_run,

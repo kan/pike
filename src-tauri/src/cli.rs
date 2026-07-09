@@ -36,6 +36,14 @@ pub enum CliAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shell: Option<crate::types::ShellConfig>,
     },
+    /// Reopen a project in normal mode and add a terminal on the given shell.
+    /// Used by the elevated relaunch from a project window (#138), so the admin
+    /// window inherits the source window's mode (project, not global).
+    OpenProject {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shell: Option<crate::types::ShellConfig>,
+    },
     None,
 }
 
@@ -102,11 +110,41 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
         })
         .collect();
 
+    // An explicit `--shell=<kind>` pins the shell for the elevated relaunch
+    // paths below (open_elevated_terminal, #138). Windows shells only.
+    let shell_hint = meaningful
+        .iter()
+        .find_map(|s| s.strip_prefix("--shell="))
+        .and_then(shell_config_from_kind);
+
+    // `--open-project=<id>`: elevated relaunch from a project window — reopen the
+    // project in normal mode with a terminal on the pinned shell (#138).
+    if let Some(id) = meaningful.iter().find_map(|s| s.strip_prefix("--open-project=")) {
+        if crate::types::validate_slug(id, "project id").is_ok() {
+            return CliAction::OpenProject {
+                id: id.to_string(),
+                shell: shell_hint.clone(),
+            };
+        }
+    }
+
     // `--terminal`: force global-mode terminal launch. On cold start the main
     // window becomes a global terminal (App.vue enters global mode for an
     // OpenTerminal initial action); while already running it opens a new global
     // terminal window. Carries the invocation cwd like a plain `pike` terminal.
+    // With `--shell=<kind>` (+ optional `--cwd=<path>`) the shell is pinned;
+    // otherwise it is inferred from the cwd / the frontend's globalShell setting.
     if meaningful.contains(&"--terminal") {
+        if let Some(shell) = shell_hint {
+            let cwd_override = meaningful.iter().find_map(|s| s.strip_prefix("--cwd="));
+            let cwd = cwd_override
+                .map(|c| c.to_string())
+                .or_else(|| (!cwd.is_empty()).then(|| cwd.to_string()));
+            return CliAction::OpenTerminal {
+                cwd,
+                shell: Some(shell),
+            };
+        }
         return terminal_action_for_cwd(cwd);
     }
 
@@ -141,6 +179,20 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
         CliAction::None
     } else {
         CliAction::OpenFiles { files }
+    }
+}
+
+/// Map a `--shell=<kind>` value (ShellConfig's kebab-case serde tag) to a
+/// Windows `ShellConfig`. WSL is out of scope for the elevated path (#138), so
+/// unknown / `wsl` kinds return None and the caller falls back to inference.
+fn shell_config_from_kind(kind: &str) -> Option<crate::types::ShellConfig> {
+    use crate::types::ShellConfig;
+    match kind {
+        "cmd" => Some(ShellConfig::Cmd),
+        "powershell" => Some(ShellConfig::Powershell),
+        "pwsh" => Some(ShellConfig::Pwsh),
+        "git-bash" => Some(ShellConfig::GitBash),
+        _ => None,
     }
 }
 
@@ -363,6 +415,59 @@ mod tests {
             }
             other => panic!("expected OpenTerminal, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_parse_args_terminal_explicit_shell() {
+        // Elevated relaunch: --shell pins the shell, --cwd overrides the cwd.
+        let args = vec![
+            "pike.exe".to_string(),
+            "--terminal".to_string(),
+            "--shell=pwsh".to_string(),
+            "--cwd=C:\\work".to_string(),
+            "--new-instance".to_string(),
+        ];
+        match parse_args(&args, r"C:\ignored") {
+            CliAction::OpenTerminal { cwd, shell } => {
+                assert_eq!(cwd.as_deref(), Some("C:\\work"));
+                assert!(matches!(shell, Some(crate::types::ShellConfig::Pwsh)));
+            }
+            other => panic!("expected OpenTerminal, got: {other:?}"),
+        }
+        // Unknown / out-of-scope shell kind falls back to cwd inference.
+        let args2 = vec![
+            "pike.exe".to_string(),
+            "--terminal".to_string(),
+            "--shell=wsl".to_string(),
+        ];
+        match parse_args(&args2, r"C:\Users\foo") {
+            CliAction::OpenTerminal { shell, .. } => assert!(shell.is_none()),
+            other => panic!("expected OpenTerminal, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_args_open_project() {
+        // Elevated relaunch from a project window: reopen project + pinned shell.
+        let args = vec![
+            "pike.exe".to_string(),
+            "--new-instance".to_string(),
+            "--open-project=my-proj_1".to_string(),
+            "--shell=cmd".to_string(),
+        ];
+        match parse_args(&args, r"C:\ignored") {
+            CliAction::OpenProject { id, shell } => {
+                assert_eq!(id, "my-proj_1");
+                assert!(matches!(shell, Some(crate::types::ShellConfig::Cmd)));
+            }
+            other => panic!("expected OpenProject, got: {other:?}"),
+        }
+        // An id with unsafe characters is rejected (falls through, not OpenProject).
+        let bad = vec![
+            "pike.exe".to_string(),
+            "--open-project=../evil".to_string(),
+        ];
+        assert!(!matches!(parse_args(&bad, "."), CliAction::OpenProject { .. }));
     }
 
     #[test]

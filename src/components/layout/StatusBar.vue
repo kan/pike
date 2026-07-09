@@ -12,6 +12,7 @@ import {
   Gitlab,
   Loader2,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useEditorInfo } from '../../composables/useEditorInfo'
@@ -21,7 +22,7 @@ import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
 import { basename } from '../../lib/paths'
 import { openUrlWithConfirm } from '../../lib/tauri'
-import { globalMode } from '../../lib/window'
+import { elevated, globalMode } from '../../lib/window'
 import { useAgentStore } from '../../stores/agent'
 import { useClaudeRateStore } from '../../stores/claudeRate'
 import { useClaudeUsageStore } from '../../stores/claudeUsage'
@@ -346,6 +347,10 @@ onUnmounted(() => {
 
 <template>
   <div class="status-bar ui-zoom">
+    <span v-if="elevated" class="status-item admin-badge" :title="t('statusBar.adminTooltip')">
+      <ShieldCheck :size="14" :stroke-width="2" />
+      {{ t('statusBar.admin') }}
+    </span>
     <button
       v-if="!globalMode"
       class="status-item clickable"
@@ -583,6 +588,12 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.status-item.admin-badge {
+  color: var(--warning, #d29922);
+  font-weight: 600;
+  cursor: default;
 }
 
 .status-item.clickable {
