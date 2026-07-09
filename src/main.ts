@@ -16,6 +16,23 @@ async function bootstrap() {
   const app = createApp(App)
   app.use(createPinia())
   app.mount('#app')
+
+  // E2E 撮影の再現性固定用に、テーマ・言語をリロードなしで切り替える制御 API を
+  // 露出する（issue #142）。localStorage + reload 方式だと wdio プラグインの
+  // runtime capability が reload 後に失効し、フォーカス補助の警告が氾濫するため、
+  // store の reactive ref を直接更新して即時反映させる。本番では分岐ごと除去される。
+  if (__PIKE_E2E__) {
+    const { useSettingsStore } = await import('./stores/settings')
+    const settings = useSettingsStore()
+    ;(window as unknown as { __pikeE2E?: Record<string, unknown> }).__pikeE2E = {
+      setLanguage: (lang: string) => {
+        settings.language = lang
+      },
+      setDarkMode: (dark: boolean) => {
+        settings.darkMode = dark
+      },
+    }
+  }
 }
 
-bootstrap()
+void bootstrap()
