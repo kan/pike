@@ -32,6 +32,7 @@ async function bootstrap() {
     const { useTabStore } = await import('./stores/tabs')
     const { useProjectStore } = await import('./stores/project')
     const { useSidebarStore } = await import('./stores/sidebar')
+    const { ptyRouter } = await import('./composables/usePtyRouter')
     const { globalMode } = await import('./lib/window')
     const settings = useSettingsStore()
     const tabs = useTabStore()
@@ -84,6 +85,28 @@ async function bootstrap() {
       },
       openPanel: (name: string) => {
         sidebar.activePanel = name as typeof sidebar.activePanel
+      },
+      // ターミナルを 1 枚開く（pty_spawn はモックして実プロセスは起動しない）。
+      // 複数あると data-testid が競合するので、既存ターミナルは閉じてから開く。
+      openTerminal: () => {
+        project.showSwitcher = false
+        for (const t of [...tabs.tabs]) {
+          if (t.kind === 'terminal') void tabs.closeTab(t.id)
+        }
+        tabs.addTerminalTab({ shell: { kind: 'powershell' } })
+      },
+      // pty_output と同じ経路で合成出力を xterm に流す（実 PTY 非依存の撮影用）。
+      feedTerminal: (id: string, data: string) => {
+        ptyRouter.feed(id, data)
+      },
+      // アクティブなターミナルタブの ptyId を解決して合成出力を流す。
+      // pty_spawn がユニーク id を返す前提（id 固定だと閉じたタブの unregister と
+      // 競合してハンドラが消える）。
+      feedActiveTerminal: (data: string) => {
+        const active = tabs.tabs.find((t) => t.id === tabs.activeTabId)
+        if (active?.kind === 'terminal' && active.ptyId) {
+          ptyRouter.feed(active.ptyId, data)
+        }
       },
     }
   }

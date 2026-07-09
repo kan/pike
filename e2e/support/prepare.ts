@@ -115,6 +115,36 @@ export async function openPanel(name: string): Promise<void> {
   }, name)
 }
 
+// ターミナルタブを 1 枚開く（pty_spawn はモック前提。実プロセスは起動しない）。
+export async function openTerminal(): Promise<void> {
+  await browser.execute(() => {
+    ;(window as unknown as { __pikeE2E?: { openTerminal?: () => void } }).__pikeE2E?.openTerminal?.()
+  })
+}
+
+// pty_output と同じ経路でアクティブなターミナルへ合成出力を流す。
+export async function feedActiveTerminal(data: string): Promise<void> {
+  await browser.execute((d) => {
+    ;(window as unknown as { __pikeE2E?: { feedActiveTerminal?: (d: string) => void } }).__pikeE2E?.feedActiveTerminal?.(
+      d,
+    )
+  }, data)
+}
+
+// pty_spawn をモックし、呼ばれるたびユニークな id を返す。id 固定だと閉じたタブの
+// unregister が新タブのハンドラを消してしまうため。
+export async function mockPtySpawnUniqueIds(): Promise<void> {
+  const b = browser as unknown as {
+    tauri: { mock: (c: string) => Promise<{ mockImplementation: (f: () => unknown) => Promise<void> }> }
+  }
+  const m = await b.tauri.mock('pty_spawn')
+  await m.mockImplementation(() => {
+    const w = window as unknown as { __ptyN?: number }
+    w.__ptyN = (w.__ptyN ?? 0) + 1
+    return { id: `e2e-term-${w.__ptyN}` }
+  })
+}
+
 export const MATRIX: Array<{ lang: Lang; theme: Theme }> = [
   { lang: 'ja', theme: 'light' },
   { lang: 'ja', theme: 'dark' },

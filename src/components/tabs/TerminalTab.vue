@@ -756,7 +756,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="terminal-wrapper">
+  <div class="terminal-wrapper" data-testid="terminal">
     <div v-if="showAgentLaunch || showPromptInject" class="term-toolbar">
       <div v-if="showPromptInject" class="agent-launch" :class="{ open: promptMenuOpen }">
         <button class="agent-btn solo" :title="t('terminal.promptInject')" @click="togglePromptMenu">

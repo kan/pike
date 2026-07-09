@@ -41,6 +41,13 @@ function unregister(ptyId: string) {
   exitHandlers.delete(ptyId)
 }
 
+// 登録済みハンドラへ出力を直接配送する（pty_output イベントと同じ経路）。
+// E2E 撮影 (#142) で pty_spawn をモックし実プロセスなしにターミナルへ合成出力を
+// 流すために使う。通常運用では呼ばれない。
+function feed(ptyId: string, data: string): void {
+  outputHandlers.get(ptyId)?.(data)
+}
+
 function onGlobalOutput(listener: (id: string, data: string) => void): () => void {
   globalOutputListeners.push(listener)
   return () => {
@@ -57,4 +64,4 @@ function onGlobalExit(listener: (id: string, code: number) => void): () => void 
   }
 }
 
-export const ptyRouter = { init, register, unregister, onGlobalOutput, onGlobalExit }
+export const ptyRouter = { init, register, unregister, feed, onGlobalOutput, onGlobalExit }

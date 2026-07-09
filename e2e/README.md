@@ -80,6 +80,21 @@ Git / Docker / ファイルツリー等は Rust への invoke でデータを得
 - 実装例は `e2e/specs/panels.ts`（Git パネル。`git_status` / `git_log` /
   `git_branch_list` / `git_remote_url` / `git_worktree_list` をモック）。
 
+## Phase 2: 実プロセス依存画面（ターミナル）
+
+ターミナルは実 PTY を起動し `pty_output` の emit イベントで xterm に描画するため、
+invoke モックだけでは再現できない。実プロセスなしに決定的に撮るため次の方式を使う。
+
+- `pty_spawn` をモックして実シェルを起動させない（`mockPtySpawnUniqueIds()`。
+  呼ぶたびユニークな id を返す。id 固定だと閉じたタブの unregister が新タブの
+  ハンドラを消すため）。`pty_resize` / `pty_write` / `pty_kill` も no-op モック。
+- `ptyRouter.feed(ptyId, data)` で `pty_output` と同じ経路に合成出力（ANSI 付き）を
+  流す。`__pikeE2E.openTerminal()`（既存ターミナルを閉じて 1 枚開く）と
+  `feedActiveTerminal(data)`（アクティブタブの ptyId へ feed）で操作する。
+- 実装例は `e2e/specs/terminal.ts`（npm run dev 相当の擬似セッションを描画）。
+
+エージェントチャットも実セッション依存で Phase 2 の対象（未対応）。
+
 ## シナリオの追加
 
 `e2e/specs/*.ts` に mocha の `describe` / `it` で書く。要素は `data-testid` で特定し、
