@@ -14,7 +14,7 @@
         "name": "Kan Fushihara"
       },
       "category": "productivity",
-      "source": "./pike-todo"
+      "source": "./plugins/pike-todo"
     }
   ]
 }
