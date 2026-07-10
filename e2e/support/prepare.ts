@@ -189,6 +189,13 @@ export async function openHistory(opts: { filePath: string }): Promise<void> {
   }, opts)
 }
 
+// PDF タブ（PdfTab）を開く（fs_read_file_base64 モック前提）。
+export async function openPdf(opts: { path: string }): Promise<void> {
+  await browser.execute((o) => {
+    ;(window as unknown as { __pikeE2E?: { openPdf?: (o: unknown) => void } }).__pikeE2E?.openPdf?.(o)
+  }, opts)
+}
+
 // ターミナルタブを 1 枚開く（pty_spawn はモック前提。実プロセスは起動しない）。
 export async function openTerminal(): Promise<void> {
   await browser.execute(() => {

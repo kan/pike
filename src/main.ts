@@ -45,7 +45,13 @@ async function bootstrap() {
     // 撮影を 1 タブに保つため、ファイル系コンテンツタブを閉じる補助（media 系ヘルパー用）。
     const closeContentTabs = () => {
       for (const t of [...tabs.tabs]) {
-        if (t.kind === 'editor' || t.kind === 'preview' || t.kind === 'diff' || t.kind === 'history' || t.kind === 'pdf') {
+        if (
+          t.kind === 'editor' ||
+          t.kind === 'preview' ||
+          t.kind === 'diff' ||
+          t.kind === 'history' ||
+          t.kind === 'pdf'
+        ) {
           void tabs.closeTab(t.id)
         }
       }
@@ -151,6 +157,12 @@ async function bootstrap() {
         project.showSwitcher = false
         closeContentTabs()
         tabs.addHistoryTab({ filePath: opts.filePath })
+      },
+      // PDF タブ（PdfTab）を開く。onMounted で fs_read_file_base64 を叩くのでモック前提。
+      openPdf: (opts: { path: string }) => {
+        project.showSwitcher = false
+        closeContentTabs()
+        tabs.addPdfTab({ path: opts.path })
       },
       // ターミナルを 1 枚開く（pty_spawn はモックして実プロセスは起動しない）。
       // 複数あると data-testid が競合するので、既存ターミナルは閉じてから開く。

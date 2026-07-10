@@ -122,6 +122,11 @@ EditorTab は `fs_read_file` を読まずその内容で描画するため、決
   （invoke 不要。`parseDiff` が解釈）。`openDiff()` から呼ぶ。待機は `.diff-row`。
 - **ファイル履歴（HistoryTab）**：`onMounted` で `git_log_file` を叩くのでモックする。
   `openHistory({ filePath })` から呼ぶ。待機は `.commit-row`。
+- **PDF（PdfTab）**：`onMounted` で `fs_read_file_base64` を叩き `data:application/pdf` を
+  iframe に流す。`openPdf({ path })` から呼び、`fs_read_file_base64` を最小 PDF の base64
+  （`support/pdfFixture.ts`）でモックする。待機は `.pdf-frame` + 内蔵ビューワ描画の pause。
+  **WebView2 内蔵 PDF ビューワの描画は `saveScreenshot` に写る**（ネイティブ面で空白になる懸念は
+  杞憂だった）。
 - これらの media ヘルパーは開く前に `closeContentTabs()`（editor/preview/diff/history/pdf）で
   既存のファイル系タブを閉じ、タブバーを 1 枚に保つ。
 

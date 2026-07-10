@@ -1,4 +1,15 @@
-import { MATRIX, mockInvoke, openDiff, openHistory, openImage, prepare, setFakeProject, shoot } from '../support/prepare'
+import {
+  MATRIX,
+  mockInvoke,
+  openDiff,
+  openHistory,
+  openImage,
+  openPdf,
+  prepare,
+  setFakeProject,
+  shoot,
+} from '../support/prepare'
+import { MINIMAL_PDF_BASE64 } from '../support/pdfFixture'
 
 // 画像ビューワ / 差分 / ファイル履歴を撮影する。
 // 画像は dataUrl 直指定、diff は unified diff 文字列直指定で invoke 不要。
@@ -103,6 +114,24 @@ describe('screenshots: history tab', () => {
       await openHistory({ filePath: 'src/lib/format.ts' })
       await $('.commit-row').waitForDisplayed({ timeout: 10_000 })
       await shoot('history-tab', lang, theme)
+    })
+  }
+})
+
+// --- PDF タブ ---------------------------------------------------------------
+// PdfTab は fs_read_file_base64 の base64 を data:application/pdf として iframe に流す。
+// WebView2 内蔵 PDF ビューワの描画が saveScreenshot に写るかはここで検証する。
+describe('screenshots: pdf tab', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`pdf-tab ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('fs_read_file_base64', MINIMAL_PDF_BASE64)
+      await setFakeProject()
+      await openPdf({ path: 'docs/spec.pdf' })
+      await $('.pdf-frame').waitForDisplayed({ timeout: 10_000 })
+      // 内蔵ビューワのレンダリングが安定するまで少し待つ。
+      await browser.pause(1500)
+      await shoot('pdf-tab', lang, theme)
     })
   }
 })
