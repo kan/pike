@@ -105,6 +105,11 @@ EditorTab は `fs_read_file` を読まずその内容で描画するため、決
 - 描画完了は `.cm-editor`（エディタ）/ `.preview-pane`（プレビュー）/
   `[data-testid="outline-panel"] .tree-item`（アウトライン）の表示待ちで確認する。
 - 実装例は `e2e/specs/editor.ts`（`editor` / `markdown-preview` / `outline-panel`）。
+- **プレビュー派生**：`viewMode:'preview'` で拡張子ごとの描画に分岐する。CSV/TSV は表、
+  JSON/JSONL は色分け、SVG はサニタイズ描画、Mermaid はライブラリ遅延 import + 非同期
+  render。待機は `.csv-preview table` / `.json-preview` / `.svg-preview svg` /
+  `.mermaid-preview svg`（mermaid は render 完了まで長めに待つ）。実装例は
+  `e2e/specs/preview.ts`（`csv-preview` / `json-preview` / `mermaid-preview` / `svg-preview`）。
 
 ## Phase 2: 実プロセス依存画面（ターミナル）
 
