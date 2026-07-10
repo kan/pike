@@ -42,6 +42,14 @@ async function bootstrap() {
     const sidebar = useSidebarStore()
     const worktree = useWorktreeStore()
     const todo = useTodoStore()
+    // 撮影を 1 タブに保つため、ファイル系コンテンツタブを閉じる補助（media 系ヘルパー用）。
+    const closeContentTabs = () => {
+      for (const t of [...tabs.tabs]) {
+        if (t.kind === 'editor' || t.kind === 'preview' || t.kind === 'diff' || t.kind === 'history' || t.kind === 'pdf') {
+          void tabs.closeTab(t.id)
+        }
+      }
+    }
     ;(window as unknown as { __pikeE2E?: Record<string, unknown> }).__pikeE2E = {
       setLanguage: (lang: string) => {
         settings.language = lang
@@ -125,6 +133,24 @@ async function bootstrap() {
           if (t.kind === 'editor') void tabs.closeTab(t.id)
         }
         tabs.addEditorTab({ path: opts.path, initialContent: opts.content, initialViewMode: opts.viewMode })
+      },
+      // 画像ビューワ（PreviewTab）を dataUrl 直指定で開く（fs_read_file_base64 不要）。
+      openImage: (opts: { path: string; dataUrl: string }) => {
+        project.showSwitcher = false
+        closeContentTabs()
+        tabs.addPreviewTab({ path: opts.path, dataUrl: opts.dataUrl })
+      },
+      // 差分タブ（DiffTab）を unified diff 文字列直指定で開く（invoke 不要）。
+      openDiff: (opts: { filePath: string; diff: string }) => {
+        project.showSwitcher = false
+        closeContentTabs()
+        tabs.addDiffTab({ filePath: opts.filePath, diff: opts.diff })
+      },
+      // ファイル履歴タブ（HistoryTab）を開く。onMounted で git_log_file を叩くのでモック前提。
+      openHistory: (opts: { filePath: string }) => {
+        project.showSwitcher = false
+        closeContentTabs()
+        tabs.addHistoryTab({ filePath: opts.filePath })
       },
       // ターミナルを 1 枚開く（pty_spawn はモックして実プロセスは起動しない）。
       // 複数あると data-testid が競合するので、既存ターミナルは閉じてから開く。

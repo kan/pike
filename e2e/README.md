@@ -111,6 +111,20 @@ EditorTab は `fs_read_file` を読まずその内容で描画するため、決
   `.mermaid-preview svg`（mermaid は render 完了まで長めに待つ）。実装例は
   `e2e/specs/preview.ts`（`csv-preview` / `json-preview` / `mermaid-preview` / `svg-preview`）。
 
+## 画像 / 差分 / ファイル履歴
+
+`e2e/specs/media.ts`。ファイル系タブは store の add メソッドに直接データを渡せるため、
+画像と差分は invoke モックすら不要。
+
+- **画像ビューワ（PreviewTab）**：`addPreviewTab({ path, dataUrl })` に data URL を直接渡す
+  （`fs_read_file_base64` 不要）。`openImage()` から呼ぶ。待機は `.preview-tab img`。
+- **差分タブ（DiffTab）**：`addDiffTab({ filePath, diff })` に unified diff 文字列を直接渡す
+  （invoke 不要。`parseDiff` が解釈）。`openDiff()` から呼ぶ。待機は `.diff-row`。
+- **ファイル履歴（HistoryTab）**：`onMounted` で `git_log_file` を叩くのでモックする。
+  `openHistory({ filePath })` から呼ぶ。待機は `.commit-row`。
+- これらの media ヘルパーは開く前に `closeContentTabs()`（editor/preview/diff/history/pdf）で
+  既存のファイル系タブを閉じ、タブバーを 1 枚に保つ。
+
 ## worktree セレクタ / QuickOpen / TODO
 
 `e2e/specs/navigation.ts`。いずれも簡単な invoke モック + `__pikeE2E` ヘルパーで撮る。

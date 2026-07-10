@@ -168,6 +168,27 @@ export async function openEditor(opts: {
   }, opts)
 }
 
+// 画像ビューワ（PreviewTab）を dataUrl 直指定で開く（fs_read_file_base64 不要）。
+export async function openImage(opts: { path: string; dataUrl: string }): Promise<void> {
+  await browser.execute((o) => {
+    ;(window as unknown as { __pikeE2E?: { openImage?: (o: unknown) => void } }).__pikeE2E?.openImage?.(o)
+  }, opts)
+}
+
+// 差分タブ（DiffTab）を unified diff 文字列直指定で開く（invoke 不要）。
+export async function openDiff(opts: { filePath: string; diff: string }): Promise<void> {
+  await browser.execute((o) => {
+    ;(window as unknown as { __pikeE2E?: { openDiff?: (o: unknown) => void } }).__pikeE2E?.openDiff?.(o)
+  }, opts)
+}
+
+// ファイル履歴タブ（HistoryTab）を開く（git_log_file モック前提）。
+export async function openHistory(opts: { filePath: string }): Promise<void> {
+  await browser.execute((o) => {
+    ;(window as unknown as { __pikeE2E?: { openHistory?: (o: unknown) => void } }).__pikeE2E?.openHistory?.(o)
+  }, opts)
+}
+
 // ターミナルタブを 1 枚開く（pty_spawn はモック前提。実プロセスは起動しない）。
 export async function openTerminal(): Promise<void> {
   await browser.execute(() => {
