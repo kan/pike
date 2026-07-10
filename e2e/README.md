@@ -77,8 +77,19 @@ Git / Docker / ファイルツリー等は Rust への invoke でデータを得
 - **手順**: `mockInvoke(command, value)` でコマンド別に値を設定 → `setFakeProject()`
   で擬似プロジェクトを差して `activeRoot` を確定 → `openPanel('git')` 等でパネルを
   開く。パネルは開いた時に invoke でフェッチするので、モックは開く前に設定する。
-- 実装例は `e2e/specs/panels.ts`（Git パネル。`git_status` / `git_log` /
-  `git_branch_list` / `git_remote_url` / `git_worktree_list` をモック）。
+- 実装例は `e2e/specs/panels.ts`。同ファイルで撮影する invoke モックパネル:
+  - `git-panel`：`git_status` / `git_log` / `git_branch_list` / `git_remote_url` / `git_worktree_list`
+  - `docker-panel`：`docker_ping` / `docker_compose_services` / `docker_list_containers`
+    （`composeProject` は root 名由来の `demoapp` に揃える）
+  - `files-panel`：`fs_list_dir`（path 引数によらず同値を返すためルート直下のみ展開）
+  - `tasks-panel`：`task_discover`（npm / cargo グループ）
+  - `search-panel`：`search_detect_backend` / `search_execute`。検索はユーザー入力駆動
+    なので `data-testid="search-input"` に打鍵し Enter で実行する
+- パネルは `activePanel` の watch でロードされる（tasks / docker / files）か、開いた時に
+  フェッチするので、モックは `openPanel` の前に設定する。データ描画の完了は代表要素
+  （`.container-item` / `.tree-item` / `.task-item` / `.result-item`）の表示待ちで確認する。
+- 擬似 root では実ファイル監視の起動が失敗し FileTreePanel に警告バナーが出るため、
+  `prepare()` が `fs_watch_start` をモックして初回起動から成功扱いにしている。
 
 ## Phase 2: 実プロセス依存画面（ターミナル）
 

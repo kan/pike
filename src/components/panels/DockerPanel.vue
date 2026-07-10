@@ -119,7 +119,7 @@ onUnmounted(() => dockerStore.stopPolling())
 </script>
 
 <template>
-  <div class="docker-panel">
+  <div class="docker-panel" data-testid="docker-panel">
     <div v-if="!dockerStore.connected" class="empty">
       {{ t('docker.notReachable') }}
     </div>

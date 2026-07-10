@@ -27,7 +27,7 @@ defineExpose({ refresh })
 </script>
 
 <template>
-  <div class="tasks-panel">
+  <div class="tasks-panel" data-testid="tasks-panel">
     <div v-if="taskStore.loading" class="empty">{{ t('common.loading') }}</div>
     <div v-else-if="taskStore.taskGroups.length === 0" class="empty">{{ t('tasks.noFiles') }}</div>
     <template v-else>

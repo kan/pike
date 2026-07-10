@@ -65,11 +65,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="search-panel">
+  <div class="search-panel" data-testid="search-panel">
     <div class="search-input-area">
       <input
         v-model="query"
         class="search-input"
+        data-testid="search-input"
         :placeholder="t('search.placeholder')"
         @input="onInput"
         @keydown.enter="doSearch"

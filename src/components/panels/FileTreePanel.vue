@@ -499,7 +499,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 </script>
 
 <template>
-  <div class="filetree-panel" ref="panelEl">
+  <div class="filetree-panel" ref="panelEl" data-testid="files-panel">
     <div v-if="!projectStore.currentProject" class="empty">{{ t('fileTree.noProject') }}</div>
     <template v-else>
       <div v-if="fsWatcher.startError.value" class="watcher-notice">

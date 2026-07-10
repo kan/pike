@@ -47,6 +47,13 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
     opts.theme === 'dark',
   )
 
+  // 擬似 root では実ファイル監視の起動が失敗し、FileTreePanel に
+  // 「inotify-tools を入れて」の警告バナーが出る。startError はセッション共有の
+  // グローバル状態で、root が同一だと watch(activeRoot) が再発火せず後から潰せない。
+  // そのため最初の setFakeProject より前（＝全 it の prepare 時点）で監視開始を
+  // モックし、初回起動から成功扱いにして撮影を汚さない。
+  await mockInvoke('fs_watch_start', 'e2e-watch')
+
   await injectStabilizeCss()
   await settle()
 }
