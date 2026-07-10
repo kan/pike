@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.23.2] - 2026-07-10
+
+### Bug Fixes
+
+- **Windows: User PATH への重複追記と型劣化を修正 (#146)**: インストーラが更新のたびに `%LOCALAPPDATA%\Pike` を重複チェックなしで User PATH へ追記し、PATH が肥大化していました。既存エントリと空エントリを除去してから 1 個だけ追加する冪等な処理に変更し、更新時に肥大化済みの PATH も自動で 1 個へ畳むようにしました。あわせて書き込みを `REG_EXPAND_SZ` で行い、従来 `REG_SZ` へ劣化していた（`%SystemRoot%` 等が固定化される）問題も解消しました
+
 ## [0.23.1] - 2026-07-09
 
 ### Bug Fixes
