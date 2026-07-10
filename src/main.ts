@@ -32,12 +32,16 @@ async function bootstrap() {
     const { useTabStore } = await import('./stores/tabs')
     const { useProjectStore } = await import('./stores/project')
     const { useSidebarStore } = await import('./stores/sidebar')
+    const { useWorktreeStore } = await import('./stores/worktree')
+    const { useTodoStore } = await import('./stores/todo')
     const { ptyRouter } = await import('./composables/usePtyRouter')
     const { globalMode } = await import('./lib/window')
     const settings = useSettingsStore()
     const tabs = useTabStore()
     const project = useProjectStore()
     const sidebar = useSidebarStore()
+    const worktree = useWorktreeStore()
+    const todo = useTodoStore()
     ;(window as unknown as { __pikeE2E?: Record<string, unknown> }).__pikeE2E = {
       setLanguage: (lang: string) => {
         settings.language = lang
@@ -85,6 +89,31 @@ async function bootstrap() {
       },
       openPanel: (name: string) => {
         sidebar.activePanel = name as typeof sidebar.activePanel
+      },
+      // QuickOpen（Ctrl+P）を開く。開いた時に list_project_files 等をフェッチするので
+      // モックは呼ぶ前に設定する。
+      openQuickOpen: () => {
+        project.showSwitcher = false
+        project.showQuickOpen = true
+      },
+      // 各撮影を素の状態から始めるため、前の spec で開いたままの overlay を閉じる。
+      // ProjectSwitcher / QuickOpen は store、StatusBar の worktree ドロップダウン等は
+      // window mousedown で閉じる popover なので合成 mousedown で畳む。
+      closeOverlays: () => {
+        project.showSwitcher = false
+        project.showQuickOpen = false
+        window.dispatchEvent(new MouseEvent('mousedown'))
+      },
+      // worktree セレクタは worktrees が 2 件以上の時だけ表示される。git_worktree_list を
+      // モックした上でこれを呼ぶと一覧が入り StatusBar にセレクタが出る。
+      loadWorktrees: () => {
+        void worktree.loadWorktrees()
+      },
+      // TODO は project 変更（immediate watch）でロードされるが、撮影は擬似プロジェクトの
+      // id が全 spec で同一なため、最初の setFakeProject（fs_read_file 未モック時）の失敗結果が
+      // 残り watch も再発火しない。fs_read_file モック後に明示再ロードするための口。
+      reloadTodo: () => {
+        void todo.load()
       },
       // エディタ/プレビュー/アウトライン撮影用に、決定的な内容でエディタタブを開く。
       // initialContent を渡すと EditorTab は fs_read_file を読まずその内容で描画するため

@@ -38,8 +38,15 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
   await browser.execute(
     (lang, dark) => {
       const api = (window as unknown as {
-        __pikeE2E: { setLanguage: (l: string) => void; setDarkMode: (d: boolean) => void }
+        __pikeE2E: {
+          setLanguage: (l: string) => void
+          setDarkMode: (d: boolean) => void
+          closeOverlays?: () => void
+        }
       }).__pikeE2E
+      // 前の it で開いたままの overlay（ProjectSwitcher / QuickOpen / worktree
+      // ドロップダウン等）を閉じ、素の状態から撮影する。
+      api.closeOverlays?.()
       api.setLanguage(lang)
       api.setDarkMode(dark)
     },
@@ -120,6 +127,29 @@ export async function openPanel(name: string): Promise<void> {
   await browser.execute((n) => {
     ;(window as unknown as { __pikeE2E?: { openPanel?: (n: string) => void } }).__pikeE2E?.openPanel?.(n)
   }, name)
+}
+
+// QuickOpen（Ctrl+P）を開く。list_project_files 等のモックは呼ぶ前に設定する。
+export async function openQuickOpen(): Promise<void> {
+  await browser.execute(() => {
+    ;(window as unknown as { __pikeE2E?: { openQuickOpen?: () => void } }).__pikeE2E?.openQuickOpen?.()
+  })
+}
+
+// worktree 一覧を読み込む（git_worktree_list モック前提）。2 件以上で StatusBar に
+// セレクタが出る。
+export async function loadWorktrees(): Promise<void> {
+  await browser.execute(() => {
+    ;(window as unknown as { __pikeE2E?: { loadWorktrees?: () => void } }).__pikeE2E?.loadWorktrees?.()
+  })
+}
+
+// TODO を明示再ロード（fs_read_file モック後に呼ぶ）。擬似プロジェクト id が固定で
+// project watch が再発火しないため必要。
+export async function reloadTodo(): Promise<void> {
+  await browser.execute(() => {
+    ;(window as unknown as { __pikeE2E?: { reloadTodo?: () => void } }).__pikeE2E?.reloadTodo?.()
+  })
 }
 
 // 決定的な内容でエディタタブを 1 枚開く（fs_read_file 不要。initialContent 経路）。

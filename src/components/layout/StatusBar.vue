@@ -492,7 +492,7 @@ onUnmounted(() => {
     </div>
 
     <div v-if="worktreeStore.hasMultiple" class="branch-area">
-      <button class="status-item clickable" :title="t('worktree.tooltip')" @click="openWorktreeSwitcher">
+      <button class="status-item clickable" data-testid="worktree-selector" :title="t('worktree.tooltip')" @click="openWorktreeSwitcher">
         <FolderGit2 :size="14" :stroke-width="2" class="branch-icon" />
         <span>{{ worktreeLabel }}</span>
       </button>

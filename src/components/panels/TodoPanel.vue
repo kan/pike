@@ -66,7 +66,7 @@ async function clearAll() {
 </script>
 
 <template>
-  <div class="todo-panel">
+  <div class="todo-panel" data-testid="todo-panel">
     <div v-if="!projectStore.currentProject" class="placeholder">{{ t('fileTree.noProject') }}</div>
     <template v-else>
       <div class="todo-top">
