@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="outline-panel">
+  <div class="outline-panel" data-testid="outline-panel">
     <div class="outline-tabs">
       <button
         class="outline-tab"

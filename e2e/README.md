@@ -91,6 +91,21 @@ Git / Docker / ファイルツリー等は Rust への invoke でデータを得
 - 擬似 root では実ファイル監視の起動が失敗し FileTreePanel に警告バナーが出るため、
   `prepare()` が `fs_watch_start` をモックして初回起動から成功扱いにしている。
 
+## エディタ / プレビュー / アウトラインの撮影
+
+エディタ系は invoke モックすら不要。`addEditorTab({ initialContent })` を渡すと
+EditorTab は `fs_read_file` を読まずその内容で描画するため、決定的な内容を直接与えられる。
+
+- `__pikeE2E.openEditor({ path, content, viewMode })`（`support/prepare.ts` の
+  `openEditor()` から呼ぶ）で、既存エディタタブを閉じてから 1 枚開く。`viewMode`
+  （`edit` / `split` / `preview`）は markdown 等プレビュー可能な拡張子でのみ効く。
+- **アウトライン**は EditorTab が登録する CodeMirror View（`useOutlineSource`）から
+  抽出するため、`edit` モード（View が生きている）で開いてから `openPanel('outline')`
+  する。プレビュー専用モードでは View が無く抽出できない。
+- 描画完了は `.cm-editor`（エディタ）/ `.preview-pane`（プレビュー）/
+  `[data-testid="outline-panel"] .tree-item`（アウトライン）の表示待ちで確認する。
+- 実装例は `e2e/specs/editor.ts`（`editor` / `markdown-preview` / `outline-panel`）。
+
 ## Phase 2: 実プロセス依存画面（ターミナル）
 
 ターミナルは実 PTY を起動し `pty_output` の emit イベントで xterm に描画するため、

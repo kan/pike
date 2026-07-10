@@ -86,6 +86,17 @@ async function bootstrap() {
       openPanel: (name: string) => {
         sidebar.activePanel = name as typeof sidebar.activePanel
       },
+      // エディタ/プレビュー/アウトライン撮影用に、決定的な内容でエディタタブを開く。
+      // initialContent を渡すと EditorTab は fs_read_file を読まずその内容で描画するため
+      // invoke モック不要。initialViewMode は markdown 等プレビュー可能な拡張子でのみ効く。
+      // 既存エディタタブは data-testid/セレクタ競合を避けるため閉じてから開く。
+      openEditor: (opts: { path: string; content: string; viewMode?: 'edit' | 'split' | 'preview' }) => {
+        project.showSwitcher = false
+        for (const t of [...tabs.tabs]) {
+          if (t.kind === 'editor') void tabs.closeTab(t.id)
+        }
+        tabs.addEditorTab({ path: opts.path, initialContent: opts.content, initialViewMode: opts.viewMode })
+      },
       // ターミナルを 1 枚開く（pty_spawn はモックして実プロセスは起動しない）。
       // 複数あると data-testid が競合するので、既存ターミナルは閉じてから開く。
       openTerminal: () => {

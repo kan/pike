@@ -122,6 +122,22 @@ export async function openPanel(name: string): Promise<void> {
   }, name)
 }
 
+// 決定的な内容でエディタタブを 1 枚開く（fs_read_file 不要。initialContent 経路）。
+// viewMode は markdown 等プレビュー可能な拡張子でのみ効く。
+export async function openEditor(opts: {
+  path: string
+  content: string
+  viewMode?: 'edit' | 'split' | 'preview'
+}): Promise<void> {
+  await browser.execute((o) => {
+    ;(
+      window as unknown as {
+        __pikeE2E?: { openEditor?: (o: unknown) => void }
+      }
+    ).__pikeE2E?.openEditor?.(o)
+  }, opts)
+}
+
 // ターミナルタブを 1 枚開く（pty_spawn はモック前提。実プロセスは起動しない）。
 export async function openTerminal(): Promise<void> {
   await browser.execute(() => {
