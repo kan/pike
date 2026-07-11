@@ -598,6 +598,10 @@ onMounted(async () => {
   // ConPTY truncation (Rust pty_write chunks at 4KB).
   async function pasteText(text: string) {
     if (!ptyId || !terminal) return
+    // 末尾の改行を落とす。terminal.paste() は改行を CR(Enter) に正規化するため、末尾改行が
+    // あるとブラケットペースト対応アプリ（Claude Code 等）で即送信され、シェルでも貼り付けた
+    // コマンドが即実行されてしまう。確定/実行はユーザーが自分で Enter を押す。内部の改行は残す。
+    text = text.replace(/[\r\n]+$/, '')
     if (text.includes('\n') || text.includes('\r')) {
       if (!(await confirmDialog(t('confirm.pasteNewlines')))) {
         terminal.focus()
@@ -649,13 +653,23 @@ onMounted(async () => {
     if (text) await pasteText(text)
   }
 
+  // 右クリック貼り付けが有効なときは、右ボタンの mousedown を xterm に渡さない。
+  // マウスレポート中（Claude Code のフルスクリーン等）は xterm が右ボタンをアプリへ転送するが、
+  // 近年の Claude Code は右クリック貼り付けをやめた（#147）ため転送先で何も起きず、逆に過去は
+  // アプリ側の貼り付けと二重になった（#106）。転送を止めて Pike が必ず単一で貼り付ける。
+  // capture フェーズで stopPropagation して xterm のリスナ到達前に止める（preventDefault は
+  // しない。contextmenu イベントは発火させ、そちらで貼り付ける）。
+  termRef.value?.addEventListener(
+    'mousedown',
+    (e) => {
+      if (e.button === 2 && settingsStore.terminalRightClickPaste) e.stopPropagation()
+    },
+    true,
+  )
+
   termRef.value?.addEventListener('contextmenu', async (e) => {
     e.preventDefault()
     if (!settingsStore.terminalRightClickPaste || !ptyId) return
-    // When the app enables mouse reporting (Claude Code fullscreen mode, etc.),
-    // xterm forwards the right-button press to the PTY and the app does its own
-    // paste. Doing ours too would paste twice — let the app handle it.
-    if (terminal && terminal.modes.mouseTrackingMode !== 'none') return
     await pasteFromClipboard()
   })
 
