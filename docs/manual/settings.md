@@ -13,7 +13,10 @@
 
 ## 外観（テーマ・フォント・UI サイズ）
 
-![設定 - 外観](img/settings-appearance.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/settings-appearance-light.png">
+  <img alt="設定 - 外観" src="img/settings-appearance.png">
+</picture>
 
 - **言語**：日本語 / English（UI 全体が即時に切り替わります）。
 - **モード**：ダーク / ライト。

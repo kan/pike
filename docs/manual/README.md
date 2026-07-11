@@ -4,7 +4,10 @@ Pike は「AI エージェント × ターミナル」に特化した、**軽量
 
 このマニュアルは Pike の使い方を機能ごとにまとめたものです。はじめての方は [はじめに](getting-started.md) から読んでください。
 
-![Pike の全体画面](img/overview.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/overview-light.png">
+  <img alt="Pike の全体画面" src="img/overview.png">
+</picture>
 
 ## 目次
 

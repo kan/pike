@@ -26,7 +26,10 @@
 
 **🔍 検索** アイコンで開きます。プロジェクト全体をテキスト検索します。
 
-![検索パネル](img/search.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/search-light.png">
+  <img alt="検索パネル" src="img/search.png">
+</picture>
 
 - バックエンドは起動時に判定: **ripgrep（システム → 同梱版）→ grep** の順でフォールバック（WSL プロジェクトでは WSL 側の rg/grep）。使用中のバックエンドはバッジで表示されます。
 - 結果は最大 500 件、入力は 300ms デバウンス。
@@ -36,7 +39,10 @@
 
 **🐋 Docker** アイコンで開きます。Docker API（`bollard`）に接続します（named pipe → TCP の順でフォールバック。Docker Desktop が無くても WSL2 の dockerd が TCP を公開していれば接続可能）。
 
-![Docker パネル](img/docker.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/docker-light.png">
+  <img alt="Docker パネル" src="img/docker.png">
+</picture>
 
 - `compose.yml` を解析してサービス一覧を表示します。
 - **start / stop / restart / refresh** を UI から実行（5 秒ポーリングで状態更新）。
@@ -48,7 +54,10 @@
 
 **📋 タスク** アイコンで開きます。プロジェクトを最大深さ 5 まで走査し、`package.json` の scripts / Makefile のターゲット / `deno.json` の tasks を検出して一覧表示します。`Cargo.toml` も対象で、build・test・clippy などの標準サブコマンドと、`run` / `run --bin` などの実行タスクを表示します。Tauri アプリ（`tauri.conf.json` があるディレクトリ）では `tauri dev` / `tauri build` も表示します。`.cargo/config.toml` の `[alias]` に定義した cargo エイリアスも検出し、同じディレクトリの cargo タスク一覧の先頭に表示します。`Cargo.toml` が無いディレクトリのエイリアスは「cargo alias」グループとして表示します。
 
-![タスクパネル](img/tasks.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/tasks-light.png">
+  <img alt="タスクパネル" src="img/tasks.png">
+</picture>
 
 - サブディレクトリのタスクには相対ディレクトリ名が付きます。
 - タスクを実行すると、正しい作業ディレクトリでプロジェクトのデフォルトシェルで起動し、完了するとタブが自動クローズします。
@@ -58,7 +67,10 @@
 
 **✅ TODO** アイコンで開きます。プロジェクトごとの簡易チェックリストです（タスクランナーの「タスク」とは別物）。
 
-![TODO パネル](img/todo.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/todo-light.png">
+  <img alt="TODO パネル" src="img/todo.png">
+</picture>
 
 - 実体は `.pike/todo.md`（プロジェクト固定・`.gitignore` 済みのローカル専用）。GitHub 互換のタスクリスト（`- [ ]` / `- [x]`）で保存します。
 - 追加 / チェック / インライン編集 / 削除 / **ドラッグ並べ替え**ができます。ヘッダに進捗（完了数 / 総数）を表示します。

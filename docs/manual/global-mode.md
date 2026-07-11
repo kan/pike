@@ -23,7 +23,10 @@
 
 ## ファイルを開く
 
-![グローバルモードのエディタ](img/global-editor.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/global-editor-light.png">
+  <img alt="グローバルモードのエディタ" src="img/global-editor.png">
+</picture>
 
 - 複数ファイルを渡すと、1 ファイル 1 タブで開きます（`pike a.rs b.md` や複数選択のドラッグ&ドロップ）。
 - 拡張子に応じて開き方が変わります。画像は画像ビューア、PDF は PDF プレビュー、それ以外はエディタです。
@@ -36,7 +39,10 @@ Pike が起動していない状態でファイルを渡した場合も、プロ
 
 Pike が起動済みのときに引数なしで `pike` を実行すると、ターミナルタブだけのウィンドウが開きます。Windows Terminal の代わりに使えます。
 
-![グローバルモードのターミナル](img/global-terminal.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/global-terminal-light.png">
+  <img alt="グローバルモードのターミナル" src="img/global-terminal.png">
+</picture>
 
 - **起動時のシェル**：WSL 上のディレクトリで `pike` を実行した場合は、その distro の WSL シェルをカレントディレクトリ引き継ぎで開きます。それ以外（Windows のディレクトリやランチャー起動）は設定の「グローバルモードの既定シェル」で開きます。既定シェルが Windows シェルなら実行時のディレクトリを引き継ぎ、WSL の場合は Windows のパスを引き継がず WSL 側のホームで開始します。
 - **「+」ボタン**：設定の「グローバルモードの既定シェル」で選んだシェルを開きます。→ [設定](settings.md#ターミナル)

@@ -9,9 +9,15 @@
 
 Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としています。
 
-![エディタとファイルツリー](docs/screenshot-editor.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-editor-light.png">
+  <img alt="エディタとファイルツリー" src="docs/screenshot-editor.png">
+</picture>
 
-![Git パネルと Claude Code](docs/screenshot-git.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-git-light.png">
+  <img alt="Git パネルと Claude Code" src="docs/screenshot-git.png">
+</picture>
 
 ## 主な機能
 

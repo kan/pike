@@ -37,7 +37,10 @@ Pike の Git 統合は `git` CLI 経由で、WSL / Windows の両方に対応し
 
 `git log --all` と親ハッシュ・refs を使って、ブランチのマージグラフを SVG で描画します。Git パネルで **List / Graph** を切り替えて表示します。
 
-![コミットグラフ](img/git-graph.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/git-graph-light.png">
+  <img alt="コミットグラフ" src="img/git-graph.png">
+</picture>
 
 ## diff タブ
 

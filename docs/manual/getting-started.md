@@ -29,7 +29,10 @@ Pike を初めて使うときの流れをまとめます。
 
 ## 画面構成
 
-![画面の各部名称](img/screen-layout.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/screen-layout-light.png">
+  <img alt="画面の各部名称" src="img/screen-layout.png">
+</picture>
 
 | 部位 | 役割 |
 |------|------|
@@ -42,7 +45,10 @@ Pike を初めて使うときの流れをまとめます。
 
 ## 最初のプロジェクトを登録する
 
-![新規プロジェクト登録](img/new-project.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/new-project-light.png">
+  <img alt="新規プロジェクト登録" src="img/new-project.png">
+</picture>
 
 1. 左サイドバーの **📁 プロジェクト** を開く
 2. 「新規作成」からプロジェクトを追加する

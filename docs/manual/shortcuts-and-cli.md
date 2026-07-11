@@ -12,7 +12,10 @@
 
 **`Ctrl+P`** でコマンドパレットを開きます。先頭の文字でモードが切り替わります。
 
-![コマンドパレット](img/command-palette.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/command-palette-light.png">
+  <img alt="コマンドパレット" src="img/command-palette.png">
+</picture>
 
 | 先頭 | モード | 例 |
 |------|--------|-----|

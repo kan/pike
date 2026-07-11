@@ -52,7 +52,10 @@
 
 複数の git worktree を使って並行作業（例: 複数の AI エージェントに別ブランチを担当させる）をしている場合、ステータスバーの **worktree セレクタ**（フォルダのアイコン、worktree が 2 つ以上あるときのみ表示）で参照先を切り替えられます。
 
-![worktree セレクタ](img/worktree-selector.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/worktree-selector-light.png">
+  <img alt="worktree セレクタ" src="img/worktree-selector.png">
+</picture>
 
 切り替えると、**ファイルツリー / Git / 検索 / タスク / Docker / エディタ**の参照ルートが選んだ worktree へ一斉に切り替わります。1 つのウィンドウで複数 worktree のレビューができます。
 

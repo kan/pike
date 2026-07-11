@@ -56,7 +56,10 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
 
 これらの形式は専用タブではなく、エディタタブの **Edit / Split / Preview** トグルで切り替えて表示します。
 
-![Markdown プレビュー（Split）](img/markdown-preview.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/markdown-preview-light.png">
+  <img alt="Markdown プレビュー（Split）" src="img/markdown-preview.png">
+</picture>
 
 - **Markdown** (`.md`): Edit / Split / Preview の 3 モード、スクロール同期。本文中の ```mermaid``` ブロックは図として描画。外部 URL リンクは確認のうえ外部ブラウザで開き、ローカルリンクはプロジェクト内に限定してエディタで開きます。
 - **CSV / TSV**：テーブル表示（RFC 4180 準拠の引用符対応、先頭 10,000 行まで、ヘッダ固定）。
@@ -68,7 +71,10 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
 
 画像ファイルは**表示専用**のビューアで開きます（ファイルは一切変更しません）。
 
-![画像ビューア](img/image-viewer.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/image-viewer-light.png">
+  <img alt="画像ビューア" src="img/image-viewer.png">
+</picture>
 
 - 拡大 / 縮小 / 100% / **ウィンドウに合わせる (fit)**
 - 90° 回転（左右）・左右反転
