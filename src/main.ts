@@ -68,6 +68,10 @@ async function bootstrap() {
       },
       setDarkMode: (dark: boolean) => {
         settings.darkMode = dark
+        // 撮影の light/dark を画面全体で統一するため、エディタ・ターミナルのテーマも
+        // app モードに合わせる（既定では両者は darkMode と独立の設定だが、スクショでは揃える）。
+        settings.editorThemeName = dark ? 'One Dark' : 'Default Light'
+        settings.colorSchemeName = dark ? 'Default Dark' : 'Solarized Light'
       },
       openSwitcher: () => {
         project.showSwitcher = true
