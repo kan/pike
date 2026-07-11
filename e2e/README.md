@@ -211,20 +211,89 @@ Windows 11 風の枠を合成する。
   `-dark` / `-light` サフィックスから判定（`THEME=` で明示指定も可）。
 - 既定は透過背景（任意の下地に載せられる）。`BG='#c8ccd2'` で単色背景に flatten。
 - 依存は ImageMagick 7（`magick`）と Windows の Segoe UI フォント。`artifacts/` は
-  `.gitignore` 済みなので合成結果はコミットされない（配布時に生成する）。
+  `.gitignore` 済みだが、**ヒーロー画像はコミット対象**（`docs/screenshot-*.png` /
+  `docs/manual/img/overview.png`）なので `<input>` の dark/light を各サフィックスの
+  出力へ明示的に合成する（後述の手順を参照）。
+
+現在のヒーローは 3 枚:
+
+- `docs/screenshot-editor.png`（README「エディタとファイルツリー」← `hero-editor`）
+- `docs/screenshot-git.png`（README「Git パネルと Claude Code」← `hero-git`）
+- `docs/manual/img/overview.png`（マニュアル TOP ← `overview`）
+
+いずれも dark（`{名}.png`）と light（`{名}-light.png`）を対で持つ。
 
 ## マニュアル画像への同期
 
 E2E は `{画面}-{lang}-{theme}.png` で撮る（`artifacts/` は gitignore）。マニュアルは
-`docs/manual/img/{別名}.png`（ja/dark 相当）を参照し、両者は名前が違う。`scripts/sync-manual-images.sh`
-がこの対応表（マニュアル名 ← E2E ベース名）に沿って既定 ja/dark をコピーする。
+`docs/manual/img/{別名}.png` を参照し、両者は名前が違う。`scripts/sync-manual-images.sh` が
+対応表（マニュアル名 ← E2E ベース名）に沿って ja の dark/light をコピーする。
 
-- `scripts/sync-manual-images.sh --check`：ドライラン（更新予定 / 未撮影(pending) / ソース欠落を表示）。
-- 引数なしで実行すると `docs/manual/img` へ実コピー。`LANG_=` / `THEME=` / `OUTDIR=` で変更可。
-- E2E 未撮影の画面（`overview` / `screen-layout` / `global-editor` / `global-terminal`）は
-  対応表で `-` にして pending 表示。シナリオ追加や外枠合成は #145 で用意する。
-- **実際のマニュアル差し替え・校正・アンカー整合の確認は #145 の作業**。このスクリプトはその配管で、
-  走らせて初めて `docs/manual/img` を更新する。
+- 各画面を `{別名}.png`（dark・`<img>` フォールバック）と `{別名}-light.png`（light 上書き）の
+  2 枚で出力する（light/dark 切替のため。後述）。
+- `scripts/sync-manual-images.sh --check`：ドライラン（更新予定 / ソース欠落を表示）。
+- 引数なしで実行すると `docs/manual/img` へ実コピー。`LANG_=` / `OUTDIR=` で変更可。
+- 外枠付きヒーロー（`overview` / README の `screenshot-*`）は `frame-screenshot.sh` で別途
+  生成するため MAP には含めない。
+
+## light/dark 切替（`<picture>`）とテーマ
+
+README とマニュアルは、閲覧テーマに追従して画像を切り替える。
+
+- **Markdown 側**：画像は `<picture>` で持つ。dark を `<img>` フォールバック、light を
+  `prefers-color-scheme: light` の `<source srcset>` で上書きする。
+
+  ```html
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="img/docker-light.png">
+    <img alt="Docker パネル" src="img/docker.png">
+  </picture>
+  ```
+
+- **撮影側**：`prepare({ theme })` の light 撮影では、エディタ（`Default Light`）とターミナル
+  （`Solarized Light`）のテーマも light に揃え、画面全体を light 系で統一する（`__pikeE2E`
+  の `setDarkMode` が editor/terminal のテーマも app モードに合わせる。撮影限定で、Pike 本体の
+  既定挙動は未変更）。
+- **GitHub 表示**：`<picture>` + `prefers-color-scheme` は GitHub 公式サポートで、閲覧者の
+  GitHub テーマに追従する。
+- **Pike 内プレビュー**：`ManualTab` は WebView の `prefers-color-scheme` に依らず、右上トグルの
+  `manualDark` で `<picture>` を dark/light の `<img>` に畳んで選び、コンテナの `data-theme` で
+  chrome も切り替える（マニュアル表示のみに効く）。加えて `settings` の `applyDarkMode` が
+  `setWebviewTheme` で WebView の `prefers-color-scheme` とタイトルバーを app テーマへ同期する。
+
+## 撮影〜合成〜差し替えの手順
+
+画面変更後にマニュアル画像を更新する一連の流れ。
+
+```bash
+# 1. 撮影バイナリをビルド（フロント変更時のみ必要。spec だけの変更なら不要）
+npm run e2e:build
+
+# 2. 全シナリオを撮影（ja/en × light/dark を artifacts/screenshots へ）
+npm run e2e
+#    セッション teardown が稀に ECONNREFUSED で落ちるが撮影は完了している。
+#    その spec だけ npx wdio run e2e/wdio.conf.ts --spec e2e/specs/<name>.ts で撮り直す。
+
+# 3. frameless 内枠をマニュアルへ同期（dark + light）
+bash scripts/sync-manual-images.sh --check   # まず差分確認
+bash scripts/sync-manual-images.sh           # docs/manual/img へコピー
+
+# 4. 外枠ヒーローを dark/light で合成（コミット対象）
+bash scripts/frame-screenshot.sh artifacts/screenshots/hero-editor-ja-dark.png  docs/screenshot-editor.png
+bash scripts/frame-screenshot.sh artifacts/screenshots/hero-editor-ja-light.png docs/screenshot-editor-light.png
+bash scripts/frame-screenshot.sh artifacts/screenshots/hero-git-ja-dark.png     docs/screenshot-git.png
+bash scripts/frame-screenshot.sh artifacts/screenshots/hero-git-ja-light.png    docs/screenshot-git-light.png
+bash scripts/frame-screenshot.sh artifacts/screenshots/overview-ja-dark.png     docs/manual/img/overview.png
+bash scripts/frame-screenshot.sh artifacts/screenshots/overview-ja-light.png    docs/manual/img/overview-light.png
+```
+
+新しい画面をマニュアルに載せるときは、(a) E2E に撮影シナリオを追加、(b) `sync-manual-images.sh`
+の MAP に「マニュアル名 ← E2E ベース名」を追加、(c) 対象ページの Markdown を `<picture>` で
+記述（dark/light 両参照）する。相対参照（`../screenshot-*.png` 等）も `<picture>` 化を忘れない。
+
+**校正**：マニュアル（`docs/manual/`）・README を変更したら、コミット前に textlint
+（ai-writing 指摘 0）と `japanese-tech-writing` スキルで点検し、見出しアンカーの整合も確認する
+（プロジェクト CLAUDE.md の「ドキュメント校正ルール」に従う）。
 
 ## 制約（Pike 固有）
 
