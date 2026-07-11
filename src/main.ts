@@ -120,6 +120,11 @@ async function bootstrap() {
       openPanel: (name: string) => {
         sidebar.activePanel = name as typeof sidebar.activePanel
       },
+      // ファイルツリーの git ステータス色を撮るため、gitStore.status を直接セットする。
+      // 通常 git status はフェッチ駆動だが、files パネルだけ開くと発火しないため。
+      setGitStatus: (status: unknown) => {
+        useGitStore().status = status as ReturnType<typeof useGitStore>['status']
+      },
       // E2E は @wdio/tauri-service が 1 つのアプリを全 spec で共有するため、先行 spec が
       // 開いたタブ（media.ts の spec.pdf 等）やサイドバーパネルが後続の撮影に残る。各撮影を
       // 素の状態から始めるため、prepare() でこれを await して全タブを閉じ、サイドバーも畳み、

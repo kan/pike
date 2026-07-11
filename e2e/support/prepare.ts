@@ -129,6 +129,13 @@ export async function setFakeProject(): Promise<void> {
   })
 }
 
+// ファイルツリーの git ステータス色を撮るため、gitStore.status を直接セットする。
+export async function setGitStatus(status: unknown): Promise<void> {
+  await browser.execute((s) => {
+    ;(window as unknown as { __pikeE2E?: { setGitStatus?: (s: unknown) => void } }).__pikeE2E?.setGitStatus?.(s)
+  }, status)
+}
+
 // サイドバーの指定パネルを開く。
 export async function openPanel(name: string): Promise<void> {
   await browser.execute((n) => {

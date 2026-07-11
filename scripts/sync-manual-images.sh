@@ -30,6 +30,7 @@ LANG_SEL=${LANG_:-ja}
 # マニュアル名 ← E2E ベース名（frameless 内枠のみ。overview 等の framed ヒーローは含めない）。
 MAP=(
   "new-project:new-project"
+  "file-panel:file-panel"
   "settings-appearance:settings"
   "git-graph:git-graph"
   "terminal-agent-buttons:terminal"

@@ -1,4 +1,4 @@
-import { MATRIX, mockInvoke, openEditor, openPanel, prepare, setFakeProject, shoot } from '../support/prepare'
+import { MATRIX, mockInvoke, openEditor, openPanel, prepare, setFakeProject, setGitStatus, shoot } from '../support/prepare'
 
 // Phase 1: invoke 駆動パネルへ決定的なダミーデータを invoke モックで与えて撮影する。
 // 擬似プロジェクトを差して activeRoot を確定させ、各パネルの invoke を横取りする。
@@ -230,33 +230,54 @@ describe('screenshots: docker panel', () => {
   }
 })
 
-// --- ファイルツリー パネル -------------------------------------------------
-// fs_list_dir は path 引数によらず同じ値を返すため、ルート直下だけ展開した状態で
-// 撮る（サブディレクトリは折り畳んだまま）。
-
+// --- ファイルツリー パネル（git ステータス色 + gitignore）-------------------
+// fs_list_dir は path 引数によらず同じ値を返すため、ルート直下だけ展開した状態で撮る。
+// 各 git 状態の色を見せる: 変更(M)/追加(A)/未追跡(?)/gitignore/IGNORED_DIRS。
 const FILE_ENTRIES = [
-  { name: '.github', isDir: true, ignored: false },
-  { name: 'docs', isDir: true, ignored: false },
-  { name: 'src', isDir: true, ignored: false },
-  { name: 'src-tauri', isDir: true, ignored: false },
-  { name: 'node_modules', isDir: true, ignored: true },
-  { name: '.gitignore', isDir: false, ignored: false },
-  { name: 'CLAUDE.md', isDir: false, ignored: false },
-  { name: 'README.md', isDir: false, ignored: false },
-  { name: 'package.json', isDir: false, ignored: false },
-  { name: 'vite.config.ts', isDir: false, ignored: false },
+  { name: '.github', isDir: true, ignored: false, gitignored: false },
+  { name: 'logs', isDir: true, ignored: false, gitignored: true }, // gitignore（展開可能）
+  { name: 'node_modules', isDir: true, ignored: true, gitignored: true }, // IGNORED_DIRS（非展開）
+  { name: 'src', isDir: true, ignored: false, gitignored: false }, // 変更を含む→色付く
+  { name: '.env', isDir: false, ignored: false, gitignored: true }, // gitignore ファイル
+  { name: '.gitignore', isDir: false, ignored: false, gitignored: false },
+  { name: 'CLAUDE.md', isDir: false, ignored: false, gitignored: false },
+  { name: 'draft.md', isDir: false, ignored: false, gitignored: false }, // 未追跡(?)
+  { name: 'logo.svg', isDir: false, ignored: false, gitignored: false }, // 追加(A)
+  { name: 'package.json', isDir: false, ignored: false, gitignored: false },
+  { name: 'README.md', isDir: false, ignored: false, gitignored: false }, // 変更(M)
 ]
+
+// gitStatusMap はサブパスを親ディレクトリへ伝播するので、src/App.vue の変更で src も色付く。
+const FILE_TREE_STATUS = {
+  branch: 'main',
+  head: 'a1b2c3d',
+  isDirty: true,
+  staged: [{ path: 'logo.svg', status: 'A' }],
+  unstaged: [
+    { path: 'README.md', status: 'M' },
+    { path: 'draft.md', status: '?' },
+    { path: 'src/App.vue', status: 'M' },
+  ],
+  conflicted: [],
+  ahead: 0,
+  behind: 0,
+}
+
+const FILE_TREE_README = ['# demo-app', '', 'AI エージェントとターミナルに特化した軽量開発環境のデモ。', ''].join('\n')
 
 describe('screenshots: file tree panel', () => {
   for (const { lang, theme } of MATRIX) {
-    it(`files-panel ${lang} ${theme}`, async () => {
+    it(`file-panel ${lang} ${theme}`, async () => {
       await prepare({ lang, theme })
       await mockInvoke('fs_list_dir', FILE_ENTRIES)
       await setFakeProject()
+      // git status を直接セットしてツリーの色を出す（files パネルだけだとフェッチが発火しない）。
+      await setGitStatus(FILE_TREE_STATUS)
+      await openEditor({ path: 'README.md', content: FILE_TREE_README })
       await openPanel('files')
       await $('[data-testid="files-panel"]').waitForDisplayed({ timeout: 10_000 })
       await $('.tree-item').waitForDisplayed({ timeout: 10_000 })
-      await shoot('files-panel', lang, theme)
+      await shoot('file-panel', lang, theme)
     })
   }
 })
