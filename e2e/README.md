@@ -54,6 +54,9 @@ npm run e2e
 
 固定・切替の要点:
 
+- **出力寸法は固定**：`prepare()` が `setWindowSize(1280, 832)` で外形を固定するため、
+  `saveScreenshot()` が撮る WebView 内は全撮影で同一の **1259×777**（ネイティブ枠を差し引いた
+  内寸）になる。全 110 枚が寸法一致することを確認済み（`magick identify` で検証）。
 - 言語・テーマ・ウィンドウサイズは `support/prepare.ts` の `prepare()` で固定。
 - 言語・テーマの切替は e2e ビルド限定の `window.__pikeE2E`（`setLanguage` /
   `setDarkMode`）でリロードなしに行う。
@@ -209,6 +212,19 @@ Windows 11 風の枠を合成する。
 - 既定は透過背景（任意の下地に載せられる）。`BG='#c8ccd2'` で単色背景に flatten。
 - 依存は ImageMagick 7（`magick`）と Windows の Segoe UI フォント。`artifacts/` は
   `.gitignore` 済みなので合成結果はコミットされない（配布時に生成する）。
+
+## マニュアル画像への同期
+
+E2E は `{画面}-{lang}-{theme}.png` で撮る（`artifacts/` は gitignore）。マニュアルは
+`docs/manual/img/{別名}.png`（ja/dark 相当）を参照し、両者は名前が違う。`scripts/sync-manual-images.sh`
+がこの対応表（マニュアル名 ← E2E ベース名）に沿って既定 ja/dark をコピーする。
+
+- `scripts/sync-manual-images.sh --check`：ドライラン（更新予定 / 未撮影(pending) / ソース欠落を表示）。
+- 引数なしで実行すると `docs/manual/img` へ実コピー。`LANG_=` / `THEME=` / `OUTDIR=` で変更可。
+- E2E 未撮影の画面（`overview` / `screen-layout` / `global-editor` / `global-terminal`）は
+  対応表で `-` にして pending 表示。シナリオ追加や外枠合成は #145 で用意する。
+- **実際のマニュアル差し替え・校正・アンカー整合の確認は #145 の作業**。このスクリプトはその配管で、
+  走らせて初めて `docs/manual/img` を更新する。
 
 ## 制約（Pike 固有）
 
