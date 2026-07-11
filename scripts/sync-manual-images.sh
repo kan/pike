@@ -32,7 +32,7 @@ THEME_SEL=${THEME:-dark}
 MAP=(
   "new-project:new-project"
   "settings-appearance:settings"
-  "git-graph:git-panel"
+  "git-graph:git-graph"
   "terminal-agent-buttons:terminal"
   "docker:docker-panel"
   "search:search-panel"

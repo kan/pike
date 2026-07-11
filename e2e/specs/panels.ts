@@ -1,7 +1,74 @@
-import { MATRIX, mockInvoke, openPanel, prepare, setFakeProject, shoot } from '../support/prepare'
+import { MATRIX, mockInvoke, openEditor, openPanel, prepare, setFakeProject, shoot } from '../support/prepare'
 
 // Phase 1: invoke 駆動パネルへ決定的なダミーデータを invoke モックで与えて撮影する。
 // 擬似プロジェクトを差して activeRoot を確定させ、各パネルの invoke を横取りする。
+// パネルは左サイドバー。内容面が空プレースホルダにならないよう、各パネルに関連する
+// エディタ（Docker なら compose.yml 等）を背後に開いてから撮る（旧マニュアルの流儀）。
+
+// 内容面に開く背景エディタの中身（パネルごとに関連ファイル）。
+const COMPOSE_YML = [
+  '# compose.yml',
+  'services:',
+  '  web:',
+  '    image: nginx:1.27',
+  '    ports:',
+  '      - "8080:80"',
+  '  db:',
+  '    image: postgres:16',
+  '    environment:',
+  '      POSTGRES_PASSWORD: example',
+  '    ports:',
+  '      - "5432:5432"',
+  '  redis:',
+  '    image: redis:7',
+  '    ports:',
+  '      - "6379:6379"',
+  '',
+].join('\n')
+
+const PACKAGE_JSON = [
+  '{',
+  '  "name": "demo-app",',
+  '  "version": "0.1.0",',
+  '  "type": "module",',
+  '  "scripts": {',
+  '    "dev": "vite",',
+  '    "build": "vue-tsc --noEmit && vite build",',
+  '    "lint": "biome check src/",',
+  '    "test": "vitest run"',
+  '  }',
+  '}',
+  '',
+].join('\n')
+
+const TAURI_TS = [
+  "import { invoke as tauriInvoke } from '@tauri-apps/api/core'",
+  '',
+  '// E2E 撮影ビルドでは invoke をモック可能にする（唯一の invoke チョークポイント）。',
+  'export const invoke: typeof tauriInvoke = __PIKE_E2E__ ? mockableInvoke : tauriInvoke',
+  '',
+  'export function fsListDir(shell: ShellConfig, path: string) {',
+  "  return invoke<FsEntry[]>('fs_list_dir', { shell, path })",
+  '}',
+  '',
+  'export function taskDiscover(shell: ShellConfig, root: string) {',
+  "  return invoke<TaskGroup[]>('task_discover', { shell, root })",
+  '}',
+  '',
+].join('\n')
+
+const README_MD = [
+  '# demo-app',
+  '',
+  'AI エージェントとターミナルに特化した軽量開発環境のデモ。',
+  '',
+  '## 主な機能',
+  '',
+  '- エディタ・ターミナル・ログを同一タブで扱う',
+  '- Git 統合（差分・履歴・ブランチ切替・コミットグラフ）',
+  '- Docker パネルとポートフォワード',
+  '',
+].join('\n')
 
 const GIT_STATUS = {
   branch: 'main',
@@ -21,27 +88,45 @@ const GIT_STATUS = {
   behind: 1,
 }
 
+// グラフ表示で複数レーン + マージが出るよう、feature ブランチを main へマージした
+// 小さな DAG にする（A = merge, B = main, F = feature、C で分岐）。
 const GIT_LOG = [
   {
     hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
-    parents: ['b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1'],
+    parents: ['b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1', 'f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5'],
     refs: 'HEAD -> main, origin/main',
     author: 'Kan Fushihara',
     date: '2026-01-06 14:32',
-    message: 'feat: スクリーンショット自動化を追加',
+    message: 'Merge branch feature/screenshots',
   },
   {
     hash: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1',
     parents: ['c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2'],
     refs: '',
     author: 'Kan Fushihara',
-    date: '2026-01-05 09:11',
-    message: 'fix: ターミナルの再描画不具合を修正',
+    date: '2026-01-06 11:20',
+    message: 'feat: スクリーンショット自動化を追加',
+  },
+  {
+    hash: 'f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5',
+    parents: ['c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2'],
+    refs: 'feature/screenshots',
+    author: 'Kan Fushihara',
+    date: '2026-01-05 18:03',
+    message: 'wip: 撮影シナリオを追加',
   },
   {
     hash: 'c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2',
     parents: ['d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3'],
     refs: 'v0.23.0',
+    author: 'Kan Fushihara',
+    date: '2026-01-05 09:11',
+    message: 'fix: ターミナルの再描画不具合を修正',
+  },
+  {
+    hash: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3',
+    parents: [],
+    refs: '',
     author: 'Kan Fushihara',
     date: '2026-01-03 20:45',
     message: 'docs: README を更新',
@@ -67,15 +152,20 @@ async function mockGit(): Promise<void> {
   await mockInvoke('git_worktree_list', GIT_WORKTREES)
 }
 
-describe('screenshots: git panel', () => {
+describe('screenshots: git panel (graph)', () => {
   for (const { lang, theme } of MATRIX) {
-    it(`git-panel ${lang} ${theme}`, async () => {
+    it(`git-graph ${lang} ${theme}`, async () => {
       await prepare({ lang, theme })
       await mockGit()
       await setFakeProject()
+      await openEditor({ path: 'README.md', content: README_MD })
       await openPanel('git')
       await $('[data-testid="git-panel"]').waitForDisplayed({ timeout: 10_000 })
-      await shoot('git-panel', lang, theme)
+      // コミット履歴をグラフ表示に切り替える（マニュアルの「コミットグラフ」に合わせる）。
+      // .view-toggle の 2 つ目（最後）のボタンがグラフ。
+      await $('.view-toggle .view-btn:last-child').click()
+      await $('.graph-row').waitForDisplayed({ timeout: 10_000 })
+      await shoot('git-graph', lang, theme)
     })
   }
 })
@@ -131,6 +221,7 @@ describe('screenshots: docker panel', () => {
       await prepare({ lang, theme })
       await mockDocker()
       await setFakeProject()
+      await openEditor({ path: 'compose.yml', content: COMPOSE_YML })
       await openPanel('docker')
       await $('[data-testid="docker-panel"]').waitForDisplayed({ timeout: 10_000 })
       await $('.container-item').waitForDisplayed({ timeout: 10_000 })
@@ -204,6 +295,7 @@ describe('screenshots: tasks panel', () => {
       await prepare({ lang, theme })
       await mockInvoke('task_discover', TASK_GROUPS)
       await setFakeProject()
+      await openEditor({ path: 'package.json', content: PACKAGE_JSON })
       await openPanel('tasks')
       await $('[data-testid="tasks-panel"]').waitForDisplayed({ timeout: 10_000 })
       await $('.task-item').waitForDisplayed({ timeout: 10_000 })
@@ -233,6 +325,7 @@ describe('screenshots: search panel', () => {
       await mockInvoke('search_detect_backend', 'rg')
       await mockInvoke('search_execute', SEARCH_RESULT)
       await setFakeProject()
+      await openEditor({ path: 'src/lib/tauri.ts', content: TAURI_TS })
       await openPanel('search')
       await $('[data-testid="search-panel"]').waitForDisplayed({ timeout: 10_000 })
       const input = await $('[data-testid="search-input"]')

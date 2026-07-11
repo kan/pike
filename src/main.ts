@@ -108,6 +108,14 @@ async function bootstrap() {
       openPanel: (name: string) => {
         sidebar.activePanel = name as typeof sidebar.activePanel
       },
+      // E2E は @wdio/tauri-service が 1 つのアプリを全 spec で共有するため、先行 spec が
+      // 開いたタブ（media.ts の spec.pdf 等）やサイドバーパネルが後続の撮影に残る。各撮影を
+      // 素の状態から始めるため、prepare() でこれを await して全タブを閉じ、サイドバーも畳む。
+      // パネル系 spec は prepare の後に openPanel で明示的に開き直す。
+      resetTabs: () => {
+        sidebar.activePanel = null
+        return tabs.clearAllTabs()
+      },
       // QuickOpen（Ctrl+P）を開く。開いた時に list_project_files 等をフェッチするので
       // モックは呼ぶ前に設定する。
       openQuickOpen: () => {

@@ -35,6 +35,13 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
     { timeout: 30_000, timeoutMsg: '__pikeE2E control API not exposed' },
   )
 
+  // 先行 spec が残したタブ（共有アプリセッションで media.ts の spec.pdf 等が残る）を
+  // 閉じ、素のタブ状態から撮影する。clearAllTabs は非同期なので await する。
+  await browser.execute(async () => {
+    const api = (window as unknown as { __pikeE2E?: { resetTabs?: () => Promise<void> } }).__pikeE2E
+    await api?.resetTabs?.()
+  })
+
   await browser.execute(
     (lang, dark) => {
       const api = (window as unknown as {

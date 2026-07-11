@@ -2,6 +2,7 @@ import {
   loadWorktrees,
   MATRIX,
   mockInvoke,
+  openEditor,
   openPanel,
   openQuickOpen,
   prepare,
@@ -11,7 +12,34 @@ import {
 } from '../support/prepare'
 
 // worktree セレクタ / QuickOpen / TODO パネルを撮影する。いずれも簡単な invoke モックと
-// __pikeE2E ヘルパーで決定的に再現できる。
+// __pikeE2E ヘルパーで決定的に再現できる。内容面が空プレースホルダにならないよう、
+// 背後に関連エディタを開いてから撮る（旧マニュアルの流儀）。
+
+const APP_VUE = [
+  '<script setup lang="ts">',
+  "import { ref } from 'vue'",
+  "import TabPane from './components/layout/TabPane.vue'",
+  '',
+  'const ready = ref(false)',
+  "onMounted(() => { ready.value = true })",
+  '</script>',
+  '',
+  '<template>',
+  '  <TabPane v-if="ready" />',
+  '</template>',
+  '',
+].join('\n')
+
+const NOTES_MD = [
+  '# 作業メモ',
+  '',
+  'スクリーンショット撮影の段取り。',
+  '',
+  '- E2E で内枠を撮る（ja/dark）',
+  '- 外枠を合成してヒーロー画像にする',
+  '- マニュアルの画像を差し替える',
+  '',
+].join('\n')
 
 // --- worktree セレクタ -----------------------------------------------------
 const WORKTREES = [
@@ -39,6 +67,7 @@ describe('screenshots: worktree selector', () => {
       await prepare({ lang, theme })
       await mockInvoke('git_worktree_list', WORKTREES)
       await setFakeProject()
+      await openEditor({ path: 'src/App.vue', content: APP_VUE })
       // 一覧を読み込むと hasMultiple=true になり StatusBar にセレクタが出る。
       await loadWorktrees()
       const selector = await $('[data-testid="worktree-selector"]')
@@ -73,6 +102,7 @@ describe('screenshots: quick open', () => {
       await prepare({ lang, theme })
       await mockInvoke('list_project_files', PROJECT_FILES)
       await setFakeProject()
+      await openEditor({ path: 'src/App.vue', content: APP_VUE })
       await openQuickOpen()
       await $('[data-testid="quickopen"]').waitForDisplayed({ timeout: 10_000 })
       await $('.quickopen-item').waitForDisplayed({ timeout: 10_000 })
@@ -100,6 +130,7 @@ describe('screenshots: todo panel', () => {
       await prepare({ lang, theme })
       await mockInvoke('fs_read_file', { content: TODO_MD, encoding: 'utf-8', isNew: false })
       await setFakeProject()
+      await openEditor({ path: 'docs/notes.md', content: NOTES_MD })
       // 擬似プロジェクト id が固定で project watch が再発火しないため明示再ロード。
       await reloadTodo()
       await openPanel('todo')
