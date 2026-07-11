@@ -212,6 +212,34 @@ export async function feedActiveTerminal(data: string): Promise<void> {
   }, data)
 }
 
+// エージェントチャット（Codex / Claude Code）を実セッションなしで開く。
+// store の session 状態を決定的な会話で直接構築するため invoke モック不要。
+export interface AgentChatFixture {
+  agentType: 'codex' | 'claude-code'
+  capabilities: {
+    displayName: string
+    supportsModelSelection: boolean
+    supportsSessionResume: boolean
+    supportsRollback: boolean
+    supportsCompact: boolean
+    supportsSandboxConfig: boolean
+    supportsApprovalConfig: boolean
+    supportsAuthFlow: boolean
+  }
+  authEmail?: string | null
+  sessionTitle?: string | null
+  selectedModel?: string | null
+  tokenUsage?: { input: number; output: number } | null
+  detectedInstructionsFile?: string | null
+  messages: unknown[]
+}
+
+export async function openAgentChat(fixture: AgentChatFixture): Promise<void> {
+  await browser.execute((f) => {
+    ;(window as unknown as { __pikeE2E?: { openAgentChat?: (o: unknown) => void } }).__pikeE2E?.openAgentChat?.(f)
+  }, fixture)
+}
+
 // pty_spawn をモックし、呼ばれるたびユニークな id を返す。id 固定だと閉じたタブの
 // unregister が新タブのハンドラを消してしまうため。
 export async function mockPtySpawnUniqueIds(): Promise<void> {
