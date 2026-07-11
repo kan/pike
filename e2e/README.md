@@ -195,9 +195,25 @@ describe('settings', () => {
 })
 ```
 
+## ウィンドウ枠の合成（外枠合成）
+
+`saveScreenshot()` は WebView 内しか撮れず、ネイティブのタイトルバー・角丸・影は写らない。
+Store やサイトのヒーロー画像はウィンドウ枠込みを求められるため、撮影済み PNG に後処理で
+Windows 11 風の枠を合成する。
+
+- `scripts/frame-screenshot.sh <input.png> [output.png]`（単体）/ `--all`
+  （`artifacts/screenshots/*.png` を一括 → `artifacts/framed/`）。
+- タイトルバー（アイコン + "Pike" + 最小化/最大化/閉じるのキャプションボタン）を上に足し、
+  四隅を角丸にマスクし、1px のヘアラインとドロップシャドウを重ねる。テーマはファイル名の
+  `-dark` / `-light` サフィックスから判定（`THEME=` で明示指定も可）。
+- 既定は透過背景（任意の下地に載せられる）。`BG='#c8ccd2'` で単色背景に flatten。
+- 依存は ImageMagick 7（`magick`）と Windows の Segoe UI フォント。`artifacts/` は
+  `.gitignore` 済みなので合成結果はコミットされない（配布時に生成する）。
+
 ## 制約（Pike 固有）
 
-- `saveScreenshot()` は WebView 内のみ。ネイティブのウィンドウ枠は写らない。
+- `saveScreenshot()` は WebView 内のみ。ネイティブのウィンドウ枠は写らないため、枠込みが
+  要るショットは上記の外枠合成で後付けする（実ウィンドウのネイティブキャプチャは別手段）。
 - ターミナル・エージェントチャットは実プロセス／実セッション依存で invoke モックだけでは
   再現できないため、Phase 2 の合成出力注入・store 直接構築で撮る。
 - WebDriver セッションは 1 WebView 単位。複数ウィンドウ制御は追加工数。
