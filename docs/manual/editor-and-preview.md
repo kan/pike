@@ -13,7 +13,10 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
 
 ## コード編集
 
-![エディタとファイルツリー](../screenshot-editor.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="../screenshot-editor-light.png">
+  <img alt="エディタとファイルツリー" src="../screenshot-editor.png">
+</picture>
 
 - **30+ 言語**のシンタックスハイライト。
 - **保存**：`Ctrl+S`。未保存はタブタイトルに `*` が付きます。

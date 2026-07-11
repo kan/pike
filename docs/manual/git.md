@@ -12,7 +12,10 @@ Pike の Git 統合は `git` CLI 経由で、WSL / Windows の両方に対応し
 
 ## ステータスバー表示
 
-![Git パネルと Claude Code](../screenshot-git.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="../screenshot-git-light.png">
+  <img alt="Git パネルと Claude Code" src="../screenshot-git.png">
+</picture>
 
 ステータスバー（下端）には以下が表示されます。
 
