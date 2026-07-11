@@ -181,6 +181,14 @@ export const COLOR_SCHEMES: TerminalColorScheme[] = [
   },
 ]
 
+/** エディタテーマ / ターミナルカラースキームで「app のダーク/ライトに追従」を表すセンチネル値。 */
+export const AUTO_THEME = 'Auto'
+// Auto 選択時の light/dark 既定マッピング（issue #149）。
+const AUTO_EDITOR_DARK = 'One Dark'
+const AUTO_EDITOR_LIGHT = 'Default Light'
+const AUTO_SCHEME_DARK = 'Default Dark'
+const AUTO_SCHEME_LIGHT = 'Solarized Light'
+
 const STORAGE_KEY = 'pike:settings'
 // The external sync-file path is itself environment-specific (the Dropbox
 // folder differs per PC), so it is stored separately and never written into the
@@ -545,7 +553,18 @@ export const useSettingsStore = defineStore('settings', () => {
     fontFamily.value = buildFontFamily(name)
   }
 
-  const colorScheme = computed(() => COLOR_SCHEMES.find((s) => s.name === colorSchemeName.value) ?? COLOR_SCHEMES[0])
+  // Auto（モード追従）解決。editorThemeName / colorSchemeName が AUTO_THEME のとき、
+  // darkMode に応じた light/dark 既定へ解決する。UI の Auto カードのプレビューにも使う。
+  const autoEditorThemeName = computed(() => (darkMode.value ? AUTO_EDITOR_DARK : AUTO_EDITOR_LIGHT))
+  const autoColorSchemeName = computed(() => (darkMode.value ? AUTO_SCHEME_DARK : AUTO_SCHEME_LIGHT))
+  const effectiveEditorThemeName = computed(() =>
+    editorThemeName.value === AUTO_THEME ? autoEditorThemeName.value : editorThemeName.value,
+  )
+
+  const colorScheme = computed(() => {
+    const name = colorSchemeName.value === AUTO_THEME ? autoColorSchemeName.value : colorSchemeName.value
+    return COLOR_SCHEMES.find((s) => s.name === name) ?? COLOR_SCHEMES[0]
+  })
 
   const xtermTheme = computed(() => {
     const { name, ...theme } = colorScheme.value
@@ -764,8 +783,11 @@ export const useSettingsStore = defineStore('settings', () => {
     loadAvailableUiFonts,
     colorSchemeName,
     colorScheme,
+    autoColorSchemeName,
     darkMode,
     editorThemeName,
+    effectiveEditorThemeName,
+    autoEditorThemeName,
     editorMinimap,
     editorWordWrap,
     editorTabSize,

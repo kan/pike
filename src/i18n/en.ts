@@ -166,6 +166,7 @@ export default {
   'settings.editorFontSize': 'Font Size',
   'settings.preview': 'Preview',
   'settings.colorScheme': 'Color Scheme',
+  'settings.themeAuto': 'Auto (follow mode)',
   'settings.copyOnSelect': 'Copy on Select',
   'settings.rightClickPaste': 'Right Click Paste',
   'settings.inlineSmallTextFiles': 'Expand small text files inline',

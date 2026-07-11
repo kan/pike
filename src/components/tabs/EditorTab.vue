@@ -116,7 +116,7 @@ const isSvg = computed(() => fileExt.value === 'svg')
 const isJson = computed(() => fileExt.value === 'json' || fileExt.value === 'jsonc')
 const isJsonl = computed(() => fileExt.value === 'jsonl' || fileExt.value === 'ndjson')
 
-const jsonTokens = computed(() => getEditorTheme(settingsStore.editorThemeName).tokens)
+const jsonTokens = computed(() => getEditorTheme(settingsStore.effectiveEditorThemeName).tokens)
 
 const JSON_POPUP_MAX_LEN = 50_000
 const jsonStringPopup = ref<{ content: string; x: number; y: number; truncated: boolean } | null>(null)
@@ -688,7 +688,7 @@ function createEditorView(container: HTMLElement, content: string) {
   const lang = tab.value ? getLanguage(tab.value.path) : null
   const hasFile = tab.value && !tab.value.initialContent
   const extensions = [
-    themeCompartment.of(getEditorTheme(settingsStore.editorThemeName).extension),
+    themeCompartment.of(getEditorTheme(settingsStore.effectiveEditorThemeName).extension),
     lineNumbers(),
     highlightActiveLine(),
     history(),
@@ -1138,7 +1138,7 @@ watch(
 
 // Live-apply editor settings changes
 watch(
-  () => settingsStore.editorThemeName,
+  () => settingsStore.effectiveEditorThemeName,
   (name) => {
     if (!editorView) return
     editorView.dispatch({ effects: themeCompartment.reconfigure(getEditorTheme(name).extension) })

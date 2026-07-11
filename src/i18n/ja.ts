@@ -166,6 +166,7 @@ export default {
   'settings.editorFontSize': 'フォントサイズ',
   'settings.preview': 'プレビュー',
   'settings.colorScheme': 'カラースキーム',
+  'settings.themeAuto': 'Auto（モード追従）',
   'settings.copyOnSelect': '選択時にコピー',
   'settings.rightClickPaste': '右クリックで貼り付け',
   'settings.inlineSmallTextFiles': '小さいテキストファイルをインライン展開',

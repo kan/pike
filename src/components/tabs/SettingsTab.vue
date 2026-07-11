@@ -8,7 +8,7 @@ import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { detectWslDistros, pickSaveFile } from '../../lib/tauri'
-import { COLOR_SCHEMES, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, useSettingsStore } from '../../stores/settings'
+import { AUTO_THEME, COLOR_SCHEMES, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, useSettingsStore } from '../../stores/settings'
 import {
   type ShellProfile,
   type ShellType,
@@ -23,6 +23,14 @@ const { t } = useI18n()
 const settings = useSettingsStore()
 settings.loadAvailableFonts()
 settings.loadAvailableUiFonts()
+
+// Auto（モード追従）カードのプレビューは、いま darkMode で解決される既定テーマを映す。
+const autoScheme = computed(
+  () => COLOR_SCHEMES.find((s) => s.name === settings.autoColorSchemeName) ?? COLOR_SCHEMES[0],
+)
+const autoEditorTheme = computed(
+  () => EDITOR_THEMES.find((t) => t.name === settings.autoEditorThemeName) ?? EDITOR_THEMES[0],
+)
 
 // --- Global-mode default shell ------------------------------------------
 // Reconcile the shell profile list (#129) with fresh WSL detection results;
@@ -355,6 +363,22 @@ const PREVIEW_LINES = [
           <label class="setting-label">{{ t('settings.colorScheme') }}</label>
           <div class="scheme-grid">
             <button
+              class="scheme-card"
+              :class="{ active: settings.colorSchemeName === AUTO_THEME }"
+              @click="settings.colorSchemeName = AUTO_THEME"
+            >
+              <div class="scheme-preview" :style="{ background: autoScheme.background, fontFamily: settings.fontFamily }">
+                <span :style="{ color: autoScheme.foreground }">abc</span>
+                <span :style="{ color: autoScheme.red }">err</span>
+                <span :style="{ color: autoScheme.green }">ok</span>
+                <span :style="{ color: autoScheme.yellow }">wrn</span>
+                <span :style="{ color: autoScheme.blue }">inf</span>
+                <span :style="{ color: autoScheme.magenta }">dbg</span>
+                <span :style="{ color: autoScheme.cyan }">url</span>
+              </div>
+              <span class="scheme-name">{{ t('settings.themeAuto') }}</span>
+            </button>
+            <button
               v-for="scheme in COLOR_SCHEMES"
               :key="scheme.name"
               class="scheme-card"
@@ -540,6 +564,18 @@ const PREVIEW_LINES = [
         <div class="setting-row setting-row-block">
           <label class="setting-label">{{ t('settings.editorTheme') }}</label>
           <div class="scheme-grid">
+            <button
+              class="scheme-card"
+              :class="{ active: settings.editorThemeName === AUTO_THEME }"
+              @click="settings.editorThemeName = AUTO_THEME"
+            >
+              <div class="scheme-preview" :style="{ background: autoEditorTheme.background, color: autoEditorTheme.foreground, fontFamily: editorFontFamily }">
+                <span>fn</span>
+                <span :style="{ color: autoEditorTheme.accent }">main</span>
+                <span>()</span>
+              </div>
+              <span class="scheme-name">{{ t('settings.themeAuto') }}</span>
+            </button>
             <button
               v-for="theme in EDITOR_THEMES"
               :key="theme.name"
