@@ -1,9 +1,11 @@
 import {
+  type AgentChatFixture,
   enterGlobalMode,
   feedActiveTerminal,
   MATRIX,
   mockInvoke,
   mockPtySpawnUniqueIds,
+  openAgentChat,
   openEditor,
   openEditors,
   openPanel,
@@ -13,9 +15,9 @@ import {
   shoot,
 } from '../support/prepare'
 
-// マニュアル TOP / 画面構成 / グローバルモードの新規撮影。
+// マニュアル TOP / 画面構成 / グローバルモード / README ヒーローの新規撮影。
 // overview・screen-layout は通常プロジェクトの代表的な作業状態、global-* はサイドバーを
-// 持たないグローバルモードのウィンドウを撮る。
+// 持たないグローバルモードのウィンドウ、hero-git は README 用の Git パネル + Claude Code。
 
 const GIT_STATUS = {
   branch: 'main',
@@ -177,6 +179,133 @@ describe('screenshots: global terminal', () => {
       await feedActiveTerminal(PS_SESSION)
       await browser.pause(500)
       await shoot('global-terminal', lang, theme)
+    })
+  }
+})
+
+// --- hero-git（README 用: Git パネル + Claude Code チャット）------------------
+// README の「Git パネルと Claude Code」ヒーローを外枠合成の素に使う。Git サイドバーの
+// 横に Claude Code の統一チャットを内容として置く。
+const HERO_GIT_LOG = [
+  {
+    hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
+    parents: ['b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1'],
+    refs: 'HEAD -> main, origin/main',
+    author: 'Kan Fushihara',
+    date: '2026-01-06 14:32',
+    message: 'feat: スクリーンショット自動化を追加',
+  },
+  {
+    hash: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1',
+    parents: ['c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2'],
+    refs: '',
+    author: 'Kan Fushihara',
+    date: '2026-01-05 09:11',
+    message: 'fix: ターミナルの再描画不具合を修正',
+  },
+]
+
+const CLAUDE_CAPS: AgentChatFixture['capabilities'] = {
+  displayName: 'Claude Code',
+  supportsModelSelection: false,
+  supportsSessionResume: true,
+  supportsRollback: false,
+  supportsCompact: false,
+  supportsSandboxConfig: false,
+  supportsApprovalConfig: false,
+  supportsAuthFlow: false,
+}
+
+function heroClaudeFixture(): AgentChatFixture {
+  return {
+    agentType: 'claude-code',
+    capabilities: CLAUDE_CAPS,
+    authEmail: null,
+    sessionTitle: 'スクショ撮影の自動化',
+    selectedModel: null,
+    tokenUsage: { input: 14_320, output: 2_180 },
+    detectedInstructionsFile: 'CLAUDE.md',
+    messages: [
+      { id: 'u1', role: 'user', text: 'コミット前に diff を確認して、要点を日本語でまとめて。', segments: [], items: [], completed: true },
+      {
+        id: 'a1',
+        role: 'agent',
+        text: '',
+        completed: true,
+        items: [],
+        segments: [
+          {
+            kind: 'item',
+            item: {
+              type: 'commandExecution',
+              id: 'c1',
+              completed: true,
+              data: { command: 'git diff --stat', output: ' src/App.vue   | 8 +++++---\n README.md     | 2 +-\n 2 files changed, 6 insertions(+), 4 deletions(-)', exitCode: 0 },
+            },
+          },
+          {
+            kind: 'text',
+            text: ['変更の要点です。', '', '- `src/App.vue`: TabPane を `ready` 後に描画するよう修正（初期化順の不具合を解消）', '- `README.md`: 見出しの表記ゆれを 1 箇所修正', '', 'このままコミットして問題なさそうです。'].join('\n'),
+          },
+        ],
+      },
+    ],
+  }
+}
+
+// --- hero-editor（README 用: ファイルツリー + Markdown の Split プレビュー）------
+// README の「エディタとファイルツリー」ヒーロー。overview（コードエディタ）と別絵にする
+// ため、ファイルツリー + README の Split（編集 + プレビュー）で撮る。
+const HERO_README = [
+  '# Pike',
+  '',
+  '**AI エージェント × ターミナル**に特化した、軽量な Windows 向け開発環境。',
+  '',
+  '## 主な機能',
+  '',
+  '- エディタ・ターミナル・チャットを同一タブで扱う',
+  '- CodeMirror 6（29 言語）、ミニマップ、検索・置換、git diff ガター',
+  '- Markdown / Mermaid / CSV / JSON / SVG / PDF プレビュー',
+  '- Git 統合（差分・履歴・コミットグラフ・worktree 切替）',
+  '',
+  '## はじめに',
+  '',
+  '```bash',
+  'npm install',
+  'npm run tauri:dev',
+  '```',
+  '',
+].join('\n')
+
+describe('screenshots: hero editor + file tree', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`hero-editor ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('git_status', GIT_STATUS)
+      await mockInvoke('fs_list_dir', FILE_ENTRIES)
+      await setFakeProject()
+      await openEditor({ path: 'README.md', content: HERO_README, viewMode: 'split' })
+      await openPanel('files')
+      await $('[data-testid="files-panel"]').waitForDisplayed({ timeout: 10_000 })
+      await $('.preview-pane').waitForDisplayed({ timeout: 10_000 })
+      await shoot('hero-editor', lang, theme)
+    })
+  }
+})
+
+describe('screenshots: hero git + claude', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`hero-git ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('git_status', GIT_STATUS)
+      await mockInvoke('git_log', HERO_GIT_LOG)
+      await mockInvoke('git_branch_list', ['main', 'develop'])
+      await setFakeProject()
+      await openAgentChat(heroClaudeFixture())
+      await openPanel('git')
+      await $('[data-testid="git-panel"]').waitForDisplayed({ timeout: 10_000 })
+      await $('.msg-agent').waitForDisplayed({ timeout: 10_000 })
+      await shoot('hero-git', lang, theme)
     })
   }
 })
