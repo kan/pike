@@ -43,11 +43,10 @@ MAP=(
   "image-viewer:image-viewer"
   "agent-chat:agent-codex"
   "worktree-selector:worktree-selector"
-  # 未撮影（#145 で E2E シナリオ or 外枠合成を用意する）
-  "overview:-"
-  "screen-layout:-"
-  "global-editor:-"
-  "global-terminal:-"
+  "overview:overview"
+  "screen-layout:screen-layout"
+  "global-editor:global-editor"
+  "global-terminal:global-terminal"
 )
 
 check=0

@@ -78,7 +78,9 @@ describe('screenshots: markdown preview', () => {
     it(`markdown-preview ${lang} ${theme}`, async () => {
       await prepare({ lang, theme })
       await setFakeProject()
-      await openEditor({ path: 'README.md', content: MD_SAMPLE, viewMode: 'preview' })
+      // マニュアルの alt「Markdown プレビュー（Split）」に合わせ、Edit と Preview を
+      // 並べた Split 表示で撮る。
+      await openEditor({ path: 'README.md', content: MD_SAMPLE, viewMode: 'split' })
       await $('.preview-pane').waitForDisplayed({ timeout: 10_000 })
       await shoot('markdown-preview', lang, theme)
     })

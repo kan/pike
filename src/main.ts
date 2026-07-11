@@ -37,6 +37,8 @@ async function bootstrap() {
     const { useWorktreeStore } = await import('./stores/worktree')
     const { useTodoStore } = await import('./stores/todo')
     const { useAgentStore } = await import('./stores/agent')
+    const { useGitStore } = await import('./stores/git')
+    const { useEditorInfo } = await import('./composables/useEditorInfo')
     const { ptyRouter } = await import('./composables/usePtyRouter')
     const { globalMode } = await import('./lib/window')
     const settings = useSettingsStore()
@@ -81,6 +83,12 @@ async function bootstrap() {
       // WSL 検出でシェルプロファイルを揃えてから globalMode を立てる。
       enterGlobalMode: () => {
         project.showSwitcher = false
+        // global モードはプロジェクトレス。currentProject を残すと git のバックグラウンド
+        // 更新が擬似 root で走りブランチが再表示されるため null にし、git ステータスと
+        // エディタ情報（行/列/エンコード/言語）もクリアして StatusBar を素にする。
+        project.currentProject = null
+        useGitStore().status = null
+        useEditorInfo().clear()
         void (async () => {
           try {
             const { detectWslDistros } = await import('./lib/tauri')
@@ -110,11 +118,23 @@ async function bootstrap() {
       },
       // E2E は @wdio/tauri-service が 1 つのアプリを全 spec で共有するため、先行 spec が
       // 開いたタブ（media.ts の spec.pdf 等）やサイドバーパネルが後続の撮影に残る。各撮影を
-      // 素の状態から始めるため、prepare() でこれを await して全タブを閉じ、サイドバーも畳む。
-      // パネル系 spec は prepare の後に openPanel で明示的に開き直す。
+      // 素の状態から始めるため、prepare() でこれを await して全タブを閉じ、サイドバーも畳み、
+      // グローバルモードも解除する（global 系 spec の設定が後続に残らないよう）。globalMode を
+      // 先に false へ戻してから閉じることで「global で全タブを閉じるとウィンドウ close」を避ける。
+      // パネル系 spec は prepare の後に openPanel、global 系は enterGlobalMode で開き直す。
       resetTabs: () => {
+        globalMode.value = false
         sidebar.activePanel = null
         return tabs.clearAllTabs()
+      },
+      // グローバルモードのエディタ撮影用に、複数ファイルを 1 ファイル 1 タブで開く
+      // （openEditor は 1 枚に絞るが、こちらは複数タブを残す）。
+      openEditors: (files: { path: string; content: string }[]) => {
+        project.showSwitcher = false
+        for (const t of [...tabs.tabs]) {
+          if (t.kind === 'editor') void tabs.closeTab(t.id)
+        }
+        for (const f of files) tabs.addEditorTab({ path: f.path, initialContent: f.content })
       },
       // QuickOpen（Ctrl+P）を開く。開いた時に list_project_files 等をフェッチするので
       // モックは呼ぶ前に設定する。

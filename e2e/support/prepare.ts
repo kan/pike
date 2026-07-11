@@ -175,6 +175,22 @@ export async function openEditor(opts: {
   }, opts)
 }
 
+// グローバルモードへ入る（サイドバー非表示。WSL 検出でシェルプロファイルを揃える）。
+export async function enterGlobalMode(): Promise<void> {
+  await browser.execute(() => {
+    ;(window as unknown as { __pikeE2E?: { enterGlobalMode?: () => void } }).__pikeE2E?.enterGlobalMode?.()
+  })
+  // globalMode の非同期 WSL 検出とサイドバー消失の描画が落ち着くのを待つ。
+  await browser.pause(400)
+}
+
+// 複数ファイルを 1 ファイル 1 タブで開く（グローバルモードのエディタ撮影用）。
+export async function openEditors(files: { path: string; content: string }[]): Promise<void> {
+  await browser.execute((f) => {
+    ;(window as unknown as { __pikeE2E?: { openEditors?: (f: unknown) => void } }).__pikeE2E?.openEditors?.(f)
+  }, files)
+}
+
 // 画像ビューワ（PreviewTab）を dataUrl 直指定で開く（fs_read_file_base64 不要）。
 export async function openImage(opts: { path: string; dataUrl: string }): Promise<void> {
   await browser.execute((o) => {
