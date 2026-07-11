@@ -47,6 +47,7 @@ export default {
   // Manual viewer
   'manual.back': 'Back',
   'manual.home': 'Contents',
+  'manual.toggleTheme': 'Toggle manual light/dark',
   'manual.openHelp': 'Open help for this',
   'manual.loadError': 'Failed to load the manual. Check your network connection.',
 

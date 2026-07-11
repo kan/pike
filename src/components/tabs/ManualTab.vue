@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
-import { ArrowUp, Home, RefreshCw } from 'lucide-vue-next'
+import { ArrowUp, Home, Moon, RefreshCw, Sun } from 'lucide-vue-next'
 import { marked } from 'marked'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
@@ -27,6 +27,18 @@ const scrolled = ref(false)
 const backStack = ref<string[]>([])
 /** Path of the page currently rendered (without the `#anchor` part). */
 const loadedPath = ref('')
+
+/**
+ * マニュアルだけのダーク/ライト切替。app の darkMode とは独立に、このタブの表示テーマを
+ * 切り替える。初期値は app のテーマに合わせ、以降はトグルで固定（app 側の変更には追従しない）。
+ * chrome はコンテナの data-theme（theme.css の属性セレクタが部分木へ適用）で、画像は
+ * <picture> を manualDark に応じて light/dark の <img> に畳んで切り替える。
+ */
+const manualDark = ref(settingsStore.darkMode)
+
+function toggleManualTheme() {
+  manualDark.value = !manualDark.value
+}
 
 function scrollBehavior(): ScrollBehavior {
   return settingsStore.previewSmoothScroll ? 'smooth' : 'auto'
@@ -99,18 +111,47 @@ async function render(path: string, force = false) {
   }
 }
 
+function resolveImgUrl(p: string, rel: string): string {
+  return /^(?:https?:|data:)/i.test(rel) ? rel : manualRawUrl(resolveManualPath(p, rel))
+}
+
 function postProcess(p: string) {
   const c = containerRef.value
   if (!c) return
   // Heading ids for in-page anchors.
   const slug = createHeadingSlugger()
   for (const h of c.querySelectorAll('h1, h2, h3, h4, h5, h6')) h.id = slug(h.textContent ?? '')
-  // Rewrite relative image sources to their raw GitHub URLs.
+  // light/dark 切替の <picture> を、両テーマの URL を持つ 1 枚の <img> に畳む。
+  // <source media="...light..."> が light、フォールバック <img src> が dark。manualDark で src を選ぶ。
+  for (const pic of c.querySelectorAll('picture')) {
+    const lightRel = pic.querySelector('source[media*="light"]')?.getAttribute('srcset') ?? ''
+    const inner = pic.querySelector('img')
+    const darkRel = inner?.getAttribute('src') ?? ''
+    const img = document.createElement('img')
+    img.alt = inner?.getAttribute('alt') ?? ''
+    img.dataset.light = resolveImgUrl(p, lightRel || darkRel)
+    img.dataset.dark = resolveImgUrl(p, darkRel)
+    img.src = manualDark.value ? img.dataset.dark : img.dataset.light
+    pic.replaceWith(img)
+  }
+  // 残りの相対 <img>（単一テーマ）を raw GitHub URL へ解決する（picture 由来は絶対 URL なのでスキップ）。
   for (const img of c.querySelectorAll('img')) {
     const src = img.getAttribute('src')
     if (src && !/^(?:https?:|data:)/i.test(src)) img.src = manualRawUrl(resolveManualPath(p, src))
   }
 }
+
+/** manualDark に応じて light/dark 画像を差し替える（再フェッチ不要）。 */
+function applyManualTheme() {
+  const c = containerRef.value
+  if (!c) return
+  for (const img of c.querySelectorAll<HTMLImageElement>('img[data-dark]')) {
+    const url = manualDark.value ? img.dataset.dark : img.dataset.light
+    if (url) img.src = url
+  }
+}
+
+watch(manualDark, applyManualTheme)
 
 function setTitle(path: string) {
   if (!tab.value) return
@@ -191,11 +232,15 @@ onUnmounted(() => cancelAnchorReflow?.())
 </script>
 
 <template>
-  <div class="manual-tab">
+  <div class="manual-tab" :data-theme="manualDark ? 'dark' : 'light'">
     <div class="manual-toolbar">
       <button class="tool-btn" :disabled="backStack.length === 0" :title="t('manual.back')" @click="goBack">←</button>
       <button class="tool-btn" :title="t('manual.home')" @click="goHome"><Home :size="14" :stroke-width="2" /></button>
       <span class="manual-path">{{ page }}</span>
+      <button class="tool-btn" data-testid="manual-theme-toggle" :title="t('manual.toggleTheme')" @click="toggleManualTheme">
+        <Sun v-if="manualDark" :size="14" :stroke-width="2" />
+        <Moon v-else :size="14" :stroke-width="2" />
+      </button>
       <button class="tool-btn" :title="t('common.refresh')" @click="reload">
         <RefreshCw :size="14" :stroke-width="2" :class="{ spin: loading }" />
       </button>

@@ -47,6 +47,7 @@ export default {
   // マニュアルビューア
   'manual.back': '戻る',
   'manual.home': '目次',
+  'manual.toggleTheme': 'マニュアルのライト/ダーク切替',
   'manual.openHelp': 'この機能のヘルプを開く',
   'manual.loadError': 'マニュアルの読み込みに失敗しました。ネットワーク接続を確認してください。',
 

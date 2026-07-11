@@ -5,7 +5,7 @@ import { locale } from '../i18n'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
-import { windowLabel } from '../lib/window'
+import { setWebviewTheme, windowLabel } from '../lib/window'
 import {
   type ShellProfile,
   type ShellType,
@@ -709,6 +709,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function applyDarkMode() {
     document.documentElement.setAttribute('data-theme', darkMode.value ? 'dark' : 'light')
+    // WebView のカラースキーム（prefers-color-scheme）とネイティブのタイトルバーを app の
+    // テーマに追従させる。これでマニュアルプレビューの <picture> 等が OS ではなく Pike の
+    // テーマに従い、タイトルバーの明暗も app と揃う。
+    void setWebviewTheme(darkMode.value ? 'dark' : 'light')
   }
 
   watch(

@@ -9,6 +9,20 @@ export function getWindowProjectId(): string | null {
   return windowLabel.startsWith(PROJECT_WINDOW_PREFIX) ? windowLabel.slice(PROJECT_WINDOW_PREFIX.length) : null
 }
 
+/**
+ * WebView のカラースキーム（`prefers-color-scheme`）を app のテーマに追従させる。
+ * Windows では Tauri の `set_theme` が WebView2 の PreferredColorScheme を設定するため、
+ * これでマニュアルプレビューの `<picture>` 等が OS ではなく Pike のテーマに従う。
+ * null でシステム追従（既定）に戻す。失敗は無害（機能低下のみ）。
+ */
+export async function setWebviewTheme(theme: 'light' | 'dark' | null): Promise<void> {
+  try {
+    await getCurrentWindow().setTheme(theme)
+  } catch (e) {
+    console.error('[window] setTheme failed:', e)
+  }
+}
+
 export function isMainWindow(): boolean {
   return windowLabel === 'main'
 }
