@@ -133,12 +133,15 @@ export async function projectGroupsSave(groups: string[]): Promise<void> {
 export interface FsEntry {
   name: string
   isDir: boolean
-  /** IGNORED_DIRS にマッチしたディレクトリ: ツリーに淡色表示、展開不可 */
+  /** IGNORED_DIRS のディレクトリ: 淡色・展開不可（node_modules 等） */
   ignored: boolean
+  /** .gitignore にマッチ（ファイル/ディレクトリ両方）。色分け用。dir は展開可能。 */
+  gitignored: boolean
 }
 
-export async function fsListDir(shell: ShellType, path: string): Promise<FsEntry[]> {
-  return invoke<FsEntry[]>('fs_list_dir', { shell, path })
+/** checkGitignore: git リポジトリのときのみ true を渡す（非 git での無駄な git 実行を避ける）。 */
+export async function fsListDir(shell: ShellType, path: string, checkGitignore = false): Promise<FsEntry[]> {
+  return invoke<FsEntry[]>('fs_list_dir', { shell, path, checkGitignore })
 }
 
 export interface FileReadResult {

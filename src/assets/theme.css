@@ -15,7 +15,8 @@
   --git-add: #4ec9b0;
   --git-modify: #e2c08d;
   --git-delete: #f44747;
-  --git-untracked: #969696;
+  --git-untracked: #73c991;
+  --git-ignored: #8c8c8c;
   --graph-lane-1: #e5c07b;
   --graph-lane-2: #e06c75;
   --graph-lane-3: #56b6c2;
@@ -45,7 +46,8 @@
   --git-add: #2e7d32;
   --git-modify: #e65100;
   --git-delete: #d32f2f;
-  --git-untracked: #717171;
+  --git-untracked: #388a34;
+  --git-ignored: #8e8e90;
   --graph-lane-1: #b8860b;
   --graph-lane-2: #c62828;
   --graph-lane-3: #00838f;

@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { pathSep } from '../lib/paths'
 import { loadJson, saveJson } from '../lib/storage'
 import type { FsEntry } from '../lib/tauri'
 import { fsListDir } from '../lib/tauri'
+import { useGitStore } from './git'
 import { useProjectStore } from './project'
 
 export const useFileTreeStore = defineStore('fileTree', () => {
@@ -44,13 +45,26 @@ export const useFileTreeStore = defineStore('fileTree', () => {
     if (!project) return
     loading.value.add(path)
     try {
-      tree.value[path] = await fsListDir(project.shell, path)
+      // git リポジトリのときのみ gitignore を参照する（非 git での無駄な git 実行を避ける）。
+      const isGitRepo = useGitStore().status !== null
+      tree.value[path] = await fsListDir(project.shell, path, isGitRepo)
     } catch {
       tree.value[path] = []
     } finally {
       loading.value.delete(path)
     }
   }
+
+  // git status は非同期取得なので、ツリーの初回ロード（復元で展開済みの dir を含む）が
+  // status 到着より先だと checkGitignore=false で gitignore フラグが付かない。status が
+  // 利用可能になった時点（null→非null）で既読の全ディレクトリを再取得して反映する。
+  watch(
+    () => useGitStore().status !== null,
+    (isRepo) => {
+      if (!isRepo) return
+      for (const path of Object.keys(tree.value)) void loadDir(path)
+    },
+  )
 
   function initTree() {
     const projectStore = useProjectStore()

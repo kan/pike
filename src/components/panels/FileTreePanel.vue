@@ -542,7 +542,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
         <div
           v-else
           class="tree-item"
-          :class="{ 'drop-target': dropTarget === node.path, selected: fileTreeStore.selectedPath === node.path, ignored: node.entry.ignored }"
+          :class="{ 'drop-target': dropTarget === node.path, selected: fileTreeStore.selectedPath === node.path, ignored: node.entry.ignored, gitignored: node.entry.gitignored }"
           :style="{ paddingLeft: (node.depth * 16 + 4) + 'px' }"
           :draggable="!node.entry.ignored"
           @click="onItemClick(node)"
@@ -704,6 +704,19 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 .tree-item.ignored .tree-name,
 .tree-item.ignored .tree-icon-folder {
   color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+/* gitignore されたエントリ（ファイル / 展開可能なディレクトリ）。VS Code に倣い
+   グレーの淡色で示し、untracked の緑と色相で区別する。ディレクトリは chevron 付きで
+   展開できる点も IGNORED_DIRS との違い。 */
+.tree-item.gitignored .tree-name,
+.tree-item.gitignored .tree-icon-folder {
+  color: var(--git-ignored);
+}
+.tree-item.gitignored .tree-name,
+.tree-item.gitignored .tree-icon-svg,
+.tree-item.gitignored .tree-icon-folder {
   opacity: 0.6;
 }
 

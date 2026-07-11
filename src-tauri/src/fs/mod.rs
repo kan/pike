@@ -9,9 +9,12 @@ use std::io::Write as IoWrite;
 pub struct FsEntry {
     pub name: String,
     pub is_dir: bool,
-    /// Directory matches `IGNORED_DIRS`: shown dimmed in the tree, contents
-    /// are never listed (watcher/tasks/search also skip it).
+    /// Directory in `IGNORED_DIRS`: shown dimmed, contents never listed (watcher/
+    /// tasks/search also skip it), not expandable.
     pub ignored: bool,
+    /// Matched by `.gitignore` (file or directory). Colored distinctly in the tree.
+    /// Plain gitignored directories stay expandable (unlike `IGNORED_DIRS`).
+    pub gitignored: bool,
 }
 
 pub const IGNORED_DIRS: &[&str] = &[
@@ -95,13 +98,73 @@ fn walk_native(
 pub async fn fs_list_dir(
     shell: ShellConfig,
     path: String,
+    check_gitignore: bool,
 ) -> Result<Vec<FsEntry>, String> {
-    tokio::task::spawn_blocking(move || match &shell {
-        ShellConfig::Wsl { .. } => list_dir_wsl(&shell, &path),
-        _ => list_dir_native(&path),
+    tokio::task::spawn_blocking(move || {
+        let mut entries = match &shell {
+            ShellConfig::Wsl { .. } => list_dir_wsl(&shell, &path)?,
+            _ => list_dir_native(&path)?,
+        };
+        // Only consult git when the caller knows this tree is a git repo (avoids a
+        // wasted git spawn per listing in non-git projects).
+        if check_gitignore {
+            apply_gitignore(&shell, &path, &mut entries);
+        }
+        Ok(entries)
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Mark entries that git ignores (color only). Unlike `IGNORED_DIRS`, a plain
+/// gitignored directory stays expandable — only its `gitignored` flag is set.
+/// Uses a single `git check-ignore` for the whole listing.
+fn apply_gitignore(shell: &ShellConfig, dir: &str, entries: &mut [FsEntry]) {
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    let ignored = check_ignored(shell, dir, &names);
+    if ignored.is_empty() {
+        return;
+    }
+    for e in entries.iter_mut() {
+        if ignored.contains(e.name.as_str()) {
+            e.gitignored = true;
+        }
+    }
+}
+
+/// Return the subset of `names` (entries directly under `dir`) that git ignores,
+/// via `git check-ignore`. Empty on non-repo / git-unavailable / none-ignored
+/// (git exits non-zero with empty stdout in those cases).
+fn check_ignored(
+    shell: &ShellConfig,
+    dir: &str,
+    names: &[&str],
+) -> std::collections::HashSet<String> {
+    use std::collections::HashSet;
+    if names.is_empty() {
+        return HashSet::new();
+    }
+    // `-C <dir>` resolves the repo from the listed directory; `core.quotePath=false`
+    // keeps non-ASCII names verbatim (otherwise git octal-escapes them and the match
+    // fails); `--` guards flag-like names. Output is one ignored name per line.
+    // (`-z` is rejected without `--stdin`, so we split on newlines instead.)
+    let mut args: Vec<&str> = vec![
+        "-c",
+        "core.quotePath=false",
+        "-C",
+        dir,
+        "check-ignore",
+        "--",
+    ];
+    args.extend_from_slice(names);
+    match shell.run("git", &args) {
+        Ok((_code, stdout, _stderr)) => stdout
+            .lines()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect(),
+        Err(_) => HashSet::new(),
+    }
 }
 
 fn list_dir_wsl(shell: &ShellConfig, path: &str) -> Result<Vec<FsEntry>, String> {
@@ -126,7 +189,7 @@ fn list_dir_wsl(shell: &ShellConfig, path: &str) -> Result<Vec<FsEntry>, String>
         }
         let is_dir = kind == "d";
         let ignored = is_dir && IGNORED_DIRS.contains(&name.as_str());
-        let entry = FsEntry { name, is_dir, ignored };
+        let entry = FsEntry { name, is_dir, ignored, gitignored: false };
         if is_dir {
             dirs.push(entry);
         } else {
@@ -154,7 +217,7 @@ fn list_dir_native(path: &str) -> Result<Vec<FsEntry>, String> {
             .map(|t| t.is_dir())
             .unwrap_or(false);
         let ignored = is_dir && IGNORED_DIRS.contains(&name.as_str());
-        let e = FsEntry { name, is_dir, ignored };
+        let e = FsEntry { name, is_dir, ignored, gitignored: false };
         if is_dir {
             dirs.push(e);
         } else {
