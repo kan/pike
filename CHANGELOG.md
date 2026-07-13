@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.24.1] - 2026-07-14
+
+### Bug Fixes
+
+- **アプリ復帰後の IME 非インライン化・入力乱れを解消**: 他のアプリから Pike ターミナルへフォーカスを戻した直後の変換で、候補ウィンドウがインラインに出ない・入力が重複/順序異常になる問題を修正しました。従来の window focus 時の blur→focus サイクルは同一タスク内で実行されるため OS 側（TSF）にフォーカス遷移が届かず、stale な IME コンテキストが残っていました。blur をウィンドウ非アクティブ化時に、focus を復帰時に分離して実行することで、OS 側の IME コンテキストが正しく再構築されます
+
 ## [0.24.0] - 2026-07-12
 
 ### Features
