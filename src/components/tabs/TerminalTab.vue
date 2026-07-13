@@ -220,6 +220,7 @@ let ptyId: string | null = null
 let resizeObserver: ResizeObserver | null = null
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 let windowFocusHandler: (() => void) | null = null
+let windowBlurHandler: (() => void) | null = null
 let lastCols = 0
 let lastRows = 0
 
@@ -711,35 +712,42 @@ onMounted(async () => {
     }
   })
 
-  // Re-focus xterm textarea when window regains focus from outside.
-  // A plain focus() leaves the hidden textarea with stale state: committed
-  // IME text is only cleared in xterm's blur handler (xterm.js #6012) and the
-  // textarea is only moved to the cursor on a re-render — so the next IME
-  // commit duplicates and the candidate window opens at the old position.
-  // Replicate the blur → re-render → focus cycle that a tab switch does
-  // implicitly (which is why switching tabs "fixed" it).
+  // IME reset across app switches (xterm.js #6012 + WebView2/TSF staleness).
+  //
+  // Chromium keeps DOM focus on the textarea while the app is deactivated, so
+  // xterm's blur cleanup never runs on an app switch, and the OS-side IME
+  // context (TSF caret tracking) can come back stale — detached candidate
+  // window, reordered/duplicated input. An earlier fix ran a blur→refresh→focus
+  // cycle on window 'focus', but blur()+focus() inside one task gets coalesced
+  // by the renderer's TextInputState dedup: the JS-side handlers fire, yet the
+  // browser process / TSF never sees a real NONE→TEXT transition, so the OS
+  // context is never rebuilt. A tab switch *did* fix it because v-show's
+  // display:none moves focus to <body> for real, frames apart from the refocus.
+  //
+  // So split the cycle across the deactivation boundary instead: blur when the
+  // window loses focus (a genuine blur — xterm's handler clears the committed
+  // IME text, and the OS sees the input context go away), and on window focus
+  // just refocus, which re-establishes a fresh TSF context. This also removes
+  // the old race where the deferred cycle could clobber a composition the user
+  // started right after returning.
+  windowBlurHandler = () => {
+    if (!terminal || tabStore.activeTabId !== props.tabId) return
+    terminal.blur()
+    // blur() is a no-op unless the textarea still has DOM focus; clear the
+    // retained text (#6012) directly for that case as well.
+    if (terminal.textarea) terminal.textarea.value = ''
+  }
+  window.addEventListener('blur', windowBlurHandler)
+
   windowFocusHandler = () => {
     if (!terminal || tabStore.activeTabId !== props.tabId) return
-    // Defer the whole blur→refresh→focus cycle to the next frame. When the window
-    // was activated by *clicking into another Pike window's terminal*, the hidden
-    // textarea hasn't received DOM focus yet at the moment 'focus' fires (window
-    // activation precedes the click's element focus). Running blur() synchronously
-    // here is then a no-op, so xterm's blur handler never clears the committed IME
-    // text / composition state (xterm.js #6012) and the next commit duplicates.
-    // By the next frame the click's focus has landed, so blur() actually triggers
-    // the cleanup. This is the window→window case that regressed after the
-    // original fix (which only covered app→app return, where the textarea is
-    // auto-refocused before the frame).
+    // Defer to the next frame: when the window is activated by clicking into
+    // it, the click's own element focus (e.g. xterm's mousedown handler) lands
+    // first and this focus() becomes a harmless no-op instead of fighting it.
     requestAnimationFrame(() => {
       // Re-check liveness AND active tab: the terminal may have been disposed
-      // (tab closed) or the user may have switched tabs in the frame since the
-      // focus event — either way we must not refresh/focus this terminal.
+      // (tab closed) or the user may have switched tabs since the focus event.
       if (!terminal || tabStore.activeTabId !== props.tabId) return
-      terminal.blur()
-      // blur() is a no-op unless the textarea still has DOM focus, so clear the
-      // retained text directly as well
-      if (terminal.textarea) terminal.textarea.value = ''
-      terminal.refresh(0, terminal.rows - 1)
       terminal.focus()
     })
   }
@@ -754,6 +762,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (windowFocusHandler) window.removeEventListener('focus', windowFocusHandler)
+  if (windowBlurHandler) window.removeEventListener('blur', windowBlurHandler)
   window.removeEventListener('mousedown', closeAgentMenu)
   window.removeEventListener('mousedown', closePromptMenu)
   if (resizeTimer) clearTimeout(resizeTimer)
