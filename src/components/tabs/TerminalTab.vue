@@ -744,11 +744,26 @@ onMounted(async () => {
     // Defer to the next frame: when the window is activated by clicking into
     // it, the click's own element focus (e.g. xterm's mousedown handler) lands
     // first and this focus() becomes a harmless no-op instead of fighting it.
+    //
+    // Two frames, not one: the NONE→TEXT transition this focus() produces is
+    // silently dropped by Chromium (InputMethodWinTSF's IsWindowFocused guard)
+    // unless the widget already holds *native* focus, and in WebView2 the
+    // host→controller→widget focus handoff can still be in flight one frame
+    // after the JS 'focus' event. A dropped transition is never resent, which
+    // leaves TSF stuck on the disabled input context set up while <body> was
+    // focused — IME indicator OFF and the toggle key inert until the next real
+    // focus cycle. The extra frame narrows that race window.
     requestAnimationFrame(() => {
-      // Re-check liveness AND active tab: the terminal may have been disposed
-      // (tab closed) or the user may have switched tabs since the focus event.
-      if (!terminal || tabStore.activeTabId !== props.tabId) return
-      terminal.focus()
+      requestAnimationFrame(() => {
+        // Re-check liveness AND active tab: the terminal may have been disposed
+        // (tab closed) or the user may have switched tabs since the focus event.
+        if (!terminal || tabStore.activeTabId !== props.tabId) return
+        // Focus already bounced away again (rapid app switch): refocusing now
+        // would park TEXT state on an inactive window; the next 'focus' event
+        // handles it instead.
+        if (!document.hasFocus()) return
+        terminal.focus()
+      })
     })
   }
   window.addEventListener('focus', windowFocusHandler)
