@@ -375,6 +375,18 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `import.meta.env.DEV` が true の場合、ウィンドウタイトルに `[DEBUG]` プレフィックスを付与
 - `npm run tauri dev` は identifier が本番と同一のため、インストール版と競合する点に注意
 
+### E2E スクリーンショット自動化（#142）
+マニュアル画像（`docs/manual/img/`）の自動再撮影パイプライン。詳細・設計の正本は `e2e/README.md`。
+
+1. `npm run e2e:build`: 撮影用バイナリをビルド（`PIKE_E2E=1` + `--features e2e` + `tauri.e2e.conf.json`。identifier=`com.pike.e2e` で既存 Pike / dev 版と single-instance 衝突しない）
+2. `npm run e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ外形 1280×832 固定 → 内枠 1259×777 で全画像寸法が揃う
+3. `scripts/sync-manual-images.sh --check` でドライラン → 引数なしで `docs/manual/img/` へ同期。スクリプト内 `MAP` が「マニュアル名 ← E2E ベース名」を対応付け、ja の dark（`{名前}.png`）+ light（`{名前}-light.png`）の 2 枚を持つ（GitHub の `<picture>` 切替用）
+4. 変更画像を目視確認してコミット
+
+- 外枠付きヒーロー画像（README / overview の `screenshot-*`）は `scripts/frame-screenshot.sh` で別途生成（sync の MAP 対象外）
+- 撮影画面を追加したら `e2e/specs/` に追記し、マニュアルで使う場合は `sync-manual-images.sh` の MAP にも対応を追加
+- 撮影コードを本番ビルドに混入させない仕組み（`e2e` Cargo feature / vite define `__PIKE_E2E__` / `capabilities-runtime` の実行時登録）は `e2e/README.md` を参照
+
 ### pike CLI
 - バイナリ名 `pike.exe`（`Cargo.toml` `[[bin]] name = "pike"`）
 - `tauri-plugin-single-instance` で二重起動を防止、引数を既存インスタンスに転送
