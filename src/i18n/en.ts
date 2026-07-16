@@ -50,6 +50,8 @@ export default {
   'manual.toggleTheme': 'Toggle manual light/dark',
   'manual.openHelp': 'Open help for this',
   'manual.loadError': 'Failed to load the manual. Check your network connection.',
+  'manual.versionPinned': 'Showing the manual for this version',
+  'manual.versionLatest': 'Showing the latest (development) manual',
 
   // Diagnostics
   'diagnostics.running': 'Checking…',

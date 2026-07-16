@@ -4,7 +4,14 @@ import { ArrowUp, Home, Moon, RefreshCw, Sun } from 'lucide-vue-next'
 import { marked } from 'marked'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
-import { fetchManual, isMarkdownPage, MANUAL_INDEX, manualRawUrl, resolveManualPath } from '../../lib/manual'
+import {
+  fetchManual,
+  getManualRef,
+  isMarkdownPage,
+  MANUAL_INDEX,
+  manualRawUrl,
+  resolveManualPath,
+} from '../../lib/manual'
 import { createHeadingSlugger } from '../../lib/slug'
 import { openUrlWithConfirm } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
@@ -27,6 +34,11 @@ const scrolled = ref(false)
 const backStack = ref<string[]>([])
 /** Path of the page currently rendered (without the `#anchor` part). */
 const loadedPath = ref('')
+/** The ref (version tag or `main`) the manual is served from. */
+const manualRef = ref('')
+/** A version-tag ref (`vX.Y.Z`) means the manual matches the app; `main` is the
+ *  latest/dev fallback. */
+const manualRefPinned = computed(() => /^v\d/.test(manualRef.value))
 
 /**
  * マニュアルだけのダーク/ライト切替。app の darkMode とは独立に、このタブの表示テーマを
@@ -97,6 +109,7 @@ async function render(path: string, force = false) {
   error.value = ''
   try {
     const md = await fetchManual(path, force)
+    manualRef.value = await getManualRef() // resolved by fetchManual; memoized
     if (splitPage(page.value)[0] !== path) return // navigated away while fetching
     html.value = DOMPurify.sanitize(marked.parse(md) as string)
     await nextTick()
@@ -237,6 +250,13 @@ onUnmounted(() => cancelAnchorReflow?.())
       <button class="tool-btn" :disabled="backStack.length === 0" :title="t('manual.back')" @click="goBack">←</button>
       <button class="tool-btn" :title="t('manual.home')" @click="goHome"><Home :size="14" :stroke-width="2" /></button>
       <span class="manual-path">{{ page }}</span>
+      <span
+        v-if="manualRef"
+        class="manual-ref"
+        :class="{ latest: !manualRefPinned }"
+        :title="manualRefPinned ? t('manual.versionPinned') : t('manual.versionLatest')"
+        >{{ manualRef }}</span
+      >
       <button class="tool-btn" data-testid="manual-theme-toggle" :title="t('manual.toggleTheme')" @click="toggleManualTheme">
         <Sun v-if="manualDark" :size="14" :stroke-width="2" />
         <Moon v-else :size="14" :stroke-width="2" />
@@ -316,6 +336,24 @@ onUnmounted(() => cancelAnchorReflow?.())
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.manual-ref {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  white-space: nowrap;
+  cursor: default;
+}
+
+/* `main` (dev/latest) — distinguish from a pinned version tag. */
+.manual-ref.latest {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .spin {

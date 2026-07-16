@@ -50,6 +50,8 @@ export default {
   'manual.toggleTheme': 'マニュアルのライト/ダーク切替',
   'manual.openHelp': 'この機能のヘルプを開く',
   'manual.loadError': 'マニュアルの読み込みに失敗しました。ネットワーク接続を確認してください。',
+  'manual.versionPinned': 'このバージョンに対応するマニュアルを表示中',
+  'manual.versionLatest': '最新（開発版）のマニュアルを表示中',
 
   // Diagnostics
   'diagnostics.running': 'チェック中…',
