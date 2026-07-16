@@ -780,6 +780,35 @@ onMounted(async () => {
         // handles it instead.
         if (!document.hasFocus()) return
         terminal.focus()
+        // Parking on a TEXT input keeps the IME enabled across reactivation,
+        // but it also removes the NONE→TEXT_AREA transition the blur-split fix
+        // relied on to make TSF rebuild its stale context — with the parked
+        // type already TEXT, reactivation reuses the old caret tracking and
+        // edit buffer (candidate window detached, committed text duplicated /
+        // reordered). Recreate that transition deliberately, now that the
+        // window verifiably holds focus and the update won't be dropped:
+        // bounce the textarea's input type through NONE via readOnly (a
+        // readonly text control reports TEXT_INPUT_TYPE_NONE), one state per
+        // frame pair so the renderer sends each as its own update instead of
+        // deduping the round trip.
+        const ta = terminal.textarea
+        if (!ta) return
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            // Skip if focus moved elsewhere meanwhile, the window deactivated
+            // again, or a composition already started (xterm keeps composition
+            // text in textarea.value; flipping readOnly would abort it).
+            if (document.activeElement !== ta || !document.hasFocus() || ta.value !== '') return
+            ta.readOnly = true
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                // Unconditional: readOnly must never stay latched, even if the
+                // tab switched or the window blurred mid-cycle.
+                ta.readOnly = false
+              })
+            })
+          })
+        })
       })
     })
   }

@@ -9,6 +9,12 @@
 // leaving the IME OFF with the toggle key dead. Parking focus on a hidden
 // *text* input keeps the parked state TEXT, so reactivation never disables
 // the IME in the first place, no matter how the refocus race resolves.
+//
+// Trade-off: with the parked type already TEXT, reactivation no longer gives
+// TSF the NONE→TEXT transition that rebuilt its stale context (caret
+// tracking / edit buffer). TerminalTab's windowFocusHandler compensates by
+// bouncing the textarea through readOnly (→ input type NONE and back) once
+// the window verifiably holds focus again.
 
 let parkInput: HTMLInputElement | null = null
 
