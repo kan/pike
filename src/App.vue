@@ -146,6 +146,14 @@ watch(
 )
 
 onMounted(async () => {
+  // Swallow OS file drops that no component handled: with Tauri's native
+  // drag-drop disabled, the webview's default action for an unhandled drop is
+  // navigating to the file — which replaces the app (all PTY sessions die).
+  // These bubble-phase listeners run after component handlers, so handled
+  // drops (terminal, chat, tab bar) are unaffected.
+  window.addEventListener('dragover', (e) => e.preventDefault())
+  window.addEventListener('drop', (e) => e.preventDefault())
+
   // Elevation is static per process; resolve once so the shield indicator and
   // window title reflect an admin instance (#138).
   isElevated()

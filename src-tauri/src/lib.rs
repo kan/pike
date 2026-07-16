@@ -5,6 +5,7 @@ mod codex;
 mod codex_usage;
 mod diagnostics;
 mod docker;
+mod drop_paths;
 mod elevate;
 mod font;
 mod fs;
@@ -241,12 +242,14 @@ fn window_project_id(label: &str) -> Option<&str> {
 }
 
 fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Error> {
-    WebviewWindowBuilder::new(app, label, WebviewUrl::default())
+    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .title("Pike")
         .inner_size(800.0, 600.0)
         .resizable(true)
         .disable_drag_drop_handler()
-        .build()
+        .build()?;
+    drop_paths::attach(&window);
+    Ok(window)
 }
 
 fn create_global_window(app: &AppHandle) -> String {
@@ -591,6 +594,12 @@ pub fn run() {
         .setup(|app| {
             if let Some(state) = app.try_state::<docker::DockerState>() {
                 let _ = state.instance_id.set(app.config().identifier.clone());
+            }
+
+            // The main window comes from tauri.conf.json (not build_window),
+            // so it needs its own drop-paths bridge attachment.
+            if let Some(main) = app.get_webview_window("main") {
+                drop_paths::attach(&main);
             }
 
             // WebDriver E2E の capability を実行時に登録する (issue #142)。

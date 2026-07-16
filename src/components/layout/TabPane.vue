@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onUnmounted, ref } from 'vue'
+import { openFileTarget } from '../../composables/useCliOpen'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
+import { canResolveDroppedPaths, resolveDroppedPaths } from '../../lib/dropPaths'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { detectWslDistros, openElevatedTerminal } from '../../lib/tauri'
 import { elevated, globalMode } from '../../lib/window'
@@ -247,6 +249,56 @@ function onDrop(e: DragEvent, tabId: string) {
 
 const onDragEnd = resetDrag
 
+// External file drop on the tab bar (VS Code-like): drop a file from
+// Explorer → open it in the matching tab kind; drop a directory → open a
+// terminal tab with that directory as cwd. Enabled only for Windows projects
+// and global-mode windows — WSL projects would need Windows→WSL path
+// conversion for both the editor shell I/O and the terminal cwd.
+const externalDropEnabled = computed(() => {
+  if (!canResolveDroppedPaths()) return false
+  if (globalMode.value) return true
+  const project = projectStore.currentProject
+  return project != null && project.shell.kind !== 'wsl'
+})
+
+function isExternalFileDrag(e: DragEvent): boolean {
+  return !dragTabId.value && (e.dataTransfer?.types.includes('Files') ?? false)
+}
+
+/**
+ * Shell for a dropped-directory terminal. Dropped paths are Windows paths,
+ * so a WSL global default (which ignores a Windows cwd and starts at the
+ * Linux home) would defeat the point — fall back to the default Windows
+ * shell in that case.
+ */
+function dropTerminalShell(): ShellType {
+  if (!globalMode.value) return projectStore.currentProject?.shell ?? { kind: 'powershell' }
+  const shell = settings.globalShell
+  if (shell.kind !== 'wsl') return shell
+  return { kind: settings.defaultWindowsShellKind() }
+}
+
+function onBarDragOver(e: DragEvent) {
+  if (!externalDropEnabled.value || !isExternalFileDrag(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+
+async function onBarDrop(e: DragEvent) {
+  if (!externalDropEnabled.value || !isExternalFileDrag(e)) return
+  e.preventDefault()
+  const files = e.dataTransfer?.files
+  if (!files?.length) return
+  // Sequential await keeps the tab order matching the dropped order
+  for (const entry of await resolveDroppedPaths(files)) {
+    if (entry.isDir) {
+      tabStore.addTerminalTab({ cwd: entry.path, shell: dropTerminalShell() })
+    } else {
+      await openFileTarget({ path: entry.path, line: null })
+    }
+  }
+}
+
 // Context menu (tabId is null for tab-bar empty area)
 const contextMenu = ref<{ x: number; y: number; tabId: string | null } | null>(null)
 const contextTab = computed(() =>
@@ -311,7 +363,13 @@ onUnmounted(() => {
 <template>
   <div class="tab-pane">
     <!-- Tab Bar -->
-    <div class="tab-bar ui-zoom" @dblclick="onTabBarDblClick" @contextmenu="onTabContextMenu($event, null)">
+    <div
+      class="tab-bar ui-zoom"
+      @dblclick="onTabBarDblClick"
+      @contextmenu="onTabContextMenu($event, null)"
+      @dragover="onBarDragOver"
+      @drop="onBarDrop"
+    >
       <div class="tabs-scroll">
         <div
           v-for="tab in tabStore.tabs"

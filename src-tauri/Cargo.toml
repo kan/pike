@@ -62,6 +62,12 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# drop_paths.rs の WebMessageReceived ブリッジ用。wry が同版を使っており
+# 新規の依存ツリー追加ではない（Cargo.lock に既存）。webview2-com の COM 型は
+# windows-core 0.61 系（本体の windows 0.62 とは別インスタンス）なので、
+# Interface trait / PWSTR はこちらの windows-core を合わせて使う。
+webview2-com = "0.38"
+windows-core = "0.61"
 
 [[bin]]
 name = "pike"

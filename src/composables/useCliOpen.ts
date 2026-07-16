@@ -24,8 +24,11 @@ function tabPathFor(file: CliFileTarget): string {
   return file.path
 }
 
-/** Open one CLI file target in the tab kind matching its extension. */
-async function openFileTarget(file: CliFileTarget) {
+/**
+ * Open one file target in the tab kind matching its extension.
+ * Exported for reuse by other path-based open flows (tab-bar file drop).
+ */
+export async function openFileTarget(file: CliFileTarget) {
   const tabStore = useTabStore()
   const path = tabPathFor(file)
   if (isImageFile(path)) {
