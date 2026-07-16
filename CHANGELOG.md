@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.26.3] - 2026-07-17
+
+### Bug Fixes
+
+- **本番ビルドでターミナル・エディタの表示が崩れる不具合を修正**: CSP 設定（0.26.1）以降、本番ビルドで Tauri が `style-src` に nonce/hash を注入し、CSP 仕様上それが `'unsafe-inline'` を無効化していました。その結果、ターミナル（xterm）とエディタ（CodeMirror）が実行時に注入するスタイルがすべてブロックされ、ターミナルは色・フォントが崩れ、エディタは本文が表示されず行番号だけになっていました。`style-src` への nonce/hash 注入のみを止めて `'unsafe-inline'` を有効に保つことで解消しました（`script-src` の保護は維持）
+
 ## [0.26.2] - 2026-07-16
 
 ### Bug Fixes

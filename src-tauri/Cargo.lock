@@ -3450,7 +3450,7 @@ dependencies = [
 
 [[package]]
 name = "pike"
-version = "0.26.2"
+version = "0.26.3"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
