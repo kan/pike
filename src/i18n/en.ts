@@ -535,6 +535,7 @@ export default {
   'upload.failed': 'Failed to attach “{name}”: {error}',
   // Tasks
   'tasks.noFiles': 'No task files found',
+  'tasks.openSource': 'Open task file',
   // Outline
   'outline.empty': 'No file opened',
   'outline.unsupported': 'No outline available for this file',

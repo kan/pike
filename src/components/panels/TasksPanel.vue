@@ -34,7 +34,9 @@ defineExpose({ refresh })
       <div v-for="group in taskStore.taskGroups" :key="group.sourceFile" class="task-group">
         <div class="group-header">
           <span class="group-label">{{ group.label }}</span>
-          <span class="group-source">{{ group.sourceFile }}</span>
+          <button class="group-source" :title="t('tasks.openSource')" @click="taskStore.openSourceFile(group)">
+            {{ group.sourceFile }}
+          </button>
         </div>
         <div
           v-for="task in group.tasks"
@@ -83,6 +85,21 @@ defineExpose({ refresh })
 .group-source {
   font-size: 10px;
   opacity: 0.6;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-source:hover {
+  opacity: 1;
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .task-item {

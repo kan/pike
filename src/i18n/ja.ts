@@ -535,6 +535,7 @@ export default {
   'upload.failed': '「{name}」の添付に失敗しました: {error}',
   // Tasks
   'tasks.noFiles': 'タスクファイルが見つかりません',
+  'tasks.openSource': 'タスク定義ファイルを開く',
   // Outline
   'outline.empty': 'ファイルが開かれていません',
   'outline.unsupported': 'このファイルのアウトラインには対応していません',

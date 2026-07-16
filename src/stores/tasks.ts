@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { basename, joinPath, pathSep } from '../lib/paths'
 import { taskDiscover } from '../lib/tauri'
 import type { TaskDefinition, TaskGroup, TaskRunner } from '../types/tasks'
 import { RUNNER_COMMANDS } from '../types/tasks'
@@ -63,9 +64,18 @@ export const useTaskStore = defineStore('tasks', () => {
     })
   }
 
+  /** Open a group's task-definition file (package.json etc.) in an editor tab. */
+  function openSourceFile(group: TaskGroup) {
+    const project = useProjectStore().currentProject
+    if (!project) return
+    // sourceFile is root-relative; cwd is the absolute directory of the file
+    const path = joinPath(group.cwd, basename(group.sourceFile), pathSep(project.shell))
+    useTabStore().addEditorTab({ path })
+  }
+
   const allTasks = computed(() =>
     taskGroups.value.flatMap((g) => g.tasks.map((t) => ({ ...t, cwd: g.cwd, groupLabel: g.label }))),
   )
 
-  return { taskGroups, loading, refresh, runTask, allTasks }
+  return { taskGroups, loading, refresh, runTask, openSourceFile, allTasks }
 })
