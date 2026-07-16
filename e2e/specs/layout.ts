@@ -19,6 +19,11 @@ import {
 // overview・screen-layout は通常プロジェクトの代表的な作業状態、global-* はサイドバーを
 // 持たないグローバルモードのウィンドウ、hero-git は README 用の Git パネル + Claude Code。
 
+// 全体レイアウト系は実使用時の画面比率（サイドバーとエディタ領域のバランス）を
+// 見せるのが目的なので、パネル・ダイアログのクローズアップ（既定 1280×832）より
+// 大きい実用サイズで撮る。テキストの精読は不要なため縮小表示での可読性低下は許容。
+const FULL = { width: 1600, height: 1000 }
+
 const GIT_STATUS = {
   branch: 'main',
   head: 'a1b2c3d',
@@ -95,7 +100,7 @@ const TABS_TS = [
 describe('screenshots: overview', () => {
   for (const { lang, theme } of MATRIX) {
     it(`overview ${lang} ${theme}`, async () => {
-      await prepare({ lang, theme })
+      await prepare({ lang, theme, ...FULL })
       await mockInvoke('git_status', GIT_STATUS)
       await mockInvoke('fs_list_dir', FILE_ENTRIES)
       await setFakeProject()
@@ -112,7 +117,7 @@ describe('screenshots: overview', () => {
 describe('screenshots: screen layout', () => {
   for (const { lang, theme } of MATRIX) {
     it(`screen-layout ${lang} ${theme}`, async () => {
-      await prepare({ lang, theme })
+      await prepare({ lang, theme, ...FULL })
       await mockInvoke('git_status', GIT_STATUS)
       await setFakeProject()
       await openEditor({ path: 'src/stores/tabs.ts', content: TABS_TS })
@@ -140,7 +145,7 @@ const NOTES_MD = ['# メモ', '', '- pike a.rs README.md で複数ファイル�
 describe('screenshots: global editor', () => {
   for (const { lang, theme } of MATRIX) {
     it(`global-editor ${lang} ${theme}`, async () => {
-      await prepare({ lang, theme })
+      await prepare({ lang, theme, ...FULL })
       await enterGlobalMode()
       await openEditors([
         { path: 'src/main.rs', content: A_RS },
@@ -168,7 +173,7 @@ const PS_SESSION = [
 describe('screenshots: global terminal', () => {
   for (const { lang, theme } of MATRIX) {
     it(`global-terminal ${lang} ${theme}`, async () => {
-      await prepare({ lang, theme })
+      await prepare({ lang, theme, ...FULL })
       await mockPtySpawnUniqueIds()
       await mockInvoke('pty_resize', null)
       await mockInvoke('pty_write', null)
@@ -280,7 +285,7 @@ const HERO_README = [
 describe('screenshots: hero editor + file tree', () => {
   for (const { lang, theme } of MATRIX) {
     it(`hero-editor ${lang} ${theme}`, async () => {
-      await prepare({ lang, theme })
+      await prepare({ lang, theme, ...FULL })
       await mockInvoke('git_status', GIT_STATUS)
       await mockInvoke('fs_list_dir', FILE_ENTRIES)
       await setFakeProject()
@@ -296,7 +301,7 @@ describe('screenshots: hero editor + file tree', () => {
 describe('screenshots: hero git + claude', () => {
   for (const { lang, theme } of MATRIX) {
     it(`hero-git ${lang} ${theme}`, async () => {
-      await prepare({ lang, theme })
+      await prepare({ lang, theme, ...FULL })
       await mockInvoke('git_status', GIT_STATUS)
       await mockInvoke('git_log', HERO_GIT_LOG)
       await mockInvoke('git_branch_list', ['main', 'develop'])

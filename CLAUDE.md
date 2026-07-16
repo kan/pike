@@ -379,7 +379,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 マニュアル画像（`docs/manual/img/`）の自動再撮影パイプライン。詳細・設計の正本は `e2e/README.md`。
 
 1. `npm run e2e:build`: 撮影用バイナリをビルド（`PIKE_E2E=1` + `--features e2e` + `tauri.e2e.conf.json`。identifier=`com.pike.e2e` で既存 Pike / dev 版と single-instance 衝突しない）
-2. `npm run e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ外形 1280×832 固定 → 内枠 1259×777 で全画像寸法が揃う
+2. `npm run e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ寸法は 2 クラス: クローズアップ＝既定 1280×832（内枠 1259×777）、全体レイアウト系（layout.ts の `FULL`）＝1600×1000（内枠 1578×945）
 3. `scripts/sync-manual-images.sh --check` でドライラン → 引数なしで `docs/manual/img/` へ同期。スクリプト内 `MAP` が「マニュアル名 ← E2E ベース名」を対応付け、ja の dark（`{名前}.png`）+ light（`{名前}-light.png`）の 2 枚を持つ（GitHub の `<picture>` 切替用）
 4. 変更画像を目視確認してコミット
 

@@ -54,9 +54,12 @@ npm run e2e
 
 固定・切替の要点:
 
-- **出力寸法は固定**：`prepare()` が `setWindowSize(1280, 832)` で外形を固定するため、
-  `saveScreenshot()` が撮る WebView 内は全撮影で同一の **1259×777**（ネイティブ枠を差し引いた
-  内寸）になる。全 110 枚が寸法一致することを確認済み（`magick identify` で検証）。
+- **出力寸法はサイズクラスごとに固定**：`prepare()` が `setWindowSize()` で外形を固定するため、
+  `saveScreenshot()` が撮る WebView 内は同一クラス内で同寸になる（`magick identify` で検証済み）。
+  - **クローズアップ（既定）**：外形 1280×832 → 内寸 **1259×777**。パネル・ダイアログなど
+    被写体が画面の一部の撮影。小さめのウィンドウで被写体を相対的に大きく写す
+  - **全体レイアウト（`layout.ts` の `FULL`）**：外形 1600×1000 → 内寸 **1578×945**。
+    overview / screen-layout / global-* / hero-* など、実使用時の画面比率を見せる撮影
 - 言語・テーマ・ウィンドウサイズは `support/prepare.ts` の `prepare()` で固定。
 - 言語・テーマの切替は e2e ビルド限定の `window.__pikeE2E`（`setLanguage` /
   `setDarkMode`）でリロードなしに行う。
