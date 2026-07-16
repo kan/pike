@@ -345,6 +345,10 @@ async function renderStandaloneMermaid() {
     const mermaid = await getMermaid()
     const id = `mermaid-${props.tabId}-${Date.now()}`
     const { svg } = await mermaid.render(id, source)
+    // Insert mermaid's rendered SVG as-is (its documented usage). Mermaid runs
+    // in 'antiscript' mode and sanitizes label text internally with DOMPurify;
+    // running it through our SVG_PURIFY_OPTS here would strip the foreignObject
+    // label contents and blank every label.
     mermaidRef.value.innerHTML = `<div class="mermaid-inline">${svg}</div>`
   } catch (e) {
     const pre = document.createElement('pre')
@@ -372,6 +376,9 @@ async function renderMarkdownMermaid() {
         const { svg } = await mermaid.render(id, source.trim())
         const wrapper = document.createElement('div')
         wrapper.className = 'mermaid-inline'
+        // Mermaid-generated SVG (label text already sanitized by mermaid in
+        // 'antiscript' mode); insert as-is — our SVG sanitizer would blank the
+        // foreignObject labels.
         wrapper.innerHTML = svg
         pre.replaceWith(wrapper)
       } catch {

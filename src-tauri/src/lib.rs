@@ -427,6 +427,9 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
 
 #[tauri::command]
 async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), String> {
+    // Same guard as project_get/update/delete: the id becomes a window label,
+    // so reject anything outside [a-zA-Z0-9_-].
+    types::validate_slug(&project_id, "Project ID")?;
     let label = format!("{}{}", PROJECT_WINDOW_PREFIX, project_id);
     if let Some(window) = app.get_webview_window(&label) {
         // Verify the window is actually visible — tauri-plugin-window-state may
@@ -633,7 +636,9 @@ pub fn run() {
                 });
             app.manage(search::SearchState {
                 bundled_rg: rg_path,
-                detected: std::sync::Mutex::new(None),
+                detected: std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::HashMap::new(),
+                )),
             });
 
             // Parse initial CLI args and store for frontend to retrieve

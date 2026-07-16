@@ -1,11 +1,64 @@
 use crate::types::ShellConfig;
 use serde::Serialize;
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 pub struct SearchState {
     pub bundled_rg: Option<String>,
-    pub detected: Mutex<Option<SearchBackend>>,
+    /// Detected backend keyed by shell identity (`wsl:<distro>` vs `windows`).
+    /// A single global slot was wrong: a Windows project caching `BundledRg`
+    /// (a Windows .exe) would leak into a WSL project running in another
+    /// window, which then tried to exec that path inside WSL. Keying by shell
+    /// keeps each environment's backend separate.
+    pub detected: Arc<Mutex<HashMap<String, SearchBackend>>>,
+}
+
+/// Cache key for the detected backend. All Windows shells share one entry
+/// (identical PATH-based rg/grep detection); WSL is per-distro.
+fn backend_cache_key(shell: &ShellConfig) -> String {
+    match shell {
+        ShellConfig::Wsl { distro } => format!("wsl:{distro}"),
+        _ => "windows".to_string(),
+    }
+}
+
+/// Probe for the best available search backend for `shell` (blocking: spawns
+/// `which`/`where`). WSL never uses the bundled Windows rg.
+fn detect_backend(shell: &ShellConfig, bundled_rg: Option<String>) -> SearchBackend {
+    let check_cmd = match shell {
+        ShellConfig::Wsl { .. } => "which",
+        _ => "where",
+    };
+    if let Ok((0, _, _)) = shell.run(check_cmd, &["rg"]) {
+        return SearchBackend::Rg;
+    }
+    if !matches!(shell, ShellConfig::Wsl { .. }) {
+        if let Some(path) = bundled_rg {
+            return SearchBackend::BundledRg { path };
+        }
+    }
+    SearchBackend::Grep
+}
+
+/// Return the cached backend for `shell`, detecting and caching on first use.
+/// Blocking — call inside `spawn_blocking`.
+pub(crate) fn resolve_backend(
+    shell: &ShellConfig,
+    bundled_rg: &Option<String>,
+    cache: &Mutex<HashMap<String, SearchBackend>>,
+) -> SearchBackend {
+    let key = backend_cache_key(shell);
+    if let Ok(map) = cache.lock() {
+        if let Some(b) = map.get(&key) {
+            return b.clone();
+        }
+    }
+    let backend = detect_backend(shell, bundled_rg.clone());
+    if let Ok(mut map) = cache.lock() {
+        map.insert(key, backend.clone());
+    }
+    backend
 }
 
 #[derive(Clone)]
@@ -56,29 +109,12 @@ pub async fn search_detect_backend(
     state: State<'_, SearchState>,
 ) -> Result<String, String> {
     let bundled = state.bundled_rg.clone();
-    let backend = tokio::task::spawn_blocking(move || {
-        let check_cmd = match &shell {
-            ShellConfig::Wsl { .. } => "which",
-            _ => "where",
-        };
-        if let Ok((0, _, _)) = shell.run(check_cmd, &["rg"]) {
-            return SearchBackend::Rg;
-        }
-        if !matches!(shell, ShellConfig::Wsl { .. }) {
-            if let Some(path) = bundled {
-                return SearchBackend::BundledRg { path };
-            }
-        }
-        SearchBackend::Grep
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    let cache = state.detected.clone();
+    let backend = tokio::task::spawn_blocking(move || resolve_backend(&shell, &bundled, &cache))
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let label = backend.label().to_string();
-    if let Ok(mut detected) = state.detected.lock() {
-        *detected = Some(backend);
-    }
-    Ok(label)
+    Ok(backend.label().to_string())
 }
 
 const MAX_MATCHES: usize = 500;
@@ -90,14 +126,11 @@ pub async fn list_project_files(
     root: String,
     state: State<'_, SearchState>,
 ) -> Result<Vec<String>, String> {
-    let backend = state
-        .detected
-        .lock()
-        .ok()
-        .and_then(|g| g.clone())
-        .unwrap_or(SearchBackend::Grep);
+    let bundled = state.bundled_rg.clone();
+    let cache = state.detected.clone();
 
     tokio::task::spawn_blocking(move || {
+        let backend = resolve_backend(&shell, &bundled, &cache);
         let output = if backend.is_rg() {
             shell.run(backend.rg_program(), &["--files", "--", &root])
         } else {
@@ -218,12 +251,8 @@ pub async fn search_execute(
         });
     }
 
-    let backend = state
-        .detected
-        .lock()
-        .ok()
-        .and_then(|g| g.clone())
-        .unwrap_or(SearchBackend::Grep);
+    let bundled = state.bundled_rg.clone();
+    let cache = state.detected.clone();
 
     let max = max_results.unwrap_or(MAX_MATCHES as u32) as usize;
 
@@ -235,6 +264,7 @@ pub async fn search_execute(
     });
 
     tokio::task::spawn_blocking(move || {
+        let backend = resolve_backend(&shell, &bundled, &cache);
         let output = if backend.is_rg() {
             let mut args: Vec<String> = vec!["--json".to_string()];
             if !is_regex {

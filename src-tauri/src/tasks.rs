@@ -56,14 +56,12 @@ pub async fn task_discover(
     root: String,
     search_state: State<'_, SearchState>,
 ) -> Result<Vec<DiscoveredTaskGroup>, String> {
-    let backend = search_state
-        .detected
-        .lock()
-        .ok()
-        .and_then(|g| g.clone());
+    let bundled = search_state.bundled_rg.clone();
+    let cache = search_state.detected.clone();
 
     tokio::task::spawn_blocking(move || {
-        let all_paths = find_task_files(&shell, &root, backend.as_ref());
+        let backend = crate::search::resolve_backend(&shell, &bundled, &cache);
+        let all_paths = find_task_files(&shell, &root, Some(&backend));
         let sep = if root.contains('/') { "/" } else { "\\" };
 
         // Split existence-only markers from manifests that need their content
@@ -369,6 +367,19 @@ fn find_task_files_raw(
     crate::fs::walk_files_by_name(shell, root, &names, MAX_DEPTH)
 }
 
+/// npm script / deno task names are interpolated straight into a shell line by
+/// the frontend (`npm run {name}` / `deno task {name}`), so a name from an
+/// untrusted manifest must not carry shell metacharacters — otherwise clicking
+/// the task in a malicious repo would run an injected command. Allows the chars
+/// real script names use (`build:prod`, `test-e2e`, `ci/lint`) and rejects the
+/// rest (space, `;`, `&`, `|`, `$`, backtick, quotes, ...).
+fn is_safe_task_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/')
+        })
+}
+
 fn parse_package_json(content: &str) -> Vec<DiscoveredTask> {
     let Ok(val) = serde_json::from_str::<serde_json::Value>(content) else {
         return vec![];
@@ -378,6 +389,7 @@ fn parse_package_json(content: &str) -> Vec<DiscoveredTask> {
     };
     scripts
         .iter()
+        .filter(|(name, _)| is_safe_task_name(name))
         .filter_map(|(name, cmd)| {
             cmd.as_str().map(|c| DiscoveredTask {
                 name: name.clone(),
@@ -398,6 +410,7 @@ fn parse_deno_json(content: &str) -> Vec<DiscoveredTask> {
     };
     tasks
         .iter()
+        .filter(|(name, _)| is_safe_task_name(name))
         .filter_map(|(name, cmd)| {
             cmd.as_str().map(|c| DiscoveredTask {
                 name: name.clone(),
@@ -752,6 +765,22 @@ lint = ["clippy", "--", "-D", "warnings"]
     fn cargo_alias_unsafe_name_is_excluded() {
         let tasks = parse_cargo_aliases("[alias]\n\"a;b\" = \"build\"\nok = \"check\"\n");
         let names: Vec<&str> = tasks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["ok"]);
+    }
+
+    #[test]
+    fn npm_script_shell_metachar_name_is_excluded() {
+        let json = r#"{"scripts":{"build":"vite","evil; rm -rf ~":"x","build:prod":"vite build"}}"#;
+        let names: Vec<String> = parse_package_json(json).into_iter().map(|t| t.name).collect();
+        assert!(names.contains(&"build".to_string()));
+        assert!(names.contains(&"build:prod".to_string()));
+        assert!(names.iter().all(|n| !n.contains(';') && !n.contains(' ')));
+    }
+
+    #[test]
+    fn deno_task_shell_metachar_name_is_excluded() {
+        let json = r#"{"tasks":{"ok":"echo hi","bad$(id)":"echo pwn"}}"#;
+        let names: Vec<String> = parse_deno_json(json).into_iter().map(|t| t.name).collect();
         assert_eq!(names, vec!["ok"]);
     }
 

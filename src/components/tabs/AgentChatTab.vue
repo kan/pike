@@ -194,15 +194,29 @@ async function onMessageClick(e: MouseEvent) {
   await openUrlWithConfirm(href)
 }
 
-// Memoized markdown rendering — avoids re-parsing unchanged segments on every reactive update
+// Memoized markdown rendering — avoids re-parsing unchanged segments on every
+// reactive update. Bounded LRU so a long-lived session doesn't grow the cache
+// without limit (Map preserves insertion order → evict the oldest entry).
 const mdCache = new Map<string, string>()
+const MD_CACHE_MAX = 500
 function renderMarkdown(text: string): string {
   if (!text) return ''
   const cached = mdCache.get(text)
-  if (cached) return cached
+  if (cached) {
+    // Refresh recency: re-insert so it moves to the newest position.
+    mdCache.delete(text)
+    mdCache.set(text, cached)
+    return cached
+  }
   const html = DOMPurify.sanitize(marked.parse(text) as string)
-  // Only cache completed (non-streaming) text to avoid unbounded growth
-  if (text.length > 0 && text.length < 50000) mdCache.set(text, html)
+  // Only cache completed (non-streaming) text to avoid churn on partial chunks.
+  if (text.length > 0 && text.length < 50000) {
+    mdCache.set(text, html)
+    if (mdCache.size > MD_CACHE_MAX) {
+      const oldest = mdCache.keys().next().value
+      if (oldest !== undefined) mdCache.delete(oldest)
+    }
+  }
   return html
 }
 

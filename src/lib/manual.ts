@@ -18,7 +18,11 @@ export function manualTarget(rel: string): string {
 }
 
 /** Resolve a relative link/image `href` against the current page's directory,
- *  returning a normalized repo-relative path (e.g. `docs/manual/img/x.png`). */
+ *  returning a normalized repo-relative path (e.g. `docs/manual/img/x.png`).
+ *  The result is confined to `MANUAL_DIR`: a `../`-laden href can't escape into
+ *  the rest of the repo (the fetch target is a fixed GitHub repo, so escaping
+ *  would still pull arbitrary repo files). Out-of-bounds hrefs clamp to the
+ *  manual root. */
 export function resolveManualPath(page: string, href: string): string {
   const dir = page.includes('/') ? page.slice(0, page.lastIndexOf('/')) : ''
   const out: string[] = []
@@ -27,7 +31,12 @@ export function resolveManualPath(page: string, href: string): string {
     if (part === '..') out.pop()
     else out.push(part)
   }
-  return out.join('/')
+  const resolved = out.join('/')
+  if (resolved === MANUAL_DIR.replace(/\/$/, '') || resolved.startsWith(MANUAL_DIR)) {
+    return resolved
+  }
+  // Escaped the manual tree — keep only the final segment under the manual root.
+  return MANUAL_DIR + (out[out.length - 1] ?? '')
 }
 
 export function manualRawUrl(page: string): string {
