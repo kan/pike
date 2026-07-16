@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.26.0] - 2026-07-16
+
+### Features
+
+- **Docker パネルに compose up / down (#157)**: パネル上部の再生 / 停止ボタンで `docker compose up -d` / `docker compose down` を実行できるようにしました。確認ダイアログ付きで、出力はターミナルタブに表示されます
+- **タスクパネルからタスク定義ファイルを開く (#159)**: グループ見出し右のファイル名（`package.json` など）をクリックすると、その定義ファイルをエディタタブで開きます
+
+### Dependencies
+
+- 間接依存 `serde_with` を 3.21.0 に更新（空シーケンスのシリアライズで panic する問題の修正版）
+
 ## [0.25.0] - 2026-07-16
 
 ### Features
