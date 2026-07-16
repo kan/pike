@@ -375,6 +375,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `import.meta.env.DEV` が true の場合、ウィンドウタイトルに `[DEBUG]` プレフィックスを付与
 - `npm run tauri dev` は identifier が本番と同一のため、インストール版と競合する点に注意
 
+### CSP と動的スタイル注入（本番ビルド限定の落とし穴、#v0.26.3）
+`tauri.conf.json` の `app.security.csp` を設定すると、**本番（埋め込み）ビルドでのみ** Tauri が `style-src` / `script-src` に nonce/hash を注入する（`tauri` クレートの `manager::set_csp` → `replace_csp_nonce`）。CSP 仕様上、**nonce か hash が directive に 1 つでも入ると同 directive の `'unsafe-inline'` は無視される**。
+
+- **症状**: xterm（ターミナルの色・フォント）と CodeMirror（style-mod で実行時に `<style>` を注入。エディタ本文・シンタックス色）が実行時注入するスタイルが全滅する。ターミナルは色/フォント崩れ、エディタは本文が消えて**行番号ガターだけ**残る。**dev（`tauri:dev`）は Vite 配信で nonce/hash 注入が走らないため再現しない**＝「本番ビルドだけ崩れる」形になる
+- **対策**: `app.security.dangerousDisableAssetCspModification: ["style-src"]` を設定し、**style-src への nonce/hash 注入だけを止めて `'unsafe-inline'` を有効に保つ**（CodeMirror/xterm 等の CSS-in-JS 系ライブラリ向けの Tauri 標準の対処）。`script-src`（XSS 対策の要）の nonce/hash 注入は維持する。config の型は `DisabledCspModificationKind`（`bool` または directive 名の配列）、キーは `deny_unknown_fields` なので誤字はビルドエラーになる
+- **切り分けの注意**: この不具合は dev で再現しないため、原因調査は**本番ビルドで**行う必要がある。加えて、同一 identifier（`com.pike.dev`）のインストール版が起動中だと single-instance で新ビルドの起動が既存インスタンスに転送され、**古い壊れた画面を検証してしまう**。切り分け時は `--config tauri.dev.conf.json`（identifier を `com.pike.dev.debug` に）を付けて `tauri build` し、併存起動できる別 identifier ビルドで確認するのが確実。埋め込み後の実 HTML/CSP は `target/release/build/pike-*/out/tauri-codegen-assets/*.html`（brotli 圧縮、`zlib.brotliDecompressSync` で復元可）で確認できる
+- **`index.html` にインライン `<style>` を置かない**のが安全側（Tauri がその hash を style-src に足して同じ問題を誘発しうる）。基本レイアウトは `src/assets/theme.css`（`main.ts` 先頭 import でバンドル CSS の `<link>` になり render-blocking＝FOUC も起きない）に置く
+
 ### E2E スクリーンショット自動化（#142）
 マニュアル画像（`docs/manual/img/`）の自動再撮影パイプライン。詳細・設計の正本は `e2e/README.md`。
 
