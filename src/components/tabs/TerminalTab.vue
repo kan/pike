@@ -14,6 +14,7 @@ import {
 } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
+import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
 import { openUrlWithConfirm, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import {
@@ -726,15 +727,29 @@ onMounted(async () => {
   //
   // So split the cycle across the deactivation boundary instead: blur when the
   // window loses focus (a genuine blur — xterm's handler clears the committed
-  // IME text, and the OS sees the input context go away), and on window focus
-  // just refocus, which re-establishes a fresh TSF context. This also removes
-  // the old race where the deferred cycle could clobber a composition the user
-  // started right after returning.
+  // IME text), and on window focus just refocus, which re-establishes a fresh
+  // TSF context. This also removes the old race where the deferred cycle could
+  // clobber a composition the user started right after returning.
   windowBlurHandler = () => {
     if (!terminal || tabStore.activeTabId !== props.tabId) return
-    terminal.blur()
-    // blur() is a no-op unless the textarea still has DOM focus; clear the
-    // retained text (#6012) directly for that case as well.
+    // Don't let DOM focus fall to <body> across the deactivation: <body> is
+    // TEXT_INPUT_TYPE_NONE, and a NONE state parked there gets applied to TSF
+    // on reactivation, associating a keyboard-disabled input context with the
+    // window. Recovering then depends on the refocus below winning its race
+    // against the WebView2 native-focus handoff (see windowFocusHandler) —
+    // the residual "IME OFF and toggle key dead" failure that survived the
+    // two-frame delay. Park focus on a hidden text input instead: the parked
+    // state stays TEXT, so reactivation never disables the IME regardless of
+    // how that race resolves, and moving focus there still genuinely blurs
+    // the textarea, so xterm's #6012 cleanup runs. Also park from <body>
+    // (focus left there by a prior tab switch etc.); leave any other focused
+    // element alone rather than steal its focus.
+    const active = document.activeElement
+    if (active === terminal.textarea || active === document.body || active === null) {
+      parkFocusForIme()
+    }
+    // The park above already blurred a focused textarea; clear the retained
+    // text (#6012) directly for the remaining cases.
     if (terminal.textarea) terminal.textarea.value = ''
   }
   window.addEventListener('blur', windowBlurHandler)
@@ -745,14 +760,16 @@ onMounted(async () => {
     // it, the click's own element focus (e.g. xterm's mousedown handler) lands
     // first and this focus() becomes a harmless no-op instead of fighting it.
     //
-    // Two frames, not one: the NONE→TEXT transition this focus() produces is
+    // Two frames, not one: the input-state transition this focus() produces is
     // silently dropped by Chromium (InputMethodWinTSF's IsWindowFocused guard)
     // unless the widget already holds *native* focus, and in WebView2 the
     // host→controller→widget focus handoff can still be in flight one frame
-    // after the JS 'focus' event. A dropped transition is never resent, which
-    // leaves TSF stuck on the disabled input context set up while <body> was
-    // focused — IME indicator OFF and the toggle key inert until the next real
-    // focus cycle. The extra frame narrows that race window.
+    // after the JS 'focus' event. A dropped transition is never resent. With
+    // focus parked on a hidden TEXT input during deactivation (see
+    // windowBlurHandler) losing this race no longer disables the IME — the
+    // parked state applied on reactivation is already TEXT — but it would
+    // leave TSF caret tracking on the park input (candidate window at the
+    // wrong position), so the extra frame still earns its keep.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         // Re-check liveness AND active tab: the terminal may have been disposed
