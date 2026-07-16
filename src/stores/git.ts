@@ -6,6 +6,8 @@ import {
   gitCommit,
   gitDiscardChanges,
   gitFetch,
+  gitInit,
+  gitIsRepo,
   gitLog,
   gitPull,
   gitPush,
@@ -23,6 +25,9 @@ export const useGitStore = defineStore('git', () => {
   const branches = ref<string[]>([])
   const remoteUrl = ref<string | null>(null)
   const error = ref<string | null>(null)
+  // Whether the active root is a git repository. `false` drives the panel's
+  // "initialize repository" view instead of surfacing a raw git error.
+  const isRepo = ref(true)
   const pushing = ref(false)
   const pulling = ref(false)
 
@@ -63,6 +68,7 @@ export const useGitStore = defineStore('git', () => {
       const [s] = await Promise.all([gitStatus(getRoot(), project.shell), minDelay])
       status.value = s
       error.value = null
+      isRepo.value = true
       // Auto-refresh the commit log when the repo's commit state changed since
       // the last poll. Skip the very first observation to avoid a redundant
       // load (the panel loads the log explicitly on open).
@@ -74,7 +80,17 @@ export const useGitStore = defineStore('git', () => {
       }
       lastStatus = s
     } catch (e) {
-      error.value = String(e)
+      // A status failure is usually "not a git repository" — disambiguate so the
+      // panel can offer to initialize one instead of showing a raw git error.
+      const repo = await gitIsRepo(getRoot(), project.shell).catch(() => true)
+      if (!repo) {
+        isRepo.value = false
+        status.value = null
+        error.value = null
+      } else {
+        isRepo.value = true
+        error.value = String(e)
+      }
       if (minDelay) await minDelay
     } finally {
       refreshing.value = false
@@ -222,6 +238,21 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
+  async function initRepo() {
+    const project = getProject()
+    if (!project) return
+    try {
+      await gitInit(getRoot(), project.shell)
+      isRepo.value = true
+      error.value = null
+      lastStatus = null
+      await Promise.all([refreshStatus(), refreshLog()])
+      await loadRemoteUrl()
+    } catch (e) {
+      error.value = String(e)
+    }
+  }
+
   async function checkoutBranch(branch: string) {
     const project = getProject()
     if (!project) return
@@ -313,6 +344,7 @@ export const useGitStore = defineStore('git', () => {
     branches,
     remoteUrl,
     error,
+    isRepo,
     pushing,
     pulling,
     refreshing,
@@ -326,6 +358,7 @@ export const useGitStore = defineStore('git', () => {
     pull,
     loadBranches,
     loadRemoteUrl,
+    initRepo,
     checkoutBranch,
     fetchInBackground,
     startPolling,

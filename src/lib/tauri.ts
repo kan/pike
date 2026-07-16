@@ -232,6 +232,14 @@ export async function gitStatus(root: string, shell: ShellType): Promise<GitStat
   return invoke<GitStatusResult>('git_status', { root, shell })
 }
 
+export async function gitIsRepo(root: string, shell: ShellType): Promise<boolean> {
+  return invoke<boolean>('git_is_repo', { root, shell })
+}
+
+export async function gitInit(root: string, shell: ShellType): Promise<void> {
+  return invoke('git_init', { root, shell })
+}
+
 export async function gitLog(root: string, shell: ShellType, count?: number, all?: boolean): Promise<GitLogEntry[]> {
   return invoke<GitLogEntry[]>('git_log', { root, shell, count: count ?? null, all: all ?? null })
 }

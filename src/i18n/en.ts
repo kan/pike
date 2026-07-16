@@ -243,6 +243,8 @@ export default {
 
   // Git Panel
   'git.noProject': 'No project selected',
+  'git.notRepo': 'This folder is not a Git repository.',
+  'git.initRepo': 'Initialize Repository',
   'git.noChanges': 'No changes',
   'git.noCommits': 'No commits',
   'git.staged': 'Staged ({count})',

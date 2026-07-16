@@ -242,6 +242,8 @@ export default {
 
   // Git Panel
   'git.noProject': 'プロジェクトが選択されていません',
+  'git.notRepo': 'このフォルダは Git リポジトリではありません。',
+  'git.initRepo': 'リポジトリを初期化',
   'git.noChanges': '変更なし',
   'git.noCommits': 'コミットなし',
   'git.staged': 'ステージ済み ({count})',

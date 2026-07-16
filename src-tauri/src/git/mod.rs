@@ -202,6 +202,32 @@ fn parse_log(output: &str) -> Vec<GitLogEntry> {
         .collect()
 }
 
+/// Whether `root` is inside a git working tree. Returns `Ok(false)` (never an
+/// error) when the directory is not a repository, so the frontend can show a
+/// dedicated "initialize repository" view instead of a raw git error.
+#[tauri::command]
+pub async fn git_is_repo(root: String, shell: ShellConfig) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        let output = run_git(&shell, &root, &["rev-parse", "--is-inside-work-tree"]);
+        // `git rev-parse --is-inside-work-tree` prints "true" and exits 0 inside a
+        // work tree; outside a repo it exits non-zero (run_git returns Err).
+        matches!(output, Ok(s) if s.trim() == "true")
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Initialize a git repository at `root` (`git init`).
+#[tauri::command]
+pub async fn git_init(root: String, shell: ShellConfig) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        run_git(&shell, &root, &["init"])?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn git_status(
     root: String,

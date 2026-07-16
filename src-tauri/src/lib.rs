@@ -846,6 +846,8 @@ pub fn run() {
             search::search_execute,
             search::list_project_files,
             git::git_status,
+            git::git_is_repo,
+            git::git_init,
             git::git_log,
             git::git_diff,
             git::git_stage,

@@ -31,6 +31,16 @@ const sidebar = useSidebarStore()
 
 const commitMsg = ref('')
 const commitView = ref<'list' | 'graph'>('list')
+const initializing = ref(false)
+
+async function onInit() {
+  initializing.value = true
+  try {
+    await gitStore.initRepo()
+  } finally {
+    initializing.value = false
+  }
+}
 
 const graphRows = computed(() => buildGraph(gitStore.logEntries))
 
@@ -316,6 +326,15 @@ onUnmounted(() => {
   <div class="git-panel" data-testid="git-panel">
     <template v-if="!projectStore.currentProject">
       <div class="empty">{{ t('git.noProject') }}</div>
+    </template>
+
+    <template v-else-if="!gitStore.isRepo">
+      <div class="no-repo">
+        <p class="no-repo-msg">{{ t('git.notRepo') }}</p>
+        <button class="init-btn" :disabled="initializing" @click="onInit">
+          {{ t('git.initRepo') }}
+        </button>
+      </div>
     </template>
 
     <template v-else-if="gitStore.error">
@@ -899,6 +918,41 @@ onUnmounted(() => {
   font-size: 12px;
   text-align: center;
   padding: 16px 0;
+}
+
+.no-repo {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 8px;
+  align-items: stretch;
+}
+
+.no-repo-msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.init-btn {
+  padding: 6px 8px;
+  border: none;
+  background: var(--accent);
+  color: var(--text-active);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.init-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.init-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .empty.small {
