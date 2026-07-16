@@ -527,9 +527,9 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 1. **コミット前に必ずユーザの動作確認 OK を取る** — `cargo clippy` / `biome` / `vue-tsc` が通っていてもコミットしてはいけない。ユーザは GUI 上で実際に挙動を試す必要があるため、Claude が「テスト通った」だけで自動コミットすると確認前に履歴が確定してしまう。「コミットしていい？」と聞くか、ユーザが明示的に「コミットして」と言うまで待つ
 2. **`main` ブランチに直接コミット**（feature ブランチや PR は作らない）
-3. **`git push` は実行しない** — push の判断はユーザに委ねる（main への直接 push はリポジトリ設定で禁止されているが、ユーザはローカル確認後に自分で push する運用）
+3. **`git push` は実行しない** — push の判断はユーザに委ねる（ユーザはローカル確認後に自分で push する運用）。**例外はリリース依頼時**（次項 5）
 4. ユーザから明示的に「PR にして」「ブランチ切って」等の指示があった場合のみ、その指示に従う
-5. **リリース時のバージョン bump も同様**: `main` に直接コミット、push はユーザが実行
+5. **リリース依頼は end-to-end で Claude が実行する**: ユーザから「リリースして」と依頼されたら、それはバージョン bump コミットだけでなく、`main` の push・タグ作成と push・Release ワークフロー完了待ち・ドラフトのリリースノート記載と公開までの一括依頼。個別の push 確認は不要（「リリース手順」セクションの手順をそのまま完遂する）
 
 ### CI/CD
 - `.github/workflows/ci.yml`: push/PR で `biome check`、`npm run build`（vue-tsc + vite）、`cargo clippy -- -D warnings`、`cargo test` を実行（Windows runner）
@@ -601,7 +601,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ## リリース手順
 
-新しいバージョンをリリースする際は、以下の手順を順番に実行する。
+新しいバージョンをリリースする際は、以下の手順を順番に実行する。ユーザからリリース依頼を受けたら、push・タグ・ドラフト公開まで含めて Claude がすべて実行する（通常のコミット運用と異なり push の個別確認は不要。CI の完了待ちはバックグラウンド watch で行う）。
 
 ### 1. バージョン番号の更新
 
