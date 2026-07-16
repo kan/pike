@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { confirmDialog } from '../composables/useConfirmDialog'
+import { t } from '../i18n'
 import {
   dockerComposeServices,
   dockerListContainers,
@@ -12,6 +14,7 @@ import {
 } from '../lib/tauri'
 import type { ComposeService, ContainerInfo, TunnelInfo } from '../types/docker'
 import { useProjectStore } from './project'
+import { useTabStore } from './tabs'
 
 export const useDockerStore = defineStore('docker', () => {
   const connected = ref(false)
@@ -69,6 +72,29 @@ export const useDockerStore = defineStore('docker', () => {
       await Promise.all([refreshContainers(), refreshComposeServices()])
     }
   }
+
+  /**
+   * Run a compose command in a terminal tab (confirm first) so the user sees
+   * the output. The tab starts at the compose root (activeRoot — the same
+   * directory refreshComposeServices reads), and the panel's polling picks up
+   * the resulting container-state changes.
+   */
+  async function runCompose(command: string, confirmMsg: string) {
+    const projectStore = useProjectStore()
+    const project = projectStore.currentProject
+    if (!project) return
+    if (!(await confirmDialog(confirmMsg))) return
+    useTabStore().addTerminalTab({
+      title: command,
+      autoStart: command,
+      closeOnExit: true,
+      cwd: projectStore.activeRoot,
+      shell: project.shell,
+    })
+  }
+
+  const composeUp = () => runCompose('docker compose up -d', t('docker.composeUpConfirm'))
+  const composeDown = () => runCompose('docker compose down', t('docker.composeDownConfirm'))
 
   async function startContainer(id: string) {
     try {
@@ -172,6 +198,8 @@ export const useDockerStore = defineStore('docker', () => {
     startContainer,
     stopContainer,
     restartContainer,
+    composeUp,
+    composeDown,
     createTunnel,
     stopTunnel,
     startPolling,

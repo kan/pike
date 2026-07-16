@@ -333,6 +333,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - compose.yml を `serde_yaml` でパースしてサービス一覧表示
 - コンテナ状態を compose ラベル（`com.docker.compose.service`）でサービスにマッチ
 - start / stop / restart / refresh を UI から実行、5秒ポーリングで状態更新
+- compose up / down（#157）: SideBar の docker パネルヘッダー（Play / Square、compose サービス検出時のみ表示）→ confirm 後に `docker compose up -d` / `docker compose down` をターミナルタブで実行（`dockerStore.composeUp/composeDown`、cwd=activeRoot・closeOnExit。タスク実行と同じパターン）
 - ログストリーミングは 50ms バッファリング + Tauri イベント emit
 - DockerLogsTab は xterm.js ベース（読み取り専用、`convertEol: true`）
 - `docker exec` シェル: bollard exec API でコンテナ内シェルを検出（bash → sh フォールバック）、プロジェクトのシェル内で `docker exec -it` を autoStart 実行

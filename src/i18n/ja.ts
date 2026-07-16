@@ -300,6 +300,10 @@ export default {
   'docker.openBrowser': 'ブラウザで開く',
   'docker.stopForward': 'フォワードを停止',
   'docker.orphanTunnels': 'その他のフォワード',
+  'docker.composeUp': 'docker compose up',
+  'docker.composeDown': 'docker compose down',
+  'docker.composeUpConfirm': '「docker compose up -d」を実行しますか？',
+  'docker.composeDownConfirm': '「docker compose down」を実行しますか？（全サービスのコンテナが停止・削除されます）',
 
   // Project Panel
   'project.addProject': '+ プロジェクト追加',

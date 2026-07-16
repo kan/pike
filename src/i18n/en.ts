@@ -300,6 +300,10 @@ export default {
   'docker.openBrowser': 'Open in browser',
   'docker.stopForward': 'Stop port forwarding',
   'docker.orphanTunnels': 'Other forwards',
+  'docker.composeUp': 'docker compose up',
+  'docker.composeDown': 'docker compose down',
+  'docker.composeUpConfirm': 'Run "docker compose up -d"?',
+  'docker.composeDownConfirm': 'Run "docker compose down"? All service containers will be stopped and removed.',
 
   // Project Panel
   'project.addProject': '+ Add Project',
