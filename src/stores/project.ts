@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { locale } from '../i18n'
 import {
+  jumplistRefresh,
   openProjectWindow,
   projectAddOpen,
   projectCreate,
@@ -51,6 +53,22 @@ export const useProjectStore = defineStore('project', () => {
   async function loadProjects() {
     projects.value = await projectList()
   }
+
+  // Rebuild the taskbar jump list (issue #160) whenever a jump-list-relevant
+  // field changes: the project set, a name/root edit, recency order, or the UI
+  // locale (label language). Keyed on exactly those fields so ~1s-debounced
+  // session-flush writes — which mutate `lastSession` on objects that also live
+  // in `projects` — do NOT trigger a refresh: Vue's per-property tracking never
+  // re-runs this getter for `lastSession`. The Rust side additionally dedups by
+  // signature, and the jump list is a single per-process OS resource, so
+  // refreshing from any window is enough. Best-effort, Windows-only; the list
+  // persists from the last run so a failed refresh just goes slightly stale.
+  watch(
+    () => JSON.stringify([locale.value, projects.value.map((p) => [p.id, p.name, p.root, p.lastOpened])]),
+    () => {
+      jumplistRefresh(locale.value).catch(() => {})
+    },
+  )
 
   async function loadGroups() {
     try {

@@ -54,12 +54,19 @@ windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_Com",
+    # jumplist: PROPVARIANT の手組み (VT_LPWSTR) と Variant 定数
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
     "Win32_System_Console",
     "Win32_System_DataExchange",
     "Win32_System_JobObjects",
     "Win32_System_LibraryLoader",
     "Win32_System_Threading",
     "Win32_UI_Shell",
+    # jumplist: IObjectArray/IObjectCollection・AppendCategory/AddUserTasks は
+    # Common、PKEY 用 IPropertyStore は PropertiesSystem
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_WindowsAndMessaging",
 ] }
 # drop_paths.rs の WebMessageReceived ブリッジ用。wry が同版を使っており

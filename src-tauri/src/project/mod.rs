@@ -240,11 +240,17 @@ pub fn read_all_projects(config_dir: &std::path::Path) -> Vec<ProjectConfig> {
     projects
 }
 
+/// `read_all_projects` を最近開いた順（`last_opened` 降順）で返す。`project_list`
+/// と jumplist が共有する「最近のプロジェクト順」の単一定義。
+pub fn read_all_projects_sorted(config_dir: &std::path::Path) -> Vec<ProjectConfig> {
+    let mut projects = read_all_projects(config_dir);
+    projects.sort_by(|a, b| b.last_opened.cmp(&a.last_opened));
+    projects
+}
+
 #[tauri::command]
 pub async fn project_list(state: State<'_, ProjectState>) -> Result<Vec<ProjectConfig>, String> {
-    let mut projects = read_all_projects(&state.config_dir);
-    projects.sort_by(|a, b| b.last_opened.cmp(&a.last_opened));
-    Ok(projects)
+    Ok(read_all_projects_sorted(&state.config_dir))
 }
 
 #[tauri::command]

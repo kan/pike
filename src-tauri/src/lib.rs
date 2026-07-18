@@ -10,6 +10,7 @@ mod elevate;
 mod font;
 mod fs;
 mod git;
+mod jumplist;
 mod search;
 mod project;
 mod pty;
@@ -468,6 +469,16 @@ fn save_all_window_state(app: AppHandle) -> Result<(), String> {
     app.save_window_state(StateFlags::all()).map_err(|e| e.to_string())
 }
 
+/// Rebuild the Windows taskbar jump list (issue #160). Called by the frontend
+/// on startup and whenever the project set / names change; `lang` carries the
+/// UI locale so the task/category labels follow it. The heavy COM work runs on
+/// the main STA thread inside jumplist::refresh.
+#[tauri::command]
+async fn jumplist_refresh(app: AppHandle, lang: String) -> Result<(), String> {
+    jumplist::refresh(&app, &lang);
+    Ok(())
+}
+
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
     // Allowlist: only http/https URLs to prevent opening arbitrary protocols
@@ -802,6 +813,7 @@ pub fn run() {
             wait::wait_signal_by_path,
             open_project_window,
             open_global_window,
+            jumplist_refresh,
             elevate::is_elevated,
             elevate::open_elevated_terminal,
             save_all_window_state,

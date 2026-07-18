@@ -120,6 +120,15 @@ export async function projectDelete(id: string): Promise<void> {
   return invoke('project_delete', { id })
 }
 
+/**
+ * Rebuild the Windows taskbar jump list (issue #160). `lang` is the current UI
+ * locale so the task/category labels follow it. Best-effort — never blocks
+ * project operations if the jump list can't be built.
+ */
+export async function jumplistRefresh(lang: string): Promise<void> {
+  return invoke('jumplist_refresh', { lang })
+}
+
 export async function projectGroupsList(): Promise<string[]> {
   return invoke<string[]>('project_groups_list')
 }
