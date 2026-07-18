@@ -19,9 +19,10 @@ import { initTerminalNotifications } from './composables/useTerminalNotification
 import { useI18n } from './i18n'
 import { clearAliasCache } from './lib/jumpTo/resolveImport'
 import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
+import { resolveNotifier } from './lib/notify'
 import { normalizeSep } from './lib/paths'
 import { projectColorValue } from './lib/projectColors'
-import { isElevated, projectRemoveOpen } from './lib/tauri'
+import { isElevated, projectRemoveOpen, traySetCloseToTray } from './lib/tauri'
 import { elevated, ephemeralWindow, getWindowProjectId, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
 import { useClaudeRateStore } from './stores/claudeRate'
 import { useClaudeUsageStore } from './stores/claudeUsage'
@@ -29,6 +30,7 @@ import { useCodexUsageStore } from './stores/codexUsage'
 import { useDiagnosticsStore } from './stores/diagnostics'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
+import { useSettingsStore } from './stores/settings'
 import { useTabStore } from './stores/tabs'
 import { useWorktreeStore } from './stores/worktree'
 import type { ProjectConfig } from './types/project'
@@ -43,8 +45,21 @@ const claudeUsageStore = useClaudeUsageStore()
 const claudeRateStore = useClaudeRateStore()
 const codexUsageStore = useCodexUsageStore()
 const diagStore = useDiagnosticsStore()
+const settingsStore = useSettingsStore()
 
 useKeyboardShortcuts()
+
+// Keep the Rust close-to-tray flag (#161) in sync with the setting. Only the
+// main window owns the sync (one process-global atomic); a toggle in any other
+// window broadcasts to the main store via the cross-window settings sync, so
+// main's watch still fires. Matches the isMainWindow gate on the tray tooltip.
+if (isMainWindow()) {
+  watch(
+    () => settingsStore.closeToTray,
+    (v) => traySetCloseToTray(v).catch(() => {}),
+    { immediate: true },
+  )
+}
 
 const isDebug = import.meta.env.DEV
 
@@ -206,19 +221,26 @@ onMounted(async () => {
     }
   })
 
-  // Main window: save session + stop background work when hiding,
-  // and destroy self when all project windows have closed.
+  // Main window: close-to-tray (#161). Main hides instead of closing and Pike
+  // stays resident in the tray. Keep polling alive so the tray usage tooltip
+  // stays fresh and restore is instant; just checkpoint the session. Show a
+  // one-time hint the first time so the window "vanishing" isn't confusing.
   if (isMainWindow()) {
-    listen('window-hide-requested', async () => {
+    listen('main-minimized-to-tray', async () => {
       await projectStore.saveSessionNow()
-      gitStore.stopPolling()
-      claudeUsageStore.stopPolling()
-      claudeRateStore.stopPolling()
-      codexUsageStore.stopPolling()
-      await fsWatcher.stop()
+      if (!localStorage.getItem('pike:tray-hint-shown')) {
+        localStorage.setItem('pike:tray-hint-shown', '1')
+        const notify = await resolveNotifier()
+        notify?.(t('tray.hintTitle'), t('tray.hintBody'), () => {
+          const w = getCurrentWindow()
+          w.show()
+          w.setFocus()
+        })
+      }
     })
-    listen('app-should-exit', () => {
-      getCurrentWindow().destroy()
+    // Tray "Open Project…" → open the switcher in the (now shown) main window.
+    listen('tray-open-switcher', () => {
+      projectStore.showSwitcher = true
     })
   }
 })

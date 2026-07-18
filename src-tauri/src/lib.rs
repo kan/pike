@@ -16,6 +16,7 @@ mod project;
 mod pty;
 mod settings_sync;
 mod tasks;
+mod tray;
 pub mod todo_cli;
 mod types;
 pub mod wait;
@@ -32,6 +33,13 @@ const PROJECT_WINDOW_PREFIX: &str = "project-";
 /// Project-independent (global-mode) window: sidebar-less editor/terminal.
 /// Must match the prefix checked in isGlobalWindow() in src/lib/window.ts
 const GLOBAL_PREFIX: &str = "global-";
+
+/// Close-to-tray setting (issue #161): when true (default), closing main hides
+/// it to the tray and keeps Pike resident; when false, closing main exits the
+/// app. The frontend syncs the persisted `closeToTray` setting via
+/// `tray_set_close_to_tray`. Read synchronously in the main CloseRequested
+/// handler, so it lives in a process-global atomic rather than managed state.
+static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
 
 /// Must be called outside of WM_COPYDATA / SendMessage context — COM calls
 /// fail with RPC_E_CANTCALLOUT_ININPUTSYNCCALL inside input-synchronous messages.
@@ -431,23 +439,27 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
     // Same guard as project_get/update/delete: the id becomes a window label,
     // so reject anything outside [a-zA-Z0-9_-].
     types::validate_slug(&project_id, "Project ID")?;
-    let label = format!("{}{}", PROJECT_WINDOW_PREFIX, project_id);
+    focus_or_build_project_window(&app, &project_id);
+    Ok(())
+}
+
+/// Focus the project window for `id` if it's live, else build it. Shared by the
+/// `open_project_window` command and the tray "recent project" menu. `id` must
+/// already be slug-validated (it becomes a window label).
+fn focus_or_build_project_window(app: &AppHandle, id: &str) {
+    let label = format!("{PROJECT_WINDOW_PREFIX}{id}");
     if let Some(window) = app.get_webview_window(&label) {
         // Verify the window is actually visible — tauri-plugin-window-state may
         // keep a stale handle for a previously closed window.
         if window.is_visible().unwrap_or(false) {
-            window.set_focus().map_err(|e| e.to_string())?;
-            return Ok(());
+            restore_window(&window);
+            return;
         }
         let _ = window.close();
     }
-    match build_window(&app, &label) {
-        Ok(_) => Ok(()),
-        Err(_) => {
-            if let Some(w) = app.get_webview_window(&label) {
-                w.set_focus().map_err(|e| e.to_string())?;
-            }
-            Ok(())
+    if build_window(app, &label).is_err() {
+        if let Some(w) = app.get_webview_window(&label) {
+            let _ = w.set_focus();
         }
     }
 }
@@ -458,10 +470,16 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
 /// the window is already global).
 #[tauri::command]
 async fn open_global_window(app: AppHandle) -> Result<(), String> {
-    let label = create_global_window(&app);
-    // shell = None → the frontend applies the user's globalShell setting.
-    store_pending(&app, &label, cli::CliAction::OpenTerminal { cwd: None, shell: None });
+    spawn_global_terminal_window(&app);
     Ok(())
+}
+
+/// Create a global-mode window and queue a terminal on the user's global shell.
+/// Shared by the `open_global_window` command and the tray "New Terminal" menu.
+fn spawn_global_terminal_window(app: &AppHandle) {
+    let label = create_global_window(app);
+    // shell = None → the frontend applies the user's globalShell setting.
+    store_pending(app, &label, cli::CliAction::OpenTerminal { cwd: None, shell: None });
 }
 
 #[tauri::command]
@@ -469,14 +487,90 @@ fn save_all_window_state(app: AppHandle) -> Result<(), String> {
     app.save_window_state(StateFlags::all()).map_err(|e| e.to_string())
 }
 
-/// Rebuild the Windows taskbar jump list (issue #160). Called by the frontend
-/// on startup and whenever the project set / names change; `lang` carries the
-/// UI locale so the task/category labels follow it. The heavy COM work runs on
-/// the main STA thread inside jumplist::refresh.
+/// Rebuild the shell-integration menus — the taskbar jump list (#160) and the
+/// system-tray menu (#161). Called by the frontend on startup and whenever the
+/// project set / names / recency / UI locale change. Reads the project list
+/// once here and feeds both menus, instead of each re-scanning the projects
+/// dir; `lang` carries the UI locale so labels follow it.
 #[tauri::command]
-async fn jumplist_refresh(app: AppHandle, lang: String) -> Result<(), String> {
-    jumplist::refresh(&app, &lang);
+async fn menus_refresh(app: AppHandle, lang: String) -> Result<(), String> {
+    let projects = app
+        .try_state::<project::ProjectState>()
+        .map(|s| project::read_all_projects_sorted(&s.config_dir))
+        .unwrap_or_default();
+    jumplist::refresh(&app, &lang, &projects);
+    tray::refresh(&app, &lang, &projects);
     Ok(())
+}
+
+/// Update the tray tooltip (issue #161). The main window pushes its formatted
+/// usage summary (e.g. "Pike · Claude 5h 42%") so it is visible at a glance
+/// while Pike sits minimized in the tray.
+#[tauri::command]
+async fn tray_set_tooltip(app: AppHandle, text: String) -> Result<(), String> {
+    tray::set_tooltip(&app, &text);
+    Ok(())
+}
+
+/// Sync the close-to-tray setting from the frontend (issue #161). When disabled,
+/// closing the main window exits Pike instead of hiding it to the tray.
+#[tauri::command]
+async fn tray_set_close_to_tray(enabled: bool) -> Result<(), String> {
+    CLOSE_TO_TRAY.store(enabled, Ordering::Relaxed);
+    Ok(())
+}
+
+/// Show, unminimize and focus a window — the restore-from-tray/minimized triple.
+fn restore_window(w: &WebviewWindow) {
+    let _ = w.show();
+    let _ = w.unminimize();
+    let _ = w.set_focus();
+}
+
+/// Show and focus the main window, restoring it from the tray / a minimized
+/// state.
+fn show_main_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        restore_window(&w);
+    }
+}
+
+/// Toggle main window visibility from a tray left-click: hide it when it is the
+/// foreground window, otherwise bring it back. Hiding here (like close-to-tray)
+/// never destroys main, so the session and PTYs stay alive.
+pub(crate) fn toggle_main_window(app: &AppHandle) {
+    let Some(w) = app.get_webview_window("main") else {
+        return;
+    };
+    if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) {
+        let _ = w.hide();
+    } else {
+        restore_window(&w);
+    }
+}
+
+/// Dispatch a tray menu click (see `tray::build_menu` for the item ids).
+pub(crate) fn tray_menu_action(app: &AppHandle, id: &str) {
+    match id {
+        "tray:show" => show_main_window(app),
+        "tray:new-terminal" => spawn_global_terminal_window(app),
+        "tray:switcher" => {
+            show_main_window(app);
+            // The main window listens for this and opens the project switcher.
+            let _ = app.emit_to("main", "tray-open-switcher", ());
+        }
+        "tray:quit" => app.exit(0),
+        _ => {
+            let Some(pid) = id.strip_prefix("tray:proj:") else {
+                return;
+            };
+            // Same slug guard as the other project-window entry points: the id
+            // becomes a window label.
+            if types::validate_slug(pid, "project id").is_ok() {
+                focus_or_build_project_window(app, pid);
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -665,6 +759,12 @@ pub fn run() {
                 }
             }
 
+            // System-tray icon (issue #161): quick-launch menu + close-to-tray
+            // restore. Non-fatal if it can't be created.
+            if let Err(e) = tray::build(app.handle()) {
+                log::warn!("[tray] failed to create tray icon: {e}");
+            }
+
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -677,24 +777,21 @@ pub fn run() {
         .on_window_event(|window, event| {
             match event {
                 WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
-                    // Hide main instead of closing: Tauri tears down the async
-                    // runtime when main is destroyed, which panics tokio::spawn
-                    // in Codex cleanup while project windows are still active.
-                    let has_others = window.app_handle().webview_windows()
-                        .keys()
-                        .any(|l| l != "main");
-                    if has_others {
-                        api.prevent_close();
-                        let _ = window.emit("window-hide-requested", ());
-                        if let Some(state) = window.try_state::<pty::PtyState>() {
-                            pty::cleanup_for_window(&state, "main");
-                        }
-                        if let Some(state) = window.try_state::<project::ProjectState>() {
-                            if let Some(pid) = project::take_window_project(&state, "main") {
-                                let _ = project::remove_open_project(&state, &pid);
-                            }
-                        }
+                    // Always prevent the raw close first: destroying main tears
+                    // down the async runtime, panicking Codex cleanup in still-open
+                    // project windows.
+                    api.prevent_close();
+                    if CLOSE_TO_TRAY.load(Ordering::Relaxed) {
+                        // Close-to-tray (issue #161): hide main and keep the
+                        // session + PTYs + polling alive; the tray icon restores
+                        // it, and the tray "Quit" item is the real exit.
                         let _ = window.hide();
+                        let _ = window.emit("main-minimized-to-tray", ());
+                    } else {
+                        // Setting off: closing main exits Pike. app.exit drives a
+                        // controlled shutdown (the Codex cleanup in Destroyed is
+                        // guarded against a torn-down runtime), avoiding the panic.
+                        window.app_handle().exit(0);
                     }
                 }
                 WindowEvent::Destroyed => {
@@ -747,29 +844,13 @@ pub fn run() {
                         pty::cleanup_for_window(&state, window.label());
                     }
 
-                    // Single snapshot of all windows for remaining-window checks
+                    // Global cleanup only when the last window is closing. With
+                    // close-to-tray (issue #161) main is only ever destroyed on
+                    // an explicit tray Quit (app.exit), so a closing project
+                    // window is never the last one and the app stays resident in
+                    // the tray instead of auto-exiting.
                     let windows = window.app_handle().webview_windows();
                     let current = window.label();
-
-                    // If main is already hidden and this was the last visible
-                    // project window, tell the hidden main to destroy itself so
-                    // the app shuts down gracefully. When main is still visible,
-                    // the user is working there — never trigger app exit.
-                    if current != "main" {
-                        let main_visible = windows
-                            .iter()
-                            .any(|(l, w)| l.as_str() == "main" && w.is_visible().unwrap_or(false));
-                        let has_visible_project = windows.iter().any(|(l, w)| {
-                            l.as_str() != current
-                                && l.as_str() != "main"
-                                && w.is_visible().unwrap_or(false)
-                        });
-                        if !main_visible && !has_visible_project {
-                            let _ = window.app_handle().emit("app-should-exit", ());
-                        }
-                    }
-
-                    // Global cleanup only when the last window is closing
                     if windows.keys().any(|l| l != current) {
                         return;
                     }
@@ -813,7 +894,9 @@ pub fn run() {
             wait::wait_signal_by_path,
             open_project_window,
             open_global_window,
-            jumplist_refresh,
+            menus_refresh,
+            tray_set_tooltip,
+            tray_set_close_to_tray,
             elevate::is_elevated,
             elevate::open_elevated_terminal,
             save_all_window_state,

@@ -366,7 +366,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - PTY/Docker イベントは `app.emit()` で全ウィンドウにブロードキャスト、ルーターが ID でフィルタ
 - **特定ウィンドウ宛てイベントの受信は `getCurrentWindow().listen()` を使う**（`@tauri-apps/api/event` の素の `listen()` は使わない）: Rust が `app.emit_to(label, …)` で 1 ウィンドウに送っても、素の `listen()` はデフォルト target が `Any` のため**全ウィンドウで発火**する。`cli_open` のようにルーティング済みの宛先ウィンドウだけで処理したいイベントは、必ず `getCurrentWindow().listen()`（target = 自ラベル）で受ける（過去に `useCliOpen` が素の `listen()` を使い、外部ファイルを開くと全ウィンドウが開こうとしてエラーになった）。全ブロードキャスト＋ID フィルタ方式（PTY/Docker）とは使い分ける
 - 全ウィンドウ（main + 子）が `last_project.txt` に自身のプロジェクト ID を登録し、起動時に復元
-- main ウィンドウ close → アプリ終了 + 全 PTY/Docker session cleanup
+- **main ウィンドウ close → トレイに常駐（#161、後述「システムトレイ」）**。main は破棄せず hide し、アプリは終了しない。実際の終了はトレイの「終了」（`app.exit`）のみ。子ウィンドウを全部閉じても hidden main が残るためアプリは常駐し続ける（旧: main close＝アプリ終了・`app-should-exit` 自動終了は廃止）
 - 子ウィンドウ close → `beforeunload` で session 保存 + PTY kill（ベストエフォート）
 
 ### 開発ビルド
@@ -412,8 +412,18 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - **タイトルは VT_LPWSTR**: `IPropertyStore` の `PKEY_Title` に手組み PROPVARIANT（`CoTaskMemAlloc` した文字列、Drop の `PropVariantClear` が解放）を入れる。crate の `From<&str>` は **VT_BSTR** になりジャンプリストのタイトルとして表示されないため
 - **COM スレッド**: shell オブジェクトは STA。フロントのコマンド（tokio スレッド）では COM 未初期化なので `AppHandle::run_on_main_thread` で main（wry が STA 初期化済み）に載せて構築。そこでは `CoInitializeEx` が S_FALSE を返すので `CoUninitialize` は呼ばない
 - **AppUserModelID**: 明示設定せず exe パス由来の暗黙 ID に載せる（インストーラのショートカット・実行プロセス・カスタムリストが同一 ID になり整合。dev ビルドと本番は exe パスが違うので自然に分離）
-- **更新契機**: `stores/project.ts` の **`watch`（`projects` の id/name/root/lastOpened ＋ `locale` だけをキー化）** → `jumplistRefresh(locale)` コマンド。起動時のロード・プロジェクト追加/削除/編集・切替（recency）・UI 言語切替を 1 箇所でカバーする。**session flush（`lastSession` 書き換え）は同一オブジェクトを触るが、Vue のプロパティ単位トラッキングでキーのゲッターが再評価されず発火しない**（`currentProject` は `projects` の要素と同一参照なので naive な deep watch だと flush ごとに発火してしまう点に注意）。加えて Rust 側が **署名（exe＋lang＋各項目の title/args）を比較して不変なら CommitList をスキップ**するので二重に過剰再構築を防ぐ。ラベルは Rust からフロント i18n を読めないため locale を引数で受け 2 文字列だけ言語別に持つ
+- **更新契機**: `stores/project.ts` の **`watch`（`projects` の id/name/root/lastOpened ＋ `locale` だけをキー化）** → `menusRefresh(locale)` コマンド（jump list と tray を 1 コマンドで更新。Rust 側でプロジェクト一覧を 1 回だけ読んで両者に渡す＝二重ディスク読み回避）。起動時のロード・プロジェクト追加/削除/編集・切替（recency）・UI 言語切替を 1 箇所でカバーする。**session flush（`lastSession` 書き換え）は同一オブジェクトを触るが、Vue のプロパティ単位トラッキングでキーのゲッターが再評価されず発火しない**（`currentProject` は `projects` の要素と同一参照なので naive な deep watch だと flush ごとに発火してしまう点に注意）。加えて Rust 側が **署名（exe＋lang＋各項目の title/args）を比較して不変なら CommitList をスキップ**するので二重に過剰再構築を防ぐ。ラベルは Rust からフロント i18n を読めないため locale を引数で受け 2 文字列だけ言語別に持つ
 - ユーザーが「一覧から削除」した項目は `BeginList` の removed 配列（引数で照合）で除外し、`AppendCategory` 失敗時も Tasks/Recent は生かす
+
+### システムトレイ（タスクトレイ、#161）
+- `src-tauri/src/tray/mod.rs`（`tauri` の `tray-icon` feature）。トレイに常駐し、ウィンドウを閉じても復帰できる。`tray/mod.rs` は presentation（アイコン・メニュー・ツールチップ構築）に徹し、メニューの動作は lib.rs の `pub(crate) fn tray_menu_action` / `toggle_main_window` に委譲（ウィンドウ生成/フォーカスの private ヘルパーが lib.rs 側にあるため）
+- **クローズ動作 = トレイ常駐（設定で切替）**: main の `CloseRequested` は常に `prevent_close`（生の破棄は async ランタイムを落とし他ウィンドウの Codex cleanup が panic するため必ず防ぐ）した上で、**設定 `closeToTray`（既定 ON）で分岐**。ON → `hide` + `main-minimized-to-tray` emit（session/PTY/ポーリングは生かしたまま、トレイから復帰、実終了はトレイ「終了」の `app.exit(0)` のみ）。OFF → `app.exit(0)` で終了（× で終了する従来挙動。Destroyed の Codex cleanup は `try_current()` ガードで runtime 消失時も panic しない）。設定はフロントの localStorage にあり Rust から読めないので、プロセスグローバルな `static CLOSE_TO_TRAY: AtomicBool`（既定 true）を `tray_set_close_to_tray` コマンドで同期（App.vue の `watch(settingsStore.closeToTray, immediate)`。全ウィンドウから idempotent に set）。旧 `app-should-exit` 自動終了・`window-hide-requested` でのポーリング停止は廃止
+- **左クリック**: `toggle_main_window`（表示中かつフォーカス時は hide、それ以外は show+unminimize+focus）。`show_menu_on_left_click(false)` でメニューは右クリック専用
+- **右クリックメニュー**（`build_menu`、id 規約 `tray:show` / `tray:new-terminal` / `tray:switcher` / `tray:quit` / `tray:proj:{id}`）: 表示 / 新しいターミナルウィンドウ（`create_global_window`+OpenTerminal）/ 最近のプロジェクト（サブメニュー、`read_all_projects_sorted` 最大 8 件、選ぶと該当ウィンドウ focus か `build_window`）/ プロジェクトを開く…（main を show して `tray-open-switcher` を emit_to→スイッチャー表示）/ 終了
+- **更新契機**: jump list と共通の `menus_refresh` コマンド（前述）が `tray::refresh(app, lang, &projects)` を呼び `app.tray_by_id("main").set_menu` で作り直す。プロジェクト一覧は menus_refresh が 1 回だけ読んで jump list と共有。起動時の `tray::build` はサブメニュー空（静的項目のみ）で作り、mount 後の menus_refresh が一覧つきに差し替える。ラベルは locale 引数で言語別（Rust からフロント i18n は読めない）
+- **使用量ツールチップ**: main の StatusBar だけが（トレイは 1 プロセス 1 リソースなので）usage を整形して `traySetTooltip` で push。Claude 5h レート（アカウント単位なので代表値）優先、無ければトークン総量、無ければ "Pike"。hide 中もポーリングを止めないので畳んだ状態でも更新される
+- **初回ヒント**: 初めて閉じたとき `resolveNotifier`（`lib/notify.ts`）で OS 通知（`localStorage['pike:tray-hint-shown']` で 1 回のみ）。ウィンドウが消えたと勘違いさせないため
+- アイコンは `app.default_window_icon()` を流用（追加の image feature 不要）
 
 ### pike todo CLI（#139）
 - `pike todo ...` は TODO パネルの実体 `.pike/todo.md` を**直接読み書きして stdout に出力し exit する独立 CLI**。GUI へ IPC せず、起動していなくても動く。GUI 起動中なら `todo` store の `fsWatcher.onFileChange` がファイル変更を検知してパネルを自動リロードするため、端末⇔パネルが同期する

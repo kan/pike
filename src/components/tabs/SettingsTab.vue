@@ -301,6 +301,20 @@ const PREVIEW_LINES = [
         </div>
       </section>
 
+      <!-- General -->
+      <section id="settings-general" class="settings-section">
+        <h3 class="section-title">{{ t('settings.general') }}</h3>
+
+        <div class="setting-row">
+          <label class="setting-label">{{ t('settings.closeToTray') }}</label>
+          <div class="mode-toggle">
+            <button class="mode-btn" :class="{ active: settings.closeToTray }" @click="settings.closeToTray = true">{{ t('common.on') }}</button>
+            <button class="mode-btn" :class="{ active: !settings.closeToTray }" @click="settings.closeToTray = false">{{ t('common.off') }}</button>
+          </div>
+        </div>
+        <p class="setting-hint">{{ t('settings.closeToTrayHint') }}</p>
+      </section>
+
       <!-- Terminal -->
       <section id="settings-terminal" class="settings-section">
         <h3 class="section-title">{{ t('settings.terminal') }}<HelpButton page="settings.md#ターミナル" :size="15" /></h3>

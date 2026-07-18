@@ -25,7 +25,7 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use windows::core::{Interface, HSTRING, PWSTR};
 use windows::Win32::Foundation::{E_FAIL, E_OUTOFMEMORY, PROPERTYKEY, S_OK};
 use windows::Win32::System::Com::StructuredStorage::{
@@ -92,29 +92,28 @@ struct Entry {
     tooltip: String,
 }
 
-/// ジャンプリストを再構築する。実際の COM 構築は main（STA）スレッドで行う。
-pub fn refresh(app: &AppHandle, lang: &str) {
-    let projects = collect_projects(app);
+/// ジャンプリストを再構築する。プロジェクト一覧は呼び出し側（`menus_refresh`）が
+/// 1 回だけ読んで渡す（jump list と tray の二重読みを避けるため）。実際の COM
+/// 構築は main（STA）スレッドで行う。
+pub fn refresh(app: &AppHandle, lang: &str, projects: &[project::ProjectConfig]) {
+    let entries = collect_entries(projects);
     let lang = lang.to_string();
     let _ = app.run_on_main_thread(move || {
-        if let Err(e) = build_and_commit(&lang, &projects) {
+        if let Err(e) = build_and_commit(&lang, &entries) {
             log::warn!("[jumplist] refresh failed: {e:?}");
         }
     });
 }
 
-/// 登録プロジェクトを最近開いた順に最大 MAX_PROJECTS 件、リンク素材へ変換する。
-fn collect_projects(app: &AppHandle) -> Vec<Entry> {
-    let Some(state) = app.try_state::<project::ProjectState>() else {
-        return vec![];
-    };
-    project::read_all_projects_sorted(&state.config_dir)
-        .into_iter()
+/// 最近開いた順（呼び出し側でソート済み）の先頭 MAX_PROJECTS 件をリンク素材へ変換する。
+fn collect_entries(projects: &[project::ProjectConfig]) -> Vec<Entry> {
+    projects
+        .iter()
         .take(MAX_PROJECTS)
         .map(|p| {
             let path = open_arg_for(&p.shell, &p.root);
             Entry {
-                title: p.name,
+                title: p.name.clone(),
                 args: quote_arg(&path),
                 tooltip: path,
             }

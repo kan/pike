@@ -53,6 +53,10 @@ export default {
   'manual.versionPinned': 'このバージョンに対応するマニュアルを表示中',
   'manual.versionLatest': '最新（開発版）のマニュアルを表示中',
 
+  // Tray (#161)
+  'tray.hintTitle': 'Pike はトレイで動作中です',
+  'tray.hintBody': 'ウィンドウを閉じてもトレイに常駐します。トレイアイコンをクリックすると復帰できます。',
+
   // Diagnostics
   'diagnostics.running': 'チェック中…',
   'diagnostics.idle': '更新ボタンで問題をチェック',
@@ -151,6 +155,10 @@ export default {
   // Settings
   'settings.title': '設定',
   'settings.appearance': '外観',
+  'settings.general': '全般',
+  'settings.closeToTray': '閉じたときトレイに最小化',
+  'settings.closeToTrayHint':
+    'オンのとき、ウィンドウを閉じても Pike はトレイに常駐し続けます（終了はトレイメニューから）。オフのとき、main ウィンドウを閉じると Pike を終了します。',
   'settings.terminal': 'ターミナル',
   'settings.editor': 'エディタ',
   'settings.language': '言語',

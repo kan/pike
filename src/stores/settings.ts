@@ -248,6 +248,7 @@ interface PersistedSettings {
   language: string
   terminalExitNotification: boolean
   codexNotification: boolean
+  closeToTray: boolean
   agentDefault: AgentDefault
   agentCommands: AgentCommand[]
   agentPrompts: AgentPrompt[]
@@ -369,6 +370,7 @@ function defaults(): PersistedSettings {
     language: 'en',
     terminalExitNotification: true,
     codexNotification: true,
+    closeToTray: true,
     agentDefault: 'claude-code' as AgentDefault,
     agentCommands: [
       { label: 'Claude', command: 'claude' },
@@ -405,6 +407,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const language = ref(saved.language)
   const terminalExitNotification = ref(saved.terminalExitNotification)
   const codexNotification = ref(saved.codexNotification)
+  const closeToTray = ref(saved.closeToTray)
   const agentDefault = ref<AgentDefault>(saved.agentDefault)
   const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
@@ -594,6 +597,7 @@ export const useSettingsStore = defineStore('settings', () => {
       language: language.value,
       terminalExitNotification: terminalExitNotification.value,
       codexNotification: codexNotification.value,
+      closeToTray: closeToTray.value,
       agentDefault: agentDefault.value,
       agentCommands: agentCommands.value,
       agentPrompts: agentPrompts.value,
@@ -626,6 +630,7 @@ export const useSettingsStore = defineStore('settings', () => {
     language.value = s.language
     terminalExitNotification.value = s.terminalExitNotification
     codexNotification.value = s.codexNotification
+    closeToTray.value = s.closeToTray
     agentDefault.value = s.agentDefault
     agentCommands.value = s.agentCommands
     agentPrompts.value = s.agentPrompts
@@ -756,6 +761,7 @@ export const useSettingsStore = defineStore('settings', () => {
       language,
       terminalExitNotification,
       codexNotification,
+      closeToTray,
       agentDefault,
     ],
     onSettingsChanged,
@@ -800,6 +806,7 @@ export const useSettingsStore = defineStore('settings', () => {
     language,
     terminalExitNotification,
     codexNotification,
+    closeToTray,
     agentDefault,
     agentCommands,
     agentPrompts,

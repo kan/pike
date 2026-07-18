@@ -53,6 +53,10 @@ export default {
   'manual.versionPinned': 'Showing the manual for this version',
   'manual.versionLatest': 'Showing the latest (development) manual',
 
+  // Tray (#161)
+  'tray.hintTitle': 'Pike is still running',
+  'tray.hintBody': 'Closing the window keeps Pike in the tray. Click the tray icon to bring it back.',
+
   // Diagnostics
   'diagnostics.running': 'Checking…',
   'diagnostics.idle': 'Press refresh to check for problems',
@@ -151,6 +155,10 @@ export default {
   // Settings
   'settings.title': 'Settings',
   'settings.appearance': 'Appearance',
+  'settings.general': 'General',
+  'settings.closeToTray': 'Minimize to tray on close',
+  'settings.closeToTrayHint':
+    'When on, closing the window keeps Pike running in the system tray (quit from the tray menu). When off, closing the main window exits Pike.',
   'settings.terminal': 'Terminal',
   'settings.editor': 'Editor',
   'settings.language': 'Language',

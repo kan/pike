@@ -121,12 +121,26 @@ export async function projectDelete(id: string): Promise<void> {
 }
 
 /**
- * Rebuild the Windows taskbar jump list (issue #160). `lang` is the current UI
- * locale so the task/category labels follow it. Best-effort — never blocks
- * project operations if the jump list can't be built.
+ * Rebuild the shell-integration menus — the taskbar jump list (#160) and the
+ * system-tray menu (#161). `lang` is the current UI locale so labels follow it.
+ * Reads the project list once on the Rust side and feeds both. Best-effort —
+ * never blocks project operations if a menu can't be built.
  */
-export async function jumplistRefresh(lang: string): Promise<void> {
-  return invoke('jumplist_refresh', { lang })
+export async function menusRefresh(lang: string): Promise<void> {
+  return invoke('menus_refresh', { lang })
+}
+
+/** Update the tray tooltip (issue #161) with a formatted usage summary. */
+export async function traySetTooltip(text: string): Promise<void> {
+  return invoke('tray_set_tooltip', { text })
+}
+
+/**
+ * Sync the close-to-tray setting (issue #161). When disabled, closing the main
+ * window exits Pike instead of minimizing it to the tray.
+ */
+export async function traySetCloseToTray(enabled: boolean): Promise<void> {
+  return invoke('tray_set_close_to_tray', { enabled })
 }
 
 export async function projectGroupsList(): Promise<string[]> {

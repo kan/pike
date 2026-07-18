@@ -21,8 +21,8 @@ import { useI18n } from '../../i18n'
 import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
 import { basename } from '../../lib/paths'
-import { openUrlWithConfirm } from '../../lib/tauri'
-import { elevated, globalMode } from '../../lib/window'
+import { openUrlWithConfirm, traySetTooltip } from '../../lib/tauri'
+import { elevated, globalMode, isMainWindow } from '../../lib/window'
 import { useAgentStore } from '../../stores/agent'
 import { useClaudeRateStore } from '../../stores/claudeRate'
 import { useClaudeUsageStore } from '../../stores/claudeUsage'
@@ -85,6 +85,24 @@ const claudeRate = computed(() => {
 // The 5h session window — the headline number for the status-bar chip.
 // No fallback to other windows: a weekly quota must not be labeled "5h".
 const claudeRateSession = computed(() => claudeRate.value?.windows.find((w) => w.kind === 'session') ?? null)
+
+// System-tray tooltip (#161): a one-line usage summary shown on hover while
+// Pike sits minimized in the tray. Only the main window pushes it (the tray is
+// one per-process resource); Claude's 5h rate is account-wide so it represents
+// the whole app. Falls back to token totals, then just "Pike".
+const trayTooltip = computed(() => {
+  if (claudeRateSession.value) {
+    return `Pike · Claude ${t('statusBar.rate5h')} ${claudeRateSession.value.usedPercent.toFixed(0)}%`
+  }
+  const u = claudeUsageStore.usage
+  if (u?.active) {
+    return `Pike · Claude ${formatTokens(u.totalInputTokens)} ${t('statusBar.ccIn')} / ${formatTokens(u.totalOutputTokens)} ${t('statusBar.ccOut')}`
+  }
+  return 'Pike'
+})
+if (isMainWindow()) {
+  watch(trayTooltip, (text) => traySetTooltip(text).catch(() => {}), { immediate: true })
+}
 
 /** Short UI label per window kind; unrecognized windows show the raw CLI label. */
 function rateWindowLabel(w: { kind: string; label: string }): string {
