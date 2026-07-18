@@ -174,6 +174,7 @@ function moveAgentPrompt(index: number, dir: -1 | 1) {
 // Section navigation
 const sections = [
   { id: 'appearance', i18nKey: 'settings.appearance' },
+  { id: 'general', i18nKey: 'settings.general' },
   { id: 'terminal', i18nKey: 'settings.terminal' },
   { id: 'editor', i18nKey: 'settings.editor' },
   { id: 'agent', i18nKey: 'settings.agent' },
