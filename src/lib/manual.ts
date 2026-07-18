@@ -12,7 +12,8 @@
 import { getVersion } from '@tauri-apps/api/app'
 
 const REPO_BASE = 'https://raw.githubusercontent.com/kan/pike/'
-const DEFAULT_REF = 'main'
+/** Ref used when the running version has no matching release tag (dev builds). */
+export const DEFAULT_REF = 'main'
 
 /** The git ref the manual is currently served from (resolved lazily). */
 let activeRef = DEFAULT_REF

@@ -63,6 +63,13 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  /** Run a one-off command in a throwaway terminal tab: title == command,
+   *  auto-closes on exit. The shared "run this at the project root" contract for
+   *  the task runner and docker compose. */
+  function runCommandTab(command: string, cwd: string, shell: ShellType): string {
+    return addTerminalTab({ title: command, autoStart: command, closeOnExit: true, cwd, shell })
+  }
+
   async function closeTab(id: string) {
     const idx = tabs.value.findIndex((t) => t.id === id)
     if (idx === -1) return
@@ -514,6 +521,7 @@ export const useTabStore = defineStore('tabs', () => {
     activeTab,
     lastTerminalId,
     addTerminalTab,
+    runCommandTab,
     addEditorTab,
     addBlankEditorTab,
     untitledContent,

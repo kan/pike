@@ -5,6 +5,7 @@ import { marked } from 'marked'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import {
+  DEFAULT_REF,
   fetchManual,
   getManualRef,
   isMarkdownPage,
@@ -38,7 +39,8 @@ const loadedPath = ref('')
 const manualRef = ref('')
 /** A version-tag ref (`vX.Y.Z`) means the manual matches the app; `main` is the
  *  latest/dev fallback. */
-const manualRefPinned = computed(() => /^v\d/.test(manualRef.value))
+// Pinned = served from a version tag rather than the `main` fallback.
+const manualRefPinned = computed(() => manualRef.value !== '' && manualRef.value !== DEFAULT_REF)
 
 /**
  * マニュアルだけのダーク/ライト切替。app の darkMode とは独立に、このタブの表示テーマを

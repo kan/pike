@@ -84,13 +84,7 @@ export const useDockerStore = defineStore('docker', () => {
     const project = projectStore.currentProject
     if (!project) return
     if (!(await confirmDialog(confirmMsg))) return
-    useTabStore().addTerminalTab({
-      title: command,
-      autoStart: command,
-      closeOnExit: true,
-      cwd: projectStore.activeRoot,
-      shell: project.shell,
-    })
+    useTabStore().runCommandTab(command, projectStore.activeRoot, project.shell)
   }
 
   const composeUp = () => runCompose('docker compose up -d', t('docker.composeUpConfirm'))

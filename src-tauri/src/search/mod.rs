@@ -25,7 +25,7 @@ fn backend_cache_key(shell: &ShellConfig) -> String {
 
 /// Probe for the best available search backend for `shell` (blocking: spawns
 /// `which`/`where`). WSL never uses the bundled Windows rg.
-fn detect_backend(shell: &ShellConfig, bundled_rg: Option<String>) -> SearchBackend {
+fn detect_backend(shell: &ShellConfig, bundled_rg: &Option<String>) -> SearchBackend {
     let check_cmd = match shell {
         ShellConfig::Wsl { .. } => "which",
         _ => "where",
@@ -35,7 +35,7 @@ fn detect_backend(shell: &ShellConfig, bundled_rg: Option<String>) -> SearchBack
     }
     if !matches!(shell, ShellConfig::Wsl { .. }) {
         if let Some(path) = bundled_rg {
-            return SearchBackend::BundledRg { path };
+            return SearchBackend::BundledRg { path: path.clone() };
         }
     }
     SearchBackend::Grep
@@ -54,7 +54,7 @@ pub(crate) fn resolve_backend(
             return b.clone();
         }
     }
-    let backend = detect_backend(shell, bundled_rg.clone());
+    let backend = detect_backend(shell, bundled_rg);
     if let Ok(mut map) = cache.lock() {
         map.insert(key, backend.clone());
     }

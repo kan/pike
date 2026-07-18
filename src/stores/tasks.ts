@@ -55,13 +55,7 @@ export const useTaskStore = defineStore('tasks', () => {
     if (!project) return
     const command = RUNNER_COMMANDS[task.runner](task.name)
     const cwd = group?.cwd ?? task.cwd ?? projectStore.activeRoot
-    useTabStore().addTerminalTab({
-      title: command,
-      autoStart: command,
-      closeOnExit: true,
-      cwd,
-      shell: project.shell,
-    })
+    useTabStore().runCommandTab(command, cwd, project.shell)
   }
 
   /** Open a group's task-definition file (package.json etc.) in an editor tab. */

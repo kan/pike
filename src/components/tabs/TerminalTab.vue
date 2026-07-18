@@ -300,6 +300,14 @@ function nudgePtyResize(delayMs: number) {
 // (some TUIs ring the bell on focus/redraw).
 let lastActivatedAt = 0
 
+// Run `cb` after two animation frames. Used both to let a v-show transition
+// fully resolve before measuring, and for the IME readOnly bounce where each
+// state must land on its own frame so the renderer sends it as a separate
+// update instead of deduping the round trip.
+function afterTwoFrames(cb: () => void) {
+  requestAnimationFrame(() => requestAnimationFrame(cb))
+}
+
 watch(
   () => tabStore.activeTabId,
   (newId) => {
@@ -307,15 +315,13 @@ watch(
       lastActivatedAt = Date.now()
       // Double rAF ensures v-show transition is fully resolved before measuring
       nextTick(() => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            doFit()
-            if (terminal) {
-              terminal.refresh(0, terminal.rows - 1)
-              terminal.focus()
-              nudgePtyResize(50)
-            }
-          })
+        afterTwoFrames(() => {
+          doFit()
+          if (terminal) {
+            terminal.refresh(0, terminal.rows - 1)
+            terminal.focus()
+            nudgePtyResize(50)
+          }
         })
       })
     }
@@ -770,44 +776,38 @@ onMounted(async () => {
     // parked state applied on reactivation is already TEXT — but it would
     // leave TSF caret tracking on the park input (candidate window at the
     // wrong position), so the extra frame still earns its keep.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        // Re-check liveness AND active tab: the terminal may have been disposed
-        // (tab closed) or the user may have switched tabs since the focus event.
-        if (!terminal || tabStore.activeTabId !== props.tabId) return
-        // Focus already bounced away again (rapid app switch): refocusing now
-        // would park TEXT state on an inactive window; the next 'focus' event
-        // handles it instead.
-        if (!document.hasFocus()) return
-        terminal.focus()
-        // Parking on a TEXT input keeps the IME enabled across reactivation,
-        // but it also removes the NONE→TEXT_AREA transition the blur-split fix
-        // relied on to make TSF rebuild its stale context — with the parked
-        // type already TEXT, reactivation reuses the old caret tracking and
-        // edit buffer (candidate window detached, committed text duplicated /
-        // reordered). Recreate that transition deliberately, now that the
-        // window verifiably holds focus and the update won't be dropped:
-        // bounce the textarea's input type through NONE via readOnly (a
-        // readonly text control reports TEXT_INPUT_TYPE_NONE), one state per
-        // frame pair so the renderer sends each as its own update instead of
-        // deduping the round trip.
-        const ta = terminal.textarea
-        if (!ta) return
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            // Skip if focus moved elsewhere meanwhile, the window deactivated
-            // again, or a composition already started (xterm keeps composition
-            // text in textarea.value; flipping readOnly would abort it).
-            if (document.activeElement !== ta || !document.hasFocus() || ta.value !== '') return
-            ta.readOnly = true
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                // Unconditional: readOnly must never stay latched, even if the
-                // tab switched or the window blurred mid-cycle.
-                ta.readOnly = false
-              })
-            })
-          })
+    afterTwoFrames(() => {
+      // Re-check liveness AND active tab: the terminal may have been disposed
+      // (tab closed) or the user may have switched tabs since the focus event.
+      if (!terminal || tabStore.activeTabId !== props.tabId) return
+      // Focus already bounced away again (rapid app switch): refocusing now
+      // would park TEXT state on an inactive window; the next 'focus' event
+      // handles it instead.
+      if (!document.hasFocus()) return
+      terminal.focus()
+      // Parking on a TEXT input keeps the IME enabled across reactivation,
+      // but it also removes the NONE→TEXT_AREA transition the blur-split fix
+      // relied on to make TSF rebuild its stale context — with the parked
+      // type already TEXT, reactivation reuses the old caret tracking and
+      // edit buffer (candidate window detached, committed text duplicated /
+      // reordered). Recreate that transition deliberately, now that the
+      // window verifiably holds focus and the update won't be dropped:
+      // bounce the textarea's input type through NONE via readOnly (a
+      // readonly text control reports TEXT_INPUT_TYPE_NONE), one state per
+      // frame pair so the renderer sends each as its own update instead of
+      // deduping the round trip.
+      const ta = terminal.textarea
+      if (!ta) return
+      afterTwoFrames(() => {
+        // Skip if focus moved elsewhere meanwhile, the window deactivated
+        // again, or a composition already started (xterm keeps composition
+        // text in textarea.value; flipping readOnly would abort it).
+        if (document.activeElement !== ta || !document.hasFocus() || ta.value !== '') return
+        ta.readOnly = true
+        // Unconditional: readOnly must never stay latched, even if the tab
+        // switched or the window blurred mid-cycle.
+        afterTwoFrames(() => {
+          ta.readOnly = false
         })
       })
     })
