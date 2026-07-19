@@ -215,6 +215,26 @@ export const UI_FONT_SIZE_MAX = 20
 
 export type AgentDefault = 'claude-code' | 'codex' | 'ask'
 
+/**
+ * Window background transparency mode (issue #162). `none` = fully opaque
+ * (current look). `transparent` = plain translucency (no blur) so the desktop
+ * shows through crisply at the chosen opacity. `acrylic` applies the Windows 11
+ * frosted-glass (blur) effect via window-vibrancy. Windows-only; a no-op
+ * elsewhere.
+ */
+export type WindowBackdrop = 'none' | 'transparent' | 'acrylic'
+
+const WINDOW_BACKDROPS: WindowBackdrop[] = ['none', 'transparent', 'acrylic']
+
+/** Coerce a persisted/synced backdrop value to a valid mode (defaults to none). */
+function sanitizeBackdrop(v: unknown): WindowBackdrop {
+  return WINDOW_BACKDROPS.includes(v as WindowBackdrop) ? (v as WindowBackdrop) : 'none'
+}
+
+// Window opacity slider bounds (surface alpha when a backdrop is active).
+export const WINDOW_OPACITY_MIN = 0.1
+export const WINDOW_OPACITY_MAX = 1
+
 /** A one-click command the terminal can inject (e.g. `claude --continue`). */
 export interface AgentCommand {
   label: string
@@ -249,6 +269,8 @@ interface PersistedSettings {
   terminalExitNotification: boolean
   codexNotification: boolean
   closeToTray: boolean
+  windowBackdrop: WindowBackdrop
+  windowOpacity: number
   agentDefault: AgentDefault
   agentCommands: AgentCommand[]
   agentPrompts: AgentPrompt[]
@@ -282,6 +304,8 @@ function sanitize(s: PersistedSettings): PersistedSettings {
     editorFontSize: clampSize(s.editorFontSize, FONT_SIZE_MIN, FONT_SIZE_MAX, d.editorFontSize),
     // uiFontFamily '' is valid (= System Default), so it is intentionally not coerced.
     uiFontSize: clampSize(s.uiFontSize, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX, d.uiFontSize),
+    windowBackdrop: sanitizeBackdrop(s.windowBackdrop),
+    windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
   }
 }
 
@@ -371,6 +395,8 @@ function defaults(): PersistedSettings {
     terminalExitNotification: true,
     codexNotification: true,
     closeToTray: true,
+    windowBackdrop: 'none' as WindowBackdrop,
+    windowOpacity: 0.85,
     agentDefault: 'claude-code' as AgentDefault,
     agentCommands: [
       { label: 'Claude', command: 'claude' },
@@ -408,6 +434,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const terminalExitNotification = ref(saved.terminalExitNotification)
   const codexNotification = ref(saved.codexNotification)
   const closeToTray = ref(saved.closeToTray)
+  const windowBackdrop = ref<WindowBackdrop>(saved.windowBackdrop)
+  const windowOpacity = ref(saved.windowOpacity)
   const agentDefault = ref<AgentDefault>(saved.agentDefault)
   const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
@@ -571,6 +599,13 @@ export const useSettingsStore = defineStore('settings', () => {
 
   const xtermTheme = computed(() => {
     const { name, ...theme } = colorScheme.value
+    // Window transparency (issue #162): the translucent tint is painted by the
+    // terminal wrapper (a single layer, see TerminalTab), so the xterm background
+    // itself is fully transparent — otherwise the two would stack. TerminalTab's
+    // scoped CSS also overrides xterm.css's hard-coded opaque viewport black.
+    if (windowBackdrop.value !== 'none') {
+      return { ...theme, background: 'rgba(0, 0, 0, 0)' }
+    }
     return theme
   })
 
@@ -598,6 +633,8 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalExitNotification: terminalExitNotification.value,
       codexNotification: codexNotification.value,
       closeToTray: closeToTray.value,
+      windowBackdrop: windowBackdrop.value,
+      windowOpacity: windowOpacity.value,
       agentDefault: agentDefault.value,
       agentCommands: agentCommands.value,
       agentPrompts: agentPrompts.value,
@@ -631,6 +668,8 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalExitNotification.value = s.terminalExitNotification
     codexNotification.value = s.codexNotification
     closeToTray.value = s.closeToTray
+    windowBackdrop.value = s.windowBackdrop
+    windowOpacity.value = s.windowOpacity
     agentDefault.value = s.agentDefault
     agentCommands.value = s.agentCommands
     agentPrompts.value = s.agentPrompts
@@ -762,6 +801,8 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalExitNotification,
       codexNotification,
       closeToTray,
+      windowBackdrop,
+      windowOpacity,
       agentDefault,
     ],
     onSettingsChanged,
@@ -807,6 +848,8 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalExitNotification,
     codexNotification,
     closeToTray,
+    windowBackdrop,
+    windowOpacity,
     agentDefault,
     agentCommands,
     agentPrompts,

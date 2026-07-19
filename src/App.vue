@@ -22,7 +22,7 @@ import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { resolveNotifier } from './lib/notify'
 import { normalizeSep } from './lib/paths'
 import { projectColorValue } from './lib/projectColors'
-import { isElevated, projectRemoveOpen, traySetCloseToTray } from './lib/tauri'
+import { isElevated, projectRemoveOpen, traySetCloseToTray, windowSetBackdrop } from './lib/tauri'
 import { elevated, ephemeralWindow, getWindowProjectId, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
 import { useClaudeRateStore } from './stores/claudeRate'
 import { useClaudeUsageStore } from './stores/claudeUsage'
@@ -60,6 +60,27 @@ if (isMainWindow()) {
     { immediate: true },
   )
 }
+
+// Window background transparency (issue #162). Every window applies the native
+// acrylic/mica effect to itself and mirrors the surface alpha into a CSS
+// variable, so panels/terminal/editor go translucent together. Runs in all
+// windows (unlike close-to-tray) because the effect is per-window.
+watch(
+  () => settingsStore.windowBackdrop,
+  (kind) => {
+    void windowSetBackdrop(kind).catch(() => {})
+  },
+  { immediate: true },
+)
+watch(
+  [() => settingsStore.windowBackdrop, () => settingsStore.windowOpacity],
+  ([kind, opacity]) => {
+    // Opaque when backdrop is off; otherwise the surfaces take the slider alpha.
+    // This single variable makes every --bg-* surface translucent at once.
+    document.documentElement.style.setProperty('--surface-alpha', String(kind === 'none' ? 1 : opacity))
+  },
+  { immediate: true },
+)
 
 const isDebug = import.meta.env.DEV
 

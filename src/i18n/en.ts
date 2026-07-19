@@ -165,6 +165,13 @@ export default {
   'settings.mode': 'Mode',
   'settings.darkMode': 'Dark',
   'settings.lightMode': 'Light',
+  'settings.backdrop': 'Background',
+  'settings.backdropNone': 'Opaque',
+  'settings.backdropTransparent': 'Transparent',
+  'settings.backdropAcrylic': 'Acrylic',
+  'settings.windowOpacity': 'Opacity',
+  'settings.backdropHint':
+    'Make the window translucent so the desktop shows through. Transparent shows the desktop crisply; Acrylic is the Windows 11 frosted-glass blur (Windows 11 only). Opacity adjusts how transparent the surfaces are.',
   'settings.uiFont': 'UI Font',
   'settings.uiFontSize': 'UI Font Size',
   'settings.uiFontDefault': 'System Default',

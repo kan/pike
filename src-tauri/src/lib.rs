@@ -255,6 +255,9 @@ fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Er
         .title("Pike")
         .inner_size(800.0, 600.0)
         .resizable(true)
+        // 背景透過（issue #162）: 透過はランタイムで切替えるため常に透過ウィンドウで生成し、
+        // 透過 OFF 時は CSS 側で不透明に塗る。アクリル/Mica もこの透過を前提に乗る。
+        .transparent(true)
         .disable_drag_drop_handler()
         .build()?;
     drop_paths::attach(&window);
@@ -517,6 +520,36 @@ async fn tray_set_tooltip(app: AppHandle, text: String) -> Result<(), String> {
 #[tauri::command]
 async fn tray_set_close_to_tray(enabled: bool) -> Result<(), String> {
     CLOSE_TO_TRAY.store(enabled, Ordering::Relaxed);
+    Ok(())
+}
+
+/// Apply (or clear) the window backdrop effect for background transparency
+/// (issue #162). The frontend calls this per-window on startup and whenever the
+/// `windowBackdrop` setting changes; each window applies the effect to itself.
+/// `acrylic` needs Windows 11 (on older systems the call fails and the CSS-level
+/// rgba transparency remains as a graceful fallback). `transparent`/`none` apply
+/// no native material — the window is already transparent, so the CSS surface
+/// alpha alone produces plain (blur-free) translucency. Errors are best-effort.
+#[tauri::command]
+async fn window_set_backdrop(window: WebviewWindow, kind: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use window_vibrancy::{apply_acrylic, clear_acrylic, clear_mica};
+        match kind.as_str() {
+            "acrylic" => {
+                let _ = clear_mica(&window);
+                let _ = apply_acrylic(&window, None);
+            }
+            _ => {
+                // "none" / "transparent" / unknown: strip any native material.
+                // clear_mica covers backdrops applied by an earlier build.
+                let _ = clear_acrylic(&window);
+                let _ = clear_mica(&window);
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (&window, &kind);
     Ok(())
 }
 
@@ -897,6 +930,7 @@ pub fn run() {
             menus_refresh,
             tray_set_tooltip,
             tray_set_close_to_tray,
+            window_set_backdrop,
             elevate::is_elevated,
             elevate::open_elevated_terminal,
             save_all_window_state,

@@ -8,7 +8,16 @@ import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { detectWslDistros, pickSaveFile } from '../../lib/tauri'
-import { AUTO_THEME, COLOR_SCHEMES, UI_FONT_SIZE_MAX, UI_FONT_SIZE_MIN, useSettingsStore } from '../../stores/settings'
+import {
+  AUTO_THEME,
+  COLOR_SCHEMES,
+  UI_FONT_SIZE_MAX,
+  UI_FONT_SIZE_MIN,
+  useSettingsStore,
+  WINDOW_OPACITY_MAX,
+  WINDOW_OPACITY_MIN,
+  type WindowBackdrop,
+} from '../../stores/settings'
 import {
   type ShellProfile,
   type ShellType,
@@ -23,6 +32,13 @@ const { t } = useI18n()
 const settings = useSettingsStore()
 settings.loadAvailableFonts()
 settings.loadAvailableUiFonts()
+
+// 背景透過（issue #162）: none / transparent / acrylic のセグメントトグル。
+const backdropOptions: { value: WindowBackdrop; labelKey: string }[] = [
+  { value: 'none', labelKey: 'settings.backdropNone' },
+  { value: 'transparent', labelKey: 'settings.backdropTransparent' },
+  { value: 'acrylic', labelKey: 'settings.backdropAcrylic' },
+]
 
 // Auto（モード追従）カードのプレビューは、いま darkMode で解決される既定テーマを映す。
 const autoScheme = computed(
@@ -273,6 +289,39 @@ const PREVIEW_LINES = [
               <span>{{ t('settings.lightMode') }}</span>
             </button>
           </div>
+        </div>
+
+        <!-- Window background transparency (issue #162) -->
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.backdrop') }}</label>
+            <div class="mode-toggle">
+              <button
+                v-for="opt in backdropOptions"
+                :key="opt.value"
+                class="mode-btn"
+                :class="{ active: settings.windowBackdrop === opt.value }"
+                @click="settings.windowBackdrop = opt.value"
+              >
+                <span>{{ t(opt.labelKey) }}</span>
+              </button>
+            </div>
+          </div>
+          <div class="setting-row" v-if="settings.windowBackdrop !== 'none'">
+            <label class="setting-label">{{ t('settings.windowOpacity') }}</label>
+            <div class="font-size-control">
+              <input
+                type="range"
+                :min="WINDOW_OPACITY_MIN"
+                :max="WINDOW_OPACITY_MAX"
+                step="0.05"
+                v-model.number="settings.windowOpacity"
+                class="setting-range"
+              />
+              <span class="font-size-value">{{ Math.round(settings.windowOpacity * 100) }}%</span>
+            </div>
+          </div>
+          <p class="setting-hint">{{ t('settings.backdropHint') }}</p>
         </div>
 
         <div class="setting-block">

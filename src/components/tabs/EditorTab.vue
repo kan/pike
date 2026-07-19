@@ -59,12 +59,27 @@ const wordWrapCompartment = new Compartment()
 const tabSizeCompartment = new Compartment()
 const indentUnitCompartment = new Compartment()
 const fontCompartment = new Compartment()
+const backdropCompartment = new Compartment()
 
 /** Editor font theme driven by the editor's own font settings. */
 function fontTheme() {
   return EditorView.theme({
     '&': { fontSize: `${settingsStore.editorFontSize}px` },
     '.cm-scroller': { fontFamily: buildFontFamily(settingsStore.editorFontName) },
+  })
+}
+
+/**
+ * Window transparency (issue #162): when a backdrop is active, strip the editor
+ * theme's opaque background so the translucent app surface (and the desktop
+ * behind it) shows through. `!important` overrides the base theme's `&`
+ * background regardless of stylesheet order.
+ */
+function backdropTheme() {
+  if (settingsStore.windowBackdrop === 'none') return []
+  return EditorView.theme({
+    '&': { backgroundColor: 'transparent !important' },
+    '.cm-gutters': { backgroundColor: 'transparent !important' },
   })
 }
 
@@ -696,6 +711,7 @@ function createEditorView(container: HTMLElement, content: string) {
   const hasFile = tab.value && !tab.value.initialContent
   const extensions = [
     themeCompartment.of(getEditorTheme(settingsStore.effectiveEditorThemeName).extension),
+    backdropCompartment.of(backdropTheme()),
     lineNumbers(),
     highlightActiveLine(),
     history(),
@@ -1149,6 +1165,16 @@ watch(
   (name) => {
     if (!editorView) return
     editorView.dispatch({ effects: themeCompartment.reconfigure(getEditorTheme(name).extension) })
+  },
+)
+
+// Window transparency (issue #162): re-apply the transparent-background override
+// when the backdrop mode toggles.
+watch(
+  () => settingsStore.windowBackdrop,
+  () => {
+    if (!editorView) return
+    editorView.dispatch({ effects: backdropCompartment.reconfigure(backdropTheme()) })
   },
 )
 

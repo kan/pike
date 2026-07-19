@@ -14,6 +14,7 @@ import {
 } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
+import { hexToRgba } from '../../lib/format'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
 import { openUrlWithConfirm, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
@@ -215,6 +216,18 @@ function closePromptMenu() {
 }
 
 const termRef = ref<HTMLDivElement>()
+
+// Window transparency (issue #162): the wrapper sits *behind* xterm. In backdrop
+// mode the xterm layers are forced transparent (store theme + the scoped CSS
+// below that overrides xterm.css's hard-coded opaque viewport), so the wrapper is
+// the single translucent tint layer at the chosen opacity. When off, keep the
+// opaque scheme background as before.
+const wrapperBg = computed(() =>
+  settingsStore.windowBackdrop === 'none'
+    ? settingsStore.colorScheme.background
+    : hexToRgba(settingsStore.colorScheme.background, settingsStore.windowOpacity),
+)
+
 let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let ptyId: string | null = null
@@ -339,6 +352,18 @@ watch(
     if (tabStore.activeTabId === props.tabId) nudgePtyResize(200)
   },
 )
+// Window transparency (issue #162): toggle xterm's transparent render path when
+// the backdrop mode changes. The theme (translucent background) is updated by
+// the xtermTheme watcher above; this only flips allowTransparency + repaints.
+watch(
+  () => settingsStore.windowBackdrop,
+  (kind) => {
+    if (!terminal) return
+    terminal.options.allowTransparency = kind !== 'none'
+    terminal.refresh(0, terminal.rows - 1)
+    if (tabStore.activeTabId === props.tabId) nudgePtyResize(200)
+  },
+)
 watch(
   () => settingsStore.fontFamily,
   (v) => {
@@ -366,6 +391,10 @@ onMounted(async () => {
     scrollback: 5000,
     cursorBlink: true,
     allowProposedApi: true,
+    // Window transparency (issue #162): let the translucent theme background
+    // composite over the desktop. Only enabled when a backdrop is active — the
+    // opaque default keeps xterm's cheaper non-transparent render path.
+    allowTransparency: settingsStore.windowBackdrop !== 'none',
   })
 
   fitAddon = new FitAddon()
@@ -840,7 +869,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="terminal-wrapper" data-testid="terminal">
+  <div class="terminal-wrapper" :class="{ opaque: settingsStore.windowBackdrop === 'none' }" data-testid="terminal">
     <div v-if="showAgentLaunch || showPromptInject" class="term-toolbar">
       <div v-if="showPromptInject" class="agent-launch" :class="{ open: promptMenuOpen }">
         <button class="agent-btn solo" :title="t('terminal.promptInject')" @click="togglePromptMenu">
@@ -895,12 +924,24 @@ onUnmounted(() => {
   inset: 0;
   padding: 10px;
   box-sizing: border-box;
-  background: v-bind('settingsStore.colorScheme.background');
+  background: v-bind('wrapperBg');
 }
 
 .terminal-inner {
   width: 100%;
   height: 100%;
+}
+
+/* Window transparency (issue #162): xterm.css hard-codes an opaque black viewport
+   (`.xterm-viewport { background-color: #000 }`, for OS-X scrollbars) which would
+   otherwise hide the translucent wrapper behind it. When a backdrop is active,
+   force the xterm layers transparent so the wrapper tint — and the desktop /
+   acrylic behind it — show through. `:global` because these classes live inside
+   xterm's own DOM, not this component's scoped tree. */
+.terminal-wrapper:not(.opaque) :global(.xterm),
+.terminal-wrapper:not(.opaque) :global(.xterm .xterm-viewport),
+.terminal-wrapper:not(.opaque) :global(.xterm .xterm-screen) {
+  background-color: transparent !important;
 }
 
 .term-toolbar {

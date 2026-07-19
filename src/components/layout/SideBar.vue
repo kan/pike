@@ -404,7 +404,11 @@ onUnmounted(() => {
   width: var(--sidebar-width);
   padding-top: 4px;
   padding-bottom: 4px;
-  background: var(--bg-secondary);
+  /* Window transparency (issue #162): the parent .sidebar already paints
+     --bg-secondary, so painting it again here stacked a second translucent layer
+     and made the icon bar look heavier than the panels. Inherit the sidebar
+     background instead of doubling it. */
+  background: transparent;
 }
 
 .icon-spacer {

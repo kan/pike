@@ -12,9 +12,16 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background: var(--bg-primary, #1e1e1e);
         color: var(--text-primary, #cccccc);
         font-family: var(--app-font-family, system-ui, -apple-system, sans-serif);
+      }
+      /* Window transparency (issue #162): paint the translucent base on a single
+         element. Painting html+body+#app all with --bg-primary stacked three
+         translucent layers, so the opacity slider compounded (10% read as ~27%)
+         and edge chrome looked heavier than the panels. #app fills the viewport,
+         so one layer keeps opaque mode fully opaque. */
+      #app {
+        background: var(--bg-primary, #1e1e1e);
       }
       /* UI chrome (sidebar, tab bar, status bar, dialogs, menus) scales with the
          UI font size by applying `zoom: var(--ui-zoom)` — see the .ui-zoom helper

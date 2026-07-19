@@ -2,6 +2,23 @@ export function formatLineRange(range: { start: number; end: number }): string {
   return range.start === range.end ? `L${range.start}` : `L${range.start}-${range.end}`
 }
 
+/**
+ * Convert a `#rrggbb` (or `#rgb`) hex color to an `rgba(r,g,b,a)` string with the
+ * given alpha. Used for window transparency (issue #162): the terminal/editor
+ * backgrounds are translucent so the desktop shows through. Returns the input
+ * unchanged when it is not a hex color (e.g. already an rgb()/named color).
+ */
+export function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(hex.trim())
+  if (!m) return hex
+  let h = m[1]
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2]
+  const r = Number.parseInt(h.slice(0, 2), 16)
+  const g = Number.parseInt(h.slice(2, 4), 16)
+  const b = Number.parseInt(h.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 export function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`

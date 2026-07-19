@@ -143,6 +143,14 @@ export async function traySetCloseToTray(enabled: boolean): Promise<void> {
   return invoke('tray_set_close_to_tray', { enabled })
 }
 
+/**
+ * Apply the window backdrop effect for background transparency (issue #162).
+ * `kind` is 'none' | 'acrylic' | 'mica'; applies to the calling window.
+ */
+export async function windowSetBackdrop(kind: string): Promise<void> {
+  return invoke('window_set_backdrop', { kind })
+}
+
 export async function projectGroupsList(): Promise<string[]> {
   return invoke<string[]>('project_groups_list')
 }

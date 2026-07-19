@@ -165,6 +165,13 @@ export default {
   'settings.mode': 'モード',
   'settings.darkMode': 'ダーク',
   'settings.lightMode': 'ライト',
+  'settings.backdrop': '背景',
+  'settings.backdropNone': '不透明',
+  'settings.backdropTransparent': '透過',
+  'settings.backdropAcrylic': 'アクリル',
+  'settings.windowOpacity': '不透明度',
+  'settings.backdropHint':
+    'ウィンドウを半透明にして背後のデスクトップを透かせます。「透過」はデスクトップがくっきり透け、「アクリル」は Windows 11 のすりガラス（ブラー）効果です（Windows 11 のみ）。不透明度で透け具合を調整できます。',
   'settings.uiFont': 'UI フォント',
   'settings.uiFontSize': 'UI フォントサイズ',
   'settings.uiFontDefault': 'システム既定',

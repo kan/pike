@@ -1,16 +1,22 @@
 :root,
 [data-theme="dark"] {
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-tertiary: #2d2d2d;
+  /* Window transparency (issue #162): surface backgrounds are composed from an
+     RGB literal + --surface-alpha so a single variable (set from the
+     windowOpacity setting) makes every surface translucent at once. Default
+     alpha 1 = fully opaque (identical to before). Non-background vars (text,
+     border, accent, git/graph colors) stay opaque. */
+  --surface-alpha: 1;
+  --bg-primary: rgb(30 30 30 / var(--surface-alpha));
+  --bg-secondary: rgb(37 37 38 / var(--surface-alpha));
+  --bg-tertiary: rgb(45 45 45 / var(--surface-alpha));
   --text-primary: #cccccc;
   --text-secondary: #969696;
   --text-active: #ffffff;
   --accent: #007acc;
   --border: #404040;
-  --tab-active-bg: #1e1e1e;
-  --tab-inactive-bg: #2d2d2d;
-  --tab-hover-bg: #353535;
+  --tab-active-bg: rgb(30 30 30 / var(--surface-alpha));
+  --tab-inactive-bg: rgb(45 45 45 / var(--surface-alpha));
+  --tab-hover-bg: rgb(53 53 53 / var(--surface-alpha));
   --danger: #f44747;
   --git-add: #4ec9b0;
   --git-modify: #e2c08d;
@@ -26,22 +32,23 @@
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(255, 255, 255, 0.1);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
-  --statusbar-bg: #1b1b1b;
+  --statusbar-bg: rgb(27 27 27 / var(--surface-alpha));
   --shadow-color: rgba(0, 0, 0, 0.4);
 }
 
 [data-theme="light"] {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f3f3f3;
-  --bg-tertiary: #e8e8e8;
+  --surface-alpha: 1;
+  --bg-primary: rgb(255 255 255 / var(--surface-alpha));
+  --bg-secondary: rgb(243 243 243 / var(--surface-alpha));
+  --bg-tertiary: rgb(232 232 232 / var(--surface-alpha));
   --text-primary: #333333;
   --text-secondary: #717171;
   --text-active: #000000;
   --accent: #007acc;
   --border: #d4d4d4;
-  --tab-active-bg: #ffffff;
-  --tab-inactive-bg: #ececec;
-  --tab-hover-bg: #e0e0e0;
+  --tab-active-bg: rgb(255 255 255 / var(--surface-alpha));
+  --tab-inactive-bg: rgb(236 236 236 / var(--surface-alpha));
+  --tab-hover-bg: rgb(224 224 224 / var(--surface-alpha));
   --danger: #d32f2f;
   --git-add: #2e7d32;
   --git-modify: #e65100;
@@ -57,7 +64,7 @@
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
-  --statusbar-bg: #e0e0e0;
+  --statusbar-bg: rgb(224 224 224 / var(--surface-alpha));
   --shadow-color: rgba(0, 0, 0, 0.15);
 }
 
