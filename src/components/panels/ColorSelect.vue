@@ -46,7 +46,7 @@ onUnmounted(() => window.removeEventListener('mousedown', closeMenu))
         selected ? t(`projectColor.${selected.name}`) : (fallbackValue ? model : t('projectColor.none'))
       }}</span>
     </button>
-    <div v-if="open" class="dropdown">
+    <div v-if="open" class="dropdown popup-surface">
       <button type="button" class="item" :class="{ active: !model }" @click="choose(undefined)">
         <span class="swatch none"></span>{{ t('projectColor.none') }}
       </button>

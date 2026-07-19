@@ -49,7 +49,8 @@ function createSearchPanel(view: EditorView): Panel {
 
   // --- DOM construction ---
   const dom = document.createElement('div')
-  dom.className = 'cm-search-custom'
+  // popup-surface keeps the panel opaque under window transparency (issue #162).
+  dom.className = 'cm-search-custom popup-surface'
 
   // Search row
   const searchRow = document.createElement('div')

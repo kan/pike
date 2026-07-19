@@ -1320,13 +1320,13 @@ onUnmounted(() => {
         <ArrowUp :size="18" :stroke-width="2" />
       </button>
     </div>
-    <div v-if="saving" class="save-indicator">{{ t('editor.saving') }}</div>
+    <div v-if="saving" class="save-indicator popup-surface">{{ t('editor.saving') }}</div>
 
     <!-- Context Menu -->
     <Teleport to="body">
       <div
         v-if="ctxMenu"
-        class="editor-ctx-menu"
+        class="editor-ctx-menu popup-surface"
         :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
         @mousedown.stop
       >
@@ -1353,7 +1353,7 @@ onUnmounted(() => {
         @mousedown="closeJsonStringPopup"
       >
         <div
-          class="json-string-popup"
+          class="json-string-popup popup-surface"
           :style="{ left: jsonStringPopup.x + 'px', top: jsonStringPopup.y + 'px' }"
           @mousedown.stop
         >

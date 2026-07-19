@@ -437,7 +437,7 @@ onUnmounted(() => {
         <HelpButton v-if="globalMode" page="global-mode.md" :size="15" />
       </div>
       <!-- Shell dropdown -->
-      <div v-if="showShellMenu" class="shell-menu" data-testid="shell-menu" @mousedown.stop>
+      <div v-if="showShellMenu" class="shell-menu popup-surface" data-testid="shell-menu" @mousedown.stop>
         <button
           v-for="s in shellMenuItems"
           :key="s.key"
@@ -545,7 +545,7 @@ onUnmounted(() => {
          its position: fixed uses real viewport coords (zoom would offset it). -->
     <div
       v-if="adminMenu"
-      class="shell-admin-menu"
+      class="shell-admin-menu popup-surface"
       :style="{ left: adminMenu.x + 'px', top: adminMenu.y + 'px' }"
       @mousedown.stop
     >
@@ -558,7 +558,7 @@ onUnmounted(() => {
     <!-- Context Menu (on a tab) -->
     <div
       v-if="contextMenu && contextTab"
-      class="context-menu"
+      class="context-menu popup-surface"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
       @mousedown.stop
     >
@@ -600,7 +600,7 @@ onUnmounted(() => {
     <!-- Context Menu (on tab bar empty area) -->
     <div
       v-else-if="contextMenu && !contextMenu.tabId"
-      class="context-menu"
+      class="context-menu popup-surface"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
       @mousedown.stop
     >

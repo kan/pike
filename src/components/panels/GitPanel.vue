@@ -551,7 +551,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="hoveredCommit"
-        class="commit-tooltip"
+        class="commit-tooltip popup-surface"
         :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
       >
         <div class="tooltip-meta">{{ hoveredCommit.hash.slice(0, 10) }}</div>
@@ -564,7 +564,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="fileCtx"
-        class="commit-file-ctx"
+        class="commit-file-ctx popup-surface"
         :style="{ left: fileCtx.x + 'px', top: fileCtx.y + 'px' }"
         @mousedown.stop
       >
@@ -577,7 +577,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="commitCtx"
-        class="commit-file-ctx"
+        class="commit-file-ctx popup-surface"
         :style="{ left: commitCtx.x + 'px', top: commitCtx.y + 'px' }"
         @mousedown.stop
       >

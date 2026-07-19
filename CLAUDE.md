@@ -383,6 +383,15 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - **切り分けの注意**: この不具合は dev で再現しないため、原因調査は**本番ビルドで**行う必要がある。加えて、同一 identifier（`com.pike.dev`）のインストール版が起動中だと single-instance で新ビルドの起動が既存インスタンスに転送され、**古い壊れた画面を検証してしまう**。切り分け時は `--config tauri.dev.conf.json`（identifier を `com.pike.dev.debug` に）を付けて `tauri build` し、併存起動できる別 identifier ビルドで確認するのが確実。埋め込み後の実 HTML/CSP は `target/release/build/pike-*/out/tauri-codegen-assets/*.html`（brotli 圧縮、`zlib.brotliDecompressSync` で復元可）で確認できる
 - **`index.html` にインライン `<style>` を置かない**のが安全側（Tauri がその hash を style-src に足して同じ問題を誘発しうる）。基本レイアウトは `src/assets/theme.css`（`main.ts` 先頭 import でバンドル CSS の `<link>` になり render-blocking＝FOUC も起きない）に置く
 
+### ウィンドウ背景透過（#162）
+設定「外観」の 不透明 / 透過 / アクリル と不透明度スライダーで、ウィンドウ背景を半透明にする。Rust は window-vibrancy で実行時にアクリルを apply/clear（`window_set_backdrop`）、ウィンドウは常に transparent 生成。
+
+- **合成の仕組み**: `theme.css` の背景変数は `rgb(<成分> / var(--surface-alpha))` で合成する。`--surface-alpha` は App.vue が backdrop 設定から算出して `documentElement` に書き込む 1 変数で、これだけで全サーフェスが一括で半透明になる。基盤レイヤーは `#app` の 1 枚だけ（html/body/#app で重ね塗りすると不透明度が掛け算になる）
+- **浮遊サーフェスは不透明**: コンテキストメニュー・ドロップダウン・ダイアログ・ツールチップは透けると読み辛いので `.popup-surface` クラスをルート要素に付ける。**新しいポップアップを追加したら必ず付けること**（付け忘れは backdrop を有効にしたときだけ再現するので、既定の不透明モードでは気付けない）
+- **なぜクラスで `--bg-*` を再宣言するのか**: カスタムプロパティの `var()` は**宣言した要素**（`:root`）で置換が確定し、子孫は合成済みの色を継承する。よって子孫で `--surface-alpha` だけ上書きしても効かない。`.popup-surface` はポップアップが実際に塗る 4 変数（`--bg-primary/secondary/tertiary`・`--tab-hover-bg`）を再宣言して、置換をその要素で起こす。背景変数を増やすときは `*-rgb` 側とこのブロックの同期に注意
+- **ポップアップの色味**: 素のテーマ色だとアクリル上で黒浮きするため、`--popup-lift-color`（dark=白 / light=黒）を `--popup-lift`（= `(1 - --surface-alpha) × 10%`）だけ `color-mix` で混ぜ、周囲が背景の透けで持ち上がったぶんを不透明色で模倣する。係数 10 は目視調整値
+- ターミナルは xterm 背景を透明にしラッパー 1 層でティント（`xtermTheme`）、エディタは CodeMirror の透過 Compartment で背景を透明化する
+
 ### E2E スクリーンショット自動化（#142）
 マニュアル画像（`docs/manual/img/`）の自動再撮影パイプライン。詳細・設計の正本は `e2e/README.md`。
 

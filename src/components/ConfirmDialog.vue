@@ -21,7 +21,7 @@ function onKeydown(e: KeyboardEvent) {
 <template>
   <Teleport to="body">
     <div v-if="visible" class="overlay ui-zoom" @click.self="respond(mode === 'info' ? true : false)" @keydown="onKeydown">
-      <div class="dialog">
+      <div class="dialog popup-surface">
         <p class="dialog-message">{{ message }}</p>
         <input
           v-if="mode === 'prompt'"

@@ -876,7 +876,7 @@ onUnmounted(() => {
           <MessageSquareText :size="14" :stroke-width="2" />
           <ChevronDown :size="12" :stroke-width="2" />
         </button>
-        <div v-if="promptMenuOpen" class="agent-menu" @mousedown.stop>
+        <div v-if="promptMenuOpen" class="agent-menu popup-surface" @mousedown.stop>
           <button
             v-for="(p, i) in agentPrompts"
             :key="i"
@@ -900,7 +900,7 @@ onUnmounted(() => {
         <button class="agent-btn caret" :title="t('terminal.agentLaunch')" @click="toggleAgentMenu">
           <ChevronDown :size="12" :stroke-width="2" />
         </button>
-        <div v-if="agentMenuOpen" class="agent-menu" @mousedown.stop>
+        <div v-if="agentMenuOpen" class="agent-menu popup-surface" @mousedown.stop>
           <button
             v-for="(c, i) in agentCommands"
             :key="i"

@@ -6,9 +6,19 @@
      alpha 1 = fully opaque (identical to before). Non-background vars (text,
      border, accent, git/graph colors) stay opaque. */
   --surface-alpha: 1;
-  --bg-primary: rgb(30 30 30 / var(--surface-alpha));
-  --bg-secondary: rgb(37 37 38 / var(--surface-alpha));
-  --bg-tertiary: rgb(45 45 45 / var(--surface-alpha));
+  /* Popup color lift (see .popup-surface): white in dark themes, because the
+     acrylic/desktop bleed brightens the surrounding surfaces. Derived from the
+     alpha, so it is 0% whenever the window is opaque. The factor was tuned by
+     eye: higher values made the popups float above the window. */
+  --popup-lift-color: #ffffff;
+  --popup-lift: calc((1 - var(--surface-alpha)) * 10%);
+  --bg-primary-rgb: 30 30 30;
+  --bg-secondary-rgb: 37 37 38;
+  --bg-tertiary-rgb: 45 45 45;
+  --tab-hover-bg-rgb: 53 53 53;
+  --bg-primary: rgb(var(--bg-primary-rgb) / var(--surface-alpha));
+  --bg-secondary: rgb(var(--bg-secondary-rgb) / var(--surface-alpha));
+  --bg-tertiary: rgb(var(--bg-tertiary-rgb) / var(--surface-alpha));
   --text-primary: #cccccc;
   --text-secondary: #969696;
   --text-active: #ffffff;
@@ -16,7 +26,7 @@
   --border: #404040;
   --tab-active-bg: rgb(30 30 30 / var(--surface-alpha));
   --tab-inactive-bg: rgb(45 45 45 / var(--surface-alpha));
-  --tab-hover-bg: rgb(53 53 53 / var(--surface-alpha));
+  --tab-hover-bg: rgb(var(--tab-hover-bg-rgb) / var(--surface-alpha));
   --danger: #f44747;
   --git-add: #4ec9b0;
   --git-modify: #e2c08d;
@@ -38,9 +48,15 @@
 
 [data-theme="light"] {
   --surface-alpha: 1;
-  --bg-primary: rgb(255 255 255 / var(--surface-alpha));
-  --bg-secondary: rgb(243 243 243 / var(--surface-alpha));
-  --bg-tertiary: rgb(232 232 232 / var(--surface-alpha));
+  /* Light theme: the bleed darkens the (near-white) surfaces, so lift toward black. */
+  --popup-lift-color: #000000;
+  --bg-primary-rgb: 255 255 255;
+  --bg-secondary-rgb: 243 243 243;
+  --bg-tertiary-rgb: 232 232 232;
+  --tab-hover-bg-rgb: 224 224 224;
+  --bg-primary: rgb(var(--bg-primary-rgb) / var(--surface-alpha));
+  --bg-secondary: rgb(var(--bg-secondary-rgb) / var(--surface-alpha));
+  --bg-tertiary: rgb(var(--bg-tertiary-rgb) / var(--surface-alpha));
   --text-primary: #333333;
   --text-secondary: #717171;
   --text-active: #000000;
@@ -48,7 +64,7 @@
   --border: #d4d4d4;
   --tab-active-bg: rgb(255 255 255 / var(--surface-alpha));
   --tab-inactive-bg: rgb(236 236 236 / var(--surface-alpha));
-  --tab-hover-bg: rgb(224 224 224 / var(--surface-alpha));
+  --tab-hover-bg: rgb(var(--tab-hover-bg-rgb) / var(--surface-alpha));
   --danger: #d32f2f;
   --git-add: #2e7d32;
   --git-modify: #e65100;
@@ -94,6 +110,29 @@
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Window transparency (issue #162): floating surfaces (context menus, dropdowns,
+   dialogs, tooltips) stay opaque. They are small, text-dense and short-lived, so
+   letting the desktop show through them hurts readability without adding to the
+   effect.
+
+   Overriding --surface-alpha here would do nothing: a custom property's var()
+   references are substituted on the element that declares it (:root), so
+   descendants inherit the already-composed color. The --bg-* vars are therefore
+   re-declared, which moves the substitution to the popup root. Only the vars a
+   popup can actually paint are listed; the *-rgb literals still come from the
+   theme, so light/dark keep working.
+
+   Plain theme colors would read as a black hole on top of an acrylic window,
+   whose surfaces are lifted by the blurred desktop showing through, so the
+   colors are mixed toward --popup-lift-color by --popup-lift (0% when the window
+   is opaque = exact theme colors). */
+.popup-surface {
+  --bg-primary: color-mix(in srgb, var(--popup-lift-color) var(--popup-lift), rgb(var(--bg-primary-rgb)));
+  --bg-secondary: color-mix(in srgb, var(--popup-lift-color) var(--popup-lift), rgb(var(--bg-secondary-rgb)));
+  --bg-tertiary: color-mix(in srgb, var(--popup-lift-color) var(--popup-lift), rgb(var(--bg-tertiary-rgb)));
+  --tab-hover-bg: color-mix(in srgb, var(--popup-lift-color) var(--popup-lift), rgb(var(--tab-hover-bg-rgb)));
 }
 
 /* Shared keyboard shortcut hint for context menus / popup menus */

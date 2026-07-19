@@ -45,7 +45,7 @@ function respondGenericOption(option: string) {
 <template>
   <Teleport to="body">
     <div v-if="show" class="approval-overlay ui-zoom">
-      <div class="approval-dialog" @click.stop>
+      <div class="approval-dialog popup-surface" @click.stop>
         <!-- Sandbox warning for Windows -->
         <div v-if="!sandboxTrusted" class="sandbox-warning">
           <AlertTriangle :size="14" :stroke-width="2" />

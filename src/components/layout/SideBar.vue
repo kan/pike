@@ -272,7 +272,7 @@ onUnmounted(() => {
       </button>
       <div class="icon-spacer" />
       <div class="bot-wrapper">
-        <div v-if="showAgentMenu" class="agent-menu" @mousedown.stop>
+        <div v-if="showAgentMenu" class="agent-menu popup-surface" @mousedown.stop>
           <button class="agent-menu-item" @click="selectAgent('claude-code')">Claude Code</button>
           <button class="agent-menu-item" @click="selectAgent('codex')">Codex</button>
         </div>
@@ -285,7 +285,7 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="gear-wrapper">
-        <div v-if="showGearMenu" class="gear-menu" @mousedown.stop>
+        <div v-if="showGearMenu" class="gear-menu popup-surface" @mousedown.stop>
           <button class="gear-menu-item" @click="checkUpdate">
             <span>{{ t('settings.checkUpdate') }}</span>
             <span v-if="updater.hasUpdate.value" class="update-badge">NEW</span>

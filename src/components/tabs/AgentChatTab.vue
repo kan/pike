@@ -1078,7 +1078,7 @@ onUnmounted(() => {
       <!-- Input -->
       <div class="input-area">
         <!-- Slash command menu -->
-        <div v-if="showSlashMenu && filteredSlashCommands.length > 0" class="slash-menu">
+        <div v-if="showSlashMenu && filteredSlashCommands.length > 0" class="slash-menu popup-surface">
           <div
             v-for="(cmd, idx) in filteredSlashCommands"
             :key="cmd.name"
@@ -1093,7 +1093,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Completion menu (files or options) -->
-        <div v-if="showMentionMenu && filteredMentionItems.length > 0" class="mention-menu">
+        <div v-if="showMentionMenu && filteredMentionItems.length > 0" class="mention-menu popup-surface">
           <div
             v-for="(item, idx) in filteredMentionItems"
             :key="item"

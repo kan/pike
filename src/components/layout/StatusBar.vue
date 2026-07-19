@@ -403,10 +403,10 @@ onUnmounted(() => {
       <span class="status-text">{{ t('statusBar.spaces') }} {{ editorInfo.current.value.tabSize }}</span>
       <div class="status-dropdown-area">
         <button class="status-item clickable small" @click="toggleEncodingMenu">{{ editorInfo.current.value.encoding }}</button>
-        <div v-if="showEncodingMenu" class="status-dropdown" @mousedown.stop>
+        <div v-if="showEncodingMenu" class="status-dropdown popup-surface" @mousedown.stop>
           <button v-for="enc in encodings" :key="enc" @click="selectEncoding(enc)">{{ enc }}</button>
         </div>
-        <div v-if="showEncodingAction" class="status-dropdown" @mousedown.stop>
+        <div v-if="showEncodingAction" class="status-dropdown popup-surface" @mousedown.stop>
           <div class="dropdown-label">{{ selectedEncoding }}</div>
           <button @click="reopenWithEncoding">{{ t('statusBar.reopenWithEncoding') }}</button>
           <button @click="saveWithEncoding">{{ t('statusBar.saveWithEncoding') }}</button>
@@ -414,7 +414,7 @@ onUnmounted(() => {
       </div>
       <div class="status-dropdown-area">
         <button class="status-item clickable small" @click="toggleLineEndingMenu">{{ editorInfo.current.value.lineEnding }}</button>
-        <div v-if="showLineEndingMenu" class="status-dropdown" @mousedown.stop>
+        <div v-if="showLineEndingMenu" class="status-dropdown popup-surface" @mousedown.stop>
           <button @click="selectLineEnding('LF')">{{ t('statusBar.lfUnix') }}</button>
           <button @click="selectLineEnding('CRLF')">{{ t('statusBar.crlfWindows') }}</button>
         </div>
@@ -432,7 +432,7 @@ onUnmounted(() => {
         <span v-else>{{ t('statusBar.ccName') }}</span>
         <span v-if="claudeRateSession" class="cc-cost" :class="rateLevelClass(claudeRateSession.usedPercent)">{{ t('statusBar.rate5h') }} {{ claudeRateSession.usedPercent.toFixed(0) }}%</span>
       </button>
-      <div v-if="showClaudeUsage" class="status-dropdown cc-dropdown" @mousedown.stop>
+      <div v-if="showClaudeUsage" class="status-dropdown cc-dropdown popup-surface" @mousedown.stop>
         <div class="dropdown-label">
           <span>{{ claudeUsageStore.usage?.active ? t('statusBar.ccSession') : t('statusBar.rate') }}</span>
           <HelpButton page="terminal-and-agents.md#トークン使用量とコスト" :size="13" />
@@ -484,7 +484,7 @@ onUnmounted(() => {
         <span>{{ formatTokens(codexCliUsage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(codexCliUsage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
         <span v-if="codexCliUsage.rateLimitPrimary" class="cc-cost">{{ t('statusBar.rate5h') }} {{ codexCliUsage.rateLimitPrimary.usedPercent.toFixed(0) }}%</span>
       </button>
-      <div v-if="showCodexUsage" class="status-dropdown cc-dropdown" @mousedown.stop>
+      <div v-if="showCodexUsage" class="status-dropdown cc-dropdown popup-surface" @mousedown.stop>
         <div class="dropdown-label">
           <span>{{ t('statusBar.codexSession') }}<template v-if="codexCliUsage.sessionCount > 1"> ({{ codexCliUsage.sessionCount }} {{ t('statusBar.codexSessions') }})</template></span>
           <HelpButton page="terminal-and-agents.md#トークン使用量とコスト" :size="13" />
@@ -515,7 +515,7 @@ onUnmounted(() => {
         <span>{{ worktreeLabel }}</span>
       </button>
 
-      <div v-if="showWorktrees" class="branch-dropdown" @mousedown.stop>
+      <div v-if="showWorktrees" class="branch-dropdown popup-surface" @mousedown.stop>
         <div class="dropdown-label">
           <span>{{ t('worktree.switch') }}</span>
           <HelpButton page="git.md#worktree" :size="13" />
@@ -545,7 +545,7 @@ onUnmounted(() => {
         <span v-if="gitStore.status.isDirty" class="dirty-dot"></span>
       </button>
 
-      <div v-if="showBranches" class="branch-dropdown" @mousedown.stop>
+      <div v-if="showBranches" class="branch-dropdown popup-surface" @mousedown.stop>
         <input
           v-model="branchQuery"
           class="branch-search"

@@ -589,7 +589,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 
       <!-- Context menu -->
       <Teleport to="body">
-        <div v-if="ctxMenu" class="tree-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @mousedown.stop>
+        <div v-if="ctxMenu" class="tree-ctx-menu popup-surface" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @mousedown.stop>
           <!-- ignored dirs: copy path / Explorer only, mutating actions stay off -->
           <template v-if="ctxMenu.ignored">
             <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>

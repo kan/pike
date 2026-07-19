@@ -190,7 +190,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 <template>
   <Teleport to="body">
     <div v-if="projectStore.showSwitcher" class="switcher-overlay ui-zoom" @mousedown.self="projectStore.showSwitcher = false">
-      <div class="switcher" data-testid="project-switcher">
+      <div class="switcher popup-surface" data-testid="project-switcher">
         <!-- Search bar (hidden when creating) -->
         <input
           v-if="!showNewForm"

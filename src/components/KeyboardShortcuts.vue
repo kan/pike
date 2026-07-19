@@ -73,7 +73,7 @@ const sections = computed<ShortcutSection[]>(() => [
       @mousedown.self="visible = false"
       @keydown="onKeyDown"
     >
-      <div ref="panelRef" class="shortcuts-panel" tabindex="-1">
+      <div ref="panelRef" class="shortcuts-panel popup-surface" tabindex="-1">
         <div class="shortcuts-header">
           <span class="shortcuts-title">{{ t('shortcuts.title') }}</span>
           <button class="close-btn" @click="visible = false">&times;</button>
