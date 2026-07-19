@@ -565,7 +565,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - **ファイル引数なしの `--wait`**（素の `pike --wait` や directory 引数）は待機対象が無いため、abort イベントで即座に CLI を解放してから通常のアクション処理に回す（解放しないと CLI が永遠にブロックする）
 
 ### コミット前チェック
-コミット前に以下を実行し、エラー・警告がゼロであることを確認する:
+
+**コードを変更するコミットの前は、まず `simplify` スキル（ビルトイン）を実行し、指摘（再利用・単純化・効率・抽象度）を反映してから、以下の静的チェックを実行する。**
+
+- 対象外（simplify をスキップしてよい）: **バージョン bump のみ**のコミットと、**ドキュメントのみ**（`README.md` / `docs/manual/` / `CHANGELOG.md`）のコミット。
+- simplify はコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは simplify 適用後のコードを試す）。
+- simplify はバグ探索ではなく品質整理。バグ確認が要る場合は別途 `/code-review` を使う。
+
+その上でコミット前に以下を実行し、エラー・警告がゼロであることを確認する:
 
 - **Rust**: `cargo clippy -- -D warnings`（`src-tauri/` で実行）
 - **Frontend**: `npm run lint`（= `biome check src/`）
