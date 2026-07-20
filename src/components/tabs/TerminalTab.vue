@@ -15,6 +15,8 @@ import {
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { hexToRgba } from '../../lib/format'
+// 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
+import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
 import { openUrlWithConfirm, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
@@ -427,12 +429,14 @@ onMounted(async () => {
   // setTimeout is queued after xterm's own read (registered on the textarea
   // target) and therefore runs later; the compositionstart listener stays in
   // CAPTURE phase so, when it does clear, it precedes xterm recording the offset.
+  imeLogSessionStart(props.tabId)
   let imeSending = false
   let imeComposing = false
   termRef.value.addEventListener(
     'compositionstart',
     () => {
       imeComposing = true
+      imeLog('compositionstart', terminal?.textarea?.value ?? '', `sending=${imeSending}`)
       // Regular repeated conversions arrive here with no send pending, so it is
       // safe to reset the offset to 0. During an SKK confirm-by-continue streak a
       // send is still in flight, so leave the textarea intact for xterm to read.
@@ -440,9 +444,14 @@ onMounted(async () => {
     },
     true,
   )
-  termRef.value.addEventListener('compositionend', () => {
+  // 調査用: 変換候補の遷移を追う（削除対象）。
+  termRef.value.addEventListener('compositionupdate', (e) => {
+    imeLog('compositionupdate', (e as CompositionEvent).data ?? '')
+  })
+  termRef.value.addEventListener('compositionend', (e) => {
     imeComposing = false
     imeSending = true
+    imeLog('compositionend', (e as CompositionEvent).data ?? '', `ta="${terminal?.textarea?.value ?? ''}"`)
     setTimeout(() => {
       imeSending = false
       // If a new composition has already taken over (SKK streak), leave the
@@ -451,6 +460,28 @@ onMounted(async () => {
       if (!imeComposing && terminal?.textarea) terminal.textarea.value = ''
     }, 0)
   })
+  // 調査用: IME が「確定済みの文字を消す」要求を出しているかを見る。
+  // deleteContentBackward が出ていれば BS の出所はこちら側。
+  termRef.value.addEventListener('beforeinput', (e) => {
+    const ie = e as InputEvent
+    imeLog('beforeinput', ie.data ?? '', `type=${ie.inputType} composing=${ie.isComposing}`)
+  })
+  // 調査用: beforeinput が preventDefault されず実際に適用されたかの裏取り（削除対象）。
+  termRef.value.addEventListener('input', (e) => {
+    const ie = e as InputEvent
+    imeLog('input', ie.data ?? '', `type=${ie.inputType} composing=${ie.isComposing}`)
+  })
+  termRef.value.addEventListener(
+    'keydown',
+    (e) => {
+      const ke = e as KeyboardEvent
+      // 全打鍵は要らない。BS の出所と、変換中フラグの食い違いだけ見たい。
+      if (ke.key === 'Backspace' || ke.key === 'Delete') {
+        imeLog('keydown', ke.key, `composing=${ke.isComposing} code=${ke.code}`)
+      }
+    },
+    true,
+  )
 
   // Newly created tabs mount after activeTabId has already changed, so the
   // tab-activation watcher never fires for the initial activation. Without
@@ -610,10 +641,15 @@ onMounted(async () => {
     if (!ptyId) return
     if (data.split('').some((c) => c.charCodeAt(0) > 127)) {
       const now = Date.now()
-      if (data === lastIMEData && now - lastIMETime < 30) return
+      if (data === lastIMEData && now - lastIMETime < 30) {
+        // 調査用: ここで捨てた分が「消えた 1 文字」の正体かを確かめる。
+        imeLog('onData:DROPPED', data, `sinceLast=${now - lastIMETime}ms`)
+        return
+      }
       lastIMEData = data
       lastIMETime = now
     }
+    imeLog('onData', data)
     ptyWrite(ptyId, data.replace(/\r\n/g, '\r')).catch(() => {})
   })
 

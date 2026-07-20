@@ -154,6 +154,22 @@ export async function windowSetBackdrop(kind: string, baseRgb: string): Promise<
   return invoke('window_set_backdrop', { kind, baseRgb })
 }
 
+/**
+ * 一時的な調査用ログ（TODO「謎のバックスペース」）が有効か。app data ディレクトリ
+ * に `ime-debug.on` を置いた環境だけ true。既定は false で、何も記録しない。
+ */
+export async function imeDebugEnabled(): Promise<boolean> {
+  return invoke<boolean>('ime_debug_enabled')
+}
+
+/**
+ * 同上。溜めた行をファイルへ追記する。
+ * 原因が判明したら `lib/imeDebugLog.ts` ごと削除する。
+ */
+export async function imeDebugLog(lines: string[]): Promise<void> {
+  return invoke('ime_debug_log', { lines })
+}
+
 export async function projectGroupsList(): Promise<string[]> {
   return invoke<string[]>('project_groups_list')
 }

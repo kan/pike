@@ -10,6 +10,7 @@ mod elevate;
 mod font;
 mod fs;
 mod git;
+mod ime_debug;
 mod jumplist;
 mod search;
 mod project;
@@ -1044,6 +1045,8 @@ pub fn run() {
             tray_set_tooltip,
             tray_set_close_to_tray,
             window_set_backdrop,
+            ime_debug::ime_debug_enabled,
+            ime_debug::ime_debug_log,
             elevate::is_elevated,
             elevate::open_elevated_terminal,
             save_all_window_state,
