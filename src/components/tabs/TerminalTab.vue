@@ -44,6 +44,19 @@ const props = defineProps<{
 
 const SPAWN_GRACE_PERIOD_MS = 2000
 
+/** xterm が Backspace として送るバイト。IME 確定直後の誤送出の判定にも使う。 */
+const DEL = '\x7f'
+/** 確定文字を控えておく時間。xterm 側の誤送出は確定の 10ms 前後で来る。 */
+const COMMIT_DEL_WINDOW_MS = 100
+
+/** `split('')` で 1 文字ずつ配列に起こさずに済ませる（ペーストもここを通る）。 */
+function hasNonAscii(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    if (s.charCodeAt(i) > 127) return true
+  }
+  return false
+}
+
 // Shown once per (elevated) process: elevation is a Windows-host attribute and
 // does not make WSL terminals root, so an admin window opening a WSL shell is
 // almost pointless (#138). Module-scoped so it fires only the first time.
@@ -432,6 +445,12 @@ onMounted(async () => {
   imeLogSessionStart(props.tabId)
   let imeSending = false
   let imeComposing = false
+  // 「謎のバックスペース」対策（xterm 6.0.0）。IME 有効時の打鍵を監視する
+  // CompositionHelper が、数 ms で終わる変換（SKK の wo→を 等）のあとに走ると、
+  // 上の textarea クリアを「文字が消えた」と誤認して確定文字の代わりに DEL を
+  // 送る（実測で 144 変換に 2 回）。確定直後に単独で来た DEL は確定文字に
+  // 差し替える。本来は xterm 側で直すべきもの。
+  let pendingCommit: { data: string; at: number } | null = null
   termRef.value.addEventListener(
     'compositionstart',
     () => {
@@ -451,7 +470,9 @@ onMounted(async () => {
   termRef.value.addEventListener('compositionend', (e) => {
     imeComposing = false
     imeSending = true
-    imeLog('compositionend', (e as CompositionEvent).data ?? '', `ta="${terminal?.textarea?.value ?? ''}"`)
+    const committed = (e as CompositionEvent).data ?? ''
+    if (committed) pendingCommit = { data: committed, at: Date.now() }
+    imeLog('compositionend', committed, `ta="${terminal?.textarea?.value ?? ''}"`)
     setTimeout(() => {
       imeSending = false
       // If a new composition has already taken over (SKK streak), leave the
@@ -471,14 +492,16 @@ onMounted(async () => {
     const ie = e as InputEvent
     imeLog('input', ie.data ?? '', `type=${ie.inputType} composing=${ie.isComposing}`)
   })
+  // 本人が押した BS / Delete は差し替えの対象外（確定直後でもそのまま通す）。
+  // ここは調査用ではないので、imeLog 群を掃除するときも残すこと。
   termRef.value.addEventListener(
     'keydown',
     (e) => {
       const ke = e as KeyboardEvent
-      // 全打鍵は要らない。BS の出所と、変換中フラグの食い違いだけ見たい。
-      if (ke.key === 'Backspace' || ke.key === 'Delete') {
-        imeLog('keydown', ke.key, `composing=${ke.isComposing} code=${ke.code}`)
-      }
+      if (ke.key !== 'Backspace' && ke.key !== 'Delete') return
+      pendingCommit = null
+      // 調査用: BS の出所と、変換中フラグの食い違いを見る（この行だけ削除対象）。
+      imeLog('keydown', ke.key, `composing=${ke.isComposing} code=${ke.code}`)
     },
     true,
   )
@@ -637,9 +660,14 @@ onMounted(async () => {
   // twice. Guard by rejecting identical non-ASCII data within 30ms.
   let lastIMEData = ''
   let lastIMETime = 0
-  terminal.onData((data) => {
+  terminal.onData((raw) => {
     if (!ptyId) return
-    if (data.split('').some((c) => c.charCodeAt(0) > 127)) {
+    // 確定直後の 1 回だけ有効。差し替えた分の二重送出は下の dedup が吸収する。
+    const commit = pendingCommit
+    pendingCommit = null
+    const data = commit && raw === DEL && Date.now() - commit.at < COMMIT_DEL_WINDOW_MS ? commit.data : raw
+    if (data !== raw) imeLog('onData:DEL_FIXUP', data)
+    if (hasNonAscii(data)) {
       const now = Date.now()
       if (data === lastIMEData && now - lastIMETime < 30) {
         // 調査用: ここで捨てた分が「消えた 1 文字」の正体かを確かめる。
