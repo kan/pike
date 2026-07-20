@@ -200,10 +200,12 @@ export const useTodoStore = defineStore('todo', () => {
     scheduleSave()
   }
 
-  /** Remove every task line, keeping headings and free-text (raw) lines. */
-  function clear() {
-    if (!tasks.value.length) return
-    lines.value = lines.value.filter((l) => l.kind !== 'task')
+  /** Remove task lines, keeping headings and free-text (raw) lines. With
+   *  `doneOnly`, sweeps just the checked ones. */
+  function clear(doneOnly = false) {
+    const drop = (l: TodoLine) => l.kind === 'task' && (!doneOnly || l.done)
+    if (!lines.value.some(drop)) return
+    lines.value = lines.value.filter((l) => !drop(l))
     scheduleSave()
   }
 

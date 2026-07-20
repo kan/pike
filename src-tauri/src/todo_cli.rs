@@ -488,18 +488,33 @@ fn run(sub: Option<&str>, rest: &[String]) -> i32 {
             0
         }
         "clear" => {
+            // Only `--done` is accepted: silently ignoring a typo here would
+            // wipe every task instead of just the checked ones.
+            let done_only = match rest {
+                [] => false,
+                [flag] if flag == "--done" => true,
+                _ => {
+                    eprintln!("todo clear: unknown argument (only --done is accepted)");
+                    return 2;
+                }
+            };
             let mut lines = load(&path);
-            let before = task_line_indices(&lines).len();
+            let doomed = |l: &Line| matches!(l, Line::Task { done, .. } if !done_only || *done);
+            let before = lines.iter().filter(|l| doomed(l)).count();
             if before == 0 {
-                println!("no todos to clear");
+                println!("no {}todos to clear", if done_only { "completed " } else { "" });
                 return 0;
             }
-            lines.retain(|l| !matches!(l, Line::Task { .. }));
+            lines.retain(|l| !doomed(l));
             if let Err(e) = save(&path, &lines) {
                 eprintln!("{e}");
                 return 1;
             }
-            println!("cleared {before} todo{}", if before == 1 { "" } else { "s" });
+            println!(
+                "cleared {before} {}todo{}",
+                if done_only { "completed " } else { "" },
+                if before == 1 { "" } else { "s" }
+            );
             0
         }
         "help" | "--help" | "-h" => {
@@ -588,7 +603,7 @@ fn print_usage() {
          \x20 pike todo done <n...>         mark task(s) done\n\
          \x20 pike todo undone <n...>       mark task(s) not done\n\
          \x20 pike todo rm <n...>           remove task(s)\n\
-         \x20 pike todo clear               remove all tasks (keep headings/notes)\n\
+         \x20 pike todo clear [--done]      remove all tasks, or just completed ones\n\
          \n\
          DETAIL:\n\
          \x20 A task may carry a multi-line body, stored as indented lines under it.\n\
@@ -657,6 +672,16 @@ mod tests {
         assert_eq!(serialize(&lines), src);
         // `[X]` is accepted on read but normalized to lowercase `[x]` on write.
         assert_eq!(serialize(&parse("- [X] up")), "- [x] up");
+    }
+
+    #[test]
+    fn clear_done_keeps_open_tasks_and_notes() {
+        let lines = parse("# Heading\n- [ ] open\n- [x] closed\n  detail of closed\nfree text");
+        let kept: Vec<Line> = lines
+            .into_iter()
+            .filter(|l| !matches!(l, Line::Task { done: true, .. }))
+            .collect();
+        assert_eq!(serialize(&kept), "# Heading\n- [ ] open\nfree text");
     }
 
     #[test]

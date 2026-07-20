@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { Check, ChevronDown, ChevronRight, Eraser, FileText, Plus, TextAlignStart, Trash2 } from 'lucide-vue-next'
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Eraser,
+  FileText,
+  ListChecks,
+  Plus,
+  TextAlignStart,
+  Trash2,
+} from 'lucide-vue-next'
 import { nextTick, ref } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
@@ -78,6 +88,10 @@ function openFile() {
 async function clearAll() {
   if (await confirmDialog(t('todo.clearConfirm'))) todo.clear()
 }
+
+async function clearDone() {
+  if (await confirmDialog(t('todo.clearDoneConfirm', { count: todo.progress.done }))) todo.clear(true)
+}
 </script>
 
 <template>
@@ -89,6 +103,14 @@ async function clearAll() {
         <div class="todo-top-actions">
           <button class="icon-btn" :title="t('todo.openFile')" @click="openFile">
             <FileText :size="14" :stroke-width="2" />
+          </button>
+          <button
+            class="icon-btn"
+            :title="t('todo.clearDone')"
+            :disabled="todo.progress.done === 0"
+            @click="clearDone"
+          >
+            <ListChecks :size="14" :stroke-width="2" />
           </button>
           <button
             class="icon-btn danger"

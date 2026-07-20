@@ -40,6 +40,7 @@ pike todo done <n...>          # mark task number(s) done
 pike todo undone <n...>        # mark task number(s) not done
 pike todo rm <n...>            # remove task number(s)
 pike todo clear                # remove all tasks (headings and notes are kept)
+pike todo clear --done         # remove only the completed tasks
 ```
 
 Numbers are the positions shown by `pike todo list`. `done`, `undone`, `rm`, and
