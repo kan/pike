@@ -53,6 +53,10 @@ tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Security",
+    # 背景透過 (#162): 不透明モードで per-pixel alpha を切る DwmEnableBlurBehindWindow と
+    # そのブラー領域 (CreateRectRgn / DeleteObject)
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
     "Win32_System_Com",
     # jumplist: PROPVARIANT の手組み (VT_LPWSTR) と Variant 定数
     "Win32_System_Com_StructuredStorage",

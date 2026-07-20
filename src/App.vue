@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { computed, onMounted, watch } from 'vue'
+import { computed, nextTick, onMounted, watch } from 'vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import SideBar from './components/layout/SideBar.vue'
@@ -62,13 +62,23 @@ if (isMainWindow()) {
 }
 
 // Window background transparency (issue #162). Every window applies the native
-// acrylic/mica effect to itself and mirrors the surface alpha into a CSS
-// variable, so panels/terminal/editor go translucent together. Runs in all
-// windows (unlike close-to-tray) because the effect is per-window.
+// backdrop to itself and mirrors the surface alpha into a CSS variable, so
+// panels/terminal/editor go translucent together. Runs in all windows (unlike
+// close-to-tray) because the backdrop is per-window.
+//
+// The native call also carries the theme's opaque base color, so it re-runs on a
+// light/dark switch — but only in the opaque mode, which is the only one that
+// uses that color. The opacity slider deliberately does NOT trigger it either:
+// only CSS consumes the alpha, and dragging would fire an IPC call per frame.
 watch(
-  () => settingsStore.windowBackdrop,
-  (kind) => {
-    void windowSetBackdrop(kind).catch(() => {})
+  [() => settingsStore.windowBackdrop, () => settingsStore.darkMode],
+  async ([kind], prev) => {
+    if (kind !== 'none' && prev?.[0] === kind) return
+    // Read --bg-primary-rgb after the data-theme swap has landed, so the native
+    // background matches what CSS paints (theme.css stays the single source).
+    await nextTick()
+    const baseRgb = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary-rgb')
+    void windowSetBackdrop(kind, baseRgb).catch(() => {})
   },
   { immediate: true },
 )

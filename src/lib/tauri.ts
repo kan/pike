@@ -144,11 +144,14 @@ export async function traySetCloseToTray(enabled: boolean): Promise<void> {
 }
 
 /**
- * Apply the window backdrop effect for background transparency (issue #162).
- * `kind` is 'none' | 'acrylic' | 'mica'; applies to the calling window.
+ * Apply the window backdrop for background transparency (issue #162), to the
+ * calling window. `kind` is 'none' | 'transparent' | 'acrylic'. `baseRgb` is the
+ * theme's opaque surface color as CSS components (`"30 30 30"`), used as the
+ * webview's default background in the opaque mode so there is no flash of the
+ * wrong color while loading or resizing.
  */
-export async function windowSetBackdrop(kind: string): Promise<void> {
-  return invoke('window_set_backdrop', { kind })
+export async function windowSetBackdrop(kind: string, baseRgb: string): Promise<void> {
+  return invoke('window_set_backdrop', { kind, baseRgb })
 }
 
 export async function projectGroupsList(): Promise<string[]> {

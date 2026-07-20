@@ -384,8 +384,13 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - **`index.html` にインライン `<style>` を置かない**のが安全側（Tauri がその hash を style-src に足して同じ問題を誘発しうる）。基本レイアウトは `src/assets/theme.css`（`main.ts` 先頭 import でバンドル CSS の `<link>` になり render-blocking＝FOUC も起きない）に置く
 
 ### ウィンドウ背景透過（#162）
-設定「外観」の 不透明 / 透過 / アクリル と不透明度スライダーで、ウィンドウ背景を半透明にする。Rust は window-vibrancy で実行時にアクリルを apply/clear（`window_set_backdrop`）、ウィンドウは常に transparent 生成。
+設定「外観」の 不透明 / 透過 / アクリル と不透明度スライダーで、ウィンドウ背景を半透明にする。ウィンドウは常に transparent 生成し、実際の透け方は `window_set_backdrop` が実行時に切り替える。
 
+- **不透明モードは本当に不透明に戻す**: tao の `transparent` フラグ自体は後から変えられないが、その実体は「空リージョンの `DwmEnableBlurBehindWindow`（= per-pixel alpha 化）」なので**解除はできる**。`window_set_backdrop` は不透明モードで (1) `DwmEnableBlurBehindWindow(fEnable=false)` で per-pixel alpha を切り、(2) WebView2 の既定背景をテーマ色（α=255）に戻す。これをしないと、設定が既定の「不透明」でも全ユーザーが透過合成パスに乗り続ける。WebView2 は **α=0 だけを透過**として扱い、それ以外の α は 255 に丸める仕様なので、透過モードでは `Color(0,0,0,0)` を渡す
+- **テーマ色の受け渡し**: 不透明時の下地色は App.vue が `getComputedStyle` で `--bg-primary-rgb`（`"30 30 30"` 形式）を読んで引数で渡す。`theme.css` を単一の真実に保つため。ダーク/ライト切替でも呼び直す必要があるので、watch のキーは `windowBackdrop` と `darkMode`。ただし**色を使うのは不透明モードだけ**なので、透過/アクリルのままテーマだけ変わったときは早期 return する。**不透明度スライダーも native 呼び出しの契機に入れない**（α は CSS しか使わないうえ、ドラッグ中に毎フレーム IPC が飛ぶ）。`data-theme` の差し替え後に読むため `nextTick` を挟む
+- **mount 前の下地**: `window_set_backdrop` はフロントの mount 後にしか走らないので、それまでの数フレームは生成時点の背景色がそのまま見える。既定の不透明モードでデスクトップが透けないよう、`build_window` の `.background_color(...)` と `tauri.conf.json` の `backgroundColor`（main ウィンドウ）にダークの下地色を置いてある。Rust 側の定数は `DARK_SURFACE_RGB` で、`theme.css` のダーク `--bg-primary-rgb` と手動同期（parse 失敗時のフォールバックも兼ねる）。なお per-pixel alpha 自体は生成時に外せない（builder にフラグが無い）ので、mount までのごく短い間だけ透過ウィンドウのままである点は残る
+- **DWM 呼び出しは main スレッドで**: `window_set_backdrop` は tokio ワーカーで走るので、DWM / window-vibrancy の呼び出しは `run_on_main_thread` に載せる（ウィンドウ属性の変更はそのウィンドウの所有スレッドで行う）。なお `hwnd()` が返すのは tauri 側の windows 0.61 の `HWND` で、直接依存の 0.62 とは別型なので生ポインタ経由で渡し直す
+- **アクリルの注意**: Win11 22621+ の `apply_acrylic` は `DWMWA_SYSTEMBACKDROP_TYPE`（TRANSIENTWINDOW）を使う。window-vibrancy 自身がドラッグ・リサイズが重くなる旨を警告しているので、体感の重さの報告が出たらまずここを疑う
 - **合成の仕組み**: `theme.css` の背景変数は `rgb(<成分> / var(--surface-alpha))` で合成する。`--surface-alpha` は App.vue が backdrop 設定から算出して `documentElement` に書き込む 1 変数で、これだけで全サーフェスが一括で半透明になる。基盤レイヤーは `#app` の 1 枚だけ（html/body/#app で重ね塗りすると不透明度が掛け算になる）
 - **浮遊サーフェスは不透明**: コンテキストメニュー・ドロップダウン・ダイアログ・ツールチップは透けると読み辛いので `.popup-surface` クラスをルート要素に付ける。**新しいポップアップを追加したら必ず付けること**（付け忘れは backdrop を有効にしたときだけ再現するので、既定の不透明モードでは気付けない）
 - **なぜクラスで `--bg-*` を再宣言するのか**: カスタムプロパティの `var()` は**宣言した要素**（`:root`）で置換が確定し、子孫は合成済みの色を継承する。よって子孫で `--surface-alpha` だけ上書きしても効かない。`.popup-surface` はポップアップが実際に塗る 4 変数（`--bg-primary/secondary/tertiary`・`--tab-hover-bg`）を再宣言して、置換をその要素で起こす。背景変数を増やすときは `*-rgb` 側とこのブロックの同期に注意

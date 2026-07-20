@@ -41,6 +41,26 @@ const GLOBAL_PREFIX: &str = "global-";
 /// handler, so it lives in a process-global atomic rather than managed state.
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
 
+/// The dark theme's opaque surface color, kept in sync with `--bg-primary-rgb`
+/// in `src/assets/theme.css`. Used as the pre-mount window background and as the
+/// fallback when the frontend's color cannot be parsed (issue #162).
+const DARK_SURFACE_RGB: (u8, u8, u8) = (30, 30, 30);
+
+/// The window's `HWND` as the `windows` crate version this crate depends on
+/// directly. `WebviewWindow::hwnd()` hands back tauri's own `HWND`, which comes
+/// from an older `windows` release and is therefore a *different* type, so the
+/// handle has to be re-wrapped through a raw pointer.
+#[cfg(windows)]
+fn win32_hwnd(window: &WebviewWindow, tag: &str) -> Option<windows::Win32::Foundation::HWND> {
+    match window.hwnd() {
+        Ok(h) => Some(windows::Win32::Foundation::HWND(h.0 as isize as *mut _)),
+        Err(e) => {
+            log::warn!("[{tag}] hwnd() failed: {e}");
+            None
+        }
+    }
+}
+
 /// Must be called outside of WM_COPYDATA / SendMessage context — COM calls
 /// fail with RPC_E_CANTCALLOUT_ININPUTSYNCCALL inside input-synchronous messages.
 /// Falls back to `true` (assume visible) when COM or the API is unavailable.
@@ -52,13 +72,10 @@ fn is_on_current_virtual_desktop(window: &WebviewWindow) -> bool {
         };
         use windows::Win32::UI::Shell::{IVirtualDesktopManager, VirtualDesktopManager};
 
-        let hwnd_raw = match window.hwnd() {
-            Ok(h) => h.0 as isize,
-            Err(e) => {
-                log::warn!("[vdesktop] hwnd() failed: {e}");
-                return true;
-            }
+        let Some(hwnd) = win32_hwnd(window, "vdesktop") else {
+            return true;
         };
+        let hwnd_raw = hwnd.0 as isize;
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             let manager: IVirtualDesktopManager =
@@ -69,7 +86,6 @@ fn is_on_current_virtual_desktop(window: &WebviewWindow) -> bool {
                         return true;
                     }
                 };
-            let hwnd = windows::Win32::Foundation::HWND(hwnd_raw as *mut _);
             match manager.IsWindowOnCurrentVirtualDesktop(hwnd) {
                 Ok(b) => {
                     let result = b.as_bool();
@@ -256,8 +272,18 @@ fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Er
         .inner_size(800.0, 600.0)
         .resizable(true)
         // 背景透過（issue #162）: 透過はランタイムで切替えるため常に透過ウィンドウで生成し、
-        // 透過 OFF 時は CSS 側で不透明に塗る。アクリル/Mica もこの透過を前提に乗る。
+        // 実際の透け方は window_set_backdrop が決める。アクリルもこの透過を前提に乗る。
         .transparent(true)
+        // ただし window_set_backdrop はフロントの mount 後にしか走らないので、
+        // それまでの数フレームは下地を不透明にしておく（既定の不透明モードで
+        // デスクトップが一瞬透けるのを防ぐ）。tauri.conf.json の main ウィンドウ
+        // 側は backgroundColor に同じ値を置いてある。
+        .background_color(tauri::window::Color(
+            DARK_SURFACE_RGB.0,
+            DARK_SURFACE_RGB.1,
+            DARK_SURFACE_RGB.2,
+            255,
+        ))
         .disable_drag_drop_handler()
         .build()?;
     drop_paths::attach(&window);
@@ -527,33 +553,116 @@ async fn tray_set_close_to_tray(enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Parse the `"R G B"` form of a CSS `rgb()` component list (e.g. `"30 30 30"`,
+/// as `--bg-primary-rgb` is written in theme.css). Commas are tolerated so the
+/// legacy `"30, 30, 30"` spelling also works. Returns `None` on anything else.
+fn parse_rgb_triplet(s: &str) -> Option<(u8, u8, u8)> {
+    let mut parts = s
+        .split_whitespace()
+        .map(|v| v.trim_end_matches(',').parse::<u8>());
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(Ok(r)), Some(Ok(g)), Some(Ok(b)), None) => Some((r, g, b)),
+        _ => None,
+    }
+}
+
+/// Turn the window's per-pixel alpha on or off (issue #162).
+///
+/// Windows are always *created* transparent because tao's `transparent` flag
+/// cannot be flipped afterwards, but the effect it produces can: the flag only
+/// makes tao call `DwmEnableBlurBehindWindow` with an empty blur region, which
+/// is the standard trick for a per-pixel-alpha window. Undoing it in the opaque
+/// mode puts the window back on the plain composition path instead of leaving
+/// every user on the transparent one.
+#[cfg(windows)]
+unsafe fn set_per_pixel_alpha(hwnd: windows::Win32::Foundation::HWND, enable: bool) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND,
+    };
+    use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, HRGN};
+
+    // 空リージョン = 「どこもブラーしない」= ウィンドウ全体が per-pixel alpha。
+    // tao の透過ウィンドウ生成と同じ指定にそろえてある。
+    let region = if enable {
+        CreateRectRgn(0, 0, -1, -1)
+    } else {
+        HRGN::default()
+    };
+    let bb = DWM_BLURBEHIND {
+        dwFlags: if enable {
+            DWM_BB_ENABLE | DWM_BB_BLURREGION
+        } else {
+            DWM_BB_ENABLE
+        },
+        fEnable: enable.into(),
+        hRgnBlur: region,
+        fTransitionOnMaximized: false.into(),
+    };
+    let _ = DwmEnableBlurBehindWindow(hwnd, &bb);
+    if enable {
+        let _ = DeleteObject(region.into());
+    }
+}
+
 /// Apply (or clear) the window backdrop effect for background transparency
 /// (issue #162). The frontend calls this per-window on startup and whenever the
-/// `windowBackdrop` setting changes; each window applies the effect to itself.
-/// `acrylic` needs Windows 11 (on older systems the call fails and the CSS-level
-/// rgba transparency remains as a graceful fallback). `transparent`/`none` apply
-/// no native material — the window is already transparent, so the CSS surface
-/// alpha alone produces plain (blur-free) translucency. Errors are best-effort.
+/// `windowBackdrop` setting or the light/dark theme changes; each window applies
+/// the effect to itself. `base_rgb` is the theme's opaque surface color as
+/// `"R G B"` (read from the `--bg-primary-rgb` CSS variable, so theme.css stays
+/// the single source of truth).
+///
+/// `none` restores the fully opaque path: the webview gets an opaque default
+/// background and the window's per-pixel alpha is switched off. Otherwise the
+/// webview background is made transparent so the CSS surface alpha composites over the
+/// desktop, and `acrylic` additionally asks for the Windows 11 frosted-glass
+/// material (on older systems that call fails and the plain translucency
+/// remains as a graceful fallback). Errors are best-effort.
+///
+/// The native calls change window attributes, which belongs on the thread that
+/// owns the window, so they are dispatched to main instead of running on the
+/// invoking tokio worker (they used to run there). Dispatching does not wait, so
+/// the command returns before the backdrop lands — fine for a cosmetic effect.
 #[tauri::command]
-async fn window_set_backdrop(window: WebviewWindow, kind: String) -> Result<(), String> {
+async fn window_set_backdrop(
+    window: WebviewWindow,
+    kind: String,
+    base_rgb: String,
+) -> Result<(), String> {
+    let opaque = kind == "none";
+    // WebView2 は alpha 0 だけを透過として扱い、それ以外は不透明に丸める。
+    // 不透明時にテーマ色を渡すのは、読み込み中・リサイズ中の地の色を合わせるため。
+    let color = if opaque {
+        // フォールバックは theme.css のダーク `--bg-primary-rgb` と同じ値。
+        let (r, g, b) = parse_rgb_triplet(&base_rgb).unwrap_or(DARK_SURFACE_RGB);
+        tauri::window::Color(r, g, b, 255)
+    } else {
+        tauri::window::Color(0, 0, 0, 0)
+    };
+    let _ = window.set_background_color(Some(color));
+
     #[cfg(windows)]
     {
-        use window_vibrancy::{apply_acrylic, clear_acrylic, clear_mica};
-        match kind.as_str() {
-            "acrylic" => {
-                let _ = clear_mica(&window);
-                let _ = apply_acrylic(&window, None);
-            }
-            _ => {
-                // "none" / "transparent" / unknown: strip any native material.
-                // clear_mica covers backdrops applied by an earlier build.
-                let _ = clear_acrylic(&window);
-                let _ = clear_mica(&window);
-            }
-        }
+        let w = window.clone();
+        window
+            .app_handle()
+            .run_on_main_thread(move || {
+                use window_vibrancy::{apply_acrylic, clear_acrylic, clear_mica};
+                if let Some(hwnd) = win32_hwnd(&w, "backdrop") {
+                    unsafe { set_per_pixel_alpha(hwnd, !opaque) };
+                }
+                if kind == "acrylic" {
+                    let _ = apply_acrylic(&w, None);
+                } else {
+                    // "none" / "transparent" / unknown: strip any native material.
+                    // clear_mica covers backdrops applied by an earlier build.
+                    let _ = clear_acrylic(&w);
+                    let _ = clear_mica(&w);
+                }
+            })
+            .map_err(|e| e.to_string())?;
     }
     #[cfg(not(windows))]
-    let _ = (&window, &kind);
+    let _ = kind;
     Ok(())
 }
 
@@ -1070,4 +1179,26 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_rgb_triplet;
+
+    #[test]
+    fn parses_css_component_list() {
+        assert_eq!(parse_rgb_triplet("30 30 30"), Some((30, 30, 30)));
+        // getComputedStyle may hand back the value with surrounding space.
+        assert_eq!(parse_rgb_triplet("  255 255 255 "), Some((255, 255, 255)));
+        assert_eq!(parse_rgb_triplet("37, 37, 38"), Some((37, 37, 38)));
+    }
+
+    #[test]
+    fn rejects_malformed_input() {
+        assert_eq!(parse_rgb_triplet(""), None);
+        assert_eq!(parse_rgb_triplet("30 30"), None);
+        assert_eq!(parse_rgb_triplet("30 30 30 30"), None);
+        assert_eq!(parse_rgb_triplet("30 30 300"), None);
+        assert_eq!(parse_rgb_triplet("#1e1e1e"), None);
+    }
 }
