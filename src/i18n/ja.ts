@@ -215,7 +215,6 @@ export default {
   'settings.updateConfirm': 'v{version} に更新して再起動しますか？',
   'settings.upToDate': '最新です',
   'settings.updateError': '更新の確認に失敗しました',
-  'settings.terminalExitNotification': 'プロセス終了時にデスクトップ通知',
   'settings.globalShell': 'グローバルモードの既定シェル',
   'settings.globalShellHint': 'プロジェクトに依らないウィンドウで + を押した時に開くシェル。',
   'settings.shellProfiles': 'シェル一覧',

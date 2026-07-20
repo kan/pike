@@ -15,7 +15,6 @@ import { dockerLogRouter } from './composables/useDockerLogRouter'
 import { type FsChangeEntry, fsWatcher, isRecentlySaved } from './composables/useFsWatcher'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { ptyRouter } from './composables/usePtyRouter'
-import { initTerminalNotifications } from './composables/useTerminalNotifications'
 import { useI18n } from './i18n'
 import { clearAliasCache } from './lib/jumpTo/resolveImport'
 import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
@@ -235,7 +234,6 @@ onMounted(async () => {
   }
 
   await initCliOpen()
-  initTerminalNotifications().catch(() => {})
 
   // Broadcast + self-filter (PTY/Docker と同方式): keep every window's
   // in-memory project copies fresh so stale full-object writes (flushSession /

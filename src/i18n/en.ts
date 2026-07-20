@@ -216,7 +216,6 @@ export default {
   'settings.updateConfirm': 'Update to v{version} and restart?',
   'settings.upToDate': 'You are up to date',
   'settings.updateError': 'Update check failed',
-  'settings.terminalExitNotification': 'Desktop notification on exit',
   'settings.globalShell': 'Default shell in global mode',
   'settings.globalShellHint': 'Shell opened by + in project-independent (global) windows.',
   'settings.shellProfiles': 'Shell list',

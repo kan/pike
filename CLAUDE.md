@@ -255,8 +255,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `PtySession` に `Drop` 実装: セッション破棄時に `child.kill()` で子プロセスを確実に終了
 - ウィンドウ破棄時（`WindowEvent::Destroyed`）に全 PTY セッション・Docker log stream を一括 cleanup（main ウィンドウのみ）
 - タブ切替時の TUI 再描画: `nextTick` → `requestAnimationFrame` → `terminal.refresh()` + PTY resize nudge（1col 縮小→復元で SIGWINCH 発火）
-- ターミナルアクティビティ通知: 非アクティブタブの出力でドット表示（`hasActivity`）、プロセス終了で終了コードバッジ（`exitCode`）、非 pinned タブはプロセス終了 1 秒後に自動クローズ
-- デスクトップ通知: バックグラウンドタブの PTY 終了時に `Notification` API でトースト通知。`onclick` でウィンドウフォーカス + タブ切替。`ptyRouter.onGlobalExit()` フック経由。Settings で ON/OFF 切替可能
+- ターミナルアクティビティ表示: 非アクティブタブが **BEL を受け取ると**ドット表示（`hasActivity`。`terminal.onBell` 経由で、全出力での点灯はトークンを流し続けるエージェントで鳴りっぱなしになるため採らない。タブ活性化直後 500ms のベルは無視）、プロセス終了で終了コードバッジ（`exitCode`）、非 pinned タブはプロセス終了 1 秒後に自動クローズ
 
 ### ターミナルの coding agent 補助（#89）
 `claude` 等をターミナルで使う運用を、Pike の既存機能（エディタ / 診断）と橋渡しする一連の機能。注入はすべて `ptyWrite` 経由。
@@ -665,7 +664,6 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - 設定タブにターミナルプレビュー表示（選択中のフォント・サイズ・カラースキームを即時反映）
 - Editor セクション: ミニマップ ON/OFF、ワードラップ ON/OFF、タブサイズ（2/4/8）。CM6 Compartment でライブ反映
 - settings タブはセッション永続化の対象外（`snapshotSession` は terminal/editor のみフィルタ）
-- ターミナル終了デスクトップ通知: ON/OFF トグル。Web Notification API 優先、Tauri plugin フォールバック
 
 ---
 

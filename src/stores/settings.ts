@@ -266,7 +266,6 @@ interface PersistedSettings {
   inlineSmallTextFiles: boolean
   inlineSmallTextThreshold: number
   language: string
-  terminalExitNotification: boolean
   codexNotification: boolean
   closeToTray: boolean
   windowBackdrop: WindowBackdrop
@@ -392,7 +391,6 @@ function defaults(): PersistedSettings {
     inlineSmallTextFiles: false,
     inlineSmallTextThreshold: 4096,
     language: 'en',
-    terminalExitNotification: true,
     codexNotification: true,
     closeToTray: true,
     windowBackdrop: 'none' as WindowBackdrop,
@@ -431,7 +429,6 @@ export const useSettingsStore = defineStore('settings', () => {
   const inlineSmallTextFiles = ref(saved.inlineSmallTextFiles)
   const inlineSmallTextThreshold = ref(saved.inlineSmallTextThreshold)
   const language = ref(saved.language)
-  const terminalExitNotification = ref(saved.terminalExitNotification)
   const codexNotification = ref(saved.codexNotification)
   const closeToTray = ref(saved.closeToTray)
   const windowBackdrop = ref<WindowBackdrop>(saved.windowBackdrop)
@@ -630,7 +627,6 @@ export const useSettingsStore = defineStore('settings', () => {
       inlineSmallTextFiles: inlineSmallTextFiles.value,
       inlineSmallTextThreshold: inlineSmallTextThreshold.value,
       language: language.value,
-      terminalExitNotification: terminalExitNotification.value,
       codexNotification: codexNotification.value,
       closeToTray: closeToTray.value,
       windowBackdrop: windowBackdrop.value,
@@ -665,7 +661,6 @@ export const useSettingsStore = defineStore('settings', () => {
     inlineSmallTextFiles.value = s.inlineSmallTextFiles
     inlineSmallTextThreshold.value = s.inlineSmallTextThreshold
     language.value = s.language
-    terminalExitNotification.value = s.terminalExitNotification
     codexNotification.value = s.codexNotification
     closeToTray.value = s.closeToTray
     windowBackdrop.value = s.windowBackdrop
@@ -798,7 +793,6 @@ export const useSettingsStore = defineStore('settings', () => {
       inlineSmallTextFiles,
       inlineSmallTextThreshold,
       language,
-      terminalExitNotification,
       codexNotification,
       closeToTray,
       windowBackdrop,
@@ -845,7 +839,6 @@ export const useSettingsStore = defineStore('settings', () => {
     inlineSmallTextFiles,
     inlineSmallTextThreshold,
     language,
-    terminalExitNotification,
     codexNotification,
     closeToTray,
     windowBackdrop,
