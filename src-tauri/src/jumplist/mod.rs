@@ -16,23 +16,28 @@
 //! 読めないので、フロント（`jumplistRefresh(locale)`）が現在のロケールを渡す。
 //! Tasks / カテゴリ名の 2 文字列だけ言語別に持つ。
 //!
-//! COM のスレッド注意: shell のオブジェクトは STA。wry が main スレッドを STA で
-//! OLE 初期化しているため、`run_on_main_thread` で main に載せてから構築する。
-//! そこでは `CoInitializeEx` は S_FALSE（初期化済み）を返すので `CoUninitialize`
-//! は呼ばない（呼ぶと wry の COM を壊す）。
+//! COM のスレッド注意: shell のオブジェクトは STA なので専用スレッドが要る。
+//! 以前は `run_on_main_thread` で main（wry が STA 初期化済み）に載せていたが、
+//! これはアプリ全体のハング要因だった: `AppendKnownCategory(KDC_RECENT)` と
+//! `CommitList` はシェルの「最近使った項目」を解決するため AppResolver と
+//! LINKINFO/MPR を引き込み、Pike が WSL プロジェクトに渡す
+//! `\\wsl.localhost\<distro>\...` の UNC 解決で数十秒ブロックしうる。その間
+//! UI スレッドが止まり Windows に AppHangB1 として強制終了された（v0.27.0 /
+//! v0.28.0 で実測）。よって構築は専用の常駐 STA スレッドで行う。COM オブジェクト
+//! はそのスレッド内で生成・消費して完結するのでマーシャリングは不要。
 
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::sync::{Mutex, OnceLock};
+use std::sync::mpsc::{channel, Sender};
+use std::sync::OnceLock;
 
-use tauri::AppHandle;
 use windows::core::{Interface, HSTRING, PWSTR};
-use windows::Win32::Foundation::{E_FAIL, E_OUTOFMEMORY, PROPERTYKEY, S_OK};
+use windows::Win32::Foundation::{E_OUTOFMEMORY, PROPERTYKEY};
 use windows::Win32::System::Com::StructuredStorage::{
     PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
 };
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoTaskMemAlloc, CoUninitialize, CLSCTX_INPROC_SERVER,
+    CoCreateInstance, CoInitializeEx, CoTaskMemAlloc, CLSCTX_INPROC_SERVER,
     COINIT_APARTMENTTHREADED,
 };
 use windows::Win32::System::Variant::VT_LPWSTR;
@@ -56,11 +61,38 @@ const PKEY_TITLE: PROPERTYKEY = PROPERTYKEY {
     pid: 2,
 };
 
-/// 直近にコミットしたリストの署名。フロントは session flush など無関係な契機でも
-/// 呼びうるので、内容が変わらないなら CommitList をスキップする。
-fn last_sig() -> &'static Mutex<Option<u64>> {
-    static S: OnceLock<Mutex<Option<u64>>> = OnceLock::new();
-    S.get_or_init(|| Mutex::new(None))
+/// 構築ジョブ（ロケール + リンク素材）。
+type Job = (String, Vec<Entry>);
+
+/// 常駐 STA スレッドへの送信口。初回呼び出しでスレッドを起こす。
+fn worker() -> &'static Sender<Job> {
+    static W: OnceLock<Sender<Job>> = OnceLock::new();
+    W.get_or_init(|| {
+        let (tx, rx) = channel::<Job>();
+        std::thread::Builder::new()
+            .name("jumplist".into())
+            .spawn(move || {
+                // このスレッドは Pike と同じ寿命で、他に COM を使う者もいないので
+                // 初期化しっぱなしにする（対の CoUninitialize は不要）。
+                if unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_err() {
+                    log::warn!("[jumplist] CoInitializeEx failed; jump list disabled");
+                    return;
+                }
+                let Some(mut builder) = Builder::new() else {
+                    return;
+                };
+                while let Ok(job) = rx.recv() {
+                    // 溜まったジョブは最新だけ処理する（複数ウィンドウが同じ変更で
+                    // 一斉に refresh するため、古い内容を順にコミットしても無駄）。
+                    let (lang, entries) = rx.try_iter().last().unwrap_or(job);
+                    if let Err(e) = builder.commit(&lang, &entries) {
+                        log::warn!("[jumplist] refresh failed: {e:?}");
+                    }
+                }
+            })
+            .expect("spawn jumplist thread");
+        tx
+    })
 }
 
 struct Labels {
@@ -94,15 +126,16 @@ struct Entry {
 
 /// ジャンプリストを再構築する。プロジェクト一覧は呼び出し側（`menus_refresh`）が
 /// 1 回だけ読んで渡す（jump list と tray の二重読みを避けるため）。実際の COM
-/// 構築は main（STA）スレッドで行う。
-pub fn refresh(app: &AppHandle, lang: &str, projects: &[project::ProjectConfig]) {
-    let entries = collect_entries(projects);
-    let lang = lang.to_string();
-    let _ = app.run_on_main_thread(move || {
-        if let Err(e) = build_and_commit(&lang, &entries) {
-            log::warn!("[jumplist] refresh failed: {e:?}");
-        }
-    });
+/// 構築は専用 STA スレッドに投げっぱなしにする（UI スレッドを塞がないため）。
+pub fn refresh(lang: &str, projects: &[project::ProjectConfig]) {
+    // send の失敗は「worker スレッドが死んだ」＝以後ジャンプリストが永久に更新
+    // されないことを意味するので、ビルド失敗（worker 内で warn）とは別に記録する。
+    if worker()
+        .send((lang.to_string(), collect_entries(projects)))
+        .is_err()
+    {
+        log::error!("[jumplist] worker thread is gone; jump list will not update");
+    }
 }
 
 /// 最近開いた順（呼び出し側でソート済み）の先頭 MAX_PROJECTS 件をリンク素材へ変換する。
@@ -145,36 +178,43 @@ fn quote_arg(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\\\""))
 }
 
-fn build_and_commit(lang: &str, projects: &[Entry]) -> windows::core::Result<()> {
-    let exe = std::env::current_exe()
-        .map_err(|e| {
-            log::warn!("[jumplist] current_exe failed: {e}");
-            windows::core::Error::from(E_FAIL)
-        })?
-        .to_string_lossy()
-        .into_owned();
-    let home = std::env::var("USERPROFILE").ok();
-    let labels = labels(lang);
+/// worker スレッドが持ち回す状態。exe パスと `%USERPROFILE%` はプロセス生存中
+/// 不変なのでスレッド起動時に 1 回だけ解決する。
+struct Builder {
+    exe: String,
+    home: Option<String>,
+    /// 直近にコミットしたリストの署名。フロントは session flush など無関係な契機
+    /// でも呼びうるので、内容が変わらないなら CommitList をスキップする。worker
+    /// スレッド専有なのでロックは要らない。
+    last_sig: Option<u64>,
+}
 
-    let sig = compute_sig(&exe, lang, projects);
-    if *last_sig().lock().unwrap() == Some(sig) {
-        return Ok(());
+impl Builder {
+    fn new() -> Option<Self> {
+        let exe = match std::env::current_exe() {
+            Ok(p) => p.to_string_lossy().into_owned(),
+            Err(e) => {
+                log::warn!("[jumplist] current_exe failed: {e}");
+                return None;
+            }
+        };
+        Some(Self {
+            exe,
+            home: std::env::var("USERPROFILE").ok(),
+            last_sig: None,
+        })
     }
 
-    unsafe {
-        let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        // S_OK = 本モジュールが初期化した。S_FALSE / RPC_E_CHANGED_MODE は既に
-        // 別コード（wry）が所有 → uninit しない。
-        let need_uninit = hr == S_OK;
-        let res = build_inner(&exe, home.as_deref(), &labels, projects);
-        if need_uninit {
-            CoUninitialize();
+    fn commit(&mut self, lang: &str, projects: &[Entry]) -> windows::core::Result<()> {
+        let sig = compute_sig(&self.exe, lang, projects);
+        if self.last_sig == Some(sig) {
+            return Ok(());
         }
-        res?;
+        // COM はスレッド起動時に初期化済み（worker を参照）。
+        unsafe { build_inner(&self.exe, self.home.as_deref(), &labels(lang), projects) }?;
+        self.last_sig = Some(sig);
+        Ok(())
     }
-
-    *last_sig().lock().unwrap() = Some(sig);
-    Ok(())
 }
 
 unsafe fn build_inner(

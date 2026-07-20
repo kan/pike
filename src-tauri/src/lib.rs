@@ -501,7 +501,11 @@ async fn menus_refresh(app: AppHandle, lang: String) -> Result<(), String> {
         .try_state::<project::ProjectState>()
         .map(|s| project::read_all_projects_sorted(&s.config_dir))
         .unwrap_or_default();
-    jumplist::refresh(&app, &lang, &projects);
+    jumplist::refresh(&lang, &projects);
+    // jumplist と違い tray は同期のまま。muda のメニュー構築は main スレッドに
+    // 載って返るだけでシェルの解決（AppResolver / UNC）を伴わないため、jumplist を
+    // ハングさせた経路には該当しない。ここに重い処理を足すときは jumplist と同じく
+    // 専用スレッドへ逃がすこと。
     tray::refresh(&app, &lang, &projects);
     Ok(())
 }
