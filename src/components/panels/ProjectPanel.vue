@@ -42,13 +42,13 @@ function sortByMode(list: ProjectConfig[]): ProjectConfig[] {
 }
 
 const ungroupedProjects = computed<ProjectConfig[]>(() => {
-  return sortByMode(projectStore.projects.filter((p) => !p.group?.trim()))
+  return sortByMode(projectStore.visibleProjects.filter((p) => !p.group?.trim()))
 })
 
 const groupSections = computed<Array<{ name: string; projects: ProjectConfig[] }>>(() => {
   return projectStore.groups.map((name) => ({
     name,
-    projects: sortByMode(projectStore.projects.filter((p) => p.group?.trim() === name)),
+    projects: sortByMode(projectStore.visibleProjects.filter((p) => p.group?.trim() === name)),
   }))
 })
 
@@ -240,8 +240,9 @@ async function browseCreateFolder() {
 }
 
 async function onCreate() {
-  const id = slugify(formName.value)
-  if (!id) return
+  const slug = slugify(formName.value)
+  if (!slug) return
+  const id = projectStore.uniqueProjectId(slug)
   const config: ProjectConfig = {
     id,
     name: formName.value,
@@ -412,7 +413,7 @@ async function onDelete(id: string) {
       </div>
     </div>
 
-    <div v-if="projectStore.projects.length === 0 && !showForm" class="empty">
+    <div v-if="projectStore.visibleProjects.length === 0 && !showForm" class="empty">
       {{ t('project.noProjects') }}
     </div>
   </div>

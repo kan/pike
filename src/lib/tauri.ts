@@ -263,8 +263,10 @@ export async function fsDirsExist(shell: ShellType, paths: string[]): Promise<bo
 
 // Settings sync (external JSON file at a user-chosen host path)
 
-export async function settingsSyncRead(path: string): Promise<string> {
-  return invoke<string>('settings_sync_read', { path })
+/** Contents of the sync file, or null when there is no file yet. Rejects when a
+ *  file exists but cannot be read — the caller must not treat that as empty. */
+export async function settingsSyncRead(path: string): Promise<string | null> {
+  return invoke<string | null>('settings_sync_read', { path })
 }
 
 export async function settingsSyncWrite(path: string, content: string): Promise<void> {

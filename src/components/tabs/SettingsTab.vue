@@ -7,7 +7,8 @@ import { useI18n } from '../../i18n'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
-import { detectWslDistros, pickSaveFile } from '../../lib/tauri'
+import { detectWslDistros, pickFolder, pickSaveFile } from '../../lib/tauri'
+import { useProjectStore } from '../../stores/project'
 import {
   AUTO_THEME,
   COLOR_SCHEMES,
@@ -30,6 +31,7 @@ import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
+const projectStore = useProjectStore()
 settings.loadAvailableFonts()
 settings.loadAvailableUiFonts()
 
@@ -51,8 +53,13 @@ const autoEditorTheme = computed(
 // --- Global-mode default shell ------------------------------------------
 // Reconcile the shell profile list (#129) with fresh WSL detection results;
 // the default-shell options below are driven by the profile list.
+// Also drives the WSL distro select for the project base (#164).
+const distros = ref<string[]>([])
 detectWslDistros()
-  .then((d) => settings.syncShellProfiles(d))
+  .then((d) => {
+    distros.value = d
+    settings.syncShellProfiles(d)
+  })
   .catch(() => {})
 
 // --- Shell profiles (#129) -----------------------------------------------
@@ -115,6 +122,50 @@ const updater = useUpdater()
 async function browseSyncFile() {
   const path = await pickSaveFile('pike-settings.json')
   if (path) settings.syncFilePath = path
+}
+
+// The buttons cover both halves of the file: the UI settings (last write wins)
+// and the project list (#164, merged by id). Projects go second on export so
+// they see a freshly written file, and first on import so a newly created
+// project is in place before the settings apply.
+async function exportAll() {
+  await settings.exportToSyncFile()
+  await projectStore.pushProjectsToSync().catch(() => {})
+}
+
+async function importAll() {
+  const pulled = await projectStore.pullProjectsFromSync().catch(() => null)
+  await settings.importFromSyncFile()
+  if (pulled) {
+    settings.syncMessage = t('settings.syncPullSummary', {
+      entries: pulled.entries,
+      created: pulled.created,
+      skipped: pulled.hidden + pulled.unresolvable,
+    })
+  }
+}
+
+/** Un-hide, then pull: the project was deleted from disk when it was hidden, so
+ *  it only reappears once the sync file's entry recreates it — which only works
+ *  if it ever reached the file (it needs a base-relative path) and if this
+ *  machine can resolve that path back. Say so when it doesn't. */
+async function restoreProject(id: string) {
+  settings.unhideProject(id)
+  const pulled = await projectStore.pullProjectsFromSync().catch(() => null)
+  if (projectStore.projects.some((p) => p.id === id)) {
+    settings.syncStatus = 'loaded'
+    settings.syncMessage = ''
+    return
+  }
+  settings.syncStatus = 'error'
+  settings.syncMessage = pulled && pulled.unresolvable > 0 ? t('settings.restoreNoBase') : t('settings.restoreNoEntry')
+}
+
+/** Windows-side project base (#164). The WSL base is typed in: a folder picker
+ *  would return a Windows path, and the WSL base must be a native one. */
+async function browseProjectBase() {
+  const folder = await pickFolder()
+  if (folder) settings.projectBase.windows = folder
 }
 
 function onFontSizeInput(e: Event) {
@@ -732,10 +783,10 @@ const PREVIEW_LINES = [
             </button>
           </div>
           <div class="sync-actions">
-            <button class="update-btn" :disabled="!settings.syncFilePath" @click="settings.exportToSyncFile()">
+            <button class="update-btn" :disabled="!settings.syncFilePath" @click="exportAll">
               {{ t('settings.syncExport') }}
             </button>
-            <button class="update-btn" :disabled="!settings.syncFilePath" @click="settings.importFromSyncFile()">
+            <button class="update-btn" :disabled="!settings.syncFilePath" @click="importAll">
               {{ t('settings.syncImport') }}
             </button>
             <span v-if="settings.syncStatus === 'saved'" class="update-info update-ok">{{ t('settings.syncSaved') }}</span>
@@ -743,6 +794,54 @@ const PREVIEW_LINES = [
             <span v-else-if="settings.syncStatus === 'error'" class="update-info update-err">
               {{ t('settings.syncError') }}{{ settings.syncMessage ? ': ' + settings.syncMessage : '' }}
             </span>
+          </div>
+        </div>
+
+        <div class="setting-row setting-row-block">
+          <label class="setting-label">{{ t('settings.projectBase') }}</label>
+          <p class="setting-hint">{{ t('settings.projectBaseHint') }}</p>
+          <div class="sync-path-row">
+            <span class="base-label">Windows</span>
+            <input
+              v-model="settings.projectBase.windows"
+              class="agent-cmd-input sync-path-input"
+              type="text"
+              spellcheck="false"
+              placeholder="C:\\Users\\me\\src"
+            />
+            <button type="button" class="detect-btn" @click="browseProjectBase">
+              {{ t('project.browse') }}
+            </button>
+          </div>
+          <div class="sync-path-row">
+            <span class="base-label">WSL</span>
+            <input
+              v-model="settings.projectBase.wsl"
+              class="agent-cmd-input sync-path-input"
+              type="text"
+              spellcheck="false"
+              placeholder="/home/me/src"
+            />
+            <select v-model="settings.projectBase.wslDistro" class="base-distro">
+              <option value="">{{ t('settings.projectBaseNoDistro') }}</option>
+              <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
+            </select>
+          </div>
+          <p v-if="settings.syncFilePath && projectStore.unsyncableProjects.length > 0" class="setting-hint">
+            {{ t('settings.projectBaseOutside', { count: projectStore.unsyncableProjects.length }) }}
+          </p>
+        </div>
+
+        <div v-if="settings.hiddenProjects.length > 0" class="setting-row setting-row-block">
+          <label class="setting-label">{{ t('settings.hiddenProjects') }}</label>
+          <p class="setting-hint">{{ t('settings.hiddenProjectsHint') }}</p>
+          <div class="shell-list">
+            <div v-for="p in settings.hiddenProjects" :key="p.id" class="shell-row">
+              <span class="shell-name">{{ p.name }}</span>
+              <button class="icon-btn" :title="t('settings.hiddenProjectsRestore')" @click="restoreProject(p.id)">
+                <Eye :size="14" :stroke-width="2" />
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -1236,6 +1335,25 @@ const PREVIEW_LINES = [
   flex: 1;
   min-width: 0;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+/* Platform label in front of each project-base input (#164). */
+.base-label {
+  width: 56px;
+  flex-shrink: 0;
+  align-self: center;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.base-distro {
+  flex-shrink: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  border-radius: 3px;
 }
 
 .detect-btn {

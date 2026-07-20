@@ -12,25 +12,45 @@
 use std::path::Path;
 
 /// Read the external settings JSON (host absolute path) as a UTF-8 string.
-/// Errors if the file does not exist or cannot be read.
+/// `None` means "no file yet" — every other failure is an error, so a caller
+/// doing a read-modify-write can tell "nothing here" (safe to write a fresh
+/// file) from "could not read" (writing would drop whatever is in there).
 #[tauri::command]
-pub async fn settings_sync_read(path: String) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || std::fs::read_to_string(&path).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
+pub async fn settings_sync_read(path: String) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || match std::fs::read_to_string(&path) {
+        Ok(content) => Ok(Some(content)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Write the external settings JSON (host absolute path), creating parent
-/// directories as needed.
+/// directories as needed. Writes a sibling temp file and renames it over the
+/// target, so a reader (this app on another window, or the sync client) never
+/// observes a half-written file.
 #[tauri::command]
 pub async fn settings_sync_write(path: String, content: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
-        if let Some(parent) = Path::new(&path).parent() {
+        let target = Path::new(&path);
+        if let Some(parent) = target.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
         }
-        std::fs::write(&path, content).map_err(|e| e.to_string())
+        let temp = target.with_extension("tmp");
+        std::fs::write(&temp, content).map_err(|e| e.to_string())?;
+        // Windows rename fails when the destination exists, so replace it.
+        std::fs::rename(&temp, target).or_else(|_| {
+            let result = std::fs::remove_file(target)
+                .map_err(|e| e.to_string())
+                .and_then(|_| std::fs::rename(&temp, target).map_err(|e| e.to_string()));
+            if result.is_err() {
+                let _ = std::fs::remove_file(&temp);
+            }
+            result
+        })
     })
     .await
     .map_err(|e| e.to_string())?

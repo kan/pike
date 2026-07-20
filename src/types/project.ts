@@ -1,4 +1,28 @@
+import type { ProjectPlatform } from '../lib/projectPaths'
 import type { ShellType } from './tab'
+
+/**
+ * A project as it travels through the sync file (#164). Only machine-independent
+ * fields: the path is relative to this machine's base, and the shell (WSL distro
+ * / Windows shell), pinned tabs, session and recency stay local.
+ */
+export interface SyncedProject {
+  id: string
+  name: string
+  platform: ProjectPlatform
+  /** Path below the platform's base directory, forward-slashed. */
+  path: string
+  color?: string
+  group?: string
+  remoteUrl?: string
+}
+
+/** A project hidden on this machine — kept by id so sync can't resurrect it. */
+export interface HiddenProject {
+  id: string
+  /** Last known name, so the settings list can label it after deletion. */
+  name: string
+}
 
 export interface PinnedTabDef {
   id: string

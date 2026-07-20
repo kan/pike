@@ -1,11 +1,13 @@
 import { emit, listen } from '@tauri-apps/api/event'
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
-import { locale } from '../i18n'
+import { locale, t } from '../i18n'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
+import { emptyProjectBase, type ProjectBase } from '../lib/projectPaths'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 import { setWebviewTheme, windowLabel } from '../lib/window'
+import type { HiddenProject } from '../types/project'
 import {
   type ShellProfile,
   type ShellType,
@@ -201,6 +203,11 @@ const GLOBAL_SHELL_KEY = 'pike:global-shell'
 // Shell profile list (#129: dropdown order / visibility) also references this
 // machine's WSL distros — same machine-local treatment as GLOBAL_SHELL_KEY.
 const SHELL_PROFILES_KEY = 'pike:shell-profiles'
+// Project base directories (#164) point at this machine's checkout layout, and
+// the hidden list records what this machine does not want back from the merge-
+// only project sync — both machine-local, like the keys above.
+const PROJECT_BASE_KEY = 'pike:project-base'
+const HIDDEN_PROJECTS_KEY = 'pike:project-hidden'
 // Debounce window for mirroring settings changes out to the sync file.
 const SYNC_WRITE_DEBOUNCE_MS = 1500
 // Cross-window settings sync: broadcast changes so every open Pike window stays
@@ -330,6 +337,32 @@ function sanitizeGlobalShell(v: unknown): ShellType {
   return sanitizeShell(v) ?? { kind: 'powershell' }
 }
 
+/** Guard the machine-local project base against corrupt persisted values. */
+function sanitizeProjectBase(v: unknown): ProjectBase {
+  const base = emptyProjectBase()
+  if (!v || typeof v !== 'object') return base
+  const raw = v as Record<string, unknown>
+  for (const key of ['windows', 'wsl', 'wslDistro'] as const) {
+    if (typeof raw[key] === 'string') base[key] = raw[key] as string
+  }
+  return base
+}
+
+/** Guard the machine-local hidden-project list against corrupt persisted values. */
+function sanitizeHiddenProjects(v: unknown): HiddenProject[] {
+  if (!Array.isArray(v)) return []
+  const out: HiddenProject[] = []
+  const seen = new Set<string>()
+  for (const item of v) {
+    if (!item || typeof item !== 'object') continue
+    const { id, name } = item as { id?: unknown; name?: unknown }
+    if (typeof id !== 'string' || !id || seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, name: typeof name === 'string' ? name : id })
+  }
+  return out
+}
+
 function defaultShellProfiles(): ShellProfile[] {
   // WSL distros are appended by syncShellProfiles once detection runs.
   return WINDOWS_SHELLS.map((s) => ({ id: s.kind, shell: shellToType(s.kind) }))
@@ -440,6 +473,40 @@ export const useSettingsStore = defineStore('settings', () => {
   // Machine-local (references this PC's WSL distros — never synced/broadcast).
   const globalShell = ref<ShellType>(sanitizeGlobalShell(loadJson<unknown>(GLOBAL_SHELL_KEY, null)))
   watch(globalShell, (v) => saveJson(GLOBAL_SHELL_KEY, v), { deep: true })
+
+  // Base directory per platform (#164): the anchor that turns a synced,
+  // base-relative project path into a real root here. Machine-local for the
+  // same reason as globalShell — every PC lays its checkouts out differently.
+  const projectBase = ref<ProjectBase>(sanitizeProjectBase(loadJson<unknown>(PROJECT_BASE_KEY, null)))
+  watch(projectBase, (v) => saveJson(PROJECT_BASE_KEY, v), { deep: true })
+
+  // Projects hidden on this machine (#164). Deleting a project locally adds it
+  // here, so the merge-only sync cannot resurrect it on the next pull. Machine-
+  // local: another PC may well want to keep the project.
+  const hiddenProjects = ref<HiddenProject[]>(sanitizeHiddenProjects(loadJson<unknown>(HIDDEN_PROJECTS_KEY, null)))
+  watch(hiddenProjects, (v) => saveJson(HIDDEN_PROJECTS_KEY, v), { deep: true })
+
+  // localStorage is shared between windows but each window's ref is the copy it
+  // loaded at startup, so mutating from the ref would drop hides made in another
+  // window. Both writers re-read first — losing a hide resurrects a deleted
+  // project on the next pull.
+  function updateHiddenProjects(mutate: (list: HiddenProject[]) => HiddenProject[]) {
+    hiddenProjects.value = mutate(sanitizeHiddenProjects(loadJson<unknown>(HIDDEN_PROJECTS_KEY, null)))
+  }
+
+  function hideProject(id: string, name: string) {
+    updateHiddenProjects((list) => (list.some((p) => p.id === id) ? list : [...list, { id, name }]))
+  }
+
+  function unhideProject(id: string) {
+    updateHiddenProjects((list) => list.filter((p) => p.id !== id))
+  }
+
+  const hiddenProjectIds = computed(() => new Set(hiddenProjects.value.map((p) => p.id)))
+
+  function isProjectHidden(id: string): boolean {
+    return hiddenProjectIds.value.has(id)
+  }
 
   // Shell profiles (#129): dropdown order / visibility. Machine-local like
   // globalShell. WSL entries are reconciled against detection results by
@@ -683,33 +750,80 @@ export const useSettingsStore = defineStore('settings', () => {
   // re-persisting to the sync file and re-broadcasting (avoids feedback loops).
   let applyingRemote = false
   let broadcastTimer: ReturnType<typeof setTimeout> | null = null
+  // Serializes every read-modify-write of the sync file (see mutateSyncFile).
+  let syncWriteChain: Promise<boolean> = Promise.resolve(true)
 
   watch(syncFilePath, (v) => saveJson(SYNC_PATH_KEY, v))
 
-  /** Write the current settings out to the sync file. */
-  async function exportToSyncFile(): Promise<boolean> {
-    if (!syncFilePath.value) return false
+  /**
+   * The sync file parsed as a plain object: `{}` when there is no file yet,
+   * and null when it exists but could not be read or parsed. Callers must not
+   * write on null — the file is there, so overwriting it from an empty base
+   * would drop whatever a concurrent writer (or the other section) put in it.
+   */
+  async function readSyncFile(): Promise<Record<string, unknown> | null> {
+    if (!syncFilePath.value) return null
     try {
-      await settingsSyncWrite(syncFilePath.value, JSON.stringify(snapshot(), null, 2))
-      syncStatus.value = 'saved'
-      syncMessage.value = ''
-      return true
-    } catch (e) {
-      syncStatus.value = 'error'
-      syncMessage.value = String(e)
-      return false
+      const raw = await settingsSyncRead(syncFilePath.value)
+      if (raw === null) return {}
+      const parsed = JSON.parse(raw)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+      return parsed as Record<string, unknown>
+    } catch {
+      return null
     }
+  }
+
+  /**
+   * The one read-modify-write path for the sync file. `mutate` receives the
+   * current contents and returns the keys to overwrite, or null to write
+   * nothing. Keys it does not mention survive, which is what lets the project
+   * list (#164) share the file while merging by project id rather than
+   * wholesale. Calls are serialized: settings and projects debounce on separate
+   * timers and every window writes, so overlapping read-modify-writes would
+   * otherwise let the later one revert the earlier.
+   */
+  async function mutateSyncFile(
+    mutate: (file: Record<string, unknown>) => Record<string, unknown> | null,
+  ): Promise<boolean> {
+    if (!syncFilePath.value) return false
+    const run = async (): Promise<boolean> => {
+      try {
+        const file = await readSyncFile()
+        if (!file) {
+          syncStatus.value = 'error'
+          syncMessage.value = t('settings.syncUnreadable')
+          return false
+        }
+        const sections = mutate(file)
+        if (!sections) return true
+        await settingsSyncWrite(syncFilePath.value, JSON.stringify({ ...file, ...sections }, null, 2))
+        return true
+      } catch (e) {
+        syncStatus.value = 'error'
+        syncMessage.value = String(e)
+        return false
+      }
+    }
+    syncWriteChain = syncWriteChain.then(run, run)
+    return syncWriteChain
+  }
+
+  /** Write the current settings out to the sync file, preserving keys owned by
+   *  other writers (the project list). */
+  async function exportToSyncFile(): Promise<boolean> {
+    if (!(await mutateSyncFile(() => snapshot() as unknown as Record<string, unknown>))) return false
+    syncStatus.value = 'saved'
+    syncMessage.value = ''
+    return true
   }
 
   /** Load settings from the sync file and apply them. */
   async function importFromSyncFile(): Promise<boolean> {
     if (!syncFilePath.value) return false
     try {
-      const raw = await settingsSyncRead(syncFilePath.value)
-      const parsed = JSON.parse(raw)
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        throw new Error('invalid settings file')
-      }
+      const parsed = await readSyncFile()
+      if (!parsed) throw new Error(t('settings.syncUnreadable'))
       importing = true
       applySettings(sanitize({ ...defaults(), ...(parsed as Partial<PersistedSettings>) }))
       await nextTick() // let change-watchers flush while writes are suppressed
@@ -847,6 +961,11 @@ export const useSettingsStore = defineStore('settings', () => {
     agentCommands,
     agentPrompts,
     globalShell,
+    projectBase,
+    hiddenProjects,
+    hideProject,
+    unhideProject,
+    isProjectHidden,
     shellProfiles,
     syncShellProfiles,
     windowsShellOptions,
@@ -860,6 +979,8 @@ export const useSettingsStore = defineStore('settings', () => {
     syncMessage,
     exportToSyncFile,
     importFromSyncFile,
+    readSyncFile,
+    mutateSyncFile,
   }
 })
 

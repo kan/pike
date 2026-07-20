@@ -235,7 +235,21 @@ export default {
   'settings.syncImport': 'ファイルから読み込む',
   'settings.syncSaved': '書き出しました',
   'settings.syncLoaded': '読み込みました',
+  'settings.projectBase': 'プロジェクトの base ディレクトリ',
+  'settings.projectBaseHint':
+    'このマシンでリポジトリを置いている場所です。この下にあるプロジェクトは base からの相対パスで同期し、他マシンで登録されたプロジェクトはここに作られます。',
+  'settings.projectBaseNoDistro': '（ディストロ未選択）',
+  'settings.projectBaseOutside': '{count} 件のプロジェクトは base の外にあるため、このマシン専用です。',
+  'settings.hiddenProjects': 'このマシンで非表示のプロジェクト',
+  'settings.hiddenProjectsHint':
+    'ここで削除したものの、同期ファイルには残っているプロジェクトです。戻すまで一覧に出ません。',
+  'settings.hiddenProjectsRestore': '再表示する',
   'settings.syncError': '同期に失敗しました',
+  'settings.syncUnreadable': '同期ファイルを読めなかったため、書き込みを中止しました',
+  'settings.syncPullSummary': 'プロジェクト: ファイル内 {entries} 件、追加 {created} 件、対象外 {skipped} 件',
+  'settings.restoreNoBase': '復活できません: このマシンの base ディレクトリではパスを解決できません',
+  'settings.restoreNoEntry':
+    '復活できません: このプロジェクトは同期ファイルにありません（base の外にあったため書き出されていません）',
   'sidebar.agent': 'エージェント',
   'settings.agent': 'エージェント',
   'settings.agentDefault': 'デフォルトエージェント',

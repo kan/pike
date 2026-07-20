@@ -39,8 +39,8 @@ const inputRef = ref<HTMLInputElement>()
 
 const filtered = computed(() => {
   const q = query.value.toLowerCase()
-  if (!q) return projectStore.projects
-  return projectStore.projects.filter((p) => fuzzyMatch(p.name.toLowerCase(), q))
+  if (!q) return projectStore.visibleProjects
+  return projectStore.visibleProjects.filter((p) => fuzzyMatch(p.name.toLowerCase(), q))
 })
 
 function fuzzyMatch(text: string, pattern: string): boolean {
@@ -89,8 +89,9 @@ function openNewForm() {
 }
 
 async function onCreateProject() {
-  const id = slugify(formName.value)
-  if (!id) return
+  const slug = slugify(formName.value)
+  if (!slug) return
+  const id = projectStore.uniqueProjectId(slug)
 
   const config: ProjectConfig = {
     id,
