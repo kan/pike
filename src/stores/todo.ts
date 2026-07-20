@@ -9,21 +9,80 @@ import { useProjectStore } from './project'
 const TASK_RE = /^(\s*[-*]\s+)\[([ xX])\]\s?(.*)$/
 const SAVE_DEBOUNCE_MS = 400
 
-let idCounter = 0
-const genId = () => `todo-${++idCounter}`
+let addedCounter = 0
+
+const indentOf = (line: string) => line.length - line.trimStart().length
+
+/**
+ * Strip the block's own base indent (taken from its first non-blank line) so
+ * relative nesting inside the detail is kept while the outer indent is not.
+ */
+function dedent(lines: string[]): string {
+  const first = lines.find((l) => l.trim())
+  const base = first ? first.slice(0, indentOf(first)) : ''
+  return lines.map((l) => (l.startsWith(base) ? l.slice(base.length) : l.trimStart())).join('\n')
+}
 
 function parse(text: string): TodoLine[] {
-  return text.split('\n').map((rawLine): TodoLine => {
-    const line = rawLine.replace(/\r$/, '') // tolerate CRLF
-    const m = line.match(TASK_RE)
-    if (m) return { kind: 'task', id: genId(), prefix: m[1], done: m[2].toLowerCase() === 'x', text: m[3] }
-    return { kind: 'raw', text: line }
-  })
+  const raw = text.split('\n').map((l) => l.replace(/\r$/, '')) // tolerate CRLF
+  const out: TodoLine[] = []
+  let taskCount = 0
+  let i = 0
+  while (i < raw.length) {
+    const m = raw[i].match(TASK_RE)
+    if (!m) {
+      out.push({ kind: 'raw', text: raw[i] })
+      i++
+      continue
+    }
+    // Continuation lines: indented deeper than the bullet and not tasks
+    // themselves (a nested `- [ ]` stays its own task). Blank lines are taken
+    // greedily, then given back, so they only stay when the block resumes.
+    const indent = indentOf(m[1])
+    const body: string[] = []
+    let j = i + 1
+    while (j < raw.length) {
+      const blank = !raw[j].trim()
+      if (!blank && (TASK_RE.test(raw[j]) || indentOf(raw[j]) <= indent)) break
+      body.push(blank ? '' : raw[j])
+      j++
+    }
+    while (body.length && !body[body.length - 1]) {
+      body.pop()
+      j--
+    }
+    out.push({
+      kind: 'task',
+      // Position-derived, so a reload (external edit, `pike todo` in a terminal)
+      // keeps the panel's per-row UI state attached to the same task.
+      id: `todo-${++taskCount}`,
+      prefix: m[1],
+      done: m[2].toLowerCase() === 'x',
+      text: m[3],
+      detail: dedent(body),
+    })
+    i = j
+  }
+  return out
 }
 
 function serialize(lines: TodoLine[]): string {
-  return lines.map((l) => (l.kind === 'task' ? `${l.prefix}[${l.done ? 'x' : ' '}] ${l.text}` : l.text)).join('\n')
+  const out: string[] = []
+  for (const l of lines) {
+    if (l.kind !== 'task') {
+      out.push(l.text)
+      continue
+    }
+    out.push(`${l.prefix}[${l.done ? 'x' : ' '}] ${l.text}`)
+    if (!l.detail) continue
+    const pad = ' '.repeat(indentOf(l.prefix) + 2)
+    for (const d of l.detail.split('\n')) out.push(d ? `${pad}${d}` : '')
+  }
+  return out.join('\n')
 }
+
+/** Trim surrounding blank lines; the writer re-indents what remains. */
+const normalizeDetail = (detail: string) => detail.replace(/\s+$/, '').replace(/^\n+/, '')
 
 export const useTodoStore = defineStore('todo', () => {
   const projectStore = useProjectStore()
@@ -117,6 +176,14 @@ export const useTodoStore = defineStore('todo', () => {
     scheduleSave()
   }
 
+  function setDetail(id: string, detail: string) {
+    const t = lines.value.find((l): l is TodoTask => l.kind === 'task' && l.id === id)
+    const next = normalizeDetail(detail)
+    if (!t || t.detail === next) return
+    t.detail = next
+    scheduleSave()
+  }
+
   function remove(id: string) {
     const i = lines.value.findIndex((l) => l.kind === 'task' && l.id === id)
     if (i === -1) return
@@ -127,7 +194,9 @@ export const useTodoStore = defineStore('todo', () => {
   function add(text: string) {
     const trimmed = text.trim()
     if (!trimmed) return
-    lines.value.push({ kind: 'task', id: genId(), prefix: '- ', done: false, text: trimmed })
+    // Distinct from the position-derived ids above; the next parse renumbers it.
+    const id = `todo-new-${++addedCounter}`
+    lines.value.push({ kind: 'task', id, prefix: '- ', done: false, text: trimmed, detail: '' })
     scheduleSave()
   }
 
@@ -164,7 +233,7 @@ export const useTodoStore = defineStore('todo', () => {
     if (path && files.some((f) => f.path === path && !isRecentlySaved(f.path))) void load()
   })
 
-  return { lines, tasks, progress, loading, filePath, load, toggle, setText, remove, add, move, clear }
+  return { lines, tasks, progress, loading, filePath, load, toggle, setText, setDetail, remove, add, move, clear }
 })
 
 if (import.meta.hot) {

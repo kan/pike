@@ -16,18 +16,21 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq)]
 enum Line {
     /// A checklist item. `prefix` preserves the bullet indentation (`- `, `  * `).
+    /// `detail` is the item's body, written as indented continuation lines and
+    /// stored dedented to the block's own base indent (empty when absent).
     Task {
         prefix: String,
         done: bool,
         text: String,
+        detail: Vec<String>,
     },
     /// Headings, blank lines, free text — round-tripped unchanged.
     Raw(String),
 }
 
-/// Parse a checklist line into (prefix, done, text), matching `TASK_RE` in
-/// `todo.ts`: `^(\s*[-*]\s+)\[([ xX])\]\s?(.*)$`.
-fn parse_task(line: &str) -> Option<(String, bool, String)> {
+/// Split a checklist line into `(prefix, done, text)` borrows, matching
+/// `TASK_RE` in `todo.ts`: `^(\s*[-*]\s+)\[([ xX])\]\s?(.*)$`.
+fn scan_task(line: &str) -> Option<(&str, bool, &str)> {
     let bytes = line.as_bytes();
     let mut i = 0;
     // leading whitespace
@@ -63,33 +66,103 @@ fn parse_task(line: &str) -> Option<(String, bool, String)> {
     if let Some(stripped) = text.strip_prefix(' ') {
         text = stripped;
     }
-    Some((prefix.to_string(), done, text.to_string()))
+    Some((prefix, done, text))
 }
 
-fn parse(text: &str) -> Vec<Line> {
-    text.split('\n')
-        .map(|raw| {
-            let line = raw.strip_suffix('\r').unwrap_or(raw); // tolerate CRLF
-            match parse_task(line) {
-                Some((prefix, done, text)) => Line::Task { prefix, done, text },
-                None => Line::Raw(line.to_string()),
-            }
+/// Owned variant, for building a `Line::Task`.
+fn parse_task(line: &str) -> Option<(String, bool, String)> {
+    scan_task(line).map(|(p, d, t)| (p.to_string(), d, t.to_string()))
+}
+
+fn indent_of(line: &str) -> usize {
+    line.len() - line.trim_start_matches([' ', '\t']).len()
+}
+
+/// Strip the block's own base indent (taken from its first non-blank line) so
+/// relative nesting inside the detail is kept while the outer indent is not.
+fn dedent(lines: Vec<&str>) -> Vec<String> {
+    let base = lines
+        .iter()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| &l[..indent_of(l)])
+        .unwrap_or("");
+    lines
+        .iter()
+        .map(|l| {
+            l.strip_prefix(base)
+                .unwrap_or_else(|| l.trim_start_matches([' ', '\t']))
+                .to_string()
         })
         .collect()
 }
 
+fn parse(text: &str) -> Vec<Line> {
+    let raw: Vec<&str> = text
+        .split('\n')
+        .map(|l| l.strip_suffix('\r').unwrap_or(l)) // tolerate CRLF
+        .collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < raw.len() {
+        let Some((prefix, done, text)) = parse_task(raw[i]) else {
+            out.push(Line::Raw(raw[i].to_string()));
+            i += 1;
+            continue;
+        };
+        // Continuation lines: indented deeper than the bullet and not tasks
+        // themselves (a nested `- [ ]` stays its own task). Blank lines are taken
+        // greedily, then given back, so they only stay when the block resumes.
+        let indent = indent_of(&prefix);
+        let mut body: Vec<&str> = Vec::new();
+        let mut j = i + 1;
+        while j < raw.len() {
+            let blank = raw[j].trim().is_empty();
+            if !blank && (scan_task(raw[j]).is_some() || indent_of(raw[j]) <= indent) {
+                break;
+            }
+            body.push(if blank { "" } else { raw[j] });
+            j += 1;
+        }
+        while body.last().is_some_and(|l| l.is_empty()) {
+            body.pop();
+            j -= 1;
+        }
+        out.push(Line::Task {
+            prefix,
+            done,
+            text,
+            detail: dedent(body),
+        });
+        i = j;
+    }
+    out
+}
+
 /// Serialize back to Markdown (without a trailing newline; the writer adds one).
 fn serialize(lines: &[Line]) -> String {
-    lines
-        .iter()
-        .map(|l| match l {
-            Line::Task { prefix, done, text } => {
-                format!("{prefix}[{}] {text}", if *done { 'x' } else { ' ' })
+    let mut out: Vec<String> = Vec::new();
+    for l in lines {
+        match l {
+            Line::Task {
+                prefix,
+                done,
+                text,
+                detail,
+            } => {
+                out.push(format!("{prefix}[{}] {text}", if *done { 'x' } else { ' ' }));
+                let pad = " ".repeat(indent_of(prefix) + 2);
+                for d in detail {
+                    out.push(if d.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{pad}{d}")
+                    });
+                }
             }
-            Line::Raw(text) => text.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+            Line::Raw(text) => out.push(text.clone()),
+        }
+    }
+    out.join("\n")
 }
 
 /// Line indices (into `lines`) of the task rows, in order. The 1-based position
@@ -147,14 +220,15 @@ fn save(path: &Path, lines: &[Line]) -> Result<(), String> {
         .map_err(|e| format!("failed to write {}: {e}", path.display()))
 }
 
-/// Parse the numeric arguments for done/undone/rm. All must be valid 1-based
-/// task numbers within range; returns their line indices (deduped) or an error
-/// so a bad number aborts the whole command rather than applying it partially.
-fn resolve_numbers(args: &[String], task_lines: &[usize]) -> Result<Vec<usize>, String> {
+/// Parse the numeric arguments for done/undone/rm/show/detail. All must be valid
+/// 1-based task numbers within range; returns `(number, line index)` pairs
+/// (deduped) or an error so a bad number aborts the whole command rather than
+/// applying it partially.
+fn resolve_numbers(args: &[String], task_lines: &[usize]) -> Result<Vec<(usize, usize)>, String> {
     if args.is_empty() {
         return Err("expected one or more task numbers".to_string());
     }
-    let mut out = Vec::new();
+    let mut out: Vec<(usize, usize)> = Vec::new();
     for a in args {
         let n: usize = a
             .parse()
@@ -165,9 +239,8 @@ fn resolve_numbers(args: &[String], task_lines: &[usize]) -> Result<Vec<usize>, 
                 task_lines.len()
             ));
         }
-        let idx = task_lines[n - 1];
-        if !out.contains(&idx) {
-            out.push(idx);
+        if !out.iter().any(|&(m, _)| m == n) {
+            out.push((n, task_lines[n - 1]));
         }
     }
     Ok(out)
@@ -178,6 +251,73 @@ fn task_text(line: &Line) -> &str {
         Line::Task { text, .. } => text,
         Line::Raw(_) => "",
     }
+}
+
+/// Flags shared by `add` and `detail`. Each `-d/--detail <text>` contributes the
+/// body lines in order (a value of `-` is read from stdin, embedded newlines are
+/// split); everything else is positional. `--append` / `--clear` are only
+/// meaningful for `detail`.
+struct DetailArgs {
+    positional: Vec<String>,
+    detail: Vec<String>,
+    append: bool,
+    clear: bool,
+}
+
+fn parse_detail_args(args: &[String]) -> Result<DetailArgs, String> {
+    let mut out = DetailArgs {
+        positional: Vec::new(),
+        detail: Vec::new(),
+        append: false,
+        clear: false,
+    };
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "-d" | "--detail" => {
+                let v = it.next().ok_or("expected text after -d")?;
+                let text = if v == "-" {
+                    std::io::read_to_string(std::io::stdin())
+                        .map_err(|e| format!("failed to read stdin: {e}"))?
+                } else {
+                    v.clone()
+                };
+                out.detail
+                    .extend(text.split('\n').map(|s| s.trim_end().to_string()));
+            }
+            "-a" | "--append" => out.append = true,
+            "--clear" => out.clear = true,
+            // A typo'd flag must not silently fall through to a destructive
+            // default (`--appned` would replace the body instead of appending).
+            other if other.starts_with('-') && other.len() > 1 => {
+                return Err(format!("unknown flag: {other}"))
+            }
+            other => out.positional.push(other.to_string()),
+        }
+    }
+    // Trim surrounding blank lines; interior ones are kept.
+    let first = out.detail.iter().position(|l| !l.is_empty());
+    match first {
+        Some(s) => {
+            let e = out.detail.iter().rposition(|l| !l.is_empty()).unwrap();
+            out.detail = out.detail[s..=e].to_vec();
+        }
+        None => out.detail.clear(),
+    }
+    Ok(out)
+}
+
+/// Print a task's body, indented under whatever header the caller printed.
+fn print_detail(detail: &[String]) {
+    for d in detail {
+        println!("   {d}");
+    }
+}
+
+/// Print one task the way `show` and `detail` report it.
+fn print_task(n: usize, done: bool, text: &str, detail: &[String]) {
+    println!("{n}. [{}] {text}", if done { 'x' } else { ' ' });
+    print_detail(detail);
 }
 
 /// Run a subcommand. Returns the process exit code. Output goes to stdout;
@@ -192,12 +332,14 @@ fn run(sub: Option<&str>, rest: &[String]) -> i32 {
             0
         }
         "add" => {
-            let text = rest
-                .iter()
-                .filter(|a| !a.starts_with("--"))
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(" ");
+            let args = match parse_detail_args(rest) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("todo add: {e}");
+                    return 2;
+                }
+            };
+            let text = args.positional.join(" ");
             let text = text.trim();
             if text.is_empty() {
                 eprintln!("todo add: empty task text");
@@ -208,6 +350,7 @@ fn run(sub: Option<&str>, rest: &[String]) -> i32 {
                 prefix: "- ".to_string(),
                 done: false,
                 text: text.to_string(),
+                detail: args.detail.clone(),
             });
             if let Err(e) = save(&path, &lines) {
                 eprintln!("{e}");
@@ -215,6 +358,79 @@ fn run(sub: Option<&str>, rest: &[String]) -> i32 {
             }
             let n = task_line_indices(&lines).len();
             println!("added #{n}: {text}");
+            print_detail(&args.detail);
+            0
+        }
+        "show" | "cat" => {
+            let lines = load(&path);
+            let task_lines = task_line_indices(&lines);
+            let targets = match resolve_numbers(rest, &task_lines) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("todo show: {e}");
+                    return 2;
+                }
+            };
+            for (n, idx) in targets {
+                if let Line::Task {
+                    done, text, detail, ..
+                } = &lines[idx]
+                {
+                    print_task(n, *done, text, detail);
+                }
+            }
+            0
+        }
+        "detail" | "note" => {
+            let args = match parse_detail_args(rest) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("todo detail: {e}");
+                    return 2;
+                }
+            };
+            // First positional is the task number, the rest is one body line.
+            let (num, words) = match args.positional.split_first() {
+                Some((n, w)) => (std::slice::from_ref(n), w),
+                None => {
+                    eprintln!("todo detail: expected a task number");
+                    return 2;
+                }
+            };
+            let mut lines = load(&path);
+            let task_lines = task_line_indices(&lines);
+            let (n, idx) = match resolve_numbers(num, &task_lines) {
+                Ok(t) => t[0],
+                Err(e) => {
+                    eprintln!("todo detail: {e}");
+                    return 2;
+                }
+            };
+            let mut body = args.detail;
+            if body.is_empty() && !words.is_empty() {
+                body.push(words.join(" "));
+            }
+            if !args.clear && body.is_empty() {
+                eprintln!("todo detail: expected body text (or --clear)");
+                return 2;
+            }
+            let Line::Task { detail, .. } = &mut lines[idx] else {
+                return 1;
+            };
+            if !args.append {
+                detail.clear(); // --clear alone leaves `body` empty
+            }
+            detail.extend(body);
+            if let Err(e) = save(&path, &lines) {
+                eprintln!("{e}");
+                return 1;
+            }
+            if let Line::Task {
+                done, text, detail, ..
+            } = &lines[idx]
+            {
+                print_task(n, *done, text, detail);
+            }
             0
         }
         "done" | "undone" => {
@@ -228,7 +444,7 @@ fn run(sub: Option<&str>, rest: &[String]) -> i32 {
                     return 2;
                 }
             };
-            for &idx in &targets {
+            for &(_, idx) in &targets {
                 if let Line::Task { done: d, .. } = &mut lines[idx] {
                     *d = done;
                 }
@@ -238,8 +454,7 @@ fn run(sub: Option<&str>, rest: &[String]) -> i32 {
                 return 1;
             }
             let verb = if done { "done" } else { "reopened" };
-            for &idx in &targets {
-                let n = task_lines.iter().position(|&x| x == idx).unwrap() + 1;
+            for &(n, idx) in &targets {
                 println!("{verb} #{n}: {}", task_text(&lines[idx]));
             }
             0
@@ -257,13 +472,10 @@ fn run(sub: Option<&str>, rest: &[String]) -> i32 {
             // Report before removal, then splice from the end to keep indices valid.
             let removed: Vec<(usize, String)> = targets
                 .iter()
-                .map(|&idx| {
-                    let n = task_lines.iter().position(|&x| x == idx).unwrap() + 1;
-                    (n, task_text(&lines[idx]).to_string())
-                })
+                .map(|&(n, idx)| (n, task_text(&lines[idx]).to_string()))
                 .collect();
             targets.sort_unstable_by(|a, b| b.cmp(a));
-            for idx in targets {
+            for (_, idx) in targets {
                 lines.remove(idx);
             }
             if let Err(e) = save(&path, &lines) {
@@ -303,24 +515,26 @@ fn run(sub: Option<&str>, rest: &[String]) -> i32 {
 }
 
 fn cmd_list(lines: &[Line], json: bool) {
-    let tasks: Vec<(usize, &bool, &str)> = lines
+    let tasks: Vec<(bool, &str, &[String])> = lines
         .iter()
         .filter_map(|l| match l {
-            Line::Task { done, text, .. } => Some((0, done, text.as_str())),
+            Line::Task {
+                done, text, detail, ..
+            } => Some((*done, text.as_str(), detail.as_slice())),
             Line::Raw(_) => None,
         })
-        .enumerate()
-        .map(|(i, (_, d, t))| (i + 1, d, t))
         .collect();
 
     if json {
         let items: Vec<String> = tasks
             .iter()
-            .map(|(n, done, text)| {
+            .enumerate()
+            .map(|(i, (done, text, detail))| {
                 format!(
-                    r#"{{"n":{n},"done":{},"text":{}}}"#,
-                    done,
-                    json_string(text)
+                    r#"{{"n":{},"done":{done},"text":{},"detail":{}}}"#,
+                    i + 1,
+                    json_string(text),
+                    json_string(&detail.join("\n"))
                 )
             })
             .collect();
@@ -332,8 +546,14 @@ fn cmd_list(lines: &[Line], json: bool) {
         println!("No todos.");
         return;
     }
-    for (n, done, text) in tasks {
-        println!("{n}. [{}] {text}", if *done { 'x' } else { ' ' });
+    for (i, (done, text, detail)) in tasks.into_iter().enumerate() {
+        let n = i + 1;
+        // Bodies stay collapsed so the list reads at a glance; `show` prints them.
+        let more = match detail.len() {
+            0 => String::new(),
+            k => format!("  (+{k} line{})", if k == 1 { "" } else { "s" }),
+        };
+        println!("{n}. [{}] {text}{more}", if done { 'x' } else { ' ' });
     }
 }
 
@@ -363,10 +583,19 @@ fn print_usage() {
          USAGE:\n\
          \x20 pike todo [list] [--json]     show tasks (numbered, 1-based)\n\
          \x20 pike todo add <text...>       append a task\n\
+         \x20 pike todo show <n...>         show task(s) with their detail\n\
+         \x20 pike todo detail <n> <text>   set a task's detail body\n\
          \x20 pike todo done <n...>         mark task(s) done\n\
          \x20 pike todo undone <n...>       mark task(s) not done\n\
          \x20 pike todo rm <n...>           remove task(s)\n\
          \x20 pike todo clear               remove all tasks (keep headings/notes)\n\
+         \n\
+         DETAIL:\n\
+         \x20 A task may carry a multi-line body, stored as indented lines under it.\n\
+         \x20 -d, --detail <text>  one body line (repeatable; `-` reads stdin)\n\
+         \x20 -a, --append         append to the existing body instead of replacing\n\
+         \x20 --clear              drop the existing body\n\
+         \x20 `add` accepts -d too: pike todo add \"fix login\" -d \"repro: ...\"\n\
          \n\
          Numbers refer to the positions shown by `pike todo list`."
     );
@@ -455,12 +684,72 @@ mod tests {
         // 1-based → line indices, deduped
         assert_eq!(
             resolve_numbers(&["1".into(), "3".into(), "1".into()], &tl),
-            Ok(vec![0, 2])
+            Ok(vec![(1, 0), (3, 2)])
         );
         assert!(resolve_numbers(&["0".into()], &tl).is_err());
         assert!(resolve_numbers(&["4".into()], &tl).is_err());
         assert!(resolve_numbers(&["x".into()], &tl).is_err());
         assert!(resolve_numbers(&[], &tl).is_err());
+    }
+
+    #[test]
+    fn detail_block_parses_and_round_trips() {
+        let src = "- [ ] title\n  body one\n  body two\n- [x] next";
+        let lines = parse(src);
+        assert_eq!(
+            lines[0],
+            Line::Task {
+                prefix: "- ".into(),
+                done: false,
+                text: "title".into(),
+                detail: vec!["body one".into(), "body two".into()],
+            }
+        );
+        assert_eq!(task_line_indices(&lines), vec![0, 1]); // detail is not a task
+        assert_eq!(serialize(&lines), src);
+    }
+
+    #[test]
+    fn detail_boundaries() {
+        // A nested checklist line stays its own task, not a body line.
+        let lines = parse("- [ ] a\n  - [ ] nested\n");
+        assert_eq!(task_line_indices(&lines).len(), 2);
+        assert!(matches!(&lines[0], Line::Task { detail, .. } if detail.is_empty()));
+        // Unindented text after the task ends the body.
+        let lines = parse("- [ ] a\n  body\nplain");
+        assert!(matches!(&lines[0], Line::Task { detail, .. } if detail == &["body".to_string()]));
+        assert_eq!(lines[1], Line::Raw("plain".into()));
+        // A blank line is absorbed only when the indented block resumes.
+        let lines = parse("- [ ] a\n  one\n\n  two\n\n# end");
+        assert!(
+            matches!(&lines[0], Line::Task { detail, .. } if detail == &["one".to_string(), String::new(), "two".to_string()])
+        );
+        assert_eq!(lines[1], Line::Raw(String::new()));
+        assert_eq!(lines[2], Line::Raw("# end".into()));
+    }
+
+    #[test]
+    fn detail_dedents_to_base_indent() {
+        // Relative nesting inside the body survives; the outer indent does not.
+        let lines = parse("- [ ] a\n    one\n      deeper");
+        assert!(
+            matches!(&lines[0], Line::Task { detail, .. } if detail == &["one".to_string(), "  deeper".to_string()])
+        );
+        assert_eq!(serialize(&lines), "- [ ] a\n  one\n    deeper");
+    }
+
+    #[test]
+    fn detail_args_flags() {
+        let args: Vec<String> = ["2", "--append", "-d", "x\ny", "-d", "z"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let p = parse_detail_args(&args).unwrap();
+        assert_eq!(p.positional, vec!["2".to_string()]);
+        assert_eq!(p.detail, vec!["x", "y", "z"]);
+        assert!(p.append && !p.clear);
+        // `-d` with no value is an error, not a silent drop.
+        assert!(parse_detail_args(&["-d".to_string()]).is_err());
     }
 
     #[test]
@@ -472,12 +761,14 @@ mod tests {
                 Line::Task {
                     prefix: "- ".into(),
                     done: false,
-                    text: "a".into()
+                    text: "a".into(),
+                    detail: vec![],
                 },
                 Line::Task {
                     prefix: "- ".into(),
                     done: true,
-                    text: "b".into()
+                    text: "b".into(),
+                    detail: vec![],
                 },
             ]
         );

@@ -32,22 +32,49 @@ the project's `.pike/`, falling back to the git root).
 
 ```
 pike todo                      # list tasks, numbered 1-based (alias: pike todo list)
-pike todo list --json          # same, as JSON: [{"n":1,"done":false,"text":"..."}]
+pike todo list --json          # same, as JSON: [{"n":1,"done":false,"text":"...","detail":"..."}]
 pike todo add <text...>        # append a task
+pike todo show <n...>          # print task(s) with their detail body
+pike todo detail <n> <text>    # set a task's detail body
 pike todo done <n...>          # mark task number(s) done
 pike todo undone <n...>        # mark task number(s) not done
 pike todo rm <n...>            # remove task number(s)
 pike todo clear                # remove all tasks (headings and notes are kept)
 ```
 
-Numbers are the positions shown by `pike todo list`. `done`, `undone`, and `rm`
-accept several numbers at once, e.g. `pike todo done 1 3 4`.
+Numbers are the positions shown by `pike todo list`. `done`, `undone`, `rm`, and
+`show` accept several numbers at once, e.g. `pike todo done 1 3 4`.
+
+## Title and detail
+
+A task is a short title plus an optional multi-line body. Keep the title to one
+scannable line and put context (why, repro steps, acceptance criteria) in the
+body. `list` collapses bodies to a `(+N lines)` marker; `show` prints them.
+
+Flags accepted by `add` and `detail`:
+
+```
+-d, --detail <text>   one body line; repeat for several, or pass `-` to read stdin
+-a, --append          append to the existing body instead of replacing it
+--clear               drop the existing body
+```
+
+```
+pike todo add "fix login redirect" -d "repro: log in, wait 15m, click any link" -d "suspect: token refresh runs twice"
+pike todo detail 2 --append "blocked on the staging deploy"
+pike todo detail 2 --clear
+git log -1 --format=%B | pike todo detail 3 -d -
+```
+
+With no `-d`, the words after the number become a single body line:
+`pike todo detail 2 blocked on staging`.
 
 ## Notes
 
 - `.pike/` is git-ignored (the CLI writes a `.gitignore` with `*` on first use),
   so the list stays local to the machine.
-- The file is ordinary Markdown: lines like `- [ ] task` and `- [x] done`.
+- The file is ordinary Markdown: lines like `- [ ] task` and `- [x] done`, with
+  the detail body written as indented continuation lines under the task.
   Headings (`# ...`) and free-text lines are preserved and are not shown as
   tasks, so you can organize with headings the panel ignores.
 - Re-run `pike todo list` after a batch of edits to confirm the current numbers
@@ -58,11 +85,17 @@ accept several numbers at once, e.g. `pike todo done 1 3 4`.
 ```
 $ pike todo add investigate flaky test
 added #1: investigate flaky test
-$ pike todo add fix root cause
+$ pike todo add "fix root cause" -d "retry loop shares one client" -d "see auth/client.rs:88"
 added #2: fix root cause
+   retry loop shares one client
+   see auth/client.rs:88
 $ pike todo done 1
 done #1: investigate flaky test
 $ pike todo list
 1. [x] investigate flaky test
+2. [ ] fix root cause  (+2 lines)
+$ pike todo show 2
 2. [ ] fix root cause
+   retry loop shares one client
+   see auth/client.rs:88
 ```

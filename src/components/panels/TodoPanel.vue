@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Eraser, FileText, Plus, Trash2 } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronRight, Eraser, FileText, Plus, TextAlignStart, Trash2 } from 'lucide-vue-next'
 import { nextTick, ref } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
@@ -39,6 +39,21 @@ function startEdit(id: string, text: string) {
 function commitEdit() {
   if (editingId.value) todo.setText(editingId.value, editText.value.trim())
   editingId.value = null
+}
+
+// Detail body: collapsed by default, expanded rows edit in a textarea.
+const expanded = ref(new Set<string>())
+
+function toggleDetail(id: string) {
+  if (expanded.value.has(id)) expanded.value.delete(id)
+  else expanded.value.add(id)
+}
+
+/** Grow the box with the body, within reason. */
+const detailRows = (detail: string) => Math.min(Math.max(detail.split('\n').length, 2), 10)
+
+function commitDetail(id: string, e: Event) {
+  todo.setDetail(id, (e.target as HTMLTextAreaElement).value)
 }
 
 // Drag-and-drop reorder
@@ -104,7 +119,6 @@ async function clearAll() {
         <li
           v-for="task in todo.tasks"
           :key="task.id"
-          class="todo-item"
           :class="{ done: task.done, dragging: task.id === dragId, 'drag-over': task.id === dragOverTarget }"
           draggable="true"
           @dragstart="startDrag($event, task.id)"
@@ -112,29 +126,55 @@ async function clearAll() {
           @drop="onDrop(task.id)"
           @dragend="resetDrag"
         >
-          <button
-            class="checkbox"
-            :class="{ checked: task.done }"
-            :title="task.done ? t('todo.markUndone') : t('todo.markDone')"
-            @click="todo.toggle(task.id)"
-          >
-            <Check v-if="task.done" :size="12" :stroke-width="3" />
-          </button>
+          <div class="todo-item">
+            <button
+              class="icon-btn caret"
+              :class="{ empty: !task.detail }"
+              :title="t('todo.toggleDetail')"
+              @click="toggleDetail(task.id)"
+            >
+              <ChevronDown v-if="expanded.has(task.id)" :size="12" :stroke-width="2" />
+              <ChevronRight v-else :size="12" :stroke-width="2" />
+            </button>
 
-          <input
-            v-if="editingId === task.id"
-            :ref="setEditInput"
-            v-model="editText"
-            class="todo-input edit"
-            @keydown.enter="commitEdit"
-            @keydown.escape="editingId = null"
-            @blur="commitEdit"
+            <button
+              class="checkbox"
+              :class="{ checked: task.done }"
+              :title="task.done ? t('todo.markUndone') : t('todo.markDone')"
+              @click="todo.toggle(task.id)"
+            >
+              <Check v-if="task.done" :size="12" :stroke-width="3" />
+            </button>
+
+            <input
+              v-if="editingId === task.id"
+              :ref="setEditInput"
+              v-model="editText"
+              class="todo-input edit"
+              @keydown.enter="commitEdit"
+              @keydown.escape="editingId = null"
+              @blur="commitEdit"
+            />
+            <span v-else class="todo-text" @click="startEdit(task.id, task.text)">{{ task.text }}</span>
+
+            <!-- State marker, not a control: the caret owns expand/collapse. -->
+            <span v-if="task.detail" class="detail-flag" :title="t('todo.hasDetail')">
+              <TextAlignStart :size="12" :stroke-width="2" />
+            </span>
+
+            <button class="icon-btn danger del" :title="t('common.delete')" @click="todo.remove(task.id)">
+              <Trash2 :size="13" :stroke-width="2" />
+            </button>
+          </div>
+
+          <textarea
+            v-if="expanded.has(task.id)"
+            class="todo-input todo-detail"
+            :value="task.detail"
+            :placeholder="t('todo.detailPlaceholder')"
+            :rows="detailRows(task.detail)"
+            @blur="commitDetail(task.id, $event)"
           />
-          <span v-else class="todo-text" @click="startEdit(task.id, task.text)">{{ task.text }}</span>
-
-          <button class="icon-btn danger del" :title="t('common.delete')" @click="todo.remove(task.id)">
-            <Trash2 :size="13" :stroke-width="2" />
-          </button>
         </li>
       </ul>
     </template>
@@ -209,7 +249,7 @@ async function clearAll() {
 .todo-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   padding: 3px 8px;
   cursor: grab;
 }
@@ -218,12 +258,48 @@ async function clearAll() {
   background: var(--bg-tertiary);
 }
 
-.todo-item.dragging {
+.todo-list > li.dragging {
   opacity: 0.4;
 }
 
-.todo-item.drag-over {
+.todo-list > li.drag-over {
   box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
+/* Only hint at the caret when there is nothing to expand yet. */
+.caret.empty {
+  opacity: 0;
+}
+
+.todo-list > li:hover .caret.empty {
+  opacity: 0.5;
+}
+
+/* Detail marker: tells a collapsed row apart at a glance, without a second
+   expand control on the row (the caret is the one). */
+.detail-flag {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  opacity: 0.65;
+}
+
+.todo-list > li:hover .detail-flag {
+  opacity: 1;
+}
+
+/* Box styling comes from .todo-input; only the deltas live here. */
+.todo-detail {
+  display: block;
+  margin: 0 8px 4px 26px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.todo-detail:focus {
+  color: var(--text-primary);
 }
 
 .checkbox {
@@ -253,7 +329,7 @@ async function clearAll() {
   word-break: break-word;
 }
 
-.todo-item.done .todo-text {
+.todo-list > li.done .todo-text {
   color: var(--text-secondary);
   text-decoration: line-through;
 }
@@ -293,7 +369,7 @@ async function clearAll() {
   opacity: 0;
 }
 
-.todo-item:hover .del {
+.todo-list > li:hover .del {
   opacity: 1;
 }
 </style>

@@ -7,6 +7,12 @@ export type TodoLine =
       prefix: string
       text: string
       done: boolean
+      /**
+       * Free-form body written as indented continuation lines under the task,
+       * dedented to the block's own base indent. Empty when the task is a
+       * one-liner.
+       */
+      detail: string
     }
   /** Headings, blank lines, free text — preserved verbatim, not shown as tasks. */
   | { kind: 'raw'; text: string }

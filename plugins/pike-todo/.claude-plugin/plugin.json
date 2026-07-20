@@ -1,6 +1,6 @@
 {
   "name": "pike-todo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Manage a Pike project's shared TODO checklist from the terminal with the `pike todo` CLI, staying in sync with Pike's TODO panel.",
   "author": {
     "name": "Kan Fushihara",
