@@ -291,6 +291,10 @@ async function clearAll() {
 /* Box styling comes from .todo-input; only the deltas live here. */
 .todo-detail {
   display: block;
+  /* textarea は cols 由来の固有幅を持つので、明示しないと親幅に伸びない
+     （26px の左インデント + 右 8px を差し引く）。 */
+  width: calc(100% - 34px);
+  box-sizing: border-box;
   margin: 0 8px 4px 26px;
   color: var(--text-secondary);
   font-size: 11px;

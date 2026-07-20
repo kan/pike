@@ -114,13 +114,18 @@ describe('screenshots: quick open', () => {
 // --- TODO パネル -----------------------------------------------------------
 // TODO store は project 変更時（immediate watch）に .pike/todo.md を fsReadFile で読む。
 // fs_read_file をモックして決定的な内容を与える。
+// タイトルの下のインデント継続行が詳細本文。折り畳んだ行の右端マーカーと、
+// 展開した詳細欄の両方が 1 枚に写るようにしてある。
 const TODO_MD = [
   '# デモの TODO',
   '',
   '- [x] スクリーンショット自動化の基盤を作る',
   '- [x] invoke モックパネルを撮る',
   '- [ ] エージェントチャットを撮る',
+  '  承認ダイアログの出た状態も 1 枚ほしい',
+  '  ja / en の両方で確認する',
   '- [ ] マニュアルへ画像を差し替える',
+  '  sync-manual-images.sh --check で差分を見てから',
   '',
 ].join('\n')
 
@@ -136,6 +141,9 @@ describe('screenshots: todo panel', () => {
       await openPanel('todo')
       await $('[data-testid="todo-panel"]').waitForDisplayed({ timeout: 10_000 })
       await $('.todo-item').waitForDisplayed({ timeout: 10_000 })
+      // 3 番目のタスクを開いて詳細欄を見せる（4 番目は畳んだままマーカーを見せる）。
+      await $('.todo-list > li:nth-child(3) .caret').click()
+      await $('.todo-detail').waitForDisplayed({ timeout: 10_000 })
       await shoot('todo-panel', lang, theme)
     })
   }
