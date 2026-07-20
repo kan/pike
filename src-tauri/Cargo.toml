@@ -78,7 +78,7 @@ windows = { version = "0.62", features = [
 # windows-core 0.61 系（本体の windows 0.62 とは別インスタンス）なので、
 # Interface trait / PWSTR はこちらの windows-core を合わせて使う。
 webview2-com = "0.38"
-windows-core = "0.61"
+windows-core = "0.62"
 # 背景透過（issue #162）: アクリル / Mica のすりガラス効果を実行時に適用/解除する。
 window-vibrancy = "0.8"
 
