@@ -602,13 +602,30 @@ fn print_usage() {
 }
 
 /// Attach to the parent process's console so a GUI-subsystem build
-/// (`windows_subsystem = \"windows\"` in release) can print to the terminal it
-/// was launched from. Fails harmlessly when already attached (inherited handles
-/// from a ConPTY, or the debug console build).
+/// (`windows_subsystem = "windows"` in release) can print to the terminal it was
+/// launched from. A GUI-subsystem process gets no standard handles when a shell
+/// starts it without redirection, so without this `pike todo` would print
+/// nowhere.
+///
+/// Skip it when stdout is already usable (a pipe or a redirect — i.e. every
+/// call from an agent or a script): `AttachConsole` **replaces** the standard
+/// handles with the console's, so attaching there steals the output from the
+/// caller's pipe and paints it on the terminal screen, corrupting the TUI the
+/// caller is drawing (Claude Code in a Pike terminal pane).
+///
+/// Only stdout is probed. `AttachConsole` is all-or-nothing, so a redirect of
+/// stdout alone (stderr left unattached) loses the error output; keeping the
+/// caller's pipe intact matters more.
 #[cfg(windows)]
 fn attach_parent_console() {
-    use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    use windows::Win32::System::Console::{
+        AttachConsole, GetStdHandle, ATTACH_PARENT_PROCESS, STD_OUTPUT_HANDLE,
+    };
     unsafe {
+        // ハンドル無しは Err か、NULL / INVALID_HANDLE_VALUE（is_invalid が両方見る）。
+        if GetStdHandle(STD_OUTPUT_HANDLE).is_ok_and(|h| !h.is_invalid()) {
+            return;
+        }
         let _ = AttachConsole(ATTACH_PARENT_PROCESS);
     }
 }
