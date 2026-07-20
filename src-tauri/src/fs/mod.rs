@@ -1,5 +1,5 @@
 use base64::Engine as _;
-use crate::types::{ShellConfig, wait_with_timeout};
+use crate::types::{ShellConfig, bash_quote, wait_with_timeout};
 use encoding_rs::Encoding;
 use serde::Serialize;
 use std::io::Write as IoWrite;
@@ -657,9 +657,9 @@ fn resolve_first_existing_wsl(
     // Single bash call: print first candidate that is a regular file.
     let mut script = String::new();
     for path in candidates {
-        let escaped = path.replace('\'', "'\\''");
+        let quoted = bash_quote(path);
         script.push_str(&format!(
-            "if [ -f '{escaped}' ]; then printf '%s' '{escaped}'; exit 0; fi\n"
+            "if [ -f {quoted} ]; then printf '%s' {quoted}; exit 0; fi\n"
         ));
     }
     let (_, stdout, _) = shell.run("bash", &["-c", &script])?;
@@ -669,6 +669,40 @@ fn resolve_first_existing_wsl(
     } else {
         Ok(Some(trimmed.to_string()))
     }
+}
+
+/// Report, for each path, whether it exists as a directory. Batched so the
+/// project panel can check every root of one shell in a single round-trip
+/// (a WSL probe costs a `wsl.exe` launch, so per-path calls would be slow).
+#[tauri::command]
+pub async fn fs_dirs_exist(shell: ShellConfig, paths: Vec<String>) -> Result<Vec<bool>, String> {
+    tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { .. } => dirs_exist_wsl(&shell, &paths),
+        _ => Ok(paths
+            .iter()
+            .map(|p| std::fs::metadata(p).map(|m| m.is_dir()).unwrap_or(false))
+            .collect()),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn dirs_exist_wsl(shell: &ShellConfig, paths: &[String]) -> Result<Vec<bool>, String> {
+    if paths.is_empty() {
+        return Ok(vec![]);
+    }
+    // One bash call prints a 0/1 line per path, in order.
+    let script = paths
+        .iter()
+        .map(|p| format!("if [ -d {} ]; then echo 1; else echo 0; fi", bash_quote(p)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (_, stdout, _) = shell.run("bash", &["-c", &script])?;
+    let mut flags: Vec<bool> = stdout.lines().map(|l| l.trim() == "1").collect();
+    // A distro that fails to start yields no output; treat the roots as unknown
+    // (= present) rather than reporting every WSL project as missing.
+    flags.resize(paths.len(), true);
+    Ok(flags)
 }
 
 fn copy_dir_recursive(src: &str, dst: &str) -> Result<(), String> {

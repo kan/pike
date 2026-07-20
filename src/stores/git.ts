@@ -231,10 +231,21 @@ export const useGitStore = defineStore('git', () => {
       remoteUrl.value = null
       return
     }
+    const root = getRoot()
     try {
-      remoteUrl.value = await gitRemoteUrl(getRoot(), project.shell)
+      remoteUrl.value = await gitRemoteUrl(root, project.shell)
     } catch {
       remoteUrl.value = null
+    }
+    // Persist origin on the project so a machine that lacks the checkout can
+    // still clone it (#164). Only for the project's own root — a worktree can
+    // sit in another repository. Never clears a stored URL from a transient
+    // failure: only an actual URL change writes.
+    const url = remoteUrl.value
+    if (url && root === project.root && project.remoteUrl !== url) {
+      useProjectStore()
+        .saveProject({ ...project, remoteUrl: url })
+        .catch(() => {})
     }
   }
 

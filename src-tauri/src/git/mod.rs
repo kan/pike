@@ -1,4 +1,4 @@
-use crate::types::ShellConfig;
+use crate::types::{ShellConfig, bash_quote};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -528,6 +528,61 @@ pub async fn git_remote_url(
     .await
     .map_err(|e| e.to_string())?;
     Ok(output.ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+}
+
+/// `git_remote_url` for many roots at once, in the same order. Used to backfill
+/// the origin of projects registered before Pike stored it (#164): a WSL probe
+/// costs a `wsl.exe` launch, so all of one distro's roots share a single call.
+/// A root that is not a repository, or has no origin, yields `None`.
+#[tauri::command]
+pub async fn git_remote_urls(
+    shell: ShellConfig,
+    roots: Vec<String>,
+) -> Result<Vec<Option<String>>, String> {
+    tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { .. } => remote_urls_wsl(&shell, &roots),
+        _ => Ok(roots
+            .iter()
+            .map(|root| {
+                run_git(&shell, root, &["remote", "get-url", "origin"])
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            })
+            .collect()),
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn remote_urls_wsl(shell: &ShellConfig, roots: &[String]) -> Result<Vec<Option<String>>, String> {
+    if roots.is_empty() {
+        return Ok(vec![]);
+    }
+    // One line of output per root, in order: the URL, or empty when there is
+    // none. `head -n1` keeps a multi-URL remote from shifting later rows.
+    let script = roots
+        .iter()
+        .map(|root| {
+            format!(
+                "git -C {} remote get-url origin 2>/dev/null | head -n1 | tr -d '\\r\\n'; echo",
+                bash_quote(root)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (_, stdout, _) = shell.run("bash", &["-c", &script])?;
+    let mut urls: Vec<Option<String>> = stdout
+        .lines()
+        .map(|l| {
+            let trimmed = l.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })
+        .collect();
+    // A distro that fails to start prints nothing: report "no origin" rather
+    // than mis-assigning one root's URL to another.
+    urls.resize(roots.len(), None);
+    Ok(urls)
 }
 
 #[tauri::command]

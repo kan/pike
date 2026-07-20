@@ -46,6 +46,18 @@ export function isPowershellFamily(kind: string | undefined): boolean {
   return kind === 'powershell' || kind === 'pwsh'
 }
 
+/**
+ * Quote one argument of a command line for the given shell, so paths and URLs
+ * with spaces (or `$`, backticks, …) reach the program unmangled. Single quotes
+ * are literal in both bash and PowerShell — cmd.exe only understands double
+ * quotes, and has no escape for an embedded one.
+ */
+export function quoteArg(shell: ShellType, arg: string): string {
+  if (shell.kind === 'cmd') return `"${arg.replace(/"/g, '')}"`
+  const escaped = isPowershellFamily(shell.kind) ? arg.replace(/'/g, "''") : arg.replace(/'/g, `'\\''`)
+  return `'${escaped}'`
+}
+
 export function shellToType(kind: WindowsShellKind): ShellType {
   switch (kind) {
     case 'cmd':
@@ -112,6 +124,9 @@ export type TerminalTab = {
   autoStart?: string
   /** When true (with autoStart), wrap the command so the shell exits on completion. */
   closeOnExit?: boolean
+  /** Keep the tab after a non-zero exit instead of auto-closing it, so the
+   *  error output stays readable. A successful run still closes. */
+  keepOnError?: boolean
   cwd?: string
   shell?: ShellType
   hasActivity?: boolean

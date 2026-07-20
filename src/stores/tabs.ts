@@ -44,6 +44,7 @@ export const useTabStore = defineStore('tabs', () => {
     pinned?: boolean
     autoStart?: string
     closeOnExit?: boolean
+    keepOnError?: boolean
     cwd?: string
     shell?: ShellType
   }): string {
@@ -56,6 +57,7 @@ export const useTabStore = defineStore('tabs', () => {
       ptyId: null,
       autoStart: options?.autoStart,
       closeOnExit: options?.closeOnExit,
+      keepOnError: options?.keepOnError,
       cwd: options?.cwd,
       shell: options?.shell,
     })
@@ -63,11 +65,44 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  /** Run a one-off command in a throwaway terminal tab: title == command,
-   *  auto-closes on exit. The shared "run this at the project root" contract for
-   *  the task runner and docker compose. */
-  function runCommandTab(command: string, cwd: string, shell: ShellType): string {
-    return addTerminalTab({ title: command, autoStart: command, closeOnExit: true, cwd, shell })
+  // Completion callbacks registered by runCommandTab, keyed by tab id. Fired
+  // (once) by reportExit so callers never have to know how a terminal tab
+  // records its exit.
+  const exitHandlers = new Map<string, (code: number) => void>()
+
+  /** Run a one-off command in a terminal tab: title == command by default, the
+   *  shell exits when the command does, and the tab closes with it. The shared
+   *  "run this command" contract for the task runner, docker compose and project
+   *  clone. `keepOnError` holds the tab open when the command fails, so the
+   *  error stays readable. `onExit` fires with the command's exit code, or with
+   *  -1 if the tab is closed first. */
+  function runCommandTab(
+    command: string,
+    cwd: string | undefined,
+    shell: ShellType,
+    opts?: { title?: string; keepOnError?: boolean; onExit?: (code: number) => void },
+  ): string {
+    const id = addTerminalTab({
+      title: opts?.title ?? command,
+      autoStart: command,
+      closeOnExit: true,
+      keepOnError: opts?.keepOnError,
+      cwd,
+      shell,
+    })
+    if (opts?.onExit) exitHandlers.set(id, opts.onExit)
+    return id
+  }
+
+  /** Record a terminal's exit code (-1 = spawn failure) and notify any waiter. */
+  function reportExit(id: string, code: number) {
+    const tab = tabs.value.find((t) => t.id === id)
+    if (tab?.kind === 'terminal') tab.exitCode = code
+    const handler = exitHandlers.get(id)
+    if (handler) {
+      exitHandlers.delete(id)
+      handler(code)
+    }
   }
 
   async function closeTab(id: string) {
@@ -100,6 +135,9 @@ export const useTabStore = defineStore('tabs', () => {
 
     tabs.value.splice(idx, 1)
     untitledContent.delete(id)
+    // Closing before the command finished still resolves the waiter (-1, the
+    // same code a failed spawn reports) so nothing waits on a gone tab.
+    reportExit(id, -1)
 
     if (tab.kind === 'editor') {
       await signalWaitAndCloseWindow(tab.path)
@@ -522,6 +560,7 @@ export const useTabStore = defineStore('tabs', () => {
     lastTerminalId,
     addTerminalTab,
     runCommandTab,
+    reportExit,
     addEditorTab,
     addBlankEditorTab,
     untitledContent,

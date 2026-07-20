@@ -256,6 +256,11 @@ export async function fsResolveFirstExisting(shell: ShellType, candidates: strin
   return invoke<string | null>('fs_resolve_first_existing', { shell, candidates })
 }
 
+/** Per-path "is this a directory?" for one shell, in a single round-trip. */
+export async function fsDirsExist(shell: ShellType, paths: string[]): Promise<boolean[]> {
+  return invoke<boolean[]>('fs_dirs_exist', { shell, paths })
+}
+
 // Settings sync (external JSON file at a user-chosen host path)
 
 export async function settingsSyncRead(path: string): Promise<string> {
@@ -338,6 +343,11 @@ export async function gitCreateBranch(root: string, shell: ShellType, name: stri
 
 export async function gitRemoteUrl(root: string, shell: ShellType): Promise<string | null> {
   return invoke<string | null>('git_remote_url', { root, shell })
+}
+
+/** `gitRemoteUrl` for many roots of one shell, in order (null = no origin). */
+export async function gitRemoteUrls(shell: ShellType, roots: string[]): Promise<(string | null)[]> {
+  return invoke<(string | null)[]>('git_remote_urls', { shell, roots })
 }
 
 export async function gitFetch(root: string, shell: ShellType): Promise<void> {

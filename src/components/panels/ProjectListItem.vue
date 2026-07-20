@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
+import { Cloud, CloudDownload, ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { openProjectWindow, pickFolder } from '../../lib/tauri'
@@ -24,6 +24,8 @@ const props = defineProps<{
   grouped: boolean
   active: boolean
   dragging: boolean
+  /** Root is not a directory on this machine (#164) — not cloned yet, or moved. */
+  missing: boolean
   groups: readonly string[]
   distros: readonly string[]
 }>()
@@ -34,6 +36,7 @@ const emit = defineEmits<{
   'cancel-edit': []
   save: [config: ProjectConfig]
   delete: []
+  clone: []
   'drag-start': [e: DragEvent]
   'drag-end': []
 }>()
@@ -119,7 +122,7 @@ function onSave() {
   <div
     v-else
     class="project-item"
-    :class="{ active, dragging, grouped }"
+    :class="{ active, dragging, grouped, missing }"
     draggable="true"
     @dragstart="emit('drag-start', $event)"
     @dragend="emit('drag-end')"
@@ -127,12 +130,15 @@ function onSave() {
   >
     <div class="project-name">
       <ColorDot :color="project.color" />{{ project.name }}
+      <span v-if="project.remoteUrl" class="remote-icon" :title="project.remoteUrl"><Cloud :size="12" :stroke-width="2" /></span>
+      <span v-if="missing" class="missing-tag" :title="t('project.missingHint')">{{ t('project.missing') }}</span>
     </div>
     <div class="project-meta">
       <span class="project-root">{{ project.root }}</span>
       <span class="project-shell">{{ shellLabel(project.shell) }}</span>
     </div>
     <div class="item-actions">
+      <button v-if="missing && project.remoteUrl" class="action-btn" :title="t('project.clone', { url: project.remoteUrl })" @click.stop="emit('clone')"><CloudDownload :size="12" :stroke-width="2" /></button>
       <button class="action-btn" :title="t('project.openInNewWindow')" @click.stop="openProjectWindow(project.id)"><ExternalLink :size="12" :stroke-width="2" /></button>
       <button class="action-btn" :title="t('project.edit')" @click.stop="emit('request-edit')"><Pencil :size="12" :stroke-width="2" /></button>
       <button class="action-btn danger" :title="t('common.delete')" @click.stop="emit('delete')"><Trash2 :size="12" :stroke-width="2" /></button>
@@ -243,6 +249,7 @@ function onSave() {
 }
 
 .project-item {
+  --action-btn-size: 18px;
   position: relative;
   padding: 8px;
   padding-right: 64px;
@@ -252,6 +259,11 @@ function onSave() {
 
 .project-item.grouped {
   padding-left: 16px;
+}
+
+/* Room for one more action button (clone), shown only for a missing root. */
+.project-item.missing {
+  padding-right: calc(64px + var(--action-btn-size) + 2px);
 }
 
 .project-item:hover {
@@ -308,13 +320,37 @@ function onSave() {
   opacity: 0;
 }
 
-.project-item:hover .item-actions {
+.project-item:hover .item-actions,
+/* A missing root's clone button is the point of the row — always visible. */
+.project-item.missing .item-actions {
   opacity: 1;
 }
 
+.project-item.missing .project-root {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+/* Marks "an origin URL is on file" — the prerequisite for the clone action. */
+.remote-icon {
+  display: flex;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.missing-tag {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
 .action-btn {
-  width: 18px;
-  height: 18px;
+  width: var(--action-btn-size);
+  height: var(--action-btn-size);
   padding: 0;
   border: none;
   background: transparent;

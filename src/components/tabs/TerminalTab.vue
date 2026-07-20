@@ -580,9 +580,8 @@ onMounted(async () => {
     }
   } catch (e) {
     terminal.write(`\r\n${t('terminal.failedSpawn', { error: String(e) })}\r\n`)
-    const tab = tabStore.tabs.find((t) => t.id === props.tabId)
     // -1 indicates spawn failure so the badge distinguishes it from a real exit code
-    if (tab?.kind === 'terminal') tab.exitCode = -1
+    tabStore.reportExit(props.tabId, -1)
     return
   }
 
@@ -602,14 +601,16 @@ onMounted(async () => {
     },
     (code) => {
       termRef_.write(`\r\n${t('terminal.exited', { code: String(code) })}\r\n`)
+      tabStore.reportExit(props.tabId, code)
       const tab = tabStore.tabs.find((t) => t.id === props.tabId)
       if (tab?.kind === 'terminal') {
-        tab.exitCode = code
         // A PTY that dies within the grace period is almost always a failed
         // autoStart or bad shell config — keep the tab so the user can read
-        // the error instead of having it vanish.
+        // the error instead of having it vanish. `keepOnError` extends that to
+        // a command that ran but failed (a clone that could not authenticate).
         const aliveFor = Date.now() - spawnedAt
-        if (!tab.pinned && aliveFor >= SPAWN_GRACE_PERIOD_MS) {
+        const keep = tab.keepOnError && code !== 0
+        if (!tab.pinned && !keep && aliveFor >= SPAWN_GRACE_PERIOD_MS) {
           setTimeout(() => tabStore.closeTab(props.tabId), 1000)
         }
       }

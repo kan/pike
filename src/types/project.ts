@@ -35,4 +35,8 @@ export interface ProjectConfig {
   group?: string
   /** Preset accent color (hex) for identifying windows/projects */
   color?: string
+  /** git remote `origin` URL, refreshed whenever the git panel resolves one.
+   *  Lets a project whose root is missing on this machine be cloned back into
+   *  place (#164). Absent for non-repositories and repos without an origin. */
+  remoteUrl?: string
 }

@@ -67,6 +67,12 @@ pub struct ProjectConfig {
     /// Optional preset accent color (hex) for identifying windows/projects.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// git remote `origin` URL, refreshed by the front end whenever the git
+    /// panel resolves one. Kept here so a project whose root is not on this
+    /// machine can still be cloned back into place (#164). `None` for
+    /// non-repositories and repositories without an origin.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_url: Option<String>,
 }
 
 fn projects_dir(state: &ProjectState) -> PathBuf {

@@ -166,6 +166,10 @@ const detecting = ref(false)
 
 onMounted(async () => {
   await projectStore.loadProjects()
+  // Re-stat the roots when the panel opens (#164), so a checkout cloned or
+  // moved outside Pike is picked up without polling on a timer. Rate-limited in
+  // the store, and not awaited — the list renders while WSL probes run.
+  projectStore.checkRoots().catch(() => {})
   await projectStore.loadGroups()
   try {
     distros.value = await detectWslDistros()
@@ -321,12 +325,14 @@ async function onDelete(id: string) {
         :grouped="false"
         :active="projectStore.currentProject?.id === project.id"
         :dragging="draggingProjectId === project.id"
+        :missing="projectStore.missingRoots.has(project.id)"
         :groups="projectStore.groups"
         :distros="distros"
         @select="projectStore.switchProject(project.id)"
         @request-edit="editingId = project.id"
         @cancel-edit="editingId = null"
         @save="onSaveEdit"
+        @clone="projectStore.cloneProject(project.id)"
         @delete="onDelete(project.id)"
         @drag-start="onDragStartProject($event, project.id)"
         @drag-end="onDragEndProject"
@@ -375,12 +381,14 @@ async function onDelete(id: string) {
             :grouped="true"
             :active="projectStore.currentProject?.id === project.id"
             :dragging="draggingProjectId === project.id"
+            :missing="projectStore.missingRoots.has(project.id)"
             :groups="projectStore.groups"
             :distros="distros"
             @select="projectStore.switchProject(project.id)"
             @request-edit="editingId = project.id"
             @cancel-edit="editingId = null"
             @save="onSaveEdit"
+            @clone="projectStore.cloneProject(project.id)"
             @delete="onDelete(project.id)"
             @drag-start="onDragStartProject($event, project.id)"
             @drag-end="onDragEndProject"

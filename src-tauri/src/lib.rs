@@ -237,6 +237,7 @@ fn create_adhoc_project(
         agent_session_id: None,
         group: None,
         color: None,
+        remote_url: None,
     };
 
     let dir = state.config_dir.join("projects").join(&config.id);
@@ -1084,6 +1085,7 @@ pub fn run() {
             fs::fs_create_dir,
             fs::fs_write_file_base64,
             fs::fs_resolve_first_existing,
+            fs::fs_dirs_exist,
             fs::fs_open_in_explorer,
             settings_sync::settings_sync_read,
             settings_sync::settings_sync_write,
@@ -1118,6 +1120,7 @@ pub fn run() {
             git::git_checkout,
             git::git_create_branch,
             git::git_remote_url,
+            git::git_remote_urls,
             git::git_fetch,
             git::git_push,
             git::git_pull,
