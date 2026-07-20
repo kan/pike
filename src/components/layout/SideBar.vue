@@ -151,12 +151,19 @@ interface BadgeInfo {
   count: number
   danger?: boolean
 }
+/** Small glyph in the icon's bottom-right corner, with a tooltip suffix. */
+interface MarkerInfo {
+  text: string
+  title: string
+}
 interface IconDef {
   panel: SidebarPanel
   labelKey: string
   icon: Component
   /** Optional count badge resolver — returns null when nothing to show. */
   badge?: () => BadgeInfo | null
+  /** Optional corner marker resolver — returns null when nothing to show. */
+  marker?: () => MarkerInfo | null
 }
 
 const icons: IconDef[] = [
@@ -171,6 +178,16 @@ const icons: IconDef[] = [
       if (!s) return null
       const n = s.staged.length + s.unstaged.length + s.conflicted.length
       return n > 0 ? { count: n, danger: s.conflicted.length > 0 } : null
+    },
+    // Unpushed / unpulled commits. The count badge is taken by the working-tree
+    // change count, so this rides along as an arrow in the opposite corner.
+    marker: () => {
+      const s = gitStore.status
+      if (!s || (!s.ahead && !s.behind)) return null
+      const parts: string[] = []
+      if (s.ahead) parts.push(t('git.aheadInfo', { count: s.ahead }))
+      if (s.behind) parts.push(t('git.behindInfo', { count: s.behind }))
+      return { text: `${s.ahead ? '↑' : ''}${s.behind ? '↓' : ''}`, title: parts.join(' · ') }
     },
   },
   { panel: 'search', labelKey: 'sidebar.search', icon: Search },
@@ -206,7 +223,7 @@ const PANEL_HELP: Partial<Record<SidebarPanel, string>> = {
 }
 const panelHelp = computed(() => (sidebar.activePanel ? PANEL_HELP[sidebar.activePanel] : undefined))
 
-/** panel → current badge, recomputed once per reactive change (not per render). */
+/** panel → current badge/marker, recomputed once per reactive change (not per render). */
 const badges = computed(() => {
   const map: Partial<Record<SidebarPanel, BadgeInfo | null>> = {}
   for (const item of icons) {
@@ -214,6 +231,19 @@ const badges = computed(() => {
   }
   return map
 })
+const markers = computed(() => {
+  const map: Partial<Record<SidebarPanel, MarkerInfo | null>> = {}
+  for (const item of icons) {
+    if (item.marker) map[item.panel] = item.marker()
+  }
+  return map
+})
+
+function iconTitle(item: IconDef) {
+  const base = t(item.labelKey)
+  const marker = markers.value[item.panel]
+  return marker ? `${base} (${marker.title})` : base
+}
 
 let dragging = false
 let startX = 0
@@ -260,7 +290,7 @@ onUnmounted(() => {
         :key="item.panel"
         class="icon-button"
         :class="{ active: sidebar.activePanel === item.panel }"
-        :title="t(item.labelKey)"
+        :title="iconTitle(item)"
         @click="sidebar.togglePanel(item.panel)"
       >
         <component :is="item.icon" :size="22" :stroke-width="1.5" class="icon" />
@@ -269,6 +299,7 @@ onUnmounted(() => {
           class="count-badge"
           :class="{ danger: badges[item.panel]?.danger }"
         >{{ badges[item.panel]?.count }}</span>
+        <span v-if="markers[item.panel]" class="marker-badge">{{ markers[item.panel]?.text }}</span>
       </button>
       <div class="icon-spacer" />
       <div class="bot-wrapper">
@@ -672,6 +703,18 @@ onUnmounted(() => {
   font-weight: 700;
   line-height: 15px;
   text-align: center;
+  pointer-events: none;
+}
+
+.marker-badge {
+  position: absolute;
+  bottom: 3px;
+  right: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -1px;
+  color: var(--accent);
   pointer-events: none;
 }
 
