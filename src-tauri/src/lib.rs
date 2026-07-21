@@ -26,10 +26,11 @@ mod watcher;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WebviewWindow, WindowEvent};
 use tauri_plugin_window_state::{AppHandleExt as _, StateFlags};
 
-/// Must match PROJECT_WINDOW_PREFIX in src/lib/window.ts
+/// Prefix for project-window labels (`project-{uuid}`). Opaque to the frontend:
+/// the window_projects map, not this label, says which project a window shows.
 const PROJECT_WINDOW_PREFIX: &str = "project-";
 /// Project-independent (global-mode) window: sidebar-less editor/terminal.
 /// Must match the prefix checked in isGlobalWindow() in src/lib/window.ts
@@ -264,15 +265,6 @@ fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
         .collect()
 }
 
-fn window_project_id(label: &str) -> Option<&str> {
-    // A window built while `project-{id}` is already taken gets a unique
-    // `project-{id}:{uuid}` label (see focus_or_build_project_window). The id is
-    // slug-validated ([a-zA-Z0-9_-]) so `:` never appears in it — split it back.
-    label
-        .strip_prefix(PROJECT_WINDOW_PREFIX)
-        .map(|rest| rest.split_once(':').map_or(rest, |(id, _)| id))
-}
-
 fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Error> {
     let window = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .title("Pike")
@@ -299,6 +291,26 @@ fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Er
 
 fn create_global_window(app: &AppHandle) -> String {
     let label = format!("{GLOBAL_PREFIX}{}", uuid::Uuid::new_v4());
+    let _ = build_window(app, &label);
+    label
+}
+
+/// Build a project window with an opaque unique label, seeding `window_projects`
+/// (label → project id) BEFORE the window is built. The label is meaningless on
+/// its own — the map is the single source of truth for which project a window
+/// shows — so the frontend's `project_for_window` and the focus resolution must
+/// be able to read the entry the moment the webview mounts. An optional pending
+/// CLI action is queued (also before build) for the new window to drain.
+fn build_project_window(app: &AppHandle, project_id: &str, pending: Option<cli::CliAction>) -> String {
+    let label = format!("{PROJECT_WINDOW_PREFIX}{}", uuid::Uuid::new_v4());
+    if let Some(state) = app.try_state::<project::ProjectState>() {
+        if let Ok(mut map) = state.window_projects.lock() {
+            map.insert(label.clone(), project_id.to_string());
+        }
+    }
+    if let Some(action) = pending {
+        store_pending(app, &label, action);
+    }
     let _ = build_window(app, &label);
     label
 }
@@ -379,37 +391,25 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
 
         cli::CliAction::OpenDirectory { path, distro } => {
             let projects = load_all_projects(app);
-            let windows = current_desktop_windows(app);
             let norm = normalize_path(path);
 
-            // 1. Window with matching project already on this desktop? → focus
-            for w in &windows {
-                if let Some(pid) = window_project_id(w.label()) {
-                    if let Some(proj) = projects.iter().find(|p| p.id == pid) {
-                        if normalize_path(&proj.root) == norm {
-                            log::debug!("[single-instance] dir: focus project window {}", w.label());
-                            let _ = w.unminimize();
-                            let _ = w.set_focus();
-                            return;
-                        }
-                    }
-                }
-            }
-
-            // 2. Registered project for this path? → new window for that project
+            // 1. Registered project for this path with a live window? → focus it.
             if let Some(proj) = projects.iter().find(|p| normalize_path(&p.root) == norm) {
+                if let Some(w) = find_project_window(app, &proj.id) {
+                    log::debug!("[single-instance] dir: focus project window {}", w.label());
+                    restore_window(&w);
+                    return;
+                }
+                // 2. Registered but no window → new window for that project.
                 log::debug!("[single-instance] dir: open project {} in new window", proj.id);
-                let label = format!("{PROJECT_WINDOW_PREFIX}{}", proj.id);
-                store_pending(app, &label, action);
-                let _ = build_window(app, &label);
+                build_project_window(app, &proj.id, Some(action));
                 return;
             }
 
             // 3. No registered project → create ad-hoc project and open in new window
             log::debug!("[single-instance] dir: creating ad-hoc project for {path}");
             if let Some(proj) = create_adhoc_project(app, path, distro.as_deref()) {
-                let label = format!("{PROJECT_WINDOW_PREFIX}{}", proj.id);
-                let _ = build_window(app, &label);
+                build_project_window(app, &proj.id, None);
             } else {
                 let label = create_global_window(app);
                 store_pending(app, &label, action);
@@ -429,12 +429,15 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
             }
 
             let projects = load_all_projects(app);
+            // Files land on the desktop the user is on (current_desktop_windows),
+            // unlike project focus which dedups to the canonical window anywhere.
             let windows = current_desktop_windows(app);
+            let win_projects = window_projects_snapshot(app);
 
             // 1. Window whose project contains ALL files on this desktop? → open there
             for w in &windows {
-                if let Some(pid) = window_project_id(w.label()) {
-                    if let Some(proj) = projects.iter().find(|p| p.id == pid) {
+                if let Some(pid) = win_projects.get(w.label()) {
+                    if let Some(proj) = projects.iter().find(|p| p.id == *pid) {
                         if files.iter().all(|f| is_under_root(&f.path, &proj.root)) {
                             log::debug!("[single-instance] files: open in project window {}", w.label());
                             emit_action_to(app, w, &action);
@@ -456,14 +459,10 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
             // while another instance is live. Focus or open the project window;
             // its handleActionLocal adds the pinned-shell terminal.
             if load_all_projects(app).iter().any(|p| &p.id == id) {
-                let label = format!("{PROJECT_WINDOW_PREFIX}{id}");
-                if let Some(w) = app.get_webview_window(&label) {
-                    let _ = w.unminimize();
-                    let _ = w.set_focus();
+                if let Some(w) = find_project_window(app, id) {
                     emit_action_to(app, &w, &action);
                 } else {
-                    store_pending(app, &label, action.clone());
-                    let _ = build_window(app, &label);
+                    build_project_window(app, id, Some(action.clone()));
                 }
             }
         }
@@ -472,57 +471,58 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
 
 #[tauri::command]
 async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), String> {
-    // Same guard as project_get/update/delete: the id becomes a window label,
-    // so reject anything outside [a-zA-Z0-9_-].
+    // Guard as elsewhere: the id ends up in window_projects and as a CLI arg, so
+    // reject anything outside [a-zA-Z0-9_-].
     types::validate_slug(&project_id, "Project ID")?;
     focus_or_build_project_window(&app, &project_id);
     Ok(())
 }
 
+/// The project a window currently shows, from the authoritative window_projects
+/// map (seeded at build for project windows). None for main/global windows and
+/// any window not yet on a project. The frontend calls this at startup to learn
+/// its project instead of parsing its (now opaque) label.
+#[tauri::command]
+fn project_for_window(window: WebviewWindow, state: State<'_, project::ProjectState>) -> Option<String> {
+    state.window_projects.lock().ok().and_then(|m| m.get(window.label()).cloned())
+}
+
 /// Focus the project window for `id` if it's live, else build it. Shared by the
-/// `open_project_window` command and the tray "recent project" menu. `id` must
-/// already be slug-validated (it becomes a window label).
+/// `open_project_window` command and the tray "recent project" menu.
 fn focus_or_build_project_window(app: &AppHandle, id: &str) {
-    // The label only records the project a window was *built* for; an in-place
-    // switchProject changes a window's current project without changing its
-    // (immutable) label. So resolve through window_projects — the authoritative
-    // label → current-project map, updated on every switch. Trusting the label
-    // alone focuses a window that has since switched away from `id`, or the
-    // current window when it still bears `id`'s stale label (nothing happens).
-    let map = app
-        .try_state::<project::ProjectState>()
+    if let Some(window) = find_project_window(app, id) {
+        restore_window(&window);
+    } else {
+        build_project_window(app, id, None);
+    }
+}
+
+/// A cloned snapshot of the `window_projects` map (label → current project id).
+/// Cloning lets callers drop the lock before touching window IPC in a loop.
+fn window_projects_snapshot(app: &AppHandle) -> HashMap<String, String> {
+    app.try_state::<project::ProjectState>()
         .and_then(|s| s.window_projects.lock().ok().map(|m| m.clone()))
-        .unwrap_or_default();
-    // A freshly built window isn't in the map until its switchProject runs, so
-    // fall back to the label (which still equals its project) for those.
-    let shows_id = |w: &WebviewWindow| match map.get(w.label()) {
-        Some(pid) => pid == id,
-        None => window_project_id(w.label()) == Some(id),
-    };
-    for window in app.webview_windows().into_values().filter(|w| shows_id(w)) {
-        // Verify the window is actually visible — tauri-plugin-window-state may
-        // keep a stale handle for a previously closed window.
+        .unwrap_or_default()
+}
+
+/// The live, visible window currently showing project `id`, per the
+/// authoritative `window_projects` map (label → current project id, updated on
+/// every switchProject and seeded at build). The label itself is opaque, so the
+/// map is the only correct way to tell what a window shows. Closes any stale
+/// non-visible handle it passes (tauri-plugin-window-state can keep one for a
+/// previously closed window).
+fn find_project_window(app: &AppHandle, id: &str) -> Option<WebviewWindow> {
+    let map = window_projects_snapshot(app);
+    for window in app.webview_windows().into_values() {
+        if map.get(window.label()).map(String::as_str) != Some(id) {
+            continue;
+        }
         if window.is_visible().unwrap_or(false) {
-            restore_window(&window);
-            return;
+            return Some(window);
         }
         let _ = window.close();
     }
-    // No live window shows `id` → open a fresh one. Reuse the plain
-    // `project-{id}` label when it's free; if a window that switched away still
-    // holds it, build under a unique fallback label (window_project_id and the
-    // frontend's getWindowProjectId strip the `:uuid` suffix back to `id`).
-    let base = format!("{PROJECT_WINDOW_PREFIX}{id}");
-    let label = if app.get_webview_window(&base).is_some() {
-        format!("{base}:{}", uuid::Uuid::new_v4())
-    } else {
-        base
-    };
-    if build_window(app, &label).is_err() {
-        if let Some(w) = app.get_webview_window(&label) {
-            let _ = w.set_focus();
-        }
-    }
+    None
 }
 
 /// Open a fresh global-mode (project-less) window with a terminal on the
@@ -981,11 +981,12 @@ pub fn run() {
                     }
 
                     // Authoritative cleanup: JS beforeunload is best-effort only.
+                    // window_projects (label → current project) is the source of
+                    // truth; draining it also removes the entry so the map can't
+                    // leak, and removes the project the window actually shows
+                    // (not the one its opaque label was minted for).
                     if let Some(state) = window.try_state::<project::ProjectState>() {
-                        let project_id = window_project_id(window.label())
-                            .map(|s| s.to_string())
-                            .or_else(|| project::take_window_project(&state, window.label()));
-                        if let Some(pid) = project_id {
+                        if let Some(pid) = project::take_window_project(&state, window.label()) {
                             if let Err(e) = project::remove_open_project(&state, &pid) {
                                 log::warn!("Failed to remove project {pid} from open list: {e}");
                             }
@@ -1071,6 +1072,7 @@ pub fn run() {
             cli::cli_set_pending_action,
             wait::wait_signal_by_path,
             open_project_window,
+            project_for_window,
             open_global_window,
             menus_refresh,
             tray_set_tooltip,

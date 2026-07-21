@@ -94,6 +94,12 @@ export async function projectAddOpen(id: string): Promise<void> {
   return invoke('project_add_open', { id })
 }
 
+/** The project this window currently shows, per the backend window_projects map
+ *  (seeded at build). null for main/global windows. Replaces label parsing. */
+export async function projectForWindow(): Promise<string | null> {
+  return invoke('project_for_window')
+}
+
 export async function projectRemoveOpen(id: string): Promise<void> {
   return invoke('project_remove_open', { id })
 }

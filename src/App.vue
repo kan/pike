@@ -21,8 +21,8 @@ import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { resolveNotifier } from './lib/notify'
 import { normalizeSep } from './lib/paths'
 import { projectColorValue } from './lib/projectColors'
-import { isElevated, projectRemoveOpen, traySetCloseToTray, windowSetBackdrop } from './lib/tauri'
-import { elevated, ephemeralWindow, getWindowProjectId, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
+import { isElevated, projectForWindow, projectRemoveOpen, traySetCloseToTray, windowSetBackdrop } from './lib/tauri'
+import { elevated, ephemeralWindow, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
 import { useClaudeRateStore } from './stores/claudeRate'
 import { useClaudeUsageStore } from './stores/claudeUsage'
 import { useCodexUsageStore } from './stores/codexUsage'
@@ -178,8 +178,6 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
   diagStore.triggerAutoRun()
 })
 
-const windowProjectId = getWindowProjectId()
-
 // Global-mode windows exist only for their tabs: closing the last one closes
 // the window (Windows Terminal-like lifecycle). --wait windows usually close
 // via the wait signal first; this also covers plain file/terminal windows.
@@ -211,6 +209,9 @@ onMounted(async () => {
 
   await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initAgentRouter()])
 
+  // Which project this window shows comes from the backend window_projects map
+  // (seeded at build), not the opaque label. null for main/global windows.
+  const windowProjectId = await projectForWindow()
   if (windowProjectId) {
     await projectStore.loadProjects()
     await projectStore.switchProject(windowProjectId)

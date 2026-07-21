@@ -1,19 +1,10 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { ref } from 'vue'
 
-const PROJECT_WINDOW_PREFIX = 'project-'
-/** Label of the current window (e.g. 'main', 'project-<id>', 'global-<n>'). */
+/** Label of the current window. Opaque: 'main', 'project-<uuid>', 'global-<uuid>'.
+ *  The project a 'project-' window shows comes from the backend window_projects
+ *  map (via projectForWindow), not from parsing this label. */
 export const windowLabel = getCurrentWindow().label
-
-export function getWindowProjectId(): string | null {
-  if (!windowLabel.startsWith(PROJECT_WINDOW_PREFIX)) return null
-  // A window built while `project-{id}` was taken carries a unique
-  // `project-{id}:{uuid}` label (see focus_or_build_project_window). Project ids
-  // are slugs ([a-zA-Z0-9_-]), so `:` only ever separates the uuid suffix.
-  const rest = windowLabel.slice(PROJECT_WINDOW_PREFIX.length)
-  const sep = rest.indexOf(':')
-  return sep === -1 ? rest : rest.slice(0, sep)
-}
 
 /**
  * WebView のカラースキーム（`prefers-color-scheme`）を app のテーマに追従させる。

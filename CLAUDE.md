@@ -360,7 +360,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ### マルチウィンドウ
 - ProjectSwitcher の Ctrl+Enter または ProjectPanel の ExternalLink ボタンで新ウィンドウにプロジェクトを開く
-- ウィンドウラベル `project-{id}` でプロジェクトを識別。同一プロジェクトの二重起動は既存ウィンドウをフォーカス
+- ウィンドウラベルは**不透明な `project-{uuid}`**（`global-{uuid}` と同様）。プロジェクトとの対応は Rust の `ProjectState.window_projects`（label → 現在のプロジェクト id）が**唯一の真実**で、`build_project_window` が生成時に seed し、in-place の `switchProject` ごとに `project_add_open` が更新する（#175）。ラベルから id をパースしない（旧 `project-{id}` 方式・`window_project_id`/`getWindowProjectId` は廃止）。フロントは起動時に `project_for_window` コマンドで自ウィンドウのプロジェクトを取得する。ウィンドウ解決（フォーカス/新規・CLI ルーティング・破棄時の `last_project.txt` 掃除）はすべてこのマップ経由（`find_project_window`）。同一プロジェクトの二重起動は既存ウィンドウをフォーカス（マップで検出）
 - Tauri v2 の各ウィンドウは独立 JS コンテキスト → Pinia ストアは自然にウィンドウごとに分離
 - PTY/Docker イベントは `app.emit()` で全ウィンドウにブロードキャスト、ルーターが ID でフィルタ
 - **特定ウィンドウ宛てイベントの受信は `getCurrentWindow().listen()` を使う**（`@tauri-apps/api/event` の素の `listen()` は使わない）: Rust が `app.emit_to(label, …)` で 1 ウィンドウに送っても、素の `listen()` はデフォルト target が `Any` のため**全ウィンドウで発火**する。`cli_open` のようにルーティング済みの宛先ウィンドウだけで処理したいイベントは、必ず `getCurrentWindow().listen()`（target = 自ラベル）で受ける（過去に `useCliOpen` が素の `listen()` を使い、外部ファイルを開くと全ウィンドウが開こうとしてエラーになった）。全ブロードキャスト＋ID フィルタ方式（PTY/Docker）とは使い分ける
