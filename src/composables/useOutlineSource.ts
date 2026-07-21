@@ -21,6 +21,21 @@ const scrollPositions = new Map<string, number>()
 /** Current caret offset in the active outline source. Updates on selection change. */
 const caretPosition = shallowRef<{ tabId: string; offset: number } | null>(null)
 
+/**
+ * A jump requested by clicking an Outline row (#177). The panel scrolls the
+ * editor itself via the shared EditorView; this signal lets EditorTab also
+ * scroll a visible preview. `slug` is the Markdown heading anchor (dedup-aware),
+ * empty for non-heading symbols — EditorTab falls back to a line ratio then.
+ * Each click replaces the ref so repeats re-fire the watcher.
+ */
+export interface OutlineJump {
+  tabId: string
+  line: number
+  slug: string
+}
+
+const jumpRequest = shallowRef<OutlineJump | null>(null)
+
 export function useOutlineSource() {
   function set(src: Omit<OutlineSource, 'version'>) {
     current.value = { ...src, version: 0 }
@@ -35,6 +50,7 @@ export function useOutlineSource() {
     if (tabId) {
       scrollPositions.delete(tabId)
       if (caretPosition.value?.tabId === tabId) caretPosition.value = null
+      if (jumpRequest.value?.tabId === tabId) jumpRequest.value = null
     }
   }
 
@@ -50,5 +66,9 @@ export function useOutlineSource() {
     caretPosition.value = { tabId, offset }
   }
 
-  return { current, set, clear, bumpVersion, updateCaret, caretPosition, scrollPositions }
+  function requestJump(target: OutlineJump) {
+    jumpRequest.value = target
+  }
+
+  return { current, set, clear, bumpVersion, updateCaret, caretPosition, scrollPositions, jumpRequest, requestJump }
 }

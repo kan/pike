@@ -5,6 +5,7 @@ import { useOutlineSource } from '../../composables/useOutlineSource'
 import { useI18n } from '../../i18n'
 import { extractOutline, type OutlineNode, type OutlineResult } from '../../lib/outline'
 import { basename } from '../../lib/paths'
+import { createHeadingSlugger } from '../../lib/slug'
 import OutlineHistoryView from './outline/OutlineHistoryView.vue'
 import OutlineTreeView from './outline/OutlineTreeView.vue'
 
@@ -60,6 +61,9 @@ function onSelect(node: OutlineNode) {
     effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
   })
   view.focus()
+  // Also scroll a visible preview to the same symbol (#177). EditorTab consumes
+  // this; the heading slug lets a Markdown preview anchor precisely.
+  outlineSource.requestJump({ tabId: src.tabId, line: lineNum, slug: headingSlugs.value.get(node.id) ?? '' })
 }
 
 type Status = 'no-source' | 'untitled' | 'too-large' | 'unsupported' | 'empty' | 'ok'
@@ -78,6 +82,22 @@ const status = computed<Status>(() => {
 
 const nodes = computed<OutlineNode[]>(() => (result.value?.kind === 'ok' ? result.value.nodes : []))
 const currentPath = computed(() => outlineSource.current.value?.path ?? '')
+
+// Heading node id → Markdown preview anchor slug (#177). Slugged in document
+// order (pre-order) with one slugger so duplicate headings get the same `-1`
+// suffixes the preview's assignHeadingIds does, keeping the ids aligned.
+const headingSlugs = computed(() => {
+  const map = new Map<string, string>()
+  const slugger = createHeadingSlugger()
+  const walk = (list: OutlineNode[]) => {
+    for (const n of list) {
+      if (n.kind === 'heading') map.set(n.id, slugger(n.name))
+      walk(n.children)
+    }
+  }
+  walk(nodes.value)
+  return map
+})
 
 // Fall back to outline tab when the current file has no path (untitled).
 watch(currentPath, (path) => {

@@ -11,7 +11,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
-import { useOutlineSource } from '../../composables/useOutlineSource'
+import { type OutlineJump, useOutlineSource } from '../../composables/useOutlineSource'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { conflictHighlight } from '../../lib/editorConflict'
@@ -918,16 +918,23 @@ onMounted(async () => {
   }
 })
 
+/** Swallow the scroll event a programmatic scroll is about to fire, so the
+ *  split-mode sync doesn't mirror it back onto the other pane. Call before the
+ *  scroll assignment. */
+function suppressSyncFrame() {
+  syncingScroll = true
+  requestAnimationFrame(() => {
+    syncingScroll = false
+  })
+}
+
 // Scroll sync
 function onEditorScroll() {
   if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return
   const scroller = editorView.scrollDOM
   const ratio = scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight || 1)
-  syncingScroll = true
+  suppressSyncFrame()
   previewRef.value.scrollTop = ratio * (previewRef.value.scrollHeight - previewRef.value.clientHeight)
-  requestAnimationFrame(() => {
-    syncingScroll = false
-  })
 }
 
 function onPreviewScroll() {
@@ -937,17 +944,22 @@ function onPreviewScroll() {
   if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return
   const preview = previewRef.value
   const ratio = preview.scrollTop / (preview.scrollHeight - preview.clientHeight || 1)
-  syncingScroll = true
+  suppressSyncFrame()
   const scroller = editorView.scrollDOM
   scroller.scrollTop = ratio * (scroller.scrollHeight - scroller.clientHeight)
-  requestAnimationFrame(() => {
-    syncingScroll = false
-  })
 }
 
 /** Scroll behaviour for in-preview navigation (anchors, back-to-top). */
 function previewScrollBehavior(): ScrollBehavior {
   return settingsStore.previewSmoothScroll ? 'smooth' : 'auto'
+}
+
+/** Scroll the preview to a heading/anchor id. Returns whether it was found. */
+function scrollPreviewToAnchor(id: string): boolean {
+  const el = previewRef.value?.querySelector(`#${CSS.escape(id)}`)
+  if (!el) return false
+  el.scrollIntoView({ behavior: previewScrollBehavior(), block: 'start' })
+  return true
 }
 
 function scrollPreviewToTop() {
@@ -1044,10 +1056,7 @@ async function onPreviewClick(e: MouseEvent) {
     } catch {
       /* use the raw value */
     }
-    if (id)
-      previewRef.value
-        ?.querySelector(`#${CSS.escape(id)}`)
-        ?.scrollIntoView({ behavior: previewScrollBehavior(), block: 'start' })
+    if (id) scrollPreviewToAnchor(id)
     return
   }
 
@@ -1071,6 +1080,29 @@ watch(
     if (lineNum) jumpToLine(lineNum)
   },
 )
+
+// Outline click also scrolls a visible preview (#177). The panel already
+// scrolled the editor via the shared EditorView; anchor the preview to the
+// heading slug for Markdown, otherwise fall back to a source-line ratio.
+watch(
+  () => outlineSource.jumpRequest.value,
+  (req) => {
+    if (!req || req.tabId !== props.tabId || !showPreview.value) return
+    scrollPreviewToJump(req)
+  },
+)
+
+function scrollPreviewToJump(req: OutlineJump) {
+  const preview = previewRef.value
+  if (!preview || !editorView) return
+  // Hold the split-mode sync guard across this frame so the editor's own
+  // scrollIntoView (dispatched by the panel) doesn't overwrite our position.
+  suppressSyncFrame()
+  // Markdown headings anchor precisely; otherwise scroll by source-line ratio.
+  if (isMarkdown.value && req.slug && scrollPreviewToAnchor(req.slug)) return
+  const ratio = (req.line - 1) / Math.max(1, editorView.state.doc.lines - 1)
+  preview.scrollTo({ top: ratio * (preview.scrollHeight - preview.clientHeight), behavior: previewScrollBehavior() })
+}
 
 // Reload file content when requested (e.g. from CLI)
 watch(
