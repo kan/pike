@@ -418,6 +418,10 @@ export default {
   'search.useRegex': 'Use Regex',
   'search.searching': 'Searching...',
   'search.noResults': 'No results',
+  'search.matchCase': 'Match Case',
+  'search.prevMatch': 'Previous Match',
+  'search.nextMatch': 'Next Match',
+  'search.close': 'Close',
   'search.truncated': 'Results truncated (max 500)',
 
   // Keyboard Shortcuts Modal

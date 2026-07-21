@@ -419,6 +419,10 @@ export default {
   'search.useRegex': '正規表現',
   'search.searching': '検索中...',
   'search.noResults': '結果なし',
+  'search.matchCase': '大文字と小文字を区別',
+  'search.prevMatch': '前の一致',
+  'search.nextMatch': '次の一致',
+  'search.close': '閉じる',
   'search.truncated': '結果を切り捨てました (最大500件)',
 
   // Keyboard Shortcuts Modal

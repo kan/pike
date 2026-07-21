@@ -49,7 +49,8 @@ export function useKeyboardShortcuts() {
       return
     }
 
-    // Ctrl+F / Ctrl+H: prevent browser find dialog (CodeMirror search handles it)
+    // Ctrl+F / Ctrl+H: prevent browser find dialog. The active view handles the
+    // shortcut itself (CodeMirror in the editor, a window listener in DiffTab).
     if (e.ctrlKey && (e.key === 'f' || e.key === 'h')) {
       e.preventDefault()
       return
