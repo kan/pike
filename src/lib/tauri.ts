@@ -100,6 +100,12 @@ export async function projectForWindow(): Promise<string | null> {
   return invoke('project_for_window')
 }
 
+/** Focus the window already showing this project, if any; returns whether one
+ *  was found. When false, the caller switches its own window in place. */
+export async function focusProjectWindow(projectId: string): Promise<boolean> {
+  return invoke('focus_project_window', { projectId })
+}
+
 export async function projectRemoveOpen(id: string): Promise<void> {
   return invoke('project_remove_open', { id })
 }

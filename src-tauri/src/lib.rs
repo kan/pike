@@ -487,6 +487,21 @@ fn project_for_window(window: WebviewWindow, state: State<'_, project::ProjectSt
     state.window_projects.lock().ok().and_then(|m| m.get(window.label()).cloned())
 }
 
+/// Focus the window already showing `project_id`, if any. Returns whether one
+/// was found — never builds. Lets the project panel jump to an existing window
+/// instead of switching the current window in place (the caller does that when
+/// this returns false).
+#[tauri::command]
+fn focus_project_window(project_id: String, app: AppHandle) -> bool {
+    match find_project_window(&app, &project_id) {
+        Some(w) => {
+            restore_window(&w);
+            true
+        }
+        None => false,
+    }
+}
+
 /// Focus the project window for `id` if it's live, else build it. Shared by the
 /// `open_project_window` command and the tray "recent project" menu.
 fn focus_or_build_project_window(app: &AppHandle, id: &str) {
@@ -1073,6 +1088,7 @@ pub fn run() {
             wait::wait_signal_by_path,
             open_project_window,
             project_for_window,
+            focus_project_window,
             open_global_window,
             menus_refresh,
             tray_set_tooltip,

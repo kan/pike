@@ -5,7 +5,7 @@ import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
 import { loadJson, saveJson } from '../../lib/storage'
-import { detectWslDistros, pickFolder, ptyGetCwd } from '../../lib/tauri'
+import { detectWslDistros, focusProjectWindow, pickFolder, ptyGetCwd } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
@@ -30,6 +30,13 @@ const tabStore = useTabStore()
 const settings = useSettingsStore()
 
 const COLLAPSE_STORAGE_KEY = 'pike:project-group-collapsed'
+
+/** Jump to the project's existing window if it's open elsewhere; otherwise
+ *  switch this window in place. */
+async function selectProject(id: string) {
+  if (await focusProjectWindow(id)) return
+  await projectStore.switchProject(id)
+}
 
 const sortMode = ref<'name' | 'recent'>('name')
 
@@ -329,7 +336,7 @@ async function onDelete(id: string) {
         :missing="projectStore.missingRoots.has(project.id)"
         :groups="projectStore.groups"
         :distros="distros"
-        @select="projectStore.switchProject(project.id)"
+        @select="selectProject(project.id)"
         @request-edit="editingId = project.id"
         @cancel-edit="editingId = null"
         @save="onSaveEdit"
@@ -385,7 +392,7 @@ async function onDelete(id: string) {
             :missing="projectStore.missingRoots.has(project.id)"
             :groups="projectStore.groups"
             :distros="distros"
-            @select="projectStore.switchProject(project.id)"
+            @select="selectProject(project.id)"
             @request-edit="editingId = project.id"
             @cancel-edit="editingId = null"
             @save="onSaveEdit"
