@@ -265,7 +265,12 @@ fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
 }
 
 fn window_project_id(label: &str) -> Option<&str> {
-    label.strip_prefix(PROJECT_WINDOW_PREFIX)
+    // A window built while `project-{id}` is already taken gets a unique
+    // `project-{id}:{uuid}` label (see focus_or_build_project_window). The id is
+    // slug-validated ([a-zA-Z0-9_-]) so `:` never appears in it — split it back.
+    label
+        .strip_prefix(PROJECT_WINDOW_PREFIX)
+        .map(|rest| rest.split_once(':').map_or(rest, |(id, _)| id))
 }
 
 fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Error> {
@@ -478,8 +483,23 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
 /// `open_project_window` command and the tray "recent project" menu. `id` must
 /// already be slug-validated (it becomes a window label).
 fn focus_or_build_project_window(app: &AppHandle, id: &str) {
-    let label = format!("{PROJECT_WINDOW_PREFIX}{id}");
-    if let Some(window) = app.get_webview_window(&label) {
+    // The label only records the project a window was *built* for; an in-place
+    // switchProject changes a window's current project without changing its
+    // (immutable) label. So resolve through window_projects — the authoritative
+    // label → current-project map, updated on every switch. Trusting the label
+    // alone focuses a window that has since switched away from `id`, or the
+    // current window when it still bears `id`'s stale label (nothing happens).
+    let map = app
+        .try_state::<project::ProjectState>()
+        .and_then(|s| s.window_projects.lock().ok().map(|m| m.clone()))
+        .unwrap_or_default();
+    // A freshly built window isn't in the map until its switchProject runs, so
+    // fall back to the label (which still equals its project) for those.
+    let shows_id = |w: &WebviewWindow| match map.get(w.label()) {
+        Some(pid) => pid == id,
+        None => window_project_id(w.label()) == Some(id),
+    };
+    for window in app.webview_windows().into_values().filter(|w| shows_id(w)) {
         // Verify the window is actually visible — tauri-plugin-window-state may
         // keep a stale handle for a previously closed window.
         if window.is_visible().unwrap_or(false) {
@@ -488,6 +508,16 @@ fn focus_or_build_project_window(app: &AppHandle, id: &str) {
         }
         let _ = window.close();
     }
+    // No live window shows `id` → open a fresh one. Reuse the plain
+    // `project-{id}` label when it's free; if a window that switched away still
+    // holds it, build under a unique fallback label (window_project_id and the
+    // frontend's getWindowProjectId strip the `:uuid` suffix back to `id`).
+    let base = format!("{PROJECT_WINDOW_PREFIX}{id}");
+    let label = if app.get_webview_window(&base).is_some() {
+        format!("{base}:{}", uuid::Uuid::new_v4())
+    } else {
+        base
+    };
     if build_window(app, &label).is_err() {
         if let Some(w) = app.get_webview_window(&label) {
             let _ = w.set_focus();

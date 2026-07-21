@@ -6,7 +6,13 @@ const PROJECT_WINDOW_PREFIX = 'project-'
 export const windowLabel = getCurrentWindow().label
 
 export function getWindowProjectId(): string | null {
-  return windowLabel.startsWith(PROJECT_WINDOW_PREFIX) ? windowLabel.slice(PROJECT_WINDOW_PREFIX.length) : null
+  if (!windowLabel.startsWith(PROJECT_WINDOW_PREFIX)) return null
+  // A window built while `project-{id}` was taken carries a unique
+  // `project-{id}:{uuid}` label (see focus_or_build_project_window). Project ids
+  // are slugs ([a-zA-Z0-9_-]), so `:` only ever separates the uuid suffix.
+  const rest = windowLabel.slice(PROJECT_WINDOW_PREFIX.length)
+  const sep = rest.indexOf(':')
+  return sep === -1 ? rest : rest.slice(0, sep)
 }
 
 /**
