@@ -121,6 +121,7 @@ export default {
   // Diff
   'diff.notFound': 'Diff not found',
   'diff.binary': 'Binary file \u2014 diff not available',
+  'diff.openCurrentFile': 'Open current file',
   'diff.noChanges': 'No changes',
 
   // History
@@ -298,6 +299,7 @@ export default {
   'git.openFile': 'Open File',
   'git.pull': 'Pull',
   'git.push': 'Push',
+  'git.binaryRevision': '"{name}" is binary — this revision cannot be shown',
   'git.pullHint': 'Pull (right-click for options)',
   'git.pushHint': 'Push (right-click for options)',
   'git.pullPlain': 'git pull',

@@ -20,6 +20,12 @@ const dataUrl = ref('')
 
 onMounted(async () => {
   if (!tab.value) return
+  // A revision carries its bytes with it (the commit's copy is not on disk).
+  if (tab.value.dataUrl) {
+    dataUrl.value = tab.value.dataUrl
+    loading.value = false
+    return
+  }
   // Global (project-less) windows read via the Windows side — same fallback
   // as EditorTab's shellForIO.
   const shell = projectStore.currentProject?.shell ?? ({ kind: 'powershell' } as const)

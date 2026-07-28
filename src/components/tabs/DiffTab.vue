@@ -4,6 +4,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { parseDiff } from '../../lib/diffParser'
 import { collectMatches, renderTokens } from '../../lib/diffSearch'
+import { openPathInTab } from '../../lib/openFile'
+import { joinPath, pathSep } from '../../lib/paths'
+import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import type { DiffTab } from '../../types/tab'
 
@@ -15,6 +18,22 @@ const tabStore = useTabStore()
 const tab = computed(() => tabStore.tabs.find((t): t is DiffTab => t.id === props.tabId && t.kind === 'diff'))
 
 const parsedLines = computed(() => (tab.value ? parseDiff(tab.value.diff, { charLevel: true }) : []))
+
+const isBinaryDiff = computed(() => tab.value?.diff.includes('Binary files') ?? false)
+
+/**
+ * Open the working-tree copy of the file this diff is about, in whatever tab
+ * kind fits it. A binary diff has nothing to show, but the file itself is often
+ * viewable (an image, a PDF). Always the current file, including on a commit's
+ * diff — the commit's own revision is reachable from the Git panel.
+ */
+async function openWorkingCopy() {
+  const projectStore = useProjectStore()
+  const root = projectStore.activeRoot
+  if (!tab.value || !root) return
+  const path = joinPath(root, tab.value.filePath, pathSep(projectStore.currentProject?.shell))
+  await openPathInTab({ path })
+}
 
 // --- Search (#176) -------------------------------------------------------
 const showSearch = ref(false)
@@ -123,7 +142,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   <div class="diff-tab">
     <div v-if="!tab" class="empty">{{ t('diff.notFound') }}</div>
     <div v-else-if="!parsedLines.length && tab.diff" class="empty">
-      {{ tab.diff.includes('Binary files') ? t('diff.binary') : tab.diff.slice(0, 200) }}
+      <template v-if="isBinaryDiff">
+        <span>{{ t('diff.binary') }}</span>
+        <button class="open-file-btn" @click="openWorkingCopy">{{ t('diff.openCurrentFile') }}</button>
+      </template>
+      <span v-else>{{ tab.diff.slice(0, 200) }}</span>
     </div>
     <div v-else-if="!parsedLines.length" class="empty">{{ t('diff.noChanges') }}</div>
     <template v-else>
@@ -256,11 +279,29 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 .diff-tab > .empty {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
   align-items: center;
   justify-content: center;
   height: 100%;
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+.open-file-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.open-file-btn:hover {
+  background: var(--accent);
+  color: var(--text-active);
+  border-color: var(--accent);
 }
 
 /* Floating search panel (mirrors the editor's search look) */

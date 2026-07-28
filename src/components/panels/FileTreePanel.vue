@@ -7,7 +7,8 @@ import { fsWatcher } from '../../composables/useFsWatcher'
 import { fileToBase64 } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
-import { basename, extension, gitStatusColor, isImageFile, mimeType, pathSep } from '../../lib/paths'
+import { openPathInTab } from '../../lib/openFile'
+import { basename, gitStatusColor, pathSep } from '../../lib/paths'
 import {
   type FsEntry,
   fsCopy,
@@ -16,7 +17,6 @@ import {
   fsDelete,
   fsListDir,
   fsOpenInExplorer,
-  fsReadFileBase64,
   fsRename,
   fsWriteFileBase64,
 } from '../../lib/tauri'
@@ -86,18 +86,7 @@ const gitStatusMap = computed(() => {
 
 async function openFile(path: string) {
   fileTreeStore.selectedPath = path
-  const ext = extension(path)
-  if (isImageFile(path)) {
-    const project = projectStore.currentProject
-    if (!project) return
-    const base64 = await fsReadFileBase64(project.shell, path)
-    const dataUrl = `data:${mimeType(path)};base64,${base64}`
-    tabStore.addPreviewTab({ path, dataUrl })
-  } else if (ext === 'pdf') {
-    tabStore.addPdfTab({ path })
-  } else {
-    tabStore.addEditorTab({ path })
-  }
+  await openPathInTab({ path })
 }
 
 // Context menu

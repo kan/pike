@@ -157,6 +157,10 @@ export type PreviewTab = {
   pinned: boolean
   path: string
   dataUrl: string
+  /** Short commit hash when showing a file at a revision (Git panel → open
+   *  file). Keeps the tab distinct from the working-tree preview of the same
+   *  path, the way a read-only editor tab does. */
+  revision?: string
 }
 
 export type DockerLogsTab = {
@@ -202,6 +206,11 @@ export type PdfTab = {
   title: string
   pinned: boolean
   path: string
+  /** Same role as `PreviewTab.revision`. */
+  revision?: string
+  /** Content for a revision, since the bytes are not on disk. Absent for a
+   *  working-tree PDF, which the tab reads from `path` itself. */
+  dataUrl?: string
 }
 
 export type AgentChatTab = {

@@ -397,6 +397,14 @@ export async function gitPull(root: string, shell: ShellType, options?: PullOpti
   return invoke<string>('git_pull', { root, shell, options })
 }
 
+/**
+ * Raw bytes of a file at a commit, base64-encoded. Needed to open a binary
+ * revision (an image) in its viewer — `gitShowFile` returns decoded text.
+ */
+export async function gitShowFileBase64(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
+  return invoke<string>('git_show_file_base64', { root, shell, hash, path })
+}
+
 export async function gitShowFiles(root: string, shell: ShellType, hash: string): Promise<GitFileChange[]> {
   return invoke<GitFileChange[]>('git_show_files', { root, shell, hash })
 }

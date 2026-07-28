@@ -314,8 +314,10 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function addPreviewTab(options: { path: string; dataUrl: string }): string {
-    const existing = tabs.value.find((t): t is PreviewTab => t.kind === 'preview' && t.path === options.path)
+  function addPreviewTab(options: { path: string; dataUrl: string; revision?: string }): string {
+    const existing = tabs.value.find(
+      (t): t is PreviewTab => t.kind === 'preview' && t.path === options.path && t.revision === options.revision,
+    )
     if (existing) {
       existing.dataUrl = options.dataUrl
       activeTabId.value = existing.id
@@ -325,13 +327,19 @@ export const useTabStore = defineStore('tabs', () => {
     tabs.value.push({
       id,
       kind: 'preview',
-      title: basename(options.path),
+      title: revisionTitle(options.path, options.revision),
       pinned: false,
       path: options.path,
       dataUrl: options.dataUrl,
+      revision: options.revision,
     })
     activeTabId.value = id
     return id
+  }
+
+  /** Tab title for a path, marked with the commit when it is a revision. */
+  function revisionTitle(path: string, revision?: string): string {
+    return revision ? `${basename(path)} (${revision})` : basename(path)
   }
 
   function addDockerLogsTab(options: { containerId: string; containerName: string }): string {
@@ -417,14 +425,24 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function addPdfTab(options: { path: string }): string {
-    const existing = tabs.value.find((t): t is PdfTab => t.kind === 'pdf' && t.path === options.path)
+  function addPdfTab(options: { path: string; revision?: string; dataUrl?: string }): string {
+    const existing = tabs.value.find(
+      (t): t is PdfTab => t.kind === 'pdf' && t.path === options.path && t.revision === options.revision,
+    )
     if (existing) {
       activeTabId.value = existing.id
       return existing.id
     }
     const id = genId()
-    tabs.value.push({ id, kind: 'pdf', title: basename(options.path), pinned: false, path: options.path })
+    tabs.value.push({
+      id,
+      kind: 'pdf',
+      title: revisionTitle(options.path, options.revision),
+      pinned: false,
+      path: options.path,
+      revision: options.revision,
+      dataUrl: options.dataUrl,
+    })
     activeTabId.value = id
     return id
   }

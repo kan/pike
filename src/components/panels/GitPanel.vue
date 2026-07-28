@@ -6,19 +6,31 @@ import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
 import { buildCommitLink } from '../../lib/gitRemote'
-import { gitStatusColor, joinPath, pathSep, relativeDate } from '../../lib/paths'
+import { openPathInTab } from '../../lib/openFile'
+import {
+  basename,
+  extension,
+  gitStatusColor,
+  isImageFile,
+  joinPath,
+  mimeType,
+  pathSep,
+  relativeDate,
+} from '../../lib/paths'
 import {
   fsDelete,
   gitCreateBranch,
   gitDiff,
   gitDiffCommit,
   gitShowFile,
+  gitShowFileBase64,
   gitShowFiles,
   openUrlWithConfirm,
 } from '../../lib/tauri'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
+import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import type { GitFileChange, GitLogEntry } from '../../types/git'
 
@@ -28,6 +40,7 @@ const gitStore = useGitStore()
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
 const sidebar = useSidebarStore()
+const statusMessage = useStatusMessageStore()
 
 const commitMsg = ref('')
 const commitView = ref<'list' | 'graph'>('list')
@@ -127,12 +140,12 @@ async function openDiffTab(path: string, staged: boolean, untracked = false) {
 
 // Open the working-tree copy of a conflicted file so the user can resolve the
 // conflict markers in the editor. (Resolution tooling itself is out of scope — issue #95.)
-function openConflictFile(path: string) {
+async function openConflictFile(path: string) {
   const root = projectStore.activeRoot
   if (!root) return
   // joinPath unifies separators — git always emits `/` while Windows tabs use `\`,
   // and a mixed-separator tab path would not match fs-watcher events (exact compare).
-  tabStore.addEditorTab({ path: joinPath(root, path, pathSep(projectStore.currentProject?.shell)) })
+  await openPathInTab({ path: joinPath(root, path, pathSep(projectStore.currentProject?.shell)) })
 }
 
 async function toggleCommitExpand(hash: string) {
@@ -282,20 +295,63 @@ async function ctxOpenFile() {
   const { path, hash } = fileCtx.value
   closeFileCtx()
   if (hash) {
-    const project = projectStore.currentProject
-    if (!project) return
-    const content = await gitShowFile(projectStore.activeRoot, project.shell, hash, path)
-    tabStore.addEditorTab({
-      path,
-      readOnly: true,
-      initialContent: content,
-      titleSuffix: ` (${hash.slice(0, 7)})`,
-    })
+    await openRevision(path, hash)
   } else {
     const root = projectStore.activeRoot
     if (!root) return
-    tabStore.addEditorTab({ path: joinPath(root, path, pathSep(projectStore.currentProject?.shell)) })
+    await openPathInTab({ path: joinPath(root, path, pathSep(projectStore.currentProject?.shell)) })
   }
+}
+
+/**
+ * Open a file as it was at a commit. Binary revisions have to go through
+ * base64: `gitShowFile` decodes stdout as text, so an image would land in the
+ * editor as mojibake. Formats without a viewer are reported instead of shown.
+ */
+async function openRevision(path: string, hash: string) {
+  const project = projectStore.currentProject
+  if (!project) return
+  const root = projectStore.activeRoot
+  const revision = hash.slice(0, 7)
+
+  const isPdf = extension(path) === 'pdf'
+  if (isImageFile(path) || isPdf) {
+    try {
+      const base64 = await gitShowFileBase64(root, project.shell, hash, path)
+      if (isPdf) {
+        tabStore.addPdfTab({ path, revision, dataUrl: `data:application/pdf;base64,${base64}` })
+      } else {
+        tabStore.addPreviewTab({ path, revision, dataUrl: `data:${mimeType(path)};base64,${base64}` })
+      }
+    } catch (e) {
+      statusMessage.show({ text: String(e), variant: 'error' })
+    }
+    return
+  }
+
+  const content = await gitShowFile(root, project.shell, hash, path)
+  if (looksBinary(content)) {
+    statusMessage.show({ text: t('git.binaryRevision', { name: basename(path) }) })
+    return
+  }
+  tabStore.addEditorTab({
+    path,
+    readOnly: true,
+    initialContent: content,
+    titleSuffix: ` (${revision})`,
+  })
+}
+
+/**
+ * Whether text from `git show` is really binary. The command's stdout is
+ * decoded lossily on the Rust side, so binary content arrives as NUL bytes and
+ * replacement characters. A stray U+FFFD can occur in genuine text, so require
+ * a few of them.
+ */
+function looksBinary(content: string): boolean {
+  const head = content.slice(0, 8192)
+  if (head.includes('\u0000')) return true
+  return (head.match(/\uFFFD/g)?.length ?? 0) > 8
 }
 
 function refreshIfActive() {

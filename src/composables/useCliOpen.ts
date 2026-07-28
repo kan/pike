@@ -1,10 +1,9 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { extension, isImageFile, mimeType } from '../lib/paths'
-import { type CliAction, type CliFileTarget, cliGetInitialAction, fsReadFileBase64 } from '../lib/tauri'
+import { openPathInTab } from '../lib/openFile'
+import { type CliAction, type CliFileTarget, cliGetInitialAction } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
-import type { ShellType } from '../types/tab'
 
 let initialized = false
 
@@ -29,23 +28,7 @@ function tabPathFor(file: CliFileTarget): string {
  * Exported for reuse by other path-based open flows (tab-bar file drop).
  */
 export async function openFileTarget(file: CliFileTarget) {
-  const tabStore = useTabStore()
-  const path = tabPathFor(file)
-  if (isImageFile(path)) {
-    const shell: ShellType = useProjectStore().currentProject?.shell ?? { kind: 'powershell' }
-    try {
-      const base64 = await fsReadFileBase64(shell, path)
-      tabStore.addPreviewTab({ path, dataUrl: `data:${mimeType(path)};base64,${base64}` })
-      return
-    } catch {
-      // Unreadable image — fall through to the editor, which reports the error
-    }
-  }
-  if (extension(path) === 'pdf') {
-    tabStore.addPdfTab({ path })
-    return
-  }
-  tabStore.addEditorTab({ path, initialLine: file.line ?? undefined })
+  await openPathInTab({ path: tabPathFor(file), line: file.line ?? undefined })
 }
 
 /**

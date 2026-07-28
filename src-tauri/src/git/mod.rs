@@ -1,4 +1,5 @@
 use crate::types::{ShellConfig, bash_quote};
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
@@ -728,6 +729,30 @@ pub async fn git_show_file(
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
         run_git(&shell, &root, &["show", &format!("{hash}:{path}")])
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Raw bytes of a file at a commit, base64-encoded.
+///
+/// `git_show_file` decodes stdout as text, which destroys binary content. The
+/// "open file" action needs the actual bytes so an image at a commit can go to
+/// the image viewer instead of being rendered as mojibake in the editor (#178
+/// の確認中に判明した不具合).
+#[tauri::command]
+pub async fn git_show_file_base64(
+    root: String,
+    shell: ShellConfig,
+    hash: String,
+    path: String,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        let output = shell.run_raw("git", &["-C", &root, "show", &format!("{hash}:{path}")])?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        }
+        Ok(base64::engine::general_purpose::STANDARD.encode(&output.stdout))
     })
     .await
     .map_err(|e| e.to_string())?

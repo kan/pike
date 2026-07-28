@@ -121,6 +121,7 @@ export default {
   // Diff
   'diff.notFound': '差分が見つかりません',
   'diff.binary': 'バイナリファイル — 差分を表示できません',
+  'diff.openCurrentFile': '現在のファイルを開く',
   'diff.noChanges': '変更なし',
 
   // History
@@ -299,6 +300,7 @@ export default {
   'git.openFile': 'ファイルを開く',
   'git.pull': 'プル',
   'git.push': 'プッシュ',
+  'git.binaryRevision': '"{name}" はバイナリのため、このバージョンを表示できません',
   'git.pullHint': 'プル（右クリックでオプション）',
   'git.pushHint': 'プッシュ（右クリックでオプション）',
   'git.pullPlain': 'git pull',

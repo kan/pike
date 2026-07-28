@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
+import { openPathInTab } from '../lib/openFile'
 import { basename } from '../lib/paths'
 import { gitBranchList, gitCheckout, listProjectFiles } from '../lib/tauri'
 import { useGitStore } from '../stores/git'
@@ -270,7 +271,7 @@ function openSelected() {
       const path = filteredFiles.value[selectedIdx.value]
       if (!path) return
       trackRecent(path)
-      tabStore.addEditorTab({ path, initialLine: parsedQuery.value.line })
+      void openPathInTab({ path, line: parsedQuery.value.line })
       break
     }
     case 'task': {
