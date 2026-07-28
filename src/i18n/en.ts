@@ -487,6 +487,13 @@ export default {
   'confirm.unsavedClose': '"{name}" has unsaved changes. Close without saving?',
   'confirm.openUrl': 'Open {url} in external browser?',
   'confirm.unsavedCloseMulti': '{count} files have unsaved changes ({names}). Close without saving?',
+  'confirm.terminalBusyClose': 'A process is still running in "{name}". Terminate it and close?',
+  'confirm.terminalBusyExit': 'Processes are still running in {count} terminals. Quit Pike?',
+  'confirm.terminalBusySwitch': 'A process is still running in "{name}". Switch project? All tabs will be closed.',
+  'confirm.terminalBusySwitchMulti':
+    'Processes are still running in {count} terminals ({names}). Switch project? All tabs will be closed.',
+  'confirm.terminalBusyCloseMulti':
+    'Processes are still running in {count} terminals ({names}). Terminate them and close?',
 
   // CSV Preview
   'csv.truncated': 'Showing first {max} rows only.',

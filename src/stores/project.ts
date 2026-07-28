@@ -475,6 +475,9 @@ export const useProjectStore = defineStore('project', () => {
     const searchStore = useSearchStore()
     const project = projects.value.find((p) => p.id === id)
     if (!project) return
+    // Switching tears down every tab in this window, so ask before killing a
+    // terminal that is still running something (#178).
+    if (!(await tabStore.confirmBusyTerminals(tabStore.tabs, 'switch'))) return
     // Elevated admin project window opens the project context only; the caller
     // adds the single pinned-shell terminal, so skip session/pinned restore.
     const restore = opts?.restoreSession !== false

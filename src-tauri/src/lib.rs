@@ -742,6 +742,15 @@ pub(crate) fn toggle_main_window(app: &AppHandle) {
     }
 }
 
+/// Quit Pike. The frontend calls this after confirming the close of a main
+/// window whose `closeToTray` is off (#178) — the raw close is always prevented
+/// so that confirmation can happen first.
+#[tauri::command]
+async fn app_exit(app: AppHandle) -> Result<(), String> {
+    app.exit(0);
+    Ok(())
+}
+
 /// Dispatch a tray menu click (see `tray::build_menu` for the item ids).
 pub(crate) fn tray_menu_action(app: &AppHandle, id: &str) {
     match id {
@@ -981,10 +990,11 @@ pub fn run() {
                         let _ = window.hide();
                         let _ = window.emit("main-minimized-to-tray", ());
                     } else {
-                        // Setting off: closing main exits Pike. app.exit drives a
-                        // controlled shutdown (the Codex cleanup in Destroyed is
-                        // guarded against a torn-down runtime), avoiding the panic.
-                        window.app_handle().exit(0);
+                        // Setting off: closing main exits Pike, which kills every
+                        // window's PTYs at once. Hand the decision to the frontend
+                        // so a terminal still running something can be confirmed
+                        // first (#178); it calls `app_exit` once the user agrees.
+                        let _ = window.emit("main-exit-requested", ());
                     }
                 }
                 WindowEvent::Destroyed => {
@@ -1109,6 +1119,9 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_is_busy,
+            pty::pty_busy_count,
+            app_exit,
             pty::pty_get_cwd,
             project::detect_wsl_distros,
             project::project_get_last,

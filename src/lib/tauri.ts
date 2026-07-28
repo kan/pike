@@ -70,6 +70,27 @@ export async function ptyKill(id: string): Promise<void> {
   return invoke('pty_kill', { id })
 }
 
+/**
+ * Whether a process other than the shell itself is running in this terminal.
+ * Backs the confirmation shown before closing a tab that would kill it (#178).
+ */
+export async function ptyIsBusy(id: string): Promise<boolean> {
+  return invoke<boolean>('pty_is_busy', { id })
+}
+
+/**
+ * How many terminals are busy across all windows. The exit path needs this
+ * because quitting kills every window's PTYs, not just the caller's (#178).
+ */
+export async function ptyBusyCount(): Promise<number> {
+  return invoke<number>('pty_busy_count')
+}
+
+/** Quit Pike. Called after the exit confirmation (#178). */
+export async function appExit(): Promise<void> {
+  return invoke('app_exit')
+}
+
 export async function ptyGetCwd(id: string): Promise<string | null> {
   return invoke<string | null>('pty_get_cwd', { id })
 }

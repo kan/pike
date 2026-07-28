@@ -8,6 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State, WebviewWindow};
 
+pub mod busy;
+use busy::BusyProbe;
+
 pub struct PtyState {
     pub sessions: Arc<Mutex<HashMap<String, PtySession>>>,
 }
@@ -18,6 +21,8 @@ pub struct PtySession {
     killer: Box<dyn ChildKiller + Send + Sync>,
     cwd: Arc<Mutex<Option<String>>>,
     window_label: String,
+    /// タブを閉じる前に「シェル以外が動いているか」を調べる手段 (#178)
+    busy: BusyProbe,
 }
 
 impl Drop for PtySession {
@@ -43,16 +48,34 @@ pub struct PtySpawnResult {
     id: String,
 }
 
-/// Common PTY spawn logic: open PTY, run command, start reader thread
-fn spawn_pty_with_command(
-    cmd: CommandBuilder,
+/// Common PTY spawn logic: open PTY, run command, start reader thread.
+///
+/// `id` は呼び出し側が先に採番する。spawn 前に `PIKE_PTY_ID` として環境変数へ
+/// 入れる必要があり（WSL の busy 判定がこのマーカーを辿る、#178）、spawn 後に
+/// 採番したのでは間に合わないため。
+struct SpawnSpec {
+    id: String,
+    probe_kind: busy::ProbeKind,
     cols: u16,
     rows: u16,
     cwd: Option<String>,
     window_label: String,
+}
+
+fn spawn_pty_with_command(
+    cmd: CommandBuilder,
+    spec: SpawnSpec,
     app: AppHandle,
     state: &PtyState,
 ) -> Result<PtySpawnResult, String> {
+    let SpawnSpec {
+        id,
+        probe_kind,
+        cols,
+        rows,
+        cwd,
+        window_label,
+    } = spec;
     let pty_system = native_pty_system();
 
     let size = PtySize {
@@ -69,6 +92,7 @@ fn spawn_pty_with_command(
         .spawn_command(cmd)
         .map_err(|e| e.to_string())?;
     let killer = child.clone_killer();
+    let busy = BusyProbe::new(probe_kind, child.process_id(), &id);
 
     drop(pair.slave);
 
@@ -82,7 +106,6 @@ fn spawn_pty_with_command(
         .take_writer()
         .map_err(|e| e.to_string())?;
 
-    let id = uuid::Uuid::new_v4().to_string();
     let shared_cwd = Arc::new(Mutex::new(cwd));
     let exit_emitted = Arc::new(AtomicBool::new(false));
 
@@ -96,6 +119,7 @@ fn spawn_pty_with_command(
                 killer,
                 cwd: Arc::clone(&shared_cwd),
                 window_label,
+                busy,
             },
         );
     }
@@ -207,29 +231,33 @@ fn spawn_pty_with_command(
 }
 
 /// Inject `PIKE_WINDOW_LABEL` so child processes (including pike CLI invoked
-/// from the shell) can identify the originating Pike window. For WSL, also
-/// add the var to `WSLENV` so it propagates into the Linux side and is then
-/// inherited by Windows binaries (pike.exe) launched via WSL interop.
+/// from the shell) can identify the originating Pike window, and `PIKE_PTY_ID`
+/// so the WSL busy probe can find the shell and its children by env marker
+/// (#178). For WSL, also add both vars to `WSLENV` so they propagate into the
+/// Linux side and are then inherited by Windows binaries (pike.exe) launched
+/// via WSL interop.
 ///
 /// WSLENV flags: `/u` is Win32→WSL only and `/w` is WSL→Win32 only. We need
 /// both directions (env enters WSL bash, then a pike.exe spawned from bash
 /// must inherit it back), so we use no flag — the documented bidirectional
 /// default — with no path translation.
-fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, is_wsl: bool) {
+fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, pty_id: &str, is_wsl: bool) {
     cmd.env("PIKE_WINDOW_LABEL", label);
+    cmd.env("PIKE_PTY_ID", pty_id);
     if is_wsl {
-        let existing = std::env::var("WSLENV").unwrap_or_default();
-        let already_present = existing
-            .split(':')
-            .any(|s| s.split('/').next() == Some("PIKE_WINDOW_LABEL"));
-        if !already_present {
-            let new_val = if existing.is_empty() {
-                "PIKE_WINDOW_LABEL".to_string()
+        let mut wslenv = std::env::var("WSLENV").unwrap_or_default();
+        for name in ["PIKE_WINDOW_LABEL", "PIKE_PTY_ID"] {
+            let already_present = wslenv.split(':').any(|s| s.split('/').next() == Some(name));
+            if already_present {
+                continue;
+            }
+            if wslenv.is_empty() {
+                wslenv = name.to_string();
             } else {
-                format!("{existing}:PIKE_WINDOW_LABEL")
-            };
-            cmd.env("WSLENV", new_val);
+                wslenv = format!("{wslenv}:{name}");
+            }
         }
+        cmd.env("WSLENV", wslenv);
     }
 }
 
@@ -356,9 +384,27 @@ pub async fn pty_spawn(
     if !matches!(shell, Some(ShellConfig::Cmd)) {
         cmd.env("TERM", "xterm-256color");
     }
-    let is_wsl = matches!(shell, None | Some(ShellConfig::Wsl { .. }));
-    apply_pike_env(&mut cmd, window.label(), is_wsl);
-    spawn_pty_with_command(cmd, cols, rows, cwd, window.label().to_string(), app, &state)
+    let probe_kind = match &shell {
+        None => busy::ProbeKind::Wsl(None),
+        Some(ShellConfig::Wsl { distro }) => busy::ProbeKind::Wsl(Some(distro.clone())),
+        Some(_) => busy::ProbeKind::Windows,
+    };
+    let is_wsl = matches!(probe_kind, busy::ProbeKind::Wsl(_));
+    let id = uuid::Uuid::new_v4().to_string();
+    apply_pike_env(&mut cmd, window.label(), &id, is_wsl);
+    spawn_pty_with_command(
+        cmd,
+        SpawnSpec {
+            id,
+            probe_kind,
+            cols,
+            rows,
+            cwd,
+            window_label: window.label().to_string(),
+        },
+        app,
+        &state,
+    )
 }
 
 use crate::types::validate_slug;
@@ -380,8 +426,21 @@ pub async fn pty_spawn_tmux(
     let mut cmd = CommandBuilder::new("wsl.exe");
     cmd.args(["bash", "-lc", &tmux_cmd]);
     cmd.env("TERM", "xterm-256color");
-    apply_pike_env(&mut cmd, window.label(), true);
-    spawn_pty_with_command(cmd, cols, rows, None, window.label().to_string(), app, &state)
+    let id = uuid::Uuid::new_v4().to_string();
+    apply_pike_env(&mut cmd, window.label(), &id, true);
+    spawn_pty_with_command(
+        cmd,
+        SpawnSpec {
+            id,
+            probe_kind: busy::ProbeKind::Wsl(None),
+            cols,
+            rows,
+            cwd: None,
+            window_label: window.label().to_string(),
+        },
+        app,
+        &state,
+    )
 }
 
 #[tauri::command]
@@ -447,6 +506,54 @@ pub async fn pty_resize(
         })
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Whether something other than the shell itself is running in this terminal
+/// (#178). Used to confirm before closing a tab that would kill a running
+/// process. Unknown sessions and probe failures report `false` so a broken
+/// probe never blocks closing a tab.
+#[tauri::command]
+pub async fn pty_is_busy(id: String, state: State<'_, PtyState>) -> Result<bool, String> {
+    let probe = {
+        let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        match sessions.get(&id) {
+            Some(session) => session.busy.clone(),
+            None => return Ok(false),
+        }
+    };
+    // WSL の判定は wsl.exe を起動するので、UI スレッドを塞がないよう逃がす
+    tokio::task::spawn_blocking(move || probe.is_busy())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// How many terminals across *all* windows are running something (#178).
+///
+/// Used by the exit path, where every window's PTY dies at once and the
+/// frontend asking for confirmation only knows its own tabs. Probes run
+/// concurrently so several WSL terminals don't add up to a visible stall.
+#[tauri::command]
+pub async fn pty_busy_count(state: State<'_, PtyState>) -> Result<usize, String> {
+    let probes: Vec<BusyProbe> = {
+        let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        sessions.values().map(|s| s.busy.clone()).collect()
+    };
+    tokio::task::spawn_blocking(move || {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = probes
+                .iter()
+                .map(|probe| scope.spawn(move || probe.is_busy()))
+                .collect();
+            // join は handle を consume するので、filter ではなく map で受ける
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or(false))
+                .filter(|busy| *busy)
+                .count()
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

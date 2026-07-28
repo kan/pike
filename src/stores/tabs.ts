@@ -7,7 +7,7 @@ import { t } from '../i18n'
 import { formatLineRange } from '../lib/format'
 import { MANUAL_INDEX } from '../lib/manual'
 import { basename, normalizeSep } from '../lib/paths'
-import { agentDisconnect, ptyKill, waitSignalByPath } from '../lib/tauri'
+import { agentDisconnect, ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
   DiffTab,
@@ -28,6 +28,13 @@ let counter = 0
 function genId(): string {
   return `tab-${Date.now()}-${++counter}`
 }
+
+/** Message keys per action, since "close this tab" and "switch project" ask
+ *  the user about the same running processes for different reasons (#178). */
+const BUSY_CONFIRM_KEYS = {
+  close: ['confirm.terminalBusyClose', 'confirm.terminalBusyCloseMulti'],
+  switch: ['confirm.terminalBusySwitch', 'confirm.terminalBusySwitchMulti'],
+} as const
 
 export const useTabStore = defineStore('tabs', () => {
   const tabs = ref<Tab[]>([])
@@ -105,6 +112,33 @@ export const useTabStore = defineStore('tabs', () => {
     }
   }
 
+  /**
+   * Terminals in `list` that still have a process other than the shell running.
+   * Tabs whose shell already exited are skipped, and a failing probe reports
+   * "not busy" so a broken check never blocks closing (see `pty_is_busy`).
+   */
+  async function busyTerminals(list: Tab[]): Promise<TerminalTab[]> {
+    const candidates = list.filter(
+      (t): t is TerminalTab & { ptyId: string } => t.kind === 'terminal' && !!t.ptyId && t.exitCode == null,
+    )
+    const flags = await Promise.all(candidates.map((t) => ptyIsBusy(t.ptyId).catch(() => false)))
+    return candidates.filter((_, i) => flags[i])
+  }
+
+  /**
+   * Ask before killing terminals that are still running something (#178).
+   * Returns false only when the user declines. Shared by every path that tears
+   * terminals down: closing a tab, closing many, and switching project.
+   */
+  async function confirmBusyTerminals(list: Tab[], intent: keyof typeof BUSY_CONFIRM_KEYS = 'close'): Promise<boolean> {
+    const busy = await busyTerminals(list)
+    if (busy.length === 0) return true
+    const names = busy.map((t) => t.title).join(', ')
+    const [single, multi] = BUSY_CONFIRM_KEYS[intent]
+    const msg = busy.length === 1 ? t(single, { name: names }) : t(multi, { count: busy.length, names })
+    return confirmDialog(msg)
+  }
+
   async function closeTab(id: string) {
     const idx = tabs.value.findIndex((t) => t.id === id)
     if (idx === -1) return
@@ -117,6 +151,9 @@ export const useTabStore = defineStore('tabs', () => {
         return
       }
     }
+
+    // Confirm close if a command is still running in the terminal (#178)
+    if (!(await confirmBusyTerminals([tab]))) return
 
     // Kill PTY session before removing tab to prevent wsl.exe process leaks
     if (tab.kind === 'terminal' && tab.ptyId) {
@@ -459,6 +496,9 @@ export const useTabStore = defineStore('tabs', () => {
       if (!(await confirmDialog(msg))) return
     }
 
+    // Same for terminals still running a command (#178)
+    if (!(await confirmBusyTerminals(toClose))) return
+
     // Kill PTY sessions before removing tabs to prevent wsl.exe process leaks
     const ptyKills = toClose
       .filter((t): t is TerminalTab & { ptyId: string } => t.kind === 'terminal' && !!t.ptyId)
@@ -574,6 +614,7 @@ export const useTabStore = defineStore('tabs', () => {
     addPdfTab,
     closeTab,
     clearAllTabs,
+    confirmBusyTerminals,
     closeOtherTabs,
     closeTabsToRight,
     closeSavedTabs,

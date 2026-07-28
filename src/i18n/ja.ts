@@ -488,6 +488,12 @@ export default {
   'confirm.unsavedClose': '"{name}" に未保存の変更があります。保存せずに閉じますか？',
   'confirm.openUrl': '{url} を外部ブラウザで開きます。よろしいですか？',
   'confirm.unsavedCloseMulti': '{count} 個のファイルに未保存の変更があります ({names})。保存せずに閉じますか？',
+  'confirm.terminalBusyClose': '"{name}" でプロセスが実行中です。終了して閉じますか？',
+  'confirm.terminalBusyExit': '{count} 個のターミナルでプロセスが実行中です。Pike を終了しますか？',
+  'confirm.terminalBusySwitch': '"{name}" でプロセスが実行中です。プロジェクトを切り替えますか？（タブは終了します）',
+  'confirm.terminalBusySwitchMulti':
+    '{count} 個のターミナルでプロセスが実行中です ({names})。プロジェクトを切り替えますか？（タブは終了します）',
+  'confirm.terminalBusyCloseMulti': '{count} 個のターミナルでプロセスが実行中です ({names})。終了して閉じますか？',
 
   // CSV Preview
   'csv.truncated': '先頭 {max} 行のみ表示しています。',

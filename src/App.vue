@@ -11,6 +11,7 @@ import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import { initAgentRouter } from './composables/useAgentRouter'
 import { initCliOpen, peekInitialCliAction } from './composables/useCliOpen'
+import { confirmDialog } from './composables/useConfirmDialog'
 import { dockerLogRouter } from './composables/useDockerLogRouter'
 import { type FsChangeEntry, fsWatcher, isRecentlySaved } from './composables/useFsWatcher'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
@@ -21,7 +22,15 @@ import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { resolveNotifier } from './lib/notify'
 import { normalizeSep } from './lib/paths'
 import { projectColorValue } from './lib/projectColors'
-import { isElevated, projectForWindow, projectRemoveOpen, traySetCloseToTray, windowSetBackdrop } from './lib/tauri'
+import {
+  appExit,
+  isElevated,
+  projectForWindow,
+  projectRemoveOpen,
+  ptyBusyCount,
+  traySetCloseToTray,
+  windowSetBackdrop,
+} from './lib/tauri'
 import { elevated, ephemeralWindow, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
 import { useClaudeRateStore } from './stores/claudeRate'
 import { useClaudeUsageStore } from './stores/claudeUsage'
@@ -273,6 +282,22 @@ onMounted(async () => {
     // Tray "Open Project…" → open the switcher in the (now shown) main window.
     listen('tray-open-switcher', () => {
       projectStore.showSwitcher = true
+    })
+    // closeToTray off: closing main quits Pike and kills every window's PTYs,
+    // so Rust hands the decision here first (#178). The count comes from Rust
+    // because this window only knows its own tabs.
+    getCurrentWindow().listen('main-exit-requested', async () => {
+      const running = await ptyBusyCount().catch(() => 0)
+      if (running > 0 && !(await confirmDialog(t('confirm.terminalBusyExit', { count: running })))) {
+        return
+      }
+      await appExit().catch(() => {})
+    })
+  } else {
+    // Child windows (project / global): closing one kills its own PTYs, and no
+    // Rust handler intercepts it, so confirm here and veto if declined (#178).
+    getCurrentWindow().onCloseRequested(async (event) => {
+      if (!(await tabStore.confirmBusyTerminals(tabStore.tabs))) event.preventDefault()
     })
   }
 })
