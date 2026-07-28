@@ -25,6 +25,11 @@ export interface GitLogEntry {
   message: string
 }
 
+/** Options offered by the pull/push button context menus (#179). Mirrors the
+ *  Rust `PullOption` / `PushOption` enums, which map them to git flags. */
+export type PullOption = 'rebase' | 'autostash' | 'ff-only'
+export type PushOption = 'force-with-lease' | 'tags' | 'set-upstream'
+
 export interface GitWorktree {
   path: string
   branch: string | null

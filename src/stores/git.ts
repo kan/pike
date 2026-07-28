@@ -16,7 +16,7 @@ import {
   gitStatus,
   gitUnstage,
 } from '../lib/tauri'
-import type { GitLogEntry, GitStatusResult } from '../types/git'
+import type { GitLogEntry, GitStatusResult, PullOption, PushOption } from '../types/git'
 import { useProjectStore } from './project'
 
 export const useGitStore = defineStore('git', () => {
@@ -187,12 +187,12 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function push() {
+  async function push(options?: PushOption[]) {
     const project = getProject()
     if (!project) return
     pushing.value = true
     try {
-      await gitPush(getRoot(), project.shell)
+      await gitPush(getRoot(), project.shell, options)
       await refreshStatus()
     } catch (e) {
       error.value = String(e)
@@ -201,12 +201,12 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function pull() {
+  async function pull(options?: PullOption[]) {
     const project = getProject()
     if (!project) return
     pulling.value = true
     try {
-      await gitPull(getRoot(), project.shell)
+      await gitPull(getRoot(), project.shell, options)
       await Promise.all([refreshStatus(), refreshLog()])
     } catch (e) {
       error.value = String(e)

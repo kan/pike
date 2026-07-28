@@ -1,5 +1,5 @@
 use crate::types::{ShellConfig, bash_quote};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -595,24 +595,75 @@ pub async fn git_fetch(root: String, shell: ShellConfig) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Options offered by the pull/push button context menus (#179).
+///
+/// Modelled as enums rather than free-form strings so the frontend can never
+/// hand arbitrary arguments to the git CLI; adding an option means adding a
+/// variant here.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PullOption {
+    Rebase,
+    Autostash,
+    FfOnly,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PushOption {
+    ForceWithLease,
+    Tags,
+    SetUpstream,
+}
+
 #[tauri::command]
 pub async fn git_push(
     root: String,
     shell: ShellConfig,
+    options: Option<Vec<PushOption>>,
 ) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || run_git(&shell, &root, &["push"]))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        let mut args = vec!["push"];
+        // `--set-upstream` needs an explicit destination, and it has to come
+        // after the flags. `origin` matches what the rest of the module assumes
+        // (see `git_remote_url`); HEAD resolves to the current branch.
+        let mut destination: &[&str] = &[];
+        for opt in options.unwrap_or_default() {
+            match opt {
+                PushOption::ForceWithLease => args.push("--force-with-lease"),
+                PushOption::Tags => args.push("--tags"),
+                PushOption::SetUpstream => {
+                    args.push("--set-upstream");
+                    destination = &["origin", "HEAD"];
+                }
+            }
+        }
+        args.extend_from_slice(destination);
+        run_git(&shell, &root, &args)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn git_pull(
     root: String,
     shell: ShellConfig,
+    options: Option<Vec<PullOption>>,
 ) -> Result<String, String> {
-    tokio::task::spawn_blocking(move || run_git(&shell, &root, &["pull"]))
-        .await
-        .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || {
+        let mut args = vec!["pull"];
+        for opt in options.unwrap_or_default() {
+            args.push(match opt {
+                PullOption::Rebase => "--rebase",
+                PullOption::Autostash => "--autostash",
+                PullOption::FfOnly => "--ff-only",
+            });
+        }
+        run_git(&shell, &root, &args)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

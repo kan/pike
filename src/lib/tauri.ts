@@ -5,7 +5,7 @@ import type { ClaudeRateLimits, ClaudeUsageResult } from '../types/claudeUsage'
 import type { CodexUsageResult } from '../types/codexUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeService, ContainerListResult, TunnelInfo } from '../types/docker'
-import type { GitFileChange, GitLogEntry, GitStatusResult, GitWorktree } from '../types/git'
+import type { GitFileChange, GitLogEntry, GitStatusResult, GitWorktree, PullOption, PushOption } from '../types/git'
 import type { ProjectConfig } from '../types/project'
 import type { SearchBackend, SearchResult } from '../types/search'
 import type { ShellType } from '../types/tab'
@@ -389,12 +389,12 @@ export async function gitFetch(root: string, shell: ShellType): Promise<void> {
   return invoke('git_fetch', { root, shell })
 }
 
-export async function gitPush(root: string, shell: ShellType): Promise<string> {
-  return invoke<string>('git_push', { root, shell })
+export async function gitPush(root: string, shell: ShellType, options?: PushOption[]): Promise<string> {
+  return invoke<string>('git_push', { root, shell, options })
 }
 
-export async function gitPull(root: string, shell: ShellType): Promise<string> {
-  return invoke<string>('git_pull', { root, shell })
+export async function gitPull(root: string, shell: ShellType, options?: PullOption[]): Promise<string> {
+  return invoke<string>('git_pull', { root, shell, options })
 }
 
 export async function gitShowFiles(root: string, shell: ShellType, hash: string): Promise<GitFileChange[]> {

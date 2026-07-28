@@ -65,6 +65,50 @@ onMounted(() => {
   updater.checkOnceInBackground()
 })
 
+// Pull/push option menus (#179): right-clicking the header button offers the
+// variants (`--rebase`, `--force-with-lease`, …) that the plain click can't.
+// Positioned at the cursor with `position: fixed`, because `.panel` clips its
+// children (`overflow: hidden`) and an absolutely-placed menu gets cut off at
+// the panel edge. Same approach as the tab context menu.
+const syncMenu = ref<{ kind: 'pull' | 'push'; x: number; y: number } | null>(null)
+
+/** `danger` items confirm first — rewriting remote history is worth a second
+ *  look. Each item carries its own call so pull and push share one menu. */
+type SyncAction = { key: string; danger?: boolean; run: () => Promise<void> }
+
+const PULL_ACTIONS: SyncAction[] = [
+  { key: 'git.pullPlain', run: () => gitStore.pull() },
+  { key: 'git.pullRebase', run: () => gitStore.pull(['rebase']) },
+  { key: 'git.pullRebaseAutostash', run: () => gitStore.pull(['rebase', 'autostash']) },
+  { key: 'git.pullFfOnly', run: () => gitStore.pull(['ff-only']) },
+]
+const PUSH_ACTIONS: SyncAction[] = [
+  { key: 'git.pushPlain', run: () => gitStore.push() },
+  { key: 'git.pushSetUpstream', run: () => gitStore.push(['set-upstream']) },
+  { key: 'git.pushTags', run: () => gitStore.push(['tags']) },
+  { key: 'git.pushForceWithLease', danger: true, run: () => gitStore.push(['force-with-lease']) },
+]
+
+const syncActions = computed(() => (syncMenu.value?.kind === 'push' ? PUSH_ACTIONS : PULL_ACTIONS))
+
+function openSyncMenu(which: 'pull' | 'push', e: MouseEvent) {
+  syncMenu.value = { kind: which, x: e.clientX, y: e.clientY }
+  nextTick(() => {
+    window.addEventListener('mousedown', closeSyncMenu, { once: true })
+  })
+}
+
+function closeSyncMenu() {
+  window.removeEventListener('mousedown', closeSyncMenu)
+  syncMenu.value = null
+}
+
+async function runSyncAction(action: SyncAction) {
+  closeSyncMenu()
+  if (action.danger && !(await confirmDialog(t('confirm.forcePush')))) return
+  await action.run()
+}
+
 function onBotClick() {
   if (settingsStore.agentDefault === 'ask') {
     showAgentMenu.value = !showAgentMenu.value
@@ -367,11 +411,25 @@ onUnmounted(() => {
           <span class="backend-badge">{{ searchStore.backend ?? '...' }}</span>
         </div>
         <div v-if="sidebar.activePanel === 'git'" class="header-actions">
-          <button class="header-btn" :class="{ primary: gitStore.status?.behind }" :disabled="gitStore.pulling" :title="t('git.pull')" @click="gitStore.pull()">
+          <button
+            class="header-btn"
+            :class="{ primary: gitStore.status?.behind }"
+            :disabled="gitStore.pulling"
+            :title="t('git.pullHint')"
+            @click="gitStore.pull()"
+            @contextmenu.prevent="openSyncMenu('pull', $event)"
+          >
             <Loader v-if="gitStore.pulling" :size="14" :stroke-width="2" class="spin" />
             <ArrowDown v-else :size="14" :stroke-width="2" />
           </button>
-          <button class="header-btn" :class="{ primary: gitStore.status?.ahead }" :disabled="gitStore.pushing" :title="t('git.push')" @click="gitStore.push()">
+          <button
+            class="header-btn"
+            :class="{ primary: gitStore.status?.ahead }"
+            :disabled="gitStore.pushing"
+            :title="t('git.pushHint')"
+            @click="gitStore.push()"
+            @contextmenu.prevent="openSyncMenu('push', $event)"
+          >
             <Loader v-if="gitStore.pushing" :size="14" :stroke-width="2" class="spin" />
             <ArrowUp v-else :size="14" :stroke-width="2" />
           </button>
@@ -418,6 +476,24 @@ onUnmounted(() => {
       </div>
       <div class="resize-handle" @mousedown="onResizeStart"></div>
     </aside>
+
+    <!-- Pull/push options (#179). Outside .panel so its overflow can't clip it. -->
+    <div
+      v-if="syncMenu"
+      class="sync-menu popup-surface"
+      :style="{ left: syncMenu.x + 'px', top: syncMenu.y + 'px' }"
+      @mousedown.stop
+    >
+      <button
+        v-for="a in syncActions"
+        :key="a.key"
+        class="sync-menu-item"
+        :class="{ danger: a.danger }"
+        @click="runSyncAction(a)"
+      >
+        {{ t(a.key) }}
+      </button>
+    </div>
   </div>
 </template>
 
@@ -483,6 +559,46 @@ onUnmounted(() => {
 
 .gear-wrapper {
   position: relative;
+}
+
+/* Pull/push option menu (#179). Fixed to the cursor rather than anchored to the
+   button: `.panel` has `overflow: hidden`, which clips an absolutely-positioned
+   menu at the panel edge (it disappeared under the icon rail). */
+.sync-menu {
+  position: fixed;
+  white-space: nowrap;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  z-index: 1000;
+}
+
+.sync-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sync-menu-item:hover {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.sync-menu-item.danger {
+  color: var(--danger);
+}
+
+.sync-menu-item.danger:hover {
+  background: var(--danger);
+  color: var(--text-active);
 }
 
 .gear-menu {
