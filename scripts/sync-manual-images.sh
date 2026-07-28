@@ -46,6 +46,9 @@ MAP=(
   "screen-layout:screen-layout"
   "global-editor:global-editor"
   "global-terminal:global-terminal"
+  "settings-shells:settings-shells"
+  "shell-dropdown:shell-dropdown"
+  "project-switcher:project-switcher"
 )
 
 check=0

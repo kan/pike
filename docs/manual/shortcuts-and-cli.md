@@ -3,6 +3,7 @@
 - [コマンドパレット（Ctrl+P）](#コマンドパレットctrlp)
 - [主なキーボードショートカット](#主なキーボードショートカット)
 - [pike CLI](#pike-cli)
+  - [pike todo（TODO パネルの操作）](#pike-todotodo-パネルの操作)
 - [タスクバーとシステムトレイ](#タスクバーとシステムトレイ)
 - [グローバルモード（サイドバー無しウィンドウ）](#グローバルモードサイドバー無しウィンドウ)
 - [GIT_EDITOR 連携（pike --wait）](#git_editor-連携pike---wait)
@@ -77,6 +78,29 @@ pike --terminal
 - ディレクトリ引数は該当プロジェクトに切り替えます。未登録なら ad-hoc プロジェクトを自動作成します。
 - 既にエディタタブで開いている場合はフォーカスしてリロードします。
 - **`--terminal`**：グローバルモードのターミナルで開きます。引数なしの `pike` と違い、Pike が未起動の状態からでもプロジェクトを復元せずグローバルモードで起動します。カレントディレクトリを引き継ぎます（WSL 上ならその distro の WSL シェル、それ以外は設定の既定シェル）。
+
+### pike todo（TODO パネルの操作）
+
+`pike todo` は [TODO パネル](panels.md#todoやること) の実体である `.pike/todo.md` を端末から読み書きします。Pike が起動していなくても動き、起動していればファイル監視でパネルへ即座に反映されます。コーディングエージェントに使わせる用途を想定しています。
+
+```bash
+pike todo                       # 一覧（list と同じ）
+pike todo add "ログイン画面を直す"
+pike todo add "調査" -d "再現手順を書く" -d "ログを添付"
+pike todo show 2                # 詳細込みで表示
+pike todo detail 2 "追記したい本文"
+pike todo detail 2 --append -   # 標準入力から追記
+pike todo done 1 3              # 複数指定できる
+pike todo undone 1
+pike todo rm 2
+pike todo clear                 # 全タスク削除
+pike todo clear --done          # 完了したものだけ削除
+```
+
+- 番号は `list` の表示順です（1 始まり）。`--json` を付けると機械可読な出力になります。
+- `add` と `detail` は `-d/--detail`（繰り返しで複数行、`-` で標準入力）、`-a/--append`、`--clear` を受け付けます。
+- 対象ファイルはカレントディレクトリから上に辿って探します（既存の `.pike/` を優先し、無ければリポジトリのルート）。
+- コーディングエージェント向けのスキルを `plugins/` に同梱しています（Claude Code プラグインと Codex スキル）。導入手順は `plugins/README.md` を参照してください。
 
 ## タスクバーとシステムトレイ
 

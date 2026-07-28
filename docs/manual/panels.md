@@ -100,6 +100,7 @@
 **🔭 アウトライン** アイコンで開きます。18 言語（Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / YAML / JSON / Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile）のシンボルを抽出して表示します。
 
 - カーソル位置に追従してハイライト・祖先を自動展開・スクロール。
+- 行をクリックするとエディタがその位置へ移動します。Markdown をプレビューまたは分割で見ているときは、プレビュー側も一緒にスクロールします。見出しは正確に位置合わせし、見出し以外は行の位置からおおよその場所へ動きます。
 - **Outline / History** の 2 タブ構成。History はファイル別 git log で、行クリックで diff を開きます。
 
 ## Problems（診断）
