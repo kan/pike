@@ -41,6 +41,12 @@ Pike の Git 統合は `git` CLI 経由で、WSL / Windows の両方に対応し
 
 pull / push ボタンを**右クリック**すると、オプション付きで実行するメニューが出ます。左クリックはオプションなしの `git pull` / `git push` です。
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/git-sync-menu-light.png">
+  <img alt="push ボタンの右クリックメニュー" src="img/git-sync-menu.png">
+</picture>
+
+
 | pull | push |
 |------|------|
 | `git pull` | `git push` |

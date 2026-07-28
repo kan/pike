@@ -424,6 +424,7 @@ onUnmounted(() => {
           </button>
           <button
             class="header-btn"
+            data-testid="git-push"
             :class="{ primary: gitStore.status?.ahead }"
             :disabled="gitStore.pushing"
             :title="t('git.pushHint')"
@@ -481,6 +482,7 @@ onUnmounted(() => {
     <div
       v-if="syncMenu"
       class="sync-menu popup-surface"
+      data-testid="sync-menu"
       :style="{ left: syncMenu.x + 'px', top: syncMenu.y + 'px' }"
       @mousedown.stop
     >

@@ -152,20 +152,57 @@ async function mockGit(): Promise<void> {
   await mockInvoke('git_worktree_list', GIT_WORKTREES)
 }
 
+/** Git パネルを開いた状態まで持っていく（背景エディタ込み）。 */
+async function openGitPanel(variant: (typeof MATRIX)[number]): Promise<void> {
+  await prepare(variant)
+  await mockGit()
+  await setFakeProject()
+  await openEditor({ path: 'README.md', content: README_MD })
+  await openPanel('git')
+  await $('[data-testid="git-panel"]').waitForDisplayed({ timeout: 10_000 })
+}
+
 describe('screenshots: git panel (graph)', () => {
-  for (const { lang, theme } of MATRIX) {
+  for (const variant of MATRIX) {
+    const { lang, theme } = variant
     it(`git-graph ${lang} ${theme}`, async () => {
-      await prepare({ lang, theme })
-      await mockGit()
-      await setFakeProject()
-      await openEditor({ path: 'README.md', content: README_MD })
-      await openPanel('git')
-      await $('[data-testid="git-panel"]').waitForDisplayed({ timeout: 10_000 })
+      await openGitPanel(variant)
       // コミット履歴をグラフ表示に切り替える（マニュアルの「コミットグラフ」に合わせる）。
       // .view-toggle の 2 つ目（最後）のボタンがグラフ。
       await $('.view-toggle .view-btn:last-child').click()
       await $('.graph-row').waitForDisplayed({ timeout: 10_000 })
+      // クリックしたボタンにフォーカスリングが残ると、実行のたびに画像へ差分が出る。
+      await browser.execute(() => (document.activeElement as HTMLElement | null)?.blur())
       await shoot('git-graph', lang, theme)
+    })
+  }
+})
+
+// pull / push の右クリックメニュー（#179）。ボタンの右クリックという導線は
+// 説明を読まないと気付けないので、マニュアルに図を載せる。
+describe('screenshots: pull/push option menu', () => {
+  for (const variant of MATRIX) {
+    const { lang, theme } = variant
+    it(`git-sync-menu ${lang} ${theme}`, async () => {
+      await openGitPanel(variant)
+      await $('[data-testid="git-push"]').waitForDisplayed({ timeout: 10_000 })
+      // WebDriver の右クリック（pointer action）からは contextmenu が発火しないので、
+      // ボタンの位置で DOM イベントを直接投げる。メニューはこの座標に出る。
+      await browser.execute(() => {
+        const btn = document.querySelector('[data-testid="git-push"]')
+        if (!btn) return
+        const r = btn.getBoundingClientRect()
+        btn.dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            clientX: Math.round(r.left + r.width / 2),
+            clientY: Math.round(r.bottom),
+          }),
+        )
+      })
+      await $('[data-testid="sync-menu"]').waitForDisplayed({ timeout: 10_000 })
+      await shoot('git-sync-menu', lang, theme)
     })
   }
 })

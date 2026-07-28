@@ -33,6 +33,7 @@ MAP=(
   "file-panel:file-panel"
   "settings-appearance:settings"
   "git-graph:git-graph"
+  "git-sync-menu:git-sync-menu"
   "terminal-agent-buttons:terminal"
   "docker:docker-panel"
   "search:search-panel"
