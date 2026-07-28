@@ -215,8 +215,14 @@ Windows 11 風の枠を合成する。
 - 既定は透過背景（任意の下地に載せられる）。`BG='#c8ccd2'` で単色背景に flatten。
 - 依存は ImageMagick 7（`magick`）と Windows の Segoe UI フォント。`artifacts/` は
   `.gitignore` 済みだが、**ヒーロー画像はコミット対象**（`docs/screenshot-*.png` /
-  `docs/manual/img/overview.png`）なので `<input>` の dark/light を各サフィックスの
-  出力へ明示的に合成する（後述の手順を参照）。
+  `docs/manual/img/overview.png`）。
+
+配置は `scripts/sync-hero-images.sh` が行う（合成 → 配置）。通常は内枠とまとめた
+`npm run e2e:sync` から呼ばれる。
+
+- `scripts/sync-hero-images.sh --check`：ドライラン（更新予定 / ソース欠落を表示）。
+- 引数なしで実行すると合成して `docs/` 配下へ配置。`LANG_=` で言語を変更可。
+- 対応表はスクリプト内の `MAP`（配置先の幹 ← E2E ベース名）。撮影を増やしたらここに足す。
 
 現在のヒーローは 3 枚:
 
@@ -225,6 +231,9 @@ Windows 11 風の枠を合成する。
 - `docs/manual/img/overview.png`（マニュアル TOP ← `overview`）
 
 いずれも dark（`{名}.png`）と light（`{名}-light.png`）を対で持つ。
+
+> 以前この 3 枚は本 README に書いた手打ちコマンドで合成していた。再撮影のたびに
+> 実行を忘れ、内容が数リリース分古いまま残ったため、スクリプトに寄せた。
 
 ## マニュアル画像への同期
 
@@ -236,8 +245,9 @@ E2E は `{画面}-{lang}-{theme}.png` で撮る（`artifacts/` は gitignore）�
   2 枚で出力する（light/dark 切替のため。後述）。
 - `scripts/sync-manual-images.sh --check`：ドライラン（更新予定 / ソース欠落を表示）。
 - 引数なしで実行すると `docs/manual/img` へ実コピー。`LANG_=` / `OUTDIR=` で変更可。
-- 外枠付きヒーロー（`overview` / README の `screenshot-*`）は `frame-screenshot.sh` で別途
-  生成するため MAP には含めない。
+- 外枠付きヒーロー（`overview` / README の `screenshot-*`）は加工も出力先も違うため、この
+  MAP ではなく `scripts/sync-hero-images.sh` が扱う。両方を続けて実行する
+  `npm run e2e:sync` を使えば取り残しは起きない。
 
 ## light/dark 切替（`<picture>`）とテーマ
 
@@ -277,18 +287,13 @@ npm run e2e
 #    セッション teardown が稀に ECONNREFUSED で落ちるが撮影は完了している。
 #    その spec だけ npx wdio run e2e/wdio.conf.ts --spec e2e/specs/<name>.ts で撮り直す。
 
-# 3. frameless 内枠をマニュアルへ同期（dark + light）
-bash scripts/sync-manual-images.sh --check   # まず差分確認
-bash scripts/sync-manual-images.sh           # docs/manual/img へコピー
-
-# 4. 外枠ヒーローを dark/light で合成（コミット対象）
-bash scripts/frame-screenshot.sh artifacts/screenshots/hero-editor-ja-dark.png  docs/screenshot-editor.png
-bash scripts/frame-screenshot.sh artifacts/screenshots/hero-editor-ja-light.png docs/screenshot-editor-light.png
-bash scripts/frame-screenshot.sh artifacts/screenshots/hero-git-ja-dark.png     docs/screenshot-git.png
-bash scripts/frame-screenshot.sh artifacts/screenshots/hero-git-ja-light.png    docs/screenshot-git-light.png
-bash scripts/frame-screenshot.sh artifacts/screenshots/overview-ja-dark.png     docs/manual/img/overview.png
-bash scripts/frame-screenshot.sh artifacts/screenshots/overview-ja-light.png    docs/manual/img/overview-light.png
+# 3. 撮影結果を docs へ同期（内枠 + 外枠ヒーロー、dark + light）
+npm run e2e:sync:check   # まず差分確認
+npm run e2e:sync         # docs/manual/img と docs/ へ反映
 ```
+
+`e2e:sync` は内枠の `sync-manual-images.sh` と外枠の `sync-hero-images.sh` を続けて実行する。
+個別に動かすこともできるが、通常はこのコマンドを使う（片方だけ実行して取り残す事故を防ぐ）。
 
 新しい画面をマニュアルに載せるときは、(a) E2E に撮影シナリオを追加、(b) `sync-manual-images.sh`
 の MAP に「マニュアル名 ← E2E ベース名」を追加、(c) 対象ページの Markdown を `<picture>` で

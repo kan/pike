@@ -88,3 +88,6 @@ done
 echo ""
 echo "対応 ${#MAP[@]} 画面 (dark + light): 更新 $updated / 同一 $same / ソース欠落 $missing"
 [ "$check" = 1 ] && echo "(--check: ドライラン。実コピーは引数なしで実行)"
+# 末尾が条件式のままだと、--check なしの通常実行で終了コードが 1 になり、
+# `sync-manual-images.sh && sync-hero-images.sh` のように繋いだとき後続が走らない。
+exit 0

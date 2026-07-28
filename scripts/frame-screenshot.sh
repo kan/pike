@@ -94,6 +94,10 @@ frame_one() {
     -draw "roundrectangle 0,0,$((winw-1)),$((winh-1)),$rad,$rad" "$tmp/bordered.png"
 
   # 5) ドロップシャドウを付けて背景（既定は透過）に配置
+  #
+  # -strip で date:create / date:modify を落とす。これが無いと同じ入力から
+  # 毎回バイト列の違う PNG が出るため、出力は commit 対象なのに差分が常に立ち、
+  # 同期スクリプトの「変更なし」判定も効かなくなる。
   mkdir -p "$(dirname "$out")"
   if [ -n "${BG:-}" ]; then
     magick "$tmp/bordered.png" \
@@ -101,13 +105,13 @@ frame_one() {
       +swap -background none -layers merge +repage \
       -bordercolor none -border "${pad}" \
       -background "$BG" -flatten \
-      "$out"
+      -strip "$out"
   else
     magick "$tmp/bordered.png" \
       \( +clone -background black -shadow 55x22+0+14 \) \
       +swap -background none -layers merge +repage \
       -bordercolor none -border "${pad}" \
-      "$out"
+      -strip "$out"
   fi
 
   echo "framed: $out ($(magick identify -format '%wx%h' "$out"), $theme)"

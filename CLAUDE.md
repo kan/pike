@@ -404,7 +404,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 3. `scripts/sync-manual-images.sh --check` でドライラン → 引数なしで `docs/manual/img/` へ同期。スクリプト内 `MAP` が「マニュアル名 ← E2E ベース名」を対応付け、ja の dark（`{名前}.png`）+ light（`{名前}-light.png`）の 2 枚を持つ（GitHub の `<picture>` 切替用）
 4. 変更画像を目視確認してコミット
 
-- 外枠付きヒーロー画像（README / overview の `screenshot-*`）は `scripts/frame-screenshot.sh` で別途生成（sync の MAP 対象外）
+- 外枠付きヒーロー画像（README / overview の `screenshot-*`）は `scripts/sync-hero-images.sh`（内部で `frame-screenshot.sh` を呼ぶ）で合成・配置する。`sync-manual-images.sh` の MAP には含まれないため、**同期は 2 本を続けて走らせる `npm run e2e:sync`（確認は `e2e:sync:check`）を使う**。以前この合成が e2e/README の手打ちコマンドだけだったため、7-20 の再撮影でヒーローだけ v0.26 世代のまま取り残された
 - 撮影画面を追加したら `e2e/specs/` に追記し、マニュアルで使う場合は `sync-manual-images.sh` の MAP にも対応を追加
 - 撮影コードを本番ビルドに混入させない仕組み（`e2e` Cargo feature / vite define `__PIKE_E2E__` / `capabilities-runtime` の実行時登録）は `e2e/README.md` を参照
 

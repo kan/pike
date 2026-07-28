@@ -12,7 +12,9 @@
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "e2e:build": "cross-env PIKE_E2E=1 tauri build --debug --no-bundle --features e2e -c src-tauri/tauri.e2e.conf.json",
-    "e2e": "wdio run e2e/wdio.conf.ts"
+    "e2e": "wdio run e2e/wdio.conf.ts",
+    "e2e:sync": "bash scripts/sync-manual-images.sh && bash scripts/sync-hero-images.sh",
+    "e2e:sync:check": "bash scripts/sync-manual-images.sh --check && bash scripts/sync-hero-images.sh --check"
   },
   "keywords": [
     "tauri",
