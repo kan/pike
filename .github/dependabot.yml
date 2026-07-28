@@ -7,6 +7,12 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+    ignore:
+      # TypeScript 7 はネイティブ (Go) 実装で typescript/lib/tsc を公開しないため、
+      # それを require する vue-tsc (Volar) が起動できない。
+      # vue-tsc が TS7 に対応するまで 6.x に留める
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       codemirror:
         patterns:
