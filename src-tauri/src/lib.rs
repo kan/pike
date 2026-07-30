@@ -22,6 +22,7 @@ pub mod todo_cli;
 mod types;
 pub mod wait;
 mod watcher;
+mod window_geom;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -265,10 +266,17 @@ fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
         .collect()
 }
 
-fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Error> {
-    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
+/// Build a window, restoring the size / position stored for `geom_key` (#200):
+/// the project id for a project window, `GLOBAL_KEY` for a project-less one.
+/// tauri-plugin-window-state cannot do this itself because these labels are
+/// single-use uuids.
+fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<WebviewWindow, tauri::Error> {
+    let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .title("Pike")
-        .inner_size(800.0, 600.0)
+        .inner_size(
+            f64::from(window_geom::DEFAULT_SIZE.0),
+            f64::from(window_geom::DEFAULT_SIZE.1),
+        )
         .resizable(true)
         // 背景透過（issue #162）: 透過はランタイムで切替えるため常に透過ウィンドウで生成し、
         // 実際の透け方は window_set_backdrop が決める。アクリルもこの透過を前提に乗る。
@@ -283,15 +291,15 @@ fn build_window(app: &AppHandle, label: &str) -> Result<WebviewWindow, tauri::Er
             DARK_SURFACE_RGB.2,
             255,
         ))
-        .disable_drag_drop_handler()
-        .build()?;
+        .disable_drag_drop_handler();
+    let window = window_geom::apply(app, geom_key, builder).build()?;
     drop_paths::attach(&window);
     Ok(window)
 }
 
 fn create_global_window(app: &AppHandle) -> String {
     let label = format!("{GLOBAL_PREFIX}{}", uuid::Uuid::new_v4());
-    let _ = build_window(app, &label);
+    let _ = build_window(app, &label, window_geom::GLOBAL_KEY);
     label
 }
 
@@ -311,7 +319,7 @@ fn build_project_window(app: &AppHandle, project_id: &str, pending: Option<cli::
     if let Some(action) = pending {
         store_pending(app, &label, action);
     }
-    let _ = build_window(app, &label);
+    let _ = build_window(app, &label, project_id);
     label
 }
 
@@ -560,6 +568,7 @@ fn spawn_global_terminal_window(app: &AppHandle) {
 
 #[tauri::command]
 fn save_all_window_state(app: AppHandle) -> Result<(), String> {
+    window_geom::record_all(&app);
     app.save_window_state(StateFlags::all()).map_err(|e| e.to_string())
 }
 
@@ -848,6 +857,13 @@ pub fn run() {
     // (WM_COPYDATA from elevated → non-elevated would open the shell unelevated).
     let standalone = std::env::args().any(|a| a == "--new-instance");
 
+    // Typed explicitly: bound to a variable, the runtime can no longer be inferred
+    // from the `build()` call at the end.
+    let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+    // Before the window-state plugin loads its file into memory (#200): it writes
+    // the whole cache back on every save, so pruning later would be undone.
+    window_geom::prune_plugin_state(&context.config().identifier);
+
     let mut builder = tauri::Builder::default();
 
     // WebDriver E2E 用プラグイン (issue #142)。embedded provider が WebView 内で
@@ -879,7 +895,15 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_window_state::Builder::new().build())
+        // Only `main` has a stable label; project / global windows get a fresh
+        // uuid per launch, so tracking them here can never restore anything and
+        // only grows the state file with dead entries. Their geometry is keyed by
+        // project in `window_geom` instead (#200).
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_filter(|label| label == window_geom::TRACKED_LABEL)
+                .build(),
+        )
         .manage(cli::CliState {
             initial_action: std::sync::Mutex::new(None),
             pending: std::sync::Mutex::new(HashMap::new()),
@@ -977,6 +1001,12 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            // Per-project geometry (#200). The debounced handler below covers moves
+            // and resizes; a window closed inside its 500ms quiet window would
+            // otherwise lose the last one.
+            if matches!(event, WindowEvent::CloseRequested { .. }) {
+                window_geom::record_all(window.app_handle());
+            }
             match event {
                 WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                     // Always prevent the raw close first: destroying main tears
@@ -1082,6 +1112,7 @@ pub fn run() {
                                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                                 if GENERATION.load(Ordering::Relaxed) == gen {
                                     let _ = app.save_window_state(StateFlags::all());
+                                    window_geom::record_all(&app);
                                     TASK_RUNNING.store(false, Ordering::Relaxed);
                                     break;
                                 }
@@ -1226,10 +1257,13 @@ pub fn run() {
             agent::commands::agent_list_models,
             agent::commands::agent_disconnect,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while running tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
+                // Tray "Quit" destroys windows without a CloseRequested, so this is
+                // the only chance to catch a resize made in the last 500ms (#200).
+                window_geom::record_all(app_handle);
                 // Stop this instance's socat tunnel containers before the
                 // process exits. Only when this session actually created a
                 // tunnel (avoids stalling exit on a hung daemon); leftovers
