@@ -5,7 +5,15 @@ import type { ClaudeRateLimits, ClaudeUsageResult } from '../types/claudeUsage'
 import type { CodexUsageResult } from '../types/codexUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeService, ContainerListResult, TunnelInfo } from '../types/docker'
-import type { GitFileChange, GitLogEntry, GitStatusResult, GitWorktree, PullOption, PushOption } from '../types/git'
+import type {
+  GitBranches,
+  GitFileChange,
+  GitLogEntry,
+  GitStatusResult,
+  GitWorktree,
+  PullOption,
+  PushOption,
+} from '../types/git'
 import type { ProjectConfig } from '../types/project'
 import type { SearchBackend, SearchResult } from '../types/search'
 import type { ShellType } from '../types/tab'
@@ -360,8 +368,8 @@ export async function gitCommit(root: string, shell: ShellType, message: string)
   return invoke('git_commit', { root, shell, message })
 }
 
-export async function gitBranchList(root: string, shell: ShellType): Promise<string[]> {
-  return invoke<string[]>('git_branch_list', { root, shell })
+export async function gitBranchList(root: string, shell: ShellType): Promise<GitBranches> {
+  return invoke<GitBranches>('git_branch_list', { root, shell })
 }
 
 export async function gitWorktreeList(root: string, shell: ShellType): Promise<GitWorktree[]> {
@@ -370,6 +378,11 @@ export async function gitWorktreeList(root: string, shell: ShellType): Promise<G
 
 export async function gitCheckout(root: string, shell: ShellType, branch: string): Promise<void> {
   return invoke('git_checkout', { root, shell, branch })
+}
+
+/** Check out a remote-tracking branch (`origin/foo`) as a local tracking branch. */
+export async function gitCheckoutTrack(root: string, shell: ShellType, remoteBranch: string): Promise<void> {
+  return invoke('git_checkout_track', { root, shell, remoteBranch })
 }
 
 export async function gitCreateBranch(root: string, shell: ShellType, name: string, startPoint: string): Promise<void> {

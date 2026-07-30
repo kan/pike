@@ -304,7 +304,7 @@ describe('screenshots: hero git + claude', () => {
       await prepare({ lang, theme, ...FULL })
       await mockInvoke('git_status', GIT_STATUS)
       await mockInvoke('git_log', HERO_GIT_LOG)
-      await mockInvoke('git_branch_list', ['main', 'develop'])
+      await mockInvoke('git_branch_list', { local: ['main', 'develop'], remote: ['origin/main'] })
       await setFakeProject()
       await openAgentChat(heroClaudeFixture())
       await openPanel('git')

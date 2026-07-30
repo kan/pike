@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import {
   gitBranchList,
   gitCheckout,
+  gitCheckoutTrack,
   gitCommit,
   gitDiscardChanges,
   gitFetch,
@@ -19,10 +20,24 @@ import {
 import type { GitLogEntry, GitStatusResult, PullOption, PushOption } from '../types/git'
 import { useProjectStore } from './project'
 
+/**
+ * Local branch a remote-tracking branch maps to (`origin/foo` → `foo`). Only for
+ * display decisions: the actual checkout lets git derive the name, which stays
+ * correct even for the rare remote whose own name contains a slash.
+ */
+export function localBranchName(remoteBranch: string): string {
+  const slash = remoteBranch.indexOf('/')
+  return slash < 0 ? remoteBranch : remoteBranch.slice(slash + 1)
+}
+
 export const useGitStore = defineStore('git', () => {
   const status = ref<GitStatusResult | null>(null)
   const logEntries = ref<GitLogEntry[]>([])
   const branches = ref<string[]>([])
+  // Remote-tracking branches (`origin/foo`), offered by the switcher alongside
+  // the local ones (#197).
+  const remoteBranches = ref<string[]>([])
+  const fetchingBranches = ref(false)
   const remoteUrl = ref<string | null>(null)
   const error = ref<string | null>(null)
   // Whether the active root is a git repository. `false` drives the panel's
@@ -219,9 +234,27 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) return
     try {
-      branches.value = await gitBranchList(getRoot(), project.shell)
+      const list = await gitBranchList(getRoot(), project.shell)
+      branches.value = list.local
+      remoteBranches.value = list.remote
     } catch {
       branches.value = []
+      remoteBranches.value = []
+    }
+  }
+
+  /**
+   * Update the remote-tracking refs before reloading the list, so the switcher
+   * offers branches pushed since the last fetch (#197). Reuses the throttled
+   * background fetch: opening the switcher right after a poll costs no network.
+   */
+  async function refreshRemoteBranches() {
+    fetchingBranches.value = true
+    try {
+      await fetchInBackground()
+      await loadBranches()
+    } finally {
+      fetchingBranches.value = false
     }
   }
 
@@ -270,6 +303,25 @@ export const useGitStore = defineStore('git', () => {
     try {
       await gitCheckout(getRoot(), project.shell, branch)
       await Promise.all([refreshStatus(), refreshLog()])
+    } catch (e) {
+      error.value = String(e)
+    }
+  }
+
+  /**
+   * Switch to a remote-tracking branch, creating the local branch that tracks it.
+   * When that local branch already exists (the list was stale, or the switcher
+   * showed the remote anyway), switch to it instead of failing on `--track`.
+   */
+  async function checkoutRemoteBranch(remoteBranch: string) {
+    const local = localBranchName(remoteBranch)
+    if (branches.value.includes(local)) return checkoutBranch(local)
+    const project = getProject()
+    if (!project) return
+    try {
+      await gitCheckoutTrack(getRoot(), project.shell, remoteBranch)
+      // The new local branch has to show up in the switcher's local list.
+      await Promise.all([refreshStatus(), refreshLog(), loadBranches()])
     } catch (e) {
       error.value = String(e)
     }
@@ -353,6 +405,8 @@ export const useGitStore = defineStore('git', () => {
     status,
     logEntries,
     branches,
+    remoteBranches,
+    fetchingBranches,
     remoteUrl,
     error,
     isRepo,
@@ -368,9 +422,11 @@ export const useGitStore = defineStore('git', () => {
     push,
     pull,
     loadBranches,
+    refreshRemoteBranches,
     loadRemoteUrl,
     initRepo,
     checkoutBranch,
+    checkoutRemoteBranch,
     fetchInBackground,
     startPolling,
     stopPolling,

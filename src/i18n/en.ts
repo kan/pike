@@ -318,6 +318,8 @@ export default {
   'git.graphView': 'Graph',
   'git.switchBranch': 'Switch branch...',
   'git.noBranches': 'No matching branches',
+  'git.remoteBranches': 'Remote branches',
+  'git.checkoutRemoteHint': 'Create tracking branch {branch} and switch',
   'worktree.switch': 'Switch worktree',
   'worktree.main': 'main',
   'worktree.detached': 'detached',

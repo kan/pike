@@ -372,22 +372,48 @@ pub async fn git_commit(
     .map_err(|e| e.to_string())?
 }
 
+/// Branches offered by the switcher (#197): local ones, plus remote-tracking
+/// ones so a branch that exists only on the remote can be checked out directly.
+#[derive(Debug, Default, PartialEq, Serialize)]
+pub struct GitBranches {
+    pub local: Vec<String>,
+    /// `<remote>/<branch>` form, e.g. `origin/main`.
+    pub remote: Vec<String>,
+}
+
+fn parse_branch_refs(output: &str) -> GitBranches {
+    let mut branches = GitBranches::default();
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(name) = line.strip_prefix("refs/heads/") {
+            branches.local.push(name.to_string());
+        } else if let Some(name) = line.strip_prefix("refs/remotes/") {
+            // `<remote>/HEAD` is a symbolic ref mirroring the remote's default
+            // branch, not a branch of its own.
+            if name.ends_with("/HEAD") {
+                continue;
+            }
+            branches.remote.push(name.to_string());
+        }
+    }
+    branches
+}
+
 #[tauri::command]
-pub async fn git_branch_list(
-    root: String,
-    shell: ShellConfig,
-) -> Result<Vec<String>, String> {
+pub async fn git_branch_list(root: String, shell: ShellConfig) -> Result<GitBranches, String> {
+    // `for-each-ref` over both namespaces keeps local and remote separable
+    // without the `remotes/` prefix guesswork that parsing `branch -a` needs.
     let output = tokio::task::spawn_blocking(move || {
-        run_git(&shell, &root, &["branch"])
+        run_git(
+            &shell,
+            &root,
+            &["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"],
+        )
     })
     .await
     .map_err(|e| e.to_string())??;
 
-    Ok(output
-        .lines()
-        .map(|l| l.trim_start_matches('*').trim().to_string())
-        .filter(|l| !l.is_empty())
-        .collect())
+    Ok(parse_branch_refs(&output))
 }
 
 #[derive(Default)]
@@ -475,6 +501,26 @@ pub async fn git_checkout(
 ) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         run_git(&shell, &root, &["checkout", &branch])?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Check out a remote-tracking branch by creating the local branch that tracks
+/// it (`origin/foo` → local `foo`, #197). Git derives the local name from its own
+/// remote list, so a slash in either the remote or the branch stays correct.
+/// Fails when the local branch already exists — the caller switches to it
+/// instead.
+#[tauri::command]
+pub async fn git_checkout_track(
+    root: String,
+    shell: ShellConfig,
+    remote_branch: String,
+) -> Result<(), String> {
+    validate_ref_name(&remote_branch)?;
+    tokio::task::spawn_blocking(move || {
+        run_git(&shell, &root, &["checkout", "--track", &remote_branch])?;
         Ok(())
     })
     .await
@@ -1016,5 +1062,28 @@ prunable gitdir file points to non-existent location
         assert_eq!(wts.len(), 1);
         assert_eq!(wts[0].path, "/repo");
         assert!(wts[0].is_main);
+    }
+
+    #[test]
+    fn splits_local_and_remote_branch_refs() {
+        let out = "refs/heads/feature/nested
+refs/heads/main
+refs/remotes/origin/HEAD
+refs/remotes/origin/feature/nested
+refs/remotes/origin/main
+refs/remotes/upstream/main
+refs/tags/v1.0.0
+";
+        let branches = parse_branch_refs(out);
+        assert_eq!(branches.local, vec!["feature/nested", "main"]);
+        assert_eq!(
+            branches.remote,
+            vec!["origin/feature/nested", "origin/main", "upstream/main"]
+        );
+    }
+
+    #[test]
+    fn branch_refs_of_empty_repo_are_empty() {
+        assert_eq!(parse_branch_refs(""), GitBranches::default());
     }
 }

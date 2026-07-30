@@ -147,7 +147,10 @@ const GIT_WORKTREES = [
 async function mockGit(): Promise<void> {
   await mockInvoke('git_status', GIT_STATUS)
   await mockInvoke('git_log', GIT_LOG)
-  await mockInvoke('git_branch_list', ['main', 'develop', 'feature/screenshots'])
+  await mockInvoke('git_branch_list', {
+    local: ['main', 'develop', 'feature/screenshots'],
+    remote: ['origin/main', 'origin/develop', 'origin/feature/tab-tooltip'],
+  })
   await mockInvoke('git_remote_url', 'https://github.com/kan/demo-app.git')
   await mockInvoke('git_worktree_list', GIT_WORKTREES)
 }

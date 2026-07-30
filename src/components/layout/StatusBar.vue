@@ -4,6 +4,7 @@ import {
   Archive,
   Bot,
   Check,
+  Cloud,
   Cpu,
   FolderGit2,
   FolderOpen,
@@ -27,7 +28,7 @@ import { useAgentStore } from '../../stores/agent'
 import { useClaudeRateStore } from '../../stores/claudeRate'
 import { useClaudeUsageStore } from '../../stores/claudeUsage'
 import { useCodexUsageStore } from '../../stores/codexUsage'
-import { useGitStore } from '../../stores/git'
+import { localBranchName, useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
@@ -334,6 +335,14 @@ const filteredBranches = computed(() => {
   return gitStore.branches.filter((b) => b.toLowerCase().includes(q))
 })
 
+// Remote-tracking branches that have no local counterpart yet — the ones the
+// local list above cannot already switch to (#197).
+const filteredRemoteBranches = computed(() => {
+  const local = new Set(gitStore.branches)
+  const q = branchQuery.value.toLowerCase()
+  return gitStore.remoteBranches.filter((b) => !local.has(localBranchName(b)) && (!q || b.toLowerCase().includes(q)))
+})
+
 async function openBranchSwitcher() {
   await gitStore.loadBranches()
   branchQuery.value = ''
@@ -341,6 +350,9 @@ async function openBranchSwitcher() {
   nextTick(() => {
     window.addEventListener('mousedown', closeBranches)
   })
+  // The list is already usable from the cached refs; pick up branches pushed
+  // since the last fetch in the background.
+  void gitStore.refreshRemoteBranches()
 }
 
 function closeBranches() {
@@ -351,6 +363,11 @@ function closeBranches() {
 async function onSelectBranch(branch: string) {
   closeBranches()
   await gitStore.checkoutBranch(branch)
+}
+
+async function onSelectRemoteBranch(remoteBranch: string) {
+  closeBranches()
+  await gitStore.checkoutRemoteBranch(remoteBranch)
 }
 
 onUnmounted(() => {
@@ -563,7 +580,31 @@ onUnmounted(() => {
             {{ b }}
             <span v-if="b === gitStore.status?.branch" class="current-mark">*</span>
           </button>
-          <div v-if="!filteredBranches.length" class="branch-empty">{{ t('git.noBranches') }}</div>
+          <template v-if="filteredRemoteBranches.length || gitStore.fetchingBranches">
+            <div class="dropdown-label group">
+              <span>{{ t('git.remoteBranches') }}</span>
+              <RefreshCw
+                v-if="gitStore.fetchingBranches"
+                :size="11"
+                :stroke-width="2"
+                class="spin-icon"
+              />
+            </div>
+            <button
+              v-for="b in filteredRemoteBranches"
+              :key="b"
+              class="branch-option remote-option"
+              :title="t('git.checkoutRemoteHint', { branch: localBranchName(b) })"
+              @click="onSelectRemoteBranch(b)"
+            >
+              <Cloud :size="12" :stroke-width="2" class="remote-icon" />
+              <span class="remote-name">{{ b }}</span>
+            </button>
+          </template>
+          <div
+            v-if="!filteredBranches.length && !filteredRemoteBranches.length"
+            class="branch-empty"
+          >{{ t('git.noBranches') }}</div>
         </div>
       </div>
     </div>
@@ -739,6 +780,12 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
+}
+
+/* Section header inside a list, rather than at the top of the dropdown */
+.dropdown-label.group {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
 }
 
 .cc-usage {
@@ -929,6 +976,22 @@ onUnmounted(() => {
 .branch-option.current {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* Remote rows lead with the cloud glyph instead of a trailing marker */
+.branch-option.remote-option {
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.remote-icon {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.remote-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .current-mark {

@@ -319,6 +319,8 @@ export default {
   'git.graphView': 'グラフ',
   'git.switchBranch': 'ブランチを切替...',
   'git.noBranches': 'ブランチが見つかりません',
+  'git.remoteBranches': 'リモートブランチ',
+  'git.checkoutRemoteHint': '追跡ブランチ {branch} を作成して切替',
   'worktree.switch': 'worktree を切替',
   'worktree.main': 'main',
   'worktree.detached': 'detached',

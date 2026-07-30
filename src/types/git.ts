@@ -30,6 +30,12 @@ export interface GitLogEntry {
 export type PullOption = 'rebase' | 'autostash' | 'ff-only'
 export type PushOption = 'force-with-lease' | 'tags' | 'set-upstream'
 
+export interface GitBranches {
+  local: string[]
+  /** `<remote>/<branch>` form, e.g. `origin/main`. */
+  remote: string[]
+}
+
 export interface GitWorktree {
   path: string
   branch: string | null

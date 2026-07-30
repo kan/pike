@@ -247,7 +247,7 @@ async function loadBranches() {
   const project = projectStore.currentProject
   if (!project) return
   try {
-    branches.value = await gitBranchList(projectStore.activeRoot, project.shell)
+    branches.value = (await gitBranchList(projectStore.activeRoot, project.shell)).local
   } catch {
     branches.value = []
   }
