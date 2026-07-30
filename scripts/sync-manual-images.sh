@@ -44,6 +44,7 @@ MAP=(
   "image-viewer:image-viewer"
   "agent-chat:agent-codex"
   "worktree-selector:worktree-selector"
+  "branch-switcher:branch-switcher"
   "screen-layout:screen-layout"
   "global-editor:global-editor"
   "global-terminal:global-terminal"

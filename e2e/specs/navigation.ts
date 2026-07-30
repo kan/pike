@@ -8,6 +8,7 @@ import {
   prepare,
   reloadTodo,
   setFakeProject,
+  setGitStatus,
   shoot,
 } from '../support/prepare'
 
@@ -76,6 +77,51 @@ describe('screenshots: worktree selector', () => {
       await selector.click()
       await $('.branch-dropdown').waitForDisplayed({ timeout: 10_000 })
       await shoot('worktree-selector', lang, theme)
+    })
+  }
+})
+
+// --- ブランチ切替（ローカル + リモート、#197）--------------------------------
+const BRANCH_GIT_STATUS = {
+  branch: 'main',
+  head: 'a1b2c3d',
+  isDirty: true,
+  staged: [],
+  unstaged: [{ path: 'src/App.vue', status: 'M' }],
+  conflicted: [],
+  ahead: 2,
+  behind: 1,
+}
+
+const BRANCHES = {
+  local: ['main', 'feature/screenshots'],
+  // origin/main と origin/feature/screenshots はローカルに同名があるので一覧には出ない。
+  remote: ['origin/main', 'origin/feature/screenshots', 'origin/feature/remote-branches', 'origin/hotfix/encoding'],
+}
+
+describe('screenshots: branch switcher', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`branch-switcher ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('git_branch_list', BRANCHES)
+      // 開くと fetch → status/log の再読込が走る。素通しさせると実在しない
+      // 擬似ルートで git が失敗し、status が null になってボタンごと消える。
+      await mockInvoke('git_status', BRANCH_GIT_STATUS)
+      await mockInvoke('git_log', [])
+      await mockInvoke('git_fetch', null)
+      await setFakeProject()
+      await openEditor({ path: 'src/App.vue', content: APP_VUE })
+      await setGitStatus(BRANCH_GIT_STATUS)
+      const selector = await $('[data-testid="branch-selector"]')
+      await selector.waitForDisplayed({ timeout: 10_000 })
+      await selector.click()
+      await $('.branch-dropdown').waitForDisplayed({ timeout: 10_000 })
+      // 取得中スピナーはアニメーションなので、消えるまで待たないと実行ごとに差分が出る。
+      await browser.waitUntil(async () => !(await $('.branch-dropdown .spin-icon').isExisting()), {
+        timeout: 10_000,
+        timeoutMsg: 'remote branch fetch spinner did not settle',
+      })
+      await shoot('branch-switcher', lang, theme)
     })
   }
 })

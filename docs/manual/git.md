@@ -28,6 +28,11 @@ Pike の Git 統合は `git` CLI 経由で、WSL / Windows の両方に対応し
 
 ### ブランチ切替
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/branch-switcher-light.png">
+  <img alt="ブランチ切替のドロップダウン" src="img/branch-switcher.png">
+</picture>
+
 ブランチ名をクリックすると切替用のドロップダウンが開きます。上段がローカルブランチ、「リモートブランチ」の見出しから下がリモートにだけあるブランチです。上部の入力欄で両方を絞り込めます。
 
 - ローカルブランチを選ぶと、そのブランチに切り替えます。

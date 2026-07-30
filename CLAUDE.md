@@ -407,6 +407,8 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 - 外枠付きヒーロー画像（README / overview の `screenshot-*`）は `scripts/sync-hero-images.sh`（内部で `frame-screenshot.sh` を呼ぶ）で合成・配置する。`sync-manual-images.sh` の MAP には含まれないため、**同期は 2 本を続けて走らせる `npm run e2e:sync`（確認は `e2e:sync:check`）を使う**。以前この合成が e2e/README の手打ちコマンドだけだったため、7-20 の再撮影でヒーローだけ v0.26 世代のまま取り残された
 - 撮影画面を追加したら `e2e/specs/` に追記し、マニュアルで使う場合は `sync-manual-images.sh` の MAP にも対応を追加
+- **画像には StatusBar のバージョン（`v0.33.0`）が写る**。`useUpdater` の `getVersion()` は `@tauri-apps/api` 経由で `tauri.conf.json` の version を読むため、`lib/tauri.ts` の invoke ラッパを通らず **E2E のモックでは差し替えられない**（`tauri.e2e.conf.json` で version を上書きするのは 2 箇所 bump の drift 要因なので採らない）。リリースに合わせて撮り直すときは **bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順）
+- ドロップダウンやトースト等、アニメーションを含む UI は**静止するまで待ってから撮る**（例: リモートブランチ取得中の `.spin-icon` が残ると実行ごとに回転角の差分が出る）。撮影に安定したセレクタが必要な場合は `data-testid` を足す（`worktree-selector` / `branch-selector`）
 - 撮影コードを本番ビルドに混入させない仕組み（`e2e` Cargo feature / vite define `__PIKE_E2E__` / `capabilities-runtime` の実行時登録）は `e2e/README.md` を参照
 
 ### pike CLI

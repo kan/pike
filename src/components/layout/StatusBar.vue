@@ -556,7 +556,7 @@ onUnmounted(() => {
     </div>
 
     <div v-if="gitStore.status" class="branch-area">
-      <button class="status-item clickable" @click="openBranchSwitcher">
+      <button class="status-item clickable" data-testid="branch-selector" @click="openBranchSwitcher">
         <GitBranch :size="14" :stroke-width="2" class="branch-icon" />
         <span>{{ gitStore.status.branch }}</span>
         <span v-if="gitStore.status.isDirty" class="dirty-dot"></span>
