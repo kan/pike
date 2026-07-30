@@ -349,7 +349,7 @@ export const useProjectStore = defineStore('project', () => {
   // point (panel, switcher) sees the same answer. Keyed on id+root only, so
   // recency and session writes don't re-probe.
   watch(
-    () => projects.value.map((p) => `${p.id} ${p.root}`).join('\n'),
+    () => projects.value.map((p) => `${p.id} ${p.root}`).join('\n'),
     () => {
       checkRoots(true).catch(() => {})
     },
