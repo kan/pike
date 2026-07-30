@@ -79,6 +79,17 @@ function tabFileIconSvg(tab: Tab): string | null {
   return null
 }
 
+/**
+ * Show a native tooltip only while the title is actually clipped by the tab's
+ * max-width (#198). Setting the attribute on hover is enough: the browser reads
+ * `title` when its own hover delay elapses.
+ */
+function onTitleHover(e: MouseEvent) {
+  const el = e.currentTarget as HTMLElement
+  if (el.scrollWidth > el.clientWidth) el.title = el.textContent ?? ''
+  else el.removeAttribute('title')
+}
+
 function addTab(shellOverride?: ShellType) {
   if (globalMode.value) {
     // Project-independent window: "+" opens the configured default shell
@@ -398,7 +409,7 @@ onUnmounted(() => {
           <Settings v-else-if="tab.kind === 'settings'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <BookOpen v-else-if="tab.kind === 'manual'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <Bot v-else-if="tab.kind === 'agent-chat'" :size="14" :stroke-width="1.5" class="tab-icon" />
-          <span class="tab-title">{{ tab.title }}</span>
+          <span class="tab-title" @mouseenter="onTitleHover">{{ tab.title }}</span>
           <span
             v-if="tab.kind === 'editor' && tab.isNewFile"
             class="tab-new-badge"
