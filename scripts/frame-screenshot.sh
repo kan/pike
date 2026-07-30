@@ -43,13 +43,22 @@ frame_one() {
   # shellcheck disable=SC2064
   trap "rm -rf '$tmp'" RETURN
 
-  local w h tb rad cw pad winw winh cy
+  local w h tb rad cw pad winw winh cy s icon_px font_px shadow_sigma shadow_dy
   w=$(magick identify -format '%w' "$in")
   h=$(magick identify -format '%h' "$in")
-  tb=40    # タイトルバー高
-  rad=10   # 角丸半径
-  cw=46    # キャプションボタン幅（Win11 は 46x32）
-  pad=64   # 影のための余白
+  # 枠の各寸法は 1600 幅の内枠を基準に決めてあるので、それより大きい素材
+  # （ヒーロー画像は 2 倍で撮る）では倍率を掛けて相対的な見た目を保つ。
+  # 掛けないとタイトルバーと影が髪の毛のように細くなる。
+  s=$(( (w + 800) / 1600 ))
+  [ "$s" -lt 1 ] && s=1
+  tb=$((40 * s))   # タイトルバー高
+  rad=$((10 * s))  # 角丸半径
+  cw=$((46 * s))   # キャプションボタン幅（Win11 は 46x32）
+  pad=$((64 * s))  # 影のための余白
+  icon_px=$((18 * s))
+  font_px=$((14 * s))
+  shadow_sigma=$((22 * s))
+  shadow_dy=$((14 * s))
   winw=$w
   winh=$((h + tb))
   cy=$((tb / 2))
@@ -66,13 +75,13 @@ frame_one() {
   close_x=$((winw - cw/2))
   max_x=$((winw - cw - cw/2))
   min_x=$((winw - 2*cw - cw/2))
-  g=5   # グリフ半幅
+  g=$((5 * s))   # グリフ半幅
 
   # 1) タイトルバー（アイコン + タイトル + キャプションボタン）
   magick -size "${winw}x${tb}" xc:"$bar" \
-    \( "$ICON" -resize 18x18 \) -gravity West -geometry +14+0 -composite \
-    -font "$FONT" -pointsize 14 -fill "$fg" -gravity West -annotate +40+0 "$TITLE" \
-    -stroke "$glyph" -strokewidth 1.2 -fill none \
+    \( "$ICON" -resize "${icon_px}x${icon_px}" \) -gravity West -geometry "+$((14 * s))+0" -composite \
+    -font "$FONT" -pointsize "$font_px" -fill "$fg" -gravity West -annotate "+$((40 * s))+0" "$TITLE" \
+    -stroke "$glyph" -strokewidth "$(awk "BEGIN{print 1.2 * $s}")" -fill none \
     -draw "line $((min_x-g)),$cy $((min_x+g)),$cy" \
     -draw "rectangle $((max_x-g)),$((cy-g)) $((max_x+g)),$((cy+g))" \
     -draw "line $((close_x-g)),$((cy-g)) $((close_x+g)),$((cy+g))" \
@@ -88,9 +97,9 @@ frame_one() {
   magick "$tmp/window.png" "$tmp/mask.png" \
     -alpha off -compose CopyOpacity -composite "$tmp/rounded.png"
 
-  # 4) ふちに 1px のヘアラインを重ねて実機の枠に寄せる
+  # 4) ふちにヘアラインを重ねて実機の枠に寄せる
   magick "$tmp/rounded.png" \
-    -stroke "$edge" -strokewidth 1 -fill none \
+    -stroke "$edge" -strokewidth "$s" -fill none \
     -draw "roundrectangle 0,0,$((winw-1)),$((winh-1)),$rad,$rad" "$tmp/bordered.png"
 
   # 5) ドロップシャドウを付けて背景（既定は透過）に配置
@@ -101,14 +110,14 @@ frame_one() {
   mkdir -p "$(dirname "$out")"
   if [ -n "${BG:-}" ]; then
     magick "$tmp/bordered.png" \
-      \( +clone -background black -shadow 55x22+0+14 \) \
+      \( +clone -background black -shadow "55x${shadow_sigma}+0+${shadow_dy}" \) \
       +swap -background none -layers merge +repage \
       -bordercolor none -border "${pad}" \
       -background "$BG" -flatten \
       -strip "$out"
   else
     magick "$tmp/bordered.png" \
-      \( +clone -background black -shadow 55x22+0+14 \) \
+      \( +clone -background black -shadow "55x${shadow_sigma}+0+${shadow_dy}" \) \
       +swap -background none -layers merge +repage \
       -bordercolor none -border "${pad}" \
       -strip "$out"
