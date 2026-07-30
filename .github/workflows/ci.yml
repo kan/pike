@@ -41,6 +41,10 @@ jobs:
       - name: Biome lint & format check
         run: npx biome check src/
 
+      # Docs: CLAUDE.md のディレクトリ構成・参照パス、マニュアルの画像とリンク
+      - name: Docs consistency check
+        run: npm run check:docs
+
       # Frontend: TypeScript type check + Vite build
       - name: Vue/TypeScript check & build
         run: npm run build
