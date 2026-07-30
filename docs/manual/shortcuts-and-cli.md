@@ -39,6 +39,9 @@
 | `Ctrl+T` | 新規ターミナル |
 | `Ctrl+N` | 新規エディタ |
 | `Ctrl+W` | タブを閉じる |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | 次 / 前のタブへ |
+| `Ctrl+PageDown` / `Ctrl+PageUp` | 次 / 前のタブへ |
+| `F1` | マニュアルを開く |
 | `Ctrl+S` | 保存（エディタ） |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo（エディタ） |
 | `Ctrl+F` / `Ctrl+H` | エディタ内 検索 / 置換 |

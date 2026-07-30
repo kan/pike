@@ -35,7 +35,9 @@
 │  │ 🐋 docker  │                                         │
 │  │ 📁 projects│                                         │
 │  │ 📋 tasks   │                                         │
+│  │ ✅ todo    │                                         │
 │  │ 🔭 outline │                                         │
+│  │ ⚠ problems │                                         │
 │  └────────────┘                                         │
 └──────────────┬──────────────────────────────────────────┘
                │ Tauri IPC (invoke / events)
@@ -81,6 +83,15 @@ pike/
 │       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
 │       ├── todo_cli.rs        # `pike todo` サブコマンド（.pike/todo.md 直接操作、#139）
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
+│       ├── elevate.rs         # 管理者ターミナル（--new-instance で昇格起動、#138）
+│       ├── settings_sync.rs   # 設定・プロジェクト一覧の同期ファイル読み書き（#164）
+│       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）
+│       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）
+│       ├── ime_debug.rs       # IME 調査用の一時ログ（原因判明後に削除する）
+│       ├── jumplist/mod.rs    # タスクバーのジャンプリスト（#160、Windows 専用 COM）
+│       ├── tray/mod.rs        # システムトレイ（#161）
+│       ├── diagnostics/mod.rs # 外部リンタ実行 → Problems パネル
+│       ├── codex_usage/mod.rs # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
 │       ├── agent/
 │       │   ├── mod.rs         # 統一エージェント API モジュール
 │       │   ├── types.rs       # AgentRuntime trait・AgentEvent・AgentCapabilities
@@ -94,7 +105,8 @@ pike/
 │       ├── claude_usage/
 │       │   └── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
 │       ├── pty/
-│       │   └── mod.rs         # PTY 管理（WSL/cmd/PowerShell/Git Bash 対応）
+│       │   ├── mod.rs         # PTY 管理（WSL/cmd/PowerShell/PowerShell 7/Git Bash 対応）
+│       │   └── busy.rs        # シェル以外のプロセスが動いているかの判定（#178）
 │       ├── watcher/
 │       │   └── mod.rs         # ファイル監視（notify + WSL inotifywait）
 │       ├── project/
@@ -104,11 +116,12 @@ pike/
 │       ├── git/
 │       │   └── mod.rs         # git CLI ブリッジ（status/log/diff/commit/push/pull 等）
 │       ├── docker/
-│       │   └── mod.rs         # bollard クライアント・compose パース・ログストリーム
+│       │   ├── mod.rs         # bollard クライアント・compose パース・ログストリーム
+│       │   └── tunnel.rs      # 未公開ポートへの socat ポートフォワード（#120）
 │       ├── search/
 │       │   └── mod.rs         # rg/grep バックエンド判定・検索・list_project_files
-│       ├── tasks.rs           # package.json/Makefile/deno.json のタスク再帰検出
-│       └── bin/               # 検証バイナリ（verify_pty / verify_tmux / verify_bollard）
+│       ├── tasks.rs           # package.json/Makefile/deno.json/Cargo.toml のタスク再帰検出
+│       └── bin/               # 検証バイナリ（verify_pty / verify_tmux / verify_bollard / verify_busy）
 ├── src/                       # Vue/TypeScript フロント
 │   ├── App.vue                # ルート（PTY ルーター初期化・プロジェクト復元）
 │   ├── main.ts
@@ -117,12 +130,15 @@ pike/
 │   │   ├── tab.ts             # Tab Union type・ShellType・SidebarPanel・共通ヘルパー
 │   │   ├── project.ts         # ProjectConfig・PinnedTabDef
 │   │   ├── agent.ts           # AgentEvent・AgentCapabilities・AgentAuthState
-│   │   ├── chat.ts  claudeUsage.ts  docker.ts  git.ts  search.ts  tasks.ts
+│   │   ├── chat.ts  claudeUsage.ts  codexUsage.ts  diagnostics.ts  docker.ts
+│   │   ├── git.ts  search.ts  tasks.ts  todo.ts
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
 │   │   ├── QuickOpen.vue        # Ctrl+P コマンドパレット（ファイル/>タスク/@タブ/:行/!ブランチ/?ヘルプ）
 │   │   ├── ConfirmDialog.vue    # カスタム確認ダイアログ（Teleport、prompt 入力対応）
 │   │   ├── KeyboardShortcuts.vue # ショートカット一覧モーダル
+│   │   ├── HelpButton.vue       # 各 UI からマニュアル該当ページを開く「?」ボタン
+│   │   ├── ColorDot.vue         # プロジェクトカラーのドット（#121）
 │   │   ├── layout/
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル
 │   │   │   ├── TabPane.vue    # タブバー + コンテンツ + シェル選択
@@ -130,8 +146,10 @@ pike/
 │   │   ├── panels/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   ├── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除（GroupComboBox/ProjectListItem に分割）
-│   │   │   ├── GroupComboBox.vue  ProjectListItem.vue
+│   │   │   ├── GroupComboBox.vue  ProjectListItem.vue  ColorSelect.vue
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
+│   │   │   ├── TodoPanel.vue      # .pike/todo.md のチェックリスト（#139・詳細 #163）
+│   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── agent/
@@ -145,23 +163,32 @@ pike/
 │   │       ├── DiffTab.vue        # 左右分割 diff
 │   │       ├── HistoryTab.vue     # ファイル別 git log（git log -L 行範囲対応）
 │   │       ├── DockerLogsTab.vue  # コンテナログ（xterm 読み取り専用）
+│   │       ├── ManualTab.vue      # アプリ内マニュアル（docs/manual を F1 / ? ボタンで表示）
 │   │       └── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダーク・エディタ・言語）
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts  settings.ts  project.ts  agent.ts
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
-│   │   ├── claudeUsage.ts     # トークン使用量
+│   │   ├── todo.ts  diagnostics.ts
+│   │   ├── usageStore.ts      # createUsageStore ファクトリ（ポーリング基盤）
+│   │   ├── claudeUsage.ts  claudeRate.ts  codexUsage.ts  # トークン使用量・レート
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
 │   ├── composables/
 │   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts
 │   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts
-│   │   ├── useAgentRouter.ts  useDockerLogRouter.ts  useTerminalNotifications.ts
+│   │   ├── useAgentRouter.ts  useDockerLogRouter.ts
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
 │   ├── lib/
 │   │   ├── fileIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
-│   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  languages.ts  mermaid.ts  codexHistory.ts  terminalLinks.ts
-│   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts  editorJumpTo.ts
+│   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffSearch.ts  languages.ts  mermaid.ts
+│   │   ├── codexHistory.ts  terminalLinks.ts  shellIcons.ts  projectColors.ts  projectPaths.ts
+│   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
+│   │   ├── manual.ts  slug.ts # アプリ内マニュアルの読み込みと見出しスラッグ
+│   │   ├── dropPaths.ts       # WebView2 経由でドロップされたファイルの実パス取得
+│   │   ├── imeDebugLog.ts  imeFocusPark.ts  # IME 調査用（原因判明後に削除する）
+│   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts
+│   │   ├── editorJumpTo.ts  editorConflict.ts  editorDiagnostics.ts
 │   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent）
 │   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 18 言語）
 │   └── assets/
@@ -288,7 +315,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - WSL: `wsl.exe find`, `wsl.exe cat`, `wsl.exe bash -c "cat > ..."` 経由
 - Windows: `std::fs` 直接アクセス
 - ファイルサイズ事前チェック（2MB 制限）
-- CodeMirror 6 でエディタタブ。oneDark テーマ、29言語のシンタックスハイライト対応
+- CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）、シンタックスハイライトは 30 言語（一覧の唯一の出典は `lib/languages.ts` の `EXT_MAP` / `NAME_MAP`）
 - Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）。Ctrl+Z/Shift+Z で Undo/Redo
 - エディタ内検索・置換: Ctrl+F / Ctrl+H でカスタム検索パネル（右上フローティング、アイコンボタン、マッチ数表示）
 - Git diff ガター: 追加行（緑）・変更行（黄）・削除行（赤三角）をガターに表示。`git_diff_lines` コマンドで行単位の差分を取得
@@ -445,7 +472,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `pike todo ...` は TODO パネルの実体 `.pike/todo.md` を**直接読み書きして stdout に出力し exit する独立 CLI**。GUI へ IPC せず、起動していなくても動く。GUI 起動中なら `todo` store の `fsWatcher.onFileChange` がファイル変更を検知してパネルを自動リロードするため、端末⇔パネルが同期する
 - `src-tauri/src/todo_cli.rs`。`main.rs` で Tauri ランタイム起動前・**`try_forward_pty_origin_and_exit` より前**に `try_todo_and_exit()` でフック（後だと `todo` がファイルパスとして GUI へルーティングされてしまう）
 - パース/シリアライズは `src/stores/todo.ts` と同一仕様（`(\s*[-*]\s+)\[([ xX])\]` を task 行、見出し・空行・自由記述は raw として round-trip 保持。保存は `[X]`→`[x]` 正規化・末尾改行 1 個）。GUI と同じく `.pike` 生成時に `.gitignore`（`*`）を書く
-- サブコマンド: `list`（`--json` 対応、番号は 1 始まり）/ `add <text...>` / `show <n...>` / `detail <n> <text>` / `done <n...>` / `undone <n...>` / `rm <n...>` / `clear`（タスク行とその詳細のみ削除）/ `help`。番号は list 出力位置
+- サブコマンド: `list`（`--json` 対応、番号は 1 始まり）/ `add <text...>` / `show <n...>` / `detail <n> <text>` / `done <n...>` / `undone <n...>` / `rm <n...>` / `clear [--done]`（タスク行とその詳細のみ削除。`--done` で完了分だけ。`--done` 以外のフラグはエラー）/ `help`。番号は list 出力位置。別名は `ls` / `cat` / `note` / `remove`
 - **タイトル + 詳細（#163）**: タスクは 1 行のタイトルに加え、直下の**インデント継続行**を詳細本文として持てる（標準 Markdown のリスト継続なので GitHub でもプレビューでも自然に読める。既存の 1 行 todo.md はそのまま互換）。パースの境界は「バレットより深いインデント」かつ「それ自身が task 行でない」（ネストした `- [ ]` は独立タスクのまま）。空行は**その後にインデントブロックが再開する場合のみ**本文に取り込む。本文は先頭行のインデントを基準に dedent して保持し（内部の相対ネストは維持）、書き戻しはバレットのインデント + 2 に正規化。TS/Rust 双方で同一実装（`todo.ts` の `parse`/`serialize`/`dedent` ↔ `todo_cli.rs` の同名関数）
 - 詳細操作のフラグは `add` と `detail` で共通（`parse_detail_args`）: `-d/--detail <text>`（繰り返しで複数行、`-` は stdin）/ `-a/--append` / `--clear`。`-d` 無指定なら番号の後の語をまとめて 1 行の本文にする。**未知のフラグは無視せずエラー**（`--appned` を黙って replace 扱いにすると本文が消えるため）。`list` は本文を畳んで `(+N lines)` マーカーだけ出し、`show` が本文込みで表示（`--json` は `detail` フィールドに `\n` 連結で入る）
 - パネル UI は行頭 chevron で詳細を開閉し、展開時は textarea で編集（`blur` で `setDetail`）。詳細を持たないタスクの chevron は hover 時だけ薄く出す。行の右端（削除ボタンの左）の `TextAlignStart` は**本文の有無を示す状態マーカーで、操作は持たない**（開閉の入口を 2 つにすると意味が二重になるため `<span>`。折り畳んだ行でも本文の有無が分かるようにするためのもの）
@@ -546,6 +573,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - Outline / History 2 タブ構成（`OutlineTreeView.vue` / `OutlineHistoryView.vue`）。History はファイル別 git log を表示、行クリックで diff タブを開く
 - 行オフセットは `buildLineOffsets` / `lineStart` で O(N) 前計算（`composables/useOutlineSource.ts`）
 
+### 診断パネル（Problems）
+- **常駐 LSP は持たない**（「軽さ最優先」）。`src-tauri/src/diagnostics/mod.rs` が検出したツールチェインの CLI を**オンデマンドで 1 回**走らせ、構造化出力をパースして `Diagnostic` に正規化する
+  - Rust: `cargo check --message-format=json`（stdout の JSON Lines）/ Go: `go vet ./...`（stderr のテキスト）/ TS・JS: `tsc --noEmit --pretty false`（stdout のテキスト）
+  - マニフェスト（`Cargo.toml` / `go.mod` / `tsconfig.json`）の探索深さは `MAX_DEPTH`=4。コマンドは**そのマニフェストのディレクトリ**で実行するので、出力のパスがそのまま解決できる
+  - 冷えた `cargo check` / `tsc` は遅いので `TIMEOUT_SECS`=180。UI が溢れないよう `MAX_DIAGNOSTICS`=2000 で打ち切る
+  - 結果は `ProviderRun`（プロバイダ名 / 実行ディレクトリ / ok / error / 件数）も返し、パネルのヘッダで失敗したチェッカーを提示する（`title` にエラー文）
+- フロントは `stores/diagnostics.ts` + `panels/DiagnosticsPanel.vue`。パネルを開いた時に未実行なら `run()`（`lastRunAt` で判定）。行クリックで該当箇所をエディタで開き、ホバーの 🤖 で修正依頼をターミナルへ注入（前述の `useTerminalInject`）。エディタ側のインライン下線は `lib/editorDiagnostics.ts`
+
 ### 定義ジャンプ（Ctrl+Click / F12）
 - `lib/editorJumpTo.ts` + `lib/jumpTo/`。TS/JS/Vue/Go の import パスを Ctrl+Click でファイル open
 - 識別子は同一ファイル内宣言（Lezer 構文木）と import 経由のクロスファイル定義の両方に対応
@@ -601,6 +636,28 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - **Rust**: `cargo clippy -- -D warnings`（`src-tauri/` で実行）
 - **Frontend**: `npm run lint`（= `biome check src/`）
 - **TypeScript 型検査**: `npx vue-tsc --noEmit`（`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
+- **ドキュメント整合**: `npm run check:docs`（= `node scripts/check-docs.mjs`）
+
+### ドキュメント乖離のチェック
+
+`npm run check:docs` は機械的に照合できる乖離だけを見る。落ちたらコミット前に直す。
+
+1. `src/` と `src-tauri/src/` のファイルが CLAUDE.md のディレクトリ構成に載っているか（**新しいファイルを足したら構成にも 1 行足す**）
+2. CLAUDE.md が挙げるファイルパスが実在するか（削除・改名の取り残し）
+3. README とマニュアルが参照する画像が実在するか、逆に参照されない画像が残っていないか
+4. md 間のリンクとページ内アンカーが解決するか（`src/lib/slug.ts` と同じ slug 規則。あちらを変えるとスクリプトが検知して落ちる）
+
+スクリプトで判定できない「説明が実装と合っているか」は、差分の性質から自分で判断する。**ユーザーに見える挙動を変えたら、実装と同じコミットで対応するドキュメントも直す**:
+
+| 変えたもの | 直すドキュメント |
+|---|---|
+| UI の操作・表示 | `docs/manual/` の該当ページ（機能一覧レベルの変化なら README も） |
+| 設定項目の追加・変更 | `docs/manual/settings.md` |
+| キーボードショートカット | `docs/manual/shortcuts-and-cli.md` と `components/KeyboardShortcuts.vue` の一覧 |
+| `pike` CLI の引数・サブコマンド | `docs/manual/shortcuts-and-cli.md`、`pike todo` なら `plugins/` の SKILL.md 2 本も |
+| 非自明な実装判断・定数・落とし穴 | CLAUDE.md の該当セクション（数値は出典のコードを併記して drift を防ぐ） |
+
+過去に溜まった乖離の実例（2026-07-30 の棚卸しで検出）: 新規ファイル 20 件超がツリー未記載、実在しない `useTerminalNotifications.ts` の記載、サイドバー一覧から TODO と Problems 落ち、`git init`（#156）とタブのツールチップ（#198）がマニュアル未記載、Problems パネルの説明が実装と不一致。**いずれも「実装した回のコミットで一緒に直していれば発生しなかった」もの**なので、まとめてやらずその場で直す。
 
 ### コミット & push 運用ルール
 個人開発のため PR レビューは原則不要。Claude が変更を加えた場合は以下のフローを厳守:

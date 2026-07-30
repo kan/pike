@@ -26,9 +26,9 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 - **ターミナルの AI 補助**：`claude` 等をターミナルで使うための、ワンクリック起動 / 定型プロンプト挿入、出力中の `file:line` クリックでエディタを開く、エディタ選択範囲や診断をターミナルへ送る
 - **エディタ**：CodeMirror 6（30+ 言語）、ミニマップ、検索・置換、git diff ガター、コンフリクト表示、定義ジャンプ、文字コード/改行コード対応
 - **プレビュー**：Markdown / Mermaid / CSV / JSON / SVG / PDF、表示専用の画像ビューア
-- **Git**：ステージング、コミット、push/pull、diff、コミットグラフ、コンフリクト表示、worktree 切替
-- **サイドバーパネル**：ファイルツリー、検索（ripgrep 同梱）、Docker、タスクランナー、アウトライン、Problems
-- **プロジェクト管理**：WSL / Windows プロジェクト、グループ整理、マルチウィンドウ、セッション復元
+- **Git**：ステージング、コミット、push/pull、diff、コミットグラフ、コンフリクト表示、ローカル / リモートのブランチ切替、worktree 切替
+- **サイドバーパネル**：ファイルツリー、検索（ripgrep 同梱）、Docker、タスクランナー、TODO、アウトライン、Problems
+- **プロジェクト管理**：WSL / Windows プロジェクト、グループ整理、マルチウィンドウ、セッション復元、プロジェクトごとのウィンドウ位置とサイズ
 - **設定**：UI / ターミナル / エディタの個別フォント設定、ダーク/ライト、日英 i18n、設定同期、自動更新
 - **pike CLI**：`pike file.rs:42` でファイルを開く、`pike <dir>` でプロジェクト切替、`--wait` で `GIT_EDITOR` 連携、`pike todo` で TODO 操作
 - **エージェントスキル**：`pike todo` の使い方を説明する Claude Code / Codex 向けスキルを [`plugins/`](plugins/README.md) に同梱
