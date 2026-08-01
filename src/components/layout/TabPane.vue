@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onUnmounted, ref } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onUnmounted, ref, useTemplateRef } from 'vue'
+import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { openFileTarget } from '../../composables/useCliOpen'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
@@ -177,28 +178,31 @@ function addTabWithShell(shell: ShellType) {
 // "Open as administrator" (#138): right-click a Windows-shell row in the "▾"
 // menu. Available in any window (project or global) except an already-elevated
 // one; WSL rows are excluded (WSL elevation is out of scope).
-const adminMenu = ref<{ x: number; y: number; shell: ShellType } | null>(null)
+const adminMenu = ref<{ shell: ShellType } | null>(null)
+const {
+  style: adminMenuStyle,
+  placeAt: placeAdminMenu,
+  reset: resetAdminMenu,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('adminMenuEl'))
 
-function onShellRowContext(e: MouseEvent, shell: ShellType) {
+async function onShellRowContext(e: MouseEvent, shell: ShellType) {
   // Suppress the default context menu on every shell row; only Windows shells
   // (and only when not already elevated) offer the admin action.
   e.preventDefault()
   if (elevated.value || !isWindowsShell(shell)) return
   // The "▾" sits at the top-right, so a menu anchored at the cursor would spill
-  // off-screen. Clamp within the viewport (estimated menu size).
-  const MENU_W = 210
-  const MENU_H = 44
-  const x = Math.max(4, Math.min(e.clientX, window.innerWidth - MENU_W))
-  const y = Math.max(4, Math.min(e.clientY, window.innerHeight - MENU_H))
-  adminMenu.value = { x, y, shell }
-  nextTick(() => {
-    window.addEventListener('mousedown', closeAdminMenu, { once: true })
-  })
+  // off-screen. Measure it and clamp into the viewport (#204) — this used to
+  // guess the menu's size, which a longer translation or a UI zoom outgrows.
+  resetAdminMenu()
+  adminMenu.value = { shell }
+  await placeAdminMenu({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeAdminMenu, { once: true })
 }
 
 function closeAdminMenu() {
   window.removeEventListener('mousedown', closeAdminMenu)
   adminMenu.value = null
+  resetAdminMenu()
 }
 
 async function openAsAdmin(shell: ShellType) {
@@ -311,7 +315,12 @@ async function onBarDrop(e: DragEvent) {
 }
 
 // Context menu (tabId is null for tab-bar empty area)
-const contextMenu = ref<{ x: number; y: number; tabId: string | null } | null>(null)
+const contextMenu = ref<{ tabId: string | null } | null>(null)
+const {
+  style: contextMenuStyle,
+  placeAt: placeContextMenu,
+  reset: resetContextMenu,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('contextMenuEl'))
 const contextTab = computed(() =>
   contextMenu.value?.tabId ? (tabStore.tabs.find((t) => t.id === contextMenu.value!.tabId) ?? null) : null,
 )
@@ -332,13 +341,13 @@ const contextTabPath = computed(() => {
   }
 })
 
-function onTabContextMenu(e: MouseEvent, tabId: string | null) {
+async function onTabContextMenu(e: MouseEvent, tabId: string | null) {
   e.preventDefault()
   window.removeEventListener('mousedown', closeContextMenu)
-  contextMenu.value = { x: e.clientX, y: e.clientY, tabId }
-  nextTick(() => {
-    window.addEventListener('mousedown', closeContextMenu, { once: true })
-  })
+  resetContextMenu()
+  contextMenu.value = { tabId }
+  await placeContextMenu({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeContextMenu, { once: true })
 }
 
 function onTabBarDblClick(e: MouseEvent) {
@@ -350,6 +359,7 @@ function onTabBarDblClick(e: MouseEvent) {
 
 function closeContextMenu() {
   contextMenu.value = null
+  resetContextMenu()
 }
 
 async function copyPath() {
@@ -556,8 +566,9 @@ onUnmounted(() => {
          its position: fixed uses real viewport coords (zoom would offset it). -->
     <div
       v-if="adminMenu"
+      ref="adminMenuEl"
       class="shell-admin-menu popup-surface"
-      :style="{ left: adminMenu.x + 'px', top: adminMenu.y + 'px' }"
+      :style="adminMenuStyle"
       @mousedown.stop
     >
       <button @click="openAsAdmin(adminMenu.shell)">
@@ -569,8 +580,9 @@ onUnmounted(() => {
     <!-- Context Menu (on a tab) -->
     <div
       v-if="contextMenu && contextTab"
+      ref="contextMenuEl"
       class="context-menu popup-surface"
-      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      :style="contextMenuStyle"
       @mousedown.stop
     >
       <button @click="tabStore.togglePin(contextMenu!.tabId!); closeContextMenu()">
@@ -611,8 +623,9 @@ onUnmounted(() => {
     <!-- Context Menu (on tab bar empty area) -->
     <div
       v-else-if="contextMenu && !contextMenu.tabId"
+      ref="contextMenuEl"
       class="context-menu popup-surface"
-      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      :style="contextMenuStyle"
       @mousedown.stop
     >
       <button @click="tabStore.addBlankEditorTab(); closeContextMenu()">

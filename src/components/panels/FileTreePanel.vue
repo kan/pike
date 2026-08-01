@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Loader } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { fsWatcher } from '../../composables/useFsWatcher'
@@ -90,22 +91,30 @@ async function openFile(path: string) {
 }
 
 // Context menu
-const ctxMenu = ref<{ x: number; y: number; path: string; isDir: boolean; ignored: boolean } | null>(null)
+const ctxMenu = ref<{ path: string; isDir: boolean; ignored: boolean } | null>(null)
+const {
+  style: ctxMenuStyle,
+  placeAt: placeCtxMenu,
+  reset: resetCtxMenu,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('ctxMenuEl'))
 const renaming = ref<string | null>(null)
 const renameValue = ref('')
 const creating = ref<{ parentPath: string; type: 'file' | 'dir' } | null>(null)
 const createValue = ref('')
 
-function onContextMenu(e: MouseEvent, path: string, isDir: boolean, ignored: boolean) {
+async function onContextMenu(e: MouseEvent, path: string, isDir: boolean, ignored: boolean) {
   e.preventDefault()
-  ctxMenu.value = { x: e.clientX, y: e.clientY, path, isDir, ignored }
-  nextTick(() => {
-    window.addEventListener('mousedown', closeCtxMenu, { once: true })
-  })
+  resetCtxMenu()
+  ctxMenu.value = { path, isDir, ignored }
+  // Measure before placing (#204): this menu has up to eight items, so near the
+  // bottom of a short window it used to run off the screen.
+  await placeCtxMenu({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeCtxMenu, { once: true })
 }
 
 function closeCtxMenu() {
   ctxMenu.value = null
+  resetCtxMenu()
 }
 
 function openInExplorer() {
@@ -578,7 +587,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 
       <!-- Context menu -->
       <Teleport to="body">
-        <div v-if="ctxMenu" class="tree-ctx-menu popup-surface" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @mousedown.stop>
+        <div v-if="ctxMenu" ref="ctxMenuEl" class="tree-ctx-menu popup-surface" :style="ctxMenuStyle" @mousedown.stop>
           <!-- ignored dirs: copy path / Explorer only, mutating actions stay off -->
           <template v-if="ctxMenu.ignored">
             <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>

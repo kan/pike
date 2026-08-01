@@ -7,7 +7,8 @@ import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirro
 import DOMPurify from 'dompurify'
 import { ArrowUp, RefreshCw } from 'lucide-vue-next'
 import { marked } from 'marked'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
@@ -605,17 +606,24 @@ watch(
 )
 
 // --- Context menu ---
-const ctxMenu = ref<{ x: number; y: number } | null>(null)
+const ctxMenu = ref(false)
+const {
+  style: ctxMenuStyle,
+  placeAt: placeCtxMenu,
+  reset: resetCtxMenu,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('ctxMenuEl'))
 const ctxLineRange = ref<{ start: number; end: number } | null>(null)
 
-function onEditorContextMenu(e: MouseEvent) {
+async function onEditorContextMenu(e: MouseEvent) {
   e.preventDefault()
   ctxHasSelection.value = editorView ? !editorView.state.selection.main.empty : false
   ctxLineRange.value = computeContextLineRange(e)
-  ctxMenu.value = { x: e.clientX, y: e.clientY }
-  nextTick(() => {
-    window.addEventListener('mousedown', closeCtxMenu, { once: true })
-  })
+  resetCtxMenu()
+  ctxMenu.value = true
+  // Measured, then clamped (#204): a right-click low in the editor used to open
+  // a menu whose bottom entries were off-screen.
+  await placeCtxMenu({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeCtxMenu, { once: true })
 }
 
 function computeContextLineRange(e: MouseEvent): { start: number; end: number } | null {
@@ -633,7 +641,8 @@ function computeContextLineRange(e: MouseEvent): { start: number; end: number } 
 }
 
 function closeCtxMenu() {
-  ctxMenu.value = null
+  ctxMenu.value = false
+  resetCtxMenu()
 }
 
 function execUndo() {
@@ -1358,8 +1367,9 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="ctxMenu"
+        ref="ctxMenuEl"
         class="editor-ctx-menu popup-surface"
-        :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+        :style="ctxMenuStyle"
         @mousedown.stop
       >
         <button @click="execUndo" :disabled="isReadOnlyTab"><span>{{ t('editor.undo') }}</span><span class="ctx-key">Ctrl+Z</span></button>

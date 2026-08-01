@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowUp, ChevronDown, ChevronRight, Minus, Plus, Undo2 } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, infoDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
@@ -174,16 +175,20 @@ async function openCommitDiffTab(hash: string, path: string) {
 }
 
 const hoveredCommit = ref<GitLogEntry | null>(null)
-const tooltipPos = ref({ x: 0, y: 0 })
+const {
+  style: tooltipStyle,
+  placeNear: placeTooltip,
+  reset: resetTooltip,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('tooltipEl'))
 let tooltipTimer: ReturnType<typeof setTimeout> | null = null
 
 function onCommitEnter(entry: GitLogEntry, e: MouseEvent) {
   if (tooltipTimer) clearTimeout(tooltipTimer)
   const target = e.currentTarget as HTMLElement
-  tooltipTimer = setTimeout(() => {
+  tooltipTimer = setTimeout(async () => {
+    resetTooltip()
     hoveredCommit.value = entry
-    const rect = target.getBoundingClientRect()
-    tooltipPos.value = { x: rect.left, y: rect.top - 4 }
+    await placeTooltip(target.getBoundingClientRect())
   }, 400)
 }
 
@@ -191,26 +196,33 @@ function onCommitLeave() {
   if (tooltipTimer) clearTimeout(tooltipTimer)
   tooltipTimer = null
   hoveredCommit.value = null
+  resetTooltip()
 }
 
-const commitCtx = ref<{ x: number; y: number; entry: GitLogEntry } | null>(null)
+const commitCtx = ref<{ entry: GitLogEntry } | null>(null)
+const {
+  style: commitCtxStyle,
+  placeAt: placeCommitCtx,
+  reset: resetCommitCtx,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('commitCtxEl'))
 const commitLink = computed(() =>
   commitCtx.value ? buildCommitLink(gitStore.remoteUrl, commitCtx.value.entry.hash) : null,
 )
 
-function onCommitContext(e: MouseEvent, entry: GitLogEntry) {
+async function onCommitContext(e: MouseEvent, entry: GitLogEntry) {
   e.preventDefault()
   e.stopPropagation()
   // 同じメニューを開きっぱなしで右クリックされた場合に古い listener が残らないよう先に外す
   window.removeEventListener('mousedown', closeCommitCtx)
-  commitCtx.value = { x: e.clientX, y: e.clientY, entry }
-  nextTick(() => {
-    window.addEventListener('mousedown', closeCommitCtx, { once: true })
-  })
+  resetCommitCtx()
+  commitCtx.value = { entry }
+  await placeCommitCtx({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeCommitCtx, { once: true })
 }
 
 function closeCommitCtx() {
   commitCtx.value = null
+  resetCommitCtx()
   window.removeEventListener('mousedown', closeCommitCtx)
 }
 
@@ -256,26 +268,34 @@ async function ctxOpenOnRemote() {
 
 // File context menu (shared between CHANGES and COMMITS)
 const fileCtx = ref<{
-  x: number
-  y: number
   path: string
   hash?: string
   staged?: boolean
   untracked?: boolean
 } | null>(null)
+const {
+  style: fileCtxStyle,
+  placeAt: placeFileCtx,
+  reset: resetFileCtx,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('fileCtxEl'))
 
-function onFileContext(e: MouseEvent, path: string, opts: { hash?: string; staged?: boolean; untracked?: boolean }) {
+async function onFileContext(
+  e: MouseEvent,
+  path: string,
+  opts: { hash?: string; staged?: boolean; untracked?: boolean },
+) {
   e.preventDefault()
   e.stopPropagation()
   window.removeEventListener('mousedown', closeFileCtx)
-  fileCtx.value = { x: e.clientX, y: e.clientY, path, ...opts }
-  nextTick(() => {
-    window.addEventListener('mousedown', closeFileCtx, { once: true })
-  })
+  resetFileCtx()
+  fileCtx.value = { path, ...opts }
+  await placeFileCtx({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeFileCtx, { once: true })
 }
 
 function closeFileCtx() {
   fileCtx.value = null
+  resetFileCtx()
   window.removeEventListener('mousedown', closeFileCtx)
 }
 
@@ -607,8 +627,9 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="hoveredCommit"
+        ref="tooltipEl"
         class="commit-tooltip popup-surface"
-        :style="{ left: tooltipPos.x + 'px', top: tooltipPos.y + 'px' }"
+        :style="tooltipStyle"
       >
         <div class="tooltip-meta">{{ hoveredCommit.hash.slice(0, 10) }}</div>
         <div class="tooltip-meta">{{ hoveredCommit.author }} &middot; {{ hoveredCommit.date }}</div>
@@ -620,8 +641,9 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="fileCtx"
+        ref="fileCtxEl"
         class="commit-file-ctx popup-surface"
-        :style="{ left: fileCtx.x + 'px', top: fileCtx.y + 'px' }"
+        :style="fileCtxStyle"
         @mousedown.stop
       >
         <button @click="ctxOpenDiff">{{ t('git.openDiff') }}</button>
@@ -633,8 +655,9 @@ onUnmounted(() => {
     <Teleport to="body">
       <div
         v-if="commitCtx"
+        ref="commitCtxEl"
         class="commit-file-ctx popup-surface"
-        :style="{ left: commitCtx.x + 'px', top: commitCtx.y + 'px' }"
+        :style="commitCtxStyle"
         @mousedown.stop
       >
         <button @click="ctxCopyHash">{{ t('git.copyHash') }}</button>
@@ -1022,8 +1045,12 @@ onUnmounted(() => {
 .commit-tooltip {
   position: fixed;
   z-index: 2000;
-  transform: translateY(-100%);
   max-width: 420px;
+  /* A commit message can be longer than the window is tall; the placement keeps
+     the top on screen and this drops the tail (the tooltip can't scroll — it is
+     pointer-events: none). */
+  max-height: calc(100vh - 2 * 8px);
+  overflow: hidden;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 4px;

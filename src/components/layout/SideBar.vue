@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { type Component, computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import {
+  type Component,
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  useTemplateRef,
+} from 'vue'
+import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { useGitStore } from '../../stores/git'
 import { useSidebarStore } from '../../stores/sidebar'
 import type { SidebarPanel } from '../../types/tab'
@@ -70,7 +80,12 @@ onMounted(() => {
 // Positioned at the cursor with `position: fixed`, because `.panel` clips its
 // children (`overflow: hidden`) and an absolutely-placed menu gets cut off at
 // the panel edge. Same approach as the tab context menu.
-const syncMenu = ref<{ kind: 'pull' | 'push'; x: number; y: number } | null>(null)
+const syncMenu = ref<{ kind: 'pull' | 'push' } | null>(null)
+const {
+  style: syncMenuStyle,
+  placeAt: placeSyncMenu,
+  reset: resetSyncMenu,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('syncMenuEl'))
 
 /** `danger` items confirm first — rewriting remote history is worth a second
  *  look. Each item carries its own call so pull and push share one menu. */
@@ -91,16 +106,19 @@ const PUSH_ACTIONS: SyncAction[] = [
 
 const syncActions = computed(() => (syncMenu.value?.kind === 'push' ? PUSH_ACTIONS : PULL_ACTIONS))
 
-function openSyncMenu(which: 'pull' | 'push', e: MouseEvent) {
-  syncMenu.value = { kind: which, x: e.clientX, y: e.clientY }
-  nextTick(() => {
-    window.addEventListener('mousedown', closeSyncMenu, { once: true })
-  })
+async function openSyncMenu(which: 'pull' | 'push', e: MouseEvent) {
+  resetSyncMenu()
+  syncMenu.value = { kind: which }
+  // Measured, then clamped (#204): these buttons sit at the bottom of the
+  // sidebar, so the menu has to open upward on a short window.
+  await placeSyncMenu({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeSyncMenu, { once: true })
 }
 
 function closeSyncMenu() {
   window.removeEventListener('mousedown', closeSyncMenu)
   syncMenu.value = null
+  resetSyncMenu()
 }
 
 async function runSyncAction(action: SyncAction) {
@@ -481,9 +499,10 @@ onUnmounted(() => {
     <!-- Pull/push options (#179). Outside .panel so its overflow can't clip it. -->
     <div
       v-if="syncMenu"
+      ref="syncMenuEl"
       class="sync-menu popup-surface"
       data-testid="sync-menu"
-      :style="{ left: syncMenu.x + 'px', top: syncMenu.y + 'px' }"
+      :style="syncMenuStyle"
       @mousedown.stop
     >
       <button
