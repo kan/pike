@@ -29,6 +29,7 @@ import {
   projectRemoveOpen,
   ptyBusyCount,
   traySetCloseToTray,
+  windowCloseQuitsApp,
   windowSetBackdrop,
 } from './lib/tauri'
 import { elevated, ephemeralWindow, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
@@ -199,6 +200,15 @@ watch(
   },
 )
 
+/**
+ * Confirm a close that quits Pike: every window's PTYs die at once, so the count
+ * comes from Rust — a window only knows its own tabs (#178).
+ */
+async function confirmBusyExit(): Promise<boolean> {
+  const running = await ptyBusyCount().catch(() => 0)
+  return running === 0 || (await confirmDialog(t('confirm.terminalBusyExit', { count: running })))
+}
+
 onMounted(async () => {
   // Swallow OS file drops that no component handled: with Tauri's native
   // drag-drop disabled, the webview's default action for an unhandled drop is
@@ -283,21 +293,26 @@ onMounted(async () => {
     listen('tray-open-switcher', () => {
       projectStore.showSwitcher = true
     })
-    // closeToTray off: closing main quits Pike and kills every window's PTYs,
-    // so Rust hands the decision here first (#178). The count comes from Rust
-    // because this window only knows its own tabs.
+    // closeToTray off with other windows open: main only hides (#202), so it
+    // keeps nothing but its session checkpoint — no tray hint, since the setting
+    // says Pike is not living in the tray.
+    getCurrentWindow().listen('main-window-hidden', () => projectStore.saveSessionNow())
+    // closeToTray off and main is the last window: closing it quits Pike and
+    // kills every window's PTYs, so Rust hands the decision here first (#178).
     getCurrentWindow().listen('main-exit-requested', async () => {
-      const running = await ptyBusyCount().catch(() => 0)
-      if (running > 0 && !(await confirmDialog(t('confirm.terminalBusyExit', { count: running })))) {
-        return
-      }
+      if (!(await confirmBusyExit())) return
       await appExit().catch(() => {})
     })
   } else {
     // Child windows (project / global): closing one kills its own PTYs, and no
     // Rust handler intercepts it, so confirm here and veto if declined (#178).
+    // When it is the last one, the close quits Pike (#202) — then the whole
+    // app's terminals are at stake, not just this window's tabs.
     getCurrentWindow().onCloseRequested(async (event) => {
-      if (!(await tabStore.confirmBusyTerminals(tabStore.tabs))) event.preventDefault()
+      const ok = (await windowCloseQuitsApp().catch(() => false))
+        ? await confirmBusyExit()
+        : await tabStore.confirmBusyTerminals(tabStore.tabs)
+      if (!ok) event.preventDefault()
     })
   }
 })

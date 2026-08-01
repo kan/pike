@@ -164,7 +164,7 @@ export default {
   'settings.general': 'General',
   'settings.closeToTray': 'Minimize to tray on close',
   'settings.closeToTrayHint':
-    'When on, closing the window keeps Pike running in the system tray (quit from the tray menu). When off, closing the main window exits Pike.',
+    'When on, closing the window keeps Pike running in the system tray (quit from the tray menu). When off, closing the last window exits Pike; other open windows stay open.',
   'settings.terminal': 'Terminal',
   'settings.editor': 'Editor',
   'settings.language': 'Language',

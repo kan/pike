@@ -44,6 +44,13 @@ const GLOBAL_PREFIX: &str = "global-";
 /// handler, so it lives in a process-global atomic rather than managed state.
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
 
+/// Set when main was hidden by its own close while close-to-tray is off (#202).
+/// Main can never be destroyed — it owns the async runtime — so hiding stands in
+/// for closing it, and this flag says the window is logically gone: it no longer
+/// keeps Pike alive, and the app exits once the last real window closes. Cleared
+/// whenever main is shown again (tray click, "Show", project focus).
+static MAIN_CLOSED_HIDDEN: AtomicBool = AtomicBool::new(false);
+
 /// The dark theme's opaque surface color, kept in sync with `--bg-primary-rgb`
 /// in `src/assets/theme.css`. Used as the pre-mount window background and as the
 /// fallback when the frontend's color cannot be parsed (issue #162).
@@ -331,13 +338,10 @@ fn store_pending(app: &AppHandle, label: &str, action: cli::CliAction) {
     }
 }
 
-/// Send a CLI action to an existing window via event.
+/// Send a CLI action to an existing window via event. The window may be hidden
+/// (main closed to the tray), so it goes through the shared restore.
 fn emit_action_to(app: &AppHandle, window: &WebviewWindow, action: &cli::CliAction) {
-    let _ = window.unminimize();
-    // show() handles the case where the window is hidden (e.g. main was
-    // closed and the app is still running with a hidden main).
-    let _ = window.show();
-    let _ = window.set_focus();
+    restore_window(window);
     let _ = app.emit_to(window.label(), "cli_open", action);
 }
 
@@ -531,21 +535,16 @@ fn window_projects_snapshot(app: &AppHandle) -> HashMap<String, String> {
 /// The live, visible window currently showing project `id`, per the
 /// authoritative `window_projects` map (label → current project id, updated on
 /// every switchProject and seeded at build). The label itself is opaque, so the
-/// map is the only correct way to tell what a window shows. Closes any stale
-/// non-visible handle it passes (tauri-plugin-window-state can keep one for a
-/// previously closed window).
+/// map is the only correct way to tell what a window shows. Every window it can
+/// return is live — `Destroyed` drains the map — and possibly hidden (main in
+/// the tray), which is why the callers restore what they get instead of only
+/// focusing it. It used to close a hidden match as a stale handle; that GC could
+/// only ever hit main and re-entered main's close path, quitting Pike (#202).
 fn find_project_window(app: &AppHandle, id: &str) -> Option<WebviewWindow> {
     let map = window_projects_snapshot(app);
-    for window in app.webview_windows().into_values() {
-        if map.get(window.label()).map(String::as_str) != Some(id) {
-            continue;
-        }
-        if window.is_visible().unwrap_or(false) {
-            return Some(window);
-        }
-        let _ = window.close();
-    }
-    None
+    app.webview_windows()
+        .into_values()
+        .find(|w| map.get(w.label()).map(String::as_str) == Some(id))
 }
 
 /// Open a fresh global-mode (project-less) window with a terminal on the
@@ -602,10 +601,16 @@ async fn tray_set_tooltip(app: AppHandle, text: String) -> Result<(), String> {
 }
 
 /// Sync the close-to-tray setting from the frontend (issue #161). When disabled,
-/// closing the main window exits Pike instead of hiding it to the tray.
+/// closing the main window exits Pike instead of hiding it to the tray — or,
+/// with other windows open, hides it as logically closed (#202). Turning the
+/// setting back on clears that state: main is then tray-resident again, so an
+/// earlier close must not still make the last window's close quit Pike.
 #[tauri::command]
 async fn tray_set_close_to_tray(enabled: bool) -> Result<(), String> {
     CLOSE_TO_TRAY.store(enabled, Ordering::Relaxed);
+    if enabled {
+        MAIN_CLOSED_HIDDEN.store(false, Ordering::Relaxed);
+    }
     Ok(())
 }
 
@@ -723,10 +728,45 @@ async fn window_set_backdrop(
 }
 
 /// Show, unminimize and focus a window — the restore-from-tray/minimized triple.
+/// Showing main again undoes its logical close (#202): it counts as a live
+/// window from here on.
 fn restore_window(w: &WebviewWindow) {
+    if w.label() == "main" {
+        MAIN_CLOSED_HIDDEN.store(false, Ordering::Relaxed);
+    }
     let _ = w.show();
     let _ = w.unminimize();
     let _ = w.set_focus();
+}
+
+/// Hide main — the only window Pike ever hides, since it cannot be destroyed.
+/// `logically_closed` is the decision this pairs with `restore_window`: true
+/// means the user closed it (close-to-tray off) and it must stop keeping Pike
+/// alive; false means it is merely out of sight (tray) and still counts as an
+/// open window (#202).
+fn hide_main_window(app: &AppHandle, logically_closed: bool) {
+    MAIN_CLOSED_HIDDEN.store(logically_closed, Ordering::Relaxed);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+}
+
+/// Whether destroying `label` would leave nothing to keep Pike running. A main
+/// hidden by its own close (close-to-tray off) does not count — it is logically
+/// closed, so the app must not outlive the last real window because of it (#202).
+fn close_would_quit(app: &AppHandle, label: &str) -> bool {
+    let main_closed = MAIN_CLOSED_HIDDEN.load(Ordering::Relaxed);
+    app.webview_windows()
+        .keys()
+        .all(|l| l == label || (l == "main" && main_closed))
+}
+
+/// Whether closing this window would quit Pike, taking every window's PTYs with
+/// it. The frontend asks before closing so it can confirm against the app-wide
+/// count of running terminals instead of just its own tabs (#178).
+#[tauri::command]
+fn window_close_quits_app(window: WebviewWindow) -> bool {
+    close_would_quit(window.app_handle(), window.label())
 }
 
 /// Show and focus the main window, restoring it from the tray / a minimized
@@ -739,13 +779,14 @@ fn show_main_window(app: &AppHandle) {
 
 /// Toggle main window visibility from a tray left-click: hide it when it is the
 /// foreground window, otherwise bring it back. Hiding here (like close-to-tray)
-/// never destroys main, so the session and PTYs stay alive.
+/// never destroys main, so the session and PTYs stay alive — and it is not a
+/// close either, so main keeps counting as an open window.
 pub(crate) fn toggle_main_window(app: &AppHandle) {
     let Some(w) = app.get_webview_window("main") else {
         return;
     };
     if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) {
-        let _ = w.hide();
+        hide_main_window(app, false);
     } else {
         restore_window(&w);
     }
@@ -1017,13 +1058,21 @@ pub fn run() {
                         // Close-to-tray (issue #161): hide main and keep the
                         // session + PTYs + polling alive; the tray icon restores
                         // it, and the tray "Quit" item is the real exit.
-                        let _ = window.hide();
+                        hide_main_window(window.app_handle(), false);
                         let _ = window.emit("main-minimized-to-tray", ());
+                    } else if !close_would_quit(window.app_handle(), window.label()) {
+                        // Setting off, but other windows are open: closing main
+                        // must not take them down with it (#21/#53/#202). Main
+                        // cannot be destroyed, so hide it as logically closed —
+                        // Pike then exits when the last real window goes.
+                        hide_main_window(window.app_handle(), true);
+                        let _ = window.emit("main-window-hidden", ());
                     } else {
-                        // Setting off: closing main exits Pike, which kills every
-                        // window's PTYs at once. Hand the decision to the frontend
-                        // so a terminal still running something can be confirmed
-                        // first (#178); it calls `app_exit` once the user agrees.
+                        // Setting off and main is the last window: closing it
+                        // exits Pike, which kills every window's PTYs at once.
+                        // Hand the decision to the frontend so a terminal still
+                        // running something can be confirmed first (#178); it
+                        // calls `app_exit` once the user agrees.
                         let _ = window.emit("main-exit-requested", ());
                     }
                 }
@@ -1082,10 +1131,11 @@ pub fn run() {
                     // close-to-tray (issue #161) main is only ever destroyed on
                     // an explicit tray Quit (app.exit), so a closing project
                     // window is never the last one and the app stays resident in
-                    // the tray instead of auto-exiting.
-                    let windows = window.app_handle().webview_windows();
-                    let current = window.label();
-                    if windows.keys().any(|l| l != current) {
+                    // the tray instead of auto-exiting. A main that was closed
+                    // with the setting off is the exception: it is logically gone
+                    // (#202), so this really is the last window and Pike quits
+                    // below once the cleanup has run.
+                    if !close_would_quit(window.app_handle(), window.label()) {
                         return;
                     }
                     if let Some(state) = window.try_state::<watcher::WatcherState>() {
@@ -1097,6 +1147,14 @@ pub fn run() {
                                 handle.abort();
                             }
                         }
+                    }
+                    // Only a hidden, logically closed main is left, and it cannot
+                    // close itself: quit for real (#202). The `!= "main"` guard
+                    // is not the same test as `close_would_quit` above — it says
+                    // we are not already inside a teardown (tray Quit destroys
+                    // main), which would otherwise exit a second time.
+                    if window.label() != "main" && MAIN_CLOSED_HIDDEN.load(Ordering::Relaxed) {
+                        window.app_handle().exit(0);
                     }
                 }
                 WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
@@ -1153,6 +1211,7 @@ pub fn run() {
             pty::pty_is_busy,
             pty::pty_busy_count,
             app_exit,
+            window_close_quits_app,
             pty::pty_get_cwd,
             project::detect_wsl_distros,
             project::project_get_last,

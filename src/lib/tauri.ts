@@ -99,6 +99,15 @@ export async function appExit(): Promise<void> {
   return invoke('app_exit')
 }
 
+/**
+ * Whether closing this window would quit Pike (nothing else is left to keep it
+ * running). True makes the close confirmation count every window's terminals
+ * instead of just this window's tabs (#202).
+ */
+export async function windowCloseQuitsApp(): Promise<boolean> {
+  return invoke<boolean>('window_close_quits_app')
+}
+
 export async function ptyGetCwd(id: string): Promise<string | null> {
   return invoke<string | null>('pty_get_cwd', { id })
 }

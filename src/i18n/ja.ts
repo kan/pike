@@ -164,7 +164,7 @@ export default {
   'settings.general': '全般',
   'settings.closeToTray': '閉じたときトレイに最小化',
   'settings.closeToTrayHint':
-    'オンのとき、ウィンドウを閉じても Pike はトレイに常駐し続けます（終了はトレイメニューから）。オフのとき、main ウィンドウを閉じると Pike を終了します。',
+    'オンのとき、ウィンドウを閉じても Pike はトレイに常駐し続けます（終了はトレイメニューから）。オフのとき、最後のウィンドウを閉じると Pike を終了します（他のウィンドウが開いていれば、そのウィンドウは残ります）。',
   'settings.terminal': 'ターミナル',
   'settings.editor': 'エディタ',
   'settings.language': '言語',
