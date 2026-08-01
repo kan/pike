@@ -454,7 +454,7 @@ async function onDelete(id: string) {
 </script>
 
 <template>
-  <div class="project-panel">
+  <div class="project-panel" data-testid="project-panel">
     <button class="add-btn" @click="showForm = !showForm">
       {{ showForm ? t('common.cancel') : t('project.addProject') }}
     </button>

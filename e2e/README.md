@@ -100,6 +100,9 @@ Git / Docker / ファイルツリー等は Rust への invoke でデータを得
   - `tasks-panel`：`task_discover`（npm / cargo グループ）
   - `search-panel`：`search_detect_backend` / `search_execute`。検索はユーザー入力駆動
     なので `data-testid="search-input"` に打鍵し Enter で実行する
+  - `project-panel`：`project_list` / `project_groups_list` / `fs_dirs_exist` /
+    `git_remote_urls` / `detect_wsl_distros`。`setFakeProject()` と同じ id を一覧の
+    先頭に置くと、その行が「開いているプロジェクト」の塗りで写る（#203）
 - パネルは `activePanel` の watch でロードされる（tasks / docker / files）か、開いた時に
   フェッチするので、モックは `openPanel` の前に設定する。データ描画の完了は代表要素
   （`.container-item` / `.tree-item` / `.task-item` / `.result-item`）の表示待ちで確認する。

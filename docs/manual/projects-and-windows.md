@@ -20,6 +20,11 @@
 
 ### 探す・並べる
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/project-panel-light.png">
+  <img alt="プロジェクトパネル" src="img/project-panel.png">
+</picture>
+
 プロジェクトが増えてきたときは、パネル上部の絞り込みと表示モードを使います。
 
 - **絞り込み**：入力欄にキーワードを入れると、名前・パス・グループ名で絞り込みます。`Esc` または右端の `✕` でクリアします。

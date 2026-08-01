@@ -398,3 +398,89 @@ describe('screenshots: search panel', () => {
     })
   }
 })
+
+// --- プロジェクト パネル ----------------------------------------------------
+// #203 の見た目（グループ別表示・アイコン・現在のプロジェクトの塗り）を撮る。
+// パネルは mount 時に project_list / project_groups_list / fs_dirs_exist を呼ぶので、
+// それらをモックしてから開く。setFakeProject と同じ id を先頭に置き、その行が
+// 「このウィンドウで開いている」塗りになるようにしてある。
+const PANEL_PROJECTS = [
+  {
+    id: 'e2e-demo',
+    name: 'demo-app',
+    root: 'C:/Users/dev/demo-app',
+    shell: { kind: 'powershell' },
+    pinnedTabs: [],
+    lastOpened: '2026-08-01T09:00:00Z',
+    color: 'blue',
+    icon: '🚀',
+    group: 'work',
+    order: 0,
+  },
+  {
+    id: 'billing-api',
+    name: 'billing-api',
+    root: '/home/dev/billing-api',
+    shell: { kind: 'wsl', distro: 'Ubuntu-22.04' },
+    pinnedTabs: [],
+    lastOpened: '2026-07-31T12:00:00Z',
+    color: 'green',
+    icon: '📡',
+    group: 'work',
+    order: 1,
+  },
+  {
+    id: 'infra-tools',
+    name: 'infra-tools',
+    root: '/home/dev/infra-tools',
+    shell: { kind: 'wsl', distro: 'Ubuntu-22.04' },
+    pinnedTabs: [],
+    lastOpened: '2026-07-29T08:30:00Z',
+    color: 'orange',
+    icon: '🐳',
+    group: 'work',
+    order: 2,
+  },
+  {
+    id: 'markdown-lint',
+    name: 'markdown-lint',
+    root: '/home/dev/oss/markdown-lint',
+    shell: { kind: 'wsl', distro: 'Ubuntu-22.04' },
+    pinnedTabs: [],
+    lastOpened: '2026-07-25T21:10:00Z',
+    color: 'purple',
+    icon: '📝',
+    group: 'oss',
+    order: 0,
+  },
+  {
+    id: 'sandbox',
+    name: 'sandbox',
+    root: 'C:/Users/dev/sandbox',
+    shell: { kind: 'powershell' },
+    pinnedTabs: [],
+    lastOpened: '2026-07-20T18:45:00Z',
+    icon: '🌱',
+  },
+]
+
+const PANEL_GROUPS = ['work', 'oss']
+
+describe('screenshots: project panel', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`project-panel ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('project_list', PANEL_PROJECTS)
+      await mockInvoke('project_groups_list', PANEL_GROUPS)
+      // 存在チェックと origin 取得はバケット単位で呼ばれるので、件数分の true / null を返す。
+      await mockInvoke('fs_dirs_exist', [true, true, true, true, true])
+      await mockInvoke('git_remote_urls', [null, null, null, null, null])
+      await mockInvoke('detect_wsl_distros', ['Ubuntu-22.04'])
+      await setFakeProject()
+      await openPanel('projects')
+      await $('[data-testid="project-panel"]').waitForDisplayed({ timeout: 10_000 })
+      await $('.project-item').waitForDisplayed({ timeout: 10_000 })
+      await shoot('project-panel', lang, theme)
+    })
+  }
+})
