@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 /// The only window label `tauri-plugin-window-state` still tracks.
 pub const TRACKED_LABEL: &str = "main";
@@ -23,11 +23,15 @@ pub const TRACKED_LABEL: &str = "main";
 /// Key shared by all global (project-less) windows.
 pub const GLOBAL_KEY: &str = "global";
 
-/// Size a window opens at with nothing stored for it.
-pub const DEFAULT_SIZE: (u32, u32) = (800, 600);
+/// Size a window opens at with nothing stored for it, in the logical pixels the
+/// window builder takes. Everything stored in this module is physical instead,
+/// so `default_rect` converts.
+pub const DEFAULT_LOGICAL_SIZE: (u32, u32) = (800, 600);
 
 const FILENAME: &str = "window-geometry.json";
 
+/// A window rect in **physical** pixels, as `inner_size` / `outer_position`
+/// report it and `set_size` / `set_position` take it.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Geometry {
     pub width: u32,
@@ -122,36 +126,46 @@ pub fn record_all(app: &AppHandle) {
 
 fn default_rect(window: &WebviewWindow) -> Geometry {
     let position = window.outer_position().unwrap_or(PhysicalPosition { x: 0, y: 0 });
+    let size: PhysicalSize<u32> = LogicalSize::new(DEFAULT_LOGICAL_SIZE.0, DEFAULT_LOGICAL_SIZE.1)
+        .to_physical(window.scale_factor().unwrap_or(1.0));
     Geometry {
-        width: DEFAULT_SIZE.0,
-        height: DEFAULT_SIZE.1,
+        width: size.width,
+        height: size.height,
         x: position.x,
         y: position.y,
         maximized: false,
     }
 }
 
-/// Apply the stored geometry for `key` to a window about to be built. Setting it
-/// on the builder rather than after `build()` avoids a visible jump from the
-/// default size to the restored one.
-pub fn apply<'a>(
-    app: &AppHandle,
-    key: &str,
-    builder: WebviewWindowBuilder<'a, tauri::Wry, AppHandle>,
-) -> WebviewWindowBuilder<'a, tauri::Wry, AppHandle> {
+/// Apply the stored geometry for `key` to a freshly built window, which the
+/// caller then shows. Everything here is in physical pixels, matching what the
+/// rect was recorded in.
+///
+/// It has to happen after `build()` for that reason: the builder's `inner_size`
+/// and `position` take *logical* pixels, so handing them a recorded rect scales
+/// the window up by the display's scale factor — a 150% display reopened every
+/// window 1.5x too wide and that much further right. Building the window hidden
+/// keeps this from showing as a jump from the default rect.
+pub fn restore(app: &AppHandle, key: &str, window: &WebviewWindow) {
     let Some(geom) = load(app).get(key).copied() else {
-        return builder;
+        return;
     };
-    let mut builder = builder.inner_size(f64::from(geom.width), f64::from(geom.height));
     // Only restore the position while it still lands on a monitor: an unplugged
-    // second display would otherwise put the window out of reach.
+    // second display would otherwise put the window out of reach. Position first,
+    // so that moving onto a display with a different scale factor (which makes
+    // Windows resize the window to match) cannot undo the size set below.
     if on_some_monitor(app, &geom) {
-        builder = builder.position(f64::from(geom.x), f64::from(geom.y));
+        let _ = window.set_position(PhysicalPosition { x: geom.x, y: geom.y });
     }
+    let _ = window.set_size(PhysicalSize {
+        width: geom.width,
+        height: geom.height,
+    });
+    // After the rect, not via the builder: maximizing a window that already sits
+    // on its stored rect leaves that rect as the one un-maximizing returns to.
     if geom.maximized {
-        builder = builder.maximized(true);
+        let _ = window.maximize();
     }
-    builder
 }
 
 fn on_some_monitor(app: &AppHandle, geom: &Geometry) -> bool {

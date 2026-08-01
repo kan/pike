@@ -536,7 +536,9 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `tauri-plugin-window-state` でウィンドウサイズ・位置・最大化状態を自動保存・復元。ただし**追跡するのは `main` ラベルだけ**（`with_filter`）
 - **プロジェクト単位の geometry（#200）**: プロジェクト/グローバルウィンドウのラベルは起動ごとの UUID（#175）なので、ラベル keyed のプラグインでは永久に復元できず `.window-state.json` に死んだエントリが溜まる（実測 105 件中 104 件が死蔵）。そこで `src-tauri/src/window_geom.rs` が **`window_projects` 経由で「そのウィンドウが今表示しているプロジェクト id」をキー**に `%APPDATA%/{identifier}/window-geometry.json` へ保存する（プロジェクト無しは `global` キー、main も同じ規則で記録するので main で開いていたプロジェクトが子ウィンドウへ移っても size を引き継ぐ）。マシンローカルな情報なので同期対象の `project.json` には入れない
   - 保存契機: 既存の Moved/Resized 500ms デバウンス、`CloseRequested`（デバウンス待ちの取りこぼし防止）、`RunEvent::Exit`（トレイ「終了」は CloseRequested を経ずに破棄されるため）、`save_all_window_state`（updater の relaunch 前）
-  - 復元は `build_window` の**ビルダー段階**で `inner_size`/`position`/`maximized` を与える（build 後に動かすと既定サイズからのジャンプが見える）。位置は保存時の矩形がいずれかのモニタと重なる場合のみ適用（ディスプレイを外したときに画面外へ行かない）。最大化/最小化中は「戻る先の矩形」を上書きしないようフラグだけ更新
+  - **単位は物理ピクセルで統一する**: 記録元の `inner_size()` / `outer_position()` は物理ピクセルだが、`WebviewWindowBuilder` の `inner_size` / `position` は**論理ピクセル**（tauri の doc comment。tao 側も `to_physical(target_monitor.scale_factor())` で変換する）。ビルダーに渡すと 150% ディスプレイでは幅も位置も 1.5 倍になり、開くたびに右下へ膨らんでいく（v0.33.0〜v0.34.0 の不具合）。そのため `window_geom::restore` は **build 後**に `set_position` / `set_size` へ物理ピクセルのまま渡す（`tauri-plugin-window-state` の `restore_state` と同じ手順）。既定サイズから復元サイズへ飛ぶのが見えないよう、`build_window` は `.visible(false)` で生成し restore 後に `show()` する
+  - 適用順は **位置 → サイズ → 最大化**。スケール factor の違うディスプレイへ移すと Windows がウィンドウをリサイズするため位置が先。最大化はビルダーではなく最後に呼ぶ（復元矩形の上で最大化すると、解除したときそこへ戻る）
+  - 位置は保存時の矩形がいずれかのモニタと重なる場合のみ適用（ディスプレイを外したときに画面外へ行かない）。最大化/最小化中は「戻る先の矩形」を上書きしないようフラグだけ更新
   - 旧バージョンが残した死蔵エントリは `prune_plugin_state` が起動時に掃除する。**プラグイン登録より前**に走らせる必要がある（プラグインはファイルをメモリへ読み込み、保存ごとにキャッシュ全体を書き戻すため後から消しても復活する）。`AppHandle` がまだ無いので `%APPDATA%/{identifier}` を手組みする（Windows の `app_config_dir` と同一）
 - サイドバーの展開状態（activePanel）と幅は `localStorage` で永続化
 

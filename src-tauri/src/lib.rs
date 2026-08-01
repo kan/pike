@@ -283,8 +283,8 @@ fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<WebviewW
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .title("Pike")
         .inner_size(
-            f64::from(window_geom::DEFAULT_SIZE.0),
-            f64::from(window_geom::DEFAULT_SIZE.1),
+            f64::from(window_geom::DEFAULT_LOGICAL_SIZE.0),
+            f64::from(window_geom::DEFAULT_LOGICAL_SIZE.1),
         )
         .resizable(true)
         // 背景透過（issue #162）: 透過はランタイムで切替えるため常に透過ウィンドウで生成し、
@@ -300,9 +300,15 @@ fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<WebviewW
             DARK_SURFACE_RGB.2,
             255,
         ))
+        // 保存した geometry は物理ピクセルなので、論理ピクセルを取るビルダーではなく
+        // build 後に適用する（window_geom::restore）。既定サイズから復元サイズへ飛ぶのが
+        // 見えないよう、非表示で生成して適用後に show する。
+        .visible(false)
         .disable_drag_drop_handler();
-    let window = window_geom::apply(app, geom_key, builder).build()?;
+    let window = builder.build()?;
+    window_geom::restore(app, geom_key, &window);
     drop_paths::attach(&window);
+    let _ = window.show();
     Ok(window)
 }
 
