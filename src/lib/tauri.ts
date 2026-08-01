@@ -180,9 +180,12 @@ export async function menusRefresh(lang: string): Promise<void> {
   return invoke('menus_refresh', { lang })
 }
 
-/** Update the tray tooltip (issue #161) with a formatted usage summary. */
-export async function traySetTooltip(text: string): Promise<void> {
-  return invoke('tray_set_tooltip', { text })
+/**
+ * Update the tray tooltip (issue #161) with a formatted usage summary. Rust puts
+ * the app name in front of it, so pass only the usage half (empty for none).
+ */
+export async function traySetTooltip(detail: string): Promise<void> {
+  return invoke('tray_set_tooltip', { detail })
 }
 
 /**

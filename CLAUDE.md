@@ -409,6 +409,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `npm run tauri:dev` で開発版を起動（`tauri.dev.conf.json` で identifier を `com.pike.dev.debug` に上書き）
 - インストール版 Pike (`com.pike.dev`) と開発版 (`com.pike.dev.debug`) は single-instance が別扱いになるため共存可能
 - `import.meta.env.DEV` が true の場合、ウィンドウタイトルに `[DEBUG]` プレフィックスを付与
+- トレイアイコンも同じ表記で見分ける（`tray::app_label` が「Pike [DEBUG]」を返し、ツールチップとメニュー先頭の見出しに出る）。判定は `cfg!(debug_assertions)`（`tauri:dev`）または identifier の `.debug` 接尾辞（`tauri build --config tauri.dev.conf.json` は release プロファイルなので前者では拾えない）。アイコン画像はインストール版と共通なので、これが無いとトレイ上で区別できない
 - `npm run tauri dev` は identifier が本番と同一のため、インストール版と競合する点に注意
 
 ### CSP と動的スタイル注入（本番ビルド限定の落とし穴、#v0.26.3）
@@ -476,7 +477,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - **左クリック**: `toggle_main_window`（表示中かつフォーカス時は hide、それ以外は show+unminimize+focus）。`show_menu_on_left_click(false)` でメニューは右クリック専用
 - **右クリックメニュー**（`build_menu`、id 規約 `tray:show` / `tray:new-terminal` / `tray:switcher` / `tray:quit` / `tray:proj:{id}`）: 表示 / 新しいターミナルウィンドウ（`create_global_window`+OpenTerminal）/ 最近のプロジェクト（サブメニュー、`read_all_projects_sorted` 最大 8 件、選ぶと該当ウィンドウ focus か `build_window`）/ プロジェクトを開く…（main を show して `tray-open-switcher` を emit_to→スイッチャー表示）/ 終了
 - **更新契機**: jump list と共通の `menus_refresh` コマンド（前述）が `tray::refresh(app, lang, &projects)` を呼び `app.tray_by_id("main").set_menu` で作り直す。プロジェクト一覧は menus_refresh が 1 回だけ読んで jump list と共有。起動時の `tray::build` はサブメニュー空（静的項目のみ）で作り、mount 後の menus_refresh が一覧つきに差し替える。ラベルは locale 引数で言語別（Rust からフロント i18n は読めない）
-- **使用量ツールチップ**: main の StatusBar だけが（トレイは 1 プロセス 1 リソースなので）usage を整形して `traySetTooltip` で push。Claude 5h レート（アカウント単位なので代表値）優先、無ければトークン総量、無ければ "Pike"。hide 中もポーリングを止めないので畳んだ状態でも更新される
+- **使用量ツールチップ**: main の StatusBar だけが（トレイは 1 プロセス 1 リソースなので）usage を整形して `traySetTooltip` で push。Claude 5h レート（アカウント単位なので代表値）優先、無ければトークン総量、無ければ空文字。**フロントが渡すのは usage の要約だけ**で、先頭のアプリ名（開発版の `[DEBUG]` 目印を含む）は `tray::set_tooltip` が付ける。hide 中もポーリングを止めないので畳んだ状態でも更新される
 - **初回ヒント**: 初めて閉じたとき `resolveNotifier`（`lib/notify.ts`）で OS 通知（`localStorage['pike:tray-hint-shown']` で 1 回のみ）。ウィンドウが消えたと勘違いさせないため
 - アイコンは `app.default_window_icon()` を流用（追加の image feature 不要）
 

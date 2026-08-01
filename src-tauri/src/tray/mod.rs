@@ -15,7 +15,7 @@
 //! メニュー内容はプロジェクト集合とロケールに依存するので、jump list と同じく
 //! フロントが起動時・プロジェクト変更時に `tray_refresh(locale)` で作り直す。
 
-use tauri::menu::{Menu, MenuBuilder, MenuEvent, SubmenuBuilder};
+use tauri::menu::{Menu, MenuBuilder, MenuEvent, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Wry};
 
@@ -26,6 +26,28 @@ const TRAY_ID: &str = "main";
 
 /// サブメニューに載せる最近プロジェクトの最大件数。
 const MAX_PROJECTS: usize = 8;
+
+/// このビルドが開発版か。インストール版と開発版は identifier が別で single-instance
+/// も別扱いなので同時に常駐でき、トレイにアイコンが 2 つ並ぶ。アイコンは同じものを
+/// 流用しているため、どちらがどちらか区別する手がかりが要る。
+///
+/// `debug_assertions` は `npm run tauri:dev` を、identifier の `.debug` 接尾辞は
+/// `tauri build --config tauri.dev.conf.json`（本番ビルドの挙動を検証する用途、
+/// CLAUDE.md の CSP の項）を拾う。後者は release プロファイルなので前者だけでは
+/// 素通りする。
+fn is_debug_build(app: &AppHandle) -> bool {
+    cfg!(debug_assertions) || app.config().identifier.ends_with(".debug")
+}
+
+/// トレイに出すアプリ名。開発版だけ目印が付く（App.vue がウィンドウタイトルに
+/// 付ける `[DEBUG]` と同じ表記）。
+fn app_label(app: &AppHandle) -> &'static str {
+    if is_debug_build(app) {
+        "Pike [DEBUG]"
+    } else {
+        "Pike"
+    }
+}
 
 struct Labels {
     show: &'static str,
@@ -61,7 +83,7 @@ fn labels(lang: &str) -> Labels {
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app, "en", &[])?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip("Pike")
+        .tooltip(app_label(app))
         .menu(&menu)
         // 左クリックはウィンドウ復帰に使うので、メニューは右クリックのみ。
         .show_menu_on_left_click(false)
@@ -87,11 +109,19 @@ pub fn refresh(app: &AppHandle, lang: &str, projects: &[project::ProjectConfig])
     }
 }
 
-/// ツールチップを更新する（フロントが usage を整形して渡す）。
-pub fn set_tooltip(app: &AppHandle, text: &str) {
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let _ = tray.set_tooltip(Some(text));
-    }
+/// ツールチップを更新する。フロントは usage の要約（`detail`）だけを渡し、
+/// アプリ名はここで前置する。開発版の目印を 1 箇所に閉じ込めるため。
+pub fn set_tooltip(app: &AppHandle, detail: &str) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
+    let label = app_label(app);
+    let text = if detail.is_empty() {
+        label.to_string()
+    } else {
+        format!("{label} · {detail}")
+    };
+    let _ = tray.set_tooltip(Some(text));
 }
 
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
@@ -115,7 +145,18 @@ fn build_menu(
     projects: &[project::ProjectConfig],
 ) -> tauri::Result<Menu<Wry>> {
     let l = labels(lang);
-    let mut builder = MenuBuilder::new(app)
+    // 開発版だけ、操作できない見出しとしてアプリ名を先頭に置く。ツールチップは
+    // ホバーしないと出ないので、メニューを開いた時点でも分かるようにする。
+    let debug_header = if is_debug_build(app) {
+        Some(MenuItemBuilder::new(app_label(app)).enabled(false).build(app)?)
+    } else {
+        None
+    };
+    let mut builder = MenuBuilder::new(app);
+    if let Some(header) = &debug_header {
+        builder = builder.item(header).separator();
+    }
+    builder = builder
         .text("tray:show", l.show)
         .separator()
         .text("tray:new-terminal", l.new_terminal);

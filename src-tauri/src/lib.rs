@@ -600,11 +600,12 @@ async fn menus_refresh(app: AppHandle, lang: String) -> Result<(), String> {
 }
 
 /// Update the tray tooltip (issue #161). The main window pushes its formatted
-/// usage summary (e.g. "Pike · Claude 5h 42%") so it is visible at a glance
-/// while Pike sits minimized in the tray.
+/// usage summary (e.g. "Claude 5h 42%") so it is visible at a glance while Pike
+/// sits minimized in the tray; the app name in front of it comes from
+/// `tray::set_tooltip`, which is also where the dev-build marker lives.
 #[tauri::command]
-async fn tray_set_tooltip(app: AppHandle, text: String) -> Result<(), String> {
-    tray::set_tooltip(&app, &text);
+async fn tray_set_tooltip(app: AppHandle, detail: String) -> Result<(), String> {
+    tray::set_tooltip(&app, &detail);
     Ok(())
 }
 
