@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, Pencil, Plus, X } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, Pencil, Plus, Search, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
+import { fuzzyMatch } from '../../lib/paths'
 import { loadJson, saveJson } from '../../lib/storage'
 import { detectWslDistros, focusProjectWindow, pickFolder, ptyGetCwd } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
@@ -21,6 +22,7 @@ import {
 } from '../../types/tab'
 import ColorSelect from './ColorSelect.vue'
 import GroupComboBox from './GroupComboBox.vue'
+import IconSelect from './IconSelect.vue'
 import ProjectListItem from './ProjectListItem.vue'
 
 const { t } = useI18n()
@@ -30,6 +32,7 @@ const tabStore = useTabStore()
 const settings = useSettingsStore()
 
 const COLLAPSE_STORAGE_KEY = 'pike:project-group-collapsed'
+const SORT_STORAGE_KEY = 'pike:project-sort-mode'
 
 /** Jump to the project's existing window if it's open elsewhere; otherwise
  *  switch this window in place. */
@@ -38,25 +41,57 @@ async function selectProject(id: string) {
   await projectStore.switchProject(id)
 }
 
-const sortMode = ref<'name' | 'recent'>('name')
+/** `recent` is a flat list in the backend's recency order; `group` is the
+ *  organized view, ordered by hand (#203). */
+type SortMode = 'recent' | 'group'
 
-function sortByMode(list: ProjectConfig[]): ProjectConfig[] {
-  const arr = [...list]
-  if (sortMode.value === 'name') {
-    arr.sort((a, b) => a.name.localeCompare(b.name))
-  }
-  return arr
+const sortMode = ref<SortMode>(loadJson<SortMode>(SORT_STORAGE_KEY, 'group') === 'recent' ? 'recent' : 'group')
+watch(sortMode, (mode) => saveJson(SORT_STORAGE_KEY, mode))
+
+const filterQuery = ref('')
+const filterText = computed(() => filterQuery.value.trim())
+
+function matchesFilter(p: ProjectConfig): boolean {
+  const q = filterText.value
+  if (!q) return true
+  return fuzzyMatch(p.name, q) || fuzzyMatch(p.root, q) || fuzzyMatch(p.group ?? '', q)
+}
+
+const filteredProjects = computed<ProjectConfig[]>(() => projectStore.visibleProjects.filter(matchesFilter))
+
+/** Manual order first, then name for everything never dragged. */
+function sortByOrder(list: ProjectConfig[]): ProjectConfig[] {
+  return [...list].sort(
+    (a, b) =>
+      (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name),
+  )
 }
 
 const ungroupedProjects = computed<ProjectConfig[]>(() => {
-  return sortByMode(projectStore.visibleProjects.filter((p) => !p.group?.trim()))
+  return sortByOrder(filteredProjects.value.filter((p) => !p.group?.trim()))
 })
 
+/** One flat list of what the panel renders, so the row bindings live in a
+ *  single place instead of once per section. `siblings` is the reorder scope a
+ *  drop onto this row lands in. */
+type PanelRow =
+  | { kind: 'group'; name: string; count: number }
+  | {
+      kind: 'project'
+      project: ProjectConfig
+      grouped: boolean
+      /** Absent in recent mode, which has no reorder scope. */
+      siblings?: ProjectConfig[]
+      groupLabel?: string
+    }
+
 const groupSections = computed<Array<{ name: string; projects: ProjectConfig[] }>>(() => {
-  return projectStore.groups.map((name) => ({
+  const sections = projectStore.groups.map((name) => ({
     name,
-    projects: sortByMode(projectStore.visibleProjects.filter((p) => p.group?.trim() === name)),
+    projects: sortByOrder(filteredProjects.value.filter((p) => p.group?.trim() === name)),
   }))
+  // While filtering, a group with no hit is noise.
+  return filterText.value ? sections.filter((s) => s.projects.length > 0) : sections
 })
 
 const collapsed = ref<Set<string>>(new Set(loadJson<string[]>(COLLAPSE_STORAGE_KEY, [])))
@@ -76,6 +111,33 @@ function toggleGroup(name: string) {
   collapsed.value = next
   persistCollapsed()
 }
+
+const rows = computed<PanelRow[]>(() => {
+  // Recent mode is deliberately flat (#203): the group is a badge on the row,
+  // not a section, so the list stays in one recency order.
+  if (sortMode.value === 'recent') {
+    return filteredProjects.value.map((project) => ({
+      kind: 'project',
+      project,
+      grouped: false,
+      groupLabel: project.group?.trim() || undefined,
+    }))
+  }
+  const out: PanelRow[] = ungroupedProjects.value.map((project) => ({
+    kind: 'project',
+    project,
+    grouped: false,
+    siblings: ungroupedProjects.value,
+  }))
+  for (const section of groupSections.value) {
+    out.push({ kind: 'group', name: section.name, count: section.projects.length })
+    if (isCollapsed(section.name)) continue
+    for (const project of section.projects) {
+      out.push({ kind: 'project', project, grouped: true, siblings: section.projects })
+    }
+  }
+  return out
+})
 
 function focusOnMount(el: Element | unknown) {
   ;(el as HTMLInputElement | null)?.focus()
@@ -142,30 +204,133 @@ async function onDeleteGroup(name: string) {
   await projectStore.removeGroup(name)
 }
 
-const {
-  dragId: draggingProjectId,
-  dragOverTarget: dragOverGroup,
-  startDrag: onDragStartProject,
-  resetDrag: onDragEndProject,
-} = useDragAndDrop<string>()
+// Drag & drop (#203). One drag id carries both kinds so the shared composable
+// stays as-is; the template-literal type keeps the two spellings honest, and
+// `projectKey`/`groupKey` are the only place they are built. Read back with a
+// prefix strip rather than a split: a group name may itself contain ':'.
+type DragKey = `project:${string}` | `group:${string}`
+const PROJECT_DRAG = 'project:'
+const GROUP_DRAG = 'group:'
 
-function onDragOverGroup(e: DragEvent, groupName: string) {
-  if (!draggingProjectId.value) return
+const projectKey = (id: string): DragKey => `${PROJECT_DRAG}${id}`
+const groupKey = (name: string): DragKey => `${GROUP_DRAG}${name}`
+
+const { dragId, startDrag, resetDrag } = useDragAndDrop<DragKey>()
+// One hover state instead of the composable's target plus a side ref: they are
+// always written and cleared together.
+const dropTarget = ref<{ key: DragKey; side: 'top' | 'bottom' | null } | null>(null)
+
+/** Rows and group bars are only draggable in the organized view. */
+const dragEnabled = computed(() => sortMode.value === 'group')
+/** Insertion (reordering) additionally needs the unfiltered list: indexes taken
+ *  from a filtered view would place the row somewhere else entirely. */
+const reorderable = computed(() => dragEnabled.value && !filterText.value)
+
+const draggedProject = computed(() =>
+  dragId.value?.startsWith(PROJECT_DRAG) ? dragId.value.slice(PROJECT_DRAG.length) : null,
+)
+const draggedGroup = computed(() =>
+  dragId.value?.startsWith(GROUP_DRAG) ? dragId.value.slice(GROUP_DRAG.length) : null,
+)
+
+function endDrag() {
+  resetDrag()
+  dropTarget.value = null
+}
+
+/** Which half of the hovered element the pointer is in (TabPane's insertion
+ *  point logic, vertical). */
+function sideOf(e: DragEvent): 'top' | 'bottom' {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  return e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom'
+}
+
+/** `ids` with `moved` taken out and put back at the drop point. Removing first
+ *  means the target index needs no correction for the direction of the move. */
+function insertAt(ids: string[], moved: string, target: string, side: 'top' | 'bottom'): string[] {
+  const rest = ids.filter((id) => id !== moved)
+  const at = rest.indexOf(target)
+  if (at === -1) return [...rest, moved]
+  rest.splice(side === 'bottom' ? at + 1 : at, 0, moved)
+  return rest
+}
+
+function markDropTarget(e: DragEvent, key: DragKey, side: 'top' | 'bottom' | null) {
   e.preventDefault()
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
-  dragOverGroup.value = groupName
+  // Only assign on a real change: dragover fires continuously, and a fresh
+  // object every tick would re-render the list at event rate.
+  if (dropTarget.value?.key !== key || dropTarget.value.side !== side) {
+    dropTarget.value = { key, side }
+  }
+}
+
+function onRowDragOver(e: DragEvent, project: ProjectConfig) {
+  if (!reorderable.value || !draggedProject.value) return
+  markDropTarget(e, projectKey(project.id), sideOf(e))
+}
+
+function dropSideFor(key: DragKey): 'top' | 'bottom' | null {
+  return dropTarget.value?.key === key ? dropTarget.value.side : null
+}
+
+/** Marker classes for a group bar: an insertion line for a dragged group, the
+ *  plain highlight for a dragged project. */
+function dropClasses(key: DragKey) {
+  const side = dropSideFor(key)
+  return {
+    'drag-over': dropTarget.value?.key === key && !side,
+    'drop-top': side === 'top',
+    'drop-bottom': side === 'bottom',
+  }
+}
+
+/** Drop onto a row: place the dragged project there, adopting the row's group. */
+async function onRowDrop(e: DragEvent, project: ProjectConfig, siblings: ProjectConfig[]) {
+  e.preventDefault()
+  const moved = draggedProject.value
+  const side = dropTarget.value?.side ?? 'bottom'
+  endDrag()
+  if (!moved || moved === project.id) return
+  const ids = insertAt(
+    siblings.map((p) => p.id),
+    moved,
+    project.id,
+    side,
+  )
+  await projectStore.reorderProjects(ids, project.group?.trim() || undefined)
+}
+
+function onDragOverGroup(e: DragEvent, groupName: string) {
+  if (!dragId.value) return
+  // A dragged group inserts before/after this bar; a dragged project just lands
+  // in the group, so it gets the plain highlight instead of an insertion line.
+  markDropTarget(e, groupKey(groupName), draggedGroup.value ? sideOf(e) : null)
 }
 
 function onDragLeaveGroup() {
-  dragOverGroup.value = null
+  dropTarget.value = null
 }
 
 async function onDropGroup(e: DragEvent, groupName: string) {
   e.preventDefault()
-  const id = draggingProjectId.value
-  onDragEndProject()
-  if (!id) return
-  await projectStore.setProjectGroup(id, groupName || undefined)
+  const movedGroup = draggedGroup.value
+  const movedProject = draggedProject.value
+  const side = dropTarget.value?.side ?? 'bottom'
+  endDrag()
+  if (movedGroup) {
+    if (!reorderable.value || movedGroup === groupName) return
+    await projectStore.reorderGroups(insertAt([...projectStore.groups], movedGroup, groupName, side))
+    return
+  }
+  if (!movedProject) return
+  if (!reorderable.value) {
+    await projectStore.setProjectGroup(movedProject, groupName || undefined)
+    return
+  }
+  // The bar is the "put it in this group" target; the rows place it precisely.
+  const ids = groupSections.value.find((s) => s.name === groupName)?.projects.map((p) => p.id) ?? []
+  await projectStore.reorderProjects([...ids.filter((id) => id !== movedProject), movedProject], groupName)
 }
 
 const distros = ref<string[]>([])
@@ -202,6 +367,7 @@ const formName = ref('')
 const formRoot = ref('')
 const formGroup = ref<string | undefined>(undefined)
 const formColor = ref<string | undefined>(undefined)
+const formIcon = ref<string | undefined>(undefined)
 const formPlatform = ref<'wsl' | 'windows'>('wsl')
 const formDistro = ref('Ubuntu')
 const formWindowsShell = ref<WindowsShellKind>('powershell')
@@ -259,6 +425,7 @@ async function onCreate() {
     lastOpened: new Date().toISOString(),
     group: formGroup.value,
     color: formColor.value,
+    icon: formIcon.value,
   }
   await projectStore.addProject(config)
   if (formGroup.value) await projectStore.addGroup(formGroup.value)
@@ -267,6 +434,7 @@ async function onCreate() {
   formRoot.value = ''
   formGroup.value = undefined
   formColor.value = undefined
+  formIcon.value = undefined
 }
 
 const editingId = ref<string | null>(null)
@@ -305,6 +473,7 @@ async function onDelete(id: string) {
 
       <GroupComboBox v-model="formGroup" :groups="projectStore.groups" />
       <ColorSelect v-model="formColor" />
+      <IconSelect v-model="formIcon" />
 
       <div class="platform-row">
         <label class="radio-label"><input type="radio" v-model="formPlatform" value="wsl" /> WSL</label>
@@ -319,45 +488,41 @@ async function onDelete(id: string) {
       <button type="submit">{{ t('common.create') }}</button>
     </form>
 
+    <div class="filter-row">
+      <Search :size="12" :stroke-width="2" class="filter-icon" />
+      <input
+        v-model="filterQuery"
+        class="filter-input"
+        :placeholder="t('project.filterPlaceholder')"
+        @keydown.escape.prevent="filterQuery = ''"
+      />
+      <button v-if="filterQuery" class="filter-clear" :title="t('common.clear')" @click="filterQuery = ''">
+        <X :size="12" :stroke-width="2" />
+      </button>
+    </div>
+
     <div class="sort-row">
-      <button class="sort-btn" :class="{ active: sortMode === 'name' }" @click="sortMode = 'name'">{{ t('project.sortName') }}</button>
+      <button class="sort-btn" :class="{ active: sortMode === 'group' }" @click="sortMode = 'group'">{{ t('project.sortGroup') }}</button>
       <button class="sort-btn" :class="{ active: sortMode === 'recent' }" @click="sortMode = 'recent'">{{ t('project.sortRecent') }}</button>
     </div>
 
     <div class="project-list">
-      <ProjectListItem
-        v-for="project in ungroupedProjects"
-        :key="project.id"
-        :project="project"
-        :editing="editingId === project.id"
-        :grouped="false"
-        :active="projectStore.currentProject?.id === project.id"
-        :dragging="draggingProjectId === project.id"
-        :missing="projectStore.missingRoots.has(project.id)"
-        :groups="projectStore.groups"
-        :distros="distros"
-        @select="selectProject(project.id)"
-        @request-edit="editingId = project.id"
-        @cancel-edit="editingId = null"
-        @save="onSaveEdit"
-        @clone="projectStore.cloneProject(project.id)"
-        @delete="onDelete(project.id)"
-        @drag-start="onDragStartProject($event, project.id)"
-        @drag-end="onDragEndProject"
-      />
-
-      <template v-for="group in groupSections" :key="group.name">
+      <template v-for="row in rows" :key="row.kind === 'group' ? `group:${row.name}` : row.project.id">
         <div
+          v-if="row.kind === 'group'"
           class="group-header"
-          :class="{ 'drag-over': dragOverGroup === group.name }"
-          @dragover="onDragOverGroup($event, group.name)"
+          :class="dropClasses(groupKey(row.name))"
+          :draggable="dragEnabled && renamingGroup !== row.name"
+          @dragstart="startDrag($event, groupKey(row.name))"
+          @dragend="endDrag"
+          @dragover="onDragOverGroup($event, row.name)"
           @dragleave="onDragLeaveGroup"
-          @drop="onDropGroup($event, group.name)"
+          @drop="onDropGroup($event, row.name)"
         >
-          <button class="group-toggle" @click="toggleGroup(group.name)">
-            <ChevronDown v-if="!isCollapsed(group.name)" :size="12" :stroke-width="2" />
+          <button class="group-toggle" @click="toggleGroup(row.name)">
+            <ChevronDown v-if="!isCollapsed(row.name)" :size="12" :stroke-width="2" />
             <ChevronRight v-else :size="12" :stroke-width="2" />
-            <span v-if="renamingGroup !== group.name" class="group-name">{{ group.name }}</span>
+            <span v-if="renamingGroup !== row.name" class="group-name">{{ row.name }}</span>
             <input
               v-else
               :ref="setRenameInputRef"
@@ -368,40 +533,42 @@ async function onDelete(id: string) {
               @keydown.escape.prevent="cancelRenameGroup"
               @blur="commitRenameGroup"
             />
-            <span class="group-count">{{ group.projects.length }}</span>
+            <span class="group-count">{{ row.count }}</span>
           </button>
-          <template v-if="renamingGroup !== group.name">
-            <button class="group-action-btn" :title="t('project.renameGroup')" @click.stop="startRenameGroup(group.name)">
+          <template v-if="renamingGroup !== row.name">
+            <button class="group-action-btn" :title="t('project.renameGroup')" @click.stop="startRenameGroup(row.name)">
               <Pencil :size="11" :stroke-width="2" />
             </button>
-            <button class="group-action-btn danger" :title="t('project.deleteGroup')" @click.stop="onDeleteGroup(group.name)">
+            <button class="group-action-btn danger" :title="t('project.deleteGroup')" @click.stop="onDeleteGroup(row.name)">
               <X :size="12" :stroke-width="2" />
             </button>
           </template>
         </div>
 
-        <template v-if="!isCollapsed(group.name)">
-          <ProjectListItem
-            v-for="project in group.projects"
-            :key="project.id"
-            :project="project"
-            :editing="editingId === project.id"
-            :grouped="true"
-            :active="projectStore.currentProject?.id === project.id"
-            :dragging="draggingProjectId === project.id"
-            :missing="projectStore.missingRoots.has(project.id)"
-            :groups="projectStore.groups"
-            :distros="distros"
-            @select="selectProject(project.id)"
-            @request-edit="editingId = project.id"
-            @cancel-edit="editingId = null"
-            @save="onSaveEdit"
-            @clone="projectStore.cloneProject(project.id)"
-            @delete="onDelete(project.id)"
-            @drag-start="onDragStartProject($event, project.id)"
-            @drag-end="onDragEndProject"
-          />
-        </template>
+        <ProjectListItem
+          v-else
+          :project="row.project"
+          :editing="editingId === row.project.id"
+          :grouped="row.grouped"
+          :active="projectStore.currentProject?.id === row.project.id"
+          :dragging="draggedProject === row.project.id"
+          :missing="projectStore.missingRoots.has(row.project.id)"
+          :groups="projectStore.groups"
+          :distros="distros"
+          :group-label="row.groupLabel"
+          :draggable-row="dragEnabled"
+          :drop-side="dropSideFor(projectKey(row.project.id))"
+          @select="selectProject(row.project.id)"
+          @request-edit="editingId = row.project.id"
+          @cancel-edit="editingId = null"
+          @save="onSaveEdit"
+          @clone="projectStore.cloneProject(row.project.id)"
+          @delete="onDelete(row.project.id)"
+          @drag-start="startDrag($event, projectKey(row.project.id))"
+          @drag-end="endDrag"
+          @drag-over="onRowDragOver($event, row.project)"
+          @drop="onRowDrop($event, row.project, row.siblings ?? [])"
+        />
       </template>
       <div v-if="!showAddGroup" class="add-group-row">
         <button class="add-group-btn" @click="openAddGroup">
@@ -422,6 +589,9 @@ async function onDelete(id: string) {
 
     <div v-if="projectStore.visibleProjects.length === 0 && !showForm" class="empty">
       {{ t('project.noProjects') }}
+    </div>
+    <div v-else-if="filterText && filteredProjects.length === 0" class="empty">
+      {{ t('project.noMatch') }}
     </div>
   </div>
 </template>
@@ -529,6 +699,51 @@ async function onDelete(id: string) {
   cursor: default;
 }
 
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  border-radius: 3px;
+}
+
+.filter-row:focus-within {
+  border-color: var(--accent);
+}
+
+.filter-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.filter-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.filter-clear {
+  display: flex;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.filter-clear:hover {
+  color: var(--text-primary);
+  background: var(--tab-hover-bg);
+}
+
 .sort-row {
   display: flex;
   gap: 4px;
@@ -560,6 +775,8 @@ async function onDelete(id: string) {
   gap: 2px;
 }
 
+/* A heading, not an accent: the accent left line is reserved for "this project
+   is open in this window" (#203), which the two used to share. */
 .group-header {
   display: flex;
   align-items: center;
@@ -569,13 +786,20 @@ async function onDelete(id: string) {
   border-radius: 3px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
   transition: background 0.1s, border-color 0.1s;
 }
 
 .group-header.drag-over {
   background: color-mix(in srgb, var(--accent) 30%, var(--bg-tertiary));
   border-color: var(--accent);
+}
+
+.group-header.drop-top {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.group-header.drop-bottom {
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .group-toggle {

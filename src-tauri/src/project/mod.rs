@@ -64,9 +64,16 @@ pub struct ProjectConfig {
     /// Optional free-text group label for organizing projects in the panel.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
-    /// Optional preset accent color (hex) for identifying windows/projects.
+    /// Optional preset accent color name for identifying windows/projects.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// Optional emoji shown in front of the name in the project panel (#203).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// Manual position within the project's group, set by drag & drop in the
+    /// panel (#203). The backend only carries it; ordering happens in the panel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<u32>,
     /// git remote `origin` URL, refreshed by the front end whenever the git
     /// panel resolves one. Kept here so a project whose root is not on this
     /// machine can still be cloned back into place (#164). `None` for

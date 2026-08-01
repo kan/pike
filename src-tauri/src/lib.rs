@@ -246,6 +246,8 @@ fn create_adhoc_project(
         agent_session_id: None,
         group: None,
         color: None,
+        icon: None,
+        order: None,
         remote_url: None,
     };
 

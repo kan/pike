@@ -2,6 +2,7 @@
 import { Globe } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
+import { fuzzyMatch } from '../lib/paths'
 import { detectWslDistros, openGlobalWindow, openProjectWindow } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
@@ -10,7 +11,9 @@ import { useTabStore } from '../stores/tabs'
 import type { ProjectConfig } from '../types/project'
 import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, type WindowsShellKind } from '../types/tab'
 import ColorDot from './ColorDot.vue'
+import ProjectIcon from './ProjectIcon.vue'
 import ColorSelect from './panels/ColorSelect.vue'
+import IconSelect from './panels/IconSelect.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -38,18 +41,10 @@ const selectedIdx = ref(0)
 const inputRef = ref<HTMLInputElement>()
 
 const filtered = computed(() => {
-  const q = query.value.toLowerCase()
+  const q = query.value.trim()
   if (!q) return projectStore.visibleProjects
-  return projectStore.visibleProjects.filter((p) => fuzzyMatch(p.name.toLowerCase(), q))
+  return projectStore.visibleProjects.filter((p) => fuzzyMatch(p.name, q))
 })
-
-function fuzzyMatch(text: string, pattern: string): boolean {
-  let pi = 0
-  for (let ti = 0; ti < text.length && pi < pattern.length; ti++) {
-    if (text[ti] === pattern[pi]) pi++
-  }
-  return pi === pattern.length
-}
 
 // --- New project form ---
 const showNewForm = ref(false)
@@ -59,6 +54,7 @@ const formPlatform = ref<'wsl' | 'windows'>('wsl')
 const formDistro = ref('Ubuntu')
 const formWindowsShell = ref<WindowsShellKind>('powershell')
 const formColor = ref<string | undefined>(undefined)
+const formIcon = ref<string | undefined>(undefined)
 const distros = ref<string[]>([])
 const distrosLoaded = ref(false)
 
@@ -101,6 +97,7 @@ async function onCreateProject() {
     pinnedTabs: [],
     lastOpened: new Date().toISOString(),
     color: formColor.value,
+    icon: formIcon.value,
   }
 
   await projectStore.addProject(config)
@@ -131,6 +128,7 @@ function resetForm() {
   formPlatform.value = 'wsl'
   formWindowsShell.value = settings.defaultWindowsShellKind()
   formColor.value = undefined
+  formIcon.value = undefined
 }
 
 // --- Lifecycle ---
@@ -212,7 +210,9 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             @click="selectProject(project.id, false)"
             @mouseenter="selectedIdx = i"
           >
-            <span class="item-name"><ColorDot :color="project.color" />{{ project.name }}</span>
+            <span class="item-name">
+              <ProjectIcon :icon="project.icon" /><ColorDot :color="project.color" />{{ project.name }}
+            </span>
             <span class="item-root">{{ project.root }}</span>
           </div>
           <div v-if="filtered.length === 0 && query" class="switcher-empty">
@@ -261,6 +261,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
               <option v-for="s in formShellOptions" :key="s.kind" :value="s.kind">{{ s.label }}</option>
             </select>
             <ColorSelect v-model="formColor" />
+            <IconSelect v-model="formIcon" />
             <button type="submit" class="create-btn">{{ t('projectSwitcher.createAndOpen') }}</button>
           </form>
         </div>

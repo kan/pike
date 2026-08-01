@@ -188,14 +188,22 @@ export const useProjectStore = defineStore('project', () => {
       platform,
       path,
       color: project.color,
+      icon: project.icon,
       group: project.group,
       remoteUrl: project.remoteUrl,
+      order: project.order,
     }
   }
 
   /** Projects that stay on this machine: no base set for their platform, or a
    *  root outside it. Surfaced in settings so the exclusion isn't silent. */
   const unsyncableProjects = computed(() => projects.value.filter((p) => !toSynced(p, useSettingsStore().projectBase)))
+
+  /** The shared group list: names in display order (#203). */
+  function parseSyncedGroups(raw: unknown): string[] {
+    if (!Array.isArray(raw)) return []
+    return raw.filter((g): g is string => typeof g === 'string' && !!g.trim())
+  }
 
   function parseSyncedProjects(raw: unknown): SyncedProject[] {
     if (!Array.isArray(raw)) return []
@@ -218,6 +226,11 @@ export const useProjectStore = defineStore('project', () => {
    * symmetric with the pull, so two machines that disagree cannot overwrite each
    * other on every launch. Which also means a rename stays local, matching what
    * the pull does with a name it receives.
+   *
+   * Ordering is the exception (#203): `order` and the group list are published
+   * as-is. Gap-filling an order would freeze it at whatever the first machine
+   * wrote, and half of one machine's order interleaved with half of another's
+   * is not an order anyone asked for — so here the last push wins.
    */
   async function pushProjectsToSync() {
     const settings = useSettingsStore()
@@ -236,17 +249,23 @@ export const useProjectStore = defineStore('project', () => {
             ? {
                 ...previous,
                 color: previous.color ?? entry.color,
+                icon: previous.icon ?? entry.icon,
                 group: previous.group ?? entry.group,
                 remoteUrl: previous.remoteUrl ?? entry.remoteUrl,
+                order: entry.order,
               }
             : entry,
         )
       }
       const out = [...merged.values()]
+      const outGroups = [...groups.value]
       // Skip the write when nothing changed: every window pushes, and a plain
       // startup re-publishes what it just read, so the sync folder (usually
       // Dropbox) would otherwise see a touched file on every launch.
-      return JSON.stringify(out) === JSON.stringify(existing) ? null : { projects: out }
+      const same =
+        JSON.stringify(out) === JSON.stringify(existing) &&
+        JSON.stringify(outGroups) === JSON.stringify(parseSyncedGroups(file.groups))
+      return same ? null : { projects: out, groups: outGroups }
     })
   }
 
@@ -274,6 +293,10 @@ export const useProjectStore = defineStore('project', () => {
     // resolved root) must not be duplicated — both copies would then be pushed.
     const localRemotes = new Set(projects.value.map((p) => p.remoteUrl).filter(Boolean))
     const localRoots = new Set(projects.value.map((p) => p.root.toLowerCase()))
+    // Patches to known projects go out together at the end: adopting a shared
+    // order (#203) touches every project in a reordered group, and one
+    // round trip each would make the startup pull that much longer.
+    const patched: ProjectConfig[] = []
     for (const entry of entries) {
       if (settings.isProjectHidden(entry.id)) {
         result.hidden++
@@ -283,9 +306,12 @@ export const useProjectStore = defineStore('project', () => {
       if (local) {
         const patch: Partial<ProjectConfig> = {}
         if (!local.color && entry.color) patch.color = entry.color
+        if (!local.icon && entry.icon) patch.icon = entry.icon
         if (!local.group && entry.group) patch.group = entry.group
         if (!local.remoteUrl && entry.remoteUrl) patch.remoteUrl = entry.remoteUrl
-        if (Object.keys(patch).length > 0) await saveProject({ ...local, ...patch }).catch(() => {})
+        // Order is adopted, not gap-filled — see pushProjectsToSync.
+        if (entry.order !== undefined && entry.order !== local.order) patch.order = entry.order
+        if (Object.keys(patch).length > 0) patched.push({ ...local, ...patch })
         continue
       }
       const baseDir = baseForPlatform(base, entry.platform)
@@ -309,18 +335,22 @@ export const useProjectStore = defineStore('project', () => {
         pinnedTabs: [],
         lastOpened: new Date().toISOString(),
         color: entry.color,
+        icon: entry.icon,
         group: entry.group,
         remoteUrl: entry.remoteUrl,
+        order: entry.order,
       }).catch(() => {})
       localRoots.add(root.toLowerCase())
       if (entry.remoteUrl) localRemotes.add(entry.remoteUrl)
       result.created++
     }
-    if (result.created > 0) {
-      // Groups referenced by the new projects are picked up by loadGroups.
-      await loadGroups()
-      await checkRoots(true)
-    }
+    await Promise.all(patched.map((config) => saveProject(config).catch(() => {})))
+    // Take the shared group order (#203), keeping groups only this machine has.
+    // loadGroups() also picks up any group the new projects reference.
+    const sharedGroups = parseSyncedGroups(file?.groups)
+    await loadGroups()
+    if (sharedGroups.length > 0) await reorderGroups(sharedGroups.filter((g) => groups.value.includes(g)))
+    if (result.created > 0) await checkRoots(true)
     return result
   }
 
@@ -333,7 +363,20 @@ export const useProjectStore = defineStore('project', () => {
   if (isMainWindow()) {
     watch(
       () =>
-        JSON.stringify(projects.value.map((p) => [p.id, p.name, p.root, p.color, p.group, p.remoteUrl, p.shell.kind])),
+        JSON.stringify([
+          projects.value.map((p) => [
+            p.id,
+            p.name,
+            p.root,
+            p.color,
+            p.icon,
+            p.group,
+            p.order,
+            p.remoteUrl,
+            p.shell.kind,
+          ]),
+          groups.value,
+        ]),
       () => {
         if (pushTimer) clearTimeout(pushTimer)
         pushTimer = setTimeout(() => {
@@ -433,7 +476,45 @@ export const useProjectStore = defineStore('project', () => {
     if (!project) return
     const normalized = group?.trim() ? group.trim() : undefined
     if (project.group === normalized) return
-    await saveProject({ ...project, group: normalized })
+    // The manual position belongs to the group it was set in (#203): carrying it
+    // over would drop the project into the middle of the new one. Without an
+    // order it lands at the end, where the drop happened.
+    await saveProject({ ...project, group: normalized, order: undefined })
+    if (normalized) await addGroup(normalized)
+  }
+
+  /** Put the groups in this order (#203). The array order IS the stored order,
+   *  so reordering is just a rewrite of groups.json. */
+  async function reorderGroups(ordered: string[]) {
+    // Keep any group the caller did not mention (another window may have added
+    // one since the panel rendered) instead of dropping it from the file.
+    const rest = groups.value.filter((g) => !ordered.includes(g))
+    const next = [...ordered, ...rest]
+    // The sync pull calls this on every launch with the shared order, which is
+    // usually the order already on disk.
+    if (next.length === groups.value.length && next.every((g, i) => g === groups.value[i])) return
+    groups.value = next
+    await persistGroups()
+  }
+
+  /**
+   * Assign `order` 0..n-1 along `orderedIds`, optionally moving them all into
+   * `group` (#203). Only projects whose stored values actually change are
+   * written: each save is a whole-object `project_update` plus a cross-window
+   * broadcast, so a drag that shifts one row should not rewrite the group.
+   */
+  async function reorderProjects(orderedIds: string[], group: string | undefined) {
+    const normalized = group?.trim() ? group.trim() : undefined
+    const writes: ProjectConfig[] = []
+    orderedIds.forEach((id, index) => {
+      const project = projects.value.find((p) => p.id === id)
+      if (!project) return
+      if (project.order === index && project.group === normalized) return
+      writes.push({ ...project, order: index, group: normalized })
+    })
+    // Parallel like renameGroup/removeGroup: an insertion at the top shifts the
+    // whole group, and each write is its own file.
+    await Promise.all(writes.map((config) => saveProject(config)))
     if (normalized) await addGroup(normalized)
   }
 
@@ -657,6 +738,8 @@ export const useProjectStore = defineStore('project', () => {
     renameGroup,
     removeGroup,
     setProjectGroup,
+    reorderGroups,
+    reorderProjects,
     restoreLastProject,
     switchProject,
     saveSessionDebounced,

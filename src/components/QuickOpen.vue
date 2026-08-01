@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { openPathInTab } from '../lib/openFile'
-import { basename } from '../lib/paths'
+import { basename, fuzzyMatch } from '../lib/paths'
 import { gitBranchList, gitCheckout, listProjectFiles } from '../lib/tauri'
 import { useGitStore } from '../stores/git'
 import { useProjectStore } from '../stores/project'
@@ -72,14 +72,6 @@ const parsedQuery = computed(() => {
   }
   return { pattern: raw, line: undefined }
 })
-
-function fuzzyMatch(text: string, pattern: string): boolean {
-  let pi = 0
-  for (let ti = 0; ti < text.length && pi < pattern.length; ti++) {
-    if (text[ti] === pattern[pi]) pi++
-  }
-  return pi === pattern.length
-}
 
 const MAX_DISPLAY = 100
 

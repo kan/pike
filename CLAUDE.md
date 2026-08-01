@@ -139,6 +139,7 @@ pike/
 │   │   ├── KeyboardShortcuts.vue # ショートカット一覧モーダル
 │   │   ├── HelpButton.vue       # 各 UI からマニュアル該当ページを開く「?」ボタン
 │   │   ├── ColorDot.vue         # プロジェクトカラーのドット（#121）
+│   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── layout/
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル
 │   │   │   ├── TabPane.vue    # タブバー + コンテンツ + シェル選択
@@ -146,7 +147,7 @@ pike/
 │   │   ├── panels/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   ├── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除（GroupComboBox/ProjectListItem に分割）
-│   │   │   ├── GroupComboBox.vue  ProjectListItem.vue  ColorSelect.vue
+│   │   │   ├── GroupComboBox.vue  ProjectListItem.vue  ColorSelect.vue  IconSelect.vue
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
 │   │   │   ├── TodoPanel.vue      # .pike/todo.md のチェックリスト（#139・詳細 #163）
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
@@ -182,7 +183,7 @@ pike/
 │   ├── lib/
 │   │   ├── fileIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffSearch.ts  languages.ts  mermaid.ts
-│   │   ├── codexHistory.ts  terminalLinks.ts  shellIcons.ts  projectColors.ts  projectPaths.ts
+│   │   ├── codexHistory.ts  terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
 │   │   ├── manual.ts  slug.ts # アプリ内マニュアルの読み込みと見出しスラッグ
 │   │   ├── dropPaths.ts       # WebView2 経由でドロップされたファイルの実パス取得
@@ -306,9 +307,15 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - プロジェクトのグループ分け: `ProjectConfig.group?: string` で各プロジェクトの所属グループを保持。グループ一覧と表示順は `%APPDATA%/com.tauri.dev/groups.json` に明示的に永続化（プロジェクト未割当の空グループも保持可能）。`project_groups_list` / `project_groups_save` コマンドで CRUD
 - ProjectPanel UI: 未分類プロジェクトはリスト直下にフラット表示（ヘッダーなし）、グループ所属はグループバー配下に折りたたみ可能で配置。「+ グループを追加」ボタンで空グループを作成、グループバーの鉛筆で一括リネーム（所属プロジェクトの `group` も更新）、✕ で削除（所属プロジェクトは ungroup）
 - プロジェクトの編集フォームではコンボボックス形式: `<select>` で「グループなし / 既存グループ / + 新規グループ...」、新規選択で text input に切替
-- ドラッグ&ドロップ: プロジェクト項目をグループバーにドロップすると `setProjectGroup` で所属を変更
-- 折りたたみ状態は `localStorage` (`pike:project-group-collapsed`) に永続化
+- **表示モード（#203）**: `グループ別`（既定）と `最近開いた順` の 2 つ。`最近開いた順` は**グループでまとめずフラット**に並べ（並びはバックエンドの `read_all_projects_sorted` = `lastOpened` 降順）、代わりに行にグループ名バッジを出す。`グループ別` は手動順（後述）→ 名前順。モードは `localStorage` (`pike:project-sort-mode`)、折りたたみ状態は同 `pike:project-group-collapsed` に永続化
+- **描画は 1 本の `rows` computed**（`PanelRow` = group ヘッダ or project 行の判別 union）に集約。以前はセクションごとに `ProjectListItem` の束縛を書き写していた。`siblings` はその行にドロップしたときの並び替えスコープ
+- **絞り込み（#203）**: パネル上部の常設入力。`lib/paths.ts` の共有 `fuzzyMatch` で name / root / group を対象（`ProjectSwitcher` / `QuickOpen` のローカル複製もこの共有版に統合済み）。グループ別表示では一致 0 件のグループを隠す
+- **装飾の役割分担（#203）**: 「このウィンドウで開いているプロジェクト」は**行全体の塗り**で示す（プロジェクトカラーがあればその色、無ければ `--accent`）。グループバーは背景＋枠だけの見出しにした（以前は両方が青い左線で紛らわしかった）。塗りの上の文字色は `lib/projectColors.ts` の `readableTextOn`（相対輝度で黒/白を選ぶ。閾値 0.179 は白背景・黒背景の WCAG コントラストが入れ替わる点）で決め、行内の meta / アイコン / アクションボタンは `color: inherit` にして塗りに追従させる。プリセットは黄色から紫まであるので、白固定でも黒固定でも読めない色が出る
+- **ドラッグ&ドロップ（#203）**: `useDragAndDrop` の drag id に `project:{id}` / `group:{name}` の複合キーを載せて種別を判別する（グループ名に `:` を含みうるので先頭の `:` で分割）。挿入位置は TabPane と同じ midpoint 判定の縦版で、`insertAt` は**先に対象を配列から除いてから挿入**するので `from < to` の補正が要らない。行へのドロップ＝並び替え＋その行のグループへ移動、グループバーへのドロップ＝そのグループの末尾へ。**並び替えはグループ別表示かつ絞り込み無しのときだけ**（`recent` は recency 固定、絞り込み中は表示インデックスが実体とずれる）。グループバーへの所属変更は従来どおりグループ別表示なら常に可能
+- **手動順（#203）**: `ProjectConfig.order?: number`（TS と Rust の両方に必要。Rust 構造体に無いフィールドは次の全量書き戻しで消える）。スコープはグループ単位（未分類も 1 スコープ）で、並びは `(order ?? MAX) → name`。`reorderProjects(orderedIds, group)` が 0..n-1 を振り直し、**実際に値が変わるプロジェクトだけ**保存する（1 件の保存が `project_update` 全量書き＋全ウィンドウ broadcast のため）。グループ順は `groups.json` の配列順そのものなのでスキーマ変更なし（`reorderGroups`）
 - プロジェクトカラー（#121）: `ProjectConfig.color?: string` は**プリセット名**（'red' 等）を保存し、hex は描画時に `lib/projectColors.ts` の `projectColorValue` で解決（パレット調整が config 移行なしで効く。手編集の生 hex `#rrggbb` のみ許容し、`url()` 等の任意 CSS 値は style バインドに到達しない）。プリセット 8 色は musql と同一パレット、name が i18n キー `projectColor.{name}` を兼ねる。選択 UI は `panels/ColorSelect.vue`（スウォッチ付きカスタムドロップダウン。close は他メニューと同じ「open 時に window mousedown を once で張る + ルートで `@mousedown.stop`」方式）で、ProjectPanel の作成・編集フォームと ProjectSwitcher の新規作成モーダルに配置。表示はカラードット共通コンポーネント `ColorDot.vue`（ProjectPanel 一覧・ProjectSwitcher）と、**App.vue のウィンドウ左端 3px 縦アクセントライン**（absolute overlay、`pointer-events: none`。サイドバー内だと折りたたみ時に見えないため window レベル。上端の横ラインは悪目立ちするため左端に変更）。**クロスウィンドウ同期**: `project_update` が書き込み後に `project_updated`（`{ sourceLabel, config }`）を全ウィンドウへ emit、各ウィンドウは自ラベルを除外して `applyExternalUpdate` で in-memory コピー（projects 配列 + currentProject、lastSession はウィンドウローカル保持）を更新。これが無いと flushSession / switchProject の全量書き戻しが他ウィンドウの編集を古いデータで消す（lost update）
+- プロジェクトアイコン（#203）: `ProjectConfig.icon?: string` は**絵文字そのもの**を保存する（カラーと違いテーマ解決が要らないため名前の間接参照はしない）。描画前に `lib/projectIcons.ts` の `projectIconValue` で検証（トリム後 8 code point 以内・`\p{Cc}` を含まない。ZWJ は `Cf` なので 🧑‍💻 のような合字を弾かないこと）。パレットは同ファイルの `PROJECT_ICONS`（日英キーワード付きの厳選セット。絵文字データセットの依存追加はしない）で、検索は共有 `fuzzyMatch`。選択 UI は `panels/IconSelect.vue`（ColorSelect と同じ popup 規約＋`popup-surface`。パレットに無い絵文字は検索欄に貼って Enter で確定できる。検証は**信頼できない自由入力の書き込み時**と**描画時**の 2 箇所だけ。パレット選択は素通し）。表示は `ColorDot.vue` と対になる `ProjectIcon.vue`（ProjectPanel 一覧・ProjectSwitcher）。**ウィンドウタイトルには出さない**: キャプションは DWM が GDI 経路で描くためカラーフォントのレイヤーが使われず、白黒字形（字形が無ければ豆腐）になって読み辛い。色付きにするには `decorations: false` の自作タイトルバーが要る
+- 同期（#164）との関係: `SyncedProject` に `icon` / `order` を追加し、**`order` とグループ順だけは fill-gaps ではなく上書き**（並び順は一覧全体に及ぶ 1 つの意図で、半分ずつマージしても誰の望んだ順にもならない）。グループ順は sync ファイルの `groups` セクションに載せ、pull 側は「リモートの順を採用し、ローカルにしか無いグループを末尾へ」。**新しい共有フィールドは push の watcher キー（`stores/project.ts`）にも足すこと**。入れ忘れると push 自体が発火しない
 
 ### ファイルツリー / エディタ
 - Rust `fs` モジュールが WSL/Windows 両対応のファイル操作を提供（list_dir / read_file / write_file）

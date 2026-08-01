@@ -2,6 +2,7 @@
 import { Cloud, CloudDownload, ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
+import { projectColorValue, readableTextOn } from '../../lib/projectColors'
 import { openProjectWindow, pickFolder } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
 import type { ProjectConfig } from '../../types/project'
@@ -15,8 +16,10 @@ import {
   type WindowsShellKind,
 } from '../../types/tab'
 import ColorDot from '../ColorDot.vue'
+import ProjectIcon from '../ProjectIcon.vue'
 import ColorSelect from './ColorSelect.vue'
 import GroupComboBox from './GroupComboBox.vue'
+import IconSelect from './IconSelect.vue'
 
 const props = defineProps<{
   project: ProjectConfig
@@ -28,6 +31,13 @@ const props = defineProps<{
   missing: boolean
   groups: readonly string[]
   distros: readonly string[]
+  /** Group name shown as a badge in the flat (recent) mode, where the rows are
+   *  not nested under a group header (#203). */
+  groupLabel?: string
+  /** Dragging rows only makes sense in the organized view (#203). */
+  draggableRow?: boolean
+  /** Insertion marker side while a drag hovers this row (#203). */
+  dropSide?: 'top' | 'bottom' | null
 }>()
 
 const emit = defineEmits<{
@@ -39,6 +49,8 @@ const emit = defineEmits<{
   clone: []
   'drag-start': [e: DragEvent]
   'drag-end': []
+  'drag-over': [e: DragEvent]
+  drop: [e: DragEvent]
 }>()
 
 const { t } = useI18n()
@@ -47,6 +59,7 @@ const editName = ref('')
 const editRoot = ref('')
 const editGroup = ref<string | undefined>(undefined)
 const editColor = ref<string | undefined>(undefined)
+const editIcon = ref<string | undefined>(undefined)
 const editPlatform = ref<'wsl' | 'windows'>('wsl')
 const editDistro = ref('Ubuntu')
 const editWindowsShell = ref<WindowsShellKind>('powershell')
@@ -60,6 +73,14 @@ const editShellOptions = computed(() => settings.windowsShellOptions(editWindows
 
 const editRootPlaceholder = computed(() => rootPlaceholderFn(editPlatform.value))
 
+/** The open project's row is filled with its own color (#203). Without one it
+ *  falls back to the accent, which the stylesheet already applies — inline
+ *  styles only appear when there is a color to override it with. */
+const activeStyle = computed(() => {
+  const color = props.active ? projectColorValue(props.project.color) : undefined
+  return color ? { background: color, color: readableTextOn(color) } : undefined
+})
+
 watch(
   () => props.editing,
   (editing) => {
@@ -68,6 +89,7 @@ watch(
     editRoot.value = props.project.root
     editGroup.value = props.project.group?.trim() || undefined
     editColor.value = props.project.color
+    editIcon.value = props.project.icon
     editPlatform.value = shellToPlatform(props.project.shell)
     editDistro.value = shellToDistro(props.project.shell)
     editWindowsShell.value = shellToWinKind(props.project.shell)
@@ -88,6 +110,10 @@ function onSave() {
     shell: buildShell(editPlatform.value, editDistro.value, editWindowsShell.value),
     group: editGroup.value,
     color: editColor.value,
+    icon: editIcon.value,
+    // Same rule as setProjectGroup: a manual position only means something
+    // inside the group it was made in (#203).
+    order: editGroup.value === props.project.group ? props.project.order : undefined,
   })
 }
 </script>
@@ -103,6 +129,7 @@ function onSave() {
     </div>
     <GroupComboBox v-model="editGroup" :groups="groups" />
     <ColorSelect v-model="editColor" />
+    <IconSelect v-model="editIcon" />
     <div class="platform-row">
       <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
       <label class="radio-label"><input type="radio" v-model="editPlatform" value="windows" /> Windows</label>
@@ -122,18 +149,29 @@ function onSave() {
   <div
     v-else
     class="project-item"
-    :class="{ active, dragging, grouped, missing }"
-    draggable="true"
+    :class="{
+      active,
+      dragging,
+      grouped,
+      missing,
+      'drop-top': dropSide === 'top',
+      'drop-bottom': dropSide === 'bottom',
+    }"
+    :style="activeStyle"
+    :draggable="draggableRow"
     @dragstart="emit('drag-start', $event)"
     @dragend="emit('drag-end')"
+    @dragover="emit('drag-over', $event)"
+    @drop="emit('drop', $event)"
     @click="emit('select')"
   >
     <div class="project-name">
-      <ColorDot :color="project.color" />{{ project.name }}
+      <ProjectIcon :icon="project.icon" /><ColorDot :color="project.color" />{{ project.name }}
       <span v-if="project.remoteUrl" class="remote-icon" :title="project.remoteUrl"><Cloud :size="12" :stroke-width="2" /></span>
       <span v-if="missing" class="missing-tag" :title="t('project.missingHint')">{{ t('project.missing') }}</span>
     </div>
     <div class="project-meta">
+      <span v-if="groupLabel" class="group-tag">{{ groupLabel }}</span>
       <span class="project-root">{{ project.root }}</span>
       <span class="project-shell">{{ shellLabel(project.shell) }}</span>
     </div>
@@ -270,13 +308,70 @@ function onSave() {
   background: var(--tab-hover-bg);
 }
 
+/* A filled row means exactly one thing: this project is open in this window.
+   The project's own color takes over via the inline style when it has one. */
 .project-item.active {
-  background: var(--bg-tertiary);
-  border-left: 2px solid var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+/* Inherit so the fill (accent or project color) decides the contrast, instead
+   of the muted greys these carry on a plain surface. */
+.project-item.active .project-name,
+.project-item.active .project-root,
+.project-item.active .project-shell {
+  color: inherit;
+}
+
+.project-item.active .project-root,
+.project-item.active .project-shell {
+  opacity: 0.85;
+}
+
+.project-item.active .group-tag {
+  background: rgba(255, 255, 255, 0.2);
+  color: inherit;
+}
+
+.project-item.active .remote-icon,
+.project-item.active .missing-tag,
+.project-item.active .action-btn {
+  color: inherit;
+}
+
+/* The row is already filled, so the hover fill has to lift off it, not repeat
+   the accent (which would be invisible on an accent-colored row). */
+.project-item.active .action-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .project-item.dragging {
   opacity: 0.4;
+}
+
+/* Insertion marker while reordering (#203), same idea as the tab bar's. */
+.project-item.drop-top {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.project-item.drop-bottom {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.project-icon {
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.group-tag {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .project-name {
