@@ -467,6 +467,7 @@ export default {
   'shortcuts.redo': 'やり直し',
   'shortcuts.find': '検索',
   'shortcuts.findReplace': '検索と置換',
+  'shortcuts.jumpToDefinition': '定義へジャンプ',
   'shortcuts.gitHistory': 'Git 履歴',
   'shortcuts.selectCopy': 'クリップボードにコピー',
   'shortcuts.rightClickPaste': 'クリップボードから貼り付け',

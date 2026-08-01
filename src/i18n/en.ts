@@ -466,6 +466,7 @@ export default {
   'shortcuts.redo': 'Redo',
   'shortcuts.find': 'Find',
   'shortcuts.findReplace': 'Find & Replace',
+  'shortcuts.jumpToDefinition': 'Go to definition',
   'shortcuts.gitHistory': 'Git History',
   'shortcuts.selectCopy': 'Copy to clipboard',
   'shortcuts.rightClickPaste': 'Paste from clipboard',
