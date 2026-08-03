@@ -57,7 +57,7 @@
     "marked": "^18.0.7",
     "material-file-icons": "^2.4.0",
     "mermaid": "^11.16.0",
-    "pinia": "^3.0.4",
+    "pinia": "^4.0.2",
     "vue": "^3.5.40"
   },
   "overrides": {
