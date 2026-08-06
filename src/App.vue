@@ -240,16 +240,9 @@ onMounted(async () => {
     // restoreLastProject does — switchProject re-adds this project right after.
     // Child windows are handed a project on every launch and must not touch it.
     if (isMainWindow()) await projectSetLast([]).catch(() => {})
-    await projectStore.switchProject(windowProjectId)
-    // Opened from a quick launch surface (jump list, tray, another window), so
-    // the project can be one the sync file brought in and nobody cloned here
-    // yet (#212). Offer to fetch it and reopen it once it lands. Not awaited:
-    // the window is already usable and the rest of startup doesn't depend on it.
-    projectStore
-      .ensureRootPresent(windowProjectId, () => {
-        projectStore.switchProject(windowProjectId).catch(() => {})
-      })
-      .catch(() => {})
+    // Handed the project (jump list, tray, another window), so it can be one the
+    // sync file brought in and nobody cloned here yet (#212).
+    await projectStore.adoptProject(windowProjectId)
   } else if (isGlobalWindow()) {
     // Global window: no project context; initCliOpen opens the requested tabs.
   } else {

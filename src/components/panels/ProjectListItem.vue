@@ -3,7 +3,7 @@ import { Cloud, CloudDownload, ExternalLink, Pencil, Trash2 } from 'lucide-vue-n
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { projectColorValue, readableTextOn } from '../../lib/projectColors'
-import { openProjectWindow, pickFolder } from '../../lib/tauri'
+import { pickFolder } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
 import type { ProjectConfig } from '../../types/project'
 import {
@@ -42,6 +42,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: []
+  'open-window': []
   'request-edit': []
   'cancel-edit': []
   save: [config: ProjectConfig]
@@ -177,7 +178,7 @@ function onSave() {
     </div>
     <div class="item-actions">
       <button v-if="missing && project.remoteUrl" class="action-btn" :title="t('project.clone', { url: project.remoteUrl })" @click.stop="emit('clone')"><CloudDownload :size="12" :stroke-width="2" /></button>
-      <button class="action-btn" :title="t('project.openInNewWindow')" @click.stop="openProjectWindow(project.id)"><ExternalLink :size="12" :stroke-width="2" /></button>
+      <button class="action-btn" :title="t('project.openInNewWindow')" @click.stop="emit('open-window')"><ExternalLink :size="12" :stroke-width="2" /></button>
       <button class="action-btn" :title="t('project.edit')" @click.stop="emit('request-edit')"><Pencil :size="12" :stroke-width="2" /></button>
       <button class="action-btn danger" :title="t('common.delete')" @click.stop="emit('delete')"><Trash2 :size="12" :stroke-width="2" /></button>
     </div>

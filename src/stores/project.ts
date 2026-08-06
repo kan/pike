@@ -4,6 +4,7 @@ import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { locale, t } from '../i18n'
 import { baseForPlatform, joinBase, type ProjectBase, relativeToBase } from '../lib/projectPaths'
 import {
+  focusProjectWindow,
   fsDirsExist,
   gitRemoteUrls,
   menusRefresh,
@@ -29,6 +30,9 @@ import { useTabStore } from './tabs'
 // Debounce for republishing the project list to the sync file. Longer than the
 // settings debounce: a push is a read-modify-write of the whole file.
 const SYNC_PUSH_DEBOUNCE_MS = 2000
+
+/** Where `placeProject` puts a project. */
+type OpenMode = 'switch' | 'window' | 'focusOrSwitch'
 
 /** What a pull did, so the caller can explain an empty result (#164). */
 export interface PullResult {
@@ -77,6 +81,7 @@ export const useProjectStore = defineStore('project', () => {
   // soon after the last one reuses the previous answer.
   const ROOT_CHECK_TTL_MS = 10_000
   let lastRootCheck = 0
+  let rootCheck: Promise<void> | null = null
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -100,10 +105,26 @@ export const useProjectStore = defineStore('project', () => {
 
   /** Refresh which roots exist, then fill in any origin URL still unknown.
    *  Each WSL distro costs a `wsl.exe` launch per probe, so repeat calls within
-   *  `ROOT_CHECK_TTL_MS` reuse the last result unless forced. */
-  async function checkRoots(force = false) {
-    if (!force && Date.now() - lastRootCheck < ROOT_CHECK_TTL_MS) return
+   *  `ROOT_CHECK_TTL_MS` reuse the last result unless forced.
+   *
+   *  A caller that arrives while a probe runs waits for that one instead of
+   *  reading a set that is about to be replaced: the list watcher below starts a
+   *  probe the moment projects load, which is exactly when a window checks the
+   *  root it was handed (#212). A forced call always re-probes — `cloneProject`
+   *  needs an answer that postdates the clone. */
+  function checkRoots(force = false): Promise<void> {
+    if (!force && (rootCheck || Date.now() - lastRootCheck < ROOT_CHECK_TTL_MS)) {
+      return rootCheck ?? Promise.resolve()
+    }
     lastRootCheck = Date.now()
+    const run = probeRoots().finally(() => {
+      if (rootCheck === run) rootCheck = null
+    })
+    rootCheck = run
+    return run
+  }
+
+  async function probeRoots() {
     const missing = new Set<string>()
     await Promise.all(
       byProbeShell(projects.value).map(async (group) => {
@@ -119,7 +140,10 @@ export const useProjectStore = defineStore('project', () => {
       }),
     )
     missingRoots.value = missing
-    await backfillRemotes()
+    // Not awaited: it only reads origins of roots that are present, so it can
+    // change neither this set nor the URL of a project waiting to be cloned.
+    // Whoever is blocked on the answer above should not also wait on git.
+    backfillRemotes().catch(() => {})
   }
 
   /** Read `origin` for every present project that has no stored URL yet, and
@@ -148,7 +172,7 @@ export const useProjectStore = defineStore('project', () => {
    *  passphrase prompts work, and the tab is kept open on exit so failures stay
    *  readable. When it succeeds `onCloned` runs — the caller already knows what
    *  the user asked for; without one, offer to switch to the project. */
-  function cloneProject(id: string, onCloned?: () => void) {
+  function cloneProject(id: string, onCloned?: () => void | Promise<void>) {
     const project = projects.value.find((p) => p.id === id)
     if (!project?.remoteUrl) return
     // `git clone` creates the leading directories, so an absolute destination
@@ -161,7 +185,7 @@ export const useProjectStore = defineStore('project', () => {
         await checkRoots(true).catch(() => {})
         if (code !== 0 || missingRoots.value.has(id)) return
         if (onCloned) {
-          onCloned()
+          await onCloned()
           return
         }
         if (currentProject.value?.id === id) return
@@ -173,24 +197,67 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /**
+   * Put a project in a window, with no questions asked:
+   *
+   * - `switch`: take over this window.
+   * - `window`: give it its own window (the backend focuses one already on it).
+   * - `focusOrSwitch`: jump to its window if one exists, else `switch`.
+   *
+   * `openProject` runs this after its check. Calling it directly skips that, so
+   * the only caller allowed to is project creation: the root the user just typed
+   * may not exist yet and a new project has no origin, which would leave the
+   * check refusing to open what was asked for.
+   */
+  async function placeProject(id: string, mode: OpenMode): Promise<void> {
+    if (mode === 'window') {
+      await openProjectWindow(id)
+      return
+    }
+    if (mode === 'focusOrSwitch' && (await focusProjectWindow(id))) return
+    await switchProject(id)
+  }
+
+  /** Open a project the user picked from a list. The one entry point for that,
+   *  so a root that is not on this machine is offered for cloning (#212)
+   *  wherever a project can be chosen. */
+  async function openProject(id: string, mode: OpenMode): Promise<void> {
+    // A window already showing it proves the root is there, and jumping to it is
+    // the whole point of that mode — settle it before checking anything. What is
+    // left afterwards is this window, unless a dedicated one was asked for.
+    if (mode === 'focusOrSwitch' && (await focusProjectWindow(id))) return
+    const open = () => placeProject(id, mode === 'window' ? 'window' : 'switch')
+    if (await ensureRootPresent(id, open)) await open()
+  }
+
+  /** Open a project this window was handed rather than picked: the startup
+   *  restore, and the windows the backend opens for the jump list, the tray or a
+   *  CLI launch. The offer to clone can only come after the window is showing
+   *  the project, so a successful clone reopens it (#212). Kept as one call so
+   *  no caller can do the first half and forget the second. */
+  async function adoptProject(id: string, opts?: { restoreSession?: boolean }): Promise<void> {
+    await switchProject(id, opts)
+    ensureRootPresent(id, () => switchProject(id, opts)).catch(() => {})
+  }
+
+  /**
    * Make sure a project's root is on this machine before it is opened (#212).
-   * The quick launch surfaces — the switcher and, through the window it opens,
-   * the taskbar jump list and the tray — list projects the sync file brought in
-   * (#164), and those are not cloned here until someone asks for them.
+   * Projects the sync file brought in (#164) are not cloned here until someone
+   * asks for them, so any list of projects can offer one that has no local copy.
    *
    * Returns whether the root is there now. `false` means the caller must not
    * open the project: either there is no origin URL to clone from, or a clone
    * just started and `onCloned` runs once it lands.
    */
-  async function ensureRootPresent(id: string, onCloned: () => void): Promise<boolean> {
+  async function ensureRootPresent(id: string, onCloned: () => void | Promise<void>): Promise<boolean> {
+    // Read the batched answer rather than probing this one root: every surface
+    // that offers a project keeps it fresh (the panel and the switcher refresh
+    // on open, the list watcher re-probes on any change), the batch costs one
+    // `wsl.exe` launch per distro instead of one per project, and the badge in
+    // those lists then cannot disagree with what happens on click.
+    await checkRoots().catch(() => {})
+    if (!missingRoots.value.has(id)) return true
     const project = projects.value.find((p) => p.id === id)
     if (!project) return false
-    // Ask about this one root instead of `checkRoots`: opening a project should
-    // not wait on a `wsl.exe` launch per distro plus an origin read per project
-    // when the answer needed is a single boolean. A probe that fails says
-    // nothing, so treat the root as present and let the open proceed.
-    const [present] = await fsDirsExist(project.shell, [project.root]).catch(() => [true])
-    if (present) return true
     if (!project.remoteUrl) {
       await infoDialog(t('project.missingNoRemote', { name: project.name, root: project.root }))
       return false
@@ -569,9 +636,9 @@ export const useProjectStore = defineStore('project', () => {
       // Main window opens the first project
       const mainId = lastIds[0]
       if (projects.value.find((p) => p.id === mainId)) {
-        await switchProject(mainId)
+        await adoptProject(mainId)
       }
-      // Remaining projects open in separate windows
+      // Remaining projects open in separate windows, each adopting its own (#212)
       for (const id of lastIds.slice(1)) {
         if (projects.value.find((p) => p.id === id)) {
           openProjectWindow(id).catch(() => {})
@@ -767,7 +834,9 @@ export const useProjectStore = defineStore('project', () => {
     pushProjectsToSync,
     checkRoots,
     cloneProject,
-    ensureRootPresent,
+    placeProject,
+    openProject,
+    adoptProject,
     loadProjects,
     loadGroups,
     addGroup,
@@ -777,7 +846,6 @@ export const useProjectStore = defineStore('project', () => {
     reorderGroups,
     reorderProjects,
     restoreLastProject,
-    switchProject,
     saveSessionDebounced,
     saveSessionNow,
     addProject,

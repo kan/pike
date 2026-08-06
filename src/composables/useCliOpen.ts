@@ -56,7 +56,7 @@ async function handleActionLocal(action: CliAction) {
     const projectStore = useProjectStore()
     if (projectStore.currentProject?.id !== action.id) {
       if (projectStore.projects.length === 0) await projectStore.loadProjects()
-      await projectStore.switchProject(action.id, { restoreSession: false })
+      await projectStore.adoptProject(action.id, { restoreSession: false })
     }
     const project = projectStore.currentProject
     if (project && action.shell) {

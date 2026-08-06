@@ -3,7 +3,7 @@ import { Globe } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { fuzzyMatch } from '../lib/paths'
-import { detectWslDistros, openGlobalWindow, openProjectWindow } from '../lib/tauri'
+import { detectWslDistros, openGlobalWindow } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
@@ -101,29 +101,19 @@ async function onCreateProject() {
   }
 
   await projectStore.addProject(config)
-  if (globalMode.value) {
-    openProjectWindow(id)
-  } else {
-    await projectStore.switchProject(id)
-  }
+  // `placeProject`, not `openProject`: the root the user just typed may not
+  // exist yet and a brand-new project has no origin, so the missing-root check
+  // could only refuse to open what was asked for.
+  await projectStore.placeProject(id, globalMode.value ? 'window' : 'switch')
   projectStore.showSwitcher = false
   resetForm()
 }
 
 /** Open the picked project: global-mode windows stay project-less, so the
- *  project always goes to its own window there. A project the sync file brought
- *  in may not be cloned onto this machine yet (#212) — then the same open runs
- *  after the clone the store offers, instead of now. */
-async function selectProject(id: string, newWindow: boolean) {
-  const open = () => {
-    if (newWindow || globalMode.value) {
-      openProjectWindow(id)
-    } else {
-      projectStore.switchProject(id)
-    }
-  }
+ *  project always goes to its own window there. */
+function selectProject(id: string, newWindow: boolean) {
   projectStore.showSwitcher = false
-  if (await projectStore.ensureRootPresent(id, open)) open()
+  projectStore.openProject(id, newWindow || globalMode.value ? 'window' : 'switch')
 }
 
 function resetForm() {

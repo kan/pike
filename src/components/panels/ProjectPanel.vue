@@ -6,7 +6,7 @@ import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
 import { fuzzyMatch } from '../../lib/paths'
 import { loadJson, saveJson } from '../../lib/storage'
-import { detectWslDistros, focusProjectWindow, pickFolder, ptyGetCwd } from '../../lib/tauri'
+import { detectWslDistros, pickFolder, ptyGetCwd } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
@@ -33,13 +33,6 @@ const settings = useSettingsStore()
 
 const COLLAPSE_STORAGE_KEY = 'pike:project-group-collapsed'
 const SORT_STORAGE_KEY = 'pike:project-sort-mode'
-
-/** Jump to the project's existing window if it's open elsewhere; otherwise
- *  switch this window in place. */
-async function selectProject(id: string) {
-  if (await focusProjectWindow(id)) return
-  await projectStore.switchProject(id)
-}
 
 /** `recent` is a flat list in the backend's recency order; `group` is the
  *  organized view, ordered by hand (#203). */
@@ -558,7 +551,8 @@ async function onDelete(id: string) {
           :group-label="row.groupLabel"
           :draggable-row="dragEnabled"
           :drop-side="dropSideFor(projectKey(row.project.id))"
-          @select="selectProject(row.project.id)"
+          @select="projectStore.openProject(row.project.id, 'focusOrSwitch')"
+          @open-window="projectStore.openProject(row.project.id, 'window')"
           @request-edit="editingId = row.project.id"
           @cancel-edit="editingId = null"
           @save="onSaveEdit"
