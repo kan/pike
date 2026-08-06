@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
-import { confirmDialog } from '../composables/useConfirmDialog'
+import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { locale, t } from '../i18n'
 import { baseForPlatform, joinBase, type ProjectBase, relativeToBase } from '../lib/projectPaths'
 import {
@@ -146,8 +146,9 @@ export const useProjectStore = defineStore('project', () => {
   /** Clone a missing project back into place from its stored origin URL. The
    *  clone runs in a terminal tab (like task / compose runs) so credential and
    *  passphrase prompts work, and the tab is kept open on exit so failures stay
-   *  readable. When it succeeds, offer to switch to the project. */
-  function cloneProject(id: string) {
+   *  readable. When it succeeds `onCloned` runs — the caller already knows what
+   *  the user asked for; without one, offer to switch to the project. */
+  function cloneProject(id: string, onCloned?: () => void) {
     const project = projects.value.find((p) => p.id === id)
     if (!project?.remoteUrl) return
     // `git clone` creates the leading directories, so an absolute destination
@@ -158,12 +159,46 @@ export const useProjectStore = defineStore('project', () => {
       keepOnError: true,
       onExit: async (code) => {
         await checkRoots(true).catch(() => {})
-        if (code !== 0 || missingRoots.value.has(id) || currentProject.value?.id === id) return
+        if (code !== 0 || missingRoots.value.has(id)) return
+        if (onCloned) {
+          onCloned()
+          return
+        }
+        if (currentProject.value?.id === id) return
         if (await confirmDialog(t('project.cloneDoneSwitch', { name: project.name }))) {
           await switchProject(id)
         }
       },
     })
+  }
+
+  /**
+   * Make sure a project's root is on this machine before it is opened (#212).
+   * The quick launch surfaces — the switcher and, through the window it opens,
+   * the taskbar jump list and the tray — list projects the sync file brought in
+   * (#164), and those are not cloned here until someone asks for them.
+   *
+   * Returns whether the root is there now. `false` means the caller must not
+   * open the project: either there is no origin URL to clone from, or a clone
+   * just started and `onCloned` runs once it lands.
+   */
+  async function ensureRootPresent(id: string, onCloned: () => void): Promise<boolean> {
+    const project = projects.value.find((p) => p.id === id)
+    if (!project) return false
+    // Ask about this one root instead of `checkRoots`: opening a project should
+    // not wait on a `wsl.exe` launch per distro plus an origin read per project
+    // when the answer needed is a single boolean. A probe that fails says
+    // nothing, so treat the root as present and let the open proceed.
+    const [present] = await fsDirsExist(project.shell, [project.root]).catch(() => [true])
+    if (present) return true
+    if (!project.remoteUrl) {
+      await infoDialog(t('project.missingNoRemote', { name: project.name, root: project.root }))
+      return false
+    }
+    if (await confirmDialog(t('project.cloneConfirm', { name: project.name, url: project.remoteUrl }))) {
+      cloneProject(id, onCloned)
+    }
+    return false
   }
 
   // --- Project list sync (#164) -------------------------------------------
@@ -732,6 +767,7 @@ export const useProjectStore = defineStore('project', () => {
     pushProjectsToSync,
     checkRoots,
     cloneProject,
+    ensureRootPresent,
     loadProjects,
     loadGroups,
     addGroup,

@@ -142,6 +142,19 @@
   flex-shrink: 0;
 }
 
+/* "This root is not on this machine" badge (#164). Shared by every list that
+   shows projects — the panel rows and the switcher — so the mark reads the same
+   wherever a project can be picked. Rows that paint their own background
+   override the color from their own scoped styles. */
+.missing-tag {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
 /* UI font-size scaling: applied to chrome roots (sidebar, tab bar, status bar,
    dialogs, context menus) so the whole UI grows/shrinks proportionally without
    converting every hard-coded px. Tab content (terminal/editor/…) keeps its own

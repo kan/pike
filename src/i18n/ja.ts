@@ -381,6 +381,9 @@ export default {
   'project.missing': '未取得',
   'project.missingHint': 'このマシンにこのパスがありません',
   'project.clone': '{url} から clone',
+  'project.cloneConfirm': '{name} はこのマシンにまだありません。{url} から clone して開きますか？',
+  'project.missingNoRemote':
+    '{name} はこのマシンにありません（{root}）。clone 元の URL が分からないため取得できません。',
   'project.cloneDoneSwitch': '{name} の clone が終わりました。このプロジェクトに切り替えますか？',
   'project.edit': '編集',
   'project.confirmDelete': 'プロジェクト "{name}" を削除しますか？',

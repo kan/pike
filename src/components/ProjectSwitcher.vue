@@ -111,14 +111,19 @@ async function onCreateProject() {
 }
 
 /** Open the picked project: global-mode windows stay project-less, so the
- *  project always goes to its own window there. */
-function selectProject(id: string, newWindow: boolean) {
-  if (newWindow || globalMode.value) {
-    openProjectWindow(id)
-  } else {
-    projectStore.switchProject(id)
+ *  project always goes to its own window there. A project the sync file brought
+ *  in may not be cloned onto this machine yet (#212) — then the same open runs
+ *  after the clone the store offers, instead of now. */
+async function selectProject(id: string, newWindow: boolean) {
+  const open = () => {
+    if (newWindow || globalMode.value) {
+      openProjectWindow(id)
+    } else {
+      projectStore.switchProject(id)
+    }
   }
   projectStore.showSwitcher = false
+  if (await projectStore.ensureRootPresent(id, open)) open()
 }
 
 function resetForm() {
@@ -143,6 +148,8 @@ watch(
       // Global-mode windows skip project restore at startup, so the list may
       // not be loaded yet when the switcher is first opened there.
       if (projectStore.projects.length === 0) projectStore.loadProjects()
+      // Mark the ones this machine has no copy of, like the project panel does.
+      projectStore.checkRoots().catch(() => {})
       query.value = ''
       selectedIdx.value = 0
       resetForm()
@@ -212,6 +219,9 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
           >
             <span class="item-name">
               <ProjectIcon :icon="project.icon" /><ColorDot :color="project.color" />{{ project.name }}
+            </span>
+            <span v-if="projectStore.missingRoots.has(project.id)" class="missing-tag" :title="t('project.missingHint')">
+              {{ t('project.missing') }}
             </span>
             <span class="item-root">{{ project.root }}</span>
           </div>
@@ -345,6 +355,10 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 }
 
 .switcher-item.selected .item-name {
+  color: var(--text-active);
+}
+
+.switcher-item.selected .missing-tag {
   color: var(--text-active);
 }
 

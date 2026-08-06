@@ -380,6 +380,9 @@ export default {
   'project.missing': 'not found',
   'project.missingHint': 'This path does not exist on this machine',
   'project.clone': 'Clone from {url}',
+  'project.cloneConfirm': '{name} is not on this machine yet. Clone it from {url} and open it?',
+  'project.missingNoRemote':
+    '{name} is not on this machine ({root}), and no origin URL is known, so it cannot be fetched.',
   'project.cloneDoneSwitch': 'Finished cloning {name}. Switch to this project?',
   'project.edit': 'Edit',
   'project.confirmDelete': 'Delete project "{name}"?',

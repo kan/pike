@@ -434,15 +434,6 @@ function onSave() {
   flex-shrink: 0;
 }
 
-.missing-tag {
-  padding: 0 4px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  font-size: 10px;
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
 .action-btn {
   width: var(--action-btn-size);
   height: var(--action-btn-size);

@@ -166,6 +166,40 @@ fn load_all_projects(app: &AppHandle) -> Vec<project::ProjectConfig> {
     project::read_all_projects(&state.config_dir)
 }
 
+/// The registered project whose root a path argument names, if any.
+fn project_for_root<'a>(
+    projects: &'a [project::ProjectConfig],
+    path: &str,
+) -> Option<&'a project::ProjectConfig> {
+    let norm = normalize_path(path);
+    projects.iter().find(|p| normalize_path(&p.root) == norm)
+}
+
+/// Read a lone path argument that names a registered project root as a
+/// directory. `resolve_path_arg` can only ask the file system, so the root of a
+/// project the sync file brought in and nobody cloned here yet (#212) — or of a
+/// WSL project whose distro is stopped — looks like a file, and the launch would
+/// end up as an editor tab on a directory. The jump list (#160) passes exactly
+/// these roots, so route them as the project launch they are and let the window
+/// offer to clone what is missing.
+///
+/// The correction lives here rather than in `parse_args` because the project
+/// list is app state and the parser is deliberately free of it. Every caller of
+/// `parse_args` therefore has to apply this.
+fn as_project_dir(projects: &[project::ProjectConfig], action: cli::CliAction) -> cli::CliAction {
+    if let cli::CliAction::OpenFiles { files } = &action {
+        if let [f] = files.as_slice() {
+            if f.line.is_none() && project_for_root(projects, &f.path).is_some() {
+                return cli::CliAction::OpenDirectory {
+                    path: f.path.clone(),
+                    distro: f.distro.clone(),
+                };
+            }
+        }
+    }
+    action
+}
+
 /// Create an ad-hoc project for an unregistered directory path.
 /// For WSL UNC paths, extracts distro and uses the native WSL path as root.
 /// For native WSL paths (e.g. /home/user/foo), uses the `distro_hint` captured
@@ -327,9 +361,7 @@ fn create_global_window(app: &AppHandle) -> String {
 fn build_project_window(app: &AppHandle, project_id: &str, pending: Option<cli::CliAction>) -> String {
     let label = format!("{PROJECT_WINDOW_PREFIX}{}", uuid::Uuid::new_v4());
     if let Some(state) = app.try_state::<project::ProjectState>() {
-        if let Ok(mut map) = state.window_projects.lock() {
-            map.insert(label.clone(), project_id.to_string());
-        }
+        project::set_window_project(&state, &label, project_id);
     }
     if let Some(action) = pending {
         store_pending(app, &label, action);
@@ -369,6 +401,18 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
     let wait_id = wait::extract_wait_id(args);
     let from_window = cli::extract_from_window(args);
     let action = cli::parse_args(args, cwd);
+    // Both path-carrying shapes need the registered projects: to spot a root that
+    // is not on this machine (`as_project_dir`) and to route to the window that
+    // owns it. Read the list once here — the other shapes never look at it.
+    let projects = if matches!(
+        action,
+        cli::CliAction::OpenFiles { .. } | cli::CliAction::OpenDirectory { .. }
+    ) {
+        load_all_projects(app)
+    } else {
+        Vec::new()
+    };
+    let action = as_project_dir(&projects, action);
     log::debug!(
         "[single-instance] args={args:?}, cwd={cwd:?}, action={action:?}, wait_id={wait_id:?}, from_window={from_window:?}"
     );
@@ -410,11 +454,8 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
         }
 
         cli::CliAction::OpenDirectory { path, distro } => {
-            let projects = load_all_projects(app);
-            let norm = normalize_path(path);
-
             // 1. Registered project for this path with a live window? → focus it.
-            if let Some(proj) = projects.iter().find(|p| normalize_path(&p.root) == norm) {
+            if let Some(proj) = project_for_root(&projects, path) {
                 if let Some(w) = find_project_window(app, &proj.id) {
                     log::debug!("[single-instance] dir: focus project window {}", w.label());
                     restore_window(&w);
@@ -448,7 +489,6 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
                 log::debug!("[single-instance] files: from_window {label} not found, falling back");
             }
 
-            let projects = load_all_projects(app);
             // Files land on the desktop the user is on (current_desktop_windows),
             // unlike project focus which dedups to the canonical window anywhere.
             let windows = current_desktop_windows(app);
@@ -1028,7 +1068,29 @@ pub fn run() {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            let action = cli::parse_args(&args, &cwd);
+            let mut action = cli::parse_args(&args, &cwd);
+            // Cold start on a project root (`pike <dir>`, a jump list entry with
+            // Pike closed): hand the main window that project before its webview
+            // mounts, the same way a running instance routes those arguments to a
+            // project window. The frontend reads `project_for_window`, switches to
+            // it instead of restoring the last session, and clears the open list.
+            // Only the path-carrying shapes can name a root, so a plain launch
+            // still reads no project files here.
+            if matches!(
+                action,
+                cli::CliAction::OpenFiles { .. } | cli::CliAction::OpenDirectory { .. }
+            ) {
+                let projects = load_all_projects(app.handle());
+                action = as_project_dir(&projects, action);
+                if let cli::CliAction::OpenDirectory { ref path, .. } = action {
+                    if let (Some(proj), Some(state)) = (
+                        project_for_root(&projects, path),
+                        app.try_state::<project::ProjectState>(),
+                    ) {
+                        project::set_window_project(&state, "main", &proj.id);
+                    }
+                }
+            }
             if !matches!(action, cli::CliAction::None) {
                 if let Some(state) = app.try_state::<cli::CliState>() {
                     *state.initial_action.lock().unwrap() = Some(action);
@@ -1354,7 +1416,83 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_rgb_triplet;
+    use super::{as_project_dir, parse_rgb_triplet, project_for_root};
+    use crate::cli::{CliAction, CliFileTarget};
+    use crate::project::ProjectConfig;
+    use crate::types::ShellConfig;
+
+    fn project(id: &str, root: &str) -> ProjectConfig {
+        ProjectConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            root: root.to_string(),
+            shell: ShellConfig::Powershell,
+            pinned_tabs: vec![],
+            last_opened: String::new(),
+            last_session: None,
+            codex_thread_id: None,
+            agent_session_id: None,
+            group: None,
+            color: None,
+            icon: None,
+            order: None,
+            remote_url: None,
+        }
+    }
+
+    fn open_file(path: &str, line: Option<u32>) -> CliAction {
+        CliAction::OpenFiles {
+            files: vec![CliFileTarget {
+                path: path.to_string(),
+                line,
+                distro: Some("Ubuntu".to_string()),
+            }],
+        }
+    }
+
+    #[test]
+    fn project_root_arg_is_read_as_a_directory() {
+        // A project registered here but not cloned onto this machine (#212):
+        // the path does not exist, so parse_args could only call it a file.
+        let projects = vec![project("pike", "/home/kan/pike")];
+        match as_project_dir(&projects, open_file("/home/kan/pike", None)) {
+            CliAction::OpenDirectory { path, distro } => {
+                assert_eq!(path, "/home/kan/pike");
+                assert_eq!(distro.as_deref(), Some("Ubuntu"));
+            }
+            other => panic!("expected OpenDirectory, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn other_file_args_are_left_alone() {
+        let projects = vec![project("pike", "/home/kan/pike")];
+        // Not a project root.
+        assert!(matches!(
+            as_project_dir(&projects, open_file("/home/kan/pike-notes.md", None)),
+            CliAction::OpenFiles { .. }
+        ));
+        // A line number means a real file was asked for, root or not.
+        assert!(matches!(
+            as_project_dir(&projects, open_file("/home/kan/pike", Some(12))),
+            CliAction::OpenFiles { .. }
+        ));
+        // Multiple paths are an "open these files" request (drag & drop).
+        let many = CliAction::OpenFiles {
+            files: vec![
+                CliFileTarget { path: "/home/kan/pike".to_string(), line: None, distro: None },
+                CliFileTarget { path: "/home/kan/a.rs".to_string(), line: None, distro: None },
+            ],
+        };
+        assert!(matches!(as_project_dir(&projects, many), CliAction::OpenFiles { .. }));
+    }
+
+    #[test]
+    fn root_match_ignores_case_and_separators() {
+        let projects = vec![project("app", r"C:\src\App")];
+        assert!(project_for_root(&projects, r"c:/src/app/").is_some());
+        assert!(project_for_root(&projects, r"C:\src\App\sub").is_none());
+    }
 
     #[test]
     fn parses_css_component_list() {

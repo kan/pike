@@ -203,14 +203,21 @@ pub async fn project_add_open(
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
     // Track window → project mapping for cleanup on window destroy
-    if let Ok(mut map) = state.window_projects.lock() {
-        map.insert(window.label().to_string(), id.clone());
-    }
+    set_window_project(&state, window.label(), &id);
     let mut ids = read_open_ids(&state);
     if !ids.contains(&id) {
         ids.push(id);
     }
     write_open_ids(&state, &ids)
+}
+
+/// Point a window label at a project. The map is the single source of truth for
+/// which project a window shows, so callers that build (or adopt) a window must
+/// set it before the webview mounts and asks `project_for_window`.
+pub fn set_window_project(state: &ProjectState, window_label: &str, id: &str) {
+    if let Ok(mut map) = state.window_projects.lock() {
+        map.insert(window_label.to_string(), id.to_string());
+    }
 }
 
 /// Remove and return the project ID associated with a window label.
