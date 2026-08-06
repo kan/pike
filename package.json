@@ -57,7 +57,7 @@
     "marked": "^18.0.7",
     "material-file-icons": "^2.4.0",
     "mermaid": "^11.16.0",
-    "pinia": "^3.0.4",
+    "pinia": "^4.0.2",
     "vue": "^3.5.40"
   },
   "overrides": {
@@ -71,9 +71,9 @@
     "@tauri-apps/cli": "^2.11.3",
     "@types/mocha": "^10.0.10",
     "@vitejs/plugin-vue": "^6.0.8",
-    "@wdio/cli": "^9.29.1",
+    "@wdio/cli": "^9.30.0",
     "@wdio/local-runner": "^9.29.1",
-    "@wdio/mocha-framework": "^9.29.1",
+    "@wdio/mocha-framework": "^9.30.0",
     "@wdio/spec-reporter": "^9.29.1",
     "@wdio/tauri-plugin": "^1.2.0",
     "@wdio/tauri-service": "^1.2.0",
@@ -81,7 +81,7 @@
     "tsx": "^4.23.1",
     "typescript": "^6.0.3",
     "vite": "^8.1.5",
-    "vue-tsc": "^3.3.7",
-    "webdriverio": "^9.29.1"
+    "vue-tsc": "^3.3.8",
+    "webdriverio": "^9.30.0"
   }
 }
