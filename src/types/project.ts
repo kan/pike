@@ -16,6 +16,9 @@ export interface SyncedProject {
   icon?: string
   group?: string
   remoteUrl?: string
+  /** Custom golangci-lint command (#213). Machine-independent: it names the
+   *  project's own lint entry point, not anything about this machine. */
+  golangciCommand?: string
   /** Manual position inside its group. Unlike the other fields this one is
    *  overwritten rather than gap-filled on merge: an order is one user's intent
    *  over a whole list, so a half-merged one means nothing (#203). */
@@ -76,4 +79,9 @@ export interface ProjectConfig {
    *  Lets a project whose root is missing on this machine be cloned back into
    *  place (#164). Absent for non-repositories and repos without an origin. */
   remoteUrl?: string
+  /** Command the Problems panel runs instead of the golangci-lint line derived
+   *  from go.mod (#213) — for projects whose toolchain lives in a container,
+   *  e.g. `docker compose exec -T golang make lint`. Runs in the Go module's
+   *  directory like the built-in one, so output paths still resolve. */
+  golangciCommand?: string
 }

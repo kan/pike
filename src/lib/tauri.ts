@@ -605,8 +605,18 @@ export async function taskDiscover(shell: ShellType, root: string): Promise<Task
 
 // Diagnostics
 
-export async function diagnosticsRun(shell: ShellType, root: string): Promise<DiagnosticsResult> {
-  return invoke<DiagnosticsResult>('diagnostics_run', { shell, root })
+export async function diagnosticsRun(
+  shell: ShellType,
+  root: string,
+  golangci: boolean,
+  golangciCommand?: string,
+): Promise<DiagnosticsResult> {
+  return invoke<DiagnosticsResult>('diagnostics_run', {
+    shell,
+    root,
+    golangci,
+    golangciCommand: golangciCommand ?? null,
+  })
 }
 
 export async function openUrl(url: string): Promise<void> {

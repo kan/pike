@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Bot, CircleAlert, TriangleAlert } from 'lucide-vue-next'
-import { onMounted } from 'vue'
+import { Bot, Check, CircleAlert, Play, TriangleAlert } from 'lucide-vue-next'
+import { computed, onMounted } from 'vue'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { basename, isAbsolutePath, pathSep } from '../../lib/paths'
@@ -27,6 +27,14 @@ function askAgentFix(d: Diagnostic) {
   injectToTerminal(t('diagnostics.fixPrompt', { loc, source: d.source, message: d.message }))
 }
 
+// A project can override the linter command (#213); show it, since otherwise
+// there is no way to tell which one the toggle actually runs. Trimmed because
+// the edit form is not the only writer — a sync pull copies the value through
+// as-is, and blank-but-present must read as "no override" here too.
+const golangciTitle = computed(
+  () => projectStore.currentProject?.golangciCommand?.trim() || t('diagnostics.golangciHint'),
+)
+
 const fileName = basename
 
 function fileDir(path: string): string {
@@ -48,11 +56,24 @@ onMounted(() => {
     </div>
     <div v-else-if="!diagStore.lastRunAt" class="status">{{ t('diagnostics.idle') }}</div>
 
+    <button
+      v-if="diagStore.golangciAvailable"
+      class="golangci-toggle"
+      :class="{ on: diagStore.golangciEnabled }"
+      :disabled="diagStore.running"
+      :title="golangciTitle"
+      @click="diagStore.toggleGolangci()"
+    >
+      <Check v-if="diagStore.golangciEnabled" :size="12" :stroke-width="2.5" />
+      <Play v-else :size="11" :stroke-width="2.5" />
+      golangci-lint
+    </button>
+
     <div
       v-for="prov in diagStore.providers.filter((p) => !p.ok)"
       :key="`err-${prov.name}-${prov.dir}`"
       class="provider-error"
-      :title="prov.error ?? ''"
+      :title="`${prov.command}\n${prov.error ?? ''}`"
     >
       {{ prov.name }}<span v-if="prov.dir"> ({{ prov.dir }})</span>: {{ t('diagnostics.providerFailed') }}
     </div>
@@ -80,6 +101,8 @@ onMounted(() => {
           <CircleAlert v-if="d.severity === 'error'" :size="13" class="sev error" />
           <TriangleAlert v-else :size="13" class="sev warning" />
           <span class="diag-msg">{{ d.message }}</span>
+          <!-- Rule that fired: rustc lint name, TS error code, golangci linter. -->
+          <span v-if="d.code" class="diag-code">{{ d.code }}</span>
           <span class="diag-loc">{{ d.line }}:{{ d.column }}</span>
           <button class="diag-action" :title="t('diagnostics.askFix')" @click.stop="askAgentFix(d)">
             <Bot :size="13" :stroke-width="2" />
@@ -119,6 +142,38 @@ onMounted(() => {
   font-size: 11px;
   color: var(--danger);
   padding: 2px 4px;
+}
+
+.golangci-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin: 2px 4px 4px;
+  padding: 2px 8px 2px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.golangci-toggle:hover:not(:disabled) {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.golangci-toggle.on {
+  color: var(--text-active);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.golangci-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .lang-group {
@@ -221,10 +276,16 @@ onMounted(() => {
   text-overflow: ellipsis;
 }
 
+.diag-code,
 .diag-loc {
   flex-shrink: 0;
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+.diag-code {
+  font-size: 10px;
+  opacity: 0.75;
 }
 
 .diag-action {

@@ -22,6 +22,58 @@ pub const IGNORED_DIRS: &[&str] = &[
     "target", "dist", "build", ".cache", ".venv", "venv",
 ];
 
+/// Last path segment, for paths in either separator style.
+pub fn file_name_of(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+/// Read multiple files, missing or unreadable ones coming back as `None`. For
+/// WSL, batches every read into a single wsl.exe invocation — the round trip
+/// dominates, so reading files one at a time costs ~200ms each. Relative paths
+/// are taken against `root`.
+pub fn batch_read_files(
+    shell: &ShellConfig,
+    root: &str,
+    sep: &str,
+    paths: &[String],
+) -> Vec<Option<String>> {
+    if paths.is_empty() {
+        return vec![];
+    }
+    let full_path = |p: &String| {
+        if p.starts_with('/') || p.contains(':') {
+            p.clone()
+        } else {
+            format!("{root}{sep}{p}")
+        }
+    };
+    match shell {
+        ShellConfig::Wsl { .. } => {
+            // One bash script that cats every file, separated by record separator.
+            let rs = "\x1e"; // ASCII record separator
+            let parts: Vec<String> = paths
+                .iter()
+                .map(|p| format!("cat '{}' 2>/dev/null || echo", full_path(p).replace('\'', "'\\''")))
+                .collect();
+            let script = parts.join(&format!("; printf '{rs}'; "));
+            match shell.run_stdout("bash", &["-c", &script]) {
+                Ok(output) => output
+                    .split(rs)
+                    .map(|s| {
+                        let trimmed = s.trim();
+                        (!trimmed.is_empty()).then(|| trimmed.to_string())
+                    })
+                    .collect(),
+                Err(_) => paths.iter().map(|_| None).collect(),
+            }
+        }
+        _ => paths
+            .iter()
+            .map(|p| std::fs::read_to_string(full_path(p)).ok())
+            .collect(),
+    }
+}
+
 /// Recursively find files whose name matches any of `names` (case-insensitive),
 /// up to `max_depth` levels, skipping `IGNORED_DIRS`. Returns absolute paths in
 /// the shell's native form. Shared by task discovery and diagnostics.

@@ -1,9 +1,22 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { normalizeSep, toRelativePath } from '../lib/paths'
+import { loadJson, saveJson } from '../lib/storage'
 import { diagnosticsRun } from '../lib/tauri'
 import type { Diagnostic, ProviderRun } from '../types/diagnostics'
 import { useProjectStore } from './project'
+
+/** Projects whose runs include golangci-lint, by id. Off by default: it type
+ *  checks the whole module on top of dozens of linters, so it belongs behind a
+ *  choice — and a per-project one, since a single global flag would start
+ *  running another project's (possibly containerized) linter the moment its
+ *  Problems panel opened. */
+const GOLANGCI_KEY = 'pike:diagnostics-golangci'
+
+function loadGolangciProjects(): string[] {
+  const raw = loadJson<unknown>(GOLANGCI_KEY, [])
+  return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : []
+}
 
 export interface DiagnosticFileGroup {
   file: string
@@ -27,6 +40,12 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
   const truncated = ref(false)
   const error = ref<string | null>(null)
   const lastRunAt = ref<number | null>(null)
+  const golangciAvailable = ref(false)
+  const golangciProjects = ref(loadGolangciProjects())
+  const golangciEnabled = computed(() => {
+    const id = useProjectStore().currentProject?.id
+    return !!id && golangciProjects.value.includes(id)
+  })
   let seq = 0
 
   // Single pass over the array, memoized — avoids three separate full scans.
@@ -112,11 +131,17 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     error.value = null
     const mySeq = ++seq
     try {
-      const result = await diagnosticsRun(project.shell, projectStore.activeRoot)
+      const result = await diagnosticsRun(
+        project.shell,
+        projectStore.activeRoot,
+        golangciEnabled.value,
+        project.golangciCommand,
+      )
       if (mySeq !== seq) return
       diagnostics.value = result.diagnostics
       providers.value = result.providers
       truncated.value = result.truncated
+      golangciAvailable.value = result.golangciAvailable
       lastRunAt.value = Date.now()
     } catch (e) {
       if (mySeq !== seq) return
@@ -126,6 +151,17 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     } finally {
       if (mySeq === seq) running.value = false
     }
+  }
+
+  /** Add or drop golangci-lint for this project, then re-check with it. */
+  function toggleGolangci() {
+    const id = useProjectStore().currentProject?.id
+    if (!id) return
+    golangciProjects.value = golangciEnabled.value
+      ? golangciProjects.value.filter((p) => p !== id)
+      : [...golangciProjects.value, id]
+    saveJson(GOLANGCI_KEY, golangciProjects.value)
+    run()
   }
 
   // Auto-run: re-check on save / fs-watcher changes, but throttled so a burst
@@ -158,6 +194,8 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     truncated.value = false
     error.value = null
     lastRunAt.value = null
+    // Availability is a property of the project, unlike the user's preference.
+    golangciAvailable.value = false
   }
 
   return {
@@ -167,12 +205,15 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     truncated,
     error,
     lastRunAt,
+    golangciAvailable,
+    golangciEnabled,
     errorCount,
     warningCount,
     total,
     grouped,
     forFile,
     run,
+    toggleGolangci,
     triggerAutoRun,
     clear,
   }

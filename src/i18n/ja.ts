@@ -70,6 +70,7 @@ export default {
   'diagnostics.providerFailed': 'チェッカー失敗',
   'diagnostics.truncated': '結果は省略されました',
   'diagnostics.askFix': 'エージェントに修正を依頼',
+  'diagnostics.golangciHint': 'golangci-lint もあわせて実行する（モジュール全体の型検査を伴うため時間がかかります）',
   'diagnostics.fixPrompt': '{loc} の {source} エラーを直して: {message}',
 
   // Tabs
@@ -360,6 +361,9 @@ export default {
   'project.projectName': 'プロジェクト名',
   'project.detect': '検出',
   'project.browse': '参照...',
+  'project.golangciCommand': 'golangci-lint コマンド（任意）',
+  'project.golangciCommandHint':
+    '問題パネルが go.mod から組み立てる代わりに使うコマンド。ツールチェインがコンテナにあるプロジェクト向け（例: docker compose exec -T golang make lint）。Go モジュールのディレクトリで実行します。',
   'projectColor.none': '色なし',
   'projectColor.red': '赤',
   'projectColor.orange': 'オレンジ',

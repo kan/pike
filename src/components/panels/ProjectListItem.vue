@@ -64,6 +64,7 @@ const editIcon = ref<string | undefined>(undefined)
 const editPlatform = ref<'wsl' | 'windows'>('wsl')
 const editDistro = ref('Ubuntu')
 const editWindowsShell = ref<WindowsShellKind>('powershell')
+const editGolangciCommand = ref('')
 
 const settings = useSettingsStore()
 
@@ -94,6 +95,7 @@ watch(
     editPlatform.value = shellToPlatform(props.project.shell)
     editDistro.value = shellToDistro(props.project.shell)
     editWindowsShell.value = shellToWinKind(props.project.shell)
+    editGolangciCommand.value = props.project.golangciCommand ?? ''
   },
   { immediate: true },
 )
@@ -115,6 +117,7 @@ function onSave() {
     // Same rule as setProjectGroup: a manual position only means something
     // inside the group it was made in (#203).
     order: editGroup.value === props.project.group ? props.project.order : undefined,
+    golangciCommand: editGolangciCommand.value.trim() || undefined,
   })
 }
 </script>
@@ -141,6 +144,11 @@ function onSave() {
     <select v-if="editPlatform === 'windows'" v-model="editWindowsShell">
       <option v-for="s in editShellOptions" :key="s.kind" :value="s.kind">{{ s.label }}</option>
     </select>
+    <input
+      v-model="editGolangciCommand"
+      :placeholder="t('project.golangciCommand')"
+      :title="t('project.golangciCommandHint')"
+    />
     <div class="edit-actions">
       <button type="button" class="save-btn" @click="onSave">{{ t('common.save') }}</button>
       <button type="button" class="cancel-btn" @click="emit('cancel-edit')">{{ t('common.cancel') }}</button>

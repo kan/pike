@@ -1,3 +1,4 @@
+use crate::fs::{batch_read_files, file_name_of};
 use crate::search::SearchState;
 use crate::types::ShellConfig;
 use serde::Serialize;
@@ -258,61 +259,6 @@ pub async fn task_discover(
     })
     .await
     .map_err(|e| e.to_string())?
-}
-
-/// Read multiple files. For WSL, batches all reads into a single wsl.exe invocation.
-fn batch_read_files(
-    shell: &ShellConfig,
-    root: &str,
-    sep: &str,
-    paths: &[String],
-) -> Vec<Option<String>> {
-    if paths.is_empty() {
-        return vec![];
-    }
-    match shell {
-        ShellConfig::Wsl { .. } => {
-            // Build a single bash script that cats all files separated by record separator
-            let rs = "\x1e"; // ASCII record separator
-            let parts: Vec<String> = paths
-                .iter()
-                .map(|p| {
-                    let full = if p.starts_with('/') || p.contains(':') {
-                        p.clone()
-                    } else {
-                        format!("{root}{sep}{p}")
-                    };
-                    format!("cat '{}' 2>/dev/null || echo", full.replace('\'', "'\\''"))
-                })
-                .collect();
-            let script = parts.join(&format!("; printf '{rs}'; "));
-            match shell.run_stdout("bash", &["-c", &script]) {
-                Ok(output) => output
-                    .split(rs)
-                    .map(|s| {
-                        let trimmed = s.trim();
-                        if trimmed.is_empty() {
-                            None
-                        } else {
-                            Some(trimmed.to_string())
-                        }
-                    })
-                    .collect(),
-                Err(_) => paths.iter().map(|_| None).collect(),
-            }
-        }
-        _ => paths
-            .iter()
-            .map(|p| {
-                let full = if p.starts_with('/') || p.contains(':') {
-                    p.clone()
-                } else {
-                    format!("{root}{sep}{p}")
-                };
-                std::fs::read_to_string(&full).ok()
-            })
-            .collect(),
-    }
 }
 
 fn find_task_files(
@@ -577,10 +523,6 @@ fn parse_cargo_aliases(content: &str) -> Vec<DiscoveredTask> {
             })
         })
         .collect()
-}
-
-fn file_name_of(path: &str) -> &str {
-    path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
 fn parent_dir(path: &str) -> String {

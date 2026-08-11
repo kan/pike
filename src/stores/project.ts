@@ -293,6 +293,7 @@ export const useProjectStore = defineStore('project', () => {
       icon: project.icon,
       group: project.group,
       remoteUrl: project.remoteUrl,
+      golangciCommand: project.golangciCommand,
       order: project.order,
     }
   }
@@ -354,6 +355,7 @@ export const useProjectStore = defineStore('project', () => {
                 icon: previous.icon ?? entry.icon,
                 group: previous.group ?? entry.group,
                 remoteUrl: previous.remoteUrl ?? entry.remoteUrl,
+                golangciCommand: previous.golangciCommand ?? entry.golangciCommand,
                 order: entry.order,
               }
             : entry,
@@ -411,6 +413,7 @@ export const useProjectStore = defineStore('project', () => {
         if (!local.icon && entry.icon) patch.icon = entry.icon
         if (!local.group && entry.group) patch.group = entry.group
         if (!local.remoteUrl && entry.remoteUrl) patch.remoteUrl = entry.remoteUrl
+        if (!local.golangciCommand && entry.golangciCommand) patch.golangciCommand = entry.golangciCommand
         // Order is adopted, not gap-filled — see pushProjectsToSync.
         if (entry.order !== undefined && entry.order !== local.order) patch.order = entry.order
         if (Object.keys(patch).length > 0) patched.push({ ...local, ...patch })
@@ -440,6 +443,7 @@ export const useProjectStore = defineStore('project', () => {
         icon: entry.icon,
         group: entry.group,
         remoteUrl: entry.remoteUrl,
+        golangciCommand: entry.golangciCommand,
         order: entry.order,
       }).catch(() => {})
       localRoots.add(root.toLowerCase())
@@ -475,6 +479,7 @@ export const useProjectStore = defineStore('project', () => {
             p.group,
             p.order,
             p.remoteUrl,
+            p.golangciCommand,
             p.shell.kind,
           ]),
           groups.value,

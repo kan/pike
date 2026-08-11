@@ -80,6 +80,13 @@ pub struct ProjectConfig {
     /// non-repositories and repositories without an origin.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_url: Option<String>,
+    /// Command the Problems panel runs instead of the golangci-lint line it
+    /// would derive from go.mod (#213). Projects whose toolchain lives in a
+    /// container set something like `docker compose exec -T golang make lint`.
+    /// Runs in the Go module's directory like the built-in one, so the paths in
+    /// its output still resolve.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub golangci_command: Option<String>,
 }
 
 fn projects_dir(state: &ProjectState) -> PathBuf {

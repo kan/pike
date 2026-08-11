@@ -70,6 +70,7 @@ export default {
   'diagnostics.providerFailed': 'checker failed',
   'diagnostics.truncated': 'Results truncated',
   'diagnostics.askFix': 'Ask agent to fix',
+  'diagnostics.golangciHint': 'Also run golangci-lint (slow: type checks the whole module)',
   'diagnostics.fixPrompt': 'Fix this {source} error at {loc}: {message}',
 
   // Tabs
@@ -359,6 +360,9 @@ export default {
   'project.projectName': 'Project name',
   'project.detect': 'Detect',
   'project.browse': 'Browse...',
+  'project.golangciCommand': 'golangci-lint command (optional)',
+  'project.golangciCommandHint':
+    'Command the Problems panel runs instead of the one derived from go.mod, for projects whose toolchain lives in a container (e.g. docker compose exec -T golang make lint). Runs in the Go module directory.',
   'projectColor.none': 'No color',
   'projectColor.red': 'Red',
   'projectColor.orange': 'Orange',

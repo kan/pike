@@ -283,6 +283,7 @@ fn create_adhoc_project(
         icon: None,
         order: None,
         remote_url: None,
+        golangci_command: None,
     };
 
     let dir = state.config_dir.join("projects").join(&config.id);
@@ -1437,6 +1438,7 @@ mod tests {
             icon: None,
             order: None,
             remote_url: None,
+            golangci_command: None,
         }
     }
 
