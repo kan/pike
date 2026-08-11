@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowUp, ChevronDown, ChevronRight, Minus, Plus, Undo2 } from 'lucide-vue-next'
+import { ArrowUp, Check, ChevronDown, ChevronRight, Minus, Plus, Undo2 } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, infoDialog, promptDialog } from '../../composables/useConfirmDialog'
@@ -20,6 +20,7 @@ import {
 } from '../../lib/paths'
 import {
   fsDelete,
+  fsReadFile,
   gitCreateBranch,
   gitDiff,
   gitDiffCommit,
@@ -171,6 +172,34 @@ async function openConflictFile(path: string) {
   // joinPath unifies separators — git always emits `/` while Windows tabs use `\`,
   // and a mixed-separator tab path would not match fs-watcher events (exact compare).
   await openPathInTab({ path: joinPath(root, path, pathSep(projectStore.currentProject?.shell)) })
+}
+
+/**
+ * Stage resolved conflicts. Editing the markers out of the working tree does
+ * not touch the index — git keeps reporting the path as unmerged until it is
+ * added — so this is what actually ends a conflict, and what re-enables the
+ * stopped operation's "continue" (#222).
+ *
+ * Staging a file that still has markers in it is how they end up committed, so
+ * the ones that do get named and confirmed first.
+ */
+async function markResolved(paths: string[]) {
+  const root = projectStore.activeRoot
+  const shell = projectStore.currentProject?.shell
+  if (!root || !shell) return
+  const sep = pathSep(shell)
+  const contents = await Promise.all(
+    paths.map((path) =>
+      fsReadFile(shell, joinPath(root, path, sep))
+        .then((file) => file.content)
+        .catch(() => ''),
+    ),
+  )
+  const unresolved = paths.filter((_, i) => /^<{7}(\s|$)/m.test(contents[i]))
+  if (unresolved.length && !(await confirmDialog(t('git.stageWithMarkers', { paths: unresolved.join('\n') })))) {
+    return
+  }
+  await gitStore.stageFiles(paths)
 }
 
 async function toggleCommitExpand(hash: string) {
@@ -487,6 +516,12 @@ onUnmounted(() => {
       <div v-if="gitStore.status.conflicted.length" class="file-section">
         <div class="section-header">
           <span>{{ t('git.conflicts', { count: gitStore.status.conflicted.length }) }}</span>
+          <button
+            class="section-action"
+            @click="markResolved(gitStore.status!.conflicted.map((f) => f.path))"
+          >
+            {{ t('git.resolveAll') }}
+          </button>
         </div>
         <div
           v-for="file in gitStore.status.conflicted"
@@ -498,6 +533,9 @@ onUnmounted(() => {
           <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path conflict-path" :title="file.path">{{ file.path }}</span>
+          <button class="file-action" :title="t('git.resolve')" @click.stop="markResolved([file.path])">
+            <Check :size="12" :stroke-width="2" />
+          </button>
         </div>
       </div>
 

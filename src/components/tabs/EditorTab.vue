@@ -43,7 +43,7 @@ import { useTabStore } from '../../stores/tabs'
 import type { EditorTab } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const props = defineProps<{ tabId: string }>()
 const tabStore = useTabStore()
 const projectStore = useProjectStore()
@@ -61,6 +61,9 @@ const tabSizeCompartment = new Compartment()
 const indentUnitCompartment = new Compartment()
 const fontCompartment = new Compartment()
 const backdropCompartment = new Compartment()
+// The conflict extension builds its button labels as raw DOM, so it has to be
+// re-registered to pick up a new UI language (#223).
+const conflictCompartment = new Compartment()
 
 /** Editor font theme driven by the editor's own font settings. */
 function fontTheme() {
@@ -726,7 +729,7 @@ function createEditorView(container: HTMLElement, content: string) {
     history(),
     editorSearch(),
     highlightSelectionMatches(),
-    conflictHighlight(),
+    conflictCompartment.of(conflictHighlight()),
     tabSizeCompartment.of(EditorState.tabSize.of(settingsStore.editorTabSize)),
     indentUnitCompartment.of(indentUnit.of(' '.repeat(settingsStore.editorTabSize))),
     wordWrapCompartment.of(settingsStore.editorWordWrap ? EditorView.lineWrapping : []),
@@ -1199,6 +1202,13 @@ watch(
     }
   },
 )
+
+// The conflict buttons' labels are baked into DOM when it is built, so switching
+// the UI language has to rebuild that extension (#223).
+watch(locale, () => {
+  if (!editorView) return
+  editorView.dispatch({ effects: conflictCompartment.reconfigure(conflictHighlight()) })
+})
 
 // Live-apply editor settings changes
 watch(
