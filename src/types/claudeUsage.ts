@@ -19,6 +19,20 @@ export interface ClaudeUsageResult {
   estimatedCostUsd: number | null
 }
 
+/**
+ * One entry of the terminal launcher's resume list (#220) — a past interactive
+ * Claude Code session of this project, read out of `~/.claude/projects/…`.
+ */
+export interface ClaudeSession {
+  /** Session id; the argument of `claude --resume`. */
+  id: string
+  /** Claude's generated title, falling back to the session's last prompt. */
+  title: string
+  /** Transcript mtime (epoch ms). */
+  modifiedAt: number
+  gitBranch: string | null
+}
+
 /** One rate-limit window from `claude -p "/usage"` (5h session / weekly). */
 export interface ClaudeRateWindow {
   /** Label as printed by the CLI: "session", "week (all models)", "week (Fable)", … */

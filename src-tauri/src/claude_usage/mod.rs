@@ -1,4 +1,5 @@
 pub mod rate;
+pub mod sessions;
 
 use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
 use serde::{Deserialize, Serialize};

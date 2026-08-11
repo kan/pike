@@ -155,6 +155,8 @@ export default {
   'terminal.agentLaunch': 'Launch coding agent',
   'terminal.promptInject': 'Insert a saved prompt',
   'terminal.injectNoTarget': 'No terminal to send to',
+  'terminal.claudeSessions': 'Recent Claude sessions',
+  'terminal.noClaudeSessions': 'No sessions to resume',
 
   // Docker Logs
   'dockerLogs.failedStart': '[Failed to start log stream: {error}]',

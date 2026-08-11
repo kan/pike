@@ -18,8 +18,17 @@ import { hexToRgba } from '../../lib/format'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
-import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
-import { openUrlWithConfirm, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
+import { isAbsolutePath, joinPath, pathSep, relativeTime } from '../../lib/paths'
+import {
+  claudeSessionsList,
+  openUrlWithConfirm,
+  ptyGetCwd,
+  ptyKill,
+  ptyPasteText,
+  ptyResize,
+  ptySpawn,
+  ptyWrite,
+} from '../../lib/tauri'
 import {
   asPathHeader,
   findPathLinks,
@@ -32,6 +41,7 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
+import type { ClaudeSession } from '../../types/claudeUsage'
 import { isPowershellFamily } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 import '@xterm/xterm/css/xterm.css'
@@ -107,14 +117,50 @@ const showAgentLaunch = computed(() => !inAltScreen.value && agentCommands.value
 // mouse-reporting app (an agent) owns it.
 const showPromptInject = computed(() => (!inAltScreen.value || mouseActive.value) && agentPrompts.value.length > 0)
 
+/** Run a launcher entry in the shell as-is. No `clear` in front: today's agents
+ *  render in place and keep the scrollback readable above themselves. */
 function runAgentCommand(command: string) {
   agentMenuOpen.value = false
   if (!ptyId) return
-  const tabData = tabStore.tabs.find((t) => t.id === props.tabId)
-  const shellKind = tabData?.kind === 'terminal' ? tabData.shell?.kind : undefined
-  const line = buildAutoStartLine(command, shellKind, false)
-  ptyWrite(ptyId, `${line}\r`).catch(() => {})
+  ptyWrite(ptyId, `${command}\r`).catch(() => {})
   terminal?.focus()
+}
+
+/** This tab's terminal record — the store owns its shell and cwd. */
+function terminalTab() {
+  const tab = tabStore.tabs.find((t) => t.id === props.tabId)
+  return tab?.kind === 'terminal' ? tab : undefined
+}
+
+// Past Claude Code sessions of this terminal's directory, i.e. what `claude -r`
+// would offer. Loaded when the launcher menu opens (the transcripts live on
+// disk — over the WSL share for WSL projects — so it isn't worth polling).
+const claudeSessions = ref<ClaudeSession[]>([])
+const sessionsLoading = ref(false)
+// Only meaningful next to a `claude` launcher: the list is Claude-specific, and
+// a Codex-only setup should not pay a disk scan for a section it can't use.
+const showClaudeSessions = computed(() => agentCommands.value.some((c) => /(^|[\\/\s])claude(\s|$)/.test(c.command)))
+
+function resumeCommand(session: ClaudeSession): string {
+  return `claude --resume ${session.id}`
+}
+
+async function loadClaudeSessions() {
+  const tabData = terminalTab()
+  const project = projectStore.currentProject
+  const shell = tabData?.shell ?? project?.shell
+  // Where `claude` would actually run: the shell's live directory (tracked from
+  // OSC 7, so a `cd` is reflected), falling back to what the tab was opened at.
+  const root = (ptyId ? await ptyGetCwd(ptyId) : null) ?? tabData?.cwd ?? project?.root
+  if (!shell || !root) {
+    claudeSessions.value = []
+    return
+  }
+  sessionsLoading.value = true
+  // Keep the previous list on screen while refreshing — reopening the menu
+  // should not blank it out.
+  claudeSessions.value = await claudeSessionsList(shell, root).catch(() => [])
+  sessionsLoading.value = false
 }
 
 // Resolve a `path:line` link from terminal output to an editor tab. Relative
@@ -198,6 +244,7 @@ function toggleAgentMenu() {
   closePromptMenu()
   agentMenuOpen.value = !agentMenuOpen.value
   if (agentMenuOpen.value) {
+    if (showClaudeSessions.value) void loadClaudeSessions()
     nextTick(() => window.addEventListener('mousedown', closeAgentMenu, { once: true }))
   }
 }
@@ -564,8 +611,8 @@ onMounted(async () => {
   const cols = terminal.cols
   const rows = terminal.rows
 
-  const tabData = tabStore.tabs.find((t) => t.id === props.tabId)
-  const spawnOpts = tabData?.kind === 'terminal' ? { cwd: tabData.cwd, shell: tabData.shell } : undefined
+  const tabData = terminalTab()
+  const spawnOpts = tabData ? { cwd: tabData.cwd, shell: tabData.shell } : undefined
 
   let spawnedAt = 0
   try {
@@ -602,8 +649,8 @@ onMounted(async () => {
     (code) => {
       termRef_.write(`\r\n${t('terminal.exited', { code: String(code) })}\r\n`)
       tabStore.reportExit(props.tabId, code)
-      const tab = tabStore.tabs.find((t) => t.id === props.tabId)
-      if (tab?.kind === 'terminal') {
+      const tab = terminalTab()
+      if (tab) {
         // A PTY that dies within the grace period is almost always a failed
         // autoStart or bad shell config — keep the tab so the user can read
         // the error instead of having it vanish. `keepOnError` extends that to
@@ -975,6 +1022,24 @@ onUnmounted(() => {
             <span class="agent-menu-label">{{ c.label }}</span>
             <span class="agent-menu-cmd">{{ c.command }}</span>
           </button>
+          <template v-if="showClaudeSessions">
+            <div class="agent-menu-heading">{{ t('terminal.claudeSessions') }}</div>
+            <div v-if="claudeSessions.length === 0" class="agent-menu-note">
+              {{ sessionsLoading ? t('common.loading') : t('terminal.noClaudeSessions') }}
+            </div>
+            <button
+              v-for="s in claudeSessions"
+              :key="s.id"
+              class="agent-menu-item"
+              :title="resumeCommand(s)"
+              @click="runAgentCommand(resumeCommand(s))"
+            >
+              <span class="agent-menu-label">{{ s.title }}</span>
+              <span class="agent-menu-cmd">
+                {{ relativeTime(s.modifiedAt) }}<template v-if="s.gitBranch"> · {{ s.gitBranch }}</template>
+              </span>
+            </button>
+          </template>
         </div>
       </div>
       <HelpButton page="terminal-and-agents.md#エージェント起動ボタン--プロンプト挿入" :size="14" class="term-help" />
@@ -1068,6 +1133,10 @@ onUnmounted(() => {
   right: 0;
   margin-top: 4px;
   min-width: 180px;
+  /* Session titles are a sentence long: cap the width and let the list scroll. */
+  max-width: 340px;
+  max-height: 60vh;
+  overflow-y: auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1094,6 +1163,13 @@ onUnmounted(() => {
   color: var(--text-active);
 }
 
+.agent-menu-label,
+.agent-menu-cmd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-menu-label {
   font-size: 12px;
 }
@@ -1102,6 +1178,22 @@ onUnmounted(() => {
   font-size: 10px;
   color: var(--text-secondary);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.agent-menu-heading {
+  margin-top: 4px;
+  padding: 4px 12px 2px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agent-menu-note {
+  padding: 3px 12px 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 .agent-menu-item:hover .agent-menu-cmd {

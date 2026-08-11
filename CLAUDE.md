@@ -103,7 +103,9 @@ pike/
 │       │   ├── mod.rs  auth.rs  approval.rs  runtime.rs  session.rs
 │       │   └── protocol/      # client.rs / items.rs / messages.rs / mod.rs
 │       ├── claude_usage/
-│       │   └── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
+│       │   ├── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
+│       │   ├── rate.rs        # `claude -p "/usage"` のレート制限パース（#117）
+│       │   └── sessions.rs    # 再開できる過去セッション一覧（#220）
 │       ├── pty/
 │       │   ├── mod.rs         # PTY 管理（WSL/cmd/PowerShell/PowerShell 7/Git Bash 対応）
 │       │   └── busy.rs        # シェル以外のプロセスが動いているかの判定（#178）
@@ -289,7 +291,11 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 ### ターミナルの coding agent 補助（#89）
 `claude` 等をターミナルで使う運用を、Pike の既存機能（エディタ / 診断）と橋渡しする一連の機能。注入はすべて `ptyWrite` 経由。
 
-- **起動ボタン**: ターミナル右上のフローティング split ボタン（`TerminalTab.vue`）。主＝先頭コマンド / ▾＝一覧。クリックで `agentCommands`（`pike:settings`）を**シェル対応の clear プレフィックス付き**（cmd=`cls`、PowerShell=`clear; `、bash=`clear && `）で注入＋Enter。`buildAutoStartLine` のロジックを流用。代替画面（alternate screen）検出で vim/less 等の全画面 TUI 中は非表示
+- **起動ボタン**: ターミナル右上のフローティング split ボタン（`TerminalTab.vue`）。主＝先頭コマンド / ▾＝一覧。クリックで `agentCommands`（`pike:settings`）をそのまま注入＋Enter。代替画面（alternate screen）検出で vim/less 等の全画面 TUI 中は非表示。**clear プレフィックスは付けない**（#220。以前は `clear && claude` を流していたが、今のエージェントは画面をその場に描くので直前までの出力を消す意味がない）。タブ生成時の `autoStart` 側は `buildAutoStartLine` で clear を付けたまま（あちらは同時に流すシェル初期化行を隠す役目がある）
+- **セッション再開メニュー（#220）**: 起動メニューの下段に `claude -r` 相当の一覧を出し、選ぶと `claude --resume <id>` を注入する。`claude_usage/sessions.rs` が `~/.claude/projects/<encoded-root>/*.jsonl` を直接読む（CLI に機械可読な一覧が無いため。パスのエンコードとホーム解決は `claude_usage` と共有）。走査の打ち切り（`MAX_SCAN_FILES` / `MAX_TRANSCRIPT_BYTES` 等）とパースの詳細はコード側の doc コメントを正本とする
+  - **対話セッションだけを出す**: 同じディレクトリには `-p` / SDK 実行（Pike 自身のレート取得 `claude -p "/usage"`、フック、レビューエージェント）の記録も溜まるので、`entrypoint` が `cli` 以外なら捨てる。これが無いと一覧が `/usage` の残骸で埋まる（実測で直近 60 件のうち対話セッションは 5 件）
+  - 取得はメニューを開いたときだけ（WSL プロジェクトでは `\\wsl.localhost` 越しの読みになるためポーリングしない）。`claude` の起動コマンドが設定に無ければセクションごと出さない
+  - 参照するディレクトリは `pty_get_cwd`（OSC 7 追跡の現在地）→ タブの `cwd` → プロジェクト root の順。**タブ生成時の cwd で決め打ちしない**: セッション記録は `claude` を起動した cwd ごとに分かれるので、`cd` したあとは別のバケットになる
 - **定型プロンプト挿入ボタン**: 起動ボタンの隣の2つ目のドロップダウン。`agentPrompts`（`{ label, text }[]`、`pike:settings`）を**ブラケットペースト（`ESC[200~…ESC[201~`）で挿入のみ・Enter なし**（複数行も1入力として届き途中確定しない）。2つのメニューは相互排他、alt-screen 中は非表示。挿入の primitive は `lib/tauri.ts` の `ptyPasteText`
 - **出力の `file:line` クリックでエディタを開く**: `lib/terminalLinks.ts` の `findPathLinks`（インライン `path:line(:col)` 検出。拡張子必須で誤検出抑制、Windows ドライブ・URL 除外）＋ rg/grep の heading 出力対応（マッチ行の行番号 → 直近のファイル名見出しを辿る）。`TerminalTab.vue` が xterm の link provider として登録（ワイド文字対応の char→セル列マップで範囲を正確化）。相対パスは `activeRoot` 起点で解決し `addEditorTab({ path, initialLine })`
 - **エディタ選択範囲・診断をターミナルへ注入**: `composables/useTerminalInject.ts` の `injectToTerminal(text)` が注入先ターミナルを解決（**`lastTerminalId`（直近アクティブなターミナル）→ アクティブタブ → pinned → 任意**）し `ptyPasteText` で挿入、当該タブをアクティブ化。注入先が無ければ statusMessage で通知。`stores/tabs.ts` の `lastTerminalId` は `activeTabId` watcher で更新（タブ閉じは use 時の liveness 再チェックで自己修復）

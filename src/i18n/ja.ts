@@ -155,6 +155,8 @@ export default {
   'terminal.agentLaunch': 'コーディングエージェントを起動',
   'terminal.promptInject': '保存したプロンプトを挿入',
   'terminal.injectNoTarget': '送信先のターミナルがありません',
+  'terminal.claudeSessions': '最近の Claude セッション',
+  'terminal.noClaudeSessions': '再開できるセッションがありません',
 
   // Docker Logs
   'dockerLogs.failedStart': '[ログストリームの開始に失敗: {error}]',

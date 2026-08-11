@@ -1372,6 +1372,7 @@ pub fn run() {
             codex::codex_model_list,
             claude_usage::claude_usage_get,
             claude_usage::rate::claude_usage_rate_get,
+            claude_usage::sessions::claude_sessions_list,
             codex_usage::codex_usage_get,
             agent::commands::agent_check_available,
             agent::commands::agent_ensure_installed,

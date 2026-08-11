@@ -81,7 +81,12 @@ export function mimeType(path: string): string {
 }
 
 export function relativeDate(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
+  return relativeTime(new Date(iso).getTime())
+}
+
+/** Same as {@link relativeDate} for a timestamp already in epoch ms. */
+export function relativeTime(epochMs: number): string {
+  const diff = Date.now() - epochMs
   const mins = Math.floor(diff / 60000)
   if (mins < 1) return 'just now'
   if (mins < 60) return `${mins}m ago`
@@ -89,7 +94,7 @@ export function relativeDate(iso: string): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 30) return `${days}d ago`
-  return new Date(iso).toLocaleDateString()
+  return new Date(epochMs).toLocaleDateString()
 }
 
 /** Case-insensitive fuzzy match: checks if all characters of `pattern` appear in order in `text`. */
