@@ -3,11 +3,13 @@ import { Cable, ExternalLink, Play, RefreshCw, ScrollText, Square, Terminal, Unp
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { promptDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
+import { basename, joinPath, normalizeSep, pathSep } from '../../lib/paths'
 import { dockerContainerPorts, dockerDetectShell, openUrl } from '../../lib/tauri'
 import { useDockerStore } from '../../stores/docker'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
+import type { ComposeProject } from '../../types/docker'
 
 const { t } = useI18n()
 
@@ -31,25 +33,35 @@ function stateColor(state: string): string {
   }
 }
 
-// Docker Compose derives project name from directory: lowercase, strip non-alphanumeric
-const composeProjectName = computed(() => {
-  const root = projectStore.activeRoot
-  if (!root) return ''
-  const dir = root.replace(/\\/g, '/').replace(/\/$/, '').split('/').pop() ?? ''
-  return dir.toLowerCase().replace(/[^a-z0-9]/g, '')
-})
+/** Path comparison for the working-dir label: separators and case can differ. */
+function samePath(a: string | null, b: string): boolean {
+  return !!a && normalizeSep(a).replace(/\/+$/, '').toLowerCase() === normalizeSep(b).replace(/\/+$/, '').toLowerCase()
+}
 
-// Match compose services to their containers (filter by project name)
-const serviceContainers = computed(() => {
-  const project = composeProjectName.value
-  const result: Record<string, (typeof dockerStore.containers)[0] | undefined> = {}
-  for (const svc of dockerStore.composeServices) {
-    result[svc.name] = dockerStore.containers.find(
-      (c) => c.composeService === svc.name && (!project || c.composeProject === project),
-    )
-  }
-  return result
-})
+// Each compose file with its services already resolved to containers, so the
+// template reads one value per row. Two compose files can declare the same
+// service name, so a container only counts for the file it was started from:
+// `composeWorkingDir` is Compose's own record of that, and the derived project
+// name is the fallback for containers from older Compose versions.
+const groups = computed(() =>
+  dockerStore.composeProjects.map((proj) => ({
+    ...proj,
+    rows: proj.services.map((svc) => ({
+      name: svc.name,
+      container: dockerStore.containers.find(
+        (c) =>
+          c.composeService === svc.name &&
+          (c.composeWorkingDir ? samePath(c.composeWorkingDir, proj.dir) : c.composeProject === proj.name),
+      ),
+    })),
+  })),
+)
+
+/** Open the compose file itself, like the task panel's group heading (#159). */
+function openComposeFile(proj: ComposeProject) {
+  const shell = projectStore.currentProject?.shell
+  tabStore.addEditorTab({ path: joinPath(proj.dir, basename(proj.file), pathSep(shell)) })
+}
 
 function openLogs(containerId: string, containerName: string) {
   tabStore.addDockerLogsTab({ containerId, containerName })
@@ -78,10 +90,7 @@ function tunnelsFor(containerId: string | undefined) {
 // (target recreated/removed, or non-compose target): still running and
 // holding a local port, so they need a visible stop affordance.
 const orphanTunnels = computed(() => {
-  const shown = new Set<string>()
-  for (const c of Object.values(serviceContainers.value)) {
-    if (c) shown.add(c.id)
-  }
+  const shown = new Set(groups.value.flatMap((g) => g.rows.map((r) => r.container?.id)))
   return dockerStore.tunnels.filter((t) => !shown.has(t.targetId))
 })
 
@@ -125,59 +134,64 @@ onUnmounted(() => dockerStore.stopPolling())
     </div>
 
     <template v-else>
-      <div v-if="!dockerStore.composeServices.length" class="empty">
+      <div v-if="!dockerStore.composeProjects.length" class="empty">
         {{ t('docker.noCompose') }}
       </div>
 
-      <div v-else class="section">
-        <div class="section-header">{{ t('docker.services') }}</div>
-        <template v-for="svc in dockerStore.composeServices" :key="svc.name">
+      <div v-for="proj in groups" :key="proj.file" class="section">
+        <div class="section-header group-header">
+          <button class="g-file" :title="t('docker.openComposeFile')" @click="openComposeFile(proj)">
+            {{ proj.file }}
+          </button>
+          <div class="c-actions always">
+            <button :title="t('docker.composeUp')" @click="dockerStore.composeUp(proj)">
+              <Play :size="12" :stroke-width="2" />
+            </button>
+            <button :title="t('docker.composeDown')" @click="dockerStore.composeDown(proj)">
+              <Square :size="12" :stroke-width="2" />
+            </button>
+          </div>
+        </div>
+        <template v-for="row in proj.rows" :key="row.name">
           <div class="container-item">
-            <span
-              class="state-dot"
-              :style="{ background: stateColor(serviceContainers[svc.name]?.state ?? '') }"
-            ></span>
-            <span class="c-name">{{ svc.name }}</span>
-            <span class="c-status">{{ serviceContainers[svc.name]?.status ?? t('docker.notCreated') }}</span>
+            <span class="state-dot" :style="{ background: stateColor(row.container?.state ?? '') }"></span>
+            <span class="c-name">{{ row.name }}</span>
+            <span class="c-status">{{ row.container?.status ?? t('docker.notCreated') }}</span>
             <div class="c-actions">
-              <template v-if="serviceContainers[svc.name]">
+              <template v-if="row.container">
                 <button
-                  v-if="serviceContainers[svc.name]!.state !== 'running'"
+                  v-if="row.container.state !== 'running'"
                   :title="t('docker.start')"
-                  @click="dockerStore.startContainer(serviceContainers[svc.name]!.id)"
+                  @click="dockerStore.startContainer(row.container.id)"
                 ><Play :size="12" :stroke-width="2" /></button>
                 <button
-                  v-if="serviceContainers[svc.name]!.state === 'running'"
+                  v-if="row.container.state === 'running'"
                   :title="t('docker.stop')"
-                  @click="dockerStore.stopContainer(serviceContainers[svc.name]!.id)"
+                  @click="dockerStore.stopContainer(row.container.id)"
                 ><Square :size="12" :stroke-width="2" /></button>
                 <button
                   :title="t('docker.restart')"
-                  @click="dockerStore.restartContainer(serviceContainers[svc.name]!.id)"
+                  @click="dockerStore.restartContainer(row.container.id)"
                 ><RefreshCw :size="12" :stroke-width="2" /></button>
                 <button
                   :title="t('docker.logs')"
-                  @click="openLogs(serviceContainers[svc.name]!.id, svc.name)"
+                  @click="openLogs(row.container.id, row.name)"
                 ><ScrollText :size="12" :stroke-width="2" /></button>
                 <button
-                  v-if="serviceContainers[svc.name]!.state === 'running'"
+                  v-if="row.container.state === 'running'"
                   :title="t('docker.shell')"
-                  @click="openShell(serviceContainers[svc.name]!.id, svc.name)"
+                  @click="openShell(row.container.id, row.name)"
                 ><Terminal :size="12" :stroke-width="2" /></button>
                 <button
-                  v-if="serviceContainers[svc.name]!.state === 'running'"
-                  :disabled="dockerStore.tunnelBusy.includes(serviceContainers[svc.name]!.id)"
+                  v-if="row.container.state === 'running'"
+                  :disabled="dockerStore.tunnelBusy.includes(row.container.id)"
                   :title="t('docker.forward')"
-                  @click="forwardPort(serviceContainers[svc.name]!.id)"
+                  @click="forwardPort(row.container.id)"
                 ><Cable :size="12" :stroke-width="2" /></button>
               </template>
             </div>
           </div>
-          <div
-            v-for="tun in tunnelsFor(serviceContainers[svc.name]?.id)"
-            :key="tun.tunnelId"
-            class="tunnel-item"
-          >
+          <div v-for="tun in tunnelsFor(row.container?.id)" :key="tun.tunnelId" class="tunnel-item">
             <Cable :size="10" class="t-icon" />
             <span class="t-addr">127.0.0.1:{{ tun.localPort }} &rarr; {{ tun.targetPort }}</span>
             <div class="c-actions">
@@ -236,6 +250,41 @@ onUnmounted(() => dockerStore.stopPolling())
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--text-secondary);
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A path, so it keeps its own casing — unlike the uppercased section labels. */
+.g-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: monospace;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.g-file:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* compose up/down stay visible: they were always-on in the sidebar header. */
+.c-actions.always {
+  opacity: 1;
 }
 
 .container-item {

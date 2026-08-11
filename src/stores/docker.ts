@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
 import {
-  dockerComposeServices,
+  dockerComposeDiscover,
   dockerListContainers,
   dockerPing,
   dockerRestart,
@@ -12,14 +12,14 @@ import {
   dockerTunnelCreate,
   dockerTunnelStop,
 } from '../lib/tauri'
-import type { ComposeService, ContainerInfo, TunnelInfo } from '../types/docker'
+import type { ComposeProject, ContainerInfo, TunnelInfo } from '../types/docker'
 import { useProjectStore } from './project'
 import { useTabStore } from './tabs'
 
 export const useDockerStore = defineStore('docker', () => {
   const connected = ref(false)
   const containers = ref<ContainerInfo[]>([])
-  const composeServices = ref<ComposeService[]>([])
+  const composeProjects = ref<ComposeProject[]>([])
   const tunnels = ref<TunnelInfo[]>([])
   const tunnelBusy = ref<string[]>([])
   const error = ref<string | null>(null)
@@ -52,43 +52,42 @@ export const useDockerStore = defineStore('docker', () => {
     }
   }
 
-  async function refreshComposeServices() {
+  async function refreshComposeProjects() {
     const projectStore = useProjectStore()
     const project = projectStore.currentProject
     if (!project) {
-      composeServices.value = []
+      composeProjects.value = []
       return
     }
     try {
-      composeServices.value = await dockerComposeServices(projectStore.activeRoot, project.shell)
+      composeProjects.value = await dockerComposeDiscover(projectStore.activeRoot, project.shell)
     } catch {
-      composeServices.value = []
+      composeProjects.value = []
     }
   }
 
   async function refreshAll() {
     await checkConnection()
     if (connected.value) {
-      await Promise.all([refreshContainers(), refreshComposeServices()])
+      await Promise.all([refreshContainers(), refreshComposeProjects()])
     }
   }
 
   /**
    * Run a compose command in a terminal tab (confirm first) so the user sees
-   * the output. The tab starts at the compose root (activeRoot — the same
-   * directory refreshComposeServices reads), and the panel's polling picks up
-   * the resulting container-state changes.
+   * the output. The tab starts in the directory that compose file was found in,
+   * and the panel's polling picks up the resulting container-state changes.
    */
-  async function runCompose(command: string, confirmMsg: string) {
-    const projectStore = useProjectStore()
-    const project = projectStore.currentProject
+  async function runCompose(target: ComposeProject, command: string, confirmMsg: string) {
+    const project = useProjectStore().currentProject
     if (!project) return
-    if (!(await confirmDialog(confirmMsg))) return
-    useTabStore().runCommandTab(command, projectStore.activeRoot, project.shell)
+    if (!(await confirmDialog(`${confirmMsg}\n\n${target.file}`))) return
+    useTabStore().runCommandTab(command, target.dir, project.shell)
   }
 
-  const composeUp = () => runCompose('docker compose up -d', t('docker.composeUpConfirm'))
-  const composeDown = () => runCompose('docker compose down', t('docker.composeDownConfirm'))
+  const composeUp = (target: ComposeProject) => runCompose(target, 'docker compose up -d', t('docker.composeUpConfirm'))
+  const composeDown = (target: ComposeProject) =>
+    runCompose(target, 'docker compose down', t('docker.composeDownConfirm'))
 
   async function startContainer(id: string) {
     try {
@@ -181,14 +180,14 @@ export const useDockerStore = defineStore('docker', () => {
   return {
     connected,
     containers,
-    composeServices,
+    composeProjects,
     tunnels,
     tunnelBusy,
     error,
     refreshing,
     refreshAll,
     refreshContainers,
-    refreshComposeServices,
+    refreshComposeProjects,
     startContainer,
     stopContainer,
     restartContainer,

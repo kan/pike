@@ -340,7 +340,6 @@ export default {
   // Docker Panel
   'docker.notReachable': 'Docker に接続できません',
   'docker.noCompose': 'compose ファイルが見つかりません',
-  'docker.services': 'サービス',
   'docker.notCreated': '未作成',
   'docker.start': '開始',
   'docker.stop': '停止',
@@ -353,6 +352,7 @@ export default {
   'docker.openBrowser': 'ブラウザで開く',
   'docker.stopForward': 'フォワードを停止',
   'docker.orphanTunnels': 'その他のフォワード',
+  'docker.openComposeFile': 'compose ファイルを開く',
   'docker.composeUp': 'docker compose up',
   'docker.composeDown': 'docker compose down',
   'docker.composeUpConfirm': '「docker compose up -d」を実行しますか？',

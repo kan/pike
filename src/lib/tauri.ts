@@ -4,7 +4,7 @@ import { t } from '../i18n'
 import type { ClaudeRateLimits, ClaudeSession, ClaudeUsageResult } from '../types/claudeUsage'
 import type { CodexUsageResult } from '../types/codexUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
-import type { ComposeService, ContainerListResult, TunnelInfo } from '../types/docker'
+import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
   GitBranches,
   GitFileChange,
@@ -514,8 +514,9 @@ export async function dockerPing(): Promise<boolean> {
   return invoke<boolean>('docker_ping')
 }
 
-export async function dockerComposeServices(root: string, shell: ShellType): Promise<ComposeService[]> {
-  return invoke<ComposeService[]>('docker_compose_services', { root, shell })
+/** Every compose file in the project (root + two levels), shallowest first. */
+export async function dockerComposeDiscover(root: string, shell: ShellType): Promise<ComposeProject[]> {
+  return invoke<ComposeProject[]>('docker_compose_discover', { root, shell })
 }
 
 export async function dockerListContainers(): Promise<ContainerListResult> {

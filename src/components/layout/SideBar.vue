@@ -42,7 +42,6 @@ import {
   RefreshCw,
   Search,
   Settings,
-  Square,
 } from 'lucide-vue-next'
 import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
@@ -457,14 +456,8 @@ onUnmounted(() => {
           </button>
         </div>
         <div v-if="sidebar.activePanel === 'docker'" class="header-actions">
-          <template v-if="dockerStore.connected && dockerStore.composeServices.length">
-            <button class="header-btn" :title="t('docker.composeUp')" @click="dockerStore.composeUp()">
-              <Play :size="14" :stroke-width="2" />
-            </button>
-            <button class="header-btn" :title="t('docker.composeDown')" @click="dockerStore.composeDown()">
-              <Square :size="14" :stroke-width="2" />
-            </button>
-          </template>
+          <!-- compose up/down live on each compose file's group heading in the
+               panel (#221): with several compose files there is no one target. -->
           <button class="header-btn" :disabled="dockerStore.refreshing" :title="t('common.refresh')" @click="dockerStore.refreshContainers(true)">
             <RefreshCw :size="14" :stroke-width="2" :class="{ spin: dockerStore.refreshing }" />
           </button>

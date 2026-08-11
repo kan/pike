@@ -94,7 +94,7 @@ Git / Docker / ファイルツリー等は Rust への invoke でデータを得
   開く。パネルは開いた時に invoke でフェッチするので、モックは開く前に設定する。
 - 実装例は `e2e/specs/panels.ts`。同ファイルで撮影する invoke モックパネル:
   - `git-panel`：`git_status` / `git_log` / `git_branch_list` / `git_remote_url` / `git_worktree_list`
-  - `docker-panel`：`docker_ping` / `docker_compose_services` / `docker_list_containers`
+  - `docker-panel`：`docker_ping` / `docker_compose_discover` / `docker_list_containers`
     （`composeProject` は root 名由来の `demoapp` に揃える）
   - `files-panel`：`fs_list_dir`（path 引数によらず同値を返すためルート直下のみ展開）
   - `tasks-panel`：`task_discover`（npm / cargo グループ）

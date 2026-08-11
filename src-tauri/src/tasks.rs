@@ -526,9 +526,7 @@ fn parse_cargo_aliases(content: &str) -> Vec<DiscoveredTask> {
 }
 
 fn parent_dir(path: &str) -> String {
-    path.rsplit_once(['/', '\\'])
-        .map(|(d, _)| d.to_string())
-        .unwrap_or_default()
+    crate::fs::parent_dir_of(path).to_string()
 }
 
 fn parse_makefile_targets(content: &str) -> Vec<DiscoveredTask> {

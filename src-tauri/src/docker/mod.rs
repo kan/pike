@@ -1,5 +1,6 @@
 pub mod tunnel;
 
+use crate::fs::{batch_read_files, file_name_of, parent_dir_of, rel_path_of, walk_files_by_name};
 use crate::types::ShellConfig;
 use bollard::query_parameters::{
     ListContainersOptions, LogsOptions, RestartContainerOptions, StartContainerOptions,
@@ -40,6 +41,11 @@ pub struct ContainerInfo {
     pub status: String,
     pub compose_service: Option<String>,
     pub compose_project: Option<String>,
+    /// Directory Compose ran in. Recorded by Compose itself, so matching a
+    /// container to a discovered compose file needs no guess about how the
+    /// project got its name (`-p`, `COMPOSE_PROJECT_NAME` in the environment or
+    /// in the directory's `.env`, …).
+    pub compose_working_dir: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -47,6 +53,38 @@ pub struct ContainerInfo {
 pub struct ComposeService {
     pub name: String,
 }
+
+/// One compose file and the services it declares. A monorepo has several (#221).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeProject {
+    /// Directory holding the file — where `docker compose` has to be run.
+    pub dir: String,
+    /// The file relative to the project root (`compose.yml`,
+    /// `apps/web/compose.yml`); identifies the group in the panel.
+    pub file: String,
+    /// The project name Compose will use, derived from the directory (or the
+    /// file's `name:`). Only a fallback for matching — `dir` against the
+    /// container's `compose_working_dir` is the authoritative comparison.
+    pub name: String,
+    pub services: Vec<ComposeService>,
+}
+
+/// Compose's own precedence order — the first one present in a directory wins.
+const COMPOSE_FILE_NAMES: &[&str] = &[
+    "compose.yml",
+    "compose.yaml",
+    "docker-compose.yml",
+    "docker-compose.yaml",
+];
+
+/// The project root plus two subdirectory levels, so `apps/web/compose.yml`
+/// is found (#221). The walkers count files in the root itself as depth 1.
+const MAX_DEPTH: u32 = 3;
+
+/// Upper bound on compose files parsed per discovery, so a large monorepo
+/// cannot stall the panel or blow the WSL batch command line.
+const MAX_COMPOSE_FILES: usize = 50;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -118,54 +156,88 @@ pub async fn docker_ping(state: State<'_, DockerState>) -> Result<bool, String> 
     }
 }
 
-#[tauri::command]
-pub async fn docker_compose_services(
-    root: String,
-    shell: ShellConfig,
-) -> Result<Vec<ComposeService>, String> {
-    let content = tokio::task::spawn_blocking(move || {
-        for filename in [
-            "compose.yml",
-            "compose.yaml",
-            "docker-compose.yml",
-            "docker-compose.yaml",
-        ] {
-            let result = match &shell {
-                ShellConfig::Wsl { .. } => {
-                    let path = format!("{root}/{filename}");
-                    shell.run_stdout("cat", &["--", &path]).ok()
-                }
-                _ => {
-                    let sep = if root.contains('/') { "/" } else { "\\" };
-                    let path = format!("{root}{sep}{filename}");
-                    std::fs::read_to_string(&path).ok()
-                }
-            };
-            if let Some(content) = result {
-                return Ok(content);
-            }
-        }
-        Err("No compose file found".to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+/// The project name Compose derives from a directory: lowercase, keep only
+/// `[a-z0-9_-]`, then drop leading `_`/`-` (Compose's `NormalizeProjectName`).
+/// Note the dashes and underscores survive — stripping them, as the panel used
+/// to, mismatched every project whose directory had one in its name.
+fn normalize_project_name(dir_name: &str) -> String {
+    dir_name
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_' || *c == '-')
+        .collect::<String>()
+        .trim_start_matches(['_', '-'])
+        .to_string()
+}
 
+fn parse_compose_file(root: &str, path: &str, content: &str) -> Option<ComposeProject> {
     #[derive(Deserialize)]
     struct ComposeFile {
+        /// Top-level `name:` overrides the directory-derived project name.
+        name: Option<String>,
         services: Option<HashMap<String, serde_yaml::Value>>,
     }
 
-    let parsed: ComposeFile = serde_yaml::from_str(&content)
-        .map_err(|e| format!("Failed to parse compose file: {e}"))?;
+    let parsed: ComposeFile = serde_yaml::from_str(content).ok()?;
+    let services = parsed.services?;
+    if services.is_empty() {
+        return None;
+    }
+    let dir = parent_dir_of(path);
+    let mut names: Vec<String> = services.into_keys().collect();
+    names.sort();
+    Some(ComposeProject {
+        dir: dir.to_string(),
+        file: rel_path_of(path, root),
+        name: parsed
+            .name
+            .unwrap_or_else(|| normalize_project_name(file_name_of(dir))),
+        services: names.into_iter().map(|name| ComposeService { name }).collect(),
+    })
+}
 
-    Ok(parsed
-        .services
-        .unwrap_or_default()
-        .keys()
-        .map(|name| ComposeService {
-            name: name.clone(),
-        })
-        .collect())
+/// Find every compose file in the project (root + two levels, #221) and read
+/// the services out of each. Discovery and the batched read are the same
+/// helpers the task panel uses, so WSL still costs one round trip each.
+#[tauri::command]
+pub async fn docker_compose_discover(
+    root: String,
+    shell: ShellConfig,
+) -> Result<Vec<ComposeProject>, String> {
+    tokio::task::spawn_blocking(move || {
+        let sep = if root.contains('/') { "/" } else { "\\" };
+        let mut paths = walk_files_by_name(&shell, &root, COMPOSE_FILE_NAMES, MAX_DEPTH);
+        // Committed vendor trees aren't gitignored and this walk doesn't consult
+        // git anyway, so drop them the way task discovery does.
+        paths.retain(|p| !p.split(['/', '\\']).any(|seg| seg == "vendor"));
+        // Compose reads one file per directory, so keep the first name of its
+        // precedence list and drop the rest of that directory's matches.
+        let rank = |p: &str| {
+            COMPOSE_FILE_NAMES
+                .iter()
+                .position(|n| n.eq_ignore_ascii_case(file_name_of(p)))
+                .unwrap_or(usize::MAX)
+        };
+        paths.sort_by(|a, b| (parent_dir_of(a), rank(a)).cmp(&(parent_dir_of(b), rank(b))));
+        paths.dedup_by(|a, b| parent_dir_of(a) == parent_dir_of(b));
+        paths.truncate(MAX_COMPOSE_FILES);
+
+        let contents = batch_read_files(&shell, &root, sep, &paths);
+        let mut projects: Vec<ComposeProject> = paths
+            .iter()
+            .zip(contents)
+            .filter_map(|(path, content)| parse_compose_file(&root, path, &content?))
+            .collect();
+        // The root's own compose file first, then the nested ones by path.
+        // `rel_path_of` normalizes to `/`, so counting that one separator is
+        // the depth.
+        projects.sort_by(|a, b| {
+            (a.file.matches('/').count(), &a.file).cmp(&(b.file.matches('/').count(), &b.file))
+        });
+        Ok(projects)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -219,6 +291,7 @@ pub async fn docker_list_containers(
             status: c.status.unwrap_or_default(),
             compose_service: labels.get("com.docker.compose.service").cloned(),
             compose_project: labels.get("com.docker.compose.project").cloned(),
+            compose_working_dir: labels.get("com.docker.compose.project.working_dir").cloned(),
         });
     }
     Ok(result)
@@ -391,4 +464,50 @@ pub async fn docker_logs_stop(
         handle.abort();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_project_name, parse_compose_file};
+
+    #[test]
+    fn project_name_matches_compose_normalization() {
+        // Verified against running containers: the dashes survive.
+        assert_eq!(
+            normalize_project_name("screenshot-com-440-seed-293c2893"),
+            "screenshot-com-440-seed-293c2893"
+        );
+        assert_eq!(normalize_project_name("My_App"), "my_app");
+        // Everything outside [a-z0-9_-] is dropped, and leading _/- trimmed.
+        assert_eq!(normalize_project_name("app.v2"), "appv2");
+        assert_eq!(normalize_project_name("_hidden"), "hidden");
+        assert_eq!(normalize_project_name("日本語"), "");
+    }
+
+    #[test]
+    fn reads_services_and_derives_the_group() {
+        let yaml = "services:\n  web:\n    image: nginx\n  db:\n    image: mysql\n";
+        let p = parse_compose_file("/home/kan/repo", "/home/kan/repo/apps/web/compose.yml", yaml)
+            .expect("a compose file with services");
+        assert_eq!(p.dir, "/home/kan/repo/apps/web");
+        assert_eq!(p.file, "apps/web/compose.yml");
+        assert_eq!(p.name, "web");
+        // Sorted, so the panel's order does not depend on YAML map iteration.
+        assert_eq!(p.services.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["db", "web"]);
+    }
+
+    #[test]
+    fn top_level_name_wins_over_the_directory() {
+        let yaml = "name: custom\nservices:\n  web:\n    image: nginx\n";
+        let p = parse_compose_file("C:\\repo", "C:\\repo\\compose.yml", yaml).unwrap();
+        assert_eq!(p.name, "custom");
+        assert_eq!(p.file, "compose.yml");
+    }
+
+    #[test]
+    fn files_without_services_are_skipped() {
+        assert!(parse_compose_file("/r", "/r/compose.yml", "services:\n").is_none());
+        assert!(parse_compose_file("/r", "/r/compose.yml", "volumes:\n  db:\n").is_none());
+        assert!(parse_compose_file("/r", "/r/compose.yml", "\t- not: yaml\n  bad").is_none());
+    }
 }

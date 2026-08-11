@@ -85,7 +85,7 @@ export const useWorktreeStore = defineStore('worktree', () => {
       git.loadBranches(),
       git.loadRemoteUrl(),
       tasks.refresh(),
-      docker.refreshComposeServices(),
+      docker.refreshComposeProjects(),
     ])
   }
 

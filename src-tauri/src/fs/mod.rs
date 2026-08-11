@@ -27,6 +27,27 @@ pub fn file_name_of(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
+/// Everything before the last separator; empty for a bare file name.
+pub fn parent_dir_of(path: &str) -> &str {
+    path.rsplit_once(['/', '\\']).map(|(dir, _)| dir).unwrap_or("")
+}
+
+/// `path` relative to `root`, always with `/` separators so the frontend can
+/// display and split it the same way on both platforms. (`diagnostics::rel_path`
+/// is the sibling that keeps the native separator, because its output is fed
+/// back to tools rather than shown.)
+pub fn rel_path_of(path: &str, root: &str) -> String {
+    let rel = path
+        .strip_prefix(root)
+        .map(|r| r.trim_start_matches(['/', '\\']))
+        .unwrap_or(path);
+    if rel.contains('\\') {
+        rel.replace('\\', "/")
+    } else {
+        rel.to_string()
+    }
+}
+
 /// Read multiple files, missing or unreadable ones coming back as `None`. For
 /// WSL, batches every read into a single wsl.exe invocation — the round trip
 /// dominates, so reading files one at a time costs ~200ms each. Relative paths

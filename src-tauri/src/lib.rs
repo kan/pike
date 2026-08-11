@@ -1315,7 +1315,7 @@ pub fn run() {
             watcher::fs_watch_start,
             watcher::fs_watch_stop,
             docker::docker_ping,
-            docker::docker_compose_services,
+            docker::docker_compose_discover,
             docker::docker_list_containers,
             docker::docker_start,
             docker::docker_stop,

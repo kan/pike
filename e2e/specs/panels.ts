@@ -211,10 +211,25 @@ describe('screenshots: pull/push option menu', () => {
 })
 
 // --- Docker パネル ---------------------------------------------------------
-// composeProjectName は root ディレクトリ名（demo-app）を小文字化し非英数字を
-// 除去した "demoapp"。container.composeProject をこれに揃えるとサービス行に紐づく。
+// compose ファイルごとにグループを出す（#221）。コンテナの紐付けは Compose 自身が
+// 記録する composeWorkingDir と group.dir の一致で決まるので、擬似プロジェクトの
+// root（C:/Users/dev/demo-app）に揃える。ネストしたグループも 1 つ置いて、
+// モノレポ構成の見え方を撮影に含める。
 
-const DOCKER_SERVICES = [{ name: 'web' }, { name: 'db' }, { name: 'redis' }]
+const DOCKER_COMPOSE_PROJECTS = [
+  {
+    dir: 'C:/Users/dev/demo-app',
+    file: 'compose.yml',
+    name: 'demo-app',
+    services: [{ name: 'web' }, { name: 'db' }, { name: 'redis' }],
+  },
+  {
+    dir: 'C:/Users/dev/demo-app/apps/api',
+    file: 'apps/api/compose.yml',
+    name: 'api',
+    services: [{ name: 'worker' }],
+  },
+]
 
 const DOCKER_CONTAINERS = {
   containers: [
@@ -225,7 +240,8 @@ const DOCKER_CONTAINERS = {
       state: 'running',
       status: 'Up 12 minutes',
       composeService: 'web',
-      composeProject: 'demoapp',
+      composeProject: 'demo-app',
+      composeWorkingDir: 'C:/Users/dev/demo-app',
     },
     {
       id: 'c0ffee02',
@@ -234,7 +250,8 @@ const DOCKER_CONTAINERS = {
       state: 'running',
       status: 'Up 12 minutes (healthy)',
       composeService: 'db',
-      composeProject: 'demoapp',
+      composeProject: 'demo-app',
+      composeWorkingDir: 'C:/Users/dev/demo-app',
     },
     {
       id: 'c0ffee03',
@@ -243,7 +260,8 @@ const DOCKER_CONTAINERS = {
       state: 'exited',
       status: 'Exited (0) 3 minutes ago',
       composeService: 'redis',
-      composeProject: 'demoapp',
+      composeProject: 'demo-app',
+      composeWorkingDir: 'C:/Users/dev/demo-app',
     },
   ],
   tunnels: [{ tunnelId: 't1', targetId: 'c0ffee01', targetPort: 80, localPort: 49160 }],
@@ -251,7 +269,7 @@ const DOCKER_CONTAINERS = {
 
 async function mockDocker(): Promise<void> {
   await mockInvoke('docker_ping', true)
-  await mockInvoke('docker_compose_services', DOCKER_SERVICES)
+  await mockInvoke('docker_compose_discover', DOCKER_COMPOSE_PROJECTS)
   await mockInvoke('docker_list_containers', DOCKER_CONTAINERS)
 }
 

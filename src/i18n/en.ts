@@ -339,7 +339,6 @@ export default {
   // Docker Panel
   'docker.notReachable': 'Docker not reachable',
   'docker.noCompose': 'No compose file found',
-  'docker.services': 'Services',
   'docker.notCreated': 'not created',
   'docker.start': 'Start',
   'docker.stop': 'Stop',
@@ -352,6 +351,7 @@ export default {
   'docker.openBrowser': 'Open in browser',
   'docker.stopForward': 'Stop port forwarding',
   'docker.orphanTunnels': 'Other forwards',
+  'docker.openComposeFile': 'Open compose file',
   'docker.composeUp': 'docker compose up',
   'docker.composeDown': 'docker compose down',
   'docker.composeUpConfirm': 'Run "docker compose up -d"?',
