@@ -20,7 +20,7 @@ import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
 import { minimap } from '../../lib/editorMinimap'
-import { editorSearch, searchKeymap } from '../../lib/editorSearch'
+import { editorSearch, replaceKeymap, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { formatLineRange } from '../../lib/format'
@@ -802,6 +802,11 @@ function createEditorView(container: HTMLElement, content: string) {
     extensions.push(
       keymap.of([
         ...searchKeymap,
+        ...replaceKeymap,
+        // CodeMirror's own redo is `Mod-y` plus a Linux-only `Ctrl-Shift-z`, so
+        // on Windows the Ctrl+Shift+Z every shortcut list here advertises did
+        // nothing. Both work now.
+        { key: 'Mod-Shift-z', run: redo, preventDefault: true },
         ...historyKeymap,
         ...defaultKeymap,
         indentWithTab,
@@ -816,6 +821,8 @@ function createEditorView(container: HTMLElement, content: string) {
     )
   } else {
     extensions.push(EditorState.readOnly.of(true))
+    // No `replaceKeymap` here on purpose: search is useful in a read-only view,
+    // replace has nothing to write to.
     extensions.push(keymap.of([...searchKeymap, ...historyKeymap, ...defaultKeymap]))
   }
   if (lang) extensions.push(lang)

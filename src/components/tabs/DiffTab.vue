@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CaseSensitive, ChevronDown, ChevronUp, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { normalizedKey } from '../../composables/useKeyboardShortcuts'
 import { useI18n } from '../../i18n'
 import { parseDiff } from '../../lib/diffParser'
 import { collectMatches, renderTokens } from '../../lib/diffSearch'
@@ -127,7 +128,7 @@ function onSearchKeydown(e: KeyboardEvent) {
 // Tabs stay mounted (v-show), so only react to Ctrl+F when this diff tab is the
 // active one — otherwise every mounted DiffTab would grab the shortcut.
 function onKeydown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && normalizedKey(e) === 'f') {
     if (tabStore.activeTabId !== props.tabId) return
     e.preventDefault()
     openSearch()

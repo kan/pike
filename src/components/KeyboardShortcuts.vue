@@ -20,50 +20,75 @@ function onKeyDown(e: KeyboardEvent) {
 
 interface ShortcutSection {
   title: string
-  items: { keys: string; label: string }[]
+  /** `keys` is a list of interchangeable chords; the row renders `/` between
+   *  them and a `<kbd>` per `+`-separated part of each. */
+  items: { keys: string[]; label: string }[]
+}
+
+/** `Ctrl+Shift+Z` → three chips. A chord that *is* `+` stays one chip. */
+function chordParts(chord: string): string[] {
+  const parts = chord.split('+').filter(Boolean)
+  return parts.length > 0 ? parts : [chord]
 }
 
 const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.general'),
     items: [
-      { keys: 'Ctrl+P', label: t('shortcuts.quickOpen') },
-      { keys: 'Ctrl+Shift+P', label: t('shortcuts.projectSwitcher') },
-      { keys: 'Ctrl+K', label: t('shortcuts.keyboardShortcuts') },
-      { keys: 'Ctrl+,', label: t('shortcuts.settings') },
-      { keys: 'F1', label: t('shortcuts.manual') },
+      { keys: ['Ctrl+P'], label: t('shortcuts.quickOpen') },
+      { keys: ['Ctrl+Shift+P'], label: t('shortcuts.projectSwitcher') },
+      { keys: ['Ctrl+Enter'], label: t('shortcuts.openInNewWindow') },
+      { keys: ['Ctrl+K'], label: t('shortcuts.keyboardShortcuts') },
+      { keys: ['Ctrl+,'], label: t('shortcuts.settings') },
+      { keys: ['F1'], label: t('shortcuts.manual') },
+      { keys: ['Esc'], label: t('shortcuts.closeOverlay') },
     ],
   },
   {
     title: t('shortcuts.tabs'),
     items: [
-      { keys: 'Ctrl+N', label: t('shortcuts.newFile') },
-      { keys: 'Ctrl+T', label: t('shortcuts.newTerminal') },
-      { keys: 'Ctrl+W', label: t('shortcuts.closeTab') },
-      { keys: 'Ctrl+Tab', label: t('shortcuts.nextTab') },
-      { keys: 'Ctrl+Shift+Tab', label: t('shortcuts.prevTab') },
-      { keys: 'Ctrl+PageDown', label: t('shortcuts.nextTab') },
-      { keys: 'Ctrl+PageUp', label: t('shortcuts.prevTab') },
+      { keys: ['Ctrl+N'], label: t('shortcuts.newFile') },
+      { keys: ['Ctrl+T'], label: t('shortcuts.newTerminal') },
+      { keys: ['Ctrl+W'], label: t('shortcuts.closeTab') },
+      { keys: ['Ctrl+Tab'], label: t('shortcuts.nextTab') },
+      { keys: ['Ctrl+Shift+Tab'], label: t('shortcuts.prevTab') },
+      { keys: ['Ctrl+PageDown'], label: t('shortcuts.nextTab') },
+      { keys: ['Ctrl+PageUp'], label: t('shortcuts.prevTab') },
     ],
   },
   {
     title: t('shortcuts.editor'),
     items: [
-      { keys: 'Ctrl+S', label: t('shortcuts.save') },
-      { keys: 'Ctrl+Z', label: t('shortcuts.undo') },
-      { keys: 'Ctrl+Shift+Z', label: t('shortcuts.redo') },
-      { keys: 'Ctrl+F', label: t('shortcuts.find') },
-      { keys: 'Ctrl+H', label: t('shortcuts.findReplace') },
-      { keys: 'Ctrl+Click', label: t('shortcuts.jumpToDefinition') },
-      { keys: 'F12', label: t('shortcuts.jumpToDefinition') },
-      { keys: 'Alt+H', label: t('shortcuts.gitHistory') },
+      { keys: ['Ctrl+S'], label: t('shortcuts.save') },
+      { keys: ['Ctrl+Z'], label: t('shortcuts.undo') },
+      { keys: ['Ctrl+Shift+Z', 'Ctrl+Y'], label: t('shortcuts.redo') },
+      { keys: ['Ctrl+F'], label: t('shortcuts.find') },
+      { keys: ['Ctrl+H'], label: t('shortcuts.findReplace') },
+      { keys: ['F3', 'Shift+F3'], label: t('shortcuts.findNextPrev') },
+      { keys: ['Ctrl+D'], label: t('shortcuts.selectNextMatch') },
+      { keys: ['Ctrl+/'], label: t('shortcuts.toggleComment') },
+      { keys: ['Alt+↑', 'Alt+↓'], label: t('shortcuts.moveLine') },
+      { keys: ['Tab', 'Shift+Tab'], label: t('shortcuts.indent') },
+      { keys: ['Ctrl+Click'], label: t('shortcuts.jumpToDefinition') },
+      { keys: ['F12'], label: t('shortcuts.jumpToDefinition') },
+      { keys: ['Alt+H'], label: t('shortcuts.gitHistory') },
     ],
   },
   {
     title: t('shortcuts.terminal'),
     items: [
-      { keys: t('shortcuts.selectText'), label: t('shortcuts.selectCopy') },
-      { keys: t('shortcuts.rightClick'), label: t('shortcuts.rightClickPaste') },
+      { keys: [t('shortcuts.selectText')], label: t('shortcuts.selectCopy') },
+      { keys: [t('shortcuts.rightClick')], label: t('shortcuts.rightClickPaste') },
+      { keys: ['Ctrl+V', 'Ctrl+Shift+V'], label: t('shortcuts.paste') },
+    ],
+  },
+  {
+    title: t('shortcuts.imagePreview'),
+    items: [
+      { keys: ['+', '-'], label: t('shortcuts.zoom') },
+      { keys: ['0'], label: t('shortcuts.zoomReset') },
+      { keys: ['f'], label: t('shortcuts.zoomFit') },
+      { keys: ['r', 'Shift+R'], label: t('shortcuts.rotate') },
     ],
   },
 ])
@@ -85,10 +110,13 @@ const sections = computed<ShortcutSection[]>(() => [
         <div class="shortcuts-body">
           <div v-for="section in sections" :key="section.title" class="shortcut-section">
             <h4 class="section-title">{{ section.title }}</h4>
-            <div v-for="item in section.items" :key="item.keys" class="shortcut-row">
+            <div v-for="item in section.items" :key="item.keys.join('+')" class="shortcut-row">
               <span class="shortcut-label">{{ item.label }}</span>
               <span class="shortcut-keys">
-                <kbd v-for="(part, i) in item.keys.split('+')" :key="i">{{ part }}</kbd>
+                <template v-for="(chord, ci) in item.keys" :key="ci">
+                  <span v-if="ci > 0" class="shortcut-or">/</span>
+                  <kbd v-for="(part, i) in chordParts(chord)" :key="i">{{ part }}</kbd>
+                </template>
               </span>
             </div>
           </div>
@@ -188,7 +216,15 @@ const sections = computed<ShortcutSection[]>(() => [
 
 .shortcut-keys {
   display: flex;
+  align-items: center;
   gap: 3px;
+}
+
+/* Separates interchangeable chords, so the chips stay one-key-per-box. */
+.shortcut-or {
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 0 1px;
 }
 
 kbd {

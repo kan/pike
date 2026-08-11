@@ -164,8 +164,8 @@ async function openDiffTab(path: string, staged: boolean, untracked = false) {
   tabStore.addDiffTab({ filePath: path, diff, staged })
 }
 
-// Open the working-tree copy of a conflicted file so the user can resolve the
-// conflict markers in the editor. (Resolution tooling itself is out of scope — issue #95.)
+// Open the working-tree copy of a conflicted file. The editor is where the
+// markers get resolved, by hand or with the per-region buttons (#223).
 async function openConflictFile(path: string) {
   const root = projectStore.activeRoot
   if (!root) return

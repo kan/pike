@@ -681,9 +681,15 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - xterm は Ctrl+V を SYN(`\x16`) として食うため `attachCustomKeyEventHandler` で横取り。右クリック/Ctrl+V は `navigator.clipboard.read()` 経由だが、この API は**画像とテキストのみ**返す（任意ファイルは取得不可）→ ターミナルへの任意ファイル投入は D&D が主経路
 - ファイルツリー / OS からのドラッグ&ドロップにも対応
 
-### ショートカット一覧モーダル
-- `components/KeyboardShortcuts.vue` + `composables/useShortcutsModal.ts`。登録済みショートカットの一覧を表示
-- WebView リロード抑止: `composables/useKeyboardShortcuts.ts` が Ctrl+R / Ctrl+Shift+R / F5 を `preventDefault`。誤操作でのリロード（全 PTY セッション破棄＝実質再起動）を防ぐ。ターミナルの Ctrl+R（bash 逆方向検索）は xterm がイベントを消費するため影響なし
+### キーボードショートカット
+- グローバルは `composables/useKeyboardShortcuts.ts`（window の keydown）。エディタ内は CodeMirror の keymap（`EditorTab.vue`）、ターミナルは xterm の `attachCustomKeyEventHandler`、各モーダルは自前の keydown と、**4 層に分かれている**。一覧は `components/KeyboardShortcuts.vue` + `composables/useShortcutsModal.ts`、マニュアルは `docs/manual/shortcuts-and-cli.md`。**キーを増やしたら 3 箇所（実装・モーダル・マニュアル）を揃える**
+- **`e.key` の英字は `normalizedKey`（`useKeyboardShortcuts.ts`）を通して比較する**。Caps Lock は `e.key` の大小を反転させるので、`'p'` のようなリテラル比較だけだと Caps 中に全滅する（棚卸しで実際に見つかった）。グローバル・PreviewTab・DiffTab の 3 箇所が共有する
+- **モーダルの `keys` は「候補コードの配列」**（`['Ctrl+Shift+Z', 'Ctrl+Y']`）。描画は `+` で `<kbd>` に割り、配列の区切りに `/` を入れる。1 文字列に `/` を混ぜると `split('+')` が壊れて `Z / Ctrl` のようなチップが出る
+- **CodeMirror 標準の redo は `Mod-y` と Linux 限定の `Ctrl-Shift-z`**。Windows が主対象なので `Mod-Shift-z` を明示的に足してある。足すまで、3 箇所で案内していた `Ctrl+Shift+Z` はどこでも効いていなかった
+- **`Ctrl+H`（置換）は `searchKeymap` に無い**。`editorSearch.ts` の `replaceKeymap` が `openSearchPanel` + `revealReplace` エフェクトで置換行を開く。パネル自体は元から置換行を持っていたが、キーバインドだけが無く、案内だけが 3 箇所にあった
+- **素のキーを見るハンドラは修飾キーを弾く**。`PreviewTab` の `switch (e.key)` は修飾を見ておらず、画像タブで `Ctrl+F` が fit、`Ctrl+R` が回転になっていた
+- グローバルショートカットはターミナルにフォーカスがあっても効く（`attachCustomKeyEventHandler` は Ctrl+V 以外を素通しし、window のハンドラに抑止が無い）。`Ctrl+K` などはシェルにも Pike にも届く。現状は仕様としてマニュアルに明記してある
+- WebView リロード抑止: Ctrl+R / Ctrl+Shift+R / F5 を `preventDefault`。誤操作でのリロード（全 PTY セッション破棄＝実質再起動）を防ぐ。ターミナルの Ctrl+R（bash 逆方向検索）は xterm がイベントを消費するため影響なし
 
 ### `pike --wait`（GIT_EDITOR 連携）
 - `src-tauri/src/wait.rs`。`GIT_EDITOR="pike.exe --wait"` でコミットメッセージ編集に対応

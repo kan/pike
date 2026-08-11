@@ -18,9 +18,9 @@ Pike は「AI エージェント × ターミナル」に特化した、**軽量
 | [はじめに](getting-started.md) | インストール・初回起動・画面構成・最初のプロジェクト登録 |
 | [プロジェクトとウィンドウ](projects-and-windows.md) | WSL / Windows プロジェクト、グループ、マルチウィンドウ、worktree |
 | [グローバルモード](global-mode.md) | プロジェクトに依らないウィンドウ。ファイルを開く、ターミナル専用、GIT_EDITOR 連携 |
-| [ターミナルと AI エージェント](terminal-and-agents.md) | ターミナル操作、シェル選択、エージェント補助ボタン、Claude Code / Codex チャット |
+| [ターミナルと AI エージェント](terminal-and-agents.md) | ターミナル操作、シェル選択、エージェント補助ボタン、セッション再開、Claude Code / Codex チャット |
 | [エディタとプレビュー](editor-and-preview.md) | コード編集、各種プレビュー、画像ビューア、定義ジャンプ、検索、文字コード |
-| [Git](git.md) | ステージング・コミット・push/pull、diff、コミットグラフ、コンフリクト、worktree |
+| [Git](git.md) | ステージング・コミット・push/pull、diff、コミットグラフ、止まった操作の再開、コンフリクトの解消、worktree |
 | [サイドバーパネル](panels.md) | ファイルツリー、検索、Docker、タスク、TODO、アウトライン、Problems、ファイル添付 |
 | [設定](settings.md) | 外観・フォント・UI サイズ、全般（トレイ常駐）、ターミナル、エディタ、エージェント、設定同期、更新 |
 | [ショートカットと CLI](shortcuts-and-cli.md) | キーボードショートカット、コマンドパレット、`pike` CLI、`--wait`、タスクバーとシステムトレイ |

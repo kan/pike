@@ -3,6 +3,7 @@ import {
   findNext,
   findPrevious,
   getSearchQuery,
+  openSearchPanel,
   replaceAll,
   replaceNext,
   SearchQuery,
@@ -10,7 +11,8 @@ import {
   searchKeymap,
   setSearchQuery,
 } from '@codemirror/search'
-import type { EditorView, Panel, ViewUpdate } from '@codemirror/view'
+import { StateEffect } from '@codemirror/state'
+import type { EditorView, KeyBinding, Panel, ViewUpdate } from '@codemirror/view'
 
 // Inline SVG icons (Lucide-based, 16x16)
 const ICON = {
@@ -28,6 +30,9 @@ const ICON = {
   chevronDownSmall:
     '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
 }
+
+/** Expand the replace row of an already-open panel (what `Ctrl+H` sends). */
+const revealReplace = StateEffect.define<null>()
 
 function createSearchPanel(view: EditorView): Panel {
   let showReplace = false
@@ -268,12 +273,13 @@ function createSearchPanel(view: EditorView): Panel {
     scheduleMatchInfo()
   })
 
-  toggleReplaceBtn.addEventListener('click', () => {
-    showReplace = !showReplace
-    replaceRow.style.display = showReplace ? '' : 'none'
-    toggleReplaceBtn.innerHTML = showReplace ? ICON.chevronDownSmall : ICON.chevronRight
-    if (showReplace) replaceInput.focus()
-  })
+  const setReplace = (on: boolean) => {
+    showReplace = on
+    replaceRow.style.display = on ? '' : 'none'
+    toggleReplaceBtn.innerHTML = on ? ICON.chevronDownSmall : ICON.chevronRight
+    if (on) replaceInput.focus()
+  }
+  toggleReplaceBtn.addEventListener('click', () => setReplace(!showReplace))
 
   return {
     dom,
@@ -284,6 +290,9 @@ function createSearchPanel(view: EditorView): Panel {
       requestAnimationFrame(() => commitQuery())
     },
     update(update: ViewUpdate) {
+      if (update.transactions.some((tr) => tr.effects.some((e) => e.is(revealReplace)))) {
+        setReplace(true)
+      }
       if (update.selectionSet || update.docChanged) {
         scheduleMatchInfo()
       }
@@ -295,5 +304,23 @@ function createSearchPanel(view: EditorView): Panel {
 export function editorSearch() {
   return search({ createPanel: createSearchPanel, top: true })
 }
+
+/**
+ * `Ctrl+H` — open the search panel with its replace row expanded. Replace has
+ * always been reachable through the chevron, but the binding the shortcut list
+ * and the manual both advertised was never bound to anything (`searchKeymap`
+ * has no `Mod-h`), so the key did nothing.
+ */
+export const replaceKeymap: KeyBinding[] = [
+  {
+    key: 'Mod-h',
+    preventDefault: true,
+    run: (view) => {
+      openSearchPanel(view)
+      view.dispatch({ effects: revealReplace.of(null) })
+      return true
+    },
+  },
+]
 
 export { searchKeymap }

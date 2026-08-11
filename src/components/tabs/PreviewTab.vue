@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { FlipHorizontal2, Grid2x2, Maximize2, RefreshCw, RotateCcw, RotateCw, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref } from 'vue'
+import { normalizedKey } from '../../composables/useKeyboardShortcuts'
 import { useI18n } from '../../i18n'
 import { useTabStore } from '../../stores/tabs'
 import type { PreviewTab } from '../../types/tab'
@@ -176,7 +177,11 @@ function onMouseUp() {
 onUnmounted(onMouseUp)
 
 function onKeyDown(e: KeyboardEvent) {
-  switch (e.key) {
+  // These are bare keys. Without this guard `Ctrl+F` fits the image instead of
+  // opening search, `Ctrl+R` rotates it, and `Ctrl+0` resets the zoom — the
+  // switch below only ever looked at `e.key`.
+  if (e.ctrlKey || e.altKey || e.metaKey) return
+  switch (normalizedKey(e)) {
     case '+':
     case '=':
       zoomIn()
