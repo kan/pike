@@ -18,9 +18,13 @@ pub fn silent_command(program: &str) -> Command {
 
 /// User-local binary paths to prepend to PATH when invoking WSL commands that
 /// may need to find user-installed binaries (signing programs, hooks,
-/// credential helpers). `bash -l` would pick these up via `.profile`, but we
-/// use `bash -c` (non-login) to avoid tty-related hangs.
-pub const WSL_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.cargo/bin:$HOME/go/bin:/usr/local/bin";
+/// credential helpers, language toolchains). `bash -l` would pick these up via
+/// `.profile`, but we use `bash -c` (non-login) to avoid tty-related hangs.
+///
+/// `/usr/local/go/bin` is where the official Go tarball installs, and only
+/// `.profile` puts it on PATH — without it `go vet` in the Problems panel found
+/// no `go` and reported an empty (not failed) run.
+pub const WSL_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.cargo/bin:$HOME/go/bin:/usr/local/bin:/usr/local/go/bin";
 
 /// Quote a string for safe interpolation into a `bash -c` command.
 /// Bash-specific (single-quote wrapping); NOT safe for cmd.exe or PowerShell.
