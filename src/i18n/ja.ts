@@ -201,7 +201,7 @@ export default {
     'Claude/Codex チャット入力でファイルを貼り付け/ドロップしたとき、テキストかつサイズ上限以下なら、アップロードせず内容を直接挿入します。上限超過・バイナリ（およびターミナルへのドロップ）は常に .pike/uploads/ に保存します。',
   'settings.inlineSmallTextThreshold': 'インライン展開のサイズ上限（バイト）',
   'settings.agentCommands': 'ターミナルのエージェントボタン',
-  'settings.agentCommandsHint': '現在のターミナルに注入するクイック起動コマンド（例: clear && claude）。',
+  'settings.agentCommandsHint': '現在のターミナルに注入するクイック起動コマンド（例: claude --continue）。',
   'settings.agentCommandLabel': 'ラベル',
   'settings.agentCommandCommand': 'コマンド',
   'settings.addAgentCommand': 'コマンドを追加',
