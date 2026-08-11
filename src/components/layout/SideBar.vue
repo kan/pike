@@ -244,7 +244,12 @@ const icons: IconDef[] = [
     // change count, so this rides along as an arrow in the opposite corner.
     marker: () => {
       const s = gitStore.status
-      if (!s || (!s.ahead && !s.behind)) return null
+      if (!s) return null
+      // A stopped rebase/merge outranks the arrows: a `git pull` that failed to
+      // sign leaves no conflicts and no change count, so this is the only sign
+      // of it while the panel is closed (#222).
+      if (s.operation) return { text: '!', title: t(`git.op.${s.operation.kind}`) }
+      if (!s.ahead && !s.behind) return null
       const parts: string[] = []
       if (s.ahead) parts.push(t('git.aheadInfo', { count: s.ahead }))
       if (s.behind) parts.push(t('git.behindInfo', { count: s.behind }))

@@ -47,6 +47,19 @@ export function isPowershellFamily(kind: string | undefined): boolean {
 }
 
 /**
+ * Run `next` only if `first` succeeded, in the given shell's syntax.
+ *
+ * `&&` covers cmd, the bash family and PowerShell 7, but **Windows PowerShell 5
+ * has no pipeline chain operator at all** — it is a parse error there, so that
+ * one shell gets an explicit exit-code test. `;` would not do: it runs `next`
+ * regardless, which for a retry-then-continue pair is exactly wrong.
+ */
+export function chainOnSuccess(first: string, next: string, shell?: ShellType): string {
+  if (shell?.kind === 'powershell') return `${first}; if ($LASTEXITCODE -eq 0) { ${next} }`
+  return `${first} && ${next}`
+}
+
+/**
  * Quote one argument of a command line for the given shell, so paths and URLs
  * with spaces (or `$`, backticks, …) reach the program unmangled. Single quotes
  * are literal in both bash and PowerShell — cmd.exe only understands double

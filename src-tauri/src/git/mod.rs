@@ -17,6 +17,35 @@ pub struct GitStatusResult {
     pub conflicted: Vec<GitFileChange>,
     pub ahead: u32,
     pub behind: u32,
+    /// A rebase/merge/… that git stopped in the middle of (#222). `None` when
+    /// the tree is not in the middle of one.
+    pub operation: Option<GitOperation>,
+}
+
+/// A git operation left half-finished in the working tree, as recorded by the
+/// state files in the gitdir. Detected on every status so the panel can offer
+/// continue/abort instead of leaving the user to work it out (#222).
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitOperation {
+    /// `rebase` | `merge` | `cherry-pick` | `revert` | `am` | `bisect`. Also the
+    /// git subcommand the frontend appends `--continue`/`--abort` to.
+    pub kind: String,
+    /// Branch being rebased. porcelain v2 reports `(detached)` during a rebase,
+    /// so this is the only place the real name survives.
+    pub branch: Option<String>,
+    /// Progress, when both numbers are known — never a half-read `0/0`.
+    pub step: Option<u32>,
+    pub total: Option<u32>,
+    /// `conflict` | `commit-failed` | `stopped`.
+    pub stop: String,
+    /// The commit a `commit-failed` rebase could not write, for `git commit -C`.
+    pub stopped_sha: Option<String>,
+    /// Its subject, so the confirm dialog can name what is about to be committed.
+    pub stopped_subject: Option<String>,
+    /// Whether `--continue` / `--abort` apply. Decided here rather than in the
+    /// panel so the guard sits next to the classification it depends on.
+    pub can_continue: bool,
 }
 
 #[derive(Serialize)]
@@ -69,6 +98,14 @@ fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, Str
     let mut full_args = vec!["-C", root];
     full_args.extend(args);
     shell.run_stdout("git", &full_args)
+}
+
+/// Like `run_git` but hands back the exit code and both streams, for the
+/// callers that need to say more than "it failed".
+fn run_git_full(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<(i32, String, String), String> {
+    let mut full_args = vec!["-C", root];
+    full_args.extend(args);
+    shell.run("git", &full_args)
 }
 
 /// Like `run_git` but returns stdout regardless of exit code. Used for
@@ -156,6 +193,7 @@ fn parse_status(output: &str) -> GitStatusResult {
         conflicted,
         ahead,
         behind,
+        operation: None,
     }
 }
 
@@ -229,18 +267,247 @@ pub async fn git_init(root: String, shell: ShellConfig) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
+/// State files that tell us which operation is half-finished, relative to the
+/// gitdir. Every one lives in the *per-worktree* gitdir, so a single
+/// `rev-parse --absolute-git-dir` resolves them all — including when `.git` is
+/// a file because the root is a linked worktree.
+///
+/// `rebase-merge/head-name` (and its `rebase-apply` twin) doubles as the
+/// "a rebase exists" marker. Note `rebase-merge/interactive` is written for a
+/// plain `git rebase` too, so it cannot be used to spot `-i` (measured).
+/// `(path, read contents)`. Most entries are pure markers — whether git wrote
+/// them is the whole signal — and `BISECT_LOG` in particular grows a block per
+/// bisect step, so only the files whose text is actually used get read.
+const OP_STATE_FILES: &[(&str, bool)] = &[
+    ("rebase-merge/head-name", true),
+    ("rebase-merge/msgnum", true),
+    ("rebase-merge/end", true),
+    ("rebase-merge/message", false),
+    ("rebase-merge/stopped-sha", false),
+    ("rebase-merge/done", true),
+    ("rebase-apply/head-name", true),
+    ("rebase-apply/next", true),
+    ("rebase-apply/last", true),
+    ("rebase-apply/applying", false),
+    ("MERGE_HEAD", false),
+    ("CHERRY_PICK_HEAD", false),
+    ("REVERT_HEAD", false),
+    ("BISECT_LOG", false),
+];
+
+/// Probed state: a key is present exactly when the file is. An *empty* file
+/// therefore maps to `""` — the distinction the `commit-failed` classification
+/// rests on, and the reason this is not `fs::batch_read_files` (that one trims
+/// contents and folds empty into "missing").
+type StateFiles = std::collections::HashMap<&'static str, String>;
+
+/// Read the status and the operation state in **one** `wsl.exe` spawn — the
+/// same trick `remote_urls_wsl` uses. A second round trip per 10 s poll is the
+/// one cost worth avoiding here; everything else about the probe is cheap.
+fn status_and_state_wsl(shell: &ShellConfig, root: &str) -> Result<(String, StateFiles), String> {
+    let q = bash_quote(root);
+    let mut script = format!(
+        "git -C {q} status --porcelain=v2 --branch --untracked-files=all || exit 1\n\
+         printf '{RS}'\n\
+         d=$(git -C {q} rev-parse --absolute-git-dir 2>/dev/null)\n"
+    );
+    for (name, read) in OP_STATE_FILES {
+        // One record per entry, in table order: `exists FS contents`. Positional
+        // like `remote_urls_wsl`, so the name never travels through the stream.
+        let cat = if *read { format!("cat \"$d/{name}\" 2>/dev/null; ") } else { String::new() };
+        script.push_str(&format!(
+            "if [ -e \"$d/{name}\" ]; then printf '1{FS}'; {cat}else printf '0{FS}'; fi; printf '{RS}'\n"
+        ));
+    }
+    let (code, mut stdout, stderr) = shell.run("bash", &["-c", &script])?;
+    if code != 0 {
+        return Err(format!("git error: {stderr}"));
+    }
+    let files = match stdout.find(RS) {
+        Some(at) => {
+            let files = parse_state_records(&stdout[at + RS.len()..]);
+            stdout.truncate(at);
+            files
+        }
+        None => StateFiles::new(),
+    };
+    Ok((stdout, files))
+}
+
+/// Windows: `git status`, then plain file reads. `.git` is a directory at the
+/// root for an ordinary repo, so ask git for the gitdir only when it is not —
+/// a linked worktree, a submodule, or a root below the top level. That keeps
+/// the common case at the one process spawn it has always been.
+fn status_and_state_native(shell: &ShellConfig, root: &str) -> Result<(String, StateFiles), String> {
+    let status = run_git(shell, root, &["status", "--porcelain=v2", "--branch", "--untracked-files=all"])?;
+    let plain = std::path::Path::new(root).join(".git");
+    let dir = if plain.is_dir() {
+        Some(plain)
+    } else {
+        run_git(shell, root, &["rev-parse", "--absolute-git-dir"])
+            .ok()
+            .map(|d| std::path::PathBuf::from(d.trim()))
+    };
+
+    let mut files = StateFiles::new();
+    if let Some(dir) = dir {
+        for (name, read) in OP_STATE_FILES {
+            let path = dir.join(name);
+            if *read {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    files.insert(name, text);
+                }
+            } else if path.try_exists().unwrap_or(false) {
+                files.insert(name, String::new());
+            }
+        }
+    }
+    Ok((status, files))
+}
+
+fn parse_state_records(rest: &str) -> StateFiles {
+    let mut files = StateFiles::new();
+    for ((name, _), record) in OP_STATE_FILES.iter().zip(rest.split(RS)) {
+        if let Some((exists, content)) = record.split_once(FS) {
+            if exists == "1" {
+                files.insert(name, content.to_string());
+            }
+        }
+    }
+    files
+}
+
+/// The `pick`-like rebase todo commands: those that produce a commit, and so
+/// the only ones a "the commit could not be written" recovery may target.
+/// `exec` and `break` stop *after* a successful commit — re-committing there
+/// would fabricate a commit carrying another one's author, date and message.
+fn is_commit_producing(command: &str) -> bool {
+    matches!(
+        command,
+        "pick" | "p" | "reword" | "r" | "edit" | "e" | "squash" | "s" | "fixup" | "f"
+    )
+}
+
+/// The commit a stopped rebase was working on, from the last line of
+/// `rebase-merge/done` (`pick <sha> # <subject>`). Measured against both stop
+/// kinds: when a conflict stops the rebase the todo is already empty, so `done`
+/// is the source that holds in every case. The trailing line may be a partial
+/// write (`done` is appended, not rewritten), hence the shape check.
+fn stopped_commit(done: &str) -> Option<(String, String)> {
+    let line = done.lines().rev().find(|l| !l.trim().is_empty())?;
+    let mut parts = line.trim().splitn(3, ' ');
+    let command = parts.next()?;
+    let sha = parts.next()?;
+    if !is_commit_producing(command) || !is_sha(sha) {
+        return None;
+    }
+    let subject = parts
+        .next()
+        .map(|rest| rest.trim_start_matches('#').trim().to_string())
+        .unwrap_or_default();
+    Some((sha.to_string(), subject))
+}
+
+/// The id goes into a shell command line, and it comes out of a file git wrote
+/// rather than from a command we ran — hold it to the hex alphabet.
+fn is_sha(value: &str) -> bool {
+    (7..=40).contains(&value.len()) && value.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn parse_operation(files: &StateFiles, has_conflicts: bool) -> Option<GitOperation> {
+    let content = |key: &str| files.get(key).map(String::as_str);
+    let exists = |key: &str| files.contains_key(key);
+    let number = |key: &str| content(key).and_then(|v| v.trim().parse::<u32>().ok());
+    let branch_of = |key: &str| {
+        content(key).map(|v| {
+            let v = v.trim();
+            v.strip_prefix("refs/heads/").unwrap_or(v).to_string()
+        })
+    };
+
+    let (kind, branch, step, total) = if exists("rebase-merge/head-name") {
+        (
+            "rebase",
+            branch_of("rebase-merge/head-name"),
+            number("rebase-merge/msgnum"),
+            number("rebase-merge/end"),
+        )
+    } else if exists("rebase-apply/head-name") {
+        // The old apply backend backs both `rebase` and `am`; `applying` is
+        // what tells them apart.
+        let kind = if exists("rebase-apply/applying") { "am" } else { "rebase" };
+        (
+            kind,
+            branch_of("rebase-apply/head-name"),
+            number("rebase-apply/next"),
+            number("rebase-apply/last"),
+        )
+    } else if exists("MERGE_HEAD") {
+        ("merge", None, None, None)
+    } else if exists("CHERRY_PICK_HEAD") {
+        ("cherry-pick", None, None, None)
+    } else if exists("REVERT_HEAD") {
+        ("revert", None, None, None)
+    } else if exists("BISECT_LOG") {
+        ("bisect", None, None, None)
+    } else {
+        return None;
+    };
+
+    // A rebase that stopped without conflicts and without writing `message` /
+    // `stopped-sha` did not stop *at* a commit — it failed to create one
+    // (signing, a hook). `git rebase --continue` refuses that state with "you
+    // have staged changes in your working tree", so the way out is to write the
+    // commit first. Measured against a forced signing failure.
+    let stopped = (kind == "rebase"
+        && !has_conflicts
+        && !exists("rebase-merge/message")
+        && !exists("rebase-merge/stopped-sha"))
+    .then(|| content("rebase-merge/done").and_then(stopped_commit))
+    .flatten();
+
+    let stop = if has_conflicts {
+        "conflict"
+    } else if stopped.is_some() {
+        "commit-failed"
+    } else {
+        "stopped"
+    };
+    let (stopped_sha, stopped_subject) = stopped.map_or((None, None), |(s, t)| (Some(s), Some(t)));
+    // Both halves of the progress, or neither: a half-written "0/0" is worse
+    // than showing nothing.
+    let (step, total) = step.zip(total).map_or((None, None), |(s, t)| (Some(s), Some(t)));
+
+    Some(GitOperation {
+        kind: kind.to_string(),
+        branch,
+        step,
+        total,
+        stop: stop.to_string(),
+        stopped_sha,
+        stopped_subject,
+        // `am` wants the mailbox and `bisect` wants good/bad; neither belongs
+        // behind a two-button banner, so the panel only labels those.
+        can_continue: matches!(kind, "rebase" | "merge" | "cherry-pick" | "revert"),
+    })
+}
+
 #[tauri::command]
 pub async fn git_status(
     root: String,
     shell: ShellConfig,
 ) -> Result<GitStatusResult, String> {
-    let output = tokio::task::spawn_blocking(move || {
-        run_git(&shell, &root, &["status", "--porcelain=v2", "--branch", "--untracked-files=all"])
+    let (output, files) = tokio::task::spawn_blocking(move || match &shell {
+        ShellConfig::Wsl { .. } => status_and_state_wsl(&shell, &root),
+        _ => status_and_state_native(&shell, &root),
     })
     .await
     .map_err(|e| e.to_string())??;
 
-    Ok(parse_status(&output))
+    let mut status = parse_status(&output);
+    // Never let the probe break the status the panel depends on.
+    status.operation = parse_operation(&files, !status.conflicted.is_empty());
+    Ok(status)
 }
 
 #[tauri::command]
@@ -707,7 +974,14 @@ pub async fn git_pull(
                 PullOption::FfOnly => "--ff-only",
             });
         }
-        run_git(&shell, &root, &args)
+        // Unlike every other git call, keep stdout when pull fails: a stopped
+        // merge/rebase writes `CONFLICT (content): Merge conflict in …` there,
+        // and `run_git` would hand back only the terse stderr half (#222).
+        let (code, stdout, stderr) = run_git_full(&shell, &root, &args)?;
+        if code == 0 {
+            return Ok(stdout);
+        }
+        Err(format!("git error: {}", format!("{stdout}{stderr}").trim()))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1085,5 +1359,167 @@ refs/tags/v1.0.0
     #[test]
     fn branch_refs_of_empty_repo_are_empty() {
         assert_eq!(parse_branch_refs(""), GitBranches::default());
+    }
+}
+
+#[cfg(test)]
+mod operation_tests {
+    use super::*;
+
+    /// Build the probe map. `(name, Some(content))` is a file git wrote (empty
+    /// contents included); `(name, None)` spells out an absent one, which the
+    /// map represents by having no key at all.
+    fn files(entries: &[(&str, Option<&str>)]) -> StateFiles {
+        entries
+            .iter()
+            .filter_map(|(name, content)| {
+                let key = OP_STATE_FILES.iter().find(|(n, _)| n == name)?.0;
+                Some((key, (*content)?.to_string()))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn no_state_files_means_no_operation() {
+        assert_eq!(parse_operation(&files(&[]), false), None);
+        // A plain detached HEAD (a checked-out tag) must not raise a banner.
+        assert_eq!(parse_operation(&files(&[("MERGE_HEAD", None)]), false), None);
+    }
+
+    #[test]
+    fn rebase_conflict_carries_progress_and_branch() {
+        // Measured layout of a conflict stop: message and stopped-sha written.
+        let op = parse_operation(
+            &files(&[
+                ("rebase-merge/head-name", Some("refs/heads/topic\n")),
+                ("rebase-merge/msgnum", Some("2\n")),
+                ("rebase-merge/end", Some("5\n")),
+                ("rebase-merge/message", Some("topic side\n")),
+                ("rebase-merge/stopped-sha", Some("3eb7a26\n")),
+            ]),
+            true,
+        )
+        .expect("an operation");
+        assert_eq!(op.kind, "rebase");
+        assert_eq!(op.branch.as_deref(), Some("topic"));
+        assert_eq!((op.step, op.total), (Some(2), Some(5)));
+        assert_eq!(op.stop, "conflict");
+        assert_eq!(op.stopped_sha, None);
+    }
+
+    #[test]
+    fn merge_is_detected_without_conflicts() {
+        // A plain `git pull` whose commit failed to sign: MERGE_HEAD is the only
+        // trace — HEAD is not detached and nothing is unmerged (measured).
+        let op = parse_operation(&files(&[("MERGE_HEAD", Some("abc\n"))]), false).unwrap();
+        assert_eq!(op.kind, "merge");
+        assert_eq!(op.stop, "stopped");
+        assert_eq!((op.step, op.total), (None, None));
+    }
+
+    #[test]
+    fn rebase_that_could_not_commit_offers_the_stopped_commit() {
+        let done = "pick 9a8060c672571cc0c1c6eeae67e99e2f516bcbbb # feat one\n";
+        let op = parse_operation(
+            &files(&[
+                ("rebase-merge/head-name", Some("refs/heads/feat\n")),
+                ("rebase-merge/msgnum", Some("1\n")),
+                ("rebase-merge/end", Some("3\n")),
+                ("rebase-merge/message", None),
+                ("rebase-merge/stopped-sha", None),
+                ("rebase-merge/done", Some(done)),
+            ]),
+            false,
+        )
+        .unwrap();
+        assert_eq!(op.stop, "commit-failed");
+        assert_eq!(
+            op.stopped_sha.as_deref(),
+            Some("9a8060c672571cc0c1c6eeae67e99e2f516bcbbb")
+        );
+        assert_eq!(op.stopped_subject.as_deref(), Some("feat one"));
+    }
+
+    #[test]
+    fn exec_and_break_stops_offer_no_recommit() {
+        // The commit already succeeded here, so re-committing would fabricate one
+        // carrying the next pick's author and message.
+        for done in ["exec make test\n", "break\n"] {
+            let op = parse_operation(
+                &files(&[
+                    ("rebase-merge/head-name", Some("refs/heads/feat\n")),
+                    ("rebase-merge/message", None),
+                    ("rebase-merge/stopped-sha", None),
+                    ("rebase-merge/done", Some(done)),
+                ]),
+                false,
+            )
+            .unwrap();
+            assert_eq!(op.stop, "stopped");
+            assert_eq!(op.stopped_sha, None);
+        }
+    }
+
+    #[test]
+    fn partial_done_line_is_rejected() {
+        // `done` is appended, so the last line can be caught mid-write.
+        assert_eq!(stopped_commit("pick 9a8060c6 # ok\npick 9a80"), None);
+        assert_eq!(stopped_commit(""), None);
+        assert_eq!(stopped_commit("pick zzzz # not hex"), None);
+    }
+
+    #[test]
+    fn apply_backend_splits_rebase_from_am() {
+        let am = parse_operation(
+            &files(&[
+                ("rebase-apply/head-name", Some("refs/heads/main\n")),
+                ("rebase-apply/applying", Some("")),
+                ("rebase-apply/next", Some("1\n")),
+                ("rebase-apply/last", Some("4\n")),
+            ]),
+            false,
+        )
+        .unwrap();
+        assert_eq!(am.kind, "am");
+        assert_eq!((am.step, am.total), (Some(1), Some(4)));
+
+        let rebase = parse_operation(
+            &files(&[("rebase-apply/head-name", Some("refs/heads/main\n"))]),
+            false,
+        )
+        .unwrap();
+        assert_eq!(rebase.kind, "rebase");
+    }
+
+    #[test]
+    fn half_read_progress_is_dropped() {
+        let op = parse_operation(
+            &files(&[
+                ("rebase-merge/head-name", Some("refs/heads/feat\n")),
+                ("rebase-merge/msgnum", Some("2\n")),
+            ]),
+            true,
+        )
+        .unwrap();
+        assert_eq!((op.step, op.total), (None, None));
+    }
+
+    #[test]
+    fn state_records_keep_empty_files_distinct_from_missing() {
+        // Records are positional, in OP_STATE_FILES order: `exists FS contents`.
+        // An empty file present (`1` with nothing after it) must not read as
+        // absent — the whole commit-failed classification turns on that.
+        let raw: String = OP_STATE_FILES
+            .iter()
+            .map(|(name, _)| match *name {
+                "rebase-merge/head-name" => format!("1{FS}refs/heads/feat\n{RS}"),
+                "rebase-merge/message" => format!("1{FS}{RS}"),
+                _ => format!("0{FS}{RS}"),
+            })
+            .collect();
+        let parsed = parse_state_records(&raw);
+        assert_eq!(parsed.get("rebase-merge/message"), Some(&String::new()));
+        assert_eq!(parsed.get("rebase-merge/head-name").unwrap(), "refs/heads/feat\n");
+        assert_eq!(parsed.get("rebase-merge/done"), None);
     }
 }

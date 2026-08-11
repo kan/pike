@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { confirmDialog } from '../composables/useConfirmDialog'
+import { t } from '../i18n'
 import {
   gitBranchList,
   gitCheckout,
@@ -18,7 +20,9 @@ import {
   gitUnstage,
 } from '../lib/tauri'
 import type { GitLogEntry, GitStatusResult, PullOption, PushOption } from '../types/git'
+import { chainOnSuccess } from '../types/tab'
 import { useProjectStore } from './project'
+import { useTabStore } from './tabs'
 
 /**
  * Local branch a remote-tracking branch maps to (`origin/foo` → `foo`). Only for
@@ -220,14 +224,78 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) return
     pulling.value = true
+    let failure: string | null = null
     try {
       await gitPull(getRoot(), project.shell, options)
-      await Promise.all([refreshStatus(), refreshLog()])
     } catch (e) {
-      error.value = String(e)
+      failure = String(e)
     } finally {
+      // Refresh either way: a pull that stopped on a conflict rejects, and its
+      // conflicts and the operation banner are exactly what the user needs to
+      // see now rather than after the next poll (#222).
+      await Promise.all([refreshStatus(), refreshLog()])
+      // ...and set the error only after, since a successful refresh clears it.
+      if (failure) error.value = failure
       pulling.value = false
     }
+  }
+
+  /**
+   * Run a recovery command for the stopped operation in a terminal tab, the way
+   * the task runner and compose do. Not a backend command on purpose:
+   * `git rebase --continue` opens $EDITOR, signing can raise a passphrase or
+   * 1Password prompt, and the backend's git calls have no TTY and die at 30s.
+   */
+  async function runRecovery(command: string) {
+    const project = getProject()
+    if (!project) return
+    // The operation may have finished in another terminal since the last poll.
+    await refreshStatus()
+    if (!status.value?.operation?.canContinue) return
+    useTabStore().runCommandTab(command, getRoot(), project.shell, {
+      keepOnError: true,
+      onExit: () => {
+        void refreshStatus()
+        void refreshLog()
+      },
+    })
+  }
+
+  /**
+   * Carry the stopped operation forward. A rebase that could not write its
+   * commit (signing, a hook) has to be handed that commit first: `git rebase
+   * --continue` refuses the state outright. `-C` keeps the original author and
+   * author date, which a plain re-commit would silently reset to now.
+   *
+   * Both commands are assembled from values the backend vouches for — `kind` is
+   * one of its own literals and `stoppedSha` passed `is_sha` — so nothing here
+   * needs quoting. Anything new interpolated into these lines does.
+   */
+  async function continueOperation() {
+    const op = status.value?.operation
+    if (!op?.canContinue) return
+    // git refuses `--continue` while anything is still unmerged; the panel
+    // disables the button for this, and the guard keeps other callers honest.
+    if (status.value?.conflicted.length) return
+    if (op.stop !== 'commit-failed' || !op.stoppedSha) {
+      await runRecovery(`git ${op.kind} --continue`)
+      return
+    }
+    // Two commands, and the second must not run if the commit failed again
+    // (the signing prompt was dismissed, say) — so chain in the shell's syntax.
+    const shell = getProject()?.shell
+    const command = chainOnSuccess(`git commit -C ${op.stoppedSha}`, `git ${op.kind} --continue`, shell)
+    const subject = op.stoppedSubject || op.stoppedSha.slice(0, 8)
+    if (!(await confirmDialog(t('git.recommitConfirm', { subject, command })))) return
+    await runRecovery(command)
+  }
+
+  async function abortOperation() {
+    const op = status.value?.operation
+    if (!op?.canContinue) return
+    const command = `git ${op.kind} --abort`
+    if (!(await confirmDialog(t('git.abortConfirm', { command })))) return
+    await runRecovery(command)
   }
 
   async function loadBranches() {
@@ -421,6 +489,8 @@ export const useGitStore = defineStore('git', () => {
     commitChanges,
     push,
     pull,
+    continueOperation,
+    abortOperation,
     loadBranches,
     refreshRemoteBranches,
     loadRemoteUrl,

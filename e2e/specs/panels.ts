@@ -86,6 +86,7 @@ const GIT_STATUS = {
   conflicted: [],
   ahead: 2,
   behind: 1,
+  operation: null,
 }
 
 // グラフ表示で複数レーン + マージが出るよう、feature ブランチを main へマージした
@@ -319,6 +320,7 @@ const FILE_TREE_STATUS = {
   conflicted: [],
   ahead: 0,
   behind: 0,
+  operation: null,
 }
 
 const FILE_TREE_README = ['# demo-app', '', 'AI エージェントとターミナルに特化した軽量開発環境のデモ。', ''].join('\n')

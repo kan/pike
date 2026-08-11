@@ -14,6 +14,25 @@ export interface GitStatusResult {
   conflicted: GitFileChange[]
   ahead: number
   behind: number
+  /** A rebase/merge/… git stopped in the middle of (#222); null when idle. */
+  operation: GitOperation | null
+}
+
+/** A half-finished git operation, read from the state files in the gitdir. */
+export interface GitOperation {
+  /** Also the git subcommand `--continue` / `--abort` are appended to. */
+  kind: 'rebase' | 'merge' | 'cherry-pick' | 'revert' | 'am' | 'bisect'
+  /** Branch being rebased — `status.branch` reports `(detached)` meanwhile. */
+  branch: string | null
+  /** Both set, or both null: a half-read `0/0` is worse than no progress. */
+  step: number | null
+  total: number | null
+  stop: 'conflict' | 'commit-failed' | 'stopped'
+  /** The commit a `commit-failed` rebase could not write (`git commit -C`). */
+  stoppedSha: string | null
+  stoppedSubject: string | null
+  /** Whether `--continue` / `--abort` apply — false for `am` and `bisect`. */
+  canContinue: boolean
 }
 
 export interface GitLogEntry {

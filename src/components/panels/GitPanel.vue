@@ -56,6 +56,30 @@ async function onInit() {
   }
 }
 
+// --- Stopped operation banner (#222) ---------------------------------------
+// `am` and `bisect` are reported too, so a stopped merge is never mislabeled as
+// a rebase; the backend's `canContinue` says which kinds get buttons.
+const operation = computed(() => gitStore.status?.operation ?? null)
+
+const operationTitle = computed(() => {
+  const op = operation.value
+  if (!op) return ''
+  const progress = op.step && op.total ? ` (${op.step}/${op.total})` : ''
+  return `${t(`git.op.${op.kind}`)}${op.branch ? ` — ${op.branch}` : ''}${progress}`
+})
+
+const operationHint = computed(() => (operation.value ? t(`git.opHint.${operation.value.stop}`) : ''))
+
+const continueLabel = computed(() =>
+  operation.value?.stop === 'commit-failed' ? t('git.opRecommit') : t('git.opContinue'),
+)
+
+// Every `--continue` refuses outright while paths are still unmerged ("You must
+// edit all merge conflicts and then mark them as resolved using git add"), so
+// the button waits for the staging the hint asks for rather than handing the
+// user that error.
+const continueBlocked = computed(() => (gitStore.status?.conflicted.length ?? 0) > 0)
+
 const graphRows = computed(() => buildGraph(gitStore.logEntries))
 
 // Compute set of unpushed commit hashes by following first-parent chain from HEAD
@@ -413,11 +437,32 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <template v-else-if="gitStore.error">
+    <!-- Only when there is no status to show: an error must not take the panel
+         away from a stopped rebase, which is when it is needed most (#222). -->
+    <template v-else-if="gitStore.error && !gitStore.status">
       <div class="empty">{{ gitStore.error }}</div>
     </template>
 
     <template v-else-if="gitStore.status">
+      <div v-if="gitStore.error" class="error-strip" :title="gitStore.error">{{ gitStore.error }}</div>
+
+      <!-- A rebase/merge/… git stopped in the middle of (#222) -->
+      <div v-if="operation" class="op-banner">
+        <div class="op-title">{{ operationTitle }}</div>
+        <p class="no-repo-msg">{{ operationHint }}</p>
+        <div v-if="operation.canContinue" class="op-actions">
+          <button
+            class="commit-btn"
+            :disabled="continueBlocked"
+            :title="continueBlocked ? t('git.opContinueBlocked') : ''"
+            @click="gitStore.continueOperation()"
+          >
+            {{ continueLabel }}
+          </button>
+          <button class="op-btn" @click="gitStore.abortOperation()">{{ t('git.opAbort') }}</button>
+        </div>
+      </div>
+
       <!-- Commit -->
       <div class="commit-section">
         <textarea
@@ -724,6 +769,54 @@ onUnmounted(() => {
   color: var(--text-secondary);
   text-align: center;
   padding: 2px 0;
+}
+
+/* A git error alongside a usable status: a strip, never the whole panel (#222). */
+.error-strip {
+  padding: 4px 8px;
+  border-left: 2px solid var(--danger);
+  background: var(--bg-tertiary);
+  color: var(--danger);
+  font-size: 11px;
+  max-height: 4.5em;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+
+.op-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 8px;
+  border-left: 2px solid var(--git-modify);
+  background: var(--bg-tertiary);
+}
+
+.op-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.op-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* The secondary half of the pair; the primary one reuses `.commit-btn`. */
+.op-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.op-btn:hover {
+  filter: brightness(1.15);
 }
 
 .file-section {
