@@ -128,7 +128,9 @@ export interface AgentEventTokenUsage {
 export interface AgentEventReasoning {
   type: 'reasoning'
   itemId: string
-  summary: string | null
+  summary: string
+  /** Append to what's already there (thinking arrives in chunks) vs replace it (a plan). */
+  append: boolean
 }
 
 export interface AgentEventDisconnected {

@@ -198,6 +198,98 @@ fn item_type_for(tool_call: &serde_json::Value) -> String {
     }
 }
 
+/// ツール呼び出しの `content[]` からテキストを集める。ToolCallContent の中身は
+/// メッセージ本文と同じ ContentBlock なので `content_block_text` で読める。diff や
+/// terminal の要素はテキストを持たないので落ちる。
+fn tool_call_output(tool_call: &serde_json::Value) -> String {
+    let Some(items) = tool_call.get("content").and_then(|v| v.as_array()) else {
+        return String::new();
+    };
+    items
+        .iter()
+        .map(content_block_text)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// ACP のツール呼び出しを、チャット UI が読むキーに寄せる。
+///
+/// UI（`AgentChatTab.vue`）は Codex 由来の `command` / `output` / `filePath` を見る。
+/// ACP の生の更新をそのまま渡していたころは、どのキーも無いので**コマンド名も出力も
+/// 出ず、項目を開いても空**だった（#227 の対応中に発見）。
+///
+/// **`title` をコマンドとして渡さない**。最初のツール呼び出しは入力が流れきる前に来る
+/// ので、Bash の title はまだ "Terminal"（アダプタのフォールバック）でしかなく、それを
+/// command にするとそのラベルが確定値として残る。`title` 自体は別のキーで渡し、
+/// コマンドが決まるまでの表示は UI 側でそちらに落とす。
+fn tool_call_data(tool_call: &serde_json::Value) -> serde_json::Value {
+    let mut data = serde_json::Map::new();
+    let raw = tool_call.get("rawInput");
+
+    if let Some(command) = raw.and_then(|v| v.get("command")).and_then(|v| v.as_str()) {
+        data.insert("command".into(), json!(command));
+    }
+
+    let file_path = raw
+        .and_then(|v| v.get("file_path").or_else(|| v.get("path")))
+        .and_then(|v| v.as_str())
+        .or_else(|| {
+            tool_call
+                .get("locations")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|l| l.get("path"))
+                .and_then(|v| v.as_str())
+        });
+    if let Some(file_path) = file_path {
+        data.insert("filePath".into(), json!(file_path));
+    }
+
+    let output = tool_call_output(tool_call);
+    if !output.is_empty() {
+        data.insert("output".into(), json!(output));
+    }
+    if let Some(title) = tool_call.get("title").and_then(|v| v.as_str()) {
+        data.insert("title".into(), json!(title));
+    }
+    serde_json::Value::Object(data)
+}
+
+/// `session/update` が運ぶ ContentBlock からテキストを取り出す。ACP は
+/// `{ "type": "text", "text": "…" }` の形で送る（メッセージ本文と thinking で共通）。
+/// 素の文字列も受けるのは、そう送ってくる ACP エージェント向けの保険。
+fn content_block_text(update: &serde_json::Value) -> String {
+    update
+        .get("content")
+        .and_then(|v| v.get("text").and_then(|t| t.as_str()).or_else(|| v.as_str()))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// ACP の plan（`entries[]`）を markdown のチェックリストに畳む。
+///
+/// チェックボックスは `[x]` と `[ ]` だけにする。GFM のタスクリストはこの 2 つしか
+/// 認識せず、`[-]` のような第 3 のマーカーを混ぜるとその行だけ生の文字列で描かれて
+/// 見た目が割れる。実行中の項目は太字で示す。
+fn plan_summary(update: &serde_json::Value) -> String {
+    let Some(entries) = update.get("entries").and_then(|v| v.as_array()) else {
+        return String::new();
+    };
+    entries
+        .iter()
+        .filter_map(|e| {
+            let content = e.get("content").and_then(|v| v.as_str())?;
+            Some(match e.get("status").and_then(|v| v.as_str()) {
+                Some("completed") => format!("- [x] {content}"),
+                Some("in_progress") => format!("- [ ] **{content}**"),
+                _ => format!("- [ ] {content}"),
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// コマンド / ファイル変更の承認は Pike の決まった 4 択なので、対応する `kind` の
 /// 選択肢を探す。該当が無ければ `None`（呼び出し側は `cancelled` で応答する）。
 /// 近そうな選択肢で代用はしない — 拒否のつもりが許可になりかねない。
@@ -1009,21 +1101,11 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
 
     match update_type {
         // Agent message chunk (streaming text)
-        // ACP sends content as {"text": "...", "type": "text"} or as a plain string
         "agent_message_chunk" | "message" => {
-            let text = update
-                .get("content")
-                .and_then(|v| {
-                    // Object form: {"text": "...", "type": "text"}
-                    v.get("text")
-                        .and_then(|t| t.as_str())
-                        // Plain string form
-                        .or_else(|| v.as_str())
-                })
-                .unwrap_or("");
+            let text = content_block_text(update);
             if !text.is_empty() {
                 events.push(AgentEvent::MessageDelta {
-                    delta: text.to_string(),
+                    delta: text,
                     item_id: update
                         .get("messageId")
                         .or_else(|| update.get("message_id"))
@@ -1067,13 +1149,13 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
             if has_content {
                 events.push(AgentEvent::ItemCompleted {
                     item_id: tool_call_id,
-                    data: update.clone(),
+                    data: tool_call_data(tool_call),
                 });
             } else {
                 events.push(AgentEvent::ItemStarted {
                     item_type: item_type_for(tool_call),
                     item_id: tool_call_id,
-                    data: update.clone(),
+                    data: tool_call_data(tool_call),
                 });
             }
         }
@@ -1097,13 +1179,13 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
                     events.push(AgentEvent::ItemStarted {
                         item_type: item_type_for(update),
                         item_id: tool_call_id,
-                        data: update.clone(),
+                        data: tool_call_data(update),
                     });
                 }
                 "completed" | "failed" => {
                     events.push(AgentEvent::ItemCompleted {
                         item_id: tool_call_id,
-                        data: update.clone(),
+                        data: tool_call_data(update),
                     });
                 }
                 _ => {}
@@ -1123,29 +1205,28 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
             });
         }
 
-        // Plan update (map to reasoning)
-        "plan_update" | "plan" => {
-            let plan = update.get("plan").unwrap_or(update);
-            let summary = plan.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
-            events.push(AgentEvent::Reasoning {
-                item_id: "plan".to_string(),
-                summary,
-            });
+        // Plan — ACP sends the whole plan every time, as `entries[]`.
+        "plan" => {
+            let summary = plan_summary(update);
+            if !summary.is_empty() {
+                events.push(AgentEvent::Reasoning {
+                    item_id: "plan".to_string(),
+                    summary,
+                    append: false,
+                });
+            }
         }
 
-        // Thought/reasoning chunk
-        "thought" | "thinking" => {
-            let summary = update.get("content").and_then(|v| v.as_str()).map(|s| s.to_string());
-            let item_id = update
-                .get("thoughtId")
-                .or_else(|| update.get("id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("thought")
-                .to_string();
-            events.push(AgentEvent::Reasoning {
-                item_id,
-                summary,
-            });
+        // Thinking — streamed as chunks, like the message text.
+        "agent_thought_chunk" => {
+            let text = content_block_text(update);
+            if !text.is_empty() {
+                events.push(AgentEvent::Reasoning {
+                    item_id: "thought".to_string(),
+                    summary: text,
+                    append: true,
+                });
+            }
         }
 
         // Token usage — ACP sends "usage_update" with {used, size, cost}
@@ -1294,6 +1375,105 @@ mod tests {
         }));
         assert_eq!(option_for_decision(&options, &ApprovalDecision::Allow), None);
         assert_eq!(option_for_decision(&options, &ApprovalDecision::Reject), None);
+    }
+
+    /// thinking は `agent_thought_chunk` という名前で、本文は ContentBlock に入る。
+    /// 以前は `"thought"` / `"thinking"` という存在しない名前を、しかも素の文字列として
+    /// 読んでいたので、ACP エージェントの思考が丸ごと捨てられていた（#227）。
+    #[test]
+    fn thought_chunks_become_appending_reasoning() {
+        let events = parse_session_update(&json!({
+            "update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": { "type": "text", "text": "まず前提を確認する" },
+            }
+        }));
+        assert!(matches!(
+            events.as_slice(),
+            [AgentEvent::Reasoning { summary, append: true, .. }] if summary == "まず前提を確認する"
+        ));
+    }
+
+    /// plan は毎回全体が来るので置き換える。旧実装は `"plan_update"` という名前と、
+    /// ACP が `entries[]` に置く内容を `content` から読もうとしていた。
+    #[test]
+    fn plan_replaces_and_renders_entries() {
+        let events = parse_session_update(&json!({
+            "update": {
+                "sessionUpdate": "plan",
+                "entries": [
+                    { "content": "調べる", "status": "completed", "priority": "medium" },
+                    { "content": "直す", "status": "in_progress", "priority": "medium" },
+                    { "content": "確かめる", "status": "pending", "priority": "medium" },
+                ],
+            }
+        }));
+        assert!(matches!(
+            events.as_slice(),
+            [AgentEvent::Reasoning { summary, append: false, .. }]
+                if summary == "- [x] 調べる\n- [ ] **直す**\n- [ ] 確かめる"
+        ));
+    }
+
+    #[test]
+    fn empty_plan_emits_nothing() {
+        let events = parse_session_update(&json!({
+            "update": { "sessionUpdate": "plan", "entries": [] }
+        }));
+        assert!(events.is_empty());
+    }
+
+    /// ツール項目の `data` は、UI が読むキー（`command` / `output` / `filePath`）に
+    /// 寄せる。生の更新をそのまま渡していたころは、コマンド名も出力も出なかった。
+    #[test]
+    fn tool_call_data_maps_to_ui_keys() {
+        let started = tool_call_data(&json!({
+            "toolCallId": "t1",
+            "title": "ls -la",
+            "kind": "execute",
+            "rawInput": { "command": "ls -la" },
+        }));
+        assert_eq!(started["command"], json!("ls -la"));
+        assert_eq!(started.get("output"), None);
+
+        // 完了の更新は status と content だけで、title もツール名も無い。
+        let completed = tool_call_data(&json!({
+            "toolCallId": "t1",
+            "status": "completed",
+            "content": [
+                { "type": "content", "content": { "type": "text", "text": "total 0" } },
+                { "type": "terminal", "terminalId": "x" },
+            ],
+        }));
+        assert_eq!(completed["output"], json!("total 0"));
+    }
+
+    /// 最初のツール呼び出しは入力が流れきる前に来る。Bash の `title` はまだ
+    /// "Terminal"（アダプタのフォールバック）なので、コマンドとして採らない。
+    /// 本当のコマンドは、あとから来る更新の `rawInput` で上書きされる。
+    #[test]
+    fn title_is_not_taken_as_the_command() {
+        let streaming = tool_call_data(&json!({ "title": "Terminal", "kind": "execute" }));
+        assert_eq!(streaming.get("command"), None);
+        assert_eq!(streaming["title"], json!("Terminal"));
+
+        let refined = tool_call_data(&json!({
+            "title": "npm test",
+            "kind": "execute",
+            "rawInput": { "command": "npm test" },
+        }));
+        assert_eq!(refined["command"], json!("npm test"));
+    }
+
+    #[test]
+    fn file_path_comes_from_raw_input_or_locations() {
+        let edit = tool_call_data(&json!({
+            "title": "Write src/main.rs",
+            "kind": "edit",
+            "locations": [{ "path": "/w/src/main.rs" }],
+        }));
+        assert_eq!(edit.get("command"), None);
+        assert_eq!(edit["filePath"], json!("/w/src/main.rs"));
     }
 
     /// 振り分けは ACP の `kind`。ツールの呼び名では分岐しない（そもそも届かない）。

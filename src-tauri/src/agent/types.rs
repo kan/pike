@@ -159,8 +159,13 @@ pub struct PermissionOption {
 /// This enum covers the union of Codex app-server notifications and ACP
 /// `session/update` events. Each variant includes enough information for the
 /// UI to render without knowing the underlying protocol.
+/// **`rename_all_fields` を落とさないこと**。enum の `rename_all` はバリアント名
+/// （＝`type` の値）しか変えないので、これが無いとフィールドは `item_id` /
+/// `tool_name` のまま出て行く。フロントは全経路で `p.itemId` のように camelCase で
+/// 読むため、落とすと**payload が丸ごと `undefined` になる**（イベント自体は届き、
+/// 中身だけが空になるので気付きにくい）。`wire_is_camel_case` が見張っている。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AgentEvent {
     /// Streaming text delta from the agent's response.
     MessageDelta {
@@ -247,7 +252,10 @@ pub enum AgentEvent {
     /// Reasoning/thinking content from the agent.
     Reasoning {
         item_id: String,
-        summary: Option<String>,
+        summary: String,
+        /// `true` なら直前までの本文に足す（thinking は chunk で届く）。`false` は
+        /// 置き換え（ACP の plan は毎回全体が来る）。
+        append: bool,
     },
 
     /// Agent session disconnected.
@@ -358,4 +366,26 @@ pub trait AgentRuntime: Send + Sync {
 pub trait EventEmitter: Send + Sync {
     /// Emit an agent event to the target window.
     fn emit(&self, event: AgentEvent);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// フロントは `agent://` の payload を `p.itemId` のように camelCase で読む。
+    /// enum の `rename_all` はバリアント名しか変えないので、`rename_all_fields` が
+    /// 無いとフィールドは snake_case のまま出て行き、payload が丸ごと `undefined` に
+    /// なる（イベントは届くので、症状は「たまに何も起きない」になって追いにくい）。
+    #[test]
+    fn wire_is_camel_case() {
+        let json = serde_json::to_string(&AgentEvent::ItemStarted {
+            item_type: "commandExecution".to_string(),
+            item_id: "i1".to_string(),
+            data: serde_json::json!({}),
+        })
+        .unwrap();
+        assert!(json.contains("\"itemType\""), "{json}");
+        assert!(json.contains("\"itemId\""), "{json}");
+        assert!(!json.contains("item_type"), "{json}");
+    }
 }

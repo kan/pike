@@ -123,12 +123,12 @@ export async function initAgentRouter() {
     const pData = (p.data as Record<string, unknown>) ?? {}
     const completedData: Record<string, unknown> = {}
 
-    if (pData.exitCode !== undefined) completedData.exitCode = pData.exitCode
-    if (pData.text !== undefined) completedData.text = pData.text
-    if (pData.summary !== undefined) completedData.summary = pData.summary
-    if (pData.filePath !== undefined) completedData.filePath = pData.filePath
-    if (pData.additions !== undefined) completedData.additions = pData.additions
-    if (pData.deletions !== undefined) completedData.deletions = pData.deletions
+    // `command` / `output` は ACP 用（#227）。Codex は出力を command-output-delta で
+    // 流すのでここに乗らないが、ACP は完了時の一括で届くため、通さないと項目を開いても
+    // 空のままになる。
+    for (const key of ['exitCode', 'text', 'summary', 'filePath', 'additions', 'deletions', 'command', 'output']) {
+      if (pData[key] !== undefined) completedData[key] = pData[key]
+    }
 
     agent.handleItemCompleted(tabId, itemId, completedData)
   })
@@ -136,6 +136,10 @@ export async function initAgentRouter() {
   // --- Command output ---
   await listenAgent('agent://command-output-delta', (tabId, p) => {
     agent.handleCommandOutputDelta(tabId, (p.itemId as string) ?? '', (p.delta as string) ?? '')
+  })
+
+  await listenAgent('agent://reasoning', (tabId, p) => {
+    agent.handleReasoning(tabId, p.itemId as string, (p.summary as string) ?? '', p.append === true)
   })
 
   // --- Approval requests ---

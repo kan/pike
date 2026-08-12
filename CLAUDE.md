@@ -608,6 +608,15 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - **`session/request_permission` の `optionId` はエージェントが決める不透明な文字列（#227）**。応答ではリクエストで提示されたものをそのまま返す（以前は `kind` の値である `allow_once` / `reject_once` を id として組み立てており、`claude-agent-acp` が出す `allow` / `reject` と一致せず、同アダプタは allow 系の id でしか許可扱いにしないため「許可」を押すと拒否になっていた）
   - **汎用ダイアログは UI が押した `option_id` をそのまま返す**。エージェントは同じ `kind` の選択肢を複数出しうるので（同アダプタの ExitPlanMode は `allow_always` を 3 つ並べる）、`kind` から引き直すと押したものと違う選択肢を送る
   - 決まった 4 択の画面（コマンド / ファイル変更）は選択肢を UI に渡していないので、`ACPRuntime.pending_options` に覚えておいて `kind` から引く。該当が無ければ `cancelled`（近そうな選択肢で代用しない）。キーは `RequestId` にする（`Value` の文字列表現だと、フロントを往復した JSON の書式が変わるだけで無言の取り消しになる）
+- **`AgentEvent` の serde 属性から `rename_all_fields = "camelCase"` を落とさないこと**。enum の `rename_all` は**バリアント名（＝`type` の値）しか変えない**ので、これが無いとフィールドは `item_id` / `tool_name` / `request_id` のまま出て行く。フロントは全経路で `p.itemId` のように camelCase で読むため、**イベントは届くのに payload だけが丸ごと `undefined` になる**。1 語のフィールド（`delta` / `data` / `reason`）だけ一致するので、本文ストリームは動いてツール表示と承認だけが無言で壊れる、という追いにくい形になる。`agent::types` の `wire_is_camel_case` が見張っている
+- **`sessionUpdate` の名前は ACP の仕様から取る**。`parse_session_update` は長らく `"thought"` / `"thinking"` / `"plan_update"` という**存在しない名前**を見ていて、ACP エージェントの思考とプランが丸ごと捨てられていた（#227 の対応中に発見）。正しくは `agent_thought_chunk` と `plan`。前者の本文はメッセージ本文と同じ ContentBlock（`{ type, text }`）で素の文字列ではなく、後者は `entries[]`（`content` ではない）
+  - thinking は chunk で届き plan は毎回全体が来るので、`AgentEvent::Reasoning` に `append` を持たせて足すか置き換えるかを分ける。追記側は**コマンド出力と同じ 100ms のバッファ**（`bufferAppend`）に載せる。chunk ごとに書くと、畳まれて見えていない本文の markdown 再パースがトークン単位で走る
+  - `agent://reasoning` は Rust が投げていたのに**フロントが購読していなかった**。名前を直すだけでは表示されない。Codex 側は `ItemStarted { item_type: "reasoning" }` の経路で出しているので、あちらとは出所が違う
+  - **ツール項目の `data` は `tool_call_data` で UI のキーに寄せる**。`AgentChatTab.vue` は Codex 由来の `command` / `output` / `filePath` を読むので、ACP の生の更新を渡すとコマンド名も出力も出ない（項目を開いても空で、ラベルはフォールバックの "Running command..." のまま）。出力は完了時の `content[]` に `` ```console `` で囲まれて入る（Pike は terminal capability を宣言していないため）
+  - **ACP は 1 つのツール呼び出しに更新を 3 回送る**: (1) 入力が流れきる前の `tool_call`（Bash の `title` はまだアダプタのフォールバックの "Terminal"）、(2) 入力が揃った `tool_call_update`（`rawInput` あり・`status` なし・`content` 空）、(3) 結果の `tool_call_update`（`status` と `content`）。したがって
+    - **`title` をコマンドとして渡さない**。(1) の時点の "Terminal" が確定値として残る。表示の穴埋めは UI 側で `data.title` に落とす
+    - **同じ id の `ItemStarted` を捨てない**。(2) はこの経路でしか来ないので、`handleItemStarted` が既知の id を無視していると本当のコマンドが永久に届かない。既存項目には `data` を重ねる（実質 upsert。Codex は id ごとに 1 回しか出さないので無影響）。重ねるときは **`undefined` を上書きしない**: router の fix-up が `data.filePath = undefined` を明示的に置くことがあり、先に取れていたパスが後続の更新で消える
+    - **`item-completed` のマージ対象キーは allowlist**（`useAgentRouter.ts`）。`command` / `output` を足さないと、(3) で届いた出力が捨てられる。Codex は出力を `command-output-delta` で流すのでこの穴に気付けない
 - `AgentEvent` enum: 両プロトコルの通知を統一表現（MessageDelta, ItemStarted, ApprovalCommandRequest 等）
 - `AgentCapabilities`: runtime ごとのサポート機能を宣言（モデル選択、ロールバック、sandbox 設定等）
 - Tauri commands: `agent_start_session`, `agent_submit_turn` 等の `agent_*` 群

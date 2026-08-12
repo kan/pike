@@ -1029,7 +1029,9 @@ onUnmounted(() => {
                       <summary class="item-command">
                         <Loader v-if="!seg.item.completed" :size="12" :stroke-width="2" class="spin item-icon" />
                         <TerminalIcon v-else :size="12" :stroke-width="2" class="item-icon" />
-                        <code>{{ seg.item.data.command ?? 'Running command...' }}</code>
+                        <!-- ACP は入力が流れきる前に呼び出しを送るので、コマンドが
+                             決まるまでは agent が付けた title を出す（#227）。 -->
+                        <code>{{ seg.item.data.command ?? seg.item.data.title ?? 'Running command...' }}</code>
                         <span v-if="seg.item.completed && seg.item.data.exitCode != null" class="item-exit" :class="{ ok: seg.item.data.exitCode === 0 }">
                           {{ seg.item.data.exitCode === 0 ? '✓' : `exit ${seg.item.data.exitCode}` }}
                         </span>

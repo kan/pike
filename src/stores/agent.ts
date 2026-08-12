@@ -168,8 +168,13 @@ function createDefaultSession(agentType: AgentType = 'codex'): AgentSessionState
 }
 
 // Per-session timers/buffers (not reactive — plain Maps)
-const outputBuffers = new Map<string, Map<string, string>>()
-const outputFlushTimers = new Map<string, ReturnType<typeof setTimeout>>()
+/** Cap for text that streams into a single turn item (command output, thinking). */
+const MAX_ITEM_TEXT = 50000
+const capText = (text: string) => (text.length > MAX_ITEM_TEXT ? `…${text.slice(-MAX_ITEM_TEXT)}` : text)
+
+/** Pending appends per tab, keyed by item id: which `data` field, and the text so far. */
+const appendBuffers = new Map<string, Map<string, { field: string; text: string }>>()
+const appendFlushTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const persistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 // ---------------------------------------------------------------------------
@@ -203,12 +208,12 @@ export const useAgentStore = defineStore('agent', () => {
       clearTimeout(pt)
       persistTimers.delete(tabId)
     }
-    const oft = outputFlushTimers.get(tabId)
-    if (oft) {
-      clearTimeout(oft)
-      outputFlushTimers.delete(tabId)
+    const aft = appendFlushTimers.get(tabId)
+    if (aft) {
+      clearTimeout(aft)
+      appendFlushTimers.delete(tabId)
     }
-    outputBuffers.delete(tabId)
+    appendBuffers.delete(tabId)
   }
 
   // --- Helpers ---
@@ -529,36 +534,76 @@ export const useAgentStore = defineStore('agent', () => {
   function handleItemStarted(tabId: string, item: TurnItem) {
     const msg = currentAgentMsg(tabId)
     if (!msg) return
-    if (msg.items.some((i) => i.id === item.id)) return
+    // 同じ id が再び来るのは「既存の項目を詳しくする」更新。ACP は最初のツール呼び出しを
+    // 入力がまだ流れきる前に送るので（Bash なら title が "Terminal" のまま）、後から来る
+    // 本当のコマンドはこの経路でしか届かない。捨てずに重ねる（#227）。
+    const existing = msg.items.find((i) => i.id === item.id)
+    if (existing) {
+      // `undefined` は上書きしない。あとから来る更新が、先に取れていた値（ファイル
+      // パスなど）を消してしまう。`handleItemCompleted` 側も同じ規約。
+      for (const [key, value] of Object.entries(item.data)) {
+        if (value !== undefined) existing.data[key] = value
+      }
+      return
+    }
     msg.items.push({ ...item, completed: false })
     msg.segments.push({ kind: 'item', item: msg.items[msg.items.length - 1] })
   }
 
+  /**
+   * Agent thinking and plans (#227). Unlike other items these arrive repeatedly for
+   * the same id — thinking as chunks to append, a plan as the whole list to replace —
+   * so this updates in place instead of going through `handleItemStarted`, which
+   * ignores an id it has already seen.
+   */
+  function handleReasoning(tabId: string, itemId: string, summary: string, append: boolean) {
+    if (!summary) return
+    const msg = currentAgentMsg(tabId)
+    if (!msg) return
+    const existing = msg.items.find((i) => i.id === itemId)
+    if (!existing) {
+      handleItemStarted(tabId, { type: 'reasoning', id: itemId, data: { summary }, completed: false })
+    } else if (append) {
+      bufferAppend(tabId, itemId, 'summary', summary)
+    } else {
+      existing.data.summary = capText(summary)
+    }
+  }
+
   function handleCommandOutputDelta(tabId: string, itemId: string, delta: string) {
-    if (!outputBuffers.has(tabId)) outputBuffers.set(tabId, new Map())
-    const buf = outputBuffers.get(tabId)!
-    buf.set(itemId, (buf.get(itemId) ?? '') + delta)
-    if (!outputFlushTimers.has(tabId)) {
-      outputFlushTimers.set(
+    bufferAppend(tabId, itemId, 'output', delta)
+  }
+
+  /**
+   * Coalesce text that streams into one turn item (command output, thinking).
+   *
+   * Both arrive in small chunks and the item body is re-rendered — thinking is even
+   * re-parsed as markdown — on every write, so writing per chunk makes a long turn
+   * progressively slower. Batching on a timer keeps that flat.
+   */
+  function bufferAppend(tabId: string, itemId: string, field: string, text: string) {
+    if (!appendBuffers.has(tabId)) appendBuffers.set(tabId, new Map())
+    const buf = appendBuffers.get(tabId)!
+    buf.set(itemId, { field, text: (buf.get(itemId)?.text ?? '') + text })
+    if (!appendFlushTimers.has(tabId)) {
+      appendFlushTimers.set(
         tabId,
-        setTimeout(() => flushOutputBuffers(tabId), 100),
+        setTimeout(() => flushAppendBuffers(tabId), 100),
       )
     }
   }
 
-  function flushOutputBuffers(tabId: string) {
-    outputFlushTimers.delete(tabId)
-    const buf = outputBuffers.get(tabId)
+  function flushAppendBuffers(tabId: string) {
+    appendFlushTimers.delete(tabId)
+    const buf = appendBuffers.get(tabId)
     if (!buf) return
     const s = sessions[tabId]
     if (!s) return
-    for (const [itemId, buffered] of buf) {
+    for (const [itemId, { field, text }] of buf) {
       for (let i = s.messages.length - 1; i >= 0; i--) {
         const item = s.messages[i].items.find((it) => it.id === itemId)
         if (item) {
-          const current = (item.data.output as string) ?? ''
-          const combined = current + buffered
-          item.data.output = combined.length > 50000 ? `…${combined.slice(-50000)}` : combined
+          item.data[field] = capText(String(item.data[field] ?? '') + text)
           break
         }
       }
@@ -713,6 +758,7 @@ export const useAgentStore = defineStore('agent', () => {
     handleMessageDelta,
     handleTurnCompleted,
     handleItemStarted,
+    handleReasoning,
     handleCommandOutputDelta,
     handleItemCompleted,
     handleAuthUpdated,
