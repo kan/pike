@@ -564,7 +564,7 @@ export default {
   'statusBar.ccIn': '入力',
   'statusBar.ccOut': '出力',
   'statusBar.ccCache': 'キャッシュ',
-  'statusBar.ccName': 'Claude',
+  'statusBar.agents': 'エージェント',
   'statusBar.ccRateResets': 'リセット {when}',
   'statusBar.ccRateRefresh': '利用率を更新',
   'statusBar.ccRateFetchedAt': '{time} 取得',

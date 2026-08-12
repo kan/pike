@@ -563,7 +563,7 @@ export default {
   'statusBar.ccIn': 'in',
   'statusBar.ccOut': 'out',
   'statusBar.ccCache': 'cache',
-  'statusBar.ccName': 'Claude',
+  'statusBar.agents': 'Agents',
   'statusBar.ccRateResets': 'resets {when}',
   'statusBar.ccRateRefresh': 'Refresh rate limits',
   'statusBar.ccRateFetchedAt': 'as of {time}',

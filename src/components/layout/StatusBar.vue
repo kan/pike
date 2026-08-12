@@ -360,7 +360,7 @@ onUnmounted(() => {
       <button class="status-item clickable small cc-usage" :title="t('agentStatus.title')" @click="toggleAgentStatus">
         <Gauge :size="13" :stroke-width="2" />
         <span v-if="headlineRate" :class="rateLevelClass(headlineRate)">{{ headlineRate.toFixed(0) }}%</span>
-        <span v-else>{{ t('statusBar.ccName') }}</span>
+        <span v-else>{{ t('statusBar.agents') }}</span>
       </button>
       <div v-if="showAgentStatus" class="status-dropdown cc-dropdown popup-surface" @mousedown.stop>
         <div class="dropdown-label">
