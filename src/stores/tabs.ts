@@ -10,6 +10,7 @@ import { basename, normalizeSep } from '../lib/paths'
 import { agentDisconnect, ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
+  AgentStatusTab,
   DiffTab,
   DockerLogsTab,
   EditorTab,
@@ -402,6 +403,20 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  function addAgentStatusTab(): string {
+    const existing = tabs.value.find((t): t is AgentStatusTab => t.kind === 'agent-status')
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    // 他のシングルトン（Settings / Manual）と同じくリテラル。タブ名は生成時に決まり、
+    // 言語を切り替えても付け替えないので、`t()` だと開いたときの言語のまま固定される。
+    tabs.value.push({ id, kind: 'agent-status', title: 'Agent Status', pinned: false })
+    activeTabId.value = id
+    return id
+  }
+
   /** Open (or focus) the singleton manual viewer, navigating it to `page`. */
   function addManualTab(page: string = MANUAL_INDEX): string {
     const existing = tabs.value.find((t): t is ManualTab => t.kind === 'manual')
@@ -626,6 +641,7 @@ export const useTabStore = defineStore('tabs', () => {
     addHistoryTab,
     addDockerLogsTab,
     addSettingsTab,
+    addAgentStatusTab,
     addManualTab,
     addAgentChatTab,
     addDiffTab,

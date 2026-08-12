@@ -8,6 +8,7 @@ import {
   Cpu,
   FolderGit2,
   FolderOpen,
+  Gauge,
   GitBranch,
   Github,
   Gitlab,
@@ -16,6 +17,7 @@ import {
   ShieldCheck,
 } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { useAgentUsage } from '../../composables/useAgentUsage'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
@@ -23,11 +25,8 @@ import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
 import { basename } from '../../lib/paths'
 import { openUrlWithConfirm, traySetTooltip } from '../../lib/tauri'
+import { rateLevelClass } from '../../lib/usageFormat'
 import { elevated, globalMode, isMainWindow } from '../../lib/window'
-import { useAgentStore } from '../../stores/agent'
-import { useClaudeRateStore } from '../../stores/claudeRate'
-import { useClaudeUsageStore } from '../../stores/claudeUsage'
-import { useCodexUsageStore } from '../../stores/codexUsage'
 import { localBranchName, useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
@@ -36,8 +35,9 @@ import { useTabStore } from '../../stores/tabs'
 import { useWorktreeStore } from '../../stores/worktree'
 import type { GitWorktree } from '../../types/git'
 import HelpButton from '../HelpButton.vue'
+import RateMeters from '../RateMeters.vue'
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const projectStore = useProjectStore()
 const settingsStore = useSettingsStore()
 
@@ -48,9 +48,6 @@ const gitStore = useGitStore()
 const worktreeStore = useWorktreeStore()
 const editorInfo = useEditorInfo()
 const updater = useUpdater()
-const claudeUsageStore = useClaudeUsageStore()
-const codexUsageStore = useCodexUsageStore()
-const agentStore = useAgentStore()
 const tabStore = useTabStore()
 const statusMessageStore = useStatusMessageStore()
 
@@ -68,32 +65,26 @@ const statusIcon = computed(() => {
   }
 })
 
-const codexSession = computed(() => {
-  const tab = tabStore.activeTab
-  if (tab?.kind !== 'agent-chat' || tab.agentType !== 'codex') return null
-  const s = agentStore.getExistingSession(tab.id)
-  return s?.tokenUsage ? s : null
-})
+const {
+  claudeUsage,
+  claudeRateSession,
+  claudeAccount,
+  claudeSessionMeters,
+  codexAccount,
+  codexTokens,
+  codexSessionMeters,
+  hasClaude,
+  hasCodex,
+  refreshing: agentRefreshing,
+  refreshAll: refreshAgentUsage,
+} = useAgentUsage()
 
-const claudeRateStore = useClaudeRateStore()
+const hasAgentStatus = computed(() => hasClaude.value || hasCodex.value)
 
-// Rate-limit windows from `claude -p "/usage"` (account-wide, not per-session).
-const claudeRate = computed(() => {
-  const r = claudeRateStore.usage
-  return r?.active ? r : null
-})
-
-// The 5h session window — the headline number for the status-bar chip.
-// No fallback to other windows: a weekly quota must not be labeled "5h".
-const claudeRateSession = computed(() => claudeRate.value?.windows.find((w) => w.kind === 'session') ?? null)
-
-// Which account the numbers above belong to (#225). Worth showing even with a
-// single account, since CLAUDE_CONFIG_DIR can point a project at another one and
-// the totals would otherwise look inexplicably empty.
-const claudeAccount = computed(() => {
-  const a = claudeUsageStore.usage?.account
-  return a && (a.email || a.displayName) ? a : null
-})
+/** The one number the footer shows: Claude's 5h window, else Codex's. */
+const headlineRate = computed(
+  () => claudeRateSession.value?.usedPercent ?? codexSessionMeters.value[0]?.percent ?? null,
+)
 
 // System-tray tooltip (#161): a one-line usage summary shown on hover while
 // Pike sits minimized in the tray. Only the main window pushes it (the tray is
@@ -104,7 +95,7 @@ const trayTooltip = computed(() => {
   if (claudeRateSession.value) {
     return `Claude ${t('statusBar.rate5h')} ${claudeRateSession.value.usedPercent.toFixed(0)}%`
   }
-  const u = claudeUsageStore.usage
+  const u = claudeUsage.value
   if (u?.active) {
     return `Claude ${formatTokens(u.totalInputTokens)} ${t('statusBar.ccIn')} / ${formatTokens(u.totalOutputTokens)} ${t('statusBar.ccOut')}`
   }
@@ -114,105 +105,22 @@ if (isMainWindow()) {
   watch(trayTooltip, (text) => traySetTooltip(text).catch(() => {}), { immediate: true })
 }
 
-/** Short UI label per window kind; unrecognized windows show the raw CLI label. */
-function rateWindowLabel(w: { kind: string; label: string }): string {
-  if (w.kind === 'session') return t('statusBar.rate5h')
-  if (w.kind === 'weekAll') return t('statusBar.rateWeekly')
-  return w.label
-}
+const showAgentStatus = ref(false)
 
-const RESET_MONTHS: Record<string, number> = {
-  Jan: 1,
-  Feb: 2,
-  Mar: 3,
-  Apr: 4,
-  May: 5,
-  Jun: 6,
-  Jul: 7,
-  Aug: 8,
-  Sep: 9,
-  Oct: 10,
-  Nov: 11,
-  Dec: 12,
-}
-
-/**
- * The CLI prints reset times with an English month name ("Jul 2, 2:40pm
- * (Asia/Tokyo)"). For the ja locale, rewrite just the date part to numeric
- * ("7/2 2:40pm (Asia/Tokyo)"). Text-level rewrite only — the time is already
- * in the user's timezone, so no time math is needed or attempted.
- */
-function localizedResetLabel(resetsAt: string): string {
-  if (locale.value !== 'ja') return resetsAt
-  return resetsAt.replace(
-    /([A-Z][a-z]{2}) (\d{1,2})(?:, (\d{4}))?,?/,
-    (match, mon: string, day: string, year?: string) => {
-      const m = RESET_MONTHS[mon]
-      if (!m) return match
-      return year ? `${year}/${m}/${day}` : `${m}/${day}`
-    },
-  )
-}
-
-/** Color emphasis for a usage percentage: yellow past 80%, red past 90%. */
-function rateLevelClass(pct: number): string {
-  if (pct > 90) return 'rate-danger'
-  if (pct > 80) return 'rate-warn'
-  return ''
-}
-
-const rateFetchedAtLabel = computed(() => {
-  const r = claudeRate.value
-  if (!r?.fetchedAt) return ''
-  const time = new Date(r.fetchedAt * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  return t('statusBar.ccRateFetchedAt', { time })
-})
-
-const rateRefreshing = ref(false)
-
-async function refreshRateLimits() {
-  if (rateRefreshing.value) return
-  rateRefreshing.value = true
-  try {
-    await claudeRateStore.refreshUsage(true)
-  } finally {
-    rateRefreshing.value = false
+function toggleAgentStatus() {
+  showAgentStatus.value = !showAgentStatus.value
+  if (showAgentStatus.value) {
+    nextTick(() => window.addEventListener('mousedown', closeAgentStatus, { once: true }))
   }
 }
 
-const showClaudeUsage = ref(false)
-
-function toggleClaudeUsage() {
-  showClaudeUsage.value = !showClaudeUsage.value
-  if (showClaudeUsage.value) {
-    nextTick(() => window.addEventListener('mousedown', closeClaudeUsage, { once: true }))
-  }
+function closeAgentStatus() {
+  showAgentStatus.value = false
 }
 
-function closeClaudeUsage() {
-  showClaudeUsage.value = false
-}
-
-// Codex used indirectly (a Claude codex skill / a script calling the `codex` CLI)
-// shows up in ~/.codex rollouts. Suppress it when a native Codex agent-chat tab is
-// active — `codexSession` above already covers that case more precisely.
-const codexCliUsage = computed(() => {
-  if (codexSession.value) return null
-  const u = codexUsageStore.usage
-  return u?.active ? u : null
-})
-
-const showCodexUsage = ref(false)
-
-function toggleCodexUsage() {
-  showCodexUsage.value = !showCodexUsage.value
-  if (showCodexUsage.value) {
-    nextTick(() => window.addEventListener('mousedown', closeCodexUsage, { once: true }))
-  }
-}
-
-function closeCodexUsage() {
-  showCodexUsage.value = false
+function openAgentStatus() {
+  showAgentStatus.value = false
+  tabStore.addAgentStatusTab()
 }
 
 declare const __GIT_COMMIT_HASH__: string
@@ -384,8 +292,7 @@ onUnmounted(() => {
   window.removeEventListener('mousedown', closeWorktrees)
   window.removeEventListener('mousedown', closeEncodingMenu)
   window.removeEventListener('mousedown', closeLineEndingMenu)
-  window.removeEventListener('mousedown', closeClaudeUsage)
-  window.removeEventListener('mousedown', closeCodexUsage)
+  window.removeEventListener('mousedown', closeAgentStatus)
 })
 </script>
 
@@ -448,99 +355,62 @@ onUnmounted(() => {
       <span class="status-text">{{ editorInfo.current.value.fileType }}</span>
     </template>
 
-    <div v-if="claudeUsageStore.usage?.active || claudeRate" class="status-dropdown-area">
-      <button class="status-item clickable small cc-usage" @click="toggleClaudeUsage">
-        <Cpu :size="12" :stroke-width="2" />
-        <template v-if="claudeUsageStore.usage?.active">
-          <span>{{ formatTokens(claudeUsageStore.usage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(claudeUsageStore.usage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
-          <span v-if="claudeUsageStore.usage.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(claudeUsageStore.usage.estimatedCostUsd) }}</span>
-        </template>
+    <!-- Agents: one item for both Claude and Codex; the detail lives in the status tab (#226) -->
+    <div v-if="hasAgentStatus" class="status-dropdown-area">
+      <button class="status-item clickable small cc-usage" :title="t('agentStatus.title')" @click="toggleAgentStatus">
+        <Gauge :size="13" :stroke-width="2" />
+        <span v-if="headlineRate" :class="rateLevelClass(headlineRate)">{{ headlineRate.toFixed(0) }}%</span>
         <span v-else>{{ t('statusBar.ccName') }}</span>
-        <span v-if="claudeRateSession" class="cc-cost" :class="rateLevelClass(claudeRateSession.usedPercent)">{{ t('statusBar.rate5h') }} {{ claudeRateSession.usedPercent.toFixed(0) }}%</span>
       </button>
-      <div v-if="showClaudeUsage" class="status-dropdown cc-dropdown popup-surface" @mousedown.stop>
+      <div v-if="showAgentStatus" class="status-dropdown cc-dropdown popup-surface" @mousedown.stop>
         <div class="dropdown-label">
-          <span>{{ claudeUsageStore.usage?.active ? t('statusBar.ccSession') : t('statusBar.rate') }}</span>
-          <HelpButton page="terminal-and-agents.md#トークン使用量とコスト" :size="13" />
+          <span class="dropdown-title">{{ t('agentStatus.title') }}</span>
+          <button class="detail-link" @click="openAgentStatus">{{ t('agentStatus.open') }}</button>
+          <button
+            class="rate-refresh"
+            :title="t('statusBar.ccRateRefresh')"
+            :disabled="agentRefreshing"
+            @click="refreshAgentUsage"
+          >
+            <RefreshCw :size="11" :stroke-width="2" :class="{ 'spin-icon': agentRefreshing }" />
+          </button>
+          <HelpButton page="terminal-and-agents.md#エージェント状態タブ" :size="13" />
         </div>
-        <div v-if="claudeAccount" class="cc-account">
-          <span class="cc-account-name">{{ claudeAccount.email ?? claudeAccount.displayName }}</span>
-          <span v-if="claudeAccount.organization" class="cc-account-meta">{{ claudeAccount.organization }}</span>
-          <span v-if="claudeAccount.seatTier" class="cc-account-meta">{{ claudeAccount.seatTier }}</span>
-          <span
-            v-if="claudeUsageStore.usage?.configDir"
-            class="cc-account-meta cc-account-dir"
-            :title="t('statusBar.ccConfigDir', { path: claudeUsageStore.usage.configDir })"
-          >{{ claudeUsageStore.usage.configDir }}</span>
-        </div>
-        <template v-if="claudeUsageStore.usage?.active">
-          <div v-for="m in claudeUsageStore.usage.models" :key="m.model" class="cc-model-row">
-            <div class="cc-model-name">{{ m.model }}</div>
-            <div class="cc-model-stats">
-              <span>{{ t('statusBar.ccIn') }}: {{ formatTokens(m.inputTokens) }}</span>
-              <span>{{ t('statusBar.ccOut') }}: {{ formatTokens(m.outputTokens) }}</span>
-              <span>{{ t('statusBar.ccCache') }}: {{ formatTokens(m.cacheReadTokens) }}</span>
-              <span>{{ t('statusBar.ccCacheCreate') }}: {{ formatTokens(m.cacheCreationTokens) }}</span>
-              <span v-if="m.costUsd !== null" class="cc-cost">{{ formatCost(m.costUsd) }}</span>
-            </div>
-          </div>
-        </template>
-        <div v-if="claudeRate" class="cc-model-row">
-          <div class="cc-model-name cc-rate-name">
-            <span>{{ t('statusBar.rate') }}</span>
-            <button
-              class="rate-refresh"
-              :title="t('statusBar.ccRateRefresh')"
-              :disabled="rateRefreshing"
-              @click="refreshRateLimits"
-            >
-              <RefreshCw :size="11" :stroke-width="2" :class="{ 'spin-icon': rateRefreshing }" />
-            </button>
-            <span v-if="rateFetchedAtLabel" class="cc-rate-resets">{{ rateFetchedAtLabel }}</span>
-          </div>
-          <div v-for="w in claudeRate.windows" :key="w.label" class="cc-rate-row">
-            <span class="cc-rate-window" :class="rateLevelClass(w.usedPercent)">{{ rateWindowLabel(w) }}: {{ w.usedPercent.toFixed(0) }}%</span>
-            <span v-if="w.resetsAt" class="cc-rate-resets">{{ t('statusBar.ccRateResets', { when: localizedResetLabel(w.resetsAt) }) }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- Native Codex agent-chat tab (precise, event-driven) -->
-    <div v-if="codexSession?.tokenUsage" class="status-item small cc-usage">
-      <Bot :size="12" :stroke-width="2" />
-      <span>{{ formatTokens(codexSession.tokenUsage.input) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(codexSession.tokenUsage.output) }} {{ t('statusBar.ccOut') }}</span>
-      <span v-if="codexSession.estimatedCostUsd !== null" class="cc-cost">~{{ formatCost(codexSession.estimatedCostUsd) }}</span>
-    </div>
+        <div v-if="hasClaude" class="cc-agent">
+          <div class="cc-agent-name">
+            <Cpu :size="12" :stroke-width="2" />
+            <span>Claude Code</span>
+          </div>
+          <div v-if="claudeAccount" class="cc-account">
+            <span class="cc-account-name">{{ claudeAccount.email ?? claudeAccount.displayName }}</span>
+            <span v-if="claudeAccount.plan" class="cc-account-meta">{{ claudeAccount.plan }}</span>
+          </div>
+          <div v-if="claudeUsage?.active" class="cc-summary">
+            <span>{{ t('statusBar.ccIn') }} {{ formatTokens(claudeUsage.totalInputTokens) }}</span>
+            <span>{{ t('statusBar.ccOut') }} {{ formatTokens(claudeUsage.totalOutputTokens) }}</span>
+            <span v-if="claudeUsage.estimatedCostUsd !== null" class="cc-cost">
+              ~{{ formatCost(claudeUsage.estimatedCostUsd) }}
+            </span>
+          </div>
+          <RateMeters :meters="claudeSessionMeters" class="cc-meters" />
+        </div>
 
-    <!-- Codex used indirectly via the CLI (Claude skill / scripts), from ~/.codex rollouts -->
-    <div v-else-if="codexCliUsage" class="status-dropdown-area">
-      <button class="status-item clickable small cc-usage" :title="t('statusBar.codexCli')" @click="toggleCodexUsage">
-        <Bot :size="12" :stroke-width="2" />
-        <span>{{ formatTokens(codexCliUsage.totalInputTokens) }} {{ t('statusBar.ccIn') }} / {{ formatTokens(codexCliUsage.totalOutputTokens) }} {{ t('statusBar.ccOut') }}</span>
-        <span v-if="codexCliUsage.rateLimitPrimary" class="cc-cost">{{ t('statusBar.rate5h') }} {{ codexCliUsage.rateLimitPrimary.usedPercent.toFixed(0) }}%</span>
-      </button>
-      <div v-if="showCodexUsage" class="status-dropdown cc-dropdown popup-surface" @mousedown.stop>
-        <div class="dropdown-label">
-          <span>{{ t('statusBar.codexSession') }}<template v-if="codexCliUsage.sessionCount > 1"> ({{ codexCliUsage.sessionCount }} {{ t('statusBar.codexSessions') }})</template></span>
-          <HelpButton page="terminal-and-agents.md#トークン使用量とコスト" :size="13" />
-        </div>
-        <div class="cc-model-row">
-          <div class="cc-model-name">{{ codexCliUsage.model ?? 'codex' }}</div>
-          <div class="cc-model-stats">
-            <span>{{ t('statusBar.ccIn') }}: {{ formatTokens(codexCliUsage.totalInputTokens) }}</span>
-            <span>{{ t('statusBar.ccOut') }}: {{ formatTokens(codexCliUsage.totalOutputTokens) }}</span>
-            <span>{{ t('statusBar.codexCached') }}: {{ formatTokens(codexCliUsage.totalCachedInputTokens) }}</span>
-            <span>{{ t('statusBar.codexReasoning') }}: {{ formatTokens(codexCliUsage.totalReasoningTokens) }}</span>
-            <span v-if="codexCliUsage.estimatedCostUsd !== null" class="cc-cost">{{ formatCost(codexCliUsage.estimatedCostUsd) }}</span>
+        <div v-if="hasCodex" class="cc-agent">
+          <div class="cc-agent-name">
+            <Bot :size="12" :stroke-width="2" />
+            <span>Codex</span>
           </div>
-        </div>
-        <div v-if="codexCliUsage.rateLimitPrimary || codexCliUsage.rateLimitSecondary" class="cc-model-row">
-          <div class="cc-model-name">{{ t('statusBar.rate') }}</div>
-          <div class="cc-model-stats">
-            <span v-if="codexCliUsage.rateLimitPrimary">{{ t('statusBar.rate5h') }}: {{ codexCliUsage.rateLimitPrimary.usedPercent.toFixed(1) }}%</span>
-            <span v-if="codexCliUsage.rateLimitSecondary">{{ t('statusBar.rateWeekly') }}: {{ codexCliUsage.rateLimitSecondary.usedPercent.toFixed(1) }}%</span>
+          <div v-if="codexAccount?.email" class="cc-account">
+            <span class="cc-account-name">{{ codexAccount.email }}</span>
+            <span v-if="codexAccount.plan" class="cc-account-meta">{{ codexAccount.plan }}</span>
           </div>
+          <div v-if="codexTokens" class="cc-summary">
+            <span>{{ t('statusBar.ccIn') }} {{ formatTokens(codexTokens.input) }}</span>
+            <span>{{ t('statusBar.ccOut') }} {{ formatTokens(codexTokens.output) }}</span>
+            <span v-if="codexTokens.cost !== null" class="cc-cost">~{{ formatCost(codexTokens.cost) }}</span>
+          </div>
+          <RateMeters :meters="codexSessionMeters" class="cc-meters" />
         </div>
       </div>
     </div>
@@ -775,7 +645,9 @@ onUnmounted(() => {
 }
 
 /* Full-width menu items — exclude inline icon buttons (help, rate refresh). */
-.status-dropdown button:not(.help-btn):not(.rate-refresh) {
+/* メニュー項目だけを全幅にする。`.detail-link` を除外しないと、見出し行の
+   リンクが幅いっぱいに広がって見出しを潰し、更新・ヘルプが枠外へ押し出される。 */
+.status-dropdown button:not(.help-btn):not(.rate-refresh):not(.detail-link) {
   display: block;
   width: 100%;
   padding: 5px 12px;
@@ -794,7 +666,7 @@ onUnmounted(() => {
 .dropdown-label {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   padding: 2px 12px;
   font-size: 11px;
   color: var(--text-secondary);
@@ -827,88 +699,86 @@ onUnmounted(() => {
   right: 0;
 }
 
-.cc-model-row {
-  padding: 4px 12px;
+/* 見出しは折り返さない。以前は「詳細」リンクが `margin-left: auto` で幅を取り、
+   「Claude Code セッション」が折り返していた。 */
+.dropdown-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* エージェントごとの区切り。 */
+.cc-agent {
+  padding: 4px 0 6px;
+}
+
+.cc-agent + .cc-agent {
+  border-top: 1px solid var(--border-color);
+}
+
+.cc-agent-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-active);
+}
+
+.cc-meters {
+  display: block;
+  padding: 2px 12px 2px;
+}
+
+/* 要約行（トークン合計）。詳細はエージェント状態タブへ寄せた（#226）。 */
+.cc-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.detail-link {
+  flex: 0 0 auto;
+  padding: 0;
+  font-size: 11px;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.detail-link:hover {
+  text-decoration: underline;
+}
+
+/* エージェント名の下にぶら下がる補足。見出しと同じ濃さ・大きさだと区別が付かない
+   ので、一段小さく淡くする（区切り線はエージェント間にしか引かない）。 */
 .cc-account {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
-  padding: 2px 12px 6px;
-  border-bottom: 1px solid var(--border-color);
-  margin-bottom: 4px;
-  font-size: 11px;
+  padding: 0 12px 2px;
+  font-size: 10px;
 }
 
 .cc-account-name {
-  font-weight: 600;
-  color: var(--text-active);
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cc-account-meta {
   color: var(--text-secondary);
-}
-
-/* The config dir is the long one; keep it from widening the dropdown. */
-.cc-account-dir {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cc-model-name {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-active);
-  margin-bottom: 2px;
-}
-
-.cc-model-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text-primary);
-}
-
-.cc-rate-name {
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-  gap: 6px;
-}
-
-.cc-rate-name .cc-rate-resets {
-  margin-left: auto;
-  font-weight: 400;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* One window per line: percentage left, reset time right. */
-.cc-rate-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-
-.cc-rate-row .cc-rate-window {
-  flex-shrink: 0;
-}
-
-.cc-rate-row .cc-rate-resets {
-  margin-left: auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .rate-refresh {
@@ -933,10 +803,6 @@ onUnmounted(() => {
 .rate-refresh:disabled {
   cursor: default;
   opacity: 0.6;
-}
-
-.cc-rate-resets {
-  opacity: 0.7;
 }
 
 /* Usage-percentage emphasis: yellow past 80%, red past 90%. Overrides the

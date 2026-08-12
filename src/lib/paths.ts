@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 import type { ShellType } from '../types/tab'
 
 export function pathSep(shell?: ShellType): '/' | '\\' {
@@ -88,12 +89,12 @@ export function relativeDate(iso: string): string {
 export function relativeTime(epochMs: number): string {
   const diff = Date.now() - epochMs
   const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 1) return t('time.justNow')
+  if (mins < 60) return t('time.minutesAgo', { n: String(mins) })
   const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return t('time.hoursAgo', { n: String(hours) })
   const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}d ago`
+  if (days < 30) return t('time.daysAgo', { n: String(days) })
   return new Date(epochMs).toLocaleDateString()
 }
 

@@ -12,8 +12,8 @@ export interface ClaudeAccount {
   email: string | null
   displayName: string | null
   organization: string | null
-  /** Plan as reported by Claude Code, e.g. "max_20x". */
-  seatTier: string | null
+  /** Plan for display, e.g. "claude_max_20x". Derived in Rust — see `plan_label`. */
+  plan: string | null
 }
 
 export interface ClaudeUsageResult {

@@ -6,6 +6,7 @@ import {
   BrainCircuit,
   FileCode,
   FileEdit,
+  Gauge,
   Loader,
   LogIn,
   LogOut,
@@ -947,6 +948,9 @@ onUnmounted(() => {
       <div v-else class="auth-bar auth-bar-ok">
         <span>{{ s.authState.status === 'authenticated' ? (s.authState as { email: string | null }).email ?? (s.capabilities?.displayName ?? '') : '' }}</span>
         <div class="auth-actions">
+          <button class="btn-sm btn-ghost" :title="t('agentStatus.title')" @click="tabStore.addAgentStatusTab()">
+            <Gauge :size="14" :stroke-width="2" />
+          </button>
           <button class="btn-sm btn-ghost" :title="t('codex.search')" @click="toggleSearch">
             <Search :size="14" :stroke-width="2" />
           </button>

@@ -175,6 +175,11 @@ function openSettings() {
   tabStore.addSettingsTab()
 }
 
+function openAgentStatus() {
+  closeGearMenu()
+  tabStore.addAgentStatusTab()
+}
+
 function openManual() {
   closeGearMenu()
   tabStore.addManualTab()
@@ -395,6 +400,9 @@ onUnmounted(() => {
           <button class="gear-menu-item" @click="openSettings">
             <span>{{ t('sidebar.settings') }}</span>
             <span class="ctx-key">Ctrl+,</span>
+          </button>
+          <button class="gear-menu-item" @click="openAgentStatus">
+            <span>{{ t('agentStatus.title') }}</span>
           </button>
           <div class="gear-menu-divider" />
           <button class="gear-menu-item" @click="openManual">

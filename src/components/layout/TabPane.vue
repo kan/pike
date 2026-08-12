@@ -21,6 +21,7 @@ const PreviewTab = defineAsyncComponent(() => import('../tabs/PreviewTab.vue'))
 const HistoryTab = defineAsyncComponent(() => import('../tabs/HistoryTab.vue'))
 const DockerLogsTab = defineAsyncComponent(() => import('../tabs/DockerLogsTab.vue'))
 const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue'))
+const AgentStatusTab = defineAsyncComponent(() => import('../tabs/AgentStatusTab.vue'))
 const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 const AgentChatTab = defineAsyncComponent(() => import('../tabs/AgentChatTab.vue'))
@@ -30,6 +31,7 @@ import {
   Bot,
   Check,
   ChevronDown,
+  Gauge,
   Pin,
   Plus,
   ScrollText,
@@ -60,6 +62,7 @@ const historyTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'histo
 const dockerLogsTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'docker-logs'))
 
 const settingsTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'settings'))
+const agentStatusTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'agent-status'))
 
 const manualTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'manual'))
 
@@ -417,6 +420,7 @@ onUnmounted(() => {
           <Terminal v-else-if="tab.kind === 'terminal'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <ScrollText v-else-if="tab.kind === 'docker-logs'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <Settings v-else-if="tab.kind === 'settings'" :size="14" :stroke-width="1.5" class="tab-icon" />
+          <Gauge v-else-if="tab.kind === 'agent-status'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <BookOpen v-else-if="tab.kind === 'manual'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <Bot v-else-if="tab.kind === 'agent-chat'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <span class="tab-title" @mouseenter="onTitleHover">{{ tab.title }}</span>
@@ -529,6 +533,11 @@ onUnmounted(() => {
       />
       <SettingsTab
         v-for="tab in settingsTabs"
+        :key="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <AgentStatusTab
+        v-for="tab in agentStatusTabs"
         :key="tab.id"
         v-show="tab.id === tabStore.activeTabId"
       />

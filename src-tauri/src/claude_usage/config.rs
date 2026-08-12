@@ -50,18 +50,61 @@ pub struct ClaudeConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeAccount {
-    #[serde(rename(deserialize = "emailAddress"))]
     pub email: Option<String>,
     pub display_name: Option<String>,
-    #[serde(rename(deserialize = "organizationName"))]
     pub organization: Option<String>,
-    pub seat_tier: Option<String>,
+    /// 表示用のプラン名。どのフィールドから来るかは `plan_label` を参照。
+    pub plan: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ClaudeJson {
     #[serde(rename = "oauthAccount")]
-    oauth_account: Option<ClaudeAccount>,
+    oauth_account: Option<OauthAccount>,
+}
+
+/// `.claude.json` の `oauthAccount`。綴りがフィールド名と違うので、素直に読める
+/// `ClaudeAccount` とは分けてある。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OauthAccount {
+    email_address: Option<String>,
+    display_name: Option<String>,
+    organization_name: Option<String>,
+    seat_tier: Option<String>,
+    organization_rate_limit_tier: Option<String>,
+    organization_type: Option<String>,
+}
+
+impl From<OauthAccount> for ClaudeAccount {
+    fn from(a: OauthAccount) -> Self {
+        let plan = plan_label(&a);
+        Self {
+            email: a.email_address,
+            display_name: a.display_name,
+            organization: a.organization_name,
+            plan,
+        }
+    }
+}
+
+/// 表示するプラン名。
+///
+/// **`seatTier` は個人のサブスクリプションでは `null`**（実機で確認）。Team /
+/// Enterprise の席にしか入らないので、無ければ枠の等級（`organizationRateLimitTier`、
+/// 例 `default_claude_max_20x`）、それも無ければ種別（`organizationType`、
+/// 例 `claude_max`）に落とす。`default_` の接頭辞は情報を持たないので外す。
+///
+/// 値そのものは加工しない。将来増える等級を勝手に読み替えて誤った名前を出すより、
+/// Claude が付けた名前をそのまま見せるほうが安全。
+fn plan_label(a: &OauthAccount) -> Option<String> {
+    let raw = a
+        .seat_tier
+        .as_deref()
+        .or(a.organization_rate_limit_tier.as_deref())
+        .or(a.organization_type.as_deref())?;
+    let trimmed = raw.strip_prefix("default_").unwrap_or(raw);
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// マーカー行の値だけ拾う。対話 bash は `.bashrc` のバナーを stdout に出すことがあるので、
@@ -210,7 +253,9 @@ fn resolve_uncached(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
         ),
     };
     ClaudeConfig {
-        account: read_path.as_deref().and_then(read_account),
+        account: read_path
+            .as_deref()
+            .and_then(|dir| read_account(dir, native_override.is_some())),
         native_override,
         read_path,
     }
@@ -241,16 +286,100 @@ pub fn resolve(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
     config
 }
 
-/// 設定ディレクトリの `.claude.json` からアカウントを読む。呼び出しは `resolve` 経由に
-/// 限る（`ClaudeConfig::account` の doc を参照）。
-fn read_account(dir: &Path) -> Option<ClaudeAccount> {
-    let text = std::fs::read_to_string(dir.join(".claude.json")).ok()?;
-    serde_json::from_str::<ClaudeJson>(&text).ok()?.oauth_account
+/// `.claude.json` からアカウントを読む。呼び出しは `resolve` 経由に限る
+/// （`ClaudeConfig::account` の doc を参照）。
+///
+/// **場所が 2 通りある**。`CLAUDE_CONFIG_DIR` を設定していればその中（#225 で空の
+/// ディレクトリを指して起動して確認）、既定では `~/.claude` の**中ではなく隣**の
+/// `~/.claude.json`（Windows・WSL の実機で確認）。
+///
+/// **上書きの有無で場所を決め、フォールバックしない**。上書きしているのにその中に
+/// まだ `.claude.json` が無いとき（ログイン前など）に親を見ると、`~/.claude.json` の
+/// **既定アカウント**を上書き先のものとして表示してしまう。「今どのアカウントか」を
+/// 出すための表示で嘘をつくのは、出さないより悪い。
+fn read_account(dir: &Path, overridden: bool) -> Option<ClaudeAccount> {
+    let base = if overridden {
+        dir.to_path_buf()
+    } else {
+        dir.parent()?.to_path_buf()
+    };
+    let text = std::fs::read_to_string(base.join(".claude.json")).ok()?;
+    let parsed = serde_json::from_str::<ClaudeJson>(&text).ok()?;
+    Some(parsed.oauth_account?.into())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{envrc_value, expand_value, marker_value};
+    use super::{envrc_value, expand_value, marker_value, ClaudeAccount, ClaudeJson};
+
+    /// `.claude.json` の `oauthAccount` の実際のキー名（実ファイルから抜粋）。
+    /// フィールド名と綴りが違うものがあるので、対応が崩れたら気付けるようにする。
+    #[test]
+    fn reads_the_account_out_of_claude_json() {
+        let json = serde_json::json!({
+            "numStartups": 42,
+            "oauthAccount": {
+                "accountUuid": "u-1",
+                "emailAddress": "kan@example.com",
+                "displayName": "Kan",
+                "organizationName": "Example Inc",
+                "seatTier": "max_20x",
+            },
+        })
+        .to_string();
+        let account: ClaudeAccount = serde_json::from_str::<ClaudeJson>(&json)
+            .unwrap()
+            .oauth_account
+            .unwrap()
+            .into();
+        assert_eq!(account.email.as_deref(), Some("kan@example.com"));
+        assert_eq!(account.display_name.as_deref(), Some("Kan"));
+        assert_eq!(account.organization.as_deref(), Some("Example Inc"));
+        assert_eq!(account.plan.as_deref(), Some("max_20x"));
+    }
+
+    /// 個人のサブスクリプションでは `seatTier` が null。枠の等級に落とし、
+    /// 情報を持たない `default_` の接頭辞だけ外す（実アカウントの値で確認）。
+    #[test]
+    fn plan_falls_back_when_seat_tier_is_null() {
+        let json = serde_json::json!({
+            "oauthAccount": {
+                "emailAddress": "kan@example.com",
+                "seatTier": null,
+                "organizationRateLimitTier": "default_claude_max_20x",
+                "organizationType": "claude_max",
+            },
+        })
+        .to_string();
+        let account: ClaudeAccount = serde_json::from_str::<ClaudeJson>(&json)
+            .unwrap()
+            .oauth_account
+            .unwrap()
+            .into();
+        assert_eq!(account.plan.as_deref(), Some("claude_max_20x"));
+    }
+
+    /// 等級も無ければ種別まで落ちる。
+    #[test]
+    fn plan_falls_back_to_organization_type() {
+        let json = serde_json::json!({
+            "oauthAccount": { "organizationType": "claude_pro" },
+        })
+        .to_string();
+        let account: ClaudeAccount = serde_json::from_str::<ClaudeJson>(&json)
+            .unwrap()
+            .oauth_account
+            .unwrap()
+            .into();
+        assert_eq!(account.plan.as_deref(), Some("claude_pro"));
+    }
+
+    /// ログイン前は `oauthAccount` ごと無い。
+    #[test]
+    fn missing_account_is_none() {
+        let parsed = serde_json::from_str::<ClaudeJson>("{\"numStartups\":1}").unwrap();
+        assert!(parsed.oauth_account.is_none());
+    }
 
     #[test]
     fn picks_marker_line_amid_banner_noise() {

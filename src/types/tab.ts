@@ -213,6 +213,14 @@ export type SettingsTab = {
   pinned: boolean
 }
 
+/** Singleton `/status` view for the agents (#226). */
+export type AgentStatusTab = {
+  id: string
+  kind: 'agent-status'
+  title: string
+  pinned: boolean
+}
+
 export type PdfTab = {
   id: string
   kind: 'pdf'
@@ -253,6 +261,7 @@ export type Tab =
   | PreviewTab
   | HistoryTab
   | SettingsTab
+  | AgentStatusTab
   | PdfTab
   | AgentChatTab
   | ManualTab

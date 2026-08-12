@@ -16,6 +16,16 @@ export function createUsageStore<T extends { active: boolean }>(
 ) {
   return defineStore(id, () => {
     const usage = ref<T | null>(null) as Ref<T | null>
+    /**
+     * A **manual** refresh is in flight. Reactive (unlike the guard below) because
+     * more than one view spins for the same click — the status bar and the agent
+     * status tab both drive `refreshUsage(true)`.
+     *
+     * Background polls deliberately don't set it: the refresh button would then
+     * disable itself every 30s with no user action (and for the rate store, a
+     * cache-miss fetch can run 90s).
+     */
+    const refreshing = ref(false)
 
     let pollTimer: ReturnType<typeof setInterval> | null = null
     let pollAbort: AbortController | null = null
@@ -32,6 +42,7 @@ export function createUsageStore<T extends { active: boolean }>(
       const project = getProject()
       if (!project?.root) return
       refreshGuard = true
+      if (force) refreshing.value = true
       try {
         const result = await fetcher(project.shell, project.root, force)
         if (usage.value && JSON.stringify(usage.value) === JSON.stringify(result)) {
@@ -42,6 +53,7 @@ export function createUsageStore<T extends { active: boolean }>(
         // Silently ignore errors (tool not installed, no sessions, etc.)
       } finally {
         refreshGuard = false
+        refreshing.value = false
       }
     }
 
@@ -92,6 +104,6 @@ export function createUsageStore<T extends { active: boolean }>(
       usage.value = null
     }
 
-    return { usage, refreshUsage, startPolling, stopPolling }
+    return { usage, refreshing, refreshUsage, startPolling, stopPolling }
   })
 }
