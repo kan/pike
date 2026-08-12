@@ -489,6 +489,10 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 2. `npm run e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ寸法は 3 クラス: クローズアップ＝既定 1280×832（内枠 1259×777）、全体レイアウト系（layout.ts の `FULL`）＝1600×1000（内枠 1578×945）、**外枠付きヒーロー（`HERO` = `FULL` の 2 倍）＝3200×2000（内枠 3179×1944）**
    - `HERO` はプライマリモニタ（3413×1440）より縦が大きいが、WebView2 の撮影は画面外にはみ出した分も含めて撮れるので問題ない。DPR を上げる方向（`--force-device-scale-factor=2`）は撮影が CSS ピクセル基準で行われるため効かない（実測済み）
    - **論理サイズを 2 倍にすると表示内容が増える**ぶん、フィクスチャが短いと下半分が空く。`HERO` を使う spec（overview / hero-editor / hero-git）のダミーデータは、この寸法で画面が埋まる量にしてある（README は 60 行超、チャットは 5 往復、コミット履歴は 8 件）。寸法を変えたら埋まり方も見直す
+> `npm run e2e:build` の出力を `| tail` などに通さないこと。Rust のコンパイルが落ちても
+> パイプ側の終了コード 0 が返り、**古いバイナリのまま撮影して気付けない**（実際に
+> 「新しい画面が出ない」を追う羽目になった）。ログはファイルに落として `$?` を見る。
+
 3. `scripts/sync-manual-images.sh --check` でドライラン → 引数なしで `docs/manual/img/` へ同期。スクリプト内 `MAP` が「マニュアル名 ← E2E ベース名」を対応付け、ja の dark（`{名前}.png`）+ light（`{名前}-light.png`）の 2 枚を持つ（GitHub の `<picture>` 切替用）
 4. 変更画像を目視確認してコミット
 

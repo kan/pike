@@ -129,6 +129,20 @@ export async function setFakeProject(): Promise<void> {
   })
 }
 
+// エージェント状態タブを開く。集計は 30 秒ポーリング + 外部 CLI 依存なので、
+// invoke は待たずにストアへ決定的な値を差す。
+export async function openAgentStatus(opts: {
+  claudeUsage?: unknown
+  claudeRate?: unknown
+  codexUsage?: unknown
+}): Promise<void> {
+  await browser.execute((o) => {
+    ;(
+      window as unknown as { __pikeE2E?: { openAgentStatus?: (o: unknown) => void } }
+    ).__pikeE2E?.openAgentStatus?.(o)
+  }, opts)
+}
+
 // ファイルツリーの git ステータス色を撮るため、gitStore.status を直接セットする。
 export async function setGitStatus(status: unknown): Promise<void> {
   await browser.execute((s) => {

@@ -38,6 +38,9 @@ async function bootstrap() {
     const { useTodoStore } = await import('./stores/todo')
     const { useAgentStore } = await import('./stores/agent')
     const { useGitStore } = await import('./stores/git')
+    const { useClaudeUsageStore } = await import('./stores/claudeUsage')
+    const { useClaudeRateStore } = await import('./stores/claudeRate')
+    const { useCodexUsageStore } = await import('./stores/codexUsage')
     const { useEditorInfo } = await import('./composables/useEditorInfo')
     const { ptyRouter } = await import('./composables/usePtyRouter')
     const { globalMode } = await import('./lib/window')
@@ -82,6 +85,19 @@ async function bootstrap() {
       openSettings: () => {
         project.showSwitcher = false
         tabs.addSettingsTab()
+      },
+      // エージェント状態タブ。集計は 30 秒ポーリング + 外部 CLI 依存なので、invoke を
+      // 待たずにストアへ直接差す（openAgentChat と同じ方針）。
+      openAgentStatus: (opts: {
+        claudeUsage?: unknown
+        claudeRate?: unknown
+        codexUsage?: unknown
+      }) => {
+        project.showSwitcher = false
+        useClaudeUsageStore().usage = opts.claudeUsage as never
+        useClaudeRateStore().usage = opts.claudeRate as never
+        useCodexUsageStore().usage = opts.codexUsage as never
+        tabs.addAgentStatusTab()
       },
       // シェル一覧ドロップダウン(▾)は globalMode か Windows プロジェクトでのみ出る。
       // WSL 検出でシェルプロファイルを揃えてから globalMode を立てる。

@@ -102,6 +102,11 @@ Claude Code と Codex を、統一されたチャット UI で使えます。
 
 ### エージェント状態タブ
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/agent-status-light.png">
+  <img alt="エージェント状態タブ" src="img/agent-status.png">
+</picture>
+
 Claude と Codex の状態をまとめて見る画面です。サイドバー下部の歯車メニューの「エージェント状態」、ステータスバーのドロップダウンの「詳細」、エージェントチャットの上部のメーターアイコンから開きます。設定タブと同じく、開き直すと同じタブに戻ります。
 
 Claude と Codex をそれぞれカードにして、次を並べます。

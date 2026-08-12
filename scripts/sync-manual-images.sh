@@ -36,6 +36,7 @@ MAP=(
   "git-graph:git-graph"
   "git-sync-menu:git-sync-menu"
   "terminal-agent-buttons:terminal"
+  "agent-status:agent-status"
   "docker:docker-panel"
   "search:search-panel"
   "tasks:tasks-panel"
