@@ -542,6 +542,7 @@ export default {
   'statusBar.ccName': 'Claude',
   'statusBar.ccRateResets': 'リセット {when}',
   'statusBar.ccRateRefresh': '利用率を更新',
+  'statusBar.ccConfigDir': 'CLAUDE_CONFIG_DIR: {path}',
   'statusBar.ccRateFetchedAt': '{time} 取得',
   'statusBar.codexSession': 'Codex CLI セッション',
   'statusBar.codexCli': 'Codex (CLI)',

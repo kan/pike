@@ -7,6 +7,15 @@ export interface ModelUsage {
   costUsd: number | null
 }
 
+/** Whoever is logged in to the `.claude` directory Pike is reading (#225). */
+export interface ClaudeAccount {
+  email: string | null
+  displayName: string | null
+  organization: string | null
+  /** Plan as reported by Claude Code, e.g. "max_20x". */
+  seatTier: string | null
+}
+
 export interface ClaudeUsageResult {
   active: boolean
   sessionId: string | null
@@ -17,6 +26,10 @@ export interface ClaudeUsageResult {
   totalCacheReadTokens: number
   totalCacheCreationTokens: number
   estimatedCostUsd: number | null
+  /** Filled even when no session is active — the status bar shows rate limits regardless. */
+  account: ClaudeAccount | null
+  /** Set only when `CLAUDE_CONFIG_DIR` moves the directory off its default. */
+  configDir: string | null
 }
 
 /**

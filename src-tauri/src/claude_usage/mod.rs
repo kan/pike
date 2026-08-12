@@ -1,7 +1,9 @@
+pub mod config;
 pub mod rate;
 pub mod sessions;
 
-use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
+use crate::types::{cwd_matches_root, ShellConfig};
+use config::ClaudeAccount;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -20,6 +22,11 @@ pub struct ClaudeUsageResult {
     pub total_cache_read_tokens: u64,
     pub total_cache_creation_tokens: u64,
     pub estimated_cost_usd: Option<f64>,
+    /// どのアカウントの `.claude` を見ているか（#225）。セッションが動いていなくても
+    /// 埋める（StatusBar は非 active でもレート表示を出すため）。
+    pub account: Option<ClaudeAccount>,
+    /// `CLAUDE_CONFIG_DIR` で既定から動かしているときだけ、その値。
+    pub config_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,20 +132,6 @@ fn calculate_cost(pricing: &ModelPricing, counts: &TokenCounts) -> f64 {
         + counts.cache_read as f64 * pricing.cache_read_per_m
         + counts.cache_creation as f64 * pricing.cache_creation_per_m)
         / 1_000_000.0
-}
-
-/// Resolve the `.claude` data directory for the given shell.
-/// - Windows shells: `%USERPROFILE%\.claude`.
-/// - WSL: the distro's home `.claude`, reached over the `\\wsl.localhost\…` (or
-///   legacy `\\wsl$\…`) UNC share, since `claude` running inside WSL writes its
-///   logs to the Linux home, not the Windows profile.
-fn claude_home(shell: &ShellConfig) -> Option<PathBuf> {
-    match shell {
-        ShellConfig::Wsl { distro } => wsl_home_subdir_cached(shell, distro, ".claude"),
-        _ => std::env::var("USERPROFILE")
-            .ok()
-            .map(|p| PathBuf::from(p).join(".claude")),
-    }
 }
 
 /// Encode a project root the way Claude Code names its `~/.claude/projects/<dir>`:
@@ -319,14 +312,14 @@ impl UsageAccumulator {
     }
 }
 
-fn get_usage_for_project(shell: &ShellConfig, project_root: &str) -> Result<ClaudeUsageResult, String> {
-    let Some(claude_dir) = claude_home(shell) else {
-        return Ok(ClaudeUsageResult::default());
-    };
-
-    let sessions = find_active_sessions(shell, &claude_dir, project_root);
+fn usage_from_dir(
+    shell: &ShellConfig,
+    claude_dir: &Path,
+    project_root: &str,
+) -> ClaudeUsageResult {
+    let sessions = find_active_sessions(shell, claude_dir, project_root);
     if sessions.is_empty() {
-        return Ok(ClaudeUsageResult::default());
+        return ClaudeUsageResult::default();
     }
 
     let encoded = encode_project_path(project_root);
@@ -379,7 +372,7 @@ fn get_usage_for_project(shell: &ShellConfig, project_root: &str) -> Result<Clau
 
     models.sort_by_key(|m| std::cmp::Reverse(m.output_tokens));
 
-    Ok(ClaudeUsageResult {
+    ClaudeUsageResult {
         active: true,
         session_id: first_session_id,
         started_at: earliest_start,
@@ -389,6 +382,21 @@ fn get_usage_for_project(shell: &ShellConfig, project_root: &str) -> Result<Clau
         total_cache_read_tokens: totals.cache_read,
         total_cache_creation_tokens: totals.cache_creation,
         estimated_cost_usd: if has_pricing { Some(total_cost) } else { None },
+        ..Default::default()
+    }
+}
+
+fn get_usage_for_project(shell: &ShellConfig, project_root: &str) -> Result<ClaudeUsageResult, String> {
+    let config = config::resolve(shell, project_root);
+    let usage = config
+        .read_path
+        .as_deref()
+        .map(|dir| usage_from_dir(shell, dir, project_root))
+        .unwrap_or_default();
+    Ok(ClaudeUsageResult {
+        account: config.account,
+        config_dir: config.native_override,
+        ..usage
     })
 }
 

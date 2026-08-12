@@ -5,7 +5,7 @@
 //! directly from `~/.claude/projects/<encoded-root>/*.jsonl` (the directory
 //! `claude_usage` already walks for token counts).
 
-use super::{claude_home, encode_project_path};
+use super::{config, encode_project_path};
 use crate::types::{validate_slug, ShellConfig};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -171,7 +171,7 @@ fn modified_ms(meta: &fs::Metadata) -> Option<u64> {
 }
 
 fn list_sessions(shell: &ShellConfig, project_root: &str) -> Vec<ClaudeSession> {
-    let Some(claude_dir) = claude_home(shell) else {
+    let Some(claude_dir) = config::resolve(shell, project_root).read_path else {
         return Vec::new();
     };
     let dir = claude_dir

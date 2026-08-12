@@ -541,6 +541,7 @@ export default {
   'statusBar.ccName': 'Claude',
   'statusBar.ccRateResets': 'resets {when}',
   'statusBar.ccRateRefresh': 'Refresh rate limits',
+  'statusBar.ccConfigDir': 'CLAUDE_CONFIG_DIR: {path}',
   'statusBar.ccRateFetchedAt': 'as of {time}',
   'statusBar.codexSession': 'Codex CLI Session',
   'statusBar.codexCli': 'Codex (CLI)',

@@ -128,10 +128,31 @@ impl ShellConfig {
         line: &str,
         timeout: Duration,
     ) -> Result<(i32, String, String), String> {
+        self.run_shell_line_env(dir, &[], line, timeout)
+    }
+
+    /// `run_shell_line` plus environment variables for that one command. The
+    /// quoting differs per shell (`VAR=v cmd` under bash, `set "VAR=v" && cmd`
+    /// under cmd), so it lives here next to the dispatch that decides which shell
+    /// actually runs — a caller assembling the prefix itself breaks silently when
+    /// this dispatch changes. Values containing `"` are dropped: cmd cannot quote
+    /// them, and every current caller passes a path.
+    pub fn run_shell_line_env(
+        &self,
+        dir: &str,
+        env: &[(&str, &str)],
+        line: &str,
+        timeout: Duration,
+    ) -> Result<(i32, String, String), String> {
+        let env: Vec<&(&str, &str)> = env.iter().filter(|(_, v)| !v.contains('"')).collect();
         let cmd = match self {
             ShellConfig::Wsl { distro } => {
+                let assigns: String = env
+                    .iter()
+                    .map(|(k, v)| format!("{k}={} ", bash_quote(v)))
+                    .collect();
                 let script = format!(
-                    "cd {} && PATH=\"{WSL_EXTRA_PATH}:$PATH\" {line}",
+                    "cd {} && {assigns}PATH=\"{WSL_EXTRA_PATH}:$PATH\" {line}",
                     bash_quote(dir)
                 );
                 let mut c = silent_command("wsl.exe");
@@ -142,17 +163,19 @@ impl ShellConfig {
                 // `current_dir` + `raw_arg` avoids the cmd.exe/Rust quoting clash
                 // that `cmd /C "cd /d ..."` triggers; cmd starts in `dir`, so
                 // relative tools (node_modules/.bin, npx) resolve correctly.
+                let assigns: String =
+                    env.iter().map(|(k, v)| format!("set \"{k}={v}\" && ")).collect();
                 let mut c = silent_command("cmd.exe");
                 c.current_dir(dir);
                 c.arg("/C");
                 #[cfg(windows)]
                 {
                     use std::os::windows::process::CommandExt;
-                    c.raw_arg(line);
+                    c.raw_arg(format!("{assigns}{line}"));
                 }
                 #[cfg(not(windows))]
                 {
-                    c.arg(line);
+                    c.arg(format!("{assigns}{line}"));
                 }
                 c
             }
@@ -256,10 +279,58 @@ pub fn cwd_matches_root(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
     }
 }
 
+/// Cache key for things that are per claude/codex *installation* rather than per
+/// project — a WSL distro has its own home and its own tool config, the Windows
+/// shells all share the host's. Shared so the several caches keyed this way
+/// (`claude_usage::config`, `claude_usage::rate`) agree on what counts as one
+/// installation.
+pub fn install_key(shell: &ShellConfig) -> String {
+    match shell {
+        ShellConfig::Wsl { distro } => format!("wsl:{distro}"),
+        _ => "windows".to_string(),
+    }
+}
+
+/// Resolve (and cache per distro) a WSL distro's `$HOME`, as its native Linux path.
+pub fn wsl_home_cached(shell: &ShellConfig, distro: &str) -> Option<String> {
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(home) = cache.lock().ok()?.get(distro) {
+        return Some(home.clone());
+    }
+    // `echo $HOME` → e.g. "/home/kan"; take the last line in case of any banner.
+    let raw = shell.run_stdout("bash", &["-c", "echo $HOME"]).ok()?;
+    let home = raw.lines().last().unwrap_or_default().trim().trim_end_matches('/');
+    if home.is_empty() {
+        return None;
+    }
+    cache.lock().ok()?.insert(distro.to_string(), home.to_string());
+    Some(home.to_string())
+}
+
+/// Map a WSL-native path to the Windows UNC that reaches it, probing the modern
+/// `\\wsl.localhost\…` share and falling back to the legacy `\\wsl$\…` one. The
+/// share name is decided once per distro (by looking at the distro root, so this
+/// works for files as well as directories) and cached.
+///
+/// Existence of the *target* is not checked — callers that need it say so.
+pub fn wsl_native_to_unc(distro: &str, native: &str) -> Option<PathBuf> {
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let host = match cache.lock().ok()?.get(distro) {
+        Some(host) => host.clone(),
+        None => ["wsl.localhost", "wsl$"]
+            .into_iter()
+            .find(|host| PathBuf::from(format!("\\\\{host}\\{distro}\\")).is_dir())?
+            .to_string(),
+    };
+    cache.lock().ok()?.insert(distro.to_string(), host.clone());
+    let tail = native.trim_end_matches('/').replace('/', "\\");
+    Some(PathBuf::from(format!("\\\\{host}\\{distro}{tail}")))
+}
+
 /// Resolve (and cache per `(distro, subdir)`) a WSL home subdirectory — e.g.
-/// `.claude`, `.codex` — as a Windows UNC path. Spawns `wsl.exe` for `$HOME` and
-/// probes the modern `\\wsl.localhost\…` share (falling back to legacy `\\wsl$\…`)
-/// once; later calls reuse the cached path. Not cached on failure, so it keeps
+/// `.claude`, `.codex` — as a Windows UNC path. Not cached on failure, so it keeps
 /// retrying until the tool has actually written into the distro.
 pub fn wsl_home_subdir_cached(shell: &ShellConfig, distro: &str, subdir: &str) -> Option<PathBuf> {
     static CACHE: OnceLock<Mutex<HashMap<(String, String), PathBuf>>> = OnceLock::new();
@@ -268,17 +339,8 @@ pub fn wsl_home_subdir_cached(shell: &ShellConfig, distro: &str, subdir: &str) -
     if let Some(dir) = cache.lock().ok()?.get(&key) {
         return Some(dir.clone());
     }
-    // `echo $HOME` → e.g. "/home/kan"; take the last line in case of any banner.
-    let raw = shell.run_stdout("bash", &["-c", "echo $HOME"]).ok()?;
-    let home = raw.lines().last().unwrap_or_default().trim().trim_end_matches('/');
-    if home.is_empty() {
-        return None;
-    }
-    let tail = format!("{}\\{}", home.replace('/', "\\"), subdir);
-    let dir = ["wsl.localhost", "wsl$"]
-        .into_iter()
-        .map(|host| PathBuf::from(format!("\\\\{host}\\{distro}{tail}")))
-        .find(|p| p.is_dir())?;
+    let home = wsl_home_cached(shell, distro)?;
+    let dir = wsl_native_to_unc(distro, &format!("{home}/{subdir}")).filter(|p| p.is_dir())?;
     cache.lock().ok()?.insert(key, dir.clone());
     Some(dir)
 }

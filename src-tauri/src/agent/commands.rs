@@ -185,7 +185,21 @@ pub async fn agent_start_session(
             Arc::new(rt)
         }
         "claude-code" => {
-            let acp_config = AcpAgentConfig::default();
+            // このタブの claude は、ターミナルで起動する claude と同じアカウントで
+            // 動かないと困る（#225）。`CLAUDE_CONFIG_DIR` を明示的に渡す: ACP エージェントは
+            // `bash -c`（非対話・非ログイン）で起動するので、ユーザーが `.bashrc` や
+            // `.envrc` で設定していても、そのままでは既定の `~/.claude` を使ってしまう。
+            let mut acp_config = AcpAgentConfig::default();
+            let probe = (shell.clone(), cwd.clone());
+            let config_dir = tokio::task::spawn_blocking(move || {
+                crate::claude_usage::config::resolve(&probe.0, &probe.1).native_override
+            })
+            .await
+            .ok()
+            .flatten();
+            if let Some(dir) = config_dir {
+                acp_config.env.insert("CLAUDE_CONFIG_DIR".to_string(), dir);
+            }
             let rt = ACPRuntime::connect(
                 shell, &cwd, acp_config, app, window_label.clone(), tab_id.clone(),
             )

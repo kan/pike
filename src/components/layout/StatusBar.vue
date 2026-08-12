@@ -87,6 +87,14 @@ const claudeRate = computed(() => {
 // No fallback to other windows: a weekly quota must not be labeled "5h".
 const claudeRateSession = computed(() => claudeRate.value?.windows.find((w) => w.kind === 'session') ?? null)
 
+// Which account the numbers above belong to (#225). Worth showing even with a
+// single account, since CLAUDE_CONFIG_DIR can point a project at another one and
+// the totals would otherwise look inexplicably empty.
+const claudeAccount = computed(() => {
+  const a = claudeUsageStore.usage?.account
+  return a && (a.email || a.displayName) ? a : null
+})
+
 // System-tray tooltip (#161): a one-line usage summary shown on hover while
 // Pike sits minimized in the tray. Only the main window pushes it (the tray is
 // one per-process resource); Claude's 5h rate is account-wide so it represents
@@ -455,6 +463,16 @@ onUnmounted(() => {
           <span>{{ claudeUsageStore.usage?.active ? t('statusBar.ccSession') : t('statusBar.rate') }}</span>
           <HelpButton page="terminal-and-agents.md#トークン使用量とコスト" :size="13" />
         </div>
+        <div v-if="claudeAccount" class="cc-account">
+          <span class="cc-account-name">{{ claudeAccount.email ?? claudeAccount.displayName }}</span>
+          <span v-if="claudeAccount.organization" class="cc-account-meta">{{ claudeAccount.organization }}</span>
+          <span v-if="claudeAccount.seatTier" class="cc-account-meta">{{ claudeAccount.seatTier }}</span>
+          <span
+            v-if="claudeUsageStore.usage?.configDir"
+            class="cc-account-meta cc-account-dir"
+            :title="t('statusBar.ccConfigDir', { path: claudeUsageStore.usage.configDir })"
+          >{{ claudeUsageStore.usage.configDir }}</span>
+        </div>
         <template v-if="claudeUsageStore.usage?.active">
           <div v-for="m in claudeUsageStore.usage.models" :key="m.model" class="cc-model-row">
             <div class="cc-model-name">{{ m.model }}</div>
@@ -811,6 +829,34 @@ onUnmounted(() => {
 
 .cc-model-row {
   padding: 4px 12px;
+}
+
+.cc-account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 12px 6px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.cc-account-name {
+  font-weight: 600;
+  color: var(--text-active);
+}
+
+.cc-account-meta {
+  color: var(--text-secondary);
+}
+
+/* The config dir is the long one; keep it from widening the dropdown. */
+.cc-account-dir {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cc-model-name {

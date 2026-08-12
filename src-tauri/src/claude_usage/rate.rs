@@ -7,7 +7,7 @@
 //! caches the result — the CLI call takes 10s+ (it boots the full agent
 //! runtime) and must never run on every status-bar poll.
 
-use crate::types::ShellConfig;
+use crate::types::{install_key, ShellConfig};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -125,11 +125,14 @@ fn fetch_lock() -> &'static Mutex<()> {
 }
 
 /// Rate limits are account-scoped, not project-scoped — key the cache by the
-/// claude installation (WSL distro vs Windows host).
-fn cache_key(shell: &ShellConfig) -> String {
-    match shell {
-        ShellConfig::Wsl { distro } => format!("wsl:{distro}"),
-        _ => "windows".to_string(),
+/// claude installation (WSL distro vs Windows host). ただし `CLAUDE_CONFIG_DIR`
+/// が違えばアカウントも違うので、それも鍵に混ぜる（#225。混ぜないと、別アカウントの
+/// プロジェクトを開いた瞬間に前のアカウントの残量が出る）。
+fn cache_key(shell: &ShellConfig, config_dir: Option<&str>) -> String {
+    let install = install_key(shell);
+    match config_dir {
+        Some(dir) => format!("{install}\u{1f}{dir}"),
+        None => install,
     }
 }
 
@@ -144,10 +147,18 @@ fn needs_fetch(entry: &CacheEntry, session_active: bool) -> bool {
     }
 }
 
-fn run_usage_cli(shell: &ShellConfig, project_root: &str) -> ClaudeRateLimits {
+fn run_usage_cli(
+    shell: &ShellConfig,
+    project_root: &str,
+    config_dir: Option<&str>,
+) -> ClaudeRateLimits {
     // stdin must be closed explicitly — headless claude waits 3s for piped input.
     let line = format!("claude -p \"/usage\" < {}", shell.null_device());
-    let windows = match shell.run_shell_line(project_root, &line, CLI_TIMEOUT) {
+    // `CLAUDE_CONFIG_DIR` はここで明示的に渡す（#225）。この経路は WSL では
+    // `bash -c`（非対話・非ログイン）なので、ユーザーが `.bashrc` や `.envrc` で
+    // 設定していても、渡さない限り既定の `~/.claude` のアカウントを見てしまう。
+    let env: Vec<(&str, &str)> = config_dir.map(|d| ("CLAUDE_CONFIG_DIR", d)).into_iter().collect();
+    let windows = match shell.run_shell_line_env(project_root, &env, &line, CLI_TIMEOUT) {
         Ok((_code, stdout, _stderr)) => parse_usage_output(&stdout),
         Err(_) => Vec::new(),
     };
@@ -164,7 +175,8 @@ fn get_rate_limits(
     session_active: bool,
     force: bool,
 ) -> ClaudeRateLimits {
-    let key = cache_key(shell);
+    let config_dir = super::config::resolve(shell, project_root).native_override;
+    let key = cache_key(shell, config_dir.as_deref());
 
     let cached = cache().lock().unwrap().get(&key).cloned();
     if let Some(entry) = &cached {
@@ -183,7 +195,7 @@ fn get_rate_limits(
         }
     }
 
-    let mut result = run_usage_cli(shell, project_root);
+    let mut result = run_usage_cli(shell, project_root, config_dir.as_deref());
     // Keep the previous data when a refresh fails (CLI hiccup / timeout) —
     // stale rate info beats a flickering status item. Bounded by
     // STALE_KEEP_MAX so a permanently broken CLI (uninstalled, output format

@@ -101,8 +101,25 @@ impl AcpProcessRuntime {
         let mut cmd = if is_wsl {
             let distro = env_name.split(" (WSL)").next().unwrap_or("Ubuntu");
             let acp_cmd = build_shell_command(&self.config.command, &self.config.args);
+            // WSL では `cmd.env` は wsl.exe（Windows 側）にしか効かず、distro の中の
+            // プロセスには渡らない。bash に渡す行の頭で代入する。
+            let assigns: String = self
+                .config
+                .env
+                .iter()
+                .map(|(k, v)| format!("{k}={} ", bash_quote(v)))
+                .collect();
             let mut c = Command::new("wsl.exe");
-            c.args(["--cd", &linux_dir, "-d", distro, "--", "bash", "-c", &acp_cmd]);
+            c.args([
+                "--cd",
+                &linux_dir,
+                "-d",
+                distro,
+                "--",
+                "bash",
+                "-c",
+                &format!("{assigns}{acp_cmd}"),
+            ]);
             c
         } else {
             // On Windows, npm-installed binaries are .cmd files.
@@ -116,9 +133,11 @@ impl AcpProcessRuntime {
             c
         };
 
-        // Set environment variables
-        for (key, val) in &self.config.env {
-            cmd.env(key, val);
+        // Set environment variables (the WSL branch already put them in the bash line).
+        if !is_wsl {
+            for (key, val) in &self.config.env {
+                cmd.env(key, val);
+            }
         }
 
         cmd.stdin(Stdio::piped());
