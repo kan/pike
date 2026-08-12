@@ -604,6 +604,10 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `AgentRuntime` trait: `start_session`, `submit_turn`, `interrupt_turn`, `respond_approval`, `auth_status` 等
 - `CodexAppServerRuntime`: 既存の `codex/` モジュールを wrap。`codex://` ではなく `agent://` イベントを emit
 - `ACPRuntime`: `claude-agent-acp` 等の ACP 対応エージェントと JSON-RPC over stdio で通信
+- **ACP の `toolCall` は ToolCallUpdate であって、ツール名を持たない（#227）**。フィールドは `toolCallId` / `title` / `kind` / `rawInput` / `locations` で、`toolName` も `toolInput` も存在しない。振り分けは **`kind`**（`execute` / `edit` / `delete` / `move` / `read` / …）で行い、ツールの呼び名（Bash / Write / …）では分岐しない。呼び名はエージェントごとに違ううえ、そもそも届かない
+- **`session/request_permission` の `optionId` はエージェントが決める不透明な文字列（#227）**。応答ではリクエストで提示されたものをそのまま返す（以前は `kind` の値である `allow_once` / `reject_once` を id として組み立てており、`claude-agent-acp` が出す `allow` / `reject` と一致せず、同アダプタは allow 系の id でしか許可扱いにしないため「許可」を押すと拒否になっていた）
+  - **汎用ダイアログは UI が押した `option_id` をそのまま返す**。エージェントは同じ `kind` の選択肢を複数出しうるので（同アダプタの ExitPlanMode は `allow_always` を 3 つ並べる）、`kind` から引き直すと押したものと違う選択肢を送る
+  - 決まった 4 択の画面（コマンド / ファイル変更）は選択肢を UI に渡していないので、`ACPRuntime.pending_options` に覚えておいて `kind` から引く。該当が無ければ `cancelled`（近そうな選択肢で代用しない）。キーは `RequestId` にする（`Value` の文字列表現だと、フロントを往復した JSON の書式が変わるだけで無言の取り消しになる）
 - `AgentEvent` enum: 両プロトコルの通知を統一表現（MessageDelta, ItemStarted, ApprovalCommandRequest 等）
 - `AgentCapabilities`: runtime ごとのサポート機能を宣言（モデル選択、ロールバック、sandbox 設定等）
 - Tauri commands: `agent_start_session`, `agent_submit_turn` 等の `agent_*` 群

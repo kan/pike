@@ -17,6 +17,7 @@
 //! ACP requests (agent → client, require response):
 //! - `session/request_permission` — permission for tool use
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::json;
@@ -153,6 +154,71 @@ impl AcpProcessRuntime {
     }
 }
 
+/// `session/request_permission` の `options` を読む。ACP の `PermissionOption` は
+/// `{ optionId, name, kind }`。`optionId` の無い要素は応答に使えないので捨てる。
+fn parse_permission_options(params: &serde_json::Value) -> Vec<PermissionOption> {
+    params
+        .get("options")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| {
+                    let id = v.get("optionId").and_then(|id| id.as_str())?;
+                    Some(PermissionOption {
+                        id: id.to_string(),
+                        name: v
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or(id)
+                            .to_string(),
+                        kind: v
+                            .get("kind")
+                            .and_then(|k| k.as_str())
+                            .unwrap_or("other")
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// ツール呼び出しの通知を、チャット UI が描き分ける種別に落とす。
+///
+/// 見るのは ACP の `kind`（`execute` / `edit` / `read` / …）。ツールの呼び名
+/// （Bash / Write / …）はエージェントごとに違ううえ、ACP の ToolCallUpdate には
+/// そもそも名前のフィールドが無い（#227）。名前で分岐していたころは、どのツールも
+/// 種別が付かず `"unknown"` として流れていた。
+fn item_type_for(tool_call: &serde_json::Value) -> String {
+    match tool_call.get("kind").and_then(|v| v.as_str()) {
+        Some("execute") => "commandExecution".to_string(),
+        Some("edit") | Some("delete") | Some("move") => "fileChange".to_string(),
+        Some(kind) => kind.to_string(),
+        None => "other".to_string(),
+    }
+}
+
+/// コマンド / ファイル変更の承認は Pike の決まった 4 択なので、対応する `kind` の
+/// 選択肢を探す。該当が無ければ `None`（呼び出し側は `cancelled` で応答する）。
+/// 近そうな選択肢で代用はしない — 拒否のつもりが許可になりかねない。
+///
+/// 汎用ダイアログはこれを通さない。エージェントは同じ `kind` の選択肢を複数出しうる
+/// ので（`claude-agent-acp` の ExitPlanMode は `allow_always` を 3 つ並べる）、
+/// `kind` から引き直すと押したものと違う選択肢を送ってしまう。あちらは UI が
+/// `option_id` をそのまま返す。
+fn option_for_decision(
+    options: &[PermissionOption],
+    decision: &ApprovalDecision,
+) -> Option<String> {
+    let wanted = match decision {
+        ApprovalDecision::Allow => "allow_once",
+        ApprovalDecision::AllowAlways => "allow_always",
+        ApprovalDecision::Reject => "reject_once",
+        ApprovalDecision::Cancel => return None,
+    };
+    options.iter().find(|o| o.kind == wanted).map(|o| o.id.clone())
+}
+
 // ---------------------------------------------------------------------------
 // ACPRuntime
 // ---------------------------------------------------------------------------
@@ -170,6 +236,10 @@ pub struct ACPRuntime {
     client: Arc<AppServerClient>,
     session_id: Mutex<Option<String>>,
     emitter: Arc<TauriEventEmitter>,
+    /// 未応答の承認リクエストが提示していた選択肢。決まった 4 択のダイアログ
+    /// （コマンド / ファイル変更）はここから `optionId` を引く（#227）。汎用ダイアログは
+    /// UI が押した id を返すので、こちらは使わない。応答・中断・終了で消す。
+    pending_options: Arc<Mutex<HashMap<RequestId, Vec<PermissionOption>>>>,
 }
 
 impl ACPRuntime {
@@ -216,6 +286,7 @@ impl ACPRuntime {
             client,
             session_id: Mutex::new(None),
             emitter,
+            pending_options: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -264,6 +335,7 @@ impl ACPRuntime {
         };
         let client = self.client.clone();
         let emitter = self.emitter.clone();
+        let pending_options = self.pending_options.clone();
 
         tokio::spawn(async move {
             while let Some(req) = rx.recv().await {
@@ -272,19 +344,28 @@ impl ACPRuntime {
 
                 match req.method.as_str() {
                     "session/request_permission" => {
-                        // ACP spec: toolCall is a nested object with camelCase fields
+                        // ACP spec: toolCall is a ToolCallUpdate — `title` / `kind` /
+                        // `rawInput` / `locations`. **`toolName` / `toolInput` という
+                        // フィールドは無い**（#227。あると思って読んでいたので、ツール名は
+                        // 常に "unknown" になり、コマンド/ファイル用の表示にも一度も
+                        // 到達していなかった）。
                         let tool_call = req
                             .params
                             .get("toolCall")
                             .cloned()
                             .unwrap_or(json!({}));
-                        let tool_name = tool_call
-                            .get("toolName")
+                        let title = tool_call
+                            .get("title")
                             .and_then(|v| v.as_str())
-                            .unwrap_or("unknown")
+                            .unwrap_or("")
+                            .to_string();
+                        let kind = tool_call
+                            .get("kind")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("other")
                             .to_string();
                         let tool_input = tool_call
-                            .get("toolInput")
+                            .get("rawInput")
                             .cloned()
                             .unwrap_or(json!({}));
                         let tool_call_id = tool_call
@@ -292,30 +373,21 @@ impl ACPRuntime {
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
-                        let options = req
-                            .params
-                            .get("options")
-                            .and_then(|v| v.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| {
-                                        // ACP PermissionOption has optionId + name + kind
-                                        v.get("optionId")
-                                            .and_then(|id| id.as_str())
-                                            .map(|s| s.to_string())
-                                            .or_else(|| v.as_str().map(|s| s.to_string()))
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
+                        // 汎用ダイアログはこの一覧をそのまま UI に渡し、押した選択肢の
+                        // id が返ってくる。決まった 4 択の画面（コマンド / ファイル変更）は
+                        // 選択肢を持たないので、応答するときに引けるよう覚えておく。
+                        let mut remember = Some(parse_permission_options(&req.params));
 
-                        // Map to command/file approval if recognizable
-                        let event = match tool_name.as_str() {
-                            "terminal" | "bash" | "shell" | "execute_command" => {
+                        // 振り分けは ACP の `kind` で行う。ツールの呼び名（Bash / Write /
+                        // …）はエージェントごとに違うが、`kind` は ACP が定めている。
+                        let event = match kind.as_str() {
+                            "execute" => {
                                 let command = tool_input
                                     .get("command")
                                     .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
+                                    .map(|s| s.to_string())
+                                    // Bash ツールの `title` はコマンドそのもの。
+                                    .or_else(|| (!title.is_empty()).then(|| title.clone()));
                                 let cwd = tool_input
                                     .get("cwd")
                                     .and_then(|v| v.as_str())
@@ -328,31 +400,40 @@ impl ACPRuntime {
                                     payload: req.params.clone(),
                                 }
                             }
-                            "write_text_file" | "fs/write_text_file"
-                            | "edit" | "write" => {
+                            "edit" | "delete" | "move" => {
                                 let file_path = tool_input
                                     .get("path")
                                     .or_else(|| tool_input.get("file_path"))
                                     .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
+                                    .map(|s| s.to_string())
+                                    .or_else(|| {
+                                        tool_call
+                                            .get("locations")
+                                            .and_then(|v| v.as_array())
+                                            .and_then(|a| a.first())
+                                            .and_then(|l| l.get("path"))
+                                            .and_then(|v| v.as_str())
+                                            .map(|s| s.to_string())
+                                    });
                                 AgentEvent::ApprovalFileRequest {
                                     request_id,
                                     item_id: tool_call_id,
                                     file_path,
-                                    reason: None,
+                                    reason: (!title.is_empty()).then(|| title.clone()),
                                     payload: req.params.clone(),
                                 }
                             }
-                            _ => {
-                                AgentEvent::ApprovalGenericRequest {
-                                    request_id,
-                                    tool_name,
-                                    tool_arguments: tool_input,
-                                    options,
-                                    payload: req.params.clone(),
-                                }
-                            }
+                            _ => AgentEvent::ApprovalGenericRequest {
+                                request_id,
+                                tool_name: if title.is_empty() { kind } else { title },
+                                tool_arguments: tool_input,
+                                options: remember.take().unwrap_or_default(),
+                                payload: req.params.clone(),
+                            },
                         };
+                        if let Some(options) = remember {
+                            pending_options.lock().await.insert(req.id.clone(), options);
+                        }
                         emitter.emit(event);
                     }
                     _ => {
@@ -531,6 +612,9 @@ impl AgentRuntime for ACPRuntime {
             .notify("session/cancel", &json!({ "sessionId": session_id }))
             .await?;
 
+        // 中断したターンの承認にはもう応答しない（UI 側も pending を捨てる）。
+        // 消さないとタブを閉じるまで残る。
+        self.pending_options.lock().await.clear();
         Ok(())
     }
 
@@ -546,25 +630,28 @@ impl AgentRuntime for ACPRuntime {
         &self,
         request_id: serde_json::Value,
         decision: ApprovalDecision,
+        option_id: Option<String>,
     ) -> Result<(), String> {
+        // 先に `RequestId` へ戻してから引く。`Value` の文字列表現を鍵にすると、
+        // フロントを往復した JSON の書式が少しでも変われば黙って引けなくなり、
+        // 「選択肢が無い」＝取り消し扱いになる（#227 が直したのと同じ、無言で
+        // 違う結果になる失敗形）。
         let id: RequestId =
             serde_json::from_value(request_id).map_err(|e| format!("Invalid request ID: {e}"))?;
+        let pending = self.pending_options.lock().await.remove(&id).unwrap_or_default();
 
         // ACP spec: response is { outcome: { outcome: "selected", optionId: "..." } }
-        // or { outcome: { outcome: "cancelled" } }
-        let response = match decision {
-            ApprovalDecision::Allow => json!({
-                "outcome": { "outcome": "selected", "optionId": "allow_once" }
+        // or { outcome: { outcome: "cancelled" } }.
+        //
+        // **`optionId` はリクエストで提示されたものでなければならない**（#227）。汎用
+        // ダイアログは押した選択肢の id をそのまま渡してくる。決まった 4 択の画面は
+        // `kind` から引く。該当が無ければ、適当な id を送らず取り消す。
+        let selected = option_id.or_else(|| option_for_decision(&pending, &decision));
+        let response = match selected {
+            Some(option_id) => json!({
+                "outcome": { "outcome": "selected", "optionId": option_id }
             }),
-            ApprovalDecision::AllowAlways => json!({
-                "outcome": { "outcome": "selected", "optionId": "allow_always" }
-            }),
-            ApprovalDecision::Reject => json!({
-                "outcome": { "outcome": "selected", "optionId": "reject_once" }
-            }),
-            ApprovalDecision::Cancel => json!({
-                "outcome": { "outcome": "cancelled" }
-            }),
+            None => json!({ "outcome": { "outcome": "cancelled" } }),
         };
 
         self.client.respond_to_server(id, response).await
@@ -595,6 +682,7 @@ impl AgentRuntime for ACPRuntime {
     }
 
     async fn shutdown(&self) -> Result<(), String> {
+        self.pending_options.lock().await.clear();
         self.client.shutdown().await;
         Ok(())
     }
@@ -969,12 +1057,6 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let tool_name = tool_call
-                .get("toolName")
-                .or_else(|| tool_call.get("tool_name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-
             // If the tool call has content, it's completed; otherwise it's starting
             let has_content = tool_call
                 .get("content")
@@ -988,15 +1070,8 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
                     data: update.clone(),
                 });
             } else {
-                let item_type = match tool_name {
-                    "bash" | "terminal" | "shell" | "execute_command" => {
-                        "commandExecution"
-                    }
-                    "write_text_file" | "edit" | "write" => "fileChange",
-                    _ => tool_name,
-                };
                 events.push(AgentEvent::ItemStarted {
-                    item_type: item_type.to_string(),
+                    item_type: item_type_for(tool_call),
                     item_id: tool_call_id,
                     data: update.clone(),
                 });
@@ -1012,11 +1087,6 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let tool_name = update
-                .get("toolName")
-                .or_else(|| update.get("tool_name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
             let status = update
                 .get("status")
                 .and_then(|v| v.as_str())
@@ -1024,15 +1094,8 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
 
             match status {
                 "pending" | "in_progress" => {
-                    let item_type = match tool_name {
-                        "bash" | "terminal" | "shell" | "execute_command" => {
-                            "commandExecution"
-                        }
-                        "write_text_file" | "edit" | "write" => "fileChange",
-                        _ => tool_name,
-                    };
                     events.push(AgentEvent::ItemStarted {
-                        item_type: item_type.to_string(),
+                        item_type: item_type_for(update),
                         item_id: tool_call_id,
                         data: update.clone(),
                     });
@@ -1164,4 +1227,82 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
     }
 
     events
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `claude-agent-acp` 0.28.0 が実際に送ってくる形（#227）。ツール名も `toolInput` も
+    /// 無く、`optionId` は `kind` とは別の文字列であることを固定する。
+    fn tool_permission_request() -> serde_json::Value {
+        json!({
+            "sessionId": "s1",
+            "options": [
+                { "kind": "allow_always", "name": "Always Allow", "optionId": "allow_always" },
+                { "kind": "allow_once", "name": "Allow", "optionId": "allow" },
+                { "kind": "reject_once", "name": "Reject", "optionId": "reject" },
+            ],
+            "toolCall": {
+                "toolCallId": "t1",
+                "title": "ls -la",
+                "kind": "execute",
+                "rawInput": { "command": "ls -la" },
+            },
+        })
+    }
+
+    #[test]
+    fn parses_options_with_ids_names_and_kinds() {
+        let options = parse_permission_options(&tool_permission_request());
+        assert_eq!(options.len(), 3);
+        assert_eq!(options[1].id, "allow");
+        assert_eq!(options[1].name, "Allow");
+        assert_eq!(options[1].kind, "allow_once");
+    }
+
+    #[test]
+    fn skips_options_without_an_id() {
+        let params = json!({ "options": [{ "kind": "allow_once", "name": "Allow" }] });
+        assert!(parse_permission_options(&params).is_empty());
+    }
+
+    /// 決定から引くのは `kind`。返すのはエージェントが決めた `id` で、両者は別物。
+    #[test]
+    fn maps_decision_to_the_agents_own_option_id() {
+        let options = parse_permission_options(&tool_permission_request());
+        assert_eq!(
+            option_for_decision(&options, &ApprovalDecision::Allow).as_deref(),
+            Some("allow")
+        );
+        assert_eq!(
+            option_for_decision(&options, &ApprovalDecision::AllowAlways).as_deref(),
+            Some("allow_always")
+        );
+        assert_eq!(
+            option_for_decision(&options, &ApprovalDecision::Reject).as_deref(),
+            Some("reject")
+        );
+        assert_eq!(option_for_decision(&options, &ApprovalDecision::Cancel), None);
+    }
+
+    /// 該当が無ければ近そうなもので代用しない（呼び出し側が取り消しに落とす）。
+    #[test]
+    fn no_substitute_when_the_kind_is_not_offered() {
+        let options = parse_permission_options(&json!({
+            "options": [{ "kind": "allow_always", "name": "Always", "optionId": "always" }]
+        }));
+        assert_eq!(option_for_decision(&options, &ApprovalDecision::Allow), None);
+        assert_eq!(option_for_decision(&options, &ApprovalDecision::Reject), None);
+    }
+
+    /// 振り分けは ACP の `kind`。ツールの呼び名では分岐しない（そもそも届かない）。
+    #[test]
+    fn item_type_comes_from_the_acp_kind() {
+        assert_eq!(item_type_for(&json!({ "kind": "execute" })), "commandExecution");
+        assert_eq!(item_type_for(&json!({ "kind": "edit" })), "fileChange");
+        assert_eq!(item_type_for(&json!({ "kind": "delete" })), "fileChange");
+        assert_eq!(item_type_for(&json!({ "kind": "read" })), "read");
+        assert_eq!(item_type_for(&json!({ "title": "Bash" })), "other");
+    }
 }

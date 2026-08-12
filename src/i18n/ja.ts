@@ -601,6 +601,7 @@ export default {
   'codex.stop': '停止',
   'codex.approvalCommand': '{agent} がコマンドの実行を要求しています',
   'codex.approvalFile': '{agent} がファイルの変更を要求しています',
+  'codex.approvalTool': '{tool} の実行を許可しますか？',
   'codex.cwd': '作業ディレクトリ',
   'codex.accept': '許可',
   'codex.acceptForSession': 'セッション中許可',

@@ -177,10 +177,17 @@ export interface FileApprovalRequest {
 }
 
 /** Generic approval request (displayed in UI) */
+/** One choice offered by an ACP permission request (#227). `id` is the agent's own opaque string. */
+export interface PermissionOption {
+  id: string
+  name: string
+  kind: string
+}
+
 export interface GenericApprovalRequest {
   requestId: unknown
   toolName: string
   toolArguments: Record<string, unknown>
-  options: string[]
+  options: PermissionOption[]
   payload: Record<string, unknown>
 }

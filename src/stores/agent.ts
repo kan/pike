@@ -615,8 +615,13 @@ export const useAgentStore = defineStore('agent', () => {
     if (msg) msg.completed = true
   }
 
-  async function respondApproval(tabId: string, requestId: unknown, decision: AgentApprovalDecision) {
-    await agentRespondApproval(tabId, requestId, decision)
+  async function respondApproval(
+    tabId: string,
+    requestId: unknown,
+    decision: AgentApprovalDecision,
+    optionId?: string,
+  ) {
+    await agentRespondApproval(tabId, requestId, decision, optionId)
     const s = sessions[tabId]
     if (s) {
       s.pendingCommandApproval = null

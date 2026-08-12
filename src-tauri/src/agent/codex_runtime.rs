@@ -349,6 +349,8 @@ impl AgentRuntime for CodexAppServerRuntime {
         &self,
         request_id: serde_json::Value,
         decision: ApprovalDecision,
+        // Codex の承認は決まった 4 択なので、ACP 用の選択肢 id は使わない。
+        _option_id: Option<String>,
     ) -> Result<(), String> {
         let id: RequestId =
             serde_json::from_value(request_id).map_err(|e| format!("Invalid request ID: {e}"))?;

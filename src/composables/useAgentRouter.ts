@@ -9,7 +9,7 @@ import { resolveNotifier } from '../lib/notify'
 import { useAgentStore } from '../stores/agent'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
-import type { AgentAuthState, AgentCommandInfo } from '../types/agent'
+import type { AgentAuthState, AgentCommandInfo, PermissionOption } from '../types/agent'
 import type { AgentChatTab } from '../types/tab'
 
 function isAgentTabVisible(tabId: string): boolean {
@@ -180,7 +180,7 @@ export async function initAgentRouter() {
       requestId: p.requestId,
       toolName: (p.toolName as string) ?? 'unknown',
       toolArguments: (p.toolArguments as Record<string, unknown>) ?? {},
-      options: (p.options as string[]) ?? [],
+      options: (p.options as PermissionOption[]) ?? [],
       payload: (p.payload as Record<string, unknown>) ?? {},
     }
     notifyIfBackground(tabId, `Permission required: ${p.toolName}`)

@@ -139,6 +139,21 @@ pub enum ApprovalDecision {
 // Agent events (runtime → UI)
 // ---------------------------------------------------------------------------
 
+/// One choice offered by an ACP `session/request_permission` (#227).
+///
+/// `id` は**エージェントが決める不透明な文字列**（`claude-agent-acp` は `allow` /
+/// `allow_always` / `reject`）で、応答では受け取ったものをそのまま返す。決め打ちで
+/// 組み立ててはいけない。`kind` は ACP が定めた分類（`allow_once` / `allow_always` /
+/// `reject_once` / `reject_always`）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionOption {
+    pub id: String,
+    /// エージェントが付けた表示名（"Always Allow" 等）。ボタンのラベルに使う。
+    pub name: String,
+    pub kind: String,
+}
+
 /// Events emitted by agent runtimes, forwarded to the UI as Tauri events.
 ///
 /// This enum covers the union of Codex app-server notifications and ACP
@@ -211,8 +226,7 @@ pub enum AgentEvent {
         request_id: serde_json::Value,
         tool_name: String,
         tool_arguments: serde_json::Value,
-        /// Available options (e.g. ["allow_once", "allow_always", "reject"]).
-        options: Vec<String>,
+        options: Vec<PermissionOption>,
         payload: serde_json::Value,
     },
 
@@ -310,10 +324,15 @@ pub trait AgentRuntime: Send + Sync {
     async fn compact(&self) -> Result<(), String>;
 
     /// Respond to an approval request.
+    /// `option_id` は ACP の承認で、UI が実際に押した選択肢を指す（#227）。エージェントが
+    /// 同じ `kind` の選択肢を複数出すこと（`claude-agent-acp` の ExitPlanMode は
+    /// `allow_always` を 3 つ並べる）があるので、決定だけでは押したものを復元できない。
+    /// 決まった 4 択で応答する画面（コマンド / ファイル変更）と Codex は `None`。
     async fn respond_approval(
         &self,
         request_id: serde_json::Value,
         decision: ApprovalDecision,
+        option_id: Option<String>,
     ) -> Result<(), String>;
 
     /// Get current authentication state.

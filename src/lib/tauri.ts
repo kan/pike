@@ -779,12 +779,18 @@ export async function agentCompact(tabId: string): Promise<void> {
   return invoke('agent_compact', { tabId })
 }
 
+/**
+ * `optionId` is the ACP option the user actually pressed (#227). Only the generic
+ * dialog has one — it renders the agent's own options, and an agent may offer
+ * several with the same kind, so the decision alone cannot identify the button.
+ */
 export async function agentRespondApproval(
   tabId: string,
   requestId: unknown,
   decision: AgentApprovalDecision,
+  optionId?: string,
 ): Promise<void> {
-  return invoke('agent_respond_approval', { tabId, requestId, decision })
+  return invoke('agent_respond_approval', { tabId, requestId, decision, optionId })
 }
 
 export async function agentAuthStatus(tabId: string): Promise<AgentAuthState> {

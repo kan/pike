@@ -285,10 +285,11 @@ pub async fn agent_respond_approval(
     tab_id: String,
     request_id: serde_json::Value,
     decision: ApprovalDecision,
+    option_id: Option<String>,
     state: tauri::State<'_, AgentState>,
 ) -> Result<(), String> {
     let rt = get_runtime(&tab_id, &state).await?;
-    rt.respond_approval(request_id, decision).await
+    rt.respond_approval(request_id, decision, option_id).await
 }
 
 /// Get authentication status.

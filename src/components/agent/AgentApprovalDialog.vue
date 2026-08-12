@@ -3,7 +3,7 @@ import { AlertTriangle, Shield, Terminal, Wrench } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from '../../i18n'
 import { useAgentStore } from '../../stores/agent'
-import type { AgentApprovalDecision } from '../../types/agent'
+import type { AgentApprovalDecision, PermissionOption } from '../../types/agent'
 
 const props = defineProps<{ tabId: string }>()
 
@@ -27,18 +27,18 @@ async function respond(decision: AgentApprovalDecision) {
   await agent.respondApproval(props.tabId, req.requestId, decision)
 }
 
-function respondGenericOption(option: string) {
+/**
+ * 押した選択肢の `id` をそのまま返す（#227）。`kind` から引き直させてはいけない:
+ * エージェントは同じ `kind` の選択肢を複数出しうるので（`claude-agent-acp` の
+ * ExitPlanMode は `allow_always` を 3 つ並べる）、押したものと違う選択肢が
+ * 選ばれてしまう。`decision` は Pike 側の記録用で、未知の `kind` は拒否に倒す。
+ */
+function respondGenericOption(option: PermissionOption) {
   const req = s.value.pendingGenericApproval
   if (!req) return
-  // Map well-known option strings to AgentApprovalDecision
-  const mapping: Record<string, AgentApprovalDecision> = {
-    allow: 'allow',
-    allowAlways: 'allowAlways',
-    reject: 'reject',
-    cancel: 'cancel',
-  }
-  const decision = mapping[option] ?? 'allow'
-  agent.respondApproval(props.tabId, req.requestId, decision)
+  const decision: AgentApprovalDecision =
+    option.kind === 'allow_once' ? 'allow' : option.kind === 'allow_always' ? 'allowAlways' : 'reject'
+  agent.respondApproval(props.tabId, req.requestId, decision, option.id)
 }
 </script>
 
@@ -86,7 +86,7 @@ function respondGenericOption(option: string) {
         <template v-else-if="s.pendingGenericApproval">
           <div class="approval-header">
             <Wrench :size="18" :stroke-width="2" />
-            <span>Tool: {{ s.pendingGenericApproval.toolName }}</span>
+            <span>{{ t('codex.approvalTool', { tool: s.pendingGenericApproval.toolName }) }}</span>
           </div>
           <div v-if="environment" class="approval-env">{{ environment }}</div>
           <div
@@ -98,17 +98,19 @@ function respondGenericOption(option: string) {
           <div v-if="s.pendingGenericApproval.options.length > 0" class="approval-actions">
             <button
               v-for="option in s.pendingGenericApproval.options"
-              :key="option"
+              :key="option.id"
               class="btn"
               :class="{
-                'approval-accept': option === 'allow',
-                'approval-session': option === 'allowAlways',
-                'approval-decline': option === 'reject',
-                'approval-cancel': option === 'cancel',
+                'approval-accept': option.kind === 'allow_once',
+                'approval-session': option.kind === 'allow_always',
+                'approval-decline': option.kind === 'reject_once' || option.kind === 'reject_always',
               }"
               @click="respondGenericOption(option)"
             >
-              {{ option }}
+              {{ option.name }}
+            </button>
+            <button class="btn approval-cancel" @click="respond('cancel')">
+              {{ t('codex.cancel') }}
             </button>
           </div>
         </template>
