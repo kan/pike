@@ -88,11 +88,7 @@ async function bootstrap() {
       },
       // エージェント状態タブ。集計は 30 秒ポーリング + 外部 CLI 依存なので、invoke を
       // 待たずにストアへ直接差す（openAgentChat と同じ方針）。
-      openAgentStatus: (opts: {
-        claudeUsage?: unknown
-        claudeRate?: unknown
-        codexUsage?: unknown
-      }) => {
+      openAgentStatus: (opts: { claudeUsage?: unknown; claudeRate?: unknown; codexUsage?: unknown }) => {
         project.showSwitcher = false
         useClaudeUsageStore().usage = opts.claudeUsage as never
         useClaudeRateStore().usage = opts.claudeRate as never
