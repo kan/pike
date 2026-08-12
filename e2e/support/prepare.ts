@@ -257,7 +257,6 @@ export interface AgentChatFixture {
     supportsAuthFlow: boolean
   }
   authEmail?: string | null
-  sessionTitle?: string | null
   selectedModel?: string | null
   tokenUsage?: { input: number; output: number } | null
   detectedInstructionsFile?: string | null

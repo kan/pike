@@ -263,11 +263,6 @@ pub enum AgentEvent {
         reason: String,
     },
 
-    /// Session metadata updated (e.g. title set by agent after first turn).
-    SessionInfoUpdated {
-        title: Option<String>,
-    },
-
     /// Available slash commands from the agent runtime.
     AvailableCommandsUpdated {
         commands: Vec<AgentCommandInfo>,

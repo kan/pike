@@ -236,7 +236,6 @@ async function bootstrap() {
         agentType: AgentType
         capabilities: AgentCapabilities
         authEmail?: string | null
-        sessionTitle?: string | null
         selectedModel?: string | null
         tokenUsage?: { input: number; output: number } | null
         detectedInstructionsFile?: string | null
@@ -261,7 +260,6 @@ async function bootstrap() {
         sess.messages = opts.messages
         sess.selectedModel = opts.selectedModel ?? null
         sess.tokenUsage = opts.tokenUsage ?? null
-        sess.sessionTitle = opts.sessionTitle ?? null
         sess.detectedInstructionsFile = opts.detectedInstructionsFile ?? null
         sess.isGenerating = false
       },

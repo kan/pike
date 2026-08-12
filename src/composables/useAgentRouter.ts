@@ -205,11 +205,6 @@ export async function initAgentRouter() {
     }
   })
 
-  // --- Session info (title) ---
-  await listenAgent('agent://session-info', (tabId, p) => {
-    agent.handleSessionInfo(tabId, (p.title as string) ?? null)
-  })
-
   // --- Available commands (slash commands from ACP) ---
   await listenAgent('agent://available-commands', (tabId, p) => {
     const raw = p.commands as AgentCommandInfo[] | undefined

@@ -1086,38 +1086,25 @@ fn acp_notification_to_agent_events(
 fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
     let mut events = Vec::new();
 
-    let update = match params.get("update").or(Some(params)) {
-        Some(u) => u,
-        None => return events,
-    };
+    let update = params.get("update").unwrap_or(params);
 
-    // ACP discriminates update type via "sessionUpdate" field
-    let update_type = update
-        .get("sessionUpdate")
-        // Fallback to "type" for forward compatibility
-        .or_else(|| update.get("type"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    // ACP はこのフィールドで種別を判別する。**仕様に無い名前を足さないこと**（#228）。
+    // 「対応済みに見えて一度も発火しないアーム」が並ぶと、次に追う人が同じ調査を
+    // やり直すことになる。実在する値は `agent_message_chunk` / `agent_thought_chunk` /
+    // `user_message_chunk` / `tool_call` / `tool_call_update` / `plan` /
+    // `available_commands_update` / `config_option_update` / `current_mode_update` /
+    // `usage_update` の 10 個。
+    let update_type = update.get("sessionUpdate").and_then(|v| v.as_str()).unwrap_or("");
 
     match update_type {
         // Agent message chunk (streaming text)
-        "agent_message_chunk" | "message" => {
+        "agent_message_chunk" => {
             let text = content_block_text(update);
             if !text.is_empty() {
                 events.push(AgentEvent::MessageDelta {
                     delta: text,
-                    item_id: update
-                        .get("messageId")
-                        .or_else(|| update.get("message_id"))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
+                    item_id: update.get("messageId").and_then(|v| v.as_str()).map(|s| s.to_string()),
                 });
-            }
-            // Check for role to detect turn boundaries
-            if let Some("assistant") = update.get("role").and_then(|v| v.as_str()) {
-                if update.get("stopReason").or(update.get("stop_reason")).is_some() {
-                    events.push(AgentEvent::TurnCompleted);
-                }
             }
         }
 
@@ -1127,20 +1114,15 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
             log::debug!("[acp-agent] User message chunk received");
         }
 
-        // Tool call update (camelCase: toolCallUpdate wraps a ToolCallUpdate object)
+        // ツール呼び出しの更新。フィールドは update に直接ぶら下がる。
         "tool_call_update" => {
-            let tool_call = update
-                .get("toolCallUpdate")
-                .unwrap_or(update);
-            let tool_call_id = tool_call
+            let tool_call_id = update
                 .get("toolCallId")
-                .or_else(|| tool_call.get("tool_call_id"))
-                .or_else(|| tool_call.get("id"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
             // If the tool call has content, it's completed; otherwise it's starting
-            let has_content = tool_call
+            let has_content = update
                 .get("content")
                 .and_then(|v| v.as_array())
                 .map(|a| !a.is_empty())
@@ -1149,23 +1131,20 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
             if has_content {
                 events.push(AgentEvent::ItemCompleted {
                     item_id: tool_call_id,
-                    data: tool_call_data(tool_call),
+                    data: tool_call_data(update),
                 });
             } else {
                 events.push(AgentEvent::ItemStarted {
-                    item_type: item_type_for(tool_call),
+                    item_type: item_type_for(update),
                     item_id: tool_call_id,
-                    data: tool_call_data(tool_call),
+                    data: tool_call_data(update),
                 });
             }
         }
 
-        // Legacy tool_call / tool_result (for agents that use older format)
         "tool_call" => {
             let tool_call_id = update
                 .get("toolCallId")
-                .or_else(|| update.get("tool_call_id"))
-                .or_else(|| update.get("id"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
@@ -1192,19 +1171,6 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
             }
         }
 
-        "tool_result" => {
-            let tool_call_id = update
-                .get("toolCallId")
-                .or_else(|| update.get("tool_call_id"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            events.push(AgentEvent::ItemCompleted {
-                item_id: tool_call_id,
-                data: update.clone(),
-            });
-        }
-
         // Plan — ACP sends the whole plan every time, as `entries[]`.
         "plan" => {
             let summary = plan_summary(update);
@@ -1227,38 +1193,6 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
                     append: true,
                 });
             }
-        }
-
-        // Token usage — ACP sends "usage_update" with {used, size, cost}
-        // and also the prompt response includes detailed usage
-        "usage_update" | "usage" | "token_usage" => {
-            let input = update
-                .get("inputTokens")
-                .or_else(|| update.get("input_tokens"))
-                .or_else(|| update.get("input"))
-                .or_else(|| update.get("used"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let output = update
-                .get("outputTokens")
-                .or_else(|| update.get("output_tokens"))
-                .or_else(|| update.get("output"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let cached_read = update
-                .get("cacheReadInputTokens")
-                .or_else(|| update.get("cache_read_input_tokens"))
-                .and_then(|v| v.as_u64());
-            let cached_write = update
-                .get("cacheCreationInputTokens")
-                .or_else(|| update.get("cache_creation_input_tokens"))
-                .and_then(|v| v.as_u64());
-            events.push(AgentEvent::TokenUsage {
-                input,
-                output,
-                cached_read,
-                cached_write,
-            });
         }
 
         // Available commands update (e.g., slash commands)
@@ -1285,21 +1219,20 @@ fn parse_session_update(params: &serde_json::Value) -> Vec<AgentEvent> {
             log::debug!("[acp-agent] Config option update received");
         }
 
-        // Session info update (title, etc.)
-        "session_info_update" => {
-            let title = update
-                .get("title")
-                .or_else(|| update.get("sessionTitle"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            if title.is_some() {
-                events.push(AgentEvent::SessionInfoUpdated { title });
-            }
+        // 中身は `{ used, size }` で、トークン数ではなくコンテキストの使用量。ACP の
+        // トークン表示先が無いので値は使わないが、仕様にある名前なので `_` には落とさない。
+        "usage_update" => {
+            log::debug!("[acp-agent] Context usage update (not displayed)");
         }
 
-        // Stop reason / turn end
-        "stop" | "end" => {
-            events.push(AgentEvent::TurnCompleted);
+        // 権限モードの切り替え。UI にはまだ出していないが、仕様にある値なので
+        // `_` の debug log には落とさない（落ちていると「未対応」と「知らない名前」の
+        // 区別が付かない）。
+        "current_mode_update" => {
+            log::debug!(
+                "[acp-agent] Mode: {}",
+                update.get("currentModeId").and_then(|v| v.as_str()).unwrap_or("?")
+            );
         }
 
         _ => {
@@ -1474,6 +1407,32 @@ mod tests {
         }));
         assert_eq!(edit.get("command"), None);
         assert_eq!(edit["filePath"], json!("/w/src/main.rs"));
+    }
+
+    /// 仕様に無い `sessionUpdate` 名は握らない（#228）。「対応済みに見えて一度も
+    /// 発火しない」アームが並ぶと、次に ACP を追う人が同じ調査をやり直すことになる。
+    #[test]
+    fn invented_update_names_are_not_handled() {
+        // それぞれ、昔のアームなら値を拾えた payload を載せる。空の `{}` だと、
+        // アームが復活してもテストは通ってしまう。
+        let cases = [
+            json!({ "sessionUpdate": "message", "content": { "type": "text", "text": "hi" } }),
+            json!({ "sessionUpdate": "tool_result", "toolCallId": "t1" }),
+            json!({ "sessionUpdate": "usage", "inputTokens": 10, "outputTokens": 20 }),
+            json!({ "sessionUpdate": "token_usage", "inputTokens": 10, "outputTokens": 20 }),
+            json!({ "sessionUpdate": "session_info_update", "title": "むかしのタイトル" }),
+            json!({ "sessionUpdate": "stop" }),
+            json!({ "sessionUpdate": "end" }),
+            // 種別は `sessionUpdate` だけで決まる。`type` は ACP に無いので見ない。
+            json!({ "type": "agent_message_chunk", "content": { "type": "text", "text": "hi" } }),
+            // `usage_update` は `{ used, size }`（コンテキスト使用量）で、トークン数
+            // ではない。入力トークンとして拾っていたころは、出力が常に 0 の数字が出た。
+            json!({ "sessionUpdate": "usage_update", "used": 12345, "size": 200000 }),
+        ];
+        for update in cases {
+            let events = parse_session_update(&json!({ "update": update.clone() }));
+            assert!(events.is_empty(), "should not be handled: {update}");
+        }
     }
 
     /// 振り分けは ACP の `kind`。ツールの呼び名では分岐しない（そもそも届かない）。

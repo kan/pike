@@ -96,7 +96,6 @@ function codexFixture(lang: Lang): AgentChatFixture {
     agentType: 'codex',
     capabilities: CODEX_CAPS,
     authEmail: 'dev@example.com',
-    sessionTitle: ja ? '少額コスト表示の追加' : 'Add small-amount cost display',
     selectedModel: 'gpt-5-codex',
     tokenUsage: { input: 18_432, output: 2_743 },
     detectedInstructionsFile: 'AGENTS.md',
@@ -149,9 +148,7 @@ function claudeFixture(lang: Lang): AgentChatFixture {
     agentType: 'claude-code',
     capabilities: CLAUDE_CAPS,
     authEmail: null,
-    sessionTitle: ja ? 'Git バッジにコンフリクト件数' : 'Conflict count in Git badge',
     selectedModel: null,
-    tokenUsage: { input: 12_805, output: 1_960 },
     detectedInstructionsFile: 'CLAUDE.md',
     messages,
   }

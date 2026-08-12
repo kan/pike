@@ -341,9 +341,7 @@ function heroClaudeFixture(): AgentChatFixture {
     agentType: 'claude-code',
     capabilities: CLAUDE_CAPS,
     authEmail: null,
-    sessionTitle: 'スクショ撮影の自動化',
     selectedModel: null,
-    tokenUsage: { input: 14_320, output: 2_180 },
     detectedInstructionsFile: 'CLAUDE.md',
     messages: [
       { id: 'u1', role: 'user', text: 'コミット前に diff を確認して、要点を日本語でまとめて。', segments: [], items: [], completed: true },

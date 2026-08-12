@@ -193,7 +193,7 @@ invoke モックだけでは再現できない。実プロセスなしに決定�
   （`completed:true`）だとコマンド出力・reasoning の `<details>` は畳まれた状態で写る。
 - `capabilities` で UI が分岐する：Codex は sandbox / approval / model 選択 / 認証メールが
   出る。Claude Code（ACP）は `supportsSandboxConfig` 等が false なので info-bar が最小
-  （displayName とセッションタイトルと instructions ファイルのみ）。
+  （displayName と instructions ファイルのみ）。
 - 待機は `.msg-agent`。実装例は `e2e/specs/agent.ts`（`agent-codex` / `agent-claude`、
   ja/en で会話文面を出し分け）。
 
