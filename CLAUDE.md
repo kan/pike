@@ -689,7 +689,12 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - **CodeMirror 標準の redo は `Mod-y` と Linux 限定の `Ctrl-Shift-z`**。Windows が主対象なので `Mod-Shift-z` を明示的に足してある。足すまで、3 箇所で案内していた `Ctrl+Shift+Z` はどこでも効いていなかった
 - **`Ctrl+H`（置換）は `searchKeymap` に無い**。`editorSearch.ts` の `replaceKeymap` が `openSearchPanel` + `revealReplace` エフェクトで置換行を開く。パネル自体は元から置換行を持っていたが、キーバインドだけが無く、案内だけが 3 箇所にあった
 - **素のキーを見るハンドラは修飾キーを弾く**。`PreviewTab` の `switch (e.key)` は修飾を見ておらず、画像タブで `Ctrl+F` が fit、`Ctrl+R` が回転になっていた
-- グローバルショートカットはターミナルにフォーカスがあっても効く（`attachCustomKeyEventHandler` は Ctrl+V 以外を素通しし、window のハンドラに抑止が無い）。`Ctrl+K` などはシェルにも Pike にも届く。現状は仕様としてマニュアルに明記してある
+- **ターミナルにフォーカスがあるとき、グローバルショートカットは既定で 1 つも効かない（#224）**。xterm は PTY へ送るキーで `preventDefault` だけでなく **`stopPropagation` も呼ぶ**（`CoreBrowserTerminal.cancel(ev, true)`。`_keyDown` が `evaluateKeyboardEvent` の結果を PTY へ流したあとに必ず通る）。よって window の keydown ハンドラには **Ctrl+英字も `Tab` も `PageUp/Down` も `F1` も届かない**
+  - **#224 の issue 本文にある「両方に届く」は誤り**（コードの読みだけで書かれたもの）。実際は逆で、シェルが全部取っていた。`Ctrl+Shift+P` と `Ctrl+,` だけが効いていたのは、xterm がそれらに制御コードを割り当てず `cancel` を通らないため
+  - 例外を作る側の実装は `useKeyboardShortcuts.ts` の `PIKE_FIRST_CTRL_KEYS`（`Ctrl+W` / `Ctrl+T` / `Ctrl+Tab` / `Ctrl+PageUp` / `Ctrl+PageDown`。タブの出し入れだけ）。`TerminalTab.vue` の `attachCustomKeyEventHandler` がこの一覧で **`false` を返す**と `_keyDown` が即 return するので、PTY へも流れず `cancel` も通らず window まで伝わる。**`stopPropagation` や `preventDefault` を足す方向では直らない**（xterm 本体はこのハンドラの後に走り、そこで両方呼ぶ）
+  - **`Ctrl+W` だけは代替画面（`inAltScreen`）のあいだシェルへ返す**（`ALT_SCREEN_SHELL_KEYS`）。vim のウィンドウ操作の prefix なので、奪うと `Ctrl+W s` 等が打てないうえタブが閉じる。素のシェル（readline の unix-werase）では Pike 優先のままにするため、判定はキー単位ではなく代替画面の有無で行う
+  - readline が使う `Ctrl+K`（行末まで削除）・`Ctrl+P` / `Ctrl+N`（履歴）と、TUI アプリの `F1` はシェルに残す方針。**一覧をグローバルハンドラと同じファイルに置く**のは、そこが同じキーを取り合う相手だから（ターミナル側に置くと、`useKeyboardShortcuts.ts` に Ctrl+英字を足す人が「ターミナルでは効かない」ことに気付けない。readline の `Ctrl+A/E/U/D/Y` は未使用のまま残っている）
+  - 変更したら 3 箇所（この定数・`KeyboardShortcuts.vue` のターミナル節・`docs/manual/shortcuts-and-cli.md`）を揃える
 - WebView リロード抑止: Ctrl+R / Ctrl+Shift+R / F5 を `preventDefault`。誤操作でのリロード（全 PTY セッション破棄＝実質再起動）を防ぐ。ターミナルの Ctrl+R（bash 逆方向検索）は xterm がイベントを消費するため影響なし
 
 ### `pike --wait`（GIT_EDITOR 連携）

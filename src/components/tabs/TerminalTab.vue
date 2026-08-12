@@ -12,6 +12,7 @@ import {
   toMb,
   UploadTooLargeError,
 } from '../../composables/useImagePaste'
+import { ALT_SCREEN_SHELL_KEYS, normalizedKey, PIKE_FIRST_CTRL_KEYS } from '../../composables/useKeyboardShortcuts'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { hexToRgba } from '../../lib/format'
@@ -822,16 +823,29 @@ onMounted(async () => {
     await pasteFromClipboard()
   })
 
-  // xterm.js は Windows で Ctrl+V を SYN(\x16) として PTY に流すので、
-  // 通常の `paste` イベントが発火しない → keydown レベルで横取りする。
-  // Ctrl+Shift+V も同じ扱いに（Windows Terminal 互換）。
   terminal.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true
     if (!e.ctrlKey || e.altKey || e.metaKey) return true
-    if (e.key.toLowerCase() !== 'v') return true
-    e.preventDefault()
-    pasteFromClipboard()
-    return false
+    const key = normalizedKey(e)
+
+    // xterm.js は Windows で Ctrl+V を SYN(\x16) として PTY に流すので、
+    // 通常の `paste` イベントが発火しない → keydown レベルで横取りする。
+    // Ctrl+Shift+V も同じ扱いに（Windows Terminal 互換）。
+    if (key === 'v') {
+      e.preventDefault()
+      pasteFromClipboard()
+      return false
+    }
+
+    // Pike 優先のキー（#224）。`false` を返すと xterm はこのキーに一切触れないので、
+    // PTY へも流れず、window の keydown まで伝わって Pike のショートカットが動く。
+    // ここで拾わないキーがシェルへ行くのは、xterm が PTY へ送る際に preventDefault
+    // だけでなく stopPropagation も呼ぶため（`cancel(ev, true)`）。既定でシェル優先。
+    // 全画面 TUI が動いているあいだは Ctrl+W だけ譲る（vim のウィンドウ操作の prefix）。
+    if (PIKE_FIRST_CTRL_KEYS.has(key)) {
+      return inAltScreen.value && ALT_SCREEN_SHELL_KEYS.has(key)
+    }
+    return true
   })
 
   termRef.value?.addEventListener('dragover', (e: DragEvent) => {

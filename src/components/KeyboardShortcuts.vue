@@ -80,6 +80,7 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: [t('shortcuts.selectText')], label: t('shortcuts.selectCopy') },
       { keys: [t('shortcuts.rightClick')], label: t('shortcuts.rightClickPaste') },
       { keys: ['Ctrl+V', 'Ctrl+Shift+V'], label: t('shortcuts.paste') },
+      { keys: [t('shortcuts.ctrlLetter')], label: t('shortcuts.shellFirst') },
     ],
   },
   {

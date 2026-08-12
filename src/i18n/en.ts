@@ -520,6 +520,8 @@ export default {
   'shortcuts.rightClickPaste': 'Paste from clipboard',
   'shortcuts.selectText': 'Select text',
   'shortcuts.rightClick': 'Right click',
+  'shortcuts.ctrlLetter': 'Ctrl+letter',
+  'shortcuts.shellFirst': 'Sent to the shell (except the tab keys)',
 
   // StatusBar
   'statusBar.admin': 'Admin',

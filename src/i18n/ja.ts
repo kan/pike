@@ -521,6 +521,8 @@ export default {
   'shortcuts.rightClickPaste': 'クリップボードから貼り付け',
   'shortcuts.selectText': 'テキスト選択',
   'shortcuts.rightClick': '右クリック',
+  'shortcuts.ctrlLetter': 'Ctrl+英字',
+  'shortcuts.shellFirst': 'シェルに渡す（タブ操作のキーを除く）',
 
   // StatusBar
   'statusBar.admin': '管理者',

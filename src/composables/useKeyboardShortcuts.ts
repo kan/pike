@@ -12,6 +12,30 @@ export function normalizedKey(e: KeyboardEvent): string {
   return e.key.length === 1 ? e.key.toLowerCase() : e.key
 }
 
+/**
+ * ターミナルにフォーカスがあっても Pike が処理する Ctrl+キー（#224）。
+ *
+ * 既定はシェル優先である。xterm は PTY へ送るキーで `preventDefault` だけでなく
+ * **`stopPropagation` も呼ぶ**（`cancel(ev, true)`）ので、下のハンドラには Ctrl+英字も
+ * Tab も PageUp/Down も F1 も届かない。`TerminalTab.vue` の
+ * `attachCustomKeyEventHandler` がこの一覧のキーだけ `false` を返して xterm に
+ * 処理させず、window まで通している。
+ *
+ * 中身はタブの出し入れ（閉じる・新規・切替）に絞ってある。readline が使う
+ * `Ctrl+K`（行末まで削除）・`Ctrl+P` / `Ctrl+N`（履歴）はシェルのまま。
+ * 一覧を変えたら `KeyboardShortcuts.vue` と `docs/manual/shortcuts-and-cli.md` も揃える。
+ */
+export const PIKE_FIRST_CTRL_KEYS = new Set(['w', 't', 'Tab', 'PageUp', 'PageDown'])
+
+/**
+ * 上のうち、全画面 TUI が代替画面を持っているあいだはシェルへ返すもの（#224）。
+ * `Ctrl+W` は vim のウィンドウ操作の prefix なので、vim を開いているあいだ Pike が
+ * 奪うと `Ctrl+W s` などが一切打てず、しかもタブが閉じる。素のシェル（readline の
+ * unix-werase）では Pike 優先のままにするので、判定は代替画面の有無で行う。
+ * `Ctrl+T` やタブ切替は全画面 TUI での用途が薄いのでここには入れない。
+ */
+export const ALT_SCREEN_SHELL_KEYS = new Set(['w'])
+
 export function useKeyboardShortcuts() {
   const tabStore = useTabStore()
   const projectStore = useProjectStore()
