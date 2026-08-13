@@ -1,6 +1,6 @@
 {
   "name": "pike",
-  "version": "0.36.2",
+  "version": "0.37.0",
   "description": "Lightweight AI-coding-focused development environment built with Tauri v2",
   "type": "module",
   "scripts": {
