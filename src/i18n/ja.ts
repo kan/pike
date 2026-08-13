@@ -55,6 +55,7 @@ export default {
   'sidebar.manual': 'ユーザーマニュアル',
 
   // マニュアルビューア
+  'manual.title': 'マニュアル',
   'manual.back': '戻る',
   'manual.home': '目次',
   'manual.toggleTheme': 'マニュアルのライト/ダーク切替',

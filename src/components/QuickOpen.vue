@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { openPathInTab } from '../lib/openFile'
 import { basename, fuzzyMatch } from '../lib/paths'
+import { tabDisplayTitle } from '../lib/tabTitle'
 import { gitBranchList, gitCheckout, listProjectFiles } from '../lib/tauri'
 import { useGitStore } from '../stores/git'
 import { useProjectStore } from '../stores/project'
@@ -180,7 +181,7 @@ const filteredTabs = computed(() => {
   const q = query.value.slice(1).trim().toLowerCase()
   const tabs = tabStore.tabs
   if (!q) return tabs
-  return tabs.filter((t) => t.title.toLowerCase().includes(q))
+  return tabs.filter((tab) => tabDisplayTitle(tab).toLowerCase().includes(q))
 })
 
 // --- Branch mode ---
@@ -472,7 +473,7 @@ const footerHints = computed(() => {
                 @mouseenter="selectedIdx = i"
               >
                 <span class="item-runner">{{ tab.kind }}</span>
-                <span class="item-name">{{ tab.title }}</span>
+                <span class="item-name">{{ tabDisplayTitle(tab) }}</span>
               </div>
             </template>
 

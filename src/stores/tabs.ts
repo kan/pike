@@ -410,8 +410,8 @@ export const useTabStore = defineStore('tabs', () => {
       return existing.id
     }
     const id = genId()
-    // 他のシングルトン（Settings / Manual）と同じくリテラル。タブ名は生成時に決まり、
-    // 言語を切り替えても付け替えないので、`t()` だと開いたときの言語のまま固定される。
+    // 他のシングルトン（Settings / Manual）と同じく英語リテラルを置く。表示名は
+    // `tabDisplayTitle` が kind から i18n を引くので、ここの値はフォールバック。
     tabs.value.push({ id, kind: 'agent-status', title: 'Agent Status', pinned: false })
     activeTabId.value = id
     return id

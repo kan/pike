@@ -6,6 +6,7 @@ import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { canResolveDroppedPaths, resolveDroppedPaths } from '../../lib/dropPaths'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
+import { tabDisplayTitle } from '../../lib/tabTitle'
 import { detectWslDistros, openElevatedTerminal } from '../../lib/tauri'
 import { elevated, globalMode } from '../../lib/window'
 import { useProjectStore } from '../../stores/project'
@@ -423,7 +424,7 @@ onUnmounted(() => {
           <Gauge v-else-if="tab.kind === 'agent-status'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <BookOpen v-else-if="tab.kind === 'manual'" :size="14" :stroke-width="1.5" class="tab-icon" />
           <Bot v-else-if="tab.kind === 'agent-chat'" :size="14" :stroke-width="1.5" class="tab-icon" />
-          <span class="tab-title" @mouseenter="onTitleHover">{{ tab.title }}</span>
+          <span class="tab-title" @mouseenter="onTitleHover">{{ tabDisplayTitle(tab) }}</span>
           <span
             v-if="tab.kind === 'editor' && tab.isNewFile"
             class="tab-new-badge"

@@ -55,6 +55,7 @@ export default {
   'sidebar.manual': 'User Manual',
 
   // Manual viewer
+  'manual.title': 'Manual',
   'manual.back': 'Back',
   'manual.home': 'Contents',
   'manual.toggleTheme': 'Toggle manual light/dark',

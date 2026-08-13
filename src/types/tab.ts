@@ -253,6 +253,12 @@ export type ManualTab = {
   page: string
 }
 
+/**
+ * `title` is the tab's own name where it has one. The singleton kinds
+ * (`settings` / `agent-status` / `manual`) hold an English fallback there and
+ * get their real name from `lib/tabTitle.ts` — render tab names through
+ * `tabDisplayTitle`, never from this field directly.
+ */
 export type Tab =
   | TerminalTab
   | EditorTab

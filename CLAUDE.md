@@ -191,6 +191,7 @@ pike/
 │   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── codexHistory.ts  terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
+│   │   ├── tabTitle.ts        # タブの表示名（シングルトンタブは kind から i18n を引く）
 │   │   ├── manual.ts  slug.ts # アプリ内マニュアルの読み込みと見出しスラッグ
 │   │   ├── dropPaths.ts       # WebView2 経由でドロップされたファイルの実パス取得
 │   │   ├── imeDebugLog.ts  imeFocusPark.ts  # IME 調査用（原因判明後に削除する）
