@@ -69,10 +69,11 @@ const {
   claudeUsage,
   claudeRateSession,
   claudeAccount,
-  claudeSessionMeters,
+  claudeSummaryMeters,
   codexAccount,
   codexTokens,
-  codexSessionMeters,
+  codexMeters,
+  headlineMeters,
   hasClaude,
   hasCodex,
   refreshing: agentRefreshing,
@@ -81,10 +82,11 @@ const {
 
 const hasAgentStatus = computed(() => hasClaude.value || hasCodex.value)
 
-/** The one number the footer shows: Claude's 5h window, else Codex's. */
-const headlineRate = computed(
-  () => claudeRateSession.value?.usedPercent ?? codexSessionMeters.value[0]?.percent ?? null,
-)
+/** Which window is which, for the button's tooltip — the bare "25% / 5%" cannot say. */
+const headlineTitle = computed(() => {
+  const parts = headlineMeters.value.map((m) => `${m.label} ${m.percent.toFixed(0)}%`)
+  return parts.length ? `${t('agentStatus.title')}: ${parts.join(' / ')}` : t('agentStatus.title')
+})
 
 // System-tray tooltip (#161): a one-line usage summary shown on hover while
 // Pike sits minimized in the tray. Only the main window pushes it (the tray is
@@ -357,9 +359,14 @@ onUnmounted(() => {
 
     <!-- Agents: one item for both Claude and Codex; the detail lives in the status tab (#226) -->
     <div v-if="hasAgentStatus" class="status-dropdown-area">
-      <button class="status-item clickable small cc-usage" :title="t('agentStatus.title')" @click="toggleAgentStatus">
+      <button class="status-item clickable small cc-usage" :title="headlineTitle" @click="toggleAgentStatus">
         <Gauge :size="13" :stroke-width="2" />
-        <span v-if="headlineRate" :class="rateLevelClass(headlineRate)">{{ headlineRate.toFixed(0) }}%</span>
+        <template v-if="headlineMeters.length">
+          <template v-for="(m, i) in headlineMeters" :key="m.label">
+            <span v-if="i" class="cc-rate-sep">/</span>
+            <span :class="rateLevelClass(m.percent)">{{ m.percent.toFixed(0) }}%</span>
+          </template>
+        </template>
         <span v-else>{{ t('statusBar.agents') }}</span>
       </button>
       <div v-if="showAgentStatus" class="status-dropdown cc-dropdown popup-surface" @mousedown.stop>
@@ -393,7 +400,7 @@ onUnmounted(() => {
               ~{{ formatCost(claudeUsage.estimatedCostUsd) }}
             </span>
           </div>
-          <RateMeters :meters="claudeSessionMeters" class="cc-meters" />
+          <RateMeters :meters="claudeSummaryMeters" class="cc-meters" />
         </div>
 
         <div v-if="hasCodex" class="cc-agent">
@@ -410,7 +417,7 @@ onUnmounted(() => {
             <span>{{ t('statusBar.ccOut') }} {{ formatTokens(codexTokens.output) }}</span>
             <span v-if="codexTokens.cost !== null" class="cc-cost">~{{ formatCost(codexTokens.cost) }}</span>
           </div>
-          <RateMeters :meters="codexSessionMeters" class="cc-meters" />
+          <RateMeters :meters="codexMeters" class="cc-meters" />
         </div>
       </div>
     </div>
@@ -682,6 +689,12 @@ onUnmounted(() => {
 .cc-usage {
   gap: 4px;
   opacity: 0.85;
+}
+
+/* 5h と週の区切り。数字より落として、色付き（warn/danger）の数字を目立たせる。 */
+.cc-rate-sep {
+  margin: 0 -2px;
+  color: var(--text-secondary);
 }
 
 .cc-cost {

@@ -55,10 +55,18 @@ export function useAgentUsage() {
   })
 
   const claudeMeters = computed<Meter[]>(() => (claudeRate.value?.windows ?? []).map(toMeter))
-  /** Just the 5h window, for the compact surface. */
-  const claudeSessionMeters = computed<Meter[]>(() =>
-    claudeRateSession.value ? [toMeter(claudeRateSession.value)] : [],
-  )
+
+  /**
+   * The two quotas that apply to everything — 5h then the all-model weekly —
+   * for the compact surfaces. Built in that fixed order rather than filtered
+   * out of `windows`, so the pair reads the same way wherever it appears
+   * regardless of what the CLI printed first. Per-model weeklies are left to
+   * the status tab's `claudeMeters`.
+   */
+  const claudeSummaryMeters = computed<Meter[]>(() => {
+    const weekly = claudeRate.value?.windows.find((w) => w.kind === 'weekAll') ?? null
+    return [claudeRateSession.value, weekly].filter((w) => w !== null).map(toMeter)
+  })
 
   /** A native Codex chat reports its own session usage and takes precedence. */
   const codexSession = computed(() => {
@@ -92,18 +100,23 @@ export function useAgentUsage() {
     return { input: cli.totalInputTokens, output: cli.totalOutputTokens, cost: cli.estimatedCostUsd }
   })
 
-  const codexSessionMeters = computed<Meter[]>(() => {
-    const p = codexCliUsage.value?.rateLimitPrimary
-    return p ? [{ label: t('statusBar.rate5h'), percent: p.usedPercent }] : []
-  })
-
   const codexMeters = computed<Meter[]>(() => {
+    const session = codexCliUsage.value?.rateLimitPrimary
     const weekly = codexCliUsage.value?.rateLimitSecondary
     return [
-      ...codexSessionMeters.value,
+      ...(session ? [{ label: t('statusBar.rate5h'), percent: session.usedPercent }] : []),
       ...(weekly ? [{ label: t('statusBar.rateWeekly'), percent: weekly.usedPercent }] : []),
     ]
   })
+
+  /**
+   * What the status bar squeezes into "25% / 5%". One agent's pair, never a mix:
+   * the two numbers sit side by side with no room to say whose quota each is, so
+   * the agent that reports rate limits at all supplies both slots.
+   */
+  const headlineMeters = computed<Meter[]>(() =>
+    claudeSummaryMeters.value.length ? claudeSummaryMeters.value : codexMeters.value,
+  )
 
   const hasClaude = computed(() => Boolean(claudeAccount.value || claudeRate.value || claudeUsage.value?.active))
   const hasCodex = computed(() => Boolean(codexTokens.value || codexAccount.value?.email))
@@ -124,13 +137,13 @@ export function useAgentUsage() {
     claudeRateSession,
     claudeAccount,
     claudeMeters,
-    claudeSessionMeters,
+    claudeSummaryMeters,
     codexSession,
     codexCliUsage,
     codexAccount,
     codexTokens,
     codexMeters,
-    codexSessionMeters,
+    headlineMeters,
     hasClaude,
     hasCodex,
     refreshing,
