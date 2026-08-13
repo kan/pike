@@ -2,7 +2,8 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { locale, t } from '../i18n'
-import { baseForPlatform, joinBase, type ProjectBase, relativeToBase } from '../lib/projectPaths'
+import { normalizeRemoteUrl } from '../lib/gitRemote'
+import { baseForPlatform, joinBase, type ProjectBase, relativeToBase, rootKey } from '../lib/projectPaths'
 import {
   focusProjectWindow,
   fsDirsExist,
@@ -270,10 +271,11 @@ export const useProjectStore = defineStore('project', () => {
 
   // --- Project list sync (#164) -------------------------------------------
   // The list rides in the same file as the UI settings but under its own key,
-  // because it merges by project id instead of last-write-wins: a machine only
-  // ever adds entries, never removes another machine's. What stays local: the
-  // real path (only the base-relative part travels), shell, pinned tabs,
-  // session, recency, and agent session ids.
+  // because the whole section is not replaced wholesale: a machine publishes the
+  // projects it has and leaves every other entry alone, so nobody's list is ever
+  // dropped by a machine that has never seen it. What stays local: the real path
+  // (only the base-relative part travels), shell, pinned tabs, session, recency,
+  // and agent session ids.
 
   /** Projects visible on this machine — hidden ones (#164) are filtered out. */
   const visibleProjects = computed(() => projects.value.filter((p) => !useSettingsStore().isProjectHidden(p.id)))
@@ -324,16 +326,19 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /**
-   * Publish this machine's shareable projects. Entries already in the file keep
-   * their name and path and only get their empty fields filled: the merge is
-   * symmetric with the pull, so two machines that disagree cannot overwrite each
-   * other on every launch. Which also means a rename stays local, matching what
-   * the pull does with a name it receives.
+   * Publish this machine's shareable projects: an entry for a project that is
+   * here is replaced by what is here, and every other entry is left alone.
    *
-   * Ordering is the exception (#203): `order` and the group list are published
-   * as-is. Gap-filling an order would freeze it at whatever the first machine
-   * wrote, and half of one machine's order interleaved with half of another's
-   * is not an order anyone asked for — so here the last push wins.
+   * Filling only the file's empty fields (what this used to do) made the first
+   * value the file ever saw permanent, so a field *cleared* here kept its stale
+   * value there and the next pull filled it back in. The cost of publishing
+   * as-is is that with two machines the last one to run owns the record.
+   *
+   * Note what this does *not* buy: the pull still only fills gaps, so a machine
+   * that already has the project keeps its own name, color and group whatever
+   * the file says. Edits reach the file, and from there only machines that have
+   * yet to create the project. Making them converge needs a per-record
+   * `updatedAt` on both sides, which nothing has asked for yet.
    */
   async function pushProjectsToSync() {
     const settings = useSettingsStore()
@@ -345,21 +350,7 @@ export const useProjectStore = defineStore('project', () => {
       for (const project of projects.value) {
         const entry = toSynced(project, base)
         if (!entry) continue
-        const previous = merged.get(entry.id)
-        merged.set(
-          entry.id,
-          previous
-            ? {
-                ...previous,
-                color: previous.color ?? entry.color,
-                icon: previous.icon ?? entry.icon,
-                group: previous.group ?? entry.group,
-                remoteUrl: previous.remoteUrl ?? entry.remoteUrl,
-                golangciCommand: previous.golangciCommand ?? entry.golangciCommand,
-                order: entry.order,
-              }
-            : entry,
-        )
+        merged.set(entry.id, entry)
       }
       const out = [...merged.values()]
       const outGroups = [...groups.value]
@@ -375,10 +366,11 @@ export const useProjectStore = defineStore('project', () => {
 
   /**
    * Take in projects other machines registered. Existing projects only get
-   * their gaps filled (a local edit always wins), missing ones are created
-   * under this machine's base, and hidden ids are skipped so a local delete is
-   * not undone by the next pull. Returns what happened so callers can say why
-   * nothing appeared — every skip here is silent otherwise.
+   * their gaps filled (a local edit always wins) and missing ones are created
+   * under this machine's base — unless this machine deleted them, which is
+   * matched by id, root and origin so a local delete is not undone by the next
+   * pull. Returns what happened so callers can say why nothing appeared — every
+   * skip here is silent otherwise.
    */
   async function pullProjectsFromSync(): Promise<PullResult> {
     const result: PullResult = { entries: 0, created: 0, hidden: 0, unresolvable: 0 }
@@ -393,10 +385,22 @@ export const useProjectStore = defineStore('project', () => {
     // roll back the session another window has been updating since.
     await loadProjects()
     const known = new Map(projects.value.map((p) => [p.id, p]))
-    // A project already registered under a different id (same origin or same
-    // resolved root) must not be duplicated — both copies would then be pushed.
-    const localRemotes = new Set(projects.value.map((p) => p.remoteUrl).filter(Boolean))
-    const localRoots = new Set(projects.value.map((p) => p.root.toLowerCase()))
+    // What counts as "a project this machine already decided about", by every
+    // key that survives the trip through the file. Ids do not: one repository
+    // ends up with an id per machine that registered it separately, so an entry
+    // is matched by where it lands and what it clones from as well.
+    //
+    // Kept together because the two readers below must agree — the dedup, so a
+    // second copy is not created and then pushed back, and the deletion check,
+    // so a sibling entry cannot recreate what was deleted here. Origins compare
+    // normalized: the same repository reaches the file as
+    // `git@host:owner/repo.git` from one machine and `https://host/owner/repo`
+    // from another, and a raw comparison reads those as two projects.
+    const compactSet = (values: (string | null | undefined)[]) => new Set(values.filter((v): v is string => !!v))
+    const localRemotes = compactSet(projects.value.map((p) => normalizeRemoteUrl(p.remoteUrl)))
+    const localRoots = compactSet(projects.value.map((p) => rootKey(p.root)))
+    const hiddenRoots = compactSet(settings.hiddenProjects.map((p) => p.root && rootKey(p.root)))
+    const hiddenRemotes = compactSet(settings.hiddenProjects.map((p) => normalizeRemoteUrl(p.remoteUrl)))
     // Patches to known projects go out together at the end: adopting a shared
     // order (#203) touches every project in a reordered group, and one
     // round trip each would make the startup pull that much longer.
@@ -414,7 +418,9 @@ export const useProjectStore = defineStore('project', () => {
         if (!local.group && entry.group) patch.group = entry.group
         if (!local.remoteUrl && entry.remoteUrl) patch.remoteUrl = entry.remoteUrl
         if (!local.golangciCommand && entry.golangciCommand) patch.golangciCommand = entry.golangciCommand
-        // Order is adopted, not gap-filled — see pushProjectsToSync.
+        // Order is adopted rather than gap-filled (#203): a manual order is one
+        // intent over a whole list, and half of one machine's interleaved with
+        // half of another's is nobody's order.
         if (entry.order !== undefined && entry.order !== local.order) patch.order = entry.order
         if (Object.keys(patch).length > 0) patched.push({ ...local, ...patch })
         continue
@@ -427,8 +433,18 @@ export const useProjectStore = defineStore('project', () => {
         continue
       }
       const root = joinBase(baseDir, entry.path, entry.platform)
-      if (localRoots.has(root.toLowerCase())) continue
-      if (entry.remoteUrl && localRemotes.has(entry.remoteUrl)) continue
+      const key = rootKey(root)
+      if (localRoots.has(key)) continue
+      const remote = normalizeRemoteUrl(entry.remoteUrl)
+      if (remote && localRemotes.has(remote)) continue
+      // The id check at the top of the loop only catches the entry the deletion
+      // was recorded against. A sibling entry for the same repository carries a
+      // different id, and recognising it needs the resolved root — which is why
+      // this half of the check waits until here.
+      if (hiddenRoots.has(key) || (remote && hiddenRemotes.has(remote))) {
+        result.hidden++
+        continue
+      }
       await addProject({
         id: entry.id,
         name: entry.name,
@@ -446,8 +462,8 @@ export const useProjectStore = defineStore('project', () => {
         golangciCommand: entry.golangciCommand,
         order: entry.order,
       }).catch(() => {})
-      localRoots.add(root.toLowerCase())
-      if (entry.remoteUrl) localRemotes.add(entry.remoteUrl)
+      localRoots.add(key)
+      if (remote) localRemotes.add(remote)
       result.created++
     }
     await Promise.all(patched.map((config) => saveProject(config).catch(() => {})))
@@ -804,12 +820,18 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   async function removeProject(id: string) {
-    const name = projects.value.find((p) => p.id === id)?.name ?? id
+    const project = projects.value.find((p) => p.id === id)
     await projectDelete(id)
     // Remember the deletion locally (#164): the sync file only ever gains
-    // entries, so without this the next pull would recreate the project. After
+    // entries, so without this the next pull would recreate the project. The
+    // root and origin go in the record too — see the match in the pull. After
     // the delete succeeds — a project hidden but still on disk is unreachable.
-    useSettingsStore().hideProject(id, name)
+    useSettingsStore().hideProject({
+      id,
+      name: project?.name ?? id,
+      root: project?.root,
+      remoteUrl: project?.remoteUrl,
+    })
     projects.value = projects.value.filter((p) => p.id !== id)
     if (currentProject.value?.id === id) {
       currentProject.value = null

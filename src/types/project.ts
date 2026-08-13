@@ -25,11 +25,18 @@ export interface SyncedProject {
   order?: number
 }
 
-/** A project hidden on this machine — kept by id so sync can't resurrect it. */
+/**
+ * A project hidden on this machine, so the merge-only sync cannot resurrect it.
+ * Carries the root and origin as well as the id because the sync file can hold
+ * several ids for one repository — see the match in `pullProjectsFromSync`.
+ */
 export interface HiddenProject {
   id: string
   /** Last known name, so the settings list can label it after deletion. */
   name: string
+  /** Both absent for entries hidden before Pike started recording them. */
+  root?: string
+  remoteUrl?: string
 }
 
 export interface PinnedTabDef {

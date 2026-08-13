@@ -44,6 +44,19 @@ export function relativeToBase(base: string, root: string, platform: ProjectPlat
   return normalizedRoot.slice(normalizedBase.length + 1)
 }
 
+/**
+ * A comparison key for "do these two roots name the same directory". Separators
+ * are normalized and a trailing one dropped, so a root typed as `C:\src\pike`
+ * matches the `C:/src/pike` that `joinBase` produces.
+ *
+ * Deliberately case-insensitive on both platforms, unlike `relativeToBase`:
+ * this answers whether the user already registered a directory, and two WSL
+ * paths differing only in case are not worth telling apart for that.
+ */
+export function rootKey(root: string): string {
+  return normalizeSep(root).replace(/\/+$/, '').toLowerCase()
+}
+
 /** Inverse of `relativeToBase`: an absolute root in this machine's layout. */
 export function joinBase(base: string, rel: string, platform: ProjectPlatform): string {
   return joinPath(base, rel, platform === 'wsl' ? '/' : '\\')

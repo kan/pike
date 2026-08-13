@@ -355,10 +355,20 @@ function sanitizeHiddenProjects(v: unknown): HiddenProject[] {
   const seen = new Set<string>()
   for (const item of v) {
     if (!item || typeof item !== 'object') continue
-    const { id, name } = item as { id?: unknown; name?: unknown }
+    const { id, name, root, remoteUrl } = item as {
+      id?: unknown
+      name?: unknown
+      root?: unknown
+      remoteUrl?: unknown
+    }
     if (typeof id !== 'string' || !id || seen.has(id)) continue
     seen.add(id)
-    out.push({ id, name: typeof name === 'string' ? name : id })
+    out.push({
+      id,
+      name: typeof name === 'string' ? name : id,
+      root: typeof root === 'string' && root ? root : undefined,
+      remoteUrl: typeof remoteUrl === 'string' && remoteUrl ? remoteUrl : undefined,
+    })
   }
   return out
 }
@@ -494,8 +504,8 @@ export const useSettingsStore = defineStore('settings', () => {
     hiddenProjects.value = mutate(sanitizeHiddenProjects(loadJson<unknown>(HIDDEN_PROJECTS_KEY, null)))
   }
 
-  function hideProject(id: string, name: string) {
-    updateHiddenProjects((list) => (list.some((p) => p.id === id) ? list : [...list, { id, name }]))
+  function hideProject(entry: HiddenProject) {
+    updateHiddenProjects((list) => (list.some((p) => p.id === entry.id) ? list : [...list, entry]))
   }
 
   function unhideProject(id: string) {
