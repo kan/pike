@@ -807,8 +807,8 @@ async function onDelete(id: string) {
   color: var(--text-primary);
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  /* グループ名はユーザーが決めた文字列なので、見出しでも入力欄でも打ったとおりに
+     出す。大文字化していたころは faber と FABER の区別が画面上で付かなかった */
   cursor: pointer;
   border-radius: 3px;
   text-align: left;
@@ -860,8 +860,6 @@ async function onDelete(id: string) {
   color: var(--text-primary);
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   border-radius: 3px;
   outline: none;
 }
