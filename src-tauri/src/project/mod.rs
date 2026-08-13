@@ -116,9 +116,17 @@ pub async fn project_groups_list(
     }
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GroupsUpdatedPayload {
+    source_label: String,
+    groups: Vec<String>,
+}
+
 #[tauri::command]
 pub async fn project_groups_save(
     groups: Vec<String>,
+    window: WebviewWindow,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
     let path = groups_file(&state);
@@ -126,7 +134,20 @@ pub async fn project_groups_save(
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let content = serde_json::to_string_pretty(&groups).map_err(|e| e.to_string())?;
-    fs::write(path, content).map_err(|e| e.to_string())
+    fs::write(path, content).map_err(|e| e.to_string())?;
+
+    // Broadcast like `project_update` does: the other windows hold their own
+    // copy of this list, and the one that publishes the project list to the
+    // sync file (#164) is not necessarily the one that made the change — it
+    // would otherwise share a group list it loaded at startup.
+    let _ = window.app_handle().emit(
+        "project_groups_updated",
+        GroupsUpdatedPayload {
+            source_label: window.label().to_string(),
+            groups,
+        },
+    );
+    Ok(())
 }
 
 use crate::types::validate_slug;

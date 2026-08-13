@@ -272,6 +272,12 @@ onMounted(async () => {
     if (event.payload.sourceLabel === ownLabel) return
     projectStore.applyExternalUpdate(event.payload.config)
   })
+  // Same for the group list, which lives in its own file and would otherwise
+  // only be current in the window that changed it.
+  listen<{ sourceLabel: string; groups: string[] }>('project_groups_updated', (event) => {
+    if (event.payload.sourceLabel === ownLabel) return
+    projectStore.applyExternalGroups(event.payload.groups)
+  })
 
   tabStore.$subscribe(() => projectStore.saveSessionDebounced())
   window.addEventListener('beforeunload', () => {

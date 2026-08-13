@@ -808,6 +808,12 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  /** Apply a `project_groups_updated` broadcast from another window (see
+   *  `project_groups_save` for why the list has to travel). */
+  function applyExternalGroups(list: string[]) {
+    groups.value = list
+  }
+
   // Apply a project_updated broadcast from another window: refresh in-memory
   // copies so this window's full-object writes don't revert the edit. The
   // window-local live session is kept (this window owns it while open).
@@ -879,6 +885,7 @@ export const useProjectStore = defineStore('project', () => {
     uniqueProjectId,
     saveProject,
     applyExternalUpdate,
+    applyExternalGroups,
     removeProject,
     toggleSwitcher,
     toggleQuickOpen,
