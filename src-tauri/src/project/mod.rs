@@ -1,3 +1,5 @@
+pub mod transient;
+
 use crate::types::{ShellConfig, silent_command};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

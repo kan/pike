@@ -113,7 +113,8 @@ pike/
 │       ├── watcher/
 │       │   └── mod.rs         # ファイル監視（notify + WSL inotifywait）
 │       ├── project/
-│       │   └── mod.rs         # プロジェクト CRUD・WSL ディストロ検出・グループ永続化
+│       │   ├── mod.rs         # プロジェクト CRUD・WSL ディストロ検出・グループ永続化
+│       │   └── transient.rs   # 登録せずに開いたディレクトリのメモリ内プロジェクト（#230）
 │       ├── fs/
 │       │   └── mod.rs         # WSL/Windows 両対応ファイル操作・IGNORED_DIRS
 │       ├── git/
@@ -337,6 +338,20 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
   - 判定は**バッチ済みの `missingRoots` を読む**（`checkRoots` は distro ごとに 1 回の `wsl.exe`。パネル / スイッチャーは開くたびに、ストアの watcher は一覧が変わるたびに更新している）。1 プロジェクトだけ個別 probe すると、起動時にウィンドウ数ぶん余分な `wsl.exe` が走り、一覧のバッジと開いたときの判定がずれうる。`checkRoots` は**実行中の probe を join** する（watcher の probe 中に読むと未反映の set を見てしまうため）。force はいつでも再 probe する（clone 直後の判定が clone より前の結果になっては困る）
   - 判定は `checkRoots`（バッジ用の全件プローブ。distro ごとに `wsl.exe` 起動＋`backfillRemotes` の git 往復）ではなく、**当該 root 1 件の `fsDirsExist`**。プロジェクトを開くたびに全件プローブを待たせないため。プローブ失敗は「分からない」なので present 扱いで開かせる（`checkRoots` と同じ規約）
   - 「未取得」バッジは ProjectPanel と ProjectSwitcher の両方に出るので、`theme.css` の共有クラス `.missing-tag`（`.ctx-key` と同じ位置づけ）。行を塗る側は自分の scoped CSS で色を上書きする
+  - `openDirectory(path, mode)`（#230）はこの 3 つの外側にあるが、**一覧から選ぶ経路ではない**（ユーザーがピッカーで指したディレクトリなので、そこに無いなら選べていない）ため未取得チェックの対象外。`placeProject` と同じ位置づけ
+- **登録せずに開くディレクトリ（一時プロジェクト、#230）**: `pike <dir>` は未登録のディレクトリに対して `project.json` を書いていたので、中を見たいだけのディレクトリが一覧・`last_project.txt`・ジャンプリスト・同期ファイルに残り、手で消すしか戻す道がなかった。代わりに `src-tauri/src/project/transient.rs` の `TransientState`（id → `ProjectConfig` のメモリ内マップ）に載せる
+  - **`window_projects` には登録済みと同じように id を入れる**。これが要点で、ウィンドウの focus・CLI ルーティング・`project_for_window` は「匿名ウィンドウ」という概念を持たなくて済む。特別扱いが要るのは**書き込み側だけ**で、その一覧は `transient.rs` のモジュール doc が正本（`project.json` 系 / `last_project.txt` / 同期・シェルメニュー / ウィンドウ geometry）
+  - **`window-geometry.json`（#200）だけは意図的に書く**。`key_for` が `window_projects` を読むので一時プロジェクトも記録され、id をディレクトリ名の slug にしてあるぶん開き直すとサイズが戻る。代償は「この方法で開いたディレクトリごとに 1 エントリ残る」
+  - **`project.json` への書き込みガードは `saveProject` に置く**（呼び出し側ではなく）。あそこが `ProjectConfig` をディスクへ書く唯一の場所で、`stores/git.ts` が origin を記録するのに既に通っている。呼び出し側に置くと、残り 8 箇所が同じ無言の失敗を踏みうる
+  - **登録するか聞くのは `adoptProject` の中**（App.vue ではなく）。clone の確認（#212）と同じ「adopt → 聞く → 実行」なので、同じ関数に畳んで「前半だけ書いて後半を忘れる」を防ぐ。ただし**await しない**: mount の続き（クロスウィンドウ listener・`beforeunload`・トレイ周り）がダイアログの前で止まる
+  - **他のプロジェクトへ切り替えたら、その場でエントリを落とす**（ウィンドウを閉じるときではなく）。残すと `pike <そのディレクトリ>` が、もう表示していないウィンドウを focus し続ける
+  - **登録するときは `uniqueProjectId` を通す**。Rust 側は登録済みと他の一時プロジェクトに対しては一意にしているが、**hide 済みの id（#164、localStorage にある）は見えない**。ぶつかったまま書くと、その sync エントリの identity を引き継いでしまう。id が変わっても `projectAddOpen` が `window_projects` を張り直すので focus と CLI ルーティングは繋がったまま
+  - フロントは `transientProject` ref に持ち、**`projects` 配列には入れない**。パネル / スイッチャー / ジャンプリスト / 同期 push はすべてあの配列を見ているので、入れないことがそのまま「出て行かない」になる（各所でフラグを見るのではなく）
+  - id は**ディレクトリ名の slug**（登録済みと他の一時プロジェクトの両方に対して一意化）。uuid にしないのは、同じディレクトリを開き直したときにウィンドウ geometry（#200）を引き継ぐため
+  - **同じディレクトリの 2 回目は既存ウィンドウを focus する**。`project_id_for_root` が登録済み一覧に続けて `TransientState` も引く。エントリはウィンドウの `Destroyed` で落とすので、「一致したのにウィンドウが無い」は起こらない
+  - **`OpenFiles` のルーティングも一時プロジェクトを引く**（`project_by_id`）。登録済み一覧だけを見ていると、そのディレクトリ配下のファイルを `pike file.rs` で開いてもサイドバーの無いグローバルウィンドウが出る
+  - **開いたときに 1 度だけ登録するか聞く**（App.vue の `offerToRegisterDirectory`）。「いいえ」でその root を `pike:transient-roots`（マシンローカル、同期・broadcast の対象外）に記録して次回から聞かない。ProjectSwitcher の「ディレクトリを開く」は選択そのものが答えなので、開くと同時に記録して聞かない
+  - 登録は `registerTransientProject`（ProjectPanel の一時バー）。**id をそのまま使う**ので `window_projects` が指す先が変わらず、focus も CLI ルーティングも繋がったまま
 - 同期（#164）との関係: `SyncedProject` に `icon` / `order` を追加。**push はローカルの値をそのまま publish する（同じ id の既存エントリを丸ごと置き換える）**。以前は空欄だけを埋めていたため、ファイルに一度入った値が恒久化し、(1) 後からの改名・色変更・グループ変更が他マシンへ出て行かない、(2) 手元で**消した**フィールドがファイル側に残り、次回起動の pull で復活する、の 2 つが起きていた（実測: `school` のグループがファイル側で `WORK` のまま 3 週間化石化）。代償は「2 台以上なら最後に走ったマシンが勝つ」で、**何も起きない編集より上書きされうる編集を採る**という判断。pull 側は従来どおり既存プロジェクトへの穴埋めのみ（起動時の pull が手元の編集を古い値で潰さないため）。手元に無いプロジェクトのエントリには触らない。グループ順は sync ファイルの `groups` セクションに載せ、pull 側は「リモートの順を採用し、ローカルにしか無いグループを末尾へ」。**新しい共有フィールドは push の watcher キー（`stores/project.ts`）にも足すこと**。入れ忘れると push 自体が発火しない
 - **削除の記録は id だけでは足りない（#164）**: 同期ファイルは 1 つのリポジトリに対して複数の id を持ちうる（各マシンが別々に登録すると別 id になる。実測でこのマシンの dotfiles が 4 id）。`HiddenProject` は `root` と `remoteUrl` も持ち、pull は id・解決後の root・正規化した origin の 3 つで照合する。**照合は `pullProjectsFromSync` の中で重複ガード（`localRoots` / `localRemotes`）と並べて組み立てる**: 「同じプロジェクトか」の判定軸を増やしたとき、片方だけ直すと無言で複製か復活が出る。root の比較キーは `lib/projectPaths.ts` の `rootKey`（区切りの正規化＋末尾スラッシュ除去＋小文字化。`relativeToBase` と違い WSL でも大小を無視する＝「同じディレクトリを登録済みか」の判定なので）。id だけを見ていたころは、手元のコピーを削除すると兄弟エントリが「まだ知らないプロジェクト」として作り直され、**古い名前・色/アイコン無しで復活していた**（ユーザーからはプロジェクト設定が巻き戻ったように見える）。origin の比較は `lib/gitRemote.ts` の `normalizeRemoteUrl` を通すこと: 同じリポジトリが `git@host:owner/repo.git` と `https://host/owner/repo` の両方の形でファイルに入るため、生の文字列比較では重複ガードが素通りする。過去に hide した記録には root も origin も無いので、この照合が効くのは今後の削除だけ
 
@@ -512,7 +527,7 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `tauri-plugin-single-instance` で二重起動を防止、引数を既存インスタンスに転送
 - `pike file.rs:42` → ファイルを開いてジャンプ、`pike open <file>` も同様。**複数ファイル引数対応**（`CliAction::OpenFiles { files: Vec<CliFileTarget{path,line,distro}> }`、pike.exe へのドラッグ&ドロップ / エクスプローラー「プログラムから開く」経由）
 - `pike .` / `pike <dir>` → ディレクトリに一致するプロジェクトに切替（ディレクトリは**先頭引数のみ**有効）
-- マッチしない場合は ad-hoc プロジェクトを自動作成（PowerShell）
+- マッチしない場合は**一時プロジェクト**として開き、ウィンドウが登録するか 1 度だけ聞く（#230。以前は `project.json` を書く ad-hoc プロジェクトを黙って作っていた）
 - **存在しない root もプロジェクト起動として扱う（#212）**: `resolve_path_arg` はファイルシステムにしか聞けないので、未 clone のプロジェクト root（や WSL 停止中の root）は `is_dir=false` で `OpenFiles` になり、ディレクトリを開くエディタタブができていた。ジャンプリスト（#160）が渡すのは正にこの root なので、`lib.rs` の `as_project_dir` が**単独・行番号なしのパス引数が登録済み root と一致したら `OpenDirectory` に読み替える**（`project_for_root` は `normalize_path` 比較）。これで通常のプロジェクトルーティングに乗り、開いたウィンドウが clone を提案できる
 - **コールドスタートでプロジェクトを開く（#212）**: 従来、Pike 停止中の `pike <dir>` は初期アクションを main に渡すだけで、フロントは `restoreLastProject` にフォールバックしていた（＝ジャンプリストから起動しても前回セッションが開く）。setup で root が登録済みプロジェクトに一致したら `project::set_window_project(state, "main", id)` で **`window_projects` を seed** し、フロントは既存の `project_for_window` 経路でそのプロジェクトに切り替わる（`window_projects` への書き込みはこの関数に一本化。`build_project_window` / `project_add_open` も同じ入口）。`last_project.txt` のクリアは**フロント側**（App.vue の `isMainWindow()` 分岐）で行う: この起動は前回セッションの復元ではなく、`project_add_open` が直後に自分を書き戻す。クリアしないと前回分が積み上がって次の素の起動で全部開く。`restoreLastProject` も同じ `projectSetLast([])` を呼ぶので、クリアの所有者はフロント 1 箇所に揃う
 - ファイル引数のルーティング: `--from-window` 発ウィンドウ → **全ファイルを含む**プロジェクトウィンドウ → グローバルウィンドウの順（`CliState.pending` でアクションを転送）

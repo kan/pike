@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, Pencil, Plus, Search, X } from 'lucide-vue-next'
+import { BookmarkPlus, ChevronDown, ChevronRight, Pencil, Plus, Search, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
@@ -448,6 +448,16 @@ async function onDelete(id: string) {
 
 <template>
   <div class="project-panel" data-testid="project-panel">
+    <!-- Directory opened without registering it (#230): the way back in. -->
+    <div v-if="projectStore.isTransient" class="transient-bar">
+      <div class="transient-root" :title="projectStore.currentProject?.root">
+        {{ projectStore.currentProject?.root }}
+      </div>
+      <button class="add-btn transient-register" data-testid="register-directory" @click="projectStore.registerTransientProject()">
+        <BookmarkPlus :size="14" :stroke-width="2" />{{ t('project.registerDirectory') }}
+      </button>
+    </div>
+
     <button class="add-btn" @click="showForm = !showForm">
       {{ showForm ? t('common.cancel') : t('project.addProject') }}
     </button>
@@ -595,6 +605,42 @@ async function onDelete(id: string) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.transient-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+}
+
+.transient-root {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* Same geometry as .add-btn; the accent edge is the deliberate difference. */
+.transient-register {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.transient-register:hover {
+  background: var(--accent);
+  color: var(--text-active);
 }
 
 .add-btn {

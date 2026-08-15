@@ -20,6 +20,8 @@ export default {
   // App
   'app.title': 'pike',
   'app.titleWithProject': 'pike - {name}',
+  // Directory opened without registering it (#230)
+  'app.titleWithDirectory': 'pike - {name} (unregistered)',
   'app.adminTitlePrefix': '[Admin]',
   'app.emptyTerminal': 'Press Ctrl+T to open a terminal',
   'app.emptyProject': 'Open a project to get started (Ctrl+Shift+P)',
@@ -390,6 +392,10 @@ export default {
 
   // Project Panel
   'project.addProject': '+ Add Project',
+  // Directory opened without registering it (#230)
+  'project.registerDirectory': 'Register as a project',
+  'project.registerDirectoryConfirm':
+    'Register this directory as a project?\n\n{root}\n\nChoosing No opens it without saving anything, and this directory will not ask again.',
   'project.projectName': 'Project name',
   'project.detect': 'Detect',
   'project.browse': 'Browse...',
@@ -441,6 +447,7 @@ export default {
   'projectSwitcher.enterOpenWindow': 'Enter: open in new window',
   'projectSwitcher.newProject': '+ New Project',
   'projectSwitcher.openGlobal': 'Global Mode',
+  'projectSwitcher.openDirectory': 'Open a Directory',
   'projectSwitcher.formTitle': 'New Project',
   'projectSwitcher.createAndOpen': 'Create & Open',
 
@@ -553,6 +560,9 @@ export default {
 
   // StatusBar
   'statusBar.admin': 'Admin',
+  'statusBar.transient': 'unregistered',
+  'statusBar.transientHint':
+    'This directory is not a project: tabs and settings are not saved. Register it from the Projects panel.',
   'statusBar.adminTooltip': 'Running as administrator (Windows side only; not inside WSL)',
   'statusBar.ln': 'Ln',
   'statusBar.col': 'Col',

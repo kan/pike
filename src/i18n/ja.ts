@@ -20,6 +20,8 @@ export default {
   // App
   'app.title': 'pike',
   'app.titleWithProject': 'pike - {name}',
+  // 登録せずに開いたディレクトリ（#230）
+  'app.titleWithDirectory': 'pike - {name}（未登録）',
   'app.adminTitlePrefix': '[管理者]',
   'app.emptyTerminal': 'Ctrl+T でターミナルを開く',
   'app.emptyProject': 'Ctrl+Shift+P でプロジェクトを開く',
@@ -391,6 +393,10 @@ export default {
 
   // Project Panel
   'project.addProject': '+ プロジェクト追加',
+  // 登録せずに開いたディレクトリ（#230）
+  'project.registerDirectory': 'プロジェクトに登録',
+  'project.registerDirectoryConfirm':
+    'このディレクトリをプロジェクトとして登録しますか？\n\n{root}\n\nいいえを選ぶと何も保存せずに開き、このディレクトリでは次回から確認しません。',
   'project.projectName': 'プロジェクト名',
   'project.detect': '検出',
   'project.browse': '参照...',
@@ -442,6 +448,7 @@ export default {
   'projectSwitcher.enterOpenWindow': 'Enter: 新しいウィンドウで開く',
   'projectSwitcher.newProject': '+ 新規プロジェクト',
   'projectSwitcher.openGlobal': 'グローバルモード',
+  'projectSwitcher.openDirectory': 'ディレクトリを開く',
   'projectSwitcher.formTitle': '新規プロジェクト',
   'projectSwitcher.createAndOpen': '作成して開く',
 
@@ -554,6 +561,9 @@ export default {
 
   // StatusBar
   'statusBar.admin': '管理者',
+  'statusBar.transient': '未登録',
+  'statusBar.transientHint':
+    'このディレクトリはプロジェクトではありません。タブや設定は保存されません。プロジェクトパネルから登録できます。',
   'statusBar.adminTooltip': '管理者権限で実行中（Windows 側のみ／WSL 内では無効）',
   'statusBar.ln': '行',
   'statusBar.col': '列',

@@ -18,6 +18,10 @@ import {
   projectGroupsSave,
   projectList,
   projectSetLast,
+  projectTransientBind,
+  projectTransientCreate,
+  projectTransientDrop,
+  projectTransientGet,
   projectUpdate,
 } from '../lib/tauri'
 import { ephemeralWindow, isMainWindow } from '../lib/window'
@@ -61,6 +65,20 @@ export const useProjectStore = defineStore('project', () => {
   const currentProject = ref<ProjectConfig | null>(null)
   const showSwitcher = ref(false)
   const showQuickOpen = ref(false)
+
+  // The directory this window opened without registering it (#230). Deliberately
+  // kept out of `projects`, which is the registered list and drives the panel,
+  // the switcher, the jump list and the sync push — leaving it out is what makes
+  // all of those skip it, rather than each of them testing a flag.
+  const transientProject = ref<ProjectConfig | null>(null)
+  const isTransient = computed(() => !!transientProject.value && currentProject.value?.id === transientProject.value.id)
+
+  /** A project by id, registered or transient. */
+  function findProject(id: string): ProjectConfig | null {
+    return (
+      projects.value.find((p) => p.id === id) ?? (transientProject.value?.id === id ? transientProject.value : null)
+    )
+  }
 
   // The git worktree the file tree / git / search / tasks / docker / editor
   // surfaces currently reference. `null` means the project's main root. Reset
@@ -236,8 +254,84 @@ export const useProjectStore = defineStore('project', () => {
    *  the project, so a successful clone reopens it (#212). Kept as one call so
    *  no caller can do the first half and forget the second. */
   async function adoptProject(id: string, opts?: { restoreSession?: boolean }): Promise<void> {
+    // An id the registered list doesn't have is either a transient project (#230)
+    // the backend made for this window, or a project that vanished. Resolve the
+    // former before switching; the root of a directory just opened is there by
+    // definition, so the clone offer below doesn't apply to it.
+    if (!projects.value.some((p) => p.id === id)) {
+      const transient = await projectTransientGet(id).catch(() => null)
+      if (transient) {
+        transientProject.value = transient
+        await switchProject(id, opts)
+        // Not awaited, for the same reason the clone offer below isn't: the
+        // caller's startup sequence must not park on a dialog waiting for a
+        // human. Kept in here rather than in the caller so a future adopt path
+        // cannot open a directory and silently never ask about it.
+        offerToRegisterDirectory().catch(() => {})
+        return
+      }
+    }
     await switchProject(id, opts)
     ensureRootPresent(id, () => switchProject(id, opts)).catch(() => {})
+  }
+
+  /**
+   * Ask once whether the directory this window opened should become a project.
+   * Declining records the root, so the same directory never asks again — and the
+   * switcher's "open a directory" entry records it as it opens, which is why
+   * that path never reaches a dialog.
+   */
+  async function offerToRegisterDirectory(): Promise<void> {
+    const project = transientProject.value
+    if (!project || !isTransient.value) return
+    const settings = useSettingsStore()
+    if (settings.skipsRegisterPrompt(project.root)) return
+    if (await confirmDialog(t('project.registerDirectoryConfirm', { root: project.root }))) {
+      await registerTransientProject()
+    } else {
+      settings.rememberTransientRoot(project.root)
+    }
+  }
+
+  /**
+   * Open a directory without registering it (#230): the window behaves like a
+   * project window, but nothing is written to disk and the config dies with it.
+   *
+   * Choosing this is itself the answer to "register this directory?", so the
+   * root is remembered as one not to ask about again.
+   */
+  async function openDirectory(path: string, mode: 'switch' | 'window' = 'switch'): Promise<void> {
+    const config = await projectTransientCreate(path)
+    useSettingsStore().rememberTransientRoot(config.root)
+    if (mode === 'window') {
+      await openProjectWindow(config.id)
+      return
+    }
+    transientProject.value = config
+    await projectTransientBind(config.id)
+    await switchProject(config.id)
+  }
+
+  /**
+   * Turn the directory this window opened into a registered project.
+   *
+   * The backend kept the id unique against the registered and transient ones,
+   * but it cannot see the hidden list (#164) — that lives in localStorage — so
+   * the id is re-checked here before it is written. `projectAddOpen` then points
+   * `window_projects` at whatever id won, which is also what keeps focus and CLI
+   * routing on this window when the slug had to change.
+   */
+  async function registerTransientProject(): Promise<void> {
+    const config = transientProject.value
+    if (!config || !isTransient.value) return
+    const stored = { ...config, id: uniqueProjectId(config.id), lastOpened: new Date().toISOString() }
+    await addProject(stored)
+    await projectTransientDrop(config.id).catch(() => {})
+    transientProject.value = null
+    currentProject.value = projects.value.find((p) => p.id === stored.id) ?? stored
+    useSettingsStore().forgetTransientRoot(stored.root)
+    await projectAddOpen(stored.id).catch(() => {})
+    await flushSession()
   }
 
   /**
@@ -677,8 +771,15 @@ export const useProjectStore = defineStore('project', () => {
     if (saveTimer) clearTimeout(saveTimer)
     const tabStore = useTabStore()
     const searchStore = useSearchStore()
-    const project = projects.value.find((p) => p.id === id)
+    const project = findProject(id)
     if (!project) return
+    // Moving this window off a transient project (#230) is the end of that
+    // project: drop it here rather than at window close, or `pike <that dir>`
+    // would keep focusing a window that no longer shows it.
+    if (transientProject.value && transientProject.value.id !== id) {
+      projectTransientDrop(transientProject.value.id).catch(() => {})
+      transientProject.value = null
+    }
     // Switching tears down every tab in this window, so ask before killing a
     // terminal that is still running something (#178).
     if (!(await tabStore.confirmBusyTerminals(tabStore.tabs, 'switch'))) return
@@ -696,8 +797,12 @@ export const useProjectStore = defineStore('project', () => {
     project.lastOpened = new Date().toISOString()
     currentProject.value = project
 
+    // A transient project (#230) has no file to update and must stay out of the
+    // open list, or the throwaway directory would reopen on the next plain launch.
     // Fire-and-forget: don't block tab restoration on metadata persistence
-    Promise.all([projectUpdate(project).catch(() => {}), projectAddOpen(id).catch(() => {})])
+    if (!isTransient.value) {
+      Promise.all([projectUpdate(project).catch(() => {}), projectAddOpen(id).catch(() => {})])
+    }
 
     if (!restore) return
 
@@ -760,6 +865,8 @@ export const useProjectStore = defineStore('project', () => {
     // Ephemeral (elevated admin) window: never persist — its lean session would
     // clobber the real one written by the non-elevated instance (#138).
     if (ephemeralWindow.value) return
+    // Transient project (#230): there is no project.json to write to.
+    if (isTransient.value) return
     if (!currentProject.value) return
     currentProject.value.lastSession = useTabStore().snapshotSession()
     await projectUpdate(currentProject.value).catch(() => {})
@@ -798,6 +905,15 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   async function saveProject(config: ProjectConfig) {
+    // A transient project (#230) has no project.json, so the write would reject.
+    // Guarded here rather than in each caller: this is the one place a config
+    // reaches disk, and `stores/git.ts` already calls it to record `origin`.
+    // The in-memory copies are still updated, so the value holds for this window.
+    if (transientProject.value?.id === config.id) {
+      transientProject.value = config
+      if (currentProject.value?.id === config.id) currentProject.value = config
+      return
+    }
     await projectUpdate(config)
     const idx = projects.value.findIndex((p) => p.id === config.id)
     if (idx !== -1) {
@@ -856,6 +972,9 @@ export const useProjectStore = defineStore('project', () => {
     projects,
     groups,
     currentProject,
+    isTransient,
+    openDirectory,
+    registerTransientProject,
     showSwitcher,
     showQuickOpen,
     activeWorktreeRoot,

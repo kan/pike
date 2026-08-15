@@ -227,7 +227,7 @@ pub fn wsl_distro_from_path(path: &str) -> Option<String> {
 /// where UNC paths are unreachable. We always emit native paths from the CLI
 /// for WSL targets so both project-root matching and file I/O work — and we
 /// preserve the distro alongside so ad-hoc projects can be created as WSL.
-fn split_wsl_unc(path: &str) -> Option<(String, String)> {
+pub(crate) fn split_wsl_unc(path: &str) -> Option<(String, String)> {
     let norm = path.replace('\\', "/");
     let rest = norm
         .strip_prefix("//wsl.localhost/")

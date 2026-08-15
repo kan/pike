@@ -170,6 +170,32 @@ export async function projectDelete(id: string): Promise<void> {
   return invoke('project_delete', { id })
 }
 
+// Project — transient (#230): a directory opened without registering it. The
+// config lives in backend memory only and dies with the window showing it.
+
+/** Register a transient project for `path` and return it. Binding it to a
+ *  window is a separate step (`projectTransientBind` here, `openProjectWindow`
+ *  for a new one). */
+export async function projectTransientCreate(path: string, distro?: string | null): Promise<ProjectConfig> {
+  return invoke<ProjectConfig>('project_transient_create', { path, distro: distro ?? null })
+}
+
+/** The transient project for `id`, or null when the id names a registered one. */
+export async function projectTransientGet(id: string): Promise<ProjectConfig | null> {
+  return invoke<ProjectConfig | null>('project_transient_get', { id })
+}
+
+/** Point this window at a transient project — `projectAddOpen` minus the open
+ *  list write, which a transient project must never enter. */
+export async function projectTransientBind(id: string): Promise<void> {
+  return invoke('project_transient_bind', { id })
+}
+
+/** Forget the transient entry, after its config has been written to disk. */
+export async function projectTransientDrop(id: string): Promise<void> {
+  return invoke('project_transient_drop', { id })
+}
+
 /**
  * Rebuild the shell-integration menus — the taskbar jump list (#160) and the
  * system-tray menu (#161). `lang` is the current UI locale so labels follow it.

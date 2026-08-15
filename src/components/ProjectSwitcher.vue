@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Globe } from 'lucide-vue-next'
+import { FolderOpen, Globe } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { fuzzyMatch } from '../lib/paths'
-import { detectWslDistros, openGlobalWindow } from '../lib/tauri'
+import { detectWslDistros, openGlobalWindow, pickFolder } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
@@ -18,6 +18,15 @@ import IconSelect from './panels/IconSelect.vue'
 const { t } = useI18n()
 const projectStore = useProjectStore()
 const settings = useSettingsStore()
+
+/** Open a directory without registering it as a project (#230). The pick itself
+ *  answers "register this?", so the store records the root and nothing asks. */
+async function onOpenDirectory() {
+  const path = await pickFolder()
+  if (!path) return
+  projectStore.showSwitcher = false
+  await projectStore.openDirectory(path, globalMode.value ? 'window' : 'switch')
+}
 
 function enterGlobalMode() {
   projectStore.showSwitcher = false
@@ -230,10 +239,13 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             </template>
           </div>
           <div class="footer-buttons">
-            <button class="global-mode-btn" @click="enterGlobalMode">
+            <button class="footer-btn" @click="enterGlobalMode">
               <Globe :size="14" :stroke-width="2" />{{ t('projectSwitcher.openGlobal') }}
             </button>
-            <button class="new-project-btn" data-testid="switcher-new-project" @click="openNewForm">{{ t('projectSwitcher.newProject') }}</button>
+            <button class="footer-btn" data-testid="switcher-open-directory" @click="onOpenDirectory">
+              <FolderOpen :size="14" :stroke-width="2" />{{ t('projectSwitcher.openDirectory') }}
+            </button>
+            <button class="footer-btn" data-testid="switcher-new-project" @click="openNewForm">{{ t('projectSwitcher.newProject') }}</button>
           </div>
         </div>
 
@@ -390,11 +402,18 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 .footer-buttons {
   display: flex;
   gap: 6px;
+  /* Three buttons no longer fit one row at every UI zoom, and a label broken
+     mid-word reads worse than a second row. */
+  flex-wrap: wrap;
 }
 
-.new-project-btn,
-.global-mode-btn {
-  flex: 1;
+.footer-btn {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
   padding: 8px;
   border: 1px dashed var(--border);
   background: transparent;
@@ -404,15 +423,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
   border-radius: 4px;
 }
 
-.global-mode-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-}
-
-.new-project-btn:hover,
-.global-mode-btn:hover {
+.footer-btn:hover {
   color: var(--text-active);
   border-color: var(--accent);
   background: var(--bg-tertiary);

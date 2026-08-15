@@ -117,7 +117,7 @@ fn is_on_current_virtual_desktop(window: &WebviewWindow) -> bool {
     true
 }
 
-fn iso_now() -> String {
+pub(crate) fn iso_now() -> String {
     let d = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
@@ -146,7 +146,7 @@ fn days_to_ymd(mut days: i64) -> (i64, i64, i64) {
     (y, m, d)
 }
 
-fn normalize_path(p: &str) -> String {
+pub(crate) fn normalize_path(p: &str) -> String {
     p.to_lowercase()
         .replace('\\', "/")
         .trim_end_matches('/')
@@ -200,107 +200,43 @@ fn as_project_dir(projects: &[project::ProjectConfig], action: cli::CliAction) -
     action
 }
 
-/// Create an ad-hoc project for an unregistered directory path.
-/// For WSL UNC paths, extracts distro and uses the native WSL path as root.
-/// For native WSL paths (e.g. /home/user/foo), uses the `distro_hint` captured
-/// by the CLI parser before UNC→native conversion erased the distro context.
-/// For Windows paths, uses PowerShell as the default shell.
-fn create_adhoc_project(
+/// The id of the project whose root is `path` — registered, or transient (#230)
+/// and therefore only alive as long as the window showing it. Both kinds live in
+/// `window_projects`, so the caller can focus either one the same way.
+fn project_id_for_root(app: &AppHandle, projects: &[project::ProjectConfig], path: &str) -> Option<String> {
+    if let Some(proj) = project_for_root(projects, path) {
+        return Some(proj.id.clone());
+    }
+    let state = app.try_state::<project::transient::TransientState>()?;
+    state.find_by_root(path).map(|c| c.id)
+}
+
+/// The root of the project with `id`, registered or transient (#230). Only the
+/// root is returned: a whole `ProjectConfig` would have to be cloned out of the
+/// transient map, dragging along `last_session`, which holds the full text of
+/// every unsaved editor buffer.
+fn project_root_for_id(app: &AppHandle, projects: &[project::ProjectConfig], id: &str) -> Option<String> {
+    if let Some(proj) = projects.iter().find(|p| p.id == id) {
+        return Some(proj.root.clone());
+    }
+    let state = app.try_state::<project::transient::TransientState>()?;
+    state.find_by_id_root(id)
+}
+
+/// Register a transient project for an unregistered directory and return its id.
+/// Nothing is written to disk: the window offers to register the directory once
+/// it is up, and the entry dies with the window (see `project/transient.rs`).
+/// `projects` is the registered list the caller already loaded.
+fn create_transient_project(
     app: &AppHandle,
+    projects: &[project::ProjectConfig],
     path: &str,
     distro_hint: Option<&str>,
-) -> Option<project::ProjectConfig> {
-    let state = app.try_state::<project::ProjectState>()?;
-
-    let (root, shell) = if let Some(distro) = cli::wsl_distro_from_path(path) {
-        // Convert UNC path to native WSL path: \\wsl.localhost\Ubuntu\home\user → /home/user
-        let norm = path.replace('\\', "/");
-        let prefix_localhost = format!("//wsl.localhost/{distro}/");
-        let prefix_dollar = format!("//wsl$/{distro}/");
-        let wsl_path = if let Some(rest) = norm.strip_prefix(&prefix_localhost) {
-            format!("/{rest}")
-        } else {
-            let rest = norm.strip_prefix(&prefix_dollar)?;
-            format!("/{rest}")
-        };
-        (wsl_path, types::ShellConfig::Wsl { distro })
-    } else if let Some(distro) = distro_hint {
-        // Path is already native WSL — CLI parser converted UNC→native and
-        // passed the distro through CliAction so we can recover it here.
-        (
-            path.to_string(),
-            types::ShellConfig::Wsl {
-                distro: distro.to_string(),
-            },
-        )
-    } else {
-        (path.to_string(), types::ShellConfig::Powershell)
-    };
-
-    // Generate a slug from the directory name
-    let dir_name = root
-        .trim_end_matches(['/', '\\'])
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or("project");
-    let slug: String = dir_name
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string();
-    let base_id = if slug.is_empty() {
-        "adhoc".to_string()
-    } else {
-        slug.chars().take(48).collect()
-    };
-
-    // Ensure unique ID
-    let existing = project::read_all_projects(&state.config_dir);
-    let id = if existing.iter().any(|p| p.id == base_id) {
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        format!("{}-{}", base_id, ts % 100000)
-    } else {
-        base_id
-    };
-
-    let config = project::ProjectConfig {
-        id,
-        name: dir_name.to_string(),
-        root,
-        shell,
-        pinned_tabs: vec![],
-        last_opened: iso_now(),
-        last_session: None,
-        codex_thread_id: None,
-        agent_session_id: None,
-        group: None,
-        color: None,
-        icon: None,
-        order: None,
-        remote_url: None,
-        golangci_command: None,
-    };
-
-    let dir = state.config_dir.join("projects").join(&config.id);
-    if std::fs::create_dir_all(&dir).is_err() {
-        return None;
-    }
-    let content = serde_json::to_string_pretty(&config).ok()?;
-    std::fs::write(dir.join("project.json"), content).ok()?;
-
-    log::debug!(
-        "[adhoc] created project id={} name={} root={} shell={:?}",
-        config.id,
-        config.name,
-        config.root,
-        config.shell
-    );
-    Some(config)
+) -> Option<String> {
+    let transient = app.try_state::<project::transient::TransientState>()?;
+    let config = transient.create(projects, path, distro_hint)?;
+    log::debug!("[transient] {} → {} ({:?})", config.id, config.root, config.shell);
+    Some(config.id)
 }
 
 fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
@@ -455,23 +391,27 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
         }
 
         cli::CliAction::OpenDirectory { path, distro } => {
-            // 1. Registered project for this path with a live window? → focus it.
-            if let Some(proj) = project_for_root(&projects, path) {
-                if let Some(w) = find_project_window(app, &proj.id) {
+            // 1. A window already on this root — registered or transient (#230)?
+            //    → focus it, so a second `pike <dir>` never opens a duplicate.
+            if let Some(id) = project_id_for_root(app, &projects, path) {
+                if let Some(w) = find_project_window(app, &id) {
                     log::debug!("[single-instance] dir: focus project window {}", w.label());
                     restore_window(&w);
                     return;
                 }
                 // 2. Registered but no window → new window for that project.
-                log::debug!("[single-instance] dir: open project {} in new window", proj.id);
-                build_project_window(app, &proj.id, Some(action));
+                //    (A transient project cannot reach here: its entry is dropped
+                //    with the window, so a match implies a live window.)
+                log::debug!("[single-instance] dir: open project {id} in new window");
+                build_project_window(app, &id, Some(action));
                 return;
             }
 
-            // 3. No registered project → create ad-hoc project and open in new window
-            log::debug!("[single-instance] dir: creating ad-hoc project for {path}");
-            if let Some(proj) = create_adhoc_project(app, path, distro.as_deref()) {
-                build_project_window(app, &proj.id, None);
+            // 3. Unregistered directory → transient project window. The window
+            //    asks whether to register it once it is up (#230).
+            log::debug!("[single-instance] dir: transient window for {path}");
+            if let Some(id) = create_transient_project(app, &projects, path, distro.as_deref()) {
+                build_project_window(app, &id, None);
             } else {
                 let label = create_global_window(app);
                 store_pending(app, &label, action);
@@ -498,8 +438,12 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
             // 1. Window whose project contains ALL files on this desktop? → open there
             for w in &windows {
                 if let Some(pid) = win_projects.get(w.label()) {
-                    if let Some(proj) = projects.iter().find(|p| p.id == *pid) {
-                        if files.iter().all(|f| is_under_root(&f.path, &proj.root)) {
+                    // Transient projects (#230) are not in the list, and a window
+                    // showing one owns its root just as much: `pike file.rs` from
+                    // inside a directory opened without registering it must land
+                    // there rather than in a new sidebar-less window.
+                    if let Some(root) = project_root_for_id(app, &projects, pid) {
+                        if files.iter().all(|f| is_under_root(&f.path, &root)) {
                             log::debug!("[single-instance] files: open in project window {}", w.label());
                             emit_action_to(app, w, &action);
                             return;
@@ -1047,6 +991,9 @@ pub fn run() {
                 config_dir,
                 window_projects: std::sync::Mutex::new(HashMap::new()),
             });
+            // Directories opened without registering them (#230). Managed here
+            // because the cold-start CLI routing below already needs it.
+            app.manage(project::transient::TransientState::default());
 
             // Resolve bundled rg sidecar path (externalBin places it next to the executable)
             let rg_path = std::env::current_exe()
@@ -1083,12 +1030,15 @@ pub fn run() {
             ) {
                 let projects = load_all_projects(app.handle());
                 action = as_project_dir(&projects, action);
-                if let cli::CliAction::OpenDirectory { ref path, .. } = action {
-                    if let (Some(proj), Some(state)) = (
-                        project_for_root(&projects, path),
-                        app.try_state::<project::ProjectState>(),
-                    ) {
-                        project::set_window_project(&state, "main", &proj.id);
+                if let cli::CliAction::OpenDirectory { ref path, ref distro } = action {
+                    // Unregistered directories get a transient project (#230) here
+                    // too, so a cold `pike <dir>` behaves like a warm one instead
+                    // of falling through to the previous session.
+                    let id = project_for_root(&projects, path)
+                        .map(|p| p.id.clone())
+                        .or_else(|| create_transient_project(app.handle(), &projects, path, distro.as_deref()));
+                    if let (Some(id), Some(state)) = (id, app.try_state::<project::ProjectState>()) {
+                        project::set_window_project(&state, "main", &id);
                     }
                 }
             }
@@ -1163,8 +1113,16 @@ pub fn run() {
                     // (not the one its opaque label was minted for).
                     if let Some(state) = window.try_state::<project::ProjectState>() {
                         if let Some(pid) = project::take_window_project(&state, window.label()) {
-                            if let Err(e) = project::remove_open_project(&state, &pid) {
-                                log::warn!("Failed to remove project {pid} from open list: {e}");
+                            // A transient project (#230) lives exactly as long as
+                            // the window showing it, and was never in the open
+                            // list, so dropping the entry is the whole cleanup.
+                            let transient = window
+                                .try_state::<project::transient::TransientState>()
+                                .and_then(|t| t.remove(&pid));
+                            if transient.is_none() {
+                                if let Err(e) = project::remove_open_project(&state, &pid) {
+                                    log::warn!("Failed to remove project {pid} from open list: {e}");
+                                }
                             }
                         }
                     }
@@ -1290,6 +1248,10 @@ pub fn run() {
             project::project_set_last,
             project::project_add_open,
             project::project_remove_open,
+            project::transient::project_transient_create,
+            project::transient::project_transient_get,
+            project::transient::project_transient_bind,
+            project::transient::project_transient_drop,
             project::project_list,
             project::project_get,
             project::project_create,

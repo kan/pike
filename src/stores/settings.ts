@@ -3,7 +3,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
-import { emptyProjectBase, type ProjectBase } from '../lib/projectPaths'
+import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 import { setWebviewTheme, windowLabel } from '../lib/window'
@@ -208,6 +208,9 @@ const SHELL_PROFILES_KEY = 'pike:shell-profiles'
 // only project sync — both machine-local, like the keys above.
 const PROJECT_BASE_KEY = 'pike:project-base'
 const HIDDEN_PROJECTS_KEY = 'pike:project-hidden'
+// Directories the user chose to open without registering (#230). Real paths on
+// this machine, so machine-local like the keys above.
+const TRANSIENT_ROOTS_KEY = 'pike:transient-roots'
 // Debounce window for mirroring settings changes out to the sync file.
 const SYNC_WRITE_DEBOUNCE_MS = 1500
 // Cross-window settings sync: broadcast changes so every open Pike window stays
@@ -346,6 +349,12 @@ function sanitizeProjectBase(v: unknown): ProjectBase {
     if (typeof raw[key] === 'string') base[key] = raw[key] as string
   }
   return base
+}
+
+/** Guard a machine-local list of paths against corrupt persisted values. */
+function sanitizeStringList(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  return v.filter((x): x is string => typeof x === 'string' && !!x.trim())
 }
 
 /** Guard the machine-local hidden-project list against corrupt persisted values. */
@@ -516,6 +525,34 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function isProjectHidden(id: string): boolean {
     return hiddenProjectIds.value.has(id)
+  }
+
+  // Directories opened without registering them (#230). Answering "no" to the
+  // register prompt — or picking the switcher's "open a directory" entry — puts
+  // the root here so the same directory never asks again. Re-read on every write
+  // for the same reason as the hidden list: another window may have added one.
+  const transientRoots = ref<string[]>(sanitizeStringList(loadJson<unknown>(TRANSIENT_ROOTS_KEY, null)))
+  watch(transientRoots, (v) => saveJson(TRANSIENT_ROOTS_KEY, v), { deep: true })
+
+  function updateTransientRoots(mutate: (list: string[]) => string[]) {
+    transientRoots.value = mutate(sanitizeStringList(loadJson<unknown>(TRANSIENT_ROOTS_KEY, null)))
+  }
+
+  function rememberTransientRoot(root: string) {
+    const key = rootKey(root)
+    if (!key) return
+    updateTransientRoots((list) => (list.some((r) => rootKey(r) === key) ? list : [...list, root]))
+  }
+
+  function forgetTransientRoot(root: string) {
+    const key = rootKey(root)
+    updateTransientRoots((list) => list.filter((r) => rootKey(r) !== key))
+  }
+
+  /** Whether opening this directory should skip the "register it?" prompt. */
+  function skipsRegisterPrompt(root: string): boolean {
+    const key = rootKey(root)
+    return !!key && transientRoots.value.some((r) => rootKey(r) === key)
   }
 
   // Shell profiles (#129): dropdown order / visibility. Machine-local like
@@ -976,6 +1013,9 @@ export const useSettingsStore = defineStore('settings', () => {
     hideProject,
     unhideProject,
     isProjectHidden,
+    rememberTransientRoot,
+    forgetTransientRoot,
+    skipsRegisterPrompt,
     shellProfiles,
     syncShellProfiles,
     windowsShellOptions,

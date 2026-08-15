@@ -110,9 +110,13 @@ const isDebug = import.meta.env.DEV
 const projectAccent = computed(() => projectColorValue(projectStore.currentProject?.color))
 
 watch(
-  [() => projectStore.currentProject?.name, elevated],
-  ([name, isAdmin]) => {
-    let base = name ? t('app.titleWithProject', { name }) : t('app.title')
+  [() => projectStore.currentProject?.name, () => projectStore.isTransient, elevated],
+  ([name, isTransient, isAdmin]) => {
+    // A directory opened without registering it (#230) is titled apart from a
+    // project: several windows sit side by side in the taskbar, and the one
+    // whose tabs are not being saved should say so where they are compared.
+    const key = isTransient ? 'app.titleWithDirectory' : 'app.titleWithProject'
+    let base = name ? t(key, { name }) : t('app.title')
     if (isAdmin) base = `${t('app.adminTitlePrefix')} ${base}`
     const title = isDebug ? `[DEBUG] ${base}` : base
     getCurrentWindow().setTitle(title)
@@ -282,7 +286,9 @@ onMounted(async () => {
   tabStore.$subscribe(() => projectStore.saveSessionDebounced())
   window.addEventListener('beforeunload', () => {
     projectStore.saveSessionNow()
-    if (projectStore.currentProject) {
+    // A transient project (#230) never entered the open list, and the backend
+    // drops its entry on Destroyed.
+    if (projectStore.currentProject && !projectStore.isTransient) {
       projectRemoveOpen(projectStore.currentProject.id)
     }
   })

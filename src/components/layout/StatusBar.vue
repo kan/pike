@@ -311,6 +311,11 @@ onUnmounted(() => {
     >
       <FolderOpen :size="14" :stroke-width="2" />
       {{ projectStore.currentProject?.name ?? "No project" }}
+      <!-- Directory opened without registering it (#230): nothing here is saved,
+           so say so rather than letting it pass for a project. -->
+      <span v-if="projectStore.isTransient" class="missing-tag transient-tag" :title="t('statusBar.transientHint')">
+        {{ t('statusBar.transient') }}
+      </span>
     </button>
 
     <Transition name="status-msg">
@@ -543,6 +548,14 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* Shares the project-status badge shape with .missing-tag (theme.css); only the
+   dashed edge and the inherited color differ. */
+.transient-tag {
+  border-style: dashed;
+  color: inherit;
+  opacity: 0.75;
 }
 
 .status-item.admin-badge {
