@@ -594,6 +594,11 @@ export default {
   // CSV Preview
   'csv.truncated': 'Showing first {max} rows only.',
 
+  // Markdown front matter
+  'frontmatter.title': 'Front matter',
+  'frontmatter.empty': '(no keys)',
+  'frontmatter.notMapping': 'Front matter is not a key/value mapping',
+
   // JSON Preview
   'json.empty': '(empty file)',
   'json.parseError': 'Failed to parse JSON',

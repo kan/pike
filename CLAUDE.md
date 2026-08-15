@@ -189,6 +189,7 @@ pike/
 │   │   ├── fileIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
+│   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── codexHistory.ts  terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
 │   │   ├── tabTitle.ts        # タブの表示名（シングルトンタブは kind から i18n を引く）
@@ -816,6 +817,14 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
   - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
   - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
 - Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
+- **Markdown フロントマター（#229）**: `lib/frontmatter.ts` の `detectFrontmatter` が範囲を返し、`lib/frontmatterParse.ts` の `parseFrontmatter` が `yaml` / `smol-toml` / `JSON.parse` で key/value に落とす。プレビュー（`buildMarkdownPreview` が `marked.parse` の前に本文を切り出して `<details>` の表を前置）とアウトライン（`extractors/markdown.ts` が `bodyFrom` より前の見出しを捨てる）で**範囲検出だけ**を共有する（描画経路がテキストと Lezer 構文木で別のため）
+  - **ファイルを 2 つに割っているのはバンドルの都合**。`lib/outline/index.ts` が 18 個の extractor を静的 import で 1 チャンクに束ねるので、パーサを同居させると YAML/TOML パーサ（合わせて約 106KB）が Go や Rust のアウトラインにも載る。実測で outline チャンクが 267KB → 161KB。`frontmatter.ts` は依存ゼロを保つこと
+  - **パース失敗は理由（`reason`）で返し、文言はプレビュー側で当てる**。`t()` をパーサに置くと、`not-mapping` だけ日本語で `yaml` クレート由来のメッセージは英語のまま、という食い違いになる
+  - **切り離さないとフロントマターが `<h2>` に化ける**。CommonMark では水平線と setext 見出しが両方成立するとき setext が勝つので、開きの `---` が見出し本文、閉じの `---` がその下線になる。marked のバグではない。アウトラインに出ていたのも Lezer が同じ判定で `SetextHeading2` を作るため
+  - **判定はファイル 1 行目のデリミタだけ**。フロントマターに仕様は無く（Jekyll 発祥の慣習で、CommonMark にも GFM にも規定がない）実装ごとに差があるので、文書の途中の `---` を拾わない線引きに寄せる。YAML `---` / TOML `+++` / JSON `{`（Hugo。フェンスが無いので波括弧の釣り合いで終端を決める）の 3 つ
+  - 閉じデリミタが無ければフロントマター無しとして扱う。BOM は不可視のまま全オフセットをずらすので先に長さを測る
+  - **パース失敗は握り潰さず生テキストを `<pre>` で出す**（黙って消すと本文が消えたようにしか見えない）。この場合だけ `<details>` を開いた状態で出す
+  - 開閉状態は `frontmatterOpen`（**ref ではなく素の変数**）に持ち、`trackFrontmatterToggle` が描画のたびに DOM へ復元する。`previewHtml` は編集のたびに HTML を作り直すので DOM 側だけに置くと打鍵で閉じるが、reactive にすると開閉のクリックごとに `previewHtml` が無効化され、mermaid の再描画とローカル画像 1 枚につき 1 回の IPC 読みが走る
 - 画像: `PreviewTab.vue`（base64 dataUrl を `<img>` 表示）。上部ツールバーで**表示専用**（ファイルは無変更）のビューワ操作を提供:
   - 拡大 / 縮小 / 100% / ウィンドウに合わせる（fit）、左右 90° 回転・左右反転
   - スクロールコンテナは flex 中央寄せを使わず**ステージ側 `margin: auto`** で中央寄せ（`align-items: center` だと画像がビューポートより大きいとき上端がスクロール領域外に押し出され到達不能になる不具合を回避）。スクロール領域は**回転後のバウンディングボックス**（`stageW`/`stageH` computed）が駆動

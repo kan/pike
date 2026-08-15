@@ -24,6 +24,8 @@ import { editorSearch, replaceKeymap, searchKeymap } from '../../lib/editorSearc
 import { getEditorTheme } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { formatLineRange } from '../../lib/format'
+import { detectFrontmatter } from '../../lib/frontmatter'
+import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { basename, extension, isImageFile, mimeType, toRelativePath } from '../../lib/paths'
 import { createHeadingSlugger } from '../../lib/slug'
@@ -337,6 +339,45 @@ function buildJsonlPreview(text: string): string {
   return html
 }
 
+/**
+ * Whether the front matter block is expanded; null until the user decides. A plain
+ * variable, not a ref: the preview HTML is rebuilt from scratch on every edit, so the
+ * state has to survive outside the DOM, but making it reactive would rebuild the whole
+ * preview (mermaid re-render and one IPC read per local image) on every disclosure click.
+ */
+let frontmatterOpen: boolean | null = null
+
+/**
+ * Front matter fools CommonMark: the opening `---` is a thematic break and the closing
+ * one underlines it into a setext heading, so the whole block lands in the body as an
+ * `<h2>`. Slice it off and render it as metadata instead.
+ */
+function buildMarkdownPreview(text: string): string {
+  const block = detectFrontmatter(text)
+  if (!block) return marked.parse(text) as string
+
+  const parsed = parseFrontmatter(block)
+  let cls = ''
+  let body: string
+  if (!parsed.ok) {
+    const message = parsed.reason === 'not-mapping' ? t('frontmatter.notMapping') : parsed.message
+    cls = ' frontmatter-invalid'
+    body = `<div class="frontmatter-error">${escapeHtml(message)}</div><pre>${escapeHtml(block.raw.trim())}</pre>`
+  } else if (parsed.entries.length === 0) {
+    body = `<div class="frontmatter-empty">${escapeHtml(t('frontmatter.empty'))}</div>`
+  } else {
+    const rows = parsed.entries
+      .map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`)
+      .join('')
+    body = `<table><tbody>${rows}</tbody></table>`
+  }
+  // Collapsed by default, but a block we couldn't parse is worth showing unasked.
+  const open = parsed.ok ? '' : ' open'
+  const label = `<summary>${escapeHtml(t('frontmatter.title'))}<span class="frontmatter-kind">${block.kind.toUpperCase()}</span></summary>`
+  const meta = `<details class="frontmatter${cls}"${open}>${label}${body}</details>`
+  return meta + (marked.parse(text.slice(block.bodyFrom)) as string)
+}
+
 const previewHtml = computed(() => {
   void debouncedDocVersion.value
   if (!showPreview.value || !editorView) return ''
@@ -346,7 +387,7 @@ const previewHtml = computed(() => {
   if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS)
   if (isJson.value) return buildJsonPreview(text)
   if (isJsonl.value) return buildJsonlPreview(text)
-  return DOMPurify.sanitize(marked.parse(text) as string, SVG_PURIFY_OPTS)
+  return DOMPurify.sanitize(buildMarkdownPreview(text), SVG_PURIFY_OPTS)
 })
 
 const mermaidZoom = ref(1)
@@ -447,12 +488,27 @@ async function assignHeadingIds() {
   }
 }
 
+/**
+ * Restore the disclosure state and watch for changes. Re-run on every render: v-html
+ * throws the previous element (and its listener) away.
+ */
+async function trackFrontmatterToggle() {
+  await nextTick()
+  const details = previewRef.value?.querySelector<HTMLDetailsElement>('details.frontmatter')
+  if (!details) return
+  if (frontmatterOpen !== null) details.open = frontmatterOpen
+  details.addEventListener('toggle', () => {
+    frontmatterOpen = details.open
+  })
+}
+
 // Markdown mermaid / local images / heading ids: re-process after previewHtml is set
 watch(previewHtml, () => {
   if (isMarkdown.value) {
     renderMarkdownMermaid()
     resolveMarkdownImages()
     assignHeadingIds()
+    trackFrontmatterToggle()
   }
 })
 
@@ -1665,6 +1721,72 @@ onUnmounted(() => {
 .md-preview :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
 .md-preview :deep(ul),
 .md-preview :deep(ol) { padding-left: 1.5em; }
+
+.md-preview :deep(.frontmatter) {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  margin-bottom: 1.2em;
+  font-size: 0.9em;
+}
+
+.md-preview :deep(.frontmatter > summary) {
+  cursor: pointer;
+  padding: 6px 12px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.md-preview :deep(.frontmatter-kind) {
+  margin-left: 8px;
+  font-size: 0.85em;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.md-preview :deep(.frontmatter > table) {
+  border-top: 1px solid var(--border);
+}
+
+.md-preview :deep(.frontmatter th) {
+  width: 1%;
+  white-space: nowrap;
+  vertical-align: top;
+  font-weight: normal;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.md-preview :deep(.frontmatter th),
+.md-preview :deep(.frontmatter td) {
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 4px 12px;
+}
+
+.md-preview :deep(.frontmatter > table tr:first-child th),
+.md-preview :deep(.frontmatter > table tr:first-child td) {
+  border-top: none;
+}
+
+.md-preview :deep(.frontmatter-empty) {
+  padding: 4px 12px 8px;
+  color: var(--text-secondary);
+}
+
+.md-preview :deep(.frontmatter-invalid) {
+  border-color: var(--danger);
+}
+
+.md-preview :deep(.frontmatter-error) {
+  padding: 4px 12px;
+  color: var(--danger);
+}
+
+.md-preview :deep(.frontmatter > pre) {
+  margin: 0 12px 12px;
+}
 
 .csv-preview {
   flex: 1;

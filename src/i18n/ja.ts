@@ -594,6 +594,11 @@ export default {
   // CSV Preview
   'csv.truncated': '先頭 {max} 行のみ表示しています。',
 
+  // Markdown front matter
+  'frontmatter.title': 'フロントマター',
+  'frontmatter.empty': '(キーなし)',
+  'frontmatter.notMapping': 'フロントマターが key/value のマッピングになっていません',
+
   // JSON Preview
   'json.empty': '(空のファイル)',
   'json.parseError': 'JSON のパースに失敗しました',

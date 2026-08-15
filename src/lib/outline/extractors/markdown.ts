@@ -1,4 +1,5 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
+import { detectFrontmatter } from '../../frontmatter'
 import type { ExtractContext, Extractor, OutlineNode } from '../types'
 
 /** Lezer node names → heading level. */
@@ -69,12 +70,16 @@ function nestByLevel(items: RawHeading[]): OutlineNode[] {
 export const markdownExtractor: Extractor = (text: string, ctx: ExtractContext) => {
   const tree = ensureSyntaxTree(ctx.state, ctx.state.doc.length, 150) ?? syntaxTree(ctx.state)
   const headings: RawHeading[] = []
+  // Lezer has no notion of front matter, so a `---` fenced block parses as a setext
+  // heading whose text is the whole block. Drop anything inside it.
+  const bodyFrom = detectFrontmatter(text)?.bodyFrom ?? 0
 
   tree.iterate({
     enter: (node) => {
       const atx = ATX_LEVELS[node.name]
       const setext = SETEXT_LEVELS[node.name]
       if (!atx && !setext) return
+      if (node.from < bodyFrom) return false
       const level = atx ?? setext
       const name = readHeadingName(text, node.from, node.to, !atx)
       const line = ctx.state.doc.lineAt(node.from).number
