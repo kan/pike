@@ -895,7 +895,12 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 - `package.json` → `"version": "X.Y.Z"`
 - `src-tauri/Cargo.toml` → `version = "X.Y.Z"`
 
-その後 `cd src-tauri && cargo check` を実行して `Cargo.lock` の `pike` エントリを新バージョンに追従させる（実行しないと lockfile drift が発生して後続で別コミットでの同期が必要になる）。
+**lockfile も 2 つとも追従させる**（どちらも `pike` 自身のバージョンを持っているので、放っておくと drift が残り、後続で別コミットでの同期が要る）。
+
+- `Cargo.lock` … `cd src-tauri && cargo check`
+- `package-lock.json` … `npm install --package-lock-only`
+
+`package-lock.json` は v0.38.0 まで手順から抜けていて、`0.37.0` のまま取り残されていた（dependabot 対応で lockfile を触ったときに発覚）。
 
 ### 2. CHANGELOG.md の更新
 
@@ -904,12 +909,12 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 ### 3. コミット & プッシュ
 
 ```bash
-git add src-tauri/tauri.conf.json package.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+git add src-tauri/tauri.conf.json package.json src-tauri/Cargo.toml src-tauri/Cargo.lock package-lock.json CHANGELOG.md
 git commit -m "Bump version to vX.Y.Z"
 git push origin main
 ```
 
-**Cargo.lock を含めること**。忘れると作業ツリーに drift が残り、あとから `chore: Cargo.lock を vX.Y.Z に同期` という追加コミットが必要になる（過去に何度も発生）。
+**2 つの lockfile を含めること**。忘れると作業ツリーに drift が残り、あとから `chore: Cargo.lock を vX.Y.Z に同期` という追加コミットが必要になる（過去に何度も発生）。
 
 ### 4. Security Check の確認
 
