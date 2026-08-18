@@ -24,11 +24,11 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 - **マルチターミナル**：xterm.js + PTY（WSL / cmd / PowerShell / PowerShell 7 / Git Bash）
 - **AI エージェント**：Claude Code と Codex を統一チャットタブで。`@` メンションでのファイル参照、セッション復帰
 - **エージェント状態**：アカウント・利用率・トークン使用量とコストを Claude と Codex で並べて確認。複数アカウント（`CLAUDE_CONFIG_DIR`）にも追従
-- **ターミナルの AI 補助**：`claude` 等をターミナルで使うための、ワンクリック起動 / 過去セッションの再開 / 定型プロンプト挿入、出力中の `file:line` クリックでエディタを開く、エディタ選択範囲や診断をターミナルへ送る
+- **ターミナルの AI 補助**：`claude` 等をターミナルで使うための、ワンクリック起動 / 過去セッションの再開 / 定型プロンプト挿入、出力中のパスをクリックしてファイル・画像・ディレクトリを開く、エディタ選択範囲や診断をターミナルへ送る
 - **エディタ**：CodeMirror 6（30+ 言語）、ミニマップ、検索・置換、git diff ガター、コンフリクトの解消、定義ジャンプ、文字コード/改行コード対応
 - **プレビュー**：Markdown / Mermaid / CSV / JSON / SVG / PDF、表示専用の画像ビューア
 - **Git**：ステージング、コミット、push/pull、diff、コミットグラフ、コンフリクトの解消、止まった rebase / merge の再開、ブランチ切替、worktree 切替
-- **サイドバーパネル**：ファイルツリー、検索（ripgrep 同梱）、Docker（モノレポの compose も検出）、タスクランナー、TODO、アウトライン、Problems
+- **サイドバーパネル**：ファイルツリー、検索（ripgrep 同梱）、Docker（モノレポの compose も検出）、タスクランナー（npm / pnpm / just / cargo ほか）、TODO、アウトライン、Problems
 - **プロジェクト管理**：WSL / Windows プロジェクト、グループ整理（絞り込み・ドラッグでの並べ替え・絵文字アイコン）、マルチウィンドウ、セッション復元、プロジェクトごとのウィンドウ位置とサイズ、手元に無いプロジェクトの clone
 - **設定**：UI / ターミナル / エディタの個別フォント設定、ダーク/ライト、日英 i18n、設定同期、自動更新
 - **pike CLI**：`pike file.rs:42` でファイルを開く、`pike <dir>` でプロジェクト切替、`--wait` で `GIT_EDITOR` 連携、`pike todo` で TODO 操作
