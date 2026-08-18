@@ -33,10 +33,10 @@ WebdriverIO と Tauri 向け WebDriver 連携で、Pike の画面を自動操作
 
 ```bash
 # 1. 撮影用バイナリをビルド（e2e feature + PIKE_E2E=1 + com.pike.e2e identifier）
-npm run e2e:build
+just e2e-build
 
 # 2. 撮影シナリオを実行
-npm run e2e
+just e2e
 ```
 
 出力は `artifacts/screenshots/` に保存する（git 管理外）。
@@ -233,7 +233,7 @@ Windows 11 風の枠を合成する。
   `docs/manual/img/overview.png`）。
 
 配置は `scripts/sync-hero-images.sh` が行う（合成 → 配置）。通常は内枠とまとめた
-`npm run e2e:sync` から呼ばれる。
+`just e2e-sync` から呼ばれる。
 
 - `scripts/sync-hero-images.sh --check`：ドライラン（更新予定 / ソース欠落を表示）。
 - 引数なしで実行すると合成して `docs/` 配下へ配置。`LANG_=` で言語を変更可。
@@ -262,7 +262,7 @@ E2E は `{画面}-{lang}-{theme}.png` で撮る（`artifacts/` は gitignore）�
 - 引数なしで実行すると `docs/manual/img` へ実コピー。`LANG_=` / `OUTDIR=` で変更可。
 - 外枠付きヒーロー（`overview` / README の `screenshot-*`）は加工も出力先も違うため、この
   MAP ではなく `scripts/sync-hero-images.sh` が扱う。両方を続けて実行する
-  `npm run e2e:sync` を使えば取り残しは起きない。
+  `just e2e-sync` を使えば取り残しは起きない。
 
 ## light/dark 切替（`<picture>`）とテーマ
 
@@ -295,19 +295,19 @@ README とマニュアルは、閲覧テーマに追従して画像を切り替�
 
 ```bash
 # 1. 撮影バイナリをビルド（フロント変更時のみ必要。spec だけの変更なら不要）
-npm run e2e:build
+just e2e-build
 
 # 2. 全シナリオを撮影（ja/en × light/dark を artifacts/screenshots へ）
-npm run e2e
+just e2e
 #    セッション teardown が稀に ECONNREFUSED で落ちるが撮影は完了している。
 #    その spec だけ npx wdio run e2e/wdio.conf.ts --spec e2e/specs/<name>.ts で撮り直す。
 
 # 3. 撮影結果を docs へ同期（内枠 + 外枠ヒーロー、dark + light）
-npm run e2e:sync:check   # まず差分確認
-npm run e2e:sync         # docs/manual/img と docs/ へ反映
+just e2e-sync-check   # まず差分確認
+just e2e-sync         # docs/manual/img と docs/ へ反映
 ```
 
-`e2e:sync` は内枠の `sync-manual-images.sh` と外枠の `sync-hero-images.sh` を続けて実行する。
+`e2e-sync` は内枠の `sync-manual-images.sh` と外枠の `sync-hero-images.sh` を続けて実行する。
 個別に動かすこともできるが、通常はこのコマンドを使う（片方だけ実行して取り残す事故を防ぐ）。
 
 新しい画面をマニュアルに載せるときは、(a) E2E に撮影シナリオを追加、(b) `sync-manual-images.sh`

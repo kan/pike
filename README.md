@@ -66,22 +66,29 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 - **Node.js** >= 20
 - **Rust** >= 1.77
 - [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/)
+- **[just](https://just.systems/)**（タスクランナー。`winget install Casey.Just`）
 - **WSL2**（任意。WSL シェルや Docker 連携を使う場合に必要）
 
 ### ビルドと実行
+
+開発タスクは [`justfile`](justfile) にまとめてあります。`just` だけで一覧が出ます。
+レシピは Git Bash で走るため、Windows では Git for Windows が必要です。
 
 ```bash
 # 依存をインストール
 npm install
 
 # 同梱用の ripgrep バイナリをダウンロード
-bash scripts/download-rg.sh
+just fetch-rg
 
 # 開発版（インストール版と共存して起動できます）
-npm run tauri:dev
+just dev
 
 # 本番ビルド
-npm run tauri build
+just build
+
+# コミット前チェック一式（Biome / vue-tsc / ドキュメント整合 / clippy / cargo test）
+just check
 ```
 
 ## 開発・コントリビュート

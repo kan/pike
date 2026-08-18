@@ -31,29 +31,29 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
+      # 各ステップの中身は justfile を正本にする（ローカルと同じコマンドが走る）
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+
       - name: Download rg sidecar
-        shell: bash
-        run: bash scripts/download-rg.sh
+        run: just fetch-rg
 
       - name: Install frontend dependencies
         run: npm install
 
       - name: Biome lint & format check
-        run: npx biome check src/
+        run: just lint
 
       # Docs: CLAUDE.md のディレクトリ構成・参照パス、マニュアルの画像とリンク
       - name: Docs consistency check
-        run: npm run check:docs
+        run: just check-docs
 
       # Frontend: TypeScript type check + Vite build
       - name: Vue/TypeScript check & build
-        run: npm run build
+        run: just build-web
 
       - name: Cargo clippy
-        working-directory: src-tauri
-        run: cargo clippy -- -D warnings
+        run: just clippy
 
       # Rust: unit tests
       - name: Cargo test
-        working-directory: src-tauri
-        run: cargo test
+        run: just test

@@ -20,11 +20,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: Run cargo audit
-        working-directory: src-tauri
-        run: cargo audit
+        run: just audit-cargo
 
   npm-audit:
     name: npm Audit
@@ -35,5 +35,6 @@ jobs:
         with:
           node-version: lts/*
           cache: npm
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - run: npm install
-      - run: npm audit --omit=dev --audit-level=critical
+      - run: just audit-npm
