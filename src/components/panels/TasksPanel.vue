@@ -4,6 +4,7 @@ import { watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTaskStore } from '../../stores/tasks'
+import type { TaskDefinition } from '../../types/tasks'
 
 const { t } = useI18n()
 const sidebar = useSidebarStore()
@@ -21,6 +22,11 @@ watch(
 
 function refresh() {
   taskStore.refresh()
+}
+
+/** ツールチップ: 呼び出し行と、あれば説明（justfile の doc comment）。 */
+function taskTitle(task: TaskDefinition) {
+  return task.description ? `${task.command}\n${task.description}` : task.command
 }
 
 defineExpose({ refresh })
@@ -42,10 +48,12 @@ defineExpose({ refresh })
           v-for="task in group.tasks"
           :key="`${group.sourceFile}:${task.name}`"
           class="task-item"
-          :title="task.command"
+          :title="taskTitle(task)"
           @click="taskStore.runTask(task, group)"
         >
           <span class="task-name">{{ task.name }}</span>
+          <!-- justfile の doc comment。名前だけでは何をするか分からないので出す -->
+          <span v-if="task.description" class="task-desc">{{ task.description }}</span>
           <button class="task-run" @click.stop="taskStore.runTask(task, group)">
             <Play :size="12" :stroke-width="2" />
           </button>
@@ -116,7 +124,18 @@ defineExpose({ refresh })
 }
 
 .task-name {
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-desc {
   flex: 1;
+  min-width: 0;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -97,7 +97,7 @@ Git / Docker / ファイルツリー等は Rust への invoke でデータを得
   - `docker-panel`：`docker_ping` / `docker_compose_discover` / `docker_list_containers`
     （`composeProject` は root 名由来の `demoapp` に揃える）
   - `files-panel`：`fs_list_dir`（path 引数によらず同値を返すためルート直下のみ展開）
-  - `tasks-panel`：`task_discover`（npm / cargo グループ）
+  - `tasks-panel`：`task_discover`（npm / cargo / just グループ）
   - `search-panel`：`search_detect_backend` / `search_execute`。検索はユーザー入力駆動
     なので `data-testid="search-input"` に打鍵し Enter で実行する
   - `project-panel`：`project_list` / `project_groups_list` / `fs_dirs_exist` /

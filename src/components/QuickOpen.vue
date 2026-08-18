@@ -125,6 +125,8 @@ interface TaskItem {
   kind: 'task'
   name: string
   command: string
+  /** justfile の doc comment。あれば command の代わりに出し、絞り込みにも使う */
+  description?: string
   runner: TaskRunner
   cwd?: string
   groupLabel: string
@@ -162,11 +164,18 @@ const filteredPalette = computed<PaletteItem[]>(() => {
     .map((c) => ({ ...c }))
 
   const tasks: PaletteItem[] = taskStore.allTasks
-    .filter((t) => !q || t.name.toLowerCase().includes(q) || t.command.toLowerCase().includes(q))
+    .filter(
+      (t) =>
+        !q ||
+        t.name.toLowerCase().includes(q) ||
+        t.command.toLowerCase().includes(q) ||
+        (t.description?.toLowerCase().includes(q) ?? false),
+    )
     .map((t) => ({
       kind: 'task' as const,
       name: t.name,
       command: t.command,
+      description: t.description,
       runner: t.runner,
       cwd: t.cwd,
       groupLabel: t.groupLabel,
@@ -457,7 +466,7 @@ const footerHints = computed(() => {
                 <template v-else>
                   <span class="item-runner">{{ item.runner }}</span>
                   <span class="item-name">{{ item.name }}</span>
-                  <span class="item-path">{{ item.groupLabel }} · {{ item.command }}</span>
+                  <span class="item-path">{{ item.groupLabel }} · {{ item.description ?? item.command }}</span>
                 </template>
               </div>
             </template>

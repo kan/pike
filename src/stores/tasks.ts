@@ -31,6 +31,7 @@ export const useTaskStore = defineStore('tasks', () => {
         tasks: g.tasks.map((t) => ({
           name: t.name,
           command: t.command,
+          description: t.description ?? undefined,
           runner: t.runner as TaskRunner,
         })),
       }))

@@ -9,6 +9,14 @@ const TASK_FILE_GLOBS: &[&str] = &[
     "Makefile",
     "makefile",
     "GNUmakefile",
+    // just searches for these names case-insensitively; rg globs and the WSL
+    // find fallback are case-sensitive, so spell the variants out (as Makefile
+    // above already does). `.justfile` is hidden, which the existing
+    // `--hidden` flag (added for .cargo/) already covers.
+    "justfile",
+    "Justfile",
+    "JUSTFILE",
+    ".justfile",
     "deno.json",
     "deno.jsonc",
     "Cargo.toml",
@@ -36,7 +44,12 @@ const MAX_TASK_FILES: usize = 300;
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveredTask {
     pub name: String,
+    /// 表示用。npm / deno はスクリプト本体、cargo は展開後のコマンド、just は
+    /// 引数を含む呼び出し行。実行するシェル行はフロントの `RUNNER_COMMANDS` が
+    /// 名前から組み立てるので、ここはツールチップにしか出ない
     pub command: String,
+    /// 人が書いた説明（今のところ justfile の doc comment だけが持つ）
+    pub description: Option<String>,
     pub runner: String,
 }
 
@@ -176,6 +189,18 @@ pub async fn task_discover(
                         groups.push(DiscoveredTaskGroup {
                             runner: "make".into(),
                             label: format!("{label_prefix}make targets"),
+                            source_file: rel,
+                            cwd,
+                            tasks,
+                        });
+                    }
+                }
+                "justfile" | ".justfile" => {
+                    let tasks = parse_justfile(content);
+                    if !tasks.is_empty() {
+                        groups.push(DiscoveredTaskGroup {
+                            runner: "just".into(),
+                            label: format!("{label_prefix}just recipes"),
                             source_file: rel,
                             cwd,
                             tasks,
@@ -340,6 +365,7 @@ fn parse_package_json(content: &str) -> Vec<DiscoveredTask> {
             cmd.as_str().map(|c| DiscoveredTask {
                 name: name.clone(),
                 command: c.to_string(),
+                description: None,
                 runner: "npm".into(),
             })
         })
@@ -361,6 +387,7 @@ fn parse_deno_json(content: &str) -> Vec<DiscoveredTask> {
             cmd.as_str().map(|c| DiscoveredTask {
                 name: name.clone(),
                 command: c.to_string(),
+                description: None,
                 runner: "deno".into(),
             })
         })
@@ -484,6 +511,7 @@ fn cargo_tasks(doc: &toml::Table, ctx: &CargoContext) -> Vec<DiscoveredTask> {
         .map(|sub| DiscoveredTask {
             command: format!("cargo {sub}"),
             name: sub,
+            description: None,
             runner: "cargo".into(),
         })
         .collect()
@@ -519,10 +547,101 @@ fn parse_cargo_aliases(content: &str) -> Vec<DiscoveredTask> {
             Some(DiscoveredTask {
                 name: name.clone(),
                 command: format!("cargo {expansion}"),
+                description: None,
                 runner: "cargo".into(),
             })
         })
         .collect()
+}
+
+/// justfile のレシピ一覧。just を起動せず読むのは他の runner と同じ方針で、
+/// just 未インストールでも一覧が出るし、WSL への往復も増えない（検出済みの
+/// ファイルは `batch_read_files` が 1 回でまとめて読んでいる）。
+///
+/// レシピ行は「インデントされていない行のうち、クォートの外に `:` を持つもの」。
+/// `x := "y"` の代入・`alias b := build`・`set shell := [...]` は `:` の直後が `=`
+/// で、`import 'x'` / `mod sub` はそもそも `:` を持たないので落ちる。just 本体と
+/// 同じく、直前の行の `#` コメントを説明として拾い（`just --list` の右側に出る
+/// もの）、`_` 始まりと `[private]` は出さない。
+fn parse_justfile(content: &str) -> Vec<DiscoveredTask> {
+    let mut tasks = Vec::new();
+    let mut doc: Option<String> = None;
+    let mut private = false;
+
+    for line in content.lines() {
+        // レシピ本体（シェバング行の `#!` を含む）はインデントされている
+        if line.starts_with([' ', '\t']) {
+            continue;
+        }
+        let line = line.trim_end();
+        if line.is_empty() {
+            doc = None;
+            private = false;
+            continue;
+        }
+        if let Some(comment) = line.strip_prefix('#') {
+            doc = Some(comment.trim().to_string());
+            continue;
+        }
+        // 属性行（`[private]` / `[group('build')]` / `[working-directory('x')]`）
+        if line.starts_with('[') {
+            private |= line.contains("private");
+            continue;
+        }
+
+        let Some(head) = split_recipe_head(line).filter(|head| !head.is_empty()) else {
+            // 代入・import・mod など。説明はレシピに隣接する行だけが持てる
+            doc = None;
+            private = false;
+            continue;
+        };
+
+        let description = doc.take();
+        let was_private = std::mem::take(&mut private);
+        // `@recipe` は quiet recipe（実行時にコマンドを echo しない）の印で名前ではない
+        let head = head.trim_start_matches('@');
+        let (name, params) = head.split_once(char::is_whitespace).unwrap_or((head, ""));
+        let params = params.trim();
+
+        if was_private || name.starts_with('_') || !is_safe_task_name(name) {
+            continue;
+        }
+        let command = if params.is_empty() {
+            format!("just {name}")
+        } else {
+            format!("just {name} {params}")
+        };
+        tasks.push(DiscoveredTask {
+            name: name.to_string(),
+            command,
+            description,
+            runner: "just".into(),
+        });
+    }
+    tasks
+}
+
+/// レシピ行の `:` より前（名前と引数）を返す。`:` がクォートの中にある場合
+/// （`run port="a:b":`）と `:=` の代入は recipe ではないので None を返す。
+fn split_recipe_head(line: &str) -> Option<&str> {
+    let bytes = line.as_bytes();
+    let mut quote: Option<u8> = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        match quote {
+            Some(q) if b == q => quote = None,
+            Some(_) => {}
+            None if b == b'\'' || b == b'"' => quote = Some(b),
+            None if b == b':' => {
+                return if bytes.get(i + 1) == Some(&b'=') {
+                    None
+                } else {
+                    Some(line[..i].trim())
+                };
+            }
+            None => {}
+        }
+    }
+    None
 }
 
 fn parent_dir(path: &str) -> String {
@@ -555,6 +674,7 @@ fn parse_makefile_targets(content: &str) -> Vec<DiscoveredTask> {
                 targets.push(DiscoveredTask {
                     name: name.to_string(),
                     command: name.to_string(),
+                    description: None,
                     runner: "make".into(),
                 });
             }
@@ -722,6 +842,76 @@ lint = ["clippy", "--", "-D", "warnings"]
         let json = r#"{"tasks":{"ok":"echo hi","bad$(id)":"echo pwn"}}"#;
         let names: Vec<String> = parse_deno_json(json).into_iter().map(|t| t.name).collect();
         assert_eq!(names, vec!["ok"]);
+    }
+
+    #[test]
+    fn justfile_recipes_with_doc_comments() {
+        let tasks = parse_justfile(
+            r#"
+# レシピ一覧を出す
+default:
+    @just --list
+
+set windows-shell := ["bash", "-cu"]
+alias c := check
+export FOO := "bar"
+import 'other.just'
+mod sub
+
+# コミット前チェック一式
+check: lint typecheck
+    echo done
+
+@quiet:
+    echo hi
+
+# バージョンを上げる
+bump VERSION:
+    node scripts/bump-version.mjs {{VERSION}}
+"#,
+        );
+        let names: Vec<&str> = tasks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["default", "check", "quiet", "bump"]);
+        assert_eq!(tasks[0].description.as_deref(), Some("レシピ一覧を出す"));
+        assert_eq!(tasks[0].command, "just default");
+        // 依存（`check: lint typecheck`）は名前にも引数にも混ぜない
+        assert_eq!(tasks[1].command, "just check");
+        // 直前が空行でも属性でもないレシピは説明を引き継がない
+        assert_eq!(tasks[2].description, None);
+        assert_eq!(tasks[3].command, "just bump VERSION");
+        assert_eq!(tasks[3].description.as_deref(), Some("バージョンを上げる"));
+    }
+
+    #[test]
+    fn justfile_private_recipes_are_hidden() {
+        let tasks = parse_justfile(
+            "[private]
+hidden:
+    echo x
+
+_also-hidden:
+    echo y
+
+shown:
+    echo z
+",
+        );
+        let names: Vec<&str> = tasks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["shown"]);
+    }
+
+    #[test]
+    fn justfile_quoted_colon_and_unsafe_name() {
+        // 引数の既定値に含まれる `:` はレシピの区切りではない
+        let tasks = parse_justfile("serve port=\"127.0.0.1:8080\":
+    echo {{port}}
+");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].command, "just serve port=\"127.0.0.1:8080\"");
+        // シェルに渡るのは名前なので、メタ文字を含むものは出さない
+        assert!(parse_justfile("a;rm -rf /:
+    echo x
+").is_empty());
     }
 
     #[test]

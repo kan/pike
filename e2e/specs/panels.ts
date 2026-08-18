@@ -368,6 +368,18 @@ const TASK_GROUPS = [
       { name: 'clippy', command: 'cargo clippy', runner: 'cargo' },
     ],
   },
+  {
+    runner: 'just',
+    label: 'just recipes',
+    sourceFile: 'justfile',
+    cwd: 'C:/Users/dev/demo-app',
+    tasks: [
+      // just だけが description（doc comment）を持つ。行内の薄い文字で出る
+      { name: 'check', command: 'just check', description: 'コミット前チェック一式', runner: 'just' },
+      { name: 'e2e', command: 'just e2e', description: 'スクリーンショットを撮り直す', runner: 'just' },
+      { name: 'bump', command: 'just bump VERSION', description: 'バージョンを上げる', runner: 'just' },
+    ],
+  },
 ]
 
 describe('screenshots: tasks panel', () => {

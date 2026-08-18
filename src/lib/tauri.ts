@@ -623,7 +623,7 @@ interface TaskDiscoverResult {
   label: string
   sourceFile: string
   cwd: string
-  tasks: { name: string; command: string; runner: string }[]
+  tasks: { name: string; command: string; description: string | null; runner: string }[]
 }
 
 export async function taskDiscover(shell: ShellType, root: string): Promise<TaskDiscoverResult[]> {
