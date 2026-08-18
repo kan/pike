@@ -19,6 +19,7 @@ import { hexToRgba } from '../../lib/format'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
+import { openPathInTab } from '../../lib/openFile'
 import { isAbsolutePath, joinPath, pathSep, relativeTime } from '../../lib/paths'
 import {
   claudeSessionsList,
@@ -164,14 +165,19 @@ async function loadClaudeSessions() {
   sessionsLoading.value = false
 }
 
-// Resolve a `path:line` link from terminal output to an editor tab. Relative
-// paths resolve against `activeRoot` (same base as search / diagnostics).
+// Resolve a `path:line` link from terminal output to a tab. Relative paths
+// resolve against `activeRoot` (same base as search / diagnostics).
+//
+// Goes through `openPathInTab` rather than `addEditorTab` so the extension
+// routing applies: a terminal link to a PNG or a PDF used to land in CodeMirror
+// and trip its binary guard. A path that is a directory reaches the editor tab
+// too, which offers to open it as a project instead of reporting a read error.
 function openPathLink(target: PathLinkTarget) {
   const project = projectStore.currentProject
   if (!project) return
   const sep = pathSep(project.shell)
   const full = isAbsolutePath(target.path) ? target.path : joinPath(projectStore.activeRoot, target.path, sep)
-  tabStore.addEditorTab({ path: full, initialLine: target.line })
+  openPathInTab({ path: full, line: target.line, shell: project.shell }).catch(() => {})
 }
 
 // Walk up from a rg/grep match line to its filename header (matches are grouped

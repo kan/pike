@@ -301,7 +301,7 @@ export const useProjectStore = defineStore('project', () => {
    * root is remembered as one not to ask about again.
    */
   async function openDirectory(path: string, mode: 'switch' | 'window' = 'switch'): Promise<void> {
-    const config = await projectTransientCreate(path)
+    const config = await projectTransientCreate(path, distroHintFor(path))
     useSettingsStore().rememberTransientRoot(config.root)
     if (mode === 'window') {
       await openProjectWindow(config.id)
@@ -310,6 +310,53 @@ export const useProjectStore = defineStore('project', () => {
     transientProject.value = config
     await projectTransientBind(config.id)
     await switchProject(config.id)
+  }
+
+  /**
+   * The distro to build a config for `path` under, or null for none.
+   *
+   * A native WSL path (`/home/...`) carries no distro of its own — the backend
+   * can only read one out of a `\\wsl.localhost\<distro>\...` UNC path — so a
+   * path that came from inside a WSL project (terminal output, a link) needs the
+   * window's own distro passed alongside it. Without this the directory is built
+   * as a Windows project and the new window looks for `/home/...` on the C:
+   * drive. Windows and UNC paths must not get a hint: it would win over the path.
+   */
+  function distroHintFor(path: string): string | null {
+    if (!path.startsWith('/')) return null
+    const shell = currentProject.value?.shell
+    return shell?.kind === 'wsl' ? shell.distro : null
+  }
+
+  /** The registered project whose root is this path, if there is one. */
+  function projectForRoot(root: string): ProjectConfig | null {
+    const key = rootKey(root)
+    return projects.value.find((p) => rootKey(p.root) === key) ?? null
+  }
+
+  /**
+   * Register a directory as a project and open it. The counterpart to
+   * `openDirectory` for someone who already knows they want to keep it — the
+   * directory actions an editor tab offers when a path turns out to be one.
+   *
+   * The config comes from the same backend inference the transient path uses
+   * (platform / shell / WSL distro), so a path clicked in terminal output gets
+   * the defaults a directory picked in the switcher would get. `placeProject`
+   * is the creation entry point: the root was just probed, so there is nothing
+   * for `openProject`'s clone check to do.
+   */
+  async function openDirectoryAsProject(path: string, mode: 'switch' | 'window'): Promise<void> {
+    const existing = projectForRoot(path)
+    if (existing) {
+      await openProject(existing.id, mode)
+      return
+    }
+    const config = await projectTransientCreate(path, distroHintFor(path))
+    const stored = { ...config, id: uniqueProjectId(config.id), lastOpened: new Date().toISOString() }
+    await projectTransientDrop(config.id).catch(() => {})
+    await addProject(stored)
+    useSettingsStore().forgetTransientRoot(stored.root)
+    await placeProject(stored.id, mode)
   }
 
   /**
@@ -974,6 +1021,8 @@ export const useProjectStore = defineStore('project', () => {
     currentProject,
     isTransient,
     openDirectory,
+    openDirectoryAsProject,
+    projectForRoot,
     registerTransientProject,
     showSwitcher,
     showQuickOpen,

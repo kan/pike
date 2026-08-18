@@ -30,6 +30,7 @@ import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { basename, extension, isImageFile, mimeType, toRelativePath } from '../../lib/paths'
 import { createHeadingSlugger } from '../../lib/slug'
 import {
+  fsDirsExist,
   fsReadFile,
   fsReadFileBase64,
   fsWriteFile,
@@ -98,6 +99,15 @@ let editorView: EditorView | null = null
 const loading = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
+/** The path turned out to be a directory: offer ways to open it, not an error. */
+const isDirectory = ref(false)
+/** Directory actions target a new window by default — opening one in this
+ *  window is a project switch, which kills every tab including the terminal the
+ *  path was clicked in. */
+const openInNewWindow = ref(true)
+const directoryProject = computed(() =>
+  isDirectory.value && tab.value?.path ? projectStore.projectForRoot(tab.value.path) : null,
+)
 let savedContent = ''
 const isDirty = ref(false)
 const currentEncoding = ref('UTF-8')
@@ -602,6 +612,37 @@ async function save(overrideEncoding?: string) {
   }
 }
 
+/**
+ * Report why the file could not be loaded. A directory fails the same read as an
+ * unreadable file, so the reason is checked here and turned into the "open this
+ * directory" actions instead of a raw error string — clicking a path in terminal
+ * output lands here whenever that path is a directory.
+ */
+async function reportLoadError(e: unknown, seq: number) {
+  error.value = String(e)
+  isDirectory.value = false
+  const path = tab.value?.path
+  if (!path) return
+  const dirs = await fsDirsExist(shellForIO.value, [path]).catch(() => [false])
+  // A reload started while the probe was in flight owns the state now
+  if (seq !== loadSeq) return
+  isDirectory.value = dirs[0] === true
+}
+
+/** Open the directory this tab points at, then drop the tab: it only ever
+ *  existed to report that the path is not a file. A switch kills it anyway. */
+async function openDirectoryTab(as: 'directory' | 'project') {
+  const path = tab.value?.path
+  if (!path) return
+  const mode = openInNewWindow.value ? 'window' : 'switch'
+  if (as === 'project') {
+    await projectStore.openDirectoryAsProject(path, mode)
+  } else {
+    await projectStore.openDirectory(path, mode)
+  }
+  if (mode === 'window') await tabStore.closeTab(props.tabId)
+}
+
 async function loadContent(encoding?: string): Promise<string> {
   if (!tab.value) throw new Error('No tab')
 
@@ -904,6 +945,7 @@ async function reopenWithEncoding(encoding: string) {
     if (seq !== loadSeq || !editorRef.value) return
     loading.value = false
     error.value = null
+    isDirectory.value = false
     editorView = createEditorView(editorRef.value, content)
     if (viewMode.value === 'split') {
       editorView.scrollDOM.addEventListener('scroll', onEditorScroll)
@@ -922,7 +964,7 @@ async function reopenWithEncoding(encoding: string) {
   } catch (e) {
     if (seq !== loadSeq) return
     loading.value = false
-    error.value = String(e)
+    await reportLoadError(e, seq)
   }
 }
 
@@ -989,7 +1031,7 @@ onMounted(async () => {
     }
   } catch (e) {
     loading.value = false
-    error.value = String(e)
+    await reportLoadError(e, seq)
   }
 })
 
@@ -1397,13 +1439,36 @@ onUnmounted(() => {
       </div>
     </div>
     <div v-if="loading" class="editor-status">{{ t('common.loading') }}</div>
+    <!-- ディレクトリはエディタでは開けないので、開き方を選ばせる -->
+    <div v-else-if="isDirectory" class="editor-status directory">
+      <div class="dir-path">{{ tab?.path }}</div>
+      <div class="dir-note">
+        {{
+          directoryProject
+            ? t('editor.dirRegistered', { name: directoryProject.name })
+            : t('editor.dirUnregistered')
+        }}
+      </div>
+      <div class="dir-actions">
+        <button v-if="!directoryProject" @click="openDirectoryTab('directory')">
+          {{ t('editor.dirOpenDirectory') }}
+        </button>
+        <button class="dir-primary" @click="openDirectoryTab('project')">
+          {{ directoryProject ? t('editor.dirOpenProject') : t('editor.dirOpenAsProject') }}
+        </button>
+      </div>
+      <label class="dir-window">
+        <input v-model="openInNewWindow" type="checkbox" />
+        {{ t('editor.dirNewWindow') }}
+      </label>
+    </div>
     <div v-else-if="error" class="editor-status error">
       <span>{{ error }}</span>
       <button v-if="tab?.path && tab?.initialContent === undefined" class="error-retry" @click="reloadFromDisk">
         {{ t('editor.reload') }}
       </button>
     </div>
-    <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error">
+    <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error && !isDirectory">
       <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
       <div
         v-if="showPreview && !isMermaid"
@@ -2000,7 +2065,47 @@ onUnmounted(() => {
   gap: 12px;
 }
 
-.error-retry {
+.editor-status.directory {
+  flex-direction: column;
+  /* .editor-status は中央寄せなので、縦並びにしたときも軸を揃える */
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 20px;
+  color: var(--text-primary);
+}
+
+.dir-path {
+  max-width: 100%;
+  font-family: var(--font-mono, monospace);
+  word-break: break-all;
+}
+
+.dir-note {
+  color: var(--text-secondary);
+}
+
+.dir-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dir-actions .dir-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.dir-window {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.error-retry,
+.dir-actions button {
   padding: 3px 12px;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -2011,7 +2116,8 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.error-retry:hover {
+.error-retry:hover,
+.dir-actions button:hover {
   background: var(--tab-hover-bg);
 }
 
