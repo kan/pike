@@ -1,4 +1,4 @@
-export type TaskRunner = 'npm' | 'make' | 'deno' | 'cargo' | 'just'
+export type TaskRunner = 'npm' | 'pnpm' | 'yarn' | 'bun' | 'make' | 'deno' | 'cargo' | 'just'
 
 export interface TaskDefinition {
   name: string
@@ -19,7 +19,12 @@ export interface TaskGroup {
 }
 
 export const RUNNER_COMMANDS: Record<TaskRunner, (name: string) => string> = {
+  // package.json の scripts はどのマネージャでも `run` で走る（yarn は省略も
+  // できるが、揃えたほうがタスク名がサブコマンドとぶつかる事故が無い）
   npm: (name) => `npm run ${name}`,
+  pnpm: (name) => `pnpm run ${name}`,
+  yarn: (name) => `yarn run ${name}`,
+  bun: (name) => `bun run ${name}`,
   make: (name) => `make ${name}`,
   deno: (name) => `deno task ${name}`,
   cargo: (name) => `cargo ${name}`,

@@ -21,9 +21,16 @@ const TASK_FILE_GLOBS: &[&str] = &[
     "deno.jsonc",
     "Cargo.toml",
     "cargo.toml",
-    // Existence-only markers for cargo context (never content-read)
+    // Existence-only markers (never content-read): cargo context, then the
+    // lock files that say which package manager owns a package.json
     "tauri.conf.json",
     "main.rs",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "yarn.lock",
+    "bun.lockb",
+    "bun.lock",
 ];
 
 /// `.cargo/config.toml` ([alias] section) lives in a hidden directory, so rg
@@ -84,8 +91,22 @@ pub async fn task_discover(
             std::collections::HashSet::new();
         let mut main_rs_paths: std::collections::HashSet<String> =
             std::collections::HashSet::new();
+        // ディレクトリ → そこにある lock ファイルが示すパッケージマネージャ
+        let mut pm_marks: std::collections::HashMap<String, NodeRunner> =
+            std::collections::HashMap::new();
         for p in all_paths {
-            match file_name_of(&p).to_lowercase().as_str() {
+            let name = file_name_of(&p).to_lowercase();
+            if let Some(pm) = NodeRunner::from_marker(&name) {
+                let dir = parent_dir(&p);
+                // 1 ディレクトリに複数あるとき（pnpm へ移行した直後の残骸など）は
+                // 優先度の高いほうを採る。npm は既定なので最も弱い
+                let slot = pm_marks.entry(dir).or_insert(pm);
+                if pm.rank() > slot.rank() {
+                    *slot = pm;
+                }
+                continue;
+            }
+            match name.as_str() {
                 "tauri.conf.json" => {
                     tauri_conf_dirs.insert(parent_dir(&p));
                 }
@@ -172,11 +193,12 @@ pub async fn task_discover(
 
             match filename.to_lowercase().as_str() {
                 "package.json" => {
-                    let tasks = parse_package_json(content);
+                    let pm = node_runner_for(content, &parent_dir(path), &pm_marks);
+                    let tasks = parse_package_json(content, pm);
                     if !tasks.is_empty() {
                         groups.push(DiscoveredTaskGroup {
-                            runner: "npm".into(),
-                            label: format!("{label_prefix}npm scripts"),
+                            runner: pm.as_str().into(),
+                            label: format!("{label_prefix}{} scripts", pm.as_str()),
                             source_file: rel,
                             cwd,
                             tasks,
@@ -227,7 +249,7 @@ pub async fn task_discover(
                         is_tauri_app: tauri_conf_dirs.contains(&dir),
                         is_workspace_member: workspace_dirs
                             .iter()
-                            .any(|w| w != &dir && dir.starts_with(&format!("{w}{sep}"))),
+                            .any(|w| w != &dir && is_self_or_ancestor(w, &dir)),
                         has_default_bin: main_rs_paths
                             .contains(&format!("{dir}{sep}src{sep}main.rs")),
                     };
@@ -351,7 +373,97 @@ fn is_safe_task_name(name: &str) -> bool {
         })
 }
 
-fn parse_package_json(content: &str) -> Vec<DiscoveredTask> {
+/// package.json の scripts を走らせるパッケージマネージャ。実行行はフロントの
+/// `RUNNER_COMMANDS` が組むので、ここで決めるのは runner 名だけ。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeRunner {
+    Npm,
+    Pnpm,
+    Yarn,
+    Bun,
+}
+
+impl NodeRunner {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Npm => "npm",
+            Self::Pnpm => "pnpm",
+            Self::Yarn => "yarn",
+            Self::Bun => "bun",
+        }
+    }
+
+    /// corepack の `packageManager` フィールド（`"pnpm@9.1.0"`）の名前部分
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "npm" => Some(Self::Npm),
+            "pnpm" => Some(Self::Pnpm),
+            "yarn" => Some(Self::Yarn),
+            "bun" => Some(Self::Bun),
+            _ => None,
+        }
+    }
+
+    /// 存在するだけで判別に使うファイル（中身は読まない）
+    fn from_marker(file_name: &str) -> Option<Self> {
+        match file_name {
+            "package-lock.json" => Some(Self::Npm),
+            "pnpm-lock.yaml" | "pnpm-workspace.yaml" => Some(Self::Pnpm),
+            "yarn.lock" => Some(Self::Yarn),
+            "bun.lockb" | "bun.lock" => Some(Self::Bun),
+            _ => None,
+        }
+    }
+
+    /// 同じディレクトリに複数の lock がある場合の優先度。npm の lock は他の
+    /// マネージャへ移行しても残りがちなので最も弱くする
+    fn rank(self) -> u8 {
+        match self {
+            Self::Npm => 0,
+            Self::Yarn => 1,
+            Self::Bun => 2,
+            Self::Pnpm => 3,
+        }
+    }
+}
+
+/// この package.json をどのマネージャで走らせるか。`packageManager` フィールド
+/// （corepack。そのパッケージ自身の宣言なので最優先）→ 直近の祖先にある lock
+/// ファイル（モノレポではリポジトリ root にしか無い）→ npm の順。
+fn node_runner_for(
+    content: &str,
+    dir: &str,
+    marks: &std::collections::HashMap<String, NodeRunner>,
+) -> NodeRunner {
+    // ほとんどの package.json はこのフィールドを持たない。持たないものを
+    // parse_package_json とは別にもう一度パースしないための足切り
+    let declared = content
+        .contains("\"packageManager\"")
+        .then(|| serde_json::from_str::<serde_json::Value>(content).ok())
+        .flatten()
+        .and_then(|v| v.get("packageManager")?.as_str().map(str::to_string))
+        .and_then(|spec| {
+            NodeRunner::from_name(spec.split('@').next().unwrap_or_default().trim())
+        });
+    declared
+        .or_else(|| {
+            marks
+                .iter()
+                .filter(|(d, _)| is_self_or_ancestor(d, dir))
+                .max_by_key(|(d, _)| d.len())
+                .map(|(_, pm)| *pm)
+        })
+        .unwrap_or(NodeRunner::Npm)
+}
+
+fn is_self_or_ancestor(ancestor: &str, dir: &str) -> bool {
+    dir == ancestor
+        || (dir.len() > ancestor.len()
+            && dir.starts_with(ancestor)
+            && matches!(dir.as_bytes()[ancestor.len()], b'/' | b'\\'))
+}
+
+fn parse_package_json(content: &str, pm: NodeRunner) -> Vec<DiscoveredTask> {
     let Ok(val) = serde_json::from_str::<serde_json::Value>(content) else {
         return vec![];
     };
@@ -366,7 +478,7 @@ fn parse_package_json(content: &str) -> Vec<DiscoveredTask> {
                 name: name.clone(),
                 command: c.to_string(),
                 description: None,
-                runner: "npm".into(),
+                runner: pm.as_str().into(),
             })
         })
         .collect()
@@ -831,10 +943,63 @@ lint = ["clippy", "--", "-D", "warnings"]
     #[test]
     fn npm_script_shell_metachar_name_is_excluded() {
         let json = r#"{"scripts":{"build":"vite","evil; rm -rf ~":"x","build:prod":"vite build"}}"#;
-        let names: Vec<String> = parse_package_json(json).into_iter().map(|t| t.name).collect();
+        let names: Vec<String> = parse_package_json(json, NodeRunner::Npm)
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
         assert!(names.contains(&"build".to_string()));
         assert!(names.contains(&"build:prod".to_string()));
         assert!(names.iter().all(|n| !n.contains(';') && !n.contains(' ')));
+    }
+
+    fn marks(pairs: &[(&str, NodeRunner)]) -> std::collections::HashMap<String, NodeRunner> {
+        pairs.iter().map(|(d, pm)| ((*d).to_string(), *pm)).collect()
+    }
+
+    #[test]
+    fn package_manager_from_ancestor_lock_file() {
+        // pnpm モノレポ: lock は root にしかないので、配下のパッケージも pnpm
+        let m = marks(&[("/home/kan/app", NodeRunner::Pnpm)]);
+        assert_eq!(node_runner_for("{}", "/home/kan/app", &m), NodeRunner::Pnpm);
+        assert_eq!(
+            node_runner_for("{}", "/home/kan/app/packages/web", &m),
+            NodeRunner::Pnpm
+        );
+        // 名前が前方一致するだけの別ディレクトリは祖先ではない
+        assert_eq!(node_runner_for("{}", "/home/kan/app2", &m), NodeRunner::Npm);
+        // lock が 1 つも無ければ npm
+        assert_eq!(
+            node_runner_for("{}", "/home/kan/other", &Default::default()),
+            NodeRunner::Npm
+        );
+    }
+
+    #[test]
+    fn package_manager_field_beats_lock_file() {
+        let m = marks(&[("/repo", NodeRunner::Pnpm)]);
+        let json = r#"{"packageManager":"yarn@4.1.0","scripts":{"dev":"vite"}}"#;
+        assert_eq!(node_runner_for(json, "/repo/pkg", &m), NodeRunner::Yarn);
+        // 知らない名前は無視して lock の判定に戻す
+        let json = r#"{"packageManager":"corepack@1"}"#;
+        assert_eq!(node_runner_for(json, "/repo/pkg", &m), NodeRunner::Pnpm);
+    }
+
+    #[test]
+    fn nearest_lock_file_wins() {
+        // root は pnpm だが、そのサブツリーだけ npm で管理している場合
+        let m = marks(&[
+            ("/repo", NodeRunner::Pnpm),
+            ("/repo/legacy", NodeRunner::Npm),
+        ]);
+        assert_eq!(node_runner_for("{}", "/repo/legacy", &m), NodeRunner::Npm);
+        assert_eq!(node_runner_for("{}", "/repo/app", &m), NodeRunner::Pnpm);
+    }
+
+    #[test]
+    fn package_json_tasks_carry_the_manager() {
+        let json = r#"{"scripts":{"dev":"vite"}}"#;
+        let tasks = parse_package_json(json, NodeRunner::Pnpm);
+        assert_eq!(tasks[0].runner, "pnpm");
     }
 
     #[test]

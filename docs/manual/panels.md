@@ -61,7 +61,7 @@
 
 ## タスク
 
-**📋 タスク** アイコンで開きます。プロジェクトを最大深さ 5 まで走査してタスク定義を探し、一覧表示します。対象は `package.json` の scripts、Makefile のターゲット、`justfile` のレシピ、`deno.json` の tasks です。justfile は `just` を実行せずに読むため、just が入っていないマシンでも一覧に出ます。レシピの直前に書いた `#` コメントは説明として名前の右に表示し、`_` で始まる名前と `[private]` を付けたレシピは表示しません。`Cargo.toml` も対象で、build・test・clippy などの標準サブコマンドと、`run` / `run --bin` などの実行タスクを表示します。Tauri アプリ（`tauri.conf.json` があるディレクトリ）では `tauri dev` / `tauri build` も表示します。`.cargo/config.toml` の `[alias]` に定義した cargo エイリアスも検出し、同じディレクトリの cargo タスク一覧の先頭に表示します。`Cargo.toml` が無いディレクトリのエイリアスは「cargo alias」グループとして表示します。
+**📋 タスク** アイコンで開きます。プロジェクトを最大深さ 5 まで走査してタスク定義を探し、一覧表示します。対象は `package.json` の scripts、Makefile のターゲット、`justfile` のレシピ、`deno.json` の tasks です。`package.json` の scripts は npm 固定ではありません。`packageManager` フィールドと lock ファイルからパッケージマネージャを判別し、`pnpm run build` のように対応するコマンドで実行します。lock ファイルはリポジトリのルートだけにあれば十分なので、pnpm ワークスペースのサブパッケージも正しく判別します。justfile は `just` を実行せずに読むため、just が入っていないマシンでも一覧に出ます。レシピの直前に書いた `#` コメントは説明として名前の右に表示し、`_` で始まる名前と `[private]` を付けたレシピは表示しません。`Cargo.toml` も対象で、build・test・clippy などの標準サブコマンドと、`run` / `run --bin` などの実行タスクを表示します。Tauri アプリ（`tauri.conf.json` があるディレクトリ）では `tauri dev` / `tauri build` も表示します。`.cargo/config.toml` の `[alias]` に定義した cargo エイリアスも検出し、同じディレクトリの cargo タスク一覧の先頭に表示します。`Cargo.toml` が無いディレクトリのエイリアスは「cargo alias」グループとして表示します。
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="img/tasks-light.png">
