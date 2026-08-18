@@ -600,7 +600,7 @@ const HERO_README = [
   '- **ファイル**：git ステータスの色付き、ドラッグで移動、Ctrl でコピー',
   '- **検索**：ripgrep 同梱（無ければ grep へ自動フォールバック）',
   '- **Docker**：compose サービスの起動・停止、ログ、ポートフォワード',
-  '- **タスク**：package.json / Makefile / deno.json / Cargo.toml から検出',
+  '- **タスク**：package.json（npm / pnpm）/ justfile / Makefile / Cargo.toml から検出',
   '- **TODO**：`.pike/todo.md` を CLI と共有',
   '- **Problems**：cargo check / go vet / tsc の結果を一覧',
   '',
