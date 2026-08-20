@@ -229,16 +229,19 @@ pike/
 
 ### ドキュメント校正ルール
 
-**CLAUDE.md を除くドキュメント（README.md・`docs/manual/` 配下）を更新・追加したら、コミット前に必ず校正する。**（CLAUDE.md 自身は密な技術仕様なので対象外）
+**日本語のユーザー向けドキュメントを更新・追加したら、コミット前に必ず校正する。**
 
-1. **textlint（機械チェック）** を npx で実行し、ai-writing 系の指摘を 0 にする:
+- 対象：`README.md` / `docs/manual/` 配下 / `plugins/README.md` / `CHANGELOG.md`（リリース時に足す新しいセクション）
+- 対象外：`CLAUDE.md` と `e2e/README.md`（どちらも密な技術メモで、読み手が開発者）、英語で書く `SECURITY.md` と `plugins/**/SKILL.md`
+
+1. **textlint（機械チェック）** を npx で実行し、**今回書いた箇所**の ai-writing 系の指摘を 0 にする（既存の指摘は 4 を参照）:
 
    ```bash
    npx --yes --package textlint \
      --package textlint-rule-preset-ai-writing \
      --package textlint-rule-preset-ja-technical-writing \
      -- textlint --rule preset-ai-writing --rule preset-ja-technical-writing \
-     README.md docs/manual/*.md
+     README.md docs/manual/*.md plugins/README.md CHANGELOG.md
    ```
    （リポジトリに textlint は未導入。実行は npx で都度行う）
 
@@ -250,7 +253,10 @@ pike/
    - 誇張語（「大幅に」等）・LLM 空句（「重要なのは」「正面から」「多角的」等）を使わない。
    - 二重助詞・一文内の過多カンマ（4 個以上）を避ける。
 
-4. **据え置いてよい指摘**: `no-mix-dearu-desumasu`（本文の「です・ます」と箇条書き・表セルの体言止めの混在）と、列挙が主因の `sentence-length`。マニュアルとして自然なので無理に潰さない。
+4. **据え置いてよい指摘**:
+   - `no-mix-dearu-desumasu`（本文の「です・ます」と箇条書き・表セルの体言止めの混在）と、列挙が主因の `sentence-length`。マニュアルとして自然なので無理に潰さない。
+   - **CHANGELOG の過去セクション**。出荷済みの記録なので、表記の一括正規化（全角コロンへの統一など）以外は書き換えない。校正するのはそのリリースで足す節だけ。
+   - 誤検出の常連が 2 つある。UI 名やエスケープシーケンスに出るリテラルの `?`（`no-exclamation-question-mark`）と、行を折り返した括弧（`no-unmatched-pair` が閉じ括弧を見失う）。
 
 5. **見出しを変更したら、ページ内アンカー（`](#...)`）との整合を確認する**。Pike のプレビューは見出しテキストを「小文字化＋`[^\p{L}\p{N}_\s-]` 除去＋空白→ハイフン」で slug 化して `id` を振る（`src/lib/slug.ts`）。アンカーはこの slug 規則に一致させる。
 
@@ -784,11 +790,18 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 ### コミット前チェック
 
-**コードを変更するコミットの前は、まず `simplify` スキル（ビルトイン）を実行し、指摘（再利用・単純化・効率・抽象度）を反映してから、以下の静的チェックを実行する。**
+**コミットの前は、変更の規模に応じて次を実行し、指摘を反映してからコミットする。**
 
-- 対象外（simplify をスキップしてよい）: **バージョン bump のみ**のコミットと、**ドキュメントのみ**（`README.md` / `docs/manual/` / `CHANGELOG.md`）のコミット。
-- simplify はコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは simplify 適用後のコードを試す）。
-- simplify はバグ探索ではなく品質整理。バグ確認が要る場合は別途 `/code-review` を使う。
+| 変更の規模 | 実行するもの |
+|---|---|
+| ある程度の規模の実装・修正 | `/code-review` → `simplify` → `just check` |
+| 軽微なコード修正 | `simplify` → `just check`（自明な 1 行修正などは直接コミットしてもよい） |
+| ドキュメントのみ（`README.md` / `docs/manual/` / `CHANGELOG.md` / `plugins/README.md`） | 「ドキュメント校正ルール」の校正 ＋ `just check-docs` |
+| バージョン bump のみ | 何も要らない |
+
+- **順序を守る**。`/code-review`（バグ探索）で挙がったものを直してから `simplify`（再利用・単純化・効率・抽象度の品質整理）を回す。simplify はバグを探さないので、先に回しても直すべきコードを整えるだけになる。
+- どちらもコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは適用後のコードを試す）。
+- `/code-review` はスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
 
 その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 5 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
 
