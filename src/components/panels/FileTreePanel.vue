@@ -278,6 +278,11 @@ function onDragLeave() {
   dropTarget.value = null
 }
 
+// The filler under the last row drops into the project root.
+const rootDropActive = computed(() => dropTarget.value === projectStore.activeRoot)
+const onRootDragOver = (e: DragEvent) => onDragOver(e, projectStore.activeRoot, true, false)
+const onRootDrop = (e: DragEvent) => onDrop(e, projectStore.activeRoot, true)
+
 /** Does an entry named `name` already exist directly under `dir`? */
 async function destExists(shell: Parameters<typeof fsListDir>[0], dir: string, name: string): Promise<boolean> {
   try {
@@ -585,6 +590,18 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
       </template>
       <div v-if="!flatNodes.length" class="empty">{{ t('fileTree.empty') }}</div>
 
+      <!-- The tree renders only the root's children, so a drop below the last
+           row had nothing to land on: the window-level guard swallowed it and
+           the file silently went nowhere. This filler takes the leftover space
+           and drops into the project root. -->
+      <div
+        class="tree-root-drop"
+        :class="{ 'drop-target': rootDropActive }"
+        @dragover="onRootDragOver"
+        @dragleave="onDragLeave"
+        @drop="onRootDrop"
+      ></div>
+
       <!-- Context menu -->
       <Teleport to="body">
         <div v-if="ctxMenu" ref="ctxMenuEl" class="tree-ctx-menu popup-surface" :style="ctxMenuStyle" @mousedown.stop>
@@ -635,6 +652,17 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 .filetree-panel {
   display: flex;
   flex-direction: column;
+  /* Fill the sidebar's scroll area so the space below the tree belongs to the
+     panel (and to .tree-root-drop) rather than to the container. */
+  min-height: 100%;
+}
+
+/* Drop zone for the project root: the space under the last row. The 24px floor
+   keeps a strip at the very bottom of the scroll, so the root is still reachable
+   once the tree overflows. */
+.tree-root-drop {
+  flex: 1;
+  min-height: 24px;
 }
 
 .tree-item {
@@ -718,7 +746,8 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   opacity: 0.6;
 }
 
-.tree-item.drop-target {
+.tree-item.drop-target,
+.tree-root-drop.drop-target {
   background: rgba(0, 122, 204, 0.15);
   outline: 1px dashed var(--accent);
   outline-offset: -1px;
