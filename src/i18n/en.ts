@@ -160,6 +160,9 @@ export default {
   'preview.flip': 'Flip horizontal',
   'preview.checkerboard': 'Toggle transparency grid',
   'preview.reset': 'Reset view',
+  'preview.externalImageShow': 'Show image ({host})',
+  'preview.externalImageFailed': 'Could not load the image from {host} — click to retry',
+  'preview.externalImageHint': 'Images from external domains stay unloaded until you allow the domain.',
 
   // Terminal
   'terminal.failedSpawn': '[Failed to spawn PTY: {error}]',
@@ -229,6 +232,10 @@ export default {
   'settings.wordWrap': 'Word Wrap',
   'settings.tabSize': 'Tab Size',
   'settings.previewSmoothScroll': 'Smooth scroll (preview)',
+  'settings.imageHosts': 'External image domains',
+  'settings.imageHostsHint':
+    'Domains the Markdown preview may load images from. Allow one from the button the preview shows in place of the image.',
+  'settings.imageHostsEmpty': 'No domains allowed yet.',
   'settings.about': 'About',
   'settings.version': 'Version',
   'settings.checkUpdate': 'Check for Updates',
@@ -597,6 +604,7 @@ export default {
   'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',
   'confirm.unsavedClose': '"{name}" has unsaved changes. Close without saving?',
   'confirm.openUrl': 'Open {url} in external browser?',
+  'confirm.allowImageHost': 'Load images from {host} in the Markdown preview from now on?',
   'confirm.unsavedCloseMulti': '{count} files have unsaved changes ({names}). Close without saving?',
   'confirm.terminalBusyClose': 'A process is still running in "{name}". Terminate it and close?',
   'confirm.terminalBusyExit': 'Processes are still running in {count} terminals. Quit Pike?',

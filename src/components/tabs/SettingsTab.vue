@@ -736,6 +736,20 @@ const PREVIEW_LINES = [
             <button class="mode-btn" :class="{ active: !settings.previewSmoothScroll }" @click="settings.previewSmoothScroll = false">{{ t('common.off') }}</button>
           </div>
         </div>
+
+        <div class="setting-row setting-row-block">
+          <label class="setting-label">{{ t('settings.imageHosts') }}</label>
+          <p class="setting-hint">{{ t('settings.imageHostsHint') }}</p>
+          <div v-if="settings.allowedImageHosts.length > 0" class="agent-cmd-list">
+            <div v-for="host in settings.allowedImageHosts" :key="host" class="agent-cmd-row">
+              <span class="shell-profile-label">{{ host }}</span>
+              <button class="icon-btn danger" :title="t('common.delete')" @click="settings.forgetImageHost(host)">
+                <Trash2 :size="14" :stroke-width="2" />
+              </button>
+            </div>
+          </div>
+          <p v-else class="setting-hint">{{ t('settings.imageHostsEmpty') }}</p>
+        </div>
       </section>
 
       <!-- Agent -->

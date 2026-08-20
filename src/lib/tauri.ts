@@ -650,6 +650,16 @@ export async function openUrl(url: string): Promise<void> {
   return invoke('open_url', { url })
 }
 
+export interface RemoteImage {
+  mime: string
+  base64: string
+}
+
+/** Fetch an https image for the Markdown preview to inline as a data URL (#239). */
+export async function remoteImageFetch(url: string): Promise<RemoteImage> {
+  return invoke<RemoteImage>('remote_image_fetch', { url })
+}
+
 export async function openUrlWithConfirm(url: string): Promise<void> {
   if (!url.startsWith('http://') && !url.startsWith('https://')) return
   if (await confirmDialog(t('confirm.openUrl', { url }))) {

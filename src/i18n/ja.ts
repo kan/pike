@@ -160,6 +160,9 @@ export default {
   'preview.flip': '左右反転',
   'preview.checkerboard': '透過グリッドの切替',
   'preview.reset': '表示をリセット',
+  'preview.externalImageShow': '画像を表示（{host}）',
+  'preview.externalImageFailed': '{host} の画像を取得できませんでした（クリックで再試行）',
+  'preview.externalImageHint': '外部ドメインの画像は、ドメインを許可するまで読み込みません',
 
   // Terminal
   'terminal.failedSpawn': '[PTY の起動に失敗: {error}]',
@@ -228,6 +231,9 @@ export default {
   'settings.wordWrap': '折り返し',
   'settings.tabSize': 'タブサイズ',
   'settings.previewSmoothScroll': 'スムーススクロール（プレビュー）',
+  'settings.imageHosts': '外部画像の許可ドメイン',
+  'settings.imageHostsHint': 'Markdown プレビューが画像を読み込むドメイン。画像の代わりに出るボタンから追加する',
+  'settings.imageHostsEmpty': '許可したドメインはまだありません',
   'settings.about': 'バージョン情報',
   'settings.version': 'バージョン',
   'settings.checkUpdate': '更新を確認',
@@ -598,6 +604,7 @@ export default {
   'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',
   'confirm.unsavedClose': '"{name}" に未保存の変更があります。保存せずに閉じますか？',
   'confirm.openUrl': '{url} を外部ブラウザで開きます。よろしいですか？',
+  'confirm.allowImageHost': 'Markdown プレビューで {host} の画像を今後読み込みますか？',
   'confirm.unsavedCloseMulti': '{count} 個のファイルに未保存の変更があります ({names})。保存せずに閉じますか？',
   'confirm.terminalBusyClose': '"{name}" でプロセスが実行中です。終了して閉じますか？',
   'confirm.terminalBusyExit': '{count} 個のターミナルでプロセスが実行中です。Pike を終了しますか？',

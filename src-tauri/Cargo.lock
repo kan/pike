@@ -3363,6 +3363,8 @@ dependencies = [
  "notify",
  "percent-encoding",
  "portable-pty",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "serde_yaml",

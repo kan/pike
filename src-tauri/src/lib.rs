@@ -15,6 +15,7 @@ mod jumplist;
 mod search;
 mod project;
 mod pty;
+mod remote_image;
 mod settings_sync;
 mod tasks;
 mod tray;
@@ -1231,6 +1232,7 @@ pub fn run() {
             tasks::task_discover,
             diagnostics::diagnostics_run,
             open_url,
+            remote_image::remote_image_fetch,
             pick_folder,
             pick_save_file,
             pty::pty_spawn,

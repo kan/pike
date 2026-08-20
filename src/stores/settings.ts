@@ -283,6 +283,7 @@ interface PersistedSettings {
   agentDefault: AgentDefault
   agentCommands: AgentCommand[]
   agentPrompts: AgentPrompt[]
+  allowedImageHosts: string[]
 }
 
 // Font-size slider bounds (terminal + editor); UI font size uses UI_FONT_SIZE_*.
@@ -315,7 +316,17 @@ function sanitize(s: PersistedSettings): PersistedSettings {
     uiFontSize: clampSize(s.uiFontSize, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX, d.uiFontSize),
     windowBackdrop: sanitizeBackdrop(s.windowBackdrop),
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
+    allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
   }
+}
+
+/**
+ * Guard the approved image-host list (#239) against corrupt persisted or synced
+ * values. Hosts are matched lowercased, so they are normalized on the way in —
+ * a stray `IMG.SHIELDS.IO` would otherwise sit in the list and never match.
+ */
+function sanitizeHostList(v: unknown): string[] {
+  return [...new Set(sanitizeStringList(v).map((h) => h.trim().toLowerCase()))]
 }
 
 function loadSettings(): PersistedSettings {
@@ -457,6 +468,7 @@ function defaults(): PersistedSettings {
       { label: '説明', text: '上のコードが何をしているか説明して。' },
       { label: 'エラー修正', text: '上のエラーを修正して。' },
     ],
+    allowedImageHosts: [],
   }
 }
 
@@ -488,6 +500,21 @@ export const useSettingsStore = defineStore('settings', () => {
   const agentDefault = ref<AgentDefault>(saved.agentDefault)
   const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
+
+  // Hosts the Markdown preview may load images from (#239). Nothing here is
+  // machine-specific — trusting a badge host is just as true on the next PC —
+  // so the list rides along in the synced payload with the other settings.
+  const allowedImageHosts = ref<string[]>(saved.allowedImageHosts)
+
+  function allowImageHost(host: string) {
+    const h = host.trim().toLowerCase()
+    if (!h || allowedImageHosts.value.includes(h)) return
+    allowedImageHosts.value = [...allowedImageHosts.value, h].sort()
+  }
+
+  function forgetImageHost(host: string) {
+    allowedImageHosts.value = allowedImageHosts.value.filter((h) => h !== host)
+  }
 
   // Machine-local (references this PC's WSL distros — never synced/broadcast).
   const globalShell = ref<ShellType>(sanitizeGlobalShell(loadJson<unknown>(GLOBAL_SHELL_KEY, null)))
@@ -748,6 +775,7 @@ export const useSettingsStore = defineStore('settings', () => {
       agentDefault: agentDefault.value,
       agentCommands: agentCommands.value,
       agentPrompts: agentPrompts.value,
+      allowedImageHosts: allowedImageHosts.value,
     }
   }
 
@@ -782,6 +810,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentDefault.value = s.agentDefault
     agentCommands.value = s.agentCommands
     agentPrompts.value = s.agentPrompts
+    allowedImageHosts.value = s.allowedImageHosts
   }
 
   // --- External settings-sync file ---------------------------------------
@@ -965,6 +994,7 @@ export const useSettingsStore = defineStore('settings', () => {
   // agentCommands / agentPrompts are arrays — deep-watch so in-place edits persist too.
   watch(agentCommands, onSettingsChanged, { deep: true })
   watch(agentPrompts, onSettingsChanged, { deep: true })
+  watch(allowedImageHosts, onSettingsChanged)
   watch(darkMode, applyDarkMode, { immediate: true })
   watch([uiFontFamily, uiFontSize], applyUiAppearance, { immediate: true })
 
@@ -1007,6 +1037,9 @@ export const useSettingsStore = defineStore('settings', () => {
     agentDefault,
     agentCommands,
     agentPrompts,
+    allowedImageHosts,
+    allowImageHost,
+    forgetImageHost,
     globalShell,
     projectBase,
     hiddenProjects,

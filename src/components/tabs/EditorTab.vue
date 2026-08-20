@@ -22,6 +22,7 @@ import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
 import { minimap } from '../../lib/editorMinimap'
 import { editorSearch, replaceKeymap, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
+import { imageHostOf, remoteImageDataUrl, retryRemoteImage } from '../../lib/externalImages'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { formatLineRange } from '../../lib/format'
 import { detectFrontmatter } from '../../lib/frontmatter'
@@ -464,27 +465,89 @@ async function renderMarkdownMermaid() {
 watch([debouncedDocVersion, showPreview], () => {
   if (isMermaid.value && showPreview.value) renderStandaloneMermaid()
 })
-// Resolve <img> tags pointing at local files (relative to the markdown file) into
-// inline data URLs. The Tauri webview can't load disk-relative `src` paths on its
-// own, so a Markdown like `![x](img/foo.png)` would otherwise show a broken image.
+/**
+ * Give every <img> in the preview a source the webview is allowed to load.
+ *
+ * Neither kind can be loaded from the markup itself: the webview cannot read a
+ * disk-relative path, and the CSP blocks remote hosts. Both end up as `data:`
+ * URLs — local files through the usual file IPC, remote ones (#239) only for
+ * hosts the user approved, with a chip offering to approve the rest.
+ */
 async function resolveMarkdownImages() {
   await nextTick()
   const container = previewRef.value
-  const project = projectStore.currentProject
-  if (!container || !project || !tab.value) return
+  if (!container) return
+  // A matching <source> outranks the <img> we resolve, and a remote srcset
+  // outranks its own src, so neither can be left to win.
+  for (const source of container.querySelectorAll('picture source')) source.remove()
+  const tasks: Promise<void>[] = []
   for (const img of container.querySelectorAll('img')) {
+    img.removeAttribute('srcset')
     const src = img.getAttribute('src')
-    // Skip external (http/https) and already-inlined (data:) sources.
-    if (!src || /^(?:https?:|data:)/i.test(src)) continue
-    const resolved = resolveLocalPath(src) // stays within the project root
-    if (!resolved || !isImageFile(resolved)) continue
-    try {
-      const base64 = await fsReadFileBase64(project.shell, resolved)
-      img.src = `data:${mimeType(resolved)};base64,${base64}`
-    } catch {
-      // leave the image broken if it can't be read
+    if (!src || src.startsWith('data:')) continue
+    const host = imageHostOf(src)
+    if (host) {
+      tasks.push(resolveRemoteImage(img, src, host))
+      continue
     }
+    // http: is neither loadable nor offerable — leave it as the markup had it.
+    if (/^https?:/i.test(src)) continue
+    tasks.push(resolveLocalImage(img, src))
   }
+  // Independent reads: a slow host must not hold up the images next to it.
+  await Promise.all(tasks)
+}
+
+async function resolveLocalImage(img: HTMLImageElement, src: string) {
+  const project = projectStore.currentProject
+  if (!project || !tab.value) return
+  const resolved = resolveLocalPath(src) // stays within the project root
+  if (!resolved || !isImageFile(resolved)) return
+  try {
+    const base64 = await fsReadFileBase64(project.shell, resolved)
+    img.src = `data:${mimeType(resolved)};base64,${base64}`
+  } catch {
+    // leave the image broken if it can't be read
+  }
+}
+
+async function resolveRemoteImage(img: HTMLImageElement, url: string, host: string) {
+  // This pass also re-runs on approval, so start from a clean slate: the chip
+  // and the hiding are what the previous pass decided, not what the markup says.
+  const stale = img.nextElementSibling
+  if (stale?.classList.contains('external-image')) stale.remove()
+  // Hidden until we know what to show: the src in the markup is the remote one,
+  // which the CSP blocks — leaving it visible flashes a broken-image icon.
+  img.hidden = true
+  if (!settingsStore.allowedImageHosts.includes(host)) {
+    showImageChip(img, host, url, t('preview.externalImageShow', { host }))
+    return
+  }
+  const dataUrl = await remoteImageDataUrl(url)
+  if (dataUrl) {
+    img.src = dataUrl
+    img.hidden = false
+    return
+  }
+  // Fetch failed — say so on the chip, which retries when clicked.
+  showImageChip(img, host, url, t('preview.externalImageFailed', { host }))
+}
+
+/**
+ * Stand a button carrying the host where an image the preview will not load
+ * would have been. The <img> keeps its original src (the CSP is what stops the
+ * request) and is only hidden, so the next pass can resolve it in place.
+ */
+function showImageChip(img: HTMLImageElement, host: string, url: string, label: string) {
+  img.hidden = true
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'external-image'
+  btn.dataset.host = host
+  btn.dataset.url = url
+  btn.textContent = label
+  btn.title = t('preview.externalImageHint')
+  img.after(btn)
 }
 
 // Give preview headings GitHub-style ids so in-page `#anchor` links can scroll.
@@ -520,6 +583,13 @@ watch(previewHtml, () => {
     assignHeadingIds()
     trackFrontmatterToggle()
   }
+})
+
+// An approval (or a language switch) changes what the images resolve to, but
+// not the markup — re-run the pass instead of invalidating previewHtml, which
+// would also re-render every mermaid diagram.
+watch([() => settingsStore.allowedImageHosts, locale], () => {
+  if (isMarkdown.value) resolveMarkdownImages()
 })
 
 // Switching view mode re-creates the preview pane at the top — hide the
@@ -1140,6 +1210,25 @@ function resolveLocalPath(href: string): string | null {
 }
 
 async function onPreviewClick(e: MouseEvent) {
+  // Approve a host for external images (#239). The chips are rebuilt on every
+  // render, so the listener lives here rather than on each button.
+  const chip = (e.target as HTMLElement).closest<HTMLElement>('.external-image')
+  if (chip) {
+    e.preventDefault()
+    const host = chip.dataset.host
+    if (!host) return
+    // Already approved → the chip is a failed fetch; clicking it tries again.
+    if (settingsStore.allowedImageHosts.includes(host)) {
+      retryRemoteImage(chip.dataset.url ?? '')
+      resolveMarkdownImages()
+      return
+    }
+    if (await confirmDialog(t('confirm.allowImageHost', { host }))) {
+      settingsStore.allowImageHost(host)
+    }
+    return
+  }
+
   const strEl = (e.target as HTMLElement).closest('.json-string-expandable')
   if (strEl) {
     try {
@@ -1781,6 +1870,24 @@ onUnmounted(() => {
 .md-preview :deep(th) { background: var(--bg-tertiary); }
 
 .md-preview :deep(img) { max-width: 100%; }
+
+/* Stand-in for an image whose host is not approved yet (#239). Sized like a
+   badge so a row of them keeps the surrounding line intact. */
+.md-preview :deep(.external-image) {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.md-preview :deep(.external-image:hover) {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
 .md-preview :deep(.mermaid-inline) { text-align: center; margin: 16px 0; }
 .md-preview :deep(.mermaid-inline svg) { max-width: 100%; height: auto; }
 .md-preview :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
