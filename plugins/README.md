@@ -9,8 +9,7 @@ Pike の TODO パネルに即時反映され、パネル側の編集も CLI か�
 ## 構成
 
 マーケットプレイス定義（`.claude-plugin/marketplace.json`）はリポジトリ直下に置く。
-`claude plugin marketplace add kan/pike`（GitHub 略記）がリポジトリ直下の
-`.claude-plugin/marketplace.json` を探すため。
+`claude plugin marketplace add kan/pike`（GitHub 略記）がその位置を探すため。
 
 ```
 pike/                          # リポジトリ直下
@@ -57,7 +56,7 @@ cp -r /path/to/pike/plugins/pike-todo/skills/pike-todo .claude/skills/
 Codex はユーザーの `~/.codex/skills/`（`$CODEX_HOME/skills`）配下のスキルを読み込む。
 導入方法は 2 通り。
 
-### 方法A: skill-installer で GitHub から導入（推奨）
+### skill-installer で GitHub から導入する（推奨）
 
 Codex 標準の `skill-installer` スキルは、任意の GitHub リポジトリのパスからスキルを
 導入できる。Codex にこう頼む。
@@ -78,7 +77,7 @@ install-skill-from-github.py --repo kan/pike --path plugins/codex/pike-todo
 Claude のようなマーケットプレイス登録機能（任意リポジトリを登録して一覧から選ぶ）は
 Codex には無いが、この「リポジトリとパスを指定して直接 pull」で同等のことができる。
 
-### 方法B: 手動コピー
+### 手動でコピーする
 
 スキルディレクトリを `~/.codex/skills/` へコピーする。
 

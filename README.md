@@ -5,7 +5,7 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-**「AI エージェント × ターミナル」に特化した、軽量な Windows 向け開発環境です。** ターミナル中心のワークフローにおける、VS Code の軽量な代替を目指しています。
+**「AI エージェント × ターミナル」に特化した、軽量な Windows 向け開発環境です。** ターミナル中心で作業する開発者が VS Code の代わりに使えることを目指しています。
 
 Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としています。
 
