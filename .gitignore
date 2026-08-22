@@ -2,6 +2,10 @@ node_modules/
 dist/
 src-tauri/target/
 src-tauri/binaries/
+# ~/.gitignore が .claude/ ごと除外しているので、rules だけ追跡対象に戻す
+!.claude/
+.claude/*
+!.claude/rules/
 .claude/settings.local.json
 src-tauri/icons/android/
 src-tauri/icons/ios/

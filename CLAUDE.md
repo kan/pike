@@ -19,6 +19,25 @@
 
 ---
 
+## 詳細ルール（触る領域のものを読む）
+
+このファイルには全体像と運用を置き、領域別の実装ルールは `.claude/rules/` に分けてある。**`@import` していないので、その領域を触るときに自分で読むこと。** どれも非自明な判断・定数・落とし穴の記録で、読まずに書くと過去に踏んだものを踏み直す。
+
+| ファイル | 中身 |
+|---|---|
+| `rust.md` | Tauri コマンドの形・状態管理・PTY のライフタイム・非同期・命名規約 |
+| `frontend.md` | Vue/Pinia の構成・タブ管理・xterm.js・スタイル・アイコン・i18n・設定画面・禁止事項 |
+| `testing.md` | 自動テストの範囲・検証バイナリの置き場 |
+| `terminal.md` | PTY とシェル対応・ターミナルの coding agent 補助・キーボードショートカットの取り合い |
+| `project.md` | プロジェクト管理と同期・ウィンドウの生成と復元・トレイ・ジャンプリスト・`pike` CLI |
+| `git.md` | git CLI ブリッジ・worktree・コンフリクト解消 |
+| `editor.md` | エディタとプレビュー・ファイルツリー・検索/タスク/アウトライン/診断の各パネル・ファイル監視 |
+| `agent.md` | 統一エージェント API（Codex / ACP）・トークン使用量・`pike todo` CLI とスキル |
+| `docker.md` | bollard 連携・compose の探索・ログ・ポートフォワード |
+| `build.md` | 開発ビルド・本番ビルド限定の落とし穴（CSP）・E2E スクリーンショット・CI・セルフアップデート |
+
+---
+
 ## アーキテクチャ
 
 ```
@@ -60,7 +79,7 @@
 
 ```
 pike/
-├── CLAUDE.md                  # このファイル（AI 開発向け: 構造・規約・技術メモ）
+├── CLAUDE.md                  # このファイル（AI 開発向け: 全体像・構造・規約・運用）
 ├── README.md                  # ユーザー向け概要・インストール・マニュアルへの導線
 ├── justfile                   # 開発タスクの入口（#231。CI の各ステップもここを呼ぶ）
 ├── docs/
@@ -209,10 +228,17 @@ pike/
 │   └── assets/
 │       └── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
 └── .claude/
-    └── rules/
-        ├── rust.md            # Rust 実装ルール
-        ├── frontend.md        # フロント実装ルール
-        └── testing.md         # テスト方針
+    └── rules/             # 領域別の実装ルール（@import せず、触る領域のものを読む）
+        ├── rust.md        # Rust 実装の基本方針
+        ├── frontend.md    # フロント実装の基本方針・UI 共通部品
+        ├── testing.md     # テスト方針
+        ├── terminal.md    # PTY・シェル・ターミナルの agent 補助
+        ├── project.md     # プロジェクト管理・ウィンドウ・OS 統合・CLI
+        ├── git.md         # git 統合・worktree
+        ├── editor.md      # エディタ・プレビュー・各パネル・ファイル監視
+        ├── agent.md       # Agent Runtime・usage・pike todo
+        ├── docker.md      # Docker 連携
+        └── build.md       # 開発/本番ビルド・E2E・CI・アップデート
 ```
 
 ---
@@ -225,7 +251,8 @@ pike/
 
 - **README.md** … ユーザー向け（概要・インストール・主な機能・マニュアルへの導線）。AI 開発の内部情報は書かない。
 - **docs/manual/** … ユーザーマニュアル（日本語）。使い方・操作手順はここに集約し、拡充する。
-- **CLAUDE.md（本ファイル）** … AI 開発のための情報（構造・技術メモ・規約）。ユーザー向けの使い方は書かない。
+- **CLAUDE.md（本ファイル）** … AI 開発のための情報のうち、全体像・構造・規約・運用。ユーザー向けの使い方は書かない。
+- **.claude/rules/** … 領域別の実装ルールと落とし穴。実装の細部はここに書く（上の索引を参照）。
 
 ### ドキュメント校正ルール
 
@@ -260,6 +287,60 @@ pike/
 
 5. **見出しを変更したら、ページ内アンカー（`](#...)`）との整合を確認する**。Pike のプレビューは見出しテキストを「小文字化＋`[^\p{L}\p{N}_\s-]` 除去＋空白→ハイフン」で slug 化して `id` を振る（`src/lib/slug.ts`）。アンカーはこの slug 規則に一致させる。
 
+### コミット前チェック
+
+**コミットの前は、変更の規模に応じて次を実行し、指摘を反映してからコミットする。**
+
+| 変更の規模 | 実行するもの |
+|---|---|
+| ある程度の規模の実装・修正 | `/code-review` → `simplify` → `just check` |
+| 軽微なコード修正 | `simplify` → `just check`（自明な 1 行修正などは直接コミットしてもよい） |
+| ドキュメントのみ（`README.md` / `docs/manual/` / `CHANGELOG.md` / `plugins/README.md`） | 「ドキュメント校正ルール」の校正 ＋ `just check-docs` |
+| CLAUDE.md / `.claude/rules/` のみ | `just check-docs`（開発者向けなので日本語校正の対象外） |
+| バージョン bump のみ | 何も要らない |
+
+- **順序を守る**。`/code-review`（バグ探索）で挙がったものを直してから `simplify`（再利用・単純化・効率・抽象度の品質整理）を回す。simplify はバグを探さないので、先に回しても直すべきコードを整えるだけになる。
+- どちらもコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは適用後のコードを試す）。
+- `/code-review` はスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
+
+その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 5 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
+
+- **Frontend**: `just lint`（= `npm run lint` = `biome check src/`）
+- **TypeScript 型検査**: `just typecheck`（= `npx vue-tsc --noEmit`。`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
+- **ドキュメント整合**: `just check-docs`（= `node scripts/check-docs.mjs`）
+- **Rust**: `just clippy`（= `src-tauri/` で `cargo clippy -- -D warnings`）
+- **Rust テスト**: `just test`（= `src-tauri/` で `cargo test`）
+
+### ドキュメント乖離のチェック
+
+`npm run check:docs` は機械的に照合できる乖離だけを見る。落ちたらコミット前に直す。
+
+1. `src/` と `src-tauri/src/` のファイルが CLAUDE.md のディレクトリ構成に載っているか（**新しいファイルを足したら構成にも 1 行足す**）
+2. CLAUDE.md と `.claude/rules/` が挙げるファイルパスが実在するか（削除・改名の取り残し）
+3. README とマニュアルが参照する画像が実在するか、逆に参照されない画像が残っていないか
+4. md 間のリンクとページ内アンカーが解決するか（`src/lib/slug.ts` と同じ slug 規則。あちらを変えるとスクリプトが検知して落ちる）
+
+スクリプトで判定できない「説明が実装と合っているか」は、差分の性質から自分で判断する。**ユーザーに見える挙動を変えたら、実装と同じコミットで対応するドキュメントも直す**:
+
+| 変えたもの | 直すドキュメント |
+|---|---|
+| UI の操作・表示 | `docs/manual/` の該当ページ（機能一覧レベルの変化なら README も） |
+| 設定項目の追加・変更 | `docs/manual/settings.md` |
+| キーボードショートカット | `docs/manual/shortcuts-and-cli.md` と `components/KeyboardShortcuts.vue` の一覧 |
+| `pike` CLI の引数・サブコマンド | `docs/manual/shortcuts-and-cli.md`、`pike todo` なら `plugins/` の SKILL.md 2 本も |
+| 非自明な実装判断・定数・落とし穴 | `.claude/rules/` の該当ファイル（全体像・運用に関わるものは CLAUDE.md。数値は出典のコードを併記して drift を防ぐ） |
+
+過去に溜まった乖離の実例（2026-07-30 の棚卸しで検出）: 新規ファイル 20 件超がツリー未記載、実在しない `useTerminalNotifications.ts` の記載、サイドバー一覧から TODO と Problems 落ち、`git init`（#156）とタブのツールチップ（#198）がマニュアル未記載、Problems パネルの説明が実装と不一致。**いずれも「実装した回のコミットで一緒に直していれば発生しなかった」もの**なので、まとめてやらずその場で直す。
+
+### コミット & push 運用ルール
+個人開発のため PR レビューは原則不要。Claude が変更を加えた場合は以下のフローを厳守:
+
+1. **コミット前に必ずユーザの動作確認 OK を取る** — `cargo clippy` / `biome` / `vue-tsc` が通っていてもコミットしてはいけない。ユーザは GUI 上で実際に挙動を試す必要があるため、Claude が「テスト通った」だけで自動コミットすると確認前に履歴が確定してしまう。「コミットしていい？」と聞くか、ユーザが明示的に「コミットして」と言うまで待つ
+2. **`main` ブランチに直接コミット**（feature ブランチや PR は作らない）
+3. **`git push` は実行しない** — push の判断はユーザに委ねる（ユーザはローカル確認後に自分で push する運用）。**例外はリリース依頼時**（次項 5）
+4. ユーザから明示的に「PR にして」「ブランチ切って」等の指示があった場合のみ、その指示に従う
+5. **リリース依頼は end-to-end で Claude が実行する**: ユーザから「リリースして」と依頼されたら、それはバージョン bump コミットだけでなく、`main` の push・タグ作成と push・Release ワークフロー完了待ち・ドラフトのリリースノート記載と公開までの一括依頼。個別の push 確認は不要（「リリース手順」セクションの手順をそのまま完遂する）
+
 ---
 
 ## Tauri IPC 規約
@@ -285,645 +366,6 @@ async fn pty_write(id: String, data: String, state: State<'_, AppState>) -> Resu
 ```rust
 app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 ```
-
----
-
-## 重要な技術メモ
-
-### PTY / シェル対応
-- WSL のコマンドは `bash -c`（非ログイン）で走るので、`.profile` が足すパスは効かない。ツールチェインの場所は `types.rs` の `WSL_EXTRA_PATH` に明示する（`/usr/local/go/bin` の抜けで Problems パネルの `go vet` が長らく無言の空振りをしていた）
-- PTY 管理は `portable-pty` クレートを使う（ConPTY 対応済み）
-- `pty_spawn` コマンドが `ShellConfig` に応じてシェルを起動:
-  - WSL: `wsl.exe [-d distro] [--cd path] bash`
-  - cmd: `cmd.exe`
-  - PowerShell: `powershell.exe -NoLogo`
-  - Git Bash: `C:\Program Files\Git\bin\bash.exe --login`（自動検出）
-- 環境変数 `TERM=xterm-256color` を cmd 以外に設定
-- リサイズは `pty.resize()` で PTY サイズを更新
-- `autoStart` 対応: PTY spawn 後に指定コマンドを自動実行（例: `claude`）
-- `PtySession` に `Drop` 実装: セッション破棄時に `child.kill()` で子プロセスを確実に終了
-- ウィンドウ破棄時（`WindowEvent::Destroyed`）に全 PTY セッション・Docker log stream を一括 cleanup（main ウィンドウのみ）
-- タブ切替時の TUI 再描画: `nextTick` → `requestAnimationFrame` → `terminal.refresh()` + PTY resize nudge（1col 縮小→復元で SIGWINCH 発火）
-- ターミナルアクティビティ表示: 非アクティブタブが **BEL を受け取ると**ドット表示（`hasActivity`。`terminal.onBell` 経由で、全出力での点灯はトークンを流し続けるエージェントで鳴りっぱなしになるため採らない。タブ活性化直後 500ms のベルは無視）、プロセス終了で終了コードバッジ（`exitCode`）、非 pinned タブはプロセス終了 1 秒後に自動クローズ
-
-### ターミナルの coding agent 補助（#89）
-`claude` 等をターミナルで使う運用を、Pike の既存機能（エディタ / 診断）と橋渡しする一連の機能。注入はすべて `ptyWrite` 経由。
-
-- **起動ボタン**: ターミナル右上のフローティング split ボタン（`TerminalTab.vue`）。主＝先頭コマンド / ▾＝一覧。クリックで `agentCommands`（`pike:settings`）をそのまま注入＋Enter。代替画面（alternate screen）検出で vim/less 等の全画面 TUI 中は非表示。**clear プレフィックスは付けない**（#220。以前は `clear && claude` を流していたが、今のエージェントは画面をその場に描くので直前までの出力を消す意味がない）。タブ生成時の `autoStart` 側は `buildAutoStartLine` で clear を付けたまま（あちらは同時に流すシェル初期化行を隠す役目がある）
-- **セッション再開メニュー（#220）**: 起動メニューの下段に `claude -r` 相当の一覧を出し、選ぶと `claude --resume <id>` を注入する。`claude_usage/sessions.rs` が `~/.claude/projects/<encoded-root>/*.jsonl` を直接読む（CLI に機械可読な一覧が無いため。パスのエンコードとホーム解決は `claude_usage` と共有）。走査の打ち切り（`MAX_SCAN_FILES` / `MAX_TRANSCRIPT_BYTES` 等）とパースの詳細はコード側の doc コメントを正本とする
-  - **対話セッションだけを出す**: 同じディレクトリには `-p` / SDK 実行（Pike 自身のレート取得 `claude -p "/usage"`、フック、レビューエージェント）の記録も溜まるので、`entrypoint` が `cli` 以外なら捨てる。これが無いと一覧が `/usage` の残骸で埋まる（実測で直近 60 件のうち対話セッションは 5 件）
-  - 取得はメニューを開いたときだけ（WSL プロジェクトでは `\\wsl.localhost` 越しの読みになるためポーリングしない）。`claude` の起動コマンドが設定に無ければセクションごと出さない
-  - 参照するディレクトリは `pty_get_cwd`（OSC 7 追跡の現在地）→ タブの `cwd` → プロジェクト root の順。**タブ生成時の cwd で決め打ちしない**: セッション記録は `claude` を起動した cwd ごとに分かれるので、`cd` したあとは別のバケットになる
-- **定型プロンプト挿入ボタン**: 起動ボタンの隣の2つ目のドロップダウン。`agentPrompts`（`{ label, text }[]`、`pike:settings`）を**ブラケットペースト（`ESC[200~…ESC[201~`）で挿入のみ・Enter なし**（複数行も1入力として届き途中確定しない）。2つのメニューは相互排他、alt-screen 中は非表示。挿入の primitive は `lib/tauri.ts` の `ptyPasteText`
-- **出力の `file:line` クリックでファイルを開く**: `lib/terminalLinks.ts` の `findPathLinks`（インライン `path:line(:col)` 検出。拡張子必須で誤検出抑制、Windows ドライブ・URL 除外）＋ rg/grep の heading 出力対応（マッチ行の行番号 → 直近のファイル名見出しを辿る）。`TerminalTab.vue` が xterm の link provider として登録（ワイド文字対応の char→セル列マップで範囲を正確化）。相対パスは `activeRoot` 起点で解決し、**`lib/openFile.ts` の `openPathInTab` に渡す**（`addEditorTab` 直呼びだったころは、画像や PDF のパスをクリックすると CodeMirror に入ってバイナリガードに当たっていた）。**ディレクトリのパスもここを通ってエディタタブに着く**: 拡張子ルーティングでは区別できないので、判定は EditorTab 側の読み込み失敗時に置いてある（次の bullet）
-- **ディレクトリを開いたときはエラーではなく開き方を出す**: `fs_read_file` はディレクトリでも読めないファイルでも同じように失敗するので、`EditorTab.vue` の `reportLoadError` が失敗時に `fsDirsExist` で理由を確かめ、ディレクトリなら専用のアクションを出す（**読み込みが成功する経路では 1 回も IPC を増やさない**）。登録済みなら「プロジェクトを開く」、未登録なら「ディレクトリを開く」（`openDirectory`＝#230 の一時プロジェクト）と「プロジェクトとして開く」（`openDirectoryAsProject`＝登録して開く）。**既定は新しいウィンドウ**で、`switch` は全タブ kill ＝クリック元のターミナルごと消えるため、チェックボックスで明示的に選ばせる。自動で開かないのも同じ理由（誤クリックで作業が消える）。判定を EditorTab に置いたので、Markdown リンクなど他の経路でディレクトリが着いても同じ画面になる
-- **エディタ選択範囲・診断をターミナルへ注入**: `composables/useTerminalInject.ts` の `injectToTerminal(text)` が注入先ターミナルを解決（**`lastTerminalId`（直近アクティブなターミナル）→ アクティブタブ → pinned → 任意**）し `ptyPasteText` で挿入、当該タブをアクティブ化。注入先が無ければ statusMessage で通知。`stores/tabs.ts` の `lastTerminalId` は `activeTabId` watcher で更新（タブ閉じは use 時の liveness 再チェックで自己修復）
-  - EditorTab: 右クリック「ターミナルに送る」（選択時のみ）→ `relpath:行` 参照 + 選択本文を注入
-  - DiagnosticsPanel: 各行ホバーの 🤖 ボタン → `t('diagnostics.fixPrompt')`（i18n、UI 言語追従）で修正依頼文を注入
-- **設定**: `agentCommands` / `agentPrompts` は Settings の Terminal セクションで追加/編集/削除/並べ替え。両方とも `pike:settings` の配列で deep-watch 永続化
-
-### プロジェクト管理
-- プロジェクト設定は `%APPDATA%/com.tauri.dev/projects/{id}/project.json` に保存
-- 開いている全プロジェクト ID を `last_project.txt` に永続化し、起動時に全ウィンドウを自動復元
-- プロジェクトは WSL / Windows の2プラットフォームに対応
-- WSL プロジェクト: ディストロ指定、ルートは WSL パス
-- Windows プロジェクト: デフォルトシェル（cmd/PowerShell/Git Bash）選択、ルートは Windows パス
-- プロジェクト切替時: 全タブ kill → pinnedTabs 復元（なければ Claude Code 固定タブを自動作成）
-- Windows プロジェクトでは「+」ボタン横のドロップダウンでデフォルト以外のシェルも選択可能
-- プロジェクトのグループ分け: `ProjectConfig.group?: string` で各プロジェクトの所属グループを保持。グループ一覧と表示順は `%APPDATA%/com.tauri.dev/groups.json` に明示的に永続化（プロジェクト未割当の空グループも保持可能）。`project_groups_list` / `project_groups_save` コマンドで CRUD
-- ProjectPanel UI: 未分類プロジェクトはリスト直下にフラット表示（ヘッダーなし）、グループ所属はグループバー配下に折りたたみ可能で配置。「+ グループを追加」ボタンで空グループを作成、グループバーの鉛筆で一括リネーム（所属プロジェクトの `group` も更新）、✕ で削除（所属プロジェクトは ungroup）
-- プロジェクトの編集フォームではコンボボックス形式: `<select>` で「グループなし / 既存グループ / + 新規グループ...」、新規選択で text input に切替
-- **表示モード（#203）**: `グループ別`（既定）と `最近開いた順` の 2 つ。`最近開いた順` は**グループでまとめずフラット**に並べ（並びはバックエンドの `read_all_projects_sorted` = `lastOpened` 降順）、代わりに行にグループ名バッジを出す。`グループ別` は手動順（後述）→ 名前順。モードは `localStorage` (`pike:project-sort-mode`)、折りたたみ状態は同 `pike:project-group-collapsed` に永続化
-- **描画は 1 本の `rows` computed**（`PanelRow` = group ヘッダ or project 行の判別 union）に集約。以前はセクションごとに `ProjectListItem` の束縛を書き写していた。`siblings` はその行にドロップしたときの並び替えスコープ
-- **絞り込み（#203）**: パネル上部の常設入力。`lib/paths.ts` の共有 `fuzzyMatch` で name / root / group を対象（`ProjectSwitcher` / `QuickOpen` のローカル複製もこの共有版に統合済み）。グループ別表示では一致 0 件のグループを隠す
-- **装飾の役割分担（#203）**: 「このウィンドウで開いているプロジェクト」は**行全体の塗り**で示す（プロジェクトカラーがあればその色、無ければ `--accent`）。グループバーは背景＋枠だけの見出しにした（以前は両方が青い左線で紛らわしかった）。塗りの上の文字色は `lib/projectColors.ts` の `readableTextOn`（相対輝度で黒/白を選ぶ。閾値 0.179 は白背景・黒背景の WCAG コントラストが入れ替わる点）で決め、行内の meta / アイコン / アクションボタンは `color: inherit` にして塗りに追従させる。プリセットは黄色から紫まであるので、白固定でも黒固定でも読めない色が出る
-- **ドラッグ&ドロップ（#203）**: `useDragAndDrop` の drag id に `project:{id}` / `group:{name}` の複合キーを載せて種別を判別する（グループ名に `:` を含みうるので先頭の `:` で分割）。挿入位置は TabPane と同じ midpoint 判定の縦版で、`insertAt` は**先に対象を配列から除いてから挿入**するので `from < to` の補正が要らない。行へのドロップ＝並び替え＋その行のグループへ移動、グループバーへのドロップ＝そのグループの末尾へ。**並び替えはグループ別表示かつ絞り込み無しのときだけ**（`recent` は recency 固定、絞り込み中は表示インデックスが実体とずれる）。グループバーへの所属変更は従来どおりグループ別表示なら常に可能
-- **手動順（#203）**: `ProjectConfig.order?: number`（TS と Rust の両方に必要。Rust 構造体に無いフィールドは次の全量書き戻しで消える）。スコープはグループ単位（未分類も 1 スコープ）で、並びは `(order ?? MAX) → name`。`reorderProjects(orderedIds, group)` が 0..n-1 を振り直し、**実際に値が変わるプロジェクトだけ**保存する（1 件の保存が `project_update` 全量書き＋全ウィンドウ broadcast のため）。グループ順は `groups.json` の配列順そのものなのでスキーマ変更なし（`reorderGroups`）
-- プロジェクトカラー（#121）: `ProjectConfig.color?: string` は**プリセット名**（'red' 等）を保存し、hex は描画時に `lib/projectColors.ts` の `projectColorValue` で解決（パレット調整が config 移行なしで効く。手編集の生 hex `#rrggbb` のみ許容し、`url()` 等の任意 CSS 値は style バインドに到達しない）。プリセット 8 色は musql と同一パレット、name が i18n キー `projectColor.{name}` を兼ねる。選択 UI は `panels/ColorSelect.vue`（スウォッチ付きカスタムドロップダウン。close は他メニューと同じ「open 時に window mousedown を once で張る + ルートで `@mousedown.stop`」方式）で、ProjectPanel の作成・編集フォームと ProjectSwitcher の新規作成モーダルに配置。表示はカラードット共通コンポーネント `ColorDot.vue`（ProjectPanel 一覧・ProjectSwitcher）と、**App.vue のウィンドウ左端 3px 縦アクセントライン**（absolute overlay、`pointer-events: none`。サイドバー内だと折りたたみ時に見えないため window レベル。上端の横ラインは悪目立ちするため左端に変更）。**クロスウィンドウ同期**: `project_update` が書き込み後に `project_updated`（`{ sourceLabel, config }`）を全ウィンドウへ emit、各ウィンドウは自ラベルを除外して `applyExternalUpdate` で in-memory コピー（projects 配列 + currentProject、lastSession はウィンドウローカル保持）を更新。これが無いと flushSession / switchProject の全量書き戻しが他ウィンドウの編集を古いデータで消す（lost update）
-- **グループ一覧も同じくブロードキャストする**: `project_groups_save` が `project_groups_updated`（`{ sourceLabel, groups }`）を emit し、各ウィンドウが `applyExternalGroups` で差し替える。グループは `groups.json` という別ファイルにあり、プロジェクトの `project_updated` には乗らない。これが無いと (1) 他ウィンドウのパネルが古いグループ名を出し続け、(2) **同期ファイルへ古いグループ一覧が publish される**。(2) の経路は「main 以外のウィンドウでグループをリネーム → プロジェクト側は `project_updated` で main に伝わり push が発火 → その push が main のメモリにある古い `groups` を書き出す」で、v0.36.1 で実際に踏んだ（エントリの `group` は新しいのに `groups` 配列だけ旧名、という食い違いが出る）
-- プロジェクトアイコン（#203）: `ProjectConfig.icon?: string` は**絵文字そのもの**を保存する（カラーと違いテーマ解決が要らないため名前の間接参照はしない）。描画前に `lib/projectIcons.ts` の `projectIconValue` で検証（トリム後 8 code point 以内・`\p{Cc}` を含まない。ZWJ は `Cf` なので 🧑‍💻 のような合字を弾かないこと）。パレットは同ファイルの `PROJECT_ICONS`（日英キーワード付きの厳選セット。絵文字データセットの依存追加はしない）で、検索は共有 `fuzzyMatch`。選択 UI は `panels/IconSelect.vue`（ColorSelect と同じ popup 規約＋`popup-surface`。パレットに無い絵文字は検索欄に貼って Enter で確定できる。検証は**信頼できない自由入力の書き込み時**と**描画時**の 2 箇所だけ。パレット選択は素通し）。表示は `ColorDot.vue` と対になる `ProjectIcon.vue`（ProjectPanel 一覧・ProjectSwitcher）。**ウィンドウタイトルには出さない**: キャプションは DWM が GDI 経路で描くためカラーフォントのレイヤーが使われず、白黒字形（字形が無ければ豆腐）になって読み辛い。色付きにするには `decorations: false` の自作タイトルバーが要る
-- **プロジェクトを開く 3 つの入口（#212）**: 同期（#164）で入ってきたプロジェクトは root がこのマシンに無いことがある。未取得チェック（`ensureRootPresent`）を全経路に効かせるため、`stores/project.ts` の公開 API を次の 3 つに絞り、**`switchProject` は非公開にした**（返却オブジェクトから外してある＝素通りする経路を書けない）。**プロジェクトを開く導線を足すときはこの 3 つのどれかを通す**
-  - `openProject(id, mode)`: **一覧から選んで開く**経路（ProjectSwitcher の選択、ProjectPanel の行クリックと「新しいウィンドウで開く」）。開く前に確認し、clone 完了後に同じ open を実行する。`mode` は `switch` / `window`（専用ウィンドウ。既に開いていれば Rust 側が focus）/ `focusOrSwitch`（開いていれば focus、無ければ switch）。`focusOrSwitch` の focus はチェックより**前**に試す（ウィンドウが開けている時点で root の存在は確定しているので、probe を待たせる意味がない）
-  - `adoptProject(id, opts?)`: **ウィンドウが先にプロジェクトを渡された**経路（App.vue の `windowProjectId` 分岐＝ジャンプリスト / トレイ / 別ウィンドウ、`restoreLastProject` の main、昇格再起動の `useCliOpen`）。ここは開いた後にしか聞けないので、switch → 確認 → clone 完了で switch し直す、を**1 関数にまとめてある**（前半だけ書いて後半を忘れられないようにするため）
-  - `placeProject(id, mode)`: チェック無しで配置するだけ。**新規作成専用**（ProjectSwitcher の `onCreateProject`）。これから作るパスに対して「取得できません」と拒否しても意味がないため
-  - `ensureRootPresent(id, onCloned)`（非公開）の戻り値＝「今 root がある」。false は開いてはいけない（URL が無いか clone を開始した）。`cloneProject(id, onCloned?)` は onCloned があれば従来の「切り替えますか？」confirm を出さない
-  - 判定は**バッチ済みの `missingRoots` を読む**（`checkRoots` は distro ごとに 1 回の `wsl.exe`。パネル / スイッチャーは開くたびに、ストアの watcher は一覧が変わるたびに更新している）。1 プロジェクトだけ個別 probe すると、起動時にウィンドウ数ぶん余分な `wsl.exe` が走り、一覧のバッジと開いたときの判定がずれうる。`checkRoots` は**実行中の probe を join** する（watcher の probe 中に読むと未反映の set を見てしまうため）。force はいつでも再 probe する（clone 直後の判定が clone より前の結果になっては困る）
-  - 判定は `checkRoots`（バッジ用の全件プローブ。distro ごとに `wsl.exe` 起動＋`backfillRemotes` の git 往復）ではなく、**当該 root 1 件の `fsDirsExist`**。プロジェクトを開くたびに全件プローブを待たせないため。プローブ失敗は「分からない」なので present 扱いで開かせる（`checkRoots` と同じ規約）
-  - 「未取得」バッジは ProjectPanel と ProjectSwitcher の両方に出るので、`theme.css` の共有クラス `.missing-tag`（`.ctx-key` と同じ位置づけ）。行を塗る側は自分の scoped CSS で色を上書きする
-  - **ネイティブな WSL パス（`/home/...`）を渡すときは distro のヒントが要る**。`project_transient_create` は `\\wsl.localhost\<distro>\...` の UNC 形からしか distro を読めないので、ヒント無しだと Windows プロジェクトとして組み立てられ、開いたウィンドウが `/home/...` を C ドライブに探しに行く。`stores/project.ts` の `distroHintFor` が「`/` 始まりのパス」かつ「今のプロジェクトが WSL」のときだけ現在の distro を渡す（Windows パスや UNC に渡すとヒントのほうが勝ってしまう）。`openDirectory` / `openDirectoryAsProject` の両方が通る
-  - `openDirectoryAsProject(path, mode)` は「登録して開く」。未登録なら `projectTransientCreate` で backend にプラットフォーム / シェル / distro を推測させ、`uniqueProjectId` を通して登録してから `placeProject`（新規作成なので未取得チェックの対象外）。登録済みの root を渡されたら `openProject` に流す。root を渡された時点で存在は確認済み（ディレクトリだと判定してから呼ぶ）
-  - `openDirectory(path, mode)`（#230）はこの 3 つの外側にあるが、**一覧から選ぶ経路ではない**（ユーザーがピッカーで指したディレクトリなので、そこに無いなら選べていない）ため未取得チェックの対象外。`placeProject` と同じ位置づけ
-- **登録せずに開くディレクトリ（一時プロジェクト、#230）**: `pike <dir>` は未登録のディレクトリに対して `project.json` を書いていたので、中を見たいだけのディレクトリが一覧・`last_project.txt`・ジャンプリスト・同期ファイルに残り、手で消すしか戻す道がなかった。代わりに `src-tauri/src/project/transient.rs` の `TransientState`（id → `ProjectConfig` のメモリ内マップ）に載せる
-  - **`window_projects` には登録済みと同じように id を入れる**。これが要点で、ウィンドウの focus・CLI ルーティング・`project_for_window` は「匿名ウィンドウ」という概念を持たなくて済む。特別扱いが要るのは**書き込み側だけ**で、その一覧は `transient.rs` のモジュール doc が正本（`project.json` 系 / `last_project.txt` / 同期・シェルメニュー / ウィンドウ geometry）
-  - **`window-geometry.json`（#200）だけは意図的に書く**。`key_for` が `window_projects` を読むので一時プロジェクトも記録され、id をディレクトリ名の slug にしてあるぶん開き直すとサイズが戻る。代償は「この方法で開いたディレクトリごとに 1 エントリ残る」
-  - **`project.json` への書き込みガードは `saveProject` に置く**（呼び出し側ではなく）。あそこが `ProjectConfig` をディスクへ書く唯一の場所で、`stores/git.ts` が origin を記録するのに既に通っている。呼び出し側に置くと、残り 8 箇所が同じ無言の失敗を踏みうる
-  - **登録するか聞くのは `adoptProject` の中**（App.vue ではなく）。clone の確認（#212）と同じ「adopt → 聞く → 実行」なので、同じ関数に畳んで「前半だけ書いて後半を忘れる」を防ぐ。ただし**await しない**: mount の続き（クロスウィンドウ listener・`beforeunload`・トレイ周り）がダイアログの前で止まる
-  - **他のプロジェクトへ切り替えたら、その場でエントリを落とす**（ウィンドウを閉じるときではなく）。残すと `pike <そのディレクトリ>` が、もう表示していないウィンドウを focus し続ける
-  - **登録するときは `uniqueProjectId` を通す**。Rust 側は登録済みと他の一時プロジェクトに対しては一意にしているが、**hide 済みの id（#164、localStorage にある）は見えない**。ぶつかったまま書くと、その sync エントリの identity を引き継いでしまう。id が変わっても `projectAddOpen` が `window_projects` を張り直すので focus と CLI ルーティングは繋がったまま
-  - フロントは `transientProject` ref に持ち、**`projects` 配列には入れない**。パネル / スイッチャー / ジャンプリスト / 同期 push はすべてあの配列を見ているので、入れないことがそのまま「出て行かない」になる（各所でフラグを見るのではなく）
-  - id は**ディレクトリ名の slug**（登録済みと他の一時プロジェクトの両方に対して一意化）。uuid にしないのは、同じディレクトリを開き直したときにウィンドウ geometry（#200）を引き継ぐため
-  - **同じディレクトリの 2 回目は既存ウィンドウを focus する**。`project_id_for_root` が登録済み一覧に続けて `TransientState` も引く。エントリはウィンドウの `Destroyed` で落とすので、「一致したのにウィンドウが無い」は起こらない
-  - **`OpenFiles` のルーティングも一時プロジェクトを引く**（`project_by_id`）。登録済み一覧だけを見ていると、そのディレクトリ配下のファイルを `pike file.rs` で開いてもサイドバーの無いグローバルウィンドウが出る
-  - **開いたときに 1 度だけ登録するか聞く**（App.vue の `offerToRegisterDirectory`）。「いいえ」でその root を `pike:transient-roots`（マシンローカル、同期・broadcast の対象外）に記録して次回から聞かない。ProjectSwitcher の「ディレクトリを開く」は選択そのものが答えなので、開くと同時に記録して聞かない
-  - 登録は `registerTransientProject`（ProjectPanel の一時バー）。**id をそのまま使う**ので `window_projects` が指す先が変わらず、focus も CLI ルーティングも繋がったまま
-- 同期（#164）との関係: `SyncedProject` に `icon` / `order` を追加。**push はローカルの値をそのまま publish する（同じ id の既存エントリを丸ごと置き換える）**。以前は空欄だけを埋めていたため、ファイルに一度入った値が恒久化し、(1) 後からの改名・色変更・グループ変更が他マシンへ出て行かない、(2) 手元で**消した**フィールドがファイル側に残り、次回起動の pull で復活する、の 2 つが起きていた（実測: `school` のグループがファイル側で `WORK` のまま 3 週間化石化）。代償は「2 台以上なら最後に走ったマシンが勝つ」で、**何も起きない編集より上書きされうる編集を採る**という判断。pull 側は従来どおり既存プロジェクトへの穴埋めのみ（起動時の pull が手元の編集を古い値で潰さないため）。手元に無いプロジェクトのエントリには触らない。グループ順は sync ファイルの `groups` セクションに載せ、pull 側は「リモートの順を採用し、ローカルにしか無いグループを末尾へ」。**新しい共有フィールドは push の watcher キー（`stores/project.ts`）にも足すこと**。入れ忘れると push 自体が発火しない
-- **削除の記録は id だけでは足りない（#164）**: 同期ファイルは 1 つのリポジトリに対して複数の id を持ちうる（各マシンが別々に登録すると別 id になる。実測でこのマシンの dotfiles が 4 id）。`HiddenProject` は `root` と `remoteUrl` も持ち、pull は id・解決後の root・正規化した origin の 3 つで照合する。**照合は `pullProjectsFromSync` の中で重複ガード（`localRoots` / `localRemotes`）と並べて組み立てる**: 「同じプロジェクトか」の判定軸を増やしたとき、片方だけ直すと無言で複製か復活が出る。root の比較キーは `lib/projectPaths.ts` の `rootKey`（区切りの正規化＋末尾スラッシュ除去＋小文字化。`relativeToBase` と違い WSL でも大小を無視する＝「同じディレクトリを登録済みか」の判定なので）。id だけを見ていたころは、手元のコピーを削除すると兄弟エントリが「まだ知らないプロジェクト」として作り直され、**古い名前・色/アイコン無しで復活していた**（ユーザーからはプロジェクト設定が巻き戻ったように見える）。origin の比較は `lib/gitRemote.ts` の `normalizeRemoteUrl` を通すこと: 同じリポジトリが `git@host:owner/repo.git` と `https://host/owner/repo` の両方の形でファイルに入るため、生の文字列比較では重複ガードが素通りする。過去に hide した記録には root も origin も無いので、この照合が効くのは今後の削除だけ
-
-### ファイルツリー / エディタ
-- Rust `fs` モジュールが WSL/Windows 両対応のファイル操作を提供（list_dir / read_file / write_file）
-- WSL: `wsl.exe find`, `wsl.exe cat`, `wsl.exe bash -c "cat > ..."` 経由
-- Windows: `std::fs` 直接アクセス
-- ファイルサイズ事前チェック（2MB 制限）
-- CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）、シンタックスハイライトは 30 言語（一覧の唯一の出典は `lib/languages.ts` の `EXT_MAP` / `NAME_MAP`）
-- Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）。Ctrl+Z/Shift+Z で Undo/Redo
-- エディタ内検索・置換: Ctrl+F / Ctrl+H でカスタム検索パネル（右上フローティング、アイコンボタン、マッチ数表示）
-- Git diff ガター: 追加行（緑）・変更行（黄）・削除行（赤三角）をガターに表示。`git_diff_lines` コマンドで行単位の差分を取得
-- ミニマップ: `@replit/codemirror-minimap` を採用。blocks モード、シンタックスカラー反映、正確なスクロール同期、git diff ガター表示
-- エディタコンテキストメニュー: Undo/Redo/Cut/Copy/Paste/Git History（Teleport パターン）
-- ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
-- 画像ビューワタブ（base64 経由、ズーム/回転/反転/パン/fit の表示専用操作）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
-- Markdown プレビュー内リンク: 外部 URL は confirm 付きで `open_url` 経由の外部ブラウザ起動、ローカルファイルはプロジェクトルート内に限定して EditorTab で開く（`resolveLocalPath` でディレクトリトラバーサル防止 + `decodeURIComponent` 対応）
-- 文字コード対応: `encoding_rs` で自動検出 + 指定エンコードでの開き直し/保存（StatusBar 2段階 UI）
-- 改行コード LF/CRLF 切替（StatusBar クリック）、保存時に適用
-- ファイルツリーコンテキストメニュー: リネーム（インライン入力）、削除（カスタム confirm ダイアログ）、Git History（専用タブ）、フォルダ限定「エクスプローラーで開く」（`fs_open_in_explorer`。WSL は `\\wsl.localhost\{distro}` UNC に変換して explorer.exe 起動）
-- ドラッグ&ドロップ移動 + Ctrl でコピー（`dragDropEnabled: false` で Tauri ネイティブ D&D を無効化）
-- **ツリーの余白はルート宛てのドロップ先にする**（`.tree-root-drop`）: ツリーはルートの子しか描かないので、最後の行より下に落としても受け手がおらず、App.vue の window ガードがイベントを飲んで無言で何も起きない。パネルを `min-height: 100%` で伸ばし、余った縦スペースを占める filler にハンドラを置く。パネルのルート要素に `.self` 修飾子で付ける手もあるが、ツリーがあふれると空き領域がゼロになってルートに落とせなくなる
-- ダーティエディタタブの閉じ確認ダイアログ（カスタム confirm）
-- WSL コマンドにパス引数前の `--` を付与（フラグ injection 防止）
-- 外部 URL オープン: `open_url` コマンドは http/https のみ許可（Rust 側でバリデーション）。`explorer.exe` 経由で開く（`cmd.exe /C start` はシェルメタ文字インジェクションの危険があるため不使用）。フロント側でも confirm ダイアログを表示
-
-### Git 統合
-- `git` CLI 経由（WSL/Windows 両対応）。`git2` クレートは使わない
-- Rust 側 `build_git_command` が ShellConfig に応じて `wsl.exe git` / `git` を組み立て
-- ステータスバーにブランチ名+ダーティ表示、クリックでブランチ切替
-- ブランチ切替ドロップダウンのリモートブランチ対応（#197）: `git_branch_list` は `for-each-ref --format=%(refname) refs/heads refs/remotes` で `GitBranches { local, remote }` を返す（`<remote>/HEAD` は symbolic ref なので除外）。リモートは**ローカルに同名が無いものだけ**を「リモートブランチ」見出し配下に出し、選択で `git_checkout_track`（`git checkout --track origin/foo`）で追跡ローカルブランチを作って切替。ローカル名は git に決めさせる（`localBranchName` は表示判定専用のヘルパーで、リモート名にスラッシュを含む稀なケースでも checkout 側は壊れない）。既にローカルがある場合は `--track` が失敗するので `gitCheckout` にフォールバック。ドロップダウンを開くと `refreshRemoteBranches` が**既存の throttled `fetchInBackground`（60 秒間隔・focus 必須）**を再利用して fetch → 一覧再読込（開くたびに通信しない）。一覧は cached refs で即表示し、fetch は待たない。QuickOpen の `!` モードはローカルのみ（従来どおり）
-- Git パネル: ステージング/アンステージ、コミット、push/pull/refresh、コミットツリー展開
-- 非 git リポジトリ対応（#156）: `git status` がエラーの時、`git_is_repo`（`git rev-parse --is-inside-work-tree`、非 repo でも Err にせず `false` を返す）で「リポジトリじゃない」を切り分け、`gitStore.isRepo=false` にして生の git エラーを出さない。GitPanel は専用ビュー（メッセージ + 「リポジトリを初期化」ボタン → `git_init`）を表示（VSCode 風）。init 後は status/log/remote を再読込
-- コンフリクト（unmerged）表示: `parse_status` が porcelain v2 の `u ` 行をパースし `GitStatusResult.conflicted`（status は XY コード `UU`/`AA` 等）に格納。GitPanel 最上部の専用「Conflicts」セクションでパスを赤字（`--danger`）表示、クリックで作業ツリーのファイルをエディタで開く。SideBar の Git バッジ件数に conflicted を加算し、コンフリクト時は danger（赤）バッジ。エディタは `lib/editorConflict.ts`（CodeMirror ViewPlugin）でマーカー行（`<<<<<<<`/`|||||||`/`=======`/`>>>>>>>`）と各セクション本文を色分けハイライト（半透明オーバーレイで両テーマ対応）
-- **エディタ上のコンフリクト解消（#223）**: 同じ `editorConflict.ts` に、各領域の上へブロック widget のボタン列（ours / theirs / 両方）と、`showPanel` の上部バー（件数＋ファイル全体の一括適用）を足した
-  - **パースは `StateField<Conflict[]>` に 1 回だけ**（`editorGitGutter.ts` の `diffField` と同じ形）。decoration・パネルの出し入れ・パネルの中身・widget が全部これを読む。この拡張は**全エディタタブに常時入っている**ので、素朴に書くと打鍵ごとに全行走査が 4 周する（コンフリクトの無いファイルでも）。走査は `doc.iterLines()` の 1 パスで、行ごとの `doc.line(i)`（木を毎回降りる）は使わない
-  - `Conflict.lines` が領域内の全行と色分け種別を持つので、**decoration の構築はドキュメント全行ではなくコンフリクト行数に比例する**
-  - **ボタンのラベルはマーカー行から取る**（`<<<<<<< HEAD` → 「HEAD を採用」）。無ければ「現在の変更を採用」に落とす
-  - **diff3（`|||||||` あり）では ours の終端が `=======` ではなく base マーカー**。base セクションはどちらの側でもない
-  - 置換は 1 トランザクションにまとめる（一括適用も `Ctrl+Z` 一回で戻る）。片側が空のときは直前の改行ごと消す（残すと空行が残る）
-  - **保存もステージもしない**。`Ctrl+S` と Git パネルの担当のままにして、解消 → 保存 → ステージ → #222 の「続行」という既存の流れに乗せる
-  - **ステージの導線は Conflicts セクションに足した**（各行の Check ボタンと見出しの「すべて解決済みに」）。porcelain v2 の `u ` 行は `conflicted` にしか入らず、コンフリクト中のファイルは Unstaged 一覧に出ないため、**それまでは Pike からステージする手段が無かった**（作業ツリーのマーカーを消しても index は unmerged のままで、`git add` するまで一覧に残り続ける）。マーカーが残っているファイルは `fs_read_file` で見て名前を挙げて確認する（そのままステージするとマーカーごとコミットされる）
-  - 未完成の領域（`<<<<<<<` はあるが `>>>>>>>` がまだ無い＝編集中）は色分けだけして**ボタンを出さない**。丸ごと書き換えられる領域だけが対象
-  - **読み取り専用の判定は `EditorState.readOnly`**。`EditorView.editable` は Pike が一度も設定しない別 facet（既定 true）なので、あれを見てもガードにならない
-  - `WidgetType.eq` はオフセットを比較しない（上を編集するたびに全部の行がずれて、下の widget が毎打鍵で作り直される）。index とラベルだけを見て、クリック時に `conflictField` から現在の領域を読み直す
-  - **ラベルは DOM 構築時に焼き込まれる**ので、UI 言語の切替に追随させるため `EditorTab.vue` が `conflictCompartment` で再登録する（他の設定と同じ compartment の流儀）
-- diff タブ: 左右分割表示、文字単位ハイライト（common prefix/suffix 方式）
-- **途中停止した操作の検出と再開（#222）**: `GitStatusResult.operation`（`GitOperation { kind, branch, step, total, stop, stoppedSha, stoppedSubject }`）を `git_status` の中で埋め、GitPanel 最上部にバナー＋続行 / 中止ボタンを出す。別コマンドにしないのは、10 秒ポーリング・StatusBar・worktree ストアが既に `git_status` を通っているため（2 つに分けると「競合あり」と「操作なし」が食い違いうる）。探索の失敗は握り潰す（`operation` のせいで status が Err になってはいけない）
-  - **検出を条件で間引かない**: 「HEAD が detached、または競合あり」のときだけ探索する案は**素の `git pull`（マージ）の停止を丸ごと取りこぼす**。実測で、マージ競合停止は `# branch.head` が `main` のままで、署名失敗のマージに至っては競合 0・detached でない・`MERGE_HEAD` だけが痕跡という状態になる。代わりに探索を `git status` と同じ 1 往復に畳んだ（WSL は `remote_urls_wsl` と同じ「`bash -c` で複数の git 呼び出しを 1 回の `wsl.exe` にまとめる」手口。定常コストは従来と同じ 1 spawn）
-  - 状態ファイルは gitdir 配下にあるので、`git rev-parse --absolute-git-dir` 1 回で `.git` がファイルの linked worktree も通る。ただし **Windows 側は `<root>/.git` がディレクトリなら rev-parse を省く**（通常のリポジトリはこれで当たり、プロセス起動が 1 回で済む。WSL 側は既に同じ spawn の中なので分岐しない）。**パスのキャッシュは持たない**（ステートレス方針）
-  - **存在判定に `fs::batch_read_files` を使わない**: あれは中身を trim して空を `None` に潰すため、`message` が「空」なのか「無い」のか区別できない。`commit-failed` の判定はそこに乗っている。WSL 側は `exists FS content` のレコードを `OP_STATE_FILES` の順で返す（`remote_urls_wsl` と同じ位置対応。名前は流さない）
-  - `OP_STATE_FILES` は `(パス, 内容を読むか)` の表。ほとんどは「git が書いたか」だけが信号なので `cat` しない。とくに `BISECT_LOG` は bisect の 1 ステップごとに増えるため、読むと 10 秒ごとに全文がパイプを渡る
-  - **どの種別にボタンを出すかは Rust が `can_continue` で返す**（`am` はメールボックス、`bisect` は good/bad が要るので対象外）。フロントの定数にすると、種別を増やしたときに更新漏れが型エラーにならず無言でボタンが消える
-  - **`rebase-merge/interactive` は `-i` の判別に使えない**（素の `git rebase` でも作られる。実測）。rebase / am の区別は `rebase-apply/applying` の有無
-  - `stop` の分類: 競合あり → `conflict`（`.git` から再導出せず、パース済みの `conflicted` を使う）/ rebase かつ競合なしかつ `message` も `stopped-sha` も無い → `commit-failed` / それ以外 → `stopped`。**マージ系に `commit-failed` の特別扱いは要らない**（`git merge --continue` が `MERGE_MSG` でコミットし直すので、署名失敗でも通常の続行で復帰する。実測）
-  - **復帰コマンドはターミナルタブで走らせる**（`runCommandTab`、`cwd=activeRoot`・`keepOnError: true`・`onExit` で status/log 再取得）。`git rebase --continue` は `$EDITOR` を開き、署名は 1Password の承認ダイアログを伴い、バックエンドの git 呼び出しは TTY 無し・stdout 破棄・30 秒タイムアウトでどれも通らない。`--abort` も同じ経路（失敗しうるものをバックエンドに回すと、この issue が直そうとしている「生の stderr がパネルを潰す」経路に戻る）
-  - **コンフリクトが残っている間は「続行」を押せない**（`conflicted` が非空なら disable ＋ ツールチップ、store 側にも同じガード）。どの `--continue` も未 merge のパスがあると `You must edit all merge conflicts and then mark them as resolved using git add` で即座に拒否するので、押せるようにしておくとユーザーをそのエラーに突き当てるだけになる
-  - **コマンドの連結は `types/tab.ts` の `chainOnSuccess` を通す**: **Windows PowerShell 5 には `&&` が無く**（パースエラー。pwsh 7 / cmd / bash 系にはある）、`;` は失敗しても次を走らせてしまうので、あのシェルだけ `; if ($LASTEXITCODE -eq 0) { … }` に落とす。復帰は「コミットし直してから続行」の 2 段なので、コミットが再び失敗したら続行してはいけない
-  - **`git commit -C <SHA>` の誤爆ガード**: SHA は `rebase-merge/done` の**末尾行**から取る（競合停止では todo が空になるため、todo の先頭行は当てにできない。両方の停止で実測）。`done` は追記書き込みなので末尾行が不完全なことがあり、`pick`/`reword`/`edit`/`squash`/`fixup` で始まり SHA が hex であることを確認する。`exec` / `break` の停止ではコミットは既に成功しているので**ボタンを出さない**（出すと他コミットの author・日時・メッセージを被せた偽コミットを黙って作る）。押下時は確認ダイアログに SHA・件名・実行コマンドを出す
-- `git_pull` だけ失敗時に stdout も返す（`CONFLICT (content): …` は stdout 側で、共通の `spawn_stdout` は stderr しか残さない）。`spawn_stdout` 自体は触らない（全 git コマンドのエラー文が変わる）
-- **`gitStore.error` はパネル全体を置き換えない**: `status` があるときはセクション上部のストリップとして出す。以前は `v-else-if` でパネル本体ごと差し替えていたため、pull が止まった瞬間に競合一覧もコミット欄も消えていた。`pull()` は失敗時も `refreshStatus` / `refreshLog` を呼ぶ（呼ばないとバナーと競合一覧が次のポーリングまで 10 秒出ない）。**エラーの代入は refresh の後**（`doRefreshStatus` は成功時に `error` を null に戻すので、先に入れると消える）
-- SideBar の git マーカー（ahead/behind の矢印）は、操作が止まっているときは `!` を優先表示する。署名失敗の pull は競合 0・変更件数 0 なので、パネルを閉じているとバッジにも矢印にも出ない
-- ahead/behind: `git status --porcelain=v2 --branch` の `# branch.ab` 行をパース。GitPanel コミットボタン下にテキスト表示、SideBar の pull/push ボタンを primary スタイルに変更
-- コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
-- ツールチップ・コンテキストメニューの位置決め（#204）: 高さが中身次第で決まるので、**hidden で描画 → 実測 → 配置**の順に置く。配線は `composables/useAnchoredPopup.ts`（`useTemplateRef` で受けた要素を `nextTick` 後に計測し、`style` に位置と `visibility` を返す）、幾何は `lib/popupPosition.ts`（`placeNearAnchor` = 上優先・入らなければ下、`clampToViewport` = カーソル位置を画面内へ）。測るまで hidden なのは仮位置に 1 フレーム出てから飛ぶのを防ぐため（`display: none` は測れず、`opacity: 0` はクリックを拾う）。ウィンドウより高いメッセージは CSS の `max-height` で頭を残して切る（`pointer-events: none` なのでスクロールできない）。**CSS の anchor positioning は採らない**: Chromium 125+ が要るが Tauri は WebView2 のバージョンを固定できず、失敗しても例外ではなく「変な位置に出る」だけで気付けない。カーソル位置に開くメニューは**全部この composable を通す**（GitPanel のコミット/ファイル、FileTreePanel、TabPane のタブ/管理者、SideBar の pull-push、EditorTab）。**新しいメニューを足すときも同じ**（生の `clientX/clientY` を `style` に流すと画面端で見切れる）。SideBar の pull/push メニューだけは `.sidebar.ui-zoom` の内側にあり、UI ズームが 1 以外だと clamp が概算になる（座標系が zoom 倍される。既定の 1 では厳密）
-- ブランチマージグラフ: `git log --all` + `%P`（親ハッシュ）/`%D`（refs）で取得、`gitGraph.ts` のレーン割当アルゴリズムで SVG 描画。List / Graph 切替
-- git log フォーマット区切り: ASCII Unit Separator (`%x1f`) + Record Separator (`%x1e`) を使用（NUL だと `%D` が空のコミットでレコード区切りと衝突するため）
-
-### Git worktree 連動
-- `git_worktree_list` コマンド（`git worktree list --porcelain` をパース）が `{ path, branch, head, isBare, isDetached, isMain }[]` を返す。bare クローン構成では bare エントリを main 扱いせず**最初の非 bare** を `isMain` とし、`prunable`（ディレクトリ消失）worktree は一覧から除外
-- **参照ルートの単一の真実**: `stores/project.ts` の `activeRoot`（非 null computed = `activeWorktreeRoot ?? currentProject.root ?? ''`）。file tree / git / search / tasks / docker、およびエディタの git 操作（diff ガター・History・定義ジャンプ・MD リンク解決）はすべて `project.root` ではなく `activeRoot` を参照する。root 相対操作で残る `project.root` 直参照は worktree 追従漏れのサイン（ターミナル cwd / agent cwd / 画像アップロード先など意図的にプロジェクト固定の箇所を除く）
-- `stores/worktree.ts`: worktree 一覧・`setActiveWorktree(w)`（`isMain` フラグで null/パスを決定。文字列一致に依存しない）・focus 連動ポーリング（`gitStore.status` が非 null の git リポジトリのみ。同一ウィンドウ内ターミナルでの `git worktree add` を反映、古い load 結果は projectId で stale ガード）
-- ステータスバーの worktree セレクタ（`FolderGit2`、worktree が 2 つ以上の時のみ表示）。選択で 5 パネル + エディタを再読込
-- fs watcher は App.vue の `watch(activeRoot)` 単一所有で再ポイント（worktree 切替・プロジェクト切替の両方をカバー。リポジトリ外の worktree でも更新を取得）
-- 切替単位はウィンドウ（プロジェクト）ごとに 1 つ。起動時は常に main worktree（`activeWorktreeRoot=null`）から開始、セッション非永続。タブ切替による自動追従は未実装（agent を root で起動し内部で worktree を選ぶ運用では cwd ベース検出が効かないため手動セレクタを主軸とする。将来 agent タブ常用時に再検討）
-
-### Docker 統合
-- `bollard` クレートで Docker API に接続（named pipe → TCP:2375 → TCP:2376 フォールバック）
-- クライアントは `OnceCell` でキャッシュし、毎コマンドの再接続を回避
-- compose ファイルは `serde_yaml` でパースしてサービス一覧表示
-- **compose の探索範囲（#221）**: `docker_compose_discover` がプロジェクト直下＋サブディレクトリ 2 階層（`MAX_DEPTH`=3。walker は root 直下のファイルを深さ 1 と数える）を走査し、compose ファイルごとに `ComposeProject { dir, file, name, services }` を返す。探索は `fs::walk_files_by_name`、読み込みは `fs::batch_read_files`（WSL は 1 往復）と、タスク検出と同じ共有ヘルパーを使う。1 ディレクトリにつき 1 ファイル（`COMPOSE_FILE_NAMES` の順＝Compose 自身の優先順）に畳み、`MAX_COMPOSE_FILES`=50 で打ち切る。**タスク検出と違い rg 経由の `.gitignore` 尊重はしない**（`SearchState` を持ち込むほどの深さではないため）ので、`vendor/` の除外だけタスク側と同じ方法で明示的にやっている
-- コンテナとサービスのマッチは **`com.docker.compose.project.working_dir` ラベルと `ComposeProject.dir` の一致が第一候補**（Compose 自身が記録した事実なので、`-p` / 環境変数や `.env` の `COMPOSE_PROJECT_NAME` でプロジェクト名を変えていても効く）。ラベルが無い古い Compose 由来のコンテナ向けに、`com.docker.compose.project` と**ディレクトリから導いた名前**の比較をフォールバックに残してある。導出は Compose の `NormalizeProjectName` と同じ（小文字化 → `[a-z0-9_-]` 以外を除去 → 先頭の `_`/`-` を落とす）で、compose ファイルに top-level `name:` があればそちらが優先。以前はフロントで `[^a-z0-9]` を全部落としていたため、`my-app` のようにハイフンを含むディレクトリのプロジェクトが 1 つもマッチしなかった（実コンテナのラベルで確認済み: `screenshot-com-440-…` はハイフンが残る）
-- グループ見出しのパスをクリックすると compose ファイルをエディタで開く（Tasks パネルの `openSourceFile`（#159）と同じ操作感に揃えてある）
-- start / stop / restart / refresh を UI から実行、5秒ポーリングで状態更新
-- compose up / down（#157、#221 でグループ単位へ）: DockerPanel の**グループ見出し**（Play / Square）→ confirm 後に `docker compose up -d` / `docker compose down` をターミナルタブで実行（`dockerStore.composeUp/composeDown(target)`、cwd=**その compose ファイルのディレクトリ**・closeOnExit。タスク実行と同じパターン）。compose が複数あると対象が一意に決まらないため、SideBar ヘッダーの 2 ボタンは廃止した
-- ログストリーミングは 50ms バッファリング + Tauri イベント emit
-- DockerLogsTab は xterm.js ベース（読み取り専用、`convertEol: true`）
-- `docker exec` シェル: bollard exec API でコンテナ内シェルを検出（bash → sh フォールバック）、プロジェクトのシェル内で `docker exec -it` を autoStart 実行
-- ポートフォワード（#120）: `docker/tunnel.rs`。未公開ポートへ `alpine/socat` 一時コンテナ（`auto_remove` + `pike.tunnel*` ラベル、対象と同一ネットワーク優先=非 bridge）で `127.0.0.1` から転送。**owner ラベル**（`pike.tunnel.owner`=アプリ identifier、setup で `DockerState.instance_id` に設定）でインスタンススコープ化し、共存する installed/dev が互いのトンネルを掃除しない。**ローカルポートはデーモン割当**（`host_port=""` → start 後 inspect で取得。ホスト側プローブは TOCTOU と WSL2 名前空間不一致があるため不使用）。**接続先はカスタムネットワークならコンテナ名**（Docker 内蔵 DNS。restart/recreate の IP 変化に追従）、bridge のみ IP。start 失敗時は手動ロールバック削除（auto_remove は start 前に効かない）。作成後に TCP 接続プローブで readiness 確認（best-effort ~1s）。トンネル一覧は `docker_list_containers` が 1 回の list を `{ containers, tunnels }`（`ContainerListResult`）に分配して返す（running + 自 owner のみ。専用 list コマンドなし、ポーリングの API 往復も 1 回）。掃除は初回 Docker 接続時（自 owner のクラッシュ残骸をラベル sweep、`join_all` 並列）と `RunEvent::Exit`（このセッションで作成した場合のみ=`tunnels_created` フラグ、3 秒 timeout 付き `block_on`。Exit コールバックは Tauri の teardown 前に走りランタイムは生存）。停止は remove 失敗を伝搬（auto_remove 競合で消滅済みなら成功扱い）。ポート候補は inspect の `exposed_ports`（EXPOSE / compose expose 由来、`/tcp` のみ）。UI は DockerPanel 実行中サービス行の Cable ボタン → `promptDialog` でポート入力 → サービス行直下にトンネル行（`open_url` で開く / 停止）。対象コンテナが消えた/再作成されたトンネルは「その他のフォワード」セクションに表示して停止可能にする。作成中ガードは `tunnelBusy: string[]`（コンテナ別）
-
-### セッション永続化
-- タブの並び順・アクティブタブ・種別を `ProjectConfig.lastSession` に保存
-- Pinia `$subscribe` でタブ変更を検知 → 1秒デバウンスで `project.json` に書き出し
-- `beforeunload` で即時保存（best-effort、async なので保証なし）
-- プロジェクト復元時: `lastSession` があればそこから復元、なければ `pinnedTabs` にフォールバック
-- AI エージェントのセッション復帰は各ツールの resume 機能に委譲（`RESUME_MAP` で `claude` → `claude --continue` に変換）
-- tmux はオプション機能として `pty_spawn_tmux` コマンドで利用可能（必須ではない）
-- タブのドラッグ&ドロップ入れ替え（HTML5 Drag and Drop API、box-shadow でドロップ位置表示）
-- タブコンテキストメニュー: Pin/Unpin、Close、Close Others、Close to the Right、Close Saved、Close All
-  - ファイル系タブ（editor/preview/diff/history）では Copy Path、エディタタブでは Git History も表示
-  - バルク操作は pinned タブをスキップ、未保存エディタがある場合は一括確認ダイアログ
-
-### Docker / bollard
-- フォールバック戦略で接続（musql と同一パターン）:
-  1. `Docker::connect_with_local_defaults()` — named pipe / DOCKER_HOST 環境変数
-  2. `Docker::connect_with_http("tcp://127.0.0.1:2375")` — WSL2 dockerd (unencrypted)
-  3. `Docker::connect_with_http("tcp://127.0.0.1:2376")` — WSL2 dockerd (encrypted)
-- 各接続で `ping()` して到達確認、最初に成功したものを使う
-- Docker Desktop なしでも WSL2 の dockerd が TCP を公開していれば接続可能
-
-### マルチウィンドウ
-- ProjectSwitcher の Ctrl+Enter または ProjectPanel の ExternalLink ボタンで新ウィンドウにプロジェクトを開く
-- ウィンドウラベルは**不透明な `project-{uuid}`**（`global-{uuid}` と同様）。プロジェクトとの対応は Rust の `ProjectState.window_projects`（label → 現在のプロジェクト id）が**唯一の真実**で、`build_project_window` が生成時に seed し、in-place の `switchProject` ごとに `project_add_open` が更新する（#175）。ラベルから id をパースしない（旧 `project-{id}` 方式・`window_project_id`/`getWindowProjectId` は廃止）。フロントは起動時に `project_for_window` コマンドで自ウィンドウのプロジェクトを取得する。ウィンドウ解決（フォーカス/新規・CLI ルーティング・破棄時の `last_project.txt` 掃除）はすべてこのマップ経由（`find_project_window`）。同一プロジェクトの二重起動は既存ウィンドウをフォーカス（マップで検出）
-- Tauri v2 の各ウィンドウは独立 JS コンテキスト → Pinia ストアは自然にウィンドウごとに分離
-- PTY/Docker イベントは `app.emit()` で全ウィンドウにブロードキャスト、ルーターが ID でフィルタ
-- **特定ウィンドウ宛てイベントの受信は `getCurrentWindow().listen()` を使う**（`@tauri-apps/api/event` の素の `listen()` は使わない）: Rust が `app.emit_to(label, …)` で 1 ウィンドウに送っても、素の `listen()` はデフォルト target が `Any` のため**全ウィンドウで発火**する。`cli_open` のようにルーティング済みの宛先ウィンドウだけで処理したいイベントは、必ず `getCurrentWindow().listen()`（target = 自ラベル）で受ける（過去に `useCliOpen` が素の `listen()` を使い、外部ファイルを開くと全ウィンドウが開こうとしてエラーになった）。全ブロードキャスト＋ID フィルタ方式（PTY/Docker）とは使い分ける
-- 全ウィンドウ（main + 子）が `last_project.txt` に自身のプロジェクト ID を登録し、起動時に復元
-- **main ウィンドウ close → トレイに常駐（#161、後述「システムトレイ」）**。main は破棄せず hide し、アプリは終了しない。実際の終了はトレイの「終了」（`app.exit`）のみ。子ウィンドウを全部閉じても hidden main が残るためアプリは常駐し続ける（旧: main close＝アプリ終了・`app-should-exit` 自動終了は廃止）。**設定 `closeToTray` が OFF でも main の close が他ウィンドウを道連れにすることは無い**（詳細は「システムトレイ」の #202 の bullet）
-- `find_project_window` はマップが一致したウィンドウをそのまま返す（可視判定なし。呼び出し側が `restore_window` する）。以前は非可視のヒットを stale ハンドルとみなして `close()` していたが、ラベルが単発 uuid になり（#175）`Destroyed` がマップを drain する今、非可視で残りうるのは hide 中の main だけで、この GC は main の close 経路に再入して OFF 設定ではアプリ終了を招くだけだった（#202）
-- 子ウィンドウ close → `beforeunload` で session 保存 + PTY kill（ベストエフォート）
-
-### タスクランナー（just、#231）
-- 開発タスクの入口は `justfile`。`just` でレシピ一覧、`just check` でコミット前チェック一式、`just bump X.Y.Z` でバージョン更新。CI の 3 ワークフローも同じレシピを呼ぶ（ステップ名は残したまま中身だけ just に寄せてあるので、失敗箇所の粒度は従来どおり）
-- **レシピの実体は `package.json` の scripts に置いたまま**、just はその薄いファサードにしてある。tauri CLI や CI の慣習で npm 経由が要るもの（`npm run build` 等）を壊さないため。例外は `e2e-sync` 系で、こちらは `scripts/*.sh` を直接呼ぶ（理由は次の bullet）
-- **`set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-cu"]` が要る**。理由は 2 つで、(1) just の Windows 既定シェルは `sh -c` だが **`sh` はこのマシンの PATH に無い**（全レシピが即座に落ちる）、(2) PATH 上の `bash` は `C:\Windows\System32\bash.exe`＝**WSL ランチャ**で、そちらには Windows 側の node / tauri / ImageMagick が無い。Git Bash を指すと `magick` も PATH で解決するので、「`npm run e2e:sync` を WSL の bash で回すと ImageMagick が見つからず止まる」という従来の落とし穴もレシピ側で塞がる
-- `cmd.exe /c` は候補から外した。**先頭が引用符の行を cmd が引用符ごと剥がす**ため、`"C:/Program Files/Git/bin/bash.exe" scripts/x.sh` が `'C:/Program' は…認識されていません` になる（実測）
-- 別の場所に Git を入れている環境は `just --shell <bash へのパス>` で上書きする（設定値は文字列リテラルしか取れないので変数化できない）
-- CI での just 導入は `extractions/setup-just`（他の action と同じく SHA ピン留め）
-
-### 開発ビルド
-- `just dev`（= `npm run tauri:dev`）で開発版を起動（`tauri.dev.conf.json` で identifier を `com.pike.dev.debug` に上書き）
-- インストール版 Pike (`com.pike.dev`) と開発版 (`com.pike.dev.debug`) は single-instance が別扱いになるため共存可能
-- `import.meta.env.DEV` が true の場合、ウィンドウタイトルに `[DEBUG]` プレフィックスを付与
-- トレイアイコンも同じ表記で見分ける（`tray::app_label` が「Pike [DEBUG]」を返し、ツールチップとメニュー先頭の見出しに出る）。判定は `cfg!(debug_assertions)`（`tauri:dev`）または identifier の `.debug` 接尾辞（`tauri build --config tauri.dev.conf.json` は release プロファイルなので前者では拾えない）。アイコン画像はインストール版と共通なので、これが無いとトレイ上で区別できない
-- `npm run tauri dev` は identifier が本番と同一のため、インストール版と競合する点に注意
-
-### CSP と動的スタイル注入（本番ビルド限定の落とし穴、#v0.26.3）
-`tauri.conf.json` の `app.security.csp` を設定すると、**本番（埋め込み）ビルドでのみ** Tauri が `style-src` / `script-src` に nonce/hash を注入する（`tauri` クレートの `manager::set_csp` → `replace_csp_nonce`）。CSP 仕様上、**nonce か hash が directive に 1 つでも入ると同 directive の `'unsafe-inline'` は無視される**。
-
-- **症状**: xterm（ターミナルの色・フォント）と CodeMirror（style-mod で実行時に `<style>` を注入。エディタ本文・シンタックス色）が実行時注入するスタイルが全滅する。ターミナルは色/フォント崩れ、エディタは本文が消えて**行番号ガターだけ**残る。**dev（`tauri:dev`）は Vite 配信で nonce/hash 注入が走らないため再現しない**＝「本番ビルドだけ崩れる」形になる
-- **対策**: `app.security.dangerousDisableAssetCspModification: ["style-src"]` を設定し、**style-src への nonce/hash 注入だけを止めて `'unsafe-inline'` を有効に保つ**（CodeMirror/xterm 等の CSS-in-JS 系ライブラリ向けの Tauri 標準の対処）。`script-src`（XSS 対策の要）の nonce/hash 注入は維持する。config の型は `DisabledCspModificationKind`（`bool` または directive 名の配列）、キーは `deny_unknown_fields` なので誤字はビルドエラーになる
-- **切り分けの注意**: この不具合は dev で再現しないため、原因調査は**本番ビルドで**行う必要がある。加えて、同一 identifier（`com.pike.dev`）のインストール版が起動中だと single-instance で新ビルドの起動が既存インスタンスに転送され、**古い壊れた画面を検証してしまう**。切り分け時は `--config tauri.dev.conf.json`（identifier を `com.pike.dev.debug` に）を付けて `tauri build` し、併存起動できる別 identifier ビルドで確認するのが確実。埋め込み後の実 HTML/CSP は `target/release/build/pike-*/out/tauri-codegen-assets/*.html`（brotli 圧縮、`zlib.brotliDecompressSync` で復元可）で確認できる
-- **`index.html` にインライン `<style>` を置かない**のが安全側（Tauri がその hash を style-src に足して同じ問題を誘発しうる）。基本レイアウトは `src/assets/theme.css`（`main.ts` 先頭 import でバンドル CSS の `<link>` になり render-blocking＝FOUC も起きない）に置く
-
-### ウィンドウ背景透過（#162）
-設定「外観」の 不透明 / 透過 / アクリル と不透明度スライダーで、ウィンドウ背景を半透明にする。ウィンドウは常に transparent 生成し、実際の透け方は `window_set_backdrop` が実行時に切り替える。
-
-- **不透明モードは本当に不透明に戻す**: tao の `transparent` フラグ自体は後から変えられないが、その実体は「空リージョンの `DwmEnableBlurBehindWindow`（= per-pixel alpha 化）」なので**解除はできる**。`window_set_backdrop` は不透明モードで (1) `DwmEnableBlurBehindWindow(fEnable=false)` で per-pixel alpha を切り、(2) WebView2 の既定背景をテーマ色（α=255）に戻す。これをしないと、設定が既定の「不透明」でも全ユーザーが透過合成パスに乗り続ける。WebView2 は **α=0 だけを透過**として扱い、それ以外の α は 255 に丸める仕様なので、透過モードでは `Color(0,0,0,0)` を渡す
-- **テーマ色の受け渡し**: 不透明時の下地色は App.vue が `getComputedStyle` で `--bg-primary-rgb`（`"30 30 30"` 形式）を読んで引数で渡す。`theme.css` を単一の真実に保つため。ダーク/ライト切替でも呼び直す必要があるので、watch のキーは `windowBackdrop` と `darkMode`。ただし**色を使うのは不透明モードだけ**なので、透過/アクリルのままテーマだけ変わったときは早期 return する。**不透明度スライダーも native 呼び出しの契機に入れない**（α は CSS しか使わないうえ、ドラッグ中に毎フレーム IPC が飛ぶ）。`data-theme` の差し替え後に読むため `nextTick` を挟む
-- **mount 前の下地**: `window_set_backdrop` はフロントの mount 後にしか走らないので、それまでの数フレームは生成時点の背景色がそのまま見える。既定の不透明モードでデスクトップが透けないよう、`build_window` の `.background_color(...)` と `tauri.conf.json` の `backgroundColor`（main ウィンドウ）にダークの下地色を置いてある。Rust 側の定数は `DARK_SURFACE_RGB` で、`theme.css` のダーク `--bg-primary-rgb` と手動同期（parse 失敗時のフォールバックも兼ねる）。なお per-pixel alpha 自体は生成時に外せない（builder にフラグが無い）ので、mount までのごく短い間だけ透過ウィンドウのままである点は残る
-- **DWM 呼び出しは main スレッドで**: `window_set_backdrop` は tokio ワーカーで走るので、DWM / window-vibrancy の呼び出しは `run_on_main_thread` に載せる（ウィンドウ属性の変更はそのウィンドウの所有スレッドで行う）。なお `hwnd()` が返すのは tauri 側の windows 0.61 の `HWND` で、直接依存の 0.62 とは別型なので生ポインタ経由で渡し直す
-- **アクリルの注意**: Win11 22621+ の `apply_acrylic` は `DWMWA_SYSTEMBACKDROP_TYPE`（TRANSIENTWINDOW）を使う。window-vibrancy 自身がドラッグ・リサイズが重くなる旨を警告しているので、体感の重さの報告が出たらまずここを疑う
-- **合成の仕組み**: `theme.css` の背景変数は `rgb(<成分> / var(--surface-alpha))` で合成する。`--surface-alpha` は App.vue が backdrop 設定から算出して `documentElement` に書き込む 1 変数で、これだけで全サーフェスが一括で半透明になる。基盤レイヤーは `#app` の 1 枚だけ（html/body/#app で重ね塗りすると不透明度が掛け算になる）
-- **浮遊サーフェスは不透明**: コンテキストメニュー・ドロップダウン・ダイアログ・ツールチップは透けると読み辛いので `.popup-surface` クラスをルート要素に付ける。**新しいポップアップを追加したら必ず付けること**（付け忘れは backdrop を有効にしたときだけ再現するので、既定の不透明モードでは気付けない）
-- **なぜクラスで `--bg-*` を再宣言するのか**: カスタムプロパティの `var()` は**宣言した要素**（`:root`）で置換が確定し、子孫は合成済みの色を継承する。よって子孫で `--surface-alpha` だけ上書きしても効かない。`.popup-surface` はポップアップが実際に塗る 4 変数（`--bg-primary/secondary/tertiary`・`--tab-hover-bg`）を再宣言して、置換をその要素で起こす。背景変数を増やすときは `*-rgb` 側とこのブロックの同期に注意
-- **ポップアップの色味**: 素のテーマ色だとアクリル上で黒浮きするため、`--popup-lift-color`（dark=白 / light=黒）を `--popup-lift`（= `(1 - --surface-alpha) × 10%`）だけ `color-mix` で混ぜ、周囲が背景の透けで持ち上がったぶんを不透明色で模倣する。係数 10 は目視調整値
-- ターミナルは xterm 背景を透明にしラッパー 1 層でティント（`xtermTheme`）、エディタは CodeMirror の透過 Compartment で背景を透明化する
-
-### E2E スクリーンショット自動化（#142）
-マニュアル画像（`docs/manual/img/`）の自動再撮影パイプライン。詳細・設計の正本は `e2e/README.md`。
-
-1. `just e2e-build`: 撮影用バイナリをビルド（`PIKE_E2E=1` + `--features e2e` + `tauri.e2e.conf.json`。identifier=`com.pike.e2e` で既存 Pike / dev 版と single-instance 衝突しない）
-2. `just e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ寸法は 3 クラス: クローズアップ＝既定 1280×832（内枠 1259×777）、全体レイアウト系（layout.ts の `FULL`）＝1600×1000（内枠 1578×945）、**外枠付きヒーロー（`HERO` = `FULL` の 2 倍）＝3200×2000（内枠 3179×1944）**
-   - `HERO` はプライマリモニタ（3413×1440）より縦が大きいが、WebView2 の撮影は画面外にはみ出した分も含めて撮れるので問題ない。DPR を上げる方向（`--force-device-scale-factor=2`）は撮影が CSS ピクセル基準で行われるため効かない（実測済み）
-   - **論理サイズを 2 倍にすると表示内容が増える**ぶん、フィクスチャが短いと下半分が空く。`HERO` を使う spec（overview / hero-editor / hero-git）のダミーデータは、この寸法で画面が埋まる量にしてある（README は 60 行超、チャットは 5 往復、コミット履歴は 8 件）。寸法を変えたら埋まり方も見直す
-> `just e2e-build` の出力を `| tail` などに通さないこと。Rust のコンパイルが落ちても
-> パイプ側の終了コード 0 が返り、**古いバイナリのまま撮影して気付けない**（実際に
-> 「新しい画面が出ない」を追う羽目になった）。ログはファイルに落として `$?` を見る。
-
-3. `scripts/sync-manual-images.sh --check` でドライラン → 引数なしで `docs/manual/img/` へ同期。スクリプト内 `MAP` が「マニュアル名 ← E2E ベース名」を対応付け、ja の dark（`{名前}.png`）+ light（`{名前}-light.png`）の 2 枚を持つ（GitHub の `<picture>` 切替用）
-4. 変更画像を目視確認してコミット
-
-- 外枠付きヒーロー画像（README / overview の `screenshot-*`）は `scripts/sync-hero-images.sh`（内部で `frame-screenshot.sh` を呼ぶ）で合成・配置する。`sync-manual-images.sh` の MAP には含まれないため、**同期は 2 本を続けて走らせる `just e2e-sync`（確認は `e2e-sync-check`）を使う**。以前この合成が e2e/README の手打ちコマンドだけだったため、7-20 の再撮影でヒーローだけ v0.26 世代のまま取り残された
-- **ヒーロー画像の合成には ImageMagick（`magick`）が要る**。マニュアル画像のコピーは要らないので、`magick` が無いと**マニュアル 46 枚だけ更新されてヒーロー 6 枚が古いまま残る**（`sync-hero-images.sh` が `magick: コマンドが見つかりません` で落ちるが、先に走る `sync-manual-images.sh` は成功している）。この PC では Windows 側（`C:\Program Files\ImageMagick-7.0.10-Q16-HDRI`）にあり **WSL の PATH には無い**ので、WSL の bash で回すとここで止まる（v0.35.0 の再撮影で実際に踏んだ）。`just e2e-sync` は Git Bash で走るので `magick` が PATH で解決する（#231。それ以前は `npm run e2e:sync` が WSL の bash を掴んでいた）
-- 撮影画面を追加したら `e2e/specs/` に追記し、マニュアルで使う場合は `sync-manual-images.sh` の MAP にも対応を追加
-- **画像には StatusBar のバージョン（`v0.33.0`）が写る**。`useUpdater` の `getVersion()` は `@tauri-apps/api` 経由で `tauri.conf.json` の version を読むため、`lib/tauri.ts` の invoke ラッパを通らず **E2E のモックでは差し替えられない**（`tauri.e2e.conf.json` で version を上書きするのは 2 箇所 bump の drift 要因なので採らない）。リリースに合わせて撮り直すときは **bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順）
-- ドロップダウンやトースト等、アニメーションを含む UI は**静止するまで待ってから撮る**（例: リモートブランチ取得中の `.spin-icon` が残ると実行ごとに回転角の差分が出る）。撮影に安定したセレクタが必要な場合は `data-testid` を足す（`worktree-selector` / `branch-selector`）
-- 撮影コードを本番ビルドに混入させない仕組み（`e2e` Cargo feature / vite define `__PIKE_E2E__` / `capabilities-runtime` の実行時登録）は `e2e/README.md` を参照
-
-### pike CLI
-- バイナリ名 `pike.exe`（`Cargo.toml` `[[bin]] name = "pike"`）
-- `tauri-plugin-single-instance` で二重起動を防止、引数を既存インスタンスに転送
-- `pike file.rs:42` → ファイルを開いてジャンプ、`pike open <file>` も同様。**複数ファイル引数対応**（`CliAction::OpenFiles { files: Vec<CliFileTarget{path,line,distro}> }`、pike.exe へのドラッグ&ドロップ / エクスプローラー「プログラムから開く」経由）
-- `pike .` / `pike <dir>` → ディレクトリに一致するプロジェクトに切替（ディレクトリは**先頭引数のみ**有効）
-- マッチしない場合は**一時プロジェクト**として開き、ウィンドウが登録するか 1 度だけ聞く（#230。以前は `project.json` を書く ad-hoc プロジェクトを黙って作っていた）
-- **存在しない root もプロジェクト起動として扱う（#212）**: `resolve_path_arg` はファイルシステムにしか聞けないので、未 clone のプロジェクト root（や WSL 停止中の root）は `is_dir=false` で `OpenFiles` になり、ディレクトリを開くエディタタブができていた。ジャンプリスト（#160）が渡すのは正にこの root なので、`lib.rs` の `as_project_dir` が**単独・行番号なしのパス引数が登録済み root と一致したら `OpenDirectory` に読み替える**（`project_for_root` は `normalize_path` 比較）。これで通常のプロジェクトルーティングに乗り、開いたウィンドウが clone を提案できる
-- **コールドスタートでプロジェクトを開く（#212）**: 従来、Pike 停止中の `pike <dir>` は初期アクションを main に渡すだけで、フロントは `restoreLastProject` にフォールバックしていた（＝ジャンプリストから起動しても前回セッションが開く）。setup で root が登録済みプロジェクトに一致したら `project::set_window_project(state, "main", id)` で **`window_projects` を seed** し、フロントは既存の `project_for_window` 経路でそのプロジェクトに切り替わる（`window_projects` への書き込みはこの関数に一本化。`build_project_window` / `project_add_open` も同じ入口）。`last_project.txt` のクリアは**フロント側**（App.vue の `isMainWindow()` 分岐）で行う: この起動は前回セッションの復元ではなく、`project_add_open` が直後に自分を書き戻す。クリアしないと前回分が積み上がって次の素の起動で全部開く。`restoreLastProject` も同じ `projectSetLast([])` を呼ぶので、クリアの所有者はフロント 1 箇所に揃う
-- ファイル引数のルーティング: `--from-window` 発ウィンドウ → **全ファイルを含む**プロジェクトウィンドウ → グローバルウィンドウの順（`CliState.pending` でアクションを転送）
-- 既存エディタタブがある場合はフォーカス＋リロード（`reloadRequested` タイムスタンプ）
-- **NSIS インストーラフック**（`src-tauri/nsis/hooks.nsi`、`tauri.conf.json` の `bundle.windows.nsis.installerHooks`）: POSTINSTALL でユーザー PATH に `$INSTDIR` を冪等追加（#146。REG_EXPAND_SZ 維持・updater の再インストールでも重複しない）と、**エクスプローラー「プログラムから開く」候補登録**（`SHCTX\Software\Classes\Applications\pike.exe` に `FriendlyAppName` + `shell\open\command`。SupportedTypes 非設定 = 全拡張子の「別のアプリを選択」一覧に出る。既定の関連付けは変更しない）。PREUNINSTALL で両方を削除。MSI インストーラにはこのフックは無い（NSIS 推奨の理由の 1 つ）
-
-### Windows ジャンプリスト（タスクバー右クリック、#160）
-- タスクバーのピン留め / 実行中ボタンを右クリックしたときのメニュー（ジャンプリスト）に独自項目を差し込む。`src-tauri/src/jumplist/mod.rs`（Windows 専用、`ICustomDestinationList` COM API）
-- 構成: (1) Tasks カテゴリ「新しいターミナルウィンドウ」→ `pike.exe --terminal`（グローバルターミナル窓、作業ディレクトリ=`%USERPROFILE%`）、(2) 独自カテゴリ「プロジェクト」→ 登録プロジェクトを **`last_opened` 降順**で最大 `MAX_PROJECTS`=10 件。選ぶと `pike.exe <root>`（single-instance の `OpenDirectory` ルーティングを再利用＝既存ウィンドウならフォーカス、無ければ新規＋セッション復元）、(3) `AppendKnownCategory(KDC_RECENT)` で既定の「最近開いたファイル」を復元（カスタムリストを構築すると明示追加しない限り消えるため）
-- **WSL プロジェクトのパス引数**: root がネイティブパス（`/home/...`）なので、CLI で解釈できる UNC 形 `\\wsl.localhost\<distro>\...`（`open_arg_for`）に変換して渡す。`cli::resolve_path_arg` が native へ戻して `OpenDirectory` のマッチに使う（WSL 停止中は canonicalize 失敗で file 扱いに劣化するが実害小）
-- **タイトルは VT_LPWSTR**: `IPropertyStore` の `PKEY_Title` に手組み PROPVARIANT（`CoTaskMemAlloc` した文字列、Drop の `PropVariantClear` が解放）を入れる。crate の `From<&str>` は **VT_BSTR** になりジャンプリストのタイトルとして表示されないため
-- **COM スレッド（main に載せてはいけない）**: shell オブジェクトは STA なので専用スレッドが要る。**構築は `jumplist` という常駐スレッド**（`worker()` が lazy 起動、起動時に `CoInitializeEx(COINIT_APARTMENTTHREADED)` して以後初期化しっぱなし、ジョブは channel 送信で投げっぱなし）で行う。**`run_on_main_thread` に載せるとアプリ全体がハングする**: `AppendKnownCategory(KDC_RECENT)` と `CommitList` はシェルの最近使った項目を解決するため AppResolver と LINKINFO/MPR を引き込み、Pike が WSL プロジェクトに渡す `\\wsl.localhost\<distro>\...` の UNC 解決で数十秒ブロックしうる。その間 UI スレッドが止まり Windows に AppHangB1 で強制終了された（v0.27.0 / v0.28.0 で実測。WER の LoadedModule に `appresolver.dll` / `LINKINFO.dll` / `MPR.dll` / `ntshrui.dll` が並ぶのが指紋）。溜まったジョブは `try_iter().last()` で最新だけ処理する（複数ウィンドウが同じ変更で一斉に呼ぶため）
-- **AppUserModelID**: 明示設定せず exe パス由来の暗黙 ID に載せる（インストーラのショートカット・実行プロセス・カスタムリストが同一 ID になり整合。dev ビルドと本番は exe パスが違うので自然に分離）
-- **更新契機**: `stores/project.ts` の **`watch`（`projects` の id/name/root/lastOpened ＋ `locale` だけをキー化）** → `menusRefresh(locale)` コマンド（jump list と tray を 1 コマンドで更新。Rust 側でプロジェクト一覧を 1 回だけ読んで両者に渡す＝二重ディスク読み回避）。起動時のロード・プロジェクト追加/削除/編集・切替（recency）・UI 言語切替を 1 箇所でカバーする。**session flush（`lastSession` 書き換え）は同一オブジェクトを触るが、Vue のプロパティ単位トラッキングでキーのゲッターが再評価されず発火しない**（`currentProject` は `projects` の要素と同一参照なので naive な deep watch だと flush ごとに発火してしまう点に注意）。加えて Rust 側が **署名（exe＋lang＋各項目の title/args）を比較して不変なら CommitList をスキップ**するので二重に過剰再構築を防ぐ。ラベルは Rust からフロント i18n を読めないため locale を引数で受け 2 文字列だけ言語別に持つ
-- ユーザーが「一覧から削除」した項目は `BeginList` の removed 配列（引数で照合）で除外し、`AppendCategory` 失敗時も Tasks/Recent は生かす
-
-### システムトレイ（タスクトレイ、#161）
-- `src-tauri/src/tray/mod.rs`（`tauri` の `tray-icon` feature）。トレイに常駐し、ウィンドウを閉じても復帰できる。`tray/mod.rs` は presentation（アイコン・メニュー・ツールチップ構築）に徹し、メニューの動作は lib.rs の `pub(crate) fn tray_menu_action` / `toggle_main_window` に委譲（ウィンドウ生成/フォーカスの private ヘルパーが lib.rs 側にあるため）
-- **クローズ動作 = トレイ常駐（設定で切替）**: main の `CloseRequested` は常に `prevent_close`（生の破棄は async ランタイムを落とし他ウィンドウの Codex cleanup が panic するため必ず防ぐ）した上で、**設定 `closeToTray`（既定 ON）で分岐**。ON → `hide` + `main-minimized-to-tray` emit（session/PTY/ポーリングは生かしたまま、トレイから復帰、実終了はトレイ「終了」の `app.exit(0)` のみ）。OFF → 次の bullet の分岐で終了する（Destroyed の Codex cleanup は `try_current()` ガードで runtime 消失時も panic しない）。設定はフロントの localStorage にあり Rust から読めないので、プロセスグローバルな `static CLOSE_TO_TRAY: AtomicBool`（既定 true）を `tray_set_close_to_tray` コマンドで同期（App.vue の `watch(settingsStore.closeToTray, immediate)`、**main ウィンドウのみ**。他ウィンドウでの切替はクロスウィンドウ設定ブロードキャストで main のストアに伝播し main の watch が発火する）。旧 `app-should-exit` 自動終了・`window-hide-requested` でのポーリング停止は廃止
-- **closeToTray OFF でも close は他ウィンドウを道連れにしない（#202）**: main の close は、他ウィンドウが残っていれば hide + `static MAIN_CLOSED_HIDDEN`（既定 false）を立てる + `main-window-hidden` emit（フロントは session 保存のみ。トレイ常駐ではないのでトレイヒントは出さない）、main が最後なら `main-exit-requested` → フロント確認 → `app_exit`。要点は**「論理的に閉じた main」をアプリを生かす対象に数えない**こと。判定は `close_would_quit(app, label)`（`label` 以外に生きたウィンドウが残るか。`MAIN_CLOSED_HIDDEN` が立った main は数えない）に集約し、`CloseRequested` / `Destroyed`（最後の 1 つが閉じたら cleanup 後に `app.exit(0)`）/ `window_close_quits_app`（フロントの close 確認をアプリ全体の busy 件数に切替）が共有する。破棄できない main の代用が hide なので、フラグの上げ下げは `hide_main_window(app, logically_closed)` と `restore_window`（トレイ左クリック・「表示」・プロジェクトフォーカス・CLI の `emit_action_to`）の対に集約し、`tray_set_close_to_tray(true)` も下ろす。**main を hide / 再表示する経路を足すときは必ずこの 2 つを通す**（自前で show すると論理的に閉じたままになり、次のウィンドウ close で見えている main ごと終了する）。#21 / #53 の「main を閉じると全ウィンドウが道連れ」はこの分岐が無かったための再発
-- **左クリック**: `toggle_main_window`（表示中かつフォーカス時は hide、それ以外は show+unminimize+focus）。`show_menu_on_left_click(false)` でメニューは右クリック専用
-- **右クリックメニュー**（`build_menu`、id 規約 `tray:show` / `tray:new-terminal` / `tray:switcher` / `tray:quit` / `tray:proj:{id}`）: 表示 / 新しいターミナルウィンドウ（`create_global_window`+OpenTerminal）/ 最近のプロジェクト（サブメニュー、`read_all_projects_sorted` 最大 8 件、選ぶと該当ウィンドウ focus か `build_window`）/ プロジェクトを開く…（main を show して `tray-open-switcher` を emit_to→スイッチャー表示）/ 終了
-- **更新契機**: jump list と共通の `menus_refresh` コマンド（前述）が `tray::refresh(app, lang, &projects)` を呼び `app.tray_by_id("main").set_menu` で作り直す。プロジェクト一覧は menus_refresh が 1 回だけ読んで jump list と共有。起動時の `tray::build` はサブメニュー空（静的項目のみ）で作り、mount 後の menus_refresh が一覧つきに差し替える。ラベルは locale 引数で言語別（Rust からフロント i18n は読めない）
-- **使用量ツールチップ**: main の StatusBar だけが（トレイは 1 プロセス 1 リソースなので）usage を整形して `traySetTooltip` で push。Claude 5h レート（アカウント単位なので代表値）優先、無ければトークン総量、無ければ空文字。**フロントが渡すのは usage の要約だけ**で、先頭のアプリ名（開発版の `[DEBUG]` 目印を含む）は `tray::set_tooltip` が付ける。hide 中もポーリングを止めないので畳んだ状態でも更新される
-- **初回ヒント**: 初めて閉じたとき `resolveNotifier`（`lib/notify.ts`）で OS 通知（`localStorage['pike:tray-hint-shown']` で 1 回のみ）。ウィンドウが消えたと勘違いさせないため
-- アイコンは `app.default_window_icon()` を流用（追加の image feature 不要）
-
-### pike todo CLI（#139）
-- `pike todo ...` は TODO パネルの実体 `.pike/todo.md` を**直接読み書きして stdout に出力し exit する独立 CLI**。GUI へ IPC せず、起動していなくても動く。GUI 起動中なら `todo` store の `fsWatcher.onFileChange` がファイル変更を検知してパネルを自動リロードするため、端末⇔パネルが同期する
-- `src-tauri/src/todo_cli.rs`。`main.rs` で Tauri ランタイム起動前・**`try_forward_pty_origin_and_exit` より前**に `try_todo_and_exit()` でフック（後だと `todo` がファイルパスとして GUI へルーティングされてしまう）
-- パース/シリアライズは `src/stores/todo.ts` と同一仕様（`(\s*[-*]\s+)\[([ xX])\]` を task 行、見出し・空行・自由記述は raw として round-trip 保持。保存は `[X]`→`[x]` 正規化・末尾改行 1 個）。GUI と同じく `.pike` 生成時に `.gitignore`（`*`）を書く
-- サブコマンド: `list`（`--json` 対応、番号は 1 始まり）/ `add <text...>` / `show <n...>` / `detail <n> <text>` / `done <n...>` / `undone <n...>` / `rm <n...>` / `clear [--done]`（タスク行とその詳細のみ削除。`--done` で完了分だけ。`--done` 以外のフラグはエラー）/ `help`。番号は list 出力位置。別名は `ls` / `cat` / `note` / `remove`
-- **タイトル + 詳細（#163）**: タスクは 1 行のタイトルに加え、直下の**インデント継続行**を詳細本文として持てる（標準 Markdown のリスト継続なので GitHub でもプレビューでも自然に読める。既存の 1 行 todo.md はそのまま互換）。パースの境界は「バレットより深いインデント」かつ「それ自身が task 行でない」（ネストした `- [ ]` は独立タスクのまま）。空行は**その後にインデントブロックが再開する場合のみ**本文に取り込む。本文は先頭行のインデントを基準に dedent して保持し（内部の相対ネストは維持）、書き戻しはバレットのインデント + 2 に正規化。TS/Rust 双方で同一実装（`todo.ts` の `parse`/`serialize`/`dedent` ↔ `todo_cli.rs` の同名関数）
-- 詳細操作のフラグは `add` と `detail` で共通（`parse_detail_args`）: `-d/--detail <text>`（繰り返しで複数行、`-` は stdin）/ `-a/--append` / `--clear`。`-d` 無指定なら番号の後の語をまとめて 1 行の本文にする。**未知のフラグは無視せずエラー**（`--appned` を黙って replace 扱いにすると本文が消えるため）。`list` は本文を畳んで `(+N lines)` マーカーだけ出し、`show` が本文込みで表示（`--json` は `detail` フィールドに `\n` 連結で入る）
-- パネル UI は行頭 chevron で詳細を開閉し、展開時は textarea で編集（`blur` で `setDetail`）。詳細を持たないタスクの chevron は hover 時だけ薄く出す。行の右端（削除ボタンの左）の `TextAlignStart` は**本文の有無を示す状態マーカーで、操作は持たない**（開閉の入口を 2 つにすると意味が二重になるため `<span>`。折り畳んだ行でも本文の有無が分かるようにするためのもの）
-- **task の id は parse 時の出現位置由来**（`todo-{n}`。パネル内で追加した直後だけ `todo-new-{n}`）。CLI や外部エディタの書き換えでファイル監視の再読込が走っても、開いている詳細欄・編集中の行が同じタスクに紐付いたままになる（毎回採番し直すと `expanded` / `editingId` が全部外れる）
-- TODO ファイル解決（`resolve_todo_file`）: cwd から上方向に **既存 `.pike/` を最優先**（無ければ `.git` リポジトリルート、無ければ cwd）に `.pike/todo.md`。GUI は端末を project.root で開くので通常 cwd == root、サブディレクトリからでも辿れる
-- release は `windows_subsystem = "windows"` でコンソール非割当のため、出力前に `AttachConsole(ATTACH_PARENT_PROCESS)`（`Win32_System_Console`）で親端末に接続（ConPTY 継承時は失敗するが無害）
-- エージェント（Claude Code / Codex）向けスキルは `plugins/` に配置（後述の「エージェントプラグイン」）
-
-### エージェントプラグイン（plugins/、#139）
-- `plugins/` に Claude Code / Codex 双方向けの Agent Skills（`SKILL.md` 形式は両者共通）を収録。現状は `pike todo` CLI の使い方を説明する `pike-todo` スキルのみ
-- `plugins/pike-todo/`（Claude Code プラグイン: `.claude-plugin/plugin.json` + `skills/pike-todo/SKILL.md`）、`plugins/.claude-plugin/marketplace.json`（`claude plugin marketplace add ./plugins` 用）、`plugins/codex/pike-todo/SKILL.md`（Codex 用・内容は Claude 版と同一）。導入手順は `plugins/README.md`
-- **CLI の挙動を変えたら 2 つの SKILL.md（claude 版・codex 版）を両方更新する**（同一内容の複製。drift 注意）
-- 将来 CLI の操作対象を増やす際はスキルを拡充（issue #139 の bullet 3-4 は別 issue 想定）
-
-### グローバルモード（#123）
-- プロジェクト非依存・サイドバー無しのウィンドウ。ラベル prefix `global-`（Rust `GLOBAL_PREFIX` / front `isGlobalWindow()`、旧 `secondary-` を置換）
-- **ウィンドウラベル prefix を追加・変更したら `src-tauri/capabilities/default.json` の `windows` も更新すること**。ここはラベルのホワイトリストで、漏れると新ウィンドウで IPC（invoke / listen / set_title 等）が全部 permission エラーになり、App.vue の onMounted が途中で落ちてタブが一切開かない（DevTools コンソールの `not allowed on window "..."` が症状）
-- App.vue の `globalMode` ref が制御: SideBar / ProjectSwitcher / QuickOpen を非表示、プロジェクト復元をスキップ、**全タブを閉じるとウィンドウも close**（`tabs.length` の watch、prev>0 → 0 のみ）
-- 発動経路は 3 つ:
-  1. **エディタ**: `--wait` と、プロジェクトウィンドウに一致しないファイル引数（`global-` ウィンドウ生成 + pending）。**コールドスタートのファイル引数**（「プログラムから開く」等）は main ウィンドウが `peekInitialCliAction()` で openFiles を検知して globalMode に入る（`last_project.txt` は消費しないので次回の素の起動で全プロジェクト復元される）
-  2. **ターミナル**: 起動済みで引数なし `pike` → `CliAction::OpenTerminal { cwd, shell: Option<ShellConfig> }`（`cli::terminal_action_for_cwd`: cwd が WSL UNC ならその distro の WSL を `Some` で指定、それ以外は `shell=None`＝「指定なし」。#125）。フロント `useCliOpen` が `None` の時は Settings の `globalShell` で開き、`globalShell` が WSL なら Windows の cwd を捨てて WSL ホーム開始（`--cd ~`）、Windows シェルなら cwd 引き継ぎ。従来の「既存ウィンドウにフォーカス」挙動を置換（Windows Terminal 代替）
-  3. **OpenDirectory の ad-hoc 作成失敗フォールバック**（ターミナルタブ）
-- **WSL パスの UNC 化**: プロジェクト無しウィンドウのファイル I/O は Windows 側（`shellForIO` fallback = powershell）で走るため、WSL native パスは `CliFileTarget.distro` ヒントから `\\wsl.localhost\{distro}\...` に組み立てて開く（front `tabPathFor` ↔ Rust `wait_tab_path` が同期必須: --wait の解放照合はタブの path で行われる）
-- CLI で開くファイルは拡張子ルーティング（画像→PreviewTab / pdf→PdfTab / 他→EditorTab、`useCliOpen.openFileTarget`）。PdfTab は shell fallback（powershell）でプロジェクト無しでも表示可
-- **ターミナルの「+」**: グローバルモードでは Settings の `globalShell`（`ShellType`、既定 powershell）で起動。この設定はマシンの WSL distro に依存するため **`pike:sync-path` と同じマシンローカル扱い**: 独立キー `pike:global-shell` に保存し、同期ファイル・クロスウィンドウ broadcast の対象外（`sanitizeGlobalShell` で破損値ガード）。▾ ドロップダウンの内容は **シェルプロファイル**（後述 #129）駆動。アイコンは `lib/shellIcons.ts` の `SHELL_KIND_ICONS`（TabPane と SettingsTab で共有）。distro 検出はメニュー初回オープン時に lazy
-- **シェルプロファイル（#129）**: ターミナル追加の ▾ プルダウンと各シェル選択肢の並び順・表示/非表示を管理。`ShellProfile { id, shell, hidden? }` の配列を `stores/settings.ts` が `pike:shell-profiles` キーにマシンローカル永続化（globalShell と同じく同期・broadcast 対象外）。`syncShellProfiles(distros)` が `detect_wsl_distros` 結果と照合（新規 distro は先頭に追加・消えた distro は除去・既存の順序と hidden は維持。**空検出は過渡状態とみなし reconcile skip** = カスタマイズ消失防止）。`windowsShellOptions(currentKind?)` / `visibleWslDistros(detected, currentDistro?)` が hidden 除外の選択肢を返す（現在値は hidden でも残す）。`defaultWindowsShellKind()` は作成フォームの既定（powershell 優先）。`ensureVisiblePerCategory` で WSL/Windows 各カテゴリ最低 1 つは可視を保証（UI の `canHideShellProfile` と二重ガード）。既定シェルは ▾ で hidden でも一覧に残す。UI は SettingsTab「シェル一覧」（↑↓・目トグル・デフォルトバッジ）
-- **PowerShell 7（pwsh、#127）**: Windows PowerShell 5（`ShellConfig::Powershell`）と併存する独立シェル種別 `ShellConfig::Pwsh` / `ShellType {kind:'pwsh'}`。`pty/mod.rs` の `find_pwsh()` が PATH → `C:\Program Files\PowerShell\7\pwsh.exe` → bare `pwsh.exe`（Store 版の実行エイリアス対策）の順で解決。`cls`/`;`/`$LASTEXITCODE` の PowerShell 系分岐は front `isPowershellFamily(kind)` で powershell/pwsh 共通化
-- **ProjectSwitcher（Ctrl+Shift+P）はグローバルモードでも使用可**。選択・新規作成は常に `openProjectWindow`（グローバルウィンドウ自身はプロジェクトレスを維持、`selectProject`）。グローバルウィンドウは起動時に projects を読まないため showSwitcher の watch で lazy load。QuickOpen（Ctrl+P）は非表示のまま
-- **バイナリ安全装置**: `fs_read_file` の自動判定時に先頭 8KB の NUL バイトで Err を返す（EditorTab がエラー表示）。UTF-16 BOM は先に BOM 判定してテキスト扱い、UTF-8 BOM は従来どおり素通し（保存ラウンドトリップ維持）。StatusBar からの明示エンコード指定はガードなし（escape hatch）
-
-### CodeMirror 6
-- シンタックスハイライトのみ、LSP・補完は実装しない
-- 言語パッケージは使うもの（Go, Rust, TypeScript, Vue, YAML 等）だけ import
-- ファイル保存は `Ctrl+S` → `invoke('fs_write_file', ...)`
-
-### アイコン
-- UI アイコンは `lucide-vue-next` で統一（サイドバー・タブ・パネルボタン等）
-- ファイルアイコンは `material-file-icons` の SVG（`getIcon(name).svg`）
-- `src/lib/fileIcons.ts` でファイル名 → SVG のキャッシュ付きラッパーを提供
-- SVG は `v-html` で注入、`:deep(svg) { width: 16px; height: 16px }` でサイズ制御
-
-### カスタム確認ダイアログ
-- `window.confirm()` は WebView のオリジン URL がタイトルに表示されるため使わない
-- `src/composables/useConfirmDialog.ts` が `confirmDialog(msg): Promise<boolean>` を提供
-- `src/components/ConfirmDialog.vue` を `App.vue` に配置（Teleport で body 直下に描画）
-- Enter で OK、Escape / オーバーレイクリックでキャンセル
-
-### ウィンドウ状態永続化
-- `tauri-plugin-window-state` でウィンドウサイズ・位置・最大化状態を自動保存・復元。ただし**追跡するのは `main` ラベルだけ**（`with_filter`）
-- **プロジェクト単位の geometry（#200）**: プロジェクト/グローバルウィンドウのラベルは起動ごとの UUID（#175）なので、ラベル keyed のプラグインでは永久に復元できず `.window-state.json` に死んだエントリが溜まる（実測 105 件中 104 件が死蔵）。そこで `src-tauri/src/window_geom.rs` が **`window_projects` 経由で「そのウィンドウが今表示しているプロジェクト id」をキー**に `%APPDATA%/{identifier}/window-geometry.json` へ保存する（プロジェクト無しは `global` キー、main も同じ規則で記録するので main で開いていたプロジェクトが子ウィンドウへ移っても size を引き継ぐ）。マシンローカルな情報なので同期対象の `project.json` には入れない
-  - 保存契機: 既存の Moved/Resized 500ms デバウンス、`CloseRequested`（デバウンス待ちの取りこぼし防止）、`RunEvent::Exit`（トレイ「終了」は CloseRequested を経ずに破棄されるため）、`save_all_window_state`（updater の relaunch 前）
-  - **単位は物理ピクセルで統一する**: 記録元の `inner_size()` / `outer_position()` は物理ピクセルだが、`WebviewWindowBuilder` の `inner_size` / `position` は**論理ピクセル**（tauri の doc comment。tao 側も `to_physical(target_monitor.scale_factor())` で変換する）。ビルダーに渡すと 150% ディスプレイでは幅も位置も 1.5 倍になり、開くたびに右下へ膨らんでいく（v0.33.0〜v0.34.0 の不具合）。そのため `window_geom::restore` は **build 後**に `set_position` / `set_size` へ物理ピクセルのまま渡す（`tauri-plugin-window-state` の `restore_state` と同じ手順）。既定サイズから復元サイズへ飛ぶのが見えないよう、`build_window` は `.visible(false)` で生成し restore 後に `show()` する
-  - 適用順は **位置 → サイズ → 最大化**。スケール factor の違うディスプレイへ移すと Windows がウィンドウをリサイズするため位置が先。最大化はビルダーではなく最後に呼ぶ（復元矩形の上で最大化すると、解除したときそこへ戻る）
-  - 位置は保存時の矩形がいずれかのモニタと重なる場合のみ適用（ディスプレイを外したときに画面外へ行かない）。最大化/最小化中は「戻る先の矩形」を上書きしないようフラグだけ更新
-  - 旧バージョンが残した死蔵エントリは `prune_plugin_state` が起動時に掃除する。**プラグイン登録より前**に走らせる必要がある（プラグインはファイルをメモリへ読み込み、保存ごとにキャッシュ全体を書き戻すため後から消しても復活する）。`AppHandle` がまだ無いので `%APPDATA%/{identifier}` を手組みする（Windows の `app_config_dir` と同一）
-- サイドバーの展開状態（activePanel）と幅は `localStorage` で永続化
-
-### セルフアップデート
-- `tauri-plugin-updater` + `tauri-plugin-process` で GitHub Releases の `latest.json` を参照
-- 署名キー: `~/.tauri/pike.key`（秘密鍵）、公開鍵は `tauri.conf.json` の `plugins.updater.pubkey` に埋め込み
-- CI: `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` を GitHub Secrets に設定
-- Settings タブの About セクションに「更新を確認」ボタン + 「更新して再起動」ボタン
-- SideBar 歯車アイコンに更新通知ドット（起動時に `check()` でバックグラウンド確認）
-- `bundle.createUpdaterArtifacts: true` で `.sig` ファイルを自動生成
-
-### Agent Runtime（統一エージェント API）
-- `src-tauri/src/agent/` に `AgentRuntime` trait を定義。Codex app-server と ACP (Agent Client Protocol) の両方を同一インターフェースで扱う
-- `AgentRuntime` trait: `start_session`, `submit_turn`, `interrupt_turn`, `respond_approval`, `auth_status` 等
-- `CodexAppServerRuntime`: 既存の `codex/` モジュールを wrap。`codex://` ではなく `agent://` イベントを emit
-- `ACPRuntime`: `claude-agent-acp` 等の ACP 対応エージェントと JSON-RPC over stdio で通信
-- **ACP の `toolCall` は ToolCallUpdate であって、ツール名を持たない（#227）**。フィールドは `toolCallId` / `title` / `kind` / `rawInput` / `locations` で、`toolName` も `toolInput` も存在しない。振り分けは **`kind`**（`execute` / `edit` / `delete` / `move` / `read` / …）で行い、ツールの呼び名（Bash / Write / …）では分岐しない。呼び名はエージェントごとに違ううえ、そもそも届かない
-- **`session/request_permission` の `optionId` はエージェントが決める不透明な文字列（#227）**。応答ではリクエストで提示されたものをそのまま返す（以前は `kind` の値である `allow_once` / `reject_once` を id として組み立てており、`claude-agent-acp` が出す `allow` / `reject` と一致せず、同アダプタは allow 系の id でしか許可扱いにしないため「許可」を押すと拒否になっていた）
-  - **汎用ダイアログは UI が押した `option_id` をそのまま返す**。エージェントは同じ `kind` の選択肢を複数出しうるので（同アダプタの ExitPlanMode は `allow_always` を 3 つ並べる）、`kind` から引き直すと押したものと違う選択肢を送る
-  - 決まった 4 択の画面（コマンド / ファイル変更）は選択肢を UI に渡していないので、`ACPRuntime.pending_options` に覚えておいて `kind` から引く。該当が無ければ `cancelled`（近そうな選択肢で代用しない）。キーは `RequestId` にする（`Value` の文字列表現だと、フロントを往復した JSON の書式が変わるだけで無言の取り消しになる）
-- **`AgentEvent` の serde 属性から `rename_all_fields = "camelCase"` を落とさないこと**。enum の `rename_all` は**バリアント名（＝`type` の値）しか変えない**ので、これが無いとフィールドは `item_id` / `tool_name` / `request_id` のまま出て行く。フロントは全経路で `p.itemId` のように camelCase で読むため、**イベントは届くのに payload だけが丸ごと `undefined` になる**。1 語のフィールド（`delta` / `data` / `reason`）だけ一致するので、本文ストリームは動いてツール表示と承認だけが無言で壊れる、という追いにくい形になる。`agent::types` の `wire_is_camel_case` が見張っている
-- **`sessionUpdate` は仕様にある 10 個だけを握る（#228）**: `agent_message_chunk` / `agent_thought_chunk` / `user_message_chunk` / `tool_call` / `tool_call_update` / `plan` / `available_commands_update` / `config_option_update` / `current_mode_update` / `usage_update`。**別名や snake_case のフォールバックを足さない**。「対応済みに見えて一度も発火しない」アームが並ぶと、次に追う人が同じ調査をやり直す（`invented_update_names_are_not_handled` が見張っている）
-  - `usage_update` は `{ used, size }` で**コンテキストの使用量**。トークン数ではない。入力トークンとして拾っていたころは、出力が常に 0 の数字が出ていた。ACP のトークン表示先は無い（チャットタブの usage 表示は Codex 限定で、Claude のトークンは `claude_usage` のログ解析で出る）ので**扱わない**
-  - `AgentEvent::SessionInfoUpdated`（チャット上部のセッションタイトル）は、発火元が存在しない `"session_info_update"` アームだけだったので**実行時に一度も出ていなかった**。E2E のフィクスチャが直接値を入れていたため、マニュアルのスクショにだけ写っていた。イベント・リスナ・表示・フィクスチャをまとめて削除した
-  - この規則は #227 の実害から来ている。`parse_session_update` は長らく `"thought"` / `"thinking"` / `"plan_update"` という**存在しない名前**を見ていて、ACP エージェントの思考とプランが丸ごと捨てられていた。正しくは `agent_thought_chunk` と `plan`。前者の本文はメッセージ本文と同じ ContentBlock（`{ type, text }`）で素の文字列ではなく、後者は `entries[]`（`content` ではない）
-  - thinking は chunk で届き plan は毎回全体が来るので、`AgentEvent::Reasoning` に `append` を持たせて足すか置き換えるかを分ける。追記側は**コマンド出力と同じ 100ms のバッファ**（`bufferAppend`）に載せる。chunk ごとに書くと、畳まれて見えていない本文の markdown 再パースがトークン単位で走る
-  - `agent://reasoning` は Rust が投げていたのに**フロントが購読していなかった**。名前を直すだけでは表示されない。Codex 側は `ItemStarted { item_type: "reasoning" }` の経路で出しているので、あちらとは出所が違う
-  - **ツール項目の `data` は `tool_call_data` で UI のキーに寄せる**。`AgentChatTab.vue` は Codex 由来の `command` / `output` / `filePath` を読むので、ACP の生の更新を渡すとコマンド名も出力も出ない（項目を開いても空で、ラベルはフォールバックの "Running command..." のまま）。出力は完了時の `content[]` に `` ```console `` で囲まれて入る（Pike は terminal capability を宣言していないため）
-  - **ACP は 1 つのツール呼び出しに更新を 3 回送る**: (1) 入力が流れきる前の `tool_call`（Bash の `title` はまだアダプタのフォールバックの "Terminal"）、(2) 入力が揃った `tool_call_update`（`rawInput` あり・`status` なし・`content` 空）、(3) 結果の `tool_call_update`（`status` と `content`）。したがって
-    - **`title` をコマンドとして渡さない**。(1) の時点の "Terminal" が確定値として残る。表示の穴埋めは UI 側で `data.title` に落とす
-    - **同じ id の `ItemStarted` を捨てない**。(2) はこの経路でしか来ないので、`handleItemStarted` が既知の id を無視していると本当のコマンドが永久に届かない。既存項目には `data` を重ねる（実質 upsert。Codex は id ごとに 1 回しか出さないので無影響）。重ねるときは **`undefined` を上書きしない**: router の fix-up が `data.filePath = undefined` を明示的に置くことがあり、先に取れていたパスが後続の更新で消える
-    - **`item-completed` のマージ対象キーは allowlist**（`useAgentRouter.ts`）。`command` / `output` を足さないと、(3) で届いた出力が捨てられる。Codex は出力を `command-output-delta` で流すのでこの穴に気付けない
-- `AgentEvent` enum: 両プロトコルの通知を統一表現（MessageDelta, ItemStarted, ApprovalCommandRequest 等）
-- `AgentCapabilities`: runtime ごとのサポート機能を宣言（モデル選択、ロールバック、sandbox 設定等）
-- Tauri commands: `agent_start_session`, `agent_submit_turn` 等の `agent_*` 群
-- フロント: `stores/agent.ts` (Pinia), `composables/useAgentRouter.ts` (event router), `types/agent.ts`
-- `AgentChatTab.vue`: `agent-chat` タブ（`agentType: 'codex' | 'claude-code'`）。capabilities に応じて UI を条件分岐（auth bar, sandbox 表示等）。Codex / Claude のチャットはこの 1 タブに統合済み（旧 `CodexChatTab.vue` + `codex` store は廃止）
-- バックエンドの `codex/` モジュール（app-server プロトコル）は `agent/codex_runtime.rs` が wrap する形で存続
-
-### トークン使用量表示（Claude usage）
-- `src-tauri/src/claude_usage/` が `~/.claude` 配下のログを解析し、セッションのトークン使用量を集計
-- StatusBar のエージェント項目は**メーターアイコン＋ 5h / 週間の 2 つの利用率**（`25% / 5%`）。クリックで開くドロップダウンに Claude と Codex を並べ、モデル別の枠を含む内訳はエージェント状態タブへ
-- Codex は active な agent-chat タブのセッション usage（`thread/tokenUsage/updated` 由来）を表示
-- **間接 Codex（CLI）usage**: Claude の codex スキルや `codex` を呼ぶスクリプト等、Pike の agent runtime を経由しない Codex も `src-tauri/src/codex_usage/` が `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` を解析して集計。`session_meta.cwd` を `project_root` と突き合わせ、`token_count` イベントの `total_token_usage`（累計）と `rate_limits.used_percent` を取得。pid が無いため**動作中判定はファイル mtime（直近 `ACTIVE_WINDOW_SECS`=300 秒、長いターンでもチラつかない幅）**。day-dir は session 開始日のフォルダに書かれるため最新 `SCAN_DAY_DIRS`=14 日分を走査（数字名の日付ディレクトリのみ。stat→mtime フィルタなので負荷は軽い）。未来 mtime（WSL/Windows 時計ズレ）は age 0=fresh 扱い。コストは**モデル別に集計**し cached を割引単価で計算（`input_tokens` は cached を含む）。表示は Claude と共通のエージェント項目（#226）。native codex agent-chat タブが active な時はそちらを優先し CLI 表示は抑制（二重表示回避）。`gpt-5*-codex` は単価未登録のため費用は出さず利用率%を主指標とする
-- **Claude レート制限（#117）**: `src-tauri/src/claude_usage/rate.rs` が `claude -p "/usage"` を `run_shell_line` で実行し、`Current <label>: N% used · resets <when>` 行をパース（5h セッション枠・週間枠・モデル別枠）。ラベル→`kind`（session/weekAll/other）の分類はパーサ隣の `window_kind` で行い、フロントは CLI 文言を文字列一致しない（session 枠が無ければチップの%表示自体を出さない）。CLI は起動に 10 秒超かかり時々ハングするため、**プロセス内キャッシュ（キーは wsl:distro / windows のインストール単位）+ fetch 直列化 Mutex + 90 秒タイムアウト**。試行間隔は `CacheEntry.last_attempt` で管理し、**active セッション中と失敗後リトライは 5 分（`TTL_ACTIVE`）、idle 中も 1 時間ごと（`TTL_IDLE`）に再取得**（別プロジェクトのセッションや 5h/週間枠の時間リセットで idle 中も値が動くため。sessionActive はプロジェクトスコープ、キャッシュはアカウントスコープという不一致を TTL_IDLE が緩和）。失敗時は前回値を保持するが **`STALE_KEEP_MAX`=2h を超えた古いデータは破棄**（CLI が恒久的に壊れたら表示を消す）。`fetched_at` はデータ取得時刻としてドロップダウンに表示。stdin は `null_device()` でクローズ（headless claude が stdin 待ちで 3 秒固まるため）。結果の `active` フィールドは usage-store ファクトリ契約（`{ active: boolean }`）に合わせた命名。手動更新は `createUsageStore` の `refreshUsage(force)` 経由（IPC 1 回）
-- **複数アカウント（`CLAUDE_CONFIG_DIR`、#225）**: Claude Code はこの環境変数で `~/.claude` の位置ごと差し替える。空ディレクトリを指して起動して確かめたところ、`projects/` も `sessions/` も `.claude.json` もそこへ移るので、**集計・セッション一覧・レート取得・エージェントチャットの起動の 4 つとも** `claude_usage/config.rs` の `resolve` を通す。検出の順と `.envrc` を評価しない理由はそのファイルの doc コメントが正本。issue の表題にある `CLAUDE_CONFIG_PATH` という変数は存在しない
-  - **claude を起動する側には明示的に渡す**（`rate.rs` の `/usage`、`agent/commands.rs` の ACP セッション）。どちらも `bash -c`（非対話・非ログイン）で起動するので、渡さないと既定の `~/.claude` のアカウントで動く。症状は「ステータスバーは別アカウントの残量を出しているのに、その下のチャットタブは既定アカウントで課金される」
-  - **WSL では `Command::env` が効かない**（`wsl.exe` という Windows プロセスにしか付かず distro の中へ渡らない）。bash に渡す行の頭で代入する。シェル別のクォート（bash の `VAR=v cmd` と cmd の `set "VAR=v" && cmd`）は `types.rs` の `run_shell_line_env` に集約してある。呼び出し側で前置を組み立てると、シェルの振り分けが変わったとき黙って壊れる
-  - 環境変数のプローブは **distro 単位**でキャッシュする（rc ファイル由来なのでプロジェクトでは変わらない）。プロジェクトごとに違う入力は `.envrc` だけで、これは UNC 越しにただのファイルとして読めるので spawn が要らない。ウィンドウを何枚開いても distro につき 5 分に 1 回
-  - **ロックはプローブ中も持ったまま**にする。usage と rate のポーリングは同じ tick で走るので、手放すと期限切れのたびに 2 本が同時にシェルを起動する
-  - **プローブの先頭で `HISTFILE` を unset する**。対話シェル（`-lic`。`.bashrc` の export を拾うために必要）は終了時に履歴を書き戻すので、`HISTSIZE` の設定次第でプローブがユーザーの `.bash_history` を削りうる
-  - マーカー行（`PIKEENV` + タブ）で拾う。`.bashrc` がバナーを stdout に出すことがあるので行の位置では選ばない（このマシンの `.bashrc` は実際に `git status` の結果を出す）
-  - **実在を確認できたディレクトリだけ採用する**。読めない値を `native_override` に残すと、`claude` を起動する側がそれを export して別の場所を作らせてしまう。確認できなければ検出そのものを無かったことにして既定へ落ちる
-  - Windows シェルは Pike のプロセス環境を見る（cmd / Git Bash は起動時に継承するので同じ値）。**PowerShell のプロファイルの中だけで設定した場合は拾えない**
-  - **`.claude.json` の場所は 2 通り**。`CLAUDE_CONFIG_DIR` を設定していればその中、**既定では `~/.claude` の中ではなく隣**の `~/.claude.json`（Windows・WSL の実機で確認）。設定ディレクトリの中を先に見て、無ければ親を見る。中だけを見ていたころは、上書きしていない環境でアカウントが常に空だった
-  - アカウント（`.claude.json` の `oauthAccount`）は **`resolve` の中で一緒に読む**。あのファイルは Claude Code のカウンタ置き場でもあって数十 KB あり、稼働中は数十秒ごとに mtime が変わるので、mtime キーのキャッシュだと 30 秒ポーリングのたびに UNC 越しに全文を読む。中身が変わるのはログインし直したときだけなので TTL に相乗りさせる
-  - **検出に失敗しても黙って既定に落ちる**（`.bashrc` が `exec tmux` する、`.envrc` が `$(…)` を使う等）。プロジェクト単位の設定欄は作っていないので、そこが唯一の逃げ道は StatusBar のアカウント行になる。「思っていたのと違うメールアドレスが出ている」で気付ける形にはしてある
-- cwd↔root 一致判定（`cwd_matches_root`）と WSL ホーム解決（`wsl_home_subdir_cached`）は `types.rs` の共通ヘルパーで、`claude_usage` / `codex_usage` が共有
-- **エージェント状態タブ（#226）**: `tabs/AgentStatusTab.vue`（設定タブと同じシングルトン）。Claude と Codex を縦に並べ、アカウント・利用率（帯グラフ）・モデル別トークンを出す。導線は歯車メニュー・StatusBar のドロップダウンの「詳細」・エージェントチャット上部の 3 つ。**StatusBar のドロップダウンは要約だけ**（アカウント・トークン合計・5h 枠）にして、内訳はこちらへ寄せた
-  - **導出は `composables/useAgentUsage.ts` に集約**（どちらの Codex を優先するか、何をアカウント有りとみなすか、枠を帯に落とす変換）。2 つの画面に同じ computed を置いていたときは、「アカウント有り」の判定が既に食い違っていた。表示整形（ラベル・リセット時刻の日本語化・80/90% の色分け）は `lib/usageFormat.ts`。手動更新のスピナーは `createUsageStore` が公開する `refreshing`（両方の画面から同じ更新を駆動するため、コンポーネントのローカル ref では足りない）
-  - **Codex は集計の窓と `active` を分ける**。`ACTIVE_WINDOW_SECS`=5 分は「今動いているか」で、集計は `RECENT_WINDOW_SECS`=24 時間。分ける前は 5 分前に終わった作業が状態画面から丸ごと消えていた（Claude の plugin 経由で使った直後でも「記録はありません」）。窓を広げたぶん `parse_session_cached` が mtime でキャッシュする（終わったロールアウトは変わらないので読み直す必要がない。キーにプロジェクトを含めないので、ウィンドウを何枚開いても 1 回しか読まない。掃除は**走査結果ではなく古さ**で行う（キャッシュはプロセス共有なので、片方のプロジェクトの走査結果で retain すると、シェルの違うもう片方のエントリを毎回全部落としてしまう））
-  - **Codex のアカウントは `~/.codex/auth.json` の `tokens.id_token`（JWT）から読む**。メールアドレスは `email`、プランは `https://api.openai.com/auth` 内の `chatgpt_plan_type`。**署名は検証しない**（自分のマシンの自分の情報を表示するだけで、認証の判断には使わない）。取り出すのは 2 クレームだけで、トークン自体は外に出さない
-  - **Claude のプランは `seatTier` に無いことがある**。個人のサブスクリプションでは null で、Team / Enterprise の席にしか入らない（実機で確認）。`organizationRateLimitTier` → `organizationType` の順に落とし、情報を持たない `default_` の接頭辞だけ外す。値そのものは加工しない（将来増える等級を勝手に読み替えると誤った名前を出す）
-- フロント: ポーリング基盤は `stores/usageStore.ts` の `createUsageStore(id, fetcher)` ファクトリに集約（全フィールド deep 比較で rate%・cached 等も再描画。`refreshUsage(force)` で fetcher に force を伝搬）。`stores/claudeUsage.ts` / `stores/codexUsage.ts` / `stores/claudeRate.ts` は薄いラッパー（claudeRate の fetcher は claudeUsage の active を `sessionActive` として渡す）。型は `types/claudeUsage.ts` / `types/codexUsage.ts`、整形は `lib/format.ts` の `formatTokens` / `formatCost`。StatusBar は Claude と Codex を**1 項目に統合**し、ドロップダウンの中で節に分ける（#226。分けていたころは Codex 側が active のときしか出ず、状態タブと食い違っていた）。ヘッドラインは `useAgentUsage` の `headlineMeters`（Claude の 5h＋週間、Claude が枠を持たなければ Codex の primary＋secondary）。**2 つの数字は片方のエージェントから揃って取る**（並べた数字にどちらの枠か書く余地がないため、混ぜない）。ドロップダウンは 5h＋週間の `claudeSummaryMeters` / `codexMeters`、状態タブはモデル別を含む全枠の `claudeMeters`
-
-### タスクランナー（Tasks パネル）
-- `tasks` サイドバーパネル。`src-tauri/src/tasks.rs` の `task_discover` がプロジェクトルートを**最大深さ 5**で再帰走査し、`package.json` / `Makefile` / `justfile` / `deno.json` / `Cargo.toml` を検出
-- `package.json` の `scripts`、Makefile のターゲット、deno tasks、cargo（#122: 標準サブコマンド build/check/test/clippy/fmt + `[[bin]]` ごとの `run --bin {name}` を合成。パースは `toml` クレート。**Tauri 判定はマニフェスト隣の `tauri.conf.json` 存在**（tauri-cli 自身の契約。依存名スキャンだとプラグイン開発リポジトリ等で誤検出）で `tauri dev`/`tauri build` を追加。`src/main.rs` があれば `run`（`[[bin]]` 併存時は `run --bin {package名}`）。**workspace メンバーは標準セットを出さない**（ルートと重複して洪水になるため。bins/tauri/run のみ）。bin/package 名は Makefile と同じ文字種検証（英数 `-_.`）でシェルメタ文字注入を防止。`tauri.conf.json`/`main.rs` は existence-only マーカーとしてグロブに含め content は読まない。`[package]`/`[workspace]` を持たない Cargo.toml は対象外。vendor/ 配下は全タスク検出から除外、読み込みは `MAX_TASK_FILES`=300 で打ち切り）をそれぞれ「グループ」として一覧表示（ラベルに相対ディレクトリ名を付与）
-- **パッケージマネージャの判別**: `package.json` の scripts は npm 決め打ちではなく、`node_runner_for` が npm / pnpm / yarn / bun を選ぶ（`RUNNER_COMMANDS` が `pnpm run {name}` などを組む）。優先順は (1) そのファイルの `packageManager` フィールド（corepack。パッケージ自身の宣言なので最優先。`pnpm@9.1.0` の名前部分だけ見る）、(2) **直近の祖先**にある lock ファイル、(3) npm。**祖先方向に辿るのが要点**で、pnpm モノレポでは lock がリポジトリ root にしか無く、配下の `packages/*/package.json` は自分のディレクトリを見ても分からない（実測: ratatoskr の `web/package.json`）。lock ファイルは cargo の `tauri.conf.json` と同じ existence-only マーカー（`pnpm-lock.yaml` / `pnpm-workspace.yaml` / `yarn.lock` / `bun.lockb` / `bun.lock` / `package-lock.json`）で、中身は読まない。同じディレクトリに複数あるときは `rank` の高いほうを採り、**`package-lock.json` を最も弱くする**（pnpm へ移行しても消し忘れて残りがちなため）。祖先判定は文字列の前方一致だけでは足りず区切り文字まで見る（`/repo/app2` は `/repo/app` の配下ではない）
-- **just（#231）**: `parse_justfile` が justfile を自前でパースする（`just --summary` を叩かない。**just 未インストールでも一覧が出る**し、他の runner と同じ「見つけたファイルを `batch_read_files` で 1 回まとめて読む」に乗る＝WSL への往復が増えない）。レシピ行は「インデントされていない行のうち、クォートの外に `:` を持つもの」で、`x := "y"` の代入・`alias b := build`・`set shell := [...]` は `:` の直後が `=`、`import 'x'` / `mod sub` はそもそも `:` を持たないので落ちる。`_` 始まりと `[private]` 属性は出さない。ファイル名は just と同じく大小文字の変種（`justfile` / `Justfile` / `JUSTFILE` / `.justfile`）を並べる（rg の glob と WSL の `find -name` は大小を区別する。`.justfile` は隠しファイルだが `--hidden` は `.cargo/` 用に既に付いている）
-- **doc comment を表示に使う**（#231）: `DiscoveredTask.description` は just だけが持ち、レシピ直前の `#` コメント（`just --list` が右に出すもの）を入れる。パネルはこれを名前の右に薄く出し、QuickOpen の `>` モードでは `command` の代わりに出して**絞り込みの対象にも入れる**（日本語で書いたコメントから引ける）。名前だけでは何をするレシピか分からないため。`command` は `just bump VERSION` のような**引数込みの呼び出し行**にしてあり（実行されるのは `RUNNER_COMMANDS` が名前から組む `just bump` なので）、引数が要るレシピはツールチップで分かる
-- **cargo alias**: `.cargo/config.toml` の `[alias]` を検出し `cargo {alias名}` タスクとして表示。同じベースディレクトリ（`.cargo` の親）に Cargo.toml があればその cargo グループの**先頭**にマージ（同名の合成タスクは除去。alias は builtin を上書きできないため実行結果は同一）、なければ独立グループ「cargo alias」（例: musql の repo root）。alias 名は `is_safe_cargo_name` で検証（シェルに渡るのは名前のみ）、値（string / string 配列）は tooltip 表示用の展開コマンドにのみ使用。検出は rg なら `--hidden -g '!.git'` + `**/.cargo/config.toml` glob（隠しディレクトリのため）、find/walkdir フォールバックは basename `config.toml` マッチ後に親が `.cargo` のものだけ残す（Hugo 等の無関係な config.toml は content-read しない）。ancestor 方向の alias 継承（cargo 本来の config 解決）は追わず同一ディレクトリのみ
-- 除外: `IGNORED_DIRS`（`.git node_modules __pycache__ .next .nuxt target dist build .cache .venv venv`）
-- `.gitignore` を尊重するのは **rg バックエンド使用時のみ**（`rg --files --max-depth 5 -g <glob>`）。rg が無く `find`(WSL)/walkdir(Windows) フォールバックの場合は `.gitignore` を見ず `IGNORED_DIRS` のみで除外するため、ネストした `package.json` がより多く出る
-- タスク実行はプロジェクトのデフォルトシェルで `autoStart` + `closeOnExit`（完了でタブ自動クローズ）。サブディレクトリのタスクは正しい CWD で起動
-- グループ見出しの sourceFile クリックで定義ファイルをエディタタブで開く（#159。`taskStore.openSourceFile`、`group.cwd` + `basename(sourceFile)` で絶対パス化）
-- フロント: `stores/tasks.ts` + `components/panels/TasksPanel.vue` + `types/tasks.ts`
-
-### アウトラインパネル（Outline）
-- `outline` サイドバーパネル。`lib/outline/` の言語別 extractor（18 言語: Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / YAML / JSON / Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile）でシンボルを抽出
-- カーソル位置追従ハイライト・祖先自動展開・scrollIntoView、タブ別スクロール位置保持
-- Outline / History 2 タブ構成（`OutlineTreeView.vue` / `OutlineHistoryView.vue`）。History はファイル別 git log を表示、行クリックで diff タブを開く
-- 行オフセットは `buildLineOffsets` / `lineStart` で O(N) 前計算（`composables/useOutlineSource.ts`）
-
-### 診断パネル（Problems）
-- **常駐 LSP は持たない**（「軽さ最優先」）。`src-tauri/src/diagnostics/mod.rs` が検出したツールチェインの CLI を**オンデマンドで 1 回**走らせ、構造化出力をパースして `Diagnostic` に正規化する
-  - Rust: `cargo check --message-format=json`（stdout の JSON Lines）/ Go: `go vet ./...`（stderr のテキスト）/ TS・JS: `tsc --noEmit --pretty false`（stdout のテキスト）
-  - マニフェスト（`Cargo.toml` / `go.mod` / `tsconfig.json`）の探索深さは `MAX_DEPTH`=4。コマンドは**そのマニフェストのディレクトリ**で実行するので、出力のパスがそのまま解決できる
-  - 冷えた `cargo check` / `tsc` は遅いので `TIMEOUT_SECS`=180。UI が溢れないよう `MAX_DIAGNOSTICS`=2000 で打ち切る
-  - 結果は `ProviderRun`（プロバイダ名 / 実行ディレクトリ / **実行したコマンド** / ok / error / 件数）も返し、パネルのヘッダで失敗したチェッカーを提示する（`title` にコマンドとエラー文。コマンドはプロジェクト側で上書きできるので、名前だけでは何が走ったか分からない）
-  - `Task.command` は `Option`。**既定は `None`＝worker 側で解決**で、`golangci` だけ go.mod を読んだついでに確定済みの値を載せる。`ts` の vue-tsc プローブ（WSL では 1 dir につき `wsl.exe` 1 回）は worker で走らせないと並列性を失い、tsconfig の数だけ直列の待ちが増える
-- **golangci-lint（#213、opt-in）**: Go モジュールに `.golangci.{yml,yaml,toml,json}` が同階層以上にある、または go.mod が golangci-lint を参照していれば対象（`golangci_tasks`）。**検出は毎回・実行は要求時だけ**で、`diagnostics_run(shell, root, golangci)` の引数と結果の `golangciAvailable` で分ける（モジュール全体の型検査を伴い他のチェッカーより重いため、自動更新に常時混ぜない）
-  - 起動方法は go.mod 由来（`go_mod_golangci` がコマンド文字列を直接返す）: Go 1.24 の `tool` ディレクティブなら `go tool golangci-lint run ./...`、それ以外で名前が出てくれば PATH 上のバイナリ。go.mod は `crate::fs::batch_read_files` で**全モジュールを 1 回の wsl.exe 往復**で読む（トグルが OFF でも可否判定に go.mod が要るので Go プロジェクトでは毎回 1 往復かかる。秒単位のチェッカーの隣なので許容している）
-  - **コマンド上書き（`ProjectConfig.golangciCommand`）**: lint の入口が Docker にあるプロジェクト向け（sitter の `docker compose exec -T golang make lint` 等）。**上書きがあれば検出も go.mod 読みもしない**（プロジェクトが lint 方法を宣言している時点で opt-in なので、`.golangci.*` の有無を問わず go.mod のあるディレクトリ全部が対象になる）。実行ディレクトリは組み込みと同じ Go モジュールのディレクトリで、コンテナ側の作業ディレクトリにそのモジュールをマウントしていれば出力のパスがそのまま解決できる。**モジュールが複数あっても実行は 1 回**（いちばん浅いディレクトリ）: 兄弟モジュールに配ると同じコマンドが N 回走るうえ、同一の指摘が別々の base で解決されて `dedup` が畳めない（存在しないパスを指すコピーが N-1 個出る）。UI は ProjectPanel の編集フォーム（`ProjectListItem.vue`）の入力欄で、パネルのトグルの tooltip に実行するコマンドを出す。同期（#164）の共有フィールドにも入れてある（マシン非依存なため）
-  - **出力フォーマットのフラグは渡さない**。JSON 出力のフラグ名が v1（`--out-format`）と v2（`--output.json.path`）で変わっており、知らないフラグを渡すと実行自体が落ちる。既定のテキスト出力は両者共通で、色は stdout が TTY でないため自動的に切れる
-  - パースは go vet と同じ `path:line:col: message` なので `split_location` を共有。末尾の `(linter)` は `code` に移し、`typecheck` だけ Error（実際のコンパイルエラーのため）。**v1 が各指摘の下に流す元ソース行とキャレットは、行頭が空白かどうかで落とす**（`"a:1:2: x"` のような文字列リテラルを含む行が位置行として通ってしまうため。指摘行は必ずパスで始まる）
-  - **未インストールを「問題なし」に見せない**: `ProviderSpec.optional_binary`（golangci だけ true）が立っていると、終了コード != 0 かつパース結果 0 件のとき stderr の 1 行目を `ProviderRun.error` に出す。issue 検出時も非 0 で終わるので、パース結果 0 件が「そもそも走らなかった」の目印になる。cargo / go vet / tsc も同じ死角を持つが、既存プロジェクトの表示を変えることになるので false のまま据え置いている
-- フロントは `stores/diagnostics.ts` + `panels/DiagnosticsPanel.vue`。パネルを開いた時に未実行なら `run()`（`lastRunAt` で判定）。行クリックで該当箇所をエディタで開き、ホバーの 🤖 で修正依頼をターミナルへ注入（前述の `useTerminalInject`）。エディタ側のインライン下線は `lib/editorDiagnostics.ts`。`golangciAvailable` のときだけ出る golangci-lint トグルは `localStorage` の `pike:diagnostics-golangci` に**プロジェクト id の配列**で永続化する（`golangciAvailable` はプロジェクト固有なので `clear()` で落とす）。**グローバルな真偽値にしないこと**: パネルは初回 `run()` の応答で可否を知るので、フラグが立っていると別プロジェクトを開いてパネルを出した瞬間に、そのプロジェクトの（コンテナ実行かもしれない）lint が同意なしに走る
-
-### 定義ジャンプ（Ctrl+Click / F12）
-- `lib/editorJumpTo.ts` + `lib/jumpTo/`。TS/JS/Vue/Go の import パスを Ctrl+Click でファイル open
-- 識別子は同一ファイル内宣言（Lezer 構文木）と import 経由のクロスファイル定義の両方に対応
-- Vue カスタムコンポーネントは `<script setup>` の PascalCase import / Options-API `components` / `app.component()` グローバル登録の 3 段で解決
-- path alias 解決: tsconfig/jsconfig の `compilerOptions.paths` と vite.config の `resolve.alias`（祖先方向に config 探索、モノレポ対応、設定変更で自動 invalidate）
-- 進捗・結果は `stores/statusMessage.ts` 経由で StatusBar に表示（スピナー / 開いたファイル名 / 見つからない）
-
-### QuickOpen コマンドパレット（Ctrl+P）
-- 先頭文字でモード切替: 無印=ファイル fuzzy open、`>`=タスク実行、`@`=タブ切替、`:`=行ジャンプ、`!`=Git ブランチ切替、`?`=ヘルプ
-- `> Claude` / `> Codex` で新規エージェントタブ作成。`filename:42` で行番号ジャンプ
-- `rg --files` の結果をフロントでキャッシュ、プロジェクト切替時にリセット
-
-### 国際化（i18n）
-- `src/i18n/`: `index.ts` が `useI18n()` / 標準関数 `t` / `locale` ref（デフォルト `en`）を提供、`en.ts` / `ja.ts` がメッセージ辞書
-- `messages` は `locale` に対する `computed` でリアクティブ（locale 切替で即時反映）。ストア等コンポーネント外では `t` を直接 import
-- `{name}` プレースホルダを `replaceAll` で展開。言語切替は Settings タブ
-
-### タブバーへの OS ファイルドロップ
-- エクスプローラーからタブバーへの D&D。ファイル → `useCliOpen` の `openFileTarget`（export 済み。画像→Preview / pdf→Pdf / 他→Editor の拡張子ルーティング）、ディレクトリ → `addTerminalTab({ cwd, shell })`。**Windows プロジェクトとグローバルモードのみ有効**（WSL プロジェクトはエディタ I/O・ターミナル cwd の Windows→WSL パス変換が要るため無効）。ディレクトリの shell はプロジェクト default / グローバルは `globalShell`（WSL なら `defaultWindowsShellKind()` にフォールバック。Windows パスの cwd が WSL シェルでは捨てられるため）
-- **実パス解決**（`dragDropEnabled: false` のため DOM の File にパスが無い）: `lib/dropPaths.ts` が WebView2 の `postMessageWithAdditionalObjects`（`pike:drop-paths:{id}` + File 群）で host に渡し、Rust `drop_paths.rs` の `WebMessageReceived` ハンドラが `ICoreWebView2File::Path` + `is_dir` を解決して `drop_paths` イベント（`{id, entries}`、window-scoped）で返す。ハンドラの attach は `build_window` と setup の main ウィンドウの 2 箇所（`with_webview`）。wry の IPC も同じ WebMessageReceived を使うが COM イベントは多重購読できるため共存
-- **依存の注意**: `webview2-com` 0.38 の COM 型は windows-core **0.61** 系で、本体の `windows` 0.62 とは別インスタンス。`drop_paths.rs` では `windows_core`（0.61、直接依存に追加済み）の `Interface`/`PWSTR` を使うこと
-- App.vue に未処理ドロップの window レベル preventDefault ガードあり（未処理の OS ファイルドロップは WebView がファイルへナビゲートし、アプリごと置き換わる＝全 PTY 破棄のため）
-
-### ファイル/画像ペースト
-- `composables/useImagePaste.ts`。クリップボード/D&D のファイルを `.pike/uploads/` に保存 → 相対パスを挿入（エージェントチャットは `@パス` メンション、ターミナルは bare path）。画像専用ではなく**任意のファイル**が対象（PDF 等も可）
-- 判別は **file か string か**（`ClipboardEvent` は `item.kind === 'file'`、D&D は `dataTransfer.files`）。テキスト（string）は長さに関係なくインライン貼り付けのまま
-- 保存ファイル名は元名を保持（`stem-{hex}.ext`、衝突回避）。名前を持たないクリップボード blob（画像等）は `upload-{ts}-{hex}.{ext}` を生成
-- 初回保存時に各プロジェクトへ `.pike/.gitignore`（中身 `*`）を書き込み、退避ファイルを repo から除外
-- **小ファイルのインライン展開**（設定 `inlineSmallTextFiles`、既定OFF / 閾値 `inlineSmallTextThreshold` 既定4KB）: **AgentChatTab 限定**。ファイルがサイズ上限以下 **かつ** 中身が UTF-8 テキスト（`isProbablyText` で NUL/不正バイト判定）なら、アップロードせず内容を直接挿入。PDF・画像等のバイナリは常にアップロード。ターミナルへのドロップは常にアップロード（`tryInlineFile` は使わない）
-- xterm は Ctrl+V を SYN(`\x16`) として食うため `attachCustomKeyEventHandler` で横取り。右クリック/Ctrl+V は `navigator.clipboard.read()` 経由だが、この API は**画像とテキストのみ**返す（任意ファイルは取得不可）→ ターミナルへの任意ファイル投入は D&D が主経路
-- ファイルツリー / OS からのドラッグ&ドロップにも対応
-
-### キーボードショートカット
-- グローバルは `composables/useKeyboardShortcuts.ts`（window の keydown）。エディタ内は CodeMirror の keymap（`EditorTab.vue`）、ターミナルは xterm の `attachCustomKeyEventHandler`、各モーダルは自前の keydown と、**4 層に分かれている**。一覧は `components/KeyboardShortcuts.vue` + `composables/useShortcutsModal.ts`、マニュアルは `docs/manual/shortcuts-and-cli.md`。**キーを増やしたら 3 箇所（実装・モーダル・マニュアル）を揃える**
-- **`e.key` の英字は `normalizedKey`（`useKeyboardShortcuts.ts`）を通して比較する**。Caps Lock は `e.key` の大小を反転させるので、`'p'` のようなリテラル比較だけだと Caps 中に全滅する（棚卸しで実際に見つかった）。グローバル・PreviewTab・DiffTab の 3 箇所が共有する
-- **モーダルの `keys` は「候補コードの配列」**（`['Ctrl+Shift+Z', 'Ctrl+Y']`）。描画は `+` で `<kbd>` に割り、配列の区切りに `/` を入れる。1 文字列に `/` を混ぜると `split('+')` が壊れて `Z / Ctrl` のようなチップが出る
-- **CodeMirror 標準の redo は `Mod-y` と Linux 限定の `Ctrl-Shift-z`**。Windows が主対象なので `Mod-Shift-z` を明示的に足してある。足すまで、3 箇所で案内していた `Ctrl+Shift+Z` はどこでも効いていなかった
-- **`Ctrl+H`（置換）は `searchKeymap` に無い**。`editorSearch.ts` の `replaceKeymap` が `openSearchPanel` + `revealReplace` エフェクトで置換行を開く。パネル自体は元から置換行を持っていたが、キーバインドだけが無く、案内だけが 3 箇所にあった
-- **素のキーを見るハンドラは修飾キーを弾く**。`PreviewTab` の `switch (e.key)` は修飾を見ておらず、画像タブで `Ctrl+F` が fit、`Ctrl+R` が回転になっていた
-- **ターミナルにフォーカスがあるとき、グローバルショートカットは既定で 1 つも効かない（#224）**。xterm は PTY へ送るキーで `preventDefault` だけでなく **`stopPropagation` も呼ぶ**（`CoreBrowserTerminal.cancel(ev, true)`。`_keyDown` が `evaluateKeyboardEvent` の結果を PTY へ流したあとに必ず通る）。よって window の keydown ハンドラには **Ctrl+英字も `Tab` も `PageUp/Down` も `F1` も届かない**
-  - **#224 の issue 本文にある「両方に届く」は誤り**（コードの読みだけで書かれたもの）。実際は逆で、シェルが全部取っていた。`Ctrl+Shift+P` と `Ctrl+,` だけが効いていたのは、xterm がそれらに制御コードを割り当てず `cancel` を通らないため
-  - 例外を作る側の実装は `useKeyboardShortcuts.ts` の `PIKE_FIRST_CTRL_KEYS`（`Ctrl+W` / `Ctrl+T` / `Ctrl+Tab` / `Ctrl+PageUp` / `Ctrl+PageDown`。タブの出し入れだけ）。`TerminalTab.vue` の `attachCustomKeyEventHandler` がこの一覧で **`false` を返す**と `_keyDown` が即 return するので、PTY へも流れず `cancel` も通らず window まで伝わる。**`stopPropagation` や `preventDefault` を足す方向では直らない**（xterm 本体はこのハンドラの後に走り、そこで両方呼ぶ）
-  - **`Ctrl+W` だけは代替画面（`inAltScreen`）のあいだシェルへ返す**（`ALT_SCREEN_SHELL_KEYS`）。vim のウィンドウ操作の prefix なので、奪うと `Ctrl+W s` 等が打てないうえタブが閉じる。素のシェル（readline の unix-werase）では Pike 優先のままにするため、判定はキー単位ではなく代替画面の有無で行う
-  - readline が使う `Ctrl+K`（行末まで削除）・`Ctrl+P` / `Ctrl+N`（履歴）と、TUI アプリの `F1` はシェルに残す方針。**一覧をグローバルハンドラと同じファイルに置く**のは、そこが同じキーを取り合う相手だから（ターミナル側に置くと、`useKeyboardShortcuts.ts` に Ctrl+英字を足す人が「ターミナルでは効かない」ことに気付けない。readline の `Ctrl+A/E/U/D/Y` は未使用のまま残っている）
-  - 変更したら 3 箇所（この定数・`KeyboardShortcuts.vue` のターミナル節・`docs/manual/shortcuts-and-cli.md`）を揃える
-- WebView リロード抑止: Ctrl+R / Ctrl+Shift+R / F5 を `preventDefault`。誤操作でのリロード（全 PTY セッション破棄＝実質再起動）を防ぐ。ターミナルの Ctrl+R（bash 逆方向検索）は xterm がイベントを消費するため影響なし
-
-### `pike --wait`（GIT_EDITOR 連携）
-- `src-tauri/src/wait.rs`。`GIT_EDITOR="pike.exe --wait"` でコミットメッセージ編集に対応
-- 二次インスタンスが WM_COPYDATA（single-instance プラグインの規約）でファイルパスを既存ウィンドウに転送、`WaitState` で wait_id ↔ (パス, ウィンドウラベル) を管理
-- エディタタブを閉じると待機中プロセスが解放され、ウィンドウも自動で閉じる。ウィンドウ破棄時の abort は**そのウィンドウが所有する wait のみ**（グローバルターミナルウィンドウの開閉が無関係な GIT_EDITOR 待機を解放しないため）
-- **ファイル引数なしの `--wait`**（素の `pike --wait` や directory 引数）は待機対象が無いため、abort イベントで即座に CLI を解放してから通常のアクション処理に回す（解放しないと CLI が永遠にブロックする）
-
-### コミット前チェック
-
-**コミットの前は、変更の規模に応じて次を実行し、指摘を反映してからコミットする。**
-
-| 変更の規模 | 実行するもの |
-|---|---|
-| ある程度の規模の実装・修正 | `/code-review` → `simplify` → `just check` |
-| 軽微なコード修正 | `simplify` → `just check`（自明な 1 行修正などは直接コミットしてもよい） |
-| ドキュメントのみ（`README.md` / `docs/manual/` / `CHANGELOG.md` / `plugins/README.md`） | 「ドキュメント校正ルール」の校正 ＋ `just check-docs` |
-| バージョン bump のみ | 何も要らない |
-
-- **順序を守る**。`/code-review`（バグ探索）で挙がったものを直してから `simplify`（再利用・単純化・効率・抽象度の品質整理）を回す。simplify はバグを探さないので、先に回しても直すべきコードを整えるだけになる。
-- どちらもコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは適用後のコードを試す）。
-- `/code-review` はスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
-
-その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 5 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
-
-- **Frontend**: `just lint`（= `npm run lint` = `biome check src/`）
-- **TypeScript 型検査**: `just typecheck`（= `npx vue-tsc --noEmit`。`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
-- **ドキュメント整合**: `just check-docs`（= `node scripts/check-docs.mjs`）
-- **Rust**: `just clippy`（= `src-tauri/` で `cargo clippy -- -D warnings`）
-- **Rust テスト**: `just test`（= `src-tauri/` で `cargo test`）
-
-### ドキュメント乖離のチェック
-
-`npm run check:docs` は機械的に照合できる乖離だけを見る。落ちたらコミット前に直す。
-
-1. `src/` と `src-tauri/src/` のファイルが CLAUDE.md のディレクトリ構成に載っているか（**新しいファイルを足したら構成にも 1 行足す**）
-2. CLAUDE.md が挙げるファイルパスが実在するか（削除・改名の取り残し）
-3. README とマニュアルが参照する画像が実在するか、逆に参照されない画像が残っていないか
-4. md 間のリンクとページ内アンカーが解決するか（`src/lib/slug.ts` と同じ slug 規則。あちらを変えるとスクリプトが検知して落ちる）
-
-スクリプトで判定できない「説明が実装と合っているか」は、差分の性質から自分で判断する。**ユーザーに見える挙動を変えたら、実装と同じコミットで対応するドキュメントも直す**:
-
-| 変えたもの | 直すドキュメント |
-|---|---|
-| UI の操作・表示 | `docs/manual/` の該当ページ（機能一覧レベルの変化なら README も） |
-| 設定項目の追加・変更 | `docs/manual/settings.md` |
-| キーボードショートカット | `docs/manual/shortcuts-and-cli.md` と `components/KeyboardShortcuts.vue` の一覧 |
-| `pike` CLI の引数・サブコマンド | `docs/manual/shortcuts-and-cli.md`、`pike todo` なら `plugins/` の SKILL.md 2 本も |
-| 非自明な実装判断・定数・落とし穴 | CLAUDE.md の該当セクション（数値は出典のコードを併記して drift を防ぐ） |
-
-過去に溜まった乖離の実例（2026-07-30 の棚卸しで検出）: 新規ファイル 20 件超がツリー未記載、実在しない `useTerminalNotifications.ts` の記載、サイドバー一覧から TODO と Problems 落ち、`git init`（#156）とタブのツールチップ（#198）がマニュアル未記載、Problems パネルの説明が実装と不一致。**いずれも「実装した回のコミットで一緒に直していれば発生しなかった」もの**なので、まとめてやらずその場で直す。
-
-### コミット & push 運用ルール
-個人開発のため PR レビューは原則不要。Claude が変更を加えた場合は以下のフローを厳守:
-
-1. **コミット前に必ずユーザの動作確認 OK を取る** — `cargo clippy` / `biome` / `vue-tsc` が通っていてもコミットしてはいけない。ユーザは GUI 上で実際に挙動を試す必要があるため、Claude が「テスト通った」だけで自動コミットすると確認前に履歴が確定してしまう。「コミットしていい？」と聞くか、ユーザが明示的に「コミットして」と言うまで待つ
-2. **`main` ブランチに直接コミット**（feature ブランチや PR は作らない）
-3. **`git push` は実行しない** — push の判断はユーザに委ねる（ユーザはローカル確認後に自分で push する運用）。**例外はリリース依頼時**（次項 5）
-4. ユーザから明示的に「PR にして」「ブランチ切って」等の指示があった場合のみ、その指示に従う
-5. **リリース依頼は end-to-end で Claude が実行する**: ユーザから「リリースして」と依頼されたら、それはバージョン bump コミットだけでなく、`main` の push・タグ作成と push・Release ワークフロー完了待ち・ドラフトのリリースノート記載と公開までの一括依頼。個別の push 確認は不要（「リリース手順」セクションの手順をそのまま完遂する）
-
-### CI/CD
-- `.github/workflows/ci.yml`: push/PR で `biome check`、`npm run build`（vue-tsc + vite）、`cargo clippy -- -D warnings`、`cargo test` を実行（Windows runner）
-- `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-apps/tauri-action@v0` が Windows ビルド → GitHub Releases にドラフトアップロード
-- `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
-- `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
-
-### ファイル監視 (File Watcher)
-- Windows プロジェクト: `notify` クレート（v7）で `ReadDirectoryChangesW` ベースの再帰監視
-- WSL プロジェクト: `wsl.exe inotifywait -m -r` を長寿命サブプロセスとして起動（`inotify-tools` 必要、未インストール時は graceful degrade）
-- イベントバッチ処理: 200ms デバウンス + 1s max wait でフロントに送信
-- `IGNORED_DIRS` (.git, node_modules 等) をフィルタ
-- `fs_changed` イベントで `changedDirs`（ツリー更新用）+ `changedFiles`（エディタ更新用）を送信
-- エディタ外部変更検知: clean タブは自動リロード、dirty タブはインライン警告バー（Reload/Overwrite/Dismiss）
-- 自己書き込み除外: `markRecentlySaved()` で 2秒 TTL のパス Set を管理
-- ウィンドウ破棄時に全 watcher 停止（`watcher::stop_all`）
-- Rust `WatcherState` を `AppState` で管理、`fs_watch_start` / `fs_watch_stop` コマンド
-
-### プレビュー拡張
-- CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）
-  - CSV/TSV: `buildCsvPreview` でテーブル化（RFC 4180 準拠の引用符対応パーサ、10,000 行 truncate、sticky ヘッダ）
-  - Mermaid (`.mermaid`/`.mmd`): `renderStandaloneMermaid` が `lib/mermaid.ts` の `getMermaid()` を遅延 import して SVG 描画（ズーム対応）
-  - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
-  - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
-- Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
-- **Markdown フロントマター（#229）**: `lib/frontmatter.ts` の `detectFrontmatter` が範囲を返し、`lib/frontmatterParse.ts` の `parseFrontmatter` が `yaml` / `smol-toml` / `JSON.parse` で key/value に落とす。プレビュー（`buildMarkdownPreview` が `marked.parse` の前に本文を切り出して `<details>` の表を前置）とアウトライン（`extractors/markdown.ts` が `bodyFrom` より前の見出しを捨てる）で**範囲検出だけ**を共有する（描画経路がテキストと Lezer 構文木で別のため）
-  - **ファイルを 2 つに割っているのはバンドルの都合**。`lib/outline/index.ts` が 18 個の extractor を静的 import で 1 チャンクに束ねるので、パーサを同居させると YAML/TOML パーサ（合わせて約 106KB）が Go や Rust のアウトラインにも載る。実測で outline チャンクが 267KB → 161KB。`frontmatter.ts` は依存ゼロを保つこと
-  - **パース失敗は理由（`reason`）で返し、文言はプレビュー側で当てる**。`t()` をパーサに置くと、`not-mapping` だけ日本語で `yaml` クレート由来のメッセージは英語のまま、という食い違いになる
-  - **切り離さないとフロントマターが `<h2>` に化ける**。CommonMark では水平線と setext 見出しが両方成立するとき setext が勝つので、開きの `---` が見出し本文、閉じの `---` がその下線になる。marked のバグではない。アウトラインに出ていたのも Lezer が同じ判定で `SetextHeading2` を作るため
-  - **判定はファイル 1 行目のデリミタだけ**。フロントマターに仕様は無く（Jekyll 発祥の慣習で、CommonMark にも GFM にも規定がない）実装ごとに差があるので、文書の途中の `---` を拾わない線引きに寄せる。YAML `---` / TOML `+++` / JSON `{`（Hugo。フェンスが無いので波括弧の釣り合いで終端を決める）の 3 つ
-  - 閉じデリミタが無ければフロントマター無しとして扱う。BOM は不可視のまま全オフセットをずらすので先に長さを測る
-  - **パース失敗は握り潰さず生テキストを `<pre>` で出す**（黙って消すと本文が消えたようにしか見えない）。この場合だけ `<details>` を開いた状態で出す
-  - 開閉状態は `frontmatterOpen`（**ref ではなく素の変数**）に持ち、`trackFrontmatterToggle` が描画のたびに DOM へ復元する。`previewHtml` は編集のたびに HTML を作り直すので DOM 側だけに置くと打鍵で閉じるが、reactive にすると開閉のクリックごとに `previewHtml` が無効化され、mermaid の再描画とローカル画像 1 枚につき 1 回の IPC 読みが走る
-- **外部ドメインの画像（#239）**: README のバッジを出せるようにするためのドメイン単位のオプトイン。**CSP は広げない**（`img-src` は `'self' data: blob:` ＋マニュアル用の raw.githubusercontent.com のまま）。承認済みホストの画像だけ `remote_image_fetch` で取ってきて `data:` URL にする。承認は `settings` の `allowedImageHosts`（`pike:settings` に載るので同期・クロスウィンドウ broadcast の対象）
-  - **CSP を `https:` まで広げる案は採らなかった**。CSP は文書単位なので、プレビューのために緩めると**エージェントチャット（`AgentChatTab.vue` の markdown）・SVG プレビュー・マニュアル**まで一緒に壁を失う。とくにチャットは web fetch の結果や貼り付けた README がそのまま流れてくる面で、いちばん緩めたくない。代わりに `resolveMarkdownImages` が**ローカル画像で既に使っている `data:` URL 化**に相乗りさせた（`fs_read_file_base64` の隣に `remote_image_fetch` を置いた形）
-  - この分担だと**実際に遮断しているのは CSP で、フロントの処理は見た目だけ**になる。取りこぼした経路があっても壊れた画像が出るだけで、黙って通信が飛ぶことはない
-  - **画像の解決はすべて `resolveMarkdownImages` の 1 パス**。ローカルと外部を分けると、同じ `<img>` を 2 回走査したうえに「どちらが後に src を書いたか」に依存する。読み込みは `Promise.all` で並列（遅いホストが隣の画像を待たせない）
-  - **`srcset` と `<picture><source>` は落とす**。ブラウザは `src` より先にそちらを見るので、残すと解決した `src` が使われない。挿入後に落として構わない（CSP が既にリクエストを止めている）
-  - 対象は `https:` だけ。`http:` はバックエンドが弾くので承認する意味がなく、チップも出さない
-  - **取得結果はモジュールレベルでキャッシュする**（`lib/externalImages.ts`）。プレビューは打鍵のたびに作り直すので、無いとバッジを打鍵ごとに取りに行く。**失敗も覚える**（死んだ URL を同じ頻度で叩かないため）。チップのクリックが `retryRemoteImage` でその 1 件だけ忘れる
-  - チップの文言は DOM に焼き込まれるので、再適用の watcher は許可リストと `locale` の 2 つ。**`previewHtml` は許可リストに依存させない**（依存させると承認のたびに mermaid の再描画とローカル画像 1 枚につき 1 回の IPC 読みが走る）
-  - **許可は同期対象にしてある**: バッジのホストを信用したという判断はマシンに依存しない（`globalShell` 等のマシンローカル扱いとは別）
-  - Rust 側のガードは https / **リダイレクト不追従** / `image/*` / 15 秒 / 8MB の 5 つ。**どのホストを許すかは持たない**（承認リストとダイアログはフロントの持ち物）。リダイレクトを追わないのはフロントの判定を意味あるものに保つため（追うと `img.shields.io` を許可したつもりが 302 で任意のホストへ飛べる＝承認したホストと応答するホストがずれる）。解決先アドレスの制限（loopback / RFC1918 / link-local）は**入れていない**: 社内の画像サーバーを指す README は実在するうえ、ホスト名を出したダイアログで承認させている。入れるなら解決したアドレスを接続に固定するところまでやらないと、リテラル IP を弾くだけで rebinding は通る。TLS プロバイダは updater と同じ ring を明示的に入れる（updater は自分がクライアントを組むときにしか入れないので、更新確認より先に画像を取ると provider 無しで落ちる）
-- 画像: `PreviewTab.vue`（base64 dataUrl を `<img>` 表示）。上部ツールバーで**表示専用**（ファイルは無変更）のビューワ操作を提供:
-  - 拡大 / 縮小 / 100% / ウィンドウに合わせる（fit）、左右 90° 回転・左右反転
-  - スクロールコンテナは flex 中央寄せを使わず**ステージ側 `margin: auto`** で中央寄せ（`align-items: center` だと画像がビューポートより大きいとき上端がスクロール領域外に押し出され到達不能になる不具合を回避）。スクロール領域は**回転後のバウンディングボックス**（`stageW`/`stageH` computed）が駆動
-  - ズームは transform scale ではなく img の width/height で表現し、回転・反転は `translate(-50%,-50%) rotate() scaleX()` の transform で適用
-  - `applyZoom` がズーム前後のスクロール比から `scrollLeft/Top` を補正し、カーソル（または中央）位置を固定。Ctrl+ホイールズーム / ドラッグでパン（`canPan` 時のみ、グローバル mousemove/mouseup は `onUnmounted` でも除去）/ ダブルクリックで fit⇔100%
-  - キーボード（canvas に `tabindex="0"`）: `+`/`-` ズーム、`0`=100%、`f`=fit、`r`/`Shift+R`=回転。透過グリッド（チェッカーボード）背景の切替、画像実寸（W×H）表示。ツールバー文言は `preview.*` i18n（日英）
-- PDF: `PdfTab.vue`（`<iframe src="data:application/pdf;base64,...">` による WebView2 内蔵レンダリング）
-- ファイルツリー `openFile()` が拡張子で画像→PreviewTab / PDF→PdfTab / その他→EditorTab を振り分ける
-
-### 検索 (rg / grep)
-- 起動時に `which rg` で backend 判定、以降固定
-- rg: `rg --json -F/-e --glob` でパース容易な出力
-- grep: `grep -rn --include/--exclude` でフォールバック
-- フロントには検索バックエンドをバッジ表示
-- 結果クリックでエディタタブを開き、`initialLine` で該当行にジャンプ
-- 最大 500 件で truncate、デバウンス 300ms
-- rg サイドカーバンドル: `src-tauri/binaries/rg-{target}.exe` を `externalBin` でアプリに同梱
-  - Windows プロジェクト: システム rg → バンドル版 rg → grep の順でフォールバック
-  - WSL プロジェクト: WSL の rg → WSL の grep（バンドル版は Windows バイナリのため使用不可）
-  - `scripts/download-rg.sh` でビルド前にダウンロード（バイナリは .gitignore）
-- `list_project_files` コマンド: `rg --files` / `find` でプロジェクト内ファイル一覧取得（QuickOpen 用）
-
-### クイックオープン (Ctrl+P)
-- `QuickOpen.vue`: ProjectSwitcher と同じオーバーレイ + モーダル構造
-- `rg --files` 結果をフロントでキャッシュ、プロジェクト切替時にリセット
-- fzz 風 fuzzy match（ファイル名優先 → パスマッチ）、最近開いたファイルを上位表示
-- `filename:42` サフィックスで行番号ジャンプ対応
-- `project.showQuickOpen` で表示状態管理
-
-### 設定画面
-- サイドバー下部の歯車アイコンからシングルトンタブとして開く
-- 設定は `localStorage` (`pike:settings`) に永続化
-- ダーク/ライトモード切替: `data-theme` 属性で CSS Variables を切り替え
-- ターミナルフォント: `font-kit` クレートでシステムのモノスペースフォントを列挙（`spawn_blocking` で非同期実行）
-- フォントスキャンは Settings タブを開いた時に遅延ロード（起動時には実行しない）
-- カラースキーム: 6種（Default Dark, Solarized Dark/Light, Monokai, Dracula, Nord）
-- フォント・サイズ変更は既存ターミナルにライブ反映、カラースキーム変更は `terminal.refresh()` + PTY resize nudge で TUI 再描画
-- 設定タブにターミナルプレビュー表示（選択中のフォント・サイズ・カラースキームを即時反映）
-- Editor セクション: ミニマップ ON/OFF、ワードラップ ON/OFF、タブサイズ（2/4/8）。CM6 Compartment でライブ反映
-- settings タブはセッション永続化の対象外（`snapshotSession` は terminal/editor のみフィルタ）
 
 ---
 
@@ -995,8 +437,3 @@ EOF
 - `TAURI_SIGNING_PRIVATE_KEY` が GitHub Secrets に設定されていること（署名なしビルドは updater で検証失敗する）
 - タグを打ち直す場合: `git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z` → 修正後に再タグ
 
----
-
-@import .claude/rules/rust.md
-@import .claude/rules/frontend.md
-@import .claude/rules/testing.md

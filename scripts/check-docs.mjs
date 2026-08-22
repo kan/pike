@@ -3,7 +3,7 @@
 //
 // 「文章として正しいか」は見ない。人間が見落とす類の乖離だけを対象にする:
 //   1. src/ と src-tauri/src/ のファイルが CLAUDE.md のディレクトリ構成に載っているか
-//   2. CLAUDE.md が挙げるファイルパスが実在するか（削除・改名の取り残し）
+//   2. CLAUDE.md と .claude/rules/ が挙げるファイルパスが実在するか（削除・改名の取り残し）
 //   3. README とマニュアルが参照する画像が実在するか / 使われていない画像が残っていないか
 //   4. md 間のリンクとページ内アンカーが解決するか（Pike のプレビューと同じ slug 規則）
 //
@@ -62,14 +62,18 @@ for (const dir of COLLECTIVE_DIRS) {
   if (!claudeMd.includes(`${name}/`)) fail(`CLAUDE.md の構成に未記載（ディレクトリ単位）: ${dir}/`)
 }
 
-// --- 2. CLAUDE.md が挙げるパスが実在するか ------------------------------------
+// --- 2. CLAUDE.md と .claude/rules/ が挙げるパスが実在するか --------------------
 // Rust は src-tauri/src 配下、フロントは src 配下の .ts/.vue だけを Pike 自身の
 // パスとみなす。`src/main.rs` のような他プロジェクトの慣例を指す言及（cargo の
 // タスク検出の説明など）を実在チェックに巻き込まないため。
 const ownPathPatterns = [/src-tauri\/src\/[\w./-]+\.rs/g, /\bsrc\/[\w./-]+\.(?:ts|vue)/g]
-for (const pattern of ownPathPatterns) {
-  for (const m of claudeMd.matchAll(pattern)) {
-    if (!existsSync(join(root, m[0]))) fail(`CLAUDE.md が実在しないパスを参照: ${m[0]}`)
+const noteFiles = ['CLAUDE.md', ...walk('.claude/rules').filter((p) => p.endsWith('.md'))]
+for (const file of noteFiles) {
+  const body = file === 'CLAUDE.md' ? claudeMd : read(file)
+  for (const pattern of ownPathPatterns) {
+    for (const m of body.matchAll(pattern)) {
+      if (!existsSync(join(root, m[0]))) fail(`${file} が実在しないパスを参照: ${m[0]}`)
+    }
   }
 }
 
