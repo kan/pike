@@ -357,3 +357,69 @@ pub fn validate_slug(value: &str, label: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// シェル識別子（フロントの `shellId`（`src/types/tab.ts`）と同じ表記:
+/// `wsl:<distro>` / `cmd` / `powershell` / `pwsh` / `git-bash`）を `ShellConfig`
+/// に戻す。ジャンプリストの `--shell=<id>` とトレイの `tray:new-terminal:<id>`
+/// が同じ文字列を運ぶ（#240）。**信頼できない入力の入口**なので distro は形だけ
+/// 検証する。
+pub fn shell_from_id(id: &str) -> Option<ShellConfig> {
+    if let Some(distro) = id.strip_prefix("wsl:") {
+        // distro 名は `wsl.exe -d <distro>` へ引数として渡るだけでシェル展開はされない
+        // ので、弾くのは名前として成立しないものだけにする。**ここを絞りすぎない**:
+        // 検出側（`detect_wsl_distros`）は行を trim するだけで、インポートした distro は
+        // `Ubuntu (dev)` のように空白も括弧も持てる。落とすとメニューには項目が出たまま
+        // ジャンプリストは globalShell で開き（無言で別のシェル）、トレイは何も起きない。
+        // 引用符と \ はジャンプリストの引数文字列の引用を壊すので除く。
+        let ok = !distro.is_empty()
+            && distro.chars().count() <= 64
+            && !distro.chars().any(|c| c.is_control() || c == '"' || c == '\\');
+        return ok.then(|| ShellConfig::Wsl {
+            distro: distro.to_string(),
+        });
+    }
+    match id {
+        "cmd" => Some(ShellConfig::Cmd),
+        "powershell" => Some(ShellConfig::Powershell),
+        "pwsh" => Some(ShellConfig::Pwsh),
+        "git-bash" => Some(ShellConfig::GitBash),
+        _ => None,
+    }
+}
+
+/// メニュー（ジャンプリスト #160 / トレイ #161）に並べるシェル 1 つ分。
+/// シェル一覧はフロントの localStorage（`pike:shell-profiles`、マシンローカル）に
+/// あって Rust からは読めないので、`menus_refresh` の引数として受け取り、Rust は
+/// 表示と `--shell=<id>` の組み立てだけを行う（#240）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuShell {
+    /// `shell_from_id` が受け付ける識別子（フロントの `shellId`）
+    pub id: String,
+    /// 表示ラベル（フロントの `shellProfileLabel`。UI 言語には依存しない固有名）
+    pub label: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_from_id_round_trips_menu_ids() {
+        assert!(matches!(shell_from_id("powershell"), Some(ShellConfig::Powershell)));
+        assert!(matches!(shell_from_id("git-bash"), Some(ShellConfig::GitBash)));
+        assert!(
+            matches!(shell_from_id("wsl:Ubuntu-24.04"), Some(ShellConfig::Wsl { distro }) if distro == "Ubuntu-24.04")
+        );
+        // A distro name is required, and only name-shaped ones are accepted:
+        // the id reaches us from CLI args and tray menu ids.
+        assert!(shell_from_id("wsl").is_none());
+        assert!(shell_from_id("wsl:").is_none());
+        // Imported distros can carry spaces and punctuation — those must work.
+        assert!(
+            matches!(shell_from_id("wsl:Ubuntu (dev)"), Some(ShellConfig::Wsl { distro }) if distro == "Ubuntu (dev)")
+        );
+        assert!(shell_from_id("wsl:a\"b").is_none());
+        assert!(shell_from_id("bash").is_none());
+    }
+}

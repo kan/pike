@@ -16,7 +16,7 @@ import type {
 } from '../types/git'
 import type { ProjectConfig } from '../types/project'
 import type { SearchBackend, SearchResult } from '../types/search'
-import type { ShellType } from '../types/tab'
+import type { MenuShell, ShellType } from '../types/tab'
 
 // invoke の唯一のチョークポイント。E2E 撮影ビルド (#142) では、パネルへ決定的な
 // ダミーデータを与えるため window.__wdio_mocks__（@wdio/tauri-service が
@@ -199,11 +199,12 @@ export async function projectTransientDrop(id: string): Promise<void> {
 /**
  * Rebuild the shell-integration menus — the taskbar jump list (#160) and the
  * system-tray menu (#161). `lang` is the current UI locale so labels follow it.
- * Reads the project list once on the Rust side and feeds both. Best-effort —
- * never blocks project operations if a menu can't be built.
+ * Reads the project list once on the Rust side and feeds both. `shells` is the
+ * visible shell list — both menus offer one terminal entry per shell (#240).
+ * Best-effort — never blocks project operations if a menu can't be built.
  */
-export async function menusRefresh(lang: string): Promise<void> {
-  return invoke('menus_refresh', { lang })
+export async function menusRefresh(lang: string, shells: MenuShell[]): Promise<void> {
+  return invoke('menus_refresh', { lang, shells })
 }
 
 /**

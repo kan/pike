@@ -43,10 +43,13 @@ pub fn is_elevated() -> bool {
     is_process_elevated()
 }
 
-/// 昇格起動を許可する Windows シェル種別（ShellConfig の serde タグと一致）。
-/// WSL は意図的に除外する。
+/// 昇格起動を許可するシェル種別。id の語彙は `types::shell_from_id` が単一の
+/// 出典で（#240）、ここは WSL を除外するだけにする（昇格は Windows シェル限定）。
 fn is_windows_shell_kind(kind: &str) -> bool {
-    matches!(kind, "cmd" | "powershell" | "pwsh" | "git-bash")
+    matches!(
+        crate::types::shell_from_id(kind),
+        Some(shell) if !matches!(shell, crate::types::ShellConfig::Wsl { .. })
+    )
 }
 
 /// 指定シェルのターミナルを、管理者権限の別 Pike インスタンスで開く。UAC 承認後に

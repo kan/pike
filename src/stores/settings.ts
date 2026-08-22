@@ -9,6 +9,7 @@ import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } f
 import { setWebviewTheme, windowLabel } from '../lib/window'
 import type { HiddenProject } from '../types/project'
 import {
+  type MenuShell,
   type ShellProfile,
   type ShellType,
   shellId,
@@ -216,6 +217,10 @@ const SYNC_WRITE_DEBOUNCE_MS = 1500
 // Cross-window settings sync: broadcast changes so every open Pike window stays
 // in sync (new windows already read the shared localStorage at startup).
 const SETTINGS_CHANGED_EVENT = 'pike://settings-changed'
+// Shell profiles ride a separate broadcast: they live outside `pike:settings`
+// (machine-local, never synced) but still have to agree between the windows of
+// one machine, because any window can publish them to the OS menus (#240).
+const SHELL_PROFILES_CHANGED_EVENT = 'pike://shell-profiles-changed'
 const BROADCAST_DEBOUNCE_MS = 150
 // Base UI font size that maps to 100% (zoom = 1). The whole UI chrome is scaled
 // proportionally via CSS `zoom`, so changing the size never breaks the layout.
@@ -586,7 +591,39 @@ export const useSettingsStore = defineStore('settings', () => {
   // globalShell. WSL entries are reconciled against detection results by
   // syncShellProfiles (callers that run detect_wsl_distros invoke it).
   const shellProfiles = ref<ShellProfile[]>(sanitizeShellProfiles(loadJson<unknown>(SHELL_PROFILES_KEY, null)))
-  watch(shellProfiles, (v) => saveJson(SHELL_PROFILES_KEY, v), { deep: true })
+  // Machine-local, but not window-local: the jump list and the tray are one
+  // per-process resource that any window may rebuild (#240), so a window still
+  // holding its startup copy would publish a menu without the WSL distros
+  // another window has since detected — or with a shell the user just hid.
+  // Broadcast instead of re-reading localStorage at publish time: the read
+  // would race with this store's own persist watcher on the same change.
+  let applyingRemoteShells = false
+  let shellBroadcastTimer: ReturnType<typeof setTimeout> | null = null
+  watch(
+    shellProfiles,
+    (v) => {
+      saveJson(SHELL_PROFILES_KEY, v)
+      if (applyingRemoteShells) return
+      // Debounced like the settings broadcast: the list is edited in bursts
+      // (↑↓ reorder, eye toggles) and `syncShellProfiles` mutates it twice per
+      // detection, and every receiving window rebuilds the OS menus.
+      if (shellBroadcastTimer) clearTimeout(shellBroadcastTimer)
+      shellBroadcastTimer = setTimeout(() => {
+        shellBroadcastTimer = null
+        void emit(SHELL_PROFILES_CHANGED_EVENT, { from: windowLabel, payload: shellProfiles.value })
+      }, BROADCAST_DEBOUNCE_MS)
+    },
+    { deep: true },
+  )
+
+  listen<{ from: string; payload: unknown }>(SHELL_PROFILES_CHANGED_EVENT, (event) => {
+    if (event.payload.from === windowLabel) return // ignore our own broadcast
+    applyingRemoteShells = true
+    shellProfiles.value = sanitizeShellProfiles(event.payload.payload)
+    void nextTick(() => {
+      applyingRemoteShells = false
+    })
+  })
 
   /**
    * Reconcile the profile list with the detected WSL distros: new distros are
@@ -640,6 +677,17 @@ export const useSettingsStore = defineStore('settings', () => {
     if (opts.some((o) => o.kind === 'powershell')) return 'powershell'
     return opts[0]?.kind ?? 'powershell'
   }
+
+  /**
+   * Shell list for the OS menus (#240): one entry per visible shell, in profile
+   * order with the same labels the ▾ dropdown uses. WSL entries only appear once
+   * detection has run (`syncShellProfiles`, lazy on first dropdown open) — they
+   * persist from then on, and the project store's watcher rebuilds the menus
+   * whenever this list changes.
+   */
+  const menuShells = computed<MenuShell[]>(() =>
+    shellProfiles.value.filter((p) => !p.hidden).map((p) => ({ id: p.id, label: shellProfileLabel(p.shell) })),
+  )
 
   /**
    * Filter detected WSL distros by profile visibility (#129). Distros without
@@ -1054,6 +1102,7 @@ export const useSettingsStore = defineStore('settings', () => {
     windowsShellOptions,
     defaultWindowsShellKind,
     visibleWslDistros,
+    menuShells,
     availableFonts,
     loadAvailableFonts,
     setFontByName,

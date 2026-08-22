@@ -70,7 +70,9 @@ async function handleActionLocal(action: CliAction) {
       // No cwd-derived shell → the user's configured default for global
       // windows. A Windows cwd is only meaningful for Windows shells; with a
       // WSL default it would land in /mnt/c/..., so drop it and let the
-      // terminal start at the Linux home (pty_spawn passes --cd ~).
+      // terminal start at the Linux home (pty_spawn passes --cd ~). The same
+      // rule for an explicitly pinned shell lives in `cli::terminal_cwd_for`
+      // (Rust doesn't know globalShell, so both sides carry a copy).
       const shell = useSettingsStore().globalShell
       const cwd = shell.kind === 'wsl' ? undefined : (action.cwd ?? undefined)
       tabStore.addTerminalTab({ cwd, shell })

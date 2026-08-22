@@ -3,8 +3,9 @@
 //! Pike をトレイに常駐させ、ウィンドウを閉じても（main は破棄せず hide する）
 //! アイコンから復帰できるようにする。提供するもの:
 //!   - 左クリック: main ウィンドウの表示/非表示トグル（復帰）
-//!   - 右クリックメニュー: 表示 / 新しいターミナルウィンドウ / 最近のプロジェクト
-//!     （サブメニュー）/ プロジェクトを開く…（スイッチャー）/ 終了
+//!   - 右クリックメニュー: 表示 / 新しいターミナルウィンドウ（シェルごとの
+//!     サブメニュー、#240）/ 最近のプロジェクト（サブメニュー）/
+//!     プロジェクトを開く…（スイッチャー）/ 終了
 //!   - ツールチップ: フロントが usage（Claude 5h レート等）を push して表示
 //!
 //! メニューの「動作」は lib.rs の pub(crate) ヘルパー（`crate::tray_menu_action`
@@ -12,14 +13,15 @@
 //! private ヘルパーが lib.rs 側にあるため、ここは presentation（アイコン・
 //! メニュー・ツールチップの構築）に徹する。
 //!
-//! メニュー内容はプロジェクト集合とロケールに依存するので、jump list と同じく
-//! フロントが起動時・プロジェクト変更時に `tray_refresh(locale)` で作り直す。
+//! メニュー内容はプロジェクト集合・ロケール・シェル一覧に依存するので、jump list
+//! と同じくフロントが `menus_refresh` で作り直す（`types::MenuShell` を参照）。
 
 use tauri::menu::{Menu, MenuBuilder, MenuEvent, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Wry};
 
 use crate::project;
+use crate::types::MenuShell;
 
 /// トレイ ID（`app.tray_by_id` で後から取得してメニュー/ツールチップを更新）。
 const TRAY_ID: &str = "main";
@@ -81,7 +83,7 @@ fn labels(lang: &str) -> Labels {
 /// 空（静的項目のみ）で作り、mount 後のフロントの `menus_refresh(locale)` が
 /// 一覧つきで作り直す（起動時のプロジェクト読み込みを 1 回に抑える）。
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
-    let menu = build_menu(app, "en", &[])?;
+    let menu = build_menu(app, "en", &[], &[])?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip(app_label(app))
         .menu(&menu)
@@ -98,9 +100,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 
 /// メニューを作り直す（プロジェクト集合・ロケール変更時）。プロジェクト一覧は
 /// 呼び出し側（`menus_refresh`）が 1 回だけ読んで渡す。
-pub fn refresh(app: &AppHandle, lang: &str, projects: &[project::ProjectConfig]) {
+pub fn refresh(
+    app: &AppHandle,
+    lang: &str,
+    projects: &[project::ProjectConfig],
+    shells: &[MenuShell],
+) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        match build_menu(app, lang, projects) {
+        match build_menu(app, lang, projects, shells) {
             Ok(menu) => {
                 let _ = tray.set_menu(Some(menu));
             }
@@ -143,6 +150,7 @@ fn build_menu(
     app: &AppHandle,
     lang: &str,
     projects: &[project::ProjectConfig],
+    shells: &[MenuShell],
 ) -> tauri::Result<Menu<Wry>> {
     let l = labels(lang);
     // 開発版だけ、操作できない見出しとしてアプリ名を先頭に置く。ツールチップは
@@ -156,10 +164,21 @@ fn build_menu(
     if let Some(header) = &debug_header {
         builder = builder.item(header).separator();
     }
-    builder = builder
-        .text("tray:show", l.show)
-        .separator()
-        .text("tray:new-terminal", l.new_terminal);
+    builder = builder.text("tray:show", l.show).separator();
+
+    // シェルごとの起動はサブメニューに畳む（最近のプロジェクトと同じ形、#240）。
+    // 一覧が空なのはフロントがまだ menus_refresh を呼んでいないときだけなので、
+    // 従来どおり globalShell で開く 1 項目に落とす。
+    if shells.is_empty() {
+        builder = builder.text("tray:new-terminal", l.new_terminal);
+    } else {
+        let mut sub = SubmenuBuilder::new(app, l.new_terminal);
+        for s in shells {
+            sub = sub.text(format!("tray:new-terminal:{}", s.id), &s.label);
+        }
+        let submenu = sub.build()?;
+        builder = builder.item(&submenu);
+    }
 
     if !projects.is_empty() {
         let mut sub = SubmenuBuilder::new(app, l.recent_projects);

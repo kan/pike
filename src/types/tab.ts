@@ -35,6 +35,15 @@ export interface ShellProfile {
   hidden?: boolean
 }
 
+/**
+ * One shell as the OS menus show it (#240). `menusRefresh` hands these to Rust,
+ * which sends `id` back through `--shell=<id>` / `tray:new-terminal:<id>`.
+ */
+export interface MenuShell {
+  id: string
+  label: string
+}
+
 /** Dropdown label: matches WINDOWS_SHELLS naming (not the short shellLabel form). */
 export function shellProfileLabel(shell: ShellType): string {
   if (shell.kind === 'wsl') return `WSL (${shell.distro})`

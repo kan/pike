@@ -664,17 +664,24 @@ export const useProjectStore = defineStore('project', () => {
 
   // Rebuild the taskbar jump list (#160) and system-tray menu (#161) whenever a
   // menu-relevant field changes: the project set, a name/root edit, recency
-  // order, or the UI locale (label language). Keyed on exactly those fields so
-  // ~1s-debounced session-flush writes — which mutate `lastSession` on objects
-  // that also live in `projects` — do NOT trigger a refresh: Vue's per-property
-  // tracking never re-runs this getter for `lastSession`. Both are single
-  // per-process OS resources (Rust dedups the jump list by signature), so
-  // refreshing from any window is enough. Best-effort, Windows-only; each
-  // persists from the last run so a failed refresh just goes slightly stale.
+  // order, the UI locale (label language), or the visible shell list (#240 —
+  // both menus offer a terminal per shell, and WSL entries only appear once
+  // detection has run). Keyed on exactly those fields so ~1s-debounced
+  // session-flush writes — which mutate `lastSession` on objects that also live
+  // in `projects` — do NOT trigger a refresh: Vue's per-property tracking never
+  // re-runs this getter for `lastSession`. Both are single per-process OS
+  // resources (Rust dedups the jump list by signature), so refreshing from any
+  // window is enough. Best-effort, Windows-only; each persists from the last
+  // run so a failed refresh just goes slightly stale.
   watch(
-    () => JSON.stringify([locale.value, projects.value.map((p) => [p.id, p.name, p.root, p.lastOpened])]),
+    () =>
+      JSON.stringify([
+        locale.value,
+        projects.value.map((p) => [p.id, p.name, p.root, p.lastOpened]),
+        useSettingsStore().menuShells,
+      ]),
     () => {
-      menusRefresh(locale.value).catch(() => {})
+      menusRefresh(locale.value, useSettingsStore().menuShells).catch(() => {})
     },
   )
 

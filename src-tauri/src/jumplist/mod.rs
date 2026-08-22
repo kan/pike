@@ -5,7 +5,10 @@
 //!
 //! Windows は `ICustomDestinationList`（COM）でジャンプリストを構築する。本
 //! モジュールは以下を登録する:
-//!   - Tasks カテゴリ: 「新しいターミナルウィンドウ」→ `pike.exe --terminal`
+//!   - Tasks カテゴリ: シェルごとのターミナル起動（#240）。「PowerShell」
+//!     「WSL (Ubuntu)」のように並び、選ぶと `pike.exe --terminal --shell=<id>`
+//!     でそのシェルのグローバルターミナルを開く。ジャンプリストはサブメニューを
+//!     持てないので平並びにする（Windows Terminal のプロファイル一覧と同じ形）
 //!   - 独自カテゴリ「プロジェクト」: 登録プロジェクトを最近開いた順に列挙し、
 //!     選ぶと `pike.exe <root>` で該当ウィンドウをフォーカス / 新規に開く
 //!     （single-instance の OpenDirectory ルーティングをそのまま再利用）
@@ -49,7 +52,8 @@ use windows::Win32::UI::Shell::{
 };
 
 use crate::project;
-use crate::types::ShellConfig;
+use crate::types::{MenuShell, ShellConfig};
+
 
 /// 一覧に載せるプロジェクトの最大件数（Windows のカテゴリ表示上限にも収まる）。
 const MAX_PROJECTS: usize = 10;
@@ -61,8 +65,8 @@ const PKEY_TITLE: PROPERTYKEY = PROPERTYKEY {
     pid: 2,
 };
 
-/// 構築ジョブ（ロケール + リンク素材）。
-type Job = (String, Vec<Entry>);
+/// 構築ジョブ（ロケール + プロジェクトのリンク素材 + Tasks のリンク素材）。
+type Job = (String, Vec<Entry>, Vec<Entry>);
 
 /// 常駐 STA スレッドへの送信口。初回呼び出しでスレッドを起こす。
 fn worker() -> &'static Sender<Job> {
@@ -84,8 +88,8 @@ fn worker() -> &'static Sender<Job> {
                 while let Ok(job) = rx.recv() {
                     // 溜まったジョブは最新だけ処理する（複数ウィンドウが同じ変更で
                     // 一斉に refresh するため、古い内容を順にコミットしても無駄）。
-                    let (lang, entries) = rx.try_iter().last().unwrap_or(job);
-                    if let Err(e) = builder.commit(&lang, &entries) {
+                    let (lang, projects, tasks) = rx.try_iter().last().unwrap_or(job);
+                    if let Err(e) = builder.commit(&lang, &projects, &tasks) {
                         log::warn!("[jumplist] refresh failed: {e:?}");
                     }
                 }
@@ -114,25 +118,28 @@ fn labels(lang: &str) -> Labels {
     }
 }
 
-/// 1 プロジェクト分のリンク素材。
+/// リンク 1 個分の素材（プロジェクト項目と Tasks のターミナル項目で共用）。
 struct Entry {
-    /// 表示タイトル（プロジェクト名）
+    /// 表示タイトル（プロジェクト名 / シェル名）
     title: String,
     /// `pike.exe` に渡す引数（クォート済み）
     args: String,
-    /// ツールチップ（開く先パス）
+    /// ツールチップ（開く先パス / 起動するシェル）
     tooltip: String,
 }
 
-/// ジャンプリストを再構築する。プロジェクト一覧は呼び出し側（`menus_refresh`）が
-/// 1 回だけ読んで渡す（jump list と tray の二重読みを避けるため）。実際の COM
-/// 構築は専用 STA スレッドに投げっぱなしにする（UI スレッドを塞がないため）。
-pub fn refresh(lang: &str, projects: &[project::ProjectConfig]) {
+/// ジャンプリストを再構築する。プロジェクト一覧とシェル一覧は呼び出し側
+/// （`menus_refresh`）が渡す（`types::MenuShell` を参照）。実際の COM 構築は専用
+/// STA スレッドに投げっぱなしにする（UI スレッドを塞がないため）。
+pub fn refresh(lang: &str, projects: &[project::ProjectConfig], shells: &[MenuShell]) {
+    let job = (
+        lang.to_string(),
+        collect_entries(projects),
+        terminal_tasks(&labels(lang), shells),
+    );
     // send の失敗は「worker スレッドが死んだ」＝以後ジャンプリストが永久に更新
     // されないことを意味するので、ビルド失敗（worker 内で warn）とは別に記録する。
-    if worker()
-        .send((lang.to_string(), collect_entries(projects)))
-        .is_err()
+    if worker().send(job).is_err()
     {
         log::error!("[jumplist] worker thread is gone; jump list will not update");
     }
@@ -178,6 +185,20 @@ fn quote_arg(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\\\""))
 }
 
+/// Tasks カテゴリに並べるターミナル起動項目（シェル 1 つにつき 1 項目）。
+fn terminal_tasks(labels: &Labels, shells: &[MenuShell]) -> Vec<Entry> {
+    shells
+        .iter()
+        .map(|s| Entry {
+            title: s.label.clone(),
+            // シェル id は `types::shell_from_id` が受け取る側で検証するが、distro
+            // 名に空白が入りうるので引数 1 個としてクォートしておく。
+            args: format!("--terminal {}", quote_arg(&format!("--shell={}", s.id))),
+            tooltip: format!("{} ({})", labels.new_terminal, s.label),
+        })
+        .collect()
+}
+
 /// worker スレッドが持ち回す状態。exe パスと `%USERPROFILE%` はプロセス生存中
 /// 不変なのでスレッド起動時に 1 回だけ解決する。
 struct Builder {
@@ -205,13 +226,26 @@ impl Builder {
         })
     }
 
-    fn commit(&mut self, lang: &str, projects: &[Entry]) -> windows::core::Result<()> {
-        let sig = compute_sig(&self.exe, lang, projects);
+    fn commit(
+        &mut self,
+        lang: &str,
+        projects: &[Entry],
+        tasks: &[Entry],
+    ) -> windows::core::Result<()> {
+        let sig = compute_sig(&self.exe, lang, projects, tasks);
         if self.last_sig == Some(sig) {
             return Ok(());
         }
         // COM はスレッド起動時に初期化済み（worker を参照）。
-        unsafe { build_inner(&self.exe, self.home.as_deref(), &labels(lang), projects) }?;
+        unsafe {
+            build_inner(
+                &self.exe,
+                self.home.as_deref(),
+                &labels(lang),
+                projects,
+                tasks,
+            )
+        }?;
         self.last_sig = Some(sig);
         Ok(())
     }
@@ -222,6 +256,7 @@ unsafe fn build_inner(
     home: Option<&str>,
     labels: &Labels,
     projects: &[Entry],
+    tasks: &[Entry],
 ) -> windows::core::Result<()> {
     let list: ICustomDestinationList =
         CoCreateInstance(&DestinationList, None, CLSCTX_INPROC_SERVER)?;
@@ -256,12 +291,14 @@ unsafe fn build_inner(
     // 既定の「最近開いたファイル」を復元（カスタムリストで消えるため）。
     let _ = list.AppendKnownCategory(KDC_RECENT);
 
-    // Tasks カテゴリ（常に最下部に表示される）。
-    let tasks: IObjectCollection =
+    // Tasks カテゴリ（常に最下部に表示される）。シェルごとに 1 項目並べる。
+    let coll: IObjectCollection =
         CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
-    let term = make_link(exe, "--terminal", labels.new_terminal, None, home)?;
-    tasks.AddObject(&term)?;
-    list.AddUserTasks(&tasks)?;
+    for t in tasks {
+        let link = make_link(exe, &t.args, &t.title, Some(&t.tooltip), home)?;
+        coll.AddObject(&link)?;
+    }
+    list.AddUserTasks(&coll)?;
 
     list.CommitList()?;
     Ok(())
@@ -339,11 +376,11 @@ unsafe fn removed_arg_set(removed: &IObjectArray) -> HashSet<String> {
     set
 }
 
-fn compute_sig(exe: &str, lang: &str, projects: &[Entry]) -> u64 {
+fn compute_sig(exe: &str, lang: &str, projects: &[Entry], tasks: &[Entry]) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     exe.hash(&mut h);
     lang.hash(&mut h);
-    for e in projects {
+    for e in projects.iter().chain(tasks) {
         e.title.hash(&mut h);
         e.args.hash(&mut h);
     }
@@ -385,6 +422,26 @@ mod tests {
     fn quote_arg_wraps_and_escapes() {
         assert_eq!(quote_arg(r"C:\a b\c"), r#""C:\a b\c""#.to_string());
         assert_eq!(quote_arg(r#"a"b"#), r#""a\"b""#.to_string());
+    }
+
+    #[test]
+    fn terminal_tasks_list_each_shell() {
+        let shells = vec![
+            MenuShell {
+                id: "powershell".to_string(),
+                label: "PowerShell".to_string(),
+            },
+            MenuShell {
+                id: "wsl:Ubuntu-24.04".to_string(),
+                label: "WSL (Ubuntu-24.04)".to_string(),
+            },
+        ];
+        let tasks = terminal_tasks(&labels("ja"), &shells);
+        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks[0].title, "PowerShell");
+        assert_eq!(tasks[0].args, r#"--terminal "--shell=powershell""#);
+        assert_eq!(tasks[1].args, r#"--terminal "--shell=wsl:Ubuntu-24.04""#);
+        assert_eq!(tasks[1].tooltip, "新しいターミナルウィンドウ (WSL (Ubuntu-24.04))");
     }
 
     #[test]

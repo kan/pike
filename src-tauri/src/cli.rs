@@ -110,12 +110,14 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
         })
         .collect();
 
-    // An explicit `--shell=<kind>` pins the shell for the elevated relaunch
-    // paths below (open_elevated_terminal, #138). Windows shells only.
+    // An explicit `--shell=<id>` pins the shell: the elevated relaunch paths
+    // below (open_elevated_terminal, #138) and the taskbar jump list's
+    // per-shell terminal entries (#240). Ids are `types::shell_id` form, so
+    // `wsl:<distro>` is accepted too.
     let shell_hint = meaningful
         .iter()
         .find_map(|s| s.strip_prefix("--shell="))
-        .and_then(shell_config_from_kind);
+        .and_then(crate::types::shell_from_id);
 
     // `--open-project=<id>`: elevated relaunch from a project window — reopen the
     // project in normal mode with a terminal on the pinned shell (#138).
@@ -140,6 +142,7 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
             let cwd = cwd_override
                 .map(|c| c.to_string())
                 .or_else(|| (!cwd.is_empty()).then(|| cwd.to_string()));
+            let cwd = terminal_cwd_for(&shell, cwd);
             return CliAction::OpenTerminal {
                 cwd,
                 shell: Some(shell),
@@ -182,17 +185,30 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
     }
 }
 
-/// Map a `--shell=<kind>` value (ShellConfig's kebab-case serde tag) to a
-/// Windows `ShellConfig`. WSL is out of scope for the elevated path (#138), so
-/// unknown / `wsl` kinds return None and the caller falls back to inference.
-fn shell_config_from_kind(kind: &str) -> Option<crate::types::ShellConfig> {
+/// cwd to carry into an explicitly pinned terminal shell — dropped when it
+/// means nothing to that shell, so the terminal starts at the shell's own home
+/// instead of somewhere surprising.
+///
+/// A Windows path means nothing inside a distro (the jump list's per-shell
+/// entries, #240, run with `%USERPROFILE%` as their working directory), and a
+/// WSL-native path means nothing to a Windows shell. A WSL UNC cwd becomes its
+/// native form for the distro it belongs to; for cmd.exe it is dropped, because
+/// cmd cannot take a UNC working directory and silently starts in `C:\Windows`
+/// instead (PowerShell and Git Bash handle UNC, so they keep it).
+/// The globalShell path answers the same question in the frontend
+/// (`useCliOpen.ts`), because Rust does not know that setting — keep the two in
+/// step when this rule changes.
+fn terminal_cwd_for(shell: &crate::types::ShellConfig, cwd: Option<String>) -> Option<String> {
     use crate::types::ShellConfig;
-    match kind {
-        "cmd" => Some(ShellConfig::Cmd),
-        "powershell" => Some(ShellConfig::Powershell),
-        "pwsh" => Some(ShellConfig::Pwsh),
-        "git-bash" => Some(ShellConfig::GitBash),
-        _ => None,
+    let cwd = cwd?;
+    let unc = split_wsl_unc(&cwd);
+    match (shell, unc) {
+        (ShellConfig::Wsl { distro }, Some((d, native))) => {
+            d.eq_ignore_ascii_case(distro).then_some(native)
+        }
+        (ShellConfig::Wsl { .. }, None) => cwd.starts_with('/').then_some(cwd),
+        (ShellConfig::Cmd, Some(_)) => None,
+        _ => (!cwd.starts_with('/')).then_some(cwd),
     }
 }
 
@@ -444,6 +460,69 @@ mod tests {
             CliAction::OpenTerminal { shell, .. } => assert!(shell.is_none()),
             other => panic!("expected OpenTerminal, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_parse_args_terminal_wsl_shell_drops_windows_cwd() {
+        // Jump list / tray per-shell entry (#240): the link's working directory is
+        // %USERPROFILE%, which means nothing inside the distro — drop it so the
+        // terminal starts at the Linux home.
+        let args = vec![
+            "pike.exe".to_string(),
+            "--terminal".to_string(),
+            "--shell=wsl:Ubuntu-24.04".to_string(),
+        ];
+        match parse_args(&args, r"C:\Users\foo") {
+            CliAction::OpenTerminal { cwd, shell } => {
+                assert!(cwd.is_none());
+                assert!(
+                    matches!(shell, Some(crate::types::ShellConfig::Wsl { ref distro }) if distro == "Ubuntu-24.04")
+                );
+            }
+            other => panic!("expected OpenTerminal, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn terminal_cwd_for_drops_paths_the_shell_cannot_use() {
+        use crate::types::ShellConfig;
+        let ubuntu = ShellConfig::Wsl {
+            distro: "Ubuntu".to_string(),
+        };
+        // A UNC cwd for that same distro comes back as its native path.
+        assert_eq!(
+            terminal_cwd_for(&ubuntu, Some(r"\\wsl.localhost\Ubuntu\home\kan".to_string())),
+            Some("/home/kan".to_string())
+        );
+        // Another distro's UNC path is dropped rather than opened in this one.
+        assert_eq!(
+            terminal_cwd_for(&ubuntu, Some(r"\\wsl.localhost\Debian\home\kan".to_string())),
+            None
+        );
+        // Native paths pass through (invoked from inside the distro).
+        assert_eq!(
+            terminal_cwd_for(&ubuntu, Some("/srv/app".to_string())),
+            Some("/srv/app".to_string())
+        );
+        // Windows shells keep a Windows cwd...
+        assert_eq!(
+            terminal_cwd_for(&ShellConfig::Pwsh, Some(r"C:\work".to_string())),
+            Some(r"C:\work".to_string())
+        );
+        // ...and PowerShell keeps a UNC one, which it can actually open.
+        assert_eq!(
+            terminal_cwd_for(&ShellConfig::Powershell, Some(r"\\wsl.localhost\Ubuntu\srv".to_string())),
+            Some(r"\\wsl.localhost\Ubuntu\srv".to_string())
+        );
+        // cmd.exe cannot, and no Windows shell can resolve a WSL-native path.
+        assert_eq!(
+            terminal_cwd_for(&ShellConfig::Cmd, Some(r"\\wsl.localhost\Ubuntu\srv".to_string())),
+            None
+        );
+        assert_eq!(
+            terminal_cwd_for(&ShellConfig::GitBash, Some("/srv/app".to_string())),
+            None
+        );
     }
 
     #[test]

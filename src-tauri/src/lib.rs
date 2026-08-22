@@ -547,16 +547,17 @@ fn find_project_window(app: &AppHandle, id: &str) -> Option<WebviewWindow> {
 /// the window is already global).
 #[tauri::command]
 async fn open_global_window(app: AppHandle) -> Result<(), String> {
-    spawn_global_terminal_window(&app);
+    spawn_global_terminal_window(&app, None);
     Ok(())
 }
 
-/// Create a global-mode window and queue a terminal on the user's global shell.
-/// Shared by the `open_global_window` command and the tray "New Terminal" menu.
-fn spawn_global_terminal_window(app: &AppHandle) {
+/// Create a global-mode window and queue a terminal on `shell` — or, with None,
+/// on the user's global shell (the frontend applies the globalShell setting).
+/// Shared by the `open_global_window` command and the tray "New Terminal" menu,
+/// whose per-shell submenu entries pass one (#240).
+fn spawn_global_terminal_window(app: &AppHandle, shell: Option<types::ShellConfig>) {
     let label = create_global_window(app);
-    // shell = None → the frontend applies the user's globalShell setting.
-    store_pending(app, &label, cli::CliAction::OpenTerminal { cwd: None, shell: None });
+    store_pending(app, &label, cli::CliAction::OpenTerminal { cwd: None, shell });
 }
 
 #[tauri::command]
@@ -569,19 +570,25 @@ fn save_all_window_state(app: AppHandle) -> Result<(), String> {
 /// system-tray menu (#161). Called by the frontend on startup and whenever the
 /// project set / names / recency / UI locale change. Reads the project list
 /// once here and feeds both menus, instead of each re-scanning the projects
-/// dir; `lang` carries the UI locale so labels follow it.
+/// dir; `lang` carries the UI locale so labels follow it. `shells` is the user's
+/// visible shell list — both menus offer one terminal entry per shell (#240; see
+/// `types::MenuShell` for why the frontend has to hand it over).
 #[tauri::command]
-async fn menus_refresh(app: AppHandle, lang: String) -> Result<(), String> {
+async fn menus_refresh(
+    app: AppHandle,
+    lang: String,
+    shells: Vec<types::MenuShell>,
+) -> Result<(), String> {
     let projects = app
         .try_state::<project::ProjectState>()
         .map(|s| project::read_all_projects_sorted(&s.config_dir))
         .unwrap_or_default();
-    jumplist::refresh(&lang, &projects);
+    jumplist::refresh(&lang, &projects, &shells);
     // jumplist と違い tray は同期のまま。muda のメニュー構築は main スレッドに
     // 載って返るだけでシェルの解決（AppResolver / UNC）を伴わないため、jumplist を
     // ハングさせた経路には該当しない。ここに重い処理を足すときは jumplist と同じく
     // 専用スレッドへ逃がすこと。
-    tray::refresh(&app, &lang, &projects);
+    tray::refresh(&app, &lang, &projects, &shells);
     Ok(())
 }
 
@@ -800,13 +807,21 @@ async fn app_exit(app: AppHandle) -> Result<(), String> {
 pub(crate) fn tray_menu_action(app: &AppHandle, id: &str) {
     match id {
         "tray:show" => show_main_window(app),
-        "tray:new-terminal" => spawn_global_terminal_window(app),
+        "tray:new-terminal" => spawn_global_terminal_window(app, None),
         "tray:switcher" => {
             show_main_window(app);
             // The main window listens for this and opens the project switcher.
             let _ = app.emit_to("main", "tray-open-switcher", ());
         }
         "tray:quit" => app.exit(0),
+        // Per-shell terminal entries (#240). An id that no longer parses (a stale
+        // menu, a distro that was renamed) opens nothing rather than falling back
+        // to another shell.
+        _ if id.starts_with("tray:new-terminal:") => {
+            if let Some(shell) = types::shell_from_id(&id["tray:new-terminal:".len()..]) {
+                spawn_global_terminal_window(app, Some(shell));
+            }
+        }
         _ => {
             let Some(pid) = id.strip_prefix("tray:proj:") else {
                 return;
