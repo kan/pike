@@ -21,7 +21,7 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 
 ## 主な機能
 
-- **マルチターミナル**：xterm.js + PTY（WSL / cmd / PowerShell / PowerShell 7 / Git Bash）
+- **マルチターミナル**：xterm.js + PTY（WSL / cmd / PowerShell / PowerShell 7 / Git Bash）、タスクバーとトレイのメニューからのシェル選択
 - **AI エージェント**：Claude Code と Codex を統一チャットタブで。`@` メンションでのファイル参照、セッション復帰
 - **エージェント状態**：アカウント・利用率・トークン使用量とコストを Claude と Codex で並べて確認。複数アカウント（`CLAUDE_CONFIG_DIR`）にも追従
 - **ターミナルの AI 補助**：`claude` 等をターミナルで使うための、ワンクリック起動 / 過去セッションの再開 / 定型プロンプト挿入、出力中のパスをクリックしてファイル・画像・ディレクトリを開く、エディタ選択範囲や診断をターミナルへ送る
