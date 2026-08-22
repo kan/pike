@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Bot, Check, CircleAlert, Play, TriangleAlert } from 'lucide-vue-next'
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { basename, isAbsolutePath, pathSep } from '../../lib/paths'
@@ -42,9 +42,16 @@ function fileDir(path: string): string {
   return path.length > name.length ? path.slice(0, path.length - name.length - 1) : ''
 }
 
-onMounted(() => {
+function runIfIdle() {
   if (!diagStore.lastRunAt && !diagStore.running) diagStore.run()
-})
+}
+
+// The panel is mounted while it is the open one, so this runs when the user
+// opens it. The project switch needs the same nudge: `switchProject` clears the
+// store, and the auto-rerun on file changes only arms itself after a first run,
+// so an already-open panel would sit idle until the refresh button.
+onMounted(runIfIdle)
+watch(() => projectStore.currentProject?.id, runIfIdle)
 </script>
 
 <template>

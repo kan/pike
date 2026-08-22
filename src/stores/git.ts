@@ -439,6 +439,11 @@ export const useGitStore = defineStore('git', () => {
   function startPolling() {
     stopPolling()
     lastStatus = null
+    // Restarted on every project switch (App.vue), so fetch once up front: the
+    // timer alone would leave the StatusBar showing the previous project's
+    // branch and ahead/behind for up to 10 seconds. `refreshStatus` dedups, so
+    // an open Git panel refreshing at the same time costs nothing extra.
+    refreshStatus()
     loadRemoteUrl()
     windowFocused = document.hasFocus()
     if (windowFocused) startTimers()

@@ -31,6 +31,7 @@ import { useDiagnosticsStore } from './diagnostics'
 import { useSearchStore } from './search'
 import { useSettingsStore } from './settings'
 import { useTabStore } from './tabs'
+import { useTaskStore } from './tasks'
 
 // Debounce for republishing the project list to the sync file. Longer than the
 // settings debounce: a push is a read-modify-write of the whole file.
@@ -844,6 +845,7 @@ export const useProjectStore = defineStore('project', () => {
     searchStore.clear()
     searchStore.backend = null
     useDiagnosticsStore().clear()
+    useTaskStore().clear()
     activeWorktreeRoot.value = null
 
     await tabStore.clearAllTabs()

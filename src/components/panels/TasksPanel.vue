@@ -2,6 +2,7 @@
 import { Play } from 'lucide-vue-next'
 import { watch } from 'vue'
 import { useI18n } from '../../i18n'
+import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTaskStore } from '../../stores/tasks'
 import type { TaskDefinition } from '../../types/tasks'
@@ -9,10 +10,15 @@ import type { TaskDefinition } from '../../types/tasks'
 const { t } = useI18n()
 const sidebar = useSidebarStore()
 const taskStore = useTaskStore()
+const projectStore = useProjectStore()
 
+// Discovery is lazy: it runs when the panel is shown and there is nothing to
+// show. The project id belongs in the key because `switchProject` empties the
+// store — with the panel already open, nothing else would ask for the new
+// project's tasks and it would sit empty.
 watch(
-  () => sidebar.activePanel,
-  (panel) => {
+  [() => sidebar.activePanel, () => projectStore.currentProject?.id],
+  ([panel]) => {
     if (panel === 'tasks' && taskStore.taskGroups.length === 0) {
       taskStore.refresh()
     }

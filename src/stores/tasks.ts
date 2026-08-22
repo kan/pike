@@ -68,9 +68,21 @@ export const useTaskStore = defineStore('tasks', () => {
     useTabStore().addEditorTab({ path })
   }
 
+  /**
+   * Drop the discovered groups. Called on project switch (`switchProject`) like
+   * the search and diagnostics stores: discovery walks the project tree, so it
+   * is re-run lazily by whoever asks next (the panel, the palette's `>` mode)
+   * rather than during the switch. Without it both surfaces keep listing the
+   * previous project's tasks — and running one would launch it in that
+   * project's directory.
+   */
+  function clear() {
+    taskGroups.value = []
+  }
+
   const allTasks = computed(() =>
     taskGroups.value.flatMap((g) => g.tasks.map((t) => ({ ...t, cwd: g.cwd, groupLabel: g.label }))),
   )
 
-  return { taskGroups, loading, refresh, runTask, openSourceFile, allTasks }
+  return { taskGroups, loading, refresh, clear, runTask, openSourceFile, allTasks }
 })
