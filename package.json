@@ -57,7 +57,7 @@
     "marked": "^18.0.9",
     "material-file-icons": "^2.4.0",
     "mermaid": "^11.16.1",
-    "pinia": "^4.0.2",
+    "pinia": "^4.0.3",
     "smol-toml": "^1.8.0",
     "vue": "^3.5.41",
     "yaml": "^2.9.0"
