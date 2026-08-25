@@ -128,7 +128,12 @@ export function useKeyboardShortcuts() {
       return
     }
 
-    // Ctrl+K: keyboard shortcuts modal
+    // Ctrl+K: keyboard shortcuts modal.
+    // Not while a Markdown editor has focus: `markdownAssistKeymap` (#241) binds
+    // it to link insertion with `stopPropagation`, so the key never reaches here.
+    // Anything else bound to Ctrl+B / Ctrl+I / Ctrl+K below would be silently
+    // dead in that one place — the same trap `PIKE_FIRST_CTRL_KEYS` documents
+    // for the terminal.
     if (e.ctrlKey && key === 'k') {
       e.preventDefault()
       shortcutsModal.toggle()

@@ -75,6 +75,15 @@ const sections = computed<ShortcutSection[]>(() => [
     ],
   },
   {
+    title: t('shortcuts.markdown'),
+    items: [
+      { keys: ['Ctrl+B'], label: t('markdown.bold') },
+      { keys: ['Ctrl+I'], label: t('markdown.italic') },
+      { keys: ['Ctrl+K'], label: t('shortcuts.mdLink') },
+      { keys: ['Enter'], label: t('shortcuts.mdListContinue') },
+    ],
+  },
+  {
     title: t('shortcuts.terminal'),
     items: [
       { keys: [t('shortcuts.selectText')], label: t('shortcuts.selectCopy') },

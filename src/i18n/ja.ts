@@ -164,6 +164,32 @@ export default {
   'preview.externalImageFailed': '{host} の画像を取得できませんでした（クリックで再試行）',
   'preview.externalImageHint': '外部ドメインの画像は、ドメインを許可するまで読み込みません',
 
+  // Markdown 入力支援（#241）
+  'markdown.heading': '見出し',
+  'markdown.headingLevel': '見出し {n}',
+  'markdown.headingNone': '本文に戻す',
+  'markdown.bold': '太字',
+  'markdown.italic': '斜体',
+  'markdown.strikethrough': '打ち消し線',
+  'markdown.code': 'インラインコード',
+  'markdown.link': 'リンク',
+  'markdown.bulletList': '箇条書き',
+  'markdown.orderedList': '番号付きリスト',
+  'markdown.taskList': 'タスクリスト',
+  'markdown.quote': '引用',
+  'markdown.blocks': 'ブロックを挿入',
+  'markdown.codeBlock': 'コードブロック',
+  'markdown.table': '表',
+  'markdown.tableRows': '行',
+  'markdown.tableCols': '列',
+  'markdown.insert': '挿入',
+  'markdown.hr': '水平線',
+  'markdown.details': '折りたたみ',
+  'markdown.footnote': '脚注',
+  'markdown.tplTableHeader': '見出し',
+  'markdown.tplSummary': 'タイトル',
+  'markdown.tplDetailsBody': '本文',
+
   // Terminal
   'terminal.failedSpawn': '[PTY の起動に失敗: {error}]',
   'terminal.exited': '[プロセスが終了しました (コード {code})]',
@@ -546,6 +572,9 @@ export default {
   'shortcuts.selectText': 'テキスト選択',
   'shortcuts.rightClick': '右クリック',
   'shortcuts.ctrlLetter': 'Ctrl+英字',
+  'shortcuts.markdown': 'Markdown',
+  'shortcuts.mdLink': 'リンク（Markdown 編集中はショートカット一覧より優先）',
+  'shortcuts.mdListContinue': 'リスト・引用の継続（空の項目で解除）',
   'shortcuts.shellFirst': 'シェルに渡す（タブ操作のキーを除く）',
 
   // エージェント状態パネル (#226)

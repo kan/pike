@@ -58,6 +58,28 @@ export function isImageFile(path: string): boolean {
   return IMAGE_EXTS.has(extension(path))
 }
 
+/**
+ * Is this a file to read as Markdown? `.markdown` is the same thing spelled
+ * out, and forgetting it in one place while honouring it in another is how the
+ * toolbar came to appear on files the Markdown language never loaded for.
+ */
+export function isMarkdownPath(path: string): boolean {
+  const ext = extension(path)
+  return ext === 'md' || ext === 'markdown'
+}
+
+/**
+ * Formats an `<img>` can render, for documents that embed a picture.
+ *
+ * Wider than {@link isImageFile}, which routes a path to a tab kind: `.svg`
+ * opens in the editor (it has its own sanitized preview there), but a Markdown
+ * file pointing at one still means "show this picture". Embedding is safe
+ * regardless: an SVG inside `<img>` runs no script and fetches nothing.
+ */
+export function isEmbeddableImage(path: string): boolean {
+  return isImageFile(path) || extension(path) === 'svg'
+}
+
 export function mimeType(path: string): string {
   const ext = extension(path)
   switch (ext) {

@@ -164,6 +164,32 @@ export default {
   'preview.externalImageFailed': 'Could not load the image from {host} — click to retry',
   'preview.externalImageHint': 'Images from external domains stay unloaded until you allow the domain.',
 
+  // Markdown input assist (#241)
+  'markdown.heading': 'Heading',
+  'markdown.headingLevel': 'Heading {n}',
+  'markdown.headingNone': 'Back to paragraph',
+  'markdown.bold': 'Bold',
+  'markdown.italic': 'Italic',
+  'markdown.strikethrough': 'Strikethrough',
+  'markdown.code': 'Inline code',
+  'markdown.link': 'Link',
+  'markdown.bulletList': 'Bullet list',
+  'markdown.orderedList': 'Numbered list',
+  'markdown.taskList': 'Task list',
+  'markdown.quote': 'Quote',
+  'markdown.blocks': 'Insert block',
+  'markdown.codeBlock': 'Code block',
+  'markdown.table': 'Table',
+  'markdown.tableRows': 'Rows',
+  'markdown.tableCols': 'Columns',
+  'markdown.insert': 'Insert',
+  'markdown.hr': 'Horizontal rule',
+  'markdown.details': 'Collapsible section',
+  'markdown.footnote': 'Footnote',
+  'markdown.tplTableHeader': 'Header',
+  'markdown.tplSummary': 'Title',
+  'markdown.tplDetailsBody': 'Body',
+
   // Terminal
   'terminal.failedSpawn': '[Failed to spawn PTY: {error}]',
   'terminal.exited': '[Process exited with code {code}]',
@@ -546,6 +572,9 @@ export default {
   'shortcuts.selectText': 'Select text',
   'shortcuts.rightClick': 'Right click',
   'shortcuts.ctrlLetter': 'Ctrl+letter',
+  'shortcuts.markdown': 'Markdown',
+  'shortcuts.mdLink': 'Link (takes Ctrl+K while editing Markdown)',
+  'shortcuts.mdListContinue': 'Continue the list or quote (empty item ends it)',
   'shortcuts.shellFirst': 'Sent to the shell (except the tab keys)',
 
   // Agent status panel (#226)

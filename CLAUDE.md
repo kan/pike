@@ -183,6 +183,8 @@ pike/
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── agent/
 │   │   │   └── AgentApprovalDialog.vue  # 統一 approval ダイアログ
+│   │   ├── editor/
+│   │   │   └── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
 │   │       ├── AgentChatTab.vue   # 統一エージェントチャット（Codex / Claude Code）
@@ -214,6 +216,7 @@ pike/
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
+│   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）
 │   │   ├── externalImages.ts  # プレビューの外部画像のホスト判定と取得キャッシュ（#239）
 │   │   ├── codexHistory.ts  terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
@@ -222,7 +225,7 @@ pike/
 │   │   ├── dropPaths.ts       # WebView2 経由でドロップされたファイルの実パス取得
 │   │   ├── imeDebugLog.ts  imeFocusPark.ts  # IME 調査用（原因判明後に削除する）
 │   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts
-│   │   ├── editorJumpTo.ts  editorConflict.ts  editorDiagnostics.ts
+│   │   ├── editorJumpTo.ts  editorConflict.ts  editorDiagnostics.ts  editorMarkdown.ts
 │   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent）
 │   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 18 言語）
 │   └── assets/

@@ -109,11 +109,20 @@ const slug = (text) =>
     .trim()
     .replace(/\s/g, '-')
 
+// Markdown inside code is notation being documented, not markup to follow, so
+// code comes out before either scan. The two want different amounts removed:
+// a link (`[text](url)`) can be spelled inline, while a heading has to start a
+// line — and dropping inline spans from a heading would change its slug, since
+// `## \`foo\` の使い方` anchors on the word `foo`.
+const stripFences = (body) => body.replace(/```[\s\S]*?```/g, '')
+const stripCode = (body) => stripFences(body).replace(/`[^`\n]*`/g, '')
+
 const anchors = new Map(
-  docFiles.map((f) => [f, new Set([...docBodies.get(f).matchAll(/^#{1,6}\s+(.+?)\s*$/gm)].map((m) => slug(m[1])))]),
+  docFiles.map((f) => [f, new Set([...stripFences(docBodies.get(f)).matchAll(/^#{1,6}\s+(.+?)\s*$/gm)].map((m) => slug(m[1])))]),
 )
+
 for (const [file, body] of docBodies) {
-  for (const m of body.matchAll(/\]\(([^)\s]+)\)/g)) {
+  for (const m of stripCode(body).matchAll(/\]\(([^)\s]+)\)/g)) {
     const link = m[1]
     if (/^(https?:|mailto:)/.test(link) || link.endsWith('.png')) continue
     const [path, frag] = link.split('#')

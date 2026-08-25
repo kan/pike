@@ -29,7 +29,7 @@ import {
   UploadTooLargeError,
 } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
-import { basename, fuzzyMatch, isAbsolutePath, isImageFile, toRelativePath } from '../../lib/paths'
+import { basename, fuzzyMatch, isAbsolutePath, isEmbeddableImage, toRelativePath } from '../../lib/paths'
 import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles, openUrlWithConfirm } from '../../lib/tauri'
 import { useAgentStore } from '../../stores/agent'
 import { useProjectStore } from '../../stores/project'
@@ -702,7 +702,7 @@ async function resolveFileMentions(
   for (const path of mentions) {
     const fullPath = path.startsWith('/') || path.includes(':') ? path : `${project.root}${sep}${path}`
 
-    if (isImageFile(path) || path.endsWith('.svg')) {
+    if (isEmbeddableImage(path)) {
       contextParts.push(`[Image file: ${fullPath}]\nPlease examine this image file.`)
       resolvedMentions.add(path)
       continue

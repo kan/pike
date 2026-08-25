@@ -6,7 +6,7 @@ import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
 import DOMPurify from 'dompurify'
 import { ArrowUp, RefreshCw } from 'lucide-vue-next'
-import { marked } from 'marked'
+import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
@@ -19,6 +19,7 @@ import { conflictHighlight } from '../../lib/editorConflict'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
+import { type MarkdownAction, markdownAssistKeymap, runMarkdownAction } from '../../lib/editorMarkdown'
 import { minimap } from '../../lib/editorMinimap'
 import { editorSearch, replaceKeymap, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
@@ -28,7 +29,8 @@ import { formatLineRange } from '../../lib/format'
 import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
-import { basename, extension, isImageFile, mimeType, toRelativePath } from '../../lib/paths'
+import { footnotes } from '../../lib/markdownFootnotes'
+import { basename, extension, isEmbeddableImage, isMarkdownPath, mimeType, toRelativePath } from '../../lib/paths'
 import { createHeadingSlugger } from '../../lib/slug'
 import {
   fsDirsExist,
@@ -45,7 +47,25 @@ import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import type { EditorTab } from '../../types/tab'
+import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import HelpButton from '../HelpButton.vue'
+
+// Own `marked` instances: the footnote extension (#241) belongs to this preview
+// and must not leak into the agent chat's Markdown.
+//
+// Two of them, because registering a block-level extension is not free. It puts
+// marked on its `startBlock` path, which copies the rest of the document once
+// per paragraph — quadratic in the file, on a preview that re-renders while you
+// type. Measured on concatenated manual pages: +13% at 49 KB, +136% at 390 KB,
+// all of it paid by documents that have no footnotes at all. One `includes`
+// keeps them on the plain parser.
+const markedPlain = new Marked()
+const markedFootnotes = new Marked(footnotes())
+
+/** The parser this text needs. */
+function parserFor(text: string): Marked {
+  return text.includes('[^') ? markedFootnotes : markedPlain
+}
 
 const { t, locale } = useI18n()
 const props = defineProps<{ tabId: string }>()
@@ -68,6 +88,16 @@ const backdropCompartment = new Compartment()
 // The conflict extension builds its button labels as raw DOM, so it has to be
 // re-registered to pick up a new UI language (#223).
 const conflictCompartment = new Compartment()
+// A Save As turns an untitled buffer into a real file without rebuilding the
+// view, so everything the file's kind decides — its language and the Markdown
+// assist bindings (#241) — has to be reconfigurable rather than settled once.
+//
+// Two compartments rather than one because they sit at different depths in the
+// extension list, and that ordering is load-bearing: `defaultKeymap` binds
+// `Mod-i` to `selectParentSyntax`, so the assist keymap only wins by being
+// registered ahead of it. The language stays where it has always been, last.
+const languageCompartment = new Compartment()
+const markdownCompartment = new Compartment()
 
 /** Editor font theme driven by the editor's own font settings. */
 function fontTheme() {
@@ -141,7 +171,7 @@ function registerOutlineSource() {
 }
 
 const fileExt = computed(() => (tab.value ? extension(tab.value.path) : ''))
-const isMarkdown = computed(() => fileExt.value === 'md' || fileExt.value === 'markdown')
+const isMarkdown = computed(() => isMarkdownPath(tab.value?.path ?? ''))
 const isCsv = computed(() => fileExt.value === 'csv' || fileExt.value === 'tsv')
 const isMermaid = computed(() => fileExt.value === 'mermaid' || fileExt.value === 'mmd')
 const isSvg = computed(() => fileExt.value === 'svg')
@@ -365,7 +395,7 @@ let frontmatterOpen: boolean | null = null
  */
 function buildMarkdownPreview(text: string): string {
   const block = detectFrontmatter(text)
-  if (!block) return marked.parse(text) as string
+  if (!block) return parserFor(text).parse(text) as string
 
   const parsed = parseFrontmatter(block)
   let cls = ''
@@ -386,7 +416,8 @@ function buildMarkdownPreview(text: string): string {
   const open = parsed.ok ? '' : ' open'
   const label = `<summary>${escapeHtml(t('frontmatter.title'))}<span class="frontmatter-kind">${block.kind.toUpperCase()}</span></summary>`
   const meta = `<details class="frontmatter${cls}"${open}>${label}${body}</details>`
-  return meta + (marked.parse(text.slice(block.bodyFrom)) as string)
+  const rest = text.slice(block.bodyFrom)
+  return meta + (parserFor(rest).parse(rest) as string)
 }
 
 const previewHtml = computed(() => {
@@ -501,8 +532,10 @@ async function resolveMarkdownImages() {
 async function resolveLocalImage(img: HTMLImageElement, src: string) {
   const project = projectStore.currentProject
   if (!project || !tab.value) return
-  const resolved = resolveLocalPath(src) // stays within the project root
-  if (!resolved || !isImageFile(resolved)) return
+  // `img.png?v=2` and `img.png#top` name the same file: the suffix tells a
+  // browser how to cache or where to scroll, and is no part of the path on disk.
+  const resolved = resolveLocalPath(src.replace(/[?#].*$/, '')) // stays within the project root
+  if (!resolved || !isEmbeddableImage(resolved)) return
   try {
     const base64 = await fsReadFileBase64(project.shell, resolved)
     img.src = `data:${mimeType(resolved)};base64,${base64}`
@@ -881,6 +914,41 @@ const gitHistoryLineLabel = computed(() => {
 })
 
 const isReadOnlyTab = computed(() => tab.value?.readOnly ?? false)
+
+/** Is this a file to write Markdown into? Gates the toolbar and its shortcuts
+ *  together — one without the other is a half-feature. Read-only tabs (a
+ *  `git show` snapshot) get neither. */
+const markdownAssistOn = computed(() => isMarkdown.value && !isReadOnlyTab.value)
+
+/** The Markdown assist bindings, or nothing when they do not apply here. */
+function markdownAssist() {
+  if (!markdownAssistOn.value) return []
+  return keymap.of(markdownAssistKeymap(() => runMarkdownToolbarAction({ kind: 'link' })))
+}
+
+/**
+ * Run a toolbar button or shortcut against the editor.
+ *
+ * Link is the one action that has to look outside the document first: a URL
+ * sitting on the clipboard is nearly always the target the author meant, and
+ * pre-filling it saves the paste.
+ */
+async function runMarkdownToolbarAction(action: MarkdownAction) {
+  const resolved: MarkdownAction = action.kind === 'link' ? { kind: 'link', url: await clipboardUrl() } : action
+  if (editorView) runMarkdownAction(editorView, resolved)
+}
+
+/** The clipboard's contents when they are a URL, else undefined. */
+async function clipboardUrl(): Promise<string | undefined> {
+  try {
+    const text = (await navigator.clipboard.readText()).trim()
+    return /^https?:\/\/\S+$/.test(text) ? text : undefined
+  } catch {
+    // No clipboard permission (or nothing textual on it) — insert an empty target.
+    return undefined
+  }
+}
+
 // Snapshot selection state when context menu opens (not reactive — avoids stale computed)
 const ctxHasSelection = ref(false)
 
@@ -897,6 +965,7 @@ function createEditorView(container: HTMLElement, content: string) {
     editorSearch(),
     highlightSelectionMatches(),
     conflictCompartment.of(conflictHighlight()),
+    markdownCompartment.of(markdownAssist()),
     tabSizeCompartment.of(EditorState.tabSize.of(settingsStore.editorTabSize)),
     indentUnitCompartment.of(indentUnit.of(' '.repeat(settingsStore.editorTabSize))),
     wordWrapCompartment.of(settingsStore.editorWordWrap ? EditorView.lineWrapping : []),
@@ -992,7 +1061,7 @@ function createEditorView(container: HTMLElement, content: string) {
     // replace has nothing to write to.
     extensions.push(keymap.of([...searchKeymap, ...historyKeymap, ...defaultKeymap]))
   }
-  if (lang) extensions.push(lang)
+  extensions.push(languageCompartment.of(lang ?? []))
 
   return new EditorView({
     state: EditorState.create({ doc: content, extensions }),
@@ -1171,10 +1240,13 @@ function resolveLocalPath(href: string): string | null {
   const isWsl = project.shell.kind === 'wsl'
   const sep = isWsl ? '/' : '\\'
 
-  // Determine the directory containing the current file
+  // Determine the directory containing the current file. A leading slash is
+  // repo-relative in Markdown (the way GitHub and VS Code read it) rather than
+  // a filesystem path, so resolving it against the file's own directory sent
+  // those images somewhere nothing lives.
   const filePath = tab.value.path
   const lastSep = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
-  const dir = lastSep > 0 ? filePath.slice(0, lastSep) : root
+  const dir = href.startsWith('/') ? root : lastSep > 0 ? filePath.slice(0, lastSep) : root
 
   // Normalize all separators to forward slash for resolution, then convert back
   const joined = `${dir}/${href}`.replace(/\\/g, '/')
@@ -1270,11 +1342,9 @@ async function onPreviewClick(e: MouseEvent) {
   const resolved = resolveLocalPath(href)
   if (resolved) {
     // Markdown → Markdown: keep the reader in the same preview/split mode.
-    const ext = extension(resolved)
-    const targetIsMarkdown = ext === 'md' || ext === 'markdown'
     tabStore.addEditorTab({
       path: resolved,
-      initialViewMode: targetIsMarkdown && viewMode.value !== 'edit' ? viewMode.value : undefined,
+      initialViewMode: isMarkdownPath(resolved) && viewMode.value !== 'edit' ? viewMode.value : undefined,
     })
   }
 }
@@ -1452,6 +1522,24 @@ watch(
   },
 )
 
+// Save As names an untitled buffer, which is what decides its language: without
+// this the buffer stays plain text after saving as `notes.md` — no highlighting
+// and, for Markdown, none of the language's own Enter/paste handling either.
+watch(
+  () => tab.value?.path,
+  (path) => {
+    editorView?.dispatch({
+      effects: [
+        languageCompartment.reconfigure(path ? (getLanguage(path) ?? []) : []),
+        markdownCompartment.reconfigure(markdownAssist()),
+      ],
+    })
+    // The outline panel was handed this tab's path when the view was built, and
+    // the tab is already active, so nothing else will hand it the new one.
+    if (tabStore.activeTabId === props.tabId) registerOutlineSource()
+  },
+)
+
 // The editor has its own font family / size — apply changes live.
 watch(
   () => [settingsStore.editorFontName, settingsStore.editorFontSize],
@@ -1487,6 +1575,7 @@ onUnmounted(() => {
         <button class="preview-toggle" @click="mermaidZoom = Math.min(4, mermaidZoom + 0.25)">+</button>
         <button class="preview-toggle" @click="mermaidZoom = 1">{{ t('mermaid.reset') }}</button>
       </template>
+      <MarkdownToolbar v-if="markdownAssistOn && showEditor" @run="runMarkdownToolbarAction" />
       <span class="toolbar-spacer" />
       <HelpButton page="editor-and-preview.md" :size="15" />
     </div>
@@ -1651,6 +1740,7 @@ onUnmounted(() => {
 
 .preview-toolbar {
   display: flex;
+  align-items: center;
   gap: 1px;
   padding: 4px 8px;
   background: var(--bg-tertiary);
@@ -1863,6 +1953,23 @@ onUnmounted(() => {
 }
 
 .md-preview :deep(a) { color: var(--accent); }
+
+/* Footnotes (#241). The definitions render where they are written, so the rule
+   above the first one is what separates them from the body text; the `:not()`
+   picks the one that does not follow another footnote. */
+.md-preview :deep(.footnote-ref) { font-size: 0.75em; }
+.md-preview :deep(.footnote) {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  margin: 2px 0;
+}
+.md-preview :deep(.footnote:not(.footnote + .footnote)) {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.md-preview :deep(.footnote-num) { color: var(--text-primary); }
+.md-preview :deep(.footnote-back) { text-decoration: none; }
 
 .md-preview :deep(table) { border-collapse: collapse; width: 100%; }
 .md-preview :deep(th),
