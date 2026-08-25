@@ -46,6 +46,13 @@ export function joinPath(baseDir: string, rel: string, sep: '/' | '\\' = '/'): s
   return baseParts.join(sep)
 }
 
+/** File name without its extension. */
+export function stem(path: string): string {
+  const name = basename(path)
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(0, dot) : name
+}
+
 export function extension(path: string): string {
   const name = basename(path)
   const dot = name.lastIndexOf('.')
@@ -57,6 +64,9 @@ const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'bmp'])
 export function isImageFile(path: string): boolean {
   return IMAGE_EXTS.has(extension(path))
 }
+
+/** Every format a document can show; also what a file dialog offers. */
+export const EMBEDDABLE_IMAGE_EXTS: readonly string[] = [...IMAGE_EXTS, 'svg']
 
 /**
  * Is this a file to read as Markdown? `.markdown` is the same thing spelled
@@ -77,7 +87,46 @@ export function isMarkdownPath(path: string): boolean {
  * regardless: an SVG inside `<img>` runs no script and fetches nothing.
  */
 export function isEmbeddableImage(path: string): boolean {
-  return isImageFile(path) || extension(path) === 'svg'
+  return EMBEDDABLE_IMAGE_EXTS.includes(extension(path))
+}
+
+/**
+ * A `\\wsl.localhost\Ubuntu\home\x` UNC path (or the older `\\wsl$\…`) split
+ * into the distro and the path as that distro sees it, or null when it is not
+ * one.
+ *
+ * The file dialogs are Windows dialogs, so a file picked out of a WSL project
+ * comes back in the only form Windows can name it by.
+ */
+export function wslUncToNative(path: string): { distro: string; path: string } | null {
+  const m = /^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\?(.*)$/.exec(path)
+  if (!m) return null
+  return { distro: m[1], path: `/${m[2].replace(/\\/g, '/')}` }
+}
+
+/** The inverse: the name Windows knows a WSL file by. */
+export function wslNativeToUnc(distro: string, path: string): string {
+  return `\\\\wsl.localhost\\${distro}${normalizeSep(path, '\\')}`
+}
+
+/**
+ * `target` as seen from `fromDir`, `../` segments included.
+ *
+ * Unlike {@link toRelativePath}, which only strips a prefix, this one can climb
+ * out of the directory — what a link from `docs/manual/x.md` to `docs/img/a.png`
+ * needs. Returns null when the two share no directory at all (different drives,
+ * or a Windows path against a WSL one), since no relative path joins those.
+ */
+export function relativeFromDir(fromDir: string, target: string, sep: '/' | '\\'): string | null {
+  const split = (p: string) => p.replace(/[/\\]+$/, '').split(/[/\\]/)
+  const fold = (s: string) => (sep === '\\' ? s.toLowerCase() : s)
+  const from = split(fromDir)
+  const to = split(target)
+  let common = 0
+  while (common < from.length && common < to.length && fold(from[common]) === fold(to[common])) common++
+  if (common === 0) return null
+  const up = Array(from.length - common).fill('..')
+  return [...up, ...to.slice(common)].join('/')
 }
 
 export function mimeType(path: string): string {

@@ -39,6 +39,17 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - 行単位のトグル（見出し・箇条書き・引用）は **選択全体で 1 つの判定**にする（`markerOf` が全行で一致したら外す）。行ごとに決めると、半分に付いた選択で押したとき付け外しが入り混じる
 - 空行は複数行選択のときだけ飛ばす（段落の区切りに `- ` を足さない）。1 行だけの選択ではリストの開始なので飛ばさない
 - テンプレートのプレースホルダは選択状態で入れる（最初の打鍵で置き換わる）。コードブロックだけは**言語の位置**にカーソルを置く（フェンスは書けても言語は書き手しか知らない）
+- **画像は `composables/useMarkdownImages.ts`**。`.pike/uploads`（チャットとターミナルの置き場）には入れない。あそこは `.gitignore` に `*` があり、ドキュメントが指す画像はドキュメントと一緒にコミットされる必要がある。基準は `project.root` ではなく**そのファイルのディレクトリ**（`tab.path`）と `shellForIO`。無題タブでは挿入できない（置き場所が決まらないので statusMessage で保存を促す）
+  - **プロジェクト内の画像はコピーせず相対パスで参照する**（`../` を含む。`paths.ts` の `relativeFromDir`）。コピーするとリポジトリに同じ画像が 2 つ残る。「プロジェクト内か」は `projectPaths.ts` の `relativeToBase`（区切りを正規化してから比べる。素の前方一致だと `C:/src/pike` と `C:\src\pike` が別物になる）。プロジェクトが無いウィンドウでは「内」の範囲がドキュメントのディレクトリになる
+  - **バイトをフロントに通すのはクリップボードだけ**。ディスク上のファイルは `fs_import_file` で運ぶ。Windows のファイルを WSL プロジェクトへ入れるときも、**宛先を UNC 形で書けば Windows 側の 1 回のコピーで済む**（`wslNativeToUnc`）。`fs_read_file_base64` → `fs_write_file_base64` の往復にすると、画像が base64 で IPC を 2 回渡るうえ、read 側の 10MB 上限が write 側の 50MB と食い違う
+  - **`fs_copy` は使わない**。あれは `std::fs::copy`＝`CopyFileExW` で、**NTFS の代替データストリームまで運ぶ**。ダウンロードした画像には `Zone.Identifier` が付いているので、それを WSL 側へコピーすると 9p にストリームの置き場が無く、隣に `name.png:Zone.Identifier` という**見える実ファイル**ができる（実測）。`fs_import_file` は名前でファイルを開いて本文だけを写す。ツリーのコピー（`fs_copy`）は Windows 内で完結し、ストリームは見えないままなので従来どおりでよい
+  - **ドロップされたファイルは `resolveDroppedPaths` で実パスに戻してから**扱う（タブバーのドロップと同じ仕組み）。戻せなければ持っているバイトで書く。実パスが取れれば上の「プロジェクト内ならリンクだけ」もそのまま効く
+  - ファイル選択ダイアログは Windows のものなので、WSL プロジェクトの中のファイルは UNC 形で返る。`wslUncToNative` で native に直すが、**distro が一致するときだけ**採用する
+  - **書き込みは `useImagePaste` の `saveFileTo` を通す**。あれが `MAX_UPLOAD_SIZE` の番人で、素の `fsWriteFileBase64` を直接呼ぶと上限なしのファイルが base64 で IPC を渡る
+  - `pick_open_file` の拡張子は **Rust 側で英数字だけに絞ってから** PowerShell のフィルタ文字列に埋める（コマンドラインを組み立てる側が検証する）。ダイアログ 3 種の共通部分は `powershell_dialog`
+  - 貼り付けとドロップは `EditorView.domEventHandlers` を **markdown の compartment に載せる**ので、read-only タブと非 Markdown では素通りする。画像以外は `false` を返して CodeMirror の既定に任せる（`pasteURLAsLink` を潰さない）。ドロップ位置は `posAtCoords` でカーソルを移してから挿入する
+  - **複数枚は 1 トランザクションで書く**。1 枚ずつ dispatch すると、直前の挿入が alt テキストを選択したままなので次がその中に入る（`![![b](b.png)](a.png)` になる）
+  - **ファイルツリーからのドロップは `text/plain` を読む**が、パスに見えるか（`isAbsolutePath`）を確かめてから信じる。あのスロットは 4 つのパネルが別々の語彙で使っていて、他アプリから `foo.png` という文字列をドラッグしただけでも届く
 - **表は形を先に聞く**（行数・列数）ので、固定テンプレートの `block` ではなく独立した action kind。UI はブロックメニューの中身をフォームに差し替える形で、メニューを閉じると `picker` を戻す。**見出し行は必ず入れる**: GFM に見出しの無い表は無く（区切り行はそもそも見出しの下にしか置けない）、セルを空にすると本文の上に空の帯が出るだけなので、見出しの有無を選ばせる余地がない。指定する行数は見出しを除いた本文の行数
 - 脚注は本文に `[^n]`、**ファイル末尾**に定義行を足してカーソルを定義側へ移す。`n` は既存の `[^数字]` の最大値 + 1
 - **プレビューの脚注は `lib/markdownFootnotes.ts`（marked 拡張）**。marked は GFM 脚注を持たず、しかも素通しにならない: `[^1]` は**注釈本文を href に持つリンク**になり、定義行はリンク定義として消える。EditorTab は自前の `new Marked(footnotes())` を持つ（グローバルの `marked.use` にするとエージェントチャットの markdown にも入る）
@@ -88,6 +99,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 
 ## ファイル/画像ペースト
 - `composables/useImagePaste.ts`。クリップボード/D&D のファイルを `.pike/uploads/` に保存 → 相対パスを挿入（エージェントチャットは `@パス` メンション、ターミナルは bare path）。画像専用ではなく**任意のファイル**が対象（PDF 等も可）
+- **Markdown エディタはここを通さない**（#241）。ドキュメントが指す画像は `.pike/uploads`（gitignore 済み）ではなくファイルの隣に置く。詳細は「Markdown の入力支援」を参照。共有しているのは書き込みの primitive `saveFileTo`（`MAX_UPLOAD_SIZE` の番人）とファイル名生成だけ
 - 判別は **file か string か**（`ClipboardEvent` は `item.kind === 'file'`、D&D は `dataTransfer.files`）。テキスト（string）は長さに関係なくインライン貼り付けのまま
 - 保存ファイル名は元名を保持（`stem-{hex}.ext`、衝突回避）。名前を持たないクリップボード blob（画像等）は `upload-{ts}-{hex}.{ext}` を生成
 - 初回保存時に各プロジェクトへ `.pike/.gitignore`（中身 `*`）を書き込み、退避ファイルを repo から除外

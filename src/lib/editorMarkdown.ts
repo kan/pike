@@ -50,6 +50,15 @@ export type MarkdownAction =
   | { kind: 'footnote' }
   /** `url` pre-fills the target (e.g. a URL found on the clipboard). */
   | { kind: 'link'; url?: string }
+  /** `path` is written as-is: the caller decides what it is relative to. */
+  | { kind: 'image'; path: string; alt?: string }
+
+/**
+ * What the toolbar emits: an action, or a request for one whose payload the
+ * toolbar cannot know. Image insertion needs the document's location, so the
+ * button asks for it instead of inventing a path.
+ */
+export type ToolbarAction = MarkdownAction | { kind: 'pickImage' }
 
 /** A list item: bullet or number, optionally carrying a task checkbox. */
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])[ \t]+(\[[ xX]\][ \t]+)?/
@@ -88,6 +97,9 @@ export function runMarkdownAction(view: EditorView, action: MarkdownAction): boo
       break
     case 'link':
       insertLink(view, action.url)
+      break
+    case 'image':
+      insertImage(view, action.path, action.alt)
       break
   }
   view.focus()
@@ -237,10 +249,24 @@ function apply(view: EditorView, changes: ChangeSpec[]) {
   if (changes.length) view.dispatch({ changes })
 }
 
+/**
+ * The lines a line command should write to.
+ *
+ * A blank line picked up by a multi-line selection is a paragraph break, not an
+ * item waiting for a marker — unless blank is all there is, in which case the
+ * selection is where the author is about to write and dropping every line would
+ * make the button do nothing at all.
+ */
+function lineTargets(state: EditorState): Line[] {
+  const lines = selectedLines(state)
+  const kept = lines.filter((l) => l.text.trim() !== '')
+  return lines.length > 1 && kept.length > 0 ? kept : lines
+}
+
 /** Set every selected line to `level`, or back to a paragraph when it is already there. */
 function toggleHeading(view: EditorView, level: number) {
   const changes: ChangeSpec[] = []
-  for (const line of selectedLines(view.state)) {
+  for (const line of lineTargets(view.state)) {
     const m = HEADING_RE.exec(line.text)
     const indent = m ? m[1] : indentOf(line.text)
     const target = m && m[2].length === level ? 0 : level
@@ -276,13 +302,7 @@ const MARKER_PREFIX: Record<LineMarker, (n: number) => string> = {
  * so it toggles on its own; the three list kinds replace each other.
  */
 function toggleLineMarker(view: EditorView, marker: LineMarker) {
-  const lines = selectedLines(view.state)
-  // A blank line picked up by a multi-line selection is a paragraph break, not
-  // an item waiting for a bullet — unless blank is all there is, in which case
-  // the selection is where a list is about to be written and dropping every
-  // line would make the button do nothing at all.
-  const kept = lines.filter((l) => l.text.trim() !== '')
-  const targets = lines.length > 1 && kept.length > 0 ? kept : lines
+  const targets = lineTargets(view.state)
   const target = targets.every((l) => markerOf(l.text) === marker) ? null : marker
   const changes: ChangeSpec[] = []
   for (const [i, line] of targets.entries()) {
@@ -394,7 +414,7 @@ function insertLink(view: EditorView, url?: string) {
   const selected = state.sliceDoc(range.from, range.to).trim()
   const selectedIsUrl = selected !== '' && URL_LIKE_RE.test(selected)
   const text = selectedIsUrl ? '' : selected
-  const target = selectedIsUrl ? selected : (url ?? '')
+  const target = toLinkTarget(selectedIsUrl ? selected : (url ?? ''))
   const insert = `[${text}](${target})`
   // Select a pre-filled target so it can be typed over; otherwise put the
   // cursor in whichever bracket is still empty.
@@ -402,6 +422,42 @@ function insertLink(view: EditorView, url?: string) {
   view.dispatch({
     changes: { from: range.from, to: range.to, insert },
     selection: EditorSelection.range(range.from + select[0], range.from + select[1]),
+    scrollIntoView: true,
+  })
+}
+
+/**
+ * A path as a Markdown link destination.
+ *
+ * Only what would end the destination early is escaped, so the source stays
+ * readable — Japanese names included, which `encodeURI` would not leave alone.
+ * A space always ends it. Parentheses only break an unbalanced pair, and are
+ * escaped for paths we generate but left alone in a URL the author supplied,
+ * where rewriting `…/Foo_(bar)` would be a visible edit of their own text.
+ */
+function toLinkTarget(path: string, escapeParens = false): string {
+  const spaced = path.replace(/ /g, '%20')
+  return escapeParens ? spaced.replace(/\(/g, '%28').replace(/\)/g, '%29') : spaced
+}
+
+/**
+ * The `![alt](path)` text itself.
+ *
+ * Exported so a caller inserting several at once can join them and write one
+ * change, rather than dispatching each and then working out where the last one
+ * ended.
+ */
+export function markdownImage(path: string, alt = ''): string {
+  return `![${alt}](${toLinkTarget(path, true)})`
+}
+
+/** `![alt](path)`, with the caret on the alt text so it can be typed straight in. */
+function insertImage(view: EditorView, path: string, alt = '') {
+  const range = view.state.selection.main
+  const at = range.from + '!['.length
+  view.dispatch({
+    changes: { from: range.from, to: range.to, insert: markdownImage(path, alt) },
+    selection: EditorSelection.range(at, at + alt.length),
     scrollIntoView: true,
   })
 }

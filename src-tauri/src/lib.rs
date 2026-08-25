@@ -854,15 +854,16 @@ async fn open_url(url: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-async fn pick_folder() -> Result<Option<String>, String> {
-    tokio::task::spawn_blocking(|| {
+/// Run a WinForms dialog and return what it printed, or None when dismissed.
+///
+/// The dialogs go through PowerShell rather than a Rust dialog crate because
+/// that is what the app already had; `script` is the `$f = New-Object ...` part
+/// and this is everything around it.
+async fn powershell_dialog(script: String) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        let cmd = format!("Add-Type -AssemblyName System.Windows.Forms; {script}");
         let output = types::silent_command("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object System.Windows.Forms.FolderBrowserDialog; if($f.ShowDialog() -eq 'OK'){$f.SelectedPath}",
-            ])
+            .args(["-NoProfile", "-Command", &cmd])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output()
@@ -875,29 +876,47 @@ async fn pick_folder() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-async fn pick_save_file(default_name: Option<String>) -> Result<Option<String>, String> {
-    tokio::task::spawn_blocking(move || {
-        let name = default_name.unwrap_or_default();
-        // PowerShell single-quoted strings only interpret '' as escaped quote;
-        // no other characters ($, `, ;, etc.) are special inside single quotes.
-        let cmd = format!(
-            "Add-Type -AssemblyName System.Windows.Forms; \
-             $f = New-Object System.Windows.Forms.SaveFileDialog; \
-             $f.FileName = '{}'; \
-             if($f.ShowDialog() -eq 'OK'){{$f.FileName}}",
-            name.replace('\'', "''")
-        );
-        let output = types::silent_command("powershell.exe")
-            .args(["-NoProfile", "-Command", &cmd])
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map_err(|e| e.to_string())?;
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok(if path.is_empty() { None } else { Some(path) })
-    })
+async fn pick_folder() -> Result<Option<String>, String> {
+    powershell_dialog(
+        "$f = New-Object System.Windows.Forms.FolderBrowserDialog; if($f.ShowDialog() -eq 'OK'){$f.SelectedPath}"
+            .to_string(),
+    )
     .await
-    .map_err(|e| e.to_string())?
+}
+
+/// Open-file dialog restricted to the given extensions (#241).
+///
+/// The extensions end up inside a PowerShell command line, so they are checked
+/// here rather than trusted: the front end decides which formats to offer, but
+/// this is what builds the process arguments.
+#[tauri::command]
+async fn pick_open_file(extensions: Vec<String>) -> Result<Option<String>, String> {
+    let patterns = extensions
+        .iter()
+        .filter(|e| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric()))
+        .map(|e| format!("*.{}", e.to_ascii_lowercase()))
+        .collect::<Vec<_>>()
+        .join(";");
+    if patterns.is_empty() {
+        return Err("no usable extensions".into());
+    }
+    // Filter syntax is `description|patterns`; the patterns read fine as their
+    // own description.
+    powershell_dialog(format!(
+        "$f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = '{patterns}|{patterns}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
+    ))
+    .await
+}
+
+#[tauri::command]
+async fn pick_save_file(default_name: Option<String>) -> Result<Option<String>, String> {
+    // PowerShell single-quoted strings only interpret '' as an escaped quote;
+    // no other character ($, `, ;, ...) is special inside them.
+    let name = default_name.unwrap_or_default().replace('\'', "''");
+    powershell_dialog(format!(
+        "$f = New-Object System.Windows.Forms.SaveFileDialog; $f.FileName = '{name}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
+    ))
+    .await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1250,6 +1269,7 @@ pub fn run() {
             remote_image::remote_image_fetch,
             pick_folder,
             pick_save_file,
+            pick_open_file,
             pty::pty_spawn,
             pty::pty_spawn_tmux,
             pty::pty_write,
@@ -1283,6 +1303,7 @@ pub fn run() {
             fs::fs_rename,
             fs::fs_delete,
             fs::fs_copy,
+            fs::fs_import_file,
             fs::fs_create_file,
             fs::fs_create_dir,
             fs::fs_write_file_base64,

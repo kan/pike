@@ -1,5 +1,6 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { openPathInTab } from '../lib/openFile'
+import { wslNativeToUnc } from '../lib/paths'
 import { type CliAction, type CliFileTarget, cliGetInitialAction } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
@@ -18,7 +19,7 @@ let initialized = false
  */
 function tabPathFor(file: CliFileTarget): string {
   if (file.distro && !useProjectStore().currentProject) {
-    return `\\\\wsl.localhost\\${file.distro}${file.path.replace(/\//g, '\\')}`
+    return wslNativeToUnc(file.distro, file.path)
   }
   return file.path
 }

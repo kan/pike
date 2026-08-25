@@ -51,7 +51,7 @@ function extFromMime(mime: string): string {
 
 // File.name is generic ("image.png", "blob", "clipboard") for clipboard blobs
 // that never had a real on-disk name. Treat those as nameless and synthesize.
-function isGenericName(name: string): boolean {
+export function isGenericName(name: string): boolean {
   const stem = name.replace(/\.[^.]*$/, '').toLowerCase()
   return stem === '' || stem === 'image' || stem === 'blob' || stem === 'clipboard'
 }
@@ -61,16 +61,23 @@ function sanitize(name: string): string {
 }
 
 /**
- * Build the stored filename. Real files keep their original name (stem-hex.ext
- * to dodge collisions); nameless clipboard blobs get a generated name from MIME.
+ * `stem-hex.ext`, so a second file of the same name can sit in the same
+ * directory without replacing the first. `fallbackExt` covers names with no
+ * extension of their own.
  */
-function buildFilename(file: File): string {
-  if (file.name && !isGenericName(file.name)) {
-    const dot = file.name.lastIndexOf('.')
-    const stem = dot > 0 ? file.name.slice(0, dot) : file.name
-    const ext = dot > 0 ? file.name.slice(dot + 1) : extFromMime(file.type)
-    return `${sanitize(stem)}-${uniqueId()}.${sanitize(ext)}`
-  }
+export function uniqueFilename(name: string, fallbackExt: string): string {
+  const dot = name.lastIndexOf('.')
+  const stem = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot + 1) : fallbackExt
+  return `${sanitize(stem)}-${uniqueId()}.${sanitize(ext)}`
+}
+
+/**
+ * Build the stored filename. Real files keep their original name; nameless
+ * clipboard blobs get a generated one from the MIME type.
+ */
+export function buildFilename(file: File): string {
+  if (file.name && !isGenericName(file.name)) return uniqueFilename(file.name, extFromMime(file.type))
   return `upload-${Date.now()}-${uniqueId()}.${extFromMime(file.type)}`
 }
 
@@ -151,24 +158,33 @@ async function ensureUploadsDir(shell: ShellType, root: string): Promise<string>
 }
 
 /**
- * Save any file to .pike/uploads/ and return the relative path. Throws
- * UploadTooLargeError when the file exceeds MAX_UPLOAD_SIZE. When `bytes` is
- * supplied (already read by the caller, e.g. tryInlineFile) it is reused to
- * avoid a second full read of the File.
+ * Write `file` into `dir` under a collision-proof name, and return that name.
+ * Throws UploadTooLargeError past MAX_UPLOAD_SIZE. When `bytes` is supplied
+ * (already read by the caller, e.g. tryInlineFile) it is reused to avoid a
+ * second full read of the File.
+ *
+ * The size cap is the reason to come through here rather than calling
+ * `fsWriteFileBase64` directly: the bytes cross the IPC bridge as a base64
+ * string, so an unbounded file is not merely slow.
+ */
+export async function saveFileTo(file: File, shell: ShellType, dir: string, bytes?: Uint8Array): Promise<string> {
+  if (file.size > MAX_UPLOAD_SIZE) throw new UploadTooLargeError(file.size)
+  const filename = buildFilename(file)
+  const base64 = bytes ? bytesToBase64(bytes) : await fileToBase64(file)
+  await fsWriteFileBase64(shell, `${dir}${pathSep(shell)}${filename}`, base64)
+  return filename
+}
+
+/**
+ * Save any file to .pike/uploads/ and return the path relative to the project
+ * root — what a chat mention or a terminal drop pastes in.
  */
 export async function saveUploadFile(file: File, bytes?: Uint8Array): Promise<string> {
   const project = useProjectStore().currentProject
   if (!project) throw new Error('No active project')
-  if (file.size > MAX_UPLOAD_SIZE) throw new UploadTooLargeError(file.size)
-
   const sep = pathSep(project.shell)
-  const filename = buildFilename(file)
   const uploadDir = await ensureUploadsDir(project.shell, project.root)
-  const fullPath = `${uploadDir}${sep}${filename}`
-
-  const base64 = bytes ? bytesToBase64(bytes) : await fileToBase64(file)
-  await fsWriteFileBase64(project.shell, fullPath, base64)
-
+  const filename = await saveFileTo(file, project.shell, uploadDir, bytes)
   return `${UPLOADS_DIR.replaceAll('/', sep)}${sep}${filename}`
 }
 

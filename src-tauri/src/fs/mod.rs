@@ -617,6 +617,40 @@ pub async fn fs_copy(
     .map_err(|e| e.to_string())?
 }
 
+/// Copy one file's contents into `dest`, and only its contents.
+///
+/// `fs_copy` goes through `std::fs::copy`, which is `CopyFileExW` on Windows
+/// and carries a file's NTFS alternate data streams along with its bytes. That
+/// is right for copying inside a Windows tree, where those streams stay
+/// invisible — but a downloaded file carries a `Zone.Identifier` stream, and
+/// copying one into a WSL project that way leaves a second, visible file next
+/// to it (`name.png:Zone.Identifier`), because the 9p filesystem has nowhere
+/// else to put a stream. Opening the file by name reads the unnamed stream and
+/// nothing else, which is what "import this picture" means (#241).
+#[tauri::command]
+pub async fn fs_import_file(
+    shell: ShellConfig,
+    source: String,
+    dest: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || match &shell {
+        // A WSL path has no streams to leave behind.
+        ShellConfig::Wsl { .. } => {
+            shell.run_stdout("cp", &["--", &source, &dest])?;
+            Ok(())
+        }
+        _ => {
+            let mut src = std::fs::File::open(&source).map_err(|e| e.to_string())?;
+            let mut out = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+            std::io::copy(&mut src, &mut out)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn fs_create_file(
     shell: ShellConfig,

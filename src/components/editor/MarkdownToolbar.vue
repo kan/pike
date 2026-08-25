@@ -4,7 +4,7 @@
  *
  * It sits in the Edit / Split / Preview row rather than in a row of its own, so
  * the editor keeps its height. The component owns no editor state — it emits a
- * `MarkdownAction` and `EditorTab` runs it against the view, which is the same
+ * `ToolbarAction` and `EditorTab` runs it against the view, which is the same
  * path the keyboard shortcuts take.
  *
  * Buttons and menus are tables, not markup: adding one is a line in an array
@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Code,
   Heading,
+  Image as ImageIcon,
   Italic,
   Link,
   List,
@@ -27,9 +28,9 @@ import {
 import type { Component } from 'vue'
 import { computed, nextTick, onUnmounted, ref, useTemplateRef } from 'vue'
 import { useI18n } from '../../i18n'
-import type { MarkdownAction, TableSpec } from '../../lib/editorMarkdown'
+import type { TableSpec, ToolbarAction } from '../../lib/editorMarkdown'
 
-const emit = defineEmits<{ run: [action: MarkdownAction] }>()
+const emit = defineEmits<{ run: [action: ToolbarAction] }>()
 
 const { t } = useI18n()
 
@@ -39,13 +40,13 @@ interface Button {
   label: string
   /** Shortcut shown in the tooltip. */
   hint?: string
-  action: MarkdownAction
+  action: ToolbarAction
 }
 
 interface MenuItem {
   label: string
   /** Insert straight away… */
-  action?: MarkdownAction
+  action?: ToolbarAction
   /** …or hand the menu over to a form that asks for the shape first. */
   picker?: 'table'
   /** Class for the item's own label, used to preview the heading sizes. */
@@ -81,13 +82,19 @@ const segments = computed<Segment[]>(() => [
       ...[1, 2, 3, 4, 5, 6].map((level) => ({
         label: t('markdown.headingLevel', { n: level }),
         cls: `h${level}`,
-        action: { kind: 'heading', level } as MarkdownAction,
+        action: { kind: 'heading', level } as ToolbarAction,
       })),
       { label: t('markdown.headingNone'), action: { kind: 'heading', level: 0 } },
     ],
   },
   { buttons: INLINE },
-  { buttons: [{ icon: Link, label: 'markdown.link', hint: 'Ctrl+K', action: { kind: 'link' } }] },
+  {
+    buttons: [
+      { icon: Link, label: 'markdown.link', hint: 'Ctrl+K', action: { kind: 'link' } },
+      // EditorTab answers this one: the path depends on where the file lives.
+      { icon: ImageIcon, label: 'markdown.image', action: { kind: 'pickImage' } },
+    ],
+  },
   { buttons: LISTS },
   {
     menu: 'block',
@@ -155,7 +162,7 @@ function closeMenu() {
   window.removeEventListener('mousedown', closeMenu)
 }
 
-function run(action: MarkdownAction) {
+function run(action: ToolbarAction) {
   closeMenu()
   emit('run', action)
 }

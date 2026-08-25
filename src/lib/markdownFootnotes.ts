@@ -28,6 +28,7 @@ export function footnotes(): MarkedExtension {
   // is what keeps numbering from carrying over between renders of a document.
   let numbers = new Map<string, number>()
   let referenced = new Set<string>()
+  let defined = new Set<string>()
 
   const numberFor = (id: string): number => {
     const known = numbers.get(id)
@@ -56,6 +57,10 @@ export function footnotes(): MarkedExtension {
         tokenizer(src: string) {
           const m = DEF_RE.exec(src)
           if (!m) return undefined
+          // Block tokenizing finishes before any inline pass starts (marked
+          // queues the inline work), so every definition is known by the time a
+          // reference has to decide whether it is one.
+          defined.add(m[1])
           return {
             type: 'footnoteDef',
             raw: m[0],
@@ -82,7 +87,10 @@ export function footnotes(): MarkedExtension {
         },
         tokenizer(src: string) {
           const m = REF_RE.exec(src)
-          if (!m) return undefined
+          // Only a marker with a definition behind it. `[^a-z]` in prose is a
+          // character class, and swallowing it would delete the text, link to
+          // nothing, and take a number away from the footnotes below it.
+          if (!m || !defined.has(m[1])) return undefined
           return { type: 'footnoteRef', raw: m[0], id: m[1] } as FootnoteToken
         },
         renderer(token) {
@@ -100,6 +108,7 @@ export function footnotes(): MarkedExtension {
       preprocess(markdown: string) {
         numbers = new Map()
         referenced = new Set()
+        defined = new Set()
         return markdown
       },
     },

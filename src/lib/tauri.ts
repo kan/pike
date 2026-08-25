@@ -320,6 +320,15 @@ export async function fsCopy(shell: ShellType, source: string, dest: string): Pr
   return invoke('fs_copy', { shell, source, dest })
 }
 
+/**
+ * Copy one file's contents into `dest`, without its NTFS alternate data
+ * streams — see `fs_import_file`. Use this to bring an outside file in;
+ * `fsCopy` is for moving files around inside one tree.
+ */
+export async function fsImportFile(shell: ShellType, source: string, dest: string): Promise<void> {
+  return invoke('fs_import_file', { shell, source, dest })
+}
+
 export async function fsCreateFile(shell: ShellType, path: string): Promise<void> {
   return invoke('fs_create_file', { shell, path })
 }
@@ -674,6 +683,11 @@ export async function pickFolder(): Promise<string | null> {
 
 export async function pickSaveFile(defaultName?: string): Promise<string | null> {
   return invoke<string | null>('pick_save_file', { defaultName: defaultName ?? null })
+}
+
+/** Open-file dialog limited to `extensions` (bare, no dot). Windows path or null. */
+export async function pickOpenFile(extensions: string[]): Promise<string | null> {
+  return invoke<string | null>('pick_open_file', { extensions })
 }
 
 // CLI

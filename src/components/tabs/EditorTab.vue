@@ -12,6 +12,7 @@ import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
+import { useMarkdownImages } from '../../composables/useMarkdownImages'
 import { type OutlineJump, useOutlineSource } from '../../composables/useOutlineSource'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
@@ -19,7 +20,12 @@ import { conflictHighlight } from '../../lib/editorConflict'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
-import { type MarkdownAction, markdownAssistKeymap, runMarkdownAction } from '../../lib/editorMarkdown'
+import {
+  type MarkdownAction,
+  markdownAssistKeymap,
+  runMarkdownAction,
+  type ToolbarAction,
+} from '../../lib/editorMarkdown'
 import { minimap } from '../../lib/editorMinimap'
 import { editorSearch, replaceKeymap, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
@@ -30,7 +36,15 @@ import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
-import { basename, extension, isEmbeddableImage, isMarkdownPath, mimeType, toRelativePath } from '../../lib/paths'
+import {
+  basename,
+  dirname,
+  extension,
+  isEmbeddableImage,
+  isMarkdownPath,
+  mimeType,
+  toRelativePath,
+} from '../../lib/paths'
 import { createHeadingSlugger } from '../../lib/slug'
 import {
   fsDirsExist,
@@ -923,7 +937,10 @@ const markdownAssistOn = computed(() => isMarkdown.value && !isReadOnlyTab.value
 /** The Markdown assist bindings, or nothing when they do not apply here. */
 function markdownAssist() {
   if (!markdownAssistOn.value) return []
-  return keymap.of(markdownAssistKeymap(() => runMarkdownToolbarAction({ kind: 'link' })))
+  return [
+    keymap.of(markdownAssistKeymap(() => runMarkdownToolbarAction({ kind: 'link' }))),
+    EditorView.domEventHandlers(markdownImages.handlers),
+  ]
 }
 
 /**
@@ -933,9 +950,14 @@ function markdownAssist() {
  * sitting on the clipboard is nearly always the target the author meant, and
  * pre-filling it saves the paste.
  */
-async function runMarkdownToolbarAction(action: MarkdownAction) {
+async function runMarkdownToolbarAction(action: ToolbarAction) {
+  if (!editorView) return
+  if (action.kind === 'pickImage') {
+    await markdownImages.insertFromPicker(editorView)
+    return
+  }
   const resolved: MarkdownAction = action.kind === 'link' ? { kind: 'link', url: await clipboardUrl() } : action
-  if (editorView) runMarkdownAction(editorView, resolved)
+  runMarkdownAction(editorView, resolved)
 }
 
 /** The clipboard's contents when they are a URL, else undefined. */
@@ -948,6 +970,13 @@ async function clipboardUrl(): Promise<string | undefined> {
     return undefined
   }
 }
+
+// Images are a feature of their own — see the composable for where they land.
+const markdownImages = useMarkdownImages(
+  computed(() => (tab.value?.path ? dirname(tab.value.path) : '')),
+  shellForIO,
+  computed(() => projectStore.activeRoot),
+)
 
 // Snapshot selection state when context menu opens (not reactive — avoids stale computed)
 const ctxHasSelection = ref(false)
