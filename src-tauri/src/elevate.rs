@@ -44,11 +44,13 @@ pub fn is_elevated() -> bool {
 }
 
 /// 昇格起動を許可するシェル種別。id の語彙は `types::shell_from_id` が単一の
-/// 出典で（#240）、ここは WSL を除外するだけにする（昇格は Windows シェル限定）。
+/// 出典で（#240）、ここは WSL とローカル Unix シェルを除外する（昇格は Windows 限定）。
+/// 判定は `types` の `is_windows_shell` に寄せてあるので、シェル種別が増えても
+/// ここが素通りにならない。
 fn is_windows_shell_kind(kind: &str) -> bool {
     matches!(
         crate::types::shell_from_id(kind),
-        Some(shell) if !matches!(shell, crate::types::ShellConfig::Wsl { .. })
+        Some(shell) if shell.is_windows()
     )
 }
 

@@ -7,10 +7,14 @@
 //!   2. コマンド実行中はその子プロセスが見えるか
 //!   3. WSL では PIKE_PTY_ID マーカーが Linux 側へ伝わり、/proc 走査で
 //!      「シェル + 実行中プロセス」を数えられるか
+#[cfg(windows)]
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+#[cfg(windows)]
 use std::io::{Read, Write};
+#[cfg(windows)]
 use std::time::Duration;
 
+#[cfg(windows)]
 const SIZE: PtySize = PtySize {
     rows: 24,
     cols: 80,
@@ -19,6 +23,7 @@ const SIZE: PtySize = PtySize {
 };
 
 /// (pid, ppid, exe) の一覧をプロセススナップショットから取る。
+#[cfg(windows)]
 fn snapshot() -> Vec<(u32, u32, String)> {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Diagnostics::ToolHelp::{
@@ -58,6 +63,7 @@ fn snapshot() -> Vec<(u32, u32, String)> {
 }
 
 /// root の子孫プロセスを列挙する。
+#[cfg(windows)]
 fn descendants(root: u32) -> Vec<(u32, String)> {
     let all = snapshot();
     let mut found: Vec<(u32, String)> = Vec::new();
@@ -73,7 +79,9 @@ fn descendants(root: u32) -> Vec<(u32, String)> {
     found
 }
 
+#[cfg(windows)]
 type Shared = std::sync::Arc<std::sync::Mutex<String>>;
+#[cfg(windows)]
 type SharedWriter = std::sync::Arc<std::sync::Mutex<Box<dyn Write + Send>>>;
 
 /// PTY を 1 つ起動する。戻り値は (writer, pid, 出力バッファ)。
@@ -81,6 +89,7 @@ type SharedWriter = std::sync::Arc<std::sync::Mutex<Box<dyn Write + Send>>>;
 /// ConPTY は起動直後にカーソル位置問い合わせ (DSR, `ESC[6n`) を送り、応答が
 /// 返るまで先へ進まない。実機では xterm.js が応答するので、検証側でも
 /// リーダースレッドが同じ応答を返す。
+#[cfg(windows)]
 fn spawn(cmd: CommandBuilder) -> (SharedWriter, u32, Shared) {
     let pair = native_pty_system().openpty(SIZE).expect("openpty");
     let child = pair.slave.spawn_command(cmd).expect("spawn");
@@ -112,16 +121,19 @@ fn spawn(cmd: CommandBuilder) -> (SharedWriter, u32, Shared) {
     (writer, pid, out)
 }
 
+#[cfg(windows)]
 fn send(writer: &SharedWriter, line: &str) {
     let mut w = writer.lock().unwrap();
     write!(w, "{line}\r\n").expect("write");
     w.flush().ok();
 }
 
+#[cfg(windows)]
 fn alive(pid: u32) -> bool {
     snapshot().iter().any(|(p, _, _)| *p == pid)
 }
 
+#[cfg(windows)]
 fn tail(out: &Shared) -> String {
     let s = out.lock().unwrap();
     let t: String = s.chars().rev().take(160).collect::<Vec<_>>()
@@ -129,6 +141,7 @@ fn tail(out: &Shared) -> String {
     t.replace('\u{1b}', "<ESC>").replace('\r', "\\r").replace('\n', "\\n")
 }
 
+#[cfg(windows)]
 fn windows_shell(label: &str, mut cmd: CommandBuilder, busy_line: &str) {
     println!("\n=== [{label}] ===");
     cmd.env("TERM", "xterm-256color");
@@ -159,6 +172,7 @@ fn windows_shell(label: &str, mut cmd: CommandBuilder, busy_line: &str) {
 }
 
 /// WSL 側で marker を持つプロセス数を数える。
+#[cfg(windows)]
 fn wsl_marked_count(marker: &str) -> String {
     let script = format!(
         "n=0; for p in /proc/[0-9]*; do grep -qz '^PIKE_PTY_ID={marker}$' \"$p/environ\" 2>/dev/null && n=$((n+1)); done; echo $n"
@@ -172,6 +186,7 @@ fn wsl_marked_count(marker: &str) -> String {
     }
 }
 
+#[cfg(windows)]
 fn wsl() {
     println!("\n=== [wsl bash] ===");
     let marker = "verify-busy-0000";
@@ -205,6 +220,7 @@ fn wsl() {
     );
 }
 
+#[cfg(windows)]
 fn main() {
     println!("=== Busy Detection Verification (#178) ===");
 
@@ -222,4 +238,12 @@ fn main() {
 
     println!("\n=== Complete ===");
     std::process::exit(0);
+}
+
+/// ConPTY と WSL の挙動を確かめるものなので、中身ごと Windows 専用。
+/// 非 Windows でもビルド対象には入る（cargo は src/bin/*.rs を自動で拾う）ため、
+/// main だけは常に生やしておく。
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("verify_busy は Windows 専用です（ConPTY / WSL の挙動確認）");
 }

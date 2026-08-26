@@ -6,16 +6,23 @@ const EVENT_DONE_PREFIX: &str = "pike-wait-done-";
 const EVENT_ABORT_PREFIX: &str = "pike-wait-abort-";
 
 /// Matches `WMCOPYDATA_SINGLE_INSTANCE_DATA` in tauri-plugin-single-instance.
+#[cfg(windows)]
 const COPYDATA_SINGLE_INSTANCE: usize = 1542;
 
 /// Suffix conventions from tauri-plugin-single-instance (appended to the app identifier):
 ///   -sim  = single-instance mutex
 ///   -sic  = single-instance window class
 ///   -siw  = single-instance window name
+/// これらは single-instance の Windows 実装（WM_COPYDATA + 名前付きミューテックス）
+/// にしか出てこない。非 Windows ではプラグインが別の仕組みを使うので参照されない。
+#[cfg(windows)]
 const SI_MUTEX_SUFFIX: &str = "-sim";
+#[cfg(windows)]
 const SI_CLASS_SUFFIX: &str = "-sic";
+#[cfg(windows)]
 const SI_WINDOW_SUFFIX: &str = "-siw";
 
+#[cfg(windows)]
 const APP_ID: &str = if cfg!(debug_assertions) {
     "com.pike.dev.debug"
 } else {
@@ -294,6 +301,7 @@ fn send_to_first_instance(args: &[String], cwd: &str) {
     }
 }
 
+#[cfg(windows)]
 fn encode_wide(s: &str) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
     std::ffi::OsStr::new(s)

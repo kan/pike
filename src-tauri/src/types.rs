@@ -6,8 +6,10 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 /// Create a Command with CREATE_NO_WINDOW on Windows to prevent console window flashing.
+#[cfg_attr(not(windows), allow(unused_mut))]
 pub fn silent_command(program: &str) -> Command {
     let mut cmd = Command::new(program);
+    // 非 Windows にはコンソールウィンドウという概念が無いので何もしない。
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -25,6 +27,86 @@ pub fn silent_command(program: &str) -> Command {
 /// `.profile` puts it on PATH — without it `go vet` in the Problems panel found
 /// no `go` and reported an empty (not failed) run.
 pub const WSL_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.cargo/bin:$HOME/go/bin:/usr/local/bin:/usr/local/go/bin";
+
+/// `WSL_EXTRA_PATH` の macOS / Linux 版。**WSL 以上に必要**で、理由は
+/// Finder / Dock から起動した GUI プロセスが `launchd` の最小 PATH
+/// （`/usr/bin:/bin:/usr/sbin:/sbin`）しか継承しないこと。ターミナルから
+/// `cargo tauri dev` したときは開発者のシェル PATH を継ぐので**開発中は再現せず、
+/// インストール版だけで `git` も `rg` も `claude` も見つからない**という形になる。
+/// Homebrew は Apple Silicon が `/opt/homebrew`、Intel が `/usr/local`。
+///
+/// **使うのは `augment_process_path` の 1 箇所だけ**。WSL 版と違い、個々のコマンドを
+/// `sh -c 'PATH=... cmd'` で包む必要はない: WSL の `bash -c` が distro の素の PATH から
+/// 始まるのに対し、こちらはプロセスの PATH をそのまま継ぐので、起動時に 1 回広げれば
+/// 全経路に効く。**シェル経由で足す実装を再び入れないこと**（プロセス側と向きが食い違うと、
+/// 同じツールが呼び出し経路によって別の実体に解決される）。
+pub const UNIX_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.cargo/bin:$HOME/go/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/go/bin";
+
+/// GUI から起動したプロセスの PATH に、`UNIX_EXTRA_PATH` のうち実在するものを足す。
+///
+/// **Finder / Dock / `open` から起動した macOS の GUI プロセスは `launchd` の最小 PATH
+/// （`/usr/bin:/bin:/usr/sbin:/sbin`）しか持たない。** そのため素の `Command::new("git")`
+/// も `rg` も `claude` も解決できない。ターミナルから `cargo tauri dev` すると開発者の
+/// シェル PATH を継ぐので**開発中はまったく再現せず、インストール版だけで壊れる**。
+///
+/// 呼び出し側で PATH を組み立てる（`run_shell_line_env` 等）だけでは、`ShellConfig` を
+/// 通らない直接 spawn（PTY・エージェント・updater）が取り残される。プロセスの PATH を
+/// 1 度だけ広げておけば全経路が同じ前提に乗る。
+///
+/// ログインシェルに `$PATH` を聞く方式（VS Code のやり方）は採らない。起動のたびに
+/// 対話シェルを 1 本起こすことになり、rc が `exec tmux` するような環境で固まる。
+/// 静的な一覧で足りなければ、ユーザーはターミナルから起動できる。
+///
+/// **スレッドを起こす前に呼ぶこと**（`set_var` はプロセス全体を触る）。
+#[cfg(not(windows))]
+pub fn augment_process_path() {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let current = std::env::var("PATH").unwrap_or_default();
+    let next = augmented_path_with(&current, &home, |dir| std::path::Path::new(dir).is_dir());
+    std::env::set_var("PATH", next);
+}
+
+#[cfg(windows)]
+pub fn augment_process_path() {}
+
+/// `augment_process_path` の判断部分。プロセスの環境を触らないので単体で確かめられる
+/// （`set_var` はテスト同士が干渉する）。`exists` が真になったものだけを足す: 存在しない
+/// ディレクトリを並べても動作は変わらないが、PATH が長いほど毎回の exec 探索が伸びる。
+#[cfg(not(windows))]
+fn augmented_path_with(current: &str, home: &str, exists: impl Fn(&str) -> bool) -> String {
+    let mut dirs: Vec<String> = current
+        .split(':')
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    for entry in UNIX_EXTRA_PATH.split(':') {
+        let dir = entry.replace("$HOME", home);
+        if !dirs.iter().any(|d| d == &dir) && exists(&dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs.join(":")
+}
+
+/// このプロセスを動かしているホストのホームディレクトリ。
+///
+/// **`USERPROFILE` は Windows にしか無い。** macOS / Linux で直に読むと `None` になり、
+/// `~/.claude` や `~/.codex` の解決が黙って失敗する（エラーではなく「記録がありません」と
+/// いう空の表示になるので気付きにくい）。WSL のホームは distro の中にあって別物なので、
+/// ここではなく `wsl_home_cached` が解決する。
+pub fn host_home() -> Option<String> {
+    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var(key).ok().filter(|v| !v.is_empty())
+}
+
+/// 対話 PTY で起動するローカルシェル。`$SHELL` があればそれ、無ければ
+/// macOS の既定である zsh に落とす（`ShellConfig::Unix { program: "" }` の解決先）。
+pub fn default_unix_shell() -> String {
+    std::env::var("SHELL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "/bin/zsh".to_string())
+}
 
 /// Quote a string for safe interpolation into a `bash -c` command.
 /// Bash-specific (single-quote wrapping); NOT safe for cmd.exe or PowerShell.
@@ -47,9 +129,62 @@ pub enum ShellConfig {
     /// PowerShell 7+ (pwsh.exe) — Windows PowerShell 5 (`Powershell`) と併存
     Pwsh,
     GitBash,
+    /// macOS / Linux でホスト上のシェルを直接使う。`program` は対話 PTY で起動する
+    /// ログインシェルの絶対パス（空文字なら `default_unix_shell()` が決める）。
+    ///
+    /// **WSL と同じ POSIX 側だが、ファイル I/O は Windows 側と同じ `std::fs` を通る**
+    /// という中間の性格を持つ。引用・パス区切り・null デバイスの分岐は `is_posix()` で
+    /// 行い、ファイル操作は `fs/mod.rs` の `ShellConfig::Wsl` 以外の腕（`std::fs` 直接）に
+    /// そのまま乗る。**`_ =>` を「Windows である」の意味で使わないこと。**
+    ///
+    /// `program` は **`serde(default)` が必須**。フロントは既定のシェルを
+    /// `{ kind: 'unix' }` として送る（実体を焼き込まない方針）ので、これが無いと
+    /// `shell: ShellConfig` を取る Tauri コマンドが軒並み「missing field `program`」で
+    /// 落ちる。`shell_from_id_round_trips_unix` の隣の serde テストが見張っている。
+    Unix {
+        #[serde(default)]
+        program: String,
+    },
 }
 
 impl ShellConfig {
+    /// パス区切り・引用規約・null デバイスが POSIX かどうか。`GitBash` は
+    /// **含めない**: 引用こそ bash だが扱うパスは Windows のもので、既存の分岐は
+    /// 一貫して Windows 側に置いている。
+    pub fn is_posix(&self) -> bool {
+        matches!(self, ShellConfig::Wsl { .. } | ShellConfig::Unix { .. })
+    }
+
+    /// Windows 側の作法（`\` 区切り・cmd の引用・管理者昇格）が当てはまるシェルか。
+    /// フロントの `isWindowsShell`（`types/tab.ts`）と対。
+    pub fn is_windows(&self) -> bool {
+        !self.is_posix()
+    }
+
+    /// 対話 PTY で起動するシェルの実体パス（`Unix` 以外では意味を持たない）。
+    pub fn unix_program(&self) -> String {
+        match self {
+            ShellConfig::Unix { program } if !program.trim().is_empty() => program.clone(),
+            _ => default_unix_shell(),
+        }
+    }
+
+    /// このホストで既定にすべきシェル。Windows は従来どおり PowerShell、
+    /// macOS / Linux はログインシェル。プロジェクト作成・CLI・診断の
+    /// 「シェル指定が無いとき」がすべてここを通る。
+    pub fn host_default() -> ShellConfig {
+        #[cfg(windows)]
+        {
+            ShellConfig::Powershell
+        }
+        #[cfg(not(windows))]
+        {
+            ShellConfig::Unix {
+                program: default_unix_shell(),
+            }
+        }
+    }
+
     /// Build a Command with WSL dispatch.
     /// WSL: `wsl.exe -d distro -e program args...` (bypasses bash, safe for special chars)
     /// Others: `program args...`
@@ -104,6 +239,9 @@ impl ShellConfig {
                 cmd.arg("-d").arg(distro).arg("-e").arg("bash").arg("-c").arg(script);
                 cmd
             }
+            // macOS / Linux はここで包む必要が無い。`augment_process_path` が起動時に
+            // 同じ一覧をプロセスの PATH へ入れており、子はそれを継ぐ（`/bin/sh` を
+            // 挟むと引用の正しさを別途保たなければならないぶん損）。
             _ => self.command(program, args),
         };
         spawn_stdout(cmd, program)
@@ -159,6 +297,22 @@ impl ShellConfig {
                 c.arg("-d").arg(distro).arg("-e").arg("bash").arg("-c").arg(script);
                 c
             }
+            // WSL と同じ組み立てから wsl.exe の前置と PATH の追加を外したもの。PATH は
+            // `augment_process_path` がプロセス側で広げてあるので、ここで足す必要はない。
+            // `cd` は `current_dir` ではなくスクリプトに入れて WSL 側と字面を揃える。
+            ShellConfig::Unix { .. } => {
+                let assigns: String = env
+                    .iter()
+                    .map(|(k, v)| format!("{k}={} ", bash_quote(v)))
+                    .collect();
+                let script = format!(
+                    "cd {} && {assigns}{line}",
+                    bash_quote(dir)
+                );
+                let mut c = silent_command("/bin/sh");
+                c.arg("-c").arg(script);
+                c
+            }
             _ => {
                 // `current_dir` + `raw_arg` avoids the cmd.exe/Rust quoting clash
                 // that `cmd /C "cd /d ..."` triggers; cmd starts in `dir`, so
@@ -190,9 +344,10 @@ impl ShellConfig {
 
     /// Path to the null device for this shell environment.
     pub fn null_device(&self) -> &'static str {
-        match self {
-            ShellConfig::Wsl { .. } => "/dev/null",
-            _ => "NUL",
+        if self.is_posix() {
+            "/dev/null"
+        } else {
+            "NUL"
         }
     }
 
@@ -248,11 +403,20 @@ pub fn wait_with_timeout<T: Send + 'static>(
     match rx.recv_timeout(timeout) {
         Ok(result) => result.map_err(|e| format!("Failed to run {label}: {e}")),
         Err(_) => {
-            // Fire-and-forget so a slow taskkill doesn't block the caller
+            // Fire-and-forget so a slow kill doesn't block the caller
             let pid_str = pid.to_string();
             std::thread::spawn(move || {
-                let _ = silent_command("taskkill")
-                    .args(["/F", "/T", "/PID", &pid_str])
+                // Windows は taskkill /T がプロセスツリーごと落とす。Unix には
+                // 相当するものが無いので、少なくとも当該プロセスは確実に落とす
+                // （子まで追うには setsid してプロセスグループを作る必要があり、
+                // portable-pty を通らないこの経路では割に合わない）。
+                let (program, args): (&str, Vec<&str>) = if cfg!(windows) {
+                    ("taskkill", vec!["/F", "/T", "/PID", &pid_str])
+                } else {
+                    ("kill", vec!["-9", &pid_str])
+                };
+                let _ = silent_command(program)
+                    .args(args)
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .status();
@@ -273,9 +437,10 @@ fn normalize_win_path(p: &str) -> String {
 /// Shared by `claude_usage` and `codex_usage` (the single comparison that
 /// decides whether a tool session belongs to the current project).
 pub fn cwd_matches_root(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
-    match shell {
-        ShellConfig::Wsl { .. } => cwd.trim_end_matches('/') == root.trim_end_matches('/'),
-        _ => normalize_win_path(cwd) == normalize_win_path(root),
+    if shell.is_posix() {
+        cwd.trim_end_matches('/') == root.trim_end_matches('/')
+    } else {
+        normalize_win_path(cwd) == normalize_win_path(root)
     }
 }
 
@@ -287,6 +452,9 @@ pub fn cwd_matches_root(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
 pub fn install_key(shell: &ShellConfig) -> String {
     match shell {
         ShellConfig::Wsl { distro } => format!("wsl:{distro}"),
+        // ホスト上のインストールは 1 つ。Unix と Windows でキーを分けているのは
+        // 同じプロセスで両方が出てくることが無いためで、区別のためではない。
+        ShellConfig::Unix { .. } => "host".to_string(),
         _ => "windows".to_string(),
     }
 }
@@ -378,11 +546,26 @@ pub fn shell_from_id(id: &str) -> Option<ShellConfig> {
             distro: distro.to_string(),
         });
     }
+    // `unix:<絶対パス>`（例 `unix:/bin/zsh`）。distro と違いここはシェルの実行ファイルを
+    // 直接 spawn するので、絶対パスであることだけは確かめる（PATH 探索させない）。
+    if let Some(program) = id.strip_prefix("unix:") {
+        let ok = program.starts_with('/')
+            && program.chars().count() <= 256
+            && !program.chars().any(|c| c.is_control());
+        return ok.then(|| ShellConfig::Unix {
+            program: program.to_string(),
+        });
+    }
     match id {
         "cmd" => Some(ShellConfig::Cmd),
         "powershell" => Some(ShellConfig::Powershell),
         "pwsh" => Some(ShellConfig::Pwsh),
         "git-bash" => Some(ShellConfig::GitBash),
+        // 実体はログインシェル。id に焼き込まないのは、`$SHELL` を変えたときに
+        // 保存済みのタブが古いシェルを指し続けないようにするため。
+        "unix" => Some(ShellConfig::Unix {
+            program: String::new(),
+        }),
         _ => None,
     }
 }
@@ -421,5 +604,53 @@ mod tests {
         );
         assert!(shell_from_id("wsl:a\"b").is_none());
         assert!(shell_from_id("bash").is_none());
+    }
+
+    #[test]
+    fn shell_from_id_round_trips_unix() {
+        assert!(matches!(
+            shell_from_id("unix"),
+            Some(ShellConfig::Unix { program }) if program.is_empty()
+        ));
+        assert!(
+            matches!(shell_from_id("unix:/bin/zsh"), Some(ShellConfig::Unix { program }) if program == "/bin/zsh")
+        );
+        // シェルは直接 spawn するので、PATH 探索させる相対名は受け付けない。
+        assert!(shell_from_id("unix:zsh").is_none());
+        assert!(shell_from_id("unix:").is_none());
+    }
+
+    /// フロントが送る既定のシェル（`{ kind: 'unix' }`）が受け取れること。`program` の
+    /// `serde(default)` が外れると、`shell` を取る Tauri コマンドが全部落ちる。
+    #[test]
+    fn unix_shell_deserializes_without_program() {
+        let shell: ShellConfig = serde_json::from_str(r#"{"kind":"unix"}"#).unwrap();
+        assert!(matches!(shell, ShellConfig::Unix { program } if program.is_empty()));
+        let shell: ShellConfig = serde_json::from_str(r#"{"kind":"unix","program":"/bin/bash"}"#).unwrap();
+        assert!(matches!(shell, ShellConfig::Unix { program } if program == "/bin/bash"));
+    }
+
+    /// GUI 起動の最小 PATH（launchd がくれるもの）に Homebrew 等が足され、
+    /// 既にあるものは重複しない。
+    #[cfg(not(windows))]
+    #[test]
+    fn augmented_path_appends_missing_dirs_once() {
+        let current = "/usr/bin:/bin:/opt/homebrew/bin";
+        let got = augmented_path_with(current, "/Users/me", |_| true);
+        let dirs: Vec<&str> = got.split(':').collect();
+
+        // 元の並びは先頭に残る（ユーザーの PATH の優先順を壊さない）。
+        assert_eq!(&dirs[..3], &["/usr/bin", "/bin", "/opt/homebrew/bin"]);
+        // 既にあるものは 1 回だけ。
+        assert_eq!(dirs.iter().filter(|d| **d == "/opt/homebrew/bin").count(), 1);
+        // $HOME は展開される。
+        assert!(dirs.contains(&"/Users/me/.cargo/bin"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn augmented_path_skips_missing_dirs() {
+        let got = augmented_path_with("/usr/bin", "/Users/me", |_| false);
+        assert_eq!(got, "/usr/bin");
     }
 }

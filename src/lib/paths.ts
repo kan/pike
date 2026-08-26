@@ -1,8 +1,24 @@
 import { t } from '../i18n'
 import type { ShellType } from '../types/tab'
 
+/**
+ * そのシェルが扱うパスの区切り文字。**Rust の `ShellConfig::is_posix()` と対**で、
+ * `wsl` と `unix`（macOS / Linux ホスト）が `/`、Windows 系が `\`。
+ *
+ * `git-bash` は `\` 側に残す: 引用こそ bash だが扱うパスは Windows のもので、
+ * Rust 側も一貫して Windows として分岐している。
+ *
+ * **区切りを決める場所はここ 1 つにすること。** 以前は `shell.kind === 'wsl' ? … : …`
+ * という同じ判定がパネルやタブに 8 箇所ほど散っていて、`unix` を足したときに
+ * `/Users/me/proj\src\main.rs` のような混ざったパスを作る取りこぼしが出た。
+ */
 export function pathSep(shell?: ShellType): '/' | '\\' {
-  return shell?.kind === 'wsl' ? '/' : '\\'
+  return isPosixShell(shell) ? '/' : '\\'
+}
+
+/** POSIX 規約（`/` 区切り・大小を区別）のシェルか。`pathSep` の判定の実体。 */
+export function isPosixShell(shell?: ShellType): boolean {
+  return shell?.kind === 'wsl' || shell?.kind === 'unix'
 }
 
 /** Rewrite every separator in `path` to `sep` (mixed `/` and `\` are unified). */

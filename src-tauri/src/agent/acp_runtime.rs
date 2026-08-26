@@ -122,11 +122,20 @@ impl AcpProcessRuntime {
                 &format!("{assigns}{acp_cmd}"),
             ]);
             c
-        } else {
+        } else if cfg!(windows) {
             // On Windows, npm-installed binaries are .cmd files.
             // Use `cmd /C` to resolve them correctly.
             let mut c = Command::new("cmd.exe");
             c.arg("/C").arg(&self.config.command);
+            for arg in &self.config.args {
+                c.arg(arg);
+            }
+            c.current_dir(working_dir);
+            c
+        } else {
+            // macOS / Linux では npm が置くのは shebang 付きの実行ファイルなので、
+            // ラッパーを噛ませず直接起動する（PATH は `augment_process_path` 済み）。
+            let mut c = Command::new(&self.config.command);
             for arg in &self.config.args {
                 c.arg(arg);
             }

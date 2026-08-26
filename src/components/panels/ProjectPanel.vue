@@ -4,7 +4,9 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
+import { isWindowsHost } from '../../lib/host'
 import { fuzzyMatch } from '../../lib/paths'
+import type { ProjectPlatform } from '../../lib/projectPaths'
 import { loadJson, saveJson } from '../../lib/storage'
 import { detectWslDistros, pickFolder, ptyGetCwd } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
@@ -13,6 +15,7 @@ import { useTabStore } from '../../stores/tabs'
 import type { ProjectConfig } from '../../types/project'
 import {
   buildShell,
+  defaultProjectPlatform,
   rootPlaceholder as rootPlaceholderFn,
   shellToDistro,
   shellToPlatform,
@@ -361,7 +364,7 @@ const formRoot = ref('')
 const formGroup = ref<string | undefined>(undefined)
 const formColor = ref<string | undefined>(undefined)
 const formIcon = ref<string | undefined>(undefined)
-const formPlatform = ref<'wsl' | 'windows'>('wsl')
+const formPlatform = ref<ProjectPlatform>(defaultProjectPlatform())
 const formDistro = ref('Ubuntu')
 const formWindowsShell = ref<WindowsShellKind>('powershell')
 
@@ -466,7 +469,7 @@ async function onDelete(id: string) {
       <input v-model="formName" :placeholder="t('project.projectName')" required />
       <div class="input-row">
         <input v-model="formRoot" :placeholder="createRootPlaceholder" required />
-        <button v-if="formPlatform === 'windows'" type="button" class="detect-btn" @click="browseCreateFolder">
+        <button v-if="formPlatform !== 'wsl'" type="button" class="detect-btn" @click="browseCreateFolder">
           {{ t('project.browse') }}
         </button>
         <button v-if="formPlatform === 'wsl'" type="button" class="detect-btn" :disabled="detecting" @click="detectFromTerminal">
@@ -478,7 +481,9 @@ async function onDelete(id: string) {
       <ColorSelect v-model="formColor" />
       <IconSelect v-model="formIcon" />
 
-      <div class="platform-row">
+      <!-- WSL / Windows の選択は Windows ホストにしか意味が無い。macOS / Linux では
+           プラットフォームは 'unix' 固定なので、行ごと出さない。 -->
+      <div v-if="isWindowsHost" class="platform-row">
         <label class="radio-label"><input type="radio" v-model="formPlatform" value="wsl" /> WSL</label>
         <label class="radio-label"><input type="radio" v-model="formPlatform" value="windows" /> Windows</label>
       </div>

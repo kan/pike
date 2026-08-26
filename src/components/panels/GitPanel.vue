@@ -133,7 +133,7 @@ async function discardFile(file: GitFileChange) {
   if (file.status === '?') {
     const project = projectStore.currentProject
     if (!project) return
-    const s = project.shell.kind === 'wsl' ? '/' : '\\'
+    const s = pathSep(project.shell)
     await fsDelete(project.shell, `${projectStore.activeRoot}${s}${file.path}`)
     await gitStore.refreshStatus()
   } else {
@@ -146,7 +146,7 @@ async function unstageFile(file: GitFileChange) {
     if (!(await confirmDialog(t('git.unstageNewConfirm', { path: file.path })))) return
     const project = projectStore.currentProject
     if (project) {
-      const sep = project.shell.kind === 'wsl' ? '/' : '\\'
+      const sep = pathSep(project.shell)
       const fullPath = `${projectStore.activeRoot}${sep}${file.path}`
       await gitStore.unstageFiles([file.path])
       await fsDelete(project.shell, fullPath).catch(() => {})

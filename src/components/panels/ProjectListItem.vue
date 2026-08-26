@@ -2,12 +2,15 @@
 import { Cloud, CloudDownload, ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
+import { isWindowsHost } from '../../lib/host'
 import { projectColorValue, readableTextOn } from '../../lib/projectColors'
+import type { ProjectPlatform } from '../../lib/projectPaths'
 import { pickFolder } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
 import type { ProjectConfig } from '../../types/project'
 import {
   buildShell,
+  defaultProjectPlatform,
   rootPlaceholder as rootPlaceholderFn,
   shellLabel,
   shellToDistro,
@@ -61,7 +64,7 @@ const editRoot = ref('')
 const editGroup = ref<string | undefined>(undefined)
 const editColor = ref<string | undefined>(undefined)
 const editIcon = ref<string | undefined>(undefined)
-const editPlatform = ref<'wsl' | 'windows'>('wsl')
+const editPlatform = ref<ProjectPlatform>(defaultProjectPlatform())
 const editDistro = ref('Ubuntu')
 const editWindowsShell = ref<WindowsShellKind>('powershell')
 const editGolangciCommand = ref('')
@@ -127,14 +130,16 @@ function onSave() {
     <input v-model="editName" :placeholder="t('project.projectName')" />
     <div class="input-row">
       <input v-model="editRoot" :placeholder="editRootPlaceholder" />
-      <button v-if="editPlatform === 'windows'" type="button" class="detect-btn" @click="onBrowse">
+      <!-- WSL の base だけは手入力（ピッカーは Windows のパスを返す）。 -->
+      <button v-if="editPlatform !== 'wsl'" type="button" class="detect-btn" @click="onBrowse">
         {{ t('project.browse') }}
       </button>
     </div>
     <GroupComboBox v-model="editGroup" :groups="groups" />
     <ColorSelect v-model="editColor" />
     <IconSelect v-model="editIcon" />
-    <div class="platform-row">
+    <!-- WSL / Windows の選択は Windows ホストにしか意味が無い（macOS / Linux は 'unix' 固定）。 -->
+    <div v-if="isWindowsHost" class="platform-row">
       <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
       <label class="radio-label"><input type="radio" v-model="editPlatform" value="windows" /> Windows</label>
     </div>

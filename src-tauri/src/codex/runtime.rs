@@ -203,8 +203,10 @@ impl CodexRuntime for WindowsNativeRuntime {
     fn spawn_app_server(&self, working_dir: &str) -> Result<Child, String> {
         #[cfg(windows)]
         let (program, prefix_args) = resolve_codex_windows();
+        // 型注釈が要る: windows 側の `resolve_codex_windows` が返す型が見えないので、
+        // 空 vec のままでは `cmd.arg` の `S: AsRef<OsStr>` を推論できない。
         #[cfg(not(windows))]
-        let (program, prefix_args) = ("codex".to_string(), vec![]);
+        let (program, prefix_args) = ("codex".to_string(), Vec::<String>::new());
 
         let mut cmd = Command::new(&program);
         for arg in &prefix_args {
@@ -244,7 +246,7 @@ impl CodexRuntime for WindowsNativeRuntime {
         #[cfg(windows)]
         let (program, prefix_args) = resolve_codex_windows();
         #[cfg(not(windows))]
-        let (program, prefix_args) = ("codex".to_string(), vec![]);
+        let (program, prefix_args) = ("codex".to_string(), Vec::<String>::new());
 
         let mut cmd = crate::types::silent_command(&program);
         for arg in &prefix_args {

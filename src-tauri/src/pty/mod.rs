@@ -336,7 +336,24 @@ pub async fn pty_spawn(
     app: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<PtySpawnResult, String> {
+    // シェル未指定は「このホストの既定」に落とす。Windows では従来どおり WSL、
+    // macOS / Linux ではログインシェル（wsl.exe が無いので WSL に落とすと即死する）。
+    let shell = shell.or_else(|| (!cfg!(windows)).then(ShellConfig::host_default));
     let mut cmd = match &shell {
+        Some(unix @ ShellConfig::Unix { .. }) => {
+            let mut c = CommandBuilder::new(unix.unix_program());
+            // ログインシェルとして起動する。GUI プロセスの PATH は最小なので、
+            // ここで rc / profile を読ませないとターミナルから何も呼べない。
+            c.arg("-l");
+            // cwd 未指定（グローバルモード等）でホームに開くのは WSL 側の `--cd ~` と
+            // 同じ判断。`.app` を Finder / Dock から起動するとプロセスの cwd は `/` で、
+            // 継承させるとターミナルがルートで開く。
+            let home = crate::types::host_home();
+            if let Some(dir) = cwd.as_deref().or(home.as_deref()) {
+                c.cwd(dir);
+            }
+            c
+        }
         None | Some(ShellConfig::Wsl { .. }) => {
             let mut c = CommandBuilder::new("wsl.exe");
             if let Some(ShellConfig::Wsl { distro }) = &shell {
@@ -387,6 +404,7 @@ pub async fn pty_spawn(
     let probe_kind = match &shell {
         None => busy::ProbeKind::Wsl(None),
         Some(ShellConfig::Wsl { distro }) => busy::ProbeKind::Wsl(Some(distro.clone())),
+        Some(ShellConfig::Unix { .. }) => busy::ProbeKind::Unix,
         Some(_) => busy::ProbeKind::Windows,
     };
     let is_wsl = matches!(probe_kind, busy::ProbeKind::Wsl(_));

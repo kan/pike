@@ -9,4 +9,5 @@ export const SHELL_KIND_ICONS: Record<ShellType['kind'], Component> = {
   pwsh: SquareChevronRight,
   'git-bash': GitBranch,
   wsl: Terminal,
+  unix: Terminal,
 }

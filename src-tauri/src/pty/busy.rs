@@ -21,6 +21,8 @@ pub enum ProbeKind {
     Windows,
     /// None なら既定ディストロ。
     Wsl(Option<String>),
+    /// macOS / Linux のローカルシェル。
+    Unix,
 }
 
 /// セッションごとの判定方法。spawn 時に確定する。
@@ -30,6 +32,8 @@ pub enum BusyProbe {
     WindowsTree { pid: u32 },
     /// WSL シェル。`distro` が None なら既定ディストロ。
     Wsl { distro: Option<String>, marker: String },
+    /// ローカルの Unix シェル。値は PTY 直下プロセス (シェル) の PID。
+    UnixTree { pid: u32 },
     /// PID が取れなかった等で判定できない。
     Unavailable,
 }
@@ -42,10 +46,13 @@ impl BusyProbe {
                 distro,
                 marker: pty_id.to_string(),
             },
-            ProbeKind::Windows => match shell_pid {
-                Some(pid) => BusyProbe::WindowsTree { pid },
-                None => BusyProbe::Unavailable,
-            },
+            // どちらも「PTY 直下のシェルの PID」から作る。子の数え方だけが違う。
+            ProbeKind::Windows => {
+                shell_pid.map_or(BusyProbe::Unavailable, |pid| BusyProbe::WindowsTree { pid })
+            }
+            ProbeKind::Unix => {
+                shell_pid.map_or(BusyProbe::Unavailable, |pid| BusyProbe::UnixTree { pid })
+            }
         }
     }
 
@@ -53,6 +60,7 @@ impl BusyProbe {
         match self {
             BusyProbe::WindowsTree { pid } => has_child(*pid),
             BusyProbe::Wsl { distro, marker } => wsl_has_extra_process(distro.as_deref(), marker),
+            BusyProbe::UnixTree { pid } => unix_has_child(*pid),
             BusyProbe::Unavailable => false,
         }
     }
@@ -100,6 +108,33 @@ fn has_child(root: u32) -> bool {
 
 #[cfg(not(windows))]
 fn has_child(_root: u32) -> bool {
+    false
+}
+
+/// ローカル Unix シェルに子プロセスがいるか。`pgrep -P` は macOS・Linux の
+/// どちらにもあり、直下の子だけを見れば足りるのは Windows 側と同じ理屈。
+/// WSL 側のような環境変数マーカーが要らないのは、PID が同じ名前空間にあるため。
+#[cfg(not(windows))]
+fn unix_has_child(root: u32) -> bool {
+    let Ok(child) = crate::types::silent_command("pgrep")
+        .args(["-P", &root.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    else {
+        return false;
+    };
+    let pid = child.id();
+    // タブを閉じる操作の途中で走るので、応答しないときは待たずに諦める（WSL 側と同じ）
+    crate::types::wait_with_timeout(pid, Duration::from_secs(3), "pgrep busy probe", move || {
+        child.wait_with_output()
+    })
+    .map(|out| out.status.success())
+    .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn unix_has_child(_root: u32) -> bool {
     false
 }
 

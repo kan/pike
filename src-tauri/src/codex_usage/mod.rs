@@ -146,15 +146,14 @@ fn model_cost(p: &ModelPricing, u: &TokenUsage) -> f64 {
 }
 
 /// Resolve the `.codex` data directory for the given shell, mirroring
-/// `claude_usage::claude_home`: Windows shells use `%USERPROFILE%\.codex`; WSL
-/// resolves the distro home over the `\\wsl.localhost\…` UNC share (Codex running
-/// inside WSL writes its rollouts to the Linux home).
+/// `claude_usage::claude_home`: host shells use `<home>/.codex` (`%USERPROFILE%` on
+/// Windows, `$HOME` elsewhere — see `types::host_home`); WSL resolves the distro
+/// home over the `\\wsl.localhost\…` UNC share (Codex running inside WSL writes
+/// its rollouts to the Linux home).
 fn codex_home(shell: &ShellConfig) -> Option<PathBuf> {
     match shell {
         ShellConfig::Wsl { distro } => wsl_home_subdir_cached(shell, distro, ".codex"),
-        _ => std::env::var("USERPROFILE")
-            .ok()
-            .map(|p| PathBuf::from(p).join(".codex")),
+        _ => crate::types::host_home().map(|p| PathBuf::from(p).join(".codex")),
     }
 }
 

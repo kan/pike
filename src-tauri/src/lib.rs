@@ -5,13 +5,35 @@ mod codex;
 mod codex_usage;
 mod diagnostics;
 mod docker;
+/// タブバーへの OS ファイルドロップの実パス解決は WebView2 の COM API に依存する
+/// （#見出し「タブバーへの OS ファイルドロップ」）。macOS の WKWebView には相当する
+/// 経路が無いので、非 Windows では何もしない（ドロップは App.vue の window ガードが
+/// 飲むだけで、実害はドロップからタブが開けないこと）。
+#[cfg(windows)]
 mod drop_paths;
+#[cfg(not(windows))]
+mod drop_paths {
+    pub fn attach(_window: &tauri::WebviewWindow) {}
+}
 mod elevate;
 mod font;
 mod fs;
 mod git;
 mod ime_debug;
+/// ジャンプリスト（タスクバー右クリック、#160）は `ICustomDestinationList` という
+/// Windows 専用 COM API。macOS の Dock メニューは別物なので、ここでは何もしない
+/// （トレイメニュー側は tray-icon が macOS を見るのでそのまま動く）。
+#[cfg(windows)]
 mod jumplist;
+#[cfg(not(windows))]
+mod jumplist {
+    pub fn refresh(
+        _lang: &str,
+        _projects: &[crate::project::ProjectConfig],
+        _shells: &[crate::types::MenuShell],
+    ) {
+    }
+}
 mod search;
 mod project;
 mod pty;
@@ -21,6 +43,8 @@ mod tasks;
 mod tray;
 pub mod todo_cli;
 mod types;
+/// main.rs から起動時に呼ぶ（macOS / Linux の GUI プロセスの PATH 補正）。
+pub use types::augment_process_path;
 pub mod wait;
 mod watcher;
 mod window_geom;
@@ -115,7 +139,11 @@ fn is_on_current_virtual_desktop(window: &WebviewWindow) -> bool {
         }
     }
     #[cfg(not(windows))]
-    true
+    {
+        // 仮想デスクトップという概念が無いので常に「見えている」。
+        let _ = window;
+        true
+    }
 }
 
 pub(crate) fn iso_now() -> String {
@@ -258,10 +286,15 @@ fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<WebviewW
             f64::from(window_geom::DEFAULT_LOGICAL_SIZE.0),
             f64::from(window_geom::DEFAULT_LOGICAL_SIZE.1),
         )
-        .resizable(true)
-        // 背景透過（issue #162）: 透過はランタイムで切替えるため常に透過ウィンドウで生成し、
-        // 実際の透け方は window_set_backdrop が決める。アクリルもこの透過を前提に乗る。
-        .transparent(true)
+        .resizable(true);
+    // 背景透過（issue #162）: 透過はランタイムで切替えるため常に透過ウィンドウで生成し、
+    // 実際の透け方は window_set_backdrop が決める。アクリルもこの透過を前提に乗る。
+    //
+    // macOS では `transparent` は `macos-private-api` feature（App Store 非対応）が
+    // 要るため、そもそもビルダーにメソッドが生えない。透過を諦めて不透明で生成する。
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.transparent(true);
+    let builder = builder
         // ただし window_set_backdrop はフロントの mount 後にしか走らないので、
         // それまでの数フレームは下地を不透明にしておく（既定の不透明モードで
         // デスクトップが一瞬透けるのを防ぐ）。tauri.conf.json の main ウィンドウ
@@ -854,20 +887,22 @@ async fn open_url(url: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Run a WinForms dialog and return what it printed, or None when dismissed.
+/// ファイル選択ダイアログを外部プログラムで出し、選ばれたパスを返す。
 ///
-/// The dialogs go through PowerShell rather than a Rust dialog crate because
-/// that is what the app already had; `script` is the `$f = New-Object ...` part
-/// and this is everything around it.
-async fn powershell_dialog(script: String) -> Result<Option<String>, String> {
+/// Rust のダイアログ crate を使わず OS 付属のものを叩くのは、元々そうなっていたから。
+/// 中断は「終了コードが非 0」（`osascript` のキャンセル）と「出力が空」（PowerShell の
+/// ShowDialog が OK 以外）の 2 通りあるので、どちらも `None` として扱う。
+async fn spawn_dialog(program: &'static str, args: Vec<String>) -> Result<Option<String>, String> {
     tokio::task::spawn_blocking(move || {
-        let cmd = format!("Add-Type -AssemblyName System.Windows.Forms; {script}");
-        let output = types::silent_command("powershell.exe")
-            .args(["-NoProfile", "-Command", &cmd])
+        let output = types::silent_command(program)
+            .args(&args)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output()
             .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Ok(None);
+        }
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(if path.is_empty() { None } else { Some(path) })
     })
@@ -875,13 +910,44 @@ async fn powershell_dialog(script: String) -> Result<Option<String>, String> {
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-async fn pick_folder() -> Result<Option<String>, String> {
-    powershell_dialog(
-        "$f = New-Object System.Windows.Forms.FolderBrowserDialog; if($f.ShowDialog() -eq 'OK'){$f.SelectedPath}"
-            .to_string(),
+/// WinForms のダイアログ。`script` は `$f = New-Object ...` の部分。
+#[cfg(not(target_os = "macos"))]
+async fn powershell_dialog(script: String) -> Result<Option<String>, String> {
+    let cmd = format!("Add-Type -AssemblyName System.Windows.Forms; {script}");
+    spawn_dialog(
+        "powershell.exe",
+        vec!["-NoProfile".into(), "-Command".into(), cmd],
     )
     .await
+}
+
+/// `powershell_dialog` の macOS 版。`osascript` の `choose …` は AppleScript の
+/// エイリアスを返すので、スクリプト側で `POSIX path of` を通して普通のパスにする。
+#[cfg(target_os = "macos")]
+async fn osascript_dialog(script: String) -> Result<Option<String>, String> {
+    spawn_dialog("osascript", vec!["-e".into(), script]).await
+}
+
+/// AppleScript の文字列リテラルへ埋め込む。特別扱いが要るのは `\` と `"` の 2 つだけ。
+#[cfg(target_os = "macos")]
+fn applescript_quote(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[tauri::command]
+async fn pick_folder() -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        osascript_dialog("POSIX path of (choose folder)".to_string()).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        powershell_dialog(
+            "$f = New-Object System.Windows.Forms.FolderBrowserDialog; if($f.ShowDialog() -eq 'OK'){$f.SelectedPath}"
+                .to_string(),
+        )
+        .await
+    }
 }
 
 /// Open-file dialog restricted to the given extensions (#241).
@@ -891,32 +957,61 @@ async fn pick_folder() -> Result<Option<String>, String> {
 /// this is what builds the process arguments.
 #[tauri::command]
 async fn pick_open_file(extensions: Vec<String>) -> Result<Option<String>, String> {
-    let patterns = extensions
+    let usable: Vec<String> = extensions
         .iter()
         .filter(|e| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric()))
-        .map(|e| format!("*.{}", e.to_ascii_lowercase()))
-        .collect::<Vec<_>>()
-        .join(";");
-    if patterns.is_empty() {
+        .map(|e| e.to_ascii_lowercase())
+        .collect();
+    if usable.is_empty() {
         return Err("no usable extensions".into());
     }
-    // Filter syntax is `description|patterns`; the patterns read fine as their
-    // own description.
-    powershell_dialog(format!(
-        "$f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = '{patterns}|{patterns}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
-    ))
-    .await
+    #[cfg(target_os = "macos")]
+    {
+        // `choose file of type` は拡張子と UTI のどちらも受ける。上で英数字だけに
+        // 絞ってあるので、AppleScript のリテラルとしてそのまま並べられる。
+        let types = usable
+            .iter()
+            .map(|e| format!("\"{e}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        osascript_dialog(format!("POSIX path of (choose file of type {{{types}}})")).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let patterns = usable
+            .iter()
+            .map(|e| format!("*.{e}"))
+            .collect::<Vec<_>>()
+            .join(";");
+        // Filter syntax is `description|patterns`; the patterns read fine as their
+        // own description.
+        powershell_dialog(format!(
+            "$f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = '{patterns}|{patterns}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
+        ))
+        .await
+    }
 }
 
 #[tauri::command]
 async fn pick_save_file(default_name: Option<String>) -> Result<Option<String>, String> {
-    // PowerShell single-quoted strings only interpret '' as an escaped quote;
-    // no other character ($, `, ;, ...) is special inside them.
-    let name = default_name.unwrap_or_default().replace('\'', "''");
-    powershell_dialog(format!(
-        "$f = New-Object System.Windows.Forms.SaveFileDialog; $f.FileName = '{name}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
-    ))
-    .await
+    #[cfg(target_os = "macos")]
+    {
+        let name = applescript_quote(&default_name.unwrap_or_default());
+        osascript_dialog(format!(
+            "POSIX path of (choose file name default name \"{name}\")"
+        ))
+        .await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // PowerShell single-quoted strings only interpret '' as an escaped quote;
+        // no other character ($, `, ;, ...) is special inside them.
+        let name = default_name.unwrap_or_default().replace('\'', "''");
+        powershell_dialog(format!(
+            "$f = New-Object System.Windows.Forms.SaveFileDialog; $f.FileName = '{name}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
+        ))
+        .await
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1035,7 +1130,11 @@ pub fn run() {
                 .ok()
                 .and_then(|exe| exe.parent().map(|d| d.to_path_buf()))
                 .and_then(|dir| {
-                    let p = dir.join("rg.exe");
+                    // externalBin はトリプルの接尾辞を外した名前で置く。拡張子が付くのは
+                    // Windows だけなので、名前を決め打ちにすると macOS で見つからず、
+                    // 検索が黙って grep に落ちる（エラーは出ない）。
+                    let name = if cfg!(windows) { "rg.exe" } else { "rg" };
+                    let p = dir.join(name);
                     p.exists().then(|| p.to_string_lossy().into_owned())
                 });
             app.manage(search::SearchState {

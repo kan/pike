@@ -29,7 +29,7 @@ import {
   UploadTooLargeError,
 } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
-import { basename, fuzzyMatch, isAbsolutePath, isEmbeddableImage, toRelativePath } from '../../lib/paths'
+import { basename, fuzzyMatch, isAbsolutePath, isEmbeddableImage, pathSep, toRelativePath } from '../../lib/paths'
 import { fsListDir, fsReadFile, gitDiffWorking, listProjectFiles, openUrlWithConfirm } from '../../lib/tauri'
 import { useAgentStore } from '../../stores/agent'
 import { useProjectStore } from '../../stores/project'
@@ -103,7 +103,7 @@ function openInstructionsFile() {
   const name = s.value.detectedInstructionsFile
   const project = projectStore.currentProject
   if (!name || !project) return
-  const sep = project.shell.kind === 'wsl' ? '/' : '\\'
+  const sep = pathSep(project.shell)
   tabStore.addEditorTab({ path: `${project.root}${sep}${name}` })
 }
 
@@ -436,7 +436,7 @@ async function handleSlashCommand(text: string): Promise<boolean> {
       try {
         const project = projectStore.currentProject
         if (!project) return true
-        const sep = project.shell.kind === 'wsl' ? '/' : '\\'
+        const sep = pathSep(project.shell)
         const fullPath = path.startsWith('/') || path.includes(':') ? path : `${project.root}${sep}${path}`
         const result = await fsReadFile(project.shell, fullPath)
         const prompt = `[File: ${path}]\n\`\`\`\n${result.content}\n\`\`\`\n\nI've attached the content of \`${path}\` above. What would you like to know about it?`
@@ -694,7 +694,7 @@ async function resolveFileMentions(
   }
 
   const contextParts: string[] = []
-  const sep = project.shell.kind === 'wsl' ? '/' : '\\'
+  const sep = pathSep(project.shell)
 
   const MAX_DIR_FILES = 20
   const resolvedMentions = new Set<string>()
