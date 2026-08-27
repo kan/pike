@@ -22,6 +22,7 @@ bollard 経由の Docker API 連携、compose の探索、ログストリーム�
   1. `Docker::connect_with_local_defaults()` — named pipe / DOCKER_HOST 環境変数
   2. `Docker::connect_with_http("tcp://127.0.0.1:2375")` — WSL2 dockerd (unencrypted)
   3. `Docker::connect_with_http("tcp://127.0.0.1:2376")` — WSL2 dockerd (encrypted)
+- macOS では 1 の `connect_with_local_defaults()` が Unix ソケット（`/var/run/docker.sock`）を掴むので、2 と 3 の TCP フォールバックは Windows のためだけに残っている
 - 各接続で `ping()` して到達確認、最初に成功したものを使う
 - Docker Desktop なしでも WSL2 の dockerd が TCP を公開していれば接続可能
 

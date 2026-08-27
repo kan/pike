@@ -5,7 +5,7 @@
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-2021-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org)
 
-**「AI エージェント × ターミナル」に特化した、軽量な Windows 向け開発環境です。** ターミナル中心で作業する開発者が VS Code の代わりに使えることを目指しています。
+**「AI エージェント × ターミナル」に特化した、軽量な開発環境です。** ターミナル中心で作業する開発者が VS Code の代わりに使えることを目指しています。
 
 Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としています。macOS 版も配布していますが、ローカルのシェルで開発できるところまでの対応です（WSL やジャンプリスト、ウィンドウ背景の透過など、Windows の機能に依存するものは動きません）。
 
@@ -21,15 +21,16 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 
 ## 主な機能
 
-- **マルチターミナル**：xterm.js + PTY（WSL / cmd / PowerShell / PowerShell 7 / Git Bash）、タスクバーとトレイのメニューからのシェル選択
+- **マルチターミナル**：xterm.js + PTY（WSL / cmd / PowerShell / PowerShell 7 / Git Bash、macOS ではログインシェル）、タスクバーとトレイのメニューからのシェル選択
 - **AI エージェント**：Claude Code と Codex を統一チャットタブで。`@` メンションでのファイル参照、セッション復帰
 - **エージェント状態**：アカウント・利用率・トークン使用量とコストを Claude と Codex で並べて確認。複数アカウント（`CLAUDE_CONFIG_DIR`）にも追従
-- **ターミナルの AI 補助**：`claude` 等をターミナルで使うための、ワンクリック起動 / 過去セッションの再開 / 定型プロンプト挿入、出力中のパスをクリックしてファイル・画像・ディレクトリを開く、エディタ選択範囲や診断をターミナルへ送る
-- **エディタ**：CodeMirror 6（30+ 言語）、ミニマップ、検索・置換、git diff ガター、コンフリクトの解消、定義ジャンプ、文字コード/改行コード対応
+- **ターミナルの AI 補助**：`claude` 等をターミナルで使うための、ワンクリック起動 / 過去セッションの再開 / 定型プロンプト挿入、出力中のパスをクリックしてファイル・画像・ディレクトリを開く（行番号の有無を問わない）、エディタ選択範囲や診断をターミナルへ送る
+- **エディタ**：CodeMirror 6（30+ 言語）、ミニマップ、検索・置換、git diff ガター、コンフリクトの解消、定義ジャンプ、タブごとの折り返し切替、文字コード/改行コード対応
+- **Markdown の入力支援**：記法を挿入するツールバー、表と脚注のテンプレート、画像の挿入（選択・貼り付け・ドロップ）、貼り付けた URL をページのタイトル付きリンクに変換
 - **プレビュー**：Markdown / Mermaid / CSV / JSON / SVG / PDF、外部画像はドメイン単位で許可、表示専用の画像ビューア
 - **Git**：ステージング、コミット、push/pull、diff、コミットグラフ、コンフリクトの解消、止まった rebase / merge の再開、ブランチ切替、worktree 切替
 - **サイドバーパネル**：ファイルツリー、検索（ripgrep 同梱）、Docker（モノレポの compose も検出）、タスクランナー（npm / pnpm / just / cargo ほか）、TODO、アウトライン、Problems
-- **プロジェクト管理**：WSL / Windows プロジェクト、グループ整理（絞り込み・ドラッグでの並べ替え・絵文字アイコン）、マルチウィンドウ、セッション復元、プロジェクトごとのウィンドウ位置とサイズ、手元に無いプロジェクトの clone
+- **プロジェクト管理**：WSL / Windows / macOS ローカルのプロジェクト、グループ整理（絞り込み・ドラッグでの並べ替え・絵文字アイコン）、マルチウィンドウ、セッション復元、プロジェクトごとのウィンドウ位置とサイズ、手元に無いプロジェクトの clone
 - **設定**：UI / ターミナル / エディタの個別フォント設定、ダーク/ライト、日英 i18n、設定同期、自動更新
 - **pike CLI**：`pike file.rs:42` でファイルを開く、`pike <dir>` でプロジェクト切替、`--wait` で `GIT_EDITOR` 連携、`pike todo` で TODO 操作
 - **エージェントスキル**：`pike todo` の使い方を説明する Claude Code / Codex 向けスキルを [`plugins/`](plugins/README.md) に同梱
@@ -40,6 +41,7 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 
 - [はじめに（インストール・初回起動・画面構成）](docs/manual/getting-started.md)
 - [プロジェクトとウィンドウ](docs/manual/projects-and-windows.md)
+- [グローバルモード](docs/manual/global-mode.md)
 - [ターミナルと AI エージェント](docs/manual/terminal-and-agents.md)
 - [エディタとプレビュー](docs/manual/editor-and-preview.md)
 - [Git](docs/manual/git.md)

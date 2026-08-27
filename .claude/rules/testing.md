@@ -12,7 +12,10 @@
 src-tauri/src/bin/
 ├── verify_pty.rs      # PTY + wsl.exe の接続確認
 ├── verify_tmux.rs     # tmux セッション管理の確認
-└── verify_bollard.rs  # Docker socket 接続確認
+├── verify_bollard.rs  # Docker socket 接続確認
+└── verify_busy.rs     # 実行中プロセス判定（#178）。ConPTY / WSL の挙動確認なので中身ごと
+                       # Windows 専用（`mod imp` を 1 つの cfg で包む。非 Windows でも
+                       # cargo が拾うので main だけは常に生やす）
 ```
 
 各バイナリは単独で `cargo run --bin verify_xxx` できるように `fn main()` を持つ。

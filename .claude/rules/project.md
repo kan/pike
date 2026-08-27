@@ -6,7 +6,7 @@
 ## プロジェクト管理
 - プロジェクト設定は `%APPDATA%/com.tauri.dev/projects/{id}/project.json` に保存
 - 開いている全プロジェクト ID を `last_project.txt` に永続化し、起動時に全ウィンドウを自動復元
-- プロジェクトは WSL / Windows の2プラットフォームに対応
+- プロジェクトは WSL / Windows / macOS ローカル（`unix`）の 3 プラットフォームに対応。一覧の正本は `lib/projectPaths.ts` の `PROJECT_PLATFORMS` で、型も実行時検証もそこから導く（`.claude/rules/platform.md`）
 - WSL プロジェクト: ディストロ指定、ルートは WSL パス
 - Windows プロジェクト: デフォルトシェル（cmd/PowerShell/Git Bash）選択、ルートは Windows パス
 - プロジェクト切替時: 全タブ kill → pinnedTabs 復元（なければ Claude Code 固定タブを自動作成）

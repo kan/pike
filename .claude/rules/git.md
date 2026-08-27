@@ -4,7 +4,7 @@
 実体は `src-tauri/src/git/mod.rs`、`src/stores/git.ts`、`src/stores/worktree.ts`、`src/components/panels/GitPanel.vue`、`src/lib/editorConflict.ts`。
 
 ## Git 統合
-- `git` CLI 経由（WSL/Windows 両対応）。`git2` クレートは使わない
+- `git` CLI 経由（WSL / Windows / macOS のいずれでも動く）。`git2` クレートは使わない
 - Rust 側 `build_git_command` が ShellConfig に応じて `wsl.exe git` / `git` を組み立て
 - ステータスバーにブランチ名+ダーティ表示、クリックでブランチ切替
 - ブランチ切替ドロップダウンのリモートブランチ対応（#197）: `git_branch_list` は `for-each-ref --format=%(refname) refs/heads refs/remotes` で `GitBranches { local, remote }` を返す（`<remote>/HEAD` は symbolic ref なので除外）。リモートは**ローカルに同名が無いものだけ**を「リモートブランチ」見出し配下に出し、選択で `git_checkout_track`（`git checkout --track origin/foo`）で追跡ローカルブランチを作って切替。ローカル名は git に決めさせる（`localBranchName` は表示判定専用のヘルパーで、リモート名にスラッシュを含む稀なケースでも checkout 側は壊れない）。既にローカルがある場合は `--track` が失敗するので `gitCheckout` にフォールバック。ドロップダウンを開くと `refreshRemoteBranches` が**既存の throttled `fetchInBackground`（60 秒間隔・focus 必須）**を再利用して fetch → 一覧再読込（開くたびに通信しない）。一覧は cached refs で即表示し、fetch は待たない。QuickOpen の `!` モードはローカルのみ（従来どおり）
