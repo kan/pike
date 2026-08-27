@@ -43,6 +43,7 @@ import {
 } from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
+import { chordLabel } from '../../lib/keys'
 import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
@@ -451,7 +452,7 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="tab-add-group">
-        <button class="tab-add" :title="t('tabs.newTerminal')" @click="addTab()"><Plus :size="16" :stroke-width="2" /></button>
+        <button class="tab-add" :title="t('tabs.newTerminal', { key: chordLabel('Mod+T') })" @click="addTab()"><Plus :size="16" :stroke-width="2" /></button>
         <button
           v-if="isWindows || globalMode"
           class="tab-add-arrow"
@@ -480,11 +481,11 @@ onUnmounted(() => {
           <div class="shell-menu-divider" />
           <button @click="menuOpenShortcuts">
             <span>{{ t('sidebar.keyboardShortcuts') }}</span>
-            <span class="ctx-key">Ctrl+K</span>
+            <span class="ctx-key">{{ chordLabel('Mod+K') }}</span>
           </button>
           <button @click="menuOpenSettings">
             <span>{{ t('sidebar.settings') }}</span>
-            <span class="ctx-key">Ctrl+,</span>
+            <span class="ctx-key">{{ chordLabel('Mod+,') }}</span>
           </button>
           <button @click="menuOpenManual">
             <span>{{ t('sidebar.manual') }}</span>
@@ -564,10 +565,10 @@ onUnmounted(() => {
       <!-- Empty state -->
       <div v-if="tabStore.tabs.length === 0" class="empty-state">
         <template v-if="projectStore.currentProject">
-          {{ t('app.emptyTerminal') }}
+          {{ t('app.emptyTerminal', { key: chordLabel('Mod+T') }) }}
         </template>
         <template v-else>
-          {{ t('app.emptyProject') }}
+          {{ t('app.emptyProject', { key: chordLabel('Mod+Shift+P') }) }}
         </template>
       </div>
     </div>
@@ -602,7 +603,7 @@ onUnmounted(() => {
         v-if="!contextTab.pinned"
         @click="tabStore.closeTab(contextMenu!.tabId!); closeContextMenu()"
       >
-        <span>{{ t('tabs.closeTab') }}</span><span class="ctx-key">Ctrl+W</span>
+        <span>{{ t('tabs.closeTab') }}</span><span class="ctx-key">{{ chordLabel('Mod+W') }}</span>
       </button>
       <div class="context-menu-separator" />
       <button @click="tabStore.closeOtherTabs(contextMenu!.tabId!); closeContextMenu()">
@@ -626,7 +627,7 @@ onUnmounted(() => {
           v-if="contextTab.kind === 'editor'"
           @click="openGitHistory()"
         >
-          <span>{{ t('tabs.gitHistory') }}</span><span class="ctx-key">Alt+H</span>
+          <span>{{ t('tabs.gitHistory') }}</span><span class="ctx-key">{{ chordLabel('Alt+H') }}</span>
         </button>
       </template>
     </div>
@@ -639,10 +640,10 @@ onUnmounted(() => {
       @mousedown.stop
     >
       <button @click="tabStore.addBlankEditorTab(); closeContextMenu()">
-        <span>{{ t('tabs.newEditor') }}</span><span class="ctx-key">Ctrl+N</span>
+        <span>{{ t('tabs.newEditor') }}</span><span class="ctx-key">{{ chordLabel('Mod+N') }}</span>
       </button>
       <button @click="addTab(); closeContextMenu()">
-        <span>{{ t('tabs.newTerminalShort') }}</span><span class="ctx-key">Ctrl+T</span>
+        <span>{{ t('tabs.newTerminalShort') }}</span><span class="ctx-key">{{ chordLabel('Mod+T') }}</span>
       </button>
       <template v-if="tabStore.tabs.length > 0">
         <div class="context-menu-separator" />

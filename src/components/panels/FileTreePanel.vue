@@ -8,6 +8,7 @@ import { fsWatcher } from '../../composables/useFsWatcher'
 import { fileToBase64 } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
+import { isCopyDragModifier } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { basename, gitStatusColor, pathSep } from '../../lib/paths'
 import {
@@ -270,7 +271,7 @@ function onDragOver(e: DragEvent, path: string, isDir: boolean, ignored: boolean
   e.preventDefault()
   dropTarget.value = targetDir
   if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = external ? 'copy' : e.ctrlKey ? 'copy' : 'move'
+    e.dataTransfer.dropEffect = external || isCopyDragModifier(e) ? 'copy' : 'move'
   }
 }
 
@@ -296,7 +297,7 @@ async function destExists(shell: Parameters<typeof fsListDir>[0], dir: string, n
 async function onDrop(e: DragEvent, path: string, isDir: boolean) {
   e.preventDefault()
   const source = dragPath.value
-  const isCopy = e.ctrlKey
+  const isCopy = isCopyDragModifier(e)
   // The DataTransfer is neutered after the first await, so snapshot the external
   // files synchronously (kind/getAsFile/webkitGetAsEntry must run during the event).
   const dropped: { file: File; isDir: boolean }[] = []

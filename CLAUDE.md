@@ -116,6 +116,7 @@ pike/
 │       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）
 │       ├── ime_debug.rs       # IME 調査用の一時ログ（原因判明後に削除する）
 │       ├── jumplist/mod.rs    # タスクバーのジャンプリスト（#160、Windows 専用 COM）
+│       ├── appmenu/mod.rs     # macOS のアプリケーションメニュー（#254、macOS 専用）
 │       ├── tray/mod.rs        # システムトレイ（#161）
 │       ├── diagnostics/mod.rs # 外部リンタ実行 → Problems パネル
 │       ├── codex_usage/mod.rs # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
@@ -213,6 +214,8 @@ pike/
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
 │   ├── composables/
 │   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts
+│   │   ├── useAppActions.ts  # ショートカットと macOS メニューが共有する動作の実体（#254）
+│   │   ├── useAppMenu.ts     # macOS のメニューバーからの操作を受ける（#254）
 │   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts  useAnchoredPopup.ts
 │   │   ├── useAgentRouter.ts  useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
@@ -222,6 +225,7 @@ pike/
 │   ├── lib/
 │   │   ├── fileIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）
+│   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）

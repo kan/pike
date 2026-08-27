@@ -23,8 +23,8 @@ export default {
   // 登録せずに開いたディレクトリ（#230）
   'app.titleWithDirectory': 'pike - {name}（未登録）',
   'app.adminTitlePrefix': '[管理者]',
-  'app.emptyTerminal': 'Ctrl+T でターミナルを開く',
-  'app.emptyProject': 'Ctrl+Shift+P でプロジェクトを開く',
+  'app.emptyTerminal': '{key} でターミナルを開く',
+  'app.emptyProject': '{key} でプロジェクトを開く',
 
   // Sidebar
   'sidebar.files': 'ファイル',
@@ -83,7 +83,7 @@ export default {
   // Tabs
   'tabs.newEditor': '新規エディタ',
   'tabs.newTerminalShort': '新規ターミナル',
-  'tabs.newTerminal': '新規ターミナル (Ctrl+T)',
+  'tabs.newTerminal': '新規ターミナル ({key})',
   'tabs.openWithShell': '他のシェルで開く',
   'tabs.openAsAdmin': '管理者権限で開く',
   'tabs.openAsAdminHint': '右クリックで管理者権限で開く',
@@ -494,7 +494,7 @@ export default {
   'projectSwitcher.placeholder': 'プロジェクトを検索...',
   'projectSwitcher.noMatch': '一致するプロジェクトがありません',
   'projectSwitcher.enterSwitch': 'Enter: 切替',
-  'projectSwitcher.ctrlEnterWindow': 'Ctrl+Enter: 新しいウィンドウ',
+  'projectSwitcher.ctrlEnterWindow': '{key}: 新しいウィンドウ',
   'projectSwitcher.enterOpenWindow': 'Enter: 新しいウィンドウで開く',
   'projectSwitcher.newProject': '+ 新規プロジェクト',
   'projectSwitcher.openGlobal': 'グローバルモード',
@@ -557,6 +557,9 @@ export default {
   'shortcuts.newFile': '新規ファイル',
   'shortcuts.newTerminal': '新規ターミナル',
   'shortcuts.closeTab': 'タブを閉じる',
+  'shortcuts.closeWindow': 'ウィンドウを閉じる',
+  'shortcuts.selectTabN': 'n 番目のタブへ（1〜8）',
+  'shortcuts.selectLastTab': '最後のタブへ',
   'shortcuts.nextTab': '次のタブ',
   'shortcuts.prevTab': '前のタブ',
   'shortcuts.save': '保存',
@@ -588,6 +591,7 @@ export default {
   'shortcuts.mdLink': 'リンク（Markdown 編集中はショートカット一覧より優先）',
   'shortcuts.mdListContinue': 'リスト・引用の継続（空の項目で解除）',
   'shortcuts.shellFirst': 'シェルに渡す（タブ操作のキーを除く）',
+  'shortcuts.shellFirstMac': 'シェルに渡す',
 
   // エージェント状態パネル (#226)
   'agentStatus.title': 'エージェント状態',

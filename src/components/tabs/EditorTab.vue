@@ -36,6 +36,7 @@ import { buildFontFamily } from '../../lib/fontDetection'
 import { formatLineRange } from '../../lib/format'
 import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
+import { chordLabel } from '../../lib/keys'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
 import {
@@ -1753,16 +1754,16 @@ onUnmounted(() => {
         :style="ctxMenuStyle"
         @mousedown.stop
       >
-        <button @click="execUndo" :disabled="isReadOnlyTab"><span>{{ t('editor.undo') }}</span><span class="ctx-key">Ctrl+Z</span></button>
-        <button @click="execRedo" :disabled="isReadOnlyTab"><span>{{ t('editor.redo') }}</span><span class="ctx-key">Ctrl+Shift+Z</span></button>
+        <button @click="execUndo" :disabled="isReadOnlyTab"><span>{{ t('editor.undo') }}</span><span class="ctx-key">{{ chordLabel('Mod+Z') }}</span></button>
+        <button @click="execRedo" :disabled="isReadOnlyTab"><span>{{ t('editor.redo') }}</span><span class="ctx-key">{{ chordLabel('Mod+Shift+Z') }}</span></button>
         <div class="ctx-separator"></div>
-        <button @click="execCut" :disabled="isReadOnlyTab || !ctxHasSelection"><span>{{ t('editor.cut') }}</span><span class="ctx-key">Ctrl+X</span></button>
-        <button @click="execCopy" :disabled="!ctxHasSelection"><span>{{ t('editor.copy') }}</span><span class="ctx-key">Ctrl+C</span></button>
-        <button @click="execPaste" :disabled="isReadOnlyTab"><span>{{ t('editor.paste') }}</span><span class="ctx-key">Ctrl+V</span></button>
+        <button @click="execCut" :disabled="isReadOnlyTab || !ctxHasSelection"><span>{{ t('editor.cut') }}</span><span class="ctx-key">{{ chordLabel('Mod+X') }}</span></button>
+        <button @click="execCopy" :disabled="!ctxHasSelection"><span>{{ t('editor.copy') }}</span><span class="ctx-key">{{ chordLabel('Mod+C') }}</span></button>
+        <button @click="execPaste" :disabled="isReadOnlyTab"><span>{{ t('editor.paste') }}</span><span class="ctx-key">{{ chordLabel('Mod+V') }}</span></button>
         <div class="ctx-separator"></div>
         <button @click="sendSelectionToTerminal" :disabled="!ctxHasSelection"><span>{{ t('editor.sendToTerminal') }}</span></button>
         <div class="ctx-separator"></div>
-        <button @click="openGitHistory"><span>{{ t('editor.gitHistory') }}</span><span class="ctx-key">Alt+H</span></button>
+        <button @click="openGitHistory"><span>{{ t('editor.gitHistory') }}</span><span class="ctx-key">{{ chordLabel('Alt+H') }}</span></button>
         <button @click="openGitHistoryForLine" :disabled="!ctxLineRange">
           <span>{{ gitHistoryLineLabel }}</span>
         </button>

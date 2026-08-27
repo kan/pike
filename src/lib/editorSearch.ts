@@ -314,6 +314,11 @@ export function editorSearch() {
 export const replaceKeymap: KeyBinding[] = [
   {
     key: 'Mod-h',
+    // macOS の `⌘H` は Hide Application で、メニューのアクセラレータなので
+    // CodeMirror には届かない（押すとアプリが隠れるだけになる）。mac の慣習に
+    // 合わせて `⌥⌘F` にする。プラットフォーム別の割り当ては CodeMirror 自身の
+    // `mac` プロパティで行う（#254）。
+    mac: 'Mod-Alt-f',
     preventDefault: true,
     run: (view) => {
       openSearchPanel(view)

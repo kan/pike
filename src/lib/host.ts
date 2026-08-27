@@ -10,15 +10,24 @@
  * この用途には十分に安定している。判定を外したときの影響は「既定のシェル候補がずれる」
  * だけで、ユーザーが設定で選び直せる（安全側に倒れる）。
  *
- * **公開するのは `isWindowsHost` 1 つだけ。** macOS と Linux を区別する問いがまだ無いので、
- * 3 値の enum も `isUnixHost`（`!isWindowsHost` の別名）も置かない。否定の綴りが 2 通り
- * あると、次に書く人がどちらを使うか決められなくなる。区別が要る問いが出た時点で足す。
+ * 公開するのは `isWindowsHost` と `isMacHost` の 2 つ。後者はキーボードの修飾キーを
+ * 出し分けるために足した（`lib/keys.ts` の `hasMod`。mac は Cmd、他は Ctrl）。**Linux は
+ * どちらでもない**ので、`isUnixHost`（`!isWindowsHost` の別名）のような否定の綴りは置かない。
+ * 綴りが 2 通りあると、次に書く人がどちらを使うか決められなくなる。
  */
 
 import type { ShellType } from '../types/tab'
 import type { ProjectPlatform } from './projectPaths'
 
-export const isWindowsHost = /Windows/i.test(typeof navigator === 'undefined' ? '' : navigator.userAgent)
+const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent
+
+export const isWindowsHost = /Windows/i.test(userAgent)
+
+/**
+ * macOS か。**`Windows` の否定ではない**（Linux がどちらにも入らない）ので、両方を
+ * 別々に判定する。WKWebView の User-Agent は `Macintosh` を含む。
+ */
+export const isMacHost = /Macintosh|Mac OS X/i.test(userAgent)
 
 /**
  * このホストで既定にするシェル（Rust の `ShellConfig::host_default` と対）。
