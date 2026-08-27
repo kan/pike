@@ -294,6 +294,14 @@ interface PersistedSettings {
   previewSmoothScroll: boolean
   terminalCopyOnSelect: boolean
   terminalRightClickPaste: boolean
+  /**
+   * Markdown に URL を貼ったとき、そのページを取得してタイトル入りのリンクにするか（#241）。
+   *
+   * **既定は false。** これは Pike が作者の代わりに任意のホストへ通信する唯一の機能なので、
+   * 黙って有効にはしない。最初に URL を貼ったときだけ有効化を提案し、答えを
+   * `pike:link-title-asked`（マシンローカル）に覚えて二度と聞かない。
+   */
+  markdownFetchLinkTitle: boolean
   inlineSmallTextFiles: boolean
   inlineSmallTextThreshold: number
   language: string
@@ -483,6 +491,7 @@ function defaults(): PersistedSettings {
     previewSmoothScroll: true,
     terminalCopyOnSelect: true,
     terminalRightClickPaste: true,
+    markdownFetchLinkTitle: false,
     inlineSmallTextFiles: false,
     inlineSmallTextThreshold: 4096,
     language: 'en',
@@ -522,6 +531,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const previewSmoothScroll = ref(saved.previewSmoothScroll)
   const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
   const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
+  const markdownFetchLinkTitle = ref(saved.markdownFetchLinkTitle)
   const inlineSmallTextFiles = ref(saved.inlineSmallTextFiles)
   const inlineSmallTextThreshold = ref(saved.inlineSmallTextThreshold)
   const language = ref(saved.language)
@@ -849,6 +859,7 @@ export const useSettingsStore = defineStore('settings', () => {
       previewSmoothScroll: previewSmoothScroll.value,
       terminalCopyOnSelect: terminalCopyOnSelect.value,
       terminalRightClickPaste: terminalRightClickPaste.value,
+      markdownFetchLinkTitle: markdownFetchLinkTitle.value,
       inlineSmallTextFiles: inlineSmallTextFiles.value,
       inlineSmallTextThreshold: inlineSmallTextThreshold.value,
       language: language.value,
@@ -884,6 +895,7 @@ export const useSettingsStore = defineStore('settings', () => {
     previewSmoothScroll.value = s.previewSmoothScroll
     terminalCopyOnSelect.value = s.terminalCopyOnSelect
     terminalRightClickPaste.value = s.terminalRightClickPaste
+    markdownFetchLinkTitle.value = s.markdownFetchLinkTitle
     inlineSmallTextFiles.value = s.inlineSmallTextFiles
     inlineSmallTextThreshold.value = s.inlineSmallTextThreshold
     language.value = s.language
@@ -1064,6 +1076,7 @@ export const useSettingsStore = defineStore('settings', () => {
       previewSmoothScroll,
       terminalCopyOnSelect,
       terminalRightClickPaste,
+      markdownFetchLinkTitle,
       inlineSmallTextFiles,
       inlineSmallTextThreshold,
       language,
@@ -1111,6 +1124,7 @@ export const useSettingsStore = defineStore('settings', () => {
     xtermTheme,
     terminalCopyOnSelect,
     terminalRightClickPaste,
+    markdownFetchLinkTitle,
     inlineSmallTextFiles,
     inlineSmallTextThreshold,
     language,

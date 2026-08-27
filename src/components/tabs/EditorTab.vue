@@ -13,6 +13,7 @@ import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useMarkdownImages } from '../../composables/useMarkdownImages'
+import { useMarkdownLinkPaste } from '../../composables/useMarkdownLinkPaste'
 import { type OutlineJump, useOutlineSource } from '../../composables/useOutlineSource'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
@@ -21,6 +22,7 @@ import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
 import {
+  isHttpUrl,
   type MarkdownAction,
   markdownAssistKeymap,
   runMarkdownAction,
@@ -64,6 +66,7 @@ import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import { type EditorTab, shellToPlatform } from '../../types/tab'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
+import WrapToggle from '../editor/WrapToggle.vue'
 import HelpButton from '../HelpButton.vue'
 
 // Own `marked` instances: the footnote extension (#241) belongs to this preview
@@ -931,6 +934,21 @@ const gitHistoryLineLabel = computed(() => {
 
 const isReadOnlyTab = computed(() => tab.value?.readOnly ?? false)
 
+/**
+ * このタブだけの折り返し。null は「設定に従う」。
+ *
+ * **タブ単位にしてあるのは分割表示のため**（#241）。エディタ側が半分の幅になるので、
+ * その文書だけ折り返したいことがある。タブのコンポーネントは `v-show` で生き続けるので、
+ * 切り替えて戻っても保たれる（`viewMode` と同じ寿命で、セッションには残さない）。
+ *
+ * 一度触ったタブは、以後この値のまま。設定を変えても追従しないが、ボタンがその場に
+ * あるので戻すのは 1 クリックで済む。
+ */
+const wordWrapOverride = ref<boolean | null>(null)
+const wordWrapOn = computed(() => wordWrapOverride.value ?? settingsStore.editorWordWrap)
+
+const markdownLinkPaste = useMarkdownLinkPaste()
+
 /** Is this a file to write Markdown into? Gates the toolbar and its shortcuts
  *  together — one without the other is a half-feature. Read-only tabs (a
  *  `git show` snapshot) get neither. */
@@ -941,7 +959,16 @@ function markdownAssist() {
   if (!markdownAssistOn.value) return []
   return [
     keymap.of(markdownAssistKeymap(() => runMarkdownToolbarAction({ kind: 'link' }))),
-    EditorView.domEventHandlers(markdownImages.handlers),
+    // 差し替え位置の追跡もここに置く。基本の拡張リストに入れると、Markdown でないタブや
+    // 読み取り専用タブ — pending が入りようのないタブ — でも打鍵のたびに update が走る。
+    markdownLinkPaste.extension,
+    EditorView.domEventHandlers({
+      ...markdownImages.handlers,
+      // 画像が先。ファイルを伴う貼り付けはあちらの担当で、URL の判定まで行かせない。
+      // どちらも「受け持たなければ false」の規約なので、そのまま繋げられる。
+      paste: (event, view) =>
+        markdownImages.handlers.paste(event, view) || markdownLinkPaste.handlers.paste(event, view),
+    }),
   ]
 }
 
@@ -966,7 +993,9 @@ async function runMarkdownToolbarAction(action: ToolbarAction) {
 async function clipboardUrl(): Promise<string | undefined> {
   try {
     const text = (await navigator.clipboard.readText()).trim()
-    return /^https?:\/\/\S+$/.test(text) ? text : undefined
+    // 貼り付け側（`useMarkdownLinkPaste`）と同じ述語を通す。許容する文字が食い違うと、
+    // ツールバーの「リンク」と貼り付けで通る URL が割れる。
+    return isHttpUrl(text) && !/\s/.test(text) ? text : undefined
   } catch {
     // No clipboard permission (or nothing textual on it) — insert an empty target.
     return undefined
@@ -999,7 +1028,7 @@ function createEditorView(container: HTMLElement, content: string) {
     markdownCompartment.of(markdownAssist()),
     tabSizeCompartment.of(EditorState.tabSize.of(settingsStore.editorTabSize)),
     indentUnitCompartment.of(indentUnit.of(' '.repeat(settingsStore.editorTabSize))),
-    wordWrapCompartment.of(settingsStore.editorWordWrap ? EditorView.lineWrapping : []),
+    wordWrapCompartment.of(wordWrapOn.value ? EditorView.lineWrapping : []),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         updateDirtyState()
@@ -1535,13 +1564,10 @@ watch(
   },
 )
 
-watch(
-  () => settingsStore.editorWordWrap,
-  (on) => {
-    if (!editorView) return
-    editorView.dispatch({ effects: wordWrapCompartment.reconfigure(on ? EditorView.lineWrapping : []) })
-  },
-)
+watch(wordWrapOn, (on) => {
+  if (!editorView) return
+  editorView.dispatch({ effects: wordWrapCompartment.reconfigure(on ? EditorView.lineWrapping : []) })
+})
 
 watch(
   () => settingsStore.editorTabSize,
@@ -1611,17 +1637,22 @@ onUnmounted(() => {
       </template>
       <MarkdownToolbar v-if="markdownAssistOn && showEditor" @run="runMarkdownToolbarAction" />
       <span class="toolbar-spacer" />
+      <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
       <HelpButton page="editor-and-preview.md" :size="15" />
     </div>
     <!-- Plain editor header: breadcrumb + reload + help -->
-    <div v-if="!hasPreview && !loading && !error && tab?.path" class="editor-header">
-      <div class="breadcrumb">
+    <!-- パスの有無で出し分けない: 無題バッファにも折り返しの切り替えが要る
+         （マニュアルは「タブごとに切り替えられる」と書いている）。パンくずだけを
+         パスのあるときに出す。 -->
+    <div v-if="!hasPreview && !loading && !error" class="editor-header">
+      <div v-if="tab?.path" class="breadcrumb">
         <template v-for="(seg, i) in breadcrumbSegments" :key="i">
           <span v-if="i > 0" class="crumb-sep">›</span>
           <span class="crumb" :class="{ leaf: i === breadcrumbSegments.length - 1 }">{{ seg }}</span>
         </template>
       </div>
       <div class="editor-header-actions">
+        <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
         <!-- Readonly snapshots (git show) carry initialContent — reloading from disk is meaningless there -->
         <button
           v-if="!tab?.readOnly && tab?.initialContent === undefined"

@@ -25,6 +25,8 @@
 use base64::Engine as _;
 use std::time::Duration;
 
+use crate::http::{self, FetchPolicy, Overflow, Redirects};
+
 /// Badges are a few KB; this only exists so a mistyped URL pointing at a huge
 /// file cannot pin the data URL (and the string built from it) in memory.
 const MAX_BYTES: usize = 8 * 1024 * 1024;
@@ -38,56 +40,24 @@ pub struct RemoteImage {
     pub base64: String,
 }
 
-/// reqwest reaches us through tauri-plugin-updater, which picks the TLS backend
-/// but installs the crypto provider only when it builds its own client. Fetching
-/// an image before the first update check would otherwise fail on a missing
-/// default provider.
-fn ensure_crypto_provider() {
-    if rustls::crypto::CryptoProvider::get_default().is_none() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    }
-}
-
 #[tauri::command]
 pub async fn remote_image_fetch(url: String) -> Result<RemoteImage, String> {
-    let parsed = reqwest::Url::parse(&url).map_err(|e| e.to_string())?;
-    if parsed.scheme() != "https" {
-        return Err("Only https image URLs are allowed".to_string());
-    }
-    ensure_crypto_provider();
-    let client = reqwest::Client::builder()
-        .timeout(TIMEOUT)
-        // Redirects are not followed: the user approved *this* host, and a
-        // 302 would take the request somewhere they never saw. A 3xx falls
-        // through to the status check below and reads as a failed fetch.
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| e.to_string())?;
-    let mut resp = client.get(parsed).send().await.map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status().as_u16()));
-    }
-    let mime = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        // `image/svg+xml; charset=utf-8` — the parameters do not belong in a data URL.
-        .map(|v| v.split(';').next().unwrap_or(v).trim().to_ascii_lowercase())
-        .unwrap_or_default();
-    if !mime.starts_with("image/") {
-        return Err(format!("Not an image ({mime})"));
-    }
-    // Read in chunks rather than `bytes()`: a server is free to lie about (or
-    // omit) Content-Length, so the cap has to hold while the body arrives.
-    let mut buf: Vec<u8> = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
-        if buf.len() + chunk.len() > MAX_BYTES {
-            return Err(format!("Image is larger than {} MB", MAX_BYTES / 1024 / 1024));
-        }
-        buf.extend_from_slice(&chunk);
+    // Redirects are not followed: the user approved *this* host, and a 302 would
+    // take the request somewhere they never saw. A 3xx reads as a failed fetch.
+    let policy = FetchPolicy {
+        allow_http: false,
+        redirects: Redirects::Never,
+        timeout: TIMEOUT,
+        max_bytes: MAX_BYTES,
+        // 途中まで読んだ画像は使えないので、上限に当たったら失敗にする。
+        overflow: Overflow::Fail,
+    };
+    let fetched = http::fetch(&url, &policy).await?;
+    if !fetched.mime.starts_with("image/") {
+        return Err(format!("Not an image ({})", fetched.mime));
     }
     Ok(RemoteImage {
-        mime,
-        base64: base64::engine::general_purpose::STANDARD.encode(&buf),
+        mime: fetched.mime,
+        base64: base64::engine::general_purpose::STANDARD.encode(&fetched.body),
     })
 }

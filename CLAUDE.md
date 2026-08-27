@@ -107,6 +107,8 @@ pike/
 │       ├── todo_cli.rs        # `pike todo` サブコマンド（.pike/todo.md 直接操作、#139）
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
 │       ├── elevate.rs         # 管理者ターミナル（--new-instance で昇格起動、#138）
+│       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
+│       ├── page_title.rs      # 貼り付けた URL のページタイトル取得（Markdown リンク、#241）
 │       ├── remote_image.rs    # 承認済みホストの画像取得（Markdown プレビュー、#239）
 │       ├── settings_sync.rs   # 設定・プロジェクト一覧の同期ファイル読み書き（#164）
 │       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）
@@ -186,7 +188,8 @@ pike/
 │   │   ├── agent/
 │   │   │   └── AgentApprovalDialog.vue  # 統一 approval ダイアログ
 │   │   ├── editor/
-│   │   │   └── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
+│   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
+│   │   │   └── WrapToggle.vue       # 折り返しの切り替え（タブ単位、#241）
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
 │   │       ├── AgentChatTab.vue   # 統一エージェントチャット（Codex / Claude Code）
@@ -214,6 +217,7 @@ pike/
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
 │   │   ├── useMarkdownImages.ts  # Markdown への画像挿入（選択/貼り付け/ドロップ、#241）
+│   │   ├── useMarkdownLinkPaste.ts # 貼り付けた URL をタイトル付きリンクにする（#241）
 │   ├── lib/
 │   │   ├── fileIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）

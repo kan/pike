@@ -415,6 +415,8 @@ function insertLink(view: EditorView, url?: string) {
   const selectedIsUrl = selected !== '' && URL_LIKE_RE.test(selected)
   const text = selectedIsUrl ? '' : selected
   const target = toLinkTarget(selectedIsUrl ? selected : (url ?? ''))
+  // `markdownLink` を通さないのは、下でカーソル位置をオフセットで数えるため
+  // （角括弧のエスケープが入ると位置がずれる）。宛先の作り方は同じ `toLinkTarget`。
   const insert = `[${text}](${target})`
   // Select a pre-filled target so it can be typed over; otherwise put the
   // cursor in whichever bracket is still empty.
@@ -449,6 +451,27 @@ function toLinkTarget(path: string, escapeParens = false): string {
  */
 export function markdownImage(path: string, alt = ''): string {
   return `![${alt}](${toLinkTarget(path, true)})`
+}
+
+/**
+ * The `[text](url)` text itself. `markdownImage` の対。
+ *
+ * **リンクの書き方はここに集める。** 宛先のエスケープ（空白を `%20`、作者が書いた URL の
+ * 括弧は触らない）は `toLinkTarget` の判断で、呼び出し側で組み立てるとその判断が効かない。
+ * `text` 側で角括弧を逃がすのはこちらの責務（リンクの構文そのものなので、閉じ位置がずれる）。
+ */
+export function markdownLink(text: string, url: string): string {
+  return `[${text.replace(/[[\]]/g, (c) => `\\${c}`)}](${toLinkTarget(url)})`
+}
+
+/** 単体の http(s) URL か。ツールバーのリンクと貼り付けが同じ判定を使うための述語。 */
+export function isHttpUrl(text: string): boolean {
+  try {
+    const { protocol } = new URL(text)
+    return protocol === 'http:' || protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 /** `![alt](path)`, with the caret on the alt text so it can be typed straight in. */

@@ -37,6 +37,8 @@ mod jumplist {
 mod search;
 mod project;
 mod pty;
+mod http;
+mod page_title;
 mod remote_image;
 mod settings_sync;
 mod tasks;
@@ -1395,6 +1397,7 @@ pub fn run() {
             tasks::task_discover,
             diagnostics::diagnostics_run,
             open_url,
+            page_title::page_title_fetch,
             remote_image::remote_image_fetch,
             pick_folder,
             pick_save_file,

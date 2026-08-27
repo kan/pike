@@ -677,6 +677,17 @@ export async function openUrlWithConfirm(url: string): Promise<void> {
   }
 }
 
+/**
+ * A web page's `<title>`, for turning a pasted URL into `[title](url)` (#241).
+ *
+ * Null covers every "no title to use" case（HTML でない、取れなかった、`<title>` が無い）。
+ * 呼び出し側から見れば区別する意味が無い: URL は既に文書に入っているので、
+ * 失敗はそのままにするだけで済む。
+ */
+export async function pageTitleFetch(url: string): Promise<string | null> {
+  return invoke<string | null>('page_title_fetch', { url })
+}
+
 export async function pickFolder(): Promise<string | null> {
   return invoke<string | null>('pick_folder')
 }

@@ -67,6 +67,9 @@ function onKeydown(e: KeyboardEvent) {
   font-size: 13px;
   line-height: 1.5;
   word-break: break-word;
+  /* メッセージ側が段落を分けていることがある（URL 取得の同意は、後半が「断る理由」
+     そのもの）。HTML は改行を潰すので、ここで残す。空白は従来どおり畳まれる。 */
+  white-space: pre-line;
 }
 
 .dialog-input {

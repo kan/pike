@@ -712,12 +712,27 @@ const PREVIEW_LINES = [
           </div>
         </div>
 
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.wordWrap') }}</label>
-          <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.editorWordWrap }" @click="settings.editorWordWrap = true">{{ t('common.on') }}</button>
-            <button class="mode-btn" :class="{ active: !settings.editorWordWrap }" @click="settings.editorWordWrap = false">{{ t('common.off') }}</button>
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.wordWrap') }}</label>
+            <div class="mode-toggle">
+              <button class="mode-btn" :class="{ active: settings.editorWordWrap }" @click="settings.editorWordWrap = true">{{ t('common.on') }}</button>
+              <button class="mode-btn" :class="{ active: !settings.editorWordWrap }" @click="settings.editorWordWrap = false">{{ t('common.off') }}</button>
+            </div>
           </div>
+          <p class="setting-hint">{{ t('settings.wordWrapHint') }}</p>
+        </div>
+
+        <!-- 外部通信を伴う唯一の編集機能なので、何が起きるかを hint に書いておく（#241）。 -->
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.fetchLinkTitle') }}</label>
+            <div class="mode-toggle">
+              <button class="mode-btn" :class="{ active: settings.markdownFetchLinkTitle }" @click="settings.markdownFetchLinkTitle = true">{{ t('common.on') }}</button>
+              <button class="mode-btn" :class="{ active: !settings.markdownFetchLinkTitle }" @click="settings.markdownFetchLinkTitle = false">{{ t('common.off') }}</button>
+            </div>
+          </div>
+          <p class="setting-hint">{{ t('settings.fetchLinkTitleHint') }}</p>
         </div>
 
         <div class="setting-row">
