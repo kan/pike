@@ -879,74 +879,152 @@ async fn open_url(url: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
-/// ファイル選択ダイアログを外部プログラムで出し、選ばれたパスを返す。
+/// フォルダ / ファイル選択ダイアログ。OS ごとに丸ごと差し替える。
 ///
-/// Rust のダイアログ crate を使わず OS 付属のものを叩くのは、元々そうなっていたから。
-/// 中断は「終了コードが非 0」（`osascript` のキャンセル）と「出力が空」（PowerShell の
-/// ShowDialog が OK 以外）の 2 通りあるので、どちらも `None` として扱う。
-async fn spawn_dialog(program: &'static str, args: Vec<String>) -> Result<Option<String>, String> {
-    tokio::task::spawn_blocking(move || {
-        let output = types::silent_command(program)
-            .args(&args)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .output()
-            .map_err(|e| e.to_string())?;
-        if !output.status.success() {
-            return Ok(None);
-        }
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok(if path.is_empty() { None } else { Some(path) })
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// WinForms のダイアログ。`script` は `$f = New-Object ...` の部分。
-#[cfg(not(target_os = "macos"))]
-async fn powershell_dialog(script: String) -> Result<Option<String>, String> {
-    let cmd = format!("Add-Type -AssemblyName System.Windows.Forms; {script}");
-    spawn_dialog(
-        "powershell.exe",
-        vec!["-NoProfile".into(), "-Command".into(), cmd],
-    )
-    .await
-}
-
-/// `powershell_dialog` の macOS 版。`osascript` の `choose …` は AppleScript の
-/// エイリアスを返すので、スクリプト側で `POSIX path of` を通して普通のパスにする。
-#[cfg(target_os = "macos")]
-async fn osascript_dialog(script: String) -> Result<Option<String>, String> {
-    spawn_dialog("osascript", vec!["-e".into(), script]).await
-}
-
-/// AppleScript の文字列リテラルへ埋め込む。特別扱いが要るのは `\` と `"` の 2 つだけ。
-#[cfg(target_os = "macos")]
-fn applescript_quote(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-#[tauri::command]
-async fn pick_folder() -> Result<Option<String>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        osascript_dialog("POSIX path of (choose folder)".to_string()).await
+/// **コマンドの本体に cfg のピラミッドを 3 回書かないこと。** 以前は 3 つのコマンドが
+/// それぞれ macOS / Windows / それ以外の 3 分岐を持ち、cfg 属性が 13 個あった。
+/// プラットフォームを増やすときに 3 つの本体を全部直すことになる。
+///
+/// **キャンセルの見分け方が OS で違う**: PowerShell 版は ShowDialog が OK 以外だと
+/// 空文字を出し、`osascript` は終了コード 1 で終わる。`spawn` がどちらも `None` に畳む。
+mod dialog {
+    /// ダイアログを外部プログラムで出し、選ばれたパスを返す。
+    ///
+    /// Rust のダイアログ crate を使わず OS 付属のものを叩くのは、元々そうなっていたから。
+    #[cfg(any(windows, target_os = "macos"))]
+    async fn spawn(program: &'static str, args: Vec<String>) -> Result<Option<String>, String> {
+        tokio::task::spawn_blocking(move || {
+            let output = crate::types::silent_command(program)
+                .args(&args)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output.status.success() {
+                return Ok(None);
+            }
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            Ok(if path.is_empty() { None } else { Some(path) })
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
-    #[cfg(not(target_os = "macos"))]
-    {
-        powershell_dialog(
+
+    /// WinForms のダイアログ。`script` は `$f = New-Object ...` の部分。
+    #[cfg(windows)]
+    async fn powershell(script: String) -> Result<Option<String>, String> {
+        let cmd = format!("Add-Type -AssemblyName System.Windows.Forms; {script}");
+        spawn("powershell.exe", vec!["-NoProfile".into(), "-Command".into(), cmd]).await
+    }
+
+    #[cfg(windows)]
+    pub async fn folder() -> Result<Option<String>, String> {
+        powershell(
             "$f = New-Object System.Windows.Forms.FolderBrowserDialog; if($f.ShowDialog() -eq 'OK'){$f.SelectedPath}"
                 .to_string(),
         )
         .await
     }
+
+    #[cfg(windows)]
+    pub async fn open(extensions: &[String]) -> Result<Option<String>, String> {
+        let patterns = extensions
+            .iter()
+            .map(|e| format!("*.{e}"))
+            .collect::<Vec<_>>()
+            .join(";");
+        // Filter syntax is `description|patterns`; the patterns read fine as their
+        // own description.
+        powershell(format!(
+            "$f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = '{patterns}|{patterns}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
+        ))
+        .await
+    }
+
+    #[cfg(windows)]
+    pub async fn save(default_name: Option<String>) -> Result<Option<String>, String> {
+        // PowerShell single-quoted strings only interpret '' as an escaped quote;
+        // no other character ($, `, ;, ...) is special inside them.
+        let name = default_name.unwrap_or_default().replace('\'', "''");
+        powershell(format!(
+            "$f = New-Object System.Windows.Forms.SaveFileDialog; $f.FileName = '{name}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
+        ))
+        .await
+    }
+
+    /// `osascript` の `choose ...` は AppleScript のエイリアスを返すので、スクリプト側で
+    /// `POSIX path of` を通して普通のパスにする。
+    #[cfg(target_os = "macos")]
+    async fn osascript(script: String) -> Result<Option<String>, String> {
+        spawn("osascript", vec!["-e".into(), script]).await
+    }
+
+    /// AppleScript の文字列リテラルへ埋め込む。特別扱いが要るのは 2 文字だけ。
+    #[cfg(target_os = "macos")]
+    fn applescript_quote(s: &str) -> String {
+        s.replace('\\', "\\\\").replace('"', "\\\"")
+    }
+
+    #[cfg(target_os = "macos")]
+    pub async fn folder() -> Result<Option<String>, String> {
+        osascript("POSIX path of (choose folder)".to_string()).await
+    }
+
+    #[cfg(target_os = "macos")]
+    pub async fn open(extensions: &[String]) -> Result<Option<String>, String> {
+        // `choose file of type` は拡張子と UTI のどちらも受ける。呼び出し側で英数字だけに
+        // 絞ってあるので、AppleScript のリテラルとしてそのまま並べられる。
+        let types = extensions
+            .iter()
+            .map(|e| format!("\"{e}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        osascript(format!("POSIX path of (choose file of type {{{types}}})")).await
+    }
+
+    #[cfg(target_os = "macos")]
+    pub async fn save(default_name: Option<String>) -> Result<Option<String>, String> {
+        let name = applescript_quote(&default_name.unwrap_or_default());
+        osascript(format!("POSIX path of (choose file name default name \"{name}\")")).await
+    }
+
+    /// Windows でも macOS でもないホスト（Linux）。ネイティブのピッカーは実装していない。
+    ///
+    /// **`powershell` へ落とさないこと。** cfg を「macOS かそれ以外か」で切っていたころは
+    /// Linux が `powershell.exe` を起動しに行き、終了コード判定に当たって意味の分からない
+    /// エラーになっていた（`powershell` という名前の別物が PATH にあれば、黙って
+    /// 「キャンセルされた」ことになる）。実装が無いことを言う。
+    #[cfg(not(any(windows, target_os = "macos")))]
+    fn unsupported() -> Result<Option<String>, String> {
+        Err("file dialogs are not implemented on this platform".into())
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    pub async fn folder() -> Result<Option<String>, String> {
+        unsupported()
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    pub async fn open(_extensions: &[String]) -> Result<Option<String>, String> {
+        unsupported()
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    pub async fn save(_default_name: Option<String>) -> Result<Option<String>, String> {
+        unsupported()
+    }
+}
+
+#[tauri::command]
+async fn pick_folder() -> Result<Option<String>, String> {
+    dialog::folder().await
 }
 
 /// Open-file dialog restricted to the given extensions (#241).
 ///
-/// The extensions end up inside a PowerShell command line, so they are checked
-/// here rather than trusted: the front end decides which formats to offer, but
-/// this is what builds the process arguments.
+/// The extensions end up inside a shell/AppleScript command line, so they are
+/// checked here rather than trusted: the front end decides which formats to
+/// offer, but this is what builds the process arguments.
 #[tauri::command]
 async fn pick_open_file(extensions: Vec<String>) -> Result<Option<String>, String> {
     let usable: Vec<String> = extensions
@@ -957,54 +1035,14 @@ async fn pick_open_file(extensions: Vec<String>) -> Result<Option<String>, Strin
     if usable.is_empty() {
         return Err("no usable extensions".into());
     }
-    #[cfg(target_os = "macos")]
-    {
-        // `choose file of type` は拡張子と UTI のどちらも受ける。上で英数字だけに
-        // 絞ってあるので、AppleScript のリテラルとしてそのまま並べられる。
-        let types = usable
-            .iter()
-            .map(|e| format!("\"{e}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        osascript_dialog(format!("POSIX path of (choose file of type {{{types}}})")).await
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let patterns = usable
-            .iter()
-            .map(|e| format!("*.{e}"))
-            .collect::<Vec<_>>()
-            .join(";");
-        // Filter syntax is `description|patterns`; the patterns read fine as their
-        // own description.
-        powershell_dialog(format!(
-            "$f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = '{patterns}|{patterns}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
-        ))
-        .await
-    }
+    dialog::open(&usable).await
 }
 
 #[tauri::command]
 async fn pick_save_file(default_name: Option<String>) -> Result<Option<String>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let name = applescript_quote(&default_name.unwrap_or_default());
-        osascript_dialog(format!(
-            "POSIX path of (choose file name default name \"{name}\")"
-        ))
-        .await
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        // PowerShell single-quoted strings only interpret '' as an escaped quote;
-        // no other character ($, `, ;, ...) is special inside them.
-        let name = default_name.unwrap_or_default().replace('\'', "''");
-        powershell_dialog(format!(
-            "$f = New-Object System.Windows.Forms.SaveFileDialog; $f.FileName = '{name}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
-        ))
-        .await
-    }
+    dialog::save(default_name).await
 }
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

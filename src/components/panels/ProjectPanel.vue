@@ -4,7 +4,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
-import { isWindowsHost } from '../../lib/host'
+import { defaultProjectPlatform } from '../../lib/host'
 import { fuzzyMatch } from '../../lib/paths'
 import type { ProjectPlatform } from '../../lib/projectPaths'
 import { loadJson, saveJson } from '../../lib/storage'
@@ -15,7 +15,6 @@ import { useTabStore } from '../../stores/tabs'
 import type { ProjectConfig } from '../../types/project'
 import {
   buildShell,
-  defaultProjectPlatform,
   rootPlaceholder as rootPlaceholderFn,
   shellToDistro,
   shellToPlatform,
@@ -355,8 +354,6 @@ onMounted(async () => {
 
 // Dropdown options honor the shell profile visibility/order (#129); the
 // current selection stays listed so the select never loses its value.
-const formDistroOptions = computed(() => settings.visibleWslDistros(distros.value, formDistro.value))
-const formShellOptions = computed(() => settings.windowsShellOptions(formWindowsShell.value))
 
 const showForm = ref(false)
 const formName = ref('')
@@ -481,18 +478,13 @@ async function onDelete(id: string) {
       <ColorSelect v-model="formColor" />
       <IconSelect v-model="formIcon" />
 
-      <!-- WSL / Windows の選択は Windows ホストにしか意味が無い。macOS / Linux では
-           プラットフォームは 'unix' 固定なので、行ごと出さない。 -->
-      <div v-if="isWindowsHost" class="platform-row">
-        <label class="radio-label"><input type="radio" v-model="formPlatform" value="wsl" /> WSL</label>
-        <label class="radio-label"><input type="radio" v-model="formPlatform" value="windows" /> Windows</label>
-      </div>
-      <select v-if="formPlatform === 'wsl'" v-model="formDistro">
-        <option v-for="d in formDistroOptions" :key="d" :value="d">{{ d }}</option>
-      </select>
-      <select v-if="formPlatform === 'windows'" v-model="formWindowsShell">
-        <option v-for="s in formShellOptions" :key="s.kind" :value="s.kind">{{ s.label }}</option>
-      </select>
+      <ProjectPlatformFields
+        compact
+        v-model:platform="formPlatform"
+        v-model:distro="formDistro"
+        v-model:win-shell="formWindowsShell"
+        :distros="distros"
+      />
       <button type="submit">{{ t('common.create') }}</button>
     </form>
 
@@ -702,24 +694,6 @@ async function onDelete(id: string) {
 .input-row input {
   flex: 1;
   min-width: 0;
-}
-
-.platform-row {
-  display: flex;
-  gap: 12px;
-}
-
-.radio-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.radio-label input {
-  accent-color: var(--accent);
 }
 
 .detect-btn {

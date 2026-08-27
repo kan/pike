@@ -404,8 +404,8 @@ pub async fn pty_spawn(
     let probe_kind = match &shell {
         None => busy::ProbeKind::Wsl(None),
         Some(ShellConfig::Wsl { distro }) => busy::ProbeKind::Wsl(Some(distro.clone())),
-        Some(ShellConfig::Unix { .. }) => busy::ProbeKind::Unix,
-        Some(_) => busy::ProbeKind::Windows,
+        // WSL 以外はホスト上で直に動くので、数え方はホストが決める（`busy::has_child`）。
+        Some(_) => busy::ProbeKind::Host,
     };
     let is_wsl = matches!(probe_kind, busy::ProbeKind::Wsl(_));
     let id = uuid::Uuid::new_v4().to_string();
@@ -556,22 +556,9 @@ pub async fn pty_busy_count(state: State<'_, PtyState>) -> Result<usize, String>
         let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
         sessions.values().map(|s| s.busy.clone()).collect()
     };
-    tokio::task::spawn_blocking(move || {
-        std::thread::scope(|scope| {
-            let handles: Vec<_> = probes
-                .iter()
-                .map(|probe| scope.spawn(move || probe.is_busy()))
-                .collect();
-            // join は handle を consume するので、filter ではなく map で受ける
-            handles
-                .into_iter()
-                .map(|h| h.join().unwrap_or(false))
-                .filter(|busy| *busy)
-                .count()
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || busy::count_busy(&probes))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

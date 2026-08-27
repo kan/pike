@@ -2,7 +2,7 @@
 import { FolderOpen, Globe } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
-import { isWindowsHost } from '../lib/host'
+import { defaultProjectPlatform } from '../lib/host'
 import { fuzzyMatch } from '../lib/paths'
 import type { ProjectPlatform } from '../lib/projectPaths'
 import { detectWslDistros, openGlobalWindow, pickFolder } from '../lib/tauri'
@@ -11,17 +11,12 @@ import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
 import type { ProjectConfig } from '../types/project'
-import {
-  buildShell,
-  defaultProjectPlatform,
-  rootPlaceholder as rootPlaceholderFn,
-  slugify,
-  type WindowsShellKind,
-} from '../types/tab'
+import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, type WindowsShellKind } from '../types/tab'
 import ColorDot from './ColorDot.vue'
 import ProjectIcon from './ProjectIcon.vue'
 import ColorSelect from './panels/ColorSelect.vue'
 import IconSelect from './panels/IconSelect.vue'
+import ProjectPlatformFields from './panels/ProjectPlatformFields.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -92,8 +87,6 @@ async function loadDistros() {
 
 // Dropdown options honor the shell profile visibility/order (#129); the
 // current selection stays listed so the select never loses its value.
-const formDistroOptions = computed(() => settings.visibleWslDistros(distros.value, formDistro.value))
-const formShellOptions = computed(() => settings.windowsShellOptions(formWindowsShell.value))
 
 function openNewForm() {
   formWindowsShell.value = settings.defaultWindowsShellKind()
@@ -266,21 +259,12 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
           <form class="new-form-body" @submit.prevent="onCreateProject">
             <input v-model="formName" :placeholder="t('project.projectName')" required />
             <input v-model="formRoot" :placeholder="formRootPlaceholder" required />
-            <!-- WSL / Windows の選択は Windows ホストにしか意味が無い（macOS / Linux は 'unix' 固定）。 -->
-            <div v-if="isWindowsHost" class="platform-row">
-              <label class="radio-label">
-                <input type="radio" v-model="formPlatform" value="wsl" /> WSL
-              </label>
-              <label class="radio-label">
-                <input type="radio" v-model="formPlatform" value="windows" /> Windows
-              </label>
-            </div>
-            <select v-if="formPlatform === 'wsl'" v-model="formDistro">
-              <option v-for="d in formDistroOptions" :key="d" :value="d">{{ d }}</option>
-            </select>
-            <select v-if="formPlatform === 'windows'" v-model="formWindowsShell">
-              <option v-for="s in formShellOptions" :key="s.kind" :value="s.kind">{{ s.label }}</option>
-            </select>
+            <ProjectPlatformFields
+              v-model:platform="formPlatform"
+              v-model:distro="formDistro"
+              v-model:win-shell="formWindowsShell"
+              :distros="distros"
+            />
             <ColorSelect v-model="formColor" />
             <IconSelect v-model="formIcon" />
             <button type="submit" class="create-btn">{{ t('projectSwitcher.createAndOpen') }}</button>
@@ -491,24 +475,6 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 .new-form-body input:focus,
 .new-form-body select:focus {
   border-color: var(--accent);
-}
-
-.platform-row {
-  display: flex;
-  gap: 16px;
-}
-
-.radio-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.radio-label input {
-  accent-color: var(--accent);
 }
 
 .create-btn {

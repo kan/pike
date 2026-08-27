@@ -42,11 +42,11 @@ import {
   extension,
   isEmbeddableImage,
   isMarkdownPath,
-  isPosixShell,
   mimeType,
   pathSep,
   toRelativePath,
 } from '../../lib/paths'
+import { relativeToBase } from '../../lib/projectPaths'
 import { createHeadingSlugger } from '../../lib/slug'
 import {
   fsDirsExist,
@@ -62,7 +62,7 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
-import type { EditorTab } from '../../types/tab'
+import { type EditorTab, shellToPlatform } from '../../types/tab'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import HelpButton from '../HelpButton.vue'
 
@@ -1268,8 +1268,6 @@ function resolveLocalPath(href: string): string | null {
   }
 
   const root = projectStore.activeRoot
-  // 大小の区別も区切りも POSIX かどうかで決まる（macOS のローカルシェルも WSL 側）。
-  const isPosix = isPosixShell(project.shell)
   const sep = pathSep(project.shell)
 
   // Determine the directory containing the current file. A leading slash is
@@ -1300,13 +1298,17 @@ function resolveLocalPath(href: string): string | null {
 
   const fullPath = resolved.join(sep)
 
-  // Security: ensure the resolved path is within the project root
-  const normalizedRoot = root.replace(/[/\\]+$/, '')
-  const normalizedFull = fullPath.replace(/[/\\]+$/, '')
-  // Case-insensitive comparison on Windows
-  const rootCheck = isPosix ? normalizedFull : normalizedFull.toLowerCase()
-  const rootPrefix = isPosix ? normalizedRoot : normalizedRoot.toLowerCase()
-  if (rootCheck !== rootPrefix && !rootCheck.startsWith(rootPrefix + sep)) {
+  // Security: ensure the resolved path is within the project root.
+  //
+  // **判定は `relativeToBase` に任せる**（区切りの正規化・末尾スラッシュ・Windows での
+  // 大小折り畳みを持っている）。ここへ書き写していたころは、プレビュー画像の内外判定
+  // （`useMarkdownImages` の `isOurs`）と別実装になっていて、`unix` を足したときに
+  // 両方へ別々に同じ手を入れる必要があった。
+  //
+  // `relativeToBase` は base 自身に対して null を返すので、末尾に 1 セグメント足して
+  // 聞く。root 自身も root の配下も真になり、外は偽のままになる。
+  const probe = `${fullPath}/probe`
+  if (relativeToBase(root, probe, shellToPlatform(project.shell)) === null) {
     return null
   }
 

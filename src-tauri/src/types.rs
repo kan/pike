@@ -124,6 +124,18 @@ pub fn host_home() -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
+/// `ShellConfig::Unix { program }` として受け付けてよい値か。
+///
+/// シェルは直接 spawn するので**絶対パスに限る**（PATH 探索させない）。空文字は
+/// 「既定（`$SHELL`）に任せる」の意味なので、ここでは弾かれて `default_unix_shell()`
+/// に落ちるのが正しい。長さと制御文字の制限は、id や設定ファイルから来る自由入力を
+/// そのままコマンドラインに載せないため。
+pub fn is_valid_unix_program(program: &str) -> bool {
+    program.starts_with('/')
+        && program.chars().count() <= 256
+        && !program.chars().any(|c| c.is_control())
+}
+
 /// 対話 PTY で起動するローカルシェル。`$SHELL` があればそれ、無ければ
 /// macOS の既定である zsh に落とす（`ShellConfig::Unix { program: "" }` の解決先）。
 pub fn default_unix_shell() -> String {
@@ -216,9 +228,15 @@ impl ShellConfig {
     }
 
     /// 対話 PTY で起動するシェルの実体パス（`Unix` 以外では意味を持たない）。
+    ///
+    /// **「絶対パスのみ」の検証はここで行う。** `shell_from_id` にも同じ規則があるが、
+    /// あれはトレイ / ジャンプリスト / CLI の id 経由の入口だけで、`ShellConfig` は
+    /// **serde 越しの IPC と `project.json` からも**そのまま届く。値が実際に
+    /// `CommandBuilder::new` に渡るのはここ 1 箇所なので、経路が全部収束する。
+    /// 妥当でなければ既定のログインシェルに落とす（PATH 探索させない）。
     pub fn unix_program(&self) -> String {
         match self {
-            ShellConfig::Unix { program } if !program.trim().is_empty() => program.clone(),
+            ShellConfig::Unix { program } if is_valid_unix_program(program) => program.clone(),
             _ => default_unix_shell(),
         }
     }
@@ -611,10 +629,7 @@ pub fn shell_from_id(id: &str) -> Option<ShellConfig> {
     // `unix:<絶対パス>`（例 `unix:/bin/zsh`）。distro と違いここはシェルの実行ファイルを
     // 直接 spawn するので、絶対パスであることだけは確かめる（PATH 探索させない）。
     if let Some(program) = id.strip_prefix("unix:") {
-        let ok = program.starts_with('/')
-            && program.chars().count() <= 256
-            && !program.chars().any(|c| c.is_control());
-        return ok.then(|| ShellConfig::Unix {
+        return is_valid_unix_program(program).then(|| ShellConfig::Unix {
             program: program.to_string(),
         });
     }
@@ -684,6 +699,20 @@ mod tests {
 
     /// フロントが送る既定のシェル（`{ kind: 'unix' }`）が受け取れること。`program` の
     /// `serde(default)` が外れると、`shell` を取る Tauri コマンドが全部落ちる。
+    /// `shell_from_id` を通らない経路（serde / project.json）でも同じ規則が効くこと。
+    #[test]
+    fn unix_program_rejects_values_that_shell_from_id_would_reject() {
+        // 相対名は PATH 探索になるので採らない。既定のログインシェルへ落ちる。
+        let relative = ShellConfig::Unix { program: "zsh".to_string() };
+        assert_eq!(relative.unix_program(), default_unix_shell());
+        // 空は「既定に任せる」の意味。
+        let empty = ShellConfig::Unix { program: String::new() };
+        assert_eq!(empty.unix_program(), default_unix_shell());
+        // 絶対パスはそのまま通る。
+        let absolute = ShellConfig::Unix { program: "/bin/bash".to_string() };
+        assert_eq!(absolute.unix_program(), "/bin/bash");
+    }
+
     #[test]
     fn unix_shell_deserializes_without_program() {
         let shell: ShellConfig = serde_json::from_str(r#"{"kind":"unix"}"#).unwrap();

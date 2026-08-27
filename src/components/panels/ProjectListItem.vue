@@ -2,15 +2,13 @@
 import { Cloud, CloudDownload, ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
-import { isWindowsHost } from '../../lib/host'
+import { defaultProjectPlatform } from '../../lib/host'
 import { projectColorValue, readableTextOn } from '../../lib/projectColors'
 import type { ProjectPlatform } from '../../lib/projectPaths'
 import { pickFolder } from '../../lib/tauri'
-import { useSettingsStore } from '../../stores/settings'
 import type { ProjectConfig } from '../../types/project'
 import {
   buildShell,
-  defaultProjectPlatform,
   rootPlaceholder as rootPlaceholderFn,
   shellLabel,
   shellToDistro,
@@ -23,6 +21,7 @@ import ProjectIcon from '../ProjectIcon.vue'
 import ColorSelect from './ColorSelect.vue'
 import GroupComboBox from './GroupComboBox.vue'
 import IconSelect from './IconSelect.vue'
+import ProjectPlatformFields from './ProjectPlatformFields.vue'
 
 const props = defineProps<{
   project: ProjectConfig
@@ -69,12 +68,8 @@ const editDistro = ref('Ubuntu')
 const editWindowsShell = ref<WindowsShellKind>('powershell')
 const editGolangciCommand = ref('')
 
-const settings = useSettingsStore()
-
 // Dropdown options honor the shell profile visibility/order (#129); the
 // project's saved shell stays listed even when hidden.
-const editDistroOptions = computed(() => settings.visibleWslDistros(props.distros, editDistro.value))
-const editShellOptions = computed(() => settings.windowsShellOptions(editWindowsShell.value))
 
 const editRootPlaceholder = computed(() => rootPlaceholderFn(editPlatform.value))
 
@@ -138,17 +133,13 @@ function onSave() {
     <GroupComboBox v-model="editGroup" :groups="groups" />
     <ColorSelect v-model="editColor" />
     <IconSelect v-model="editIcon" />
-    <!-- WSL / Windows の選択は Windows ホストにしか意味が無い（macOS / Linux は 'unix' 固定）。 -->
-    <div v-if="isWindowsHost" class="platform-row">
-      <label class="radio-label"><input type="radio" v-model="editPlatform" value="wsl" /> WSL</label>
-      <label class="radio-label"><input type="radio" v-model="editPlatform" value="windows" /> Windows</label>
-    </div>
-    <select v-if="editPlatform === 'wsl'" v-model="editDistro">
-      <option v-for="d in editDistroOptions" :key="d" :value="d">{{ d }}</option>
-    </select>
-    <select v-if="editPlatform === 'windows'" v-model="editWindowsShell">
-      <option v-for="s in editShellOptions" :key="s.kind" :value="s.kind">{{ s.label }}</option>
-    </select>
+    <ProjectPlatformFields
+      compact
+      v-model:platform="editPlatform"
+      v-model:distro="editDistro"
+      v-model:win-shell="editWindowsShell"
+      :distros="props.distros"
+    />
     <input
       v-model="editGolangciCommand"
       :placeholder="t('project.golangciCommand')"
@@ -249,24 +240,6 @@ function onSave() {
 .detect-btn:hover {
   background: var(--tab-hover-bg);
   color: var(--text-primary);
-}
-
-.platform-row {
-  display: flex;
-  gap: 12px;
-}
-
-.radio-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.radio-label input {
-  accent-color: var(--accent);
 }
 
 .edit-actions {

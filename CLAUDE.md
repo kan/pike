@@ -177,6 +177,7 @@ pike/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   ├── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除（GroupComboBox/ProjectListItem に分割）
 │   │   │   ├── GroupComboBox.vue  ProjectListItem.vue  ColorSelect.vue  IconSelect.vue
+│   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（作成・編集の 3 フォームで共有）
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
 │   │   │   ├── TodoPanel.vue      # .pike/todo.md のチェックリスト（#139・詳細 #163）
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）

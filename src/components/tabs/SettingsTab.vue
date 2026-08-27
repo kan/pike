@@ -153,13 +153,20 @@ async function restoreProject(id: string) {
   settings.syncMessage = pulled && pulled.unresolvable > 0 ? t('settings.restoreNoBase') : t('settings.restoreNoEntry')
 }
 
-/** ホスト側のプロジェクト base（#164）。WSL の base だけは手入力: フォルダ選択が
- *  返すのは Windows のパスで、WSL の base は distro の native パスである必要がある。 */
+/**
+ * ホスト側のプロジェクト base（#164）のキーとラベル。Windows ホストなら `windows`、
+ * macOS / Linux なら `unix`。**この 1 つで欄・プレースホルダ・ピッカーの書き込み先が
+ * 決まる**ので、同じ markup を `v-if` / `v-else` で 2 回書かずに済む。
+ */
+const hostBase = isWindowsHost
+  ? { key: 'windows' as const, label: 'Windows', placeholder: 'C:\\Users\\me\\src' }
+  : { key: 'unix' as const, label: t('settings.projectBaseLocal'), placeholder: '/Users/me/src' }
+
+/** WSL の base だけは手入力: フォルダ選択が返すのは Windows のパスで、
+ *  WSL の base は distro の native パスである必要がある。 */
 async function browseProjectBase() {
   const folder = await pickFolder()
-  if (!folder) return
-  if (isWindowsHost) settings.projectBase.windows = folder
-  else settings.projectBase.unix = folder
+  if (folder) settings.projectBase[hostBase.key] = folder
 }
 
 function onFontSizeInput(e: Event) {
@@ -812,48 +819,35 @@ const PREVIEW_LINES = [
           <label class="setting-label">{{ t('settings.projectBase') }}</label>
           <p class="setting-hint">{{ t('settings.projectBaseHint') }}</p>
           <!-- base はプラットフォームごとに要る。macOS / Linux のプロジェクトは
-               platform='unix' なので、この欄が無いと 1 件も同期対象にならない。 -->
-          <template v-if="isWindowsHost">
-            <div class="sync-path-row">
-              <span class="base-label">Windows</span>
-              <input
-                v-model="settings.projectBase.windows"
-                class="agent-cmd-input sync-path-input"
-                type="text"
-                spellcheck="false"
-                placeholder="C:\\Users\\me\\src"
-              />
-              <button type="button" class="detect-btn" @click="browseProjectBase">
-                {{ t('project.browse') }}
-              </button>
-            </div>
-            <div class="sync-path-row">
-              <span class="base-label">WSL</span>
-              <input
-                v-model="settings.projectBase.wsl"
-                class="agent-cmd-input sync-path-input"
-                type="text"
-                spellcheck="false"
-                placeholder="/home/me/src"
-              />
-              <select v-model="settings.projectBase.wslDistro" class="base-distro">
-                <option value="">{{ t('settings.projectBaseNoDistro') }}</option>
-                <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
-              </select>
-            </div>
-          </template>
-          <div v-else class="sync-path-row">
-            <span class="base-label">{{ t('settings.projectBaseLocal') }}</span>
+               platform='unix' なので、この欄が無いと 1 件も同期対象にならない。
+               ホスト側の欄は `hostBase` が 1 つに畳んでいる（Windows か Unix か）。 -->
+          <div class="sync-path-row">
+            <span class="base-label">{{ hostBase.label }}</span>
             <input
-              v-model="settings.projectBase.unix"
+              v-model="settings.projectBase[hostBase.key]"
               class="agent-cmd-input sync-path-input"
               type="text"
               spellcheck="false"
-              placeholder="/Users/me/src"
+              :placeholder="hostBase.placeholder"
             />
             <button type="button" class="detect-btn" @click="browseProjectBase">
               {{ t('project.browse') }}
             </button>
+          </div>
+          <!-- WSL の base は Windows ホストにしか無い。 -->
+          <div v-if="isWindowsHost" class="sync-path-row">
+            <span class="base-label">WSL</span>
+            <input
+              v-model="settings.projectBase.wsl"
+              class="agent-cmd-input sync-path-input"
+              type="text"
+              spellcheck="false"
+              placeholder="/home/me/src"
+            />
+            <select v-model="settings.projectBase.wslDistro" class="base-distro">
+              <option value="">{{ t('settings.projectBaseNoDistro') }}</option>
+              <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
+            </select>
           </div>
           <p v-if="settings.syncFilePath && projectStore.unsyncableProjects.length > 0" class="setting-hint">
             {{ t('settings.projectBaseOutside', { count: projectStore.unsyncableProjects.length }) }}
