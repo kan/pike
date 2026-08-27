@@ -2,7 +2,11 @@
 #
 # レシピの実体は package.json の scripts に置いたまま、just はその薄いファサード
 # にしてある（tauri CLI や CI の慣習で npm 経由が要るものを壊さないため）。例外は
-# scripts/*.sh を直接呼ぶ E2E 同期系で、理由は下の windows-shell のコメントを参照。
+# scripts/*.sh を呼ぶ E2E 同期系で、理由は下の windows-shell のコメントを参照。
+# **スクリプトは `bash script.sh` の形で呼ぶこと**（`package.json` の scripts と同じ）。
+# 直接呼ぶとファイルの実行ビットに依存する。Windows の Git Bash は shebang があれば
+# 実行できてしまうので気付けず、macOS の CI で `Permission denied` になって初めて出た
+# （v0.43.0 のリリースで実際に踏んだ）。
 
 # レシピは Git Bash で走らせる。PATH 上の bash は WSL ランチャ
 # （C:\Windows\System32\bash.exe）で、そちらには Windows 側の node / tauri /
@@ -35,7 +39,7 @@ build-web:
 
 # rg サイドカーバイナリを取得する（ビルド前に 1 回。バイナリは gitignore）
 fetch-rg:
-    scripts/download-rg.sh
+    bash scripts/download-rg.sh
 
 # --- コミット前チェック ---
 
@@ -91,13 +95,13 @@ e2e:
 
 # 撮影結果を docs/manual/img と docs/ へ同期する（ヒーロー画像の合成に magick が要る）
 e2e-sync:
-    scripts/sync-manual-images.sh
-    scripts/sync-hero-images.sh
+    bash scripts/sync-manual-images.sh
+    bash scripts/sync-hero-images.sh
 
 # 同期のドライラン
 e2e-sync-check:
-    scripts/sync-manual-images.sh --check
-    scripts/sync-hero-images.sh --check
+    bash scripts/sync-manual-images.sh --check
+    bash scripts/sync-hero-images.sh --check
 
 # --- リリース ---
 

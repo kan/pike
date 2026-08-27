@@ -9,6 +9,11 @@
 - **`set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-cu"]` が要る**。理由は 2 つで、(1) just の Windows 既定シェルは `sh -c` だが **`sh` はこのマシンの PATH に無い**（全レシピが即座に落ちる）、(2) PATH 上の `bash` は `C:\Windows\System32\bash.exe`＝**WSL ランチャ**で、そちらには Windows 側の node / tauri / ImageMagick が無い。Git Bash を指すと `magick` も PATH で解決するので、「`npm run e2e:sync` を WSL の bash で回すと ImageMagick が見つからず止まる」という従来の落とし穴もレシピ側で塞がる
 - `cmd.exe /c` は候補から外した。**先頭が引用符の行を cmd が引用符ごと剥がす**ため、`"C:/Program Files/Git/bin/bash.exe" scripts/x.sh` が `'C:/Program' は…認識されていません` になる（実測）
 - 別の場所に Git を入れている環境は `just --shell <bash へのパス>` で上書きする（設定値は文字列リテラルしか取れないので変数化できない）
+- **シェルスクリプトは `bash script.sh` の形で呼ぶ**（`package.json` の scripts が最初からそうしている）。
+  直接呼ぶとファイルの実行ビットに依存するが、**Windows の Git Bash は shebang があれば実行ビットが
+  無くても走らせてしまう**ので、Windows だけで開発しているあいだは気付けない。v0.43.0 のリリースで
+  macOS のジョブが `just fetch-rg` の `Permission denied` で落ちて初めて出た（`scripts/*.sh` は
+  `100644` のままだった）。実行ビット自体も立てたが、呼び方のほうが本命
 - CI での just 導入は `extractions/setup-just`（他の action と同じく SHA ピン留め）
 
 ## 開発ビルド
