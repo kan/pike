@@ -90,10 +90,14 @@ export function useMarkdownImages(docDir: Ref<string>, shell: Ref<ShellType>, ro
     // UNC name, so this stays one copy in Rust — reading the bytes into the
     // webview and writing them back would push the whole image through the IPC
     // bridge twice as base64.
-    const reachable = shell.value.kind === 'wsl' ? wslNativeToUnc(shell.value.distro, dest) : dest
-    // PowerShell を名指しするのは UNC 越しに WSL の中へ書くためで、ホスト OS の
-    // 話ではない。WSL 以外では `asLocalPath` が非 null になりここへ来ない。
-    await fsImportFile(shell.value.kind === 'wsl' ? { kind: 'powershell' } : shell.value, source, reachable)
+    // ここへ来るのは WSL のときだけ（他のシェルでは `asLocalPath` が非 null になり、
+    // 呼び出し側が手前で返る）。PowerShell を名指しするのは UNC 越しに distro の中へ
+    // 書くためで、ホスト OS の話ではない。
+    if (shell.value.kind !== 'wsl') {
+      await fsImportFile(shell.value, source, dest)
+      return name
+    }
+    await fsImportFile({ kind: 'powershell' }, source, wslNativeToUnc(shell.value.distro, dest))
     return name
   }
 

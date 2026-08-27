@@ -15,7 +15,7 @@ use super::state::{AgentSession, AgentState};
 use super::types::{
     AgentAuthState, AgentCapabilities, ApprovalDecision, EditorContext, ModelInfo, SessionConfig,
 };
-use crate::types::ShellConfig;
+use crate::types::{ShellConfig, UNIX_NPM_PREFIX};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,44 +60,37 @@ pub async fn agent_ensure_installed(
     let version = tokio::task::spawn_blocking(move || {
         let timeout = std::time::Duration::from_secs(120);
 
-        // On Windows, `npm` is a .cmd batch file — must run via `cmd /C`.
-        // On WSL, global npm install requires root. Install to ~/.local instead.
         // Use bash -c (not -lc) to avoid .profile hang in non-tty contexts.
-        let child = match &shell_clone {
-            ShellConfig::Wsl { .. } => shell_clone
-                .command(
-                    "bash",
-                    &[
-                        "-c",
-                        &format!(
-                            "PATH=\"{WSL_EXTRA_PATH}:$PATH\" npm install -g --prefix \"$HOME/.local\" {ACP_NPM_PACKAGE}"
-                        ),
-                    ],
-                )
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn(),
-            // macOS / Linux: `-g` の既定の prefix は書き込み権限が要ることがあるので、
-            // WSL 側と同じく `$HOME/.local` へ入れる（sudo を要求しない）。PATH は
-            // `augment_process_path` がプロセス側で広げてあるので前置しない。
-            ShellConfig::Unix { .. } => shell_clone
-                .command(
-                    "sh",
-                    &[
-                        "-c",
-                        &format!("npm install -g --prefix \"$HOME/.local\" {ACP_NPM_PACKAGE}"),
-                    ],
-                )
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn(),
-            _ => crate::types::silent_command("cmd.exe")
-                .args(["/C", "npm", "install", "-g", ACP_NPM_PACKAGE])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn(),
-        }
-        .map_err(|e| format!("Failed to run npm: {e}. Is npm installed?"))?;
+        // POSIX 側は `-g` の既定 prefix に書き込み権限が要ることがあるので、WSL・
+        // ローカル Unix とも `UNIX_NPM_PREFIX` へ入れる（sudo を要求しない）。違いは
+        // PATH の前置だけで、WSL は distro の素の PATH から始まるため必要、ローカルは
+        // `augment_process_path` がプロセス側で広げてあるため不要。
+        let mut cmd = match &shell_clone {
+            s if s.is_posix() => {
+                let path_prefix = match s {
+                    ShellConfig::Wsl { .. } => format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" "),
+                    _ => String::new(),
+                };
+                let line = format!(
+                    "{path_prefix}npm install -g --prefix \"{UNIX_NPM_PREFIX}\" {ACP_NPM_PACKAGE}"
+                );
+                // WSL は `command` が wsl.exe 越しに bash を起こす。ローカル Unix は
+                // ホスト自身なので `sh` をそのまま起動する。
+                let program = if matches!(s, ShellConfig::Wsl { .. }) { "bash" } else { "sh" };
+                shell_clone.command(program, &["-c", &line])
+            }
+            // On Windows, `npm` is a .cmd batch file — must run via `cmd /C`.
+            _ => {
+                let mut c = crate::types::silent_command("cmd.exe");
+                c.args(["/C", "npm", "install", "-g", ACP_NPM_PACKAGE]);
+                c
+            }
+        };
+        let child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to run npm: {e}. Is npm installed?"))?;
 
         let pid = child.id();
         let output = crate::types::wait_with_timeout(pid, timeout, "npm install", move || {
@@ -126,17 +119,14 @@ pub async fn agent_ensure_installed(
 /// because claude-agent-acp is a JSON-RPC server that hangs on `--version`.
 pub fn check_acp_available(config: &AcpAgentConfig, shell: &ShellConfig) -> Result<String, String> {
     match shell {
-        ShellConfig::Wsl { .. } => {
-            let cmd = format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" which {}", config.command);
-            let path = shell.run_stdout("bash", &["-c", &cmd])?;
-            Ok(path.trim().to_string())
-        }
-        // macOS / Linux はホスト自身なので、WSL のような前置なしで `which` を引く。
-        // PATH は `augment_process_path` が起動時に広げてある。
-        ShellConfig::Unix { .. } => {
-            let path = shell.run_stdout("which", &[&config.command])?;
-            Ok(path.trim().to_string())
-        }
+        // POSIX 側は `run_stdout_with_user_path` に任せる。WSL は `WSL_EXTRA_PATH` を
+        // 前置した `bash -c`、ローカル Unix はそのまま（PATH は `augment_process_path`
+        // が起動時に広げてある）と、ちょうどこの 2 通りを既に振り分けている。手で
+        // `bash -c` を組むと PATH 前置の方針が 2 箇所に散り、`bash_quote` も外れる。
+        s if s.is_posix() => Ok(shell
+            .run_stdout_with_user_path("which", &[&config.command])?
+            .trim()
+            .to_string()),
         _ => {
             let mut cmd = crate::types::silent_command("cmd.exe");
             cmd.args(["/C", "where", &config.command]);

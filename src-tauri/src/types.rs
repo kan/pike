@@ -345,34 +345,35 @@ impl ShellConfig {
     ) -> Result<(i32, String, String), String> {
         let env: Vec<&(&str, &str)> = env.iter().filter(|(_, v)| !v.contains('"')).collect();
         let cmd = match self {
-            ShellConfig::Wsl { distro } => {
+            // WSL とローカル Unix はスクリプトの字面が同じで、違いは 2 つだけ:
+            // PATH の前置（WSL は distro の素の PATH から始まるので要る。ローカルは
+            // `augment_process_path` がプロセス側で広げてあるので要らない）と、
+            // それを走らせるシェルの起こし方。**引用規約（`bash_quote`）を腕ごとに
+            // 書き写さないこと** — この関数の doc が「呼び出し側で組み立てると無言で
+            // 壊れる」と言っている当のものが 2 コピーになる。
+            // `cd` は `current_dir` ではなくスクリプトに入れる。
+            s if s.is_posix() => {
                 let assigns: String = env
                     .iter()
                     .map(|(k, v)| format!("{k}={} ", bash_quote(v)))
                     .collect();
-                let script = format!(
-                    "cd {} && {assigns}PATH=\"{WSL_EXTRA_PATH}:$PATH\" {line}",
-                    bash_quote(dir)
-                );
-                let mut c = silent_command("wsl.exe");
-                c.arg("-d").arg(distro).arg("-e").arg("bash").arg("-c").arg(script);
-                c
-            }
-            // WSL と同じ組み立てから wsl.exe の前置と PATH の追加を外したもの。PATH は
-            // `augment_process_path` がプロセス側で広げてあるので、ここで足す必要はない。
-            // `cd` は `current_dir` ではなくスクリプトに入れて WSL 側と字面を揃える。
-            ShellConfig::Unix { .. } => {
-                let assigns: String = env
-                    .iter()
-                    .map(|(k, v)| format!("{k}={} ", bash_quote(v)))
-                    .collect();
-                let script = format!(
-                    "cd {} && {assigns}{line}",
-                    bash_quote(dir)
-                );
-                let mut c = silent_command("/bin/sh");
-                c.arg("-c").arg(script);
-                c
+                let path_prefix = match s {
+                    ShellConfig::Wsl { .. } => format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" "),
+                    _ => String::new(),
+                };
+                let script = format!("cd {} && {assigns}{path_prefix}{line}", bash_quote(dir));
+                match s {
+                    ShellConfig::Wsl { distro } => {
+                        let mut c = silent_command("wsl.exe");
+                        c.arg("-d").arg(distro).arg("-e").arg("bash").arg("-c").arg(script);
+                        c
+                    }
+                    _ => {
+                        let mut c = silent_command("/bin/sh");
+                        c.arg("-c").arg(script);
+                        c
+                    }
+                }
             }
             _ => {
                 // `current_dir` + `raw_arg` avoids the cmd.exe/Rust quoting clash
