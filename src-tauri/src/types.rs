@@ -40,6 +40,10 @@ pub const WSL_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOM
 /// 始まるのに対し、こちらはプロセスの PATH をそのまま継ぐので、起動時に 1 回広げれば
 /// 全経路に効く。**シェル経由で足す実装を再び入れないこと**（プロセス側と向きが食い違うと、
 /// 同じツールが呼び出し経路によって別の実体に解決される）。
+///
+/// 唯一の読み手が `augmented_path_with`（非 Windows のみ）なので、Windows ビルドでは
+/// `-D dead-code` に当たる。定数だけ残しても意味を持たないので、まとめて cfg で落とす。
+#[cfg(not(windows))]
 pub const UNIX_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.cargo/bin:$HOME/go/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/go/bin";
 
 /// GUI から起動したプロセスの PATH に、`UNIX_EXTRA_PATH` のうち実在するものを足す。
