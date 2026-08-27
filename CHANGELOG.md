@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.44.1] - 2026-08-27
+
+### Bug Fixes
+
+- **macOS で Pike のアイコンが他のアプリより大きく見えるのを直した**：macOS のアイコンには決まった余白があり、1024 のキャンバスに対して本体は 824（80.5%）です。Pike の素材は端まで描かれていたため、Dock や Finder で 1 辺あたり約 1.24 倍に見えていました (#256)
+
+### Features
+
+- **アイコンの絵柄を作り直した**：配色はそのままに、穂先を太くして正三角形に近づけ、大きさも上げました。小さいサイズでの見え方が良くなります。位置も三角形の重心がキャンバスの中心に来るよう調整しています (#256)
+
+### Development
+
+- アイコンの正本を SVG (`src-tauri/icons/icon.svg`) にして、ラスタ一式を `scripts/make-icons.sh` で作り直せるようにしました
+
 ## [0.44.0] - 2026-08-27
 
 ### Features
