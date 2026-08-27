@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { locale, t } from '../i18n'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
-import { hostDefaultShell } from '../lib/host'
+import { hostDefaultShell, isMacHost } from '../lib/host'
 import {
   baseForPlatform,
   isProjectPlatform,
@@ -12,6 +12,7 @@ import {
   relativeToBase,
   rootKey,
 } from '../lib/projectPaths'
+import { menuActions } from '../lib/shortcuts'
 import {
   focusProjectWindow,
   fsDirsExist,
@@ -704,8 +705,17 @@ export const useProjectStore = defineStore('project', () => {
         useSettingsStore().menuShells,
       ]),
     () => {
-      menusRefresh(locale.value, useSettingsStore().menuShells).catch(() => {})
+      menusRefresh(locale.value, useSettingsStore().menuShells, menuActions()).catch(() => {})
     },
+    // **macOS では初回が要る（#254）。** あちらのメニューは起動時には空で、これが
+    // 埋める唯一の経路。グローバルモードのウィンドウは `loadProjects()` を呼ばず、
+    // locale もシェル一覧も localStorage から読み終わっているので、これが無いと
+    // キーが 1 つも無いメニューバーのまま座り続ける。
+    //
+    // **mac 以外では走らせない。** あちらの `appmenu::refresh` は何もしないスタブなのに、
+    // `menus_refresh` は毎回**全プロジェクトの `project.json` を読み直す**（このマシンは
+    // 40 件）。復元するウィンドウの枚数だけ、起動直後のいちばん混む時間帯に空振りする。
+    { immediate: isMacHost },
   )
 
   async function loadGroups() {

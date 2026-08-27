@@ -1,8 +1,8 @@
 import { onMounted, onUnmounted } from 'vue'
 import { isMacHost } from '../lib/host'
-import { hasMod, normalizedKey } from '../lib/keys'
+import { hasMod, matchChord, normalizedKey } from '../lib/keys'
+import { KEY_BINDINGS, MODIFIERLESS_KEYS } from '../lib/shortcuts'
 import { useProjectStore } from '../stores/project'
-import { useTabStore } from '../stores/tabs'
 import { useAppActions } from './useAppActions'
 
 /**
@@ -74,154 +74,44 @@ export function pikeTakesCtrlKey(key: string, inAltScreen: boolean): boolean {
  * `useAppActions` に 1 本だけあるので、2 つの入口が食い違うことはない。
  */
 export function useKeyboardShortcuts() {
-  const tabStore = useTabStore()
   const projectStore = useProjectStore()
   const actions = useAppActions()
 
   function onKeyDown(e: KeyboardEvent) {
-    const key = normalizedKey(e)
-    const mod = hasMod(e)
-    // Block the WebView reload accelerators (Ctrl/Cmd+R, Shift too, F5). A stray
-    // reload tears down every PTY/terminal session, which looks like an app
-    // restart (issue #96). Vite HMR still reloads on file change during dev.
-    if ((mod && key === 'r') || key === 'F5') {
+    // WebView のリロードは常に潰す。踏むと全 PTY が落ちて再起動に見える（#96）。
+    // **修飾キーを問わない**ので表には載せない（`Ctrl+F5` も `Shift+F5` もリロード）。
+    if ((hasMod(e) && normalizedKey(e) === 'r') || e.key === 'F5') {
       e.preventDefault()
       return
     }
 
-    // F1: open the user manual
-    if (key === 'F1') {
+    // 修飾キーを 1 つも押していない打鍵は、`F1` を除いて表のどれとも一致しない。
+    // 本文の入力や矢印キーで下の走査を走らせないための門番。`e.ctrlKey` も見るのは、
+    // macOS の `Mod` が Cmd で、`Ctrl+Tab` 系がここで死ぬため。
+    if (!hasMod(e) && !e.ctrlKey && !e.altKey && !MODIFIERLESS_KEYS.has(e.key)) return
+
+    const overlayOpen = projectStore.showSwitcher || projectStore.showQuickOpen
+
+    for (const b of KEY_BINDINGS) {
+      if (overlayOpen && !b.always) continue
+      if (b.macOnly && !isMacHost) continue
+      if (!b.chords.some((c) => matchChord(e, c))) continue
       e.preventDefault()
-      actions.manual()
+      // action 無しは「ブラウザの既定を潰すだけ」（実処理は CodeMirror などの別の層）。
+      if (b.action) actions[b.action]()
       return
     }
+    if (overlayOpen) return
 
-    // `e.ctrlKey` も見る。macOS の `mod` は Cmd なので、これを落とすと下の
-    // Ctrl+Tab / Ctrl+PageUp / Ctrl+PageDown（mac でも Ctrl のまま）がここで死ぬ。
-    if (!mod && !e.ctrlKey && !e.altKey) return
-
-    // **ここから 2 つはオーバーレイの早期 return より前**（下の `showSwitcher` の行）。
-    // 通すアクションの一覧は `useAppActions` の `OVERLAY_ALLOWED_ACTIONS` が正本で、
-    // メニュー側はそちらを引く。増やすときは両方を直すこと。
-    // Mod+Shift+P: project switcher
-    if (mod && e.shiftKey && key === 'p') {
+    // `Mod+1`〜`Mod+9`: n 番目のタブへ。**表には載せない**（`AppActionId` を 9 個
+    // 太らせる割に、引数付きのアクションは表の型に載らない）。ただし**判定は
+    // `matchChord` を通す**: 手書きに戻すと、mac の Ctrl の扱いや配列フォールバックと
+    // いった chord の規則が数字キーにだけ届かなくなる。数字の解釈は action 側（`9` は
+    // 最後のタブ）。メニューにも載せない（Window メニューを 9 項目太らせるだけ）。
+    const digit = [...'123456789'].find((d) => matchChord(e, `Mod+${d}`))
+    if (digit) {
       e.preventDefault()
-      actions.projectSwitcher()
-      return
-    }
-
-    // Mod+P: quick open file
-    if (mod && !e.shiftKey && key === 'p') {
-      e.preventDefault()
-      actions.quickOpen()
-      return
-    }
-
-    // Don't handle shortcuts when the switcher or quick open is open
-    if (projectStore.showSwitcher || projectStore.showQuickOpen) return
-
-    // Mod+S: prevent browser save dialog (EditorTab handles save via CodeMirror)
-    if (mod && key === 's') {
-      e.preventDefault()
-      return
-    }
-
-    // Mod+F / Mod+H: prevent browser find dialog. The active view handles the
-    // shortcut itself (CodeMirror in the editor, a window listener in DiffTab).
-    if (mod && (key === 'f' || key === 'h')) {
-      e.preventDefault()
-      return
-    }
-
-    // Mod+W: close active tab（タブが無ければウィンドウ。判断は action 側に 1 本）
-    // Mod+Shift+W: close the window. macOS ではどちらもメニュー側が先に取るが、
-    // メニューバーを持たない Windows / Linux にキーが無いと、action 表の
-    // `closeWindow` が macOS 専用になってしまう。
-    if (mod && key === 'w') {
-      e.preventDefault()
-      if (e.shiftKey) actions.closeWindow()
-      else actions.closeTab()
-      return
-    }
-
-    // Mod+N: new blank editor tab
-    if (mod && key === 'n') {
-      e.preventDefault()
-      actions.newFile()
-      return
-    }
-
-    // Mod+T: new terminal tab
-    if (mod && key === 't') {
-      e.preventDefault()
-      actions.newTerminal()
-      return
-    }
-
-    // Mod+1〜9: n 番目のタブへ。メニューには載せない（Window メニューを 9 項目
-    // 太らせるだけになる）。数字の解釈は action 側。
-    if (mod && !e.shiftKey && key >= '1' && key <= '9') {
-      e.preventDefault()
-      actions.selectTabByDigit(key)
-      return
-    }
-
-    // Mod+Shift+] / Mod+Shift+[: cycle tabs. macOS ではネイティブメニューが握るので
-    // ここへは来ないが、Windows でも同じキーで動くように両方に置いてある。
-    // **`e.code` で見ること**: US 配列の `Shift+]` は `e.key` が `}` になる。
-    if (mod && e.shiftKey && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
-      e.preventDefault()
-      if (e.code === 'BracketRight') actions.nextTab()
-      else actions.prevTab()
-      return
-    }
-
-    // Ctrl+Tab / Ctrl+Shift+Tab: cycle tabs. Ctrl even on macOS — this is the
-    // browser/terminal convention there too, and Cmd+Tab belongs to the OS.
-    if (e.ctrlKey && key === 'Tab') {
-      e.preventDefault()
-      if (e.shiftKey) actions.prevTab()
-      else actions.nextTab()
-      return
-    }
-
-    // Ctrl+PageDown / Ctrl+PageUp: cycle tabs (VS Code compatible)
-    if (e.ctrlKey && (key === 'PageDown' || key === 'PageUp')) {
-      e.preventDefault()
-      if (key === 'PageDown') actions.nextTab()
-      else actions.prevTab()
-      return
-    }
-
-    // Mod+K: keyboard shortcuts modal.
-    // Not while a Markdown editor has focus: `markdownAssistKeymap` (#241) binds
-    // it to link insertion with `stopPropagation`, so the key never reaches here.
-    // That is also why Mod+K is *not* a macOS menu accelerator (#254) — a menu
-    // item would take the key before CodeMirror ever sees it.
-    if (mod && key === 'k') {
-      e.preventDefault()
-      actions.shortcuts()
-      return
-    }
-
-    // Mod+,: open settings tab
-    if (mod && key === ',') {
-      e.preventDefault()
-      actions.settings()
-      return
-    }
-
-    // Alt+H: open Git History (editor tabs only).
-    // `e.code` と `e.key` の両方を見る。macOS の Option+H は `e.key` が `˙`
-    // （合成用の記号）になるので `e.key` だけでは mac で一度も一致せず、`e.code` だけに
-    // すると物理配列を見ることになって Dvorak 等で H の位置が変わる（#254）。
-    if (e.altKey && (e.code === 'KeyH' || key === 'h')) {
-      const active = tabStore.activeTab
-      if (active?.kind === 'editor') {
-        e.preventDefault()
-        tabStore.addHistoryTab({ filePath: active.path })
-      }
-      return
+      actions.selectTabByDigit(digit)
     }
   }
 

@@ -544,12 +544,19 @@ export default {
   'search.truncated': '結果を切り捨てました (最大500件)',
 
   // Keyboard Shortcuts Modal
+  // macOS のメニューバーの項目（#254）。**既定はショートカット一覧と同じ語**（`shortcuts.*`）を
+  // 使い、mac のメニューの作法で違う語が要るものだけをここに置く。三点リーダは「押すと
+  // 画面が出る」の合図。写しを作ると、同じ操作がメニューと一覧で別の名前になる。
+  'menu.settings': '設定…',
+  'menu.quit': 'Pike を終了',
+  'menu.quickOpen': 'コマンドパレット…',
+  'menu.projectSwitcher': 'プロジェクト切替…',
   'shortcuts.title': 'キーボードショートカット',
   'shortcuts.general': '一般',
   'shortcuts.tabs': 'タブ',
   'shortcuts.editor': 'エディタ',
   'shortcuts.terminal': 'ターミナル',
-  'shortcuts.quickOpen': 'クイックオープン',
+  'shortcuts.quickOpen': 'コマンドパレット',
   'shortcuts.projectSwitcher': 'プロジェクト切替',
   'shortcuts.keyboardShortcuts': 'キーボードショートカット',
   'shortcuts.settings': '設定',

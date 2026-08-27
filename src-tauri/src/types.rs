@@ -660,6 +660,28 @@ pub struct MenuShell {
     pub label: String,
 }
 
+/// macOS のメニューに並べる Pike 固有の項目 1 つ分（#254）。
+///
+/// ラベルはフロントの i18n、アクセラレータは `lib/shortcuts.ts` の `KEY_BINDINGS` に
+/// あって、どちらも Rust からは読めない。**Rust に写しを持たせない**ために
+/// `menus_refresh` の引数として受け取る（`MenuShell` と同じ理由・同じ経路）。
+/// 写しを持っていたころは、同じ操作がメニューとショートカット一覧で別の名前で
+/// 呼ばれていた（「コマンドパレット」対「クイックオープン」など 5 件）。
+///
+/// メニューの構造（サブメニュー・区切り・predefined 項目）は Rust 側が持つ。
+/// あれは AppKit の作法であってフロントの持ち物ではない。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuAction {
+    /// フロントの `AppActionId`。`pike://menu` の payload としてそのまま返る。
+    pub id: String,
+    /// 表示ラベル（UI 言語のもの）
+    pub label: String,
+    /// Tauri のアクセラレータ表記（`Cmd+T`）。無しの項目もある（`Cmd+K` 等、
+    /// WebView 側の層が握るキーはメニューに載せてはいけない）
+    pub accelerator: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

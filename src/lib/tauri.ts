@@ -16,7 +16,7 @@ import type {
 } from '../types/git'
 import type { ProjectConfig } from '../types/project'
 import type { SearchBackend, SearchResult } from '../types/search'
-import type { MenuShell, ShellType } from '../types/tab'
+import type { MenuAction, MenuShell, ShellType } from '../types/tab'
 
 // invoke の唯一のチョークポイント。E2E 撮影ビルド (#142) では、パネルへ決定的な
 // ダミーデータを与えるため window.__wdio_mocks__（@wdio/tauri-service が
@@ -201,10 +201,12 @@ export async function projectTransientDrop(id: string): Promise<void> {
  * system-tray menu (#161). `lang` is the current UI locale so labels follow it.
  * Reads the project list once on the Rust side and feeds both. `shells` is the
  * visible shell list — both menus offer one terminal entry per shell (#240).
+ * `actions` is the macOS menu bar spec (#254): labels come from the frontend i18n
+ * and accelerators from `KEY_BINDINGS`, so Rust keeps no copy of either.
  * Best-effort — never blocks project operations if a menu can't be built.
  */
-export async function menusRefresh(lang: string, shells: MenuShell[]): Promise<void> {
-  return invoke('menus_refresh', { lang, shells })
+export async function menusRefresh(lang: string, shells: MenuShell[], actions: MenuAction[]): Promise<void> {
+  return invoke('menus_refresh', { lang, shells, actions })
 }
 
 /**

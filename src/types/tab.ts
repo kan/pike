@@ -76,6 +76,18 @@ export interface MenuShell {
   label: string
 }
 
+/**
+ * macOS のメニューバーに載せる 1 項目（#254、Rust の `types::MenuAction`）。
+ * `MenuShell` と同じ `menusRefresh` の引数で、同じ理由（ラベルは i18n、キーは
+ * `lib/shortcuts.ts` の表にあって Rust から読めない）でフロントが渡す。
+ * `id` はフロントの `AppActionId` で、押されるとそのまま `pike://menu` の payload で返る。
+ */
+export interface MenuAction {
+  id: string
+  label: string
+  accelerator: string | null
+}
+
 /** Dropdown label: matches WINDOWS_SHELLS naming (not the short shellLabel form). */
 export function shellProfileLabel(shell: ShellType): string {
   if (shell.kind === 'wsl') return `WSL (${shell.distro})`

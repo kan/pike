@@ -41,6 +41,8 @@ use tauri::menu::{
 };
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
+use crate::types::MenuAction;
+
 /// Pike 固有の項目に付ける id の接頭辞。グローバルの menu-event リスナには
 /// **トレイのメニュー項目も届く**ので、これで自分のぶんだけを拾う。
 const PREFIX: &str = "menu:";
@@ -55,7 +57,7 @@ const EVENT: &str = "pike://menu";
 /// （ウィンドウの枚数だけ独立に）。素直に作り直すと、プロジェクトを切り替えるたびに
 /// メニューバー全体を組み直して main スレッドで `NSMenu` を差し替えることになる。
 /// jump list が署名を比べて `CommitList` を省くのと同じ考え方。
-static LAST_LANG: Mutex<Option<String>> = Mutex::new(None);
+static LAST_SIG: Mutex<Option<String>> = Mutex::new(None);
 
 struct Labels {
     file: &'static str,
@@ -63,20 +65,12 @@ struct Labels {
     view: &'static str,
     window: &'static str,
     help: &'static str,
-    settings: &'static str,
-    new_terminal: &'static str,
-    new_file: &'static str,
-    close_tab: &'static str,
-    close_window: &'static str,
-    quick_open: &'static str,
-    project_switcher: &'static str,
-    next_tab: &'static str,
-    prev_tab: &'static str,
-    manual: &'static str,
-    shortcuts: &'static str,
-    quit: &'static str,
 }
 
+/// **サブメニューの見出しだけ**を持つ。項目のラベルはフロントの i18n が正本で、
+/// `MenuAction` として渡ってくる（`types::MenuAction`）。見出しがここに残るのは、
+/// AppKit のメニュー構造そのものが Rust 側の持ち物で、フロントに対応する語彙が
+/// 無いため（tray / jumplist と同じく 5 語だけ言語別に持つ）。
 fn labels(lang: &str) -> Labels {
     if lang.starts_with("ja") {
         Labels {
@@ -85,18 +79,6 @@ fn labels(lang: &str) -> Labels {
             view: "表示",
             window: "ウィンドウ",
             help: "ヘルプ",
-            settings: "設定…",
-            new_terminal: "新規ターミナル",
-            new_file: "新規ファイル",
-            close_tab: "タブを閉じる",
-            close_window: "ウィンドウを閉じる",
-            quick_open: "コマンドパレット",
-            project_switcher: "プロジェクトスイッチャー",
-            next_tab: "次のタブ",
-            prev_tab: "前のタブ",
-            manual: "マニュアル",
-            shortcuts: "キーボードショートカット",
-            quit: "Pike を終了",
         }
     } else {
         Labels {
@@ -105,36 +87,7 @@ fn labels(lang: &str) -> Labels {
             view: "View",
             window: "Window",
             help: "Help",
-            settings: "Settings…",
-            new_terminal: "New Terminal",
-            new_file: "New File",
-            close_tab: "Close Tab",
-            close_window: "Close Window",
-            quick_open: "Command Palette",
-            project_switcher: "Project Switcher",
-            next_tab: "Next Tab",
-            prev_tab: "Previous Tab",
-            manual: "Manual",
-            shortcuts: "Keyboard Shortcuts",
-            quit: "Quit Pike",
         }
-    }
-}
-
-/// メニューを作って設定する。setup で 1 回（そのときはまだ UI 言語が分からないので
-/// 英語。mount 後のフロントの `menus_refresh(locale)` が作り直す。トレイと同じ）、
-/// 以後は UI 言語が変わったときに `menus_refresh` から。同じ言語での呼び直しは
-/// `LAST_LANG` が弾く。
-pub fn refresh(app: &AppHandle, lang: &str) {
-    if LAST_LANG.lock().unwrap().as_deref() == Some(lang) {
-        return;
-    }
-    // **記録は成功したあと。** 先に書くと、setup での 1 回目が失敗したときに
-    // mount 後の `menus_refresh` が早期 return し、Tauri の既定メニュー（＝
-    // このモジュールが防いでいる `Close Window ⌘W`）のまま二度と直らない。
-    match build_menu(app, lang).and_then(|menu| app.set_menu(menu)) {
-        Ok(_) => *LAST_LANG.lock().unwrap() = Some(lang.to_string()),
-        Err(e) => log::warn!("[appmenu] failed to install menu: {e}"),
     }
 }
 
@@ -173,37 +126,82 @@ pub fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     let _ = app.emit_to("main", EVENT, action);
 }
 
-fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
+/// メニューを作って設定する。
+///
+/// setup で 1 回呼ぶが、そのときはまだ項目が無い（ラベルもキーもフロントの持ち物で、
+/// mount 前には受け取れない）ので、**サブメニューの見出しと predefined 項目だけ**の
+/// メニューになる。mount 後の `menus_refresh` が中身つきで作り直す。
+/// 同じ内容での呼び直しは `LAST_SIG` が弾く。
+pub fn refresh(app: &AppHandle, lang: &str, actions: &[MenuAction]) {
+    // 同じ内容での作り直しを弾く。`set_menu` は `NSApp.mainMenu` を丸ごと張り替えるので、
+    // `menus_refresh` が開いているウィンドウの数だけ飛んでくる状況（プロジェクト切替の
+    // たびに `lastOpened` が動く）で毎回やると、そのぶんメニューバーが作り直される。
+    let sig = signature(lang, actions);
+    if LAST_SIG.lock().unwrap().as_deref() == Some(sig.as_str()) {
+        return;
+    }
+    // **記録は成功したあと。** 先に書くと、setup での 1 回目が失敗したときに
+    // mount 後の `menus_refresh` が早期 return し、Tauri の既定メニュー（＝
+    // このモジュールが防いでいる `Close Window ⌘W`）のまま二度と直らない。
+    match build_menu(app, lang, actions).and_then(|menu| app.set_menu(menu)) {
+        Ok(_) => *LAST_SIG.lock().unwrap() = Some(sig),
+        Err(e) => log::warn!("[appmenu] failed to install menu: {e}"),
+    }
+}
+
+/// 作り直しの要否を決める鍵。言語と、全項目の id / ラベル / アクセラレータ。
+fn signature(lang: &str, actions: &[MenuAction]) -> String {
+    let mut out = String::from(lang);
+    for a in actions {
+        out.push('\u{1f}');
+        out.push_str(&a.id);
+        out.push('\u{1f}');
+        out.push_str(&a.label);
+        out.push('\u{1f}');
+        out.push_str(a.accelerator.as_deref().unwrap_or(""));
+    }
+    out
+}
+
+fn build_menu(app: &AppHandle, lang: &str, actions: &[MenuAction]) -> tauri::Result<Menu<Wry>> {
     let l = labels(lang);
+    // Pike 固有の項目はフロントが渡した spec から作る。渡って来ていない id は
+    // **項目ごと出さない**（起動直後のブートストラップがこれ。mount 後の
+    // `menus_refresh` が一覧つきで作り直す）。ラベルを Rust 側に持って埋めると、
+    // 写しが増えて i18n とずれる（このモジュールが解こうとしている問題そのもの）。
+    let find = |id: &str| actions.iter().find(|a| a.id == id);
 
     // 先頭のサブメニューが macOS のアプリケーションメニューになる。
-    let app_menu = SubmenuBuilder::new(app, "Pike")
-        .item(&PredefinedMenuItem::about(app, None, Some(AboutMetadata::default()))?)
-        .separator()
-        .item(&item(app, "settings", l.settings, Some("Cmd+,"))?)
+    let mut app_menu = SubmenuBuilder::new(app, "Pike")
+        .item(&PredefinedMenuItem::about(
+            app,
+            None,
+            Some(AboutMetadata::default()),
+        )?)
+        .separator();
+    app_menu = push(app, app_menu, find("settings"))?;
+    app_menu = app_menu
         .separator()
         .services()
         .separator()
         .hide()
         .hide_others()
         .show_all()
-        .separator()
-        // predefined の `quit()` は即座に終了する。走っているコマンドがあれば確認を
-        // 挟みたいので（#178。閉じる経路と同じ確認）、フロントへ回す項目にする。
-        .item(&item(app, "quit", l.quit, Some("Cmd+Q"))?)
-        .build()?;
+        .separator();
+    // predefined の `quit()` は即座に終了する。走っているコマンドがあれば確認を
+    // 挟みたいので（#178。閉じる経路と同じ確認）、フロントへ回す項目にする。
+    app_menu = push(app, app_menu, find("quit"))?;
 
-    let file_menu = SubmenuBuilder::new(app, l.file)
-        .item(&item(app, "newTerminal", l.new_terminal, Some("Cmd+T"))?)
-        .item(&item(app, "newFile", l.new_file, Some("Cmd+N"))?)
-        .separator()
-        // どちらも predefined を使えない: `close_window` のアクセラレータは
-        // `Cmd+W` 固定で動かせず、Pike の閉じる経路（close-to-tray・実行中
-        // ターミナルの確認）も通らない。フロントの `getCurrentWindow().close()`
-        // に寄せて、既存の CloseRequested の分岐をそのまま使う。
-        .item(&item(app, "closeTab", l.close_tab, Some("Cmd+W"))?)
-        .item(&item(app, "closeWindow", l.close_window, Some("Shift+Cmd+W"))?)
-        .build()?;
+    let mut file_menu = SubmenuBuilder::new(app, l.file);
+    file_menu = push(app, file_menu, find("newTerminal"))?;
+    file_menu = push(app, file_menu, find("newFile"))?;
+    file_menu = file_menu.separator();
+    // どちらも predefined を使えない: `close_window` のアクセラレータは
+    // `Cmd+W` 固定で動かせず、Pike の閉じる経路（close-to-tray・実行中
+    // ターミナルの確認）も通らない。フロントの `getCurrentWindow().close()`
+    // に寄せて、既存の CloseRequested の分岐をそのまま使う。
+    file_menu = push(app, file_menu, find("closeTab"))?;
+    file_menu = push(app, file_menu, find("closeWindow"))?;
 
     let edit_menu = SubmenuBuilder::new(app, l.edit)
         .undo()
@@ -215,42 +213,50 @@ fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
         .select_all()
         .build()?;
 
-    let view_menu = SubmenuBuilder::new(app, l.view)
-        .item(&item(app, "quickOpen", l.quick_open, Some("Cmd+P"))?)
-        .item(&item(app, "projectSwitcher", l.project_switcher, Some("Shift+Cmd+P"))?)
-        .build()?;
+    let mut view_menu = SubmenuBuilder::new(app, l.view);
+    view_menu = push(app, view_menu, find("quickOpen"))?;
+    view_menu = push(app, view_menu, find("projectSwitcher"))?;
 
-    let window_menu = SubmenuBuilder::new(app, l.window)
-        .minimize()
+    let mut window_menu = SubmenuBuilder::new(app, l.window).minimize().separator();
+    window_menu = push(app, window_menu, find("nextTab"))?;
+    window_menu = push(app, window_menu, find("prevTab"))?;
+    window_menu = window_menu
         .separator()
-        .item(&item(app, "nextTab", l.next_tab, Some("Shift+Cmd+]"))?)
-        .item(&item(app, "prevTab", l.prev_tab, Some("Shift+Cmd+["))?)
-        .separator()
-        .item(&PredefinedMenuItem::bring_all_to_front(app, None)?)
-        .build()?;
+        .item(&PredefinedMenuItem::bring_all_to_front(app, None)?);
 
     // マニュアルとショートカット一覧はアクセラレータを持たない。前者は F1、
     // 後者は Cmd+K で、どちらも WebView 側の層が握っている（モジュール冒頭）。
-    let help_menu = SubmenuBuilder::new(app, l.help)
-        .item(&item(app, "manual", l.manual, None)?)
-        .item(&item(app, "shortcuts", l.shortcuts, None)?)
-        .build()?;
+    // フロントは `accelerator: null` で渡してくる。
+    let mut help_menu = SubmenuBuilder::new(app, l.help);
+    help_menu = push(app, help_menu, find("manual"))?;
+    help_menu = push(app, help_menu, find("shortcuts"))?;
+
+    let app_menu = app_menu.build()?;
+    let file_menu = file_menu.build()?;
+    let view_menu = view_menu.build()?;
+    let window_menu = window_menu.build()?;
+    let help_menu = help_menu.build()?;
 
     MenuBuilder::new(app)
         .items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
         .build()
 }
 
-/// Pike 固有の項目。`action` は `AppActionId` の綴りをそのまま渡す（モジュール冒頭）。
-fn item(
-    app: &AppHandle,
-    action: &str,
-    text: &str,
-    accelerator: Option<&str>,
-) -> tauri::Result<tauri::menu::MenuItem<Wry>> {
-    let mut builder = MenuItemBuilder::with_id(format!("{PREFIX}{action}"), text);
-    if let Some(accel) = accelerator {
-        builder = builder.accelerator(accel);
+/// Pike 固有の項目を 1 つ足す。spec が無ければ**何も足さない**。
+///
+/// id はフロントの `AppActionId` に接頭辞を付けたもので、`on_menu_event` が同じ
+/// 接頭辞を剥がして payload に戻す。
+fn push<'m>(
+    app: &'m AppHandle,
+    builder: SubmenuBuilder<'m, Wry, AppHandle>,
+    action: Option<&MenuAction>,
+) -> tauri::Result<SubmenuBuilder<'m, Wry, AppHandle>> {
+    let Some(a) = action else {
+        return Ok(builder);
+    };
+    let mut item = MenuItemBuilder::with_id(format!("{PREFIX}{}", a.id), &a.label);
+    if let Some(accel) = &a.accelerator {
+        item = item.accelerator(accel);
     }
-    builder.build(app)
+    Ok(builder.item(&item.build(app)?))
 }

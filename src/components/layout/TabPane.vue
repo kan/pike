@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onUnmounted, ref, useTemplateRef } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
+import { useAppActions } from '../../composables/useAppActions'
 import { openFileTarget } from '../../composables/useCliOpen'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
@@ -43,7 +44,7 @@ import {
 } from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
-import { chordLabel } from '../../lib/keys'
+import { actionChord } from '../../lib/shortcuts'
 import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
@@ -96,15 +97,10 @@ function onTitleHover(e: MouseEvent) {
   else el.removeAttribute('title')
 }
 
-function addTab(shellOverride?: ShellType) {
-  if (globalMode.value) {
-    // Project-independent window: "+" opens the configured default shell
-    tabStore.addTerminalTab({ shell: shellOverride ?? settings.globalShell })
-    return
-  }
-  const project = projectStore.currentProject
-  tabStore.addTerminalTab(project ? { cwd: project.root, shell: shellOverride ?? project.shell } : undefined)
-}
+// シェルの決め方（グローバルモードの `globalShell` / プロジェクトの既定）は
+// `useAppActions` の `openTerminal` が持つ（#254）。`Ctrl+T` と macOS の
+// File ▸ New Terminal と同じ 1 本を通す。
+const { openTerminal } = useAppActions()
 
 // Shell dropdown: Windows projects offer the Windows shells; global-mode
 // windows additionally offer every detected WSL distro. Order and visibility
@@ -176,7 +172,7 @@ function closeShellMenu() {
 }
 
 function addTabWithShell(shell: ShellType) {
-  addTab(shell)
+  openTerminal(shell)
   closeShellMenu()
 }
 
@@ -452,7 +448,7 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="tab-add-group">
-        <button class="tab-add" :title="t('tabs.newTerminal', { key: chordLabel('Mod+T') })" @click="addTab()"><Plus :size="16" :stroke-width="2" /></button>
+        <button class="tab-add" :title="t('tabs.newTerminal', { key: actionChord('newTerminal') })" @click="openTerminal()"><Plus :size="16" :stroke-width="2" /></button>
         <button
           v-if="isWindows || globalMode"
           class="tab-add-arrow"
@@ -481,11 +477,11 @@ onUnmounted(() => {
           <div class="shell-menu-divider" />
           <button @click="menuOpenShortcuts">
             <span>{{ t('sidebar.keyboardShortcuts') }}</span>
-            <span class="ctx-key">{{ chordLabel('Mod+K') }}</span>
+            <span class="ctx-key">{{ actionChord('shortcuts') }}</span>
           </button>
           <button @click="menuOpenSettings">
             <span>{{ t('sidebar.settings') }}</span>
-            <span class="ctx-key">{{ chordLabel('Mod+,') }}</span>
+            <span class="ctx-key">{{ actionChord('settings') }}</span>
           </button>
           <button @click="menuOpenManual">
             <span>{{ t('sidebar.manual') }}</span>
@@ -565,10 +561,10 @@ onUnmounted(() => {
       <!-- Empty state -->
       <div v-if="tabStore.tabs.length === 0" class="empty-state">
         <template v-if="projectStore.currentProject">
-          {{ t('app.emptyTerminal', { key: chordLabel('Mod+T') }) }}
+          {{ t('app.emptyTerminal', { key: actionChord('newTerminal') }) }}
         </template>
         <template v-else>
-          {{ t('app.emptyProject', { key: chordLabel('Mod+Shift+P') }) }}
+          {{ t('app.emptyProject', { key: actionChord('projectSwitcher') }) }}
         </template>
       </div>
     </div>
@@ -603,7 +599,7 @@ onUnmounted(() => {
         v-if="!contextTab.pinned"
         @click="tabStore.closeTab(contextMenu!.tabId!); closeContextMenu()"
       >
-        <span>{{ t('tabs.closeTab') }}</span><span class="ctx-key">{{ chordLabel('Mod+W') }}</span>
+        <span>{{ t('tabs.closeTab') }}</span><span class="ctx-key">{{ actionChord('closeTab') }}</span>
       </button>
       <div class="context-menu-separator" />
       <button @click="tabStore.closeOtherTabs(contextMenu!.tabId!); closeContextMenu()">
@@ -627,7 +623,7 @@ onUnmounted(() => {
           v-if="contextTab.kind === 'editor'"
           @click="openGitHistory()"
         >
-          <span>{{ t('tabs.gitHistory') }}</span><span class="ctx-key">{{ chordLabel('Alt+H') }}</span>
+          <span>{{ t('tabs.gitHistory') }}</span><span class="ctx-key">{{ actionChord('gitHistory') }}</span>
         </button>
       </template>
     </div>
@@ -640,10 +636,10 @@ onUnmounted(() => {
       @mousedown.stop
     >
       <button @click="tabStore.addBlankEditorTab(); closeContextMenu()">
-        <span>{{ t('tabs.newEditor') }}</span><span class="ctx-key">{{ chordLabel('Mod+N') }}</span>
+        <span>{{ t('tabs.newEditor') }}</span><span class="ctx-key">{{ actionChord('newFile') }}</span>
       </button>
-      <button @click="addTab(); closeContextMenu()">
-        <span>{{ t('tabs.newTerminalShort') }}</span><span class="ctx-key">{{ chordLabel('Mod+T') }}</span>
+      <button @click="openTerminal(); closeContextMenu()">
+        <span>{{ t('tabs.newTerminalShort') }}</span><span class="ctx-key">{{ actionChord('newTerminal') }}</span>
       </button>
       <template v-if="tabStore.tabs.length > 0">
         <div class="context-menu-separator" />

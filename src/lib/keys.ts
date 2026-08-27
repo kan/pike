@@ -91,3 +91,74 @@ export function chordChips(chord: string): string[] {
 export function chordLabel(chord: string): string {
   return chordChips(chord).join(isMacHost ? '' : '+')
 }
+
+/**
+ * `'Mod+Shift+P'` のような表記と、実際の打鍵が一致するか（#254）。
+ *
+ * これがあるおかげで、chord は**表記・判定・macOS のメニューのアクセラレータの
+ * 3 つで同じ文字列**になる。以前は `key === 'p' && e.shiftKey` のような条件と
+ * `'Mod+Shift+P'` というリテラルが別々に書かれていた。
+ *
+ * 規則が 2 つある。
+ *
+ * - **chord に書いていない修飾キーは押されていないことを求める**（`Mod+P` は
+ *   `Mod+Shift+P` に一致しない）
+ * - **`Ctrl` は macOS でだけ `Mod` と別物**。Windows / Linux では同じキーなので、
+ *   `Ctrl+Tab` は `Mod+Tab` と同じものとして照合する（表記側の `chordChips` が
+ *   `Mod` を `Ctrl` と書くのと対）
+ */
+export function matchChord(e: KeyboardEvent, chord: string): boolean {
+  const parts = chord.split('+')
+  const key = parts.pop() || '+'
+  const has = (name: string) => parts.some((p) => p.toLowerCase() === name)
+
+  if (hasMod(e) !== (has('mod') || (!isMacHost && has('ctrl')))) return false
+  // mac でだけ Ctrl は独立した修飾キー。他では上の行が見た `Mod` と同じキーなので、
+  // ここで二重に見ると常に成り立つ条件を 1 本増やすだけになる。
+  if (isMacHost && e.ctrlKey !== has('ctrl')) return false
+  if (e.shiftKey !== has('shift')) return false
+  if (e.altKey !== has('alt')) return false
+
+  // **打った文字を先に見る。** 配列を尊重するのが本筋で、`e.code`（物理キー）を
+  // 先に見ると配列を替えている人が取り違えを踏む。Dvorak では `,` の物理キーが
+  // `KeyW` なので、`e.code` 優先だと `Ctrl+,`（設定）が `Mod+W`（タブを閉じる）に
+  // 一致して、設定を開いたつもりでタブが閉じる。
+  if (normalizedKey(e) === (key.length === 1 ? key.toLowerCase() : key)) return true
+
+  // `e.key` では届かない場合が 2 つある。macOS の Option は `e.key` を別の文字に
+  // 変え（`⌥H` は `˙`）、US 配列の `Shift+]` は `}` になる。どちらも「打った文字」が
+  // chord の綴りと一致しようがないので、そのときだけ物理キーに落ちる。
+  const code = KEY_CODES[key.toLowerCase()] ?? null
+  return code !== null && e.code === code
+}
+
+/** `matchChord` が物理キーに落ちるときの対応（英数字と、chord に出る記号）。 */
+const KEY_CODES: Record<string, string> = {
+  ']': 'BracketRight',
+  '[': 'BracketLeft',
+  ',': 'Comma',
+  ...Object.fromEntries(Array.from('abcdefghijklmnopqrstuvwxyz', (c) => [c, `Key${c.toUpperCase()}`])),
+  ...Object.fromEntries(Array.from('0123456789', (d) => [d, `Digit${d}`])),
+}
+
+/** 修飾キーを並べる順（Apple の Human Interface Guidelines）。表記と Tauri のアクセラレータで共有する。 */
+const MOD_ORDER = ['Ctrl', 'Alt', 'Shift', 'Mod']
+
+/**
+ * `'Mod+Shift+]'` を Tauri（muda）のアクセラレータ表記 `'Shift+Cmd+]'` にする。
+ *
+ * **`chordChips` の隣に置く。** どちらも「chord 文字列を 1 つの表現に変える」もので、
+ * 修飾キーの並び順という同じ知識を使う。別のファイルに置くと、修飾キーを足したときに
+ * 直す順序表が 2 つに分かれる（型検査もテストも鳴らない）。
+ *
+ * 使うのは macOS のメニューだけなので `Mod` は常に `Cmd`。
+ */
+export function toAccelerator(chord: string): string {
+  const parts = chord.split('+')
+  const key = parts.pop() || '+'
+  const mods = parts
+    .slice()
+    .sort((a, b) => MOD_ORDER.indexOf(a) - MOD_ORDER.indexOf(b))
+    .map((p) => (p.toLowerCase() === 'mod' ? 'Cmd' : p))
+  return [...mods, key].join('+')
+}

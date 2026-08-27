@@ -1,13 +1,9 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { onMounted } from 'vue'
 import { isMacHost } from '../lib/host'
+import { type AppActionId, OVERLAY_ALLOWED_ACTIONS } from '../lib/shortcuts'
 import { useProjectStore } from '../stores/project'
-import { type AppActionId, OVERLAY_ALLOWED_ACTIONS, useAppActions } from './useAppActions'
-
-/**
- * パレット・スイッチャーが開いているあいだも通すアクション。`useKeyboardShortcuts`
- * が同じ 2 つを早期 return の前に置いているのと対。
- */
+import { useAppActions } from './useAppActions'
 
 /**
  * macOS のメニューバーからの操作を受ける（#254）。

@@ -6,7 +6,12 @@ mod agent;
 mod appmenu;
 #[cfg(not(target_os = "macos"))]
 mod appmenu {
-    pub fn refresh(_app: &tauri::AppHandle, _lang: &str) {}
+    pub fn refresh(
+        _app: &tauri::AppHandle,
+        _lang: &str,
+        _actions: &[crate::types::MenuAction],
+    ) {
+    }
     pub fn on_menu_event(_app: &tauri::AppHandle, _event: tauri::menu::MenuEvent) {}
 }
 mod claude_usage;
@@ -623,6 +628,7 @@ async fn menus_refresh(
     app: AppHandle,
     lang: String,
     shells: Vec<types::MenuShell>,
+    actions: Vec<types::MenuAction>,
 ) -> Result<(), String> {
     let projects = app
         .try_state::<project::ProjectState>()
@@ -634,9 +640,9 @@ async fn menus_refresh(
     // ハングさせた経路には該当しない。ここに重い処理を足すときは jumplist と同じく
     // 専用スレッドへ逃がすこと。
     tray::refresh(&app, &lang, &projects, &shells);
-    // macOS のメニューバーも UI 言語に追従させる（#254）。プロジェクト一覧には
-    // 依存しないが、ロケールを運ぶ経路がここしかない。
-    appmenu::refresh(&app, &lang);
+    // macOS のメニューバー（#254）。ラベルもアクセラレータもフロントの持ち物なので
+    // `actions` で受け取る（`MenuShell` と同じ理由）。
+    appmenu::refresh(&app, &lang, &actions);
     Ok(())
 }
 
@@ -1233,7 +1239,7 @@ pub fn run() {
             // macOS のアプリケーションメニュー（#254）。これを設定しないと Tauri の
             // 既定メニューが付き、`Cmd+W` がタブではなくウィンドウを閉じる。
             // UI 言語が分かるのは mount 後なので、まず英語で置く。
-            appmenu::refresh(app.handle(), "en");
+            appmenu::refresh(app.handle(), "en", &[]);
 
             // System-tray icon (issue #161): quick-launch menu + close-to-tray
             // restore. Non-fatal if it can't be created.

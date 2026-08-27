@@ -545,12 +545,18 @@ export default {
   'search.truncated': 'Results truncated (max 500)',
 
   // Keyboard Shortcuts Modal
+  // macOS menu bar items (#254). Only the ones whose wording differs from the
+  // shortcut list; everything else falls back to `shortcuts.*` (see `menuLabel`).
+  'menu.settings': 'Settings…',
+  'menu.quit': 'Quit Pike',
+  'menu.quickOpen': 'Command Palette…',
+  'menu.projectSwitcher': 'Project Switcher…',
   'shortcuts.title': 'Keyboard Shortcuts',
   'shortcuts.general': 'General',
   'shortcuts.tabs': 'Tabs',
   'shortcuts.editor': 'Editor',
   'shortcuts.terminal': 'Terminal',
-  'shortcuts.quickOpen': 'Quick Open File',
+  'shortcuts.quickOpen': 'Command Palette',
   'shortcuts.projectSwitcher': 'Project Switcher',
   'shortcuts.keyboardShortcuts': 'Keyboard Shortcuts',
   'shortcuts.settings': 'Settings',

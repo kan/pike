@@ -125,7 +125,7 @@ key equivalent は AppKit が WebView へ渡す前に処理するので、`windo
   `menu:` の接頭辞で自分のぶんだけを拾う
 - 修飾キーの読み替えは **`src/lib/keys.ts` の `hasMod`**（mac は `metaKey`、他は
   `ctrlKey`）。`e.ctrlKey` の直書きを増やさないこと
-- **macOS では Ctrl+英字を奪わない**（`MAC_SHELL_CTRL_KEYS`）。`PIKE_FIRST_CTRL_KEYS`
+- **macOS では Ctrl+英字を奪わない**（`MAC_PIKE_FIRST_KEYS`）。`PIKE_FIRST_CTRL_KEYS`
   （#224）の取り合いは Ctrl を Pike とシェルで分け合う Windows / Linux の事情で、mac の
   Ctrl は readline（`Ctrl+W` = unix-werase、`Ctrl+T` = transpose）のもの。**ただし
   `Tab` / `PageUp` / `PageDown` は返さない**: mac でもタブ切替のキーで、xterm は
@@ -134,6 +134,14 @@ key equivalent は AppKit が WebView へ渡す前に処理するので、`windo
 - **グローバルの keydown ハンドラの早期 return に `e.ctrlKey` を残すこと。** mac の
   `hasMod` は Cmd なので、`if (!mod && !e.altKey) return` と書くと Ctrl+Tab 系が
   そこで死ぬ（キーの一覧より前に落ちるので、原因が見えない）
+- **キーの割り当ての正本は `src/lib/shortcuts.ts` の `KEY_BINDINGS`。** chord は
+  `'Mod+Shift+P'` の表記で書き、判定（`matchChord`）・一覧の表記（`chordChips`）・
+  macOS のメニューのアクセラレータ（`menuActions()` → `menusRefresh`）が同じ文字列を読む。
+  **リテラルを増やさないこと**: 以前は 4 箇所に書かれていて型検査も効かず、導入直後に
+  既に 1 件ずれていた（実装は全 OS で受ける `Mod+Shift+]` を、一覧が mac だけに出していた）
+- **メニューの項目名も Rust に写しを持たせない。** ラベルは `menu.*` の i18n が正本で、
+  `MenuAction` として渡す。Rust が持つのはサブメニューの見出し 5 語と、メニューの構造
+  （AppKit の作法なのでフロントに語彙が無い）だけ
 
 **macOS のコードは CI の `Check (macOS)` ジョブでしか型検査されない。** Windows 側のジョブは
 `cfg` に阻まれて `appmenu` を 1 行も見ないので、このジョブを足すまでは壊れていることに

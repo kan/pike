@@ -4,6 +4,7 @@ import { useShortcutsModal } from '../composables/useShortcutsModal'
 import { useI18n } from '../i18n'
 import { isMacHost } from '../lib/host'
 import { chordChips } from '../lib/keys'
+import { chordsFor } from '../lib/shortcuts'
 
 const { t } = useI18n()
 const { visible } = useShortcutsModal()
@@ -30,34 +31,40 @@ interface ShortcutSection {
 /**
  * 表記は `Mod+` で書く。**`Ctrl+` と直接書いてよいのは、mac でも Ctrl のままの
  * キーだけ**（`Ctrl+Tab` 等）。`chordChips` が mac では `⌘` に読み替える。
+ *
+ * **グローバル層のキーはリテラルで書かない。** `chordsFor(id)` で
+ * `lib/shortcuts.ts` の表（`KEY_BINDINGS`）から引く。あちらが割り当ての正本で、
+ * 実装・この一覧・macOS のメニューが同じ文字列を見る（#254）。リテラルのままだった
+ * ころは、実装が全 OS で受ける `Mod+Shift+]` を一覧が mac だけに出していた。
+ * 他の層（CodeMirror・xterm・画像ビューワ）はここに表を持たないのでリテラルのまま。
  */
 
 const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.general'),
     items: [
-      { keys: ['Mod+P'], label: t('shortcuts.quickOpen') },
-      { keys: ['Mod+Shift+P'], label: t('shortcuts.projectSwitcher') },
+      { keys: chordsFor('quickOpen'), label: t('shortcuts.quickOpen') },
+      { keys: chordsFor('projectSwitcher'), label: t('shortcuts.projectSwitcher') },
       { keys: ['Mod+Enter'], label: t('shortcuts.openInNewWindow') },
-      { keys: ['Mod+K'], label: t('shortcuts.keyboardShortcuts') },
-      { keys: ['Mod+,'], label: t('shortcuts.settings') },
-      { keys: ['F1'], label: t('shortcuts.manual') },
+      { keys: chordsFor('shortcuts'), label: t('shortcuts.keyboardShortcuts') },
+      { keys: chordsFor('settings'), label: t('shortcuts.settings') },
+      { keys: chordsFor('manual'), label: t('shortcuts.manual') },
       { keys: ['Esc'], label: t('shortcuts.closeOverlay') },
     ],
   },
   {
     title: t('shortcuts.tabs'),
     items: [
-      { keys: ['Mod+N'], label: t('shortcuts.newFile') },
-      { keys: ['Mod+T'], label: t('shortcuts.newTerminal') },
-      { keys: ['Mod+W'], label: t('shortcuts.closeTab') },
-      { keys: ['Mod+Shift+W'], label: t('shortcuts.closeWindow') },
+      { keys: chordsFor('newFile'), label: t('shortcuts.newFile') },
+      { keys: chordsFor('newTerminal'), label: t('shortcuts.newTerminal') },
+      { keys: chordsFor('closeTab'), label: t('shortcuts.closeTab') },
+      { keys: chordsFor('closeWindow'), label: t('shortcuts.closeWindow') },
       { keys: ['Mod+1'], label: t('shortcuts.selectTabN') },
       { keys: ['Mod+9'], label: t('shortcuts.selectLastTab') },
       // `Ctrl+Tab` 系は mac でも Ctrl のまま（Cmd+Tab は OS のアプリ切り替え）。
       // `keys` は「相互に置き換え可能な chord の並び」なので、同じ動作は 1 行に畳む。
-      { keys: ['Mod+Shift+]', 'Ctrl+Tab', 'Ctrl+PageDown'], label: t('shortcuts.nextTab') },
-      { keys: ['Mod+Shift+[', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'], label: t('shortcuts.prevTab') },
+      { keys: chordsFor('nextTab'), label: t('shortcuts.nextTab') },
+      { keys: chordsFor('prevTab'), label: t('shortcuts.prevTab') },
     ],
   },
   {
@@ -76,7 +83,7 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: ['Tab', 'Shift+Tab'], label: t('shortcuts.indent') },
       { keys: ['Mod+Click'], label: t('shortcuts.jumpToDefinition') },
       { keys: ['F12'], label: t('shortcuts.jumpToDefinition') },
-      { keys: ['Alt+H'], label: t('shortcuts.gitHistory') },
+      { keys: chordsFor('gitHistory'), label: t('shortcuts.gitHistory') },
     ],
   },
   {

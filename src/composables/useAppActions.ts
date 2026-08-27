@@ -1,6 +1,10 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import type { AppActionId } from '../lib/shortcuts'
+import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
+import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
+import type { ShellType } from '../types/tab'
 import { confirmAndExit } from './useBusyExit'
 import { useShortcutsModal } from './useShortcutsModal'
 
@@ -14,31 +18,15 @@ import { useShortcutsModal } from './useShortcutsModal'
  *
  * ここに足したアクションは `KeyboardShortcuts.vue` とマニュアルにも反映する。
  */
-export type AppActionId =
-  | 'quickOpen'
-  | 'projectSwitcher'
-  | 'newTerminal'
-  | 'newFile'
-  | 'closeTab'
-  | 'closeWindow'
-  | 'settings'
-  | 'nextTab'
-  | 'prevTab'
-  | 'manual'
-  | 'shortcuts'
-  | 'quit'
-
-/**
- * プロジェクトスイッチャー / QuickOpen が開いていても通すアクション（#254）。
- *
- * **入口が 2 つあるので一覧はここに 1 本だけ置く。** メニュー側（`useAppMenu`）は
- * この集合で弾き、キーボード側（`useKeyboardShortcuts`）は該当する 2 つの分岐を
- * オーバーレイの早期 return より前に置くことで同じ結果にしている。増やすときは
- * 両方を直すこと（片方だけだと macOS のメニューとキーで挙動が割れる）。
- */
-export const OVERLAY_ALLOWED_ACTIONS: ReadonlySet<AppActionId> = new Set(['quickOpen', 'projectSwitcher'])
-
 export function useAppActions(): Record<AppActionId, () => void> & {
+  /**
+   * 新規ターミナル。**タブバーの「+」と ▾ もこれを通す**（`TabPane.vue`）。
+   * シェルの決め方が入口ごとに割れると、同じ「新規ターミナル」が別のシェルを
+   * 起動する（実際に `Ctrl+T` だけがグローバルモードの `globalShell` を無視していた）。
+   *
+   * `shellOverride` は ▾ から明示的に選んだシェル。
+   */
+  openTerminal: (shellOverride?: ShellType) => void
   /**
    * `Mod+1`〜`Mod+9` でタブへ飛ぶ。**`9` は最後のタブ**（ブラウザ・ターミナルの
    * 慣習）。数字の解釈をここに置くのは、呼び出し側で `9` を特別扱いすると
@@ -48,15 +36,25 @@ export function useAppActions(): Record<AppActionId, () => void> & {
 } {
   const tabStore = useTabStore()
   const projectStore = useProjectStore()
+  const settings = useSettingsStore()
   const shortcutsModal = useShortcutsModal()
+
+  function openTerminal(shellOverride?: ShellType) {
+    // プロジェクトを持たないウィンドウは設定の `globalShell` で開く。ここを
+    // `undefined` にすると、バックエンドの `host_default()`（Windows なら PowerShell）に
+    // 落ちて、WSL を既定にしている環境で「+」と `Ctrl+T` が別のシェルを起動する。
+    if (globalMode.value) {
+      tabStore.addTerminalTab({ shell: shellOverride ?? settings.globalShell })
+      return
+    }
+    const project = projectStore.currentProject
+    tabStore.addTerminalTab(project ? { cwd: project.root, shell: shellOverride ?? project.shell } : undefined)
+  }
 
   return {
     quickOpen: () => projectStore.toggleQuickOpen(),
     projectSwitcher: () => projectStore.toggleSwitcher(),
-    newTerminal: () => {
-      const project = projectStore.currentProject
-      tabStore.addTerminalTab(project ? { cwd: project.root, shell: project.shell } : undefined)
-    },
+    newTerminal: () => openTerminal(),
     newFile: () => tabStore.addBlankEditorTab(),
     // タブが 1 つも無ければウィンドウを閉じる。macOS の ⌘W はタブを畳みきったら
     // ウィンドウに進むのが慣習で、グローバルモードのウィンドウが最後のタブを
@@ -73,9 +71,15 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     prevTab: () => tabStore.cycleTab('prev'),
     manual: () => tabStore.addManualTab(),
     shortcuts: () => shortcutsModal.toggle(),
+    // エディタタブ以外では何もしない（履歴を出す対象が無い）。メニューには載せない。
+    gitHistory: () => {
+      const active = tabStore.activeTab
+      if (active?.kind === 'editor') tabStore.addHistoryTab({ filePath: active.path })
+    },
     // macOS の ⌘Q。predefined の Quit と違い、走っているコマンドがあれば確認を挟む
     // （#178。閉じる経路と同じ確認で、ここだけ素通りすると全ウィンドウの PTY が黙って死ぬ）。
     quit: () => void confirmAndExit(),
+    openTerminal,
     selectTabByDigit: (digit: string) => {
       const index = digit === '9' ? tabStore.tabs.length - 1 : Number(digit) - 1
       const tab = tabStore.tabs[index]
