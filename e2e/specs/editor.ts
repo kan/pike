@@ -103,3 +103,43 @@ describe('screenshots: outline panel', () => {
     })
   }
 })
+
+// --- エディタ上のコンフリクト解消（#223） -----------------------------------
+// マーカー行を含むファイルを開くだけで、各領域の上にボタン列（ours / theirs /
+// 両方）とファイル全体の一括適用バーが出る。invoke のモックは要らない。
+const CONFLICT_SAMPLE = [
+  "import { defineStore } from 'pinia'",
+  '',
+  'export const useTaskStore = defineStore("tasks", () => {',
+  '  const tasks = ref<Task[]>([])',
+  '',
+  '<<<<<<< HEAD',
+  '  // 実行中のタスクを 1 つだけ許す',
+  '  const running = ref<string | null>(null)',
+  '=======',
+  '  // 複数のタスクを同時に走らせる',
+  '  const running = ref<string[]>([])',
+  '>>>>>>> feature/parallel-tasks',
+  '',
+  '  function reset() {',
+  '    tasks.value = []',
+  '  }',
+  '',
+  '  return { tasks, running, reset }',
+  '})',
+  '',
+].join('\n')
+
+describe('screenshots: conflict resolution', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`editor-conflict ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await setFakeProject()
+      await openEditor({ path: 'src/stores/tasks.ts', content: CONFLICT_SAMPLE })
+      await $('.cm-editor').waitForDisplayed({ timeout: 10_000 })
+      // 領域ごとのボタンが出るまで待つ（decoration の構築は 1 フレーム遅れる）。
+      await $('.cm-conflict-btn').waitForDisplayed({ timeout: 10_000 })
+      await shoot('editor-conflict', lang, theme)
+    })
+  }
+})

@@ -105,6 +105,11 @@
 ## アウトライン
 
 **🔭 アウトライン** アイコンで開きます。18 言語（Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / YAML / JSON / Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile）のシンボルを抽出して表示します。
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/outline-panel-light.png">
+  <img alt="アウトラインパネル" src="img/outline-panel.png">
+</picture>
+
 
 - カーソル位置に追従してハイライト・祖先を自動展開・スクロール。
 - 行をクリックするとエディタがその位置へ移動します。Markdown をプレビューまたは分割で見ているときは、プレビュー側も一緒にスクロールします。見出しは正確に位置合わせし、見出し以外は行の位置からおおよその場所へ動きます。
@@ -113,6 +118,11 @@
 ## Problems（診断）
 
 **Problems** パネルは、プロジェクトで使っているツールチェインのチェッカーを実行して、エラーと警告を一覧表示します。常駐する言語サーバーは持たず、パネルを開いたときに 1 回だけ走らせる方式です（Pike が軽い理由のひとつ）。
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/problems-panel-light.png">
+  <img alt="Problems パネル" src="img/problems-panel.png">
+</picture>
+
 
 | 言語 | 実行するコマンド | 検出の目印 |
 |------|------------------|------------|

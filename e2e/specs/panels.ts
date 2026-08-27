@@ -516,3 +516,123 @@ describe('screenshots: project panel', () => {
     })
   }
 })
+
+// Problems の背景に開くソース。診断が指す行が本文にある状態で撮る。
+const RUST_SAMPLE = [
+  'use std::collections::HashMap;',
+  '',
+  'pub fn format_tokens(name: String, count: u64) -> String {',
+  '    let label = name;',
+  '    // 42 行目あたり: 移動済みの値を再び借りる',
+  '    format!("{label}: {count}")',
+  '}',
+  '',
+  'pub fn summarize(rows: &HashMap<String, u64>) -> String {',
+  '    let total: u64 = rows.values().sum();',
+  '    rows.keys().cloned().collect::<Vec<_>>().join(", ")',
+  '}',
+  '',
+].join('\n')
+
+// --- Problems（診断）パネル -------------------------------------------------
+// 常駐 LSP は持たず、検出したツールチェインの CLI を 1 回走らせた結果を出す
+// （`.claude/rules/editor.md`）。撮影では `diagnostics_run` を横取りして、
+// 種類の違う 3 つ（rustc のエラー / go vet の警告 / tsc のエラー）を並べる。
+// providers はヘッダの「どのチェッカーが走ったか」に出る。
+const DIAGNOSTICS = {
+  diagnostics: [
+    {
+      file: 'src/lib/format.rs',
+      line: 42,
+      column: 9,
+      severity: 'error',
+      message: 'borrow of moved value: `name`',
+      source: 'rustc',
+      code: 'E0382',
+    },
+    {
+      file: 'src/lib/format.rs',
+      line: 58,
+      column: 5,
+      severity: 'warning',
+      message: 'unused variable: `total`',
+      source: 'rustc',
+      code: 'unused_variables',
+    },
+    {
+      file: 'cmd/server/main.go',
+      line: 17,
+      column: 2,
+      severity: 'warning',
+      message: 'fmt.Printf format %d has arg name of wrong type string',
+      source: 'go vet',
+      code: null,
+    },
+    {
+      file: 'src/stores/tasks.ts',
+      line: 23,
+      column: 14,
+      severity: 'error',
+      message: "Property 'reload' does not exist on type 'TaskStore'.",
+      source: 'tsc',
+      code: 'TS2339',
+    },
+  ],
+  providers: [
+    { name: 'rust', dir: '.', command: 'cargo check --message-format=json', ok: true, error: null, count: 2 },
+    { name: 'go', dir: 'cmd/server', command: 'go vet ./...', ok: true, error: null, count: 1 },
+    { name: 'ts', dir: '.', command: 'npx vue-tsc --noEmit --pretty false', ok: true, error: null, count: 1 },
+  ],
+  truncated: false,
+  golangciAvailable: false,
+}
+
+describe('screenshots: problems panel', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`problems-panel ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('diagnostics_run', DIAGNOSTICS)
+      await setFakeProject()
+      await openEditor({ path: 'src/lib/format.rs', content: RUST_SAMPLE })
+      await openPanel('diagnostics')
+      await $('[data-testid="diagnostics-panel"]').waitForDisplayed({ timeout: 10_000 })
+      await $('[data-testid="diagnostics-panel"] .diag-row').waitForDisplayed({ timeout: 10_000 })
+      await shoot('problems-panel', lang, theme)
+    })
+  }
+})
+
+// --- 止まった操作の再開バナー（#222） ---------------------------------------
+// `git_status` の `operation` が埋まっているときだけ Git パネル最上部に出る。
+// 競合が残っているあいだ「続行」は押せないので、conflicted も一緒に入れて
+// 実際に見る形（バナー + Conflicts セクション）にする。
+const GIT_STATUS_STOPPED = {
+  ...GIT_STATUS,
+  branch: '(detached)',
+  conflicted: [
+    { path: 'src/App.vue', status: 'UU' },
+    { path: 'src/lib/format.ts', status: 'UU' },
+  ],
+  operation: {
+    kind: 'rebase',
+    branch: 'feature/screenshots',
+    step: 2,
+    total: 5,
+    stop: 'conflict',
+    stoppedSha: null,
+    stoppedSubject: null,
+    canContinue: true,
+  },
+}
+
+describe('screenshots: stopped git operation', () => {
+  for (const variant of MATRIX) {
+    const { lang, theme } = variant
+    it(`git-operation ${lang} ${theme}`, async () => {
+      await openGitPanel(variant)
+      await setGitStatus(GIT_STATUS_STOPPED)
+      await $('[data-testid="git-operation"]').waitForDisplayed({ timeout: 10_000 })
+      await shoot('git-operation', lang, theme)
+    })
+  }
+})

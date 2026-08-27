@@ -111,6 +111,29 @@ Markdown ファイル（`.md` / `.markdown`）を開くと、Edit / Split / Prev
 - **Mermaid**（`.mermaid` / `.mmd`）：図として描画（ズーム対応）。
 - **SVG**：スクリプトやイベント属性を除去（サニタイズ）してから描画。
 
+CSV / JSON / Mermaid / SVG の表示はそれぞれ次のようになります。
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/csv-preview-light.png">
+  <img alt="CSV プレビュー（テーブル表示）" src="img/csv-preview.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/json-preview-light.png">
+  <img alt="JSON プレビュー（色分け）" src="img/json-preview.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/mermaid-preview-light.png">
+  <img alt="Mermaid プレビュー（図として描画）" src="img/mermaid-preview.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/svg-preview-light.png">
+  <img alt="SVG プレビュー" src="img/svg-preview.png">
+</picture>
+
+
 ### Markdown のフロントマター
 
 Hugo、Jekyll、Astro、Zola、Obsidian などが使うフロントマターを、Markdown プレビューでは本文と分けて表示します。プレビュー冒頭に折り畳んだ「フロントマター」ブロックが出て、開くとキーと値の表になります。
@@ -159,6 +182,11 @@ Markdown プレビューは、外部ドメインの画像を既定では読み�
 ## PDF プレビュー
 
 PDF は WebView 内蔵レンダラ（iframe）で表示します。
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/pdf-tab-light.png">
+  <img alt="PDF プレビュー" src="img/pdf-tab.png">
+</picture>
+
 
 ---
 

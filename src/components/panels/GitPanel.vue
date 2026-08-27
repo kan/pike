@@ -476,7 +476,8 @@ onUnmounted(() => {
       <div v-if="gitStore.error" class="error-strip" :title="gitStore.error">{{ gitStore.error }}</div>
 
       <!-- A rebase/merge/… git stopped in the middle of (#222) -->
-      <div v-if="operation" class="op-banner">
+      <!-- data-testid は E2E の撮影が待ち合わせに使う。 -->
+      <div v-if="operation" class="op-banner" data-testid="git-operation">
         <div class="op-title">{{ operationTitle }}</div>
         <p class="no-repo-msg">{{ operationHint }}</p>
         <div v-if="operation.canContinue" class="op-actions">

@@ -53,6 +53,20 @@ MAP=(
   "settings-shells:settings-shells"
   "shell-dropdown:shell-dropdown"
   "project-switcher:project-switcher"
+  # 既に撮っていたのにマニュアルが使っていなかったぶん（v0.43.0 の棚卸しで追加）
+  "outline-panel:outline-panel"
+  "diff-tab:diff-tab"
+  "history-tab:history-tab"
+  "csv-preview:csv-preview"
+  "json-preview:json-preview"
+  "mermaid-preview:mermaid-preview"
+  "svg-preview:svg-preview"
+  "pdf-tab:pdf-tab"
+  "agent-claude:agent-claude"
+  # v0.43.0 で新しく撮るもの
+  "problems-panel:problems-panel"
+  "git-operation:git-operation"
+  "editor-conflict:editor-conflict"
 )
 
 check=0

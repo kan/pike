@@ -74,6 +74,15 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 - 外枠付きヒーロー画像（README / overview の `screenshot-*`）は `scripts/sync-hero-images.sh`（内部で `frame-screenshot.sh` を呼ぶ）で合成・配置する。`sync-manual-images.sh` の MAP には含まれないため、**同期は 2 本を続けて走らせる `just e2e-sync`（確認は `e2e-sync-check`）を使う**。以前この合成が e2e/README の手打ちコマンドだけだったため、7-20 の再撮影でヒーローだけ v0.26 世代のまま取り残された
 - **ヒーロー画像の合成には ImageMagick（`magick`）が要る**。マニュアル画像のコピーは要らないので、`magick` が無いと**マニュアル 46 枚だけ更新されてヒーロー 6 枚が古いまま残る**（`sync-hero-images.sh` が `magick: コマンドが見つかりません` で落ちるが、先に走る `sync-manual-images.sh` は成功している）。この PC では Windows 側（`C:\Program Files\ImageMagick-7.0.10-Q16-HDRI`）にあり **WSL の PATH には無い**ので、WSL の bash で回すとここで止まる（v0.35.0 の再撮影で実際に踏んだ）。`just e2e-sync` は Git Bash で走るので `magick` が PATH で解決する（#231。それ以前は `npm run e2e:sync` が WSL の bash を掴んでいた）
 - 撮影画面を追加したら `e2e/specs/` に追記し、マニュアルで使う場合は `sync-manual-images.sh` の MAP にも対応を追加
+- **MAP に足し忘れた画像は「撮っているのに使われない」まま溜まる。** `check-docs` は
+  「マニュアルが参照する画像が実在するか」と「参照されない画像が `docs/manual/img/` に残っていないか」は
+  見るが、`artifacts/screenshots/` にしか無いものには気付けない。v0.43.0 の棚卸しでは 9 枚
+  （`outline-panel` / `diff-tab` / `history-tab` / `csv-preview` / `json-preview` / `mermaid-preview` /
+  `svg-preview` / `pdf-tab` / `agent-claude`）がこの状態だった。差分を見るには
+  `comm -23 <(grep -rhoE "shoot\('[a-z0-9-]+'" e2e/specs/*.ts | sed "s/shoot('//;s/'//" | sort -u) <(grep -oE '"[a-z0-9-]+:[a-z0-9-]+"' scripts/sync-manual-images.sh | sed 's/.*://;s/"//' | sort -u)`
+  （`overview` と `hero-*` は `sync-hero-images.sh` の担当なので出てきてよい）
+- **待ち合わせに使うセレクタは `data-testid` を足す。** クラス名は見た目の都合で変わるが、
+  testid は撮影のための契約として残る（`diagnostics-panel` / `git-operation` はこのために足した）
 - **画像には StatusBar のバージョン（`v0.33.0`）が写る**。`useUpdater` の `getVersion()` は `@tauri-apps/api` 経由で `tauri.conf.json` の version を読むため、`lib/tauri.ts` の invoke ラッパを通らず **E2E のモックでは差し替えられない**（`tauri.e2e.conf.json` で version を上書きするのは 2 箇所 bump の drift 要因なので採らない）。リリースに合わせて撮り直すときは **bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順）
 - ドロップダウンやトースト等、アニメーションを含む UI は**静止するまで待ってから撮る**（例: リモートブランチ取得中の `.spin-icon` が残ると実行ごとに回転角の差分が出る）。撮影に安定したセレクタが必要な場合は `data-testid` を足す（`worktree-selector` / `branch-selector`）
 - 撮影コードを本番ビルドに混入させない仕組み（`e2e` Cargo feature / vite define `__PIKE_E2E__` / `capabilities-runtime` の実行時登録）は `e2e/README.md` を参照

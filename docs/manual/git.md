@@ -87,12 +87,22 @@ pull / push ボタンを**右クリック**すると、オプション付きで�
 ## diff タブ
 
 ファイルの差分は左右分割の diff タブで表示します。行の中で変わった文字だけを色付けするため、1 行に小さな変更が複数あっても位置を追えます。
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/diff-tab-light.png">
+  <img alt="diff タブ（左右分割）" src="img/diff-tab.png">
+</picture>
+
 
 エディタと同じ **`Ctrl+F`** で検索パネルが開きます。左右どちらのペインの一致も探し、差分の文字ハイライトと重ねて表示します。大文字小文字の区別を切り替えられ、件数を表示し、`Enter` / `Shift+Enter` で前後の一致へ移動、`Esc` で閉じます。移動すると現在の一致が中央に来るようスクロールします。
 
 ## 途中で止まった操作の再開
 
 `git pull` がコンフリクトなどで途中停止すると、Git パネルの最上部にバナーが出ます。何が止まっているか（リベース / マージ / cherry-pick / revert）と、リベースなら対象ブランチと進捗（`3/7`）を表示します。
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/git-operation-light.png">
+  <img alt="止まった操作の再開バナー" src="img/git-operation.png">
+</picture>
+
 
 - **続行**：`git <操作> --continue` をターミナルタブで実行します。コミットメッセージのエディタや署名の承認ダイアログが出ても、そのタブで応答できます。コンフリクトが残っている間は押せません（git 自身が拒否するためです）。解消してステージすると押せるようになります。
 - **中止**：確認のうえ `git <操作> --abort` を実行し、開始前の状態に戻します。
@@ -120,6 +130,11 @@ pull / push ボタンを**右クリック**すると、オプション付きで�
 ### エディタ上で解消する
 
 各コンフリクトの上にボタンが並びます。マーカー行にブランチ名が書かれていれば、それをボタンのラベルに使います。
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/editor-conflict-light.png">
+  <img alt="エディタ上のコンフリクト解消" src="img/editor-conflict.png">
+</picture>
+
 
 - **HEAD を採用**（現在の変更） / **feat を採用**（入力側の変更） / **両方**
 
@@ -134,6 +149,11 @@ pull / push ボタンを**右クリック**すると、オプション付きで�
 ## ファイル履歴（Git History）
 
 特定ファイルの git log を専用タブで表示できます。
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/history-tab-light.png">
+  <img alt="ファイル履歴タブ" src="img/history-tab.png">
+</picture>
+
 
 - ファイルツリーやエディタタブの右クリックメニュー →「Git History」、エディタでは `Alt+H`。
 - 履歴の行をクリックすると、その差分を diff タブで開きます。

@@ -55,7 +55,8 @@ watch(() => projectStore.currentProject?.id, runIfIdle)
 </script>
 
 <template>
-  <div class="diag-panel">
+  <!-- data-testid は E2E の撮影が待ち合わせに使う（`.claude/rules/build.md`）。 -->
+  <div class="diag-panel" data-testid="diagnostics-panel">
     <div v-if="diagStore.running" class="status">{{ t('diagnostics.running') }}</div>
     <div v-else-if="diagStore.error" class="status error">{{ diagStore.error }}</div>
     <div v-else-if="!diagStore.total && diagStore.lastRunAt" class="status">

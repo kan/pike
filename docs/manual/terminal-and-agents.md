@@ -93,6 +93,14 @@ Claude Code と Codex を、統一されたチャット UI で使えます。
 
 - **新規チャット**：左サイドバー下部の **🤖** アイコン（Claude Code / Codex を選択）、またはコマンドパレットで `> Claude` / `> Codex`。
 - **対応エージェント**：Codex（app-server）と ACP 対応エージェント（Claude Code 等）。エージェントの対応機能（モデル選択、認証バー、sandbox 設定など）に応じて UI が変化します。
+
+上の画像は Codex です。Claude Code では次のようになります。
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/agent-claude-light.png">
+  <img alt="Claude Code のチャットタブ" src="img/agent-claude.png">
+</picture>
+
 - **ファイル参照**：入力欄に `@パス` でファイルをメンションできます。クリップボード/ドラッグ&ドロップでファイルを添付すると `.pike/uploads/` に保存され、`@パス` が挿入されます（小さいテキストは設定により内容を直接挿入も可能）。→ [サイドバーパネル](panels.md#ファイル添付クリップボード--ドラッグドロップ)
 - **承認ダイアログ**：エージェントがコマンド実行などの承認を求めると、専用ダイアログが表示されます。
 - **セッション復帰**：タブを開き直すと、Claude Code と Codex それぞれの resume 機能で前回の会話から続きます。
