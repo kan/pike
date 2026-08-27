@@ -159,6 +159,21 @@ PowerShell 版は「空文字」、`osascript` は「終了コード 1」なの�
 あれば、黙って「キャンセルされた」ことになる）。Windows / macOS / それ以外の 3 分岐で、
 最後は `unsupported_dialog` が実装が無いことを言う。
 
+## アプリアイコン（#256）
+
+**macOS のアイコンには決まった余白がある。** Apple のグリッドでは 1024x1024 のキャンバスに
+対して本体が **824x824（80.5%）**で、周囲に約 10% の透明な余白を残す。`tauri icon` はこれを
+足さない（元画像をリサイズするだけ）ので、端まで描かれた素材を渡すと Dock で他のアプリより
+**1 辺で約 1.24 倍・面積で約 1.54 倍**に見える。Windows のタスクバーは端まで描くアイコンが
+普通なので、Windows だけで見ていると気付けない。
+
+- 余白を付けるのは **`icon.icns` だけ**。`icon.ico` と PNG 一式（Windows のタスクバーと、
+  `app.default_window_icon()` 由来のトレイが使う）は端まで描いたままにする。両方に付けると
+  Windows のアイコンが理由なく小さくなる
+- 余白付きの 1024 は `src-tauri/icons/icon-macos-1024.png` にコミットしてある。icns の生成は
+  `scripts/make-macos-icns.sh`（`sips` と `iconutil` だけを使う。ImageMagick は要らない）
+- **`tauri icon` で作り直さないこと。** あれは `.ico` も PNG 一式も上書きする
+
 ## rg サイドカー
 
 `externalBin` は**ビルド対象のトリプルを接尾辞に持つファイル**を必ず要求するので、

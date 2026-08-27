@@ -95,7 +95,8 @@ pike/
 ├── scripts/
 │   ├── download-rg.sh         # rg サイドカーバイナリのダウンロード
 │   ├── bump-version.mjs       # バージョンを 3 ファイルに書き込む（just bump が呼ぶ）
-│   └── check-docs.mjs         # ドキュメント整合チェック（just check-docs が呼ぶ）
+│   ├── check-docs.mjs         # ドキュメント整合チェック（just check-docs が呼ぶ）
+│   └── make-macos-icns.sh     # macOS のアプリアイコンを作り直す（#256、macOS で実行）
 ├── src-tauri/
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
