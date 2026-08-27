@@ -12,11 +12,7 @@ import {
   toMb,
   UploadTooLargeError,
 } from '../../composables/useImagePaste'
-import {
-  ALT_SCREEN_SHELL_KEYS,
-  MAC_SHELL_CTRL_KEYS,
-  PIKE_FIRST_CTRL_KEYS,
-} from '../../composables/useKeyboardShortcuts'
+import { pikeTakesCtrlKey } from '../../composables/useKeyboardShortcuts'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { hexToRgba } from '../../lib/format'
@@ -851,11 +847,12 @@ onMounted(async () => {
     if (!e.ctrlKey || e.altKey || e.metaKey) return true
     const key = normalizedKey(e)
 
-    // macOS の Ctrl は丸ごとシェルのもの（#254）。**この判定は Ctrl+V の横取りより
+    // macOS の Ctrl はほぼ丸ごとシェルのもの（#254。残るのはタブ切替の 3 つだけ）。
+    // **この判定は Ctrl+V の横取りより
     // 前に置くこと**: 後ろに置くと mac で `Ctrl+V` が貼り付けになり、vim の矩形選択と
     // readline の quoted-insert が打てなくなる。mac の貼り付けは `⌘V` で、あちらは
     // OS の編集メニューが処理する（この関数には届かない）。
-    if (isMacHost) return !PIKE_FIRST_CTRL_KEYS.has(key) || MAC_SHELL_CTRL_KEYS.has(key)
+    if (isMacHost) return !pikeTakesCtrlKey(key, inAltScreen.value)
 
     // xterm.js は Windows で Ctrl+V を SYN(\x16) として PTY に流すので、
     // 通常の `paste` イベントが発火しない → keydown レベルで横取りする。
@@ -871,10 +868,7 @@ onMounted(async () => {
     // ここで拾わないキーがシェルへ行くのは、xterm が PTY へ送る際に preventDefault
     // だけでなく stopPropagation も呼ぶため（`cancel(ev, true)`）。既定でシェル優先。
     // 全画面 TUI が動いているあいだは Ctrl+W だけ譲る（vim のウィンドウ操作の prefix）。
-    if (PIKE_FIRST_CTRL_KEYS.has(key)) {
-      return inAltScreen.value && ALT_SCREEN_SHELL_KEYS.has(key)
-    }
-    return true
+    return !pikeTakesCtrlKey(key, inAltScreen.value)
   })
 
   termRef.value?.addEventListener('dragover', (e: DragEvent) => {

@@ -37,6 +37,11 @@ build:
 build-web:
     npm run build
 
+# 型検査を伴わずフロントの成果物だけ作る。CI の macOS ジョブ用で、あちらが要るのは
+# `dist/`（`generate_context!` が読む）だけ。型検査は OS に依らないので Windows 側が持つ。
+build-web-dist:
+    npx vite build
+
 # rg サイドカーバイナリを取得する（ビルド前に 1 回。バイナリは gitignore）
 fetch-rg:
     bash scripts/download-rg.sh

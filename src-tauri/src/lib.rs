@@ -821,7 +821,7 @@ fn window_close_quits_app(window: WebviewWindow) -> bool {
 
 /// Show and focus the main window, restoring it from the tray / a minimized
 /// state.
-fn show_main_window(app: &AppHandle) {
+pub(crate) fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         restore_window(&w);
     }

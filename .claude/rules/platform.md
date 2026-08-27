@@ -135,6 +135,11 @@ key equivalent は AppKit が WebView へ渡す前に処理するので、`windo
   `hasMod` は Cmd なので、`if (!mod && !e.altKey) return` と書くと Ctrl+Tab 系が
   そこで死ぬ（キーの一覧より前に落ちるので、原因が見えない）
 
+**macOS のコードは CI の `Check (macOS)` ジョブでしか型検査されない。** Windows 側のジョブは
+`cfg` に阻まれて `appmenu` を 1 行も見ないので、このジョブを足すまでは壊れていることに
+気付くのがリリースのタグを打った後だった（v0.43.0 で実際に 2 回落ちた）。macOS 専用の
+コードを足したら、ローカルの `just check` が通っても**それだけでは検査されていない**。
+
 ## ダイアログ
 
 フォルダ / ファイル選択は Windows が PowerShell + WinForms、macOS が `osascript` の

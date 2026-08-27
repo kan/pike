@@ -11,10 +11,21 @@ permissions:
 
 jobs:
   check:
-    name: Check & Test
-    runs-on: windows-latest
+    name: Check & Test (${{ matrix.os }})
+    # macOS も回す。`appmenu`・`types::os_open` の腕・`pty` の Unix 側は `cfg` に阻まれて
+    # Windows のジョブから 1 行も見えないので、これが無いと**タグを打つまで壊れている
+    # ことに気付けない**（v0.43.0 のリリースで実際に 2 回落ちた）。
+    #
+    # 素の lint・ドキュメント整合・型検査は OS に依らないので Windows 側だけが持つ。
+    # macOS で要るのは `dist/`（`generate_context!` が読む）だけなので `vite build` に絞る。
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-      - run: git config --global core.autocrlf false
+      - if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -30,6 +41,8 @@ jobs:
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "./src-tauri -> target"
+          # OS ごとに分ける（分けないと 2 ジョブが同じキャッシュを取り合う）
+          key: ${{ matrix.os }}
 
       # 各ステップの中身は justfile を正本にする（ローカルと同じコマンドが走る）
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
@@ -41,15 +54,24 @@ jobs:
         run: npm install
 
       - name: Biome lint & format check
+        if: runner.os == 'Windows'
         run: just lint
 
       # Docs: CLAUDE.md のディレクトリ構成・参照パス、マニュアルの画像とリンク
       - name: Docs consistency check
+        if: runner.os == 'Windows'
         run: just check-docs
 
       # Frontend: TypeScript type check + Vite build
       - name: Vue/TypeScript check & build
+        if: runner.os == 'Windows'
         run: just build-web
+
+      # clippy は `generate_context!` 経由で `dist/` を読むので、Rust を検査するにも
+      # フロントの成果物が要る。型検査は上の Windows 側が済ませている。
+      - name: Build frontend assets
+        if: runner.os != 'Windows'
+        run: just build-web-dist
 
       - name: Cargo clippy
         run: just clippy

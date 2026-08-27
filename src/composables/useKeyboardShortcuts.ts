@@ -1,4 +1,5 @@
 import { onMounted, onUnmounted } from 'vue'
+import { isMacHost } from '../lib/host'
 import { hasMod, normalizedKey } from '../lib/keys'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
@@ -21,7 +22,7 @@ import { useAppActions } from './useAppActions'
  * `Ctrl+K`（行末まで削除）・`Ctrl+P` / `Ctrl+N`（履歴）はシェルのまま。
  * 一覧を変えたら `KeyboardShortcuts.vue` と `docs/manual/shortcuts-and-cli.md` も揃える。
  */
-export const PIKE_FIRST_CTRL_KEYS = new Set(['w', 't', 'Tab', 'PageUp', 'PageDown'])
+export const PIKE_FIRST_CTRL_KEYS = new Set(['w', 't', 'Tab', 'PageUp', 'PageDown', ...'123456789'])
 
 /**
  * 上のうち、全画面 TUI が代替画面を持っているあいだはシェルへ返すもの（#224）。
@@ -29,19 +30,38 @@ export const PIKE_FIRST_CTRL_KEYS = new Set(['w', 't', 'Tab', 'PageUp', 'PageDow
  * 奪うと `Ctrl+W s` などが一切打てず、しかもタブが閉じる。素のシェル（readline の
  * unix-werase）では Pike 優先のままにするので、判定は代替画面の有無で行う。
  * `Ctrl+T` やタブ切替は全画面 TUI での用途が薄いのでここには入れない。
+ *
+ * mac では上の分岐が先に返すのでこの集合は使われない（あちらは Ctrl を丸ごとシェルへ渡す）。
+ *
+ * 数字（`Ctrl+1`〜`Ctrl+9`＝N 番目のタブへ）は入れる。xterm が割り当てる制御文字の
+ * うち `Ctrl+6`（`0x1e`＝vim の `Ctrl+^`＝別ファイルへ切替）と `Ctrl+3`（ESC）は
+ * 全画面 TUI で日常的に使うため。素のシェルでは使い道がほぼ無いので Pike 優先のまま。
  */
-export const ALT_SCREEN_SHELL_KEYS = new Set(['w'])
+export const ALT_SCREEN_SHELL_KEYS = new Set(['w', ...'123456789'])
 
 /**
- * macOS で、上のうちシェルへ返すもの（#254）。
+ * macOS で Pike が取る Ctrl+キー（#254）。
  *
- * mac の Ctrl+英字は readline のもの（`Ctrl+W` は unix-werase、`Ctrl+T` は
- * transpose）で、Pike のショートカットは Cmd 側にある。**一方 `Tab` /
- * `PageUp` / `PageDown` は mac でもタブ切替のキーなので返さない**: xterm は
- * これらを PTY へ送って `stopPropagation` するため、返すとターミナルに
- * フォーカスがあるあいだタブを切り替える手段が 1 つも無くなる。
+ * mac の Ctrl+英字と Ctrl+数字は readline のもの（`Ctrl+W` は unix-werase、`Ctrl+T` は
+ * transpose）で、Pike のショートカットは Cmd 側にある。**残すのはこの 3 つだけ**: mac でも
+ * タブ切替に使うキーで、xterm はこれらを PTY へ送って `stopPropagation` するため、
+ * 返すとターミナルにフォーカスがあるあいだタブを切り替える手段が 1 つも無くなる。
+ *
+ * `PIKE_FIRST_CTRL_KEYS` からの派生にしないこと。文字数で引き算すると、あちらに
+ * キーを足した人が**名前が 1 文字かどうかで mac の挙動が決まる**ことに気付けない。
  */
-export const MAC_SHELL_CTRL_KEYS = new Set([...PIKE_FIRST_CTRL_KEYS].filter((k) => k.length === 1))
+export const MAC_PIKE_FIRST_KEYS = new Set(['Tab', 'PageUp', 'PageDown'])
+
+/**
+ * そのキーを Pike が取るか（`false` ならシェルへ渡す）。ターミナルはこれを聞くだけにして、
+ * 判定そのものは上の集合と同じ場所に置く。
+ */
+export function pikeTakesCtrlKey(key: string, inAltScreen: boolean): boolean {
+  if (isMacHost) return MAC_PIKE_FIRST_KEYS.has(key)
+  if (!PIKE_FIRST_CTRL_KEYS.has(key)) return false
+  // 全画面 TUI が代替画面を持っているあいだは、その TUI のものとして譲る。
+  return !(inAltScreen && ALT_SCREEN_SHELL_KEYS.has(key))
+}
 
 /**
  * グローバルショートカット（window の keydown）。
@@ -80,6 +100,9 @@ export function useKeyboardShortcuts() {
     // Ctrl+Tab / Ctrl+PageUp / Ctrl+PageDown（mac でも Ctrl のまま）がここで死ぬ。
     if (!mod && !e.ctrlKey && !e.altKey) return
 
+    // **ここから 2 つはオーバーレイの早期 return より前**（下の `showSwitcher` の行）。
+    // 通すアクションの一覧は `useAppActions` の `OVERLAY_ALLOWED_ACTIONS` が正本で、
+    // メニュー側はそちらを引く。増やすときは両方を直すこと。
     // Mod+Shift+P: project switcher
     if (mod && e.shiftKey && key === 'p') {
       e.preventDefault()
@@ -140,6 +163,16 @@ export function useKeyboardShortcuts() {
     if (mod && !e.shiftKey && key >= '1' && key <= '9') {
       e.preventDefault()
       actions.selectTabByDigit(key)
+      return
+    }
+
+    // Mod+Shift+] / Mod+Shift+[: cycle tabs. macOS ではネイティブメニューが握るので
+    // ここへは来ないが、Windows でも同じキーで動くように両方に置いてある。
+    // **`e.code` で見ること**: US 配列の `Shift+]` は `e.key` が `}` になる。
+    if (mod && e.shiftKey && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {
+      e.preventDefault()
+      if (e.code === 'BracketRight') actions.nextTab()
+      else actions.prevTab()
       return
     }
 

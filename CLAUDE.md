@@ -216,6 +216,7 @@ pike/
 │   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts
 │   │   ├── useAppActions.ts  # ショートカットと macOS メニューが共有する動作の実体（#254）
 │   │   ├── useAppMenu.ts     # macOS のメニューバーからの操作を受ける（#254）
+│   │   ├── useBusyExit.ts    # Pike ごと終了する前の確認（#178。close と ⌘Q が共有）
 │   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts  useAnchoredPopup.ts
 │   │   ├── useAgentRouter.ts  useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts

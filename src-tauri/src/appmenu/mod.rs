@@ -74,6 +74,7 @@ struct Labels {
     prev_tab: &'static str,
     manual: &'static str,
     shortcuts: &'static str,
+    quit: &'static str,
 }
 
 fn labels(lang: &str) -> Labels {
@@ -95,6 +96,7 @@ fn labels(lang: &str) -> Labels {
             prev_tab: "前のタブ",
             manual: "マニュアル",
             shortcuts: "キーボードショートカット",
+            quit: "Pike を終了",
         }
     } else {
         Labels {
@@ -114,6 +116,7 @@ fn labels(lang: &str) -> Labels {
             prev_tab: "Previous Tab",
             manual: "Manual",
             shortcuts: "Keyboard Shortcuts",
+            quit: "Quit Pike",
         }
     }
 }
@@ -160,7 +163,14 @@ pub fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     }
     if let Some(label) = focused.or(visible) {
         let _ = app.emit_to(label.as_str(), EVENT, action);
+        return;
     }
+    // 見えているウィンドウが 1 枚も無い（close-to-tray で main を畳んだ状態で、Dock から
+    // 呼び出してメニューバーだけを触る）。**ここで諦めると `⌘Q` が効かなくなる**ので、
+    // main を出してからそこへ送る。出してしまえば、上のコメントが避けている
+    // 「見えない場所でタブが開く」も起きない。
+    crate::show_main_window(app);
+    let _ = app.emit_to("main", EVENT, action);
 }
 
 fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
@@ -178,7 +188,9 @@ fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<Menu<Wry>> {
         .hide_others()
         .show_all()
         .separator()
-        .quit()
+        // predefined の `quit()` は即座に終了する。走っているコマンドがあれば確認を
+        // 挟みたいので（#178。閉じる経路と同じ確認）、フロントへ回す項目にする。
+        .item(&item(app, "quit", l.quit, Some("Cmd+Q"))?)
         .build()?;
 
     let file_menu = SubmenuBuilder::new(app, l.file)

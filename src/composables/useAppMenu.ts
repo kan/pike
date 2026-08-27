@@ -1,13 +1,13 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { onMounted } from 'vue'
+import { isMacHost } from '../lib/host'
 import { useProjectStore } from '../stores/project'
-import { type AppActionId, useAppActions } from './useAppActions'
+import { type AppActionId, OVERLAY_ALLOWED_ACTIONS, useAppActions } from './useAppActions'
 
 /**
  * パレット・スイッチャーが開いているあいだも通すアクション。`useKeyboardShortcuts`
  * が同じ 2 つを早期 return の前に置いているのと対。
  */
-const OVERLAY_ALLOWED: ReadonlySet<AppActionId> = new Set(['quickOpen', 'projectSwitcher'])
 
 /**
  * macOS のメニューバーからの操作を受ける（#254）。
@@ -29,12 +29,17 @@ export function useAppMenu() {
   const projectStore = useProjectStore()
 
   onMounted(() => {
+    // macOS 以外ではメニューそのものが無く（`lib.rs` の cfg スタブ）、このイベントは
+    // 一度も飛ばない。`listen` は IPC の往復と、ウィンドウの寿命ぶん残るハンドラを
+    // 作るので、起動時に復元するウィンドウの枚数だけ無駄になる。
+    if (!isMacHost) return
+
     void getCurrentWindow().listen<string>('pike://menu', (e) => {
       const id = e.payload as AppActionId
       // オーバーレイが出ているあいだは、キーボード側と同じく無視する。
       // ここを素通しにすると、macOS だけ ⌘T / ⌘W がスイッチャーの裏で
       // タブを増やしたり閉じたりする（キーの経路には無い挙動）。
-      if ((projectStore.showSwitcher || projectStore.showQuickOpen) && !OVERLAY_ALLOWED.has(id)) {
+      if ((projectStore.showSwitcher || projectStore.showQuickOpen) && !OVERLAY_ALLOWED_ACTIONS.has(id)) {
         return
       }
       const action = actions[id]

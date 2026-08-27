@@ -54,17 +54,10 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: ['Mod+Shift+W'], label: t('shortcuts.closeWindow') },
       { keys: ['Mod+1'], label: t('shortcuts.selectTabN') },
       { keys: ['Mod+9'], label: t('shortcuts.selectLastTab') },
-      // Ctrl のままのキー。mac でも Cmd+Tab は OS のもので、Ctrl+Tab が慣習。
-      ...(isMacHost
-        ? [
-            { keys: ['Mod+Shift+]'], label: t('shortcuts.nextTab') },
-            { keys: ['Mod+Shift+['], label: t('shortcuts.prevTab') },
-          ]
-        : []),
-      { keys: ['Ctrl+Tab'], label: t('shortcuts.nextTab') },
-      { keys: ['Ctrl+Shift+Tab'], label: t('shortcuts.prevTab') },
-      { keys: ['Ctrl+PageDown'], label: t('shortcuts.nextTab') },
-      { keys: ['Ctrl+PageUp'], label: t('shortcuts.prevTab') },
+      // `Ctrl+Tab` 系は mac でも Ctrl のまま（Cmd+Tab は OS のアプリ切り替え）。
+      // `keys` は「相互に置き換え可能な chord の並び」なので、同じ動作は 1 行に畳む。
+      { keys: ['Mod+Shift+]', 'Ctrl+Tab', 'Ctrl+PageDown'], label: t('shortcuts.nextTab') },
+      { keys: ['Mod+Shift+[', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'], label: t('shortcuts.prevTab') },
     ],
   },
   {

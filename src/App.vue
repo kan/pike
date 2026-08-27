@@ -11,8 +11,8 @@ import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import { initAgentRouter } from './composables/useAgentRouter'
 import { useAppMenu } from './composables/useAppMenu'
+import { confirmAndExit, confirmBusyExit } from './composables/useBusyExit'
 import { initCliOpen, peekInitialCliAction } from './composables/useCliOpen'
-import { confirmDialog } from './composables/useConfirmDialog'
 import { dockerLogRouter } from './composables/useDockerLogRouter'
 import { type FsChangeEntry, fsWatcher, isRecentlySaved } from './composables/useFsWatcher'
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
@@ -24,12 +24,10 @@ import { resolveNotifier } from './lib/notify'
 import { normalizeSep } from './lib/paths'
 import { projectColorValue } from './lib/projectColors'
 import {
-  appExit,
   isElevated,
   projectForWindow,
   projectRemoveOpen,
   projectSetLast,
-  ptyBusyCount,
   traySetCloseToTray,
   windowCloseQuitsApp,
   windowSetBackdrop,
@@ -208,15 +206,6 @@ watch(
   },
 )
 
-/**
- * Confirm a close that quits Pike: every window's PTYs die at once, so the count
- * comes from Rust — a window only knows its own tabs (#178).
- */
-async function confirmBusyExit(): Promise<boolean> {
-  const running = await ptyBusyCount().catch(() => 0)
-  return running === 0 || (await confirmDialog(t('confirm.terminalBusyExit', { count: running })))
-}
-
 onMounted(async () => {
   // Swallow OS file drops that no component handled: with Tauri's native
   // drag-drop disabled, the webview's default action for an unhandled drop is
@@ -323,10 +312,7 @@ onMounted(async () => {
     getCurrentWindow().listen('main-window-hidden', () => projectStore.saveSessionNow())
     // closeToTray off and main is the last window: closing it quits Pike and
     // kills every window's PTYs, so Rust hands the decision here first (#178).
-    getCurrentWindow().listen('main-exit-requested', async () => {
-      if (!(await confirmBusyExit())) return
-      await appExit().catch(() => {})
-    })
+    getCurrentWindow().listen('main-exit-requested', () => void confirmAndExit())
   } else {
     // Child windows (project / global): closing one kills its own PTYs, and no
     // Rust handler intercepts it, so confirm here and veto if declined (#178).

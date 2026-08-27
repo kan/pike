@@ -1,6 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
+import { confirmAndExit } from './useBusyExit'
 import { useShortcutsModal } from './useShortcutsModal'
 
 /**
@@ -25,6 +26,17 @@ export type AppActionId =
   | 'prevTab'
   | 'manual'
   | 'shortcuts'
+  | 'quit'
+
+/**
+ * プロジェクトスイッチャー / QuickOpen が開いていても通すアクション（#254）。
+ *
+ * **入口が 2 つあるので一覧はここに 1 本だけ置く。** メニュー側（`useAppMenu`）は
+ * この集合で弾き、キーボード側（`useKeyboardShortcuts`）は該当する 2 つの分岐を
+ * オーバーレイの早期 return より前に置くことで同じ結果にしている。増やすときは
+ * 両方を直すこと（片方だけだと macOS のメニューとキーで挙動が割れる）。
+ */
+export const OVERLAY_ALLOWED_ACTIONS: ReadonlySet<AppActionId> = new Set(['quickOpen', 'projectSwitcher'])
 
 export function useAppActions(): Record<AppActionId, () => void> & {
   /**
@@ -61,6 +73,9 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     prevTab: () => tabStore.cycleTab('prev'),
     manual: () => tabStore.addManualTab(),
     shortcuts: () => shortcutsModal.toggle(),
+    // macOS の ⌘Q。predefined の Quit と違い、走っているコマンドがあれば確認を挟む
+    // （#178。閉じる経路と同じ確認で、ここだけ素通りすると全ウィンドウの PTY が黙って死ぬ）。
+    quit: () => void confirmAndExit(),
     selectTabByDigit: (digit: string) => {
       const index = digit === '9' ? tabStore.tabs.length - 1 : Number(digit) - 1
       const tab = tabStore.tabs[index]
