@@ -170,9 +170,13 @@ PowerShell 版は「空文字」、`osascript` は「終了コード 1」なの�
 - 余白を付けるのは **`icon.icns` だけ**。`icon.ico` と PNG 一式（Windows のタスクバーと、
   `app.default_window_icon()` 由来のトレイが使う）は端まで描いたままにする。両方に付けると
   Windows のアイコンが理由なく小さくなる
-- 余白付きの 1024 は `src-tauri/icons/icon-macos-1024.png` にコミットしてある。icns の生成は
-  `scripts/make-macos-icns.sh`（`sips` と `iconutil` だけを使う。ImageMagick は要らない）
-- **`tauri icon` で作り直さないこと。** あれは `.ico` も PNG 一式も上書きする
+- **正本は `src-tauri/icons/icon.svg`**。ラスタは全部 `bash scripts/make-icons.sh` で作り直す。
+  あれは `tauri icon` を 2 回（そのままの SVG と、824 を 1024 に収めた版）走らせて、
+  **icns だけ余白版から採る**。`tauri icon` は入力をリサイズするだけで余白を足さないため
+- **`tauri icon` を直接 1 回で叩かないこと。** それだと icns にも余白が入らない
+- icns は**アイコンを変えていなくても毎回バイトが変わる**（tauri CLI がエントリを違う順で
+  書く。中身は同一）。絵が変わったかは PNG 側の差分で見る
+- macOS の `iconutil` は要らない。tauri CLI は Windows でも icns を書ける
 
 ## rg サイドカー
 
