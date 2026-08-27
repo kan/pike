@@ -103,7 +103,7 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 ## CI/CD
 - `.github/workflows/ci.yml`: push/PR で `biome check`、`npm run build`（vue-tsc + vite）、`cargo clippy -- -D warnings`、`cargo test` を実行（Windows runner）
 - `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-action` が **Windows と macOS(arm64) の 2 ジョブ**をマトリクスで走らせ、同じタグのドラフトへ両方の成果物をアップロードする（2 つ目のジョブは既存のドラフトを見つけて追加する）。`fail-fast: false` なので macOS が落ちても Windows は最後まで走る
-  - **macOS 側は updater の経路に載せない**。`uploadUpdaterJson: false` で `latest.json` を触らせず、`--config tauri.macos.conf.json` で `createUpdaterArtifacts` も切る。配布物が未署名で Gatekeeper に隔離されるため、自動更新に載せると壊れた更新を配ることになる（README にユーザー向けの但し書きがある）
+  - **macOS 側は updater の経路に載せない**。`uploadUpdaterJson: false` で `latest.json` を触らせず、`--config src-tauri/tauri.macos.conf.json` で `createUpdaterArtifacts` も切る（**パスはリポジトリルート基準**。`tauri-action` はルートから CLI を起動するので、`package.json` の `tauri:dev` / `e2e:build` と同じく `src-tauri/` を付ける。落とすと `Provided config path ... does not exist` で止まる）。配布物が未署名で Gatekeeper に隔離されるため、自動更新に載せると壊れた更新を配ることになる（README にユーザー向けの但し書きがある）
   - `macos-latest` は Apple Silicon なので**ホストのトリプルがそのまま `aarch64-apple-darwin`**。クロスビルドの指定は要らず、`just fetch-rg` も `rustc -vV` からその名前でサイドカーを取る。Intel 向けは配布しない
   - `rust-cache` の `key` を OS で分ける（分けないと 2 ジョブが同じキャッシュを取り合う）
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行

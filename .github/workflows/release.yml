@@ -27,7 +27,9 @@ jobs:
             #
             # updater 用の成果物は作らない。配布物が未署名で Gatekeeper に
             # 隔離されるため、自動更新の経路に載せると壊れた更新を配ることになる。
-            args: "--config tauri.macos.conf.json"
+            # パスはリポジトリルート基準（package.json の tauri:dev / e2e:build と
+            # 同じ書き方）。src-tauri/ を落とすと tauri-action が見つけられない。
+            args: "--config src-tauri/tauri.macos.conf.json"
             upload-updater-json: false
     runs-on: ${{ matrix.os }}
     steps:
