@@ -422,24 +422,8 @@ pub async fn fs_open_in_explorer(shell: ShellConfig, path: String) -> Result<(),
         }
         _ => path,
     };
-    tokio::task::spawn_blocking(move || {
-        // explorer.exe delegates to ShellExecuteW internally — no cmd.exe
-        // shell-metacharacter risk (same pattern as open_url). macOS の `open` も
-        // 同じく引数をそのまま受けるだけでシェルを介さない。
-        let program = if cfg!(target_os = "macos") {
-            "open"
-        } else if cfg!(windows) {
-            "explorer.exe"
-        } else {
-            "xdg-open"
-        };
-        crate::types::silent_command(program)
-            .arg(&target)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    })
-    .await
+    tokio::task::spawn_blocking(move || crate::types::os_open(&target))
+        .await
     .map_err(|e| e.to_string())?
 }
 

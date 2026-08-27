@@ -24,7 +24,7 @@ export async function openPathInTab(opts: {
   const { path } = opts
 
   if (isImageFile(path)) {
-    const shell = opts.shell ?? useProjectStore().currentProject?.shell ?? { kind: 'powershell' }
+    const shell = opts.shell ?? useProjectStore().shellForIO
     try {
       const base64 = await fsReadFileBase64(shell, path)
       tabStore.addPreviewTab({ path, dataUrl: `data:${mimeType(path)};base64,${base64}` })

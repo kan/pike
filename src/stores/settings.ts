@@ -245,8 +245,21 @@ export type WindowBackdrop = 'none' | 'transparent' | 'acrylic'
 
 const WINDOW_BACKDROPS: WindowBackdrop[] = ['none', 'transparent', 'acrylic']
 
-/** Coerce a persisted/synced backdrop value to a valid mode (defaults to none). */
+/**
+ * Coerce a persisted/synced backdrop value to a valid mode (defaults to none).
+ *
+ * **Windows 以外では常に `none`。** macOS ではウィンドウを `transparent` で生成できず
+ * （`macos-private-api` feature が要るのでビルダーにメソッドが生えない、`lib.rs`）、
+ * 不透明なウィンドウのままになる。それでもこの値が生きていると、`App.vue` が
+ * `--surface-alpha < 1` を書き、`window_set_backdrop` が背景色に alpha 0 を渡すので、
+ * 全サーフェスが「透けない下地」の上に半透明で描かれて UI が黒く潰れる。
+ *
+ * ここで潰すのは、この設定が同期・クロスウィンドウ broadcast の対象で、**Windows 機で
+ * アクリルにした値が macOS 側へ流れてくる**ため。UI 側（SettingsTab）も同じ条件で
+ * 行ごと隠すが、そちらだけだと入ってきた値を防げない。
+ */
 function sanitizeBackdrop(v: unknown): WindowBackdrop {
+  if (!isWindowsHost) return 'none'
   return WINDOW_BACKDROPS.includes(v as WindowBackdrop) ? (v as WindowBackdrop) : 'none'
 }
 

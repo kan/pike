@@ -336,8 +336,11 @@ const PREVIEW_LINES = [
           </div>
         </div>
 
-        <!-- Window background transparency (issue #162) -->
-        <div class="setting-block">
+        <!-- Window background transparency (issue #162).
+             Windows 限定: macOS はウィンドウを透過で生成できないので（lib.rs）、
+             選ばせても下地が透けず UI が黒く潰れるだけになる。値の側も
+             sanitizeBackdrop が 'none' に潰している。 -->
+        <div class="setting-block" v-if="isWindowsHost">
           <div class="setting-row">
             <label class="setting-label">{{ t('settings.backdrop') }}</label>
             <div class="mode-toggle">

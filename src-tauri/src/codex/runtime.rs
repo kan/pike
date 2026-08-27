@@ -29,10 +29,18 @@ fn set_codex_creation_flags(_cmd: &mut Command) {}
 /// npm global packages install as `.cmd` wrapper scripts. We parse the wrapper
 /// to extract the underlying `node.exe` + script path and launch node directly.
 #[cfg(windows)]
-fn resolve_codex_windows() -> (String, Vec<String>) {
+fn resolve_codex() -> (String, Vec<String>) {
     use std::sync::OnceLock;
     static CACHED: OnceLock<(String, Vec<String>)> = OnceLock::new();
     CACHED.get_or_init(resolve_codex_windows_inner).clone()
+}
+
+/// macOS / Linux では npm が shebang 付きの実行ファイルを置くので、`.cmd` ラッパーを
+/// 解く必要が無い。**呼び出し側に `#[cfg]` の let ペアを書かないこと**（型注釈が要る
+/// 理由の説明ごと 2 箇所に複製されていた）。
+#[cfg(not(windows))]
+fn resolve_codex() -> (String, Vec<String>) {
+    ("codex".to_string(), Vec::new())
 }
 
 #[cfg(windows)]
@@ -194,19 +202,23 @@ pub trait CodexRuntime: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
-// Windows Native Runtime
+// Host Runtime（WSL を通さず、Pike と同じ OS の上で codex を直に動かす）
 // ---------------------------------------------------------------------------
 
-pub struct WindowsNativeRuntime;
+/// ホスト上で直に `codex` を起動するランタイム。
+///
+/// **`WindowsNativeRuntime` という名前に戻さないこと。** `runtime_for_shell` は WSL 以外を
+/// 全部ここへ流すので、macOS でもこれが選ばれる。Windows を名乗っていたころは
+/// `display_environment_name()` が macOS で `"Windows"` を返し（この文字列は表示だけの
+/// ラベルではなく、`acp_runtime.rs` が WSL 判定に読む）、Windows のクラッシュ回避で
+/// 入れた `externalSandbox` を macOS がそのまま継承していた（macOS は Seatbelt が
+/// 使える唯一の OS なので、いちばん切ってはいけない場所だった）。
+/// **OS で答えが変わるものはこの struct の中で明示的に分けること。**
+pub struct HostRuntime;
 
-impl CodexRuntime for WindowsNativeRuntime {
+impl CodexRuntime for HostRuntime {
     fn spawn_app_server(&self, working_dir: &str) -> Result<Child, String> {
-        #[cfg(windows)]
-        let (program, prefix_args) = resolve_codex_windows();
-        // 型注釈が要る: windows 側の `resolve_codex_windows` が返す型が見えないので、
-        // 空 vec のままでは `cmd.arg` の `S: AsRef<OsStr>` を推論できない。
-        #[cfg(not(windows))]
-        let (program, prefix_args) = ("codex".to_string(), Vec::<String>::new());
+        let (program, prefix_args) = resolve_codex();
 
         let mut cmd = Command::new(&program);
         for arg in &prefix_args {
@@ -239,14 +251,19 @@ impl CodexRuntime for WindowsNativeRuntime {
     }
 
     fn display_environment_name(&self) -> String {
-        "Windows".to_string()
+        // `acp_runtime.rs` がこの値を `contains("WSL")` で読む（＝WSL でないことを
+        // 表すのが役目）ので、ホスト名をそのまま返して構わない。
+        if cfg!(target_os = "macos") {
+            "macOS".to_string()
+        } else if cfg!(windows) {
+            "Windows".to_string()
+        } else {
+            "Linux".to_string()
+        }
     }
 
     fn codex_version(&self) -> Result<String, String> {
-        #[cfg(windows)]
-        let (program, prefix_args) = resolve_codex_windows();
-        #[cfg(not(windows))]
-        let (program, prefix_args) = ("codex".to_string(), Vec::<String>::new());
+        let (program, prefix_args) = resolve_codex();
 
         let mut cmd = crate::types::silent_command(&program);
         for arg in &prefix_args {
@@ -270,11 +287,18 @@ impl CodexRuntime for WindowsNativeRuntime {
         // (Job Object KILL_ON_JOB_CLOSE cascades to parent process).
         // Use externalSandbox to disable Codex's built-in sandbox.
         // Safety is handled by Pike's approval mechanism.
-        json!({ "type": "externalSandbox" })
+        //
+        // macOS / Linux の sandbox（Seatbelt / Landlock）は WSL と同じく安定して
+        // いるので、Windows のこの回避策を持ち込まない。
+        if cfg!(windows) {
+            json!({ "type": "externalSandbox" })
+        } else {
+            json!({ "type": "workspaceWrite" })
+        }
     }
 
     fn codex_sandbox_trusted(&self) -> bool {
-        false
+        !cfg!(windows)
     }
 }
 
@@ -353,7 +377,7 @@ impl CodexRuntime for WslRuntime {
 pub fn runtime_for_shell(shell: &ShellConfig) -> Box<dyn CodexRuntime> {
     match shell {
         ShellConfig::Wsl { distro } => Box::new(WslRuntime { distro: distro.clone() }),
-        _ => Box::new(WindowsNativeRuntime),
+        _ => Box::new(HostRuntime),
     }
 }
 
@@ -383,17 +407,35 @@ mod tests {
     }
 
     #[test]
-    fn windows_runtime_identity_paths() {
-        let rt = WindowsNativeRuntime;
+    fn host_runtime_identity_paths() {
+        let rt = HostRuntime;
         assert_eq!(rt.translate_path_from_codex("C:\\Users\\test"), "C:\\Users\\test");
         assert_eq!(rt.translate_path_to_codex("C:\\Users\\test"), "C:\\Users\\test");
     }
 
+    /// sandbox の扱いは**ホスト OS で変わる**。Windows だけ Codex 内蔵 sandbox が
+    /// 実験的で Pike ごと落ちるため externalSandbox に逃がしており、macOS / Linux は
+    /// WSL と同じく内蔵（Seatbelt / Landlock）に任せる。
     #[test]
-    fn windows_sandbox_policy_is_external() {
-        let rt = WindowsNativeRuntime;
-        assert_eq!(rt.default_sandbox_policy(), json!({ "type": "externalSandbox" }));
-        assert!(!rt.codex_sandbox_trusted());
+    fn host_sandbox_policy_follows_the_os() {
+        let rt = HostRuntime;
+        if cfg!(windows) {
+            assert_eq!(rt.default_sandbox_policy(), json!({ "type": "externalSandbox" }));
+            assert!(!rt.codex_sandbox_trusted());
+        } else {
+            assert_eq!(rt.default_sandbox_policy(), json!({ "type": "workspaceWrite" }));
+            assert!(rt.codex_sandbox_trusted());
+        }
+    }
+
+    /// この文字列は表示ラベルであると同時に `acp_runtime` が WSL 判定に読む値。
+    /// ホストのランタイムが "WSL" を含む名前を返してはいけない。
+    #[test]
+    fn host_runtime_is_never_mistaken_for_wsl() {
+        assert!(!HostRuntime.display_environment_name().contains("WSL"));
+        assert!(WslRuntime { distro: "Ubuntu".to_string() }
+            .display_environment_name()
+            .contains("WSL"));
     }
 
     #[test]

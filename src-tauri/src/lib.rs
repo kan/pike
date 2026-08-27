@@ -874,17 +874,9 @@ async fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("Only http/https URLs are allowed".to_string());
     }
-    tokio::task::spawn_blocking(move || {
-        // Use explorer.exe which delegates to ShellExecuteW internally,
-        // avoiding cmd.exe shell metacharacter injection (&, |, >, etc.)
-        types::silent_command("explorer.exe")
-            .arg(&url)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || types::os_open(&url))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// ファイル選択ダイアログを外部プログラムで出し、選ばれたパスを返す。

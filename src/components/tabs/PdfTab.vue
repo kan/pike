@@ -26,9 +26,8 @@ onMounted(async () => {
     loading.value = false
     return
   }
-  // Global (project-less) windows read via the Windows side — same fallback
-  // as EditorTab's shellForIO.
-  const shell = projectStore.currentProject?.shell ?? ({ kind: 'powershell' } as const)
+  // Global (project-less) windows fall back to this host's default shell.
+  const shell = projectStore.shellForIO
 
   try {
     const base64 = await fsReadFileBase64(shell, tab.value.path)

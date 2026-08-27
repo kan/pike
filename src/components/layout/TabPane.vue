@@ -291,7 +291,7 @@ function isExternalFileDrag(e: DragEvent): boolean {
  * shell in that case.
  */
 function dropTerminalShell(): ShellType {
-  if (!globalMode.value) return projectStore.currentProject?.shell ?? { kind: 'powershell' }
+  if (!globalMode.value) return projectStore.shellForIO
   const shell = settings.globalShell
   if (shell.kind !== 'wsl') return shell
   return { kind: settings.defaultWindowsShellKind() }

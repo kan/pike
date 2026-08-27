@@ -165,9 +165,27 @@ fn is_process_alive(pid: u64) -> bool {
     }
 }
 
+/// macOS / Linux 版。`kill(pid, 0)` はシグナルを送らずに「その pid へ送れるか」だけを
+/// 見る、この問いの標準的な書き方。
+///
+/// **`false` を返すスタブに戻さないこと。** ここが常に false だと `alive_pids` が
+/// 常に空を返し、Claude usage の `active` が永久に false になる。その結果
+/// `claudeRate` の再取得が `TTL_ACTIVE`（5 分）ではなく `TTL_IDLE`（1 時間）で回り、
+/// セッション中でもレート表示が古いままになる。エラーも出ないので気付けない。
+/// Windows でしか動かなかったころは到達しない死にコードだったが、macOS 対応で
+/// 実際の挙動になった。
 #[cfg(not(windows))]
-fn is_process_alive(_pid: u64) -> bool {
-    false
+fn is_process_alive(pid: u64) -> bool {
+    let Ok(p) = i32::try_from(pid) else { return false };
+    if p <= 0 {
+        return false;
+    }
+    if unsafe { libc::kill(p, 0) } == 0 {
+        return true;
+    }
+    // 別ユーザーのプロセスは EPERM になるが、それは「生きている」ということ。
+    // 死んでいるときだけ ESRCH が返る。
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// Set of still-running pids among `pids`. WSL goes through the distro (Linux

@@ -16,6 +16,7 @@ import { ALT_SCREEN_SHELL_KEYS, normalizedKey, PIKE_FIRST_CTRL_KEYS } from '../.
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { hexToRgba } from '../../lib/format'
+import { isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
@@ -672,7 +673,12 @@ onMounted(async () => {
   )
 
   if (tabData?.kind === 'terminal') {
-    const isBash = !tabData.shell || tabData.shell.kind === 'wsl' || tabData.shell.kind === 'git-bash'
+    // 以下で流す OSC 7 のフックは bash 固有（`PROMPT_COMMAND` と `$BASH_COMMAND`）。
+    // **シェル未指定を無条件に bash 扱いしないこと**: 未指定の既定はホストで変わり、
+    // macOS では zsh になる。zsh は DEBUG トラップを実行するが `$BASH_COMMAND` を
+    // 持たないので、コマンドのたびにタイトルが空文字で上書きされる。
+    // （macOS で OSC 7 が動かないこと自体は `.claude/rules/platform.md` の既知の制約）
+    const isBash = tabData.shell ? tabData.shell.kind === 'wsl' || tabData.shell.kind === 'git-bash' : isWindowsHost
     const currentPtyId = ptyId
     const initLines: string[] = []
 

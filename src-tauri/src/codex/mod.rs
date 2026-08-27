@@ -185,15 +185,9 @@ pub async fn codex_auth_login_chatgpt(
         auth::start_chatgpt_login(client).await?
     };
     if let Some(url) = url {
-        tokio::task::spawn_blocking(move || {
-            crate::types::silent_command("explorer.exe")
-                .arg(&url)
-                .spawn()
-                .map_err(|e| e.to_string())
-        })
-        .await
-        .map_err(|e| e.to_string())?
-        .map(|_| ())?;
+        tokio::task::spawn_blocking(move || crate::types::os_open(&url))
+            .await
+            .map_err(|e| e.to_string())??;
     }
     Ok(())
 }

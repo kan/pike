@@ -92,6 +92,18 @@ export const useProjectStore = defineStore('project', () => {
   // a root-relative operation is a bug that forgot to follow the worktree.
   const activeRoot = computed<string>(() => activeWorktreeRoot.value ?? currentProject.value?.root ?? '')
 
+  /**
+   * Shell to route file I/O through — the project's, or this host's default when
+   * there is no project (a global window opened by `pike <file>`).
+   *
+   * **`{ kind: 'powershell' }` を各所に直書きしないこと。** この値は I/O の振り分けだけ
+   * でなく `pathSep` にも渡るので、macOS では区切りが `\` になり
+   * `/Users/me/notes\img.png` のような名前のファイルを作りに行く。以前は EditorTab /
+   * PdfTab / openFile / TabPane の 4 箇所に同じリテラルが散っていて、そのうち 1 つだけが
+   * 直された状態だった（PdfTab のコメントは「EditorTab と同じ」と言ったまま食い違った）。
+   */
+  const shellForIO = computed<ShellType>(() => currentProject.value?.shell ?? hostDefaultShell())
+
   // Project ids whose `root` is not a directory on this machine (#164): the
   // repository was registered on another machine, moved, or deleted. Populated
   // by `checkRoots`, which the project panel runs when it opens — ids absent
@@ -1039,6 +1051,7 @@ export const useProjectStore = defineStore('project', () => {
     showQuickOpen,
     activeWorktreeRoot,
     activeRoot,
+    shellForIO,
     missingRoots,
     visibleProjects,
     unsyncableProjects,

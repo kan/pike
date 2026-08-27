@@ -55,6 +55,11 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # E2E 撮影 (issue #142)。`e2e` feature でのみ有効。本番ビルドには含まれない。
 tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 
+# プロセス生存確認（`claude_usage::is_process_alive`）に `kill(pid, 0)` が要る。
+# Windows の `OpenProcess` に相当するものが std に無いため、非 Windows でだけ足す。
+[target.'cfg(not(windows))'.dependencies]
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",

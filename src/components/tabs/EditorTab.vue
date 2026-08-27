@@ -683,8 +683,8 @@ function updateCursorInfo() {
   })
 }
 
-/** Shell config for file I/O — falls back to PowerShell when no project is set. */
-const shellForIO = computed(() => projectStore.currentProject?.shell ?? ({ kind: 'powershell' } as const))
+/** Shell config for file I/O. 判断の実体は `projectStore.shellForIO`（そこの doc を参照）。 */
+const shellForIO = computed(() => projectStore.shellForIO)
 
 async function save(overrideEncoding?: string) {
   if (!editorView || !tab.value || saving.value || tab.value.readOnly) return

@@ -43,6 +43,9 @@ pub const WSL_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOM
 ///
 /// 唯一の読み手が `augmented_path_with`（非 Windows のみ）なので、Windows ビルドでは
 /// `-D dead-code` に当たる。定数だけ残しても意味を持たないので、まとめて cfg で落とす。
+///
+/// 先頭の `$HOME/.local/bin` だけは `UNIX_INSTALL_BIN` として別扱いになる（実在しなくても
+/// 足す）。並び順を変えるときはあちらの一致も一緒に見ること。
 #[cfg(not(windows))]
 pub const UNIX_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.cargo/bin:$HOME/go/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/go/bin";
 
@@ -73,9 +76,27 @@ pub fn augment_process_path() {
 #[cfg(windows)]
 pub fn augment_process_path() {}
 
+/// Pike が ACP エージェントの npm パッケージを入れる先。**入れる側（`agent/commands.rs`
+/// の `npm install -g --prefix`）と PATH に足す側（`augmented_path_with`）が必ず同じ場所を
+/// 指すよう、綴りはここ 1 つに置く。** 食い違うと、インストール直後の `which` が永久に
+/// 外れる（`UNIX_INSTALL_BIN` の doc に書いた症状）。
+pub const UNIX_NPM_PREFIX: &str = "$HOME/.local";
+
+/// `UNIX_NPM_PREFIX` に npm が作る bin ディレクトリ。**まだ無くても PATH に入れる**のが
+/// 要点で、これだけは `exists` の対象外にする（理由は `augmented_path_with`）。
+#[cfg(not(windows))]
+const UNIX_INSTALL_BIN: &str = "$HOME/.local/bin";
+
 /// `augment_process_path` の判断部分。プロセスの環境を触らないので単体で確かめられる
 /// （`set_var` はテスト同士が干渉する）。`exists` が真になったものだけを足す: 存在しない
 /// ディレクトリを並べても動作は変わらないが、PATH が長いほど毎回の exec 探索が伸びる。
+///
+/// **例外は `UNIX_INSTALL_BIN` の 1 つだけ。** ここは Pike が ACP エージェントを入れる先で、
+/// **入れるまで存在しない**。存在するものだけを足す規則をそのまま当てると、まっさらな
+/// macOS で「インストールは成功したのに直後の `which` が見つけられず失敗を返す」形になり
+/// （`check_acp_available`）、`AcpProcessRuntime::spawn` も PATH 解決に失敗するので、
+/// Pike を再起動するまでインストールボタンが延々と成功しない。WSL 側が同じ穴に落ちないのは、
+/// あちらがコマンドごとに `WSL_EXTRA_PATH` を前置していて存在を問わないため。
 #[cfg(not(windows))]
 fn augmented_path_with(current: &str, home: &str, exists: impl Fn(&str) -> bool) -> String {
     let mut dirs: Vec<String> = current
@@ -85,7 +106,7 @@ fn augmented_path_with(current: &str, home: &str, exists: impl Fn(&str) -> bool)
         .collect();
     for entry in UNIX_EXTRA_PATH.split(':') {
         let dir = entry.replace("$HOME", home);
-        if !dirs.iter().any(|d| d == &dir) && exists(&dir) {
+        if !dirs.iter().any(|d| d == &dir) && (entry == UNIX_INSTALL_BIN || exists(&dir)) {
             dirs.push(dir);
         }
     }
@@ -110,6 +131,35 @@ pub fn default_unix_shell() -> String {
         .ok()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| "/bin/zsh".to_string())
+}
+
+/// OS 標準の「これを開く」プログラム。URL でもフォルダでも同じものが受け取る。
+///
+/// **どれもシェルを介さず引数をそのまま受ける**ので、`cmd.exe /C start` のような
+/// メタ文字インジェクションの経路にならない（Windows の `explorer.exe` は内部で
+/// `ShellExecuteW` に委譲する）。
+///
+/// **呼び出し側で `explorer.exe` を直書きしないこと。** 以前は `open_url`・
+/// `fs_open_in_explorer`・Codex の OAuth ログイン 2 箇所に同じリテラルが散っていて、
+/// macOS 対応で片方だけ直したため、あちらでは外部リンクも ChatGPT ログインも
+/// 「`explorer.exe` を起動できない」で失敗していた。
+pub fn os_open_program() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(windows) {
+        "explorer.exe"
+    } else {
+        "xdg-open"
+    }
+}
+
+/// `os_open_program()` に 1 引数を渡して起動する。戻りを待たない（開くだけ）。
+pub fn os_open(arg: &str) -> Result<(), String> {
+    silent_command(os_open_program())
+        .arg(arg)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Quote a string for safe interpolation into a `bash -c` command.
@@ -176,6 +226,13 @@ impl ShellConfig {
     /// このホストで既定にすべきシェル。Windows は従来どおり PowerShell、
     /// macOS / Linux はログインシェル。プロジェクト作成・CLI・診断の
     /// 「シェル指定が無いとき」がすべてここを通る。
+    ///
+    /// **`program` は空のままにすること**（実体は `unix_program()` が起動時に `$SHELL` から
+    /// 解決する）。ここで焼き込むと `project/transient.rs` 経由でフロントへ渡り、
+    /// `registerTransientProject` が `project.json` へそのまま保存するので、`pike <dir>` で
+    /// 開いて登録したプロジェクトが `/bin/zsh` を恒久的に指す。さらに `shellId` が
+    /// `unix:/bin/zsh` になり、シェルプロファイルの id（`unix`）と一致しなくなるため
+    /// TabPane のドロップダウンでどれも既定として選ばれなくなる。
     pub fn host_default() -> ShellConfig {
         #[cfg(windows)]
         {
@@ -184,7 +241,7 @@ impl ShellConfig {
         #[cfg(not(windows))]
         {
             ShellConfig::Unix {
-                program: default_unix_shell(),
+                program: String::new(),
             }
         }
     }
@@ -651,10 +708,20 @@ mod tests {
         assert!(dirs.contains(&"/Users/me/.cargo/bin"));
     }
 
+    /// 実在しないものは足さない。**ただし Pike 自身のインストール先は例外**で、
+    /// まだ無くても入る（無いと ACP のインストール直後の `which` が外れる）。
     #[cfg(not(windows))]
     #[test]
-    fn augmented_path_skips_missing_dirs() {
+    fn augmented_path_skips_missing_dirs_except_install_bin() {
         let got = augmented_path_with("/usr/bin", "/Users/me", |_| false);
-        assert_eq!(got, "/usr/bin");
+        assert_eq!(got, "/usr/bin:/Users/me/.local/bin");
+    }
+
+    /// 既に PATH にあるインストール先は重複しない（例外扱いが二重登録にならないこと）。
+    #[cfg(not(windows))]
+    #[test]
+    fn augmented_path_keeps_install_bin_once() {
+        let got = augmented_path_with("/Users/me/.local/bin:/usr/bin", "/Users/me", |_| false);
+        assert_eq!(got, "/Users/me/.local/bin:/usr/bin");
     }
 }
