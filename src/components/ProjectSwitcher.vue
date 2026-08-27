@@ -3,6 +3,7 @@ import { FolderOpen, Globe } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { defaultProjectPlatform } from '../lib/host'
+import { hasMod } from '../lib/keys'
 import { fuzzyMatch } from '../lib/paths'
 import type { ProjectPlatform } from '../lib/projectPaths'
 import { detectWslDistros, openGlobalWindow, pickFolder } from '../lib/tauri'
@@ -184,7 +185,8 @@ function onKeyDown(e: KeyboardEvent) {
     e.preventDefault()
     const selected = filtered.value[selectedIdx.value]
     if (selected) {
-      selectProject(selected.id, e.ctrlKey)
+      // 新しいウィンドウで開く。修飾キーは mac だけ Cmd（`lib/keys.ts`）。
+      selectProject(selected.id, hasMod(e))
     }
     return
   }

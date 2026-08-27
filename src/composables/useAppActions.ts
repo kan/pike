@@ -1,0 +1,70 @@
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { useProjectStore } from '../stores/project'
+import { useTabStore } from '../stores/tabs'
+import { useShortcutsModal } from './useShortcutsModal'
+
+/**
+ * ショートカットと macOS メニューが共有するアクション表（#254）。
+ *
+ * 同じ操作の入口が 2 つある（window の keydown と、ネイティブメニューの
+ * menu event）。**実装をここに 1 本だけ置き**、両方はキー／メニュー id からこの
+ * id への対応表だけを持つ。片方にしか無い動作が生まれると、macOS では
+ * メニューが正・Windows ではキーが正、という食い違いになる。
+ *
+ * ここに足したアクションは `KeyboardShortcuts.vue` とマニュアルにも反映する。
+ */
+export type AppActionId =
+  | 'quickOpen'
+  | 'projectSwitcher'
+  | 'newTerminal'
+  | 'newFile'
+  | 'closeTab'
+  | 'closeWindow'
+  | 'settings'
+  | 'nextTab'
+  | 'prevTab'
+  | 'manual'
+  | 'shortcuts'
+
+export function useAppActions(): Record<AppActionId, () => void> & {
+  /**
+   * `Mod+1`〜`Mod+9` でタブへ飛ぶ。**`9` は最後のタブ**（ブラウザ・ターミナルの
+   * 慣習）。数字の解釈をここに置くのは、呼び出し側で `9` を特別扱いすると
+   * 入口ごとに規則が割れるため。メニューには載せないので `AppActionId` の外側。
+   */
+  selectTabByDigit: (digit: string) => void
+} {
+  const tabStore = useTabStore()
+  const projectStore = useProjectStore()
+  const shortcutsModal = useShortcutsModal()
+
+  return {
+    quickOpen: () => projectStore.toggleQuickOpen(),
+    projectSwitcher: () => projectStore.toggleSwitcher(),
+    newTerminal: () => {
+      const project = projectStore.currentProject
+      tabStore.addTerminalTab(project ? { cwd: project.root, shell: project.shell } : undefined)
+    },
+    newFile: () => tabStore.addBlankEditorTab(),
+    // タブが 1 つも無ければウィンドウを閉じる。macOS の ⌘W はタブを畳みきったら
+    // ウィンドウに進むのが慣習で、グローバルモードのウィンドウが最後のタブを
+    // 閉じた時点で自分から閉じるのとも揃う。
+    closeTab: () => {
+      if (tabStore.activeTabId) tabStore.closeTab(tabStore.activeTabId)
+      else void getCurrentWindow().close()
+    },
+    // `close()` は CloseRequested を経由するので、close-to-tray・実行中ターミナルの
+    // 確認・セッション保存という既存の閉じる経路にそのまま乗る。
+    closeWindow: () => void getCurrentWindow().close(),
+    settings: () => tabStore.addSettingsTab(),
+    nextTab: () => tabStore.cycleTab('next'),
+    prevTab: () => tabStore.cycleTab('prev'),
+    manual: () => tabStore.addManualTab(),
+    shortcuts: () => shortcutsModal.toggle(),
+    selectTabByDigit: (digit: string) => {
+      const index = digit === '9' ? tabStore.tabs.length - 1 : Number(digit) - 1
+      const tab = tabStore.tabs[index]
+      if (tab) tabStore.setActiveTab(tab.id)
+    },
+  }
+}

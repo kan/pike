@@ -1,4 +1,14 @@
 mod agent;
+/// macOS のアプリケーションメニュー（#254）。`Cmd+W` などを AppKit から奪い返す
+/// 唯一の手段で、Windows / Linux にはメニューバーを出さない（ショートカットは
+/// フロントの window keydown が拾う）。
+#[cfg(target_os = "macos")]
+mod appmenu;
+#[cfg(not(target_os = "macos"))]
+mod appmenu {
+    pub fn refresh(_app: &tauri::AppHandle, _lang: &str) {}
+    pub fn on_menu_event(_app: &tauri::AppHandle, _event: tauri::menu::MenuEvent) {}
+}
 mod claude_usage;
 mod cli;
 mod codex;
@@ -624,6 +634,9 @@ async fn menus_refresh(
     // ハングさせた経路には該当しない。ここに重い処理を足すときは jumplist と同じく
     // 専用スレッドへ逃がすこと。
     tray::refresh(&app, &lang, &projects, &shells);
+    // macOS のメニューバーも UI 言語に追従させる（#254）。プロジェクト一覧には
+    // 依存しないが、ロケールを運ぶ経路がここしかない。
+    appmenu::refresh(&app, &lang);
     Ok(())
 }
 
@@ -1122,6 +1135,9 @@ pub fn run() {
         })
         .manage(codex::CodexState::default())
         .manage(agent::state::AgentState::default())
+        // macOS のメニューバーのクリック（#254）。トレイのメニュー項目も同じ
+        // リスナに届くので、`appmenu` 側が自分の id 接頭辞だけを拾う。
+        .on_menu_event(appmenu::on_menu_event)
         .setup(|app| {
             if let Some(state) = app.try_state::<docker::DockerState>() {
                 let _ = state.instance_id.set(app.config().identifier.clone());
@@ -1213,6 +1229,11 @@ pub fn run() {
                     *state.initial_action.lock().unwrap() = Some(action);
                 }
             }
+
+            // macOS のアプリケーションメニュー（#254）。これを設定しないと Tauri の
+            // 既定メニューが付き、`Cmd+W` がタブではなくウィンドウを閉じる。
+            // UI 言語が分かるのは mount 後なので、まず英語で置く。
+            appmenu::refresh(app.handle(), "en");
 
             // System-tray icon (issue #161): quick-launch menu + close-to-tray
             // restore. Non-fatal if it can't be created.

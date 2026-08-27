@@ -13,6 +13,7 @@ import { type Extension, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import type { ShellType } from '../types/tab'
 import { isJumpableAt, type JumpTarget, jumpToDefinition } from './jumpTo'
+import { hasMod } from './keys'
 
 export interface JumpToContext {
   filePath: string
@@ -70,7 +71,7 @@ export function jumpToDefinitionExtension(opts: JumpToOptions): Extension {
     hoverTheme,
     EditorView.domEventHandlers({
       mousedown(event, view) {
-        if (!isModKey(event)) return false
+        if (!hasMod(event)) return false
         const offset = view.posAtCoords({ x: event.clientX, y: event.clientY })
         if (offset == null) return false
         const ctx = opts.getContext()
@@ -80,7 +81,7 @@ export function jumpToDefinitionExtension(opts: JumpToOptions): Extension {
         return true
       },
       mousemove(event, view) {
-        if (!isModKey(event)) {
+        if (!hasMod(event)) {
           clearHover(view)
           return false
         }
@@ -125,11 +126,6 @@ export function jumpToDefinitionExtension(opts: JumpToOptions): Extension {
       },
     ),
   ]
-}
-
-function isModKey(event: MouseEvent): boolean {
-  // Ctrl on Win/Linux, Cmd on macOS — matches VS Code's go-to-def gesture
-  return event.ctrlKey || event.metaKey
 }
 
 function hasHover(view: EditorView): boolean {

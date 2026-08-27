@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { FlipHorizontal2, Grid2x2, Maximize2, RefreshCw, RotateCcw, RotateCw, ZoomIn, ZoomOut } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref } from 'vue'
-import { normalizedKey } from '../../composables/useKeyboardShortcuts'
 import { useI18n } from '../../i18n'
+import { hasMod, normalizedKey } from '../../lib/keys'
 import { useTabStore } from '../../stores/tabs'
 import type { PreviewTab } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
@@ -133,7 +133,9 @@ function resetView() {
 }
 
 function onWheel(e: WheelEvent) {
-  if (!e.ctrlKey) return // plain wheel scrolls normally
+  // `ctrlKey` は mac でも見る: トラックパッドのピンチは Ctrl 付きのホイールとして
+  // 届くので、`hasMod` だけにするとピンチでズームできなくなる。
+  if (!e.ctrlKey && !hasMod(e)) return // plain wheel scrolls normally
   e.preventDefault()
   if (e.deltaY < 0) zoomIn(e.clientX, e.clientY)
   else zoomOut(e.clientX, e.clientY)

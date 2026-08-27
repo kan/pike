@@ -10,6 +10,7 @@ import TabPane from './components/layout/TabPane.vue'
 import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import { initAgentRouter } from './composables/useAgentRouter'
+import { useAppMenu } from './composables/useAppMenu'
 import { initCliOpen, peekInitialCliAction } from './composables/useCliOpen'
 import { confirmDialog } from './composables/useConfirmDialog'
 import { dockerLogRouter } from './composables/useDockerLogRouter'
@@ -58,6 +59,8 @@ const diagStore = useDiagnosticsStore()
 const settingsStore = useSettingsStore()
 
 useKeyboardShortcuts()
+// macOS のメニューバーからの操作（#254）。他の OS ではメニューが無いので発火しない。
+useAppMenu()
 
 // Keep the Rust close-to-tray flag (#161) in sync with the setting. Only the
 // main window owns the sync (one process-global atomic); a toggle in any other

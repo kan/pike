@@ -101,6 +101,40 @@ macOS ユーザーは、使用量・レート・セッション一覧・ACP セ�
 気付く先は StatusBar のアカウント行）。直すなら WSL 側と同じ `-lic` プローブを `Unix` の腕にも
 生やすことになるが、macOS で起動のたびに対話シェルを 1 本起こす代償が付く。
 
+## キーボードショートカット（#254）
+
+**`Cmd` 付きのショートカットは macOS のネイティブメニューが唯一の入口。** メニューの
+key equivalent は AppKit が WebView へ渡す前に処理するので、`window` の keydown では
+絶対に拾えない（メニューを持たなかったころ、Tauri の既定メニューの `Close Window ⌘W`
+が効いて「タブではなくウィンドウが閉じる」になっていた）。
+
+- 実体は `src-tauri/src/appmenu/mod.rs`（macOS 専用。他の OS はメニューバーを持たず、
+  `lib.rs` の `#[cfg(not(target_os = "macos"))] mod appmenu` が何もしない stub）
+- **メニューに載せた項目のアクセラレータは WebView に届かなくなる。** 載せてよいのは
+  ウィンドウ／タブの操作と、AppKit から奪い返す必要があるものだけ。`Cmd+S` / `Cmd+F`
+  （CodeMirror）・`Cmd+K`（Markdown のリンク挿入と一覧の取り合い）・`Cmd+1`〜`9` は
+  **載せない**
+- **Edit メニューの predefined 項目は必ず入れる。** WebView 内のテキスト入力の
+  `Cmd+C` / `Cmd+V` / `Cmd+X` / `Cmd+A` は、対応するメニュー項目が無いと macOS では
+  動かない（既定メニューが担っていた役割をそのまま引き継ぐ）
+- メニュー項目は動作を持たず、フォーカス中のウィンドウへ `pike://menu` を emit する
+  だけ。**動作の実体はフロントの `composables/useAppActions.ts` に 1 本**で、
+  キーボード（`useKeyboardShortcuts.ts`）とメニューが同じものを呼ぶ。片方にしか
+  無い動作を作らないこと（macOS ではメニューが正、他ではキーが正、という食い違いになる）
+- **グローバルの menu-event リスナにはトレイのメニュー項目も届く**ので、`appmenu` は
+  `menu:` の接頭辞で自分のぶんだけを拾う
+- 修飾キーの読み替えは **`src/lib/keys.ts` の `hasMod`**（mac は `metaKey`、他は
+  `ctrlKey`）。`e.ctrlKey` の直書きを増やさないこと
+- **macOS では Ctrl+英字を奪わない**（`MAC_SHELL_CTRL_KEYS`）。`PIKE_FIRST_CTRL_KEYS`
+  （#224）の取り合いは Ctrl を Pike とシェルで分け合う Windows / Linux の事情で、mac の
+  Ctrl は readline（`Ctrl+W` = unix-werase、`Ctrl+T` = transpose）のもの。**ただし
+  `Tab` / `PageUp` / `PageDown` は返さない**: mac でもタブ切替のキーで、xterm は
+  これらを PTY へ送って `stopPropagation` するため、返すとターミナルにフォーカスが
+  あるあいだタブを切り替える手段が無くなる
+- **グローバルの keydown ハンドラの早期 return に `e.ctrlKey` を残すこと。** mac の
+  `hasMod` は Cmd なので、`if (!mod && !e.altKey) return` と書くと Ctrl+Tab 系が
+  そこで死ぬ（キーの一覧より前に落ちるので、原因が見えない）
+
 ## ダイアログ
 
 フォルダ / ファイル選択は Windows が PowerShell + WinForms、macOS が `osascript` の

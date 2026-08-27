@@ -12,14 +12,19 @@ import {
   toMb,
   UploadTooLargeError,
 } from '../../composables/useImagePaste'
-import { ALT_SCREEN_SHELL_KEYS, normalizedKey, PIKE_FIRST_CTRL_KEYS } from '../../composables/useKeyboardShortcuts'
+import {
+  ALT_SCREEN_SHELL_KEYS,
+  MAC_SHELL_CTRL_KEYS,
+  PIKE_FIRST_CTRL_KEYS,
+} from '../../composables/useKeyboardShortcuts'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { hexToRgba } from '../../lib/format'
-import { isWindowsHost } from '../../lib/host'
+import { isMacHost, isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
+import { normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { isAbsolutePath, joinPath, pathSep, relativeTime } from '../../lib/paths'
 import {
@@ -861,6 +866,10 @@ onMounted(async () => {
     // だけでなく stopPropagation も呼ぶため（`cancel(ev, true)`）。既定でシェル優先。
     // 全画面 TUI が動いているあいだは Ctrl+W だけ譲る（vim のウィンドウ操作の prefix）。
     if (PIKE_FIRST_CTRL_KEYS.has(key)) {
+      // macOS では Ctrl+英字をシェルに返す（#254）。Pike のショートカットは Cmd で、
+      // xterm は `metaKey` を素通しするので window まで届く。ただし Tab / PageUp /
+      // PageDown は mac でもタブ切替のキーなので、従来どおり Pike が先に取る。
+      if (isMacHost) return MAC_SHELL_CTRL_KEYS.has(key)
       return inAltScreen.value && ALT_SCREEN_SHELL_KEYS.has(key)
     }
     return true
