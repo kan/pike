@@ -251,12 +251,6 @@ impl CodexAppServerRuntime {
             }
         });
     }
-
-    /// Check if this is a Windows (non-WSL) shell for sandbox defaults.
-    #[allow(dead_code)]
-    fn is_windows_native(&self) -> bool {
-        !matches!(self.shell, ShellConfig::Wsl { .. })
-    }
 }
 
 // ---------------------------------------------------------------------------

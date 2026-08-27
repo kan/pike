@@ -3,14 +3,13 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
-import { isWindowsHost } from '../lib/host'
+import { hostDefaultShell, isWindowsHost } from '../lib/host'
 import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 import { setWebviewTheme, windowLabel } from '../lib/window'
 import type { HiddenProject } from '../types/project'
 import {
-  hostDefaultShell,
   isWindowsShell,
   type MenuShell,
   type ShellProfile,
@@ -355,21 +354,19 @@ function loadSettings(): PersistedSettings {
   return sanitize({ ...defaults(), ...loadJson<Partial<PersistedSettings>>(STORAGE_KEY, {}) })
 }
 
-/** Parse a persisted ShellType, or null when the value is corrupt. */
+/**
+ * Parse a persisted ShellType, or null when the value is corrupt.
+ *
+ * **「妥当なシェルとは何か」の定義は `shellFromId` 1 つに置く。** `shellId` と
+ * `shellFromId` は往復するよう作ってあるので、素通しして戻ってくるかを見れば足りる
+ * （`unix` の `program` が絶対パスであること、`wsl` の distro が空でないこと、
+ * Windows 4 種のメンバシップが、全部あちらの規則で決まる）。ここに判定を書き写すと、
+ * シェル種別を増やしたとき「id からは作れるのに永続化から復元できない」＝起動のたびに
+ * 既定へ戻る、という形で片方だけ更新漏れが出る。
+ */
 function sanitizeShell(v: unknown): ShellType | null {
-  if (v && typeof v === 'object' && 'kind' in v) {
-    const s = v as ShellType
-    if (s.kind === 'wsl') {
-      if (typeof s.distro === 'string' && s.distro) return { kind: 'wsl', distro: s.distro }
-    } else if (s.kind === 'unix') {
-      // 「program は絶対パスのみ」の規則は shellFromId が持つ。ここで書き直すと
-      // 保存経路と復元経路で受け付ける値がずれる。
-      return shellFromId(typeof s.program === 'string' && s.program ? `unix:${s.program}` : 'unix')
-    } else if (s.kind === 'cmd' || s.kind === 'powershell' || s.kind === 'pwsh' || s.kind === 'git-bash') {
-      return { kind: s.kind }
-    }
-  }
-  return null
+  if (!v || typeof v !== 'object' || typeof (v as { kind?: unknown }).kind !== 'string') return null
+  return shellFromId(shellId(v as ShellType))
 }
 
 /** Guard the machine-local global shell against corrupt persisted values. */
@@ -668,12 +665,16 @@ export const useSettingsStore = defineStore('settings', () => {
     // drop every WSL profile and wipe the user's hidden/order customization —
     // which the deep watcher then persists. Skip reconciliation in that case.
     if (distros.length === 0) return
-    const detected = new Set(distros.map((d) => `wsl:${d}`))
+    // id の綴りは `shellId` だけが決める（手書きすると、表記を変えたとき WSL の
+    // プロファイル id とシェル実体の対応だけがずれ、hidden 設定と既定シェルの一致
+    // 判定が無言で外れる）。
+    const wslShells = distros.map((d) => ({ kind: 'wsl', distro: d }) as const)
+    const detected = new Set(wslShells.map(shellId))
     const kept = shellProfiles.value.filter((p) => p.shell.kind !== 'wsl' || detected.has(p.id))
     const have = new Set(kept.map((p) => p.id))
-    const newWsl: ShellProfile[] = distros
-      .filter((d) => !have.has(`wsl:${d}`))
-      .map((d) => ({ id: `wsl:${d}`, shell: { kind: 'wsl', distro: d } }))
+    const newWsl: ShellProfile[] = wslShells
+      .map((shell) => ({ id: shellId(shell), shell }))
+      .filter((p) => !have.has(p.id))
     const newWin: ShellProfile[] = builtinShells()
       .map((shell) => ({ id: shellId(shell), shell }))
       .filter((p) => !have.has(p.id))
@@ -731,7 +732,7 @@ export const useSettingsStore = defineStore('settings', () => {
    */
   function visibleWslDistros(detected: readonly string[], currentDistro?: string): string[] {
     const hidden = new Set(shellProfiles.value.filter((p) => p.hidden).map((p) => p.id))
-    return detected.filter((d) => d === currentDistro || !hidden.has(`wsl:${d}`))
+    return detected.filter((d) => d === currentDistro || !hidden.has(shellId({ kind: 'wsl', distro: d })))
   }
 
   // Sync language setting with i18n locale

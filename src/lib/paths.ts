@@ -1,5 +1,5 @@
 import { t } from '../i18n'
-import type { ShellType } from '../types/tab'
+import { isPosixShell, type ShellType } from '../types/tab'
 
 /**
  * そのシェルが扱うパスの区切り文字。**Rust の `ShellConfig::is_posix()` と対**で、
@@ -14,11 +14,6 @@ import type { ShellType } from '../types/tab'
  */
 export function pathSep(shell?: ShellType): '/' | '\\' {
   return isPosixShell(shell) ? '/' : '\\'
-}
-
-/** POSIX 規約（`/` 区切り・大小を区別）のシェルか。`pathSep` の判定の実体。 */
-export function isPosixShell(shell?: ShellType): boolean {
-  return shell?.kind === 'wsl' || shell?.kind === 'unix'
 }
 
 /** Rewrite every separator in `path` to `sep` (mixed `/` and `\` are unified). */

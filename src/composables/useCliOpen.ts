@@ -5,6 +5,7 @@ import { type CliAction, type CliFileTarget, cliGetInitialAction } from '../lib/
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
+import { isPosixShell } from '../types/tab'
 
 let initialized = false
 
@@ -69,14 +70,19 @@ async function handleActionLocal(action: CliAction) {
       tabStore.addTerminalTab({ cwd: action.cwd ?? undefined, shell: action.shell })
     } else {
       // No cwd-derived shell → the user's configured default for global
-      // windows. A Windows cwd is only meaningful for Windows shells; with a
-      // WSL default it would land in /mnt/c/..., so drop it and let the
-      // terminal start at the Linux home (pty_spawn passes --cd ~). The same
-      // rule for an explicitly pinned shell lives in `cli::terminal_cwd_for`
-      // (Rust doesn't know globalShell, so both sides carry a copy).
+      // windows. The same rule for an explicitly pinned shell lives in
+      // `cli::terminal_cwd_for` (Rust doesn't know globalShell, so both sides
+      // carry a copy) — **keep the two predicates the same shape**.
+      //
+      // POSIX シェル（WSL / ローカル Unix）が受け取れるのは `/` 始まりの cwd だけ。
+      // Windows の cwd を渡すと WSL は /mnt/c/... へ落ち、macOS は存在しないパスを
+      // 開こうとする。渡せないときは捨てて、ターミナルにホームで開かせる
+      // （`pty_spawn` が WSL には `--cd ~`、Unix には `$HOME` を渡す）。
+      // 逆に Windows 系のシェルは `/` 始まりを受け取れない。
       const shell = useSettingsStore().globalShell
-      const cwd = shell.kind === 'wsl' ? undefined : (action.cwd ?? undefined)
-      tabStore.addTerminalTab({ cwd, shell })
+      const cwd = action.cwd ?? undefined
+      const usable = cwd !== undefined && cwd.startsWith('/') === isPosixShell(shell)
+      tabStore.addTerminalTab({ cwd: usable ? cwd : undefined, shell })
     }
   }
 }

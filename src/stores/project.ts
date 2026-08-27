@@ -3,7 +3,15 @@ import { computed, ref, watch } from 'vue'
 import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { locale, t } from '../i18n'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
-import { baseForPlatform, joinBase, type ProjectBase, relativeToBase, rootKey } from '../lib/projectPaths'
+import { hostDefaultShell } from '../lib/host'
+import {
+  baseForPlatform,
+  isProjectPlatform,
+  joinBase,
+  type ProjectBase,
+  relativeToBase,
+  rootKey,
+} from '../lib/projectPaths'
 import {
   focusProjectWindow,
   fsDirsExist,
@@ -26,7 +34,7 @@ import {
 } from '../lib/tauri'
 import { ephemeralWindow, isMainWindow } from '../lib/window'
 import type { ProjectConfig, SyncedProject } from '../types/project'
-import { quoteArg, shellForPlatform, shellId, shellToPlatform } from '../types/tab'
+import { buildShell, quoteArg, type ShellType, shellId, shellToPlatform } from '../types/tab'
 import { useDiagnosticsStore } from './diagnostics'
 import { useSearchStore } from './search'
 import { useSettingsStore } from './settings'
@@ -474,10 +482,10 @@ export const useProjectStore = defineStore('project', () => {
         !!p.id &&
         typeof p.name === 'string' &&
         typeof p.path === 'string' &&
-        // **プラットフォームを増やしたらここにも足すこと。** push は `existing` を
-        // このフィルタに通してから全体を書き戻すので、知らない platform のエントリは
-        // 落ちるのではなく**同期ファイルから消える**（別のマシンが書いたものを消す）。
-        (p.platform === 'wsl' || p.platform === 'windows' || p.platform === 'unix')
+        // push は `existing` をこのフィルタに通してから全体を書き戻すので、知らない
+        // platform のエントリは落ちるのではなく**同期ファイルから消える**（別のマシンが
+        // 書いたものを消す）。一覧は `PROJECT_PLATFORMS` から導くので足し忘れは起きない。
+        isProjectPlatform(p.platform)
       )
     })
   }
@@ -608,7 +616,7 @@ export const useProjectStore = defineStore('project', () => {
         root,
         // 同期ファイルはプラットフォームしか持たないので、シェルはこのマシンの
         // 流儀で決める（`unix` はローカルのログインシェル 1 つしかない）。
-        shell: shellForPlatform(entry.platform, base.wslDistro, settings.defaultWindowsShellKind()),
+        shell: buildShell(entry.platform, base.wslDistro, settings.defaultWindowsShellKind()),
         pinnedTabs: [],
         lastOpened: new Date().toISOString(),
         color: entry.color,

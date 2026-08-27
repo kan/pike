@@ -1,5 +1,3 @@
-import { isWindowsHost } from '../lib/host'
-import { basename, isPosixShell } from '../lib/paths'
 import type { ProjectPlatform } from '../lib/projectPaths'
 
 export type ShellType =
@@ -24,6 +22,21 @@ export const WINDOWS_SHELLS: { kind: WindowsShellKind; label: string }[] = [
   { kind: 'pwsh', label: 'PowerShell 7' },
   { kind: 'git-bash', label: 'Git Bash' },
 ]
+
+/**
+ * POSIX 規約（`/` 区切り・大小を区別）のシェルか。Rust の `ShellConfig::is_posix()` と対。
+ *
+ * `git-bash` は**含めない**: 引用こそ bash だが扱うパスは Windows のもので、Rust 側も
+ * 一貫して Windows として分岐している。
+ *
+ * **`ShellType` の述語なので型と同居させる。** `lib/paths.ts` に置いていたころは
+ * `types/tab.ts` がここを値で import する形になり、「`types/tab.ts` は値 import を
+ * 持たない」（`.claude/rules/frontend.md`）と食い違っていた。区切り文字そのものが要る
+ * ときは `lib/paths.ts` の `pathSep` を使う。
+ */
+export function isPosixShell(shell?: ShellType): boolean {
+  return shell?.kind === 'wsl' || shell?.kind === 'unix'
+}
 
 /**
  * Windows 側の作法（`\` 区切り・cmd の引用・管理者昇格・Codex の externalSandbox）が
@@ -76,7 +89,9 @@ export function shellProfileLabel(shell: ShellType): string {
  * しない固有名なので i18n には出さない。
  */
 function unixShellLabel(program?: string): string {
-  return program ? basename(program) : 'Shell'
+  // `program` は絶対 POSIX パスに限られる（`shellFromId`）ので、`lib/paths.ts` の
+  // `basename` を値で import せずにここで切れる。
+  return program ? program.slice(program.lastIndexOf('/') + 1) || program : 'Shell'
 }
 
 /** powershell.exe / pwsh.exe: same syntax for clear (`cls`) and chaining (`;`) */
@@ -179,14 +194,6 @@ export function buildShell(platform: ProjectPlatform, distro: string, winShell: 
   return shellToType(winShell)
 }
 
-/**
- * 同期ファイル（#164）から作るプロジェクトのシェル。あちらはプラットフォームしか
- * 持たないので、Windows シェルの選択はこのマシンの既定に委ねる。
- */
-export function shellForPlatform(platform: ProjectPlatform, wslDistro: string, winShell?: WindowsShellKind): ShellType {
-  return buildShell(platform, wslDistro, winShell ?? 'powershell')
-}
-
 export function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -199,19 +206,6 @@ export function rootPlaceholder(platform: ProjectPlatform): string {
   if (platform === 'wsl') return 'WSL path (e.g. /home/user/project)'
   if (platform === 'unix') return 'Path (e.g. /Users/user/project)'
   return 'Path (e.g. C:\\Users\\user\\project)'
-}
-
-/**
- * このホストで新規プロジェクトの既定にするプラットフォーム。Windows は従来どおり
- * WSL、macOS / Linux はローカル。フォームの初期値とリセット先が全部ここを通る。
- */
-export function defaultProjectPlatform(): ProjectPlatform {
-  return isWindowsHost ? 'wsl' : 'unix'
-}
-
-/** このホストで既定にするシェル（Rust の `ShellConfig::host_default` と対）。 */
-export function hostDefaultShell(): ShellType {
-  return isWindowsHost ? { kind: 'powershell' } : { kind: 'unix' }
 }
 
 export type TerminalTab = {

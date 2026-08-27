@@ -1,6 +1,6 @@
 /**
- * このアプリが動いているホスト OS。シェルの既定・プロジェクトのプラットフォーム・
- * OS 統合機能の出し分けが全部ここを見る。
+ * このアプリが動いているホスト OS と、そこから決まる既定値。シェルの既定・
+ * プロジェクトのプラットフォーム・OS 統合機能の出し分けが全部ここを見る。
  *
  * **判定に `@tauri-apps/plugin-os` を足さない**（依存を増やさない方針）。IPC も使わない:
  * `defaultShellProfiles` や `shellLabel` のように**同期で**答えが要る場所から呼ばれるので、
@@ -9,21 +9,31 @@
  * WebView の User-Agent は WebView2（Windows）でも WKWebView（macOS）でも OS を含み、
  * この用途には十分に安定している。判定を外したときの影響は「既定のシェル候補がずれる」
  * だけで、ユーザーが設定で選び直せる（安全側に倒れる）。
+ *
+ * **公開するのは `isWindowsHost` 1 つだけ。** macOS と Linux を区別する問いがまだ無いので、
+ * 3 値の enum も `isUnixHost`（`!isWindowsHost` の別名）も置かない。否定の綴りが 2 通り
+ * あると、次に書く人がどちらを使うか決められなくなる。区別が要る問いが出た時点で足す。
  */
 
-export type HostPlatform = 'windows' | 'macos' | 'linux'
+import type { ShellType } from '../types/tab'
+import type { ProjectPlatform } from './projectPaths'
 
-function detect(): HostPlatform {
-  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent
-  if (/Windows/i.test(ua)) return 'windows'
-  if (/Mac OS X|Macintosh/i.test(ua)) return 'macos'
-  return 'linux'
+export const isWindowsHost = /Windows/i.test(typeof navigator === 'undefined' ? '' : navigator.userAgent)
+
+/**
+ * このホストで既定にするシェル（Rust の `ShellConfig::host_default` と対）。
+ *
+ * **`types/tab.ts` ではなくここに置く。** あちらは値 import を持たない方針
+ * （`.claude/rules/frontend.md`）で、この関数は `isWindowsHost`＝`navigator` を読む。
+ */
+export function hostDefaultShell(): ShellType {
+  return isWindowsHost ? { kind: 'powershell' } : { kind: 'unix' }
 }
 
-export const hostPlatform: HostPlatform = detect()
-
-/** Windows ホストか。WSL・cmd・PowerShell・ジャンプリスト等が意味を持つのはこのときだけ。 */
-export const isWindowsHost = hostPlatform === 'windows'
-
-/** macOS / Linux ホストか（＝ローカルの POSIX シェルを使う）。 */
-export const isUnixHost = !isWindowsHost
+/**
+ * このホストで新規プロジェクトの既定にするプラットフォーム。Windows は従来どおり
+ * WSL、macOS / Linux はローカル。フォームの初期値とリセット先が全部ここを通る。
+ */
+export function defaultProjectPlatform(): ProjectPlatform {
+  return isWindowsHost ? 'wsl' : 'unix'
+}
