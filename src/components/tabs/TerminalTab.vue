@@ -228,14 +228,20 @@ function registerPathLinks(term: Terminal) {
         links.push(makeLink(mt.index, mt.index + mt.length - 1, mt))
       }
 
+      // rg/grep grouped match line: link the leading line number to its header.
+      //
+      // **`matches.length === 0` を条件にしないこと。** `findPathLinks` は行番号の無い
+      // パスも拾うようになった（#252）ので、`12:const x = require('./foo.js')` のような
+      // マッチ行では他のリンクが立ち、先頭の行番号がリンクにならなくなる。重なりだけを
+      // 見て、先頭の数字を誰も使っていなければ張る。
+      const rg = parseRgMatchLine(text)
+      if (rg && !matches.some((mt) => mt.index < rg.numLen)) {
+        const header = findHeaderPathAbove(term, y)
+        if (header) links.push(makeLink(0, rg.numLen - 1, { path: header, line: rg.line }))
+      }
+      // 拡張子を持たない裸のパス行（rg のヘッダ、`ls` の 1 件）。`findPathLinks` は
+      // 拡張子を必須にしているので、ここだけが拾える。
       if (matches.length === 0) {
-        // rg/grep grouped match line: link the leading line number to its header.
-        const rg = parseRgMatchLine(text)
-        if (rg) {
-          const header = findHeaderPathAbove(term, y)
-          if (header) links.push(makeLink(0, rg.numLen - 1, { path: header, line: rg.line }))
-        }
-        // A bare path line (rg header, `ls` of one file): open it at line 1.
         const header = asPathHeader(text)
         if (header) {
           const start = text.indexOf(header)
