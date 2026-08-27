@@ -23,7 +23,7 @@
 //! 取得そのもの（プロバイダの用意・クライアントの使い回し・上限付き読み）は `http` に
 //! ある。ここに残すのは HTML の読み方だけ。
 
-use crate::http::{self, FetchPolicy, Overflow, Redirects};
+use crate::http::{self, FetchPolicy, Partial, Redirects};
 use std::time::Duration;
 
 /// A title lives in `<head>`, so the first chunk of the document is enough. The
@@ -45,8 +45,8 @@ pub async fn page_title_fetch(url: String) -> Result<Option<String>, String> {
         redirects: Redirects::Follow,
         timeout: TIMEOUT,
         max_bytes: MAX_BYTES,
-        // `<title>` は先頭にあるので、上限に当たっても手元のぶんで足りる。
-        overflow: Overflow::Truncate,
+        // `<title>` は先頭にあるので、途中までしか読めなくても手元のぶんで足りる。
+        partial: Partial::Keep,
     };
     // 取れないのは珍しくない（DNS、TLS、404、社内ホスト）。URL は既に文書へ入っているので、
     // どれも「タイトルが無かった」と同じ扱いでよい。

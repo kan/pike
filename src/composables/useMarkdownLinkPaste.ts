@@ -35,6 +35,13 @@ import { confirmDialog } from './useConfirmDialog'
  */
 const ASKED_KEY = 'pike:link-title-asked'
 
+/**
+ * 取得中の件数。**モジュールレベルに置く**のは、StatusBar がアプリに 1 つしか無いため。
+ * コンポーザブルはエディタタブごとに作られるので、タブ内で数えても別のタブの取得が
+ * 終わった時点で表示が消える。
+ */
+let inFlight = 0
+
 /** 空白を含まない、丸ごと 1 本の http(s) URL か。 */
 function isBareUrl(text: string): boolean {
   return !/\s/.test(text) && isHttpUrl(text)
@@ -102,8 +109,6 @@ export function useMarkdownLinkPaste(): MarkdownLinkPaste {
   let nextId = 0
   /** 提案のダイアログ。開いているあいだは同時の貼り付けがこれを共有する。 */
   let asking: Promise<boolean> | null = null
-  /** 取得中の件数。0 になったときだけ表示を消す。 */
-  let inFlight = 0
 
   /** 提案がまだなら、一度だけ聞く。 */
   function askOnce(): Promise<boolean> {
@@ -122,8 +127,11 @@ export function useMarkdownLinkPaste(): MarkdownLinkPaste {
   }
 
   /**
-   * 取得中の表示。**件数を数える**のは、StatusBar が 1 つしかないため。先に終わった
-   * ぶんが hide すると、まだ動いている取得の最中に「何もしていない」表示になる。
+   * 取得中の表示。全部終わるまで出したままにする。
+   *
+   * **消す前に、今出ているのが自分のメッセージか確かめる。** 取得のあいだに別のことが
+   * 起きて（定義ジャンプの結果など）表示が差し替わっていることがあり、無条件に隠すと
+   * 他人のメッセージを消してしまう。
    */
   function startIndicator() {
     inFlight += 1
@@ -132,7 +140,7 @@ export function useMarkdownLinkPaste(): MarkdownLinkPaste {
 
   function endIndicator() {
     inFlight -= 1
-    if (inFlight === 0) statusMessage.hide()
+    if (inFlight === 0 && statusMessage.text === t('markdown.linkTitleFetching')) statusMessage.hide()
   }
 
   /** `from` から始まる URL を、取得できたタイトルのリンクに差し替える。 */

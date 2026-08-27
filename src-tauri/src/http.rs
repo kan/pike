@@ -31,12 +31,18 @@ pub enum Redirects {
     Follow,
 }
 
-/// 上限に達したときの扱い。画像は途中まで読んでも意味が無いので失敗、HTML は
-/// `<title>` が先頭にあるので切り詰めで足りる。
+/// 本文を最後まで読めなかったときの扱い。上限に達した場合と、途中で通信が切れた場合の
+/// **両方**に効く。どちらも「手元にあるのは本文の一部」という同じ状況なので、方針を
+/// 分ける意味が無い。
+///
+/// 画像は途中まで読んでも意味が無いので `Fail`、HTML は `<title>` が先頭にあるので
+/// `Keep` で足りる。
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Overflow {
+pub enum Partial {
+    /// 不完全なら失敗にする。
     Fail,
-    Truncate,
+    /// 届いたところまでを返す。
+    Keep,
 }
 
 pub struct FetchPolicy {
@@ -45,7 +51,7 @@ pub struct FetchPolicy {
     pub redirects: Redirects,
     pub timeout: Duration,
     pub max_bytes: usize,
-    pub overflow: Overflow,
+    pub partial: Partial,
 }
 
 pub struct Fetched {
@@ -73,22 +79,27 @@ fn ensure_crypto_provider() {
 /// `OnceCell` でクライアントを持つのと同じ理由）。タイムアウトはリクエスト単位で指定できるので、
 /// 方針の違いはリダイレクトだけに畳める。
 fn client(redirects: Redirects) -> Result<Client, String> {
-    static NEVER: OnceLock<Option<Client>> = OnceLock::new();
-    static FOLLOW: OnceLock<Option<Client>> = OnceLock::new();
+    static NEVER: OnceLock<Client> = OnceLock::new();
+    static FOLLOW: OnceLock<Client> = OnceLock::new();
     let slot = match redirects {
         Redirects::Never => &NEVER,
         Redirects::Follow => &FOLLOW,
     };
-    slot.get_or_init(|| {
-        ensure_crypto_provider();
-        let policy = match redirects {
-            Redirects::Never => reqwest::redirect::Policy::none(),
-            Redirects::Follow => reqwest::redirect::Policy::limited(MAX_REDIRECTS),
-        };
-        Client::builder().redirect(policy).build().ok()
-    })
-    .clone()
-    .ok_or_else(|| "Failed to build the HTTP client".to_string())
+    if let Some(client) = slot.get() {
+        return Ok(client.clone());
+    }
+    // **失敗はキャッシュしない。** `get_or_init` に `.ok()` を入れると、最初の 1 回が
+    // 何かの拍子に失敗しただけで、そのプロセスの以後の取得が全部同じエラーになる
+    // （再起動するまで直らない）。成功だけを覚え、失敗した回は次に持ち越さない。
+    ensure_crypto_provider();
+    let policy = match redirects {
+        Redirects::Never => reqwest::redirect::Policy::none(),
+        Redirects::Follow => reqwest::redirect::Policy::limited(MAX_REDIRECTS),
+    };
+    let client = Client::builder().redirect(policy).build().map_err(|e| e.to_string())?;
+    // 競合したときは先に入ったほうを使う（どちらも同じ方針なので等価）。
+    let _ = slot.set(client.clone());
+    Ok(client)
 }
 
 /// `Content-Type` を本体と charset に分ける。
@@ -139,17 +150,31 @@ pub async fn fetch(url: &str, policy: &FetchPolicy) -> Result<Fetched, String> {
 
     let mut body: Vec<u8> = Vec::with_capacity(policy.max_bytes.min(64 * 1024));
     loop {
-        // 途中で切れた本文でも、先頭は届いていることがある（HTML の `<head>` など）。
-        // 打ち切って手元のぶんを返すかどうかは呼び出し元が決める。
-        let Ok(chunk) = resp.chunk().await else { break };
-        let Some(chunk) = chunk else { break };
-        body.extend_from_slice(&chunk);
-        if body.len() >= policy.max_bytes {
-            if policy.overflow == Overflow::Fail {
-                return Err(format!("Larger than {} MB", policy.max_bytes / 1024 / 1024));
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                body.extend_from_slice(&chunk);
+                if body.len() < policy.max_bytes {
+                    continue;
+                }
+                if policy.partial == Partial::Fail {
+                    return Err(format!("Larger than {} MB", policy.max_bytes / 1024 / 1024));
+                }
+                body.truncate(policy.max_bytes);
+                break;
             }
-            body.truncate(policy.max_bytes);
-            break;
+            // 最後まで届いた。
+            Ok(None) => break,
+            // **途中で切れた。握り潰さないこと。** 打ち切って `Ok` を返すと、呼び出し元は
+            // 完全な本文と区別できない。画像でこれをやると、欠けたバイト列が data URL
+            // として `externalImages` のキャッシュに載り、再試行のチップは null の
+            // エントリしか消さないので、壊れた画像がそのまま残り続ける。
+            Err(e) => {
+                if policy.partial == Partial::Fail {
+                    return Err(e.to_string());
+                }
+                // 先頭さえ届いていれば用が足りる側（HTML の `<head>`）は、手元のぶんで進む。
+                break;
+            }
         }
     }
     Ok(Fetched { mime, charset, body })

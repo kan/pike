@@ -25,7 +25,7 @@
 use base64::Engine as _;
 use std::time::Duration;
 
-use crate::http::{self, FetchPolicy, Overflow, Redirects};
+use crate::http::{self, FetchPolicy, Partial, Redirects};
 
 /// Badges are a few KB; this only exists so a mistyped URL pointing at a huge
 /// file cannot pin the data URL (and the string built from it) in memory.
@@ -49,8 +49,8 @@ pub async fn remote_image_fetch(url: String) -> Result<RemoteImage, String> {
         redirects: Redirects::Never,
         timeout: TIMEOUT,
         max_bytes: MAX_BYTES,
-        // 途中まで読んだ画像は使えないので、上限に当たったら失敗にする。
-        overflow: Overflow::Fail,
+        // 途中まで読んだ画像は使えない。上限でも通信断でも失敗にする。
+        partial: Partial::Fail,
     };
     let fetched = http::fetch(&url, &policy).await?;
     if !fetched.mime.starts_with("image/") {
