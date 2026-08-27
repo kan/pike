@@ -159,7 +159,12 @@ fn ts_command(shell: &ShellConfig, dir: &str) -> &'static str {
             .unwrap_or(false),
         _ => {
             let sep = std::path::MAIN_SEPARATOR;
-            std::path::Path::new(&format!("{dir}{sep}node_modules{sep}.bin{sep}vue-tsc.cmd")).exists()
+            // npm が置くシムの名前は OS で違う。Windows は `.cmd` のバッチ、
+            // macOS / Linux は拡張子なしの shebang スクリプト。`.cmd` 決め打ちだと
+            // macOS では**必ず見つからず**、Vue プロジェクトが黙って素の tsc で
+            // 検査されて `.vue` の import が大量に誤検出される。
+            let name = if cfg!(windows) { "vue-tsc.cmd" } else { "vue-tsc" };
+            std::path::Path::new(&format!("{dir}{sep}node_modules{sep}.bin{sep}{name}")).exists()
         }
     };
     if has_vue_tsc {

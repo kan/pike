@@ -296,6 +296,7 @@ export default {
   'settings.projectBaseHint':
     'Where this machine keeps its checkouts. Projects under it are shared through the sync file as base-relative paths, and projects registered on other machines are created here.',
   'settings.projectBaseNoDistro': '(no distro)',
+  'settings.projectBaseLocal': 'Local',
   'settings.projectBaseOutside': '{count} project(s) sit outside the base and stay on this machine.',
   'settings.hiddenProjects': 'Projects hidden on this machine',
   'settings.hiddenProjectsHint': 'Deleted here but still in the sync file. They stay out of the list until restored.',

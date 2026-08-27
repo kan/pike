@@ -7,7 +7,18 @@
 
 import { joinPath, normalizeSep } from './paths'
 
-export type ProjectPlatform = 'wsl' | 'windows'
+/**
+ * `unix` は macOS / Linux ホストのローカルなプロジェクト。パスの扱いは `wsl` と
+ * 同じ POSIX（`/` 区切り・大小を区別）だが、**同期のベースは別枠**にする: 同じ
+ * マシンに WSL と macOS が同居することはなく、`wsl` の base を流用すると
+ * 「distro のホームを指す設定」が macOS 側に見えてしまう。
+ */
+export type ProjectPlatform = 'wsl' | 'windows' | 'unix'
+
+/** POSIX 規約（`/` 区切り・大小を区別）で扱うプラットフォームか。 */
+export function isPosixPlatform(platform: ProjectPlatform): boolean {
+  return platform === 'wsl' || platform === 'unix'
+}
 
 /** Machine-local base directory per platform. Never synced or broadcast. */
 export interface ProjectBase {
@@ -17,14 +28,18 @@ export interface ProjectBase {
   wsl: string
   /** Distro the WSL base lives in — projects created from sync use this shell. */
   wslDistro: string
+  /** macOS / Linux ホストの base, e.g. `/Users/me/src`. */
+  unix: string
 }
 
 export function emptyProjectBase(): ProjectBase {
-  return { windows: '', wsl: '', wslDistro: '' }
+  return { windows: '', wsl: '', wslDistro: '', unix: '' }
 }
 
 export function baseForPlatform(base: ProjectBase, platform: ProjectPlatform): string {
-  return platform === 'wsl' ? base.wsl : base.windows
+  if (platform === 'wsl') return base.wsl
+  if (platform === 'unix') return base.unix
+  return base.windows
 }
 
 /**
@@ -36,10 +51,9 @@ export function relativeToBase(base: string, root: string, platform: ProjectPlat
   if (!base || !root) return null
   const normalizedBase = normalizeSep(base).replace(/\/+$/, '')
   const normalizedRoot = normalizeSep(root).replace(/\/+$/, '')
-  const [a, b] =
-    platform === 'windows'
-      ? [normalizedBase.toLowerCase(), normalizedRoot.toLowerCase()]
-      : [normalizedBase, normalizedRoot]
+  const [a, b] = isPosixPlatform(platform)
+    ? [normalizedBase, normalizedRoot]
+    : [normalizedBase.toLowerCase(), normalizedRoot.toLowerCase()]
   if (!b.startsWith(`${a}/`)) return null
   return normalizedRoot.slice(normalizedBase.length + 1)
 }
@@ -59,5 +73,10 @@ export function rootKey(root: string): string {
 
 /** Inverse of `relativeToBase`: an absolute root in this machine's layout. */
 export function joinBase(base: string, rel: string, platform: ProjectPlatform): string {
-  return joinPath(base, rel, platform === 'wsl' ? '/' : '\\')
+  return joinPath(base, rel, platformSep(platform))
+}
+
+/** `pathSep` のプラットフォーム版。区切りの規則はこの 2 つに閉じる。 */
+export function platformSep(platform: ProjectPlatform): '/' | '\\' {
+  return isPosixPlatform(platform) ? '/' : '\\'
 }

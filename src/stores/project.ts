@@ -26,7 +26,7 @@ import {
 } from '../lib/tauri'
 import { ephemeralWindow, isMainWindow } from '../lib/window'
 import type { ProjectConfig, SyncedProject } from '../types/project'
-import { quoteArg, shellId, shellToPlatform, shellToType } from '../types/tab'
+import { quoteArg, shellForPlatform, shellId, shellToPlatform } from '../types/tab'
 import { useDiagnosticsStore } from './diagnostics'
 import { useSearchStore } from './search'
 import { useSettingsStore } from './settings'
@@ -110,12 +110,12 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /** Group projects by what a batched shell probe can answer in one call: one
-   *  bucket per WSL distro, one for all Windows shells (native probes run in
+   *  bucket per WSL distro, one for every host shell (native probes run in
    *  this process and never look at the shell). */
   function byProbeShell(list: ProjectConfig[]): ProjectConfig[][] {
     const buckets = new Map<string, ProjectConfig[]>()
     for (const p of list) {
-      const key = p.shell.kind === 'wsl' ? shellId(p.shell) : 'windows'
+      const key = p.shell.kind === 'wsl' ? shellId(p.shell) : 'host'
       const bucket = buckets.get(key)
       if (bucket) bucket.push(p)
       else buckets.set(key, [p])
@@ -462,7 +462,10 @@ export const useProjectStore = defineStore('project', () => {
         !!p.id &&
         typeof p.name === 'string' &&
         typeof p.path === 'string' &&
-        (p.platform === 'wsl' || p.platform === 'windows')
+        // **プラットフォームを増やしたらここにも足すこと。** push は `existing` を
+        // このフィルタに通してから全体を書き戻すので、知らない platform のエントリは
+        // 落ちるのではなく**同期ファイルから消える**（別のマシンが書いたものを消す）。
+        (p.platform === 'wsl' || p.platform === 'windows' || p.platform === 'unix')
       )
     })
   }
@@ -591,10 +594,9 @@ export const useProjectStore = defineStore('project', () => {
         id: entry.id,
         name: entry.name,
         root,
-        shell:
-          entry.platform === 'wsl'
-            ? { kind: 'wsl', distro: base.wslDistro }
-            : shellToType(settings.defaultWindowsShellKind()),
+        // 同期ファイルはプラットフォームしか持たないので、シェルはこのマシンの
+        // 流儀で決める（`unix` はローカルのログインシェル 1 つしかない）。
+        shell: shellForPlatform(entry.platform, base.wslDistro, settings.defaultWindowsShellKind()),
         pinnedTabs: [],
         lastOpened: new Date().toISOString(),
         color: entry.color,

@@ -77,6 +77,20 @@ pub async fn agent_ensure_installed(
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
                 .spawn(),
+            // macOS / Linux: `-g` の既定の prefix は書き込み権限が要ることがあるので、
+            // WSL 側と同じく `$HOME/.local` へ入れる（sudo を要求しない）。PATH は
+            // `augment_process_path` がプロセス側で広げてあるので前置しない。
+            ShellConfig::Unix { .. } => shell_clone
+                .command(
+                    "sh",
+                    &[
+                        "-c",
+                        &format!("npm install -g --prefix \"$HOME/.local\" {ACP_NPM_PACKAGE}"),
+                    ],
+                )
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn(),
             _ => crate::types::silent_command("cmd.exe")
                 .args(["/C", "npm", "install", "-g", ACP_NPM_PACKAGE])
                 .stdout(std::process::Stdio::piped())
@@ -115,6 +129,12 @@ pub fn check_acp_available(config: &AcpAgentConfig, shell: &ShellConfig) -> Resu
         ShellConfig::Wsl { .. } => {
             let cmd = format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" which {}", config.command);
             let path = shell.run_stdout("bash", &["-c", &cmd])?;
+            Ok(path.trim().to_string())
+        }
+        // macOS / Linux はホスト自身なので、WSL のような前置なしで `which` を引く。
+        // PATH は `augment_process_path` が起動時に広げてある。
+        ShellConfig::Unix { .. } => {
+            let path = shell.run_stdout("which", &[&config.command])?;
             Ok(path.trim().to_string())
         }
         _ => {

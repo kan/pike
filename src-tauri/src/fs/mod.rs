@@ -416,7 +416,7 @@ fn decode_bytes(bytes: &[u8], encoding_name: Option<&str>) -> Result<FileReadRes
 #[tauri::command]
 pub async fn fs_open_in_explorer(shell: ShellConfig, path: String) -> Result<(), String> {
     // WSL paths are reachable from Explorer through the \\wsl.localhost\ UNC view.
-    let win_path = match &shell {
+    let target = match &shell {
         ShellConfig::Wsl { distro } => {
             format!(r"\\wsl.localhost\{distro}{}", path.replace('/', "\\"))
         }
@@ -424,9 +424,17 @@ pub async fn fs_open_in_explorer(shell: ShellConfig, path: String) -> Result<(),
     };
     tokio::task::spawn_blocking(move || {
         // explorer.exe delegates to ShellExecuteW internally — no cmd.exe
-        // shell-metacharacter risk (same pattern as open_url).
-        crate::types::silent_command("explorer.exe")
-            .arg(&win_path)
+        // shell-metacharacter risk (same pattern as open_url). macOS の `open` も
+        // 同じく引数をそのまま受けるだけでシェルを介さない。
+        let program = if cfg!(target_os = "macos") {
+            "open"
+        } else if cfg!(windows) {
+            "explorer.exe"
+        } else {
+            "xdg-open"
+        };
+        crate::types::silent_command(program)
+            .arg(&target)
             .spawn()
             .map_err(|e| e.to_string())?;
         Ok(())

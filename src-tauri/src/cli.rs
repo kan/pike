@@ -208,7 +208,12 @@ fn terminal_cwd_for(shell: &crate::types::ShellConfig, cwd: Option<String>) -> O
         }
         (ShellConfig::Wsl { .. }, None) => cwd.starts_with('/').then_some(cwd),
         (ShellConfig::Cmd, Some(_)) => None,
-        _ => (!cwd.starts_with('/')).then_some(cwd),
+        // ローカル Unix シェルでは `/` 始まりこそが正しい cwd（Windows 系とは逆）。
+        // `_` に落とすと macOS の `/Users/...` が捨てられ、ターミナルがホームで開く。
+        (ShellConfig::Unix { .. }, _) => cwd.starts_with('/').then_some(cwd),
+        (ShellConfig::Cmd | ShellConfig::Powershell | ShellConfig::Pwsh | ShellConfig::GitBash, _) => {
+            (!cwd.starts_with('/')).then_some(cwd)
+        }
     }
 }
 

@@ -108,7 +108,9 @@ impl TransientState {
         } else if let Some(distro) = distro_hint {
             (path.to_string(), ShellConfig::Wsl { distro: distro.to_string() })
         } else {
-            (path.to_string(), ShellConfig::Powershell)
+            // UNC でも distro ヒントでもない＝ホストのパス。Windows なら PowerShell、
+            // macOS / Linux ならログインシェル。
+            (path.to_string(), ShellConfig::host_default())
         };
 
         let dir_name = root.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or("project");

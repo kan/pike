@@ -2,6 +2,7 @@
 import { Regex } from 'lucide-vue-next'
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
+import { pathSep } from '../../lib/paths'
 import { useProjectStore } from '../../stores/project'
 import { useSearchStore } from '../../stores/search'
 import { useTabStore } from '../../stores/tabs'
@@ -39,7 +40,7 @@ function toggleRegex() {
 function openResult(match: { path: string; line: number }) {
   const project = projectStore.currentProject
   if (!project) return
-  const s = project.shell.kind === 'wsl' ? '/' : '\\'
+  const s = pathSep(project.shell)
   const fullPath =
     match.path.startsWith('/') || match.path.includes(':') ? match.path : projectStore.activeRoot + s + match.path
   tabStore.addEditorTab({ path: fullPath, initialLine: match.line })
@@ -48,7 +49,7 @@ function openResult(match: { path: string; line: number }) {
 function relativePath(fullPath: string): string {
   const root = projectStore.activeRoot
   if (!root) return fullPath
-  const s = projectStore.currentProject?.shell?.kind === 'wsl' ? '/' : '\\'
+  const s = pathSep(projectStore.currentProject?.shell)
   if (fullPath.startsWith(root + s)) return fullPath.slice(root.length + s.length)
   return fullPath
 }

@@ -9,6 +9,7 @@ import { reactive } from 'vue'
 import { useEditorInfo } from '../composables/useEditorInfo'
 import { deleteChatHistory, loadChatHistory, saveChatHistory } from '../lib/codexHistory'
 import { estimateOpenAICost } from '../lib/format'
+import { pathSep } from '../lib/paths'
 import { loadJson, saveJson } from '../lib/storage'
 import {
   agentAuthLogin,
@@ -338,7 +339,7 @@ export const useAgentStore = defineStore('agent', () => {
 
       // Detect AGENTS.md / CLAUDE.md
       s.detectedInstructionsFile = null
-      const sep = shell.kind === 'wsl' ? '/' : '\\'
+      const sep = pathSep(shell)
       for (const name of ['AGENTS.md', 'CLAUDE.md']) {
         try {
           await fsReadFile(shell, `${cwd}${sep}${name}`)

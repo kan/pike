@@ -217,8 +217,9 @@ fn home_and_envrc(shell: &ShellConfig, project_root: &str) -> (Option<String>, O
             // インストール単位のキャッシュに乗る。
             wsl_native_to_unc(distro, &format!("{}/.envrc", project_root.trim_end_matches('/'))),
         ),
+        // WSL 以外はホスト自身。`USERPROFILE` を直接読むと macOS で None になる。
         _ => (
-            std::env::var("USERPROFILE").ok(),
+            crate::types::host_home(),
             Some(Path::new(project_root).join(".envrc")),
         ),
     }

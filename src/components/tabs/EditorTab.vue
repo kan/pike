@@ -42,7 +42,9 @@ import {
   extension,
   isEmbeddableImage,
   isMarkdownPath,
+  isPosixShell,
   mimeType,
+  pathSep,
   toRelativePath,
 } from '../../lib/paths'
 import { createHeadingSlugger } from '../../lib/slug'
@@ -1266,8 +1268,9 @@ function resolveLocalPath(href: string): string | null {
   }
 
   const root = projectStore.activeRoot
-  const isWsl = project.shell.kind === 'wsl'
-  const sep = isWsl ? '/' : '\\'
+  // 大小の区別も区切りも POSIX かどうかで決まる（macOS のローカルシェルも WSL 側）。
+  const isPosix = isPosixShell(project.shell)
+  const sep = pathSep(project.shell)
 
   // Determine the directory containing the current file. A leading slash is
   // repo-relative in Markdown (the way GitHub and VS Code read it) rather than
@@ -1301,9 +1304,9 @@ function resolveLocalPath(href: string): string | null {
   const normalizedRoot = root.replace(/[/\\]+$/, '')
   const normalizedFull = fullPath.replace(/[/\\]+$/, '')
   // Case-insensitive comparison on Windows
-  const rootCheck = isWsl ? normalizedFull : normalizedFull.toLowerCase()
-  const rootPrefix = isWsl ? normalizedRoot : normalizedRoot.toLowerCase()
-  if (rootCheck !== rootPrefix && !rootCheck.startsWith(rootPrefix + (isWsl ? '/' : '\\'))) {
+  const rootCheck = isPosix ? normalizedFull : normalizedFull.toLowerCase()
+  const rootPrefix = isPosix ? normalizedRoot : normalizedRoot.toLowerCase()
+  if (rootCheck !== rootPrefix && !rootCheck.startsWith(rootPrefix + sep)) {
     return null
   }
 

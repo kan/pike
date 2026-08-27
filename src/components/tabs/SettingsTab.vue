@@ -6,6 +6,7 @@ import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
+import { isWindowsHost } from '../../lib/host'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { detectWslDistros, pickFolder, pickSaveFile } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
@@ -19,14 +20,7 @@ import {
   WINDOW_OPACITY_MIN,
   type WindowBackdrop,
 } from '../../stores/settings'
-import {
-  type ShellProfile,
-  type ShellType,
-  shellId,
-  shellProfileLabel,
-  shellToType,
-  type WindowsShellKind,
-} from '../../types/tab'
+import { isWindowsShell, type ShellProfile, shellFromId, shellId, shellProfileLabel } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
@@ -79,8 +73,8 @@ function moveShellProfile(index: number, dir: -1 | 1) {
  * each side always keeps at least one dropdown entry.
  */
 function canHideShellProfile(p: ShellProfile): boolean {
-  const isWsl = p.shell.kind === 'wsl'
-  return settings.shellProfiles.filter((q) => !q.hidden && (q.shell.kind === 'wsl') === isWsl).length > 1
+  const windows = isWindowsShell(p.shell)
+  return settings.shellProfiles.filter((q) => !q.hidden && isWindowsShell(q.shell) === windows).length > 1
 }
 
 function toggleShellProfileHidden(index: number) {
@@ -103,15 +97,13 @@ const globalShellOptions = computed<{ value: string; label: string }[]>(() => {
   return opts
 })
 
-const globalShellValue = computed(() =>
-  settings.globalShell.kind === 'wsl' ? `wsl:${settings.globalShell.distro}` : settings.globalShell.kind,
-)
+const globalShellValue = computed(() => shellId(settings.globalShell))
 
 function onGlobalShellChange(e: Event) {
-  const v = (e.target as HTMLSelectElement).value
-  settings.globalShell = v.startsWith('wsl:')
-    ? ({ kind: 'wsl', distro: v.slice(4) } as ShellType)
-    : shellToType(v as WindowsShellKind)
+  // 復元は shellFromId の 1 箇所に寄せる（`shellToType` は Windows シェルしか知らず、
+  // macOS の `unix` を渡すと undefined になる）。読めない値は現状維持。
+  const shell = shellFromId((e.target as HTMLSelectElement).value)
+  if (shell) settings.globalShell = shell
 }
 
 // CSS font-family for the editor preview swatch (built from the editor font name).
@@ -161,11 +153,13 @@ async function restoreProject(id: string) {
   settings.syncMessage = pulled && pulled.unresolvable > 0 ? t('settings.restoreNoBase') : t('settings.restoreNoEntry')
 }
 
-/** Windows-side project base (#164). The WSL base is typed in: a folder picker
- *  would return a Windows path, and the WSL base must be a native one. */
+/** ホスト側のプロジェクト base（#164）。WSL の base だけは手入力: フォルダ選択が
+ *  返すのは Windows のパスで、WSL の base は distro の native パスである必要がある。 */
 async function browseProjectBase() {
   const folder = await pickFolder()
-  if (folder) settings.projectBase.windows = folder
+  if (!folder) return
+  if (isWindowsHost) settings.projectBase.windows = folder
+  else settings.projectBase.unix = folder
 }
 
 function onFontSizeInput(e: Event) {
@@ -814,32 +808,49 @@ const PREVIEW_LINES = [
         <div class="setting-row setting-row-block">
           <label class="setting-label">{{ t('settings.projectBase') }}</label>
           <p class="setting-hint">{{ t('settings.projectBaseHint') }}</p>
-          <div class="sync-path-row">
-            <span class="base-label">Windows</span>
+          <!-- base はプラットフォームごとに要る。macOS / Linux のプロジェクトは
+               platform='unix' なので、この欄が無いと 1 件も同期対象にならない。 -->
+          <template v-if="isWindowsHost">
+            <div class="sync-path-row">
+              <span class="base-label">Windows</span>
+              <input
+                v-model="settings.projectBase.windows"
+                class="agent-cmd-input sync-path-input"
+                type="text"
+                spellcheck="false"
+                placeholder="C:\\Users\\me\\src"
+              />
+              <button type="button" class="detect-btn" @click="browseProjectBase">
+                {{ t('project.browse') }}
+              </button>
+            </div>
+            <div class="sync-path-row">
+              <span class="base-label">WSL</span>
+              <input
+                v-model="settings.projectBase.wsl"
+                class="agent-cmd-input sync-path-input"
+                type="text"
+                spellcheck="false"
+                placeholder="/home/me/src"
+              />
+              <select v-model="settings.projectBase.wslDistro" class="base-distro">
+                <option value="">{{ t('settings.projectBaseNoDistro') }}</option>
+                <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
+              </select>
+            </div>
+          </template>
+          <div v-else class="sync-path-row">
+            <span class="base-label">{{ t('settings.projectBaseLocal') }}</span>
             <input
-              v-model="settings.projectBase.windows"
+              v-model="settings.projectBase.unix"
               class="agent-cmd-input sync-path-input"
               type="text"
               spellcheck="false"
-              placeholder="C:\\Users\\me\\src"
+              placeholder="/Users/me/src"
             />
             <button type="button" class="detect-btn" @click="browseProjectBase">
               {{ t('project.browse') }}
             </button>
-          </div>
-          <div class="sync-path-row">
-            <span class="base-label">WSL</span>
-            <input
-              v-model="settings.projectBase.wsl"
-              class="agent-cmd-input sync-path-input"
-              type="text"
-              spellcheck="false"
-              placeholder="/home/me/src"
-            />
-            <select v-model="settings.projectBase.wslDistro" class="base-distro">
-              <option value="">{{ t('settings.projectBaseNoDistro') }}</option>
-              <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
-            </select>
           </div>
           <p v-if="settings.syncFilePath && projectStore.unsyncableProjects.length > 0" class="setting-hint">
             {{ t('settings.projectBaseOutside', { count: projectStore.unsyncableProjects.length }) }}

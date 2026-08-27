@@ -1,9 +1,20 @@
+import { isWindowsHost } from '../lib/host'
+import { basename, isPosixShell } from '../lib/paths'
+import type { ProjectPlatform } from '../lib/projectPaths'
+
 export type ShellType =
   | { kind: 'wsl'; distro: string }
   | { kind: 'cmd' }
   | { kind: 'powershell' }
   | { kind: 'pwsh' }
   | { kind: 'git-bash' }
+  /**
+   * macOS / Linux ホストのローカルシェル。`program` はシェルの絶対パスで、
+   * 省略すると Rust 側が `$SHELL`（無ければ `/bin/zsh`）で解決する。**既定では
+   * 空にしておく**: 焼き込むと、ユーザーがログインシェルを変えたあとも保存済みの
+   * タブが古いシェルを起動し続ける。
+   */
+  | { kind: 'unix'; program?: string }
 
 export type WindowsShellKind = 'cmd' | 'powershell' | 'pwsh' | 'git-bash'
 
@@ -14,13 +25,21 @@ export const WINDOWS_SHELLS: { kind: WindowsShellKind; label: string }[] = [
   { kind: 'git-bash', label: 'Git Bash' },
 ]
 
+/**
+ * Windows 側の作法（`\` 区切り・cmd の引用・管理者昇格・Codex の externalSandbox）が
+ * 当てはまるシェルか。WSL と同じく、ローカルの Unix シェルは**含まない**。
+ */
 export function isWindowsShell(shell: ShellType): boolean {
-  return shell.kind !== 'wsl'
+  return !isPosixShell(shell)
 }
 
 /** Stable identity for a shell config: profile key and default-shell matching. */
 export function shellId(shell: ShellType): string {
-  return shell.kind === 'wsl' ? `wsl:${shell.distro}` : shell.kind
+  if (shell.kind === 'wsl') return `wsl:${shell.distro}`
+  // `unix:<絶対パス>` は明示指定したときだけ。既定は素の `unix`（Rust の
+  // `shell_from_id` と同じ表記）。
+  if (shell.kind === 'unix') return shell.program ? `unix:${shell.program}` : 'unix'
+  return shell.kind
 }
 
 /**
@@ -47,7 +66,17 @@ export interface MenuShell {
 /** Dropdown label: matches WINDOWS_SHELLS naming (not the short shellLabel form). */
 export function shellProfileLabel(shell: ShellType): string {
   if (shell.kind === 'wsl') return `WSL (${shell.distro})`
+  if (shell.kind === 'unix') return unixShellLabel(shell.program)
   return WINDOWS_SHELLS.find((s) => s.kind === shell.kind)?.label ?? shell.kind
+}
+
+/**
+ * ローカル Unix シェルの表示名。実体（`/bin/zsh` → `zsh`）が分かるほうが役に立つが、
+ * 既定は実体を持たない（`$SHELL` を実行時に見る）ので一般名に落とす。UI 言語に依存
+ * しない固有名なので i18n には出さない。
+ */
+function unixShellLabel(program?: string): string {
+  return program ? basename(program) : 'Shell'
 }
 
 /** powershell.exe / pwsh.exe: same syntax for clear (`cls`) and chaining (`;`) */
@@ -80,6 +109,26 @@ export function quoteArg(shell: ShellType, arg: string): string {
   return `'${escaped}'`
 }
 
+/**
+ * `shellId` の逆。Rust の `types::shell_from_id` と同じ語彙を読む。
+ *
+ * 解釈できない id では null を返す。**`shellToType(id as WindowsShellKind)` で代用しない**:
+ * あちらは網羅 switch なので `unix` や `wsl:...` を渡すと黙って `undefined` を返し、
+ * そのまま保存するとシェルを持たないプロジェクトができる。
+ */
+export function shellFromId(id: string): ShellType | null {
+  if (id.startsWith('wsl:')) {
+    const distro = id.slice('wsl:'.length)
+    return distro ? { kind: 'wsl', distro } : null
+  }
+  if (id === 'unix') return { kind: 'unix' }
+  if (id.startsWith('unix:')) {
+    const program = id.slice('unix:'.length)
+    return program.startsWith('/') ? { kind: 'unix', program } : null
+  }
+  return WINDOWS_SHELLS.some((s) => s.kind === id) ? shellToType(id as WindowsShellKind) : null
+}
+
 export function shellToType(kind: WindowsShellKind): ShellType {
   switch (kind) {
     case 'cmd':
@@ -105,24 +154,37 @@ export function shellLabel(shell: ShellType): string {
       return 'PowerShell 7'
     case 'git-bash':
       return 'Git Bash'
+    case 'unix':
+      return unixShellLabel(shell.program)
   }
 }
 
-export function shellToPlatform(shell: ShellType): 'wsl' | 'windows' {
-  return shell.kind === 'wsl' ? 'wsl' : 'windows'
+export function shellToPlatform(shell: ShellType): ProjectPlatform {
+  if (shell.kind === 'wsl') return 'wsl'
+  if (shell.kind === 'unix') return 'unix'
+  return 'windows'
 }
 
 export function shellToWinKind(shell: ShellType): WindowsShellKind {
-  return shell.kind === 'wsl' ? 'powershell' : shell.kind
+  return shell.kind === 'wsl' || shell.kind === 'unix' ? 'powershell' : shell.kind
 }
 
 export function shellToDistro(shell: ShellType, fallback = 'Ubuntu'): string {
   return shell.kind === 'wsl' ? shell.distro : fallback
 }
 
-export function buildShell(platform: 'wsl' | 'windows', distro: string, winShell: WindowsShellKind): ShellType {
+export function buildShell(platform: ProjectPlatform, distro: string, winShell: WindowsShellKind): ShellType {
   if (platform === 'wsl') return { kind: 'wsl', distro }
+  if (platform === 'unix') return { kind: 'unix' }
   return shellToType(winShell)
+}
+
+/**
+ * 同期ファイル（#164）から作るプロジェクトのシェル。あちらはプラットフォームしか
+ * 持たないので、Windows シェルの選択はこのマシンの既定に委ねる。
+ */
+export function shellForPlatform(platform: ProjectPlatform, wslDistro: string, winShell?: WindowsShellKind): ShellType {
+  return buildShell(platform, wslDistro, winShell ?? 'powershell')
 }
 
 export function slugify(name: string): string {
@@ -133,8 +195,23 @@ export function slugify(name: string): string {
     .slice(0, 64)
 }
 
-export function rootPlaceholder(platform: 'wsl' | 'windows'): string {
-  return platform === 'wsl' ? 'WSL path (e.g. /home/user/project)' : 'Path (e.g. C:\\Users\\user\\project)'
+export function rootPlaceholder(platform: ProjectPlatform): string {
+  if (platform === 'wsl') return 'WSL path (e.g. /home/user/project)'
+  if (platform === 'unix') return 'Path (e.g. /Users/user/project)'
+  return 'Path (e.g. C:\\Users\\user\\project)'
+}
+
+/**
+ * このホストで新規プロジェクトの既定にするプラットフォーム。Windows は従来どおり
+ * WSL、macOS / Linux はローカル。フォームの初期値とリセット先が全部ここを通る。
+ */
+export function defaultProjectPlatform(): ProjectPlatform {
+  return isWindowsHost ? 'wsl' : 'unix'
+}
+
+/** このホストで既定にするシェル（Rust の `ShellConfig::host_default` と対）。 */
+export function hostDefaultShell(): ShellType {
+  return isWindowsHost ? { kind: 'powershell' } : { kind: 'unix' }
 }
 
 export type TerminalTab = {

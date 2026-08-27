@@ -12,10 +12,10 @@
 - **外部依存は明示**: rg なければ grep、と graceful degrade する。tmux はオプション機能
 
 ### ターゲット環境
-- **OS**: Windows 11（メイン開発・動作環境）
-- **実行環境**: WSL2 上のシェル・Docker コンテナ、または Windows ホスト上のシェル
+- **OS**: Windows 11（メイン開発・動作環境）。macOS はローカルのシェルで開発できるところまで対応する（詳細と制約は `.claude/rules/platform.md`）
+- **実行環境**: WSL2 上のシェル・Docker コンテナ、または Windows ホスト上のシェル。macOS ではホストのログインシェル
 - **GUI**: Tauri v2 webview (Windows ネイティブプロセス)
-- **対応シェル**: WSL bash / cmd.exe / PowerShell / Git Bash
+- **対応シェル**: WSL bash / cmd.exe / PowerShell / Git Bash / ローカル Unix シェル（macOS）
 
 ---
 
@@ -35,6 +35,7 @@
 | `agent.md` | 統一エージェント API（Codex / ACP）・トークン使用量・`pike todo` CLI とスキル |
 | `docker.md` | bollard 連携・compose の探索・ログ・ポートフォワード |
 | `build.md` | 開発ビルド・本番ビルド限定の落とし穴（CSP）・E2E スクリーンショット・CI・セルフアップデート |
+| `platform.md` | Windows / macOS の分岐の作法・GUI プロセスの PATH・macOS で持たない機能・rg サイドカー |
 
 ---
 
@@ -214,6 +215,7 @@ pike/
 │   │   ├── useMarkdownImages.ts  # Markdown への画像挿入（選択/貼り付け/ドロップ、#241）
 │   ├── lib/
 │   │   ├── fileIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
+│   │   ├── host.ts           # ホスト OS の判定（Windows / macOS / Linux の出し分けの唯一の出典）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
@@ -242,7 +244,8 @@ pike/
         ├── editor.md      # エディタ・プレビュー・各パネル・ファイル監視
         ├── agent.md       # Agent Runtime・usage・pike todo
         ├── docker.md      # Docker 連携
-        └── build.md       # 開発/本番ビルド・E2E・CI・アップデート
+        ├── build.md       # 開発/本番ビルド・E2E・CI・アップデート
+        └── platform.md    # Windows / macOS の分岐・PATH・サイドカー
 ```
 
 ---

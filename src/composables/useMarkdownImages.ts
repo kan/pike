@@ -35,7 +35,7 @@ import {
 import { relativeToBase } from '../lib/projectPaths'
 import { fsImportFile, pickOpenFile } from '../lib/tauri'
 import { useStatusMessageStore } from '../stores/statusMessage'
-import type { ShellType } from '../types/tab'
+import { type ShellType, shellToPlatform } from '../types/tab'
 import { getClipboardFiles, isGenericName, saveFileTo, uniqueFilename } from './useImagePaste'
 
 export interface MarkdownImages {
@@ -62,7 +62,7 @@ export function useMarkdownImages(docDir: Ref<string>, shell: Ref<ShellType>, ro
   /** Is `path` inside the project (or, without one, under the document)? */
   function isOurs(path: string): boolean {
     const base = root.value || docDir.value
-    return relativeToBase(base, path, shell.value.kind === 'wsl' ? 'wsl' : 'windows') !== null
+    return relativeToBase(base, path, shellToPlatform(shell.value)) !== null
   }
 
   /**
@@ -91,7 +91,9 @@ export function useMarkdownImages(docDir: Ref<string>, shell: Ref<ShellType>, ro
     // webview and writing them back would push the whole image through the IPC
     // bridge twice as base64.
     const reachable = shell.value.kind === 'wsl' ? wslNativeToUnc(shell.value.distro, dest) : dest
-    await fsImportFile({ kind: 'powershell' }, source, reachable)
+    // PowerShell を名指しするのは UNC 越しに WSL の中へ書くためで、ホスト OS の
+    // 話ではない。WSL 以外では `asLocalPath` が非 null になりここへ来ない。
+    await fsImportFile(shell.value.kind === 'wsl' ? { kind: 'powershell' } : shell.value, source, reachable)
     return name
   }
 

@@ -3,15 +3,19 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
+import { isWindowsHost } from '../lib/host'
 import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 import { setWebviewTheme, windowLabel } from '../lib/window'
 import type { HiddenProject } from '../types/project'
 import {
+  hostDefaultShell,
+  isWindowsShell,
   type MenuShell,
   type ShellProfile,
   type ShellType,
+  shellFromId,
   shellId,
   shellProfileLabel,
   shellToType,
@@ -344,6 +348,10 @@ function sanitizeShell(v: unknown): ShellType | null {
     const s = v as ShellType
     if (s.kind === 'wsl') {
       if (typeof s.distro === 'string' && s.distro) return { kind: 'wsl', distro: s.distro }
+    } else if (s.kind === 'unix') {
+      // 「program は絶対パスのみ」の規則は shellFromId が持つ。ここで書き直すと
+      // 保存経路と復元経路で受け付ける値がずれる。
+      return shellFromId(typeof s.program === 'string' && s.program ? `unix:${s.program}` : 'unix')
     } else if (s.kind === 'cmd' || s.kind === 'powershell' || s.kind === 'pwsh' || s.kind === 'git-bash') {
       return { kind: s.kind }
     }
@@ -353,7 +361,15 @@ function sanitizeShell(v: unknown): ShellType | null {
 
 /** Guard the machine-local global shell against corrupt persisted values. */
 function sanitizeGlobalShell(v: unknown): ShellType {
-  return sanitizeShell(v) ?? { kind: 'powershell' }
+  return sanitizeShell(v) ?? hostDefaultShell()
+}
+
+/**
+ * このホストに組み込みで並ぶシェル。Windows は 4 つの Windows シェル（WSL は
+ * 検出後に `syncShellProfiles` が足す）、macOS / Linux はログインシェル 1 つ。
+ */
+function builtinShells(): ShellType[] {
+  return isWindowsHost ? WINDOWS_SHELLS.map((s) => shellToType(s.kind)) : [{ kind: 'unix' }]
 }
 
 /** Guard the machine-local project base against corrupt persisted values. */
@@ -361,7 +377,7 @@ function sanitizeProjectBase(v: unknown): ProjectBase {
   const base = emptyProjectBase()
   if (!v || typeof v !== 'object') return base
   const raw = v as Record<string, unknown>
-  for (const key of ['windows', 'wsl', 'wslDistro'] as const) {
+  for (const key of ['windows', 'wsl', 'wslDistro', 'unix'] as const) {
     if (typeof raw[key] === 'string') base[key] = raw[key] as string
   }
   return base
@@ -400,7 +416,7 @@ function sanitizeHiddenProjects(v: unknown): HiddenProject[] {
 
 function defaultShellProfiles(): ShellProfile[] {
   // WSL distros are appended by syncShellProfiles once detection runs.
-  return WINDOWS_SHELLS.map((s) => ({ id: s.kind, shell: shellToType(s.kind) }))
+  return builtinShells().map((shell) => ({ id: shellId(shell), shell }))
 }
 
 /** Guard the machine-local shell profile list against corrupt persisted values. */
@@ -417,9 +433,10 @@ function sanitizeShellProfiles(v: unknown): ShellProfile[] {
     seen.add(id)
     out.push({ id, shell, hidden: (item as { hidden?: unknown }).hidden === true })
   }
-  // Recover builtin Windows shells lost to corruption so they stay manageable.
-  for (const s of WINDOWS_SHELLS) {
-    if (!seen.has(s.kind)) out.push({ id: s.kind, shell: shellToType(s.kind) })
+  // Recover this host's builtin shells lost to corruption so they stay manageable.
+  for (const shell of builtinShells()) {
+    const id = shellId(shell)
+    if (!seen.has(id)) out.push({ id, shell })
   }
   return ensureVisiblePerCategory(out)
 }
@@ -430,8 +447,8 @@ function sanitizeShellProfiles(v: unknown): ShellProfile[] {
  * the dropdown can never end up empty after corrupt/hand-edited storage.
  */
 function ensureVisiblePerCategory(list: ShellProfile[]): ShellProfile[] {
-  for (const isWsl of [true, false]) {
-    const category = list.filter((p) => (p.shell.kind === 'wsl') === isWsl)
+  for (const windows of [true, false]) {
+    const category = list.filter((p) => isWindowsShell(p.shell) === windows)
     if (category.length > 0 && category.every((p) => p.hidden)) {
       category[0].hidden = false
     }
@@ -644,10 +661,9 @@ export const useSettingsStore = defineStore('settings', () => {
     const newWsl: ShellProfile[] = distros
       .filter((d) => !have.has(`wsl:${d}`))
       .map((d) => ({ id: `wsl:${d}`, shell: { kind: 'wsl', distro: d } }))
-    const newWin: ShellProfile[] = WINDOWS_SHELLS.filter((s) => !have.has(s.kind)).map((s) => ({
-      id: s.kind,
-      shell: shellToType(s.kind),
-    }))
+    const newWin: ShellProfile[] = builtinShells()
+      .map((shell) => ({ id: shellId(shell), shell }))
+      .filter((p) => !have.has(p.id))
     if (newWsl.length || newWin.length || kept.length !== shellProfiles.value.length) {
       shellProfiles.value = [...newWsl, ...kept, ...newWin]
     }
@@ -662,8 +678,14 @@ export const useSettingsStore = defineStore('settings', () => {
    */
   function windowsShellOptions(currentKind?: WindowsShellKind): { kind: WindowsShellKind; label: string }[] {
     return shellProfiles.value
-      .filter((p) => p.shell.kind !== 'wsl' && (!p.hidden || p.shell.kind === currentKind))
-      .map((p) => ({ kind: p.shell.kind as WindowsShellKind, label: shellProfileLabel(p.shell) }))
+      .filter(
+        (p): p is ShellProfile & { shell: { kind: WindowsShellKind } } =>
+          // `!== 'wsl'` だけでは足りない: macOS では `unix` が残り、`WindowsShellKind`
+          // として扱われて `shellToType` が undefined を返す（そのまま保存すると
+          // shell を持たないプロジェクトができる）。
+          isWindowsShell(p.shell) && (!p.hidden || p.shell.kind === currentKind),
+      )
+      .map((p) => ({ kind: p.shell.kind, label: shellProfileLabel(p.shell) }))
   }
 
   /**

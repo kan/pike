@@ -2,14 +2,22 @@
 import { FolderOpen, Globe } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
+import { isWindowsHost } from '../lib/host'
 import { fuzzyMatch } from '../lib/paths'
+import type { ProjectPlatform } from '../lib/projectPaths'
 import { detectWslDistros, openGlobalWindow, pickFolder } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
 import type { ProjectConfig } from '../types/project'
-import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, type WindowsShellKind } from '../types/tab'
+import {
+  buildShell,
+  defaultProjectPlatform,
+  rootPlaceholder as rootPlaceholderFn,
+  slugify,
+  type WindowsShellKind,
+} from '../types/tab'
 import ColorDot from './ColorDot.vue'
 import ProjectIcon from './ProjectIcon.vue'
 import ColorSelect from './panels/ColorSelect.vue'
@@ -59,7 +67,7 @@ const filtered = computed(() => {
 const showNewForm = ref(false)
 const formName = ref('')
 const formRoot = ref('')
-const formPlatform = ref<'wsl' | 'windows'>('wsl')
+const formPlatform = ref<ProjectPlatform>(defaultProjectPlatform())
 const formDistro = ref('Ubuntu')
 const formWindowsShell = ref<WindowsShellKind>('powershell')
 const formColor = ref<string | undefined>(undefined)
@@ -129,7 +137,7 @@ function resetForm() {
   showNewForm.value = false
   formName.value = ''
   formRoot.value = ''
-  formPlatform.value = 'wsl'
+  formPlatform.value = defaultProjectPlatform()
   formWindowsShell.value = settings.defaultWindowsShellKind()
   formColor.value = undefined
   formIcon.value = undefined
@@ -258,7 +266,8 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
           <form class="new-form-body" @submit.prevent="onCreateProject">
             <input v-model="formName" :placeholder="t('project.projectName')" required />
             <input v-model="formRoot" :placeholder="formRootPlaceholder" required />
-            <div class="platform-row">
+            <!-- WSL / Windows の選択は Windows ホストにしか意味が無い（macOS / Linux は 'unix' 固定）。 -->
+            <div v-if="isWindowsHost" class="platform-row">
               <label class="radio-label">
                 <input type="radio" v-model="formPlatform" value="wsl" /> WSL
               </label>

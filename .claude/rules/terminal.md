@@ -11,6 +11,8 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   - cmd: `cmd.exe`
   - PowerShell: `powershell.exe -NoLogo`
   - Git Bash: `C:\Program Files\Git\bin\bash.exe --login`（自動検出）
+  - Unix（macOS / Linux）: `$SHELL` を **`-l`（ログインシェル）** で起動する。GUI プロセスの PATH は最小なので、rc / profile を読ませないとターミナルから何も呼べない（`.claude/rules/platform.md` の「PATH」）
+- **シェル未指定（`None`）の既定は OS で変わる**。Windows は従来どおり WSL、macOS / Linux はログインシェル（`wsl.exe` が無いので WSL に落とすと即死する）
 - 環境変数 `TERM=xterm-256color` を cmd 以外に設定
 - リサイズは `pty.resize()` で PTY サイズを更新
 - `autoStart` 対応: PTY spawn 後に指定コマンドを自動実行（例: `claude`）

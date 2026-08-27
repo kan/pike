@@ -14,25 +14,16 @@ pub struct SearchState {
     pub detected: Arc<Mutex<HashMap<String, SearchBackend>>>,
 }
 
-/// Cache key for the detected backend. All Windows shells share one entry
-/// (identical PATH-based rg/grep detection); WSL is per-distro.
-fn backend_cache_key(shell: &ShellConfig) -> String {
-    match shell {
-        ShellConfig::Wsl { distro } => format!("wsl:{distro}"),
-        _ => "windows".to_string(),
-    }
-}
-
 /// Probe for the best available search backend for `shell` (blocking: spawns
 /// `which`/`where`). WSL never uses the bundled Windows rg.
 fn detect_backend(shell: &ShellConfig, bundled_rg: &Option<String>) -> SearchBackend {
-    let check_cmd = match shell {
-        ShellConfig::Wsl { .. } => "which",
-        _ => "where",
-    };
+    // macOS / Linux では `augment_process_path` が起動時に PATH を広げているので、
+    // Homebrew 等に入った rg もここで見つかる。
+    let check_cmd = if shell.is_posix() { "which" } else { "where" };
     if let Ok((0, _, _)) = shell.run(check_cmd, &["rg"]) {
         return SearchBackend::Rg;
     }
+    // 同梱の rg はホストのバイナリなので、WSL の中では実行できない。
     if !matches!(shell, ShellConfig::Wsl { .. }) {
         if let Some(path) = bundled_rg {
             return SearchBackend::BundledRg { path: path.clone() };
@@ -48,7 +39,7 @@ pub(crate) fn resolve_backend(
     bundled_rg: &Option<String>,
     cache: &Mutex<HashMap<String, SearchBackend>>,
 ) -> SearchBackend {
-    let key = backend_cache_key(shell);
+    let key = crate::types::install_key(shell);
     if let Ok(map) = cache.lock() {
         if let Some(b) = map.get(&key) {
             return b.clone();
@@ -134,16 +125,18 @@ pub async fn list_project_files(
         let output = if backend.is_rg() {
             shell.run(backend.rg_program(), &["--files", "--", &root])
         } else {
-            // Fallback to find (WSL) or dir (Windows)
-            match &shell {
-                ShellConfig::Wsl { .. } => shell.run(
+            // Fallback to find (POSIX) or dir (Windows). macOS のローカルシェルも
+            // find 側（`cmd.exe` に落とすと Ctrl+P の一覧が丸ごと空になる）。
+            if shell.is_posix() {
+                shell.run(
                     "find",
                     &[&root, "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*", "-not", "-path", "*/target/*"],
-                ),
-                _ => shell.run(
+                )
+            } else {
+                shell.run(
                     "cmd.exe",
                     &["/C", &format!("dir /S /B /A:-D \"{}\"", root)],
-                ),
+                )
             }
         };
 

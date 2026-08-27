@@ -294,6 +294,7 @@ export default {
   'settings.projectBaseHint':
     'このマシンでリポジトリを置いている場所です。この下にあるプロジェクトは base からの相対パスで同期し、他マシンで登録されたプロジェクトはここに作られます。',
   'settings.projectBaseNoDistro': '（ディストロ未選択）',
+  'settings.projectBaseLocal': 'ローカル',
   'settings.projectBaseOutside': '{count} 件のプロジェクトは base の外にあるため、このマシン専用です。',
   'settings.hiddenProjects': 'このマシンで非表示のプロジェクト',
   'settings.hiddenProjectsHint':
