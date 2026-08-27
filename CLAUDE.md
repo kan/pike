@@ -422,7 +422,9 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-タグ push で `Release` ワークフローが自動起動し、Windows ビルド → GitHub Releases にドラフトアップロードされる。
+タグ push で `Release` ワークフローが自動起動し、Windows と macOS(arm64) の 2 ジョブが
+同じドラフトへ成果物をアップロードする。**macOS 版は未署名で、updater の対象外**
+（詳細は `.claude/rules/build.md`）。
 
 ### 6. リリースの公開
 

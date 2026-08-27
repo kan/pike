@@ -7,7 +7,7 @@
 
 **「AI エージェント × ターミナル」に特化した、軽量な Windows 向け開発環境です。** ターミナル中心で作業する開発者が VS Code の代わりに使えることを目指しています。
 
-Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としています。
+Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としています。macOS 版も配布していますが、ローカルのシェルで開発できるところまでの対応です（WSL やジャンプリスト、ウィンドウ背景の透過など、Windows の機能に依存するものは動きません）。
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-editor-light.png">
@@ -55,14 +55,30 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 |----------|------|
 | `Pike_x.x.x_x64-setup.exe` | Windows インストーラ（NSIS、推奨） |
 | `Pike_x.x.x_x64_en-US.msi` | Windows インストーラ（MSI） |
+| `Pike_x.x.x_aarch64.dmg` | macOS（Apple Silicon） |
 
-インストール後は自動でアップデートを確認します。手動で確認するときは歯車メニュー →「更新を確認」から行えます。
+Windows 版はインストール後に自動でアップデートを確認します。手動で確認するときは歯車メニュー →「更新を確認」から行えます。
+
+### macOS 版の制限
+
+配布しているのは **Apple Silicon（arm64）版だけ**です。Intel Mac では動きません。
+
+**配布物は署名していません。** そのまま開くと「開発元を検証できないため開けません」と表示されます。初回だけ次のいずれかで許可してください。
+
+- Finder で `Pike.app` を右クリックして「開く」を選ぶ（ダブルクリックでは許可の選択肢が出ません）
+- またはターミナルで隔離属性を外す：
+
+  ```bash
+  xattr -d com.apple.quarantine /Applications/Pike.app
+  ```
+
+署名していないため、macOS 版は自動アップデートの対象外です。新しいバージョンは Releases から取得し直してください。
 
 ## ソースからビルド
 
 ### 必要なもの
 
-- **Windows 11**
+- **Windows 11** または **macOS**（Apple Silicon）
 - **Node.js** >= 20
 - **Rust** >= 1.77
 - [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/)

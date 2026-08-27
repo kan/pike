@@ -7,10 +7,29 @@ on:
 
 jobs:
   build:
-    name: Build & Release
+    name: Build & Release (${{ matrix.name }})
     permissions:
       contents: write
-    runs-on: windows-latest
+    strategy:
+      # macOS が落ちても Windows のビルドは最後まで走らせる（第一ターゲットのため）。
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            # 既定のまま。updater 用の成果物と latest.json を作るのはこちらだけ。
+            args: ""
+            upload-updater-json: true
+          - name: macOS (arm64)
+            os: macos-latest
+            # macos-latest は Apple Silicon なので、ホストのトリプルがそのまま
+            # aarch64-apple-darwin になる（クロスビルドの指定は要らない）。
+            #
+            # updater 用の成果物は作らない。配布物が未署名で Gatekeeper に
+            # 隔離されるため、自動更新の経路に載せると壊れた更新を配ることになる。
+            args: "--config tauri.macos.conf.json"
+            upload-updater-json: false
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -26,6 +45,8 @@ jobs:
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: "./src-tauri -> target"
+          # 同じキャッシュキーを OS 間で共有しないように分ける。
+          key: ${{ matrix.os }}
 
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
@@ -41,10 +62,12 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
+          # 2 つ目のジョブは同じタグの既存ドラフトを見つけて、そこへ追加アップロードする。
           tagName: v__VERSION__
           releaseName: "Pike v__VERSION__"
           releaseBody: "See the assets to download and install."
           releaseDraft: true
           prerelease: false
-          uploadUpdaterJson: true
+          args: ${{ matrix.args }}
+          uploadUpdaterJson: ${{ matrix.upload-updater-json }}
           updaterJsonPreferNsis: true
