@@ -95,6 +95,15 @@ windows-core = "0.61"
 # 背景透過（issue #162）: アクリル / Mica のすりガラス効果を実行時に適用/解除する。
 window-vibrancy = "0.8"
 
+# 依存クレートのデバッグ情報を落とす。**自分のコードのぶんは残る**ので、デバッガでの
+# ステップ実行も変数の確認もそのままできる。失うのは依存の中（tauri / wry など）で
+# panic したときのバックトレースの行番号だけで、関数名は残る。
+#
+# **リンク時間の 6〜7 割がデバッグ情報の生成**で、ここが開発の内側ループの主なコスト。
+# 実測（Windows・debug・増分リビルド）は `.claude/rules/build.md` の「リンク時間」を参照。
+[profile.dev.package."*"]
+debug = false
+
 [[bin]]
 name = "pike"
 path = "src/main.rs"

@@ -18,6 +18,37 @@
 - トレイアイコンも同じ表記で見分ける（`tray::app_label` が「Pike [DEBUG]」を返し、ツールチップとメニュー先頭の見出しに出る）。判定は `cfg!(debug_assertions)`（`tauri:dev`）または identifier の `.debug` 接尾辞（`tauri build --config tauri.dev.conf.json` は release プロファイルなので前者では拾えない）。アイコン画像はインストール版と共通なので、これが無いとトレイ上で区別できない
 - `npm run tauri dev` は identifier が本番と同一のため、インストール版と競合する点に注意
 
+## リンク時間
+
+**開発の内側ループのコストはリンクで、その大半はデバッグ情報の生成。** `Cargo.toml` の
+`[profile.dev.package."*"] debug = false` で依存クレートのぶんだけ落としてある。
+
+Windows・debug・`main.rs` を触っての増分リビルドで実測した値（リンカ自身の計測。
+wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほど揺れるので当てにしない）:
+
+| | リンク時間 | 増分リビルド | `pike.pdb` |
+|---|---|---|---|
+| 依存もフルのデバッグ情報 | 2,986 ms | 5,424 ms | 281 MB |
+| 依存のみ `debug = false`（現在） | 1,860 ms | 4,195 ms | 144 MB |
+| ＋自分のクレートも `line-tables-only` | — | 3,852 ms | 65 MB |
+
+同一セッションで PDB 生成そのものを止めた（`/DEBUG:NONE`）ときのリンクは 1,090〜1,178 ms。
+つまり**リンク時間の 65〜75% がデバッグ情報**で、残りの約 1.1 秒（入力読み込み・GC・
+レイアウト・出力）は動かせない。
+
+- **`line-tables-only` まで進めない**。さらに 8% 縮むが、自分のコードの変数がデバッガで
+  見えなくなる。効果に対して失うものが大きい
+- **リンカは替えない**。`link.exe` 3.03 秒に対し `rust-lld`（lld-link）2.99 秒で誤差の範囲。
+  どちらも同じ量の PDB を作るので当然で、リンカを替えても PDB の話は解決しない。
+  なお `-C linker-features=+lld` は `-C help` に出るが実際は nightly 専用で、stable で
+  使うなら `-Clinker=<sysroot>/lib/rustlib/<target>/bin/rust-lld.exe -Clinker-flavor=lld-link`
+- **macOS で mold は使えない**（ELF 専用で Mach-O は対象外）。かつての `zld` も Xcode 15 の
+  新リンカ（`ld_prime`）に置き換えられてアーカイブ済みで、macOS の既定リンカは既に新実装。
+  リンカ側は何もしないのが妥当で、上の `debug = false` は OS 非依存に効く
+- **CI では `cargo clippy` は影響を受けない**（リンクしない）。効くのは `cargo test` の
+  テストバイナリのリンクと、`just build`。release は `[profile.release]` が既定で
+  デバッグ情報を持たないため対象外
+
 ## CSP と動的スタイル注入（本番ビルド限定の落とし穴、#v0.26.3）
 `tauri.conf.json` の `app.security.csp` を設定すると、**本番（埋め込み）ビルドでのみ** Tauri が `style-src` / `script-src` に nonce/hash を注入する（`tauri` クレートの `manager::set_csp` → `replace_csp_nonce`）。CSP 仕様上、**nonce か hash が directive に 1 つでも入ると同 directive の `'unsafe-inline'` は無視される**。
 
