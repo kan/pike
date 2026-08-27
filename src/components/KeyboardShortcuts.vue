@@ -2,6 +2,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useShortcutsModal } from '../composables/useShortcutsModal'
 import { useI18n } from '../i18n'
+import { isMacHost } from '../lib/host'
+import { chordChips } from '../lib/keys'
 
 const { t } = useI18n()
 const { visible } = useShortcutsModal()
@@ -21,25 +23,24 @@ function onKeyDown(e: KeyboardEvent) {
 interface ShortcutSection {
   title: string
   /** `keys` is a list of interchangeable chords; the row renders `/` between
-   *  them and a `<kbd>` per `+`-separated part of each. */
+   *  them and a `<kbd>` per part (see `chordChips` for how a chord splits). */
   items: { keys: string[]; label: string }[]
 }
 
-/** `Ctrl+Shift+Z` → three chips. A chord that *is* `+` stays one chip. */
-function chordParts(chord: string): string[] {
-  const parts = chord.split('+').filter(Boolean)
-  return parts.length > 0 ? parts : [chord]
-}
+/**
+ * 表記は `Mod+` で書く。**`Ctrl+` と直接書いてよいのは、mac でも Ctrl のままの
+ * キーだけ**（`Ctrl+Tab` 等）。`chordChips` が mac では `⌘` に読み替える。
+ */
 
 const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.general'),
     items: [
-      { keys: ['Ctrl+P'], label: t('shortcuts.quickOpen') },
-      { keys: ['Ctrl+Shift+P'], label: t('shortcuts.projectSwitcher') },
-      { keys: ['Ctrl+Enter'], label: t('shortcuts.openInNewWindow') },
-      { keys: ['Ctrl+K'], label: t('shortcuts.keyboardShortcuts') },
-      { keys: ['Ctrl+,'], label: t('shortcuts.settings') },
+      { keys: ['Mod+P'], label: t('shortcuts.quickOpen') },
+      { keys: ['Mod+Shift+P'], label: t('shortcuts.projectSwitcher') },
+      { keys: ['Mod+Enter'], label: t('shortcuts.openInNewWindow') },
+      { keys: ['Mod+K'], label: t('shortcuts.keyboardShortcuts') },
+      { keys: ['Mod+,'], label: t('shortcuts.settings') },
       { keys: ['F1'], label: t('shortcuts.manual') },
       { keys: ['Esc'], label: t('shortcuts.closeOverlay') },
     ],
@@ -47,9 +48,19 @@ const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.tabs'),
     items: [
-      { keys: ['Ctrl+N'], label: t('shortcuts.newFile') },
-      { keys: ['Ctrl+T'], label: t('shortcuts.newTerminal') },
-      { keys: ['Ctrl+W'], label: t('shortcuts.closeTab') },
+      { keys: ['Mod+N'], label: t('shortcuts.newFile') },
+      { keys: ['Mod+T'], label: t('shortcuts.newTerminal') },
+      { keys: ['Mod+W'], label: t('shortcuts.closeTab') },
+      { keys: ['Mod+Shift+W'], label: t('shortcuts.closeWindow') },
+      { keys: ['Mod+1'], label: t('shortcuts.selectTabN') },
+      { keys: ['Mod+9'], label: t('shortcuts.selectLastTab') },
+      // Ctrl のままのキー。mac でも Cmd+Tab は OS のもので、Ctrl+Tab が慣習。
+      ...(isMacHost
+        ? [
+            { keys: ['Mod+Shift+]'], label: t('shortcuts.nextTab') },
+            { keys: ['Mod+Shift+['], label: t('shortcuts.prevTab') },
+          ]
+        : []),
       { keys: ['Ctrl+Tab'], label: t('shortcuts.nextTab') },
       { keys: ['Ctrl+Shift+Tab'], label: t('shortcuts.prevTab') },
       { keys: ['Ctrl+PageDown'], label: t('shortcuts.nextTab') },
@@ -59,17 +70,18 @@ const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.editor'),
     items: [
-      { keys: ['Ctrl+S'], label: t('shortcuts.save') },
-      { keys: ['Ctrl+Z'], label: t('shortcuts.undo') },
-      { keys: ['Ctrl+Shift+Z', 'Ctrl+Y'], label: t('shortcuts.redo') },
-      { keys: ['Ctrl+F'], label: t('shortcuts.find') },
-      { keys: ['Ctrl+H'], label: t('shortcuts.findReplace') },
+      { keys: ['Mod+S'], label: t('shortcuts.save') },
+      { keys: ['Mod+Z'], label: t('shortcuts.undo') },
+      { keys: ['Mod+Shift+Z', 'Mod+Y'], label: t('shortcuts.redo') },
+      { keys: ['Mod+F'], label: t('shortcuts.find') },
+      // mac の ⌘H は Hide Application なので、置換は ⌥⌘F（mac の慣習）。
+      { keys: [isMacHost ? 'Mod+Alt+F' : 'Mod+H'], label: t('shortcuts.findReplace') },
       { keys: ['F3', 'Shift+F3'], label: t('shortcuts.findNextPrev') },
-      { keys: ['Ctrl+D'], label: t('shortcuts.selectNextMatch') },
-      { keys: ['Ctrl+/'], label: t('shortcuts.toggleComment') },
+      { keys: ['Mod+D'], label: t('shortcuts.selectNextMatch') },
+      { keys: ['Mod+/'], label: t('shortcuts.toggleComment') },
       { keys: ['Alt+↑', 'Alt+↓'], label: t('shortcuts.moveLine') },
       { keys: ['Tab', 'Shift+Tab'], label: t('shortcuts.indent') },
-      { keys: ['Ctrl+Click'], label: t('shortcuts.jumpToDefinition') },
+      { keys: ['Mod+Click'], label: t('shortcuts.jumpToDefinition') },
       { keys: ['F12'], label: t('shortcuts.jumpToDefinition') },
       { keys: ['Alt+H'], label: t('shortcuts.gitHistory') },
     ],
@@ -77,9 +89,9 @@ const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.markdown'),
     items: [
-      { keys: ['Ctrl+B'], label: t('markdown.bold') },
-      { keys: ['Ctrl+I'], label: t('markdown.italic') },
-      { keys: ['Ctrl+K'], label: t('shortcuts.mdLink') },
+      { keys: ['Mod+B'], label: t('markdown.bold') },
+      { keys: ['Mod+I'], label: t('markdown.italic') },
+      { keys: ['Mod+K'], label: t('shortcuts.mdLink') },
       { keys: ['Enter'], label: t('shortcuts.mdListContinue') },
     ],
   },
@@ -88,8 +100,16 @@ const sections = computed<ShortcutSection[]>(() => [
     items: [
       { keys: [t('shortcuts.selectText')], label: t('shortcuts.selectCopy') },
       { keys: [t('shortcuts.rightClick')], label: t('shortcuts.rightClickPaste') },
-      { keys: ['Ctrl+V', 'Ctrl+Shift+V'], label: t('shortcuts.paste') },
-      { keys: [t('shortcuts.ctrlLetter')], label: t('shortcuts.shellFirst') },
+      {
+        keys: isMacHost ? ['Mod+V'] : ['Ctrl+V', 'Ctrl+Shift+V'],
+        label: t('shortcuts.paste'),
+      },
+      {
+        keys: [t('shortcuts.ctrlLetter')],
+        // mac の Ctrl+英字はすべてシェルのもの。Windows / Linux はタブ操作の
+        // キーだけ Pike が先に取る（`PIKE_FIRST_CTRL_KEYS`）。
+        label: isMacHost ? t('shortcuts.shellFirstMac') : t('shortcuts.shellFirst'),
+      },
     ],
   },
   {
@@ -125,7 +145,7 @@ const sections = computed<ShortcutSection[]>(() => [
               <span class="shortcut-keys">
                 <template v-for="(chord, ci) in item.keys" :key="ci">
                   <span v-if="ci > 0" class="shortcut-or">/</span>
-                  <kbd v-for="(part, i) in chordParts(chord)" :key="i">{{ part }}</kbd>
+                  <kbd v-for="(part, i) in chordChips(chord)" :key="i">{{ part }}</kbd>
                 </template>
               </span>
             </div>

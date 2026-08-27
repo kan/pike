@@ -47,6 +47,7 @@ import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
+import { chordLabel } from '../../lib/keys'
 import { openUrlWithConfirm } from '../../lib/tauri'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useDockerStore } from '../../stores/docker'
@@ -395,11 +396,11 @@ onUnmounted(() => {
           <div class="gear-menu-divider" />
           <button class="gear-menu-item" @click="openShortcuts">
             <span>{{ t('sidebar.keyboardShortcuts') }}</span>
-            <span class="ctx-key">Ctrl+K</span>
+            <span class="ctx-key">{{ chordLabel('Mod+K') }}</span>
           </button>
           <button class="gear-menu-item" @click="openSettings">
             <span>{{ t('sidebar.settings') }}</span>
-            <span class="ctx-key">Ctrl+,</span>
+            <span class="ctx-key">{{ chordLabel('Mod+,') }}</span>
           </button>
           <button class="gear-menu-item" @click="openAgentStatus">
             <span>{{ t('agentStatus.title') }}</span>

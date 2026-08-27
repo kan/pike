@@ -851,6 +851,12 @@ onMounted(async () => {
     if (!e.ctrlKey || e.altKey || e.metaKey) return true
     const key = normalizedKey(e)
 
+    // macOS の Ctrl は丸ごとシェルのもの（#254）。**この判定は Ctrl+V の横取りより
+    // 前に置くこと**: 後ろに置くと mac で `Ctrl+V` が貼り付けになり、vim の矩形選択と
+    // readline の quoted-insert が打てなくなる。mac の貼り付けは `⌘V` で、あちらは
+    // OS の編集メニューが処理する（この関数には届かない）。
+    if (isMacHost) return !PIKE_FIRST_CTRL_KEYS.has(key) || MAC_SHELL_CTRL_KEYS.has(key)
+
     // xterm.js は Windows で Ctrl+V を SYN(\x16) として PTY に流すので、
     // 通常の `paste` イベントが発火しない → keydown レベルで横取りする。
     // Ctrl+Shift+V も同じ扱いに（Windows Terminal 互換）。
@@ -866,10 +872,6 @@ onMounted(async () => {
     // だけでなく stopPropagation も呼ぶため（`cancel(ev, true)`）。既定でシェル優先。
     // 全画面 TUI が動いているあいだは Ctrl+W だけ譲る（vim のウィンドウ操作の prefix）。
     if (PIKE_FIRST_CTRL_KEYS.has(key)) {
-      // macOS では Ctrl+英字をシェルに返す（#254）。Pike のショートカットは Cmd で、
-      // xterm は `metaKey` を素通しするので window まで届く。ただし Tab / PageUp /
-      // PageDown は mac でもタブ切替のキーなので、従来どおり Pike が先に取る。
-      if (isMacHost) return MAC_SHELL_CTRL_KEYS.has(key)
       return inAltScreen.value && ALT_SCREEN_SHELL_KEYS.has(key)
     }
     return true

@@ -178,8 +178,11 @@ export function useKeyboardShortcuts() {
       return
     }
 
-    // Alt+H: open Git History (editor tabs only)
-    if (e.altKey && key === 'h') {
+    // Alt+H: open Git History (editor tabs only).
+    // `e.code` と `e.key` の両方を見る。macOS の Option+H は `e.key` が `˙`
+    // （合成用の記号）になるので `e.key` だけでは mac で一度も一致せず、`e.code` だけに
+    // すると物理配列を見ることになって Dvorak 等で H の位置が変わる（#254）。
+    if (e.altKey && (e.code === 'KeyH' || key === 'h')) {
       const active = tabStore.activeTab
       if (active?.kind === 'editor') {
         e.preventDefault()

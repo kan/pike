@@ -29,6 +29,7 @@ import type { Component } from 'vue'
 import { computed, nextTick, onUnmounted, ref, useTemplateRef } from 'vue'
 import { useI18n } from '../../i18n'
 import type { TableSpec, ToolbarAction } from '../../lib/editorMarkdown'
+import { chordLabel } from '../../lib/keys'
 
 const emit = defineEmits<{ run: [action: ToolbarAction] }>()
 
@@ -58,8 +59,8 @@ interface MenuItem {
 type Segment = { menu: 'heading' | 'block'; icon: Component; label: string; items: MenuItem[] } | { buttons: Button[] }
 
 const INLINE: Button[] = [
-  { icon: Bold, label: 'markdown.bold', hint: 'Ctrl+B', action: { kind: 'inline', mark: '**' } },
-  { icon: Italic, label: 'markdown.italic', hint: 'Ctrl+I', action: { kind: 'inline', mark: '*' } },
+  { icon: Bold, label: 'markdown.bold', hint: 'Mod+B', action: { kind: 'inline', mark: '**' } },
+  { icon: Italic, label: 'markdown.italic', hint: 'Mod+I', action: { kind: 'inline', mark: '*' } },
   { icon: Strikethrough, label: 'markdown.strikethrough', action: { kind: 'inline', mark: '~~' } },
   { icon: Code, label: 'markdown.code', action: { kind: 'inline', mark: '`' } },
 ]
@@ -90,7 +91,7 @@ const segments = computed<Segment[]>(() => [
   { buttons: INLINE },
   {
     buttons: [
-      { icon: Link, label: 'markdown.link', hint: 'Ctrl+K', action: { kind: 'link' } },
+      { icon: Link, label: 'markdown.link', hint: 'Mod+K', action: { kind: 'link' } },
       // EditorTab answers this one: the path depends on where the file lives.
       { icon: ImageIcon, label: 'markdown.image', action: { kind: 'pickImage' } },
     ],
@@ -142,7 +143,7 @@ function insertTable() {
 
 /** Title text with the shortcut appended, the way the rest of the UI writes them. */
 function title(label: string, hint?: string): string {
-  return hint ? `${t(label)} (${hint})` : t(label)
+  return hint ? `${t(label)} (${chordLabel(hint)})` : t(label)
 }
 
 // Same convention as the other menus: arm an outside-mousedown closer on open,

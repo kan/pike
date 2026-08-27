@@ -1,6 +1,13 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { onMounted } from 'vue'
+import { useProjectStore } from '../stores/project'
 import { type AppActionId, useAppActions } from './useAppActions'
+
+/**
+ * パレット・スイッチャーが開いているあいだも通すアクション。`useKeyboardShortcuts`
+ * が同じ 2 つを早期 return の前に置いているのと対。
+ */
+const OVERLAY_ALLOWED: ReadonlySet<AppActionId> = new Set(['quickOpen', 'projectSwitcher'])
 
 /**
  * macOS のメニューバーからの操作を受ける（#254）。
@@ -19,10 +26,18 @@ import { type AppActionId, useAppActions } from './useAppActions'
  */
 export function useAppMenu() {
   const actions = useAppActions()
+  const projectStore = useProjectStore()
 
   onMounted(() => {
     void getCurrentWindow().listen<string>('pike://menu', (e) => {
-      const action = actions[e.payload as AppActionId]
+      const id = e.payload as AppActionId
+      // オーバーレイが出ているあいだは、キーボード側と同じく無視する。
+      // ここを素通しにすると、macOS だけ ⌘T / ⌘W がスイッチャーの裏で
+      // タブを増やしたり閉じたりする（キーの経路には無い挙動）。
+      if ((projectStore.showSwitcher || projectStore.showQuickOpen) && !OVERLAY_ALLOWED.has(id)) {
+        return
+      }
+      const action = actions[id]
       // Rust 側の id と対応が切れたときに、黙って何も起きないのは避ける。
       if (action) action()
       else console.warn(`[appmenu] unknown action: ${e.payload}`)

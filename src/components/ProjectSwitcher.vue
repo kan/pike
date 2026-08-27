@@ -3,7 +3,7 @@ import { FolderOpen, Globe } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { defaultProjectPlatform } from '../lib/host'
-import { hasMod } from '../lib/keys'
+import { chordLabel, hasMod } from '../lib/keys'
 import { fuzzyMatch } from '../lib/paths'
 import type { ProjectPlatform } from '../lib/projectPaths'
 import { detectWslDistros, openGlobalWindow, pickFolder } from '../lib/tauri'
@@ -238,7 +238,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             <span v-if="globalMode" class="hint">{{ t('projectSwitcher.enterOpenWindow') }}</span>
             <template v-else>
               <span class="hint">{{ t('projectSwitcher.enterSwitch') }}</span>
-              <span class="hint">{{ t('projectSwitcher.ctrlEnterWindow') }}</span>
+              <span class="hint">{{ t('projectSwitcher.ctrlEnterWindow', { key: chordLabel('Mod+Enter') }) }}</span>
             </template>
           </div>
           <div class="footer-buttons">

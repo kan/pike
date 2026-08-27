@@ -23,8 +23,8 @@ export default {
   // Directory opened without registering it (#230)
   'app.titleWithDirectory': 'pike - {name} (unregistered)',
   'app.adminTitlePrefix': '[Admin]',
-  'app.emptyTerminal': 'Press Ctrl+T to open a terminal',
-  'app.emptyProject': 'Open a project to get started (Ctrl+Shift+P)',
+  'app.emptyTerminal': 'Press {key} to open a terminal',
+  'app.emptyProject': 'Open a project to get started ({key})',
 
   // Sidebar
   'sidebar.files': 'Files',
@@ -83,7 +83,7 @@ export default {
   // Tabs
   'tabs.newEditor': 'New Editor',
   'tabs.newTerminalShort': 'New Terminal',
-  'tabs.newTerminal': 'New Terminal (Ctrl+T)',
+  'tabs.newTerminal': 'New Terminal ({key})',
   'tabs.openWithShell': 'Open with different shell',
   'tabs.openAsAdmin': 'Open as Administrator',
   'tabs.openAsAdminHint': 'Right-click to open as administrator',
@@ -495,7 +495,7 @@ export default {
   'projectSwitcher.placeholder': 'Switch project...',
   'projectSwitcher.noMatch': 'No matching projects',
   'projectSwitcher.enterSwitch': 'Enter: switch',
-  'projectSwitcher.ctrlEnterWindow': 'Ctrl+Enter: new window',
+  'projectSwitcher.ctrlEnterWindow': '{key}: new window',
   'projectSwitcher.enterOpenWindow': 'Enter: open in new window',
   'projectSwitcher.newProject': '+ New Project',
   'projectSwitcher.openGlobal': 'Global Mode',
@@ -558,6 +558,9 @@ export default {
   'shortcuts.newFile': 'New File',
   'shortcuts.newTerminal': 'New Terminal',
   'shortcuts.closeTab': 'Close Tab',
+  'shortcuts.closeWindow': 'Close Window',
+  'shortcuts.selectTabN': 'Go to tab N (1-8)',
+  'shortcuts.selectLastTab': 'Go to the last tab',
   'shortcuts.nextTab': 'Next Tab',
   'shortcuts.prevTab': 'Previous Tab',
   'shortcuts.save': 'Save',
@@ -586,9 +589,10 @@ export default {
   'shortcuts.rightClick': 'Right click',
   'shortcuts.ctrlLetter': 'Ctrl+letter',
   'shortcuts.markdown': 'Markdown',
-  'shortcuts.mdLink': 'Link (takes Ctrl+K while editing Markdown)',
+  'shortcuts.mdLink': 'Link (wins over the shortcut list while editing Markdown)',
   'shortcuts.mdListContinue': 'Continue the list or quote (empty item ends it)',
   'shortcuts.shellFirst': 'Sent to the shell (except the tab keys)',
+  'shortcuts.shellFirstMac': 'Sent to the shell',
 
   // Agent status panel (#226)
   'agentStatus.title': 'Agent Status',

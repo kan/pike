@@ -123,20 +123,15 @@ fn labels(lang: &str) -> Labels {
 /// 以後は UI 言語が変わったときに `menus_refresh` から。同じ言語での呼び直しは
 /// `LAST_LANG` が弾く。
 pub fn refresh(app: &AppHandle, lang: &str) {
-    {
-        let mut last = LAST_LANG.lock().unwrap();
-        if last.as_deref() == Some(lang) {
-            return;
-        }
-        *last = Some(lang.to_string());
+    if LAST_LANG.lock().unwrap().as_deref() == Some(lang) {
+        return;
     }
-    match build_menu(app, lang) {
-        Ok(menu) => {
-            if let Err(e) = app.set_menu(menu) {
-                log::warn!("[appmenu] set_menu failed: {e}");
-            }
-        }
-        Err(e) => log::warn!("[appmenu] rebuild menu failed: {e}"),
+    // **記録は成功したあと。** 先に書くと、setup での 1 回目が失敗したときに
+    // mount 後の `menus_refresh` が早期 return し、Tauri の既定メニュー（＝
+    // このモジュールが防いでいる `Close Window ⌘W`）のまま二度と直らない。
+    match build_menu(app, lang).and_then(|menu| app.set_menu(menu)) {
+        Ok(_) => *LAST_LANG.lock().unwrap() = Some(lang.to_string()),
+        Err(e) => log::warn!("[appmenu] failed to install menu: {e}"),
     }
 }
 
