@@ -9,7 +9,7 @@ import { ArrowUp, RefreshCw } from 'lucide-vue-next'
 import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
-import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
+import { confirmDialog, dialogOpen, promptDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useMarkdownImages } from '../../composables/useMarkdownImages'
@@ -17,7 +17,7 @@ import { useMarkdownLinkPaste } from '../../composables/useMarkdownLinkPaste'
 import { type OutlineJump, useOutlineSource } from '../../composables/useOutlineSource'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
-import { conflictHighlight } from '../../lib/editorConflict'
+import { conflictHighlight, hasConflictMarkers } from '../../lib/editorConflict'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
@@ -690,7 +690,7 @@ function updateCursorInfo() {
 /** Shell config for file I/O. 判断の実体は `projectStore.shellForIO`（そこの doc を参照）。 */
 const shellForIO = computed(() => projectStore.shellForIO)
 
-async function save(overrideEncoding?: string) {
+async function save(overrideEncoding?: string, auto = false) {
   if (!editorView || !tab.value || saving.value || tab.value.readOnly) return
 
   // Untitled tab: prompt for file path first
@@ -712,7 +712,13 @@ async function save(overrideEncoding?: string) {
   const enc = overrideEncoding ?? currentEncoding.value
   saving.value = true
   try {
-    let content = editorView.state.doc.toString()
+    // **書いた内容を控えておく。** ディスクに載るのはこの時点の文書で、`await` の
+    // あいだに打たれた文字は入っていない。完了後にライブの doc を読み直して
+    // `savedContent` にすると、書き込み中の打鍵が「保存済み」に化けて `*` が消え、
+    // その後の自動リロード（clean なタブが対象）で黙って消える。自動保存は打鍵が
+    // 止まってから書くので、少し考えてから打ち直すという普通の操作で当たる。
+    const written = editorView.state.doc.toString()
+    let content = written
     if (currentLineEnding.value === 'CRLF') {
       content = content.replace(/\n/g, '\r\n')
     }
@@ -722,17 +728,78 @@ async function save(overrideEncoding?: string) {
       currentEncoding.value = enc
       updateCursorInfo()
     }
-    savedContent = editorView.state.doc.toString()
+    savedContent = written
+    autoSaveFailed = false
     tab.value.isNewFile = false
     updateDirtyState()
     updateTitle()
     refreshDiffGutter()
     diagStore.triggerAutoRun()
   } catch (e) {
-    error.value = String(e)
+    // **自動保存の失敗で本文を隠さない。** `error` が立つとエディタ本体が `v-show` で
+    // 消え、画面に残るのは「破棄して読み直す」ボタンだけになる。人が `Ctrl+S` を押した
+    // 結果ならその画面でよいが、WSL が落ちた等で**何も操作していないのに**そうなるのは、
+    // 未保存の内容を捨てる操作しか残らないという最悪の形になる。自動保存では StatusBar に
+    // 出すだけにして、次の契機で普通に再試行する。
+    if (!auto) {
+      error.value = String(e)
+    } else if (!autoSaveFailed) {
+      autoSaveFailed = true
+      statusMessageStore.show({ text: t('editor.autoSaveFailed', { error: String(e) }), variant: 'error' })
+    }
   } finally {
     saving.value = false
   }
+}
+
+/** 自動保存が失敗している最中か。同じ失敗を契機のたびに通知しないための記憶。 */
+let autoSaveFailed = false
+
+/**
+ * 自動保存の入口（#262）。**保存の主体は人のまま**で、これは `Ctrl+S` の押し忘れを
+ * 代行するだけ、というのが #276 で決めた原則。したがって
+ *
+ * - **書くのは `save()` を呼ぶことだけ**。別経路を作らない（CRLF 変換・エンコード・
+ *   `markRecentlySaved`・ガター更新・診断の trigger が 1 箇所に残る）
+ * - **止める条件はここに書く。`save()` の中には書かない。** あちらは人が押したときの
+ *   経路で、下の理由のどれにも従わない（外部変更の警告バーの「上書き」がまさにそれ）
+ *
+ * 止めるのは 4 つ。
+ *
+ * 1. **無題タブ** … `save()` は保存先を聞くので、勝手にダイアログが開く
+ * 2. **読み取り専用** … `git show` のスナップショット
+ * 3. **外部変更の警告中** … 人が Reload / Overwrite を選ぶまで待つ。ここで書くと、
+ *    エージェントや別のエディタが加えた変更を黙って潰す
+ * 4. **コンフリクトのマーカーが残っている** … 解消の中間状態を勝手に残さない
+ */
+function maybeAutoSave() {
+  if (settingsStore.autoSave === 'off') return
+  if (!isDirty.value || saving.value) return
+  if (!tab.value?.path || tab.value.readOnly) return
+  if (externalChangeNotice.value) return
+  if (editorView && hasConflictMarkers(editorView.state)) return
+  // 見えていないタブ（別プロジェクトのぶんを保持している、#264）では書かない。
+  // `shellForIO` は**今表示しているプロジェクト**のシェルを返すので、切り替えたあとに
+  // 待っていたタイマーが発火すると、WSL のパスを PowerShell で書きに行く。人が押す
+  // `Ctrl+S` は見えているタブにしか届かないため、この不変条件は自動保存で初めて壊れる。
+  if (!tabStore.visibleTabs.some((t) => t.id === props.tabId)) return
+  // 人に何かを聞いているあいだは黙って書かない。とくに「未保存の変更を破棄しますか」は
+  // 答えを待つあいだコンポーネントが生きているので、そのまま撃つと破棄したはずの内容が
+  // ディスクに残る。
+  if (dialogOpen()) return
+  void save(undefined, true)
+}
+
+/** `afterDelay` のタイマー。打鍵のたびに張り直す。 */
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleAutoSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  if (settingsStore.autoSave !== 'afterDelay') return
+  autoSaveTimer = setTimeout(() => {
+    autoSaveTimer = null
+    maybeAutoSave()
+  }, settingsStore.autoSaveDelay)
 }
 
 /**
@@ -1035,6 +1102,12 @@ function createEditorView(container: HTMLElement, content: string) {
         updateDirtyState()
         bumpDocVersion()
         outlineSource.bumpVersion(props.tabId)
+        scheduleAutoSave()
+      }
+      // **タブ切替でも発火する**（`v-show` の `display: none` はフォーカスを外す）ので、
+      // `activeTabId` を別に見る必要はない。
+      if (update.focusChanged && !update.view.hasFocus && settingsStore.autoSave === 'onFocusChange') {
+        maybeAutoSave()
       }
       if (update.selectionSet || update.docChanged) {
         updateCursorInfo()
@@ -1613,6 +1686,9 @@ watch(
 onUnmounted(() => {
   document.removeEventListener('keydown', onGlobalKeyDown)
   if (docVersionTimer) clearTimeout(docVersionTimer)
+  // 待っていた自動保存はここで捨てる。閉じるときに未保存なら、これまでどおり確認
+  // ダイアログが先に出ている（保存の主体は人、という原則のまま）。
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
   editorView?.scrollDOM.removeEventListener('scroll', onEditorScroll)
   editorView?.destroy()
   editorView = null

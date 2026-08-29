@@ -58,9 +58,18 @@ fn path_contains_ignored(path: &Path) -> bool {
     })
 }
 
+/// 200ms ぶんの変更をためて 1 回にまとめる入れ物。
+///
+/// **ファイルはパスで畳む**（#276）。1 回の書き込みが Create と Modify のように複数の
+/// 生イベントを生むので、そのまま並べるとフロントは同じパスを 2 回受け取る。受け手には
+/// 区別が付かず、「自分が書いたぶんは 1 回だけ吸う」という判定（`useFsWatcher.ts` の
+/// `isRecentlySaved`）が、余ったほうを他人の書き込みと見なしてしまう。
 struct EventBuffer {
     dirs: HashSet<String>,
-    files: Vec<FsChangeEntry>,
+    /// パス → 最後に観測した種別。到着順を保つため `IndexMap` 相当の使い方を
+    /// `Vec` + `HashMap` でせず、素直に挿入順のない `HashMap` にしてある
+    /// （受け手はパスごとに独立して扱うので、並びに意味がない）。
+    files: HashMap<String, ChangeKind>,
     last_event: Instant,
     first_event: Instant,
 }
@@ -70,7 +79,7 @@ impl EventBuffer {
         let now = Instant::now();
         Self {
             dirs: HashSet::new(),
-            files: Vec::new(),
+            files: HashMap::new(),
             last_event: now,
             first_event: now,
         }
@@ -78,7 +87,8 @@ impl EventBuffer {
 
     fn add(&mut self, dir: String, file: FsChangeEntry) {
         self.dirs.insert(dir);
-        self.files.push(file);
+        // 同じパスが再び来たら後のもので上書きする（削除のあと作り直された、など）。
+        self.files.insert(file.path, file.kind);
         self.last_event = Instant::now();
     }
 
@@ -94,7 +104,10 @@ impl EventBuffer {
             return None;
         }
         let dirs: Vec<String> = self.dirs.drain().collect();
-        let files: Vec<FsChangeEntry> = std::mem::take(&mut self.files);
+        let files: Vec<FsChangeEntry> = std::mem::take(&mut self.files)
+            .into_iter()
+            .map(|(path, kind)| FsChangeEntry { path, kind })
+            .collect();
         let now = Instant::now();
         self.first_event = now;
         self.last_event = now;

@@ -267,6 +267,30 @@ function sanitizeBackdrop(v: unknown): WindowBackdrop {
  * 開く」。横スクロールは 6px のスクロールバーが下端に出るだけで気付きにくいので、既定を
  * これにしてある。どちらに倒すかはタブごとのボタンでいつでも変えられる。
  */
+/**
+ * エディタの自動保存（#262）。**既定は `off`**: 保存の主体は `Ctrl+S` を押す人のままで、
+ * これはその押し忘れを代行する設定という位置づけ（#276 で決めた原則）。
+ *
+ * - `onFocusChange` … エディタからフォーカスが外れたとき。ターミナルやチャットへ移った
+ *   瞬間に書かれるので、エージェントに聞く直前には必ず最新がディスクにある
+ * - `afterDelay` … 打鍵が止まって `autoSaveDelay` ミリ秒後
+ *
+ * 止める条件（無題タブ・読み取り専用・外部変更の警告中・コンフリクトのマーカーあり）は
+ * `EditorTab.vue` の `maybeAutoSave` が持つ。**`save()` の中には書かない**（あちらは人が
+ * 押したときの経路で、ここで挙げる理由のどれにも従わない）。
+ */
+export const AUTO_SAVES = ['off', 'onFocusChange', 'afterDelay'] as const
+export type AutoSave = (typeof AUTO_SAVES)[number]
+
+function sanitizeAutoSave(v: unknown): AutoSave {
+  return AUTO_SAVES.includes(v as AutoSave) ? (v as AutoSave) : 'off'
+}
+
+/** `afterDelay` の待ち時間（ミリ秒）。VS Code の既定と同じ 1 秒。 */
+export const AUTO_SAVE_DELAY_MIN = 200
+export const AUTO_SAVE_DELAY_MAX = 30_000
+export const AUTO_SAVE_DELAY_DEFAULT = 1000
+
 export const DIFF_WORD_WRAPS = ['auto', 'on', 'off'] as const
 export type DiffWordWrap = (typeof DIFF_WORD_WRAPS)[number]
 
@@ -306,6 +330,10 @@ interface PersistedSettings {
   editorWordWrap: boolean
   /** diff タブの折り返しの既定値。エディタとは別に決められる（#272）。 */
   diffWordWrap: DiffWordWrap
+  /** エディタの自動保存の契機（#262）。 */
+  autoSave: AutoSave
+  /** `autoSave: 'afterDelay'` の待ち時間（ミリ秒）。 */
+  autoSaveDelay: number
   editorTabSize: number
   previewSmoothScroll: boolean
   terminalCopyOnSelect: boolean
@@ -337,7 +365,8 @@ export const FONT_SIZE_MAX = 32
 /** 設定画面のスライダーと同じ既定値（`Mod+0` で戻す先、#260）。 */
 export const FONT_SIZE_DEFAULT = 14
 
-function clampSize(n: unknown, min: number, max: number, fallback: number): number {
+/** 数値の設定を範囲に丸める。数値でなければ既定値。設定画面の入力欄も通す。 */
+export function clampSize(n: unknown, min: number, max: number, fallback: number): number {
   return typeof n === 'number' && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback
 }
 
@@ -363,6 +392,8 @@ function sanitize(s: PersistedSettings): PersistedSettings {
     uiFontSize: clampSize(s.uiFontSize, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX, d.uiFontSize),
     windowBackdrop: sanitizeBackdrop(s.windowBackdrop),
     diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
+    autoSave: sanitizeAutoSave(s.autoSave),
+    autoSaveDelay: clampSize(s.autoSaveDelay, AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX, AUTO_SAVE_DELAY_DEFAULT),
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
     allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
   }
@@ -507,6 +538,8 @@ function defaults(): PersistedSettings {
     editorMinimap: true,
     editorWordWrap: false,
     diffWordWrap: 'auto',
+    autoSave: 'off',
+    autoSaveDelay: AUTO_SAVE_DELAY_DEFAULT,
     editorTabSize: 4,
     previewSmoothScroll: true,
     terminalCopyOnSelect: true,
@@ -548,6 +581,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorMinimap = ref(saved.editorMinimap)
   const editorWordWrap = ref(saved.editorWordWrap)
   const diffWordWrap = ref(saved.diffWordWrap)
+  const autoSave = ref(saved.autoSave)
+  const autoSaveDelay = ref(saved.autoSaveDelay)
   const editorTabSize = ref(saved.editorTabSize)
   const previewSmoothScroll = ref(saved.previewSmoothScroll)
   const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
@@ -877,6 +912,8 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMinimap: editorMinimap.value,
       editorWordWrap: editorWordWrap.value,
       diffWordWrap: diffWordWrap.value,
+      autoSave: autoSave.value,
+      autoSaveDelay: autoSaveDelay.value,
       editorTabSize: editorTabSize.value,
       previewSmoothScroll: previewSmoothScroll.value,
       terminalCopyOnSelect: terminalCopyOnSelect.value,
@@ -914,6 +951,8 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMinimap.value = s.editorMinimap
     editorWordWrap.value = s.editorWordWrap
     diffWordWrap.value = s.diffWordWrap
+    autoSave.value = s.autoSave
+    autoSaveDelay.value = s.autoSaveDelay
     editorTabSize.value = s.editorTabSize
     previewSmoothScroll.value = s.previewSmoothScroll
     terminalCopyOnSelect.value = s.terminalCopyOnSelect
@@ -1096,6 +1135,8 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMinimap,
       editorWordWrap,
       diffWordWrap,
+      autoSave,
+      autoSaveDelay,
       editorTabSize,
       previewSmoothScroll,
       terminalCopyOnSelect,
@@ -1144,6 +1185,8 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMinimap,
     editorWordWrap,
     diffWordWrap,
+    autoSave,
+    autoSaveDelay,
     editorTabSize,
     previewSmoothScroll,
     xtermTheme,

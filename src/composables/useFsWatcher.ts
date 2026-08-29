@@ -11,25 +11,50 @@ export interface FsChangeEntry {
 
 const SAVE_TTL_MS = 2000
 
-// Path -> absolute timestamp until which fs events for this path are
-// considered "self-induced". Map (not setTimeout) so that rapid successive
-// saves correctly extend the window — a previous setTimeout would otherwise
-// fire mid-window and prematurely drop the mark.
-const recentlySavedUntil = new Map<string, number>()
+/**
+ * 自分が書いたファイルの印。**通知 1 回ぶんで使い切る**（#276）。
+ *
+ * 以前は「保存から 2 秒のあいだの通知を全部捨てる」形で、しかも保存のたびに窓が延びた。
+ * 自動保存（#262）を 2 秒より短い間隔で走らせると窓が開きっぱなしになり、**その最中に
+ * エージェントが同じファイルを書いても外部変更として届かない**。届かなければ警告バーも
+ * 出ず、「警告中は自動保存しない」というガードも素通りして、次の自動保存が相手の変更を
+ * 黙って上書きする。
+ *
+ * 1 回の書き込みが生む通知は 1 回（Rust 側の `EventBuffer` がパスで畳んでから送る）なので、
+ * 使い切りにすれば「自分のぶんを 1 回吸って、次からは他人のもの」になる。まとめ切れずに
+ * 2 回に割れたときは、余ったほうが外部変更として出る。clean なタブなら同じ内容で読み直す
+ * だけ、dirty なら消せる警告バーが 1 回出る。**黙って上書きするより、消せる誤検知を採る。**
+ *
+ * **落とすのは通知を配り終えてから**（`consumeSelfWrites`）。リスナは 1 つではなく
+ * （`App.vue` のタブ更新と、TODO ストアの再読込）、read で即座に落とすと**先に呼んだほうが
+ * 印を食べてしまい、後ろのリスナには自分の書き込みが他人のものとして届く**。
+ */
+const selfWrites = new Map<string, number>()
+
+/** このバッチで「自分のもの」と答えたパス。配り終えたら落とす。 */
+const selfWritesHit = new Set<string>()
 
 export function markRecentlySaved(path: string) {
   // Keys are separator-normalized: editor tab paths can mix `/` and `\` on
   // Windows while watcher events always use `\`.
-  recentlySavedUntil.set(normalizeSep(path), Date.now() + SAVE_TTL_MS)
+  selfWrites.set(normalizeSep(path), Date.now() + SAVE_TTL_MS)
 }
 
 export function isRecentlySaved(path: string): boolean {
   const key = normalizeSep(path)
-  const expires = recentlySavedUntil.get(key)
+  const expires = selfWrites.get(key)
   if (expires === undefined) return false
-  if (Date.now() < expires) return true
-  recentlySavedUntil.delete(key)
-  return false
+  if (Date.now() >= expires) {
+    selfWrites.delete(key)
+    return false
+  }
+  selfWritesHit.add(key)
+  return true
+}
+
+function consumeSelfWrites() {
+  for (const key of selfWritesHit) selfWrites.delete(key)
+  selfWritesHit.clear()
 }
 
 interface FsChangedPayload {
@@ -57,6 +82,7 @@ async function init() {
     if (watcherId !== currentWatcherId.value) return
     for (const h of dirHandlers) h(changedDirs)
     for (const h of fileHandlers) h(changedFiles)
+    consumeSelfWrites()
   })
 }
 

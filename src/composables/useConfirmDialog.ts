@@ -26,6 +26,17 @@ function dismiss() {
   }
 }
 
+/**
+ * ダイアログが開いているか（#276）。
+ *
+ * 人に何かを聞いているあいだ、勝手に動く処理（自動保存）を止めるための門番。
+ * 「未保存の変更を破棄しますか」は答えを待つあいだ当のコンポーネントが生きているので、
+ * これが無いと破棄したはずの内容がその裏で書き込まれる。
+ */
+export function dialogOpen(): boolean {
+  return visible.value
+}
+
 export function confirmDialog(msg: string): Promise<boolean> {
   dismiss()
   message.value = msg

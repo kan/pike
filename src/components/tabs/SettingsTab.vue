@@ -11,8 +11,12 @@ import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { detectWslDistros, pickFolder, pickSaveFile } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import {
+  AUTO_SAVE_DELAY_DEFAULT,
+  AUTO_SAVE_DELAY_MAX,
+  AUTO_SAVE_DELAY_MIN,
   AUTO_THEME,
   COLOR_SCHEMES,
+  clampSize,
   UI_FONT_SIZE_MAX,
   UI_FONT_SIZE_MIN,
   useSettingsStore,
@@ -25,6 +29,14 @@ import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
+
+/** 待ち時間の入力を範囲に丸める。空欄や数字でない入力は既定値に戻す。 */
+function clampAutoSaveDelay(raw: string): number {
+  // 丸めは `clampSize`（`sanitize` が保存済みの値に使うもの）と同じものを通す。
+  // `Number('')` は 0 なので、空欄は先に「数値でない」側へ寄せる。
+  const n = raw.trim() === '' ? Number.NaN : Math.round(Number(raw))
+  return clampSize(n, AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX, AUTO_SAVE_DELAY_DEFAULT)
+}
 const projectStore = useProjectStore()
 settings.loadAvailableFonts()
 settings.loadAvailableUiFonts()
@@ -709,6 +721,34 @@ const PREVIEW_LINES = [
           <div class="mode-toggle">
             <button class="mode-btn" :class="{ active: settings.editorMinimap }" @click="settings.editorMinimap = true">{{ t('common.on') }}</button>
             <button class="mode-btn" :class="{ active: !settings.editorMinimap }" @click="settings.editorMinimap = false">{{ t('common.off') }}</button>
+          </div>
+        </div>
+
+        <!-- 保存の主体は人のまま。これは Ctrl+S の押し忘れを代行する設定（#262 / #276）。 -->
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.autoSave') }}</label>
+            <div class="mode-toggle">
+              <button class="mode-btn" :class="{ active: settings.autoSave === 'off' }" @click="settings.autoSave = 'off'">{{ t('common.off') }}</button>
+              <button class="mode-btn" :class="{ active: settings.autoSave === 'onFocusChange' }" @click="settings.autoSave = 'onFocusChange'">{{ t('settings.autoSaveOnFocusChange') }}</button>
+              <button class="mode-btn" :class="{ active: settings.autoSave === 'afterDelay' }" @click="settings.autoSave = 'afterDelay'">{{ t('settings.autoSaveAfterDelay') }}</button>
+            </div>
+          </div>
+          <p class="setting-hint">{{ t('settings.autoSaveHint') }}</p>
+          <div v-if="settings.autoSave === 'afterDelay'" class="setting-row">
+            <label class="setting-label">{{ t('settings.autoSaveDelay') }}</label>
+            <!-- `v-model.number` にしないこと。あれは打鍵のたびに書き込むので、値を消して
+                 打ち直すあいだ 0ms（＝1 文字ごとにファイル書き込み）になる。`:min` / `:max`
+                 はブラウザの検証にしか効かないので、確定時に自分で丸める。 -->
+            <input
+              :value="settings.autoSaveDelay"
+              type="number"
+              :min="AUTO_SAVE_DELAY_MIN"
+              :max="AUTO_SAVE_DELAY_MAX"
+              step="100"
+              class="number-input"
+              @change="settings.autoSaveDelay = clampAutoSaveDelay(($event.target as HTMLInputElement).value)"
+            />
           </div>
         </div>
 

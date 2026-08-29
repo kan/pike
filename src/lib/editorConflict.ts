@@ -337,3 +337,15 @@ export function conflictHighlight(): Extension {
     conflictTheme,
   ]
 }
+
+/**
+ * コンフリクトのマーカーが残っているか（#276）。
+ *
+ * 自動保存はこのあいだ止める。書いても index は unmerged のままなので直ちに壊れはしない
+ * が、**解消しきる前の中間状態を、人が保存を指示していないのに残す**ことになる。
+ * 判定に `conflictField` を使うのは、走査を 1 箇所に保つため（この拡張は全エディタタブに
+ * 常時入っていて、打鍵のたびに解析済み）。
+ */
+export function hasConflictMarkers(state: EditorState): boolean {
+  return (state.field(conflictField, false)?.length ?? 0) > 0
+}
