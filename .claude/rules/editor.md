@@ -15,6 +15,9 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - ミニマップ: `@replit/codemirror-minimap` を採用。blocks モード、シンタックスカラー反映、正確なスクロール同期、git diff ガター表示
 - エディタコンテキストメニュー: Undo/Redo/Cut/Copy/Paste/Git History（Teleport パターン）
 - ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
+- **いま開いているファイルの強調（#274）**: 「どのファイルを見ているか」は `composables/useActiveFile.ts` の 1 箇所。**タブの種類で持ち方が違う**ので、そこで絶対パスに揃える（エディタ / プレビュー / PDF は絶対、diff と履歴はルート相対）。区切りも正規化する: git は常に `/` を返し、ファイルツリーはシェルの区切りを使うので、素の比較は Windows で一致しない。**ストアにしないこと**: タブとプロジェクトの両方を読むので、`stores/tabs.ts` に置くと `project → tabs → project` の循環になる。印は `theme.css` の `.active-file`（2 つのパネルで同じ見た目にするため）で、色は `--active-file-bg`。**行全体を塗る**（VSCode の explorer と同じ。細い線だけではざっと見て探せない）が、`selected`（ツリーで選んだ行）とは別の見た目にする。左端の線は inset の影で描く（行の左 padding が深さで変わるので `border-left` は使えない）
+  - **各パネルに 2 行のカスケード用の規則が要る**: `.tree-item:hover` / `.tree-item.selected` は scoped の属性が付くぶん詳細度が高く、共有クラスの塗りを上書きしてしまう。色は共有の変数のままにして、詳細度だけ合わせる
+  - **ツリーの追従は選択ではなく `revealFile`**（畳んである親を開く）。深いところにあるファイルは、親が畳まれていると行そのものが描かれず、選択もスクロールも見えない。判定は同じ computed を読む: あちらが独自に `kind === 'editor'` を見ていたころは、印の付く行と選択がずれていた
 - 画像ビューワタブ（base64 経由、ズーム/回転/反転/パン/fit の表示専用操作）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
 - Markdown プレビュー内リンク: 外部 URL は confirm 付きで `open_url` 経由の外部ブラウザ起動、ローカルファイルはプロジェクトルート内に限定して EditorTab で開く（`resolveLocalPath` でディレクトリトラバーサル防止 + `decodeURIComponent` 対応）
 - 文字コード対応: `encoding_rs` で自動検出 + 指定エンコードでの開き直し/保存（StatusBar 2段階 UI）
@@ -147,7 +150,12 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - grep: `grep -rn --include/--exclude` でフォールバック
 - フロントには検索バックエンドをバッジ表示
 - 結果クリックでエディタタブを開き、`initialLine` で該当行にジャンプ
-- 最大 500 件で truncate、デバウンス 300ms
+- 最大 500 件で打ち切り（`MAX_MATCHES`）、デバウンス 300ms
+- **プロセスの実行が `run` 系を通らない唯一の経路（#257）**: `types.rs` の `spawn_capped_lines` が stdout を 1 行ずつ読み、上限に達したらパイプを閉じて子を止める。`run` 系は出力を全部メモリに溜めてから返すので、「大量に出るが先頭しか要らない」検索では作らせたものの大半を捨てることになる（`function` の検索で rg が 8.3MB を作り、実測 2,054ms → 打ち切りで 215ms。検索そのものは 22ms）。rg には**全体**の件数上限にあたるフラグが無い（`--max-count` はファイルごと）ので、受け取る側で止めるしかない
+  - **止め方はパイプを閉じること**。`kill` も撃つが、WSL では `wsl.exe` を殺してもディストロの中の rg には届かない
+  - **stderr は別スレッドで吸う**。読まずに置くと、エラーを大量に出すコマンドがパイプを埋めたところで止まる
+  - `search/mod.rs` に残るのは引数の組み立てと 1 行ごとのパーサ（`parse_rg_line` / `parse_grep_line`）。**打ち切ったかは件数から導く**（上限で止まるので `items.len() >= cap` と同値）
+  - `list_project_files`（`--files`、`MAX_FILES`=10,000）も同じ経路
 - rg サイドカーバンドル: `src-tauri/binaries/rg-{target}.exe` を `externalBin` でアプリに同梱
   - Windows プロジェクト: システム rg → バンドル版 rg → grep の順でフォールバック
   - WSL プロジェクト: WSL の rg → WSL の grep（バンドル版は Windows バイナリのため使用不可）
@@ -199,6 +207,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - 除外: `IGNORED_DIRS`（`.git node_modules __pycache__ .next .nuxt target dist build .cache .venv venv`）
 - `.gitignore` を尊重するのは **rg バックエンド使用時のみ**（`rg --files --max-depth 5 -g <glob>`）。rg が無く `find`(WSL)/walkdir(Windows) フォールバックの場合は `.gitignore` を見ず `IGNORED_DIRS` のみで除外するため、ネストした `package.json` がより多く出る
 - タスク実行はプロジェクトのデフォルトシェルで `autoStart` + `closeOnExit`（完了でタブ自動クローズ）。サブディレクトリのタスクは正しい CWD で起動
+- **グループの折り畳み（#273）**: 状態は `stores/tasks.ts` が持ち、`localStorage` のキーは**プロジェクトごと**（`pike:tasks-collapsed:{projectId}`。`fileTree` の `expanded` と同型）。`sourceFile` はルート相対なので、1 つのキーに全プロジェクトを入れると別プロジェクトの `package.json` と衝突するうえ、他のウィンドウが書いた分を読み直してから差し替える羽目になる
 - グループ見出しの sourceFile クリックで定義ファイルをエディタタブで開く（#159。`taskStore.openSourceFile`、`group.cwd` + `basename(sourceFile)` で絶対パス化）
 - フロント: `stores/tasks.ts` + `components/panels/TasksPanel.vue` + `types/tasks.ts`
 

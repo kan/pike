@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown, ChevronRight, Folder, FolderOpen, Loader } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { useActiveFile } from '../../composables/useActiveFile'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
@@ -29,6 +30,7 @@ import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
 
 const { t } = useI18n()
+const { activeFilePath, isActiveFile } = useActiveFile()
 
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
@@ -431,15 +433,17 @@ watch(
   },
 )
 
-watch(
-  () => tabStore.activeTab,
-  (tab) => {
-    if (tab?.kind !== 'editor') return
-    if (sidebar.activePanel !== 'files') return
-    fileTreeStore.selectedPath = tab.path
-    nextTick(() => scrollToSelected())
-  },
-)
+// 開いているファイルへツリーを追従させる。**判定は `useActiveFile` に一本化する**
+// （#274）: ここが独自に `kind === 'editor'` を見ていたころは、行に付く印（あちらは
+// プレビューや diff も対象）と選択がずれていた。
+//
+// **選択するだけでなく開く。** 深いところにあるファイルは親が畳まれていると行そのものが
+// 描かれず、選択もスクロールも見えない（VSCode の `explorer.autoReveal` と同じ挙動に
+// 揃える）。既に開いていればディスクは読まない。
+watch(activeFilePath, () => {
+  if (sidebar.activePanel !== 'files') return
+  void revealActiveFile()
+})
 
 function scrollToSelected() {
   if (!fileTreeStore.selectedPath || !panelEl.value) return
@@ -450,9 +454,9 @@ function scrollToSelected() {
 }
 
 async function revealActiveFile() {
-  const tab = tabStore.activeTab
-  if (tab?.kind !== 'editor') return
-  const found = await fileTreeStore.revealFile(tab.path)
+  const path = activeFilePath.value
+  if (!path) return
+  const found = await fileTreeStore.revealFile(path)
   if (found) {
     nextTick(() => scrollToSelected())
   }
@@ -461,8 +465,7 @@ async function revealActiveFile() {
 onMounted(async () => {
   if (sidebar.activePanel === 'files' && projectStore.currentProject) {
     fileTreeStore.ensureInit()
-    const tab = tabStore.activeTab
-    if (tab && tab.kind === 'editor') {
+    if (activeFilePath.value) {
       await revealActiveFile()
     } else {
       nextTick(() => {
@@ -546,7 +549,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
         <div
           v-else
           class="tree-item"
-          :class="{ 'drop-target': dropTarget === node.path, selected: fileTreeStore.selectedPath === node.path, ignored: node.entry.ignored, gitignored: node.entry.gitignored }"
+          :class="{ 'drop-target': dropTarget === node.path, selected: fileTreeStore.selectedPath === node.path, 'active-file': isActiveFile(node.path), ignored: node.entry.ignored, gitignored: node.entry.gitignored }"
           :style="{ paddingLeft: (node.depth * 16 + 4) + 'px' }"
           :draggable="!node.entry.ignored"
           @click="onItemClick(node)"
@@ -680,6 +683,15 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 .tree-item:hover,
 .tree-item.selected {
   background: var(--tab-hover-bg);
+}
+
+/* 印そのものは theme.css の `.active-file`。**この 2 行はカスケードのために要る**:
+   `.tree-item.selected` と `.tree-item:hover` は scoped の属性が付くぶん詳細度が高く、
+   共有クラスの塗りを上書きしてしまう。同じ詳細度で後に置いて塗りを保つ（色は共有の変数の
+   まま。`selected` は別の状態なので、見た目も別のままにする）。 */
+.tree-item.active-file,
+.tree-item.active-file:hover {
+  background: var(--active-file-bg);
 }
 
 .tree-chevron {

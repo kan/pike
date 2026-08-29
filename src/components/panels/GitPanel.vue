@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowUp, Check, ChevronDown, ChevronRight, Minus, Plus, Undo2 } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { useActiveFile } from '../../composables/useActiveFile'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, infoDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
@@ -37,6 +38,7 @@ import { useTabStore } from '../../stores/tabs'
 import type { GitFileChange, GitLogEntry } from '../../types/git'
 
 const { t } = useI18n()
+const { isActiveFile } = useActiveFile()
 
 const gitStore = useGitStore()
 const projectStore = useProjectStore()
@@ -528,6 +530,7 @@ onUnmounted(() => {
           v-for="file in gitStore.status.conflicted"
           :key="'c-' + file.path"
           class="file-item conflict"
+          :class="{ 'active-file': isActiveFile(file.path) }"
           :title="t('git.openConflict')"
           @click="openConflictFile(file.path)"
         >
@@ -552,6 +555,7 @@ onUnmounted(() => {
           v-for="file in gitStore.status.staged"
           :key="'s-' + file.path"
           class="file-item"
+          :class="{ 'active-file': isActiveFile(file.path) }"
           @click="openDiffTab(file.path, true)"
           @contextmenu="onFileContext($event, file.path, { staged: true })"
         >
@@ -574,6 +578,7 @@ onUnmounted(() => {
           v-for="file in gitStore.status.unstaged"
           :key="'u-' + file.path"
           class="file-item"
+          :class="{ 'active-file': isActiveFile(file.path) }"
           @click="openDiffTab(file.path, false, file.status === '?')"
           @contextmenu="onFileContext($event, file.path, { staged: false, untracked: file.status === '?' })"
         >
@@ -903,6 +908,14 @@ onUnmounted(() => {
 .file-item:hover {
   background: var(--tab-hover-bg);
 }
+
+/* 印そのものは theme.css の `.active-file`。この 2 行はカスケードのために要る（scoped の
+   `:hover` のほうが詳細度が高く、共有クラスの塗りを上書きしてしまう）。 */
+.file-item.active-file,
+.file-item.active-file:hover {
+  background: var(--active-file-bg);
+}
+
 
 .file-item.indent {
   padding-left: 20px;

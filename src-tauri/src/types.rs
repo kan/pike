@@ -1,9 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+
+/// 外部コマンドの既定の待ち時間。`run` 系と検索が共有する。
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Create a Command with CREATE_NO_WINDOW on Windows to prevent console window flashing.
 #[cfg_attr(not(windows), allow(unused_mut))]
@@ -289,7 +293,7 @@ impl ShellConfig {
 
     /// Execute with a 30 s timeout and return (exit_code, stdout, stderr).
     pub fn run(&self, program: &str, args: &[&str]) -> Result<(i32, String, String), String> {
-        let output = self.run_with_timeout(program, args, Duration::from_secs(30))?;
+        let output = self.run_with_timeout(program, args, DEFAULT_TIMEOUT)?;
         Ok((
             output.status.code().unwrap_or(-1),
             String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -328,7 +332,7 @@ impl ShellConfig {
 
     /// Execute with a 30 s timeout and return raw Output (for binary data).
     pub fn run_raw(&self, program: &str, args: &[&str]) -> Result<std::process::Output, String> {
-        self.run_with_timeout(program, args, Duration::from_secs(30))
+        self.run_with_timeout(program, args, DEFAULT_TIMEOUT)
     }
 
     /// Run a shell command line inside `dir`, returning (exit_code, stdout, stderr)
@@ -441,25 +445,115 @@ impl ShellConfig {
     }
 }
 
+/// Pipe stdout/stderr and spawn `cmd`.
+fn spawn_piped(mut cmd: Command, label: &str) -> Result<std::process::Child, String> {
+    cmd.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to run {label}: {e}"))
+}
+
 /// Pipe stdout/stderr, spawn `cmd`, and wait up to `timeout`, returning the raw
 /// Output regardless of exit status (the process tree is killed on timeout).
 fn spawn_with_timeout(
-    mut cmd: Command,
+    cmd: Command,
     label: &str,
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
-    let child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to run {label}: {e}"))?;
+    let child = spawn_piped(cmd, label)?;
     let pid = child.id();
     wait_with_timeout(pid, timeout, label, move || child.wait_with_output())
 }
 
+/// `spawn_capped_lines` の結果。
+pub struct CappedRun<T> {
+    pub items: Vec<T>,
+    pub code: i32,
+    pub stderr: String,
+}
+
+/// stdout を 1 行ずつ読み、`cap` 件そろったところで打ち切る（#257）。
+///
+/// **出力を全部溜める `run` 系との違いはここだけ。** あちらは子の出力をメモリに溜めてから
+/// 返すので、検索のように「大量に出るが先頭しか要らない」コマンドでは、作らせたものの
+/// 大半を捨てることになる（`function` の検索で rg が 8.3MB を作り、実測 2,054ms。打ち切ると
+/// 215ms で、検索そのものは 22ms しか使っていない）。rg には**全体**の件数上限にあたる
+/// フラグが無い（`--max-count` はファイルごと）ので、受け取る側で止めるしかない。
+///
+/// 止め方は**パイプを閉じること**。読み手が居なくなれば書き手は失敗して自分から終わる。
+/// `kill` も撃つが、WSL では `wsl.exe` を殺してもディストロの中のプロセスには届かないので、
+/// 効いているのはパイプのほう。
+///
+/// stderr は別スレッドで吸う。読まずに放っておくと、エラーを大量に出すコマンドがパイプを
+/// 埋めたところで止まり、こちらは stdout を待ち続ける。
+pub fn spawn_capped_lines<T: Send + 'static>(
+    cmd: Command,
+    label: &str,
+    cap: usize,
+    parse: impl FnMut(&str) -> Option<T> + Send + 'static,
+) -> Result<CappedRun<T>, String> {
+    let mut child = spawn_piped(cmd, label)?;
+    let pid = child.id();
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("{label}: no stdout pipe"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("{label}: no stderr pipe"))?;
+
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = BufReader::new(stderr).read_to_string(&mut buf);
+        buf
+    });
+
+    wait_with_timeout(pid, DEFAULT_TIMEOUT, label, move || {
+        // 読みで失敗しても後始末は必ず通す。`?` で抜けると、殺さないまま `Child` を drop
+        // することになり、子とスレッドが残る。
+        let read = read_capped(stdout, cap, parse);
+
+        // もう終わっていれば kill は失敗するが、それは想定どおり。
+        let _ = child.kill();
+        let status = child.wait();
+        let stderr = stderr_thread.join().unwrap_or_default();
+
+        Ok(CappedRun {
+            items: read?,
+            code: status?.code().unwrap_or(-1),
+            stderr,
+        })
+    })
+}
+
+/// `cap` 件そろうまで行を読む。抜けた時点で `stdout` は落ちている＝パイプが閉じている。
+fn read_capped<T>(
+    stdout: std::process::ChildStdout,
+    cap: usize,
+    mut parse: impl FnMut(&str) -> Option<T>,
+) -> std::io::Result<Vec<T>> {
+    let mut items = Vec::new();
+    let mut reader = BufReader::new(stdout);
+    let mut raw = Vec::new();
+    while items.len() < cap {
+        raw.clear();
+        if reader.read_until(b'\n', &mut raw)? == 0 {
+            break;
+        }
+        // 行ごとに lossy 変換する。grep は任意のバイトを流すので、不正な UTF-8 で全体を
+        // 失敗させない（`run` 系も出力全体に対して同じことをしている）。
+        let line = String::from_utf8_lossy(&raw);
+        if let Some(item) = parse(line.trim_end_matches(['\n', '\r'])) {
+            items.push(item);
+        }
+    }
+    Ok(items)
+}
+
 /// Spawn a prepared Command, wait up to 30 s, and return stdout on success.
 fn spawn_stdout(cmd: Command, label: &str) -> Result<String, String> {
-    let output = spawn_with_timeout(cmd, label, Duration::from_secs(30))?;
+    let output = spawn_with_timeout(cmd, label, DEFAULT_TIMEOUT)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("{label} error: {stderr}"));

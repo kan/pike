@@ -1,4 +1,4 @@
-use crate::types::ShellConfig;
+use crate::types::{spawn_capped_lines, ShellConfig};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -110,7 +110,6 @@ pub async fn search_detect_backend(
 
 const MAX_MATCHES: usize = 500;
 const MAX_FILES: usize = 10000;
-
 #[tauri::command]
 pub async fn list_project_files(
     shell: ShellConfig,
@@ -122,107 +121,78 @@ pub async fn list_project_files(
 
     tokio::task::spawn_blocking(move || {
         let backend = resolve_backend(&shell, &bundled, &cache);
-        let output = if backend.is_rg() {
-            shell.run(backend.rg_program(), &["--files", "--", &root])
-        } else {
+        let cmd = if backend.is_rg() {
+            shell.command(backend.rg_program(), &["--files", "--", &root])
+        } else if shell.is_posix() {
             // Fallback to find (POSIX) or dir (Windows). macOS のローカルシェルも
             // find 側（`cmd.exe` に落とすと Ctrl+P の一覧が丸ごと空になる）。
-            if shell.is_posix() {
-                shell.run(
-                    "find",
-                    &[&root, "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*", "-not", "-path", "*/target/*"],
-                )
-            } else {
-                shell.run(
-                    "cmd.exe",
-                    &["/C", &format!("dir /S /B /A:-D \"{}\"", root)],
-                )
-            }
+            shell.command(
+                "find",
+                &[&root, "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*", "-not", "-path", "*/target/*"],
+            )
+        } else {
+            shell.command("cmd.exe", &["/C", &format!("dir /S /B /A:-D \"{root}\"")])
         };
 
-        match output {
-            Ok((_, stdout, _)) => {
-                let files: Vec<String> = stdout
-                    .lines()
-                    .take(MAX_FILES)
-                    .map(|l| l.to_string())
-                    .collect();
-                Ok(files)
-            }
-            Err(e) => Err(e),
-        }
+        // 検索と同じく上限で打ち切る（#257）。大きなリポジトリでは `--files` の出力も
+        // 数 MB になり、`MAX_FILES` を超えた分は作らせるだけ無駄になる。
+        let run = spawn_capped_lines(cmd, "file list", MAX_FILES, |line| {
+            (!line.is_empty()).then(|| line.to_string())
+        })?;
+        Ok(run.items)
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-fn parse_rg_json(output: &str) -> (Vec<SearchMatch>, bool) {
-    let mut matches = Vec::new();
-    let mut truncated = false;
-
-    for line in output.lines() {
-        if matches.len() >= MAX_MATCHES {
-            truncated = true;
-            break;
-        }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
-        };
-        if v.get("type").and_then(|t| t.as_str()) != Some("match") {
-            continue;
-        }
-        let Some(data) = v.get("data") else { continue };
-        let path = data
+/// rg の `--json` の 1 行。マッチ以外（`begin` / `end` / `summary`）と壊れた行は `None`。
+fn parse_rg_line(line: &str) -> Option<SearchMatch> {
+    // 捨てる行に DOM を組まない。rg はマッチするファイルごとに `begin` と `end` を出すので、
+    // 500 件が 200 ファイルに散っていれば 400 行が作った端から捨てられる。文字列を含むかの
+    // 判定だけ先にやる（本文に "match" を含む行は素通りして、下の本パースが弾く）。
+    if !line.contains("\"match\"") {
+        return None;
+    }
+    let v = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    if v.get("type").and_then(|t| t.as_str()) != Some("match") {
+        return None;
+    }
+    let data = v.get("data")?;
+    Some(SearchMatch {
+        path: data
             .get("path")
             .and_then(|p| p.get("text"))
             .and_then(|t| t.as_str())
             .unwrap_or("")
-            .to_string();
-        let line_num = data
+            .to_string(),
+        line: data
             .get("line_number")
             .and_then(|n| n.as_u64())
-            .unwrap_or(0) as u32;
-        let content = data
+            .unwrap_or(0) as u32,
+        content: data
             .get("lines")
             .and_then(|l| l.get("text"))
             .and_then(|t| t.as_str())
             .unwrap_or("")
             .trim_end()
-            .to_string();
-        matches.push(SearchMatch {
-            path,
-            line: line_num,
-            content,
-        });
-    }
-    (matches, truncated)
+            .to_string(),
+    })
 }
 
-fn parse_grep_output(output: &str) -> (Vec<SearchMatch>, bool) {
-    let mut matches = Vec::new();
-    let mut truncated = false;
-
-    for line in output.lines() {
-        if matches.len() >= MAX_MATCHES {
-            truncated = true;
-            break;
-        }
-        let mut parts = line.splitn(3, ':');
-        let path = parts.next().unwrap_or("").to_string();
-        let line_num: u32 = parts
-            .next()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
-        let content = parts.next().unwrap_or("").trim_end().to_string();
-        if line_num > 0 && !path.is_empty() {
-            matches.push(SearchMatch {
-                path,
-                line: line_num,
-                content,
-            });
-        }
+/// grep の `-rn` の 1 行（`パス:行:本文`）。行番号を持たない行は `None`。
+fn parse_grep_line(line: &str) -> Option<SearchMatch> {
+    let mut parts = line.splitn(3, ':');
+    let path = parts.next().unwrap_or("");
+    let line_num: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let content = parts.next().unwrap_or("").trim_end();
+    if line_num == 0 || path.is_empty() {
+        return None;
     }
-    (matches, truncated)
+    Some(SearchMatch {
+        path: path.to_string(),
+        line: line_num,
+        content: content.to_string(),
+    })
 }
 
 #[tauri::command]
@@ -247,7 +217,9 @@ pub async fn search_execute(
     let bundled = state.bundled_rg.clone();
     let cache = state.detected.clone();
 
-    let max = max_results.unwrap_or(MAX_MATCHES as u32) as usize;
+    // 打ち切りの上限。呼び出し側が大きい値を渡しても `MAX_MATCHES` を超えない
+    // （パネルは全件を描けないし、超えた分は結局捨てることになる）。
+    let cap = (max_results.unwrap_or(MAX_MATCHES as u32) as usize).min(MAX_MATCHES);
 
     let inc_glob = glob_include.map(|g| {
         if g.contains('*') || g.contains('?') { g } else if g.contains('.') { format!("*.{}", g.trim_start_matches('.')) } else { format!("*{g}*") }
@@ -258,7 +230,7 @@ pub async fn search_execute(
 
     tokio::task::spawn_blocking(move || {
         let backend = resolve_backend(&shell, &bundled, &cache);
-        let output = if backend.is_rg() {
+        let run = if backend.is_rg() {
             let mut args: Vec<String> = vec!["--json".to_string()];
             if !is_regex {
                 args.push("-F".to_string());
@@ -279,7 +251,12 @@ pub async fn search_execute(
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            shell.run(backend.rg_program(), &arg_refs)
+            spawn_capped_lines(
+                shell.command(backend.rg_program(), &arg_refs),
+                "rg",
+                cap,
+                parse_rg_line,
+            )
         } else {
             let mut args: Vec<String> = vec!["-rn".to_string()];
             if !is_regex {
@@ -305,33 +282,71 @@ pub async fn search_execute(
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            shell.run("grep", &arg_refs)
+            spawn_capped_lines(shell.command("grep", &arg_refs), "grep", cap, parse_grep_line)
         };
 
-        match output {
-            Ok((code, stdout, stderr)) => {
-                if code == 2 {
-                    if !is_regex {
-                        // literal (-F) mode should never cause regex parse errors;
-                        // treat as "no results" rather than propagating a confusing error
-                        return Ok(SearchResult { matches: vec![], truncated: false });
-                    }
-                    return Err(stderr);
-                }
-                let (mut matches, truncated) = if backend.is_rg() {
-                    parse_rg_json(&stdout)
-                } else {
-                    parse_grep_output(&stdout)
-                };
-                matches.truncate(max);
-                Ok(SearchResult {
-                    truncated: truncated || matches.len() >= max,
-                    matches,
-                })
+        let run = run?;
+        if run.code == 2 {
+            if !is_regex {
+                // literal (-F) mode should never cause regex parse errors;
+                // treat as "no results" rather than propagating a confusing error
+                return Ok(SearchResult { matches: vec![], truncated: false });
             }
-            Err(e) => Err(e),
+            return Err(run.stderr);
         }
+        Ok(SearchResult {
+            // 打ち切ったかは件数から分かる（`spawn_capped_lines` は上限で止まる）。
+            truncated: run.items.len() >= cap,
+            matches: run.items,
+        })
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rg_match_line_is_parsed() {
+        // 本文の末尾は落とす（rg は行末の改行を含めて返す。ここでは同じ扱いになる
+        // 末尾の空白で見ている）。
+        let line = r#"{"type":"match","data":{"path":{"text":"src/main.rs"},"lines":{"text":"fn main() {  "},"line_number":12}}"#;
+        let m = parse_rg_line(line).expect("match line");
+        assert_eq!(m.path, "src/main.rs");
+        assert_eq!(m.line, 12);
+        assert_eq!(m.content, "fn main() {");
+    }
+
+    #[test]
+    fn rg_non_match_lines_are_skipped() {
+        // `--json` はマッチ以外の行も流す。数えるのはマッチだけ（上限の意味が変わる）。
+        assert!(parse_rg_line(r#"{"type":"begin","data":{"path":{"text":"a.rs"}}}"#).is_none());
+        assert!(parse_rg_line(r#"{"type":"summary","data":{}}"#).is_none());
+        assert!(parse_rg_line("not json").is_none());
+        assert!(parse_rg_line("").is_none());
+    }
+
+    #[test]
+    fn grep_line_is_parsed() {
+        let m = parse_grep_line("src/lib.rs:7:    let x = 1;  ").expect("match line");
+        assert_eq!(m.path, "src/lib.rs");
+        assert_eq!(m.line, 7);
+        assert_eq!(m.content, "    let x = 1;");
+    }
+
+    #[test]
+    fn grep_lines_without_a_number_are_skipped() {
+        // `--` の区切りや、バイナリを飛ばした旨の通知が混ざる。
+        assert!(parse_grep_line("--").is_none());
+        assert!(parse_grep_line("grep: a.bin: binary file matches").is_none());
+        assert!(parse_grep_line("").is_none());
+    }
+
+    #[test]
+    fn grep_keeps_colons_in_the_matched_text() {
+        let m = parse_grep_line("a.ts:3:const url = 'https://example.com'").expect("match line");
+        assert_eq!(m.content, "const url = 'https://example.com'");
+    }
 }

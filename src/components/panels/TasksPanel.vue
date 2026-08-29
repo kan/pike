@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Play } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, Play } from 'lucide-vue-next'
 import { watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { useProjectStore } from '../../stores/project'
@@ -18,7 +18,8 @@ const projectStore = useProjectStore()
 // project's tasks and it would sit empty.
 watch(
   [() => sidebar.activePanel, () => projectStore.currentProject?.id],
-  ([panel]) => {
+  ([panel, id]) => {
+    if (id) taskStore.loadCollapsed(id)
     if (panel === 'tasks' && taskStore.taskGroups.length === 0) {
       taskStore.refresh()
     }
@@ -28,6 +29,11 @@ watch(
 
 function refresh() {
   taskStore.refresh()
+}
+
+/** 畳んであるか（#273。状態はタスクストアがプロジェクトごとに持つ）。 */
+function isCollapsed(sourceFile: string): boolean {
+  return taskStore.collapsedGroups.has(sourceFile)
 }
 
 /** ツールチップ: 呼び出し行と、あれば説明（justfile の doc comment）。 */
@@ -44,26 +50,34 @@ defineExpose({ refresh })
     <div v-else-if="taskStore.taskGroups.length === 0" class="empty">{{ t('tasks.noFiles') }}</div>
     <template v-else>
       <div v-for="group in taskStore.taskGroups" :key="group.sourceFile" class="task-group">
-        <div class="group-header">
+        <div class="group-header" @click="taskStore.toggleCollapsed(group.sourceFile)">
+          <span class="group-chevron">
+            <ChevronRight v-if="isCollapsed(group.sourceFile)" :size="12" :stroke-width="2" />
+            <ChevronDown v-else :size="12" :stroke-width="2" />
+          </span>
           <span class="group-label">{{ group.label }}</span>
-          <button class="group-source" :title="t('tasks.openSource')" @click="taskStore.openSourceFile(group)">
+          <!-- 畳んでいるあいだも中身の量が分かるように件数を出す -->
+          <span v-if="isCollapsed(group.sourceFile)" class="group-count">{{ group.tasks.length }}</span>
+          <button class="group-source" :title="t('tasks.openSource')" @click.stop="taskStore.openSourceFile(group)">
             {{ group.sourceFile }}
           </button>
         </div>
-        <div
-          v-for="task in group.tasks"
-          :key="`${group.sourceFile}:${task.name}`"
-          class="task-item"
-          :title="taskTitle(task)"
-          @click="taskStore.runTask(task, group)"
-        >
-          <span class="task-name">{{ task.name }}</span>
-          <!-- justfile の doc comment。名前だけでは何をするか分からないので出す -->
-          <span v-if="task.description" class="task-desc">{{ task.description }}</span>
-          <button class="task-run" @click.stop="taskStore.runTask(task, group)">
-            <Play :size="12" :stroke-width="2" />
-          </button>
-        </div>
+        <template v-if="!isCollapsed(group.sourceFile)">
+          <div
+            v-for="task in group.tasks"
+            :key="`${group.sourceFile}:${task.name}`"
+            class="task-item"
+            :title="taskTitle(task)"
+            @click="taskStore.runTask(task, group)"
+          >
+            <span class="task-name">{{ task.name }}</span>
+            <!-- justfile の doc comment。名前だけでは何をするか分からないので出す -->
+            <span v-if="task.description" class="task-desc">{{ task.description }}</span>
+            <button class="task-run" @click.stop="taskStore.runTask(task, group)">
+              <Play :size="12" :stroke-width="2" />
+            </button>
+          </div>
+        </template>
       </div>
     </template>
   </div>
@@ -90,13 +104,39 @@ defineExpose({ refresh })
 .group-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 12px;
+  gap: 4px;
+  padding: 4px 12px 4px 4px;
   font-size: 11px;
   color: var(--text-secondary);
+  cursor: pointer;
 }
 
+.group-header:hover {
+  color: var(--text-primary);
+}
+
+.group-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.group-label {
+  flex-shrink: 0;
+}
+
+.group-count {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  font-size: 10px;
+}
+
+/* ファイル名は右端。畳んでいても「何のファイルか」は見えていてほしい。 */
 .group-source {
+  margin-left: auto;
   font-size: 10px;
   opacity: 0.6;
   padding: 0;

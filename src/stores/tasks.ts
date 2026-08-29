@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { basename, joinPath, pathSep } from '../lib/paths'
+import { loadJson, saveJson } from '../lib/storage'
 import { taskDiscover } from '../lib/tauri'
 import type { TaskDefinition, TaskGroup, TaskRunner } from '../types/tasks'
 import { RUNNER_COMMANDS } from '../types/tasks'
@@ -11,6 +12,34 @@ export const useTaskStore = defineStore('tasks', () => {
   const taskGroups = ref<TaskGroup[]>([])
   const loading = ref(false)
   let refreshPromise: Promise<void> | null = null
+
+  /**
+   * 畳んであるグループ（`sourceFile` の集合、#273）。**キーはプロジェクトごとに分ける**
+   * （`fileTree` の `expanded` と同型）。`sourceFile` はルート相対なので、1 つのキーに
+   * 全プロジェクトを入れると別プロジェクトの `package.json` と衝突するうえ、他のウィンドウが
+   * 書いた分を読み直してから差し替える必要が出る。
+   */
+  const collapsedGroups = ref<Set<string>>(new Set())
+  let collapsedProjectId: string | null = null
+
+  function collapseKey(projectId: string): string {
+    return `pike:tasks-collapsed:${projectId}`
+  }
+
+  /** 表示側が呼ぶ。プロジェクトが変わっていれば読み直す。 */
+  function loadCollapsed(projectId: string) {
+    if (collapsedProjectId === projectId) return
+    collapsedProjectId = projectId
+    const saved = loadJson<unknown>(collapseKey(projectId), [])
+    collapsedGroups.value = new Set(Array.isArray(saved) ? (saved as string[]) : [])
+  }
+
+  function toggleCollapsed(sourceFile: string) {
+    const next = new Set(collapsedGroups.value)
+    if (!next.delete(sourceFile)) next.add(sourceFile)
+    collapsedGroups.value = next
+    if (collapsedProjectId) saveJson(collapseKey(collapsedProjectId), [...next])
+  }
 
   async function doRefresh() {
     const projectStore = useProjectStore()
@@ -84,5 +113,16 @@ export const useTaskStore = defineStore('tasks', () => {
     taskGroups.value.flatMap((g) => g.tasks.map((t) => ({ ...t, cwd: g.cwd, groupLabel: g.label }))),
   )
 
-  return { taskGroups, loading, refresh, clear, runTask, openSourceFile, allTasks }
+  return {
+    taskGroups,
+    loading,
+    collapsedGroups,
+    loadCollapsed,
+    toggleCollapsed,
+    refresh,
+    clear,
+    runTask,
+    openSourceFile,
+    allTasks,
+  }
 })

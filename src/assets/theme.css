@@ -42,6 +42,8 @@
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(255, 255, 255, 0.1);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+  /* いま開いているファイルの行の塗り（#274）。ホバーや選択より強く、本文が読める濃さ。 */
+  --active-file-bg: color-mix(in srgb, var(--accent) 30%, transparent);
   --statusbar-bg: rgb(27 27 27 / var(--surface-alpha));
   --shadow-color: rgba(0, 0, 0, 0.4);
 }
@@ -80,6 +82,7 @@
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
+  --active-file-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --statusbar-bg: rgb(224 224 224 / var(--surface-alpha));
   --shadow-color: rgba(0, 0, 0, 0.15);
 }
@@ -151,6 +154,16 @@
 
 :hover > .hover-toolbar {
   opacity: 1;
+}
+
+/* いま開いているファイルの行（#274）。ファイルツリーと Git パネルが同じ印を使う。
+   VSCode の explorer と同じく**行全体を塗る**（細い線だけでは、ざっと見て探せない）。
+   ホバーや選択と混ざらないようアクセント由来の色にしてある。
+   **`border-left` にしないこと**: ツリーの行は深さで左 padding が変わるので、枠を足すと
+   中身がずれる。 */
+.active-file {
+  background: var(--active-file-bg);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* Shared keyboard shortcut hint for context menus / popup menus */
