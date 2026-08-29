@@ -29,7 +29,7 @@ async function onOpenDirectory() {
   const path = await pickFolder()
   if (!path) return
   projectStore.showSwitcher = false
-  await projectStore.openDirectory(path, globalMode.value ? 'window' : 'switch')
+  await projectStore.openDirectory(path)
 }
 
 function enterGlobalMode() {

@@ -954,9 +954,9 @@ mod dialog {
     ///
     /// Rust のダイアログ crate を使わず OS 付属のものを叩くのは、元々そうなっていたから。
     #[cfg(any(windows, target_os = "macos"))]
-    async fn spawn(program: &'static str, args: Vec<String>) -> Result<Option<String>, String> {
+    async fn spawn(program: String, args: Vec<String>) -> Result<Option<String>, String> {
         tokio::task::spawn_blocking(move || {
-            let output = crate::types::silent_command(program)
+            let output = crate::types::silent_command(&program)
                 .args(&args)
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -973,18 +973,42 @@ mod dialog {
     }
 
     /// WinForms のダイアログ。`script` は `$f = New-Object ...` の部分。
+    ///
+    /// **pwsh があればそちらで出す**（#271）。PowerShell 7 は .NET 5+ なので、同じ
+    /// `FolderBrowserDialog` がモダンなダイアログになる（アドレス欄でパスを打て、
+    /// ナビゲーションペインに WSL の「Linux」が出る）。`powershell.exe` の .NET Framework
+    /// は旧式の「フォルダーの参照」ツリーで、UNC を打ち込む手段が無い。
     #[cfg(windows)]
     async fn powershell(script: String) -> Result<Option<String>, String> {
         let cmd = format!("Add-Type -AssemblyName System.Windows.Forms; {script}");
-        spawn("powershell.exe", vec!["-NoProfile".into(), "-Command".into(), cmd]).await
+        // pwsh の探索は PATH を辿る stat の連なりなので、実行と同じくブロッキング側で行う
+        // （`spawn` が `spawn_blocking` を使っているのと同じ理由。ここで直に呼ぶと、
+        // ダイアログを開くたびに tokio のワーカーが PTY の出力ごと止まる）。
+        let program = tokio::task::spawn_blocking(|| {
+            crate::pty::find_pwsh_path().unwrap_or_else(|| "powershell.exe".to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        spawn(program, vec!["-NoProfile".into(), "-Command".into(), cmd]).await
     }
 
+    /// PowerShell のリテラルに埋める（単引用符の中では引用符を重ねるのが唯一の逃げ方）。
     #[cfg(windows)]
-    pub async fn folder() -> Result<Option<String>, String> {
-        powershell(
-            "$f = New-Object System.Windows.Forms.FolderBrowserDialog; if($f.ShowDialog() -eq 'OK'){$f.SelectedPath}"
-                .to_string(),
-        )
+    fn ps_quote(value: &str) -> String {
+        format!("'{}'", value.replace("'", "''"))
+    }
+
+    /// `initial` はダイアログの初期位置（#271）。WSL プロジェクトでは
+    /// `wsl.localhost` の UNC を渡すので、そのまま WSL の中から選べる。
+    #[cfg(windows)]
+    pub async fn folder(initial: Option<String>) -> Result<Option<String>, String> {
+        let seed = initial
+            .filter(|p| !p.is_empty())
+            .map(|p| format!("$f.SelectedPath = {};", ps_quote(&p)))
+            .unwrap_or_default();
+        powershell(format!(
+            "$f = New-Object System.Windows.Forms.FolderBrowserDialog; {seed} if($f.ShowDialog() -eq 'OK'){{$f.SelectedPath}}"
+        ))
         .await
     }
 
@@ -1018,7 +1042,7 @@ mod dialog {
     /// `POSIX path of` を通して普通のパスにする。
     #[cfg(target_os = "macos")]
     async fn osascript(script: String) -> Result<Option<String>, String> {
-        spawn("osascript", vec!["-e".into(), script]).await
+        spawn("osascript".into(), vec!["-e".into(), script]).await
     }
 
     /// AppleScript の文字列リテラルへ埋め込む。特別扱いが要るのは 2 文字だけ。
@@ -1027,9 +1051,19 @@ mod dialog {
         s.replace('\\', "\\\\").replace('"', "\\\"")
     }
 
+    /// `initial` はダイアログの初期位置（#271）。
+    ///
+    /// **渡す前に実在を確かめる。** `POSIX file` はパスを参照に変えるだけで存在確認を
+    /// しないので、消えたディレクトリを渡すと `choose folder` がエラーで終わる。
+    /// それは終了コードでしか分からず、`spawn` はキャンセルと同じ `None` に畳むため、
+    /// 「ダイアログが一瞬で閉じた」ようにしか見えない。
     #[cfg(target_os = "macos")]
-    pub async fn folder() -> Result<Option<String>, String> {
-        osascript("POSIX path of (choose folder)".to_string()).await
+    pub async fn folder(initial: Option<String>) -> Result<Option<String>, String> {
+        let at = initial
+            .filter(|p| std::path::Path::new(p).is_dir())
+            .map(|p| format!(" default location (POSIX file \"{}\")", applescript_quote(&p)))
+            .unwrap_or_default();
+        osascript(format!("POSIX path of (choose folder{at})")).await
     }
 
     #[cfg(target_os = "macos")]
@@ -1062,7 +1096,7 @@ mod dialog {
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
-    pub async fn folder() -> Result<Option<String>, String> {
+    pub async fn folder(_initial: Option<String>) -> Result<Option<String>, String> {
         unsupported()
     }
 
@@ -1078,8 +1112,8 @@ mod dialog {
 }
 
 #[tauri::command]
-async fn pick_folder() -> Result<Option<String>, String> {
-    dialog::folder().await
+async fn pick_folder(initial: Option<String>) -> Result<Option<String>, String> {
+    dialog::folder(initial).await
 }
 
 /// Open-file dialog restricted to the given extensions (#241).

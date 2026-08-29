@@ -488,6 +488,8 @@ export default {
   'project.missing': 'not found',
   'project.parked': 'Kept',
   'project.switchTo': 'Switch to {name}',
+  'project.confirmLeaveTransient':
+    '{name} is an unregistered directory. Switching discards its tabs and stops any running processes (the directory itself is untouched). Continue?',
   'project.confirmRelease': 'Close the tabs of {name}? Running processes will stop.',
   'project.parkedHint':
     'This window is keeping this project’s tabs (terminal processes are still running). Switching back shows them as they were.',
@@ -524,6 +526,7 @@ export default {
   'projectSwitcher.createAndOpen': 'Create & Open',
 
   // Quick Open
+  'quickOpen.recentDir': 'recent',
   'quickOpen.placeholder': 'Search files (> for commands, ? for help)',
   'quickOpen.noMatch': 'No matches',
   'quickOpen.enterOpen': 'Enter: open file',
@@ -577,6 +580,10 @@ export default {
   'shortcuts.settings': 'Settings',
   'shortcuts.manual': 'User manual',
   'shortcuts.newFile': 'New File',
+  'shortcuts.openDirectory': 'Open Directory',
+  'shortcuts.fontIncrease': 'Increase Font Size',
+  'shortcuts.fontDecrease': 'Decrease Font Size',
+  'shortcuts.fontReset': 'Reset Font Size',
   'shortcuts.newTerminal': 'New Terminal',
   'shortcuts.closeTab': 'Close Tab',
   'shortcuts.closeWindow': 'Close Window',

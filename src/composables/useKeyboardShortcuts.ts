@@ -22,7 +22,7 @@ import { useAppActions } from './useAppActions'
  * `Ctrl+K`（行末まで削除）・`Ctrl+P` / `Ctrl+N`（履歴）はシェルのまま。
  * 一覧を変えたら `KeyboardShortcuts.vue` と `docs/manual/shortcuts-and-cli.md` も揃える。
  */
-export const PIKE_FIRST_CTRL_KEYS = new Set(['w', 't', 'Tab', 'PageUp', 'PageDown', ...'123456789'])
+export const PIKE_FIRST_CTRL_KEYS = new Set(['w', 't', 'Tab', 'PageUp', 'PageDown', '-', '=', '+', '0', ...'123456789'])
 
 /**
  * 上のうち、全画面 TUI が代替画面を持っているあいだはシェルへ返すもの（#224）。

@@ -154,6 +154,17 @@ key equivalent は AppKit が WebView へ渡す前に処理するので、`windo
 `choose folder` / `choose file` / `choose file name`（`lib.rs`）。**キャンセルの見分け方が違う**:
 PowerShell 版は「空文字」、`osascript` は「終了コード 1」なので、成功したときだけ stdout を見る。
 
+**Windows では pwsh があればそちらで出す**（#271）。PowerShell 7 は .NET 5+ なので、同じ
+`FolderBrowserDialog` がモダンなダイアログになり、アドレス欄でパスを打て、ナビゲーション
+ペインに WSL の「Linux」が出る。`powershell.exe`（.NET Framework）は旧式の「フォルダーの
+参照」ツリーで、UNC を打ち込む手段が無い。`pty::find_pwsh_path`（実在を確認する版）で探し、
+無ければ `powershell.exe` に落ちる。
+
+**WSL のディレクトリは UNC で選ぶ。** フォルダ選択に初期位置を渡せるようにしてあり
+（`pickFolder(initial)`）、WSL プロジェクトでは `wslNativeToUnc` で作った
+`wsl.localhost` の UNC を渡す。Windows のダイアログはこれをそのまま辿れるので、
+WSL 用の選択 UI を自前で作る必要はない。
+
 **cfg は「macOS かそれ以外か」で切らないこと。** それだと Linux が `powershell.exe` を起動しに行き、
 終了コード判定に当たって意味の分からないエラーになる（`powershell` という名前の別物が PATH に
 あれば、黙って「キャンセルされた」ことになる）。Windows / macOS / それ以外の 3 分岐で、

@@ -61,9 +61,11 @@ const settings = useSettingsStore()
  */
 const projectChips = computed(() => {
   const list = [...projectStore.heldProjects]
-  // タブがまだ 1 つも無いプロジェクトも「現在地」として出す（並びの末尾）。
+  // タブがまだ 1 つも無いプロジェクトも「現在地」として出す（並びの末尾）。**一時
+  // プロジェクトは出さない**: 切り替えると破棄されるので、この列の約束（戻ればある）を
+  // 満たさない。
   const current = projectStore.currentProject
-  if (current && !list.some((p) => p.id === current.id)) list.push(current)
+  if (current && !projectStore.isTransient && !list.some((p) => p.id === current.id)) list.push(current)
   return list
 })
 

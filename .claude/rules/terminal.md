@@ -64,5 +64,9 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   - **`Ctrl+W` だけは代替画面（`inAltScreen`）のあいだシェルへ返す**（`ALT_SCREEN_SHELL_KEYS`）。vim のウィンドウ操作の prefix なので、奪うと `Ctrl+W s` 等が打てないうえタブが閉じる。素のシェル（readline の unix-werase）では Pike 優先のままにするため、判定はキー単位ではなく代替画面の有無で行う
   - readline が使う `Ctrl+K`（行末まで削除）・`Ctrl+P` / `Ctrl+N`（履歴）と、TUI アプリの `F1` はシェルに残す方針。**一覧をグローバルハンドラと同じファイルに置く**のは、そこが同じキーを取り合う相手だから（ターミナル側に置くと、`useKeyboardShortcuts.ts` に Ctrl+英字を足す人が「ターミナルでは効かない」ことに気付けない。readline の `Ctrl+A/E/U/D/Y` は未使用のまま残っている）
   - 変更したら 3 箇所（この定数・`KeyboardShortcuts.vue` のターミナル節・`docs/manual/shortcuts-and-cli.md`）を揃える
+  - 文字の大きさ（#260、`Mod+=` / `Mod++` / `Mod+Shift++` / `Mod+-` / `Mod+0`）もここに入れてある。
+    **大きくする側の chord が 3 つあるのは配列の都合**で、`matchChord` が「chord に書いていない
+    修飾キーは押されていない」ことを求めるため、`Mod++` は Shift 無しで `+` が出る numpad にしか
+    一致しない。US の `Ctrl+Shift+=` と JIS の `Ctrl+Shift+;` は `Mod+Shift++` が受ける。**見ているものに効かせる**（エディタのタブならエディタのフォント、それ以外はターミナル）: 設定画面まで行かずに変えられることが目的なので、今フォーカスしている面が対象で自然。ターミナルで押したときに何も起きないのでは意味が無いので、xterm より先に取る
 - WebView リロード抑止: Ctrl+R / Ctrl+Shift+R / F5 を `preventDefault`。誤操作でのリロード（全 PTY セッション破棄＝実質再起動）を防ぐ。ターミナルの Ctrl+R（bash 逆方向検索）は xterm がイベントを消費するため影響なし
 

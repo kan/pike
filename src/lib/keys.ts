@@ -66,6 +66,21 @@ const MAC_SYMBOLS: Record<string, string> = {
 const MAC_ORDER = ['⌃', '⌥', '⇧', '⌘']
 
 /**
+ * chord の表記を修飾キーとキーに分ける。
+ *
+ * **区切りと同じ文字がキーになりうる**のが厄介なところで、`'Mod++'` を素朴に
+ * `split('+')` すると空の欠片が 2 つ出る。末尾を取ってから空を落とす順にすると、
+ * `Mod++` は「`Mod` と `+`」、素の `'+'`（画像プレビューの拡大）は「修飾なしの `+`」に
+ * なる。判定・表記・macOS のアクセラレータが同じ答えを見るよう、3 つともここを通す
+ * （別々に書いていたころ、一覧が `Mod++` を `Ctrl` とだけ表示していた）。
+ */
+function splitChord(chord: string): { mods: string[]; key: string } {
+  const parts = chord.split('+')
+  const key = parts.pop() || '+'
+  return { mods: parts.filter(Boolean), key }
+}
+
+/**
  * `'Mod+Shift+P'` のような表記を、画面に出す `<kbd>` の並びにする（#254）。
  *
  * Windows / Linux は `['Ctrl', 'Shift', 'P']` と 1 語ずつ。macOS は記号を
@@ -75,9 +90,8 @@ const MAC_ORDER = ['⌃', '⌥', '⇧', '⌘']
  * 修飾キーを含まない表記（`'F1'`、`'テキスト選択'`）はそのまま 1 つで返す。
  */
 export function chordChips(chord: string): string[] {
-  const parts = chord.split('+').filter(Boolean)
-  // 表記そのものが `+`（画像プレビューの拡大）のときは分割結果が空になる。
-  if (parts.length === 0) return [chord]
+  const { mods, key } = splitChord(chord)
+  const parts = [...mods, key]
   if (!isMacHost) return parts.map((p) => (p === 'Mod' ? 'Ctrl' : p))
 
   const symbols = parts.filter((p) => p in MAC_SYMBOLS).map((p) => MAC_SYMBOLS[p])
@@ -108,9 +122,8 @@ export function chordLabel(chord: string): string {
  *   `Mod` を `Ctrl` と書くのと対）
  */
 export function matchChord(e: KeyboardEvent, chord: string): boolean {
-  const parts = chord.split('+')
-  const key = parts.pop() || '+'
-  const has = (name: string) => parts.some((p) => p.toLowerCase() === name)
+  const { mods, key } = splitChord(chord)
+  const has = (name: string) => mods.some((p) => p.toLowerCase() === name)
 
   if (hasMod(e) !== (has('mod') || (!isMacHost && has('ctrl')))) return false
   // mac でだけ Ctrl は独立した修飾キー。他では上の行が見た `Mod` と同じキーなので、
@@ -154,11 +167,10 @@ const MOD_ORDER = ['Ctrl', 'Alt', 'Shift', 'Mod']
  * 使うのは macOS のメニューだけなので `Mod` は常に `Cmd`。
  */
 export function toAccelerator(chord: string): string {
-  const parts = chord.split('+')
-  const key = parts.pop() || '+'
-  const mods = parts
+  const { mods, key } = splitChord(chord)
+  const ordered = mods
     .slice()
     .sort((a, b) => MOD_ORDER.indexOf(a) - MOD_ORDER.indexOf(b))
     .map((p) => (p.toLowerCase() === 'mod' ? 'Cmd' : p))
-  return [...mods, key].join('+')
+  return [...ordered, key].join('+')
 }

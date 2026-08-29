@@ -152,7 +152,12 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
       diagnostics.value = []
       providers.value = []
     } finally {
-      if (mySeq === seq) running.value = false
+      // **`mySeq === seq` で条件を付けないこと。** `clear()`（プロジェクト切替）が
+      // seq を進めるので、`cargo check` / `tsc` の最中に切り替えると立てたままになる。
+      // 上のガードがあるぶん「新しい run が既に走っている」ことは起こらないので、
+      // 立てた側が必ず下ろすのが正しい（付けていたころは、切り替えた先の Problems が
+      // 「確認中…」のまま二度と動かなかった）。
+      running.value = false
     }
   }
 

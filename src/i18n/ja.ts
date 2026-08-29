@@ -487,6 +487,8 @@ export default {
   'project.missing': '未取得',
   'project.parked': '保持中',
   'project.switchTo': '{name} に切り替える',
+  'project.confirmLeaveTransient':
+    '{name} は登録していないディレクトリです。切り替えるとこのタブは破棄され、実行中のプロセスも終了します（ディレクトリ自体はそのままです）。続けますか？',
   'project.confirmRelease': '{name} のタブを閉じますか？ 実行中のプロセスも終了します。',
   'project.parkedHint':
     'このウィンドウがこのプロジェクトのタブを保持しています（ターミナルのプロセスも動いたままです）。切り替えるとそのまま戻ります。',
@@ -523,6 +525,7 @@ export default {
   'projectSwitcher.createAndOpen': '作成して開く',
 
   // Quick Open
+  'quickOpen.recentDir': '最近',
   'quickOpen.placeholder': 'ファイル検索（> でコマンド、? でヘルプ）',
   'quickOpen.noMatch': '一致する項目がありません',
   'quickOpen.enterOpen': 'Enter: ファイルを開く',
@@ -577,6 +580,10 @@ export default {
   'shortcuts.settings': '設定',
   'shortcuts.manual': 'ユーザーマニュアル',
   'shortcuts.newFile': '新規ファイル',
+  'shortcuts.openDirectory': 'ディレクトリを開く',
+  'shortcuts.fontIncrease': '文字を大きく',
+  'shortcuts.fontDecrease': '文字を小さく',
+  'shortcuts.fontReset': '文字の大きさを戻す',
   'shortcuts.newTerminal': '新規ターミナル',
   'shortcuts.closeTab': 'タブを閉じる',
   'shortcuts.closeWindow': 'ウィンドウを閉じる',

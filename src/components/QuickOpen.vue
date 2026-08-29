@@ -53,16 +53,6 @@ const files = ref<string[]>([])
 const loading = ref(false)
 let lastFilesRoot: string | null = null
 
-const recentFiles: string[] = []
-const MAX_RECENT = 20
-
-function trackRecent(path: string) {
-  const idx = recentFiles.indexOf(path)
-  if (idx !== -1) recentFiles.splice(idx, 1)
-  recentFiles.unshift(path)
-  if (recentFiles.length > MAX_RECENT) recentFiles.pop()
-}
-
 const parsedQuery = computed(() => {
   const raw = query.value
   const colonIdx = raw.lastIndexOf(':')
@@ -84,7 +74,7 @@ const filteredFiles = computed(() => {
   const sep = files.value.length > 0 && files.value[0].includes('/') ? '/' : '\\'
 
   if (!p) {
-    const recent = recentFiles.filter((r) => files.value.includes(r)).slice(0, MAX_DISPLAY)
+    const recent = projectStore.recentFiles.filter((r) => files.value.includes(r)).slice(0, MAX_DISPLAY)
     if (recent.length >= MAX_DISPLAY) return recent
     const recentSet = new Set(recent)
     const rest = files.value.filter((f) => !recentSet.has(f))
@@ -102,7 +92,7 @@ const filteredFiles = computed(() => {
       pathMatches.push(f)
     }
   }
-  const recentSet = new Set(recentFiles)
+  const recentSet = new Set(projectStore.recentFiles)
   const sortByRecent = (a: string, b: string) => {
     const aRecent = recentSet.has(a)
     const bRecent = recentSet.has(b)
@@ -118,6 +108,7 @@ const filteredFiles = computed(() => {
 // --- Task mode (includes built-in commands + project tasks) ---
 interface CommandItem {
   kind: 'command'
+  id: string
   name: string
   /** 分類（`表示` `Git` など）。VSCode の `View:` と同じ役目。 */
   category: string
@@ -139,7 +130,13 @@ interface TaskItem {
   groupLabel: string
 }
 
-type PaletteItem = CommandItem | TaskItem
+/** 最近開いたディレクトリ（#271）。コマンドと違い、中身はデータなので別の種別。 */
+interface RecentDirItem {
+  kind: 'recent-dir'
+  path: string
+}
+
+type PaletteItem = CommandItem | TaskItem | RecentDirItem
 
 /**
  * パレットに出すコマンド（#270）。**一覧は `lib/shortcuts.ts` の `APP_ACTIONS` が正本**で、
@@ -152,6 +149,7 @@ const builtinCommands = computed<CommandItem[]>(() =>
     .filter((a) => !a.needsProject || !!projectStore.currentProject)
     .map((a) => ({
       kind: 'command' as const,
+      id: a.id,
       name: a.label,
       category: a.category,
       search: a.search,
@@ -185,8 +183,25 @@ const filteredPalette = computed<PaletteItem[]>(() => {
       groupLabel: t.groupLabel,
     }))
 
-  return [...cmds, ...tasks]
+  // 最近開いたディレクトリ（#271）。**コマンドとタスクの間**に置く: 「開く」操作の
+  // 続きなので、コマンドのすぐ下にあるほうが辿りやすい。
+  const dirs: PaletteItem[] = projectStore.recentDirs
+    .filter((p) => !q || p.toLowerCase().includes(q))
+    .slice(0, MAX_RECENT_DIRS)
+    .map((path) => ({ kind: 'recent-dir' as const, path }))
+
+  return [...cmds, ...dirs, ...tasks]
 })
+
+/** パレットに出す最近のディレクトリの件数。一覧はタスクと共存するので絞る。 */
+const MAX_RECENT_DIRS = 5
+
+/** 行の識別子。種別ごとに衝突しない形にする。 */
+function paletteKey(item: PaletteItem): string {
+  if (item.kind === 'command') return `cmd:${item.id}`
+  if (item.kind === 'recent-dir') return `dir:${item.path}`
+  return `task:${item.cwd ?? ''}:${item.name}`
+}
 
 // --- Tab mode ---
 const filteredTabs = computed(() => {
@@ -276,7 +291,7 @@ function openSelected() {
     case 'file': {
       const path = filteredFiles.value[selectedIdx.value]
       if (!path) return
-      trackRecent(path)
+      projectStore.trackRecentFile(path)
       void openPathInTab({ path, line: parsedQuery.value.line })
       break
     }
@@ -285,6 +300,8 @@ function openSelected() {
       if (!item) return
       if (item.kind === 'command') {
         item.action()
+      } else if (item.kind === 'recent-dir') {
+        void projectStore.openDirectory(item.path)
       } else {
         taskStore.runTask(item)
       }
@@ -456,7 +473,7 @@ const footerHints = computed(() => {
             <template v-else-if="mode === 'task'">
               <div
                 v-for="(item, i) in filteredPalette"
-                :key="item.kind === 'command' ? `cmd:${item.name}` : `${item.cwd ?? ''}:${item.name}`"
+                :key="paletteKey(item)"
                 class="quickopen-item"
                 :class="{ selected: i === selectedIdx }"
                 @click="selectedIdx = i; openSelected()"
@@ -466,6 +483,11 @@ const footerHints = computed(() => {
                   <span class="item-runner">{{ item.category }}</span>
                   <span class="item-name">{{ item.name }}</span>
                   <span class="item-path item-chord">{{ item.chord }}</span>
+                </template>
+                <template v-else-if="item.kind === 'recent-dir'">
+                  <span class="item-runner">{{ t('quickOpen.recentDir') }}</span>
+                  <span class="item-name">{{ basename(item.path) }}</span>
+                  <span class="item-path">{{ item.path }}</span>
                 </template>
                 <template v-else>
                   <span class="item-runner">{{ item.runner }}</span>

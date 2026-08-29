@@ -77,7 +77,11 @@ export interface AppActionDef {
 export const APP_ACTIONS = [
   { id: 'quickOpen' },
   { id: 'projectSwitcher', palette: 'project' },
+  { id: 'openDirectory', palette: 'project' },
   { id: 'newTerminal', palette: 'terminal' },
+  { id: 'fontIncrease', palette: 'view' },
+  { id: 'fontDecrease', palette: 'view' },
+  { id: 'fontReset', palette: 'view' },
   { id: 'newFile', palette: 'file' },
   { id: 'closeTab', palette: 'file' },
   { id: 'closeWindow', palette: 'view' },
@@ -180,12 +184,25 @@ export const KEY_BINDINGS: KeyBinding[] = [
   { chords: ['Mod+W'], action: 'closeTab' },
   { chords: ['Mod+Shift+W'], action: 'closeWindow' },
   { chords: ['Mod+N'], action: 'newFile' },
+  // `Mod+O` は「開く」の慣習そのまま（mac の ⌘O、Windows の Ctrl+O）。ターミナルへは
+  // 返す（readline の operate-and-get-next。`PIKE_FIRST_CTRL_KEYS` に足さない）。
+  { chords: ['Mod+O'], action: 'openDirectory' },
   { chords: ['Mod+T'], action: 'newTerminal' },
   // `Ctrl+Tab` 系は macOS でも Ctrl のまま（`⌘Tab` は OS のアプリ切り替え）。
   { chords: ['Mod+Shift+]', 'Ctrl+Tab', 'Ctrl+PageDown'], action: 'nextTab' },
   { chords: ['Mod+Shift+[', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'], action: 'prevTab' },
   { chords: ['Mod+K'], action: 'shortcuts' },
   { chords: ['Mod+,'], action: 'settings' },
+  // 文字の大きさ（#260）。`Mod+0` は `Mod+1`〜`9`（タブ）と衝突しない。
+  //
+  // **大きくする側は配列で打ち方が変わる**ので 3 つ並べる。`matchChord` は chord に
+  // 書いていない修飾キーが押されていないことを求めるため、`Mod++` だけでは
+  // **Shift を押さずに `+` が出る numpad にしか一致しない**。US 配列の `Ctrl+Shift+=`、
+  // JIS 配列の `Ctrl+Shift+;` はどちらも「Shift 付きで `+` が出た」なので
+  // `Mod+Shift++` が受ける。`Mod+=` は US で Shift 無しに届く刻印。
+  { chords: ['Mod+=', 'Mod++', 'Mod+Shift++'], action: 'fontIncrease' },
+  { chords: ['Mod+-'], action: 'fontDecrease' },
+  { chords: ['Mod+0'], action: 'fontReset' },
   { chords: ['Alt+H'], action: 'gitHistory' },
   { chords: ['Mod+Q'], action: 'quit', macOnly: true },
 ]
@@ -238,6 +255,7 @@ const MENU_ACTIONS: AppActionId[] = [
   'quit',
   'newTerminal',
   'newFile',
+  'openDirectory',
   'closeTab',
   'closeWindow',
   'quickOpen',

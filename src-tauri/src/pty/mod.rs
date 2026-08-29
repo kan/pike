@@ -271,19 +271,24 @@ fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, pty_id: &str, is_wsl: b
 /// the alias at spawn time (a genuinely-missing pwsh then surfaces as a normal
 /// spawn failure in the terminal).
 fn find_pwsh() -> String {
+    // 見つからなくても素の `pwsh.exe` に賭ける（Store 版の実行エイリアスは PATH 上の
+    // ファイルとして見えないことがある）。**確実に在るものが要る呼び出し側は
+    // `find_pwsh_path` を使うこと。**
+    find_pwsh_path().unwrap_or_else(|| "pwsh.exe".to_string())
+}
+
+/// 実在が確認できた pwsh のパス。無ければ `None`。
+pub(crate) fn find_pwsh_path() -> Option<String> {
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
             let p = dir.join("pwsh.exe");
             if p.is_file() {
-                return p.to_string_lossy().into_owned();
+                return Some(p.to_string_lossy().into_owned());
             }
         }
     }
     let fallback = std::path::Path::new(r"C:\Program Files\PowerShell\7\pwsh.exe");
-    if fallback.is_file() {
-        return fallback.to_string_lossy().into_owned();
-    }
-    "pwsh.exe".to_string()
+    fallback.is_file().then(|| fallback.to_string_lossy().into_owned())
 }
 
 fn find_git_bash() -> Result<String, String> {

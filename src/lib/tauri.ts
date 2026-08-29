@@ -698,8 +698,12 @@ export async function pageTitleFetch(url: string): Promise<string | null> {
   return invoke<string | null>('page_title_fetch', { url })
 }
 
-export async function pickFolder(): Promise<string | null> {
-  return invoke<string | null>('pick_folder')
+/**
+ * フォルダ選択。`initial` はダイアログの初期位置（#271）。WSL のディレクトリを選ぶには
+ * `wslNativeToUnc` で作った UNC を渡す（Windows のダイアログは UNC を辿れる）。
+ */
+export async function pickFolder(initial?: string): Promise<string | null> {
+  return invoke<string | null>('pick_folder', { initial: initial ?? null })
 }
 
 export async function pickSaveFile(defaultName?: string): Promise<string | null> {

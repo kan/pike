@@ -195,6 +195,7 @@ fn build_menu(app: &AppHandle, lang: &str, actions: &[MenuAction]) -> tauri::Res
     let mut file_menu = SubmenuBuilder::new(app, l.file);
     file_menu = push(app, file_menu, find("newTerminal"))?;
     file_menu = push(app, file_menu, find("newFile"))?;
+    file_menu = push(app, file_menu, find("openDirectory"))?;
     file_menu = file_menu.separator();
     // どちらも predefined を使えない: `close_window` のアクセラレータは
     // `Cmd+W` 固定で動かせず、Pike の閉じる経路（close-to-tray・実行中

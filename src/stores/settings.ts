@@ -332,8 +332,10 @@ interface PersistedSettings {
 }
 
 // Font-size slider bounds (terminal + editor); UI font size uses UI_FONT_SIZE_*.
-const FONT_SIZE_MIN = 8
-const FONT_SIZE_MAX = 32
+export const FONT_SIZE_MIN = 8
+export const FONT_SIZE_MAX = 32
+/** 設定画面のスライダーと同じ既定値（`Mod+0` で戻す先、#260）。 */
+export const FONT_SIZE_DEFAULT = 14
 
 function clampSize(n: unknown, min: number, max: number, fallback: number): number {
   return typeof n === 'number' && Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback
@@ -494,9 +496,9 @@ function ensureVisiblePerCategory(list: ShellProfile[]): ShellProfile[] {
 function defaults(): PersistedSettings {
   return {
     fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
-    fontSize: 14,
+    fontSize: FONT_SIZE_DEFAULT,
     editorFontName: 'PlemolJP Console NF',
-    editorFontSize: 14,
+    editorFontSize: FONT_SIZE_DEFAULT,
     uiFontFamily: '',
     uiFontSize: UI_FONT_BASE,
     colorSchemeName: 'Default Dark',

@@ -56,6 +56,10 @@ const sections = computed<ShortcutSection[]>(() => [
     title: t('shortcuts.tabs'),
     items: [
       { keys: chordsFor('newFile'), label: t('shortcuts.newFile') },
+      { keys: chordsFor('openDirectory'), label: t('shortcuts.openDirectory') },
+      { keys: chordsFor('fontIncrease'), label: t('shortcuts.fontIncrease') },
+      { keys: chordsFor('fontDecrease'), label: t('shortcuts.fontDecrease') },
+      { keys: chordsFor('fontReset'), label: t('shortcuts.fontReset') },
       { keys: chordsFor('newTerminal'), label: t('shortcuts.newTerminal') },
       { keys: chordsFor('closeTab'), label: t('shortcuts.closeTab') },
       { keys: chordsFor('closeWindow'), label: t('shortcuts.closeWindow') },

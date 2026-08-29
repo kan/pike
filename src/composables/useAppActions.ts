@@ -1,10 +1,11 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import type { AppActionId } from '../lib/shortcuts'
+import { pickFolder } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useDiagnosticsStore } from '../stores/diagnostics'
 import { useGitStore } from '../stores/git'
 import { useProjectStore } from '../stores/project'
-import { useSettingsStore } from '../stores/settings'
+import { FONT_SIZE_DEFAULT, FONT_SIZE_MAX, FONT_SIZE_MIN, useSettingsStore } from '../stores/settings'
 import { useSidebarStore } from '../stores/sidebar'
 import { useTabStore } from '../stores/tabs'
 import type { ShellType, SidebarPanel } from '../types/tab'
@@ -45,6 +46,21 @@ export function useAppActions(): Record<AppActionId, () => void> & {
   const settings = useSettingsStore()
   const shortcutsModal = useShortcutsModal()
 
+  async function pickAndOpenDirectory() {
+    const path = await pickFolder(projectStore.pickerStartDir())
+    if (!path) return
+    projectStore.showSwitcher = false
+    await projectStore.openDirectory(path)
+  }
+
+  function zoomFont(step: number) {
+    const editor = tabStore.activeTab?.kind === 'editor'
+    const current = editor ? settings.editorFontSize : settings.fontSize
+    const next = step === 0 ? FONT_SIZE_DEFAULT : Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, current + step))
+    if (editor) settings.editorFontSize = next
+    else settings.fontSize = next
+  }
+
   function openPanel(panel: SidebarPanel) {
     useSidebarStore().togglePanel(panel)
   }
@@ -67,6 +83,10 @@ export function useAppActions(): Record<AppActionId, () => void> & {
 
   return {
     quickOpen: () => projectStore.toggleQuickOpen(),
+    // フォルダを選んで、登録せずに開く（#230 の一時プロジェクト）。グローバルモードの
+    // ウィンドウはプロジェクトを持たないので、別ウィンドウで開く（スイッチャーの
+    // 「ディレクトリを開く」と同じ判断）。
+    openDirectory: () => void pickAndOpenDirectory(),
     projectSwitcher: () => projectStore.toggleSwitcher(),
     newTerminal: () => openTerminal(),
     newFile: () => tabStore.addBlankEditorTab(),
@@ -93,6 +113,12 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     // macOS の ⌘Q。predefined の Quit と違い、走っているコマンドがあれば確認を挟む
     // （#178。閉じる経路と同じ確認で、ここだけ素通りすると全ウィンドウの PTY が黙って死ぬ）。
     quit: () => void confirmAndExit(),
+    // 文字の大きさ（#260）。**見ているものに効かせる**: エディタのタブならエディタの、
+    // それ以外（ターミナル・チャット・ログ）ならターミナルのフォント。設定画面まで
+    // 行かずに変えられることが目的なので、今フォーカスしている面が対象で自然。
+    fontIncrease: () => zoomFont(1),
+    fontDecrease: () => zoomFont(-1),
+    fontReset: () => zoomFont(0),
     // パネル（#270）。トグルなので、開いているものをもう一度選ぶと閉じる（アイコンを
     // クリックしたときと同じ挙動）。
     panelFiles: () => openPanel('files'),

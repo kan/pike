@@ -4,6 +4,7 @@ import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { locale, t } from '../i18n'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
 import { hostDefaultShell, isMacHost } from '../lib/host'
+import { wslNativeToUnc } from '../lib/paths'
 import {
   baseForPlatform,
   isProjectPlatform,
@@ -13,6 +14,7 @@ import {
   rootKey,
 } from '../lib/projectPaths'
 import { menuActions } from '../lib/shortcuts'
+import { loadJson, pushRecent } from '../lib/storage'
 import {
   focusProjectWindow,
   fsDirsExist,
@@ -34,7 +36,7 @@ import {
   projectUpdate,
   type WindowSession,
 } from '../lib/tauri'
-import { ephemeralWindow, isMainWindow } from '../lib/window'
+import { ephemeralWindow, globalMode, isMainWindow } from '../lib/window'
 import type { ProjectConfig, SyncedProject } from '../types/project'
 import { buildShell, quoteArg, type ShellType, shellId, shellToPlatform } from '../types/tab'
 import { useDiagnosticsStore } from './diagnostics'
@@ -116,11 +118,15 @@ export const useProjectStore = defineStore('project', () => {
 
   // タブを持ったものを末尾に足す。**消すのは手放したときだけ**（`forgetHeld`）で、
   // タブが 0 になっても並びは保つ。
+  //
+  // **一時プロジェクト（#230）は入れない。** あれは切り替えると破棄されるので、
+  // 「戻ってきたらそのままある」ものだけを並べるチップ列とは意味が合わない
+  // （出るのに戻れない、という食い違いになる）。
   watch(
     () => useTabStore().projectIdsWithTabs,
     (ids) => {
       for (const id of ids) {
-        if (!heldIds.value.includes(id)) heldIds.value.push(id)
+        if (id !== transientProject.value?.id && !heldIds.value.includes(id)) heldIds.value.push(id)
       }
     },
     { immediate: true },
@@ -383,16 +389,80 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /**
+   * 最近開いたディレクトリ（#271）。**マシン全体**で持つ（`localStorage`）: ファイルの
+   * 履歴と違い、「どのプロジェクトからでも同じ場所に戻りたい」ものなので、プロジェクトで
+   * 分けると用を成さない。同期の対象にもしない（パスはマシンごと）。
+   */
+  const RECENT_DIRS_KEY = 'pike:recent-dirs'
+  const MAX_RECENT_DIRS = 10
+  const recentDirs = ref<string[]>(loadJson<string[]>(RECENT_DIRS_KEY, []))
+
+  /**
+   * フォルダ選択ダイアログの初期位置（#271）。WSL プロジェクトでは
+   * `wsl.localhost` の UNC にして、そのまま WSL の中から選べるようにする。
+   * プロジェクトが無ければ既定（＝ダイアログ任せ）。
+   */
+  function pickerStartDir(): string | undefined {
+    const project = currentProject.value
+    if (!project) return undefined
+    const root = project.root
+    if (project.shell.kind === 'wsl' && root.startsWith('/')) {
+      return wslNativeToUnc(project.shell.distro, root)
+    }
+    return root
+  }
+
+  function trackRecentDir(path: string) {
+    recentDirs.value = pushRecent(recentDirs.value, path, RECENT_DIRS_KEY, MAX_RECENT_DIRS)
+  }
+
+  /**
+   * 最近開いたファイル（#271）。**プロジェクトごとに分ける**（上のディレクトリとは逆）:
+   * 他プロジェクトのファイルが混ざると、パレットで上位に出す意味が無くなる。
+   *
+   * ディレクトリの履歴と同じくストアが持つ。プロジェクト id を見て読み直す仕掛けは
+   * `fileTree` の `expanded` や `tasks` の折り畳みと同じもので、コンポーネント側に
+   * 書くと「最近開いたファイル」を読みたい画面が増えるたびに写しが増える。
+   */
+  const MAX_RECENT_FILES = 20
+  const recentFiles = ref<string[]>([])
+
+  function recentFilesKey(): string | null {
+    const id = currentProject.value?.id
+    return id ? `pike:recent-files:${id}` : null
+  }
+
+  watch(
+    () => currentProject.value?.id,
+    () => {
+      const key = recentFilesKey()
+      recentFiles.value = key ? loadJson<string[]>(key, []) : []
+    },
+    { immediate: true },
+  )
+
+  function trackRecentFile(path: string) {
+    const key = recentFilesKey()
+    if (!key) return
+    recentFiles.value = pushRecent(recentFiles.value, path, key, MAX_RECENT_FILES)
+  }
+
+  /**
    * Open a directory without registering it (#230): the window behaves like a
    * project window, but nothing is written to disk and the config dies with it.
    *
    * Choosing this is itself the answer to "register this directory?", so the
    * root is remembered as one not to ask about again.
    */
-  async function openDirectory(path: string, mode: 'switch' | 'window' = 'switch'): Promise<void> {
+  async function openDirectory(path: string, mode?: 'switch' | 'window'): Promise<void> {
+    trackRecentDir(path)
     const config = await projectTransientCreate(path, distroHintFor(path))
     useSettingsStore().rememberTransientRoot(config.root)
-    if (mode === 'window') {
+    // 既定は「ここで開く」。ただしプロジェクトを持たないウィンドウは自分がその
+    // ディレクトリの入れ物になれないので新しいウィンドウへ。この判断を呼び出し側に
+    // 置くと入口ごとに書き写すことになる（実際 1 箇所が `.value` を落として
+    // 常に新しいウィンドウを開いていた）。
+    if ((mode ?? (globalMode.value ? 'window' : 'switch')) === 'window') {
       await openProjectWindow(config.id)
       return
     }
@@ -950,11 +1020,19 @@ export const useProjectStore = defineStore('project', () => {
     // project: drop it here rather than at window close, or `pike <that dir>`
     // would keep focusing a window that no longer shows it.
     if (transientProject.value && transientProject.value.id !== id) {
+      const leaving = transientProject.value
+      // **破棄されることを先に言う**（#271）。登録済みのプロジェクトは切り替えても
+      // タブが残るので、ここだけ挙動が違う。黙って捨てると、戻ってきて初めて気付く。
+      // タブが無ければ失うものが無いので聞かない。
+      if (tabStore.hasTabsFor(leaving.id)) {
+        if (!(await confirmDialog(t('project.confirmLeaveTransient', { name: leaving.name })))) return
+      }
       // **タブを先に手放す**（#264）。パークだけして記録を消すと、一覧にも出ず
       // 切り替えても戻れない id のタブが、プロセスを抱えたまま残る。断られたら
       // 切り替え自体をやめる（記録だけ消すと、同じ迷子のタブができる）。
-      if (!(await tabStore.closeProjectTabs(transientProject.value.id))) return
-      projectTransientDrop(transientProject.value.id).catch(() => {})
+      if (!(await tabStore.closeProjectTabs(leaving.id))) return
+      forgetHeld(leaving.id)
+      projectTransientDrop(leaving.id).catch(() => {})
       transientProject.value = null
     }
     // Elevated admin project window opens the project context only; the caller
@@ -1168,6 +1246,10 @@ export const useProjectStore = defineStore('project', () => {
     isTransient,
     openDirectory,
     openDirectoryAsProject,
+    recentDirs,
+    recentFiles,
+    trackRecentFile,
+    pickerStartDir,
     projectForRoot,
     registerTransientProject,
     showSwitcher,
