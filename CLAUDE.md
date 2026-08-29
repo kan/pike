@@ -426,9 +426,28 @@ just bump X.Y.Z
 
 ### 2. CHANGELOG.md の更新
 
-`CHANGELOG.md` の先頭に新しいセクションを追加する。
+`CHANGELOG.md` の先頭に新しいセクションを追加し、**「ドキュメント校正ルール」の校正をかける**
+（今回足した節だけが対象。過去の節は出荷済みの記録なので触らない）。
 
-### 3. コミット & プッシュ
+### 3. スクリーンショットの撮り直し
+
+**マイナー bump のリリースでは必ず撮り直す。** 画像には StatusBar のバージョンが写るので、
+**bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順。詳細は `.claude/rules/build.md`）。
+
+```bash
+just e2e-build           # 出力を | tail に通さないこと（落ちても 0 が返る）
+just e2e
+just e2e-sync-check      # 差分を確認してから
+just e2e-sync            # マニュアル 72 枚 + ヒーロー 6 枚
+```
+
+同期したら、代表的な画像を目視で確認する（バージョン表記と、その回で変えた UI が写っているか）。
+あわせてマニュアルを棚卸しする: 新機能の記載漏れ、`grep -rn Windows` でのプラットフォーム記述の
+古さ、「撮っているのに使われていない画像」（`.claude/rules/build.md` の comm のワンライナー）。
+
+画像はバージョン bump とは別のコミットにする（`docs: vX.Y.Z でスクリーンショットを撮り直す`）。
+
+### 4. コミット & プッシュ
 
 ```bash
 git add src-tauri/tauri.conf.json package.json src-tauri/Cargo.toml src-tauri/Cargo.lock package-lock.json CHANGELOG.md
@@ -438,11 +457,11 @@ git push origin main
 
 **2 つの lockfile を含めること**。忘れると作業ツリーに drift が残り、あとから `chore: Cargo.lock を vX.Y.Z に同期` という追加コミットが必要になる（過去に何度も発生）。
 
-### 4. Security Check の確認
+### 5. Security Check の確認
 
 GitHub Actions の `Security Check` ワークフローが成功することを確認する。
 
-### 5. タグの作成 & プッシュ
+### 6. タグの作成 & プッシュ
 
 ```bash
 git tag vX.Y.Z
@@ -453,7 +472,7 @@ git push origin vX.Y.Z
 同じドラフトへ成果物をアップロードする。**macOS 版は未署名で、updater の対象外**
 （詳細は `.claude/rules/build.md`）。
 
-### 6. リリースの公開
+### 7. リリースの公開
 
 ワークフロー完了後、GitHub Releases でドラフトを確認し、リリースノートを記載して公開する:
 
