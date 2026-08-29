@@ -61,17 +61,10 @@ const MD_SAMPLE = [
   '',
 ].join('\n')
 
-describe('screenshots: editor', () => {
-  for (const { lang, theme } of MATRIX) {
-    it(`editor ${lang} ${theme}`, async () => {
-      await prepare({ lang, theme })
-      await setFakeProject()
-      await openEditor({ path: 'src/stores/tasks.ts', content: TS_SAMPLE })
-      await $('.cm-editor').waitForDisplayed({ timeout: 10_000 })
-      await shoot('editor', lang, theme)
-    })
-  }
-})
+// エディタ単体のクローズアップは撮らない。マニュアルの「コード編集」は外枠付きの
+// ヒーロー画像（`hero-editor` → `docs/screenshot-editor.png`）を使っていて、そちらに
+// ファイルツリーごと写っているため、同じ内容の 2 枚目に置き場所が無い。
+// `TS_SAMPLE` はアウトラインの spec が使う。
 
 describe('screenshots: markdown preview', () => {
   for (const { lang, theme } of MATRIX) {

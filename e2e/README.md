@@ -122,7 +122,7 @@ EditorTab は `fs_read_file` を読まずその内容で描画するため、決
   する。プレビュー専用モードでは View が無く抽出できない。
 - 描画完了は `.cm-editor`（エディタ）/ `.preview-pane`（プレビュー）/
   `[data-testid="outline-panel"] .tree-item`（アウトライン）の表示待ちで確認する。
-- 実装例は `e2e/specs/editor.ts`（`editor` / `markdown-preview` / `outline-panel`）。
+- 実装例は `e2e/specs/editor.ts`（`markdown-preview` / `outline-panel` / `editor-conflict`）。
 - **プレビュー派生**：`viewMode:'preview'` で拡張子ごとの描画に分岐する。CSV/TSV は表、
   JSON/JSONL は色分け、SVG はサニタイズ描画、Mermaid はライブラリ遅延 import + 非同期
   render。待機は `.csv-preview table` / `.json-preview` / `.svg-preview svg` /
