@@ -49,6 +49,10 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   表示は同ファイルの `chordChips` / `chordLabel`（`Mod+W` → `⌘W` / `Ctrl+W`）を通す:
   UI に `Ctrl+` と直接書くと macOS で嘘になる
 - グローバルは `composables/useKeyboardShortcuts.ts`（window の keydown）。エディタ内は CodeMirror の keymap（`EditorTab.vue`）、ターミナルは xterm の `attachCustomKeyEventHandler`、各モーダルは自前の keydown と、**4 層に分かれている**。一覧は `components/KeyboardShortcuts.vue` + `composables/useShortcutsModal.ts`、マニュアルは `docs/manual/shortcuts-and-cli.md`。**キーの割り当ての正本は `lib/shortcuts.ts` の `KEY_BINDINGS`**（#254）。グローバル層のキーを増やすときに触るのは表とマニュアルの 2 箇所で、判定・一覧の表記・macOS メニューのアクセラレータは全部そこから導出される。表に無い層（CodeMirror・xterm・画像ビューワ）のキーは従来どおり実装・モーダル・マニュアルの 3 箇所を揃える
+- **「Pike にできること」の正本は `lib/shortcuts.ts` の `APP_ACTIONS`**（#270）。**キーの表とは別**にしてある: パレットに出したい操作のほとんどはキーを持たない（パネルを開く、git pull など）ので、chord を行にした `KEY_BINDINGS` では表現できない。`AppActionId` はこの表から導出する
+  - **機能を足すときはここに 1 行足す。** 実装（`useAppActions`）は `Record<AppActionId, …>` なので、足して実装を忘れると型エラーになる。パレット（`QuickOpen` の `>` モード）は `palette` を持つ行を流すだけで、**一覧を別に持たない**（以前は `QuickOpen.vue` に 3 件ハードコードされていて、機能を足しても誰も気付かなかった）
+  - `palette` は分類（`view` / `git` / `project` / `terminal` / `file` / `help`）。名前だけでは領域が分からないものに接頭辞を付けるためで、絞り込みの対象にも入れてある。**パレットに出さないものには付けない**（タブ移動のように、パレットを開いている時点で意味を失うもの）
+  - `needsProject` を付けたものは、プロジェクトを持たないウィンドウでは出さない
 - **`e.key` の英字は `normalizedKey`（`lib/keys.ts`）を通して比較する**。Caps Lock は `e.key` の大小を反転させるので、`'p'` のようなリテラル比較だけだと Caps 中に全滅する（棚卸しで実際に見つかった）。グローバル・PreviewTab・DiffTab の 3 箇所が共有する
 - **モーダルの `keys` は「候補コードの配列」**（`['Mod+Shift+Z', 'Mod+Y']`）。描画は `chordChips` が `+` で `<kbd>` に割り（mac は記号を 1 つに畳む）、配列の区切りに `/` を入れる。1 文字列に `/` を混ぜると `split('+')` が壊れて `Z / Ctrl` のようなチップが出る
 - **CodeMirror 標準の redo は `Mod-y` と Linux 限定の `Ctrl-Shift-z`**。Windows が主対象なので `Mod-Shift-z` を明示的に足してある。足すまで、3 箇所で案内していた `Ctrl+Shift+Z` はどこでも効いていなかった

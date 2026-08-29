@@ -1,10 +1,13 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import type { AppActionId } from '../lib/shortcuts'
 import { globalMode } from '../lib/window'
+import { useDiagnosticsStore } from '../stores/diagnostics'
+import { useGitStore } from '../stores/git'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
+import { useSidebarStore } from '../stores/sidebar'
 import { useTabStore } from '../stores/tabs'
-import type { ShellType } from '../types/tab'
+import type { ShellType, SidebarPanel } from '../types/tab'
 import { confirmAndExit } from './useBusyExit'
 import { useShortcutsModal } from './useShortcutsModal'
 
@@ -34,10 +37,17 @@ export function useAppActions(): Record<AppActionId, () => void> & {
    */
   selectTabByDigit: (digit: string) => void
 } {
+  // タブ・プロジェクト・設定はどの消費者も使うので先に取り、パネルや git のように
+  // 一部のアクションでしか要らないものはクロージャの中で取る（`TabPane` は
+  // `openTerminal` 目的でこれを呼ぶので、そこで無関係なストアを起こさない）。
   const tabStore = useTabStore()
   const projectStore = useProjectStore()
   const settings = useSettingsStore()
   const shortcutsModal = useShortcutsModal()
+
+  function openPanel(panel: SidebarPanel) {
+    useSidebarStore().togglePanel(panel)
+  }
 
   function openTerminal(shellOverride?: ShellType) {
     // プロジェクトを持たないウィンドウは設定の `globalShell` で開く。ここを
@@ -83,6 +93,24 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     // macOS の ⌘Q。predefined の Quit と違い、走っているコマンドがあれば確認を挟む
     // （#178。閉じる経路と同じ確認で、ここだけ素通りすると全ウィンドウの PTY が黙って死ぬ）。
     quit: () => void confirmAndExit(),
+    // パネル（#270）。トグルなので、開いているものをもう一度選ぶと閉じる（アイコンを
+    // クリックしたときと同じ挙動）。
+    panelFiles: () => openPanel('files'),
+    panelGit: () => openPanel('git'),
+    panelSearch: () => openPanel('search'),
+    panelDocker: () => openPanel('docker'),
+    panelTasks: () => openPanel('tasks'),
+    panelTodo: () => openPanel('todo'),
+    panelOutline: () => openPanel('outline'),
+    panelDiagnostics: () => openPanel('diagnostics'),
+    panelProjects: () => openPanel('projects'),
+    // 失敗の通知はストア側（`setError`）。入口ごとに書くと、どれかが漏れる。
+    gitPull: () => void useGitStore().pull(),
+    gitPush: () => void useGitStore().push(),
+    gitRefresh: () => void useGitStore().refreshAll(),
+    diagnosticsRun: () => void useDiagnosticsStore().run(),
+    agentClaude: () => tabStore.addAgentChatTab({ agentType: 'claude-code' }),
+    agentCodex: () => tabStore.addAgentChatTab({ agentType: 'codex' }),
     openTerminal,
     selectTabByDigit: (digit: string) => {
       const list = tabStore.visibleTabs

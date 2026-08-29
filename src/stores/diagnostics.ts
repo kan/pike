@@ -126,7 +126,10 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
   async function run() {
     const projectStore = useProjectStore()
     const project = projectStore.currentProject
-    if (!project) return
+    // 走っているあいだは重ねない（#270）。以前は SideBar のボタンの disabled だけが
+    // 止めていたので、パレットから 2 回叩くと `cargo check` / `tsc`（最長 180 秒）が
+    // 並行して走った。
+    if (!project || running.value) return
     running.value = true
     error.value = null
     const mySeq = ++seq

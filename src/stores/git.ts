@@ -22,6 +22,7 @@ import {
 import type { GitLogEntry, GitStatusResult, PullOption, PushOption } from '../types/git'
 import { chainOnSuccess } from '../types/tab'
 import { useProjectStore } from './project'
+import { useStatusMessageStore } from './statusMessage'
 import { useTabStore } from './tabs'
 
 /**
@@ -49,6 +50,21 @@ export const useGitStore = defineStore('git', () => {
   const isRepo = ref(true)
   const pushing = ref(false)
   const pulling = ref(false)
+
+  /**
+   * 失敗を記録し、**ステータスバーにも出す**（#270）。Git パネルのストリップだけだと、
+   * パネルを閉じたまま実行したとき（パレットやサイドバーのボタン）に「何も起きなかった」
+   * ように見える。入口ごとに通知を書くと、どれかが漏れる。
+   */
+  function setError(message: string) {
+    error.value = message
+    useStatusMessageStore().show({ text: message, variant: 'error', durationMs: 8000 })
+  }
+
+  /** ステータスとログをまとめて取り直す（「更新」の実体。入口が 2 つある）。 */
+  async function refreshAll() {
+    await Promise.all([refreshStatus(true), refreshLog()])
+  }
 
   let pollTimer: ReturnType<typeof setInterval> | null = null
   let fetchTimer: ReturnType<typeof setInterval> | null = null
@@ -208,13 +224,16 @@ export const useGitStore = defineStore('git', () => {
 
   async function push(options?: PushOption[]) {
     const project = getProject()
-    if (!project) return
+    // **ガードはここに置く**（#270）。以前は SideBar のボタンの disabled だけが多重実行を
+    // 止めていたので、パレットから 2 回叩くと同じリポジトリで 2 本走り、`index.lock` で
+    // ぶつかったうえ、先に終わったほうがフラグを戻していた。
+    if (!project || pushing.value) return
     pushing.value = true
     try {
       await gitPush(getRoot(), project.shell, options)
       await refreshStatus()
     } catch (e) {
-      error.value = String(e)
+      setError(String(e))
     } finally {
       pushing.value = false
     }
@@ -222,7 +241,7 @@ export const useGitStore = defineStore('git', () => {
 
   async function pull(options?: PullOption[]) {
     const project = getProject()
-    if (!project) return
+    if (!project || pulling.value) return
     pulling.value = true
     let failure: string | null = null
     try {
@@ -235,7 +254,7 @@ export const useGitStore = defineStore('git', () => {
       // see now rather than after the next poll (#222).
       await Promise.all([refreshStatus(), refreshLog()])
       // ...and set the error only after, since a successful refresh clears it.
-      if (failure) error.value = failure
+      if (failure) setError(failure)
       pulling.value = false
     }
   }
@@ -487,6 +506,7 @@ export const useGitStore = defineStore('git', () => {
     pulling,
     refreshing,
     refreshStatus,
+    refreshAll,
     refreshLog,
     stageFiles,
     unstageFiles,

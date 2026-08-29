@@ -28,6 +28,14 @@ export default {
   'app.emptyProject': '{key} でプロジェクトを開く',
 
   // Sidebar
+  'palette.view': '表示',
+  'palette.agentClaude': 'Claude Code',
+  'palette.agentCodex': 'Codex',
+  'palette.git': 'Git',
+  'palette.project': 'プロジェクト',
+  'palette.terminal': 'ターミナル',
+  'palette.file': 'ファイル',
+  'palette.help': 'ヘルプ',
   'sidebar.files': 'ファイル',
   'sidebar.git': 'Git',
   'sidebar.search': '検索',
@@ -72,6 +80,7 @@ export default {
   'tray.hintBody': 'ウィンドウを閉じてもトレイに常駐します。トレイアイコンをクリックすると復帰できます。',
 
   // Diagnostics
+  'diagnostics.run': '問題をチェックする',
   'diagnostics.running': 'チェック中…',
   'diagnostics.idle': '更新ボタンで問題をチェック',
   'diagnostics.noProblems': '問題は見つかりませんでした',
@@ -514,7 +523,7 @@ export default {
   'projectSwitcher.createAndOpen': '作成して開く',
 
   // Quick Open
-  'quickOpen.placeholder': 'ファイル検索（? でヘルプ）',
+  'quickOpen.placeholder': 'ファイル検索（> でコマンド、? でヘルプ）',
   'quickOpen.noMatch': '一致する項目がありません',
   'quickOpen.enterOpen': 'Enter: ファイルを開く',
   'quickOpen.prefixHint': '? でヘルプ',
@@ -535,11 +544,6 @@ export default {
   'quickOpen.helpBranch': 'Git ブランチ切替',
   'quickOpen.helpHelp': 'このヘルプを表示',
   'quickOpen.helpManual': 'ユーザーマニュアルを開く',
-  'quickOpen.command': 'cmd',
-  'quickOpen.cmdClaudeCode': 'Claude Code エージェントを開く',
-  'quickOpen.cmdCodex': 'Codex エージェントを開く',
-  'quickOpen.cmdSettings': '設定',
-  'quickOpen.cmdSettingsDesc': '設定を開く',
 
   // Search Panel
   'search.placeholder': '検索...',

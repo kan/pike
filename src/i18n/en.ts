@@ -28,6 +28,14 @@ export default {
   'app.emptyProject': 'Open a project to get started ({key})',
 
   // Sidebar
+  'palette.view': 'View',
+  'palette.agentClaude': 'Claude Code',
+  'palette.agentCodex': 'Codex',
+  'palette.git': 'Git',
+  'palette.project': 'Project',
+  'palette.terminal': 'Terminal',
+  'palette.file': 'File',
+  'palette.help': 'Help',
   'sidebar.files': 'Files',
   'sidebar.git': 'Git',
   'sidebar.search': 'Search',
@@ -72,6 +80,7 @@ export default {
   'tray.hintBody': 'Closing the window keeps Pike in the tray. Click the tray icon to bring it back.',
 
   // Diagnostics
+  'diagnostics.run': 'Check for problems',
   'diagnostics.running': 'Checking…',
   'diagnostics.idle': 'Press refresh to check for problems',
   'diagnostics.noProblems': 'No problems found',
@@ -515,7 +524,7 @@ export default {
   'projectSwitcher.createAndOpen': 'Create & Open',
 
   // Quick Open
-  'quickOpen.placeholder': 'Search files (? for help)',
+  'quickOpen.placeholder': 'Search files (> for commands, ? for help)',
   'quickOpen.noMatch': 'No matches',
   'quickOpen.enterOpen': 'Enter: open file',
   'quickOpen.prefixHint': '? for help',
@@ -536,11 +545,6 @@ export default {
   'quickOpen.helpBranch': 'Switch git branch',
   'quickOpen.helpHelp': 'Show this help',
   'quickOpen.helpManual': 'Open user manual',
-  'quickOpen.command': 'cmd',
-  'quickOpen.cmdClaudeCode': 'Open Claude Code agent',
-  'quickOpen.cmdCodex': 'Open Codex agent',
-  'quickOpen.cmdSettings': 'Settings',
-  'quickOpen.cmdSettingsDesc': 'Open settings',
 
   // Search Panel
   'search.placeholder': 'Search...',

@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { useAppActions } from '../composables/useAppActions'
 import { useI18n } from '../i18n'
 import { openPathInTab } from '../lib/openFile'
 import { basename, fuzzyMatch } from '../lib/paths'
+import { paletteActions } from '../lib/shortcuts'
 import { tabDisplayTitle } from '../lib/tabTitle'
 import { gitBranchList, gitCheckout, listProjectFiles } from '../lib/tauri'
 import { useGitStore } from '../stores/git'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
 import { useTaskStore } from '../stores/tasks'
-import type { AgentType } from '../types/agent'
 import type { TaskRunner } from '../types/tasks'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
 const tabStore = useTabStore()
+const appActions = useAppActions()
 const taskStore = useTaskStore()
 const gitStore = useGitStore()
 
@@ -117,7 +119,12 @@ const filteredFiles = computed(() => {
 interface CommandItem {
   kind: 'command'
   name: string
-  description: string
+  /** 分類（`表示` `Git` など）。VSCode の `View:` と同じ役目。 */
+  category: string
+  /** 絞り込み用（日本語と英語の両方を含む）。 */
+  search: string
+  /** そのコマンドのキー（あれば右に出す）。 */
+  chord: string
   action: () => void
 }
 
@@ -134,34 +141,31 @@ interface TaskItem {
 
 type PaletteItem = CommandItem | TaskItem
 
-const builtinCommands = computed<CommandItem[]>(() => [
-  {
-    kind: 'command',
-    name: 'Claude Code',
-    description: t('quickOpen.cmdClaudeCode'),
-    action: () => tabStore.addAgentChatTab({ agentType: 'claude-code' as AgentType }),
-  },
-  {
-    kind: 'command',
-    name: 'Codex',
-    description: t('quickOpen.cmdCodex'),
-    action: () => tabStore.addAgentChatTab({ agentType: 'codex' as AgentType }),
-  },
-  {
-    kind: 'command',
-    name: t('quickOpen.cmdSettings'),
-    description: t('quickOpen.cmdSettingsDesc'),
-    action: () => tabStore.addSettingsTab(),
-  },
-])
+/**
+ * パレットに出すコマンド（#270）。**一覧は `lib/shortcuts.ts` の `APP_ACTIONS` が正本**で、
+ * ここは表示に落とすだけ。以前はここに 3 件ハードコードしていたので、機能を足しても
+ * パレットが増えなかった。
+ */
+const builtinCommands = computed<CommandItem[]>(() =>
+  paletteActions()
+    // プロジェクトを持たないウィンドウでは、git のように成立しないものを出さない。
+    .filter((a) => !a.needsProject || !!projectStore.currentProject)
+    .map((a) => ({
+      kind: 'command' as const,
+      name: a.label,
+      category: a.category,
+      search: a.search,
+      chord: a.chord,
+      action: appActions[a.id],
+    })),
+)
 
 const filteredPalette = computed<PaletteItem[]>(() => {
   if (mode.value !== 'task') return []
   const q = query.value.slice(1).trim().toLowerCase()
 
-  const cmds: PaletteItem[] = builtinCommands.value
-    .filter((c) => !q || c.name.toLowerCase().includes(q) || c.description.toLowerCase().includes(q))
-    .map((c) => ({ ...c }))
+  // 中身は computed が作ったものをそのまま渡す（打鍵ごとに複製しない）。
+  const cmds: PaletteItem[] = builtinCommands.value.filter((c) => !q || c.search.includes(q))
 
   const tasks: PaletteItem[] = taskStore.allTasks
     .filter(
@@ -459,9 +463,9 @@ const footerHints = computed(() => {
                 @mouseenter="selectedIdx = i"
               >
                 <template v-if="item.kind === 'command'">
-                  <span class="item-runner">{{ t('quickOpen.command') }}</span>
+                  <span class="item-runner">{{ item.category }}</span>
                   <span class="item-name">{{ item.name }}</span>
-                  <span class="item-path">{{ item.description }}</span>
+                  <span class="item-path item-chord">{{ item.chord }}</span>
                 </template>
                 <template v-else>
                   <span class="item-runner">{{ item.runner }}</span>
@@ -636,6 +640,15 @@ const footerHints = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* コマンドのキーは右端に。名前と説明の並びではなく「押せるキー」なので、
+   等幅で他の行と桁を揃える。 */
+.item-chord {
+  margin-left: auto;
+  padding-left: 8px;
+  font-family: monospace;
+  flex-shrink: 0;
 }
 
 .quickopen-item.selected .item-path {

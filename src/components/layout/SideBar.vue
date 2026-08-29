@@ -465,7 +465,7 @@ onUnmounted(() => {
             <Loader v-if="gitStore.pushing" :size="14" :stroke-width="2" class="spin" />
             <ArrowUp v-else :size="14" :stroke-width="2" />
           </button>
-          <button class="header-btn" :disabled="gitStore.refreshing" :title="t('common.refresh')" @click="gitStore.refreshStatus(true); gitStore.refreshLog()">
+          <button class="header-btn" :disabled="gitStore.refreshing" :title="t('common.refresh')" @click="gitStore.refreshAll()">
             <RefreshCw :size="14" :stroke-width="2" :class="{ spin: gitStore.refreshing }" />
           </button>
         </div>

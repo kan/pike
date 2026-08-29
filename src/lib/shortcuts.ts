@@ -1,7 +1,12 @@
 /**
- * ショートカットの割り当て表（#254）。**キーの正本はここ 1 箇所。**
+ * Pike の**アクションの表**（`APP_ACTIONS`、#270）と、それに**キーを割り当てる表**
+ * （`KEY_BINDINGS`、#254）。2 つに分けてあるのは、パレットに出したい操作のほとんどが
+ * キーを持たないため（パネルを開く、git pull など）。
  *
- * 読む側は 3 つある。
+ * - `APP_ACTIONS` … 「Pike にできること」の正本。`AppActionId` はここから導出し、
+ *   実装（`useAppActions`）は `Record<AppActionId, …>` なので足し忘れが型エラーになる。
+ *   パレット（`QuickOpen` の `>` モード）は `palette` を持つ行を流すだけ
+ * - `KEY_BINDINGS` … キーの正本。読む側は 3 つある。
  *
  * - `useKeyboardShortcuts`（window の keydown）が `matchChord` で照合する
  * - `KeyboardShortcuts.vue` と各 UI のツールチップが `actionChord` / `chordsFor` で表記にする
@@ -17,23 +22,137 @@
  */
 
 import { t } from '../i18n'
+import en from '../i18n/en'
 import type { MenuAction } from '../types/tab'
 import { chordLabel, toAccelerator } from './keys'
 
-export type AppActionId =
-  | 'quickOpen'
-  | 'projectSwitcher'
-  | 'newTerminal'
-  | 'newFile'
-  | 'closeTab'
-  | 'closeWindow'
-  | 'settings'
-  | 'nextTab'
-  | 'prevTab'
-  | 'manual'
-  | 'shortcuts'
-  | 'gitHistory'
-  | 'quit'
+/**
+ * パレットでの分類と、その表示名（#270）。VSCode の `View:` `Git:` と同じで、**名前だけでは
+ * どの領域の操作か分からないもの**に接頭辞を付けるためにある。
+ *
+ * 分類の一覧はこの表が正本（`PaletteCategory` を導出する）。別に union を書くと、
+ * 分類を足したとき i18n を忘れても気付けない。
+ */
+const PALETTE_CATEGORY_KEYS = {
+  view: 'palette.view',
+  git: 'palette.git',
+  project: 'palette.project',
+  terminal: 'palette.terminal',
+  file: 'palette.file',
+  help: 'palette.help',
+} as const satisfies Record<string, keyof typeof en>
+
+export type PaletteCategory = keyof typeof PALETTE_CATEGORY_KEYS
+
+/**
+ * アクション 1 つの定義（#270）。**キーとは別の表**にしてある: パレットに出したい操作の
+ * ほとんどはキーを持たない（パネルを開く、git pull など）ので、chord を行にした
+ * `KEY_BINDINGS` では表現できない。
+ */
+export interface AppActionDef {
+  id: string
+  /**
+   * パレット（`Ctrl+P` の `>` モード）に出す分類。**省略＝出さない**。
+   * タブ移動のようにパレットを開いている時点で意味を失うものは付けない。
+   */
+  palette?: PaletteCategory
+  /**
+   * 表示名の i18n キー。既定は `shortcuts.{id}`。**辞書のキーに縛ってある**: ただの
+   * `string` だと打ち間違いがそのまま通り、`t()` はキー文字列を返すので、パレットに
+   * 生キーが出るまで気付けない。
+   */
+  labelKey?: keyof typeof en
+  /** プロジェクトが要る（グローバルモードのウィンドウでは出さない）。 */
+  needsProject?: true
+}
+
+/**
+ * アクションの一覧。**ここが「Pike にできること」の正本**（#270）。
+ *
+ * 機能を足すときはここに 1 行足す。実装（`useAppActions`）は `Record<AppActionId, …>`
+ * なので、足して実装を忘れると型エラーになる。パレットに出すかは `palette` の有無だけで
+ * 決まり、一覧を別に持たない（以前は `QuickOpen.vue` に 3 件だけハードコードされていて、
+ * 機能を足しても誰も気付かなかった）。
+ */
+export const APP_ACTIONS = [
+  { id: 'quickOpen' },
+  { id: 'projectSwitcher', palette: 'project' },
+  { id: 'newTerminal', palette: 'terminal' },
+  { id: 'newFile', palette: 'file' },
+  { id: 'closeTab', palette: 'file' },
+  { id: 'closeWindow', palette: 'view' },
+  { id: 'settings', palette: 'view' },
+  { id: 'nextTab' },
+  { id: 'prevTab' },
+  { id: 'manual', palette: 'help' },
+  { id: 'shortcuts', palette: 'help', labelKey: 'shortcuts.keyboardShortcuts' },
+  { id: 'gitHistory' },
+  { id: 'quit', labelKey: 'menu.quit' },
+  // --- パネル（#270）。キーは持たず、パレットからだけ開ける
+  { id: 'panelFiles', palette: 'view', labelKey: 'sidebar.files' },
+  { id: 'panelGit', palette: 'view', labelKey: 'sidebar.git' },
+  { id: 'panelSearch', palette: 'view', labelKey: 'sidebar.search' },
+  { id: 'panelDocker', palette: 'view', labelKey: 'sidebar.docker' },
+  { id: 'panelTasks', palette: 'view', labelKey: 'sidebar.tasks' },
+  { id: 'panelTodo', palette: 'view', labelKey: 'sidebar.todo' },
+  { id: 'panelOutline', palette: 'view', labelKey: 'sidebar.outline' },
+  { id: 'panelDiagnostics', palette: 'view', labelKey: 'sidebar.diagnostics' },
+  { id: 'panelProjects', palette: 'view', labelKey: 'sidebar.projects' },
+  // --- Git
+  { id: 'gitPull', palette: 'git', labelKey: 'git.pull', needsProject: true },
+  { id: 'gitPush', palette: 'git', labelKey: 'git.push', needsProject: true },
+  { id: 'gitRefresh', palette: 'git', labelKey: 'common.refresh', needsProject: true },
+  // --- その他
+  { id: 'diagnosticsRun', palette: 'view', labelKey: 'diagnostics.run', needsProject: true },
+  { id: 'agentClaude', palette: 'terminal', labelKey: 'palette.agentClaude' },
+  { id: 'agentCodex', palette: 'terminal', labelKey: 'palette.agentCodex' },
+] as const satisfies readonly AppActionDef[]
+
+export type AppActionId = (typeof APP_ACTIONS)[number]['id']
+
+/** パレットに出すアクション（並びは表のまま）。 */
+/**
+ * パレットに出す行（並びは表のまま）。**表示に要るものは全部ここで作る**: 呼び出し側が
+ * id から引き直すと、同じ表を 3 回走査したうえに公開 API が増える。
+ */
+export function paletteActions(): {
+  id: AppActionId
+  /** 分類の表示名（バッジ）。 */
+  category: string
+  label: string
+  /** キー（無ければ空文字）。 */
+  chord: string
+  /** プロジェクトが要る（グローバルモードでは出さない）。 */
+  needsProject: boolean
+  /** 絞り込みに使う文字列。表示名と分類の**日本語と英語の両方**を含む。 */
+  search: string
+}[] {
+  return APP_ACTIONS.flatMap((a) => {
+    if (!('palette' in a)) return []
+    const key = labelKeyOf(a)
+    const categoryKey = PALETTE_CATEGORY_KEYS[a.palette]
+    return [
+      {
+        id: a.id,
+        category: t(categoryKey),
+        label: t(key),
+        chord: actionChord(a.id),
+        needsProject: 'needsProject' in a,
+        // **UI 言語に関わらず英語でも引けるようにする**（#270）。コマンドが増えたぶん、
+        // `git pull` や `settings` と打って絞れるほうが速い（日本語表示のまま英語で
+        // 打つのは、キーボードが英字のときの自然な打ち方でもある）。
+        search: [t(key), t(categoryKey), en[key as keyof typeof en], en[categoryKey], a.id]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase(),
+      },
+    ]
+  })
+}
+
+function labelKeyOf(def: (typeof APP_ACTIONS)[number]): string {
+  return 'labelKey' in def ? def.labelKey : `shortcuts.${def.id}`
+}
 
 /**
  * 表の 1 行。**順番に意味がある**（上から照合して最初に一致したものを実行する）。
@@ -156,16 +275,18 @@ export function menuActions(): MenuAction[] {
  * 違う語が要るものだけ `menu.*` を持つ（三点リーダは「押すと画面が出る」の合図）。
  * 一覧と別の語彙を丸ごと持つと、同じ操作がメニューと一覧で別の名前で呼ばれる。
  */
-const MENU_LABEL_KEYS: Partial<Record<AppActionId, string>> = {
+const MENU_LABEL_KEYS: Partial<Record<AppActionId, keyof typeof en>> = {
   settings: 'menu.settings',
-  quit: 'menu.quit',
   quickOpen: 'menu.quickOpen',
   projectSwitcher: 'menu.projectSwitcher',
-  shortcuts: 'shortcuts.keyboardShortcuts',
 }
 
+/** メニュー用の上書きが無ければ、パレットや一覧と同じ名前を使う。 */
 function menuLabel(id: AppActionId): string {
-  return t(MENU_LABEL_KEYS[id] ?? `shortcuts.${id}`)
+  const override = MENU_LABEL_KEYS[id]
+  if (override) return t(override)
+  const def = APP_ACTIONS.find((a) => a.id === id)
+  return t(def ? labelKeyOf(def) : `shortcuts.${id}`)
 }
 
 /**
