@@ -422,6 +422,31 @@ const PREVIEW_LINES = [
       <section id="settings-general" class="settings-section">
         <h3 class="section-title">{{ t('settings.general') }}</h3>
 
+        <!-- キーの割り当ては 4 つの層に分かれているので、任意の再割り当てではなく
+             こちらで書き切れる組を選ばせる（#261）。 -->
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.shortcutPreset') }}</label>
+            <div class="mode-toggle">
+              <button
+                class="mode-btn"
+                :class="{ active: settings.shortcutPreset === 'vscode' }"
+                @click="settings.shortcutPreset = 'vscode'"
+              >
+                {{ t('settings.shortcutPresetVscode') }}
+              </button>
+              <button
+                class="mode-btn"
+                :class="{ active: settings.shortcutPreset === 'idea' }"
+                @click="settings.shortcutPreset = 'idea'"
+              >
+                {{ t('settings.shortcutPresetIdea') }}
+              </button>
+            </div>
+          </div>
+          <p class="setting-hint">{{ t('settings.shortcutPresetHint') }}</p>
+        </div>
+
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.closeToTray') }}</label>
           <div class="mode-toggle">
@@ -1130,39 +1155,7 @@ const PREVIEW_LINES = [
   text-align: right;
 }
 
-.mode-toggle {
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.mode-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 14px;
-  border: none;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.mode-btn:first-child {
-  border-right: 1px solid var(--border);
-}
-
-.mode-btn.active {
-  background: var(--accent);
-  color: var(--text-active);
-}
-
-.mode-btn:not(.active):hover {
-  background: var(--tab-hover-bg);
-  color: var(--text-primary);
-}
+/* `.mode-toggle` / `.mode-btn` は `theme.css` の共有クラス（ショートカット一覧と共有）。 */
 
 /* Terminal Preview */
 .terminal-preview {

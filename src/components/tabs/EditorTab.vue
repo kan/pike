@@ -29,7 +29,8 @@ import {
   type ToolbarAction,
 } from '../../lib/editorMarkdown'
 import { minimap } from '../../lib/editorMinimap'
-import { editorSearch, replaceKeymap, searchKeymap } from '../../lib/editorSearch'
+import { presetKeymap } from '../../lib/editorPresetKeys'
+import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
 import { imageHostOf, remoteImageDataUrl, retryRemoteImage } from '../../lib/externalImages'
 import { buildFontFamily } from '../../lib/fontDetection'
@@ -108,6 +109,8 @@ const backdropCompartment = new Compartment()
 // The conflict extension builds its button labels as raw DOM, so it has to be
 // re-registered to pick up a new UI language (#223).
 const conflictCompartment = new Compartment()
+/** プリセットで変わる CodeMirror のキー（#261）。 */
+const presetKeymapCompartment = new Compartment()
 // A Save As turns an untitled buffer into a real file without rebuilding the
 // view, so everything the file's kind decides — its language and the Markdown
 // assist bindings (#241) — has to be reconfigurable rather than settled once.
@@ -1170,9 +1173,12 @@ function createEditorView(container: HTMLElement, content: string) {
 
   if (!isReadOnly) {
     extensions.push(
+      // プリセットで変わるキー（#261）。**`defaultKeymap` より前に置くこと**: IDEA 互換の
+      // タブ移動 `Alt+←→` を CodeMirror の既定（`cursorSyntaxLeft/Right`）から奪い返す
+      // 空のコマンドが入っている。
+      presetKeymapCompartment.of(presetKeymap()),
       keymap.of([
         ...searchKeymap,
-        ...replaceKeymap,
         // CodeMirror's own redo is `Mod-y` plus a Linux-only `Ctrl-Shift-z`, so
         // on Windows the Ctrl+Shift+Z every shortcut list here advertises did
         // nothing. Both work now.
@@ -1191,7 +1197,7 @@ function createEditorView(container: HTMLElement, content: string) {
     )
   } else {
     extensions.push(EditorState.readOnly.of(true))
-    // No `replaceKeymap` here on purpose: search is useful in a read-only view,
+    // No `presetKeymap` here on purpose: search is useful in a read-only view,
     // replace has nothing to write to.
     extensions.push(keymap.of([...searchKeymap, ...historyKeymap, ...defaultKeymap]))
   }
@@ -1653,6 +1659,14 @@ watch(
         indentUnitCompartment.reconfigure(indentUnit.of(' '.repeat(size))),
       ],
     })
+  },
+)
+
+// キーのプリセット（#261）を変えたら、開いているタブのキーも張り直す。
+watch(
+  () => settingsStore.shortcutPreset,
+  () => {
+    editorView?.dispatch({ effects: presetKeymapCompartment.reconfigure(presetKeymap()) })
   },
 )
 

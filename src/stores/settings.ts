@@ -5,6 +5,7 @@ import { locale, t } from '../i18n'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
 import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths'
+import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 import { setWebviewTheme, windowLabel } from '../lib/window'
@@ -279,6 +280,14 @@ function sanitizeBackdrop(v: unknown): WindowBackdrop {
  * `EditorTab.vue` の `maybeAutoSave` が持つ。**`save()` の中には書かない**（あちらは人が
  * 押したときの経路で、ここで挙げる理由のどれにも従わない）。
  */
+/**
+ * キーボードショートカットのプリセット（#261）。一覧と既定は `lib/shortcuts.ts` が持ち、
+ * ここは保存と検証だけ。**同期の対象**（好みはマシンに依存しない）。
+ */
+function sanitizeShortcutPreset(v: unknown): ShortcutPreset {
+  return SHORTCUT_PRESETS.includes(v as ShortcutPreset) ? (v as ShortcutPreset) : 'vscode'
+}
+
 export const AUTO_SAVES = ['off', 'onFocusChange', 'afterDelay'] as const
 export type AutoSave = (typeof AUTO_SAVES)[number]
 
@@ -330,6 +339,8 @@ interface PersistedSettings {
   editorWordWrap: boolean
   /** diff タブの折り返しの既定値。エディタとは別に決められる（#272）。 */
   diffWordWrap: DiffWordWrap
+  /** キーボードショートカットのプリセット（#261）。 */
+  shortcutPreset: ShortcutPreset
   /** エディタの自動保存の契機（#262）。 */
   autoSave: AutoSave
   /** `autoSave: 'afterDelay'` の待ち時間（ミリ秒）。 */
@@ -392,6 +403,7 @@ function sanitize(s: PersistedSettings): PersistedSettings {
     uiFontSize: clampSize(s.uiFontSize, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX, d.uiFontSize),
     windowBackdrop: sanitizeBackdrop(s.windowBackdrop),
     diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
+    shortcutPreset: sanitizeShortcutPreset(s.shortcutPreset),
     autoSave: sanitizeAutoSave(s.autoSave),
     autoSaveDelay: clampSize(s.autoSaveDelay, AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX, AUTO_SAVE_DELAY_DEFAULT),
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
@@ -538,6 +550,7 @@ function defaults(): PersistedSettings {
     editorMinimap: true,
     editorWordWrap: false,
     diffWordWrap: 'auto',
+    shortcutPreset: 'vscode',
     autoSave: 'off',
     autoSaveDelay: AUTO_SAVE_DELAY_DEFAULT,
     editorTabSize: 4,
@@ -581,6 +594,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorMinimap = ref(saved.editorMinimap)
   const editorWordWrap = ref(saved.editorWordWrap)
   const diffWordWrap = ref(saved.diffWordWrap)
+  const shortcutPreset = ref(saved.shortcutPreset)
   const autoSave = ref(saved.autoSave)
   const autoSaveDelay = ref(saved.autoSaveDelay)
   const editorTabSize = ref(saved.editorTabSize)
@@ -912,6 +926,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMinimap: editorMinimap.value,
       editorWordWrap: editorWordWrap.value,
       diffWordWrap: diffWordWrap.value,
+      shortcutPreset: shortcutPreset.value,
       autoSave: autoSave.value,
       autoSaveDelay: autoSaveDelay.value,
       editorTabSize: editorTabSize.value,
@@ -951,6 +966,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMinimap.value = s.editorMinimap
     editorWordWrap.value = s.editorWordWrap
     diffWordWrap.value = s.diffWordWrap
+    shortcutPreset.value = s.shortcutPreset
     autoSave.value = s.autoSave
     autoSaveDelay.value = s.autoSaveDelay
     editorTabSize.value = s.editorTabSize
@@ -1135,6 +1151,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMinimap,
       editorWordWrap,
       diffWordWrap,
+      shortcutPreset,
       autoSave,
       autoSaveDelay,
       editorTabSize,
@@ -1157,6 +1174,10 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(agentCommands, onSettingsChanged, { deep: true })
   watch(agentPrompts, onSettingsChanged, { deep: true })
   watch(allowedImageHosts, onSettingsChanged)
+  // キーの割り当ての正本は `lib/shortcuts.ts`（ストアを import できないので、値はこちらから
+  // 流し込む）。**`immediate` が要る**: 起動直後に保存済みのプリセットへ揃わないと、
+  // 最初の 1 回だけ既定のキーで動く。
+  watch(shortcutPreset, (v) => setShortcutPreset(v), { immediate: true })
   watch(darkMode, applyDarkMode, { immediate: true })
   watch([uiFontFamily, uiFontSize], applyUiAppearance, { immediate: true })
 
@@ -1185,6 +1206,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMinimap,
     editorWordWrap,
     diffWordWrap,
+    shortcutPreset,
     autoSave,
     autoSaveDelay,
     editorTabSize,

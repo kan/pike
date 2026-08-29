@@ -12,7 +12,6 @@ import {
   toMb,
   UploadTooLargeError,
 } from '../../composables/useImagePaste'
-import { pikeTakesCtrlKey } from '../../composables/useKeyboardShortcuts'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
 import { hexToRgba } from '../../lib/format'
@@ -23,6 +22,7 @@ import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { isAbsolutePath, joinPath, pathSep, relativeTime } from '../../lib/paths'
+import { pikeTakesTerminalKey } from '../../lib/shortcuts'
 import {
   claudeSessionsList,
   openUrlWithConfirm,
@@ -846,20 +846,21 @@ onMounted(async () => {
 
   terminal.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true
-    if (!e.ctrlKey || e.altKey || e.metaKey) return true
-    const key = normalizedKey(e)
+    if (e.metaKey) return true
+    // **Alt も見る**（#261）。IDEA 互換のプリセットはタブ移動を `Alt+←→`、新規ターミナルを
+    // `Alt+F12` に割り当てるので、Alt を無条件にシェルへ渡すとそれらが一度も発火しない。
+    if (!e.ctrlKey && !e.altKey) return true
 
-    // macOS の Ctrl はほぼ丸ごとシェルのもの（#254。残るのはタブ切替の 3 つだけ）。
-    // **この判定は Ctrl+V の横取りより
-    // 前に置くこと**: 後ろに置くと mac で `Ctrl+V` が貼り付けになり、vim の矩形選択と
-    // readline の quoted-insert が打てなくなる。mac の貼り付けは `⌘V` で、あちらは
-    // OS の編集メニューが処理する（この関数には届かない）。
-    if (isMacHost) return !pikeTakesCtrlKey(key, inAltScreen.value)
+    // macOS の Ctrl と Option はほぼ丸ごとシェルのもの（#254。残るのはタブ切替の 3 つだけ）。
+    // **この判定は Ctrl+V の横取りより前に置くこと**: 後ろに置くと mac で `Ctrl+V` が
+    // 貼り付けになり、vim の矩形選択と readline の quoted-insert が打てなくなる。mac の
+    // 貼り付けは `⌘V` で、あちらは OS の編集メニューが処理する（この関数には届かない）。
+    if (isMacHost) return !pikeTakesTerminalKey(e, inAltScreen.value)
 
     // xterm.js は Windows で Ctrl+V を SYN(\x16) として PTY に流すので、
     // 通常の `paste` イベントが発火しない → keydown レベルで横取りする。
     // Ctrl+Shift+V も同じ扱いに（Windows Terminal 互換）。
-    if (key === 'v') {
+    if (e.ctrlKey && !e.altKey && normalizedKey(e) === 'v') {
       e.preventDefault()
       pasteFromClipboard()
       return false
@@ -870,7 +871,7 @@ onMounted(async () => {
     // ここで拾わないキーがシェルへ行くのは、xterm が PTY へ送る際に preventDefault
     // だけでなく stopPropagation も呼ぶため（`cancel(ev, true)`）。既定でシェル優先。
     // 全画面 TUI が動いているあいだは Ctrl+W だけ譲る（vim のウィンドウ操作の prefix）。
-    return !pikeTakesCtrlKey(key, inAltScreen.value)
+    return !pikeTakesTerminalKey(e, inAltScreen.value)
   })
 
   termRef.value?.addEventListener('dragover', (e: DragEvent) => {

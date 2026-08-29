@@ -250,7 +250,9 @@ function onSearchKeydown(e: KeyboardEvent) {
 // Tabs stay mounted (v-show), so only react to Ctrl+F when this diff tab is the
 // active one — otherwise every mounted DiffTab would grab the shortcut.
 function onKeydown(e: KeyboardEvent) {
-  if (hasMod(e) && !e.altKey && normalizedKey(e) === 'f') {
+  // **Shift も見る。** `Ctrl+Shift+F`（検索パネル、#259）は別のショートカットで、
+  // どちらも window のリスナーなので、見ないとタブ内検索まで同時に開いて焦点を奪う。
+  if (hasMod(e) && !e.altKey && !e.shiftKey && normalizedKey(e) === 'f') {
     if (tabStore.activeTabId !== props.tabId) return
     e.preventDefault()
     openSearch()

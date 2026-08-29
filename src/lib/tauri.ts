@@ -210,7 +210,7 @@ export async function projectTransientDrop(id: string): Promise<void> {
  * Reads the project list once on the Rust side and feeds both. `shells` is the
  * visible shell list — both menus offer one terminal entry per shell (#240).
  * `actions` is the macOS menu bar spec (#254): labels come from the frontend i18n
- * and accelerators from `KEY_BINDINGS`, so Rust keeps no copy of either.
+ * and accelerators from `keyBindings`, so Rust keeps no copy of either.
  * Best-effort — never blocks project operations if a menu can't be built.
  */
 export async function menusRefresh(lang: string, shells: MenuShell[], actions: MenuAction[]): Promise<void> {

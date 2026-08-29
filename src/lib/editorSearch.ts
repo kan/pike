@@ -12,7 +12,7 @@ import {
   setSearchQuery,
 } from '@codemirror/search'
 import { StateEffect } from '@codemirror/state'
-import type { EditorView, KeyBinding, Panel, ViewUpdate } from '@codemirror/view'
+import type { EditorView, Panel, ViewUpdate } from '@codemirror/view'
 
 // Inline SVG icons (Lucide-based, 16x16)
 const ICON = {
@@ -306,26 +306,15 @@ export function editorSearch() {
 }
 
 /**
- * `Ctrl+H` — open the search panel with its replace row expanded. Replace has
- * always been reachable through the chevron, but the binding the shortcut list
- * and the manual both advertised was never bound to anything (`searchKeymap`
- * has no `Mod-h`), so the key did nothing.
+ * 置換行を開いた状態で検索パネルを出す。
+ *
+ * 置換自体は前から chevron で開けたが、ショートカット一覧とマニュアルが載せていたキーは
+ * どこにも割り当てられておらず（`searchKeymap` に `Mod-h` は無い）、押しても何も起きなかった。
+ * **キーはここでは決めない**（プリセットで変わる。`lib/editorPresetKeys.ts`）。
  */
-export const replaceKeymap: KeyBinding[] = [
-  {
-    key: 'Mod-h',
-    // macOS の `⌘H` は Hide Application で、メニューのアクセラレータなので
-    // CodeMirror には届かない（押すとアプリが隠れるだけになる）。mac の慣習に
-    // 合わせて `⌥⌘F` にする。プラットフォーム別の割り当ては CodeMirror 自身の
-    // `mac` プロパティで行う（#254）。
-    mac: 'Mod-Alt-f',
-    preventDefault: true,
-    run: (view) => {
-      openSearchPanel(view)
-      view.dispatch({ effects: revealReplace.of(null) })
-      return true
-    },
-  },
-]
+export function openReplace(view: EditorView) {
+  openSearchPanel(view)
+  view.dispatch({ effects: revealReplace.of(null) })
+}
 
 export { searchKeymap }

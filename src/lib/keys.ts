@@ -66,6 +66,17 @@ const MAC_SYMBOLS: Record<string, string> = {
 const MAC_ORDER = ['⌃', '⌥', '⇧', '⌘']
 
 /**
+ * 矢印キーの表示。chord のキー名は `e.key` に合わせて `ArrowLeft` と書くので（照合が
+ * そのまま通るように）、画面に出すときだけ記号へ読み替える。
+ */
+const ARROW_SYMBOLS: Record<string, string> = {
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+}
+
+/**
  * chord の表記を修飾キーとキーに分ける。
  *
  * **区切りと同じ文字がキーになりうる**のが厄介なところで、`'Mod++'` を素朴に
@@ -91,7 +102,7 @@ function splitChord(chord: string): { mods: string[]; key: string } {
  */
 export function chordChips(chord: string): string[] {
   const { mods, key } = splitChord(chord)
-  const parts = [...mods, key]
+  const parts = [...mods, ARROW_SYMBOLS[key] ?? key]
   if (!isMacHost) return parts.map((p) => (p === 'Mod' ? 'Ctrl' : p))
 
   const symbols = parts.filter((p) => p in MAC_SYMBOLS).map((p) => MAC_SYMBOLS[p])
@@ -122,7 +133,31 @@ export function chordLabel(chord: string): string {
  *   `Mod` を `Ctrl` と書くのと対）
  */
 export function matchChord(e: KeyboardEvent, chord: string): boolean {
+  return matchParsedChord(e, parseChord(chord))
+}
+
+/**
+ * 分解済みの chord。**打鍵のたびに走る照合のため**にある（#261）。
+ *
+ * ターミナルの取り合いは Ctrl / Alt 付きの打鍵ごとに候補を全部試すので、そのたびに
+ * `splitChord` が文字列を割って配列を作ると、素の readline のキー（`Ctrl+C` など、
+ * どれにも一致しないもの）が最も高くつく。候補が変わるのはプリセットを切り替えたときだけ
+ * なので、分解は computed の側で 1 回だけ行う。
+ */
+export interface ParsedChord {
+  mods: string[]
+  key: string
+  /** 元の表記。どれに一致したかを呼び出し側が見分けるために持つ。 */
+  chord: string
+}
+
+export function parseChord(chord: string): ParsedChord {
   const { mods, key } = splitChord(chord)
+  return { mods, key, chord }
+}
+
+/** 規則は `matchChord` と同じ（あちらがこれを呼ぶ）。 */
+export function matchParsedChord(e: KeyboardEvent, { mods, key }: ParsedChord): boolean {
   const has = (name: string) => mods.some((p) => p.toLowerCase() === name)
 
   if (hasMod(e) !== (has('mod') || (!isMacHost && has('ctrl')))) return false
@@ -156,6 +191,21 @@ const KEY_CODES: Record<string, string> = {
 
 /** 修飾キーを並べる順（Apple の Human Interface Guidelines）。表記と Tauri のアクセラレータで共有する。 */
 const MOD_ORDER = ['Ctrl', 'Alt', 'Shift', 'Mod']
+
+/**
+ * chord を CodeMirror の keymap の表記にする（`'Mod+H'` → `'Mod-h'`、#261）。
+ *
+ * **1 文字のキーは小文字にすること。** CodeMirror は修飾キーだけを正規化し、キー名は
+ * `e.key` と素で比較する（`normalizeKeyName`）。`Mod-H` と書くと Shift を押したときの
+ * `e.key`（`'H'`）としか一致せず、`Ctrl+H` を押しても何も起きない。
+ *
+ * `toAccelerator` の隣に置くのは、どちらも「chord を別の表記に変える」もので、
+ * 分解の規則（`splitChord`）を共有するため。
+ */
+export function toCodeMirrorKey(chord: string): string {
+  const { mods, key } = splitChord(chord)
+  return [...mods, key.length === 1 ? key.toLowerCase() : key].join('-')
+}
 
 /**
  * `'Mod+Shift+]'` を Tauri（muda）のアクセラレータ表記 `'Shift+Cmd+]'` にする。

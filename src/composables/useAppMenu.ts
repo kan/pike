@@ -35,7 +35,7 @@ export function useAppMenu() {
       // オーバーレイが出ているあいだは、キーボード側と同じく無視する。
       // ここを素通しにすると、macOS だけ ⌘T / ⌘W がスイッチャーの裏で
       // タブを増やしたり閉じたりする（キーの経路には無い挙動）。
-      if ((projectStore.showSwitcher || projectStore.showQuickOpen) && !OVERLAY_ALLOWED_ACTIONS.has(id)) {
+      if ((projectStore.showSwitcher || projectStore.showQuickOpen) && !OVERLAY_ALLOWED_ACTIONS.value.has(id)) {
         return
       }
       const action = actions[id]

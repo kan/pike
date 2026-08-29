@@ -227,6 +227,11 @@ export default {
   'settings.title': '設定',
   'settings.appearance': '外観',
   'settings.general': '全般',
+  'settings.shortcutPreset': 'キーボードショートカット',
+  'settings.shortcutPresetVscode': 'VSCode 互換',
+  'settings.shortcutPresetIdea': 'IDEA 互換',
+  'settings.shortcutPresetHint':
+    'よく使うエディタに合わせてキーの組を切り替えます。一覧は Ctrl+K で確認できます。IDEA 互換ではタブ移動が Alt+← / Alt+→ になるため、ターミナルにフォーカスがあるあいだ Pike がこのキーを先に取ります。',
   'settings.closeToTray': '閉じたときトレイに最小化',
   'settings.closeToTrayHint':
     'オンのとき、ウィンドウを閉じても Pike はトレイに常駐し続けます（終了はトレイメニューから）。オフのとき、最後のウィンドウを閉じると Pike を終了します（他のウィンドウが開いていれば、そのウィンドウは残ります）。',

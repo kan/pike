@@ -173,6 +173,44 @@
   flex-shrink: 0;
 }
 
+/* 2 択・3 択の切り替えボタン。設定画面と、ショートカット一覧のプリセット切替が共有する。
+   `.missing-tag` と同じ理由でここに置く: 同じ操作は同じ見た目であるべきで、scoped の
+   写しを作ると片方だけ調整されて黙ってずれる（実際、先に作った写しは色・余白・境界線が
+   すべて違っていた）。 */
+.mode-toggle {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: none;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mode-btn:first-child {
+  border-right: 1px solid var(--border);
+}
+
+.mode-btn.active {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.mode-btn:not(.active):hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
 /* プロジェクトの行に出す小さな印。どちらもプロジェクトを出す 2 つの一覧（パネルと
    スイッチャー）が共有するので、どこで選んでも同じ形に見える。行が自前の背景を塗る
    ときは、その scoped 側で色を上書きする。

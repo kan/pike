@@ -244,6 +244,7 @@ pike/
 │   │   ├── imeDebugLog.ts  imeFocusPark.ts  # IME 調査用（原因判明後に削除する）
 │   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts
 │   │   ├── editorJumpTo.ts  editorConflict.ts  editorDiagnostics.ts  editorMarkdown.ts
+│   │   ├── editorPresetKeys.ts # ショートカットのプリセットで変わる CodeMirror のキー（#261）
 │   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent）
 │   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 18 言語）
 │   └── assets/

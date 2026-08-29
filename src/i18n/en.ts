@@ -227,6 +227,11 @@ export default {
   'settings.title': 'Settings',
   'settings.appearance': 'Appearance',
   'settings.general': 'General',
+  'settings.shortcutPreset': 'Keyboard Shortcuts',
+  'settings.shortcutPresetVscode': 'VSCode',
+  'settings.shortcutPresetIdea': 'IDEA',
+  'settings.shortcutPresetHint':
+    'Switch the key set to match the editor you are used to; press Ctrl+K for the full list. With IDEA keys, tab navigation moves to Alt+Left / Alt+Right, so Pike takes those keys while the terminal has focus.',
   'settings.closeToTray': 'Minimize to tray on close',
   'settings.closeToTrayHint':
     'When on, closing the window keeps Pike running in the system tray (quit from the tray menu). When off, closing the last window exits Pike; other open windows stay open.',

@@ -1,12 +1,12 @@
 /**
  * Pike の**アクションの表**（`APP_ACTIONS`、#270）と、それに**キーを割り当てる表**
- * （`KEY_BINDINGS`、#254）。2 つに分けてあるのは、パレットに出したい操作のほとんどが
+ * （`keyBindings`、#254 / #261）。2 つに分けてあるのは、パレットに出したい操作のほとんどが
  * キーを持たないため（パネルを開く、git pull など）。
  *
  * - `APP_ACTIONS` … 「Pike にできること」の正本。`AppActionId` はここから導出し、
  *   実装（`useAppActions`）は `Record<AppActionId, …>` なので足し忘れが型エラーになる。
  *   パレット（`QuickOpen` の `>` モード）は `palette` を持つ行を流すだけ
- * - `KEY_BINDINGS` … キーの正本。読む側は 3 つある。
+ * - `keyBindings` … キーの正本（プリセットで切り替わる computed、#261）。読む側は 3 つある。
  *
  * - `useKeyboardShortcuts`（window の keydown）が `matchChord` で照合する
  * - `KeyboardShortcuts.vue` と各 UI のツールチップが `actionChord` / `chordsFor` で表記にする
@@ -21,10 +21,12 @@
  * ストアを import すると循環参照になる。動作の実体は `useAppActions` 側。
  */
 
+import { computed, ref } from 'vue'
 import { t } from '../i18n'
 import en from '../i18n/en'
 import type { MenuAction } from '../types/tab'
-import { chordLabel, toAccelerator } from './keys'
+import { isMacHost } from './host'
+import { chordLabel, matchParsedChord, parseChord, toAccelerator } from './keys'
 
 /**
  * パレットでの分類と、その表示名（#270）。VSCode の `View:` `Git:` と同じで、**名前だけでは
@@ -47,7 +49,7 @@ export type PaletteCategory = keyof typeof PALETTE_CATEGORY_KEYS
 /**
  * アクション 1 つの定義（#270）。**キーとは別の表**にしてある: パレットに出したい操作の
  * ほとんどはキーを持たない（パネルを開く、git pull など）ので、chord を行にした
- * `KEY_BINDINGS` では表現できない。
+ * `keyBindings` では表現できない。
  */
 export interface AppActionDef {
   id: string
@@ -173,24 +175,70 @@ export interface KeyBinding {
    * メニューのアクセラレータをここから引くため。
    */
   macOnly?: true
+  /**
+   * ターミナルにフォーカスがあっても Pike が先に取る（#224）。
+   *
+   * 既定はシェル優先で、xterm は PTY へ送るキーで `stopPropagation` まで呼ぶため、
+   * 印を付けない限りこの表の chord は**ターミナル上では一度も発火しない**。付けるのは
+   * タブの出し入れと文字の大きさだけ。**プリセットごとに chord が変わっても、印は行に
+   * 付いているので自動で追従する**（#261。IDEA では `Ctrl+W` がシェルへ戻り、代わりに
+   * `Ctrl+F4` と `Alt+←→` を Pike が取る）。
+   */
+  terminalFirst?: true
+  /**
+   * `terminalFirst` のうち、全画面 TUI が代替画面を持っているあいだはシェルへ返すもの。
+   * `Ctrl+W` は vim のウィンドウ操作の prefix で、奪うと `Ctrl+W s` が打てないうえタブが
+   * 閉じる。素のシェル（readline の unix-werase）では Pike 優先のままにするため、判定は
+   * キー単位ではなく代替画面の有無で行う。
+   */
+  altScreenShell?: true
 }
 
-export const KEY_BINDINGS: KeyBinding[] = [
+/**
+ * キーボードショートカットのプリセット（#261）。
+ *
+ * 任意の再割り当ては、4 つの層（グローバル / CodeMirror / xterm / モーダル）すべてで
+ * キーを奪い合う調停を書くことになるので採らない。**こちらで書き切れる組を選ばせる**形に
+ * してある。既定の `vscode` は元からある割り当てそのもので、名前を付けただけ。
+ */
+export const SHORTCUT_PRESETS = ['vscode', 'idea'] as const
+export type ShortcutPreset = (typeof SHORTCUT_PRESETS)[number]
+
+/**
+ * いま有効なプリセット。**ストアを import しないための ref**（このファイルは
+ * `stores/project.ts` から import されるので、逆向きの import は循環になる）。
+ * 設定ストアが自分の値を `setShortcutPreset` で流し込む。
+ */
+const preset = ref<ShortcutPreset>('vscode')
+
+export function setShortcutPreset(next: ShortcutPreset) {
+  preset.value = next
+}
+
+/**
+ * 既定（VSCode 互換）の割り当て。**キーの正本**で、IDEA 互換はこの表への差分として作る。
+ */
+const VSCODE_BINDINGS: KeyBinding[] = [
   { chords: ['F1'], action: 'manual', always: true },
   { chords: ['Mod+Shift+P'], action: 'projectSwitcher', always: true },
   { chords: ['Mod+P'], action: 'quickOpen', always: true },
   // 実処理は別の層。エディタは CodeMirror、diff タブは自前の window リスナ。
   { chords: ['Mod+S', 'Mod+F', 'Mod+H'] },
-  { chords: ['Mod+W'], action: 'closeTab' },
-  { chords: ['Mod+Shift+W'], action: 'closeWindow' },
+  { chords: ['Mod+W'], action: 'closeTab', terminalFirst: true, altScreenShell: true },
+  // `altScreenShell` は `Ctrl+W` と同じ理由で付ける。ターミナルは `Ctrl+Shift+W` にも
+  // `Ctrl+W` と同じバイト（0x17）を送るので、vim から見ればどちらもウィンドウ操作の prefix。
+  { chords: ['Mod+Shift+W'], action: 'closeWindow', terminalFirst: true, altScreenShell: true },
   { chords: ['Mod+N'], action: 'newFile' },
   // `Mod+O` は「開く」の慣習そのまま（mac の ⌘O、Windows の Ctrl+O）。ターミナルへは
-  // 返す（readline の operate-and-get-next。`PIKE_FIRST_CTRL_KEYS` に足さない）。
+  // 返す（readline の operate-and-get-next。`terminalFirst` を付けない）。
   { chords: ['Mod+O'], action: 'openDirectory' },
-  { chords: ['Mod+T'], action: 'newTerminal' },
+  { chords: ['Mod+T'], action: 'newTerminal', terminalFirst: true },
   // `Ctrl+Tab` 系は macOS でも Ctrl のまま（`⌘Tab` は OS のアプリ切り替え）。
-  { chords: ['Mod+Shift+]', 'Ctrl+Tab', 'Ctrl+PageDown'], action: 'nextTab' },
-  { chords: ['Mod+Shift+[', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'], action: 'prevTab' },
+  { chords: ['Mod+Shift+]', 'Ctrl+Tab', 'Ctrl+PageDown'], action: 'nextTab', terminalFirst: true },
+  { chords: ['Mod+Shift+[', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'], action: 'prevTab', terminalFirst: true },
+  // 全体検索（#259）。VSCode の「Search across files」と同じキーで、IDEA の
+  // 「Find in Path」とも一致するのでプリセットで変わらない。
+  { chords: ['Mod+Shift+F'], action: 'panelSearch' },
   { chords: ['Mod+K'], action: 'shortcuts' },
   { chords: ['Mod+,'], action: 'settings' },
   // 文字の大きさ（#260）。`Mod+0` は `Mod+1`〜`9`（タブ）と衝突しない。
@@ -200,19 +248,104 @@ export const KEY_BINDINGS: KeyBinding[] = [
   // **Shift を押さずに `+` が出る numpad にしか一致しない**。US 配列の `Ctrl+Shift+=`、
   // JIS 配列の `Ctrl+Shift+;` はどちらも「Shift 付きで `+` が出た」なので
   // `Mod+Shift++` が受ける。`Mod+=` は US で Shift 無しに届く刻印。
-  { chords: ['Mod+=', 'Mod++', 'Mod+Shift++'], action: 'fontIncrease' },
-  { chords: ['Mod+-'], action: 'fontDecrease' },
-  { chords: ['Mod+0'], action: 'fontReset' },
+  { chords: ['Mod+=', 'Mod++', 'Mod+Shift++'], action: 'fontIncrease', terminalFirst: true },
+  { chords: ['Mod+-'], action: 'fontDecrease', terminalFirst: true },
+  { chords: ['Mod+0'], action: 'fontReset', terminalFirst: true },
   { chords: ['Alt+H'], action: 'gitHistory' },
   { chords: ['Mod+Q'], action: 'quit', macOnly: true },
 ]
 
 /**
+ * IDEA 互換で置き換える行（#261）。**差分だけを書く**: 表を丸ごと複製すると、片方にだけ
+ * 行を足したときに黙ってずれる。
+ *
+ * 入れていないものにも理由がある。`projectSwitcher` と `openDirectory` は IDEA に相当する
+ * 既定キーが無く、`newFile` の `Ctrl+N` は IDEA では「Go to Class」だが Pike にクラス検索が
+ * 無いので取り合いにならない。
+ *
+ * **タブ移動は Ctrl+Tab / Ctrl+PageUp・Down も残す**。IDEA の `Alt+←→` は macOS では
+ * Option+矢印＝readline の単語移動と重なり、あちらでは Pike が取らない方針（後述の
+ * `terminalClaims`）なので、残さないと mac のターミナル上でタブを切り替える手段が消える。
+ */
+const IDEA_OVERRIDES: Partial<Record<AppActionId, Partial<KeyBinding>>> = {
+  // Go to File。
+  quickOpen: { chords: ['Mod+Shift+N'] },
+  // Settings。
+  settings: { chords: ['Mod+Alt+S'] },
+  // Close Tab。`Ctrl+W` は IDEA では Extend Selection なので、シェルへ戻る。
+  // vim の prefix と衝突しないので `altScreenShell` は外す。
+  closeTab: { chords: ['Mod+F4'], altScreenShell: undefined },
+  // Terminal tool window。
+  newTerminal: { chords: ['Alt+F12'] },
+  // Select Next / Previous Tab。
+  // chord のキー名は `e.key` に合わせる（矢印は `ArrowRight`）。表示は `chordChips` が
+  // 記号へ読み替える。
+  nextTab: { chords: ['Alt+ArrowRight', 'Ctrl+Tab', 'Ctrl+PageDown'] },
+  prevTab: { chords: ['Alt+ArrowLeft', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'] },
+}
+
+const IDEA_BINDINGS: KeyBinding[] = VSCODE_BINDINGS.map((b) =>
+  b.action && IDEA_OVERRIDES[b.action] ? { ...b, ...IDEA_OVERRIDES[b.action] } : b,
+)
+
+/** いま有効な割り当て。読む側はここを通す（定数の表を直接読まない）。 */
+export const keyBindings = computed<KeyBinding[]>(() => (preset.value === 'idea' ? IDEA_BINDINGS : VSCODE_BINDINGS))
+
+/**
+ * CodeMirror 層のうち、プリセットで変わるキー（#261）。
+ *
+ * 置換は CodeMirror のコマンドなので `AppActionId` を持たないが、**キーの出典は 1 つに
+ * したい**（実装は `lib/editorSearch.ts`、表示は `KeyboardShortcuts.vue`、それぞれが
+ * 別のリテラルを持っていた）。macOS の `⌘H` は Hide Application で CodeMirror に届かない
+ * ため、VSCode 互換のときだけ mac で `⌥⌘F` に読み替える（IDEA の `⌘R` は mac でも通る）。
+ */
+export const editorChords = computed(() => ({
+  replace: preset.value === 'idea' ? 'Mod+R' : isMacHost ? 'Mod+Alt+F' : 'Mod+H',
+}))
+
+/** `Mod+1`〜`Mod+9`（n 番目のタブへ）。表に載せない決まりなので、ここで作る。 */
+const DIGIT_CHORDS = [...'123456789'].map((d) => `Mod+${d}`)
+
+/**
+ * ターミナルにフォーカスがあるとき Pike が取る chord（#224 / #261）。
+ *
+ * **macOS では `Ctrl` を明示している chord だけ**にする。あちらの Ctrl と Option は
+ * readline のもので（`Ctrl+W` は unix-werase、`Option+←→` は単語移動）、Pike の
+ * ショートカットは Cmd 側にあるため取り合いが起きない。返さないのはタブ切替の 3 つだけで、
+ * xterm がこれらを PTY へ送って `stopPropagation` するため、返すとターミナルに
+ * フォーカスがあるあいだタブを切り替える手段が 1 つも無くなる。
+ */
+const terminalClaims = computed(() => {
+  const chords = keyBindings.value.filter((b) => b.terminalFirst).flatMap((b) => b.chords)
+  const all = isMacHost ? chords.filter((c) => c.split('+').includes('Ctrl')) : [...chords, ...DIGIT_CHORDS]
+  // **分解は候補が変わったときだけ。** 判定は Ctrl / Alt 付きの打鍵ごとに候補を全部試すので、
+  // そのたびに chord の文字列を割ると、どれにも一致しないキー（`Ctrl+C` などシェルのもの）が
+  // いちばん高くつく。
+  return all.map(parseChord)
+})
+
+/** そのうち、代替画面のあいだはシェルへ返すもの。 */
+const altScreenShellClaims = computed<ReadonlySet<string>>(() => {
+  if (isMacHost) return new Set()
+  return new Set([...keyBindings.value.filter((b) => b.altScreenShell).flatMap((b) => b.chords), ...DIGIT_CHORDS])
+})
+
+/**
+ * そのキーを Pike が取るか（`false` ならシェルへ渡す）。ターミナルはこれを聞くだけにして、
+ * 判定そのものは割り当ての表と同じ場所に置く。
+ */
+export function pikeTakesTerminalKey(e: KeyboardEvent, inAltScreen: boolean): boolean {
+  const hit = terminalClaims.value.find((c) => matchParsedChord(e, c))
+  if (!hit) return false
+  return !(inAltScreen && altScreenShellClaims.value.has(hit.chord))
+}
+
+/**
  * 修飾キーを持たない chord のキー名。素の打鍵で表を走査しないための門番に使う
  * （`F1` だけ。増えたら自動で拾う）。
  */
-export const MODIFIERLESS_KEYS: ReadonlySet<string> = new Set(
-  KEY_BINDINGS.flatMap((b) => b.chords).filter((c) => !c.includes('+')),
+export const MODIFIERLESS_KEYS = computed<ReadonlySet<string>>(
+  () => new Set(keyBindings.value.flatMap((b) => b.chords).filter((c) => !c.includes('+'))),
 )
 
 /**
@@ -229,7 +362,7 @@ export function actionChord(id: AppActionId): string {
 
 /** そのアクションを起こす chord。表記に使う（先頭が代表）。 */
 export function chordsFor(id: AppActionId): string[] {
-  return KEY_BINDINGS.filter((b) => b.action === id).flatMap((b) => b.chords)
+  return keyBindings.value.filter((b) => b.action === id).flatMap((b) => b.chords)
 }
 
 /**
@@ -275,7 +408,7 @@ const NO_ACCELERATOR: ReadonlySet<AppActionId> = new Set(['shortcuts'])
 
 /**
  * macOS のメニューに渡す項目（`types::MenuAction`）。ラベルは i18n、キーは
- * `KEY_BINDINGS` から引くので、**Rust 側に写しを持たせない**。
+ * `keyBindings` から引くので、**Rust 側に写しを持たせない**。
  *
  * **並び順とサブメニューの割り当てはここでは決まらない**。それは AppKit の語彙なので
  * `src-tauri/src/appmenu/mod.rs` の `build_menu` が id を直に引いて決める。
@@ -314,6 +447,6 @@ function menuLabel(id: AppActionId): string {
  * `F1`（マニュアル）が既に食い違っていた: キーでは開くのに、macOS の
  * ヘルプ ▸ ユーザーマニュアルからは無視されていた。
  */
-export const OVERLAY_ALLOWED_ACTIONS: ReadonlySet<AppActionId> = new Set(
-  KEY_BINDINGS.filter((b) => b.always && b.action).map((b) => b.action as AppActionId),
+export const OVERLAY_ALLOWED_ACTIONS = computed<ReadonlySet<AppActionId>>(
+  () => new Set(keyBindings.value.filter((b) => b.always && b.action).map((b) => b.action as AppActionId)),
 )

@@ -4,10 +4,12 @@ import { useShortcutsModal } from '../composables/useShortcutsModal'
 import { useI18n } from '../i18n'
 import { isMacHost } from '../lib/host'
 import { chordChips } from '../lib/keys'
-import { chordsFor } from '../lib/shortcuts'
+import { chordsFor, editorChords, SHORTCUT_PRESETS } from '../lib/shortcuts'
+import { useSettingsStore } from '../stores/settings'
 
 const { t } = useI18n()
 const { visible } = useShortcutsModal()
+const settings = useSettingsStore()
 const panelRef = ref<HTMLDivElement>()
 
 watch(visible, (show) => {
@@ -33,7 +35,7 @@ interface ShortcutSection {
  * キーだけ**（`Ctrl+Tab` 等）。`chordChips` が mac では `⌘` に読み替える。
  *
  * **グローバル層のキーはリテラルで書かない。** `chordsFor(id)` で
- * `lib/shortcuts.ts` の表（`KEY_BINDINGS`）から引く。あちらが割り当ての正本で、
+ * `lib/shortcuts.ts` の表（`keyBindings`）から引く。あちらが割り当ての正本で、
  * 実装・この一覧・macOS のメニューが同じ文字列を見る（#254）。リテラルのままだった
  * ころは、実装が全 OS で受ける `Mod+Shift+]` を一覧が mac だけに出していた。
  * 他の層（CodeMirror・xterm・画像ビューワ）はここに表を持たないのでリテラルのまま。
@@ -46,6 +48,7 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: chordsFor('quickOpen'), label: t('shortcuts.quickOpen') },
       { keys: chordsFor('projectSwitcher'), label: t('shortcuts.projectSwitcher') },
       { keys: ['Mod+Enter'], label: t('shortcuts.openInNewWindow') },
+      { keys: chordsFor('panelSearch'), label: t('sidebar.search') },
       { keys: chordsFor('shortcuts'), label: t('shortcuts.keyboardShortcuts') },
       { keys: chordsFor('settings'), label: t('shortcuts.settings') },
       { keys: chordsFor('manual'), label: t('shortcuts.manual') },
@@ -79,7 +82,7 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: ['Mod+Shift+Z', 'Mod+Y'], label: t('shortcuts.redo') },
       { keys: ['Mod+F'], label: t('shortcuts.find') },
       // mac の ⌘H は Hide Application なので、置換は ⌥⌘F（mac の慣習）。
-      { keys: [isMacHost ? 'Mod+Alt+F' : 'Mod+H'], label: t('shortcuts.findReplace') },
+      { keys: [editorChords.value.replace], label: t('shortcuts.findReplace') },
       { keys: ['F3', 'Shift+F3'], label: t('shortcuts.findNextPrev') },
       { keys: ['Mod+D'], label: t('shortcuts.selectNextMatch') },
       { keys: ['Mod+/'], label: t('shortcuts.toggleComment') },
@@ -111,7 +114,7 @@ const sections = computed<ShortcutSection[]>(() => [
       {
         keys: [t('shortcuts.ctrlLetter')],
         // mac の Ctrl+英字はすべてシェルのもの。Windows / Linux はタブ操作の
-        // キーだけ Pike が先に取る（`PIKE_FIRST_CTRL_KEYS`）。
+        // キーだけ Pike が先に取る（表の `terminalFirst`）。
         label: isMacHost ? t('shortcuts.shellFirstMac') : t('shortcuts.shellFirst'),
       },
     ],
@@ -139,6 +142,18 @@ const sections = computed<ShortcutSection[]>(() => [
       <div ref="panelRef" class="shortcuts-panel popup-surface" tabindex="-1">
         <div class="shortcuts-header">
           <span class="shortcuts-title">{{ t('shortcuts.title') }}</span>
+          <!-- 一覧を見ながら切り替えられるようにする（#261）。設定の「全般」と同じ値。 -->
+          <div class="mode-toggle" role="group" :aria-label="t('settings.shortcutPreset')">
+            <button
+              v-for="p in SHORTCUT_PRESETS"
+              :key="p"
+              class="mode-btn"
+              :class="{ active: settings.shortcutPreset === p }"
+              @click="settings.shortcutPreset = p"
+            >
+              {{ t(p === 'idea' ? 'settings.shortcutPresetIdea' : 'settings.shortcutPresetVscode') }}
+            </button>
+          </div>
           <button class="close-btn" @click="visible = false">&times;</button>
         </div>
         <div class="shortcuts-body">
@@ -188,9 +203,20 @@ const sections = computed<ShortcutSection[]>(() => [
 .shortcuts-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+}
+
+.shortcuts-header .shortcuts-title {
+  /* 見出しに余りを吸わせて、プリセットと ✕ を右端へ寄せる。 */
+  flex: 1;
+}
+
+/* 見出しに余りを吸わせたぶん、切り替えは `theme.css` の共有クラス（設定画面と同じ形）。 */
+.mode-btn {
+  /* 一覧の見出しに収めるので、設定画面より少し詰める。 */
+  padding: 3px 10px;
 }
 
 .shortcuts-title {

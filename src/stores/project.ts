@@ -842,6 +842,9 @@ export const useProjectStore = defineStore('project', () => {
         locale.value,
         projects.value.map((p) => [p.id, p.name, p.root, p.lastOpened]),
         useSettingsStore().menuShells,
+        // キーのプリセット（#261）。メニューのアクセラレータは割り当ての表から引くので、
+        // 切り替えたら張り直さないと macOS のメニューだけ古いキーを出し続ける。
+        useSettingsStore().shortcutPreset,
       ]),
     () => {
       menusRefresh(locale.value, useSettingsStore().menuShells, menuActions()).catch(() => {})
