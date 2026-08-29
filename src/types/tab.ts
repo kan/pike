@@ -351,7 +351,36 @@ export type ManualTab = {
  * get their real name from `lib/tabTitle.ts` — render tab names through
  * `tabDisplayTitle`, never from this field directly.
  */
-export type Tab =
+/**
+ * どのプロジェクトのタブか（#264）。プロジェクトを切り替えてもタブは捨てず、この値で
+ * 出し分ける（＝切り替え中もターミナルのプロセスとエージェントのセッションが生きている）。
+ *
+ * `null` は**ウィンドウ単位**で、切り替えても出したまま。設定・エージェント状態・
+ * マニュアルはウィンドウに 1 つしか持たないシングルトンなので、プロジェクトに属させると
+ * 「プロジェクトごとに 1 つ」になってしまう。
+ *
+ * 値を付けるのは `stores/tabs.ts` の `pushTab` の 1 箇所。**タブを作る側に書かせないこと**
+ * （12 箇所あり、新しい種別で付け忘れると、切り替えても消えないタブが混ざる）。
+ */
+export type TabOwner = {
+  projectId?: string | null
+}
+
+/**
+ * ウィンドウに 1 つしか持たないタブ。**プロジェクトに属さない**（#264。属させると
+ * 「プロジェクトごとに 1 つ」になり、シングルトンの意味が壊れる）。
+ *
+ * 一覧はここが正本。`stores/tabs.ts` の `pushTab`（所有者を付けない側）と
+ * `lib/tabTitle.ts`（名前を i18n から引く側）が同じ集合を別々に持っていたので、
+ * 4 つ目を足したときに片方だけ直すと無言でずれる。
+ */
+export const SINGLETON_KINDS = ['settings', 'agent-status', 'manual'] as const
+
+export function isSingletonTab(kind: Tab['kind']): boolean {
+  return (SINGLETON_KINDS as readonly string[]).includes(kind)
+}
+
+export type Tab = (
   | TerminalTab
   | EditorTab
   | DockerLogsTab
@@ -363,6 +392,8 @@ export type Tab =
   | PdfTab
   | AgentChatTab
   | ManualTab
+) &
+  TabOwner
 
 export type SidebarPanel =
   | 'files'

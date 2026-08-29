@@ -476,6 +476,12 @@ export default {
   'project.iconNoMatch': '一致する絵文字がありません',
   'project.openInNewWindow': '新しいウィンドウで開く',
   'project.missing': '未取得',
+  'project.parked': '保持中',
+  'project.switchTo': '{name} に切り替える',
+  'project.confirmRelease': '{name} のタブを閉じますか？ 実行中のプロセスも終了します。',
+  'project.parkedHint':
+    'このウィンドウがこのプロジェクトのタブを保持しています（ターミナルのプロセスも動いたままです）。切り替えるとそのまま戻ります。',
+  'project.release': 'タブを閉じてプロセスを終了する',
   'project.missingHint': 'このマシンにこのパスがありません',
   'project.clone': '{url} から clone',
   'project.cloneConfirm': '{name} はこのマシンにまだありません。{url} から clone して開きますか？',
@@ -665,9 +671,6 @@ export default {
   'confirm.terminalBusyClose': '"{name}" でプロセスが実行中です。終了して閉じますか？',
   'confirm.terminalBusyExit': '{count} 個のターミナルでプロセスが実行中です。Pike を終了しますか？',
   'confirm.forcePush': 'リモートの履歴を上書きします（--force-with-lease）。実行しますか？',
-  'confirm.terminalBusySwitch': '"{name}" でプロセスが実行中です。プロジェクトを切り替えますか？（タブは終了します）',
-  'confirm.terminalBusySwitchMulti':
-    '{count} 個のターミナルでプロセスが実行中です ({names})。プロジェクトを切り替えますか？（タブは終了します）',
   'confirm.terminalBusyCloseMulti': '{count} 個のターミナルでプロセスが実行中です ({names})。終了して閉じますか？',
 
   // CSV Preview

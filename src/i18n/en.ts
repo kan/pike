@@ -477,6 +477,12 @@ export default {
   'project.iconNoMatch': 'No matching emoji',
   'project.openInNewWindow': 'Open in new window',
   'project.missing': 'not found',
+  'project.parked': 'Kept',
+  'project.switchTo': 'Switch to {name}',
+  'project.confirmRelease': 'Close the tabs of {name}? Running processes will stop.',
+  'project.parkedHint':
+    'This window is keeping this project’s tabs (terminal processes are still running). Switching back shows them as they were.',
+  'project.release': 'Close the tabs and stop the processes',
   'project.missingHint': 'This path does not exist on this machine',
   'project.clone': 'Clone from {url}',
   'project.cloneConfirm': '{name} is not on this machine yet. Clone it from {url} and open it?',
@@ -665,9 +671,6 @@ export default {
   'confirm.terminalBusyClose': 'A process is still running in "{name}". Terminate it and close?',
   'confirm.terminalBusyExit': 'Processes are still running in {count} terminals. Quit Pike?',
   'confirm.forcePush': 'This overwrites the remote history (--force-with-lease). Continue?',
-  'confirm.terminalBusySwitch': 'A process is still running in "{name}". Switch project? All tabs will be closed.',
-  'confirm.terminalBusySwitchMulti':
-    'Processes are still running in {count} terminals ({names}). Switch project? All tabs will be closed.',
   'confirm.terminalBusyCloseMulti':
     'Processes are still running in {count} terminals ({names}). Terminate them and close?',
 

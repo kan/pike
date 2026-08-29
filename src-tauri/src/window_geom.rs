@@ -72,7 +72,14 @@ fn store(app: &AppHandle, map: &HashMap<String, Geometry>) {
 /// would be forgotten the moment that project moves to a window of its own.
 fn key_for(app: &AppHandle, label: &str) -> String {
     app.try_state::<crate::project::ProjectState>()
-        .and_then(|state| state.window_projects.lock().ok().and_then(|map| map.get(label).cloned()))
+        .and_then(|state| {
+            state
+                .window_projects
+                .lock()
+                .ok()
+                .and_then(|map| map.get(label).map(|w| w.shown.clone()))
+        })
+        .filter(|shown| !shown.is_empty())
         .unwrap_or_else(|| GLOBAL_KEY.to_string())
 }
 

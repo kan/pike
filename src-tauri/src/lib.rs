@@ -445,9 +445,8 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
             // 1. A window already on this root — registered or transient (#230)?
             //    → focus it, so a second `pike <dir>` never opens a duplicate.
             if let Some(id) = project_id_for_root(app, &projects, path) {
-                if let Some(w) = find_project_window(app, &id) {
-                    log::debug!("[single-instance] dir: focus project window {}", w.label());
-                    restore_window(&w);
+                if focus_project_window_anywhere(app, &id, None) {
+                    log::debug!("[single-instance] dir: focus project window for {id}");
                     return;
                 }
                 // 2. Registered but no window → new window for that project.
@@ -514,12 +513,10 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
             // skipped), so this only runs for a manual `pike --open-project=<id>`
             // while another instance is live. Focus or open the project window;
             // its handleActionLocal adds the pinned-shell terminal.
-            if load_all_projects(app).iter().any(|p| &p.id == id) {
-                if let Some(w) = find_project_window(app, id) {
-                    emit_action_to(app, &w, &action);
-                } else {
-                    build_project_window(app, id, Some(action.clone()));
-                }
+            if load_all_projects(app).iter().any(|p| &p.id == id)
+                && !focus_project_window_anywhere(app, id, Some(&action))
+            {
+                build_project_window(app, id, Some(action.clone()));
             }
         }
     }
@@ -540,7 +537,12 @@ async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), S
 /// its project instead of parsing its (now opaque) label.
 #[tauri::command]
 fn project_for_window(window: WebviewWindow, state: State<'_, project::ProjectState>) -> Option<String> {
-    state.window_projects.lock().ok().and_then(|m| m.get(window.label()).cloned())
+    state
+        .window_projects
+        .lock()
+        .ok()
+        .and_then(|m| m.get(window.label()).map(|w| w.shown.clone()))
+        .filter(|shown| !shown.is_empty())
 }
 
 /// Focus the window already showing `project_id`, if any. Returns whether one
@@ -549,46 +551,58 @@ fn project_for_window(window: WebviewWindow, state: State<'_, project::ProjectSt
 /// this returns false).
 #[tauri::command]
 fn focus_project_window(project_id: String, app: AppHandle) -> bool {
-    match find_project_window(&app, &project_id) {
-        Some(w) => {
-            restore_window(&w);
-            true
-        }
-        None => false,
-    }
+    focus_project_window_anywhere(&app, &project_id, None)
 }
 
 /// Focus the project window for `id` if it's live, else build it. Shared by the
 /// `open_project_window` command and the tray "recent project" menu.
 fn focus_or_build_project_window(app: &AppHandle, id: &str) {
-    if let Some(window) = find_project_window(app, id) {
-        restore_window(&window);
-    } else {
+    if !focus_project_window_anywhere(app, id, None) {
         build_project_window(app, id, None);
     }
 }
 
-/// A cloned snapshot of the `window_projects` map (label → current project id).
+/// A cloned snapshot of label → the project that window shows.
 /// Cloning lets callers drop the lock before touching window IPC in a loop.
 fn window_projects_snapshot(app: &AppHandle) -> HashMap<String, String> {
     app.try_state::<project::ProjectState>()
         .and_then(|s| s.window_projects.lock().ok().map(|m| m.clone()))
+        .map(|m| m.into_iter().map(|(label, w)| (label, w.shown)).collect())
         .unwrap_or_default()
 }
 
-/// The live, visible window currently showing project `id`, per the
-/// authoritative `window_projects` map (label → current project id, updated on
-/// every switchProject and seeded at build). The label itself is opaque, so the
-/// map is the only correct way to tell what a window shows. Every window it can
-/// return is live — `Destroyed` drains the map — and possibly hidden (main in
-/// the tray), which is why the callers restore what they get instead of only
-/// focusing it. It used to close a hidden match as a stale handle; that GC could
-/// only ever hit main and re-entered main's close path, quitting Pike (#202).
-fn find_project_window(app: &AppHandle, id: &str) -> Option<WebviewWindow> {
-    let map = window_projects_snapshot(app);
-    app.webview_windows()
-        .into_values()
-        .find(|w| map.get(w.label()).map(String::as_str) == Some(id))
+/// `id` のウィンドウを前面に出す。**タブを保持しているだけのウィンドウも対象**（#264）で、
+/// その場合は「そのプロジェクトへ切り替えろ」と伝える（保持しているタブがそのまま出る）。
+///
+/// これをしないと、保持中のプロジェクトをジャンプリストやトレイ、`pike <dir>` から開く
+/// たびに新しいウィンドウができ、同じリポジトリでエージェントが二重に動く。
+///
+/// `action` を渡すと、見つけたウィンドウにそれをそのまま届ける（`--shell=` のような
+/// 付随情報を落とさないため）。渡さなければ、保持しているウィンドウには「そのプロジェクトへ
+/// 切り替えろ」だけを伝える。
+fn focus_project_window_anywhere(app: &AppHandle, id: &str, action: Option<&cli::CliAction>) -> bool {
+    let state = app.state::<project::ProjectState>();
+    let Some((label, shown)) = project::window_holding(&state, id) else {
+        return false;
+    };
+    let Some(w) = app.get_webview_window(&label) else {
+        return false;
+    };
+    // 見せているウィンドウに用が無ければ前面に出すだけ。保持しているだけなら、そちらへ
+    // 切り替えるよう伝える（保持しているタブがそのまま出る）。
+    match action {
+        Some(a) => emit_action_to(app, &w, a),
+        None if shown => restore_window(&w),
+        None => emit_action_to(
+            app,
+            &w,
+            &cli::CliAction::OpenProject {
+                id: id.to_string(),
+                shell: None,
+            },
+        ),
+    }
+    true
 }
 
 /// Open a fresh global-mode (project-less) window with a terminal on the
@@ -1443,6 +1457,7 @@ pub fn run() {
             project::project_get_last,
             project::project_set_last,
             project::project_add_open,
+            project::project_set_parked,
             project::project_remove_open,
             project::transient::project_transient_create,
             project::transient::project_transient_get,

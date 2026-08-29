@@ -188,7 +188,7 @@ const filteredPalette = computed<PaletteItem[]>(() => {
 const filteredTabs = computed(() => {
   if (mode.value !== 'tab') return []
   const q = query.value.slice(1).trim().toLowerCase()
-  const tabs = tabStore.tabs
+  const tabs = tabStore.visibleTabs
   if (!q) return tabs
   return tabs.filter((tab) => tabDisplayTitle(tab).toLowerCase().includes(q))
 })

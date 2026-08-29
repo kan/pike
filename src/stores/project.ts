@@ -27,6 +27,7 @@ import {
   projectGroupsSave,
   projectList,
   projectSetLast,
+  projectSetParked,
   projectTransientBind,
   projectTransientCreate,
   projectTransientDrop,
@@ -100,6 +101,14 @@ export const useProjectStore = defineStore('project', () => {
   // their own `?? project.root` fallback — any remaining `project.root` read for
   // a root-relative operation is a bug that forgot to follow the worktree.
   const activeRoot = computed<string>(() => activeWorktreeRoot.value ?? currentProject.value?.root ?? '')
+
+  /**
+   * このウィンドウがタブを持っているプロジェクト（#264）。並びはタブを持ち始めた順。
+   * 引けない id（削除済みなど）は落とす。タブバーのチップとウィンドウタイトルが共有する。
+   */
+  const projectsWithTabs = computed<ProjectConfig[]>(() =>
+    useTabStore().projectIdsWithTabs.flatMap((id) => findProject(id) ?? []),
+  )
 
   /**
    * Shell to route file I/O through — the project's, or this host's default when
@@ -397,6 +406,8 @@ export const useProjectStore = defineStore('project', () => {
     await addProject(stored)
     await projectTransientDrop(config.id).catch(() => {})
     transientProject.value = null
+    // 登録で id が変わるので、開いているタブの持ち主も付け替える（#264）。
+    useTabStore().renameProjectOwner(config.id, stored.id)
     currentProject.value = projects.value.find((p) => p.id === stored.id) ?? stored
     useSettingsStore().forgetTransientRoot(stored.root)
     await projectAddOpen(stored.id).catch(() => {})
@@ -718,6 +729,18 @@ export const useProjectStore = defineStore('project', () => {
     { immediate: isMacHost },
   )
 
+  // 保持しているプロジェクトを backend に伝える（#264）。ジャンプリスト / トレイ /
+  // `pike <dir>` の解決はあちらで行われるので、伝えないと保持中のプロジェクトを開く
+  // たびに新しいウィンドウができ、同じリポジトリでエージェントが二重に動く。
+  // 監視する値をそのまま使う（id は slug なので空白を含まない）。タブが動くたびに
+  // `parkedProjectIds` は新しい配列になるので、配列を直接 watch すると中身が同じでも発火する。
+  watch(
+    () => useTabStore().parkedProjectIds.join(' '),
+    (key) => {
+      projectSetParked(key ? key.split(' ') : []).catch(() => {})
+    },
+  )
+
   async function loadGroups() {
     try {
       const stored = await projectGroupsList()
@@ -864,12 +887,12 @@ export const useProjectStore = defineStore('project', () => {
     // project: drop it here rather than at window close, or `pike <that dir>`
     // would keep focusing a window that no longer shows it.
     if (transientProject.value && transientProject.value.id !== id) {
+      // **タブを先に手放す**（#264）。パークだけして記録を消すと、一覧にも出ず
+      // 切り替えても戻れない id のタブが、プロセスを抱えたまま残る。
+      await tabStore.closeProjectTabs(transientProject.value.id)
       projectTransientDrop(transientProject.value.id).catch(() => {})
       transientProject.value = null
     }
-    // Switching tears down every tab in this window, so ask before killing a
-    // terminal that is still running something (#178).
-    if (!(await tabStore.confirmBusyTerminals(tabStore.tabs, 'switch'))) return
     // Elevated admin project window opens the project context only; the caller
     // adds the single pinned-shell terminal, so skip session/pinned restore.
     const restore = opts?.restoreSession !== false
@@ -880,7 +903,11 @@ export const useProjectStore = defineStore('project', () => {
     useTaskStore().clear()
     activeWorktreeRoot.value = null
 
-    await tabStore.clearAllTabs()
+    // 切り替えではタブを捨てない（#264）。ターミナルのプロセスとエージェントのセッションを
+    // 生かしたままパークし、戻ってきたらそのまま見せる。**復元するかは切り替える前に
+    // 決める**（パークしたぶんが既にあるなら、復元すると二重になる）。
+    const shouldRestore = restore && !tabStore.hasTabsFor(id)
+    tabStore.setOwnerProject(id)
 
     project.lastOpened = new Date().toISOString()
     currentProject.value = project
@@ -892,7 +919,7 @@ export const useProjectStore = defineStore('project', () => {
       Promise.all([projectUpdate(project).catch(() => {}), projectAddOpen(id).catch(() => {})])
     }
 
-    if (!restore) return
+    if (!shouldRestore) return
 
     if (project.lastSession && project.lastSession.tabs.length > 0) {
       for (const def of project.lastSession.tabs) {
@@ -943,7 +970,7 @@ export const useProjectStore = defineStore('project', () => {
     }
 
     // Ensure at least one plain terminal tab exists (for CWD detection, etc.)
-    const hasPlainTerminal = tabStore.tabs.some((t) => t.kind === 'terminal' && !t.autoStart)
+    const hasPlainTerminal = tabStore.visibleTabs.some((t) => t.kind === 'terminal' && !t.autoStart)
     if (!hasPlainTerminal) {
       tabStore.addTerminalTab({ cwd: activeRoot.value, shell: project.shell })
     }
@@ -1031,6 +1058,11 @@ export const useProjectStore = defineStore('project', () => {
 
   async function removeProject(id: string) {
     const project = projects.value.find((p) => p.id === id)
+    // **タブを先に手放す**（#264）。あとに回すと、`closeTabs` の中の確認（未保存の
+    // エディタ・実行中のターミナル）で断られたときに、一覧から消えた id のタブが
+    // プロセスを抱えたまま残る。断られたら削除自体をやめる。
+    const tabStore = useTabStore()
+    if (!(await tabStore.closeProjectTabs(id))) return
     await projectDelete(id)
     // Remember the deletion locally (#164): the sync file only ever gains
     // entries, so without this the next pull would recreate the project. The
@@ -1045,6 +1077,8 @@ export const useProjectStore = defineStore('project', () => {
     projects.value = projects.value.filter((p) => p.id !== id)
     if (currentProject.value?.id === id) {
       currentProject.value = null
+      // 所有者も手放す。残すと、以後このウィンドウで作るタブに消えた id が焼かれる。
+      useTabStore().setOwnerProject('')
     }
   }
 
@@ -1060,6 +1094,8 @@ export const useProjectStore = defineStore('project', () => {
     projects,
     groups,
     currentProject,
+    findProject,
+    projectsWithTabs,
     isTransient,
     openDirectory,
     openDirectoryAsProject,

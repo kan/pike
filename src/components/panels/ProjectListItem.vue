@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Cloud, CloudDownload, ExternalLink, Pencil, Trash2 } from 'lucide-vue-next'
+import { Cloud, CloudDownload, ExternalLink, Pencil, PowerOff, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { defaultProjectPlatform } from '../../lib/host'
@@ -31,6 +31,8 @@ const props = defineProps<{
   dragging: boolean
   /** Root is not a directory on this machine (#164) — not cloned yet, or moved. */
   missing: boolean
+  /** このウィンドウがタブを保持したまま別のプロジェクトを見せている（#264）。 */
+  parked: boolean
   groups: readonly string[]
   distros: readonly string[]
   /** Group name shown as a badge in the flat (recent) mode, where the rows are
@@ -50,6 +52,8 @@ const emit = defineEmits<{
   save: [config: ProjectConfig]
   delete: []
   clone: []
+  /** 保持しているタブを手放す（#264）。 */
+  release: []
   'drag-start': [e: DragEvent]
   'drag-end': []
   'drag-over': [e: DragEvent]
@@ -174,6 +178,8 @@ function onSave() {
       <ProjectIcon :icon="project.icon" /><ColorDot :color="project.color" />{{ project.name }}
       <span v-if="project.remoteUrl" class="remote-icon" :title="project.remoteUrl"><Cloud :size="12" :stroke-width="2" /></span>
       <span v-if="missing" class="missing-tag" :title="t('project.missingHint')">{{ t('project.missing') }}</span>
+      <!-- 見えていないところでプロセスが動いているので、印を出して手放せるようにする（#264） -->
+      <span v-if="parked" class="parked-tag" :title="t('project.parkedHint')">{{ t('project.parked') }}</span>
     </div>
     <div class="project-meta">
       <span v-if="groupLabel" class="group-tag">{{ groupLabel }}</span>
@@ -181,6 +187,7 @@ function onSave() {
       <span class="project-shell">{{ shellLabel(project.shell) }}</span>
     </div>
     <div class="item-actions">
+      <button v-if="parked" class="action-btn" :title="t('project.release')" @click.stop="emit('release')"><PowerOff :size="12" :stroke-width="2" /></button>
       <button v-if="missing && project.remoteUrl" class="action-btn" :title="t('project.clone', { url: project.remoteUrl })" @click.stop="emit('clone')"><CloudDownload :size="12" :stroke-width="2" /></button>
       <button class="action-btn" :title="t('project.openInNewWindow')" @click.stop="emit('open-window')"><ExternalLink :size="12" :stroke-width="2" /></button>
       <button class="action-btn" :title="t('project.edit')" @click.stop="emit('request-edit')"><Pencil :size="12" :stroke-width="2" /></button>
@@ -322,6 +329,7 @@ function onSave() {
 
 .project-item.active .remote-icon,
 .project-item.active .missing-tag,
+.project-item.active .parked-tag,
 .project-item.active .action-btn {
   color: inherit;
 }

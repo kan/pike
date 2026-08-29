@@ -23,6 +23,7 @@ import type {
   Tab,
   TerminalTab,
 } from '../types/tab'
+import { isSingletonTab } from '../types/tab'
 
 let counter = 0
 
@@ -30,21 +31,76 @@ function genId(): string {
   return `tab-${Date.now()}-${++counter}`
 }
 
-/** Message keys per action, since "close this tab" and "switch project" ask
- *  the user about the same running processes for different reasons (#178). */
-const BUSY_CONFIRM_KEYS = {
-  close: ['confirm.terminalBusyClose', 'confirm.terminalBusyCloseMulti'],
-  switch: ['confirm.terminalBusySwitch', 'confirm.terminalBusySwitchMulti'],
-} as const
-
 export const useTabStore = defineStore('tabs', () => {
+  /**
+   * このウィンドウが持つ**全プロジェクトぶん**のタブ（#264）。プロジェクトを切り替えても
+   * 捨てず、`ownerProjectId` で出し分ける。id から 1 つ引く用途はこちらを見る（タブの
+   * コンポーネントは自分の id で引くので、パーク中でも中身は生きたまま動く）。
+   */
   const tabs = ref<Tab[]>([])
   const activeTabId = ref<string | null>(null)
   // Most recently activated terminal tab — the default target for "send to
   // terminal" actions triggered from non-terminal tabs (editor, diagnostics).
   const lastTerminalId = ref<string | null>(null)
 
+  /** 今このウィンドウが見せているプロジェクト。空文字はグローバルモード。 */
+  const ownerProjectId = ref('')
+  /** プロジェクトごとの最後のアクティブタブ。切り替えて戻ったとき同じタブに戻す。 */
+  const activeByProject = new Map<string, string>()
+
+  /**
+   * タブバーとナビゲーションが見る一覧（#264）。**中身の描画はここを使わない**:
+   * `TabPane` は `tabs` 全部をマウントしたまま `v-show` で出し分けているので、パークした
+   * タブは「タブバーに出ない非アクティブタブ」になる。だから xterm もスクロールバックも
+   * エージェントのセッションも、切り替えているあいだ生き続ける。
+   */
+  const visibleTabs = computed(() =>
+    tabs.value.filter((t) => t.projectId == null || t.projectId === ownerProjectId.value),
+  )
+
+  /**
+   * タブを持っているプロジェクトの id。**並びは最初のタブができた順**（＝`tabs` の並び）で、
+   * 今どれを見せているかでは変わらない。切替チップの並びがこれなので、選ぶたびに順が
+   * 入れ替わると狙って押せなくなる。
+   */
+  const projectIdsWithTabs = computed(() => [
+    ...new Set(tabs.value.map((t) => t.projectId).filter((id): id is string => !!id)),
+  ])
+
+  /** パーク中（＝今見せていない）プロジェクトの id。 */
+  const parkedProjectIds = computed(() => projectIdsWithTabs.value.filter((id) => id !== ownerProjectId.value))
+
   const activeTab = computed(() => tabs.value.find((t) => t.id === activeTabId.value) ?? null)
+
+  /**
+   * タブを足す唯一の入口。**所有プロジェクトはここで付ける**（#264）: 作る側 12 箇所に
+   * 書かせると、種別を増やしたときの付け忘れが「切り替えても消えないタブ」として出る。
+   * シングルトン（設定・エージェント状態・マニュアル）はウィンドウに 1 つなので
+   * プロジェクトに属させない（属させると「プロジェクトごとに 1 つ」になる）。
+   */
+  function pushTab(tab: Tab) {
+    tabs.value.push({ ...tab, projectId: isSingletonTab(tab.kind) ? null : ownerProjectId.value })
+  }
+
+  /** そのプロジェクトのタブを既に持っているか（＝切り替えても復元が要らない）。 */
+  function hasTabsFor(id: string): boolean {
+    return tabs.value.some((t) => t.projectId === id)
+  }
+
+  /**
+   * 見せるプロジェクトを差し替える（#264）。タブは消さない。
+   *
+   * **復元の要否はここから返さない**: 返すと「先に切り替えないと分からない」ことになり、
+   * あとから問い直せない。呼び出し側は `hasTabsFor` で先に決める。
+   */
+  function setOwnerProject(id: string) {
+    if (activeTabId.value) activeByProject.set(ownerProjectId.value, activeTabId.value)
+    ownerProjectId.value = id
+    const remembered = activeByProject.get(id)
+    activeTabId.value = visibleTabs.value.some((t) => t.id === remembered)
+      ? (remembered ?? null)
+      : (visibleTabs.value[visibleTabs.value.length - 1]?.id ?? null)
+  }
 
   function addTerminalTab(options?: {
     id?: string
@@ -57,7 +113,7 @@ export const useTabStore = defineStore('tabs', () => {
     shell?: ShellType
   }): string {
     const id = options?.id ?? genId()
-    tabs.value.push({
+    pushTab({
       id,
       kind: 'terminal',
       title: options?.title ?? 'Shell',
@@ -129,14 +185,18 @@ export const useTabStore = defineStore('tabs', () => {
   /**
    * Ask before killing terminals that are still running something (#178).
    * Returns false only when the user declines. Shared by every path that tears
-   * terminals down: closing a tab, closing many, and switching project.
+   * terminals down: closing a tab, closing many, and closing the window.
+   *
+   * プロジェクトの切り替えはもう聞かない（#264。タブを閉じないので、聞くことが無い）。
    */
-  async function confirmBusyTerminals(list: Tab[], intent: keyof typeof BUSY_CONFIRM_KEYS = 'close'): Promise<boolean> {
+  async function confirmBusyTerminals(list: Tab[]): Promise<boolean> {
     const busy = await busyTerminals(list)
     if (busy.length === 0) return true
     const names = busy.map((t) => t.title).join(', ')
-    const [single, multi] = BUSY_CONFIRM_KEYS[intent]
-    const msg = busy.length === 1 ? t(single, { name: names }) : t(multi, { count: busy.length, names })
+    const msg =
+      busy.length === 1
+        ? t('confirm.terminalBusyClose', { name: names })
+        : t('confirm.terminalBusyCloseMulti', { count: busy.length, names })
     return confirmDialog(msg)
   }
 
@@ -182,8 +242,11 @@ export const useTabStore = defineStore('tabs', () => {
     }
 
     if (activeTabId.value === id) {
-      const next = tabs.value[idx] ?? tabs.value[idx - 1] ?? null
-      activeTabId.value = next?.id ?? null
+      // **見えているタブから選ぶ**（#264）。全体から拾うと、パーク中の別プロジェクトの
+      // タブがアクティブになり、タブバーは空なのに中身だけ出ている状態になる。
+      const list = visibleTabs.value
+      const nextIdx = Math.min(idx, list.length - 1)
+      activeTabId.value = list[nextIdx]?.id ?? null
     }
   }
 
@@ -277,7 +340,7 @@ export const useTabStore = defineStore('tabs', () => {
     }
     const id = genId()
     const fileName = basename(options.path) + (options.titleSuffix ?? '')
-    tabs.value.push({
+    pushTab({
       id,
       kind: 'editor',
       title: fileName,
@@ -303,7 +366,7 @@ export const useTabStore = defineStore('tabs', () => {
       options?.title ?? (untitledCounter === 1 ? t('editor.untitled') : t('editor.untitledN', { n: untitledCounter }))
     const content = options?.content ?? ''
     const id = genId()
-    tabs.value.push({
+    pushTab({
       id,
       kind: 'editor',
       title,
@@ -325,7 +388,7 @@ export const useTabStore = defineStore('tabs', () => {
       return existing.id
     }
     const id = genId()
-    tabs.value.push({
+    pushTab({
       id,
       kind: 'preview',
       title: revisionTitle(options.path, options.revision),
@@ -352,7 +415,7 @@ export const useTabStore = defineStore('tabs', () => {
       return existing.id
     }
     const id = genId()
-    tabs.value.push({
+    pushTab({
       id,
       kind: 'docker-logs',
       title: `${options.containerName} logs`,
@@ -379,7 +442,7 @@ export const useTabStore = defineStore('tabs', () => {
     }
     const id = genId()
     const suffix = range ? `(${formatLineRange(range)})` : '(history)'
-    tabs.value.push({
+    pushTab({
       id,
       kind: 'history',
       title: `${basename(options.filePath)} ${suffix}`,
@@ -398,7 +461,7 @@ export const useTabStore = defineStore('tabs', () => {
       return existing.id
     }
     const id = genId()
-    tabs.value.push({ id, kind: 'settings', title: 'Settings', pinned: false })
+    pushTab({ id, kind: 'settings', title: 'Settings', pinned: false })
     activeTabId.value = id
     return id
   }
@@ -412,7 +475,7 @@ export const useTabStore = defineStore('tabs', () => {
     const id = genId()
     // 他のシングルトン（Settings / Manual）と同じく英語リテラルを置く。表示名は
     // `tabDisplayTitle` が kind から i18n を引くので、ここの値はフォールバック。
-    tabs.value.push({ id, kind: 'agent-status', title: 'Agent Status', pinned: false })
+    pushTab({ id, kind: 'agent-status', title: 'Agent Status', pinned: false })
     activeTabId.value = id
     return id
   }
@@ -426,7 +489,7 @@ export const useTabStore = defineStore('tabs', () => {
       return existing.id
     }
     const id = genId()
-    tabs.value.push({ id, kind: 'manual', title: 'Manual', pinned: false, page })
+    pushTab({ id, kind: 'manual', title: 'Manual', pinned: false, page })
     activeTabId.value = id
     return id
   }
@@ -435,7 +498,7 @@ export const useTabStore = defineStore('tabs', () => {
     const agentType = options?.agentType ?? 'claude-code'
     const id = genId()
     const title = agentType === 'claude-code' ? 'Claude' : 'Codex'
-    tabs.value.push({ id, kind: 'agent-chat', title, pinned: options?.pinned ?? false, agentType })
+    pushTab({ id, kind: 'agent-chat', title, pinned: options?.pinned ?? false, agentType })
     activeTabId.value = id
     return id
   }
@@ -449,7 +512,7 @@ export const useTabStore = defineStore('tabs', () => {
       return existing.id
     }
     const id = genId()
-    tabs.value.push({
+    pushTab({
       id,
       kind: 'pdf',
       title: revisionTitle(options.path, options.revision),
@@ -479,7 +542,7 @@ export const useTabStore = defineStore('tabs', () => {
     const id = genId()
     const fileName = basename(options.filePath)
     const title = options.commitHash ? `${fileName} (${options.commitHash.slice(0, 7)})` : `${fileName} (diff)`
-    tabs.value.push({
+    pushTab({
       id,
       kind: 'diff',
       title,
@@ -515,9 +578,16 @@ export const useTabStore = defineStore('tabs', () => {
     tabs.value.splice(toIndex, 0, moved)
   }
 
-  async function closeTabs(ids: string[]) {
-    const toClose = tabs.value.filter((t) => ids.includes(t.id) && !t.pinned)
-    if (toClose.length === 0) return
+  /**
+   * 渡されたタブを閉じる。**固定タブを除くのは呼び出し側の方針**なので、ここではしない
+   * （一括クローズは除き、プロジェクトごと手放すときは含める）。
+   *
+   * 戻り値は「全部閉じたか」。確認（未保存のエディタ・実行中のターミナル）で断られた
+   * ことを、呼び出し側が結果を数え直して推測しなくて済むようにするため。
+   */
+  async function closeTabs(ids: string[]): Promise<boolean> {
+    const toClose = tabs.value.filter((t) => ids.includes(t.id))
+    if (toClose.length === 0) return true
 
     const dirtyEditors = toClose.filter((t) => t.kind === 'editor' && t.title.endsWith(' *'))
     if (dirtyEditors.length > 0) {
@@ -526,11 +596,11 @@ export const useTabStore = defineStore('tabs', () => {
         dirtyEditors.length === 1
           ? t('confirm.unsavedClose', { name: names })
           : t('confirm.unsavedCloseMulti', { count: dirtyEditors.length, names })
-      if (!(await confirmDialog(msg))) return
+      if (!(await confirmDialog(msg))) return false
     }
 
     // Same for terminals still running a command (#178)
-    if (!(await confirmBusyTerminals(toClose))) return
+    if (!(await confirmBusyTerminals(toClose))) return false
 
     // Kill PTY sessions before removing tabs to prevent wsl.exe process leaks
     const ptyKills = toClose
@@ -555,7 +625,7 @@ export const useTabStore = defineStore('tabs', () => {
     tabs.value = tabs.value.filter((t) => !idsToClose.has(t.id))
 
     if (!tabs.value.some((t) => t.id === activeTabId.value)) {
-      activeTabId.value = tabs.value[tabs.value.length - 1]?.id ?? null
+      activeTabId.value = visibleTabs.value[visibleTabs.value.length - 1]?.id ?? null
     }
 
     if (shouldClose) {
@@ -563,6 +633,7 @@ export const useTabStore = defineStore('tabs', () => {
         .close()
         .catch(() => {})
     }
+    return true
   }
 
   /** Signal --wait processes for a file path; close window if any were waiting. */
@@ -575,37 +646,72 @@ export const useTabStore = defineStore('tabs', () => {
     }
   }
 
+  // ここから下の一括操作とナビゲーションは、**見えているタブだけ**を対象にする（#264）。
+  // パークしたタブは別のプロジェクトのものなので、「他を閉じる」「右側を閉じる」で
+  // 巻き込んではいけない。
+  /** 固定タブは残す（一括クローズの方針）。 */
+  const unpinned = (list: Tab[]) => list.filter((t) => !t.pinned).map((t) => t.id)
+
   async function closeOtherTabs(keepId: string) {
-    await closeTabs(tabs.value.filter((t) => t.id !== keepId).map((t) => t.id))
+    await closeTabs(unpinned(visibleTabs.value.filter((t) => t.id !== keepId)))
   }
 
   async function closeTabsToRight(id: string) {
-    const idx = tabs.value.findIndex((t) => t.id === id)
+    const idx = visibleTabs.value.findIndex((t) => t.id === id)
     if (idx === -1) return
-    await closeTabs(tabs.value.slice(idx + 1).map((t) => t.id))
+    await closeTabs(unpinned(visibleTabs.value.slice(idx + 1)))
   }
 
   async function closeSavedTabs() {
-    const ids = tabs.value.filter((t) => !t.pinned && !(t.kind === 'editor' && t.title.endsWith(' *'))).map((t) => t.id)
+    const ids = visibleTabs.value
+      .filter((t) => !t.pinned && !(t.kind === 'editor' && t.title.endsWith(' *')))
+      .map((t) => t.id)
     await closeTabs(ids)
   }
 
   async function closeAllTabs() {
-    await closeTabs(tabs.value.map((t) => t.id))
+    await closeTabs(unpinned(visibleTabs.value))
+  }
+
+  /**
+   * タブの持ち主を付け替える（#264）。一時プロジェクト（#230）を登録すると id が変わるので、
+   * 付け替えないとそのウィンドウのタブが誰のものでもなくなり、二度と表示されない。
+   */
+  function renameProjectOwner(from: string, to: string) {
+    for (const tab of tabs.value) {
+      if (tab.projectId === from) tab.projectId = to
+    }
+    const active = activeByProject.get(from)
+    if (active !== undefined) {
+      activeByProject.delete(from)
+      activeByProject.set(to, active)
+    }
+    if (ownerProjectId.value === from) ownerProjectId.value = to
+  }
+
+  /** あるプロジェクトのタブを丸ごと閉じる（パークの解放。プロジェクト一覧から呼ぶ）。 */
+  async function closeProjectTabs(projectId: string): Promise<boolean> {
+    // 固定タブも含める。残すとそのプロジェクトのプロセスが動いたままになる。
+    const ids = tabs.value.filter((t) => t.projectId === projectId).map((t) => t.id)
+    const closed = await closeTabs(ids)
+    if (closed) activeByProject.delete(projectId)
+    return closed
   }
 
   function cycleTab(direction: 'next' | 'prev') {
-    if (tabs.value.length <= 1) return
-    const idx = tabs.value.findIndex((t) => t.id === activeTabId.value)
+    const list = visibleTabs.value
+    if (list.length <= 1) return
+    const idx = list.findIndex((t) => t.id === activeTabId.value)
     if (idx === -1) return
 
-    const nextIdx =
-      direction === 'next' ? (idx + 1) % tabs.value.length : (idx - 1 + tabs.value.length) % tabs.value.length
-    activeTabId.value = tabs.value[nextIdx].id
+    const nextIdx = direction === 'next' ? (idx + 1) % list.length : (idx - 1 + list.length) % list.length
+    activeTabId.value = list[nextIdx].id
   }
 
   function snapshotSession(): LastSession {
-    const sessionTabs: SessionTabDef[] = tabs.value
+    // 見えているタブだけ（#264）。パーク中の別プロジェクトのタブを、今のプロジェクトの
+    // セッションとして書き出さない。
+    const sessionTabs: SessionTabDef[] = visibleTabs.value
       .filter((t) => t.kind === 'terminal' || t.kind === 'editor' || t.kind === 'agent-chat')
       .map((t) => {
         const base = { id: t.id, kind: t.kind as SessionTabDef['kind'], title: t.title, pinned: t.pinned }
@@ -628,6 +734,13 @@ export const useTabStore = defineStore('tabs', () => {
 
   return {
     tabs,
+    visibleTabs,
+    projectIdsWithTabs,
+    parkedProjectIds,
+    hasTabsFor,
+    setOwnerProject,
+    renameProjectOwner,
+    closeProjectTabs,
     activeTabId,
     activeTab,
     lastTerminalId,

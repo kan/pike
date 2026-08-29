@@ -9,10 +9,10 @@
  * (that module stays free of value imports).
  */
 import { t } from '../i18n'
-import type { Tab } from '../types/tab'
+import { isSingletonTab, type SINGLETON_KINDS, type Tab } from '../types/tab'
 
-/** Singleton tab kinds → the i18n key naming them. Add new singletons here. */
-const SINGLETON_TITLE_KEYS: Partial<Record<Tab['kind'], string>> = {
+/** 種別の一覧は `types/tab.ts` の `SINGLETON_KINDS` が正本。ここは名前の対応だけ持つ。 */
+const SINGLETON_TITLE_KEYS: Record<(typeof SINGLETON_KINDS)[number], string> = {
   'agent-status': 'agentStatus.title',
   settings: 'settings.title',
   manual: 'manual.title',
@@ -24,6 +24,5 @@ const SINGLETON_TITLE_KEYS: Partial<Record<Tab['kind'], string>> = {
  * switching the UI language relabels the singleton tabs that are already open.
  */
 export function tabDisplayTitle(tab: Tab): string {
-  const key = SINGLETON_TITLE_KEYS[tab.kind]
-  return key ? t(key) : tab.title
+  return isSingletonTab(tab.kind) ? t(SINGLETON_TITLE_KEYS[tab.kind as (typeof SINGLETON_KINDS)[number]]) : tab.title
 }

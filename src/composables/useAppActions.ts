@@ -85,8 +85,9 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     quit: () => void confirmAndExit(),
     openTerminal,
     selectTabByDigit: (digit: string) => {
-      const index = digit === '9' ? tabStore.tabs.length - 1 : Number(digit) - 1
-      const tab = tabStore.tabs[index]
+      const list = tabStore.visibleTabs
+      const index = digit === '9' ? list.length - 1 : Number(digit) - 1
+      const tab = list[index]
       if (tab) tabStore.setActiveTab(tab.id)
     },
   }

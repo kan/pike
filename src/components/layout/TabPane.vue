@@ -15,6 +15,8 @@ import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { ShellType, Tab } from '../../types/tab'
 import { isWindowsShell, shellId, shellProfileLabel } from '../../types/tab'
+import ColorDot from '../ColorDot.vue'
+import ProjectIcon from '../ProjectIcon.vue'
 import TerminalTab from '../tabs/TerminalTab.vue'
 
 const DiffTab = defineAsyncComponent(() => import('../tabs/DiffTab.vue'))
@@ -51,6 +53,24 @@ const { t } = useI18n()
 const tabStore = useTabStore()
 const projectStore = useProjectStore()
 const settings = useSettingsStore()
+
+/**
+ * 保持しているプロジェクトへの切替チップ（#264）。**並びはタブを持ち始めた順で固定**し、
+ * 選択で入れ替えない（押すたびに行き先が動くと狙えない）。一時プロジェクト（#230）も
+ * `findProject` で引けるので混ざる。
+ */
+const projectChips = computed(() => {
+  const list = [...projectStore.projectsWithTabs]
+  // タブがまだ 1 つも無いプロジェクトも「現在地」として出す（並びの末尾）。
+  const current = projectStore.currentProject
+  if (current && !list.some((p) => p.id === current.id)) list.push(current)
+  return list
+})
+
+function switchToProject(id: string) {
+  if (id === projectStore.currentProject?.id) return
+  void projectStore.openProject(id, 'switch')
+}
 
 const terminalTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'terminal'))
 
@@ -392,9 +412,27 @@ onUnmounted(() => {
       @dragover="onBarDragOver"
       @drop="onBarDrop"
     >
+      <!--
+        保持しているプロジェクトへの切替（#264）。**保持中が 1 つでもあるときだけ出す**:
+        普段は 1 プロジェクトしか持たないので、常設すると横幅を取るだけになる。
+        タブと違ってスクロールしない（行き先が流れていくと、素早く移動する用途に合わない）。
+      -->
+      <div v-if="projectChips.length > 1" class="project-chips">
+        <button
+          v-for="chip in projectChips"
+          :key="chip.id"
+          class="project-chip"
+          :class="{ current: chip.id === projectStore.currentProject?.id }"
+          :title="t('project.switchTo', { name: chip.name })"
+          @click="switchToProject(chip.id)"
+        >
+          <ProjectIcon :icon="chip.icon" /><ColorDot :color="chip.color" />{{ chip.name }}
+        </button>
+      </div>
+
       <div class="tabs-scroll">
         <div
-          v-for="tab in tabStore.tabs"
+          v-for="tab in tabStore.visibleTabs"
           :key="tab.id"
           class="tab"
           :class="{
@@ -559,7 +597,7 @@ onUnmounted(() => {
       />
 
       <!-- Empty state -->
-      <div v-if="tabStore.tabs.length === 0" class="empty-state">
+      <div v-if="tabStore.visibleTabs.length === 0" class="empty-state">
         <template v-if="projectStore.currentProject">
           {{ t('app.emptyTerminal', { key: actionChord('newTerminal') }) }}
         </template>
@@ -641,7 +679,7 @@ onUnmounted(() => {
       <button @click="openTerminal(); closeContextMenu()">
         <span>{{ t('tabs.newTerminalShort') }}</span><span class="ctx-key">{{ actionChord('newTerminal') }}</span>
       </button>
-      <template v-if="tabStore.tabs.length > 0">
+      <template v-if="tabStore.visibleTabs.length > 0">
         <div class="context-menu-separator" />
         <button @click="tabStore.closeSavedTabs(); closeContextMenu()">
           {{ t('tabs.closeSaved') }}
@@ -673,6 +711,44 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
   user-select: none;
   position: relative;
+}
+
+/* 保持しているプロジェクトのチップ列（#264）。タブバーの左端に固定で置く。 */
+.project-chips {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.project-chip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 140px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.project-chip:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.project-chip.current {
+  background: var(--tab-active-bg);
+  color: var(--text-active);
 }
 
 .tabs-scroll {

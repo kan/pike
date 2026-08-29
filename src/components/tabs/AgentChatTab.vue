@@ -906,6 +906,14 @@ watch(() => {
 }, scrollToBottom)
 watch(() => s.value.scrollTrigger, scrollToBottom)
 
+// 再表示のたびに描き直すので、末尾へ送る（要素は今できたばかりなので nextTick を挟む）。
+watch(
+  () => tabStore.activeTabId === props.tabId,
+  (active) => {
+    if (active) void nextTick(scrollToBottom)
+  },
+)
+
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
   await ensureConnected()
@@ -1009,8 +1017,18 @@ onUnmounted(() => {
         </template>
       </div>
 
-      <!-- Messages -->
-      <div class="message-list" ref="messageListRef" @scroll="onScroll" @click="onMessageClick">
+      <!--
+        Messages。**アクティブなときだけ描く**（#264）: タブは切り替えても生き続けるので、
+        見えていないチャットに本文を描かせると、トークンが届くたびに全文の markdown 再パースと
+        サニタイズが走る（会話の状態はストア側にあるので、描き直しても何も失われない）。
+      -->
+      <div
+        v-if="tabStore.activeTabId === props.tabId"
+        class="message-list"
+        ref="messageListRef"
+        @scroll="onScroll"
+        @click="onMessageClick"
+      >
         <div v-if="s.messages.length === 0" class="empty-chat">
           <Bot :size="32" :stroke-width="1" />
           <p>{{ t('codex.emptyChat', { agent: agentDisplayName }) }}</p>

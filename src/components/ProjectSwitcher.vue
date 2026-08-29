@@ -53,10 +53,18 @@ const query = ref('')
 const selectedIdx = ref(0)
 const inputRef = ref<HTMLInputElement>()
 
+/**
+ * 保持中のプロジェクト（#264）。**先頭に固定して印を出す**: 切り替えのコストが下がったぶん、
+ * 行き先を選ぶコストが目立つようになる。2〜3 件の行き来に 40 件の一覧を探させない。
+ */
+const parkedIds = computed(() => new Set(useTabStore().parkedProjectIds))
+
 const filtered = computed(() => {
   const q = query.value.trim()
-  if (!q) return projectStore.visibleProjects
-  return projectStore.visibleProjects.filter((p) => fuzzyMatch(p.name, q))
+  const list = q ? projectStore.visibleProjects.filter((p) => fuzzyMatch(p.name, q)) : projectStore.visibleProjects
+  if (parkedIds.value.size === 0) return list
+  // 絞り込み中も並べ替える（保持中を探しているときほど、先頭に居てほしい）。
+  return [...list].sort((a, b) => Number(parkedIds.value.has(b.id)) - Number(parkedIds.value.has(a.id)))
 })
 
 // --- New project form ---
@@ -225,6 +233,9 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             <span v-if="projectStore.missingRoots.has(project.id)" class="missing-tag" :title="t('project.missingHint')">
               {{ t('project.missing') }}
             </span>
+            <span v-else-if="parkedIds.has(project.id)" class="parked-tag" :title="t('project.parkedHint')">
+              {{ t('project.parked') }}
+            </span>
             <span class="item-root">{{ project.root }}</span>
           </div>
           <div v-if="filtered.length === 0 && query" class="switcher-empty">
@@ -355,7 +366,8 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
   color: var(--text-active);
 }
 
-.switcher-item.selected .missing-tag {
+.switcher-item.selected .missing-tag,
+.switcher-item.selected .parked-tag {
   color: var(--text-active);
 }
 

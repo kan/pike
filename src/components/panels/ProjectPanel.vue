@@ -438,6 +438,16 @@ async function onSaveEdit(updated: ProjectConfig) {
   editingId.value = null
 }
 
+/**
+ * 保持しているタブを手放す（#264）。**確認を挟む**: 見えていないところで動いている
+ * プロセスを止める操作で、押した本人にも中身が見えていない。
+ */
+async function onRelease(id: string) {
+  const project = projectStore.findProject(id)
+  if (!(await confirmDialog(t('project.confirmRelease', { name: project?.name ?? id })))) return
+  await tabStore.closeProjectTabs(id)
+}
+
 async function onDelete(id: string) {
   const project = projectStore.projects.find((p) => p.id === id)
   if (!(await confirmDialog(t('project.confirmDelete', { name: project?.name ?? id })))) return
@@ -553,6 +563,7 @@ async function onDelete(id: string) {
           :active="projectStore.currentProject?.id === row.project.id"
           :dragging="draggedProject === row.project.id"
           :missing="projectStore.missingRoots.has(row.project.id)"
+          :parked="tabStore.parkedProjectIds.includes(row.project.id)"
           :groups="projectStore.groups"
           :distros="distros"
           :group-label="row.groupLabel"
@@ -564,6 +575,7 @@ async function onDelete(id: string) {
           @cancel-edit="editingId = null"
           @save="onSaveEdit"
           @clone="projectStore.cloneProject(row.project.id)"
+          @release="onRelease(row.project.id)"
           @delete="onDelete(row.project.id)"
           @drag-start="startDrag($event, projectKey(row.project.id))"
           @drag-end="endDrag"

@@ -9,10 +9,25 @@ use std::sync::Mutex;
 
 use tauri::{Emitter, Manager, State, WebviewWindow};
 
+/// 1 つのウィンドウが持っているプロジェクト（#264）。
+///
+/// **`held` は `shown` を含む。** タブは切り替えても消えないので、ウィンドウは複数の
+/// プロジェクトを抱えうる。「見せている」は「持っている」の部分集合という関係を型に
+///出しておかないと、2 つのマップに割れて掃除の抜けが出る。
+#[derive(Default, Clone)]
+pub struct WindowProjects {
+    /// 今見せているプロジェクト。
+    pub shown: String,
+    /// タブを持っているプロジェクト（見せているものを含む）。フロントが押してくる
+    /// （タブはフロントのものなので Rust からは導出できない）。
+    pub held: Vec<String>,
+}
+
 pub struct ProjectState {
     pub config_dir: PathBuf,
-    /// Maps window label → project ID for cleanup when the window is destroyed.
-    pub window_projects: Mutex<HashMap<String, String>>,
+    /// Maps window label → the projects that window holds, for routing and for
+    /// cleanup when the window is destroyed.
+    pub window_projects: Mutex<HashMap<String, WindowProjects>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -246,13 +261,39 @@ pub async fn project_add_open(
 /// set it before the webview mounts and asks `project_for_window`.
 pub fn set_window_project(state: &ProjectState, window_label: &str, id: &str) {
     if let Ok(mut map) = state.window_projects.lock() {
-        map.insert(window_label.to_string(), id.to_string());
+        let entry = map.entry(window_label.to_string()).or_default();
+        entry.shown = id.to_string();
+        if !entry.held.iter().any(|h| h == id) {
+            entry.held.push(id.to_string());
+        }
     }
 }
 
-/// Remove and return the project ID associated with a window label.
+/// Remove and return the project a window was showing.
 pub fn take_window_project(state: &ProjectState, window_label: &str) -> Option<String> {
-    state.window_projects.lock().ok().and_then(|mut map| map.remove(window_label))
+    let entry = state.window_projects.lock().ok().and_then(|mut map| map.remove(window_label))?;
+    Some(entry.shown)
+}
+
+/// このウィンドウがタブを持っているプロジェクトを差し替える（#264）。見せているものは
+/// `project_add_open` が入れるので、ここで消さない。
+#[tauri::command]
+pub fn project_set_parked(window: tauri::Window, ids: Vec<String>, state: State<'_, ProjectState>) {
+    if let Ok(mut map) = state.window_projects.lock() {
+        let entry = map.entry(window.label().to_string()).or_default();
+        entry.held = ids;
+        if !entry.shown.is_empty() && !entry.held.iter().any(|h| h == &entry.shown) {
+            entry.held.push(entry.shown.clone());
+        }
+    }
+}
+
+/// `id` を持っているウィンドウのラベルと、それを今見せているか。
+pub fn window_holding(state: &ProjectState, id: &str) -> Option<(String, bool)> {
+    let map = state.window_projects.lock().ok()?;
+    map.iter()
+        .find(|(_, w)| w.held.iter().any(|h| h == id))
+        .map(|(label, w)| (label.clone(), w.shown == id))
 }
 
 /// Remove a project ID from last_project.txt.

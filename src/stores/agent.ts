@@ -94,13 +94,15 @@ function getEditorContext(): AgentEditorContext | null {
     }
   }
 
+  // 見えているタブだけを見る（#264）。パーク中の別プロジェクトのファイルを文脈として
+  // 渡すと、セッションの cwd からは存在しないパスになる。
   if (lastEditorContext) {
-    const stillOpen = tabStore.tabs.some((t) => t.kind === 'editor' && t.path === lastEditorContext?.path)
+    const stillOpen = tabStore.visibleTabs.some((t) => t.kind === 'editor' && t.path === lastEditorContext?.path)
     if (stillOpen) return lastEditorContext
     lastEditorContext = null
   }
 
-  const editorTab = tabStore.tabs.find((t) => t.kind === 'editor')
+  const editorTab = tabStore.visibleTabs.find((t) => t.kind === 'editor')
   if (editorTab && editorTab.kind === 'editor') {
     return { path: editorTab.path, line: null, col: null, selectionStart: null, selectionEnd: null }
   }

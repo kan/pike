@@ -23,10 +23,12 @@ function isLive(tab: Tab | null | undefined): tab is LiveTerminal {
 
 function resolveTarget(): LiveTerminal | null {
   const tabStore = useTabStore()
-  const byId = tabStore.tabs.find((t) => t.id === tabStore.lastTerminalId)
+  // 見えているタブから探す（#264）。全体から拾うと、パーク中の別プロジェクトの
+  // ターミナルに貼り付けたうえ、そのタブをアクティブにしてしまう。
+  const byId = tabStore.visibleTabs.find((t) => t.id === tabStore.lastTerminalId)
   if (isLive(byId)) return byId
   if (isLive(tabStore.activeTab)) return tabStore.activeTab
-  const terminals = tabStore.tabs.filter(isLive)
+  const terminals = tabStore.visibleTabs.filter(isLive)
   return terminals.find((t) => t.pinned) ?? terminals[0] ?? null
 }
 

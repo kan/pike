@@ -132,6 +132,14 @@ export async function projectAddOpen(id: string): Promise<void> {
   return invoke('project_add_open', { id })
 }
 
+/**
+ * このウィンドウがタブを保持しているプロジェクトを backend に伝える（#264）。
+ * ジャンプリストや `pike <dir>` からの解決が、保持しているウィンドウを見つけられるように。
+ */
+export async function projectSetParked(ids: string[]): Promise<void> {
+  return invoke('project_set_parked', { ids })
+}
+
 /** The project this window currently shows, per the backend window_projects map
  *  (seeded at build). null for main/global windows. Replaces label parsing. */
 export async function projectForWindow(): Promise<string | null> {
