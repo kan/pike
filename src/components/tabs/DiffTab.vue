@@ -76,6 +76,12 @@ watch(parsedLines, () => {
   void nextTick(measureOverflow)
 })
 
+// 折り返しを切り替えたときも測り直す。**`.diff-scroll` は `inset: 0` で自分の箱が
+// 変わらないので ResizeObserver は鳴らない。** これが無いと、自動で折り返して開いた
+// diff を手で折り返し OFF にしたときに `canScrollX` が false のままになり、横スクロール
+// できるのにボタンが薄いまま（`prominent` が防ごうとしている状態そのもの）になる。
+watch(wordWrapOn, () => void nextTick(measureOverflow))
+
 /**
  * 等幅フォントのセル数で測った表示幅。`ch` は「0 の送り幅」＝ 1 セルなので、この値を
  * そのまま `ch` として使える。全角は 2 セル、タブは 8 セル（`tab-size` を指定していない
@@ -251,18 +257,28 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+// ペインが狭くなれば「自動」の条件を満たすことがある（タブは v-show で生き続けるので、
+// 表示されていない間のサイズ 0 は `clientWidth > 0` のガードで弾く）。
+//
+// **要素が入れ替わるたびに張り直す。** `addDiffTab` はタブを使い回すので、最初に空の
+// 差分（変更なし / バイナリ）で開いたタブには `scrollEl` がまだ無い。mount のときだけ
+// 張ると、そのタブは以後ずっと監視されないままになる。
 let resizeObserver: ResizeObserver | null = null
 
-onMounted(() => {
-  window.addEventListener('keydown', onKeydown)
-  void nextTick(measureOverflow)
-  // ペインが狭くなれば「自動」の条件を満たすことがある（タブは v_show で生き続けるので、
-  // 表示されていない間のサイズ 0 は `clientWidth > 0` のガードで弾く）。
-  if (scrollEl.value) {
+watch(
+  scrollEl,
+  (el) => {
+    resizeObserver?.disconnect()
+    resizeObserver = null
+    if (!el) return
     resizeObserver = new ResizeObserver(measureOverflow)
-    resizeObserver.observe(scrollEl.value)
-  }
-})
+    resizeObserver.observe(el)
+    void nextTick(measureOverflow)
+  },
+  { immediate: true },
+)
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)

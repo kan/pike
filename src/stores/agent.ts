@@ -397,11 +397,21 @@ export const useAgentStore = defineStore('agent', () => {
     }
     const s = sessions[tabId]
     if (s) {
-      s.connected = false
+      markDisconnected(s)
       s.currentSessionId = null
-      s.isGenerating = false
-      s.availableCommands = []
     }
+  }
+
+  /**
+   * セッションが死んだときの共通のリセット。**`cwd` を手放すのが要点**（#269）: 残すと、
+   * 切断したタブが古い worktree を基準に相対パスを組み立て続ける（次のセッションは
+   * `activeRoot` で始まるので、そのパスは届かない）。
+   */
+  function markDisconnected(s: AgentSessionState) {
+    s.connected = false
+    s.isGenerating = false
+    s.availableCommands = []
+    s.cwd = null
   }
 
   async function login(tabId: string) {
@@ -653,10 +663,8 @@ export const useAgentStore = defineStore('agent', () => {
   function handleDisconnect(tabId: string, reason: string) {
     const s = sessions[tabId]
     if (!s) return
-    s.connected = false
-    s.isGenerating = false
+    markDisconnected(s)
     s.disconnectReason = reason
-    s.availableCommands = []
     const msg = currentAgentMsg(tabId)
     if (msg) msg.completed = true
   }
