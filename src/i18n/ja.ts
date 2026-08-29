@@ -7,6 +7,7 @@ export default {
   'common.delete': '削除',
   'common.back': '戻る',
   'common.create': '作成',
+  'common.auto': '自動',
   'common.on': 'ON',
   'common.off': 'OFF',
   'common.clear': 'クリア',
@@ -264,6 +265,9 @@ export default {
   'settings.minimap': 'ミニマップ',
   'settings.wordWrap': '折り返し（既定）',
   'settings.wordWrapHint': 'タブごとにツールバーのボタンで上書きできます。',
+  'settings.diffWordWrap': 'diff の折り返し（既定）',
+  'settings.diffWordWrapHint':
+    '自動は、画面幅の 2 倍を超えてはみ出す差分だけ折り返して開きます。OFF のとき、長い行は横スクロールで読みます。diff タブごとに右上のボタンで上書きできます。',
   'settings.fetchLinkTitle': '貼り付けた URL をタイトル付きリンクにする',
   'settings.fetchLinkTitleHint': '有効にすると、Markdown に URL を貼るたびにそのページへ通信してタイトルを取得します。',
   'settings.tabSize': 'タブサイズ',

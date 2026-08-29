@@ -8,19 +8,135 @@ import { hasMod, normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { joinPath, pathSep } from '../../lib/paths'
 import { useProjectStore } from '../../stores/project'
+import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { DiffTab } from '../../types/tab'
+import WrapToggle from '../editor/WrapToggle.vue'
 
 const { t } = useI18n()
 
 const props = defineProps<{ tabId: string }>()
 const tabStore = useTabStore()
+const settingsStore = useSettingsStore()
 
 const tab = computed(() => tabStore.tabs.find((t): t is DiffTab => t.id === props.tabId && t.kind === 'diff'))
 
 const parsedLines = computed(() => (tab.value ? parseDiff(tab.value.diff, { charLevel: true }) : []))
 
 const isBinaryDiff = computed(() => tab.value?.diff.includes('Binary files') ?? false)
+
+// --- 折り返しと横幅（#272）-------------------------------------------------
+// 折り返さないときは、いちばん長い行が収まる幅を table に持たせる。`table-layout: fixed`
+// のまま `width: 100%` だと長い行はセル内で切られ、スクロールすべき領域そのものが
+// 生まれない（＝横スクロールが効かない）。`auto` に替えれば幅は自動で決まるが、数千行の
+// diff で全セルの測定が走るので、幅を計算して渡す側を採る。
+const wordWrapOverride = ref<boolean | null>(null)
+
+/**
+ * 「自動」が折り返すと決めた（この diff のあいだ保持する）。**live な computed に
+ * しないこと**: 折り返すと横のはみ出しが消えるので、はみ出し量から直に導くと ON と OFF を
+ * 往復する。
+ */
+const autoWrapped = ref(false)
+/** 折り返さない状態で横にスクロールできるか。折り返しボタンを目立たせる条件。 */
+const canScrollX = ref(false)
+
+/** これを超えてはみ出すなら「自動」は折り返して開く（画面幅の何倍か）。 */
+const AUTO_WRAP_RATIO = 2
+
+const wordWrapOn = computed(() => {
+  if (wordWrapOverride.value !== null) return wordWrapOverride.value
+  const mode = settingsStore.diffWordWrap
+  return mode === 'on' || (mode === 'auto' && autoWrapped.value)
+})
+
+/**
+ * はみ出し量は**ブラウザに測らせる**（`scrollWidth / clientWidth`）。こちらで計算した
+ * `--content-ch` はセル数の見積もりで、フォントの実寸もペインの幅も知らない。
+ *
+ * 折り返している間は測らない: そのときの `scrollWidth` は「折り返した結果」で、元の
+ * 長さを表さない。
+ */
+function measureOverflow() {
+  const el = scrollEl.value
+  if (!el) return
+  if (wordWrapOn.value) {
+    canScrollX.value = false
+    return
+  }
+  const ratio = el.clientWidth > 0 ? el.scrollWidth / el.clientWidth : 1
+  canScrollX.value = ratio > 1.01
+  if (settingsStore.diffWordWrap === 'auto' && ratio > AUTO_WRAP_RATIO) autoWrapped.value = true
+}
+
+// 中身が変われば測り直す。**手動の上書きは残す**（そのタブに対する明示的な選択なので、
+// 差分が更新されるたびに覆さない）。
+watch(parsedLines, () => {
+  autoWrapped.value = false
+  void nextTick(measureOverflow)
+})
+
+/**
+ * 等幅フォントのセル数で測った表示幅。`ch` は「0 の送り幅」＝ 1 セルなので、この値を
+ * そのまま `ch` として使える。全角は 2 セル、タブは 8 セル（`tab-size` を指定していない
+ * ので CSS の既定値。エディタの `editorTabSize` とは無関係）で数える。どちらも上限側に
+ * 倒してある: 多めに見積もっても余分にスクロールできるだけだが、少ないとセルの
+ * `overflow: hidden` が黙って切る。
+ *
+ * ASCII を先に片付けるのは、既定（折り返し OFF）では diff を開くたびに全文を 1 度なめる
+ * ため。code point の反復子は 1 文字ごとに文字列を作るので、素の実装の 4 倍かかる。
+ */
+function displayWidth(text: string): number {
+  let w = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (c < 0x7f) {
+      w += c === 9 ? 8 : 1 // 9 = タブ
+      continue
+    }
+    const cp = text.codePointAt(i) ?? c
+    if (cp > 0xffff) i++ // サロゲートペアの後半を飛ばす
+    w += isWideChar(cp) ? 2 : 1
+  }
+  return w
+}
+
+/** East Asian Wide / Fullwidth と絵文字のおおまかな範囲（2 セルぶんの幅を持つもの）。 */
+function isWideChar(cp: number): boolean {
+  return (
+    (cp >= 0x1100 && cp <= 0x115f) ||
+    (cp >= 0x2e80 && cp <= 0x303e) ||
+    (cp >= 0x3041 && cp <= 0x33ff) ||
+    (cp >= 0x3400 && cp <= 0x4dbf) ||
+    (cp >= 0x4e00 && cp <= 0x9fff) ||
+    (cp >= 0xa000 && cp <= 0xa4cf) ||
+    (cp >= 0xac00 && cp <= 0xd7a3) ||
+    (cp >= 0xf900 && cp <= 0xfaff) ||
+    (cp >= 0xfe10 && cp <= 0xfe19) ||
+    (cp >= 0xfe30 && cp <= 0xfe6f) ||
+    (cp >= 0xff00 && cp <= 0xff60) ||
+    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    (cp >= 0x1f300 && cp <= 0x1f9ff) ||
+    (cp >= 0x20000 && cp <= 0x3fffd)
+  )
+}
+
+const maxDisplayWidth = computed(() => {
+  let max = 0
+  for (const line of parsedLines.value) {
+    for (const side of [line.left, line.right]) {
+      let w = 0
+      for (const seg of side.segments) w += displayWidth(seg.text)
+      if (w > max) max = w
+    }
+  }
+  return max
+})
+
+// 幅の計算は CSS 側（`.diff-table`）。ここが渡すのは最長行のセル数だけで、行番号列や
+// padding のぶんはそれらを宣言している場所で足す。折り返し中は読まないので、`maxDisplayWidth`
+// の走査も走らない。
+const tableStyle = computed(() => (wordWrapOn.value ? undefined : { '--content-ch': String(maxDisplayWidth.value) }))
 
 /**
  * Open the working-tree copy of the file this diff is about, in whatever tab
@@ -135,8 +251,23 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+let resizeObserver: ResizeObserver | null = null
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  void nextTick(measureOverflow)
+  // ペインが狭くなれば「自動」の条件を満たすことがある（タブは v_show で生き続けるので、
+  // 表示されていない間のサイズ 0 は `clientWidth > 0` のガードで弾く）。
+  if (scrollEl.value) {
+    resizeObserver = new ResizeObserver(measureOverflow)
+    resizeObserver.observe(scrollEl.value)
+  }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  resizeObserver?.disconnect()
+})
 </script>
 
 <template>
@@ -152,7 +283,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <div v-else-if="!parsedLines.length" class="empty">{{ t('diff.noChanges') }}</div>
     <template v-else>
       <div ref="scrollEl" class="diff-scroll">
-        <table class="diff-table">
+        <table class="diff-table" :class="{ wrap: wordWrapOn }" :style="tableStyle">
           <tbody>
             <tr v-for="(row, i) in rows" :key="i" class="diff-row">
               <template v-for="(cell, s) in row" :key="s">
@@ -164,6 +295,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </tr>
           </tbody>
         </table>
+      </div>
+      <!-- 検索パネルと同じ角に出るので、開いているあいだは隠す。 -->
+      <div v-if="!showSearch" class="hover-toolbar" :class="{ prominent: canScrollX }">
+        <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
       </div>
       <div v-if="showSearch" class="diff-search popup-surface">
         <input
@@ -205,8 +340,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   overflow: auto;
 }
 
+/* 折り返さないときの幅は「最長行のセル数 × 2 列 ＋ 行番号列 ＋ padding」。`--content-ch` は
+   DiffTab.vue が渡す（最長行のセル数）。**この計算はここに置くこと**: 足しているのは
+   すぐ下の `.line-num` / `.line-content` の値そのもので、JS 側に px の合計を持たせると、
+   padding を変えたときに黙って横スクロールの範囲が足りなくなる。 */
 .diff-table {
-  width: 100%;
+  --num-w: 40px;
+  --num-pad: 6px;
+  --content-pad: 8px;
+  width: max(100%, calc(var(--content-ch, 0) * 1ch * 2 + (var(--num-w) + var(--num-pad) * 2) * 2 + var(--content-pad) * 4));
   border-collapse: collapse;
   font-family: "PlemolJP Console NF", "Cascadia Code", "Fira Code", monospace;
   font-size: 12px;
@@ -219,9 +361,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .line-num {
-  width: 40px;
-  min-width: 40px;
-  padding: 0 6px;
+  width: var(--num-w);
+  min-width: var(--num-w);
+  padding: 0 var(--num-pad);
   text-align: right;
   color: var(--text-secondary);
   opacity: 0.5;
@@ -231,10 +373,42 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .line-content {
-  padding: 0 8px;
+  padding: 0 var(--content-pad);
   white-space: pre;
   overflow: hidden;
 }
+
+/* 横にスクロールできるときは折り返しボタンを出したままにする（#272）。既定の 6px の
+   スクロールバーは下端にあって気付きにくいので、切り替えられること自体を見せる。 */
+.hover-toolbar.prominent {
+  opacity: 1;
+}
+
+/* 横スクロールが要るときだけ、そのバーを少し太くする（全体の細いスクロールバーは
+   `theme.css` のまま）。 */
+.diff-scroll::-webkit-scrollbar:horizontal {
+  height: 10px;
+}
+
+.diff-scroll::-webkit-scrollbar-thumb:horizontal {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* 折り返しあり（#272）。行の高さが可変になるので `.diff-row` の固定高も外す。 */
+.diff-table.wrap {
+  width: 100%;
+}
+
+.diff-table.wrap .line-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-table.wrap .diff-row {
+  height: auto;
+}
+
+
 
 .line-content:nth-child(2) {
   border-right: 1px solid var(--border);

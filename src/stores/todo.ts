@@ -2,7 +2,8 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { fsWatcher, isRecentlySaved, markRecentlySaved } from '../composables/useFsWatcher'
 import { pathSep } from '../lib/paths'
-import { fsCreateDir, fsReadFile, fsWriteFile } from '../lib/tauri'
+import { ensurePikeDir } from '../lib/pikeDir'
+import { fsReadFile, fsWriteFile } from '../lib/tauri'
 import type { TodoLine, TodoTask } from '../types/todo'
 import { useProjectStore } from './project'
 
@@ -89,10 +90,17 @@ export const useTodoStore = defineStore('todo', () => {
 
   const lines = ref<TodoLine[]>([])
   const loading = ref(false)
-  /** Absolute path of the todo file currently loaded (for self-write filtering). */
-  const loadedPath = ref<string | null>(null)
-  let saveTimer: ReturnType<typeof setTimeout> | null = null
-  let gitignoreEnsured = false
+  /**
+   * 書き出し待ちの内容・宛先・タイマーを 1 つに持つ。**分けないこと**: 宛先は予約した
+   * 時点で確定させる必要がある（切り替え中の編集が切り替え先へ書き込まれる）一方で、
+   * `load` は「保存待ちなら読まない」を見るので、タイマーだけ残ると読み込みが恒久的に
+   * 止まる。1 つの null 許容にすれば、その食い違いが起こりようがない。
+   */
+  let pending: {
+    loc: NonNullable<ReturnType<typeof location>>
+    content: string
+    timer: ReturnType<typeof setTimeout>
+  } | null = null
 
   const tasks = computed(() => lines.value.filter((l): l is TodoTask => l.kind === 'task'))
   const progress = computed(() => {
@@ -101,13 +109,18 @@ export const useTodoStore = defineStore('todo', () => {
     return { done, total, remaining: total - done }
   })
 
-  /** Project-fixed `.pike/todo.md` location (not worktree-specific, like uploads). */
+  /**
+   * `.pike/todo.md` の場所。基準は `activeRoot`（選択中の worktree）で、`project.root`
+   * ではない（#269）。`pike todo` CLI は cwd から上に辿って `.git` を持つディレクトリを
+   * 採るので、worktree で開いたターミナルからはその worktree の `.pike/todo.md` を書く。
+   * ここを main 固定にすると、パネルと CLI が別のファイルを見ることになる。
+   */
   function location() {
     const p = projectStore.currentProject
-    if (!p?.root) return null
+    const root = projectStore.activeRoot
+    if (!p || !root) return null
     const sep = pathSep(p.shell)
-    const pikeDir = `${p.root}${sep}.pike`
-    return { shell: p.shell, sep, pikeDir, path: `${pikeDir}${sep}todo.md` }
+    return { shell: p.shell, root, path: `${root}${sep}.pike${sep}todo.md` }
   }
 
   const filePath = computed(() => location()?.path ?? null)
@@ -116,17 +129,15 @@ export const useTodoStore = defineStore('todo', () => {
     const loc = location()
     if (!loc) {
       lines.value = []
-      loadedPath.value = null
       return
     }
-    loadedPath.value = loc.path
-    const projectId = projectStore.currentProject?.id
     loading.value = true
     try {
       const { content } = await fsReadFile(loc.shell, loc.path)
-      // Don't clobber: the project switched mid-read (stale), or the user has
-      // pending local edits about to be written (a save is queued).
-      if (projectId !== projectStore.currentProject?.id || saveTimer) return
+      // Don't clobber: the referenced file changed mid-read — a project *or*
+      // worktree switch — or the user has pending local edits about to be
+      // written (a save is queued).
+      if (filePath.value !== loc.path || pending) return
       // Drop a single trailing empty line produced by the file's final newline.
       const parsed = parse(content)
       if (parsed.length && parsed[parsed.length - 1].kind === 'raw' && parsed[parsed.length - 1].text === '') {
@@ -134,32 +145,41 @@ export const useTodoStore = defineStore('todo', () => {
       }
       lines.value = parsed
     } catch {
-      if (projectId === projectStore.currentProject?.id && !saveTimer) lines.value = [] // file not created yet
+      if (filePath.value === loc.path && !pending) lines.value = [] // file not created yet
     } finally {
       loading.value = false
     }
   }
 
-  async function persistNow() {
-    const loc = location()
-    if (!loc) return
-    await fsCreateDir(loc.shell, loc.pikeDir).catch(() => {}) // ensure .pike/ exists
-    if (!gitignoreEnsured) {
-      gitignoreEnsured = true
-      // Keep .pike out of the repo, but never clobber a hand-edited .gitignore.
-      const gi = `${loc.pikeDir}${loc.sep}.gitignore`
-      fsReadFile(loc.shell, gi).catch(() => fsWriteFile(loc.shell, gi, '*\n').catch(() => {}))
-    }
+  /**
+   * 書き込み先 `loc` は**保存を予約した時点のもの**（`pendingSave`）で、`location()` を
+   * 呼び直さない。プロジェクトや worktree を切り替えると参照先が変わるので、待機中の
+   * 編集が切り替え先のファイルへ書き込まれてしまう。
+   */
+  async function persistNow(loc: NonNullable<ReturnType<typeof location>>, content: string) {
+    await ensurePikeDir(loc.shell, loc.root)
     markRecentlySaved(loc.path)
-    await fsWriteFile(loc.shell, loc.path, `${serialize(lines.value)}\n`).catch(() => {})
+    await fsWriteFile(loc.shell, loc.path, content).catch(() => {})
   }
 
   function scheduleSave() {
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => {
-      saveTimer = null
-      void persistNow()
-    }, SAVE_DEBOUNCE_MS)
+    const loc = location()
+    if (!loc) return
+    if (pending) clearTimeout(pending.timer)
+    pending = {
+      loc,
+      content: `${serialize(lines.value)}\n`,
+      timer: setTimeout(flushSave, SAVE_DEBOUNCE_MS),
+    }
+  }
+
+  /** 待機中の編集を、予約した時点の宛先へ即座に書き出す。 */
+  function flushSave() {
+    const p = pending
+    pending = null
+    if (!p) return
+    clearTimeout(p.timer)
+    void persistNow(p.loc, p.content)
   }
 
   function toggle(id: string) {
@@ -221,17 +241,23 @@ export const useTodoStore = defineStore('todo', () => {
     scheduleSave()
   }
 
-  // Reload when the project changes.
+  // Reload when the referenced file changes — a project or worktree switch.
+  // **先に待機中の編集を書き出す**（宛先は切り替え前のファイル）。`load` は保存待ちの
+  // あいだ読み込みを捨てるので、流さずに切り替えると切り替え前のタスクを表示したまま
+  // になり、次の編集がその内容を切り替え先のファイルへ書き込む。
   watch(
-    () => projectStore.currentProject?.id,
-    () => void load(),
+    filePath,
+    () => {
+      flushSave()
+      void load()
+    },
     { immediate: true },
   )
 
   // Reload when the todo file changes on disk (external edit or another window),
   // ignoring our own debounced writes.
   fsWatcher.onFileChange((files) => {
-    const path = loadedPath.value
+    const path = filePath.value
     if (path && files.some((f) => f.path === path && !isRecentlySaved(f.path))) void load()
   })
 

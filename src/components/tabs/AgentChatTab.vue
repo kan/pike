@@ -46,6 +46,13 @@ const projectStore = useProjectStore()
 const tabStore = useTabStore()
 
 const s = computed(() => agent.getSession(props.tabId))
+
+/**
+ * このタブの相対パスの基準。接続済みならセッションを起動したディレクトリ、まだなら
+ * これから起動する `activeRoot`（選択中の worktree、#269）。あとから worktree を
+ * 切り替えても、走っているセッションの基準は動かない。
+ */
+const sessionRoot = computed(() => s.value.cwd ?? projectStore.activeRoot)
 const agentTab = computed(() => {
   const tab = tabStore.tabs.find((t) => t.id === props.tabId)
   return tab?.kind === 'agent-chat' ? tab : null
@@ -104,7 +111,7 @@ function openInstructionsFile() {
   const project = projectStore.currentProject
   if (!name || !project) return
   const sep = pathSep(project.shell)
-  tabStore.addEditorTab({ path: `${project.root}${sep}${name}` })
+  tabStore.addEditorTab({ path: `${sessionRoot.value}${sep}${name}` })
 }
 
 function insertAtCursor(text: string) {
@@ -133,7 +140,7 @@ async function handleUploadFiles(files: File[]) {
       if (probed?.text != null) {
         insertAtCursor(`${probed.text} `)
       } else {
-        const relPath = await saveUploadFile(file, probed?.bytes)
+        const relPath = await saveUploadFile(file, sessionRoot.value, probed?.bytes)
         insertAtCursor(`@${relPath} `)
       }
     } catch (e) {
@@ -176,7 +183,7 @@ async function onDrop(e: DragEvent) {
 
   const textData = e.dataTransfer?.getData('text/plain')
   if (textData && isAbsolutePath(textData)) {
-    const relPath = toRelativePath(textData, project.root)
+    const relPath = toRelativePath(textData, sessionRoot.value)
     insertAtCursor(`@${relPath} `)
     return
   }
@@ -302,7 +309,7 @@ async function ensureConnected() {
     const project = projectStore.currentProject
     if (!project) return
     const requestedType = agentTab.value?.agentType ?? undefined
-    await agent.startSession(props.tabId, project.shell, project.root, undefined, requestedType)
+    await agent.startSession(props.tabId, project.shell, projectStore.activeRoot, undefined, requestedType)
   } catch (e) {
     s.value.disconnectReason = String(e)
   } finally {
@@ -437,7 +444,7 @@ async function handleSlashCommand(text: string): Promise<boolean> {
         const project = projectStore.currentProject
         if (!project) return true
         const sep = pathSep(project.shell)
-        const fullPath = path.startsWith('/') || path.includes(':') ? path : `${project.root}${sep}${path}`
+        const fullPath = path.startsWith('/') || path.includes(':') ? path : `${sessionRoot.value}${sep}${path}`
         const result = await fsReadFile(project.shell, fullPath)
         const prompt = `[File: ${path}]\n\`\`\`\n${result.content}\n\`\`\`\n\nI've attached the content of \`${path}\` above. What would you like to know about it?`
         await agent.submitTurn(props.tabId, prompt)
@@ -451,7 +458,7 @@ async function handleSlashCommand(text: string): Promise<boolean> {
       try {
         const project = projectStore.currentProject
         if (!project) return true
-        const diff = await gitDiffWorking(project.root, project.shell)
+        const diff = await gitDiffWorking(sessionRoot.value, project.shell)
         if (!diff.trim()) {
           agent.addSystemMessage(props.tabId, t('codex.diffEmpty'))
           return true
@@ -559,11 +566,8 @@ const projectFilesLoaded = ref(false)
 
 const MAX_MENTION_RESULTS = 20
 
-/** Project files as relative paths from root. */
-const relativeFiles = computed(() => {
-  const root = projectStore.currentProject?.root ?? ''
-  return projectFiles.value.map((f) => toRelativePath(f, root))
-})
+/** Project files as relative paths from the session's root. */
+const relativeFiles = computed(() => projectFiles.value.map((f) => toRelativePath(f, sessionRoot.value)))
 
 const filteredMentionItems = computed(() => {
   // Fixed options mode (e.g. /sandbox, /approval)
@@ -590,12 +594,20 @@ const filteredMentionItems = computed(() => {
   return results.slice(0, MAX_MENTION_RESULTS).map((r) => r.path)
 })
 
+// 一覧は `sessionRoot` からの相対に落として使うので、基準が変われば取り直す。接続前に
+// 開いたタブは `activeRoot` を見ており、セッションが別の root で始まると相対化に失敗して
+// 絶対パスが挿入される。
+watch(sessionRoot, () => {
+  projectFiles.value = []
+  projectFilesLoaded.value = false
+})
+
 async function loadProjectFiles() {
   const project = projectStore.currentProject
   if (!project || projectFilesLoaded.value) return
   projectFilesLoaded.value = true
   try {
-    projectFiles.value = await listProjectFiles(project.shell, project.root)
+    projectFiles.value = await listProjectFiles(project.shell, sessionRoot.value)
   } catch {
     // ignore
   }
@@ -700,7 +712,7 @@ async function resolveFileMentions(
   const resolvedMentions = new Set<string>()
 
   for (const path of mentions) {
-    const fullPath = path.startsWith('/') || path.includes(':') ? path : `${project.root}${sep}${path}`
+    const fullPath = path.startsWith('/') || path.includes(':') ? path : `${sessionRoot.value}${sep}${path}`
 
     if (isEmbeddableImage(path)) {
       contextParts.push(`[Image file: ${fullPath}]\nPlease examine this image file.`)

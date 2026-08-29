@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { type Ref, ref } from 'vue'
+import { type Ref, ref, watch } from 'vue'
 import type { ShellType } from '../types/tab'
 import { useProjectStore } from './project'
 
@@ -13,6 +13,14 @@ import { useProjectStore } from './project'
 export function createUsageStore<T extends { active: boolean }>(
   id: string,
   fetcher: (shell: ShellType, projectRoot: string, force?: boolean) => Promise<T>,
+  /**
+   * 結果が参照ルートに依存するか（既定は true）。`true` なら worktree / プロジェクトの
+   * 切り替えで取り直し、取得中に変わった結果は捨てる。**レートだけが `false`**: あれは
+   * アカウント単位で、`project_root` はコマンドを流すシェルを選ぶためにしか使わないので、
+   * 同じプロジェクトのどの worktree でも答えは変わらない。切り替えのたびに `claude -p
+   * "/usage"` を捨てて取り直す理由がない。
+   */
+  rootScoped = true,
 ) {
   return defineStore(id, () => {
     const usage = ref<T | null>(null) as Ref<T | null>
@@ -32,29 +40,46 @@ export function createUsageStore<T extends { active: boolean }>(
     let refreshGuard = false
     let windowFocused = true
 
-    function getProject() {
-      return useProjectStore().currentProject ?? null
-    }
-
     /** `force` is forwarded to the fetcher (cache-bypass for backends that cache). */
     async function refreshUsage(force = false) {
       if (refreshGuard) return
-      const project = getProject()
-      if (!project?.root) return
+      const projectStore = useProjectStore()
       refreshGuard = true
       if (force) refreshing.value = true
       try {
-        const result = await fetcher(project.shell, project.root, force)
-        if (usage.value && JSON.stringify(usage.value) === JSON.stringify(result)) {
+        for (;;) {
+          const project = projectStore.currentProject
+          // 集計はセッションの cwd と root の一致で行うので、ターミナルとエージェントが
+          // 開く場所（= `activeRoot`）を渡す。worktree で作業しているあいだ
+          // `project.root` を渡すと、どのセッションも一致せず利用量が 0 に見える（#269）。
+          const root = projectStore.activeRoot
+          if (!project || !root) return
+          const result = await fetcher(project.shell, root, force)
+          // 取得中に参照先が変わったら、この結果は前の root のものなので捨てて取り直す。
+          // 切り替え側から来る refresh は `refreshGuard` に弾かれているので、ここで
+          // 拾わないと次のポーリングまで前の数字が残る。
+          if (rootScoped && projectStore.activeRoot !== root) continue
+          if (usage.value && JSON.stringify(usage.value) === JSON.stringify(result)) return
+          usage.value = result
           return
         }
-        usage.value = result
       } catch {
         // Silently ignore errors (tool not installed, no sessions, etc.)
       } finally {
         refreshGuard = false
         refreshing.value = false
       }
+    }
+
+    // 参照ルートが変わったら取り直す（#269）。**呼び出し側に配らないこと**: 以前は
+    // worktree の切り替えが 2 つの store を名指しで叩いていて、「どの usage が root に
+    // 依存するか」の知識があちらとここに二重にあった。ここに置けば、store を増やしても
+    // 追従は付いてくる。
+    if (rootScoped) {
+      watch(
+        () => useProjectStore().activeRoot,
+        () => void refreshUsage(),
+      )
     }
 
     function startTimers() {

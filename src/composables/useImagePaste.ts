@@ -1,5 +1,6 @@
 import { pathSep } from '../lib/paths'
-import { fsCreateDir, fsReadFile, fsWriteFile, fsWriteFileBase64 } from '../lib/tauri'
+import { ensurePikeDir } from '../lib/pikeDir'
+import { fsWriteFileBase64 } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
 import type { ShellType } from '../types/tab'
@@ -140,23 +141,6 @@ export async function readClipboardImages(): Promise<File[]> {
   }
 }
 
-/** Ensure .pike/uploads/ exists and drop a .pike/.gitignore once per session. */
-const gitignoreEnsured = new Set<string>()
-async function ensureUploadsDir(shell: ShellType, root: string): Promise<string> {
-  const sep = pathSep(shell)
-  const pikeDir = `${root}${sep}.pike`
-  const uploadDir = `${pikeDir}${sep}uploads`
-  await fsCreateDir(shell, uploadDir).catch(() => {})
-  if (!gitignoreEnsured.has(root)) {
-    gitignoreEnsured.add(root)
-    // .pike is tool-managed scratch space — keep it out of the user's repo, but
-    // never clobber a .gitignore the user may have hand-edited: write only if absent.
-    const giPath = `${pikeDir}${sep}.gitignore`
-    fsReadFile(shell, giPath).catch(() => fsWriteFile(shell, giPath, '*\n').catch(() => {}))
-  }
-  return uploadDir
-}
-
 /**
  * Write `file` into `dir` under a collision-proof name, and return that name.
  * Throws UploadTooLargeError past MAX_UPLOAD_SIZE. When `bytes` is supplied
@@ -176,14 +160,19 @@ export async function saveFileTo(file: File, shell: ShellType, dir: string, byte
 }
 
 /**
- * Save any file to .pike/uploads/ and return the path relative to the project
- * root — what a chat mention or a terminal drop pastes in.
+ * Save any file to `<root>/.pike/uploads/` and return the path relative to
+ * `root` — what a chat mention or a terminal drop pastes in.
+ *
+ * **`root` は受け手が相対パスを解決する場所を渡すこと**（#269）。エージェントなら
+ * セッションの cwd、ターミナルならそのタブを開いた cwd で、どちらもタブの生成時に
+ * 固まる。ここで `activeRoot` を読むと、worktree を切り替えたあとに古いタブへ貼った
+ * ファイルが、そのタブからは見えない場所に置かれる。
  */
-export async function saveUploadFile(file: File, bytes?: Uint8Array): Promise<string> {
+export async function saveUploadFile(file: File, root: string, bytes?: Uint8Array): Promise<string> {
   const project = useProjectStore().currentProject
   if (!project) throw new Error('No active project')
   const sep = pathSep(project.shell)
-  const uploadDir = await ensureUploadsDir(project.shell, project.root)
+  const uploadDir = await ensurePikeDir(project.shell, root, 'uploads')
   const filename = await saveFileTo(file, project.shell, uploadDir, bytes)
   return `${UPLOADS_DIR.replaceAll('/', sep)}${sep}${filename}`
 }

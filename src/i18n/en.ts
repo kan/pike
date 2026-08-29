@@ -7,6 +7,7 @@ export default {
   'common.delete': 'Delete',
   'common.back': 'Back',
   'common.create': 'Create',
+  'common.auto': 'Auto',
   'common.on': 'ON',
   'common.off': 'OFF',
   'common.clear': 'Clear',
@@ -265,6 +266,9 @@ export default {
   'settings.minimap': 'Minimap',
   'settings.wordWrap': 'Word Wrap (default)',
   'settings.wordWrapHint': 'Each tab can override this from its toolbar button.',
+  'settings.diffWordWrap': 'Diff Word Wrap (default)',
+  'settings.diffWordWrapHint':
+    'Auto wraps only diffs that overflow more than twice the pane width. When off, long lines scroll horizontally. Each diff tab can override this from its button.',
   'settings.fetchLinkTitle': 'Turn a pasted URL into a titled link',
   'settings.fetchLinkTitleHint':
     'With this on, every URL pasted into Markdown makes a request to that page to read its title.',

@@ -115,6 +115,13 @@ function getEditorContext(): AgentEditorContext | null {
 export interface AgentSessionState {
   connected: boolean
   agentType: AgentType
+  /**
+   * このセッションを起動したディレクトリ。**開始時の値を持ち続ける**（#269）。
+   * 相対パス（@メンション・`/read`・`/diff`）の基準はここで、あとから worktree を
+   * 切り替えても走っているセッションの足元は動かないため、`activeRoot` を読み直すと
+   * エージェントに届かないパスを送ることになる。
+   */
+  cwd: string | null
   capabilities: AgentCapabilities | null
   authState: AgentAuthState
   messages: ChatMessage[]
@@ -142,6 +149,7 @@ function createDefaultSession(agentType: AgentType = 'codex'): AgentSessionState
   return {
     connected: false,
     agentType,
+    cwd: null,
     capabilities: null,
     authState: { status: 'unknown' },
     messages: [],
@@ -317,6 +325,7 @@ export const useAgentStore = defineStore('agent', () => {
       )
 
       s.currentSessionId = sid
+      s.cwd = cwd
       s.connected = true
       s.disconnectReason = null
       s.tokenUsage = null

@@ -24,6 +24,13 @@
   - `WidgetType.eq` はオフセットを比較しない（上を編集するたびに全部の行がずれて、下の widget が毎打鍵で作り直される）。index とラベルだけを見て、クリック時に `conflictField` から現在の領域を読み直す
   - **ラベルは DOM 構築時に焼き込まれる**ので、UI 言語の切替に追随させるため `EditorTab.vue` が `conflictCompartment` で再登録する（他の設定と同じ compartment の流儀）
 - diff タブ: 左右分割表示、文字単位ハイライト（common prefix/suffix 方式）
+- **diff の横幅は自分で計算する（#272）**: `table-layout: fixed` ＋ `width: 100%` ＋ セルの `overflow: hidden` だと、長い行はセルの中で切られて**テーブルが横に伸びない**＝スクロールすべき領域そのものが生まれない（「横スクロールが効かない」の正体）。`table-layout: auto` にすれば幅は自動で決まるが、数千行の diff で全セルの測定が走るので採らない。代わりに最長行の表示幅（セル数）を数えて `--content-ch` として渡す
+  - **`calc()` は CSS 側に置く**（`.diff-table`）。足すのは行番号列の幅と padding で、どれもすぐ下の `.line-num` / `.line-content` の宣言そのもの。px の合計を JS に持たせると、padding を変えたときに横スクロールの範囲が黙って足りなくなる
+  - 幅は**セル数**で数える（`ch` は等幅フォントの 1 セル）。全角は 2、タブは 8（`tab-size` 未指定なので CSS の既定値。エディタの `editorTabSize` とは無関係）と、どちらも上限側に倒す。多く見積もっても余分にスクロールできるだけだが、少ないと `overflow: hidden` が黙って切る。**ASCII は `charCodeAt` で先に片付ける**: 折り返し OFF が既定なので diff を開くたびに全文を 1 度なめる。code point の反復子は 1 文字ごとに文字列を作るので 4 倍かかる
+  - 幅は**セル数**で数える（`ch` は等幅フォントの 1 セル）。全角は 2、タブは既定のタブ幅 8 と、どちらも上限側に倒す。多く見積もっても余分にスクロールできるだけだが、少ないと `overflow: hidden` が黙って切る
+  - 折り返しはタブ単位で上書きできる（既定は設定の `diffWordWrap` = `auto` / `on` / `off`）。エディタの `WrapToggle.vue` を共用し、検索パネルと同じ角に出るので開いているあいだは隠す
+  - **`auto` の判定はブラウザに測らせる**（`scrollWidth / clientWidth` が `AUTO_WRAP_RATIO`=2 超）。`--content-ch` は見積もりで、フォントの実寸もペインの幅も知らない。**live な computed にしないこと**: 折り返すとはみ出しが消えるので、はみ出し量から直に導くと ON と OFF を往復する。折り返しているあいだは測らず、結果は `autoWrapped` に latch する
+  - 既定を `auto` にしたのは、**横スクロールに気付けない**ため（`theme.css` のスクロールバーは 6px で、下端に出る）。同じ理由で、横にスクロールできる差分では折り返しボタンを薄くせず出したままにし、そのバーだけ 10px にしてある
 - **途中停止した操作の検出と再開（#222）**: `GitStatusResult.operation`（`GitOperation { kind, branch, step, total, stop, stoppedSha, stoppedSubject }`）を `git_status` の中で埋め、GitPanel 最上部にバナー＋続行 / 中止ボタンを出す。別コマンドにしないのは、10 秒ポーリング・StatusBar・worktree ストアが既に `git_status` を通っているため（2 つに分けると「競合あり」と「操作なし」が食い違いうる）。探索の失敗は握り潰す（`operation` のせいで status が Err になってはいけない）
   - **検出を条件で間引かない**: 「HEAD が detached、または競合あり」のときだけ探索する案は**素の `git pull`（マージ）の停止を丸ごと取りこぼす**。実測で、マージ競合停止は `# branch.head` が `main` のままで、署名失敗のマージに至っては競合 0・detached でない・`MERGE_HEAD` だけが痕跡という状態になる。代わりに探索を `git status` と同じ 1 往復に畳んだ（WSL は `remote_urls_wsl` と同じ「`bash -c` で複数の git 呼び出しを 1 回の `wsl.exe` にまとめる」手口。定常コストは従来と同じ 1 spawn）
   - 状態ファイルは gitdir 配下にあるので、`git rev-parse --absolute-git-dir` 1 回で `.git` がファイルの linked worktree も通る。ただし **Windows 側は `<root>/.git` がディレクトリなら rev-parse を省く**（通常のリポジトリはこれで当たり、プロセス起動が 1 回で済む。WSL 側は既に同じ spawn の中なので分岐しない）。**パスのキャッシュは持たない**（ステートレス方針）
@@ -47,7 +54,15 @@
 
 ## Git worktree 連動
 - `git_worktree_list` コマンド（`git worktree list --porcelain` をパース）が `{ path, branch, head, isBare, isDetached, isMain }[]` を返す。bare クローン構成では bare エントリを main 扱いせず**最初の非 bare** を `isMain` とし、`prunable`（ディレクトリ消失）worktree は一覧から除外
-- **参照ルートの単一の真実**: `stores/project.ts` の `activeRoot`（非 null computed = `activeWorktreeRoot ?? currentProject.root ?? ''`）。file tree / git / search / tasks / docker、およびエディタの git 操作（diff ガター・History・定義ジャンプ・MD リンク解決）はすべて `project.root` ではなく `activeRoot` を参照する。root 相対操作で残る `project.root` 直参照は worktree 追従漏れのサイン（ターミナル cwd / agent cwd / 画像アップロード先など意図的にプロジェクト固定の箇所を除く）
+- **参照ルートの単一の真実**: `stores/project.ts` の `activeRoot`（非 null computed = `activeWorktreeRoot ?? currentProject.root ?? ''`）。file tree / git / search / tasks / docker、およびエディタの git 操作（diff ガター・History・定義ジャンプ・MD リンク解決）はすべて `project.root` ではなく `activeRoot` を参照する。root 相対操作で残る `project.root` 直参照は worktree 追従漏れのサイン
+- **「これから開くもの」も追従する（#269）**: 新規ターミナルの cwd（`useAppActions.openTerminal` / `useCliOpen` / セッション復元）・エージェントのセッション cwd・アップロード先（`.pike/uploads`）・TODO（`.pike/todo.md`）・usage の集計 root。**以前は「意図的にプロジェクト固定」としていたが、固定する理由が無かった**: どれも受け手はターミナルやエージェントの cwd で、そちらが worktree に居るなら基準が食い違う。実害は 3 つで、(1) 貼り付いた `.pike/uploads/…` の相対パスがエージェントに届かない、(2) `pike todo` は cwd から上に辿って worktree の `.pike/todo.md` を書くのでパネルと別ファイルになる、(3) usage は cwd と root の一致で集計するので、worktree で作業しているあいだ数字が 0 になる
+- **走っているエージェントとターミナルの基準は動かさない**: `AgentSessionState.cwd` が起動時の cwd を持ち、`@` メンション・`/read`・`/diff`・ドロップの相対パスはこれを基準にする（`AgentChatTab.vue` の `sessionRoot`）。ここで `activeRoot` を読み直すと、あとから worktree を切り替えたときに走っているセッションへ届かないパスを送る
+  - **`saveUploadFile` の置き場も同じ理由で呼び出し側が決める**（`root` 引数）。エージェントは `sessionRoot`、ターミナルはそのタブを開いた cwd。ここだけ `activeRoot` にすると、切り替え前から開いているタブに貼ったファイルが、そのタブからは見えない場所に置かれる。**ターミナルはシェルの現在地（OSC 7）を使わない**: `cd` した先に `.pike/` を作ると、`pike todo` の「既存の `.pike` を最優先」がリポジトリのルートより手前のそれを拾う
+  - `.pike/` を作る側は **`lib/pikeDir.ts` の `ensurePikeDir`** を通す（`.gitignore` の設置込み）。アップロードと TODO が同じ手順を別々に持っていて、「1 度だけ」の記憶をどちらもディレクトリ単位に変えたときに完全な複製になった
+  - **保存待ちの書き出しは、切り替えの前に流す**（`stores/todo.ts` の `flushSave`）。`load` は保存待ちのあいだ読み込みを捨てるので、流さずに切り替えると切り替え前のタスクを表示したままになり、次の編集がその内容を切り替え先のファイルへ書き込む
+  - **usage の追従は `createUsageStore` が持つ**（`rootScoped`、既定 true）。工場側で `activeRoot` を watch し、取得中に root が変わったら結果を捨てて取り直す（`refreshGuard` は取得のあいだ立ちっぱなしなので、切り替え側から叩いても弾かれる）。**切り替え側から名指しで叩かないこと**: 「どの usage が root に依存するか」の知識が 2 箇所に分かれ、store を増やしたときに片方だけ漏れる。レートは `rootScoped: false`（アカウント単位で、`project_root` はシェルを選ぶためにしか使わない）
+- **TODO の保存先は予約時に確定させる**（`stores/todo.ts` の `scheduleSave`）。デバウンス中に参照先が変わるので、`persistNow` が `location()` を呼び直すと待機中の編集が切り替え先のファイルへ書き込まれる。同じ理由で読み込みの stale ガードもプロジェクト id ではなくパスで見る
+- **追従させないもの**: worktree 一覧の取得（`gitWorktreeList` は main から引く）と `git.ts` の remoteUrl 記録（main のときだけ書く、が仕様）
 - `stores/worktree.ts`: worktree 一覧・`setActiveWorktree(w)`（`isMain` フラグで null/パスを決定。文字列一致に依存しない）・focus 連動ポーリング（`gitStore.status` が非 null の git リポジトリのみ。同一ウィンドウ内ターミナルでの `git worktree add` を反映、古い load 結果は projectId で stale ガード）
 - ステータスバーの worktree セレクタ（`FolderGit2`、worktree が 2 つ以上の時のみ表示）。選択で 5 パネル + エディタを再読込
 - fs watcher は App.vue の `watch(activeRoot)` 単一所有で再ポイント（worktree 切替・プロジェクト切替の両方をカバー。リポジトリ外の worktree でも更新を取得）

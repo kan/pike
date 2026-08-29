@@ -135,6 +135,24 @@
   --tab-hover-bg: color-mix(in srgb, var(--popup-lift-color) var(--popup-lift), rgb(var(--tab-hover-bg-rgb)));
 }
 
+/* タブの内容の右上に浮かぶツールバー（ターミナルのエージェント起動、diff の折り返し）。
+   普段は薄く、その領域に入ると濃くなる。**同じ角に同じ見た目で出すためのもの**なので、
+   タブ種別ごとに書き写さない（ターミナルと diff で reveal の速さや位置がずれる）。 */
+.hover-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  opacity: 0.3;
+  transition: opacity 0.15s;
+}
+
+:hover > .hover-toolbar {
+  opacity: 1;
+}
+
 /* Shared keyboard shortcut hint for context menus / popup menus */
 .ctx-key {
   font-size: 11px;

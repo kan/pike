@@ -62,7 +62,7 @@ async function handleActionLocal(action: CliAction) {
     }
     const project = projectStore.currentProject
     if (project && action.shell) {
-      tabStore.addTerminalTab({ cwd: project.root, shell: action.shell })
+      tabStore.addTerminalTab({ cwd: projectStore.activeRoot, shell: action.shell })
     }
   } else if (action.action === 'openTerminal') {
     if (action.shell) {

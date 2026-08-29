@@ -15,6 +15,7 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
 - **シェル未指定（`None`）の既定は OS で変わる**。Windows は従来どおり WSL、macOS / Linux はログインシェル（`wsl.exe` が無いので WSL に落とすと即死する）
 - 環境変数 `TERM=xterm-256color` を cmd 以外に設定
 - リサイズは `pty.resize()` で PTY サイズを更新
+- **xterm は端数の行を持てないので、余白は上下に振り分ける（#268）**: 高さは `rows × セル高` で、FitAddon は行数を floor する。`.terminal-inner` を何もしないコンテナにすると端数（最大でセル 1 行ぶん ≒ 20px）が全部下に溜まり、4 辺 10px のはずの余白が下だけ広く見える。flex の `justify-content: center` で上下に割る。横も同じ理屈で余るが、セル幅は 8px 程度なので触っていない
 - `autoStart` 対応: PTY spawn 後に指定コマンドを自動実行（例: `claude`）
 - `PtySession` に `Drop` 実装: セッション破棄時に `child.kill()` で子プロセスを確実に終了
 - ウィンドウ破棄時（`WindowEvent::Destroyed`）に全 PTY セッション・Docker log stream を一括 cleanup（main ウィンドウのみ）

@@ -48,7 +48,11 @@ export function useAppActions(): Record<AppActionId, () => void> & {
       return
     }
     const project = projectStore.currentProject
-    tabStore.addTerminalTab(project ? { cwd: project.root, shell: shellOverride ?? project.shell } : undefined)
+    // cwd は `activeRoot`（選択中の worktree）。`project.root` を読むと、worktree を
+    // 切り替えたウィンドウで開いた新しいターミナルだけが main を指す（#269）。
+    tabStore.addTerminalTab(
+      project ? { cwd: projectStore.activeRoot, shell: shellOverride ?? project.shell } : undefined,
+    )
   }
 
   return {

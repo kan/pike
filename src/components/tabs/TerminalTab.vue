@@ -155,7 +155,7 @@ async function loadClaudeSessions() {
   const shell = tabData?.shell ?? project?.shell
   // Where `claude` would actually run: the shell's live directory (tracked from
   // OSC 7, so a `cd` is reflected), falling back to what the tab was opened at.
-  const root = (ptyId ? await ptyGetCwd(ptyId) : null) ?? tabData?.cwd ?? project?.root
+  const root = (ptyId ? await ptyGetCwd(ptyId) : null) ?? tabData?.cwd ?? projectStore.activeRoot
   if (!shell || !root) {
     claudeSessions.value = []
     return
@@ -787,7 +787,9 @@ onMounted(async () => {
     if (!ptyId) return
     const name = file.name || 'file'
     try {
-      const rel = await saveUploadFile(file)
+      // 置き場はこのタブを開いた cwd。シェルの現在地（OSC 7）ではない: `cd` した先へ
+      // `.pike/` を作ると、`pike todo` がリポジトリのルートより手前のそれを拾う。
+      const rel = await saveUploadFile(file, terminalTab()?.cwd ?? projectStore.activeRoot)
       // Trailing space delimits consecutive paths when several files are dropped.
       ptyWrite(ptyId, `${rel} `).catch((err) => console.error('[terminal] ptyWrite failed:', err))
     } catch (err) {
@@ -1019,7 +1021,7 @@ onUnmounted(() => {
 
 <template>
   <div class="terminal-wrapper" :class="{ opaque: settingsStore.windowBackdrop === 'none' }" data-testid="terminal">
-    <div v-if="showAgentLaunch || showPromptInject" class="term-toolbar">
+    <div v-if="showAgentLaunch || showPromptInject" class="hover-toolbar term-toolbar">
       <div v-if="showPromptInject" class="agent-launch" :class="{ open: promptMenuOpen }">
         <button class="agent-btn solo" :title="t('terminal.promptInject')" @click="togglePromptMenu">
           <MessageSquareText :size="14" :stroke-width="2" />
@@ -1094,9 +1096,16 @@ onUnmounted(() => {
   background: v-bind('wrapperBg');
 }
 
+/* xterm の高さは `rows × セル高` で決まり、FitAddon は行数を floor するので、
+   コンテナ高の端数（最大でセル 1 行ぶん）が必ず余る。何もしないとそれが全部下に
+   溜まり、上下左右 10px のはずの余白が下だけ 1 行ぶん広く見える（#268）。上下へ
+   振り分けて 4 辺の見た目を揃える。 */
 .terminal-inner {
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 /* Window transparency (issue #162): xterm.css hard-codes an opaque black viewport
@@ -1111,18 +1120,8 @@ onUnmounted(() => {
   background-color: transparent !important;
 }
 
-.term-toolbar {
-  position: absolute;
-  top: 6px;
-  right: 16px;
-  z-index: 5;
-  display: flex;
-  gap: 6px;
-  opacity: 0.3;
-  transition: opacity 0.15s;
-}
-
-.terminal-wrapper:hover .term-toolbar,
+/* 位置と reveal は theme.css の `.hover-toolbar`。ここはメニューを開いているあいだ
+   濃いままにする分だけを足す（ポインタが外へ出てもメニューは開いたままなので）。 */
 .term-toolbar:has(.agent-launch.open) {
   opacity: 1;
 }

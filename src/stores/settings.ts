@@ -262,6 +262,20 @@ function sanitizeBackdrop(v: unknown): WindowBackdrop {
   return WINDOW_BACKDROPS.includes(v as WindowBackdrop) ? (v as WindowBackdrop) : 'none'
 }
 
+/**
+ * diff タブの折り返しの既定（#272）。`auto` は「収まらない量が大きいときだけ折り返して
+ * 開く」。横スクロールは 6px のスクロールバーが下端に出るだけで気付きにくいので、既定を
+ * これにしてある。どちらに倒すかはタブごとのボタンでいつでも変えられる。
+ */
+export const DIFF_WORD_WRAPS = ['auto', 'on', 'off'] as const
+export type DiffWordWrap = (typeof DIFF_WORD_WRAPS)[number]
+
+function sanitizeDiffWordWrap(v: unknown): DiffWordWrap {
+  // 真偽値だったころの値が localStorage / 同期ファイルに残っていることがある。
+  if (typeof v === 'boolean') return v ? 'on' : 'off'
+  return DIFF_WORD_WRAPS.includes(v as DiffWordWrap) ? (v as DiffWordWrap) : 'auto'
+}
+
 // Window opacity slider bounds (surface alpha when a backdrop is active).
 export const WINDOW_OPACITY_MIN = 0.1
 export const WINDOW_OPACITY_MAX = 1
@@ -290,6 +304,8 @@ interface PersistedSettings {
   editorThemeName: string
   editorMinimap: boolean
   editorWordWrap: boolean
+  /** diff タブの折り返しの既定値。エディタとは別に決められる（#272）。 */
+  diffWordWrap: DiffWordWrap
   editorTabSize: number
   previewSmoothScroll: boolean
   terminalCopyOnSelect: boolean
@@ -344,6 +360,7 @@ function sanitize(s: PersistedSettings): PersistedSettings {
     // uiFontFamily '' is valid (= System Default), so it is intentionally not coerced.
     uiFontSize: clampSize(s.uiFontSize, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX, d.uiFontSize),
     windowBackdrop: sanitizeBackdrop(s.windowBackdrop),
+    diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
     allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
   }
@@ -487,6 +504,7 @@ function defaults(): PersistedSettings {
     editorThemeName: 'One Dark',
     editorMinimap: true,
     editorWordWrap: false,
+    diffWordWrap: 'auto',
     editorTabSize: 4,
     previewSmoothScroll: true,
     terminalCopyOnSelect: true,
@@ -527,6 +545,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorThemeName = ref(saved.editorThemeName)
   const editorMinimap = ref(saved.editorMinimap)
   const editorWordWrap = ref(saved.editorWordWrap)
+  const diffWordWrap = ref(saved.diffWordWrap)
   const editorTabSize = ref(saved.editorTabSize)
   const previewSmoothScroll = ref(saved.previewSmoothScroll)
   const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
@@ -855,6 +874,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorThemeName: editorThemeName.value,
       editorMinimap: editorMinimap.value,
       editorWordWrap: editorWordWrap.value,
+      diffWordWrap: diffWordWrap.value,
       editorTabSize: editorTabSize.value,
       previewSmoothScroll: previewSmoothScroll.value,
       terminalCopyOnSelect: terminalCopyOnSelect.value,
@@ -891,6 +911,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorThemeName.value = s.editorThemeName
     editorMinimap.value = s.editorMinimap
     editorWordWrap.value = s.editorWordWrap
+    diffWordWrap.value = s.diffWordWrap
     editorTabSize.value = s.editorTabSize
     previewSmoothScroll.value = s.previewSmoothScroll
     terminalCopyOnSelect.value = s.terminalCopyOnSelect
@@ -1072,6 +1093,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorThemeName,
       editorMinimap,
       editorWordWrap,
+      diffWordWrap,
       editorTabSize,
       previewSmoothScroll,
       terminalCopyOnSelect,
@@ -1119,6 +1141,7 @@ export const useSettingsStore = defineStore('settings', () => {
     autoEditorThemeName,
     editorMinimap,
     editorWordWrap,
+    diffWordWrap,
     editorTabSize,
     previewSmoothScroll,
     xtermTheme,

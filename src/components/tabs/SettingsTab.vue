@@ -723,6 +723,18 @@ const PREVIEW_LINES = [
           <p class="setting-hint">{{ t('settings.wordWrapHint') }}</p>
         </div>
 
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.diffWordWrap') }}</label>
+            <div class="mode-toggle">
+              <button class="mode-btn" :class="{ active: settings.diffWordWrap === 'auto' }" @click="settings.diffWordWrap = 'auto'">{{ t('common.auto') }}</button>
+              <button class="mode-btn" :class="{ active: settings.diffWordWrap === 'on' }" @click="settings.diffWordWrap = 'on'">{{ t('common.on') }}</button>
+              <button class="mode-btn" :class="{ active: settings.diffWordWrap === 'off' }" @click="settings.diffWordWrap = 'off'">{{ t('common.off') }}</button>
+            </div>
+          </div>
+          <p class="setting-hint">{{ t('settings.diffWordWrapHint') }}</p>
+        </div>
+
         <!-- 外部通信を伴う唯一の編集機能なので、何が起きるかを hint に書いておく（#241）。 -->
         <div class="setting-block">
           <div class="setting-row">

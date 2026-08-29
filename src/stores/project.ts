@@ -902,7 +902,7 @@ export const useProjectStore = defineStore('project', () => {
             title: def.title,
             pinned: def.pinned,
             autoStart: def.pinned ? resolveResumeCommand(def.autoStart) : undefined,
-            cwd: project.root,
+            cwd: activeRoot.value,
             shell: project.shell,
           })
         } else if (def.kind === 'editor') {
@@ -935,7 +935,7 @@ export const useProjectStore = defineStore('project', () => {
             title: def.title,
             pinned: true,
             autoStart: def.autoStart,
-            cwd: project.root,
+            cwd: activeRoot.value,
             shell: project.shell,
           })
         }
@@ -945,7 +945,7 @@ export const useProjectStore = defineStore('project', () => {
     // Ensure at least one plain terminal tab exists (for CWD detection, etc.)
     const hasPlainTerminal = tabStore.tabs.some((t) => t.kind === 'terminal' && !t.autoStart)
     if (!hasPlainTerminal) {
-      tabStore.addTerminalTab({ cwd: project.root, shell: project.shell })
+      tabStore.addTerminalTab({ cwd: activeRoot.value, shell: project.shell })
     }
   }
 
