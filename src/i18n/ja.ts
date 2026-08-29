@@ -482,6 +482,7 @@ export default {
   'project.parkedHint':
     'このウィンドウがこのプロジェクトのタブを保持しています（ターミナルのプロセスも動いたままです）。切り替えるとそのまま戻ります。',
   'project.release': 'タブを閉じてプロセスを終了する',
+  'project.forget': '保持をやめる',
   'project.missingHint': 'このマシンにこのパスがありません',
   'project.clone': '{url} から clone',
   'project.cloneConfirm': '{name} はこのマシンにまだありません。{url} から clone して開きますか？',

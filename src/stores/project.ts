@@ -26,13 +26,13 @@ import {
   projectGroupsList,
   projectGroupsSave,
   projectList,
-  projectSetLast,
   projectSetParked,
   projectTransientBind,
   projectTransientCreate,
   projectTransientDrop,
   projectTransientGet,
   projectUpdate,
+  type WindowSession,
 } from '../lib/tauri'
 import { ephemeralWindow, isMainWindow } from '../lib/window'
 import type { ProjectConfig, SyncedProject } from '../types/project'
@@ -103,12 +103,70 @@ export const useProjectStore = defineStore('project', () => {
   const activeRoot = computed<string>(() => activeWorktreeRoot.value ?? currentProject.value?.root ?? '')
 
   /**
-   * このウィンドウがタブを持っているプロジェクト（#264）。並びはタブを持ち始めた順。
-   * 引けない id（削除済みなど）は落とす。タブバーのチップとウィンドウタイトルが共有する。
+   * このウィンドウが持っているプロジェクトの id（#264）。**並びはここで決まり、以後
+   * 変わらない**: タブを持った順に足し、手放すまで残す。タブバーのチップがこの順なので、
+   * 切り替えるたびに並びが動くと狙って押せなくなる。
+   *
+   * タブをまだ作っていないもの（前回の保持を復元しただけ）も入る。**起動時にタブまで
+   * 作らない**のは、タブの中身が常にマウントされる＝作った瞬間にその数だけシェルが
+   * 立ち上がるため。切り替えたときに通常のセッション復元が走る（`switchProject` は
+   * 「タブが無ければ復元する」なので、そのまま乗る）。
    */
-  const projectsWithTabs = computed<ProjectConfig[]>(() =>
-    useTabStore().projectIdsWithTabs.flatMap((id) => findProject(id) ?? []),
+  const heldIds = ref<string[]>([])
+
+  // タブを持ったものを末尾に足す。**消すのは手放したときだけ**（`forgetHeld`）で、
+  // タブが 0 になっても並びは保つ。
+  watch(
+    () => useTabStore().projectIdsWithTabs,
+    (ids) => {
+      for (const id of ids) {
+        if (!heldIds.value.includes(id)) heldIds.value.push(id)
+      }
+    },
+    { immediate: true },
   )
+
+  function forgetHeld(id: string) {
+    heldIds.value = heldIds.value.filter((held) => held !== id)
+  }
+
+  /**
+   * 保持しているプロジェクトを手放す（#264）。プロジェクトパネルの電源ボタンと、
+   * タブバーのチップの ✕ が共有する。
+   *
+   * **タブがあるときだけ確認する。** 復元待ち（起動時に覚えただけで、まだタブを作って
+   * いない）のものは動いているものが無いので、「実行中のプロセスも終了します」と聞くのは
+   * 嘘になる。その場合は覚えているのをやめるだけ。
+   */
+  async function releaseProject(id: string): Promise<void> {
+    const tabStore = useTabStore()
+    if (tabStore.hasTabsFor(id)) {
+      const name = findProject(id)?.name ?? id
+      if (!(await confirmDialog(t('project.confirmRelease', { name })))) return
+      if (!(await tabStore.closeProjectTabs(id))) return
+    }
+    forgetHeld(id)
+  }
+
+  /** 復元した保持一覧を入れる（#264）。今見せているものを先頭に、記録の順で続ける。 */
+  function setHeldProjects(ids: string[]) {
+    const current = currentProject.value?.id
+    heldIds.value = [...new Set([...(current ? [current] : []), ...ids])]
+  }
+
+  /**
+   * このウィンドウが持っているプロジェクト（#264）。タブがあるものと、復元待ちのもの。
+   * 並びはタブを持ち始めた順 → 復元待ち。引けない id（削除済みなど）は落とす。
+   * タブバーのチップ・ウィンドウタイトル・Rust への通知が共有する。
+   */
+  const heldProjects = computed<ProjectConfig[]>(() => heldIds.value.flatMap((id) => findProject(id) ?? []))
+
+  /** 保持中（＝今は見せていない）プロジェクト。一覧のバッジとタイトルが使う。 */
+  const parkedProjects = computed<ProjectConfig[]>(() =>
+    heldProjects.value.filter((p) => p.id !== currentProject.value?.id),
+  )
+
+  const parkedProjectIds = computed(() => parkedProjects.value.map((p) => p.id))
 
   /**
    * Shell to route file I/O through — the project's, or this host's default when
@@ -733,10 +791,12 @@ export const useProjectStore = defineStore('project', () => {
   // `pike <dir>` の解決はあちらで行われるので、伝えないと保持中のプロジェクトを開く
   // たびに新しいウィンドウができ、同じリポジトリでエージェントが二重に動く。
   // 監視する値をそのまま使う（id は slug なので空白を含まない）。タブが動くたびに
-  // `parkedProjectIds` は新しい配列になるので、配列を直接 watch すると中身が同じでも発火する。
+  // `heldProjects` は新しい配列になるので、配列を直接 watch すると中身が同じでも発火する。
   watch(
-    () => useTabStore().parkedProjectIds.join(' '),
+    () => heldProjects.value.map((p) => p.id).join(' '),
     (key) => {
+      // 復元待ちのぶんも含める。含めないと、`pike <そのパス>` が新しいウィンドウを開いて
+      // しまい、このウィンドウが覚えている意味が無くなる。
       projectSetParked(key ? key.split(' ') : []).catch(() => {})
     },
   )
@@ -854,19 +914,22 @@ export const useProjectStore = defineStore('project', () => {
     // pulls — child windows are handed a project id, and concurrent merges would
     // race on the same file.
     pullProjectsFromSync().catch(() => {})
-    const lastIds = await projectGetLast().catch(() => [] as string[])
-    // Clear the list immediately; each window re-adds itself via projectAddOpen
-    projectSetLast([]).catch(() => {})
-    if (lastIds.length > 0) {
-      // Main window opens the first project
-      const mainId = lastIds[0]
-      if (projects.value.find((p) => p.id === mainId)) {
-        await adoptProject(mainId)
+    // 消してから各ウィンドウに書き直させる、はもう要らない（#264）。書き込みは生きて
+    // いるウィンドウからの全量書き直しなので、古い行は最初の `project_add_open` で消える。
+    const sessions = await projectGetLast().catch(() => [] as WindowSession[])
+    if (sessions.length > 0) {
+      const known = (id: string) => projects.value.some((p) => p.id === id)
+      // Main window opens the first window's project, and remembers what that
+      // window was holding (#264).
+      const main = sessions[0]
+      if (known(main.shown)) {
+        await adoptProject(main.shown)
+        setHeldProjects(main.held.filter(known))
       }
-      // Remaining projects open in separate windows, each adopting its own (#212)
-      for (const id of lastIds.slice(1)) {
-        if (projects.value.find((p) => p.id === id)) {
-          openProjectWindow(id).catch(() => {})
+      // Remaining windows open separately, each adopting its own (#212)
+      for (const session of sessions.slice(1)) {
+        if (known(session.shown)) {
+          openProjectWindow(session.shown, session.held.filter(known)).catch(() => {})
         }
       }
       return
@@ -888,8 +951,9 @@ export const useProjectStore = defineStore('project', () => {
     // would keep focusing a window that no longer shows it.
     if (transientProject.value && transientProject.value.id !== id) {
       // **タブを先に手放す**（#264）。パークだけして記録を消すと、一覧にも出ず
-      // 切り替えても戻れない id のタブが、プロセスを抱えたまま残る。
-      await tabStore.closeProjectTabs(transientProject.value.id)
+      // 切り替えても戻れない id のタブが、プロセスを抱えたまま残る。断られたら
+      // 切り替え自体をやめる（記録だけ消すと、同じ迷子のタブができる）。
+      if (!(await tabStore.closeProjectTabs(transientProject.value.id))) return
       projectTransientDrop(transientProject.value.id).catch(() => {})
       transientProject.value = null
     }
@@ -1063,6 +1127,7 @@ export const useProjectStore = defineStore('project', () => {
     // プロセスを抱えたまま残る。断られたら削除自体をやめる。
     const tabStore = useTabStore()
     if (!(await tabStore.closeProjectTabs(id))) return
+    forgetHeld(id)
     await projectDelete(id)
     // Remember the deletion locally (#164): the sync file only ever gains
     // entries, so without this the next pull would recreate the project. The
@@ -1095,7 +1160,11 @@ export const useProjectStore = defineStore('project', () => {
     groups,
     currentProject,
     findProject,
-    projectsWithTabs,
+    heldProjects,
+    parkedProjects,
+    parkedProjectIds,
+    setHeldProjects,
+    releaseProject,
     isTransient,
     openDirectory,
     openDirectoryAsProject,

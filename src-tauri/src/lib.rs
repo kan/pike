@@ -523,26 +523,53 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
 }
 
 #[tauri::command]
-async fn open_project_window(project_id: String, app: AppHandle) -> Result<(), String> {
+async fn open_project_window(project_id: String, held: Option<Vec<String>>, app: AppHandle) -> Result<(), String> {
     // Guard as elsewhere: the id ends up in window_projects and as a CLI arg, so
     // reject anything outside [a-zA-Z0-9_-].
     types::validate_slug(&project_id, "Project ID")?;
-    focus_or_build_project_window(&app, &project_id);
+    // 復元のときだけ「保持していたもの」を種として渡す（#264）。開いた側は
+    // `project_held_for_window` で自分のぶんを読む。
+    let held: Vec<String> = held
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|id| types::validate_slug(id, "Project ID").is_ok())
+        .collect();
+    // 既に見せている / 保持しているウィンドウがあればそちらへ（重複して開かない）。
+    if focus_project_window_anywhere(&app, &project_id, None) {
+        return Ok(());
+    }
+    let label = build_project_window(&app, &project_id, None);
+    // 空なら何もしない（復元以外の経路は空で呼ぶ）。
+    if let Some(state) = app.try_state::<project::ProjectState>() {
+        project::seed_window_held(&state, &label, &held);
+    }
     Ok(())
 }
 
-/// The project a window currently shows, from the authoritative window_projects
-/// map (seeded at build for project windows). None for main/global windows and
-/// any window not yet on a project. The frontend calls this at startup to learn
-/// its project instead of parsing its (now opaque) label.
+/// The project a window currently shows, plus the ones it holds (#264), from the
+/// authoritative window_projects map (seeded at build for project windows). None
+/// for main/global windows and any window not yet on a project. The frontend
+/// calls this at startup to learn its project instead of parsing its (now
+/// opaque) label.
+///
+/// **`held` を別のコマンドにしない。** 分けると、フロントが 2 回に分けて読むあいだに
+/// 自分の `project_set_parked` がこの entry を上書きし、復元した保持一覧が黙って
+/// 消える（実際に踏んだ）。1 回で返せばその順序の問題자体が無くなる。
 #[tauri::command]
-fn project_for_window(window: WebviewWindow, state: State<'_, project::ProjectState>) -> Option<String> {
+fn project_for_window(
+    window: WebviewWindow,
+    state: State<'_, project::ProjectState>,
+) -> Option<project::WindowSession> {
     state
         .window_projects
         .lock()
         .ok()
-        .and_then(|m| m.get(window.label()).map(|w| w.shown.clone()))
-        .filter(|shown| !shown.is_empty())
+        .and_then(|m| m.get(window.label()).cloned())
+        .filter(|w| !w.shown.is_empty())
+        .map(|w| project::WindowSession {
+            shown: w.shown.clone(),
+            held: w.parked(),
+        })
 }
 
 /// Focus the window already showing `project_id`, if any. Returns whether one
@@ -1188,6 +1215,7 @@ pub fn run() {
             app.manage(project::ProjectState {
                 config_dir,
                 window_projects: std::sync::Mutex::new(HashMap::new()),
+                last_written_sessions: std::sync::Mutex::new(None),
             });
             // Directories opened without registering them (#230). Managed here
             // because the cold-start CLI routing below already needs it.
@@ -1327,8 +1355,10 @@ pub fn run() {
                                 .try_state::<project::transient::TransientState>()
                                 .and_then(|t| t.remove(&pid));
                             if transient.is_none() {
-                                if let Err(e) = project::remove_open_project(&state, &pid) {
-                                    log::warn!("Failed to remove project {pid} from open list: {e}");
+                                // このウィンドウは既にマップから消えているので、
+                                // 生きているぶんを書き直せば足りる（#264）。
+                                if let Err(e) = project::write_open_windows(&state) {
+                                    log::warn!("Failed to rewrite the open window list: {e}");
                                 }
                             }
                         }
@@ -1455,10 +1485,8 @@ pub fn run() {
             pty::pty_get_cwd,
             project::detect_wsl_distros,
             project::project_get_last,
-            project::project_set_last,
             project::project_add_open,
             project::project_set_parked,
-            project::project_remove_open,
             project::transient::project_transient_create,
             project::transient::project_transient_get,
             project::transient::project_transient_bind,

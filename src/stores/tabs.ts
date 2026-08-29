@@ -67,9 +67,6 @@ export const useTabStore = defineStore('tabs', () => {
     ...new Set(tabs.value.map((t) => t.projectId).filter((id): id is string => !!id)),
   ])
 
-  /** パーク中（＝今見せていない）プロジェクトの id。 */
-  const parkedProjectIds = computed(() => projectIdsWithTabs.value.filter((id) => id !== ownerProjectId.value))
-
   const activeTab = computed(() => tabs.value.find((t) => t.id === activeTabId.value) ?? null)
 
   /**
@@ -203,6 +200,9 @@ export const useTabStore = defineStore('tabs', () => {
   async function closeTab(id: string) {
     const idx = tabs.value.findIndex((t) => t.id === id)
     if (idx === -1) return
+    // 次にどれを出すかは**見えている並びの中の位置**で決める（#264）。`tabs` の位置は
+    // 他プロジェクトのタブを含むので、そのまま使うと隣ではないタブに飛ぶ。
+    const visibleIdx = visibleTabs.value.findIndex((t) => t.id === id)
     if (tabs.value[idx].pinned) return
 
     // Confirm close if editor tab has unsaved changes (title ends with *)
@@ -245,8 +245,7 @@ export const useTabStore = defineStore('tabs', () => {
       // **見えているタブから選ぶ**（#264）。全体から拾うと、パーク中の別プロジェクトの
       // タブがアクティブになり、タブバーは空なのに中身だけ出ている状態になる。
       const list = visibleTabs.value
-      const nextIdx = Math.min(idx, list.length - 1)
-      activeTabId.value = list[nextIdx]?.id ?? null
+      activeTabId.value = list[Math.min(visibleIdx, list.length - 1)]?.id ?? null
     }
   }
 
@@ -736,7 +735,6 @@ export const useTabStore = defineStore('tabs', () => {
     tabs,
     visibleTabs,
     projectIdsWithTabs,
-    parkedProjectIds,
     hasTabsFor,
     setOwnerProject,
     renameProjectOwner,

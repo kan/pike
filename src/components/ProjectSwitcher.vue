@@ -57,7 +57,7 @@ const inputRef = ref<HTMLInputElement>()
  * 保持中のプロジェクト（#264）。**先頭に固定して印を出す**: 切り替えのコストが下がったぶん、
  * 行き先を選ぶコストが目立つようになる。2〜3 件の行き来に 40 件の一覧を探させない。
  */
-const parkedIds = computed(() => new Set(useTabStore().parkedProjectIds))
+const parkedIds = computed(() => new Set(projectStore.parkedProjectIds))
 
 const filtered = computed(() => {
   const q = query.value.trim()

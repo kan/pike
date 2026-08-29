@@ -120,12 +120,14 @@ export async function detectWslDistros(): Promise<string[]> {
 
 // Project — last project persistence
 
-export async function projectGetLast(): Promise<string[]> {
-  return invoke<string[]>('project_get_last')
+/** 前回開いていたウィンドウ 1 つぶん（#264）。`held` は保持していたプロジェクト。 */
+export interface WindowSession {
+  shown: string
+  held: string[]
 }
 
-export async function projectSetLast(ids: string[]): Promise<void> {
-  return invoke('project_set_last', { ids })
+export async function projectGetLast(): Promise<WindowSession[]> {
+  return invoke<WindowSession[]>('project_get_last')
 }
 
 export async function projectAddOpen(id: string): Promise<void> {
@@ -140,20 +142,18 @@ export async function projectSetParked(ids: string[]): Promise<void> {
   return invoke('project_set_parked', { ids })
 }
 
-/** The project this window currently shows, per the backend window_projects map
- *  (seeded at build). null for main/global windows. Replaces label parsing. */
-export async function projectForWindow(): Promise<string | null> {
-  return invoke('project_for_window')
+/**
+ * このウィンドウが見せているプロジェクトと、保持しているもの（#264）。main / グローバル
+ * ウィンドウでは null。不透明なラベルを解釈する代わりにこれを引く。
+ */
+export async function projectForWindow(): Promise<WindowSession | null> {
+  return invoke<WindowSession | null>('project_for_window')
 }
 
 /** Focus the window already showing this project, if any; returns whether one
  *  was found. When false, the caller switches its own window in place. */
 export async function focusProjectWindow(projectId: string): Promise<boolean> {
   return invoke('focus_project_window', { projectId })
-}
-
-export async function projectRemoveOpen(id: string): Promise<void> {
-  return invoke('project_remove_open', { id })
 }
 
 // Project — CRUD
@@ -607,8 +607,8 @@ export async function dockerContainerPorts(containerId: string): Promise<number[
 
 // Window
 
-export async function openProjectWindow(projectId: string): Promise<void> {
-  return invoke('open_project_window', { projectId })
+export async function openProjectWindow(projectId: string, held?: string[]): Promise<void> {
+  return invoke('open_project_window', { projectId, held: held ?? null })
 }
 
 /** Open a new global-mode window with a terminal on the configured global shell. */

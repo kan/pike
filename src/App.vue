@@ -23,15 +23,7 @@ import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { resolveNotifier } from './lib/notify'
 import { normalizeSep } from './lib/paths'
 import { projectColorValue } from './lib/projectColors'
-import {
-  isElevated,
-  projectForWindow,
-  projectRemoveOpen,
-  projectSetLast,
-  traySetCloseToTray,
-  windowCloseQuitsApp,
-  windowSetBackdrop,
-} from './lib/tauri'
+import { isElevated, projectForWindow, traySetCloseToTray, windowCloseQuitsApp, windowSetBackdrop } from './lib/tauri'
 import { elevated, ephemeralWindow, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
 import { useClaudeRateStore } from './stores/claudeRate'
 import { useClaudeUsageStore } from './stores/claudeUsage'
@@ -115,9 +107,7 @@ const projectAccent = computed(() => projectColorValue(projectStore.currentProje
  * 現在地を先頭**にする（並びが固定のチップと違い、タスクバーでは「今どれか」が先に
  * 読めるほうが良い）。
  */
-const parkedNames = computed(() =>
-  projectStore.projectsWithTabs.filter((p) => p.id !== projectStore.currentProject?.id).map((p) => p.name),
-)
+const parkedNames = computed(() => projectStore.parkedProjects.map((p) => p.name))
 
 watch(
   [
@@ -245,18 +235,16 @@ onMounted(async () => {
 
   // Which project this window shows comes from the backend window_projects map
   // (seeded at build), not the opaque label. null for main/global windows.
-  const windowProjectId = await projectForWindow()
-  if (windowProjectId) {
+  // 見せているプロジェクトと、前回保持していたもの（#264）を 1 回で受け取る。
+  const windowSession = await projectForWindow()
+  if (windowSession) {
     await projectStore.loadProjects()
-    // Only a cold start that named a project hands `main` one (`pike <dir>`, a
-    // jump list entry with Pike closed). That launch replaces the previous
-    // session instead of restoring it, so clear the open list here exactly as
-    // restoreLastProject does — switchProject re-adds this project right after.
-    // Child windows are handed a project on every launch and must not touch it.
-    if (isMainWindow()) await projectSetLast([]).catch(() => {})
     // Handed the project (jump list, tray, another window), so it can be one the
     // sync file brought in and nobody cloned here yet (#212).
-    await projectStore.adoptProject(windowProjectId)
+    await projectStore.adoptProject(windowSession.shown)
+    // 復元で開かれたウィンドウは、前回保持していたものを引き継ぐ（#264）。他の経路
+    // （ジャンプリスト等）では空なので、何もしないのと同じ。
+    projectStore.setHeldProjects(windowSession.held)
   } else if (isGlobalWindow()) {
     // Global window: no project context; initCliOpen opens the requested tabs.
   } else {
@@ -294,14 +282,10 @@ onMounted(async () => {
   })
 
   tabStore.$subscribe(() => projectStore.saveSessionDebounced())
-  window.addEventListener('beforeunload', () => {
-    projectStore.saveSessionNow()
-    // A transient project (#230) never entered the open list, and the backend
-    // drops its entry on Destroyed.
-    if (projectStore.currentProject && !projectStore.isTransient) {
-      projectRemoveOpen(projectStore.currentProject.id)
-    }
-  })
+  // 開いているウィンドウの記録（`last_project.txt`）はここで触らない（#264）。あれは
+  // 生きているウィンドウからの全量書き直しなので、まだ生きているこのウィンドウを
+  // 消してもらうことはできない。実際の削除は Rust の `Destroyed` が行う。
+  window.addEventListener('beforeunload', () => projectStore.saveSessionNow())
 
   // Main window: close-to-tray (#161). Main hides instead of closing and Pike
   // stays resident in the tray. Keep polling alive so the tray usage tooltip

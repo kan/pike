@@ -60,7 +60,7 @@ const settings = useSettingsStore()
  * `findProject` で引けるので混ざる。
  */
 const projectChips = computed(() => {
-  const list = [...projectStore.projectsWithTabs]
+  const list = [...projectStore.heldProjects]
   // タブがまだ 1 つも無いプロジェクトも「現在地」として出す（並びの末尾）。
   const current = projectStore.currentProject
   if (current && !list.some((p) => p.id === current.id)) list.push(current)
@@ -418,7 +418,7 @@ onUnmounted(() => {
         タブと違ってスクロールしない（行き先が流れていくと、素早く移動する用途に合わない）。
       -->
       <div v-if="projectChips.length > 1" class="project-chips">
-        <button
+        <div
           v-for="chip in projectChips"
           :key="chip.id"
           class="project-chip"
@@ -427,7 +427,19 @@ onUnmounted(() => {
           @click="switchToProject(chip.id)"
         >
           <ProjectIcon :icon="chip.icon" /><ColorDot :color="chip.color" />{{ chip.name }}
-        </button>
+          <!--
+            解除は保持中のチップだけ（#264）。現在地に出すと「今見ているプロジェクトの
+            タブを全部閉じる」になり、解除とは別の操作になる。
+          -->
+          <button
+            v-if="chip.id !== projectStore.currentProject?.id"
+            class="chip-close"
+            :title="tabStore.hasTabsFor(chip.id) ? t('project.release') : t('project.forget')"
+            @click.stop="projectStore.releaseProject(chip.id)"
+          >
+            <X :size="12" :stroke-width="2" />
+          </button>
+        </div>
       </div>
 
       <div class="tabs-scroll">
@@ -727,18 +739,22 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 2px;
-  max-width: 140px;
-  padding: 2px 6px;
-  border: none;
+  max-width: 160px;
+  padding: 2px 4px 2px 6px;
   border-radius: 3px;
   background: transparent;
   color: var(--text-secondary);
-  font-family: inherit;
   font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: pointer;
+}
+
+/* チップの ✕ はタブの ✕ と同じ規則（下の `.tab-close` と共有）。大きさだけ小さくする。 */
+.chip-close {
+  width: 16px;
+  height: 16px;
 }
 
 .project-chip:hover {
@@ -863,7 +879,9 @@ onUnmounted(() => {
   background: var(--git-add);
 }
 
-.tab-close {
+/* **幅は最初から確保する**（ホバーで現れると隣がずれる）。 */
+.tab-close,
+.chip-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -880,11 +898,13 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-.tab:hover .tab-close {
+.tab:hover .tab-close,
+.project-chip:hover .chip-close {
   opacity: 1;
 }
 
-.tab-close:hover {
+.tab-close:hover,
+.chip-close:hover {
   background: var(--danger);
   color: var(--text-active);
 }
