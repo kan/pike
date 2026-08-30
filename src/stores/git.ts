@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
+import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
 import {
   gitBranchList,
@@ -19,6 +20,7 @@ import {
   gitStatus,
   gitUnstage,
 } from '../lib/tauri'
+import { windowFocused } from '../lib/window'
 import type { GitLogEntry, GitStatusResult, PullOption, PushOption } from '../types/git'
 import { chainOnSuccess } from '../types/tab'
 import { useProjectStore } from './project'
@@ -66,9 +68,6 @@ export const useGitStore = defineStore('git', () => {
     await Promise.all([refreshStatus(true), refreshLog()])
   }
 
-  let pollTimer: ReturnType<typeof setInterval> | null = null
-  let fetchTimer: ReturnType<typeof setInterval> | null = null
-  let pollAbort: AbortController | null = null
   const refreshing = ref(false)
   let statusInFlight: Promise<void> | null = null
   let statusPending: Promise<void> | null = null
@@ -76,7 +75,6 @@ export const useGitStore = defineStore('git', () => {
   let logPending: Promise<void> | null = null
   let fetchGuard = false
   let lastFetchTime = 0
-  let windowFocused = true
   const logAllMode = ref(false)
   // Status from the previous poll. When HEAD/ahead/behind change between polls —
   // e.g. a commit made in a terminal, a pull, or a branch switch — the commit
@@ -416,7 +414,7 @@ export const useGitStore = defineStore('git', () => {
 
   async function fetchInBackground() {
     if (fetchGuard) return
-    if (!windowFocused) return
+    if (!windowFocused.value) return
     const elapsed = Date.now() - lastFetchTime
     if (lastFetchTime > 0 && elapsed < 60_000) return
     // Likely resumed from sleep — defer until next normal cycle
@@ -438,25 +436,12 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  function startTimers() {
-    clearTimers()
-    pollTimer = setInterval(refreshStatus, 10000)
-    fetchTimer = setInterval(fetchInBackground, 60000)
-  }
-
-  function clearTimers() {
-    if (pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-    if (fetchTimer) {
-      clearInterval(fetchTimer)
-      fetchTimer = null
-    }
-  }
+  const polling = useFocusPolling([
+    { every: 10_000, tick: refreshStatus },
+    { every: 60_000, tick: fetchInBackground },
+  ])
 
   function startPolling() {
-    stopPolling()
     lastStatus = null
     // Restarted on every project switch (App.vue), so fetch once up front: the
     // timer alone would leave the StatusBar showing the previous project's
@@ -464,33 +449,7 @@ export const useGitStore = defineStore('git', () => {
     // an open Git panel refreshing at the same time costs nothing extra.
     refreshStatus()
     loadRemoteUrl()
-    windowFocused = document.hasFocus()
-    if (windowFocused) startTimers()
-    pollAbort = new AbortController()
-    const { signal } = pollAbort
-    window.addEventListener(
-      'blur',
-      () => {
-        windowFocused = false
-        clearTimers()
-      },
-      { signal },
-    )
-    window.addEventListener(
-      'focus',
-      () => {
-        windowFocused = true
-        refreshStatus()
-        startTimers()
-      },
-      { signal },
-    )
-  }
-
-  function stopPolling() {
-    clearTimers()
-    pollAbort?.abort()
-    pollAbort = null
+    polling.start()
   }
 
   return {
@@ -524,6 +483,6 @@ export const useGitStore = defineStore('git', () => {
     checkoutRemoteBranch,
     fetchInBackground,
     startPolling,
-    stopPolling,
+    stopPolling: polling.stop,
   }
 })

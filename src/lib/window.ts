@@ -14,11 +14,17 @@ export const windowLabel = getCurrentWindow().label
  * ウィンドウがアクティブになったとき（webview にフォーカスが入らない）にネイティブ側と
  * ずれるため。ウィンドウに 1 つで足りるので購読もモジュールで 1 回だけ行う。
  *
- * ポーリングを止めるストア（`git` / `docker` / `worktree` / `usageStore`）は、これより
- * 前からある `document.hasFocus()` ＋ focus/blur リスナを各自で持っている。**新しく
- * 書くときは真似しないこと**（同じ問いに答えが 2 つある状態なので、既存のぶんもここへ
- * 寄せたい。#277 の範囲外なので手を付けていない）。
+ * アクティブなあいだだけポーリングしたいだけなら、直接 watch せず
+ * `composables/useFocusPolling.ts` を使う（4 ストアが同じ形を持っている）。
+ *
+ * ネイティブの signal にしたことで、**トレイやタスクバーから復帰したときにも
+ * ポーリングが再開する**（`restore_window` の経路は webview にフォーカスが入る保証が
+ * なく、以前はページ内をクリックするまで 4 つとも止まったままで、ブランチと使用量が
+ * 古いまま座っていた）。代償は、タイトルバーだけをクリックしてアクティブにした状態でも
+ * ポーリングが回り続けること（WSL プロジェクトなら `wsl.exe` が 10 秒 / 15 秒ごと）。
  */
+// 初回の onFocusChanged が届くまでの起動値。ウィンドウは `.visible(false)` で作って
+// あとから show するので、ここは「たぶんこう」以上の意味を持たない。
 export const windowFocused = ref(document.hasFocus())
 void getCurrentWindow().onFocusChanged(({ payload }) => {
   windowFocused.value = payload

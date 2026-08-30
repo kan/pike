@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { type Ref, ref, watch } from 'vue'
+import { useFocusPolling } from '../composables/useFocusPolling'
 import type { ShellType } from '../types/tab'
 import { useProjectStore } from './project'
 
@@ -35,10 +36,7 @@ export function createUsageStore<T extends { active: boolean }>(
      */
     const refreshing = ref(false)
 
-    let pollTimer: ReturnType<typeof setInterval> | null = null
-    let pollAbort: AbortController | null = null
     let refreshGuard = false
-    let windowFocused = true
 
     /** `force` is forwarded to the fetcher (cache-bypass for backends that cache). */
     async function refreshUsage(force = false) {
@@ -82,50 +80,18 @@ export function createUsageStore<T extends { active: boolean }>(
       )
     }
 
-    function startTimers() {
-      clearTimers()
-      pollTimer = setInterval(refreshUsage, 30_000)
-    }
-
-    function clearTimers() {
-      if (pollTimer) {
-        clearInterval(pollTimer)
-        pollTimer = null
-      }
-    }
+    const polling = useFocusPolling([{ every: 30_000, tick: () => refreshUsage() }])
 
     function startPolling() {
-      stopPolling()
-      windowFocused = document.hasFocus()
+      // プロジェクト切替のたびに張り直されるので、前のプロジェクトの数字を先に捨てる
+      // （`git` の `lastStatus` と同じ理由。取得が返るまで StatusBar に残ってしまう）。
+      usage.value = null
       refreshUsage()
-      if (windowFocused) startTimers()
-
-      pollAbort = new AbortController()
-      const { signal } = pollAbort
-
-      window.addEventListener(
-        'blur',
-        () => {
-          windowFocused = false
-          clearTimers()
-        },
-        { signal },
-      )
-      window.addEventListener(
-        'focus',
-        () => {
-          windowFocused = true
-          refreshUsage()
-          startTimers()
-        },
-        { signal },
-      )
+      polling.start()
     }
 
     function stopPolling() {
-      clearTimers()
-      pollAbort?.abort()
-      pollAbort = null
+      polling.stop()
       usage.value = null
     }
 

@@ -6,15 +6,22 @@
  */
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { resolveNotifier } from '../lib/notify'
+import { windowFocused } from '../lib/window'
 import { useAgentStore } from '../stores/agent'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
 import type { AgentAuthState, AgentCommandInfo, PermissionOption } from '../types/agent'
 import type { AgentChatTab } from '../types/tab'
 
+/**
+ * 通知を出すかの判定（見ているタブには出さない）。フォーカスは `windowFocused`＝
+ * ネイティブの signal で見る（#277）: `document.hasFocus()` だと、タイトルバーを
+ * クリックして前に出したときや、トレイから復帰したときに webview へフォーカスが
+ * 入らず、**目の前で開いているタブに通知が飛ぶ**。
+ */
 function isAgentTabVisible(tabId: string): boolean {
   const tabStore = useTabStore()
-  return tabStore.activeTabId === tabId && document.visibilityState === 'visible' && document.hasFocus()
+  return tabStore.activeTabId === tabId && document.visibilityState === 'visible' && windowFocused.value
 }
 
 function findAgentTab(tabId: string): AgentChatTab | undefined {

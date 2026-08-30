@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { useFocusPolling } from '../composables/useFocusPolling'
 import { normalizeSep, pathSep } from '../lib/paths'
 import { gitWorktreeList } from '../lib/tauri'
 import type { GitWorktree } from '../types/git'
@@ -14,9 +15,6 @@ import { useTaskStore } from './tasks'
 export const useWorktreeStore = defineStore('worktree', () => {
   const worktrees = ref<GitWorktree[]>([])
   const loading = ref(false)
-
-  let pollTimer: ReturnType<typeof setInterval> | null = null
-  let pollAbort: AbortController | null = null
 
   // True once a repo with more than one worktree is detected — drives whether
   // the status-bar selector is worth showing at all.
@@ -100,39 +98,11 @@ export const useWorktreeStore = defineStore('worktree', () => {
     if (useGitStore().status) loadWorktrees()
   }
 
-  function startTimer() {
-    clearTimer()
-    pollTimer = setInterval(poll, 15000)
-  }
-
-  function clearTimer() {
-    if (pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-  }
+  const polling = useFocusPolling([{ every: 15_000, tick: poll }])
 
   function startPolling() {
-    stopPolling()
     loadWorktrees()
-    if (document.hasFocus()) startTimer()
-    pollAbort = new AbortController()
-    const { signal } = pollAbort
-    window.addEventListener('blur', clearTimer, { signal })
-    window.addEventListener(
-      'focus',
-      () => {
-        poll()
-        startTimer()
-      },
-      { signal },
-    )
-  }
-
-  function stopPolling() {
-    clearTimer()
-    pollAbort?.abort()
-    pollAbort = null
+    polling.start()
   }
 
   return {
@@ -144,6 +114,6 @@ export const useWorktreeStore = defineStore('worktree', () => {
     setActiveWorktree,
     reset,
     startPolling,
-    stopPolling,
+    stopPolling: polling.stop,
   }
 })

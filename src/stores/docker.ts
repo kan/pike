@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
+import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
 import {
   dockerComposeDiscover,
@@ -24,8 +25,6 @@ export const useDockerStore = defineStore('docker', () => {
   const tunnelBusy = ref<string[]>([])
   const error = ref<string | null>(null)
 
-  let pollTimer: ReturnType<typeof setInterval> | null = null
-  let pollAbort: AbortController | null = null
   const refreshing = ref(false)
   let refreshGuard = false
 
@@ -137,45 +136,7 @@ export const useDockerStore = defineStore('docker', () => {
     }
   }
 
-  function startTimer() {
-    clearTimer()
-    pollTimer = setInterval(refreshContainers, 5000)
-  }
-
-  function clearTimer() {
-    if (pollTimer) {
-      clearInterval(pollTimer)
-      pollTimer = null
-    }
-  }
-
-  function startPolling() {
-    stopPolling()
-    if (document.hasFocus()) startTimer()
-    pollAbort = new AbortController()
-    const { signal } = pollAbort
-    window.addEventListener(
-      'blur',
-      () => {
-        clearTimer()
-      },
-      { signal },
-    )
-    window.addEventListener(
-      'focus',
-      () => {
-        refreshContainers()
-        startTimer()
-      },
-      { signal },
-    )
-  }
-
-  function stopPolling() {
-    clearTimer()
-    pollAbort?.abort()
-    pollAbort = null
-  }
+  const polling = useFocusPolling([{ every: 5_000, tick: refreshContainers }])
 
   return {
     connected,
@@ -195,7 +156,7 @@ export const useDockerStore = defineStore('docker', () => {
     composeDown,
     createTunnel,
     stopTunnel,
-    startPolling,
-    stopPolling,
+    startPolling: polling.start,
+    stopPolling: polling.stop,
   }
 })
