@@ -94,6 +94,10 @@ webview2-com = "0.38"
 windows-core = "0.61"
 # 背景透過（issue #162）: アクリル / Mica のすりガラス効果を実行時に適用/解除する。
 window-vibrancy = "0.8"
+# window-vibrancy の API が要求するハンドルの trait。`Window` と `WebviewWindow` の
+# どちらでも受けられるようにするためだけに直接依存へ足してある（依存グラフには
+# tauri 経由で既に入っているので、ビルドは増えない）。windows-core と同じ事情。
+raw-window-handle = "0.6"
 
 # 依存クレートのデバッグ情報を落とす。**自分のコードのぶんは残る**ので、デバッガでの
 # ステップ実行も変数の確認もそのままできる。失うのは依存の中（tauri / wry など）で

@@ -14,7 +14,6 @@ import {
 } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
-import { hexToRgba } from '../../lib/format'
 import { isMacHost, isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
@@ -293,17 +292,6 @@ function closePromptMenu() {
 }
 
 const termRef = ref<HTMLDivElement>()
-
-// Window transparency (issue #162): the wrapper sits *behind* xterm. In backdrop
-// mode the xterm layers are forced transparent (store theme + the scoped CSS
-// below that overrides xterm.css's hard-coded opaque viewport), so the wrapper is
-// the single translucent tint layer at the chosen opacity. When off, keep the
-// opaque scheme background as before.
-const wrapperBg = computed(() =>
-  settingsStore.windowBackdrop === 'none'
-    ? settingsStore.colorScheme.background
-    : hexToRgba(settingsStore.colorScheme.background, settingsStore.windowOpacity),
-)
 
 let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
@@ -1021,7 +1009,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="terminal-wrapper" :class="{ opaque: settingsStore.windowBackdrop === 'none' }" data-testid="terminal">
+  <div
+    class="terminal-wrapper xterm-surface"
+    :class="{ opaque: settingsStore.windowBackdrop === 'none' }"
+    data-testid="terminal"
+  >
     <div v-if="showAgentLaunch || showPromptInject" class="hover-toolbar term-toolbar">
       <div v-if="showPromptInject" class="agent-launch" :class="{ open: promptMenuOpen }">
         <button class="agent-btn solo" :title="t('terminal.promptInject')" @click="togglePromptMenu">
@@ -1089,12 +1081,17 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Window transparency (issue #162): the wrapper sits *behind* xterm. In backdrop
+   mode the xterm layers are forced transparent (the store's xtermTheme plus the
+   shared `.xterm-surface` rule in theme.css), so this is the single translucent
+   tint layer — and the color it paints pairs with xtermTheme, so the store owns
+   both halves. */
 .terminal-wrapper {
   position: absolute;
   inset: 0;
   padding: 10px;
   box-sizing: border-box;
-  background: v-bind('wrapperBg');
+  background: v-bind('settingsStore.terminalSurfaceBg');
 }
 
 /* xterm の高さは `rows × セル高` で決まり、FitAddon は行数を floor するので、
@@ -1107,18 +1104,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-}
-
-/* Window transparency (issue #162): xterm.css hard-codes an opaque black viewport
-   (`.xterm-viewport { background-color: #000 }`, for OS-X scrollbars) which would
-   otherwise hide the translucent wrapper behind it. When a backdrop is active,
-   force the xterm layers transparent so the wrapper tint — and the desktop /
-   acrylic behind it — show through. `:global` because these classes live inside
-   xterm's own DOM, not this component's scoped tree. */
-.terminal-wrapper:not(.opaque) :global(.xterm),
-.terminal-wrapper:not(.opaque) :global(.xterm .xterm-viewport),
-.terminal-wrapper:not(.opaque) :global(.xterm .xterm-screen) {
-  background-color: transparent !important;
 }
 
 /* 位置と reveal は theme.css の `.hover-toolbar`。ここはメニューを開いているあいだ

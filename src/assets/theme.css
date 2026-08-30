@@ -1,8 +1,8 @@
 :root,
 [data-theme="dark"] {
   /* Window transparency (issue #162): surface backgrounds are composed from an
-     RGB literal + --surface-alpha so a single variable (set from the
-     windowOpacity setting) makes every surface translucent at once. Default
+     RGB literal + --surface-alpha so a single variable (pushed from the store's
+     surfaceAlpha) makes every surface translucent at once. Default
      alpha 1 = fully opaque (identical to before). Non-background vars (text,
      border, accent, git/graph colors) stay opaque. */
   --surface-alpha: 1;
@@ -136,6 +136,17 @@
   --bg-secondary: color-mix(in srgb, var(--popup-lift-color) var(--popup-lift), rgb(var(--bg-secondary-rgb)));
   --bg-tertiary: color-mix(in srgb, var(--popup-lift-color) var(--popup-lift), rgb(var(--bg-tertiary-rgb)));
   --tab-hover-bg: color-mix(in srgb, var(--popup-lift-color) var(--popup-lift), rgb(var(--tab-hover-bg-rgb)));
+}
+
+/* xterm を載せるタブの下地（#162）。xterm.css は `.xterm-viewport` に不透明の黒を
+   焼き込んでいる（OS-X のスクロールバー対策）ので、backdrop のときはそれを打ち消して、
+   このクラスを持つ要素の 1 枚だけが色を塗るようにする。**xterm を開くタブを足したら
+   このクラスを付けること**（`.popup-surface` と同じで、付け忘れは backdrop を有効に
+   したときしか再現しない）。不透明モードでは `.opaque` を併せて付けて素通しにする。 */
+.xterm-surface:not(.opaque) .xterm,
+.xterm-surface:not(.opaque) .xterm .xterm-viewport,
+.xterm-surface:not(.opaque) .xterm .xterm-screen {
+  background-color: transparent !important;
 }
 
 /* タブの内容の右上に浮かぶツールバー（ターミナルのエージェント起動、diff の折り返し）。

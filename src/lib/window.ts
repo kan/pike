@@ -7,6 +7,24 @@ import { ref } from 'vue'
 export const windowLabel = getCurrentWindow().label
 
 /**
+ * このウィンドウがアクティブか。**フォーカスを見たいものはここを読む。**
+ *
+ * 元は Rust の `WindowEvent::Focused` で、アクリルを付け外しする判断（#277）と
+ * **同じ信号**。`document.hasFocus()` を見ないのは、タイトルバーだけをクリックして
+ * ウィンドウがアクティブになったとき（webview にフォーカスが入らない）にネイティブ側と
+ * ずれるため。ウィンドウに 1 つで足りるので購読もモジュールで 1 回だけ行う。
+ *
+ * ポーリングを止めるストア（`git` / `docker` / `worktree` / `usageStore`）は、これより
+ * 前からある `document.hasFocus()` ＋ focus/blur リスナを各自で持っている。**新しく
+ * 書くときは真似しないこと**（同じ問いに答えが 2 つある状態なので、既存のぶんもここへ
+ * 寄せたい。#277 の範囲外なので手を付けていない）。
+ */
+export const windowFocused = ref(document.hasFocus())
+void getCurrentWindow().onFocusChanged(({ payload }) => {
+  windowFocused.value = payload
+})
+
+/**
  * WebView のカラースキーム（`prefers-color-scheme`）を app のテーマに追従させる。
  * Windows では Tauri の `set_theme` が WebView2 の PreferredColorScheme を設定するため、
  * これでマニュアルプレビューの `<picture>` 等が OS ではなく Pike のテーマに従う。

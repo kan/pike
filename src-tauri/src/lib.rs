@@ -93,6 +93,36 @@ static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
 /// whenever main is shown again (tray click, "Show", project focus).
 static MAIN_CLOSED_HIDDEN: AtomicBool = AtomicBool::new(false);
 
+/// Whether the window backdrop setting is `acrylic` (#277).
+///
+/// DWM turns the `DWMWA_SYSTEMBACKDROP_TYPE` material off for an *inactive*
+/// window and paints an opaque fallback behind it, so an unfocused Pike stopped
+/// looking translucent at all even though its per-pixel alpha was still on. The
+/// material is therefore taken off on blur and asked for again on focus, which
+/// leaves the plain `transparent` look (no blur, still see-through) in between.
+/// The focus handler needs to know the setting, and `window_set_backdrop` is
+/// stateless, so it is mirrored here — the same trick `CLOSE_TO_TRAY` uses for a
+/// frontend setting Rust cannot read. One flag for the process is enough: the
+/// setting lives in `pike:settings`, which every window shares and re-broadcasts.
+#[cfg(windows)]
+static ACRYLIC_BACKDROP: AtomicBool = AtomicBool::new(false);
+
+/// Put the acrylic material on the window, or take it off, following the
+/// setting and the window's focus. Taking it off leaves the per-pixel alpha
+/// alone, so the window stays see-through. Must run on the thread owning it.
+///
+/// Takes the handle trait window-vibrancy itself asks for, so both callers pass
+/// what they already hold: the window-event handler a `Window`, the command a
+/// `WebviewWindow`.
+#[cfg(windows)]
+fn sync_acrylic_material(window: impl raw_window_handle::HasWindowHandle, focused: bool) {
+    if ACRYLIC_BACKDROP.load(Ordering::Relaxed) && focused {
+        let _ = window_vibrancy::apply_acrylic(window, None);
+    } else {
+        let _ = window_vibrancy::clear_acrylic(window);
+    }
+}
+
 /// The dark theme's opaque surface color, kept in sync with `--bg-primary-rgb`
 /// in `src/assets/theme.css`. Used as the pre-mount window background and as the
 /// fallback when the frontend's color cannot be parsed (issue #162).
@@ -801,21 +831,23 @@ async fn window_set_backdrop(
     #[cfg(windows)]
     {
         let w = window.clone();
+        let acrylic = kind == "acrylic";
+        ACRYLIC_BACKDROP.store(acrylic, Ordering::Relaxed);
         window
             .app_handle()
             .run_on_main_thread(move || {
-                use window_vibrancy::{apply_acrylic, clear_acrylic, clear_mica};
                 if let Some(hwnd) = win32_hwnd(&w, "backdrop") {
                     unsafe { set_per_pixel_alpha(hwnd, !opaque) };
                 }
-                if kind == "acrylic" {
-                    let _ = apply_acrylic(&w, None);
-                } else {
-                    // "none" / "transparent" / unknown: strip any native material.
-                    // clear_mica covers backdrops applied by an earlier build.
-                    let _ = clear_acrylic(&w);
-                    let _ = clear_mica(&w);
+                if !acrylic {
+                    // 旧ビルドが載せた mica の後始末。**効くのは Win11 22621 より前
+                    // だけ**で、そこでは clear_acrylic とは別の属性を書く（22621 以降は
+                    // どちらも DWMSBT_NONE なので、下の呼び出しと同じ書き込みになる）。
+                    let _ = window_vibrancy::clear_mica(&w);
                 }
+                // 非アクティブのウィンドウには載せない（#277）。載せると DWM が
+                // 不透明のフォールバックを塗り、透過そのものが効かなくなる。
+                sync_acrylic_material(&w, w.is_focused().unwrap_or(true));
             })
             .map_err(|e| e.to_string())?;
     }
@@ -1365,6 +1397,17 @@ pub fn run() {
                         // running something can be confirmed first (#178); it
                         // calls `app_exit` once the user agrees.
                         let _ = window.emit("main-exit-requested", ());
+                    }
+                }
+                // アクリルは非アクティブのあいだ外す（#277。理由は ACRYLIC_BACKDROP
+                // の doc）。ここは event loop（= main）の上なので DWM を直接叩いて
+                // よいが、**アクリルでなければ何もしない**: 既定の不透明モードで
+                // 全ウィンドウの focus / blur ごとに dwmapi を叩くことになるうえ、
+                // 外す仕事は設定を変えた経路が既に済ませている。
+                #[cfg(windows)]
+                WindowEvent::Focused(focused) => {
+                    if ACRYLIC_BACKDROP.load(Ordering::Relaxed) {
+                        sync_acrylic_material(window, *focused);
                     }
                 }
                 WindowEvent::Destroyed => {

@@ -3,12 +3,13 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
+import { hexToRgba } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
 import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
-import { setWebviewTheme, windowLabel } from '../lib/window'
+import { setWebviewTheme, windowFocused, windowLabel } from '../lib/window'
 import type { HiddenProject } from '../types/project'
 import {
   isWindowsShell,
@@ -313,6 +314,15 @@ function sanitizeDiffWordWrap(v: unknown): DiffWordWrap {
 export const WINDOW_OPACITY_MIN = 0.1
 export const WINDOW_OPACITY_MAX = 1
 
+/**
+ * 非アクティブでアクリルが外れたときに、不透明側へ寄せる割合（#277）。
+ *
+ * アクリルはデスクトップをぼかして薄めるので、素の透過に落ちると**同じ不透明度でも
+ * ずっと透けて見える**（背後の絵がそのまま出るため）。残りの不透明度のこの割合だけ
+ * 埋めて見え方を近づける。0.4 は目視調整値で、例えば 40% は 64% になる。
+ */
+const ACRYLIC_FALLBACK_LIFT = 0.4
+
 /** A one-click command the terminal can inject (e.g. `claude --continue`). */
 export interface AgentCommand {
   label: string
@@ -609,6 +619,20 @@ export const useSettingsStore = defineStore('settings', () => {
   const closeToTray = ref(saved.closeToTray)
   const windowBackdrop = ref<WindowBackdrop>(saved.windowBackdrop)
   const windowOpacity = ref(saved.windowOpacity)
+  /**
+   * サーフェスに実際に載せる alpha（#162 / #277）。**透過する側はここだけを読む**
+   * こと: パネル（`--surface-alpha`）とターミナルの下地は別々に値を組み立てて
+   * いたので、非アクティブ時の持ち上げを片方だけに書くと画面の中で濃さが割れる。
+   */
+  const surfaceAlpha = computed(() => {
+    if (windowBackdrop.value === 'none') return 1
+    // 非アクティブのアクリルは Windows がマテリアルを外す（#277）ので、素の透過に
+    // 落ちたぶんだけ不透明側へ寄せる。
+    if (windowBackdrop.value === 'acrylic' && !windowFocused.value) {
+      return windowOpacity.value + (1 - windowOpacity.value) * ACRYLIC_FALLBACK_LIFT
+    }
+    return windowOpacity.value
+  })
   const agentDefault = ref<AgentDefault>(saved.agentDefault)
   const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
@@ -910,6 +934,14 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     return theme
   })
+
+  /**
+   * ターミナルの下地（#162）。`xtermTheme` が xterm 側を透明にするので、色を塗るのは
+   * この 1 枚だけになる。**`xtermTheme` と対で置くこと**: 2 つで 1 つの規則なので、
+   * 片方をストア・片方をコンポーネントに置くと「backdrop のときどう塗るか」が
+   * 2 層に割れる。全ターミナルで同じ値なので、タブごとに組み立てる意味も無い。
+   */
+  const terminalSurfaceBg = computed(() => hexToRgba(colorScheme.value.background, surfaceAlpha.value))
 
   /** Snapshot the persistable (environment-independent) settings. */
   function snapshot(): PersistedSettings {
@@ -1222,6 +1254,8 @@ export const useSettingsStore = defineStore('settings', () => {
     closeToTray,
     windowBackdrop,
     windowOpacity,
+    surfaceAlpha,
+    terminalSurfaceBg,
     agentDefault,
     agentCommands,
     agentPrompts,

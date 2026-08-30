@@ -68,6 +68,15 @@ watch(
     }
   },
 )
+// 背景透過（#162）: backdrop を切り替えたら xterm の透明描画も切り替えて描き直す。
+watch(
+  () => settingsStore.windowBackdrop,
+  (kind) => {
+    if (!terminal) return
+    terminal.options.allowTransparency = kind !== 'none'
+    terminal.refresh(0, terminal.rows - 1)
+  },
+)
 
 onMounted(async () => {
   if (!termRef.value || !tab.value) return
@@ -80,6 +89,8 @@ onMounted(async () => {
     cursorBlink: false,
     disableStdin: true,
     convertEol: true,
+    // 背景透過（#162）: 透明な theme の背景をそのまま描かせる。TerminalTab と同じ。
+    allowTransparency: settingsStore.windowBackdrop !== 'none',
   })
 
   fitAddon = new FitAddon()
@@ -126,7 +137,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="docker-logs-tab">
+  <div class="docker-logs-tab xterm-surface" :class="{ opaque: settingsStore.windowBackdrop === 'none' }">
     <div ref="termRef" class="logs-container"></div>
   </div>
 </template>
@@ -137,7 +148,7 @@ onUnmounted(() => {
   inset: 0;
   padding: 10px;
   box-sizing: border-box;
-  background: v-bind('settingsStore.colorScheme.background');
+  background: v-bind('settingsStore.terminalSurfaceBg');
 }
 
 .logs-container {

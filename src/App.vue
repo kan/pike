@@ -86,13 +86,14 @@ watch(
   { immediate: true },
 )
 watch(
-  [() => settingsStore.windowBackdrop, () => settingsStore.windowOpacity],
-  ([kind, opacity]) => {
-    // Opaque when backdrop is off; otherwise the surfaces take the slider alpha.
+  () => settingsStore.surfaceAlpha,
+  (alpha) => {
     // This single variable makes every --bg-* surface translucent at once.
     // Popups stay opaque but tint themselves from this alpha too (--popup-lift in
-    // theme.css), so nothing else has to be pushed from here.
-    document.documentElement.style.setProperty('--surface-alpha', String(kind === 'none' ? 1 : opacity))
+    // theme.css), so nothing else has to be pushed from here. The value itself
+    // (opaque mode, slider, the unfocused-acrylic lift of #277) is the store's
+    // job — the terminal reads the same one.
+    document.documentElement.style.setProperty('--surface-alpha', String(alpha))
   },
   { immediate: true },
 )

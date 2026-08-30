@@ -3364,6 +3364,7 @@ dependencies = [
  "notify",
  "percent-encoding",
  "portable-pty",
+ "raw-window-handle",
  "reqwest",
  "rustls",
  "serde",

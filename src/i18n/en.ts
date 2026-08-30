@@ -247,7 +247,7 @@ export default {
   'settings.backdropAcrylic': 'Acrylic',
   'settings.windowOpacity': 'Opacity',
   'settings.backdropHint':
-    'Make the window translucent so the desktop shows through. Transparent shows the desktop crisply; Acrylic is the Windows 11 frosted-glass blur (Windows 11 only). Opacity adjusts how transparent the surfaces are.',
+    'Make the window translucent so the desktop shows through. Transparent shows the desktop crisply; Acrylic is the Windows 11 frosted-glass blur (Windows 11 only; Windows drops the blur while the window is inactive, so Pike nudges the surfaces towards opaque for that time). Opacity adjusts how transparent the surfaces are.',
   'settings.uiFont': 'UI Font',
   'settings.uiFontSize': 'UI Font Size',
   'settings.uiFontDefault': 'System Default',
