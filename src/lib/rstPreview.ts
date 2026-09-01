@@ -1,10 +1,20 @@
 /**
  * reStructuredText のプレビュー（#284）。
  *
- * **自前で書いているのは、使える変換器が無いため。** JS の rst → HTML は `rst2html` /
- * `restructured` くらいで、どちらも 2022 年で更新が止まっているうえ、`power-assert`（650KB）と
- * `commander`（207KB）を production dependencies に持っている（テストと CLI のものが誤って
- * 入っている形）。「軽さ最優先」「不要な npm パッケージを追加しない」という方針とは釣り合わない。
+ * **自前で書いているのは、#284 の時点で使える変換器が無かったため。** 当時の JS の rst → HTML は
+ * `rst2html`（2017 年で更新停止）と `restructured`（最終公開 2016 年）くらいで、後者は
+ * `power-assert`（650KB）と `commander`（207KB）を production dependencies に持っている
+ * （テストと CLI のものが誤って入っている形）。「軽さ最優先」「不要な npm パッケージを追加
+ * しない」という方針とは釣り合わなかった。
+ *
+ * **その前提はもう古い。** `rst-compiler`（Trinovantes、純 TypeScript・MIT・現役）が実用水準に
+ * ある。乗り換えていないのは production dependencies に `shiki` と `katex` を持つためで、
+ * プレビューのためにハイライタと数式エンジンをもう一式抱えることになる。**運用してみて不具合が
+ * 続くようなら、依存が太るのを許容してこちらへ載せ替える**（2026-09-01 の判断）。載せ替えるときは
+ * 下の「解釈できなかったものは字面のまま出す」だけは維持すること（あちらは失敗時に落とす作りで、
+ * プレビューとしては消えるより残るほうがよい）。Rust 側（`rust_parser` / `rst_renderer`）は
+ * README 自身が「rST の部分集合」と書いていて完成度が変わらないうえ、**CLAUDE.md の「Rust は
+ * I/O ブリッジに徹する」に反し、打鍵のたびに IPC を往復する**ので採らない。
  *
  * **したがってこれは docutils の再実装ではない。** 実際に書かれる文書でよく出る要素だけを扱い、
  * **解釈できなかったものは捨てずに字面のまま出す**。プレビューは読むためのもので、変換に失敗した
@@ -19,7 +29,7 @@
  */
 
 import { displayWidth, sliceByWidth } from './displayWidth'
-import { asHtml, escapeHtml, escapeRegExp, type Html, splitDelimited } from './text'
+import { asHtml, charEntity, escapeHtml, escapeRegExp, type Html, splitDelimited } from './text'
 
 /** 見出しに使える記号（docutils が認めるもの）。どれが何レベルかは文書ごとに決まる。 */
 const ADORNMENT = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
@@ -35,9 +45,22 @@ const HOLE_OPEN = ''
 const HOLE_CLOSE = ''
 /** 定数 2 つから作るので、`renderInline` のたびに組み直さない（段落とセルの数だけ呼ばれる）。 */
 const HOLE_RE = new RegExp(`${HOLE_OPEN}(\\d+)${HOLE_CLOSE}`, 'g')
+/**
+ * 原文に紛れ込んだ伏せ字の文字。**実体参照へ逃がす**: そのままだと穴の解決が誤爆して、
+ * `a␀5␁b` のような並びが `aundefinedb` になる（閉じが無ければ穴が残ったまま出る）。
+ */
+const HOLE_CHARS = new RegExp(`[${HOLE_OPEN}${HOLE_CLOSE}]`, 'g')
 
 /** 箇条書きの記号（`-` `*` `+` `•`）。 */
 const BULLET = /^([-*+•])\s+(.*)$/
+/**
+ * `list-table` の欄の切り出しだけに使う、本文が空でもよい版。空欄は記号だけの行で書くので、
+ * 空白を必須にすると欄が 1 つ足りないまま前の欄へ連結され、列がずれる。
+ *
+ * **`BULLET` のほうを緩めないこと。** あれは本文全体の振り分けにも使われるので、記号 1 文字の
+ * 行がリストの開始に化ける。表の `-`（該当なし）や `.. [1] -` の脚注が空の箇条書きになる。
+ */
+const LIST_TABLE_CELL = /^([-*+•])(?:\s+(.*))?$/
 /** 番号付き（`1.` `1)` `(1)` `#.`）。 */
 const ENUM = /^(\(?[0-9]+[.)]|#\.)\s+(.*)$/
 /** フィールドリスト（`:key: value`）。 */
@@ -91,7 +114,10 @@ function refPattern(links: Map<string, Html>): RegExp | null {
   const cached = refPatterns.get(links)
   if (cached !== undefined) return cached
   const names = [...links.keys()].sort((a, b) => b.length - a.length).map((n) => escapeRegExp(escapeHtml(n)))
-  const pattern = names.length ? new RegExp(`(?:${names.join('|')})_(?![\\w_])`, 'gi') : null
+  // **左にも境界が要る。** 無いと `test` を定義した文書で `latest_` の後ろ 4 文字に当たり、
+  // `la<a …>test</a>` になる（`openapi-spec_` のような命名で普通に踏む）。`\b` は日本語の
+  // 境界を知らないので、英数字と `_` が直前に来ないことだけを見る。
+  const pattern = names.length ? new RegExp(`(?<![\\w_])(?:${names.join('|')})_(?![\\w_])`, 'gi') : null
   refPatterns.set(links, pattern)
   return pattern
 }
@@ -125,7 +151,9 @@ function renderInline(text: string, ctx: RstContext): Html {
   const done: string[] = []
   const hide = (html: Html) => `${HOLE_OPEN}${done.push(html) - 1}${HOLE_CLOSE}`
 
-  let out: string = escapeHtml(text).replace(/``([^`]+)``/g, (_, code: string) => hide(asHtml(`<code>${code}</code>`)))
+  let out: string = escapeHtml(text)
+    .replace(HOLE_CHARS, charEntity)
+    .replace(/``([^`]+)``/g, (_, code: string) => hide(asHtml(`<code>${code}</code>`)))
 
   // 参照（`name`_ / `name <url>`_）。行き先が分からないものは字面のまま残す。
   out = out.replace(/`([^`]+)`__?/g, (whole: string, body: string) => {
@@ -208,7 +236,25 @@ function isTableRule(line: string): boolean {
 /** 見出しの下線か（同じ記号が 2 つ以上続く行）。 */
 function isAdornment(line: string): boolean {
   const t = line.trim()
+  // **明示マークアップは罫線として扱わない。** `.` も `:` も罫線に使える文字だが、`..` は
+  // コメント、`::` はリテラルブロックの印で、docutils ではそちらが優先される。除かないと、
+  // この関数を先に通る見出しと `<hr>` の分岐に食われて、`..` だけのコメントが `<h1>` になり、
+  // 単独の `::` が `<hr>` ＋ ただの段落に化ける。
+  //
+  // **ちょうど 2 文字のときだけ**にすること。明示マークアップは `..` の後ろに空白か行末が
+  // 要るので、`...` や `.....` は正当な罫線（前者は区切り、後者は見出しの下線）。前方一致で
+  // 弾くと、それらが `<hr>` や `<h1>` にならないうえ、`..` の分岐に拾われて本文から消える。
+  if (t === '..' || t === '::') return false
   return t.length >= 2 && ADORNMENT.includes(t[0]) && [...t].every((c) => c === t[0])
+}
+
+/**
+ * 指示行・定義行に書いた本文（`.. note:: 気をつけて` / `.. [1] 最初の脚注`）を、続くインデント
+ * 塊の前に足す。**あいだに空行があったなら段落の切れ目**なので 1 行挟む。挟まないと、続く
+ * リストや 2 つ目の段落が指示行の文に吸い込まれて 1 つの `<p>` に潰れる。
+ */
+function withLead(lead: string, blankFirst: boolean, body: string[]): string[] {
+  return [lead, ...(blankFirst ? [''] : []), ...body]
 }
 
 /** 字面のまま見せる（解釈できなかったもの）。 */
@@ -244,8 +290,13 @@ function collectContext(lines: string[], inherited?: RstContext): RstContext {
   const hasNote = lines.some((l) => NOTE_DEF.test(l))
   if (!hasLink && !hasNote && inherited) return inherited
 
-  const links = new Map<string, Html>(inherited?.links)
-  const notes = new Map<string, Note>(inherited?.notes)
+  // **脚注の採番は文書で 1 つ**なので、Map は複製せず親のものへ足す。複製すると、入れ子の
+  // 兄弟ブロック（2 つの `.. note::` の中など）がどちらも親の状態から数え直し、同じ番号と
+  // 同じ id を持つ脚注が 2 つできてアンカーが常に前者へ飛ぶ。
+  const notes = inherited?.notes ?? new Map<string, Note>()
+  // リンクのほうは足すときだけ複製する。`refPattern` のキャッシュが Map の identity を
+  // キーにしているので、同じ Map に足すと古い正規表現が返って新しい名前を拾えない。
+  const links = hasLink ? new Map<string, Html>(inherited?.links) : (inherited?.links ?? new Map<string, Html>())
 
   for (let i = 0; i < lines.length; i++) {
     const link = lines[i].match(LINK_TARGET)
@@ -381,8 +432,7 @@ export function buildRstPreview(text: string, inherited?: RstContext): string {
     const note = trimmed.match(NOTE_DEF)
     if (note) {
       const { body, next, blankFirst } = takeIndented(i + 1)
-      // 定義行の残りと続きのあいだに空行があったなら、そこは段落の切れ目。
-      out.push(renderNote(note[1].trim(), [note[2], ...(blankFirst ? [''] : []), ...body], ctx))
+      out.push(renderNote(note[1].trim(), withLead(note[2], blankFirst, body), ctx))
       i = next
       continue
     }
@@ -498,7 +548,9 @@ function renderDirective(name: string, arg: string, body: string[], ctx: RstCont
   }
   if (ADMONITIONS.has(name)) {
     const title = name.charAt(0).toUpperCase() + name.slice(1)
-    const inner = buildRstPreview(content.join('\n'), ctx)
+    // **指示行に書いた本文も本文**（`.. note:: 気をつけて` は docutils でいちばん普通の書き方）。
+    // 落とすと中身の無い箱だけが出る。続きのインデント塊があれば同じ段落として繋がる。
+    const inner = buildRstPreview(withLead(arg.trim(), blankFirst, content).join('\n'), ctx)
     return `<div class="rst-admonition rst-${escapeHtml(name)}"><p class="rst-admonition-title">${escapeHtml(title)}</p>${inner}</div>`
   }
   if (name === 'image' || name === 'figure') {
@@ -557,11 +609,41 @@ function parseSimpleTable(lines: string[], start: number, ctx: RstContext): { ht
   for (const m of rule.matchAll(/=+/g)) bounds.push(indent + displayWidth(rule.slice(0, m.index)))
   if (bounds.length < 2) return null
 
+  /** 罫線の桁に収まっているか（欄の境目に文字が跨っていないか）。 */
+  const fitsColumns = (line: string) =>
+    bounds.slice(1).every((b) => {
+      const head = sliceByWidth(line, 0, b)
+      return displayWidth(head) < b || /\s$/.test(head)
+    })
+
   const rules: number[] = []
   let i = start
   while (i < lines.length) {
-    if (isSimpleRule(lines[i])) rules.push(i)
-    else if (lines[i].trim() === '' && rules.length >= 2) break
+    if (isSimpleRule(lines[i])) {
+      rules.push(i)
+      // **閉じたら止める。** 罫線は最大 3 本（上・見出しの区切り・下）で、2 本目の次が表の行で
+      // なければ 2 本目が下の罫線。読み進めると、後続の散文と次の表まで 1 つに繋げてしまい、
+      // 桁で切った散文が欄に入る。
+      //
+      // **2 本目の次が空行なら閉じたとみなす**（`!next.trim()`）。`==== ====/a b/==== ====/空行/
+      // ==== ====` という並びは「表 2 つ」とも「見出しの区切りのあとに空行を挟んだ 1 つの表」とも
+      // 読めて、字面では区別が付かない。前者のほうが桁違いに多いのでそちらを採る。
+      if (rules.length >= 3) break
+      const next = lines[i + 1]
+      if (rules.length === 2 && (next === undefined || isSimpleRule(next) || !next.trim() || !fitsColumns(next))) break
+      i++
+      continue
+    }
+    if (lines[i].trim() === '') {
+      // 空行の次が罫線か、表の桁に収まっているあいだは続き（行を空行で束ねる書き方がある）。
+      // **「閉じ罫線が来るまで読み進める」にしないこと**: 閉じ罫線を欠いた表がここで止まらず、
+      // やはり後続を飲み込む。
+      let k = i + 1
+      while (k < lines.length && lines[k].trim() === '') k++
+      if (k >= lines.length || !(isSimpleRule(lines[k]) || fitsColumns(lines[k]))) break
+      i = k
+      continue
+    }
     i++
   }
   if (rules.length < 2) return null
@@ -682,18 +764,18 @@ function parseListTable(body: string[], ctx: RstContext): string | null {
   for (let i = next; i < body.length; i++) {
     const line = body[i]
     if (!line.trim()) continue
-    const outer = line.trim().match(BULLET)
+    const outer = line.trim().match(LIST_TABLE_CELL)
     if (outer && indentOf(line) === 0) {
       rows.push([])
       // 行の宣言（`* - 最初の欄`）は同じ行に最初の欄を持てる。
-      const inner = outer[2].trim().match(BULLET)
-      if (inner) rows[rows.length - 1].push(inner[2])
+      const inner = (outer[2] ?? '').trim().match(LIST_TABLE_CELL)
+      if (inner) rows[rows.length - 1].push(inner[2] ?? '')
       continue
     }
     if (!rows.length) return null
     const cells = rows[rows.length - 1]
-    const inner = line.trim().match(BULLET)
-    if (inner) cells.push(inner[2])
+    const inner = line.trim().match(LIST_TABLE_CELL)
+    if (inner) cells.push(inner[2] ?? '')
     // 欄の続き（インデントされた継続行）は直前の欄に足す。
     else if (cells.length) cells[cells.length - 1] += ` ${line.trim()}`
   }

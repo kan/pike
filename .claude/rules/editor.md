@@ -141,7 +141,8 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）
   - CSV/TSV: `buildCsvPreview` でテーブル化（RFC 4180 準拠の引用符対応パーサ、10,000 行 truncate、sticky ヘッダ）
   - **reStructuredText（#284）**: ハイライトは `codemirror-lang-rst`（CM6 に公式のものが無いので入れた外部パッケージ。依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる）。プレビューは `lib/rstPreview.ts` の `buildRstPreview` で**自前**。判断の実体はあのファイルの doc コメントが正本だが、要点は次のとおり:
-    - **変換器を入れなかったのは選択肢が悪いから。** JS の rst → HTML は `rst2html` / `restructured` くらいで、どちらも 2022 年で更新が止まっているうえ `power-assert`（650KB）と `commander`（207KB）を production dependencies に持つ
+    - **変換器を入れなかったのは、#284 の時点で選択肢が悪かったから。** 当時の JS の rst → HTML は `rst2html`（2017 年）と `restructured`（2016 年）くらいで、後者は `power-assert`（650KB）と `commander`（207KB）を production dependencies に持つ
+    - **その前提はもう古い（2026-09-01）。** `rst-compiler`（純 TypeScript・MIT・現役）が実用水準にある。`shiki` と `katex` を抱えるので見送っているだけで、**運用して不具合が続くようなら依存が太るのを許容して載せ替える**。Rust 側（`rust_parser` / `rst_renderer`）は完成度が変わらず、しかも「Rust は I/O ブリッジに徹する」に反して打鍵のたびに IPC を往復するので採らない。詳細は `lib/rstPreview.ts` の冒頭が正本
     - **解釈できなかったものは捨てずに字面のまま出す**（セル結合のある表、`toctree` / `math` のような未対応ディレクティブ、置換指定）。**本文から消してよいのは真のコメントとリンク定義だけ**で、`..` の分岐はそれ以外の明示マークアップ全部の受け皿でもある（脚注・引用・置換をここで捨てていたのが実際のバグだった）。見た目は `md-preview` を共有し、rst 固有の要素（アドモニション・フィールドリスト）だけ `rst-preview` 側で足す
     - **脚注と引用は Markdown プレビューの脚注（#241）と同じ HTML 構造で出す。** `md-preview` の CSS がそのまま当たるので、rst 側に見た目を書かずに済む。定義は**書かれた場所に描く**（`buildRstPreview` は入れ子でも呼ばれるので、末尾に集める先を決められない）
     - **エスケープ済みかどうかは `lib/text.ts` の `Html` 型で持つ。** 生の文字列を属性へ差し込む経路がコンパイルエラーになる。セキュリティレビューで実際に見つかったのがこの穴（`anchor` が引用符を戻していて属性から抜けられた）で、散文のコメントでは守れなかった

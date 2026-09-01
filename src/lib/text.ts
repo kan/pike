@@ -16,11 +16,19 @@ declare const HTML_BRAND: unique symbol
 export type Html = string & { readonly [HTML_BRAND]: true }
 
 /**
+ * 1 文字を数値文字参照にする。**どの文字を逃がすかは呼ぶ側が決める**（`escapeHtml` は HTML の
+ * 特殊文字、rst のプレビューは伏せ字に使う私用領域の文字）。書式だけをここに 1 つ持つ。
+ */
+export function charEntity(c: string): string {
+  return `&#${c.charCodeAt(0)};`
+}
+
+/**
  * `& < > " '` を数値文字参照にする。**引用符まで含める**のは、属性値へ差し込む用途があるため
  * （`&#34;` はブラウザが属性を読むときにデコードするので、値としては元のまま働く）。
  */
 export function escapeHtml(s: string): Html {
-  return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`) as Html
+  return s.replace(/[&<>"']/g, charEntity) as Html
 }
 
 /**
