@@ -177,6 +177,31 @@
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+/* エディタのヘッダに並ぶアイコントグル（折り返し・ミニマップ）。**親のヘッダの様式に
+   合わせず自前で持つ**: プレビュー付きツールバー（`.preview-toggle`）とパンくずヘッダ
+   （`.header-icon-btn`）は別々のボタン様式を持っていて、どちらに置いても同じ見た目に
+   するにはここで完結させるしかない（padding と詳細度を争わずに済む）。 */
+.editor-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.editor-toggle:hover {
+  color: var(--text-active);
+  background: var(--tab-hover-bg);
+}
+
+.editor-toggle.active {
+  color: var(--accent);
+}
+
 /* Shared keyboard shortcut hint for context menus / popup menus */
 .ctx-key {
   font-size: 11px;

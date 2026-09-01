@@ -68,6 +68,7 @@ import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import { type EditorTab, shellToPlatform } from '../../types/tab'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
+import MinimapToggle from '../editor/MinimapToggle.vue'
 import WrapToggle from '../editor/WrapToggle.vue'
 import HelpButton from '../HelpButton.vue'
 
@@ -1018,6 +1019,11 @@ const isReadOnlyTab = computed(() => tab.value?.readOnly ?? false)
 const wordWrapOverride = ref<boolean | null>(null)
 const wordWrapOn = computed(() => wordWrapOverride.value ?? settingsStore.editorWordWrap)
 
+/** ミニマップも同じ形でタブ単位に上書きできる（#282）。折り返しの隣にボタンを置くので、
+ *  片方だけ設定を直に触る作りにすると、並んだ 2 つで効き方が変わる。 */
+const minimapOverride = ref<boolean | null>(null)
+const minimapOn = computed(() => minimapOverride.value ?? settingsStore.editorMinimap)
+
 const markdownLinkPaste = useMarkdownLinkPaste()
 
 /** Is this a file to write Markdown into? Gates the toolbar and its shortcuts
@@ -1133,7 +1139,7 @@ function createEditorView(container: HTMLElement, content: string) {
   if (hasFile) {
     extensions.push(gitDiffGutter())
     extensions.push(diagnosticsExtension())
-    extensions.push(minimapCompartment.of(settingsStore.editorMinimap ? minimap() : []))
+    extensions.push(minimapCompartment.of(minimapOn.value ? minimap() : []))
   }
 
   // Go-to-definition (only for real files; previews / readonly snapshots skipped)
@@ -1636,13 +1642,10 @@ watch(
   },
 )
 
-watch(
-  () => settingsStore.editorMinimap,
-  (on) => {
-    if (!editorView) return
-    editorView.dispatch({ effects: minimapCompartment.reconfigure(on ? minimap() : []) })
-  },
-)
+watch(minimapOn, (on) => {
+  if (!editorView) return
+  editorView.dispatch({ effects: minimapCompartment.reconfigure(on ? minimap() : []) })
+})
 
 watch(wordWrapOn, (on) => {
   if (!editorView) return
@@ -1729,6 +1732,7 @@ onUnmounted(() => {
       <MarkdownToolbar v-if="markdownAssistOn && showEditor" @run="runMarkdownToolbarAction" />
       <span class="toolbar-spacer" />
       <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
+      <MinimapToggle :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
       <HelpButton page="editor-and-preview.md" :size="15" />
     </div>
     <!-- Plain editor header: breadcrumb + reload + help -->
@@ -1744,6 +1748,7 @@ onUnmounted(() => {
       </div>
       <div class="editor-header-actions">
         <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
+        <MinimapToggle :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
         <!-- Readonly snapshots (git show) carry initialContent — reloading from disk is meaningless there -->
         <button
           v-if="!tab?.readOnly && tab?.initialContent === undefined"

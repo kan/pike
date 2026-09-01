@@ -192,6 +192,7 @@ pike/
 │   │   │   └── AgentApprovalDialog.vue  # 統一 approval ダイアログ
 │   │   ├── editor/
 │   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
+│   │   │   ├── MinimapToggle.vue    # ミニマップの表示切り替え（タブ単位、#282）
 │   │   │   └── WrapToggle.vue       # 折り返しの切り替え（タブ単位、#241）
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）

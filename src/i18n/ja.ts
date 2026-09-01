@@ -124,6 +124,8 @@ export default {
   'editor.preview': 'プレビュー',
   'editor.wordWrapDisable': '折り返しをやめる',
   'editor.wordWrapEnable': '折り返す',
+  'editor.minimapDisable': 'ミニマップを隠す',
+  'editor.minimapEnable': 'ミニマップを出す',
   'editor.saving': '保存中...',
   'editor.untitled': '無題',
   'editor.untitledN': '無題 {n}',

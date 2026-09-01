@@ -124,6 +124,8 @@ export default {
   'editor.preview': 'Preview',
   'editor.wordWrapDisable': 'Stop wrapping lines',
   'editor.wordWrapEnable': 'Wrap lines',
+  'editor.minimapDisable': 'Hide the minimap',
+  'editor.minimapEnable': 'Show the minimap',
   'editor.saving': 'Saving...',
   'editor.untitled': 'Untitled',
   'editor.untitledN': 'Untitled {n}',
