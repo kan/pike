@@ -11,7 +11,7 @@
 #
 # 使い方:
 #   scripts/sync-hero-images.sh --check      # ドライラン（更新予定・差分有無を表示）
-#   scripts/sync-hero-images.sh              # 合成して docs/ へ配置（dark + light）
+#   scripts/sync-hero-images.sh              # 合成して docs/manual/img/ へ配置（dark + light）
 #
 # オプション（環境変数）:
 #   LANG_=ja|en    選ぶ言語（既定 ja）

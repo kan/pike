@@ -313,7 +313,8 @@ just e2e-sync         # docs/manual/img と docs/ へ反映
 
 新しい画面をマニュアルに載せるときは、(a) E2E に撮影シナリオを追加、(b) `sync-manual-images.sh`
 の MAP に「マニュアル名 ← E2E ベース名」を追加、(c) 対象ページの Markdown を `<picture>` で
-記述（dark/light 両参照）する。相対参照（`../screenshot-*.png` 等）も `<picture>` 化を忘れない。
+記述（dark/light 両参照）する。参照はマニュアルからの相対で `img/{名}.png` と書く
+（`docs/manual/` の外を指さない。#279）。
 
 **校正**：マニュアル（`docs/manual/`）・README を変更したら、コミット前に textlint
 （ai-writing 指摘 0）と `japanese-tech-writing` スキルで点検し、見出しアンカーの整合も確認する

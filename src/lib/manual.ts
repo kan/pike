@@ -58,7 +58,7 @@ export function resolveManualPath(page: string, href: string): string {
 /** Whether a resolved path belongs to the manual (a page to render in the tab)
  *  rather than the rest of the repo (something to open in the browser). */
 export function isInManual(path: string): boolean {
-  return path === MANUAL_DIR.slice(0, -1) || path.startsWith(MANUAL_DIR)
+  return path.startsWith(MANUAL_DIR)
 }
 
 /** Build a raw URL for a repo-relative `page`, using the session's resolved

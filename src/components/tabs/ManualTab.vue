@@ -60,17 +60,21 @@ function scrollBehavior(): ScrollBehavior {
   return settingsStore.previewSmoothScroll ? 'smooth' : 'auto'
 }
 
+/** Split a path from its fragment, which stays raw and keeps its leading `#`. */
+function splitHash(p: string): [string, string] {
+  const i = p.indexOf('#')
+  return i === -1 ? [p, ''] : [p.slice(0, i), p.slice(i)]
+}
+
 /** Split a `page` value into its path and (decoded) `#anchor`. */
 function splitPage(p: string): [string, string] {
-  const i = p.indexOf('#')
-  if (i === -1) return [p, '']
-  let anchor = p.slice(i + 1)
+  const [path, fragment] = splitHash(p)
+  const anchor = fragment.slice(1)
   try {
-    anchor = decodeURIComponent(anchor)
+    return [path, decodeURIComponent(anchor)]
   } catch {
-    /* raw */
+    return [path, anchor]
   }
-  return [p.slice(0, i), anchor]
 }
 
 /** Tear down any image-load listeners wired up by the previous anchor scroll. */
@@ -208,20 +212,22 @@ function onClick(e: MouseEvent) {
     return
   }
   if (href.startsWith('#')) {
-    let id = href.slice(1)
-    try {
-      id = decodeURIComponent(id)
-    } catch {
-      /* raw */
-    }
+    const [, id] = splitPage(href)
     if (id) scrollToAnchor(id)
     return
   }
   // Relative link → another manual page (navigate), or somewhere else in the repo
   // (hand to the browser: github.com for Markdown, the raw file otherwise).
-  const resolved = resolveManualPath(page.value, href)
-  if (isInManual(resolved) && isMarkdownPage(resolved)) navigate(resolved)
-  else void openUrlWithConfirm(isMarkdownPage(resolved) ? manualBlobUrl(resolved) : manualRawUrl(resolved))
+  //
+  // Split the fragment off first: `isMarkdownPage` matches the extension at the very
+  // end, so a `settings.md#エディタ` link would fail it and open as raw text in a
+  // browser. `navigate` takes the `page#anchor` form and decodes the anchor itself,
+  // so the fragment passes through untouched.
+  const [target, fragment] = splitHash(href)
+  const resolved = resolveManualPath(page.value, target)
+  const md = isMarkdownPage(resolved)
+  if (md && isInManual(resolved)) navigate(resolved + fragment)
+  else void openUrlWithConfirm(md ? manualBlobUrl(resolved) : manualRawUrl(resolved))
 }
 
 function onScroll() {
