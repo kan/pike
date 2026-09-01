@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { CaseSensitive, ChevronDown, ChevronUp, X } from 'lucide-vue-next'
+import { CaseSensitive, ChevronDown, ChevronsDownUp, ChevronUp, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
+import { type Expanded, expandDiff, type Gap, matchesDiff } from '../../lib/diffExpand'
 import { parseDiff } from '../../lib/diffParser'
 import { collectMatches, renderTokens } from '../../lib/diffSearch'
 import { displayWidth } from '../../lib/displayWidth'
 import { hasMod, normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { joinPath, pathSep } from '../../lib/paths'
+import { fsReadFile, gitShowFile } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
+import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import type { DiffTab } from '../../types/tab'
 import WrapToggle from '../editor/WrapToggle.vue'
@@ -22,9 +25,118 @@ const settingsStore = useSettingsStore()
 
 const tab = computed(() => tabStore.tabs.find((t): t is DiffTab => t.id === props.tabId && t.kind === 'diff'))
 
-const parsedLines = computed(() => (tab.value ? parseDiff(tab.value.diff, { charLevel: true }) : []))
+const rawLines = computed(() => (tab.value ? parseDiff(tab.value.diff, { charLevel: true }) : []))
 
 const isBinaryDiff = computed(() => tab.value?.diff.includes('Binary files') ?? false)
+
+// --- 省略された行の展開（#285）---------------------------------------------
+// 計算そのものは `lib/diffExpand.ts`（純粋）。ここが持つのは取得（IPC）と操作だけ。
+
+/** 1 回の操作で広げる行数。GitHub と同じ。 */
+const EXPAND_STEP = 20
+
+/** 新しい側の全行。押されるまで取りに行かない（開いただけの diff で IPC を増やさない）。 */
+const newSideLines = ref<string[] | null>(null)
+/** 自分から取りに行ったか。失敗しても自動では繰り返さない。 */
+let autoLoadTried = false
+
+/** 省略領域（キーは `Gap.key`）ごとに、上端／下端から何行めくったか。 */
+const expanded = ref<Map<number, Expanded>>(new Map())
+
+// 差分そのものが入れ替わったら、この差分に紐づく状態を捨てる。**足すときはここに足すこと**
+// （散らすと、次に状態を増やす人がどれかを落とす）。
+watch(
+  () => tab.value?.diff,
+  () => {
+    newSideLines.value = null
+    autoLoadTried = false
+    expanded.value = new Map()
+    autoWrapped.value = false
+  },
+)
+
+const expansion = computed(() => expandDiff(rawLines.value, newSideLines.value, expanded.value))
+const parsedLines = computed(() => expansion.value.lines)
+
+/**
+ * 新しい側の全文を取り寄せる。**diff の出どころで取得先が変わる**:
+ * コミットならそのコミット、ステージ済みなら index（`git show :<path>`）、それ以外は作業ツリー。
+ * 未追跡ファイルは全行が追加なので省略が無く、ここへは来ない。
+ *
+ * `silent` は自分から取りに行った場合（下の watcher）。頼まれていない失敗を知らせない。
+ */
+async function loadNewSide(silent = false): Promise<void> {
+  const t0 = tab.value
+  const projectStore = useProjectStore()
+  const root = projectStore.activeRoot
+  const shell = projectStore.shellForIO
+  if (!t0 || !root) return
+  const fail = (key: string) => {
+    // 失敗しても帯はそのまま残す（押し直せば取り直す）。理由は StatusBar に 1 回出す。
+    if (!silent) useStatusMessageStore().show({ text: t(key), variant: 'error' })
+  }
+  let text: string
+  try {
+    if (t0.commitHash) {
+      text = await gitShowFile(root, shell, t0.commitHash, t0.filePath)
+    } else if (t0.staged) {
+      // 空のリビジョンは `git show :<path>`＝index の内容。ステージした側が「新しい側」。
+      text = await gitShowFile(root, shell, '', t0.filePath)
+    } else {
+      text = (await fsReadFile(shell, joinPath(root, t0.filePath, pathSep(shell)))).content
+    }
+  } catch {
+    fail('diff.expandFailed')
+    return
+  }
+  const lines = text.split('\n')
+  if (!matchesDiff(rawLines.value, lines)) {
+    fail('diff.expandStale')
+    return
+  }
+  newSideLines.value = lines
+}
+
+/**
+ * **帯が 1 つも出ない差分でも、隠れた行があるかは確かめる。** 末尾の省略は行数が分からないと
+ * 帯を出せず、その行数はファイルを取り寄せて初めて分かる。hunk が 1 つで 1 行目から始まる差分
+ * （＝先頭の省略も無い）は、これが無いと押す場所が生まれず、残り全部を一生広げられない。
+ *
+ * 帯が 1 つでも出ていれば取りに行かない（押した人にだけ払わせる）。
+ */
+watch(
+  [() => expansion.value.gaps.length, newSideLines],
+  ([gapCount, file]) => {
+    if (gapCount > 0 || file || autoLoadTried) return
+    if (!rawLines.value.some((l) => l.hunk)) return
+    autoLoadTried = true
+    void loadNewSide(true)
+  },
+  { immediate: true },
+)
+
+/**
+ * 帯のボタン。`down` は領域の上端から下へ（直前の hunk の続きが出る）、`up` は下端から上へ
+ * （直後の hunk の手前が出る）広げる。`all` は残り全部で、上端に寄せれば片方の値だけで足りる。
+ */
+async function expandGap(gap: Gap, dir: 'up' | 'down' | 'all') {
+  if (!newSideLines.value) {
+    await loadNewSide()
+    if (!newSideLines.value) return
+  }
+  const step = dir === 'all' ? gap.count : Math.min(EXPAND_STEP, gap.count)
+  const cur = expanded.value.get(gap.key) ?? { top: 0, bottom: 0 }
+  const next = new Map(expanded.value)
+  next.set(gap.key, dir === 'up' ? { ...cur, bottom: cur.bottom + step } : { ...cur, top: cur.top + step })
+  expanded.value = next
+}
+
+/** 広げた行をまとめて畳み直す。帯は広げ切ったあとも残るので、いつでもここへ戻れる。 */
+function collapseGap(gap: Gap) {
+  const next = new Map(expanded.value)
+  next.delete(gap.key)
+  expanded.value = next
+}
 
 // --- 折り返しと横幅（#272）-------------------------------------------------
 // 折り返さないときは、いちばん長い行が収まる幅を table に持たせる。`table-layout: fixed`
@@ -70,12 +182,11 @@ function measureOverflow() {
   if (settingsStore.diffWordWrap === 'auto' && ratio > AUTO_WRAP_RATIO) autoWrapped.value = true
 }
 
-// 中身が変われば測り直す。**手動の上書きは残す**（そのタブに対する明示的な選択なので、
-// 差分が更新されるたびに覆さない）。
-watch(parsedLines, () => {
-  autoWrapped.value = false
-  void nextTick(measureOverflow)
-})
+// 行が増減したら測り直す（省略を展開すると長い行が出てくることがある）。**「自動」の判断
+// そのものはやり直さない**（差分が入れ替わったときだけ。上の watcher が `autoWrapped` を
+// 落とす）: 折り返しがいったん外れてから測り直して戻るので、広げるたびに画面が揺れる。
+// **手動の上書きは差分が変わっても残す**（そのタブに対する明示的な選択なので覆さない）。
+watch(parsedLines, () => void nextTick(measureOverflow))
 
 // 折り返しを切り替えたときも測り直す。**`.diff-scroll` は `inset: 0` で自分の箱が
 // 変わらないので ResizeObserver は鳴らない。** これが無いと、自動で折り返して開いた
@@ -150,6 +261,25 @@ const rows = computed(() =>
     })),
   ),
 )
+
+/**
+ * 表に流すもの。省略の帯（#285）は行と行のあいだに挟まり、ファイル末尾のぶんは最後に来る。
+ * 帯と行を 1 本の列にしておくと、末尾のぶんだけ同じマークアップを書き写さずに済む。
+ */
+type DiffBlock = { gap: Gap; cells?: undefined } | { gap?: undefined; cells: (typeof rows.value)[number] }
+
+const blocks = computed<DiffBlock[]>(() => {
+  // `gaps` は `at` の昇順で出てくるので、前から 1 本のポインタで合流できる（Map を作らない）。
+  const gaps = expansion.value.gaps
+  const out: DiffBlock[] = []
+  let g = 0
+  rows.value.forEach((cells, i) => {
+    if (g < gaps.length && gaps[g].at === i) out.push({ gap: gaps[g++] })
+    out.push({ cells })
+  })
+  if (g < gaps.length) out.push({ gap: gaps[g] })
+  return out
+})
 
 const matchInfo = computed(() => {
   if (!query.value) return ''
@@ -258,15 +388,58 @@ onUnmounted(() => {
     <template v-else>
       <div ref="scrollEl" class="diff-scroll">
         <table class="diff-table" :class="{ wrap: wordWrapOn }" :style="tableStyle">
+          <!-- **列幅はここで決める。** `table-layout: fixed` は既定で最初の行から幅を取るので、
+               省略の帯（#285）が先頭に来ると colspan の 1 セルしか無く、4 列が等分されて
+               行番号の欄が本文と同じ幅になる（差分が 3 分割されたように見える）。 -->
+          <colgroup>
+            <col class="col-num" />
+            <col />
+            <col class="col-num" />
+            <col />
+          </colgroup>
           <tbody>
-            <tr v-for="(row, i) in rows" :key="i" class="diff-row">
-              <template v-for="(cell, s) in row" :key="s">
-                <td class="line-num" :class="cell.type">{{ cell.num ?? "" }}</td>
-                <td class="line-content" :class="cell.type"><template
-                  v-for="(tok, j) in cell.tokens" :key="j"
-                ><span :class="{ 'hl': tok.diffHl, 'search-hl': tok.matchIndex >= 0, 'search-current': tok.matchIndex === currentIndex }" :data-match="tok.matchIndex >= 0 ? tok.matchIndex : undefined">{{ tok.text }}</span></template></td>
+            <template v-for="(block, i) in blocks" :key="i">
+              <!-- 省略された行の帯（#285）。押した箇所だけ上下に広がる。 -->
+              <template v-if="block.gap">
+                <tr class="diff-gap">
+                  <td class="gap-cell" colspan="4">
+                    <div class="gap-bar">
+                      <template v-if="block.gap.count">
+                        <button
+                          v-if="!block.gap.head"
+                          class="gap-btn"
+                          :title="t('diff.expandDown', { count: EXPAND_STEP })"
+                          @click="expandGap(block.gap, 'down')"
+                        ><ChevronDown :size="13" :stroke-width="2" /></button>
+                        <button
+                          v-if="!block.gap.tail"
+                          class="gap-btn"
+                          :title="t('diff.expandUp', { count: EXPAND_STEP })"
+                          @click="expandGap(block.gap, 'up')"
+                        ><ChevronUp :size="13" :stroke-width="2" /></button>
+                        <button class="gap-all" @click="expandGap(block.gap, 'all')">{{
+                          t('diff.expandAll', { count: block.gap.count })
+                        }}</button>
+                      </template>
+                      <button
+                        v-if="block.gap.shown"
+                        class="gap-btn"
+                        :title="t('diff.collapse', { count: block.gap.shown })"
+                        @click="collapseGap(block.gap)"
+                      ><ChevronsDownUp :size="13" :stroke-width="2" /></button>
+                    </div>
+                  </td>
+                </tr>
               </template>
-            </tr>
+              <tr v-else class="diff-row">
+                <template v-for="(cell, s) in block.cells" :key="s">
+                  <td class="line-num" :class="cell.type">{{ cell.num ?? "" }}</td>
+                  <td class="line-content" :class="cell.type"><template
+                    v-for="(tok, j) in cell.tokens" :key="j"
+                  ><span :class="{ 'hl': tok.diffHl, 'search-hl': tok.matchIndex >= 0, 'search-current': tok.matchIndex === currentIndex }" :data-match="tok.matchIndex >= 0 ? tok.matchIndex : undefined">{{ tok.text }}</span></template></td>
+                </template>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -303,6 +476,8 @@ onUnmounted(() => {
 
 <style scoped>
 .diff-tab {
+  /* hunk ヘッダと省略の帯（#285）の下地。どちらも「差分の切れ目」なので同じ値を共有する。 */
+  --hunk-tint: rgba(0, 122, 204, 0.08);
   position: absolute;
   inset: 0;
   background: var(--bg-primary);
@@ -330,6 +505,11 @@ onUnmounted(() => {
   table-layout: fixed;
 }
 
+/* `<col>` の幅は border-box なので、セル側の `width` と `padding` を足した値にする。 */
+.col-num {
+  width: calc(var(--num-w) + var(--num-pad) * 2);
+}
+
 .diff-row {
   height: 20px;
 }
@@ -350,6 +530,36 @@ onUnmounted(() => {
   padding: 0 var(--content-pad);
   white-space: pre;
   overflow: hidden;
+}
+
+/* 省略された行の帯（#285）。行番号の列を跨ぐので `.diff-row` の高さには乗らない。
+   下地は hunk ヘッダと同じ色（どちらも「差分の切れ目」なので、値は `--hunk-tint` 1 つ）。 */
+.diff-gap .gap-cell {
+  padding: 0;
+  background: var(--hunk-tint);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+/* 横スクロールしても帯は左端に貼り付けたままにする（表の幅は最長行に合わせて広い）。 */
+.gap-bar {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: fit-content;
+  height: 22px;
+  padding: 0 4px;
+}
+
+.gap-btn,
+.gap-all {
+  height: 18px;
+  padding: 0 4px;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 11px;
 }
 
 /* 横にスクロールできるときは折り返しボタンを出したままにする（#272）。既定の 6px の
@@ -407,7 +617,7 @@ onUnmounted(() => {
 }
 
 .hunk {
-  background: rgba(0, 122, 204, 0.08);
+  background: var(--hunk-tint);
   color: var(--accent);
 }
 
@@ -493,24 +703,37 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+/* 枠なしのフラットなボタン（検索パネルと省略の帯が共有する）。寸法と文字色だけが違う。 */
 .search-icon-btn,
-.search-toggle-btn {
+.search-toggle-btn,
+.gap-btn,
+.gap-all {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
   background: transparent;
   border: none;
   border-radius: 4px;
-  color: var(--text-secondary);
   cursor: pointer;
 }
 
 .search-icon-btn:hover,
-.search-toggle-btn:hover {
+.search-toggle-btn:hover,
+.gap-btn:hover,
+.gap-all:hover {
   background: var(--tab-hover-bg);
+}
+
+.search-icon-btn,
+.search-toggle-btn {
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-secondary);
+}
+
+.search-icon-btn:hover,
+.search-toggle-btn:hover {
   color: var(--text-primary);
 }
 

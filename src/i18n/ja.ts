@@ -154,6 +154,12 @@ export default {
   'diff.binary': 'バイナリファイル — 差分を表示できません',
   'diff.openCurrentFile': '現在のファイルを開く',
   'diff.noChanges': '変更なし',
+  'diff.expandUp': '上へ {count} 行広げる',
+  'diff.expandDown': '下へ {count} 行広げる',
+  'diff.expandAll': '省略された {count} 行を表示',
+  'diff.expandFailed': 'ファイルを読み込めませんでした',
+  'diff.expandStale': 'この差分を作ったあとにファイルが変わっているため展開できません',
+  'diff.collapse': '広げた {count} 行を折りたたむ',
 
   // History
   'history.notFound': '見つかりません',

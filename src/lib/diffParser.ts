@@ -11,9 +11,23 @@ export interface DiffSide {
   type: DiffLineType
 }
 
+/**
+ * hunk ヘッダ（`@@ -a,b +c,d @@`）が示す範囲。**省略された行を後から埋めるために要る**（#285）。
+ * 埋める中身は変更のない context 行なので左右で同じテキストになり、新しい側のファイルだけで
+ * 両方の欄を作れる。
+ */
+export interface HunkRange {
+  oldStart: number
+  oldCount: number
+  newStart: number
+  newCount: number
+}
+
 export interface DiffLine {
   left: DiffSide
   right: DiffSide
+  /** `type: 'hunk'` の行だけが持つ。 */
+  hunk?: HunkRange
 }
 
 function plain(text: string): DiffSegment[] {
@@ -72,6 +86,10 @@ function findLastUnpairedDel(lines: DiffLine[]): number {
 export function parseDiff(raw: string, opts: { charLevel?: boolean } = {}): DiffLine[] {
   const charLevel = opts.charLevel ?? false
   const lines = raw.split('\n')
+  // **末尾の改行が作る空要素は行ではない。** context 行として拾うと、実在しない空行が最終行の
+  // 次に付き、そのぶん行番号も 1 つ余分に進む。長らく「最後に空行が 1 つ出る」だけだったが、
+  // 省略された行を埋める（#285）ようになって、その番号が実ファイルとずれる形で表に出た。
+  if (lines[lines.length - 1] === '') lines.pop()
   const result: DiffLine[] = []
   let leftNum = 0
   let rightNum = 0
@@ -79,15 +97,24 @@ export function parseDiff(raw: string, opts: { charLevel?: boolean } = {}): Diff
 
   for (const line of lines) {
     if (line.startsWith('@@')) {
-      const match = line.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+      // 行数は省略できる（`@@ -1 +1 @@` は 1 行の意味）。
+      const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
+      let hunk: HunkRange | undefined
       if (match) {
         leftNum = parseInt(match[1], 10) - 1
-        rightNum = parseInt(match[2], 10) - 1
+        rightNum = parseInt(match[3], 10) - 1
+        hunk = {
+          oldStart: parseInt(match[1], 10),
+          oldCount: match[2] === undefined ? 1 : parseInt(match[2], 10),
+          newStart: parseInt(match[3], 10),
+          newCount: match[4] === undefined ? 1 : parseInt(match[4], 10),
+        }
       }
       inHunk = true
       result.push({
         left: { num: null, segments: plain(line), type: 'hunk' },
         right: { num: null, segments: plain(''), type: 'hunk' },
+        hunk,
       })
       continue
     }

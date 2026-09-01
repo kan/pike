@@ -235,7 +235,7 @@ pike/
 │   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）
 │   │   ├── shortcuts.ts     # ショートカットの割り当て表（#254。キーの正本）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
-│   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
+│   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）
 │   │   ├── rstPreview.ts      # reStructuredText のプレビュー（自前の変換、#284）

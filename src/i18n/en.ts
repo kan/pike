@@ -154,6 +154,12 @@ export default {
   'diff.binary': 'Binary file \u2014 diff not available',
   'diff.openCurrentFile': 'Open current file',
   'diff.noChanges': 'No changes',
+  'diff.expandUp': 'Expand {count} lines up',
+  'diff.expandDown': 'Expand {count} lines down',
+  'diff.expandAll': 'Show {count} hidden lines',
+  'diff.expandFailed': 'Could not load the file',
+  'diff.expandStale': 'The file changed after this diff was generated',
+  'diff.collapse': 'Collapse the {count} expanded lines',
 
   // History
   'history.notFound': 'Not found',
