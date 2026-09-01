@@ -89,8 +89,13 @@ for (const [file, body] of docBodies) {
     else referenced.add(relative(root, target).replaceAll('\\', '/'))
   }
 }
-for (const img of [...walk('docs/manual/img'), ...walk('docs').filter((p) => !p.includes('/'))]) {
+for (const img of walk('docs/manual/img')) {
   if (img.endsWith('.png') && !referenced.has(img)) fail(`どのドキュメントからも参照されていない画像: ${img}`)
+}
+// 画像は README のヒーローを含めて docs/manual/img/ に集約する（#279）。置き場が 2 つあると、
+// 上の未参照チェックが片方だけを見ている状態に戻る。
+for (const stray of readdirSync(join(root, 'docs')).filter((e) => e.endsWith('.png'))) {
+  fail(`画像は docs/manual/img/ に置く: docs/${stray}`)
 }
 
 // --- 4. リンクとアンカー -------------------------------------------------------

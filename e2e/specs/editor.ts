@@ -62,7 +62,7 @@ const MD_SAMPLE = [
 ].join('\n')
 
 // エディタ単体のクローズアップは撮らない。マニュアルの「コード編集」は外枠付きの
-// ヒーロー画像（`hero-editor` → `docs/screenshot-editor.png`）を使っていて、そちらに
+// ヒーロー画像（`hero-editor` → `docs/manual/img/screenshot-editor.png`）を使っていて、そちらに
 // ファイルツリーごと写っているため、同じ内容の 2 枚目に置き場所が無い。
 // `TS_SAMPLE` はアウトラインの spec が使う。
 

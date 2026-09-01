@@ -8,8 +8,10 @@ import {
   DEFAULT_REF,
   fetchManual,
   getManualRef,
+  isInManual,
   isMarkdownPage,
   MANUAL_INDEX,
+  manualBlobUrl,
   manualRawUrl,
   resolveManualPath,
 } from '../../lib/manual'
@@ -215,10 +217,11 @@ function onClick(e: MouseEvent) {
     if (id) scrollToAnchor(id)
     return
   }
-  // Relative link → another manual page (navigate) or open externally.
+  // Relative link → another manual page (navigate), or somewhere else in the repo
+  // (hand to the browser: github.com for Markdown, the raw file otherwise).
   const resolved = resolveManualPath(page.value, href)
-  if (isMarkdownPage(resolved)) navigate(resolved)
-  else void openUrlWithConfirm(manualRawUrl(resolved))
+  if (isInManual(resolved) && isMarkdownPage(resolved)) navigate(resolved)
+  else void openUrlWithConfirm(isMarkdownPage(resolved) ? manualBlobUrl(resolved) : manualRawUrl(resolved))
 }
 
 function onScroll() {

@@ -229,20 +229,21 @@ Windows 11 風の枠を合成する。
   素材でも枠の見た目の比率が変わらない。掛けないとタイトルバーと影が髪の毛のように細くなる。
 - 既定は透過背景（任意の下地に載せられる）。`BG='#c8ccd2'` で単色背景に flatten。
 - 依存は ImageMagick 7（`magick`）と Windows の Segoe UI フォント。`artifacts/` は
-  `.gitignore` 済みだが、**ヒーロー画像はコミット対象**（`docs/screenshot-*.png` /
-  `docs/manual/img/overview.png`）。
+  `.gitignore` 済みだが、**ヒーロー画像はコミット対象**（`docs/manual/img/` 配下）。
 
 配置は `scripts/sync-hero-images.sh` が行う（合成 → 配置）。通常は内枠とまとめた
 `just e2e-sync` から呼ばれる。
 
 - `scripts/sync-hero-images.sh --check`：ドライラン（更新予定 / ソース欠落を表示）。
-- 引数なしで実行すると合成して `docs/` 配下へ配置。`LANG_=` で言語を変更可。
+- 引数なしで実行すると合成して `docs/manual/img/` へ配置。`LANG_=` で言語を変更可。
 - 対応表はスクリプト内の `MAP`（配置先の幹 ← E2E ベース名）。撮影を増やしたらここに足す。
+- **配置先は `docs/manual/img/` に揃える**（`docs/` 直下に png を置くと `check-docs` が落ちる）。
+  README 用とマニュアル用で置き場が分かれていたころ、未参照チェックが片方しか見ていなかった（#279）。
 
 現在のヒーローは 3 枚:
 
-- `docs/screenshot-editor.png`（README「エディタとファイルツリー」← `hero-editor`）
-- `docs/screenshot-git.png`（README「Git パネルと Claude Code」← `hero-git`）
+- `docs/manual/img/screenshot-editor.png`（README とマニュアル「コード編集」← `hero-editor`）
+- `docs/manual/img/screenshot-git.png`（README とマニュアル「ステータスバー表示」← `hero-git`）
 - `docs/manual/img/overview.png`（マニュアル TOP ← `overview`）
 
 いずれも dark（`{名}.png`）と light（`{名}-light.png`）を対で持つ。

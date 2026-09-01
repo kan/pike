@@ -12,6 +12,9 @@
 import { getVersion } from '@tauri-apps/api/app'
 
 const REPO_BASE = 'https://raw.githubusercontent.com/kan/pike/'
+/** GitHub's rendered view, for files handed to the browser: raw Markdown would
+ *  arrive as plain text. */
+const REPO_BLOB_BASE = 'https://github.com/kan/pike/blob/'
 /** Ref used when the running version has no matching release tag (dev builds). */
 export const DEFAULT_REF = 'main'
 
@@ -32,10 +35,15 @@ export function manualTarget(rel: string): string {
 
 /** Resolve a relative link/image `href` against the current page's directory,
  *  returning a normalized repo-relative path (e.g. `docs/manual/img/x.png`).
- *  The result is confined to `MANUAL_DIR`: a `../`-laden href can't escape into
- *  the rest of the repo (the fetch target is a fixed GitHub repo, so escaping
- *  would still pull arbitrary repo files). Out-of-bounds hrefs clamp to the
- *  manual root. */
+ *  `..` is consumed while normalizing, so the result can't leave the repo — but
+ *  it may well land outside `MANUAL_DIR`, which is legitimate: the manual links
+ *  to the repo-root README and CLAUDE.md. Callers ask `isInManual` and either
+ *  render the page or hand the path to the browser.
+ *
+ *  This used to clamp out-of-tree results to the manual root, which invented a
+ *  path the author never wrote and then 404'd with no error — an image that
+ *  displayed fine on GitHub was simply blank in the app, and stayed that way
+ *  for months (#279). */
 export function resolveManualPath(page: string, href: string): string {
   const dir = page.includes('/') ? page.slice(0, page.lastIndexOf('/')) : ''
   const out: string[] = []
@@ -44,12 +52,13 @@ export function resolveManualPath(page: string, href: string): string {
     if (part === '..') out.pop()
     else out.push(part)
   }
-  const resolved = out.join('/')
-  if (resolved === MANUAL_DIR.replace(/\/$/, '') || resolved.startsWith(MANUAL_DIR)) {
-    return resolved
-  }
-  // Escaped the manual tree — keep only the final segment under the manual root.
-  return MANUAL_DIR + (out[out.length - 1] ?? '')
+  return out.join('/')
+}
+
+/** Whether a resolved path belongs to the manual (a page to render in the tab)
+ *  rather than the rest of the repo (something to open in the browser). */
+export function isInManual(path: string): boolean {
+  return path === MANUAL_DIR.slice(0, -1) || path.startsWith(MANUAL_DIR)
 }
 
 /** Build a raw URL for a repo-relative `page`, using the session's resolved
@@ -57,6 +66,13 @@ export function resolveManualPath(page: string, href: string): string {
  *  links); callers await `fetchManual` first, which resolves the ref. */
 export function manualRawUrl(page: string): string {
   return `${REPO_BASE}${activeRef}/${page}`
+}
+
+/** Build a github.com URL for a repo-relative `page`, on the same ref as
+ *  `manualRawUrl`. Links out of the manual then open the version matching the
+ *  running app rather than whatever `main` says today. */
+export function manualBlobUrl(page: string): string {
+  return `${REPO_BLOB_BASE}${activeRef}/${page}`
 }
 
 /** Resolve the manual ref once per session: the app-version tag if the manual

@@ -24,9 +24,14 @@ LANG_SEL=${LANG_:-ja}
 
 # 「配置先（REPO_ROOT 相対、-light を除いた幹）:E2E ベース名」。
 # dark は幹そのまま、light は幹 + `-light` に置く（GitHub の <picture> 切替用）。
+#
+# 配置先は docs/manual/img/ に揃える（README もそこを参照する）。docs/ 直下と img/ に
+# 分かれていたころ、マニュアルからは `../` で直下を指すことになり、当時のアプリ内マニュアルが
+# その参照を丸めて 404 にしていた（#279）。丸め込みは直したが、置き場は 1 つのままにする
+# ―― check-docs の未参照チェックも 1 か所を見れば済む。
 MAP=(
-  "docs/screenshot-editor:hero-editor"
-  "docs/screenshot-git:hero-git"
+  "docs/manual/img/screenshot-editor:hero-editor"
+  "docs/manual/img/screenshot-git:hero-git"
   "docs/manual/img/overview:overview"
 )
 

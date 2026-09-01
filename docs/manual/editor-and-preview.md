@@ -16,8 +16,8 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
 ## コード編集
 
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="../screenshot-editor-light.png">
-  <img alt="エディタとファイルツリー" src="../screenshot-editor.png">
+  <source media="(prefers-color-scheme: light)" srcset="img/screenshot-editor-light.png">
+  <img alt="エディタとファイルツリー" src="img/screenshot-editor.png">
 </picture>
 
 - **30+ 言語**のシンタックスハイライト。

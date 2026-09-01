@@ -10,13 +10,13 @@
 Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としています。macOS 版も配布していますが、ローカルのシェルで開発できるところまでの対応です（WSL やジャンプリスト、ウィンドウ背景の透過など、Windows の機能に依存するものは動きません）。
 
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-editor-light.png">
-  <img alt="エディタとファイルツリー" src="docs/screenshot-editor.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/manual/img/screenshot-editor-light.png">
+  <img alt="エディタとファイルツリー" src="docs/manual/img/screenshot-editor.png">
 </picture>
 
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="docs/screenshot-git-light.png">
-  <img alt="Git パネルと Claude Code" src="docs/screenshot-git.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/manual/img/screenshot-git-light.png">
+  <img alt="Git パネルと Claude Code" src="docs/manual/img/screenshot-git.png">
 </picture>
 
 ## 主な機能
