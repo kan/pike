@@ -1024,6 +1024,14 @@ const wordWrapOn = computed(() => wordWrapOverride.value ?? settingsStore.editor
 const minimapOverride = ref<boolean | null>(null)
 const minimapOn = computed(() => minimapOverride.value ?? settingsStore.editorMinimap)
 
+/**
+ * 実ファイルのタブか。diff ガター・診断・ミニマップ・定義ジャンプはこれが真のときだけ入る
+ * （`git show` のスナップショットは `initialContent` を持ち、ディスク上の状態と結び付かない）。
+ * **ミニマップのボタンもこれで出し分ける**: 拡張が入っていないタブに出すと、押しても何も
+ * 起きないボタンが点いたままになる。
+ */
+const hasFile = computed(() => !!tab.value && !tab.value.initialContent)
+
 const markdownLinkPaste = useMarkdownLinkPaste()
 
 /** Is this a file to write Markdown into? Gates the toolbar and its shortcuts
@@ -1092,7 +1100,6 @@ const ctxHasSelection = ref(false)
 function createEditorView(container: HTMLElement, content: string) {
   const isReadOnly = tab.value?.readOnly ?? false
   const lang = tab.value ? getLanguage(tab.value.path) : null
-  const hasFile = tab.value && !tab.value.initialContent
   const extensions = [
     themeCompartment.of(getEditorTheme(settingsStore.effectiveEditorThemeName).extension),
     backdropCompartment.of(backdropTheme()),
@@ -1136,14 +1143,14 @@ function createEditorView(container: HTMLElement, content: string) {
   ]
 
   // Git diff gutter + diagnostics squiggles + minimap (only for real files)
-  if (hasFile) {
+  if (hasFile.value) {
     extensions.push(gitDiffGutter())
     extensions.push(diagnosticsExtension())
     extensions.push(minimapCompartment.of(minimapOn.value ? minimap() : []))
   }
 
   // Go-to-definition (only for real files; previews / readonly snapshots skipped)
-  if (hasFile) {
+  if (hasFile.value) {
     extensions.push(
       jumpToDefinitionExtension({
         getContext: () => {
@@ -1732,7 +1739,7 @@ onUnmounted(() => {
       <MarkdownToolbar v-if="markdownAssistOn && showEditor" @run="runMarkdownToolbarAction" />
       <span class="toolbar-spacer" />
       <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
-      <MinimapToggle :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
+      <MinimapToggle v-if="hasFile" :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
       <HelpButton page="editor-and-preview.md" :size="15" />
     </div>
     <!-- Plain editor header: breadcrumb + reload + help -->
@@ -1748,7 +1755,7 @@ onUnmounted(() => {
       </div>
       <div class="editor-header-actions">
         <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
-        <MinimapToggle :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
+        <MinimapToggle v-if="hasFile" :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
         <!-- Readonly snapshots (git show) carry initialContent — reloading from disk is meaningless there -->
         <button
           v-if="!tab?.readOnly && tab?.initialContent === undefined"

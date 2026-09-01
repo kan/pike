@@ -24,12 +24,32 @@ function create(view: EditorView) {
   // 位置は theme ではなくインラインで持つ。パッケージ側の `position: sticky`（クラス）に
   // 詳細度で勝てるので `!important` が要らず、クラス名の取り合いにもならない。
   dom.style.cssText = 'position: absolute; top: 0; right: 0; height: 100%; border-left: 1px solid var(--border);'
-  const observer = new ResizeObserver(([entry]) => {
-    // 渡された値を使う（`offsetWidth` を読むと、複数のエディタが同時にリサイズされたとき
-    // 直前のコールバックの書き込みで同期レイアウトが走る）。border-box なので上の枠線を含む。
-    view.dom.style.setProperty('--minimap-width', `${entry.borderBoxSize[0].inlineSize}px`)
+  const observer = new ResizeObserver((entries) => {
+    // **読みを先に済ませる。** 下の `setProperty` がレイアウトを汚したあとに `offsetTop` を
+    // 読むと、そこで強制同期レイアウトが 1 回走る。幅と違い**位置は entry から取れない**
+    // （`contentRect` は自分の border → padding のオフセットで、親の中での位置ではない）ので、
+    // この読み自体は避けられない。読める順番だけを選ぶ。
+    const scroller = entries.find((e) => e.target === view.scrollDOM)
+    const top = scroller ? view.scrollDOM.offsetTop : 0
+
+    for (const entry of entries) {
+      if (entry.target === dom) {
+        // 渡された値を使う（`offsetWidth` を読むと、複数のエディタが同時にリサイズされたとき
+        // 直前のコールバックの書き込みで同期レイアウトが走る）。border-box なので枠線を含む。
+        view.dom.style.setProperty('--minimap-width', `${entry.borderBoxSize[0].inlineSize}px`)
+      }
+    }
+    if (scroller) {
+      // **本文の縦位置に合わせる。** 基準にしている `.cm-editor` は縦並びの flex で、上部パネル
+      // （`Ctrl+F` の検索バー、コンフリクトの解消バー）が出ると scroller だけが下へずれる。
+      // `top: 0` のままだとミニマップがその高さぶん上から始まり、パネルの裏に潜ったうえ、
+      // 描く内容も本文とずれる。
+      dom.style.top = `${top}px`
+      dom.style.height = `${scroller.borderBoxSize[0].blockSize}px`
+    }
   })
   observer.observe(dom)
+  observer.observe(view.scrollDOM)
   minimaps.set(view, { dom, observer })
   return { dom }
 }

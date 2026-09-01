@@ -305,7 +305,7 @@ just e2e
 
 # 3. 撮影結果を docs へ同期（内枠 + 外枠ヒーロー、dark + light）
 just e2e-sync-check   # まず差分確認
-just e2e-sync         # docs/manual/img と docs/ へ反映
+just e2e-sync         # docs/manual/img へ反映（内枠とヒーローの両方）
 ```
 
 `e2e-sync` は内枠の `sync-manual-images.sh` と外枠の `sync-hero-images.sh` を続けて実行する。
