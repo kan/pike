@@ -506,7 +506,7 @@ export default {
   'project.openInNewWindow': 'Open in new window',
   'project.missing': 'not found',
   'project.parked': 'Kept',
-  'project.switchTo': 'Switch to {name}',
+  'project.openSwitcher': 'Open project…',
   'project.confirmLeaveTransient':
     '{name} is an unregistered directory. Switching discards its tabs and stops any running processes (the directory itself is untouched). Continue?',
   'project.confirmRelease': 'Close the tabs of {name}? Running processes will stop.',

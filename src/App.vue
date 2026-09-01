@@ -21,7 +21,6 @@ import { clearAliasCache } from './lib/jumpTo/resolveImport'
 import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { resolveNotifier } from './lib/notify'
 import { normalizeSep } from './lib/paths'
-import { projectColorValue } from './lib/projectColors'
 import { isElevated, projectForWindow, traySetCloseToTray, windowCloseQuitsApp, windowSetBackdrop } from './lib/tauri'
 import { elevated, ephemeralWindow, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
 import { useClaudeRateStore } from './stores/claudeRate'
@@ -99,8 +98,8 @@ watch(
 
 const isDebug = import.meta.env.DEV
 
-// Window-wide project accent line: tells coexisting windows apart at a glance
-const projectAccent = computed(() => projectColorValue(projectStore.currentProject?.color))
+// プロジェクトカラー（#121）はサイドバーのアイコン列が面で塗る（#298）。ここにあった
+// ウィンドウ左端の 3px の線は、同じ色の面がちょうどその位置に来て見えなくなるので落とした。
 
 /**
  * タブを保持しているプロジェクトの名前（#264）。タイトルに出すので、**ここだけは
@@ -332,7 +331,6 @@ onMounted(async () => {
 
 <template>
   <div class="app">
-    <div v-if="projectAccent" class="project-accent" :style="{ background: projectAccent }"></div>
     <div class="app-main">
       <SideBar v-if="!globalMode" />
       <TabPane />
@@ -361,15 +359,5 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   min-height: 0;
-}
-
-.project-accent {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  z-index: 100;
-  pointer-events: none;
 }
 </style>

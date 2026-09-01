@@ -44,6 +44,7 @@ import {
   Settings,
 } from 'lucide-vue-next'
 import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
+import { useProjectAccent } from '../../composables/useProjectAccent'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
@@ -56,8 +57,19 @@ import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import { useTodoStore } from '../../stores/todo'
 import HelpButton from '../HelpButton.vue'
+import ProjectSelect from './ProjectSelect.vue'
 
 const { t } = useI18n()
+
+/**
+ * アイコン列にプロジェクトカラーを敷く（#298）。**アイコンの色も一緒に渡す**: 素の
+ * `--text-secondary` は灰色なので、黄色や明るい緑の上では読めない。未設定なら何も渡さず、
+ * CSS 側の既定（透過してサイドバーの `--bg-secondary` が出る）に落ちる。
+ */
+const accent = useProjectAccent()
+const accentStyle = computed(() =>
+  accent.bg.value ? { '--icon-strip-bg': accent.bg.value, '--icon-strip-fg': accent.fg.value } : {},
+)
 const sidebar = useSidebarStore()
 const tabStore = useTabStore()
 const gitStore = useGitStore()
@@ -311,7 +323,17 @@ onUnmounted(() => {
 
 <template>
   <div class="sidebar ui-zoom">
-    <nav class="icon-strip">
+    <!--
+      プロジェクトの表示と切替（#298）。**パネルが開いているときだけここに出す**: 畳んだ
+      サイドバーは 48px しかなく名前が読めないので、そのあいだは `TabPane` が横幅の空いた
+      タブバーの左に同じ部品を出す。
+    -->
+    <ProjectSelect v-if="sidebar.isPanelOpen" class="sidebar-project" />
+    <!--
+      プロジェクトカラー（#121）はここに敷く（#298）。ウィンドウ左端の 3px の線だったものを
+      面に広げたもので、隣のプロジェクトバーと同じ色になるので 2 つで 1 つの帯に見える。
+    -->
+    <nav class="icon-strip" :style="accentStyle">
       <button
         v-for="item in icons"
         :key="item.panel"
@@ -468,14 +490,35 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 2 列 2 行の grid。**アイコン列は上まで通し**（`grid-row: 1 / -1`）、プロジェクトバー
+   （#298）はその右、パネルの真上に置く。こうするとパネルの開閉でアイコンの位置が動かない。
+   **flex の行に包み直さない**: 包むとテンプレートの 130 行を字下げし直すことになるだけで、
+   得るものが同じ。パネルを閉じているときは 2 列目の中身が無く、幅 0 の列が残るだけ。 */
 .sidebar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto 1fr;
   height: 100%;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
 }
 
+/* **列の幅を決めるのは `.panel` だけにする。** `auto` の列は中身の max-content で広がるので、
+   素のままだと長いプロジェクト名がパネルより広い列を作り、パネルの右に死んだ帯が残る
+   （`.panel` は明示 width を持つので stretch されない）うえ、`right: -3px` のリサイズ
+   ハンドルもサイドバーの右端から離れる。`width: 0` で列幅への寄与を消し、`min-width: 100%`
+   で決まった列いっぱいに伸ばす。名前は `.project-name` の ellipsis で切れる。 */
+.sidebar-project {
+  grid-column: 2;
+  grid-row: 1;
+  width: 0;
+  min-width: 100%;
+  border-bottom: 1px solid var(--border);
+}
+
 .icon-strip {
+  grid-column: 1;
+  grid-row: 1 / -1;
   display: flex;
   flex-direction: column;
   width: var(--sidebar-width);
@@ -484,8 +527,11 @@ onUnmounted(() => {
   /* Window transparency (issue #162): the parent .sidebar already paints
      --bg-secondary, so painting it again here stacked a second translucent layer
      and made the icon bar look heavier than the panels. Inherit the sidebar
-     background instead of doubling it. */
-  background: transparent;
+     background instead of doubling it.
+     プロジェクトカラー（#298）を設定しているときだけ、その色で塗り替える。**そのときも
+     `--surface-alpha` で合成する**: 生の hex をそのまま敷くと、透過・アクリル（#162）の
+     ときにアイコン列だけ不透明な板になる（上の注意と同じ穴の裏返し）。 */
+  background: color-mix(in srgb, var(--icon-strip-bg, transparent) calc(var(--surface-alpha) * 100%), transparent);
 }
 
 .icon-spacer {
@@ -599,6 +645,7 @@ onUnmounted(() => {
   opacity: 1;
 }
 
+/* プロジェクトカラーの上では `--accent`（青）が下地とぶつかるので、読める側の色で描く。 */
 .icon-button.active::before {
   content: "";
   position: absolute;
@@ -606,18 +653,22 @@ onUnmounted(() => {
   top: 25%;
   height: 50%;
   width: 2px;
-  background: var(--accent);
+  background: var(--icon-strip-fg, var(--accent));
 }
 
+/* 色を敷いているあいだは `readableTextOn` が選んだ黒か白。非アクティブとの差は
+   `.icon-button` の `opacity` が付けるので、ここは 1 色で足りる。 */
 .icon {
-  color: var(--text-secondary);
+  color: var(--icon-strip-fg, var(--text-secondary));
 }
 
 .icon-button.active .icon {
-  color: var(--text-active);
+  color: var(--icon-strip-fg, var(--text-active));
 }
 
 .panel {
+  grid-column: 2;
+  grid-row: 2;
   position: relative;
   border-right: 1px solid var(--border);
   display: flex;
@@ -743,8 +794,10 @@ onUnmounted(() => {
   padding: 0 3px;
   box-sizing: border-box;
   border-radius: 8px;
-  background: var(--text-secondary);
-  color: var(--bg-secondary);
+  /* 下地がプロジェクトカラーのときは、その上で読める側の色を地にして反転させる
+     （灰色の丸だと色によって沈む）。 */
+  background: var(--icon-strip-fg, var(--text-secondary));
+  color: var(--icon-strip-bg, var(--bg-secondary));
   font-size: 9px;
   font-weight: 700;
   line-height: 15px;
@@ -760,7 +813,7 @@ onUnmounted(() => {
   font-weight: 700;
   line-height: 1;
   letter-spacing: -1px;
-  color: var(--accent);
+  color: var(--icon-strip-fg, var(--accent));
   pointer-events: none;
 }
 

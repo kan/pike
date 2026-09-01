@@ -12,12 +12,12 @@ import { detectWslDistros, openElevatedTerminal } from '../../lib/tauri'
 import { elevated, globalMode } from '../../lib/window'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
+import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
 import type { ShellType, Tab } from '../../types/tab'
 import { isWindowsShell, shellId, shellProfileLabel } from '../../types/tab'
-import ColorDot from '../ColorDot.vue'
-import ProjectIcon from '../ProjectIcon.vue'
 import TerminalTab from '../tabs/TerminalTab.vue'
+import ProjectSelect from './ProjectSelect.vue'
 
 const DiffTab = defineAsyncComponent(() => import('../tabs/DiffTab.vue'))
 const EditorTab = defineAsyncComponent(() => import('../tabs/EditorTab.vue'))
@@ -39,6 +39,7 @@ import HelpButton from '../HelpButton.vue'
 const { t } = useI18n()
 const tabStore = useTabStore()
 const projectStore = useProjectStore()
+const sidebar = useSidebarStore()
 const settings = useSettingsStore()
 
 /**
@@ -141,26 +142,6 @@ watch(
 
 onMounted(watchTabSizes)
 onUnmounted(() => overflowObserver.disconnect())
-
-/**
- * 保持しているプロジェクトへの切替チップ（#264）。**並びはタブを持ち始めた順で固定**し、
- * 選択で入れ替えない（押すたびに行き先が動くと狙えない）。一時プロジェクト（#230）も
- * `findProject` で引けるので混ざる。
- */
-const projectChips = computed(() => {
-  const list = [...projectStore.heldProjects]
-  // タブがまだ 1 つも無いプロジェクトも「現在地」として出す（並びの末尾）。**一時
-  // プロジェクトは出さない**: 切り替えると破棄されるので、この列の約束（戻ればある）を
-  // 満たさない。
-  const current = projectStore.currentProject
-  if (current && !projectStore.isTransient && !list.some((p) => p.id === current.id)) list.push(current)
-  return list
-})
-
-function switchToProject(id: string) {
-  if (id === projectStore.currentProject?.id) return
-  void projectStore.openProject(id, 'switch')
-}
 
 const terminalTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'terminal'))
 
@@ -460,9 +441,11 @@ async function onTabContextMenu(e: MouseEvent, tabId: string | null) {
 }
 
 function onTabBarDblClick(e: MouseEvent) {
-  // Only trigger on the empty area (not on a tab or button)
+  // Only trigger on the empty area (not on a tab or button)。**プロジェクトバー（#298）も
+  // 除く**: あれは押すたびに開閉するトグルなので、開いてすぐ閉じるという普通の操作が
+  // dblclick になって、ここまで上がると無題のタブが増える。
   const target = e.target as HTMLElement
-  if (target.closest('.tab') || target.closest('.tab-add-group')) return
+  if (target.closest('.tab') || target.closest('.tab-add-group') || target.closest('.project-select')) return
   tabStore.addBlankEditorTab()
 }
 
@@ -502,34 +485,19 @@ onUnmounted(() => {
       @drop="onBarDrop"
     >
       <!--
-        保持しているプロジェクトへの切替（#264）。**保持中が 1 つでもあるときだけ出す**:
-        普段は 1 プロジェクトしか持たないので、常設すると横幅を取るだけになる。
-        タブと違ってスクロールしない（行き先が流れていくと、素早く移動する用途に合わない）。
+        プロジェクトの表示と切替（#298）。**サイドバーのパネルを閉じているときだけここに
+        出す**: 開いていればサイドバーの最上部が定位置で、そちらのほうがタブの幅を食わない。
+        畳んだサイドバーは 48px しかなく名前が読めないので、そのぶんをここが引き受ける。
+        グローバルモードのウィンドウはプロジェクトを持たないので、部品側の `v-if` で消える。
+
+        幅はサイドバーのパネルと同じにする。開閉のたびにバーの幅が変わると名前の省略位置が
+        動くし、プルダウンの幅もここに合うので「プロジェクトを開く…」が折り返さない。
       -->
-      <div v-if="projectChips.length > 1" class="project-chips">
-        <div
-          v-for="chip in projectChips"
-          :key="chip.id"
-          class="project-chip"
-          :class="{ current: chip.id === projectStore.currentProject?.id }"
-          :title="t('project.switchTo', { name: chip.name })"
-          @click="switchToProject(chip.id)"
-        >
-          <ProjectIcon :icon="chip.icon" /><ColorDot :color="chip.color" />{{ chip.name }}
-          <!--
-            解除は保持中のチップだけ（#264）。現在地に出すと「今見ているプロジェクトの
-            タブを全部閉じる」になり、解除とは別の操作になる。
-          -->
-          <button
-            v-if="chip.id !== projectStore.currentProject?.id"
-            class="chip-close"
-            :title="tabStore.hasTabsFor(chip.id) ? t('project.release') : t('project.forget')"
-            @click.stop="projectStore.releaseProject(chip.id)"
-          >
-            <X :size="12" :stroke-width="2" />
-          </button>
-        </div>
-      </div>
+      <ProjectSelect
+        v-if="!sidebar.isPanelOpen"
+        class="tabbar-project"
+        :style="{ width: sidebar.panelWidth + 'px' }"
+      />
 
       <!-- タブの並びは溢れたら横スクロールする（#281）。 -->
       <div ref="tabsScrollRef" class="tabs-scroll" @wheel="onTabsWheel">
@@ -837,46 +805,14 @@ onUnmounted(() => {
   position: relative;
 }
 
-/* 保持しているプロジェクトのチップ列（#264）。タブバーの左端に固定で置く。 */
-.project-chips {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 4px;
+/* サイドバーを畳んでいるあいだのプロジェクト表示（#298）。タブバーの左端に固定で置く
+   （幅は上の `:style` がサイドバーのパネルに合わせる）。**上限を切る**: パネルの幅は
+   600px まで広げられるので、そのまま明け渡すと狭いウィンドウでタブの取り分がほとんど
+   残らない。パネル用に調整した値がタブバーの取り分を決めてしまわないようにする。 */
+.tabbar-project {
+  max-width: min(280px, 30%);
   border-right: 1px solid var(--border);
   flex-shrink: 0;
-}
-
-.project-chip {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  max-width: 160px;
-  padding: 2px 4px 2px 6px;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-/* チップの ✕ はタブの ✕ と同じ規則（下の `.tab-close` と共有）。大きさだけ小さくする。 */
-.chip-close {
-  width: 16px;
-  height: 16px;
-}
-
-.project-chip:hover {
-  background: var(--tab-hover-bg);
-  color: var(--text-primary);
-}
-
-.project-chip.current {
-  background: var(--tab-active-bg);
-  color: var(--text-active);
 }
 
 /* **`auto` ではなく `scroll`。** Chromium の `::-webkit-scrollbar` は領域を占有するので、
@@ -999,8 +935,7 @@ onUnmounted(() => {
 }
 
 /* **幅は最初から確保する**（ホバーで現れると隣がずれる）。 */
-.tab-close,
-.chip-close {
+.tab-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1017,13 +952,11 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-.tab:hover .tab-close,
-.project-chip:hover .chip-close {
+.tab:hover .tab-close {
   opacity: 1;
 }
 
-.tab-close:hover,
-.chip-close:hover {
+.tab-close:hover {
   background: var(--danger);
   color: var(--text-active);
 }

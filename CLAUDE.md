@@ -165,6 +165,7 @@ pike/
 │   │   ├── ColorDot.vue         # プロジェクトカラーのドット（#121）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── layout/
+│   │   │   ├── ProjectSelect.vue # プロジェクトの表示と切替（サイドバー上部 / タブバー左、#298）
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル
 │   │   │   ├── TabPane.vue    # タブバー + コンテンツ + シェル選択
 │   │   │   └── StatusBar.vue  # ブランチ/worktree セレクタ/ahead-behind/トークン使用量/エンコード/改行/repo リンク
@@ -208,6 +209,7 @@ pike/
 │   │   ├── useBusyExit.ts    # Pike ごと終了する前の確認（#178。close と ⌘Q が共有）
 │   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts  useAnchoredPopup.ts
 │   │   ├── useDragResize.ts  # 横幅を変えるドラッグの配線（サイドバーの幅・diff の分割線、#297）
+│   │   ├── useProjectAccent.ts # プロジェクトカラーを面として塗るための色の組（#298）
 │   │   ├── useActiveFile.ts  # いま見ているファイル（ツリーと Git パネルの強調、#274）
 │   │   ├── useFocusPolling.ts # アクティブなあいだだけポーリングする共通部（#277）
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts

@@ -505,7 +505,7 @@ export default {
   'project.openInNewWindow': '新しいウィンドウで開く',
   'project.missing': '未取得',
   'project.parked': '保持中',
-  'project.switchTo': '{name} に切り替える',
+  'project.openSwitcher': 'プロジェクトを開く…',
   'project.confirmLeaveTransient':
     '{name} は登録していないディレクトリです。切り替えるとこのタブは破棄され、実行中のプロセスも終了します（ディレクトリ自体はそのままです）。続けますか？',
   'project.confirmRelease': '{name} のタブを閉じますか？ 実行中のプロセスも終了します。',
