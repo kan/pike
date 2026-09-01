@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onUnmounted, ref, useTemplateRef } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { useAppActions } from '../../composables/useAppActions'
 import { openFileTarget } from '../../composables/useCliOpen'
@@ -30,29 +30,118 @@ const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 const AgentChatTab = defineAsyncComponent(() => import('../tabs/AgentChatTab.vue'))
 
-import {
-  BookOpen,
-  Bot,
-  Check,
-  ChevronDown,
-  Gauge,
-  Pin,
-  Plus,
-  ScrollText,
-  Settings,
-  ShieldPlus,
-  Terminal,
-  X,
-} from 'lucide-vue-next'
+import { Check, ChevronDown, Pin, Plus, ShieldPlus, X } from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { actionChord } from '../../lib/shortcuts'
+import { TAB_KIND_ICONS } from '../../lib/tabIcons'
 import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
 const tabStore = useTabStore()
 const projectStore = useProjectStore()
 const settings = useSettingsStore()
+
+/**
+ * タブの横スクロール（#281）。溢れたぶんは隠れるだけだったので、開いたばかりのタブが
+ * 右の外に出ていることに気付けなかった。
+ */
+const tabsScrollRef = useTemplateRef<HTMLElement>('tabsScrollRef')
+/** タブが収まりきっていない（スクロールバーと一覧ボタンを出す条件）。 */
+const tabsOverflow = ref(false)
+
+function updateTabOverflow() {
+  const el = tabsScrollRef.value
+  if (!el) return
+  // 収まっていても 1px 足りないことがある（小数の幅）ので余裕を持たせる。
+  tabsOverflow.value = el.scrollWidth > el.clientWidth + 1
+}
+
+/**
+ * 縦ホイールを横スクロールに変換する。タブバーは縦に 1 行しかないので、そのままでは
+ * ホイールが何もしない。**横成分を持つ入力には触らない**（タッチパッドの横スワイプや
+ * 横チルトはブラウザの既定でそのまま動く）。
+ */
+function onTabsWheel(e: WheelEvent) {
+  const el = tabsScrollRef.value
+  if (!el || !tabsOverflow.value || e.deltaX !== 0 || e.deltaY === 0) return
+  e.preventDefault()
+  el.scrollLeft += e.deltaY
+}
+
+/**
+ * アクティブなタブを見える位置へ送る（#281）。新しいタブは開いた時点でアクティブになるので、
+ * これが「開いたタブが右に見切れる」の答えでもある。
+ *
+ * `nearest` は「必要な分だけ動かす」意味で、既に見えている祖先は動かさない（ファイルツリー・
+ * アウトライン・QuickOpen が同じ書き方をしている）。縦は 1 行なので `block` は不活性。
+ */
+async function revealActiveTab() {
+  await nextTick()
+  const id = tabStore.activeTabId
+  if (!id) return
+  const el = tabsScrollRef.value?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(id)}"]`)
+  el?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+}
+
+/**
+ * 溢れたタブの一覧（#281）。VSCode が「開いているエディター」でやっていることを、`+` の
+ * 左のボタンに寄せた形。**隠れているものだけに絞らず全部出す**: 絞ると押すたびに中身が
+ * 変わり、同じタブが列のどこにあるか覚えられない。
+ */
+const showTabMenu = ref(false)
+
+function toggleTabMenu() {
+  if (showTabMenu.value) {
+    closeTabMenu()
+    return
+  }
+  showTabMenu.value = true
+  nextTick(() => {
+    window.addEventListener('mousedown', closeTabMenu, { once: true })
+  })
+}
+
+function closeTabMenu() {
+  window.removeEventListener('mousedown', closeTabMenu)
+  showTabMenu.value = false
+}
+
+function pickTab(id: string) {
+  closeTabMenu()
+  tabStore.setActiveTab(id)
+}
+
+watch(() => tabStore.activeTabId, revealActiveTab)
+// タブが増減すると、スクロールしなくても溢れ方が変わる（閉じて収まった、など）。
+/**
+ * 溢れ方が変わる契機を拾う。**タブの枚数とコンテナの幅だけでは足りない**: 枚数も寸法も
+ * そのままで中身の幅だけ増える経路がある（編集して `*` が付く、ターミナルのタイトルが
+ * 長いコマンド名に変わる）。タブ 1 つ 1 つも監視して、一覧ボタンが出ないまま溢れる状態を
+ * 作らない。**スクロールでは変わらない**ので、`scroll` は契機に要らない。
+ */
+const overflowObserver = new ResizeObserver(updateTabOverflow)
+
+/** 監視の張り直し。`observe` は監視を始めた時点で 1 回呼ばれるので、再計算も兼ねる。 */
+function watchTabSizes() {
+  const box = tabsScrollRef.value
+  if (!box) return
+  // 全部外してから張り直す。消えたタブを個別に外す必要が無くなる。
+  overflowObserver.disconnect()
+  overflowObserver.observe(box)
+  for (const el of box.children) overflowObserver.observe(el)
+}
+
+watch(
+  () => tabStore.visibleTabs.length,
+  async () => {
+    await nextTick()
+    watchTabSizes()
+  },
+)
+
+onMounted(watchTabSizes)
+onUnmounted(() => overflowObserver.disconnect())
 
 /**
  * 保持しているプロジェクトへの切替チップ（#264）。**並びはタブを持ち始めた順で固定**し、
@@ -399,6 +488,7 @@ function openGitHistory() {
 
 onUnmounted(() => {
   window.removeEventListener('mousedown', closeShellMenu)
+  window.removeEventListener('mousedown', closeTabMenu)
   window.removeEventListener('mousedown', closeContextMenu)
   window.removeEventListener('mousedown', closeAdminMenu)
 })
@@ -444,10 +534,12 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="tabs-scroll">
+      <!-- タブの並びは溢れたら横スクロールする（#281）。 -->
+      <div ref="tabsScrollRef" class="tabs-scroll" @wheel="onTabsWheel">
         <div
           v-for="tab in tabStore.visibleTabs"
           :key="tab.id"
+          :data-tab-id="tab.id"
           class="tab"
           :class="{
             active: tab.id === tabStore.activeTabId,
@@ -467,12 +559,13 @@ onUnmounted(() => {
         >
           <Pin v-if="tab.pinned" :size="12" :stroke-width="2" class="tab-pin" :title="t('tabs.pinned')" />
           <span v-if="tabFileIconSvg(tab)" class="tab-icon tab-icon-svg" v-html="tabFileIconSvg(tab)" />
-          <Terminal v-else-if="tab.kind === 'terminal'" :size="14" :stroke-width="1.5" class="tab-icon" />
-          <ScrollText v-else-if="tab.kind === 'docker-logs'" :size="14" :stroke-width="1.5" class="tab-icon" />
-          <Settings v-else-if="tab.kind === 'settings'" :size="14" :stroke-width="1.5" class="tab-icon" />
-          <Gauge v-else-if="tab.kind === 'agent-status'" :size="14" :stroke-width="1.5" class="tab-icon" />
-          <BookOpen v-else-if="tab.kind === 'manual'" :size="14" :stroke-width="1.5" class="tab-icon" />
-          <Bot v-else-if="tab.kind === 'agent-chat'" :size="14" :stroke-width="1.5" class="tab-icon" />
+          <component
+            :is="TAB_KIND_ICONS[tab.kind]"
+            v-else-if="TAB_KIND_ICONS[tab.kind]"
+            :size="14"
+            :stroke-width="1.5"
+            class="tab-icon"
+          />
           <span class="tab-title" @mouseenter="onTitleHover">{{ tabDisplayTitle(tab) }}</span>
           <span
             v-if="tab.kind === 'editor' && tab.isNewFile"
@@ -500,6 +593,13 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="tab-add-group">
+        <!-- 溢れているときだけ出すタブの一覧（#281）。`+` の左に置く。 -->
+        <button
+          v-if="tabsOverflow"
+          class="tab-add-arrow"
+          :title="t('tabs.showAll')"
+          @click.stop="toggleTabMenu"
+        ><ChevronDown :size="12" :stroke-width="2" /></button>
         <button class="tab-add" :title="t('tabs.newTerminal', { key: actionChord('newTerminal') })" @click="openTerminal()"><Plus :size="16" :stroke-width="2" /></button>
         <button
           v-if="isWindows || globalMode"
@@ -510,6 +610,26 @@ onUnmounted(() => {
         ><ChevronDown :size="12" :stroke-width="2" /></button>
         <!-- Global windows have no sidebar — give them a manual entry point -->
         <HelpButton v-if="globalMode" page="global-mode.md" :size="15" />
+      </div>
+      <!-- 溢れたタブの一覧（#281）。並びはタブバーと同じ順で、今のタブに印を付ける。 -->
+      <div v-if="showTabMenu" class="shell-menu tab-menu popup-surface" data-testid="tab-menu" @mousedown.stop>
+        <button
+          v-for="tab in tabStore.visibleTabs"
+          :key="tab.id"
+          :class="{ 'default-shell': tab.id === tabStore.activeTabId }"
+          @click="pickTab(tab.id)"
+        >
+          <span v-if="tabFileIconSvg(tab)" class="tab-icon-svg shell-menu-icon" v-html="tabFileIconSvg(tab)" />
+          <component
+            :is="TAB_KIND_ICONS[tab.kind]"
+            v-else-if="TAB_KIND_ICONS[tab.kind]"
+            :size="14"
+            :stroke-width="1.5"
+            class="shell-menu-icon"
+          />
+          <span class="tab-menu-title">{{ tabDisplayTitle(tab) }}</span>
+          <Check v-if="tab.id === tabStore.activeTabId" :size="12" :stroke-width="2.5" class="shell-default-check" />
+        </button>
       </div>
       <!-- Shell dropdown -->
       <div v-if="showShellMenu" class="shell-menu popup-surface" data-testid="shell-menu" @mousedown.stop>
@@ -769,15 +889,22 @@ onUnmounted(() => {
   color: var(--text-active);
 }
 
+/* **`auto` ではなく `scroll`。** Chromium の `::-webkit-scrollbar` は領域を占有するので、
+   `auto` だとタブが溢れた瞬間にタブの高さがバーのぶんだけ縮む。常に確保すれば高さは一定で、
+   タブが収まっているあいだは thumb が出ないので見た目も変わらない（VSCode もタブとエディタの
+   あいだにスクロールバーを出す。あちらは Monaco の自前オーバーレイ）。
+   `min-width: 0` が無いと、flex アイテムは中身の最小幅より縮まないので、タブが増えたときに
+   右の「+」を押し出す。 */
 .tabs-scroll {
   display: flex;
   flex: 1;
-  overflow-x: auto;
+  min-width: 0;
+  overflow-x: scroll;
   overflow-y: hidden;
 }
 
 .tabs-scroll::-webkit-scrollbar {
-  height: 0;
+  height: 4px;
 }
 
 .tab {
@@ -980,6 +1107,23 @@ onUnmounted(() => {
 .shell-menu-icon {
   flex-shrink: 0;
   color: var(--text-secondary);
+}
+
+/* タブの一覧（#281）。**このボタンが出るのはタブが多いときだけ**＝一覧がいちばん長いときなので、
+   借りている `.shell-menu`（数個で収まるシェル用に高さ無制限）に上限を足す。タイトルも
+   長くなりうるので幅を決めて省略する。 */
+.tab-menu {
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.tab-menu-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell-menu button:hover .shell-menu-icon {

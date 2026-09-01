@@ -95,6 +95,7 @@ export default {
   'tabs.newTerminalShort': 'New Terminal',
   'tabs.newTerminal': 'New Terminal ({key})',
   'tabs.openWithShell': 'Open with different shell',
+  'tabs.showAll': 'All tabs',
   'tabs.openAsAdmin': 'Open as Administrator',
   'tabs.openAsAdminHint': 'Right-click to open as administrator',
   'tabs.pinned': 'Pinned',

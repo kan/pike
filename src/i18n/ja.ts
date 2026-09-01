@@ -95,6 +95,7 @@ export default {
   'tabs.newTerminalShort': '新規ターミナル',
   'tabs.newTerminal': '新規ターミナル ({key})',
   'tabs.openWithShell': '他のシェルで開く',
+  'tabs.showAll': 'すべてのタブ',
   'tabs.openAsAdmin': '管理者権限で開く',
   'tabs.openAsAdminHint': '右クリックで管理者権限で開く',
   'tabs.pinned': '固定',
