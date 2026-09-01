@@ -170,7 +170,15 @@ function renderInline(text: string, ctx: RstContext): Html {
       (_, lead: string, url: string) => lead + hide(anchor(asHtml(url), asHtml(url))),
     )
 
-  return asHtml(out.replace(HOLE_RE, (_, i: string) => done[Number(i)]))
+  // **穴は無くなるまで繰り返して戻す。** 伏せた断片の中に別の穴が入ることがあり
+  // （リンクのラベルにインラインリテラルを書いた場合）、`replace` は置換した結果を
+  // 走査し直さないので、1 パスだと内側が私用領域の文字のまま画面に出る。
+  // 入れ子の深さは伏せた数を超えないので、その回数で打ち切ってよい。
+  let html: string = out
+  for (let i = 0; i <= done.length && html.includes(HOLE_OPEN); i++) {
+    html = html.replace(HOLE_RE, (_, n: string) => done[Number(n)])
+  }
+  return asHtml(html)
 }
 
 /** 行の集合から、共通のインデントを外す。 */
@@ -362,8 +370,8 @@ export function buildRstPreview(text: string, inherited?: RstContext): string {
     // ディレクティブ。中身はインデントされた塊。
     const directive = trimmed.match(DIRECTIVE)
     if (directive) {
-      const { body, next } = takeIndented(i + 1)
-      out.push(renderDirective(directive[1].toLowerCase(), directive[2], body, ctx))
+      const { body, next, blankFirst } = takeIndented(i + 1)
+      out.push(renderDirective(directive[1].toLowerCase(), directive[2], body, ctx, blankFirst))
       i = next
       continue
     }
@@ -470,26 +478,34 @@ function renderNote(raw: string, body: string[], ctx: RstContext): string {
   return `<div class="footnote" id="fn-${note.key}"><span class="footnote-num">${escapeHtml(note.display)}</span> ${inner}${back}</div>`
 }
 
-function renderDirective(name: string, arg: string, body: string[], ctx: RstContext): string {
-  if (name === 'code-block' || name === 'code' || name === 'sourcecode') {
-    const lang = arg.trim()
-    const cls = lang ? ` class="language-${escapeHtml(lang)}"` : ''
-    return `<pre><code${cls}>${escapeHtml(body.join('\n'))}</code></pre>`
-  }
-  if (ADMONITIONS.has(name)) {
-    const title = name.charAt(0).toUpperCase() + name.slice(1)
-    const inner = buildRstPreview(body.join('\n'), ctx)
-    return `<div class="rst-admonition rst-${escapeHtml(name)}"><p class="rst-admonition-title">${escapeHtml(title)}</p>${inner}</div>`
-  }
+function renderDirective(name: string, arg: string, body: string[], ctx: RstContext, blankFirst: boolean): string {
+  // 表の 2 つはオプションの値そのものを使うので、自分で読む（先に振り分けて二度読みを避ける）。
   if (name === 'list-table' || name === 'csv-table') {
     const table = name === 'list-table' ? parseListTable(body, ctx) : parseCsvTable(body, ctx)
     if (table) return table
+  }
+  // **オプション行（`:linenos:` 等）は本文ではない。** docutils では、指示行の直後に空行を
+  // 挟まず並ぶフィールドだけがオプションで、空行のあとに来るものは本文のフィールドリスト。
+  // `blankFirst` を見ないと、`.. note::` の本文が `:key: value` で始まるだけで消える。
+  const content = blankFirst ? body : body.slice(takeOptions(body).next)
+  if (name === 'code-block' || name === 'code' || name === 'sourcecode') {
+    const lang = arg.trim()
+    const cls = lang ? ` class="language-${escapeHtml(lang)}"` : ''
+    // オプションと本文のあいだの空行はコードの一部ではない。
+    const first = content.findIndex((l) => l.trim() !== '')
+    const code = first < 0 ? [] : content.slice(first)
+    return `<pre><code${cls}>${escapeHtml(code.join('\n'))}</code></pre>`
+  }
+  if (ADMONITIONS.has(name)) {
+    const title = name.charAt(0).toUpperCase() + name.slice(1)
+    const inner = buildRstPreview(content.join('\n'), ctx)
+    return `<div class="rst-admonition rst-${escapeHtml(name)}"><p class="rst-admonition-title">${escapeHtml(title)}</p>${inner}</div>`
   }
   if (name === 'image' || name === 'figure') {
     // 実体の取得は Markdown プレビューと同じ経路（`resolveMarkdownImages`）に任せる。
     // figure のキャプション（オプション行の後ろに続く段落）も落とさずに出す。
     const img = `<img src="${escapeHtml(arg.trim())}" alt="">`
-    const caption = body.filter((l) => !FIELD.test(l.trim())).join('\n')
+    const caption = content.join('\n')
     if (name === 'figure' && caption.trim()) {
       return `<figure>${img}<figcaption>${buildRstPreview(caption, ctx)}</figcaption></figure>`
     }

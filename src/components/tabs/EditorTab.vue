@@ -330,22 +330,35 @@ function buildCsvPreview(text: string): string {
   return html
 }
 
+const JSON_TOKEN =
+  /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")(\s*:)?|\b(true|false)\b|\b(null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g
+
+/**
+ * **色分けは生の JSON に当てて、エスケープは切り出したあとに行う。** 共有の `escapeHtml`
+ * （`lib/text.ts`）は属性値のために `"` も `&#34;` にするので、エスケープ済みの文字列に
+ * 文字列リテラルの規則を当てても 1 件も当たらないうえ、数値の規則が実体参照の中の `34` を
+ * 拾ってタグを割り込ませる（`{"a":1}` が `&#<span class="json-number">34</span>;a…` になる）。
+ */
 function highlightJson(pretty: string): string {
-  const escaped = escapeHtml(pretty)
-  return escaped.replace(
-    /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")(\s*:)?|\b(true|false)\b|\b(null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
-    (_match, strVal, colon, boolVal, nullVal, numVal) => {
-      if (strVal) {
-        if (colon) return `<span class="json-key">${strVal}</span>${colon}`
-        const expandable = /\\[nr]/.test(strVal)
-        const cls = expandable ? 'json-string json-string-expandable' : 'json-string'
-        return `<span class="${cls}">${strVal}</span>`
+  let html = ''
+  let last = 0
+  for (const m of pretty.matchAll(JSON_TOKEN)) {
+    const [match, strVal, colon, boolVal, nullVal, numVal] = m
+    html += escapeHtml(pretty.slice(last, m.index))
+    last = m.index + match.length
+    if (strVal) {
+      const body = escapeHtml(strVal)
+      if (colon) {
+        html += `<span class="json-key">${body}</span>${colon}`
+      } else {
+        const cls = /\\[nr]/.test(strVal) ? 'json-string json-string-expandable' : 'json-string'
+        html += `<span class="${cls}">${body}</span>`
       }
-      if (boolVal) return `<span class="json-bool">${boolVal}</span>`
-      if (nullVal) return `<span class="json-null">${nullVal}</span>`
-      return `<span class="json-number">${numVal}</span>`
-    },
-  )
+    } else if (boolVal) html += `<span class="json-bool">${boolVal}</span>`
+    else if (nullVal) html += `<span class="json-null">${nullVal}</span>`
+    else html += `<span class="json-number">${numVal}</span>`
+  }
+  return html + escapeHtml(pretty.slice(last))
 }
 
 function buildJsonPreview(text: string): string {
