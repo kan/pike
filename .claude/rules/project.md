@@ -4,7 +4,7 @@
 実体は `src-tauri/src/project/`、`src-tauri/src/cli.rs`、`src-tauri/src/wait.rs`、`src-tauri/src/tray/`、`src-tauri/src/jumplist/`、`src-tauri/src/window_geom.rs`、`src/stores/project.ts`。
 
 ## プロジェクト管理
-- プロジェクト設定は `%APPDATA%/com.tauri.dev/projects/{id}/project.json` に保存
+- プロジェクト設定は `%APPDATA%/{identifier}/projects/{id}/project.json` に保存（identifier は `tauri.conf.json` の値で、現在は `com.pike.dev`。**`com.tauri.dev` は雛形のままだった頃の残骸**で、古い環境にはそちらのディレクトリが残っている）
 - **`last_project.txt` は 1 行 1 ウィンドウ**で `見せていたid <TAB> 保持していたid...`（#264）。起動時は 1 行につき 1 ウィンドウを復元する。タブを持たない古い形式（1 行 1 id）はそのまま「保持なし」として読める
   - **書き込みは全量書き直し**（`write_open_windows`）。以前は `project_add_open` が追記する一方、削除はウィンドウを閉じたときの「今見せているもの」だけだったので、1 つのウィンドウで A → B と切り替えると A の記録が残り、**次の起動で A と B が別々のウィンドウで開いていた**。生きているウィンドウの状態を写せば、その手のずれが起きない
   - 一時プロジェクト（#230）は `project.json` を持たないので、書き出しのフィルタで落ちる（#230 の「同期ファイル等に出さない」を、読み側だけでなく書き側でも守る）
@@ -34,7 +34,7 @@
     - サイドバーは**2 列 2 行の grid**。アイコン列が `grid-row: 1 / -1` で上まで通り、帯はその右（`grid-column: 2` / `grid-row: 1`）に入る。パネルの開閉でアイコンの位置が動かないのが要点。flex の行に包み直すとテンプレートを字下げし直すことになるだけで、得るものが同じ
     - **帯は列の幅を決めない**（`width: 0` ＋ `min-width: 100%`）。`auto` の列は max-content で広がるので、素のままだと長いプロジェクト名がパネルより広い列を作り、明示 width を持つ `.panel` の右に死んだ帯が残る（リサイズハンドルもサイドバーの右端から離れる）
 - Windows プロジェクトでは「+」ボタン横のドロップダウンでデフォルト以外のシェルも選択可能
-- プロジェクトのグループ分け: `ProjectConfig.group?: string` で各プロジェクトの所属グループを保持。グループ一覧と表示順は `%APPDATA%/com.tauri.dev/groups.json` に明示的に永続化（プロジェクト未割当の空グループも保持可能）。`project_groups_list` / `project_groups_save` コマンドで CRUD
+- プロジェクトのグループ分け: `ProjectConfig.group?: string` で各プロジェクトの所属グループを保持。グループ一覧と表示順は `%APPDATA%/{identifier}/groups.json` に明示的に永続化（プロジェクト未割当の空グループも保持可能）。`project_groups_list` / `project_groups_save` コマンドで CRUD
 - ProjectPanel UI: 未分類プロジェクトはリスト直下にフラット表示（ヘッダーなし）、グループ所属はグループバー配下に折りたたみ可能で配置。「+ グループを追加」ボタンで空グループを作成、グループバーの鉛筆で一括リネーム（所属プロジェクトの `group` も更新）、✕ で削除（所属プロジェクトは ungroup）
 - プロジェクトの編集フォームではコンボボックス形式: `<select>` で「グループなし / 既存グループ / + 新規グループ...」、新規選択で text input に切替
 - **表示モード（#203）**: `グループ別`（既定）と `最近開いた順` の 2 つ。`最近開いた順` は**グループでまとめずフラット**に並べ（並びはバックエンドの `read_all_projects_sorted` = `lastOpened` 降順）、代わりに行にグループ名バッジを出す。`グループ別` は手動順（後述）→ 名前順。モードは `localStorage` (`pike:project-sort-mode`)、折りたたみ状態は同 `pike:project-group-collapsed` に永続化

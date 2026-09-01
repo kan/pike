@@ -952,7 +952,7 @@ const PREVIEW_LINES = [
 
       <!-- About / Update -->
       <section id="settings-about" class="settings-section">
-        <h3 class="section-title">{{ t('settings.about') }}<HelpButton page="settings.md#更新about" :size="15" /></h3>
+        <h3 class="section-title">{{ t('settings.about') }}<HelpButton page="settings.md#バージョン情報" :size="15" /></h3>
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.version') }}</label>
           <span class="version-value">{{ updater.appVersion.value }}</span>

@@ -44,7 +44,7 @@
 
 ## Docker
 
-**🐋 Docker** アイコンで開きます。Docker API に named pipe → TCP の順で接続します。Docker Desktop が無くても、WSL2 の dockerd が TCP を公開していれば接続できます。
+**🐋 Docker** アイコンで開きます。Docker API へは、まず OS ごとの既定の口（Windows は named pipe、macOS は Unix ソケット）で接続します。Windows ではそのあと TCP も試すので、Docker Desktop が無くても WSL2 の dockerd が TCP を公開していれば接続できます。
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="img/docker-light.png">
