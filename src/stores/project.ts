@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
-import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
+import { confirmDialog, confirmWithOption, infoDialog } from '../composables/useConfirmDialog'
 import { locale, t } from '../i18n'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
 import { hostDefaultShell, isMacHost } from '../lib/host'
@@ -371,21 +371,30 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /**
-   * Ask once whether the directory this window opened should become a project.
-   * Declining records the root, so the same directory never asks again — and the
-   * switcher's "open a directory" entry records it as it opens, which is why
-   * that path never reaches a dialog.
+   * Decide whether the directory this window opened should become a project
+   * (#230, 設定は #286)。
+   *
+   * 粒度が 2 段ある。**素の「いいえ」はそのディレクトリだけ**を記録して二度と聞かない
+   * （switcher の「ディレクトリを開く」も開いた時点で同じ記録をするので、あの経路は
+   * ここに来ない）。**「今後は確認しない」を付けたときだけ設定そのもの**を切り替える。
    */
   async function offerToRegisterDirectory(): Promise<void> {
     const project = transientProject.value
     if (!project || !isTransient.value) return
     const settings = useSettingsStore()
-    if (settings.skipsRegisterPrompt(project.root)) return
-    if (await confirmDialog(t('project.registerDirectoryConfirm', { root: project.root }))) {
+    if (settings.registerDirectory === 'never') return
+    if (settings.registerDirectory === 'auto') {
       await registerTransientProject()
-    } else {
-      settings.rememberTransientRoot(project.root)
+      return
     }
+    if (settings.skipsRegisterPrompt(project.root)) return
+    const { ok, checked } = await confirmWithOption(
+      t('project.registerDirectoryConfirm', { root: project.root }),
+      t('project.registerDirectoryRemember'),
+    )
+    if (checked) settings.registerDirectory = ok ? 'auto' : 'never'
+    if (ok) await registerTransientProject()
+    else settings.rememberTransientRoot(project.root)
   }
 
   /**
@@ -451,24 +460,45 @@ export const useProjectStore = defineStore('project', () => {
    * Open a directory without registering it (#230): the window behaves like a
    * project window, but nothing is written to disk and the config dies with it.
    *
-   * Choosing this is itself the answer to "register this directory?", so the
-   * root is remembered as one not to ask about again.
+   * **登録するかは設定に従う（#286）。** 以前は「この操作を選ぶこと自体が答え」とみなして
+   * 黙って一時プロジェクトにし、その root を二度と聞かない側へ記録していた。設定に
+   * 「確認する」を置いた以上そちらが優先で、実際「確認するのに聞かれない」という形で出た。
+   *
+   * `alreadyChose` は、呼び出し側が既に登録するかを選ばせている場合（`EditorTab` の
+   * ディレクトリ用の 2 択）。そこで聞き直すと、同じことを続けて 2 回聞くことになる。
    */
-  async function openDirectory(path: string, mode?: 'switch' | 'window'): Promise<void> {
+  async function openDirectory(
+    path: string,
+    mode?: 'switch' | 'window',
+    opts?: { alreadyChose?: boolean },
+  ): Promise<void> {
     trackRecentDir(path)
-    const config = await projectTransientCreate(path, distroHintFor(path))
-    useSettingsStore().rememberTransientRoot(config.root)
     // 既定は「ここで開く」。ただしプロジェクトを持たないウィンドウは自分がその
     // ディレクトリの入れ物になれないので新しいウィンドウへ。この判断を呼び出し側に
     // 置くと入口ごとに書き写すことになる（実際 1 箇所が `.value` を落として
     // 常に新しいウィンドウを開いていた）。
-    if ((mode ?? (globalMode.value ? 'window' : 'switch')) === 'window') {
+    const settings = useSettingsStore()
+    const target = mode ?? (globalMode.value ? 'window' : 'switch')
+    const decided = opts?.alreadyChose === true
+    if (!decided && settings.registerDirectory === 'auto') {
+      await openDirectoryAsProject(path, target)
+      return
+    }
+    const config = await projectTransientCreate(path, distroHintFor(path))
+    // 呼び出し側で選んだ結果なら、そのディレクトリは以後聞かない側に倒す。
+    if (decided) settings.rememberTransientRoot(config.root)
+    if (target === 'window') {
+      // 新しいウィンドウは自分で adopt して聞くので、ここでは聞かない。
       await openProjectWindow(config.id)
       return
     }
     transientProject.value = config
     await projectTransientBind(config.id)
     await switchProject(config.id)
+    // 聞くかどうかの判断は `offerToRegisterDirectory` の 1 箇所に寄せてある（設定が
+    // `never` なら黙って戻る）。**await しない**: CLI の adopt と同じ理由で、開く処理を
+    // ダイアログの答えで止めない。
+    if (!decided) offerToRegisterDirectory().catch(() => {})
   }
 
   /**
@@ -511,6 +541,17 @@ export const useProjectStore = defineStore('project', () => {
       return
     }
     const config = await projectTransientCreate(path, distroHintFor(path))
+    // **正規化した root でもう一度引く。** `rootKey` は区切りと大小を揃えるだけなので、
+    // WSL を UNC（`\\wsl.localhost\<distro>\home\…`）で選ぶと登録済みの native な root
+    // （`/home/…`）と一致しない。バックエンドは UNC から distro を読んで native に直すので、
+    // ここで引き直さないと同じディレクトリを指すエントリが 2 つ `project.json` に残る
+    // （フォルダ選択ダイアログは WSL を UNC で返すため、普通の操作で踏む）。
+    const same = projectForRoot(config.root)
+    if (same) {
+      await projectTransientDrop(config.id).catch(() => {})
+      await openProject(same.id, mode)
+      return
+    }
     const stored = { ...config, id: uniqueProjectId(config.id), lastOpened: new Date().toISOString() }
     await projectTransientDrop(config.id).catch(() => {})
     await addProject(stored)

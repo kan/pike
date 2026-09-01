@@ -840,7 +840,9 @@ async function openDirectoryTab(as: 'directory' | 'project') {
   if (as === 'project') {
     await projectStore.openDirectoryAsProject(path, mode)
   } else {
-    await projectStore.openDirectory(path, mode)
+    // ここは「ディレクトリを開く」と「プロジェクトとして開く」を並べて選ばせた直後なので、
+    // 登録するかを聞き直さない（#286）。
+    await projectStore.openDirectory(path, mode, { alreadyChose: true })
   }
   if (mode === 'window') await tabStore.closeTab(props.tabId)
 }

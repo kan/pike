@@ -310,6 +310,17 @@ function sanitizeDiffWordWrap(v: unknown): DiffWordWrap {
   return DIFF_WORD_WRAPS.includes(v as DiffWordWrap) ? (v as DiffWordWrap) : 'auto'
 }
 
+/**
+ * 未登録のディレクトリを開いたときの扱い（#286）。既定は `ask`（従来の挙動）。
+ * **好みなので同期の対象**にする（パスの話ではないのでマシンに依存しない）。
+ */
+export const REGISTER_DIRECTORY_MODES = ['auto', 'ask', 'never'] as const
+export type RegisterDirectoryMode = (typeof REGISTER_DIRECTORY_MODES)[number]
+
+function sanitizeRegisterDirectory(v: unknown): RegisterDirectoryMode {
+  return REGISTER_DIRECTORY_MODES.includes(v as RegisterDirectoryMode) ? (v as RegisterDirectoryMode) : 'ask'
+}
+
 // Window opacity slider bounds (surface alpha when a backdrop is active).
 export const WINDOW_OPACITY_MIN = 0.1
 export const WINDOW_OPACITY_MAX = 1
@@ -351,6 +362,8 @@ interface PersistedSettings {
   diffWordWrap: DiffWordWrap
   /** キーボードショートカットのプリセット（#261）。 */
   shortcutPreset: ShortcutPreset
+  /** 未登録のディレクトリを開いたときにプロジェクト登録するか（#286）。 */
+  registerDirectory: RegisterDirectoryMode
   /** エディタの自動保存の契機（#262）。 */
   autoSave: AutoSave
   /** `autoSave: 'afterDelay'` の待ち時間（ミリ秒）。 */
@@ -414,6 +427,7 @@ function sanitize(s: PersistedSettings): PersistedSettings {
     windowBackdrop: sanitizeBackdrop(s.windowBackdrop),
     diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
     shortcutPreset: sanitizeShortcutPreset(s.shortcutPreset),
+    registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
     autoSave: sanitizeAutoSave(s.autoSave),
     autoSaveDelay: clampSize(s.autoSaveDelay, AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX, AUTO_SAVE_DELAY_DEFAULT),
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
@@ -561,6 +575,7 @@ function defaults(): PersistedSettings {
     editorWordWrap: false,
     diffWordWrap: 'auto',
     shortcutPreset: 'vscode',
+    registerDirectory: 'ask',
     autoSave: 'off',
     autoSaveDelay: AUTO_SAVE_DELAY_DEFAULT,
     editorTabSize: 4,
@@ -605,6 +620,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorWordWrap = ref(saved.editorWordWrap)
   const diffWordWrap = ref(saved.diffWordWrap)
   const shortcutPreset = ref(saved.shortcutPreset)
+  const registerDirectory = ref(saved.registerDirectory)
   const autoSave = ref(saved.autoSave)
   const autoSaveDelay = ref(saved.autoSaveDelay)
   const editorTabSize = ref(saved.editorTabSize)
@@ -959,6 +975,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorWordWrap: editorWordWrap.value,
       diffWordWrap: diffWordWrap.value,
       shortcutPreset: shortcutPreset.value,
+      registerDirectory: registerDirectory.value,
       autoSave: autoSave.value,
       autoSaveDelay: autoSaveDelay.value,
       editorTabSize: editorTabSize.value,
@@ -999,6 +1016,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorWordWrap.value = s.editorWordWrap
     diffWordWrap.value = s.diffWordWrap
     shortcutPreset.value = s.shortcutPreset
+    registerDirectory.value = s.registerDirectory
     autoSave.value = s.autoSave
     autoSaveDelay.value = s.autoSaveDelay
     editorTabSize.value = s.editorTabSize
@@ -1184,6 +1202,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorWordWrap,
       diffWordWrap,
       shortcutPreset,
+      registerDirectory,
       autoSave,
       autoSaveDelay,
       editorTabSize,
@@ -1239,6 +1258,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorWordWrap,
     diffWordWrap,
     shortcutPreset,
+    registerDirectory,
     autoSave,
     autoSaveDelay,
     editorTabSize,

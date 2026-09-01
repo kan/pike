@@ -4,7 +4,7 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useI18n } from '../i18n'
 
 const { t } = useI18n()
-const { visible, message, mode, inputValue, inputPlaceholder, respond } = useConfirmDialog()
+const { visible, message, mode, inputValue, inputPlaceholder, optionLabel, optionChecked, respond } = useConfirmDialog()
 const okBtn = ref<HTMLButtonElement | null>(null)
 const inputEl = ref<HTMLInputElement | null>(null)
 
@@ -31,6 +31,10 @@ function onKeydown(e: KeyboardEvent) {
           :placeholder="inputPlaceholder"
           @keydown.enter.stop="respond(true)"
         />
+        <label v-if="optionLabel" class="dialog-option">
+          <input v-model="optionChecked" type="checkbox" />
+          <span>{{ optionLabel }}</span>
+        </label>
         <div class="dialog-actions">
           <button v-if="mode !== 'info'" class="btn btn-cancel" @click="respond(false)">{{ t('common.cancel') }}</button>
           <button ref="okBtn" class="btn btn-ok" @click="respond(true)">{{ t('common.ok') }}</button>
@@ -88,6 +92,18 @@ function onKeydown(e: KeyboardEvent) {
 
 .dialog-input:focus {
   border-color: var(--accent);
+}
+
+/* 添えるチェックボックス（#286）。ボタンより先に読ませたいので本文とボタンのあいだ。 */
+.dialog-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 16px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
 }
 
 .dialog-actions {

@@ -48,6 +48,8 @@
 ## カスタム確認ダイアログ
 - `window.confirm()` は WebView のオリジン URL がタイトルに表示されるため使わない
 - `src/composables/useConfirmDialog.ts` が `confirmDialog(msg): Promise<boolean>` を提供
+- **チェックボックスを 1 つ添えたいときは `confirmWithOption(msg, label): Promise<{ ok, checked }>`**（#286 の「今後は確認しない」）。文言が空ならチェックボックスは出ないので、`confirmDialog` はこれに委譲した薄い包みで、起動の手順は 1 箇所にある。**`confirmDialog` の戻り値は真偽値のまま変えないこと**（呼び出しが 20 箇所以上あり、どれもチェックの状態を要らない）
+- ダイアログの状態はモジュール単位のシングルトン。**モードごとにしか使わないフィールド（`inputValue` / `optionLabel`）の後始末は `dismiss()` に置く**。ここが「次のダイアログを開く直前に前の状態を捨てる」唯一の場所で、開く側の関数それぞれに書くと、消し忘れたフィールドが無関係なダイアログに出る（実際にチェックボックスが後続の `promptDialog` に居座った）
 - `src/components/ConfirmDialog.vue` を `App.vue` に配置（Teleport で body 直下に描画）
 - Enter で OK、Escape / オーバーレイクリックでキャンセル
 

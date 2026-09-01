@@ -22,7 +22,7 @@ export default {
   'app.title': 'pike',
   'app.titleWithProject': 'pike - {name}',
   // Directory opened without registering it (#230)
-  'app.titleWithDirectory': 'pike - {name} (unregistered)',
+  'app.titleWithDirectory': 'pike - {name} (not a project)',
   'app.adminTitlePrefix': '[Admin]',
   'app.emptyTerminal': 'Press {key} to open a terminal',
   'app.emptyProject': 'Open a project to get started ({key})',
@@ -243,6 +243,12 @@ export default {
   'settings.shortcutPresetIdea': 'IDEA',
   'settings.shortcutPresetHint':
     'Switch the key set to match the editor you are used to; press Ctrl+K for the full list. With IDEA keys, tab navigation moves to Alt+Left / Alt+Right, so Pike takes those keys while the terminal has focus.',
+  'settings.registerDirectory': 'Opening a directory that is not a project',
+  'settings.registerDirectoryAuto': 'Register it',
+  'settings.registerDirectoryAsk': 'Ask',
+  'settings.registerDirectoryNever': 'Leave it',
+  'settings.registerDirectoryHint':
+    'What happens when you open a directory that is not registered as a project. With "Ask", the dialog\'s "Stop asking and make this the default" switches this setting.',
   'settings.closeToTray': 'Minimize to tray on close',
   'settings.closeToTrayHint':
     'When on, closing the window keeps Pike running in the system tray (quit from the tray menu). When off, closing the last window exits Pike; other open windows stay open.',
@@ -483,7 +489,8 @@ export default {
   // Directory opened without registering it (#230)
   'project.registerDirectory': 'Register as a project',
   'project.registerDirectoryConfirm':
-    'Register this directory as a project?\n\n{root}\n\nChoosing No opens it without saving anything, and this directory will not ask again.',
+    'Register this directory as a project?\n\n{root}\n\nIf not, it opens without saving anything and this directory will not ask again.',
+  'project.registerDirectoryRemember': 'Stop asking and make this the default',
   'project.projectName': 'Project name',
   'project.detect': 'Detect',
   'project.browse': 'Browse...',

@@ -447,6 +447,38 @@ const PREVIEW_LINES = [
           <p class="setting-hint">{{ t('settings.shortcutPresetHint') }}</p>
         </div>
 
+        <!-- 未登録のディレクトリを開いたときの扱い（#286）。確認ダイアログの
+             「今後は確認しない」もここを書き換える。 -->
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.registerDirectory') }}</label>
+            <div class="mode-toggle">
+              <button
+                class="mode-btn"
+                :class="{ active: settings.registerDirectory === 'auto' }"
+                @click="settings.registerDirectory = 'auto'"
+              >
+                {{ t('settings.registerDirectoryAuto') }}
+              </button>
+              <button
+                class="mode-btn"
+                :class="{ active: settings.registerDirectory === 'ask' }"
+                @click="settings.registerDirectory = 'ask'"
+              >
+                {{ t('settings.registerDirectoryAsk') }}
+              </button>
+              <button
+                class="mode-btn"
+                :class="{ active: settings.registerDirectory === 'never' }"
+                @click="settings.registerDirectory = 'never'"
+              >
+                {{ t('settings.registerDirectoryNever') }}
+              </button>
+            </div>
+          </div>
+          <p class="setting-hint">{{ t('settings.registerDirectoryHint') }}</p>
+        </div>
+
         <div class="setting-row">
           <label class="setting-label">{{ t('settings.closeToTray') }}</label>
           <div class="mode-toggle">

@@ -22,7 +22,7 @@ export default {
   'app.title': 'pike',
   'app.titleWithProject': 'pike - {name}',
   // 登録せずに開いたディレクトリ（#230）
-  'app.titleWithDirectory': 'pike - {name}（未登録）',
+  'app.titleWithDirectory': 'pike - {name}（プロジェクト未登録）',
   'app.adminTitlePrefix': '[管理者]',
   'app.emptyTerminal': '{key} でターミナルを開く',
   'app.emptyProject': '{key} でプロジェクトを開く',
@@ -243,6 +243,12 @@ export default {
   'settings.shortcutPresetIdea': 'IDEA 互換',
   'settings.shortcutPresetHint':
     'よく使うエディタに合わせてキーの組を切り替えます。一覧は Ctrl+K で確認できます。IDEA 互換ではタブ移動が Alt+← / Alt+→ になるため、ターミナルにフォーカスがあるあいだ Pike がこのキーを先に取ります。',
+  'settings.registerDirectory': '未登録のディレクトリを開いたとき',
+  'settings.registerDirectoryAuto': '自動登録',
+  'settings.registerDirectoryAsk': '確認する',
+  'settings.registerDirectoryNever': '登録しない',
+  'settings.registerDirectoryHint':
+    'プロジェクトとして登録していないディレクトリを開いたときの扱いです。「確認する」ではダイアログの「今後は確認せず、この選択を既定にする」でここを切り替えられます。',
   'settings.closeToTray': '閉じたときトレイに最小化',
   'settings.closeToTrayHint':
     'オンのとき、ウィンドウを閉じても Pike はトレイに常駐し続けます（終了はトレイメニューから）。オフのとき、最後のウィンドウを閉じると Pike を終了します（他のウィンドウが開いていれば、そのウィンドウは残ります）。',
@@ -482,7 +488,8 @@ export default {
   // 登録せずに開いたディレクトリ（#230）
   'project.registerDirectory': 'プロジェクトに登録',
   'project.registerDirectoryConfirm':
-    'このディレクトリをプロジェクトとして登録しますか？\n\n{root}\n\nいいえを選ぶと何も保存せずに開き、このディレクトリでは次回から確認しません。',
+    'このディレクトリをプロジェクトとして登録しますか？\n\n{root}\n\n登録しない場合は何も保存せずに開き、このディレクトリでは次回から確認しません。',
+  'project.registerDirectoryRemember': '今後は確認せず、この選択を既定にする',
   'project.projectName': 'プロジェクト名',
   'project.detect': '検出',
   'project.browse': '参照...',
