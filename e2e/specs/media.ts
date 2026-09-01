@@ -44,12 +44,15 @@ describe('screenshots: image viewer', () => {
 })
 
 // --- 差分タブ ---------------------------------------------------------------
+// **hunk は 2 つにし、1 つ目をファイルの途中から始める。** 省略された行を広げる帯（#285）は
+// hunk と hunk のあいだと先頭にしか出ないので、1 行目から始まる 1 つの hunk では 1 本も
+// 出ない。マニュアル（git.md）が帯を説明しているのに、写っていない状態になっていた。
 const DIFF_SAMPLE = [
   'diff --git a/src/lib/format.ts b/src/lib/format.ts',
   'index 1234567..89abcde 100644',
   '--- a/src/lib/format.ts',
   '+++ b/src/lib/format.ts',
-  '@@ -1,9 +1,10 @@',
+  '@@ -12,9 +12,10 @@ import { formatDistanceToNow } from "./time"',
   ' export function formatTokens(n: number): string {',
   '   if (n < 1000) return String(n)',
   '   if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`',
@@ -61,6 +64,14 @@ const DIFF_SAMPLE = [
   '-  return `$${usd.toFixed(2)}`',
   '+  if (usd < 0.01) return `<$0.01`',
   '+  return `$${usd.toFixed(2)}`',
+  ' }',
+  '@@ -48,7 +49,7 @@ export function formatCost(usd: number): string {',
+  ' export function formatDuration(ms: number): string {',
+  '   if (ms < 1000) return `${ms}ms`',
+  '   const s = ms / 1000',
+  '-  if (s < 60) return `${s.toFixed(1)}s`',
+  '+  if (s < 60) return `${s.toFixed(2)}s`',
+  '   return `${Math.floor(s / 60)}m${Math.round(s % 60)}s`',
   ' }',
   '',
 ].join('\n')
