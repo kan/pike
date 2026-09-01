@@ -62,6 +62,13 @@ jobs:
         if: runner.os == 'Windows'
         run: just check-docs
 
+      # Docs: マニュアルの「プリセット別の早見表」と実装の割り当て表の照合（#280）。
+      # 実装を import して 4 通り（プリセット × プラットフォーム）を作るので、
+      # Windows の runner でも macOS 側のずれを検出できる。
+      - name: Shortcut table check
+        if: runner.os == 'Windows'
+        run: just check-shortcuts
+
       # Frontend: TypeScript type check + Vite build
       - name: Vue/TypeScript check & build
         if: runner.os == 'Windows'

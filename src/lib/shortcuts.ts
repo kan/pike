@@ -170,11 +170,20 @@ export interface KeyBinding {
   /** スイッチャー / QuickOpen が開いていても処理する。 */
   always?: true
   /**
-   * macOS だけの割り当て。`⌘Q` は mac の作法で、Windows / Linux に `Ctrl+Q` を
-   * 生やす気は無い（押し間違いでアプリごと終了する）。表に載せるのは、macOS の
-   * メニューのアクセラレータをここから引くため。
+   * macOS でこの行が使う chord（#280）。**OS 差はこの 1 つだけで表す。**
+   *
+   * `Mod`（mac は Cmd、他は Ctrl）は VSCode のように「Ctrl ↔ Cmd の機械的な読み替え」で
+   * 出来ているキーマップにしか通用しない。IntelliJ IDEA は Windows / Linux 用と macOS 用に
+   * 別のキーマップを配っていて、Go to File が `Ctrl+Shift+N` と `⇧⌘O` のように**キーそのものが
+   * 違う**。VSCode 側にも 1 件あり、`nextEditor` は mac だけ `⌘⇧]` を持つ。
+   *
+   * 空の `chords` と組にすれば「mac だけの割り当て」も書ける（`⌘Q`。Windows / Linux に
+   * `Ctrl+Q` を生やす気は無い ―― 押し間違いでアプリごと終了する）。以前はこれを `macOnly`
+   * という別のフラグでやっていたが、見ていたのが `useKeyboardShortcuts` だけで、
+   * `chordsFor` / `terminalClaims` / `primaryChord` は素通しに読んでいた。**OS の解決は
+   * `keyBindings` を組むところで 1 回だけ終わらせる。**
    */
-  macOnly?: true
+  macChords?: string[]
   /**
    * ターミナルにフォーカスがあっても Pike が先に取る（#224）。
    *
@@ -232,10 +241,26 @@ const VSCODE_BINDINGS: KeyBinding[] = [
   // `Mod+O` は「開く」の慣習そのまま（mac の ⌘O、Windows の Ctrl+O）。ターミナルへは
   // 返す（readline の operate-and-get-next。`terminalFirst` を付けない）。
   { chords: ['Mod+O'], action: 'openDirectory' },
-  { chords: ['Mod+T'], action: 'newTerminal', terminalFirst: true },
+  // VSCode の新規ターミナルは全 OS で `Ctrl+Shift+\``。**配列で `e.key` が変わる**ので 2 つ
+  // 並べる（US は Shift+` が `~`、JIS は `@` の Shift で `` ` `` が出る）。`Mod+T` も残す:
+  // Pike はターミナルが主機能で、JIS 配列では `Ctrl+Shift+\`` が明確に打ちにくい。VSCode の
+  // `Ctrl+T`（Go to Symbol in Workspace）に当たる機能は Pike に無いので取り合いにならない。
+  { chords: ['Mod+T', 'Ctrl+Shift+`', 'Ctrl+Shift+~'], action: 'newTerminal', terminalFirst: true },
   // `Ctrl+Tab` 系は macOS でも Ctrl のまま（`⌘Tab` は OS のアプリ切り替え）。
-  { chords: ['Mod+Shift+]', 'Ctrl+Tab', 'Ctrl+PageDown'], action: 'nextTab', terminalFirst: true },
-  { chords: ['Mod+Shift+[', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'], action: 'prevTab', terminalFirst: true },
+  // **`⌘⇧]` は mac だけ**（#280）。VSCode の `nextEditor` は mac が `⌘⇧]`、Windows / Linux は
+  // `Ctrl+PageDown` で、あちらに `Ctrl+Shift+]` という割り当ては無い。
+  {
+    chords: ['Ctrl+Tab', 'Ctrl+PageDown'],
+    macChords: ['Mod+Shift+]', 'Ctrl+Tab', 'Ctrl+PageDown'],
+    action: 'nextTab',
+    terminalFirst: true,
+  },
+  {
+    chords: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'],
+    macChords: ['Mod+Shift+[', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'],
+    action: 'prevTab',
+    terminalFirst: true,
+  },
   // 全体検索（#259）。VSCode の「Search across files」と同じキーで、IDEA の
   // 「Find in Path」とも一致するのでプリセットで変わらない。
   { chords: ['Mod+Shift+F'], action: 'panelSearch' },
@@ -252,44 +277,79 @@ const VSCODE_BINDINGS: KeyBinding[] = [
   { chords: ['Mod+-'], action: 'fontDecrease', terminalFirst: true },
   { chords: ['Mod+0'], action: 'fontReset', terminalFirst: true },
   { chords: ['Alt+H'], action: 'gitHistory' },
-  { chords: ['Mod+Q'], action: 'quit', macOnly: true },
+  // mac だけの `⌘Q`。Windows / Linux では割り当てを持たない（`chords` が空）。
+  { chords: [], macChords: ['Mod+Q'], action: 'quit' },
 ]
 
 /**
- * IDEA 互換で置き換える行（#261）。**差分だけを書く**: 表を丸ごと複製すると、片方にだけ
- * 行を足したときに黙ってずれる。
+ * IDEA 互換で置き換える行（#261 / #280）。**差分だけを書く**: 表を丸ごと複製すると、片方に
+ * だけ行を足したときに黙ってずれる。
+ *
+ * **OS 差は行の中の `macChords` で持つ（#280）。** IDEA は Windows / Linux 用と macOS 用に
+ * 別のキーマップを配っていて、その関係は単純な Ctrl → Cmd の読み替えではない。以前は
+ * Windows のキーマップだけを見て書いてあったため、mac では 5 件が実際の IDEA と食い違って
+ * いた（Go to File・Settings・Close Tab・タブ移動の前後）。**表を OS ごとに 2 つ持つ形は
+ * 採らない**: 行を片方にだけ足す事故が起き、しかも症状は mac でしか出ない（CI の macOS
+ * ジョブは Rust の cfg を見るためのもので、ここは走らない）。行ごとに両 OS が並んでいれば、
+ * 見落としは目で分かる。
  *
  * 入れていないものにも理由がある。`projectSwitcher` と `openDirectory` は IDEA に相当する
  * 既定キーが無く、`newFile` の `Ctrl+N` は IDEA では「Go to Class」だが Pike にクラス検索が
  * 無いので取り合いにならない。
- *
- * **タブ移動は Ctrl+Tab / Ctrl+PageUp・Down も残す**。IDEA の `Alt+←→` は macOS では
- * Option+矢印＝readline の単語移動と重なり、あちらでは Pike が取らない方針（後述の
- * `terminalClaims`）なので、残さないと mac のターミナル上でタブを切り替える手段が消える。
  */
 const IDEA_OVERRIDES: Partial<Record<AppActionId, Partial<KeyBinding>>> = {
-  // Go to File。
-  quickOpen: { chords: ['Mod+Shift+N'] },
-  // Settings。
-  settings: { chords: ['Mod+Alt+S'] },
-  // Close Tab。`Ctrl+W` は IDEA では Extend Selection なので、シェルへ戻る。
-  // vim の prefix と衝突しないので `altScreenShell` は外す。
-  closeTab: { chords: ['Mod+F4'], altScreenShell: undefined },
-  // Terminal tool window。
+  // Go to File。`Ctrl+Shift+N` と `⇧⌘O` で、キーそのものが違う。
+  quickOpen: { chords: ['Mod+Shift+N'], macChords: ['Mod+Shift+O'] },
+  // Settings / Preferences。mac は `⌘,` で、VSCode 互換と同じ値になる。
+  settings: { chords: ['Mod+Alt+S'], macChords: ['Mod+,'] },
+  // Close Tab。Windows の `Ctrl+W` は IDEA では Extend Selection なのでシェルへ戻り、
+  // 代わりに `Ctrl+F4` が閉じる。mac は `⌘W` で VSCode 互換と同じ値。どちらも vim の
+  // prefix と衝突しないので `altScreenShell` は外す（mac はそもそも Cmd がターミナルへ
+  // 送られないので、外さなくても取り合いは起きない）。
+  closeTab: { chords: ['Mod+F4'], macChords: ['Mod+W'], altScreenShell: undefined },
+  // Terminal tool window。両 OS とも `Alt+F12`（mac は ⌥F12）。
   newTerminal: { chords: ['Alt+F12'] },
-  // Select Next / Previous Tab。
-  // chord のキー名は `e.key` に合わせる（矢印は `ArrowRight`）。表示は `chordChips` が
-  // 記号へ読み替える。
-  nextTab: { chords: ['Alt+ArrowRight', 'Ctrl+Tab', 'Ctrl+PageDown'] },
-  prevTab: { chords: ['Alt+ArrowLeft', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'] },
+  // Select Next / Previous Tab。Windows は `Alt+←→`、mac は `⇧⌘] / ⇧⌘[`（VSCode 互換と
+  // 同じ値）。chord のキー名は `e.key` に合わせる（矢印は `ArrowRight`）。表示は
+  // `chordChips` が記号へ読み替える。
+  //
+  // **Ctrl+Tab / Ctrl+PageUp・Down も残す**。Windows の `Alt+←→` は代替画面の中で矢印を
+  // 使う TUI と重なるので、逃げ道を 1 つ残しておく。
+  nextTab: {
+    chords: ['Alt+ArrowRight', 'Ctrl+Tab', 'Ctrl+PageDown'],
+    macChords: ['Mod+Shift+]', 'Ctrl+Tab', 'Ctrl+PageDown'],
+  },
+  prevTab: {
+    chords: ['Alt+ArrowLeft', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'],
+    macChords: ['Mod+Shift+[', 'Ctrl+Shift+Tab', 'Ctrl+PageUp'],
+  },
 }
 
-const IDEA_BINDINGS: KeyBinding[] = VSCODE_BINDINGS.map((b) =>
-  b.action && IDEA_OVERRIDES[b.action] ? { ...b, ...IDEA_OVERRIDES[b.action] } : b,
-)
+const IDEA_BINDINGS: KeyBinding[] = VSCODE_BINDINGS.map((b) => {
+  const override = b.action ? IDEA_OVERRIDES[b.action] : undefined
+  // `macChords` を先に落とすのは、置き換える行の mac 側も override が決めるため。持ち越すと
+  // VSCode 側の mac 専用 chord（`⌘⇧]` など）が IDEA の割り当てに紛れ込む。
+  return override ? { ...b, macChords: undefined, ...override } : b
+})
+
+/**
+ * プリセットとホストを決めて、解決済みの割り当てを返す。
+ *
+ * **OS を知るのはこの関数だけ**（#280）。照合・一覧の表記・macOS のメニュー・ターミナルとの
+ * 取り合いは、すべて解決後の `chords` を見る。以前は `macOnly` フラグを
+ * `useKeyboardShortcuts` だけが見ていて、ほかの読み手には Windows でも `⌘Q` が見えていた。
+ *
+ * **`mac` を引数で受けるのは、マニュアルとの照合（`scripts/check-shortcuts.ts`）が 4 通り
+ * すべてを必要とするため。** アプリの中から呼ぶときは下の `keyBindings` を使う。
+ */
+export function bindingsFor(target: ShortcutPreset, mac: boolean): KeyBinding[] {
+  const table = target === 'idea' ? IDEA_BINDINGS : VSCODE_BINDINGS
+  if (!mac) return table
+  return table.map((b) => (b.macChords ? { ...b, chords: b.macChords } : b))
+}
 
 /** いま有効な割り当て。読む側はここを通す（定数の表を直接読まない）。 */
-export const keyBindings = computed<KeyBinding[]>(() => (preset.value === 'idea' ? IDEA_BINDINGS : VSCODE_BINDINGS))
+export const keyBindings = computed<KeyBinding[]>(() => bindingsFor(preset.value, isMacHost))
 
 /**
  * CodeMirror 層のうち、プリセットで変わるキー（#261）。
@@ -299,9 +359,11 @@ export const keyBindings = computed<KeyBinding[]>(() => (preset.value === 'idea'
  * 別のリテラルを持っていた）。macOS の `⌘H` は Hide Application で CodeMirror に届かない
  * ため、VSCode 互換のときだけ mac で `⌥⌘F` に読み替える（IDEA の `⌘R` は mac でも通る）。
  */
-export const editorChords = computed(() => ({
-  replace: preset.value === 'idea' ? 'Mod+R' : isMacHost ? 'Mod+Alt+F' : 'Mod+H',
-}))
+export function editorChordsFor(target: ShortcutPreset, mac: boolean) {
+  return { replace: target === 'idea' ? 'Mod+R' : mac ? 'Mod+Alt+F' : 'Mod+H' }
+}
+
+export const editorChords = computed(() => editorChordsFor(preset.value, isMacHost))
 
 /** `Mod+1`〜`Mod+9`（n 番目のタブへ）。表に載せない決まりなので、ここで作る。 */
 const DIGIT_CHORDS = [...'123456789'].map((d) => `Mod+${d}`)

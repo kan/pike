@@ -54,9 +54,10 @@ macOS では `⌘` 付きの主な操作が画面上部のメニューバーに�
 |------|------|------|
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | `Ctrl` のまま | 次 / 前のタブへ |
 | `Ctrl+PageDown` / `Ctrl+PageUp` | `Ctrl` のまま | 次 / 前のタブへ |
-| `Ctrl+Shift+]` / `Ctrl+Shift+[` | `⇧⌘]` / `⇧⌘[` | 次 / 前のタブへ |
 | `Ctrl+H` | `⌥⌘F` | 置換（`⌘H` は macOS ではアプリを隠す操作のため） |
 | `Ctrl` + 英字と数字（ターミナル） | すべてシェルへ | 次の「ターミナル」を参照 |
+
+macOS だけの割り当てもあります。**`⇧⌘]` / `⇧⌘[`**（次 / 前のタブ）がそれで、VS Code の既定に合わせてあります。Windows / Linux の VS Code にこのキーは無いので、あちらでは `Ctrl+Tab` か `Ctrl+PageDown` を使ってください。
 
 ### プリセット
 
@@ -71,14 +72,76 @@ macOS では `⌘` 付きの主な操作が画面上部のメニューバーに�
 | 置換 | `Ctrl+H` | `Ctrl+R` |
 | 設定を開く | `Ctrl+,` | `Ctrl+Alt+S` |
 | タブを閉じる | `Ctrl+W` | `Ctrl+F4` |
-| 次 / 前のタブ | `Ctrl+Shift+]` / `Ctrl+Shift+[` | `Alt+→` / `Alt+←` |
-| 新しいターミナル | `Ctrl+T` | `Alt+F12` |
+| 次 / 前のタブ | `Ctrl+Tab` / `Ctrl+PageDown` 等 | `Alt+→` / `Alt+←` |
+| 新しいターミナル | `Ctrl+T`、`Ctrl+Shift+` \` | `Alt+F12` |
 
 `Ctrl+Tab` / `Ctrl+Shift+Tab` / `Ctrl+PageDown` / `Ctrl+PageUp` によるタブ移動は、どちらのプリセットでも使えます。
 
-> IDEA 互換では、ターミナルにフォーカスがあるあいだ `Alt+←` / `Alt+→` を Pike が先に受け取ります（シェルの単語移動には届きません）。代わりに `Ctrl+W` と `Ctrl+T` はシェルへ渡るようになります。
+**IDEA 互換は macOS だけ別のキーになります。** IntelliJ IDEA 自身が Windows / Linux 用と macOS 用の 2 つのキーマップを配っていて、その関係が単純な `Ctrl` → `⌘` の読み替えではないためです。プリセットとプラットフォームの組み合わせごとの一覧は、次の[プリセット別の早見表](#プリセット別の早見表)にあります。
+
+> IDEA 互換の Windows / Linux では、ターミナルにフォーカスがあるあいだ `Alt+←` / `Alt+→` を Pike が先に受け取ります（シェルの単語移動には届きません）。代わりに `Ctrl+W` と `Ctrl+T` はシェルへ渡るようになります。
 >
-> macOS では `Alt`（Option）と `Ctrl` はシェルのものとして扱うため、IDEA 互換にしてもターミナル上ではタブ移動の `Ctrl+Tab` 系だけが Pike に届きます。`Alt+F12`（新しいターミナル）は macOS の既定では音量キーなので、メニューの「ファイル ▸ 新しいターミナル」から開いてください。
+> IDEA 互換の macOS では、`Alt`（Option）と `Ctrl` をシェルのものとして扱うため、ターミナル上で Pike に届くのは `Ctrl+Tab` 系だけになります。`⌥F12`（新しいターミナル）は macOS の既定では音量キーなので、メニューの「ファイル ▸ 新しいターミナル」から開いてください。VSCode 互換では `Ctrl+Shift+` \`（新しいターミナル）も届きます。
+
+### プリセット別の早見表
+
+プリセットとプラットフォームの組み合わせごとの一覧です。使っている組み合わせの表だけを見れば済むよう、同じ値になるものも省かず載せています。
+
+エディタやターミナルの中だけで効くキー（`Ctrl+Z`、`Ctrl+G`、画像プレビューの操作など）はプリセットで変わらないので、以下の[全般](#全般)からの各節を参照してください。
+
+**VSCode 互換**（既定）
+
+| 動作 | Windows / Linux | macOS |
+|------|------|------|
+| マニュアル | `F1` | `F1` |
+| プロジェクトスイッチャー | `Ctrl+Shift+P` | `⇧⌘P` |
+| コマンドパレット | `Ctrl+P` | `⌘P` |
+| ディレクトリを開く | `Ctrl+O` | `⌘O` |
+| 新しいファイル | `Ctrl+N` | `⌘N` |
+| 新しいターミナル | `Ctrl+T`、`` Ctrl+Shift+` ``、`Ctrl+Shift+~` | `⌘T`、`` ⌃⇧` ``、`⌃⇧~` |
+| タブを閉じる | `Ctrl+W` | `⌘W` |
+| ウィンドウを閉じる | `Ctrl+Shift+W` | `⇧⌘W` |
+| 次のタブ | `Ctrl+Tab`、`Ctrl+PageDown` | `⇧⌘]`、`⌃Tab`、`⌃PageDown` |
+| 前のタブ | `Ctrl+Shift+Tab`、`Ctrl+PageUp` | `⇧⌘[`、`⌃⇧Tab`、`⌃PageUp` |
+| n 番目のタブ | `Ctrl+1`〜`Ctrl+9` | `⌘1`〜`⌘9` |
+| 保存 | `Ctrl+S` | `⌘S` |
+| エディタ内検索 | `Ctrl+F` | `⌘F` |
+| 置換 | `Ctrl+H` | `⌥⌘F` |
+| プロジェクト全体を検索 | `Ctrl+Shift+F` | `⇧⌘F` |
+| ファイルの履歴（Git History） | `Alt+H` | `⌥H` |
+| ショートカット一覧 | `Ctrl+K` | `⌘K` |
+| 設定 | `Ctrl+,` | `⌘,` |
+| 文字を大きく | `Ctrl+=`、`Ctrl++`、`Ctrl+Shift++` | `⌘=`、`⌘+`、`⇧⌘+` |
+| 文字を小さく | `Ctrl+-` | `⌘-` |
+| 文字の大きさを戻す | `Ctrl+0` | `⌘0` |
+| Pike を終了 | なし（トレイから） | `⌘Q` |
+
+**IDEA 互換**
+
+| 動作 | Windows / Linux | macOS |
+|------|------|------|
+| マニュアル | `F1` | `F1` |
+| プロジェクトスイッチャー | `Ctrl+Shift+P` | `⇧⌘P` |
+| コマンドパレット（Go to File） | `Ctrl+Shift+N` | `⇧⌘O` |
+| ディレクトリを開く | `Ctrl+O` | `⌘O` |
+| 新しいファイル | `Ctrl+N` | `⌘N` |
+| 新しいターミナル | `Alt+F12` | `⌥F12` |
+| タブを閉じる | `Ctrl+F4` | `⌘W` |
+| ウィンドウを閉じる | `Ctrl+Shift+W` | `⇧⌘W` |
+| 次のタブ | `Alt+→`、`Ctrl+Tab`、`Ctrl+PageDown` | `⇧⌘]`、`⌃Tab`、`⌃PageDown` |
+| 前のタブ | `Alt+←`、`Ctrl+Shift+Tab`、`Ctrl+PageUp` | `⇧⌘[`、`⌃⇧Tab`、`⌃PageUp` |
+| n 番目のタブ | `Ctrl+1`〜`Ctrl+9` | `⌘1`〜`⌘9` |
+| 保存 | `Ctrl+S` | `⌘S` |
+| エディタ内検索 | `Ctrl+F` | `⌘F` |
+| 置換 | `Ctrl+R` | `⌘R` |
+| プロジェクト全体を検索 | `Ctrl+Shift+F` | `⇧⌘F` |
+| ファイルの履歴（Git History） | `Alt+H` | `⌥H` |
+| ショートカット一覧 | `Ctrl+K` | `⌘K` |
+| 設定 | `Ctrl+Alt+S` | `⌘,` |
+| 文字を大きく | `Ctrl+=`、`Ctrl++`、`Ctrl+Shift++` | `⌘=`、`⌘+`、`⇧⌘+` |
+| 文字を小さく | `Ctrl+-` | `⌘-` |
+| 文字の大きさを戻す | `Ctrl+0` | `⌘0` |
+| Pike を終了 | なし（トレイから） | `⌘Q` |
 
 ### 全般
 
@@ -107,7 +170,7 @@ macOS では `⌘` 付きの主な操作が画面上部のメニューバーに�
 | `Ctrl+9` | 最後のタブへ |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 次 / 前のタブへ |
 | `Ctrl+PageDown` / `Ctrl+PageUp` | 次 / 前のタブへ |
-| `Ctrl+Shift+]` / `Ctrl+Shift+[` | 次 / 前のタブへ |
+| `⇧⌘]` / `⇧⌘[`（macOS のみ） | 次 / 前のタブへ |
 | `Ctrl+Enter` | プロジェクトスイッチャーで、新しいウィンドウで開く |
 
 ### エディタ
@@ -166,7 +229,7 @@ macOS では `Ctrl` + 英字と数字を**すべて**シェルへ渡します（
 >
 > 上の表以外に、CodeMirror の標準キーバインドがそのまま使えます（`Ctrl+G` で行ジャンプ、`Ctrl+Shift+K` で行削除、`Ctrl+Alt+↑/↓` でカーソル追加など）。
 >
-> ターミナルにフォーカスがあるあいだ、`Ctrl` + 英字と `F1` はシェルへ届き、Pike 側では動きません（`Ctrl+K` で行末まで削除、`Ctrl+P` / `Ctrl+N` で履歴をたどる、など）。例外はタブの出し入れと文字の大きさで、`Ctrl+W`（閉じる）・`Ctrl+T`（新規ターミナル）・`Ctrl+Tab` / `Ctrl+Shift+Tab` / `Ctrl+PageUp` / `Ctrl+PageDown` / `Ctrl+Shift+]` / `Ctrl+Shift+[`（切替）・`Ctrl+=` / `Ctrl++` / `Ctrl+-` / `Ctrl+0`（文字の大きさ）は Pike が処理します。IDEA 互換のプリセットでは、この例外も切り替わったキー（`Ctrl+F4`・`Alt+F12`・`Alt+←→`）になり、`Ctrl+W` と `Ctrl+T` はシェルへ渡ります。
+> ターミナルにフォーカスがあるあいだ、`Ctrl` + 英字と `F1` はシェルへ届き、Pike 側では動きません（`Ctrl+K` で行末まで削除、`Ctrl+P` / `Ctrl+N` で履歴をたどる、など）。例外はタブの出し入れと文字の大きさで、`Ctrl+W`（閉じる）・`Ctrl+T` と `Ctrl+Shift+` \`（新規ターミナル）・`Ctrl+Tab` / `Ctrl+Shift+Tab` / `Ctrl+PageUp` / `Ctrl+PageDown`（切替）・`Ctrl+=` / `Ctrl++` / `Ctrl+-` / `Ctrl+0`（文字の大きさ）は Pike が処理します。IDEA 互換のプリセットでは、この例外も切り替わったキー（`Ctrl+F4`・`Alt+F12`・`Alt+←→`）になり、`Ctrl+W` と `Ctrl+T` はシェルへ渡ります。
 >
 > ただし `Ctrl+W` は、vim や lazygit のような全画面のアプリが動いているあいだはシェルへ渡します（vim のウィンドウ操作が `Ctrl+W` で始まるため）。そのあいだタブを閉じるにはタブの ✕ を押してください。
 >

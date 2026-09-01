@@ -48,8 +48,8 @@ fetch-rg:
 
 # --- コミット前チェック ---
 
-# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / clippy / test）
-check: lint typecheck check-docs clippy test
+# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / clippy / test）
+check: lint typecheck check-docs check-shortcuts clippy test
 
 # Biome（src/）
 lint:
@@ -66,6 +66,10 @@ typecheck:
 # CLAUDE.md のディレクトリ構成・参照パス、マニュアルの画像とリンク
 check-docs:
     npm run check:docs
+
+# マニュアルの「プリセット別の早見表」と実装の割り当て表の照合（#280）
+check-shortcuts:
+    npm run check:shortcuts
 
 # clippy（警告もエラー扱い）
 [working-directory('src-tauri')]

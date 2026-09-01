@@ -61,28 +61,35 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
 - **ターミナルにフォーカスがあるとき、グローバルショートカットは既定で 1 つも効かない（#224）**。xterm は PTY へ送るキーで `preventDefault` だけでなく **`stopPropagation` も呼ぶ**（`CoreBrowserTerminal.cancel(ev, true)`。`_keyDown` が `evaluateKeyboardEvent` の結果を PTY へ流したあとに必ず通る）。よって window の keydown ハンドラには **Ctrl+英字も `Tab` も `PageUp/Down` も `F1` も届かない**
   - **#224 の issue 本文にある「両方に届く」は誤り**（コードの読みだけで書かれたもの）。実際は逆で、シェルが全部取っていた。`Ctrl+Shift+P` と `Ctrl+,` だけが効いていたのは、xterm がそれらに制御コードを割り当てず `cancel` を通らないため
   - 例外を作る側は**割り当ての表の行に付けた印**（`lib/shortcuts.ts` の `terminalFirst`。タブの出し入れと文字の大きさだけ）。判定は同ファイルの `pikeTakesTerminalKey` で、`TerminalTab.vue` の `attachCustomKeyEventHandler` がそれで **`false` を返す**と `_keyDown` が即 return するので、PTY へも流れず `cancel` も通らず window まで伝わる。**`stopPropagation` や `preventDefault` を足す方向では直らない**（xterm 本体はこのハンドラの後に走り、そこで両方呼ぶ）
-  - **印を行に付けてあるのは、プリセット（#261）で chord が変わっても追従させるため。** キー名の集合を別に持っていたころの形だと、IDEA 互換に切り替えた瞬間に「シェルへ返す一覧」だけが VSCode 互換のまま残る。IDEA では `Ctrl+W` と `Ctrl+T` がシェルへ戻り、代わりに `Ctrl+F4` と `Alt+←→` を Pike が取る
-  - **`Ctrl+W` だけは代替画面（`inAltScreen`）のあいだシェルへ返す**（行の `altScreenShell`）。vim のウィンドウ操作の prefix なので、奪うと `Ctrl+W s` 等が打てないうえタブが閉じる。素のシェル（readline の unix-werase）では Pike 優先のままにするため、判定はキー単位ではなく代替画面の有無で行う。IDEA 互換では閉じるキーが `Ctrl+F4` になり vim と衝突しないので、この印は付けない
-  - **`attachCustomKeyEventHandler` は Alt も調停に通す**（#261）。IDEA 互換がタブ移動を `Alt+←→`、新規ターミナルを `Alt+F12` に置くので、Alt を無条件でシェルへ渡すとそれらが一度も発火しない。VSCode 互換では Alt の chord に `terminalFirst` が無いため、素通しの挙動は変わらない
+  - **印を行に付けてあるのは、プリセット（#261）で chord が変わっても追従させるため。** キー名の集合を別に持っていたころの形だと、IDEA 互換に切り替えた瞬間に「シェルへ返す一覧」だけが VSCode 互換のまま残る。Windows の IDEA では `Ctrl+W` と `Ctrl+T` がシェルへ戻り、代わりに `Ctrl+F4` と `Alt+←→` を Pike が取る（mac の IDEA は Cmd 側のキーマップなので、この入れ替わりが起きない。#280）
+  - **`Ctrl+W` だけは代替画面（`inAltScreen`）のあいだシェルへ返す**（行の `altScreenShell`）。vim のウィンドウ操作の prefix なので、奪うと `Ctrl+W s` 等が打てないうえタブが閉じる。素のシェル（readline の unix-werase）では Pike 優先のままにするため、判定はキー単位ではなく代替画面の有無で行う。IDEA 互換では閉じるキーが Windows で `Ctrl+F4`、mac で `⌘W` になり、どちらも vim と衝突しないので、この印は付けない
+  - **`attachCustomKeyEventHandler` は Alt も調停に通す**（#261）。Windows の IDEA 互換がタブ移動を `Alt+←→`、新規ターミナルを `Alt+F12` に置くので、Alt を無条件でシェルへ渡すとそれらが一度も発火しない。VSCode 互換では Alt の chord に `terminalFirst` が無いため、素通しの挙動は変わらない
   - readline が使う `Ctrl+K`（行末まで削除）・`Ctrl+P` / `Ctrl+N`（履歴）と、TUI アプリの `F1` はシェルに残す方針。**一覧をグローバルハンドラと同じファイルに置く**のは、そこが同じキーを取り合う相手だから（ターミナル側に置くと、`useKeyboardShortcuts.ts` に Ctrl+英字を足す人が「ターミナルでは効かない」ことに気付けない。readline の `Ctrl+A/E/U/D/Y` は未使用のまま残っている）
   - 変更したら 3 箇所（この定数・`KeyboardShortcuts.vue` のターミナル節・`docs/manual/shortcuts-and-cli.md`）を揃える
+- **マニュアルの「プリセット別の早見表」は `just check-shortcuts` が実装と突き合わせる（#280）**。`scripts/check-shortcuts.ts` が `src/lib/` を実際に import し、`bindingsFor(preset, mac)` と `chordLabel(chord, mac)` で 4 通り（プリセット × プラットフォーム）を作って照合するので、**Windows で作業していても mac 側のずれが CI で落ちる**。正規表現でソースを読まないのは、`Mod` の解決・プリセットの重ね合わせ・`macChords` の差し替えという組み立てを写す羽目になるため。この 2 つが `mac` を引数で受けるのはそのためで、アプリの中からは既定（`isMacHost`）のまま呼ぶ
+  - 見るのは**実装 → マニュアルの一方向**（表に無い chord があれば落ちる）。逆を見ないのは、早見表が CodeMirror 層のキー（保存・検索）も併記しているため。アクションを持たない行（`Mod+S` / `Mod+F` / `Mod+H`。ブラウザの既定を潰すだけ）は照合の対象外
   - 文字の大きさ（#260、`Mod+=` / `Mod++` / `Mod+Shift++` / `Mod+-` / `Mod+0`）もここに入れてある。
     **大きくする側の chord が 3 つあるのは配列の都合**で、`matchChord` が「chord に書いていない
     修飾キーは押されていない」ことを求めるため、`Mod++` は Shift 無しで `+` が出る numpad にしか
     一致しない。US の `Ctrl+Shift+=` と JIS の `Ctrl+Shift+;` は `Mod+Shift++` が受ける。**見ているものに効かせる**（エディタのタブならエディタのフォント、それ以外はターミナル）: 設定画面まで行かずに変えられることが目的なので、今フォーカスしている面が対象で自然。ターミナルで押したときに何も起きないのでは意味が無いので、xterm より先に取る
-- **プリセット（#261）**: `SHORTCUT_PRESETS`（`vscode` / `idea`）。既定の VSCode 互換は元からある割り当てそのもので、名前を付けただけ。IDEA 互換は `IDEA_OVERRIDES` に**差分だけ**を書き、`VSCODE_BINDINGS` に重ねて作る（表を複製すると片方にだけ行を足したとき黙ってずれる）
+- **プリセット（#261 / #280）**: `SHORTCUT_PRESETS`（`vscode` / `idea`）。既定の VSCode 互換は元からある割り当てそのもので、名前を付けただけ。IDEA 互換は `IDEA_OVERRIDES` に**差分だけ**を書き、`VSCODE_BINDINGS` に重ねて作る（表を複製すると片方にだけ行を足したとき黙ってずれる）
+  - **OS 差は行の `macChords` で持つ（#280）。** `Mod`（mac は Cmd、他は Ctrl）は VSCode のように「Ctrl ↔ Cmd の機械的な読み替え」で出来ているキーマップにしか通用しない。IDEA は Windows / Linux 用と macOS 用に別のキーマップを配っていて、Go to File が `Ctrl+Shift+N` と `⇧⌘O` のようにキーそのものが違う。Windows のキーマップだけを見て書いていたころ、mac では 5 件が実際の IDEA と食い違っていた（Go to File・Settings・Close Tab・タブ移動の前後）。**表を OS ごとに 2 つ持つ形は採らない**: 行を片方にだけ足す事故が起き、しかも症状は mac でしか出ない（CI の macOS ジョブは Rust の cfg のためのもので、ここは走らない）。行ごとに両 OS が並んでいれば見落としが目で分かる。**mac だけの割り当ては空の `chords` と組にする**（`⌘Q`）
+  - **OS を解決するのは `forHost` の 1 箇所だけ。** 読む側（照合・一覧の表記・macOS のメニュー・ターミナルとの取り合い）はすべて解決後の `chords` を見る。以前あった `macOnly` フラグは `useKeyboardShortcuts` しか見ておらず、`chordsFor` / `terminalClaims` / `primaryChord` には Windows でも `⌘Q` が見えていた
+  - **VSCode 互換にも OS 差がある**（#280）: `nextEditor` は mac だけ `⌘⇧]` で、Windows / Linux は `Ctrl+PageDown`。`Mod+Shift+]` は `isMacHost` のときだけ chords に入れる。新規ターミナルは VSCode の `Ctrl+Shift+` \` を足しつつ `Mod+T` も残す（あちらは配列で `e.key` が変わるうえ、JIS では打ちにくい。VSCode の `Ctrl+T` に当たる機能は Pike に無いので取り合わない）
+  - **VSCode の chord（2 打鍵）には揃えられない**。`Ctrl+K Ctrl+S`（ショートカット一覧）と `Ctrl+K Ctrl+O`（フォルダを開く）がそれで、Pike は prefix 状態を持たないため `Mod+K` / `Mod+O` の 1 打鍵のままにしてある。実装するなら 4 層すべてで prefix の調停を書くことになる（「任意の再割り当ては採らない」のと同じ理由）
   - 設定は `shortcutPreset`（同期対象。好みはマシンに依存しない）。**`lib/shortcuts.ts` はストアを import できない**（`stores/project.ts` から import されるので循環する）ため、設定ストア側が `setShortcutPreset` で値を流し込む。`immediate: true` が要る（無いと起動直後の 1 回だけ既定のキーで動く）
   - 追従させる先が 4 つある: グローバル（`keyBindings` を読むので自動）・**CodeMirror のキー**（`lib/editorPresetKeys.ts` の `presetKeymap()` と `EditorTab.vue` の `presetKeymapCompartment`。開いているタブに反映するには張り直しが要る）・**xterm の取り合い**（前述の `terminalFirst`）・**macOS のメニュー**（`stores/project.ts` の watcher のキーに `shortcutPreset` を入れてある）
   - **CodeMirror のキー名は 1 文字を小文字にする**（`lib/keys.ts` の `toCodeMirrorKey`）。あちらは修飾キーだけ正規化してキー名は `e.key` と素で比較するので、`Mod-H` と書くと Shift を押したときにしか一致しない
   - **矢印の chord は `Alt+ArrowLeft` と書く**（`e.key` に合わせる）。表示だけ `chordChips` が `←` に読み替える
-  - **macOS では IDEA 互換の Alt 系が届かない。** `terminalClaims` が mac では `Ctrl` を明示した
-    chord だけに絞るのでターミナル上では取らず、`Alt+F12` はそもそも音量キーに食われる。加えて
-    `primaryChord` は `Mod` を含む chord しか選ばないので、`newTerminal` / `nextTab` / `prevTab` は
-    メニューにアクセラレータが出ない（項目自体は出るので、メニューからは開ける）
+  - **macOS では IDEA 互換の `Alt+F12`（新規ターミナル）が届かない。** `terminalClaims` が mac では
+    `Ctrl` を明示した chord だけに絞るのでターミナル上では取らず、そもそも `F12` は音量キーに
+    食われる。加えて `primaryChord` は `Mod` を含む chord しか選ばないので、この項目だけ
+    メニューにアクセラレータが出ない（項目自体は出るので、メニューからは開ける）。タブ移動は
+    #280 で mac が `⇧⌘]` / `⇧⌘[` になったため、こちらは普通にアクセラレータが付く
   - **CodeMirror の既定と衝突する chord は塞ぐ**（`lib/editorPresetKeys.ts` の `presetKeymap`）。
     `Alt+←→` は `defaultKeymap` の `cursorSyntaxLeft/Right` と同じキーで、CodeMirror は
     `stopPropagation: true` を宣言した binding でしか伝播を止めないため、放っておくと
     **カーソルが動いたうえでタブも切り替わる**
-  - IDEA 互換に入れていないものにも理由がある。`projectSwitcher` と `openDirectory` は IDEA に相当する既定キーが無く、`newFile` の `Ctrl+N` は IDEA では Go to Class だが Pike にクラス検索が無いので取り合いにならない。タブ移動は `Ctrl+Tab` 系も残す（mac では Option+矢印が readline の単語移動なので Pike が取らず、残さないとターミナル上で切り替える手段が消える）
+  - IDEA 互換に入れていないものにも理由がある。`projectSwitcher` と `openDirectory` は IDEA に相当する既定キーが無く、`newFile` の `Ctrl+N` は IDEA では Go to Class だが Pike にクラス検索が無いので取り合いにならない。タブ移動は `Ctrl+Tab` 系も残す（Windows の `Alt+←→` は代替画面で矢印を使う TUI と重なるので、逃げ道が要る）
 - WebView リロード抑止: Ctrl+R / Ctrl+Shift+R / F5 を `preventDefault`。誤操作でのリロード（全 PTY セッション破棄＝実質再起動）を防ぐ。ターミナルの Ctrl+R（bash 逆方向検索）は xterm がイベントを消費するため影響なし
 

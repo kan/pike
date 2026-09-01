@@ -100,10 +100,10 @@ function splitChord(chord: string): { mods: string[]; key: string } {
  *
  * 修飾キーを含まない表記（`'F1'`、`'テキスト選択'`）はそのまま 1 つで返す。
  */
-export function chordChips(chord: string): string[] {
+export function chordChips(chord: string, mac = isMacHost): string[] {
   const { mods, key } = splitChord(chord)
   const parts = [...mods, ARROW_SYMBOLS[key] ?? key]
-  if (!isMacHost) return parts.map((p) => (p === 'Mod' ? 'Ctrl' : p))
+  if (!mac) return parts.map((p) => (p === 'Mod' ? 'Ctrl' : p))
 
   const symbols = parts.filter((p) => p in MAC_SYMBOLS).map((p) => MAC_SYMBOLS[p])
   const rest = parts.filter((p) => !(p in MAC_SYMBOLS))
@@ -112,9 +112,14 @@ export function chordChips(chord: string): string[] {
   return [symbols.join('') + rest.join('+')]
 }
 
-/** `chordChips` を 1 つの文字列にしたもの（ツールチップ・本文に混ぜる用）。 */
-export function chordLabel(chord: string): string {
-  return chordChips(chord).join(isMacHost ? '' : '+')
+/**
+ * `chordChips` を 1 つの文字列にしたもの（ツールチップ・本文に混ぜる用）。
+ *
+ * `mac` を明示できるのは、マニュアルとの照合（`scripts/check-shortcuts.ts`）が
+ * 動かしているホストと無関係に 4 通りの表記を作るため。
+ */
+export function chordLabel(chord: string, mac = isMacHost): string {
+  return chordChips(chord, mac).join(mac ? '' : '+')
 }
 
 /**

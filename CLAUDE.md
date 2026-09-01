@@ -96,6 +96,7 @@ pike/
 │   ├── download-rg.sh         # rg サイドカーバイナリのダウンロード
 │   ├── bump-version.mjs       # バージョンを 3 ファイルに書き込む（just bump が呼ぶ）
 │   ├── check-docs.mjs         # ドキュメント整合チェック（just check-docs が呼ぶ）
+│   ├── check-shortcuts.ts     # マニュアルの早見表と実装の割り当ての照合（just check-shortcuts、#280）
 │   └── make-icons.sh          # アイコン一式を icon.svg から作り直す（#256）
 ├── src-tauri/
 │   ├── Cargo.toml
@@ -328,11 +329,12 @@ pike/
 - どちらもコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは適用後のコードを試す）。
 - `/code-review` はスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
 
-その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 5 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
+その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 6 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
 
 - **Frontend**: `just lint`（= `npm run lint` = `biome check src/`）
 - **TypeScript 型検査**: `just typecheck`（= `npx vue-tsc --noEmit`。`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
 - **ドキュメント整合**: `just check-docs`（= `node scripts/check-docs.mjs`）
+- **ショートカット照合**: `just check-shortcuts`（= `tsx scripts/check-shortcuts.ts`。マニュアルの早見表と実装の割り当てを突き合わせる。#280）
 - **Rust**: `just clippy`（= `src-tauri/` で `cargo clippy -- -D warnings`）
 - **Rust テスト**: `just test`（= `src-tauri/` で `cargo test`）
 

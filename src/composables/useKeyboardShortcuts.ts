@@ -1,5 +1,4 @@
 import { onMounted, onUnmounted } from 'vue'
-import { isMacHost } from '../lib/host'
 import { hasMod, matchChord, normalizedKey } from '../lib/keys'
 import { keyBindings, MODIFIERLESS_KEYS } from '../lib/shortcuts'
 import { useProjectStore } from '../stores/project'
@@ -48,7 +47,6 @@ export function useKeyboardShortcuts() {
 
     for (const b of keyBindings.value) {
       if (overlayOpen && !b.always) continue
-      if (b.macOnly && !isMacHost) continue
       if (!b.chords.some((c) => matchChord(e, c))) continue
       e.preventDefault()
       // action 無しは「ブラウザの既定を潰すだけ」（実処理は CodeMirror などの別の層）。
