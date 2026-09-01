@@ -15,6 +15,7 @@ import type { EditorState } from '@codemirror/state'
 import type { ShellType } from '../../types/tab'
 import { extractOutline, type OutlineNode } from '../outline'
 import { fsReadFile } from '../tauri'
+import { escapeRegExp } from '../text'
 import { findDefinitionInFile, wordAt } from './findInFile'
 import { findImportAt, findImportForName, importedNameFor, parseImportsCached } from './parseImports'
 import { resolveImport } from './resolveImport'
@@ -169,7 +170,7 @@ function guessLangId(path: string): string {
  * and picks the first hit.
  */
 function scanForDeclaration(text: string, name: string, langId: string): number | null {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const escaped = escapeRegExp(name)
   let patterns: RegExp[]
   if (langId === 'go') {
     patterns = [

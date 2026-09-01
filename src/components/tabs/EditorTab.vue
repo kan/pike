@@ -51,6 +51,7 @@ import {
   toRelativePath,
 } from '../../lib/paths'
 import { relativeToBase } from '../../lib/projectPaths'
+import { buildRstPreview } from '../../lib/rstPreview'
 import { createHeadingSlugger } from '../../lib/slug'
 import {
   fsDirsExist,
@@ -61,6 +62,7 @@ import {
   openUrlWithConfirm,
   pickSaveFile,
 } from '../../lib/tauri'
+import { escapeHtml, splitDelimited } from '../../lib/text'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
@@ -201,6 +203,14 @@ const isMermaid = computed(() => fileExt.value === 'mermaid' || fileExt.value ==
 const isSvg = computed(() => fileExt.value === 'svg')
 const isJson = computed(() => fileExt.value === 'json' || fileExt.value === 'jsonc')
 const isJsonl = computed(() => fileExt.value === 'jsonl' || fileExt.value === 'ndjson')
+const isRst = computed(() => fileExt.value === 'rst')
+
+/**
+ * 本文を HTML として出すプレビュー（#284）。**画像の `data:` 化と見出し id を通す種別**という
+ * 意味で、CSV / JSON のような表形式とは分かれる。3 か所（watcher 2 つと CSS クラス）が同じ
+ * 条件を書いていたので、概念に名前を付けて 1 度だけ宣言する。
+ */
+const isProsePreview = computed(() => isMarkdown.value || isRst.value)
 
 const jsonTokens = computed(() => getEditorTheme(settingsStore.effectiveEditorThemeName).tokens)
 
@@ -220,7 +230,8 @@ function closeJsonStringPopup() {
   jsonStringPopup.value = null
 }
 const hasPreview = computed(
-  () => isMarkdown.value || isCsv.value || isMermaid.value || isSvg.value || isJson.value || isJsonl.value,
+  () =>
+    isMarkdown.value || isRst.value || isCsv.value || isMermaid.value || isSvg.value || isJson.value || isJsonl.value,
 )
 
 const showEditor = computed(() => viewMode.value !== 'preview')
@@ -298,29 +309,8 @@ function buildCsvPreview(text: string): string {
   const lines = text.split(/\r?\n/).filter((l) => l.length > 0)
   if (lines.length === 0) return '<p>Empty</p>'
 
-  function parseLine(line: string): string[] {
-    const result: string[] = []
-    let current = '',
-      inQuotes = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
-      if (inQuotes) {
-        if (ch === '"' && line[i + 1] === '"') {
-          current += '"'
-          i++
-        } else if (ch === '"') inQuotes = false
-        else current += ch
-      } else {
-        if (ch === '"') inQuotes = true
-        else if (ch === delimiter) {
-          result.push(current)
-          current = ''
-        } else current += ch
-      }
-    }
-    result.push(current)
-    return result
-  }
+  // RFC 4180 の引用符の扱いは `lib/text.ts` と共有する（rst の `csv-table` も同じ規則）。
+  const parseLine = (line: string) => splitDelimited(line, delimiter)
 
   const maxRows = 10000
   const headers = parseLine(lines[0])
@@ -338,10 +328,6 @@ function buildCsvPreview(text: string): string {
   if (lines.length - 1 > maxRows)
     html += `<p style="text-align:center;color:var(--text-secondary);font-size:12px">${escapeHtml(t('csv.truncated', { max: String(maxRows) }))}</p>`
   return html
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 function highlightJson(pretty: string): string {
@@ -453,6 +439,9 @@ const previewHtml = computed(() => {
   if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS)
   if (isJson.value) return buildJsonPreview(text)
   if (isJsonl.value) return buildJsonlPreview(text)
+  // rst は SVG を出さない（mermaid も watcher で除外している）ので、`SVG_PURIFY_OPTS` の
+  // 追加許可（`foreignObject` や SVG の属性）を持ち込まない。
+  if (isRst.value) return DOMPurify.sanitize(buildRstPreview(text))
   return DOMPurify.sanitize(buildMarkdownPreview(text), SVG_PURIFY_OPTS)
 })
 
@@ -633,12 +622,18 @@ async function trackFrontmatterToggle() {
 }
 
 // Markdown mermaid / local images / heading ids: re-process after previewHtml is set
+//
+// **rst も画像と見出し id の処理を通す（#284）。** `.. image::` が出す `<img src="foo.png">` は
+// この経路で `data:` URL にならないと、相対パスは webview から読めず、外部ホストは CSP に
+// 弾かれて必ず壊れた画像になる。mermaid とフロントマターは Markdown 固有なので通さない。
 watch(previewHtml, () => {
   if (isMarkdown.value) {
     renderMarkdownMermaid()
+    trackFrontmatterToggle()
+  }
+  if (isProsePreview.value) {
     resolveMarkdownImages()
     assignHeadingIds()
-    trackFrontmatterToggle()
   }
 })
 
@@ -646,7 +641,7 @@ watch(previewHtml, () => {
 // not the markup — re-run the pass instead of invalidating previewHtml, which
 // would also re-render every mermaid diagram.
 watch([() => settingsStore.allowedImageHosts, locale], () => {
-  if (isMarkdown.value) resolveMarkdownImages()
+  if (isProsePreview.value) resolveMarkdownImages()
 })
 
 // Switching view mode re-creates the preview pane at the top — hide the
@@ -1821,7 +1816,10 @@ onUnmounted(() => {
         ref="previewRef"
         class="preview-pane"
         :class="{
-          'md-preview': isMarkdown,
+          // rst にも `md-preview` を当てる（#284）。見出し・段落・リスト・コード・表の
+          // 見た目は同じでよく、rst 固有の要素だけを `rst-preview` 側で足す。
+          'md-preview': isProsePreview,
+          'rst-preview': isRst,
           'csv-preview': isCsv,
           'svg-preview': isSvg,
           'json-preview': isJson || isJsonl,
@@ -2145,6 +2143,44 @@ onUnmounted(() => {
 .md-preview :deep(th) { background: var(--bg-tertiary); }
 
 .md-preview :deep(img) { max-width: 100%; }
+
+/* rst 固有の要素（#284）。見出しや表は Markdown と同じ規則を使うので、ここには
+   Markdown に相当物が無いものだけを置く。 */
+.rst-preview :deep(.rst-admonition) {
+  margin: 0.8em 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 3px 3px 0;
+  background: var(--bg-tertiary);
+}
+
+.rst-preview :deep(.rst-admonition-title) {
+  margin: 0 0 4px;
+  color: var(--text-active);
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+/* 注意を促す種別は色を変える。docutils の分類に合わせて 2 段階だけ持つ。
+   黄色はテーマに変数が無いので、git diff ガターの「変更」と同じ値を直に置く
+   （あちらと同じく、両テーマで読める明度を選んである）。 */
+.rst-preview :deep(.rst-warning),
+.rst-preview :deep(.rst-caution),
+.rst-preview :deep(.rst-attention) { border-left-color: #d29922; }
+
+.rst-preview :deep(.rst-danger),
+.rst-preview :deep(.rst-error) { border-left-color: var(--danger); }
+
+/* フィールドリスト（`:key: value`）。値の幅を主にしたいので、キー側だけ詰める。 */
+.rst-preview :deep(.rst-fields) { width: auto; }
+.rst-preview :deep(.rst-fields th) { white-space: nowrap; width: 1%; }
+
+/* 脚注・引用は Markdown の脚注（#241）の見た目を共有する。段落を 2 つ以上持つ本文だけは
+   `buildRstPreview` を通るので `<p>` が入り、そのままだと番号・本文・戻りリンクが 3 行に
+   割れる。1 つ目の段落だけ番号と同じ行に置く。 */
+.rst-preview :deep(.footnote > p:first-of-type) {
+  display: inline;
+}
 
 /* Stand-in for an image whose host is not approved yet (#239). Sized like a
    badge so a row of them keeps the surrounding line intact. */

@@ -8,7 +8,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - WSL: `wsl.exe find`, `wsl.exe cat`, `wsl.exe bash -c "cat > ..."` 経由
 - WSL 以外（Windows / macOS）: `std::fs` 直接アクセス
 - ファイルサイズ事前チェック（2MB 制限）
-- CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）、シンタックスハイライトは 30 言語（一覧の唯一の出典は `lib/languages.ts` の `EXT_MAP` / `NAME_MAP`）
+- CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）、シンタックスハイライトの対応言語は `lib/languages.ts` の `EXT_MAP` / `NAME_MAP` が唯一の出典（件数をここに書かない。足すたびにずれる）
 - Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）。Ctrl+Z/Shift+Z で Undo/Redo
 - エディタ内検索・置換: Ctrl+F / Ctrl+H でカスタム検索パネル（右上フローティング、アイコンボタン、マッチ数表示）
 - Git diff ガター: 追加行（緑）・変更行（黄）・削除行（赤三角）をガターに表示。`git_diff_lines` コマンドで行単位の差分を取得
@@ -140,6 +140,12 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 ## プレビュー拡張
 - CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）
   - CSV/TSV: `buildCsvPreview` でテーブル化（RFC 4180 準拠の引用符対応パーサ、10,000 行 truncate、sticky ヘッダ）
+  - **reStructuredText（#284）**: ハイライトは `codemirror-lang-rst`（CM6 に公式のものが無いので入れた外部パッケージ。依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる）。プレビューは `lib/rstPreview.ts` の `buildRstPreview` で**自前**。判断の実体はあのファイルの doc コメントが正本だが、要点は次のとおり:
+    - **変換器を入れなかったのは選択肢が悪いから。** JS の rst → HTML は `rst2html` / `restructured` くらいで、どちらも 2022 年で更新が止まっているうえ `power-assert`（650KB）と `commander`（207KB）を production dependencies に持つ
+    - **解釈できなかったものは捨てずに字面のまま出す**（セル結合のある表、`toctree` / `math` のような未対応ディレクティブ、置換指定）。**本文から消してよいのは真のコメントとリンク定義だけ**で、`..` の分岐はそれ以外の明示マークアップ全部の受け皿でもある（脚注・引用・置換をここで捨てていたのが実際のバグだった）。見た目は `md-preview` を共有し、rst 固有の要素（アドモニション・フィールドリスト）だけ `rst-preview` 側で足す
+    - **脚注と引用は Markdown プレビューの脚注（#241）と同じ HTML 構造で出す。** `md-preview` の CSS がそのまま当たるので、rst 側に見た目を書かずに済む。定義は**書かれた場所に描く**（`buildRstPreview` は入れ子でも呼ばれるので、末尾に集める先を決められない）
+    - **エスケープ済みかどうかは `lib/text.ts` の `Html` 型で持つ。** 生の文字列を属性へ差し込む経路がコンパイルエラーになる。セキュリティレビューで実際に見つかったのがこの穴（`anchor` が引用符を戻していて属性から抜けられた）で、散文のコメントでは守れなかった
+    - **表は 4 種（grid / simple / `list-table` / `csv-table`）に対応する。** 桁の切り出しは `lib/displayWidth.ts` の `sliceByWidth`（rst の表は**表示幅**で桁を合わせるので、`slice` を code unit で行うと全角を含む表が崩れる）。同ファイルの `displayWidth` は diff タブの横幅の見積もり（#272）から切り出したもので、2 つの消費者が同じ数え方を共有する。**セルの結合には対応しない**: grid の途中の罫線で境界の桁が埋まっていたら結合とみなし、`null` を返して字面のまま出す側へ落とす
   - Mermaid (`.mermaid`/`.mmd`): `renderStandaloneMermaid` が `lib/mermaid.ts` の `getMermaid()` を遅延 import して SVG 描画（ズーム対応）
   - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
   - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く

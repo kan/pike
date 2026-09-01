@@ -12,6 +12,7 @@
 import type { ShellType } from '../../types/tab'
 import { pathSep } from '../paths'
 import { fsReadFile } from '../tauri'
+import { escapeRegExp } from '../text'
 import { findImportForName, type ImportEntry, parseImports } from './parseImports'
 import { findNearestUpward, resolveImport } from './resolveImport'
 
@@ -147,7 +148,7 @@ function findOptionsApiAlias(sfcText: string, componentName: string): string | n
     for (const compMatch of body.matchAll(compRe)) {
       const inner = compMatch[1]
       // Try `Foo,` shorthand or `Foo: Other,`
-      const re = new RegExp(`\\b${escapeRegex(componentName)}\\s*(?::\\s*(\\w+))?\\s*[,}\\n]`)
+      const re = new RegExp(`\\b${escapeRegExp(componentName)}\\s*(?::\\s*(\\w+))?\\s*[,}\\n]`)
       const m = re.exec(inner)
       if (m) {
         return m[1] ?? componentName
@@ -155,10 +156,6 @@ function findOptionsApiAlias(sfcText: string, componentName: string): string | n
     }
   }
   return null
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**

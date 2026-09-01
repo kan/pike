@@ -238,6 +238,9 @@ pike/
 │   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）
+│   │   ├── rstPreview.ts      # reStructuredText のプレビュー（自前の変換、#284）
+│   │   ├── displayWidth.ts    # 等幅フォントでの表示幅（diff の横幅と rst の表が共有、#284）
+│   │   ├── text.ts            # HTML 組み立ての共有部（Html 型・エスケープ・CSV 分割、#284）
 │   │   ├── externalImages.ts  # プレビューの外部画像のホスト判定と取得キャッシュ（#239）
 │   │   ├── codexHistory.ts  terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）

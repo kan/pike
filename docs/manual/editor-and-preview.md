@@ -8,7 +8,7 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
 - [Git diff ガターとコンフリクトの解消](#git-diff-ガターとコンフリクトの解消)
 - [文字コードと改行コード](#文字コードと改行コード)
 - [Markdown の入力支援](#markdown-の入力支援)
-- [プレビュー（Markdown / CSV / JSON / Mermaid / SVG）](#プレビューmarkdown--csv--json--mermaid--svg)
+- [プレビュー（Markdown / rst / CSV / JSON / Mermaid / SVG）](#プレビューmarkdown--rst--csv--json--mermaid--svg)
 - [外部ドメインの画像](#外部ドメインの画像)
 - [画像ビューア](#画像ビューア)
 - [PDF プレビュー](#pdf-プレビュー)
@@ -102,7 +102,7 @@ Markdown ファイル（`.md` / `.markdown`）を開くと、Edit / Split / Prev
 
 折り返しボタンの隣のミニマップボタンで、そのタブだけミニマップの表示を切り替えられます。押していないタブは設定の既定値に従い、切り替えはタブを開いているあいだだけ保たれます（どちらも折り返しと同じです）。既定値は設定 → エディタの「ミニマップ」で変えられます。
 
-## プレビュー（Markdown / CSV / JSON / Mermaid / SVG）
+## プレビュー（Markdown / rst / CSV / JSON / Mermaid / SVG）
 
 これらの形式は専用タブではなく、エディタタブの **Edit / Split / Preview** トグルで切り替えて表示します。
 
@@ -112,6 +112,7 @@ Markdown ファイル（`.md` / `.markdown`）を開くと、Edit / Split / Prev
 </picture>
 
 - **Markdown**（`.md`）：Edit / Split / Preview の 3 モード、スクロール同期。本文中の ```mermaid``` ブロックは図として描画。外部 URL リンクは確認のうえ外部ブラウザで開き、ローカルリンクはプロジェクト内に限定してエディタで開きます。ファイル先頭のフロントマターは本文から切り離して扱います（後述）。
+- **reStructuredText**（`.rst`）：見出し・箇条書き・番号付きリスト・リテラルブロック・`code-block`・`note` などのアドモニション・フィールドリスト・リンク、表 4 種（grid / simple / `list-table` / `csv-table`）に対応します。表は全角を含む桁も揃えて読み取ります。**セルを結合した表と、`toctree` や `math` のような未対応のディレクティブは、解釈せず字面のまま出します**（読むためのプレビューなので、変換できない箇所を消すより残すほうが分かりやすいためです）。
 - **CSV / TSV**：テーブル表示（RFC 4180 準拠の引用符対応、先頭 10,000 行まで、ヘッダ固定）。
 - **JSON / JSONL**：キー/文字列/数値/真偽/null を色分け（JSONL は 1000 件まで）。改行を含む文字列値はクリックでデコード表示。
 - **Mermaid**（`.mermaid` / `.mmd`）：図として描画（ズーム対応）。

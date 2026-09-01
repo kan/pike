@@ -22,6 +22,9 @@ import { shell } from '@codemirror/legacy-modes/mode/shell'
 import { standardSQL } from '@codemirror/legacy-modes/mode/sql'
 import { swift } from '@codemirror/legacy-modes/mode/swift'
 import { toml } from '@codemirror/legacy-modes/mode/toml'
+// CM6 に公式の rst は無い（CM5 にはあった）ので、外部パッケージを 1 つだけ足している。
+// 依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる（#284）。
+import { rst } from 'codemirror-lang-rst'
 
 function legacy(mode: Parameters<typeof StreamLanguage.define>[0]): LanguageSupport {
   return new LanguageSupport(StreamLanguage.define(mode))
@@ -37,6 +40,7 @@ const EXT_MAP: Record<string, () => LanguageSupport> = {
   rs: () => rust(),
   md: () => markdown(),
   markdown: () => markdown(),
+  rst: () => rst(),
   yaml: () => yaml(),
   yml: () => yaml(),
   vue: () => html(),
@@ -124,6 +128,7 @@ const LABEL_MAP: Record<string, string> = {
   jsonc: 'JSON',
   md: 'Markdown',
   markdown: 'Markdown',
+  rst: 'reStructuredText',
   yaml: 'YAML',
   yml: 'YAML',
   toml: 'TOML',

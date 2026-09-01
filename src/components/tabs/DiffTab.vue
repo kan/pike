@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { parseDiff } from '../../lib/diffParser'
 import { collectMatches, renderTokens } from '../../lib/diffSearch'
+import { displayWidth } from '../../lib/displayWidth'
 import { hasMod, normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { joinPath, pathSep } from '../../lib/paths'
@@ -81,51 +82,6 @@ watch(parsedLines, () => {
 // diff を手で折り返し OFF にしたときに `canScrollX` が false のままになり、横スクロール
 // できるのにボタンが薄いまま（`prominent` が防ごうとしている状態そのもの）になる。
 watch(wordWrapOn, () => void nextTick(measureOverflow))
-
-/**
- * 等幅フォントのセル数で測った表示幅。`ch` は「0 の送り幅」＝ 1 セルなので、この値を
- * そのまま `ch` として使える。全角は 2 セル、タブは 8 セル（`tab-size` を指定していない
- * ので CSS の既定値。エディタの `editorTabSize` とは無関係）で数える。どちらも上限側に
- * 倒してある: 多めに見積もっても余分にスクロールできるだけだが、少ないとセルの
- * `overflow: hidden` が黙って切る。
- *
- * ASCII を先に片付けるのは、既定（折り返し OFF）では diff を開くたびに全文を 1 度なめる
- * ため。code point の反復子は 1 文字ごとに文字列を作るので、素の実装の 4 倍かかる。
- */
-function displayWidth(text: string): number {
-  let w = 0
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i)
-    if (c < 0x7f) {
-      w += c === 9 ? 8 : 1 // 9 = タブ
-      continue
-    }
-    const cp = text.codePointAt(i) ?? c
-    if (cp > 0xffff) i++ // サロゲートペアの後半を飛ばす
-    w += isWideChar(cp) ? 2 : 1
-  }
-  return w
-}
-
-/** East Asian Wide / Fullwidth と絵文字のおおまかな範囲（2 セルぶんの幅を持つもの）。 */
-function isWideChar(cp: number): boolean {
-  return (
-    (cp >= 0x1100 && cp <= 0x115f) ||
-    (cp >= 0x2e80 && cp <= 0x303e) ||
-    (cp >= 0x3041 && cp <= 0x33ff) ||
-    (cp >= 0x3400 && cp <= 0x4dbf) ||
-    (cp >= 0x4e00 && cp <= 0x9fff) ||
-    (cp >= 0xa000 && cp <= 0xa4cf) ||
-    (cp >= 0xac00 && cp <= 0xd7a3) ||
-    (cp >= 0xf900 && cp <= 0xfaff) ||
-    (cp >= 0xfe10 && cp <= 0xfe19) ||
-    (cp >= 0xfe30 && cp <= 0xfe6f) ||
-    (cp >= 0xff00 && cp <= 0xff60) ||
-    (cp >= 0xffe0 && cp <= 0xffe6) ||
-    (cp >= 0x1f300 && cp <= 0x1f9ff) ||
-    (cp >= 0x20000 && cp <= 0x3fffd)
-  )
-}
 
 const maxDisplayWidth = computed(() => {
   let max = 0
