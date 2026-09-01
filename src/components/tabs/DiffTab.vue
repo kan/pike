@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CaseSensitive, ChevronDown, ChevronsDownUp, ChevronUp, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useDragResize } from '../../composables/useDragResize'
 import { useI18n } from '../../i18n'
 import { type Expanded, expandDiff, type Gap, matchesDiff } from '../../lib/diffExpand'
 import { parseDiff } from '../../lib/diffParser'
@@ -35,6 +36,13 @@ const isBinaryDiff = computed(() => tab.value?.diff.includes('Binary files') ?? 
 /** 1 回の操作で広げる行数。GitHub と同じ。 */
 const EXPAND_STEP = 20
 
+/**
+ * 「まとめて表示」1 回で足す行数の上限。**表を仮想化していないので、押した瞬間に
+ * この行数 × 4 セルを一度に描く。** 2 万行のファイルの 1 行を直した差分では、上限が無いと
+ * 1 クリックでウィンドウが固まる。超える領域は何度か押して広げる。
+ */
+const EXPAND_ALL_MAX = 2000
+
 /** 新しい側の全行。押されるまで取りに行かない（開いただけの diff で IPC を増やさない）。 */
 const newSideLines = ref<string[] | null>(null)
 /** 自分から取りに行ったか。失敗しても自動では繰り返さない。 */
@@ -52,6 +60,9 @@ watch(
     autoLoadTried = false
     expanded.value = new Map()
     autoWrapped.value = false
+    // 横位置は Vue の状態に持っていないので、明示的に戻す（#297）。
+    if (hscrollEl.value) hscrollEl.value.scrollLeft = 0
+    paintScrollX(0)
   },
 )
 
@@ -124,7 +135,7 @@ async function expandGap(gap: Gap, dir: 'up' | 'down' | 'all') {
     await loadNewSide()
     if (!newSideLines.value) return
   }
-  const step = dir === 'all' ? gap.count : Math.min(EXPAND_STEP, gap.count)
+  const step = Math.min(dir === 'all' ? EXPAND_ALL_MAX : EXPAND_STEP, gap.count)
   const cur = expanded.value.get(gap.key) ?? { top: 0, bottom: 0 }
   const next = new Map(expanded.value)
   next.set(gap.key, dir === 'up' ? { ...cur, bottom: cur.bottom + step } : { ...cur, top: cur.top + step })
@@ -163,36 +174,170 @@ const wordWrapOn = computed(() => {
   return mode === 'on' || (mode === 'auto' && autoWrapped.value)
 })
 
+// --- 左右のペイン（#297）---------------------------------------------------
+// **表の幅はウィンドウ幅に固定し、横スクロールはセルの中で起こす。** 表を最長行に合わせて
+// 広げると（#272 の作り）、右のペインの開始位置が画面の外へ出て新しい側が読めなくなる。
+// 代わりに `.line-content` は `overflow: hidden` のまま中身（`.cell-inner`）を `transform` で
+// ずらし、下端に置いた 1 本の帯（`.hscroll`）がその量を決める。**左右は連動させる**（同じ行の
+// 左右を見比べる用途なので、同じ桁が両側に出ているほうがよい）。
+//
+// **表をやめて左右を別々のスクロール領域にしないこと**: いまの `<table>` が「同じ行の左右が
+// 必ず同じ高さに揃う」を保証していて、折り返し ON では左右で行の高さが変わりうる。
+
+/** 左ペインの取り分（行番号列を除いた幅に対する比）。タブ単位で、セッションには残さない。 */
+const split = ref(0.5)
+/** 分割線の x 位置（`.diff-body` の左端から px）。**実測**なので縦スクロールバーの幅も込み。 */
+const splitX = ref(0)
 /**
- * はみ出し量は**ブラウザに測らせる**（`scrollWidth / clientWidth`）。こちらで計算した
- * `--content-ch` はセル数の見積もりで、フォントの実寸もペインの幅も知らない。
+ * 行番号列を除いた左右の欄の合計幅と、左の欄が始まる x。どちらも実測。
  *
- * 折り返している間は測らない: そのときの `scrollWidth` は「折り返した結果」で、元の
- * 長さを表さない。
+ * **欄の幅は比ではなく px で CSS へ渡す**（`--pane-l` / `--pane-r`）。`<col>` の側で
+ * `calc((100% - 行番号列) * 比)` と組み立てると、その `%` は表の幅（縦スクロールバーを除く）に
+ * 対して解決されるのに、同じ式を使う下端の帯では帯の幅（＝タブの幅）に対して解決されるので、
+ * 2 つの基準がずれる。px なら両方が同じ数字を見る。
  */
-function measureOverflow() {
+const paneAreaPx = ref(0)
+let contentLeftPx = 0
+/** 狭いほうの欄の幅。帯のはみ出しはこれを基準に出てくる。 */
+let paneMinPx = 0
+const rootEl = ref<HTMLElement>()
+const hscrollEl = ref<HTMLElement>()
+const splitEl = ref<HTMLElement>()
+
+/**
+ * **スクロールとドラッグの最中は Vue を通さず DOM へ直接書く。** `--scroll-x` を `:style` に
+ * 載せると、動かすたびにコンポーネントの render が丸ごと走り、仮想化していない表の vnode が
+ * 行数ぶん作り直される。書きたいのはカスタムプロパティ 1 つなので、そこだけ素の DOM 操作に
+ * 逃がす（`editorMarkdown` の `frontmatterOpen` を ref にしないのと同じ判断）。
+ *
+ * `--scroll-x` の置き場は `.diff-scroll`（読むのは `.cell-inner` だけ）。ツールバーや検索
+ * パネルまで含む `.diff-tab` に置くと、無関係な部分までスタイル再計算の検討対象になる。
+ */
+function paintScrollX(px: number) {
+  scrollEl.value?.style.setProperty('--scroll-x', `${px}px`)
+}
+
+// `scroll` はフレームより細かく飛ぶので、1 フレームに 1 回だけ書く。
+let scrollFrame = 0
+
+function onHScroll() {
+  if (scrollFrame) return
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0
+    paintScrollX(hscrollEl.value?.scrollLeft ?? 0)
+  })
+}
+
+/**
+ * 横方向のホイールを帯へ回す。`.diff-scroll` は `overflow-x: hidden` なので、
+ * Shift+ホイールもタッチパッドの横スワイプも、そのままでは行き先が無い。
+ *
+ * **縦成分があるときは既定のスクロールを止めない。** タッチパッドの斜めのジェスチャは
+ * `deltaX` と `deltaY` を同時に持つので、横を受けたからと `preventDefault` すると
+ * 縦に動かなくなる。
+ */
+function onWheel(e: WheelEvent) {
+  const el = hscrollEl.value
+  if (!el || wordWrapOn.value) return
+  if (e.deltaX !== 0) {
+    el.scrollLeft += e.deltaX
+    if (e.deltaY === 0) e.preventDefault()
+    return
+  }
+  if (e.shiftKey && e.deltaY !== 0) {
+    el.scrollLeft += e.deltaY
+    e.preventDefault()
+  }
+}
+
+/** 分割線を細くしすぎない（どちらかの欄が読めなくなる）。 */
+const SPLIT_MIN = 0.15
+let dragSplit = 0.5
+let dragFrame = 0
+
+/**
+ * ドラッグ中の描画。**測らずに比から出す**（`measureLayout` は強制リフローを伴うので、
+ * mousemove ごとに呼ぶとフレームあたり何度も走る）。確定値は離したときに `split` へ入れ、
+ * そこで 1 回だけ測り直す。
+ */
+function paintSplit(v: number) {
+  const area = paneAreaPx.value
+  rootEl.value?.style.setProperty('--pane-l', `${area * v}px`)
+  rootEl.value?.style.setProperty('--pane-r', `${area * (1 - v)}px`)
+  if (splitEl.value) splitEl.value.style.left = `${contentLeftPx + area * v}px`
+}
+
+const { start: onSplitStart } = useDragResize({
+  onStart: () => {
+    dragSplit = split.value
+  },
+  onMove: (dx) => {
+    if (paneAreaPx.value <= 0) return
+    dragSplit = Math.min(1 - SPLIT_MIN, Math.max(SPLIT_MIN, split.value + dx / paneAreaPx.value))
+    if (dragFrame) return
+    dragFrame = requestAnimationFrame(() => {
+      dragFrame = 0
+      paintSplit(dragSplit)
+    })
+  },
+  onEnd: () => {
+    if (dragFrame) cancelAnimationFrame(dragFrame)
+    dragFrame = 0
+    split.value = dragSplit
+  },
+})
+
+/**
+ * 分割線の位置と、はみ出し量を測る。**はみ出しはブラウザに測らせる**（帯の
+ * `scrollWidth / clientWidth`）: こちらで計算した `--content-ch` はセル数の見積もりで、
+ * フォントの実寸もペインの幅も知らない。
+ *
+ * 折り返している間ははみ出しを見ない: そのときの幅は「折り返した結果」で、元の長さを表さない。
+ */
+function measureLayout() {
   const el = scrollEl.value
   if (!el) return
+  // 帯を出すかどうかで `.diff-scroll` の高さが変わるので、行は毎回引き直す。
+  const cells = el.querySelector('.diff-row')?.querySelectorAll<HTMLElement>('.line-content')
+  // **寸法は `getBoundingClientRect` で取る**。`clientWidth` は表のセルのように
+  // スクロール領域を作らない要素で当てにならない（`overflow: clip` にしてからは特に）。
+  if (cells?.length === 2) {
+    const l = cells[0].getBoundingClientRect()
+    const r = cells[1].getBoundingClientRect()
+    // 左右の合計は分割の比によらない（＝表の幅 − 行番号列 × 2）ので、これを基準にしてよい。
+    paneAreaPx.value = l.width + r.width
+    paneMinPx = Math.min(l.width, r.width)
+    const origin = el.getBoundingClientRect().left
+    contentLeftPx = l.left - origin
+    splitX.value = l.right - origin
+  }
   if (wordWrapOn.value) {
     canScrollX.value = false
     return
   }
-  const ratio = el.clientWidth > 0 ? el.scrollWidth / el.clientWidth : 1
-  canScrollX.value = ratio > 1.01
-  if (settingsStore.diffWordWrap === 'auto' && ratio > AUTO_WRAP_RATIO) autoWrapped.value = true
+  const hs = hscrollEl.value
+  const over = hs ? hs.scrollWidth - hs.clientWidth : 0
+  canScrollX.value = over > 1
+  // **「自動」の判断は分割の比に依らせない。** 帯のはみ出しは狭いほうの欄が基準なので、
+  // そのまま使うと分割線を寄せただけで折り返しに latch し、戻しても折り返したままになる。
+  // 半々にしたときの欄の幅で見る。
+  const balanced = paneAreaPx.value / 2
+  if (balanced > 0 && settingsStore.diffWordWrap === 'auto' && (over + paneMinPx) / balanced > AUTO_WRAP_RATIO) {
+    autoWrapped.value = true
+  }
 }
 
 // 行が増減したら測り直す（省略を展開すると長い行が出てくることがある）。**「自動」の判断
 // そのものはやり直さない**（差分が入れ替わったときだけ。上の watcher が `autoWrapped` を
 // 落とす）: 折り返しがいったん外れてから測り直して戻るので、広げるたびに画面が揺れる。
 // **手動の上書きは差分が変わっても残す**（そのタブに対する明示的な選択なので覆さない）。
-watch(parsedLines, () => void nextTick(measureOverflow))
+watch(parsedLines, () => void nextTick(measureLayout))
 
-// 折り返しを切り替えたときも測り直す。**`.diff-scroll` は `inset: 0` で自分の箱が
+// 折り返しと分割位置を変えたときも測り直す。**`.diff-scroll` は `inset: 0` で自分の箱が
 // 変わらないので ResizeObserver は鳴らない。** これが無いと、自動で折り返して開いた
 // diff を手で折り返し OFF にしたときに `canScrollX` が false のままになり、横スクロール
 // できるのにボタンが薄いまま（`prominent` が防ごうとしている状態そのもの）になる。
-watch(wordWrapOn, () => void nextTick(measureOverflow))
+watch([wordWrapOn, split], () => void nextTick(measureLayout))
 
 const maxDisplayWidth = computed(() => {
   let max = 0
@@ -206,10 +351,20 @@ const maxDisplayWidth = computed(() => {
   return max
 })
 
-// 幅の計算は CSS 側（`.diff-table`）。ここが渡すのは最長行のセル数だけで、行番号列や
-// padding のぶんはそれらを宣言している場所で足す。折り返し中は読まないので、`maxDisplayWidth`
-// の走査も走らない。
-const tableStyle = computed(() => (wordWrapOn.value ? undefined : { '--content-ch': String(maxDisplayWidth.value) }))
+// 欄の幅は px で渡す（理由は `paneAreaPx` の doc）。最長行のセル数だけは CSS 側で `1ch` に
+// 掛けたいので数のまま渡し、行番号列や padding のぶんはそれらを宣言している場所で足す。
+// 折り返し中は横に出ないので、`--content-ch` を渡さず `maxDisplayWidth` の走査も走らせない。
+const rootStyle = computed(() => ({
+  // **測る前は渡さない**（`0px` を渡すと左の欄が潰れる）。CSS 側は変数が無ければ宣言ごと
+  // 無効になり、`auto`＝左右半々に落ちる。
+  ...(paneAreaPx.value > 0
+    ? {
+        '--pane-l': `${paneAreaPx.value * split.value}px`,
+        '--pane-r': `${paneAreaPx.value * (1 - split.value)}px`,
+      }
+    : {}),
+  ...(wordWrapOn.value ? {} : { '--content-ch': String(maxDisplayWidth.value) }),
+}))
 
 /**
  * Open the working-tree copy of the file this diff is about, in whatever tab
@@ -232,6 +387,9 @@ const caseSensitive = ref(false)
 const currentIndex = ref(0)
 const searchInput = ref<HTMLInputElement>()
 const scrollEl = ref<HTMLElement>()
+
+/** 一致へ横に寄せるときの余白（px）。端に貼り付くと前後が読めない。 */
+const SEARCH_REVEAL_PAD = 40
 
 const matches = computed(() => collectMatches(parsedLines.value, query.value, caseSensitive.value))
 
@@ -289,7 +447,18 @@ const matchInfo = computed(() => {
 
 function scrollToCurrent() {
   nextTick(() => {
-    scrollEl.value?.querySelector(`[data-match="${currentIndex.value}"]`)?.scrollIntoView({ block: 'center' })
+    const target = scrollEl.value?.querySelector(`[data-match="${currentIndex.value}"]`)
+    if (!target) return
+    target.scrollIntoView({ block: 'center' })
+    // **横も寄せる**（#297）。欄は `overflow: hidden` なので、桁の外にある一致は
+    // `scrollIntoView` では出てこない（あちらはスクロールできる祖先しか動かさない）。
+    const cell = target.closest('.line-content')
+    const bar = hscrollEl.value
+    if (!cell || !bar) return
+    const t = target.getBoundingClientRect()
+    const c = cell.getBoundingClientRect()
+    if (t.left < c.left) bar.scrollLeft -= c.left - t.left + SEARCH_REVEAL_PAD
+    else if (t.right > c.right) bar.scrollLeft += t.right - c.right + SEARCH_REVEAL_PAD
   })
 }
 
@@ -359,9 +528,9 @@ watch(
     resizeObserver?.disconnect()
     resizeObserver = null
     if (!el) return
-    resizeObserver = new ResizeObserver(measureOverflow)
+    resizeObserver = new ResizeObserver(measureLayout)
     resizeObserver.observe(el)
-    void nextTick(measureOverflow)
+    void nextTick(measureLayout)
   },
   { immediate: true },
 )
@@ -371,11 +540,13 @@ onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   resizeObserver?.disconnect()
+  if (scrollFrame) cancelAnimationFrame(scrollFrame)
+  if (dragFrame) cancelAnimationFrame(dragFrame)
 })
 </script>
 
 <template>
-  <div class="diff-tab">
+  <div ref="rootEl" class="diff-tab" :style="rootStyle">
     <div v-if="!tab" class="empty">{{ t('diff.notFound') }}</div>
     <div v-else-if="!parsedLines.length && tab.diff" class="empty">
       <template v-if="isBinaryDiff">
@@ -386,14 +557,15 @@ onUnmounted(() => {
     </div>
     <div v-else-if="!parsedLines.length" class="empty">{{ t('diff.noChanges') }}</div>
     <template v-else>
-      <div ref="scrollEl" class="diff-scroll">
-        <table class="diff-table" :class="{ wrap: wordWrapOn }" :style="tableStyle">
+      <div class="diff-body">
+        <div ref="scrollEl" class="diff-scroll" @wheel="onWheel">
+        <table class="diff-table" :class="{ wrap: wordWrapOn }">
           <!-- **列幅はここで決める。** `table-layout: fixed` は既定で最初の行から幅を取るので、
                省略の帯（#285）が先頭に来ると colspan の 1 セルしか無く、4 列が等分されて
                行番号の欄が本文と同じ幅になる（差分が 3 分割されたように見える）。 -->
           <colgroup>
             <col class="col-num" />
-            <col />
+            <col class="col-content-l" />
             <col class="col-num" />
             <col />
           </colgroup>
@@ -418,7 +590,9 @@ onUnmounted(() => {
                           @click="expandGap(block.gap, 'up')"
                         ><ChevronUp :size="13" :stroke-width="2" /></button>
                         <button class="gap-all" @click="expandGap(block.gap, 'all')">{{
-                          t('diff.expandAll', { count: block.gap.count })
+                          block.gap.count > EXPAND_ALL_MAX
+                            ? t('diff.expandChunk', { count: block.gap.count, step: EXPAND_ALL_MAX })
+                            : t('diff.expandAll', { count: block.gap.count })
                         }}</button>
                       </template>
                       <button
@@ -434,14 +608,31 @@ onUnmounted(() => {
               <tr v-else class="diff-row">
                 <template v-for="(cell, s) in block.cells" :key="s">
                   <td class="line-num" :class="cell.type">{{ cell.num ?? "" }}</td>
-                  <td class="line-content" :class="cell.type"><template
+                  <!-- 横スクロールはこの `.cell-inner` をずらして表現する（#297）。表を広げると
+                       右のペインが画面の外へ出るので、表はウィンドウ幅のまま中身を動かす。 -->
+                  <td class="line-content" :class="cell.type"><span class="cell-inner"><template
                     v-for="(tok, j) in cell.tokens" :key="j"
-                  ><span :class="{ 'hl': tok.diffHl, 'search-hl': tok.matchIndex >= 0, 'search-current': tok.matchIndex === currentIndex }" :data-match="tok.matchIndex >= 0 ? tok.matchIndex : undefined">{{ tok.text }}</span></template></td>
+                  ><span :class="{ 'hl': tok.diffHl, 'search-hl': tok.matchIndex >= 0, 'search-current': tok.matchIndex === currentIndex }" :data-match="tok.matchIndex >= 0 ? tok.matchIndex : undefined">{{ tok.text }}</span></template></span></td>
                 </template>
               </tr>
             </template>
           </tbody>
         </table>
+        </div>
+        <!-- 左右の分割線（#297）。表の列を跨ぐので、位置は実測して重ねる。 -->
+        <div
+          ref="splitEl"
+          class="split-handle drag-x-handle"
+          :style="{ left: `${splitX}px` }"
+          :title="t('diff.splitHandle')"
+          @mousedown="onSplitStart"
+          @dblclick="split = 0.5"
+        ></div>
+      </div>
+      <!-- 横スクロールの実体（#297）。左右で連動させるので 1 本で足りる。中身を持たない
+           帯で、動かすのはセルの中の `transform`。 -->
+      <div ref="hscrollEl" class="hscroll" :class="{ on: canScrollX }" @scroll="onHScroll">
+        <div class="hscroll-inner"></div>
       </div>
       <!-- 検索パネルと同じ角に出るので、開いているあいだは隠す。 -->
       <div v-if="!showSearch" class="hover-toolbar" :class="{ prominent: canScrollX }">
@@ -478,36 +669,53 @@ onUnmounted(() => {
 .diff-tab {
   /* hunk ヘッダと省略の帯（#285）の下地。どちらも「差分の切れ目」なので同じ値を共有する。 */
   --hunk-tint: rgba(0, 122, 204, 0.08);
-  position: absolute;
-  inset: 0;
-  background: var(--bg-primary);
-}
-
-.diff-scroll {
-  position: absolute;
-  inset: 0;
-  overflow: auto;
-}
-
-/* 折り返さないときの幅は「最長行のセル数 × 2 列 ＋ 行番号列 ＋ padding」。`--content-ch` は
-   DiffTab.vue が渡す（最長行のセル数）。**この計算はここに置くこと**: 足しているのは
-   すぐ下の `.line-num` / `.line-content` の値そのもので、JS 側に px の合計を持たせると、
-   padding を変えたときに黙って横スクロールの範囲が足りなくなる。 */
-.diff-table {
+  /* 寸法とフォントは表の外（`.hscroll-inner`）でも要るので、いちばん上に置く。 */
   --num-w: 40px;
   --num-pad: 6px;
   --content-pad: 8px;
-  width: max(100%, calc(var(--content-ch, 0) * 1ch * 2 + (var(--num-w) + var(--num-pad) * 2) * 2 + var(--content-pad) * 4));
+  --num-col: calc(var(--num-w) + var(--num-pad) * 2);
+  --diff-font: "PlemolJP Console NF", "Cascadia Code", "Fira Code", monospace;
+  --diff-font-size: 12px;
+  --hscroll-h: 10px;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+.diff-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* **横には広げない**（#297）。長い行は `.cell-inner` をずらして読む。 */
+.diff-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.diff-table {
+  width: 100%;
   border-collapse: collapse;
-  font-family: "PlemolJP Console NF", "Cascadia Code", "Fira Code", monospace;
-  font-size: 12px;
+  font-family: var(--diff-font);
+  font-size: var(--diff-font-size);
   line-height: 1.5;
   table-layout: fixed;
 }
 
 /* `<col>` の幅は border-box なので、セル側の `width` と `padding` を足した値にする。 */
 .col-num {
-  width: calc(var(--num-w) + var(--num-pad) * 2);
+  width: var(--num-col);
+}
+
+/* 左の欄の幅。右の欄は指定せず、残りを取らせる。**測る前は `--pane-l` が無い**ので、
+   宣言ごと無効になって `auto`＝左右半々に落ちる（それが既定の見え方でもある）。 */
+.col-content-l {
+  width: var(--pane-l);
 }
 
 .diff-row {
@@ -526,10 +734,69 @@ onUnmounted(() => {
   font-size: 11px;
 }
 
+/* **`clip` であって `hidden` ではない**（#297）。`hidden` は欄をスクロール領域にしてしまうので、
+   検索の `scrollIntoView` が欄そのものを横に動かし、`--scroll-x` のずらしと二重にかかる。
+   `clip` は切るだけでスクロール領域を作らない。前の宣言は未対応のブラウザ向けの保険。 */
 .line-content {
   padding: 0 var(--content-pad);
   white-space: pre;
   overflow: hidden;
+  overflow: clip;
+}
+
+/* 横スクロールの実体（#297）。**`display: block` が要る**: 素のインライン要素には
+   `transform` が効かない。幅は欄いっぱいで、はみ出したぶんは欄の `overflow: hidden` が切る。 */
+.cell-inner {
+  display: block;
+  transform: translateX(calc(-1 * var(--scroll-x, 0px)));
+}
+
+/* 分割線（#297）。位置は DiffTab.vue が実測して渡す。見た目（カーソル・ホバー）は
+   `theme.css` の `.drag-x-handle` と共有する。 */
+.split-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  margin-left: -3px;
+  z-index: 5;
+}
+
+/* 横スクロールの帯。**要るときだけ高さを持たせる**（`display: none` にすると幅を測れず、
+   出すかどうかの判定そのものができない）。 */
+.hscroll {
+  flex: 0 0 auto;
+  height: 0;
+  overflow-x: scroll;
+  overflow-y: hidden;
+}
+
+.hscroll.on {
+  height: var(--hscroll-h);
+}
+
+/* 動かせる幅は「最長行が、狭いほうの欄からはみ出すぶん」。欄の幅（`--pane-l` / `--pane-r`）は
+   DiffTab.vue が実測した px で、`--content-ch`（最長行のセル数）も同じところから来る。
+   **`1ch` と padding の足し込みはここに置くこと**: 足しているのは `.line-content` の宣言
+   そのもので、JS 側に px の合計を持たせると、padding を変えたときに黙って横スクロールの
+   範囲が足りなくなる。 */
+.hscroll-inner {
+  --over: max(
+    0px,
+    calc(var(--content-ch, 0) * 1ch + var(--content-pad) * 2 - min(var(--pane-l, 50%), var(--pane-r, 50%)))
+  );
+  width: calc(100% + var(--over));
+  height: 1px;
+  font-family: var(--diff-font);
+  font-size: var(--diff-font-size);
+}
+
+.hscroll::-webkit-scrollbar:horizontal {
+  height: var(--hscroll-h);
+}
+
+.hscroll::-webkit-scrollbar-thumb:horizontal {
+  background: var(--scrollbar-thumb-hover);
 }
 
 /* 省略された行の帯（#285）。行番号の列を跨ぐので `.diff-row` の高さには乗らない。
@@ -541,10 +808,7 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
 }
 
-/* 横スクロールしても帯は左端に貼り付けたままにする（表の幅は最長行に合わせて広い）。 */
 .gap-bar {
-  position: sticky;
-  left: 0;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -568,30 +832,19 @@ onUnmounted(() => {
   opacity: 1;
 }
 
-/* 横スクロールが要るときだけ、そのバーを少し太くする（全体の細いスクロールバーは
-   `theme.css` のまま）。 */
-.diff-scroll::-webkit-scrollbar:horizontal {
-  height: 10px;
-}
-
-.diff-scroll::-webkit-scrollbar-thumb:horizontal {
-  background: var(--scrollbar-thumb-hover);
-}
-
 /* 折り返しあり（#272）。行の高さが可変になるので `.diff-row` の固定高も外す。 */
-.diff-table.wrap {
-  width: 100%;
-}
-
 .diff-table.wrap .line-content {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+.diff-table.wrap .cell-inner {
+  transform: none;
+}
+
 .diff-table.wrap .diff-row {
   height: auto;
 }
-
 
 
 .line-content:nth-child(2) {

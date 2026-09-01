@@ -157,9 +157,11 @@ export default {
   'diff.expandUp': 'Expand {count} lines up',
   'diff.expandDown': 'Expand {count} lines down',
   'diff.expandAll': 'Show {count} hidden lines',
+  'diff.expandChunk': 'Show {step} of {count} hidden lines',
   'diff.expandFailed': 'Could not load the file',
   'diff.expandStale': 'The file changed after this diff was generated',
   'diff.collapse': 'Collapse the {count} expanded lines',
+  'diff.splitHandle': 'Drag to resize the panes (double-click to reset)',
 
   // History
   'history.notFound': 'Not found',

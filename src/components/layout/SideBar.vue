@@ -10,6 +10,7 @@ import {
   useTemplateRef,
 } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
+import { useDragResize } from '../../composables/useDragResize'
 import { useGitStore } from '../../stores/git'
 import { useSidebarStore } from '../../stores/sidebar'
 import type { SidebarPanel } from '../../types/tab'
@@ -317,38 +318,18 @@ function iconTitle(item: IconDef) {
   return marker ? `${base} (${marker.title})` : base
 }
 
-let dragging = false
-let startX = 0
 let startWidth = 0
 
-function onResizeStart(e: MouseEvent) {
-  dragging = true
-  startX = e.clientX
-  startWidth = sidebar.panelWidth
-  document.addEventListener('mousemove', onResizeMove)
-  document.addEventListener('mouseup', onResizeEnd)
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-}
-
-function onResizeMove(e: MouseEvent) {
-  if (!dragging) return
+const { start: onResizeStart } = useDragResize({
+  onStart: () => {
+    startWidth = sidebar.panelWidth
+  },
   // The sidebar carries the UI zoom, so a viewport-px mouse delta corresponds to
   // delta / zoom logical px on the (zoomed) panel width.
-  sidebar.setPanelWidth(startWidth + (e.clientX - startX) / settingsStore.uiZoom)
-}
-
-function onResizeEnd() {
-  dragging = false
-  document.removeEventListener('mousemove', onResizeMove)
-  document.removeEventListener('mouseup', onResizeEnd)
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-}
+  onMove: (dx) => sidebar.setPanelWidth(startWidth + dx / settingsStore.uiZoom),
+})
 
 onUnmounted(() => {
-  document.removeEventListener('mousemove', onResizeMove)
-  document.removeEventListener('mouseup', onResizeEnd)
   window.removeEventListener('mousedown', closeGearMenu)
   window.removeEventListener('mousedown', closeAgentMenu)
 })
@@ -500,7 +481,7 @@ onUnmounted(() => {
         <DiagnosticsPanel v-else-if="sidebar.activePanel === 'diagnostics'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
-      <div class="resize-handle" @mousedown="onResizeStart"></div>
+      <div class="resize-handle drag-x-handle" @mousedown="onResizeStart"></div>
     </aside>
 
     <!-- Pull/push options (#179). Outside .panel so its overflow can't clip it. -->
@@ -801,19 +782,14 @@ onUnmounted(() => {
   padding: 12px;
 }
 
+/* 見た目（カーソル・ホバー）は `theme.css` の `.drag-x-handle` と共有する。 */
 .resize-handle {
   position: absolute;
   right: -3px;
   top: 0;
   width: 6px;
   height: 100%;
-  cursor: col-resize;
   z-index: 10;
-}
-
-.resize-handle:hover {
-  background: var(--accent);
-  opacity: 0.3;
 }
 
 .placeholder {

@@ -202,6 +202,18 @@
   color: var(--accent);
 }
 
+/* 横幅を変えるドラッグの取っ手（サイドバーの幅・diff タブの分割線）。**位置と大きさは
+   置く側が決め、ここは操作の見た目だけを持つ**（片方はパネルの右端、もう片方は表の列の
+   境界に重ねるので、寸法は共有しようがない）。配線は `composables/useDragResize.ts`。 */
+.drag-x-handle {
+  cursor: col-resize;
+}
+
+.drag-x-handle:hover {
+  background: var(--accent);
+  opacity: 0.3;
+}
+
 /* Shared keyboard shortcut hint for context menus / popup menus */
 .ctx-key {
   font-size: 11px;

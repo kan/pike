@@ -157,9 +157,11 @@ export default {
   'diff.expandUp': '上へ {count} 行広げる',
   'diff.expandDown': '下へ {count} 行広げる',
   'diff.expandAll': '省略された {count} 行を表示',
+  'diff.expandChunk': '省略された {count} 行のうち {step} 行を表示',
   'diff.expandFailed': 'ファイルを読み込めませんでした',
   'diff.expandStale': 'この差分を作ったあとにファイルが変わっているため展開できません',
   'diff.collapse': '広げた {count} 行を折りたたむ',
+  'diff.splitHandle': 'ドラッグで左右の幅を変える（ダブルクリックで半々に戻す）',
 
   // History
   'history.notFound': '見つかりません',

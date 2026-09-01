@@ -221,6 +221,7 @@ pike/
 │   │   ├── useAppMenu.ts     # macOS のメニューバーからの操作を受ける（#254）
 │   │   ├── useBusyExit.ts    # Pike ごと終了する前の確認（#178。close と ⌘Q が共有）
 │   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts  useAnchoredPopup.ts
+│   │   ├── useDragResize.ts  # 横幅を変えるドラッグの配線（サイドバーの幅・diff の分割線、#297）
 │   │   ├── useActiveFile.ts  # いま見ているファイル（ツリーと Git パネルの強調、#274）
 │   │   ├── useFocusPolling.ts # アクティブなあいだだけポーリングする共通部（#277）
 │   │   ├── useAgentRouter.ts  useDockerLogRouter.ts  useAgentUsage.ts
