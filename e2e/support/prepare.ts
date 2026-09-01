@@ -256,35 +256,10 @@ export async function feedActiveTerminal(data: string): Promise<void> {
   }, data)
 }
 
-// エージェントチャット（Codex / Claude Code）を実セッションなしで開く。
-// store の session 状態を決定的な会話で直接構築するため invoke モック不要。
-export interface AgentChatFixture {
-  agentType: 'codex' | 'claude-code'
-  capabilities: {
-    displayName: string
-    supportsModelSelection: boolean
-    supportsSessionResume: boolean
-    supportsRollback: boolean
-    supportsCompact: boolean
-    supportsSandboxConfig: boolean
-    supportsApprovalConfig: boolean
-    supportsAuthFlow: boolean
-  }
-  authEmail?: string | null
-  selectedModel?: string | null
-  tokenUsage?: { input: number; output: number } | null
-  detectedInstructionsFile?: string | null
-  messages: unknown[]
-}
-
-export async function openAgentChat(fixture: AgentChatFixture): Promise<void> {
-  await browser.execute((f) => {
-    ;(window as unknown as { __pikeE2E?: { openAgentChat?: (o: unknown) => void } }).__pikeE2E?.openAgentChat?.(f)
-  }, fixture)
-}
-
-// pty_spawn をモックし、呼ばれるたびユニークな id を返す。id 固定だと閉じたタブの
-// unregister が新タブのハンドラを消してしまうため。
+// PTY 系の invoke を一式モックして、実プロセスを起動させずにターミナルを撮れるようにする。
+// `pty_spawn` は呼ばれるたびユニークな id を返す（id 固定だと閉じたタブの unregister が
+// 新タブのハンドラを消す）。**残り 3 つとセットで置く**: 分けていたころは 3 spec が同じ
+// 4 行を書き写していて、PTY のコマンドが増えるたびに直す場所が 3 つになっていた。
 export async function mockPtySpawnUniqueIds(): Promise<void> {
   const b = browser as unknown as {
     tauri: { mock: (c: string) => Promise<{ mockImplementation: (f: () => unknown) => Promise<void> }> }
@@ -295,6 +270,7 @@ export async function mockPtySpawnUniqueIds(): Promise<void> {
     w.__ptyN = (w.__ptyN ?? 0) + 1
     return { id: `e2e-term-${w.__ptyN}` }
   })
+  await Promise.all([mockInvoke('pty_resize', null), mockInvoke('pty_write', null), mockInvoke('pty_kill', null)])
 }
 
 export const MATRIX: Array<{ lang: Lang; theme: Theme }> = [

@@ -7,7 +7,7 @@ import { t } from '../i18n'
 import { formatLineRange } from '../lib/format'
 import { MANUAL_INDEX } from '../lib/manual'
 import { basename, normalizeSep } from '../lib/paths'
-import { agentDisconnect, ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
+import { ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
   AgentStatusTab,
@@ -222,15 +222,6 @@ export const useTabStore = defineStore('tabs', () => {
       await ptyKill(tab.ptyId).catch(() => {})
     }
 
-    // Disconnect agent session and clean up per-tab state
-    if (tab.kind === 'agent-chat') {
-      agentDisconnect(tab.id).catch(() => {})
-      const { useAgentStore } = await import('../stores/agent')
-      const { cleanupAgentRouterTab } = await import('../composables/useAgentRouter')
-      useAgentStore().removeSession(tab.id)
-      cleanupAgentRouterTab(tab.id)
-    }
-
     tabs.value.splice(idx, 1)
     untitledContent.delete(id)
     // Closing before the command finished still resolves the waiter (-1, the
@@ -257,24 +248,9 @@ export const useTabStore = defineStore('tabs', () => {
         return ptyKill(t.ptyId).catch(() => {})
       })
     await Promise.allSettled(kills)
-    await cleanupAgentTabs(tabs.value)
     untitledContent.clear()
     tabs.value = []
     activeTabId.value = null
-  }
-
-  /** Disconnect and clean up all agent-chat tabs in the given list. */
-  async function cleanupAgentTabs(tabList: Tab[]) {
-    const agentTabs = tabList.filter((t) => t.kind === 'agent-chat')
-    if (agentTabs.length === 0) return
-    await Promise.allSettled(agentTabs.map((t) => agentDisconnect(t.id).catch(() => {})))
-    const { useAgentStore } = await import('../stores/agent')
-    const { cleanupAgentRouterTab } = await import('../composables/useAgentRouter')
-    const agentStore = useAgentStore()
-    for (const t of agentTabs) {
-      agentStore.removeSession(t.id)
-      cleanupAgentRouterTab(t.id)
-    }
   }
 
   // Clear activity indicator whenever any tab becomes active,
@@ -282,10 +258,10 @@ export const useTabStore = defineStore('tabs', () => {
   watch(activeTabId, (newId) => {
     if (newId) {
       const tab = tabs.value.find((t) => t.id === newId)
-      if (tab && (tab.kind === 'terminal' || tab.kind === 'agent-chat')) {
+      if (tab?.kind === 'terminal') {
         tab.hasActivity = false
+        lastTerminalId.value = newId
       }
-      if (tab?.kind === 'terminal') lastTerminalId.value = newId
     }
   })
 
@@ -305,7 +281,7 @@ export const useTabStore = defineStore('tabs', () => {
   function markTabActivity(tabId: string) {
     if (activeTabId.value === tabId) return
     const tab = tabs.value.find((t) => t.id === tabId)
-    if (!tab || (tab.kind !== 'terminal' && tab.kind !== 'agent-chat')) return
+    if (tab?.kind !== 'terminal') return
     if (tab.hasActivity) return
     tab.hasActivity = true
   }
@@ -493,15 +469,6 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function addAgentChatTab(options?: { pinned?: boolean; agentType?: 'codex' | 'claude-code' }): string {
-    const agentType = options?.agentType ?? 'claude-code'
-    const id = genId()
-    const title = agentType === 'claude-code' ? 'Claude' : 'Codex'
-    pushTab({ id, kind: 'agent-chat', title, pinned: options?.pinned ?? false, agentType })
-    activeTabId.value = id
-    return id
-  }
-
   function addPdfTab(options: { path: string; revision?: string; dataUrl?: string }): string {
     const existing = tabs.value.find(
       (t): t is PdfTab => t.kind === 'pdf' && t.path === options.path && t.revision === options.revision,
@@ -609,7 +576,6 @@ export const useTabStore = defineStore('tabs', () => {
         return ptyKill(t.ptyId).catch(() => {})
       })
     await Promise.allSettled(ptyKills)
-    await cleanupAgentTabs(toClose)
 
     // Signal all --wait processes, then close window if any were signaled
     let shouldClose = false
@@ -711,9 +677,9 @@ export const useTabStore = defineStore('tabs', () => {
     // 見えているタブだけ（#264）。パーク中の別プロジェクトのタブを、今のプロジェクトの
     // セッションとして書き出さない。
     const sessionTabs: SessionTabDef[] = visibleTabs.value
-      .filter((t) => t.kind === 'terminal' || t.kind === 'editor' || t.kind === 'agent-chat')
+      .filter((t) => t.kind === 'terminal' || t.kind === 'editor')
       .map((t) => {
-        const base = { id: t.id, kind: t.kind as SessionTabDef['kind'], title: t.title, pinned: t.pinned }
+        const base = { id: t.id, kind: t.kind, title: t.title, pinned: t.pinned }
         if (t.kind === 'terminal') {
           return { ...base, autoStart: t.autoStart }
         }
@@ -722,9 +688,6 @@ export const useTabStore = defineStore('tabs', () => {
             return { ...base, path: '', content: untitledContent.get(t.id) ?? '' }
           }
           return { ...base, path: t.path }
-        }
-        if (t.kind === 'agent-chat') {
-          return { ...base, agentType: t.agentType }
         }
         return base
       })
@@ -754,7 +717,6 @@ export const useTabStore = defineStore('tabs', () => {
     addSettingsTab,
     addAgentStatusTab,
     addManualTab,
-    addAgentChatTab,
     addDiffTab,
     addPdfTab,
     closeTab,

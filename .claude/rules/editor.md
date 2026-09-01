@@ -127,7 +127,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - **折り返しはタブ単位で上書きできる（#241）**。`EditorTab.vue` の `wordWrapOverride`（null = 設定に従う）で、実効値は `wordWrapOn`。分割表示でエディタ側が半分の幅になるときのための機能なので、タブに属するのが正しい。タブのコンポーネントは `v-show` で生き続けるから component-local な ref で足り、`viewMode` と同じ寿命になる（セッションには残さない）。一度触ったタブは以後その値のままで、設定変更に追従しない（戻すのはボタン 1 回）
   - **ミニマップも同じ形（`minimapOverride` / `minimapOn`、#282）**。隣にボタンを並べるので、片方だけ設定を直に触る作りにすると、並んだ 2 つで効き方が変わる。ボタンは `components/editor/` の `WrapToggle.vue` と `MinimapToggle.vue` で、**見た目は `theme.css` の `.editor-toggle` を共有する**（プレビュー付きツールバーとパンくずヘッダは別のボタン様式を持つので、どちらに置いても同じに見えるには親に合わせないほうが早い）。**2 つのヘッダは排他表示なので、ボタンを足すときは両方に置く**（片方だけだと目視で気付けない）
 - 脚注は本文に `[^n]`、**ファイル末尾**に定義行を足してカーソルを定義側へ移す。`n` は既存の `[^数字]` の最大値 + 1
-- **プレビューの脚注は `lib/markdownFootnotes.ts`（marked 拡張）**。marked は GFM 脚注を持たず、しかも素通しにならない: `[^1]` は**注釈本文を href に持つリンク**になり、定義行はリンク定義として消える。EditorTab は自前の `new Marked(footnotes())` を持つ（グローバルの `marked.use` にするとエージェントチャットの markdown にも入る）
+- **プレビューの脚注は `lib/markdownFootnotes.ts`（marked 拡張）**。marked は GFM 脚注を持たず、しかも素通しにならない: `[^1]` は**注釈本文を href に持つリンク**になり、定義行はリンク定義として消える。EditorTab は自前の `new Marked(footnotes())` を持つ（グローバルの `marked.use` にすると他のプレビューにも入る）
   - 定義は**書かれた場所にそのまま描く**（末尾に集めない）。ツールバーもユーザーもファイル末尾に足すので位置は同じで、トークンをまたぐ集計が要らない
   - **block の `start` は「行頭の定義」だけを返す**。marked は `start` に**先頭 1 文字を除いた src** を渡し、`index + 1` で段落を切る。`/^\[\^/m` にすると行の途中のオフセットを返してしまい、段落が 2 つに割れて再結合のときに改行が紛れ込む（`` `[^x]` `` のコードスパンの中に空白が 1 つ増える、という形で出た）
   - 番号は**登場順**に振り、`hooks.preprocess` でパースごとにリセットする（プレビューは打鍵のたびに作り直される）。`id` を持つのは最初の参照だけ（同じ id を 2 回出さないため）
@@ -160,7 +160,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
   - **パース失敗は握り潰さず生テキストを `<pre>` で出す**（黙って消すと本文が消えたようにしか見えない）。この場合だけ `<details>` を開いた状態で出す
   - 開閉状態は `frontmatterOpen`（**ref ではなく素の変数**）に持ち、`trackFrontmatterToggle` が描画のたびに DOM へ復元する。`previewHtml` は編集のたびに HTML を作り直すので DOM 側だけに置くと打鍵で閉じるが、reactive にすると開閉のクリックごとに `previewHtml` が無効化され、mermaid の再描画とローカル画像 1 枚につき 1 回の IPC 読みが走る
 - **外部ドメインの画像（#239）**: README のバッジを出せるようにするためのドメイン単位のオプトイン。**CSP は広げない**（`img-src` は `'self' data: blob:` ＋マニュアル用の raw.githubusercontent.com のまま）。承認済みホストの画像だけ `remote_image_fetch` で取ってきて `data:` URL にする。承認は `settings` の `allowedImageHosts`（`pike:settings` に載るので同期・クロスウィンドウ broadcast の対象）
-  - **CSP を `https:` まで広げる案は採らなかった**。CSP は文書単位なので、プレビューのために緩めると**エージェントチャット（`AgentChatTab.vue` の markdown）・SVG プレビュー・マニュアル**まで一緒に壁を失う。とくにチャットは web fetch の結果や貼り付けた README がそのまま流れてくる面で、いちばん緩めたくない。代わりに `resolveMarkdownImages` が**ローカル画像で既に使っている `data:` URL 化**に相乗りさせた（`fs_read_file_base64` の隣に `remote_image_fetch` を置いた形）
+  - **CSP を `https:` まで広げる案は採らなかった**。CSP は文書単位なので、プレビューのために緩めると**SVG プレビューとマニュアル**まで一緒に壁を失う。代わりに `resolveMarkdownImages` が**ローカル画像で既に使っている `data:` URL 化**に相乗りさせた（`fs_read_file_base64` の隣に `remote_image_fetch` を置いた形）
   - この分担だと**実際に遮断しているのは CSP で、フロントの処理は見た目だけ**になる。取りこぼした経路があっても壊れた画像が出るだけで、黙って通信が飛ぶことはない
   - **画像の解決はすべて `resolveMarkdownImages` の 1 パス**。ローカルと外部を分けると、同じ `<img>` を 2 回走査したうえに「どちらが後に src を書いたか」に依存する。読み込みは `Promise.all` で並列（遅いホストが隣の画像を待たせない）
   - **`srcset` と `<picture><source>` は落とす**。ブラウザは `src` より先にそちらを見るので、残すと解決した `src` が使われない。挿入後に落として構わない（CSP が既にリクエストを止めている）
@@ -180,12 +180,12 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - ファイルツリー `openFile()` が拡張子で画像→PreviewTab / PDF→PdfTab / その他→EditorTab を振り分ける
 
 ## ファイル/画像ペースト
-- `composables/useImagePaste.ts`。クリップボード/D&D のファイルを `.pike/uploads/` に保存 → 相対パスを挿入（エージェントチャットは `@パス` メンション、ターミナルは bare path）。画像専用ではなく**任意のファイル**が対象（PDF 等も可）
+- `composables/useImagePaste.ts`。クリップボード/D&D のファイルを `.pike/uploads/` に保存 → ターミナルへ相対パスを挿入する。画像専用ではなく**任意のファイル**が対象（PDF 等も可）
 - **Markdown エディタはここを通さない**（#241）。ドキュメントが指す画像は `.pike/uploads`（gitignore 済み）ではなくファイルの隣に置く。詳細は「Markdown の入力支援」を参照。共有しているのは書き込みの primitive `saveFileTo`（`MAX_UPLOAD_SIZE` の番人）とファイル名生成だけ
 - 判別は **file か string か**（`ClipboardEvent` は `item.kind === 'file'`、D&D は `dataTransfer.files`）。テキスト（string）は長さに関係なくインライン貼り付けのまま
 - 保存ファイル名は元名を保持（`stem-{hex}.ext`、衝突回避）。名前を持たないクリップボード blob（画像等）は `upload-{ts}-{hex}.{ext}` を生成
 - 初回保存時に各プロジェクトへ `.pike/.gitignore`（中身 `*`）を書き込み、退避ファイルを repo から除外
-- **小ファイルのインライン展開**（設定 `inlineSmallTextFiles`、既定OFF / 閾値 `inlineSmallTextThreshold` 既定4KB）: **AgentChatTab 限定**。ファイルがサイズ上限以下 **かつ** 中身が UTF-8 テキスト（`isProbablyText` で NUL/不正バイト判定）なら、アップロードせず内容を直接挿入。PDF・画像等のバイナリは常にアップロード。ターミナルへのドロップは常にアップロード（`tryInlineFile` は使わない）
+- 小ファイルのインライン展開（`inlineSmallTextFiles` / `tryInlineFile`）は **AgentChatTab 限定**だったので、#275 で一緒に落とした。ターミナルへのドロップは元から常にアップロードで、そちらは変わらない
 - xterm は Ctrl+V を SYN(`\x16`) として食うため `attachCustomKeyEventHandler` で横取り。右クリック/Ctrl+V は `navigator.clipboard.read()` 経由だが、この API は**画像とテキストのみ**返す（任意ファイルは取得不可）→ ターミナルへの任意ファイル投入は D&D が主経路
 - ファイルツリー / OS からのドラッグ&ドロップにも対応
 

@@ -39,23 +39,30 @@ export interface HiddenProject {
   remoteUrl?: string
 }
 
+/**
+ * **この 2 つは「Pike が書く形」を表す。ディスクにある形ではない。**（#275）
+ *
+ * 古い `project.json` には廃止した `'agent-chat'` / `'codex-chat'` の行が残っていることが
+ * あるが、互換はパース境界（Rust 側の `kind: String`）が持つ。TS の型は実行時に何も検証
+ * しないので、死んだ値を union に残しても読み込みやすさは 1 つも変わらず、「この分岐はもう
+ * 要らない」を `just check` が教えてくれなくなるだけになる。読み側は知らない kind を
+ * 読み飛ばす（`restoreSession`）。
+ */
 export interface PinnedTabDef {
   id: string
-  kind: 'terminal' | 'agent-chat'
+  kind: 'terminal'
   title: string
   autoStart?: string
-  agentType?: string
 }
 
 export interface SessionTabDef {
   id: string
-  kind: 'terminal' | 'editor' | 'agent-chat' | 'codex-chat'
+  kind: 'terminal' | 'editor'
   title: string
   pinned: boolean
   autoStart?: string
   path?: string
   content?: string
-  agentType?: string
 }
 
 export interface LastSession {

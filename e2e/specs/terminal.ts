@@ -1,7 +1,6 @@
 import {
   feedActiveTerminal,
   MATRIX,
-  mockInvoke,
   mockPtySpawnUniqueIds,
   openTerminal,
   prepare,
@@ -33,9 +32,6 @@ describe('screenshots: terminal', () => {
       await prepare({ lang, theme })
       // 実プロセスを起動させないため PTY 系 invoke をモックする。
       await mockPtySpawnUniqueIds()
-      await mockInvoke('pty_resize', null)
-      await mockInvoke('pty_write', null)
-      await mockInvoke('pty_kill', null)
 
       await openTerminal()
       await $('[data-testid="terminal"]').waitForDisplayed({ timeout: 10_000 })

@@ -233,8 +233,6 @@ export const UI_FONT_BASE = 13
 export const UI_FONT_SIZE_MIN = 9
 export const UI_FONT_SIZE_MAX = 20
 
-export type AgentDefault = 'claude-code' | 'codex' | 'ask'
-
 /**
  * Window background transparency mode (issue #162). `none` = fully opaque
  * (current look). `transparent` = plain translucency (no blur) so the desktop
@@ -380,14 +378,10 @@ interface PersistedSettings {
    * `pike:link-title-asked`（マシンローカル）に覚えて二度と聞かない。
    */
   markdownFetchLinkTitle: boolean
-  inlineSmallTextFiles: boolean
-  inlineSmallTextThreshold: number
   language: string
-  codexNotification: boolean
   closeToTray: boolean
   windowBackdrop: WindowBackdrop
   windowOpacity: number
-  agentDefault: AgentDefault
   agentCommands: AgentCommand[]
   agentPrompts: AgentPrompt[]
   allowedImageHosts: string[]
@@ -583,14 +577,10 @@ function defaults(): PersistedSettings {
     terminalCopyOnSelect: true,
     terminalRightClickPaste: true,
     markdownFetchLinkTitle: false,
-    inlineSmallTextFiles: false,
-    inlineSmallTextThreshold: 4096,
     language: 'en',
-    codexNotification: true,
     closeToTray: true,
     windowBackdrop: 'none' as WindowBackdrop,
     windowOpacity: 0.85,
-    agentDefault: 'claude-code' as AgentDefault,
     agentCommands: [
       { label: 'Claude', command: 'claude' },
       { label: 'Claude (continue)', command: 'claude --continue' },
@@ -628,10 +618,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
   const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
   const markdownFetchLinkTitle = ref(saved.markdownFetchLinkTitle)
-  const inlineSmallTextFiles = ref(saved.inlineSmallTextFiles)
-  const inlineSmallTextThreshold = ref(saved.inlineSmallTextThreshold)
   const language = ref(saved.language)
-  const codexNotification = ref(saved.codexNotification)
   const closeToTray = ref(saved.closeToTray)
   const windowBackdrop = ref<WindowBackdrop>(saved.windowBackdrop)
   const windowOpacity = ref(saved.windowOpacity)
@@ -649,7 +636,6 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     return windowOpacity.value
   })
-  const agentDefault = ref<AgentDefault>(saved.agentDefault)
   const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
 
@@ -983,14 +969,10 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalCopyOnSelect: terminalCopyOnSelect.value,
       terminalRightClickPaste: terminalRightClickPaste.value,
       markdownFetchLinkTitle: markdownFetchLinkTitle.value,
-      inlineSmallTextFiles: inlineSmallTextFiles.value,
-      inlineSmallTextThreshold: inlineSmallTextThreshold.value,
       language: language.value,
-      codexNotification: codexNotification.value,
       closeToTray: closeToTray.value,
       windowBackdrop: windowBackdrop.value,
       windowOpacity: windowOpacity.value,
-      agentDefault: agentDefault.value,
       agentCommands: agentCommands.value,
       agentPrompts: agentPrompts.value,
       allowedImageHosts: allowedImageHosts.value,
@@ -1024,14 +1006,10 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalCopyOnSelect.value = s.terminalCopyOnSelect
     terminalRightClickPaste.value = s.terminalRightClickPaste
     markdownFetchLinkTitle.value = s.markdownFetchLinkTitle
-    inlineSmallTextFiles.value = s.inlineSmallTextFiles
-    inlineSmallTextThreshold.value = s.inlineSmallTextThreshold
     language.value = s.language
-    codexNotification.value = s.codexNotification
     closeToTray.value = s.closeToTray
     windowBackdrop.value = s.windowBackdrop
     windowOpacity.value = s.windowOpacity
-    agentDefault.value = s.agentDefault
     agentCommands.value = s.agentCommands
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
@@ -1210,14 +1188,10 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalCopyOnSelect,
       terminalRightClickPaste,
       markdownFetchLinkTitle,
-      inlineSmallTextFiles,
-      inlineSmallTextThreshold,
       language,
-      codexNotification,
       closeToTray,
       windowBackdrop,
       windowOpacity,
-      agentDefault,
     ],
     onSettingsChanged,
   )
@@ -1267,16 +1241,12 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalCopyOnSelect,
     terminalRightClickPaste,
     markdownFetchLinkTitle,
-    inlineSmallTextFiles,
-    inlineSmallTextThreshold,
     language,
-    codexNotification,
     closeToTray,
     windowBackdrop,
     windowOpacity,
     surfaceAlpha,
     terminalSurfaceBg,
-    agentDefault,
     agentCommands,
     agentPrompts,
     allowedImageHosts,

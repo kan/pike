@@ -1124,34 +1124,26 @@ export const useProjectStore = defineStore('project', () => {
           } else if (def.content !== undefined) {
             tabStore.addBlankEditorTab({ title: def.title, content: def.content })
           }
-        } else if (def.kind === 'codex-chat' || def.kind === 'agent-chat') {
-          const settings = useSettingsStore()
-          const agentType =
-            (def.agentType as 'codex' | 'claude-code') ??
-            (settings.agentDefault === 'ask' ? 'claude-code' : settings.agentDefault)
-          tabStore.addAgentChatTab({ pinned: def.pinned, agentType })
         }
+        // `codex-chat` / `agent-chat` は #275 で廃止した。**専用の後始末は要らない**:
+        // このループが知らない kind を読み飛ばし、`snapshotSession` は生きている kind だけを
+        // 全量で書き戻すので、次の flush でディスクからも消える（設定の削除を移行なしで
+        // 済ませたのと同じ理屈）。
       }
       if (project.lastSession.activeTabId) {
         tabStore.setActiveTab(project.lastSession.activeTabId)
       }
     } else {
-      for (const def of project.pinnedTabs) {
-        if (def.kind === 'agent-chat') {
-          tabStore.addAgentChatTab({
-            pinned: true,
-            agentType: (def.agentType as 'codex' | 'claude-code') ?? 'claude-code',
-          })
-        } else {
-          tabStore.addTerminalTab({
-            id: def.id,
-            title: def.title,
-            pinned: true,
-            autoStart: def.autoStart,
-            cwd: activeRoot.value,
-            shell: project.shell,
-          })
-        }
+      // `agent-chat` は #275 で廃止したので、pin してあっても復元しない。
+      for (const def of project.pinnedTabs.filter((d) => d.kind === 'terminal')) {
+        tabStore.addTerminalTab({
+          id: def.id,
+          title: def.title,
+          pinned: true,
+          autoStart: def.autoStart,
+          cwd: activeRoot.value,
+          shell: project.shell,
+        })
       }
     }
 

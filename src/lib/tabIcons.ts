@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Gauge, ScrollText, Settings, Terminal } from 'lucide-vue-next'
+import { BookOpen, Gauge, ScrollText, Settings, Terminal } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import type { Tab } from '../types/tab'
 
@@ -18,7 +18,6 @@ export const TAB_KIND_ICONS: Record<Tab['kind'], Component | null> = {
   settings: Settings,
   'agent-status': Gauge,
   manual: BookOpen,
-  'agent-chat': Bot,
   editor: null,
   preview: null,
   diff: null,

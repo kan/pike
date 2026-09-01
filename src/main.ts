@@ -2,8 +2,6 @@ import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import App from './App.vue'
 import './assets/theme.css'
-import type { AgentCapabilities, AgentType } from './types/agent'
-import type { ChatMessage } from './types/chat'
 
 async function bootstrap() {
   // E2E 撮影ビルド (issue #142) でのみ wdio guest を初期化し、Tauri invoke を
@@ -36,7 +34,6 @@ async function bootstrap() {
     const { useSidebarStore } = await import('./stores/sidebar')
     const { useWorktreeStore } = await import('./stores/worktree')
     const { useTodoStore } = await import('./stores/todo')
-    const { useAgentStore } = await import('./stores/agent')
     const { useGitStore } = await import('./stores/git')
     const { useClaudeUsageStore } = await import('./stores/claudeUsage')
     const { useClaudeRateStore } = await import('./stores/claudeRate')
@@ -50,7 +47,6 @@ async function bootstrap() {
     const sidebar = useSidebarStore()
     const worktree = useWorktreeStore()
     const todo = useTodoStore()
-    const agent = useAgentStore()
     // 撮影を 1 タブに保つため、ファイル系コンテンツタブを閉じる補助（media 系ヘルパー用）。
     const closeContentTabs = () => {
       for (const t of [...tabs.tabs]) {
@@ -87,7 +83,7 @@ async function bootstrap() {
         tabs.addSettingsTab()
       },
       // エージェント状態タブ。集計は 30 秒ポーリング + 外部 CLI 依存なので、invoke を
-      // 待たずにストアへ直接差す（openAgentChat と同じ方針）。
+      // 待たずにストアへ直接差す。
       openAgentStatus: (opts: { claudeUsage?: unknown; claudeRate?: unknown; codexUsage?: unknown }) => {
         project.showSwitcher = false
         useClaudeUsageStore().usage = opts.claudeUsage as never
@@ -238,42 +234,6 @@ async function bootstrap() {
         if (active?.kind === 'terminal' && active.ptyId) {
           ptyRouter.feed(active.ptyId, data)
         }
-      },
-      // エージェントチャット（Codex / Claude Code）を実セッションなしで撮影するため、
-      // タブを 1 枚開いて store の session 状態を決定的な会話で直接構築する。
-      // AgentChatTab.onMounted の ensureConnected は connected=true を先に立てておけば
-      // スキップされる（addAgentChatTab の直後・mount 前に設定するのがミソ）。
-      // agent_start_session 等の invoke を一切呼ばないので backend 非依存。
-      openAgentChat: (opts: {
-        agentType: AgentType
-        capabilities: AgentCapabilities
-        authEmail?: string | null
-        selectedModel?: string | null
-        tokenUsage?: { input: number; output: number } | null
-        detectedInstructionsFile?: string | null
-        messages: ChatMessage[]
-      }) => {
-        project.showSwitcher = false
-        // data-testid/セレクタ競合を避けるため既存の agent-chat は閉じてから開く。
-        for (const t of [...tabs.tabs]) {
-          if (t.kind === 'agent-chat') void tabs.closeTab(t.id)
-        }
-        const id = tabs.addAgentChatTab({ agentType: opts.agentType })
-        const sess = agent.getSession(id)
-        sess.connected = true
-        sess.agentType = opts.agentType
-        sess.capabilities = opts.capabilities
-        sess.authState = {
-          status: 'authenticated',
-          mode: 'chatgpt',
-          planType: 'Pro',
-          email: opts.authEmail ?? null,
-        }
-        sess.messages = opts.messages
-        sess.selectedModel = opts.selectedModel ?? null
-        sess.tokenUsage = opts.tokenUsage ?? null
-        sess.detectedInstructionsFile = opts.detectedInstructionsFile ?? null
-        sess.isGenerating = false
       },
     }
   }

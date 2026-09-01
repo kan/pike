@@ -68,7 +68,7 @@ just e2e
       CSS ピクセル基準で行われるため効かない（実測済み）
     - 論理サイズが 2 倍＝表示内容が増えるので、フィクスチャが短いと下半分が空く。
       `HERO` の spec のダミーデータはこの寸法で埋まる量にしてある（README は 60 行超、
-      チャットは 5 往復、コミット履歴は 8 件）。寸法を変えたら埋まり方も見直す
+      コミット履歴は 8 件）。寸法を変えたら埋まり方も見直す
 - 言語・テーマ・ウィンドウサイズは `support/prepare.ts` の `prepare()` で固定。
 - 言語・テーマの切替は e2e ビルド限定の `window.__pikeE2E`（`setLanguage` /
   `setDarkMode`）でリロードなしに行う。
@@ -177,25 +177,6 @@ invoke モックだけでは再現できない。実プロセスなしに決定�
   流す。`__pikeE2E.openTerminal()`（既存ターミナルを閉じて 1 枚開く）と
   `feedActiveTerminal(data)`（アクティブタブの ptyId へ feed）で操作する。
 - 実装例は `e2e/specs/terminal.ts`（npm run dev 相当の擬似セッションを描画）。
-
-### エージェントチャット（Codex / Claude Code）
-
-エージェントチャットは `agent_start_session` 等で実プロセスを起動し `agent://` イベントで
-描画するが、撮影では実セッションを立てず **agent store の session 状態を決定的な会話で
-直接構築**する（media 系と同じ「store へ直接データ」方式）。
-
-- `__pikeE2E.openAgentChat(fixture)`：agent-chat タブを 1 枚開き、`getSession` の状態を
-  `connected=true` / `capabilities` / `authState=authenticated` / `messages` などで埋める。
-  `connected=true` を mount 前に立てるため `AgentChatTab.onMounted` の `ensureConnected` は
-  スキップされ、`agent_*` invoke を一切呼ばない（backend 非依存）。
-- 会話は `messages`（`ChatMessage[]`）で与える。agent メッセージは `segments` に text と
-  item（`commandExecution` / `fileChange` / `reasoning`）を時系列で並べる。完了状態
-  （`completed:true`）だとコマンド出力・reasoning の `<details>` は畳まれた状態で写る。
-- `capabilities` で UI が分岐する：Codex は sandbox / approval / model 選択 / 認証メールが
-  出る。Claude Code（ACP）は `supportsSandboxConfig` 等が false なので info-bar が最小
-  （displayName と instructions ファイルのみ）。
-- 待機は `.msg-agent`。実装例は `e2e/specs/agent.ts`（`agent-codex` / `agent-claude`、
-  ja/en で会話文面を出し分け）。
 
 ## シナリオの追加
 
@@ -324,6 +305,6 @@ just e2e-sync         # docs/manual/img へ反映（内枠とヒーローの両�
 
 - `saveScreenshot()` は WebView 内のみ。ネイティブのウィンドウ枠は写らないため、枠込みが
   要るショットは上記の外枠合成で後付けする（実ウィンドウのネイティブキャプチャは別手段）。
-- ターミナル・エージェントチャットは実プロセス／実セッション依存で invoke モックだけでは
-  再現できないため、Phase 2 の合成出力注入・store 直接構築で撮る。
+- ターミナルは実プロセス依存で invoke モックだけでは再現できないため、Phase 2 の
+  合成出力注入で撮る。
 - WebDriver セッションは 1 WebView 単位。複数ウィンドウ制御は追加工数。

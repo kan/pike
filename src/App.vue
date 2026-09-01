@@ -9,7 +9,6 @@ import StatusBar from './components/layout/StatusBar.vue'
 import TabPane from './components/layout/TabPane.vue'
 import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
-import { initAgentRouter } from './composables/useAgentRouter'
 import { useAppMenu } from './composables/useAppMenu'
 import { confirmAndExit, confirmBusyExit } from './composables/useBusyExit'
 import { initCliOpen, peekInitialCliAction } from './composables/useCliOpen'
@@ -232,7 +231,7 @@ onMounted(async () => {
     })
     .catch(() => {})
 
-  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initAgentRouter()])
+  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init()])
 
   // Which project this window shows comes from the backend window_projects map
   // (seeded at build), not the opaque label. null for main/global windows.

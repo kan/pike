@@ -13,11 +13,11 @@
   - **タイマーも composable が持つ**。フォーカス側だけ畳むと「張る前に必ず消す」が呼び出し側に 4 つ残り、5 つ目を書く人が落とせる
   - 復帰時に撃つのは**先頭の interval だけ**。どのストアもそれが主ポーリングで、後ろに続くのは自前の間隔ガードを持つ重い処理（git の `fetchInBackground`）
   - **ストアの setup 直下で呼ぶこと**。監視をそこで 1 回だけ張るので持ち主が Pinia のストアの scope になる。`start()` の中で張ると、`onMounted` から呼ばれたときにコンポーネントの scope に入ってマウント解除で黙って止まる
-- 例外は「webview に DOM フォーカスがあるか」そのものを問うている箇所だけ（`TerminalTab` の IME 周り。blur の完了前に退避する必要があり、focus 側は WebView2 のフォーカス受け渡しに紐付いている）。**「ユーザーがこのウィンドウを見ているか」を聞きたいところは `windowFocused`**（`useAgentRouter` の通知抑制がそれで、`document.hasFocus()` のままだとタイトルバーをクリックして前に出したときに目の前のタブへ通知が飛ぶ）
+- 例外は「webview に DOM フォーカスがあるか」そのものを問うている箇所だけ（`TerminalTab` の IME 周り。blur の完了前に退避する必要があり、focus 側は WebView2 のフォーカス受け渡しに紐付いている）。**「ユーザーがこのウィンドウを見ているか」を聞きたいところは `windowFocused`**（`document.hasFocus()` のままだと、タイトルバーをクリックして前に出したときに「見ていない」と誤判定する）
 
 ## タブ管理
 - タブの状態は `src/stores/tabs.ts` で一元管理
-- **`Tab` 型の正本は `src/types/tab.ts`**（判別キーは `kind`）。現在の種別は `terminal` / `editor` / `preview` / `pdf` / `diff` / `history` / `docker-logs` / `agent-chat` / `settings` / `agent-status` / `manual`。種別を増やすときは Union に足し、`TabPane.vue` の描画分岐と `snapshotSession`（永続化対象の絞り込み）の両方を更新する
+- **`Tab` 型の正本は `src/types/tab.ts`**（判別キーは `kind`）。現在の種別は `terminal` / `editor` / `preview` / `pdf` / `diff` / `history` / `docker-logs` / `settings` / `agent-status` / `manual`。種別を増やすときは Union に足し、`TabPane.vue` の描画分岐と `snapshotSession`（永続化対象の絞り込み）の両方を更新する
 - **タブ名を画面に出すときは `lib/tabTitle.ts` の `tabDisplayTitle(tab)` を通す**。シングルトンタブ（`settings` / `agent-status` / `manual`）は自分固有の名前を持たないので、`tab.title` に焼き込んだ英語リテラルではなく `SINGLETON_TITLE_KEYS` 経由で i18n を引く。`tab.title` を直接描くと、開いたときの言語のまま固定されて言語切替に追従しない（`types/tab.ts` は値 import を持たない方針なので、`t()` を呼ぶこの関数は `lib/` に置く）
 - ファイルを開く操作は `lib/openFile.ts` の `openPathInTab` を通す（拡張子で editor / preview / pdf を振り分ける唯一の入口。`addEditorTab` を直接呼ぶと画像や PDF が化ける）
 - pinned タブは ✕ ボタン非表示、Ctrl+W のハンドラで早期リターン

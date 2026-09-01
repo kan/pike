@@ -25,7 +25,6 @@ const COLLECTIVE_DIRS = [
   'src/lib/outline',
   'src/lib/jumpTo',
   'src/i18n',
-  'src-tauri/src/codex/protocol',
   'src-tauri/src/bin',
 ]
 

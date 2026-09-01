@@ -769,8 +769,8 @@ onMounted(async () => {
     terminal.focus()
   }
 
-  // A pasted/dropped file: upload it and write the relative path (terminal uses a
-  // bare path, no @ mention). Inline expansion is intentionally agent-chat-only.
+  // A pasted/dropped file: upload it and write the relative path (a bare path,
+  // not a mention).
   async function writeFileToPty(file: File) {
     if (!ptyId) return
     const name = file.name || 'file'

@@ -1,4 +1,3 @@
-mod agent;
 /// macOS のアプリケーションメニュー（#254）。`Cmd+W` などを AppKit から奪い返す
 /// 唯一の手段で、Windows / Linux にはメニューバーを出さない（ショートカットは
 /// フロントの window keydown が拾う）。
@@ -16,7 +15,6 @@ mod appmenu {
 }
 mod claude_usage;
 mod cli;
-mod codex;
 mod codex_usage;
 mod diagnostics;
 mod docker;
@@ -1246,8 +1244,6 @@ pub fn run() {
             instance_id: std::sync::OnceLock::new(),
             tunnels_created: std::sync::atomic::AtomicBool::new(false),
         })
-        .manage(codex::CodexState::default())
-        .manage(agent::state::AgentState::default())
         // macOS のメニューバーのクリック（#254）。トレイのメニュー項目も同じ
         // リスナに届くので、`appmenu` 側が自分の id 接頭辞だけを拾う。
         .on_menu_event(appmenu::on_menu_event)
@@ -1441,32 +1437,6 @@ pub fn run() {
                         }
                     }
 
-                    // Per-window Codex cleanup (guard against missing runtime on shutdown)
-                    if let Some(state) = window.try_state::<codex::CodexState>() {
-                        let label = window.label().to_string();
-                        let sessions = state.sessions.clone();
-                        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                            handle.spawn(async move {
-                                let mut map = sessions.lock().await;
-                                if let Some(session) = map.remove(&label) {
-                                    log::info!("[codex] Cleaning up session for window {label}");
-                                    session.shutdown().await;
-                                }
-                            });
-                        }
-                    }
-
-                    // Per-window agent cleanup (shuts down all tabs in this window)
-                    if let Some(agent_state) = window.try_state::<agent::state::AgentState>() {
-                        let label = window.label().to_string();
-                        let state = agent_state.inner().clone();
-                        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                            handle.spawn(async move {
-                                state.remove_by_window(&label).await;
-                            });
-                        }
-                    }
-
                     if let Some(state) = window.try_state::<pty::PtyState>() {
                         pty::cleanup_for_window(&state, window.label());
                     }
@@ -1637,36 +1607,10 @@ pub fn run() {
             git::git_diff_working,
             font::font_list_monospace,
             font::font_list_all,
-            codex::codex_check_available,
-            codex::codex_start_session,
-            codex::codex_disconnect,
-            codex::codex_auth_status,
-            codex::codex_auth_login_chatgpt,
-            codex::codex_auth_logout,
-            codex::codex_submit_turn,
-            codex::codex_interrupt_turn,
-            codex::codex_respond_approval,
-            codex::codex_rollback_turn,
-            codex::codex_compact_thread,
-            codex::codex_model_list,
             claude_usage::claude_usage_get,
             claude_usage::rate::claude_usage_rate_get,
             claude_usage::sessions::claude_sessions_list,
             codex_usage::codex_usage_get,
-            agent::commands::agent_check_available,
-            agent::commands::agent_ensure_installed,
-            agent::commands::agent_start_session,
-            agent::commands::agent_capabilities,
-            agent::commands::agent_submit_turn,
-            agent::commands::agent_interrupt_turn,
-            agent::commands::agent_rollback_turn,
-            agent::commands::agent_compact,
-            agent::commands::agent_respond_approval,
-            agent::commands::agent_auth_status,
-            agent::commands::agent_auth_login,
-            agent::commands::agent_auth_logout,
-            agent::commands::agent_list_models,
-            agent::commands::agent_disconnect,
         ])
         .build(context)
         .expect("error while running tauri application")
@@ -1711,8 +1655,6 @@ mod tests {
             pinned_tabs: vec![],
             last_opened: String::new(),
             last_session: None,
-            codex_thread_id: None,
-            agent_session_id: None,
             group: None,
             color: None,
             icon: None,

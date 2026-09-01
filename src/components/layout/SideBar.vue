@@ -28,7 +28,6 @@ const TodoPanel = defineAsyncComponent(() => import('../panels/TodoPanel.vue'))
 import {
   ArrowDown,
   ArrowUp,
-  Bot,
   CircleAlert,
   Container,
   FilePlus,
@@ -69,7 +68,6 @@ const todoStore = useTodoStore()
 const settingsStore = useSettingsStore()
 const shortcutsModal = useShortcutsModal()
 const showGearMenu = ref(false)
-const showAgentMenu = ref(false)
 const updater = useUpdater()
 
 onMounted(() => {
@@ -126,29 +124,6 @@ async function runSyncAction(action: SyncAction) {
   closeSyncMenu()
   if (action.danger && !(await confirmDialog(t('confirm.forcePush')))) return
   await action.run()
-}
-
-function onBotClick() {
-  if (settingsStore.agentDefault === 'ask') {
-    showAgentMenu.value = !showAgentMenu.value
-    if (showAgentMenu.value) {
-      nextTick(() => {
-        window.addEventListener('mousedown', closeAgentMenu, { once: true })
-      })
-    }
-  } else {
-    tabStore.addAgentChatTab({ agentType: settingsStore.agentDefault })
-  }
-}
-
-function closeAgentMenu() {
-  window.removeEventListener('mousedown', closeAgentMenu)
-  showAgentMenu.value = false
-}
-
-function selectAgent(agentType: 'claude-code' | 'codex') {
-  closeAgentMenu()
-  tabStore.addAgentChatTab({ agentType })
 }
 
 function onGearClick() {
@@ -331,7 +306,6 @@ const { start: onResizeStart } = useDragResize({
 
 onUnmounted(() => {
   window.removeEventListener('mousedown', closeGearMenu)
-  window.removeEventListener('mousedown', closeAgentMenu)
 })
 </script>
 
@@ -355,19 +329,6 @@ onUnmounted(() => {
         <span v-if="markers[item.panel]" class="marker-badge">{{ markers[item.panel]?.text }}</span>
       </button>
       <div class="icon-spacer" />
-      <div class="bot-wrapper">
-        <div v-if="showAgentMenu" class="agent-menu popup-surface" @mousedown.stop>
-          <button class="agent-menu-item" @click="selectAgent('claude-code')">Claude Code</button>
-          <button class="agent-menu-item" @click="selectAgent('codex')">Codex</button>
-        </div>
-        <button
-          class="icon-button"
-          :title="t('sidebar.agent')"
-          @click="onBotClick"
-        >
-          <Bot :size="22" :stroke-width="1.5" class="icon" />
-        </button>
-      </div>
       <div class="gear-wrapper">
         <div v-if="showGearMenu" class="gear-menu popup-surface" @mousedown.stop>
           <button class="gear-menu-item" @click="checkUpdate">
@@ -529,41 +490,6 @@ onUnmounted(() => {
 
 .icon-spacer {
   flex: 1;
-}
-
-.bot-wrapper {
-  position: relative;
-}
-
-.agent-menu {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  margin-bottom: 4px;
-  white-space: nowrap;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  padding: 4px 0;
-  z-index: 1000;
-}
-
-.agent-menu-item {
-  display: block;
-  width: 100%;
-  padding: 6px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.agent-menu-item:hover {
-  background: var(--accent);
-  color: var(--text-active);
 }
 
 .gear-wrapper {

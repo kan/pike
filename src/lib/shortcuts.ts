@@ -110,8 +110,6 @@ export const APP_ACTIONS = [
   { id: 'gitRefresh', palette: 'git', labelKey: 'common.refresh', needsProject: true },
   // --- その他
   { id: 'diagnosticsRun', palette: 'view', labelKey: 'diagnostics.run', needsProject: true },
-  { id: 'agentClaude', palette: 'terminal', labelKey: 'palette.agentClaude' },
-  { id: 'agentCodex', palette: 'terminal', labelKey: 'palette.agentCodex' },
 ] as const satisfies readonly AppActionDef[]
 
 export type AppActionId = (typeof APP_ACTIONS)[number]['id']

@@ -2,7 +2,6 @@ import { pathSep } from '../lib/paths'
 import { ensurePikeDir } from '../lib/pikeDir'
 import { fsWriteFileBase64 } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
-import { useSettingsStore } from '../stores/settings'
 import type { ShellType } from '../types/tab'
 
 const UPLOADS_DIR = '.pike/uploads'
@@ -82,13 +81,6 @@ export function buildFilename(file: File): string {
   return `upload-${Date.now()}-${uniqueId()}.${extFromMime(file.type)}`
 }
 
-/** base64-encode a small byte buffer (avoids a second full read of the File). */
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = ''
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
-  return btoa(bin)
-}
-
 /** Read a File's bytes as base64 (no data-URL prefix). */
 export function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -143,72 +135,33 @@ export async function readClipboardImages(): Promise<File[]> {
 
 /**
  * Write `file` into `dir` under a collision-proof name, and return that name.
- * Throws UploadTooLargeError past MAX_UPLOAD_SIZE. When `bytes` is supplied
- * (already read by the caller, e.g. tryInlineFile) it is reused to avoid a
- * second full read of the File.
+ * Throws UploadTooLargeError past MAX_UPLOAD_SIZE.
  *
  * The size cap is the reason to come through here rather than calling
  * `fsWriteFileBase64` directly: the bytes cross the IPC bridge as a base64
  * string, so an unbounded file is not merely slow.
  */
-export async function saveFileTo(file: File, shell: ShellType, dir: string, bytes?: Uint8Array): Promise<string> {
+export async function saveFileTo(file: File, shell: ShellType, dir: string): Promise<string> {
   if (file.size > MAX_UPLOAD_SIZE) throw new UploadTooLargeError(file.size)
   const filename = buildFilename(file)
-  const base64 = bytes ? bytesToBase64(bytes) : await fileToBase64(file)
-  await fsWriteFileBase64(shell, `${dir}${pathSep(shell)}${filename}`, base64)
+  await fsWriteFileBase64(shell, `${dir}${pathSep(shell)}${filename}`, await fileToBase64(file))
   return filename
 }
 
 /**
  * Save any file to `<root>/.pike/uploads/` and return the path relative to
- * `root` — what a chat mention or a terminal drop pastes in.
+ * `root` — what a terminal drop pastes in.
  *
- * **`root` は受け手が相対パスを解決する場所を渡すこと**（#269）。エージェントなら
- * セッションの cwd、ターミナルならそのタブを開いた cwd で、どちらもタブの生成時に
- * 固まる。ここで `activeRoot` を読むと、worktree を切り替えたあとに古いタブへ貼った
- * ファイルが、そのタブからは見えない場所に置かれる。
+ * **`root` は受け手が相対パスを解決する場所を渡すこと**（#269）。ターミナルなら
+ * そのタブを開いた cwd で、タブの生成時に固まる。ここで `activeRoot` を読むと、
+ * worktree を切り替えたあとに古いタブへ貼ったファイルが、そのタブからは見えない
+ * 場所に置かれる。
  */
-export async function saveUploadFile(file: File, root: string, bytes?: Uint8Array): Promise<string> {
+export async function saveUploadFile(file: File, root: string): Promise<string> {
   const project = useProjectStore().currentProject
   if (!project) throw new Error('No active project')
   const sep = pathSep(project.shell)
   const uploadDir = await ensurePikeDir(project.shell, root, 'uploads')
-  const filename = await saveFileTo(file, project.shell, uploadDir, bytes)
+  const filename = await saveFileTo(file, project.shell, uploadDir)
   return `${UPLOADS_DIR.replaceAll('/', sep)}${sep}${filename}`
-}
-
-/** Heuristic: does this byte buffer look like UTF-8 text (vs binary)? */
-function isProbablyText(bytes: Uint8Array): boolean {
-  if (bytes.length === 0) return true
-  try {
-    new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  } catch {
-    return false // invalid UTF-8 → binary
-  }
-  let control = 0
-  for (let i = 0; i < bytes.length; i++) {
-    const b = bytes[i]
-    if (b === 0) return false // NUL → binary
-    if (b < 0x09 || (b > 0x0d && b < 0x20)) control++
-  }
-  return control / bytes.length < 0.1
-}
-
-/**
- * Probe a small file for inline expansion. Returns:
- *  - `null`  → not probed (feature off, empty, or larger than the inline
- *              threshold) → caller should upload via saveUploadFile(file).
- *  - `{ text, bytes }` → file was read. `text` is the decoded content when it
- *              looks like UTF-8 text (inline it), or `null` for binary (caller
- *              should upload, passing `bytes` back to avoid a second read).
- */
-export async function tryInlineFile(file: File): Promise<{ text: string | null; bytes: Uint8Array } | null> {
-  const settings = useSettingsStore()
-  if (!settings.inlineSmallTextFiles) return null
-  // Empty files have no content to inline — upload them so a path is still produced.
-  if (file.size === 0) return null
-  if (file.size > settings.inlineSmallTextThreshold) return null
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  const text = isProbablyText(bytes) ? new TextDecoder('utf-8', { fatal: false }).decode(bytes) : null
-  return { text, bytes }
 }

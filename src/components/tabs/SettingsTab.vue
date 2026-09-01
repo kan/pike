@@ -257,7 +257,6 @@ const sections = [
   { id: 'general', i18nKey: 'settings.general' },
   { id: 'terminal', i18nKey: 'settings.terminal' },
   { id: 'editor', i18nKey: 'settings.editor' },
-  { id: 'agent', i18nKey: 'settings.agent' },
   { id: 'sync', i18nKey: 'settings.sync' },
   { id: 'about', i18nKey: 'settings.about' },
 ]
@@ -605,21 +604,6 @@ const PREVIEW_LINES = [
 
         <div class="setting-block">
           <div class="setting-row">
-            <label class="setting-label">{{ t('settings.inlineSmallTextFiles') }}</label>
-            <div class="mode-toggle">
-              <button class="mode-btn" :class="{ active: settings.inlineSmallTextFiles }" @click="settings.inlineSmallTextFiles = true">{{ t('common.on') }}</button>
-              <button class="mode-btn" :class="{ active: !settings.inlineSmallTextFiles }" @click="settings.inlineSmallTextFiles = false">{{ t('common.off') }}</button>
-            </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.inlineSmallTextFilesHint') }}</p>
-          <div v-if="settings.inlineSmallTextFiles" class="setting-row">
-            <label class="setting-label">{{ t('settings.inlineSmallTextThreshold') }}</label>
-            <input v-model.number="settings.inlineSmallTextThreshold" type="number" min="0" step="1024" class="number-input" />
-          </div>
-        </div>
-
-        <div class="setting-block">
-          <div class="setting-row">
             <label class="setting-label">{{ t('settings.globalShell') }}</label>
             <select class="setting-select" :value="globalShellValue" @change="onGlobalShellChange">
               <option v-for="opt in globalShellOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -877,32 +861,6 @@ const PREVIEW_LINES = [
             </div>
           </div>
           <p v-else class="setting-hint">{{ t('settings.imageHostsEmpty') }}</p>
-        </div>
-      </section>
-
-      <!-- Agent -->
-      <section id="settings-agent" class="settings-section">
-        <h3 class="section-title">{{ t('settings.agent') }}<HelpButton page="settings.md#エージェント" :size="15" /></h3>
-
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.agentDefault') }}</label>
-          <select
-            class="setting-select"
-            :value="settings.agentDefault"
-            @change="settings.agentDefault = ($event.target as HTMLSelectElement).value as any"
-          >
-            <option value="claude-code">Claude Code</option>
-            <option value="codex">Codex</option>
-            <option value="ask">{{ t('settings.agentAskEachTime') }}</option>
-          </select>
-        </div>
-
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.codexNotification') }}</label>
-          <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.codexNotification }" @click="settings.codexNotification = true">{{ t('common.on') }}</button>
-            <button class="mode-btn" :class="{ active: !settings.codexNotification }" @click="settings.codexNotification = false">{{ t('common.off') }}</button>
-          </div>
         </div>
       </section>
 

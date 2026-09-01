@@ -44,7 +44,6 @@ MAP=(
   "command-palette:quickopen"
   "markdown-preview:markdown-preview"
   "image-viewer:image-viewer"
-  "agent-chat:agent-codex"
   "worktree-selector:worktree-selector"
   "branch-switcher:branch-switcher"
   "screen-layout:screen-layout"
@@ -62,7 +61,6 @@ MAP=(
   "mermaid-preview:mermaid-preview"
   "svg-preview:svg-preview"
   "pdf-tab:pdf-tab"
-  "agent-claude:agent-claude"
   # v0.43.0 で新しく撮るもの
   "problems-panel:problems-panel"
   "git-operation:git-operation"

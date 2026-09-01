@@ -135,8 +135,6 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     gitPush: () => void useGitStore().push(),
     gitRefresh: () => void useGitStore().refreshAll(),
     diagnosticsRun: () => void useDiagnosticsStore().run(),
-    agentClaude: () => tabStore.addAgentChatTab({ agentType: 'claude-code' }),
-    agentCodex: () => tabStore.addAgentChatTab({ agentType: 'codex' }),
     openTerminal,
     selectTabByDigit: (digit: string) => {
       const list = tabStore.visibleTabs

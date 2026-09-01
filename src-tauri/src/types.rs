@@ -80,27 +80,15 @@ pub fn augment_process_path() {
 #[cfg(windows)]
 pub fn augment_process_path() {}
 
-/// Pike が ACP エージェントの npm パッケージを入れる先。**入れる側（`agent/commands.rs`
-/// の `npm install -g --prefix`）と PATH に足す側（`augmented_path_with`）が必ず同じ場所を
-/// 指すよう、綴りはここ 1 つに置く。** 食い違うと、インストール直後の `which` が永久に
-/// 外れる（`UNIX_INSTALL_BIN` の doc に書いた症状）。
-pub const UNIX_NPM_PREFIX: &str = "$HOME/.local";
-
-/// `UNIX_NPM_PREFIX` に npm が作る bin ディレクトリ。**まだ無くても PATH に入れる**のが
-/// 要点で、これだけは `exists` の対象外にする（理由は `augmented_path_with`）。
-#[cfg(not(windows))]
-const UNIX_INSTALL_BIN: &str = "$HOME/.local/bin";
-
 /// `augment_process_path` の判断部分。プロセスの環境を触らないので単体で確かめられる
-/// （`set_var` はテスト同士が干渉する）。`exists` が真になったものだけを足す: 存在しない
+/// （`set_var` はテスト同士が干渉する）。**`exists` が真になったものだけを足す**: 存在しない
 /// ディレクトリを並べても動作は変わらないが、PATH が長いほど毎回の exec 探索が伸びる。
 ///
-/// **例外は `UNIX_INSTALL_BIN` の 1 つだけ。** ここは Pike が ACP エージェントを入れる先で、
-/// **入れるまで存在しない**。存在するものだけを足す規則をそのまま当てると、まっさらな
-/// macOS で「インストールは成功したのに直後の `which` が見つけられず失敗を返す」形になり
-/// （`check_acp_available`）、`AcpProcessRuntime::spawn` も PATH 解決に失敗するので、
-/// Pike を再起動するまでインストールボタンが延々と成功しない。WSL 側が同じ穴に落ちないのは、
-/// あちらがコマンドごとに `WSL_EXTRA_PATH` を前置していて存在を問わないため。
+/// 以前は `$HOME/.local/bin` だけ `exists` を免除していた。Pike 自身が
+/// `npm install -g --prefix $HOME/.local` で ACP エージェントを入れており、**入れるまで
+/// そのディレクトリが存在しない**ため、インストール直後の `which` が外れるのを避ける必要が
+/// あったため。#275 でそのインストーラごと消えたので、例外の根拠も無くなった（ユーザー自身の
+/// npm / pipx が作っていれば `exists` で普通に拾う）。
 #[cfg(not(windows))]
 fn augmented_path_with(current: &str, home: &str, exists: impl Fn(&str) -> bool) -> String {
     let mut dirs: Vec<String> = current
@@ -110,7 +98,7 @@ fn augmented_path_with(current: &str, home: &str, exists: impl Fn(&str) -> bool)
         .collect();
     for entry in UNIX_EXTRA_PATH.split(':') {
         let dir = entry.replace("$HOME", home);
-        if !dirs.iter().any(|d| d == &dir) && (entry == UNIX_INSTALL_BIN || exists(&dir)) {
+        if !dirs.iter().any(|d| d == &dir) && exists(&dir) {
             dirs.push(dir);
         }
     }
@@ -854,20 +842,11 @@ mod tests {
         assert!(dirs.contains(&"/Users/me/.cargo/bin"));
     }
 
-    /// 実在しないものは足さない。**ただし Pike 自身のインストール先は例外**で、
-    /// まだ無くても入る（無いと ACP のインストール直後の `which` が外れる）。
+    /// 実在しないものは 1 つも足さない（#275 で最後の例外が消えたので、規則は 1 本）。
     #[cfg(not(windows))]
     #[test]
-    fn augmented_path_skips_missing_dirs_except_install_bin() {
+    fn augmented_path_skips_missing_dirs() {
         let got = augmented_path_with("/usr/bin", "/Users/me", |_| false);
-        assert_eq!(got, "/usr/bin:/Users/me/.local/bin");
-    }
-
-    /// 既に PATH にあるインストール先は重複しない（例外扱いが二重登録にならないこと）。
-    #[cfg(not(windows))]
-    #[test]
-    fn augmented_path_keeps_install_bin_once() {
-        let got = augmented_path_with("/Users/me/.local/bin:/usr/bin", "/Users/me", |_| false);
-        assert_eq!(got, "/Users/me/.local/bin:/usr/bin");
+        assert_eq!(got, "/usr/bin");
     }
 }

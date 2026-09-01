@@ -28,7 +28,6 @@ const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue')
 const AgentStatusTab = defineAsyncComponent(() => import('../tabs/AgentStatusTab.vue'))
 const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
-const AgentChatTab = defineAsyncComponent(() => import('../tabs/AgentChatTab.vue'))
 
 import { Check, ChevronDown, Pin, Plus, ShieldPlus, X } from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
@@ -181,8 +180,6 @@ const agentStatusTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'a
 const manualTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'manual'))
 
 const pdfTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'pdf'))
-
-const agentChatTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'agent-chat'))
 
 const isWindows = computed(() =>
   projectStore.currentProject ? isWindowsShell(projectStore.currentProject.shell) : false,
@@ -579,7 +576,7 @@ onUnmounted(() => {
             :title="'Exit code: ' + tab.exitCode"
           >{{ tab.exitCode === 0 ? '✓' : tab.exitCode }}</span>
           <span
-            v-else-if="(tab.kind === 'terminal' || tab.kind === 'agent-chat') && tab.hasActivity && tab.id !== tabStore.activeTabId"
+            v-else-if="tab.kind === 'terminal' && tab.hasActivity && tab.id !== tabStore.activeTabId"
             class="tab-activity-dot"
           />
           <button
@@ -723,13 +720,6 @@ onUnmounted(() => {
         :tab-id="tab.id"
         v-show="tab.id === tabStore.activeTabId"
       />
-      <AgentChatTab
-        v-for="tab in agentChatTabs"
-        :key="tab.id"
-        :tab-id="tab.id"
-        v-show="tab.id === tabStore.activeTabId"
-      />
-
       <!-- Empty state -->
       <div v-if="tabStore.visibleTabs.length === 0" class="empty-state">
         <template v-if="projectStore.currentProject">

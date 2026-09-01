@@ -1,11 +1,9 @@
 import {
-  type AgentChatFixture,
   enterGlobalMode,
   feedActiveTerminal,
   MATRIX,
   mockInvoke,
   mockPtySpawnUniqueIds,
-  openAgentChat,
   openEditor,
   openEditors,
   openPanel,
@@ -17,7 +15,8 @@ import {
 
 // マニュアル TOP / 画面構成 / グローバルモード / README ヒーローの新規撮影。
 // overview・screen-layout は通常プロジェクトの代表的な作業状態、global-* はサイドバーを
-// 持たないグローバルモードのウィンドウ、hero-git は README 用の Git パネル + Claude Code。
+// 持たないグローバルモードのウィンドウ、hero-git は README 用の Git パネル + ターミナルの
+// エージェント。
 
 // 全体レイアウト系は実使用時の画面比率（サイドバーとエディタ領域のバランス）を
 // 見せるのが目的なので、パネル・ダイアログのクローズアップ（既定 1280×832）より
@@ -242,9 +241,6 @@ describe('screenshots: global terminal', () => {
     it(`global-terminal ${lang} ${theme}`, async () => {
       await prepare({ lang, theme, ...FULL })
       await mockPtySpawnUniqueIds()
-      await mockInvoke('pty_resize', null)
-      await mockInvoke('pty_write', null)
-      await mockInvoke('pty_kill', null)
       await enterGlobalMode()
       await openTerminal()
       await $('.xterm').waitForDisplayed({ timeout: 10_000 })
@@ -255,9 +251,10 @@ describe('screenshots: global terminal', () => {
   }
 })
 
-// --- hero-git（README 用: Git パネル + Claude Code チャット）------------------
-// README の「Git パネルと Claude Code」ヒーローを外枠合成の素に使う。Git サイドバーの
-// 横に Claude Code の統一チャットを内容として置く。
+// --- hero-git（README 用: Git パネル + ターミナルのエージェント）--------------
+// README の「Git パネルとエージェント」ヒーローを外枠合成の素に使う。Git サイドバーの
+// 横に、ターミナルで動かしている claude を内容として置く（#275 でチャットタブを畳んだので、
+// エージェントはターミナルで動かす形が実運用そのもの）。
 const HERO_GIT_LOG = [
   {
     hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
@@ -324,219 +321,6 @@ const HERO_GIT_LOG = [
     message: 'fix: ウィンドウ位置の復元をプロジェクト単位にする',
   },
 ]
-
-const CLAUDE_CAPS: AgentChatFixture['capabilities'] = {
-  displayName: 'Claude Code',
-  supportsModelSelection: false,
-  supportsSessionResume: true,
-  supportsRollback: false,
-  supportsCompact: false,
-  supportsSandboxConfig: false,
-  supportsApprovalConfig: false,
-  supportsAuthFlow: false,
-}
-
-function heroClaudeFixture(): AgentChatFixture {
-  return {
-    agentType: 'claude-code',
-    capabilities: CLAUDE_CAPS,
-    authEmail: null,
-    selectedModel: null,
-    detectedInstructionsFile: 'CLAUDE.md',
-    messages: [
-      { id: 'u1', role: 'user', text: 'コミット前に diff を確認して、要点を日本語でまとめて。', segments: [], items: [], completed: true },
-      {
-        id: 'a1',
-        role: 'agent',
-        text: '',
-        completed: true,
-        items: [],
-        segments: [
-          {
-            kind: 'item',
-            item: {
-              type: 'commandExecution',
-              id: 'c1',
-              completed: true,
-              data: { command: 'git diff --stat', output: ' src/App.vue   | 8 +++++---\n README.md     | 2 +-\n 2 files changed, 6 insertions(+), 4 deletions(-)', exitCode: 0 },
-            },
-          },
-          {
-            kind: 'text',
-            text: ['変更の要点です。', '', '- `src/App.vue`: TabPane を `ready` 後に描画するよう修正（初期化順の不具合を解消）', '- `README.md`: 見出しの表記ゆれを 1 箇所修正', '', 'このままコミットして問題なさそうです。'].join('\n'),
-          },
-        ],
-      },
-      // HERO サイズだと 1 往復ではチャット面が空くので、実際の使用時に近い
-      // 往復数まで足す（ツール実行 → 説明 → 追加依頼 → 差分の提示）。
-      {
-        id: 'u2',
-        role: 'user',
-        text: 'ついでに CHANGELOG の書き出しも作って。',
-        segments: [],
-        items: [],
-        completed: true,
-      },
-      {
-        id: 'a2',
-        role: 'agent',
-        text: '',
-        completed: true,
-        items: [],
-        segments: [
-          {
-            kind: 'item',
-            item: {
-              type: 'commandExecution',
-              id: 'c2',
-              completed: true,
-              data: {
-                command: 'git log --oneline -3',
-                output: 'a1b2c3d feat: スクリーンショット自動化を追加\nb2c3d4e fix: ターミナルの再描画不具合を修正\nc3d4e5f docs: マニュアルの画像を差し替え',
-                exitCode: 0,
-              },
-            },
-          },
-          {
-            kind: 'text',
-            text: [
-              '直近 3 コミットから、次のリリース分の書き出しを作りました。',
-              '',
-              '```markdown',
-              '## [0.33.0] - 2026-07-30',
-              '',
-              '### Features',
-              '',
-              '- **スクリーンショットの撮影を自動化した**: 撮影 → 同期を 1 コマンドにまとめました',
-              '',
-              '### Bug Fixes',
-              '',
-              '- **ターミナルの再描画不具合を修正**: タブ切替後に画面が崩れることがありました',
-              '```',
-              '',
-              'このまま `CHANGELOG.md` の先頭に差し込みますか。',
-            ].join('\n'),
-          },
-        ],
-      },
-      {
-        id: 'u3',
-        role: 'user',
-        text: 'お願い。入れたらテストも走らせて。',
-        segments: [],
-        items: [],
-        completed: true,
-      },
-      {
-        id: 'a3',
-        role: 'agent',
-        text: '',
-        completed: true,
-        items: [],
-        segments: [
-          {
-            kind: 'item',
-            item: {
-              type: 'commandExecution',
-              id: 'c3',
-              completed: true,
-              data: {
-                command: 'npm run lint && cargo test',
-                output:
-                  'Checked 142 files in 118ms. No fixes applied.\n\nrunning 84 tests\ntest result: ok. 84 passed; 0 failed; 0 ignored',
-                exitCode: 0,
-              },
-            },
-          },
-          {
-            kind: 'text',
-            text: [
-              '`CHANGELOG.md` の先頭に差し込みました。lint と cargo test はどちらも通っています。',
-              '',
-              '- biome: 142 ファイル、指摘なし',
-              '- cargo test: 84 passed',
-              '',
-              'コミットしていいか判断をお願いします。差分は Git パネルから確認できます。',
-            ].join('\n'),
-          },
-        ],
-      },
-      {
-        id: 'u4',
-        role: 'user',
-        text: 'マニュアルの該当ページも直っているか確認して。',
-        segments: [],
-        items: [],
-        completed: true,
-      },
-      {
-        id: 'a4',
-        role: 'agent',
-        text: '',
-        completed: true,
-        items: [],
-        segments: [
-          {
-            kind: 'item',
-            item: {
-              type: 'commandExecution',
-              id: 'c4',
-              completed: true,
-              data: {
-                command: 'npm run check:docs',
-                output: 'ドキュメント整合チェック: 問題なし',
-                exitCode: 0,
-              },
-            },
-          },
-          {
-            kind: 'text',
-            text: [
-              '`docs/manual/git.md` にブランチ切替の節があり、スクリーンショットも同じ版で入っています。',
-              '整合チェックも通ったので、ドキュメント側の追従は済んでいます。',
-            ].join('\n'),
-          },
-        ],
-      },
-      {
-        id: 'u5',
-        role: 'user',
-        text: 'コミットメッセージの案を出して。',
-        segments: [],
-        items: [],
-        completed: true,
-      },
-      {
-        id: 'a5',
-        role: 'agent',
-        text: '',
-        completed: true,
-        items: [],
-        segments: [
-          {
-            kind: 'text',
-            text: [
-              '2 つに分けるのが素直です。',
-              '',
-              '```',
-              'feat(git): リモートブランチへの切替に対応 (#197)',
-              '',
-              'ステータスバーのブランチ切替に「リモートブランチ」セクションを追加し、',
-              'ローカルに無いブランチを選ぶと追跡ブランチを作って切り替える。',
-              '```',
-              '',
-              '```',
-              'docs(manual): ブランチ切替のスクリーンショットを追加',
-              '```',
-              '',
-              '前者はコード、後者はマニュアルだけなので、レビューの粒度としても分けたほうが読みやすいはずです。',
-            ].join('\n'),
-          },
-        ],
-      },
-    ],
-  }
-}
 
 // --- hero-editor（README 用: ファイルツリー + Markdown の Split プレビュー）------
 // README の「エディタとファイルツリー」ヒーロー。overview（コードエディタ）と別絵にする
@@ -626,18 +410,60 @@ describe('screenshots: hero editor + file tree', () => {
   }
 })
 
-describe('screenshots: hero git + claude', () => {
+// HERO は論理サイズが FULL の 2 倍あるので、右のペインは画面が埋まる量を流す
+// （build.md の「HERO の spec のダミーデータは画面が埋まる量にしてある」）。
+const HERO_CLAUDE = [
+  '\x1b[1;32muser@demo\x1b[0m:\x1b[1;34m~/demo-app\x1b[0m$ claude\r\n',
+  '\r\n',
+  '\x1b[2m╭──────────────────────────────────────────────╮\x1b[0m\r\n',
+  '\x1b[2m│\x1b[0m \x1b[1;35m✻\x1b[0m Claude Code \x1b[2mv2.0.14\x1b[0m                       \x1b[2m│\x1b[0m\r\n',
+  '\x1b[2m│\x1b[0m   \x1b[2m~/demo-app  ·  main\x1b[0m                       \x1b[2m│\x1b[0m\r\n',
+  '\x1b[2m╰──────────────────────────────────────────────╯\x1b[0m\r\n',
+  '\r\n',
+  '\x1b[2m>\x1b[0m スクリーンショットの撮り直しが落ちる原因を調べて\r\n',
+  '\r\n',
+  '\x1b[1;35m✻\x1b[0m \x1b[2mThinking…\x1b[0m\r\n',
+  '\r\n',
+  '  \x1b[32m⏺\x1b[0m \x1b[1mRead\x1b[0m \x1b[2mscripts/sync-manual-images.sh\x1b[0m \x1b[2m(84 lines)\x1b[0m\r\n',
+  '  \x1b[32m⏺\x1b[0m \x1b[1mBash\x1b[0m \x1b[2mjust e2e-sync-check\x1b[0m\r\n',
+  '    \x1b[2m│\x1b[0m 72 files would be copied, 6 skipped\r\n',
+  '    \x1b[2m│\x1b[0m \x1b[31mmagick: コマンドが見つかりません\x1b[0m\r\n',
+  '  \x1b[32m⏺\x1b[0m \x1b[1mGrep\x1b[0m \x1b[2mmagick\x1b[0m \x1b[2m(2 files)\x1b[0m\r\n',
+  '\r\n',
+  '  ヒーロー画像の合成だけが落ちています。`sync-hero-images.sh` が\r\n',
+  '  ImageMagick を呼びますが、WSL の PATH には無く Windows 側\r\n',
+  '  （\x1b[36mC:\\Program Files\\ImageMagick-7.0.10-Q16-HDRI\x1b[0m）にあります。\r\n',
+  '  先に走る \x1b[36msync-manual-images.sh\x1b[0m は成功するので、\r\n',
+  '  \x1b[1mマニュアル 72 枚だけ更新されてヒーロー 6 枚が古いまま残ります。\x1b[0m\r\n',
+  '\r\n',
+  '  \x1b[32m⏺\x1b[0m \x1b[1mEdit\x1b[0m \x1b[2mjustfile\x1b[0m\r\n',
+  '    \x1b[2m│\x1b[0m \x1b[31m- e2e-sync: e2e-sync-manual\x1b[0m\r\n',
+  '    \x1b[2m│\x1b[0m \x1b[32m+ e2e-sync: e2e-sync-manual e2e-sync-hero\x1b[0m\r\n',
+  '\r\n',
+  '  Git Bash 経由なら \x1b[36mmagick\x1b[0m が PATH で解決するので、レシピを\r\n',
+  '  2 本続けて走らせる形に直しました。\r\n',
+  '\r\n',
+  '\x1b[2m>\x1b[0m \x1b[7m \x1b[0m\r\n',
+].join('')
+
+describe('screenshots: hero git', () => {
   for (const { lang, theme } of MATRIX) {
     it(`hero-git ${lang} ${theme}`, async () => {
       await prepare({ lang, theme, ...HERO })
       await mockInvoke('git_status', GIT_STATUS)
       await mockInvoke('git_log', HERO_GIT_LOG)
       await mockInvoke('git_branch_list', { local: ['main', 'develop'], remote: ['origin/main'] })
+      await mockPtySpawnUniqueIds()
       await setFakeProject()
-      await openAgentChat(heroClaudeFixture())
+      await openTerminal()
+      // terminal.ts と同じ順で待つ: xterm の描画とハンドラ登録（spawn 解決後）を待って
+      // から流す。feed の後に待っても、ハンドラ登録前に落ちた出力は戻ってこない。
+      await $('[data-testid="terminal"]').waitForDisplayed({ timeout: 10_000 })
+      await $('.xterm-screen').waitForExist({ timeout: 10_000 })
       await openPanel('git')
       await $('[data-testid="git-panel"]').waitForDisplayed({ timeout: 10_000 })
-      await $('.msg-agent').waitForDisplayed({ timeout: 10_000 })
+      await browser.pause(300)
+      await feedActiveTerminal(HERO_CLAUDE)
       await shoot('hero-git', lang, theme)
     })
   }

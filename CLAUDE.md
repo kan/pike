@@ -33,7 +33,7 @@ macOS はローカルのシェルで開発できるところまで対応する�
 | `project.md` | プロジェクト管理と同期・ウィンドウの生成と復元・トレイ・ジャンプリスト・`pike` CLI |
 | `git.md` | git CLI ブリッジ・worktree・コンフリクト解消 |
 | `editor.md` | エディタとプレビュー・ファイルツリー・検索/タスク/アウトライン/診断の各パネル・ファイル監視 |
-| `agent.md` | 統一エージェント API（Codex / ACP）・トークン使用量・`pike todo` CLI とスキル |
+| `agent.md` | トークン使用量・`pike todo` CLI とスキル（エージェントはターミナルで動かす、#275） |
 | `docker.md` | bollard 連携・compose の探索・ログ・ポートフォワード |
 | `build.md` | 開発ビルド・本番ビルド限定の落とし穴（CSP）・E2E スクリーンショット・CI・セルフアップデート |
 | `platform.md` | Windows / macOS の分岐の作法・GUI プロセスの PATH・macOS で持たない機能・rg サイドカー |
@@ -122,16 +122,6 @@ pike/
 │       ├── tray/mod.rs        # システムトレイ（#161）
 │       ├── diagnostics/mod.rs # 外部リンタ実行 → Problems パネル
 │       ├── codex_usage/mod.rs # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
-│       ├── agent/
-│       │   ├── mod.rs         # 統一エージェント API モジュール
-│       │   ├── types.rs       # AgentRuntime trait・AgentEvent・AgentCapabilities
-│       │   ├── commands.rs    # agent_* Tauri コマンド
-│       │   ├── state.rs       # ウィンドウ別セッション管理
-│       │   ├── codex_runtime.rs  # Codex app-server → AgentRuntime 実装
-│       │   └── acp_runtime.rs    # ACP JSON-RPC → AgentRuntime 実装
-│       ├── codex/             # Codex app-server プロトコル実装（agent/codex_runtime が wrap）
-│       │   ├── mod.rs  auth.rs  approval.rs  runtime.rs  session.rs
-│       │   └── protocol/      # client.rs / items.rs / messages.rs / mod.rs
 │       ├── claude_usage/
 │       │   ├── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
 │       │   ├── config.rs      # CLAUDE_CONFIG_DIR の解決とアカウント読み出し（#225）
@@ -163,8 +153,7 @@ pike/
 │   ├── types/
 │   │   ├── tab.ts             # Tab Union type・ShellType・SidebarPanel・共通ヘルパー
 │   │   ├── project.ts         # ProjectConfig・PinnedTabDef
-│   │   ├── agent.ts           # AgentEvent・AgentCapabilities・AgentAuthState
-│   │   ├── chat.ts  claudeUsage.ts  codexUsage.ts  diagnostics.ts  docker.ts
+│   │   ├── claudeUsage.ts  codexUsage.ts  diagnostics.ts  docker.ts
 │   │   ├── git.ts  search.ts  tasks.ts  todo.ts
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
@@ -189,15 +178,12 @@ pike/
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
-│   │   ├── agent/
-│   │   │   └── AgentApprovalDialog.vue  # 統一 approval ダイアログ
 │   │   ├── editor/
 │   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
 │   │   │   ├── MinimapToggle.vue    # ミニマップの表示切り替え（タブ単位、#282）
 │   │   │   └── WrapToggle.vue       # 折り返しの切り替え（タブ単位、#241）
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
-│   │       ├── AgentChatTab.vue   # 統一エージェントチャット（Codex / Claude Code）
 │   │       ├── EditorTab.vue      # CodeMirror 6 + Edit/Split/Preview（md/csv/json/svg/mermaid）
 │   │       ├── PreviewTab.vue     # 画像ビューワ（ズーム/回転/反転/パン/fit、表示専用）
 │   │       ├── PdfTab.vue         # PDF プレビュー（iframe）
@@ -209,7 +195,7 @@ pike/
 │   │       └── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダーク・エディタ・言語）
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
-│   │   ├── sidebar.ts  settings.ts  project.ts  agent.ts
+│   │   ├── sidebar.ts  settings.ts  project.ts
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
 │   │   ├── todo.ts  diagnostics.ts
 │   │   ├── usageStore.ts      # createUsageStore ファクトリ（ポーリング基盤）
@@ -224,7 +210,7 @@ pike/
 │   │   ├── useDragResize.ts  # 横幅を変えるドラッグの配線（サイドバーの幅・diff の分割線、#297）
 │   │   ├── useActiveFile.ts  # いま見ているファイル（ツリーと Git パネルの強調、#274）
 │   │   ├── useFocusPolling.ts # アクティブなあいだだけポーリングする共通部（#277）
-│   │   ├── useAgentRouter.ts  useDockerLogRouter.ts  useAgentUsage.ts
+│   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
 │   │   ├── useMarkdownImages.ts  # Markdown への画像挿入（選択/貼り付け/ドロップ、#241）
@@ -243,7 +229,7 @@ pike/
 │   │   ├── displayWidth.ts    # 等幅フォントでの表示幅（diff の横幅と rst の表が共有、#284）
 │   │   ├── text.ts            # HTML 組み立ての共有部（Html 型・エスケープ・CSV 分割、#284）
 │   │   ├── externalImages.ts  # プレビューの外部画像のホスト判定と取得キャッシュ（#239）
-│   │   ├── codexHistory.ts  terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
+│   │   ├── terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
 │   │   ├── tabTitle.ts        # タブの表示名（シングルトンタブは kind から i18n を引く）
 │   │   ├── manual.ts  slug.ts # アプリ内マニュアルの読み込みと見出しスラッグ

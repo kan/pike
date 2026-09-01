@@ -1,44 +1,27 @@
 # エージェント実装ルール
 
-統一エージェント API（Codex app-server / ACP）、トークン使用量の集計、`pike todo` CLI とエージェント向けスキル。
-実体は `src-tauri/src/agent/`、`src-tauri/src/codex/`、`src-tauri/src/claude_usage/`、`src-tauri/src/codex_usage/`、`src-tauri/src/todo_cli.rs`、`src/components/tabs/AgentChatTab.vue`、`plugins/`。
+トークン使用量の集計、`pike todo` CLI とエージェント向けスキル。
+実体は `src-tauri/src/claude_usage/`、`src-tauri/src/codex_usage/`、`src-tauri/src/todo_cli.rs`、`plugins/`。
 
-## Agent Runtime（統一エージェント API）
-- `src-tauri/src/agent/` に `AgentRuntime` trait を定義。Codex app-server と ACP (Agent Client Protocol) の両方を同一インターフェースで扱う
-- `AgentRuntime` trait: `start_session`, `submit_turn`, `interrupt_turn`, `respond_approval`, `auth_status` 等
-- `CodexAppServerRuntime`: 既存の `codex/` モジュールを wrap。`codex://` ではなく `agent://` イベントを emit
-- `ACPRuntime`: `claude-agent-acp` 等の ACP 対応エージェントと JSON-RPC over stdio で通信
-- **ACP の `toolCall` は ToolCallUpdate であって、ツール名を持たない（#227）**。フィールドは `toolCallId` / `title` / `kind` / `rawInput` / `locations` で、`toolName` も `toolInput` も存在しない。振り分けは **`kind`**（`execute` / `edit` / `delete` / `move` / `read` / …）で行い、ツールの呼び名（Bash / Write / …）では分岐しない。呼び名はエージェントごとに違ううえ、そもそも届かない
-- **`session/request_permission` の `optionId` はエージェントが決める不透明な文字列（#227）**。応答ではリクエストで提示されたものをそのまま返す（以前は `kind` の値である `allow_once` / `reject_once` を id として組み立てており、`claude-agent-acp` が出す `allow` / `reject` と一致せず、同アダプタは allow 系の id でしか許可扱いにしないため「許可」を押すと拒否になっていた）
-  - **汎用ダイアログは UI が押した `option_id` をそのまま返す**。エージェントは同じ `kind` の選択肢を複数出しうるので（同アダプタの ExitPlanMode は `allow_always` を 3 つ並べる）、`kind` から引き直すと押したものと違う選択肢を送る
-  - 決まった 4 択の画面（コマンド / ファイル変更）は選択肢を UI に渡していないので、`ACPRuntime.pending_options` に覚えておいて `kind` から引く。該当が無ければ `cancelled`（近そうな選択肢で代用しない）。キーは `RequestId` にする（`Value` の文字列表現だと、フロントを往復した JSON の書式が変わるだけで無言の取り消しになる）
-- **`AgentEvent` の serde 属性から `rename_all_fields = "camelCase"` を落とさないこと**。enum の `rename_all` は**バリアント名（＝`type` の値）しか変えない**ので、これが無いとフィールドは `item_id` / `tool_name` / `request_id` のまま出て行く。フロントは全経路で `p.itemId` のように camelCase で読むため、**イベントは届くのに payload だけが丸ごと `undefined` になる**。1 語のフィールド（`delta` / `data` / `reason`）だけ一致するので、本文ストリームは動いてツール表示と承認だけが無言で壊れる、という追いにくい形になる。`agent::types` の `wire_is_camel_case` が見張っている
-- **`sessionUpdate` は仕様にある 10 個だけを握る（#228）**: `agent_message_chunk` / `agent_thought_chunk` / `user_message_chunk` / `tool_call` / `tool_call_update` / `plan` / `available_commands_update` / `config_option_update` / `current_mode_update` / `usage_update`。**別名や snake_case のフォールバックを足さない**。「対応済みに見えて一度も発火しない」アームが並ぶと、次に追う人が同じ調査をやり直す（`invented_update_names_are_not_handled` が見張っている）
-  - `usage_update` は `{ used, size }` で**コンテキストの使用量**。トークン数ではない。入力トークンとして拾っていたころは、出力が常に 0 の数字が出ていた。ACP のトークン表示先は無い（チャットタブの usage 表示は Codex 限定で、Claude のトークンは `claude_usage` のログ解析で出る）ので**扱わない**
-  - `AgentEvent::SessionInfoUpdated`（チャット上部のセッションタイトル）は、発火元が存在しない `"session_info_update"` アームだけだったので**実行時に一度も出ていなかった**。E2E のフィクスチャが直接値を入れていたため、マニュアルのスクショにだけ写っていた。イベント・リスナ・表示・フィクスチャをまとめて削除した
-  - この規則は #227 の実害から来ている。`parse_session_update` は長らく `"thought"` / `"thinking"` / `"plan_update"` という**存在しない名前**を見ていて、ACP エージェントの思考とプランが丸ごと捨てられていた。正しくは `agent_thought_chunk` と `plan`。前者の本文はメッセージ本文と同じ ContentBlock（`{ type, text }`）で素の文字列ではなく、後者は `entries[]`（`content` ではない）
-  - thinking は chunk で届き plan は毎回全体が来るので、`AgentEvent::Reasoning` に `append` を持たせて足すか置き換えるかを分ける。追記側は**コマンド出力と同じ 100ms のバッファ**（`bufferAppend`）に載せる。chunk ごとに書くと、畳まれて見えていない本文の markdown 再パースがトークン単位で走る
-  - `agent://reasoning` は Rust が投げていたのに**フロントが購読していなかった**。名前を直すだけでは表示されない。Codex 側は `ItemStarted { item_type: "reasoning" }` の経路で出しているので、あちらとは出所が違う
-  - **ツール項目の `data` は `tool_call_data` で UI のキーに寄せる**。`AgentChatTab.vue` は Codex 由来の `command` / `output` / `filePath` を読むので、ACP の生の更新を渡すとコマンド名も出力も出ない（項目を開いても空で、ラベルはフォールバックの "Running command..." のまま）。出力は完了時の `content[]` に `` ```console `` で囲まれて入る（Pike は terminal capability を宣言していないため）
-  - **ACP は 1 つのツール呼び出しに更新を 3 回送る**: (1) 入力が流れきる前の `tool_call`（Bash の `title` はまだアダプタのフォールバックの "Terminal"）、(2) 入力が揃った `tool_call_update`（`rawInput` あり・`status` なし・`content` 空）、(3) 結果の `tool_call_update`（`status` と `content`）。したがって
-    - **`title` をコマンドとして渡さない**。(1) の時点の "Terminal" が確定値として残る。表示の穴埋めは UI 側で `data.title` に落とす
-    - **同じ id の `ItemStarted` を捨てない**。(2) はこの経路でしか来ないので、`handleItemStarted` が既知の id を無視していると本当のコマンドが永久に届かない。既存項目には `data` を重ねる（実質 upsert。Codex は id ごとに 1 回しか出さないので無影響）。重ねるときは **`undefined` を上書きしない**: router の fix-up が `data.filePath = undefined` を明示的に置くことがあり、先に取れていたパスが後続の更新で消える
-    - **`item-completed` のマージ対象キーは allowlist**（`useAgentRouter.ts`）。`command` / `output` を足さないと、(3) で届いた出力が捨てられる。Codex は出力を `command-output-delta` で流すのでこの穴に気付けない
-- `AgentEvent` enum: 両プロトコルの通知を統一表現（MessageDelta, ItemStarted, ApprovalCommandRequest 等）
-- `AgentCapabilities`: runtime ごとのサポート機能を宣言（モデル選択、ロールバック、sandbox 設定等）
-- Tauri commands: `agent_start_session`, `agent_submit_turn` 等の `agent_*` 群
-- フロント: `stores/agent.ts` (Pinia), `composables/useAgentRouter.ts` (event router), `types/agent.ts`
-- `AgentChatTab.vue`: `agent-chat` タブ（`agentType: 'codex' | 'claude-code'`）。capabilities に応じて UI を条件分岐（auth bar, sandbox 表示等）。Codex / Claude のチャットはこの 1 タブに統合済み（旧 `CodexChatTab.vue` + `codex` store は廃止）
-- バックエンドの `codex/` モジュール（app-server プロトコル）は `agent/codex_runtime.rs` が wrap する形で存続
+**エージェントはターミナルで動かす（#275）。** 独自 UI で会話を進める `agent-chat` タブと、その裏の
+統一エージェント API（Codex app-server / ACP の runtime、`src-tauri/src/agent/` と
+`src-tauri/src/codex/`）は削除した。運用ではターミナルタブで agent CLI を直接動かして支障が無く、
+独自 UI を保つ価値が薄いという判断。**新しいエージェントを足すときもチャットは実装しない**。
+
+この削除で下の 2 つが単純になっている。
+
+- **使用量の出所が 1 つになった**。以前は Codex だけ「active な agent-chat のセッションを優先し、
+  無ければ CLI のログ解析に落ちる」の二本立てだった
+- **入力待ちの検出は出力のパターン一致に一本化される**（#265）。runtime がターンの終了や承認待ちを
+  知っている経路が無くなったため
 
 ## トークン使用量表示（Claude usage）
 - `src-tauri/src/claude_usage/` が `~/.claude` 配下のログを解析し、セッションのトークン使用量を集計
 - StatusBar のエージェント項目は**メーターアイコン＋ 5h / 週間の 2 つの利用率**（`25% / 5%`）。クリックで開くドロップダウンに Claude と Codex を並べ、モデル別の枠を含む内訳はエージェント状態タブへ
-- Codex は active な agent-chat タブのセッション usage（`thread/tokenUsage/updated` 由来）を表示
-- **間接 Codex（CLI）usage**: Claude の codex スキルや `codex` を呼ぶスクリプト等、Pike の agent runtime を経由しない Codex も `src-tauri/src/codex_usage/` が `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` を解析して集計。`session_meta.cwd` を `project_root` と突き合わせ、`token_count` イベントの `total_token_usage`（累計）と `rate_limits.used_percent` を取得。pid が無いため**動作中判定はファイル mtime（直近 `ACTIVE_WINDOW_SECS`=300 秒、長いターンでもチラつかない幅）**。day-dir は session 開始日のフォルダに書かれるため最新 `SCAN_DAY_DIRS`=14 日分を走査（数字名の日付ディレクトリのみ。stat→mtime フィルタなので負荷は軽い）。未来 mtime（WSL/Windows 時計ズレ）は age 0=fresh 扱い。コストは**モデル別に集計**し cached を割引単価で計算（`input_tokens` は cached を含む）。表示は Claude と共通のエージェント項目（#226）。native codex agent-chat タブが active な時はそちらを優先し CLI 表示は抑制（二重表示回避）。`gpt-5*-codex` は単価未登録のため費用は出さず利用率%を主指標とする
+- **間接 Codex（CLI）usage**: Claude の codex スキルや `codex` を呼ぶスクリプト等、Pike の agent runtime を経由しない Codex も `src-tauri/src/codex_usage/` が `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` を解析して集計。`session_meta.cwd` を `project_root` と突き合わせ、`token_count` イベントの `total_token_usage`（累計）と `rate_limits.used_percent` を取得。pid が無いため**動作中判定はファイル mtime（直近 `ACTIVE_WINDOW_SECS`=300 秒、長いターンでもチラつかない幅）**。day-dir は session 開始日のフォルダに書かれるため最新 `SCAN_DAY_DIRS`=14 日分を走査（数字名の日付ディレクトリのみ。stat→mtime フィルタなので負荷は軽い）。未来 mtime（WSL/Windows 時計ズレ）は age 0=fresh 扱い。コストは**モデル別に集計**し cached を割引単価で計算（`input_tokens` は cached を含む）。表示は Claude と共通のエージェント項目（#226）。`gpt-5*-codex` は単価未登録のため費用は出さず利用率%を主指標とする
 - **Claude レート制限（#117）**: `src-tauri/src/claude_usage/rate.rs` が `claude -p "/usage"` を `run_shell_line` で実行し、`Current <label>: N% used · resets <when>` 行をパース（5h セッション枠・週間枠・モデル別枠）。ラベル→`kind`（session/weekAll/other）の分類はパーサ隣の `window_kind` で行い、フロントは CLI 文言を文字列一致しない（session 枠が無ければチップの%表示自体を出さない）。CLI は起動に 10 秒超かかり時々ハングするため、**プロセス内キャッシュ（キーは wsl:distro / windows のインストール単位）+ fetch 直列化 Mutex + 90 秒タイムアウト**。試行間隔は `CacheEntry.last_attempt` で管理し、**active セッション中と失敗後リトライは 5 分（`TTL_ACTIVE`）、idle 中も 1 時間ごと（`TTL_IDLE`）に再取得**（別プロジェクトのセッションや 5h/週間枠の時間リセットで idle 中も値が動くため。sessionActive はプロジェクトスコープ、キャッシュはアカウントスコープという不一致を TTL_IDLE が緩和）。失敗時は前回値を保持するが **`STALE_KEEP_MAX`=2h を超えた古いデータは破棄**（CLI が恒久的に壊れたら表示を消す）。`fetched_at` はデータ取得時刻としてドロップダウンに表示。stdin は `null_device()` でクローズ（headless claude が stdin 待ちで 3 秒固まるため）。結果の `active` フィールドは usage-store ファクトリ契約（`{ active: boolean }`）に合わせた命名。手動更新は `createUsageStore` の `refreshUsage(force)` 経由（IPC 1 回）
-- **複数アカウント（`CLAUDE_CONFIG_DIR`、#225）**: Claude Code はこの環境変数で `~/.claude` の位置ごと差し替える。空ディレクトリを指して起動して確かめたところ、`projects/` も `sessions/` も `.claude.json` もそこへ移るので、**集計・セッション一覧・レート取得・エージェントチャットの起動の 4 つとも** `claude_usage/config.rs` の `resolve` を通す。検出の順と `.envrc` を評価しない理由はそのファイルの doc コメントが正本。issue の表題にある `CLAUDE_CONFIG_PATH` という変数は存在しない
-  - **claude を起動する側には明示的に渡す**（`rate.rs` の `/usage`、`agent/commands.rs` の ACP セッション）。どちらも `bash -c`（非対話・非ログイン）で起動するので、渡さないと既定の `~/.claude` のアカウントで動く。症状は「ステータスバーは別アカウントの残量を出しているのに、その下のチャットタブは既定アカウントで課金される」
+- **複数アカウント（`CLAUDE_CONFIG_DIR`、#225）**: Claude Code はこの環境変数で `~/.claude` の位置ごと差し替える。空ディレクトリを指して起動して確かめたところ、`projects/` も `sessions/` も `.claude.json` もそこへ移るので、**集計・セッション一覧・レート取得の 3 つとも** `claude_usage/config.rs` の `resolve` を通す。検出の順と `.envrc` を評価しない理由はそのファイルの doc コメントが正本。issue の表題にある `CLAUDE_CONFIG_PATH` という変数は存在しない
+  - **claude を起動する側には明示的に渡す**（`rate.rs` の `/usage`）。`bash -c`（非対話・非ログイン）で起動するので、渡さないと既定の `~/.claude` のアカウントで動き、ステータスバーが別アカウントの残量を出す
   - **WSL では `Command::env` が効かない**（`wsl.exe` という Windows プロセスにしか付かず distro の中へ渡らない）。bash に渡す行の頭で代入する。シェル別のクォート（bash の `VAR=v cmd` と cmd の `set "VAR=v" && cmd`）は `types.rs` の `run_shell_line_env` に集約してある。呼び出し側で前置を組み立てると、シェルの振り分けが変わったとき黙って壊れる
   - 環境変数のプローブは **distro 単位**でキャッシュする（rc ファイル由来なのでプロジェクトでは変わらない）。プロジェクトごとに違う入力は `.envrc` だけで、これは UNC 越しにただのファイルとして読めるので spawn が要らない。ウィンドウを何枚開いても distro につき 5 分に 1 回
   - **ロックはプローブ中も持ったまま**にする。usage と rate のポーリングは同じ tick で走るので、手放すと期限切れのたびに 2 本が同時にシェルを起動する
@@ -50,7 +33,7 @@
   - アカウント（`.claude.json` の `oauthAccount`）は **`resolve` の中で一緒に読む**。あのファイルは Claude Code のカウンタ置き場でもあって数十 KB あり、稼働中は数十秒ごとに mtime が変わるので、mtime キーのキャッシュだと 30 秒ポーリングのたびに UNC 越しに全文を読む。中身が変わるのはログインし直したときだけなので TTL に相乗りさせる
   - **検出に失敗しても黙って既定に落ちる**（`.bashrc` が `exec tmux` する、`.envrc` が `$(…)` を使う等）。プロジェクト単位の設定欄は作っていないので、そこが唯一の逃げ道は StatusBar のアカウント行になる。「思っていたのと違うメールアドレスが出ている」で気付ける形にはしてある
 - cwd↔root 一致判定（`cwd_matches_root`）と WSL ホーム解決（`wsl_home_subdir_cached`）は `types.rs` の共通ヘルパーで、`claude_usage` / `codex_usage` が共有
-- **エージェント状態タブ（#226）**: `tabs/AgentStatusTab.vue`（設定タブと同じシングルトン）。Claude と Codex を縦に並べ、アカウント・利用率（帯グラフ）・モデル別トークンを出す。導線は歯車メニュー・StatusBar のドロップダウンの「詳細」・エージェントチャット上部の 3 つ。**StatusBar のドロップダウンは要約だけ**（アカウント・トークン合計・5h 枠）にして、内訳はこちらへ寄せた
+- **エージェント状態タブ（#226）**: `tabs/AgentStatusTab.vue`（設定タブと同じシングルトン）。Claude と Codex を縦に並べ、アカウント・利用率（帯グラフ）・モデル別トークンを出す。導線は歯車メニューと StatusBar のドロップダウンの「詳細」の 2 つ。**StatusBar のドロップダウンは要約だけ**（アカウント・トークン合計・5h 枠）にして、内訳はこちらへ寄せた
   - **導出は `composables/useAgentUsage.ts` に集約**（どちらの Codex を優先するか、何をアカウント有りとみなすか、枠を帯に落とす変換）。2 つの画面に同じ computed を置いていたときは、「アカウント有り」の判定が既に食い違っていた。表示整形（ラベル・リセット時刻の日本語化・80/90% の色分け）は `lib/usageFormat.ts`。手動更新のスピナーは `createUsageStore` が公開する `refreshing`（両方の画面から同じ更新を駆動するため、コンポーネントのローカル ref では足りない）
   - **Codex は集計の窓と `active` を分ける**。`ACTIVE_WINDOW_SECS`=5 分は「今動いているか」で、集計は `RECENT_WINDOW_SECS`=24 時間。分ける前は 5 分前に終わった作業が状態画面から丸ごと消えていた（Claude の plugin 経由で使った直後でも「記録はありません」）。窓を広げたぶん `parse_session_cached` が mtime でキャッシュする（終わったロールアウトは変わらないので読み直す必要がない。キーにプロジェクトを含めないので、ウィンドウを何枚開いても 1 回しか読まない。掃除は**走査結果ではなく古さ**で行う（キャッシュはプロセス共有なので、片方のプロジェクトの走査結果で retain すると、シェルの違うもう片方のエントリを毎回全部落としてしまう））
   - **Codex のアカウントは `~/.codex/auth.json` の `tokens.id_token`（JWT）から読む**。メールアドレスは `email`、プランは `https://api.openai.com/auth` 内の `chatgpt_plan_type`。**署名は検証しない**（自分のマシンの自分の情報を表示するだけで、認証の判断には使わない）。取り出すのは 2 クレームだけで、トークン自体は外に出さない

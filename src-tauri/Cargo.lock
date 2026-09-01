@@ -3353,7 +3353,6 @@ dependencies = [
 name = "pike"
 version = "0.45.0"
 dependencies = [
- "async-trait",
  "base64 0.23.1",
  "bollard",
  "encoding_rs",

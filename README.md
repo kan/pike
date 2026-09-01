@@ -16,13 +16,13 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/manual/img/screenshot-git-light.png">
-  <img alt="Git パネルと Claude Code" src="docs/manual/img/screenshot-git.png">
+  <img alt="Git パネルとターミナルのエージェント" src="docs/manual/img/screenshot-git.png">
 </picture>
 
 ## 主な機能
 
 - **マルチターミナル**：xterm.js + PTY（WSL / cmd / PowerShell / PowerShell 7 / Git Bash、macOS ではログインシェル）、タスクバーとトレイのメニューからのシェル選択
-- **AI エージェント**：Claude Code と Codex を統一チャットタブで。`@` メンションでのファイル参照、セッション復帰
+- **AI エージェント**：`claude` や `codex` をターミナルで直接動かす前提の導線。起動ボタン・定型プロンプトの挿入・過去セッションの再開
 - **エージェント状態**：アカウント・利用率・トークン使用量とコストを Claude と Codex で並べて確認。複数アカウント（`CLAUDE_CONFIG_DIR`）にも追従
 - **ターミナルの AI 補助**：`claude` 等をターミナルで使うための、ワンクリック起動 / 過去セッションの再開 / 定型プロンプト挿入、出力中のパスをクリックしてファイル・画像・ディレクトリを開く（行番号の有無を問わない）、エディタ選択範囲や診断をターミナルへ送る
 - **エディタ**：CodeMirror 6（30+ 言語）、ミニマップ、検索・置換、git diff ガター、コンフリクトの解消、定義ジャンプ、タブごとの折り返し切替、文字コード/改行コード対応

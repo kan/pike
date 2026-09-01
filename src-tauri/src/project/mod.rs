@@ -82,11 +82,6 @@ pub struct ProjectConfig {
     pub last_opened: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_session: Option<LastSession>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub codex_thread_id: Option<String>,
-    /// Unified agent session ID (used by agent store for session resume).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_session_id: Option<String>,
     /// Optional free-text group label for organizing projects in the panel.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,

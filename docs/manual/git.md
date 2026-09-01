@@ -19,7 +19,7 @@ Pike の Git 統合は `git` CLI 経由で、WSL・Windows・macOS のいずれ�
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="img/screenshot-git-light.png">
-  <img alt="Git パネルと Claude Code" src="img/screenshot-git.png">
+  <img alt="Git パネルとターミナルのエージェント" src="img/screenshot-git.png">
 </picture>
 
 ステータスバー（下端）には以下が表示されます。

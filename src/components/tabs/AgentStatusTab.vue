@@ -25,7 +25,6 @@ const {
   claudeRate,
   claudeAccount,
   claudeMeters,
-  codexSession,
   codexCliUsage,
   codexAccount,
   codexMeters,
@@ -112,7 +111,7 @@ const {
         <div class="card-head">
           <Bot :size="15" :stroke-width="2" />
           <span>Codex</span>
-          <span class="muted">{{ codexSession ? t('agentStatus.codexChat') : t('agentStatus.codexCli') }}</span>
+          <span class="muted">{{ t('agentStatus.codexCli') }}</span>
         </div>
 
         <dl v-if="codexAccount" class="facts">
@@ -122,34 +121,7 @@ const {
           <dd>{{ codexAccount.plan ?? codexAccount.authMode ?? t('agentStatus.unknown') }}</dd>
         </dl>
 
-        <template v-if="codexSession?.tokenUsage">
-          <div class="block">
-            <div class="block-head">
-              <span>{{ t('agentStatus.tokens') }}</span>
-              <span v-if="codexSession.estimatedCostUsd != null" class="muted">
-                ~{{ formatCost(codexSession.estimatedCostUsd) }}
-              </span>
-            </div>
-            <table class="grid">
-              <thead>
-                <tr>
-                  <th>{{ t('agentStatus.model') }}</th>
-                  <th class="num">{{ t('statusBar.ccIn') }}</th>
-                  <th class="num">{{ t('statusBar.ccOut') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th>{{ codexSession.selectedModel ?? 'codex' }}</th>
-                  <td class="num">{{ formatTokens(codexSession.tokenUsage.input) }}</td>
-                  <td class="num">{{ formatTokens(codexSession.tokenUsage.output) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </template>
-
-        <template v-else-if="codexCliUsage">
+        <template v-if="codexCliUsage">
           <dl class="facts">
             <dt>{{ t('agentStatus.sessionCount') }}</dt>
             <dd>{{ codexCliUsage.sessionCount }}</dd>

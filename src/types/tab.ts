@@ -326,16 +326,6 @@ export type PdfTab = {
   dataUrl?: string
 }
 
-export type AgentChatTab = {
-  id: string
-  kind: 'agent-chat'
-  title: string
-  pinned: boolean
-  hasActivity?: boolean
-  /** Which agent runtime to use */
-  agentType: 'codex' | 'claude-code'
-}
-
 export type ManualTab = {
   id: string
   kind: 'manual'
@@ -390,7 +380,6 @@ export type Tab = (
   | SettingsTab
   | AgentStatusTab
   | PdfTab
-  | AgentChatTab
   | ManualTab
 ) &
   TabOwner

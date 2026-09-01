@@ -138,8 +138,6 @@ impl TransientState {
             pinned_tabs: vec![],
             last_opened: crate::iso_now(),
             last_session: None,
-            codex_thread_id: None,
-            agent_session_id: None,
             group: None,
             color: None,
             icon: None,

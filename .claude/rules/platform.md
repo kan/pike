@@ -95,7 +95,7 @@ Claude のセッション一覧の参照先）がタブ生成時の cwd に留�
 `CLAUDE_CONFIG_DIR` を読む。Windows では cmd / Git Bash が起動時に継承するので一致するが、
 **macOS の GUI プロセスは shell rc の export を継がない**（`augment_process_path` が回避している
 launchd の最小環境と同じ話）。よって `.zshrc` に `export CLAUDE_CONFIG_DIR=…` を書いている
-macOS ユーザーは、使用量・レート・セッション一覧・ACP セッションのすべてが既定の `~/.claude` を見る。
+macOS ユーザーは、使用量・レート・セッション一覧のすべてが既定の `~/.claude` を見る。
 
 **現状は既知の制約として据え置く**（`.envrc` 検出と同じく、失敗しても黙って既定に落ちる規約に沿う。
 気付く先は StatusBar のアカウント行）。直すなら WSL 側と同じ `-lic` プローブを `Unix` の腕にも
