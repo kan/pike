@@ -4,7 +4,7 @@ import { confirmDialog, confirmWithOption, infoDialog } from '../composables/use
 import { locale, t } from '../i18n'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
 import { hostDefaultShell, isMacHost } from '../lib/host'
-import { wslNativeToUnc } from '../lib/paths'
+import { stripTrailingSep, wslNativeToUnc } from '../lib/paths'
 import {
   baseForPlatform,
   isProjectPlatform,
@@ -102,7 +102,12 @@ export const useProjectStore = defineStore('project', () => {
   // Always a string (empty only when no project is open), so callers never need
   // their own `?? project.root` fallback — any remaining `project.root` read for
   // a root-relative operation is a bug that forgot to follow the worktree.
-  const activeRoot = computed<string>(() => activeWorktreeRoot.value ?? currentProject.value?.root ?? '')
+  // 末尾の区切りはここで落とす（#303）。root は `/home/kan/proj/` の形で登録されている
+  // ことがあり、そのままだと `root + sep + name` で作ったパスと OS 由来のパスが一致せず、
+  // ファイルツリーの自動更新が root 直下だけ効かなかった。理由は `stripTrailingSep`。
+  const activeRoot = computed<string>(() =>
+    stripTrailingSep(activeWorktreeRoot.value ?? currentProject.value?.root ?? ''),
+  )
 
   /**
    * このウィンドウが持っているプロジェクトの id（#264）。**並びはここで決まり、以後

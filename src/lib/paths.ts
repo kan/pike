@@ -29,6 +29,24 @@ export function basename(path: string): string {
   return path.split(/[/\\]/).pop() ?? path
 }
 
+/**
+ * 末尾の区切りを落とす。ルート自身（`/` と `C:\`）は区切りを残す。
+ *
+ * **プロジェクトの root は末尾に `/` が付いた形で登録されていることがある**（このマシンの
+ * `project.json` に実在する）。付いていると、`root + sep + name` で組み立てたツリーの
+ * パスと、OS から届く親ディレクトリのパス（末尾は付かない）が文字列として一致せず、
+ * **root 直下の変更だけがファイルツリーに反映されない**（#303）。比較する側それぞれに
+ * 正規化を置くと片方を忘れるので、`activeRoot` が最初から落とした形を配る。
+ */
+export function stripTrailingSep(path: string): string {
+  const stripped = path.replace(/[/\\]+$/, '')
+  // ルート自身は区切りを残す（元の区切り文字のまま返す）。`/` はそれ自体がパスで、
+  // `C:` はドライブ直下ではなく「そのドライブのカレントディレクトリ相対」という別の意味。
+  if (stripped === '') return path === '' ? '' : path.slice(0, 1)
+  if (/^[A-Za-z]:$/.test(stripped)) return path.slice(0, 3)
+  return stripped
+}
+
 /** Drop the last path segment. Returns the directory portion (no trailing separator). */
 export function dirname(path: string): string {
   const idx = path.search(/[/\\][^/\\]*$/)

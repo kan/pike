@@ -9,11 +9,11 @@ use std::io::Write as IoWrite;
 pub struct FsEntry {
     pub name: String,
     pub is_dir: bool,
-    /// Directory in `IGNORED_DIRS`: shown dimmed, contents never listed (watcher/
-    /// tasks/search also skip it), not expandable.
+    /// Directory in `IGNORED_DIRS`: shown dimmed with a gear icon. The watcher,
+    /// task discovery and search all skip it; the tree can still list it on
+    /// demand when the user expands the row (#303).
     pub ignored: bool,
     /// Matched by `.gitignore` (file or directory). Colored distinctly in the tree.
-    /// Plain gitignored directories stay expandable (unlike `IGNORED_DIRS`).
     pub gitignored: bool,
 }
 
@@ -179,7 +179,10 @@ pub async fn fs_list_dir(
             _ => list_dir_native(&path)?,
         };
         // Only consult git when the caller knows this tree is a git repo (avoids a
-        // wasted git spawn per listing in non-git projects).
+        // wasted git spawn per listing in non-git projects). The tree also passes
+        // `false` inside `IGNORED_DIRS` (#303) — it knows the project root, so it
+        // can tell `<root>/node_modules` from a project that merely lives under a
+        // directory of that name.
         if check_gitignore {
             apply_gitignore(&shell, &path, &mut entries);
         }
@@ -189,9 +192,9 @@ pub async fn fs_list_dir(
     .map_err(|e| e.to_string())?
 }
 
-/// Mark entries that git ignores (color only). Unlike `IGNORED_DIRS`, a plain
-/// gitignored directory stays expandable — only its `gitignored` flag is set.
-/// Uses a single `git check-ignore` for the whole listing.
+/// Mark entries that git ignores (color only) — the tree just colors them
+/// differently, nothing here affects whether a row can be expanded. Uses a
+/// single `git check-ignore` for the whole listing.
 fn apply_gitignore(shell: &ShellConfig, dir: &str, entries: &mut [FsEntry]) {
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     let ignored = check_ignored(shell, dir, &names);

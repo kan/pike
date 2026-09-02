@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight, Folder, FolderOpen, Loader } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { ChevronDown, ChevronRight, Folder, FolderCog, FolderOpen, Loader } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useActiveFile } from '../../composables/useActiveFile'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
+// 使うのは `startError`（inotify-tools 未導入の案内）だけ。**変更の受け手は
+// `stores/fileTree.ts`**（#303）: このパネルは `v-if` でマウントされるので、ここで
+// 購読すると別のパネルを見ているあいだ変更が届かない。
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { fileToBase64 } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
@@ -50,8 +53,6 @@ function join(parent: string, child: string): string {
 }
 
 function onItemClick(node: FlatNode) {
-  // ignored dirs open only via the context menu (Explorer) — no expand
-  if (node.entry.ignored) return
   if (node.entry.isDir) toggleDir(node.path)
   else openFile(node.path)
 }
@@ -409,8 +410,9 @@ const flatNodes = computed((): FlatNode[] => {
     for (const entry of children) {
       const path = join(parentPath, entry.name)
       result.push({ entry, path, depth })
-      // ignored dirs are never walked into, even if a stale expanded entry exists
-      if (entry.isDir && !entry.ignored && fileTreeStore.expanded.has(path)) {
+      // `IGNORED_DIRS` のディレクトリも展開して中を見られる（#303）。監視・検索・タスク
+      // 検出の対象外であることは変わらないので、開いているあいだの変更は自動で反映されない。
+      if (entry.isDir && fileTreeStore.expanded.has(path)) {
         walk(path, depth + 1)
       }
     }
@@ -483,25 +485,6 @@ onBeforeUnmount(() => {
   }
 })
 
-function refreshDirs(dirs: string[]) {
-  const root = projectStore.activeRoot
-  if (!root) return
-  const toReload: string[] = []
-  for (const d of dirs) {
-    if (d === root || fileTreeStore.expanded.has(d)) {
-      toReload.push(d)
-    } else {
-      fileTreeStore.invalidateDir(d)
-    }
-  }
-  if (toReload.length > 0) {
-    Promise.all(toReload.map((d) => fileTreeStore.loadDir(d)))
-  }
-}
-
-const unsubWatcher = fsWatcher.onDirChange(refreshDirs)
-onUnmounted(unsubWatcher)
-
 defineExpose({ refresh, refreshing, startCreateAtRoot })
 </script>
 
@@ -560,14 +543,15 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
           @dragend="onDragEnd"
           @drop="onDrop($event, node.path, node.entry.isDir)"
         >
-          <span v-if="node.entry.isDir && !node.entry.ignored" class="tree-chevron">
+          <span v-if="node.entry.isDir" class="tree-chevron">
             <Loader v-if="fileTreeStore.loading.has(node.path)" :size="12" :stroke-width="2" class="spinning" />
             <ChevronDown v-else-if="fileTreeStore.expanded.has(node.path)" :size="12" :stroke-width="2" />
             <ChevronRight v-else :size="12" :stroke-width="2" />
           </span>
           <span v-else class="tree-chevron-space"></span>
           <span v-if="node.entry.isDir" class="tree-icon tree-icon-folder">
-            <FolderOpen v-if="!node.entry.ignored && fileTreeStore.expanded.has(node.path)" :size="16" :stroke-width="1.5" />
+            <FolderCog v-if="node.entry.ignored" :size="16" :stroke-width="1.5" />
+            <FolderOpen v-else-if="fileTreeStore.expanded.has(node.path)" :size="16" :stroke-width="1.5" />
             <Folder v-else :size="16" :stroke-width="1.5" />
           </span>
           <span v-else class="tree-icon tree-icon-svg" v-html="fileIconSvg(node.entry.name)"></span>
@@ -736,10 +720,8 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   color: var(--text-primary);
 }
 
-.tree-item.ignored {
-  cursor: default;
-}
-
+/* `IGNORED_DIRS` のディレクトリ。淡色のまま展開できる（#303）ので、cursor は
+   他の行と同じ pointer。歯車付きのアイコンが「監視も検索もしない場所」の印。 */
 .tree-item.ignored .tree-name,
 .tree-item.ignored .tree-icon-folder {
   color: var(--text-secondary);

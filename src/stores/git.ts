@@ -359,11 +359,15 @@ export const useGitStore = defineStore('git', () => {
     // still clone it (#164). Only for the project's own root — a worktree can
     // sit in another repository. Never clears a stored URL from a transient
     // failure: only an actual URL change writes.
+    //
+    // **`root === project.root` の文字列比較にしないこと（#303）。** `activeRoot` は
+    // 末尾の区切りを落とした値を配るので、`/home/kan/proj/` の形で登録されている
+    // プロジェクトでは永久に一致せず、origin が黙って記録されなくなる。聞きたいのは
+    // 「worktree に居るか」なので、そのものを見る。
     const url = remoteUrl.value
-    if (url && root === project.root && project.remoteUrl !== url) {
-      useProjectStore()
-        .saveProject({ ...project, remoteUrl: url })
-        .catch(() => {})
+    const projectStore = useProjectStore()
+    if (url && projectStore.activeWorktreeRoot === null && project.remoteUrl !== url) {
+      projectStore.saveProject({ ...project, remoteUrl: url }).catch(() => {})
     }
   }
 

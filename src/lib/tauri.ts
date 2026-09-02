@@ -273,9 +273,9 @@ export async function projectGroupsSave(groups: string[]): Promise<void> {
 export interface FsEntry {
   name: string
   isDir: boolean
-  /** IGNORED_DIRS のディレクトリ: 淡色・展開不可（node_modules 等） */
+  /** IGNORED_DIRS のディレクトリ（node_modules 等）: 淡色・歯車アイコン。展開はできるが監視・検索の対象外 */
   ignored: boolean
-  /** .gitignore にマッチ（ファイル/ディレクトリ両方）。色分け用。dir は展開可能。 */
+  /** .gitignore にマッチ（ファイル/ディレクトリ両方）。色分け用。 */
   gitignored: boolean
 }
 

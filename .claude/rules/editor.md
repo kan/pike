@@ -199,6 +199,25 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - 自己書き込み除外: `markRecentlySaved()` で 2秒 TTL のパス Set を管理
 - ウィンドウ破棄時に全 watcher 停止（`watcher::stop_all`）
 - Rust `WatcherState` を `AppState` で管理、`fs_watch_start` / `fs_watch_stop` コマンド
+- **`changedDirs` の受け手は `stores/fileTree.ts` に置く（#303）。** パネルは `v-if` で
+  マウントされるので、あちらで購読すると別のパネルを見ているあいだ購読ごと外れる。溜めて
+  おく仕組みと、それを `ensureInit` で流す理由は、あのファイルの doc コメントが正本
+- **パスの比較は文字列一致**（root か、展開中のディレクトリか）なので、`activeRoot` は
+  末尾の区切りを落とした値を配る（`lib/paths.ts` の `stripTrailingSep`）。**逆に、
+  正規化済みの `activeRoot` と生の `project.root` を突き合わせないこと**: 末尾に `/` の
+  付いた root が実在するので、その比較は永久に false になる（`stores/git.ts` の origin の
+  記録が実際にこれで壊れた。「worktree に居るか」は `activeWorktreeRoot` を見る）
+- **`IGNORED_DIRS` のディレクトリは展開できる（#303）が、監視の対象外なのは変わらない。**
+  開いているあいだに中身が変わっても自動では反映されない（Rust 側が `path_contains_ignored`
+  で捨てるため）。歯車付きのアイコンは、そこが「見えるが追わない場所」だという印
+  - **中の listing では `git check-ignore` を走らせない**（`fileTree.ts` の `isUnderIgnored`
+    が `checkGitignore` に `false` を渡す）。丸ごと ignore される前提で色を分ける意味が無く、
+    `node_modules` 直下は名前を全部並べるとコマンドラインが Windows の上限に近づく
+  - **この判定を Rust に置かないこと**: パスのセグメントを見るだけの述語では、`C:\dist\myproj`
+    のように `IGNORED_DIRS` と同名のディレクトリの下に置いたプロジェクトで誤爆し、色分けが
+    全ディレクトリで黙って消える。root を知っているのはフロント側だけ
+  - **展開状態は保存しない**（`saveExpanded` が落とす）。覚えると次にプロジェクトを開くたびに
+    そこを読み直すことになる（WSL では 1 ディレクトリにつき `wsl.exe` 1 本）
 
 ## 検索 (rg / grep)
 - 起動時に `which rg` で backend 判定、以降固定
