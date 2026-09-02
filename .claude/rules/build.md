@@ -102,8 +102,15 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 
 ## CI/CD
 - `.github/workflows/ci.yml`: push/PR で `biome check`、`npm run build`（vue-tsc + vite）、`cargo clippy -- -D warnings`、`cargo test` を実行（Windows runner）
-- `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-action` が **Windows と macOS(arm64) の 2 ジョブ**をマトリクスで走らせ、同じタグのドラフトへ両方の成果物をアップロードする（2 つ目のジョブは既存のドラフトを見つけて追加する）。`fail-fast: false` なので macOS が落ちても Windows は最後まで走る
-  - **macOS 側は updater の経路に載せない**。`uploadUpdaterJson: false` で `latest.json` を触らせず、`--config src-tauri/tauri.macos.conf.json` で `createUpdaterArtifacts` も切る（**パスはリポジトリルート基準**。`tauri-action` はルートから CLI を起動するので、`package.json` の `tauri:dev` / `e2e:build` と同じく `src-tauri/` を付ける。落とすと `Provided config path ... does not exist` で止まる）。配布物が未署名で Gatekeeper に隔離されるため、自動更新に載せると壊れた更新を配ることになる（README にユーザー向けの但し書きがある）
+- `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-action` が **Windows と macOS(arm64) の 2 ジョブ**を **`max-parallel: 1` で直列に**走らせ、同じタグのドラフトへ両方の成果物をアップロードする（2 つ目のジョブは既存のドラフトを見つけて追加する）
+  - **macOS も updater の経路に載せる**（#283 で Developer ID 署名と公証が入ったため）。以前は未署名で Gatekeeper に隔離されるため外していた
+  - **`max-parallel: 1` で直列に走らせる。** 両ジョブが `latest.json` を上げるようになったので、並列だと取り合う。`tauri-action` はアップロード前にリリースの既存 `latest.json` を読んで `platforms` をマージするので、順に走れば 2 つの OS が 1 つのファイルに揃う。並列のままだと後から読んだ側がもう片方の書き込み前の内容を見て、そのプラットフォームを落としたファイルを上げうる。**失敗は静かで「その OS にだけ更新が来ない」という形でしか気付けない**
+    - 代償はリリースの所要時間が倍になること（実測 v0.46.0: macOS 8m19s / Windows 9m06s で全体 9 分 → 直列で 18 分前後。`.dmg` の公証待ちがさらに乗る）
+    - **`fail-fast` は既定（true）のまま。** Windows が落ちれば待機中の macOS が取り消されるので、darwin だけの `latest.json` は作られない。**ただし逆向きは防げない**（Windows が成功したあとに macOS が落ちると、windows だけの `latest.json` がドラフトに残る）。だから**公開前に `platforms` を目視する**手順が CLAUDE.md のリリース手順に入っている
+    - 両方向を機械的に塞ぐなら、両ジョブを `uploadUpdaterJson: false` にして成果物だけ artifact に上げ、`needs: build` の合流ジョブで `latest.json` を**組み立てて** 1 回だけ上げる形になる。読んで書き直す構造が消えるうえ並列に戻せるが、YAML が 20 行ほど増えて手元で検証できない。**今は直列＋目視で回し、面倒が続くようなら移る**
+  - **`.dmg` は tauri が公証しない。** 公証・staple するのは `.app` だけで、そのあとに作る `.dmg` は署名するだけ。配布物は `.dmg` なので、そのままだとダウンロードした利用者の Gatekeeper が弾く（`spctl -a -t open --context context:primary-signature` が `rejected / source=Unnotarized Developer ID` を返す。macOS 実機で確認）。tauri-action のあとに `xcrun notarytool submit` → `xcrun stapler staple` → `gh release upload --clobber` で差し替える
+  - **署名と公証の資格情報は GitHub Secrets の `APPLE_*` 7 つ**（`APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY` / `APPLE_TEAM_ID` / `APPLE_API_ISSUER` / `APPLE_API_KEY` / `APPLE_API_KEY_BASE64`）。**`notarytool` は鍵をファイルで受け取る**ので、`APPLE_API_KEY_BASE64` を書き出して `APPLE_API_KEY_PATH` を `GITHUB_ENV` 経由で渡す（`APPLE_API_KEY` は鍵そのものではなく Key ID）
+  - **証明書を再発行するときは Developer Portal で G2 Sub-CA を選ぶ。** Xcode の「Manage Certificates → +」が作る Developer ID は G1 CA 由来で、G1 中間 CA 自身の失効日（2027-02-01）で頭打ちになる。G2 なら通常どおり 5 年
   - `macos-latest` は Apple Silicon なので**ホストのトリプルがそのまま `aarch64-apple-darwin`**。クロスビルドの指定は要らず、`just fetch-rg` も `rustc -vV` からその名前でサイドカーを取る。Intel 向けは配布しない
   - `rust-cache` の `key` を OS で分ける（分けないと 2 ジョブが同じキャッシュを取り合う）
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行

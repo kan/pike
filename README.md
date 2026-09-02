@@ -59,22 +59,13 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 | `Pike_x.x.x_x64_en-US.msi` | Windows インストーラ（MSI） |
 | `Pike_x.x.x_aarch64.dmg` | macOS（Apple Silicon） |
 
-Windows 版はインストール後に自動でアップデートを確認します。手動で確認するときは歯車メニュー →「更新を確認」から行えます。
+インストール後に自動でアップデートを確認します。手動で確認するときは歯車メニュー →「更新を確認」から行えます。Windows 版と macOS 版のどちらも対象です。
 
-### macOS 版の制限
+### macOS 版について
 
 配布しているのは **Apple Silicon（arm64）版だけ**です。Intel Mac では動きません。
 
-**配布物は署名していません。** そのまま開くと「開発元を検証できないため開けません」と表示されます。初回だけ次のいずれかで許可してください。
-
-- Finder で `Pike.app` を右クリックして「開く」を選ぶ（ダブルクリックでは許可の選択肢が出ません）
-- またはターミナルで隔離属性を外す：
-
-  ```bash
-  xattr -d com.apple.quarantine /Applications/Pike.app
-  ```
-
-署名していないため、macOS 版は自動アップデートの対象外です。新しいバージョンは Releases から取得し直してください。
+配布物は Apple Developer ID で署名して公証（notarization）しているため、ダウンロードしてそのまま開けます。
 
 ## ソースからビルド
 

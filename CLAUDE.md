@@ -465,8 +465,14 @@ git push origin vX.Y.Z
 ```
 
 タグ push で `Release` ワークフローが自動起動し、Windows と macOS(arm64) の 2 ジョブが
-同じドラフトへ成果物をアップロードする。**macOS 版は未署名で、updater の対象外**
-（詳細は `.claude/rules/build.md`）。
+**Windows → macOS の順に直列で**同じドラフトへ成果物をアップロードする。**macOS 版も
+Developer ID 署名・公証済みで、updater の対象**（#283。詳細は `.claude/rules/build.md`）。
+
+**公開前に、ドラフトの `latest.json` の `platforms` に `windows-x86_64` と
+`darwin-aarch64` の両方があることを確認する。** 片方の OS しか載っていない
+`latest.json` を公開すると、もう片方の全クライアントが黙って更新を受け取れなくなる
+（片方のジョブが落ちたときに起きうる。理由は `.claude/rules/build.md`）。
+足りなければ公開せず、直してタグを打ち直す。
 
 ### 7. リリースの公開
 

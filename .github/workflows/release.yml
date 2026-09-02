@@ -11,26 +11,19 @@ jobs:
     permissions:
       contents: write
     strategy:
-      # macOS が落ちても Windows のビルドは最後まで走らせる（第一ターゲットのため）。
-      fail-fast: false
+      # 両ジョブが latest.json を上げるので直列にする（並列だと後から読んだ側が
+      # もう片方を落とす）。fail-fast は既定のままにして、片方だけが載った
+      # latest.json をなるべく作らせない。理由は `.claude/rules/build.md`。
+      max-parallel: 1
+      fail-fast: true
       matrix:
         include:
           - name: Windows
             os: windows-latest
-            # 既定のまま。updater 用の成果物と latest.json を作るのはこちらだけ。
-            args: ""
-            upload-updater-json: true
+          # macos-latest は Apple Silicon なので、ホストのトリプルがそのまま
+          # aarch64-apple-darwin になる（クロスビルドの指定は要らない）。
           - name: macOS (arm64)
             os: macos-latest
-            # macos-latest は Apple Silicon なので、ホストのトリプルがそのまま
-            # aarch64-apple-darwin になる（クロスビルドの指定は要らない）。
-            #
-            # updater 用の成果物は作らない。配布物が未署名で Gatekeeper に
-            # 隔離されるため、自動更新の経路に載せると壊れた更新を配ることになる。
-            # パスはリポジトリルート基準（package.json の tauri:dev / e2e:build と
-            # 同じ書き方）。src-tauri/ を落とすと tauri-action が見つけられない。
-            args: "--config src-tauri/tauri.macos.conf.json"
-            upload-updater-json: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,11 +51,31 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
+      # notarytool は鍵をファイルで受け取るので、secret から書き出してパスを渡す。
+      # tauri のバンドラも同じ 3 つ（issuer / key id / key path）で公証する。
+      - name: Prepare the notarization key
+        if: runner.os == 'macOS'
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.private_keys
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > ~/.private_keys/AuthKey.p8
+          chmod 600 ~/.private_keys/AuthKey.p8
+          echo "APPLE_API_KEY_PATH=$HOME/.private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          # macOS の署名と公証（#283）。Windows のジョブでは読まれない。
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         with:
           # 2 つ目のジョブは同じタグの既存ドラフトを見つけて、そこへ追加アップロードする。
           tagName: v__VERSION__
@@ -70,6 +83,36 @@ jobs:
           releaseBody: "See the assets to download and install."
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
-          uploadUpdaterJson: ${{ matrix.upload-updater-json }}
+          uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      # **tauri が公証するのは `.app` だけ**（そのあと staple して、その `.app` から
+      # `.dmg` を作る）。`.dmg` 自身は署名されるが公証には出されないので、
+      # ダウンロードした利用者の Gatekeeper が配布物を弾く（`spctl` が
+      # `rejected / source=Unnotarized Developer ID` を返す。実機で確認）。
+      # ここで公証して staple し、tauri-action が上げた `.dmg` を差し替える。
+      - name: Notarize and staple the .dmg
+        if: runner.os == 'macOS'
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 配列で受けて 1 件であることを確かめる。素の `ls` だと、複数一致した
+          # ときに 2 語の文字列になって "$dmg" が存在しないパスとして渡る。
+          # tauri-action の artifactPaths 出力を使う手もあるが、こちらの
+          # レイアウトは macOS 実機で確認済みなのでグロブのままにしてある。
+          shopt -s nullglob
+          dmgs=(src-tauri/target/release/bundle/dmg/*.dmg)
+          if [ ${#dmgs[@]} -ne 1 ]; then
+            echo "expected exactly one .dmg, found ${#dmgs[@]}: ${dmgs[*]-}" >&2
+            exit 1
+          fi
+          dmg="${dmgs[0]}"
+          xcrun notarytool submit "$dmg" \
+            --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait
+          xcrun stapler staple "$dmg"
+          # 弾かれたら失敗させる（set -e）。ここを通れば配布物として問題ない。
+          spctl -a -vvv -t open --context context:primary-signature "$dmg"
+          gh release upload "${{ github.ref_name }}" "$dmg" --clobber --repo "$GITHUB_REPOSITORY"
