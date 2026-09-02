@@ -712,6 +712,9 @@ export default {
   'frontmatter.empty': '(no keys)',
   'frontmatter.notMapping': 'Front matter is not a key/value mapping',
 
+  // reStructuredText Preview
+  'rst.meta': 'Metadata',
+
   // JSON Preview
   'json.empty': '(empty file)',
   'json.parseError': 'Failed to parse JSON',

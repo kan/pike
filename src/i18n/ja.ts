@@ -711,6 +711,9 @@ export default {
   'frontmatter.empty': '(キーなし)',
   'frontmatter.notMapping': 'フロントマターが key/value のマッピングになっていません',
 
+  // reStructuredText Preview
+  'rst.meta': 'メタデータ',
+
   // JSON Preview
   'json.empty': '(空のファイル)',
   'json.parseError': 'JSON のパースに失敗しました',

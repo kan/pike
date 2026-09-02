@@ -18,16 +18,17 @@
  *
  * **したがってこれは docutils の再実装ではない。** 実際に書かれる文書でよく出る要素だけを扱い、
  * **解釈できなかったものは捨てずに字面のまま出す**。プレビューは読むためのもので、変換に失敗した
- * 箇所が消えるほうが困る。字面へ落とすのは、セルを結合した表・知らないディレクティブ・置換指定で、
- * `toctree` / `include` / `math` / `raw` もそこに含まれる（他ファイルの一覧・外部ファイルの
- * 読み込み・数式描画・生 HTML の埋め込みで、プレビューで解決する意味が薄いか、そのまま通すと
- * 危ないもの）。**本文に出さないのは、真のコメントとリンク定義だけ。**
+ * 箇所が消えるほうが困る。字面へ落とすのは、セルを結合した表・知らないディレクティブ・扱えない
+ * 置換定義で、`toctree` / `include` / `math` / `raw` もそこに含まれる（他ファイルの一覧・外部
+ * ファイルの読み込み・数式描画・生 HTML の埋め込みで、プレビューで解決する意味が薄いか、そのまま
+ * 通すと危ないもの）。**本文に出さないのは、真のコメント・リンク定義・差し替えた置換定義だけ。**
  *
  * 組み立てた HTML は呼び出し側（`EditorTab.vue`）が DOMPurify に通すが、**それを唯一の防波堤に
  * しない**。エスケープ済みかどうかは `lib/text.ts` の `Html` 型で持ち、生の文字列を属性へ差し込む
  * 経路がコンパイルエラーになるようにしてある。
  */
 
+import { t } from '../i18n'
 import { displayWidth, sliceByWidth } from './displayWidth'
 import { asHtml, charEntity, escapeHtml, escapeRegExp, type Html, splitDelimited } from './text'
 
@@ -69,6 +70,20 @@ const FIELD = /^:([^:]+):\s*(.*)$/
 const DIRECTIVE = /^\.\.\s+([\w-]+)::\s*(.*)$/
 /** ハイパーリンクの定義（`.. _name: url`）。本文には出さず、参照の解決に使う。 */
 const LINK_TARGET = /^\.\.\s+_([^:]+):\s*(.*)$/
+/**
+ * 置換定義（`.. |name| replace:: text`、#302）。**ディレクティブ名まで一緒に取る**:
+ * 置換の中身は任意のディレクティブで、扱えるものだけを差し替えの対象にするため。
+ */
+const SUBSTITUTION = /^\.\.\s+\|([^|]+)\|\s+([\w-]+)::\s*(.*)$/
+/**
+ * 置換参照（`|name|`）。前後に空白を持たない名前だけを拾う（表の罫線と取り違えない）。
+ *
+ * **リンクの `refPattern` と違い、定義済みの名前を列挙した正規表現にはしない。** あちらが
+ * そうしているのは `name_` の左側に区切りが無く、名前の切れ目を候補の列挙でしか決められない
+ * ため。`|name|` は両側が区切られているので、静的な 1 本で切り出して `Map` を引けば足りる
+ * （文書ごとの再コンパイルも `escapeRegExp` も要らない）。
+ */
+const SUBSTITUTION_REF = /\|([^|\s](?:[^|]*[^|\s])?)\|/g
 /** 脚注と引用の定義（`.. [1] 本文` / `.. [CIT2002] 本文`）。 */
 const NOTE_DEF = /^\.\.\s+\[([^\]]+)\]\s+(.*)$/
 
@@ -88,6 +103,8 @@ interface RstContext {
   links: Map<string, Html>
   /** 脚注・引用のラベル → 表示のしかた。 */
   notes: Map<string, Note>
+  /** 置換の名前 → 組み上げた断片（#302）。扱えたものだけが入る。 */
+  subs: Map<string, Html>
 }
 
 /** 行頭のインデント幅（文字数）。 */
@@ -155,6 +172,19 @@ function renderInline(text: string, ctx: RstContext): Html {
     .replace(HOLE_CHARS, charEntity)
     .replace(/``([^`]+)``/g, (_, code: string) => hide(asHtml(`<code>${code}</code>`)))
 
+  // 置換参照（`|name|`、#302）。**リテラルを伏せた直後に置く**: 差し込む断片は組み上がった
+  // HTML なので、伏せておかないと中の `*` や `_` を後続の記法が食う。定義の無い名前は綴りを
+  // そのまま残す（表の罫線や `a | b` のような素の縦棒を壊さないため）。
+  //
+  // `includes` で前置きするのは、`subs.size` が文書に定義が 1 つでもあれば全段落・全セルで
+  // 真になるため。縦棒を含む散文はまれなので、ほぼ全段落が正規表現の起動を免れる（実測 8 倍）。
+  if (ctx.subs.size && out.includes('|')) {
+    out = out.replace(SUBSTITUTION_REF, (whole: string, name: string) => {
+      const html = ctx.subs.get(normalizeRefName(name))
+      return html ? hide(html) : whole
+    })
+  }
+
   // 参照（`name`_ / `name <url>`_）。行き先が分からないものは字面のまま残す。
   out = out.replace(/`([^`]+)`__?/g, (whole: string, body: string) => {
     // 中身は既にエスケープ済みの文字列から切り出したもの。
@@ -207,6 +237,35 @@ function renderInline(text: string, ctx: RstContext): Html {
     html = html.replace(HOLE_RE, (_, n: string) => done[Number(n)])
   }
   return asHtml(html)
+}
+
+/**
+ * `from` から始まるインデントされた塊を読み切って、共通インデントを外して返す（使う側は
+ * 全員そうする）。間の空行は塊の一部だが、前後のものは含めない。
+ *
+ * **`collectContext` からも呼ぶので自由関数にしてある（#302）。** `buildRstPreview` の中の
+ * クロージャだったころ、置換定義の値を読む側が同じ walk を書き直す羽目になり、空行とオプション
+ * 行の扱いが 2 通りに割れていた。
+ */
+function takeIndented(lines: string[], from: number): { body: string[]; next: number; blankFirst: boolean } {
+  const body: string[] = []
+  let j = from
+  while (j < lines.length) {
+    if (lines[j].trim() === '') {
+      body.push('')
+      j++
+      continue
+    }
+    if (indentOf(lines[j]) === 0) break
+    body.push(lines[j])
+    j++
+  }
+  // 先頭に空行があったかは返す。**脚注では段落の切れ目を意味する**（`.. [1] 一段落目` の
+  // 次に空行を置いてから続きを書くと、docutils はそこで段落を分ける）。
+  const blankFirst = body[0] === ''
+  while (body.length && body[0] === '') body.shift()
+  while (body.length && body[body.length - 1] === '') body.pop()
+  return { body: dedent(body), next: j, blankFirst }
 }
 
 /** 行の集合から、共通のインデントを外す。 */
@@ -286,9 +345,20 @@ function collectContext(lines: string[], inherited?: RstContext): RstContext {
   // **入れ子のたびに複製しない。** 塊の中に定義が無ければ親のものをそのまま使い回す。
   // 複製すると `refPattern` のキャッシュ（Map の identity をキーにする）が塊ごとに外れ、
   // リンクの多い文書で正規表現の再コンパイルが効いてくる。
-  const hasLink = lines.some((l) => LINK_TARGET.test(l))
-  const hasNote = lines.some((l) => NOTE_DEF.test(l))
-  if (!hasLink && !hasNote && inherited) return inherited
+  //
+  // **走査は 1 周にまとめる。** 定義はどれも `..` で始まるので、その 1 文字の判定で大半の行を
+  // 落としてから正規表現を当てる。3 本の `some()` を並べていたころは全行を 3 周していた
+  // （4,800 行で 185µs → 8µs）。ここは入れ子の塊ごとに呼ばれるので倍率が効く。
+  let hasLink = false
+  let hasNote = false
+  let hasSub = false
+  for (const line of lines) {
+    if (!line.startsWith('..')) continue
+    if (LINK_TARGET.test(line)) hasLink = true
+    else if (NOTE_DEF.test(line)) hasNote = true
+    else if (SUBSTITUTION.test(line)) hasSub = true
+  }
+  if (!hasLink && !hasNote && !hasSub && inherited) return inherited
 
   // **脚注の採番は文書で 1 つ**なので、Map は複製せず親のものへ足す。複製すると、入れ子の
   // 兄弟ブロック（2 つの `.. note::` の中など）がどちらも親の状態から数え直し、同じ番号と
@@ -297,6 +367,10 @@ function collectContext(lines: string[], inherited?: RstContext): RstContext {
   // リンクのほうは足すときだけ複製する。`refPattern` のキャッシュが Map の identity を
   // キーにしているので、同じ Map に足すと古い正規表現が返って新しい名前を拾えない。
   const links = hasLink ? new Map<string, Html>(inherited?.links) : (inherited?.links ?? new Map<string, Html>())
+
+  const subs = hasSub ? new Map<string, Html>(inherited?.subs) : (inherited?.subs ?? new Map<string, Html>())
+  /** 置換は本文（`links` / `notes`）が揃ってから組む。中身にリンク参照を書けるため。 */
+  const pending = new Map<string, { name: string; kind: string; parts: string[] }>()
 
   for (let i = 0; i < lines.length; i++) {
     const link = lines[i].match(LINK_TARGET)
@@ -311,10 +385,98 @@ function collectContext(lines: string[], inherited?: RstContext): RstContext {
       if (url) links.set(normalizeRefName(link[1]), escapeHtml(url))
       continue
     }
+    const sub = lines[i].match(SUBSTITUTION)
+    if (sub) {
+      // 扱えない種別（`unicode` など）もここで拾っておく。**解決を試みた事実が要る**からで、
+      // 値の中からそれを参照していた定義を「解決できなかった」と判定するのに使う。
+      pending.set(subKey(sub[1]), { name: sub[1], kind: sub[2].toLowerCase(), parts: subValue(lines, i, sub[3]) })
+      continue
+    }
     const note = lines[i].match(NOTE_DEF)
     if (note) noteFor(note[1].trim(), notes)
   }
-  return { links, notes }
+
+  const ctx: RstContext = { links, notes, subs }
+  const resolving = new Set<string>()
+
+  /**
+   * 置換を 1 つ組む（#302）。**値が参照している置換を先に解く**: `.. |a| replace:: |b| 込み`
+   * のような入れ子は docutils で正当な書き方なので、解けるものは解く。
+   *
+   * **半端に解けたものは採用しない。** 値の中に、定義があるのに解けなかった参照が残っていたら
+   * 捨てる（循環定義がここに落ちる）。採用すると、定義行は「解決済み」として本文から消える
+   * 一方で値の中の `|b|` は綴りのまま出るので、**字面に戻せる元が無い壊れた表示**になる。
+   * このファイルが避けようとしている失敗そのもので、捨てれば定義も参照も字面のまま残る。
+   */
+  function resolveSub(key: string): void {
+    // 済み、または循環の輪の中（呼び出しが自分へ戻ってきた）
+    if (subs.has(key) || resolving.has(key)) return
+    const def = pending.get(key)
+    if (!def) return
+    resolving.add(key)
+    for (const ref of def.parts.join(' ').matchAll(SUBSTITUTION_REF)) resolveSub(subKey(ref[1]))
+    resolving.delete(key)
+    const html = substitutionHtml(def.kind, def.parts, escapeHtml(def.name.trim()), ctx)
+    if (html && ![...html.matchAll(SUBSTITUTION_REF)].some((m) => pending.has(subKey(m[1])))) subs.set(key, html)
+  }
+  for (const key of pending.keys()) resolveSub(key)
+  return ctx
+}
+
+/**
+ * 置換名の照合キー（#302）。**エスケープしてから正規化する**のが要点で、参照側は
+ * `escapeHtml` 済みの本文から名前を切り出すため、生の名前をキーにすると `|Q&A|` のような
+ * 名前が永久に一致しない（定義だけ本文から消えて何も差し替わらない、という形で出る）。
+ */
+function subKey(name: string): string {
+  return normalizeRefName(escapeHtml(name))
+}
+
+/**
+ * 置換定義の値になる行を集める（#302）。
+ *
+ * **指示行の続き（インデントされた行）も値の一部。** `.. |x| replace:: 長い文の` の下に
+ * 続きを書くのは docutils で普通の書き方で、1 行目だけを採ると残りが本文にも字面にも
+ * 出ないまま消える。**オプション行（`:alt:` など）は値ではない**ので飛ばす: 引数を書かずに
+ * `.. |i| image::` と改行した文書で、`:width: 20px` を URL にしてしまうのを防ぐ。
+ */
+function subValue(lines: string[], at: number, first: string): string[] {
+  const cont = takeIndented(lines, at + 1)
+    .body.map((l) => l.trim())
+    .filter((l) => l && !FIELD.test(l))
+  return first.trim() ? [first.trim(), ...cont] : cont
+}
+
+/**
+ * 置換の中身を組むディレクティブ（#302）。**扱える種別の出典はこの表 1 つ**で、定義行を本文から
+ * 消してよいかの判定（`buildRstPreview`）も `in` で引く。実際に書かれるのは `replace` と `image`
+ * がほとんどで、それ以外（`unicode` / `date`）を半端に解釈するより、解釈できなかったものを字面で
+ * 見せるこのファイルの方針に合わせるほうが読み手を裏切らない。
+ *
+ * `label` はエスケープ済みの元の名前（キーは小文字に潰してあるので alt には使えない）。
+ *
+ * **`renderDirective` と統合しないこと。** あちらが返すのは `<div>` や `<pre>` のブロックで、
+ * `|x|` の位置（インライン）には置けない。置換で今後増える候補もすべてインライン側になる。
+ */
+const SUBSTITUTION_RENDERERS: Record<string, (parts: string[], label: Html, ctx: RstContext) => Html> = {
+  replace: (parts, _label, ctx) => renderInline(parts.join(' '), ctx),
+  // **画像は URL 1 つ**なので、続きの行があっても最初のものだけを使う（連結すると読めない src）。
+  image: (parts, label) => imageHtml(parts[0], label),
+}
+
+/** 扱えない種別と、値を持たない定義は `null`（定義行も参照も字面のまま残る）。 */
+function substitutionHtml(kind: string, parts: string[], label: Html, ctx: RstContext): Html | null {
+  if (!parts.length) return null
+  return SUBSTITUTION_RENDERERS[kind]?.(parts, label, ctx) ?? null
+}
+
+/**
+ * プレビューの `<img>`。**実体の取得は `resolveMarkdownImages` に任せる**ので、src には
+ * 書かれたパスをそのまま置く（後段が `data:` URL に差し替える）。`.. image::` と置換の
+ * `image` が共有する 1 行で、片方だけ変えると置換で書いた画像だけが壊れる。
+ */
+function imageHtml(src: string, alt: Html): Html {
+  return asHtml(`<img src="${escapeHtml(src.trim())}" alt="${alt}">`)
 }
 
 /**
@@ -346,32 +508,9 @@ export function buildRstPreview(text: string, inherited?: RstContext): string {
   /** 見出しの記号 → レベル。**出現順で決まる**のが rst の規則で、記号そのものに意味は無い。 */
   const levels: string[] = []
   const out: string[] = []
+  /** `.. meta::` の行（#302）。集める先を持てるのはルートの呼び出しだけ。 */
+  const meta: string[] = []
   let i = 0
-
-  /**
-   * インデントされた塊を読み切って、共通インデントを外して返す（使う側は全員そうする）。
-   * 間の空行は塊の一部だが、前後のものは含めない。
-   */
-  const takeIndented = (from: number): { body: string[]; next: number; blankFirst: boolean } => {
-    const body: string[] = []
-    let j = from
-    while (j < lines.length) {
-      if (lines[j].trim() === '') {
-        body.push('')
-        j++
-        continue
-      }
-      if (indentOf(lines[j]) === 0) break
-      body.push(lines[j])
-      j++
-    }
-    // 先頭に空行があったかは返す。**脚注では段落の切れ目を意味する**（`.. [1] 一段落目` の
-    // 次に空行を置いてから続きを書くと、docutils はそこで段落を分ける）。
-    const blankFirst = body[0] === ''
-    while (body.length && body[0] === '') body.shift()
-    while (body.length && body[body.length - 1] === '') body.pop()
-    return { body: dedent(body), next: j, blankFirst }
-  }
 
   while (i < lines.length) {
     const line = lines[i]
@@ -421,8 +560,21 @@ export function buildRstPreview(text: string, inherited?: RstContext): string {
     // ディレクティブ。中身はインデントされた塊。
     const directive = trimmed.match(DIRECTIVE)
     if (directive) {
-      const { body, next, blankFirst } = takeIndented(i + 1)
-      out.push(renderDirective(directive[1].toLowerCase(), directive[2], body, ctx, blankFirst))
+      const { body, next, blankFirst } = takeIndented(lines, i + 1)
+      const name = directive[1].toLowerCase()
+      // `.. meta::` は本文ではなく文書のメタデータ（docutils は `<meta>` タグにする）。
+      // **文書の頭に 1 つだけ集める**ので、集める先を持てるルートの呼び出し（＝`inherited` を
+      // 渡されていない＝入れ子ではない）でだけ拾う（#302）。入れ子では下の字面の経路へ落ちる。
+      // フィールドとして読めない行が混ざっていたときも同じく字面で出す。
+      if (name === 'meta' && !inherited) {
+        const rows = metaRows(body)
+        if (rows) {
+          meta.push(...rows)
+          i = next
+          continue
+        }
+      }
+      out.push(renderDirective(name, directive[2], body, ctx, blankFirst))
       i = next
       continue
     }
@@ -431,24 +583,29 @@ export function buildRstPreview(text: string, inherited?: RstContext): string {
     // 呼ばれるので、集める先を決められない。
     const note = trimmed.match(NOTE_DEF)
     if (note) {
-      const { body, next, blankFirst } = takeIndented(i + 1)
+      const { body, next, blankFirst } = takeIndented(lines, i + 1)
       out.push(renderNote(note[1].trim(), withLead(note[2], blankFirst, body), ctx))
       i = next
       continue
     }
 
     if (trimmed.startsWith('..')) {
-      const { body, next } = takeIndented(i + 1)
-      // **本文から消してよいのは、真のコメントとリンク定義だけ。** ここは認識できなかった
-      // 明示マークアップ全部の受け皿でもあるので、それらは字面のまま残す（置換指定など）。
-      if (!LINK_TARGET.test(line) && /^\.\.\s+\|/.test(line)) out.push(verbatim([line, ...body]))
+      const { body, next } = takeIndented(lines, i + 1)
+      // **本文から消してよいのは、真のコメント・リンク定義・差し替えられた置換定義だけ。**
+      // ここは認識できなかった明示マークアップ全部の受け皿でもあるので、それらは字面のまま
+      // 残す（`unicode::` のような、扱えなかった置換の定義を含む）。
+      // **種別まで見る。** 名前だけで引くと、同じ名前を `replace` と `unicode` の両方で
+      // 定義した文書で、差し替えに使っていないほうまで「解決済み」とみなして消してしまう。
+      const sub = trimmed.match(SUBSTITUTION)
+      const resolved = sub ? sub[2].toLowerCase() in SUBSTITUTION_RENDERERS && ctx.subs.has(subKey(sub[1])) : false
+      if (!LINK_TARGET.test(line) && /^\.\.\s+\|/.test(line) && !resolved) out.push(verbatim([line, ...body]))
       i = next
       continue
     }
 
     // 単独の `::` に続くインデント塊はリテラルブロック。
     if (trimmed === '::') {
-      const { body, next } = takeIndented(i + 1)
+      const { body, next } = takeIndented(lines, i + 1)
       out.push(verbatim(body))
       i = next
       continue
@@ -492,7 +649,7 @@ export function buildRstPreview(text: string, inherited?: RstContext): string {
       // docutils の規則: `text::` はコロンを 1 つ残し、`text ::`（空白付き）は両方落とす。
       const spaced = body.endsWith(' ::')
       body = spaced ? body.slice(0, -3).trimEnd() : `${body.slice(0, -2).trimEnd()}:`
-      const { body: block, next } = takeIndented(i)
+      const { body: block, next } = takeIndented(lines, i)
       if (block.length) {
         literal = verbatim(block)
         i = next
@@ -502,7 +659,30 @@ export function buildRstPreview(text: string, inherited?: RstContext): string {
     if (literal) out.push(literal)
   }
 
-  return out.join('\n')
+  const html = out.join('\n')
+  return meta.length ? metaBlock(meta) + html : html
+}
+
+/**
+ * `.. meta::` の中身を表の行にする（#302）。**フィールドとして読めない行が残ったら `null`**:
+ * その塊は「解釈できなかったもの」として字面のまま出す側へ回す（黙って落とさない）。
+ */
+function metaRows(body: string[]): string[] | null {
+  const { options, next } = takeOptions(body)
+  if (!options.size) return null
+  if (body.slice(next).some((l) => l.trim() !== '')) return null
+  return [...options].map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`)
+}
+
+/**
+ * 文書の頭に出すメタデータの折り畳み（#302）。**Markdown のフロントマター（#229）と同じ
+ * クラスを使う**: 見た目（`theme.css` ではなく `EditorTab` の `.md-preview :deep(.frontmatter)`）も、
+ * 開閉状態を打鍵のたびに復元する仕掛け（`trackFrontmatterToggle`）も、そのまま相乗りできる。
+ * どちらも「本文ではない、文書に付いた key/value」を畳んで頭に出すという同じ役目。
+ */
+function metaBlock(rows: string[]): string {
+  const label = `<summary>${escapeHtml(t('rst.meta'))}<span class="frontmatter-kind">META</span></summary>`
+  return `<details class="frontmatter">${label}<table><tbody>${rows.join('')}</tbody></table></details>`
 }
 
 /** `key` は記号 1 文字（下線のみ）か、それに `^` を足したもの（上線付き）。 */
@@ -554,9 +734,8 @@ function renderDirective(name: string, arg: string, body: string[], ctx: RstCont
     return `<div class="rst-admonition rst-${escapeHtml(name)}"><p class="rst-admonition-title">${escapeHtml(title)}</p>${inner}</div>`
   }
   if (name === 'image' || name === 'figure') {
-    // 実体の取得は Markdown プレビューと同じ経路（`resolveMarkdownImages`）に任せる。
     // figure のキャプション（オプション行の後ろに続く段落）も落とさずに出す。
-    const img = `<img src="${escapeHtml(arg.trim())}" alt="">`
+    const img = imageHtml(arg, asHtml(''))
     const caption = content.join('\n')
     if (name === 'figure' && caption.trim()) {
       return `<figure>${img}<figcaption>${buildRstPreview(caption, ctx)}</figcaption></figure>`

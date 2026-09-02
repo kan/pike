@@ -437,6 +437,9 @@ function buildMarkdownPreview(text: string): string {
   }
   // Collapsed by default, but a block we couldn't parse is worth showing unasked.
   const open = parsed.ok ? '' : ' open'
+  // **rst の `.. meta::` も同じマークアップを出す**（#302。`lib/rstPreview.ts` の `metaBlock`）。
+  // 下の `.md-preview :deep(.frontmatter > …)` は子結合子なので、ここの入れ子を変えると
+  // あちらが黙って素の `<details>` に戻る。`trackFrontmatterToggle` も両方が使う。
   const label = `<summary>${escapeHtml(t('frontmatter.title'))}<span class="frontmatter-kind">${block.kind.toUpperCase()}</span></summary>`
   const meta = `<details class="frontmatter${cls}"${open}>${label}${body}</details>`
   const rest = text.slice(block.bodyFrom)
@@ -638,13 +641,14 @@ async function trackFrontmatterToggle() {
 //
 // **rst も画像と見出し id の処理を通す（#284）。** `.. image::` が出す `<img src="foo.png">` は
 // この経路で `data:` URL にならないと、相対パスは webview から読めず、外部ホストは CSP に
-// 弾かれて必ず壊れた画像になる。mermaid とフロントマターは Markdown 固有なので通さない。
+// 弾かれて必ず壊れた画像になる。mermaid だけは Markdown 固有なので通さない。
+//
+// **折り畳みの追従も両方で要る（#302）。** rst の `.. meta::` は Markdown のフロントマターと
+// 同じ `details.frontmatter` で出すので、通さないと打鍵のたびに開いた状態が閉じる。
 watch(previewHtml, () => {
-  if (isMarkdown.value) {
-    renderMarkdownMermaid()
-    trackFrontmatterToggle()
-  }
+  if (isMarkdown.value) renderMarkdownMermaid()
   if (isProsePreview.value) {
+    trackFrontmatterToggle()
     resolveMarkdownImages()
     assignHeadingIds()
   }
