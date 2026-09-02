@@ -455,7 +455,7 @@ just bump X.Y.Z
 just e2e-build           # 出力を | tail に通さないこと（落ちても 0 が返る）
 just e2e
 just e2e-sync-check      # 差分を確認してから
-just e2e-sync            # マニュアル 72 枚 + ヒーロー 6 枚
+just e2e-sync            # マニュアルとヒーローの 2 本（枚数は各スクリプトが出す）
 ```
 
 同期したら、代表的な画像を目視で確認する（バージョン表記と、その回で変えた UI が写っているか）。

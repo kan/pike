@@ -72,12 +72,21 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 > `just e2e-build` の出力を `| tail` などに通さないこと。Rust のコンパイルが落ちても
 > パイプ側の終了コード 0 が返り、**古いバイナリのまま撮影して気付けない**（実際に
 > 「新しい画面が出ない」を追う羽目になった）。ログはファイルに落として `$?` を見る。
+>
+> **撮影用のビルドは開発版と同じ `target/debug/pike.exe` を差し替える。** 開発版
+> （`just dev`）や以前の撮影が動いたままだと、コンパイルは全部通ったあとに
+> `failed to remove file ... アクセスが拒否されました。 (os error 5)` で落ちる。
+> リリース前は動作確認で開発版を起動していることが多いので、撮影の前に閉じる
+> （v0.47.0 のリリースで踏んだ）。残っているかは `Get-Process pike` の `Path` で分かる
+> （インストール版は `AppData\Local\Pike\pike.exe` なので、そちらは閉じなくてよい）。
 
 3. `scripts/sync-manual-images.sh --check` でドライラン → 引数なしで `docs/manual/img/` へ同期。スクリプト内 `MAP` が「マニュアル名 ← E2E ベース名」を対応付け、ja の dark（`{名前}.png`）+ light（`{名前}-light.png`）の 2 枚を持つ（GitHub の `<picture>` 切替用）
 4. 変更画像を目視確認してコミット
 
 - 外枠付きヒーロー画像（README / overview の `screenshot-*`）は `scripts/sync-hero-images.sh`（内部で `frame-screenshot.sh` を呼ぶ）で合成・配置する。`sync-manual-images.sh` の MAP には含まれないため、**同期は 2 本を続けて走らせる `just e2e-sync`（確認は `e2e-sync-check`）を使う**。以前この合成が e2e/README の手打ちコマンドだけだったため、7-20 の再撮影でヒーローだけ v0.26 世代のまま取り残された
-- **ヒーロー画像の合成には ImageMagick（`magick`）が要る**。マニュアル画像のコピーは要らないので、`magick` が無いと**マニュアル 46 枚だけ更新されてヒーロー 6 枚が古いまま残る**（`sync-hero-images.sh` が `magick: コマンドが見つかりません` で落ちるが、先に走る `sync-manual-images.sh` は成功している）。この PC では Windows 側（`C:\Program Files\ImageMagick-7.0.10-Q16-HDRI`）にあり **WSL の PATH には無い**ので、WSL の bash で回すとここで止まる（v0.35.0 の再撮影で実際に踏んだ）。`just e2e-sync` は Git Bash で走るので `magick` が PATH で解決する（#231。それ以前は `npm run e2e:sync` が WSL の bash を掴んでいた）
+- **ヒーロー画像の合成には ImageMagick（`magick`）が要る**。マニュアル画像のコピーは要らないので、`magick` が無いと**マニュアルのぶんだけ更新されてヒーロー 6 枚が古いまま残る**（`sync-hero-images.sh` が `magick: command not found` で落ちるが、**先に走る `sync-manual-images.sh` は成功している**）。`just e2e-sync` は 2 本を続けて走らせるので、**成否は最後の行だけでなく両方の「更新 N / 同一 N」を見ること**
+  - **クリーンな環境には入っていない。** `winget install ImageMagick.Q16-HDRI` で入れる（`magick` は `AppData\Local\Microsoft\WindowsApps` の実行エイリアスとして PATH に入り、Git Bash からそのまま解決する）。v0.47.0 のリリースを clone 直後のマシンで回して実際に踏んだ
+  - 入っている環境では Windows 側にあり **WSL の PATH には無い**ので、WSL の bash で回すとここで止まる（v0.35.0 の再撮影で踏んだ）。`just e2e-sync` は Git Bash で走るので解決する（#231。それ以前は `npm run e2e:sync` が WSL の bash を掴んでいた）
 - 撮影画面を追加したら `e2e/specs/` に追記し、マニュアルで使う場合は `sync-manual-images.sh` の MAP にも対応を追加
 - **MAP に足し忘れた画像は「撮っているのに使われない」まま溜まる。** `check-docs` は
   「マニュアルが参照する画像が実在するか」と「参照されない画像が `docs/manual/img/` に残っていないか」は
