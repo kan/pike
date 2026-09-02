@@ -237,3 +237,11 @@ WSL 用の選択 UI を自前で作る必要はない。
 `resource path ... doesn't exist` で止まるので、原因が分かりにくい）。`scripts/download-rg.sh`
 は既定で `rustc -vV` のホストトリプルを見る（クロスビルドは `TARGET` を明示）。
 Windows は zip・それ以外は tar.gz と、アーカイブ形式も接尾辞の `.exe` の有無も変わる。
+
+**取得はファイルの有無だけで判定する。** スクリプトの冒頭にある `if [ -f "$OUT_FILE" ]` は
+中身のバージョンを見ないので、`VERSION` を上げても手元に古いバイナリが残っていれば
+`already exists` で素通りする。上げたときは `rm -f src-tauri/binaries/rg-*` してから
+取り直すこと。CI はクリーンなランナーなので毎回ダウンロードするが、取ってくるのは
+`VERSION` に書いてあるものであって最新版ではない（`ci.yml` / `release.yml` はどちらも
+`just fetch-rg` を呼ぶだけ）。**この差分に気付ける仕組みが無い**ので、確認する手順を
+CLAUDE.md のリリース手順の先頭に置いてある。

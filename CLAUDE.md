@@ -406,7 +406,26 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 
 新しいバージョンをリリースする際は、以下の手順を順番に実行する。ユーザからリリース依頼を受けたら、push・タグ・ドラフト公開まで含めて Claude がすべて実行する（通常のコミット運用と異なり push の個別確認は不要。CI の完了待ちはバックグラウンド watch で行う）。
 
-### 1. バージョン番号の更新
+### 1. rg サイドカーのバージョン確認
+
+`scripts/download-rg.sh` の `VERSION` を [ripgrep のリリース](https://github.com/BurntSushi/ripgrep/releases)
+と突き合わせ、新しい版が出ていれば上げる。上げたら**手元のバイナリを消してから取り直す**:
+
+```bash
+rm -f src-tauri/binaries/rg-*
+just fetch-rg
+```
+
+**この確認を自動でやる仕組みは無い。** dependabot が見るのは npm / cargo / github-actions の
+3 つで、シェルスクリプトの中のバージョン文字列は対象外。CI も同じスクリプトを呼ぶだけなので、
+`VERSION` が古いままなら CI が作る成果物も古いままになる（毎回ダウンロードすることと、
+毎回最新を取ることは別）。消してから取り直すのは、スクリプトがファイルの有無しか見ないため
+（詳細は `.claude/rules/platform.md`）。
+
+バイナリは `.gitignore` 済みなので、コミットするのは `scripts/download-rg.sh` だけ。
+バージョン bump とは別のコミットにする（`chore: rg サイドカーを X.Y.Z に上げる`）。
+
+### 2. バージョン番号の更新
 
 ```bash
 just bump X.Y.Z
@@ -422,12 +441,12 @@ just bump X.Y.Z
 
 `scripts/bump-version.mjs` は置換が 1 箇所だけ当たることを確認してから書く（依存の version 行を巻き込んだら止まる）。`package-lock.json` は v0.38.0 まで手順から抜けていて、`0.37.0` のまま取り残されていた（dependabot 対応で lockfile を触ったときに発覚）。レシピにしたのはこれを繰り返さないため。
 
-### 2. CHANGELOG.md の更新
+### 3. CHANGELOG.md の更新
 
 `CHANGELOG.md` の先頭に新しいセクションを追加し、**「ドキュメント校正ルール」の校正をかける**
 （今回足した節だけが対象。過去の節は出荷済みの記録なので触らない）。
 
-### 3. スクリーンショットの撮り直し
+### 4. スクリーンショットの撮り直し
 
 **マイナー bump のリリースでは必ず撮り直す。** 画像には StatusBar のバージョンが写るので、
 **bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順。詳細は `.claude/rules/build.md`）。
@@ -445,7 +464,7 @@ just e2e-sync            # マニュアル 72 枚 + ヒーロー 6 枚
 
 画像はバージョン bump とは別のコミットにする（`docs: vX.Y.Z でスクリーンショットを撮り直す`）。
 
-### 4. コミット & プッシュ
+### 5. コミット & プッシュ
 
 ```bash
 git add src-tauri/tauri.conf.json package.json src-tauri/Cargo.toml src-tauri/Cargo.lock package-lock.json CHANGELOG.md
@@ -455,11 +474,11 @@ git push origin main
 
 **2 つの lockfile を含めること**。忘れると作業ツリーに drift が残り、あとから `chore: Cargo.lock を vX.Y.Z に同期` という追加コミットが必要になる（過去に何度も発生）。
 
-### 5. Security Check の確認
+### 6. Security Check の確認
 
 GitHub Actions の `Security Check` ワークフローが成功することを確認する。
 
-### 6. タグの作成 & プッシュ
+### 7. タグの作成 & プッシュ
 
 ```bash
 git tag vX.Y.Z
@@ -476,7 +495,7 @@ Developer ID 署名・公証済みで、updater の対象**（#283。詳細は `
 （片方のジョブが落ちたときに起きうる。理由は `.claude/rules/build.md`）。
 足りなければ公開せず、直してタグを打ち直す。
 
-### 7. リリースの公開
+### 8. リリースの公開
 
 ワークフロー完了後、GitHub Releases でドラフトを確認し、リリースノートを記載して公開する:
 
