@@ -27,18 +27,10 @@ const accent = useProjectAccent()
 
 const open = ref(false)
 
-/**
- * 行き先の一覧（#264 のチップ列と同じ中身）。**並びはタブを持ち始めた順で固定**し、選択で
- * 入れ替えない（押すたびに行き先が動くと狙えない）。一時プロジェクト（#230）は入れない:
- * 切り替えると破棄されるので、この一覧の約束（戻ればそのままある）を満たさない。
- */
-const entries = computed(() => {
-  const list = [...projectStore.heldProjects]
-  // タブがまだ 1 つも無いプロジェクトも「現在地」として出す（並びの末尾）。
-  const current = projectStore.currentProject
-  if (current && !projectStore.isTransient && !list.some((p) => p.id === current.id)) list.push(current)
-  return list
-})
+// 行き先の一覧はストアの `heldProjects` をそのまま出す（並びも、一時プロジェクトを
+// 入れない理由も、あちらの `heldIds` の doc が正本）。以前ここにあった「現在地を末尾に
+// 足す」フォールバックは、タブを 1 つも持たないプロジェクトも保持に載るようになった
+// ぶん要らなくなった（#301）。
 
 /**
  * バーの下地。**プロジェクトカラーを設定していればそれを敷く**（サイドバーのアイコン列と
@@ -102,7 +94,7 @@ onUnmounted(() => window.removeEventListener('mousedown', closeMenu))
     </button>
     <div v-if="open" class="project-menu popup-surface">
       <div
-        v-for="entry in entries"
+        v-for="entry in projectStore.heldProjects"
         :key="entry.id"
         class="menu-row"
         :class="{ current: entry.id === projectStore.currentProject.id }"
@@ -129,7 +121,7 @@ onUnmounted(() => window.removeEventListener('mousedown', closeMenu))
         </button>
       </div>
       <!-- 区切るものが無いとき（起動直後に一時プロジェクトだけ、など）は線を出さない。 -->
-      <div v-if="entries.length > 0" class="menu-divider" />
+      <div v-if="projectStore.heldProjects.length > 0" class="menu-divider" />
       <button class="menu-item" @click="openSwitcher">
         <FolderOpen :size="14" :stroke-width="2" />
         <span>{{ t('project.openSwitcher') }}</span>

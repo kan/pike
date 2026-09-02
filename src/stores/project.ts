@@ -111,27 +111,42 @@ export const useProjectStore = defineStore('project', () => {
 
   /**
    * このウィンドウが持っているプロジェクトの id（#264）。**並びはここで決まり、以後
-   * 変わらない**: タブを持った順に足し、手放すまで残す。タブバーのチップがこの順なので、
+   * 変わらない**: 開いた順に足し、手放すまで残す。タブバーのチップがこの順なので、
    * 切り替えるたびに並びが動くと狙って押せなくなる。
    *
-   * タブをまだ作っていないもの（前回の保持を復元しただけ）も入る。**起動時にタブまで
-   * 作らない**のは、タブの中身が常にマウントされる＝作った瞬間にその数だけシェルが
-   * 立ち上がるため。切り替えたときに通常のセッション復元が走る（`switchProject` は
-   * 「タブが無ければ復元する」なので、そのまま乗る）。
+   * **タブを 1 つも持たないものも入る。** 前回の保持を復元しただけのものと、開いたまま
+   * タブを作らなかった・全部閉じたもの（#301）。**起動時にタブまで作らない**のは、
+   * タブの中身が常にマウントされる＝作った瞬間にその数だけシェルが立ち上がるため。
+   * 切り替えたときに通常のセッション復元が走る（`switchProject` は「タブが無ければ
+   * 復元する」なので、そのまま乗る）。
+   *
+   * **手放す入口は ✕（`releaseProject`）だけに保つこと（#301）。** ウィンドウを閉じると
+   * Rust 側の `Destroyed` がそのウィンドウの `window_projects` を drain し、ここにある
+   * ぶんが `last_project.txt` ごと消える。登録せずに開いたディレクトリ（#230）なら一覧にも
+   * 残らないので戻る手段が無い。だから**タブが尽きたことを理由にウィンドウを閉じない**
+   * （`Mod+W` が最後の 1 枚の次の打鍵で閉じていたのが #301 の症状）。閉じてよいかを
+   * 決めるのは `App.vue` の `tabs.length` の watcher 1 箇所で、ウィンドウを閉じる操作
+   * （✕ / `Mod+Shift+W` / トレイ）で保持が終わるのは仕様どおり。
    */
   const heldIds = ref<string[]>([])
 
-  // タブを持ったものを末尾に足す。**消すのは手放したときだけ**（`forgetHeld`）で、
-  // タブが 0 になっても並びは保つ。
+  // タブを持ったものと、**いま見せているもの**を末尾に足す。**消すのは手放したときだけ**
+  // （`forgetHeld`）で、タブが 0 になっても並びは保つ。
+  //
+  // 見せているものを足すのは、**タブを 1 つも持たないプロジェクトも保持するため**（#301）。
+  // `switchProject` は `lastSession` も `pinnedTabs` も空ならタブを作らないので、タブを
+  // 持ったものだけを見ていると、そこから別のプロジェクトへ移った時点で保持から外れる。
   //
   // **一時プロジェクト（#230）は入れない。** あれは切り替えると破棄されるので、
-  // 「戻ってきたらそのままある」ものだけを並べるチップ列とは意味が合わない
+  // 「戻ってきたらそのままある」ものだけを並べる一覧とは意味が合わない
   // （出るのに戻れない、という食い違いになる）。
   watch(
-    () => useTabStore().projectIdsWithTabs,
+    () => [...useTabStore().projectIdsWithTabs, currentProject.value?.id],
     (ids) => {
       for (const id of ids) {
-        if (id !== transientProject.value?.id && !heldIds.value.includes(id)) heldIds.value.push(id)
+        if (id && id !== transientProject.value?.id && !heldIds.value.includes(id)) {
+          heldIds.value.push(id)
+        }
       }
     },
     { immediate: true },
@@ -159,7 +174,11 @@ export const useProjectStore = defineStore('project', () => {
     forgetHeld(id)
   }
 
-  /** 復元した保持一覧を入れる（#264）。今見せているものを先頭に、記録の順で続ける。 */
+  /**
+   * 復元した保持一覧を入れる（#264）。今見せているものを先頭に、記録の順で続ける。
+   *
+   * 先頭に置くのは**並びのため**で、載せる仕事ではない（現在地は上の watch が入れる）。
+   */
   function setHeldProjects(ids: string[]) {
     const current = currentProject.value?.id
     heldIds.value = [...new Set([...(current ? [current] : []), ...ids])]

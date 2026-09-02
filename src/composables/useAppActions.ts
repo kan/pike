@@ -90,12 +90,14 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     projectSwitcher: () => projectStore.toggleSwitcher(),
     newTerminal: () => openTerminal(),
     newFile: () => tabStore.addBlankEditorTab(),
-    // タブが 1 つも無ければウィンドウを閉じる。macOS の ⌘W はタブを畳みきったら
-    // ウィンドウに進むのが慣習で、グローバルモードのウィンドウが最後のタブを
-    // 閉じた時点で自分から閉じるのとも揃う。
+    /**
+     * **タブが尽きたら何もしない（#301）。** ウィンドウを閉じてよいかを決めるのはここでは
+     * なく `App.vue` の `tabs.length` の watcher で、あちらはタブが尽きる全経路（コンテキスト
+     * メニューの一括クローズ、プロセス終了による自動クローズ）を見ている。ここで閉じると、
+     * 保持しているプロジェクトを失う条件が `Mod+W` にだけぶら下がる（理由は `heldIds`）。
+     */
     closeTab: () => {
       if (tabStore.activeTabId) tabStore.closeTab(tabStore.activeTabId)
-      else void getCurrentWindow().close()
     },
     // `close()` は CloseRequested を経由するので、close-to-tray・実行中ターミナルの
     // 確認・セッション保存という既存の閉じる経路にそのまま乗る。
