@@ -1,5 +1,5 @@
 use base64::Engine as _;
-use crate::types::{ShellConfig, bash_quote, wait_with_timeout};
+use crate::types::{ShellConfig, bash_quote, git_args, wait_with_timeout};
 use encoding_rs::Encoding;
 use serde::Serialize;
 use std::io::Write as IoWrite;
@@ -217,18 +217,10 @@ fn check_ignored(
     if names.is_empty() {
         return HashSet::new();
     }
-    // `-C <dir>` resolves the repo from the listed directory; `core.quotePath=false`
-    // keeps non-ASCII names verbatim (otherwise git octal-escapes them and the match
-    // fails); `--` guards flag-like names. Output is one ignored name per line.
-    // (`-z` is rejected without `--stdin`, so we split on newlines instead.)
-    let mut args: Vec<&str> = vec![
-        "-c",
-        "core.quotePath=false",
-        "-C",
-        dir,
-        "check-ignore",
-        "--",
-    ];
+    // `git_args` supplies `-C <dir>` and the quoting flag (non-ASCII names must
+    // come back verbatim or the match below misses); `--` guards flag-like names. Output is one ignored name per line. (`-z` is rejected
+    // without `--stdin`, so we split on newlines instead.)
+    let mut args: Vec<&str> = git_args(dir, &["check-ignore", "--"]);
     args.extend_from_slice(names);
     match shell.run("git", &args) {
         Ok((_code, stdout, _stderr)) => stdout

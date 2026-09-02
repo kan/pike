@@ -1,4 +1,4 @@
-use crate::types::{ShellConfig, bash_quote};
+use crate::types::{ShellConfig, git_args, git_bash_prefix};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
@@ -95,25 +95,19 @@ fn truncate_diff(output: String) -> String {
 }
 
 fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, String> {
-    let mut full_args = vec!["-C", root];
-    full_args.extend(args);
-    shell.run_stdout("git", &full_args)
+    shell.run_stdout("git", &git_args(root, args))
 }
 
 /// Like `run_git` but hands back the exit code and both streams, for the
 /// callers that need to say more than "it failed".
 fn run_git_full(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<(i32, String, String), String> {
-    let mut full_args = vec!["-C", root];
-    full_args.extend(args);
-    shell.run("git", &full_args)
+    shell.run("git", &git_args(root, args))
 }
 
 /// Like `run_git` but returns stdout regardless of exit code. Used for
 /// commands like `git diff --no-index` that exit with code 1 when files differ.
 fn run_git_raw_stdout(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, String> {
-    let mut full_args = vec!["-C", root];
-    full_args.extend(args);
-    let output = shell.run_raw("git", &full_args)?;
+    let output = shell.run_raw("git", &git_args(root, args))?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
@@ -305,11 +299,11 @@ type StateFiles = std::collections::HashMap<&'static str, String>;
 /// same trick `remote_urls_wsl` uses. A second round trip per 10 s poll is the
 /// one cost worth avoiding here; everything else about the probe is cheap.
 fn status_and_state_wsl(shell: &ShellConfig, root: &str) -> Result<(String, StateFiles), String> {
-    let q = bash_quote(root);
+    let git = git_bash_prefix(root);
     let mut script = format!(
-        "git -C {q} status --porcelain=v2 --branch --untracked-files=all || exit 1\n\
+        "{git} status --porcelain=v2 --branch --untracked-files=all || exit 1\n\
          printf '{RS}'\n\
-         d=$(git -C {q} rev-parse --absolute-git-dir 2>/dev/null)\n"
+         d=$({git} rev-parse --absolute-git-dir 2>/dev/null)\n"
     );
     for (name, read) in OP_STATE_FILES {
         // One record per entry, in table order: `exists FS contents`. Positional
@@ -632,7 +626,7 @@ pub async fn git_commit(
         // Route through user-PATH variant so commit hooks, gpg.ssh.program,
         // and other user-installed binaries resolve (Pike's default WSL spawn
         // bypasses bash and misses ~/.local/bin, ~/bin, etc.).
-        shell.run_stdout_with_user_path("git", &["-C", &root, "commit", "-m", &message])?;
+        shell.run_stdout_with_user_path("git", &git_args(&root, &["commit", "-m", &message]))?;
         Ok(())
     })
     .await
@@ -879,8 +873,8 @@ fn remote_urls_wsl(shell: &ShellConfig, roots: &[String]) -> Result<Vec<Option<S
         .iter()
         .map(|root| {
             format!(
-                "git -C {} remote get-url origin 2>/dev/null | head -n1 | tr -d '\\r\\n'; echo",
-                bash_quote(root)
+                "{} remote get-url origin 2>/dev/null | head -n1 | tr -d '\\r\\n'; echo",
+                git_bash_prefix(root)
             )
         })
         .collect::<Vec<_>>()
@@ -1068,7 +1062,8 @@ pub async fn git_show_file_base64(
     path: String,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
-        let output = shell.run_raw("git", &["-C", &root, "show", &format!("{hash}:{path}")])?;
+        let spec = format!("{hash}:{path}");
+        let output = shell.run_raw("git", &git_args(&root, &["show", &spec]))?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
         }

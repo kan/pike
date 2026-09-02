@@ -32,6 +32,41 @@ pub fn silent_command(program: &str) -> Command {
 /// no `go` and reported an empty (not failed) run.
 pub const WSL_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.cargo/bin:$HOME/go/bin:/usr/local/bin:/usr/local/go/bin";
 
+/// `-c core.quotePath=false`, which every git invocation carries (#300).
+///
+/// The default is `true`, and it makes git octal-escape non-ASCII paths
+/// (`"7-\346\226\260\350\246\217.txt"`). Nothing downstream unquotes, so those
+/// bytes reach the panel verbatim, and `fs::check_ignore`'s name matching
+/// misses. It is **not** a macOS thing — the default is the same everywhere,
+/// and the reporter simply had no `core.quotePath` in their config.
+///
+/// This only covers non-ASCII. A path holding `"`, `\` or a control character
+/// stays C-quoted even with the flag; killing that needs `-z`, which changes
+/// how porcelain v2 separates rename pairs and is left for its own change.
+pub const QUOTEPATH_OFF: [&str; 2] = ["-c", "core.quotePath=false"];
+
+/// The arguments that prefix every git invocation: `QUOTEPATH_OFF` and the
+/// repository to run in. Callers append their own subcommand and arguments.
+///
+/// Lives here rather than in `git/` because `fs::check_ignore` needs the same
+/// prefix; keeping only the const shared meant the *shape* was still written
+/// twice, and the next flag added to it would land in one file only.
+pub fn git_args<'a>(root: &'a str, args: &[&'a str]) -> Vec<&'a str> {
+    [&QUOTEPATH_OFF[..], &["-C", root], args].concat()
+}
+
+/// `git_args` for the places that build a bash line instead of an argv —
+/// the WSL helpers that fold several git calls into one `wsl.exe` spawn.
+///
+/// **Use it for every git call in those scripts, not just the ones that print
+/// paths.** The flag is harmless on `rev-parse` and `remote get-url`, and
+/// "all of them" is a rule the next editor cannot get wrong; "the ones I
+/// reasoned about" silently reintroduces the escaping the moment someone adds
+/// a `git diff --name-only` to the script.
+pub fn git_bash_prefix(root: &str) -> String {
+    format!("git {} -C {}", QUOTEPATH_OFF.join(" "), bash_quote(root))
+}
+
 /// `WSL_EXTRA_PATH` の macOS / Linux 版。**WSL 以上に必要**で、理由は
 /// Finder / Dock から起動した GUI プロセスが `launchd` の最小 PATH
 /// （`/usr/bin:/bin:/usr/sbin:/sbin`）しか継承しないこと。ターミナルから
