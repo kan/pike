@@ -101,6 +101,47 @@ macOS ユーザーは、使用量・レート・セッション一覧のすべ�
 気付く先は StatusBar のアカウント行）。直すなら WSL 側と同じ `-lic` プローブを `Unix` の腕にも
 生やすことになるが、macOS で起動のたびに対話シェルを 1 本起こす代償が付く。
 
+## プライバシー保護されたリソース（TCC、#296）
+
+ターミナルで走らせたコマンドがカレンダー等を触ると、TCC は**責任プロセス**（＝Pike）に
+対して可否を決める。実体は `src-tauri/entitlements.plist` と `src-tauri/Info.plist`。
+
+**署名すると要件が 1 つ増える。** `codesign --options runtime`（hardened runtime）は
+既定でリソースアクセスを禁じ、entitlement で個別に開ける。未署名だった頃は
+usage description の不在だけが問題だったので、**署名前の分析のまま Info.plist だけ
+足すと「開発ビルドでは直るのに配布物では直らない」**という気付きにくい状態になる。
+
+```
+tccd: Prompting policy for hardened runtime; service: kTCCServiceCalendar
+      requires entitlement com.apple.security.personal-information.calendars
+tccd: Policy disallows prompt for Sub:{com.pike.dev}; access denied
+```
+
+- **entitlement と usage description は対で要る。** entitlement が無いとダイアログ自体が
+  出ず、usage description が無いと出せるダイアログでも拒否される
+- **`entitlements.plist` に XML コメントを書かないこと。** codesign が使う AMFI の
+  パーサはコメントを解釈せず、`Failed to parse entitlements: AMFIUnserializeXML:
+  syntax error near line N` でビルドが落ちる（`Info.plist` 側は寛容なパーサなので通る）。
+  だから理由はこのファイルに書いてある
+- **リソースアクセス系は一通り宣言する。** 任意のコマンドを走らせる以上どれが要るかを
+  予測できず、一部だけ開けると次に別のリソースを触るコマンドで同じ無言の失敗を踏む。
+  iTerm2 も同じ組を宣言している。**entitlement は「許可」ではなく「ユーザーに尋ねる権利」**で、
+  実際の可否は毎回ダイアログでユーザーが決める。宣言しても起動しただけでは
+  ダイアログは出ない（WebView が起動時に出すのは能力の事前問い合わせで、
+  実アクセスまでプロンプトに至らない。実機で確認）
+- **宣言が要らないものもある。** デスクトップ・書類・ダウンロードのフォルダは何もしなくても
+  プロンプトが出る（文言は OS が用意する）。**子プロセス発の AppleEvents も同じ**で、
+  `osascript` は Apple 署名なので `accessing` 側の制約に当たらない
+  （`NSAppleEventsUsageDescription` を置いてあるのは Pike 自身の WebView が出す要求のため）
+- **フルディスクアクセス・画面収録・入力監視は entitlement では開かない。** ユーザーが
+  システム設定で Pike を追加するもので、手順は `docs/manual/terminal-and-agents.md` にある
+- **許可は再ビルドをまたいで持続する**（#283 の署名が前提）。TCC のレコードは指定要件
+  （`identifier "com.pike.dev" and anchor apple generic and ... leaf[subject.OU] = <Team ID>`）に
+  紐付くので、cdhash が変わっても一致する。ad-hoc 署名では `anchor apple generic` を
+  満たせず、更新のたびに許可が消えていた
+- 調査は `log show --last 3m --info --debug --predicate 'process == "tccd"'`。
+  検証をやり直すときは `tccutil reset All com.pike.dev` で記録を消す
+
 ## キーボードショートカット（#254）
 
 **`Cmd` 付きのショートカットは macOS のネイティブメニューが唯一の入口。** メニューの

@@ -36,6 +36,9 @@
         "installerHooks": "nsis/hooks.nsi"
       }
     },
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    },
     "createUpdaterArtifacts": true,
     "externalBin": [
       "binaries/rg"

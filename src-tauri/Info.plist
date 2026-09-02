@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    TCC の許可ダイアログに出る説明文（#296）。tauri のバンドラが生成物の
+    Info.plist にマージする（bundle.macOS.infoPlist の指定は要らない）。
+    entitlements.plist と対で要る。**なぜこの組なのかは
+    .claude/rules/platform.md の「プライバシー保護されたリソース」が正本。**
+
+    文言は「ユーザーが打ったコマンドの代わりに Pike が尋ねている」ことが
+    分かる形にする。Pike 自身が欲しがっているように読めると不審に見える。
+    plist に参照の仕組みは無いので、対になるキー（Calendars / Reminders の
+    通常版と FullAccess 版）は同じ文言を書き写す。直すときは両方直す。
+
+    英語なのはアプリの既定ロケールが en のため。日本語にするなら
+    Resources/{ja,en}.lproj/InfoPlist.strings を bundle.macOS.files で
+    同梱する形になる。
+  -->
+  <key>NSCalendarsUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking to read your calendars.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking to read your calendars.</string>
+
+  <key>NSRemindersUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking to read your reminders.</string>
+  <key>NSRemindersFullAccessUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking to read your reminders.</string>
+
+  <key>NSContactsUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking to read your contacts.</string>
+
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking to read your photo library.</string>
+
+  <key>NSCameraUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking to use the camera.</string>
+
+  <key>NSMicrophoneUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking to use the microphone.</string>
+
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking for your location.</string>
+
+  <key>NSAppleEventsUsageDescription</key>
+  <string>A command you run in a Pike terminal is asking to control another app.</string>
+</dict>
+</plist>

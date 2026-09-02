@@ -101,6 +101,8 @@ pike/
 ├── src-tauri/
 │   ├── Cargo.toml
 │   ├── tauri.conf.json
+│   ├── Info.plist         # macOS の TCC 許可ダイアログの説明文（#296。tauri がマージする）
+│   ├── entitlements.plist # macOS の hardened runtime のリソースアクセス（#296。XML コメント不可）
 │   └── src/
 │       ├── main.rs            # Tauri エントリポイント
 │       ├── lib.rs             # Tauri Builder 設定・コマンド登録
