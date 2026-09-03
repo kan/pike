@@ -4,7 +4,7 @@
 // 「文章として正しいか」は見ない。人間が見落とす類の乖離だけを対象にする:
 //   1. src/ と src-tauri/src/ のファイルが CLAUDE.md のディレクトリ構成に載っているか
 //   2. CLAUDE.md と .claude/rules/ が挙げるファイルパスが実在するか（削除・改名の取り残し）
-//   3. ドキュメントがバッククォートで挙げるシンボル名が実在するか（関数の改名・削除の取り残し）
+//   3. CLAUDE.md と .claude/rules/ が挙げるシンボル名が実在するか（関数の改名・削除の取り残し）
 //   4. README とマニュアルが参照する画像が実在するか / 使われていない画像が残っていないか
 //   5. md 間のリンクとページ内アンカーが解決するか（Pike のプレビューと同じ slug 規則）
 //
@@ -81,12 +81,15 @@ for (const file of noteFiles) {
 // fenced blocks come out before any scan below.
 const stripFences = (body) => body.replace(/```[\s\S]*?```/g, '')
 
-// --- 3. ドキュメントが挙げるシンボル名が実在するか ------------------------------
+// --- 3. 開発ノートが挙げるシンボル名が実在するか --------------------------------
 // 2 がファイルパスしか見ないので、**関数の改名・削除はここまで素通りしていた**（棚卸しで
 // 一度に 9 件見つかった: `build_git_command` / `find_project_window` / `AppState` など）。
 // バッククォート 1 つで囲まれた識別子だけを対象にする。`` `Mod+Shift+P` `` や
 // `` `git status` `` のように識別子以外の文字を含むものは、正規表現の時点で当たらない。
-const ALL_DOCS = [...noteFiles, 'README.md', ...walk('docs/manual').filter((p) => p.endsWith('.md'))]
+//
+// **対象は開発ノート（CLAUDE.md と .claude/rules）だけ。** README とマニュアルは
+// 読み手が利用者で、`getUser` のような**架空の例**が普通に出てくる（実際に誤検出した）。
+// 実装を指しているつもりの名前が並ぶのは開発ノートのほうで、9 件の取り残しも全部そこにあった。
 
 // **コーパスは追跡ファイルだけ**（`git ls-files`）。ディレクトリを歩くと、生成物や手元の
 // 作業ファイルまで名前の出典になり、**手元では通って CI で落ちる**。実際に踏んだ:
@@ -165,7 +168,7 @@ for (const file of tracked) {
 // 対象外。`_` を含む・camelCase の段差がある・全部大文字、のどれかだけを名前とみなす。
 const looksLikeSymbol = (name) => name.includes('_') || /[a-z][A-Z]/.test(name) || /^[A-Z0-9]+$/.test(name)
 
-for (const file of ALL_DOCS) {
+for (const file of noteFiles) {
   const body = stripFences(file === 'CLAUDE.md' ? claudeMd : read(file))
   const seen = new Set()
   for (const m of body.matchAll(/`([A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.)[A-Za-z_][A-Za-z0-9_]*)*)(?:\(\))?`/g)) {
