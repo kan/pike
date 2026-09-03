@@ -4,8 +4,9 @@
 // 「文章として正しいか」は見ない。人間が見落とす類の乖離だけを対象にする:
 //   1. src/ と src-tauri/src/ のファイルが CLAUDE.md のディレクトリ構成に載っているか
 //   2. CLAUDE.md と .claude/rules/ が挙げるファイルパスが実在するか（削除・改名の取り残し）
-//   3. README とマニュアルが参照する画像が実在するか / 使われていない画像が残っていないか
-//   4. md 間のリンクとページ内アンカーが解決するか（Pike のプレビューと同じ slug 規則）
+//   3. ドキュメントがバッククォートで挙げるシンボル名が実在するか（関数の改名・削除の取り残し）
+//   4. README とマニュアルが参照する画像が実在するか / 使われていない画像が残っていないか
+//   5. md 間のリンクとページ内アンカーが解決するか（Pike のプレビューと同じ slug 規則）
 //
 // 実装を変えたらこれが落ちる、という関係にしておくのが目的なので、判断の要る
 // 「機能の説明が実装と合っているか」は CLAUDE.md「コミット前チェック」の手順側に置く。
@@ -76,7 +77,105 @@ for (const file of noteFiles) {
   }
 }
 
-// --- 3. 画像の参照 -------------------------------------------------------------
+// Markdown inside code is notation being documented, not markup to follow, so
+// fenced blocks come out before any scan below.
+const stripFences = (body) => body.replace(/```[\s\S]*?```/g, '')
+
+// --- 3. ドキュメントが挙げるシンボル名が実在するか ------------------------------
+// 2 がファイルパスしか見ないので、**関数の改名・削除はここまで素通りしていた**（棚卸しで
+// 一度に 9 件見つかった: `build_git_command` / `find_project_window` / `AppState` など）。
+// バッククォート 1 つで囲まれた識別子だけを対象にする。`` `Mod+Shift+P` `` や
+// `` `git status` `` のように識別子以外の文字を含むものは、正規表現の時点で当たらない。
+const ALL_DOCS = [...noteFiles, 'README.md', ...walk('docs/manual').filter((p) => p.endsWith('.md'))]
+
+/** 実装の側にある名前だけを対象にする（コーパスに使わないファイル）。 */
+const CORPUS_SKIP_DIRS = new Set(['node_modules', '.git', '.claude', 'docs', 'target', 'dist', 'artifacts', 'binaries'])
+// **自分自身も外す。** 下の許可リストと「9 件見つかった」の例が消えた名前を並べているので、
+// コーパスに入れると、まさに検出したい名前を自分で実在扱いにしてしまう（実際にそうなった）。
+const CORPUS_SKIP_FILES = new Set(['package-lock.json', 'Cargo.lock', 'check-docs.mjs'])
+const CORPUS_SKIP_EXT = /\.(md|png|jpg|svg|ico|icns|log)$/i
+
+/**
+ * 他所の名前。**Pike のコードに無いのが正しい**ので、実在チェックから外す。
+ * ブラウザ / xterm / CodeMirror / tauri / serde / Win32 / git / Apple のもの。
+ */
+const EXTERNAL_NAMES = [
+  'DisabledCspModificationKind', // tauri の config の型
+  'MERGE_MSG', // git が書く状態ファイル（Pike は読まない）
+  'ReadDirectoryChangesW', // Win32（notify クレート経由）
+  'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）
+  'WORK', // 同期ファイルの例に出てくるグループ名
+  '__VERSION__', // tauri-action がタグ名に埋めるプレースホルダ
+  '_keyDown', // xterm 内部
+  'addKeymap', // @codemirror/lang-markdown のオプション
+  'brotliDecompressSync', // node の zlib
+  'defaultPrevented', // DOM
+  'deny_unknown_fields', // serde の属性
+  'evaluateKeyboardEvent', // xterm 内部
+  'ld_prime', // Xcode 15 の新リンカ
+  'offsetLeft', // DOM
+  'offsetParent', // DOM
+  'replace_csp_nonce', // tauri 内部
+  'runHandlers', // CodeMirror 内部
+  'set_csp', // tauri 内部（manager::set_csp）
+  // このスクリプト自身の識別子。自分をコーパスから外している以上、外の名前と同じ扱いになる。
+  'EXTERNAL_NAMES',
+  'GONE_NAMES',
+]
+
+/**
+ * **無いことを説明するために出てくる名前。** 「旧 X は廃止」「X という変数は存在しない」の
+ * 類で、実在しないほうが正しい。消えた経緯ごと記録してあるので、この一覧から外すときは
+ * 本文のほうも見直すこと。
+ */
+const GONE_NAMES = [
+  'AppState', // 1 つにまとめていない、と rust.md が書くための名前
+  'build_git_command', // このチェックが無かったころの取り残しの例（CLAUDE.md）
+  'CLAUDE_CONFIG_PATH', // issue の表題にあるが実在しない変数（agent.md）
+  'getWindowProjectId', // #175 で廃止
+  'inlineSmallTextFiles', // #275 で削除
+  'tryInlineFile', // #275 で削除
+  'window_project_id', // #175 で廃止
+]
+
+const allowedNames = new Set([...EXTERNAL_NAMES, ...GONE_NAMES])
+
+function walkAll(dir, out = []) {
+  for (const entry of readdirSync(join(root, dir || '.'))) {
+    if (CORPUS_SKIP_DIRS.has(entry) || CORPUS_SKIP_FILES.has(entry)) continue
+    const rel = dir ? `${dir}/${entry}` : entry
+    if (statSync(join(root, rel)).isDirectory()) walkAll(rel, out)
+    else if (!CORPUS_SKIP_EXT.test(rel)) out.push(rel)
+  }
+  return out
+}
+
+// 実装だけでなく設定・ワークフロー・スクリプトも読む。`APPLE_API_KEY` や
+// `FriendlyAppName` のように、ドキュメントが挙げる名前の出典がそちらにあるものが多い。
+const corpusNames = new Set()
+for (const file of walkAll('')) {
+  for (const token of read(file).match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) corpusNames.add(token)
+}
+
+// 1 語の小文字（`auto` / `editable` のような値リテラルや英単語）は散文と見分けが付かないので
+// 対象外。`_` を含む・camelCase の段差がある・全部大文字、のどれかだけを名前とみなす。
+const looksLikeSymbol = (name) => name.includes('_') || /[a-z][A-Z]/.test(name) || /^[A-Z0-9]+$/.test(name)
+
+for (const file of ALL_DOCS) {
+  const body = stripFences(file === 'CLAUDE.md' ? claudeMd : read(file))
+  const seen = new Set()
+  for (const m of body.matchAll(/`([A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.)[A-Za-z_][A-Za-z0-9_]*)*)(?:\(\))?`/g)) {
+    // `types::os_open` や `EditorView.editable` は末尾の 1 語で照合する（手前は
+    // モジュール名や型名で、コードの側では別の綴りになっていることがある）。
+    const name = m[1].split(/::|\./).pop()
+    if (name.length < 4 || seen.has(name)) continue
+    if (allowedNames.has(name) || !looksLikeSymbol(name) || corpusNames.has(name)) continue
+    seen.add(name)
+    fail(`${file} が実在しないシンボルを参照: ${name}`)
+  }
+}
+
+// --- 4. 画像の参照 -------------------------------------------------------------
 const docFiles = ['README.md', ...walk('docs/manual').filter((p) => p.endsWith('.md'))]
 const docBodies = new Map(docFiles.map((f) => [f, read(f)]))
 const referenced = new Set()
@@ -97,7 +196,7 @@ for (const stray of readdirSync(join(root, 'docs')).filter((e) => e.endsWith('.p
   fail(`画像は docs/manual/img/ に置く: docs/${stray}`)
 }
 
-// --- 4. リンクとアンカー -------------------------------------------------------
+// --- 5. リンクとアンカー -------------------------------------------------------
 // src/lib/slug.ts と同一規則。あちらを変えたらここも変える必要があるので、
 // 期待する 2 つの置換が残っているかを確かめてから使う。
 const slugTs = read('src/lib/slug.ts')
@@ -113,12 +212,9 @@ const slug = (text) =>
     .trim()
     .replace(/\s/g, '-')
 
-// Markdown inside code is notation being documented, not markup to follow, so
-// code comes out before either scan. The two want different amounts removed:
-// a link (`[text](url)`) can be spelled inline, while a heading has to start a
-// line — and dropping inline spans from a heading would change its slug, since
-// `## \`foo\` の使い方` anchors on the word `foo`.
-const stripFences = (body) => body.replace(/```[\s\S]*?```/g, '')
+// A heading keeps its inline spans: dropping them would change its slug, since
+// `## \`foo\` の使い方` anchors on the word `foo`. A link (`[text](url)`) can be
+// spelled inline, so that scan drops them.
 const stripCode = (body) => stripFences(body).replace(/`[^`\n]*`/g, '')
 
 const anchors = new Map(
@@ -149,7 +245,11 @@ for (const [file, body] of docBodies) {
 if (problems.length > 0) {
   console.error(`ドキュメント整合チェック: ${problems.length} 件\n`)
   for (const p of problems) console.error(`  - ${p}`)
-  console.error('\nCLAUDE.md の構成・参照パス、マニュアルの画像とリンクを直してください。')
+  console.error(
+    '\nCLAUDE.md の構成・参照パス、マニュアルの画像とリンクを直してください。\n' +
+      '「実在しないシンボル」は、改名したなら本文を直す。他所の API なら EXTERNAL_NAMES、\n' +
+      '無いことを説明するために出しているなら GONE_NAMES へ（どちらもこのスクリプトの中）。',
+  )
   process.exit(1)
 }
 
