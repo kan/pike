@@ -184,7 +184,7 @@ key equivalent は AppKit が WebView へ渡す前に処理するので、`windo
   `MenuAction` として渡す。Rust が持つのはサブメニューの見出し 5 語と、メニューの構造
   （AppKit の作法なのでフロントに語彙が無い）だけ
 
-**macOS のコードは CI の `Check (macOS)` ジョブでしか型検査されない。** Windows 側のジョブは
+**macOS のコードは CI の `Check & Test (macos-latest)` ジョブでしか型検査されない。** Windows 側のジョブは
 `cfg` に阻まれて `appmenu` を 1 行も見ないので、このジョブを足すまでは壊れていることに
 気付くのがリリースのタグを打った後だった（v0.43.0 で実際に 2 回落ちた）。macOS 専用の
 コードを足したら、ローカルの `just check` が通っても**それだけでは検査されていない**。
@@ -209,7 +209,7 @@ WSL 用の選択 UI を自前で作る必要はない。
 **cfg は「macOS かそれ以外か」で切らないこと。** それだと Linux が `powershell.exe` を起動しに行き、
 終了コード判定に当たって意味の分からないエラーになる（`powershell` という名前の別物が PATH に
 あれば、黙って「キャンセルされた」ことになる）。Windows / macOS / それ以外の 3 分岐で、
-最後は `unsupported_dialog` が実装が無いことを言う。
+最後は `dialog::unsupported` が実装が無いことを言う。
 
 ## アプリアイコン（#256）
 

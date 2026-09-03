@@ -263,23 +263,6 @@ function sanitizeBackdrop(v: unknown): WindowBackdrop {
 }
 
 /**
- * diff タブの折り返しの既定（#272）。`auto` は「収まらない量が大きいときだけ折り返して
- * 開く」。横スクロールは 6px のスクロールバーが下端に出るだけで気付きにくいので、既定を
- * これにしてある。どちらに倒すかはタブごとのボタンでいつでも変えられる。
- */
-/**
- * エディタの自動保存（#262）。**既定は `off`**: 保存の主体は `Ctrl+S` を押す人のままで、
- * これはその押し忘れを代行する設定という位置づけ（#276 で決めた原則）。
- *
- * - `onFocusChange` … エディタからフォーカスが外れたとき。ターミナルやチャットへ移った
- *   瞬間に書かれるので、エージェントに聞く直前には必ず最新がディスクにある
- * - `afterDelay` … 打鍵が止まって `autoSaveDelay` ミリ秒後
- *
- * 止める条件（無題タブ・読み取り専用・外部変更の警告中・コンフリクトのマーカーあり）は
- * `EditorTab.vue` の `maybeAutoSave` が持つ。**`save()` の中には書かない**（あちらは人が
- * 押したときの経路で、ここで挙げる理由のどれにも従わない）。
- */
-/**
  * キーボードショートカットのプリセット（#261）。一覧と既定は `lib/shortcuts.ts` が持ち、
  * ここは保存と検証だけ。**同期の対象**（好みはマシンに依存しない）。
  */
@@ -287,6 +270,18 @@ function sanitizeShortcutPreset(v: unknown): ShortcutPreset {
   return SHORTCUT_PRESETS.includes(v as ShortcutPreset) ? (v as ShortcutPreset) : 'vscode'
 }
 
+/**
+ * エディタの自動保存（#262）。**既定は `off`**: 保存の主体は `Ctrl+S` を押す人のままで、
+ * これはその押し忘れを代行する設定という位置づけ（#276 で決めた原則）。
+ *
+ * - `onFocusChange` … エディタからフォーカスが外れたとき。ターミナルへ移った瞬間に
+ *   書かれるので、エージェントに聞く直前には必ず最新がディスクにある
+ * - `afterDelay` … 打鍵が止まって `autoSaveDelay` ミリ秒後
+ *
+ * 止める条件（無題タブ・読み取り専用・外部変更の警告中・コンフリクトのマーカーあり）は
+ * `EditorTab.vue` の `maybeAutoSave` が持つ。**`save()` の中には書かない**（あちらは人が
+ * 押したときの経路で、ここで挙げる理由のどれにも従わない）。
+ */
 export const AUTO_SAVES = ['off', 'onFocusChange', 'afterDelay'] as const
 export type AutoSave = (typeof AUTO_SAVES)[number]
 
@@ -299,6 +294,11 @@ export const AUTO_SAVE_DELAY_MIN = 200
 export const AUTO_SAVE_DELAY_MAX = 30_000
 export const AUTO_SAVE_DELAY_DEFAULT = 1000
 
+/**
+ * diff タブの折り返しの既定（#272）。`auto` は「収まらない量が大きいときだけ折り返して
+ * 開く」。横スクロールは 6px のスクロールバーが下端に出るだけで気付きにくいので、既定を
+ * これにしてある。どちらに倒すかはタブごとのボタンでいつでも変えられる。
+ */
 export const DIFF_WORD_WRAPS = ['auto', 'on', 'off'] as const
 export type DiffWordWrap = (typeof DIFF_WORD_WRAPS)[number]
 

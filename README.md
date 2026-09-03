@@ -7,7 +7,7 @@
 
 **「AI エージェント × ターミナル」に特化した、軽量な開発環境です。** ターミナル中心で作業する開発者が VS Code の代わりに使えることを目指しています。
 
-Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としています。macOS 版も配布していますが、ローカルのシェルで開発できるところまでの対応です（WSL やジャンプリスト、ウィンドウ背景の透過など、Windows の機能に依存するものは動きません）。
+Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としています。macOS（Apple Silicon）版も署名・公証して配布しており、自動更新も同じように働きます。macOS ではホストのログインシェルで開発でき、Windows 固有の機能（WSL、ジャンプリスト、管理者ターミナル、ウィンドウ背景の透過）だけが対象外です。
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/manual/img/screenshot-editor-light.png">

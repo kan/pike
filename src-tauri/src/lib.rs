@@ -1369,9 +1369,9 @@ pub fn run() {
             }
             match event {
                 WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
-                    // Always prevent the raw close first: destroying main tears
-                    // down the async runtime, panicking Codex cleanup in still-open
-                    // project windows.
+                    // Always prevent the raw close first: main owns the async
+                    // runtime, so destroying it takes down every other window's
+                    // async command with it.
                     api.prevent_close();
                     if CLOSE_TO_TRAY.load(Ordering::Relaxed) {
                         // Close-to-tray (issue #161): hide main and keep the

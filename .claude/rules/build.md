@@ -110,7 +110,10 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 - `bundle.createUpdaterArtifacts: true` で `.sig` ファイルを自動生成
 
 ## CI/CD
-- `.github/workflows/ci.yml`: push/PR で `biome check`、`npm run build`（vue-tsc + vite）、`cargo clippy -- -D warnings`、`cargo test` を実行（Windows runner）
+- `.github/workflows/ci.yml`: push/PR で **Windows と macOS の 2 ジョブ**（`fail-fast: false`）を回す。各ステップは `justfile` を呼ぶので、ローカルの `just check` と同じコマンドが走る
+  - **Windows だけが持つのは OS に依らない検査**（`just lint` / `check-docs` / `check-shortcuts` / `build-web`）。2 回走らせても同じ結果にしかならない
+  - **macOS 側は `just build-web-dist`（`vite build` だけ）→ `clippy` → `test`**。`generate_context!` が `dist/` を読むので Rust の検査にもフロントの成果物が要るが、型検査は Windows 側が済ませている
+  - macOS ジョブを足した理由（`cfg` の向こう側が Windows のジョブからは 1 行も見えない）は `platform.md` の「キーボードショートカット」の末尾
 - `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-action` が **Windows と macOS(arm64) の 2 ジョブ**を **`max-parallel: 1` で直列に**走らせ、同じタグのドラフトへ両方の成果物をアップロードする（2 つ目のジョブは既存のドラフトを見つけて追加する）
   - **macOS も updater の経路に載せる**（#283 で Developer ID 署名と公証が入ったため）。以前は未署名で Gatekeeper に隔離されるため外していた
   - **`max-parallel: 1` で直列に走らせる。** 両ジョブが `latest.json` を上げるようになったので、並列だと取り合う。`tauri-action` はアップロード前にリリースの既存 `latest.json` を読んで `platforms` をマージするので、順に走れば 2 つの OS が 1 つのファイルに揃う。並列のままだと後から読んだ側がもう片方の書き込み前の内容を見て、そのプラットフォームを落としたファイルを上げうる。**失敗は静かで「その OS にだけ更新が来ない」という形でしか気付けない**

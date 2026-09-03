@@ -1,10 +1,10 @@
 # Rust 実装ルール
 
 ## 基本方針
-- Tauri コマンドは `async fn` で統一し、戻り値は `Result<T, String>`
+- Tauri コマンドは `async fn` を既定にし、戻り値は `Result<T, String>`。**ウィンドウを触るものと、状態を読むだけで即答できるものは同期の `fn`** にしてある（`project_for_window` / `focus_project_window` / `window_close_quits_app` / `save_all_window_state` / `wait_signal_by_path` / `is_elevated` / `open_elevated_terminal`）
 - エラーは `map_err(|e| e.to_string())` で文字列化してフロントに返す
-- グローバル状態は `tauri::State<AppState>` で管理、`Arc<Mutex<>>` で包む
-- PTY プロセスのライフタイムは AppState が所有し、ウィンドウ破棄時に cleanup
+- **グローバル状態は 1 つの `AppState` にまとめず、モジュールごとの型を個別に `manage` する**（`CliState` / `WaitState` / `PtyState` / `WatcherState` / `DockerState` / `ProjectState` / `TransientState` / `SearchState`）。コマンドは `State<'_, PtyState>` のように要るものだけを受け取るので、引数の型がそのまま「このコマンドが触る状態」の宣言になる。共有する中身は `Arc<Mutex<>>` で包む
+- PTY プロセスのライフタイムは `PtyState` が所有し、ウィンドウ破棄時に `pty::cleanup_for_window` で cleanup
 
 ## PTY
 - `portable-pty` の `PtySize` でリサイズイベントを処理する

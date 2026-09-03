@@ -389,7 +389,7 @@ const result = await invoke<PtyOutput>('pty_write', { id: termId, data: input })
 ```rust
 // Rust 側のコマンド定義例
 #[tauri::command]
-async fn pty_write(id: String, data: String, state: State<'_, AppState>) -> Result<(), String> {
+async fn pty_write(id: String, data: String, state: State<'_, PtyState>) -> Result<(), String> {
     // ...
 }
 ```
