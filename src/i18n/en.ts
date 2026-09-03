@@ -728,6 +728,8 @@ export default {
   'issues.viewFlat': 'Flat view (click for tree)',
   'issues.expandAll': 'Expand all',
   'issues.collapseAll': 'Collapse all',
+  'issues.newIssue': 'New issue (opens in browser)',
+  'issues.openInBrowser': 'Open in browser',
   // Outline
   'outline.empty': 'No file opened',
   'outline.unsupported': 'No outline available for this file',

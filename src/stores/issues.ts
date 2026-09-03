@@ -77,10 +77,9 @@ export const useIssuesStore = defineStore('issues', () => {
    * 起動から数百 ms 遅れて増え、アイコン列が一度リフローする。git 側は補正役で、
    * リモートを付け替えたときはそちらが勝つ。
    */
-  const isGitHub = computed(() => {
-    const url = useProjectStore().currentProject?.remoteUrl ?? useGitStore().remoteUrl
-    return buildRepoLink(url)?.provider === 'github'
-  })
+  const repoLink = computed(() => buildRepoLink(useProjectStore().currentProject?.remoteUrl ?? useGitStore().remoteUrl))
+
+  const isGitHub = computed(() => repoLink.value?.provider === 'github')
 
   /** **今のシェルで**見つかっているか。キーを突き合わせないと、シェルを切り替えて probe が
    *  返るまでのあいだ前のシェルの答えが `visible` に出る。 */
@@ -223,6 +222,13 @@ export const useIssuesStore = defineStore('issues', () => {
     }
   }
 
+  /**
+   * 新規 issue の作成ページ（`<repo>/issues/new`）。**作成は Pike の中で持たない**ので、
+   * ヘッダの「+」はブラウザへ逃がす（読み取り専用という位置づけを崩さない）。
+   * `visible` のときしか押せないので、ここが null を返すのは remote が取れない過渡状態だけ。
+   */
+  const newIssueUrl = computed(() => (isGitHub.value ? `${repoLink.value?.url}/issues/new` : null))
+
   /** 更新ボタン。`gh` の再検出を挟む。 */
   async function refresh(): Promise<void> {
     if (loading.value) return
@@ -277,6 +283,7 @@ export const useIssuesStore = defineStore('issues', () => {
     toggleCollapsed,
     toggleAll,
     collapseAction,
+    newIssueUrl,
     visible,
     refresh,
     ensureLoaded,

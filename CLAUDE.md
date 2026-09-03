@@ -194,6 +194,7 @@ pike/
 │   │       ├── HistoryTab.vue     # ファイル別 git log（git log -L 行範囲対応）
 │   │       ├── DockerLogsTab.vue  # コンテナログ（xterm 読み取り専用）
 │   │       ├── ManualTab.vue      # アプリ内マニュアル（docs/manual を F1 / ? ボタンで表示）
+│   │       ├── IssueTab.vue       # GitHub issue 1 件の読み取り専用表示（gh 経由、#278）
 │   │       ├── AgentStatusTab.vue # エージェント状態（/status 相当。アカウント・レート・トークン、#226）
 │   │       └── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダーク・エディタ・言語）
 │   ├── stores/
@@ -228,6 +229,7 @@ pike/
 │   │   ├── shortcuts.ts     # ショートカットの割り当て表（#254。キーの正本）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
+│   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278）
 │   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）

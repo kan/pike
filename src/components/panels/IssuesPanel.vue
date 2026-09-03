@@ -4,16 +4,17 @@ import { computed, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { relativeDate } from '../../lib/paths'
 import { projectColorValue } from '../../lib/projectColors'
-import { openUrlWithConfirm } from '../../lib/tauri'
 import { useIssuesStore } from '../../stores/issues'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
+import { useTabStore } from '../../stores/tabs'
 import type { IssueSummary } from '../../types/issues'
 
 const { t } = useI18n()
 const sidebar = useSidebarStore()
 const issuesStore = useIssuesStore()
 const projectStore = useProjectStore()
+const tabStore = useTabStore()
 
 // 取得はパネルを開いたときと明示更新のときだけ（#278）。プロジェクト id をキーに含めるのは
 // TasksPanel と同じ理由で、`switchProject` が中身を捨てるため（開いたまま切り替えると、
@@ -100,12 +101,11 @@ const emptyMessage = computed(() => {
 })
 
 /**
- * 書き込み（コメント・クローズ）は持たないので、ブラウザへ逃がす（#278）。**確認を挟むのは
- * StatusBar のリポジトリリンクや GitPanel のコミットリンクと同じ規約**で、外部 URL を開く
- * 経路は 1 つだけ例外にしない。
+ * 行をクリックしたら issue タブで開く（#278）。ブラウザへ出るのはタブの右上のボタンで、
+ * **こちらは確認を挟まない**: Pike の中で開くだけなので、外部 URL を開く規約の対象外。
  */
 function open(issue: IssueSummary) {
-  void openUrlWithConfirm(issue.url)
+  tabStore.addIssueTab(issue.number)
 }
 </script>
 

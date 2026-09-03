@@ -727,6 +727,8 @@ export default {
   'issues.viewFlat': 'フラット表示（クリックでツリーへ）',
   'issues.expandAll': 'すべて展開',
   'issues.collapseAll': 'すべて畳む',
+  'issues.newIssue': 'issue を作成（ブラウザで開く）',
+  'issues.openInBrowser': 'ブラウザで開く',
   // Outline
   'outline.empty': 'ファイルが開かれていません',
   'outline.unsupported': 'このファイルのアウトラインには対応していません',

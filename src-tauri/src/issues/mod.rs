@@ -67,12 +67,59 @@ pub struct IssueListResult {
     pub error: Option<String>,
 }
 
+/// 1 件の issue（タブで読む用、#278）。**書き込みは持たない**ので、編集に要る情報
+/// （id やリアクション）は取らない。
+///
+/// **`gh` の JSON をそのまま受ける**（`IssueLabel` / `IssueComment` と同じ）。同じ形の
+/// 内部用構造体を並べて 1 対 1 で写す層は作らない ―― `IssueSummary` が `From` を持つのは
+/// `parent` のネストを畳むためで、こちらにはその必要が無い。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueDetail {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub url: String,
+    /// `OPEN` / `CLOSED`。一覧は open だけを取るので開いた時点では常に `OPEN` だが、
+    /// **開いたままのタブを更新すると閉じた状態に転じうる**ので出す。
+    #[serde(default)]
+    pub state: String,
+    #[serde(default, deserialize_with = "login_of")]
+    pub author: String,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub labels: Vec<IssueLabel>,
+    #[serde(default)]
+    pub comments: Vec<IssueComment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IssueComment {
+    #[serde(default, deserialize_with = "login_of")]
+    pub author: String,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub url: String,
+}
+
 /// `gh` の JSON。**使うフィールドだけ拾う**（`author` の `id` など、要求していないキーも
 /// 返るので serde の既定＝未知のキーは無視、に乗る）。
 #[derive(Deserialize)]
 struct GhAuthor {
     #[serde(default)]
     login: String,
+}
+
+/// `{"login": …}` を文字列に畳む。消えたアカウントは `null` で来るので空にする。
+fn login_of<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    Ok(Option::<GhAuthor>::deserialize(d)?.map(|a| a.login).unwrap_or_default())
 }
 
 /// `parent` は親 issue の全体（題名・状態・URL つき）で返るが、使うのは番号だけ。
@@ -230,6 +277,30 @@ pub async fn issues_list(
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// 1 件を読む（#278）。一覧と同じくプロジェクトのシェル・root で `gh` に任せる。
+///
+/// **番号は数値なので、シェルの行に埋めても注入の余地が無い。**
+///
+/// **失敗は `Err` で返す**（一覧の `IssueListResult.error` と意図的に違う形）。あちらは
+/// 「0 件」と区別が付かないので理由を値に載せるが、タブは中身が無ければ何も出せないので、
+/// 呼び出し側が空と区別する必要が無い。
+#[tauri::command]
+pub async fn issues_view(shell: ShellConfig, root: String, number: u64) -> Result<IssueDetail, String> {
+    let line = format!(
+        "gh issue view {number} \
+         --json title,url,state,author,createdAt,body,labels,comments"
+    );
+    tauri::async_runtime::spawn_blocking(move || {
+        let (code, stdout, stderr) = shell.run_shell_line(&root, &line, LIST_TIMEOUT)?;
+        if code != 0 {
+            return Err(failure(&line, code, &stdout, &stderr));
+        }
+        serde_json::from_str(stdout.trim()).map_err(|e| format!("failed to parse gh output: {e}\n{line}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

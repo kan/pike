@@ -42,6 +42,7 @@ import {
   ListTree,
   Loader,
   Play,
+  Plus,
   RefreshCw,
   Search,
   Settings,
@@ -447,6 +448,15 @@ onUnmounted(() => {
           </template>
           <span v-if="sidebar.activePanel === 'search'" class="backend-badge">{{ searchStore.backend ?? '...' }}</span>
           <template v-if="sidebar.activePanel === 'issues' && issuesStore.visible">
+            <!-- 作成は Pike の中で持たないので、ブラウザの新規 issue ページへ逃がす。 -->
+            <button
+              v-if="issuesStore.newIssueUrl"
+              class="header-btn"
+              :title="t('issues.newIssue')"
+              @click="openUrlWithConfirm(issuesStore.newIssueUrl)"
+            >
+              <Plus :size="14" :stroke-width="2" />
+            </button>
             <!-- 全展開 / 全畳み。畳める親が 1 つも無ければ押しても何も起きないので出さない。 -->
             <button
               v-if="issuesStore.view === 'tree' && issuesStore.collapseAction"

@@ -336,6 +336,22 @@ export type ManualTab = {
 }
 
 /**
+ * 1 件の issue を読むタブ（#278）。マニュアルタブと同じ位置づけの**読み取り専用**で、
+ * 書き込み（コメント・クローズ）は持たずブラウザへ逃がす。
+ *
+ * **シングルトンではない**（番号ごとに 1 枚）ので `title` は自前の名前を持つ。
+ * セッションには残さない: 中身は `gh` を叩き直さないと得られず、復元のたびに外部
+ * プロセスが起動することになる（`snapshotSession` が terminal / editor だけを拾う）。
+ */
+export type IssueTab = {
+  id: string
+  kind: 'issue'
+  title: string
+  pinned: boolean
+  number: number
+}
+
+/**
  * `title` is the tab's own name where it has one. The singleton kinds
  * (`settings` / `agent-status` / `manual`) hold an English fallback there and
  * get their real name from `lib/tabTitle.ts` — render tab names through
@@ -381,6 +397,7 @@ export type Tab = (
   | AgentStatusTab
   | PdfTab
   | ManualTab
+  | IssueTab
 ) &
   TabOwner
 

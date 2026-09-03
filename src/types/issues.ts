@@ -17,6 +17,26 @@ export interface IssueSummary {
   parent: number | null
 }
 
+/** 1 件の issue（タブで読む用、#278）。書き込みは持たないので編集に要る情報は取らない。 */
+export interface IssueDetail {
+  title: string
+  url: string
+  /** `OPEN` / `CLOSED`。一覧と違い open 以外も開ける。 */
+  state: string
+  author: string
+  createdAt: string
+  body: string
+  labels: IssueLabel[]
+  comments: IssueComment[]
+}
+
+export interface IssueComment {
+  author: string
+  createdAt: string
+  body: string
+  url: string
+}
+
 export interface IssueListResult {
   issues: IssueSummary[]
   /** 未インストール・未認証・権限なしの理由。0 件と区別するために出す（実行した行込み）。 */

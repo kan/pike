@@ -15,6 +15,7 @@ import type {
   DockerLogsTab,
   EditorTab,
   HistoryTab,
+  IssueTab,
   ManualTab,
   PdfTab,
   PreviewTab,
@@ -490,6 +491,30 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  /**
+   * issue を 1 件開く（#278）。**番号ごとに 1 枚**なので、既に開いていればそれを見せる。
+   * 題名は取ってきてから `IssueTab` が入れる（開く時点では番号しか分からない）。
+   *
+   * **同じ番号でもプロジェクトが違えば別のタブ。** issue の番号はリポジトリごとに 1 から
+   * 振られるので、このストアで唯一**衝突しうる dedupe キー**になっている（他はパスや
+   * コンテナ id で、プロジェクトをまたいで一意）。所有者を見ないと、A で #12 を開いた
+   * まま B に切り替えて B の #12 を押したとき、パーク中の A のタブが activeTabId に
+   * なり、タブバーには何も出ないのに中身だけ A の #12 が見える。
+   */
+  function addIssueTab(number: number): string {
+    const existing = tabs.value.find(
+      (t): t is IssueTab => t.kind === 'issue' && t.number === number && t.projectId === ownerProjectId.value,
+    )
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    pushTab({ id, kind: 'issue', title: `#${number}`, pinned: false, number })
+    activeTabId.value = id
+    return id
+  }
+
   function addPdfTab(options: { path: string; revision?: string; dataUrl?: string }): string {
     const existing = tabs.value.find(
       (t): t is PdfTab => t.kind === 'pdf' && t.path === options.path && t.revision === options.revision,
@@ -757,6 +782,7 @@ export const useTabStore = defineStore('tabs', () => {
     addSettingsTab,
     addAgentStatusTab,
     addManualTab,
+    addIssueTab,
     addDiffTab,
     addPdfTab,
     closeTab,

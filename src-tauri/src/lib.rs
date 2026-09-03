@@ -1581,6 +1581,7 @@ pub fn run() {
             search::list_project_files,
             issues::issues_gh_available,
             issues::issues_list,
+            issues::issues_view,
             git::git_status,
             git::git_is_repo,
             git::git_init,

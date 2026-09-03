@@ -257,7 +257,7 @@ onUnmounted(() => cancelAnchorReflow?.())
 
 <template>
   <div class="manual-tab" :data-theme="manualDark ? 'dark' : 'light'">
-    <div class="manual-toolbar">
+    <div class="md-toolbar">
       <button class="tool-btn" :disabled="backStack.length === 0" :title="t('manual.back')" @click="goBack">←</button>
       <button class="tool-btn" :title="t('manual.home')" @click="goHome"><Home :size="14" :stroke-width="2" /></button>
       <span class="manual-path">{{ page }}</span>
@@ -278,7 +278,7 @@ onUnmounted(() => cancelAnchorReflow?.())
     </div>
 
     <div ref="containerRef" class="manual-body" @scroll="onScroll" @click="onClick">
-      <div class="manual-content">
+      <div class="md-page md-body">
         <div v-if="error" class="manual-status error">
           {{ t('manual.loadError') }}<br /><code>{{ error }}</code>
         </div>
@@ -304,39 +304,9 @@ onUnmounted(() => cancelAnchorReflow?.())
   color: var(--text-primary);
 }
 
-.manual-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.tool-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 6px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 3px;
-  font-size: 13px;
-}
-
-.tool-btn:hover:not(:disabled) {
-  color: var(--text-active);
-  background: var(--tab-hover-bg);
-}
-
-.tool-btn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
+/* ツールバー（`.md-toolbar`）とそのボタン（`.tool-btn`）、読み幅（`.md-page`）、
+   本文の見た目（`.md-body`）、回転（`.spin`）はすべて共有（`theme.css`）。issue タブと
+   同じものを使う。 */
 
 .manual-path {
   flex: 1;
@@ -367,20 +337,9 @@ onUnmounted(() => cancelAnchorReflow?.())
   border-color: var(--accent);
 }
 
-.spin {
-  animation: spin 1s linear infinite;
-}
-
 .manual-body {
   flex: 1;
   overflow-y: auto;
-}
-
-.manual-content {
-  max-width: 820px;
-  margin: 0 auto;
-  padding: 16px 32px 48px;
-  line-height: 1.7;
 }
 
 .manual-status {
@@ -392,89 +351,7 @@ onUnmounted(() => cancelAnchorReflow?.())
   color: var(--danger);
 }
 
-/* Markdown rendering */
-.manual-content :deep(h1),
-.manual-content :deep(h2),
-.manual-content :deep(h3),
-.manual-content :deep(h4) {
-  color: var(--text-active);
-  line-height: 1.3;
-  margin: 1.4em 0 0.6em;
-}
-.manual-content :deep(h1) {
-  font-size: 1.7em;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.3em;
-}
-.manual-content :deep(h2) {
-  font-size: 1.4em;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.2em;
-}
-.manual-content :deep(h3) {
-  font-size: 1.15em;
-}
-.manual-content :deep(p),
-.manual-content :deep(ul),
-.manual-content :deep(ol),
-.manual-content :deep(blockquote) {
-  margin: 0.6em 0;
-}
-.manual-content :deep(a) {
-  color: var(--accent);
-  text-decoration: none;
-  cursor: pointer;
-}
-.manual-content :deep(a:hover) {
-  text-decoration: underline;
-}
-.manual-content :deep(img) {
-  max-width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
-.manual-content :deep(code) {
-  background: var(--bg-tertiary);
-  padding: 0.1em 0.4em;
-  border-radius: 3px;
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 0.9em;
-}
-.manual-content :deep(pre) {
-  background: var(--bg-tertiary);
-  padding: 10px 12px;
-  border-radius: 4px;
-  overflow-x: auto;
-}
-.manual-content :deep(pre code) {
-  background: none;
-  padding: 0;
-}
-.manual-content :deep(blockquote) {
-  border-left: 3px solid var(--border);
-  padding-left: 12px;
-  color: var(--text-secondary);
-}
-.manual-content :deep(table) {
-  border-collapse: collapse;
-  margin: 0.8em 0;
-  display: block;
-  overflow-x: auto;
-}
-.manual-content :deep(th),
-.manual-content :deep(td) {
-  border: 1px solid var(--border);
-  padding: 5px 10px;
-  text-align: left;
-}
-.manual-content :deep(th) {
-  background: var(--bg-tertiary);
-}
-.manual-content :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 1.4em 0;
-}
+/* Markdown 本文の見た目は共有の `.md-body`（`theme.css`）。issue タブと同じものを使う。 */
 
 .back-to-top {
   position: absolute;

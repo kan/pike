@@ -28,6 +28,7 @@ const DockerLogsTab = defineAsyncComponent(() => import('../tabs/DockerLogsTab.v
 const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue'))
 const AgentStatusTab = defineAsyncComponent(() => import('../tabs/AgentStatusTab.vue'))
 const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
+const IssueTab = defineAsyncComponent(() => import('../tabs/IssueTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 
 import { Check, ChevronDown, Plus, ShieldPlus } from 'lucide-vue-next'
@@ -169,6 +170,7 @@ const settingsTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'sett
 const agentStatusTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'agent-status'))
 
 const manualTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'manual'))
+const issueTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'issue'))
 
 const pdfTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'pdf'))
 
@@ -648,6 +650,12 @@ onUnmounted(() => {
       />
       <ManualTab
         v-for="tab in manualTabs"
+        :key="tab.id"
+        :tab-id="tab.id"
+        v-show="tab.id === tabStore.activeTabId"
+      />
+      <IssueTab
+        v-for="tab in issueTabs"
         :key="tab.id"
         :tab-id="tab.id"
         v-show="tab.id === tabStore.activeTabId"
