@@ -406,8 +406,10 @@ export async function gitDiff(
   path: string,
   staged: boolean,
   untracked = false,
+  /** リネーム / コピーの元の名前（`GitFileChange.origPath`）。渡さないと差分が新規追加に見える（#306）。 */
+  origPath: string | null = null,
 ): Promise<string> {
-  return invoke<string>('git_diff', { root, shell, path, staged, untracked })
+  return invoke<string>('git_diff', { root, shell, path, staged, untracked, origPath })
 }
 
 export async function gitStage(root: string, shell: ShellType, paths: string[]): Promise<void> {

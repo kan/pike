@@ -30,6 +30,19 @@ export interface DiffLine {
   hunk?: HunkRange
 }
 
+/**
+ * リネーム（コピー）の見出し（#306）。
+ *
+ * **`parseDiff` では拾えない。** あちらは最初の `@@` より前を読み飛ばすが、リネームは
+ * `diff --git` の直後のヘッダにしか出ない。しかも**内容が変わっていなければ hunk が
+ * 1 つも出ない**ので、それだけの差分は行が 0 件になる。
+ */
+export function parseRename(raw: string): { from: string; to: string } | null {
+  const from = raw.match(/^rename from (.+?)\r?$/m)
+  const to = raw.match(/^rename to (.+?)\r?$/m)
+  return from && to ? { from: from[1], to: to[1] } : null
+}
+
 function plain(text: string): DiffSegment[] {
   return [{ text, highlight: false }]
 }

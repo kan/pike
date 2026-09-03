@@ -53,6 +53,13 @@ pub struct GitOperation {
 pub struct GitFileChange {
     pub path: String,
     pub status: String,
+    /// リネーム / コピーの元の名前（#306）。それ以外は `None`。
+    ///
+    /// **diff を引くときに要る。** `git diff -- <新しい名前>` のように pathspec で片側だけに
+    /// 絞ると、git はリネーム検出を諦めて「新規追加」として全行を出す（実測）。両方の名前を
+    /// 渡すと本来の差分になる。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orig_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -151,17 +158,22 @@ fn parse_status(output: &str) -> GitStatusResult {
                 // 並びは `<path><TAB><origPath>`（新しい名前が先）。パスに空白が入っていても
                 // `splitn` の最後の要素なので、そのまま残る。
                 let last = parts[fields - 1];
-                let path = if is_rename { last.split('\t').next().unwrap_or(last) } else { last };
+                let (path, orig_path) = match last.split_once('\t') {
+                    Some((new, orig)) if is_rename => (new, Some(orig.to_string())),
+                    _ => (last, None),
+                };
                 if x != "." {
                     staged.push(GitFileChange {
                         path: path.to_string(),
                         status: x.to_string(),
+                        orig_path: orig_path.clone(),
                     });
                 }
                 if y != "." {
                     unstaged.push(GitFileChange {
                         path: path.to_string(),
                         status: y.to_string(),
+                        orig_path,
                     });
                 }
             }
@@ -173,6 +185,7 @@ fn parse_status(output: &str) -> GitStatusResult {
                 conflicted.push(GitFileChange {
                     path: parts[10].to_string(),
                     status: parts[1].to_string(),
+                    orig_path: None,
                 });
             }
         } else if let Some(path) = line.strip_prefix("? ") {
@@ -180,6 +193,7 @@ fn parse_status(output: &str) -> GitStatusResult {
             unstaged.push(GitFileChange {
                 path: path.to_string(),
                 status: "?".to_string(),
+                orig_path: None,
             });
         }
     }
@@ -539,6 +553,8 @@ pub async fn git_diff(
     path: String,
     staged: bool,
     untracked: bool,
+    // リネーム / コピーの元の名前（`GitFileChange.origPath`、#306）。
+    orig_path: Option<String>,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
         // Untracked files have no diff against HEAD; synthesize a "new file"
@@ -554,6 +570,12 @@ pub async fn git_diff(
         }
         args.push("--");
         args.push(&path);
+        // **元の名前も渡す（#306）。** 片側だけの pathspec だと git はリネーム検出を諦め、
+        // 名前を変えただけのファイルが「新規追加」として全行出る。作業ツリー側には元の名前が
+        // もう無いが、一致しない pathspec は無視されるだけなので分けずに渡す（実測）。
+        if let Some(orig) = orig_path.as_deref() {
+            args.push(orig);
+        }
         let output = run_git(&shell, &root, &args)?;
         Ok(truncate_diff(output))
     })
@@ -1009,10 +1031,14 @@ pub async fn git_show_files(
             }
             let mut parts = line.splitn(2, '\t');
             let status = parts.next()?.chars().next()?.to_string();
-            let path = parts.next()?.to_string();
-            // For renames (R100\told\tnew), take the new path
-            let path = path.split('\t').next_back().unwrap_or(&path).to_string();
-            Some(GitFileChange { path, status })
+            let rest = parts.next()?;
+            // リネーム / コピーは `R100\t<orig>\t<new>` の形。**こちらは元の名前が先**
+            // （porcelain v2 の `2 ` 行とは逆）。
+            let (path, orig_path) = match rest.split_once('\t') {
+                Some((orig, new)) => (new.to_string(), Some(orig.to_string())),
+                None => (rest.to_string(), None),
+            };
+            Some(GitFileChange { path, status, orig_path })
         })
         .collect())
 }
@@ -1025,20 +1051,39 @@ pub async fn git_diff_commit(
     path: String,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
-        // Try parent diff first, fall back to --root for initial commit
-        let result = run_git(
+        // **`--follow` でリネームを追う（#306）。** `git diff <hash>~1 <hash> -- <path>` は
+        // pathspec で片側だけに絞るとリネーム検出が効かず、名前を変えたコミットが
+        // 「新規追加」として全行追加で出ていた（実測）。`--follow` は単一の pathspec を
+        // 遡って追うので、`rename from/to` のヘッダごと出る。親を持たない最初の
+        // コミットもそのまま扱えるので、以前の `--root` フォールバックは要らない。
+        let output = run_git(
             &shell,
             &root,
-            &["diff", &format!("{hash}~1"), &hash, "--", &path],
-        );
-        let output = match result {
-            Ok(o) => o,
-            Err(_) => run_git(&shell, &root, &["diff", "--root", &hash, "--", &path])?,
-        };
-        Ok(truncate_diff(output))
+            &["log", "--follow", "-p", "--format=%H", "--max-count=1", &hash, "--", &path],
+        )?;
+        Ok(truncate_diff(commit_patch(&output, &hash)))
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// `git log --format=%H -p` の出力（`<hash>\n\n<patch>`）から、**要求したコミットのもので
+/// あれば**パッチを取り出す。
+///
+/// **確かめるのが要点。** `git log` は pathspec に一致しない commit を飛ばして遡るので、
+/// 「そのコミットはこのパスを触っていない」場合に**祖先のコミットの差分**が返る（実測）。
+/// 置き換える前の `git diff <hash>~1 <hash>` は空を返していたので、確認せずに使うと
+/// 別のコミットの中身を黙って見せることになる。
+fn commit_patch(output: &str, hash: &str) -> String {
+    let Some((first, rest)) = output.split_once('\n') else {
+        return String::new();
+    };
+    // 呼び出し側は短縮ハッシュを渡すこともある。
+    let found = first.trim();
+    if found.is_empty() || !found.starts_with(hash) {
+        return String::new();
+    }
+    rest.strip_prefix('\n').unwrap_or(rest).to_string()
 }
 
 #[tauri::command]
@@ -1348,6 +1393,20 @@ u AA N... 000000 100644 100644 100644 h1 h2 h3 both added.txt
         assert_eq!(st.staged[2].path, "copy.txt");
         // 通常の `1 ` 行は 9 フィールドのまま。
         assert_eq!(st.staged[3].path, "plain.txt");
+    }
+
+    #[test]
+    fn commit_patch_needs_the_requested_commit() {
+        let out = "abc123def\n\ndiff --git a/old.md b/new.md\nrename from old.md\nrename to new.md\n";
+        assert!(commit_patch(out, "abc123def").starts_with("diff --git"));
+        // 短縮ハッシュで引いても同じ。
+        assert!(commit_patch(out, "abc123").starts_with("diff --git"));
+
+        // **そのコミットが触っていないパスを渡すと、`git log` は祖先まで遡る。**
+        // 別のコミットの差分を黙って見せないよう、ここで落とす。
+        assert_eq!(commit_patch(out, "999999"), "");
+        // 該当が無ければ出力そのものが空。
+        assert_eq!(commit_patch("", "abc123def"), "");
     }
 
     #[test]

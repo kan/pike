@@ -18,7 +18,22 @@
     `git diff -- "R100 new.md"` が exit 0 の無出力を返すので**空の diff タブが黙って開く**。
     アンステージも exit 0 で何もしない（ステージだけは `pathspec ... did not match` で落ちる）
   - `git show --pretty= --name-status` 側（`git_show_files`）は別の形（`R100\told\tnew`）で、
-    タブで分けて末尾を取っており正しい。`u ` 行はリネームを伴わないので 11 個で固定
+    **元の名前が先**（porcelain v2 の `2 ` 行とは逆）。`u ` 行はリネームを伴わないので 11 個で固定
+- **リネームした差分は、片側だけの pathspec では出ない（#306）**。`git diff -- <新しい名前>` の
+  ように絞ると git はリネーム検出を諦め、**名前を変えただけのファイルが「新規追加」として
+  全行出る**。持っている情報が違うので、経路ごとに違う手を使う
+  - 作業ツリー / index（`git_diff`）: `GitFileChange.origPath`（`parse_status` が拾う元の名前）を
+    **pathspec にもう 1 つ足す**。作業ツリー側に元の名前はもう無いが、一致しない pathspec は
+    無視されるだけなので、staged かどうかで分けない
+  - コミット（`git_diff_commit`）: 元の名前を知らない呼び出し元（履歴タブ）があるので
+    `git log --follow -p` で追う。親を持たない最初のコミットもそのまま扱えるので、以前の
+    `--root` フォールバックは要らない
+    - **`--format=%H` を付けて、要求したコミットのものか確かめる**（`commit_patch`）。`git log` は
+      pathspec に一致しないコミットを飛ばして遡るので、「そのコミットはこのパスを触っていない」
+      場合に**祖先の差分**が返る（実測）。置き換える前の `git diff <hash>~1 <hash>` は空だった
+  - **リネームは hunk を持たないことがある**（内容が同じなら `rename from/to` のヘッダだけ）。
+    `parseDiff` は最初の `@@` より前を読み飛ばすので 0 行になる。`parseRename` がヘッダから
+    拾い、`DiffTab` が差分の有無に関わらず上に見出しを出す
 - 非 git リポジトリ対応（#156）: `git status` がエラーの時、`git_is_repo`（`git rev-parse --is-inside-work-tree`、非 repo でも Err にせず `false` を返す）で「リポジトリじゃない」を切り分け、`gitStore.isRepo=false` にして生の git エラーを出さない。GitPanel は専用ビュー（メッセージ + 「リポジトリを初期化」ボタン → `git_init`）を表示（VSCode 風）。init 後は status/log/remote を再読込
 - コンフリクト（unmerged）表示: `parse_status` が porcelain v2 の `u ` 行をパースし `GitStatusResult.conflicted`（status は XY コード `UU`/`AA` 等）に格納。GitPanel 最上部の専用「Conflicts」セクションでパスを赤字（`--danger`）表示、クリックで作業ツリーのファイルをエディタで開く。SideBar の Git バッジ件数に conflicted を加算し、コンフリクト時は danger（赤）バッジ。エディタは `lib/editorConflict.ts`（CodeMirror ViewPlugin）でマーカー行（`<<<<<<<`/`|||||||`/`=======`/`>>>>>>>`）と各セクション本文を色分けハイライト（半透明オーバーレイで両テーマ対応）
 - **エディタ上のコンフリクト解消（#223）**: 同じ `editorConflict.ts` に、各領域の上へブロック widget のボタン列（ours / theirs / 両方）と、`showPanel` の上部バー（件数＋ファイル全体の一括適用）を足した

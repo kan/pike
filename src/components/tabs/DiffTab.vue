@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { CaseSensitive, ChevronDown, ChevronsDownUp, ChevronUp, X } from 'lucide-vue-next'
+import { ArrowRight, CaseSensitive, ChevronDown, ChevronsDownUp, ChevronUp, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDragResize } from '../../composables/useDragResize'
 import { useI18n } from '../../i18n'
 import { type Expanded, expandDiff, type Gap, matchesDiff } from '../../lib/diffExpand'
-import { parseDiff } from '../../lib/diffParser'
+import { parseDiff, parseRename } from '../../lib/diffParser'
 import { collectMatches, renderTokens } from '../../lib/diffSearch'
 import { displayWidth } from '../../lib/displayWidth'
 import { hasMod, normalizedKey } from '../../lib/keys'
@@ -29,6 +29,13 @@ const tab = computed(() => tabStore.tabs.find((t): t is DiffTab => t.id === prop
 const rawLines = computed(() => (tab.value ? parseDiff(tab.value.diff, { charLevel: true }) : []))
 
 const isBinaryDiff = computed(() => tab.value?.diff.includes('Binary files') ?? false)
+
+/**
+ * 名前が変わったことは**ヘッダにしか出ない**（#306）ので、行とは別に拾って上に出す。
+ * 内容も変わっていれば下に通常の差分が続き、変わっていなければ hunk が 1 つも無いので
+ * この見出しだけになる。
+ */
+const renamed = computed(() => (tab.value ? parseRename(tab.value.diff) : null))
 
 // --- 省略された行の展開（#285）---------------------------------------------
 // 計算そのものは `lib/diffExpand.ts`（純粋）。ここが持つのは取得（IPC）と操作だけ。
@@ -548,15 +555,23 @@ onUnmounted(() => {
 <template>
   <div ref="rootEl" class="diff-tab" :style="rootStyle">
     <div v-if="!tab" class="empty">{{ t('diff.notFound') }}</div>
-    <div v-else-if="!parsedLines.length && tab.diff" class="empty">
-      <template v-if="isBinaryDiff">
-        <span>{{ t('diff.binary') }}</span>
-        <button class="open-file-btn" @click="openWorkingCopy">{{ t('diff.openCurrentFile') }}</button>
-      </template>
-      <span v-else>{{ tab.diff.slice(0, 200) }}</span>
-    </div>
-    <div v-else-if="!parsedLines.length" class="empty">{{ t('diff.noChanges') }}</div>
     <template v-else>
+      <!-- 名前が変わったことはヘッダにしか出ないので、差分の有無に関わらず上に出す（#306）。 -->
+      <div v-if="renamed" class="rename-note">
+        <span class="rename-from">{{ renamed.from }}</span>
+        <ArrowRight :size="13" :stroke-width="2" />
+        <span>{{ renamed.to }}</span>
+      </div>
+      <div v-if="!parsedLines.length && renamed" class="empty">{{ t('diff.renameOnly') }}</div>
+      <div v-else-if="!parsedLines.length && tab.diff" class="empty">
+        <template v-if="isBinaryDiff">
+          <span>{{ t('diff.binary') }}</span>
+          <button class="open-file-btn" @click="openWorkingCopy">{{ t('diff.openCurrentFile') }}</button>
+        </template>
+        <span v-else>{{ tab.diff.slice(0, 200) }}</span>
+      </div>
+      <div v-else-if="!parsedLines.length" class="empty">{{ t('diff.noChanges') }}</div>
+      <template v-else>
       <div class="diff-body">
         <div ref="scrollEl" class="diff-scroll" @wheel="onWheel">
         <table class="diff-table" :class="{ wrap: wordWrapOn }">
@@ -661,6 +676,7 @@ onUnmounted(() => {
         <button class="search-icon-btn" :title="t('search.nextMatch')" @click="step(1)"><ChevronDown :size="14" :stroke-width="2" /></button>
         <button class="search-icon-btn" :title="t('search.close')" @click="closeSearch"><X :size="14" :stroke-width="2" /></button>
       </div>
+      </template>
     </template>
   </div>
 </template>
@@ -682,6 +698,28 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
+}
+
+/* 名前が変わったことの見出し（#306）。差分の有無に関わらず先頭に出るので、
+   `flex-shrink: 0` で本文に押し潰されないようにする。 */
+.rename-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: var(--diff-font);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rename-from {
+  color: var(--text-secondary);
 }
 
 .diff-body {

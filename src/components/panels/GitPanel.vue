@@ -159,10 +159,10 @@ async function unstageFile(file: GitFileChange) {
   }
 }
 
-async function openDiffTab(path: string, staged: boolean, untracked = false) {
+async function openDiffTab(path: string, staged: boolean, untracked = false, origPath?: string) {
   const project = projectStore.currentProject
   if (!project) return
-  const diff = await gitDiff(projectStore.activeRoot, project.shell, path, staged, untracked)
+  const diff = await gitDiff(projectStore.activeRoot, project.shell, path, staged, untracked, origPath ?? null)
   tabStore.addDiffTab({ filePath: path, diff, staged })
 }
 
@@ -327,6 +327,8 @@ const fileCtx = ref<{
   hash?: string
   staged?: boolean
   untracked?: boolean
+  /** リネーム / コピーの元の名前（#306）。diff を引くときに要る。 */
+  origPath?: string
 } | null>(null)
 const {
   style: fileCtxStyle,
@@ -337,7 +339,7 @@ const {
 async function onFileContext(
   e: MouseEvent,
   path: string,
-  opts: { hash?: string; staged?: boolean; untracked?: boolean },
+  opts: { hash?: string; staged?: boolean; untracked?: boolean; origPath?: string },
 ) {
   e.preventDefault()
   e.stopPropagation()
@@ -356,12 +358,12 @@ function closeFileCtx() {
 
 async function ctxOpenDiff() {
   if (!fileCtx.value) return
-  const { path, hash, staged, untracked } = fileCtx.value
+  const { path, hash, staged, untracked, origPath } = fileCtx.value
   closeFileCtx()
   if (hash) {
     await openCommitDiffTab(hash, path)
   } else {
-    await openDiffTab(path, staged ?? false, untracked ?? false)
+    await openDiffTab(path, staged ?? false, untracked ?? false, origPath)
   }
 }
 
@@ -556,8 +558,8 @@ onUnmounted(() => {
           :key="'s-' + file.path"
           class="file-item"
           :class="{ 'active-file': isActiveFile(file.path) }"
-          @click="openDiffTab(file.path, true)"
-          @contextmenu="onFileContext($event, file.path, { staged: true })"
+          @click="openDiffTab(file.path, true, false, file.origPath)"
+          @contextmenu="onFileContext($event, file.path, { staged: true, origPath: file.origPath })"
         >
           <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
@@ -579,8 +581,10 @@ onUnmounted(() => {
           :key="'u-' + file.path"
           class="file-item"
           :class="{ 'active-file': isActiveFile(file.path) }"
-          @click="openDiffTab(file.path, false, file.status === '?')"
-          @contextmenu="onFileContext($event, file.path, { staged: false, untracked: file.status === '?' })"
+          @click="openDiffTab(file.path, false, file.status === '?', file.origPath)"
+          @contextmenu="
+            onFileContext($event, file.path, { staged: false, untracked: file.status === '?', origPath: file.origPath })
+          "
         >
           <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>

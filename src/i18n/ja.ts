@@ -152,6 +152,7 @@ export default {
   'diff.binary': 'バイナリファイル — 差分を表示できません',
   'diff.openCurrentFile': '現在のファイルを開く',
   'diff.noChanges': '変更なし',
+  'diff.renameOnly': '名前が変わっただけで、内容は同じです',
   'diff.expandUp': '上へ {count} 行広げる',
   'diff.expandDown': '下へ {count} 行広げる',
   'diff.expandAll': '省略された {count} 行を表示',
