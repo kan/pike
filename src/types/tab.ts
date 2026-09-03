@@ -412,6 +412,7 @@ export const SIDEBAR_PANELS = [
   'tasks',
   'outline',
   'diagnostics',
+  'issues',
 ] as const
 
 export type SidebarPanel = (typeof SIDEBAR_PANELS)[number]

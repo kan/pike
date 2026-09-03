@@ -17,7 +17,7 @@
 //! checks the whole module on top of dozens of linters, which is too heavy for
 //! the panel's automatic refresh.
 
-use crate::types::ShellConfig;
+use crate::types::{first_line, ShellConfig};
 use serde::Serialize;
 use std::time::Duration;
 
@@ -324,13 +324,6 @@ fn run_one(
             vec![],
         ),
     }
-}
-
-/// First non-empty line of `text`, clipped so a runaway error can't bloat the
-/// payload. `None` when there is nothing to report.
-fn first_line(text: &str) -> Option<String> {
-    let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
-    Some(line.chars().take(200).collect())
 }
 
 /// Case-insensitive basename match, for paths in either separator style.

@@ -40,6 +40,7 @@ import { ephemeralWindow, globalMode, isMainWindow } from '../lib/window'
 import type { ProjectConfig, SyncedProject } from '../types/project'
 import { buildShell, quoteArg, type ShellType, shellId, shellToPlatform } from '../types/tab'
 import { useDiagnosticsStore } from './diagnostics'
+import { useIssuesStore } from './issues'
 import { useSearchStore } from './search'
 import { useSettingsStore } from './settings'
 import { useTabStore } from './tabs'
@@ -1110,6 +1111,7 @@ export const useProjectStore = defineStore('project', () => {
     searchStore.clear()
     useDiagnosticsStore().clear()
     useTaskStore().clear()
+    useIssuesStore().clear()
     activeWorktreeRoot.value = null
 
     // 切り替えではタブを捨てない（#264）。ターミナルのプロセスとエージェントのセッションを

@@ -126,6 +126,7 @@ const EXTERNAL_NAMES = [
   'restore_state', // tauri-plugin-window-state
   'runHandlers', // CodeMirror 内部
   'set_csp', // tauri 内部（manager::set_csp）
+  'subIssuesSummary', // gh の --json フィールド（使わない理由を editor.md が書くために出す）
   // このスクリプト自身の識別子。自分をコーパスから外している以上、外の名前と同じ扱いになる。
   'EXTERNAL_NAMES',
   'GONE_NAMES',

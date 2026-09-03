@@ -172,6 +172,7 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     panelTasks: () => togglePanel('tasks'),
     panelOutline: () => togglePanel('outline'),
     panelDiagnostics: () => togglePanel('diagnostics'),
+    panelIssues: () => togglePanel('issues'),
     panelProjects: () => togglePanel('projects'),
     // 失敗の通知はストア側（`setError`）。入口ごとに書くと、どれかが漏れる。
     gitPull: () => void useGitStore().pull(),

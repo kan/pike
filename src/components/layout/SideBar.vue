@@ -23,10 +23,13 @@ const SearchPanel = defineAsyncComponent(() => import('../panels/SearchPanel.vue
 const TasksPanel = defineAsyncComponent(() => import('../panels/TasksPanel.vue'))
 const OutlinePanel = defineAsyncComponent(() => import('../panels/OutlinePanel.vue'))
 const DiagnosticsPanel = defineAsyncComponent(() => import('../panels/DiagnosticsPanel.vue'))
+const IssuesPanel = defineAsyncComponent(() => import('../panels/IssuesPanel.vue'))
 
 import {
   ArrowDown,
   ArrowUp,
+  ChevronsDownUp,
+  ChevronsUpDown,
   CircleAlert,
   Container,
   FilePlus,
@@ -34,6 +37,8 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
+  List,
+  ListTodo,
   ListTree,
   Loader,
   Play,
@@ -42,6 +47,7 @@ import {
   Settings,
 } from 'lucide-vue-next'
 import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
+import { usePanelAvailability } from '../../composables/usePanelAvailability'
 import { useProjectAccent } from '../../composables/useProjectAccent'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useUpdater } from '../../composables/useUpdater'
@@ -50,6 +56,7 @@ import { actionChord } from '../../lib/shortcuts'
 import { openUrlWithConfirm } from '../../lib/tauri'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useDockerStore } from '../../stores/docker'
+import { useIssuesStore } from '../../stores/issues'
 import { useSearchStore } from '../../stores/search'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
@@ -73,6 +80,8 @@ const gitStore = useGitStore()
 const searchStore = useSearchStore()
 const diagStore = useDiagnosticsStore()
 const dockerStore = useDockerStore()
+const issuesStore = useIssuesStore()
+const { isPanelAvailable } = usePanelAvailability()
 const settingsStore = useSettingsStore()
 const shortcutsModal = useShortcutsModal()
 const showGearMenu = ref(false)
@@ -215,10 +224,21 @@ interface IconDef {
   badge?: () => BadgeInfo | null
   /** Optional corner marker resolver — returns null when nothing to show. */
   marker?: () => MarkerInfo | null
+  /**
+   * ヘッダの更新ボタン。**表の行に持たせる**（`badge` / `marker` と同じ器）。以前は
+   * 5 つのパネルが `header-btn` ＋ `RefreshCw` ＋ `spin` を逐語で書き写していて、
+   * パネルを足すたびに 6 本目が増えていた。
+   */
+  refresh?: { run: () => void; busy?: () => boolean }
 }
 
 const icons: IconDef[] = [
-  { panel: 'files', labelKey: 'sidebar.files', icon: Files },
+  {
+    panel: 'files',
+    labelKey: 'sidebar.files',
+    icon: Files,
+    refresh: { run: () => fileTreeRef.value?.refresh(), busy: () => !!fileTreeRef.value?.refreshing },
+  },
   { panel: 'outline', labelKey: 'sidebar.outline', icon: ListTree },
   {
     panel: 'git',
@@ -245,6 +265,7 @@ const icons: IconDef[] = [
       if (s.behind) parts.push(t('git.behindInfo', { count: s.behind }))
       return { text: `${s.ahead ? '↑' : ''}${s.behind ? '↓' : ''}`, title: parts.join(' · ') }
     },
+    refresh: { run: () => gitStore.refreshAll(), busy: () => gitStore.refreshing },
   },
   { panel: 'search', labelKey: 'sidebar.search', icon: Search },
   {
@@ -252,11 +273,39 @@ const icons: IconDef[] = [
     labelKey: 'sidebar.diagnostics',
     icon: CircleAlert,
     badge: () => (diagStore.total > 0 ? { count: diagStore.total, danger: diagStore.errorCount > 0 } : null),
+    refresh: { run: () => diagStore.run(), busy: () => diagStore.running },
   },
-  { panel: 'docker', labelKey: 'sidebar.docker', icon: Container },
+  {
+    panel: 'docker',
+    labelKey: 'sidebar.docker',
+    icon: Container,
+    // compose up/down はパネル内の compose ファイルごとの見出しにある（#221）:
+    // compose が複数あると対象が一意に決まらないため、ここには置かない。
+    refresh: { run: () => dockerStore.refreshContainers(true), busy: () => dockerStore.refreshing },
+  },
   { panel: 'projects', labelKey: 'sidebar.projects', icon: FolderOpen },
-  { panel: 'tasks', labelKey: 'sidebar.tasks', icon: Play },
+  {
+    panel: 'tasks',
+    labelKey: 'sidebar.tasks',
+    icon: Play,
+    refresh: { run: () => tasksRef.value?.refresh() },
+  },
+  {
+    panel: 'issues',
+    labelKey: 'sidebar.issues',
+    // GitHub の issue 記号（`CircleDot`）は他のアイコンに紛れて何のパネルか読めなかった
+    // ので、TODO パネルが使っていたチェックリストに戻した（#278）。
+    icon: ListTodo,
+    refresh: { run: () => issuesStore.refresh(), busy: () => issuesStore.loading },
+  },
 ]
+
+/** アイコン列に実際に並べるもの。`icons` は表の正本のままにして、ここで絞る
+ *  （パネルの見出しは `icons` を引くので、隠れているあいだも名前が出る）。 */
+const navIcons = computed(() => icons.filter((i) => isPanelAvailable(i.panel)))
+
+/** 今開いているパネルの行（見出し・更新ボタンが読む）。 */
+const activeIcon = computed(() => icons.find((i) => i.panel === sidebar.activePanel))
 
 /** panel → manual-relative help target (`page#anchor`). 全パネルを網羅する `Record` なので、
  *  パネルを足してマニュアルの行き先を書き忘れると型エラーになる（`?` ボタンだけ黙って
@@ -270,6 +319,7 @@ const PANEL_HELP: Record<SidebarPanel, string> = {
   tasks: 'panels.md#タスク',
   outline: 'panels.md#アウトライン',
   diagnostics: 'panels.md#problems診断',
+  issues: 'panels.md#issuegithub',
 }
 const panelHelp = computed(() => (sidebar.activePanel ? PANEL_HELP[sidebar.activePanel] : undefined))
 
@@ -325,7 +375,7 @@ onUnmounted(() => {
     -->
     <nav class="icon-strip" :style="accentStyle">
       <button
-        v-for="item in icons"
+        v-for="item in navIcons"
         :key="item.panel"
         class="icon-button"
         :class="{ active: sidebar.activePanel === item.panel }"
@@ -380,67 +430,80 @@ onUnmounted(() => {
     </nav>
     <aside v-if="sidebar.isPanelOpen" class="panel" :style="{ width: sidebar.panelWidth + 'px' }">
       <div class="panel-header">
-        <span class="panel-title">{{ t(icons.find((i) => i.panel === sidebar.activePanel)?.labelKey ?? '') }}</span>
-        <div v-if="sidebar.activePanel === 'files'" class="header-actions">
-          <button class="header-btn" :title="t('fileTree.newFile')" @click="fileTreeRef?.startCreateAtRoot('file')">
-            <FilePlus :size="14" :stroke-width="2" />
-          </button>
-          <button class="header-btn" :title="t('fileTree.newFolder')" @click="fileTreeRef?.startCreateAtRoot('dir')">
-            <FolderPlus :size="14" :stroke-width="2" />
-          </button>
-          <button class="header-btn" :title="t('common.refresh')" @click="fileTreeRef?.refresh()">
-            <RefreshCw :size="14" :stroke-width="2" :class="{ spin: fileTreeRef?.refreshing }" />
-          </button>
-        </div>
-        <div v-if="sidebar.activePanel === 'search'" class="header-actions">
-          <span class="backend-badge">{{ searchStore.backend ?? '...' }}</span>
-        </div>
-        <div v-if="sidebar.activePanel === 'git'" class="header-actions">
+        <span class="panel-title">{{ t(activeIcon?.labelKey ?? '') }}</span>
+        <!--
+          右側は **1 つの `.header-actions` にまとめる**。`.panel-header` は
+          `justify-content: space-between` なので、兄弟が 3 つ以上になるとパネル固有の
+          ボタンと更新ボタンのあいだに隙間が開く。
+        -->
+        <div class="header-actions">
+          <template v-if="sidebar.activePanel === 'files'">
+            <button class="header-btn" :title="t('fileTree.newFile')" @click="fileTreeRef?.startCreateAtRoot('file')">
+              <FilePlus :size="14" :stroke-width="2" />
+            </button>
+            <button class="header-btn" :title="t('fileTree.newFolder')" @click="fileTreeRef?.startCreateAtRoot('dir')">
+              <FolderPlus :size="14" :stroke-width="2" />
+            </button>
+          </template>
+          <span v-if="sidebar.activePanel === 'search'" class="backend-badge">{{ searchStore.backend ?? '...' }}</span>
+          <template v-if="sidebar.activePanel === 'issues' && issuesStore.visible">
+            <!-- 全展開 / 全畳み。畳める親が 1 つも無ければ押しても何も起きないので出さない。 -->
+            <button
+              v-if="issuesStore.view === 'tree' && issuesStore.collapseAction"
+              class="header-btn"
+              :title="t(issuesStore.collapseAction === 'collapse' ? 'issues.collapseAll' : 'issues.expandAll')"
+              @click="issuesStore.toggleAll()"
+            >
+              <ChevronsDownUp v-if="issuesStore.collapseAction === 'collapse'" :size="14" :stroke-width="2" />
+              <ChevronsUpDown v-else :size="14" :stroke-width="2" />
+            </button>
+            <!-- ツリー ⇄ フラット。アイコンは**今の表示**（押すと切り替わる）。 -->
+            <button
+              class="header-btn"
+              :title="t(issuesStore.view === 'tree' ? 'issues.viewTree' : 'issues.viewFlat')"
+              @click="issuesStore.setView(issuesStore.view === 'tree' ? 'flat' : 'tree')"
+            >
+              <ListTree v-if="issuesStore.view === 'tree'" :size="14" :stroke-width="2" />
+              <List v-else :size="14" :stroke-width="2" />
+            </button>
+          </template>
+          <template v-if="sidebar.activePanel === 'git'">
+            <button
+              class="header-btn"
+              :class="{ primary: gitStore.status?.behind }"
+              :disabled="gitStore.pulling"
+              :title="t('git.pullHint')"
+              @click="gitStore.pull()"
+              @contextmenu.prevent="openSyncMenu('pull', $event)"
+            >
+              <Loader v-if="gitStore.pulling" :size="14" :stroke-width="2" class="spin" />
+              <ArrowDown v-else :size="14" :stroke-width="2" />
+            </button>
+            <button
+              class="header-btn"
+              data-testid="git-push"
+              :class="{ primary: gitStore.status?.ahead }"
+              :disabled="gitStore.pushing"
+              :title="t('git.pushHint')"
+              @click="gitStore.push()"
+              @contextmenu.prevent="openSyncMenu('push', $event)"
+            >
+              <Loader v-if="gitStore.pushing" :size="14" :stroke-width="2" class="spin" />
+              <ArrowUp v-else :size="14" :stroke-width="2" />
+            </button>
+          </template>
+          <!-- 更新ボタンは表（`IconDef.refresh`）から。理由はその宣言の doc。 -->
           <button
+            v-if="activeIcon?.refresh"
             class="header-btn"
-            :class="{ primary: gitStore.status?.behind }"
-            :disabled="gitStore.pulling"
-            :title="t('git.pullHint')"
-            @click="gitStore.pull()"
-            @contextmenu.prevent="openSyncMenu('pull', $event)"
+            :disabled="activeIcon.refresh.busy?.()"
+            :title="t('common.refresh')"
+            @click="activeIcon.refresh.run()"
           >
-            <Loader v-if="gitStore.pulling" :size="14" :stroke-width="2" class="spin" />
-            <ArrowDown v-else :size="14" :stroke-width="2" />
+            <RefreshCw :size="14" :stroke-width="2" :class="{ spin: activeIcon.refresh.busy?.() }" />
           </button>
-          <button
-            class="header-btn"
-            data-testid="git-push"
-            :class="{ primary: gitStore.status?.ahead }"
-            :disabled="gitStore.pushing"
-            :title="t('git.pushHint')"
-            @click="gitStore.push()"
-            @contextmenu.prevent="openSyncMenu('push', $event)"
-          >
-            <Loader v-if="gitStore.pushing" :size="14" :stroke-width="2" class="spin" />
-            <ArrowUp v-else :size="14" :stroke-width="2" />
-          </button>
-          <button class="header-btn" :disabled="gitStore.refreshing" :title="t('common.refresh')" @click="gitStore.refreshAll()">
-            <RefreshCw :size="14" :stroke-width="2" :class="{ spin: gitStore.refreshing }" />
-          </button>
+          <HelpButton v-if="panelHelp" :page="panelHelp" :size="15" class="panel-help" />
         </div>
-        <div v-if="sidebar.activePanel === 'docker'" class="header-actions">
-          <!-- compose up/down live on each compose file's group heading in the
-               panel (#221): with several compose files there is no one target. -->
-          <button class="header-btn" :disabled="dockerStore.refreshing" :title="t('common.refresh')" @click="dockerStore.refreshContainers(true)">
-            <RefreshCw :size="14" :stroke-width="2" :class="{ spin: dockerStore.refreshing }" />
-          </button>
-        </div>
-        <div v-if="sidebar.activePanel === 'tasks'" class="header-actions">
-          <button class="header-btn" :title="t('common.refresh')" @click="tasksRef?.refresh()">
-            <RefreshCw :size="14" :stroke-width="2" />
-          </button>
-        </div>
-        <div v-if="sidebar.activePanel === 'diagnostics'" class="header-actions">
-          <button class="header-btn" :disabled="diagStore.running" :title="t('common.refresh')" @click="diagStore.run()">
-            <RefreshCw :size="14" :stroke-width="2" :class="{ spin: diagStore.running }" />
-          </button>
-        </div>
-        <HelpButton v-if="panelHelp" :page="panelHelp" :size="15" class="panel-help" />
       </div>
       <div class="panel-content">
         <ProjectPanel v-if="sidebar.activePanel === 'projects'" />
@@ -451,6 +514,7 @@ onUnmounted(() => {
         <TasksPanel v-else-if="sidebar.activePanel === 'tasks'" ref="tasksRef" />
         <OutlinePanel v-else-if="sidebar.activePanel === 'outline'" />
         <DiagnosticsPanel v-else-if="sidebar.activePanel === 'diagnostics'" />
+        <IssuesPanel v-else-if="sidebar.activePanel === 'issues'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
       <div class="resize-handle drag-x-handle" @mousedown="onResizeStart"></div>

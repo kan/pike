@@ -42,6 +42,7 @@ export default {
   'sidebar.tasks': 'Tasks',
   'sidebar.outline': 'Outline',
   'sidebar.diagnostics': 'Problems',
+  'sidebar.issues': 'Issues',
   'sidebar.keyboardShortcuts': 'Keyboard Shortcuts',
   'sidebar.settings': 'Settings',
   'sidebar.github': 'GitHub',
@@ -718,6 +719,15 @@ export default {
   // Tasks
   'tasks.noFiles': 'No task files found',
   'tasks.openSource': 'Open task file',
+  // Issues
+  'issues.unavailable': 'Available when the origin is on GitHub and gh is installed in the project shell.',
+  'issues.filterPlaceholder': 'Filter by number / title / label',
+  'issues.empty': 'No open issues',
+  'issues.noMatch': 'No matching issues',
+  'issues.viewTree': 'Tree view (click for flat)',
+  'issues.viewFlat': 'Flat view (click for tree)',
+  'issues.expandAll': 'Expand all',
+  'issues.collapseAll': 'Collapse all',
   // Outline
   'outline.empty': 'No file opened',
   'outline.unsupported': 'No outline available for this file',

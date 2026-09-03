@@ -14,6 +14,7 @@ import type {
   PullOption,
   PushOption,
 } from '../types/git'
+import type { IssueListResult } from '../types/issues'
 import type { ProjectConfig } from '../types/project'
 import type { SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
 import type { MenuAction, MenuShell, ShellType } from '../types/tab'
@@ -538,6 +539,16 @@ export async function searchExecute(shell: ShellType, root: string, options: Sea
 
 export async function listProjectFiles(shell: ShellType, root: string): Promise<string[]> {
   return invoke<string[]>('list_project_files', { shell, root })
+}
+
+// Issues (#278)
+
+export async function issuesGhAvailable(shell: ShellType, root: string, force: boolean): Promise<boolean> {
+  return invoke<boolean>('issues_gh_available', { shell, root, force })
+}
+
+export async function issuesList(shell: ShellType, root: string, limit: number): Promise<IssueListResult> {
+  return invoke<IssueListResult>('issues_list', { shell, root, limit })
 }
 
 // Docker

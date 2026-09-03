@@ -42,6 +42,7 @@ export default {
   'sidebar.tasks': 'タスク',
   'sidebar.outline': 'アウトライン',
   'sidebar.diagnostics': '問題',
+  'sidebar.issues': 'Issue',
   'sidebar.keyboardShortcuts': 'キーボードショートカット',
   'sidebar.settings': '設定',
   'sidebar.github': 'GitHub',
@@ -717,6 +718,15 @@ export default {
   // Tasks
   'tasks.noFiles': 'タスクファイルが見つかりません',
   'tasks.openSource': 'タスク定義ファイルを開く',
+  // Issues
+  'issues.unavailable': 'origin が GitHub で、シェルに gh があるプロジェクトで使えます。',
+  'issues.filterPlaceholder': '番号 / タイトル / ラベルで絞り込み',
+  'issues.empty': 'open な issue はありません',
+  'issues.noMatch': '一致する issue はありません',
+  'issues.viewTree': 'ツリー表示（クリックでフラットへ）',
+  'issues.viewFlat': 'フラット表示（クリックでツリーへ）',
+  'issues.expandAll': 'すべて展開',
+  'issues.collapseAll': 'すべて畳む',
   // Outline
   'outline.empty': 'ファイルが開かれていません',
   'outline.unsupported': 'このファイルのアウトラインには対応していません',

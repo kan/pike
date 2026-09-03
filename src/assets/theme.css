@@ -199,6 +199,24 @@
   height: 16px;
 }
 
+/* 木の行の先頭に置く開閉の三角と、その空き枠（ファイルツリー・アウトライン・issue が共有）。
+   `.row-icon` と同じ理由でここに置いてある: 各パネルの scoped CSS に持っていたころは
+   同じ宣言が 3 コピーあり、寸法や色を変えるのに 3 ファイルを直す必要があった。
+   色や hover のような消費者ごとの差は、置いた側の scoped CSS に残す。 */
+.tree-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.tree-chevron-space {
+  width: 12px;
+  flex-shrink: 0;
+}
+
 /* エディタのヘッダに並ぶアイコントグル（折り返し・ミニマップ）。**親のヘッダの様式に
    合わせず自前で持つ**: プレビュー付きツールバー（`.preview-toggle`）とパンくずヘッダ
    （`.header-icon-btn`）は別々のボタン様式を持っていて、どちらに置いても同じ見た目に

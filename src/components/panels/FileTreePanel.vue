@@ -678,19 +678,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   background: var(--active-file-bg);
 }
 
-.tree-chevron {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  flex-shrink: 0;
-  color: var(--text-secondary);
-}
-
-.tree-chevron-space {
-  width: 12px;
-  flex-shrink: 0;
-}
+/* 開閉の三角とその空き枠は共有の `.tree-chevron` / `.tree-chevron-space`（`theme.css`）。 */
 
 /* アイコンの枠は共有の `.row-icon`（`theme.css`）。ここに残すのは、ファイルツリー固有の
    色分けだけ。 */

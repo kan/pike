@@ -641,6 +641,17 @@ pub fn cwd_matches_root(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
     }
 }
 
+/// First non-empty line of `text`, clipped so a runaway error can't bloat the
+/// payload. `None` when there is nothing to report.
+///
+/// **外部ツールの失敗をそのまま UI に出す側はここを通す。** 打ち切りが要るのは、
+/// シェルの初期化や壊れたツールが 1 行に数 KB を吐くことがあり、それが IPC に載って
+/// パネルを埋めるため（`diagnostics` の `ProviderRun.error` と `issues` が共有する）。
+pub fn first_line(text: &str) -> Option<String> {
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
+    Some(line.chars().take(200).collect())
+}
+
 /// Cache key for things that are per claude/codex *installation* rather than per
 /// project — a WSL distro has its own home and its own tool config, the Windows
 /// shells all share the host's. Shared so the several caches keyed this way

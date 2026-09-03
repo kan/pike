@@ -24,7 +24,7 @@
 import { computed, ref } from 'vue'
 import { t } from '../i18n'
 import en from '../i18n/en'
-import type { MenuAction } from '../types/tab'
+import type { MenuAction, SidebarPanel } from '../types/tab'
 import { isMacHost } from './host'
 import { chordLabel, matchParsedChord, parseChord, toAccelerator } from './keys'
 
@@ -66,6 +66,12 @@ export interface AppActionDef {
   labelKey?: keyof typeof en
   /** プロジェクトが要る（グローバルモードのウィンドウでは出さない）。 */
   needsProject?: true
+  /**
+   * このアクションが開くサイドバーパネル。**使えるかの判定に使う**
+   * （`composables/usePanelAvailability.ts`。ここでストアを読むと循環するので、
+   * この表は「どのパネルか」を言うだけにして、可否は読む側が聞く）。
+   */
+  panel?: SidebarPanel
 }
 
 /**
@@ -95,14 +101,15 @@ export const APP_ACTIONS = [
   { id: 'gitHistory' },
   { id: 'quit', labelKey: 'menu.quit' },
   // --- パネル（#270）。パレットから開ける。キーを持つのは検索だけ（`Mod+Shift+F`、#259）
-  { id: 'panelFiles', palette: 'view', labelKey: 'sidebar.files' },
-  { id: 'panelGit', palette: 'view', labelKey: 'sidebar.git' },
-  { id: 'panelSearch', palette: 'view', labelKey: 'sidebar.search' },
-  { id: 'panelDocker', palette: 'view', labelKey: 'sidebar.docker' },
-  { id: 'panelTasks', palette: 'view', labelKey: 'sidebar.tasks' },
-  { id: 'panelOutline', palette: 'view', labelKey: 'sidebar.outline' },
-  { id: 'panelDiagnostics', palette: 'view', labelKey: 'sidebar.diagnostics' },
-  { id: 'panelProjects', palette: 'view', labelKey: 'sidebar.projects' },
+  { id: 'panelFiles', palette: 'view', labelKey: 'sidebar.files', panel: 'files' },
+  { id: 'panelGit', palette: 'view', labelKey: 'sidebar.git', panel: 'git' },
+  { id: 'panelSearch', palette: 'view', labelKey: 'sidebar.search', panel: 'search' },
+  { id: 'panelDocker', palette: 'view', labelKey: 'sidebar.docker', panel: 'docker' },
+  { id: 'panelTasks', palette: 'view', labelKey: 'sidebar.tasks', panel: 'tasks' },
+  { id: 'panelOutline', palette: 'view', labelKey: 'sidebar.outline', panel: 'outline' },
+  { id: 'panelDiagnostics', palette: 'view', labelKey: 'sidebar.diagnostics', panel: 'diagnostics' },
+  { id: 'panelIssues', palette: 'view', labelKey: 'sidebar.issues', panel: 'issues' },
+  { id: 'panelProjects', palette: 'view', labelKey: 'sidebar.projects', panel: 'projects' },
   // --- Git
   { id: 'gitPull', palette: 'git', labelKey: 'git.pull', needsProject: true },
   { id: 'gitPush', palette: 'git', labelKey: 'git.push', needsProject: true },
@@ -127,6 +134,8 @@ export function paletteActions(): {
   chord: string
   /** プロジェクトが要る（グローバルモードでは出さない）。 */
   needsProject: boolean
+  /** 開くサイドバーパネル（使えるかは `usePanelAvailability` に聞く）。 */
+  panel?: SidebarPanel
   /** 絞り込みに使う文字列。表示名と分類の**日本語と英語の両方**を含む。 */
   search: string
 }[] {
@@ -141,6 +150,7 @@ export function paletteActions(): {
         label: t(key),
         chord: actionChord(a.id),
         needsProject: 'needsProject' in a,
+        panel: 'panel' in a ? a.panel : undefined,
         // **UI 言語に関わらず英語でも引けるようにする**（#270）。コマンドが増えたぶん、
         // `git pull` や `settings` と打って絞れるほうが速い（日本語表示のまま英語で
         // 打つのは、キーボードが英字のときの自然な打ち方でもある）。

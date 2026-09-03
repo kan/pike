@@ -1,7 +1,7 @@
 # エディタ・パネル実装ルール
 
-CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイドバーの各パネル（検索・タスク・アウトライン・診断）、ファイル監視。
-実体は `src/components/tabs/EditorTab.vue`、`src/components/editor/MarkdownToolbar.vue`、`src/components/panels/`、`src/lib/editor*.ts`、`src/lib/outline/`、`src-tauri/src/fs/`、`src-tauri/src/search/`、`src-tauri/src/watcher/`、`src-tauri/src/tasks.rs`、`src-tauri/src/diagnostics/`。
+CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイドバーの各パネル（検索・タスク・アウトライン・診断・issue）、ファイル監視。
+実体は `src/components/tabs/EditorTab.vue`、`src/components/editor/MarkdownToolbar.vue`、`src/components/panels/`、`src/lib/editor*.ts`、`src/lib/outline/`、`src-tauri/src/fs/`、`src-tauri/src/search/`、`src-tauri/src/watcher/`、`src-tauri/src/tasks.rs`、`src-tauri/src/diagnostics/`、`src-tauri/src/issues/`。
 
 ## ファイルツリー / エディタ
 - Rust `fs` モジュールがファイル操作を提供（list_dir / read_file / write_file）。分岐は**「WSL かどうか」だけ**で、Windows も macOS も `std::fs` の腕に乗る
@@ -300,6 +300,101 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
   - パースは go vet と同じ `path:line:col: message` なので `split_location` を共有。末尾の `(linter)` は `code` に移し、`typecheck` だけ Error（実際のコンパイルエラーのため）。**v1 が各指摘の下に流す元ソース行とキャレットは、行頭が空白かどうかで落とす**（`"a:1:2: x"` のような文字列リテラルを含む行が位置行として通ってしまうため。指摘行は必ずパスで始まる）
   - **未インストールを「問題なし」に見せない**: `ProviderSpec.optional_binary`（golangci だけ true）が立っていると、終了コード != 0 かつパース結果 0 件のとき stderr の 1 行目を `ProviderRun.error` に出す。issue 検出時も非 0 で終わるので、パース結果 0 件が「そもそも走らなかった」の目印になる。cargo / go vet / tsc も同じ死角を持つが、既存プロジェクトの表示を変えることになるので false のまま据え置いている
 - フロントは `stores/diagnostics.ts` + `panels/DiagnosticsPanel.vue`。パネルを開いた時に未実行なら `run()`（`lastRunAt` で判定）。行クリックで該当箇所をエディタで開き、ホバーの 🤖 で修正依頼をターミナルへ注入（前述の `useTerminalInject`）。エディタ側のインライン下線は `lib/editorDiagnostics.ts`。`golangciAvailable` のときだけ出る golangci-lint トグルは `localStorage` の `pike:diagnostics-golangci` に**プロジェクト id の配列**で永続化する（`golangciAvailable` はプロジェクト固有なので `clear()` で落とす）。**グローバルな真偽値にしないこと**: パネルは初回 `run()` の応答で可否を知るので、フラグが立っていると別プロジェクトを開いてパネルを出した瞬間に、そのプロジェクトの（コンテナ実行かもしれない）lint が同意なしに走る
+
+## issue パネル（#278）
+
+GitHub の open issue を更新の新しい順に出す。実体は `src-tauri/src/issues/mod.rs`、
+`src/stores/issues.ts`、`src/components/panels/IssuesPanel.vue`。
+
+- **`api.github.com` を直接叩かない。** CSP の緩和（`connect-src`）とトークンの保管が要る。
+  `gh` に寄せれば認証は丸ごと向こうの持ち物で、Pike はトークンに触らない。マニュアルタブが
+  `raw.githubusercontent.com` から生の Markdown を取って自前で描いているのと同じ発想で、
+  **issue のページ自体は埋め込めない**（GitHub は `X-Frame-Options: deny` と
+  `frame-ancestors 'none'` の二重で拒否する。実測）
+- **並び替えは `--search "sort:updated-desc"`。** `gh issue list` に並び替えのフラグは無く、
+  検索の修飾子として渡すのが唯一の方法（`--state open` と併用できることも実測済み）
+- **未インストール・未認証・権限なしを「0 件」に見せない**（`ProviderRun.error` と同じ考え方）。
+  どれも結果が空になるので、区別が付くよう `IssueListResult.error` に理由を入れる。**実行した
+  行もそこへ畳む**: 成功時にも返る別のフィールドにすると、IPC が落ちた経路（フロントの catch）
+  だけ古い行が残る。1 行の長さは `types.rs` の `first_line` が 200 文字で切る（`diagnostics` と共有）
+- **`gh` の検出は `issues_gh_available`。** `--version` が存在確認を兼ね（`which` を別に叩かない）、
+  **一覧と同じ `run_shell_line` を通す**（WSL では `WSL_EXTRA_PATH` が前置されるので
+  `~/.local/bin` の `gh` も見つかる。素の `run` で探すと、探し方と走らせ方が食い違って
+  「検出できないのに手で打てば動く」になる）。認証までは見ない（`gh auth status` をもう 1 回
+  起こすことになるうえ、切れていることは一覧の `error` で分かる）
+  - 答えは **`IssuesState` がシェルの導入単位でプロセスに 1 つ**持つ（`SearchState.detected` と
+    同じ形）。Pinia のストアはウィンドウごとなので、フロントだけで覚えると同じリポジトリを
+    N 枚開いたときに `gh --version` が N 回、WSL では `wsl.exe` の起動が N 回になる。
+    **ロックは probe 中も持ったまま**にする（`claude_usage/config.rs` と同じ手口）: 手放すと、
+    前回のセッションを復元して複数のウィンドウが同時に立ち上がるときに全部が miss する
+  - **これは「検出のためだけに起動時へ `wsl.exe` を足さない」（`project.md`）の例外**。
+    `search` のバックエンド検出は初回の検索まで遅延できるが、こちらは**アイコンを出すか
+    どうかが答えに依存する**ので、パネルを開くより前に答えが要る。origin が GitHub だと
+    分かってからしか走らないので、対象は GitHub のプロジェクトのウィンドウだけ
+  - **覚えるのは「見つかった」だけ**（Rust もフロントのラッチも）。見つからなかったほうを
+    焼き付けると、`PROBE_TIMEOUT` に届いた 1 回（WSL の冷えた起動で普通に起きる）で
+    パネルが消え、**アイコンもパレットも出ないので更新ボタンに手が届かない**＝再起動しか
+    手が無くなる。見つからないあいだは watcher が発火するたび（プロジェクト切替・シェル
+    変更）に聞き直すので、`gh` を入れれば次の切り替えで出てくる
+  - **`force` の逃げ道も残す。** 更新ボタンがその入口で、**`gh` が見つかっていないときだけ**
+    再検出する（見つかっているのに probe すると、一覧の前に外部プロセスをもう 1 本
+    起こすだけになる）
+- **走っている検出はシェルのキーで見張る**（`detectingShell`）。真偽値のガードだと、A の
+  probe（最長 10 秒）の最中に B へ切り替えたとき、B の watcher が A の Promise を待ったうえで
+  A の答えを B のキーで焼き込む。以後 B は一度も probe されず自己回復しない
+- **`loading` は「古い取得は下ろさない・`clear()` が下ろす」で分ける。** 取得中にプロジェクトを
+  切り替えると、飛んでいる応答は seq で捨てられるぶん下ろす者が居なくなり、次の
+  `ensureLoaded` が「取得中だから」で弾かれて空のまま座る。逆に古い取得に下ろさせると、
+  切り替え後に走り始めた取得の最中にスピナーが消える
+- **「使えるか」は `composables/usePanelAvailability.ts` の 1 箇所**（origin が GitHub かつ
+  `gh` がある）。**アイコン列の行に述語を置かないこと**: パネルへの入口は 4 つあり
+  （アイコン・`pike:activePanel` からの復元・パレットの `> …`・`panelIssues` アクション）、
+  アイコンだけ隠すと残り 3 つから「使えません」しか出ないパネルが開く。`lib/shortcuts.ts` には
+  置けない（`stores/project.ts` から import されるので循環する）ので、`APP_ACTIONS` の行は
+  `panel` で「どのパネルか」だけを言い、可否は読む側が composable に聞く
+  - **`isGitHub` は永続化済みの `project.remoteUrl` を先に見る**。`gitStore.remoteUrl` は
+    `git remote get-url` の往復が終わるまで null なので、そちらだけだとアイコン列が起動から
+    数百 ms 遅れて増え、一度リフローする。git 側は補正役（リモートを付け替えたら勝つ）
+  - それでもパネル本体は自分で `visible` を見る。到達経路が上のとおり複数あるので、
+    見ないと GitHub でないプロジェクトで `gh issue list` が走る
+- パネルのヘッダの更新ボタンは **`IconDef.refresh`（`SideBar.vue` の表）** から出す。
+  `badge` / `marker` と同じ器で、以前は 5 パネルが同じ 3 行を書き写していた。**右側の
+  コントロールは 1 つの `.header-actions` にまとめる**（`.panel-header` が
+  `justify-content: space-between` なので、兄弟が 3 つ以上になると隙間が開く）
+- 書き込み（コメント・クローズ）は持たず、行のクリックは `openUrlWithConfirm` でブラウザへ
+  逃がす（StatusBar のリポジトリリンクや GitPanel のコミットリンクと同じ規約）
+- **sub-issue の木は `parent` だけで組む**（`lib/issueTree.ts` の `buildIssueTree`）。`gh` は
+  `parent` / `subIssues` / `subIssuesSummary` の 3 つを `--json` で返すが、**`subIssues` は
+  一覧に載っていない子（closed・取得件数の枠外）も返す**ので、使うと一覧と木で件数が
+  食い違う。`parent` を上向きに辿るだけなら、出てくるのは必ず取ってきた一覧の中のものになる。
+  フィールドを 1 つ足す代償は実測で 1.03 秒 → 1.20 秒（open 50 件）で、spawn も IPC も 1 回のまま
+  - **親が一覧に居ない子はトップレベルに出す。** そこで隠すと「絞り込んでいないのに
+    見えない issue」ができる
+  - **絞り込みでは一致した issue の祖先を残す**（親が消えると、子がどこにぶら下がっていたか
+    読めなくなる）。**フラット表示では足さない**: 木が無い以上、一致していない親が混ざる
+    理由が無い
+  - **親のリンクが輪になったときは、止まるだけでなく拾い直す。** 経路の Set で無限ループは
+    防げるが、輪の全員が親を持つので根から到達できず、「絞り込んでいないのに issue が数件
+    消える」というもっと気付きにくい壊れ方になる。走査のあと、**祖先を辿って根に着かない**
+    ものをトップレベルへ足す（「出力されていないもの」を印にはできない。畳んだ親の下は
+    正しく隠れているだけなので、そちらまで引きずり出すことになる）
+  - **畳んだ状態は永続化しない。** issue の番号は増え続けるので、覚えると死んだ番号が
+    溜まる。全展開 / 全畳みのボタンが 1 回で戻せる（`tasks` の折り畳みを覚えているのは、
+    キーがファイル名で数も増えないため）。ツリー / フラットの選択だけは好みなので
+    `pike:issues-view` に持つ（マシンローカル・プロジェクト共通）
+  - **輪の扱いを知っているのは `indexIssues` だけ。** `parent` は外から来る値なので輪に
+    なりうるが、各所にガードを撒くと「無限ループはしないが issue が数件消える」という
+    もっと気付きにくい壊れ方が残る。**輪に参加する辺をそこで切って**、以降は普通の森として
+    扱う（`buildIssueTree` の遡りも走査も、`issueParentNumbers` もガードを持たない）
+- **ラベルは色のドットだけにする。** パネルの既定幅は 250px で、名前を並べるとタイトルが
+  隠れる。名前は行のツールチップに畳む（ドットだけでは何のラベルか読めないので、行の情報を
+  1 箇所に揃える）
+- 表示の整形（相対時刻・ツールチップ・ラベル色）は**一覧そのものを入力にした番号引きの
+  computed に畳む**（`formatted`）。**絞り込みにも木の形にも依存させないこと**: 絞り込み欄は
+  同じコンポーネントの `v-model` なので、依存させると打鍵のたびに全行の日付整形と色の検証を
+  やり直す（描く行のほうは木と畳み具合で毎回変わるので、そちらを入力にすると畳んだ意味が
+  無くなる）。相対時刻は `lib/paths.ts` の `relativeDate`、ラベル色の綴りの検証は
+  `projectColorValue`（任意の CSS 値を style バインドへ通さない規則はあそこが持っている）
 
 ## タスクランナー（Tasks パネル）
 - `tasks` サイドバーパネル。`src-tauri/src/tasks.rs` の `task_discover` がプロジェクトルートを**最大深さ 5**で再帰走査し、`package.json` / `Makefile` / `justfile` / `deno.json` / `Cargo.toml` を検出

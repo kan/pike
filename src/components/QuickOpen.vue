@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useAppActions } from '../composables/useAppActions'
+import { usePanelAvailability } from '../composables/usePanelAvailability'
 import { useI18n } from '../i18n'
 import { openPathInTab } from '../lib/openFile'
 import { basename, fuzzyMatch } from '../lib/paths'
@@ -15,6 +16,7 @@ import type { TaskRunner } from '../types/tasks'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
+const { isPanelAvailable } = usePanelAvailability()
 const tabStore = useTabStore()
 const appActions = useAppActions()
 const taskStore = useTaskStore()
@@ -147,6 +149,9 @@ const builtinCommands = computed<CommandItem[]>(() =>
   paletteActions()
     // プロジェクトを持たないウィンドウでは、git のように成立しないものを出さない。
     .filter((a) => !a.needsProject || !!projectStore.currentProject)
+    // 条件付きのパネル（#278 の issue）は、サイドバーのアイコンと同じ答えを見る。
+    // ここを素通しにすると、アイコンは隠れているのにパレットからは開けてしまう。
+    .filter((a) => !a.panel || isPanelAvailable(a.panel))
     .map((a) => ({
       kind: 'command' as const,
       id: a.id,

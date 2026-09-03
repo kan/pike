@@ -32,7 +32,7 @@ macOS はローカルのシェルで開発できるところまで対応する�
 | `terminal.md` | PTY とシェル対応・ターミナルの coding agent 補助・キーボードショートカットの取り合い |
 | `project.md` | プロジェクト管理と同期・ウィンドウの生成と復元・トレイ・ジャンプリスト・`pike` CLI |
 | `git.md` | git CLI ブリッジ・worktree・コンフリクト解消 |
-| `editor.md` | エディタとプレビュー・ファイルツリー・検索/タスク/アウトライン/診断の各パネル・ファイル監視 |
+| `editor.md` | エディタとプレビュー・ファイルツリー・検索/タスク/アウトライン/診断/issue の各パネル・ファイル監視 |
 | `agent.md` | トークン使用量（エージェントはターミナルで動かす、#275） |
 | `docker.md` | bollard 連携・compose の探索・ログ・ポートフォワード |
 | `build.md` | 開発ビルド・本番ビルド限定の落とし穴（CSP）・E2E スクリーンショット・CI・セルフアップデート |
@@ -58,6 +58,7 @@ macOS はローカルのシェルで開発できるところまで対応する�
 │  │ 📋 tasks   │                                         │
 │  │ 🔭 outline │                                         │
 │  │ ⚠ problems │                                         │
+│  │ ✅ issues   │                                         │
 │  └────────────┘                                         │
 └──────────────┬──────────────────────────────────────────┘
                │ Tauri IPC (invoke / events)
@@ -139,6 +140,8 @@ pike/
 │       ├── docker/
 │       │   ├── mod.rs         # bollard クライアント・compose パース・ログストリーム
 │       │   └── tunnel.rs      # 未公開ポートへの socat ポートフォワード（#120）
+│       ├── issues/
+│       │   └── mod.rs         # gh 経由の GitHub issue 一覧（#278）
 │       ├── search/
 │       │   └── mod.rs         # rg/grep バックエンド判定・検索・list_project_files
 │       ├── tasks.rs           # package.json/Makefile/deno.json/Cargo.toml のタスク再帰検出
@@ -151,7 +154,7 @@ pike/
 │   │   ├── tab.ts             # Tab Union type・ShellType・SidebarPanel・共通ヘルパー
 │   │   ├── project.ts         # ProjectConfig・PinnedTabDef
 │   │   ├── claudeUsage.ts  codexUsage.ts  diagnostics.ts  docker.ts
-│   │   ├── git.ts  search.ts  tasks.ts
+│   │   ├── git.ts  search.ts  tasks.ts  issues.ts
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
 │   │   ├── QuickOpen.vue        # Ctrl+P コマンドパレット（ファイル/>タスク/@タブ/:行/!ブランチ/?ヘルプ）
@@ -175,6 +178,7 @@ pike/
 │   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（作成・編集の 3 フォームで共有）
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
+│   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）
 │   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── editor/
@@ -196,7 +200,7 @@ pike/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts  settings.ts  project.ts
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
-│   │   ├── diagnostics.ts
+│   │   ├── diagnostics.ts  issues.ts
 │   │   ├── usageStore.ts      # createUsageStore ファクトリ（ポーリング基盤）
 │   │   ├── claudeUsage.ts  claudeRate.ts  codexUsage.ts  # トークン使用量・レート
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
@@ -210,6 +214,7 @@ pike/
 │   │   ├── useProjectAccent.ts # プロジェクトカラーを面として塗るための色の組（#298）
 │   │   ├── useActiveFile.ts  # いま見ているファイル（ツリーと Git パネルの強調、#274）
 │   │   ├── useFocusPolling.ts # アクティブなあいだだけポーリングする共通部（#277）
+│   │   ├── usePanelAvailability.ts # サイドバーのパネルが使えるかの唯一の出典（#278）
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
@@ -222,6 +227,7 @@ pike/
 │   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）
 │   │   ├── shortcuts.ts     # ショートカットの割り当て表（#254。キーの正本）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
+│   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
 │   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）

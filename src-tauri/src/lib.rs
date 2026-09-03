@@ -33,6 +33,7 @@ mod font;
 mod fs;
 mod git;
 mod ime_debug;
+mod issues;
 /// ジャンプリスト（タスクバー右クリック、#160）は `ICustomDestinationList` という
 /// Windows 専用 COM API。macOS の Dock メニューは別物なので、ここでは何もしない
 /// （トレイメニュー側は tray-icon が macOS を見るのでそのまま動く）。
@@ -1300,6 +1301,7 @@ pub fn run() {
                     std::collections::HashMap::new(),
                 )),
             });
+            app.manage(issues::IssuesState::default());
 
             // Parse initial CLI args and store for frontend to retrieve
             let args: Vec<String> = std::env::args().collect();
@@ -1577,6 +1579,8 @@ pub fn run() {
             search::search_detect_backend,
             search::search_execute,
             search::list_project_files,
+            issues::issues_gh_available,
+            issues::issues_list,
             git::git_status,
             git::git_is_repo,
             git::git_init,

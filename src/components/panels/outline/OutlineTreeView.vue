@@ -140,19 +140,7 @@ function iconFor(kind: OutlineKind): Component {
   color: var(--text-active);
 }
 
-.tree-chevron {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  flex-shrink: 0;
-  color: var(--text-secondary);
-}
-
-.tree-chevron-space {
-  width: 12px;
-  flex-shrink: 0;
-}
+/* 開閉の三角とその空き枠は共有の `.tree-chevron` / `.tree-chevron-space`（`theme.css`）。 */
 
 /* 枠は共有の `.row-icon`（`theme.css`）。**中身の lucide は 14px** なので、`v-html` した
    SVG を 16px に合わせる `.row-icon-svg` は付けない。 */
