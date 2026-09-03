@@ -146,7 +146,7 @@ URL が登録されているプロジェクトは、名前の右に**雲アイ�
   <img alt="worktree セレクタ" src="img/worktree-selector.png">
 </picture>
 
-切り替えると、**ファイルツリー / Git / 検索 / タスク / Docker / エディタ / TODO** の参照ルートが選んだ worktree へ一斉に切り替わります。1 つのウィンドウで複数 worktree のレビューができます。
+切り替えると、**ファイルツリー / Git / 検索 / タスク / Docker / エディタ** の参照ルートが選んだ worktree へ一斉に切り替わります。1 つのウィンドウで複数 worktree のレビューができます。
 
 これから開くものも、選んだ worktree を起点にします。
 

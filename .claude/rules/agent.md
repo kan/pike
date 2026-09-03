@@ -1,7 +1,7 @@
 # エージェント実装ルール
 
-トークン使用量の集計、`pike todo` CLI とエージェント向けスキル。
-実体は `src-tauri/src/claude_usage/`、`src-tauri/src/codex_usage/`、`src-tauri/src/todo_cli.rs`、`plugins/`。
+トークン使用量の集計。
+実体は `src-tauri/src/claude_usage/`、`src-tauri/src/codex_usage/`。
 
 **エージェントはターミナルで動かす（#275）。** 独自 UI で会話を進める `agent-chat` タブと、その裏の
 統一エージェント API（Codex app-server / ACP の runtime、`src-tauri/src/agent/` と
@@ -40,22 +40,14 @@
   - **Claude のプランは `seatTier` に無いことがある**。個人のサブスクリプションでは null で、Team / Enterprise の席にしか入らない（実機で確認）。`organizationRateLimitTier` → `organizationType` の順に落とし、情報を持たない `default_` の接頭辞だけ外す。値そのものは加工しない（将来増える等級を勝手に読み替えると誤った名前を出す）
 - フロント: ポーリング基盤は `stores/usageStore.ts` の `createUsageStore(id, fetcher)` ファクトリに集約（全フィールド deep 比較で rate%・cached 等も再描画。`refreshUsage(force)` で fetcher に force を伝搬）。`stores/claudeUsage.ts` / `stores/codexUsage.ts` / `stores/claudeRate.ts` は薄いラッパー（claudeRate の fetcher は claudeUsage の active を `sessionActive` として渡す）。型は `types/claudeUsage.ts` / `types/codexUsage.ts`、整形は `lib/format.ts` の `formatTokens` / `formatCost`。StatusBar は Claude と Codex を**1 項目に統合**し、ドロップダウンの中で節に分ける（#226。分けていたころは Codex 側が active のときしか出ず、状態タブと食い違っていた）。ヘッドラインは `useAgentUsage` の `headlineMeters`（Claude の 5h＋週間、Claude が枠を持たなければ Codex の primary＋secondary）。**2 つの数字は片方のエージェントから揃って取る**（並べた数字にどちらの枠か書く余地がないため、混ぜない）。ドロップダウンは 5h＋週間の `claudeSummaryMeters` / `codexMeters`、状態タブはモデル別を含む全枠の `claudeMeters`
 
-## pike todo CLI（#139）
-- `pike todo ...` は TODO パネルの実体 `.pike/todo.md` を**直接読み書きして stdout に出力し exit する独立 CLI**。GUI へ IPC せず、起動していなくても動く。GUI 起動中なら `todo` store の `fsWatcher.onFileChange` がファイル変更を検知してパネルを自動リロードするため、端末⇔パネルが同期する
-- `src-tauri/src/todo_cli.rs`。`main.rs` で Tauri ランタイム起動前・**`try_forward_pty_origin_and_exit` より前**に `try_todo_and_exit()` でフック（後だと `todo` がファイルパスとして GUI へルーティングされてしまう）
-- パース/シリアライズは `src/stores/todo.ts` と同一仕様（`(\s*[-*]\s+)\[([ xX])\]` を task 行、見出し・空行・自由記述は raw として round-trip 保持。保存は `[X]`→`[x]` 正規化・末尾改行 1 個）。GUI と同じく `.pike` 生成時に `.gitignore`（`*`）を書く
-- サブコマンド: `list`（`--json` 対応、番号は 1 始まり）/ `add <text...>` / `show <n...>` / `detail <n> <text>` / `done <n...>` / `undone <n...>` / `rm <n...>` / `clear [--done]`（タスク行とその詳細のみ削除。`--done` で完了分だけ。`--done` 以外のフラグはエラー）/ `help`。番号は list 出力位置。別名は `ls` / `cat` / `note` / `remove`
-- **タイトル + 詳細（#163）**: タスクは 1 行のタイトルに加え、直下の**インデント継続行**を詳細本文として持てる（標準 Markdown のリスト継続なので GitHub でもプレビューでも自然に読める。既存の 1 行 todo.md はそのまま互換）。パースの境界は「バレットより深いインデント」かつ「それ自身が task 行でない」（ネストした `- [ ]` は独立タスクのまま）。空行は**その後にインデントブロックが再開する場合のみ**本文に取り込む。本文は先頭行のインデントを基準に dedent して保持し（内部の相対ネストは維持）、書き戻しはバレットのインデント + 2 に正規化。TS/Rust 双方で同一実装（`todo.ts` の `parse`/`serialize`/`dedent` ↔ `todo_cli.rs` の同名関数）
-- 詳細操作のフラグは `add` と `detail` で共通（`parse_detail_args`）: `-d/--detail <text>`（繰り返しで複数行、`-` は stdin）/ `-a/--append` / `--clear`。`-d` 無指定なら番号の後の語をまとめて 1 行の本文にする。**未知のフラグは無視せずエラー**（`--appned` を黙って replace 扱いにすると本文が消えるため）。`list` は本文を畳んで `(+N lines)` マーカーだけ出し、`show` が本文込みで表示（`--json` は `detail` フィールドに `\n` 連結で入る）
-- パネル UI は行頭 chevron で詳細を開閉し、展開時は textarea で編集（`blur` で `setDetail`）。詳細を持たないタスクの chevron は hover 時だけ薄く出す。行の右端（削除ボタンの左）の `TextAlignStart` は**本文の有無を示す状態マーカーで、操作は持たない**（開閉の入口を 2 つにすると意味が二重になるため `<span>`。折り畳んだ行でも本文の有無が分かるようにするためのもの）
-- **task の id は parse 時の出現位置由来**（`todo-{n}`。パネル内で追加した直後だけ `todo-new-{n}`）。CLI や外部エディタの書き換えでファイル監視の再読込が走っても、開いている詳細欄・編集中の行が同じタスクに紐付いたままになる（毎回採番し直すと `expanded` / `editingId` が全部外れる）
-- TODO ファイル解決（`resolve_todo_file`）: cwd から上方向に **既存 `.pike/` を最優先**（無ければ `.git` リポジトリルート、無ければ cwd）に `.pike/todo.md`。GUI は端末を project.root で開くので通常 cwd == root、サブディレクトリからでも辿れる
-- release は `windows_subsystem = "windows"` でコンソール非割当のため、出力前に `AttachConsole(ATTACH_PARENT_PROCESS)`（`Win32_System_Console`）で親端末に接続（ConPTY 継承時は失敗するが無害）
-- エージェント（Claude Code / Codex）向けスキルは `plugins/` に配置（後述の「エージェントプラグイン」）
+## TODO パネルと `pike todo` の廃止（#278）
 
-## エージェントプラグイン（plugins/、#139）
-- `plugins/` に Claude Code / Codex 双方向けの Agent Skills（`SKILL.md` 形式は両者共通）を収録。現状は `pike todo` CLI の使い方を説明する `pike-todo` スキルのみ
-- `plugins/pike-todo/`（Claude Code プラグイン: `.claude-plugin/plugin.json` + `skills/pike-todo/SKILL.md`）、`plugins/.claude-plugin/marketplace.json`（`claude plugin marketplace add ./plugins` 用）、`plugins/codex/pike-todo/SKILL.md`（Codex 用・内容は Claude 版と同一）。導入手順は `plugins/README.md`
-- **CLI の挙動を変えたら 2 つの SKILL.md（claude 版・codex 版）を両方更新する**（同一内容の複製。drift 注意）
-- 将来 CLI の操作対象を増やす際はスキルを拡充（issue #139 の bullet 3-4 は別 issue 想定）
+TODO パネル（`.pike/todo.md` のチェックリスト、#139・#163）と、それを端末から操作する
+`pike todo` サブコマンド、`plugins/` のエージェント向けスキルは削除した。**エージェントが
+自分のタスク管理を内蔵するようになり、別の置き場を用意する意味が薄れた**という判断で、
+チャットを外した #275 と同じ流れ。
+
+- **新しいエージェントを足すときも、この種のタスク置き場は作らない**
+- ユーザーの `.pike/todo.md` は消さない（ただのファイルなので、そのまま残って読める）
+- 空いたパネルの枠は issue パネルの行き先として空けてある（#278 の本題。まだ実装していない）
 

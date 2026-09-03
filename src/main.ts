@@ -33,7 +33,6 @@ async function bootstrap() {
     const { useProjectStore } = await import('./stores/project')
     const { useSidebarStore } = await import('./stores/sidebar')
     const { useWorktreeStore } = await import('./stores/worktree')
-    const { useTodoStore } = await import('./stores/todo')
     const { useGitStore } = await import('./stores/git')
     const { useClaudeUsageStore } = await import('./stores/claudeUsage')
     const { useClaudeRateStore } = await import('./stores/claudeRate')
@@ -46,7 +45,6 @@ async function bootstrap() {
     const project = useProjectStore()
     const sidebar = useSidebarStore()
     const worktree = useWorktreeStore()
-    const todo = useTodoStore()
     // 撮影を 1 タブに保つため、ファイル系コンテンツタブを閉じる補助（media 系ヘルパー用）。
     const closeContentTabs = () => {
       for (const t of [...tabs.tabs]) {
@@ -171,12 +169,6 @@ async function bootstrap() {
       // モックした上でこれを呼ぶと一覧が入り StatusBar にセレクタが出る。
       loadWorktrees: () => {
         void worktree.loadWorktrees()
-      },
-      // TODO は project 変更（immediate watch）でロードされるが、撮影は擬似プロジェクトの
-      // id が全 spec で同一なため、最初の setFakeProject（fs_read_file 未モック時）の失敗結果が
-      // 残り watch も再発火しない。fs_read_file モック後に明示再ロードするための口。
-      reloadTodo: () => {
-        void todo.load()
       },
       // エディタ/プレビュー/アウトライン撮影用に、決定的な内容でエディタタブを開く。
       // initialContent を渡すと EditorTab は fs_read_file を読まずその内容で描画するため

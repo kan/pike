@@ -56,8 +56,8 @@ export const useWorktreeStore = defineStore('worktree', () => {
 
   /**
    * Re-point the file tree / git / search / tasks / docker (and the editor's
-   * git surfaces) at `w`. `activeRoot` を見ている側（App.vue のファイル監視・TODO
-   * パネル・root に依存する usage）は自分で追従するので、ここには出てこない。
+   * git surfaces) at `w`. `activeRoot` を見ている側（App.vue のファイル監視・root に
+   * 依存する usage）は自分で追従するので、ここには出てこない。
    */
   async function setActiveWorktree(w: GitWorktree) {
     const projectStore = useProjectStore()

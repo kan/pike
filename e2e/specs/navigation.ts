@@ -3,16 +3,14 @@ import {
   MATRIX,
   mockInvoke,
   openEditor,
-  openPanel,
   openQuickOpen,
   prepare,
-  reloadTodo,
   setFakeProject,
   setGitStatus,
   shoot,
 } from '../support/prepare'
 
-// worktree セレクタ / QuickOpen / TODO パネルを撮影する。いずれも簡単な invoke モックと
+// worktree セレクタ / QuickOpen を撮影する。いずれも簡単な invoke モックと
 // __pikeE2E ヘルパーで決定的に再現できる。内容面が空プレースホルダにならないよう、
 // 背後に関連エディタを開いてから撮る（旧マニュアルの流儀）。
 
@@ -28,17 +26,6 @@ const APP_VUE = [
   '<template>',
   '  <TabPane v-if="ready" />',
   '</template>',
-  '',
-].join('\n')
-
-const NOTES_MD = [
-  '# 作業メモ',
-  '',
-  'スクリーンショット撮影の段取り。',
-  '',
-  '- E2E で内枠を撮る（ja/dark）',
-  '- 外枠を合成してヒーロー画像にする',
-  '- マニュアルの画像を差し替える',
   '',
 ].join('\n')
 
@@ -153,44 +140,6 @@ describe('screenshots: quick open', () => {
       await $('[data-testid="quickopen"]').waitForDisplayed({ timeout: 10_000 })
       await $('.quickopen-item').waitForDisplayed({ timeout: 10_000 })
       await shoot('quickopen', lang, theme)
-    })
-  }
-})
-
-// --- TODO パネル -----------------------------------------------------------
-// TODO store は project 変更時（immediate watch）に .pike/todo.md を fsReadFile で読む。
-// fs_read_file をモックして決定的な内容を与える。
-// タイトルの下のインデント継続行が詳細本文。折り畳んだ行の右端マーカーと、
-// 展開した詳細欄の両方が 1 枚に写るようにしてある。
-const TODO_MD = [
-  '# デモの TODO',
-  '',
-  '- [x] スクリーンショット自動化の基盤を作る',
-  '- [x] invoke モックパネルを撮る',
-  '- [ ] エージェントチャットを撮る',
-  '  承認ダイアログの出た状態も 1 枚ほしい',
-  '  ja / en の両方で確認する',
-  '- [ ] マニュアルへ画像を差し替える',
-  '  sync-manual-images.sh --check で差分を見てから',
-  '',
-].join('\n')
-
-describe('screenshots: todo panel', () => {
-  for (const { lang, theme } of MATRIX) {
-    it(`todo-panel ${lang} ${theme}`, async () => {
-      await prepare({ lang, theme })
-      await mockInvoke('fs_read_file', { content: TODO_MD, encoding: 'utf-8', isNew: false })
-      await setFakeProject()
-      await openEditor({ path: 'docs/notes.md', content: NOTES_MD })
-      // 擬似プロジェクト id が固定で project watch が再発火しないため明示再ロード。
-      await reloadTodo()
-      await openPanel('todo')
-      await $('[data-testid="todo-panel"]').waitForDisplayed({ timeout: 10_000 })
-      await $('.todo-item').waitForDisplayed({ timeout: 10_000 })
-      // 3 番目のタスクを開いて詳細欄を見せる（4 番目は畳んだままマーカーを見せる）。
-      await $('.todo-list > li:nth-child(3) .caret').click()
-      await $('.todo-detail').waitForDisplayed({ timeout: 10_000 })
-      await shoot('todo-panel', lang, theme)
     })
   }
 })

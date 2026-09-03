@@ -395,13 +395,27 @@ export function canReorderTabs(a: Tab, b: Tab): boolean {
   return !a.pinned === !b.pinned
 }
 
-export type SidebarPanel =
-  | 'files'
-  | 'git'
-  | 'search'
-  | 'docker'
-  | 'projects'
-  | 'tasks'
-  | 'todo'
-  | 'outline'
-  | 'diagnostics'
+/**
+ * サイドバーのパネルの一覧。**ここが正本**で、型も実行時検証（`isSidebarPanel`）もここから
+ * 導く（`lib/projectPaths.ts` の `PROJECT_PLATFORMS` と同じ形）。
+ *
+ * union と `stores/sidebar.ts` の検証用配列を手で並べていたころは、パネルを 1 つ増減する
+ * たびに 2 ファイルを直す必要があり、片方を忘れても型は通った（症状は「足したパネルが
+ * 再起動すると開かない」で、起動時にしか出ない）。
+ */
+export const SIDEBAR_PANELS = [
+  'files',
+  'git',
+  'search',
+  'docker',
+  'projects',
+  'tasks',
+  'outline',
+  'diagnostics',
+] as const
+
+export type SidebarPanel = (typeof SIDEBAR_PANELS)[number]
+
+export function isSidebarPanel(value: string): value is SidebarPanel {
+  return (SIDEBAR_PANELS as readonly string[]).includes(value)
+}

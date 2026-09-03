@@ -75,7 +75,7 @@ export function useAppActions(): Record<AppActionId, () => void> & {
   function openSearch() {
     // **グローバルモードでは何もしない。** サイドバーを描かないので `SearchPanel` は一生
     // マウントされず、`activePanel` に書いた値だけが localStorage に残って次に開く
-    // プロジェクトウィンドウの既定パネルを変えてしまう。9 つのパネルアクションのうち
+    // プロジェクトウィンドウの既定パネルを変えてしまう。8 つのパネルアクションのうち
     // **キーを持つのはこれだけ**なので、グローバルウィンドウから飛んでくるのもこれだけ。
     if (globalMode.value) return
     useSearchStore().requestOpen(editorSelection())
@@ -170,7 +170,6 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     panelSearch: openSearch,
     panelDocker: () => togglePanel('docker'),
     panelTasks: () => togglePanel('tasks'),
-    panelTodo: () => togglePanel('todo'),
     panelOutline: () => togglePanel('outline'),
     panelDiagnostics: () => togglePanel('diagnostics'),
     panelProjects: () => togglePanel('projects'),

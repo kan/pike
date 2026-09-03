@@ -40,7 +40,6 @@ MAP=(
   "docker:docker-panel"
   "search:search-panel"
   "tasks:tasks-panel"
-  "todo:todo-panel"
   "command-palette:quickopen"
   "markdown-preview:markdown-preview"
   "image-viewer:image-viewer"

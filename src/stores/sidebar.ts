@@ -1,26 +1,15 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { SidebarPanel } from '../types/tab'
+import { isSidebarPanel, type SidebarPanel } from '../types/tab'
 
 const PANEL_WIDTH_KEY = 'pike:panelWidth'
 const ACTIVE_PANEL_KEY = 'pike:activePanel'
 const DEFAULT_PANEL_WIDTH = 250
 
-const VALID_PANELS: SidebarPanel[] = [
-  'files',
-  'git',
-  'search',
-  'docker',
-  'projects',
-  'tasks',
-  'todo',
-  'outline',
-  'diagnostics',
-]
-
 export const useSidebarStore = defineStore('sidebar', () => {
   const saved = localStorage.getItem(ACTIVE_PANEL_KEY)
-  const initial = saved && VALID_PANELS.includes(saved as SidebarPanel) ? (saved as SidebarPanel) : null
+  // 消したパネルの名前が残っていることがあるので、開く前に一覧と突き合わせる。
+  const initial = saved && isSidebarPanel(saved) ? saved : null
   const activePanel = ref<SidebarPanel | null>(initial)
   const panelWidth = ref(parseInt(localStorage.getItem(PANEL_WIDTH_KEY) ?? '', 10) || DEFAULT_PANEL_WIDTH)
 

@@ -33,7 +33,7 @@ macOS はローカルのシェルで開発できるところまで対応する�
 | `project.md` | プロジェクト管理と同期・ウィンドウの生成と復元・トレイ・ジャンプリスト・`pike` CLI |
 | `git.md` | git CLI ブリッジ・worktree・コンフリクト解消 |
 | `editor.md` | エディタとプレビュー・ファイルツリー・検索/タスク/アウトライン/診断の各パネル・ファイル監視 |
-| `agent.md` | トークン使用量・`pike todo` CLI とスキル（エージェントはターミナルで動かす、#275） |
+| `agent.md` | トークン使用量（エージェントはターミナルで動かす、#275） |
 | `docker.md` | bollard 連携・compose の探索・ログ・ポートフォワード |
 | `build.md` | 開発ビルド・本番ビルド限定の落とし穴（CSP）・E2E スクリーンショット・CI・セルフアップデート |
 | `platform.md` | Windows / macOS の分岐の作法・GUI プロセスの PATH・macOS で持たない機能・rg サイドカー |
@@ -56,7 +56,6 @@ macOS はローカルのシェルで開発できるところまで対応する�
 │  │ 🐋 docker  │                                         │
 │  │ 📁 projects│                                         │
 │  │ 📋 tasks   │                                         │
-│  │ ✅ todo    │                                         │
 │  │ 🔭 outline │                                         │
 │  │ ⚠ problems │                                         │
 │  └────────────┘                                         │
@@ -89,9 +88,6 @@ pike/
 │       ├── README.md          # マニュアル索引
 │       ├── *.md               # 機能別ページ（getting-started, editor, git 等）
 │       └── img/               # スクリーンショット（README のヒーロー画像もここ。#279）
-├── plugins/                   # エージェント（Claude Code / Codex）向けスキル・プラグイン（#139）
-│   ├── pike-todo/             # Claude Code プラグイン（pike todo CLI スキル）
-│   └── codex/pike-todo/       # Codex 用スキル（内容は Claude 版と同一）
 ├── scripts/
 │   ├── download-rg.sh         # rg サイドカーバイナリのダウンロード
 │   ├── bump-version.mjs       # バージョンを 3 ファイルに書き込む（just bump が呼ぶ）
@@ -109,7 +105,6 @@ pike/
 │       ├── types.rs           # ShellConfig・WSL_EXTRA_PATH・bash_quote 等の共通型/ヘルパー
 │       ├── font.rs            # フォント列挙（font-kit でモノスペース検出）
 │       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
-│       ├── todo_cli.rs        # `pike todo` サブコマンド（.pike/todo.md 直接操作、#139）
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
 │       ├── elevate.rs         # 管理者ターミナル（--new-instance で昇格起動、#138）
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
@@ -156,7 +151,7 @@ pike/
 │   │   ├── tab.ts             # Tab Union type・ShellType・SidebarPanel・共通ヘルパー
 │   │   ├── project.ts         # ProjectConfig・PinnedTabDef
 │   │   ├── claudeUsage.ts  codexUsage.ts  diagnostics.ts  docker.ts
-│   │   ├── git.ts  search.ts  tasks.ts  todo.ts
+│   │   ├── git.ts  search.ts  tasks.ts
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
 │   │   ├── QuickOpen.vue        # Ctrl+P コマンドパレット（ファイル/>タスク/@タブ/:行/!ブランチ/?ヘルプ）
@@ -179,7 +174,6 @@ pike/
 │   │   │   ├── GroupComboBox.vue  ProjectListItem.vue  ColorSelect.vue  IconSelect.vue
 │   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（作成・編集の 3 フォームで共有）
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
-│   │   │   ├── TodoPanel.vue      # .pike/todo.md のチェックリスト（#139・詳細 #163）
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
@@ -202,7 +196,7 @@ pike/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts  settings.ts  project.ts
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
-│   │   ├── todo.ts  diagnostics.ts
+│   │   ├── diagnostics.ts
 │   │   ├── usageStore.ts      # createUsageStore ファクトリ（ポーリング基盤）
 │   │   ├── claudeUsage.ts  claudeRate.ts  codexUsage.ts  # トークン使用量・レート
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
@@ -223,7 +217,7 @@ pike/
 │   │   ├── useMarkdownLinkPaste.ts # 貼り付けた URL をタイトル付きリンクにする（#241）
 │   ├── lib/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
-│   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードと TODO が共有）
+│   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）
 │   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）
 │   │   ├── shortcuts.ts     # ショートカットの割り当て表（#254。キーの正本）
@@ -257,7 +251,7 @@ pike/
         ├── project.md     # プロジェクト管理・ウィンドウ・OS 統合・CLI
         ├── git.md         # git 統合・worktree
         ├── editor.md      # エディタ・プレビュー・各パネル・ファイル監視
-        ├── agent.md       # Agent Runtime・usage・pike todo
+        ├── agent.md       # Agent Runtime・usage
         ├── docker.md      # Docker 連携
         ├── build.md       # 開発/本番ビルド・E2E・CI・アップデート
         └── platform.md    # Windows / macOS の分岐・PATH・サイドカー
@@ -280,8 +274,8 @@ pike/
 
 **日本語のユーザー向けドキュメントを更新・追加したら、コミット前に必ず校正する。**
 
-- 対象：`README.md` / `docs/manual/` 配下 / `plugins/README.md` / `CHANGELOG.md`（リリース時に足す新しいセクション）
-- 対象外：`CLAUDE.md` と `e2e/README.md`（どちらも密な技術メモで、読み手が開発者）、英語で書く `SECURITY.md` と `plugins/**/SKILL.md`
+- 対象：`README.md` / `docs/manual/` 配下 / `CHANGELOG.md`（リリース時に足す新しいセクション）
+- 対象外：`CLAUDE.md` と `e2e/README.md`（どちらも密な技術メモで、読み手が開発者）、英語で書く `SECURITY.md`
 
 1. **textlint（機械チェック）** を npx で実行し、**今回書いた箇所**の ai-writing 系の指摘を 0 にする（既存の指摘は 4 を参照）:
 
@@ -290,7 +284,7 @@ pike/
      --package textlint-rule-preset-ai-writing \
      --package textlint-rule-preset-ja-technical-writing \
      -- textlint --rule preset-ai-writing --rule preset-ja-technical-writing \
-     README.md docs/manual/*.md plugins/README.md CHANGELOG.md
+     README.md docs/manual/*.md CHANGELOG.md
    ```
    （リポジトリに textlint は未導入。実行は npx で都度行う）
 
@@ -317,7 +311,7 @@ pike/
 |---|---|
 | ある程度の規模の実装・修正 | `/code-review` → `simplify` → `just check` |
 | 軽微なコード修正 | `simplify` → `just check`（自明な 1 行修正などは直接コミットしてもよい） |
-| ドキュメントのみ（`README.md` / `docs/manual/` / `CHANGELOG.md` / `plugins/README.md`） | 「ドキュメント校正ルール」の校正 ＋ `just check-docs` |
+| ドキュメントのみ（`README.md` / `docs/manual/` / `CHANGELOG.md`） | 「ドキュメント校正ルール」の校正 ＋ `just check-docs` |
 | CLAUDE.md / `.claude/rules/` のみ | `just check-docs`（開発者向けなので日本語校正の対象外） |
 | バージョン bump のみ | 何も要らない |
 
@@ -351,7 +345,7 @@ pike/
 | UI の操作・表示 | `docs/manual/` の該当ページ（機能一覧レベルの変化なら README も） |
 | 設定項目の追加・変更 | `docs/manual/settings.md` |
 | キーボードショートカット | `docs/manual/shortcuts-and-cli.md` と `components/KeyboardShortcuts.vue` の一覧 |
-| `pike` CLI の引数・サブコマンド | `docs/manual/shortcuts-and-cli.md`、`pike todo` なら `plugins/` の SKILL.md 2 本も |
+| `pike` CLI の引数・サブコマンド | `docs/manual/shortcuts-and-cli.md` |
 | 非自明な実装判断・定数・落とし穴 | `.claude/rules/` の該当ファイル（全体像・運用に関わるものは CLAUDE.md。数値は出典のコードを併記して drift を防ぐ） |
 
 過去に溜まった乖離の実例（2026-07-30 の棚卸しで検出）: 新規ファイル 20 件超がツリー未記載、実在しない `useTerminalNotifications.ts` の記載、サイドバー一覧から TODO と Problems 落ち、`git init`（#156）とタブのツールチップ（#198）がマニュアル未記載、Problems パネルの説明が実装と不一致。**いずれも「実装した回のコミットで一緒に直していれば発生しなかった」もの**なので、まとめてやらずその場で直す。

@@ -100,7 +100,6 @@ export const APP_ACTIONS = [
   { id: 'panelSearch', palette: 'view', labelKey: 'sidebar.search' },
   { id: 'panelDocker', palette: 'view', labelKey: 'sidebar.docker' },
   { id: 'panelTasks', palette: 'view', labelKey: 'sidebar.tasks' },
-  { id: 'panelTodo', palette: 'view', labelKey: 'sidebar.todo' },
   { id: 'panelOutline', palette: 'view', labelKey: 'sidebar.outline' },
   { id: 'panelDiagnostics', palette: 'view', labelKey: 'sidebar.diagnostics' },
   { id: 'panelProjects', palette: 'view', labelKey: 'sidebar.projects' },

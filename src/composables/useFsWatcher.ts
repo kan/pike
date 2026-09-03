@@ -25,14 +25,12 @@ const SAVE_TTL_MS = 2000
  * 2 回に割れたときは、余ったほうが外部変更として出る。clean なタブなら同じ内容で読み直す
  * だけ、dirty なら消せる警告バーが 1 回出る。**黙って上書きするより、消せる誤検知を採る。**
  *
- * **落とすのは通知を配り終えてから**（`consumeSelfWrites`）。リスナは 1 つではなく
- * （`App.vue` のタブ更新と、TODO ストアの再読込）、read で即座に落とすと**先に呼んだほうが
- * 印を食べてしまい、後ろのリスナには自分の書き込みが他人のものとして届く**。
+ * **`isRecentlySaved` が真を返した時点で落とす。** 判定と消費が同じ 1 回なので、
+ * 「1 回ぶんで使い切る」がそのまま読める。**読む人を 2 人目にしないこと**: 同じバッチで
+ * 2 つのリスナが呼ぶ形にすると、先に呼んだほうが印を食べて、後ろのリスナには自分の
+ * 書き込みが他人のものとして届く（配り終えてから落とす仕組みが要る）。
  */
 const selfWrites = new Map<string, number>()
-
-/** このバッチで「自分のもの」と答えたパス。配り終えたら落とす。 */
-const selfWritesHit = new Set<string>()
 
 export function markRecentlySaved(path: string) {
   // Keys are separator-normalized: editor tab paths can mix `/` and `\` on
@@ -44,17 +42,8 @@ export function isRecentlySaved(path: string): boolean {
   const key = normalizeSep(path)
   const expires = selfWrites.get(key)
   if (expires === undefined) return false
-  if (Date.now() >= expires) {
-    selfWrites.delete(key)
-    return false
-  }
-  selfWritesHit.add(key)
-  return true
-}
-
-function consumeSelfWrites() {
-  for (const key of selfWritesHit) selfWrites.delete(key)
-  selfWritesHit.clear()
+  selfWrites.delete(key)
+  return Date.now() < expires
 }
 
 interface FsChangedPayload {
@@ -82,7 +71,6 @@ async function init() {
     if (watcherId !== currentWatcherId.value) return
     for (const h of dirHandlers) h(changedDirs)
     for (const h of fileHandlers) h(changedFiles)
-    consumeSelfWrites()
   })
 }
 

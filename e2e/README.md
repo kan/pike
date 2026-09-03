@@ -148,7 +148,7 @@ EditorTab は `fs_read_file` を読まずその内容で描画するため、決
 - これらの media ヘルパーは開く前に `closeContentTabs()`（editor/preview/diff/history/pdf）で
   既存のファイル系タブを閉じ、タブバーを 1 枚に保つ。
 
-## worktree セレクタ / QuickOpen / TODO
+## worktree セレクタ / QuickOpen
 
 `e2e/specs/navigation.ts`。いずれも簡単な invoke モック + `__pikeE2E` ヘルパーで撮る。
 
@@ -157,10 +157,6 @@ EditorTab は `fs_read_file` を読まずその内容で描画するため、決
   セレクタ（`data-testid="worktree-selector"`）が出る。クリックで `.branch-dropdown` を開く。
 - **QuickOpen**：`list_project_files` をモック → `openQuickOpen()`（`showQuickOpen=true`）。
   `data-testid="quickopen"` のモーダルに `.quickopen-item` が並ぶ。
-- **TODO**：TODO store は `.pike/todo.md` を `fs_read_file` で読む。擬似プロジェクト id が
-  全 spec で同一のため、最初の `setFakeProject`（モック未設定時）の失敗結果が残り
-  project watch が再発火しない。`fs_read_file` モック後に `reloadTodo()`
-  （`todoStore.load`）で明示再ロードしてから `openPanel('todo')` する。
 - **overlay の後始末**：`prepare()` は毎回 `closeOverlays()`（ProjectSwitcher / QuickOpen を
   閉じ、window mousedown で worktree ドロップダウン等の popover を畳む）を呼び、前の it の
   開いた overlay が次の撮影へ写り込むのを防ぐ。

@@ -29,11 +29,10 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 - **Markdown の入力支援**：記法を挿入するツールバー、表と脚注のテンプレート、画像の挿入（選択・貼り付け・ドロップ）、貼り付けた URL をページのタイトル付きリンクに変換
 - **プレビュー**：Markdown / reStructuredText / Mermaid / CSV / JSON / SVG / PDF、外部画像はドメイン単位で許可、表示専用の画像ビューア
 - **Git**：ステージング、コミット、push/pull、diff、コミットグラフ、コンフリクトの解消、止まった rebase / merge の再開、ブランチ切替、worktree 切替
-- **サイドバーパネル**：ファイルツリー、検索（ripgrep 同梱）、Docker（モノレポの compose も検出）、タスクランナー（npm / pnpm / just / cargo ほか）、TODO、アウトライン、Problems
+- **サイドバーパネル**：ファイルツリー、検索（ripgrep 同梱）、Docker（モノレポの compose も検出）、タスクランナー（npm / pnpm / just / cargo ほか）、アウトライン、Problems
 - **プロジェクト管理**：WSL / Windows / macOS ローカルのプロジェクト、グループ整理（絞り込み・ドラッグでの並べ替え・絵文字アイコン）、マルチウィンドウ、セッション復元、プロジェクトごとのウィンドウ位置とサイズ、手元に無いプロジェクトの clone
 - **設定**：UI / ターミナル / エディタの個別フォント設定、ダーク/ライト、日英 i18n、設定同期、自動更新
-- **pike CLI**：`pike file.rs:42` でファイルを開く、`pike <dir>` でプロジェクト切替、`--wait` で `GIT_EDITOR` 連携、`pike todo` で TODO 操作
-- **エージェントスキル**：`pike todo` の使い方を説明する Claude Code / Codex 向けスキルを [`plugins/`](plugins/README.md) に同梱
+- **pike CLI**：`pike file.rs:42` でファイルを開く、`pike <dir>` でプロジェクト切替、`--wait` で `GIT_EDITOR` 連携
 
 ## 使い方
 

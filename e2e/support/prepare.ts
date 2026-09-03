@@ -172,14 +172,6 @@ export async function loadWorktrees(): Promise<void> {
   })
 }
 
-// TODO を明示再ロード（fs_read_file モック後に呼ぶ）。擬似プロジェクト id が固定で
-// project watch が再発火しないため必要。
-export async function reloadTodo(): Promise<void> {
-  await browser.execute(() => {
-    ;(window as unknown as { __pikeE2E?: { reloadTodo?: () => void } }).__pikeE2E?.reloadTodo?.()
-  })
-}
-
 // 決定的な内容でエディタタブを 1 枚開く（fs_read_file 不要。initialContent 経路）。
 // viewMode は markdown 等プレビュー可能な拡張子でのみ効く。
 export async function openEditor(opts: {

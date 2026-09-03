@@ -775,8 +775,8 @@ onMounted(async () => {
     if (!ptyId) return
     const name = file.name || 'file'
     try {
-      // 置き場はこのタブを開いた cwd。シェルの現在地（OSC 7）ではない: `cd` した先へ
-      // `.pike/` を作ると、`pike todo` がリポジトリのルートより手前のそれを拾う。
+      // 置き場はこのタブを開いた cwd。シェルの現在地（OSC 7）ではない: `cd` するたびに
+      // その先へ `.pike/` を作ることになり、置き場がリポジトリ内に散らばる。
       const rel = await saveUploadFile(file, terminalTab()?.cwd ?? projectStore.activeRoot)
       // Trailing space delimits consecutive paths when several files are dropped.
       ptyWrite(ptyId, `${rel} `).catch((err) => console.error('[terminal] ptyWrite failed:', err))

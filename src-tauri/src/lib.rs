@@ -56,7 +56,6 @@ mod remote_image;
 mod settings_sync;
 mod tasks;
 mod tray;
-pub mod todo_cli;
 mod types;
 /// main.rs から起動時に呼ぶ（macOS / Linux の GUI プロセスの PATH 補正）。
 pub use types::augment_process_path;
