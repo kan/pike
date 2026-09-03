@@ -23,7 +23,7 @@ import type {
   Tab,
   TerminalTab,
 } from '../types/tab'
-import { isSingletonTab } from '../types/tab'
+import { canReorderTabs, isSingletonTab } from '../types/tab'
 
 let counter = 0
 
@@ -59,13 +59,25 @@ export const useTabStore = defineStore('tabs', () => {
    *
    * **表示の都合ではなく、この一覧の順そのものを変える。** タブバーだけ並べ替えると、
    * `Ctrl+1`〜`9` やタブ移動、溢れたタブの一覧、セッションの書き出しが別の順を見ることに
-   * なり、「左から n 番目」が画面と食い違う。グループ内は `filter` が安定なので、
-   * ドラッグでの並べ替えはそのまま効く。
+   * なり、「左から n 番目」が画面と食い違う。グループ内は元の順のままなので、ドラッグでの
+   * 並べ替えはそのまま効く。
+   *
+   * **2 つに分けた側を先に作り、それを繋いで `visibleTabs` にする。** タブバーは同じ境目で
+   * 2 つの列に分けて描くので、あちらで濾し直すと同じ述語が 2 箇所に出るうえ、「先頭が
+   * ピン留め」という不変条件がコメントでしか支えられなくなる。
    */
-  const visibleTabs = computed(() => {
-    const mine = tabs.value.filter((t) => t.projectId == null || t.projectId === ownerProjectId.value)
-    return [...mine.filter((t) => t.pinned), ...mine.filter((t) => !t.pinned)]
+  const groupedTabs = computed(() => {
+    const pinned: Tab[] = []
+    const unpinned: Tab[] = []
+    for (const t of tabs.value) {
+      if (t.projectId != null && t.projectId !== ownerProjectId.value) continue
+      ;(t.pinned ? pinned : unpinned).push(t)
+    }
+    return { pinned, unpinned }
   })
+  const pinnedTabs = computed(() => groupedTabs.value.pinned)
+  const unpinnedTabs = computed(() => groupedTabs.value.unpinned)
+  const visibleTabs = computed(() => [...groupedTabs.value.pinned, ...groupedTabs.value.unpinned])
 
   /**
    * タブを持っているプロジェクトの id。**並びは最初のタブができた順**（＝`tabs` の並び）で、
@@ -545,10 +557,27 @@ export const useTabStore = defineStore('tabs', () => {
     }
   }
 
-  function moveTab(fromIndex: number, toIndex: number) {
+  /**
+   * `fromId` を `toId` の左右どちらかへ動かす（ドラッグでの並べ替え）。
+   *
+   * **id で受けて、断るかどうかもここで決める（#305）。** index で受けていたころは、
+   * 固定タブと普通のタブをまたぐ組でも受け取って `tabs` を黙って並べ替えていた（表示は
+   * `visibleTabs` が寄せたあとの順なので、画面上は何も起きない）。並べ替えの入口が
+   * もう 1 つできたとき、そちらが同じガードを書き写すか、無言で効かないかのどちらかになる。
+   */
+  function reorderTab(fromId: string, toId: string, side: 'left' | 'right') {
+    if (fromId === toId) return
+    const from = tabs.value.find((t) => t.id === fromId)
+    const to = tabs.value.find((t) => t.id === toId)
+    if (!from || !to || !canReorderTabs(from, to)) return
+
+    const fromIndex = tabs.value.indexOf(from)
+    let toIndex = tabs.value.indexOf(to)
+    if (side === 'right') toIndex++
+    // 先に抜くぶん、右へ動かすときは 1 つ手前になる。
+    if (fromIndex < toIndex) toIndex--
     if (fromIndex === toIndex) return
-    if (fromIndex < 0 || fromIndex >= tabs.value.length) return
-    if (toIndex < 0 || toIndex >= tabs.value.length) return
+
     const [moved] = tabs.value.splice(fromIndex, 1)
     tabs.value.splice(toIndex, 0, moved)
   }
@@ -706,6 +735,8 @@ export const useTabStore = defineStore('tabs', () => {
   return {
     tabs,
     visibleTabs,
+    pinnedTabs,
+    unpinnedTabs,
     projectIdsWithTabs,
     hasTabsFor,
     setOwnerProject,
@@ -735,7 +766,7 @@ export const useTabStore = defineStore('tabs', () => {
     closeTabsToRight,
     closeSavedTabs,
     closeAllTabs,
-    moveTab,
+    reorderTab,
     setActiveTab,
     setPtyId,
     setTabTitle,

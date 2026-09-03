@@ -384,6 +384,17 @@ export type Tab = (
 ) &
   TabOwner
 
+/**
+ * ドラッグで並べ替えられる組か（#305）。**固定タブと普通のタブは別の列**なので、またぐ
+ * 移動は `tabs` の順を変えても画面上は何も起きない。
+ *
+ * ドロップの印を出す側（`TabPane`）と、実際に動かす側（`tabStore.reorderTab`）が同じ述語を
+ * 読む。片方だけが知っていると、印は出るのに動かない（またはその逆）になる。
+ */
+export function canReorderTabs(a: Tab, b: Tab): boolean {
+  return !a.pinned === !b.pinned
+}
+
 export type SidebarPanel =
   | 'files'
   | 'git'

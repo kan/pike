@@ -14,6 +14,7 @@
  * `@dragstart` などを書けばそのままルート要素へ落ちる。
  */
 import { Pin, X } from 'lucide-vue-next'
+import { computed } from 'vue'
 import { useI18n } from '../../i18n'
 import { TAB_KIND_ICONS, tabFileIconSvg } from '../../lib/tabIcons'
 import { tabDisplayTitle } from '../../lib/tabTitle'
@@ -34,6 +35,9 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+/** `v-if` と `v-html` で 2 回呼ばないための控え。タブバーはタイトルが変わるたびに描き直す。 */
+const iconSvg = computed(() => tabFileIconSvg(props.tab))
+
 /**
  * タイトルが実際に切れているときだけ native のツールチップを出す（#198）。ホバーで属性を
  * 付ければ間に合う（ブラウザは自前のホバー遅延が過ぎてから `title` を読む）。
@@ -47,49 +51,37 @@ function onTitleHover(e: MouseEvent) {
 
 <template>
   <div
-    :data-tab-id="props.tab.id"
+    :data-tab-id="tab.id"
     class="tab"
     :class="{
-      active: props.active,
-      dragging: props.dragging,
-      'drag-over-left': props.dropSide === 'left',
-      'drag-over-right': props.dropSide === 'right',
+      active,
+      dragging,
+      'drag-over-left': dropSide === 'left',
+      'drag-over-right': dropSide === 'right',
     }"
     draggable="true"
     @click="emit('select')"
     @mousedown.middle.prevent="emit('close')"
   >
-    <Pin v-if="props.tab.pinned" :size="12" :stroke-width="2" class="tab-pin" :title="t('tabs.pinned')" />
-    <span v-if="tabFileIconSvg(props.tab)" class="tab-icon tab-icon-svg" v-html="tabFileIconSvg(props.tab)" />
+    <Pin v-if="tab.pinned" :size="12" :stroke-width="2" class="tab-pin" :title="t('tabs.pinned')" />
+    <span v-if="iconSvg" class="tab-icon-svg" v-html="iconSvg" />
     <component
-      :is="TAB_KIND_ICONS[props.tab.kind]"
-      v-else-if="TAB_KIND_ICONS[props.tab.kind]"
+      :is="TAB_KIND_ICONS[tab.kind]"
+      v-else-if="TAB_KIND_ICONS[tab.kind]"
       :size="14"
       :stroke-width="1.5"
       class="tab-icon"
     />
-    <span class="tab-title" @mouseenter="onTitleHover">{{ tabDisplayTitle(props.tab) }}</span>
+    <span class="tab-title" @mouseenter="onTitleHover">{{ tabDisplayTitle(tab) }}</span>
+    <span v-if="tab.kind === 'editor' && tab.isNewFile" class="tab-new-badge" :title="t('tabs.newFileBadge')">new</span>
     <span
-      v-if="props.tab.kind === 'editor' && props.tab.isNewFile"
-      class="tab-new-badge"
-      :title="t('tabs.newFileBadge')"
-    >new</span>
-    <span
-      v-if="props.tab.kind === 'terminal' && props.tab.exitCode != null"
+      v-if="tab.kind === 'terminal' && tab.exitCode != null"
       class="tab-exit-badge"
-      :class="{ 'exit-ok': props.tab.exitCode === 0 }"
-      :title="'Exit code: ' + props.tab.exitCode"
-    >{{ props.tab.exitCode === 0 ? '✓' : props.tab.exitCode }}</span>
-    <span
-      v-else-if="props.tab.kind === 'terminal' && props.tab.hasActivity && !props.active"
-      class="tab-activity-dot"
-    />
-    <button
-      v-if="!props.tab.pinned"
-      class="tab-close"
-      :title="t('tabs.close')"
-      @click.stop="emit('close')"
-    >
+      :class="{ 'exit-ok': tab.exitCode === 0 }"
+      :title="'Exit code: ' + tab.exitCode"
+    >{{ tab.exitCode === 0 ? '✓' : tab.exitCode }}</span>
+    <span v-else-if="tab.kind === 'terminal' && tab.hasActivity && !active" class="tab-activity-dot" />
+    <button v-if="!tab.pinned" class="tab-close" :title="t('tabs.close')" @click.stop="emit('close')">
       <X :size="14" :stroke-width="2" />
     </button>
   </div>
@@ -141,6 +133,9 @@ function onTitleHover(e: MouseEvent) {
   flex-shrink: 0;
 }
 
+/* 種別の lucide アイコンだけ控えめにする。**ファイルアイコンにこのクラスを付けないこと**:
+   `.tab-icon-svg`（`theme.css` のグローバル）は詳細度で負けるので、薄くしないために
+   `.tab-icon.tab-icon-svg` のような上書きを足す羽目になる。 */
 .tab-icon {
   flex-shrink: 0;
   opacity: 0.7;

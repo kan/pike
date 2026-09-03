@@ -14,8 +14,8 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
-import type { ShellType } from '../../types/tab'
-import { isWindowsShell, shellId, shellProfileLabel } from '../../types/tab'
+import type { ShellType, Tab } from '../../types/tab'
+import { canReorderTabs, isWindowsShell, shellId, shellProfileLabel } from '../../types/tab'
 import TerminalTab from '../tabs/TerminalTab.vue'
 import ProjectSelect from './ProjectSelect.vue'
 import TabItem from './TabItem.vue'
@@ -47,21 +47,20 @@ const settings = useSettingsStore()
  * 右の外に出ていることに気付けなかった。
  */
 const tabsScrollRef = useTemplateRef<HTMLElement>('tabsScrollRef')
+const tabsPinnedRef = useTemplateRef<HTMLElement>('tabsPinnedRef')
 /** タブが収まりきっていない（スクロールバーと一覧ボタンを出す条件）。 */
 const tabsOverflow = ref(false)
 
 /**
- * 固定タブは左端に据え置き、スクロールしない（#305）。**並び替えはここでしない**:
- * `visibleTabs` が既にピン留めを先頭へ寄せているので、切れ目で 2 つに分けるだけ。
+ * **固定タブの列も見る（#305）。** あちらはスクロールせず、上限を超えたぶんは
+ * `overflow: hidden` で隠れるだけなので、一覧の `▾` が唯一の行き先になる。スクロール列
+ * だけを測っていたころは、固定タブを何枚も留めて普通のタブが少ない状態で、隠れたタブへ
+ * マウスで辿り着けなかった。
  */
-const pinnedTabs = computed(() => tabStore.visibleTabs.filter((t) => t.pinned))
-const scrollingTabs = computed(() => tabStore.visibleTabs.filter((t) => !t.pinned))
-
 function updateTabOverflow() {
-  const el = tabsScrollRef.value
-  if (!el) return
   // 収まっていても 1px 足りないことがある（小数の幅）ので余裕を持たせる。
-  tabsOverflow.value = el.scrollWidth > el.clientWidth + 1
+  const clipped = (el: HTMLElement | null) => !!el && el.scrollWidth > el.clientWidth + 1
+  tabsOverflow.value = clipped(tabsScrollRef.value) || clipped(tabsPinnedRef.value)
 }
 
 /**
@@ -119,7 +118,10 @@ function pickTab(id: string) {
   tabStore.setActiveTab(id)
 }
 
-watch(() => tabStore.activeTabId, revealActiveTab)
+// **ピン留めの解除でも送り直す（#305）。** 解除するとそのタブはスクロール列の、`tabs` の
+// 順に応じた位置へ移るので、タブが多いと画面外に出る。`activeTabId` は変わらないので、
+// それだけを見ていると追従しない。
+watch([() => tabStore.activeTabId, () => tabStore.activeTab?.pinned], revealActiveTab)
 // タブが増減すると、スクロールしなくても溢れ方が変わる（閉じて収まった、など）。
 /**
  * 溢れ方が変わる契機を拾う。**タブの枚数とコンテナの幅だけでは足りない**: 枚数も寸法も
@@ -131,21 +133,22 @@ const overflowObserver = new ResizeObserver(updateTabOverflow)
 
 /** 監視の張り直し。`observe` は監視を始めた時点で 1 回呼ばれるので、再計算も兼ねる。 */
 function watchTabSizes() {
-  const box = tabsScrollRef.value
-  if (!box) return
   // 全部外してから張り直す。消えたタブを個別に外す必要が無くなる。
   overflowObserver.disconnect()
-  overflowObserver.observe(box)
-  for (const el of box.children) overflowObserver.observe(el)
+  for (const box of [tabsScrollRef.value, tabsPinnedRef.value]) {
+    if (!box) continue
+    overflowObserver.observe(box)
+    for (const el of box.children) overflowObserver.observe(el)
+  }
 }
 
-watch(
-  () => tabStore.visibleTabs.length,
-  async () => {
-    await nextTick()
-    watchTabSizes()
-  },
-)
+// **ピン留めの数も契機にする（#305）。** 付け外しは枚数を変えないが、タブは 2 つの列の
+// あいだで別の要素として作り直されるので、移った 1 枚が個別監視から外れる。そのタブだけ
+// 「中身の幅が増えた」を拾えなくなり、次に開閉するまで `▾` が出ないまま溢れる。
+watch([() => tabStore.pinnedTabs.length, () => tabStore.unpinnedTabs.length], async () => {
+  await nextTick()
+  watchTabSizes()
+})
 
 onMounted(watchTabSizes)
 onUnmounted(() => overflowObserver.disconnect())
@@ -303,55 +306,69 @@ async function openAsAdmin(shell: ShellType) {
 const { dragId: dragTabId, dragOverTarget: dragOverTabId, startDrag: onDragStart, resetDrag } = useDragAndDrop<string>()
 const dragSide = ref<'left' | 'right'>('left')
 
+/** 掴んでいるタブ。`dragover` は実質 mousemove ごとに来るので、そこで引き直さない。 */
+const draggedTab = computed(() => tabStore.tabs.find((t) => t.id === dragTabId.value) ?? null)
+
 /**
- * 固定タブと普通のタブは別の入れ物なので、**またぐドロップは受けない**（#305）。
- * `moveTab` は `tabs` の順を変えるが、表示は `visibleTabs` がピン留めを先頭へ寄せた
- * あとの順なので、またぐ移動は画面上で何も起きない。印を出さないことで、動かない
- * ドロップを試させない。
+ * ドロップの印を出してよいか。**またげない組では出さない**（#305）ので、動かない
+ * ドロップを試させずに済む。断る規則そのものは `types/tab.ts` の `canReorderTabs` で、
+ * 実際に動かす `tabStore.reorderTab` も同じ述語を読む。
  */
-function sameGroup(tabId: string): boolean {
-  const from = tabStore.tabs.find((t) => t.id === dragTabId.value)
-  const to = tabStore.tabs.find((t) => t.id === tabId)
-  return !!from && !!to && !from.pinned === !to.pinned
+function canDropOn(tab: Tab): boolean {
+  const from = draggedTab.value
+  return !!from && from.id !== tab.id && canReorderTabs(from, tab)
 }
 
-function onDragOver(e: DragEvent, tabId: string) {
-  if (!dragTabId.value || dragTabId.value === tabId || !sameGroup(tabId)) return
+function onDragOver(e: DragEvent, tab: Tab) {
+  if (!canDropOn(tab)) return
   e.preventDefault()
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
 
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
   const midX = rect.left + rect.width / 2
   dragSide.value = e.clientX < midX ? 'left' : 'right'
-  dragOverTabId.value = tabId
+  dragOverTabId.value = tab.id
 }
 
 function onDragLeave() {
   dragOverTabId.value = null
 }
 
-function onDrop(e: DragEvent, tabId: string) {
+function onDrop(e: DragEvent, tab: Tab) {
   e.preventDefault()
-  if (!dragTabId.value || dragTabId.value === tabId || !sameGroup(tabId)) {
-    resetDrag()
-    return
-  }
-
-  const fromIdx = tabStore.tabs.findIndex((t) => t.id === dragTabId.value)
-  let toIdx = tabStore.tabs.findIndex((t) => t.id === tabId)
-  if (fromIdx === -1 || toIdx === -1) {
-    resetDrag()
-    return
-  }
-
-  if (dragSide.value === 'right') toIdx++
-  if (fromIdx < toIdx) toIdx--
-
-  tabStore.moveTab(fromIdx, toIdx)
+  if (dragTabId.value) tabStore.reorderTab(dragTabId.value, tab.id, dragSide.value)
   resetDrag()
 }
 
 const onDragEnd = resetDrag
+
+/**
+ * `TabItem` 1 枚ぶんの束縛。**2 つの列で同じものを渡す**ので、テンプレートに 2 度書くと
+ * props やハンドラを足したときに片方だけ直す事故が起きる（`TabItem` を切り出した理由が
+ * そのすぐ外側で再発する）。
+ *
+ * `on…` のキーはテンプレートの `@…` と同じものにコンパイルされる。drag 系は `TabItem` が
+ * emit を持たないので、そのままルート要素の native リスナになる。
+ */
+function tabBind(tab: Tab) {
+  return {
+    tab,
+    active: tab.id === tabStore.activeTabId,
+    dragging: tab.id === dragTabId.value,
+    dropSide: tab.id === dragOverTabId.value ? dragSide.value : null,
+    onSelect: () => tabStore.setActiveTab(tab.id),
+    onClose: () => tabStore.closeTab(tab.id),
+    onContextmenu: (e: MouseEvent) => {
+      e.stopPropagation()
+      onTabContextMenu(e, tab.id)
+    },
+    onDragstart: (e: DragEvent) => onDragStart(e, tab.id),
+    onDragover: (e: DragEvent) => onDragOver(e, tab),
+    onDragleave: onDragLeave,
+    onDrop: (e: DragEvent) => onDrop(e, tab),
+    onDragend: onDragEnd,
+  }
+}
 
 // External file drop on the tab bar (VS Code-like): drop a file from
 // Explorer → open it in the matching tab kind; drop a directory → open a
@@ -503,42 +520,12 @@ onUnmounted(() => {
         タブが増えても居場所が変わらない。並び自体は `visibleTabs` がピン留めを先頭へ
         寄せているので、ここは切れ目で 2 つに分けるだけ。
       -->
-      <div v-if="pinnedTabs.length > 0" class="tabs-pinned">
-        <TabItem
-          v-for="tab in pinnedTabs"
-          :key="tab.id"
-          :tab="tab"
-          :active="tab.id === tabStore.activeTabId"
-          :dragging="tab.id === dragTabId"
-          :drop-side="tab.id === dragOverTabId ? dragSide : null"
-          @select="tabStore.setActiveTab(tab.id)"
-          @close="tabStore.closeTab(tab.id)"
-          @contextmenu.stop="onTabContextMenu($event, tab.id)"
-          @dragstart="onDragStart($event, tab.id)"
-          @dragover="onDragOver($event, tab.id)"
-          @dragleave="onDragLeave"
-          @drop="onDrop($event, tab.id)"
-          @dragend="onDragEnd"
-        />
+      <div v-if="tabStore.pinnedTabs.length > 0" ref="tabsPinnedRef" class="tabs-pinned">
+        <TabItem v-for="tab in tabStore.pinnedTabs" :key="tab.id" v-bind="tabBind(tab)" />
       </div>
       <!-- 残りは溢れたら横スクロールする（#281）。 -->
       <div ref="tabsScrollRef" class="tabs-scroll" @wheel="onTabsWheel">
-        <TabItem
-          v-for="tab in scrollingTabs"
-          :key="tab.id"
-          :tab="tab"
-          :active="tab.id === tabStore.activeTabId"
-          :dragging="tab.id === dragTabId"
-          :drop-side="tab.id === dragOverTabId ? dragSide : null"
-          @select="tabStore.setActiveTab(tab.id)"
-          @close="tabStore.closeTab(tab.id)"
-          @contextmenu.stop="onTabContextMenu($event, tab.id)"
-          @dragstart="onDragStart($event, tab.id)"
-          @dragover="onDragOver($event, tab.id)"
-          @dragleave="onDragLeave"
-          @drop="onDrop($event, tab.id)"
-          @dragend="onDragEnd"
-        />
+        <TabItem v-for="tab in tabStore.unpinnedTabs" :key="tab.id" v-bind="tabBind(tab)" />
       </div>
       <div class="tab-add-group">
         <!-- 溢れているときだけ出すタブの一覧（#281）。`+` の左に置く。 -->
@@ -802,12 +789,13 @@ onUnmounted(() => {
    居場所が変わらない。`flex-shrink: 0` で、タブが増えても縮まない。
    `max-width` は保険で、固定タブばかりになったときに右のスクロール領域が消えないようにする
    （その状態では固定タブ自身が `.tab` の `max-width` まで縮み、さらに溢れたぶんは隠れる）。 */
+/* **区切り線は足さない。** タブが各自 `border-right` を持っているので、ここにも引くと
+   同じ色の 1px が 2 本並ぶだけで、境目としては読めない。 */
 .tabs-pinned {
   display: flex;
   flex-shrink: 0;
   max-width: 60%;
   overflow: hidden;
-  border-right: 1px solid var(--border);
 }
 
 /* **`auto` ではなく `scroll`。** Chromium の `::-webkit-scrollbar` は領域を占有するので、

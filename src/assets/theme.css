@@ -184,10 +184,10 @@
 .tab-icon-svg {
   width: 16px;
   height: 16px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 1;
 }
 
 .tab-icon-svg svg {
