@@ -88,10 +88,14 @@ const stripFences = (body) => body.replace(/```[\s\S]*?```/g, '')
 // `` `git status` `` のように識別子以外の文字を含むものは、正規表現の時点で当たらない。
 const ALL_DOCS = [...noteFiles, 'README.md', ...walk('docs/manual').filter((p) => p.endsWith('.md'))]
 
-/** 実装の側にある名前だけを対象にする（コーパスに使わないファイル）。 */
-const CORPUS_SKIP_DIRS = new Set(['node_modules', '.git', '.claude', 'docs', 'target', 'dist', 'artifacts', 'binaries'])
-// **自分自身も外す。** 下の許可リストと「9 件見つかった」の例が消えた名前を並べているので、
-// コーパスに入れると、まさに検出したい名前を自分で実在扱いにしてしまう（実際にそうなった）。
+// **コーパスは追跡ファイルだけ**（`git ls-files`）。ディレクトリを歩くと、生成物や手元の
+// 作業ファイルまで名前の出典になり、**手元では通って CI で落ちる**。実際に踏んだ:
+// `src-tauri/gen/schemas/*.json`（tauri が生成、gitignore 済み）が `restore_state` を
+// 実在扱いにしていて、ビルド前に走る CI のクリーンチェックアウトでだけ検出された。
+// ドキュメントが説明するのはコミットされたコードなので、範囲としてもこちらが正しい。
+//
+// **check-docs.mjs 自身も外す。** 下の許可リストと「9 件見つかった」の例が消えた名前を
+// 並べているので、入れるとまさに検出したい名前を自分で実在扱いにする（これも実際に踏んだ）。
 const CORPUS_SKIP_FILES = new Set(['package-lock.json', 'Cargo.lock', 'check-docs.mjs'])
 const CORPUS_SKIP_EXT = /\.(md|png|jpg|svg|ico|icns|log)$/i
 
@@ -116,6 +120,7 @@ const EXTERNAL_NAMES = [
   'offsetLeft', // DOM
   'offsetParent', // DOM
   'replace_csp_nonce', // tauri 内部
+  'restore_state', // tauri-plugin-window-state
   'runHandlers', // CodeMirror 内部
   'set_csp', // tauri 内部（manager::set_csp）
   // このスクリプト自身の識別子。自分をコーパスから外している以上、外の名前と同じ扱いになる。
@@ -140,21 +145,20 @@ const GONE_NAMES = [
 
 const allowedNames = new Set([...EXTERNAL_NAMES, ...GONE_NAMES])
 
-function walkAll(dir, out = []) {
-  for (const entry of readdirSync(join(root, dir || '.'))) {
-    if (CORPUS_SKIP_DIRS.has(entry) || CORPUS_SKIP_FILES.has(entry)) continue
-    const rel = dir ? `${dir}/${entry}` : entry
-    if (statSync(join(root, rel)).isDirectory()) walkAll(rel, out)
-    else if (!CORPUS_SKIP_EXT.test(rel)) out.push(rel)
-  }
-  return out
-}
-
 // 実装だけでなく設定・ワークフロー・スクリプトも読む。`APPLE_API_KEY` や
 // `FriendlyAppName` のように、ドキュメントが挙げる名前の出典がそちらにあるものが多い。
 const corpusNames = new Set()
-for (const file of walkAll('')) {
-  for (const token of read(file).match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) corpusNames.add(token)
+const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)
+for (const file of tracked) {
+  if (CORPUS_SKIP_EXT.test(file) || CORPUS_SKIP_FILES.has(file.slice(file.lastIndexOf('/') + 1))) continue
+  // index にあってワークツリーに無いファイル（削除の途中）は読み飛ばす。
+  let body
+  try {
+    body = read(file)
+  } catch {
+    continue
+  }
+  for (const token of body.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) corpusNames.add(token)
 }
 
 // 1 語の小文字（`auto` / `editable` のような値リテラルや英単語）は散文と見分けが付かないので
