@@ -143,6 +143,15 @@ async function discardFile(file: GitFileChange) {
   }
 }
 
+/**
+ * ステージから外す。**リネームは両方の名前を外す（#306）。** 新しい名前だけを `git reset`
+ * すると、元の名前が「削除」としてステージに残り、新しいほうが untracked になる（実測）。
+ * 押した人はそんな半端な状態を頼んでいない。
+ */
+function unstagePaths(file: GitFileChange): string[] {
+  return file.origPath ? [file.path, file.origPath] : [file.path]
+}
+
 async function unstageFile(file: GitFileChange) {
   if (file.status === 'A') {
     if (!(await confirmDialog(t('git.unstageNewConfirm', { path: file.path })))) return
@@ -155,7 +164,7 @@ async function unstageFile(file: GitFileChange) {
       await gitStore.refreshStatus()
     }
   } else {
-    await gitStore.unstageFiles([file.path])
+    await gitStore.unstageFiles(unstagePaths(file))
   }
 }
 

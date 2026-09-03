@@ -1055,13 +1055,40 @@ pub async fn git_diff_commit(
         // pathspec で片側だけに絞るとリネーム検出が効かず、名前を変えたコミットが
         // 「新規追加」として全行追加で出ていた（実測）。`--follow` は単一の pathspec を
         // 遡って追うので、`rename from/to` のヘッダごと出る。親を持たない最初の
-        // コミットもそのまま扱えるので、以前の `--root` フォールバックは要らない。
+        // コミットもそのまま扱える。
+        //
+        // **`--no-show-signature` が要る。** `log.showSignature=true` を設定していると、
+        // `git log` は検証結果を**標準出力の、`--format` より前**に出す。`commit_patch` は
+        // 1 行目がハッシュであることを求めるので、付けないとその設定のマシンで
+        // すべてのコミットの差分が空になる（`git diff` は影響を受けなかった）。
         let output = run_git(
             &shell,
             &root,
-            &["log", "--follow", "-p", "--format=%H", "--max-count=1", &hash, "--", &path],
+            &[
+                "log",
+                "--follow",
+                "--no-show-signature",
+                "-p",
+                "--format=%H",
+                "--max-count=1",
+                &hash,
+                "--",
+                &path,
+            ],
         )?;
-        Ok(truncate_diff(commit_patch(&output, &hash)))
+        let patch = commit_patch(&output, &hash);
+        if !patch.is_empty() {
+            return Ok(truncate_diff(patch));
+        }
+
+        // **マージコミットは `--follow` で出せない。** パスを絞った `git log` はマージを
+        // 素通りして祖先へ遡るので（上の確認で弾かれる）、そこだけ従来どおり第 1 親との
+        // 差分を出す。リネーム検出は効かないが、置き換える前と同じ見え方になる。
+        //
+        // 最初のコミットは `--follow` 側が扱うのでここへ来ない。来たとしても `~1` が
+        // 解決できないだけなので、**失敗は空として扱う**（差分が無いのと区別する意味が無い）。
+        let fallback = run_git(&shell, &root, &["diff", &format!("{hash}~1"), &hash, "--", &path]).unwrap_or_default();
+        Ok(truncate_diff(fallback))
     })
     .await
     .map_err(|e| e.to_string())?

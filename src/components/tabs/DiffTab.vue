@@ -562,14 +562,15 @@ onUnmounted(() => {
         <ArrowRight :size="13" :stroke-width="2" />
         <span>{{ renamed.to }}</span>
       </div>
-      <div v-if="!parsedLines.length && renamed" class="empty">{{ t('diff.renameOnly') }}</div>
-      <div v-else-if="!parsedLines.length && tab.diff" class="empty">
-        <template v-if="isBinaryDiff">
-          <span>{{ t('diff.binary') }}</span>
-          <button class="open-file-btn" @click="openWorkingCopy">{{ t('diff.openCurrentFile') }}</button>
-        </template>
-        <span v-else>{{ tab.diff.slice(0, 200) }}</span>
+      <!-- **バイナリを先に見る。** リネームと内容変更が同時に起きたバイナリは
+           `rename from/to` と `Binary files … differ` の両方を持ち、hunk は出ない。
+           リネームの側を先に見ると「内容は同じです」と嘘をつくうえ、開くボタンも消える。 -->
+      <div v-if="!parsedLines.length && isBinaryDiff" class="empty">
+        <span>{{ t('diff.binary') }}</span>
+        <button class="open-file-btn" @click="openWorkingCopy">{{ t('diff.openCurrentFile') }}</button>
       </div>
+      <div v-else-if="!parsedLines.length && renamed" class="empty">{{ t('diff.renameOnly') }}</div>
+      <div v-else-if="!parsedLines.length && tab.diff" class="empty">{{ tab.diff.slice(0, 200) }}</div>
       <div v-else-if="!parsedLines.length" class="empty">{{ t('diff.noChanges') }}</div>
       <template v-else>
       <div class="diff-body">
@@ -713,9 +714,20 @@ onUnmounted(() => {
   color: var(--text-primary);
   font-size: 12px;
   font-family: var(--diff-font);
+}
+
+/* **省略は名前の側に置く。** `text-overflow` は flex コンテナには効かず、flex アイテムは
+   min-content より縮まないので、親で `overflow: hidden` だけ指定すると深いパスのときに
+   矢印と新しい名前が切り落とされ、**古い名前だけが残る**という最悪の見え方になる。 */
+.rename-note > span {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.rename-note > svg {
+  flex-shrink: 0;
 }
 
 .rename-from {
