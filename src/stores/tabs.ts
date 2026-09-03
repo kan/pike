@@ -53,10 +53,19 @@ export const useTabStore = defineStore('tabs', () => {
    * `TabPane` は `tabs` 全部をマウントしたまま `v-show` で出し分けているので、パークした
    * タブは「タブバーに出ない非アクティブタブ」になる。だから xterm もスクロールバックも
    * エージェントのセッションも、切り替えているあいだ生き続ける。
+   *
+   * **固定タブを先頭へ寄せる（#305）。** ブラウザの固定タブと同じで、留めたものは左端に
+   * 集まる。並べ替えはここ 1 箇所で、`tabs` の順（＝作った順）は動かさない。
+   *
+   * **表示の都合ではなく、この一覧の順そのものを変える。** タブバーだけ並べ替えると、
+   * `Ctrl+1`〜`9` やタブ移動、溢れたタブの一覧、セッションの書き出しが別の順を見ることに
+   * なり、「左から n 番目」が画面と食い違う。グループ内は `filter` が安定なので、
+   * ドラッグでの並べ替えはそのまま効く。
    */
-  const visibleTabs = computed(() =>
-    tabs.value.filter((t) => t.projectId == null || t.projectId === ownerProjectId.value),
-  )
+  const visibleTabs = computed(() => {
+    const mine = tabs.value.filter((t) => t.projectId == null || t.projectId === ownerProjectId.value)
+    return [...mine.filter((t) => t.pinned), ...mine.filter((t) => !t.pinned)]
+  })
 
   /**
    * タブを持っているプロジェクトの id。**並びは最初のタブができた順**（＝`tabs` の並び）で、

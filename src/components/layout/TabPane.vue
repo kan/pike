@@ -14,10 +14,11 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
-import type { ShellType, Tab } from '../../types/tab'
+import type { ShellType } from '../../types/tab'
 import { isWindowsShell, shellId, shellProfileLabel } from '../../types/tab'
 import TerminalTab from '../tabs/TerminalTab.vue'
 import ProjectSelect from './ProjectSelect.vue'
+import TabItem from './TabItem.vue'
 
 const DiffTab = defineAsyncComponent(() => import('../tabs/DiffTab.vue'))
 const EditorTab = defineAsyncComponent(() => import('../tabs/EditorTab.vue'))
@@ -29,11 +30,10 @@ const AgentStatusTab = defineAsyncComponent(() => import('../tabs/AgentStatusTab
 const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 
-import { Check, ChevronDown, Pin, Plus, ShieldPlus, X } from 'lucide-vue-next'
+import { Check, ChevronDown, Plus, ShieldPlus } from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
-import { fileIconSvg } from '../../lib/fileIcons'
 import { actionChord } from '../../lib/shortcuts'
-import { TAB_KIND_ICONS } from '../../lib/tabIcons'
+import { TAB_KIND_ICONS, tabFileIconSvg } from '../../lib/tabIcons'
 import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
@@ -49,6 +49,13 @@ const settings = useSettingsStore()
 const tabsScrollRef = useTemplateRef<HTMLElement>('tabsScrollRef')
 /** タブが収まりきっていない（スクロールバーと一覧ボタンを出す条件）。 */
 const tabsOverflow = ref(false)
+
+/**
+ * 固定タブは左端に据え置き、スクロールしない（#305）。**並び替えはここでしない**:
+ * `visibleTabs` が既にピン留めを先頭へ寄せているので、切れ目で 2 つに分けるだけ。
+ */
+const pinnedTabs = computed(() => tabStore.visibleTabs.filter((t) => t.pinned))
+const scrollingTabs = computed(() => tabStore.visibleTabs.filter((t) => !t.pinned))
 
 function updateTabOverflow() {
   const el = tabsScrollRef.value
@@ -165,26 +172,6 @@ const pdfTabs = computed(() => tabStore.tabs.filter((t) => t.kind === 'pdf'))
 const isWindows = computed(() =>
   projectStore.currentProject ? isWindowsShell(projectStore.currentProject.shell) : false,
 )
-
-function tabFileIconSvg(tab: Tab): string | null {
-  if (tab.kind === 'editor') return fileIconSvg(tab.path)
-  if (tab.kind === 'preview') return fileIconSvg(tab.path)
-  if (tab.kind === 'diff') return fileIconSvg(tab.filePath)
-  if (tab.kind === 'history') return fileIconSvg(tab.filePath)
-  if (tab.kind === 'pdf') return fileIconSvg(tab.path)
-  return null
-}
-
-/**
- * Show a native tooltip only while the title is actually clipped by the tab's
- * max-width (#198). Setting the attribute on hover is enough: the browser reads
- * `title` when its own hover delay elapses.
- */
-function onTitleHover(e: MouseEvent) {
-  const el = e.currentTarget as HTMLElement
-  if (el.scrollWidth > el.clientWidth) el.title = el.textContent ?? ''
-  else el.removeAttribute('title')
-}
 
 // シェルの決め方（グローバルモードの `globalShell` / プロジェクトの既定）は
 // `useAppActions` の `openTerminal` が持つ（#254）。`Ctrl+T` と macOS の
@@ -316,8 +303,20 @@ async function openAsAdmin(shell: ShellType) {
 const { dragId: dragTabId, dragOverTarget: dragOverTabId, startDrag: onDragStart, resetDrag } = useDragAndDrop<string>()
 const dragSide = ref<'left' | 'right'>('left')
 
+/**
+ * 固定タブと普通のタブは別の入れ物なので、**またぐドロップは受けない**（#305）。
+ * `moveTab` は `tabs` の順を変えるが、表示は `visibleTabs` がピン留めを先頭へ寄せた
+ * あとの順なので、またぐ移動は画面上で何も起きない。印を出さないことで、動かない
+ * ドロップを試させない。
+ */
+function sameGroup(tabId: string): boolean {
+  const from = tabStore.tabs.find((t) => t.id === dragTabId.value)
+  const to = tabStore.tabs.find((t) => t.id === tabId)
+  return !!from && !!to && !from.pinned === !to.pinned
+}
+
 function onDragOver(e: DragEvent, tabId: string) {
-  if (!dragTabId.value || dragTabId.value === tabId) return
+  if (!dragTabId.value || dragTabId.value === tabId || !sameGroup(tabId)) return
   e.preventDefault()
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
 
@@ -333,7 +332,7 @@ function onDragLeave() {
 
 function onDrop(e: DragEvent, tabId: string) {
   e.preventDefault()
-  if (!dragTabId.value || dragTabId.value === tabId) {
+  if (!dragTabId.value || dragTabId.value === tabId || !sameGroup(tabId)) {
     resetDrag()
     return
   }
@@ -499,63 +498,47 @@ onUnmounted(() => {
         :style="{ width: sidebar.panelWidth + 'px' }"
       />
 
-      <!-- タブの並びは溢れたら横スクロールする（#281）。 -->
-      <div ref="tabsScrollRef" class="tabs-scroll" @wheel="onTabsWheel">
-        <div
-          v-for="tab in tabStore.visibleTabs"
+      <!--
+        固定タブは左端に置き、スクロールの外に出す（#305）。ブラウザの固定タブと同じで、
+        タブが増えても居場所が変わらない。並び自体は `visibleTabs` がピン留めを先頭へ
+        寄せているので、ここは切れ目で 2 つに分けるだけ。
+      -->
+      <div v-if="pinnedTabs.length > 0" class="tabs-pinned">
+        <TabItem
+          v-for="tab in pinnedTabs"
           :key="tab.id"
-          :data-tab-id="tab.id"
-          class="tab"
-          :class="{
-            active: tab.id === tabStore.activeTabId,
-            dragging: tab.id === dragTabId,
-            'drag-over-left': tab.id === dragOverTabId && dragSide === 'left',
-            'drag-over-right': tab.id === dragOverTabId && dragSide === 'right',
-          }"
-          draggable="true"
-          @click="tabStore.setActiveTab(tab.id)"
-          @mousedown.middle.prevent="tabStore.closeTab(tab.id)"
+          :tab="tab"
+          :active="tab.id === tabStore.activeTabId"
+          :dragging="tab.id === dragTabId"
+          :drop-side="tab.id === dragOverTabId ? dragSide : null"
+          @select="tabStore.setActiveTab(tab.id)"
+          @close="tabStore.closeTab(tab.id)"
           @contextmenu.stop="onTabContextMenu($event, tab.id)"
           @dragstart="onDragStart($event, tab.id)"
           @dragover="onDragOver($event, tab.id)"
           @dragleave="onDragLeave"
           @drop="onDrop($event, tab.id)"
           @dragend="onDragEnd"
-        >
-          <Pin v-if="tab.pinned" :size="12" :stroke-width="2" class="tab-pin" :title="t('tabs.pinned')" />
-          <span v-if="tabFileIconSvg(tab)" class="tab-icon tab-icon-svg" v-html="tabFileIconSvg(tab)" />
-          <component
-            :is="TAB_KIND_ICONS[tab.kind]"
-            v-else-if="TAB_KIND_ICONS[tab.kind]"
-            :size="14"
-            :stroke-width="1.5"
-            class="tab-icon"
-          />
-          <span class="tab-title" @mouseenter="onTitleHover">{{ tabDisplayTitle(tab) }}</span>
-          <span
-            v-if="tab.kind === 'editor' && tab.isNewFile"
-            class="tab-new-badge"
-            :title="t('tabs.newFileBadge')"
-          >new</span>
-          <span
-            v-if="tab.kind === 'terminal' && tab.exitCode != null"
-            class="tab-exit-badge"
-            :class="{ 'exit-ok': tab.exitCode === 0 }"
-            :title="'Exit code: ' + tab.exitCode"
-          >{{ tab.exitCode === 0 ? '✓' : tab.exitCode }}</span>
-          <span
-            v-else-if="tab.kind === 'terminal' && tab.hasActivity && tab.id !== tabStore.activeTabId"
-            class="tab-activity-dot"
-          />
-          <button
-            v-if="!tab.pinned"
-            class="tab-close"
-            :title="t('tabs.close')"
-            @click.stop="tabStore.closeTab(tab.id)"
-          >
-            <X :size="14" :stroke-width="2" />
-          </button>
-        </div>
+        />
+      </div>
+      <!-- 残りは溢れたら横スクロールする（#281）。 -->
+      <div ref="tabsScrollRef" class="tabs-scroll" @wheel="onTabsWheel">
+        <TabItem
+          v-for="tab in scrollingTabs"
+          :key="tab.id"
+          :tab="tab"
+          :active="tab.id === tabStore.activeTabId"
+          :dragging="tab.id === dragTabId"
+          :drop-side="tab.id === dragOverTabId ? dragSide : null"
+          @select="tabStore.setActiveTab(tab.id)"
+          @close="tabStore.closeTab(tab.id)"
+          @contextmenu.stop="onTabContextMenu($event, tab.id)"
+          @dragstart="onDragStart($event, tab.id)"
+          @dragover="onDragOver($event, tab.id)"
+          @dragleave="onDragLeave"
+          @drop="onDrop($event, tab.id)"
+          @dragend="onDragEnd"
+        />
       </div>
       <div class="tab-add-group">
         <!-- 溢れているときだけ出すタブの一覧（#281）。`+` の左に置く。 -->
@@ -815,6 +798,18 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+/* 固定タブの列（#305）。**スクロールの外側**なので、右のタブをいくらスクロールしても
+   居場所が変わらない。`flex-shrink: 0` で、タブが増えても縮まない。
+   `max-width` は保険で、固定タブばかりになったときに右のスクロール領域が消えないようにする
+   （その状態では固定タブ自身が `.tab` の `max-width` まで縮み、さらに溢れたぶんは隠れる）。 */
+.tabs-pinned {
+  display: flex;
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+
 /* **`auto` ではなく `scroll`。** Chromium の `::-webkit-scrollbar` は領域を占有するので、
    `auto` だとタブが溢れた瞬間にタブの高さがバーのぶんだけ縮む。常に確保すれば高さは一定で、
    タブが収まっているあいだは thumb が出ないので見た目も変わらない（VSCode もタブとエディタの
@@ -833,133 +828,10 @@ onUnmounted(() => {
   height: 4px;
 }
 
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 10px;
-  min-width: 80px;
-  max-width: 180px;
-  height: 100%;
-  background: var(--tab-inactive-bg);
-  border-right: 1px solid var(--border);
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-secondary);
-  transition: background 0.1s;
-  white-space: nowrap;
-}
-
-.tab:hover {
-  background: var(--tab-hover-bg);
-}
-
-.tab.dragging {
-  opacity: 0.4;
-}
-
-.tab.drag-over-left {
-  box-shadow: inset 2px 0 0 0 var(--accent);
-}
-
-.tab.drag-over-right {
-  box-shadow: inset -2px 0 0 0 var(--accent);
-}
-
-.tab.active {
-  background: var(--tab-active-bg);
-  color: var(--text-active);
-  border-bottom: 1px solid var(--tab-active-bg);
-  margin-bottom: -1px;
-}
-
-.tab-pin {
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
-.tab-icon {
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-
-.tab-icon-svg {
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 1;
-}
-
-.tab-icon-svg :deep(svg) {
-  width: 16px;
-  height: 16px;
-}
-
-.tab-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tab-activity-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-
-.tab-exit-badge {
-  font-size: 10px;
-  line-height: 1;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: var(--danger);
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.tab-new-badge {
-  font-size: 10px;
-  line-height: 1;
-  padding: 1px 4px;
-  border-radius: 3px;
-  background: var(--git-add);
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.tab-exit-badge.exit-ok {
-  background: var(--git-add);
-}
-
-/* **幅は最初から確保する**（ホバーで現れると隣がずれる）。 */
-.tab-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-left: auto;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 3px;
-  flex-shrink: 0;
-  opacity: 0;
-}
-
-.tab:hover .tab-close {
-  opacity: 1;
-}
-
-.tab-close:hover {
-  background: var(--danger);
-  color: var(--text-active);
-}
+/* タブ 1 枚ぶんの見た目は `TabItem.vue` が持つ（#305）。**scoped CSS は子コンポーネントの
+   ルート要素までしか届かない**ので、ここに置いたままだとアイコンもタイトルも ✕ も素の
+   見た目に戻る（切り出した直後に実際にそうなった）。ファイルアイコンの寸法だけは、
+   下のタブ一覧メニューと共有するので `theme.css` の `.tab-icon-svg` にある。 */
 
 .tab-add-group {
   display: flex;

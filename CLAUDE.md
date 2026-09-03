@@ -170,6 +170,7 @@ pike/
 │   │   │   ├── ProjectSelect.vue # プロジェクトの表示と切替（サイドバー上部 / タブバー左、#298）
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル
 │   │   │   ├── TabPane.vue    # タブバー + コンテンツ + シェル選択
+│   │   │   ├── TabItem.vue    # タブバーの 1 枚（固定タブの列と通常の列で共有、#305）
 │   │   │   └── StatusBar.vue  # ブランチ/worktree セレクタ/ahead-behind/トークン使用量/エンコード/改行/repo リンク
 │   │   ├── panels/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー

@@ -177,6 +177,24 @@
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+/* ファイル種別の SVG アイコン（`lib/fileIcons.ts` の `fileIconSvg` を `v-html` で入れる箱）。
+   **タブ 1 枚（`TabItem`）と、溢れたタブの一覧（`TabPane`）が別のコンポーネントなので
+   共有クラスにしてある**（#305）。scoped CSS は子のルート要素までしか届かないため、
+   どちらかに置くと片方が素の寸法（SVG 本来の大きさ）で出る。 */
+.tab-icon-svg {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+}
+
+.tab-icon-svg svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* エディタのヘッダに並ぶアイコントグル（折り返し・ミニマップ）。**親のヘッダの様式に
    合わせず自前で持つ**: プレビュー付きツールバー（`.preview-toggle`）とパンくずヘッダ
    （`.header-icon-btn`）は別々のボタン様式を持っていて、どちらに置いても同じ見た目に
