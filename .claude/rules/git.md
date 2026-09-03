@@ -9,6 +9,16 @@
 - ステータスバーにブランチ名+ダーティ表示、クリックでブランチ切替
 - ブランチ切替ドロップダウンのリモートブランチ対応（#197）: `git_branch_list` は `for-each-ref --format=%(refname) refs/heads refs/remotes` で `GitBranches { local, remote }` を返す（`<remote>/HEAD` は symbolic ref なので除外）。リモートは**ローカルに同名が無いものだけ**を「リモートブランチ」見出し配下に出し、選択で `git_checkout_track`（`git checkout --track origin/foo`）で追跡ローカルブランチを作って切替。ローカル名は git に決めさせる（`localBranchName` は表示判定専用のヘルパーで、リモート名にスラッシュを含む稀なケースでも checkout 側は壊れない）。既にローカルがある場合は `--track` が失敗するので `gitCheckout` にフォールバック。ドロップダウンを開くと `refreshRemoteBranches` が**既存の throttled `fetchInBackground`（60 秒間隔・focus 必須）**を再利用して fetch → 一覧再読込（開くたびに通信しない）。一覧は cached refs で即表示し、fetch は待たない。QuickOpen の `!` モードはローカルのみ（従来どおり）
 - Git パネル: ステージング/アンステージ、コミット、push/pull/refresh、コミットツリー展開
+- **porcelain v2 の `2 ` 行（リネーム / コピー）はフィールドが 1 つ多い（#306）**。`1 ` が
+  `<XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>` の 9 個なのに対し、`2 ` はそのあいだに
+  スコア（`R100` / `C75`）が入って 10 個で、最後が `<path><TAB><origPath>`（**新しい名前が先**）。
+  どちらも `splitn(9)` で分けていたころは、9 個目に「スコア + 空白 + パス」がまるごと残り、
+  タブで切っても `R100 new.md` がファイル名になっていた
+  - 症状は**静かに壊れる側**だった: 存在しない名前がパネルに並び、クリックすると
+    `git diff -- "R100 new.md"` が exit 0 の無出力を返すので**空の diff タブが黙って開く**。
+    アンステージも exit 0 で何もしない（ステージだけは `pathspec ... did not match` で落ちる）
+  - `git show --pretty= --name-status` 側（`git_show_files`）は別の形（`R100\told\tnew`）で、
+    タブで分けて末尾を取っており正しい。`u ` 行はリネームを伴わないので 11 個で固定
 - 非 git リポジトリ対応（#156）: `git status` がエラーの時、`git_is_repo`（`git rev-parse --is-inside-work-tree`、非 repo でも Err にせず `false` を返す）で「リポジトリじゃない」を切り分け、`gitStore.isRepo=false` にして生の git エラーを出さない。GitPanel は専用ビュー（メッセージ + 「リポジトリを初期化」ボタン → `git_init`）を表示（VSCode 風）。init 後は status/log/remote を再読込
 - コンフリクト（unmerged）表示: `parse_status` が porcelain v2 の `u ` 行をパースし `GitStatusResult.conflicted`（status は XY コード `UU`/`AA` 等）に格納。GitPanel 最上部の専用「Conflicts」セクションでパスを赤字（`--danger`）表示、クリックで作業ツリーのファイルをエディタで開く。SideBar の Git バッジ件数に conflicted を加算し、コンフリクト時は danger（赤）バッジ。エディタは `lib/editorConflict.ts`（CodeMirror ViewPlugin）でマーカー行（`<<<<<<<`/`|||||||`/`=======`/`>>>>>>>`）と各セクション本文を色分けハイライト（半透明オーバーレイで両テーマ対応）
 - **エディタ上のコンフリクト解消（#223）**: 同じ `editorConflict.ts` に、各領域の上へブロック widget のボタン列（ours / theirs / 両方）と、`showPanel` の上部バー（件数＋ファイル全体の一括適用）を足した

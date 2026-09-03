@@ -133,18 +133,25 @@ fn parse_status(output: &str) -> GitStatusResult {
                 behind = parts[1].trim_start_matches('-').parse().unwrap_or(0);
             }
         } else if line.starts_with("1 ") || line.starts_with("2 ") {
-            // Changed entry: "1 XY sub mH mI mW hH hI path" or "2 XY ... path\torig"
-            let parts: Vec<&str> = line.splitn(9, ' ').collect();
-            if parts.len() >= 9 {
+            // Changed entry. **リネーム / コピーの `2 ` 行はフィールドが 1 つ多い**（#306）:
+            //
+            //   1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+            //   2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><TAB><origPath>
+            //
+            // どちらも `splitn(9)` で分けていたころは、`2 ` 行の 9 個目に
+            // 「スコア + 空白 + パス」がまるごと残り、タブで切っても `R100 new.md` が
+            // ファイル名になっていた（実際の出力で確認）。
+            let is_rename = line.starts_with("2 ");
+            let fields = if is_rename { 10 } else { 9 };
+            let parts: Vec<&str> = line.splitn(fields, ' ').collect();
+            if parts.len() >= fields {
                 let xy = parts[1];
                 let x = &xy[..1];
                 let y = &xy[1..2];
-                let path = if line.starts_with("2 ") {
-                    // Rename: path contains \t, take the part after
-                    parts[8].split('\t').next().unwrap_or(parts[8])
-                } else {
-                    parts[8]
-                };
+                // 並びは `<path><TAB><origPath>`（新しい名前が先）。パスに空白が入っていても
+                // `splitn` の最後の要素なので、そのまま残る。
+                let last = parts[fields - 1];
+                let path = if is_rename { last.split('\t').next().unwrap_or(last) } else { last };
                 if x != "." {
                     staged.push(GitFileChange {
                         path: path.to_string(),
@@ -1314,6 +1321,33 @@ u AA N... 000000 100644 100644 100644 h1 h2 h3 both added.txt
         assert_eq!(st.staged.len(), 1);
         assert_eq!(st.unstaged.len(), 1);
         assert!(st.is_dirty);
+    }
+
+    #[test]
+    fn parses_renamed_entries() {
+        // Porcelain v2 の `2 ` 行はスコア（`R100`）のぶんフィールドが 1 つ多い（#306）。
+        // 実際の `git status --porcelain=v2` の出力から。
+        let out = "# branch.oid abc123
+# branch.head main
+2 RM N... 100644 100644 100644 94954ab 94954ab R100 new.md\told.md
+2 R. N... 100644 100644 100644 3774da6 3774da6 R100 renamed space.txt\twith space.txt
+2 C75 N... 100644 100644 100644 aaa bbb C75 copy.txt\tsource.txt
+1 M. N... 100644 100644 100644 hhh iii plain.txt
+";
+        let st = parse_status(out);
+
+        // `RM` は staged（R）と unstaged（M）の両方に出る。どちらも新しい名前。
+        assert_eq!(st.staged[0].path, "new.md");
+        assert_eq!(st.staged[0].status, "R");
+        assert_eq!(st.unstaged[0].path, "new.md");
+        assert_eq!(st.unstaged[0].status, "M");
+
+        // 名前に空白があっても、スコアだけが落ちる。
+        assert_eq!(st.staged[1].path, "renamed space.txt");
+        // コピー（`C<score>`）も同じ形。
+        assert_eq!(st.staged[2].path, "copy.txt");
+        // 通常の `1 ` 行は 9 フィールドのまま。
+        assert_eq!(st.staged[3].path, "plain.txt");
     }
 
     #[test]
