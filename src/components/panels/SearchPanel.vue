@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CaseSensitive, Parentheses, Regex, WholeWord } from 'lucide-vue-next'
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { pathSep } from '../../lib/paths'
 import { useProjectStore } from '../../stores/project'
@@ -61,6 +61,38 @@ function toggle(key: keyof typeof toggles.value) {
   if (query.value.trim()) doSearch()
 }
 
+const searchInput = useTemplateRef<HTMLInputElement>('searchInput')
+
+/**
+ * キーで開かれたときの受け取り（#307）。入力欄にフォーカスを移し、選択していた文字列が
+ * あれば入れて検索する。
+ *
+ * **`immediate` の 1 本で、マウント直後と押し直しの両方を受ける。** パネルは遅延マウント
+ * なので初回はアクションのほうが先に走り、2 回目以降は既にマウント済み。合図は押すたびに
+ * オブジェクトごと差し替わるので、同じ内容でも再発火する。
+ */
+watch(
+  () => searchStore.pendingOpen,
+  (req) => {
+    if (!req) return
+    // 受け取ったら消す。残すと、閉じて開き直したときにここが古い合図を拾う。
+    searchStore.pendingOpen = null
+    // **結果が既にその語のものなら検索しない。** `searchSeq` は遅れて届いた結果を捨てる
+    // だけで子プロセスは止めないので、押し直すたびに全ツリーの rg が積み上がる。
+    if (req.seed !== null) {
+      query.value = req.seed
+      if (searchStore.resultsFor !== req.seed) doSearch()
+    }
+    // 選択した状態にしておくと、押し直してから打ったときにそのまま置き換わる。
+    // `select()` だけでもたいてい focus は移るが、仕様上は選択するだけなので当てにしない。
+    nextTick(() => {
+      searchInput.value?.focus()
+      searchInput.value?.select()
+    })
+  },
+  { immediate: true },
+)
+
 // バックエンドはシェルごとに違いうるので、開いたときとプロジェクトが変わったときに聞く。
 // **`detectBackend` はべき等**（検出済みのシェルなら何もしない）なので、ここでガードは要らない。
 // パネルはサイドバーの `v-else-if` なので、他のパネルへ移るとアンマウントされる。
@@ -96,6 +128,7 @@ onUnmounted(() => {
   <div class="search-panel" data-testid="search-panel">
     <div class="search-input-area">
       <input
+        ref="searchInput"
         v-model="query"
         class="search-input"
         data-testid="search-input"

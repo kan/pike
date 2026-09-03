@@ -7,7 +7,14 @@ export interface OutlineSource {
   path: string
   /** Lowercased file extension (e.g. 'ts', 'rs'). Empty for untitled. */
   langId: string
-  /** Live CodeMirror EditorView for syntaxTree access. */
+  /**
+   * Live CodeMirror EditorView for syntaxTree access.
+   *
+   * **これは常に「今見えているエディタ」のもの。** `EditorTab` は自分がアクティブでなく
+   * なったところで `clear` する。アウトライン以外の消費者（`Ctrl+Shift+F` の選択文字列、
+   * #307）がその不変条件に乗っているので、クリアの条件を変えるときは
+   * `grep -rn useOutlineSource src/` で読み手を確かめること。
+   */
   view: EditorView
   /** Bumped on every doc change. Watchers debounce on this. */
   version: number

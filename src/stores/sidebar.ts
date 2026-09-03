@@ -27,9 +27,18 @@ export const useSidebarStore = defineStore('sidebar', () => {
   const isPanelOpen = computed(() => activePanel.value !== null)
 
   function togglePanel(panel: SidebarPanel) {
-    activePanel.value = activePanel.value === panel ? null : panel
-    if (activePanel.value) {
-      localStorage.setItem(ACTIVE_PANEL_KEY, activePanel.value)
+    setPanel(activePanel.value === panel ? null : panel)
+  }
+
+  /** 開くだけ（既に開いていても閉じない）。キーで開く検索（#307）と E2E が使う。 */
+  function openPanel(panel: SidebarPanel) {
+    setPanel(panel)
+  }
+
+  function setPanel(panel: SidebarPanel | null) {
+    activePanel.value = panel
+    if (panel) {
+      localStorage.setItem(ACTIVE_PANEL_KEY, panel)
     } else {
       localStorage.removeItem(ACTIVE_PANEL_KEY)
     }
@@ -45,5 +54,5 @@ export const useSidebarStore = defineStore('sidebar', () => {
     }, 300)
   }
 
-  return { activePanel, panelWidth, isPanelOpen, togglePanel, setPanelWidth }
+  return { activePanel, panelWidth, isPanelOpen, togglePanel, openPanel, setPanel, setPanelWidth }
 })

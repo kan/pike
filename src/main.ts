@@ -126,7 +126,7 @@ async function bootstrap() {
         }
       },
       openPanel: (name: string) => {
-        sidebar.activePanel = name as typeof sidebar.activePanel
+        sidebar.openPanel(name as Exclude<typeof sidebar.activePanel, null>)
       },
       // ファイルツリーの git ステータス色を撮るため、gitStore.status を直接セットする。
       // 通常 git status はフェッチ駆動だが、files パネルだけ開くと発火しないため。
@@ -141,7 +141,7 @@ async function bootstrap() {
       // パネル系 spec は prepare の後に openPanel、global 系は enterGlobalMode で開き直す。
       resetTabs: () => {
         globalMode.value = false
-        sidebar.activePanel = null
+        sidebar.setPanel(null)
         return tabs.clearAllTabs()
       },
       // グローバルモードのエディタ撮影用に、複数ファイルを 1 ファイル 1 タブで開く

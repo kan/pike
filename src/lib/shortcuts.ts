@@ -94,7 +94,7 @@ export const APP_ACTIONS = [
   { id: 'shortcuts', palette: 'help', labelKey: 'shortcuts.keyboardShortcuts' },
   { id: 'gitHistory' },
   { id: 'quit', labelKey: 'menu.quit' },
-  // --- パネル（#270）。キーは持たず、パレットからだけ開ける
+  // --- パネル（#270）。パレットから開ける。キーを持つのは検索だけ（`Mod+Shift+F`、#259）
   { id: 'panelFiles', palette: 'view', labelKey: 'sidebar.files' },
   { id: 'panelGit', palette: 'view', labelKey: 'sidebar.git' },
   { id: 'panelSearch', palette: 'view', labelKey: 'sidebar.search' },

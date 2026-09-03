@@ -5,11 +5,13 @@ import { globalMode } from '../lib/window'
 import { useDiagnosticsStore } from '../stores/diagnostics'
 import { useGitStore } from '../stores/git'
 import { useProjectStore } from '../stores/project'
+import { useSearchStore } from '../stores/search'
 import { FONT_SIZE_DEFAULT, FONT_SIZE_MAX, FONT_SIZE_MIN, useSettingsStore } from '../stores/settings'
 import { useSidebarStore } from '../stores/sidebar'
 import { useTabStore } from '../stores/tabs'
 import type { ShellType, SidebarPanel } from '../types/tab'
 import { confirmAndExit } from './useBusyExit'
+import { useOutlineSource } from './useOutlineSource'
 import { useShortcutsModal } from './useShortcutsModal'
 
 /**
@@ -61,8 +63,47 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     else settings.fontSize = next
   }
 
-  function openPanel(panel: SidebarPanel) {
+  function togglePanel(panel: SidebarPanel) {
     useSidebarStore().togglePanel(panel)
+  }
+
+  /**
+   * 全体検索を開く（#307）。**ここだけトグルしない**: このキーは「検索したい」という
+   * 意思表示なので、開いているときに押しても閉じない（VSCode と同じ）。押すたびに入力欄へ
+   * フォーカスを戻し、選択していれば入れ直す。
+   */
+  function openSearch() {
+    // **グローバルモードでは何もしない。** サイドバーを描かないので `SearchPanel` は一生
+    // マウントされず、`activePanel` に書いた値だけが localStorage に残って次に開く
+    // プロジェクトウィンドウの既定パネルを変えてしまう。9 つのパネルアクションのうち
+    // **キーを持つのはこれだけ**なので、グローバルウィンドウから飛んでくるのもこれだけ。
+    if (globalMode.value) return
+    useSearchStore().requestOpen(editorSelection())
+    useSidebarStore().openPanel('search')
+  }
+
+  /** 選択が長すぎたら検索語として使わない（minify 済みの 1 行を全選択したときなど）。 */
+  const MAX_SEED_LEN = 200
+
+  /**
+   * アクティブなエディタで選択している文字列。**`useOutlineSource` の登録を借りる**:
+   * `EditorTab` は自分がアクティブでなくなったところで `clear` するので、ここに入って
+   * いるのは常に「今見えているエディタ」の生きた `EditorView` になる。
+   *
+   * **切り出す前に弾く。** `Ctrl+A` のあとに押すと、文書全体（最大 2MB）を文字列にして
+   * から改行を見つけて捨てることになる。行番号の比較は木を降りるだけで済む。
+   */
+  function editorSelection(): string | null {
+    const view = useOutlineSource().current.value?.view
+    if (!view) return null
+    const { from, to } = view.state.selection.main
+    if (from === to || to - from > MAX_SEED_LEN) return null
+    const { doc } = view.state
+    if (doc.lineAt(from).number !== doc.lineAt(to).number) return null
+    // 空白だけの選択も捨てる。インデントをドラッグで選んだまま押すと、入力欄が
+    // 空白で埋まって結果が全部消える。
+    const text = doc.sliceString(from, to)
+    return text.trim() ? text : null
   }
 
   function openTerminal(shellOverride?: ShellType) {
@@ -122,16 +163,17 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     fontDecrease: () => zoomFont(-1),
     fontReset: () => zoomFont(0),
     // パネル（#270）。トグルなので、開いているものをもう一度選ぶと閉じる（アイコンを
-    // クリックしたときと同じ挙動）。
-    panelFiles: () => openPanel('files'),
-    panelGit: () => openPanel('git'),
-    panelSearch: () => openPanel('search'),
-    panelDocker: () => openPanel('docker'),
-    panelTasks: () => openPanel('tasks'),
-    panelTodo: () => openPanel('todo'),
-    panelOutline: () => openPanel('outline'),
-    panelDiagnostics: () => openPanel('diagnostics'),
-    panelProjects: () => openPanel('projects'),
+    // クリックしたときと同じ挙動）。**検索だけは例外**で、キーを持つぶん「検索したい」と
+    // いう意思表示に対して閉じるのは答えになっていない（#307）。
+    panelFiles: () => togglePanel('files'),
+    panelGit: () => togglePanel('git'),
+    panelSearch: openSearch,
+    panelDocker: () => togglePanel('docker'),
+    panelTasks: () => togglePanel('tasks'),
+    panelTodo: () => togglePanel('todo'),
+    panelOutline: () => togglePanel('outline'),
+    panelDiagnostics: () => togglePanel('diagnostics'),
+    panelProjects: () => togglePanel('projects'),
     // 失敗の通知はストア側（`setError`）。入口ごとに書くと、どれかが漏れる。
     gitPull: () => void useGitStore().pull(),
     gitPush: () => void useGitStore().push(),
