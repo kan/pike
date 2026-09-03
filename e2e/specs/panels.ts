@@ -402,20 +402,24 @@ describe('screenshots: tasks panel', () => {
 
 const SEARCH_RESULT = {
   matches: [
-    { path: 'src/lib/tauri.ts', line: 19, content: "const invoke: typeof tauriInvoke = __PIKE_E2E__" },
+    { path: 'src/lib/tauri.ts', line: 19, content: 'const invoke: typeof tauriInvoke = __PIKE_E2E__' },
     { path: 'src/lib/tauri.ts', line: 141, content: "  return invoke<FsEntry[]>('fs_list_dir', { shell, path })" },
     { path: 'src/stores/tasks.ts', line: 22, content: '  const groups = await taskDiscover(project.shell, root)' },
     { path: 'src/stores/docker.ts', line: 39, content: '  const [r] = await Promise.all([dockerListContainers()])' },
-    { path: 'src/components/panels/SearchPanel.vue', line: 31, content: '  searchStore.search(query.value, isRegex.value)' },
+    { path: 'src/components/panels/SearchPanel.vue', line: 31, content: '  searchStore.search({ query: query.value })' },
   ],
   truncated: false,
 }
+
+/** `search_detect_backend` は `SearchBackendInfo` を返す（#304）。文字列だと `backend`
+ *  computed が null になり、パネルの版バッジが丸ごと消えたまま撮影される。 */
+const SEARCH_BACKEND = { backend: 'rg', version: '15.2.0', pcre2: true }
 
 describe('screenshots: search panel', () => {
   for (const { lang, theme } of MATRIX) {
     it(`search-panel ${lang} ${theme}`, async () => {
       await prepare({ lang, theme })
-      await mockInvoke('search_detect_backend', 'rg')
+      await mockInvoke('search_detect_backend', SEARCH_BACKEND)
       await mockInvoke('search_execute', SEARCH_RESULT)
       await setFakeProject()
       await openEditor({ path: 'src/lib/tauri.ts', content: TAURI_TS })

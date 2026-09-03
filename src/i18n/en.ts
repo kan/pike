@@ -573,6 +573,8 @@ export default {
   'search.include': 'Include (e.g. *.ts)',
   'search.exclude': 'Exclude',
   'search.useRegex': 'Use Regex',
+  'search.wholeWord': 'Match Whole Word',
+  'search.usePcre2': 'PCRE2 (lookaround, backreferences)',
   'search.searching': 'Searching...',
   'search.noResults': 'No results',
   'search.matchCase': 'Match Case',

@@ -1108,7 +1108,6 @@ export const useProjectStore = defineStore('project', () => {
     const restore = opts?.restoreSession !== false
 
     searchStore.clear()
-    searchStore.backend = null
     useDiagnosticsStore().clear()
     useTaskStore().clear()
     activeWorktreeRoot.value = null

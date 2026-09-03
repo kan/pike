@@ -572,6 +572,8 @@ export default {
   'search.include': '含む (例: *.ts)',
   'search.exclude': '除外',
   'search.useRegex': '正規表現',
+  'search.wholeWord': '単語単位で検索',
+  'search.usePcre2': 'PCRE2（先読み・後方参照）',
   'search.searching': '検索中...',
   'search.noResults': '結果なし',
   'search.matchCase': '大文字と小文字を区別',

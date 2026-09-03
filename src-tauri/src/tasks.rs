@@ -331,25 +331,23 @@ fn find_task_files_raw(
     root: &str,
     backend: Option<&crate::search::SearchBackend>,
 ) -> Vec<String> {
-    if let Some(b) = backend {
-        if b.is_rg() {
-            let depth_arg = format!("{MAX_DEPTH}");
-            // --hidden lets rg descend into .cargo/; keep .git excluded
-            // (it is only skipped by the hidden filter we just disabled)
-            let mut args: Vec<&str> =
-                vec!["--files", "--max-depth", &depth_arg, "--hidden", "-g", "!.git"];
-            for g in TASK_FILE_GLOBS {
-                args.push("-g");
-                args.push(g);
-            }
+    if let Some((program, _)) = backend.and_then(|b| b.as_rg()) {
+        let depth_arg = format!("{MAX_DEPTH}");
+        // --hidden lets rg descend into .cargo/; keep .git excluded
+        // (it is only skipped by the hidden filter we just disabled)
+        let mut args: Vec<&str> =
+            vec!["--files", "--max-depth", &depth_arg, "--hidden", "-g", "!.git"];
+        for g in TASK_FILE_GLOBS {
             args.push("-g");
-            args.push(CARGO_CONFIG_RG_GLOB);
-            args.push("--");
-            args.push(root);
-            if let Ok((code, stdout, _)) = shell.run(b.rg_program(), &args) {
-                if code == 0 || !stdout.is_empty() {
-                    return stdout.lines().map(|l| l.to_string()).collect();
-                }
+            args.push(g);
+        }
+        args.push("-g");
+        args.push(CARGO_CONFIG_RG_GLOB);
+        args.push("--");
+        args.push(root);
+        if let Ok((code, stdout, _)) = shell.run(program, &args) {
+            if code == 0 || !stdout.is_empty() {
+                return stdout.lines().map(|l| l.to_string()).collect();
             }
         }
     }

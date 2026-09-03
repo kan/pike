@@ -1,5 +1,5 @@
 use crate::types::{spawn_capped_lines, ShellConfig};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -14,22 +14,95 @@ pub struct SearchState {
     pub detected: Arc<Mutex<HashMap<String, SearchBackend>>>,
 }
 
+/// rg の版と、ビルドに入っている機能。**同梱のサイドカーと、その環境に入っている rg の
+/// どちらを使うかで違う**ので、プログラムを決めたあとに毎回ここを通す。
+///
+/// Windows は同梱の rg（このリポジトリが版を決めている）だが、**WSL では distro に
+/// 入っているものが使われる**ので、14 系や pcre2 無しのビルドが普通にありうる。だから
+/// 「15 以降にしか無い機能」は、版で決め打ちにせずここで見る（#304）。
+#[derive(Clone)]
+pub struct RgCaps {
+    /// `ripgrep 15.2.0 (rev …)` の版の部分。バッジに出す。
+    pub version: String,
+    /// 比較用に分解した版（major, minor, patch）。読めなかった桁は 0。
+    pub semver: [u32; 3],
+    /// `-P/--pcre2` が使えるか（`features:+pcre2`）。
+    pub pcre2: bool,
+}
+
+/// `rg --version` の出力から版と機能を読む。想定する形は次の 2 行目まで:
+///
+/// ```text
+/// ripgrep 15.2.0 (rev e89fff89ac)
+///
+/// features:+pcre2
+/// ```
+fn parse_rg_version(stdout: &str) -> Option<RgCaps> {
+    let first = stdout.lines().next()?;
+    let version = first.strip_prefix("ripgrep ")?.split_whitespace().next()?.to_string();
+    let mut semver = [0u32; 3];
+    // major だけは読めることを求める（読めなければ rg ではない何かとみなす）。
+    // minor / patch は distro が付ける接尾辞で崩れうるので、読めなければ 0 のまま。
+    let mut parts = version.split('.');
+    semver[0] = parts.next()?.parse().ok()?;
+    for slot in semver.iter_mut().skip(1) {
+        *slot = parts.next().and_then(|p| p.parse().ok()).unwrap_or(0);
+    }
+    Some(RgCaps {
+        version,
+        semver,
+        // 機能の行は `features:+pcre2,-simd-accel` のように並ぶ。無い版もあるので、
+        // 行の位置ではなく `+pcre2` があるかだけを見る（`-pcre2` に当たらない）。
+        pcre2: stdout.contains("+pcre2"),
+    })
+}
+
+/// `program` を `--version` で叩いて、rg として使えるなら機能を返す。
+///
+/// **存在確認も兼ねる**（`which` / `where` を別に叩かない）。プログラムが無ければ
+/// spawn 自体が失敗するか、シェル越しなら非 0 で返るので、どちらも `None` になる。
+fn probe_rg(shell: &ShellConfig, program: &str) -> Option<RgCaps> {
+    match shell.run(program, &["--version"]) {
+        Ok((0, stdout, _)) => parse_rg_version(&stdout),
+        _ => None,
+    }
+}
+
+/// **新しいほうを使う**（#304）。同値なら利用者が入れたほうを残す。
+///
+/// 「入っているものを優先」だと、古い rg を入れっぱなしのマシンで、同梱の新しい版が
+/// あるのに置換プレビューも PCRE2 も出ない。「同梱を優先」だと、`brew upgrade` で
+/// 新しくした人の意思と、そこに入っている gitignore の修正を捨てることになる。
+fn prefer_newer(
+    system: Option<(String, RgCaps)>,
+    bundled: Option<(String, RgCaps)>,
+) -> Option<(String, RgCaps)> {
+    match (system, bundled) {
+        (Some(s), Some(b)) => Some(if b.1.semver > s.1.semver { b } else { s }),
+        (found, None) | (None, found) => found,
+    }
+}
+
 /// Probe for the best available search backend for `shell` (blocking: spawns
-/// `which`/`where`). WSL never uses the bundled Windows rg.
+/// `rg --version`). WSL never uses the bundled Windows rg.
+///
+/// **非 WSL では両方を叩く**ので spawn が 2 回になるが、`install_key(shell)` 単位で
+/// キャッシュされるうえ、起動時ではなく最初の検索（かタスク検出）まで遅延する。
 fn detect_backend(shell: &ShellConfig, bundled_rg: &Option<String>) -> SearchBackend {
     // macOS / Linux では `augment_process_path` が起動時に PATH を広げているので、
     // Homebrew 等に入った rg もここで見つかる。
-    let check_cmd = if shell.is_posix() { "which" } else { "where" };
-    if let Ok((0, _, _)) = shell.run(check_cmd, &["rg"]) {
-        return SearchBackend::Rg;
-    }
+    let system = probe_rg(shell, "rg").map(|caps| ("rg".to_string(), caps));
     // 同梱の rg はホストのバイナリなので、WSL の中では実行できない。
-    if !matches!(shell, ShellConfig::Wsl { .. }) {
-        if let Some(path) = bundled_rg {
-            return SearchBackend::BundledRg { path: path.clone() };
-        }
+    let bundled = match shell {
+        ShellConfig::Wsl { .. } => None,
+        _ => bundled_rg
+            .as_ref()
+            .and_then(|path| probe_rg(shell, path).map(|caps| (path.clone(), caps))),
+    };
+    match prefer_newer(system, bundled) {
+        Some((program, caps)) => SearchBackend::Rg { program, caps },
+        None => SearchBackend::Grep,
     }
-    SearchBackend::Grep
 }
 
 /// Return the cached backend for `shell`, detecting and caching on first use.
@@ -52,31 +125,45 @@ pub(crate) fn resolve_backend(
     backend
 }
 
+/// 同梱の rg と、その環境に入っている rg は**同じ腕**にまとめてある（`program` が違うだけ）。
+/// 分けていたころは、機能を持たせるたびに 2 つの variant を同じように扱う `match` が増えた。
 #[derive(Clone)]
 pub(crate) enum SearchBackend {
-    Rg,
-    BundledRg { path: String },
+    Rg { program: String, caps: RgCaps },
     Grep,
 }
 
 impl SearchBackend {
-    pub(crate) fn is_rg(&self) -> bool {
-        matches!(self, SearchBackend::Rg | SearchBackend::BundledRg { .. })
-    }
-
-    pub(crate) fn rg_program(&self) -> &str {
+    /// rg なら、起動するプログラムとその機能。**呼び出し側はこれ 1 つで分解する。**
+    /// 「rg か」と「プログラム名」と「機能」を別々に聞ける形にしていたころは、Grep の腕が
+    /// `"rg"` という嘘のプログラム名を返し、`is_rg()` で守られた枝の中で機能を `Option`
+    /// として開き直していた（None になり得ないのに）。
+    pub(crate) fn as_rg(&self) -> Option<(&str, &RgCaps)> {
         match self {
-            SearchBackend::BundledRg { path } => path,
-            _ => "rg",
+            SearchBackend::Rg { program, caps } => Some((program, caps)),
+            SearchBackend::Grep => None,
         }
     }
 
     fn label(&self) -> &str {
         match self {
-            SearchBackend::Rg | SearchBackend::BundledRg { .. } => "rg",
+            SearchBackend::Rg { .. } => "rg",
             SearchBackend::Grep => "grep",
         }
     }
+}
+
+/// パネルが「どのトグルを出せるか」を決めるための情報（#304）。**機能ごとに真偽値で返す**:
+/// フロントに版を配って `major >= 15` を判定させると、同じ知識が 2 箇所に散る。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchBackendInfo {
+    /// `rg` または `grep`。バッジに出す。
+    pub backend: String,
+    /// rg のときだけ。バッジのツールチップに出す。
+    pub version: Option<String>,
+    /// `-P/--pcre2` のトグルを出してよいか。
+    pub pcre2: bool,
 }
 
 #[derive(Serialize)]
@@ -98,14 +185,19 @@ pub struct SearchResult {
 pub async fn search_detect_backend(
     shell: ShellConfig,
     state: State<'_, SearchState>,
-) -> Result<String, String> {
+) -> Result<SearchBackendInfo, String> {
     let bundled = state.bundled_rg.clone();
     let cache = state.detected.clone();
     let backend = tokio::task::spawn_blocking(move || resolve_backend(&shell, &bundled, &cache))
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(backend.label().to_string())
+    let caps = backend.as_rg().map(|(_, caps)| caps);
+    Ok(SearchBackendInfo {
+        backend: backend.label().to_string(),
+        version: caps.map(|c| c.version.clone()),
+        pcre2: caps.is_some_and(|c| c.pcre2),
+    })
 }
 
 const MAX_MATCHES: usize = 500;
@@ -121,8 +213,8 @@ pub async fn list_project_files(
 
     tokio::task::spawn_blocking(move || {
         let backend = resolve_backend(&shell, &bundled, &cache);
-        let cmd = if backend.is_rg() {
-            shell.command(backend.rg_program(), &["--files", "--", &root])
+        let cmd = if let Some((program, _)) = backend.as_rg() {
+            shell.command(program, &["--files", "--", &root])
         } else if shell.is_posix() {
             // Fallback to find (POSIX) or dir (Windows). macOS のローカルシェルも
             // find 側（`cmd.exe` に落とすと Ctrl+P の一覧が丸ごと空になる）。
@@ -158,6 +250,11 @@ fn parse_rg_line(line: &str) -> Option<SearchMatch> {
         return None;
     }
     let data = v.get("data")?;
+    let raw = data
+        .get("lines")
+        .and_then(|l| l.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
     Some(SearchMatch {
         path: data
             .get("path")
@@ -169,13 +266,7 @@ fn parse_rg_line(line: &str) -> Option<SearchMatch> {
             .get("line_number")
             .and_then(|n| n.as_u64())
             .unwrap_or(0) as u32,
-        content: data
-            .get("lines")
-            .and_then(|l| l.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .trim_end()
-            .to_string(),
+        content: raw.trim_end().to_string(),
     })
 }
 
@@ -195,18 +286,44 @@ fn parse_grep_line(line: &str) -> Option<SearchMatch> {
     })
 }
 
+/// 検索の指定（#304）。引数で並べていたころは 7 つあり、トグルを足すたびに
+/// `search_execute` / IPC ラッパー / ストア / パネルの 4 箇所で位置を合わせることになった。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchOptions {
+    pub query: String,
+    #[serde(default)]
+    pub is_regex: bool,
+    /// 既定は**区別しない**（`-i`）。VS Code の検索と同じで、`Aa` を押したときだけ区別する。
+    #[serde(default)]
+    pub case_sensitive: bool,
+    #[serde(default)]
+    pub whole_word: bool,
+    /// `-P/--pcre2`（先読み・後方参照）。使えるかは `search_detect_backend` が返す。
+    #[serde(default)]
+    pub use_pcre2: bool,
+    #[serde(default)]
+    pub glob_include: Option<String>,
+    #[serde(default)]
+    pub glob_exclude: Option<String>,
+}
+
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
 pub async fn search_execute(
     shell: ShellConfig,
     root: String,
-    query: String,
-    is_regex: bool,
-    glob_include: Option<String>,
-    glob_exclude: Option<String>,
-    max_results: Option<u32>,
+    options: SearchOptions,
     state: State<'_, SearchState>,
 ) -> Result<SearchResult, String> {
+    let SearchOptions {
+        query,
+        is_regex,
+        case_sensitive,
+        whole_word,
+        use_pcre2,
+        glob_include,
+        glob_exclude,
+    } = options;
     if query.is_empty() {
         return Ok(SearchResult {
             matches: vec![],
@@ -217,23 +334,30 @@ pub async fn search_execute(
     let bundled = state.bundled_rg.clone();
     let cache = state.detected.clone();
 
-    // 打ち切りの上限。呼び出し側が大きい値を渡しても `MAX_MATCHES` を超えない
-    // （パネルは全件を描けないし、超えた分は結局捨てることになる）。
-    let cap = (max_results.unwrap_or(MAX_MATCHES as u32) as usize).min(MAX_MATCHES);
-
     let inc_glob = glob_include.map(|g| {
         if g.contains('*') || g.contains('?') { g } else if g.contains('.') { format!("*.{}", g.trim_start_matches('.')) } else { format!("*{g}*") }
     });
     let exc_glob = glob_exclude.map(|g| {
         if g.contains('*') || g.contains('?') { g } else { format!("*{g}*") }
     });
-
     tokio::task::spawn_blocking(move || {
         let backend = resolve_backend(&shell, &bundled, &cache);
-        let run = if backend.is_rg() {
+        let run = if let Some((program, caps)) = backend.as_rg() {
             let mut args: Vec<String> = vec!["--json".to_string()];
             if !is_regex {
                 args.push("-F".to_string());
+            }
+            if !case_sensitive {
+                args.push("-i".to_string());
+            }
+            if whole_word {
+                args.push("-w".to_string());
+            }
+            // `-P` は正規表現のときだけ意味を持つ（`-F` と併せてもエラーにはならないが、
+            // メタ文字を持たない検索に別のエンジンを使わせるだけになる。実測で確認）。
+            // 持っていないビルドに渡すと rg が落ちるので、機能を確かめてから足す。
+            if is_regex && use_pcre2 && caps.pcre2 {
+                args.push("-P".to_string());
             }
             if let Some(ref inc) = inc_glob {
                 args.push("--glob".to_string());
@@ -252,9 +376,9 @@ pub async fn search_execute(
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
             spawn_capped_lines(
-                shell.command(backend.rg_program(), &arg_refs),
+                shell.command(program, &arg_refs),
                 "rg",
-                cap,
+                MAX_MATCHES,
                 parse_rg_line,
             )
         } else {
@@ -263,6 +387,14 @@ pub async fn search_execute(
                 args.push("-F".to_string());
             } else {
                 args.push("-E".to_string());
+            }
+            // 大文字小文字と単語単位は grep にも同じフラグがある。PCRE2 と置換は無い
+            // （`-P` は GNU grep 限定で macOS の BSD grep に無く、`-r` は再帰の意味）。
+            if !case_sensitive {
+                args.push("-i".to_string());
+            }
+            if whole_word {
+                args.push("-w".to_string());
             }
             if let Some(ref inc) = inc_glob {
                 args.push(format!("--include={inc}"));
@@ -282,7 +414,7 @@ pub async fn search_execute(
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            spawn_capped_lines(shell.command("grep", &arg_refs), "grep", cap, parse_grep_line)
+            spawn_capped_lines(shell.command("grep", &arg_refs), "grep", MAX_MATCHES, parse_grep_line)
         };
 
         let run = run?;
@@ -296,7 +428,7 @@ pub async fn search_execute(
         }
         Ok(SearchResult {
             // 打ち切ったかは件数から分かる（`spawn_capped_lines` は上限で止まる）。
-            truncated: run.items.len() >= cap,
+            truncated: run.items.len() >= MAX_MATCHES,
             matches: run.items,
         })
     })
@@ -326,6 +458,53 @@ mod tests {
         assert!(parse_rg_line(r#"{"type":"summary","data":{}}"#).is_none());
         assert!(parse_rg_line("not json").is_none());
         assert!(parse_rg_line("").is_none());
+    }
+
+    #[test]
+    fn rg_version_is_parsed() {
+        let caps = parse_rg_version("ripgrep 15.2.0 (rev e89fff89ac)\n\nfeatures:+pcre2\n").expect("version");
+        assert_eq!(caps.version, "15.2.0");
+        assert_eq!(caps.semver, [15, 2, 0]);
+        assert!(caps.pcre2);
+
+        let old = parse_rg_version("ripgrep 14.1.1\n\nfeatures:+pcre2,+simd-accel\n").expect("version");
+        assert_eq!(old.semver, [14, 1, 1]);
+
+        // 桁が欠けていても major さえ読めればよい（distro の付ける接尾辞で崩れうる）。
+        assert_eq!(parse_rg_version("ripgrep 15").expect("version").semver, [15, 0, 0]);
+        assert_eq!(parse_rg_version("ripgrep 14.1").expect("version").semver, [14, 1, 0]);
+
+        // pcre2 無しのビルド。`-pcre2` を `+pcre2` と読み違えない。
+        let no_pcre = parse_rg_version("ripgrep 15.2.0\n\nfeatures:-pcre2\n").expect("version");
+        assert!(!no_pcre.pcre2);
+
+        // rg ではない何か（`which rg` の代わりに存在確認も兼ねているので、ここで弾く）。
+        assert!(parse_rg_version("git version 2.51.0").is_none());
+        assert!(parse_rg_version("").is_none());
+    }
+
+    #[test]
+    fn the_newer_rg_wins() {
+        let caps = |v: &str| parse_rg_version(&format!("ripgrep {v}\n\nfeatures:+pcre2\n")).expect("version");
+        let pick = |a: Option<&str>, b: Option<&str>| {
+            prefer_newer(
+                a.map(|v| ("rg".to_string(), caps(v))),
+                b.map(|v| ("/bundled/rg".to_string(), caps(v))),
+            )
+            .map(|(program, c)| (program, c.version))
+        };
+
+        // 入っているのが古ければ同梱版、新しければそちらを使う。
+        assert_eq!(pick(Some("14.1.1"), Some("15.2.0")), Some(("/bundled/rg".into(), "15.2.0".into())));
+        assert_eq!(pick(Some("16.0.0"), Some("15.2.0")), Some(("rg".into(), "16.0.0".into())));
+        // patch まで見る。
+        assert_eq!(pick(Some("15.2.0"), Some("15.2.1")), Some(("/bundled/rg".into(), "15.2.1".into())));
+        // 同値なら利用者が入れたほうを残す（同じものなので、名前で迷わせない）。
+        assert_eq!(pick(Some("15.2.0"), Some("15.2.0")), Some(("rg".into(), "15.2.0".into())));
+        // 片方しか無い場合（WSL は同梱版を渡さないのでこの形になる）。
+        assert_eq!(pick(Some("13.0.0"), None), Some(("rg".into(), "13.0.0".into())));
+        assert_eq!(pick(None, Some("15.2.0")), Some(("/bundled/rg".into(), "15.2.0".into())));
+        assert_eq!(pick(None, None), None);
     }
 
     #[test]

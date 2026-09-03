@@ -15,7 +15,7 @@ import type {
   PushOption,
 } from '../types/git'
 import type { ProjectConfig } from '../types/project'
-import type { SearchBackend, SearchResult } from '../types/search'
+import type { SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
 import type { MenuAction, MenuShell, ShellType } from '../types/tab'
 
 // invoke の唯一のチョークポイント。E2E 撮影ビルド (#142) では、パネルへ決定的な
@@ -526,28 +526,12 @@ export async function gitDiffWorking(root: string, shell: ShellType): Promise<st
 
 // Search
 
-export async function searchDetectBackend(shell: ShellType): Promise<SearchBackend> {
-  return invoke<SearchBackend>('search_detect_backend', { shell })
+export async function searchDetectBackend(shell: ShellType): Promise<SearchBackendInfo> {
+  return invoke<SearchBackendInfo>('search_detect_backend', { shell })
 }
 
-export async function searchExecute(
-  shell: ShellType,
-  root: string,
-  query: string,
-  isRegex: boolean,
-  globInclude?: string,
-  globExclude?: string,
-  maxResults?: number,
-): Promise<SearchResult> {
-  return invoke<SearchResult>('search_execute', {
-    shell,
-    root,
-    query,
-    isRegex,
-    globInclude: globInclude ?? null,
-    globExclude: globExclude ?? null,
-    maxResults: maxResults ?? null,
-  })
+export async function searchExecute(shell: ShellType, root: string, options: SearchOptions): Promise<SearchResult> {
+  return invoke<SearchResult>('search_execute', { shell, root, options })
 }
 
 export async function listProjectFiles(shell: ShellType, root: string): Promise<string[]> {
