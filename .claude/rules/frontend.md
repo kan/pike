@@ -51,7 +51,10 @@
 - UI アイコンは `lucide-vue-next` で統一（サイドバー・タブ・パネルボタン等）
 - ファイルアイコンは `material-file-icons` の SVG（`getIcon(name).svg`）
 - `src/lib/fileIcons.ts` でファイル名 → SVG のキャッシュ付きラッパーを提供
-- SVG は `v-html` で注入、`:deep(svg) { width: 16px; height: 16px }` でサイズ制御
+- SVG は `v-html` で注入する
+- **行の先頭に置く 16px のアイコン枠は `theme.css` の `.row-icon`**（タブ・Git パネル・ファイルツリー・アウトラインが共有）。同じ枠を各コンポーネントの scoped CSS に持っていたころは 4 コピーあり、寸法を変えるのに 4 ファイルを直す必要があった。色や不透明度（フォルダの accent、gitignore の淡色）は消費者側に残す
+  - **`v-html` した SVG の寸法合わせは `.row-icon-svg` を併記する**（`svg { 16px }`）。`v-html` の中身は scope 属性を持たないので scoped CSS では当てられず、共有クラスにしてある（置いた側で書くなら `:deep()` が要る）
+  - **lucide のアイコンには `.row-icon-svg` を付けない。** あちらの寸法は `:size` で決まるので、付けると 14px で置いている消費者（アウトライン）が太る
 
 ## カスタム確認ダイアログ
 - `window.confirm()` は WebView のオリジン URL がタイトルに表示されるため使わない

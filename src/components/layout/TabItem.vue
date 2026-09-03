@@ -64,7 +64,7 @@ function onTitleHover(e: MouseEvent) {
     @mousedown.middle.prevent="emit('close')"
   >
     <Pin v-if="tab.pinned" :size="12" :stroke-width="2" class="tab-pin" :title="t('tabs.pinned')" />
-    <span v-if="iconSvg" class="tab-icon-svg" v-html="iconSvg" />
+    <span v-if="iconSvg" class="row-icon row-icon-svg" v-html="iconSvg" />
     <component
       :is="TAB_KIND_ICONS[tab.kind]"
       v-else-if="TAB_KIND_ICONS[tab.kind]"
@@ -134,8 +134,8 @@ function onTitleHover(e: MouseEvent) {
 }
 
 /* 種別の lucide アイコンだけ控えめにする。**ファイルアイコンにこのクラスを付けないこと**:
-   `.tab-icon-svg`（`theme.css` のグローバル）は詳細度で負けるので、薄くしないために
-   `.tab-icon.tab-icon-svg` のような上書きを足す羽目になる。 */
+   共有の `.row-icon`（`theme.css`）は詳細度で負けるので、薄くしないために
+   `.tab-icon.row-icon` のような上書きを足す羽目になる。 */
 .tab-icon {
   flex-shrink: 0;
   opacity: 0.7;

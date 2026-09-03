@@ -92,7 +92,7 @@ function iconFor(kind: OutlineKind): Component {
           <ChevronRight v-else :size="12" :stroke-width="1.5" />
         </span>
         <span v-else class="tree-chevron-space" />
-        <span class="tree-icon">
+        <span class="row-icon tree-icon">
           <component :is="iconFor(node.kind)" :size="14" :stroke-width="1.5" />
         </span>
         <span class="tree-name" :title="node.detail || node.name">{{ node.name }}</span>
@@ -154,13 +154,9 @@ function iconFor(kind: OutlineKind): Component {
   flex-shrink: 0;
 }
 
+/* 枠は共有の `.row-icon`（`theme.css`）。**中身の lucide は 14px** なので、`v-html` した
+   SVG を 16px に合わせる `.row-icon-svg` は付けない。 */
 .tree-icon {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   color: var(--text-secondary);
 }
 

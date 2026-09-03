@@ -554,7 +554,7 @@ onUnmounted(() => {
           :class="{ 'default-shell': tab.id === tabStore.activeTabId }"
           @click="pickTab(tab.id)"
         >
-          <span v-if="tabFileIconSvg(tab)" class="tab-icon-svg shell-menu-icon" v-html="tabFileIconSvg(tab)" />
+          <span v-if="tabFileIconSvg(tab)" class="row-icon row-icon-svg shell-menu-icon" v-html="tabFileIconSvg(tab)" />
           <component
             :is="TAB_KIND_ICONS[tab.kind]"
             v-else-if="TAB_KIND_ICONS[tab.kind]"
@@ -818,8 +818,8 @@ onUnmounted(() => {
 
 /* タブ 1 枚ぶんの見た目は `TabItem.vue` が持つ（#305）。**scoped CSS は子コンポーネントの
    ルート要素までしか届かない**ので、ここに置いたままだとアイコンもタイトルも ✕ も素の
-   見た目に戻る（切り出した直後に実際にそうなった）。ファイルアイコンの寸法だけは、
-   下のタブ一覧メニューと共有するので `theme.css` の `.tab-icon-svg` にある。 */
+   見た目に戻る（切り出した直後に実際にそうなった）。アイコンの枠だけは、下のタブ一覧
+   メニューや他のパネルと共有するので `theme.css` の `.row-icon` にある。 */
 
 .tab-add-group {
   display: flex;

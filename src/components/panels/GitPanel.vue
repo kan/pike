@@ -534,7 +534,7 @@ onUnmounted(() => {
           :title="t('git.openConflict')"
           @click="openConflictFile(file.path)"
         >
-          <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
+          <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path conflict-path" :title="file.path">{{ file.path }}</span>
           <button class="file-action" :title="t('git.resolve')" @click.stop="markResolved([file.path])">
@@ -559,7 +559,7 @@ onUnmounted(() => {
           @click="openDiffTab(file.path, true)"
           @contextmenu="onFileContext($event, file.path, { staged: true })"
         >
-          <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
+          <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path" :title="file.path">{{ file.path }}</span>
           <button class="file-action" :title="t('git.unstage')" @click.stop="unstageFile(file)"><Minus :size="12" :stroke-width="2" /></button>
@@ -582,7 +582,7 @@ onUnmounted(() => {
           @click="openDiffTab(file.path, false, file.status === '?')"
           @contextmenu="onFileContext($event, file.path, { staged: false, untracked: file.status === '?' })"
         >
-          <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
+          <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
           <span class="file-path" :title="file.path">{{ file.path }}</span>
           <button class="file-action discard" :title="t('git.discard')" @click.stop="discardFile(file)"><Undo2 :size="12" :stroke-width="2" /></button>
@@ -631,7 +631,7 @@ onUnmounted(() => {
                 @click.stop="openCommitDiffTab(entry.hash, file.path)"
                 @contextmenu="onFileContext($event, file.path, { hash: entry.hash })"
               >
-                <span class="file-icon" v-html="fileIconSvg(file.path)"></span>
+                <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
                 <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
                 <span class="file-path" :title="file.path">{{ file.path }}</span>
               </div>
@@ -919,20 +919,6 @@ onUnmounted(() => {
 
 .file-item.indent {
   padding-left: 20px;
-}
-
-.file-icon {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.file-icon :deep(svg) {
-  width: 16px;
-  height: 16px;
 }
 
 .file-status {

@@ -503,7 +503,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
         :style="{ paddingLeft: '4px' }"
       >
         <span class="tree-chevron-space"></span>
-        <span v-if="creating.type === 'dir'" class="tree-icon tree-icon-folder"><Folder :size="16" :stroke-width="1.5" /></span>
+        <span v-if="creating.type === 'dir'" class="row-icon tree-icon-folder"><Folder :size="16" :stroke-width="1.5" /></span>
         <span v-else class="tree-chevron-space"></span>
         <input
           class="create-input"
@@ -549,12 +549,12 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
             <ChevronRight v-else :size="12" :stroke-width="2" />
           </span>
           <span v-else class="tree-chevron-space"></span>
-          <span v-if="node.entry.isDir" class="tree-icon tree-icon-folder">
+          <span v-if="node.entry.isDir" class="row-icon tree-icon-folder">
             <FolderCog v-if="node.entry.ignored" :size="16" :stroke-width="1.5" />
             <FolderOpen v-else-if="fileTreeStore.expanded.has(node.path)" :size="16" :stroke-width="1.5" />
             <Folder v-else :size="16" :stroke-width="1.5" />
           </span>
-          <span v-else class="tree-icon tree-icon-svg" v-html="fileIconSvg(node.entry.name)"></span>
+          <span v-else class="row-icon row-icon-svg" v-html="fileIconSvg(node.entry.name)"></span>
           <span class="tree-name" :style="!node.entry.ignored && gitStatusMap.has(node.path) ? { color: gitStatusColor(gitStatusMap.get(node.path)!) } : undefined">{{ node.entry.name }}</span>
         </div>
         <!-- Create input inside this directory -->
@@ -564,7 +564,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
           :style="{ paddingLeft: ((node.depth + 1) * 16 + 4) + 'px' }"
         >
           <span class="tree-chevron-space"></span>
-          <span v-if="creating.type === 'dir'" class="tree-icon tree-icon-folder"><Folder :size="16" :stroke-width="1.5" /></span>
+          <span v-if="creating.type === 'dir'" class="row-icon tree-icon-folder"><Folder :size="16" :stroke-width="1.5" /></span>
           <span v-else class="tree-chevron-space"></span>
           <input
             class="create-input"
@@ -692,22 +692,10 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   flex-shrink: 0;
 }
 
-.tree-icon {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
+/* アイコンの枠は共有の `.row-icon`（`theme.css`）。ここに残すのは、ファイルツリー固有の
+   色分けだけ。 */
 .tree-icon-folder {
   color: var(--accent);
-}
-
-.tree-icon-svg :deep(svg) {
-  width: 16px;
-  height: 16px;
 }
 
 .spinning {
@@ -736,7 +724,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   color: var(--git-ignored);
 }
 .tree-item.gitignored .tree-name,
-.tree-item.gitignored .tree-icon-svg,
+.tree-item.gitignored .row-icon-svg,
 .tree-item.gitignored .tree-icon-folder {
   opacity: 0.6;
 }

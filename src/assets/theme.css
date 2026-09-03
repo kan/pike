@@ -177,11 +177,10 @@
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* ファイル種別の SVG アイコン（`lib/fileIcons.ts` の `fileIconSvg` を `v-html` で入れる箱）。
-   **タブ 1 枚（`TabItem`）と、溢れたタブの一覧（`TabPane`）が別のコンポーネントなので
-   共有クラスにしてある**（#305）。scoped CSS は子のルート要素までしか届かないため、
-   どちらかに置くと片方が素の寸法（SVG 本来の大きさ）で出る。 */
-.tab-icon-svg {
+/* 一覧の行の先頭に置く 16px のアイコン枠。タブ・Git パネル・ファイルツリー・アウトラインが
+   同じ枠を使う（#305）。**色と不透明度は足さない**: フォルダの accent、gitignore の淡色、
+   メニューの `--text-secondary` と、消費者ごとに違うため。 */
+.row-icon {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
@@ -190,7 +189,12 @@
   justify-content: center;
 }
 
-.tab-icon-svg svg {
+/* `v-html` で入れた SVG（`lib/fileIcons.ts` の `fileIconSvg`）は本来の寸法を持つので、
+   枠に合わせる。**scoped CSS では当てられない**ので共有クラスにしてある（`v-html` の中身は
+   scope 属性を持たないため、置いた側は `:deep()` が要る）。
+   **lucide のアイコンにはこのクラスを付けないこと**: あちらの寸法は `:size` で決まり、
+   14px で置いている消費者（アウトライン）が 16px に太る。 */
+.row-icon-svg svg {
   width: 16px;
   height: 16px;
 }
