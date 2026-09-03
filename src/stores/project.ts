@@ -187,11 +187,11 @@ export const useProjectStore = defineStore('project', () => {
   /**
    * このウィンドウが持っているプロジェクト（#264）。タブがあるものと、復元待ちのもの。
    * 並びはタブを持ち始めた順 → 復元待ち。引けない id（削除済みなど）は落とす。
-   * タブバーのチップ・ウィンドウタイトル・Rust への通知が共有する。
+   * 切替のプルダウンと Rust への通知が共有する。
    */
   const heldProjects = computed<ProjectConfig[]>(() => heldIds.value.flatMap((id) => findProject(id) ?? []))
 
-  /** 保持中（＝今は見せていない）プロジェクト。一覧のバッジとタイトルが使う。 */
+  /** 保持中（＝今は見せていない）プロジェクト。一覧とスイッチャーのバッジが使う。 */
   const parkedProjects = computed<ProjectConfig[]>(() =>
     heldProjects.value.filter((p) => p.id !== currentProject.value?.id),
   )
@@ -1298,7 +1298,6 @@ export const useProjectStore = defineStore('project', () => {
     currentProject,
     findProject,
     heldProjects,
-    parkedProjects,
     parkedProjectIds,
     setHeldProjects,
     releaseProject,

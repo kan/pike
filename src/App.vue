@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { computed, nextTick, onMounted, watch } from 'vue'
+import { nextTick, onMounted, watch } from 'vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import SideBar from './components/layout/SideBar.vue'
@@ -102,28 +102,18 @@ const isDebug = import.meta.env.DEV
 // ウィンドウ左端の 3px の線は、同じ色の面がちょうどその位置に来て見えなくなるので落とした。
 
 /**
- * タブを保持しているプロジェクトの名前（#264）。タイトルに出すので、**ここだけは
- * 現在地を先頭**にする（並びが固定のチップと違い、タスクバーでは「今どれか」が先に
- * 読めるほうが良い）。
+ * タイトルは**今見せているプロジェクトだけ**にする（#305）。#264 でうしろに保持中のものを
+ * 並べていたが、抱えるほど長くなってタスクバーで煩かった。保持しているものは
+ * `ProjectSelect` のプルダウンとプロジェクトパネルの「保持中」で分かる。
  */
-const parkedNames = computed(() => projectStore.parkedProjects.map((p) => p.name))
-
 watch(
-  [
-    () => projectStore.currentProject?.name,
-    () => projectStore.isTransient,
-    elevated,
-    () => parkedNames.value.join(' / '),
-  ],
-  ([name, isTransient, isAdmin, parked]) => {
+  [() => projectStore.currentProject?.name, () => projectStore.isTransient, elevated],
+  ([name, isTransient, isAdmin]) => {
     // A directory opened without registering it (#230) is titled apart from a
     // project: several windows sit side by side in the taskbar, and the one
     // whose tabs are not being saved should say so where they are compared.
     const key = isTransient ? 'app.titleWithDirectory' : 'app.titleWithProject'
     let base = name ? t(key, { name }) : t('app.title')
-    // 保持しているプロジェクトも出す。ウィンドウを閉じると一緒に終わるものなので、
-    // タスクバーの見出しに何を抱えているかが出ているほうが分かりやすい。
-    if (parked) base = `${base} (${parked})`
     if (isAdmin) base = `${t('app.adminTitlePrefix')} ${base}`
     const title = isDebug ? `[DEBUG] ${base}` : base
     getCurrentWindow().setTitle(title)
