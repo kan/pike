@@ -21,7 +21,7 @@ import {
   gitUnstage,
 } from '../lib/tauri'
 import { windowFocused } from '../lib/window'
-import type { GitLogEntry, GitStatusResult, PullOption, PushOption } from '../types/git'
+import type { GitFileChange, GitLogEntry, GitStatusResult, PullOption, PushOption } from '../types/git'
 import { chainOnSuccess } from '../types/tab'
 import { useProjectStore } from './project'
 import { useStatusMessageStore } from './statusMessage'
@@ -187,9 +187,18 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function unstageFiles(paths: string[]) {
+  /**
+   * ステージから外す。**リネームは両方の名前を外す（#306）。** 新しい名前だけを `git reset`
+   * すると、元の名前が「削除」としてステージに残り、新しいほうが untracked になる（実測）。
+   * 押した人はそんな半端な状態を頼んでいない。
+   *
+   * **パスではなく `GitFileChange` を受ける**のはそのため。呼ぶ側で `origPath` を展開する
+   * 形にしていたころは、1 つずつ外すボタンだけが通っていて「すべて外す」が漏れていた。
+   */
+  async function unstageFiles(files: GitFileChange[]) {
     const project = getProject()
     if (!project) return
+    const paths = files.flatMap((f) => (f.origPath ? [f.path, f.origPath] : [f.path]))
     try {
       await gitUnstage(getRoot(), project.shell, paths)
       await refreshStatus()

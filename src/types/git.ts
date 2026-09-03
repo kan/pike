@@ -3,9 +3,7 @@ export interface GitFileChange {
   status: string
   /**
    * リネーム / コピーの元の名前（#306）。それ以外では省かれる。
-   *
-   * **diff を引くときに渡す。** 片側だけの pathspec だと git はリネーム検出を諦め、
-   * 名前を変えただけのファイルが「新規追加」として全行出る。
+   * diff とアンステージで要る理由は `.claude/rules/git.md`。
    */
   origPath?: string
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, CaseSensitive, ChevronDown, ChevronsDownUp, ChevronUp, X } from 'lucide-vue-next'
+import { CaseSensitive, ChevronDown, ChevronsDownUp, ChevronUp, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDragResize } from '../../composables/useDragResize'
 import { useI18n } from '../../i18n'
@@ -17,6 +17,7 @@ import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import type { DiffTab } from '../../types/tab'
 import WrapToggle from '../editor/WrapToggle.vue'
+import RenameNote from '../RenameNote.vue'
 
 const { t } = useI18n()
 
@@ -30,12 +31,21 @@ const rawLines = computed(() => (tab.value ? parseDiff(tab.value.diff, { charLev
 
 const isBinaryDiff = computed(() => tab.value?.diff.includes('Binary files') ?? false)
 
-/**
- * 名前が変わったことは**ヘッダにしか出ない**（#306）ので、行とは別に拾って上に出す。
- * 内容も変わっていれば下に通常の差分が続き、変わっていなければ hunk が 1 つも無いので
- * この見出しだけになる。
- */
 const renamed = computed(() => (tab.value ? parseRename(tab.value.diff) : null))
+
+/**
+ * 行が 1 つも無いときに何を出すか（#306）。**順序を値の決定に閉じ込める**ためのもの。
+ *
+ * とくに**バイナリを先に見る**のが要点で、リネームと内容変更が同時に起きたバイナリは
+ * `rename from/to` と `Binary files … differ` の両方を持ち hunk が出ない。リネームの側を
+ * 先に見ると「内容は同じです」と嘘をつくうえ、開くボタンも消える。
+ */
+const emptyState = computed<'binary' | 'rename' | 'raw' | 'none' | null>(() => {
+  if (!tab.value || parsedLines.value.length) return null
+  if (isBinaryDiff.value) return 'binary'
+  if (renamed.value) return 'rename'
+  return tab.value.diff ? 'raw' : 'none'
+})
 
 // --- 省略された行の展開（#285）---------------------------------------------
 // 計算そのものは `lib/diffExpand.ts`（純粋）。ここが持つのは取得（IPC）と操作だけ。
@@ -556,22 +566,16 @@ onUnmounted(() => {
   <div ref="rootEl" class="diff-tab" :style="rootStyle">
     <div v-if="!tab" class="empty">{{ t('diff.notFound') }}</div>
     <template v-else>
-      <!-- 名前が変わったことはヘッダにしか出ないので、差分の有無に関わらず上に出す（#306）。 -->
-      <div v-if="renamed" class="rename-note">
-        <span class="rename-from">{{ renamed.from }}</span>
-        <ArrowRight :size="13" :stroke-width="2" />
-        <span>{{ renamed.to }}</span>
+      <RenameNote v-if="renamed" :from="renamed.from" :to="renamed.to" />
+      <div v-if="emptyState" class="empty">
+        <template v-if="emptyState === 'binary'">
+          <span>{{ t('diff.binary') }}</span>
+          <button class="open-file-btn" @click="openWorkingCopy">{{ t('diff.openCurrentFile') }}</button>
+        </template>
+        <span v-else-if="emptyState === 'rename'">{{ t('diff.renameOnly') }}</span>
+        <span v-else-if="emptyState === 'raw'">{{ tab.diff.slice(0, 200) }}</span>
+        <span v-else>{{ t('diff.noChanges') }}</span>
       </div>
-      <!-- **バイナリを先に見る。** リネームと内容変更が同時に起きたバイナリは
-           `rename from/to` と `Binary files … differ` の両方を持ち、hunk は出ない。
-           リネームの側を先に見ると「内容は同じです」と嘘をつくうえ、開くボタンも消える。 -->
-      <div v-if="!parsedLines.length && isBinaryDiff" class="empty">
-        <span>{{ t('diff.binary') }}</span>
-        <button class="open-file-btn" @click="openWorkingCopy">{{ t('diff.openCurrentFile') }}</button>
-      </div>
-      <div v-else-if="!parsedLines.length && renamed" class="empty">{{ t('diff.renameOnly') }}</div>
-      <div v-else-if="!parsedLines.length && tab.diff" class="empty">{{ tab.diff.slice(0, 200) }}</div>
-      <div v-else-if="!parsedLines.length" class="empty">{{ t('diff.noChanges') }}</div>
       <template v-else>
       <div class="diff-body">
         <div ref="scrollEl" class="diff-scroll" @wheel="onWheel">
@@ -699,39 +703,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
-}
-
-/* 名前が変わったことの見出し（#306）。差分の有無に関わらず先頭に出るので、
-   `flex-shrink: 0` で本文に押し潰されないようにする。 */
-.rename-note {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-family: var(--diff-font);
-}
-
-/* **省略は名前の側に置く。** `text-overflow` は flex コンテナには効かず、flex アイテムは
-   min-content より縮まないので、親で `overflow: hidden` だけ指定すると深いパスのときに
-   矢印と新しい名前が切り落とされ、**古い名前だけが残る**という最悪の見え方になる。 */
-.rename-note > span {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.rename-note > svg {
-  flex-shrink: 0;
-}
-
-.rename-from {
-  color: var(--text-secondary);
 }
 
 .diff-body {

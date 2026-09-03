@@ -165,6 +165,7 @@ pike/
 │   │   ├── HelpButton.vue       # 各 UI からマニュアル該当ページを開く「?」ボタン
 │   │   ├── RateMeters.vue       # 利用率の帯グラフ（StatusBar と状態タブで共有、#226）
 │   │   ├── ColorDot.vue         # プロジェクトカラーのドット（#121）
+│   │   ├── RenameNote.vue       # 「名前が変わった」見出し（diff タブと履歴タブで共有、#306）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── layout/
 │   │   │   ├── ProjectSelect.vue # プロジェクトの表示と切替（サイドバー上部 / タブバー左、#298）

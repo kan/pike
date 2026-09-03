@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
-import { parseDiff } from '../../lib/diffParser'
+import { parseDiff, parseRename } from '../../lib/diffParser'
 import { formatLineRange } from '../../lib/format'
 import { relativeDate } from '../../lib/paths'
 import { gitDiffCommit, gitLogFile, gitLogFileLines } from '../../lib/tauri'
@@ -9,6 +9,7 @@ import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import type { GitLogEntry } from '../../types/git'
 import type { HistoryTab } from '../../types/tab'
+import RenameNote from '../RenameNote.vue'
 
 const { t } = useI18n()
 
@@ -45,6 +46,9 @@ const countLabel = computed(() => {
 })
 
 const diffLines = computed(() => parseDiff(diffText.value))
+
+/** diff タブと同じく、名前が変わったことはヘッダから拾って上に出す（#306）。 */
+const renamed = computed(() => parseRename(diffText.value))
 
 const copiedHash = ref<string | null>(null)
 
@@ -133,17 +137,21 @@ onMounted(async () => {
       <div class="diff-area">
         <div v-if="!selectedHash" class="status">{{ t('history.selectCommit') }}</div>
         <div v-else-if="diffLoading" class="status">{{ t('history.loadingDiff') }}</div>
-        <div v-else-if="!diffLines.length && diffText" class="status">{{ diffText.slice(0, 200) }}</div>
-        <table v-else class="diff-table">
-          <tbody>
-            <tr v-for="(row, i) in diffLines" :key="i" class="diff-row">
-              <td class="line-num" :class="row.left.type">{{ row.left.num ?? "" }}</td>
-              <td class="line-content" :class="row.left.type">{{ row.left.segments[0]?.text ?? '' }}</td>
-              <td class="line-num" :class="row.right.type">{{ row.right.num ?? "" }}</td>
-              <td class="line-content" :class="row.right.type">{{ row.right.segments[0]?.text ?? '' }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <template v-else>
+          <RenameNote v-if="renamed" :from="renamed.from" :to="renamed.to" />
+          <div v-if="!diffLines.length && renamed" class="status">{{ t('diff.renameOnly') }}</div>
+          <div v-else-if="!diffLines.length && diffText" class="status">{{ diffText.slice(0, 200) }}</div>
+          <table v-else class="diff-table">
+            <tbody>
+              <tr v-for="(row, i) in diffLines" :key="i" class="diff-row">
+                <td class="line-num" :class="row.left.type">{{ row.left.num ?? "" }}</td>
+                <td class="line-content" :class="row.left.type">{{ row.left.segments[0]?.text ?? '' }}</td>
+                <td class="line-num" :class="row.right.type">{{ row.right.num ?? "" }}</td>
+                <td class="line-content" :class="row.right.type">{{ row.right.segments[0]?.text ?? '' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
       </div>
     </template>
   </div>

@@ -406,7 +406,7 @@ export async function gitDiff(
   path: string,
   staged: boolean,
   untracked = false,
-  /** リネーム / コピーの元の名前（`GitFileChange.origPath`）。渡さないと差分が新規追加に見える（#306）。 */
+  /** `GitFileChange.origPath`（#306）。 */
   origPath: string | null = null,
 ): Promise<string> {
   return invoke<string>('git_diff', { root, shell, path, staged, untracked, origPath })

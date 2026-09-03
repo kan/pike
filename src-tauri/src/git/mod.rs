@@ -54,10 +54,7 @@ pub struct GitFileChange {
     pub path: String,
     pub status: String,
     /// リネーム / コピーの元の名前（#306）。それ以外は `None`。
-    ///
-    /// **diff を引くときに要る。** `git diff -- <新しい名前>` のように pathspec で片側だけに
-    /// 絞ると、git はリネーム検出を諦めて「新規追加」として全行を出す（実測）。両方の名前を
-    /// 渡すと本来の差分になる。
+    /// diff とアンステージで要る理由は `.claude/rules/git.md`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orig_path: Option<String>,
 }
@@ -215,6 +212,12 @@ fn parse_status(output: &str) -> GitStatusResult {
 /// Field separator (ASCII Unit Separator) and record separator (ASCII Record Separator).
 /// Using these instead of NUL avoids collision when %D (refs) is empty — an empty
 /// field between two NUL bytes would be indistinguishable from a double-NUL record separator.
+/// **`git log` には必ず付ける。** `log.showSignature=true` を設定していると、`git log` は
+/// 署名の検証結果を**標準出力の、`--format` より前**に出す。位置で読む側（`parse_log` /
+/// `parse_log_simple` / `commit_patch`）が丸ごと外れるので、その設定のマシンでは履歴も
+/// コミットの差分も空になる。`git diff` は影響を受けないぶん気付きにくい。
+const NO_SHOW_SIGNATURE: &str = "--no-show-signature";
+
 const FS: char = '\x1f';
 const RS: &str = "\x1e";
 
@@ -534,7 +537,13 @@ pub async fn git_log(
 ) -> Result<Vec<GitLogEntry>, String> {
     let n = count.unwrap_or(50).to_string();
     let output = tokio::task::spawn_blocking(move || {
-        let mut args = vec!["log", "--format=%H%x1f%P%x1f%D%x1f%an%x1f%aI%x1f%B%x1e", "-n", &n];
+        let mut args = vec![
+            "log",
+            NO_SHOW_SIGNATURE,
+            "--format=%H%x1f%P%x1f%D%x1f%an%x1f%aI%x1f%B%x1e",
+            "-n",
+            &n,
+        ];
         if all.unwrap_or(false) {
             args.push("--all");
         }
@@ -570,9 +579,8 @@ pub async fn git_diff(
         }
         args.push("--");
         args.push(&path);
-        // **元の名前も渡す（#306）。** 片側だけの pathspec だと git はリネーム検出を諦め、
-        // 名前を変えただけのファイルが「新規追加」として全行出る。作業ツリー側には元の名前が
-        // もう無いが、一致しない pathspec は無視されるだけなので分けずに渡す（実測）。
+        // **元の名前も渡す（#306、理由は `.claude/rules/git.md`）。** 作業ツリー側に元の名前は
+        // もう無いが、一致しない pathspec は無視されるだけなので staged かどうかで分けない。
         if let Some(orig) = orig_path.as_deref() {
             args.push(orig);
         }
@@ -1033,7 +1041,8 @@ pub async fn git_show_files(
             let status = parts.next()?.chars().next()?.to_string();
             let rest = parts.next()?;
             // リネーム / コピーは `R100\t<orig>\t<new>` の形。**こちらは元の名前が先**
-            // （porcelain v2 の `2 ` 行とは逆）。
+            // （porcelain v2 の `2 ` 行とは逆）。**コミットの差分は `--follow` 側で解決する**
+            // ので、ここで埋めた元の名前を diff に渡す消費者は今のところ無い。
             let (path, orig_path) = match rest.split_once('\t') {
                 Some((orig, new)) => (new.to_string(), Some(orig.to_string())),
                 None => (rest.to_string(), None),
@@ -1051,23 +1060,16 @@ pub async fn git_diff_commit(
     path: String,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
-        // **`--follow` でリネームを追う（#306）。** `git diff <hash>~1 <hash> -- <path>` は
-        // pathspec で片側だけに絞るとリネーム検出が効かず、名前を変えたコミットが
-        // 「新規追加」として全行追加で出ていた（実測）。`--follow` は単一の pathspec を
-        // 遡って追うので、`rename from/to` のヘッダごと出る。親を持たない最初の
-        // コミットもそのまま扱える。
-        //
-        // **`--no-show-signature` が要る。** `log.showSignature=true` を設定していると、
-        // `git log` は検証結果を**標準出力の、`--format` より前**に出す。`commit_patch` は
-        // 1 行目がハッシュであることを求めるので、付けないとその設定のマシンで
-        // すべてのコミットの差分が空になる（`git diff` は影響を受けなかった）。
+        // **`--follow` でリネームを追う（#306、理由は `.claude/rules/git.md`）。** 呼び出し元の
+        // 2 つ（履歴タブ・アウトラインの履歴）が元の名前を知らないので、`git_diff` と違って
+        // pathspec を足す手が使えない。親を持たない最初のコミットもそのまま扱える。
         let output = run_git(
             &shell,
             &root,
             &[
                 "log",
+                NO_SHOW_SIGNATURE,
                 "--follow",
-                "--no-show-signature",
                 "-p",
                 "--format=%H",
                 "--max-count=1",
@@ -1078,17 +1080,21 @@ pub async fn git_diff_commit(
         )?;
         let patch = commit_patch(&output, &hash);
         if !patch.is_empty() {
-            return Ok(truncate_diff(patch));
+            return Ok(truncate_diff(patch.to_string()));
         }
 
         // **マージコミットは `--follow` で出せない。** パスを絞った `git log` はマージを
         // 素通りして祖先へ遡るので（上の確認で弾かれる）、そこだけ従来どおり第 1 親との
         // 差分を出す。リネーム検出は効かないが、置き換える前と同じ見え方になる。
         //
-        // 最初のコミットは `--follow` 側が扱うのでここへ来ない。来たとしても `~1` が
-        // 解決できないだけなので、**失敗は空として扱う**（差分が無いのと区別する意味が無い）。
-        let fallback = run_git(&shell, &root, &["diff", &format!("{hash}~1"), &hash, "--", &path]).unwrap_or_default();
-        Ok(truncate_diff(fallback))
+        // **失敗を空に潰さないこと。** 「変更なし」と出して終わると、#306 が直したのと同じ
+        // 「静かに壊れる」形になる。`~1` が無い最初のコミットだけを `--root` で拾い、
+        // それ以外のエラーは git の言い分をそのまま返す。
+        let output = match run_git(&shell, &root, &["diff", &format!("{hash}~1"), &hash, "--", &path]) {
+            Ok(o) => o,
+            Err(_) => run_git(&shell, &root, &["diff", "--root", &hash, "--", &path])?,
+        };
+        Ok(truncate_diff(output))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1101,16 +1107,16 @@ pub async fn git_diff_commit(
 /// 「そのコミットはこのパスを触っていない」場合に**祖先のコミットの差分**が返る（実測）。
 /// 置き換える前の `git diff <hash>~1 <hash>` は空を返していたので、確認せずに使うと
 /// 別のコミットの中身を黙って見せることになる。
-fn commit_patch(output: &str, hash: &str) -> String {
+fn commit_patch<'a>(output: &'a str, hash: &str) -> &'a str {
     let Some((first, rest)) = output.split_once('\n') else {
-        return String::new();
+        return "";
     };
     // 呼び出し側は短縮ハッシュを渡すこともある。
     let found = first.trim();
     if found.is_empty() || !found.starts_with(hash) {
-        return String::new();
+        return "";
     }
-    rest.strip_prefix('\n').unwrap_or(rest).to_string()
+    rest.strip_prefix('\n').unwrap_or(rest)
 }
 
 #[tauri::command]
@@ -1164,7 +1170,15 @@ pub async fn git_log_file(
         run_git(
             &shell,
             &root,
-            &["log", "--format=%H%x1f%an%x1f%aI%x1f%s%x1e", "-n", &n, "--", &path],
+            &[
+                "log",
+                NO_SHOW_SIGNATURE,
+                "--format=%H%x1f%an%x1f%aI%x1f%s%x1e",
+                "-n",
+                &n,
+                "--",
+                &path,
+            ],
         )
     })
     .await
@@ -1194,6 +1208,7 @@ pub async fn git_log_file_lines(
             &root,
             &[
                 "log",
+                NO_SHOW_SIGNATURE,
                 "--format=%H%x1f%an%x1f%aI%x1f%s%x1e",
                 "-s",
                 "-L",

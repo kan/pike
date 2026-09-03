@@ -38,8 +38,12 @@ export interface DiffLine {
  * 1 つも出ない**ので、それだけの差分は行が 0 件になる。
  */
 export function parseRename(raw: string): { from: string; to: string } | null {
-  const from = raw.match(/^rename from (.+?)\r?$/m)
-  const to = raw.match(/^rename to (.+?)\r?$/m)
+  // 最初の hunk より前しか見ない。本文まで舐めると、上限（100KB）の差分で 150 倍かかる
+  // うえ、本文の行が `rename from …` で始まっていれば拾ってしまう。
+  const hunk = raw.indexOf('\n@@')
+  const header = hunk === -1 ? raw : raw.slice(0, hunk)
+  const from = header.match(/^rename from (.+?)\r?$/m)
+  const to = header.match(/^rename to (.+?)\r?$/m)
   return from && to ? { from: from[1], to: to[1] } : null
 }
 
