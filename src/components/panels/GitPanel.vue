@@ -7,6 +7,7 @@ import { confirmDialog, infoDialog, promptDialog } from '../../composables/useCo
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
+import { appendGitignoreLine, gitignoreEntry, hasGitignoreEntry } from '../../lib/gitignore'
 import { buildCommitLink } from '../../lib/gitRemote'
 import { openPathInTab } from '../../lib/openFile'
 import {
@@ -22,6 +23,7 @@ import {
 import {
   fsDelete,
   fsReadFile,
+  fsWriteFile,
   gitCreateBranch,
   gitDiff,
   gitDiffCommit,
@@ -133,10 +135,10 @@ async function onCommit() {
 async function discardFile(file: GitFileChange) {
   if (!(await confirmDialog(t('git.discardConfirm', { path: file.path })))) return
   if (file.status === '?') {
-    const project = projectStore.currentProject
-    if (!project) return
-    const s = pathSep(project.shell)
-    await fsDelete(project.shell, `${projectStore.activeRoot}${s}${file.path}`)
+    const shell = projectStore.currentProject?.shell
+    const full = workingPath(file.path)
+    if (!shell || !full) return
+    await fsDelete(shell, full)
     await gitStore.refreshStatus()
   } else {
     await gitStore.discardChanges([file.path])
@@ -146,12 +148,11 @@ async function discardFile(file: GitFileChange) {
 async function unstageFile(file: GitFileChange) {
   if (file.status === 'A') {
     if (!(await confirmDialog(t('git.unstageNewConfirm', { path: file.path })))) return
-    const project = projectStore.currentProject
-    if (project) {
-      const sep = pathSep(project.shell)
-      const fullPath = `${projectStore.activeRoot}${sep}${file.path}`
+    const shell = projectStore.currentProject?.shell
+    const full = workingPath(file.path)
+    if (shell && full) {
       await gitStore.unstageFiles([file])
-      await fsDelete(project.shell, fullPath).catch(() => {})
+      await fsDelete(shell, full).catch(() => {})
       await gitStore.refreshStatus()
     }
   } else {
@@ -180,14 +181,25 @@ async function openDiffTab(file: GitFileChange, staged: boolean) {
   tabStore.addDiffTab({ filePath: file.path, diff, staged })
 }
 
-// Open the working-tree copy of a conflicted file. The editor is where the
-// markers get resolved, by hand or with the per-region buttons (#223).
-async function openConflictFile(path: string) {
+/**
+ * git が返すルート相対パスを、このプロジェクトのシェルの区切りでフルパスにする。
+ * **joinPath で区切りを揃えるのが要点**。git は常に `/` を返すが Windows のタブは `\` を使い、
+ * 混ざったパスは fs watcher のイベント（完全一致で比べる）と噛み合わない。
+ *
+ * **導けないときは空文字ではなく null を返す。** `activeRoot` は空文字になりうる非 null の
+ * computed なので、番兵にすると「ルートを知らない」という事実が型から消え、呼び出し側の確認が
+ * 強制されない（実際、クリップボードへ空文字を書く経路ができていた）。
+ */
+function workingPath(path: string): string | null {
   const root = projectStore.activeRoot
-  if (!root) return
-  // joinPath unifies separators — git always emits `/` while Windows tabs use `\`,
-  // and a mixed-separator tab path would not match fs-watcher events (exact compare).
-  await openPathInTab({ path: joinPath(root, path, pathSep(projectStore.currentProject?.shell)) })
+  return root ? joinPath(root, path, pathSep(projectStore.currentProject?.shell)) : null
+}
+
+// Open the working-tree copy of a file. For a conflicted one the editor is where
+// the markers get resolved, by hand or with the per-region buttons (#223).
+async function openWorkingFile(path: string) {
+  const full = workingPath(path)
+  if (full) await openPathInTab({ path: full })
 }
 
 /**
@@ -200,16 +212,17 @@ async function openConflictFile(path: string) {
  * the ones that do get named and confirmed first.
  */
 async function markResolved(paths: string[]) {
-  const root = projectStore.activeRoot
   const shell = projectStore.currentProject?.shell
-  if (!root || !shell) return
-  const sep = pathSep(shell)
+  if (!shell) return
   const contents = await Promise.all(
-    paths.map((path) =>
-      fsReadFile(shell, joinPath(root, path, sep))
+    paths.map((path) => {
+      // 読めなかったものは空扱い＝マーカー無しとみなす（catch と同じ判断）。
+      const full = workingPath(path)
+      if (!full) return ''
+      return fsReadFile(shell, full)
         .then((file) => file.content)
-        .catch(() => ''),
-    ),
+        .catch(() => '')
+    }),
   )
   const unresolved = paths.filter((_, i) => /^<{7}(\s|$)/m.test(contents[i]))
   if (unresolved.length && !(await confirmDialog(t('git.stageWithMarkers', { paths: unresolved.join('\n') })))) {
@@ -335,21 +348,42 @@ async function ctxOpenOnRemote() {
   if (link) await openUrlWithConfirm(link.url)
 }
 
-// File context menu (shared between CHANGES and COMMITS)
-/** ファイルの右クリックメニュー。**行が持っている値をそのまま覚える**（分解して写さない）。 */
-const fileCtx = ref<{ file: GitFileChange; hash?: string; staged?: boolean } | null>(null)
+// File context menu (shared between CHANGES, CONFLICTS and COMMITS)
+/**
+ * ファイルの右クリックメニュー。**行が持っている値をそのまま覚える**（分解して写さない）。
+ *
+ * 1 枚のメニューを 4 か所で共有するので、どこから開いたかを `section` で持ち、**出せない項目は
+ * 無効化ではなく出さない**（他のメニューと同じ流儀）。
+ *
+ * **操作の実体は行のホバーボタンと同じ関数を呼ぶこと。** untracked の破棄が `git checkout` では
+ * なくファイル削除になること、ステージ済みの新規追加を外すときの確認、リネームの両方の名前を
+ * 外すこと（#306）は、どれも `discardFile` / `unstageFile` が持っている分岐で、メニュー側で
+ * 書き直すと同じ分岐が 2 か所に散る。
+ */
+/**
+ * **`hash` は `commit` の腕にしか生やさない。** 素の `hash?: string` にすると
+ * 「コミット配下の行か」の答えが `section === 'commit'` と `hash != null` の 2 通りになり、
+ * 読む場所ごとにどちらを見るかが割れる（実際にテンプレートは前者、ハンドラは後者を見ていた）。
+ * 判別共用体なら narrowing で `hash` が必ず取れるので、どこでも `section` だけを見れば済む。
+ */
+type FileCtx =
+  | { section: 'staged' | 'unstaged' | 'conflict'; file: GitFileChange }
+  | { section: 'commit'; file: GitFileChange; hash: string }
+const fileCtx = ref<FileCtx | null>(null)
 const {
   style: fileCtxStyle,
   placeAt: placeFileCtx,
   reset: resetFileCtx,
 } = useAnchoredPopup(useTemplateRef<HTMLElement>('fileCtxEl'))
 
-async function onFileContext(e: MouseEvent, file: GitFileChange, opts: { hash?: string; staged?: boolean }) {
+// 文脈は行が組み立てて渡す。ここで `section` と `hash` を別々に受けると、`commit` 以外に
+// hash を渡す呼び出しが型で弾けない（それを弾くための判別共用体なので、入口も同じ形にする）。
+async function onFileContext(e: MouseEvent, ctx: FileCtx) {
   e.preventDefault()
   e.stopPropagation()
   window.removeEventListener('mousedown', closeFileCtx)
   resetFileCtx()
-  fileCtx.value = { file, ...opts }
+  fileCtx.value = ctx
   await placeFileCtx({ x: e.clientX, y: e.clientY })
   window.addEventListener('mousedown', closeFileCtx, { once: true })
 }
@@ -360,28 +394,97 @@ function closeFileCtx() {
   window.removeEventListener('mousedown', closeFileCtx)
 }
 
-async function ctxOpenDiff() {
-  if (!fileCtx.value) return
-  const { file, hash, staged } = fileCtx.value
+/**
+ * 選ばれた項目の対象を取り出して、メニューを閉じる。**確認ダイアログを挟む項目があるので、
+ * 実行より先に閉じる**（開いたままだとダイアログの裏にメニューが残る）。
+ */
+function takeFileCtx() {
+  const ctx = fileCtx.value
   closeFileCtx()
-  if (hash) {
-    await openCommitDiffTab(hash, file.path)
-  } else {
-    await openDiffTab(file, staged ?? false)
-  }
+  return ctx
+}
+
+async function ctxOpenDiff() {
+  const ctx = takeFileCtx()
+  if (!ctx) return
+  if (ctx.section === 'commit') await openCommitDiffTab(ctx.hash, ctx.file.path)
+  else await openDiffTab(ctx.file, ctx.section === 'staged')
 }
 
 async function ctxOpenFile() {
-  if (!fileCtx.value) return
-  const { file, hash } = fileCtx.value
-  const path = file.path
-  closeFileCtx()
-  if (hash) {
-    await openRevision(path, hash)
-  } else {
-    const root = projectStore.activeRoot
-    if (!root) return
-    await openPathInTab({ path: joinPath(root, path, pathSep(projectStore.currentProject?.shell)) })
+  const ctx = takeFileCtx()
+  if (!ctx) return
+  if (ctx.section === 'commit') await openRevision(ctx.file.path, ctx.hash)
+  else await openWorkingFile(ctx.file.path)
+}
+
+async function ctxStage() {
+  const ctx = takeFileCtx()
+  if (ctx) await gitStore.stageFiles([ctx.file.path])
+}
+
+async function ctxUnstage() {
+  const ctx = takeFileCtx()
+  if (ctx) await unstageFile(ctx.file)
+}
+
+async function ctxDiscard() {
+  const ctx = takeFileCtx()
+  if (ctx) await discardFile(ctx.file)
+}
+
+async function ctxResolve() {
+  const ctx = takeFileCtx()
+  if (ctx) await markResolved([ctx.file.path])
+}
+
+function ctxOpenHistory() {
+  const ctx = takeFileCtx()
+  // HistoryTab はルート相対パスを受ける（git が返すものがそのまま使える）。
+  if (ctx) tabStore.addHistoryTab({ filePath: ctx.file.path })
+}
+
+async function ctxCopyPath() {
+  const ctx = takeFileCtx()
+  const full = ctx && workingPath(ctx.file.path)
+  if (full) await navigator.clipboard.writeText(full)
+}
+
+async function ctxCopyRelativePath() {
+  const ctx = takeFileCtx()
+  if (ctx) await navigator.clipboard.writeText(ctx.file.path)
+}
+
+/**
+ * untracked なファイルを `.gitignore` に足す（#309）。1 行の作り方と重複の判定は
+ * `lib/gitignore.ts` が正本で、ここに残るのは取得・書き込み・再読込。
+ *
+ * - **出すのは untracked の行だけ。** 追跡済みのファイルを書いても git は追跡をやめないので、
+ *   出すと「押しても何も起きない項目」になる
+ * - 書く先は **`activeRoot` 直下の `.gitignore`**。**リポジトリルートではない**ので、
+ *   リポジトリのサブディレクトリをプロジェクトとして開いていれば、そのディレクトリの
+ *   `.gitignore` に書く。git が返すパスも `-C <activeRoot>` からの相対なので、これで揃う。
+ *   `.git/info/exclude` を採らないのは、あれが手元だけの除外で、コミットして共有する側とは
+ *   用途が違うため
+ * - 書いたら `refreshStatus`。git ストアは `fs_changed` を見ていないので、これが無いと
+ *   一覧からその行が消えるまで次のポーリングを待つことになる
+ */
+async function ctxAddToGitignore() {
+  const ctx = takeFileCtx()
+  const shell = projectStore.currentProject?.shell
+  const path = workingPath('.gitignore')
+  if (!ctx || !shell || !path) return
+  const entry = gitignoreEntry(ctx.file.path)
+  try {
+    const file = await fsReadFile(shell, path, undefined, { allowMissing: true })
+    if (hasGitignoreEntry(file.content, entry)) {
+      statusMessage.show({ text: t('git.gitignoreExists', { path: entry }) })
+      return
+    }
+    await fsWriteFile(shell, path, appendGitignoreLine(file.content, entry), file.encoding)
+    await gitStore.refreshStatus()
+  } catch (e) {
+    statusMessage.show({ text: t('git.gitignoreFailed', { error: String(e) }), variant: 'error' })
   }
 }
 
@@ -539,7 +642,8 @@ onUnmounted(() => {
           class="file-item conflict"
           :class="{ 'active-file': isActiveFile(file.path) }"
           :title="t('git.openConflict')"
-          @click="openConflictFile(file.path)"
+          @click="openWorkingFile(file.path)"
+          @contextmenu="onFileContext($event, { section: 'conflict', file })"
         >
           <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
@@ -564,7 +668,7 @@ onUnmounted(() => {
           class="file-item"
           :class="{ 'active-file': isActiveFile(file.path) }"
           @click="openDiffTab(file, true)"
-          @contextmenu="onFileContext($event, file, { staged: true })"
+          @contextmenu="onFileContext($event, { section: 'staged', file })"
         >
           <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
@@ -587,7 +691,7 @@ onUnmounted(() => {
           class="file-item"
           :class="{ 'active-file': isActiveFile(file.path) }"
           @click="openDiffTab(file, false)"
-          @contextmenu="onFileContext($event, file, { staged: false })"
+          @contextmenu="onFileContext($event, { section: 'unstaged', file })"
         >
           <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
           <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
@@ -636,7 +740,7 @@ onUnmounted(() => {
                 :key="file.path"
                 class="file-item indent"
                 @click.stop="openCommitDiffTab(entry.hash, file.path)"
-                @contextmenu="onFileContext($event, file, { hash: entry.hash })"
+                @contextmenu="onFileContext($event, { section: 'commit', file, hash: entry.hash })"
               >
                 <span class="row-icon row-icon-svg" v-html="fileIconSvg(file.path)"></span>
                 <span class="file-status" :style="{ color: gitStatusColor(file.status) }">{{ file.status }}</span>
@@ -733,7 +837,7 @@ onUnmounted(() => {
       </div>
     </Teleport>
 
-    <!-- File context menu (CHANGES + COMMITS) -->
+    <!-- File context menu (CHANGES + CONFLICTS + COMMITS) -->
     <Teleport to="body">
       <div
         v-if="fileCtx"
@@ -742,8 +846,26 @@ onUnmounted(() => {
         :style="fileCtxStyle"
         @mousedown.stop
       >
-        <button @click="ctxOpenDiff">{{ t('git.openDiff') }}</button>
+        <!-- コンフリクト中のパスに `git diff` を撃つと combined diff が返り、diff タブの
+             パーサが読めない。解消はエディタでやるものなので、開く先はファイルだけにする。 -->
+        <button v-if="fileCtx.section !== 'conflict'" @click="ctxOpenDiff">{{ t('git.openDiff') }}</button>
         <button @click="ctxOpenFile">{{ t('git.openFile') }}</button>
+        <!-- index を動かす操作。コミット配下の行では成立しないので、この節ごと出さない。 -->
+        <template v-if="fileCtx.section !== 'commit'">
+          <div class="ctx-separator" />
+          <button v-if="fileCtx.section === 'conflict'" @click="ctxResolve">{{ t('git.resolve') }}</button>
+          <button v-else-if="fileCtx.section === 'staged'" @click="ctxUnstage">{{ t('git.unstage') }}</button>
+          <template v-else>
+            <button @click="ctxStage">{{ t('git.stage') }}</button>
+            <button @click="ctxDiscard">{{ t('git.discard') }}</button>
+            <button v-if="fileCtx.file.status === '?'" @click="ctxAddToGitignore">{{ t('git.addToGitignore') }}</button>
+          </template>
+        </template>
+        <div class="ctx-separator" />
+        <!-- コンフリクト中のファイルは、まず解消するもの。履歴は解消後に落ち着いて見ればよい。 -->
+        <button v-if="fileCtx.section !== 'conflict'" @click="ctxOpenHistory">{{ t('git.gitHistory') }}</button>
+        <button @click="ctxCopyPath">{{ t('git.copyPath') }}</button>
+        <button @click="ctxCopyRelativePath">{{ t('git.copyRelativePath') }}</button>
       </div>
     </Teleport>
 

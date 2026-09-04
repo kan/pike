@@ -230,7 +230,7 @@ pike/
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278）
-│   │   ├── gitGraph.ts  gitRemote.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
+│   │   ├── gitGraph.ts  gitRemote.ts  gitignore.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）
 │   │   ├── rstPreview.ts      # reStructuredText のプレビュー（自前の変換、#284）
