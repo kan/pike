@@ -126,6 +126,26 @@ fn sync_acrylic_material(window: impl raw_window_handle::HasWindowHandle, focuse
 /// fallback when the frontend's color cannot be parsed (issue #162).
 const DARK_SURFACE_RGB: (u8, u8, u8) = (30, 30, 30);
 
+/// ライトの下地色。`theme.css` の `:root[data-theme='light']` の `--bg-primary-rgb` と手動同期
+/// （ダーク側と同じ扱い）。
+const LIGHT_SURFACE_RGB: (u8, u8, u8) = (255, 255, 255);
+
+/// 生成直後のウィンドウの下地を OS のテーマに合わせる。**表示する前に呼ぶこと**（#310）。
+///
+/// `tauri.conf.json` の `backgroundColor` とビルダーの `.background_color()` は静的な値しか
+/// 取れないので、ダーク固定で作ってからここで塗り直す。
+///
+/// **フロントの設定は読めない**（`themeMode` は localStorage にあり、webview の中）。ここで
+/// 見られるのは OS のテーマだけなので、追従モードのときに正しくなる。既定が追従なので
+/// 大半はこれで合い、明示モードで OS と逆を選んでいる人だけ mount までの数フレームがずれる。
+/// **そこまで消すには「前回の解決結果」を Rust から読めるファイルに持つ必要があり、
+/// 数フレームのために永続化を 1 つ増やす価値が無いと判断した。**
+fn apply_startup_surface(window: &WebviewWindow) {
+    let (r, g, b) =
+        if window.theme().ok() == Some(tauri::Theme::Light) { LIGHT_SURFACE_RGB } else { DARK_SURFACE_RGB };
+    let _ = window.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
+}
+
 /// The window's `HWND` as the `windows` crate version this crate depends on
 /// directly. `WebviewWindow::hwnd()` hands back tauri's own `HWND`, which comes
 /// from an older `windows` release and is therefore a *different* type, so the
@@ -358,6 +378,8 @@ fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<WebviewW
     let window = builder.build()?;
     window_geom::restore(app, geom_key, &window);
     drop_paths::attach(&window);
+    // 非表示で作ってあるので、ここで塗り直せば最初の 1 フレームから OS のテーマに合う。
+    apply_startup_surface(&window);
     let _ = window.show();
     Ok(window)
 }
@@ -1259,6 +1281,10 @@ pub fn run() {
             // so it needs its own drop-paths bridge attachment.
             if let Some(main) = app.get_webview_window("main") {
                 drop_paths::attach(&main);
+                // 同じ理由で下地も静的な `backgroundColor`（ダーク）のままなので、ここで
+                // OS のテーマに合わせる（#310）。setup はイベントループが回り出す前に
+                // 走るので、最初の描画に間に合う。
+                apply_startup_surface(&main);
             }
 
             // WebDriver E2E の capability を実行時に登録する (issue #142)。

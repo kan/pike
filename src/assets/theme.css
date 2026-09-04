@@ -48,6 +48,20 @@
   --shadow-color: rgba(0, 0, 0, 0.4);
 }
 
+/* mount までの下地（#310）。`data-theme` が付くのは Vue の mount 後だが、CSS は
+   render-blocking なのでそれより前に一度ペイントされる。これが無いと、OS がライトのときに
+   「ウィンドウの枠は白いのに中身だけ黒い」状態が一瞬見える（Rust 側の下地は
+   `apply_startup_surface` が OS に合わせているため）。
+
+   塗るのは `#app` の背景だけで足りる。mount 前に描かれる要素は他に無い。
+   **`:not([data-theme])` が要点**: 属性が付いた瞬間にこの規則は当たらなくなるので、
+   明示モードで OS と逆を選んでいる人の表示には一切影響しない。 */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg-primary-rgb: 255 255 255;
+  }
+}
+
 [data-theme="light"] {
   --surface-alpha: 1;
   /* Light theme: the bleed darkens the (near-white) surfaces, so lift toward black. */

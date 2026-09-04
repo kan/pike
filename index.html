@@ -23,6 +23,14 @@
       #app {
         background: var(--bg-primary, #1e1e1e);
       }
+      /* theme.css が届く前のフォールバックも OS のテーマに合わせる（#310）。dev では
+         Vite が CSS を JS 経由で注入するので、ここが効く数フレームがある。変わるのは
+         フォールバックだけで、--bg-primary が定義されたあとは同じ値になる。 */
+      @media (prefers-color-scheme: light) {
+        #app {
+          background: var(--bg-primary, #ffffff);
+        }
+      }
       /* UI chrome (sidebar, tab bar, status bar, dialogs, menus) scales with the
          UI font size by applying `zoom: var(--ui-zoom)` — see the .ui-zoom helper
          in theme.css. Tab content (terminal/editor/…) is intentionally left
