@@ -966,7 +966,7 @@ async fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("Only http/https URLs are allowed".to_string());
     }
-    tokio::task::spawn_blocking(move || types::os_open(&url))
+    tokio::task::spawn_blocking(move || types::os_open_url(&url))
         .await
         .map_err(|e| e.to_string())?
 }

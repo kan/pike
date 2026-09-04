@@ -193,12 +193,47 @@ pub fn os_open_program() -> &'static str {
 }
 
 /// `os_open_program()` に 1 引数を渡して起動する。戻りを待たない（開くだけ）。
+///
+/// **URL には使わないこと**（`os_open_url` がある）。理由はそちらの doc を参照。
 pub fn os_open(arg: &str) -> Result<(), String> {
     silent_command(os_open_program())
         .arg(arg)
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// URL を既定のハンドラ（ブラウザ）で開く。
+///
+/// **Windows で `explorer.exe` に渡さないのが要点。** あれに URL を渡すのは文書化されていない
+/// 使い方で、`explorer.exe` のコマンドラインはまず**シェルのオブジェクト（パス）**として
+/// 解釈される。素の `https://example.com` はたまたま通るが、**クエリや fragment を含む URL は
+/// パスとして解釈できず、ブラウザではなくエクスプローラーのウィンドウが開く**（実測）。
+/// `ShellExecuteW` が「既定のハンドラで開く」の正規の API で、シェルを通さないので
+/// メタ文字インジェクションの経路にもならない。
+///
+/// 非 Windows の `open` / `xdg-open` は URL をそのまま扱えるので、従来どおり `os_open` に乗る。
+pub fn os_open_url(url: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        use windows::core::{HSTRING, w};
+
+        let file = HSTRING::from(url);
+        // ShellExecuteW は成功したときだけ 32 より大きい値を返す（HINSTANCE 型なのは
+        // 16 ビット時代の名残で、ハンドルとしての意味は持たない）。
+        let rc = unsafe { ShellExecuteW(None, w!("open"), &file, None, None, SW_SHOWNORMAL) };
+        if rc.0 as isize > 32 {
+            Ok(())
+        } else {
+            Err(format!("ShellExecute failed ({})", rc.0 as isize))
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        os_open(url)
+    }
 }
 
 /// Quote a string for safe interpolation into a `bash -c` command.
