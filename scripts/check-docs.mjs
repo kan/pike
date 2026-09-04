@@ -107,6 +107,7 @@ const CORPUS_SKIP_EXT = /\.(md|png|jpg|svg|ico|icns|log)$/i
  * ブラウザ / xterm / CodeMirror / tauri / serde / Win32 / git / Apple のもの。
  */
 const EXTERNAL_NAMES = [
+  'AppsUseLightTheme', // Win32 のレジストリ値（採らなかった選択肢として frontend.md が出す）
   'DisabledCspModificationKind', // tauri の config の型
   'MERGE_MSG', // git が書く状態ファイル（Pike は読まない）
   'ReadDirectoryChangesW', // Win32（notify クレート経由）
@@ -118,6 +119,7 @@ const EXTERNAL_NAMES = [
   'brotliDecompressSync', // node の zlib
   'defaultPrevented', // DOM
   'deny_unknown_fields', // serde の属性
+  'effectiveAppearance', // AppKit の NSApplication（採らなかった選択肢として frontend.md が出す）
   'evaluateKeyboardEvent', // xterm 内部
   'ld_prime', // Xcode 15 の新リンカ
   'offsetLeft', // DOM

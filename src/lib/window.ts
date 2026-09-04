@@ -37,12 +37,62 @@ void getCurrentWindow().onFocusChanged(({ payload }) => {
  * null でシステム追従（既定）に戻す。失敗は無害（機能低下のみ）。
  */
 export async function setWebviewTheme(theme: 'light' | 'dark' | null): Promise<void> {
+  const pin = theme !== null
+  // 生成直後のウィンドウは既に追従状態（`tauri.conf.json` にも `build_window` にもテーマの
+  // 指定は無い）。既定が追従なので、これが無いと**全ウィンドウが起動のたびに no-op の
+  // IPC を 2 往復**払う。
+  if (!pin && !themePinned) return
+  themePinned = pin
   try {
     await getCurrentWindow().setTheme(theme)
+    // pin を外したら OS の値を読み直す。**この 2 つは必ず対で動かす**（呼び出し側の手順に
+    // しないこと）: pin のあいだ `systemDark` の更新を捨てているので、繋ぎ忘れると
+    // 「明示モードから追従へ戻した直後だけ、古い明暗で数十 ms 描かれる」という一過性の
+    // 症状になり、型でも拾えない。
+    if (!pin) systemDark.value = (await getCurrentWindow().theme()) === 'dark'
   } catch (e) {
     console.error('[window] setTheme failed:', e)
   }
 }
+
+/**
+ * OS のテーマ（#310）。**システム追従モードのときだけ意味を持つ。**
+ *
+ * **`setTheme(null)` と対で使うこと。** 明示的に `'dark'` / `'light'` を渡したウィンドウには、
+ * 以後 OS 側の変更が届かない（`onThemeChanged` が発火しなくなる）。追従するあいだは `null` を
+ * 渡して、監視を Tauri 自身に委ねる必要がある。
+ *
+ * ウィンドウごとに購読する（ストアは各ウィンドウに 1 つ）。**解決結果を配らない**のが方針で、
+ * ウィンドウ間で共有するのは「どのモードか」だけ。
+ *
+ * **初期値は `matchMedia` から同期で取る。** `theme()` は IPC の往復ぶん遅れるので、既定が
+ * 追従で OS がダークの環境では、起動のたびにライトの 1 フレームが挟まる（ストアは mount の
+ * 同期処理の中で作られ、テーマの適用が `immediate` で走る）。この時点ではまだ `setTheme` を
+ * 呼んでいないので、webview の `prefers-color-scheme` は OS の値そのもの。
+ */
+export const systemDark = ref(window.matchMedia('(prefers-color-scheme: dark)').matches)
+
+/**
+ * 明示的なテーマを pin しているか。**このモジュールの外へ出さない。**
+ *
+ * **`onThemeChanged` は OS 側の変更だけでなく、自分が呼んだ `setTheme` でも発火する。**
+ * これを見ないと、OS がダークの環境で「ライト」を選んだ瞬間に `systemDark` が false へ
+ * 汚染される（`systemDark` が持つべきなのは「OS のテーマ」で、「このウィンドウの実効
+ * テーマ」ではない）。汚染すると、追従へ戻した瞬間に**pin していた側の明暗で 1 度描かれて
+ * から**正しい値に飛ぶ。読み直し（`setWebviewTheme` の中）が直すのはそのあとなので、
+ * フラグを外すとちらつきが必ず出る。
+ *
+ * **OS のテーマを別経路で聞く形は採れない。** Tauri の JS API に独立した情報源は無く、
+ * `matchMedia` も `theme()` も自分の `setTheme` に汚染される（だから `systemDark` の初期値は
+ * 「まだ `setTheme` を呼んでいない」時点でだけ `matchMedia` を使える）。この判断の記録は
+ * `.claude/rules/frontend.md` にある。
+ */
+let themePinned = false
+
+void getCurrentWindow().onThemeChanged(({ payload }) => {
+  if (themePinned) return
+  systemDark.value = payload === 'dark'
+})
 
 export function isMainWindow(): boolean {
   return windowLabel === 'main'

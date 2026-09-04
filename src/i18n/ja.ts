@@ -241,6 +241,7 @@ export default {
   'settings.language': '言語',
   'settings.mode': 'モード',
   'settings.darkMode': 'ダーク',
+  'settings.systemMode': 'システム',
   'settings.lightMode': 'ライト',
   'settings.backdrop': '背景',
   'settings.backdropNone': '不透明',

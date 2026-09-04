@@ -64,7 +64,9 @@ async function bootstrap() {
         settings.language = lang
       },
       setDarkMode: (dark: boolean) => {
-        settings.darkMode = dark
+        // `darkMode` は解決結果の computed なので、書くのはモードのほう（#310）。
+        // 撮影は明暗を明示するので、システム追従は使わない。
+        settings.themeMode = dark ? 'dark' : 'light'
         // 撮影の light/dark を画面全体で統一するため、エディタ・ターミナルのテーマも
         // app モードに合わせる（既定では両者は darkMode と独立の設定だが、スクショでは揃える）。
         settings.editorThemeName = dark ? 'One Dark' : 'Default Light'

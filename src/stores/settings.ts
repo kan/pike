@@ -9,7 +9,7 @@ import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
-import { setWebviewTheme, windowFocused, windowLabel } from '../lib/window'
+import { setWebviewTheme, systemDark, windowFocused, windowLabel } from '../lib/window'
 import type { HiddenProject } from '../types/project'
 import {
   isWindowsShell,
@@ -302,6 +302,34 @@ export const AUTO_SAVE_DELAY_DEFAULT = 1000
 export const DIFF_WORD_WRAPS = ['auto', 'on', 'off'] as const
 export type DiffWordWrap = (typeof DIFF_WORD_WRAPS)[number]
 
+/**
+ * テーマのモード（#310）。`system` は OS の設定に追従する。
+ *
+ * **カラースキームとエディタテーマの「Auto」とは別のもの。** あちらは*このモードの解決結果*に
+ * 追従するという意味なので、同じ語を使わず `system` にしてある。
+ */
+export const THEME_MODES = ['dark', 'light', 'system'] as const
+export type ThemeMode = (typeof THEME_MODES)[number]
+
+function sanitizeThemeMode(v: unknown): ThemeMode {
+  return THEME_MODES.includes(v as ThemeMode) ? (v as ThemeMode) : 'system'
+}
+
+/**
+ * `themeMode` を知らない版が書いたデータに、それを補う（#310 の後方互換）。
+ *
+ * **マージ前の生の値に対して呼ぶのが要点。** `{ ...defaults(), ...saved }` のあとでは
+ * 「保存されていた」のか「既定が入った」のか区別が付かず、**既存ユーザー全員が新しい既定
+ * （system）へ移ってしまう**。`snapshot()` は全フィールドを書くので、保存済みのデータには
+ * 必ず `darkMode` がある＝その有無で新旧を見分けられる。
+ *
+ * 同期ファイルから来る値（古い版のマシンが書いたもの）も同じ経路を通す。
+ */
+function withThemeMode(raw: Partial<PersistedSettings>): Partial<PersistedSettings> {
+  if (raw.themeMode !== undefined || raw.darkMode === undefined) return raw
+  return { ...raw, themeMode: raw.darkMode ? 'dark' : 'light' }
+}
+
 function sanitizeDiffWordWrap(v: unknown): DiffWordWrap {
   // 真偽値だったころの値が localStorage / 同期ファイルに残っていることがある。
   if (typeof v === 'boolean') return v ? 'on' : 'off'
@@ -352,6 +380,13 @@ interface PersistedSettings {
   uiFontFamily: string
   uiFontSize: number
   colorSchemeName: string
+  /** 選ばれたモード（#310）。**解決結果は `darkMode`** で、保存も同期もこちらを配る。 */
+  themeMode: ThemeMode
+  /**
+   * `themeMode` を解決した結果。**書き出しにだけ残してある後方互換のフィールド**で、
+   * 読むのは `themeMode` を知らない版が書いたデータからの移行のときだけ（`withThemeMode`）。
+   * 同期ファイルは古い版の Pike も読むので、当面は両方を書く。
+   */
   darkMode: boolean
   editorThemeName: string
   editorMinimap: boolean
@@ -409,8 +444,20 @@ function cleanName(v: unknown, fallback: string): string {
  * the whole UI to invisible and divide-by-zero in the sidebar resize — and fall
  * back empty/non-string font names.
  */
-function sanitize(s: PersistedSettings): PersistedSettings {
+/**
+ * 生の永続値（localStorage / 同期ファイル / 他ウィンドウの broadcast）を、検証済みの設定に
+ * 起こす。**外から来た値が設定になる唯一の入口。**
+ *
+ * **既定とのマージとスキーマ移行をここに取り込んであるのが要点（#310）。** 呼び出し側で
+ * `{ ...defaults(), ...raw }` を組み立てる形だと、移行（`withThemeMode`）をマージ**前**に
+ * 当てるという制約が書き手への注意でしかなくなる。入口は 3 つあり、4 つ目を足す人が素直に
+ * 書くと**既存ユーザー全員が新しい既定へ黙って移る**。しかも症状は「起動したらテーマが
+ * 変わった」だけで、移行漏れだとは分からない。引数を `Partial` にしておけば、移行を通って
+ * いない設定オブジェクトを作る書き方がそもそも無い。
+ */
+function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
   const d = defaults()
+  const s: PersistedSettings = { ...d, ...withThemeMode(raw) }
   return {
     ...s,
     fontFamily: cleanName(s.fontFamily, d.fontFamily),
@@ -419,6 +466,7 @@ function sanitize(s: PersistedSettings): PersistedSettings {
     editorFontSize: clampSize(s.editorFontSize, FONT_SIZE_MIN, FONT_SIZE_MAX, d.editorFontSize),
     // uiFontFamily '' is valid (= System Default), so it is intentionally not coerced.
     uiFontSize: clampSize(s.uiFontSize, UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX, d.uiFontSize),
+    themeMode: sanitizeThemeMode(s.themeMode),
     windowBackdrop: sanitizeBackdrop(s.windowBackdrop),
     diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
     shortcutPreset: sanitizeShortcutPreset(s.shortcutPreset),
@@ -453,7 +501,7 @@ function withHost(list: string[], host: string): string[] {
 }
 
 function loadSettings(): PersistedSettings {
-  return sanitize({ ...defaults(), ...loadJson<Partial<PersistedSettings>>(STORAGE_KEY, {}) })
+  return sanitize(loadJson<Partial<PersistedSettings>>(STORAGE_KEY, {}))
 }
 
 /**
@@ -577,6 +625,12 @@ function defaults(): PersistedSettings {
     uiFontFamily: '',
     uiFontSize: UI_FONT_BASE,
     colorSchemeName: 'Default Dark',
+    // 新規インストールは OS に合わせる（#310）。既存ユーザーは `withThemeMode` が
+    // 保存済みの `darkMode` から導くので、ここが変わっても挙動は動かない。
+    themeMode: 'system',
+    // **書き出しにしか使わない後方互換フィールドなので、この値は観測されない。**
+    // `snapshot()` は解決結果の computed から書き、読む側は `withThemeMode` が
+    // *マージ前の生の値*から拾う。ここは型を満たすためだけに置いてある。
     darkMode: true,
     editorThemeName: 'One Dark',
     editorMinimap: true,
@@ -619,7 +673,16 @@ export const useSettingsStore = defineStore('settings', () => {
   const uiFontFamily = ref(saved.uiFontFamily)
   const uiFontSize = ref(saved.uiFontSize)
   const colorSchemeName = ref(saved.colorSchemeName)
-  const darkMode = ref(saved.darkMode)
+  const themeMode = ref<ThemeMode>(saved.themeMode)
+  /**
+   * 実際に暗いか（#310）。**読み手はこちらを見る**（`data-theme` の適用、カラースキームと
+   * エディタテーマの Auto、`window_set_backdrop` の再適用、`ManualTab` の初期値）。
+   *
+   * **解決結果はブロードキャストも同期もしない。** ウィンドウ間で配るのも同期ファイルに
+   * 載せるのも `themeMode` だけで、追従のときは各ウィンドウが自分で OS に聞く。解決結果まで
+   * 配ると、OS の設定が違うマシンで食い違う。
+   */
+  const darkMode = computed(() => (themeMode.value === 'system' ? systemDark.value : themeMode.value === 'dark'))
   const editorThemeName = ref(saved.editorThemeName)
   const editorMinimap = ref(saved.editorMinimap)
   const editorWordWrap = ref(saved.editorWordWrap)
@@ -983,6 +1046,10 @@ export const useSettingsStore = defineStore('settings', () => {
       uiFontFamily: uiFontFamily.value,
       uiFontSize: uiFontSize.value,
       colorSchemeName: colorSchemeName.value,
+      themeMode: themeMode.value,
+      // **解決結果も併記する（#310）。** 同期ファイルは `themeMode` を知らない版の Pike も
+      // 読むので、こちらを落とすと更新していないマシンでモードが既定へ戻る。読む側は
+      // `withThemeMode` がこれを使って移行する。
       darkMode: darkMode.value,
       editorThemeName: editorThemeName.value,
       editorMinimap: editorMinimap.value,
@@ -1021,7 +1088,7 @@ export const useSettingsStore = defineStore('settings', () => {
     uiFontFamily.value = s.uiFontFamily
     uiFontSize.value = s.uiFontSize
     colorSchemeName.value = s.colorSchemeName
-    darkMode.value = s.darkMode
+    themeMode.value = s.themeMode
     editorThemeName.value = s.editorThemeName
     editorMinimap.value = s.editorMinimap
     editorWordWrap.value = s.editorWordWrap
@@ -1133,7 +1200,7 @@ export const useSettingsStore = defineStore('settings', () => {
       const parsed = await readSyncFile()
       if (!parsed) throw new Error(t('settings.syncUnreadable'))
       importing = true
-      applySettings(sanitize({ ...defaults(), ...(parsed as Partial<PersistedSettings>) }))
+      applySettings(sanitize(parsed as Partial<PersistedSettings>))
       await nextTick() // let change-watchers flush while writes are suppressed
       importing = false
       persist() // mirror the imported settings into localStorage
@@ -1170,7 +1237,7 @@ export const useSettingsStore = defineStore('settings', () => {
   // Apply a snapshot pushed from another window without echoing it back out.
   async function applyRemoteSettings(payload: PersistedSettings) {
     applyingRemote = true
-    applySettings(sanitize({ ...defaults(), ...payload }))
+    applySettings(sanitize(payload))
     await nextTick() // let change-watchers flush while writes/broadcast are suppressed
     applyingRemote = false
     persist() // mirror into this window's localStorage too
@@ -1189,10 +1256,28 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function applyDarkMode() {
     document.documentElement.setAttribute('data-theme', darkMode.value ? 'dark' : 'light')
-    // WebView のカラースキーム（prefers-color-scheme）とネイティブのタイトルバーを app の
-    // テーマに追従させる。これでマニュアルプレビューの <picture> 等が OS ではなく Pike の
-    // テーマに従い、タイトルバーの明暗も app と揃う。
-    void setWebviewTheme(darkMode.value ? 'dark' : 'light')
+  }
+
+  /**
+   * WebView のカラースキーム（`prefers-color-scheme`）とネイティブのタイトルバーを app の
+   * テーマに追従させる。これでマニュアルプレビューの `<picture>` 等が OS ではなく Pike の
+   * テーマに従い、タイトルバーの明暗も app と揃う。
+   *
+   * **追従モードでは null を渡すこと（#310）。** 明示的に 'dark' / 'light' を指定すると
+   * 以後 OS 側の変更イベントが届かなくなる（`onThemeChanged` が発火しない）ので、監視を
+   * Tauri 自身に委ねる。
+   *
+   * **キーは `themeMode` で、解決結果ではない。** 解決結果を見ると「OS がダークの状態で
+   * ダーク → システムに切り替える」ような、値が動かないモード変更で pin を外し損ねる。
+   * それが起きると、そのセッションのあいだ追従が死んだままになる。逆に OS 側の変更で
+   * 呼び直す必要は無い（追従中は null のままでよい）ので、`darkMode` をキーに含めない。
+   */
+  function applyThemePin() {
+    // `themeMode` は 'system' 以外なら 'dark' | 'light' に narrowing され、そのまま渡せる。
+    // **解決結果を経由しないこと**: 同値ではあるが、この関数が `themeMode` だけの関数だと
+    // いうことがコードから読めなくなる。追従へ戻すときの OS の読み直しは
+    // `setWebviewTheme` の中（呼び出し側の手順にすると繋ぎ忘れが型で拾えない）。
+    void setWebviewTheme(themeMode.value === 'system' ? null : themeMode.value)
   }
 
   watch(
@@ -1204,7 +1289,9 @@ export const useSettingsStore = defineStore('settings', () => {
       uiFontFamily,
       uiFontSize,
       colorSchemeName,
-      darkMode,
+      // 永続化・同期・ブロードキャストの対象は**選ばれたモード**（#310）。解決結果の
+      // `darkMode` は computed なので、ここに置くと OS の切り替えで書き込みが走る。
+      themeMode,
       editorThemeName,
       editorMinimap,
       editorWordWrap,
@@ -1234,7 +1321,9 @@ export const useSettingsStore = defineStore('settings', () => {
   // 流し込む）。**`immediate` が要る**: 起動直後に保存済みのプリセットへ揃わないと、
   // 最初の 1 回だけ既定のキーで動く。
   watch(shortcutPreset, (v) => setShortcutPreset(v), { immediate: true })
+  // `data-theme` は解決結果に、pin はモードに追従する（キーが違う理由は `applyThemePin`）。
   watch(darkMode, applyDarkMode, { immediate: true })
+  watch(themeMode, applyThemePin, { immediate: true })
   watch([uiFontFamily, uiFontSize], applyUiAppearance, { immediate: true })
 
   // On startup, pull the latest settings from the sync file (if configured).
@@ -1255,6 +1344,7 @@ export const useSettingsStore = defineStore('settings', () => {
     colorSchemeName,
     colorScheme,
     autoColorSchemeName,
+    themeMode,
     darkMode,
     editorThemeName,
     effectiveEditorThemeName,

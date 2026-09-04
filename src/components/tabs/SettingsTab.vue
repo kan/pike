@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronUp, Eye, EyeOff, Info, Loader, Moon, Plus, Sun, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Eye, EyeOff, Info, Loader, Monitor, Moon, Plus, Sun, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
@@ -336,8 +336,8 @@ const PREVIEW_LINES = [
           <div class="mode-toggle">
             <button
               class="mode-btn"
-              :class="{ active: settings.darkMode }"
-              @click="settings.darkMode = true"
+              :class="{ active: settings.themeMode === 'dark' }"
+              @click="settings.themeMode = 'dark'"
               :title="t('settings.darkMode')"
             >
               <Moon :size="16" :stroke-width="1.5" />
@@ -345,12 +345,21 @@ const PREVIEW_LINES = [
             </button>
             <button
               class="mode-btn"
-              :class="{ active: !settings.darkMode }"
-              @click="settings.darkMode = false"
+              :class="{ active: settings.themeMode === 'light' }"
+              @click="settings.themeMode = 'light'"
               :title="t('settings.lightMode')"
             >
               <Sun :size="16" :stroke-width="1.5" />
               <span>{{ t('settings.lightMode') }}</span>
+            </button>
+            <button
+              class="mode-btn"
+              :class="{ active: settings.themeMode === 'system' }"
+              @click="settings.themeMode = 'system'"
+              :title="t('settings.systemMode')"
+            >
+              <Monitor :size="16" :stroke-width="1.5" />
+              <span>{{ t('settings.systemMode') }}</span>
             </button>
           </div>
         </div>

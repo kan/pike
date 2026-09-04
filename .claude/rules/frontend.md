@@ -89,7 +89,12 @@
 ## 設定画面
 - サイドバー下部の歯車アイコンからシングルトンタブとして開く
 - 設定は `localStorage` (`pike:settings`) に永続化
-- ダーク/ライトモード切替: `data-theme` 属性で CSS Variables を切り替え
+- ダーク/ライト/システム追従（#310）: `data-theme` 属性で CSS Variables を切り替え
+  - **保存する値と解決した値を分ける。** 永続化・同期・ブロードキャストの対象は `themeMode`（`dark` / `light` / `system`）だけで、`darkMode` は**解決結果の computed**。読み手（`data-theme` の適用・カラースキームとエディタテーマの Auto・`window_set_backdrop` の再適用・`ManualTab` の初期値）はどれも解決結果を見たいので、名前はそのまま。**解決結果は配らない**（OS の設定が違うマシンで食い違う）ので、追従のときは各ウィンドウが自分で OS に聞く
+  - **外から来た設定は `sanitize` が唯一の入口**（既定とのマージもスキーマ移行もあの中）。理由と、追従のあいだ `setTheme(null)` を渡す理由は、それぞれ `stores/settings.ts` と `lib/window.ts` の doc コメントが正本
+  - **OS のテーマを別経路で聞く形は採れない。** Tauri の JS API に独立した情報源が無く、`matchMedia` も `window.theme()` も**自分が呼んだ `setTheme` に汚染される**（だから `lib/window.ts` は pin 中の `onThemeChanged` を捨て、初期値にだけ `matchMedia` を使う）。「フォーカスはネイティブの信号を見る」という上の規範に対する例外に見えるが、そちらと違ってこちらは web 層の API を**初期値としてのみ**使っている
+    - 本当に独立させるなら Rust 側（Windows の `AppsUseLightTheme` ＋ `WM_SETTINGCHANGE`、macOS の `effectiveAppearance`）をコマンドとイベントにすることになる。**pin 中に古くなるだけで、解除時に読み直せば閉じる**ので、OS ごとのコードを足す価値が無いと判断した
+  - **書き出しの `darkMode` は後方互換**（同期ファイルは古い版の Pike も読む）。落としてよいのは、**同期ファイルを共有する全マシンが `themeMode` を知る版になったとき**。cross-version の経路は同期ファイル 1 本だけ（localStorage は同一インストール、broadcast は同一プロセス）なので、そこだけ見れば判断できる。目安は v0.48.0 以降しか相手にしなくてよくなった時点で、消すのは `withThemeMode` と `snapshot()` の 1 行
 - ターミナルフォント: `font-kit` クレートでシステムのモノスペースフォントを列挙（`spawn_blocking` で非同期実行）
 - フォントスキャンは Settings タブを開いた時に遅延ロード（起動時には実行しない）
 - カラースキーム: 6種（Default Dark, Solarized Dark/Light, Monokai, Dracula, Nord）
