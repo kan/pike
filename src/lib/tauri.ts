@@ -1,6 +1,4 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
-import { confirmDialog } from '../composables/useConfirmDialog'
-import { t } from '../i18n'
 import type { ClaudeRateLimits, ClaudeSession, ClaudeUsageResult } from '../types/claudeUsage'
 import type { CodexUsageResult } from '../types/codexUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
@@ -679,13 +677,6 @@ export interface RemoteImage {
 /** Fetch an https image for the Markdown preview to inline as a data URL (#239). */
 export async function remoteImageFetch(url: string): Promise<RemoteImage> {
   return invoke<RemoteImage>('remote_image_fetch', { url })
-}
-
-export async function openUrlWithConfirm(url: string): Promise<void> {
-  if (!url.startsWith('http://') && !url.startsWith('https://')) return
-  if (await confirmDialog(t('confirm.openUrl', { url }))) {
-    await openUrl(url)
-  }
 }
 
 /**

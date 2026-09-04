@@ -385,6 +385,7 @@ interface PersistedSettings {
   agentCommands: AgentCommand[]
   agentPrompts: AgentPrompt[]
   allowedImageHosts: string[]
+  allowedUrlHosts: string[]
 }
 
 // Font-size slider bounds (terminal + editor); UI font size uses UI_FONT_SIZE_*.
@@ -426,16 +427,29 @@ function sanitize(s: PersistedSettings): PersistedSettings {
     autoSaveDelay: clampSize(s.autoSaveDelay, AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX, AUTO_SAVE_DELAY_DEFAULT),
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
     allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
+    allowedUrlHosts: sanitizeHostList(s.allowedUrlHosts),
   }
 }
 
 /**
- * Guard the approved image-host list (#239) against corrupt persisted or synced
- * values. Hosts are matched lowercased, so they are normalized on the way in —
- * a stray `IMG.SHIELDS.IO` would otherwise sit in the list and never match.
+ * Guard an approved-host list (images #239, links #311) against corrupt
+ * persisted or synced values. Hosts are matched lowercased, so they are
+ * normalized on the way in — a stray `IMG.SHIELDS.IO` would otherwise sit in
+ * the list and never match.
  */
 function sanitizeHostList(v: unknown): string[] {
   return [...new Set(sanitizeStringList(v).map((h) => h.trim().toLowerCase()))]
+}
+
+/**
+ * 承認したホストを 1 つ足した一覧を返す（空と重複は落とす）。**正規化の規則を書き込み側にも
+ * 写さないための関数**で、`sanitizeHostList` と対になっている。読み込み側だけ共有して書き込み
+ * 側を複製すると、規則を変えたとき（末尾ドットを落とす、IDN を punycode にする等）に片方だけ
+ * 直しうる。そのときの症状は「設定画面に出ているのに効かない」という無言のもの。
+ */
+function withHost(list: string[], host: string): string[] {
+  const h = host.trim().toLowerCase()
+  return !h || list.includes(h) ? list : [...list, h].sort()
 }
 
 function loadSettings(): PersistedSettings {
@@ -591,6 +605,7 @@ function defaults(): PersistedSettings {
       { label: 'エラー修正', text: '上のエラーを修正して。' },
     ],
     allowedImageHosts: [],
+    allowedUrlHosts: [],
   }
 }
 
@@ -645,13 +660,26 @@ export const useSettingsStore = defineStore('settings', () => {
   const allowedImageHosts = ref<string[]>(saved.allowedImageHosts)
 
   function allowImageHost(host: string) {
-    const h = host.trim().toLowerCase()
-    if (!h || allowedImageHosts.value.includes(h)) return
-    allowedImageHosts.value = [...allowedImageHosts.value, h].sort()
+    allowedImageHosts.value = withHost(allowedImageHosts.value, host)
   }
 
   function forgetImageHost(host: string) {
     allowedImageHosts.value = allowedImageHosts.value.filter((h) => h !== host)
+  }
+
+  // Hosts whose links open without the confirmation dialog (#311). Kept apart
+  // from the image list on purpose: approving a badge host means "fetch this and
+  // inline it", approving a link host means "hand this to the browser" — someone
+  // who trusts raw.githubusercontent.com for images has not said anything about
+  // opening github.com. Machine-independent, so it rides along in the sync file.
+  const allowedUrlHosts = ref<string[]>(saved.allowedUrlHosts)
+
+  function allowUrlHost(host: string) {
+    allowedUrlHosts.value = withHost(allowedUrlHosts.value, host)
+  }
+
+  function forgetUrlHost(host: string) {
+    allowedUrlHosts.value = allowedUrlHosts.value.filter((h) => h !== host)
   }
 
   // Machine-local (references this PC's WSL distros — never synced/broadcast).
@@ -976,6 +1004,7 @@ export const useSettingsStore = defineStore('settings', () => {
       agentCommands: agentCommands.value,
       agentPrompts: agentPrompts.value,
       allowedImageHosts: allowedImageHosts.value,
+      allowedUrlHosts: allowedUrlHosts.value,
     }
   }
 
@@ -1013,6 +1042,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentCommands.value = s.agentCommands
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
+    allowedUrlHosts.value = s.allowedUrlHosts
   }
 
   // --- External settings-sync file ---------------------------------------
@@ -1199,6 +1229,7 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(agentCommands, onSettingsChanged, { deep: true })
   watch(agentPrompts, onSettingsChanged, { deep: true })
   watch(allowedImageHosts, onSettingsChanged)
+  watch(allowedUrlHosts, onSettingsChanged)
   // キーの割り当ての正本は `lib/shortcuts.ts`（ストアを import できないので、値はこちらから
   // 流し込む）。**`immediate` が要る**: 起動直後に保存済みのプリセットへ揃わないと、
   // 最初の 1 回だけ既定のキーで動く。
@@ -1252,6 +1283,9 @@ export const useSettingsStore = defineStore('settings', () => {
     allowedImageHosts,
     allowImageHost,
     forgetImageHost,
+    allowedUrlHosts,
+    allowUrlHost,
+    forgetUrlHost,
     globalShell,
     projectBase,
     hiddenProjects,

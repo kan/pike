@@ -26,6 +26,7 @@ import {
 } from '../../stores/settings'
 import { isWindowsShell, type ShellProfile, shellFromId, shellId, shellProfileLabel } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
+import AllowedHostList from '../panels/AllowedHostList.vue'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
@@ -849,19 +850,19 @@ const PREVIEW_LINES = [
           </div>
         </div>
 
-        <div class="setting-row setting-row-block">
-          <label class="setting-label">{{ t('settings.imageHosts') }}</label>
-          <p class="setting-hint">{{ t('settings.imageHostsHint') }}</p>
-          <div v-if="settings.allowedImageHosts.length > 0" class="agent-cmd-list">
-            <div v-for="host in settings.allowedImageHosts" :key="host" class="agent-cmd-row">
-              <span class="shell-profile-label">{{ host }}</span>
-              <button class="icon-btn danger" :title="t('common.delete')" @click="settings.forgetImageHost(host)">
-                <Trash2 :size="14" :stroke-width="2" />
-              </button>
-            </div>
-          </div>
-          <p v-else class="setting-hint">{{ t('settings.imageHostsEmpty') }}</p>
-        </div>
+        <AllowedHostList
+          :label="t('settings.imageHosts')"
+          :hint="t('settings.imageHostsHint')"
+          :hosts="settings.allowedImageHosts"
+          @forget="settings.forgetImageHost"
+        />
+
+        <AllowedHostList
+          :label="t('settings.urlHosts')"
+          :hint="t('settings.urlHostsHint')"
+          :hosts="settings.allowedUrlHosts"
+          @forget="settings.forgetUrlHost"
+        />
       </section>
 
       <!-- Settings Sync -->

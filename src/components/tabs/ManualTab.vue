@@ -15,8 +15,9 @@ import {
   manualRawUrl,
   resolveManualPath,
 } from '../../lib/manual'
+import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
+import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
 import { createHeadingSlugger } from '../../lib/slug'
-import { openUrlWithConfirm } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { ManualTab } from '../../types/tab'
@@ -119,7 +120,7 @@ async function render(path: string, force = false) {
     const md = await fetchManual(path, force)
     manualRef.value = await getManualRef() // resolved by fetchManual; memoized
     if (splitPage(page.value)[0] !== path) return // navigated away while fetching
-    html.value = DOMPurify.sanitize(marked.parse(md) as string)
+    html.value = DOMPurify.sanitize(marked.parse(md) as string, { ALLOWED_URI_REGEXP })
     await nextTick()
     postProcess(path)
     setTitle(path)
@@ -207,7 +208,7 @@ function onClick(e: MouseEvent) {
   if (!href) return
   e.preventDefault()
 
-  if (/^https?:/i.test(href)) {
+  if (isExternalLink(href)) {
     void openUrlWithConfirm(href)
     return
   }

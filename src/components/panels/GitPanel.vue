@@ -10,6 +10,7 @@ import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGra
 import { appendGitignoreLine, gitignoreEntry, hasGitignoreEntry } from '../../lib/gitignore'
 import { buildCommitLink } from '../../lib/gitRemote'
 import { openPathInTab } from '../../lib/openFile'
+import { openUrlWithConfirm } from '../../lib/openUrl'
 import {
   basename,
   extension,
@@ -30,7 +31,6 @@ import {
   gitShowFile,
   gitShowFileBase64,
   gitShowFiles,
-  openUrlWithConfirm,
 } from '../../lib/tauri'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'

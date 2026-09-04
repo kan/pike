@@ -175,6 +175,7 @@ pike/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   ├── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除（GroupComboBox/ProjectListItem に分割）
 │   │   │   ├── GroupComboBox.vue  ProjectListItem.vue  ColorSelect.vue  IconSelect.vue
+│   │   │   ├── AllowedHostList.vue # 承認済みホストの一覧（設定画面。画像 #239 とリンク #311 で共有）
 │   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（作成・編集の 3 フォームで共有）
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
@@ -236,9 +237,11 @@ pike/
 │   │   ├── rstPreview.ts      # reStructuredText のプレビュー（自前の変換、#284）
 │   │   ├── displayWidth.ts    # 等幅フォントでの表示幅（diff の横幅と rst の表が共有、#284）
 │   │   ├── text.ts            # HTML 組み立ての共有部（Html 型・エスケープ・CSV 分割、#284）
+│   │   ├── sanitizeHtml.ts    # DOMPurify に渡す URI スキームの許可（4 つのプレビューで共有、#311）
 │   │   ├── externalImages.ts  # プレビューの外部画像のホスト判定と取得キャッシュ（#239）
 │   │   ├── terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
+│   │   ├── openUrl.ts         # 外部ブラウザで URL を開く唯一の入口（確認とホストの許可、#311）
 │   │   ├── tabTitle.ts        # タブの表示名（シングルトンタブは kind から i18n を引く）
 │   │   ├── manual.ts  slug.ts # アプリ内マニュアルの読み込みと見出しスラッグ
 │   │   ├── dropPaths.ts       # WebView2 経由でドロップされたファイルの実パス取得

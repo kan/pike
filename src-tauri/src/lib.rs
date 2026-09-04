@@ -962,9 +962,12 @@ pub(crate) fn tray_menu_action(app: &AppHandle, id: &str) {
 
 #[tauri::command]
 async fn open_url(url: String) -> Result<(), String> {
-    // Allowlist: only http/https URLs to prevent opening arbitrary protocols
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("Only http/https URLs are allowed".to_string());
+    // Allowlist: 任意のプロトコルハンドラを起動させないために、開けるスキームを絞る。
+    // `mailto:` は既定のメールソフトを開くだけで、フロントも確認を挟む（#311 の続き）。
+    // フロント側の対の述語は `lib/openUrl.ts` の `isExternalLink`。
+    let allowed = ["http://", "https://", "mailto:"];
+    if !allowed.iter().any(|p| url.starts_with(p)) {
+        return Err("Only http/https/mailto URLs are allowed".to_string());
     }
     tokio::task::spawn_blocking(move || types::os_open_url(&url))
         .await

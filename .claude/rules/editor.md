@@ -32,8 +32,9 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - **ツリーの余白はルート宛てのドロップ先にする**（`.tree-root-drop`）: ツリーはルートの子しか描かないので、最後の行より下に落としても受け手がおらず、App.vue の window ガードがイベントを飲んで無言で何も起きない。パネルを `min-height: 100%` で伸ばし、余った縦スペースを占める filler にハンドラを置く。パネルのルート要素に `.self` 修飾子で付ける手もあるが、ツリーがあふれると空き領域がゼロになってルートに落とせなくなる
 - ダーティエディタタブの閉じ確認ダイアログ（カスタム confirm）
 - WSL コマンドにパス引数前の `--` を付与（フラグ injection 防止）
-- 外部 URL オープン: `open_url` コマンドは http/https のみ許可（Rust 側でバリデーション）。開くのは `types::os_open_url`＝Windows は `ShellExecuteW`、他は `open` / `xdg-open`（`cmd.exe /C start` はシェルメタ文字インジェクションの危険があるため不使用）。フロント側でも confirm ダイアログを表示
+- 外部 URL オープン: `open_url` コマンドは **http / https / mailto のみ許可**（Rust 側でバリデーション）。開くのは `types::os_open_url`＝Windows は `ShellExecuteW`、他は `open` / `xdg-open`（`cmd.exe /C start` はシェルメタ文字インジェクションの危険があるため不使用）。フロント側でも confirm ダイアログを表示
   - **`explorer.exe` に URL を渡さないこと。** あれの引数はまずシェルのオブジェクト（パス）として解釈されるので、**クエリや fragment を含む URL ではブラウザではなくエクスプローラーのウィンドウが開く**（実測）。理由は `types.rs` の `os_open_url` の doc が正本。ディレクトリを開く `os_open` は従来どおり `explorer.exe`
+  - **フロント側の規約は `frontend.md` の「外部ブラウザで URL を開く」**（#311）。呼び出し元が 8 か所に散る横断的な話なので、エディタ領域には置いていない
 
 ## 保存の責任（#276）
 

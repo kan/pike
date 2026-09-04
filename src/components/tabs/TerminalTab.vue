@@ -20,18 +20,10 @@ import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
+import { openUrlWithConfirm } from '../../lib/openUrl'
 import { isAbsolutePath, joinPath, pathSep, relativeTime } from '../../lib/paths'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
-import {
-  claudeSessionsList,
-  openUrlWithConfirm,
-  ptyGetCwd,
-  ptyKill,
-  ptyPasteText,
-  ptyResize,
-  ptySpawn,
-  ptyWrite,
-} from '../../lib/tauri'
+import { claudeSessionsList, ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import {
   asPathHeader,
   findPathLinks,

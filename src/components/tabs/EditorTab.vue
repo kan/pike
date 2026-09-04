@@ -40,6 +40,7 @@ import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel } from '../../lib/keys'
 import { getLanguage, getLanguageLabel } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
+import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import {
   basename,
   dirname,
@@ -52,16 +53,9 @@ import {
 } from '../../lib/paths'
 import { relativeToBase } from '../../lib/projectPaths'
 import { buildRstPreview } from '../../lib/rstPreview'
+import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
 import { createHeadingSlugger } from '../../lib/slug'
-import {
-  fsDirsExist,
-  fsReadFile,
-  fsReadFileBase64,
-  fsWriteFile,
-  gitDiffLines,
-  openUrlWithConfirm,
-  pickSaveFile,
-} from '../../lib/tauri'
+import { fsDirsExist, fsReadFile, fsReadFileBase64, fsWriteFile, gitDiffLines, pickSaveFile } from '../../lib/tauri'
 import { escapeHtml, splitDelimited } from '../../lib/text'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useProjectStore } from '../../stores/project'
@@ -301,6 +295,7 @@ const SVG_PURIFY_OPTS = {
     'data-node-id',
     'data-look',
   ],
+  ALLOWED_URI_REGEXP,
 }
 
 function buildCsvPreview(text: string): string {
@@ -457,7 +452,7 @@ const previewHtml = computed(() => {
   if (isJsonl.value) return buildJsonlPreview(text)
   // rst は SVG を出さない（mermaid も watcher で除外している）ので、`SVG_PURIFY_OPTS` の
   // 追加許可（`foreignObject` や SVG の属性）を持ち込まない。
-  if (isRst.value) return DOMPurify.sanitize(buildRstPreview(text))
+  if (isRst.value) return DOMPurify.sanitize(buildRstPreview(text), { ALLOWED_URI_REGEXP })
   return DOMPurify.sanitize(buildMarkdownPreview(text), SVG_PURIFY_OPTS)
 })
 
@@ -1490,7 +1485,7 @@ async function onPreviewClick(e: MouseEvent) {
   if (!href) return
   e.preventDefault()
 
-  if (href.startsWith('http://') || href.startsWith('https://')) {
+  if (isExternalLink(href)) {
     await openUrlWithConfirm(href)
     return
   }

@@ -5,9 +5,11 @@ import { Marked } from 'marked'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
 import { issueRefs } from '../../lib/issueRefs'
+import { openUrlWithConfirm } from '../../lib/openUrl'
 import { relativeDate } from '../../lib/paths'
 import { projectColorValue, readableTextOn } from '../../lib/projectColors'
-import { issuesView, openUrlWithConfirm } from '../../lib/tauri'
+import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
+import { issuesView } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import type { IssueDetail } from '../../types/issues'
@@ -69,7 +71,7 @@ onMounted(load)
  * （見たいときは右上からブラウザで開く）。
  */
 function render(md: string): string {
-  return DOMPurify.sanitize(md2html.parse(md) as string)
+  return DOMPurify.sanitize(md2html.parse(md) as string, { ALLOWED_URI_REGEXP })
 }
 
 const bodyHtml = computed(() => render(detail.value?.body ?? ''))
@@ -103,7 +105,7 @@ function openInBrowser() {
  * 塞いでいる。
  *
  * **issue の本文は他人が書いた文字列**でもあるので、Pike が描くマークダウンの中でここだけ
- * 素性が違う。`http(s)` 以外（相対リンク・`#anchor`・`mailto:`）は `openUrlWithConfirm` が
+ * 素性が違う。扱えないもの（相対リンク・`#anchor`）は `openUrlWithConfirm` が
  * 弾くので、`preventDefault` だけして何もしない。
  */
 function onContentClick(e: MouseEvent) {

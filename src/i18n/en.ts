@@ -295,7 +295,11 @@ export default {
   'settings.imageHosts': 'External image domains',
   'settings.imageHostsHint':
     'Domains the Markdown preview may load images from. Allow one from the button the preview shows in place of the image.',
-  'settings.imageHostsEmpty': 'No domains allowed yet.',
+  // Shared by both approved-host lists (images and links).
+  'settings.hostsEmpty': 'No domains allowed yet.',
+  'settings.urlHosts': 'Domains that open without confirming',
+  'settings.urlHostsHint':
+    'Domains whose links open in the external browser without a confirmation. Allow one from the checkbox in that dialog.',
   'settings.about': 'About',
   'settings.version': 'Version',
   'settings.checkUpdate': 'Check for Updates',
@@ -690,6 +694,8 @@ export default {
   'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',
   'confirm.unsavedClose': '"{name}" has unsaved changes. Close without saving?',
   'confirm.openUrl': 'Open {url} in external browser?',
+  'confirm.openUrlRemember': "Don't ask again for {host}",
+  'confirm.openMail': 'Open {url} in your mail client?',
   'confirm.allowImageHost': 'Load images from {host} in the Markdown preview from now on?',
   'confirm.unsavedCloseMulti': '{count} files have unsaved changes ({names}). Close without saving?',
   'confirm.terminalBusyClose': 'A process is still running in "{name}". Terminate it and close?',

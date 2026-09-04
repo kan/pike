@@ -3,8 +3,19 @@
 ## 基本方針
 - Vue 3 Composition API + `<script setup>` で統一
 - 状態管理は Pinia、ストアは `src/stores/` に置く
-- Tauri invoke は `src/lib/tauri.ts` に型付きラッパーを作って使う（直接 invoke しない）
+- Tauri invoke は `src/lib/tauri.ts` に型付きラッパーを作って使う（直接 invoke しない）。**あそこに置くのはラッパーだけ**で、ダイアログ・i18n・ストアを読む流れは別ファイルに出す（`lib/openUrl.ts` はそれで切り出した。#311）
+- **`lib/` はストアを import してよい**（`openFile.ts` / `openUrl.ts` は「〜を開く唯一の入口」としてストアを読む）。**例外は、ストアから import される `lib/`**（`shortcuts.ts` / `projectPaths.ts` / `paths.ts`）で、そこからストアを読むと循環する。値が要るなら設定側から流し込む（`setShortcutPreset`）。不変条件は「純粋かどうか」ではなく**向き**
 - コンポーネントは `src/components/{category}/XxxYyy.vue` の命名
+
+## 外部ブラウザで URL を開く（#311）
+
+- **入口は `lib/openUrl.ts`**。外へ出て行く URL は全部このファイルを通る（確認つきの `openUrlWithConfirm` と、Docker のトンネル用の `openLocalTunnel`）。**素の `openUrl` を呼ぶ経路を増やさないこと**: `check-docs` はシンボルの実在しか見ないので、この不変条件が破れても検出されない
+- **開けるのは http(s) と `mailto:` だけ**（同ファイルの `isExternalLink` が述語。プレビューはこれでリンクを振り分ける）。`mailto:` は毎回確認する（承認の鍵はホスト名で、あれは持たないため）
+  - **開けないスキームはリンクにしない。** DOMPurify の既定は `ftp` / `tel` / `sms` / `cid` / `xmpp` も通すので、絞らないと「押せるのに何も起きないリンク」ができる（実際にそうなっていた）。許可の正本は `lib/sanitizeHtml.ts` の `ALLOWED_URI_REGEXP` で、**4 つのプレビュー（Markdown / rst / issue / マニュアル）が全部これを渡す**。`isExternalLink` と対で、片方だけ広げると同じ状態が戻る
+- 確認ダイアログのチェックボックスでホストを承認すると、以後そのホストは確認なしで開く（`settings.allowedUrlHosts`。マシン非依存なので同期の対象）。**承認の対象はこの関数を通る全経路**で、ターミナルと Docker ログの `WebLinksAddon` が拾った URL も含む
+- **`lib/tauri.ts` に置けない理由・ホスト名を完全一致にした理由・トンネルを別関数にした理由は、あのファイルの doc コメントが正本。** 画像ホストの一覧（#239）と分けてある理由は `stores/settings.ts` の宣言の隣
+- **「どこから来たリンクか」で経路を分けない**（#311 で検討して見送った）。`github.com` を承認すると、issue の本文や Markdown の `[説明](別の宛先)` も確認なしで開く＝リンクの表示文字列と実際の宛先が食い違いうる経路でも、ダイアログという唯一の開示の場が消える。それでも分けないのは、開く先がブラウザ自身の保護層を持つこと、承認が明示的なオプトインで設定画面から取り消せること、経路ごとに挙動が変わると「なぜここだけ聞かれるのか」を説明できなくなることによる。**分けるなら Markdown プレビューと issue タブの 2 か所**（生の URL が画面に出ているターミナルと、Pike 自身が URL を組み立てるボタン類は、この軸では危険側に入らない）
+- 承認済みホストの一覧の UI は `components/panels/AllowedHostList.vue`（画像とリンクで共有）。**2 つのリスト自体は畳まない**: 承認したことの意味が違うので、`ref` を 1 本にすると型からもコメントからもその違いが消える。畳んでよいのは政策を持たない部分（正規化の `withHost` / 一覧の markup / 空表示の文言）だけ
 
 ## ウィンドウのフォーカス
 - 「このウィンドウがアクティブか」の出典は **`lib/window.ts` の `windowFocused`** ただ 1 つ。元は Rust の `WindowEvent::Focused`（`onFocusChanged`）で、アクリルの付け外し（#277）と同じ信号

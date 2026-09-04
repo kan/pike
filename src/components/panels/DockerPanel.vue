@@ -3,8 +3,9 @@ import { Cable, ExternalLink, Play, RefreshCw, ScrollText, Square, Terminal, Unp
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { promptDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
+import { openLocalTunnel } from '../../lib/openUrl'
 import { basename, joinPath, normalizeSep, pathSep } from '../../lib/paths'
-import { dockerContainerPorts, dockerDetectShell, openUrl } from '../../lib/tauri'
+import { dockerContainerPorts, dockerDetectShell } from '../../lib/tauri'
 import { useDockerStore } from '../../stores/docker'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
@@ -197,7 +198,7 @@ onUnmounted(() => dockerStore.stopPolling())
             <div class="c-actions">
               <button
                 :title="t('docker.openBrowser')"
-                @click="openUrl(`http://127.0.0.1:${tun.localPort}/`)"
+                @click="openLocalTunnel(tun.localPort)"
               ><ExternalLink :size="12" :stroke-width="2" /></button>
               <button
                 :title="t('docker.stopForward')"
@@ -216,7 +217,7 @@ onUnmounted(() => dockerStore.stopPolling())
           <div class="c-actions">
             <button
               :title="t('docker.openBrowser')"
-              @click="openUrl(`http://127.0.0.1:${tun.localPort}/`)"
+              @click="openLocalTunnel(tun.localPort)"
             ><ExternalLink :size="12" :stroke-width="2" /></button>
             <button
               :title="t('docker.stopForward')"

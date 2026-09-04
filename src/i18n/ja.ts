@@ -292,7 +292,11 @@ export default {
   'settings.previewSmoothScroll': 'スムーススクロール（プレビュー）',
   'settings.imageHosts': '外部画像の許可ドメイン',
   'settings.imageHostsHint': 'Markdown プレビューが画像を読み込むドメイン。画像の代わりに出るボタンから追加する',
-  'settings.imageHostsEmpty': '許可したドメインはまだありません',
+  // 承認済みホストの一覧（画像とリンク）が共有する空表示。
+  'settings.hostsEmpty': '許可したドメインはまだありません',
+  'settings.urlHosts': 'リンクを確認なしで開くドメイン',
+  'settings.urlHostsHint':
+    '外部ブラウザで開くときの確認を省略するドメイン。確認ダイアログのチェックボックスから追加する',
   'settings.about': 'バージョン情報',
   'settings.version': 'バージョン',
   'settings.checkUpdate': '更新を確認',
@@ -690,6 +694,8 @@ export default {
   'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',
   'confirm.unsavedClose': '"{name}" に未保存の変更があります。保存せずに閉じますか？',
   'confirm.openUrl': '{url} を外部ブラウザで開きます。よろしいですか？',
+  'confirm.openUrlRemember': '{host} のリンクは今後確認しない',
+  'confirm.openMail': '{url} をメールソフトで開きます。よろしいですか？',
   'confirm.allowImageHost': 'Markdown プレビューで {host} の画像を今後読み込みますか？',
   'confirm.unsavedCloseMulti': '{count} 個のファイルに未保存の変更があります ({names})。保存せずに閉じますか？',
   'confirm.terminalBusyClose': '"{name}" でプロセスが実行中です。終了して閉じますか？',
