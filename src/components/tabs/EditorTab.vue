@@ -1635,7 +1635,7 @@ watch(
 
 watch(
   () => tabStore.activeTabId,
-  (id) => {
+  (id, prev) => {
     if (id === props.tabId && editorView) {
       editorView.requestMeasure()
       updateCursorInfo()
@@ -1644,7 +1644,12 @@ watch(
         (le) => changeLineEnding(le),
       )
       registerOutlineSource()
-    } else if (id !== props.tabId) {
+    } else if (prev === props.tabId) {
+      // **降りるのは自分がアクティブでなくなったときだけ。** この watcher は開いている
+      // エディタタブ全部で走るので、`id !== props.tabId`（＝自分ではない）で消すと、
+      // 無関係なタブまで StatusBar を空にする。しかも watcher が走る順はタブのマウント順
+      // なので、**先に開いたタブへ戻ると、新しくアクティブになった側が update した後に
+      // 別のタブが clear する**（カーソルを動かすまで種別も行番号も出ない、という形で出る）。
       editorInfo.clear()
       outlineSource.clear(props.tabId)
     }
