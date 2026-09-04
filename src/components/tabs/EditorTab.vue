@@ -2,7 +2,7 @@
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from '@codemirror/commands'
 import { indentUnit } from '@codemirror/language'
 import { highlightSelectionMatches } from '@codemirror/search'
-import { Compartment, EditorState } from '@codemirror/state'
+import { Compartment, EditorState, type StateEffect } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
 import DOMPurify from 'dompurify'
 import { ArrowUp, RefreshCw } from 'lucide-vue-next'
@@ -10,7 +10,7 @@ import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, dialogOpen, promptDialog } from '../../composables/useConfirmDialog'
-import { useEditorInfo } from '../../composables/useEditorInfo'
+import { type EditorActions, useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useMarkdownImages } from '../../composables/useMarkdownImages'
 import { useMarkdownLinkPaste } from '../../composables/useMarkdownLinkPaste'
@@ -38,7 +38,7 @@ import { formatLineRange } from '../../lib/format'
 import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel } from '../../lib/keys'
-import { firstLineOf, getLanguage, getLanguageLabel } from '../../lib/languages'
+import { firstLineOf, getLanguage, getLanguageLabel, languageByKey, languageLabelByKey } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import {
@@ -693,8 +693,10 @@ function updateCursorInfo() {
     encoding: currentEncoding.value,
     lineEnding: currentLineEnding.value,
     fileType: langLabel,
+    fileTypeKey: fileTypeOverride.value,
     tabSize: settingsStore.editorTabSize,
     tabId: props.tabId,
+    actions: editorActions,
   })
 }
 
@@ -1119,10 +1121,65 @@ const ctxHasSelection = ref(false)
  */
 let langLabel = 'Plain Text'
 
-/** 言語と種別を、いま与えられた 1 行目から決め直す。**この 2 つは必ず一緒に更新する。** */
+/**
+ * 手動で選んだファイルタイプのキー（#312 の続き）。null なら自動判定。
+ *
+ * **タブ単位で、セッションには残さない**（`wordWrapOverride` / `minimapOverride` と同じ）。
+ * 判定を直す手段ではなく「いま見ているものを別の言語として読みたい」ための一時的な上書きなので、
+ * 開き直せば自動判定に戻る。
+ */
+const fileTypeOverride = ref<string | null>(null)
+
+/** 言語と種別を決め直す。**この 2 つは必ず一緒に更新する。** */
 function resolveLanguage(path: string | undefined, firstLine: string): ReturnType<typeof getLanguage> {
+  const key = fileTypeOverride.value
+  if (key) {
+    langLabel = languageLabelByKey(key)
+    return languageByKey(key)
+  }
   langLabel = getLanguageLabel(path ?? '', firstLine)
   return path ? getLanguage(path, firstLine) : null
+}
+
+/**
+ * StatusBar に渡す操作一式。**関数ではなく 1 つの値**にしてあるので、`update` のたびに
+ * 同じオブジェクトが渡る。
+ *
+ * `saveWithEncoding` の包み直しだけは残すこと: `save(enc, auto)` の第 2 引数に
+ * 「自動保存として扱う」が入っており、直接渡すと StatusBar の操作が黙って自動保存扱いになる。
+ */
+const editorActions: EditorActions = {
+  changeEncoding: reopenWithEncoding,
+  changeLineEnding,
+  saveWithEncoding: (enc) => save(enc),
+  changeFileType,
+}
+
+/**
+ * 言語を決め直して反映する。**解決・適用・表示の更新は必ずセット**なので 1 本にまとめる
+ * （`changeFileType` と Save As の watcher が呼ぶ。あちらは markdown の張り直しが加わる）。
+ */
+function applyLanguage(path: string | undefined, extra: StateEffect<unknown>[] = []) {
+  // 上書きが立っていれば 1 行目は読まれないので、そのときは取りに行かない。
+  const firstLine = fileTypeOverride.value ? '' : firstLineOf(editorView?.state.doc.line(1).text ?? '')
+  const lang = resolveLanguage(path, firstLine)
+  editorView?.dispatch({ effects: [languageCompartment.reconfigure(lang ?? []), ...extra] })
+  updateCursorInfo()
+}
+
+/**
+ * 手動で選んだ / 自動に戻した（#312 の続き）。**言語だけ差し替えて再読込はしない**:
+ * 文字コードの変更（`reopenWithEncoding`）と違い、ディスクの中身の解釈は変わらない。
+ *
+ * **変わるのは表示だけで、プレビューと Markdown の入力支援は動かさない。** あれらが
+ * `tab.path` から決まるのは、**ファイルへの書き込みを伴う**ため（貼り付けた画像をどこへ置くか、
+ * 保存が何を出すか、どの paste ハンドラが走るか）。表示の上書きに連動させると、色を選んだだけで
+ * `Ctrl+V` の書き込み先が変わることになる。この線引きはマニュアルにも書いてある。
+ */
+function changeFileType(key: string | null) {
+  if (fileTypeOverride.value === key) return
+  fileTypeOverride.value = key
+  applyLanguage(tab.value?.path)
 }
 
 function createEditorView(container: HTMLElement, content: string) {
@@ -1338,13 +1395,6 @@ onMounted(async () => {
     updateCursorInfo()
     refreshDiffGutter()
     refreshDiagnosticsLayer()
-
-    // Register callbacks for StatusBar to change encoding/line ending
-    editorInfo.registerCallbacks(
-      (enc) => reopenWithEncoding(enc),
-      (le) => changeLineEnding(le),
-      (enc) => save(enc),
-    )
 
     if (tabStore.activeTabId === props.tabId) {
       registerOutlineSource()
@@ -1638,19 +1688,14 @@ watch(
   (id, prev) => {
     if (id === props.tabId && editorView) {
       editorView.requestMeasure()
+      // 操作（`EditorActions`）は表示と一緒に `update` が運ぶので、別に登録しない。
       updateCursorInfo()
-      editorInfo.registerCallbacks(
-        (enc) => reopenWithEncoding(enc),
-        (le) => changeLineEnding(le),
-      )
       registerOutlineSource()
     } else if (prev === props.tabId) {
-      // **降りるのは自分がアクティブでなくなったときだけ。** この watcher は開いている
-      // エディタタブ全部で走るので、`id !== props.tabId`（＝自分ではない）で消すと、
-      // 無関係なタブまで StatusBar を空にする。しかも watcher が走る順はタブのマウント順
-      // なので、**先に開いたタブへ戻ると、新しくアクティブになった側が update した後に
-      // 別のタブが clear する**（カーソルを動かすまで種別も行番号も出ない、という形で出る）。
-      editorInfo.clear()
+      // 降りるのは自分がアクティブでなくなったときだけ。**ただしこの条件には頼らない**:
+      // watcher の走る順はマウント順なので、来たタブが update した後にここへ来ることがある。
+      // 実際に消さない保証は `clear(tabId)` の所有権チェック側にある（そちらの doc が正本）。
+      editorInfo.clear(props.tabId)
       outlineSource.clear(props.tabId)
     }
   },
@@ -1719,12 +1764,8 @@ watch(
 watch(
   () => tab.value?.path,
   (path) => {
-    const lang = resolveLanguage(path, editorView ? firstLineOf(editorView.state.doc.line(1).text) : '')
-    editorView?.dispatch({
-      effects: [languageCompartment.reconfigure(lang ?? []), markdownCompartment.reconfigure(markdownAssist())],
-    })
-    // 種別の表示も同じスナップショットで更新する（次の打鍵まで古い値が残らないように）。
-    updateCursorInfo()
+    // 名前が変われば Markdown の入力支援も張り直す（表示だけの上書きと違う点。#312 の続き）。
+    applyLanguage(path, [markdownCompartment.reconfigure(markdownAssist())])
     // The outline panel was handed this tab's path when the view was built, and
     // the tab is already active, so nothing else will hand it the new one.
     if (tabStore.activeTabId === props.tabId) registerOutlineSource()
@@ -1749,9 +1790,7 @@ onUnmounted(() => {
   editorView?.scrollDOM.removeEventListener('scroll', onEditorScroll)
   editorView?.destroy()
   editorView = null
-  if (tabStore.activeTabId === props.tabId) {
-    editorInfo.clear()
-  }
+  editorInfo.clear(props.tabId)
   outlineSource.clear(props.tabId)
 })
 </script>

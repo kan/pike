@@ -674,6 +674,8 @@ export default {
   'statusBar.reopenWithEncoding': 'Reopen with this encoding',
   'statusBar.saveWithEncoding': 'Save with this encoding',
   'statusBar.lfUnix': 'LF (Unix)',
+  'statusBar.fileTypeAuto': 'Detect automatically',
+  'statusBar.fileTypeHint': 'Change the file type for this tab (reopening restores automatic detection)',
   'statusBar.crlfWindows': 'CRLF (Windows)',
   'statusBar.ccIn': 'in',
   'statusBar.ccOut': 'out',

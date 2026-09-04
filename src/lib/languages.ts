@@ -262,11 +262,38 @@ const LABEL_MAP: Record<string, string> = {
   proto: 'Protobuf',
 }
 
+/** キーを直に指定して言語を引く（StatusBar からの手動切り替え）。 */
+export function languageByKey(key: string): LanguageSupport | null {
+  return EXT_MAP[key]?.() ?? null
+}
+
+/** キーの表示名。手動で選んだときの StatusBar はファイル名を見ないのでこちらを引く。 */
+export function languageLabelByKey(key: string): string {
+  return LABEL_MAP[key] ?? 'Plain Text'
+}
+
 /** StatusBar に出すファイル種別。**`getLanguage` と同じキーを引く**（理由は `LABEL_MAP`）。 */
 export function getLanguageLabel(filename: string, firstLine?: string): string {
-  return LABEL_MAP[resolveLanguageKey(filename, firstLine)] ?? 'Plain Text'
+  return languageLabelByKey(resolveLanguageKey(filename, firstLine))
 }
 
 export function getLanguage(filename: string, firstLine?: string): LanguageSupport | null {
-  return EXT_MAP[resolveLanguageKey(filename, firstLine)]?.() ?? null
+  return languageByKey(resolveLanguageKey(filename, firstLine))
+}
+
+/**
+ * 手動で選べる言語の一覧（StatusBar のドロップダウン）。
+ *
+ * **ラベルで畳む。** `EXT_MAP` のキーは拡張子なので同じ言語に何本もある（`js` / `mjs` /
+ * `jsx`、`py`、`sh` / `bash` / `zsh`…）。利用者に見せたいのは言語であって拡張子ではないので、
+ * 同じラベルを持つキーは最初の 1 本を代表にする。**ラベルの無いキーは出さない**: 選んでも
+ * StatusBar の表示が `Plain Text` のままになり、切り替わったのか分からない。
+ */
+export function languageOptions(): { key: string; label: string }[] {
+  const byLabel = new Map<string, string>()
+  for (const key of Object.keys(EXT_MAP)) {
+    const label = LABEL_MAP[key]
+    if (label && !byLabel.has(label)) byLabel.set(label, key)
+  }
+  return [...byLabel].map(([label, key]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label))
 }

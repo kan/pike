@@ -23,6 +23,7 @@ import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
+import { languageOptions } from '../../lib/languages'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { basename } from '../../lib/paths'
 import { traySetTooltip } from '../../lib/tauri'
@@ -245,6 +246,29 @@ function selectLineEnding(le: 'LF' | 'CRLF') {
   editorInfo.requestLineEndingChange(le)
 }
 
+// ファイルタイプの手動切り替え（#312 の続き）。**一時的で、記憶しない**（開き直せば自動判定）。
+// 選択肢は起動から不変なので 1 回だけ作る（テンプレートから呼ぶと再描画のたびに組み直す）。
+const fileTypeOptions = languageOptions()
+const showFileTypeMenu = ref(false)
+
+function toggleFileTypeMenu() {
+  showEncodingMenu.value = false
+  showLineEndingMenu.value = false
+  showFileTypeMenu.value = !showFileTypeMenu.value
+  if (showFileTypeMenu.value) {
+    nextTick(() => window.addEventListener('mousedown', closeFileTypeMenu, { once: true }))
+  }
+}
+
+function closeFileTypeMenu() {
+  showFileTypeMenu.value = false
+}
+
+function selectFileType(key: string | null) {
+  closeFileTypeMenu()
+  editorInfo.requestFileTypeChange(key)
+}
+
 // Branch switcher dropdown
 const showBranches = ref(false)
 const branchQuery = ref('')
@@ -295,6 +319,7 @@ onUnmounted(() => {
   window.removeEventListener('mousedown', closeWorktrees)
   window.removeEventListener('mousedown', closeEncodingMenu)
   window.removeEventListener('mousedown', closeLineEndingMenu)
+  window.removeEventListener('mousedown', closeFileTypeMenu)
   window.removeEventListener('mousedown', closeAgentStatus)
 })
 </script>
@@ -360,7 +385,25 @@ onUnmounted(() => {
           <button @click="selectLineEnding('CRLF')">{{ t('statusBar.crlfWindows') }}</button>
         </div>
       </div>
-      <span class="status-text">{{ editorInfo.current.value.fileType }}</span>
+      <div class="status-dropdown-area">
+        <button class="status-item clickable small" :title="t('statusBar.fileTypeHint')" @click="toggleFileTypeMenu">
+          {{ editorInfo.current.value.fileType }}
+        </button>
+        <div v-if="showFileTypeMenu" class="status-dropdown popup-surface file-type-menu" @mousedown.stop>
+          <button :class="{ current: !editorInfo.current.value.fileTypeKey }" @click="selectFileType(null)">
+            {{ t('statusBar.fileTypeAuto') }}
+          </button>
+          <div class="ctx-separator" />
+          <button
+            v-for="opt in fileTypeOptions"
+            :key="opt.key"
+            :class="{ current: editorInfo.current.value.fileTypeKey === opt.key }"
+            @click="selectFileType(opt.key)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+      </div>
     </template>
 
     <!-- Agents: one item for both Claude and Codex; the detail lives in the status tab (#226) -->
@@ -698,6 +741,24 @@ onUnmounted(() => {
 .dropdown-label.group {
   margin-top: 4px;
   border-top: 1px solid var(--border);
+}
+
+/* 言語の一覧は他のメニューより行数が多いので、上限だけ引き上げる（スクロールは
+   `.status-dropdown` が既に持っている）。 */
+.file-type-menu {
+  max-height: 60vh;
+}
+
+.ctx-separator {
+  margin: 4px 0;
+  border-top: 1px solid var(--border);
+}
+
+/* いま選ばれている行。**基底の `:not()` 3 連鎖より特異度を上げないと当たらない**
+   （`:not()` は引数の特異度を取るので、素の `button.current` では負ける）。 */
+.status-dropdown button.current:not(.help-btn):not(.rate-refresh):not(.detail-link) {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .cc-usage {

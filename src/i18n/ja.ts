@@ -674,6 +674,8 @@ export default {
   'statusBar.reopenWithEncoding': 'このエンコードで開き直す',
   'statusBar.saveWithEncoding': 'このエンコードで保存',
   'statusBar.lfUnix': 'LF (Unix)',
+  'statusBar.fileTypeAuto': '自動で判定',
+  'statusBar.fileTypeHint': 'ファイルタイプを一時的に変える（開き直すと自動判定に戻ります）',
   'statusBar.crlfWindows': 'CRLF (Windows)',
   'statusBar.ccIn': '入力',
   'statusBar.ccOut': '出力',
