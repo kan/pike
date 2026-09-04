@@ -25,6 +25,7 @@ import { toml } from '@codemirror/legacy-modes/mode/toml'
 // CM6 に公式の rst は無い（CM5 にはあった）ので、外部パッケージを 1 つだけ足している。
 // 依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる（#284）。
 import { rst } from 'codemirror-lang-rst'
+import { basename } from './paths'
 
 function legacy(mode: Parameters<typeof StreamLanguage.define>[0]): LanguageSupport {
   return new LanguageSupport(StreamLanguage.define(mode))
@@ -80,6 +81,10 @@ const EXT_MAP: Record<string, () => LanguageSupport> = {
   sql: () => legacy(standardSQL),
   lua: () => legacy(lua),
   dockerfile: () => legacy(dockerFile),
+  makefile: () => legacy(shell),
+  // `.gitignore` は shell ではないが、コメントと素の語だけなので shell のモードが素直に当たる。
+  // 専用のキーにしてあるのは、ラベル（`LABEL_MAP`）で「Shell」と名乗らせないため。
+  gitignore: () => legacy(shell),
   toml: () => legacy(toml),
   diff: () => legacy(diff),
   patch: () => legacy(diff),
@@ -89,14 +94,112 @@ const EXT_MAP: Record<string, () => LanguageSupport> = {
   proto: () => legacy(protobuf),
 }
 
-const NAME_MAP: Record<string, () => LanguageSupport> = {
-  dockerfile: () => legacy(dockerFile),
-  makefile: () => legacy(shell),
-  '.bashrc': () => legacy(shell),
-  '.zshrc': () => legacy(shell),
-  '.gitignore': () => legacy(shell),
+/**
+ * 拡張子では決まらないファイル名 → `EXT_MAP` / `LABEL_MAP` のキー。
+ *
+ * **`Dockerfile` / `Makefile` / `.gitignore` はここに要らない。** `resolveLanguageKey` の
+ * 拡張子は「最後のドットより後ろ」ではなく `split('.').pop()` なので、ドットを持たない名前は
+ * 名前そのものが、`.gitignore` は `gitignore` が拡張子として `EXT_MAP` に当たる。書くと
+ * 同じ知識が 2 つの表に載るだけになる（この変更が消したかったのがまさにそれ）。
+ */
+const NAME_KEYS: Record<string, string> = {
+  '.bashrc': 'sh',
+  '.zshrc': 'sh',
 }
 
+/**
+ * shebang のインタプリタ名 → キー（#312）。
+ *
+ * **既に import 済みのモードだけを載せる**（「軽さ最優先」）。`fish` や `awk` はモードを
+ * 増やすことになるので入れない。
+ */
+const SHEBANG_KEYS: Record<string, string> = {
+  sh: 'sh',
+  bash: 'sh',
+  zsh: 'sh',
+  dash: 'sh',
+  ksh: 'sh',
+  ash: 'sh',
+  python: 'py',
+  ruby: 'rb',
+  perl: 'pl',
+  php: 'php',
+  lua: 'lua',
+  node: 'js',
+  nodejs: 'js',
+  bun: 'js',
+  deno: 'ts',
+  pwsh: 'ps1',
+  powershell: 'ps1',
+}
+
+/** 1 行目から読む最大文字数。minify された JS のように長い 1 行目を丸ごと走査しない。 */
+const SHEBANG_MAX = 256
+
+/**
+ * 言語判定に渡す 1 行目を切り出す（#312）。
+ *
+ * **切る長さをこのファイルに置くのが要点。** 呼び出し側がリテラルで持つと、`SHEBANG_MAX` を
+ * 広げても手前で切られていて効かない、という無言の不整合になる。`slice` を先にするのは、
+ * 改行を持たない数 MB の 1 行に `split` を当てないため。
+ */
+export function firstLineOf(text: string): string {
+  return text.slice(0, SHEBANG_MAX).split('\n', 1)[0]
+}
+
+/**
+ * shebang からキーを引く（#312）。当たらなければ空文字。
+ *
+ * 規則は 2 つ。**先頭のパスの basename を取り、それが `env` なら続く最初の非オプション語を
+ * 見る**（`#!/usr/bin/env -S deno run --allow-net` の `-S` もここで飛ぶ）。そして**末尾の
+ * バージョンを落とす**（`python3` / `python3.11` → `python`）。
+ *
+ * shebang のパスは常に POSIX なので、`paths.ts` の `basename`（`\` も切る）ではなく `/` だけで
+ * 切る。行末の `\r`（CRLF）は `trim` が落とす。
+ */
+function shebangKey(firstLine: string): string {
+  const line = firstLine.slice(0, SHEBANG_MAX)
+  if (!line.startsWith('#!')) return ''
+  const tokens = line.slice(2).trim().split(/\s+/)
+  const interp = (token?: string) => token?.split('/').pop() ?? ''
+  let i = 0
+  let name = interp(tokens[i])
+  if (name === 'env') {
+    i++
+    while (tokens[i]?.startsWith('-')) i++
+    name = interp(tokens[i])
+  }
+  return SHEBANG_KEYS[name.replace(/[\d.]+$/, '').toLowerCase()] ?? ''
+}
+
+/**
+ * ハイライトとラベルが共有する言語キー。**優先順は 名前 → 拡張子 → shebang**（#312）。
+ *
+ * 拡張子で決まるファイルの中身は読まない。`firstLine` を渡さなければファイル名だけで決まる。
+ *
+ * **拡張子は `paths.ts` の `extension` ではなく `split('.').pop()` で取る。** あちらは
+ * 「最後のドットより後ろ、ただし先頭のドットは除く」なので `.gitignore` も `Makefile` も
+ * 空を返す。ここは**拡張子を持たない名前をそのままキーとして引きたい**（`Makefile` →
+ * `makefile`、`.gitignore` → `gitignore`）ので、意図して別の取り方をしている。
+ */
+function resolveLanguageKey(filename: string, firstLine = ''): string {
+  const name = basename(filename).toLowerCase()
+  const named = NAME_KEYS[name]
+  if (named) return named
+  const ext = name.split('.').pop() ?? ''
+  return EXT_MAP[ext] ? ext : shebangKey(firstLine)
+}
+
+/**
+ * キー → StatusBar の表記。**`EXT_MAP` と同じキー集合を保つこと**（#312）。
+ *
+ * ここに無いキーは `Plain Text` に落ちるので、片方にだけ足すと**色は付くのに種別が
+ * Plain Text**という状態ができる。ハイライトとラベルの解決を 1 つにしたのはそれを消すため
+ * だったが、この不変条件自体は型では守られない（`.jsonl` が実際にその穴だった）。
+ *
+ * ラベルがモードと違う名前になるのは構わない。`conf` → Nginx、`gitignore` → Git Ignore は
+ * どちらも意図的で、**キーを間に挟んでいるから表現できる**。
+ */
 const LABEL_MAP: Record<string, string> = {
   ts: 'TypeScript',
   tsx: 'TypeScript (JSX)',
@@ -126,6 +229,8 @@ const LABEL_MAP: Record<string, string> = {
   phtml: 'PHP',
   json: 'JSON',
   jsonc: 'JSON',
+  jsonl: 'JSON Lines',
+  ndjson: 'JSON Lines',
   md: 'Markdown',
   markdown: 'Markdown',
   rst: 'reStructuredText',
@@ -146,23 +251,22 @@ const LABEL_MAP: Record<string, string> = {
   ps1: 'PowerShell',
   psm1: 'PowerShell',
   dockerfile: 'Dockerfile',
+  makefile: 'Makefile',
+  // shell のモードで色を付けているが、種別として「Shell」とは名乗らせない（あれは shell では
+  // ない）。**ラベルを持たせないと「色は付くのに Plain Text」**になり、この統合が直したはずの
+  // 食い違いが 1 件だけ残る。
+  gitignore: 'Git Ignore',
   diff: 'Diff',
   patch: 'Diff',
   conf: 'Nginx',
   proto: 'Protobuf',
 }
 
-export function getLanguageLabel(filename: string): string {
-  const name = filename.split(/[/\\]/).pop()?.toLowerCase() ?? ''
-  if (name === 'dockerfile') return 'Dockerfile'
-  if (name === 'makefile') return 'Makefile'
-  const ext = name.split('.').pop() ?? ''
-  return LABEL_MAP[ext] ?? 'Plain Text'
+/** StatusBar に出すファイル種別。**`getLanguage` と同じキーを引く**（理由は `LABEL_MAP`）。 */
+export function getLanguageLabel(filename: string, firstLine?: string): string {
+  return LABEL_MAP[resolveLanguageKey(filename, firstLine)] ?? 'Plain Text'
 }
 
-export function getLanguage(filename: string): LanguageSupport | null {
-  const name = filename.split(/[/\\]/).pop()?.toLowerCase() ?? ''
-  if (NAME_MAP[name]) return NAME_MAP[name]()
-  const ext = name.split('.').pop() ?? ''
-  return EXT_MAP[ext]?.() ?? null
+export function getLanguage(filename: string, firstLine?: string): LanguageSupport | null {
+  return EXT_MAP[resolveLanguageKey(filename, firstLine)]?.() ?? null
 }

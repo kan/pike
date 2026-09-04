@@ -38,7 +38,7 @@ import { formatLineRange } from '../../lib/format'
 import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel } from '../../lib/keys'
-import { getLanguage, getLanguageLabel } from '../../lib/languages'
+import { firstLineOf, getLanguage, getLanguageLabel } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import {
@@ -692,7 +692,7 @@ function updateCursorInfo() {
     col: pos - line.from + 1,
     encoding: currentEncoding.value,
     lineEnding: currentLineEnding.value,
-    fileType: getLanguageLabel(tab.value.path),
+    fileType: langLabel,
     tabSize: settingsStore.editorTabSize,
     tabId: props.tabId,
   })
@@ -1106,9 +1106,28 @@ const markdownImages = useMarkdownImages(
 // Snapshot selection state when context menu opens (not reactive — avoids stale computed)
 const ctxHasSelection = ref(false)
 
+/**
+ * StatusBar に出すファイル種別（#312）。**判定の入力ではなく結果を控える。**
+ *
+ * ハイライトを決めるのは開いたときと Save As の 2 回だけなので、種別も同じ機会に決めた値を
+ * 使わないと 2 つが食い違う。`updateCursorInfo` は打鍵のたびに走るため、そこでライブの
+ * 1 行目から引き直すと、拡張子の無いファイルに `#!/bin/bash` を書き足したときに**種別だけ
+ * 即座に Shell になり、本文はプレーンのまま**になる。
+ *
+ * **1 行目のほうを控える形にしない**こと: それだと「ライブの値を渡すな」という警告を
+ * コメントで支え続けることになる。結果を持てば、渡せる入力が存在しないので誤用が書けない。
+ */
+let langLabel = 'Plain Text'
+
+/** 言語と種別を、いま与えられた 1 行目から決め直す。**この 2 つは必ず一緒に更新する。** */
+function resolveLanguage(path: string | undefined, firstLine: string): ReturnType<typeof getLanguage> {
+  langLabel = getLanguageLabel(path ?? '', firstLine)
+  return path ? getLanguage(path, firstLine) : null
+}
+
 function createEditorView(container: HTMLElement, content: string) {
   const isReadOnly = tab.value?.readOnly ?? false
-  const lang = tab.value ? getLanguage(tab.value.path) : null
+  const lang = resolveLanguage(tab.value?.path, firstLineOf(content))
   const extensions = [
     themeCompartment.of(getEditorTheme(settingsStore.effectiveEditorThemeName).extension),
     backdropCompartment.of(backdropTheme()),
@@ -1695,12 +1714,12 @@ watch(
 watch(
   () => tab.value?.path,
   (path) => {
+    const lang = resolveLanguage(path, editorView ? firstLineOf(editorView.state.doc.line(1).text) : '')
     editorView?.dispatch({
-      effects: [
-        languageCompartment.reconfigure(path ? (getLanguage(path) ?? []) : []),
-        markdownCompartment.reconfigure(markdownAssist()),
-      ],
+      effects: [languageCompartment.reconfigure(lang ?? []), markdownCompartment.reconfigure(markdownAssist())],
     })
+    // 種別の表示も同じスナップショットで更新する（次の打鍵まで古い値が残らないように）。
+    updateCursorInfo()
     // The outline panel was handed this tab's path when the view was built, and
     // the tab is already active, so nothing else will hand it the new one.
     if (tabStore.activeTabId === props.tabId) registerOutlineSource()

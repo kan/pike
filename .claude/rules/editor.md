@@ -8,7 +8,11 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - WSL: `wsl.exe find`, `wsl.exe cat`, `wsl.exe bash -c "cat > ..."` 経由
 - WSL 以外（Windows / macOS）: `std::fs` 直接アクセス
 - ファイルサイズ事前チェック（2MB 制限）
-- CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）、シンタックスハイライトの対応言語は `lib/languages.ts` の `EXT_MAP` / `NAME_MAP` が唯一の出典（件数をここに書かない。足すたびにずれる）
+- CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）、シンタックスハイライトの対応言語は `lib/languages.ts` の `EXT_MAP` / `NAME_KEYS` / `SHEBANG_KEYS` が唯一の出典（件数をここに書かない。足すたびにずれる）
+  - **ハイライトとラベルはキーを共有する**（`resolveLanguageKey`、#312）。優先順は**名前 → 拡張子 → shebang** で、拡張子で決まるファイルの中身は読まない。別々に解決していたころは `getLanguageLabel` 側にも名前の分岐が写されていて、`.bashrc` は色が付くのに種別が「Plain Text」と出ていた
+  - **shebang に載せるのは既に import 済みのモードだけ**（「軽さ最優先」。`fish` / `awk` はモードを増やすことになるので入れない）。`env` と `-S`、末尾のバージョン（`python3.11`）の扱いは `shebangKey` の doc が正本
+  - **アウトラインには効かない。** あちらへ渡す `langId` は `extension(path)`（拡張子そのもの）で別経路なので、shebang を効かせるならその決め方も変えることになる（#312 の範囲外）
+  - 判定は**開いたときと Save As の 1 回**。あとから shebang を書き足しても切り替わらない
 - Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）。Ctrl+Z/Shift+Z で Undo/Redo
 - エディタ内検索・置換: Ctrl+F / Ctrl+H でカスタム検索パネル（右上フローティング、アイコンボタン、マッチ数表示）
 - Git diff ガター: 追加行（緑）・変更行（黄）・削除行（赤三角）をガターに表示。`git_diff_lines` コマンドで行単位の差分を取得
