@@ -39,6 +39,7 @@ MAP=(
   "agent-status:agent-status"
   "docker:docker-panel"
   "search:search-panel"
+  "issues:issues-panel"
   "tasks:tasks-panel"
   "command-palette:quickopen"
   "markdown-preview:markdown-preview"

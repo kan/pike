@@ -156,6 +156,11 @@ docker compose exec -T golang make lint
 
 **✅ Issue** アイコンで開きます。open な issue を更新の新しい順に一覧します。
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/issues-light.png">
+  <img alt="issue パネル" src="img/issues.png">
+</picture>
+
 このアイコンは、次の 2 つを満たすときだけ出ます。
 
 - プロジェクトの origin が GitHub である

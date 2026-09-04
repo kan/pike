@@ -123,10 +123,13 @@ export async function mockInvoke(command: string, value: unknown): Promise<void>
 }
 
 // 擬似プロジェクトを差して activeRoot を確定させ、invoke 駆動パネルを有効化する。
-export async function setFakeProject(): Promise<void> {
-  await browser.execute(() => {
-    ;(window as unknown as { __pikeE2E?: { setFakeProject?: () => void } }).__pikeE2E?.setFakeProject?.()
-  })
+/** `remoteUrl` を渡すのは issue パネルだけ（既定で付けると StatusBar の撮影が変わる）。 */
+export async function setFakeProject(opts?: { remoteUrl?: string }): Promise<void> {
+  await browser.execute((o) => {
+    ;(
+      window as unknown as { __pikeE2E?: { setFakeProject?: (o?: { remoteUrl?: string }) => void } }
+    ).__pikeE2E?.setFakeProject?.(o)
+  }, opts)
 }
 
 // エージェント状態タブを開く。集計は 30 秒ポーリング + 外部 CLI 依存なので、

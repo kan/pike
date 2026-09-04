@@ -435,6 +435,79 @@ describe('screenshots: search panel', () => {
   }
 })
 
+// --- issue パネル -----------------------------------------------------------
+// `gh` の実行結果を invoke モックで差す（#278）。パネルが出る条件は「origin が GitHub」
+// なので、この spec だけ `setFakeProject` に remoteUrl を渡す。
+//
+// **`updatedAt` は 30 日以上前にする。** `relativeDate` はそれより新しいと「3 日前」の
+// ような相対表記になり、撮るたびに文字が変わって差分が出る（30 日を超えると絶対日付）。
+const ISSUE_LIST = {
+  issues: [
+    {
+      number: 312,
+      title: 'file type の決定に shebang の情報も使う',
+      url: 'https://github.com/kan/pike/issues/312',
+      author: 'kan',
+      updatedAt: '2026-06-02T10:15:00Z',
+      labels: [{ name: 'enhancement', color: 'a2eeef' }],
+      parent: null,
+    },
+    {
+      number: 311,
+      title: '外部 URL を開く確認をドメイン単位で省略できるようにする',
+      url: 'https://github.com/kan/pike/issues/311',
+      author: 'kan',
+      updatedAt: '2026-06-01T18:40:00Z',
+      labels: [{ name: 'enhancement', color: 'a2eeef' }],
+      parent: null,
+    },
+    {
+      number: 310,
+      title: 'システムのダークモード設定に追随するモードを追加する',
+      url: 'https://github.com/kan/pike/issues/310',
+      author: 'kan',
+      updatedAt: '2026-05-30T09:05:00Z',
+      labels: [{ name: 'enhancement', color: 'a2eeef' }],
+      parent: null,
+    },
+    {
+      number: 306,
+      title: 'リネームしたファイルが Git パネルで壊れて見える',
+      url: 'https://github.com/kan/pike/issues/306',
+      author: 'kan',
+      updatedAt: '2026-05-28T14:20:00Z',
+      labels: [{ name: 'bug', color: 'd73a4a' }],
+      parent: null,
+    },
+    {
+      number: 307,
+      title: '検索欄にフォーカスが入らない',
+      url: 'https://github.com/kan/pike/issues/307',
+      author: 'kan',
+      updatedAt: '2026-05-27T11:00:00Z',
+      labels: [{ name: 'bug', color: 'd73a4a' }],
+      parent: 306,
+    },
+  ],
+  error: null,
+}
+
+describe('screenshots: issues panel', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`issues-panel ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('issues_gh_available', true)
+      await mockInvoke('issues_list', ISSUE_LIST)
+      await setFakeProject({ remoteUrl: 'git@github.com:kan/pike.git' })
+      await openEditor({ path: 'src/lib/tauri.ts', content: TAURI_TS })
+      await openPanel('issues')
+      await $('[data-testid="issues-panel"]').waitForDisplayed({ timeout: 10_000 })
+      await $('.issue-item').waitForDisplayed({ timeout: 10_000 })
+      await shoot('issues-panel', lang, theme)
+    })
+  }
+})
+
 // --- プロジェクト パネル ----------------------------------------------------
 // #203 の見た目（グループ別表示・アイコン・現在のプロジェクトの塗り）を撮る。
 // パネルは mount 時に project_list / project_groups_list / fs_dirs_exist を呼ぶので、

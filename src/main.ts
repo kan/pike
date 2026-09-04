@@ -114,7 +114,9 @@ async function bootstrap() {
       // invoke モックでパネルを撮るための擬似プロジェクト。root を持つ
       // currentProject を差すと activeRoot が定まり、Git/Docker/ファイルツリー等の
       // invoke 駆動パネルが有効になる。データ自体はテスト側の invoke モックが返す。
-      setFakeProject: () => {
+      // `remoteUrl` は既定で持たせない。付けると StatusBar にリポジトリリンクが増えて
+      // 既存の撮影が変わるので、要る spec（issue パネル）だけが渡す。
+      setFakeProject: (opts?: { remoteUrl?: string }) => {
         project.showSwitcher = false
         project.currentProject = {
           id: 'e2e-demo',
@@ -123,6 +125,7 @@ async function bootstrap() {
           shell: { kind: 'powershell' },
           pinnedTabs: [],
           lastOpened: '2026-01-01T00:00:00Z',
+          remoteUrl: opts?.remoteUrl,
         }
       },
       openPanel: (name: string) => {
