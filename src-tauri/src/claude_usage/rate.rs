@@ -225,10 +225,27 @@ pub(crate) fn get_rate_limits(
 // レートを IPC で出す口は `agent_usage` に一本化した（#263）。**`session_active` を
 // 呼び出し側から渡す配線も消えた**: あちらは同じ 1 回で usage も集めるので、自分で分かる。
 
-/// 走っている取得（`fetch_rate_soon` が起こしたもの）。二重に起こさないための印。
-fn refreshing() -> &'static std::sync::atomic::AtomicBool {
-    static FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    &FLAG
+/// 走っている取得（`get_rate_limits_soon` が起こしたもの）のキー。二重に起こさない印。
+///
+/// **キャッシュと同じキーで持つ。** 1 つの真偽値だと、あるアカウントの取得が走っている
+/// あいだ別アカウントの背景更新が一度も始まらない（別 distro のプロジェクトを並べて
+/// 開いているときに起きる）。
+fn refreshing() -> &'static Mutex<std::collections::HashSet<String>> {
+    static KEYS: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    KEYS.get_or_init(Default::default)
+}
+
+/// 印を必ず下ろすための番人。**素の `store(false)` に戻さないこと**: 取得の途中で
+/// パニックすると印が立ったまま残り、以後そのキーの背景更新が二度と走らない。
+struct RefreshGuard(String);
+
+impl Drop for RefreshGuard {
+    fn drop(&mut self) {
+        refreshing()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
 }
 
 /// **待たずに**今の値を返し、古ければ裏で取り直す（#263）。
@@ -260,17 +277,17 @@ pub(crate) fn get_rate_limits_soon(
         .map_or(true, |entry| needs_fetch(entry, session_active));
 
     if stale {
-        use std::sync::atomic::Ordering;
         // 既に走っていれば足さない（`fetch_lock` でも直列化されるが、待つスレッドを
         // 積み上げない）。
-        if refreshing()
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-        {
+        let started = refreshing()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.clone());
+        if started {
             let (shell, root) = (shell.clone(), project_root.to_string());
             std::thread::spawn(move || {
+                let _guard = RefreshGuard(key);
                 get_rate_limits(&shell, &root, session_active, false);
-                refreshing().store(false, Ordering::SeqCst);
             });
         }
     }

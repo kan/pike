@@ -137,23 +137,38 @@ pub fn agent_bins(shell: &ShellConfig, root: &str, wanted: &[String]) -> HashSet
 /// 30 秒ごとの usage ポーリングがこちらだけを更新し、少しあとで起動ボタンの側が同じ
 /// シェルをもう一度起こすことになる。まとめた意味はここで効く。
 ///
-/// **走っている probe は待たない**（`try_lock`）。防いでいるのは「同じ導入単位の
-/// エージェント検出が probe 中にここへ来る」ときの待ちで、呼び出し元の `resolve()` は
-/// グローバルのロックを握ったままここへ来るため、待つと**別プロジェクトの解決まで**
-/// 巻き添えになる。走っているのは同じ `-lic` なので、次のポーリング（30 秒後）には
-/// 答えが入っている。
+/// **走っている probe を待たないのは、前の答えを持っているときだけ**（`try_lock`）。
+/// 防いでいるのは「同じ導入単位のエージェント検出が probe 中にここへ来る」ときの待ちで、
+/// 呼び出し元の `resolve()` はグローバルのロックを握ったままここへ来るため、待つと
+/// **別プロジェクトの解決まで**巻き添えになる。走っているのは同じ `-lic` なので、
+/// 次のポーリング（30 秒後）には答えが入っている。
+///
+/// **一度も答えを持っていないときは待つ。** そこで `None` を返すと、`resolve()` が
+/// それを `RESOLVE_TTL`（5 分）、`rate.rs` は最大 1 時間覚えるので、**別アカウントの
+/// 残量をステータスバーが出す**（#225 が直した症状）。ウィンドウを開いた直後は
+/// エージェント検出と usage のポーリングが同じ tick で走るため、この競合は普通に起きる。
+/// 待つといっても相手は同じ `-lic` 1 本で、答えが入ったら即座に返る。
 ///
 /// **`resolve()` のロックそのものは直していない。** あちらはキーに関わらず 1 本なので、
 /// ここが自分で probe する場合（競合していないとき）は結局どのプロジェクトも待つ。
 /// 直すならあちらをキーごとのロックにする話で、この変更の範囲外。
 pub fn config_dir_env(shell: &ShellConfig) -> Option<String> {
     let entry = entry_for(shell);
-    let stale = {
+    let (stale, answered) = {
         let answer = entry.answer.lock().unwrap_or_else(|e| e.into_inner());
-        !is_fresh(&answer)
+        (!is_fresh(&answer), answer.at.is_some())
     };
     if stale {
-        if let Ok(_probing) = entry.probe.try_lock() {
+        let probing = if answered {
+            match entry.probe.try_lock() {
+                Ok(guard) => Some(guard),
+                Err(std::sync::TryLockError::Poisoned(e)) => Some(e.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) => None,
+            }
+        } else {
+            Some(entry.probe.lock().unwrap_or_else(|e| e.into_inner()))
+        };
+        if let Some(_probing) = probing {
             let asked: Vec<String> = {
                 let answer = entry.answer.lock().unwrap_or_else(|e| e.into_inner());
                 answer.asked.iter().cloned().collect()
