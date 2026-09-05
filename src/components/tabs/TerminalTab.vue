@@ -99,7 +99,7 @@ const statusMessage = useStatusMessageStore()
 const agentStore = useAgentStore()
 /** 既定の起動行。ボタン本体とメニューの第 1 階層はこれ。 */
 const defaultLauncher = computed(() => agentStore.launchers[0] ?? null)
-/** 既定以外。「他の起動行」のサブメニューに入る。 */
+/** 既定以外。「他のエージェント」のサブメニューに入る。 */
 const otherLaunchers = computed(() => agentStore.launchers.slice(1))
 /** 既定の行が出すコマンド（エージェントなら素の起動と「続きから」、カスタムなら 1 行）。 */
 const defaultLines = computed(() => (defaultLauncher.value ? launcherLines(defaultLauncher.value) : []))
@@ -1142,7 +1142,8 @@ onUnmounted(() => {
           </template>
           </div>
           <!--
-            既定以外の起動行（#275）。**スクロール領域の外に置く**（中に入れると
+            既定以外の起動行（#275。見出しは「他のエージェント」）。**スクロール領域の
+            外に置く**（中に入れると
             サブメニューがクリップされる）。**サブメニューは親の行の内側**なので、
             そちらへマウスを移しても `mouseleave` が発火しない（閉じるのを遅らせる
             タイマーが要らない）。左に出すのは、この親メニュー自体が画面の右上に出るため。
@@ -1154,7 +1155,7 @@ onUnmounted(() => {
             @mouseleave="agentSubOpen = false"
           >
             <ChevronLeft :size="12" :stroke-width="2" class="agent-menu-caret" />
-            <span class="agent-menu-label">{{ t('terminal.otherLaunchers') }}</span>
+            <span class="agent-menu-label">{{ t('terminal.otherAgents') }}</span>
             <div v-if="agentSubOpen" class="agent-menu agent-submenu popup-surface">
               <template v-for="(o, i) in otherLaunchers" :key="i">
                 <button

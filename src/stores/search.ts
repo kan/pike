@@ -2,8 +2,8 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { searchDetectBackend, searchExecute } from '../lib/tauri'
 import type { SearchBackendInfo, SearchMatch, SearchOptions } from '../types/search'
-import { shellId } from '../types/tab'
 import { useProjectStore } from './project'
+import { createShellProbe } from './shellProbe'
 
 /** 検出に失敗したときの想定。grep に PCRE2 は無い。 */
 const GREP_ONLY: SearchBackendInfo = {
@@ -13,8 +13,21 @@ const GREP_ONLY: SearchBackendInfo = {
 }
 
 export const useSearchStore = defineStore('search', () => {
-  const backendInfo = ref<SearchBackendInfo | null>(null)
-  const detecting = ref(false)
+  /**
+   * バックエンドを探すラッチ（仕組みは `stores/shellProbe.ts`）。**TTL は持たない**
+   * （シェルが変わるまで有効）。rg を入れ替える運用は無いので、聞き直す理由が無い。
+   *
+   * **失敗もそのまま覚える。** grep への落ちは「検出できなかった」ではなく答えそのもので、
+   * 覚えないと検索のたびに `wsl.exe` が 1 本上がる。
+   */
+  const backendProbe = createShellProbe<SearchBackendInfo>((shell) => searchDetectBackend(shell).catch(() => GREP_ONLY))
+  /**
+   * 今のシェルのバックエンド。**シェルごとの表を引く**ので、切り替えて probe が返るまでの
+   * あいだ前のシェルの答え（別 distro の rg の機能）が出ることはない。
+   */
+  const backendInfo = computed<SearchBackendInfo | null>(() =>
+    backendProbe.answerFor(useProjectStore().currentProject?.shell),
+  )
 
   /**
    * キーから「開いてフォーカスしろ」と言われた合図（#307）。`seed` は選択していた文字列。
@@ -54,40 +67,14 @@ export const useSearchStore = defineStore('search', () => {
 
   /**
    * 検出は**べき等**にしてある（#304）。バックエンドはシェルごとに違いうる（Windows は
-   * 同梱のサイドカー、WSL は distro のもの）ので、検出済みのシェルを覚えて、変わったときだけ
+   * 同梱のサイドカー、WSL は distro のもの）ので、シェルごとに覚えて、変わったときだけ
    * 取り直す。**呼ぶ側に「無効化」を持たせないため**で、以前はプロジェクトストアが
    * `resetBackend()` を呼ぶ約束になっていた。シェルを差し替える経路を足した人がそれを
    * 忘れると、別の distro の rg の機能でトグルが出たままになる。
    */
-  const detectedShell = ref<string | null>(null)
-
-  /**
-   * 走っている検出。**べき等のガードは結果が入ってからしか効かない**ので、これが無いと
-   * 同じ tick に 2 回頼まれたときに 2 回走る（パネルを開くと `detectBackend` と、seed 付きの
-   * 検索から呼ばれるものが重なる。WSL では `wsl.exe` が 2 本立つ）。
-   */
-  let inFlight: Promise<void> | null = null
-
   async function detectBackend(): Promise<void> {
-    const project = useProjectStore().currentProject
-    if (!project) return
-    const key = shellId(project.shell)
-    if (backendInfo.value && detectedShell.value === key) return
-    if (inFlight) return inFlight
-
-    detecting.value = true
-    inFlight = (async () => {
-      try {
-        backendInfo.value = await searchDetectBackend(project.shell)
-      } catch {
-        backendInfo.value = GREP_ONLY
-      } finally {
-        detectedShell.value = key
-        detecting.value = false
-        inFlight = null
-      }
-    })()
-    return inFlight
+    const projectStore = useProjectStore()
+    await backendProbe.ask(projectStore.currentProject?.shell, projectStore.activeRoot)
   }
 
   async function search(options: SearchOptions) {
@@ -128,7 +115,6 @@ export const useSearchStore = defineStore('search', () => {
     pendingOpen,
     requestOpen,
     resultsFor,
-    detecting,
     results,
     truncated,
     searching,

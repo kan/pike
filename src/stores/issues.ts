@@ -6,9 +6,9 @@ import { fuzzyMatch } from '../lib/paths'
 import { loadJson, saveJson } from '../lib/storage'
 import { issuesGhAvailable, issuesList } from '../lib/tauri'
 import type { IssueSummary } from '../types/issues'
-import { shellId } from '../types/tab'
 import { useGitStore } from './git'
 import { useProjectStore } from './project'
+import { createShellProbe } from './shellProbe'
 
 /**
  * 一度に取る件数。**GitHub の一覧の 1 ページと同じ量**にしてある。これを超える数の open
@@ -50,23 +50,25 @@ export const useIssuesStore = defineStore('issues', () => {
   const collapsed = ref<Set<number>>(new Set())
 
   /**
-   * `gh` が見つかったシェルのキー（null＝まだ見つかっていない）。**覚えるのは「見つかった」
-   * だけ**なので、真偽値と組にせずキー 1 本で足りる（見つからなかったほうを覚えると、
+   * `gh` を探すラッチ（仕組みは `stores/shellProbe.ts`）。
+   *
+   * **覚えるのは「見つかった」だけ**（`keep`）。見つからなかったほうを焼き付けると、
    * `PROBE_TIMEOUT` に届いた 1 回でパネルが消え、アイコンもパレットも出ないので更新ボタンに
-   * 手が届かなくなる）。
+   * 手が届かなくなる。見つかっていないあいだは watcher が発火するたび（プロジェクト切替・
+   * シェル変更）に聞き直すので、`gh` を入れれば次に切り替えたところで出てくる。
+   *
+   * **TTL は持たない**（シェルが変わるまで有効）。`gh` を消す運用は無いので、見つかった
+   * 答えを聞き直す理由が無い。
    */
-  const ghShell = ref<string | null>(null)
-  /** 走っている検出のシェル。**キーで持つ**（真偽値だと下の乗り換えを判定できない）。 */
-  let detectingShell: string | null = null
+  const ghProbe = createShellProbe<boolean>((shell, root, force) => issuesGhAvailable(shell, root, force), {
+    keep: (found) => found,
+  })
   /** 1 度でも一覧を取ったか。時刻は誰も読まないので真偽値で足りる。 */
   let loaded = false
   let seq = 0
 
-  /** 今のプロジェクトのシェルのキー。検出のラッチと突き合わせる。 */
-  const shellKey = computed(() => {
-    const shell = useProjectStore().currentProject?.shell
-    return shell ? shellId(shell) : null
-  })
+  /** 今のプロジェクトのシェル。検出のラッチを引くキー。 */
+  const currentShell = computed(() => useProjectStore().currentProject?.shell ?? null)
 
   /**
    * origin が GitHub か。**判定は `buildRepoLink` に任せる**（`lib/gitRemote.ts` が
@@ -81,9 +83,9 @@ export const useIssuesStore = defineStore('issues', () => {
 
   const isGitHub = computed(() => repoLink.value?.provider === 'github')
 
-  /** **今のシェルで**見つかっているか。キーを突き合わせないと、シェルを切り替えて probe が
-   *  返るまでのあいだ前のシェルの答えが `visible` に出る。 */
-  const ghAvailable = computed(() => ghShell.value !== null && ghShell.value === shellKey.value)
+  /** **今のシェルで**見つかっているか。シェルごとの表を引くので、切り替えて probe が
+   *  返るまでのあいだ前のシェルの答えが `visible` に出ることはない。 */
+  const ghAvailable = computed(() => ghProbe.answerFor(currentShell.value) === true)
   const visible = computed(() => isGitHub.value && ghAvailable.value)
 
   /**
@@ -142,41 +144,12 @@ export const useIssuesStore = defineStore('issues', () => {
   }
 
   /**
-   * `gh` を探す。**べき等**（`search` の `detectBackend` と同じ形）で、シェルが変わったときだけ
-   * 取り直す。呼ぶ側に「無効化」を持たせると、シェルを差し替える経路を足した人が忘れる。
-   *
-   * **走っている検出はシェルのキーで見張る。** 真偽値のガードだと、A の probe（最長 10 秒）の
-   * 最中に B へ切り替えたとき、B の watcher が A の Promise を待ったうえで A の答えを B の
-   * キーで焼き込む。以後 B は一度も probe されない（`gh` があるのに出ない、が自己回復しない）。
-   *
-   * **同じシェルの probe が走っていたら何もしない**（待ちもしない）。`force` が飛ばすのは
-   * ラッチだけで、走っているものへの相乗りはしない。
-   *
-   * **ラッチするのは「見つかった」だけ。** 見つからなかったほうを覚えると、`PROBE_TIMEOUT` に
-   * 届いた 1 回でパネルが消え、アイコンもパレットも出ないので更新ボタンに手が届かなくなる。
-   * 見つかっていないあいだは watcher が発火するたび（プロジェクト切替・シェル変更）に
-   * 聞き直すので、`gh` を入れれば次に切り替えたところで出てくる。
+   * `gh` を探す。**べき等**なので、呼ぶ側に「無効化」を持たせない（シェルを差し替える
+   * 経路を足した人が忘れる）。ラッチの規約は `ghProbe` の宣言と `stores/shellProbe.ts`。
    */
   async function detect(force = false): Promise<void> {
     const projectStore = useProjectStore()
-    const project = projectStore.currentProject
-    if (!project) return
-    const key = shellId(project.shell)
-    if (detectingShell === key) return
-    if (!force && ghShell.value === key) return
-
-    detectingShell = key
-    const root = projectStore.activeRoot
-    let found = false
-    try {
-      found = await issuesGhAvailable(project.shell, root, force)
-    } catch {
-      found = false
-    }
-    // 待っているあいだに別のシェルへ乗り換えていたら、この答えはもう誰のものでもない。
-    if (detectingShell !== key) return
-    detectingShell = null
-    ghShell.value = found ? key : null
+    await ghProbe.ask(projectStore.currentProject?.shell, projectStore.activeRoot, force)
   }
 
   /**
@@ -264,7 +237,7 @@ export const useIssuesStore = defineStore('issues', () => {
    * 何枚開いても実際に走るのは 1 回。
    */
   watch(
-    [isGitHub, shellKey],
+    [isGitHub, currentShell],
     ([github]) => {
       if (github) void detect()
     },

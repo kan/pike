@@ -215,7 +215,7 @@ export default {
   'terminal.agentLaunch': 'Launch coding agent',
   'terminal.promptInject': 'Insert a saved prompt',
   'terminal.injectNoTarget': 'No terminal to send to',
-  'terminal.otherLaunchers': 'Other launchers',
+  'terminal.otherAgents': 'Other agents',
   'terminal.claudeSessions': 'Recent Claude sessions',
   'terminal.noClaudeSessions': 'No sessions to resume',
 
@@ -272,7 +272,7 @@ export default {
   'settings.rightClickPaste': 'Right Click Paste',
   'settings.agentLaunchers': 'Agent Launchers',
   'settings.agentLaunchersHint':
-    'What the terminal launcher offers, in order. The first usable entry is the default — the button runs that — and the rest go under "Other launchers" in the menu. Claude Code, Codex, Copilot CLI and opencode are usable when installed; ones that are missing stay out of the menu even when visible here. Use "Add launcher" for your own command (e.g. claude --model opus).',
+    'What the terminal launcher offers, in order. The first usable entry is the default — the button runs that — and the rest go under "Other agents" in the menu. Claude Code, Codex, Copilot CLI and opencode are usable when installed; ones that are missing stay out of the menu even when visible here. Use "Add launcher" for your own command (e.g. claude --model opus).',
   'settings.agentCommandLabel': 'Label',
   'settings.agentCommandCommand': 'Command',
   'settings.addAgentLauncher': 'Add launcher',

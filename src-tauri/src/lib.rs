@@ -51,6 +51,7 @@ mod pty;
 mod remote_image;
 mod search;
 mod settings_sync;
+mod shell_probe;
 mod tasks;
 mod tray;
 mod types;
@@ -1375,7 +1376,6 @@ pub fn run() {
                 )),
             });
             app.manage(issues::IssuesState::default());
-            app.manage(agents::AgentState::default());
 
             // Parse initial CLI args and store for frontend to retrieve
             let args: Vec<String> = std::env::args().collect();

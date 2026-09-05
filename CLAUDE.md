@@ -113,6 +113,7 @@ pike/
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
 │       ├── page_title.rs      # 貼り付けた URL のページタイトル取得（Markdown リンク、#241）
 │       ├── remote_image.rs    # 承認済みホストの画像取得（Markdown プレビュー、#239）
+│       ├── shell_probe.rs     # シェルに PATH と環境変数を 1 回で聞く共有部（#275）
 │       ├── settings_sync.rs   # 設定・プロジェクト一覧の同期ファイル読み書き（#164）
 │       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）
 │       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）
@@ -208,6 +209,7 @@ pike/
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
 │   │   ├── diagnostics.ts  issues.ts
 │   │   ├── agents.ts          # 使えるエージェントの検出（シェル単位、#275）
+│   │   ├── shellProbe.ts      # 「シェルごとに 1 回だけ聞いて覚える」の共通部（#275）
 │   │   ├── usageStore.ts      # createUsageStore ファクトリ（ポーリング基盤）
 │   │   ├── claudeUsage.ts  claudeRate.ts  codexUsage.ts  # トークン使用量・レート
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）

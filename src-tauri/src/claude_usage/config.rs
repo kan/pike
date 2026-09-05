@@ -18,7 +18,6 @@
 
 use crate::types::{
     install_key, wsl_home_cached, wsl_home_subdir_cached, wsl_native_to_unc, ShellConfig,
-    LOGIN_PROBE_TIMEOUT,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -110,15 +109,6 @@ fn plan_label(a: &OauthAccount) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
-/// マーカー行の値だけ拾う。対話 bash は `.bashrc` のバナーを stdout に出すことがあるので、
-/// 行の位置ではなく接頭辞で選ぶ（実測でこのマシンの `.bashrc` は `git status` の結果を出す）。
-fn marker_value(stdout: &str, tag: &str) -> Option<String> {
-    crate::types::marker_values(stdout, tag).into_iter().next()
-}
-
-/// キー＝インストール、値＝(引いた時刻, 環境変数の値)。
-type EnvCache = Mutex<HashMap<String, (Instant, Option<String>)>>;
-
 /// シェルが持っている `CLAUDE_CONFIG_DIR`。
 ///
 /// WSL は **対話ログインシェル（`-lic`）で** 引く。Ubuntu の `.bashrc` は先頭で
@@ -126,41 +116,20 @@ type EnvCache = Mutex<HashMap<String, (Instant, Option<String>)>>;
 /// Pike のターミナルは対話シェルなので、そちらに合わせないと「端末の claude と
 /// Pike の集計で別のアカウントを見る」ことになる。
 ///
-/// 起こし方の契約（`unset HISTFILE`・終了コードを見ない・どのシェルを `-lic` で起こすか）は
-/// `ShellConfig::run_login_script` が持つ。**同じ問い方をする 2 つ目**（`agents.rs` の
-/// エージェント検出）ができたときに、あちらへ上げた。
-///
-/// 値は rc ファイル由来なのでプロジェクトではなく**インストール単位**。ウィンドウを
-/// 何枚開いていても distro につき 1 回で足りる。ロックはプローブ中も持ったままにして、
-/// 同時に期限切れになった呼び出し（usage と rate は同じ tick で走る）が二重に
-/// シェルを起動しないようにする。
+/// **問い方もキャッシュも `shell_probe.rs` の担当**（#275 の宿題 3）。あちらは同じ
+/// `-lic` の中でエージェントの `bin` も探すので、**同じ distro に対話ログインシェルが
+/// 2 本上がらない**。値は rc ファイル由来なのでプロジェクトではなく**インストール単位**で、
+/// ウィンドウを何枚開いていても distro につき 1 回で足りる。
 fn shell_env_value(shell: &ShellConfig) -> Option<String> {
     let ShellConfig::Wsl { .. } = shell else {
         // Windows シェルは Pike のプロセス環境をそのまま見る（cmd / Git Bash は起動時に
         // 継承するので同じ値）。PowerShell のプロファイルの中だけで設定した場合は拾えない。
+        // macOS のローカルシェルもここへ落ちる（`.claude/rules/platform.md`）。
         return std::env::var("CLAUDE_CONFIG_DIR")
             .ok()
             .filter(|v| !v.is_empty());
     };
-
-    static CACHE: OnceLock<EnvCache> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let key = install_key(shell);
-    let mut map = cache.lock().ok()?;
-    if let Some((at, value)) = map.get(&key) {
-        if at.elapsed() < RESOLVE_TTL {
-            return value.clone();
-        }
-    }
-    // `unset HISTFILE` と「終了コードを見ない」は `run_login_script` の担当（あちらの doc）。
-    let value = shell
-        .run_login_script(
-            "printf 'PIKEENV\\t%s\\n' \"$CLAUDE_CONFIG_DIR\"",
-            LOGIN_PROBE_TIMEOUT,
-        )
-        .and_then(|stdout| marker_value(&stdout, "PIKEENV"));
-    map.insert(key, (Instant::now(), value.clone()));
-    value
+    crate::shell_probe::config_dir_env(shell)
 }
 
 /// `.envrc` から `export CLAUDE_CONFIG_DIR=<値>` の右辺を取り出す。行末コメントは扱わない
@@ -314,7 +283,7 @@ fn read_account(dir: &Path, overridden: bool) -> Option<ClaudeAccount> {
 
 #[cfg(test)]
 mod tests {
-    use super::{envrc_value, expand_value, marker_value, ClaudeAccount, ClaudeJson};
+    use super::{envrc_value, expand_value, ClaudeAccount, ClaudeJson};
 
     /// `.claude.json` の `oauthAccount` の実際のキー名（実ファイルから抜粋）。
     /// フィールド名と綴りが違うものがあるので、対応が崩れたら気付けるようにする。
@@ -385,20 +354,9 @@ mod tests {
         assert!(parsed.oauth_account.is_none());
     }
 
-    #[test]
-    fn picks_marker_line_amid_banner_noise() {
-        let out = "Welcome to Ubuntu\nPIKEENV\t/home/kan/.cc-work\nsome banner\n";
-        assert_eq!(
-            marker_value(out, "PIKEENV").as_deref(),
-            Some("/home/kan/.cc-work")
-        );
-    }
-
-    #[test]
-    fn empty_marker_value_is_none() {
-        assert_eq!(marker_value("PIKEENV\t\n", "PIKEENV"), None);
-        assert_eq!(marker_value("banner only\n", "PIKEENV"), None);
-    }
+    // マーカー行の拾い方（バナー混じり・空の値）は `types.rs` の `marker_values` の
+    // テストが持つ。この 2 つはそこを薄く包んだ関数を試すだけだったので、
+    // `shell_probe.rs` へ問い方ごと移したときに落とした。
 
     #[test]
     fn extracts_and_expands_envrc_value() {

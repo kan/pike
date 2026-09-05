@@ -215,7 +215,7 @@ export default {
   'terminal.agentLaunch': 'コーディングエージェントを起動',
   'terminal.promptInject': '保存したプロンプトを挿入',
   'terminal.injectNoTarget': '送信先のターミナルがありません',
-  'terminal.otherLaunchers': '他の起動行',
+  'terminal.otherAgents': '他のエージェント',
   'terminal.claudeSessions': '最近の Claude セッション',
   'terminal.noClaudeSessions': '再開できるセッションがありません',
 
@@ -272,7 +272,7 @@ export default {
   'settings.rightClickPaste': '右クリックで貼り付け',
   'settings.agentLaunchers': 'エージェントの起動行',
   'settings.agentLaunchersHint':
-    'ターミナルの起動ボタンに出る行と、その並び順。上から見て最初に使える行が既定になり、ボタンを押すとそれが起動します。残りはメニューの「他の起動行」に入ります。Claude Code・Codex・Copilot CLI・opencode はインストールされていれば使え、入っていなければ表示にしていてもメニューに出ません。「起動行を追加」で自分のコマンドを足せます（例: claude --model opus）。',
+    'ターミナルの起動ボタンに出る行と、その並び順。上から見て最初に使える行が既定になり、ボタンを押すとそれが起動します。残りはメニューの「他のエージェント」に入ります。Claude Code・Codex・Copilot CLI・opencode はインストールされていれば使え、入っていなければ表示にしていてもメニューに出ません。「起動行を追加」で自分のコマンドを足せます（例: claude --model opus）。',
   'settings.agentCommandLabel': 'ラベル',
   'settings.agentCommandCommand': 'コマンド',
   'settings.addAgentLauncher': '起動行を追加',

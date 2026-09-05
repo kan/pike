@@ -25,6 +25,15 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// キーが**シェルの導入単位**なのは、WSL プロジェクトが見るのは distro の中の `gh`、
 /// Windows プロジェクトが見るのはホストのそれ、と答えが変わるため。**集合なのは
 /// 「見つかった」しか覚えないから**（理由は `issues_gh_available`）。
+///
+/// **`shell_probe.rs` には畳んでいない**（#275 の宿題 3）。あちらがまとめているのは
+/// 対話ログインシェルを起こす問いで、費用は rc の評価にある。`gh --version` は
+/// `run_shell_line`（非対話・PATH を前置するだけ）なので、同じ起動に相乗りする理由が無い。
+///
+/// **ただしロックの粒度はあちらのほうが良い。** ここは probe のあいだ 1 本のロックを
+/// 握ったままなので、冷えた distro の `gh` を待つあいだ**別の導入単位の問い合わせも
+/// 止まる**（最長 `PROBE_TIMEOUT`）。`shell_probe::Entry` はキーごとに分けたうえ、
+/// 答えのロックと probe のロックも分けてある。直すならその形を写す（#275 に宿題として記録）。
 #[derive(Default)]
 pub struct IssuesState {
     pub gh: Arc<Mutex<HashSet<String>>>,

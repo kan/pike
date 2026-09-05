@@ -7,12 +7,11 @@
  * タスク実行・`docker compose up`・git の続行でも開くので、タブごとに聞くと IPC がその数
  * だけ飛ぶ。
  *
- * **1 枠ではなくシェルごとの表にする。** 1 枠だと、同じウィンドウで WSL のタブと
- * PowerShell のタブを行き来するだけで（どちらも検出済みでも）毎回聞き直し、`launchers` が
- * 「どのシェルの答えか」を知らないまま入れ替わる。表にしておけば、プロジェクトを
- * 切り替えたときに捨てる必要も無い（シェルが変われば別のキーを引くだけ）。
+ * ラッチの仕組み（キーごとの表・走っている問い合わせの合流・キーが変わったときの扱い）は
+ * `stores/shellProbe.ts` が持つ。ここに残るのは**何を聞くか**と、**今どのシェルのタブを
+ * 見ているか**だけ。
  *
- * TTL の役割は Rust と分かれている: 向こう（`DETECT_TTL`）は**プロセスを起こさない**ため、
+ * TTL の役割は Rust と分かれている: 向こう（`PROBE_TTL`）は**プロセスを起こさない**ため、
  * こちら（`ASK_TTL`）は**IPC を投げない**ため。空の答えを永久にラッチすると、エージェントを
  * 入れても向こうの TTL に到達する機会そのものが消える。
  */
@@ -21,30 +20,29 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { AGENTS, type AgentLauncher, isLauncherVisible } from '../lib/agents'
 import { agentDetect } from '../lib/tauri'
-import { type ShellType, shellId } from '../types/tab'
+import type { ShellType } from '../types/tab'
 import { useSettingsStore } from './settings'
+import { createShellProbe } from './shellProbe'
 
-/** 同じシェルを聞き直すまでの間隔。Rust 側の `DETECT_TTL` と同じ長さ。 */
+/** 同じシェルを聞き直すまでの間隔。Rust 側の `PROBE_TTL` と同じ長さ。 */
 const ASK_TTL = 300_000
-
-interface Answer {
-  bins: string[]
-  at: number
-}
 
 export const useAgentStore = defineStore('agents', () => {
   const settings = useSettingsStore()
-  /** シェルの id → 見つかった `bin` 名。 */
-  const answers = ref<Record<string, Answer>>({})
-  /** いま見ているタブのシェル。`launchers`はこのキーの答えを読む。 */
-  const currentShell = ref<string | null>(null)
-  /** 走っている検出（キーごと）。同じシェルへの重複した問い合わせを 1 本に畳む。 */
-  const inFlight = new Map<string, Promise<void>>()
+  const probe = createShellProbe<string[]>(
+    (shell, root) =>
+      agentDetect(
+        shell,
+        root,
+        AGENTS.map((a) => a.bin),
+      ).catch(() => [] as string[]),
+    { ttl: ASK_TTL },
+  )
+  /** いま見ているタブのシェル。`launchers` はこのシェルの答えを読む。 */
+  const currentShell = ref<ShellType | null>(null)
 
   /** 表にあるエージェントのうち、今のシェルで見つかった `bin`。 */
-  const detectedBins = computed<string[]>(() =>
-    currentShell.value ? (answers.value[currentShell.value]?.bins ?? []) : [],
-  )
+  const detectedBins = computed<string[]>(() => probe.answerFor(currentShell.value) ?? [])
 
   /**
    * 起動メニューに出す行。**設定の並び順**（`agentLaunchers`）で、隠したものを除き、
@@ -61,8 +59,8 @@ export const useAgentStore = defineStore('agents', () => {
   /**
    * 使えるエージェントを調べ、そのシェルを「今見ているもの」にする。
    *
-   * **べき等**（`stores/search.ts` の `detectedShell` と同じ規約）。TTL 内の答えがあれば
-   * IPC も飛ばさないので、タブが見えるたびに呼んでよい。
+   * **べき等**（`shellProbe` の規約）。TTL 内の答えがあれば IPC も飛ばさないので、タブが
+   * 見えるたびに呼んでよい。
    *
    * **`root` は空でもよい。** POSIX 側の probe は使わず、Windows 側でも cwd にしか
    * 使わない（Rust 側が空なら現在地に落とす）。グローバルモードのウィンドウは
@@ -70,26 +68,8 @@ export const useAgentStore = defineStore('agents', () => {
    */
   async function detect(shell: ShellType | undefined, root: string): Promise<void> {
     if (!shell) return
-    const key = shellId(shell)
-    currentShell.value = key
-    const known = answers.value[key]
-    if (known && Date.now() - known.at < ASK_TTL) return
-    const running = inFlight.get(key)
-    if (running) return running
-    const promise = (async () => {
-      const bins = await agentDetect(
-        shell,
-        root,
-        AGENTS.map((a) => a.bin),
-      ).catch(() => [] as string[])
-      answers.value[key] = { bins, at: Date.now() }
-    })()
-    inFlight.set(key, promise)
-    try {
-      await promise
-    } finally {
-      inFlight.delete(key)
-    }
+    currentShell.value = shell
+    await probe.ask(shell, root)
   }
 
   return { detectedBins, launchers, detect }
