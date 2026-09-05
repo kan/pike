@@ -172,7 +172,7 @@ fn run_usage_cli(
     }
 }
 
-fn get_rate_limits(
+pub(crate) fn get_rate_limits(
     shell: &ShellConfig,
     project_root: &str,
     session_active: bool,
@@ -222,23 +222,59 @@ fn get_rate_limits(
     result
 }
 
-#[tauri::command]
-pub async fn claude_usage_rate_get(
-    shell: ShellConfig,
-    project_root: String,
+// レートを IPC で出す口は `agent_usage` に一本化した（#263）。**`session_active` を
+// 呼び出し側から渡す配線も消えた**: あちらは同じ 1 回で usage も集めるので、自分で分かる。
+
+/// 走っている取得（`fetch_rate_soon` が起こしたもの）。二重に起こさないための印。
+fn refreshing() -> &'static std::sync::atomic::AtomicBool {
+    static FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    &FLAG
+}
+
+/// **待たずに**今の値を返し、古ければ裏で取り直す（#263）。
+///
+/// `agent_usage` は usage とレートを 1 回で返すので、ここで待つと**ディスクを読むだけの
+/// トークン集計まで CLI の 90 秒に付き合わされる**。しかも `createUsageStore` は取得中の
+/// tick を捨てるので、その間ステータスバーの数字と「実行中」の表示が丸ごと止まる
+/// （2 つのストアに分けていたころは、安いほうが動き続けていた）。
+///
+/// 取りこぼしは無い: 裏の取得が終われば次の 30 秒の tick が新しい値を拾う。**最初の 1 回は
+/// 空**になるが、それはストアを分けていたころのレートの初期状態と同じ。
+///
+/// `force`（更新ボタン）だけは待つ。押した人は結果を見に来ているし、そこで空を返すと
+/// 「押しても何も起きない」になる。
+pub(crate) fn get_rate_limits_soon(
+    shell: &ShellConfig,
+    project_root: &str,
     session_active: bool,
     force: bool,
-) -> Result<ClaudeRateLimits, String> {
-    tokio::task::spawn_blocking(move || {
-        Ok(get_rate_limits(
-            &shell,
-            &project_root,
-            session_active,
-            force,
-        ))
-    })
-    .await
-    .map_err(|e| e.to_string())?
+) -> ClaudeRateLimits {
+    if force {
+        return get_rate_limits(shell, project_root, session_active, true);
+    }
+    let config_dir = super::config::resolve(shell, project_root).native_override;
+    let key = cache_key(shell, config_dir.as_deref());
+    let cached = cache().lock().unwrap().get(&key).cloned();
+    let stale = cached
+        .as_ref()
+        .map_or(true, |entry| needs_fetch(entry, session_active));
+
+    if stale {
+        use std::sync::atomic::Ordering;
+        // 既に走っていれば足さない（`fetch_lock` でも直列化されるが、待つスレッドを
+        // 積み上げない）。
+        if refreshing()
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            let (shell, root) = (shell.clone(), project_root.to_string());
+            std::thread::spawn(move || {
+                get_rate_limits(&shell, &root, session_active, false);
+                refreshing().store(false, Ordering::SeqCst);
+            });
+        }
+    }
+    cached.map(|c| c.data).unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -134,11 +134,7 @@ export async function setFakeProject(opts?: { remoteUrl?: string }): Promise<voi
 
 // エージェント状態タブを開く。集計は 30 秒ポーリング + 外部 CLI 依存なので、
 // invoke は待たずにストアへ決定的な値を差す。
-export async function openAgentStatus(opts: {
-  claudeUsage?: unknown
-  claudeRate?: unknown
-  codexUsage?: unknown
-}): Promise<void> {
+export async function openAgentStatus(opts: Record<string, unknown>): Promise<void> {
   await browser.execute((o) => {
     ;(
       window as unknown as { __pikeE2E?: { openAgentStatus?: (o: unknown) => void } }

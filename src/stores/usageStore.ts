@@ -14,14 +14,6 @@ import { useProjectStore } from './project'
 export function createUsageStore<T extends { active: boolean }>(
   id: string,
   fetcher: (shell: ShellType, projectRoot: string, force?: boolean) => Promise<T>,
-  /**
-   * 結果が参照ルートに依存するか（既定は true）。`true` なら worktree / プロジェクトの
-   * 切り替えで取り直し、取得中に変わった結果は捨てる。**レートだけが `false`**: あれは
-   * アカウント単位で、`project_root` はコマンドを流すシェルを選ぶためにしか使わないので、
-   * 同じプロジェクトのどの worktree でも答えは変わらない。切り替えのたびに `claude -p
-   * "/usage"` を捨てて取り直す理由がない。
-   */
-  rootScoped = true,
 ) {
   return defineStore(id, () => {
     const usage = ref<T | null>(null) as Ref<T | null>
@@ -56,7 +48,7 @@ export function createUsageStore<T extends { active: boolean }>(
           // 取得中に参照先が変わったら、この結果は前の root のものなので捨てて取り直す。
           // 切り替え側から来る refresh は `refreshGuard` に弾かれているので、ここで
           // 拾わないと次のポーリングまで前の数字が残る。
-          if (rootScoped && projectStore.activeRoot !== root) continue
+          if (projectStore.activeRoot !== root) continue
           if (usage.value && JSON.stringify(usage.value) === JSON.stringify(result)) return
           usage.value = result
           return
@@ -73,12 +65,10 @@ export function createUsageStore<T extends { active: boolean }>(
     // worktree の切り替えが 2 つの store を名指しで叩いていて、「どの usage が root に
     // 依存するか」の知識があちらとここに二重にあった。ここに置けば、store を増やしても
     // 追従は付いてくる。
-    if (rootScoped) {
-      watch(
-        () => useProjectStore().activeRoot,
-        () => void refreshUsage(),
-      )
-    }
+    watch(
+      () => useProjectStore().activeRoot,
+      () => void refreshUsage(),
+    )
 
     const polling = useFocusPolling([{ every: 30_000, tick: () => refreshUsage() }])
 

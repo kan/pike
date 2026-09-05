@@ -15,7 +15,8 @@ use std::time::{Duration, Instant, SystemTime};
 /// so recent file mtime is the only practical liveness signal. Sized to span a
 /// single long reasoning turn (Codex only writes a token_count at turn
 /// boundaries), so the display doesn't flicker off mid-turn.
-const ACTIVE_WINDOW_SECS: u64 = 300;
+/// **定義は `agent_usage` に上げた**（#263。4 つのアダプタで同じ長さを使う）。
+use crate::agent_usage::{ACTIVE_WINDOW_SECS, RECENT_WINDOW_SECS};
 
 /// How many of the most recent day-directories (`sessions/YYYY/MM/DD`) to scan.
 /// A rollout lives in the day-dir of the session's *start* date, so a session
@@ -23,12 +24,6 @@ const ACTIVE_WINDOW_SECS: u64 = 300;
 /// generous window keeps such long-lived sessions visible while still bounding
 /// the walk (each file is only `stat`-ed, then mtime-filtered).
 const SCAN_DAY_DIRS: usize = 14;
-
-/// 集計に含めるロールアウトの新しさ。`ACTIVE_WINDOW_SECS` は「今動いているか」の
-/// 判定用で、こちらは「最近このプロジェクトでどれだけ使ったか」の範囲（#226）。
-/// 分けないと、5 分前に終わった作業が状態画面から丸ごと消える（Claude の plugin
-/// 経由で使った直後でも「記録はありません」になっていた）。
-const RECENT_WINDOW_SECS: u64 = 24 * 60 * 60;
 
 /// アカウント情報の読み直し間隔。ログインし直したときしか変わらない。
 const ACCOUNT_TTL: Duration = Duration::from_secs(300);
@@ -405,7 +400,7 @@ fn parse_session(path: &Path) -> Option<SessionAgg> {
     })
 }
 
-fn get_usage_for_project(
+pub(crate) fn get_usage_for_project(
     shell: &ShellConfig,
     project_root: &str,
 ) -> Result<CodexUsageResult, String> {
@@ -516,12 +511,4 @@ fn get_usage_for_project(
     })
 }
 
-#[tauri::command]
-pub async fn codex_usage_get(
-    shell: ShellConfig,
-    project_root: String,
-) -> Result<CodexUsageResult, String> {
-    tokio::task::spawn_blocking(move || get_usage_for_project(&shell, &project_root))
-        .await
-        .map_err(|e| e.to_string())?
-}
+// 集計を IPC で出す口は `agent_usage` に一本化した（#263）。

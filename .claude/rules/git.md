@@ -149,7 +149,7 @@
 - **走っているターミナルの基準は動かさない**: ドロップの相対パスはそのタブを開いた cwd を基準にする。ここで `activeRoot` を読み直すと、あとから worktree を切り替えたときに、走っているシェルへ届かないパスを送る
   - **`saveUploadFile` の置き場も同じ理由で呼び出し側が決める**（`root` 引数）。ターミナルはそのタブを開いた cwd。ここだけ `activeRoot` にすると、切り替え前から開いているタブに貼ったファイルが、そのタブからは見えない場所に置かれる。**ターミナルはシェルの現在地（OSC 7）を使わない**: `cd` するたびにその先へ `.pike/` を作ることになり、置き場がリポジトリ内に散らばる
   - `.pike/` を作る側は **`lib/pikeDir.ts` の `ensurePikeDir`** を通す（`.gitignore` の設置込み）。以前はアップロードと TODO パネルが同じ手順を別々に持っていて、「1 度だけ」の記憶をどちらもディレクトリ単位に変えたときに完全な複製になった
-  - **usage の追従は `createUsageStore` が持つ**（`rootScoped`、既定 true）。工場側で `activeRoot` を watch し、取得中に root が変わったら結果を捨てて取り直す（`refreshGuard` は取得のあいだ立ちっぱなしなので、切り替え側から叩いても弾かれる）。**切り替え側から名指しで叩かないこと**: 「どの usage が root に依存するか」の知識が 2 箇所に分かれ、store を増やしたときに片方だけ漏れる。レートは `rootScoped: false`（アカウント単位で、`project_root` はシェルを選ぶためにしか使わない）
+  - **usage の追従は `createUsageStore` が持つ**。工場側で `activeRoot` を watch し、取得中に root が変わったら結果を捨てて取り直す（`refreshGuard` は取得のあいだ立ちっぱなしなので、切り替え側から叩いても弾かれる）。**切り替え側から名指しで叩かないこと**: 「どの usage が root に依存するか」の知識が 2 箇所に分かれ、store を増やしたときに片方だけ漏れる。以前あった「レートだけ追従しない」の例外は、#263 で usage とレートを 1 回にまとめたときに消えた（取り直しても Rust のキャッシュが返す）
 - **追従させないもの**: worktree 一覧の取得（`gitWorktreeList` は main から引く）と `git.ts` の remoteUrl 記録（main のときだけ書く、が仕様）
 - `stores/worktree.ts`: worktree 一覧・`setActiveWorktree(w)`（`isMain` フラグで null/パスを決定。文字列一致に依存しない）・focus 連動ポーリング（`gitStore.status` が非 null の git リポジトリのみ。同一ウィンドウ内ターミナルでの `git worktree add` を反映、古い load 結果は projectId で stale ガード）
 - ステータスバーの worktree セレクタ（`FolderGit2`、worktree が 2 つ以上の時のみ表示）。選択で 5 パネル + エディタを再読込

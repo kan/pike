@@ -17,15 +17,14 @@ import { type FsChangeEntry, fsWatcher, isRecentlySaved } from './composables/us
 import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import { ptyRouter } from './composables/usePtyRouter'
 import { useI18n } from './i18n'
+import { AGENTS } from './lib/agents'
 import { clearAliasCache } from './lib/jumpTo/resolveImport'
 import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { resolveNotifier } from './lib/notify'
 import { normalizeSep } from './lib/paths'
 import { isElevated, projectForWindow, traySetCloseToTray, windowCloseQuitsApp, windowSetBackdrop } from './lib/tauri'
 import { elevated, ephemeralWindow, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
-import { useClaudeRateStore } from './stores/claudeRate'
-import { useClaudeUsageStore } from './stores/claudeUsage'
-import { useCodexUsageStore } from './stores/codexUsage'
+import { useAgentUsageStore } from './stores/agentUsage'
 import { useDiagnosticsStore } from './stores/diagnostics'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
@@ -40,9 +39,8 @@ const projectStore = useProjectStore()
 const tabStore = useTabStore()
 const gitStore = useGitStore()
 const worktreeStore = useWorktreeStore()
-const claudeUsageStore = useClaudeUsageStore()
-const claudeRateStore = useClaudeRateStore()
-const codexUsageStore = useCodexUsageStore()
+/** 使用量のポーリングは**表 1 行につき 1 本**（#263）。増やしてもここは触らない。 */
+const agentUsageStores = AGENTS.map((a) => useAgentUsageStore(a.id))
 const diagStore = useDiagnosticsStore()
 const settingsStore = useSettingsStore()
 
@@ -128,16 +126,12 @@ watch(
     if (id) {
       gitStore.startPolling()
       worktreeStore.startPolling()
-      claudeUsageStore.startPolling()
-      claudeRateStore.startPolling()
-      codexUsageStore.startPolling()
+      for (const s of agentUsageStores) s.startPolling()
     } else {
       gitStore.stopPolling()
       worktreeStore.stopPolling()
       worktreeStore.reset()
-      claudeUsageStore.stopPolling()
-      claudeRateStore.stopPolling()
-      codexUsageStore.stopPolling()
+      for (const s of agentUsageStores) s.stopPolling()
     }
   },
 )

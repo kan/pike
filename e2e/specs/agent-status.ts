@@ -1,71 +1,118 @@
 import { MATRIX, openAgentStatus, prepare, setFakeProject, shoot } from '../support/prepare'
 
-// Claude と Codex の 2 カードを 1 画面に収めるため、既定より縦を取る（layout.ts と同じ）。
+// カードを 1 画面に収めるため、既定より縦を取る（layout.ts と同じ）。
 const FULL = { width: 1600, height: 1260 }
 
-// エージェント状態タブ（#226）を撮影する。
-// 集計は 30 秒ポーリング + 外部 CLI（`claude -p "/usage"` / `~/.codex` の走査）に
-// 依存するので、invoke は待たずにストアへ決定的な値を直接差す（agent.ts と同じ方針）。
+// エージェント状態タブ（#226 / #263）を撮影する。
+// 集計は 30 秒ポーリング + 外部 CLI（`claude -p "/usage"` / `~/.codex` の走査 /
+// `opencode db`）に依存するので、invoke は待たずにストアへ決定的な値を直接差す。
+//
+// **形は `AgentUsage` 1 つ**（#263 でアダプタに分けたので、種別ごとの型はもう無い）。
+// 4 つで取れるものが揃わないことを撮るために、**わざと違う埋まり方**にしてある:
+// Claude はモデル別＋利用率、Codex は合計＋利用率、Copilot は premium request だけ、
+// opencode はトークンと費用だけ。
 
-const CLAUDE_USAGE = {
+const CLAUDE = {
+  id: 'claude',
   active: true,
-  sessionId: 'sess-1',
-  startedAt: null,
-  models: [
+  account: { email: 'dev@example.com', plan: 'claude_max_20x', organization: 'Example Inc' },
+  meters: [
+    { kind: 'session' as const, label: 'session', usedPercent: 34, resetsAt: 'Aug 13, 2:50am (Asia/Tokyo)' },
+    { kind: 'weekAll' as const, label: 'week (all models)', usedPercent: 61, resetsAt: 'Aug 16, 6pm (Asia/Tokyo)' },
+  ],
+  total: {
+    label: null,
+    input: 6_060,
+    output: 351_830,
+    cacheRead: 12_484_000,
+    cacheWrite: 214_200,
+    reasoning: 0,
+    costUsd: 18.73,
+  },
+  rows: [
     {
-      model: 'claude-opus-5',
-      inputTokens: 4_820,
-      outputTokens: 341_960,
-      cacheReadTokens: 12_400_000,
-      cacheCreationTokens: 208_000,
+      label: 'claude-opus-5',
+      input: 4_820,
+      output: 341_960,
+      cacheRead: 12_400_000,
+      cacheWrite: 208_000,
+      reasoning: 0,
       costUsd: 18.42,
     },
     {
-      model: 'claude-haiku-4-5',
-      inputTokens: 1_240,
-      outputTokens: 9_870,
-      cacheReadTokens: 84_000,
-      cacheCreationTokens: 6_200,
+      label: 'claude-haiku-4-5',
+      input: 1_240,
+      output: 9_870,
+      cacheRead: 84_000,
+      cacheWrite: 6_200,
+      reasoning: 0,
       costUsd: 0.31,
     },
   ],
-  totalInputTokens: 6_060,
-  totalOutputTokens: 351_830,
-  totalCacheReadTokens: 12_484_000,
-  totalCacheCreationTokens: 214_200,
-  estimatedCostUsd: 18.73,
-  account: {
-    email: 'dev@example.com',
-    displayName: 'Dev',
-    organization: 'Example Inc',
-    plan: 'claude_max_20x',
-  },
-  configDir: null,
-}
-
-const CLAUDE_RATE = {
-  active: true,
+  facts: [],
   fetchedAt: 1_786_500_000,
-  windows: [
-    { label: 'session', kind: 'session' as const, usedPercent: 34, resetsAt: 'Aug 13, 2:50am (Asia/Tokyo)' },
-    { label: 'week (all models)', kind: 'weekAll' as const, usedPercent: 61, resetsAt: 'Aug 16, 6pm (Asia/Tokyo)' },
-  ],
 }
 
-const CODEX_USAGE = {
+const CODEX = {
+  id: 'codex',
   active: false,
-  sessionId: 'codex-1',
-  model: 'gpt-5.4-codex',
-  sessionCount: 3,
-  totalInputTokens: 128_400,
-  totalCachedInputTokens: 96_100,
-  totalOutputTokens: 22_780,
-  totalReasoningTokens: 14_320,
-  estimatedCostUsd: null,
-  rateLimitPrimary: { usedPercent: 12, windowMinutes: 300, resetsAt: null },
-  rateLimitSecondary: { usedPercent: 47, windowMinutes: 10_080, resetsAt: null },
-  lastActivityAt: Math.floor(Date.now() / 1000) - 3 * 60 * 60,
-  account: { email: 'dev@example.com', plan: 'plus', authMode: 'chatgpt' },
+  account: { email: 'dev@example.com', plan: 'plus', organization: null },
+  meters: [
+    { kind: 'session' as const, label: null, usedPercent: 12, resetsAt: null },
+    { kind: 'weekAll' as const, label: null, usedPercent: 47, resetsAt: null },
+  ],
+  total: {
+    label: 'gpt-5.4-codex',
+    input: 128_400,
+    output: 22_780,
+    cacheRead: 96_100,
+    cacheWrite: 0,
+    reasoning: 14_320,
+    costUsd: null,
+  },
+  rows: [],
+  facts: [
+    { key: 'session-count' as const, value: '3' },
+    { key: 'last-activity' as const, value: String(Math.floor(Date.now() / 1000) - 3 * 60 * 60) },
+    { key: 'auth-mode' as const, value: 'chatgpt' },
+  ],
+  fetchedAt: 1_786_500_000,
+}
+
+// Copilot は premium request（AI クレジット）しか取れない。トークンも利用率も無い。
+const COPILOT = {
+  id: 'copilot',
+  active: false,
+  account: null,
+  meters: [],
+  total: null,
+  rows: [],
+  facts: [
+    { key: 'session-count' as const, value: '2' },
+    { key: 'premium-requests' as const, value: '1.32' },
+    { key: 'last-activity' as const, value: String(Math.floor(Date.now() / 1000) - 40 * 60) },
+  ],
+  fetchedAt: 1_786_500_000,
+}
+
+// opencode は BYOK なので利用率が無く、トークンと費用だけ。
+const OPENCODE = {
+  id: 'opencode',
+  active: true,
+  account: null,
+  meters: [],
+  total: {
+    label: 'anthropic/claude-sonnet-5',
+    input: 41_200,
+    output: 8_940,
+    cacheRead: 310_000,
+    cacheWrite: 22_100,
+    reasoning: 0,
+    costUsd: 1.24,
+  },
+  rows: [],
+  facts: [{ key: 'session-count' as const, value: '5' }],
+  fetchedAt: 1_786_500_000,
 }
 
 describe('screenshots: agent status', () => {
@@ -73,11 +120,7 @@ describe('screenshots: agent status', () => {
     it(`agent-status ${lang} ${theme}`, async () => {
       await prepare({ lang, theme, ...FULL })
       await setFakeProject()
-      await openAgentStatus({
-        claudeUsage: CLAUDE_USAGE,
-        claudeRate: CLAUDE_RATE,
-        codexUsage: CODEX_USAGE,
-      })
+      await openAgentStatus({ claude: CLAUDE, codex: CODEX, copilot: COPILOT, opencode: OPENCODE })
       await $('.agent-status').waitForDisplayed({ timeout: 10_000 })
       await shoot('agent-status', lang, theme)
     })

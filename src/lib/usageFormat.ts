@@ -6,9 +6,9 @@
  * than in whichever component happened to need them first.
  */
 import { locale, t } from '../i18n'
-import type { ClaudeRateWindow } from '../types/claudeUsage'
+import type { AgentFactKey, UsageMeter } from '../types/agentUsage'
 
-/** One rate-limit bar. Claude and Codex report quotas differently; both normalize to this. */
+/** One rate-limit bar. Agents report quotas differently; all normalize to this. */
 export interface Meter {
   label: string
   percent: number
@@ -21,10 +21,33 @@ export interface Meter {
  * don't classify — `kind` is decided in Rust next to the parser, so nothing here
  * string-matches CLI text.
  */
-export function rateWindowLabel(w: Pick<ClaudeRateWindow, 'kind' | 'label'>): string {
+export function rateWindowLabel(w: Pick<UsageMeter, 'kind' | 'label'>): string {
   if (w.kind === 'session') return t('statusBar.rate5h')
   if (w.kind === 'weekAll') return t('statusBar.rateWeekly')
-  return w.label
+  return w.label ?? ''
+}
+
+/** 帯 1 本を表示の形に落とす。2 つの画面が同じ変換を通る。 */
+export function toMeter(w: UsageMeter): Meter {
+  return { label: rateWindowLabel(w), percent: w.usedPercent, resetsAt: w.resetsAt }
+}
+
+/**
+ * 種別固有の値の表示名（#263）。**この表がフロント側の語彙の正本**で、Rust が返すのは
+ * キーだけ（あちらに i18n キーを置くと語彙が 2 つのファイルに散る）。
+ *
+ * `Record<AgentFactKey, …>` なのでキーを増やすと型エラーになる。
+ */
+const AGENT_FACT_LABELS: Record<AgentFactKey, string> = {
+  'config-dir': 'agentStatus.configDir',
+  'session-count': 'agentStatus.sessionCount',
+  'last-activity': 'agentStatus.lastActivity',
+  'premium-requests': 'agentStatus.premiumRequests',
+  'auth-mode': 'agentStatus.authMode',
+}
+
+export function agentFactLabel(key: AgentFactKey): string {
+  return t(AGENT_FACT_LABELS[key])
 }
 
 const RESET_MONTHS: Record<string, number> = {

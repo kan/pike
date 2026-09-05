@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
-import type { ClaudeRateLimits, ClaudeSession, ClaudeUsageResult } from '../types/claudeUsage'
-import type { CodexUsageResult } from '../types/codexUsage'
+import type { AgentUsage } from '../types/agentUsage'
+import type { ClaudeSession } from '../types/claudeUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
@@ -788,10 +788,19 @@ export async function fontListAll(): Promise<string[]> {
   return invoke<string[]>('font_list_all')
 }
 
-// Claude Usage
+// Agent usage (#263)
 
-export async function claudeUsageGet(shell: ShellType, projectRoot: string): Promise<ClaudeUsageResult> {
-  return invoke<ClaudeUsageResult>('claude_usage_get', { shell, projectRoot })
+/**
+ * そのエージェントの使用量。**種別ごとの口を持たない**（`id` で振り分けるのは Rust 側）。
+ * `force` は Rust 側にキャッシュがある問い（Claude のレート）のための素通し。
+ */
+export async function agentUsageGet(
+  id: string,
+  shell: ShellType,
+  projectRoot: string,
+  force = false,
+): Promise<AgentUsage> {
+  return invoke<AgentUsage>('agent_usage', { id, shell, projectRoot, force })
 }
 
 /**
@@ -800,23 +809,4 @@ export async function claudeUsageGet(shell: ShellType, projectRoot: string): Pro
  */
 export async function claudeSessionsList(shell: ShellType, projectRoot: string): Promise<ClaudeSession[]> {
   return invoke<ClaudeSession[]>('claude_sessions_list', { shell, projectRoot })
-}
-
-/**
- * Rate-limit usage via `claude -p "/usage"`. Rust caches the (slow) CLI call;
- * `sessionActive` picks the short refresh TTL, `force` bypasses the cache.
- */
-export async function claudeUsageRateGet(
-  shell: ShellType,
-  projectRoot: string,
-  sessionActive: boolean,
-  force = false,
-): Promise<ClaudeRateLimits> {
-  return invoke<ClaudeRateLimits>('claude_usage_rate_get', { shell, projectRoot, sessionActive, force })
-}
-
-// Codex Usage (indirect CLI sessions from ~/.codex rollouts)
-
-export async function codexUsageGet(shell: ShellType, projectRoot: string): Promise<CodexUsageResult> {
-  return invoke<CodexUsageResult>('codex_usage_get', { shell, projectRoot })
 }

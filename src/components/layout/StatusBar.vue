@@ -5,7 +5,6 @@ import {
   Bot,
   Check,
   Cloud,
-  Cpu,
   FolderGit2,
   FolderOpen,
   Gauge,
@@ -27,7 +26,7 @@ import { languageOptions } from '../../lib/languages'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { basename } from '../../lib/paths'
 import { traySetTooltip } from '../../lib/tauri'
-import { rateLevelClass } from '../../lib/usageFormat'
+import { type Meter, rateLevelClass, toMeter } from '../../lib/usageFormat'
 import { elevated, globalMode, isMainWindow } from '../../lib/window'
 import { localBranchName, useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
@@ -35,6 +34,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import { useWorktreeStore } from '../../stores/worktree'
+import type { AgentUsage } from '../../types/agentUsage'
 import type { GitWorktree } from '../../types/git'
 import HelpButton from '../HelpButton.vue'
 import RateMeters from '../RateMeters.vue'
@@ -68,40 +68,56 @@ const statusIcon = computed(() => {
 })
 
 const {
-  claudeUsage,
-  claudeRateSession,
-  claudeAccount,
-  claudeSummaryMeters,
-  codexAccount,
-  codexTokens,
-  codexMeters,
-  headlineMeters,
-  hasClaude,
-  hasCodex,
+  visible: agentEntries,
+  headline: agentHeadline,
   refreshing: agentRefreshing,
   refreshAll: refreshAgentUsage,
 } = useAgentUsage()
 
-const hasAgentStatus = computed(() => hasClaude.value || hasCodex.value)
+const hasAgentStatus = computed(() => agentEntries.value.length > 0)
+
+/**
+ * ヘッドラインの「25% / 5%」。**5h と週間だけ**に絞る（モデル別の枠まで並べると、
+ * ステータスバーに入らないうえ、どの数字かが読めない）。詳細は状態タブへ。
+ */
+function summaryMeters(usage: AgentUsage | null): Meter[] {
+  const meters = usage?.meters ?? []
+  return [meters.find((m) => m.kind === 'session'), meters.find((m) => m.kind === 'weekAll')]
+    .filter((m) => m !== undefined)
+    .map(toMeter)
+}
+
+const headlineMeters = computed<Meter[]>(() => summaryMeters(agentHeadline.value?.usage ?? null))
+
+/** ドロップダウンの行。**帯はここで 1 回だけ組む**（テンプレートで 2 回呼ばない）。 */
+const agentRows = computed(() =>
+  agentEntries.value.map(({ agent, usage }) => ({ agent, usage, meters: summaryMeters(usage) })),
+)
 
 /** Which window is which, for the button's tooltip — the bare "25% / 5%" cannot say. */
 const headlineTitle = computed(() => {
+  const name = agentHeadline.value?.agent.label ?? ''
   const parts = headlineMeters.value.map((m) => `${m.label} ${m.percent.toFixed(0)}%`)
-  return parts.length ? `${t('agentStatus.title')}: ${parts.join(' / ')}` : t('agentStatus.title')
+  return parts.length ? `${name}: ${parts.join(' / ')}` : t('agentStatus.title')
 })
 
-// System-tray tooltip (#161): a one-line usage summary shown on hover while
-// Pike sits minimized in the tray. Only the main window pushes it (the tray is
-// one per-process resource); Claude's 5h rate is account-wide so it represents
-// the whole app. Falls back to token totals, then to nothing — Rust prefixes the
-// app name either way, so this is only the usage half.
+/**
+ * System-tray tooltip (#161): 畳んでいるあいだホバーで出る 1 行。トレイはプロセスに 1 つ
+ * なので main ウィンドウだけが押す。
+ *
+ * **利用率を出せる先頭のエージェント**（`headline`）の 5h 枠を出し、無ければそのエージェントの
+ * トークン合計に落ちる。Rust がアプリ名を前置するので、ここは使用量の半分だけ。
+ */
 const trayTooltip = computed(() => {
-  if (claudeRateSession.value) {
-    return `Claude ${t('statusBar.rate5h')} ${claudeRateSession.value.usedPercent.toFixed(0)}%`
+  const entry = agentHeadline.value ?? agentEntries.value[0]
+  if (!entry?.usage) return ''
+  const session = entry.usage.meters.find((m) => m.kind === 'session')
+  if (session) {
+    return `${entry.agent.label} ${t('statusBar.rate5h')} ${session.usedPercent.toFixed(0)}%`
   }
-  const u = claudeUsage.value
-  if (u?.active) {
-    return `Claude ${formatTokens(u.totalInputTokens)} ${t('statusBar.ccIn')} / ${formatTokens(u.totalOutputTokens)} ${t('statusBar.ccOut')}`
+  const total = entry.usage.total
+  if (entry.usage.active && total && total.input + total.output > 0) {
+    return `${entry.agent.label} ${formatTokens(total.input)} ${t('statusBar.ccIn')} / ${formatTokens(total.output)} ${t('statusBar.ccOut')}`
   }
   return ''
 })
@@ -433,40 +449,31 @@ onUnmounted(() => {
           <HelpButton page="terminal-and-agents.md#エージェント状態タブ" :size="13" />
         </div>
 
-        <div v-if="hasClaude" class="cc-agent">
-          <div class="cc-agent-name">
-            <Cpu :size="12" :stroke-width="2" />
-            <span>Claude Code</span>
-          </div>
-          <div v-if="claudeAccount" class="cc-account">
-            <span class="cc-account-name">{{ claudeAccount.email ?? claudeAccount.displayName }}</span>
-            <span v-if="claudeAccount.plan" class="cc-account-meta">{{ claudeAccount.plan }}</span>
-          </div>
-          <div v-if="claudeUsage?.active" class="cc-summary">
-            <span>{{ t('statusBar.ccIn') }} {{ formatTokens(claudeUsage.totalInputTokens) }}</span>
-            <span>{{ t('statusBar.ccOut') }} {{ formatTokens(claudeUsage.totalOutputTokens) }}</span>
-            <span v-if="claudeUsage.estimatedCostUsd !== null" class="cc-cost">
-              ~{{ formatCost(claudeUsage.estimatedCostUsd) }}
-            </span>
-          </div>
-          <RateMeters :meters="claudeSummaryMeters" class="cc-meters" />
-        </div>
-
-        <div v-if="hasCodex" class="cc-agent">
+        <!--
+          使っているエージェントを順に出す（#263）。**種別の分岐を持たない**ので、
+          レジストリに行を足すだけで増える。ここは要約だけで、内訳は状態タブへ。
+        -->
+        <div v-for="{ agent, usage, meters } in agentRows" :key="agent.id" class="cc-agent">
           <div class="cc-agent-name">
             <Bot :size="12" :stroke-width="2" />
-            <span>Codex</span>
+            <span>{{ agent.label }}</span>
           </div>
-          <div v-if="codexAccount?.email" class="cc-account">
-            <span class="cc-account-name">{{ codexAccount.email }}</span>
-            <span v-if="codexAccount.plan" class="cc-account-meta">{{ codexAccount.plan }}</span>
+          <div v-if="usage?.account?.email || usage?.account?.name" class="cc-account">
+            <span class="cc-account-name">{{ usage.account.email ?? usage.account.name }}</span>
+            <span v-if="usage.account.plan" class="cc-account-meta">{{ usage.account.plan }}</span>
           </div>
-          <div v-if="codexTokens" class="cc-summary">
-            <span>{{ t('statusBar.ccIn') }} {{ formatTokens(codexTokens.input) }}</span>
-            <span>{{ t('statusBar.ccOut') }} {{ formatTokens(codexTokens.output) }}</span>
-            <span v-if="codexTokens.cost !== null" class="cc-cost">~{{ formatCost(codexTokens.cost) }}</span>
+          <div v-if="usage?.total && usage.total.input + usage.total.output > 0" class="cc-summary">
+            <span>{{ t('statusBar.ccIn') }} {{ formatTokens(usage.total.input) }}</span>
+            <span>{{ t('statusBar.ccOut') }} {{ formatTokens(usage.total.output) }}</span>
+            <span v-if="usage.total.costUsd !== null" class="cc-cost">~{{ formatCost(usage.total.costUsd) }}</span>
           </div>
-          <RateMeters :meters="codexMeters" class="cc-meters" />
+          <!--
+            **枠を持たないエージェントでは出さない。** `RateMeters` は空だと「利用率を
+            取得できていません」を出すので、構造的に出せない Copilot / opencode に対して
+            恒久的な事実を取得失敗として見せてしまう（状態タブは節ごと出さない側で、
+            出し分けが食い違う）。
+          -->
+          <RateMeters v-if="meters.length > 0" :meters="meters" class="cc-meters" />
         </div>
       </div>
     </div>

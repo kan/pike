@@ -34,9 +34,7 @@ async function bootstrap() {
     const { useSidebarStore } = await import('./stores/sidebar')
     const { useWorktreeStore } = await import('./stores/worktree')
     const { useGitStore } = await import('./stores/git')
-    const { useClaudeUsageStore } = await import('./stores/claudeUsage')
-    const { useClaudeRateStore } = await import('./stores/claudeRate')
-    const { useCodexUsageStore } = await import('./stores/codexUsage')
+    const { useAgentUsageStore } = await import('./stores/agentUsage')
     const { useEditorInfo } = await import('./composables/useEditorInfo')
     const { ptyRouter } = await import('./composables/usePtyRouter')
     const { globalMode } = await import('./lib/window')
@@ -84,11 +82,12 @@ async function bootstrap() {
       },
       // エージェント状態タブ。集計は 30 秒ポーリング + 外部 CLI 依存なので、invoke を
       // 待たずにストアへ直接差す。
-      openAgentStatus: (opts: { claudeUsage?: unknown; claudeRate?: unknown; codexUsage?: unknown }) => {
+      // 引数は id → `AgentUsage`（#263 で 3 つのストアが 1 本に畳まれた）。
+      openAgentStatus: (agents: Record<string, unknown>) => {
         project.showSwitcher = false
-        useClaudeUsageStore().usage = opts.claudeUsage as never
-        useClaudeRateStore().usage = opts.claudeRate as never
-        useCodexUsageStore().usage = opts.codexUsage as never
+        for (const [id, usage] of Object.entries(agents)) {
+          useAgentUsageStore(id as never).usage = usage as never
+        }
         tabs.addAgentStatusTab()
       },
       // シェル一覧ドロップダウン(▾)は globalMode か Windows プロジェクトでのみ出る。

@@ -1,136 +1,73 @@
 /**
- * Agent usage as the UI needs it (#226).
+ * UI が要る形にした使用量（#226 / #263）。
  *
- * The status bar's dropdown and the agent status tab show the same numbers at two
- * levels of detail. The derivation — what counts as a known account, how a rate
- * window becomes a bar — belongs in one place; when it lived in both components
- * they had already drifted apart on what "has an account" means.
+ * StatusBar のドロップダウンとエージェント状態タブは、同じ数字を 2 つの詳しさで出す。
+ * **導出はここ 1 箇所**で、2 つのコンポーネントに同じ computed を置いていたころは
+ * 「アカウント有り」の判定が既に食い違っていた。
+ *
+ * **種別を知らない。** 返すのは `entries`（レジストリ順のリスト）だけで、読む側は回すだけ。
+ * 以前は `claudeUsage` / `claudeRate` / `codexMeters` … と種別ごとの computed が並んでいて、
+ * エージェントを増やすたびに 2 つの画面を書き足すことになっていた。
  */
 import { computed } from 'vue'
-import { t } from '../i18n'
-import { type Meter, rateWindowLabel } from '../lib/usageFormat'
-import { useClaudeRateStore } from '../stores/claudeRate'
-import { useClaudeUsageStore } from '../stores/claudeUsage'
-import { useCodexUsageStore } from '../stores/codexUsage'
-import type { ClaudeRateWindow } from '../types/claudeUsage'
+import { AGENTS, type AgentDef } from '../lib/agents'
+import { useAgentUsageStore } from '../stores/agentUsage'
+import type { AgentUsage } from '../types/agentUsage'
+
+export interface AgentUsageEntry {
+  agent: AgentDef
+  usage: AgentUsage | null
+  /**
+   * 画面に出す価値があるか。**アカウントか、利用率か、トークンか、種別固有の値の
+   * どれかがある**こと。id しか無い応答（そのエージェントを使っていない）は出さない。
+   */
+  hasData: boolean
+}
 
 export function useAgentUsage() {
-  const claudeUsageStore = useClaudeUsageStore()
-  const claudeRateStore = useClaudeRateStore()
-  const codexUsageStore = useCodexUsageStore()
+  const stores = AGENTS.map((agent) => ({ agent, store: useAgentUsageStore(agent.id) }))
 
-  const claudeUsage = computed(() => claudeUsageStore.usage)
+  const entries = computed<AgentUsageEntry[]>(() =>
+    stores.map(({ agent, store }) => {
+      const usage = store.usage
+      return {
+        agent,
+        usage,
+        hasData: Boolean(
+          usage &&
+            (usage.account?.email ||
+              usage.account?.name ||
+              usage.account?.plan ||
+              usage.meters.length > 0 ||
+              usage.facts.length > 0 ||
+              (usage.total && usage.total.input + usage.total.output > 0)),
+        ),
+      }
+    }),
+  )
 
-  /** Rate-limit windows from `claude -p "/usage"` (account-wide, not per-session). */
-  const claudeRate = computed(() => {
-    const r = claudeRateStore.usage
-    return r?.active ? r : null
-  })
-
-  /**
-   * The 5h session window — the headline number. No fallback to other windows: a
-   * weekly quota must not be labeled "5h".
-   */
-  const claudeRateSession = computed(() => claudeRate.value?.windows.find((w) => w.kind === 'session') ?? null)
-
-  /**
-   * Worth showing even with a single account, since CLAUDE_CONFIG_DIR can point a
-   * project at another one and the totals would otherwise look inexplicably empty
-   * (#225). An account object with neither email nor name identifies nothing.
-   */
-  const claudeAccount = computed(() => {
-    const a = claudeUsage.value?.account
-    return a && (a.email || a.displayName) ? a : null
-  })
-
-  const toMeter = (w: ClaudeRateWindow): Meter => ({
-    label: rateWindowLabel(w),
-    percent: w.usedPercent,
-    resetsAt: w.resetsAt,
-  })
-
-  const claudeMeters = computed<Meter[]>(() => (claudeRate.value?.windows ?? []).map(toMeter))
+  /** 何か出せるものがあるエージェントだけ。2 つの画面はどちらもこれを回す。 */
+  const visible = computed(() => entries.value.filter((e) => e.hasData))
 
   /**
-   * The two quotas that apply to everything — 5h then the all-model weekly —
-   * for the compact surfaces. Built in that fixed order rather than filtered
-   * out of `windows`, so the pair reads the same way wherever it appears
-   * regardless of what the CLI printed first. Per-model weeklies are left to
-   * the status tab's `claudeMeters`.
-   */
-  const claudeSummaryMeters = computed<Meter[]>(() => {
-    const weekly = claudeRate.value?.windows.find((w) => w.kind === 'weekAll') ?? null
-    return [claudeRateSession.value, weekly].filter((w) => w !== null).map(toMeter)
-  })
-
-  /**
-   * What the CLI left in `~/.codex`. Not gated on `active` — that only means
-   * "written to in the last few minutes", while the aggregate covers the last day,
-   * which is what "did I use Codex here today" asks.
+   * StatusBar が「25% / 5%」に詰め込む 2 つ。**1 つのエージェントから揃って取る**:
+   * 並んだ数字にどちらの枠か書く余地が無いので、混ぜない。**利用率を出せる最初の
+   * エージェント**（レジストリ順）が両方の枠を出す。
    *
-   * **出所はこれ 1 つ**（#275）。エージェントチャットを畳んだので、「active なチャットの
-   * セッションを優先し、無ければ CLI の記録に落ちる」という二本立ては消えた。
+   * **選ぶ条件は描く条件と同じにする。** StatusBar が出すのは `session` と `weekAll` の
+   * 2 つだけなので、`meters.length > 0` で選ぶと、枠が全部 `other` に落ちたエージェント
+   * （CLI の文言が変わって `window_kind` が分類できなかった、モデル別の枠しか無い等）が
+   * 先に当たって**帯を 1 本も出さないまま**確定し、次のエージェントに落ちない。
    */
-  const codexCliUsage = computed(() => {
-    const u = codexUsageStore.usage
-    return u && u.sessionCount > 0 ? u : null
-  })
-
-  const codexAccount = computed(() => codexUsageStore.usage?.account ?? null)
-
-  /** Token totals from the CLI's records. */
-  const codexTokens = computed(() => {
-    const cli = codexCliUsage.value
-    if (!cli) return null
-    return { input: cli.totalInputTokens, output: cli.totalOutputTokens, cost: cli.estimatedCostUsd }
-  })
-
-  const codexMeters = computed<Meter[]>(() => {
-    const session = codexCliUsage.value?.rateLimitPrimary
-    const weekly = codexCliUsage.value?.rateLimitSecondary
-    return [
-      ...(session ? [{ label: t('statusBar.rate5h'), percent: session.usedPercent }] : []),
-      ...(weekly ? [{ label: t('statusBar.rateWeekly'), percent: weekly.usedPercent }] : []),
-    ]
-  })
-
-  /**
-   * What the status bar squeezes into "25% / 5%". One agent's pair, never a mix:
-   * the two numbers sit side by side with no room to say whose quota each is, so
-   * the agent that reports rate limits at all supplies both slots.
-   */
-  const headlineMeters = computed<Meter[]>(() =>
-    claudeSummaryMeters.value.length ? claudeSummaryMeters.value : codexMeters.value,
+  const headline = computed<AgentUsageEntry | null>(
+    () => visible.value.find((e) => e.usage?.meters.some((m) => m.kind === 'session' || m.kind === 'weekAll')) ?? null,
   )
 
-  const hasClaude = computed(() => Boolean(claudeAccount.value || claudeRate.value || claudeUsage.value?.active))
-  const hasCodex = computed(() => Boolean(codexTokens.value || codexAccount.value?.email))
-
-  const refreshing = computed(
-    () => claudeUsageStore.refreshing || claudeRateStore.refreshing || codexUsageStore.refreshing,
-  )
+  const refreshing = computed(() => stores.some(({ store }) => store.refreshing))
 
   function refreshAll() {
-    void claudeUsageStore.refreshUsage(true)
-    void claudeRateStore.refreshUsage(true)
-    void codexUsageStore.refreshUsage(true)
+    for (const { store } of stores) void store.refreshUsage(true)
   }
 
-  return {
-    claudeUsage,
-    claudeRate,
-    claudeRateSession,
-    claudeAccount,
-    claudeMeters,
-    claudeSummaryMeters,
-    codexCliUsage,
-    codexAccount,
-    codexTokens,
-    codexMeters,
-    headlineMeters,
-    hasClaude,
-    hasCodex,
-    refreshing,
-    refreshAll,
-  }
+  return { entries, visible, headline, refreshing, refreshAll }
 }

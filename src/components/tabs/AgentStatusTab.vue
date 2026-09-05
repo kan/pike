@@ -1,36 +1,72 @@
 <script setup lang="ts">
 /**
- * Agent status tab (#226) — the `/status` equivalent.
+ * Agent status tab (#226 / #263) — the `/status` equivalent.
  *
- * Claude and Codex sit side by side so the two can be compared at a glance. The
- * numbers come from the same stores the status bar reads; this view is the place
- * for the detail (per-model breakdown, every rate window) that the status-bar
- * dropdown is too small to carry.
+ * 使っているエージェントが横に並ぶので、まとめて見比べられる。数字は StatusBar が読むのと
+ * 同じストアで、こちらは**ドロップダウンに載らない詳細**（モデル別の内訳、全部の利用率の枠）
+ * を出す場所。
  *
- * Rows render even when a value is missing, showing why — a status screen that
- * hides what it couldn't fetch is indistinguishable from one that is broken.
+ * **種別の分岐を持たない（#263）。** カードは 1 つのマークアップを回すだけで、何が出るかは
+ * アダプタが返したもので決まる。4 つで取れるものが揃わない（Copilot にトークンは無く、
+ * opencode に利用率は無い）ので、**無い節は出さない**のが基本。
  */
-import { Bot, Cpu, RefreshCw } from 'lucide-vue-next'
+import { Bot, RefreshCw } from 'lucide-vue-next'
+import { computed } from 'vue'
 import { useAgentUsage } from '../../composables/useAgentUsage'
 import { useI18n } from '../../i18n'
 import { formatCost, formatTokens } from '../../lib/format'
 import { relativeTime } from '../../lib/paths'
-import { fetchedAtLabel } from '../../lib/usageFormat'
+import { agentFactLabel, fetchedAtLabel, toMeter } from '../../lib/usageFormat'
+import type { TokenRow, UsageFact } from '../../types/agentUsage'
 import HelpButton from '../HelpButton.vue'
 import RateMeters from '../RateMeters.vue'
 
 const { t } = useI18n()
-const {
-  claudeUsage,
-  claudeRate,
-  claudeAccount,
-  claudeMeters,
-  codexCliUsage,
-  codexAccount,
-  codexMeters,
-  refreshing,
-  refreshAll,
-} = useAgentUsage()
+const { visible, refreshing, refreshAll } = useAgentUsage()
+
+/**
+ * 種別固有の値の表示。**`last-activity` だけ整形する**（epoch 秒を相対時刻に）ので、
+ * 生の文字列をそのまま出す他のキーと分けてある。
+ */
+function factValue(f: UsageFact): string {
+  if (f.key !== 'last-activity') return f.value
+  const secs = Number(f.value)
+  return Number.isFinite(secs) ? relativeTime(secs * 1000) : f.value
+}
+
+/** その行に数字が 1 つでもあるか（全部 0 の行は表に出さない）。 */
+function hasTokens(row: TokenRow | null): boolean {
+  return Boolean(row && row.input + row.output + row.cacheRead + row.cacheWrite + row.reasoning > 0)
+}
+
+/** 内訳があればそれ、無ければ合計の 1 行。 */
+function tokenRows(usage: { rows: TokenRow[]; total: TokenRow | null }): TokenRow[] {
+  if (usage.rows.length > 0) return usage.rows
+  return hasTokens(usage.total) && usage.total ? [usage.total] : []
+}
+
+/** 表に出す列。**どれかの行が持っている列だけ**出す（Codex は cache write を持たない等）。 */
+function columns(rows: TokenRow[]) {
+  return [
+    { key: 'input' as const, label: t('statusBar.ccIn'), show: true },
+    { key: 'output' as const, label: t('statusBar.ccOut'), show: true },
+    { key: 'cacheRead' as const, label: t('statusBar.ccCache'), show: rows.some((r) => r.cacheRead > 0) },
+    { key: 'cacheWrite' as const, label: t('agentStatus.cacheWrite'), show: rows.some((r) => r.cacheWrite > 0) },
+    { key: 'reasoning' as const, label: t('statusBar.codexReasoning'), show: rows.some((r) => r.reasoning > 0) },
+  ].filter((c) => c.show)
+}
+
+/**
+ * 描くぶんを 1 枚につき 1 回だけ組む。**テンプレートで `columns(tokenRows(usage))` を
+ * 呼ばないこと**: thead と行ごとに再評価され、行数ぶんの `.some()` と `t()` が毎回走るうえ、
+ * `tokenRows` は合計しか無いとき新しい配列を作るので `:key` の参照も毎回変わる。
+ */
+const cards = computed(() =>
+  visible.value.map(({ agent, usage }) => {
+    const rows = usage ? tokenRows(usage) : []
+    return { agent, usage, rows, cols: columns(rows), meters: (usage?.meters ?? []).map(toMeter) }
+  }),
+)
 </script>
 
 <template>
@@ -47,131 +83,69 @@ const {
     </header>
 
     <div class="cards">
-      <!-- Claude -->
-      <section class="card">
+      <section v-for="{ agent, usage, rows, cols, meters } in cards" :key="agent.id" class="card">
         <div class="card-head">
-          <Cpu :size="15" :stroke-width="2" />
-          <span>Claude Code</span>
+          <Bot :size="15" :stroke-width="2" />
+          <span>{{ agent.label }}</span>
         </div>
 
-        <dl class="facts">
-          <dt>{{ t('agentStatus.account') }}</dt>
-          <dd>{{ claudeAccount?.email ?? claudeAccount?.displayName ?? t('agentStatus.unknown') }}</dd>
-          <dt>{{ t('agentStatus.organization') }}</dt>
-          <dd>{{ claudeAccount?.organization ?? t('agentStatus.unknown') }}</dd>
-          <dt>{{ t('agentStatus.plan') }}</dt>
-          <dd>{{ claudeAccount?.plan ?? t('agentStatus.unknown') }}</dd>
-          <dt>{{ t('agentStatus.configDir') }}</dt>
-          <dd class="mono">{{ claudeUsage?.configDir ?? t('agentStatus.configDirDefault') }}</dd>
+        <dl v-if="usage" class="facts">
+          <template v-if="usage.account?.email || usage.account?.name">
+            <dt>{{ t('agentStatus.account') }}</dt>
+            <dd>{{ usage.account.email ?? usage.account.name }}</dd>
+          </template>
+          <template v-if="usage.account?.organization">
+            <dt>{{ t('agentStatus.organization') }}</dt>
+            <dd>{{ usage.account.organization }}</dd>
+          </template>
+          <template v-if="usage.account?.plan">
+            <dt>{{ t('agentStatus.plan') }}</dt>
+            <dd>{{ usage.account.plan }}</dd>
+          </template>
+          <template v-for="f in usage.facts" :key="f.key">
+            <dt>{{ agentFactLabel(f.key) }}</dt>
+            <dd :class="{ mono: f.key === 'config-dir' }">{{ factValue(f) }}</dd>
+          </template>
           <dt>{{ t('agentStatus.session') }}</dt>
-          <dd>{{ claudeUsage?.active ? t('agentStatus.running') : t('agentStatus.noSession') }}</dd>
+          <dd>{{ usage.active ? t('agentStatus.running') : t('agentStatus.noSession') }}</dd>
         </dl>
 
-        <div class="block">
+        <!-- 利用率を出せないエージェント（opencode は BYOK、Copilot は非対話で読めない）では節ごと出さない。 -->
+        <div v-if="meters.length > 0" class="block">
           <div class="block-head">
             <span>{{ t('statusBar.rate') }}</span>
-            <span v-if="claudeRate" class="muted">{{ fetchedAtLabel(claudeRate.fetchedAt) }}</span>
+            <span v-if="usage?.fetchedAt" class="muted">{{ fetchedAtLabel(usage.fetchedAt) }}</span>
           </div>
-          <RateMeters :meters="claudeMeters" />
+          <RateMeters :meters="meters" />
         </div>
 
-        <div class="block">
+        <div v-if="rows.length > 0" class="block">
           <div class="block-head">
             <span>{{ t('agentStatus.tokens') }}</span>
-            <span v-if="claudeUsage?.estimatedCostUsd != null" class="muted">
-              ~{{ formatCost(claudeUsage.estimatedCostUsd) }}
-            </span>
+            <span v-if="usage?.total?.costUsd != null" class="muted">~{{ formatCost(usage.total.costUsd) }}</span>
           </div>
-          <table v-if="claudeUsage?.models.length" class="grid">
+          <table class="grid">
             <thead>
               <tr>
                 <th>{{ t('agentStatus.model') }}</th>
-                <th class="num">{{ t('statusBar.ccIn') }}</th>
-                <th class="num">{{ t('statusBar.ccOut') }}</th>
-                <th class="num">{{ t('statusBar.ccCache') }}</th>
+                <th v-for="c in cols" :key="c.key" class="num">{{ c.label }}</th>
                 <th class="num">{{ t('agentStatus.cost') }}</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="m in claudeUsage.models" :key="m.model">
-                <th>{{ m.model }}</th>
-                <td class="num">{{ formatTokens(m.inputTokens) }}</td>
-                <td class="num">{{ formatTokens(m.outputTokens) }}</td>
-                <td class="num">{{ formatTokens(m.cacheReadTokens) }}</td>
-                <td class="num">{{ m.costUsd != null ? formatCost(m.costUsd) : '—' }}</td>
+              <tr v-for="(row, i) in rows" :key="row.label ?? i">
+                <th>{{ row.label ?? agent.label }}</th>
+                <td v-for="c in cols" :key="c.key" class="num">
+                  {{ formatTokens(row[c.key]) }}
+                </td>
+                <td class="num">{{ row.costUsd != null ? formatCost(row.costUsd) : '—' }}</td>
               </tr>
             </tbody>
           </table>
-          <p v-else class="empty">{{ t('agentStatus.noTokens') }}</p>
         </div>
       </section>
 
-      <!-- Codex -->
-      <section class="card">
-        <div class="card-head">
-          <Bot :size="15" :stroke-width="2" />
-          <span>Codex</span>
-          <span class="muted">{{ t('agentStatus.codexCli') }}</span>
-        </div>
-
-        <dl v-if="codexAccount" class="facts">
-          <dt>{{ t('agentStatus.account') }}</dt>
-          <dd>{{ codexAccount.email ?? t('agentStatus.unknown') }}</dd>
-          <dt>{{ t('agentStatus.plan') }}</dt>
-          <dd>{{ codexAccount.plan ?? codexAccount.authMode ?? t('agentStatus.unknown') }}</dd>
-        </dl>
-
-        <template v-if="codexCliUsage">
-          <dl class="facts">
-            <dt>{{ t('agentStatus.sessionCount') }}</dt>
-            <dd>{{ codexCliUsage.sessionCount }}</dd>
-            <dt>{{ t('agentStatus.lastUsed') }}</dt>
-            <dd>
-              {{ codexCliUsage.active
-                ? t('agentStatus.running')
-                : codexCliUsage.lastActivityAt
-                  ? relativeTime(codexCliUsage.lastActivityAt * 1000)
-                  : t('agentStatus.unknown') }}
-            </dd>
-          </dl>
-
-          <div class="block">
-            <div class="block-head"><span>{{ t('statusBar.rate') }}</span></div>
-            <RateMeters :meters="codexMeters" />
-          </div>
-
-          <div class="block">
-            <div class="block-head">
-              <span>{{ t('agentStatus.tokens') }}</span>
-              <span v-if="codexCliUsage.estimatedCostUsd != null" class="muted">
-                ~{{ formatCost(codexCliUsage.estimatedCostUsd) }}
-              </span>
-            </div>
-            <table class="grid">
-              <thead>
-                <tr>
-                  <th>{{ t('agentStatus.model') }}</th>
-                  <th class="num">{{ t('statusBar.ccIn') }}</th>
-                  <th class="num">{{ t('statusBar.ccOut') }}</th>
-                  <th class="num">{{ t('statusBar.codexCached') }}</th>
-                  <th class="num">{{ t('statusBar.codexReasoning') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th>{{ codexCliUsage.model ?? 'codex' }}</th>
-                  <td class="num">{{ formatTokens(codexCliUsage.totalInputTokens) }}</td>
-                  <td class="num">{{ formatTokens(codexCliUsage.totalOutputTokens) }}</td>
-                  <td class="num">{{ formatTokens(codexCliUsage.totalCachedInputTokens) }}</td>
-                  <td class="num">{{ formatTokens(codexCliUsage.totalReasoningTokens) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </template>
-
-        <p v-else class="empty">{{ t('agentStatus.noCodex') }}</p>
-      </section>
+      <p v-if="cards.length === 0" class="empty">{{ t('agentStatus.noAgents') }}</p>
     </div>
   </div>
 </template>

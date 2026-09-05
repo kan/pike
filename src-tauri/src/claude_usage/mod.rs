@@ -417,7 +417,7 @@ fn usage_from_dir(shell: &ShellConfig, claude_dir: &Path, project_root: &str) ->
     }
 }
 
-fn get_usage_for_project(
+pub(crate) fn get_usage_for_project(
     shell: &ShellConfig,
     project_root: &str,
 ) -> Result<ClaudeUsageResult, String> {
@@ -434,15 +434,7 @@ fn get_usage_for_project(
     })
 }
 
-#[tauri::command]
-pub async fn claude_usage_get(
-    shell: ShellConfig,
-    project_root: String,
-) -> Result<ClaudeUsageResult, String> {
-    tokio::task::spawn_blocking(move || get_usage_for_project(&shell, &project_root))
-        .await
-        .map_err(|e| e.to_string())?
-}
+// 集計を IPC で出す口は `agent_usage` に一本化した（#263）。ここが持つのは収集だけ。
 
 #[cfg(test)]
 mod tests {

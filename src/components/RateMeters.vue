@@ -32,7 +32,11 @@ const { t } = useI18n()
         {{ t('statusBar.ccRateResets', { when: localizedResetLabel(m.resetsAt) }) }}
       </div>
     </div>
-    <p v-if="!meters.length" class="empty">{{ t('agentStatus.noRate') }}</p>
+    <!--
+      **空のときの文言は持たない**（#263）。呼ぶ側が `meters.length > 0` で出し分ける。
+      利用率を構造的に出せないエージェント（opencode は BYOK、Copilot は非対話で読めない）に
+      対して「取得できていません」と出すと、恒久的な事実を取得失敗として見せてしまう。
+    -->
   </div>
 </template>
 
@@ -95,9 +99,4 @@ const { t } = useI18n()
   color: var(--text-secondary);
 }
 
-.empty {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
 </style>

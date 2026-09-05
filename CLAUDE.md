@@ -106,6 +106,10 @@ pike/
 │       ├── lib.rs             # Tauri Builder 設定・コマンド登録
 │       ├── types.rs           # ShellConfig・WSL_EXTRA_PATH・bash_quote 等の共通型/ヘルパー
 │       ├── agents.rs          # PATH にあるエージェントの検出（#275。一覧はフロントの表）
+│       ├── agent_usage/
+│       │   ├── mod.rs         # 使用量を種別に依らない形で返す（#263。id でアダプタへ振り分け）
+│       │   ├── copilot.rs     # Copilot の premium request（~/.copilot の events.jsonl）
+│       │   └── opencode.rs    # opencode のトークンと費用（`opencode db … --format json`）
 │       ├── font.rs            # フォント列挙（font-kit でモノスペース検出）
 │       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
@@ -156,7 +160,8 @@ pike/
 │   ├── types/
 │   │   ├── tab.ts             # Tab Union type・ShellType・SidebarPanel・共通ヘルパー
 │   │   ├── project.ts         # ProjectConfig・PinnedTabDef
-│   │   ├── claudeUsage.ts  codexUsage.ts  diagnostics.ts  docker.ts
+│   │   ├── agentUsage.ts      # 使用量の共通の形（#263。種別ごとの型を持たない）
+│   │   ├── claudeUsage.ts  diagnostics.ts  docker.ts
 │   │   ├── git.ts  search.ts  tasks.ts  issues.ts
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
@@ -209,9 +214,10 @@ pike/
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
 │   │   ├── diagnostics.ts  issues.ts
 │   │   ├── agents.ts          # 使えるエージェントの検出（シェル単位、#275）
+│   │   ├── agentUsage.ts      # エージェントごとの使用量ストア（表 1 行につき 1 本、#263）
 │   │   ├── shellProbe.ts      # 「シェルごとに 1 回だけ聞いて覚える」の共通部（#275）
 │   │   ├── usageStore.ts      # createUsageStore ファクトリ（ポーリング基盤）
-│   │   ├── claudeUsage.ts  claudeRate.ts  codexUsage.ts  # トークン使用量・レート
+│   │   # 使用量は agentUsage.ts の 1 本（#263。以前は claudeUsage / claudeRate / codexUsage の 3 本）
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
 │   ├── composables/
 │   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts
