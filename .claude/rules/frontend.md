@@ -96,6 +96,9 @@
 - CSS フレームワークは使わない（Tauri アプリなので外部 CDN 不要、軽量が正義）
 - CSS Variables でテーマ変数を管理 (`--bg-primary`, `--text-primary` 等)
 - レイアウトは CSS Grid / Flexbox のみ
+- **scoped CSS は子コンポーネントのルート要素までしか届かない。** 親にしかないクラスを子で使うと、ルート要素だけ効いて**中の要素が素の見た目に戻る**。切り出した直後に 3 回踏んでいる（`TabItem.vue` の #305、`ProfileRow.vue` の #275、`AllowedHostList.vue` の `.setting-label` / `.setting-hint`）
+  - **共有クラスへ上げるか、子に書き写すかは「同じ名前の別物があるか」で決める。** 無ければ `theme.css` へ上げる（`.row-icon` は 4 コピーから畳んだ。`.setting-label` / `.setting-hint` も同じ理由でそこにある）。あれば子で持つ（`.icon-btn` は `panels/IconSelect.vue` が幅 100%・枠あり・テキスト付きの別物を定義しているので上げられない）
+- **共有している形に、消費者の一方の名前を付けない。** 設定画面の一覧の器は `agent-cmd-*` という名前で 5 つの一覧に使われていて、そのうちエージェントのコマンドは 1 つだけだった。#275 でシェル一覧を `ProfileRow.vue` へ出したとき、同じ形を別名（`shell-row` / `shell-name`）で使っていた非表示プロジェクトの一覧だけが定義を失い、ボタンが折り返す形で残った（今は `setting-list` / `setting-list-row` / `setting-list-name`）
 
 ## アイコン
 - UI アイコンは `lucide-vue-next` で統一（サイドバー・タブ・パネルボタン等）

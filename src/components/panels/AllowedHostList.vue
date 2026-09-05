@@ -34,6 +34,10 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
+/* `.setting-label` / `.setting-hint` は `theme.css` の共有クラス。ルート要素（`.setting-row`）
+   には親の scoped CSS が届くので縦積みは効くが、その**中**の label と p には当たらないため
+   （そのあいだ、既定の font-size のまま描かれていた）。 */
+
 .host-list {
   display: flex;
   flex-direction: column;

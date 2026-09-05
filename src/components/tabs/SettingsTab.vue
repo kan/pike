@@ -637,7 +637,7 @@ const PREVIEW_LINES = [
         <div class="setting-block" data-testid="settings-shells">
           <label class="setting-label">{{ t('settings.shellProfiles') }}</label>
           <p class="setting-hint">{{ t('settings.shellProfilesHint') }}</p>
-          <div class="agent-cmd-list">
+          <div class="setting-list">
             <ProfileRow
               v-for="(p, i) in settings.shellProfiles"
               :key="p.id"
@@ -666,7 +666,7 @@ const PREVIEW_LINES = [
         <div class="setting-block" data-testid="settings-agents">
           <label class="setting-label">{{ t('settings.agentProfiles') }}</label>
           <p class="setting-hint">{{ t('settings.agentProfilesHint') }}</p>
-          <div class="agent-cmd-list">
+          <div class="setting-list">
             <ProfileRow
               v-for="(p, i) in settings.agentProfiles"
               :key="p.id"
@@ -689,8 +689,8 @@ const PREVIEW_LINES = [
         <div class="setting-block">
           <label class="setting-label">{{ t('settings.agentCommands') }}</label>
           <p class="setting-hint">{{ t('settings.agentCommandsHint') }}</p>
-          <div class="agent-cmd-list">
-            <div v-for="(cmd, i) in settings.agentCommands" :key="i" class="agent-cmd-row">
+          <div class="setting-list">
+            <div v-for="(cmd, i) in settings.agentCommands" :key="i" class="setting-list-row">
               <div class="agent-cmd-reorder">
                 <button class="icon-btn" :disabled="i === 0" :title="'↑'" @click="moveAgentCommand(i, -1)">
                   <ChevronUp :size="14" :stroke-width="2" />
@@ -714,8 +714,8 @@ const PREVIEW_LINES = [
         <div class="setting-block">
           <label class="setting-label">{{ t('settings.agentPrompts') }}</label>
           <p class="setting-hint">{{ t('settings.agentPromptsHint') }}</p>
-          <div class="agent-cmd-list">
-            <div v-for="(p, i) in settings.agentPrompts" :key="i" class="agent-cmd-row prompt-row">
+          <div class="setting-list">
+            <div v-for="(p, i) in settings.agentPrompts" :key="i" class="setting-list-row prompt-row">
               <div class="agent-cmd-reorder">
                 <button class="icon-btn" :disabled="i === 0" :title="'↑'" @click="moveAgentPrompt(i, -1)">
                   <ChevronUp :size="14" :stroke-width="2" />
@@ -977,9 +977,9 @@ const PREVIEW_LINES = [
         <div v-if="settings.hiddenProjects.length > 0" class="setting-row setting-row-block">
           <label class="setting-label">{{ t('settings.hiddenProjects') }}</label>
           <p class="setting-hint">{{ t('settings.hiddenProjectsHint') }}</p>
-          <div class="shell-list">
-            <div v-for="p in settings.hiddenProjects" :key="p.id" class="shell-row">
-              <span class="shell-name">{{ p.name }}</span>
+          <div class="setting-list">
+            <div v-for="p in settings.hiddenProjects" :key="p.id" class="setting-list-row">
+              <span class="setting-list-name">{{ p.name }}</span>
               <button class="icon-btn" :title="t('settings.hiddenProjectsRestore')" @click="restoreProject(p.id)">
                 <Eye :size="14" :stroke-width="2" />
               </button>
@@ -1124,10 +1124,7 @@ const PREVIEW_LINES = [
   gap: 8px;
 }
 
-.setting-label {
-  font-size: 13px;
-  color: var(--text-primary);
-}
+/* `.setting-label` / `.setting-hint` は `theme.css`（切り出した部品と共有するため）。 */
 
 .setting-select {
   padding: 4px 8px;
@@ -1363,22 +1360,27 @@ const PREVIEW_LINES = [
   padding: 8px 0;
 }
 
-.setting-hint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.agent-cmd-list {
+/* 設定画面の「縦に並ぶ行の一覧」の共通の形。シェル一覧・エージェント一覧・起動コマンド・
+   定型プロンプト・非表示のプロジェクトが共有する。**`agent-cmd-*` という名前だった**が、
+   5 つのうち 4 つはエージェントのコマンドではないうえ、#275 でシェル一覧を
+   `panels/ProfileRow.vue` へ出したときに、同じ形を別名（`shell-row` / `shell-name`）で
+   使っていた非表示プロジェクトの一覧だけが定義を失って崩れた。 */
+.setting-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.agent-cmd-row {
+.setting-list-row {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.setting-list-name {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
 }
 
 /* 並べ替えと目のトグルを持つ行（シェル一覧・エージェント一覧）の見た目は

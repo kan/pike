@@ -213,6 +213,23 @@
   height: 16px;
 }
 
+/* 設定画面の 1 項目の見出しと説明文。**設定タブ本体と、そこから切り出した部品
+   （`panels/AllowedHostList.vue`）が共有する**ので共有クラスにしてある: scoped CSS は
+   子コンポーネントのルート要素までしか届かないため、部品を切り出すたびに同じ 2 つを
+   書き写すことになる（`.row-icon` を 4 コピーから畳んだのと同じ理由）。
+   **`.icon-btn` を上げないのとは事情が違う**: あちらは `panels/IconSelect.vue` が同じ名前で
+   別物（幅 100%・枠あり・テキスト付き）を定義しているが、こちらは他に定義が無い。 */
+.setting-label {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.setting-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 /* 回転（読み込み中の印）。**`@keyframes` だけを共有していたので、規則のほうは 6 コピー
    あって名前も 3 通りに割れていた**（`.spin` / `.spin-icon` / `.spinning`）。写すのを忘れると
    「クラスは付いているのに回らない」という無言の抜けになる（issue タブで実際に踏んだ）。 */
