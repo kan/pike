@@ -216,8 +216,8 @@ export default {
   'terminal.promptInject': 'Insert a saved prompt',
   'terminal.injectNoTarget': 'No terminal to send to',
   'terminal.otherAgents': 'Other agents',
-  'terminal.claudeSessions': 'Recent Claude sessions',
-  'terminal.noClaudeSessions': 'No sessions to resume',
+  'terminal.recentSessions': 'Recent sessions',
+  'terminal.noSessions': 'No sessions to resume',
 
   // Docker Logs
   'dockerLogs.failedStart': '[Failed to start log stream: {error}]',

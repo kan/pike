@@ -230,6 +230,123 @@
   color: var(--text-secondary);
 }
 
+/* エージェント起動メニュー（#275 / #267）。**`TerminalTab.vue` と、そこから切り出した
+   `AgentSessionsMenu.vue` が共有する**ので共有クラスにしてある（`.setting-label` と同じ
+   理由。他に同名の定義は無い）。ボタン本体の `.agent-btn*` は TerminalTab に残る。 */
+.agent-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 180px;
+  /* セッションの題は一文ぶんあるので、幅に上限を置く。 */
+  max-width: 340px;
+  /* **`overflow` を持たせないこと（#275）。** `visible` 以外だと、中の「他のエージェント」の
+     サブメニュー（`position: absolute`）がこの箱にクリップされ、開いてもスクロールバーが
+     出るだけになる。長くなりうる節が自分でスクロールを持ち、全体の上限は
+     `.agent-menu-scroll` が受ける。 */
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  z-index: 10;
+}
+
+.agent-menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  /* padding を含めて親幅に収める。**このプロジェクトは `box-sizing` をグローバルに
+     設定していない**ので、`width: 100%` と padding を併せると左右 24px ぶん親から
+     はみ出す（メニューに `overflow` があったころは隠れていた）。 */
+  box-sizing: border-box;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.agent-menu-item:hover {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.agent-menu-label,
+.agent-menu-cmd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-menu-label {
+  font-size: 12px;
+}
+
+.agent-menu-cmd {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.agent-menu-item:hover .agent-menu-cmd {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* エージェント 1 つぶんのかたまり（#267）。**区切るのは間だけ**で、先頭に線を引かない
+   （メニューの上端に線が浮く）。 */
+.agent-menu-group + .agent-menu-group {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+/* 高さの上限を受ける層（#275）。「他のエージェント」の行はこの外にあるので、
+   サブメニューはクリップされない。 */
+.agent-menu-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* サブメニューを開く行（#275）。`.agent-menu-item` は縦積み（ラベル＋コマンド）だが、
+   この行は開く向きの印とラベルを横に並べるので方向を上書きする。サブメニューは
+   `position: absolute` なので流れの外。**印はラベルの左**（開く向きと同じ側）。
+   メニューはターミナルの右上から出るので、サブメニューは左へ開く。 */
+.agent-menu-sub {
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.agent-menu-caret {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+/* **親の行の左に出す。** このメニュー自体がターミナルの右上から出るので、右に開くと
+   画面の外へ出る。`overflow-y: auto` の親から抜けるため、位置は親の行を基準にする。
+   **隙間を空けない。** 2px でも空けると、ポインタがそこを通った瞬間に行の
+   `mouseleave` が発火してサブメニューが閉じる（「親の内側だから閉じない」が成り立つのは
+   隙間が無いときだけ）。 */
+.agent-submenu {
+  top: -4px;
+  right: 100%;
+  margin-top: 0;
+}
+
+.agent-menu-note {
+  padding: 3px 12px 5px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 /* 回転（読み込み中の印）。**`@keyframes` だけを共有していたので、規則のほうは 6 コピー
    あって名前も 3 通りに割れていた**（`.spin` / `.spin-icon` / `.spinning`）。写すのを忘れると
    「クラスは付いているのに回らない」という無言の抜けになる（issue タブで実際に踏んだ）。 */

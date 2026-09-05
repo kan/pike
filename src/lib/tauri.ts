@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import type { AgentSession } from '../types/agentSession'
 import type { AgentUsage } from '../types/agentUsage'
-import type { ClaudeSession } from '../types/claudeUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
@@ -804,9 +804,10 @@ export async function agentUsageGet(
 }
 
 /**
- * Past interactive Claude Code sessions of `projectRoot`, newest first — the
- * terminal launcher's `claude --resume` list (#220).
+ * そのエージェントの、このプロジェクトでの過去セッション（新しい順、#220 / #267）。
+ * 起動メニューの再開一覧が使う。**メニューを開いたときだけ呼ぶ**（ディスクを読み、
+ * opencode ではプロセスを起こす）。
  */
-export async function claudeSessionsList(shell: ShellType, projectRoot: string): Promise<ClaudeSession[]> {
-  return invoke<ClaudeSession[]>('claude_sessions_list', { shell, projectRoot })
+export async function agentSessionsList(id: string, shell: ShellType, projectRoot: string): Promise<AgentSession[]> {
+  return invoke<AgentSession[]>('agent_sessions', { id, shell, projectRoot })
 }

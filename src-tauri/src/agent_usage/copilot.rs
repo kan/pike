@@ -46,6 +46,10 @@ struct Session {
     cwd: Option<String>,
     /// 最後の checkpoint の値。**累計なので足さない**（checkpoint はセッションの累計を出す）。
     premium_requests: f64,
+    /// 一覧に出す名前。最初のユーザー発話の 1 行目（#267）。
+    title: String,
+    /// ターンがあったか。**再開の一覧はこれで絞る**（起動しただけのセッションを並べない）。
+    had_turn: bool,
 }
 
 /// `events.jsonl` を 1 回なめて、欲しい 2 種のイベントだけ拾う。
@@ -54,7 +58,12 @@ struct Session {
 /// いるので、丸ごと落とすと**いま消費している最中のセッションが 0 と報告される**。行単位で
 /// 読んで上限で打ち切り、そこまでに見つけたものを使う（`session.start` は先頭、
 /// `usage_checkpoint` は書かれるたびに更新されるので、前から読んで打ち切って構わない）。
-fn parse_events(path: &Path) -> Option<Session> {
+///
+/// **`head_only` は再開の一覧のため**（#267）。あちらが要るのは `cwd` / 題 / ターンの有無で、
+/// どれも先頭に来る。使用量と違って**古いファイルを読む**うえ `parse_events_cached` は
+/// 24 時間より古いエントリを持たない（＝一覧では一度も当たらない）ので、揃ったところで
+/// 止めないとメニューを開くたびに 4MB × 件数を読み直すことになる。
+fn parse_events(path: &Path, head_only: bool) -> Option<Session> {
     let file = fs::File::open(path).ok()?;
     let mut out = Session::default();
     let mut read = 0u64;
@@ -63,11 +72,19 @@ fn parse_events(path: &Path) -> Option<Session> {
         if read > MAX_EVENTS_BYTES {
             break;
         }
+        if head_only && out.had_turn && out.cwd.is_some() && !out.title.is_empty() {
+            break;
+        }
         // 行の型を先に見て、要らない行は JSON にすら起こさない（1 行が数十 KB になる
         // ことがある。`session.usage_checkpoint` はツールの一覧まで抱えている）。
+        if line.contains("\"assistant.turn_start\"") {
+            out.had_turn = true;
+            continue;
+        }
         let is_start = line.contains("\"session.start\"");
         let is_usage = line.contains("\"session.usage_checkpoint\"");
-        if !is_start && !is_usage {
+        let is_user = out.title.is_empty() && line.contains("\"user.message\"");
+        if !is_start && !is_usage && !is_user {
             continue;
         }
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
@@ -78,11 +95,114 @@ fn parse_events(path: &Path) -> Option<Session> {
             if let Some(cwd) = data["context"]["cwd"].as_str() {
                 out.cwd = Some(cwd.to_string());
             }
-        } else if let Some(n) = data["totalPremiumRequests"].as_f64() {
-            out.premium_requests = n;
+        } else if is_usage {
+            if let Some(n) = data["totalPremiumRequests"].as_f64() {
+                out.premium_requests = n;
+            }
+        } else if let Some(text) = data["content"].as_str() {
+            // **`content` を使う**（`transformedContent` ではなく）。あちらは
+            // `<current_datetime>…` などを前置した加工後の文字列で、一覧がその字面で埋まる。
+            out.title = crate::agent_sessions::shorten(text);
         }
     }
     Some(out)
+}
+
+/// 読む価値のあるセッションのフォルダを、新しい順に最大 `MAX_SESSIONS` 件。
+/// 返すのは `(フォルダ, events.jsonl の mtime)`。
+///
+/// **2 段構えなのが要点。** セッションのフォルダは消えずに溜まるので、全部について
+/// `events.jsonl` を stat すると、Copilot を長く使っているほど走査が重くなる（WSL では
+/// 1 件ごとに `\\wsl.localhost` の往復）。先にフォルダ自身の mtime で並べて打ち切り、
+/// 残ったものだけ中のファイルを stat する。`DirEntry::metadata` は Windows では列挙時に
+/// 返ってきた値をそのまま使うので、1 段目に往復は増えない。Copilot はセッション中
+/// フォルダの中へ書き続ける（`checkpoints` / `rewind-file-snapshots` / `files`）ので、
+/// フォルダの mtime は並べ替えにも窓の判定にも使える。
+///
+/// `max_age` は使用量の側（24 時間）だけが渡す。再開の一覧は古いものこそ出したいので
+/// `None`（件数の上限だけが効く）。
+fn session_dirs(dir: &Path, max_age: Option<Duration>) -> Vec<(PathBuf, SystemTime)> {
+    let now = SystemTime::now();
+    let mut dirs: Vec<(PathBuf, SystemTime)> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            if !meta.is_dir() {
+                return None;
+            }
+            let modified = meta.modified().ok()?;
+            // **未来の mtime は「今」として扱う**（WSL と Windows の時計のずれ。
+            // `codex_usage` と同じ扱い）。
+            if max_age.is_some_and(|w| now.duration_since(modified).unwrap_or_default() > w) {
+                return None;
+            }
+            Some((e.path(), modified))
+        })
+        .collect();
+    dirs.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+    dirs.truncate(MAX_SESSIONS);
+
+    // 2 段目。**キャッシュの鍵は `events.jsonl` の mtime**（フォルダのそれは他の書き込みでも動く）。
+    let mut out: Vec<(PathBuf, SystemTime)> = dirs
+        .into_iter()
+        .filter_map(|(path, _)| {
+            let modified = fs::metadata(path.join("events.jsonl"))
+                .ok()?
+                .modified()
+                .ok()?;
+            Some((path, modified))
+        })
+        .collect();
+    out.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+    out
+}
+
+/// そのプロジェクトで動いた過去セッション（#267）。**セッション id はフォルダ名**。
+///
+/// **ターンのあったものだけ**出す。`copilot` を起動して何もせずに閉じたセッションも
+/// フォルダを作るので、絞らないと一覧が空の項目で埋まる（Claude で `entrypoint` を見て
+/// いるのと同じ選別）。
+///
+/// **`parse_events_cached` は通さない。** あちらのキャッシュは 24 時間より古いエントリを
+/// 捨てるので一覧では当たらないうえ、ここが使う `head_only` の結果を入れると使用量の側が
+/// 途中までの checkpoint を読むことになる。
+pub(crate) fn list_sessions(
+    shell: &ShellConfig,
+    root: &str,
+    limit: usize,
+) -> Vec<crate::agent_sessions::AgentSession> {
+    let Some(dir) = state_dir(shell) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (path, modified) in session_dirs(&dir, None) {
+        if out.len() >= limit {
+            break;
+        }
+        let Some(session) = parse_events(&path.join("events.jsonl"), true) else {
+            continue;
+        };
+        if !session.had_turn
+            || !session
+                .cwd
+                .as_deref()
+                .is_some_and(|c| cwd_matches_root(shell, c, root))
+        {
+            continue;
+        }
+        let Some(id) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        out.push(crate::agent_sessions::AgentSession {
+            id: id.to_string(),
+            title: session.title,
+            modified_at: crate::agent_sessions::modified_ms(modified).unwrap_or(0),
+            git_branch: None,
+        });
+    }
+    out
 }
 
 /// mtime をキーにした解析結果のキャッシュ（`codex_usage` の `parse_session_cached` と同じ形）。
@@ -105,7 +225,7 @@ fn parse_events_cached(path: &Path, modified: SystemTime) -> Option<Session> {
             }
         }
     }
-    let session = parse_events(path)?;
+    let session = parse_events(path, false)?;
     if let Ok(mut map) = cache.lock() {
         let cutoff = SystemTime::now() - Duration::from_secs(RECENT_WINDOW_SECS);
         map.retain(|_, (at, _)| *at >= cutoff);
@@ -123,38 +243,7 @@ pub fn collect(shell: &ShellConfig, root: &str) -> AgentUsage {
 
     let now = SystemTime::now();
     let recent = Duration::from_secs(RECENT_WINDOW_SECS);
-
-    // **ディレクトリ自身の mtime で先に絞る。** セッションのフォルダは消えずに溜まるので、
-    // 全部について `events.jsonl` を stat すると、Copilot を長く使っているほど 30 秒ごとの
-    // 走査が重くなる（WSL プロジェクトでは 1 件ごとに `\\wsl.localhost` の往復）。
-    // `DirEntry::metadata` は Windows では列挙のときに返ってきた値をそのまま使うので
-    // 往復が増えず、しかも Copilot はセッション中フォルダの中へ書き続ける
-    // （`checkpoints` / `rewind-file-snapshots` / `files`）ので、24 時間の窓では十分に効く。
-    // 絞ったあとで `events.jsonl` の mtime を見る（そちらがキャッシュの鍵）。
-    let mut dirs: Vec<(PathBuf, SystemTime)> = fs::read_dir(&dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let meta = e.metadata().ok()?;
-            if !meta.is_dir()
-                || now
-                    .duration_since(meta.modified().ok()?)
-                    .unwrap_or_default()
-                    > recent
-            {
-                return None;
-            }
-            let path = e.path();
-            let modified = fs::metadata(path.join("events.jsonl"))
-                .ok()?
-                .modified()
-                .ok()?;
-            Some((path, modified))
-        })
-        .collect();
-    // 新しい順に並べてから打ち切る（古いセッションで枠を潰さない）。
-    dirs.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+    let dirs = session_dirs(&dir, Some(recent));
 
     let active_window = Duration::from_secs(ACTIVE_WINDOW_SECS);
     let mut premium = 0.0;
@@ -231,7 +320,7 @@ mod tests {
                 r#"{"type":"session.usage_checkpoint","data":{"totalPremiumRequests":0.66}}"#,
             ],
         );
-        let s = parse_events(&path).unwrap();
+        let s = parse_events(&path, false).unwrap();
         assert_eq!(s.cwd.as_deref(), Some("/home/kan/pike"));
         // 累計なので**足さず**、最後の値を採る。
         assert!((s.premium_requests - 0.66).abs() < f64::EPSILON);
@@ -245,7 +334,7 @@ mod tests {
             &tmp,
             &[r#"{"type":"session.start","data":{"context":{"cwd":"/tmp"}}}"#],
         );
-        let s = parse_events(&path).unwrap();
+        let s = parse_events(&path, false).unwrap();
         assert_eq!(s.cwd.as_deref(), Some("/tmp"));
         assert_eq!(s.premium_requests, 0.0);
         fs::remove_dir_all(&tmp).ok();

@@ -132,9 +132,15 @@ const defaultLauncherIndex = computed(() =>
   settings.agentLaunchers.findIndex((l) => isLauncherVisible(l, ALL_AGENT_BINS)),
 )
 
-/** 最後の 1 つは隠せない（起動ボタンが出せなくなる）。 */
+/**
+ * 最後の 1 つは隠せない（起動ボタンが出せなくなる）。
+ *
+ * **数えるのは `isLauncherVisible`**（`!hidden` ではない）。空のカスタム行はメニューに
+ * 出ないので、`!hidden` で数えると「行を追加してから表の 4 行を全部隠す」で起動ボタンが
+ * 消える。バッジ（`defaultLauncherIndex`）と同じ述語を見る。
+ */
 function canHideLauncher(index: number): boolean {
-  return settings.agentLaunchers.filter((l, i) => !l.hidden || i === index).length > 1
+  return settings.agentLaunchers.filter((l, i) => isLauncherVisible(l, ALL_AGENT_BINS) || i === index).length > 1
 }
 
 function toggleLauncherHidden(index: number) {

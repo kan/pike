@@ -14,7 +14,7 @@ import {
 } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
-import { agentById, commandMentionsAgent, launcherLines } from '../../lib/agents'
+import { type AgentDef, type AgentId, launcherAgent, launcherLines } from '../../lib/agents'
 import { isMacHost, isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
@@ -22,9 +22,9 @@ import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { openUrlWithConfirm } from '../../lib/openUrl'
-import { isAbsolutePath, joinPath, pathSep, relativeTime } from '../../lib/paths'
+import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
-import { claudeSessionsList, ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
+import { agentSessionsList, ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import {
   asPathHeader,
   findPathLinks,
@@ -38,8 +38,9 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
-import type { ClaudeSession } from '../../types/claudeUsage'
-import { isPowershellFamily } from '../../types/tab'
+import type { AgentSession } from '../../types/agentSession'
+import { isPowershellFamily, type ShellType } from '../../types/tab'
+import AgentSessionsMenu from '../AgentSessionsMenu.vue'
 import HelpButton from '../HelpButton.vue'
 import '@xterm/xterm/css/xterm.css'
 
@@ -106,8 +107,6 @@ const defaultLines = computed(() => (defaultLauncher.value ? launcherLines(defau
 /** ボタン本体で走る行。 */
 const primaryCommand = computed(() => defaultLines.value[0] ?? null)
 const agentMenuOpen = ref(false)
-/** 「他のエージェント」のサブメニュー（ホバーで開く）。 */
-const agentSubOpen = ref(false)
 // Reusable instruction snippets injected (as text, not submitted) into the
 // running agent in the current terminal. Configurable in Settings.
 const agentPrompts = computed(() => settingsStore.agentPrompts)
@@ -146,28 +145,102 @@ function terminalTab() {
 // Past Claude Code sessions of this terminal's directory, i.e. what `claude -r`
 // would offer. Loaded when the launcher menu opens (the transcripts live on
 // disk — over the WSL share for WSL projects — so it isn't worth polling).
-const claudeSessions = ref<ClaudeSession[]>([])
-const sessionsLoading = ref(false)
 /**
- * セッションの一覧を出すか。**Claude Code 専用**（`claudeSessionsList` も
- * `claude --resume` も見出しも Claude 固定なので、表のフラグで一般化した振りをしない。
- * 広げるのは #267 の残りで、一覧の取得と再開コマンドを id で分ける作業）。
- *
- * **既定の行が claude を起動していれば出す。** カスタム行のときに字面を見る
- * （`commandMentionsAgent`）のは、wrapper 越しに起動している利用者（`npx claude`、
- * `docker compose exec -T dev claude`）から一覧が消えないため。**既定でないときに
- * 出さない**のは、一覧が第 1 階層にあるから（サブメニューの中の行の履歴をここに混ぜると、
- * どれの履歴か読めなくなる）。Codex だけの環境に disk scan を払わせない意味もある。
+ * 再開できる過去セッション（#220 / #267）。**エージェントごとに、そのサブメニューを
+ * 開いたときだけ読む。** ディスクを読み（WSL では `\\wsl.localhost` 越し）、opencode では
+ * プロセスを起こすので、メニューを開いた時点で 4 つまとめて取りには行かない。
  */
-const showClaudeSessions = computed(() => {
-  const claude = agentById('claude')
-  const l = defaultLauncher.value
-  if (!claude || !l) return false
-  return l.kind === 'agent' ? l.id === 'claude' : commandMentionsAgent(l.command, claude)
-})
+const sessions = ref<Record<string, AgentSession[]>>({})
+/**
+ * いま読んでいるエージェント。**1 枠ではなく集合で持つ**: サブメニューを次々にホバーすると
+ * 取得が重なるので、1 枠だと A の完了が B のスピナーを消す。取得中かの判定（二重に
+ * 起こさない印）もこれが兼ねる。
+ */
+const sessionsLoading = ref<AgentId[]>([])
+/**
+ * メニューを開いている世代。**飛んでいる取得を捨てるための印**（`closeAgentMenu` が
+ * 一覧を捨てるので、あとから届いた結果を書き戻すと次に開いたとき古い並びが出る）。
+ */
+let sessionsEpoch = 0
+/**
+ * 開いている再開一覧。**鍵はメニュー上の位置**（`default` / `other:<i>`）で、エージェントの
+ * id ではない: 既定が `claude` でカスタム行に `claude --model opus` を置いている構成だと、
+ * id を鍵にすると片方にホバーしただけで両方のサブメニューが開く。
+ */
+const sessionsOpenAt = ref<string | null>(null)
+/** 「他のエージェント」を開いているか。 */
+const agentSubOpen = ref(false)
 
-function resumeCommand(session: ClaudeSession): string {
-  return `claude --resume ${session.id}`
+/** 既定の行が起動するエージェント（第 1 階層の再開一覧はこれ）。 */
+const defaultAgent = computed(() => launcherAgent(defaultLauncher.value))
+
+/**
+ * 「他のエージェント」の各行。**導出はここで 1 回**（テンプレートで `launcherAgent(o)` を
+ * 呼ぶと、行ごと・セッション行ごとに `commandMentionsAgent` の正規表現が走る）。
+ */
+const otherRows = computed(() =>
+  otherLaunchers.value.map((l) => ({ lines: launcherLines(l), agent: launcherAgent(l) })),
+)
+
+/** 再開一覧の 1 か所ぶんの束縛（`at` はメニュー上の位置）。 */
+function sessionsMenuBind(agent: AgentDef, at: string) {
+  return {
+    agent,
+    sessions: sessions.value[agent.id] ?? [],
+    loading: sessionsLoading.value.includes(agent.id),
+    open: sessionsOpenAt.value === at,
+    onEnter: () => {
+      sessionsOpenAt.value = at
+      void openSessions(agent)
+    },
+    onLeave: () => {
+      sessionsOpenAt.value = null
+    },
+    onPick: (command: string) => runAgentCommand(command),
+  }
+}
+
+/**
+ * 一覧を引く先（シェルと基準ディレクトリ）。**メニューを開いているあいだは 1 回だけ聞く**
+ * （`sessionsEpoch` が世代）。4 つのサブメニューをホバーすれば `pty_get_cwd` の IPC が
+ * そのぶん飛ぶが、開いているあいだにシェルも現在地も変わらない。
+ *
+ * **参照するディレクトリは `pty_get_cwd`**（OSC 7 の現在地）→ タブの cwd → プロジェクトの
+ * root の順。タブ生成時の cwd で決め打ちしないのは、記録が起動した cwd ごとに分かれるので、
+ * `cd` したあとは別のバケットになるため。
+ */
+let sessionsWhereCache: { epoch: number; shell: ShellType; root: string } | null = null
+
+async function sessionsWhere(epoch: number): Promise<{ shell: ShellType; root: string } | null> {
+  if (sessionsWhereCache?.epoch === epoch) return sessionsWhereCache
+  const tabData = terminalTab()
+  const shell = tabData?.shell ?? projectStore.currentProject?.shell
+  const root = (ptyId ? await ptyGetCwd(ptyId) : null) ?? tabData?.cwd ?? projectStore.activeRoot
+  if (!shell || !root) return null
+  sessionsWhereCache = { epoch, shell, root }
+  return sessionsWhereCache
+}
+
+/** そのエージェントの一覧を、まだ読んでいなければ読む。 */
+async function openSessions(agent: AgentDef) {
+  // **取得済み・取得中なら何もしない。** 印を最初の `await` より前に立てるのが要点で、
+  // 無いとポインタが行き来するたびに `agent_sessions` が飛ぶ（opencode は結果を
+  // キャッシュしないので、そのたびに `bash -lic` と node のプロセスが上がる）。
+  if (sessions.value[agent.id] || sessionsLoading.value.includes(agent.id)) return
+  const epoch = sessionsEpoch
+  sessionsLoading.value = [...sessionsLoading.value, agent.id]
+  try {
+    const where = await sessionsWhere(epoch)
+    if (!where) return
+    const list = await agentSessionsList(agent.id, where.shell, where.root).catch(() => [])
+    if (epoch !== sessionsEpoch) return
+    sessions.value = { ...sessions.value, [agent.id]: list }
+  } finally {
+    // 閉じたあとに戻ってきたぶんは触らない（`closeAgentMenu` が既に空にしている）。
+    if (epoch === sessionsEpoch) {
+      sessionsLoading.value = sessionsLoading.value.filter((id) => id !== agent.id)
+    }
+  }
 }
 
 /**
@@ -182,24 +255,6 @@ function resumeCommand(session: ClaudeSession): string {
 function detectAgents() {
   const tabData = terminalTab()
   void agentStore.detect(tabData?.shell ?? projectStore.currentProject?.shell, tabData?.cwd ?? projectStore.activeRoot)
-}
-
-async function loadClaudeSessions() {
-  const tabData = terminalTab()
-  const project = projectStore.currentProject
-  const shell = tabData?.shell ?? project?.shell
-  // Where `claude` would actually run: the shell's live directory (tracked from
-  // OSC 7, so a `cd` is reflected), falling back to what the tab was opened at.
-  const root = (ptyId ? await ptyGetCwd(ptyId) : null) ?? tabData?.cwd ?? projectStore.activeRoot
-  if (!shell || !root) {
-    claudeSessions.value = []
-    return
-  }
-  sessionsLoading.value = true
-  // Keep the previous list on screen while refreshing — reopening the menu
-  // should not blank it out.
-  claudeSessions.value = await claudeSessionsList(shell, root).catch(() => [])
-  sessionsLoading.value = false
 }
 
 // Resolve a `path:line` link from terminal output to a tab. Relative paths
@@ -294,7 +349,7 @@ function toggleAgentMenu() {
   closePromptMenu()
   agentMenuOpen.value = !agentMenuOpen.value
   if (agentMenuOpen.value) {
-    if (showClaudeSessions.value) void loadClaudeSessions()
+    // **一覧はここで取らない**（#267）。エージェントごとにサブメニューを開いたときだけ読む。
     nextTick(() => window.addEventListener('mousedown', closeAgentMenu, { once: true }))
   }
 }
@@ -303,6 +358,13 @@ function closeAgentMenu() {
   window.removeEventListener('mousedown', closeAgentMenu)
   agentMenuOpen.value = false
   agentSubOpen.value = false
+  sessionsOpenAt.value = null
+  // **取った一覧は捨てる。** 次に開くまでに新しいセッションができているのが普通なので、
+  // 残すと古い並びを見せることになる（読むのはメニューを開いたときだけなので、
+  // 開き直すコストは元から払っている）。飛んでいる取得は世代で捨てる。
+  sessions.value = {}
+  sessionsLoading.value = []
+  sessionsEpoch += 1
 }
 
 // Inject a prompt's text into the current PTY. Bracketed paste keeps a multi-line
@@ -1121,35 +1183,23 @@ onUnmounted(() => {
             <span class="agent-menu-label">{{ l.label }}</span>
             <span class="agent-menu-cmd">{{ l.command }}</span>
           </button>
-          <template v-if="showClaudeSessions">
-            <div class="agent-menu-heading">{{ t('terminal.claudeSessions') }}</div>
-            <div v-if="claudeSessions.length === 0" class="agent-menu-note">
-              {{ sessionsLoading ? t('common.loading') : t('terminal.noClaudeSessions') }}
-            </div>
-            <button
-              v-for="s in claudeSessions"
-              v-else
-              :key="s.id"
-              class="agent-menu-item"
-              :title="resumeCommand(s)"
-              @click="runAgentCommand(resumeCommand(s))"
-            >
-              <span class="agent-menu-label">{{ s.title }}</span>
-              <span class="agent-menu-cmd">
-                {{ relativeTime(s.modifiedAt) }}<template v-if="s.gitBranch"> · {{ s.gitBranch }}</template>
-              </span>
-            </button>
-          </template>
           </div>
           <!--
-            既定以外の起動行（#275。見出しは「他のエージェント」）。**スクロール領域の
-            外に置く**（中に入れると
+            既定の行の再開一覧（#267）。**スクロール領域の外**に置く（中に入れると
+            サブメニューがクリップされる）。
+          -->
+          <AgentSessionsMenu
+            v-if="defaultAgent"
+            v-bind="sessionsMenuBind(defaultAgent, 'default')"
+          />
+          <!--
+            既定以外の起動行（#275 / #267）。**スクロール領域の外に置く**（中に入れると
             サブメニューがクリップされる）。**サブメニューは親の行の内側**なので、
             そちらへマウスを移しても `mouseleave` が発火しない（閉じるのを遅らせる
             タイマーが要らない）。左に出すのは、この親メニュー自体が画面の右上に出るため。
           -->
           <div
-            v-if="otherLaunchers.length > 0"
+            v-if="otherRows.length > 0"
             class="agent-menu-item agent-menu-sub"
             @mouseenter="agentSubOpen = true"
             @mouseleave="agentSubOpen = false"
@@ -1157,9 +1207,10 @@ onUnmounted(() => {
             <ChevronLeft :size="12" :stroke-width="2" class="agent-menu-caret" />
             <span class="agent-menu-label">{{ t('terminal.otherAgents') }}</span>
             <div v-if="agentSubOpen" class="agent-menu agent-submenu popup-surface">
-              <template v-for="(o, i) in otherLaunchers" :key="i">
+              <!-- 行のかたまりごとに区切る（#267）。どこまでが同じエージェントかを目で追える。 -->
+              <div v-for="(o, i) in otherRows" :key="i" class="agent-menu-group">
                 <button
-                  v-for="l in launcherLines(o)"
+                  v-for="l in o.lines"
                   :key="l.command"
                   class="agent-menu-item"
                   @click="runAgentCommand(l.command)"
@@ -1167,7 +1218,9 @@ onUnmounted(() => {
                   <span class="agent-menu-label">{{ l.label }}</span>
                   <span class="agent-menu-cmd">{{ l.command }}</span>
                 </button>
-              </template>
+                <!-- そのエージェントの再開一覧（サブのサブ）。 -->
+                <AgentSessionsMenu v-if="o.agent" v-bind="sessionsMenuBind(o.agent, `other:${i}`)" />
+              </div>
             </div>
           </div>
         </div>
@@ -1247,121 +1300,7 @@ onUnmounted(() => {
   background: var(--tab-hover-bg);
 }
 
-.agent-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  min-width: 180px;
-  /* Session titles are a sentence long: cap the width. */
-  max-width: 340px;
-  /* **`overflow` を持たせないこと（#275）。** `visible` 以外だと、中の「他のエージェント」の
-     サブメニュー（`position: absolute`）がこの箱にクリップされ、開いてもスクロールバーが
-     出るだけになる。長くなりうる節（セッション・設定の行）が自分でスクロールを持ち、
-     全体の上限は `.agent-menu-scroll` が受ける。 */
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  padding: 4px 0;
-  z-index: 10;
-}
-
-.agent-menu-item {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  width: 100%;
-  /* padding を含めて親幅に収める。**このプロジェクトは `box-sizing` をグローバルに
-     設定していない**ので、`width: 100%` と padding を併せると左右 24px ぶん親から
-     はみ出す（メニューに `overflow` があったころは隠れていた）。 */
-  box-sizing: border-box;
-  padding: 5px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-  text-align: left;
-}
-
-.agent-menu-item:hover {
-  background: var(--accent);
-  color: var(--text-active);
-}
-
-.agent-menu-label,
-.agent-menu-cmd {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agent-menu-label {
-  font-size: 12px;
-}
-
-.agent-menu-cmd {
-  font-size: 10px;
-  color: var(--text-secondary);
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
-}
-
-.agent-menu-heading {
-  margin-top: 4px;
-  padding: 4px 12px 2px;
-  border-top: 1px solid var(--border);
-  font-size: 10px;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-/* 高さの上限を受ける層（#275）。「他のエージェント」の行はこの外にあるので、
-   サブメニューはクリップされない。 */
-.agent-menu-scroll {
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-/* 「他のエージェント」の行（#275）。中身は `.agent-menu-item` と同じ見た目で、
-   右端に開く向きの印を置く。 */
-/* `.agent-menu-item` は縦積み（ラベル＋コマンド）だが、この行は開く向きの印とラベルを
-   横に並べるので方向を上書きする。サブメニューは `position: absolute` なので流れの外。
-   **印はラベルの左**（開く向きと同じ側）。メニューはターミナルの右上から出るので、
-   サブメニューは左へ開く。 */
-.agent-menu-sub {
-  position: relative;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  border-top: 1px solid var(--border);
-  margin-top: 4px;
-  padding-top: 8px;
-}
-
-.agent-menu-caret {
-  flex-shrink: 0;
-  color: var(--text-secondary);
-}
-
-/* **親の行の左に出す。** このメニュー自体がターミナルの右上から出るので、右に開くと
-   画面の外へ出る。`overflow-y: auto` の親から抜けるため、位置は親の行を基準にする。 */
-/* **隙間を空けない。** 2px でも空けると、ポインタがそこを通った瞬間に行の
-   `mouseleave` が発火してサブメニューが閉じる（「親の内側だから閉じない」が成り立つのは
-   隙間が無いときだけ）。 */
-.agent-submenu {
-  top: -4px;
-  right: 100%;
-  margin-top: 0;
-}
-
-.agent-menu-note {
-  padding: 3px 12px 5px;
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.agent-menu-item:hover .agent-menu-cmd {
-  color: rgba(255, 255, 255, 0.7);
-}
+/* メニューの見た目（`.agent-menu*`）は `theme.css` にある。**切り出した
+   `AgentSessionsMenu.vue` と共有するため**で、scoped のままだと子のルート要素より内側に
+   届かない（`frontend.md`）。ここに残すのはボタン本体だけ。 */
 </style>

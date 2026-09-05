@@ -23,8 +23,10 @@
 //! 語彙が 2 つのファイルに散る（`menus_refresh` がラベルをフロントから受け取っているのと
 //! 同じ分担で、語彙を持つ側は 1 つ）。
 
-mod copilot;
-mod opencode;
+// **`agent_sessions` からも読む**（#267）。エージェントの記録の置き場と読み方を知って
+// いるのはこの 2 つなので、セッション一覧もここから出す。
+pub(crate) mod copilot;
+pub(crate) mod opencode;
 
 use serde::{Deserialize, Serialize};
 

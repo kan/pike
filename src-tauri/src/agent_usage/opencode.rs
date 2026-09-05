@@ -48,13 +48,20 @@ const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 const JSON_MARKER: &str = "PIKEJSON";
 
 /// **`time_*` はミリ秒**（実測でカラムの型は INTEGER、opencode は TypeScript 実装）。
+///
+/// **使用量と再開の一覧が同じ 1 本を使う**（#267）。行の集合は同じ（`session` の新しい順
+/// 200 件）で、一覧に要るのは `id` と `title` の 2 列だけ。別のクエリにすると、4 つの
+/// アダプタで唯一プロセスを起こす経路が、同じ行がキャッシュに乗っているのにもう 1 回
+/// `bash -lic` と node を上げることになる。
 const QUERY: &str =
-    "select directory, model, cost, tokens_input, tokens_output, tokens_reasoning, \
+    "select id, title, directory, model, cost, tokens_input, tokens_output, tokens_reasoning, \
      tokens_cache_read, tokens_cache_write, time_updated from session \
      order by time_updated desc limit 200";
 
 #[derive(Debug, Clone, Deserialize)]
 struct Row {
+    id: Option<String>,
+    title: Option<String>,
     directory: Option<String>,
     model: Option<String>,
     cost: Option<f64>,
@@ -105,11 +112,6 @@ fn model_label(raw: Option<String>) -> Option<String> {
 /// 丸ごと払う）。起動ボタンの検出と同じ答え（`shell_probe::agent_bins`。導入単位で 5 分
 /// キャッシュされ、対話ログインシェルの probe に相乗りする）を先に見る。
 fn query(shell: &ShellConfig, root: &str, force: bool) -> Vec<Row> {
-    if !crate::shell_probe::agent_bins(shell, root, &["opencode".to_string()]).contains("opencode")
-    {
-        return Vec::new();
-    }
-
     // キーは**導入単位**（DB はインストールに 1 つで、プロジェクトでは変わらない）。
     // ウィンドウを何枚開いても、間隔のあいだに走るのは 1 回。
     type QueryCache = Mutex<HashMap<String, (Instant, Vec<Row>)>>;
@@ -124,6 +126,10 @@ fn query(shell: &ShellConfig, root: &str, force: bool) -> Vec<Row> {
                 }
             }
         }
+    }
+    if !crate::shell_probe::agent_bins(shell, root, &["opencode".to_string()]).contains("opencode")
+    {
+        return Vec::new();
     }
     // **二重引用符で囲む。** POSIX では bash、Windows では `cmd.exe /C` を通るので、
     // どちらでも同じ意味を持つ囲み方はこれだけ。囲みが効くためには中身に引用符やメタ文字が
@@ -153,11 +159,41 @@ fn query(shell: &ShellConfig, root: &str, force: bool) -> Vec<Row> {
             _ => return Vec::new(),
         }
     };
-    let rows: Vec<Row> = parse_rows(&stdout);
+    let rows = parse_rows(&stdout);
     if let Ok(mut map) = cache.lock() {
         map.insert(key, (Instant::now(), rows.clone()));
     }
     rows
+}
+
+/// 過去セッション（#267）。**`title` 列をそのまま使える**のは 4 つのうちここだけで、
+/// opencode 自身が会話に名前を付けている。
+///
+/// **使用量と同じキャッシュ済みの行を読む**ので、メニューを開いてもプロセスは増えない
+/// （代償は `QUERY_TTL` のあいだ直前に始めたセッションが出ないこと。再開したい相手は
+/// たいてい前の作業なので、プロセスをもう 1 本起こすほうの代償を採らない）。
+pub(crate) fn list_sessions(
+    shell: &ShellConfig,
+    root: &str,
+    limit: usize,
+) -> Vec<crate::agent_sessions::AgentSession> {
+    query(shell, root, false)
+        .into_iter()
+        .filter(|row| {
+            row.directory
+                .as_deref()
+                .is_some_and(|dir| cwd_matches_root(shell, dir, root))
+        })
+        .filter_map(|row| {
+            Some(crate::agent_sessions::AgentSession {
+                id: row.id?,
+                title: row.title.unwrap_or_default(),
+                modified_at: row.time_updated.unwrap_or(0).max(0) as u64,
+                git_branch: None,
+            })
+        })
+        .take(limit)
+        .collect()
 }
 
 pub fn collect(shell: &ShellConfig, root: &str, force: bool) -> AgentUsage {

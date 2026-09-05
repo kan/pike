@@ -6,15 +6,14 @@
 //! `claude_usage` already walks for token counts).
 
 use super::{config, encode_project_path};
+use crate::agent_sessions::AgentSession;
 use crate::types::{validate_slug, ShellConfig};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-/// Sessions handed to the menu.
-const MAX_SESSIONS: usize = 12;
 /// Transcripts inspected before giving up. Most files in the directory are
 /// short `-p` runs (Pike's own `/usage` probe, hooks, review agents) that are
 /// rejected after a line or two, so the scan budget outruns the result budget.
@@ -31,18 +30,6 @@ const MAX_TITLE_CHARS: usize = 120;
 
 const ENTRYPOINT_PAT: &str = "\"entrypoint\":\"";
 const GIT_BRANCH_PAT: &str = "\"gitBranch\":\"";
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClaudeSession {
-    /// Session id (the transcript's file stem) — the argument of `--resume`.
-    pub id: String,
-    /// Claude's generated title when it has one, else the session's last prompt.
-    pub title: String,
-    /// Transcript mtime in epoch ms = the picker's "modified" column.
-    pub modified_at: u64,
-    pub git_branch: Option<String>,
-}
 
 /// `{"type":"ai-title","aiTitle":…}` / `{"type":"last-prompt","lastPrompt":…}`.
 /// Both are small standalone records whose values carry escapes and newlines,
@@ -135,7 +122,7 @@ impl TranscriptScan {
     }
 }
 
-fn read_session(path: &Path, modified_at: u64) -> Option<ClaudeSession> {
+fn read_session(path: &Path, modified_at: u64) -> Option<AgentSession> {
     // The id is interpolated into a shell command line, and it comes from a
     // file name rather than from Claude itself — keep it to the id alphabet.
     let id = path.file_stem()?.to_str()?;
@@ -157,7 +144,7 @@ fn read_session(path: &Path, modified_at: u64) -> Option<ClaudeSession> {
     }
 
     let (title, git_branch) = scan.finish()?;
-    Some(ClaudeSession {
+    Some(AgentSession {
         id: id.to_string(),
         title,
         modified_at,
@@ -175,7 +162,13 @@ fn modified_ms(meta: &fs::Metadata) -> Option<u64> {
     Some(ms as u64)
 }
 
-fn list_sessions(shell: &ShellConfig, project_root: &str) -> Vec<ClaudeSession> {
+/// **件数は呼び出し側が決める**（#267）。メニューの階層によって並べたい数が違い、
+/// ここで固定すると増やすたびにこのモジュールを触ることになる。
+pub(crate) fn list_sessions(
+    shell: &ShellConfig,
+    project_root: &str,
+    limit: usize,
+) -> Vec<AgentSession> {
     let Some(claude_dir) = config::resolve(shell, project_root).read_path else {
         return Vec::new();
     };
@@ -195,7 +188,7 @@ fn list_sessions(shell: &ShellConfig, project_root: &str) -> Vec<ClaudeSession> 
 
     let mut sessions = Vec::new();
     for (path, modified_at) in files.into_iter().take(MAX_SCAN_FILES) {
-        if sessions.len() >= MAX_SESSIONS {
+        if sessions.len() >= limit {
             break;
         }
         if let Some(session) = read_session(&path, modified_at) {
@@ -205,15 +198,7 @@ fn list_sessions(shell: &ShellConfig, project_root: &str) -> Vec<ClaudeSession> 
     sessions
 }
 
-#[tauri::command]
-pub async fn claude_sessions_list(
-    shell: ShellConfig,
-    project_root: String,
-) -> Result<Vec<ClaudeSession>, String> {
-    tokio::task::spawn_blocking(move || list_sessions(&shell, &project_root))
-        .await
-        .map_err(|e| e.to_string())
-}
+// 一覧を IPC で出す口は `agent_sessions` に一本化した（#267）。ここが持つのは収集だけ。
 
 #[cfg(test)]
 mod tests {

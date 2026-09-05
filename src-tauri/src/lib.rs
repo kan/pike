@@ -8,6 +8,7 @@ mod appmenu {
     pub fn refresh(_app: &tauri::AppHandle, _lang: &str, _actions: &[crate::types::MenuAction]) {}
     pub fn on_menu_event(_app: &tauri::AppHandle, _event: tauri::menu::MenuEvent) {}
 }
+mod agent_sessions;
 mod agent_usage;
 mod agents;
 mod claude_usage;
@@ -1700,7 +1701,7 @@ pub fn run() {
             git::git_diff_working,
             font::font_list_monospace,
             font::font_list_all,
-            claude_usage::sessions::claude_sessions_list,
+            agent_sessions::agent_sessions,
         ])
         .build(context)
         .expect("error while running tauri application")

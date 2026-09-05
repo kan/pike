@@ -106,6 +106,7 @@ pike/
 │       ├── lib.rs             # Tauri Builder 設定・コマンド登録
 │       ├── types.rs           # ShellConfig・WSL_EXTRA_PATH・bash_quote 等の共通型/ヘルパー
 │       ├── agents.rs          # PATH にあるエージェントの検出（#275。一覧はフロントの表）
+│       ├── agent_sessions.rs  # 再開できる過去セッションの一覧（#267。出所は 4 つとも違う）
 │       ├── agent_usage/
 │       │   ├── mod.rs         # 使用量を種別に依らない形で返す（#263。id でアダプタへ振り分け）
 │       │   ├── copilot.rs     # Copilot の premium request（~/.copilot の events.jsonl）
@@ -131,7 +132,7 @@ pike/
 │       │   ├── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
 │       │   ├── config.rs      # CLAUDE_CONFIG_DIR の解決とアカウント読み出し（#225）
 │       │   ├── rate.rs        # `claude -p "/usage"` のレート制限パース（#117）
-│       │   └── sessions.rs    # 再開できる過去セッション一覧（#220）
+│       │   └── sessions.rs    # 再開できる過去セッションの Claude ぶんの収集（#220。口は agent_sessions.rs）
 │       ├── pty/
 │       │   ├── mod.rs         # PTY 管理（WSL/cmd/PowerShell/PowerShell 7/Git Bash 対応）
 │       │   └── busy.rs        # シェル以外のプロセスが動いているかの判定（#178）
@@ -161,7 +162,8 @@ pike/
 │   │   ├── tab.ts             # Tab Union type・ShellType・SidebarPanel・共通ヘルパー
 │   │   ├── project.ts         # ProjectConfig・PinnedTabDef
 │   │   ├── agentUsage.ts      # 使用量の共通の形（#263。種別ごとの型を持たない）
-│   │   ├── claudeUsage.ts  diagnostics.ts  docker.ts
+│   │   ├── agentSession.ts    # 再開できるセッション 1 件（#267）
+│   │   ├── diagnostics.ts  docker.ts
 │   │   ├── git.ts  search.ts  tasks.ts  issues.ts
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
@@ -172,6 +174,7 @@ pike/
 │   │   ├── RateMeters.vue       # 利用率の帯グラフ（StatusBar と状態タブで共有、#226）
 │   │   ├── ColorDot.vue         # プロジェクトカラーのドット（#121）
 │   │   ├── RenameNote.vue       # 「名前が変わった」見出し（diff タブと履歴タブで共有、#306）
+│   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── layout/
 │   │   │   ├── ProjectSelect.vue # プロジェクトの表示と切替（サイドバー上部 / タブバー左、#298）

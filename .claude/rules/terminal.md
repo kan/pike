@@ -26,10 +26,10 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
 `claude` 等をターミナルで使う運用を、Pike の既存機能（エディタ / 診断）と橋渡しする一連の機能。注入はすべて `ptyWrite` 経由。
 
 - **起動ボタン**: ターミナル右上のフローティング split ボタン（`TerminalTab.vue`）。主＝既定の起動行 / ▾＝一覧。クリックで `agentLaunchers`（`pike:settings`）の行をそのまま注入＋Enter。一覧の形と既定の決め方は `.claude/rules/agent.md` が正本。代替画面（alternate screen）検出で vim/less 等の全画面 TUI 中は非表示。**clear プレフィックスは付けない**（#220。以前は `clear && claude` を流していたが、今のエージェントは画面をその場に描くので直前までの出力を消す意味がない）。タブ生成時の `autoStart` 側は `buildAutoStartLine` で clear を付けたまま（あちらは同時に流すシェル初期化行を隠す役目がある）
-- **セッション再開メニュー（#220）**: 起動メニューの下段に `claude -r` 相当の一覧を出し、選ぶと `claude --resume <id>` を注入する。`claude_usage/sessions.rs` が `~/.claude/projects/<encoded-root>/*.jsonl` を直接読む（CLI に機械可読な一覧が無いため。パスのエンコードとホーム解決は `claude_usage` と共有）。走査の打ち切り（`MAX_SCAN_FILES` / `MAX_TRANSCRIPT_BYTES` 等）とパースの詳細はコード側の doc コメントを正本とする
-  - **対話セッションだけを出す**: 同じディレクトリには `-p` / SDK 実行（Pike 自身のレート取得 `claude -p "/usage"`、フック、レビューエージェント）の記録も溜まるので、`entrypoint` が `cli` 以外なら捨てる。これが無いと一覧が `/usage` の残骸で埋まる（実測で直近 60 件のうち対話セッションは 5 件）
-  - 取得はメニューを開いたときだけ（WSL プロジェクトでは `\\wsl.localhost` 越しの読みになるためポーリングしない）。`claude` の起動コマンドが設定に無ければセクションごと出さない
-  - 参照するディレクトリは `pty_get_cwd`（OSC 7 追跡の現在地）→ タブの `cwd` → プロジェクト root の順。**タブ生成時の cwd で決め打ちしない**: セッション記録は `claude` を起動した cwd ごとに分かれるので、`cd` したあとは別のバケットになる
+- **セッション再開メニュー（#220 / #267）**: 起動行ごとに、その行が動かすエージェントの過去セッションをサブメニューに出す。**4 つとも対応していて、出所も対話セッションの選び方も違う**（表は `src-tauri/src/agent_sessions.rs` の doc が正本。振り分けもあそこ）。再開コマンドの組み立てはフロントの表（`lib/agents.ts` の `AgentDef.resume`）
+  - 行とサブメニューの部品は `components/AgentSessionsMenu.vue`（2 か所で共有）。**開いているかの鍵はメニュー上の位置**（`default` / `other:<i>`）で、エージェントの id ではない: 既定が `claude` でカスタム行に `claude --model opus` を置いていると、id を鍵にすると両方が同時に開く
+  - 取得はメニューを開いたときだけ（WSL プロジェクトでは `\\wsl.localhost` 越しの読みになるためポーリングしない）。ホバーのたびに撃たないよう、取得中の印（`sessionsLoading`）が二重起動を止め、メニューを閉じた世代のものは書き戻さない
+  - 参照するディレクトリは `pty_get_cwd`（OSC 7 追跡の現在地）→ タブの `cwd` → プロジェクト root の順。**タブ生成時の cwd で決め打ちしない**: セッション記録はエージェントを起動した cwd ごとに分かれるので、`cd` したあとは別のバケットになる。メニューを開いているあいだは 1 回だけ解決する
 - **定型プロンプト挿入ボタン**: 起動ボタンの隣の2つ目のドロップダウン。`agentPrompts`（`{ label, text }[]`、`pike:settings`）を**ブラケットペースト（`ESC[200~…ESC[201~`）で挿入のみ・Enter なし**（複数行も1入力として届き途中確定しない）。2つのメニューは相互排他、alt-screen 中は非表示。挿入の primitive は `lib/tauri.ts` の `ptyPasteText`
 - **出力のパスのクリックでファイルを開く**: `lib/terminalLinks.ts` の `findPathLinks`（インライン `path:line(:col)` 検出。拡張子必須で誤検出抑制、Windows ドライブ・URL 除外）
   - **行番号は任意（#252）**。エージェントは書いたファイルを `› [file] /tmp/…/test.md (7.7KB)` の形で案内してくるので、行の一部にある裸のパスも拾う（行全体がパスであることを求める `asPathHeader` では届かない）。開くのは 1 行目

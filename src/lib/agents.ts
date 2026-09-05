@@ -5,12 +5,12 @@
  * エージェント」という同じ一覧を要る。別々に持つと、対応を増やすたびに 3 つの一覧を
  * 揃えることになる（`lib/shortcuts.ts` の `APP_ACTIONS` と同じ「表が正本」の形）。
  *
- * **今のところ Rust 側に写しは無い。** `agent_detect` が受け取るのは「この名前のコマンドが
- * あるか」だけ。ただし**この継ぎ目は起動までしか運べない**: 使用量（#263）はログの置き場と
- * 行の形式、フック駆動の通知（#265 / #299）は設定ディレクトリとフックの書式を Rust 側で
- * 知る必要があり、どちらも bin 名では表せない。そこまで来たら継ぎ目を `AgentId` に上げて、
- * Rust に id の enum を置く（bin はそこにぶら下げる）。**先回りで作らない**のは、実装を
- * 伴わない構造は次のステップで必ず形が変わるため。
+ * **Rust との継ぎ目は `AgentId`。** 検出（`agent_detect`）だけは「この名前のコマンドが
+ * あるか」で足りるが、使用量（#263）はログの置き場と行の形式、セッション一覧（#267）は
+ * 記録の置き場と対話セッションの選び方を Rust 側で知る必要があり、どちらも bin 名では
+ * 表せない。そこで `agent_usage::AgentId` の `match` が 2 つ（使用量とセッション一覧）
+ * この id で振り分ける。**表に 1 行足すときは Rust の腕も足す**（`match` の網羅性が
+ * 気付かせる）。**起動コマンドと再開コマンドはこちらが正本**で、Rust は文字列を組まない。
  *
  * **エージェントを足すときはここに 1 行足す。** `bin` が PATH にあるかで出し入れが
  * 決まり、無いものはメニューに出ない（押しても `command not found` になる項目を
@@ -42,16 +42,19 @@ export interface AgentDef {
    * 3 行目以降を足すのは自由。
    */
   launch: { label: string; command: string }[]
+  /**
+   * 過去のセッションを id 指定で再開する行（#267）。
+   *
+   * **4 つとも書き方が違う**（`claude --resume <id>` / `codex resume <id>` /
+   * `copilot --resume <id>` / `opencode --session <id>`）ので、表が持つのは組み立て方
+   * そのもの。テンプレート文字列にしないのは、置換の規則をもう 1 つ発明することになるため。
+   *
+   * **一覧の取得は Rust の `agent_sessions`。** 出所は 4 つとも違う（あちらの doc が正本）。
+   * ここに「一覧を出せるか」の真偽値は置かない —— 出せなければ一覧が空になるだけで、
+   * メニュー側は同じ扱いでよい。
+   */
+  resume: (sessionId: string) => string
 }
-
-/**
- * **過去セッションの一覧（#220）はここに欄を持たない。** 真偽値のフラグを置くと拡張点に
- * 見えるが、実装は Claude 決め打ちで（一覧は `claudeSessionsList`、再開は
- * `claude --resume <id>`、見出しも Claude）、2 つ目に付けると**その名前の下に Claude の
- * セッションが出る**（型は通る）。読み手側は `agentById('claude')` を直に見ていて、
- * Claude 専用であることが型と読みの両方に出る。Codex / Copilot に広げるのは #267 の残りで、
- * 一覧の取得と再開コマンドの組み立てを id で分ける作業から。
- */
 
 export const AGENTS: AgentDef[] = [
   {
@@ -62,6 +65,7 @@ export const AGENTS: AgentDef[] = [
       { label: 'Claude Code', command: 'claude' },
       { label: 'Claude Code (continue)', command: 'claude --continue' },
     ],
+    resume: (id) => `claude --resume ${id}`,
   },
   {
     id: 'codex',
@@ -71,6 +75,7 @@ export const AGENTS: AgentDef[] = [
       { label: 'Codex', command: 'codex' },
       { label: 'Codex (resume)', command: 'codex resume --last' },
     ],
+    resume: (id) => `codex resume ${id}`,
   },
   {
     id: 'copilot',
@@ -80,6 +85,7 @@ export const AGENTS: AgentDef[] = [
       { label: 'Copilot CLI', command: 'copilot' },
       { label: 'Copilot CLI (continue)', command: 'copilot --continue' },
     ],
+    resume: (id) => `copilot --resume ${id}`,
   },
   {
     id: 'opencode',
@@ -89,6 +95,7 @@ export const AGENTS: AgentDef[] = [
       { label: 'opencode', command: 'opencode' },
       { label: 'opencode (continue)', command: 'opencode --continue' },
     ],
+    resume: (id) => `opencode --session ${id}`,
   },
 ]
 
@@ -188,5 +195,33 @@ export function resumeCommandFor(command: string): string | undefined {
  * 検出だけを条件にすると、そういう使い方をしている利用者からセッション一覧が消える。
  */
 export function commandMentionsAgent(command: string, agent: AgentDef): boolean {
-  return new RegExp(`(^|[\\\\/\\s])${agent.bin}(\\s|$)`).test(command)
+  return mentionPattern(agent).test(command)
+}
+
+/**
+ * `bin` ごとの正規表現。**呼ぶたびにコンパイルしない**（メニューは行ごと・セッション行ごとに
+ * この判定を通るので、ホバー中の再描画のたびに数十回コンパイルすることになる）。表の値は
+ * 固定なので、種類は `AGENTS` の数しかない。
+ */
+const MENTION_PATTERNS = new Map<string, RegExp>()
+
+function mentionPattern(agent: AgentDef): RegExp {
+  const cached = MENTION_PATTERNS.get(agent.bin)
+  if (cached) return cached
+  const re = new RegExp(`(^|[\\\\/\\s])${agent.bin}(\\s|$)`)
+  MENTION_PATTERNS.set(agent.bin, re)
+  return re
+}
+
+/**
+ * その起動行が動かすエージェント。表の行なら id そのもの、カスタム行なら字面を見る
+ * （wrapper 越しに起動している利用者から再開一覧が消えないため）。
+ *
+ * **`launcher*` の仲間としてここに置く。** 「行 → 意味」を解く関数（`launcherLines` /
+ * `launcherLabel` / `isLauncherUsable` / `isLauncherVisible`）が既にこのファイルに揃っている。
+ */
+export function launcherAgent(l: AgentLauncher | null): AgentDef | null {
+  if (!l) return null
+  if (l.kind === 'agent') return agentById(l.id) ?? null
+  return AGENTS.find((a) => commandMentionsAgent(l.command, a)) ?? null
 }

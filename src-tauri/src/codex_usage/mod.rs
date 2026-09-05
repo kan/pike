@@ -188,12 +188,15 @@ fn latest_day_dirs(sessions_dir: &Path, n: usize) -> Vec<PathBuf> {
     days
 }
 
-/// Rollout `*.jsonl` files modified within `RECENT_WINDOW_SECS`, each paired with
-/// its modified time (used to pick the newest session for account-wide fields and
+/// Rollout `*.jsonl` files under the scanned day dirs, each paired with its
+/// modified time (used to pick the newest session for account-wide fields and
 /// to decide whether anything is running right now).
-fn recent_session_files(sessions_dir: &Path) -> Vec<(PathBuf, SystemTime)> {
+///
+/// `max_age` は集計だけが渡す（`RECENT_WINDOW_SECS`）。**再開の一覧は `None`**（#267。
+/// 古いセッションこそ出したいので窓で切らない）。窓を固定していたころ、一覧側はこの
+/// 関数を丸ごと書き写していて、未来 mtime の扱いの説明が片方にしか無かった。
+fn session_files(sessions_dir: &Path, max_age: Option<Duration>) -> Vec<(PathBuf, SystemTime)> {
     let now = SystemTime::now();
-    let window = Duration::from_secs(RECENT_WINDOW_SECS);
     let mut out = Vec::new();
     for day in latest_day_dirs(sessions_dir, SCAN_DAY_DIRS) {
         let Ok(entries) = fs::read_dir(&day) else {
@@ -212,7 +215,7 @@ fn recent_session_files(sessions_dir: &Path) -> Vec<(PathBuf, SystemTime)> {
             // makes `duration_since` error; treat that as age 0 (= fresh) so a
             // genuinely-active session isn't dropped.
             let age = now.duration_since(modified).unwrap_or(Duration::ZERO);
-            if age <= window {
+            if max_age.map_or(true, |w| age <= w) {
                 out.push((path, modified));
             }
         }
@@ -410,7 +413,7 @@ pub(crate) fn get_usage_for_project(
     let sessions_dir = codex_dir.join("sessions");
 
     let account = read_account(&codex_dir);
-    let mut files = recent_session_files(&sessions_dir);
+    let mut files = session_files(&sessions_dir, Some(Duration::from_secs(RECENT_WINDOW_SECS)));
     if files.is_empty() {
         return Ok(CodexUsageResult {
             account,
@@ -512,3 +515,205 @@ pub(crate) fn get_usage_for_project(
 }
 
 // 集計を IPC で出す口は `agent_usage` に一本化した（#263）。
+
+/// そのプロジェクトで動いた過去セッション（#267）。新しい順ではなく、並べ替えは
+/// 呼び出し側（`agent_sessions`）が行う。
+///
+/// **`codex_exec` を除く。** `originator` は記録を作った側の名前で、`codex exec`
+/// （非対話）は `codex_exec`、対話の TUI は `codex-tui` を書く（どちらも実測）。Claude で
+/// `entrypoint` が `cli` のものだけを出しているのと同じ選別だが、**許可リストにはしていない**:
+/// 対話側の名前は将来増えうるので、知らない値を落とすより既知の非対話だけを落とすほうが
+/// 安全側に倒れる（`codex-tui` を許可リストに書いていたら、別の対話クライアントが
+/// 出てきた日に一覧が黙って空になる）。
+///
+/// タイトルは**最初のユーザー発話**。注入の飛ばし方は `read_session_head` を参照。
+pub(crate) fn list_sessions(
+    shell: &ShellConfig,
+    project_root: &str,
+    limit: usize,
+) -> Vec<crate::agent_sessions::AgentSession> {
+    let Some(dir) = codex_home(shell) else {
+        return Vec::new();
+    };
+    // **窓では切らない**（集計と違い、再開したいのは古いセッション）。走査する日付
+    // ディレクトリの数（`SCAN_DAY_DIRS`）と `MAX_SCAN_SESSION_FILES` が上限を決める。
+    let mut files = session_files(&dir.join("sessions"), None);
+    files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+
+    let mut out = Vec::new();
+    for (path, modified) in files.into_iter().take(MAX_SCAN_SESSION_FILES) {
+        if out.len() >= limit {
+            break;
+        }
+        let Some(head) = read_session_head_cached(&path, modified) else {
+            continue;
+        };
+        if !cwd_matches_root(shell, &head.cwd, project_root) {
+            continue;
+        }
+        out.push(crate::agent_sessions::AgentSession {
+            id: head.id,
+            title: head.title,
+            modified_at: crate::agent_sessions::modified_ms(modified).unwrap_or(0),
+            git_branch: None,
+        });
+    }
+    out
+}
+
+/// 一覧を作るときに中身を覗くファイルの上限。**プロジェクトで絞る前の数**なので、
+/// 別のプロジェクトの記録が多いと `limit` に届かないことがある（そのときは出る件数が減る）。
+const MAX_SCAN_SESSION_FILES: usize = 300;
+
+/// 1 通の user メッセージから一覧に出す題を取る。注入なら `None`。
+///
+/// **注入は 1 通目に丸ごと来る**（実測: AGENTS.md の中身と `<environment_context>` の
+/// 2 つが 1 通に入る）。item ごとに弾く形だと `# AGENTS.md instructions` の行が題として
+/// 残るので、**1 つでも注入が混ざっているメッセージは丸ごと飛ばす**。
+fn user_message_title(items: &[Value]) -> Option<String> {
+    fn text_of(item: &Value) -> &str {
+        item["text"].as_str().unwrap_or("")
+    }
+    let injected = items.iter().any(|item| {
+        let t = text_of(item).trim_start();
+        t.starts_with('<')
+            || t.contains("<INSTRUCTIONS>")
+            || t.contains("<environment_context>")
+            || t.contains("<user_instructions>")
+    });
+    if injected {
+        return None;
+    }
+    items
+        .iter()
+        .map(text_of)
+        .find(|t| !t.trim().is_empty())
+        .map(crate::agent_sessions::shorten)
+}
+
+/// 一覧に出すために rollout の先頭から拾うもの。**プロジェクトの照合はここに入れない**
+/// （`parse_session_cached` と同じ理由で、キャッシュをプロジェクトに依存させないため）。
+#[derive(Clone)]
+struct SessionHead {
+    id: String,
+    cwd: String,
+    title: String,
+}
+
+/// 1 つの rollout の先頭だけ読む。**全部は読まない**（1 ファイルが数 MB になる）。
+/// 非対話（`codex_exec`）は `None`。
+fn read_session_head(path: &Path) -> Option<SessionHead> {
+    use std::io::{BufRead, BufReader};
+    /// 先頭から読む量の上限。`session_meta` は 1 行目、最初のユーザー発話もすぐ後ろに来る。
+    const MAX_HEAD_BYTES: u64 = 256 * 1024;
+
+    let file = fs::File::open(path).ok()?;
+    let mut head: Option<SessionHead> = None;
+    let mut read = 0u64;
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        read += line.len() as u64 + 1;
+        if read > MAX_HEAD_BYTES {
+            break;
+        }
+        let Some(head) = head.as_mut() else {
+            if !line.contains("\"session_meta\"") {
+                continue;
+            }
+            let v: serde_json::Value = serde_json::from_str(&line).ok()?;
+            let meta = &v["payload"];
+            if meta["originator"].as_str() == Some("codex_exec") {
+                return None;
+            }
+            // `session_meta` は `id` と `session_id` の両方を持つ（実測では同じ値）。
+            // 集計側（`parse_session`）と同じ `id` を先に見る。
+            head = Some(SessionHead {
+                id: meta["id"]
+                    .as_str()
+                    .or_else(|| meta["session_id"].as_str())?
+                    .to_string(),
+                cwd: meta["cwd"].as_str()?.to_string(),
+                title: String::new(),
+            });
+            continue;
+        };
+        if head.title.is_empty() && line.contains("\"role\":\"user\"") {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                if let Some(items) = v["payload"]["content"].as_array() {
+                    head.title = user_message_title(items).unwrap_or_default();
+                }
+            }
+            if !head.title.is_empty() {
+                break;
+            }
+        }
+    }
+    head
+}
+
+/// キー＝ロールアウトのパス、値＝(そのときの mtime, 先頭の中身)。
+type HeadCache = Mutex<HashMap<PathBuf, (SystemTime, Option<SessionHead>)>>;
+
+/// 一覧に要る先頭を mtime でキャッシュする（`parse_session_cached` と同じ形）。
+///
+/// **無いとメニューを開くたびに最大 `MAX_SCAN_SESSION_FILES` 件を開き直す。** 一致
+/// しなかったファイルこそ毎回読むことになるので、**`None` も覚える**。集計側と違い
+/// 一覧は古いファイルを読むため、掃除は古さではなく**件数**で行う（走査の上限が
+/// 決まっているので、それを超えたら丸ごと捨ててよい）。
+fn read_session_head_cached(path: &Path, modified: SystemTime) -> Option<SessionHead> {
+    static CACHE: OnceLock<HeadCache> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(map) = cache.lock() {
+        if let Some((at, head)) = map.get(path) {
+            if *at == modified {
+                return head.clone();
+            }
+        }
+    }
+    let head = read_session_head(path);
+    if let Ok(mut map) = cache.lock() {
+        if map.len() > MAX_SCAN_SESSION_FILES * 2 {
+            map.clear();
+        }
+        map.insert(path.to_path_buf(), (modified, head.clone()));
+    }
+    head
+}
+
+#[cfg(test)]
+mod tests {
+    use super::user_message_title;
+
+    fn items(texts: &[&str]) -> Vec<serde_json::Value> {
+        texts
+            .iter()
+            .map(|t| serde_json::json!({ "type": "input_text", "text": t }))
+            .collect()
+    }
+
+    /// **1 通目は丸ごと注入**（実測）。ここを item ごとに弾くと、AGENTS.md の 1 行目が
+    /// そのまま一覧の題として出る。
+    #[test]
+    fn skips_the_injected_first_message() {
+        let injected = items(&[
+            "# AGENTS.md instructions\n<INSTRUCTIONS>\n# 共通の作業ルール",
+            "<environment_context>\n  <cwd>C:\\Users\\kanfu\\pike</cwd>",
+        ]);
+        assert_eq!(user_message_title(&injected), None);
+    }
+
+    #[test]
+    fn takes_the_first_line_of_a_real_prompt() {
+        let msg = items(&["README.mdを読んで感想をきかせて\n2 行目は出さない"]);
+        assert_eq!(
+            user_message_title(&msg).as_deref(),
+            Some("README.mdを読んで感想をきかせて")
+        );
+    }
+
+    /// 空の item しか無いメッセージは題にならない（次の発話へ進む）。
+    #[test]
+    fn empty_items_have_no_title() {
+        assert_eq!(user_message_title(&items(&["", "   "])), None);
+        assert_eq!(user_message_title(&[]), None);
+    }
+}
