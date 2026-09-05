@@ -870,8 +870,17 @@ export async function agentHookInstall(
   })
 }
 
+/** 未登録の候補すべてへまとめて登録する。起動時の提案（1 回きり）が使う。 */
+export async function agentHookInstallMissing(
+  shell: ShellType,
+  projectRoot: string,
+  distros: string[],
+): Promise<AgentHookStatus> {
+  return invoke<AgentHookStatus>('agent_hook_install_missing', { shell, projectRoot, distros })
+}
+
 /**
- * 足した hook を取り除く。**消えるのはこのビルドが書いた行だけ**。受け取った申告も
+ * 足した hook を取り除く。**消えるのは Pike が足した行だけ**。受け取った申告も
  * 一緒に捨てる（残すと、hook を外したのにそのプロジェクトが申告に縛られる）。
  */
 export async function agentHookUninstall(

@@ -224,6 +224,7 @@ pike/
 │   │   # 使用量は agentUsage.ts の 1 本（#263。以前は claudeUsage / claudeRate / codexUsage の 3 本）
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
 │   ├── composables/
+│   │   ├── useAgentHookPrompt.ts  # 起動時に 1 度だけ hook の登録を聞く（#299）
 │   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts
 │   │   ├── useAppActions.ts  # ショートカットと macOS メニューが共有する動作の実体（#254）
 │   │   ├── useAppMenu.ts     # macOS のメニューバーからの操作を受ける（#254）

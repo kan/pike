@@ -294,6 +294,8 @@ export default {
   'settings.agentHookInstall': 'Register hook',
   'settings.agentHookRemove': 'Remove hook',
   'settings.agentHookForget': 'Discard the reported value and go back to guessing',
+  'settings.agentHookOffer':
+    'Found Claude Code config directories:\n\n{dirs}\n\nRegister a hook so Claude Code itself reports which account it runs under?\nUsage, account and session history then follow the real account.\n\nThis adds one line to SessionStart in each settings.json. You can remove it from the Settings tab at any time.',
   'settings.agentHookConfirm':
     'Add this hook to SessionStart in {path}:\n\n{command}\n\nNothing else in the file changes.',
   'settings.agentHookConfirmRemove': 'Remove this hook from SessionStart in {path}:\n\n{command}\n\nOther hooks stay.',

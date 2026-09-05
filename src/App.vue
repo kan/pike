@@ -9,6 +9,7 @@ import StatusBar from './components/layout/StatusBar.vue'
 import TabPane from './components/layout/TabPane.vue'
 import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
+import { offerAgentHook } from './composables/useAgentHookPrompt'
 import { useAppMenu } from './composables/useAppMenu'
 import { confirmAndExit, confirmBusyExit } from './composables/useBusyExit'
 import { initCliOpen, peekInitialCliAction } from './composables/useCliOpen'
@@ -248,6 +249,12 @@ onMounted(async () => {
   }
 
   await initCliOpen()
+
+  // Claude Code の hook を入れるか、起動時に 1 度だけ聞く（#299）。プロジェクトが
+  // 決まってからでないと候補のシェルが決まらないので、復元の後に置く。**await しない**:
+  // 起動の続き（クロスウィンドウの listener・beforeunload・トレイ周り）をダイアログの
+  // 答えで止めない（`adoptProject` が登録を聞くのと同じ理由）。
+  offerAgentHook().catch(() => {})
 
   // Broadcast + self-filter (PTY/Docker と同方式): keep every window's
   // in-memory project copies fresh so stale full-object writes (flushSession /

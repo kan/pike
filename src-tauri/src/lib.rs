@@ -1673,6 +1673,7 @@ pub fn run() {
             agent_usage::agent_usage,
             agent_hook::agent_hook_status,
             agent_hook::agent_hook_install,
+            agent_hook::agent_hook_install_missing,
             agent_hook::agent_hook_uninstall,
             agent_hook::agent_hook_forget,
             issues::issues_gh_available,

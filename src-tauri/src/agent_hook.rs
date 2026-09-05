@@ -750,6 +750,49 @@ pub async fn agent_hook_install(
     .await
 }
 
+/// 未登録の候補すべてへまとめて登録する。起動時の提案（1 回きり）が使う。
+///
+/// **1 回の IPC にまとめる。** フロントから候補の数だけ `agent_hook_install` を呼ぶと、
+/// そのたびに `status_for`（`resolve` ＋ 候補ぶんの `settings.json` 読み）が走る。
+///
+/// **1 つでも書ければ成功にする。** 片方の設定ディレクトリが読めない（WSL が止まって
+/// いる等）ときに全部を巻き戻すより、書けたぶんを残すほうが利用者の意図に近い。
+/// 何も書けなかったときだけ、最初の理由を返す。
+#[tauri::command]
+pub async fn agent_hook_install_missing(
+    shell: ShellConfig,
+    project_root: String,
+    distros: Vec<String>,
+) -> Result<HookStatus, String> {
+    blocking(move || {
+        let missing: Vec<(String, String)> = status_for(&shell, &project_root, &distros)
+            .targets
+            .into_iter()
+            .filter(|t| !t.registered)
+            .map(|t| (t.config_dir, t.install_key))
+            .collect();
+        let mut wrote = false;
+        let mut first_error: Option<String> = None;
+        for (config_dir, install_key) in missing {
+            match edit_settings(
+                &shell_from_install_key(&install_key),
+                &config_dir,
+                ensure_hook,
+            ) {
+                Ok(()) => wrote = true,
+                Err(e) => {
+                    first_error.get_or_insert(e);
+                }
+            }
+        }
+        match first_error {
+            Some(e) if !wrote => Err(e),
+            _ => Ok(status_for(&shell, &project_root, &distros)),
+        }
+    })
+    .await
+}
+
 /// 足した hook を取り除く。**消すのはこのビルドが書いた行だけ**（`has_hook` と
 /// 同じ一致の見方）で、隣に並ぶもう一方のビルドの行や、利用者が置いた hook は残る。
 ///

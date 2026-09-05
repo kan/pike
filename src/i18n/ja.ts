@@ -293,6 +293,8 @@ export default {
   'settings.agentHookInstall': 'hook を登録',
   'settings.agentHookRemove': 'hook を削除',
   'settings.agentHookForget': '受け取った値を捨てて推測に戻す',
+  'settings.agentHookOffer':
+    'Claude Code の設定ディレクトリが見つかりました。\n\n{dirs}\n\nどのアカウントで動いているかを Claude Code 自身に知らせる hook を登録しますか？\n登録すると、使用量・アカウント表示・セッション一覧が実際のアカウントのものになります。\n\n各ディレクトリの settings.json の SessionStart に 1 行だけ追加します。設定タブからいつでも解除できます。',
   'settings.agentHookConfirm':
     '{path} の SessionStart に次の hook を追加します。\n\n{command}\n\n他の設定は変更しません。',
   'settings.agentHookConfirmRemove':
