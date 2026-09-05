@@ -1,5 +1,5 @@
 import type { ProjectPlatform } from '../lib/projectPaths'
-import type { ShellType } from './tab'
+import type { PaneId, ShellType } from './tab'
 
 /**
  * A project as it travels through the sync file (#164). Only machine-independent
@@ -63,11 +63,26 @@ export interface SessionTabDef {
   autoStart?: string
   path?: string
   content?: string
+  /** 左右どちらのペインで開いていたか（#308）。省略＝左。 */
+  pane?: PaneId
 }
 
 export interface LastSession {
   tabs: SessionTabDef[]
+  /**
+   * フォーカスのあるペインで選んでいたタブ。分割していたセッションでは
+   * `panes.active[panes.focused]` と同じ値で、**古い版の Pike のために残してある**
+   * （あちらはこのフィールドしか読まない）。
+   */
   activeTabId: string | null
+  /**
+   * 作業領域の分割（#308）。**この節があること自体が「分割していた」**で、無ければ
+   * 1 ペイン。分割比はマシンに依存する見た目なので、ここではなく localStorage に持つ。
+   */
+  panes?: {
+    focused: PaneId
+    active: Record<PaneId, string | null>
+  }
 }
 
 export interface ProjectConfig {

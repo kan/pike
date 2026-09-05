@@ -34,12 +34,11 @@ function doFit() {
   fitAddon.fit()
 }
 
+// 描かれるようになったら測り直す（#308。分割していると 2 枚が同時に見えている）。
 watch(
-  () => tabStore.activeTabId,
-  (id) => {
-    if (id === props.tabId) {
-      nextTick(() => doFit())
-    }
+  () => tabStore.isTabVisible(props.tabId),
+  (visible) => {
+    if (visible) nextTick(() => doFit())
   },
 )
 

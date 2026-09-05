@@ -684,7 +684,8 @@ function updateDirtyState() {
 
 function updateCursorInfo() {
   if (!editorView || !tab.value) return
-  if (tabStore.activeTabId !== props.tabId) return
+  // StatusBar は 1 つしかないので、打鍵の行き先のタブだけが書く（#308）。
+  if (!tabStore.isTabFocused(props.tabId)) return
   const pos = editorView.state.selection.main.head
   const line = editorView.state.doc.lineAt(pos)
   editorInfo.update({
@@ -1335,7 +1336,7 @@ async function reopenWithEncoding(encoding: string) {
     // previewHtml reads the (non-reactive) editorView — force a recompute so
     // the preview pane reflects the reloaded document.
     bumpDocVersion()
-    if (tabStore.activeTabId === props.tabId) {
+    if (tabStore.isTabFocused(props.tabId)) {
       registerOutlineSource()
     }
   } catch (e) {
@@ -1396,7 +1397,7 @@ onMounted(async () => {
     refreshDiffGutter()
     refreshDiagnosticsLayer()
 
-    if (tabStore.activeTabId === props.tabId) {
+    if (tabStore.isTabFocused(props.tabId)) {
       registerOutlineSource()
     }
   } catch (e) {
@@ -1683,15 +1684,25 @@ watch(
   },
 )
 
+/**
+ * 描かれるようになったら測り直す（#308）。**分割すると見えているタブは 2 枚になる**ので、
+ * 打鍵の行き先ではないほうも測る必要がある（隠れているあいだ CodeMirror は寸法を知らない）。
+ */
 watch(
-  () => tabStore.activeTabId,
-  (id, prev) => {
-    if (id === props.tabId && editorView) {
-      editorView.requestMeasure()
+  () => tabStore.isTabVisible(props.tabId),
+  (visible) => {
+    if (visible) editorView?.requestMeasure()
+  },
+)
+
+watch(
+  () => tabStore.isTabFocused(props.tabId),
+  (focused) => {
+    if (focused && editorView) {
       // 操作（`EditorActions`）は表示と一緒に `update` が運ぶので、別に登録しない。
       updateCursorInfo()
       registerOutlineSource()
-    } else if (prev === props.tabId) {
+    } else if (!focused) {
       // 降りるのは自分がアクティブでなくなったときだけ。**ただしこの条件には頼らない**:
       // watcher の走る順はマウント順なので、来たタブが update した後にここへ来ることがある。
       // 実際に消さない保証は `clear(tabId)` の所有権チェック側にある（そちらの doc が正本）。
@@ -1768,7 +1779,7 @@ watch(
     applyLanguage(path, [markdownCompartment.reconfigure(markdownAssist())])
     // The outline panel was handed this tab's path when the view was built, and
     // the tab is already active, so nothing else will hand it the new one.
-    if (tabStore.activeTabId === props.tabId) registerOutlineSource()
+    if (tabStore.isTabFocused(props.tabId)) registerOutlineSource()
   },
 )
 

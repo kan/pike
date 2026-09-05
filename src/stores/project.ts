@@ -1133,6 +1133,9 @@ export const useProjectStore = defineStore('project', () => {
     if (!shouldRestore) return
 
     if (project.lastSession && project.lastSession.tabs.length > 0) {
+      // 分割（#308）は先に立てる。各タブの置き場は `def.pane` をそのまま渡し、
+      // 選択とフォーカスは作り終えてから `applySessionPanes` が戻す。
+      tabStore.beginSessionRestore(project.lastSession)
       for (const def of project.lastSession.tabs) {
         if (def.kind === 'terminal') {
           tabStore.addTerminalTab({
@@ -1142,12 +1145,13 @@ export const useProjectStore = defineStore('project', () => {
             autoStart: def.pinned ? resolveResumeCommand(def.autoStart) : undefined,
             cwd: activeRoot.value,
             shell: project.shell,
+            pane: def.pane,
           })
         } else if (def.kind === 'editor') {
           if (def.path) {
-            tabStore.addEditorTab({ path: def.path })
+            tabStore.addEditorTab({ path: def.path, pane: def.pane })
           } else if (def.content !== undefined) {
-            tabStore.addBlankEditorTab({ title: def.title, content: def.content })
+            tabStore.addBlankEditorTab({ title: def.title, content: def.content, pane: def.pane })
           }
         }
         // `codex-chat` / `agent-chat` は #275 で廃止した。**専用の後始末は要らない**:
@@ -1155,9 +1159,7 @@ export const useProjectStore = defineStore('project', () => {
         // 全量で書き戻すので、次の flush でディスクからも消える（設定の削除を移行なしで
         // 済ませたのと同じ理屈）。
       }
-      if (project.lastSession.activeTabId) {
-        tabStore.setActiveTab(project.lastSession.activeTabId)
-      }
+      tabStore.applySessionPanes(project.lastSession)
     } else {
       // `agent-chat` は #275 で廃止したので、pin してあっても復元しない。
       for (const def of project.pinnedTabs.filter((d) => d.kind === 'terminal')) {

@@ -17,6 +17,7 @@ import type {
   HistoryTab,
   IssueTab,
   ManualTab,
+  PaneId,
   PdfTab,
   PreviewTab,
   SettingsTab,
@@ -24,12 +25,19 @@ import type {
   Tab,
   TerminalTab,
 } from '../types/tab'
-import { canReorderTabs, isSingletonTab } from '../types/tab'
+import { canReorderTabs, isSingletonTab, PANES } from '../types/tab'
 
 let counter = 0
 
 function genId(): string {
   return `tab-${Date.now()}-${++counter}`
+}
+
+/** ペインごとに選んでいるタブ（#308）。分割していないあいだ `right` は使わない。 */
+type PaneSelection = Record<PaneId, string | null>
+
+function emptySelection(): PaneSelection {
+  return { left: null, right: null }
 }
 
 export const useTabStore = defineStore('tabs', () => {
@@ -39,15 +47,71 @@ export const useTabStore = defineStore('tabs', () => {
    * コンポーネントは自分の id で引くので、パーク中でも中身は生きたまま動く）。
    */
   const tabs = ref<Tab[]>([])
-  const activeTabId = ref<string | null>(null)
   // Most recently activated terminal tab — the default target for "send to
   // terminal" actions triggered from non-terminal tabs (editor, diagnostics).
   const lastTerminalId = ref<string | null>(null)
 
   /** 今このウィンドウが見せているプロジェクト。空文字はグローバルモード。 */
   const ownerProjectId = ref('')
-  /** プロジェクトごとの最後のアクティブタブ。切り替えて戻ったとき同じタブに戻す。 */
-  const activeByProject = new Map<string, string>()
+
+  /** 右のペインを出しているか（#308）。既定は分割なし。 */
+  const split = ref(false)
+  /**
+   * キーボードの操作が向かうペイン。新しく開いたタブもここに入る（VS Code と同じ）。
+   * 分割していないあいだは常に `left`。
+   */
+  const focusedPane = ref<PaneId>('left')
+  /**
+   * ペインごとに選んでいるタブ。分割していないあいだ `right` は使わない。
+   *
+   * **読むときは `activeInPane` / `isTabVisible` / `isTabFocused` を通すこと。** これを
+   * 公開しているのは Pinia の state に載せるためで、**外から読ませるためではない**:
+   * setup store が state に載せるのは `return` に含めた ref だけ（computed は載らない）で、
+   * `App.vue` のセッション保存はその deep watch（`$subscribe`）で発火する。ここを外すと、
+   * タブを切り替えても保存が走らない状態に戻る（`activeTabId` は computed なので、
+   * あちらだけでは観測できない）。
+   */
+  const activeByPane = ref<PaneSelection>({ left: null, right: null })
+  /** プロジェクトごとの最後の選択（ペインごと）。切り替えて戻ったとき同じタブに戻す。 */
+  const activeByProject = new Map<string, PaneSelection>()
+
+  /**
+   * そのタブが実際に描かれるペイン（#308）。**`tab.pane` を直に読まないこと**: 分割して
+   * いないあいだは右に置いたままのタブも左に出るので、解釈はここ 1 箇所に置く。
+   */
+  function paneOf(tab: Tab | null | undefined): PaneId {
+    return split.value && tab?.pane === 'right' ? 'right' : 'left'
+  }
+
+  function otherPane(pane: PaneId): PaneId {
+    return pane === 'left' ? 'right' : 'left'
+  }
+
+  /**
+   * そのペインの選択を選び直す（#308）。**望みのタブが今そのペインに居ればそれ、
+   * 居なければ末尾**。タブが消えたり移ったりする経路（閉じる・移す・切り替える・
+   * 復元する）が全部ここを通るので、落とし先の規則が 1 つで済む。
+   *
+   * **閉じたときだけは別**（`closeTab`）。あちらは「閉じた位置の隣」を選ぶので、
+   * 末尾に落とすこの規則とは違う。
+   */
+  function reselect(pane: PaneId, wanted: string | null = activeByPane.value[pane]) {
+    const list = tabsIn(pane)
+    activeByPane.value[pane] = list.some((t) => t.id === wanted) ? wanted : (list[list.length - 1]?.id ?? null)
+  }
+
+  /**
+   * 打鍵の行き先を空のペインに置いたままにしない（#308）。**選択を配り直した経路は
+   * 必ず通すこと**（プロジェクトの切り替えとセッションの復元）: 空のペインにフォーカスが
+   * 載ると `activeTabId` が null になり、`Ctrl+W` も `Ctrl+Tab` も `Ctrl+1`〜`9` も
+   * 無反応になる（画面の半分が空表示のまま、キーボードからは何も起きない）。
+   */
+  function focusPaneWithTabs() {
+    const other = otherPane(focusedPane.value)
+    if (!activeByPane.value[focusedPane.value] && activeByPane.value[other]) {
+      focusedPane.value = other
+    }
+  }
 
   /**
    * タブバーとナビゲーションが見る一覧（#264）。**中身の描画はここを使わない**:
@@ -68,17 +132,37 @@ export const useTabStore = defineStore('tabs', () => {
    * ピン留め」という不変条件がコメントでしか支えられなくなる。
    */
   const groupedTabs = computed(() => {
-    const pinned: Tab[] = []
-    const unpinned: Tab[] = []
+    const empty = () => ({ pinned: [] as Tab[], unpinned: [] as Tab[] })
+    const groups: Record<PaneId, { pinned: Tab[]; unpinned: Tab[] }> = { left: empty(), right: empty() }
     for (const t of tabs.value) {
       if (t.projectId != null && t.projectId !== ownerProjectId.value) continue
-      ;(t.pinned ? pinned : unpinned).push(t)
+      const group = groups[paneOf(t)]
+      ;(t.pinned ? group.pinned : group.unpinned).push(t)
     }
-    return { pinned, unpinned }
+    return groups
   })
-  const pinnedTabs = computed(() => groupedTabs.value.pinned)
-  const unpinnedTabs = computed(() => groupedTabs.value.unpinned)
-  const visibleTabs = computed(() => [...groupedTabs.value.pinned, ...groupedTabs.value.unpinned])
+
+  /**
+   * 1 つのペインが持つタブ（#308）。タブバーはこれを 2 つの列に分けて描く。
+   *
+   * 分割していないときの `left` は分割前の `visibleTabs` と同じもので、`right` は空。
+   * ペインを意識しない読み手（セッションの書き出し、一括クローズの母集合）は
+   * 従来どおり `visibleTabs` を見る。
+   */
+  function pinnedTabsIn(pane: PaneId): Tab[] {
+    return groupedTabs.value[pane].pinned
+  }
+  function unpinnedTabsIn(pane: PaneId): Tab[] {
+    return groupedTabs.value[pane].unpinned
+  }
+  function tabsIn(pane: PaneId): Tab[] {
+    return [...groupedTabs.value[pane].pinned, ...groupedTabs.value[pane].unpinned]
+  }
+
+  /** このプロジェクトの見えているタブ全部（両ペイン）。左 → 右の順。 */
+  const visibleTabs = computed(() => [...tabsIn('left'), ...tabsIn('right')])
+  /** フォーカスのあるペインのタブ。ナビゲーション（`Ctrl+1`〜`9`・タブ移動）の母集合。 */
+  const focusedTabs = computed(() => tabsIn(focusedPane.value))
 
   /**
    * タブを持っているプロジェクトの id。**並びは最初のタブができた順**（＝`tabs` の並び）で、
@@ -89,6 +173,55 @@ export const useTabStore = defineStore('tabs', () => {
     ...new Set(tabs.value.map((t) => t.projectId).filter((id): id is string => !!id)),
   ])
 
+  /**
+   * フォーカスのあるペインで選んでいるタブ（#308 で意味が変わった名前）。
+   *
+   * **代入すると、そのタブのあるペインへフォーカスが移る。** タブを開く 12 経路が
+   * ここへ書くので、「開いたタブが見えて、そこが操作対象になる」がそのまま保たれる。
+   * ペインを指定して開きたいときは、先に `moveTabToPane` で置き場を決めてから選ぶ。
+   */
+  const activeTabId = computed<string | null>({
+    get: () => activeByPane.value[focusedPane.value],
+    set: (id) => {
+      if (id == null) {
+        activeByPane.value[focusedPane.value] = null
+        return
+      }
+      const pane = paneOf(tabs.value.find((t) => t.id === id))
+      focusedPane.value = pane
+      activeByPane.value[pane] = id
+    },
+  })
+
+  /**
+   * どちらかのペインで表示されているか（#308）。**タブのコンポーネントが「自分は
+   * 描かれているか」を聞くのはこちら**（xterm の fit、PTY のリサイズ、再描画）。
+   * 分割すると「見えている」タブが 2 枚になるので、`activeTabId` との比較では
+   * 隠れていないほうが 0×0 のまま測られる。
+   */
+  function isTabVisible(id: string): boolean {
+    if (activeByPane.value.left === id) return true
+    return split.value && activeByPane.value.right === id
+  }
+
+  /**
+   * フォーカスのあるペインで選ばれているか（#308）。**キーボードと結び付くもの**
+   * （初期フォーカス、IME の退避、StatusBar のカーソル情報、アウトラインの登録）は
+   * こちらを見る。見えているタブは 2 枚あっても、打鍵の行き先は 1 つしかない。
+   */
+  function isTabFocused(id: string): boolean {
+    return activeTabId.value === id
+  }
+
+  /**
+   * そのペインで選んでいるタブ（#308）。タブバーの強調とスクロールの追従が読む。
+   * **`activeTabId` を読まないこと**: フォーカスの無いペインのバーまで「選択なし」に
+   * なり、そちらのタブがどれも強調されなくなる。
+   */
+  function activeInPane(pane: PaneId): string | null {
+    return activeByPane.value[pane]
+  }
+
   const activeTab = computed(() => tabs.value.find((t) => t.id === activeTabId.value) ?? null)
 
   /**
@@ -98,7 +231,12 @@ export const useTabStore = defineStore('tabs', () => {
    * プロジェクトに属させない（属させると「プロジェクトごとに 1 つ」になる）。
    */
   function pushTab(tab: Tab) {
-    tabs.value.push({ ...tab, projectId: isSingletonTab(tab.kind) ? null : ownerProjectId.value })
+    tabs.value.push({
+      ...tab,
+      projectId: isSingletonTab(tab.kind) ? null : ownerProjectId.value,
+      // 置き場も同じ理由でここで決める（#308）。開いたタブはフォーカスのあるペインに入る。
+      pane: tab.pane ?? focusedPane.value,
+    })
   }
 
   /** そのプロジェクトのタブを既に持っているか（＝切り替えても復元が要らない）。 */
@@ -113,12 +251,13 @@ export const useTabStore = defineStore('tabs', () => {
    * あとから問い直せない。呼び出し側は `hasTabsFor` で先に決める。
    */
   function setOwnerProject(id: string) {
-    if (activeTabId.value) activeByProject.set(ownerProjectId.value, activeTabId.value)
+    activeByProject.set(ownerProjectId.value, { ...activeByPane.value })
     ownerProjectId.value = id
-    const remembered = activeByProject.get(id)
-    activeTabId.value = visibleTabs.value.some((t) => t.id === remembered)
-      ? (remembered ?? null)
-      : (visibleTabs.value[visibleTabs.value.length - 1]?.id ?? null)
+    const remembered = activeByProject.get(id) ?? emptySelection()
+    // **ペインごとに選び直す**（#308）。片方だけタブを持つプロジェクトがあるので、
+    // 覚えていた側が空でも、もう片方の選択を巻き込まない。
+    for (const pane of PANES) reselect(pane, remembered[pane])
+    focusPaneWithTabs()
   }
 
   function addTerminalTab(options?: {
@@ -130,10 +269,13 @@ export const useTabStore = defineStore('tabs', () => {
     keepOnError?: boolean
     cwd?: string
     shell?: ShellType
+    /** 置き場（#308）。省略＝フォーカスのあるペイン。セッションの復元が使う。 */
+    pane?: PaneId
   }): string {
     const id = options?.id ?? genId()
     pushTab({
       id,
+      pane: options?.pane,
       kind: 'terminal',
       title: options?.title ?? 'Shell',
       pinned: options?.pinned ?? false,
@@ -222,9 +364,10 @@ export const useTabStore = defineStore('tabs', () => {
   async function closeTab(id: string) {
     const idx = tabs.value.findIndex((t) => t.id === id)
     if (idx === -1) return
-    // 次にどれを出すかは**見えている並びの中の位置**で決める（#264）。`tabs` の位置は
-    // 他プロジェクトのタブを含むので、そのまま使うと隣ではないタブに飛ぶ。
-    const visibleIdx = visibleTabs.value.findIndex((t) => t.id === id)
+    // 次にどれを出すかは**そのペインの並びの中の位置**で決める（#264 / #308）。`tabs` の
+    // 位置は他プロジェクトのタブを含み、両ペインを合わせた並びは反対側へ飛びうる。
+    const pane = paneOf(tabs.value[idx])
+    const paneIdx = tabsIn(pane).findIndex((t) => t.id === id)
     if (tabs.value[idx].pinned) return
 
     // Confirm close if editor tab has unsaved changes (title ends with *)
@@ -254,11 +397,14 @@ export const useTabStore = defineStore('tabs', () => {
       await signalWaitAndCloseWindow(tab.path)
     }
 
-    if (activeTabId.value === id) {
+    if (activeByPane.value[pane] === id) {
       // **見えているタブから選ぶ**（#264）。全体から拾うと、パーク中の別プロジェクトの
       // タブがアクティブになり、タブバーは空なのに中身だけ出ている状態になる。
-      const list = visibleTabs.value
-      activeTabId.value = list[Math.min(visibleIdx, list.length - 1)]?.id ?? null
+      //
+      // **`activeTabId` ではなくペインの選択に書く**（#308）。フォーカスの無いペインの
+      // タブを閉じただけで打鍵の行き先が動くと、閉じたのとは別の場所へ文字が入る。
+      const list = tabsIn(pane)
+      activeByPane.value[pane] = list[Math.min(paneIdx, list.length - 1)]?.id ?? null
     }
   }
 
@@ -272,7 +418,7 @@ export const useTabStore = defineStore('tabs', () => {
     await Promise.allSettled(kills)
     untitledContent.clear()
     tabs.value = []
-    activeTabId.value = null
+    activeByPane.value = emptySelection()
   }
 
   // Clear activity indicator whenever any tab becomes active,
@@ -288,9 +434,12 @@ export const useTabStore = defineStore('tabs', () => {
   })
 
   function setActiveTab(id: string) {
-    if (tabs.value.some((t) => t.id === id)) {
-      activeTabId.value = id
-    }
+    // 実在の確認とペインの解決で `tabs` を 2 度舐めない（#308。パーク中の他プロジェクトの
+    // タブも含む配列なので、切り替えのたびに 2 周するのは無駄）。
+    const tab = tabs.value.find((t) => t.id === id)
+    if (!tab) return
+    focusedPane.value = paneOf(tab)
+    activeByPane.value[focusedPane.value] = id
   }
 
   function setPtyId(tabId: string, ptyId: string) {
@@ -316,6 +465,8 @@ export const useTabStore = defineStore('tabs', () => {
     initialLine?: number
     initialViewMode?: EditorTab['initialViewMode']
     reload?: boolean
+    /** 置き場（#308）。省略＝フォーカスのあるペイン。既にあるタブの置き場は動かさない。 */
+    pane?: PaneId
   }): string {
     if (!options.initialContent) {
       // Separator-insensitive dedup: the same file can be requested with `/`
@@ -347,6 +498,7 @@ export const useTabStore = defineStore('tabs', () => {
       initialContent: options.initialContent,
       initialLine: options.initialLine,
       initialViewMode: options.initialViewMode,
+      pane: options.pane,
     })
     activeTabId.value = id
     return id
@@ -357,7 +509,7 @@ export const useTabStore = defineStore('tabs', () => {
 
   let untitledCounter = 0
 
-  function addBlankEditorTab(options?: { title?: string; content?: string }): string {
+  function addBlankEditorTab(options?: { title?: string; content?: string; pane?: PaneId }): string {
     untitledCounter++
     const title =
       options?.title ?? (untitledCounter === 1 ? t('editor.untitled') : t('editor.untitledN', { n: untitledCounter }))
@@ -370,6 +522,7 @@ export const useTabStore = defineStore('tabs', () => {
       pinned: false,
       path: '',
       initialContent: content,
+      pane: options?.pane,
     })
     activeTabId.value = id
     return id
@@ -596,6 +749,9 @@ export const useTabStore = defineStore('tabs', () => {
     const to = tabs.value.find((t) => t.id === toId)
     if (!from || !to || !canReorderTabs(from, to)) return
 
+    // ペインをまたぐドラッグは移動も兼ねる（#308）。置き場を先に変えてから並べ替える。
+    if (paneOf(from) !== paneOf(to)) moveTabToPane(fromId, paneOf(to))
+
     const fromIndex = tabs.value.indexOf(from)
     let toIndex = tabs.value.indexOf(to)
     if (side === 'right') toIndex++
@@ -652,9 +808,8 @@ export const useTabStore = defineStore('tabs', () => {
     const idsToClose = new Set(toClose.map((t) => t.id))
     tabs.value = tabs.value.filter((t) => !idsToClose.has(t.id))
 
-    if (!tabs.value.some((t) => t.id === activeTabId.value)) {
-      activeTabId.value = visibleTabs.value[visibleTabs.value.length - 1]?.id ?? null
-    }
+    // 選択が消えたペインだけ選び直す（#308。生きていれば `reselect` が据え置く）。
+    for (const pane of PANES) reselect(pane)
 
     if (shouldClose) {
       await getCurrentWindow()
@@ -677,28 +832,40 @@ export const useTabStore = defineStore('tabs', () => {
   // ここから下の一括操作とナビゲーションは、**見えているタブだけ**を対象にする（#264）。
   // パークしたタブは別のプロジェクトのものなので、「他を閉じる」「右側を閉じる」で
   // 巻き込んではいけない。
+  //
+  // **さらにペインの中だけを見る（#308）。** どれも 1 本のタブバーから出る操作なので、
+  // 反対のペインのタブまで閉じるのは押した人の意図から外れる（VS Code のタブグループと
+  // 同じ扱い）。母集合を `visibleTabs` に戻さないこと。
   /** 固定タブは残す（一括クローズの方針）。 */
   const unpinned = (list: Tab[]) => list.filter((t) => !t.pinned).map((t) => t.id)
 
+  /** そのタブが今いるペイン。閉じる操作はここを母集合にする。 */
+  function paneOfTab(id: string): PaneId {
+    return paneOf(tabs.value.find((t) => t.id === id))
+  }
+
   async function closeOtherTabs(keepId: string) {
-    await closeTabs(unpinned(visibleTabs.value.filter((t) => t.id !== keepId)))
+    await closeTabs(unpinned(tabsIn(paneOfTab(keepId)).filter((t) => t.id !== keepId)))
   }
 
   async function closeTabsToRight(id: string) {
-    const idx = visibleTabs.value.findIndex((t) => t.id === id)
+    const list = tabsIn(paneOfTab(id))
+    const idx = list.findIndex((t) => t.id === id)
     if (idx === -1) return
-    await closeTabs(unpinned(visibleTabs.value.slice(idx + 1)))
+    await closeTabs(unpinned(list.slice(idx + 1)))
   }
 
-  async function closeSavedTabs() {
-    const ids = visibleTabs.value
+  // **対象のペインは呼び出し側が渡す**（既定値を置かない）。どれも 1 本のタブバーから
+  // 出る操作なので、押されたバーが自分のペインを知っている。
+  async function closeSavedTabs(pane: PaneId) {
+    const ids = tabsIn(pane)
       .filter((t) => !t.pinned && !(t.kind === 'editor' && t.title.endsWith(' *')))
       .map((t) => t.id)
     await closeTabs(ids)
   }
 
-  async function closeAllTabs() {
-    await closeTabs(unpinned(visibleTabs.value))
+  async function closeAllTabs(pane: PaneId) {
+    await closeTabs(unpinned(tabsIn(pane)))
   }
 
   /**
@@ -727,7 +894,8 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   function cycleTab(direction: 'next' | 'prev') {
-    const list = visibleTabs.value
+    // フォーカスのあるペインの中だけを回る（#308）。反対側へ渡るのは `focusOtherPane`。
+    const list = focusedTabs.value
     if (list.length <= 1) return
     const idx = list.findIndex((t) => t.id === activeTabId.value)
     if (idx === -1) return
@@ -736,13 +904,81 @@ export const useTabStore = defineStore('tabs', () => {
     activeTabId.value = list[nextIdx].id
   }
 
+  /**
+   * 右のペインを開く／閉じる（#308）。
+   *
+   * **閉じるときに `tab.pane` は書き換えない。** 分割していないあいだは右に置いたままの
+   * タブも左に出る（`paneOf`）ので、どこにも出ないタブは生まれず、開き直せば元の側へ
+   * 戻る。**`tabs` を舐めて書き換えないこと**: あそこにはパーク中の別プロジェクトのタブも
+   * 入っている（#264）ので、B で解除した操作が A の置き場まで消す。
+   *
+   * 見ていたタブは選択ごと左へ引き継ぐので、閉じても画面の中身は変わらない。
+   */
+  function toggleSplit() {
+    if (split.value) {
+      const keep = activeTabId.value
+      split.value = false
+      focusedPane.value = 'left'
+      activeByPane.value.right = null
+      reselect('left', keep)
+      return
+    }
+    split.value = true
+    // 右に置いたままのタブがあれば拾い直す（解除では置き場を消していない）。
+    reselect('right')
+    // **開いたら中身まで決める。** 空のペインだけ出しても、そこから何を出すかを
+    // もう一度選ばせることになる。入口を足す人が同じ後追いを書き写さずに済むよう、
+    // 「送る」までをこの 1 本に入れてある。
+    const send = activeByPane.value.right ? null : activeByPane.value.left
+    if (send) moveTabToPane(send, 'right')
+    else focusedPane.value = 'right'
+  }
+
+  /**
+   * タブを指定のペインへ移す（#308）。右を指定すると、閉じていれば分割を開く。
+   * 移した先を選んでフォーカスも移す（押した人が見たいのは移したタブなので）。
+   */
+  function moveTabToPane(id: string, pane: PaneId) {
+    const tab = tabs.value.find((t) => t.id === id)
+    if (!tab) return
+    if (pane === 'right') split.value = true
+    const from = paneOf(tab)
+    if (from !== pane) {
+      tab.pane = pane
+      // 元のペインは選び直す（移したタブはもう居ないので末尾に落ちる）。
+      reselect(from)
+    }
+    focusedPane.value = pane
+    activeByPane.value[pane] = id
+  }
+
+  /**
+   * 見ているタブ（または指定のタブ）を反対のペインへ送る（#308）。**行き先の反転を
+   * 呼び出し側に書かせない**ため、`focusOtherPane` と対でここに置く。
+   */
+  function moveTabToOtherPane(id: string | null = activeTabId.value) {
+    if (!id) return
+    moveTabToPane(id, otherPane(paneOf(tabs.value.find((t) => t.id === id))))
+  }
+
+  /** 打鍵の行き先を反対のペインへ渡す（#308）。分割していなければ何もしない。 */
+  function focusOtherPane() {
+    if (!split.value) return
+    focusedPane.value = otherPane(focusedPane.value)
+  }
+
+  function focusPane(pane: PaneId) {
+    if (pane === 'right' && !split.value) return
+    focusedPane.value = pane
+  }
+
   function snapshotSession(): LastSession {
     // 見えているタブだけ（#264）。パーク中の別プロジェクトのタブを、今のプロジェクトの
     // セッションとして書き出さない。
     const sessionTabs: SessionTabDef[] = visibleTabs.value
       .filter((t) => t.kind === 'terminal' || t.kind === 'editor')
       .map((t) => {
-        const base = { id: t.id, kind: t.kind, title: t.title, pinned: t.pinned }
+        const base = { id: t.id, kind: t.kind, title: t.title, pinned: t.pinned, pane: t.pane }
         if (t.kind === 'terminal') {
           return { ...base, autoStart: t.autoStart }
         }
@@ -754,14 +990,64 @@ export const useTabStore = defineStore('tabs', () => {
         }
         return base
       })
-    return { tabs: sessionTabs, activeTabId: activeTabId.value }
+    return {
+      tabs: sessionTabs,
+      activeTabId: activeTabId.value,
+      // 分割していないあいだは書かない（#308）。古い Pike はこの節を知らないので、
+      // 無ければ従来どおり `activeTabId` の 1 つだけを復元する。**節の有無が分割の有無**
+      // なので、中に `split: true` のような常に真のフィールドは持たせない。
+      panes: split.value ? { focused: focusedPane.value, active: { ...activeByPane.value } } : undefined,
+    }
+  }
+
+  /**
+   * セッションのぶんのタブを作る前に、分割だけ先に立てる（#308）。**タブの置き場は
+   * `def.pane` を `add*Tab` にそのまま渡せばよい**ので、作る手順そのものは
+   * `stores/project.ts` に残る（あちらが cwd もシェルも resume の解決も持っている）。
+   *
+   * **分割は立てることはあっても落とさない。** 分割はウィンドウの見た目で、別の
+   * プロジェクトを開いたことを理由に畳むと、そちらのタブが左へ寄って戻ってこない
+   * （`tab.pane` は残るので、開き直せば右に戻る）。
+   */
+  function beginSessionRestore(session: LastSession) {
+    if (session.panes) split.value = true
+  }
+
+  /** 作り終わったところで選択とフォーカスを戻す（#308）。 */
+  function applySessionPanes(session: LastSession) {
+    const panes = session.panes
+    // 選択は**実在するタブだけ**採る（セッションのタブは一部しか復元されない）。
+    for (const pane of PANES) {
+      reselect(pane, panes ? panes.active[pane] : pane === 'left' ? session.activeTabId : null)
+    }
+    focusedPane.value = split.value && panes?.focused === 'right' ? 'right' : 'left'
+    // セッションに残るのは terminal / editor だけなので、右に diff タブしか置いていない
+    // 状態で終了すると「右が空・フォーカスは右」で戻ってくる。
+    focusPaneWithTabs()
   }
 
   return {
     tabs,
     visibleTabs,
-    pinnedTabs,
-    unpinnedTabs,
+    focusedTabs,
+    pinnedTabsIn,
+    unpinnedTabsIn,
+    tabsIn,
+    split,
+    focusedPane,
+    // 読み手向けではなく、セッション保存の `$subscribe` に観測させるため（宣言の doc）。
+    activeByPane,
+    paneOf,
+    isTabVisible,
+    isTabFocused,
+    activeInPane,
+    toggleSplit,
+    moveTabToPane,
+    moveTabToOtherPane,
+    focusOtherPane,
+    focusPane,
+    beginSessionRestore,
+    applySessionPanes,
     projectIdsWithTabs,
     hasTabsFor,
     setOwnerProject,

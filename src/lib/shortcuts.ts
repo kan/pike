@@ -114,6 +114,10 @@ export const APP_ACTIONS = [
   { id: 'gitPull', palette: 'git', labelKey: 'git.pull', needsProject: true },
   { id: 'gitPush', palette: 'git', labelKey: 'git.push', needsProject: true },
   { id: 'gitRefresh', palette: 'git', labelKey: 'common.refresh', needsProject: true },
+  // --- 作業領域の分割（#308）
+  { id: 'toggleSplit', palette: 'view' },
+  { id: 'focusOtherPane', palette: 'view' },
+  { id: 'moveTabToOtherPane', palette: 'view' },
   // --- その他
   { id: 'diagnosticsRun', palette: 'view', labelKey: 'diagnostics.run', needsProject: true },
 ] as const satisfies readonly AppActionDef[]
@@ -284,6 +288,14 @@ const VSCODE_BINDINGS: KeyBinding[] = [
   { chords: ['Mod+-'], action: 'fontDecrease', terminalFirst: true },
   { chords: ['Mod+0'], action: 'fontReset', terminalFirst: true },
   { chords: ['Alt+H'], action: 'gitHistory' },
+  /**
+   * 作業領域の分割（#308）。VSCode の Split Editor と同じキー。
+   *
+   * **ターミナルより先に取る**（`terminalFirst`）。付けないとターミナルを見ているあいだは
+   * 分割できず、いちばん分割したい場面で効かない。代償は `Ctrl+\`（SIGQUIT）をシェルへ
+   * 送れなくなることだが、VSCode の統合ターミナルも同じ取り方をしている。
+   */
+  { chords: ['Mod+\\'], action: 'toggleSplit', terminalFirst: true },
   // mac だけの `⌘Q`。Windows / Linux では割り当てを持たない（`chords` が空）。
   { chords: [], macChords: ['Mod+Q'], action: 'quit' },
 ]
@@ -462,8 +474,11 @@ const MENU_ACTIONS: AppActionId[] = [
   'closeWindow',
   'quickOpen',
   'projectSwitcher',
+  'toggleSplit',
   'nextTab',
   'prevTab',
+  'focusOtherPane',
+  'moveTabToOtherPane',
   'manual',
   'shortcuts',
 ]

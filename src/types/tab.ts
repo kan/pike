@@ -373,6 +373,21 @@ export type TabOwner = {
 }
 
 /**
+ * 作業領域を左右に分けたとき、どちら側に置くタブか（#308）。
+ *
+ * **省略は `left`。** 分割していないあいだは値が残っていても左として扱う（ストアの
+ * `paneOf` が唯一の解釈者）ので、分割を解除するたびに全タブを書き換えなくてよい。
+ * 解除したあとに開き直せば、右に置いていたものはそのまま右へ戻る。
+ */
+export type PaneId = 'left' | 'right'
+
+export const PANES = ['left', 'right'] as const
+
+export type TabPlacement = {
+  pane?: PaneId
+}
+
+/**
  * ウィンドウに 1 つしか持たないタブ。**プロジェクトに属さない**（#264。属させると
  * 「プロジェクトごとに 1 つ」になり、シングルトンの意味が壊れる）。
  *
@@ -399,7 +414,8 @@ export type Tab = (
   | ManualTab
   | IssueTab
 ) &
-  TabOwner
+  TabOwner &
+  TabPlacement
 
 /**
  * ドラッグで並べ替えられる組か（#305）。**固定タブと普通のタブは別の列**なので、またぐ

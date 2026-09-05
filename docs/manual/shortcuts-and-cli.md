@@ -100,6 +100,7 @@ macOS だけの割り当てもあります。**`⇧⌘]` / `⇧⌘[`**（次 / �
 | 新しいターミナル | `Ctrl+T`、`` Ctrl+Shift+` ``、`Ctrl+Shift+~` | `⌘T`、`` ⌃⇧` ``、`⌃⇧~` |
 | タブを閉じる | `Ctrl+W` | `⌘W` |
 | ウィンドウを閉じる | `Ctrl+Shift+W` | `⇧⌘W` |
+| 作業領域を分割 / 解除 | `Ctrl+\` | `⌘\` |
 | 次のタブ | `Ctrl+Tab`、`Ctrl+PageDown` | `⇧⌘]`、`⌃Tab`、`⌃PageDown` |
 | 前のタブ | `Ctrl+Shift+Tab`、`Ctrl+PageUp` | `⇧⌘[`、`⌃⇧Tab`、`⌃PageUp` |
 | n 番目のタブ | `Ctrl+1`〜`Ctrl+9` | `⌘1`〜`⌘9` |
@@ -127,6 +128,7 @@ macOS だけの割り当てもあります。**`⇧⌘]` / `⇧⌘[`**（次 / �
 | 新しいターミナル | `Alt+F12` | `⌥F12` |
 | タブを閉じる | `Ctrl+F4` | `⌘W` |
 | ウィンドウを閉じる | `Ctrl+Shift+W` | `⇧⌘W` |
+| 作業領域を分割 / 解除 | `Ctrl+\` | `⌘\` |
 | 次のタブ | `Alt+→`、`Ctrl+Tab`、`Ctrl+PageDown` | `⇧⌘]`、`⌃Tab`、`⌃PageDown` |
 | 前のタブ | `Alt+←`、`Ctrl+Shift+Tab`、`Ctrl+PageUp` | `⇧⌘[`、`⌃⇧Tab`、`⌃PageUp` |
 | n 番目のタブ | `Ctrl+1`〜`Ctrl+9` | `⌘1`〜`⌘9` |

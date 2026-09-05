@@ -179,9 +179,17 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     gitPush: () => void useGitStore().push(),
     gitRefresh: () => void useGitStore().refreshAll(),
     diagnosticsRun: () => void useDiagnosticsStore().run(),
+    // 作業領域の分割（#308）。開いたときに何を右へ出すかまでストアが決める。
+    toggleSplit: () => tabStore.toggleSplit(),
+    /** 打鍵の行き先を反対のペインへ渡す。分割していなければ何もしない。 */
+    focusOtherPane: () => tabStore.focusOtherPane(),
+    /** 見ているタブを反対のペインへ送る。分割していなければ、これが分割の入口になる。 */
+    moveTabToOtherPane: () => tabStore.moveTabToOtherPane(),
     openTerminal,
     selectTabByDigit: (digit: string) => {
-      const list = tabStore.visibleTabs
+      // フォーカスのあるペインの中で数える（#308）。両ペインを合わせた並びだと、
+      // 画面の「左から n 番目」と一致しない。
+      const list = tabStore.focusedTabs
       const index = digit === '9' ? list.length - 1 : Number(digit) - 1
       const tab = list[index]
       if (tab) tabStore.setActiveTab(tab.id)

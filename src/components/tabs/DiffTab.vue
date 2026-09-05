@@ -525,7 +525,9 @@ function onKeydown(e: KeyboardEvent) {
   // **Shift も見る。** `Ctrl+Shift+F`（検索パネル、#259）は別のショートカットで、
   // どちらも window のリスナーなので、見ないとタブ内検索まで同時に開いて焦点を奪う。
   if (hasMod(e) && !e.altKey && !e.shiftKey && normalizedKey(e) === 'f') {
-    if (tabStore.activeTabId !== props.tabId) return
+    // 打鍵の行き先のタブだけが受ける（#308。分割していると 2 枚が見えているので、
+    // `isTabVisible` だと両方が同じキーを取り合う）。
+    if (!tabStore.isTabFocused(props.tabId)) return
     e.preventDefault()
     openSearch()
   }

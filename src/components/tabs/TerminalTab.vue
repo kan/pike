@@ -344,10 +344,11 @@ function parseTerminalTitle(raw: string): string | null {
   return cleaned || null
 }
 
-// Only resize the active tab (hidden tabs have 0×0 dimensions via v-show)
+// 描かれているタブだけ測る（隠れているタブは `v-show` で 0×0）。**分割すると見えている
+// タブは 2 枚になる**ので、フォーカスの有無ではなく `isTabVisible` を見る（#308）。
 function doFit() {
   if (!fitAddon || !terminal || !ptyId) return
-  if (tabStore.activeTabId !== props.tabId) return
+  if (!tabStore.isTabVisible(props.tabId)) return
   fitAddon.fit()
   if (terminal.cols > 0 && terminal.rows > 0 && (terminal.cols !== lastCols || terminal.rows !== lastRows)) {
     lastCols = terminal.cols
@@ -378,23 +379,37 @@ function afterTwoFrames(cb: () => void) {
   requestAnimationFrame(() => requestAnimationFrame(cb))
 }
 
+/**
+ * 描かれるようになったら測り直す。**「見えたか」と「打鍵の行き先になったか」を分ける**
+ * （#308）: 分割すると 2 枚が同時に見えているので、測り直しを片方だけに絞ると、
+ * 反対のペインの xterm が 0×0 のまま残る。
+ */
 watch(
-  () => tabStore.activeTabId,
-  (newId) => {
-    if (newId === props.tabId) {
-      lastActivatedAt = Date.now()
-      // Double rAF ensures v-show transition is fully resolved before measuring
-      nextTick(() => {
-        afterTwoFrames(() => {
-          doFit()
-          if (terminal) {
-            terminal.refresh(0, terminal.rows - 1)
-            terminal.focus()
-            nudgePtyResize(50)
-          }
-        })
+  () => tabStore.isTabVisible(props.tabId),
+  (visible) => {
+    if (!visible) return
+    lastActivatedAt = Date.now()
+    // Double rAF ensures v-show transition is fully resolved before measuring
+    nextTick(() => {
+      afterTwoFrames(() => {
+        doFit()
+        if (terminal) {
+          terminal.refresh(0, terminal.rows - 1)
+          nudgePtyResize(50)
+        }
       })
-    }
+    })
+  },
+)
+
+/** DOM のフォーカスは打鍵の行き先にだけ渡す（見えているだけのタブは奪わない）。 */
+watch(
+  () => tabStore.isTabFocused(props.tabId),
+  (focused) => {
+    if (!focused) return
+    nextTick(() => {
+      afterTwoFrames(() => terminal?.focus())
+    })
   },
 )
 
@@ -406,7 +421,7 @@ watch(
     if (!terminal) return
     terminal.options.theme = theme
     terminal.refresh(0, terminal.rows - 1)
-    if (tabStore.activeTabId === props.tabId) nudgePtyResize(200)
+    if (tabStore.isTabVisible(props.tabId)) nudgePtyResize(200)
   },
 )
 // Window transparency (issue #162): toggle xterm's transparent render path when
@@ -418,7 +433,7 @@ watch(
     if (!terminal) return
     terminal.options.allowTransparency = kind !== 'none'
     terminal.refresh(0, terminal.rows - 1)
-    if (tabStore.activeTabId === props.tabId) nudgePtyResize(200)
+    if (tabStore.isTabVisible(props.tabId)) nudgePtyResize(200)
   },
 )
 watch(
@@ -551,7 +566,7 @@ onMounted(async () => {
   // Newly created tabs mount after activeTabId has already changed, so the
   // tab-activation watcher never fires for the initial activation. Without
   // this the "+" button keeps DOM focus and typing goes nowhere (#126).
-  if (tabStore.activeTabId === props.tabId) terminal.focus()
+  if (tabStore.isTabFocused(props.tabId)) terminal.focus()
 
   terminal.buffer.onBufferChange((buf) => {
     inAltScreen.value = buf.type === 'alternate'
@@ -898,7 +913,7 @@ onMounted(async () => {
   // TSF context. This also removes the old race where the deferred cycle could
   // clobber a composition the user started right after returning.
   windowBlurHandler = () => {
-    if (!terminal || tabStore.activeTabId !== props.tabId) return
+    if (!terminal || !tabStore.isTabFocused(props.tabId)) return
     // Don't let DOM focus fall to <body> across the deactivation: <body> is
     // TEXT_INPUT_TYPE_NONE, and a NONE state parked there gets applied to TSF
     // on reactivation, associating a keyboard-disabled input context with the
@@ -922,7 +937,7 @@ onMounted(async () => {
   window.addEventListener('blur', windowBlurHandler)
 
   windowFocusHandler = () => {
-    if (!terminal || tabStore.activeTabId !== props.tabId) return
+    if (!terminal || !tabStore.isTabFocused(props.tabId)) return
     // Defer to the next frame: when the window is activated by clicking into
     // it, the click's own element focus (e.g. xterm's mousedown handler) lands
     // first and this focus() becomes a harmless no-op instead of fighting it.
@@ -940,7 +955,7 @@ onMounted(async () => {
     afterTwoFrames(() => {
       // Re-check liveness AND active tab: the terminal may have been disposed
       // (tab closed) or the user may have switched tabs since the focus event.
-      if (!terminal || tabStore.activeTabId !== props.tabId) return
+      if (!terminal || !tabStore.isTabFocused(props.tabId)) return
       // Focus already bounced away again (rapid app switch): refocusing now
       // would park TEXT state on an inactive window; the next 'focus' event
       // handles it instead.

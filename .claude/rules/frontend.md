@@ -26,6 +26,45 @@
   - **ストアの setup 直下で呼ぶこと**。監視をそこで 1 回だけ張るので持ち主が Pinia のストアの scope になる。`start()` の中で張ると、`onMounted` から呼ばれたときにコンポーネントの scope に入ってマウント解除で黙って止まる
 - 例外は「webview に DOM フォーカスがあるか」そのものを問うている箇所だけ（`TerminalTab` の IME 周り。blur の完了前に退避する必要があり、focus 側は WebView2 のフォーカス受け渡しに紐付いている）。**「ユーザーがこのウィンドウを見ているか」を聞きたいところは `windowFocused`**（`document.hasFocus()` のままだと、タイトルバーをクリックして前に出したときに「見ていない」と誤判定する）
 
+## 作業領域の分割（#308）
+
+左右 2 ペインに分けられる。**既定は分割なし**で、`Mod+\`・タブバーの分割ボタン・タブの
+右クリック「反対のペインへ移動」・ペインをまたぐドラッグが入口。
+
+- **「アクティブ」は 3 つに割れる。** どのタブがどこにあるか（`tab.pane`）、打鍵の行き先の
+  ペイン（`focusedPane`）、そのペインで選んでいるタブ（`activeByPane`）。`activeTabId` は
+  この最後のもので、**代入するとそのタブのあるペインへフォーカスが移る**（タブを開く 12 経路が
+  そのまま正しく動くのはこのため）
+- **タブのコンポーネントが聞く述語は 2 つ**。`isTabVisible`（描かれているか。xterm の fit・
+  PTY のリサイズ・再描画・CodeMirror の `requestMeasure`）と `isTabFocused`（打鍵の行き先か。
+  初期フォーカス・IME の退避・StatusBar のカーソル情報・アウトラインの登録）。**`activeTabId`
+  との比較に戻さないこと**: 分割すると見えているタブが 2 枚になるので、隠れていないほうが
+  0×0 のまま測られる
+- **`tab.pane` を直に読まない**（`tabStore.paneOf`）。分割していないあいだは右に置いたままの
+  タブも左に出る、という解釈が 1 箇所に閉じている。**分割を解除しても書き換えない**
+  （`tabs` にはパーク中の他プロジェクトのタブも入っているので、片方のプロジェクトでの
+  解除がもう片方の置き場を消す）
+- **開いたタブはフォーカスのあるペインに入る**（`pushTab` の既定）。タブバーから開いたものが
+  押した側に入るのは、`TabPane` の `.pane` に付けた `mousedown.capture` が click より先に
+  `focusPane` を済ませているため。**マウスを伴わない経路だけが自分で言う**（OS からの
+  ファイルドロップ、セッションの復元は `add*Tab` の `pane` オプション）
+- **中身は「タブ 1 枚 = `Teleport` 1 つ」で行き先だけを変える。** `to` の差し替えは
+  `moveTeleport` が DOM ノードを移すだけで、コンポーネントは作り直されない。ペインごとに
+  `v-for` を分けると、移った瞬間に `onUnmounted` が走って xterm がセッションごと消える。
+  **行き先はセレクタ文字列**（`#pane-left` / `#pane-right`）で、要素の ref だと分割を開いた
+  最初の描画で `v-if` が false になり同じことが起きる
+- ナビゲーション（`Ctrl+1`〜`9`・タブ移動）と一括クローズは**そのペインの中だけ**を見る
+  （`focusedTabs` / `tabsIn(pane)`）。母集合を `visibleTabs` に戻すと、1 本のタブバーから出た
+  操作が反対のペインのタブを閉じる
+- ドラッグの状態は `composables/useTabDrag.ts` のシングルトン。バーごとに
+  `useDragAndDrop` を呼ぶと、掴んだ側と落とす側で `dragId` が別になり**ペインをまたぐ
+  ドラッグだけが無言で効かない**
+- 分割比は localStorage（`pike:split-ratio:{projectId}`）。マシンに依存する見た目なので
+  `project.json` には入れない。ペインの割り当てと選択は `lastSession.panes`（#308）で、
+  **分割していたときだけ書く**（古い版の Pike は `activeTabId` しか読まない）
+- **ターミナルの複製は非対応**。xterm の `Terminal` は 1 つの DOM にしか描けず、2 つ目を
+  作れば別の PTY になる（Rust 側にバッファを持って再アタッチする案は #264 で不採用）
+
 ## タブ管理
 - タブの状態は `src/stores/tabs.ts` で一元管理
 - **`Tab` 型の正本は `src/types/tab.ts`**（判別キーは `kind`）。現在の種別は `terminal` / `editor` / `preview` / `pdf` / `diff` / `history` / `docker-logs` / `settings` / `agent-status` / `manual` / `issue`。種別を増やすときは Union に足し、`TabPane.vue` の描画分岐と `snapshotSession`（永続化対象の絞り込み）の両方を更新する

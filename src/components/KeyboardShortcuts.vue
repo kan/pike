@@ -72,6 +72,7 @@ const sections = computed<ShortcutSection[]>(() => [
       // `keys` は「相互に置き換え可能な chord の並び」なので、同じ動作は 1 行に畳む。
       { keys: chordsFor('nextTab'), label: t('shortcuts.nextTab') },
       { keys: chordsFor('prevTab'), label: t('shortcuts.prevTab') },
+      { keys: chordsFor('toggleSplit'), label: t('shortcuts.toggleSplit') },
     ],
   },
   {

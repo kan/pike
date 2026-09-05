@@ -93,6 +93,10 @@ export default {
   'tabs.copyPath': 'Copy Path',
   'tabs.gitHistory': 'Git History',
   'tabs.newFileBadge': 'New file (created on save)',
+  'tabs.splitRight': 'Split Right ({key})',
+  'tabs.unsplit': 'Unsplit ({key})',
+  'tabs.moveToRightPane': 'Move to Right Pane',
+  'tabs.moveToLeftPane': 'Move to Left Pane',
 
   // Editor
   'editor.undo': 'Undo',
@@ -616,6 +620,9 @@ export default {
   'shortcuts.findReplace': 'Find & Replace',
   'shortcuts.jumpToDefinition': 'Go to definition',
   'shortcuts.gitHistory': 'Git History',
+  'shortcuts.toggleSplit': 'Split / Unsplit Workspace',
+  'shortcuts.focusOtherPane': 'Focus Other Pane',
+  'shortcuts.moveTabToOtherPane': 'Move Tab to Other Pane',
   'shortcuts.closeOverlay': 'Close palette or dialog',
   'shortcuts.openInNewWindow': 'Open in a new window (project switcher)',
   'shortcuts.findNextPrev': 'Find next / previous',

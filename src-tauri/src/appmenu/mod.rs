@@ -217,10 +217,17 @@ fn build_menu(app: &AppHandle, lang: &str, actions: &[MenuAction]) -> tauri::Res
     let mut view_menu = SubmenuBuilder::new(app, l.view);
     view_menu = push(app, view_menu, find("quickOpen"))?;
     view_menu = push(app, view_menu, find("projectSwitcher"))?;
+    view_menu = view_menu.separator();
+    // 作業領域の分割（#308）。分割そのものは「見え方」なので View、ペインのあいだの
+    // 行き来はタブの移動と並ぶので Window に置く。
+    view_menu = push(app, view_menu, find("toggleSplit"))?;
 
     let mut window_menu = SubmenuBuilder::new(app, l.window).minimize().separator();
     window_menu = push(app, window_menu, find("nextTab"))?;
     window_menu = push(app, window_menu, find("prevTab"))?;
+    window_menu = window_menu.separator();
+    window_menu = push(app, window_menu, find("focusOtherPane"))?;
+    window_menu = push(app, window_menu, find("moveTabToOtherPane"))?;
     window_menu = window_menu
         .separator()
         .item(&PredefinedMenuItem::bring_all_to_front(app, None)?);

@@ -93,6 +93,10 @@ export default {
   'tabs.copyPath': 'パスをコピー',
   'tabs.gitHistory': 'Git 履歴',
   'tabs.newFileBadge': '新規ファイル（保存で作成されます）',
+  'tabs.splitRight': '右に分割（{key}）',
+  'tabs.unsplit': '分割を解除（{key}）',
+  'tabs.moveToRightPane': '右のペインへ移動',
+  'tabs.moveToLeftPane': '左のペインへ移動',
 
   // Editor
   'editor.undo': '元に戻す',
@@ -616,6 +620,9 @@ export default {
   'shortcuts.findReplace': '検索と置換',
   'shortcuts.jumpToDefinition': '定義へジャンプ',
   'shortcuts.gitHistory': 'Git 履歴',
+  'shortcuts.toggleSplit': '作業領域を分割 / 解除',
+  'shortcuts.focusOtherPane': '反対のペインへフォーカス',
+  'shortcuts.moveTabToOtherPane': 'タブを反対のペインへ移動',
   'shortcuts.closeOverlay': 'パレット・ダイアログを閉じる',
   'shortcuts.openInNewWindow': '新しいウィンドウで開く（プロジェクト切替）',
   'shortcuts.findNextPrev': '次 / 前の一致へ',
