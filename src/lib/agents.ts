@@ -93,21 +93,76 @@ export const AGENTS: AgentDef[] = [
 ]
 
 /**
- * 起動メニューでの並びと表示（#275）。**シェルプロファイル（#129）と同じ形**で、
- * 並べ替えと目のトグルを設定画面から行う。
+ * 起動メニューに並べる 1 行（#275）。**シェルプロファイル（#129）と同じく**並べ替えと
+ * 目のトグルを設定画面から行う。
  *
- * **先頭が既定のエージェント**（検出できたものの中で）。ボタン本体が走らせるのも、
- * メニューの第 1 階層に出るのもそれで、残りは「他のエージェント」の下へ入る。
- * 順序と既定を別々に持たないのは、2 つの値が食い違う余地を作らないため。
+ * **表のエージェントと利用者が書いた行を 1 本のリストで持つ。** 以前は 2 本に分かれて
+ * いて、どちらが優先かは呼ぶ側の `??` 1 個にあった。そのため `claude --model opus` を
+ * ボタンにしていた利用者は、表が入った版で素の `claude` に戻り、**戻す手段が UI から
+ * 消えていた**。
+ *
+ * **並び順がそのまま優先順で、使える先頭が既定。** ボタン本体が走らせるのも、メニューの
+ * 第 1 階層に出るのもそれで、残りは「他の起動行」の下へ入る。順序と既定を別々に持たない
+ * のは、2 つの値が食い違う余地を作らないため。
+ *
+ * - `agent` … 表の行。**PATH に `bin` があるときだけ使える**（押しても `command not found`
+ *   になる項目を並べない）。`launch` の行を全部連れてくる
+ * - `custom` … 利用者が書いた 1 行。**検出を通さない**: `npx claude` や
+ *   `docker compose exec -T dev claude` のように、bin 名では表せない起動が普通にある
  *
  * **`ShellProfile` と違って同期の対象**にする。あちらがマシンローカルなのは distro の
- * 集合がマシンごとに違うからで、こちらの id は固定（表が持つ 4 つ）。どれを既定に
- * したいかは好みなので、`shortcutPreset` と同じ扱いでよい。別のマシンにそのエージェントが
- * 無ければ、検出できた先頭に落ちるだけ。
+ * 集合がマシンごとに違うからで、こちらは id が固定（表が持つ 4 つ）＋利用者が書いた文字列。
+ * どれを既定にしたいかは好みなので、`shortcutPreset` と同じ扱いでよい。別のマシンにその
+ * エージェントが無ければ、使える先頭に落ちるだけ。
+ */
+export type AgentLauncher =
+  | { kind: 'agent'; id: AgentId; hidden?: boolean }
+  | { kind: 'custom'; label: string; command: string; hidden?: boolean }
+
+/**
+ * 昔の「エージェントの並び」（#275 の当初の形）。**移行の入力としてしか使わない**。
+ * 同期ファイル越しに古い版の Pike が書くことがあるので、型ごと消せない。
  */
 export interface AgentProfile {
   id: AgentId
   hidden?: boolean
+}
+
+/** その行が走らせる起動コマンド。エージェントは表の `launch` 全部、カスタムは自分 1 行。 */
+export function launcherLines(l: AgentLauncher): { label: string; command: string }[] {
+  if (l.kind === 'custom') return [{ label: l.label, command: l.command }]
+  return agentById(l.id)?.launch ?? []
+}
+
+/** 設定画面の行と、メニューの見出しに出す名前。 */
+export function launcherLabel(l: AgentLauncher): string {
+  return l.kind === 'custom' ? l.label : (agentById(l.id)?.label ?? l.id)
+}
+
+/**
+ * この環境で使える行か（`detectedBins` は `stores/agents.ts` が調べた PATH 上の名前）。
+ *
+ * **カスタム行は空でなければ使える。** 検出を通さないので、書いた本人の意図をそのまま
+ * 信じる。空を弾くのは、設定で「行を追加」した直後のまだ何も打っていない行が既定に
+ * なってしまうため。
+ */
+export function isLauncherUsable(l: AgentLauncher, detectedBins: Set<string>): boolean {
+  if (l.kind === 'custom') return l.command.trim() !== ''
+  const bin = agentById(l.id)?.bin
+  return bin !== undefined && detectedBins.has(bin)
+}
+
+/**
+ * メニューに出す行か。**「既定になりうるか」と同じ問い**で、順に見ていって最初に真になった
+ * ものが既定になる。
+ *
+ * **`!hidden && usable` を呼び出し側で書かないこと。** 起動メニュー（`stores/agents.ts`）と
+ * 設定画面の「デフォルト」バッジ（`SettingsTab.vue`）が別々に持つと、条件が 1 つ増えた
+ * ときに片方だけ古くなり、**バッジの付いた行とボタンが走らせる行が食い違う**。この issue が
+ * 直したのはまさにその形の食い違いだった。
+ */
+export function isLauncherVisible(l: AgentLauncher, detectedBins: Set<string>): boolean {
+  return !l.hidden && isLauncherUsable(l, detectedBins)
 }
 
 export function agentById(id: AgentId): AgentDef | undefined {

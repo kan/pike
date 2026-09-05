@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 「並べ替えられて、目のトグルで隠せる一覧」の 1 行。設定画面のシェル一覧（#129）と
- * エージェント一覧（#275）が共有する。
+ * エージェントの起動行（#275）が共有する。
  *
  * **見た目を持つのはここだけ。** 切り出す前はエージェント側がシェル側の
  * `shell-profile-*` という別機能のクラスに乗っていて、シェル欄の scoped CSS を触ると
@@ -19,6 +19,7 @@ import { useI18n } from '../../i18n'
 const { t } = useI18n()
 
 defineProps<{
+  /** 行に出す名前。**default スロットで中身を差し替えたときは使われない。** */
   label: string
   /** 「デフォルト」バッジを出すか。 */
   isDefault?: boolean
@@ -43,10 +44,17 @@ defineEmits<{ move: [dir: -1 | 1]; toggle: [] }>()
       </button>
     </div>
     <slot name="icon" />
-    <span class="profile-label">
-      {{ label }}
+    <!--
+      既定は名前を出すだけ。**中身を差し替えられるようにしてある**のは、エージェントの
+      起動行（#275）にコマンドを直に書く行が混ざるため。「デフォルト」バッジは差し替えの
+      外に置くので、どちらの形の行でも同じ位置に出る。
+    -->
+    <div class="profile-main">
+      <slot>
+        <span class="profile-label">{{ label }}</span>
+      </slot>
       <span v-if="isDefault" class="profile-default">{{ t('settings.shellProfileDefault') }}</span>
-    </span>
+    </div>
     <button
       class="icon-btn"
       :disabled="!hidden && !canHide"
@@ -56,6 +64,8 @@ defineEmits<{ move: [dir: -1 | 1]; toggle: [] }>()
       <EyeOff v-if="hidden" :size="14" :stroke-width="2" />
       <Eye v-else :size="14" :stroke-width="2" />
     </button>
+    <!-- 行ごとの追加の操作（カスタムの起動行の削除）。 -->
+    <slot name="actions" />
   </div>
 </template>
 
@@ -112,8 +122,17 @@ defineEmits<{ move: [dir: -1 | 1]; toggle: [] }>()
   color: var(--text-secondary);
 }
 
-.profile-label {
+/* 幅を取るのはこちら。**`.profile-label` に `flex: 1` を持たせないこと**: バッジが名前の
+   すぐ右ではなく行の右端へ飛ぶし、差し替えた中身（入力欄が 2 つ）が伸びなくなる。 */
+.profile-main {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.profile-label {
   font-size: 12px;
   color: var(--text-primary);
 }
@@ -125,7 +144,7 @@ defineEmits<{ move: [dir: -1 | 1]; toggle: [] }>()
 }
 
 .profile-default {
-  margin-left: 6px;
+  flex-shrink: 0;
   padding: 1px 6px;
   font-size: 10px;
   border-radius: 8px;

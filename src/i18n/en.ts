@@ -215,8 +215,7 @@ export default {
   'terminal.agentLaunch': 'Launch coding agent',
   'terminal.promptInject': 'Insert a saved prompt',
   'terminal.injectNoTarget': 'No terminal to send to',
-  'terminal.otherAgents': 'Other agents',
-  'terminal.agentCustom': 'Added in Settings',
+  'terminal.otherLaunchers': 'Other launchers',
   'terminal.claudeSessions': 'Recent Claude sessions',
   'terminal.noClaudeSessions': 'No sessions to resume',
 
@@ -271,12 +270,12 @@ export default {
   'settings.themeAuto': 'Auto (follow mode)',
   'settings.copyOnSelect': 'Copy on Select',
   'settings.rightClickPaste': 'Right Click Paste',
-  'settings.agentCommands': 'Terminal Agent Buttons',
-  'settings.agentCommandsHint':
-    'Claude Code, Codex, Copilot CLI and opencode appear in the launcher automatically when installed. Add other commands you want here (e.g. claude --model opus).',
+  'settings.agentLaunchers': 'Agent Launchers',
+  'settings.agentLaunchersHint':
+    'What the terminal launcher offers, in order. The first usable entry is the default — the button runs that — and the rest go under "Other launchers" in the menu. Claude Code, Codex, Copilot CLI and opencode are usable when installed; ones that are missing stay out of the menu even when visible here. Use "Add launcher" for your own command (e.g. claude --model opus).',
   'settings.agentCommandLabel': 'Label',
   'settings.agentCommandCommand': 'Command',
-  'settings.addAgentCommand': 'Add command',
+  'settings.addAgentLauncher': 'Add launcher',
   'settings.agentPrompts': 'Terminal Prompts',
   'settings.agentPromptsHint':
     'Reusable instruction snippets inserted into the current terminal (you press Enter to send).',
@@ -327,10 +326,6 @@ export default {
   'settings.shellProfileDefault': 'default',
   'settings.shellProfileShow': 'Show',
   'settings.shellProfileHide': 'Hide',
-  'settings.agentProfiles': 'Agent list',
-  'settings.agentProfilesHint':
-    'Order and visibility in the terminal launcher. The first one is the default agent — the button runs that. The rest go under "Other agents" in the menu. Agents that are not installed stay out of the menu even when visible here.',
-  'settings.agentProfileDefault': 'default',
   'settings.sync': 'Settings Sync',
   'settings.syncHint':
     'Mirror your environment-independent settings (font, colors, editor, terminal commands/prompts, etc.) to a single JSON file. Point the path at a folder synced by Dropbox/OneDrive/git to share them across PCs. Project list and groups are not synced.',

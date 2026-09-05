@@ -1,10 +1,23 @@
 <script setup lang="ts">
-import { Bot, ChevronDown, ChevronUp, Eye, Info, Loader, Monitor, Moon, Plus, Sun, Trash2 } from 'lucide-vue-next'
+import {
+  Bot,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  Info,
+  Loader,
+  Monitor,
+  Moon,
+  Plus,
+  SquareTerminal,
+  Sun,
+  Trash2,
+} from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
-import { agentById } from '../../lib/agents'
+import { AGENTS, type AgentLauncher, isLauncherVisible, launcherLabel } from '../../lib/agents'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
@@ -98,23 +111,53 @@ function toggleShellProfileHidden(index: number) {
   p.hidden = !p.hidden
 }
 
+/** 設定画面が「入っている」とみなすエージェント（理由は `defaultLauncherIndex` の doc）。 */
+const ALL_AGENT_BINS = new Set(AGENTS.map((a) => a.bin))
+
 /**
- * 「デフォルト」バッジを付けるエージェント（#275）。**隠していない先頭**で、
- * `stores/agents.ts` の `available` が既定として使うものと同じ規則。
+ * 「デフォルト」バッジを付ける起動行（#275）。**隠していない先頭**。
  * **`i === 0` にしないこと**: 先頭を隠している設定では、実際に起動するものと
  * バッジが食い違う。
+ *
+ * **「表のエージェントは全部入っている」前提で決める。** 実際の検出（`stores/agents.ts` の
+ * `launchers`）はシェルごとの答えで、設定画面はどのターミナルのものでもないので、混ぜると
+ * 開いていたタブ次第でバッジが動く。入っていなければ実際の既定は次の行に落ちる —— その旨は
+ * 説明文に書いてある。
+ *
+ * **述語そのものは起動メニューと共有する**（`isLauncherVisible`）。シェルに依らない条件
+ * （コマンドが空のカスタム行）まで自前で書き直すと、「行を追加」した直後の空行を先頭に
+ * 上げたときに、起動ボタンが走らせない行へバッジが付く。
  */
-const defaultAgentId = computed(() => settings.agentProfiles.find((p) => !p.hidden)?.id ?? null)
+const defaultLauncherIndex = computed(() =>
+  settings.agentLaunchers.findIndex((l) => isLauncherVisible(l, ALL_AGENT_BINS)),
+)
 
 /** 最後の 1 つは隠せない（起動ボタンが出せなくなる）。 */
-function canHideAgentProfile(index: number): boolean {
-  return settings.agentProfiles.filter((p, i) => !p.hidden || i === index).length > 1
+function canHideLauncher(index: number): boolean {
+  return settings.agentLaunchers.filter((l, i) => !l.hidden || i === index).length > 1
 }
 
-function toggleAgentProfileHidden(index: number) {
-  const p = settings.agentProfiles[index]
-  if (!p.hidden && !canHideAgentProfile(index)) return
-  p.hidden = !p.hidden
+function toggleLauncherHidden(index: number) {
+  const l = settings.agentLaunchers[index]
+  if (!l.hidden && !canHideLauncher(index)) return
+  l.hidden = !l.hidden
+}
+
+/**
+ * 1 行ぶんの束縛（#305 の `tabBind` と同じ形）。行の形が 2 つ（表のエージェント /
+ * 利用者が書いたコマンド）あってスロットの中身だけが違うので、**束縛を書き写さない**。
+ */
+function launcherRowBind(l: AgentLauncher, i: number) {
+  return {
+    label: launcherLabel(l),
+    isDefault: i === defaultLauncherIndex.value,
+    hidden: l.hidden,
+    canHide: canHideLauncher(i),
+    first: i === 0,
+    last: i === settings.agentLaunchers.length - 1,
+    onMove: (dir: -1 | 1) => moveInList(settings.agentLaunchers, i, dir),
+    onToggle: () => toggleLauncherHidden(i),
+  }
 }
 
 // Options follow the profile list (order included) and exclude hidden shells.
@@ -239,16 +282,13 @@ function onUiFontSizeCommit() {
   settings.uiFontSize = uiFontSizeDraft.value
 }
 
-function addAgentCommand() {
-  settings.agentCommands.push({ label: '', command: '' })
+/** 利用者が書く起動行を足す。**表のエージェントは足せない / 消せない**（隠すだけ）。 */
+function addCustomLauncher() {
+  settings.agentLaunchers.push({ kind: 'custom', label: '', command: '' })
 }
 
-function removeAgentCommand(index: number) {
-  settings.agentCommands.splice(index, 1)
-}
-
-function moveAgentCommand(index: number, dir: -1 | 1) {
-  moveInList(settings.agentCommands, index, dir)
+function removeCustomLauncher(index: number) {
+  settings.agentLaunchers.splice(index, 1)
 }
 
 function addAgentPrompt() {
@@ -663,51 +703,42 @@ const PREVIEW_LINES = [
       <section id="settings-agent" class="settings-section">
         <h3 class="section-title">{{ t('settings.agent') }}<HelpButton page="settings.md#エージェント" :size="15" /></h3>
 
+        <!--
+          起動行の 1 本のリスト（#275）。表のエージェントと利用者が書いた行が同じ順序に
+          並び、**使える先頭が既定**。行の形は 2 つあるが、違うのはスロットの中身だけなので
+          `ProfileRow` は 1 つに保ち、束縛も `launcherRowBind` の 1 つを `v-bind` する
+          （#305 の `tabBind` と同じ理由）。
+        -->
         <div class="setting-block" data-testid="settings-agents">
-          <label class="setting-label">{{ t('settings.agentProfiles') }}</label>
-          <p class="setting-hint">{{ t('settings.agentProfilesHint') }}</p>
+          <label class="setting-label">{{ t('settings.agentLaunchers') }}</label>
+          <p class="setting-hint">{{ t('settings.agentLaunchersHint') }}</p>
           <div class="setting-list">
             <ProfileRow
-              v-for="(p, i) in settings.agentProfiles"
-              :key="p.id"
-              :label="agentById(p.id)?.label ?? p.id"
-              :is-default="p.id === defaultAgentId"
-              :hidden="p.hidden"
-              :can-hide="canHideAgentProfile(i)"
-              :first="i === 0"
-              :last="i === settings.agentProfiles.length - 1"
-              @move="(dir) => moveInList(settings.agentProfiles, i, dir)"
-              @toggle="toggleAgentProfileHidden(i)"
+              v-for="(l, i) in settings.agentLaunchers"
+              :key="i"
+              v-bind="launcherRowBind(l, i)"
             >
               <template #icon>
-                <Bot :size="14" :stroke-width="1.5" class="profile-icon" />
+                <component
+                  :is="l.kind === 'custom' ? SquareTerminal : Bot"
+                  :size="14"
+                  :stroke-width="1.5"
+                  class="profile-icon"
+                />
+              </template>
+              <template v-if="l.kind === 'custom'">
+                <input v-model="l.label" class="agent-cmd-input label" :placeholder="t('settings.agentCommandLabel')" />
+                <input v-model="l.command" class="agent-cmd-input cmd" :placeholder="t('settings.agentCommandCommand')" />
+              </template>
+              <template v-if="l.kind === 'custom'" #actions>
+                <button class="icon-btn danger" :title="t('common.delete')" @click="removeCustomLauncher(i)">
+                  <Trash2 :size="14" :stroke-width="2" />
+                </button>
               </template>
             </ProfileRow>
           </div>
-        </div>
-
-        <div class="setting-block">
-          <label class="setting-label">{{ t('settings.agentCommands') }}</label>
-          <p class="setting-hint">{{ t('settings.agentCommandsHint') }}</p>
-          <div class="setting-list">
-            <div v-for="(cmd, i) in settings.agentCommands" :key="i" class="setting-list-row">
-              <div class="agent-cmd-reorder">
-                <button class="icon-btn" :disabled="i === 0" :title="'↑'" @click="moveAgentCommand(i, -1)">
-                  <ChevronUp :size="14" :stroke-width="2" />
-                </button>
-                <button class="icon-btn" :disabled="i === settings.agentCommands.length - 1" :title="'↓'" @click="moveAgentCommand(i, 1)">
-                  <ChevronDown :size="14" :stroke-width="2" />
-                </button>
-              </div>
-              <input v-model="cmd.label" class="agent-cmd-input label" :placeholder="t('settings.agentCommandLabel')" />
-              <input v-model="cmd.command" class="agent-cmd-input cmd" :placeholder="t('settings.agentCommandCommand')" />
-              <button class="icon-btn danger" :title="t('common.delete')" @click="removeAgentCommand(i)">
-                <Trash2 :size="14" :stroke-width="2" />
-              </button>
-            </div>
-          </div>
-          <button class="add-cmd-btn" @click="addAgentCommand">
-            <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentCommand') }}
+          <button class="add-cmd-btn" @click="addCustomLauncher">
+            <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentLauncher') }}
           </button>
         </div>
 

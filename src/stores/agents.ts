@@ -8,7 +8,7 @@
  * だけ飛ぶ。
  *
  * **1 枠ではなくシェルごとの表にする。** 1 枠だと、同じウィンドウで WSL のタブと
- * PowerShell のタブを行き来するだけで（どちらも検出済みでも）毎回聞き直し、`available` が
+ * PowerShell のタブを行き来するだけで（どちらも検出済みでも）毎回聞き直し、`launchers` が
  * 「どのシェルの答えか」を知らないまま入れ替わる。表にしておけば、プロジェクトを
  * 切り替えたときに捨てる必要も無い（シェルが変われば別のキーを引くだけ）。
  *
@@ -19,7 +19,7 @@
 
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { AGENTS, type AgentDef, agentById } from '../lib/agents'
+import { AGENTS, type AgentLauncher, isLauncherVisible } from '../lib/agents'
 import { agentDetect } from '../lib/tauri'
 import { type ShellType, shellId } from '../types/tab'
 import { useSettingsStore } from './settings'
@@ -36,7 +36,7 @@ export const useAgentStore = defineStore('agents', () => {
   const settings = useSettingsStore()
   /** シェルの id → 見つかった `bin` 名。 */
   const answers = ref<Record<string, Answer>>({})
-  /** いま見ているタブのシェル。`available` はこのキーの答えを読む。 */
+  /** いま見ているタブのシェル。`launchers`はこのキーの答えを読む。 */
   const currentShell = ref<string | null>(null)
   /** 走っている検出（キーごと）。同じシェルへの重複した問い合わせを 1 本に畳む。 */
   const inFlight = new Map<string, Promise<void>>()
@@ -47,18 +47,15 @@ export const useAgentStore = defineStore('agents', () => {
   )
 
   /**
-   * 起動メニューに出すエージェント。**設定の並び順**（`agentProfiles`）で、隠したものを
-   * 除き、今のシェルで見つかったものだけ。
+   * 起動メニューに出す行。**設定の並び順**（`agentLaunchers`）で、隠したものを除き、
+   * この環境で使えるものだけ（表の行は今のシェルで見つかったもの、カスタム行は空でないもの）。
    *
    * **先頭が既定**（ボタン本体が走らせるもの）。順序と既定を別々に持たないので、
    * 「並べ替えたのに既定が変わらない」という食い違いが起きない。
    */
-  const available = computed<AgentDef[]>(() => {
+  const launchers = computed<AgentLauncher[]>(() => {
     const detected = new Set(detectedBins.value)
-    return settings.agentProfiles
-      .filter((p) => !p.hidden)
-      .flatMap((p) => agentById(p.id) ?? [])
-      .filter((a) => detected.has(a.bin))
+    return settings.agentLaunchers.filter((l) => isLauncherVisible(l, detected))
   })
 
   /**
@@ -95,5 +92,5 @@ export const useAgentStore = defineStore('agents', () => {
     }
   }
 
-  return { detectedBins, available, detect }
+  return { detectedBins, launchers, detect }
 })

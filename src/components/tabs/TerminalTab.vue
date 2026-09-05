@@ -14,7 +14,7 @@ import {
 } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
-import { agentById, commandMentionsAgent } from '../../lib/agents'
+import { agentById, commandMentionsAgent, launcherLines } from '../../lib/agents'
 import { isMacHost, isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
@@ -91,25 +91,20 @@ const projectStore = useProjectStore()
 const statusMessage = useStatusMessageStore()
 
 /**
- * ワンクリックでエージェントを起動する行（#275 / #267）。**一覧は 2 層**:
- * `lib/agents.ts` の表のうち **PATH にあるもの**と、設定の `agentCommands`（利用者が
- * 手で足した行）。押しても `command not found` になる項目を並べないため、表のほうは
+ * ワンクリックでエージェントを起動する行（#275 / #267）。**一覧は設定の
+ * `agentLaunchers` 1 本**で、表のエージェント（PATH にあるものだけ）と利用者が書いた行が
+ * 同じ順序に並ぶ。押しても `command not found` になる項目を並べないため、表のほうは
  * 検出を通してから出す。
  */
 const agentStore = useAgentStore()
-/** 既定のエージェント。ボタン本体とメニューの第 1 階層はこれ。 */
-const defaultAgent = computed(() => agentStore.available[0] ?? null)
-/** 既定以外。「他のエージェント」のサブメニューに入る。 */
-const otherAgents = computed(() => agentStore.available.slice(1))
-/**
- * ボタン本体で走る行。既定エージェントの先頭で、1 つも見つからなければ設定の先頭。
- *
- * **設定の行は畳まない**（#275）。昔の既定 2 行は `dropLegacyAgentDefaults` が読み込みの
- * 時点で落とすので、残っているのは利用者が自分で書いた行だけ。字面が表と同じでも、
- * 書いた本人にとっては意図した行なので消さない（表示側でも畳むと、同じ意図の規則が
- * 2 層に散る）。
- */
-const primaryCommand = computed(() => defaultAgent.value?.launch[0] ?? settingsStore.agentCommands[0] ?? null)
+/** 既定の起動行。ボタン本体とメニューの第 1 階層はこれ。 */
+const defaultLauncher = computed(() => agentStore.launchers[0] ?? null)
+/** 既定以外。「他の起動行」のサブメニューに入る。 */
+const otherLaunchers = computed(() => agentStore.launchers.slice(1))
+/** 既定の行が出すコマンド（エージェントなら素の起動と「続きから」、カスタムなら 1 行）。 */
+const defaultLines = computed(() => (defaultLauncher.value ? launcherLines(defaultLauncher.value) : []))
+/** ボタン本体で走る行。 */
+const primaryCommand = computed(() => defaultLines.value[0] ?? null)
 const agentMenuOpen = ref(false)
 /** 「他のエージェント」のサブメニュー（ホバーで開く）。 */
 const agentSubOpen = ref(false)
@@ -158,17 +153,17 @@ const sessionsLoading = ref(false)
  * `claude --resume` も見出しも Claude 固定なので、表のフラグで一般化した振りをしない。
  * 広げるのは #267 の残りで、一覧の取得と再開コマンドを id で分ける作業）。
  *
- * **既定が Claude か、設定の行が claude を起動していれば出す。** 検出だけを条件にすると、
- * wrapper 越しに起動している利用者（`npx claude` など）から一覧が消える。逆に「どちらでも
- * ない」ときに出さないのは、Codex だけの環境に disk scan を払わせないため。**既定でない
- * ときに出さない**のは、一覧が第 1 階層にあるから（サブメニューの中のエージェントの履歴を
- * ここに混ぜると、どれの履歴か読めなくなる）。
+ * **既定の行が claude を起動していれば出す。** カスタム行のときに字面を見る
+ * （`commandMentionsAgent`）のは、wrapper 越しに起動している利用者（`npx claude`、
+ * `docker compose exec -T dev claude`）から一覧が消えないため。**既定でないときに
+ * 出さない**のは、一覧が第 1 階層にあるから（サブメニューの中の行の履歴をここに混ぜると、
+ * どれの履歴か読めなくなる）。Codex だけの環境に disk scan を払わせない意味もある。
  */
 const showClaudeSessions = computed(() => {
   const claude = agentById('claude')
-  if (!claude) return false
-  if (defaultAgent.value?.id === 'claude') return true
-  return settingsStore.agentCommands.some((c) => commandMentionsAgent(c.command, claude))
+  const l = defaultLauncher.value
+  if (!claude || !l) return false
+  return l.kind === 'agent' ? l.id === 'claude' : commandMentionsAgent(l.command, claude)
 })
 
 function resumeCommand(session: ClaudeSession): string {
@@ -1116,9 +1111,9 @@ onUnmounted(() => {
             だけをその外に出す。
           -->
           <div class="agent-menu-scroll">
-          <!-- 第 1 階層は既定のエージェントだけ（#275）。 -->
+          <!-- 第 1 階層は既定の起動行だけ（#275）。 -->
           <button
-            v-for="l in defaultAgent?.launch ?? []"
+            v-for="l in defaultLines"
             :key="l.command"
             class="agent-menu-item"
             @click="runAgentCommand(l.command)"
@@ -1145,38 +1140,25 @@ onUnmounted(() => {
               </span>
             </button>
           </template>
-          <!-- 設定で足した行。 -->
-          <template v-if="settingsStore.agentCommands.length > 0">
-            <div class="agent-menu-heading">{{ t('terminal.agentCustom') }}</div>
-            <button
-              v-for="(c, i) in settingsStore.agentCommands"
-              :key="i"
-              class="agent-menu-item"
-              @click="runAgentCommand(c.command)"
-            >
-              <span class="agent-menu-label">{{ c.label }}</span>
-              <span class="agent-menu-cmd">{{ c.command }}</span>
-            </button>
-          </template>
           </div>
           <!--
-            既定以外のエージェント（#275）。**スクロール領域の外に置く**（中に入れると
+            既定以外の起動行（#275）。**スクロール領域の外に置く**（中に入れると
             サブメニューがクリップされる）。**サブメニューは親の行の内側**なので、
             そちらへマウスを移しても `mouseleave` が発火しない（閉じるのを遅らせる
             タイマーが要らない）。左に出すのは、この親メニュー自体が画面の右上に出るため。
           -->
           <div
-            v-if="otherAgents.length > 0"
+            v-if="otherLaunchers.length > 0"
             class="agent-menu-item agent-menu-sub"
             @mouseenter="agentSubOpen = true"
             @mouseleave="agentSubOpen = false"
           >
             <ChevronLeft :size="12" :stroke-width="2" class="agent-menu-caret" />
-            <span class="agent-menu-label">{{ t('terminal.otherAgents') }}</span>
+            <span class="agent-menu-label">{{ t('terminal.otherLaunchers') }}</span>
             <div v-if="agentSubOpen" class="agent-menu agent-submenu popup-surface">
-              <template v-for="a in otherAgents" :key="a.id">
+              <template v-for="(o, i) in otherLaunchers" :key="i">
                 <button
-                  v-for="l in a.launch"
+                  v-for="l in launcherLines(o)"
                   :key="l.command"
                   class="agent-menu-item"
                   @click="runAgentCommand(l.command)"

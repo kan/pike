@@ -2,7 +2,7 @@ import { emit, listen } from '@tauri-apps/api/event'
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
-import { AGENTS, type AgentId, type AgentProfile } from '../lib/agents'
+import { AGENTS, type AgentId, type AgentLauncher, type AgentProfile } from '../lib/agents'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { hexToRgba } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
@@ -418,7 +418,17 @@ interface PersistedSettings {
   closeToTray: boolean
   windowBackdrop: WindowBackdrop
   windowOpacity: number
-  /** エージェントの並びと表示（#275）。先頭が既定。 */
+  /** 起動行の並びと表示（#275）。**使える先頭が既定。** */
+  agentLaunchers: AgentLauncher[]
+  /**
+   * 昔の 2 本のリスト（#275 の当初の形）。**もう読み手は移行だけ**（`sanitizeAgentLaunchers`）
+   * で、`snapshot()` は `agentLaunchers` から導いた値を書く。
+   *
+   * **書き続けるのは同期ファイルのため**（#310 の `darkMode` と同じ手）。`snapshot()` は
+   * 全量置換なので、これを落とすと**更新していないマシンが publish した瞬間に
+   * `agentLaunchers` ごと消える**。向こうが読める形も一緒に置いておけば、次に読み直す
+   * ときに移行を通って並びが戻る。
+   */
   agentProfiles: AgentProfile[]
   agentCommands: AgentCommand[]
   agentPrompts: AgentPrompt[]
@@ -460,7 +470,8 @@ function cleanName(v: unknown, fallback: string): string {
  */
 function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
   const d = defaults()
-  const s: PersistedSettings = { ...d, ...withThemeMode(raw) }
+  const s: PersistedSettings = { ...d, ...withAgentLaunchers(withThemeMode(raw)) }
+  const agentLaunchers = sanitizeAgentLaunchers(s.agentLaunchers)
   return {
     ...s,
     fontFamily: cleanName(s.fontFamily, d.fontFamily),
@@ -479,9 +490,78 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
     allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
     allowedUrlHosts: sanitizeHostList(s.allowedUrlHosts),
-    agentProfiles: sanitizeAgentProfiles(s.agentProfiles),
-    agentCommands: dropLegacyAgentDefaults(s.agentCommands),
+    agentLaunchers,
+    // 後方互換の 2 本も同じ 1 本から導くので、3 つが食い違う余地が無い。
+    ...legacyAgentFields(agentLaunchers),
   }
+}
+
+/**
+ * 旧 2 本のリスト（`agentProfiles` / `agentCommands`）から起動行を起こす（#275 の宿題 1）。
+ * **エージェントの並びが先で、カスタム行は後ろ**なので、移行しただけでは今までと同じ既定に
+ * なる（そのうえで、カスタム行を先頭へ上げられるようになる）。
+ *
+ * **`withThemeMode` と同じくマージ前の生の値に当てる。** `defaults()` とマージしたあとでは
+ * `agentLaunchers` が必ず入っているので「この版が書いた設定か」を判定できず、**移行が一度も
+ * 走らないまま既存の並びとカスタム行が既定で上書きされる**（しかも `snapshot()` がその空の
+ * 値を同期ファイルへ publish するので、更新していない他のマシンからも消える）。
+ */
+function withAgentLaunchers(raw: Partial<PersistedSettings>): Partial<PersistedSettings> {
+  if (Array.isArray(raw.agentLaunchers)) return raw
+  return {
+    ...raw,
+    agentLaunchers: [
+      ...sanitizeAgentProfiles(raw.agentProfiles).map((p) => ({ kind: 'agent' as const, id: p.id, hidden: p.hidden })),
+      ...dropLegacyAgentDefaults(raw.agentCommands).map((c) => ({
+        kind: 'custom' as const,
+        label: c.label,
+        command: c.command,
+      })),
+    ],
+  }
+}
+
+/** 起動行を、古い版の Pike が読む 2 本のリストへ落とす（理由は `PersistedSettings` の宣言の隣）。 */
+function legacyAgentFields(list: AgentLauncher[]): Pick<PersistedSettings, 'agentProfiles' | 'agentCommands'> {
+  return {
+    agentProfiles: list.flatMap((l) => (l.kind === 'agent' ? [{ id: l.id, hidden: l.hidden }] : [])),
+    agentCommands: list.flatMap((l) => (l.kind === 'custom' ? [{ label: l.label, command: l.command }] : [])),
+  }
+}
+
+/**
+ * 保存済みの起動行を検証する。**表のエージェントは必ず 4 行そろう**: 知らない id は捨て、
+ * 並びに無いものを末尾に足す（エージェントを増やしたときの移行もこれで済む。
+ * `sanitizeAgentProfiles` と同じ考え方）。**表の行は消せず、隠すだけ**という UI の規則が
+ * ここで担保される。消せるのはカスタム行だけ。
+ *
+ * 配列でない値（同期ファイルの `null`、手で編集した文字列）は空から始める。旧 2 本からの
+ * 移行は `withAgentLaunchers` が**マージ前に**済ませてあるので、ここには来ない。
+ */
+function sanitizeAgentLaunchers(v: unknown): AgentLauncher[] {
+  const known = new Set(AGENTS.map((a) => a.id))
+  const out: AgentLauncher[] = []
+  const seen = new Set<AgentId>()
+  for (const item of Array.isArray(v) ? v : []) {
+    const o = item as Partial<AgentLauncher> & { id?: unknown; label?: unknown; command?: unknown }
+    if (o?.kind === 'custom') {
+      if (typeof o.label !== 'string' || typeof o.command !== 'string') continue
+      out.push({ kind: 'custom', label: o.label, command: o.command, hidden: o.hidden === true })
+      continue
+    }
+    // 昔の `AgentProfile`（`kind` を持たない）も id だけ拾って通す。同期ファイル越しに
+    // 混ざりうるので、ここで弾くと並びが丸ごと移行へ落ちる。
+    const id = o?.id
+    if (typeof id !== 'string' || !known.has(id as AgentId) || seen.has(id as AgentId)) continue
+    seen.add(id as AgentId)
+    out.push({ kind: 'agent', id: id as AgentId, hidden: o.hidden === true })
+  }
+  for (const a of AGENTS) {
+    if (!seen.has(a.id)) out.push({ kind: 'agent', id: a.id })
+  }
+  // 全部隠すと起動ボタンが出せなくなる（シェルの `ensureVisiblePerCategory` と同じ保険）。
+  if (out.length > 0 && out.every((l) => l.hidden)) out[0].hidden = false
+  return out
 }
 
 /**
@@ -493,15 +573,10 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
  * 2 番目の消費者（使用量・通知）がその規則を知らないまま同じ行を二重に数える。
  *
  * **触っていない人だけが対象**。1 文字でも編集していれば（`claude -c` にした、
- * `--model` を足した）それは意図した行なので残す。
- *
- * **代償を承知で受け入れている点**（#310 の `darkMode` と同じ形の問題）: `agentCommands` は
- * `snapshot()` に載るので同期ファイルにも書き出される。この版が空を書き出すと、**まだ
- * 更新していないマシンの Pike は起動ボタンを出せなくなる**（あちらには表が無い）。設定に
- * 1 行足せば戻るうえ、影響は「設定を一度も持っていないマシンが publish したとき」に限られる
- * ので、旧フィールドを書き続ける仕掛けは入れていない。
+ * `--model` を足した）それは意図した行なので残す。**残った行はカスタムの起動行になる**
+ * （`withAgentLaunchers`）ので、先頭へ上げればボタン本体がそれを走らせる。
  */
-function dropLegacyAgentDefaults(list: AgentCommand[]): AgentCommand[] {
+function dropLegacyAgentDefaults(list: unknown): AgentCommand[] {
   // 崩れた値（同期ファイルの `null`、手で編集した文字列）で設定の読み込みごと落とさない。
   // 他の sanitizer と同じ扱い。
   if (!Array.isArray(list)) return []
@@ -638,10 +713,9 @@ function sanitizeShellProfiles(v: unknown): ShellProfile[] {
 }
 
 /**
- * エージェントの並びと表示（#275）。**シェルプロファイルと同じ形**だが、崩れた値からの
- * 復旧が単純: id の集合は `lib/agents.ts` の表に固定なので、知らない id を捨て、表に
- * あって並びに無いものを末尾に足せば必ず全部揃う（エージェントを増やしたときの移行も
- * これで済む）。
+ * 昔の「エージェントの並び」を検証する。**もう移行の入力にしか使わない**
+ * （`withAgentLaunchers`）。id の集合は `lib/agents.ts` の表に固定なので、知らない id を
+ * 捨て、表にあって並びに無いものを末尾に足せば必ず全部揃う。
  */
 function sanitizeAgentProfiles(v: unknown): AgentProfile[] {
   const known = new Map(AGENTS.map((a) => [a.id, a]))
@@ -655,11 +729,13 @@ function sanitizeAgentProfiles(v: unknown): AgentProfile[] {
       out.push({ id: id as AgentId, hidden: (item as { hidden?: unknown }).hidden === true })
     }
   }
+  // 表に足したエージェントを末尾に補う。**ここで補うのは順序のため**（移行では
+  // カスタム行がこのうしろに繋がるので、あとから足したエージェントもその前に入る）。
+  // 「全部隠さない」の保険は持たない —— 移行後の 1 本のリストに対して
+  // `sanitizeAgentLaunchers` が同じことをするので、ここに置くと同じ不変条件が 2 か所になる。
   for (const a of AGENTS) {
     if (!seen.has(a.id)) out.push({ id: a.id })
   }
-  // 全部隠すと起動ボタンが出せなくなる（シェルの `ensureVisiblePerCategory` と同じ保険）。
-  if (out.every((p) => p.hidden)) out[0].hidden = false
   return out
 }
 
@@ -711,11 +787,12 @@ function defaults(): PersistedSettings {
     closeToTray: true,
     windowBackdrop: 'none' as WindowBackdrop,
     windowOpacity: 0.85,
-    // 並びは表のまま（先頭が既定）。全部見える状態で始める。
+    // 並びは表のまま（使える先頭が既定）。全部見える状態で始める。**カスタム行は
+    // 既定で持たない**: Pike が知っているエージェントは `lib/agents.ts` の表が提供し、
+    // PATH にあるものだけが起動メニューに出る。
+    agentLaunchers: AGENTS.map((a) => ({ kind: 'agent' as const, id: a.id })),
+    // 移行の入力と、同期ファイルへの後方互換の書き出しにしか使わない（`PersistedSettings`）。
     agentProfiles: AGENTS.map((a) => ({ id: a.id })),
-    // **既定は空**（#275）。Pike が知っているエージェントは `lib/agents.ts` の表が
-    // 提供し、PATH にあるものだけが起動メニューに出る。ここに残るのは利用者が足した
-    // 行だけ（昔の既定 2 行は `dropLegacyAgentDefaults` が 1 回だけ落とす）。
     agentCommands: [],
     agentPrompts: [
       { label: '続けて', text: 'はい、続けてください' },
@@ -778,8 +855,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     return windowOpacity.value
   })
-  const agentProfiles = ref<AgentProfile[]>(saved.agentProfiles)
-  const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
+  const agentLaunchers = ref<AgentLauncher[]>(saved.agentLaunchers)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
 
   // Hosts the Markdown preview may load images from (#239). Nothing here is
@@ -1133,8 +1209,9 @@ export const useSettingsStore = defineStore('settings', () => {
       closeToTray: closeToTray.value,
       windowBackdrop: windowBackdrop.value,
       windowOpacity: windowOpacity.value,
-      agentProfiles: agentProfiles.value,
-      agentCommands: agentCommands.value,
+      agentLaunchers: agentLaunchers.value,
+      // 古い版の Pike が読む形も併記する（理由は `PersistedSettings` の宣言の隣）。
+      ...legacyAgentFields(agentLaunchers.value),
       agentPrompts: agentPrompts.value,
       allowedImageHosts: allowedImageHosts.value,
       allowedUrlHosts: allowedUrlHosts.value,
@@ -1172,8 +1249,8 @@ export const useSettingsStore = defineStore('settings', () => {
     closeToTray.value = s.closeToTray
     windowBackdrop.value = s.windowBackdrop
     windowOpacity.value = s.windowOpacity
-    agentProfiles.value = s.agentProfiles
-    agentCommands.value = s.agentCommands
+    // 旧 2 本は読まない（`sanitize` が `agentLaunchers` へ畳んである）。
+    agentLaunchers.value = s.agentLaunchers
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
     allowedUrlHosts.value = s.allowedUrlHosts
@@ -1379,11 +1456,10 @@ export const useSettingsStore = defineStore('settings', () => {
     ],
     onSettingsChanged,
   )
-  // agentCommands / agentPrompts are arrays — deep-watch so in-place edits persist too.
-  // **deep が要る**（#275）: 並べ替えも目のトグルも配列の中身を書き換えるので、
-  // 浅い watch では発火せず、既定エージェントの変更が保存も同期もされない。
-  watch(agentProfiles, onSettingsChanged, { deep: true })
-  watch(agentCommands, onSettingsChanged, { deep: true })
+  // agentLaunchers / agentPrompts are arrays — deep-watch so in-place edits persist too.
+  // **deep が要る**（#275）: 並べ替えも目のトグルも入力欄の編集も配列の中身を書き換えるので、
+  // 浅い watch では発火せず、既定の起動行の変更が保存も同期もされない。
+  watch(agentLaunchers, onSettingsChanged, { deep: true })
   watch(agentPrompts, onSettingsChanged, { deep: true })
   watch(allowedImageHosts, onSettingsChanged)
   watch(allowedUrlHosts, onSettingsChanged)
@@ -1438,8 +1514,7 @@ export const useSettingsStore = defineStore('settings', () => {
     windowOpacity,
     surfaceAlpha,
     terminalSurfaceBg,
-    agentProfiles,
-    agentCommands,
+    agentLaunchers,
     agentPrompts,
     allowedImageHosts,
     allowImageHost,

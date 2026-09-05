@@ -25,7 +25,7 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
 ## ターミナルの coding agent 補助（#89）
 `claude` 等をターミナルで使う運用を、Pike の既存機能（エディタ / 診断）と橋渡しする一連の機能。注入はすべて `ptyWrite` 経由。
 
-- **起動ボタン**: ターミナル右上のフローティング split ボタン（`TerminalTab.vue`）。主＝先頭コマンド / ▾＝一覧。クリックで `agentCommands`（`pike:settings`）をそのまま注入＋Enter。代替画面（alternate screen）検出で vim/less 等の全画面 TUI 中は非表示。**clear プレフィックスは付けない**（#220。以前は `clear && claude` を流していたが、今のエージェントは画面をその場に描くので直前までの出力を消す意味がない）。タブ生成時の `autoStart` 側は `buildAutoStartLine` で clear を付けたまま（あちらは同時に流すシェル初期化行を隠す役目がある）
+- **起動ボタン**: ターミナル右上のフローティング split ボタン（`TerminalTab.vue`）。主＝既定の起動行 / ▾＝一覧。クリックで `agentLaunchers`（`pike:settings`）の行をそのまま注入＋Enter。一覧の形と既定の決め方は `.claude/rules/agent.md` が正本。代替画面（alternate screen）検出で vim/less 等の全画面 TUI 中は非表示。**clear プレフィックスは付けない**（#220。以前は `clear && claude` を流していたが、今のエージェントは画面をその場に描くので直前までの出力を消す意味がない）。タブ生成時の `autoStart` 側は `buildAutoStartLine` で clear を付けたまま（あちらは同時に流すシェル初期化行を隠す役目がある）
 - **セッション再開メニュー（#220）**: 起動メニューの下段に `claude -r` 相当の一覧を出し、選ぶと `claude --resume <id>` を注入する。`claude_usage/sessions.rs` が `~/.claude/projects/<encoded-root>/*.jsonl` を直接読む（CLI に機械可読な一覧が無いため。パスのエンコードとホーム解決は `claude_usage` と共有）。走査の打ち切り（`MAX_SCAN_FILES` / `MAX_TRANSCRIPT_BYTES` 等）とパースの詳細はコード側の doc コメントを正本とする
   - **対話セッションだけを出す**: 同じディレクトリには `-p` / SDK 実行（Pike 自身のレート取得 `claude -p "/usage"`、フック、レビューエージェント）の記録も溜まるので、`entrypoint` が `cli` 以外なら捨てる。これが無いと一覧が `/usage` の残骸で埋まる（実測で直近 60 件のうち対話セッションは 5 件）
   - 取得はメニューを開いたときだけ（WSL プロジェクトでは `\\wsl.localhost` 越しの読みになるためポーリングしない）。`claude` の起動コマンドが設定に無ければセクションごと出さない
@@ -40,7 +40,7 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
 - **エディタ選択範囲・診断をターミナルへ注入**: `composables/useTerminalInject.ts` の `injectToTerminal(text)` が注入先ターミナルを解決（**`lastTerminalId`（直近アクティブなターミナル）→ アクティブタブ → pinned → 任意**）し `ptyPasteText` で挿入、当該タブをアクティブ化。注入先が無ければ statusMessage で通知。`stores/tabs.ts` の `lastTerminalId` は `activeTabId` watcher で更新（タブ閉じは use 時の liveness 再チェックで自己修復）
   - EditorTab: 右クリック「ターミナルに送る」（選択時のみ）→ `relpath:行` 参照 + 選択本文を注入
   - DiagnosticsPanel: 各行ホバーの 🤖 ボタン → `t('diagnostics.fixPrompt')`（i18n、UI 言語追従）で修正依頼文を注入
-- **設定**: `agentCommands` / `agentPrompts` は Settings の Terminal セクションで追加/編集/削除/並べ替え。両方とも `pike:settings` の配列で deep-watch 永続化
+- **設定**: `agentLaunchers` / `agentPrompts` は Settings の Agent セクションで追加/編集/削除/並べ替え。両方とも `pike:settings` の配列で deep-watch 永続化
 
 ## キーボードショートカット
 - **修飾キーの読み替えと macOS のメニューバーは `.claude/rules/platform.md` の
