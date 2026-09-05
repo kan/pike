@@ -18,6 +18,7 @@
 
 use crate::types::{
     install_key, wsl_home_cached, wsl_home_subdir_cached, wsl_native_to_unc, ShellConfig,
+    LOGIN_PROBE_TIMEOUT,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -112,11 +113,7 @@ fn plan_label(a: &OauthAccount) -> Option<String> {
 /// マーカー行の値だけ拾う。対話 bash は `.bashrc` のバナーを stdout に出すことがあるので、
 /// 行の位置ではなく接頭辞で選ぶ（実測でこのマシンの `.bashrc` は `git status` の結果を出す）。
 fn marker_value(stdout: &str, tag: &str) -> Option<String> {
-    stdout
-        .lines()
-        .filter_map(|line| line.strip_prefix(tag)?.strip_prefix('\t'))
-        .map(|v| v.trim_end_matches('\r').to_string())
-        .find(|v| !v.is_empty())
+    crate::types::marker_values(stdout, tag).into_iter().next()
 }
 
 /// キー＝インストール、値＝(引いた時刻, 環境変数の値)。
@@ -129,10 +126,9 @@ type EnvCache = Mutex<HashMap<String, (Instant, Option<String>)>>;
 /// Pike のターミナルは対話シェルなので、そちらに合わせないと「端末の claude と
 /// Pike の集計で別のアカウントを見る」ことになる。
 ///
-/// 対話シェルは終了時に履歴ファイルを書き戻すので、**先頭で `HISTFILE` を落とす**。
-/// 落とさないと、このプローブが `HISTSIZE` の設定次第でユーザーの `.bash_history` を
-/// 削りうる。`.bashrc` の読み込みは `-c` の文字列より先なので、ここで unset すれば
-/// 終了時の書き戻しだけを止められる。
+/// 起こし方の契約（`unset HISTFILE`・終了コードを見ない・どのシェルを `-lic` で起こすか）は
+/// `ShellConfig::run_login_script` が持つ。**同じ問い方をする 2 つ目**（`agents.rs` の
+/// エージェント検出）ができたときに、あちらへ上げた。
 ///
 /// 値は rc ファイル由来なのでプロジェクトではなく**インストール単位**。ウィンドウを
 /// 何枚開いていても distro につき 1 回で足りる。ロックはプローブ中も持ったままにして、
@@ -156,13 +152,13 @@ fn shell_env_value(shell: &ShellConfig) -> Option<String> {
             return value.clone();
         }
     }
-    let script = "unset HISTFILE\nprintf 'PIKEENV\\t%s\\n' \"$CLAUDE_CONFIG_DIR\"\nexit 0";
-    // 終了コードは見ない。対話シェルは job control の警告を出すし、`.bashrc` の中身次第で
-    // 非 0 で終わることもある。
+    // `unset HISTFILE` と「終了コードを見ない」は `run_login_script` の担当（あちらの doc）。
     let value = shell
-        .run("bash", &["-lic", script])
-        .ok()
-        .and_then(|(_code, stdout, _stderr)| marker_value(&stdout, "PIKEENV"));
+        .run_login_script(
+            "printf 'PIKEENV\\t%s\\n' \"$CLAUDE_CONFIG_DIR\"",
+            LOGIN_PROBE_TIMEOUT,
+        )
+        .and_then(|stdout| marker_value(&stdout, "PIKEENV"));
     map.insert(key, (Instant::now(), value.clone()));
     value
 }

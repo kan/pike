@@ -236,6 +236,32 @@ pub fn os_open_url(url: &str) -> Result<(), String> {
     }
 }
 
+/// `run_shell_line_env` が POSIX 側で `bash -c` / `sh -c` に渡すスクリプト。
+///
+/// **環境変数と PATH は `export` で置く（`VAR=v cmd` の前置ではない）。** あの形は
+/// **単純コマンドにしか付けられない**ので、`line` が `for … do … done` のような複合
+/// コマンドだと bash が構文エラーで落ちる。呼び出し側が渡せる行の形を、この関数の
+/// 都合で狭めないための書き方。
+///
+/// 実害は今もある: `diagnostics` の `golangciCommand` は**利用者が書いた行**がそのまま
+/// 来るので、`&&` で繋いだ 2 つ目のコマンドに `WSL_EXTRA_PATH` が効かなかった。
+/// cmd 側（`set "K=V" && …`）はもともと行全体に効くので、この変更で 2 つの腕の意味が
+/// 揃った（前置のころは POSIX だけ 1 コマンド限定というずれがあった）。
+///
+/// PATH の前置が要るのは WSL だけ。ローカル Unix は `augment_process_path` が
+/// プロセス側で広げてある。
+fn posix_script(dir: &str, env: &[&(&str, &str)], shell: &ShellConfig, line: &str) -> String {
+    let exports: String = env
+        .iter()
+        .map(|(k, v)| format!("export {k}={}; ", bash_quote(v)))
+        .collect();
+    let path_export = match shell {
+        ShellConfig::Wsl { .. } => format!("export PATH=\"{WSL_EXTRA_PATH}:$PATH\"; "),
+        _ => String::new(),
+    };
+    format!("cd {} && {exports}{path_export}{line}", bash_quote(dir))
+}
+
 /// Quote a string for safe interpolation into a `bash -c` command.
 /// Bash-specific (single-quote wrapping); NOT safe for cmd.exe or PowerShell.
 pub fn bash_quote(s: &str) -> String {
@@ -424,7 +450,7 @@ impl ShellConfig {
     }
 
     /// `run_shell_line` plus environment variables for that one command. The
-    /// quoting differs per shell (`VAR=v cmd` under bash, `set "VAR=v" && cmd`
+    /// quoting differs per shell (`export VAR=v; cmd` under bash, `set "VAR=v" && cmd`
     /// under cmd), so it lives here next to the dispatch that decides which shell
     /// actually runs — a caller assembling the prefix itself breaks silently when
     /// this dispatch changes. Values containing `"` are dropped: cmd cannot quote
@@ -446,15 +472,7 @@ impl ShellConfig {
             // 壊れる」と言っている当のものが 2 コピーになる。
             // `cd` は `current_dir` ではなくスクリプトに入れる。
             s if s.is_posix() => {
-                let assigns: String = env
-                    .iter()
-                    .map(|(k, v)| format!("{k}={} ", bash_quote(v)))
-                    .collect();
-                let path_prefix = match s {
-                    ShellConfig::Wsl { .. } => format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" "),
-                    _ => String::new(),
-                };
-                let script = format!("cd {} && {assigns}{path_prefix}{line}", bash_quote(dir));
+                let script = posix_script(dir, &env, s, line);
                 match s {
                     ShellConfig::Wsl { distro } => {
                         let mut c = silent_command("wsl.exe");
@@ -521,6 +539,64 @@ impl ShellConfig {
     ) -> Result<std::process::Output, String> {
         spawn_with_timeout(self.command(program, args), program, timeout)
     }
+
+    /// **対話ログインシェル（`-lic`）に 1 問聞く。** POSIX 側でしか意味を持たない
+    /// （`None` を返す）。
+    ///
+    /// `run_shell_line` との違いは「どんな環境で走るか」。あちらは非対話で、rc ファイルを
+    /// 読まない。**利用者の PATH は rc の中にある**ことが多く（nvm / fnm / asdf / mise /
+    /// Homebrew はどれもそう）、Pike のターミナルは対話シェルなので、**ターミナルと同じ
+    /// 答えが欲しい問いはこちらを通す**。
+    ///
+    /// 契約が 3 つあり、**呼び出し側に書かせない**（`claude_usage/config.rs` の環境変数
+    /// プローブと `agents.rs` の検出が同じものを 2 回書いていた）:
+    ///
+    /// - **`unset HISTFILE` を先頭に置く。** 対話シェルは終了時に履歴を書き戻すので、
+    ///   落とさないと `HISTSIZE` の設定次第でプローブが利用者の `.bash_history` を削りうる
+    /// - **終了コードは見ない。** 対話シェルは job control の警告を出すし、`.bashrc` の
+    ///   中身次第で非 0 で終わる
+    /// - **起こすのは WSL なら distro の `bash`、ローカル Unix なら利用者のログインシェル**
+    ///   （macOS の既定は zsh で、PATH は `.zshrc` にある）。`-lic` の綴りは bash と zsh で
+    ///   同じ意味を持つ
+    ///
+    /// 拾い方は `marker_values` と対。`.bashrc` はバナーを出すことがある（この開発機の
+    /// WSL は `git status` の結果を出す）ので、行の位置では選べない。
+    pub fn run_login_script(&self, script: &str, timeout: Duration) -> Option<String> {
+        if !self.is_posix() {
+            return None;
+        }
+        let program = self.login_shell_program();
+        let script = format!("unset HISTFILE\n{script}\nexit 0");
+        let out = self
+            .run_with_timeout(&program, &["-lic", &script], timeout)
+            .ok()?;
+        Some(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    /// `-lic` で起こすシェル。**WSL は distro の `bash`、ローカル Unix は利用者の
+    /// ログインシェル**（PTY が起動するものと同じ。macOS の既定は zsh で、PATH は
+    /// `.zshrc` にある）。`-lic` の綴りは bash と zsh で同じ意味を持つ。
+    fn login_shell_program(&self) -> String {
+        match self {
+            ShellConfig::Wsl { .. } => "bash".to_string(),
+            _ => self.unix_program(),
+        }
+    }
+}
+
+/// `run_login_script` に待てる時間。**呼び出し側に置かない**: rc を読ませるぶん非対話より
+/// 長く要る、というのは問いの性質ではなくシェルの性質なので、起こし方の契約と同じ場所に置く。
+pub const LOGIN_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// 目印（`<tag>\t<値>`）の付いた行の値。**行の位置や「空でない行」では選べない**
+/// （`run_login_script` の doc）ので、プローブの出力はこれで拾う。
+pub fn marker_values(stdout: &str, tag: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix(tag)?.strip_prefix('\t'))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .collect()
 }
 
 /// Pipe stdout/stderr and spawn `cmd`.
@@ -878,6 +954,77 @@ pub struct MenuAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **複合コマンドを渡しても構文が壊れないこと。** `VAR=v cmd` の前置は単純コマンド
+    /// にしか付けられないので、以前の書き方では `for … do … done` を渡した瞬間に
+    /// bash が `syntax error near unexpected token 'do'` で落ちていた（#275）。
+    #[test]
+    fn posix_script_exports_so_compound_commands_survive() {
+        let script = posix_script(
+            "/home/kan/proj",
+            &[],
+            &ShellConfig::Wsl {
+                distro: "Ubuntu".into(),
+            },
+            "for c in claude; do command -v \"$c\"; done",
+        );
+        assert!(script.contains("export PATH="));
+        // 代入の直後がループの先頭に来ない（`;` で切れている）。
+        assert!(!script.contains("$PATH\" for "));
+        assert!(script.contains("$PATH\"; for "));
+    }
+
+    /// **目印の付いた行だけを拾う。** `.bashrc` はバナーを出すことがある（この開発機の
+    /// WSL は `git status` の結果を出す）ので、行の位置や「空でない行」では選べない。
+    #[test]
+    fn marker_values_ignores_shell_banners() {
+        let out = "On branch main\nPIKE\tclaude\nnothing to commit\n  PIKE\tcodex  \nPIKE\t\n";
+        assert_eq!(marker_values(out, "PIKE"), vec!["claude", "codex"]);
+    }
+
+    /// 対話シェルが `\r\n` で返しても値に混ぜない（`CLAUDE_CONFIG_DIR` の解決が
+    /// これに依存している）。
+    #[test]
+    fn marker_values_trim_carriage_returns() {
+        assert_eq!(
+            marker_values("PIKE\t/home/kan/.claude-ai\r\n", "PIKE"),
+            vec!["/home/kan/.claude-ai"]
+        );
+    }
+
+    #[test]
+    fn login_shell_is_bash_under_wsl_and_the_users_shell_locally() {
+        assert_eq!(
+            ShellConfig::Wsl {
+                distro: "Ubuntu".into()
+            }
+            .login_shell_program(),
+            "bash"
+        );
+        assert_eq!(
+            ShellConfig::Unix {
+                program: "/bin/zsh".into()
+            }
+            .login_shell_program(),
+            "/bin/zsh"
+        );
+    }
+
+    #[test]
+    fn posix_script_exports_caller_env() {
+        let env = ("CLAUDE_CONFIG_DIR", "/home/kan/.claude-ai");
+        let script = posix_script(
+            "/tmp",
+            &[&env],
+            &ShellConfig::Unix {
+                program: String::new(),
+            },
+            "claude -p /usage",
+        );
+        assert!(script.contains("export CLAUDE_CONFIG_DIR=/home/kan/.claude-ai; "));
+        // ローカル Unix は PATH を足さない（`augment_process_path` が済ませている）。
+        assert!(!script.contains("export PATH="));
+    }
 
     #[test]
     fn shell_from_id_round_trips_menu_ids() {

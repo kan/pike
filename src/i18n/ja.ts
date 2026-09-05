@@ -215,6 +215,8 @@ export default {
   'terminal.agentLaunch': 'コーディングエージェントを起動',
   'terminal.promptInject': '保存したプロンプトを挿入',
   'terminal.injectNoTarget': '送信先のターミナルがありません',
+  'terminal.otherAgents': '他のエージェント',
+  'terminal.agentCustom': '設定で追加したコマンド',
   'terminal.claudeSessions': '最近の Claude セッション',
   'terminal.noClaudeSessions': '再開できるセッションがありません',
 
@@ -241,6 +243,7 @@ export default {
   'settings.closeToTrayHint':
     'オンのとき、ウィンドウを閉じても Pike はトレイに常駐し続けます（終了はトレイメニューから）。オフのとき、最後のウィンドウを閉じると Pike を終了します（他のウィンドウが開いていれば、そのウィンドウは残ります）。',
   'settings.terminal': 'ターミナル',
+  'settings.agent': 'エージェント',
   'settings.editor': 'エディタ',
   'settings.language': '言語',
   'settings.mode': 'モード',
@@ -269,7 +272,8 @@ export default {
   'settings.copyOnSelect': '選択時にコピー',
   'settings.rightClickPaste': '右クリックで貼り付け',
   'settings.agentCommands': 'ターミナルのエージェントボタン',
-  'settings.agentCommandsHint': '現在のターミナルに注入するクイック起動コマンド（例: claude --continue）。',
+  'settings.agentCommandsHint':
+    'Claude Code・Codex・Copilot CLI・opencode は、インストールされていれば自動で起動メニューに出ます。ここには、それ以外に使いたいコマンドを足してください（例: claude --model opus）。',
   'settings.agentCommandLabel': 'ラベル',
   'settings.agentCommandCommand': 'コマンド',
   'settings.addAgentCommand': 'コマンドを追加',
@@ -320,6 +324,10 @@ export default {
   'settings.shellProfileDefault': 'デフォルト',
   'settings.shellProfileShow': '表示する',
   'settings.shellProfileHide': '非表示にする',
+  'settings.agentProfiles': 'エージェント一覧',
+  'settings.agentProfilesHint':
+    'ターミナルの起動ボタンでの並び順と表示/非表示。先頭が既定のエージェントで、ボタンを押すとそれが起動します。残りはメニューの「他のエージェント」に入ります。インストールされていないものは、表示にしていてもメニューに出ません。',
+  'settings.agentProfileDefault': '既定',
   'settings.sync': '設定の同期',
   'settings.syncHint':
     '環境に依存しない設定（フォント・配色・エディタ・ターミナルのコマンド/プロンプト等）を 1 つの JSON ファイルに書き出します。保存先を Dropbox など同期フォルダ内のパスにすると、複数 PC 間で共有できます。プロジェクト一覧やグループは同期されません。',

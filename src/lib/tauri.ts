@@ -539,6 +539,16 @@ export async function listProjectFiles(shell: ShellType, root: string): Promise<
   return invoke<string[]>('list_project_files', { shell, root })
 }
 
+// Agents (#275)
+
+/**
+ * PATH にあるエージェントの `bin` 名を返す（1 回のシェル起動で全部聞く）。
+ * どの名前を聞くかは `lib/agents.ts` の表が決める。
+ */
+export async function agentDetect(shell: ShellType, root: string, bins: string[]): Promise<string[]> {
+  return invoke<string[]>('agent_detect', { shell, root, bins })
+}
+
 // Issues (#278)
 
 export async function issuesGhAvailable(shell: ShellType, root: string, force: boolean): Promise<boolean> {

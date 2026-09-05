@@ -2,6 +2,7 @@ import { emit, listen } from '@tauri-apps/api/event'
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
+import { AGENTS, type AgentId, type AgentProfile } from '../lib/agents'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { hexToRgba } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
@@ -417,6 +418,8 @@ interface PersistedSettings {
   closeToTray: boolean
   windowBackdrop: WindowBackdrop
   windowOpacity: number
+  /** エージェントの並びと表示（#275）。先頭が既定。 */
+  agentProfiles: AgentProfile[]
   agentCommands: AgentCommand[]
   agentPrompts: AgentPrompt[]
   allowedImageHosts: string[]
@@ -476,7 +479,40 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
     allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
     allowedUrlHosts: sanitizeHostList(s.allowedUrlHosts),
+    agentProfiles: sanitizeAgentProfiles(s.agentProfiles),
+    agentCommands: dropLegacyAgentDefaults(s.agentCommands),
   }
+}
+
+/**
+ * 昔の既定（Claude の 2 行）を 1 回だけ落とす（#275）。
+ *
+ * エージェントの一覧は `lib/agents.ts` の表が持つようになり、この設定は「利用者が
+ * 自分で足した行」になった。**外から来た値の唯一の入口はここ**（`sanitize` の doc）
+ * なので、移行もここでやる。表示側で字面を突き合わせて畳む形にすると、レジストリの
+ * 2 番目の消費者（使用量・通知）がその規則を知らないまま同じ行を二重に数える。
+ *
+ * **触っていない人だけが対象**。1 文字でも編集していれば（`claude -c` にした、
+ * `--model` を足した）それは意図した行なので残す。
+ *
+ * **代償を承知で受け入れている点**（#310 の `darkMode` と同じ形の問題）: `agentCommands` は
+ * `snapshot()` に載るので同期ファイルにも書き出される。この版が空を書き出すと、**まだ
+ * 更新していないマシンの Pike は起動ボタンを出せなくなる**（あちらには表が無い）。設定に
+ * 1 行足せば戻るうえ、影響は「設定を一度も持っていないマシンが publish したとき」に限られる
+ * ので、旧フィールドを書き続ける仕掛けは入れていない。
+ */
+function dropLegacyAgentDefaults(list: AgentCommand[]): AgentCommand[] {
+  // 崩れた値（同期ファイルの `null`、手で編集した文字列）で設定の読み込みごと落とさない。
+  // 他の sanitizer と同じ扱い。
+  if (!Array.isArray(list)) return []
+  const legacy = [
+    { label: 'Claude', command: 'claude' },
+    { label: 'Claude (continue)', command: 'claude --continue' },
+  ]
+  const untouched =
+    list.length === legacy.length &&
+    list.every((c, i) => c.label === legacy[i].label && c.command === legacy[i].command)
+  return untouched ? [] : list
 }
 
 /**
@@ -602,6 +638,32 @@ function sanitizeShellProfiles(v: unknown): ShellProfile[] {
 }
 
 /**
+ * エージェントの並びと表示（#275）。**シェルプロファイルと同じ形**だが、崩れた値からの
+ * 復旧が単純: id の集合は `lib/agents.ts` の表に固定なので、知らない id を捨て、表に
+ * あって並びに無いものを末尾に足せば必ず全部揃う（エージェントを増やしたときの移行も
+ * これで済む）。
+ */
+function sanitizeAgentProfiles(v: unknown): AgentProfile[] {
+  const known = new Map(AGENTS.map((a) => [a.id, a]))
+  const out: AgentProfile[] = []
+  const seen = new Set<string>()
+  if (Array.isArray(v)) {
+    for (const item of v) {
+      const id = (item as { id?: unknown })?.id
+      if (typeof id !== 'string' || !known.has(id as AgentId) || seen.has(id)) continue
+      seen.add(id)
+      out.push({ id: id as AgentId, hidden: (item as { hidden?: unknown }).hidden === true })
+    }
+  }
+  for (const a of AGENTS) {
+    if (!seen.has(a.id)) out.push({ id: a.id })
+  }
+  // 全部隠すと起動ボタンが出せなくなる（シェルの `ensureVisiblePerCategory` と同じ保険）。
+  if (out.every((p) => p.hidden)) out[0].hidden = false
+  return out
+}
+
+/**
  * Safety net for the "cannot hide everything" rule the Settings UI enforces:
  * each present category (WSL / Windows) keeps at least one visible entry, so
  * the dropdown can never end up empty after corrupt/hand-edited storage.
@@ -649,10 +711,12 @@ function defaults(): PersistedSettings {
     closeToTray: true,
     windowBackdrop: 'none' as WindowBackdrop,
     windowOpacity: 0.85,
-    agentCommands: [
-      { label: 'Claude', command: 'claude' },
-      { label: 'Claude (continue)', command: 'claude --continue' },
-    ],
+    // 並びは表のまま（先頭が既定）。全部見える状態で始める。
+    agentProfiles: AGENTS.map((a) => ({ id: a.id })),
+    // **既定は空**（#275）。Pike が知っているエージェントは `lib/agents.ts` の表が
+    // 提供し、PATH にあるものだけが起動メニューに出る。ここに残るのは利用者が足した
+    // 行だけ（昔の既定 2 行は `dropLegacyAgentDefaults` が 1 回だけ落とす）。
+    agentCommands: [],
     agentPrompts: [
       { label: '続けて', text: 'はい、続けてください' },
       { label: '説明', text: '上のコードが何をしているか説明して。' },
@@ -714,6 +778,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     return windowOpacity.value
   })
+  const agentProfiles = ref<AgentProfile[]>(saved.agentProfiles)
   const agentCommands = ref<AgentCommand[]>(saved.agentCommands)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
 
@@ -1068,6 +1133,7 @@ export const useSettingsStore = defineStore('settings', () => {
       closeToTray: closeToTray.value,
       windowBackdrop: windowBackdrop.value,
       windowOpacity: windowOpacity.value,
+      agentProfiles: agentProfiles.value,
       agentCommands: agentCommands.value,
       agentPrompts: agentPrompts.value,
       allowedImageHosts: allowedImageHosts.value,
@@ -1106,6 +1172,7 @@ export const useSettingsStore = defineStore('settings', () => {
     closeToTray.value = s.closeToTray
     windowBackdrop.value = s.windowBackdrop
     windowOpacity.value = s.windowOpacity
+    agentProfiles.value = s.agentProfiles
     agentCommands.value = s.agentCommands
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
@@ -1313,6 +1380,9 @@ export const useSettingsStore = defineStore('settings', () => {
     onSettingsChanged,
   )
   // agentCommands / agentPrompts are arrays — deep-watch so in-place edits persist too.
+  // **deep が要る**（#275）: 並べ替えも目のトグルも配列の中身を書き換えるので、
+  // 浅い watch では発火せず、既定エージェントの変更が保存も同期もされない。
+  watch(agentProfiles, onSettingsChanged, { deep: true })
   watch(agentCommands, onSettingsChanged, { deep: true })
   watch(agentPrompts, onSettingsChanged, { deep: true })
   watch(allowedImageHosts, onSettingsChanged)
@@ -1368,6 +1438,7 @@ export const useSettingsStore = defineStore('settings', () => {
     windowOpacity,
     surfaceAlpha,
     terminalSurfaceBg,
+    agentProfiles,
     agentCommands,
     agentPrompts,
     allowedImageHosts,

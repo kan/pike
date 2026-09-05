@@ -46,6 +46,27 @@ const { t } = useI18n()
   gap: 6px;
 }
 
+/* **`.icon-btn` は自前で持つ。** 呼び出し元（`SettingsTab.vue`）にも同名の定義があるが、
+   scoped CSS は子コンポーネントのルート要素までしか届かないので、中のボタンには当たらない
+   （`panels/ProfileRow.vue` と同じ理由。あちらの doc に、共有へ上げない理由もある）。 */
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--tab-hover-bg);
+}
+
 .host-name {
   flex: 1;
   font-size: 12px;

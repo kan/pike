@@ -105,6 +105,7 @@ pike/
 │       ├── main.rs            # Tauri エントリポイント
 │       ├── lib.rs             # Tauri Builder 設定・コマンド登録
 │       ├── types.rs           # ShellConfig・WSL_EXTRA_PATH・bash_quote 等の共通型/ヘルパー
+│       ├── agents.rs          # PATH にあるエージェントの検出（#275。一覧はフロントの表）
 │       ├── font.rs            # フォント列挙（font-kit でモノスペース検出）
 │       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
@@ -178,6 +179,7 @@ pike/
 │   │   │   ├── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除（GroupComboBox/ProjectListItem に分割）
 │   │   │   ├── GroupComboBox.vue  ProjectListItem.vue  ColorSelect.vue  IconSelect.vue
 │   │   │   ├── AllowedHostList.vue # 承認済みホストの一覧（設定画面。画像 #239 とリンク #311 で共有）
+│   │   │   ├── ProfileRow.vue     # 並べ替え + 表示/非表示の 1 行（シェル #129 とエージェント #275 で共有）
 │   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（作成・編集の 3 フォームで共有）
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
@@ -205,6 +207,7 @@ pike/
 │   │   ├── sidebar.ts  settings.ts  project.ts
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
 │   │   ├── diagnostics.ts  issues.ts
+│   │   ├── agents.ts          # 使えるエージェントの検出（シェル単位、#275）
 │   │   ├── usageStore.ts      # createUsageStore ファクトリ（ポーリング基盤）
 │   │   ├── claudeUsage.ts  claudeRate.ts  codexUsage.ts  # トークン使用量・レート
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
@@ -230,6 +233,7 @@ pike/
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）
 │   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）
+│   │   ├── agents.ts        # Pike が知っているエージェントの表（#275。id・起動コマンドの正本）
 │   │   ├── shortcuts.ts     # ショートカットの割り当て表（#254。キーの正本）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）

@@ -2,7 +2,7 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
-import { Bot, ChevronDown, MessageSquareText } from 'lucide-vue-next'
+import { Bot, ChevronDown, ChevronLeft, MessageSquareText } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import {
@@ -14,6 +14,7 @@ import {
 } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { useI18n } from '../../i18n'
+import { agentById, commandMentionsAgent } from '../../lib/agents'
 import { isMacHost, isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
@@ -32,6 +33,7 @@ import {
   parseRgMatchLine,
 } from '../../lib/terminalLinks'
 import { elevated } from '../../lib/window'
+import { useAgentStore } from '../../stores/agents'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
@@ -88,10 +90,29 @@ const settingsStore = useSettingsStore()
 const projectStore = useProjectStore()
 const statusMessage = useStatusMessageStore()
 
-// One-click coding-agent launchers (`clear && claude` etc.), injected into the
-// current shell. Configurable in Settings; the first entry is the primary button.
-const agentCommands = computed(() => settingsStore.agentCommands)
+/**
+ * ワンクリックでエージェントを起動する行（#275 / #267）。**一覧は 2 層**:
+ * `lib/agents.ts` の表のうち **PATH にあるもの**と、設定の `agentCommands`（利用者が
+ * 手で足した行）。押しても `command not found` になる項目を並べないため、表のほうは
+ * 検出を通してから出す。
+ */
+const agentStore = useAgentStore()
+/** 既定のエージェント。ボタン本体とメニューの第 1 階層はこれ。 */
+const defaultAgent = computed(() => agentStore.available[0] ?? null)
+/** 既定以外。「他のエージェント」のサブメニューに入る。 */
+const otherAgents = computed(() => agentStore.available.slice(1))
+/**
+ * ボタン本体で走る行。既定エージェントの先頭で、1 つも見つからなければ設定の先頭。
+ *
+ * **設定の行は畳まない**（#275）。昔の既定 2 行は `dropLegacyAgentDefaults` が読み込みの
+ * 時点で落とすので、残っているのは利用者が自分で書いた行だけ。字面が表と同じでも、
+ * 書いた本人にとっては意図した行なので消さない（表示側でも畳むと、同じ意図の規則が
+ * 2 層に散る）。
+ */
+const primaryCommand = computed(() => defaultAgent.value?.launch[0] ?? settingsStore.agentCommands[0] ?? null)
 const agentMenuOpen = ref(false)
+/** 「他のエージェント」のサブメニュー（ホバーで開く）。 */
+const agentSubOpen = ref(false)
 // Reusable instruction snippets injected (as text, not submitted) into the
 // running agent in the current terminal. Configurable in Settings.
 const agentPrompts = computed(() => settingsStore.agentPrompts)
@@ -107,7 +128,7 @@ const inAltScreen = ref(false)
 const mouseActive = ref(false)
 
 // The launcher only makes sense when nothing is running fullscreen.
-const showAgentLaunch = computed(() => !inAltScreen.value && agentCommands.value.length > 0)
+const showAgentLaunch = computed(() => !inAltScreen.value && primaryCommand.value !== null)
 // The prompt-inject button also shows in the alt-screen when an interactive,
 // mouse-reporting app (an agent) owns it.
 const showPromptInject = computed(() => (!inAltScreen.value || mouseActive.value) && agentPrompts.value.length > 0)
@@ -132,12 +153,40 @@ function terminalTab() {
 // disk — over the WSL share for WSL projects — so it isn't worth polling).
 const claudeSessions = ref<ClaudeSession[]>([])
 const sessionsLoading = ref(false)
-// Only meaningful next to a `claude` launcher: the list is Claude-specific, and
-// a Codex-only setup should not pay a disk scan for a section it can't use.
-const showClaudeSessions = computed(() => agentCommands.value.some((c) => /(^|[\\/\s])claude(\s|$)/.test(c.command)))
+/**
+ * セッションの一覧を出すか。**Claude Code 専用**（`claudeSessionsList` も
+ * `claude --resume` も見出しも Claude 固定なので、表のフラグで一般化した振りをしない。
+ * 広げるのは #267 の残りで、一覧の取得と再開コマンドを id で分ける作業）。
+ *
+ * **既定が Claude か、設定の行が claude を起動していれば出す。** 検出だけを条件にすると、
+ * wrapper 越しに起動している利用者（`npx claude` など）から一覧が消える。逆に「どちらでも
+ * ない」ときに出さないのは、Codex だけの環境に disk scan を払わせないため。**既定でない
+ * ときに出さない**のは、一覧が第 1 階層にあるから（サブメニューの中のエージェントの履歴を
+ * ここに混ぜると、どれの履歴か読めなくなる）。
+ */
+const showClaudeSessions = computed(() => {
+  const claude = agentById('claude')
+  if (!claude) return false
+  if (defaultAgent.value?.id === 'claude') return true
+  return settingsStore.agentCommands.some((c) => commandMentionsAgent(c.command, claude))
+})
 
 function resumeCommand(session: ClaudeSession): string {
   return `claude --resume ${session.id}`
+}
+
+/**
+ * このシェルで使えるエージェントを調べる（#275）。**PTY を起こしたあとに撃ち、待たない**:
+ * 答えが返るまでボタンが出ないだけで、起動は止めない。
+ *
+ * 「検出のためだけに起動時へ `wsl.exe` を足さない」（`project.md`）の例外で、issue
+ * パネルの `gh` と同じ理由。**ボタンを出すかどうかが答えに依存する**ので、メニューを
+ * 開くまで遅らせられない。実際に聞くかはストアが決める（同じシェルなら何もしない）ので、
+ * 2 枚目以降のタブは IPC も飛ばない。
+ */
+function detectAgents() {
+  const tabData = terminalTab()
+  void agentStore.detect(tabData?.shell ?? projectStore.currentProject?.shell, tabData?.cwd ?? projectStore.activeRoot)
 }
 
 async function loadClaudeSessions() {
@@ -258,6 +307,7 @@ function toggleAgentMenu() {
 function closeAgentMenu() {
   window.removeEventListener('mousedown', closeAgentMenu)
   agentMenuOpen.value = false
+  agentSubOpen.value = false
 }
 
 // Inject a prompt's text into the current PTY. Bracketed paste keeps a multi-line
@@ -389,6 +439,11 @@ watch(
   (visible) => {
     if (!visible) return
     lastActivatedAt = Date.now()
+    // **使えるエージェントも聞き直す（#275）。** プロジェクトを切り替えるとストアが
+    // 捨てられる（シェルが変わりうるので）が、#264 でタブは生き続けるため PTY は
+    // 起こし直されない。spawn の 1 回だけに任せると、切り替えて戻ったときに
+    // 起動ボタンが消えたままになる。ストア側がべき等なので、毎回呼んでよい。
+    detectAgents()
     // Double rAF ensures v-show transition is fully resolved before measuring
     nextTick(() => {
       afterTwoFrames(() => {
@@ -630,6 +685,8 @@ onMounted(async () => {
     ptyId = result.id
     spawnedAt = Date.now()
     tabStore.setPtyId(props.tabId, ptyId)
+    // 起動ボタンに何を出すか（#275）。待たない。
+    detectAgents()
     // Admin window opening a WSL shell: elevation does not carry into WSL.
     if (elevated.value && spawnOpts?.shell?.kind === 'wsl' && !wslElevationNoticed) {
       wslElevationNoticed = true
@@ -1042,9 +1099,10 @@ onUnmounted(() => {
       </div>
       <div v-if="showAgentLaunch" class="agent-launch" :class="{ open: agentMenuOpen }">
         <button
+          v-if="primaryCommand"
           class="agent-btn primary"
-          :title="agentCommands[0].command"
-          @click="runAgentCommand(agentCommands[0].command)"
+          :title="primaryCommand.command"
+          @click="runAgentCommand(primaryCommand.command)"
         >
           <Bot :size="14" :stroke-width="2" />
         </button>
@@ -1052,14 +1110,21 @@ onUnmounted(() => {
           <ChevronDown :size="12" :stroke-width="2" />
         </button>
         <div v-if="agentMenuOpen" class="agent-menu popup-surface" @mousedown.stop>
+          <!--
+            高さの上限はここ（#275）。**メニュー本体には持たせられない**（サブメニューが
+            クリップされる）ので、長くなりうる節をまとめてスクロールさせ、「他のエージェント」
+            だけをその外に出す。
+          -->
+          <div class="agent-menu-scroll">
+          <!-- 第 1 階層は既定のエージェントだけ（#275）。 -->
           <button
-            v-for="(c, i) in agentCommands"
-            :key="i"
+            v-for="l in defaultAgent?.launch ?? []"
+            :key="l.command"
             class="agent-menu-item"
-            @click="runAgentCommand(c.command)"
+            @click="runAgentCommand(l.command)"
           >
-            <span class="agent-menu-label">{{ c.label }}</span>
-            <span class="agent-menu-cmd">{{ c.command }}</span>
+            <span class="agent-menu-label">{{ l.label }}</span>
+            <span class="agent-menu-cmd">{{ l.command }}</span>
           </button>
           <template v-if="showClaudeSessions">
             <div class="agent-menu-heading">{{ t('terminal.claudeSessions') }}</div>
@@ -1068,6 +1133,7 @@ onUnmounted(() => {
             </div>
             <button
               v-for="s in claudeSessions"
+              v-else
               :key="s.id"
               class="agent-menu-item"
               :title="resumeCommand(s)"
@@ -1079,6 +1145,48 @@ onUnmounted(() => {
               </span>
             </button>
           </template>
+          <!-- 設定で足した行。 -->
+          <template v-if="settingsStore.agentCommands.length > 0">
+            <div class="agent-menu-heading">{{ t('terminal.agentCustom') }}</div>
+            <button
+              v-for="(c, i) in settingsStore.agentCommands"
+              :key="i"
+              class="agent-menu-item"
+              @click="runAgentCommand(c.command)"
+            >
+              <span class="agent-menu-label">{{ c.label }}</span>
+              <span class="agent-menu-cmd">{{ c.command }}</span>
+            </button>
+          </template>
+          </div>
+          <!--
+            既定以外のエージェント（#275）。**スクロール領域の外に置く**（中に入れると
+            サブメニューがクリップされる）。**サブメニューは親の行の内側**なので、
+            そちらへマウスを移しても `mouseleave` が発火しない（閉じるのを遅らせる
+            タイマーが要らない）。左に出すのは、この親メニュー自体が画面の右上に出るため。
+          -->
+          <div
+            v-if="otherAgents.length > 0"
+            class="agent-menu-item agent-menu-sub"
+            @mouseenter="agentSubOpen = true"
+            @mouseleave="agentSubOpen = false"
+          >
+            <ChevronLeft :size="12" :stroke-width="2" class="agent-menu-caret" />
+            <span class="agent-menu-label">{{ t('terminal.otherAgents') }}</span>
+            <div v-if="agentSubOpen" class="agent-menu agent-submenu popup-surface">
+              <template v-for="a in otherAgents" :key="a.id">
+                <button
+                  v-for="l in a.launch"
+                  :key="l.command"
+                  class="agent-menu-item"
+                  @click="runAgentCommand(l.command)"
+                >
+                  <span class="agent-menu-label">{{ l.label }}</span>
+                  <span class="agent-menu-cmd">{{ l.command }}</span>
+                </button>
+              </template>
+            </div>
+          </div>
         </div>
       </div>
       <HelpButton page="terminal-and-agents.md#エージェント起動ボタン--プロンプト挿入" :size="14" class="term-help" />
@@ -1162,10 +1270,12 @@ onUnmounted(() => {
   right: 0;
   margin-top: 4px;
   min-width: 180px;
-  /* Session titles are a sentence long: cap the width and let the list scroll. */
+  /* Session titles are a sentence long: cap the width. */
   max-width: 340px;
-  max-height: 60vh;
-  overflow-y: auto;
+  /* **`overflow` を持たせないこと（#275）。** `visible` 以外だと、中の「他のエージェント」の
+     サブメニュー（`position: absolute`）がこの箱にクリップされ、開いてもスクロールバーが
+     出るだけになる。長くなりうる節（セッション・設定の行）が自分でスクロールを持ち、
+     全体の上限は `.agent-menu-scroll` が受ける。 */
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1179,6 +1289,10 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 1px;
   width: 100%;
+  /* padding を含めて親幅に収める。**このプロジェクトは `box-sizing` をグローバルに
+     設定していない**ので、`width: 100%` と padding を併せると左右 24px ぶん親から
+     はみ出す（メニューに `overflow` があったころは隠れていた）。 */
+  box-sizing: border-box;
   padding: 5px 12px;
   border: none;
   background: transparent;
@@ -1217,6 +1331,45 @@ onUnmounted(() => {
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* 高さの上限を受ける層（#275）。「他のエージェント」の行はこの外にあるので、
+   サブメニューはクリップされない。 */
+.agent-menu-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* 「他のエージェント」の行（#275）。中身は `.agent-menu-item` と同じ見た目で、
+   右端に開く向きの印を置く。 */
+/* `.agent-menu-item` は縦積み（ラベル＋コマンド）だが、この行は開く向きの印とラベルを
+   横に並べるので方向を上書きする。サブメニューは `position: absolute` なので流れの外。
+   **印はラベルの左**（開く向きと同じ側）。メニューはターミナルの右上から出るので、
+   サブメニューは左へ開く。 */
+.agent-menu-sub {
+  position: relative;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.agent-menu-caret {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+/* **親の行の左に出す。** このメニュー自体がターミナルの右上から出るので、右に開くと
+   画面の外へ出る。`overflow-y: auto` の親から抜けるため、位置は親の行を基準にする。 */
+/* **隙間を空けない。** 2px でも空けると、ポインタがそこを通った瞬間に行の
+   `mouseleave` が発火してサブメニューが閉じる（「親の内側だから閉じない」が成り立つのは
+   隙間が無いときだけ）。 */
+.agent-submenu {
+  top: -4px;
+  right: 100%;
+  margin-top: 0;
 }
 
 .agent-menu-note {

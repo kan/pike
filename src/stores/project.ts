@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { confirmDialog, confirmWithOption, infoDialog } from '../composables/useConfirmDialog'
 import { locale, t } from '../i18n'
+import { resumeCommandFor } from '../lib/agents'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
 import { hostDefaultShell, isMacHost } from '../lib/host'
 import { stripTrailingSep, wslNativeToUnc } from '../lib/paths'
@@ -64,13 +65,13 @@ export interface PullResult {
   unresolvable: number
 }
 
-const RESUME_MAP: Record<string, string> = {
-  claude: 'claude --continue',
-}
-
+/**
+ * 固定タブの `autoStart` を「続きから」に読み替える。対応は `lib/agents.ts` の表が持つ
+ * （#275。ここに第 2 の表を置くと、エージェントを増やすたびに両方を揃えることになる）。
+ */
 function resolveResumeCommand(autoStart?: string): string | undefined {
   if (!autoStart) return undefined
-  return RESUME_MAP[autoStart] ?? autoStart
+  return resumeCommandFor(autoStart) ?? autoStart
 }
 
 export const useProjectStore = defineStore('project', () => {
@@ -1112,6 +1113,9 @@ export const useProjectStore = defineStore('project', () => {
     useDiagnosticsStore().clear()
     useTaskStore().clear()
     useIssuesStore().clear()
+    // **エージェントの検出は捨てない**（#275）。あちらはシェルごとの表を持っていて、
+    // 切り替え先のシェルが違えば別のキーを引くだけ。捨てると、有効な答えを消したうえで
+    // 「タブが見えたら取り戻す」という後始末が要る。
     activeWorktreeRoot.value = null
 
     // 切り替えではタブを捨てない（#264）。ターミナルのプロセスとエージェントのセッションを

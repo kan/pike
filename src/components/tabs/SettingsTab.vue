@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronUp, Eye, EyeOff, Info, Loader, Monitor, Moon, Plus, Sun, Trash2 } from 'lucide-vue-next'
+import { Bot, ChevronDown, ChevronUp, Eye, Info, Loader, Monitor, Moon, Plus, Sun, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
+import { agentById } from '../../lib/agents'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
@@ -27,6 +28,7 @@ import {
 import { isWindowsShell, type ShellProfile, shellFromId, shellId, shellProfileLabel } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 import AllowedHostList from '../panels/AllowedHostList.vue'
+import ProfileRow from '../panels/ProfileRow.vue'
 
 const { t } = useI18n()
 const settings = useSettingsStore()
@@ -72,9 +74,9 @@ detectWslDistros()
 // --- Shell profiles (#129) -----------------------------------------------
 const defaultShellId = computed(() => shellId(settings.globalShell))
 
-function moveShellProfile(index: number, dir: -1 | 1) {
+/** 一覧の 1 つを上下に動かす。この画面に 4 つある「↑↓」が共有する。 */
+function moveInList<T>(list: T[], index: number, dir: -1 | 1) {
   const to = index + dir
-  const list = settings.shellProfiles
   if (to < 0 || to >= list.length) return
   const moved = list[index]
   list[index] = list[to]
@@ -93,6 +95,25 @@ function canHideShellProfile(p: ShellProfile): boolean {
 function toggleShellProfileHidden(index: number) {
   const p = settings.shellProfiles[index]
   if (!p.hidden && !canHideShellProfile(p)) return
+  p.hidden = !p.hidden
+}
+
+/**
+ * 「デフォルト」バッジを付けるエージェント（#275）。**隠していない先頭**で、
+ * `stores/agents.ts` の `available` が既定として使うものと同じ規則。
+ * **`i === 0` にしないこと**: 先頭を隠している設定では、実際に起動するものと
+ * バッジが食い違う。
+ */
+const defaultAgentId = computed(() => settings.agentProfiles.find((p) => !p.hidden)?.id ?? null)
+
+/** 最後の 1 つは隠せない（起動ボタンが出せなくなる）。 */
+function canHideAgentProfile(index: number): boolean {
+  return settings.agentProfiles.filter((p, i) => !p.hidden || i === index).length > 1
+}
+
+function toggleAgentProfileHidden(index: number) {
+  const p = settings.agentProfiles[index]
+  if (!p.hidden && !canHideAgentProfile(index)) return
   p.hidden = !p.hidden
 }
 
@@ -227,12 +248,7 @@ function removeAgentCommand(index: number) {
 }
 
 function moveAgentCommand(index: number, dir: -1 | 1) {
-  const to = index + dir
-  const list = settings.agentCommands
-  if (to < 0 || to >= list.length) return
-  const moved = list[index]
-  list[index] = list[to]
-  list[to] = moved
+  moveInList(settings.agentCommands, index, dir)
 }
 
 function addAgentPrompt() {
@@ -244,12 +260,7 @@ function removeAgentPrompt(index: number) {
 }
 
 function moveAgentPrompt(index: number, dir: -1 | 1) {
-  const to = index + dir
-  const list = settings.agentPrompts
-  if (to < 0 || to >= list.length) return
-  const moved = list[index]
-  list[index] = list[to]
-  list[to] = moved
+  moveInList(settings.agentPrompts, index, dir)
 }
 
 // Section navigation
@@ -257,6 +268,7 @@ const sections = [
   { id: 'appearance', i18nKey: 'settings.appearance' },
   { id: 'general', i18nKey: 'settings.general' },
   { id: 'terminal', i18nKey: 'settings.terminal' },
+  { id: 'agent', i18nKey: 'settings.agent' },
   { id: 'editor', i18nKey: 'settings.editor' },
   { id: 'sync', i18nKey: 'settings.sync' },
   { id: 'about', i18nKey: 'settings.about' },
@@ -626,35 +638,51 @@ const PREVIEW_LINES = [
           <label class="setting-label">{{ t('settings.shellProfiles') }}</label>
           <p class="setting-hint">{{ t('settings.shellProfilesHint') }}</p>
           <div class="agent-cmd-list">
-            <div
+            <ProfileRow
               v-for="(p, i) in settings.shellProfiles"
               :key="p.id"
-              class="agent-cmd-row shell-profile-row"
-              :class="{ 'shell-profile-hidden': p.hidden }"
+              :label="shellProfileLabel(p.shell)"
+              :is-default="p.id === defaultShellId"
+              :hidden="p.hidden"
+              :can-hide="canHideShellProfile(p)"
+              :first="i === 0"
+              :last="i === settings.shellProfiles.length - 1"
+              @move="(dir) => moveInList(settings.shellProfiles, i, dir)"
+              @toggle="toggleShellProfileHidden(i)"
             >
-              <div class="agent-cmd-reorder">
-                <button class="icon-btn" :disabled="i === 0" :title="'↑'" @click="moveShellProfile(i, -1)">
-                  <ChevronUp :size="14" :stroke-width="2" />
-                </button>
-                <button class="icon-btn" :disabled="i === settings.shellProfiles.length - 1" :title="'↓'" @click="moveShellProfile(i, 1)">
-                  <ChevronDown :size="14" :stroke-width="2" />
-                </button>
-              </div>
-              <component :is="SHELL_KIND_ICONS[p.shell.kind]" :size="14" :stroke-width="1.5" class="shell-profile-icon" />
-              <span class="shell-profile-label">
-                {{ shellProfileLabel(p.shell) }}
-                <span v-if="p.id === defaultShellId" class="shell-profile-default">{{ t('settings.shellProfileDefault') }}</span>
-              </span>
-              <button
-                class="icon-btn"
-                :disabled="!p.hidden && !canHideShellProfile(p)"
-                :title="p.hidden ? t('settings.shellProfileShow') : t('settings.shellProfileHide')"
-                @click="toggleShellProfileHidden(i)"
-              >
-                <EyeOff v-if="p.hidden" :size="14" :stroke-width="2" />
-                <Eye v-else :size="14" :stroke-width="2" />
-              </button>
-            </div>
+              <template #icon>
+                <component :is="SHELL_KIND_ICONS[p.shell.kind]" :size="14" :stroke-width="1.5" class="profile-icon" />
+              </template>
+            </ProfileRow>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Agents (#275)。ターミナルで動かすものなので Terminal の直後に置く。 -->
+      <section id="settings-agent" class="settings-section">
+        <h3 class="section-title">{{ t('settings.agent') }}<HelpButton page="settings.md#エージェント" :size="15" /></h3>
+
+        <div class="setting-block" data-testid="settings-agents">
+          <label class="setting-label">{{ t('settings.agentProfiles') }}</label>
+          <p class="setting-hint">{{ t('settings.agentProfilesHint') }}</p>
+          <div class="agent-cmd-list">
+            <ProfileRow
+              v-for="(p, i) in settings.agentProfiles"
+              :key="p.id"
+              :label="agentById(p.id)?.label ?? p.id"
+              :is-default="p.id === defaultAgentId"
+              :hidden="p.hidden"
+              :can-hide="canHideAgentProfile(i)"
+              :first="i === 0"
+              :last="i === settings.agentProfiles.length - 1"
+              @move="(dir) => moveInList(settings.agentProfiles, i, dir)"
+              @toggle="toggleAgentProfileHidden(i)"
+            >
+              <template #icon>
+                <Bot :size="14" :stroke-width="1.5" class="profile-icon" />
+              </template>
+            </ProfileRow>
           </div>
         </div>
 
@@ -1353,31 +1381,8 @@ const PREVIEW_LINES = [
   gap: 6px;
 }
 
-.shell-profile-icon {
-  flex-shrink: 0;
-  color: var(--text-secondary);
-}
-
-.shell-profile-label {
-  flex: 1;
-  font-size: 12px;
-  color: var(--text-primary);
-}
-
-.shell-profile-hidden .shell-profile-label,
-.shell-profile-hidden .shell-profile-icon {
-  color: var(--text-secondary);
-  opacity: 0.6;
-}
-
-.shell-profile-default {
-  margin-left: 6px;
-  padding: 1px 6px;
-  font-size: 10px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--text-active);
-}
+/* 並べ替えと目のトグルを持つ行（シェル一覧・エージェント一覧）の見た目は
+   `panels/ProfileRow.vue` が持つ。 */
 
 .agent-cmd-reorder {
   display: flex;

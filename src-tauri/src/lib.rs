@@ -8,6 +8,7 @@ mod appmenu {
     pub fn refresh(_app: &tauri::AppHandle, _lang: &str, _actions: &[crate::types::MenuAction]) {}
     pub fn on_menu_event(_app: &tauri::AppHandle, _event: tauri::menu::MenuEvent) {}
 }
+mod agents;
 mod claude_usage;
 mod cli;
 mod codex_usage;
@@ -1374,6 +1375,7 @@ pub fn run() {
                 )),
             });
             app.manage(issues::IssuesState::default());
+            app.manage(agents::AgentState::default());
 
             // Parse initial CLI args and store for frontend to retrieve
             let args: Vec<String> = std::env::args().collect();
@@ -1663,6 +1665,7 @@ pub fn run() {
             search::search_detect_backend,
             search::search_execute,
             search::list_project_files,
+            agents::agent_detect,
             issues::issues_gh_available,
             issues::issues_list,
             issues::issues_view,
