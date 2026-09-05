@@ -1,5 +1,5 @@
+use crate::types::{bash_quote, git_args, wait_with_timeout, ShellConfig};
 use base64::Engine as _;
-use crate::types::{ShellConfig, bash_quote, git_args, wait_with_timeout};
 use encoding_rs::Encoding;
 use serde::Serialize;
 use std::io::Write as IoWrite;
@@ -18,8 +18,17 @@ pub struct FsEntry {
 }
 
 pub const IGNORED_DIRS: &[&str] = &[
-    ".git", "node_modules", "__pycache__", ".next", ".nuxt",
-    "target", "dist", "build", ".cache", ".venv", "venv",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".next",
+    ".nuxt",
+    "target",
+    "dist",
+    "build",
+    ".cache",
+    ".venv",
+    "venv",
 ];
 
 /// Last path segment, for paths in either separator style.
@@ -29,7 +38,9 @@ pub fn file_name_of(path: &str) -> &str {
 
 /// Everything before the last separator; empty for a bare file name.
 pub fn parent_dir_of(path: &str) -> &str {
-    path.rsplit_once(['/', '\\']).map(|(dir, _)| dir).unwrap_or("")
+    path.rsplit_once(['/', '\\'])
+        .map(|(dir, _)| dir)
+        .unwrap_or("")
 }
 
 /// `path` relative to `root`, always with `/` separators so the frontend can
@@ -74,7 +85,12 @@ pub fn batch_read_files(
             let rs = "\x1e"; // ASCII record separator
             let parts: Vec<String> = paths
                 .iter()
-                .map(|p| format!("cat '{}' 2>/dev/null || echo", full_path(p).replace('\'', "'\\''")))
+                .map(|p| {
+                    format!(
+                        "cat '{}' 2>/dev/null || echo",
+                        full_path(p).replace('\'', "'\\''")
+                    )
+                })
                 .collect();
             let script = parts.join(&format!("; printf '{rs}'; "));
             match shell.run_stdout("bash", &["-c", &script]) {
@@ -133,7 +149,13 @@ pub fn walk_files_by_name(
         _ => {
             let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
             let mut results = Vec::new();
-            walk_native(std::path::Path::new(root), &lower, max_depth, 0, &mut results);
+            walk_native(
+                std::path::Path::new(root),
+                &lower,
+                max_depth,
+                0,
+                &mut results,
+            );
             results
         }
     }
@@ -257,7 +279,12 @@ fn list_dir_wsl(shell: &ShellConfig, path: &str) -> Result<Vec<FsEntry>, String>
         }
         let is_dir = kind == "d";
         let ignored = is_dir && IGNORED_DIRS.contains(&name.as_str());
-        let entry = FsEntry { name, is_dir, ignored, gitignored: false };
+        let entry = FsEntry {
+            name,
+            is_dir,
+            ignored,
+            gitignored: false,
+        };
         if is_dir {
             dirs.push(entry);
         } else {
@@ -280,12 +307,14 @@ fn list_dir_native(path: &str) -> Result<Vec<FsEntry>, String> {
         if name.starts_with(".DS_Store") {
             continue;
         }
-        let is_dir = entry
-            .file_type()
-            .map(|t| t.is_dir())
-            .unwrap_or(false);
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
         let ignored = is_dir && IGNORED_DIRS.contains(&name.as_str());
-        let e = FsEntry { name, is_dir, ignored, gitignored: false };
+        let e = FsEntry {
+            name,
+            is_dir,
+            ignored,
+            gitignored: false,
+        };
         if is_dir {
             dirs.push(e);
         } else {
@@ -419,7 +448,7 @@ pub async fn fs_open_in_explorer(shell: ShellConfig, path: String) -> Result<(),
     };
     tokio::task::spawn_blocking(move || crate::types::os_open(&target))
         .await
-    .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -509,10 +538,7 @@ pub async fn fs_write_file(
 }
 
 #[tauri::command]
-pub async fn fs_read_file_base64(
-    shell: ShellConfig,
-    path: String,
-) -> Result<String, String> {
+pub async fn fs_read_file_base64(shell: ShellConfig, path: String) -> Result<String, String> {
     const MAX_SIZE: u64 = 10_000_000;
     tokio::task::spawn_blocking(move || match &shell {
         ShellConfig::Wsl { .. } => {
@@ -556,10 +582,7 @@ pub async fn fs_rename(
 }
 
 #[tauri::command]
-pub async fn fs_delete(
-    shell: ShellConfig,
-    path: String,
-) -> Result<(), String> {
+pub async fn fs_delete(shell: ShellConfig, path: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || match &shell {
         ShellConfig::Wsl { .. } => {
             shell.run_stdout("rm", &["-rf", "--", &path])?;
@@ -579,11 +602,7 @@ pub async fn fs_delete(
 }
 
 #[tauri::command]
-pub async fn fs_copy(
-    shell: ShellConfig,
-    source: String,
-    dest: String,
-) -> Result<(), String> {
+pub async fn fs_copy(shell: ShellConfig, source: String, dest: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || match &shell {
         ShellConfig::Wsl { .. } => {
             shell.run_stdout("cp", &["-r", "--", &source, &dest])?;
@@ -639,10 +658,7 @@ pub async fn fs_import_file(
 }
 
 #[tauri::command]
-pub async fn fs_create_file(
-    shell: ShellConfig,
-    path: String,
-) -> Result<(), String> {
+pub async fn fs_create_file(shell: ShellConfig, path: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || match &shell {
         ShellConfig::Wsl { .. } => {
             shell.run_stdout("touch", &["--", &path])?;
@@ -668,10 +684,7 @@ fn ensure_dir(shell: &ShellConfig, dir: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn fs_create_dir(
-    shell: ShellConfig,
-    path: String,
-) -> Result<(), String> {
+pub async fn fs_create_dir(shell: ShellConfig, path: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || ensure_dir(&shell, &path))
         .await
         .map_err(|e| e.to_string())?
@@ -831,7 +844,9 @@ mod tests {
     #[test]
     fn decode_bytes_binary_rejected() {
         // PNG header contains NUL-adjacent binary content; NUL byte triggers the guard
-        let bytes = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D];
+        let bytes = [
+            0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
+        ];
         assert!(decode_bytes(&bytes, None).is_err());
     }
 

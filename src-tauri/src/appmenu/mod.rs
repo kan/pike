@@ -239,7 +239,14 @@ fn build_menu(app: &AppHandle, lang: &str, actions: &[MenuAction]) -> tauri::Res
     let help_menu = help_menu.build()?;
 
     MenuBuilder::new(app)
-        .items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
+        .items(&[
+            &app_menu,
+            &file_menu,
+            &edit_menu,
+            &view_menu,
+            &window_menu,
+            &help_menu,
+        ])
         .build()
 }
 

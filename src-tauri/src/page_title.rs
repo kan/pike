@@ -78,7 +78,9 @@ fn extract_title(bytes: &[u8], header_charset: Option<&str>) -> Option<String> {
     let encoding = encoding_rs::Encoding::for_bom(bytes)
         .map(|(enc, _)| enc)
         .or_else(|| header_charset.and_then(|c| encoding_rs::Encoding::for_label(c.as_bytes())))
-        .or_else(|| meta_charset(bytes).and_then(|c| encoding_rs::Encoding::for_label(c.as_bytes())))
+        .or_else(|| {
+            meta_charset(bytes).and_then(|c| encoding_rs::Encoding::for_label(c.as_bytes()))
+        })
         .unwrap_or(encoding_rs::UTF_8);
     let (text, _, _) = encoding.decode(bytes);
     let cleaned = collapse_whitespace(&decode_entities(&title_text(&text)?));
@@ -198,7 +200,9 @@ fn numeric_entity(body: &str) -> Option<(char, &str)> {
 
 /// `lt;…` → その文字と、後ろに続く残り。
 fn named_entity<'a>(body: &'a str, table: &[(&str, char)]) -> Option<(char, &'a str)> {
-    table.iter().find_map(|(name, c)| body.strip_prefix(name).map(|tail| (*c, tail)))
+    table
+        .iter()
+        .find_map(|(name, c)| body.strip_prefix(name).map(|tail| (*c, tail)))
 }
 
 /// Titles are often written across several lines in the source. Markdown link
@@ -236,14 +240,20 @@ mod tests {
     #[test]
     fn decodes_the_entities_that_show_up_in_titles() {
         let html = b"<title>A &amp; B &lt;C&gt; &quot;D&quot; &#39;E&#39;</title>";
-        assert_eq!(extract_title(html, None).as_deref(), Some("A & B <C> \"D\" 'E'"));
+        assert_eq!(
+            extract_title(html, None).as_deref(),
+            Some("A & B <C> \"D\" 'E'")
+        );
     }
 
     /// CMS の `<title>` に普通に入っている数値参照。残すと文書に生で書き込まれる。
     #[test]
     fn decodes_numeric_entities() {
         let html = "<title>Post &#8211; Site &#x2019;s &#039;quoted&#039;</title>".as_bytes();
-        assert_eq!(extract_title(html, None).as_deref(), Some("Post – Site ’s 'quoted'"));
+        assert_eq!(
+            extract_title(html, None).as_deref(),
+            Some("Post – Site ’s 'quoted'")
+        );
     }
 
     /// `&amp;lt;` は `&lt;` のまま。1 パスなので、戻した `&` が次の判定に混ざらない。
@@ -270,7 +280,10 @@ mod tests {
         let mut html = b"<title>".to_vec();
         html.extend_from_slice(&bytes);
         html.extend_from_slice(b"</title>");
-        assert_eq!(extract_title(&html, Some("shift_jis")).as_deref(), Some("日本語のページ"));
+        assert_eq!(
+            extract_title(&html, Some("shift_jis")).as_deref(),
+            Some("日本語のページ")
+        );
     }
 
     /// ヘッダに無ければ `<meta charset>` を見る。
@@ -287,9 +300,10 @@ mod tests {
     #[test]
     fn meta_charset_skips_decoys() {
         let (bytes, _, _) = encoding_rs::SHIFT_JIS.encode("日本語");
-        let mut html = "<!-- charset note --><link rel=preload data-charset><meta charset=shift_jis><title>"
-            .to_string()
-            .into_bytes();
+        let mut html =
+            "<!-- charset note --><link rel=preload data-charset><meta charset=shift_jis><title>"
+                .to_string()
+                .into_bytes();
         html.extend_from_slice(&bytes);
         html.extend_from_slice(b"</title>");
         assert_eq!(extract_title(&html, None).as_deref(), Some("日本語"));
@@ -306,12 +320,18 @@ mod tests {
         for unit in "<title>日本語</title>".encode_utf16() {
             html.extend_from_slice(&unit.to_le_bytes());
         }
-        assert_eq!(extract_title(&html, Some("shift_jis")).as_deref(), Some("日本語"));
+        assert_eq!(
+            extract_title(&html, Some("shift_jis")).as_deref(),
+            Some("日本語")
+        );
     }
 
     #[test]
     fn no_title_is_not_an_error() {
-        assert_eq!(extract_title(b"<html><body>no head</body></html>", None), None);
+        assert_eq!(
+            extract_title(b"<html><body>no head</body></html>", None),
+            None
+        );
         assert_eq!(extract_title(b"<title>   </title>", None), None);
     }
 }

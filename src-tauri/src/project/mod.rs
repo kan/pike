@@ -1,6 +1,6 @@
 pub mod transient;
 
-use crate::types::{ShellConfig, silent_command};
+use crate::types::{silent_command, ShellConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -26,7 +26,11 @@ pub struct WindowProjects {
 impl WindowProjects {
     /// 保持しているうち、今見せていないもの。復元したウィンドウが起動時に引く。
     pub fn parked(&self) -> Vec<String> {
-        self.held.iter().filter(|id| *id != &self.shown).cloned().collect()
+        self.held
+            .iter()
+            .filter(|id| *id != &self.shown)
+            .cloned()
+            .collect()
     }
 }
 
@@ -127,9 +131,7 @@ fn groups_file(state: &ProjectState) -> PathBuf {
 }
 
 #[tauri::command]
-pub async fn project_groups_list(
-    state: State<'_, ProjectState>,
-) -> Result<Vec<String>, String> {
+pub async fn project_groups_list(state: State<'_, ProjectState>) -> Result<Vec<String>, String> {
     match fs::read_to_string(groups_file(&state)) {
         Ok(content) => serde_json::from_str::<Vec<String>>(&content).map_err(|e| e.to_string()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(vec![]),
@@ -324,7 +326,11 @@ pub fn set_window_project(state: &ProjectState, window_label: &str, id: &str) {
 
 /// Remove and return the project a window was showing.
 pub fn take_window_project(state: &ProjectState, window_label: &str) -> Option<String> {
-    let entry = state.window_projects.lock().ok().and_then(|mut map| map.remove(window_label))?;
+    let entry = state
+        .window_projects
+        .lock()
+        .ok()
+        .and_then(|mut map| map.remove(window_label))?;
     Some(entry.shown)
 }
 
@@ -454,10 +460,7 @@ pub async fn project_update(
 }
 
 #[tauri::command]
-pub async fn project_delete(
-    id: String,
-    state: State<'_, ProjectState>,
-) -> Result<(), String> {
+pub async fn project_delete(id: String, state: State<'_, ProjectState>) -> Result<(), String> {
     validate_slug(&id, "Project ID")?;
     let dir = projects_dir(&state).join(&id);
     if dir.exists() {

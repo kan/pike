@@ -96,7 +96,10 @@ fn client(redirects: Redirects) -> Result<Client, String> {
         Redirects::Never => reqwest::redirect::Policy::none(),
         Redirects::Follow => reqwest::redirect::Policy::limited(MAX_REDIRECTS),
     };
-    let client = Client::builder().redirect(policy).build().map_err(|e| e.to_string())?;
+    let client = Client::builder()
+        .redirect(policy)
+        .build()
+        .map_err(|e| e.to_string())?;
     // 競合したときは先に入ったほうを使う（どちらも同じ方針なので等価）。
     let _ = slot.set(client.clone());
     Ok(client)
@@ -177,7 +180,11 @@ pub async fn fetch(url: &str, policy: &FetchPolicy) -> Result<Fetched, String> {
             }
         }
     }
-    Ok(Fetched { mime, charset, body })
+    Ok(Fetched {
+        mime,
+        charset,
+        body,
+    })
 }
 
 #[cfg(test)]
@@ -186,10 +193,19 @@ mod tests {
 
     #[test]
     fn splits_content_type_into_mime_and_charset() {
-        assert_eq!(parse_content_type("text/html; charset=utf-8"), ("text/html".into(), Some("utf-8".into())));
+        assert_eq!(
+            parse_content_type("text/html; charset=utf-8"),
+            ("text/html".into(), Some("utf-8".into()))
+        );
         // 空白なしと引用符付き。どちらも実際に来る。
-        assert_eq!(parse_content_type("text/html;charset=\"Shift_JIS\""), ("text/html".into(), Some("shift_jis".into())));
-        assert_eq!(parse_content_type("image/svg+xml"), ("image/svg+xml".into(), None));
+        assert_eq!(
+            parse_content_type("text/html;charset=\"Shift_JIS\""),
+            ("text/html".into(), Some("shift_jis".into()))
+        );
+        assert_eq!(
+            parse_content_type("image/svg+xml"),
+            ("image/svg+xml".into(), None)
+        );
         assert_eq!(parse_content_type(""), (String::new(), None));
     }
 }

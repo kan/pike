@@ -1,4 +1,4 @@
-use crate::types::{ShellConfig, git_args, git_bash_prefix};
+use crate::types::{git_args, git_bash_prefix, ShellConfig};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
@@ -104,7 +104,11 @@ fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, Str
 
 /// Like `run_git` but hands back the exit code and both streams, for the
 /// callers that need to say more than "it failed".
-fn run_git_full(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<(i32, String, String), String> {
+fn run_git_full(
+    shell: &ShellConfig,
+    root: &str,
+    args: &[&str],
+) -> Result<(i32, String, String), String> {
     shell.run("git", &git_args(root, args))
 }
 
@@ -226,7 +230,9 @@ fn parse_log(output: &str) -> Vec<GitLogEntry> {
         .split(RS)
         .filter_map(|record| {
             let record = record.trim_matches('\n');
-            if record.is_empty() { return None; }
+            if record.is_empty() {
+                return None;
+            }
             let parts: Vec<&str> = record.splitn(6, FS).collect();
             if parts.len() == 6 {
                 let parents = parts[1]
@@ -332,7 +338,11 @@ fn status_and_state_wsl(shell: &ShellConfig, root: &str) -> Result<(String, Stat
     for (name, read) in OP_STATE_FILES {
         // One record per entry, in table order: `exists FS contents`. Positional
         // like `remote_urls_wsl`, so the name never travels through the stream.
-        let cat = if *read { format!("cat \"$d/{name}\" 2>/dev/null; ") } else { String::new() };
+        let cat = if *read {
+            format!("cat \"$d/{name}\" 2>/dev/null; ")
+        } else {
+            String::new()
+        };
         script.push_str(&format!(
             "if [ -e \"$d/{name}\" ]; then printf '1{FS}'; {cat}else printf '0{FS}'; fi; printf '{RS}'\n"
         ));
@@ -356,8 +366,20 @@ fn status_and_state_wsl(shell: &ShellConfig, root: &str) -> Result<(String, Stat
 /// root for an ordinary repo, so ask git for the gitdir only when it is not —
 /// a linked worktree, a submodule, or a root below the top level. That keeps
 /// the common case at the one process spawn it has always been.
-fn status_and_state_native(shell: &ShellConfig, root: &str) -> Result<(String, StateFiles), String> {
-    let status = run_git(shell, root, &["status", "--porcelain=v2", "--branch", "--untracked-files=all"])?;
+fn status_and_state_native(
+    shell: &ShellConfig,
+    root: &str,
+) -> Result<(String, StateFiles), String> {
+    let status = run_git(
+        shell,
+        root,
+        &[
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "--untracked-files=all",
+        ],
+    )?;
     let plain = std::path::Path::new(root).join(".git");
     let dir = if plain.is_dir() {
         Some(plain)
@@ -453,7 +475,11 @@ fn parse_operation(files: &StateFiles, has_conflicts: bool) -> Option<GitOperati
     } else if exists("rebase-apply/head-name") {
         // The old apply backend backs both `rebase` and `am`; `applying` is
         // what tells them apart.
-        let kind = if exists("rebase-apply/applying") { "am" } else { "rebase" };
+        let kind = if exists("rebase-apply/applying") {
+            "am"
+        } else {
+            "rebase"
+        };
         (
             kind,
             branch_of("rebase-apply/head-name"),
@@ -494,7 +520,9 @@ fn parse_operation(files: &StateFiles, has_conflicts: bool) -> Option<GitOperati
     let (stopped_sha, stopped_subject) = stopped.map_or((None, None), |(s, t)| (Some(s), Some(t)));
     // Both halves of the progress, or neither: a half-written "0/0" is worse
     // than showing nothing.
-    let (step, total) = step.zip(total).map_or((None, None), |(s, t)| (Some(s), Some(t)));
+    let (step, total) = step
+        .zip(total)
+        .map_or((None, None), |(s, t)| (Some(s), Some(t)));
 
     Some(GitOperation {
         kind: kind.to_string(),
@@ -511,10 +539,7 @@ fn parse_operation(files: &StateFiles, has_conflicts: bool) -> Option<GitOperati
 }
 
 #[tauri::command]
-pub async fn git_status(
-    root: String,
-    shell: ShellConfig,
-) -> Result<GitStatusResult, String> {
+pub async fn git_status(root: String, shell: ShellConfig) -> Result<GitStatusResult, String> {
     let (output, files) = tokio::task::spawn_blocking(move || match &shell {
         ShellConfig::Wsl { .. } => status_and_state_wsl(&shell, &root),
         _ => status_and_state_native(&shell, &root),
@@ -603,11 +628,7 @@ pub async fn git_diff_working(root: String, shell: ShellConfig) -> Result<String
 }
 
 #[tauri::command]
-pub async fn git_stage(
-    root: String,
-    shell: ShellConfig,
-    paths: Vec<String>,
-) -> Result<(), String> {
+pub async fn git_stage(root: String, shell: ShellConfig, paths: Vec<String>) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let mut args = vec!["add", "--"];
         let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
@@ -654,11 +675,7 @@ pub async fn git_discard_changes(
 }
 
 #[tauri::command]
-pub async fn git_commit(
-    root: String,
-    shell: ShellConfig,
-    message: String,
-) -> Result<(), String> {
+pub async fn git_commit(root: String, shell: ShellConfig, message: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         // Route through user-PATH variant so commit hooks, gpg.ssh.program,
         // and other user-installed binaries resolve (Pike's default WSL spawn
@@ -705,7 +722,12 @@ pub async fn git_branch_list(root: String, shell: ShellConfig) -> Result<GitBran
         run_git(
             &shell,
             &root,
-            &["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"],
+            &[
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/heads",
+                "refs/remotes",
+            ],
         )
     })
     .await
@@ -792,11 +814,7 @@ pub async fn git_worktree_list(
 }
 
 #[tauri::command]
-pub async fn git_checkout(
-    root: String,
-    shell: ShellConfig,
-    branch: String,
-) -> Result<(), String> {
+pub async fn git_checkout(root: String, shell: ShellConfig, branch: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         run_git(&shell, &root, &["checkout", &branch])?;
         Ok(())
@@ -863,16 +881,16 @@ pub async fn git_create_branch(
 }
 
 #[tauri::command]
-pub async fn git_remote_url(
-    root: String,
-    shell: ShellConfig,
-) -> Result<Option<String>, String> {
+pub async fn git_remote_url(root: String, shell: ShellConfig) -> Result<Option<String>, String> {
     let output = tokio::task::spawn_blocking(move || {
         run_git(&shell, &root, &["remote", "get-url", "origin"])
     })
     .await
     .map_err(|e| e.to_string())?;
-    Ok(output.ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()))
+    Ok(output
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty()))
 }
 
 /// `git_remote_url` for many roots at once, in the same order. Used to backfill
@@ -1025,7 +1043,11 @@ pub async fn git_show_files(
     hash: String,
 ) -> Result<Vec<GitFileChange>, String> {
     let output = tokio::task::spawn_blocking(move || {
-        run_git(&shell, &root, &["show", "--pretty=", "--name-status", &hash])
+        run_git(
+            &shell,
+            &root,
+            &["show", "--pretty=", "--name-status", &hash],
+        )
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -1047,7 +1069,11 @@ pub async fn git_show_files(
                 Some((orig, new)) => (new.to_string(), Some(orig.to_string())),
                 None => (rest.to_string(), None),
             };
-            Some(GitFileChange { path, status, orig_path })
+            Some(GitFileChange {
+                path,
+                status,
+                orig_path,
+            })
         })
         .collect())
 }
@@ -1090,7 +1116,11 @@ pub async fn git_diff_commit(
         // **失敗を空に潰さないこと。** 「変更なし」と出して終わると、#306 が直したのと同じ
         // 「静かに壊れる」形になる。`~1` が無い最初のコミットだけを `--root` で拾い、
         // それ以外のエラーは git の言い分をそのまま返す。
-        let output = match run_git(&shell, &root, &["diff", &format!("{hash}~1"), &hash, "--", &path]) {
+        let output = match run_git(
+            &shell,
+            &root,
+            &["diff", &format!("{hash}~1"), &hash, "--", &path],
+        ) {
             Ok(o) => o,
             Err(_) => run_git(&shell, &root, &["diff", "--root", &hash, "--", &path])?,
         };
@@ -1268,7 +1298,11 @@ fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
             }
             continue;
         }
-        if line.starts_with("diff ") || line.starts_with("index ") || line.starts_with("---") || line.starts_with("+++") {
+        if line.starts_with("diff ")
+            || line.starts_with("index ")
+            || line.starts_with("---")
+            || line.starts_with("+++")
+        {
             continue;
         }
         if line.starts_with('-') {
@@ -1282,10 +1316,9 @@ fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
                 if mod_start.is_none() {
                     mod_start = Some(new_line);
                 }
-            } else if mod_start.is_none()
-                && add_start.is_none() {
-                    add_start = Some(new_line);
-                }
+            } else if mod_start.is_none() && add_start.is_none() {
+                add_start = Some(new_line);
+            }
             new_line += 1;
         } else {
             flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);
@@ -1303,7 +1336,11 @@ fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
         deleted.push(new_line);
     }
 
-    GitDiffLines { added, modified, deleted }
+    GitDiffLines {
+        added,
+        modified,
+        deleted,
+    }
 }
 
 #[tauri::command]
@@ -1316,7 +1353,11 @@ pub async fn git_diff_lines(
         let output = run_git(&shell, &root, &["diff", "HEAD", "--", &path]);
         match output {
             Ok(diff) => Ok(parse_diff_lines(&diff)),
-            Err(_) => Ok(GitDiffLines { added: vec![], modified: vec![], deleted: vec![] }),
+            Err(_) => Ok(GitDiffLines {
+                added: vec![],
+                modified: vec![],
+                deleted: vec![],
+            }),
         }
     })
     .await
@@ -1382,7 +1423,10 @@ branch refs/heads/main
         let wts = parse_worktrees(out);
         assert_eq!(wts.len(), 2);
         assert!(wts[0].is_bare);
-        assert!(!wts[0].is_main, "the bare entry must not be treated as main");
+        assert!(
+            !wts[0].is_main,
+            "the bare entry must not be treated as main"
+        );
         assert!(wts[1].is_main, "the first working tree is main");
         assert_eq!(wts[1].branch.as_deref(), Some("main"));
     }
@@ -1439,7 +1483,8 @@ u AA N... 000000 100644 100644 100644 h1 h2 h3 both added.txt
 
     #[test]
     fn commit_patch_needs_the_requested_commit() {
-        let out = "abc123def\n\ndiff --git a/old.md b/new.md\nrename from old.md\nrename to new.md\n";
+        let out =
+            "abc123def\n\ndiff --git a/old.md b/new.md\nrename from old.md\nrename to new.md\n";
         assert!(commit_patch(out, "abc123def").starts_with("diff --git"));
         // 短縮ハッシュで引いても同じ。
         assert!(commit_patch(out, "abc123").starts_with("diff --git"));
@@ -1513,7 +1558,10 @@ mod operation_tests {
     fn no_state_files_means_no_operation() {
         assert_eq!(parse_operation(&files(&[]), false), None);
         // A plain detached HEAD (a checked-out tag) must not raise a banner.
-        assert_eq!(parse_operation(&files(&[("MERGE_HEAD", None)]), false), None);
+        assert_eq!(
+            parse_operation(&files(&[("MERGE_HEAD", None)]), false),
+            None
+        );
     }
 
     #[test]
@@ -1649,7 +1697,10 @@ mod operation_tests {
             .collect();
         let parsed = parse_state_records(&raw);
         assert_eq!(parsed.get("rebase-merge/message"), Some(&String::new()));
-        assert_eq!(parsed.get("rebase-merge/head-name").unwrap(), "refs/heads/feat\n");
+        assert_eq!(
+            parsed.get("rebase-merge/head-name").unwrap(),
+            "refs/heads/feat\n"
+        );
         assert_eq!(parsed.get("rebase-merge/done"), None);
     }
 }

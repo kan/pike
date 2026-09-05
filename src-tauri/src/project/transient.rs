@@ -30,7 +30,7 @@ use std::sync::Mutex;
 
 use tauri::{State, WebviewWindow};
 
-use super::{ProjectConfig, ProjectState, read_all_projects, set_window_project};
+use super::{read_all_projects, set_window_project, ProjectConfig, ProjectState};
 use crate::types::ShellConfig;
 
 #[derive(Default)]
@@ -51,7 +51,10 @@ impl TransientState {
     }
 
     fn contains(&self, id: &str) -> bool {
-        self.projects.lock().map(|m| m.contains_key(id)).unwrap_or(false)
+        self.projects
+            .lock()
+            .map(|m| m.contains_key(id))
+            .unwrap_or(false)
     }
 
     /// The root of the project with `id`, without cloning the whole config.
@@ -64,7 +67,9 @@ impl TransientState {
     pub fn find_by_root(&self, path: &str) -> Option<ProjectConfig> {
         let norm = crate::normalize_path(path);
         let map = self.projects.lock().ok()?;
-        map.values().find(|c| crate::normalize_path(&c.root) == norm).cloned()
+        map.values()
+            .find(|c| crate::normalize_path(&c.root) == norm)
+            .cloned()
     }
 
     /// Register a project for an unregistered directory and return it.
@@ -106,14 +111,23 @@ impl TransientState {
         let (root, shell) = if let Some((distro, native)) = crate::cli::split_wsl_unc(path) {
             (native, ShellConfig::Wsl { distro })
         } else if let Some(distro) = distro_hint {
-            (path.to_string(), ShellConfig::Wsl { distro: distro.to_string() })
+            (
+                path.to_string(),
+                ShellConfig::Wsl {
+                    distro: distro.to_string(),
+                },
+            )
         } else {
             // UNC でも distro ヒントでもない＝ホストのパス。Windows なら PowerShell、
             // macOS / Linux ならログインシェル。
             (path.to_string(), ShellConfig::host_default())
         };
 
-        let dir_name = root.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().unwrap_or("project");
+        let dir_name = root
+            .trim_end_matches(['/', '\\'])
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or("project");
         let slug: String = dir_name
             .to_lowercase()
             .chars()
@@ -121,7 +135,11 @@ impl TransientState {
             .collect::<String>()
             .trim_matches('-')
             .to_string();
-        let base: String = if slug.is_empty() { "dir".to_string() } else { slug.chars().take(48).collect() };
+        let base: String = if slug.is_empty() {
+            "dir".to_string()
+        } else {
+            slug.chars().take(48).collect()
+        };
 
         let taken = |id: &str| existing.iter().any(|p| p.id == id) || self.contains(id);
         let id = if taken(&base) {

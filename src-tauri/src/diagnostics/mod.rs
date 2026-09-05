@@ -154,7 +154,11 @@ fn command_for(name: &str, shell: &ShellConfig, dir: &str) -> &'static str {
 fn ts_command(shell: &ShellConfig, dir: &str) -> &'static str {
     let has_vue_tsc = match shell {
         ShellConfig::Wsl { .. } => shell
-            .run_shell_line(dir, "test -e node_modules/.bin/vue-tsc", Duration::from_secs(10))
+            .run_shell_line(
+                dir,
+                "test -e node_modules/.bin/vue-tsc",
+                Duration::from_secs(10),
+            )
             .map(|(code, _, _)| code == 0)
             .unwrap_or(false),
         _ => {
@@ -163,7 +167,11 @@ fn ts_command(shell: &ShellConfig, dir: &str) -> &'static str {
             // macOS / Linux は拡張子なしの shebang スクリプト。`.cmd` 決め打ちだと
             // macOS では**必ず見つからず**、Vue プロジェクトが黙って素の tsc で
             // 検査されて `.vue` の import が大量に誤検出される。
-            let name = if cfg!(windows) { "vue-tsc.cmd" } else { "vue-tsc" };
+            let name = if cfg!(windows) {
+                "vue-tsc.cmd"
+            } else {
+                "vue-tsc"
+            };
             std::path::Path::new(&format!("{dir}{sep}node_modules{sep}.bin{sep}{name}")).exists()
         }
     };
@@ -227,7 +235,11 @@ fn run(
         .flat_map(|spec| {
             dirs_for(&manifests, spec.manifest, root, sep)
                 .into_iter()
-                .map(move |dir| Task { spec, dir, command: None })
+                .map(move |dir| Task {
+                    spec,
+                    dir,
+                    command: None,
+                })
         })
         .collect();
 
@@ -478,7 +490,13 @@ fn rel_path(path: &str, root: &str, sep: char) -> String {
 fn dedup(diags: &mut Vec<Diagnostic>) {
     let mut seen = std::collections::HashSet::new();
     diags.retain(|d| {
-        seen.insert((d.file.clone(), d.line, d.column, d.severity, d.message.clone()))
+        seen.insert((
+            d.file.clone(),
+            d.line,
+            d.column,
+            d.severity,
+            d.message.clone(),
+        ))
     });
 }
 
@@ -502,7 +520,9 @@ fn parse(
 
 /// Rewrite every `/` or `\` in `s` to `sep` (no per-call separator allocation).
 fn normalize_sep(s: &str, sep: char) -> String {
-    s.chars().map(|c| if c == '/' || c == '\\' { sep } else { c }).collect()
+    s.chars()
+        .map(|c| if c == '/' || c == '\\' { sep } else { c })
+        .collect()
 }
 
 /// Resolve a checker-relative path to root-relative (or absolute when outside).
@@ -529,7 +549,9 @@ fn parse_cargo(stdout: &str, dir: &str, root: &str, sep: char, source: &str) -> 
         if v.get("reason").and_then(|r| r.as_str()) != Some("compiler-message") {
             continue;
         }
-        let Some(msg) = v.get("message") else { continue };
+        let Some(msg) = v.get("message") else {
+            continue;
+        };
         let level = msg.get("level").and_then(|l| l.as_str()).unwrap_or("");
         let severity = match level {
             "error" | "error: internal compiler error" => Severity::Error,
@@ -557,9 +579,18 @@ fn parse_cargo(stdout: &str, dir: &str, root: &str, sep: char, source: &str) -> 
         out.push(Diagnostic {
             file: resolve(file, dir, root, sep),
             line: span.get("line_start").and_then(|l| l.as_u64()).unwrap_or(1) as u32,
-            column: span.get("column_start").and_then(|c| c.as_u64()).unwrap_or(1) as u32,
-            end_line: span.get("line_end").and_then(|l| l.as_u64()).map(|n| n as u32),
-            end_column: span.get("column_end").and_then(|c| c.as_u64()).map(|n| n as u32),
+            column: span
+                .get("column_start")
+                .and_then(|c| c.as_u64())
+                .unwrap_or(1) as u32,
+            end_line: span
+                .get("line_end")
+                .and_then(|l| l.as_u64())
+                .map(|n| n as u32),
+            end_column: span
+                .get("column_end")
+                .and_then(|c| c.as_u64())
+                .map(|n| n as u32),
             severity,
             message: text.to_string(),
             source: source.to_string(),
@@ -645,9 +676,10 @@ fn parse_golangci(stdout: &str, dir: &str, root: &str, sep: char, source: &str) 
 
 /// Peel the trailing `(linter)` marker off a golangci-lint message.
 fn split_linter(message: &str) -> (String, Option<String>) {
-    let name = message
-        .strip_suffix(')')
-        .and_then(|rest| rest.rsplit_once('(').filter(|(_, name)| is_linter_name(name)));
+    let name = message.strip_suffix(')').and_then(|rest| {
+        rest.rsplit_once('(')
+            .filter(|(_, name)| is_linter_name(name))
+    });
     match name {
         Some((head, name)) => (head.trim_end().to_string(), Some(name.to_string())),
         None => (message.to_string(), None),
@@ -656,14 +688,18 @@ fn split_linter(message: &str) -> (String, Option<String>) {
 
 /// Linter names are plain identifiers; anything else is part of the message.
 fn is_linter_name(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// tsc --pretty false: `path(line,col): severity TScode: message`.
 fn parse_tsc(stdout: &str, dir: &str, root: &str, sep: char, source: &str) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for line in stdout.lines() {
-        let Some(paren) = line.find('(') else { continue };
+        let Some(paren) = line.find('(') else {
+            continue;
+        };
         let Some(close) = line[paren..].find(')').map(|i| i + paren) else {
             continue;
         };

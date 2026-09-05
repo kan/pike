@@ -89,8 +89,7 @@ pub async fn task_discover(
         let mut paths: Vec<String> = Vec::new();
         let mut tauri_conf_dirs: std::collections::HashSet<String> =
             std::collections::HashSet::new();
-        let mut main_rs_paths: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut main_rs_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
         // ディレクトリ → そこにある lock ファイルが示すパッケージマネージャ
         let mut pm_marks: std::collections::HashMap<String, NodeRunner> =
             std::collections::HashMap::new();
@@ -163,7 +162,9 @@ pub async fn task_discover(
             let Some(content) = content else { continue };
 
             let rel = if path.starts_with(&root) {
-                path[root.len()..].trim_start_matches(['/', '\\']).to_string()
+                path[root.len()..]
+                    .trim_start_matches(['/', '\\'])
+                    .to_string()
             } else {
                 path.clone()
             };
@@ -243,7 +244,9 @@ pub async fn task_discover(
                 }
                 "config.toml" => {} // consumed by the alias pre-pass above
                 "cargo.toml" => {
-                    let Some(doc) = cargo_docs.get(&i) else { continue };
+                    let Some(doc) = cargo_docs.get(&i) else {
+                        continue;
+                    };
                     let dir = parent_dir(path);
                     let ctx = CargoContext {
                         is_tauri_app: tauri_conf_dirs.contains(&dir),
@@ -283,7 +286,9 @@ pub async fn task_discover(
         for (base_dir, (i, tasks)) in leftovers {
             let path = &paths[i];
             let rel = if path.starts_with(&root) {
-                path[root.len()..].trim_start_matches(['/', '\\']).to_string()
+                path[root.len()..]
+                    .trim_start_matches(['/', '\\'])
+                    .to_string()
             } else {
                 path.clone()
             };
@@ -335,8 +340,14 @@ fn find_task_files_raw(
         let depth_arg = format!("{MAX_DEPTH}");
         // --hidden lets rg descend into .cargo/; keep .git excluded
         // (it is only skipped by the hidden filter we just disabled)
-        let mut args: Vec<&str> =
-            vec!["--files", "--max-depth", &depth_arg, "--hidden", "-g", "!.git"];
+        let mut args: Vec<&str> = vec![
+            "--files",
+            "--max-depth",
+            &depth_arg,
+            "--hidden",
+            "-g",
+            "!.git",
+        ];
         for g in TASK_FILE_GLOBS {
             args.push("-g");
             args.push(g);
@@ -366,9 +377,9 @@ fn find_task_files_raw(
 /// rest (space, `;`, `&`, `|`, `$`, backtick, quotes, ...).
 fn is_safe_task_name(name: &str) -> bool {
     !name.is_empty()
-        && name.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/')
-        })
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/'))
 }
 
 /// package.json の scripts を走らせるパッケージマネージャ。実行行はフロントの
@@ -440,9 +451,7 @@ fn node_runner_for(
         .then(|| serde_json::from_str::<serde_json::Value>(content).ok())
         .flatten()
         .and_then(|v| v.get("packageManager")?.as_str().map(str::to_string))
-        .and_then(|spec| {
-            NodeRunner::from_name(spec.split('@').next().unwrap_or_default().trim())
-        });
+        .and_then(|spec| NodeRunner::from_name(spec.split('@').next().unwrap_or_default().trim()));
     declared
         .or_else(|| {
             marks
@@ -793,7 +802,6 @@ fn parse_makefile_targets(content: &str) -> Vec<DiscoveredTask> {
     targets
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -951,7 +959,10 @@ lint = ["clippy", "--", "-D", "warnings"]
     }
 
     fn marks(pairs: &[(&str, NodeRunner)]) -> std::collections::HashMap<String, NodeRunner> {
-        pairs.iter().map(|(d, pm)| ((*d).to_string(), *pm)).collect()
+        pairs
+            .iter()
+            .map(|(d, pm)| ((*d).to_string(), *pm))
+            .collect()
     }
 
     #[test]
@@ -1066,15 +1077,20 @@ shown:
     #[test]
     fn justfile_quoted_colon_and_unsafe_name() {
         // 引数の既定値に含まれる `:` はレシピの区切りではない
-        let tasks = parse_justfile("serve port=\"127.0.0.1:8080\":
+        let tasks = parse_justfile(
+            "serve port=\"127.0.0.1:8080\":
     echo {{port}}
-");
+",
+        );
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].command, "just serve port=\"127.0.0.1:8080\"");
         // シェルに渡るのは名前なので、メタ文字を含むものは出さない
-        assert!(parse_justfile("a;rm -rf /:
+        assert!(parse_justfile(
+            "a;rm -rf /:
     echo x
-").is_empty());
+"
+        )
+        .is_empty());
     }
 
     #[test]

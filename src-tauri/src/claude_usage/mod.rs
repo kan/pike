@@ -176,7 +176,9 @@ fn is_process_alive(pid: u64) -> bool {
 /// 実際の挙動になった。
 #[cfg(not(windows))]
 fn is_process_alive(pid: u64) -> bool {
-    let Ok(p) = i32::try_from(pid) else { return false };
+    let Ok(p) = i32::try_from(pid) else {
+        return false;
+    };
     if p <= 0 {
         return false;
     }
@@ -194,7 +196,11 @@ fn is_process_alive(pid: u64) -> bool {
 fn alive_pids(shell: &ShellConfig, pids: &[u64]) -> HashSet<u64> {
     match shell {
         ShellConfig::Wsl { .. } => alive_pids_wsl(shell, pids),
-        _ => pids.iter().copied().filter(|&p| is_process_alive(p)).collect(),
+        _ => pids
+            .iter()
+            .copied()
+            .filter(|&p| is_process_alive(p))
+            .collect(),
     }
 }
 
@@ -212,11 +218,19 @@ fn alive_pids_wsl(shell: &ShellConfig, pids: &[u64]) -> HashSet<u64> {
         .collect::<Vec<_>>()
         .join("; ");
     let script = format!("{checks}; true");
-    let out = shell.run_stdout("bash", &["-c", &script]).unwrap_or_default();
-    out.lines().filter_map(|l| l.trim().parse::<u64>().ok()).collect()
+    let out = shell
+        .run_stdout("bash", &["-c", &script])
+        .unwrap_or_default();
+    out.lines()
+        .filter_map(|l| l.trim().parse::<u64>().ok())
+        .collect()
 }
 
-fn find_active_sessions(shell: &ShellConfig, claude_dir: &Path, project_root: &str) -> Vec<SessionInfo> {
+fn find_active_sessions(
+    shell: &ShellConfig,
+    claude_dir: &Path,
+    project_root: &str,
+) -> Vec<SessionInfo> {
     let sessions_dir = claude_dir.join("sessions");
     let Ok(entries) = fs::read_dir(&sessions_dir) else {
         return Vec::new();
@@ -238,7 +252,10 @@ fn find_active_sessions(shell: &ShellConfig, claude_dir: &Path, project_root: &s
 
     let pids: Vec<u64> = candidates.iter().map(|c| c.pid).collect();
     let alive = alive_pids(shell, &pids);
-    candidates.into_iter().filter(|c| alive.contains(&c.pid)).collect()
+    candidates
+        .into_iter()
+        .filter(|c| alive.contains(&c.pid))
+        .collect()
 }
 
 /// Claude Code writes the same API response to the JSONL multiple times: while
@@ -330,11 +347,7 @@ impl UsageAccumulator {
     }
 }
 
-fn usage_from_dir(
-    shell: &ShellConfig,
-    claude_dir: &Path,
-    project_root: &str,
-) -> ClaudeUsageResult {
+fn usage_from_dir(shell: &ShellConfig, claude_dir: &Path, project_root: &str) -> ClaudeUsageResult {
     let sessions = find_active_sessions(shell, claude_dir, project_root);
     if sessions.is_empty() {
         return ClaudeUsageResult::default();
@@ -404,7 +417,10 @@ fn usage_from_dir(
     }
 }
 
-fn get_usage_for_project(shell: &ShellConfig, project_root: &str) -> Result<ClaudeUsageResult, String> {
+fn get_usage_for_project(
+    shell: &ShellConfig,
+    project_root: &str,
+) -> Result<ClaudeUsageResult, String> {
     let config = config::resolve(shell, project_root);
     let usage = config
         .read_path
@@ -456,8 +472,7 @@ mod tests {
     #[test]
     fn dedup_keyless_lines_sum_as_is() {
         let mut acc = UsageAccumulator::default();
-        let keyless =
-            r#"{"type":"assistant","message":{"model":"claude-sonnet","usage":{"input_tokens":10,"output_tokens":1}}}"#;
+        let keyless = r#"{"type":"assistant","message":{"model":"claude-sonnet","usage":{"input_tokens":10,"output_tokens":1}}}"#;
         acc.add_line(keyless);
         acc.add_line(keyless);
         let by_model = acc.finish();
@@ -482,8 +497,14 @@ mod tests {
         );
         // Regression for #108: dots, underscores, spaces and non-ASCII all
         // collapse to '-', matching Claude's /[^a-zA-Z0-9]/g.
-        assert_eq!(encode_project_path("/home/kan/my.project"), "-home-kan-my-project");
-        assert_eq!(encode_project_path("C:\\Users\\foo\\app.v2"), "C--Users-foo-app-v2");
+        assert_eq!(
+            encode_project_path("/home/kan/my.project"),
+            "-home-kan-my-project"
+        );
+        assert_eq!(
+            encode_project_path("C:\\Users\\foo\\app.v2"),
+            "C--Users-foo-app-v2"
+        );
         assert_eq!(encode_project_path("/home/kan/a_b c"), "-home-kan-a-b-c");
         // Non-ASCII (each scalar → '-'): "/x/é.z" → '-' x '-' '-' '-' z.
         assert_eq!(encode_project_path("/x/é.z"), "-x---z");

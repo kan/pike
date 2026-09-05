@@ -256,7 +256,11 @@ pub fn try_wait_and_exit() {
         let _ = CloseHandle(done_event);
         let _ = CloseHandle(abort_event);
 
-        if result.0 == 0 { 0 } else { 1 }
+        if result.0 == 0 {
+            0
+        } else {
+            1
+        }
     };
 
     std::process::exit(exit_code);
@@ -275,10 +279,7 @@ fn send_to_first_instance(args: &[String], cwd: &str) {
     let window_name = encode_wide(&format!("{APP_ID}{SI_WINDOW_SUFFIX}"));
 
     unsafe {
-        let hwnd = match FindWindowW(
-            PCWSTR(class_name.as_ptr()),
-            PCWSTR(window_name.as_ptr()),
-        ) {
+        let hwnd = match FindWindowW(PCWSTR(class_name.as_ptr()), PCWSTR(window_name.as_ptr())) {
             Ok(h) if !h.is_invalid() => h,
             _ => return,
         };
@@ -296,7 +297,9 @@ fn send_to_first_instance(args: &[String], cwd: &str) {
             hwnd,
             WM_COPYDATA,
             Some(windows::Win32::Foundation::WPARAM(0)),
-            Some(windows::Win32::Foundation::LPARAM(&cds as *const _ as isize)),
+            Some(windows::Win32::Foundation::LPARAM(
+                &cds as *const _ as isize,
+            )),
         );
     }
 }

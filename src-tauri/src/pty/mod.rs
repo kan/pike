@@ -87,24 +87,15 @@ fn spawn_pty_with_command(
 
     let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
 
-    let mut child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| e.to_string())?;
+    let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     let killer = child.clone_killer();
     let busy = BusyProbe::new(probe_kind, child.process_id(), &id);
 
     drop(pair.slave);
 
-    let reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|e| e.to_string())?;
+    let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
 
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|e| e.to_string())?;
+    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
     let shared_cwd = Arc::new(Mutex::new(cwd));
     let exit_emitted = Arc::new(AtomicBool::new(false));
@@ -132,15 +123,9 @@ fn spawn_pty_with_command(
         let wait_app = app.clone();
         let exit_emitted_flag = Arc::clone(&exit_emitted);
         std::thread::spawn(move || {
-            let code = child
-                .wait()
-                .map(|s| s.exit_code() as i32)
-                .unwrap_or(-1);
+            let code = child.wait().map(|s| s.exit_code() as i32).unwrap_or(-1);
             if !exit_emitted_flag.swap(true, Ordering::SeqCst) {
-                let _ = wait_app.emit(
-                    "pty_exit",
-                    PtyExitPayload { id: wait_id, code },
-                );
+                let _ = wait_app.emit("pty_exit", PtyExitPayload { id: wait_id, code });
             }
         });
     }
@@ -288,7 +273,9 @@ pub(crate) fn find_pwsh_path() -> Option<String> {
         }
     }
     let fallback = std::path::Path::new(r"C:\Program Files\PowerShell\7\pwsh.exe");
-    fallback.is_file().then(|| fallback.to_string_lossy().into_owned())
+    fallback
+        .is_file()
+        .then(|| fallback.to_string_lossy().into_owned())
 }
 
 fn find_git_bash() -> Result<String, String> {
@@ -467,10 +454,7 @@ pub async fn pty_spawn_tmux(
 }
 
 #[tauri::command]
-pub async fn pty_get_cwd(
-    id: String,
-    state: State<'_, PtyState>,
-) -> Result<Option<String>, String> {
+pub async fn pty_get_cwd(id: String, state: State<'_, PtyState>) -> Result<Option<String>, String> {
     let cwd_arc = {
         let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
         let Some(session) = sessions.get(&id) else {
@@ -483,11 +467,7 @@ pub async fn pty_get_cwd(
 }
 
 #[tauri::command]
-pub async fn pty_write(
-    id: String,
-    data: String,
-    state: State<'_, PtyState>,
-) -> Result<(), String> {
+pub async fn pty_write(id: String, data: String, state: State<'_, PtyState>) -> Result<(), String> {
     // Clone the Arc so the sessions lock is released before the write.
     // This prevents a blocked write from deadlocking resize/kill.
     let writer = {

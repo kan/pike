@@ -2,11 +2,11 @@ pub mod tunnel;
 
 use crate::fs::{batch_read_files, file_name_of, parent_dir_of, rel_path_of, walk_files_by_name};
 use crate::types::ShellConfig;
+use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::query_parameters::{
     ListContainersOptions, LogsOptions, RestartContainerOptions, StartContainerOptions,
     StopContainerOptions,
 };
-use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::Docker;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -192,7 +192,10 @@ fn parse_compose_file(root: &str, path: &str, content: &str) -> Option<ComposePr
         name: parsed
             .name
             .unwrap_or_else(|| normalize_project_name(file_name_of(dir))),
-        services: names.into_iter().map(|name| ComposeService { name }).collect(),
+        services: names
+            .into_iter()
+            .map(|name| ComposeService { name })
+            .collect(),
     })
 }
 
@@ -266,10 +269,7 @@ pub async fn docker_list_containers(
             .as_ref()
             .is_some_and(|l| l.contains_key(tunnel::TUNNEL_LABEL))
         {
-            let running = c
-                .state
-                .as_ref()
-                .is_some_and(|s| s.to_string() == "running");
+            let running = c.state.as_ref().is_some_and(|s| s.to_string() == "running");
             if running {
                 if let Some(t) = tunnel::tunnel_from_summary(&c, &owner) {
                     result.tunnels.push(t);
@@ -291,7 +291,9 @@ pub async fn docker_list_containers(
             status: c.status.unwrap_or_default(),
             compose_service: labels.get("com.docker.compose.service").cloned(),
             compose_project: labels.get("com.docker.compose.project").cloned(),
-            compose_working_dir: labels.get("com.docker.compose.project.working_dir").cloned(),
+            compose_working_dir: labels
+                .get("com.docker.compose.project.working_dir")
+                .cloned(),
         });
     }
     Ok(result)
@@ -419,7 +421,11 @@ pub async fn docker_detect_shell(
         .create_exec(
             &container_id,
             CreateExecOptions::<&str> {
-                cmd: Some(vec!["sh", "-c", "test -x /bin/bash && echo bash || echo sh"]),
+                cmd: Some(vec![
+                    "sh",
+                    "-c",
+                    "test -x /bin/bash && echo bash || echo sh",
+                ]),
                 attach_stdout: Some(true),
                 ..Default::default()
             },
@@ -428,8 +434,10 @@ pub async fn docker_detect_shell(
         .map_err(|e| e.to_string())?;
 
     let mut shell_name = String::new();
-    if let StartExecResults::Attached { mut output, .. } =
-        docker.start_exec(&exec.id, None).await.map_err(|e| e.to_string())?
+    if let StartExecResults::Attached { mut output, .. } = docker
+        .start_exec(&exec.id, None)
+        .await
+        .map_err(|e| e.to_string())?
     {
         let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             while let Some(Ok(msg)) = output.next().await {
@@ -487,13 +495,23 @@ mod tests {
     #[test]
     fn reads_services_and_derives_the_group() {
         let yaml = "services:\n  web:\n    image: nginx\n  db:\n    image: mysql\n";
-        let p = parse_compose_file("/home/kan/repo", "/home/kan/repo/apps/web/compose.yml", yaml)
-            .expect("a compose file with services");
+        let p = parse_compose_file(
+            "/home/kan/repo",
+            "/home/kan/repo/apps/web/compose.yml",
+            yaml,
+        )
+        .expect("a compose file with services");
         assert_eq!(p.dir, "/home/kan/repo/apps/web");
         assert_eq!(p.file, "apps/web/compose.yml");
         assert_eq!(p.name, "web");
         // Sorted, so the panel's order does not depend on YAML map iteration.
-        assert_eq!(p.services.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["db", "web"]);
+        assert_eq!(
+            p.services
+                .iter()
+                .map(|s| s.name.as_str())
+                .collect::<Vec<_>>(),
+            ["db", "web"]
+        );
     }
 
     #[test]

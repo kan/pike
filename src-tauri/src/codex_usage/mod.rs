@@ -1,6 +1,6 @@
+use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -125,14 +125,13 @@ fn get_pricing(model: &str) -> Option<ModelPricing> {
         ("gpt-4.1-mini", (0.4, 0.1, 1.6)),
         ("gpt-4.1", (2.0, 0.5, 8.0)),
     ];
-    table
-        .iter()
-        .find(|(prefix, _)| m.starts_with(prefix))
-        .map(|(_, (input_per_m, cached_per_m, output_per_m))| ModelPricing {
+    table.iter().find(|(prefix, _)| m.starts_with(prefix)).map(
+        |(_, (input_per_m, cached_per_m, output_per_m))| ModelPricing {
             input_per_m: *input_per_m,
             cached_per_m: *cached_per_m,
             output_per_m: *output_per_m,
-        })
+        },
+    )
 }
 
 /// Cost of a model's usage, discounting cached input tokens. `input` includes the
@@ -202,7 +201,9 @@ fn recent_session_files(sessions_dir: &Path) -> Vec<(PathBuf, SystemTime)> {
     let window = Duration::from_secs(RECENT_WINDOW_SECS);
     let mut out = Vec::new();
     for day in latest_day_dirs(sessions_dir, SCAN_DAY_DIRS) {
-        let Ok(entries) = fs::read_dir(&day) else { continue };
+        let Ok(entries) = fs::read_dir(&day) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.extension().is_some_and(|e| e == "jsonl") {
@@ -416,7 +417,10 @@ fn get_usage_for_project(
     let account = read_account(&codex_dir);
     let mut files = recent_session_files(&sessions_dir);
     if files.is_empty() {
-        return Ok(CodexUsageResult { account, ..Default::default() });
+        return Ok(CodexUsageResult {
+            account,
+            ..Default::default()
+        });
     }
     // Newest first: account-wide fields (model, rate limits, session id) come from
     // the most recently written session.
@@ -466,7 +470,10 @@ fn get_usage_for_project(
     }
 
     if session_count == 0 {
-        return Ok(CodexUsageResult { account, ..Default::default() });
+        return Ok(CodexUsageResult {
+            account,
+            ..Default::default()
+        });
     }
 
     // Sum cost per model; `None` only if no matching session used a priced model.
@@ -487,7 +494,9 @@ fn get_usage_for_project(
         now.duration_since(t).unwrap_or(Duration::ZERO) <= Duration::from_secs(ACTIVE_WINDOW_SECS)
     });
     let last_activity_at = last_activity.and_then(|t| {
-        t.duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| d.as_secs())
+        t.duration_since(SystemTime::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs())
     });
 
     Ok(CodexUsageResult {

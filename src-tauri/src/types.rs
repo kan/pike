@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::io::{BufRead, BufReader, Read};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -216,9 +216,9 @@ pub fn os_open(arg: &str) -> Result<(), String> {
 pub fn os_open_url(url: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
+        use windows::core::{w, HSTRING};
         use windows::Win32::UI::Shell::ShellExecuteW;
         use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-        use windows::core::{HSTRING, w};
 
         let file = HSTRING::from(url);
         // ShellExecuteW は成功したときだけ 32 より大きい値を返す（HINSTANCE 型なのは
@@ -242,7 +242,9 @@ pub fn bash_quote(s: &str) -> String {
     if s.is_empty() {
         return "''".to_string();
     }
-    if s.chars().all(|c| c.is_alphanumeric() || "-_./=@:+".contains(c)) {
+    if s.chars()
+        .all(|c| c.is_alphanumeric() || "-_./=@:+".contains(c))
+    {
         return s.to_string();
     }
     format!("'{}'", s.replace('\'', "'\\''"))
@@ -251,7 +253,9 @@ pub fn bash_quote(s: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ShellConfig {
-    Wsl { distro: String },
+    Wsl {
+        distro: String,
+    },
     Cmd,
     Powershell,
     /// PowerShell 7+ (pwsh.exe) — Windows PowerShell 5 (`Powershell`) と併存
@@ -367,7 +371,11 @@ impl ShellConfig {
     /// WSL: route through `bash -c` with `WSL_EXTRA_PATH` prepended so user-installed
     /// binaries (signing programs, git hooks) resolve. Non-WSL shells run normally —
     /// their Pike-inherited PATH already covers most cases.
-    pub fn run_stdout_with_user_path(&self, program: &str, args: &[&str]) -> Result<String, String> {
+    pub fn run_stdout_with_user_path(
+        &self,
+        program: &str,
+        args: &[&str],
+    ) -> Result<String, String> {
         let cmd = match self {
             ShellConfig::Wsl { distro } => {
                 let mut parts = Vec::with_capacity(1 + args.len());
@@ -377,7 +385,12 @@ impl ShellConfig {
                 }
                 let script = format!("PATH=\"{WSL_EXTRA_PATH}:$PATH\" {}", parts.join(" "));
                 let mut cmd = silent_command("wsl.exe");
-                cmd.arg("-d").arg(distro).arg("-e").arg("bash").arg("-c").arg(script);
+                cmd.arg("-d")
+                    .arg(distro)
+                    .arg("-e")
+                    .arg("bash")
+                    .arg("-c")
+                    .arg(script);
                 cmd
             }
             // macOS / Linux はここで包む必要が無い。`augment_process_path` が起動時に
@@ -445,7 +458,12 @@ impl ShellConfig {
                 match s {
                     ShellConfig::Wsl { distro } => {
                         let mut c = silent_command("wsl.exe");
-                        c.arg("-d").arg(distro).arg("-e").arg("bash").arg("-c").arg(script);
+                        c.arg("-d")
+                            .arg(distro)
+                            .arg("-e")
+                            .arg("bash")
+                            .arg("-c")
+                            .arg(script);
                         c
                     }
                     _ => {
@@ -459,8 +477,10 @@ impl ShellConfig {
                 // `current_dir` + `raw_arg` avoids the cmd.exe/Rust quoting clash
                 // that `cmd /C "cd /d ..."` triggers; cmd starts in `dir`, so
                 // relative tools (node_modules/.bin, npx) resolve correctly.
-                let assigns: String =
-                    env.iter().map(|(k, v)| format!("set \"{k}={v}\" && ")).collect();
+                let assigns: String = env
+                    .iter()
+                    .map(|(k, v)| format!("set \"{k}={v}\" && "))
+                    .collect();
                 let mut c = silent_command("cmd.exe");
                 c.current_dir(dir);
                 c.arg("/C");
@@ -711,11 +731,19 @@ pub fn wsl_home_cached(shell: &ShellConfig, distro: &str) -> Option<String> {
     }
     // `echo $HOME` → e.g. "/home/kan"; take the last line in case of any banner.
     let raw = shell.run_stdout("bash", &["-c", "echo $HOME"]).ok()?;
-    let home = raw.lines().last().unwrap_or_default().trim().trim_end_matches('/');
+    let home = raw
+        .lines()
+        .last()
+        .unwrap_or_default()
+        .trim()
+        .trim_end_matches('/');
     if home.is_empty() {
         return None;
     }
-    cache.lock().ok()?.insert(distro.to_string(), home.to_string());
+    cache
+        .lock()
+        .ok()?
+        .insert(distro.to_string(), home.to_string());
     Some(home.to_string())
 }
 
@@ -784,7 +812,9 @@ pub fn shell_from_id(id: &str) -> Option<ShellConfig> {
         // 引用符と \ はジャンプリストの引数文字列の引用を壊すので除く。
         let ok = !distro.is_empty()
             && distro.chars().count() <= 64
-            && !distro.chars().any(|c| c.is_control() || c == '"' || c == '\\');
+            && !distro
+                .chars()
+                .any(|c| c.is_control() || c == '"' || c == '\\');
         return ok.then(|| ShellConfig::Wsl {
             distro: distro.to_string(),
         });
@@ -851,8 +881,14 @@ mod tests {
 
     #[test]
     fn shell_from_id_round_trips_menu_ids() {
-        assert!(matches!(shell_from_id("powershell"), Some(ShellConfig::Powershell)));
-        assert!(matches!(shell_from_id("git-bash"), Some(ShellConfig::GitBash)));
+        assert!(matches!(
+            shell_from_id("powershell"),
+            Some(ShellConfig::Powershell)
+        ));
+        assert!(matches!(
+            shell_from_id("git-bash"),
+            Some(ShellConfig::GitBash)
+        ));
         assert!(
             matches!(shell_from_id("wsl:Ubuntu-24.04"), Some(ShellConfig::Wsl { distro }) if distro == "Ubuntu-24.04")
         );
@@ -888,13 +924,19 @@ mod tests {
     #[test]
     fn unix_program_rejects_values_that_shell_from_id_would_reject() {
         // 相対名は PATH 探索になるので採らない。既定のログインシェルへ落ちる。
-        let relative = ShellConfig::Unix { program: "zsh".to_string() };
+        let relative = ShellConfig::Unix {
+            program: "zsh".to_string(),
+        };
         assert_eq!(relative.unix_program(), default_unix_shell());
         // 空は「既定に任せる」の意味。
-        let empty = ShellConfig::Unix { program: String::new() };
+        let empty = ShellConfig::Unix {
+            program: String::new(),
+        };
         assert_eq!(empty.unix_program(), default_unix_shell());
         // 絶対パスはそのまま通る。
-        let absolute = ShellConfig::Unix { program: "/bin/bash".to_string() };
+        let absolute = ShellConfig::Unix {
+            program: "/bin/bash".to_string(),
+        };
         assert_eq!(absolute.unix_program(), "/bin/bash");
     }
 
@@ -902,7 +944,8 @@ mod tests {
     fn unix_shell_deserializes_without_program() {
         let shell: ShellConfig = serde_json::from_str(r#"{"kind":"unix"}"#).unwrap();
         assert!(matches!(shell, ShellConfig::Unix { program } if program.is_empty()));
-        let shell: ShellConfig = serde_json::from_str(r#"{"kind":"unix","program":"/bin/bash"}"#).unwrap();
+        let shell: ShellConfig =
+            serde_json::from_str(r#"{"kind":"unix","program":"/bin/bash"}"#).unwrap();
         assert!(matches!(shell, ShellConfig::Unix { program } if program == "/bin/bash"));
     }
 
@@ -918,7 +961,10 @@ mod tests {
         // 元の並びは先頭に残る（ユーザーの PATH の優先順を壊さない）。
         assert_eq!(&dirs[..3], &["/usr/bin", "/bin", "/opt/homebrew/bin"]);
         // 既にあるものは 1 回だけ。
-        assert_eq!(dirs.iter().filter(|d| **d == "/opt/homebrew/bin").count(), 1);
+        assert_eq!(
+            dirs.iter().filter(|d| **d == "/opt/homebrew/bin").count(),
+            1
+        );
         // $HOME は展開される。
         assert!(dirs.contains(&"/Users/me/.cargo/bin"));
     }

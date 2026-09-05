@@ -42,7 +42,10 @@ pub struct Geometry {
 }
 
 fn file_path(app: &AppHandle) -> Option<PathBuf> {
-    app.path().app_config_dir().ok().map(|dir| dir.join(FILENAME))
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join(FILENAME))
 }
 
 fn load(app: &AppHandle) -> HashMap<String, Geometry> {
@@ -132,7 +135,9 @@ pub fn record_all(app: &AppHandle) {
 }
 
 fn default_rect(window: &WebviewWindow) -> Geometry {
-    let position = window.outer_position().unwrap_or(PhysicalPosition { x: 0, y: 0 });
+    let position = window
+        .outer_position()
+        .unwrap_or(PhysicalPosition { x: 0, y: 0 });
     let size: PhysicalSize<u32> = LogicalSize::new(DEFAULT_LOGICAL_SIZE.0, DEFAULT_LOGICAL_SIZE.1)
         .to_physical(window.scale_factor().unwrap_or(1.0));
     Geometry {
@@ -162,7 +167,10 @@ pub fn restore(app: &AppHandle, key: &str, window: &WebviewWindow) {
     // so that moving onto a display with a different scale factor (which makes
     // Windows resize the window to match) cannot undo the size set below.
     if on_some_monitor(app, &geom) {
-        let _ = window.set_position(PhysicalPosition { x: geom.x, y: geom.y });
+        let _ = window.set_position(PhysicalPosition {
+            x: geom.x,
+            y: geom.y,
+        });
     }
     let _ = window.set_size(PhysicalSize {
         width: geom.width,
@@ -221,7 +229,9 @@ pub fn prune_plugin_state(identifier: &str) {
 /// The state file with every untracked label dropped, or None when there is
 /// nothing to drop (so an unchanged file is never rewritten).
 fn pruned_plugin_state(text: &str) -> Option<Vec<u8>> {
-    let serde_json::Value::Object(mut entries) = serde_json::from_str::<serde_json::Value>(text).ok()? else {
+    let serde_json::Value::Object(mut entries) =
+        serde_json::from_str::<serde_json::Value>(text).ok()?
+    else {
         return None;
     };
     let before = entries.len();

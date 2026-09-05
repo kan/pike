@@ -54,7 +54,6 @@ use windows::Win32::UI::Shell::{
 use crate::project;
 use crate::types::{MenuShell, ShellConfig};
 
-
 /// 一覧に載せるプロジェクトの最大件数（Windows のカテゴリ表示上限にも収まる）。
 const MAX_PROJECTS: usize = 10;
 
@@ -139,8 +138,7 @@ pub fn refresh(lang: &str, projects: &[project::ProjectConfig], shells: &[MenuSh
     );
     // send の失敗は「worker スレッドが死んだ」＝以後ジャンプリストが永久に更新
     // されないことを意味するので、ビルド失敗（worker 内で warn）とは別に記録する。
-    if worker().send(job).is_err()
-    {
+    if worker().send(job).is_err() {
         log::error!("[jumplist] worker thread is gone; jump list will not update");
     }
 }
@@ -350,7 +348,9 @@ unsafe fn title_propvariant(s: &str) -> windows::core::Result<PROPVARIANT> {
                 wReserved1: 0,
                 wReserved2: 0,
                 wReserved3: 0,
-                Anonymous: PROPVARIANT_0_0_0 { pwszVal: PWSTR(mem) },
+                Anonymous: PROPVARIANT_0_0_0 {
+                    pwszVal: PWSTR(mem),
+                },
             }),
         },
     })
@@ -441,7 +441,10 @@ mod tests {
         assert_eq!(tasks[0].title, "PowerShell");
         assert_eq!(tasks[0].args, r#"--terminal "--shell=powershell""#);
         assert_eq!(tasks[1].args, r#"--terminal "--shell=wsl:Ubuntu-24.04""#);
-        assert_eq!(tasks[1].tooltip, "新しいターミナルウィンドウ (WSL (Ubuntu-24.04))");
+        assert_eq!(
+            tasks[1].tooltip,
+            "新しいターミナルウィンドウ (WSL (Ubuntu-24.04))"
+        );
     }
 
     #[test]

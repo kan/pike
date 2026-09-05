@@ -157,7 +157,10 @@ fn run_usage_cli(
     // `CLAUDE_CONFIG_DIR` はここで明示的に渡す（#225）。この経路は WSL では
     // `bash -c`（非対話・非ログイン）なので、ユーザーが `.bashrc` や `.envrc` で
     // 設定していても、渡さない限り既定の `~/.claude` のアカウントを見てしまう。
-    let env: Vec<(&str, &str)> = config_dir.map(|d| ("CLAUDE_CONFIG_DIR", d)).into_iter().collect();
+    let env: Vec<(&str, &str)> = config_dir
+        .map(|d| ("CLAUDE_CONFIG_DIR", d))
+        .into_iter()
+        .collect();
     let windows = match shell.run_shell_line_env(project_root, &env, &line, CLI_TIMEOUT) {
         Ok((_code, stdout, _stderr)) => parse_usage_output(&stdout),
         Err(_) => Vec::new(),
@@ -227,7 +230,12 @@ pub async fn claude_usage_rate_get(
     force: bool,
 ) -> Result<ClaudeRateLimits, String> {
     tokio::task::spawn_blocking(move || {
-        Ok(get_rate_limits(&shell, &project_root, session_active, force))
+        Ok(get_rate_limits(
+            &shell,
+            &project_root,
+            session_active,
+            force,
+        ))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -255,7 +263,10 @@ Last 24h · 171 requests · 3 sessions
         assert_eq!(windows[0].label, "session");
         assert_eq!(windows[0].kind, "session");
         assert_eq!(windows[0].used_percent, 20.0);
-        assert_eq!(windows[0].resets_at.as_deref(), Some("Jul 2, 2:39pm (Asia/Tokyo)"));
+        assert_eq!(
+            windows[0].resets_at.as_deref(),
+            Some("Jul 2, 2:39pm (Asia/Tokyo)")
+        );
         assert_eq!(windows[1].label, "week (all models)");
         assert_eq!(windows[1].kind, "weekAll");
         assert_eq!(windows[1].used_percent, 4.0);

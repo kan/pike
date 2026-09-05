@@ -92,8 +92,9 @@ mod imp {
         let pid = child.process_id().expect("process_id");
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().expect("reader");
-        let writer: SharedWriter =
-            std::sync::Arc::new(std::sync::Mutex::new(pair.master.take_writer().expect("writer")));
+        let writer: SharedWriter = std::sync::Arc::new(std::sync::Mutex::new(
+            pair.master.take_writer().expect("writer"),
+        ));
         let out: Shared = Default::default();
         let sink = out.clone();
         let responder = writer.clone();
@@ -129,9 +130,17 @@ mod imp {
 
     fn tail(out: &Shared) -> String {
         let s = out.lock().unwrap();
-        let t: String = s.chars().rev().take(160).collect::<Vec<_>>()
-            .into_iter().rev().collect();
-        t.replace('\u{1b}', "<ESC>").replace('\r', "\\r").replace('\n', "\\n")
+        let t: String = s
+            .chars()
+            .rev()
+            .take(160)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        t.replace('\u{1b}', "<ESC>")
+            .replace('\r', "\\r")
+            .replace('\n', "\\n")
     }
 
     fn windows_shell(label: &str, mut cmd: CommandBuilder, busy_line: &str) {
@@ -142,7 +151,12 @@ mod imp {
 
         std::thread::sleep(Duration::from_millis(2500));
         let idle = descendants(pid);
-        println!("  alive={} idle 時の子孫: {} 件 {:?}", alive(pid), idle.len(), idle);
+        println!(
+            "  alive={} idle 時の子孫: {} 件 {:?}",
+            alive(pid),
+            idle.len(),
+            idle
+        );
         println!("  出力末尾: {}", tail(&out));
 
         send(&writer, busy_line);
@@ -228,7 +242,6 @@ mod imp {
         println!("\n=== Complete ===");
         std::process::exit(0);
     }
-
 }
 
 #[cfg(windows)]

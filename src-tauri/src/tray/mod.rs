@@ -156,7 +156,11 @@ fn build_menu(
     // 開発版だけ、操作できない見出しとしてアプリ名を先頭に置く。ツールチップは
     // ホバーしないと出ないので、メニューを開いた時点でも分かるようにする。
     let debug_header = if is_debug_build(app) {
-        Some(MenuItemBuilder::new(app_label(app)).enabled(false).build(app)?)
+        Some(
+            MenuItemBuilder::new(app_label(app))
+                .enabled(false)
+                .build(app)?,
+        )
     } else {
         None
     };

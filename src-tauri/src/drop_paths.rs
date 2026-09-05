@@ -85,7 +85,9 @@ pub fn attach(window: &WebviewWindow) {
                             if path.is_empty() {
                                 continue;
                             }
-                            let is_dir = std::fs::metadata(&path).map(|m| m.is_dir()).unwrap_or(false);
+                            let is_dir = std::fs::metadata(&path)
+                                .map(|m| m.is_dir())
+                                .unwrap_or(false);
                             entries.push(DropPathEntry { path, is_dir });
                         }
                     }
@@ -95,7 +97,10 @@ pub fn attach(window: &WebviewWindow) {
             let _ = app.emit_to(
                 label.as_str(),
                 "drop_paths",
-                DropPathsPayload { id: id.to_string(), entries },
+                DropPathsPayload {
+                    id: id.to_string(),
+                    entries,
+                },
             );
             Ok(())
         }));

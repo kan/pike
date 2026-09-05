@@ -29,7 +29,10 @@ fn main() {
 
     drop(pair.slave);
 
-    let mut reader = pair.master.try_clone_reader().expect("Failed to get reader");
+    let mut reader = pair
+        .master
+        .try_clone_reader()
+        .expect("Failed to get reader");
 
     println!("[3] Reading output...\n---");
 

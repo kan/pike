@@ -5,12 +5,7 @@
 mod appmenu;
 #[cfg(not(target_os = "macos"))]
 mod appmenu {
-    pub fn refresh(
-        _app: &tauri::AppHandle,
-        _lang: &str,
-        _actions: &[crate::types::MenuAction],
-    ) {
-    }
+    pub fn refresh(_app: &tauri::AppHandle, _lang: &str, _actions: &[crate::types::MenuAction]) {}
     pub fn on_menu_event(_app: &tauri::AppHandle, _event: tauri::menu::MenuEvent) {}
 }
 mod claude_usage;
@@ -48,12 +43,12 @@ mod jumplist {
     ) {
     }
 }
-mod search;
-mod project;
-mod pty;
 mod http;
 mod page_title;
+mod project;
+mod pty;
 mod remote_image;
+mod search;
 mod settings_sync;
 mod tasks;
 mod tray;
@@ -65,9 +60,12 @@ mod watcher;
 mod window_geom;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WebviewWindow, WindowEvent};
+use std::sync::{Arc, Mutex};
+use tauri::{
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
+};
 use tauri_plugin_window_state::{AppHandleExt as _, StateFlags};
 
 /// Prefix for project-window labels (`project-{uuid}`). Opaque to the frontend:
@@ -141,8 +139,11 @@ const LIGHT_SURFACE_RGB: (u8, u8, u8) = (255, 255, 255);
 /// **そこまで消すには「前回の解決結果」を Rust から読めるファイルに持つ必要があり、
 /// 数フレームのために永続化を 1 つ増やす価値が無いと判断した。**
 fn apply_startup_surface(window: &WebviewWindow) {
-    let (r, g, b) =
-        if window.theme().ok() == Some(tauri::Theme::Light) { LIGHT_SURFACE_RGB } else { DARK_SURFACE_RGB };
+    let (r, g, b) = if window.theme().ok() == Some(tauri::Theme::Light) {
+        LIGHT_SURFACE_RGB
+    } else {
+        DARK_SURFACE_RGB
+    };
     let _ = window.set_background_color(Some(tauri::window::Color(r, g, b, 255)));
 }
 
@@ -195,9 +196,7 @@ fn is_on_current_virtual_desktop(window: &WebviewWindow) -> bool {
                     result
                 }
                 Err(e) => {
-                    log::warn!(
-                        "[vdesktop] IsWindowOnCurrentVirtualDesktop failed: {e}"
-                    );
+                    log::warn!("[vdesktop] IsWindowOnCurrentVirtualDesktop failed: {e}");
                     true
                 }
             }
@@ -297,7 +296,11 @@ fn as_project_dir(projects: &[project::ProjectConfig], action: cli::CliAction) -
 /// The id of the project whose root is `path` — registered, or transient (#230)
 /// and therefore only alive as long as the window showing it. Both kinds live in
 /// `window_projects`, so the caller can focus either one the same way.
-fn project_id_for_root(app: &AppHandle, projects: &[project::ProjectConfig], path: &str) -> Option<String> {
+fn project_id_for_root(
+    app: &AppHandle,
+    projects: &[project::ProjectConfig],
+    path: &str,
+) -> Option<String> {
     if let Some(proj) = project_for_root(projects, path) {
         return Some(proj.id.clone());
     }
@@ -309,7 +312,11 @@ fn project_id_for_root(app: &AppHandle, projects: &[project::ProjectConfig], pat
 /// root is returned: a whole `ProjectConfig` would have to be cloned out of the
 /// transient map, dragging along `last_session`, which holds the full text of
 /// every unsaved editor buffer.
-fn project_root_for_id(app: &AppHandle, projects: &[project::ProjectConfig], id: &str) -> Option<String> {
+fn project_root_for_id(
+    app: &AppHandle,
+    projects: &[project::ProjectConfig],
+    id: &str,
+) -> Option<String> {
     if let Some(proj) = projects.iter().find(|p| p.id == id) {
         return Some(proj.root.clone());
     }
@@ -329,7 +336,12 @@ fn create_transient_project(
 ) -> Option<String> {
     let transient = app.try_state::<project::transient::TransientState>()?;
     let config = transient.create(projects, path, distro_hint)?;
-    log::debug!("[transient] {} → {} ({:?})", config.id, config.root, config.shell);
+    log::debug!(
+        "[transient] {} → {} ({:?})",
+        config.id,
+        config.root,
+        config.shell
+    );
     Some(config.id)
 }
 
@@ -344,7 +356,11 @@ fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
 /// the project id for a project window, `GLOBAL_KEY` for a project-less one.
 /// tauri-plugin-window-state cannot do this itself because these labels are
 /// single-use uuids.
-fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<WebviewWindow, tauri::Error> {
+fn build_window(
+    app: &AppHandle,
+    label: &str,
+    geom_key: &str,
+) -> Result<WebviewWindow, tauri::Error> {
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .title("Pike")
         .inner_size(
@@ -396,7 +412,11 @@ fn create_global_window(app: &AppHandle) -> String {
 /// shows — so the frontend's `project_for_window` and the focus resolution must
 /// be able to read the entry the moment the webview mounts. An optional pending
 /// CLI action is queued (also before build) for the new window to drain.
-fn build_project_window(app: &AppHandle, project_id: &str, pending: Option<cli::CliAction>) -> String {
+fn build_project_window(
+    app: &AppHandle,
+    project_id: &str,
+    pending: Option<cli::CliAction>,
+) -> String {
     let label = format!("{PROJECT_WINDOW_PREFIX}{}", uuid::Uuid::new_v4());
     if let Some(state) = app.try_state::<project::ProjectState>() {
         project::set_window_project(&state, &label, project_id);
@@ -544,7 +564,10 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
                     // there rather than in a new sidebar-less window.
                     if let Some(root) = project_root_for_id(app, &projects, pid) {
                         if files.iter().all(|f| is_under_root(&f.path, &root)) {
-                            log::debug!("[single-instance] files: open in project window {}", w.label());
+                            log::debug!(
+                                "[single-instance] files: open in project window {}",
+                                w.label()
+                            );
                             emit_action_to(app, w, &action);
                             return;
                         }
@@ -573,7 +596,11 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
 }
 
 #[tauri::command]
-async fn open_project_window(project_id: String, held: Option<Vec<String>>, app: AppHandle) -> Result<(), String> {
+async fn open_project_window(
+    project_id: String,
+    held: Option<Vec<String>>,
+    app: AppHandle,
+) -> Result<(), String> {
     // Guard as elsewhere: the id ends up in window_projects and as a CLI arg, so
     // reject anything outside [a-zA-Z0-9_-].
     types::validate_slug(&project_id, "Project ID")?;
@@ -657,7 +684,11 @@ fn window_projects_snapshot(app: &AppHandle) -> HashMap<String, String> {
 /// `action` を渡すと、見つけたウィンドウにそれをそのまま届ける（`--shell=` のような
 /// 付随情報を落とさないため）。渡さなければ、保持しているウィンドウには「そのプロジェクトへ
 /// 切り替えろ」だけを伝える。
-fn focus_project_window_anywhere(app: &AppHandle, id: &str, action: Option<&cli::CliAction>) -> bool {
+fn focus_project_window_anywhere(
+    app: &AppHandle,
+    id: &str,
+    action: Option<&cli::CliAction>,
+) -> bool {
     let state = app.state::<project::ProjectState>();
     let Some((label, shown)) = project::window_holding(&state, id) else {
         return false;
@@ -698,13 +729,18 @@ async fn open_global_window(app: AppHandle) -> Result<(), String> {
 /// whose per-shell submenu entries pass one (#240).
 fn spawn_global_terminal_window(app: &AppHandle, shell: Option<types::ShellConfig>) {
     let label = create_global_window(app);
-    store_pending(app, &label, cli::CliAction::OpenTerminal { cwd: None, shell });
+    store_pending(
+        app,
+        &label,
+        cli::CliAction::OpenTerminal { cwd: None, shell },
+    );
 }
 
 #[tauri::command]
 fn save_all_window_state(app: AppHandle) -> Result<(), String> {
     window_geom::record_all(&app);
-    app.save_window_state(StateFlags::all()).map_err(|e| e.to_string())
+    app.save_window_state(StateFlags::all())
+        .map_err(|e| e.to_string())
 }
 
 /// Rebuild the shell-integration menus — the taskbar jump list (#160) and the
@@ -1116,7 +1152,12 @@ mod dialog {
     pub async fn folder(initial: Option<String>) -> Result<Option<String>, String> {
         let at = initial
             .filter(|p| std::path::Path::new(p).is_dir())
-            .map(|p| format!(" default location (POSIX file \"{}\")", applescript_quote(&p)))
+            .map(|p| {
+                format!(
+                    " default location (POSIX file \"{}\")",
+                    applescript_quote(&p)
+                )
+            })
             .unwrap_or_default();
         osascript(format!("POSIX path of (choose folder{at})")).await
     }
@@ -1136,7 +1177,10 @@ mod dialog {
     #[cfg(target_os = "macos")]
     pub async fn save(default_name: Option<String>) -> Result<Option<String>, String> {
         let name = applescript_quote(&default_name.unwrap_or_default());
-        osascript(format!("POSIX path of (choose file name default name \"{name}\")")).await
+        osascript(format!(
+            "POSIX path of (choose file name default name \"{name}\")"
+        ))
+        .await
     }
 
     /// Windows でも macOS でもないホスト（Linux）。ネイティブのピッカーは実装していない。
@@ -1193,7 +1237,6 @@ async fn pick_open_file(extensions: Vec<String>) -> Result<Option<String>, Strin
 async fn pick_save_file(default_name: Option<String>) -> Result<Option<String>, String> {
     dialog::save(default_name).await
 }
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -1293,16 +1336,16 @@ pub fn run() {
             // dynamic-acl で `e2e` feature 時のみ登録し、本番を無傷に保つ。
             #[cfg(feature = "e2e")]
             {
-                if let Err(e) =
-                    app.handle().add_capability(include_str!("../capabilities-runtime/wdio.json"))
+                if let Err(e) = app
+                    .handle()
+                    .add_capability(include_str!("../capabilities-runtime/wdio.json"))
                 {
                     log::warn!("failed to add wdio capability: {e}");
                 }
             }
 
             let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-            std::fs::create_dir_all(config_dir.join("projects"))
-                .map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(config_dir.join("projects")).map_err(|e| e.to_string())?;
             app.manage(project::ProjectState {
                 config_dir,
                 window_projects: std::sync::Mutex::new(HashMap::new()),
@@ -1352,14 +1395,26 @@ pub fn run() {
             ) {
                 let projects = load_all_projects(app.handle());
                 action = as_project_dir(&projects, action);
-                if let cli::CliAction::OpenDirectory { ref path, ref distro } = action {
+                if let cli::CliAction::OpenDirectory {
+                    ref path,
+                    ref distro,
+                } = action
+                {
                     // Unregistered directories get a transient project (#230) here
                     // too, so a cold `pike <dir>` behaves like a warm one instead
                     // of falling through to the previous session.
                     let id = project_for_root(&projects, path)
                         .map(|p| p.id.clone())
-                        .or_else(|| create_transient_project(app.handle(), &projects, path, distro.as_deref()));
-                    if let (Some(id), Some(state)) = (id, app.try_state::<project::ProjectState>()) {
+                        .or_else(|| {
+                            create_transient_project(
+                                app.handle(),
+                                &projects,
+                                path,
+                                distro.as_deref(),
+                            )
+                        });
+                    if let (Some(id), Some(state)) = (id, app.try_state::<project::ProjectState>())
+                    {
                         project::set_window_project(&state, "main", &id);
                     }
                 }
@@ -1737,11 +1792,22 @@ mod tests {
         // Multiple paths are an "open these files" request (drag & drop).
         let many = CliAction::OpenFiles {
             files: vec![
-                CliFileTarget { path: "/home/kan/pike".to_string(), line: None, distro: None },
-                CliFileTarget { path: "/home/kan/a.rs".to_string(), line: None, distro: None },
+                CliFileTarget {
+                    path: "/home/kan/pike".to_string(),
+                    line: None,
+                    distro: None,
+                },
+                CliFileTarget {
+                    path: "/home/kan/a.rs".to_string(),
+                    line: None,
+                    distro: None,
+                },
             ],
         };
-        assert!(matches!(as_project_dir(&projects, many), CliAction::OpenFiles { .. }));
+        assert!(matches!(
+            as_project_dir(&projects, many),
+            CliAction::OpenFiles { .. }
+        ));
     }
 
     #[test]

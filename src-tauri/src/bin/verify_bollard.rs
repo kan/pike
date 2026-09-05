@@ -19,9 +19,7 @@ async fn connect_docker() -> Result<Docker, String> {
     // 2. TCP fallback for WSL2 dockerd
     for port in [2375, 2376] {
         let url = format!("tcp://127.0.0.1:{}", port);
-        if let Ok(docker) =
-            Docker::connect_with_http(&url, 4, bollard::API_DEFAULT_VERSION)
-        {
+        if let Ok(docker) = Docker::connect_with_http(&url, 4, bollard::API_DEFAULT_VERSION) {
             if docker.ping().await.is_ok() {
                 println!("    Connected via TCP 127.0.0.1:{}", port);
                 return Ok(docker);
@@ -51,10 +49,7 @@ async fn main() {
     println!("[2] Getting Docker version...");
     match docker.version().await {
         Ok(version) => {
-            println!(
-                "    Version: {}",
-                version.version.unwrap_or_default()
-            );
+            println!("    Version: {}", version.version.unwrap_or_default());
             println!(
                 "    API Version: {}",
                 version.api_version.unwrap_or_default()
@@ -88,7 +83,11 @@ async fn main() {
                         .as_ref()
                         .map(|n| n.join(", "))
                         .unwrap_or_default();
-                    let state = container.state.as_ref().map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
+                    let state = container
+                        .state
+                        .as_ref()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
                     let image = container.image.as_deref().unwrap_or("unknown");
                     println!("    {} | {} | {}", names, state, image);
                 }

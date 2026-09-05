@@ -38,7 +38,10 @@ pub enum BusyProbe {
     /// ホスト上のシェル。値は PTY の直下プロセス (シェル) の PID。
     HostTree { pid: u32 },
     /// WSL シェル。`distro` が None なら既定ディストロ。
-    Wsl { distro: Option<String>, marker: String },
+    Wsl {
+        distro: Option<String>,
+        marker: String,
+    },
     /// PID が取れなかった等で判定できない。
     Unavailable,
 }
@@ -90,7 +93,10 @@ pub fn count_busy(probes: &[BusyProbe]) -> usize {
         .filter(|p| matches!(p, BusyProbe::Wsl { .. }))
         .collect();
     let wsl_busy = std::thread::scope(|scope| {
-        let handles: Vec<_> = wsl.iter().map(|p| scope.spawn(move || p.is_busy())).collect();
+        let handles: Vec<_> = wsl
+            .iter()
+            .map(|p| scope.spawn(move || p.is_busy()))
+            .collect();
         // join は handle を consume するので、filter ではなく map で受ける
         handles
             .into_iter()

@@ -31,7 +31,9 @@ fn main() {
     // Step 1: Check tmux is available
     println!("[1] Checking tmux availability...");
     if !check_tmux_available() {
-        eprintln!("ERROR: tmux not found in WSL2. Install with: wsl.exe bash -lc 'sudo apt install tmux'");
+        eprintln!(
+            "ERROR: tmux not found in WSL2. Install with: wsl.exe bash -lc 'sudo apt install tmux'"
+        );
         std::process::exit(1);
     }
     println!("    OK: tmux is available\n");
@@ -67,7 +69,10 @@ fn main() {
     let mut child = pair.slave.spawn_command(cmd).expect("Failed to spawn");
     drop(pair.slave);
 
-    let mut reader = pair.master.try_clone_reader().expect("Failed to get reader");
+    let mut reader = pair
+        .master
+        .try_clone_reader()
+        .expect("Failed to get reader");
     let mut writer = pair.master.take_writer().expect("Failed to get writer");
 
     println!("    PTY spawned, reading initial output...\n---");
@@ -76,23 +81,21 @@ fn main() {
     let mut buf = [0u8; 4096];
     // Set a short timeout by reading in a thread
     let (tx, rx) = std::sync::mpsc::channel();
-    let read_thread = std::thread::spawn(move || {
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => {
-                    let _ = tx.send(None);
+    let read_thread = std::thread::spawn(move || loop {
+        match reader.read(&mut buf) {
+            Ok(0) => {
+                let _ = tx.send(None);
+                break;
+            }
+            Ok(n) => {
+                let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                if tx.send(Some(text)).is_err() {
                     break;
                 }
-                Ok(n) => {
-                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                    if tx.send(Some(text)).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => {
-                    let _ = tx.send(None);
-                    break;
-                }
+            }
+            Err(_) => {
+                let _ = tx.send(None);
+                break;
             }
         }
     });
@@ -143,7 +146,10 @@ fn main() {
     // Step 6: Verify session survived detach
     println!("[6] Verifying session survived detach...");
     if check_session_exists(session_name) {
-        println!("    OK: Session '{}' is still alive after detach!", session_name);
+        println!(
+            "    OK: Session '{}' is still alive after detach!",
+            session_name
+        );
     } else {
         eprintln!("    ERROR: Session was destroyed after detach");
         std::process::exit(1);

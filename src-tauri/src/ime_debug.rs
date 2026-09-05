@@ -66,4 +66,3 @@ pub async fn ime_debug_log(app: AppHandle, lines: Vec<String>) -> Result<(), Str
     .await
     .map_err(|e| e.to_string())?
 }
-

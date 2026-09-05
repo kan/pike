@@ -130,30 +130,28 @@ fn spawn_flush_thread(
     app: AppHandle,
     watcher_id: String,
 ) {
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(Duration::from_millis(100));
-            if *stop_flag.lock().unwrap() {
-                break;
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_millis(100));
+        if *stop_flag.lock().unwrap() {
+            break;
+        }
+        let payload = {
+            let mut buf = buffer.lock().unwrap();
+            if buf.should_flush() {
+                buf.take()
+            } else {
+                None
             }
-            let payload = {
-                let mut buf = buffer.lock().unwrap();
-                if buf.should_flush() {
-                    buf.take()
-                } else {
-                    None
-                }
-            };
-            if let Some((dirs, files)) = payload {
-                let _ = app.emit(
-                    "fs_changed",
-                    FsChangedPayload {
-                        watcher_id: watcher_id.clone(),
-                        changed_dirs: dirs,
-                        changed_files: files,
-                    },
-                );
-            }
+        };
+        if let Some((dirs, files)) = payload {
+            let _ = app.emit(
+                "fs_changed",
+                FsChangedPayload {
+                    watcher_id: watcher_id.clone(),
+                    changed_dirs: dirs,
+                    changed_files: files,
+                },
+            );
         }
     });
 }
@@ -207,11 +205,7 @@ fn start_native_watcher(
                     if path_contains_ignored(rel) {
                         continue;
                     }
-                    let parent = path
-                        .parent()
-                        .unwrap_or(path)
-                        .to_string_lossy()
-                        .into_owned();
+                    let parent = path.parent().unwrap_or(path).to_string_lossy().into_owned();
                     let file_path = path.to_string_lossy().into_owned();
                     let mut buf = buffer_cb.lock().unwrap();
                     buf.add(
@@ -232,11 +226,13 @@ fn start_native_watcher(
         .watch(root_path.as_path(), RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
 
-    state
-        .handles
-        .lock()
-        .unwrap()
-        .insert(id, WatcherHandle::Native { _watcher: watcher, stop_flag });
+    state.handles.lock().unwrap().insert(
+        id,
+        WatcherHandle::Native {
+            _watcher: watcher,
+            stop_flag,
+        },
+    );
 
     Ok(())
 }
@@ -264,12 +260,21 @@ fn start_wsl_watcher(
     };
     // Use -e flag to bypass bash and avoid shell interpretation of | and ()
     let mut cmd = silent_command("wsl.exe");
-    cmd.args(["-d", distro, "-e", "inotifywait",
-        "-m", "-r",
-        "-e", "create,delete,modify,move",
-        "--format", "%w%f|%e",
-        "--exclude", &exclude_regex,
-        "--", root,
+    cmd.args([
+        "-d",
+        distro,
+        "-e",
+        "inotifywait",
+        "-m",
+        "-r",
+        "-e",
+        "create,delete,modify,move",
+        "--format",
+        "%w%f|%e",
+        "--exclude",
+        &exclude_regex,
+        "--",
+        root,
     ]);
 
     cmd.stdout(std::process::Stdio::piped());
@@ -320,7 +325,13 @@ fn start_wsl_watcher(
             };
 
             let mut buf = buffer.lock().unwrap();
-            buf.add(parent, FsChangeEntry { path: file_path, kind });
+            buf.add(
+                parent,
+                FsChangeEntry {
+                    path: file_path,
+                    kind,
+                },
+            );
         }
         let _ = child.wait();
     });

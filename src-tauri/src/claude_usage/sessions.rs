@@ -166,7 +166,12 @@ fn read_session(path: &Path, modified_at: u64) -> Option<ClaudeSession> {
 }
 
 fn modified_ms(meta: &fs::Metadata) -> Option<u64> {
-    let ms = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_millis();
+    let ms = meta
+        .modified()
+        .ok()?
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_millis();
     Some(ms as u64)
 }
 
@@ -242,7 +247,10 @@ mod tests {
             r#"{"type":"last-prompt","lastPrompt":"first ask"}"#,
             r#"{"type":"ai-title","aiTitle":"Nice title"}"#,
         ]);
-        assert_eq!(got, Some(("Nice title".to_string(), Some("main".to_string()))));
+        assert_eq!(
+            got,
+            Some(("Nice title".to_string(), Some("main".to_string())))
+        );
     }
 
     #[test]

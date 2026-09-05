@@ -39,7 +39,11 @@ pub struct RgCaps {
 /// ```
 fn parse_rg_version(stdout: &str) -> Option<RgCaps> {
     let first = stdout.lines().next()?;
-    let version = first.strip_prefix("ripgrep ")?.split_whitespace().next()?.to_string();
+    let version = first
+        .strip_prefix("ripgrep ")?
+        .split_whitespace()
+        .next()?
+        .to_string();
     let mut semver = [0u32; 3];
     // major だけは読めることを求める（読めなければ rg ではない何かとみなす）。
     // minor / patch は distro が付ける接尾辞で崩れうるので、読めなければ 0 のまま。
@@ -220,7 +224,20 @@ pub async fn list_project_files(
             // find 側（`cmd.exe` に落とすと Ctrl+P の一覧が丸ごと空になる）。
             shell.command(
                 "find",
-                &[&root, "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*", "-not", "-path", "*/target/*"],
+                &[
+                    &root,
+                    "-type",
+                    "f",
+                    "-not",
+                    "-path",
+                    "*/.git/*",
+                    "-not",
+                    "-path",
+                    "*/node_modules/*",
+                    "-not",
+                    "-path",
+                    "*/target/*",
+                ],
             )
         } else {
             shell.command("cmd.exe", &["/C", &format!("dir /S /B /A:-D \"{root}\"")])
@@ -335,10 +352,20 @@ pub async fn search_execute(
     let cache = state.detected.clone();
 
     let inc_glob = glob_include.map(|g| {
-        if g.contains('*') || g.contains('?') { g } else if g.contains('.') { format!("*.{}", g.trim_start_matches('.')) } else { format!("*{g}*") }
+        if g.contains('*') || g.contains('?') {
+            g
+        } else if g.contains('.') {
+            format!("*.{}", g.trim_start_matches('.'))
+        } else {
+            format!("*{g}*")
+        }
     });
     let exc_glob = glob_exclude.map(|g| {
-        if g.contains('*') || g.contains('?') { g } else { format!("*{g}*") }
+        if g.contains('*') || g.contains('?') {
+            g
+        } else {
+            format!("*{g}*")
+        }
     });
     tokio::task::spawn_blocking(move || {
         let backend = resolve_backend(&shell, &bundled, &cache);
@@ -414,7 +441,12 @@ pub async fn search_execute(
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            spawn_capped_lines(shell.command("grep", &arg_refs), "grep", MAX_MATCHES, parse_grep_line)
+            spawn_capped_lines(
+                shell.command("grep", &arg_refs),
+                "grep",
+                MAX_MATCHES,
+                parse_grep_line,
+            )
         };
 
         let run = run?;
@@ -422,7 +454,10 @@ pub async fn search_execute(
             if !is_regex {
                 // literal (-F) mode should never cause regex parse errors;
                 // treat as "no results" rather than propagating a confusing error
-                return Ok(SearchResult { matches: vec![], truncated: false });
+                return Ok(SearchResult {
+                    matches: vec![],
+                    truncated: false,
+                });
             }
             return Err(run.stderr);
         }
@@ -462,17 +497,25 @@ mod tests {
 
     #[test]
     fn rg_version_is_parsed() {
-        let caps = parse_rg_version("ripgrep 15.2.0 (rev e89fff89ac)\n\nfeatures:+pcre2\n").expect("version");
+        let caps = parse_rg_version("ripgrep 15.2.0 (rev e89fff89ac)\n\nfeatures:+pcre2\n")
+            .expect("version");
         assert_eq!(caps.version, "15.2.0");
         assert_eq!(caps.semver, [15, 2, 0]);
         assert!(caps.pcre2);
 
-        let old = parse_rg_version("ripgrep 14.1.1\n\nfeatures:+pcre2,+simd-accel\n").expect("version");
+        let old =
+            parse_rg_version("ripgrep 14.1.1\n\nfeatures:+pcre2,+simd-accel\n").expect("version");
         assert_eq!(old.semver, [14, 1, 1]);
 
         // 桁が欠けていても major さえ読めればよい（distro の付ける接尾辞で崩れうる）。
-        assert_eq!(parse_rg_version("ripgrep 15").expect("version").semver, [15, 0, 0]);
-        assert_eq!(parse_rg_version("ripgrep 14.1").expect("version").semver, [14, 1, 0]);
+        assert_eq!(
+            parse_rg_version("ripgrep 15").expect("version").semver,
+            [15, 0, 0]
+        );
+        assert_eq!(
+            parse_rg_version("ripgrep 14.1").expect("version").semver,
+            [14, 1, 0]
+        );
 
         // pcre2 無しのビルド。`-pcre2` を `+pcre2` と読み違えない。
         let no_pcre = parse_rg_version("ripgrep 15.2.0\n\nfeatures:-pcre2\n").expect("version");
@@ -485,7 +528,9 @@ mod tests {
 
     #[test]
     fn the_newer_rg_wins() {
-        let caps = |v: &str| parse_rg_version(&format!("ripgrep {v}\n\nfeatures:+pcre2\n")).expect("version");
+        let caps = |v: &str| {
+            parse_rg_version(&format!("ripgrep {v}\n\nfeatures:+pcre2\n")).expect("version")
+        };
         let pick = |a: Option<&str>, b: Option<&str>| {
             prefer_newer(
                 a.map(|v| ("rg".to_string(), caps(v))),
@@ -495,15 +540,33 @@ mod tests {
         };
 
         // 入っているのが古ければ同梱版、新しければそちらを使う。
-        assert_eq!(pick(Some("14.1.1"), Some("15.2.0")), Some(("/bundled/rg".into(), "15.2.0".into())));
-        assert_eq!(pick(Some("16.0.0"), Some("15.2.0")), Some(("rg".into(), "16.0.0".into())));
+        assert_eq!(
+            pick(Some("14.1.1"), Some("15.2.0")),
+            Some(("/bundled/rg".into(), "15.2.0".into()))
+        );
+        assert_eq!(
+            pick(Some("16.0.0"), Some("15.2.0")),
+            Some(("rg".into(), "16.0.0".into()))
+        );
         // patch まで見る。
-        assert_eq!(pick(Some("15.2.0"), Some("15.2.1")), Some(("/bundled/rg".into(), "15.2.1".into())));
+        assert_eq!(
+            pick(Some("15.2.0"), Some("15.2.1")),
+            Some(("/bundled/rg".into(), "15.2.1".into()))
+        );
         // 同値なら利用者が入れたほうを残す（同じものなので、名前で迷わせない）。
-        assert_eq!(pick(Some("15.2.0"), Some("15.2.0")), Some(("rg".into(), "15.2.0".into())));
+        assert_eq!(
+            pick(Some("15.2.0"), Some("15.2.0")),
+            Some(("rg".into(), "15.2.0".into()))
+        );
         // 片方しか無い場合（WSL は同梱版を渡さないのでこの形になる）。
-        assert_eq!(pick(Some("13.0.0"), None), Some(("rg".into(), "13.0.0".into())));
-        assert_eq!(pick(None, Some("15.2.0")), Some(("/bundled/rg".into(), "15.2.0".into())));
+        assert_eq!(
+            pick(Some("13.0.0"), None),
+            Some(("rg".into(), "13.0.0".into()))
+        );
+        assert_eq!(
+            pick(None, Some("15.2.0")),
+            Some(("/bundled/rg".into(), "15.2.0".into()))
+        );
         assert_eq!(pick(None, None), None);
     }
 

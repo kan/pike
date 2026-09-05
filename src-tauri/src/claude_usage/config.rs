@@ -16,7 +16,9 @@
 //! ので claude 専用で書いてあるが、必要になったら claude 固有なのは変数名・ディレクトリ名・
 //! `.claude.json` のアカウント読みの 3 つだけなので、そこを引数にすれば共用できる。
 
-use crate::types::{install_key, wsl_home_cached, wsl_home_subdir_cached, wsl_native_to_unc, ShellConfig};
+use crate::types::{
+    install_key, wsl_home_cached, wsl_home_subdir_cached, wsl_native_to_unc, ShellConfig,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -140,7 +142,9 @@ fn shell_env_value(shell: &ShellConfig) -> Option<String> {
     let ShellConfig::Wsl { .. } = shell else {
         // Windows シェルは Pike のプロセス環境をそのまま見る（cmd / Git Bash は起動時に
         // 継承するので同じ値）。PowerShell のプロファイルの中だけで設定した場合は拾えない。
-        return std::env::var("CLAUDE_CONFIG_DIR").ok().filter(|v| !v.is_empty());
+        return std::env::var("CLAUDE_CONFIG_DIR")
+            .ok()
+            .filter(|v| !v.is_empty());
     };
 
     static CACHE: OnceLock<EnvCache> = OnceLock::new();
@@ -215,7 +219,10 @@ fn home_and_envrc(shell: &ShellConfig, project_root: &str) -> (Option<String>, O
             // `.envrc` はただのファイルなので UNC で直接読む。プロジェクトごとに違う
             // 唯一の入力がこれなので、ここを spawn 無しにできると解決全体が
             // インストール単位のキャッシュに乗る。
-            wsl_native_to_unc(distro, &format!("{}/.envrc", project_root.trim_end_matches('/'))),
+            wsl_native_to_unc(
+                distro,
+                &format!("{}/.envrc", project_root.trim_end_matches('/')),
+            ),
         ),
         // WSL 以外はホスト自身。`USERPROFILE` を直接読むと macOS で None になる。
         _ => (
@@ -385,7 +392,10 @@ mod tests {
     #[test]
     fn picks_marker_line_amid_banner_noise() {
         let out = "Welcome to Ubuntu\nPIKEENV\t/home/kan/.cc-work\nsome banner\n";
-        assert_eq!(marker_value(out, "PIKEENV").as_deref(), Some("/home/kan/.cc-work"));
+        assert_eq!(
+            marker_value(out, "PIKEENV").as_deref(),
+            Some("/home/kan/.cc-work")
+        );
     }
 
     #[test]
@@ -421,7 +431,10 @@ mod tests {
     fn rejects_values_needing_evaluation() {
         assert_eq!(expand_value("$(pwd)/.claude", Some("/home/kan")), None);
         assert_eq!(expand_value("`pwd`/.claude", Some("/home/kan")), None);
-        assert_eq!(expand_value("$XDG_STATE_HOME/claude", Some("/home/kan")), None);
+        assert_eq!(
+            expand_value("$XDG_STATE_HOME/claude", Some("/home/kan")),
+            None
+        );
         assert_eq!(expand_value("~/.claude", None), None);
     }
 
@@ -429,7 +442,10 @@ mod tests {
     /// 存在しないパスになるので拾わない。
     #[test]
     fn rejects_unbalanced_quotes() {
-        assert_eq!(expand_value("\"$HOME/.claude\" # メモ", Some("/home/kan")), None);
+        assert_eq!(
+            expand_value("\"$HOME/.claude\" # メモ", Some("/home/kan")),
+            None
+        );
         assert_eq!(expand_value("'/opt/claude", Some("/home/kan")), None);
     }
 }

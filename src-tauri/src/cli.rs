@@ -61,7 +61,10 @@ pub async fn cli_get_initial_action(
 ) -> Result<CliAction, String> {
     let label = window.label().to_string();
     let mut pending = state.pending.lock().map_err(|e| e.to_string())?;
-    log::debug!("[cli] cli_get_initial_action: label={label}, pending_keys={:?}", pending.keys().collect::<Vec<_>>());
+    log::debug!(
+        "[cli] cli_get_initial_action: label={label}, pending_keys={:?}",
+        pending.keys().collect::<Vec<_>>()
+    );
     if let Some(action) = pending.remove(&label) {
         log::debug!("[cli] found pending action for {label}: {action:?}");
         return Ok(action);
@@ -121,7 +124,10 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
 
     // `--open-project=<id>`: elevated relaunch from a project window — reopen the
     // project in normal mode with a terminal on the pinned shell (#138).
-    if let Some(id) = meaningful.iter().find_map(|s| s.strip_prefix("--open-project=")) {
+    if let Some(id) = meaningful
+        .iter()
+        .find_map(|s| s.strip_prefix("--open-project="))
+    {
         if crate::types::validate_slug(id, "project id").is_ok() {
             return CliAction::OpenProject {
                 id: id.to_string(),
@@ -211,9 +217,10 @@ fn terminal_cwd_for(shell: &crate::types::ShellConfig, cwd: Option<String>) -> O
         // ローカル Unix シェルでは `/` 始まりこそが正しい cwd（Windows 系とは逆）。
         // `_` に落とすと macOS の `/Users/...` が捨てられ、ターミナルがホームで開く。
         (ShellConfig::Unix { .. }, _) => cwd.starts_with('/').then_some(cwd),
-        (ShellConfig::Cmd | ShellConfig::Powershell | ShellConfig::Pwsh | ShellConfig::GitBash, _) => {
-            (!cwd.starts_with('/')).then_some(cwd)
-        }
+        (
+            ShellConfig::Cmd | ShellConfig::Powershell | ShellConfig::Pwsh | ShellConfig::GitBash,
+            _,
+        ) => (!cwd.starts_with('/')).then_some(cwd),
     }
 }
 
@@ -260,7 +267,10 @@ pub(crate) fn split_wsl_unc(path: &str) -> Option<(String, String)> {
 }
 
 enum ResolvedArg {
-    Dir { path: String, distro: Option<String> },
+    Dir {
+        path: String,
+        distro: Option<String>,
+    },
     File(CliFileTarget),
 }
 
@@ -353,9 +363,15 @@ mod tests {
     fn test_parse_path_and_line() {
         assert_eq!(parse_path_and_line("file.rs:42"), ("file.rs", Some(42)));
         assert_eq!(parse_path_and_line("file.rs"), ("file.rs", None));
-        assert_eq!(parse_path_and_line("C:\\foo\\bar.rs:10"), ("C:\\foo\\bar.rs", Some(10)));
+        assert_eq!(
+            parse_path_and_line("C:\\foo\\bar.rs:10"),
+            ("C:\\foo\\bar.rs", Some(10))
+        );
         assert_eq!(parse_path_and_line("C:"), ("C:", None));
-        assert_eq!(parse_path_and_line("src/main.ts:1"), ("src/main.ts", Some(1)));
+        assert_eq!(
+            parse_path_and_line("src/main.ts:1"),
+            ("src/main.ts", Some(1))
+        );
     }
 
     #[test]
@@ -366,7 +382,11 @@ mod tests {
 
     #[test]
     fn test_parse_args_open_subcommand() {
-        let args = vec!["pike.exe".to_string(), "open".to_string(), "file.rs".to_string()];
+        let args = vec![
+            "pike.exe".to_string(),
+            "open".to_string(),
+            "file.rs".to_string(),
+        ];
         let f = expect_single_file(parse_args(&args, "C:\\project"));
         assert!(f.path.contains("file.rs"));
         assert_eq!(f.line, None);
@@ -397,7 +417,9 @@ mod tests {
         match terminal_action_for_cwd(r"\\wsl.localhost\Ubuntu\home\user") {
             CliAction::OpenTerminal { cwd, shell } => {
                 assert_eq!(cwd.as_deref(), Some("/home/user"));
-                assert!(matches!(shell, Some(crate::types::ShellConfig::Wsl { ref distro }) if distro == "Ubuntu"));
+                assert!(
+                    matches!(shell, Some(crate::types::ShellConfig::Wsl { ref distro }) if distro == "Ubuntu")
+                );
             }
             other => panic!("expected OpenTerminal, got: {other:?}"),
         }
@@ -432,7 +454,9 @@ mod tests {
         match parse_args(&args, r"\\wsl.localhost\Ubuntu\home\user") {
             CliAction::OpenTerminal { cwd, shell } => {
                 assert_eq!(cwd.as_deref(), Some("/home/user"));
-                assert!(matches!(shell, Some(crate::types::ShellConfig::Wsl { ref distro }) if distro == "Ubuntu"));
+                assert!(
+                    matches!(shell, Some(crate::types::ShellConfig::Wsl { ref distro }) if distro == "Ubuntu")
+                );
             }
             other => panic!("expected OpenTerminal, got: {other:?}"),
         }
@@ -496,12 +520,18 @@ mod tests {
         };
         // A UNC cwd for that same distro comes back as its native path.
         assert_eq!(
-            terminal_cwd_for(&ubuntu, Some(r"\\wsl.localhost\Ubuntu\home\kan".to_string())),
+            terminal_cwd_for(
+                &ubuntu,
+                Some(r"\\wsl.localhost\Ubuntu\home\kan".to_string())
+            ),
             Some("/home/kan".to_string())
         );
         // Another distro's UNC path is dropped rather than opened in this one.
         assert_eq!(
-            terminal_cwd_for(&ubuntu, Some(r"\\wsl.localhost\Debian\home\kan".to_string())),
+            terminal_cwd_for(
+                &ubuntu,
+                Some(r"\\wsl.localhost\Debian\home\kan".to_string())
+            ),
             None
         );
         // Native paths pass through (invoked from inside the distro).
@@ -516,12 +546,18 @@ mod tests {
         );
         // ...and PowerShell keeps a UNC one, which it can actually open.
         assert_eq!(
-            terminal_cwd_for(&ShellConfig::Powershell, Some(r"\\wsl.localhost\Ubuntu\srv".to_string())),
+            terminal_cwd_for(
+                &ShellConfig::Powershell,
+                Some(r"\\wsl.localhost\Ubuntu\srv".to_string())
+            ),
             Some(r"\\wsl.localhost\Ubuntu\srv".to_string())
         );
         // cmd.exe cannot, and no Windows shell can resolve a WSL-native path.
         assert_eq!(
-            terminal_cwd_for(&ShellConfig::Cmd, Some(r"\\wsl.localhost\Ubuntu\srv".to_string())),
+            terminal_cwd_for(
+                &ShellConfig::Cmd,
+                Some(r"\\wsl.localhost\Ubuntu\srv".to_string())
+            ),
             None
         );
         assert_eq!(
@@ -547,11 +583,11 @@ mod tests {
             other => panic!("expected OpenProject, got: {other:?}"),
         }
         // An id with unsafe characters is rejected (falls through, not OpenProject).
-        let bad = vec![
-            "pike.exe".to_string(),
-            "--open-project=../evil".to_string(),
-        ];
-        assert!(!matches!(parse_args(&bad, "."), CliAction::OpenProject { .. }));
+        let bad = vec!["pike.exe".to_string(), "--open-project=../evil".to_string()];
+        assert!(!matches!(
+            parse_args(&bad, "."),
+            CliAction::OpenProject { .. }
+        ));
     }
 
     #[test]
@@ -642,9 +678,17 @@ mod tests {
     #[test]
     fn test_wait_flag_stripped() {
         // --wait should be stripped; file.rs should still be parsed
-        let args = vec!["pike.exe".to_string(), "--wait".to_string(), "file.rs".to_string()];
+        let args = vec![
+            "pike.exe".to_string(),
+            "--wait".to_string(),
+            "file.rs".to_string(),
+        ];
         let f = expect_single_file(parse_args(&args, "C:\\project"));
-        assert!(f.path.contains("file.rs"), "expected file.rs in path, got: {}", f.path);
+        assert!(
+            f.path.contains("file.rs"),
+            "expected file.rs in path, got: {}",
+            f.path
+        );
 
         // --wait-id=xxx should also be stripped
         let args2 = vec![
@@ -653,6 +697,10 @@ mod tests {
             "file.rs".to_string(),
         ];
         let f2 = expect_single_file(parse_args(&args2, "C:\\project"));
-        assert!(f2.path.contains("file.rs"), "expected file.rs in path, got: {}", f2.path);
+        assert!(
+            f2.path.contains("file.rs"),
+            "expected file.rs in path, got: {}",
+            f2.path
+        );
     }
 }

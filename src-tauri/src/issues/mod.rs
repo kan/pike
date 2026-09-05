@@ -119,7 +119,9 @@ struct GhAuthor {
 
 /// `{"login": …}` を文字列に畳む。消えたアカウントは `null` で来るので空にする。
 fn login_of<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
-    Ok(Option::<GhAuthor>::deserialize(d)?.map(|a| a.login).unwrap_or_default())
+    Ok(Option::<GhAuthor>::deserialize(d)?
+        .map(|a| a.login)
+        .unwrap_or_default())
 }
 
 /// `parent` は親 issue の全体（題名・状態・URL つき）で返るが、使うのは番号だけ。
@@ -287,7 +289,11 @@ pub async fn issues_list(
 /// 「0 件」と区別が付かないので理由を値に載せるが、タブは中身が無ければ何も出せないので、
 /// 呼び出し側が空と区別する必要が無い。
 #[tauri::command]
-pub async fn issues_view(shell: ShellConfig, root: String, number: u64) -> Result<IssueDetail, String> {
+pub async fn issues_view(
+    shell: ShellConfig,
+    root: String,
+    number: u64,
+) -> Result<IssueDetail, String> {
     let line = format!(
         "gh issue view {number} \
          --json title,url,state,author,createdAt,body,labels,comments"
@@ -297,7 +303,8 @@ pub async fn issues_view(shell: ShellConfig, root: String, number: u64) -> Resul
         if code != 0 {
             return Err(failure(&line, code, &stdout, &stderr));
         }
-        serde_json::from_str(stdout.trim()).map_err(|e| format!("failed to parse gh output: {e}\n{line}"))
+        serde_json::from_str(stdout.trim())
+            .map_err(|e| format!("failed to parse gh output: {e}\n{line}"))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -351,7 +358,10 @@ mod tests {
 
     #[test]
     fn failure_prefers_stderr_then_stdout_and_echoes_the_line() {
-        assert_eq!(failure("gh x", 1, "out", "  \nerr line\n"), "err line\ngh x");
+        assert_eq!(
+            failure("gh x", 1, "out", "  \nerr line\n"),
+            "err line\ngh x"
+        );
         assert_eq!(failure("gh x", 1, "\nout line", ""), "out line\ngh x");
         assert_eq!(failure("gh x", 4, "", ""), "gh exited with code 4\ngh x");
     }
