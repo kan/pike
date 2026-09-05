@@ -8,6 +8,8 @@ mod appmenu {
     pub fn refresh(_app: &tauri::AppHandle, _lang: &str, _actions: &[crate::types::MenuAction]) {}
     pub fn on_menu_event(_app: &tauri::AppHandle, _event: tauri::menu::MenuEvent) {}
 }
+/// エージェントの hook からの申告（#299）。`main.rs` が Tauri より前に呼ぶので pub。
+pub mod agent_hook;
 mod agent_sessions;
 mod agent_usage;
 mod agents;
@@ -1669,6 +1671,10 @@ pub fn run() {
             search::list_project_files,
             agents::agent_detect,
             agent_usage::agent_usage,
+            agent_hook::agent_hook_status,
+            agent_hook::agent_hook_install,
+            agent_hook::agent_hook_uninstall,
+            agent_hook::agent_hook_forget,
             issues::issues_gh_available,
             issues::issues_list,
             issues::issues_view,

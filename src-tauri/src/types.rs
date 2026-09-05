@@ -151,6 +151,54 @@ pub fn host_home() -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
+/// このビルドのアプリ identifier（`tauri.conf.json` の値）。
+///
+/// **`AppHandle` を持てない場所のためにある。** single-instance のウィンドウ名
+/// （`wait.rs`）と、Tauri を起動せずに走る `pike agent-hook`（#299）がここを引く。
+/// アプリの中では `app.config().identifier` が正本なので、そちらを使えるなら使う。
+///
+/// 判定は `cfg!(debug_assertions)`。`tauri build --config tauri.dev.conf.json`
+/// （identifier は `.debug` だが release プロファイル）だけは食い違うが、これは
+/// CSP の切り分け用の一時ビルドで、`wait.rs` も前から同じ前提で動いている。
+pub fn app_identifier() -> &'static str {
+    if cfg!(debug_assertions) {
+        "com.pike.dev.debug"
+    } else {
+        "com.pike.dev"
+    }
+}
+
+/// Tauri が `app_config_dir` に解決する場所を、`AppHandle` 無しで組み立てる。
+///
+/// **アプリが立ち上がる前**（`pike agent-hook`、`window_geom::prune_plugin_state`）と、
+/// **`AppHandle` を受け取らない解決経路**（`claude_usage::config::resolve`）の両方から
+/// 要る。identifier を引数で受けるのは、正しい値（`app.config().identifier`）を持って
+/// いる呼び出し元がそれを渡せるようにするため。
+pub fn pike_config_dir_for(id: &str) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join(id))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        host_home().map(|h| {
+            PathBuf::from(h)
+                .join("Library")
+                .join("Application Support")
+                .join(id)
+        })
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| host_home().map(|h| PathBuf::from(h).join(".config")))
+            .map(|d| d.join(id))
+    }
+}
+
 /// `ShellConfig::Unix { program }` として受け付けてよい値か。
 ///
 /// シェルは直接 spawn するので**絶対パスに限る**（PATH 探索させない）。空文字は
@@ -769,6 +817,41 @@ pub fn cwd_matches_root(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
         cwd.trim_end_matches('/') == root.trim_end_matches('/')
     } else {
         normalize_win_path(cwd) == normalize_win_path(root)
+    }
+}
+
+/// エポック秒。時計が壊れているときは 0（比較に使うだけで、0 なら「最も古い」）。
+///
+/// `agent_usage` にある同名の関数は `Option` を返す別物で、あちらは「値が無い」を
+/// そのまま欄の欠落として出す。こちらの 2 つの利用者（レート取得の試行時刻、hook の
+/// 申告の時刻）はどちらも比較にしか使わないので、分岐を持たない。
+pub fn epoch_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// `cwd` がプロジェクトの `root` そのものか、その配下か。
+///
+/// `cwd_matches_root` が完全一致しか見ないのは、あちらの用途（セッションの記録を
+/// プロジェクトへ割り当てる）では配下まで拾うと隣のプロジェクトのぶんまで混ざる
+/// ため。こちらは hook の申告（#299）の突き合わせ用で、**`cd src && claude` の
+/// ように配下で起動された申告も拾いたい**。区切りと大小の扱いはあちらと共有する。
+///
+/// **`lib.rs` の `is_under_root` は別の答えを返す**（常に小文字化して `/` へ寄せる）。
+/// あちらは CLI のファイル引数をどのウィンドウへ配るかの判定で、WSL でも大小を
+/// 無視する。1 本にするなら、まずどちらの意味を採るかを決めることになる。
+pub fn cwd_under_root(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
+    if cwd_matches_root(shell, cwd, root) {
+        return true;
+    }
+    if shell.is_posix() {
+        let root = root.trim_end_matches('/');
+        !root.is_empty() && cwd.starts_with(&format!("{root}/"))
+    } else {
+        let root = normalize_win_path(root);
+        !root.is_empty() && normalize_win_path(cwd).starts_with(&format!("{root}\\"))
     }
 }
 

@@ -11,7 +11,7 @@ use crate::types::{install_key, ShellConfig};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 /// Attempt pacing while a session is active — and the retry pacing after a
 /// failed fetch, so a cold-start hiccup can't latch an empty result for long.
@@ -52,12 +52,7 @@ pub struct ClaudeRateWindow {
     pub resets_at: Option<String>,
 }
 
-fn now_epoch() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
+use crate::types::epoch_secs as now_epoch;
 
 fn window_kind(label: &str) -> &'static str {
     if label == "session" {

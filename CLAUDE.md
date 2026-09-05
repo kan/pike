@@ -106,6 +106,7 @@ pike/
 │       ├── lib.rs             # Tauri Builder 設定・コマンド登録
 │       ├── types.rs           # ShellConfig・WSL_EXTRA_PATH・bash_quote 等の共通型/ヘルパー
 │       ├── agents.rs          # PATH にあるエージェントの検出（#275。一覧はフロントの表）
+│       ├── agent_hook.rs      # エージェントの hook からの申告を受ける口（#299。`pike agent-hook`）
 │       ├── agent_sessions.rs  # 再開できる過去セッションの一覧（#267。出所は 4 つとも違う）
 │       ├── agent_usage/
 │       │   ├── mod.rs         # 使用量を種別に依らない形で返す（#263。id でアダプタへ振り分け）

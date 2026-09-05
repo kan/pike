@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// 解決の再実行間隔。WSL では環境変数のプローブに `wsl.exe` の起動を伴うので、
 /// 30 秒ごとの usage ポーリングに毎回付き合わせない。`.envrc` を書き換えてから
@@ -176,33 +176,55 @@ fn expand_value(raw: &str, home: Option<&str>) -> Option<String> {
     Some(expanded)
 }
 
+/// そのシェルのホームを、**シェルから見た形と Pike から読める形の対**で返す。
+///
+/// WSL は distro の中にホームがあり、Pike（Windows プロセス）が読むには UNC が要る、
+/// という食い違いを吸収する 1 箇所。`agent_hook` の候補列挙も同じ対を要るので共有する
+/// （別々に書くと、distro のホーム解決や UNC 化の規則を変えたとき片方だけが直る）。
+pub(crate) fn shell_home(shell: &ShellConfig) -> Option<(String, PathBuf)> {
+    match shell {
+        ShellConfig::Wsl { distro } => {
+            let native = wsl_home_cached(shell, distro)?;
+            let read = wsl_native_to_unc(distro, &native)?;
+            Some((native, read))
+        }
+        // WSL 以外はホスト自身。`USERPROFILE` を直接読むと macOS で None になる。
+        _ => {
+            let native = crate::types::host_home()?;
+            let read = PathBuf::from(&native);
+            Some((native, read))
+        }
+    }
+}
+
 /// `(HOME, .envrc の Windows から読めるパス)`。
 fn home_and_envrc(shell: &ShellConfig, project_root: &str) -> (Option<String>, Option<PathBuf>) {
-    match shell {
-        ShellConfig::Wsl { distro } => (
-            wsl_home_cached(shell, distro),
-            // `.envrc` はただのファイルなので UNC で直接読む。プロジェクトごとに違う
-            // 唯一の入力がこれなので、ここを spawn 無しにできると解決全体が
-            // インストール単位のキャッシュに乗る。
-            wsl_native_to_unc(
-                distro,
-                &format!("{}/.envrc", project_root.trim_end_matches('/')),
-            ),
+    let home = shell_home(shell).map(|(native, _)| native);
+    let envrc = match shell {
+        // `.envrc` はただのファイルなので UNC で直接読む。プロジェクトごとに違う
+        // 唯一の入力がこれなので、ここを spawn 無しにできると解決全体が
+        // インストール単位のキャッシュに乗る。
+        ShellConfig::Wsl { distro } => wsl_native_to_unc(
+            distro,
+            &format!("{}/.envrc", project_root.trim_end_matches('/')),
         ),
-        // WSL 以外はホスト自身。`USERPROFILE` を直接読むと macOS で None になる。
-        _ => (
-            crate::types::host_home(),
-            Some(Path::new(project_root).join(".envrc")),
-        ),
-    }
+        _ => Some(Path::new(project_root).join(".envrc")),
+    };
+    (home, envrc)
 }
 
 fn resolve_uncached(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
     let (home, envrc_path) = home_and_envrc(shell, project_root);
-    let from_envrc = envrc_path
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|text| envrc_value(&text).and_then(|v| expand_value(v, home.as_deref())));
-    let native = from_envrc
+    let from_envrc = || {
+        envrc_path
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|text| envrc_value(&text).and_then(|v| expand_value(v, home.as_deref())))
+    };
+    // 申告（#299）が最優先。**これだけが「実際に走った claude が見ていた場所」**で、
+    // 残りの 2 つは起動前の予測（起動ラッパーがシェル関数で被せる構成では、どちらも
+    // 空になる）。展開は通さない: hook が渡してくるのは既に解決済みの絶対パス。
+    let native = crate::agent_hook::declared_config_dir(shell, project_root)
+        .or_else(from_envrc)
         .or_else(|| shell_env_value(shell).and_then(|v| expand_value(&v, home.as_deref())));
 
     // 実在を確認できたときだけ採用する。読めない値を `native_override` に残すと、
@@ -234,14 +256,30 @@ fn resolve_uncached(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
     }
 }
 
-/// キー＝(インストール, プロジェクト root)、値＝(解決した時刻, 結果)。
-type ResolveCache = Mutex<HashMap<(String, String), (Instant, ClaudeConfig)>>;
+/// キャッシュした解決 1 件。
+struct CacheEntry {
+    at: Instant,
+    /// 読んだときの申告ファイルの更新時刻（#299）。
+    declared_at: Option<SystemTime>,
+    config: ClaudeConfig,
+}
+
+/// キー＝(インストール, プロジェクト root)。
+type ResolveCache = Mutex<HashMap<(String, String), CacheEntry>>;
 
 /// 設定ディレクトリを解決する。`RESOLVE_TTL` のあいだキャッシュする。
+///
+/// **期限内でも、申告（#299）が更新されていれば解き直す。** 時間だけで失効させると、
+/// hook が新しいアカウントを申告しても最大 5 分は古い結果を返すので、走行中の Pike へ
+/// 「捨てろ」と伝える IPC が要ることになる。入力そのものの更新時刻を見れば、その経路も、
+/// 経路を持てない非 Windows との非対称も要らない。代償はローカルの小さいファイルへの
+/// stat 1 回で、この関数が miss で払うもの（WSL の対話ログインシェル、UNC 越しの
+/// `.claude.json`）に比べれば無視できる。
 pub fn resolve(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
     static CACHE: OnceLock<ResolveCache> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let key = (install_key(shell), project_root.to_string());
+    let declared_at = crate::agent_hook::declarations_mtime();
 
     // ロックはプローブ中も持ったまま。usage と rate のポーリングは同じ tick で走るので、
     // 手放すと期限切れのたびに 2 本が同時に解決を始める。
@@ -249,13 +287,20 @@ pub fn resolve(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
         Ok(map) => map,
         Err(_) => return resolve_uncached(shell, project_root),
     };
-    if let Some((at, config)) = map.get(&key) {
-        if at.elapsed() < RESOLVE_TTL {
-            return config.clone();
+    if let Some(entry) = map.get(&key) {
+        if entry.at.elapsed() < RESOLVE_TTL && entry.declared_at == declared_at {
+            return entry.config.clone();
         }
     }
     let config = resolve_uncached(shell, project_root);
-    map.insert(key, (Instant::now(), config.clone()));
+    map.insert(
+        key,
+        CacheEntry {
+            at: Instant::now(),
+            declared_at,
+            config: config.clone(),
+        },
+    );
     config
 }
 

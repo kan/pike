@@ -22,12 +22,9 @@ const SI_CLASS_SUFFIX: &str = "-sic";
 #[cfg(windows)]
 const SI_WINDOW_SUFFIX: &str = "-siw";
 
+/// single-instance の名前に使う identifier。正本は `types::app_identifier`。
 #[cfg(windows)]
-const APP_ID: &str = if cfg!(debug_assertions) {
-    "com.pike.dev.debug"
-} else {
-    "com.pike.dev"
-};
+use crate::types::app_identifier as app_id;
 
 pub struct WaitEntry {
     /// Normalized file path the editor tab uses
@@ -135,7 +132,7 @@ fn signal_event(_name: &str) {}
 /// from the same (second) process.
 #[cfg(windows)]
 fn is_second_instance() -> bool {
-    let mutex_name = encode_wide(&format!("{APP_ID}{SI_MUTEX_SUFFIX}"));
+    let mutex_name = encode_wide(&format!("{}{SI_MUTEX_SUFFIX}", app_id()));
     unsafe {
         use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
         use windows::Win32::System::Threading::CreateMutexW;
@@ -275,8 +272,8 @@ fn send_to_first_instance(args: &[String], cwd: &str) {
     use windows::Win32::System::DataExchange::COPYDATASTRUCT;
     use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SendMessageW, WM_COPYDATA};
 
-    let class_name = encode_wide(&format!("{APP_ID}{SI_CLASS_SUFFIX}"));
-    let window_name = encode_wide(&format!("{APP_ID}{SI_WINDOW_SUFFIX}"));
+    let class_name = encode_wide(&format!("{}{SI_CLASS_SUFFIX}", app_id()));
+    let window_name = encode_wide(&format!("{}{SI_WINDOW_SUFFIX}", app_id()));
 
     unsafe {
         let hwnd = match FindWindowW(PCWSTR(class_name.as_ptr()), PCWSTR(window_name.as_ptr())) {

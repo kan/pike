@@ -811,3 +811,89 @@ export async function agentUsageGet(
 export async function agentSessionsList(id: string, shell: ShellType, projectRoot: string): Promise<AgentSession[]> {
   return invoke<AgentSession[]>('agent_sessions', { id, shell, projectRoot })
 }
+
+// Claude Code の hook からのアカウント申告（#299）
+
+/**
+ * hook の登録の状態。正本は Rust の `src-tauri/src/agent_hook.rs`。
+ *
+ * `registered`（`settings.json` に書いてあるか）と `declared`（実際に申告が届いたか）は
+ * 別物で、**効いているかを言うのは後者**。登録した直後はまだ null で、次に claude を
+ * 起動したときに埋まる。
+ */
+export interface AgentHookTarget {
+  /** そのシェルから見た設定ディレクトリ。`agentHookInstall` の宛先の指定にも使う。 */
+  configDir: string
+  settingsPath: string
+  registered: boolean
+  /** 今の解決結果がここを指しているか。 */
+  active: boolean
+  /** この宛先を使うインストール（`wsl:<distro>` / ホスト）。install / uninstall に渡す。 */
+  installKey: string
+  /** この宛先に書く（書いた）コマンド行。シェルによって違う。 */
+  command: string
+}
+
+export interface AgentHookStatus {
+  /** 登録できる設定ディレクトリ。**アカウントごと・シェルごとにある**（#299）。 */
+  targets: AgentHookTarget[]
+  declared: string | null
+}
+
+/**
+ * `distros` を渡すのは、**候補をプロジェクトのシェルに絞らない**ため（#299）。hook は
+ * アカウントごとに持つものなので、Windows のプロジェクトを開いていても WSL の
+ * `~/.claude` を登録できる必要がある。検出はフロントが済ませているものを使い回す
+ * （Rust 側で `wsl.exe` をもう 1 本起こさない）。
+ */
+export async function agentHookStatus(
+  shell: ShellType,
+  projectRoot: string,
+  distros: string[],
+): Promise<AgentHookStatus> {
+  return invoke<AgentHookStatus>('agent_hook_status', { shell, projectRoot, distros })
+}
+
+/** その設定ディレクトリの `settings.json` へ hook を足す。冪等。 */
+export async function agentHookInstall(
+  shell: ShellType,
+  projectRoot: string,
+  distros: string[],
+  target: AgentHookTarget,
+): Promise<AgentHookStatus> {
+  return invoke<AgentHookStatus>('agent_hook_install', {
+    shell,
+    projectRoot,
+    distros,
+    configDir: target.configDir,
+    installKey: target.installKey,
+  })
+}
+
+/**
+ * 足した hook を取り除く。**消えるのはこのビルドが書いた行だけ**。受け取った申告も
+ * 一緒に捨てる（残すと、hook を外したのにそのプロジェクトが申告に縛られる）。
+ */
+export async function agentHookUninstall(
+  shell: ShellType,
+  projectRoot: string,
+  distros: string[],
+  target: AgentHookTarget,
+): Promise<AgentHookStatus> {
+  return invoke<AgentHookStatus>('agent_hook_uninstall', {
+    shell,
+    projectRoot,
+    distros,
+    configDir: target.configDir,
+    installKey: target.installKey,
+  })
+}
+
+/** 受け取った申告を捨てて、解決を推測（`.envrc` → シェルの環境変数 → 既定）へ戻す。 */
+export async function agentHookForget(
+  shell: ShellType,
+  projectRoot: string,
+  distros: string[],
+): Promise<AgentHookStatus> {
+  return invoke<AgentHookStatus>('agent_hook_forget', { shell, projectRoot, distros })
+}

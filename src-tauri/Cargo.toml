@@ -23,7 +23,14 @@ e2e = ["dep:tauri-plugin-wdio-webdriver", "tauri/dynamic-acl"]
 tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
-serde_json = "1.0"
+# `preserve_order`: 読んだ JSON のキー順を保つ。利用者の `settings.json` へ hook を
+# 足す（#299）ときに、触っていないキーまで並び替えて返さないため。
+#
+# **クレート全体に効く。** タスク検出（`tasks.rs`）が `package.json` / `deno.json` の
+# object を `iter()` で回すので、npm scripts と deno tasks の並びもアルファベット順から
+# 記載順へ変わる（意図した変更。`.claude/rules/editor.md`）。また `Map::remove` が
+# `swap_remove` になるので、順を保ちたい削除は `shift_remove` を使うこと。
+serde_json = { version = "1.0", features = ["preserve_order"] }
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.11.3", features = ["tray-icon"] }

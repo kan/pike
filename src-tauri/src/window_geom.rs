@@ -208,16 +208,15 @@ fn overlaps(geom: &Geometry, m_pos: &PhysicalPosition<i32>, m_size: &PhysicalSiz
 /// into memory at registration and writes the whole cache back on every save —
 /// pruning afterwards would just be undone.
 ///
-/// The path is built by hand for the same reason: `AppHandle::path()` needs an app
-/// that does not exist yet. `%APPDATA%\{identifier}` is what Tauri resolves
-/// `app_config_dir` to on Windows.
+/// The path comes from `types::pike_config_dir_for` for the same reason:
+/// `AppHandle::path()` needs an app that does not exist yet. That helper knows
+/// where Tauri resolves `app_config_dir` on each OS, and `pike agent-hook`
+/// (#299) reads it from outside an app too.
 pub fn prune_plugin_state(identifier: &str) {
-    let Some(appdata) = std::env::var_os("APPDATA") else {
+    let Some(dir) = crate::types::pike_config_dir_for(identifier) else {
         return;
     };
-    let path = PathBuf::from(appdata)
-        .join(identifier)
-        .join(tauri_plugin_window_state::DEFAULT_FILENAME);
+    let path = dir.join(tauri_plugin_window_state::DEFAULT_FILENAME);
     let Ok(text) = std::fs::read_to_string(&path) else {
         return;
     };

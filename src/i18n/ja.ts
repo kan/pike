@@ -281,6 +281,22 @@ export default {
   'settings.agentPromptLabel': 'ラベル',
   'settings.agentPromptText': 'プロンプト本文',
   'settings.addAgentPrompt': 'プロンプトを追加',
+  'settings.agentHook': 'Claude Code の hook',
+  'settings.agentHookHint':
+    'セッションの開始時に、動いている Claude Code から設定ディレクトリ（どのアカウントか）を受け取ります。起動ラッパーで CLAUDE_CONFIG_DIR を切り替えている場合でも、使用量・アカウント表示・セッション一覧が実際のアカウントのものになります。',
+  'settings.agentHookNoProject': 'プロジェクトを開いているウィンドウで登録してください。',
+  'settings.agentHookNoTarget': '設定ディレクトリが見つかりません。',
+  'settings.agentHookActive': 'このプロジェクトで使用中',
+  'settings.agentHookRegistered': '登録済み',
+  'settings.agentHookDeclared': '受け取った値',
+  'settings.agentHookPending': 'まだ届いていません（次に Claude Code を起動したときに届きます）',
+  'settings.agentHookInstall': 'hook を登録',
+  'settings.agentHookRemove': 'hook を削除',
+  'settings.agentHookForget': '受け取った値を捨てて推測に戻す',
+  'settings.agentHookConfirm':
+    '{path} の SessionStart に次の hook を追加します。\n\n{command}\n\n他の設定は変更しません。',
+  'settings.agentHookConfirmRemove':
+    '{path} の SessionStart から次の hook を削除します。\n\n{command}\n\n他の hook は残ります。',
   'settings.editorTheme': 'テーマ',
   'settings.minimap': 'ミニマップ',
   'settings.autoSave': '自動保存',

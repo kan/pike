@@ -14,6 +14,7 @@ import {
   Trash2,
 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
+import { confirmDialog } from '../../composables/useConfirmDialog'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
@@ -22,7 +23,17 @@ import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
-import { detectWslDistros, pickFolder, pickSaveFile } from '../../lib/tauri'
+import {
+  type AgentHookStatus,
+  type AgentHookTarget,
+  agentHookForget,
+  agentHookInstall,
+  agentHookStatus,
+  agentHookUninstall,
+  detectWslDistros,
+  pickFolder,
+  pickSaveFile,
+} from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import {
   AUTO_SAVE_DELAY_DEFAULT,
@@ -38,13 +49,19 @@ import {
   WINDOW_OPACITY_MIN,
   type WindowBackdrop,
 } from '../../stores/settings'
+import { useTabStore } from '../../stores/tabs'
 import { isWindowsShell, type ShellProfile, shellFromId, shellId, shellProfileLabel } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 import AllowedHostList from '../panels/AllowedHostList.vue'
 import ProfileRow from '../panels/ProfileRow.vue'
 
+// 他のタブと同じく `tab-id` を受ける（`TabPane` が全タブに渡している）。hook の一覧を
+// 取り直す契機を「見えているとき」に絞るのに要る。
+const props = defineProps<{ tabId: string }>()
+
 const { t } = useI18n()
 const settings = useSettingsStore()
+const tabStore = useTabStore()
 
 /** 待ち時間の入力を範囲に丸める。空欄や数字でない入力は既定値に戻す。 */
 function clampAutoSaveDelay(raw: string): number {
@@ -307,6 +324,80 @@ function removeAgentPrompt(index: number) {
 
 function moveAgentPrompt(index: number, dir: -1 | 1) {
   moveInList(settings.agentPrompts, index, dir)
+}
+
+// Claude Code の hook（#299）。**プロジェクトのシェルと root で解決する**ので、
+// プロジェクトを持たないウィンドウでは何も出さない（どの設定ディレクトリの
+// settings.json に書くかが決まらない）。
+const hookStatus = ref<AgentHookStatus | null>(null)
+const hookBusy = ref(false)
+const hookError = ref<string | null>(null)
+
+/** hook の 4 つの操作が共有する包み（走っているあいだボタンを止め、失敗を出す）。 */
+async function runHook(call: () => Promise<AgentHookStatus>) {
+  if (hookBusy.value) return
+  hookBusy.value = true
+  hookError.value = null
+  try {
+    hookStatus.value = await call()
+  } catch (e) {
+    hookError.value = String(e)
+  } finally {
+    hookBusy.value = false
+  }
+}
+
+function loadHookStatus() {
+  if (!projectStore.activeRoot) {
+    hookStatus.value = null
+    return
+  }
+  runHook(() => agentHookStatus(projectStore.shellForIO, projectStore.activeRoot, distros.value))
+}
+
+// **見えているあいだのプロジェクト切替で取り直す。** 設定タブは `projectId: null` の
+// シングルトンで（#264）切り替えても生き続けるので、開いたまま切り替えると一覧も
+// `active` も `declared` も前のプロジェクトのものになる。その状態で登録を押すと、Rust
+// 側は新しいシェルと root で候補を作り直すので `unknown config dir` で落ちる。
+//
+// **可視性をキーに含めるのが要点**: 含めないと、一度開いたら以後セッション中ずっと、
+// 見てもいない設定タブのために切替のたびに WSL ホームの UNC 走査が走る（`activeRoot` は
+// worktree の切替でも動く）。
+watch(
+  () =>
+    [
+      tabStore.isTabVisible(props.tabId),
+      projectStore.activeRoot,
+      shellId(projectStore.shellForIO),
+      // distro の検出は非同期なので、届いたら WSL のぶんを足して取り直す。
+      distros.value.join(','),
+    ].join('|'),
+  () => {
+    if (tabStore.isTabVisible(props.tabId)) loadHookStatus()
+  },
+  { immediate: true },
+)
+
+/**
+ * hook を足す / 外す。**どちらも利用者の設定ファイルを書き換える**ので、対象の
+ * ファイルとコマンド行を見せてから確認する。
+ */
+async function editHook(target: AgentHookTarget, remove: boolean) {
+  if (hookBusy.value) return
+  const key = remove ? 'settings.agentHookConfirmRemove' : 'settings.agentHookConfirm'
+  const ok = await confirmDialog(t(key, { path: target.settingsPath, command: target.command }))
+  if (!ok) return
+  const write = remove ? agentHookUninstall : agentHookInstall
+  runHook(() => write(projectStore.shellForIO, projectStore.activeRoot, distros.value, target))
+}
+
+/**
+ * 受け取った申告を捨てる。**逃げ道として要る**: 申告は `.envrc` とシェルの環境変数より
+ * 優先されるので、hook を入れていないアカウントへ起動ラッパーを切り替えると、古い申告が
+ * そのプロジェクトを恒久的に古いアカウントへ縛る。
+ */
+function forgetHook() {
+  runHook(() => agentHookForget(projectStore.shellForIO, projectStore.activeRoot, distros.value))
 }
 
 // Section navigation
@@ -771,6 +862,57 @@ const PREVIEW_LINES = [
           <button class="add-cmd-btn" @click="addAgentPrompt">
             <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentPrompt') }}
           </button>
+        </div>
+
+        <!--
+          Claude Code の hook（#299）。**「登録済み」と「申告が届いた」は別に出す**:
+          settings.json に書いてあることは、そのマシンで実際に claude が Pike を
+          呼べていることを意味しない（PATH に pike.exe が無い、等）。効いているかを
+          言うのは申告のほうなので、両方を並べる。
+        -->
+        <div class="setting-block">
+          <label class="setting-label">{{ t('settings.agentHook') }}</label>
+          <p class="setting-hint">{{ t('settings.agentHookHint') }}</p>
+          <p v-if="!projectStore.activeRoot" class="setting-hint">{{ t('settings.agentHookNoProject') }}</p>
+          <template v-else-if="hookStatus">
+            <div class="setting-list">
+              <div
+                v-for="target in hookStatus.targets"
+                :key="`${target.installKey}:${target.configDir}`"
+                class="setting-list-row"
+              >
+                <code class="setting-list-name hook-dir">{{ target.configDir }}</code>
+                <span v-if="target.active" class="hook-badge">{{ t('settings.agentHookActive') }}</span>
+                <template v-if="target.registered">
+                  <span class="setting-hint hook-done" :title="target.command">{{ t('settings.agentHookRegistered') }}</span>
+                  <button class="icon-btn danger" :disabled="hookBusy" :title="t('settings.agentHookRemove')" @click="editHook(target, true)">
+                    <Trash2 :size="14" :stroke-width="2" />
+                  </button>
+                </template>
+                <button v-else class="add-cmd-btn" :disabled="hookBusy" :title="target.command" @click="editHook(target, false)">
+                  <Plus :size="14" :stroke-width="2" /> {{ t('settings.agentHookInstall') }}
+                </button>
+              </div>
+            </div>
+            <p v-if="hookStatus.targets.length === 0" class="setting-hint">{{ t('settings.agentHookNoTarget') }}</p>
+            <p class="setting-hint hook-declared">
+              <span>
+                {{ t('settings.agentHookDeclared') }}:
+                <code v-if="hookStatus.declared">{{ hookStatus.declared }}</code>
+                <template v-else>{{ t('settings.agentHookPending') }}</template>
+              </span>
+              <button
+                v-if="hookStatus.declared"
+                class="icon-btn"
+                :disabled="hookBusy"
+                :title="t('settings.agentHookForget')"
+                @click="forgetHook"
+              >
+                <Trash2 :size="14" :stroke-width="2" />
+              </button>
+            </p>
+          </template>
+          <p v-if="hookError" class="setting-hint hook-error">{{ hookError }}</p>
         </div>
       </section>
 
@@ -1569,5 +1711,42 @@ const PREVIEW_LINES = [
 .add-cmd-btn:hover {
   background: var(--tab-hover-bg);
   border-color: var(--accent);
+}
+
+.add-cmd-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  border-color: var(--border);
+  background: transparent;
+}
+
+/* hook の登録先（#299）。パスは長いので折り返す。 */
+.hook-dir {
+  word-break: break-all;
+  font-family: var(--font-mono, monospace);
+}
+
+.hook-badge {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--bg-primary);
+  font-size: 11px;
+}
+
+/* 色と寸法は共有の `.setting-hint`（theme.css）。ここは縮ませない指定だけ。 */
+.hook-done {
+  flex: 0 0 auto;
+}
+
+.hook-declared {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hook-error {
+  color: var(--danger);
 }
 </style>

@@ -7,6 +7,12 @@ fn main() {
     // スレッドが立つ前でなければならない（set_var はプロセス全体を触る）。
     app_lib::augment_process_path();
 
+    // エージェントの hook からの申告（#299）。**--wait の 2 つより先**に見る:
+    // hook は Pike のターミナルの中で走るので PIKE_WINDOW_LABEL を持っており、
+    // 下の転送が先に走ると `agent-hook` という名前のファイルを開こうとする。
+    // Tauri は起動せず、申告を書いて終わる。
+    app_lib::agent_hook::try_agent_hook_and_exit();
+
     // If --wait is present and another Pike instance is running,
     // send the args and block until editing completes (for GIT_EDITOR support).
     // This must run before the Tauri runtime to avoid the single-instance
