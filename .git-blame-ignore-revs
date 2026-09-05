@@ -1,0 +1,9 @@
+# 中身を変えていない一括整形のコミット。git blame から外すために並べる。
+#
+# 有効にするのは 1 回だけ（clone ごとに実行する）:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub の blame は設定なしでこのファイルを読む。
+
+# style: Rust 全体を cargo fmt に通す (#313)
+bc5a0f3544fdeacc72dcb03d5d56db48caada73c

@@ -48,8 +48,8 @@ fetch-rg:
 
 # --- コミット前チェック ---
 
-# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / clippy / test）
-check: lint typecheck check-docs check-shortcuts clippy test
+# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / 整形 / clippy / test）
+check: lint typecheck check-docs check-shortcuts fmt-check clippy test
 
 # Biome（src/）
 lint:
@@ -70,6 +70,16 @@ check-docs:
 # マニュアルの「プリセット別の早見表」と実装の割り当て表の照合（#280）
 check-shortcuts:
     npm run check:shortcuts
+
+# rustfmt で整形する（設定は src-tauri/rustfmt.toml、#313）
+[working-directory('src-tauri')]
+fmt:
+    cargo fmt
+
+# 整形されているかだけ見る（書き換えない）。just check と CI が呼ぶ
+[working-directory('src-tauri')]
+fmt-check:
+    cargo fmt --check
 
 # clippy（警告もエラー扱い）
 [working-directory('src-tauri')]

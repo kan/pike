@@ -1,5 +1,10 @@
 # Rust 実装ルール
 
+## 整形（rustfmt、#313）
+- 整形は `just fmt`（= `cargo fmt`）。設定は `src-tauri/rustfmt.toml` の `max_width = 100` だけで、選んだ理由はそのファイルのコメントが正本
+- `just check` が `just fmt-check`（= `cargo fmt --check`）を回すので、**整形されていないコードはコミット前に落ちる**
+- **中身の変更と整形を混ぜない。** 手で狭く折った行が rustfmt に広げられる（またはその逆）ので、整形されていないコードを部分的に `cargo fmt` すると無関係な行が大量に動く。導入前はこれが理由で `cargo fmt` の実行そのものを禁じていた
+
 ## 基本方針
 - Tauri コマンドは `async fn` を既定にし、戻り値は `Result<T, String>`。**ウィンドウを触るものと、状態を読むだけで即答できるものは同期の `fn`** にしてある（`project_for_window` / `focus_project_window` / `window_close_quits_app` / `save_all_window_state` / `wait_signal_by_path` / `is_elevated` / `open_elevated_terminal`）
 - エラーは `map_err(|e| e.to_string())` で文字列化してフロントに返す

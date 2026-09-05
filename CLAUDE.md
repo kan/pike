@@ -97,6 +97,7 @@ pike/
 │   └── make-icons.sh          # アイコン一式を icon.svg から作り直す（#256）
 ├── src-tauri/
 │   ├── Cargo.toml
+│   ├── rustfmt.toml       # Rust の整形設定（#313。max_width = 100）
 │   ├── tauri.conf.json
 │   ├── Info.plist         # macOS の TCC 許可ダイアログの説明文（#296。tauri がマージする）
 │   ├── entitlements.plist # macOS の hardened runtime のリソースアクセス（#296。XML コメント不可）
@@ -330,14 +331,22 @@ pike/
 - どちらもコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは適用後のコードを試す）。
 - `/code-review` はスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
 
-その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 6 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
+その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 7 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
 
 - **Frontend**: `just lint`（= `npm run lint` = `biome check src/`）
 - **TypeScript 型検査**: `just typecheck`（= `npx vue-tsc --noEmit`。`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
 - **ドキュメント整合**: `just check-docs`（= `node scripts/check-docs.mjs`）
 - **ショートカット照合**: `just check-shortcuts`（= `tsx scripts/check-shortcuts.ts`。マニュアルの早見表と実装の割り当てを突き合わせる。#280）
+- **Rust の整形**: `just fmt-check`（= `src-tauri/` で `cargo fmt --check`。設定は `src-tauri/rustfmt.toml`。整形するときは `just fmt`。#313）
 - **Rust**: `just clippy`（= `src-tauri/` で `cargo clippy -- -D warnings`）
 - **Rust テスト**: `just test`（= `src-tauri/` で `cargo test`）
+
+**`git blame` の設定を 1 回だけ入れる。** 全体を rustfmt に通したコミット（#313）で Rust の
+36 ファイルが動いているので、そのままでは blame がそこで埋まる。clone したら次を実行する:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
 
 ### ドキュメント乖離のチェック
 
