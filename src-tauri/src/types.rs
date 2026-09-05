@@ -153,13 +153,20 @@ pub fn host_home() -> Option<String> {
 
 /// このビルドのアプリ identifier（`tauri.conf.json` の値）。
 ///
-/// **`AppHandle` を持てない場所のためにある。** single-instance のウィンドウ名
-/// （`wait.rs`）と、Tauri を起動せずに走る `pike agent-hook`（#299）がここを引く。
+/// **`AppHandle` を持てない場所のためにある。** 唯一の利用者は single-instance の
+/// ウィンドウ名（`wait.rs`）で、あれは WM_COPYDATA の経路なので Windows 専用。
+/// **`cfg` を外すと macOS で dead code になる**（Windows でだけ使われる関数を
+/// `cfg` 無しで置くと、手元の `just check` は通って macOS の CI だけが落ちる。
+/// `.claude/rules/platform.md` が書いている死角の裏返し）。
+///
 /// アプリの中では `app.config().identifier` が正本なので、そちらを使えるなら使う。
+/// `pike agent-hook`（#299）の申告の置き場はこれを引かない: あちらは開発版と
+/// インストール版で 1 本を共有するので、identifier を固定してある。
 ///
 /// 判定は `cfg!(debug_assertions)`。`tauri build --config tauri.dev.conf.json`
 /// （identifier は `.debug` だが release プロファイル）だけは食い違うが、これは
 /// CSP の切り分け用の一時ビルドで、`wait.rs` も前から同じ前提で動いている。
+#[cfg(windows)]
 pub fn app_identifier() -> &'static str {
     if cfg!(debug_assertions) {
         "com.pike.dev.debug"
