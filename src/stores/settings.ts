@@ -436,7 +436,7 @@ interface PersistedSettings {
   windowOpacity: number
   /** 起動行の並びと表示（#275）。**使える先頭が既定。** */
   agentLaunchers: AgentLauncher[]
-  /** エージェントの入力待ち / 完了をデスクトップ通知で知らせるか（#265）。 */
+  /** エージェントの入力待ち / 完了を知らせるか（#265。タスクバーの点滅と画面内の印）。 */
   agentNotify: AgentNotifyMode
   /**
    * 昔の 2 本のリスト（#275 の当初の形）。**もう読み手は移行だけ**（`sanitizeAgentLaunchers`）

@@ -91,10 +91,11 @@
   無くなったが、代わりに #299 の受け口へ相乗りした（次節）。hook を持たないエージェント
   （Copilot CLI / opencode）向けの出力のパターン一致は、まだ実装していない
 
-## 入力待ちの通知（#265）
+## 入力待ちの知らせ（#265）
 
 Claude Code の `Notification` / `Stop` hook を登録し、**そのターミナルを持つウィンドウへ届けて**
-デスクトップ通知とドットを出す。実体は `src-tauri/src/agent_hook.rs`、
+タスクバーを点滅させ、タブとプロジェクトにドットを出す（**デスクトップ通知は使わない**。
+理由は下）。実体は `src-tauri/src/agent_hook.rs`、
 `src/composables/useAgentNotice.ts`、`src/components/layout/ProjectSelect.vue`。
 
 **判断の実体は 2 つの doc コメントが正本**（`agent_hook.rs` のモジュール doc ＝経路と登録、

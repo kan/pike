@@ -19,6 +19,7 @@
  */
 
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { watch } from 'vue'
 import type { AgentId } from '../lib/agents'
 import { windowFlash } from '../lib/tauri'
 import { windowFocused } from '../lib/window'
@@ -38,6 +39,15 @@ let initialized = false
 export async function initAgentNotice() {
   if (initialized) return
   initialized = true
+  // **「オフ」にしたら、既に立っている印も下ろす。** 設定の説明（と マニュアル）が
+  // 「何もしません（点も付きません）」と言っているので、切り替えた瞬間に消える必要が
+  // ある。下の `handleNotice` は `off` で早期 return するため、そこには置けない。
+  watch(
+    () => useSettingsStore().agentNotify,
+    (mode) => {
+      if (mode === 'off') useTabStore().clearAllAwaiting()
+    },
+  )
   // **このウィンドウ宛てだけ受ける**（`useCliOpen` と同じ規約）。Rust は pty id から
   // ウィンドウを引いて `emit_to` するので、素の `listen`（target = Any）だと全ウィンドウが
   // 同じ知らせを受ける。

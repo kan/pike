@@ -8,6 +8,7 @@ import { formatLineRange } from '../lib/format'
 import { MANUAL_INDEX } from '../lib/manual'
 import { basename, normalizeSep } from '../lib/paths'
 import { ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
+import { windowFocused } from '../lib/window'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
   AgentStatusTab,
@@ -440,12 +441,41 @@ export const useTabStore = defineStore('tabs', () => {
     },
   )
 
+  /**
+   * ウィンドウが前に出たときも下ろす（#265）。**選択が変わらないままフォーカスだけ
+   * 戻る経路がある**（同じタブを見たまま alt-tab で戻る）ので、上の watcher だけだと
+   * そこで印が残る。
+   *
+   * 残ると実害がある: 入力待ちの印は「もう知らせた」の意味も兼ねているので、立った
+   * ままだと**同じターンの 2 回目以降の入力待ちが知らされない**（`Stop` はターンの
+   * 終わりにしか来ない）。権限の確認が続けて出るのはこの機能の主目的なので、そこが
+   * 黙るのはいちばん困る形。
+   */
+  watch(windowFocused, (focused) => {
+    if (!focused) return
+    for (const pane of PANES) {
+      const id = activeByPane.value[pane]
+      if (id) clearTabMarks(id)
+    }
+  })
+
   /** 「まだ見ていない」印を全部下ろす。**印を足すときはここにも 1 行。** */
   function clearTabMarks(tabId: string) {
     const tab = tabs.value.find((t) => t.id === tabId)
     if (tab?.kind !== 'terminal') return
     tab.hasActivity = false
     tab.awaitingInput = false
+  }
+
+  /**
+   * 入力待ちの印を全部下ろす（#265）。知らせを「オフ」にしたときの後始末で、印は
+   * 立てた本人（`useAgentNotice`）が消す。**`hasActivity` は触らない**（あちらは
+   * ベル由来で、この設定とは無関係）。
+   */
+  function clearAllAwaiting() {
+    for (const tab of tabs.value) {
+      if (tab.kind === 'terminal') tab.awaitingInput = false
+    }
   }
 
   // 注入先（`lastTerminalId`）は「直近アクティブなターミナル」で、**本当にフォーカス
@@ -1143,6 +1173,7 @@ export const useTabStore = defineStore('tabs', () => {
     markTabActivity,
     terminalByPty,
     markTabAwaiting,
+    clearAllAwaiting,
     awaitingProjectIds,
     snapshotSession,
   }

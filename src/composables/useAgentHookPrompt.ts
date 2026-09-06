@@ -36,7 +36,7 @@ import { agentHookInstallMissing, agentHookStatus } from '../lib/tauri'
 import { isMainWindow } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import { installKey } from '../types/tab'
-import { confirmDialog } from './useConfirmDialog'
+import { confirmDialog, dialogOpen } from './useConfirmDialog'
 
 const ASKED_KEY = 'pike:agent-hook-asked'
 /** 旧「断った」の記録（マシンに 1 つ）。読むのは移行のときだけ。 */
@@ -67,15 +67,22 @@ export async function offerAgentHook(): Promise<void> {
   if (status.targets.length === 0) return
   // 全部入っているなら聞くことが無い。**記録は残す**（次の切り替えで IPC を投げないため）。
   if (status.targets.every((target) => target.registered)) {
-    remember(key, asked)
+    remember(key)
     return
   }
+
+  // **他のダイアログが開いていたら譲る**（記録もしない）。`confirmDialog` は開く前に
+  // 前のものを `dismiss()`＝**偽で解決**するので、割り込むと相手の答えを奪ううえ、
+  // 自分も「断られた」ことになって記録される。そうなるとそのシェルは二度と聞かれない。
+  // 起こりうるのは、`agentHookStatus` の probe（数秒）のあいだに一時プロジェクトの
+  // 「登録しますか」が出たときや、その最中にもう一度プロジェクトを切り替えたとき。
+  if (dialogOpen()) return
 
   const dirs = status.targets.map((target) => `- ${target.configDir}`).join('\n')
   const ok = await confirmDialog(t('settings.agentHookOffer', { dirs }))
   // **答えに関わらず記録する。** 断られたら聞かない、承諾されたら登録済みになるので、
   // どちらでも次はここへ来ない。
-  remember(key, asked)
+  remember(key)
   if (!ok) return
   await agentHookInstallMissing(projectStore.shellForIO, projectStore.activeRoot, [])
 }
@@ -91,9 +98,13 @@ function loadAsked(): string[] {
   }
 }
 
-function remember(key: string, asked: string[]) {
+/**
+ * 「聞いた」を記録する。**書く直前に読み直す**（`localStorage` はウィンドウ間で共有
+ * なので、手元の配列を書き戻すと、待っているあいだに別のウィンドウが足したキーを消す）。
+ */
+function remember(key: string) {
   try {
-    localStorage.setItem(ASKED_KEY, JSON.stringify([...new Set([...asked, key])]))
+    localStorage.setItem(ASKED_KEY, JSON.stringify([...new Set([...loadAsked(), key])]))
   } catch {}
 }
 
@@ -110,6 +121,6 @@ function migrateDeclined(key: string, asked: string[]): string[] {
   } catch {
     return asked
   }
-  remember(key, asked)
+  remember(key)
   return [...new Set([...asked, key])]
 }
