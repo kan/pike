@@ -4,6 +4,7 @@ import {
   MATRIX,
   mockInvoke,
   mockPtySpawnUniqueIds,
+  moveActiveTabRight,
   openEditor,
   openEditors,
   openPanel,
@@ -489,6 +490,74 @@ describe('screenshots: hero git', () => {
       await browser.pause(300)
       await feedActiveTerminal(HERO_CLAUDE)
       await shoot('hero-git', lang, theme)
+    })
+  }
+})
+
+// --- split-panes（作業領域を左右 2 ペインに分ける、#308）----------------------
+// **横長で撮る**（FULL より広い）。既定の 1600px だと 2 つに割った各ペインが実際の
+// 使い方より窮屈に見え、「エディタとターミナルを並べる」という絵にならない。
+const SPLIT = { width: 2000, height: 1000 }
+
+const SPLIT_TS = [
+  "import { defineStore } from 'pinia'",
+  "import { computed, ref } from 'vue'",
+  '',
+  "export const useTabStore = defineStore('tabs', () => {",
+  '  const tabs = ref<Tab[]>([])',
+  '  /** 分割しているか（#308）。解除しても tab.pane は消さない。 */',
+  '  const split = ref(false)',
+  "  const focusedPane = ref<PaneId>('left')",
+  '',
+  '  /** そのタブが実際に描かれるペイン。tab.pane を直に読まないこと。 */',
+  '  function paneOf(tab: Tab | null): PaneId {',
+  "    return split.value && tab?.pane === 'right' ? 'right' : 'left'",
+  '  }',
+  '',
+  '  function moveTabToPane(id: string, pane: PaneId) {',
+  '    const tab = tabs.value.find((t) => t.id === id)',
+  '    if (!tab) return',
+  "    if (pane === 'right') split.value = true",
+  '    tab.pane = pane',
+  '    focusedPane.value = pane',
+  '  }',
+  '',
+  '  return { tabs, split, focusedPane, paneOf, moveTabToPane }',
+  '})',
+  '',
+].join('\n')
+
+const SPLIT_SESSION = [
+  '\x1b[1;32muser@demo\x1b[0m:\x1b[1;34m~/demo-app\x1b[0m$ npm test -- --watch\r\n',
+  '\r\n',
+  '\x1b[2m> demo-app@0.1.0 test\x1b[0m\r\n',
+  '\r\n',
+  ' \x1b[32m✓\x1b[0m stores/tabs.spec.ts \x1b[2m(12 tests)\x1b[0m \x1b[2m18ms\x1b[0m\r\n',
+  ' \x1b[32m✓\x1b[0m stores/project.spec.ts \x1b[2m(9 tests)\x1b[0m \x1b[2m11ms\x1b[0m\r\n',
+  ' \x1b[32m✓\x1b[0m lib/diffParser.spec.ts \x1b[2m(21 tests)\x1b[0m \x1b[2m24ms\x1b[0m\r\n',
+  '\r\n',
+  ' \x1b[7;32m PASS \x1b[0m \x1b[2mWaiting for file changes...\x1b[0m\r\n',
+  '\r\n',
+  '\x1b[1;32muser@demo\x1b[0m:\x1b[1;34m~/demo-app\x1b[0m$ \x1b[7m \x1b[0m',
+].join('')
+
+describe('screenshots: split panes', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`split-panes ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme, ...SPLIT })
+      await mockInvoke('git_status', GIT_STATUS)
+      await mockPtySpawnUniqueIds()
+      await setFakeProject()
+      await openEditor({ path: 'src/stores/tabs.ts', content: SPLIT_TS })
+      await $('.cm-editor').waitForDisplayed({ timeout: 10_000 })
+      // ターミナルを開いてから右へ送る（送った側が右ペインの中身になる）。
+      await openTerminal()
+      await $('[data-testid="terminal"]').waitForDisplayed({ timeout: 10_000 })
+      await $('.xterm-screen').waitForExist({ timeout: 10_000 })
+      await moveActiveTabRight()
+      await browser.pause(300)
+      await feedActiveTerminal(SPLIT_SESSION)
+      await shoot('split-panes', lang, theme)
     })
   }
 })

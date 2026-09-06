@@ -42,10 +42,15 @@ function resumeCommand(session: AgentSession): string {
 </script>
 
 <template>
-  <div class="agent-menu-item agent-menu-sub" @mouseenter="emit('enter')" @mouseleave="emit('leave')">
+  <div
+    class="agent-menu-item agent-menu-sub"
+    data-testid="agent-sessions-row"
+    @mouseenter="emit('enter')"
+    @mouseleave="emit('leave')"
+  >
     <ChevronLeft :size="12" :stroke-width="2" class="agent-menu-caret" />
     <span class="agent-menu-label">{{ t('terminal.recentSessions') }}</span>
-    <div v-if="open" class="agent-menu agent-submenu popup-surface">
+    <div v-if="open" class="agent-menu agent-submenu popup-surface" data-testid="agent-sessions">
       <div class="agent-menu-scroll">
         <div v-if="sessions.length === 0" class="agent-menu-note">
           {{ loading ? t('common.loading') : t('terminal.noSessions') }}

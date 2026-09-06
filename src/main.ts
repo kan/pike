@@ -144,6 +144,11 @@ async function bootstrap() {
       resetTabs: () => {
         globalMode.value = false
         sidebar.setPanel(null)
+        // **作業領域の分割も戻す（#308）。** タブを閉じても `split` と `focusedPane` は
+        // 残るので、分割を撮った次の it は空の左ペインから始まり、そこで開いたタブが
+        // 右へ入る（分割の撮影を足したときに、後続の撮影が丸ごとそうなった）。
+        tabs.split = false
+        tabs.focusedPane = 'left'
         return tabs.clearAllTabs()
       },
       // グローバルモードのエディタ撮影用に、複数ファイルを 1 ファイル 1 タブで開く
@@ -217,6 +222,12 @@ async function bootstrap() {
           if (t.kind === 'terminal') void tabs.closeTab(t.id)
         }
         tabs.addTerminalTab({ shell: { kind: 'powershell' } })
+      },
+      // 作業領域の分割（#308）の撮影用。いま見ているタブを右のペインへ送る
+      // （`moveTabToPane` がそこで split を立てる）。キーの経路（`Ctrl+\`）を叩かないのは、
+      // ショートカットのプリセット（#261）に依存しない撮影にするため。
+      moveActiveTabRight: () => {
+        if (tabs.activeTabId) tabs.moveTabToPane(tabs.activeTabId, 'right')
       },
       // pty_output と同じ経路で合成出力を xterm に流す（実 PTY 非依存の撮影用）。
       feedTerminal: (id: string, data: string) => {

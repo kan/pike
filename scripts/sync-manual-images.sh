@@ -65,6 +65,10 @@ MAP=(
   "problems-panel:problems-panel"
   "git-operation:git-operation"
   "editor-conflict:editor-conflict"
+  # v0.49.0 で新しく撮るもの
+  "split-panes:split-panes"
+  "agent-menu:agent-menu"
+  "settings-agents:settings-agents"
 )
 
 check=0

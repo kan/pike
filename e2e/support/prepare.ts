@@ -68,6 +68,12 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
   // モックし、初回起動から成功扱いにして撮影を汚さない。
   await mockInvoke('fs_watch_start', 'e2e-watch')
 
+  // エージェントの検出（#275）。**撮影機に何が入っているかで絵が変わってしまう**ので
+  // 固定する: 検出が空だと起動ボタンごと消えるため（`showAgentLaunch` は使える起動行が
+  // あることを求める）、素のままだと「ターミナル右上のエージェントボタン」の画像から
+  // ボタンが消えうる。2 つ返して「他のエージェント」のあるメニューにしておく。
+  await mockInvoke('agent_detect', ['claude', 'codex'])
+
   await injectStabilizeCss()
   await settle()
 }
@@ -235,6 +241,28 @@ export async function openPdf(opts: { path: string }): Promise<void> {
 export async function openTerminal(): Promise<void> {
   await browser.execute(() => {
     ;(window as unknown as { __pikeE2E?: { openTerminal?: () => void } }).__pikeE2E?.openTerminal?.()
+  })
+}
+
+/**
+ * ホバーで開く UI（エージェントのサブメニュー、#267）を開く。
+ *
+ * **`moveTo()` は使えない。** 撮影ウィンドウは DPR 2 で、ドライバが動かす座標と webview の
+ * CSS ピクセルが食い違うため、要素の中心へ動かしたつもりが別の場所を指す（実測: 1280px の
+ * ウィンドウで `innerWidth` は 627）。撮りたいのは開いた状態なので、DOM のイベントを直接投げる。
+ */
+export async function hoverElement(selector: string): Promise<void> {
+  await browser.execute((sel) => {
+    const el = document.querySelector(sel)
+    el?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    el?.dispatchEvent(new MouseEvent('mouseenter'))
+  }, selector)
+}
+
+// いま見ているタブを右のペインへ送る（そこで作業領域が 2 分割される。#308）。
+export async function moveActiveTabRight(): Promise<void> {
+  await browser.execute(() => {
+    ;(window as unknown as { __pikeE2E?: { moveActiveTabRight?: () => void } }).__pikeE2E?.moveActiveTabRight?.()
   })
 }
 

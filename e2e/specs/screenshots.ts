@@ -1,4 +1,4 @@
-import { callE2E, MATRIX, prepare, shoot } from '../support/prepare'
+import { callE2E, MATRIX, mockInvoke, prepare, setFakeProject, shoot } from '../support/prepare'
 
 // Phase 1: バックエンド非依存の WebView UI を ja/en × light/dark で自動撮影する。
 // 手撮り backlog（project-switcher / new-project / settings / settings-shells）を埋める。
@@ -77,6 +77,51 @@ describe('screenshots: shell dropdown', () => {
       }
       await menu.waitForDisplayed({ timeout: 10_000 })
       await shoot('shell-dropdown', lang, theme)
+    })
+  }
+})
+
+// 設定の「エージェント」節（#275 / #299）。起動行の一覧と hook の登録先を撮る。
+// hook の状態は実際の settings.json を読むので、撮影機の環境に依らないよう固定する。
+const HOOK_STATUS = {
+  targets: [
+    {
+      configDir: 'C:\Users\dev\.claude',
+      settingsPath: 'C:\Users\dev\.claude\settings.json',
+      registered: true,
+      hasAny: true,
+      active: true,
+      installKey: 'windows',
+      command: 'pike.exe agent-hook --install-key=windows',
+    },
+    {
+      configDir: '/home/dev/.claude',
+      settingsPath: '/home/dev/.claude/settings.json',
+      registered: false,
+      hasAny: false,
+      active: false,
+      installKey: 'wsl:Ubuntu',
+      command: 'pike.exe agent-hook --install-key=wsl:Ubuntu',
+    },
+  ],
+  declared: 'C:\Users\dev\.claude',
+}
+
+describe('screenshots: settings agents', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`settings-agents ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('agent_hook_status', HOOK_STATUS)
+      // hook の一覧はプロジェクトを開いているときだけ出る（どの settings.json かが
+      // 決まらないため）。
+      await setFakeProject()
+      await callE2E('openSettings')
+      await $('[data-testid="settings-agents"]').waitForExist({ timeout: 10_000 })
+      await browser.execute(() => {
+        document.querySelector('[data-testid="settings-agents"]')?.scrollIntoView({ block: 'start' })
+      })
+      await browser.pause(200)
+      await shoot('settings-agents', lang, theme)
     })
   }
 })

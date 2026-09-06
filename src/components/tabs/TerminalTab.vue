@@ -1166,7 +1166,7 @@ onUnmounted(() => {
         <button class="agent-btn caret" :title="t('terminal.agentLaunch')" @click="toggleAgentMenu">
           <ChevronDown :size="12" :stroke-width="2" />
         </button>
-        <div v-if="agentMenuOpen" class="agent-menu popup-surface" @mousedown.stop>
+        <div v-if="agentMenuOpen" class="agent-menu popup-surface" data-testid="agent-menu" @mousedown.stop>
           <!--
             高さの上限はここ（#275）。**メニュー本体には持たせられない**（サブメニューが
             クリップされる）ので、長くなりうる節をまとめてスクロールさせ、「他のエージェント」
