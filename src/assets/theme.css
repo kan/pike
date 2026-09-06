@@ -228,6 +228,39 @@
   color: var(--text-primary);
 }
 
+/* 絞り込みの入力欄（アイコン + 枠なし input）。プロジェクトパネルの絞り込み（#203）と
+   設定画面の検索（#314）が共有する。消す ✕ はどちらも自前のボタン様式を持つので、
+   ここには無い。 */
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  border-radius: 3px;
+}
+
+.filter-row:focus-within {
+  border-color: var(--accent);
+}
+
+.filter-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.filter-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
 .setting-hint {
   margin: 0;
   font-size: 12px;

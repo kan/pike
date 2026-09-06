@@ -4,7 +4,7 @@ import { useI18n } from '../i18n'
 import { manualTarget } from '../lib/manual'
 import { useTabStore } from '../stores/tabs'
 
-// `page` is a manual-relative target, e.g. `settings.md#外観テーマフォントui-サイズ`.
+// `page` is a manual-relative target, e.g. `settings.md#外観`.
 const props = defineProps<{ page: string; size?: number }>()
 const { t } = useI18n()
 const tabStore = useTabStore()

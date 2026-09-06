@@ -229,8 +229,19 @@ export default {
 
   // Settings
   'settings.title': '設定',
+  'settings.searchPlaceholder': '設定を検索',
+  'settings.searchNoResults': '一致する設定はありません。',
   'settings.appearance': '外観',
   'settings.general': '全般',
+  'settings.external': '外部との通信',
+  // セクションの中の小見出し（#314）。同じものを別のセクションでも使う。
+  'settings.groupDisplay': '表示',
+  'settings.groupBehavior': '操作',
+  'settings.groupShell': 'シェル',
+  'settings.groupLaunch': '起動',
+  'settings.groupIntegration': '連携と知らせ',
+  'settings.groupSave': '保存',
+  'settings.groupDiffPreview': 'diff とプレビュー',
   'settings.shortcutPreset': 'キーボードショートカット',
   'settings.shortcutPresetVscode': 'VSCode 互換',
   'settings.shortcutPresetIdea': 'IDEA 互換',

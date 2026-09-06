@@ -201,6 +201,12 @@ pike/
 │   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
 │   │   │   ├── MinimapToggle.vue    # ミニマップの表示切り替え（タブ単位、#282）
 │   │   │   └── WrapToggle.vue       # 折り返しの切り替え（タブ単位、#241）
+│   │   ├── settings/          # 設定画面の器（#314。節・小見出し・1 項目・一致の強調）
+│   │   │   ├── SettingSection.vue  # 1 セクション（左ナビの飛び先）
+│   │   │   ├── SettingGroup.vue    # セクションの中の小見出し
+│   │   │   ├── SettingItem.vue     # 1 項目（名前と説明を i18n キーで受けて描く）
+│   │   │   ├── SettingToggle.vue   # 並んだボタンから 1 つ選ぶ（ON/OFF・3 択）
+│   │   │   └── HighlightText.vue   # 絞り込みに一致した部分の強調
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
 │   │       ├── EditorTab.vue      # CodeMirror 6 + Edit/Split/Preview（md/csv/json/svg/mermaid）
@@ -212,7 +218,7 @@ pike/
 │   │       ├── ManualTab.vue      # アプリ内マニュアル（docs/manual を F1 / ? ボタンで表示）
 │   │       ├── IssueTab.vue       # GitHub issue 1 件の読み取り専用表示（gh 経由、#278）
 │   │       ├── AgentStatusTab.vue # エージェント状態（/status 相当。アカウント・レート・トークン、#226）
-│   │       └── SettingsTab.vue    # 設定画面（フォント・カラースキーム・ダーク・エディタ・言語）
+│   │       └── SettingsTab.vue    # 設定画面（8 セクションの中身と左ナビ・絞り込みの入力欄、#314）
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
 │   │   ├── sidebar.ts  settings.ts  project.ts
@@ -238,6 +244,7 @@ pike/
 │   │   ├── useActiveFile.ts  # いま見ているファイル（ツリーと Git パネルの強調、#274）
 │   │   ├── useFocusPolling.ts # アクティブなあいだだけポーリングする共通部（#277）
 │   │   ├── usePanelAvailability.ts # サイドバーのパネルが使えるかの唯一の出典（#278）
+│   │   ├── useSettingsSearch.ts # 設定画面の絞り込み（#314。登録・一致・強調の切り分け）
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts

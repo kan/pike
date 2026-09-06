@@ -5,38 +5,35 @@ import { useI18n } from '../../i18n'
 /**
  * 承認済みホストの一覧（設定画面）。外部画像（#239）とリンク（#311）の 2 つが使う。
  *
- * **見出しと説明は props で受ける**。この部品が持つのは「文字列を並べて 1 つずつ消せる」という
+ * **見出しと説明は持たない**。この部品が持つのは「文字列を並べて 1 つずつ消せる」という
  * 振る舞いだけで、承認したことの意味（画像を取ってきて埋め込む / 外部ブラウザへ渡す）は呼ぶ側に
- * 残す。2 つのリストを 1 本に畳まないのと同じ線引き。
+ * 残す。2 つのリストを 1 本に畳まないのと同じ線引き。見出しと説明は呼ぶ側の
+ * `settings/SettingItem.vue` が i18n キーで受け取って描く（#314。絞り込みの対象にするため、
+ * 文言を持つのは項目の側に寄せた）。
  *
  * 追加の口は持たない。どちらもプレビューのボタンと確認ダイアログのチェックボックスから増える。
  */
-defineProps<{ label: string; hint: string; hosts: string[] }>()
+defineProps<{ hosts: string[] }>()
 defineEmits<{ forget: [host: string] }>()
 
 const { t } = useI18n()
 </script>
 
 <template>
-  <div class="setting-row setting-row-block">
-    <label class="setting-label">{{ label }}</label>
-    <p class="setting-hint">{{ hint }}</p>
-    <div v-if="hosts.length > 0" class="host-list">
-      <div v-for="host in hosts" :key="host" class="host-row">
-        <span class="host-name">{{ host }}</span>
-        <button class="icon-btn danger" :title="t('common.delete')" @click="$emit('forget', host)">
-          <Trash2 :size="14" :stroke-width="2" />
-        </button>
-      </div>
+  <div v-if="hosts.length > 0" class="host-list">
+    <div v-for="host in hosts" :key="host" class="host-row">
+      <span class="host-name">{{ host }}</span>
+      <button class="icon-btn danger" :title="t('common.delete')" @click="$emit('forget', host)">
+        <Trash2 :size="14" :stroke-width="2" />
+      </button>
     </div>
-    <p v-else class="setting-hint">{{ t('settings.hostsEmpty') }}</p>
   </div>
+  <p v-else class="setting-hint">{{ t('settings.hostsEmpty') }}</p>
 </template>
 
 <style scoped>
-/* `.setting-label` / `.setting-hint` は `theme.css` の共有クラス。ルート要素（`.setting-row`）
-   には親の scoped CSS が届くので縦積みは効くが、その**中**の label と p には当たらないため
-   （そのあいだ、既定の font-size のまま描かれていた）。 */
+/* `.setting-hint`（空表示）は `theme.css` の共有クラス。親の scoped CSS はこの中まで
+   届かないので、ここで使う見た目は共有クラスか自前の定義のどちらかになる。 */
 
 .host-list {
   display: flex;

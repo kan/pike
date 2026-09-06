@@ -9,13 +9,16 @@ import {
   Monitor,
   Moon,
   Plus,
+  Search,
   SquareTerminal,
   Sun,
   Trash2,
+  X,
 } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { type Component, computed, ref, useTemplateRef, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { fsWatcher } from '../../composables/useFsWatcher'
+import { provideSettingsSearch } from '../../composables/useSettingsSearch'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { AGENTS, type AgentLauncher, isLauncherVisible, launcherLabel } from '../../lib/agents'
@@ -23,6 +26,7 @@ import { EDITOR_THEMES } from '../../lib/editorThemes'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
+import type { ShortcutPreset } from '../../lib/shortcuts'
 import {
   type AgentHookStatus,
   type AgentHookTarget,
@@ -36,12 +40,17 @@ import {
 } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import {
+  type AgentNotifyMode,
   AUTO_SAVE_DELAY_DEFAULT,
   AUTO_SAVE_DELAY_MAX,
   AUTO_SAVE_DELAY_MIN,
   AUTO_THEME,
+  type AutoSave,
   COLOR_SCHEMES,
   clampSize,
+  type DiffWordWrap,
+  type RegisterDirectoryMode,
+  type ThemeMode,
   UI_FONT_SIZE_MAX,
   UI_FONT_SIZE_MIN,
   useSettingsStore,
@@ -51,9 +60,12 @@ import {
 } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import { isWindowsShell, type ShellProfile, shellFromId, shellId, shellProfileLabel } from '../../types/tab'
-import HelpButton from '../HelpButton.vue'
 import AllowedHostList from '../panels/AllowedHostList.vue'
 import ProfileRow from '../panels/ProfileRow.vue'
+import SettingGroup from '../settings/SettingGroup.vue'
+import SettingItem from '../settings/SettingItem.vue'
+import SettingSection from '../settings/SettingSection.vue'
+import SettingToggle from '../settings/SettingToggle.vue'
 
 // 他のタブと同じく `tab-id` を受ける（`TabPane` が全タブに渡している）。hook の一覧を
 // 取り直す契機を「見えているとき」に絞るのに要る。
@@ -74,11 +86,49 @@ const projectStore = useProjectStore()
 settings.loadAvailableFonts()
 settings.loadAvailableUiFonts()
 
+/**
+ * 選択肢の並び（`SettingToggle` に渡す）。**型を書いておくと、値の綴りを間違えた時点で
+ * コンパイルエラーになる**（設定側の union と突き合わされる）。ラベルのキーは
+ * `SettingToggle` が検索語としても登録するので、ここが唯一の出典。
+ */
+const ON_OFF: { value: boolean; labelKey: string }[] = [
+  { value: true, labelKey: 'common.on' },
+  { value: false, labelKey: 'common.off' },
+]
+const SHORTCUT_PRESET_OPTIONS: { value: ShortcutPreset; labelKey: string }[] = [
+  { value: 'vscode', labelKey: 'settings.shortcutPresetVscode' },
+  { value: 'idea', labelKey: 'settings.shortcutPresetIdea' },
+]
+const REGISTER_DIRECTORY_OPTIONS: { value: RegisterDirectoryMode; labelKey: string }[] = [
+  { value: 'auto', labelKey: 'settings.registerDirectoryAuto' },
+  { value: 'ask', labelKey: 'settings.registerDirectoryAsk' },
+  { value: 'never', labelKey: 'settings.registerDirectoryNever' },
+]
+const THEME_MODE_OPTIONS: { value: ThemeMode; labelKey: string; icon: Component }[] = [
+  { value: 'dark', labelKey: 'settings.darkMode', icon: Moon },
+  { value: 'light', labelKey: 'settings.lightMode', icon: Sun },
+  { value: 'system', labelKey: 'settings.systemMode', icon: Monitor },
+]
 // 背景透過（issue #162）: none / transparent / acrylic のセグメントトグル。
-const backdropOptions: { value: WindowBackdrop; labelKey: string }[] = [
+const BACKDROP_OPTIONS: { value: WindowBackdrop; labelKey: string }[] = [
   { value: 'none', labelKey: 'settings.backdropNone' },
   { value: 'transparent', labelKey: 'settings.backdropTransparent' },
   { value: 'acrylic', labelKey: 'settings.backdropAcrylic' },
+]
+const AGENT_NOTIFY_OPTIONS: { value: AgentNotifyMode; labelKey: string }[] = [
+  { value: 'off', labelKey: 'common.off' },
+  { value: 'waiting', labelKey: 'settings.agentNotifyWaiting' },
+  { value: 'all', labelKey: 'settings.agentNotifyAll' },
+]
+const AUTO_SAVE_OPTIONS: { value: AutoSave; labelKey: string }[] = [
+  { value: 'off', labelKey: 'common.off' },
+  { value: 'onFocusChange', labelKey: 'settings.autoSaveOnFocusChange' },
+  { value: 'afterDelay', labelKey: 'settings.autoSaveAfterDelay' },
+]
+const DIFF_WORD_WRAP_OPTIONS: { value: DiffWordWrap; labelKey: string }[] = [
+  { value: 'auto', labelKey: 'common.auto' },
+  { value: 'on', labelKey: 'common.on' },
+  { value: 'off', labelKey: 'common.off' },
 ]
 
 // Auto（モード追従）カードのプレビューは、いま darkMode で解決される既定テーマを映す。
@@ -400,17 +450,36 @@ function forgetHook() {
   runHook(() => agentHookForget(projectStore.shellForIO, projectStore.activeRoot, distros.value))
 }
 
-// Section navigation
-const sections = [
-  { id: 'appearance', i18nKey: 'settings.appearance' },
-  { id: 'general', i18nKey: 'settings.general' },
-  { id: 'terminal', i18nKey: 'settings.terminal' },
-  { id: 'agent', i18nKey: 'settings.agent' },
-  { id: 'editor', i18nKey: 'settings.editor' },
-  { id: 'sync', i18nKey: 'settings.sync' },
-  { id: 'about', i18nKey: 'settings.about' },
-]
-const activeSection = ref('appearance')
+// --- 節の一覧と絞り込み（#314）-------------------------------------------
+/**
+ * 節の一覧。**左のナビと各節の props の両方がここを読む**（`SECTIONS.general` を
+ * `v-bind` する）ので、見出しとマニュアルの飛び先を 2 箇所に書かずに済む。名前で引くので、
+ * テンプレート側の綴り間違いは `vue-tsc` が拾う。並びは「よく触るものを上へ」。
+ */
+const SECTIONS = {
+  general: { id: 'general', titleKey: 'settings.general', help: 'settings.md#全般' },
+  appearance: { id: 'appearance', titleKey: 'settings.appearance', help: 'settings.md#外観' },
+  terminal: { id: 'terminal', titleKey: 'settings.terminal', help: 'settings.md#ターミナル' },
+  agent: { id: 'agent', titleKey: 'settings.agent', help: 'settings.md#エージェント' },
+  editor: { id: 'editor', titleKey: 'settings.editor', help: 'settings.md#エディタ' },
+  external: { id: 'external', titleKey: 'settings.external', help: 'settings.md#外部との通信' },
+  sync: { id: 'sync', titleKey: 'settings.sync', help: 'settings.md#設定の同期' },
+  about: { id: 'about', titleKey: 'settings.about', help: 'settings.md#バージョン情報' },
+}
+const sections = Object.values(SECTIONS)
+
+const search = provideSettingsSearch()
+const query = search.query
+const hasResults = search.hasResults
+const sectionVisible = search.sectionVisible
+
+const activeSection = ref(sections[0].id)
+const scroller = useTemplateRef<HTMLElement>('scroller')
+
+// 絞り込むと下のほうの節が消えるので、そのままだと空白を見ることになる。
+watch(query, () => {
+  if (scroller.value) scroller.value.scrollTop = 0
+})
 
 function scrollToSection(id: string) {
   activeSection.value = id
@@ -423,14 +492,16 @@ function onSettingsScroll(e: Event) {
   // correct when the content is scaled via the UI-font zoom.
   const container = e.target as HTMLElement
   const threshold = container.getBoundingClientRect().top + 40
-  for (let i = sections.length - 1; i >= 0; i--) {
-    const el = document.getElementById(`settings-${sections[i].id}`)
+  const shown = sections.filter((s) => sectionVisible(s.id))
+  for (let i = shown.length - 1; i >= 0; i--) {
+    // 絞り込みで消えた節は `v-show` で残るが、矩形が 0 になるので必ず先頭に見える。
+    const el = document.getElementById(`settings-${shown[i].id}`)
     if (el && el.getBoundingClientRect().top <= threshold) {
-      activeSection.value = sections[i].id
+      activeSection.value = shown[i].id
       return
     }
   }
-  activeSection.value = sections[0].id
+  activeSection.value = shown[0]?.id ?? sections[0].id
 }
 
 const PREVIEW_LINES = [
@@ -452,15 +523,32 @@ const PREVIEW_LINES = [
     <nav class="settings-nav ui-zoom">
       <button
         v-for="sec in sections"
+        v-show="sectionVisible(sec.id)"
         :key="sec.id"
         class="nav-item"
         :class="{ active: activeSection === sec.id }"
         @click="scrollToSection(sec.id)"
-      >{{ t(sec.i18nKey) }}</button>
+      >{{ t(sec.titleKey) }}</button>
     </nav>
-    <div class="settings-scroll" @scroll="onSettingsScroll">
+    <div ref="scroller" class="settings-scroll" @scroll="onSettingsScroll">
       <div class="settings-zoom ui-zoom">
-      <h2 class="settings-title">{{ t('settings.title') }}</h2>
+      <div class="settings-head">
+        <h2 class="settings-title">{{ t('settings.title') }}</h2>
+        <div class="filter-row search-box">
+          <Search :size="12" :stroke-width="2" class="filter-icon" />
+          <input
+            v-model="query"
+            class="filter-input"
+            type="search"
+            spellcheck="false"
+            :placeholder="t('settings.searchPlaceholder')"
+            @keydown.escape.prevent="query = ''"
+          />
+          <button v-if="query" class="icon-btn" :title="t('common.clear')" @click="query = ''">
+            <X :size="12" :stroke-width="2" />
+          </button>
+        </div>
+      </div>
 
       <div v-if="fsWatcher.startError.value" class="inotify-banner">
         <Info :size="16" :stroke-width="1.5" />
@@ -470,568 +558,438 @@ const PREVIEW_LINES = [
         </div>
       </div>
 
-      <!-- Appearance -->
-      <section id="settings-appearance" class="settings-section">
-        <h3 class="section-title">{{ t('settings.appearance') }}<HelpButton page="settings.md#外観テーマフォントui-サイズ" :size="15" /></h3>
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.language') }}</label>
+      <p v-if="!hasResults" class="setting-hint no-results">{{ t('settings.searchNoResults') }}</p>
+
+      <!-- General -->
+      <SettingSection v-bind="SECTIONS.general">
+        <SettingItem label-key="settings.language">
           <select class="setting-select" :value="settings.language" @change="settings.language = ($event.target as HTMLSelectElement).value">
             <option value="en">English</option>
             <option value="ja">日本語</option>
           </select>
-        </div>
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.mode') }}</label>
-          <div class="mode-toggle">
-            <button
-              class="mode-btn"
-              :class="{ active: settings.themeMode === 'dark' }"
-              @click="settings.themeMode = 'dark'"
-              :title="t('settings.darkMode')"
-            >
-              <Moon :size="16" :stroke-width="1.5" />
-              <span>{{ t('settings.darkMode') }}</span>
-            </button>
-            <button
-              class="mode-btn"
-              :class="{ active: settings.themeMode === 'light' }"
-              @click="settings.themeMode = 'light'"
-              :title="t('settings.lightMode')"
-            >
-              <Sun :size="16" :stroke-width="1.5" />
-              <span>{{ t('settings.lightMode') }}</span>
-            </button>
-            <button
-              class="mode-btn"
-              :class="{ active: settings.themeMode === 'system' }"
-              @click="settings.themeMode = 'system'"
-              :title="t('settings.systemMode')"
-            >
-              <Monitor :size="16" :stroke-width="1.5" />
-              <span>{{ t('settings.systemMode') }}</span>
-            </button>
-          </div>
-        </div>
+        </SettingItem>
+
+        <!-- キーの割り当ては 4 つの層に分かれているので、任意の再割り当てではなく
+             こちらで書き切れる組を選ばせる（#261）。 -->
+        <SettingItem label-key="settings.shortcutPreset" hint-key="settings.shortcutPresetHint">
+          <SettingToggle v-model="settings.shortcutPreset" :options="SHORTCUT_PRESET_OPTIONS" />
+        </SettingItem>
+
+        <!-- 未登録のディレクトリを開いたときの扱い（#286）。確認ダイアログの
+             「今後は確認しない」もここを書き換える。 -->
+        <SettingItem label-key="settings.registerDirectory" hint-key="settings.registerDirectoryHint">
+          <SettingToggle v-model="settings.registerDirectory" :options="REGISTER_DIRECTORY_OPTIONS" />
+        </SettingItem>
+
+        <SettingItem label-key="settings.closeToTray" hint-key="settings.closeToTrayHint">
+          <SettingToggle v-model="settings.closeToTray" :options="ON_OFF" />
+        </SettingItem>
+      </SettingSection>
+
+      <!-- Appearance -->
+      <SettingSection v-bind="SECTIONS.appearance">
+        <SettingItem label-key="settings.mode">
+          <SettingToggle v-model="settings.themeMode" :options="THEME_MODE_OPTIONS" />
+        </SettingItem>
 
         <!-- Window background transparency (issue #162).
              Windows 限定: macOS はウィンドウを透過で生成できないので（lib.rs）、
              選ばせても下地が透けず UI が黒く潰れるだけになる。値の側も
              sanitizeBackdrop が 'none' に潰している。 -->
-        <div class="setting-block" v-if="isWindowsHost">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.backdrop') }}</label>
-            <div class="mode-toggle">
-              <button
-                v-for="opt in backdropOptions"
-                :key="opt.value"
-                class="mode-btn"
-                :class="{ active: settings.windowBackdrop === opt.value }"
-                @click="settings.windowBackdrop = opt.value"
-              >
-                <span>{{ t(opt.labelKey) }}</span>
-              </button>
-            </div>
-          </div>
-          <div class="setting-row" v-if="settings.windowBackdrop !== 'none'">
-            <label class="setting-label">{{ t('settings.windowOpacity') }}</label>
-            <div class="font-size-control">
-              <input
-                type="range"
-                :min="WINDOW_OPACITY_MIN"
-                :max="WINDOW_OPACITY_MAX"
-                step="0.05"
-                v-model.number="settings.windowOpacity"
-                class="setting-range"
-              />
-              <span class="font-size-value">{{ Math.round(settings.windowOpacity * 100) }}%</span>
-            </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.backdropHint') }}</p>
-        </div>
-
-        <div class="setting-block">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.uiFont') }}</label>
-            <select class="setting-select" v-model="settings.uiFontFamily">
-              <option value="">{{ t('settings.uiFontDefault') }}</option>
-              <option v-for="font in settings.availableUiFonts" :key="font" :value="font">{{ font }}</option>
-            </select>
-          </div>
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.uiFontSize') }}</label>
-            <div class="font-size-control">
-              <input
-                type="range"
-                :min="UI_FONT_SIZE_MIN"
-                :max="UI_FONT_SIZE_MAX"
-                :value="uiFontSizeDraft"
-                @input="onUiFontSizeInput"
-                @change="onUiFontSizeCommit"
-                class="setting-range"
-              />
-              <span class="font-size-value" :style="{ fontSize: uiFontSizeDraft + 'px' }">{{ uiFontSizeDraft }}px</span>
-            </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.uiFontHint') }}</p>
-        </div>
-      </section>
-
-      <!-- General -->
-      <section id="settings-general" class="settings-section">
-        <h3 class="section-title">{{ t('settings.general') }}</h3>
-
-        <!-- キーの割り当ては 4 つの層に分かれているので、任意の再割り当てではなく
-             こちらで書き切れる組を選ばせる（#261）。 -->
-        <div class="setting-block">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.shortcutPreset') }}</label>
-            <div class="mode-toggle">
-              <button
-                class="mode-btn"
-                :class="{ active: settings.shortcutPreset === 'vscode' }"
-                @click="settings.shortcutPreset = 'vscode'"
-              >
-                {{ t('settings.shortcutPresetVscode') }}
-              </button>
-              <button
-                class="mode-btn"
-                :class="{ active: settings.shortcutPreset === 'idea' }"
-                @click="settings.shortcutPreset = 'idea'"
-              >
-                {{ t('settings.shortcutPresetIdea') }}
-              </button>
-            </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.shortcutPresetHint') }}</p>
-        </div>
-
-        <!-- 未登録のディレクトリを開いたときの扱い（#286）。確認ダイアログの
-             「今後は確認しない」もここを書き換える。 -->
-        <div class="setting-block">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.registerDirectory') }}</label>
-            <div class="mode-toggle">
-              <button
-                class="mode-btn"
-                :class="{ active: settings.registerDirectory === 'auto' }"
-                @click="settings.registerDirectory = 'auto'"
-              >
-                {{ t('settings.registerDirectoryAuto') }}
-              </button>
-              <button
-                class="mode-btn"
-                :class="{ active: settings.registerDirectory === 'ask' }"
-                @click="settings.registerDirectory = 'ask'"
-              >
-                {{ t('settings.registerDirectoryAsk') }}
-              </button>
-              <button
-                class="mode-btn"
-                :class="{ active: settings.registerDirectory === 'never' }"
-                @click="settings.registerDirectory = 'never'"
-              >
-                {{ t('settings.registerDirectoryNever') }}
-              </button>
-            </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.registerDirectoryHint') }}</p>
-        </div>
-
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.closeToTray') }}</label>
-          <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.closeToTray }" @click="settings.closeToTray = true">{{ t('common.on') }}</button>
-            <button class="mode-btn" :class="{ active: !settings.closeToTray }" @click="settings.closeToTray = false">{{ t('common.off') }}</button>
-          </div>
-        </div>
-        <p class="setting-hint">{{ t('settings.closeToTrayHint') }}</p>
-      </section>
-
-      <!-- Terminal -->
-      <section id="settings-terminal" class="settings-section">
-        <h3 class="section-title">{{ t('settings.terminal') }}<HelpButton page="settings.md#ターミナル" :size="15" /></h3>
-
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.font') }}</label>
-          <select
-            class="setting-select"
-            :value="settings.fontName"
-            @change="settings.setFontByName(($event.target as HTMLSelectElement).value)"
-          >
-            <option
-              v-for="font in settings.availableFonts"
-              :key="font"
-              :value="font"
-            >{{ font }}</option>
-          </select>
-        </div>
-
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.fontSize') }}</label>
+        <SettingItem v-if="isWindowsHost" label-key="settings.backdrop" hint-key="settings.backdropHint">
+          <SettingToggle v-model="settings.windowBackdrop" :options="BACKDROP_OPTIONS" />
+        </SettingItem>
+        <SettingItem
+          v-if="isWindowsHost && settings.windowBackdrop !== 'none'"
+          label-key="settings.windowOpacity"
+        >
           <div class="font-size-control">
             <input
               type="range"
-              min="8"
-              max="32"
-              :value="settings.fontSize"
-              @input="onFontSizeInput"
+              :min="WINDOW_OPACITY_MIN"
+              :max="WINDOW_OPACITY_MAX"
+              step="0.05"
+              v-model.number="settings.windowOpacity"
               class="setting-range"
             />
-            <span class="font-size-value">{{ settings.fontSize }}px</span>
+            <span class="font-size-value">{{ Math.round(settings.windowOpacity * 100) }}%</span>
           </div>
-        </div>
+        </SettingItem>
 
-        <!-- Preview -->
-        <div class="setting-row setting-row-block">
-          <label class="setting-label">{{ t('settings.preview') }}</label>
-          <div
-            class="terminal-preview"
-            :style="{
-              background: settings.colorScheme.background,
-              fontFamily: settings.fontFamily,
-              fontSize: settings.fontSize + 'px',
-            }"
-          >
-            <div v-for="(line, i) in PREVIEW_LINES" :key="i" class="preview-line">
-              <template v-if="line.prompt">
-                <span :style="{ color: settings.colorScheme[line.promptColor as keyof typeof settings.colorScheme] }">{{ line.prompt }}</span>
-                <span :style="{ color: settings.colorScheme.foreground }">{{ line.cmd }}</span>
-                <span v-if="line.cursor" class="preview-cursor" :style="{ background: settings.colorScheme.cursor }" />
-              </template>
-              <template v-else>
-                <span :style="{ color: settings.colorScheme[line.color as keyof typeof settings.colorScheme] }">{{ line.text }}</span>
-              </template>
+        <SettingItem label-key="settings.uiFont">
+          <select class="setting-select" v-model="settings.uiFontFamily">
+            <option value="">{{ t('settings.uiFontDefault') }}</option>
+            <option v-for="font in settings.availableUiFonts" :key="font" :value="font">{{ font }}</option>
+          </select>
+        </SettingItem>
+        <SettingItem label-key="settings.uiFontSize" hint-key="settings.uiFontHint">
+          <div class="font-size-control">
+            <input
+              type="range"
+              :min="UI_FONT_SIZE_MIN"
+              :max="UI_FONT_SIZE_MAX"
+              :value="uiFontSizeDraft"
+              @input="onUiFontSizeInput"
+              @change="onUiFontSizeCommit"
+              class="setting-range"
+            />
+            <span class="font-size-value" :style="{ fontSize: uiFontSizeDraft + 'px' }">{{ uiFontSizeDraft }}px</span>
+          </div>
+        </SettingItem>
+      </SettingSection>
+
+      <!-- Terminal -->
+      <SettingSection v-bind="SECTIONS.terminal">
+        <SettingGroup title-key="settings.groupDisplay">
+          <SettingItem label-key="settings.font">
+            <select
+              class="setting-select"
+              :value="settings.fontName"
+              @change="settings.setFontByName(($event.target as HTMLSelectElement).value)"
+            >
+              <option
+                v-for="font in settings.availableFonts"
+                :key="font"
+                :value="font"
+              >{{ font }}</option>
+            </select>
+          </SettingItem>
+
+          <SettingItem label-key="settings.fontSize">
+            <div class="font-size-control">
+              <input
+                type="range"
+                min="8"
+                max="32"
+                :value="settings.fontSize"
+                @input="onFontSizeInput"
+                class="setting-range"
+              />
+              <span class="font-size-value">{{ settings.fontSize }}px</span>
             </div>
-          </div>
-        </div>
+          </SettingItem>
 
-        <div class="setting-row setting-row-block">
-          <label class="setting-label">{{ t('settings.colorScheme') }}</label>
-          <div class="scheme-grid">
-            <button
-              class="scheme-card"
-              :class="{ active: settings.colorSchemeName === AUTO_THEME }"
-              @click="settings.colorSchemeName = AUTO_THEME"
+          <SettingItem label-key="settings.colorScheme" :term-keys="['settings.themeAuto']" block>
+            <div class="scheme-grid">
+              <button
+                class="scheme-card"
+                :class="{ active: settings.colorSchemeName === AUTO_THEME }"
+                @click="settings.colorSchemeName = AUTO_THEME"
+              >
+                <div class="scheme-preview" :style="{ background: autoScheme.background, fontFamily: settings.fontFamily }">
+                  <span :style="{ color: autoScheme.foreground }">abc</span>
+                  <span :style="{ color: autoScheme.red }">err</span>
+                  <span :style="{ color: autoScheme.green }">ok</span>
+                  <span :style="{ color: autoScheme.yellow }">wrn</span>
+                  <span :style="{ color: autoScheme.blue }">inf</span>
+                  <span :style="{ color: autoScheme.magenta }">dbg</span>
+                  <span :style="{ color: autoScheme.cyan }">url</span>
+                </div>
+                <span class="scheme-name">{{ t('settings.themeAuto') }}</span>
+              </button>
+              <button
+                v-for="scheme in COLOR_SCHEMES"
+                :key="scheme.name"
+                class="scheme-card"
+                :class="{ active: settings.colorSchemeName === scheme.name }"
+                @click="settings.colorSchemeName = scheme.name"
+              >
+                <div class="scheme-preview" :style="{ background: scheme.background, fontFamily: settings.fontFamily }">
+                  <span :style="{ color: scheme.foreground }">abc</span>
+                  <span :style="{ color: scheme.red }">err</span>
+                  <span :style="{ color: scheme.green }">ok</span>
+                  <span :style="{ color: scheme.yellow }">wrn</span>
+                  <span :style="{ color: scheme.blue }">inf</span>
+                  <span :style="{ color: scheme.magenta }">dbg</span>
+                  <span :style="{ color: scheme.cyan }">url</span>
+                </div>
+                <span class="scheme-name">{{ scheme.name }}</span>
+              </button>
+            </div>
+          </SettingItem>
+
+          <SettingItem label-key="settings.preview" block>
+            <div
+              class="terminal-preview"
+              :style="{
+                background: settings.colorScheme.background,
+                fontFamily: settings.fontFamily,
+                fontSize: settings.fontSize + 'px',
+              }"
             >
-              <div class="scheme-preview" :style="{ background: autoScheme.background, fontFamily: settings.fontFamily }">
-                <span :style="{ color: autoScheme.foreground }">abc</span>
-                <span :style="{ color: autoScheme.red }">err</span>
-                <span :style="{ color: autoScheme.green }">ok</span>
-                <span :style="{ color: autoScheme.yellow }">wrn</span>
-                <span :style="{ color: autoScheme.blue }">inf</span>
-                <span :style="{ color: autoScheme.magenta }">dbg</span>
-                <span :style="{ color: autoScheme.cyan }">url</span>
+              <div v-for="(line, i) in PREVIEW_LINES" :key="i" class="preview-line">
+                <template v-if="line.prompt">
+                  <span :style="{ color: settings.colorScheme[line.promptColor as keyof typeof settings.colorScheme] }">{{ line.prompt }}</span>
+                  <span :style="{ color: settings.colorScheme.foreground }">{{ line.cmd }}</span>
+                  <span v-if="line.cursor" class="preview-cursor" :style="{ background: settings.colorScheme.cursor }" />
+                </template>
+                <template v-else>
+                  <span :style="{ color: settings.colorScheme[line.color as keyof typeof settings.colorScheme] }">{{ line.text }}</span>
+                </template>
               </div>
-              <span class="scheme-name">{{ t('settings.themeAuto') }}</span>
-            </button>
-            <button
-              v-for="scheme in COLOR_SCHEMES"
-              :key="scheme.name"
-              class="scheme-card"
-              :class="{ active: settings.colorSchemeName === scheme.name }"
-              @click="settings.colorSchemeName = scheme.name"
-            >
-              <div class="scheme-preview" :style="{ background: scheme.background, fontFamily: settings.fontFamily }">
-                <span :style="{ color: scheme.foreground }">abc</span>
-                <span :style="{ color: scheme.red }">err</span>
-                <span :style="{ color: scheme.green }">ok</span>
-                <span :style="{ color: scheme.yellow }">wrn</span>
-                <span :style="{ color: scheme.blue }">inf</span>
-                <span :style="{ color: scheme.magenta }">dbg</span>
-                <span :style="{ color: scheme.cyan }">url</span>
-              </div>
-              <span class="scheme-name">{{ scheme.name }}</span>
-            </button>
-          </div>
-        </div>
+            </div>
+          </SettingItem>
+        </SettingGroup>
 
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.copyOnSelect') }}</label>
-          <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.terminalCopyOnSelect }" @click="settings.terminalCopyOnSelect = true">{{ t('common.on') }}</button>
-            <button class="mode-btn" :class="{ active: !settings.terminalCopyOnSelect }" @click="settings.terminalCopyOnSelect = false">{{ t('common.off') }}</button>
-          </div>
-        </div>
+        <SettingGroup title-key="settings.groupBehavior">
+          <SettingItem label-key="settings.copyOnSelect">
+            <SettingToggle v-model="settings.terminalCopyOnSelect" :options="ON_OFF" />
+          </SettingItem>
 
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.rightClickPaste') }}</label>
-          <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.terminalRightClickPaste }" @click="settings.terminalRightClickPaste = true">{{ t('common.on') }}</button>
-            <button class="mode-btn" :class="{ active: !settings.terminalRightClickPaste }" @click="settings.terminalRightClickPaste = false">{{ t('common.off') }}</button>
-          </div>
-        </div>
+          <SettingItem label-key="settings.rightClickPaste">
+            <SettingToggle v-model="settings.terminalRightClickPaste" :options="ON_OFF" />
+          </SettingItem>
+        </SettingGroup>
 
-        <div class="setting-block">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.globalShell') }}</label>
+        <SettingGroup title-key="settings.groupShell">
+          <SettingItem label-key="settings.globalShell" hint-key="settings.globalShellHint">
             <select class="setting-select" :value="globalShellValue" @change="onGlobalShellChange">
               <option v-for="opt in globalShellOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
-          </div>
-          <p class="setting-hint">{{ t('settings.globalShellHint') }}</p>
-        </div>
+          </SettingItem>
 
-        <div class="setting-block" data-testid="settings-shells">
-          <label class="setting-label">{{ t('settings.shellProfiles') }}</label>
-          <p class="setting-hint">{{ t('settings.shellProfilesHint') }}</p>
-          <div class="setting-list">
-            <ProfileRow
-              v-for="(p, i) in settings.shellProfiles"
-              :key="p.id"
-              :label="shellProfileLabel(p.shell)"
-              :is-default="p.id === defaultShellId"
-              :hidden="p.hidden"
-              :can-hide="canHideShellProfile(p)"
-              :first="i === 0"
-              :last="i === settings.shellProfiles.length - 1"
-              @move="(dir) => moveInList(settings.shellProfiles, i, dir)"
-              @toggle="toggleShellProfileHidden(i)"
-            >
-              <template #icon>
-                <component :is="SHELL_KIND_ICONS[p.shell.kind]" :size="14" :stroke-width="1.5" class="profile-icon" />
-              </template>
-            </ProfileRow>
-          </div>
-        </div>
-
-      </section>
+          <SettingItem
+            label-key="settings.shellProfiles"
+            hint-key="settings.shellProfilesHint"
+            data-testid="settings-shells"
+            block
+          >
+            <div class="setting-list">
+              <ProfileRow
+                v-for="(p, i) in settings.shellProfiles"
+                :key="p.id"
+                :label="shellProfileLabel(p.shell)"
+                :is-default="p.id === defaultShellId"
+                :hidden="p.hidden"
+                :can-hide="canHideShellProfile(p)"
+                :first="i === 0"
+                :last="i === settings.shellProfiles.length - 1"
+                @move="(dir) => moveInList(settings.shellProfiles, i, dir)"
+                @toggle="toggleShellProfileHidden(i)"
+              >
+                <template #icon>
+                  <component :is="SHELL_KIND_ICONS[p.shell.kind]" :size="14" :stroke-width="1.5" class="profile-icon" />
+                </template>
+              </ProfileRow>
+            </div>
+          </SettingItem>
+        </SettingGroup>
+      </SettingSection>
 
       <!-- Agents (#275)。ターミナルで動かすものなので Terminal の直後に置く。 -->
-      <section id="settings-agent" class="settings-section">
-        <h3 class="section-title">{{ t('settings.agent') }}<HelpButton page="settings.md#エージェント" :size="15" /></h3>
-
-        <!--
-          起動行の 1 本のリスト（#275）。表のエージェントと利用者が書いた行が同じ順序に
-          並び、**使える先頭が既定**。行の形は 2 つあるが、違うのはスロットの中身だけなので
-          `ProfileRow` は 1 つに保ち、束縛も `launcherRowBind` の 1 つを `v-bind` する
-          （#305 の `tabBind` と同じ理由）。
-        -->
-        <div class="setting-block" data-testid="settings-agents">
-          <label class="setting-label">{{ t('settings.agentLaunchers') }}</label>
-          <p class="setting-hint">{{ t('settings.agentLaunchersHint') }}</p>
-          <div class="setting-list">
-            <ProfileRow
-              v-for="(l, i) in settings.agentLaunchers"
-              :key="i"
-              v-bind="launcherRowBind(l, i)"
-            >
-              <template #icon>
-                <component
-                  :is="l.kind === 'custom' ? SquareTerminal : Bot"
-                  :size="14"
-                  :stroke-width="1.5"
-                  class="profile-icon"
-                />
-              </template>
-              <template v-if="l.kind === 'custom'">
-                <input v-model="l.label" class="agent-cmd-input label" :placeholder="t('settings.agentCommandLabel')" />
-                <input v-model="l.command" class="agent-cmd-input cmd" :placeholder="t('settings.agentCommandCommand')" />
-              </template>
-              <template v-if="l.kind === 'custom'" #actions>
-                <button class="icon-btn danger" :title="t('common.delete')" @click="removeCustomLauncher(i)">
-                  <Trash2 :size="14" :stroke-width="2" />
-                </button>
-              </template>
-            </ProfileRow>
-          </div>
-          <button class="add-cmd-btn" @click="addCustomLauncher">
-            <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentLauncher') }}
-          </button>
-        </div>
-
-        <div class="setting-block">
-          <label class="setting-label">{{ t('settings.agentPrompts') }}</label>
-          <p class="setting-hint">{{ t('settings.agentPromptsHint') }}</p>
-          <div class="setting-list">
-            <div v-for="(p, i) in settings.agentPrompts" :key="i" class="setting-list-row prompt-row">
-              <div class="agent-cmd-reorder">
-                <button class="icon-btn" :disabled="i === 0" :title="'↑'" @click="moveAgentPrompt(i, -1)">
-                  <ChevronUp :size="14" :stroke-width="2" />
-                </button>
-                <button class="icon-btn" :disabled="i === settings.agentPrompts.length - 1" :title="'↓'" @click="moveAgentPrompt(i, 1)">
-                  <ChevronDown :size="14" :stroke-width="2" />
-                </button>
-              </div>
-              <input v-model="p.label" class="agent-cmd-input label" :placeholder="t('settings.agentPromptLabel')" />
-              <textarea v-model="p.text" class="agent-cmd-input prompt-text" rows="2" :placeholder="t('settings.agentPromptText')" />
-              <button class="icon-btn danger" :title="t('common.delete')" @click="removeAgentPrompt(i)">
-                <Trash2 :size="14" :stroke-width="2" />
-              </button>
-            </div>
-          </div>
-          <button class="add-cmd-btn" @click="addAgentPrompt">
-            <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentPrompt') }}
-          </button>
-        </div>
-
-        <!--
-          Claude Code の hook（#299）。**「登録済み」と「申告が届いた」は別に出す**:
-          settings.json に書いてあることは、そのマシンで実際に claude が Pike を
-          呼べていることを意味しない（PATH に pike.exe が無い、等）。効いているかを
-          言うのは申告のほうなので、両方を並べる。
-        -->
-        <div class="setting-block">
-          <label class="setting-label">{{ t('settings.agentHook') }}</label>
-          <p class="setting-hint">{{ t('settings.agentHookHint') }}</p>
-          <p v-if="!projectStore.activeRoot" class="setting-hint">{{ t('settings.agentHookNoProject') }}</p>
-          <template v-else-if="hookStatus">
+      <SettingSection v-bind="SECTIONS.agent">
+        <SettingGroup title-key="settings.groupLaunch">
+          <!--
+            起動行の 1 本のリスト（#275）。表のエージェントと利用者が書いた行が同じ順序に
+            並び、**使える先頭が既定**。行の形は 2 つあるが、違うのはスロットの中身だけなので
+            `ProfileRow` は 1 つに保ち、束縛も `launcherRowBind` の 1 つを `v-bind` する
+            （#305 の `tabBind` と同じ理由）。
+          -->
+          <SettingItem
+            label-key="settings.agentLaunchers"
+            hint-key="settings.agentLaunchersHint"
+            data-testid="settings-agents"
+            block
+          >
             <div class="setting-list">
-              <div
-                v-for="target in hookStatus.targets"
-                :key="`${target.installKey}:${target.configDir}`"
-                class="setting-list-row"
+              <ProfileRow
+                v-for="(l, i) in settings.agentLaunchers"
+                :key="i"
+                v-bind="launcherRowBind(l, i)"
               >
-                <code class="setting-list-name hook-dir">{{ target.configDir }}</code>
-                <span v-if="target.active" class="hook-badge">{{ t('settings.agentHookActive') }}</span>
-                <span v-if="target.registered" class="setting-hint hook-done" :title="target.command">{{ t('settings.agentHookRegistered') }}</span>
-                <button v-else class="add-cmd-btn" :disabled="hookBusy" :title="target.command" @click="editHook(target, false)">
-                  <Plus :size="14" :stroke-width="2" /> {{ t('settings.agentHookInstall') }}
-                </button>
-                <!--
-                  削除は `hasAny`（1 本でもあるか）で出す。`registered`（全部揃っているか）
-                  だと、#299 の版が書いた 1 本だけのファイルは「未登録」なので、**一度
-                  登録し直さないと消せない**（理由は Rust 側の `HookTarget::has_any`）。
-                -->
-                <button v-if="target.hasAny" class="icon-btn danger" :disabled="hookBusy" :title="t('settings.agentHookRemove')" @click="editHook(target, true)">
+                <template #icon>
+                  <component
+                    :is="l.kind === 'custom' ? SquareTerminal : Bot"
+                    :size="14"
+                    :stroke-width="1.5"
+                    class="profile-icon"
+                  />
+                </template>
+                <template v-if="l.kind === 'custom'">
+                  <input v-model="l.label" class="agent-cmd-input label" :placeholder="t('settings.agentCommandLabel')" />
+                  <input v-model="l.command" class="agent-cmd-input cmd" :placeholder="t('settings.agentCommandCommand')" />
+                </template>
+                <template v-if="l.kind === 'custom'" #actions>
+                  <button class="icon-btn danger" :title="t('common.delete')" @click="removeCustomLauncher(i)">
+                    <Trash2 :size="14" :stroke-width="2" />
+                  </button>
+                </template>
+              </ProfileRow>
+            </div>
+            <button class="add-cmd-btn" @click="addCustomLauncher">
+              <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentLauncher') }}
+            </button>
+          </SettingItem>
+
+          <SettingItem label-key="settings.agentPrompts" hint-key="settings.agentPromptsHint" block>
+            <div class="setting-list">
+              <div v-for="(p, i) in settings.agentPrompts" :key="i" class="setting-list-row prompt-row">
+                <div class="agent-cmd-reorder">
+                  <button class="icon-btn" :disabled="i === 0" :title="'↑'" @click="moveAgentPrompt(i, -1)">
+                    <ChevronUp :size="14" :stroke-width="2" />
+                  </button>
+                  <button class="icon-btn" :disabled="i === settings.agentPrompts.length - 1" :title="'↓'" @click="moveAgentPrompt(i, 1)">
+                    <ChevronDown :size="14" :stroke-width="2" />
+                  </button>
+                </div>
+                <input v-model="p.label" class="agent-cmd-input label" :placeholder="t('settings.agentPromptLabel')" />
+                <textarea v-model="p.text" class="agent-cmd-input prompt-text" rows="2" :placeholder="t('settings.agentPromptText')" />
+                <button class="icon-btn danger" :title="t('common.delete')" @click="removeAgentPrompt(i)">
                   <Trash2 :size="14" :stroke-width="2" />
                 </button>
               </div>
             </div>
-            <p v-if="hookStatus.targets.length === 0" class="setting-hint">{{ t('settings.agentHookNoTarget') }}</p>
-            <p class="setting-hint hook-declared">
-              <span>
-                {{ t('settings.agentHookDeclared') }}:
-                <code v-if="hookStatus.declared">{{ hookStatus.declared }}</code>
-                <template v-else>{{ t('settings.agentHookPending') }}</template>
-              </span>
-              <button
-                v-if="hookStatus.declared"
-                class="icon-btn"
-                :disabled="hookBusy"
-                :title="t('settings.agentHookForget')"
-                @click="forgetHook"
-              >
-                <Trash2 :size="14" :stroke-width="2" />
-              </button>
-            </p>
-          </template>
-          <p v-if="hookError" class="setting-hint hook-error">{{ hookError }}</p>
-        </div>
+            <button class="add-cmd-btn" @click="addAgentPrompt">
+              <Plus :size="14" :stroke-width="2" /> {{ t('settings.addAgentPrompt') }}
+            </button>
+          </SettingItem>
+        </SettingGroup>
 
-        <!--
-          入力待ちの通知（#265）。**hook の下に置く**: 届くのは hook を登録した
-          アカウントのぶんだけなので、上のブロックがこの設定の前提になっている。
-        -->
-        <div class="setting-block">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.agentNotify') }}</label>
-            <div class="mode-toggle">
-              <button
-                class="mode-btn"
-                :class="{ active: settings.agentNotify === 'off' }"
-                @click="settings.agentNotify = 'off'"
-              >
-                {{ t('common.off') }}
-              </button>
-              <button
-                class="mode-btn"
-                :class="{ active: settings.agentNotify === 'waiting' }"
-                @click="settings.agentNotify = 'waiting'"
-              >
-                {{ t('settings.agentNotifyWaiting') }}
-              </button>
-              <button
-                class="mode-btn"
-                :class="{ active: settings.agentNotify === 'all' }"
-                @click="settings.agentNotify = 'all'"
-              >
-                {{ t('settings.agentNotifyAll') }}
-              </button>
-            </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.agentNotifyHint') }}</p>
-        </div>
-      </section>
+        <SettingGroup title-key="settings.groupIntegration">
+          <!--
+            Claude Code の hook（#299）。**「登録済み」と「申告が届いた」は別に出す**:
+            settings.json に書いてあることは、そのマシンで実際に claude が Pike を
+            呼べていることを意味しない（PATH に pike.exe が無い、等）。効いているかを
+            言うのは申告のほうなので、両方を並べる。
+          -->
+          <SettingItem label-key="settings.agentHook" hint-key="settings.agentHookHint" block>
+            <p v-if="!projectStore.activeRoot" class="setting-hint">{{ t('settings.agentHookNoProject') }}</p>
+            <template v-else-if="hookStatus">
+              <div class="setting-list">
+                <div
+                  v-for="target in hookStatus.targets"
+                  :key="`${target.installKey}:${target.configDir}`"
+                  class="setting-list-row"
+                >
+                  <code class="setting-list-name hook-dir">{{ target.configDir }}</code>
+                  <span v-if="target.active" class="hook-badge">{{ t('settings.agentHookActive') }}</span>
+                  <span v-if="target.registered" class="setting-hint hook-done" :title="target.command">{{ t('settings.agentHookRegistered') }}</span>
+                  <button v-else class="add-cmd-btn" :disabled="hookBusy" :title="target.command" @click="editHook(target, false)">
+                    <Plus :size="14" :stroke-width="2" /> {{ t('settings.agentHookInstall') }}
+                  </button>
+                  <!--
+                    削除は `hasAny`（1 本でもあるか）で出す。`registered`（全部揃っているか）
+                    だと、#299 の版が書いた 1 本だけのファイルは「未登録」なので、**一度
+                    登録し直さないと消せない**（理由は Rust 側の `HookTarget::has_any`）。
+                  -->
+                  <button v-if="target.hasAny" class="icon-btn danger" :disabled="hookBusy" :title="t('settings.agentHookRemove')" @click="editHook(target, true)">
+                    <Trash2 :size="14" :stroke-width="2" />
+                  </button>
+                </div>
+              </div>
+              <p v-if="hookStatus.targets.length === 0" class="setting-hint">{{ t('settings.agentHookNoTarget') }}</p>
+              <p class="setting-hint hook-declared">
+                <span>
+                  {{ t('settings.agentHookDeclared') }}:
+                  <code v-if="hookStatus.declared">{{ hookStatus.declared }}</code>
+                  <template v-else>{{ t('settings.agentHookPending') }}</template>
+                </span>
+                <button
+                  v-if="hookStatus.declared"
+                  class="icon-btn"
+                  :disabled="hookBusy"
+                  :title="t('settings.agentHookForget')"
+                  @click="forgetHook"
+                >
+                  <Trash2 :size="14" :stroke-width="2" />
+                </button>
+              </p>
+            </template>
+            <p v-if="hookError" class="setting-hint hook-error">{{ hookError }}</p>
+          </SettingItem>
+
+          <!--
+            入力待ちの通知（#265）。**hook の下に置く**: 届くのは hook を登録した
+            アカウントのぶんだけなので、上の項目がこの設定の前提になっている。
+          -->
+          <SettingItem label-key="settings.agentNotify" hint-key="settings.agentNotifyHint">
+            <SettingToggle v-model="settings.agentNotify" :options="AGENT_NOTIFY_OPTIONS" />
+          </SettingItem>
+        </SettingGroup>
+      </SettingSection>
 
       <!-- Editor -->
-      <section id="settings-editor" class="settings-section">
-        <h3 class="section-title">{{ t('settings.editor') }}<HelpButton page="settings.md#エディタ" :size="15" /></h3>
+      <SettingSection v-bind="SECTIONS.editor">
+        <SettingGroup title-key="settings.groupDisplay">
+          <SettingItem label-key="settings.editorFont">
+            <select class="setting-select" v-model="settings.editorFontName">
+              <option v-for="font in settings.availableFonts" :key="font" :value="font">{{ font }}</option>
+            </select>
+          </SettingItem>
 
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.editorFont') }}</label>
-          <select class="setting-select" v-model="settings.editorFontName">
-            <option v-for="font in settings.availableFonts" :key="font" :value="font">{{ font }}</option>
-          </select>
-        </div>
-
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.editorFontSize') }}</label>
-          <div class="font-size-control">
-            <input
-              type="range"
-              min="8"
-              max="32"
-              :value="settings.editorFontSize"
-              @input="onEditorFontSizeInput"
-              class="setting-range"
-            />
-            <span class="font-size-value">{{ settings.editorFontSize }}px</span>
-          </div>
-        </div>
-
-        <div class="setting-row setting-row-block">
-          <label class="setting-label">{{ t('settings.editorTheme') }}</label>
-          <div class="scheme-grid">
-            <button
-              class="scheme-card"
-              :class="{ active: settings.editorThemeName === AUTO_THEME }"
-              @click="settings.editorThemeName = AUTO_THEME"
-            >
-              <div class="scheme-preview" :style="{ background: autoEditorTheme.background, color: autoEditorTheme.foreground, fontFamily: editorFontFamily }">
-                <span>fn</span>
-                <span :style="{ color: autoEditorTheme.accent }">main</span>
-                <span>()</span>
-              </div>
-              <span class="scheme-name">{{ t('settings.themeAuto') }}</span>
-            </button>
-            <button
-              v-for="theme in EDITOR_THEMES"
-              :key="theme.name"
-              class="scheme-card"
-              :class="{ active: settings.editorThemeName === theme.name }"
-              @click="settings.editorThemeName = theme.name"
-            >
-              <div class="scheme-preview" :style="{ background: theme.background, color: theme.foreground, fontFamily: editorFontFamily }">
-                <span>fn</span>
-                <span :style="{ color: theme.accent }">main</span>
-                <span>()</span>
-              </div>
-              <span class="scheme-name">{{ theme.name }}</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.minimap') }}</label>
-          <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.editorMinimap }" @click="settings.editorMinimap = true">{{ t('common.on') }}</button>
-            <button class="mode-btn" :class="{ active: !settings.editorMinimap }" @click="settings.editorMinimap = false">{{ t('common.off') }}</button>
-          </div>
-        </div>
-
-        <!-- 保存の主体は人のまま。これは Ctrl+S の押し忘れを代行する設定（#262 / #276）。 -->
-        <div class="setting-block">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.autoSave') }}</label>
-            <div class="mode-toggle">
-              <button class="mode-btn" :class="{ active: settings.autoSave === 'off' }" @click="settings.autoSave = 'off'">{{ t('common.off') }}</button>
-              <button class="mode-btn" :class="{ active: settings.autoSave === 'onFocusChange' }" @click="settings.autoSave = 'onFocusChange'">{{ t('settings.autoSaveOnFocusChange') }}</button>
-              <button class="mode-btn" :class="{ active: settings.autoSave === 'afterDelay' }" @click="settings.autoSave = 'afterDelay'">{{ t('settings.autoSaveAfterDelay') }}</button>
+          <SettingItem label-key="settings.editorFontSize">
+            <div class="font-size-control">
+              <input
+                type="range"
+                min="8"
+                max="32"
+                :value="settings.editorFontSize"
+                @input="onEditorFontSizeInput"
+                class="setting-range"
+              />
+              <span class="font-size-value">{{ settings.editorFontSize }}px</span>
             </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.autoSaveHint') }}</p>
-          <div v-if="settings.autoSave === 'afterDelay'" class="setting-row">
-            <label class="setting-label">{{ t('settings.autoSaveDelay') }}</label>
+          </SettingItem>
+
+          <SettingItem label-key="settings.editorTheme" :term-keys="['settings.themeAuto']" block>
+            <div class="scheme-grid">
+              <button
+                class="scheme-card"
+                :class="{ active: settings.editorThemeName === AUTO_THEME }"
+                @click="settings.editorThemeName = AUTO_THEME"
+              >
+                <div class="scheme-preview" :style="{ background: autoEditorTheme.background, color: autoEditorTheme.foreground, fontFamily: editorFontFamily }">
+                  <span>fn</span>
+                  <span :style="{ color: autoEditorTheme.accent }">main</span>
+                  <span>()</span>
+                </div>
+                <span class="scheme-name">{{ t('settings.themeAuto') }}</span>
+              </button>
+              <button
+                v-for="theme in EDITOR_THEMES"
+                :key="theme.name"
+                class="scheme-card"
+                :class="{ active: settings.editorThemeName === theme.name }"
+                @click="settings.editorThemeName = theme.name"
+              >
+                <div class="scheme-preview" :style="{ background: theme.background, color: theme.foreground, fontFamily: editorFontFamily }">
+                  <span>fn</span>
+                  <span :style="{ color: theme.accent }">main</span>
+                  <span>()</span>
+                </div>
+                <span class="scheme-name">{{ theme.name }}</span>
+              </button>
+            </div>
+          </SettingItem>
+
+          <SettingItem label-key="settings.minimap">
+            <SettingToggle v-model="settings.editorMinimap" :options="ON_OFF" />
+          </SettingItem>
+
+          <SettingItem label-key="settings.wordWrap" hint-key="settings.wordWrapHint">
+            <SettingToggle v-model="settings.editorWordWrap" :options="ON_OFF" />
+          </SettingItem>
+
+          <SettingItem label-key="settings.tabSize">
+            <select
+              class="setting-select setting-select-narrow"
+              :value="settings.editorTabSize"
+              @change="settings.editorTabSize = parseInt(($event.target as HTMLSelectElement).value)"
+            >
+              <option :value="2">2</option>
+              <option :value="4">4</option>
+              <option :value="8">8</option>
+            </select>
+          </SettingItem>
+        </SettingGroup>
+
+        <SettingGroup title-key="settings.groupSave">
+          <!-- 保存の主体は人のまま。これは Ctrl+S の押し忘れを代行する設定（#262 / #276）。 -->
+          <SettingItem label-key="settings.autoSave" hint-key="settings.autoSaveHint">
+            <SettingToggle v-model="settings.autoSave" :options="AUTO_SAVE_OPTIONS" />
+          </SettingItem>
+
+          <SettingItem v-if="settings.autoSave === 'afterDelay'" label-key="settings.autoSaveDelay">
             <!-- `v-model.number` にしないこと。あれは打鍵のたびに書き込むので、値を消して
                  打ち直すあいだ 0ms（＝1 文字ごとにファイル書き込み）になる。`:min` / `:max`
                  はブラウザの検証にしか効かないので、確定時に自分で丸める。 -->
@@ -1044,86 +1002,41 @@ const PREVIEW_LINES = [
               class="number-input"
               @change="settings.autoSaveDelay = clampAutoSaveDelay(($event.target as HTMLInputElement).value)"
             />
-          </div>
-        </div>
+          </SettingItem>
+        </SettingGroup>
 
-        <div class="setting-block">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.wordWrap') }}</label>
-            <div class="mode-toggle">
-              <button class="mode-btn" :class="{ active: settings.editorWordWrap }" @click="settings.editorWordWrap = true">{{ t('common.on') }}</button>
-              <button class="mode-btn" :class="{ active: !settings.editorWordWrap }" @click="settings.editorWordWrap = false">{{ t('common.off') }}</button>
-            </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.wordWrapHint') }}</p>
-        </div>
+        <SettingGroup title-key="settings.groupDiffPreview">
+          <SettingItem label-key="settings.diffWordWrap" hint-key="settings.diffWordWrapHint">
+            <SettingToggle v-model="settings.diffWordWrap" :options="DIFF_WORD_WRAP_OPTIONS" />
+          </SettingItem>
 
-        <div class="setting-block">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.diffWordWrap') }}</label>
-            <div class="mode-toggle">
-              <button class="mode-btn" :class="{ active: settings.diffWordWrap === 'auto' }" @click="settings.diffWordWrap = 'auto'">{{ t('common.auto') }}</button>
-              <button class="mode-btn" :class="{ active: settings.diffWordWrap === 'on' }" @click="settings.diffWordWrap = 'on'">{{ t('common.on') }}</button>
-              <button class="mode-btn" :class="{ active: settings.diffWordWrap === 'off' }" @click="settings.diffWordWrap = 'off'">{{ t('common.off') }}</button>
-            </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.diffWordWrapHint') }}</p>
-        </div>
+          <SettingItem label-key="settings.previewSmoothScroll">
+            <SettingToggle v-model="settings.previewSmoothScroll" :options="ON_OFF" />
+          </SettingItem>
+        </SettingGroup>
+      </SettingSection>
 
+      <!-- 外部との通信（#314）。**エディタから切り出してある**: 3 つとも「Pike が外の
+           ホストへ出て行く / 出て行かない」の設定で、どこで使う機能かより、そちらの軸で
+           探されるため。 -->
+      <SettingSection v-bind="SECTIONS.external">
         <!-- 外部通信を伴う唯一の編集機能なので、何が起きるかを hint に書いておく（#241）。 -->
-        <div class="setting-block">
-          <div class="setting-row">
-            <label class="setting-label">{{ t('settings.fetchLinkTitle') }}</label>
-            <div class="mode-toggle">
-              <button class="mode-btn" :class="{ active: settings.markdownFetchLinkTitle }" @click="settings.markdownFetchLinkTitle = true">{{ t('common.on') }}</button>
-              <button class="mode-btn" :class="{ active: !settings.markdownFetchLinkTitle }" @click="settings.markdownFetchLinkTitle = false">{{ t('common.off') }}</button>
-            </div>
-          </div>
-          <p class="setting-hint">{{ t('settings.fetchLinkTitleHint') }}</p>
-        </div>
+        <SettingItem label-key="settings.fetchLinkTitle" hint-key="settings.fetchLinkTitleHint">
+          <SettingToggle v-model="settings.markdownFetchLinkTitle" :options="ON_OFF" />
+        </SettingItem>
 
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.tabSize') }}</label>
-          <select
-            class="setting-select setting-select-narrow"
-            :value="settings.editorTabSize"
-            @change="settings.editorTabSize = parseInt(($event.target as HTMLSelectElement).value)"
-          >
-            <option :value="2">2</option>
-            <option :value="4">4</option>
-            <option :value="8">8</option>
-          </select>
-        </div>
+        <SettingItem label-key="settings.imageHosts" hint-key="settings.imageHostsHint" block>
+          <AllowedHostList :hosts="settings.allowedImageHosts" @forget="settings.forgetImageHost" />
+        </SettingItem>
 
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.previewSmoothScroll') }}</label>
-          <div class="mode-toggle">
-            <button class="mode-btn" :class="{ active: settings.previewSmoothScroll }" @click="settings.previewSmoothScroll = true">{{ t('common.on') }}</button>
-            <button class="mode-btn" :class="{ active: !settings.previewSmoothScroll }" @click="settings.previewSmoothScroll = false">{{ t('common.off') }}</button>
-          </div>
-        </div>
-
-        <AllowedHostList
-          :label="t('settings.imageHosts')"
-          :hint="t('settings.imageHostsHint')"
-          :hosts="settings.allowedImageHosts"
-          @forget="settings.forgetImageHost"
-        />
-
-        <AllowedHostList
-          :label="t('settings.urlHosts')"
-          :hint="t('settings.urlHostsHint')"
-          :hosts="settings.allowedUrlHosts"
-          @forget="settings.forgetUrlHost"
-        />
-      </section>
+        <SettingItem label-key="settings.urlHosts" hint-key="settings.urlHostsHint" block>
+          <AllowedHostList :hosts="settings.allowedUrlHosts" @forget="settings.forgetUrlHost" />
+        </SettingItem>
+      </SettingSection>
 
       <!-- Settings Sync -->
-      <section id="settings-sync" class="settings-section">
-        <h3 class="section-title">{{ t('settings.sync') }}<HelpButton page="settings.md#設定の同期" :size="15" /></h3>
-        <div class="setting-row setting-row-block">
-          <label class="setting-label">{{ t('settings.syncFilePath') }}</label>
-          <p class="setting-hint">{{ t('settings.syncHint') }}</p>
+      <SettingSection v-bind="SECTIONS.sync">
+        <SettingItem label-key="settings.syncFilePath" hint-key="settings.syncHint" block>
           <div class="sync-path-row">
             <input
               v-model="settings.syncFilePath"
@@ -1149,11 +1062,9 @@ const PREVIEW_LINES = [
               {{ t('settings.syncError') }}{{ settings.syncMessage ? ': ' + settings.syncMessage : '' }}
             </span>
           </div>
-        </div>
+        </SettingItem>
 
-        <div class="setting-row setting-row-block">
-          <label class="setting-label">{{ t('settings.projectBase') }}</label>
-          <p class="setting-hint">{{ t('settings.projectBaseHint') }}</p>
+        <SettingItem label-key="settings.projectBase" hint-key="settings.projectBaseHint" block>
           <!-- base はプラットフォームごとに要る。macOS / Linux のプロジェクトは
                platform='unix' なので、この欄が無いと 1 件も同期対象にならない。
                ホスト側の欄は `hostBase` が 1 つに畳んでいる（Windows か Unix か）。 -->
@@ -1188,11 +1099,14 @@ const PREVIEW_LINES = [
           <p v-if="settings.syncFilePath && projectStore.unsyncableProjects.length > 0" class="setting-hint">
             {{ t('settings.projectBaseOutside', { count: projectStore.unsyncableProjects.length }) }}
           </p>
-        </div>
+        </SettingItem>
 
-        <div v-if="settings.hiddenProjects.length > 0" class="setting-row setting-row-block">
-          <label class="setting-label">{{ t('settings.hiddenProjects') }}</label>
-          <p class="setting-hint">{{ t('settings.hiddenProjectsHint') }}</p>
+        <SettingItem
+          v-if="settings.hiddenProjects.length > 0"
+          label-key="settings.hiddenProjects"
+          hint-key="settings.hiddenProjectsHint"
+          block
+        >
           <div class="setting-list">
             <div v-for="p in settings.hiddenProjects" :key="p.id" class="setting-list-row">
               <span class="setting-list-name">{{ p.name }}</span>
@@ -1201,18 +1115,15 @@ const PREVIEW_LINES = [
               </button>
             </div>
           </div>
-        </div>
-      </section>
+        </SettingItem>
+      </SettingSection>
 
       <!-- About / Update -->
-      <section id="settings-about" class="settings-section">
-        <h3 class="section-title">{{ t('settings.about') }}<HelpButton page="settings.md#バージョン情報" :size="15" /></h3>
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.version') }}</label>
+      <SettingSection v-bind="SECTIONS.about">
+        <SettingItem label-key="settings.version">
           <span class="version-value">{{ updater.appVersion.value }}</span>
-        </div>
-        <div class="setting-row">
-          <label class="setting-label">{{ t('settings.checkUpdate') }}</label>
+        </SettingItem>
+        <SettingItem label-key="settings.checkUpdate">
           <div class="update-actions">
             <button
               v-if="updater.state.value === 'idle' || updater.state.value === 'upToDate' || updater.state.value === 'error'"
@@ -1240,8 +1151,8 @@ const PREVIEW_LINES = [
               {{ t('settings.updateError') }}{{ updater.errorMessage.value ? ': ' + updater.errorMessage.value : '' }}
             </span>
           </div>
-        </div>
-      </section>
+        </SettingItem>
+      </SettingSection>
       </div>
     </div>
   </div>
@@ -1302,45 +1213,41 @@ const PREVIEW_LINES = [
   padding: 24px 32px;
 }
 
+/* 見出しと絞り込みの入力欄（#314）。**sticky にしていない**: 透過・アクリル（#162）の
+   ときは下地も透けるので、スクロールする本文が見出しの裏に重なって読めなくなる。 */
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
 .settings-title {
   font-size: 20px;
   font-weight: 600;
   color: var(--text-active);
-  margin: 0 0 24px 0;
+  margin: 0;
 }
 
-.settings-section {
-  margin-bottom: 28px;
+/* 見た目は `theme.css` の `.filter-row` / `.filter-icon` / `.filter-input`（プロジェクト
+   パネルの絞り込みと共有）。ここで足すのは幅の取り方だけ。 */
+.search-box {
+  flex: 1;
+  max-width: 320px;
 }
 
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-  margin: 0 0 12px 0;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
+/* WebView が付ける検索欄の ✕ は自前のボタンと二重になる。 */
+.search-box input::-webkit-search-cancel-button {
+  display: none;
 }
 
-.setting-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 0;
+.no-results {
+  margin-bottom: 16px;
 }
 
-.setting-row-block {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-/* `.setting-label` / `.setting-hint` は `theme.css`（切り出した部品と共有するため）。 */
+/* 1 項目ぶんの器（`.setting-block` / `.setting-row`）は `settings/SettingItem.vue` が持つ。
+   `.setting-label` / `.setting-hint` は `theme.css`（切り出した部品と共有）。 */
 
 .setting-select {
   padding: 4px 8px;
@@ -1396,7 +1303,7 @@ const PREVIEW_LINES = [
   text-align: right;
 }
 
-/* `.mode-toggle` / `.mode-btn` は `theme.css` の共有クラス（ショートカット一覧と共有）。 */
+/* 選択肢の並び（`.mode-toggle` / `.mode-btn`）は `settings/SettingToggle.vue` が描く。 */
 
 /* Terminal Preview */
 .terminal-preview {
@@ -1567,13 +1474,6 @@ const PREVIEW_LINES = [
   font-size: 12px;
   color: var(--accent);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
-}
-
-.setting-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 0;
 }
 
 /* 設定画面の「縦に並ぶ行の一覧」の共通の形。シェル一覧・エージェント一覧・起動コマンド・

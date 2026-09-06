@@ -229,8 +229,20 @@ export default {
 
   // Settings
   'settings.title': 'Settings',
+  'settings.searchPlaceholder': 'Search settings',
+  'settings.searchNoResults': 'No settings match.',
   'settings.appearance': 'Appearance',
   'settings.general': 'General',
+  // The section nav is 120px wide, so keep this short ('External Access' wraps).
+  'settings.external': 'Network',
+  // Sub-headings inside a section (#314); the same one is used in more than one section.
+  'settings.groupDisplay': 'Display',
+  'settings.groupBehavior': 'Behavior',
+  'settings.groupShell': 'Shells',
+  'settings.groupLaunch': 'Launchers',
+  'settings.groupIntegration': 'Integration & alerts',
+  'settings.groupSave': 'Saving',
+  'settings.groupDiffPreview': 'Diff & preview',
   'settings.shortcutPreset': 'Keyboard Shortcuts',
   'settings.shortcutPresetVscode': 'VSCode',
   'settings.shortcutPresetIdea': 'IDEA',

@@ -720,36 +720,8 @@ async function onDelete(id: string) {
   cursor: default;
 }
 
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  background: var(--bg-primary);
-  border-radius: 3px;
-}
-
-.filter-row:focus-within {
-  border-color: var(--accent);
-}
-
-.filter-icon {
-  color: var(--text-secondary);
-  flex-shrink: 0;
-}
-
-.filter-input {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 0;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
-  outline: none;
-}
-
+/* `.filter-row` / `.filter-icon` / `.filter-input` は `theme.css` の共有クラス
+   （設定画面の検索欄と共有、#314）。✕ の見た目だけこちらに残る。 */
 .filter-clear {
   display: flex;
   padding: 2px;

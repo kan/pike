@@ -32,7 +32,7 @@ MAP=(
   "new-project:new-project"
   "project-panel:project-panel"
   "file-panel:file-panel"
-  "settings-appearance:settings"
+  "settings-overview:settings"
   "git-graph:git-graph"
   "git-sync-menu:git-sync-menu"
   "terminal-agent-buttons:terminal"
