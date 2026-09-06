@@ -14,13 +14,13 @@
 //!
 //! 走査の打ち切りと窓の考え方は `codex_usage` と揃えてある（あちらの doc が正本）。
 
-use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
+use crate::cache::{Evict, MtimeCache};
 use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
 
 use super::{fact, now_secs, AgentUsage, ACTIVE_WINDOW_SECS, RECENT_WINDOW_SECS};
@@ -213,25 +213,11 @@ pub(crate) fn list_sessions(
 ///
 /// 掃除は**走査結果ではなく古さ**で行う（キャッシュはプロセス共有なので、片方の
 /// プロジェクトの走査結果で retain すると、もう片方のエントリを毎回落としてしまう）。
-type EventCache = Mutex<HashMap<PathBuf, (SystemTime, Session)>>;
-
 fn parse_events_cached(path: &Path, modified: SystemTime) -> Option<Session> {
-    static CACHE: OnceLock<EventCache> = OnceLock::new();
-    let cache = CACHE.get_or_init(Default::default);
-    if let Ok(map) = cache.lock() {
-        if let Some((at, session)) = map.get(path) {
-            if *at == modified {
-                return Some(session.clone());
-            }
-        }
-    }
-    let session = parse_events(path, false)?;
-    if let Ok(mut map) = cache.lock() {
-        let cutoff = SystemTime::now() - Duration::from_secs(RECENT_WINDOW_SECS);
-        map.retain(|_, (at, _)| *at >= cutoff);
-        map.insert(path.to_path_buf(), (modified, session.clone()));
-    }
-    Some(session)
+    static CACHE: OnceLock<MtimeCache<Option<Session>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| MtimeCache::new(Evict::OlderThan(Duration::from_secs(RECENT_WINDOW_SECS))))
+        .get_or_read(path, modified, || parse_events(path, false))
 }
 
 pub fn collect(shell: &ShellConfig, root: &str) -> AgentUsage {

@@ -119,6 +119,7 @@ pike/
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
 │       ├── page_title.rs      # 貼り付けた URL のページタイトル取得（Markdown リンク、#241）
 │       ├── remote_image.rs    # 承認済みホストの画像取得（Markdown プレビュー、#239）
+│       ├── cache.rs           # mtime キャッシュと、キーごとの probe レジストリ（#315）
 │       ├── shell_probe.rs     # シェルに PATH と環境変数を 1 回で聞く共有部（#275）
 │       ├── settings_sync.rs   # 設定・プロジェクト一覧の同期ファイル読み書き（#164）
 │       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）

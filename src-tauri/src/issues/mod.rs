@@ -6,10 +6,9 @@
 //! 形は `diagnostics` と同じで、**検出したツールを要求時に 1 回だけ走らせて構造化出力を
 //! 正規化する**。常駐もポーリングもしない（外部プロセスの起動を定期実行に混ぜない）。
 
+use crate::cache::ProbeRegistry;
 use crate::types::{first_line, install_key, ShellConfig};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::State;
 
@@ -23,20 +22,20 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// 開いたときに `gh --version` が N 回走る。WSL ではそれが `wsl.exe` の起動 N 回になる。
 ///
 /// キーが**シェルの導入単位**なのは、WSL プロジェクトが見るのは distro の中の `gh`、
-/// Windows プロジェクトが見るのはホストのそれ、と答えが変わるため。**集合なのは
-/// 「見つかった」しか覚えないから**（理由は `issues_gh_available`）。
+/// Windows プロジェクトが見るのはホストのそれ、と答えが変わるため。**真になるのは
+/// 「見つかった」ときだけ**（理由は `issues_gh_available`）。
 ///
 /// **`shell_probe.rs` には畳んでいない**（#275 の宿題 3）。あちらがまとめているのは
 /// 対話ログインシェルを起こす問いで、費用は rc の評価にある。`gh --version` は
 /// `run_shell_line`（非対話・PATH を前置するだけ）なので、同じ起動に相乗りする理由が無い。
 ///
-/// **ただしロックの粒度はあちらのほうが良い。** ここは probe のあいだ 1 本のロックを
-/// 握ったままなので、冷えた distro の `gh` を待つあいだ**別の導入単位の問い合わせも
-/// 止まる**（最長 `PROBE_TIMEOUT`）。`shell_probe::Entry` はキーごとに分けたうえ、
-/// 答えのロックと probe のロックも分けてある。直すならその形を写す（#275 に宿題として記録）。
+/// **入れ物だけは共有する**（#315 で `cache::ProbeRegistry` に上げた）。1 本の `Mutex` を
+/// probe 中も握っていたころは、冷えた distro の `gh` を待つあいだ**別の導入単位の
+/// 問い合わせも止まっていた**（最長 `PROBE_TIMEOUT`）。キーごとに分ければ、その待ちは
+/// 同じ distro を見に来た者だけのものになる。
 #[derive(Default)]
 pub struct IssuesState {
-    pub gh: Arc<Mutex<HashSet<String>>>,
+    gh: ProbeRegistry<String, bool>,
 }
 
 /// GitHub のラベル。**gh の JSON をそのまま受ける**ので `Deserialize` も持つ
@@ -199,10 +198,10 @@ fn failure(line: &str, code: i32, stdout: &str, stderr: &str) -> String {
 /// 更新ボタンに手が届かない**＝再起動しか手が無くなる。見つからない側は安いので
 /// （`gh` が無ければ即座に失敗する）、聞かれるたびに確かめてよい。
 ///
-/// **ロックは probe 中も持ったまま**にする（`claude_usage/config.rs` の環境変数プローブと
-/// 同じ手口）。手放すと、前回のセッションを復元して 3 枚のウィンドウが同時に立ち上がる
-/// ときに 3 本とも miss して `gh --version` が 3 回走る（WSL では `wsl.exe` の起動 3 回）。
-/// 握ったままなら 2 本目以降は待って、入った答えを読む。
+/// **同じ導入単位への問い合わせは 1 本に畳む**（`probing()` で待つ）。畳まないと、前回の
+/// セッションを復元して 3 枚のウィンドウが同時に立ち上がるときに 3 本とも miss して
+/// `gh --version` が 3 回走る（WSL では `wsl.exe` の起動 3 回）。待った側は、先客が入れた
+/// 答えを読んで戻る。**別の導入単位は待たない**（キーごとに入れ物が分かれているため）。
 #[tauri::command]
 pub async fn issues_gh_available(
     shell: ShellConfig,
@@ -210,29 +209,25 @@ pub async fn issues_gh_available(
     force: bool,
     state: State<'_, IssuesState>,
 ) -> Result<bool, String> {
-    let key = install_key(&shell);
-    let cache = state.gh.clone();
+    let entry = state.gh.entry(install_key(&shell));
     tauri::async_runtime::spawn_blocking(move || {
-        // ロックが毒されていたら（他のスレッドが probe 中に panic）、覚えるのを諦めて
-        // 素で確かめる。ここで失敗を返すとパネルが理由なく消える。
-        let Ok(mut found_in) = cache.lock() else {
-            return matches!(
-                shell.run_shell_line(&root, "gh --version", PROBE_TIMEOUT),
-                Ok((0, _, _))
-            );
-        };
-        if !force && found_in.contains(&key) {
+        if !force && *entry.answer() {
+            return true;
+        }
+        let _probing = entry.probing();
+        // 待っているあいだに先客が答えを入れていれば、そのまま使う（3 枚同時に
+        // 立ち上がったときに 2 本目以降が走らないのはここ）。
+        if !force && *entry.answer() {
             return true;
         }
         let found = matches!(
             shell.run_shell_line(&root, "gh --version", PROBE_TIMEOUT),
             Ok((0, _, _))
         );
-        if found {
-            found_in.insert(key);
-        } else {
-            found_in.remove(&key);
-        }
+        // **「見つからなかった」も書く**（更新ボタンで `gh` を消したことを反映できる）。
+        // それでも焼き付かないのは、偽のときに早期 return が無い＝聞かれるたびに確かめる
+        // から。真だけを書いて偽を素通りさせると、更新ボタンが「消えた」ことを反映できない。
+        *entry.answer() = found;
         found
     })
     .await

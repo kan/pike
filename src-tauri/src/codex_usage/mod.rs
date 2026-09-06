@@ -1,3 +1,4 @@
+use crate::cache::{Evict, MtimeCache};
 use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
@@ -240,46 +241,24 @@ fn parse_rate_window(v: &Value) -> Option<RateLimitWindow> {
 /// キー＝`.codex` のパス、値＝(読んだ時刻, アカウント)。
 type AccountCache = Mutex<HashMap<PathBuf, (Instant, Option<CodexAccount>)>>;
 
-/// キー＝ロールアウトのパス、値＝(そのときの mtime, 集計結果)。
-type SessionCache = Mutex<HashMap<PathBuf, (SystemTime, Option<SessionAgg>)>>;
-
-fn session_cache() -> &'static SessionCache {
-    static CACHE: OnceLock<SessionCache> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 /// `parse_session` の結果を mtime でキャッシュする。
 ///
 /// 走査窓を 24 時間に広げた以上、これが無いと 30 秒ごとに数十本のロールアウトを
 /// 全文読み直すことになる（WSL では UNC 越し）。終わったセッションのファイルは
-/// もう変わらないので、mtime が同じなら読み直す必要がない。パースできなかったもの
-/// （`None`）もキャッシュする。
+/// もう変わらないので、mtime が同じなら読み直す必要がない。
 ///
 /// **キーはプロジェクトを含めない**。読むコスト（JSONL 全行の `serde_json`）は
 /// プロジェクトに依らず同じで、違うのは最後の `cwd` の突き合わせだけ。含めると
 /// ウィンドウを N 枚開いたときに同じファイルを N 回読むことになる。
-/// 集計の窓より古いエントリを落とす。
-fn prune_session_cache() {
-    let cutoff = SystemTime::now() - Duration::from_secs(RECENT_WINDOW_SECS);
-    if let Ok(mut map) = session_cache().lock() {
-        map.retain(|_, (modified, _)| *modified >= cutoff);
-    }
-}
-
+///
+/// 掃除は**走査結果ではなく古さ**で行う（キャッシュはプロセス共有なので、片方の
+/// プロジェクトの走査結果で retain すると、シェルの違うもう片方のエントリを毎回
+/// 全部落としてしまう）。
 fn parse_session_cached(path: &Path, modified: SystemTime) -> Option<SessionAgg> {
-    let cache = session_cache();
-    if let Ok(map) = cache.lock() {
-        if let Some((at, agg)) = map.get(path) {
-            if *at == modified {
-                return agg.clone();
-            }
-        }
-    }
-    let agg = parse_session(path);
-    if let Ok(mut map) = cache.lock() {
-        map.insert(path.to_path_buf(), (modified, agg.clone()));
-    }
-    agg
+    static CACHE: OnceLock<MtimeCache<Option<SessionAgg>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| MtimeCache::new(Evict::OlderThan(Duration::from_secs(RECENT_WINDOW_SECS))))
+        .get_or_read(path, modified, || parse_session(path))
 }
 
 /// `~/.codex/auth.json` からログイン中のアカウントを読む（#226）。
@@ -434,15 +413,8 @@ pub(crate) fn get_usage_for_project(
     let mut primary: Option<RateLimitWindow> = None;
     let mut secondary: Option<RateLimitWindow> = None;
 
-    // 集計の窓から出たロールアウトはもう使わないので落とす。Pike はトレイに常駐して
-    // 何日も動くので、入れっぱなしだと単調に増える。
-    //
-    // **走査結果（`files`）で retain してはいけない**。キャッシュはプロセス共有で、
-    // `codex_home` はシェルごとに違う。WSL と Windows のプロジェクトを同時に開いて
-    // いると、片方のポーリングがもう片方のエントリを毎回全部落とし、キャッシュが
-    // 効かなくなる。
-    prune_session_cache();
-
+    // 集計の窓から出たロールアウトの掃除は `parse_session_cached` の中（挿入のたび）。
+    // Pike はトレイに常駐して何日も動くので、入れっぱなしだと単調に増える。
     let mut last_activity: Option<SystemTime> = None;
     for (path, modified) in &files {
         let Some(agg) = parse_session_cached(path, *modified) else {
@@ -650,33 +622,16 @@ fn read_session_head(path: &Path) -> Option<SessionHead> {
     head
 }
 
-/// キー＝ロールアウトのパス、値＝(そのときの mtime, 先頭の中身)。
-type HeadCache = Mutex<HashMap<PathBuf, (SystemTime, Option<SessionHead>)>>;
-
 /// 一覧に要る先頭を mtime でキャッシュする（`parse_session_cached` と同じ形）。
 ///
-/// **無いとメニューを開くたびに最大 `MAX_SCAN_SESSION_FILES` 件を開き直す。** 一致
-/// しなかったファイルこそ毎回読むことになるので、**`None` も覚える**。集計側と違い
-/// 一覧は古いファイルを読むため、掃除は古さではなく**件数**で行う（走査の上限が
+/// **無いとメニューを開くたびに最大 `MAX_SCAN_SESSION_FILES` 件を開き直す。** 集計側と
+/// 違い一覧は古いファイルを読むため、掃除は古さではなく**件数**で行う（走査の上限が
 /// 決まっているので、それを超えたら丸ごと捨ててよい）。
 fn read_session_head_cached(path: &Path, modified: SystemTime) -> Option<SessionHead> {
-    static CACHE: OnceLock<HeadCache> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(map) = cache.lock() {
-        if let Some((at, head)) = map.get(path) {
-            if *at == modified {
-                return head.clone();
-            }
-        }
-    }
-    let head = read_session_head(path);
-    if let Ok(mut map) = cache.lock() {
-        if map.len() > MAX_SCAN_SESSION_FILES * 2 {
-            map.clear();
-        }
-        map.insert(path.to_path_buf(), (modified, head.clone()));
-    }
-    head
+    static CACHE: OnceLock<MtimeCache<Option<SessionHead>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| MtimeCache::new(Evict::ClearOver(MAX_SCAN_SESSION_FILES * 2)))
+        .get_or_read(path, modified, || read_session_head(path))
 }
 
 #[cfg(test)]

@@ -13,6 +13,7 @@ pub mod agent_hook;
 mod agent_sessions;
 mod agent_usage;
 mod agents;
+mod cache;
 mod claude_usage;
 mod cli;
 mod codex_usage;

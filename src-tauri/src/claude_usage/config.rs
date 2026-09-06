@@ -16,13 +16,13 @@
 //! ので claude 専用で書いてあるが、必要になったら claude 固有なのは変数名・ディレクトリ名・
 //! `.claude.json` のアカウント読みの 3 つだけなので、そこを引数にすれば共用できる。
 
+use crate::cache::ProbeRegistry;
 use crate::types::{
     install_key, wsl_home_cached, wsl_home_subdir_cached, wsl_native_to_unc, ShellConfig,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime};
 
 /// 解決の再実行間隔。WSL では環境変数のプローブに `wsl.exe` の起動を伴うので、
@@ -264,8 +264,12 @@ struct CacheEntry {
     config: ClaudeConfig,
 }
 
-/// キー＝(インストール, プロジェクト root)。
-type ResolveCache = Mutex<HashMap<(String, String), CacheEntry>>;
+/// まだ使える解決結果。期限内で、かつ申告ファイルが動いていなければ返す。
+fn usable(entry: &Option<CacheEntry>, declared_at: Option<SystemTime>) -> Option<ClaudeConfig> {
+    let entry = entry.as_ref()?;
+    (entry.at.elapsed() < RESOLVE_TTL && entry.declared_at == declared_at)
+        .then(|| entry.config.clone())
+}
 
 /// 設定ディレクトリを解決する。`RESOLVE_TTL` のあいだキャッシュする。
 ///
@@ -275,32 +279,36 @@ type ResolveCache = Mutex<HashMap<(String, String), CacheEntry>>;
 /// 経路を持てない非 Windows との非対称も要らない。代償はローカルの小さいファイルへの
 /// stat 1 回で、この関数が miss で払うもの（WSL の対話ログインシェル、UNC 越しの
 /// `.claude.json`）に比べれば無視できる。
+///
+/// **解決のあいだ答えのロックは握らない**（#315 で `cache::ProbeRegistry` に載せた）。
+/// 1 本の `Mutex` を握ったままだったころは、**キーが違う解決まで待っていた**: この関数の
+/// miss は WSL の対話ログインシェル（最長 10 秒）を伴うので、待つ側は無関係な
+/// プロジェクトの usage・レート・セッション一覧だった。同じキーへの問い合わせを 1 本に
+/// 畳む役目は `probing()` が引き継ぐ（usage と rate のポーリングは同じ tick で走るので、
+/// そこを畳まないと期限切れのたびに 2 本が同時に解決を始める）。
 pub fn resolve(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
-    static CACHE: OnceLock<ResolveCache> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let key = (install_key(shell), project_root.to_string());
+    static CACHE: OnceLock<ProbeRegistry<(String, String), Option<CacheEntry>>> = OnceLock::new();
+    let entry = CACHE
+        .get_or_init(ProbeRegistry::new)
+        .entry((install_key(shell), project_root.to_string()));
     let declared_at = crate::agent_hook::declarations_mtime();
 
-    // ロックはプローブ中も持ったまま。usage と rate のポーリングは同じ tick で走るので、
-    // 手放すと期限切れのたびに 2 本が同時に解決を始める。
-    let mut map = match cache.lock() {
-        Ok(map) => map,
-        Err(_) => return resolve_uncached(shell, project_root),
-    };
-    if let Some(entry) = map.get(&key) {
-        if entry.at.elapsed() < RESOLVE_TTL && entry.declared_at == declared_at {
-            return entry.config.clone();
-        }
+    let cached = usable(&entry.answer(), declared_at);
+    if let Some(config) = cached {
+        return config;
+    }
+    let _probing = entry.probing();
+    // 待っているあいだに先客が解決していれば、それを使う。
+    let cached = usable(&entry.answer(), declared_at);
+    if let Some(config) = cached {
+        return config;
     }
     let config = resolve_uncached(shell, project_root);
-    map.insert(
-        key,
-        CacheEntry {
-            at: Instant::now(),
-            declared_at,
-            config: config.clone(),
-        },
-    );
+    *entry.answer() = Some(CacheEntry {
+        at: Instant::now(),
+        declared_at,
+        config: config.clone(),
+    });
     config
 }
 

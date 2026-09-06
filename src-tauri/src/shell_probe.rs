@@ -31,9 +31,10 @@
 //! `State` を受け取れない。同じ理由であちらが元から `OnceLock` を持っていた。
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use crate::cache::{ProbeEntry, ProbeRegistry};
 use crate::types::{install_key, marker_values, ShellConfig, LOGIN_PROBE_TIMEOUT};
 
 /// 聞き直すまでの間隔。
@@ -71,34 +72,18 @@ struct Answer {
 
 /// 1 つの導入単位ぶんの入れ物。
 ///
-/// **ロックを 2 つに分けてあるのが要点。**
-///
-/// - `answer` … 読み書きのあいだだけ握る。**probe 中は握らない**
-/// - `probe` … probe のあいだずっと握る。同じシェルへの問い合わせを合流させるため
-///   （前回のセッションを復元して複数のウィンドウが同時に立ち上がるときに、対話
-///   ログインシェルが枚数ぶん起きるのを防ぐ）
-///
-/// 1 本にすると、**エージェント検出の probe（最長 30 秒）が `CLAUDE_CONFIG_DIR` の
-/// 読み出しを止める**。あちらは `resolve()` がグローバルのロックを握ったまま呼ぶので、
-/// 待たせると別プロジェクトの usage・レート・セッション一覧の解決まで巻き添えになる。
-#[derive(Default)]
-struct Entry {
-    answer: Mutex<Answer>,
-    probe: Mutex<()>,
-}
-
-/// **レジストリのロックは entry を取り出す一瞬だけ握る。** probe まで抱えると、
-/// キーが違う probe まで直列化して起動の待ちが伸びる（しかも待っているあいだ
-/// blocking スレッドを 1 本占有する）。
-type Registry = Mutex<std::collections::HashMap<String, Arc<Entry>>>;
+/// **ロックを 2 つに分ける形は `cache::ProbeEntry` の担当**（#315 でそこへ上げた。理由も
+/// あのモジュールの doc が正本）。ここで効いているのは、**エージェント検出の probe
+/// （最長 30 秒）が `CLAUDE_CONFIG_DIR` の読み出しを止めない**こと。あちらは `resolve()` が
+/// グローバルのロックを握ったまま呼ぶので、待たせると別プロジェクトの usage・レート・
+/// セッション一覧の解決まで巻き添えになる。
+type Entry = ProbeEntry<Answer>;
 
 fn entry_for(shell: &ShellConfig) -> Arc<Entry> {
-    static REGISTRY: OnceLock<Registry> = OnceLock::new();
-    let registry = REGISTRY.get_or_init(Default::default);
-    // **毒されていても諦めない**: `into_inner` で中身をそのまま使う（probe を書き写した
-    // 分岐を持たない）。
-    let mut map = registry.lock().unwrap_or_else(|e| e.into_inner());
-    map.entry(install_key(shell)).or_default().clone()
+    static REGISTRY: OnceLock<ProbeRegistry<String, Answer>> = OnceLock::new();
+    REGISTRY
+        .get_or_init(ProbeRegistry::new)
+        .entry(install_key(shell))
 }
 
 /// PATH にあるエージェントの名前（聞かれたもののうち見つかったもの）。
@@ -117,16 +102,16 @@ pub fn agent_bins(shell: &ShellConfig, root: &str, wanted: &[String]) -> HashSet
         .collect();
     let entry = entry_for(shell);
     let stale = {
-        let answer = entry.answer.lock().unwrap_or_else(|e| e.into_inner());
+        let answer = entry.answer();
         !covers(&answer, &wanted)
     };
     if stale {
         // **ここは待つ。** 同じシェルへの問い合わせを 1 本に畳むのが目的で、呼ぶ側は
         // `spawn_blocking` の中に居る。
-        let _probing = entry.probe.lock().unwrap_or_else(|e| e.into_inner());
+        let _probing = entry.probing();
         refresh_if_stale(shell, root, &entry, &wanted);
     }
-    let answer = entry.answer.lock().unwrap_or_else(|e| e.into_inner());
+    let answer = entry.answer();
     answer.found.clone()
 }
 
@@ -149,34 +134,31 @@ pub fn agent_bins(shell: &ShellConfig, root: &str, wanted: &[String]) -> HashSet
 /// エージェント検出と usage のポーリングが同じ tick で走るため、この競合は普通に起きる。
 /// 待つといっても相手は同じ `-lic` 1 本で、答えが入ったら即座に返る。
 ///
-/// **`resolve()` のロックそのものは直していない。** あちらはキーに関わらず 1 本なので、
-/// ここが自分で probe する場合（競合していないとき）は結局どのプロジェクトも待つ。
-/// 直すならあちらをキーごとのロックにする話で、この変更の範囲外。
+/// **待ちが及ぶ範囲は同じキーの解決だけ**（#315 で `resolve()` をキーごとのロックにした）。
+/// 以前はあちらがキーに関わらず 1 本だったので、ここが自分で probe するあいだ**どの
+/// プロジェクトの解決も**待っていた。今そこで待つのは、同じ (インストール, root) を
+/// 見に来た者 —— つまり `probing()` が畳む相手そのもの。
 pub fn config_dir_env(shell: &ShellConfig) -> Option<String> {
     let entry = entry_for(shell);
     let (stale, answered) = {
-        let answer = entry.answer.lock().unwrap_or_else(|e| e.into_inner());
+        let answer = entry.answer();
         (!is_fresh(&answer), answer.at.is_some())
     };
     if stale {
         let probing = if answered {
-            match entry.probe.try_lock() {
-                Ok(guard) => Some(guard),
-                Err(std::sync::TryLockError::Poisoned(e)) => Some(e.into_inner()),
-                Err(std::sync::TryLockError::WouldBlock) => None,
-            }
+            entry.try_probing()
         } else {
-            Some(entry.probe.lock().unwrap_or_else(|e| e.into_inner()))
+            Some(entry.probing())
         };
         if let Some(_probing) = probing {
             let asked: Vec<String> = {
-                let answer = entry.answer.lock().unwrap_or_else(|e| e.into_inner());
+                let answer = entry.answer();
                 answer.asked.iter().cloned().collect()
             };
             refresh_if_stale(shell, "", &entry, &asked);
         }
     }
-    let answer = entry.answer.lock().unwrap_or_else(|e| e.into_inner());
+    let answer = entry.answer();
     answer.env.clone()
 }
 
@@ -196,7 +178,7 @@ fn covers(answer: &Answer, wanted: &[String]) -> bool {
 /// 同じ問いを済ませていることがあり、そのまま走らせるとシェルが 2 回起きる。
 fn refresh_if_stale(shell: &ShellConfig, root: &str, entry: &Entry, wanted: &[String]) {
     let asked = {
-        let answer = entry.answer.lock().unwrap_or_else(|e| e.into_inner());
+        let answer = entry.answer();
         if covers(&answer, wanted) {
             return;
         }
@@ -226,7 +208,7 @@ fn refresh_if_stale(shell: &ShellConfig, root: &str, entry: &Entry, wanted: &[St
             .map(|(_, stdout, _)| stdout)
     };
 
-    let mut answer = entry.answer.lock().unwrap_or_else(|e| e.into_inner());
+    let mut answer = entry.answer();
     // **聞けなかったときは前の答えを残す。** 冷えた WSL のタイムアウトは普通に起きるので、
     // 上書きすると**エージェント検出の 1 回の失敗が、解決済みの `CLAUDE_CONFIG_DIR` を
     // 捨てる**。そうなると次の TTL のあいだ既定の `~/.claude` を見て、ステータスバーが
