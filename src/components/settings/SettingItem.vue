@@ -82,5 +82,9 @@ const visible = computed(() => search.itemVisible(entry))
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* **狭いときは操作ごと次の行へ落とす。** 選択肢のボタンは語の途中で折り返さず
+     （`.mode-btn` の `white-space`）縮みもしないので、これが無いと見切れる。 */
+  flex-wrap: wrap;
+  gap: 8px;
 }
 </style>

@@ -594,6 +594,8 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
+  /* 縮めない。狭いときは項目名のほうが折り返すか、この塊ごと次の行へ落ちる。 */
+  flex-shrink: 0;
 }
 
 .mode-btn {
@@ -606,6 +608,9 @@
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
+  /* 選択肢のラベルは折り返さない。窮屈なときに縮むのは左の項目名のほうで、
+     こちらが折り返すと「自動登 / 録」のように語の途中で割れる。 */
+  white-space: nowrap;
   transition: background 0.15s, color 0.15s;
 }
 
