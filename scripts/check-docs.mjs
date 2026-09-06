@@ -124,6 +124,7 @@ const EXTERNAL_NAMES = [
   'ld_prime', // Xcode 15 の新リンカ
   'offsetLeft', // DOM
   'offsetParent', // DOM
+  'on_activated', // tauri-winrt-notification（採らなかった選択肢として agent.md が出す）
   'replace_csp_nonce', // tauri 内部
   'restore_state', // tauri-plugin-window-state
   'runHandlers', // CodeMirror 内部

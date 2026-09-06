@@ -462,6 +462,12 @@ fn wait_tab_path(f: &cli::CliFileTarget) -> String {
 
 /// Handle the second-instance callback (deferred from WM_COPYDATA context).
 fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
+    // エージェントの hook からの通知（#265）は CLI のアクションではない。**ディスパッチ
+    // へ流さないこと**: 引数なしの `pike` と同じ扱いになり、グローバルターミナル
+    // ウィンドウが開く。
+    if agent_hook::try_handle_notice(app, args) {
+        return;
+    }
     let wait_id = wait::extract_wait_id(args);
     let from_window = cli::extract_from_window(args);
     let action = cli::parse_args(args, cwd);
@@ -958,6 +964,37 @@ fn close_would_quit(app: &AppHandle, label: &str) -> bool {
 #[tauri::command]
 fn window_close_quits_app(window: WebviewWindow) -> bool {
     close_would_quit(window.app_handle(), window.label())
+}
+
+/// このウィンドウを前に出す（トレイのヒント通知）。
+///
+/// **フロントで `show()` を直に呼ばないこと。** 見た目は同じでも、`MAIN_CLOSED_HIDDEN` を
+/// 落とすのは `restore_window` だけで、素の show では**論理的に閉じた main が見えている
+/// のに「閉じた」ままになる**（#202）。その状態で他のウィンドウを閉じると、`close_would_quit`
+/// が main を数えないので、表示中の main ごと `app.exit(0)` が走る。
+///
+/// この 1 本があるおかげで、`core:window:allow-show` / `allow-unminimize` も要らない
+/// （`core:window:default` は読み取り系しか含まない）。
+#[tauri::command]
+fn window_restore(window: WebviewWindow) {
+    restore_window(&window);
+}
+
+/// タスクバーのボタンを点滅させて、このウィンドウに用があることを知らせる（#265）。
+///
+/// **デスクトップ通知は使わない。** Windows で押せるトーストを出すには AppUserModelID を
+/// 書いたショートカットの登録が要り、それが無い（＝借り物の AUMID で出す）と、クリックが
+/// 届かないうえバナーも出ずに通知センターへ直行する。**実機で確かめて、通知そのものを
+/// やめた**（#265 の判断。詳細は `.claude/rules/agent.md`）。
+///
+/// `Critical` は「ユーザーが見るまで点滅し続ける」。入力待ちは答えるまで進まないので、
+/// 1 回光るだけの `Informational` より合っている。止めるのは OS の仕事で、ウィンドウが
+/// アクティブになった時点で消える。
+#[tauri::command]
+fn window_flash(window: WebviewWindow) -> Result<(), String> {
+    window
+        .request_user_attention(Some(tauri::UserAttentionType::Critical))
+        .map_err(|e| e.to_string())
 }
 
 /// Show and focus the main window, restoring it from the tray / a minimized
@@ -1620,6 +1657,8 @@ pub fn run() {
             pty::pty_busy_count,
             app_exit,
             window_close_quits_app,
+            window_restore,
+            window_flash,
             pty::pty_get_cwd,
             project::detect_wsl_distros,
             project::project_get_last,

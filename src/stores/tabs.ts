@@ -23,6 +23,7 @@ import type {
   SettingsTab,
   ShellType,
   Tab,
+  TabOwner,
   TerminalTab,
 } from '../types/tab'
 import { canReorderTabs, isSingletonTab, PANES } from '../types/tab'
@@ -421,15 +422,37 @@ export const useTabStore = defineStore('tabs', () => {
     activeByPane.value = emptySelection()
   }
 
-  // Clear activity indicator whenever any tab becomes active,
-  // regardless of which code path changed activeTabId (setActiveTab, cycleTab, closeTab, etc.)
+  /**
+   * 見えるようになったターミナルの「気付いていない」印を下ろす（ベル由来の
+   * `hasActivity` と、入力待ちの `awaitingInput` #265）。どちらも「まだ見ていない」
+   * ことを言う印なので、そのタブを見た時点で役目が終わる。
+   *
+   * **キーはペインごとの選択で、`activeTabId` ではない。** 分割していると、フォーカスの
+   * 無い側で選ばれたタブは `activeTabId` に現れないのに画面には出ている（タブバーの
+   * 強調も `activeInPane` 基準）。あちらを契機にすると、ドットは `active` で隠れている
+   * のに印が残り、あとでそのペインで別のタブを選んだ瞬間に古いドットが出る（#265 の
+   * 印では、プロジェクト側のドットが消えないまま次の知らせまで抑止される）。
+   */
+  watch(
+    () => PANES.map((p) => activeByPane.value[p]),
+    (ids) => {
+      for (const id of ids) if (id) clearTabMarks(id)
+    },
+  )
+
+  /** 「まだ見ていない」印を全部下ろす。**印を足すときはここにも 1 行。** */
+  function clearTabMarks(tabId: string) {
+    const tab = tabs.value.find((t) => t.id === tabId)
+    if (tab?.kind !== 'terminal') return
+    tab.hasActivity = false
+    tab.awaitingInput = false
+  }
+
+  // 注入先（`lastTerminalId`）は「直近アクティブなターミナル」で、**本当にフォーカス
+  // 基準の問い**なので、こちらは `activeTabId` のまま。
   watch(activeTabId, (newId) => {
-    if (newId) {
-      const tab = tabs.value.find((t) => t.id === newId)
-      if (tab?.kind === 'terminal') {
-        tab.hasActivity = false
-        lastTerminalId.value = newId
-      }
+    if (newId && tabs.value.find((t) => t.id === newId)?.kind === 'terminal') {
+      lastTerminalId.value = newId
     }
   })
 
@@ -456,6 +479,39 @@ export const useTabStore = defineStore('tabs', () => {
     if (tab.hasActivity) return
     tab.hasActivity = true
   }
+
+  /**
+   * pty id からターミナルタブを引く（#265）。hook が知っているのは `PIKE_PTY_ID` だけで、
+   * タブ id は Pike の中にしかない。
+   *
+   * **`tabs` を見る**（`visibleTabs` ではない）。#264 でタブは切り替えても生きているので、
+   * 見えていないプロジェクトのエージェントも答えを待ちうる —— むしろそれが、プロジェクト
+   * 単位の印（`awaitingProjectIds`）が要る理由。
+   */
+  function terminalByPty(ptyId: string): (TerminalTab & TabOwner) | null {
+    return tabs.value.find((t): t is TerminalTab & TabOwner => t.kind === 'terminal' && t.ptyId === ptyId) ?? null
+  }
+
+  /** エージェントの入力待ちの印を立てる / 下ろす（#265）。 */
+  function markTabAwaiting(tabId: string, awaiting: boolean) {
+    const tab = tabs.value.find((t) => t.id === tabId)
+    if (tab?.kind !== 'terminal') return
+    tab.awaitingInput = awaiting
+  }
+
+  /**
+   * 入力待ちのタブを持つプロジェクト（#265）。`ProjectSelect` の緑のドットはこれを読む。
+   *
+   * **印はタブが持ち、これは集約**なので、「消す」処理を別に持たない（タブを見れば
+   * 下りる）。消え残りが出ないのはそのため。
+   */
+  const awaitingProjectIds = computed(() => {
+    const ids = new Set<string>()
+    for (const t of tabs.value) {
+      if (t.kind === 'terminal' && t.awaitingInput && t.projectId) ids.add(t.projectId)
+    }
+    return ids
+  })
 
   function addEditorTab(options: {
     path: string
@@ -1085,6 +1141,9 @@ export const useTabStore = defineStore('tabs', () => {
     togglePin,
     cycleTab,
     markTabActivity,
+    terminalByPty,
+    markTabAwaiting,
+    awaitingProjectIds,
     snapshotSession,
   }
 })

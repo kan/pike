@@ -56,6 +56,19 @@ export function shellId(shell: ShellType): string {
 }
 
 /**
+ * hook の登録の単位（#299 / #265）。**Rust の `types::install_key` と同じ綴り。**
+ *
+ * `shellId` より粗い: Windows の 4 つ（cmd / PowerShell / pwsh / Git Bash）は同じホームと
+ * 同じ `pike.exe` を見るので、hook の登録先もコマンド行も変わらず、区別する意味が無い。
+ * **`shellId` で代用しないこと**: シェルを切り替えるたびに「未登録」と見なされ、同じ
+ * アカウントについて何度も登録を聞かれる。
+ */
+export function installKey(shell: ShellType): string {
+  if (shell.kind === 'wsl') return `wsl:${shell.distro}`
+  return shell.kind === 'unix' ? 'host' : 'windows'
+}
+
+/**
  * Terminal-add dropdown entry managed in Settings (#129): visibility and order
  * are user-configurable. Machine-local (the WSL distro set differs per PC) —
  * persisted outside the synced settings, like the globalShell key.
@@ -235,6 +248,15 @@ export type TerminalTab = {
   cwd?: string
   shell?: ShellType
   hasActivity?: boolean
+  /**
+   * エージェントが入力を待っているか（#265）。**`hasActivity` とは別に持つ。**
+   * あちらはベル由来の「何か出力があった」で、こちらは hook が申告した「止まっていて、
+   * 人が答えるまで進まない」。意味が違うので見た目も分ける（緑のドット）。
+   *
+   * プロジェクト単位の印（`ProjectSelect` の緑のドット）は**この集約として導く**ので、
+   * 消す処理を別に持たない。
+   */
+  awaitingInput?: boolean
   exitCode?: number | null
 }
 

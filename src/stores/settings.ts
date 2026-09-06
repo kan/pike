@@ -348,6 +348,22 @@ function sanitizeRegisterDirectory(v: unknown): RegisterDirectoryMode {
   return REGISTER_DIRECTORY_MODES.includes(v as RegisterDirectoryMode) ? (v as RegisterDirectoryMode) : 'ask'
 }
 
+/**
+ * エージェントの通知をどこまで出すか（#265）。既定は `waiting`（入力待ちのときだけ）。
+ *
+ * **`all` は「ターンの完了でも鳴らす」。** どちらの契機も hook からは同じように届くので、
+ * 分けているのは鳴らすかどうかだけ。**hook の登録はこの設定で変えない**（登録は #299 の
+ * アカウントの申告にも要る。理由は `agent_hook.rs` の `installable_hooks`）。
+ *
+ * **同期の対象**（好みなのでマシンに依存しない）。
+ */
+export const AGENT_NOTIFY_MODES = ['off', 'waiting', 'all'] as const
+export type AgentNotifyMode = (typeof AGENT_NOTIFY_MODES)[number]
+
+function sanitizeAgentNotify(v: unknown): AgentNotifyMode {
+  return AGENT_NOTIFY_MODES.includes(v as AgentNotifyMode) ? (v as AgentNotifyMode) : 'waiting'
+}
+
 // Window opacity slider bounds (surface alpha when a backdrop is active).
 export const WINDOW_OPACITY_MIN = 0.1
 export const WINDOW_OPACITY_MAX = 1
@@ -420,6 +436,8 @@ interface PersistedSettings {
   windowOpacity: number
   /** 起動行の並びと表示（#275）。**使える先頭が既定。** */
   agentLaunchers: AgentLauncher[]
+  /** エージェントの入力待ち / 完了をデスクトップ通知で知らせるか（#265）。 */
+  agentNotify: AgentNotifyMode
   /**
    * 昔の 2 本のリスト（#275 の当初の形）。**もう読み手は移行だけ**（`sanitizeAgentLaunchers`）
    * で、`snapshot()` は `agentLaunchers` から導いた値を書く。
@@ -485,6 +503,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
     shortcutPreset: sanitizeShortcutPreset(s.shortcutPreset),
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
+    agentNotify: sanitizeAgentNotify(s.agentNotify),
     autoSave: sanitizeAutoSave(s.autoSave),
     autoSaveDelay: clampSize(s.autoSaveDelay, AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX, AUTO_SAVE_DELAY_DEFAULT),
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
@@ -791,6 +810,9 @@ function defaults(): PersistedSettings {
     // 既定で持たない**: Pike が知っているエージェントは `lib/agents.ts` の表が提供し、
     // PATH にあるものだけが起動メニューに出る。
     agentLaunchers: AGENTS.map((a) => ({ kind: 'agent' as const, id: a.id })),
+    // 入力待ちだけ鳴らす（#265）。通知が届くのは hook を登録したアカウントのぶんだけ
+    // なので、実質はそこでのオプトイン。
+    agentNotify: 'waiting' as AgentNotifyMode,
     // 移行の入力と、同期ファイルへの後方互換の書き出しにしか使わない（`PersistedSettings`）。
     agentProfiles: AGENTS.map((a) => ({ id: a.id })),
     agentCommands: [],
@@ -856,6 +878,7 @@ export const useSettingsStore = defineStore('settings', () => {
     return windowOpacity.value
   })
   const agentLaunchers = ref<AgentLauncher[]>(saved.agentLaunchers)
+  const agentNotify = ref<AgentNotifyMode>(saved.agentNotify)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
 
   // Hosts the Markdown preview may load images from (#239). Nothing here is
@@ -1210,6 +1233,7 @@ export const useSettingsStore = defineStore('settings', () => {
       windowBackdrop: windowBackdrop.value,
       windowOpacity: windowOpacity.value,
       agentLaunchers: agentLaunchers.value,
+      agentNotify: agentNotify.value,
       // 古い版の Pike が読む形も併記する（理由は `PersistedSettings` の宣言の隣）。
       ...legacyAgentFields(agentLaunchers.value),
       agentPrompts: agentPrompts.value,
@@ -1251,6 +1275,7 @@ export const useSettingsStore = defineStore('settings', () => {
     windowOpacity.value = s.windowOpacity
     // 旧 2 本は読まない（`sanitize` が `agentLaunchers` へ畳んである）。
     agentLaunchers.value = s.agentLaunchers
+    agentNotify.value = s.agentNotify
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
     allowedUrlHosts.value = s.allowedUrlHosts
@@ -1453,6 +1478,7 @@ export const useSettingsStore = defineStore('settings', () => {
       closeToTray,
       windowBackdrop,
       windowOpacity,
+      agentNotify,
     ],
     onSettingsChanged,
   )
@@ -1515,6 +1541,7 @@ export const useSettingsStore = defineStore('settings', () => {
     surfaceAlpha,
     terminalSurfaceBg,
     agentLaunchers,
+    agentNotify,
     agentPrompts,
     allowedImageHosts,
     allowImageHost,

@@ -28,6 +28,9 @@
   --tab-inactive-bg: rgb(45 45 45 / var(--surface-alpha));
   --tab-hover-bg: rgb(var(--tab-hover-bg-rgb) / var(--surface-alpha));
   --danger: #f44747;
+  /* エージェントの入力待ちの印（#265）。`--danger` の対で、注意ではなく「待っている」
+     ことを言う色。タブとプロジェクトの 2 つのドットが共有する。 */
+  --success: #73c991;
   --git-add: #4ec9b0;
   --git-modify: #e2c08d;
   --git-delete: #f44747;
@@ -82,6 +85,7 @@
   --tab-inactive-bg: rgb(236 236 236 / var(--surface-alpha));
   --tab-hover-bg: rgb(var(--tab-hover-bg-rgb) / var(--surface-alpha));
   --danger: #d32f2f;
+  --success: #388a34;
   --git-add: #2e7d32;
   --git-modify: #e65100;
   --git-delete: #d32f2f;

@@ -10,6 +10,7 @@ import TabPane from './components/layout/TabPane.vue'
 import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import { offerAgentHook } from './composables/useAgentHookPrompt'
+import { initAgentNotice } from './composables/useAgentNotice'
 import { useAppMenu } from './composables/useAppMenu'
 import { confirmAndExit, confirmBusyExit } from './composables/useBusyExit'
 import { initCliOpen, peekInitialCliAction } from './composables/useCliOpen'
@@ -23,7 +24,14 @@ import { clearAliasCache } from './lib/jumpTo/resolveImport'
 import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { resolveNotifier } from './lib/notify'
 import { normalizeSep } from './lib/paths'
-import { isElevated, projectForWindow, traySetCloseToTray, windowCloseQuitsApp, windowSetBackdrop } from './lib/tauri'
+import {
+  isElevated,
+  projectForWindow,
+  traySetCloseToTray,
+  windowCloseQuitsApp,
+  windowRestore,
+  windowSetBackdrop,
+} from './lib/tauri'
 import { elevated, ephemeralWindow, globalMode, isGlobalWindow, isMainWindow } from './lib/window'
 import { useAgentUsageStore } from './stores/agentUsage'
 import { useDiagnosticsStore } from './stores/diagnostics'
@@ -215,7 +223,9 @@ onMounted(async () => {
     })
     .catch(() => {})
 
-  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init()])
+  // エージェントの入力待ちの通知（#265）もここで受け始める。届くのは PTY が上がった
+  // あとだが、ルーター群と同じく「このウィンドウ宛てのイベントの受け口」なので隣に置く。
+  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initAgentNotice()])
 
   // Which project this window shows comes from the backend window_projects map
   // (seeded at build), not the opaque label. null for main/global windows.
@@ -250,11 +260,21 @@ onMounted(async () => {
 
   await initCliOpen()
 
-  // Claude Code の hook を入れるか、起動時に 1 度だけ聞く（#299）。プロジェクトが
+  // Claude Code の hook を入れるか、シェルごとに 1 度だけ聞く（#299 / #265）。プロジェクトが
   // 決まってからでないと候補のシェルが決まらないので、復元の後に置く。**await しない**:
   // 起動の続き（クロスウィンドウの listener・beforeunload・トレイ周り）をダイアログの
   // 答えで止めない（`adoptProject` が登録を聞くのと同じ理由）。
-  offerAgentHook().catch(() => {})
+  //
+  // **切り替えたときにも聞く。** hook は設定ディレクトリごとに要り、その置き場はシェルで
+  // 変わるので、Windows のプロジェクトで登録しただけでは WSL 側に何も入らない。聞くかの
+  // 判断（シェル単位の記録）は `offerAgentHook` が持つので、ここは契機を渡すだけ。
+  watch(
+    () => projectStore.currentProject?.id,
+    () => {
+      offerAgentHook().catch(() => {})
+    },
+    { immediate: true },
+  )
 
   // Broadcast + self-filter (PTY/Docker と同方式): keep every window's
   // in-memory project copies fresh so stale full-object writes (flushSession /
@@ -287,11 +307,10 @@ onMounted(async () => {
       if (!localStorage.getItem('pike:tray-hint-shown')) {
         localStorage.setItem('pike:tray-hint-shown', '1')
         const notify = await resolveNotifier()
-        notify?.(t('tray.hintTitle'), t('tray.hintBody'), () => {
-          const w = getCurrentWindow()
-          w.show()
-          w.setFocus()
-        })
+        // 復帰は Rust に任せる（`windowRestore`）。素の `show()` では論理的に閉じた
+        // main のフラグが落ちないうえ、`show` は `core:window:default` に無いので
+        // permission エラーで何も起きない（#265 で気付いた）。
+        notify?.(t('tray.hintTitle'), t('tray.hintBody'), () => void windowRestore())
       }
     })
     // Tray "Open Project…" → open the switcher in the (now shown) main window.

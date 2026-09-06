@@ -883,14 +883,17 @@ const PREVIEW_LINES = [
               >
                 <code class="setting-list-name hook-dir">{{ target.configDir }}</code>
                 <span v-if="target.active" class="hook-badge">{{ t('settings.agentHookActive') }}</span>
-                <template v-if="target.registered">
-                  <span class="setting-hint hook-done" :title="target.command">{{ t('settings.agentHookRegistered') }}</span>
-                  <button class="icon-btn danger" :disabled="hookBusy" :title="t('settings.agentHookRemove')" @click="editHook(target, true)">
-                    <Trash2 :size="14" :stroke-width="2" />
-                  </button>
-                </template>
+                <span v-if="target.registered" class="setting-hint hook-done" :title="target.command">{{ t('settings.agentHookRegistered') }}</span>
                 <button v-else class="add-cmd-btn" :disabled="hookBusy" :title="target.command" @click="editHook(target, false)">
                   <Plus :size="14" :stroke-width="2" /> {{ t('settings.agentHookInstall') }}
+                </button>
+                <!--
+                  削除は `hasAny`（1 本でもあるか）で出す。`registered`（全部揃っているか）
+                  だと、#299 の版が書いた 1 本だけのファイルは「未登録」なので、**一度
+                  登録し直さないと消せない**（理由は Rust 側の `HookTarget::has_any`）。
+                -->
+                <button v-if="target.hasAny" class="icon-btn danger" :disabled="hookBusy" :title="t('settings.agentHookRemove')" @click="editHook(target, true)">
+                  <Trash2 :size="14" :stroke-width="2" />
                 </button>
               </div>
             </div>
@@ -913,6 +916,40 @@ const PREVIEW_LINES = [
             </p>
           </template>
           <p v-if="hookError" class="setting-hint hook-error">{{ hookError }}</p>
+        </div>
+
+        <!--
+          入力待ちの通知（#265）。**hook の下に置く**: 届くのは hook を登録した
+          アカウントのぶんだけなので、上のブロックがこの設定の前提になっている。
+        -->
+        <div class="setting-block">
+          <div class="setting-row">
+            <label class="setting-label">{{ t('settings.agentNotify') }}</label>
+            <div class="mode-toggle">
+              <button
+                class="mode-btn"
+                :class="{ active: settings.agentNotify === 'off' }"
+                @click="settings.agentNotify = 'off'"
+              >
+                {{ t('common.off') }}
+              </button>
+              <button
+                class="mode-btn"
+                :class="{ active: settings.agentNotify === 'waiting' }"
+                @click="settings.agentNotify = 'waiting'"
+              >
+                {{ t('settings.agentNotifyWaiting') }}
+              </button>
+              <button
+                class="mode-btn"
+                :class="{ active: settings.agentNotify === 'all' }"
+                @click="settings.agentNotify = 'all'"
+              >
+                {{ t('settings.agentNotifyAll') }}
+              </button>
+            </div>
+          </div>
+          <p class="setting-hint">{{ t('settings.agentNotifyHint') }}</p>
         </div>
       </section>
 

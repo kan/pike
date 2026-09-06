@@ -152,6 +152,7 @@
 ## グローバルモード（#123）
 - プロジェクト非依存・サイドバー無しのウィンドウ。ラベル prefix `global-`（Rust `GLOBAL_PREFIX` / front `isGlobalWindow()`、旧 `secondary-` を置換）
 - **ウィンドウラベル prefix を追加・変更したら `src-tauri/capabilities/default.json` の `windows` も更新すること**。ここはラベルのホワイトリストで、漏れると新ウィンドウで IPC（invoke / listen / set_title 等）が全部 permission エラーになり、App.vue の onMounted が途中で落ちてタブが一切開かない（DevTools コンソールの `not allowed on window "..."` が症状）
+- **フロントからウィンドウの状態を変える操作も、同じファイルの `permissions` に 1 行要る。** `core:window:default` に入っているのは**読み取り系だけ**（`is_visible` / `theme` / `title` 等）なので、`show` / `unminimize` / `set_focus` のように状態を変えるものは明示的に許可する。**失敗は静かで**、コンソールに `not allowed` が出るだけでウィンドウが前に出ない（#265 で通知から復帰させるまで、トレイのヒント通知のクリックが同じ理由で効いていなかった）
 - App.vue の `globalMode` ref が制御: SideBar / ProjectSwitcher / QuickOpen を非表示、プロジェクト復元をスキップ、**全タブを閉じるとウィンドウも close**（`tabs.length` の watch、prev>0 → 0 のみ）
 - 発動経路は 3 つ:
   1. **エディタ**: `--wait` と、プロジェクトウィンドウに一致しないファイル引数（`global-` ウィンドウ生成 + pending）。**コールドスタートのファイル引数**（「プログラムから開く」等）は main ウィンドウが `peekInitialCliAction()` で openFiles を検知して globalMode に入る（`last_project.txt` は消費しないので次回の素の起動で全プロジェクト復元される）

@@ -44,7 +44,7 @@ pub(crate) const ACTIVE_WINDOW_SECS: u64 = 300;
 /// 5 分前に終わった作業が状態画面から丸ごと消える。
 pub(crate) const RECENT_WINDOW_SECS: u64 = 24 * 60 * 60;
 
-/// Pike が使用量を集められるエージェント。
+/// Pike が知っているエージェント（`src/lib/agents.ts` の `AgentId` と同じ綴り）。
 ///
 /// **フロントの `AGENTS` と同じ綴り。** ここを enum にしてあるのは、`agents.ts` の表が
 /// 「使用量まで運ぶなら継ぎ目を `AgentId` に上げる」と約束しているため。生の文字列で
@@ -54,7 +54,9 @@ pub(crate) const RECENT_WINDOW_SECS: u64 = 24 * 60 * 60;
 /// **`Unknown` は残す。** フロントの表に足した id を Rust のアダプタより先に出せるように
 /// するため（そのときは「まだ集めない」が正しい振る舞いで、状態画面が丸ごとエラーになる
 /// 理由が無い）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+/// **使用量以外の継ぎ目でも使う。** 入力待ちの通知（#265）が hook から受けた id を
+/// これに通すので、`Serialize` も要る（フロントへ返す `AgentNotice` の欄）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentId {
     Claude,
@@ -66,7 +68,7 @@ pub enum AgentId {
 }
 
 impl AgentId {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             AgentId::Claude => "claude",
             AgentId::Codex => "codex",

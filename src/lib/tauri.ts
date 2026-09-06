@@ -107,6 +107,28 @@ export async function windowCloseQuitsApp(): Promise<boolean> {
   return invoke<boolean>('window_close_quits_app')
 }
 
+/**
+ * このウィンドウを前に出す（トレイのヒント通知）。
+ *
+ * **`getCurrentWindow().show()` を直に呼ばないこと。** 理由は Rust 側の `window_restore` の
+ * doc が正本（要点は、論理的に閉じた main のフラグを落とすのがあちらだけなので、素の show
+ * だと次のウィンドウ close でアプリごと終了しうる。加えて `show` は
+ * `core:window:default` に無いので、permission エラーで無言に失敗する）。
+ */
+export async function windowRestore(): Promise<void> {
+  return invoke<void>('window_restore')
+}
+
+/**
+ * タスクバーのボタンを点滅させて、このウィンドウに用があることを知らせる（#265）。
+ *
+ * **デスクトップ通知の代わり**（理由は Rust 側の `window_flash` の doc）。止めるのは OS の
+ * 仕事で、ウィンドウがアクティブになれば消える。
+ */
+export async function windowFlash(): Promise<void> {
+  return invoke<void>('window_flash')
+}
+
 export async function ptyGetCwd(id: string): Promise<string | null> {
   return invoke<string | null>('pty_get_cwd', { id })
 }
@@ -825,7 +847,10 @@ export interface AgentHookTarget {
   /** そのシェルから見た設定ディレクトリ。`agentHookInstall` の宛先の指定にも使う。 */
   configDir: string
   settingsPath: string
+  /** このマシンで登録する hook が全部入っているか。 */
   registered: boolean
+  /** Pike の行が 1 本でもあるか。**削除ボタンはこちらで出す**（Rust 側の doc が正本）。 */
+  hasAny: boolean
   /** 今の解決結果がここを指しているか。 */
   active: boolean
   /** この宛先を使うインストール（`wsl:<distro>` / ホスト）。install / uninstall に渡す。 */

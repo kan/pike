@@ -2,7 +2,16 @@ export type NotifyFn = (title: string, body: string, onClick?: () => void) => vo
 
 let cached: NotifyFn | null | undefined
 
-/** Resolve a notification function (Web API → Tauri plugin fallback). Cached after first call. */
+/**
+ * デスクトップ通知を出す関数（Web API → Tauri プラグインの順。初回だけ解決してキャッシュ）。
+ *
+ * **`onClick` は当てにできない**（#265 で実機確認）。WebView2 の Web Notification は
+ * `Notification.permission` が `granted` でも押したときに `onclick` が呼ばれず、ウィンドウが
+ * 前に出ることもない。プラグイン側の desktop 実装は `notify_rust` へ投げっぱなしで、
+ * クリックを受ける口がそもそも無い（`onAction` はモバイル専用）。**押させたい知らせを
+ * ここに載せないこと**: 入力待ち（#265）はこれを使わず、タスクバーの点滅（`windowFlash`）と
+ * 画面内の印にしてある。
+ */
 export async function resolveNotifier(): Promise<NotifyFn | null> {
   if (cached !== undefined) return cached
   cached = await resolveNotifierInner()

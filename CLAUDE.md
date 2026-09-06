@@ -225,6 +225,7 @@ pike/
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
 │   ├── composables/
 │   │   ├── useAgentHookPrompt.ts  # 起動時に 1 度だけ hook の登録を聞く（#299）
+│   │   ├── useAgentNotice.ts  # エージェントの入力待ちを受けて通知する（#265）
 │   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts
 │   │   ├── useAppActions.ts  # ショートカットと macOS メニューが共有する動作の実体（#254）
 │   │   ├── useAppMenu.ts     # macOS のメニューバーからの操作を受ける（#254）

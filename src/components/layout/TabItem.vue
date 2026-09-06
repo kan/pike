@@ -80,6 +80,15 @@ function onTitleHover(e: MouseEvent) {
       :class="{ 'exit-ok': tab.exitCode === 0 }"
       :title="'Exit code: ' + tab.exitCode"
     >{{ tab.exitCode === 0 ? '✓' : tab.exitCode }}</span>
+    <!--
+      入力待ち（#265）はベル由来の活動より優先して出す。**色を分ける**のは意味が違う
+      ため（あちらは「何か出力があった」、こちらは「答えるまで進まない」）。
+    -->
+    <span
+      v-else-if="tab.kind === 'terminal' && tab.awaitingInput && !active"
+      class="tab-activity-dot awaiting"
+      :title="t('agent.awaitingTab')"
+    />
     <span v-else-if="tab.kind === 'terminal' && tab.hasActivity && !active" class="tab-activity-dot" />
     <button v-if="!tab.pinned" class="tab-close" :title="t('tabs.close')" @click.stop="emit('close')">
       <X :size="14" :stroke-width="2" />
@@ -152,6 +161,12 @@ function onTitleHover(e: MouseEvent) {
   border-radius: 50%;
   background: var(--accent);
   flex-shrink: 0;
+}
+
+/* 入力待ち（#265）。プロジェクト側の印（`ProjectSelect`）と同じ色で、2 つが同じことを
+   言っていると読み取れるようにする。 */
+.tab-activity-dot.awaiting {
+  background: var(--success);
 }
 
 .tab-exit-badge {

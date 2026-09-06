@@ -27,6 +27,18 @@ const accent = useProjectAccent()
 
 const open = ref(false)
 
+/**
+ * 入力待ちのエージェントを抱えた、**保持中の**プロジェクト（#265）。今見ているものを
+ * 数えないのは、そのぶんはタブの印が言っていて、ここに出しても行き先が今いる場所に
+ * なるため。「保持中（＝今は見せていない）」の定義はストアの `parkedProjectIds` が持つ。
+ *
+ * 出典は `tabStore.awaitingProjectIds`（タブの印の集約）なので、切り替えて中を見れば
+ * 勝手に下りる。ここで消す処理は持たない。
+ */
+const awaitingIds = computed(
+  () => new Set(projectStore.parkedProjectIds.filter((id) => tabStore.awaitingProjectIds.has(id))),
+)
+
 // 行き先の一覧はストアの `heldProjects` をそのまま出す（並びも、一時プロジェクトを
 // 入れない理由も、あちらの `heldIds` の doc が正本）。以前ここにあった「現在地を末尾に
 // 足す」フォールバックは、タブを 1 つも持たないプロジェクトも保持に載るようになった
@@ -90,7 +102,12 @@ onUnmounted(() => window.removeEventListener('mousedown', closeMenu))
     <button class="project-btn" :title="projectStore.currentProject.root" @click="toggle">
       <ProjectIcon :icon="projectStore.currentProject.icon" />
       <span class="project-name">{{ projectStore.currentProject.name }}</span>
-      <ChevronDown :size="14" :stroke-width="2" class="chevron" />
+      <!-- 入力待ちの印（#265）は `▾` に重ねる。押せば行き先の一覧が出るので、印と
+           そこへ行く手段が同じ場所にある。 -->
+      <span class="chevron-wrap">
+        <ChevronDown :size="14" :stroke-width="2" class="chevron" />
+        <span v-if="awaitingIds.size > 0" class="awaiting-dot" :title="t('agent.awaitingProject')" />
+      </span>
     </button>
     <div v-if="open" class="project-menu popup-surface">
       <div
@@ -104,6 +121,7 @@ onUnmounted(() => window.removeEventListener('mousedown', closeMenu))
         <ProjectIcon :icon="entry.icon" />
         <ColorDot :color="entry.color" />
         <span class="row-name">{{ entry.name }}</span>
+        <span v-if="awaitingIds.has(entry.id)" class="awaiting-dot" :title="t('agent.awaitingProject')" />
         <!--
           解除は現在地以外だけ（#264）。現在地に出すと「今見ているプロジェクトのタブを
           全部閉じる」になり、保持の解除とは別の操作になる。
@@ -187,6 +205,31 @@ onUnmounted(() => window.removeEventListener('mousedown', closeMenu))
   flex-shrink: 0;
   color: var(--project-bar-fg);
   opacity: 0.7;
+}
+
+/* `▾` の右上に重ねる（#265）。**枠を下地の色で描く**ので、プロジェクトカラーの上でも
+   矢印と溶け合わずに読める。 */
+.chevron-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.chevron-wrap .awaiting-dot {
+  position: absolute;
+  top: -1px;
+  right: -3px;
+  border: 1px solid var(--project-bar-bg);
+}
+
+.awaiting-dot {
+  flex-shrink: 0;
+  box-sizing: content-box;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
 }
 
 .project-menu {

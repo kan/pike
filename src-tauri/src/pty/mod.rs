@@ -553,6 +553,15 @@ pub async fn pty_kill(id: String, state: State<'_, PtyState>) -> Result<(), Stri
     Ok(())
 }
 
+/// そのターミナルを持つウィンドウのラベル（#265）。
+///
+/// エージェントの hook は `PIKE_PTY_ID` しか知らないので、通知を届ける先はここで引く。
+/// **無いのは普通に起きる**（タブを閉じた直後、別のインスタンスのターミナルから届いた）。
+pub fn window_for_pty(state: &PtyState, id: &str) -> Option<String> {
+    let sessions = state.sessions.lock().ok()?;
+    sessions.get(id).map(|s| s.window_label.clone())
+}
+
 /// Remove all PTY sessions belonging to a specific window.
 ///
 /// Explicitly calls `killer.kill()` on each removed session before dropping it.

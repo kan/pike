@@ -219,6 +219,10 @@ export default {
   'terminal.recentSessions': 'Recent sessions',
   'terminal.noSessions': 'No sessions to resume',
 
+  // Agent notices (#265)
+  'agent.awaitingTab': 'The agent is waiting for input',
+  'agent.awaitingProject': 'An agent is waiting for input',
+
   // Docker Logs
   'dockerLogs.failedStart': '[Failed to start log stream: {error}]',
   'dockerLogs.ended': '[Log stream ended]',
@@ -294,11 +298,16 @@ export default {
   'settings.agentHookInstall': 'Register hook',
   'settings.agentHookRemove': 'Remove hook',
   'settings.agentHookForget': 'Discard the reported value and go back to guessing',
+  'settings.agentNotify': 'Waiting indicator',
+  'settings.agentNotifyWaiting': 'Input needed',
+  'settings.agentNotifyAll': 'Also when done',
+  'settings.agentNotifyHint':
+    'Flashes the taskbar button and marks the tab and project with a green dot when Claude Code in a hooked account waits for input. Tabs you can already see stay silent (Windows only).',
   'settings.agentHookOffer':
-    'Found Claude Code config directories:\n\n{dirs}\n\nRegister a hook so Claude Code itself reports which account it runs under?\nUsage, account and session history then follow the real account.\n\nThis adds one line to SessionStart in each settings.json. You can remove it from the Settings tab at any time.',
+    'Found Claude Code config directories:\n\n{dirs}\n\nRegister hooks so Claude Code talks to Pike?\nUsage, account and session history then follow the real account, and you get a notification when an agent waits for input.\n\nThis adds hooks to each settings.json. You can remove them from the Settings tab at any time.',
   'settings.agentHookConfirm':
-    'Add this hook to SessionStart in {path}:\n\n{command}\n\nNothing else in the file changes.',
-  'settings.agentHookConfirmRemove': 'Remove this hook from SessionStart in {path}:\n\n{command}\n\nOther hooks stay.',
+    'Add this hook to {path}:\n\n{command}\n\nIt runs on session start (to report the account) and when the agent waits for input or finishes a turn (to notify). Nothing else in the file changes.',
+  'settings.agentHookConfirmRemove': 'Remove this hook from {path}:\n\n{command}\n\nOther hooks stay.',
   'settings.editorTheme': 'Theme',
   'settings.minimap': 'Minimap',
   'settings.autoSave': 'Auto Save',

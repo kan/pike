@@ -266,11 +266,39 @@ pub fn try_wait_and_exit() {
 #[cfg(not(windows))]
 pub fn try_wait_and_exit() {}
 
+/// エージェントの hook からの通知を送るときの待ち時間（ミリ秒、#265）。
+///
+/// **`--wait` と違って返事を待ち続けない。** あちらは利用者が起こす稀な操作だが、通知の
+/// hook は**ターンのたび**に走る。素の `SendMessageW` は受け側がメッセージを処理するまで
+/// 戻らないので、Pike の UI スレッドが詰まっているあいだ（ジャンプリストの構築で実績が
+/// ある。`jumplist/mod.rs`）、Claude Code のターンの終わりが hook のタイムアウトまで
+/// 止まる。届かなかったときに失うのは通知 1 回だけなので、待たずに諦める。
+#[cfg(windows)]
+const NOTICE_TIMEOUT_MS: u32 = 1000;
+
+/// Send argv to the running instance the way the single-instance plugin does.
 #[cfg(windows)]
 fn send_to_first_instance(args: &[String], cwd: &str) {
+    send_copydata(args, cwd, None)
+}
+
+/// 同じ経路で、返事を待たずに送る（#265）。hook プロセスは Tauri を起動しないので、
+/// この WM_COPYDATA が走っている Pike へ届ける唯一の手段。
+///
+/// **cwd は送らない。** 届け先は pty id で決まるので受け側が読まないうえ、hook プロセスの
+/// cwd は WSL の native パスで、Windows 側では意味を持たない。
+#[cfg(windows)]
+pub(crate) fn send_notice_to_first_instance(args: &[String]) {
+    send_copydata(args, "", Some(NOTICE_TIMEOUT_MS))
+}
+
+#[cfg(windows)]
+fn send_copydata(args: &[String], cwd: &str, timeout_ms: Option<u32>) {
     use windows::core::PCWSTR;
     use windows::Win32::System::DataExchange::COPYDATASTRUCT;
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, SendMessageW, WM_COPYDATA};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, SendMessageTimeoutW, SendMessageW, SMTO_ABORTIFHUNG, WM_COPYDATA,
+    };
 
     let class_name = encode_wide(&format!("{}{SI_CLASS_SUFFIX}", app_id()));
     let window_name = encode_wide(&format!("{}{SI_WINDOW_SUFFIX}", app_id()));
@@ -290,16 +318,34 @@ fn send_to_first_instance(args: &[String], cwd: &str) {
             lpData: bytes.as_ptr() as *mut std::ffi::c_void,
         };
 
-        let _ = SendMessageW(
-            hwnd,
-            WM_COPYDATA,
-            Some(windows::Win32::Foundation::WPARAM(0)),
-            Some(windows::Win32::Foundation::LPARAM(
-                &cds as *const _ as isize,
-            )),
-        );
+        // `SendMessageW` は `Option` で受け、`SendMessageTimeoutW` は素の値で受ける
+        // （windows クレート 0.62 のシグネチャの差）。
+        let wparam = windows::Win32::Foundation::WPARAM(0);
+        let lparam = windows::Win32::Foundation::LPARAM(&cds as *const _ as isize);
+        match timeout_ms {
+            // `SMTO_ABORTIFHUNG`: 受け側が既にハングしていると分かっているなら待たない。
+            Some(ms) => {
+                SendMessageTimeoutW(
+                    hwnd,
+                    WM_COPYDATA,
+                    wparam,
+                    lparam,
+                    SMTO_ABORTIFHUNG,
+                    ms,
+                    None,
+                );
+            }
+            None => {
+                let _ = SendMessageW(hwnd, WM_COPYDATA, Some(wparam), Some(lparam));
+            }
+        }
     }
 }
+
+/// 配送は WM_COPYDATA だけなので、非 Windows では届ける先が無い（#265 が Windows
+/// 限定なのはこれが理由）。呼び出し側を `cfg` で割らずに済むよう、ここで何もしない。
+#[cfg(not(windows))]
+pub(crate) fn send_notice_to_first_instance(_args: &[String]) {}
 
 #[cfg(windows)]
 fn encode_wide(s: &str) -> Vec<u16> {
