@@ -74,6 +74,11 @@
 
 ターミナルの起動ボタンに関する設定です。→ [ターミナルと AI エージェント](terminal-and-agents.md#エージェント起動ボタン--プロンプト挿入)
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/settings-agents-light.png">
+  <img alt="設定のエージェント" src="img/settings-agents.png">
+</picture>
+
 **起動**
 
 - **エージェントの起動行**：起動ボタンのメニューに出る行と、その並び順。↑↓ で並べ替え、目のアイコンで表示を切り替えます。**上から見て最初に使える行が既定**で、起動ボタンを押すとそれが走り、メニューの第 1 階層にもそれだけが出ます。残りはメニューの「他のエージェント」に入ります。最後の 1 つは隠せません。

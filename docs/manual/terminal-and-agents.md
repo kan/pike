@@ -65,6 +65,11 @@ Pike が知っているのは **Claude Code・Codex・Copilot CLI・opencode** �
 
 #### 過去のセッションを再開する
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/agent-menu-light.png">
+  <img alt="起動ボタンのメニューと最近のセッション" src="img/agent-menu.png">
+</picture>
+
 4 つのエージェントそれぞれについて、**最近のセッション**をサブメニューから再開できます。既定の行のものは `▾` の一覧の中ほど、それ以外は「他のエージェント」の各行の下にあります。会話のタイトル（Claude Code はブランチ名も）と最終更新の相対時刻が並び、選ぶとそのターミナルで再開のコマンドが走ります。
 
 | エージェント | 記録の出どころ | 走るコマンド |
