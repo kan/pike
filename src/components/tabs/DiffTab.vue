@@ -79,15 +79,19 @@ const expanded = ref<Map<number, Expanded>>(new Map())
  * `<tr>` と 4 つの `<td>` が行数ぶん作り直される。**掴んだ瞬間に固まる**ので、この機能が
  * 楽にしようとしている操作そのものを重くしてしまう。
  *
- * 覚えておく必要は無い（次の `mousedown` で決まる）ので ref も持たない。差分が入れ替わって
- * 表が作り直されれば、印も一緒に消えて素の `<table>` に戻る。
+ * **付ける先は `.diff-scroll`（`<table>` ではない）。** あちらは `:class` で `wrap` を
+ * 受けており、Vue の class の当て直しは `className` を丸ごと書き換えるので、折り返しを
+ * 切り替えた瞬間にこの印が落ちる（片側選択が無言で解除される）。**`:class` を持たない
+ * 要素に付けること**: ここへバインディングを足す日が来たら、印の置き場も動かす。
+ *
+ * 覚えておく必要は無い（次の `mousedown` で決まる）ので ref も持たない。
  *
  * 行番号は元から選択できない（`.line-num` の `user-select: none`）ので、ここでは扱わない。
  */
 function markSelectSide(e: MouseEvent, side: number) {
-  const table = (e.currentTarget as HTMLElement).closest('table')
-  table?.classList.toggle('sel-l', side === 0)
-  table?.classList.toggle('sel-r', side === 1)
+  const scroll = (e.currentTarget as HTMLElement).closest('.diff-scroll')
+  scroll?.classList.toggle('sel-l', side === 0)
+  scroll?.classList.toggle('sel-r', side === 1)
 }
 
 // 差分そのものが入れ替わったら、この差分に紐づく状態を捨てる。**足すときはここに足すこと**
@@ -965,9 +969,10 @@ onUnmounted(() => {
 
 /* 押した欄だけを選ばせる（#321）。**セルをまたぐ選択そのものは止められない**ので、反対側を
    選択の対象から外す（`user-select: none` の要素はコピーにも入らない）。列の指定は上の
-   区切り線と同じ `nth-child`（2 = 左の本文、4 = 右の本文）。 */
-.diff-table.sel-l .line-content:nth-child(4),
-.diff-table.sel-r .line-content:nth-child(2) {
+   区切り線と同じ `nth-child`（2 = 左の本文、4 = 右の本文）。印が `.diff-scroll` に付く理由は
+   `markSelectSide` の doc を参照（`<table>` は `:class` を持つので Vue に消される）。 */
+.diff-scroll.sel-l .line-content:nth-child(4),
+.diff-scroll.sel-r .line-content:nth-child(2) {
   user-select: none;
 }
 

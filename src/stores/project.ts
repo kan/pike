@@ -1192,7 +1192,15 @@ export const useProjectStore = defineStore('project', () => {
     // Transient project (#230): there is no project.json to write to.
     if (isTransient.value) return
     if (!currentProject.value) return
-    currentProject.value.lastSession = useTabStore().snapshotSession()
+    const next = useTabStore().snapshotSession()
+    // **同じ内容なら書かない**（#321 で入れた `staleAt` の巻き添えを断つ）。書き出しは
+    // `project.json` の全量書き直しと全ウィンドウへの broadcast を伴うのに、`snapshotSession`
+    // が拾うのは terminal / editor だけなので、他の種別のタブが持つ状態が動いても中身は
+    // 変わらない。契機は `$subscribe`（タブの**どのフィールド**が変わっても発火する）で、
+    // diff タブの自動取り直しはファイルが書き換わるたびにここへ来る。
+    // Rust 側の `write_open_windows` が `last_written_sessions` で同じことをしている。
+    if (JSON.stringify(currentProject.value.lastSession) === JSON.stringify(next)) return
+    currentProject.value.lastSession = next
     await projectUpdate(currentProject.value).catch(() => {})
   }
 
