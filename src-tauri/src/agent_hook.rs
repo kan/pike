@@ -416,6 +416,10 @@ fn write_store(path: &Path, store: &Store) -> std::io::Result<()> {
 /// read-modify-write の取りこぼしは、次のセッション開始で直る程度なので許容する。
 ///
 /// 名前に pid を入れるのは、同時に走る hook 同士が同じ一時ファイルを掴まないため。
+///
+/// **これは Pike 自身の置き場（申告）専用。** 利用者のファイルには使わないこと:
+/// `rename` は宛先が symlink ならリンクごと置き換える（#320）。そちらは
+/// `fs::write_bytes_atomic` が先にリンクを辿る。
 fn write_atomic(path: &Path, bytes: Vec<u8>) -> std::io::Result<()> {
     let tmp = path.with_extension(format!("pike-{}.tmp", std::process::id()));
     std::fs::write(&tmp, bytes)?;
@@ -583,7 +587,8 @@ fn installable_hooks() -> impl Iterator<Item = &'static HookSpec> {
 pub struct HookTarget {
     /// そのシェルから見たパス（native）。表示と、`install` の宛先の指定に使う。
     pub config_dir: String,
-    /// 書き込む `settings.json`（Pike から読めるパス。WSL なら UNC）。
+    /// 書き込む `settings.json`（**そのシェルから見た native パス**）。UNC ではないので、
+    /// 確認ダイアログに出た綴りをそのままターミナルで開ける。
     pub settings_path: String,
     /// このマシンで登録する hook が**全部**入っているか（`has_hook`）。
     pub registered: bool,
@@ -867,18 +872,35 @@ fn remove_from_event(settings: &mut serde_json::Value, event: &str) -> bool {
     removed
 }
 
-fn settings_path(config_dir: &Path) -> PathBuf {
-    config_dir.join(SETTINGS_FILE)
+/// そのシェルのパスの区切り。**`candidate_dirs` と `settings_path` は同じ規則で組む**
+/// 必要がある（`edit_settings` は native パスの文字列一致で宛先を照合するので、片方だけ
+/// 変えると「候補にあるのに書けない」になる）。
+fn sep_of(shell: &ShellConfig) -> char {
+    if shell.is_posix() {
+        '/'
+    } else {
+        '\\'
+    }
 }
 
-fn read_settings(path: &Path) -> Result<serde_json::Value, String> {
-    match std::fs::read_to_string(path) {
-        Ok(text) if text.trim().is_empty() => Ok(serde_json::json!({})),
-        Ok(text) => {
-            serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.to_string_lossy()))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({})),
-        Err(e) => Err(format!("{}: {e}", path.to_string_lossy())),
+/// 宛先の `settings.json`（**そのシェルから見た native パス**）。
+///
+/// **UNC で組み立てないこと。** `settings.json` は dotfiles への symlink であることが
+/// あり、`\\wsl.localhost` 越しの Windows API はそれを追従できない（#320）。読み書きは
+/// distro の中で行うので、パスも native で持つ。
+fn settings_path(config_dir: &str, shell: &ShellConfig) -> String {
+    let sep = sep_of(shell);
+    format!("{}{sep}{SETTINGS_FILE}", config_dir.trim_end_matches(sep))
+}
+
+/// 宛先の中身。**読めなければ `Err`**（`crate::fs::read_text` の契約）で、そのとき
+/// `edit_settings` は書かずに止まる。空として扱うと、hook を足すつもりの書き込みが
+/// **利用者の設定を丸ごと置き換える**（#320）。無ければ `{}`＝新規作成してよい。
+fn read_settings(shell: &ShellConfig, path: &str) -> Result<serde_json::Value, String> {
+    match crate::fs::read_text(shell, path)? {
+        None => Ok(serde_json::json!({})),
+        Some(text) if text.trim().is_empty() => Ok(serde_json::json!({})),
+        Some(text) => serde_json::from_str(&text).map_err(|e| format!("{path}: {e}")),
     }
 }
 
@@ -891,7 +913,10 @@ fn looks_like_config_dir(read_path: &Path, name: &str) -> bool {
     name.starts_with(".claude")
         && ["settings.json", "projects", ".claude.json"]
             .iter()
-            .any(|f| read_path.join(f).exists())
+            // **`exists()` では足りない**（#320）。あれはリンクを辿るので、WSL の
+            // `settings.json` が dotfiles を指す symlink だと（UNC 越しには追従できず）
+            // 無いことになる。ここで見たいのは「その名前で何かあるか」だけ。
+            .any(|f| read_path.join(f).symlink_metadata().is_ok())
 }
 
 /// そのシェルから見える設定ディレクトリの候補（native パス, Pike から読めるパス）。
@@ -906,21 +931,27 @@ fn candidate_dirs(shell: &ShellConfig) -> Vec<(String, PathBuf)> {
     let Some((home_native, home_read)) = crate::claude_usage::config::shell_home(shell) else {
         return Vec::new();
     };
-    let sep = if shell.is_posix() { '/' } else { '\\' };
+    let sep = sep_of(shell);
     let mut dirs: Vec<(String, PathBuf)> = std::fs::read_dir(&home_read)
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .filter_map(|e| {
             let name = e.file_name().to_str()?.to_string();
             let read = e.path();
-            looks_like_config_dir(&read, &name).then(|| {
-                (
-                    format!("{}{sep}{name}", home_native.trim_end_matches(sep)),
-                    read,
-                )
-            })
+            // **`DirEntry::file_type` で絞らない**（#320）。あれはリンクを辿らないので、
+            // `~/.claude` ごと dotfiles への symlink にしている構成では「ディレクトリでは
+            // ない」ことになり、**候補が 1 つも出ず UI から登録する手段が消える**。
+            // `metadata()` は辿る（名前と中身で絞ったあとなので、増える stat は `.claude*`
+            // の数だけ）。WSL の symlink は UNC 越しに辿れないままなので、効くのはホスト側。
+            (looks_like_config_dir(&read, &name) && read.metadata().is_ok_and(|m| m.is_dir())).then(
+                || {
+                    (
+                        format!("{}{sep}{name}", home_native.trim_end_matches(sep)),
+                        read,
+                    )
+                },
+            )
         })
         .collect();
     dirs.sort_by(|a, b| a.0.cmp(&b.0));
@@ -962,33 +993,44 @@ fn status_for(shell: &ShellConfig, project_root: &str, distros: &[String]) -> Ho
         // 解決結果がホームの外を指している（`CLAUDE_CONFIG_DIR` は任意の場所を指せる）
         // ときのために、一覧に無ければ足す。プロジェクトのシェルでしか解決していない
         // ので、その腕でだけ効く。
+        //
+        // **native パスが分かるときだけ足す**（#320）。`native_override` が `None` の
+        // 解決結果は既定の `~/.claude` で、そこは候補の列挙が拾う（拾わないのは
+        // Claude Code を一度も起動していないディレクトリ）。読めるほうのパス（WSL なら
+        // UNC）を native の位置へ置くと、distro の中で読み書きする今は開けない綴りになる。
         if crate::types::install_key(&target_shell) == crate::types::install_key(shell) {
-            if let Some(read) = config.read_path.as_deref() {
+            if let (Some(native), Some(read)) = (
+                config.native_override.as_deref(),
+                config.read_path.as_deref(),
+            ) {
                 if !dirs.iter().any(|(_, p)| p == read) {
-                    let native = config
-                        .native_override
-                        .clone()
-                        .unwrap_or_else(|| read.to_string_lossy().into_owned());
-                    dirs.insert(0, (native, read.to_path_buf()));
+                    dirs.insert(0, (native.to_string(), read.to_path_buf()));
                 }
             }
         }
         let command = hook_command(&target_shell);
         let install_key = crate::types::install_key(&target_shell);
-        targets.extend(dirs.into_iter().map(|(native, read)| {
-            let path = settings_path(&read);
-            // 読むのは 1 回（`settings.json` は候補の数だけ開く）。
-            let settings = read_settings(&path).ok();
-            HookTarget {
+        let paths: Vec<String> = dirs
+            .iter()
+            .map(|(native, _)| settings_path(native, &target_shell))
+            .collect();
+        // **候補ぶんをまとめて読む**（WSL なら `wsl.exe` は 1 回）。ここは表示のための
+        // 判定なので、読めなかったものは「未登録」で構わない（**書き込む前の読みは
+        // `edit_settings` の厳密な版が受け持つ**）。渡すのは絶対パスなので、`root` と
+        // 区切りは使われない。
+        let texts = crate::fs::batch_read_files(&target_shell, "", "", &paths);
+        for ((native, read), (path, text)) in dirs.into_iter().zip(paths.into_iter().zip(texts)) {
+            let settings = text.and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+            targets.push(HookTarget {
                 registered: settings.as_ref().is_some_and(has_hook),
                 has_any: settings.as_ref().is_some_and(has_any_hook),
-                settings_path: path.to_string_lossy().into_owned(),
+                settings_path: path,
                 active: config.read_path.as_deref() == Some(read.as_path()),
                 config_dir: native,
                 install_key: install_key.clone(),
                 command: command.clone(),
-            }
-        }));
+            });
+        }
     }
     HookStatus {
         targets,
@@ -1052,17 +1094,21 @@ fn edit_settings(
     config_dir: &str,
     edit: impl FnOnce(&mut serde_json::Value, &str) -> bool,
 ) -> Result<(), String> {
-    let path = candidate_dirs(target_shell)
-        .into_iter()
-        .find(|(native, _)| native == config_dir)
-        .map(|(_, read)| settings_path(&read))
-        .ok_or_else(|| format!("unknown config dir: {config_dir}"))?;
-    let mut settings = read_settings(&path)?;
+    if !candidate_dirs(target_shell)
+        .iter()
+        .any(|(native, _)| native == config_dir)
+    {
+        return Err(format!("unknown config dir: {config_dir}"));
+    }
+    let path = settings_path(config_dir, target_shell);
+    let mut settings = read_settings(target_shell, &path)?;
     if edit(&mut settings, &hook_command(target_shell)) {
         let mut bytes = serde_json::to_vec_pretty(&settings).map_err(|e| e.to_string())?;
         bytes.push(b'\n');
         // Claude Code が同じファイルを書き戻すので、途中まで書かれた状態を見せない。
-        write_atomic(&path, bytes).map_err(|e| format!("{}: {e}", path.to_string_lossy()))?;
+        // **symlink は置き換えない**（#320）ので、dotfiles から配っていても壊れない。
+        crate::fs::write_bytes_atomic(target_shell, &path, &bytes)
+            .map_err(|e| format!("{path}: {e}"))?;
     }
     Ok(())
 }
@@ -1412,6 +1458,25 @@ mod tests {
             None
         );
         assert_eq!(windows_to_mnt("/usr/local/bin/pike"), None);
+    }
+
+    #[test]
+    fn puts_settings_json_under_the_config_dir_in_the_shells_own_spelling() {
+        let wsl = ShellConfig::Wsl {
+            distro: "Ubuntu".to_string(),
+        };
+        assert_eq!(
+            settings_path("/home/kan/.claude-ai", &wsl),
+            "/home/kan/.claude-ai/settings.json"
+        );
+        assert_eq!(
+            settings_path("/home/kan/.claude/", &wsl),
+            "/home/kan/.claude/settings.json"
+        );
+        assert_eq!(
+            settings_path(r"C:\Users\kanfu\.claude", &ShellConfig::Powershell),
+            r"C:\Users\kanfu\.claude\settings.json"
+        );
     }
 
     #[test]

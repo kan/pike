@@ -487,39 +487,141 @@ fn encode_content(content: &str, encoding_name: Option<&str>) -> Vec<u8> {
     content.as_bytes().to_vec()
 }
 
-fn write_bytes(shell: &ShellConfig, path: &str, bytes: &[u8]) -> Result<(), String> {
+/// そのシェルの中でテキストを読む。**無ければ `None`、読めなければ `Err`。**
+///
+/// この 2 つを混ぜないのが要点（#320）。「読めなかった」を空として扱うと、次の書き込みが
+/// 利用者のファイルを丸ごと置き換える。`write_bytes_atomic` と対で、**書く前に読む**もの
+/// （設定ファイルのように、読めないなら書いてはいけないもの）が呼ぶ。
+///
+/// `read_raw_bytes` とは契約が違うので畳んでいない。あちらはエディタが開く経路で、サイズの
+/// 上限とバイナリの判定を持ち、WSL では `stat` と `cat` で 2 回起動する。こちらは 1 回で、
+/// **リンク先がまだ無い symlink を「無い」と言わない**（`-e` はリンクを辿るので `-L` も見る。
+/// 非 WSL 側は `symlink_metadata`）。そこを混同すると、dotfiles を展開していないマシンで
+/// リンク先に中身の無いファイルを作る。
+pub fn read_text(shell: &ShellConfig, path: &str) -> Result<Option<String>, String> {
     match shell {
         ShellConfig::Wsl { .. } => {
-            let script = format!("cat > '{}'", path.replace('\'', "'\\''"));
-            let mut child = shell
-                .command("bash", &["-c", &script])
-                .stdin(std::process::Stdio::piped())
-                .spawn()
-                .map_err(|e| e.to_string())?;
-
-            let pid = child.id();
-            let stdin = child.stdin.take();
-            let bytes_owned = bytes.to_vec();
-
-            let status = wait_with_timeout(
-                pid,
-                std::time::Duration::from_secs(30),
-                "write",
-                move || {
-                    if let Some(mut w) = stdin {
-                        let _ = w.write_all(&bytes_owned);
-                    }
-                    child.wait()
-                },
-            )?;
-            if status.success() {
-                Ok(())
-            } else {
-                Err("Failed to write file".into())
+            let p = bash_quote(path);
+            // 無ければ 9 で抜ける。`cat` が失敗したときの非 0 と区別するための番号。
+            let script = format!("if [ -e {p} ] || [ -L {p} ]; then cat -- {p}; else exit 9; fi");
+            let (code, stdout, stderr) = shell.run("bash", &["-c", &script])?;
+            match code {
+                0 => Ok(Some(stdout)),
+                9 => Ok(None),
+                _ => Err(format!("{path}: {}", stderr.trim())),
             }
+        }
+        _ => match std::fs::read_to_string(path) {
+            Ok(text) => Ok(Some(text)),
+            // `NotFound` でも、そこに symlink がある（＝辿れないだけ）なら「無い」ではない。
+            Err(e)
+                if e.kind() == std::io::ErrorKind::NotFound
+                    && std::fs::symlink_metadata(path).is_err() =>
+            {
+                Ok(None)
+            }
+            Err(e) => Err(format!("{path}: {e}")),
+        },
+    }
+}
+
+/// Feed `bytes` to a bash script's stdin inside the distro (WSL only).
+fn pipe_to_bash(shell: &ShellConfig, script: &str, bytes: &[u8]) -> Result<(), String> {
+    let mut child = shell
+        .command("bash", &["-c", script])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    let pid = child.id();
+    let stdin = child.stdin.take();
+    let bytes_owned = bytes.to_vec();
+
+    let status = wait_with_timeout(
+        pid,
+        std::time::Duration::from_secs(30),
+        "write",
+        move || {
+            if let Some(mut w) = stdin {
+                let _ = w.write_all(&bytes_owned);
+            }
+            child.wait()
+        },
+    )?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Failed to write file".into())
+    }
+}
+
+fn write_bytes(shell: &ShellConfig, path: &str, bytes: &[u8]) -> Result<(), String> {
+    match shell {
+        // リダイレクトは `open(O_TRUNC)` なので symlink の先へ書く（リンクは残る）。
+        ShellConfig::Wsl { .. } => {
+            pipe_to_bash(shell, &format!("cat > {}", bash_quote(path)), bytes)
         }
         _ => std::fs::write(path, bytes).map_err(|e| e.to_string()),
     }
+}
+
+/// 書きかけを読み手に見せず、しかも **symlink を置き換えない**書き込み。
+///
+/// 素朴な「一時ファイル ＋ `rename`」は宛先が symlink のときにリンクそのものを消す。
+/// 他人（Claude Code 等）も書き戻すファイルにはどちらの性質も要るので、**先にリンクを
+/// 辿ってから、その実体に対して置き換える**（#320。dotfiles から `settings.json` を
+/// symlink で配る構成で、Pike が hook を足すたびにリンクを壊していた）。
+///
+/// **WSL は distro の中で解決する。** `\\wsl.localhost` 越しの Windows API は WSL の
+/// symlink を追従できない（リパースポイントとして見えて `NotFound` になる）ので、
+/// UNC のパスで書くと必ずリンクを壊す側に倒れる。
+///
+/// **元のモードを引き継ぐ。** 新しい inode を被せるので、そのままだと 0600 の
+/// `settings.json` が umask 次第で 0644 に緩む（鍵を `env` に置く人がいる）うえ、
+/// リンク先が dotfiles なら登録のたびに mode の差分が出る。
+pub fn write_bytes_atomic(shell: &ShellConfig, path: &str, bytes: &[u8]) -> Result<(), String> {
+    match shell {
+        ShellConfig::Wsl { .. } => {
+            let p = bash_quote(path);
+            // `readlink -f` は最後の要素が無くても解決するので、新規作成でも使える。
+            // 解決できないときだけ元のパスへ落とす。`trap` は、`cat` が途中で失敗した
+            // ときに一時ファイルを（リンク先＝利用者のディレクトリに）残さないため。
+            let script = format!(
+                "set -e; t=$(readlink -f -- {p} 2>/dev/null) || t={p}; \
+                 tmp=\"$t.pike-$$.tmp\"; trap 'rm -f -- \"$tmp\"' EXIT; \
+                 cat > \"$tmp\"; \
+                 [ -e \"$t\" ] && chmod --reference=\"$t\" -- \"$tmp\" 2>/dev/null || :; \
+                 mv -f -- \"$tmp\" \"$t\"; trap - EXIT"
+            );
+            pipe_to_bash(shell, &script, bytes)
+        }
+        _ => write_host_atomic(std::path::Path::new(path), bytes),
+    }
+}
+
+/// ホスト上のファイルへの、symlink を置き換えない atomic な書き込み。
+///
+/// `write_bytes_atomic` のホスト側の実体で、**シェルを持たない書き手も呼ぶ**
+/// （`settings_sync`）。判断は `write_bytes_atomic` の doc が正本。
+///
+/// `rename` の宛先が既にあっても構わない（Windows でも `MOVEFILE_REPLACE_EXISTING`
+/// なので置き換わる）。**消してから改名する形にしないこと**: 失敗したときに宛先が
+/// 消えたまま残るうえ、読み手に「無い」瞬間を見せる。
+pub fn write_host_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    // `canonicalize` はリンクを辿る（存在しないファイルでは失敗するので、そのときは
+    // 元のパス＝新規作成）。
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let tmp = target.with_extension(format!("pike-{}.tmp", std::process::id()));
+    let written = std::fs::write(&tmp, bytes).and_then(|()| {
+        if let Ok(meta) = std::fs::metadata(&target) {
+            std::fs::set_permissions(&tmp, meta.permissions())?;
+        }
+        std::fs::rename(&tmp, &target)
+    });
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -833,6 +935,61 @@ fn copy_dir_recursive(src: &str, dst: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ホストのシェル（`Unix` の腕）。symlink を作れる OS でしか意味が無いので、
+    /// この 2 本は `cfg(unix)`＝**CI の macOS ジョブでだけ走る**（`platform.md`）。
+    #[cfg(unix)]
+    fn host_shell() -> ShellConfig {
+        ShellConfig::Unix {
+            program: String::new(),
+        }
+    }
+
+    /// **読めないファイルを空として扱わない**（#320）。ここを混ぜると、次の書き込みが
+    /// 利用者の設定を丸ごと置き換える。dangling symlink で作るのは、UNC 越しの WSL の
+    /// リンクが `NotFound` として届く（＝辿れないのに「無い」に見える）のと同じ形。
+    #[cfg(unix)]
+    #[test]
+    fn read_text_tells_a_missing_file_from_one_it_cannot_read() {
+        let dir = std::env::temp_dir().join(format!("pike-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = dir.join("missing.json");
+        let dangling = dir.join("dangling.json");
+        let _ = std::fs::remove_file(&dangling);
+        std::os::unix::fs::symlink(dir.join("nowhere.json"), &dangling).unwrap();
+
+        assert_eq!(
+            read_text(&host_shell(), missing.to_str().unwrap()),
+            Ok(None)
+        );
+        assert!(read_text(&host_shell(), dangling.to_str().unwrap()).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 書き込みは symlink を置き換えず、その先を書き換える（#320）。**モードも引き継ぐ**:
+    /// 新しい inode を被せるので、そのままだと 0600 の設定が umask 次第で緩む。
+    #[cfg(unix)]
+    #[test]
+    fn write_bytes_atomic_keeps_the_symlink_and_the_mode() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("pike-write-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = dir.join("real.json");
+        let link = dir.join("settings.json");
+        std::fs::write(&real, b"{\"a\":1}\n").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        write_bytes_atomic(&host_shell(), link.to_str().unwrap(), b"{\"a\":2}\n").unwrap();
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "{\"a\":2}\n");
+        assert_eq!(
+            std::fs::metadata(&real).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn decode_bytes_utf8() {

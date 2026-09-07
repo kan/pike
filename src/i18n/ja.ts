@@ -315,6 +315,7 @@ export default {
     'hook を登録したアカウントの Claude Code が入力を待ったとき、タスクバーのボタンを点滅させ、タブとプロジェクトに緑の点を付けます。見えているタブでは何もしません（Windows のみ）。',
   'settings.agentHookOffer':
     'Claude Code の設定ディレクトリが見つかりました。\n\n{dirs}\n\nPike と連携する hook を登録しますか？\n登録すると、使用量・アカウント表示・セッション一覧が実際のアカウントのものになり、エージェントが入力を待ったときに通知が届きます。\n\n各ディレクトリの settings.json に hook を追加します。設定タブからいつでも解除できます。',
+  'settings.agentHookPartial': 'hook を登録できませんでした: {dirs}',
   'settings.agentHookConfirm':
     '{path} に次の hook を追加します。\n\n{command}\n\nセッションの開始（アカウントの申告）と、入力待ち・応答の終了（通知）で呼ばれます。他の設定は変更しません。',
   'settings.agentHookConfirmRemove': '{path} から次の hook を削除します。\n\n{command}\n\n他の hook は残ります。',

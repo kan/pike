@@ -317,6 +317,7 @@ export default {
     'Flashes the taskbar button and marks the tab and project with a green dot when Claude Code in a hooked account waits for input. Tabs you can already see stay silent (Windows only).',
   'settings.agentHookOffer':
     'Found Claude Code config directories:\n\n{dirs}\n\nRegister hooks so Claude Code talks to Pike?\nUsage, account and session history then follow the real account, and you get a notification when an agent waits for input.\n\nThis adds hooks to each settings.json. You can remove them from the Settings tab at any time.',
+  'settings.agentHookPartial': 'Could not register the hook in: {dirs}',
   'settings.agentHookConfirm':
     'Add this hook to {path}:\n\n{command}\n\nIt runs on session start (to report the account) and when the agent waits for input or finishes a turn (to notify). Nothing else in the file changes.',
   'settings.agentHookConfirmRemove': 'Remove this hook from {path}:\n\n{command}\n\nOther hooks stay.',

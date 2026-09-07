@@ -35,6 +35,7 @@ import { t } from '../i18n'
 import { agentHookInstallMissing, agentHookStatus } from '../lib/tauri'
 import { isMainWindow } from '../lib/window'
 import { useProjectStore } from '../stores/project'
+import { useStatusMessageStore } from '../stores/statusMessage'
 import { installKey } from '../types/tab'
 import { confirmDialog, dialogOpen } from './useConfirmDialog'
 
@@ -49,7 +50,8 @@ const DECLINED_KEY = 'pike:agent-hook-declined'
  * 並べるには `wsl.exe` を起こす必要があり、「検出のためだけに起動時へ `wsl.exe` を足さない」
  * （`.claude/rules/project.md`）に反する。網羅は設定画面の役目で、ここは導入の入口。
  *
- * 失敗は握り潰す（提案が失敗して困ることは何も無い）。
+ * **登録できなかった宛先は StatusBar で知らせる**（#320）。聞くのはシェルごとに一度きりなので、
+ * 黙って落とすと「承諾したのに入っていない」状態に気付く先が設定画面しか無くなる。
  */
 export async function offerAgentHook(): Promise<void> {
   if (!isMainWindow()) return
@@ -84,7 +86,23 @@ export async function offerAgentHook(): Promise<void> {
   // どちらでも次はここへ来ない。
   remember(key)
   if (!ok) return
-  await agentHookInstallMissing(projectStore.shellForIO, projectStore.activeRoot, [])
+  // **書けなかった宛先があることを黙って飲まない**（#320）。`agentHookInstallMissing` は
+  // 「1 つでも書ければ成功」なので、承諾したのに一部だけ入っていない状態が普通に起きる。
+  // 気付く先が設定画面しか無いと、hook が要る機能（通知・アカウントの申告）が動かない
+  // 理由を探すことになる。**全部書けなかったときだけ reject する**ので、呼び出し元が
+  // 例外を捨てる（`App.vue`）ぶんもここで拾って、登録前の一覧から同じ知らせを出す。
+  const install = agentHookInstallMissing(projectStore.shellForIO, projectStore.activeRoot, [])
+  const after = await install.catch(() => status)
+  const left = after.targets.filter((target) => !target.registered)
+  if (left.length > 0) {
+    useStatusMessageStore().show({
+      text: t('settings.agentHookPartial', {
+        dirs: left.map((target) => target.configDir).join(', '),
+      }),
+      variant: 'warn',
+      durationMs: 8000,
+    })
+  }
 }
 
 function loadAsked(): string[] {

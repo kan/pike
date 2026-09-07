@@ -30,6 +30,11 @@ pub async fn settings_sync_read(path: String) -> Result<Option<String>, String> 
 /// directories as needed. Writes a sibling temp file and renames it over the
 /// target, so a reader (this app on another window, or the sync client) never
 /// observes a half-written file.
+///
+/// **同期ファイルは symlink でありうる**（置き場は上の doc のとおり git フォルダ等で、
+/// dotfiles から配る構成がある）。`crate::fs::write_host_atomic` を通すのは、素朴な
+/// 「一時ファイル ＋ `rename`」がリンクそのものを置き換えるため（#320 で hook の登録が
+/// 実際にそれをやった）。モードの引き継ぎと後始末もあちらが持つ。
 #[tauri::command]
 pub async fn settings_sync_write(path: String, content: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
@@ -39,18 +44,7 @@ pub async fn settings_sync_write(path: String, content: String) -> Result<(), St
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
         }
-        let temp = target.with_extension("tmp");
-        std::fs::write(&temp, content).map_err(|e| e.to_string())?;
-        // Windows rename fails when the destination exists, so replace it.
-        std::fs::rename(&temp, target).or_else(|_| {
-            let result = std::fs::remove_file(target)
-                .map_err(|e| e.to_string())
-                .and_then(|_| std::fs::rename(&temp, target).map_err(|e| e.to_string()));
-            if result.is_err() {
-                let _ = std::fs::remove_file(&temp);
-            }
-            result
-        })
+        crate::fs::write_host_atomic(target, content.as_bytes())
     })
     .await
     .map_err(|e| e.to_string())?
