@@ -109,6 +109,7 @@ const CORPUS_SKIP_EXT = /\.(md|png|jpg|svg|ico|icns|log)$/i
 const EXTERNAL_NAMES = [
   'AppsUseLightTheme', // Win32 のレジストリ値（採らなかった選択肢として frontend.md が出す）
   'DisabledCspModificationKind', // tauri の config の型
+  'IVirtualDesktopManagerInternal', // Windows の非公開 COM（採らなかった選択肢として project.md が出す）
   'MERGE_MSG', // git が書く状態ファイル（Pike は読まない）
   'ReadDirectoryChangesW', // Win32（notify クレート経由）
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）

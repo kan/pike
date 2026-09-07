@@ -251,6 +251,26 @@ pub async fn project_get_last(
 /// `restoreLastProject` がこのウィンドウとして開く（`stores/project.ts` の `sessions[0]`）。
 const MAIN_WINDOW_LABEL: &str = "main";
 
+/// 次の起動で main が開くプロジェクト（`last_project.txt` の 1 行目の「見せていた id」）。
+///
+/// **setup から呼ぶ**（#317）。フロントが `restoreLastProject` で同じ行を読んで
+/// `adoptProject` するより前に、main の仮想デスクトップを決めるために要る。
+///
+/// **実在するものだけを返す**（`project_get_last` と同じ濾し方）。あちらは読めない id を
+/// 落とし、全滅した行ごと捨てるので、削除済みのプロジェクトが 1 行目にあると
+/// **フロントは 2 行目を main で開く**。濾さないと、消したプロジェクトの残っている
+/// geometry（`project_delete` は `window-geometry.json` まで消さない）のデスクトップへ
+/// main を飛ばすことになる。
+pub(crate) fn first_shown(state: &ProjectState) -> Option<String> {
+    let content = fs::read_to_string(last_project_file(state)).ok()?;
+    content.lines().find_map(|line| {
+        line.split('\t')
+            .map(str::trim)
+            .find(|s| !s.is_empty() && project_file(state, s).exists())
+            .map(str::to_string)
+    })
+}
+
 /// 開いているウィンドウの状態を `last_project.txt` へ丸ごと書き直す（#264）。
 ///
 /// 1 行 1 ウィンドウで、`見せているid <TAB> 保持しているid...`。存在しないプロジェクト

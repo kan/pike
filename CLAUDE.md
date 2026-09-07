@@ -122,9 +122,10 @@ pike/
 │       ├── cache.rs           # mtime キャッシュと、キーごとの probe レジストリ（#315）
 │       ├── shell_probe.rs     # シェルに PATH と環境変数を 1 回で聞く共有部（#275）
 │       ├── settings_sync.rs   # 設定・プロジェクト一覧の同期ファイル読み書き（#164）
-│       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）
+│       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）と仮想デスクトップ（#317）
 │       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）
 │       ├── ime_debug.rs       # IME 調査用の一時ログ（原因判明後に削除する）
+│       ├── vdesk/mod.rs       # 仮想デスクトップ（#317、Windows 専用 COM。他 OS は stub）
 │       ├── jumplist/mod.rs    # タスクバーのジャンプリスト（#160、Windows 専用 COM）
 │       ├── appmenu/mod.rs     # macOS のアプリケーションメニュー（#254、macOS 専用）
 │       ├── tray/mod.rs        # システムトレイ（#161）

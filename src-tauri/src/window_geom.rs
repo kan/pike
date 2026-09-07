@@ -32,13 +32,24 @@ const FILENAME: &str = "window-geometry.json";
 
 /// A window rect in **physical** pixels, as `inner_size` / `outer_position`
 /// report it and `set_size` / `set_position` take it.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+///
+/// **`Copy` ではない**（`desktop` が `String`）。GUID を `u128` にすれば `Copy` のままに
+/// できるが、JSON では 2^53 を超える整数になり、他の実装から読めない値になる。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Geometry {
     pub width: u32,
     pub height: u32,
     pub x: i32,
     pub y: i32,
     pub maximized: bool,
+    /// このウィンドウが居た仮想デスクトップ（#317、Windows のみ）。
+    ///
+    /// **無いこと（`None`）と、書いていないことを同じに扱う。** 仮想デスクトップを持たない
+    /// OS でも、まだ決まっていない（最小化中・未表示）ウィンドウでも `None` になり、
+    /// 復元は「現在のデスクトップに出す」＝この機能が入る前と同じ挙動へ落ちる。
+    /// 古い `window-geometry.json`（この欄が無い）もそのまま読める。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop: Option<String>,
 }
 
 fn file_path(app: &AppHandle) -> Option<PathBuf> {
@@ -104,6 +115,8 @@ fn restorable_rect(window: &WebviewWindow) -> Option<Geometry> {
         x: position.x,
         y: position.y,
         maximized: false,
+        // 仮想デスクトップは矩形とは別に引く（`record_all`）。ここは「今の矩形」だけを見る。
+        desktop: None,
     })
 }
 
@@ -116,15 +129,24 @@ pub fn record_all(app: &AppHandle) {
     for window in app.webview_windows().into_values() {
         let key = key_for(app, window.label());
         let maximized = window.is_maximized().unwrap_or(false);
+        let stored = map.get(&key);
         // While maximized or minimized, keep the stored rect (so un-maximizing after
         // a restore lands where the user left it) and update only the flag. With
         // nothing stored — maximized right after opening — fall back to the default
         // size, which at least carries the maximized state into the next launch.
         let rect = restorable_rect(&window)
-            .or_else(|| map.get(&key).copied())
+            .or_else(|| stored.cloned())
             .unwrap_or_else(|| default_rect(&window));
-        let next = Geometry { maximized, ..rect };
-        if map.get(&key) != Some(&next) {
+        // **答えが無ければ前の値を残す**（#317）。最小化中や未表示のウィンドウは
+        // `GUID_NULL` を返すので、そのまま書くと「どこにも属さない」を覚えてしまう。
+        let desktop =
+            crate::vdesk::desktop_id(&window).or_else(|| stored.and_then(|g| g.desktop.clone()));
+        let next = Geometry {
+            maximized,
+            desktop,
+            ..rect
+        };
+        if stored != Some(&next) {
             map.insert(key, next);
             changed = true;
         }
@@ -146,6 +168,7 @@ fn default_rect(window: &WebviewWindow) -> Geometry {
         x: position.x,
         y: position.y,
         maximized: false,
+        desktop: None,
     }
 }
 
@@ -159,9 +182,13 @@ fn default_rect(window: &WebviewWindow) -> Geometry {
 /// window 1.5x too wide and that much further right. Building the window hidden
 /// keeps this from showing as a jump from the default rect.
 pub fn restore(app: &AppHandle, key: &str, window: &WebviewWindow) {
-    let Some(geom) = load(app).get(key).copied() else {
+    let Some(geom) = load(app).get(key).cloned() else {
         return;
     };
+    // **デスクトップへ移すのは矩形より先**（#317）。移動そのものがウィンドウの位置を
+    // 動かすわけではないが、順序を分けておけば「どのデスクトップの、どこに、どの大きさで」
+    // が上から順に決まる。
+    move_to_stored_desktop(&geom, window);
     // Only restore the position while it still lands on a monitor: an unplugged
     // second display would otherwise put the window out of reach. Position first,
     // so that moving onto a display with a different scale factor (which makes
@@ -180,6 +207,28 @@ pub fn restore(app: &AppHandle, key: &str, window: &WebviewWindow) {
     // on its stored rect leaves that rect as the one un-maximizing returns to.
     if geom.maximized {
         let _ = window.maximize();
+    }
+}
+
+/// 仮想デスクトップ**だけ**を復元する（#317）。
+///
+/// **main ウィンドウ用の入口。** あちらは `tauri.conf.json` 由来で `build_window` を通らず、
+/// 矩形は `tauri-plugin-window-state` が label で戻す。**あれは仮想デスクトップを知らない**
+/// ので、そこだけをここで補う。呼ぶのは setup（イベントループが回り出す前＝最初の描画の前）
+/// で、`apply_startup_surface` と同じ位置づけ。
+pub fn restore_desktop(app: &AppHandle, key: &str, window: &WebviewWindow) {
+    let Some(geom) = load(app).get(key).cloned() else {
+        return;
+    };
+    move_to_stored_desktop(&geom, window);
+}
+
+/// **失敗しても進む。** そのデスクトップがもう無ければ `MoveWindowToDesktop` は失敗するが、
+/// 公開 API では作り直せない（`vdesk` の doc）ので、現在のデスクトップに出す＝この機能が
+/// 入る前と同じ挙動へ落ちる。
+fn move_to_stored_desktop(geom: &Geometry, window: &WebviewWindow) {
+    if let Some(id) = geom.desktop.as_deref() {
+        crate::vdesk::move_to(window, id);
     }
 }
 
@@ -252,6 +301,7 @@ mod tests {
             x,
             y,
             maximized: false,
+            desktop: None,
         }
     }
 

@@ -62,6 +62,7 @@ mod tray;
 mod types;
 /// main.rs から起動時に呼ぶ（macOS / Linux の GUI プロセスの PATH 補正）。
 pub use types::augment_process_path;
+mod vdesk;
 pub mod wait;
 mod watcher;
 mod window_geom;
@@ -166,54 +167,6 @@ fn win32_hwnd(window: &WebviewWindow, tag: &str) -> Option<windows::Win32::Found
             log::warn!("[{tag}] hwnd() failed: {e}");
             None
         }
-    }
-}
-
-/// Must be called outside of WM_COPYDATA / SendMessage context — COM calls
-/// fail with RPC_E_CANTCALLOUT_ININPUTSYNCCALL inside input-synchronous messages.
-/// Falls back to `true` (assume visible) when COM or the API is unavailable.
-fn is_on_current_virtual_desktop(window: &WebviewWindow) -> bool {
-    #[cfg(windows)]
-    {
-        use windows::Win32::System::Com::{
-            CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
-        };
-        use windows::Win32::UI::Shell::{IVirtualDesktopManager, VirtualDesktopManager};
-
-        let Some(hwnd) = win32_hwnd(window, "vdesktop") else {
-            return true;
-        };
-        let hwnd_raw = hwnd.0 as isize;
-        unsafe {
-            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-            let manager: IVirtualDesktopManager =
-                match CoCreateInstance(&VirtualDesktopManager, None, CLSCTX_ALL) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        log::warn!("[vdesktop] CoCreateInstance failed: {e}");
-                        return true;
-                    }
-                };
-            match manager.IsWindowOnCurrentVirtualDesktop(hwnd) {
-                Ok(b) => {
-                    let result = b.as_bool();
-                    log::debug!(
-                        "[vdesktop] IsWindowOnCurrentVirtualDesktop({hwnd_raw:#x}) = {result}"
-                    );
-                    result
-                }
-                Err(e) => {
-                    log::warn!("[vdesktop] IsWindowOnCurrentVirtualDesktop failed: {e}");
-                    true
-                }
-            }
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        // 仮想デスクトップという概念が無いので常に「見えている」。
-        let _ = window;
-        true
     }
 }
 
@@ -352,10 +305,30 @@ fn create_transient_project(
     Some(config.id)
 }
 
+/// setup の時点で当てられる、main ウィンドウの geometry キー（#317）。
+///
+/// **2 つの経路がある。** CLI にディレクトリを渡された起動では `window_projects` の main が
+/// 既に seed されている（#212）。素の起動では `last_project.txt` の 1 行目で、フロントの
+/// `restoreLastProject` が `sessions[0]` として開くのと同じもの。どちらでもなければ、
+/// プロジェクトを持たないウィンドウとして開く。
+fn main_geom_key(app: &AppHandle) -> String {
+    app.try_state::<project::ProjectState>()
+        .and_then(|state| {
+            state
+                .window_projects
+                .lock()
+                .ok()
+                .and_then(|map| map.get("main").map(|w| w.shown.clone()))
+                .filter(|shown| !shown.is_empty())
+                .or_else(|| project::first_shown(&state))
+        })
+        .unwrap_or_else(|| window_geom::GLOBAL_KEY.to_string())
+}
+
 fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
     app.webview_windows()
         .into_values()
-        .filter(is_on_current_virtual_desktop)
+        .filter(vdesk::on_current)
         .collect()
 }
 
@@ -404,6 +377,11 @@ fn build_window(
     // 非表示で作ってあるので、ここで塗り直せば最初の 1 フレームから OS のテーマに合う。
     apply_startup_surface(&window);
     let _ = window.show();
+    // **表示のあとにもう一度移す（#317）。** 仮想デスクトップの管理下に入るのは表示されて
+    // からなので、`restore` の中の移動（非表示の時点）は環境によって黙って失敗する。冪等な
+    // 操作で、既にそのデスクトップに居れば何も起きない。**先の 1 回を消さないこと**: 効く
+    // 環境ではあちらが表示前に済ませており、そこを削ると一瞬だけ今のデスクトップに見える。
+    window_geom::restore_desktop(app, geom_key, &window);
     Ok(window)
 }
 
@@ -1467,6 +1445,17 @@ pub fn run() {
                 if let Some(state) = app.try_state::<cli::CliState>() {
                     *state.initial_action.lock().unwrap() = Some(action);
                 }
+            }
+
+            // main の仮想デスクトップ（#317）。矩形は window-state プラグインが label で
+            // 戻すが、あれはデスクトップを知らない。
+            //
+            // **場所が 2 つの条件に挟まれている。** 上の CLI の解決より後でなければ、
+            // `pike <dir>` で開くプロジェクトが `window_projects` に入る前に読むことになり、
+            // 常に前回セッションのデスクトップへ移してしまう。そして setup の中、つまり
+            // イベントループが回り出す前でなければ、一瞬だけ今のデスクトップに出てから飛ぶ。
+            if let Some(main) = app.get_webview_window("main") {
+                window_geom::restore_desktop(app.handle(), &main_geom_key(app.handle()), &main);
             }
 
             // macOS のアプリケーションメニュー（#254）。これを設定しないと Tauri の
