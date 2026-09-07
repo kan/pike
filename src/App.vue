@@ -23,7 +23,7 @@ import { AGENTS } from './lib/agents'
 import { clearAliasCache } from './lib/jumpTo/resolveImport'
 import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { resolveNotifier } from './lib/notify'
-import { normalizeSep } from './lib/paths'
+import { normalizeSep, repoPath } from './lib/paths'
 import {
   isElevated,
   projectForWindow,
@@ -178,12 +178,22 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
       clearGlobalComponentsCache()
       globalsInvalidated = true
     }
-    if (isRecentlySaved(change.path)) continue
+    // **印を消費するのはここだけ**（`useFsWatcher` の doc）。`continue` ではなく値に受けるのは、
+    // diff タブが**自分の保存でも**追いつく必要があるため（#321）。あちらは「今のファイルとの
+    // 差分」を見せるものなので、書いたのが自分か他人かで区別する意味が無い。
+    const selfWrite = isRecentlySaved(change.path)
     // Separator-insensitive compare: tab paths can mix `/` and `\` on Windows
     // (git emits `/`), while the native watcher always emits `\`.
     const changedPath = normalizeSep(change.path)
     // 監視しているのは `activeRoot` だけなので、変更は今のプロジェクトのタブにしか当たらない。
     for (const tab of tabStore.visibleTabs) {
+      // 作業ツリーの差分だけが古くなる（コミットの差分は変わらず、staged は index と HEAD の
+      // 比較なので作業ツリーの書き換えでは動かない）。取り直しはタブの側（#321）。
+      if (tab.kind === 'diff' && !tab.commitHash && !tab.staged) {
+        const full = repoPath(projectStore.activeRoot, tab.filePath, projectStore.currentProject?.shell)
+        if (full && normalizeSep(full) === changedPath) tab.staleAt = Date.now()
+      }
+      if (selfWrite) continue
       if (tab.kind === 'editor' && tab.path && normalizeSep(tab.path) === changedPath) {
         tab.externalChange = change.kind === 'delete' ? 'deleted' : 'modified'
       }

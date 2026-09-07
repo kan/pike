@@ -9,8 +9,8 @@ import { collectMatches, renderTokens } from '../../lib/diffSearch'
 import { displayWidth } from '../../lib/displayWidth'
 import { hasMod, normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
-import { joinPath, pathSep } from '../../lib/paths'
-import { fsReadFile, gitShowFile } from '../../lib/tauri'
+import { joinPath, pathSep, repoPath } from '../../lib/paths'
+import { fsReadFile, gitDiff, gitShowFile } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
@@ -23,6 +23,7 @@ const { t } = useI18n()
 
 const props = defineProps<{ tabId: string }>()
 const tabStore = useTabStore()
+const projectStore = useProjectStore()
 const settingsStore = useSettingsStore()
 
 const tab = computed(() => tabStore.tabs.find((t): t is DiffTab => t.id === props.tabId && t.kind === 'diff'))
@@ -68,6 +69,27 @@ let autoLoadTried = false
 /** 省略領域（キーは `Gap.key`）ごとに、上端／下端から何行めくったか。 */
 const expanded = ref<Map<number, Expanded>>(new Map())
 
+/**
+ * 押した欄だけを選ばせる（0 = 左 / 1 = 右、#321）。**`<table>` のテキスト選択は行をまたいで
+ * 広がる**ので、何もしないと左の欄をドラッグしただけで右の欄まで選択に入り、コピーすると
+ * 両側が混ざる。押した側と反対の欄を選択の対象から外す。
+ *
+ * **Vue を通さず `classList` を直に触る**（#297 の `--scroll-x` / `--split` と同じ理由）。
+ * `:class` に載せると、側を押し替えるたびに表全体の render が走り、仮想化していない
+ * `<tr>` と 4 つの `<td>` が行数ぶん作り直される。**掴んだ瞬間に固まる**ので、この機能が
+ * 楽にしようとしている操作そのものを重くしてしまう。
+ *
+ * 覚えておく必要は無い（次の `mousedown` で決まる）ので ref も持たない。差分が入れ替わって
+ * 表が作り直されれば、印も一緒に消えて素の `<table>` に戻る。
+ *
+ * 行番号は元から選択できない（`.line-num` の `user-select: none`）ので、ここでは扱わない。
+ */
+function markSelectSide(e: MouseEvent, side: number) {
+  const table = (e.currentTarget as HTMLElement).closest('table')
+  table?.classList.toggle('sel-l', side === 0)
+  table?.classList.toggle('sel-r', side === 1)
+}
+
 // 差分そのものが入れ替わったら、この差分に紐づく状態を捨てる。**足すときはここに足すこと**
 // （散らすと、次に状態を増やす人がどれかを落とす）。
 watch(
@@ -95,7 +117,6 @@ const parsedLines = computed(() => expansion.value.lines)
  */
 async function loadNewSide(silent = false): Promise<void> {
   const t0 = tab.value
-  const projectStore = useProjectStore()
   const root = projectStore.activeRoot
   const shell = projectStore.shellForIO
   if (!t0 || !root) return
@@ -390,11 +411,9 @@ const rootStyle = computed(() => ({
  * diff — the commit's own revision is reachable from the Git panel.
  */
 async function openWorkingCopy() {
-  const projectStore = useProjectStore()
-  const root = projectStore.activeRoot
-  if (!tab.value || !root) return
-  const path = joinPath(root, tab.value.filePath, pathSep(projectStore.currentProject?.shell))
-  await openPathInTab({ path })
+  if (!tab.value) return
+  const path = repoPath(projectStore.activeRoot, tab.value.filePath, projectStore.currentProject?.shell)
+  if (path) await openPathInTab({ path })
 }
 
 // --- Search (#176) -------------------------------------------------------
@@ -554,6 +573,74 @@ watch(
   { immediate: true },
 )
 
+// --- ファイルが書き換わったら取り直す（#321）--------------------------------
+//
+// 契機は `tab.staleAt`（`App.vue` の fs watcher が立てる）。**照合をここでやり直さない**のは、
+// エディタの `externalChange` と同じ形に揃えるため: ルート相対から絶対への組み立て、区切りの
+// 正規化、別プロジェクトのタブの除外は、あの 1 か所が済ませている。
+//
+// **未追跡（`untracked`）のタブも追いかけるが、見方は開いたときのまま。** `--no-index` は
+// 追跡状態に依らずファイルの中身を全行の追加として出すので、途中で `git add` されても
+// 「このファイルの中身」を見せ続ける（`staged` を焼き込むのと同じで、タブは開いたときの
+// 文脈を保つ）。中身そのものは最新になる。
+
+/** 飛んでいる取得のうち、最後のものだけを採る。 */
+let refreshSeq = 0
+
+async function refreshFromDisk() {
+  const t = tab.value
+  const project = projectStore.currentProject
+  if (!t || !project) return
+  const seq = ++refreshSeq
+  let diff: string
+  try {
+    diff = await gitDiff(
+      projectStore.activeRoot,
+      project.shell,
+      t.filePath,
+      t.staged ?? false,
+      t.untracked ?? false,
+      t.origPath ?? null,
+    )
+  } catch {
+    // 失敗しても、読めていた差分はそのまま残す（次の変更で取り直す）。
+    return
+  }
+  // 追い越された取得は捨てる。**変わったときだけ書く**のは、タブへの代入がセッションの
+  // 書き出し（`$subscribe`）を起こすため。
+  if (seq !== refreshSeq || !tab.value || tab.value.diff === diff) return
+  tab.value.diff = diff
+}
+
+/** 見えていないあいだに来た変更。描かれるようになった時点で取り直す。 */
+let staleFromDisk = false
+
+/**
+ * **描かれていないタブでは取り直さない。** `tab.diff` への代入は全行の再パース（文字単位の
+ * ハイライトつき）と、仮想化していない表の再描画を起こす。エージェントが何ファイルも書き換える
+ * あいだ、背景のタブがその全部を払うことになるので、見えるまで持ち越す。
+ *
+ * **2 つの watcher に分ける。** 1 本にまとめると「表示が切り替わっただけ」と「ファイルが
+ * 変わった」を区別できず、タブを行き来するたびに取り直すことになる。
+ */
+watch(
+  () => tab.value?.staleAt,
+  (at) => {
+    if (!at) return
+    if (tabStore.isTabVisible(props.tabId)) void refreshFromDisk()
+    else staleFromDisk = true
+  },
+)
+
+watch(
+  () => tabStore.isTabVisible(props.tabId),
+  (visible) => {
+    if (!visible || !staleFromDisk) return
+    staleFromDisk = false
+    void refreshFromDisk()
+  },
+)
+
 onMounted(() => window.addEventListener('keydown', onKeydown))
 
 onUnmounted(() => {
@@ -628,11 +715,13 @@ onUnmounted(() => {
                 </tr>
               </template>
               <tr v-else class="diff-row">
+                <!-- どちらの欄を押したかで、選択の対象を片側に絞る（#321）。行番号からドラッグを
+                     始めることもあるので、2 つのセルの両方で受ける。 -->
                 <template v-for="(cell, s) in block.cells" :key="s">
-                  <td class="line-num" :class="cell.type">{{ cell.num ?? "" }}</td>
+                  <td class="line-num" :class="cell.type" @mousedown="markSelectSide($event, s)">{{ cell.num ?? "" }}</td>
                   <!-- 横スクロールはこの `.cell-inner` をずらして表現する（#297）。表を広げると
                        右のペインが画面の外へ出るので、表はウィンドウ幅のまま中身を動かす。 -->
-                  <td class="line-content" :class="cell.type"><span class="cell-inner"><template
+                  <td class="line-content" :class="cell.type" @mousedown="markSelectSide($event, s)"><span class="cell-inner"><template
                     v-for="(tok, j) in cell.tokens" :key="j"
                   ><span :class="{ 'hl': tok.diffHl, 'search-hl': tok.matchIndex >= 0, 'search-current': tok.matchIndex === currentIndex }" :data-match="tok.matchIndex >= 0 ? tok.matchIndex : undefined">{{ tok.text }}</span></template></span></td>
                 </template>
@@ -872,6 +961,14 @@ onUnmounted(() => {
 
 .line-content:nth-child(2) {
   border-right: 1px solid var(--border);
+}
+
+/* 押した欄だけを選ばせる（#321）。**セルをまたぐ選択そのものは止められない**ので、反対側を
+   選択の対象から外す（`user-select: none` の要素はコピーにも入らない）。列の指定は上の
+   区切り線と同じ `nth-child`（2 = 左の本文、4 = 右の本文）。 */
+.diff-table.sel-l .line-content:nth-child(4),
+.diff-table.sel-r .line-content:nth-child(2) {
+  user-select: none;
 }
 
 .del {

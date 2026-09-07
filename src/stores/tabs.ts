@@ -776,7 +776,14 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function addDiffTab(options: { filePath: string; diff: string; commitHash?: string; staged?: boolean }): string {
+  function addDiffTab(options: {
+    filePath: string
+    diff: string
+    commitHash?: string
+    staged?: boolean
+    untracked?: boolean
+    origPath?: string
+  }): string {
     // Reuse existing diff tab for the same file+context
     const existing = tabs.value.find(
       (t): t is DiffTab =>
@@ -787,6 +794,10 @@ export const useTabStore = defineStore('tabs', () => {
     )
     if (existing) {
       existing.diff = options.diff
+      // **取り直しの材料も更新する**（#321）。追跡状態やリネーム元は、同じタブを開き直す
+      // あいだに変わりうる（`git add` したあとの再オープンなど）。
+      existing.untracked = options.untracked
+      existing.origPath = options.origPath
       activeTabId.value = existing.id
       return existing.id
     }
@@ -802,6 +813,8 @@ export const useTabStore = defineStore('tabs', () => {
       diff: options.diff,
       commitHash: options.commitHash,
       staged: options.staged,
+      untracked: options.untracked,
+      origPath: options.origPath,
     })
     activeTabId.value = id
     return id

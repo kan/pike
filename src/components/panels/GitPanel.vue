@@ -11,16 +11,7 @@ import { appendGitignoreLine, gitignoreEntry, hasGitignoreEntry } from '../../li
 import { buildCommitLink } from '../../lib/gitRemote'
 import { openPathInTab } from '../../lib/openFile'
 import { openUrlWithConfirm } from '../../lib/openUrl'
-import {
-  basename,
-  extension,
-  gitStatusColor,
-  isImageFile,
-  joinPath,
-  mimeType,
-  pathSep,
-  relativeDate,
-} from '../../lib/paths'
+import { basename, extension, gitStatusColor, isImageFile, mimeType, relativeDate, repoPath } from '../../lib/paths'
 import {
   fsDelete,
   fsReadFile,
@@ -178,21 +169,12 @@ async function openDiffTab(file: GitFileChange, staged: boolean) {
     untracked,
     file.origPath ?? null,
   )
-  tabStore.addDiffTab({ filePath: file.path, diff, staged })
+  tabStore.addDiffTab({ filePath: file.path, diff, staged, untracked, origPath: file.origPath })
 }
 
-/**
- * git が返すルート相対パスを、このプロジェクトのシェルの区切りでフルパスにする。
- * **joinPath で区切りを揃えるのが要点**。git は常に `/` を返すが Windows のタブは `\` を使い、
- * 混ざったパスは fs watcher のイベント（完全一致で比べる）と噛み合わない。
- *
- * **導けないときは空文字ではなく null を返す。** `activeRoot` は空文字になりうる非 null の
- * computed なので、番兵にすると「ルートを知らない」という事実が型から消え、呼び出し側の確認が
- * 強制されない（実際、クリップボードへ空文字を書く経路ができていた）。
- */
+/** 組み立ての規則と、`null` を返す理由は `lib/paths.ts` の `repoPath` の doc が正本。 */
 function workingPath(path: string): string | null {
-  const root = projectStore.activeRoot
-  return root ? joinPath(root, path, pathSep(projectStore.currentProject?.shell)) : null
+  return repoPath(projectStore.activeRoot, path, projectStore.currentProject?.shell)
 }
 
 // Open the working-tree copy of a file. For a conflicted one the editor is where

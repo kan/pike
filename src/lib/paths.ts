@@ -75,6 +75,25 @@ export function joinPath(baseDir: string, rel: string, sep: '/' | '\\' = '/'): s
   return baseParts.join(sep)
 }
 
+/**
+ * git が返すルート相対パスを、そのシェルの区切りでフルパスにする。
+ *
+ * **`joinPath` で区切りを揃えるのが要点**。git は常に `/` を返すが Windows のタブは `\` を
+ * 使い、混ざったパスは fs watcher のイベント（完全一致で比べる）と噛み合わない。
+ *
+ * **導けないときは空文字ではなく `null`**。`activeRoot` は空文字になりうる非 null の computed
+ * なので、番兵にすると「ルートを知らない」という事実が型から消え、呼び出し側の確認が強制され
+ * ない（実際、クリップボードへ空文字を書く経路ができていた）。
+ *
+ * **同じ組み立てを各所で書かないこと**（#321）。ここに集める前は Git パネルと diff タブに
+ * 3 つの写しがあり、コメントで互いを参照して同期を保っていた。なお `useActiveFile.ts` は
+ * `shellForIO`（プロジェクトを持たないウィンドウの fallback つき）を読む別の判断なので、
+ * ここを通していない。
+ */
+export function repoPath(root: string, relPath: string, shell?: ShellType): string | null {
+  return root ? joinPath(root, relPath, pathSep(shell)) : null
+}
+
 /** File name without its extension. */
 export function stem(path: string): string {
   const name = basename(path)

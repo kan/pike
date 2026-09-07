@@ -308,6 +308,19 @@ export type DiffTab = {
   diff: string
   commitHash?: string
   staged?: boolean
+  /**
+   * 取り直すときに `git diff` へ渡すもの（#321）。**作業ツリーの diff は開いたあとも変わる**
+   * ので、ファイルが書き換わったらタブが取り直す。`commitHash` を持つタブは対象外
+   * （コミットの差分は変わらない）。
+   */
+  untracked?: boolean
+  origPath?: string
+  /**
+   * ディスク上のファイルが変わった時刻（#321）。`App.vue` の fs watcher が立て、タブはこれを
+   * 見て取り直す。**エディタの `externalChange` と同じ形**にしてあるのは、照合（ルート相対 →
+   * 絶対、区切りの正規化、別プロジェクトのタブの除外）をあの 1 箇所へ閉じるため。
+   */
+  staleAt?: number
 }
 
 export type HistoryTab = {
