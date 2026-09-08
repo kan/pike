@@ -52,8 +52,9 @@ async function openCommitDiff(hash: string) {
   const project = projectStore.currentProject
   if (!project) return
   try {
-    const diff = await gitDiffCommit(projectStore.activeRoot, project.shell, hash, props.filePath)
-    tabStore.addDiffTab({ filePath: props.filePath, diff, commitHash: hash })
+    const root = projectStore.activeRoot
+    const diff = await gitDiffCommit(root, project.shell, hash, props.filePath)
+    tabStore.addDiffTab({ filePath: props.filePath, root, diff, commitHash: hash })
   } catch (e) {
     error.value = String(e)
   }

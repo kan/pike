@@ -66,7 +66,9 @@ async function selectCommit(hash: string) {
   selectedHash.value = hash
   diffLoading.value = true
   try {
-    diffText.value = await gitDiffCommit(projectStore.activeRoot, project.shell, hash, tab.value.filePath)
+    // **基準はこのタブの root**（#321）。`activeRoot` を読むと、worktree を切り替えたあとに
+    // コミットを選んだとき、別の worktree の差分が同じ題名で出る。
+    diffText.value = await gitDiffCommit(tab.value.root, project.shell, hash, tab.value.filePath)
   } catch (e) {
     diffText.value = String(e)
   } finally {
@@ -81,7 +83,7 @@ onMounted(async () => {
     const range = tab.value.lineRange
     if (range) {
       entries.value = await gitLogFileLines(
-        projectStore.activeRoot,
+        tab.value.root,
         project.shell,
         tab.value.filePath,
         range.start,
@@ -89,7 +91,7 @@ onMounted(async () => {
         200,
       )
     } else {
-      entries.value = await gitLogFile(projectStore.activeRoot, project.shell, tab.value.filePath, 200)
+      entries.value = await gitLogFile(tab.value.root, project.shell, tab.value.filePath, 200)
     }
   } catch {
     entries.value = []

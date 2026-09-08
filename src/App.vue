@@ -190,7 +190,11 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
       // 作業ツリーの差分だけが古くなる（コミットの差分は変わらず、staged は index と HEAD の
       // 比較なので作業ツリーの書き換えでは動かない）。取り直しはタブの側（#321）。
       if (tab.kind === 'diff' && !tab.commitHash && !tab.staged) {
-        const full = repoPath(projectStore.activeRoot, tab.filePath, projectStore.currentProject?.shell)
+        // **基準はタブが開いたときの root**（#321）。`activeRoot` を読むと、worktree で
+        // 開いたタブが main の同名ファイルの変更に反応して、別の worktree の差分へ
+        // 黙って化ける。監視しているのは `activeRoot` 配下なので、いま見ていない
+        // worktree のタブにはそもそも当たらない（それが正しい）。
+        const full = repoPath(tab.root, tab.filePath, projectStore.currentProject?.shell)
         if (full && normalizeSep(full) === changedPath) tab.staleAt = Date.now()
       }
       if (selfWrite) continue

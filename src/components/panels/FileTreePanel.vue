@@ -236,7 +236,8 @@ function showGitHistory() {
   if (!ctxMenu.value) return
   const filePath = ctxMenu.value.path
   closeCtxMenu()
-  tabStore.addHistoryTab({ filePath: relativePath(filePath) })
+  // 相対化は `addHistoryTab` が root を見て行う（絶対のまま渡してよい）。
+  tabStore.addHistoryTab({ filePath, root: projectStore.activeRoot })
 }
 
 function relativePath(absPath: string): string {

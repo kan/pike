@@ -161,15 +161,13 @@ async function openDiffTab(file: GitFileChange, staged: boolean) {
   const project = projectStore.currentProject
   if (!project) return
   const untracked = file.status === '?'
-  const diff = await gitDiff(
-    projectStore.activeRoot,
-    project.shell,
-    file.path,
-    staged,
-    untracked,
-    file.origPath ?? null,
-  )
-  tabStore.addDiffTab({ filePath: file.path, diff, staged, untracked, origPath: file.origPath })
+  // **await の前に捕まえる**（#321）。WSL 越しの `git diff` は秒単位かかることがあり、
+  // そのあいだに worktree セレクタで切り替えられると `activeRoot` が別物になる。読み直すと
+  // 「新しい worktree の root」と「古い worktree の差分」がタブに入り、以後の取り直しが
+  // 恒久的に別の worktree を見る（この issue が塞ごうとしている drift そのもの）。
+  const root = projectStore.activeRoot
+  const diff = await gitDiff(root, project.shell, file.path, staged, untracked, file.origPath ?? null)
+  tabStore.addDiffTab({ filePath: file.path, root, diff, staged, untracked, origPath: file.origPath })
 }
 
 /** 組み立ての規則と、`null` を返す理由は `lib/paths.ts` の `repoPath` の doc が正本。 */
@@ -234,8 +232,9 @@ async function toggleCommitExpand(hash: string) {
 async function openCommitDiffTab(hash: string, path: string) {
   const project = projectStore.currentProject
   if (!project) return
-  const diff = await gitDiffCommit(projectStore.activeRoot, project.shell, hash, path)
-  tabStore.addDiffTab({ filePath: path, diff, commitHash: hash })
+  const root = projectStore.activeRoot
+  const diff = await gitDiffCommit(root, project.shell, hash, path)
+  tabStore.addDiffTab({ filePath: path, root, diff, commitHash: hash })
 }
 
 const hoveredCommit = ref<GitLogEntry | null>(null)
@@ -422,8 +421,8 @@ async function ctxResolve() {
 
 function ctxOpenHistory() {
   const ctx = takeFileCtx()
-  // HistoryTab はルート相対パスを受ける（git が返すものがそのまま使える）。
-  if (ctx) tabStore.addHistoryTab({ filePath: ctx.file.path })
+  // git が返すのはルート相対なので、そのまま渡せる（`addHistoryTab` は絶対でも受ける）。
+  if (ctx) tabStore.addHistoryTab({ filePath: ctx.file.path, root: projectStore.activeRoot })
 }
 
 async function ctxCopyPath() {

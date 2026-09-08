@@ -200,13 +200,13 @@ async function bootstrap() {
       openDiff: (opts: { filePath: string; diff: string }) => {
         project.showSwitcher = false
         closeContentTabs()
-        tabs.addDiffTab({ filePath: opts.filePath, diff: opts.diff })
+        tabs.addDiffTab({ filePath: opts.filePath, root: project.activeRoot, diff: opts.diff })
       },
       // ファイル履歴タブ（HistoryTab）を開く。onMounted で git_log_file を叩くのでモック前提。
       openHistory: (opts: { filePath: string }) => {
         project.showSwitcher = false
         closeContentTabs()
-        tabs.addHistoryTab({ filePath: opts.filePath })
+        tabs.addHistoryTab({ filePath: opts.filePath, root: project.activeRoot })
       },
       // PDF タブ（PdfTab）を開く。onMounted で fs_read_file_base64 を叩くのでモック前提。
       openPdf: (opts: { path: string }) => {

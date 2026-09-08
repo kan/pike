@@ -8,8 +8,9 @@ import { useTabStore } from '../stores/tabs'
  * その場で示すのに使う。
  *
  * **タブの種類で持ち方が違う**ので、ここで 1 つの形に揃える。エディタ / プレビュー /
- * PDF は絶対パスを持つが、diff と履歴は**ルート相対**（`DiffTab` の `openWorkingCopy`
- * が `activeRoot` と繋いでいるのと同じ）。
+ * PDF は絶対パスを持つが、diff と履歴は**ルート相対**で、繋ぐ相手は**そのタブが開いた
+ * ときの root**（`tab.root`、#321）。`activeRoot` を読むと、worktree を切り替えたあとに
+ * 別の worktree のファイルを指す（それらのタブは切り替えで閉じないため）。
  *
  * **比較の形は 2 つとも先に作る。** 判定は行ごとに呼ばれるので（ツリーは仮想化して
  * いない）、そこで文字列を組み立てると 1 行につき数個のアロケーションが走る。git は
@@ -36,7 +37,7 @@ export function useActiveFile() {
         return tab.path ? normalizeSep(tab.path, sep) : null
       case 'diff':
       case 'history':
-        return projectStore.activeRoot ? joinPath(projectStore.activeRoot, tab.filePath, sep) : null
+        return tab.root ? joinPath(tab.root, tab.filePath, sep) : null
       default:
         return null
     }

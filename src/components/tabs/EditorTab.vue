@@ -1000,14 +1000,14 @@ function sendSelectionToTerminal() {
 function openGitHistory() {
   closeCtxMenu()
   if (!tab.value) return
-  tabStore.addHistoryTab({ filePath: tab.value.path })
+  tabStore.addHistoryTab({ filePath: tab.value.path, root: projectStore.activeRoot })
 }
 
 function openGitHistoryForLine() {
   const range = ctxLineRange.value
   closeCtxMenu()
   if (!tab.value || !range) return
-  tabStore.addHistoryTab({ filePath: tab.value.path, lineRange: range })
+  tabStore.addHistoryTab({ filePath: tab.value.path, root: projectStore.activeRoot, lineRange: range })
 }
 
 const gitHistoryLineLabel = computed(() => {

@@ -151,7 +151,7 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     // エディタタブ以外では何もしない（履歴を出す対象が無い）。メニューには載せない。
     gitHistory: () => {
       const active = tabStore.activeTab
-      if (active?.kind === 'editor') tabStore.addHistoryTab({ filePath: active.path })
+      if (active?.kind === 'editor') tabStore.addHistoryTab({ filePath: active.path, root: projectStore.activeRoot })
     },
     // macOS の ⌘Q。predefined の Quit と違い、走っているコマンドがあれば確認を挟む
     // （#178。閉じる経路と同じ確認で、ここだけ素通りすると全ウィンドウの PTY が黙って死ぬ）。

@@ -121,7 +121,10 @@ const parsedLines = computed(() => expansion.value.lines)
  */
 async function loadNewSide(silent = false): Promise<void> {
   const t0 = tab.value
-  const root = projectStore.activeRoot
+  // **このタブの root**（#321）。`activeRoot` を読むと、worktree を切り替えたあとに
+  // 別の worktree のファイルを取り寄せる（`matchesDiff` が弾くので中身は混ざらないが、
+  // 「広げられない」という形で出る）。
+  const root = t0?.root
   const shell = projectStore.shellForIO
   if (!t0 || !root) return
   const fail = (key: string) => {
@@ -416,7 +419,9 @@ const rootStyle = computed(() => ({
  */
 async function openWorkingCopy() {
   if (!tab.value) return
-  const path = repoPath(projectStore.activeRoot, tab.value.filePath, projectStore.currentProject?.shell)
+  // 基準はこのタブの root（#321）。worktree で開いた差分からは、その worktree の
+  // ファイルが開く。
+  const path = repoPath(tab.value.root, tab.value.filePath, projectStore.currentProject?.shell)
   if (path) await openPathInTab({ path })
 }
 
@@ -598,14 +603,9 @@ async function refreshFromDisk() {
   const seq = ++refreshSeq
   let diff: string
   try {
-    diff = await gitDiff(
-      projectStore.activeRoot,
-      project.shell,
-      t.filePath,
-      t.staged ?? false,
-      t.untracked ?? false,
-      t.origPath ?? null,
-    )
+    // **基準はこのタブの root**（#321）。`activeRoot` を読むと、worktree で開いたタブが
+    // main の差分に黙って差し替わる（`App.vue` の照合と対で、両方が同じ root を見る）。
+    diff = await gitDiff(t.root, project.shell, t.filePath, t.staged ?? false, t.untracked ?? false, t.origPath ?? null)
   } catch {
     // 失敗しても、読めていた差分はそのまま残す（次の変更で取り直す）。
     return

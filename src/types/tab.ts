@@ -306,6 +306,16 @@ export type DiffTab = {
   pinned: boolean
   filePath: string
   diff: string
+  /**
+   * 開いたときの root（#321）。`filePath` はこれからの相対パス。
+   *
+   * **読むときに `activeRoot` を引き直さないこと。** diff タブは worktree の切り替えで
+   * 閉じないので、追従の照合も取り直しも「今の root」を見ると、worktree で開いたタブが
+   * main の同名ファイルの差分に**黙って化ける**（タイトルもファイル名も同じなので、
+   * 見ている差分が変わったことに気付けない）。`staged` / `untracked` / `origPath` と
+   * 同じ「このタブを開き直す手順」の一部で、開き直したときだけ更新する。
+   */
+  root: string
   commitHash?: string
   staged?: boolean
   /**
@@ -328,7 +338,14 @@ export type HistoryTab = {
   kind: 'history'
   title: string
   pinned: boolean
+  /** **ルート相対**（`root` からの）。絶対パスで渡されても `addHistoryTab` が揃える。 */
   filePath: string
+  /**
+   * 開いたときの root（#321）。**`DiffTab.root` と同じ理由**で、履歴タブも worktree の
+   * 切り替えで閉じないので、`activeRoot` を読むとコミットを選んだときに別の worktree の
+   * 差分が出る。読む側（`HistoryTab.vue` の 3 つの取得と `useActiveFile`）はこれを見る。
+   */
+  root: string
   /** When set, show commits that modified the given inclusive line range only (`git log -L`). */
   lineRange?: { start: number; end: number }
 }

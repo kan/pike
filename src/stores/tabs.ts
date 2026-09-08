@@ -6,7 +6,7 @@ import { ptyRouter } from '../composables/usePtyRouter'
 import { t } from '../i18n'
 import { formatLineRange } from '../lib/format'
 import { MANUAL_INDEX } from '../lib/manual'
-import { basename, normalizeSep } from '../lib/paths'
+import { basename, normalizeSep, toRelativePath } from '../lib/paths'
 import { ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
 import { windowFocused } from '../lib/window'
 import type { LastSession, SessionTabDef } from '../types/project'
@@ -663,16 +663,34 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function addHistoryTab(options: { filePath: string; lineRange?: { start: number; end: number } }): string {
+  /**
+   * ファイル別の git log を開く。`filePath` は**絶対でもルート相対でもよい**。
+   *
+   * **形を揃えるのはここ 1 箇所**（#321）。呼び出し元は 7 つあり、ツリーと Git パネルは
+   * ルート相対、エディタとタブバーは絶対（`EditorTab.path`）を渡していた。揃えていなかった
+   * ころは、**同じファイルでも開いた場所によって別のタブになり**、`useActiveFile` の
+   * 「いま見ているファイル」も絶対パスの側で壊れた文字列を作っていた（`joinPath(root, 絶対)`）。
+   */
+  function addHistoryTab(options: {
+    filePath: string
+    /** `DiffTab.root` と同じ（`addDiffTab` の doc を参照）。呼び出し側が渡す。 */
+    root: string
+    lineRange?: { start: number; end: number }
+  }): string {
     const range = options.lineRange
+    const filePath = toRelativePath(options.filePath, options.root)
+    // `filePath` はルート相対なので、diff タブと同じく所有プロジェクトまで見る。
     const existing = tabs.value.find(
       (t): t is HistoryTab =>
         t.kind === 'history' &&
-        t.filePath === options.filePath &&
+        t.filePath === filePath &&
         t.lineRange?.start === range?.start &&
-        t.lineRange?.end === range?.end,
+        t.lineRange?.end === range?.end &&
+        t.projectId === ownerProjectId.value,
     )
     if (existing) {
+      // 開き直したときだけ更新する（`addDiffTab` と同じ）。
+      existing.root = options.root
       activeTabId.value = existing.id
       return existing.id
     }
@@ -681,9 +699,10 @@ export const useTabStore = defineStore('tabs', () => {
     pushTab({
       id,
       kind: 'history',
-      title: `${basename(options.filePath)} ${suffix}`,
+      title: `${basename(filePath)} ${suffix}`,
       pinned: false,
-      filePath: options.filePath,
+      filePath,
+      root: options.root,
       lineRange: range,
     })
     activeTabId.value = id
@@ -735,10 +754,13 @@ export const useTabStore = defineStore('tabs', () => {
    * 題名は取ってきてから `IssueTab` が入れる（開く時点では番号しか分からない）。
    *
    * **同じ番号でもプロジェクトが違えば別のタブ。** issue の番号はリポジトリごとに 1 から
-   * 振られるので、このストアで唯一**衝突しうる dedupe キー**になっている（他はパスや
-   * コンテナ id で、プロジェクトをまたいで一意）。所有者を見ないと、A で #12 を開いた
+   * 振られるので、プロジェクトをまたいで衝突する。所有者を見ないと、A で #12 を開いた
    * まま B に切り替えて B の #12 を押したとき、パーク中の A のタブが activeTabId に
    * なり、タブバーには何も出ないのに中身だけ A の #12 が見える。
+   *
+   * **同じ罠は `filePath` がルート相対の 2 つ（diff / history）にもある**ので、そちらも
+   * 所有者まで見る。絶対パスで dedupe する種別（editor / preview / pdf）は distro 違いの
+   * WSL プロジェクトで同じ綴りを持ちうるが、そちらは同じファイルを指しているので実害が無い。
    */
   function addIssueTab(number: number): string {
     const existing = tabs.value.find(
@@ -778,24 +800,37 @@ export const useTabStore = defineStore('tabs', () => {
 
   function addDiffTab(options: {
     filePath: string
+    /**
+     * `filePath` の基準（#321）。**呼び出し側が渡す**: ここで `activeRoot` を読むと
+     * `project → tabs → project` の循環になる（`useActiveFile` と同じ理由）。
+     */
+    root: string
     diff: string
     commitHash?: string
     staged?: boolean
     untracked?: boolean
     origPath?: string
   }): string {
-    // Reuse existing diff tab for the same file+context
+    // Reuse existing diff tab for the same file+context.
+    // **所有プロジェクトも見る**（`addIssueTab` と同じ理由）。`filePath` は**ルート相対**
+    // なので、別のプロジェクトに同じ相対パスがあれば衝突する。見ないと、A のパーク中の
+    // タブが `activeTabId` になって「タブバーには何も出ないのに中身だけ A のものが見える」
+    // うえ、下の `existing.root` が A のタブの基準を B のものへ黙って書き換える。
     const existing = tabs.value.find(
       (t): t is DiffTab =>
         t.kind === 'diff' &&
         t.filePath === options.filePath &&
         t.commitHash === options.commitHash &&
-        t.staged === options.staged,
+        t.staged === options.staged &&
+        t.projectId === ownerProjectId.value,
     )
     if (existing) {
       existing.diff = options.diff
       // **取り直しの材料も更新する**（#321）。追跡状態やリネーム元は、同じタブを開き直す
-      // あいだに変わりうる（`git add` したあとの再オープンなど）。
+      // あいだに変わりうる（`git add` したあとの再オープンなど）。**root も同じ扱い**:
+      // 別の worktree で開き直したなら、それは人が明示的に頼んだ切り替えなので追従する
+      // （黙って化けるのは、頼んでいない fs watcher 経由の取り直しのほう）。
+      existing.root = options.root
       existing.untracked = options.untracked
       existing.origPath = options.origPath
       activeTabId.value = existing.id
@@ -810,6 +845,7 @@ export const useTabStore = defineStore('tabs', () => {
       title,
       pinned: false,
       filePath: options.filePath,
+      root: options.root,
       diff: options.diff,
       commitHash: options.commitHash,
       staged: options.staged,

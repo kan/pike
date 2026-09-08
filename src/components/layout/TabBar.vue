@@ -495,7 +495,7 @@ async function copyPath() {
 function openGitHistory() {
   const tab = contextTab.value
   if (tab?.kind !== 'editor') return
-  tabStore.addHistoryTab({ filePath: tab.path })
+  tabStore.addHistoryTab({ filePath: tab.path, root: projectStore.activeRoot })
   closeContextMenu()
 }
 
