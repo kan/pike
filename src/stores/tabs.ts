@@ -52,6 +52,17 @@ export const useTabStore = defineStore('tabs', () => {
   // Most recently activated terminal tab — the default target for "send to
   // terminal" actions triggered from non-terminal tabs (editor, diagnostics).
   const lastTerminalId = ref<string | null>(null)
+  /**
+   * プロジェクト → そこで最後に選んでいたターミナル（#319 のチラ見の対象）。
+   *
+   * **`lastTerminalId` とは別の問い。** あちらは「今このウィンドウで注入する先」で、
+   * フォーカス基準（doc は下の watcher にある）。こちらは「そのプロジェクトで何が
+   * 動いていたか」なので、エディタを開いて離れていても覚えている必要がある。
+   *
+   * **素の `Map`**（`activeByProject` と同じ）。読むのは `terminalForProject` だけで、
+   * そこは呼ばれた時点の値を返す関数なので、reactive にしても誰も購読しない。
+   */
+  const lastTerminalByProject = new Map<string, string>()
 
   /** 今このウィンドウが見せているプロジェクト。空文字はグローバルモード。 */
   const ownerProjectId = ref('')
@@ -479,12 +490,30 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   // 注入先（`lastTerminalId`）は「直近アクティブなターミナル」で、**本当にフォーカス
-  // 基準の問い**なので、こちらは `activeTabId` のまま。
+  // 基準の問い**なので、こちらは `activeTabId` のまま。**チラ見の対象（#319）は同じ
+  // 契機で更新するが、値はプロジェクトごとに分けて持つ**（上の doc）。
   watch(activeTabId, (newId) => {
-    if (newId && tabs.value.find((t) => t.id === newId)?.kind === 'terminal') {
-      lastTerminalId.value = newId
-    }
+    const tab = newId ? tabs.value.find((t) => t.id === newId) : null
+    if (tab?.kind !== 'terminal') return
+    lastTerminalId.value = tab.id
+    if (tab.projectId) lastTerminalByProject.set(tab.projectId, tab.id)
   })
+
+  /**
+   * そのプロジェクトでチラ見するターミナル（#319）。
+   *
+   * **実在は読むときに確かめる**（`lastTerminalId` と同じ流儀）。閉じられたタブが表に
+   * 残っても、ここで落ちて次の候補へ回るので、閉じる側に後始末を足さなくてよい。
+   * 覚えていたものが無ければ、そのプロジェクトのターミナルのどれかを返す（一度も選ばず
+   * 復元しただけのプロジェクトでも、動いているものが見える）。
+   */
+  function terminalForProject(projectId: string): string | null {
+    const isLive = (id: string | undefined) =>
+      !!id && tabs.value.some((t) => t.id === id && t.kind === 'terminal' && t.projectId === projectId)
+    const remembered = lastTerminalByProject.get(projectId)
+    if (isLive(remembered)) return remembered ?? null
+    return tabs.value.find((t) => t.kind === 'terminal' && t.projectId === projectId)?.id ?? null
+  }
 
   function setActiveTab(id: string) {
     // 実在の確認とペインの解決で `tabs` を 2 度舐めない（#308。パーク中の他プロジェクトの
@@ -1016,6 +1045,14 @@ export const useTabStore = defineStore('tabs', () => {
       activeByProject.delete(from)
       activeByProject.set(to, active)
     }
+    // チラ見の対象（#319）も移す。**隣の `activeByProject` と揃える**: 移さなくても
+    // `terminalForProject` の代替（そのプロジェクトの最初のターミナル）が拾うので
+    // 壊れはしないが、覚えていた選択だけが登録のたびに黙って消える。
+    const terminal = lastTerminalByProject.get(from)
+    if (terminal !== undefined) {
+      lastTerminalByProject.delete(from)
+      lastTerminalByProject.set(to, terminal)
+    }
     if (ownerProjectId.value === from) ownerProjectId.value = to
   }
 
@@ -1191,6 +1228,7 @@ export const useTabStore = defineStore('tabs', () => {
     activeTabId,
     activeTab,
     lastTerminalId,
+    terminalForProject,
     addTerminalTab,
     runCommandTab,
     reportExit,

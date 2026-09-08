@@ -40,3 +40,17 @@ export function placeNearAnchor(anchor: DOMRect, size: PopupSize): PopupPoint {
   const y = above >= MARGIN ? above : anchor.bottom + ANCHOR_GAP
   return clampToViewport({ x: anchor.left, y }, size)
 }
+
+/**
+ * Place a popup to the right of `anchor`, or to its left when there is no room.
+ * Top-aligned with the anchor.
+ *
+ * **上下ではなく横に出すのは、アンカーが別のポップアップの中にあるとき**（#319 の
+ * チラ見は、プロジェクトの一覧の行から出る）。`placeNearAnchor` を使うと一覧そのものの
+ * 上に重なって、どの行のものか分からなくなる。
+ */
+export function placeBesideAnchor(anchor: DOMRect, size: PopupSize): PopupPoint {
+  const right = anchor.right + ANCHOR_GAP
+  const fits = right + size.width + MARGIN <= window.innerWidth
+  return clampToViewport({ x: fits ? right : anchor.left - ANCHOR_GAP - size.width, y: anchor.top }, size)
+}

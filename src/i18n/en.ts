@@ -562,6 +562,8 @@ export default {
   'project.parkedHint':
     'This window is keeping this project’s tabs (terminal processes are still running). Switching back shows them as they were.',
   'project.release': 'Close the tabs and stop the processes',
+  'project.peek': 'Peek at the terminal',
+  'project.peekEmpty': 'No output yet',
   'project.forget': 'Stop keeping this project',
   'project.missingHint': 'This path does not exist on this machine',
   'project.clone': 'Clone from {url}',

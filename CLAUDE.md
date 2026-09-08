@@ -250,6 +250,7 @@ pike/
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
+│   │   ├── useTerminalPeek.ts # 別プロジェクトのターミナルを外から覗く口（#319）
 │   │   ├── useMarkdownImages.ts  # Markdown への画像挿入（選択/貼り付け/ドロップ、#241）
 │   │   ├── useMarkdownLinkPaste.ts # 貼り付けた URL をタイトル付きリンクにする（#241）
 │   ├── lib/

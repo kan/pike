@@ -1,11 +1,14 @@
 import { computed, nextTick, type Ref, ref } from 'vue'
-import { clampToViewport, type PopupPoint, placeNearAnchor } from '../lib/popupPosition'
+import { clampToViewport, type PopupPoint, placeBesideAnchor, placeNearAnchor } from '../lib/popupPosition'
 
 export interface AnchoredPopup {
   /** Bind to its `:style` — position plus the visibility gate. */
   style: Ref<{ left: string; top: string; visibility: 'visible' | 'hidden' }>
   /** Place it against an element: above when there is room, else below. */
   placeNear: (anchor: DOMRect) => Promise<void>
+  /** Place it to the side of an element — for anchors that live inside another
+   *  popup, where above/below would cover the list itself (#319). */
+  placeBeside: (anchor: DOMRect) => Promise<void>
   /** Place it at a cursor point, clamped into the viewport. */
   placeAt: (point: PopupPoint) => Promise<void>
   /** Hide it again. Call when closing, so the next open cannot flash at the
@@ -52,6 +55,11 @@ export function useAnchoredPopup(el: Readonly<Ref<HTMLElement | null>>): Anchore
     if (size) pos.value = placeNearAnchor(anchor, size)
   }
 
+  async function placeBeside(anchor: DOMRect) {
+    const size = await measure()
+    if (size) pos.value = placeBesideAnchor(anchor, size)
+  }
+
   async function placeAt(point: PopupPoint) {
     const size = await measure()
     if (size) pos.value = clampToViewport(point, size)
@@ -61,5 +69,5 @@ export function useAnchoredPopup(el: Readonly<Ref<HTMLElement | null>>): Anchore
     pos.value = null
   }
 
-  return { style, placeNear, placeAt, reset }
+  return { style, placeNear, placeBeside, placeAt, reset }
 }

@@ -13,6 +13,7 @@ import {
   UploadTooLargeError,
 } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
+import { markTerminalOutput, registerTerminalPeek, unregisterTerminalPeek } from '../../composables/useTerminalPeek'
 import { useI18n } from '../../i18n'
 import { type AgentDef, type AgentId, launcherAgent, launcherLines } from '../../lib/agents'
 import { isMacHost, isWindowsHost } from '../../lib/host'
@@ -402,6 +403,36 @@ let windowBlurHandler: (() => void) | null = null
 let lastCols = 0
 let lastRows = 0
 
+/**
+ * いま画面に出ている最後の `n` 行（#319。`TerminalPeek.snapshot`）。
+ *
+ * **末尾はバッファの種類で変わる。**
+ *
+ * - 通常バッファはカーソル行が最後の出力なので、そこから遡る
+ * - **代替画面は画面全体が「今」**なので、下端（`viewportY + rows - 1`）から遡る。
+ *   カーソル基準にすると、カーソルが上のほうにある TUI（`vim` で 1 行目、`htop`）で
+ *   1 行しか取れない。claude で正しく見えるのは、あれのプロンプトがたまたま下に
+ *   あるからで、種類を見ないと他の TUI で崩れる
+ *
+ * **末尾の空行は落とす。** カーソルの下（や画面の下半分）が余白で埋まっているのが
+ * 普通で、そのまま遡ると「何も出ていない」ように見える。
+ *
+ * 種類は `inAltScreen`（ref）ではなく `buf.type` を見る。**呼ばれるのは覗かれた瞬間**
+ * なので、そのときのバッファに直接聞くほうが、イベント越しに更新される ref を信じるより
+ * ずれようがない。
+ */
+function peekLines(n: number): string[] {
+  const term = terminal
+  if (!term) return []
+  const buf = term.buffer.active
+  const text = (y: number) => buf.getLine(y)?.translateToString(true) ?? ''
+  let end = buf.type === 'alternate' ? buf.viewportY + term.rows - 1 : buf.baseY + buf.cursorY
+  while (end > 0 && text(end).trim() === '') end--
+  const out: string[] = []
+  for (let y = Math.max(0, end - n + 1); y <= end; y++) out.push(text(y))
+  return out
+}
+
 const SHELL_EXECUTABLES = new Set([
   'wsl.exe',
   'wsl',
@@ -589,6 +620,12 @@ onMounted(async () => {
   terminal.open(termRef.value)
   fitAddon.fit()
 
+  // 覗く口を出す（#319）。**spawn より前に登録する**: `pty_spawn` が失敗した枝は
+  // エラーを書いてから早期 return するので、あとに置くと**そのタブだけ永久に
+  // 「まだ出力がありません」**になる。他のプロジェクトから覗きたいのは、まさに
+  // そういうタブ。
+  registerTerminalPeek(props.tabId, peekLines)
+
   // IME robustness (xterm.js #6012 / the recurring "IME breaks until you switch
   // tabs" bug). xterm only clears the hidden textarea's committed IME text on
   // blur, so composing repeatedly in the same tab lets that text accumulate and
@@ -769,6 +806,9 @@ onMounted(async () => {
     ptyId,
     (data) => {
       termRef_.write(data)
+      // 「今ちゃんと動いているか」の目安（#319）。**出力のたびに来る**ので、ここでは
+      // 時刻を 1 つ置くだけ（`markTerminalOutput` の doc）。
+      markTerminalOutput(props.tabId)
     },
     (code) => {
       termRef_.write(`\r\n${t('terminal.exited', { code: String(code) })}\r\n`)
@@ -1118,6 +1158,7 @@ onUnmounted(() => {
   window.removeEventListener('mousedown', closePromptMenu)
   if (resizeTimer) clearTimeout(resizeTimer)
   resizeObserver?.disconnect()
+  unregisterTerminalPeek(props.tabId)
   if (ptyId) {
     ptyRouter.unregister(ptyId)
     ptyKill(ptyId).catch(() => {})
