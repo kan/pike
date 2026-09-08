@@ -6,7 +6,8 @@
 //! `claude_usage` already walks for token counts).
 
 use super::{config, encode_project_path};
-use crate::agent_sessions::AgentSession;
+// 題の切り方は 4 つのアダプタで共有する（`shorten` の doc）。ここに写しを持たない。
+use crate::agent_sessions::{shorten, AgentSession};
 use crate::types::{validate_slug, ShellConfig};
 use serde::Deserialize;
 use std::fs;
@@ -24,10 +25,6 @@ const MAX_SCAN_FILES: usize = 200;
 const MAX_TRANSCRIPT_BYTES: usize = 1 << 20;
 /// Lines above this are tool results and pasted files, never a title record.
 const MAX_TITLE_LINE_BYTES: usize = 4096;
-/// A title occupies one menu line. The cap is about the IPC payload — a
-/// fallback prompt can be a whole pasted document; the menu itself elides.
-const MAX_TITLE_CHARS: usize = 120;
-
 const ENTRYPOINT_PAT: &str = "\"entrypoint\":\"";
 const GIT_BRANCH_PAT: &str = "\"gitBranch\":\"";
 
@@ -48,15 +45,6 @@ struct TitleLine {
 fn raw_str_field<'a>(line: &'a str, pat: &str) -> Option<&'a str> {
     let rest = &line[line.find(pat)? + pat.len()..];
     Some(&rest[..rest.find('"')?])
-}
-
-/// One menu line: the text's first line, capped at [`MAX_TITLE_CHARS`].
-fn shorten(text: &str) -> String {
-    let line = text.lines().next().unwrap_or("").trim();
-    if line.chars().count() <= MAX_TITLE_CHARS {
-        return line.to_string();
-    }
-    line.chars().take(MAX_TITLE_CHARS).collect::<String>() + "…"
 }
 
 /// What the picker shows, accumulated one line at a time so the reader can walk
@@ -202,9 +190,8 @@ pub(crate) fn list_sessions(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        raw_str_field, shorten, TranscriptScan, ENTRYPOINT_PAT, GIT_BRANCH_PAT, MAX_TITLE_CHARS,
-    };
+    use super::{raw_str_field, shorten, TranscriptScan, ENTRYPOINT_PAT, GIT_BRANCH_PAT};
+    use crate::agent_sessions::MAX_TITLE_CHARS;
 
     fn scan(lines: &[&str]) -> Option<(String, Option<String>)> {
         let mut scan = TranscriptScan::default();

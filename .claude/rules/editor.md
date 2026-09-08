@@ -27,6 +27,15 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）。Ctrl+Z/Shift+Z で Undo/Redo
 - エディタ内検索・置換: Ctrl+F / Ctrl+H でカスタム検索パネル（右上フローティング、アイコンボタン、マッチ数表示）
 - Git diff ガター: 追加行（緑）・変更行（黄）・削除行（赤三角）をガターに表示。`git_diff_lines` コマンドで行単位の差分を取得
+  - **ポイントすると消えた行を出す（#322）**。`git_diff_lines` が行番号と一緒に `removed`（`RemovedBlock`）を返し、`editorGitGutter.ts` が `showTooltip` で見せる
+    - **出すのは `-` の側だけ。** `+` の側は今エディタに映っているので、並べると同じ内容が 2 度出る。追加だけの行は何も持たない＝ツールチップも出ない
+    - **Rust 側で切る**（`MAX_PREVIEW_LINES`=40 行 / `MAX_PREVIEW_LINE_LEN`=200 文字）。ガターはファイルを開くたびに取るので、全消しやミニファイされた JS では数 MB の JSON が毎回 IPC を渡ることになる。`total` に本当の行数を持たせて「ほか N 行」を出す。**切るのは文字数で**（バイトで切るとマルチバイトの途中で panic する）
+    - **Rust は変更範囲の開始行にしか紐付けない**（`RemovedBlock.line`）。範囲の全行から引けるよう広げるのは `buildDiffData` の仕事で、同じ参照を張るので複製にはならない
+    - **当たり判定は左へ 6px 広げる**（`.cm-gutterElement::after`）。帯は 3px しかなく、そこへマウスを合わせるのは狙いすぎになる。**右（本文側）へは広げないこと**: 本文に重なるとテキストの選択を奪う。左は行番号ガターで、Pike はそこに何も割り当てていない
+    - ツールチップは `pointer-events: none`（本文に重なるため）＋ `overflow: hidden`。**`auto` にしないこと**: ガターから離れると消えるので、出したスクロールバーは押せない
+    - ホバーの検出は `gutter` の `domEventHandlers`。**`mouseleave` も届く**（CodeMirror は gutter 要素そのものに `addEventListener` する）。`mousemove` は 1 ピクセルごとに来るので、**行が変わったときだけ dispatch する**
+    - **`gutterMarkers` は `diffField` の結果を読む**（`tr.state.field(diffField)`）。`buildDiffData` を 2 度走らせないためで、`gitDiffGutter()` があちらを先に並べていることに依存する（StateField は extension の順に計算される）。**並びを変えるときはここも見ること**
+    - **on-demand で取りに行く形は採らない。** ホバーのたびに `git diff` を起こすことになり、対話 UI のために外部プロセスを起こさないという方針（`agent.md` / `project.md`）に反する。代償は「ホバーしない人も保存のたびに払う」ことだが、上限で最悪 80KB 程度のローカル IPC に収まる
 - ミニマップ: `@replit/codemirror-minimap` を採用。blocks モード、シンタックスカラー反映、正確なスクロール同期、git diff ガター表示
   - **本文と重ならないよう、ミニマップを `.cm-editor` 直下へ出してある（#282）**。パッケージは `.cm-scroller` の中へ `position: sticky; right: 0` で入れるが、`.cm-content` の幅は最長行で決まりミニマップの存在を知らないので、折り返し OFF で長い行があると**スクロールしていなくても**本文がその下を通る。**判断の実体は `lib/editorMinimap.ts` の doc コメントが正本**（なぜ padding でも margin でも直らないか、なぜ再親化してもパッケージが壊れないか、幅の受け渡しがループしない理由）。ここに写しを置くと必ず片方が古くなるので、触るときはあちらを読む
     - **`.cm-scroller` の `position` は触らないこと。** `static` にすれば同じ配置にできるが、CodeMirror が `scrollDOM` へ直接ぶら下げる `.cm-layer`（選択範囲・カーソル）はスクロール済み座標系を前提にしているので、スクロールすると選択とカーソルが本文から剥がれる。Pike は `drawSelection` / `dropCursor` を入れていないため今は表に出ず、足した日に無関係に見える形で壊れる

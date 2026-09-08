@@ -946,6 +946,21 @@ pub fn first_line(text: &str) -> Option<String> {
     Some(line.chars().take(200).collect())
 }
 
+/// `max` 文字で切り、切ったときだけ末尾に `…` を足す。
+///
+/// **文字数で切る（バイトではない）。** `&s[..n]` はマルチバイトの途中で panic するし、
+/// 通ったとしても壊れた文字が末尾に残る。
+///
+/// **省略記号を呼び出し側で足さないこと。** 3 つの消費者（セッション一覧の題 2 つと、
+/// diff ガターのホバー #322）がそれぞれ書いていたころは、片方に `…` が無く上限も
+/// リテラルだった。「切ったかどうか」を知っているのはここだけなので、印もここが付ける。
+pub fn truncate_chars(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((at, _)) => format!("{}…", &s[..at]),
+        None => s.to_string(),
+    }
+}
+
 /// Cache key for things that are per claude/codex *installation* rather than per
 /// project — a WSL distro has its own home and its own tool config, the Windows
 /// shells all share the host's. Shared so the several caches keyed this way

@@ -1256,21 +1256,97 @@ pub async fn git_log_file_lines(
     Ok(entries)
 }
 
+/// ガターのホバーで見せる「消えた行」1 かたまり（#322）。
+///
+/// **出すのは `-` の側だけ。** `+` の側は今エディタに映っているものなので、並べても
+/// 同じ内容が 2 度出るだけになる。
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedBlock {
+    /// 新しい側でこのかたまりが現れる行（`modified` の開始行、または `deleted` の位置）。
+    pub line: u32,
+    /// 消えた行の中身（`-` を外したもの）。**`MAX_PREVIEW_LINES` で切る。**
+    pub lines: Vec<String>,
+    /// 実際に消えた行数。`lines.len()` より多ければ、フロントが「ほか N 行」と出す。
+    pub total: u32,
+}
+
+/// 1 かたまりに載せる行数の上限。**ここで切るのは IPC のため**でもある: ガターはファイルを
+/// 開くたびに取るので、全消しのような diff で数 MB の JSON を毎回渡すことになる。
+const MAX_PREVIEW_LINES: usize = 40;
+
+/// 1 行の長さの上限。ミニファイされた JS の 1 行は数 MB あり、そのままでは載らない。
+const MAX_PREVIEW_LINE_LEN: usize = 200;
+
+/// ファイル全体で載せる行数の上限。**かたまり単位の上限だけでは足りない**: 削除が細かく
+/// 散った diff（生成物の作り直し、コメントの一括削除、改行コードの変換）では、かたまりの
+/// 数だけ積み上がる。ガターは開くときだけでなく**保存のたび**にも取り直すので、自動保存を
+/// 使っていると打鍵が止まるたびにこれを払う。
+///
+/// 超えたぶんは `lines` を空にして返す（`total` は残るので、ホバーすれば「ほか N 行」だけが
+/// 出る）。**かたまりごと落とさない**のは、`removed` が `modified` / `deleted` と位置で
+/// 対応しているため。
+const MAX_PREVIEW_LINES_TOTAL: usize = 400;
+
+/// 溜めている `-` の行（#322）。**上限に当たったあとも数え続ける**ので、`total` が
+/// 「実際に消えた行数」になる。
+#[derive(Default)]
+struct PendingDel {
+    lines: Vec<String>,
+    total: u32,
+}
+
+impl PendingDel {
+    fn is_empty(&self) -> bool {
+        self.total == 0
+    }
+
+    /// **上限に当たったら溜めない**（`total` だけ数える）。`budget` はファイル全体の残りで、
+    /// **確保してから捨てるのではなく最初から作らない**ためにここまで渡す: 削除が細かく
+    /// 散った diff では、かたまりごとに 40 行ぶんの `String` を作っては落とすことになる。
+    fn push(&mut self, text: &str, budget: usize) {
+        self.total += 1;
+        if self.lines.len() < MAX_PREVIEW_LINES.min(budget) {
+            self.lines
+                .push(crate::types::truncate_chars(text, MAX_PREVIEW_LINE_LEN));
+        }
+    }
+
+    /// 溜めたぶんを 1 かたまりとして取り出し、使ったぶんを `budget` から引く。
+    /// 空なら `None`（追加だけの変更）。
+    fn take(&mut self, line: u32, budget: &mut usize) -> Option<RemovedBlock> {
+        if self.is_empty() {
+            return None;
+        }
+        let total = std::mem::take(&mut self.total);
+        let lines = std::mem::take(&mut self.lines);
+        *budget -= lines.len();
+        Some(RemovedBlock { line, lines, total })
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitDiffLines {
     pub added: Vec<[u32; 2]>,
     pub modified: Vec<[u32; 2]>,
     pub deleted: Vec<u32>,
+    /// 消えた行（#322）。`modified` / `deleted` の位置に対応する。
+    pub removed: Vec<RemovedBlock>,
 }
 
 fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
     let mut added = Vec::new();
     let mut modified = Vec::new();
     let mut deleted = Vec::new();
+    let mut removed: Vec<RemovedBlock> = Vec::new();
 
     let mut new_line: u32 = 0;
-    let mut pending_del = false;
+    // 溜めている `-` の行（#322）。**bool ではなく中身を持つ**ので、`is_empty()` が
+    // 以前の `pending_del` と同じ意味になる。
+    let mut pending_del = PendingDel::default();
+    // ファイル全体で載せられる残り行数（`MAX_PREVIEW_LINES_TOTAL`）。
+    let mut budget = MAX_PREVIEW_LINES_TOTAL;
     let mut add_start: Option<u32> = None;
     let mut mod_start: Option<u32> = None;
 
@@ -1280,14 +1356,32 @@ fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
         }
     }
 
+    /// 溜めた `-` を「削除」として確定する（`@@`・context 行・末尾の 3 か所で同じ）。
+    /// **`+` の枝だけは別**（あちらは `deleted` ではなく `modified` に紐付く）。
+    fn flush_deletion(
+        pending: &mut PendingDel,
+        line: u32,
+        budget: &mut usize,
+        deleted: &mut Vec<u32>,
+        removed: &mut Vec<RemovedBlock>,
+    ) {
+        if let Some(block) = pending.take(line, budget) {
+            deleted.push(line);
+            removed.push(block);
+        }
+    }
+
     for line in diff_output.lines() {
         if line.starts_with("@@") {
             flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);
             flush_range(&mut mod_start, new_line.saturating_sub(1), &mut modified);
-            if pending_del {
-                deleted.push(new_line);
-                pending_del = false;
-            }
+            flush_deletion(
+                &mut pending_del,
+                new_line,
+                &mut budget,
+                &mut deleted,
+                &mut removed,
+            );
             // Parse @@ -old,count +new,count @@
             if let Some(plus) = line.find('+') {
                 let rest = &line[plus + 1..];
@@ -1305,14 +1399,14 @@ fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
         {
             continue;
         }
-        if line.starts_with('-') {
+        if let Some(text) = line.strip_prefix('-') {
             flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);
-            if !pending_del {
-                pending_del = true;
-            }
+            pending_del.push(text, budget);
         } else if line.starts_with('+') {
-            if pending_del {
-                pending_del = false;
+            // 溜めた `-` があれば「置き換え」。**この行に紐付ける**ので、変更範囲の
+            // どの行にホバーしても同じかたまりが引ける（フロントが範囲へ展開する）。
+            if let Some(block) = pending_del.take(new_line, &mut budget) {
+                removed.push(block);
                 if mod_start.is_none() {
                     mod_start = Some(new_line);
                 }
@@ -1323,23 +1417,31 @@ fn parse_diff_lines(diff_output: &str) -> GitDiffLines {
         } else {
             flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);
             flush_range(&mut mod_start, new_line.saturating_sub(1), &mut modified);
-            if pending_del {
-                deleted.push(new_line);
-                pending_del = false;
-            }
+            flush_deletion(
+                &mut pending_del,
+                new_line,
+                &mut budget,
+                &mut deleted,
+                &mut removed,
+            );
             new_line += 1;
         }
     }
     flush_range(&mut add_start, new_line.saturating_sub(1), &mut added);
     flush_range(&mut mod_start, new_line.saturating_sub(1), &mut modified);
-    if pending_del {
-        deleted.push(new_line);
-    }
+    flush_deletion(
+        &mut pending_del,
+        new_line,
+        &mut budget,
+        &mut deleted,
+        &mut removed,
+    );
 
     GitDiffLines {
         added,
         modified,
         deleted,
+        removed,
     }
 }
 
@@ -1357,6 +1459,7 @@ pub async fn git_diff_lines(
                 added: vec![],
                 modified: vec![],
                 deleted: vec![],
+                removed: vec![],
             }),
         }
     })
@@ -1702,5 +1805,96 @@ mod operation_tests {
             "refs/heads/feat\n"
         );
         assert_eq!(parsed.get("rebase-merge/done"), None);
+    }
+
+    /// 置き換え（#322）。消えた行は**変更範囲の開始行**に紐付く。
+    #[test]
+    fn keeps_the_removed_lines_of_a_replacement() {
+        let diff = "diff --git a/f b/f\n\
+index 111..222 100644\n\
+--- a/f\n\
++++ b/f\n\
+@@ -1,4 +1,4 @@\n\
+ ctx\n\
+-old one\n\
+-old two\n\
++new one\n\
++new two\n";
+        let got = parse_diff_lines(diff);
+        assert_eq!(got.modified, vec![[2, 3]]);
+        assert_eq!(
+            got.removed,
+            vec![RemovedBlock {
+                line: 2,
+                lines: vec!["old one".into(), "old two".into()],
+                total: 2,
+            }]
+        );
+    }
+
+    /// 純粋な削除は `deleted` と同じ位置に付く。
+    #[test]
+    fn keeps_the_removed_lines_of_a_deletion() {
+        let diff = "@@ -1,3 +1,2 @@\n ctx\n-gone\n ctx2\n";
+        let got = parse_diff_lines(diff);
+        assert_eq!(got.deleted, vec![2]);
+        assert_eq!(got.removed.len(), 1);
+        assert_eq!(got.removed[0].line, 2);
+        assert_eq!(got.removed[0].lines, vec!["gone".to_string()]);
+    }
+
+    /// **追加だけの変更は何も持たない**（ホバーで出すものが無い）。
+    #[test]
+    fn an_addition_has_nothing_removed() {
+        let diff = "@@ -1,1 +1,2 @@\n ctx\n+added\n";
+        let got = parse_diff_lines(diff);
+        assert_eq!(got.added, vec![[2, 2]]);
+        assert!(got.removed.is_empty());
+    }
+
+    /// 上限を超えたぶんは落とすが、**`total` は実際の行数を保つ**（「ほか N 行」に使う）。
+    #[test]
+    fn caps_the_preview_but_keeps_the_real_count() {
+        let mut diff = String::from("@@ -1,60 +1,1 @@\n");
+        for i in 0..60 {
+            diff.push_str(&format!("-line {i}\n"));
+        }
+        diff.push_str("+one\n");
+        let got = parse_diff_lines(&diff);
+        assert_eq!(got.removed.len(), 1);
+        assert_eq!(got.removed[0].lines.len(), MAX_PREVIEW_LINES);
+        assert_eq!(got.removed[0].total, 60);
+    }
+
+    /// ファイル全体の上限（#322）。**かたまり単位の上限では止まらない**散り方でも、
+    /// 載る行数は頭打ちになる。`total` は残るので「ほか N 行」は出せる。
+    #[test]
+    fn caps_the_preview_across_the_whole_file() {
+        // 40 行消して 1 行足す、を 12 回（480 行ぶん）。
+        let mut diff = String::new();
+        for h in 0..12 {
+            let at = h * 50 + 1;
+            diff.push_str(&format!("@@ -{at},41 +{at},1 @@\n"));
+            for i in 0..40 {
+                diff.push_str(&format!("-h{h} line {i}\n"));
+            }
+            diff.push_str("+one\n");
+        }
+        let got = parse_diff_lines(&diff);
+        let shown: usize = got.removed.iter().map(|b| b.lines.len()).sum();
+        assert_eq!(shown, MAX_PREVIEW_LINES_TOTAL);
+        let total: u32 = got.removed.iter().map(|b| b.total).sum();
+        assert_eq!(total, 480);
+    }
+
+    /// 長い行は文字数で切る。**バイトで切ると panic する**ので、マルチバイトで確かめる。
+    #[test]
+    fn truncates_long_lines_by_chars() {
+        let long = "あ".repeat(MAX_PREVIEW_LINE_LEN + 10);
+        let diff = format!("@@ -1,1 +1,1 @@\n-{long}\n+short\n");
+        let got = parse_diff_lines(&diff);
+        let shown = &got.removed[0].lines[0];
+        assert_eq!(shown.chars().count(), MAX_PREVIEW_LINE_LEN + 1); // 末尾の「…」
+        assert!(shown.ends_with('…'));
     }
 }

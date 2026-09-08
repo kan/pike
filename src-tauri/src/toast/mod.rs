@@ -74,6 +74,15 @@ mod imp {
     ///
     /// 判定は `types::app_identifier` と同じ `cfg!(debug_assertions)` だが、あちらは
     /// identifier でこちらは表示名なので、値を導き合えない。
+    ///
+    /// **開発版のショートカットは押しても使えない**（AUMID を Windows へ登録するためだけに
+    /// ある）。デバッグビルドは `devUrl` を読むので Vite が要り、コンソールを隠す
+    /// `windows_subsystem` も release にしか付かない。押すと端末が開いて「このページに
+    /// 到達できません」になるのが正しい姿で、開発版は従来どおり `just dev` から起動する。
+    ///
+    /// **明示 AUMID を書いても、タスクバーのグループ化とジャンプリストは変わらない**
+    /// （実機で確認）。プロセス側の AUMID を設定していないので、`project.md` の
+    /// 「AUMID は明示設定しない」はそのまま保たれる。
     fn link_name() -> &'static str {
         if cfg!(debug_assertions) {
             "Pike (dev).lnk"
@@ -134,6 +143,11 @@ mod imp {
             }
         } else {
             // 開発版はここを通る。インストール版で NSIS のショートカットを消した人も。
+            //
+            // **開発版のショートカットを消す経路は持たない。** `cargo clean` のあとは
+            // リンク先の無いショートカットがスタートメニューに残るが、消す先は
+            // `cargo run --bin verify_toast -- remove`（インストール版の `Pike.lnk` は
+            // NSIS のアンインストーラが持っていく）。
             let exe = std::env::current_exe()?;
             let exe = HSTRING::from(exe.to_string_lossy().as_ref());
             link.SetPath(&exe)?;

@@ -97,11 +97,11 @@ windows = { version = "0.62", features = [
 # Interface trait / PWSTR はこちらの windows-core を合わせて使う。
 webview2-com = "0.38"
 windows-core = "0.61"
-# 背景透過（issue #162）: アクリル / Mica のすりガラス効果を実行時に適用/解除する。
 # デスクトップ通知（#318）。**`tauri-plugin-notification` 経由で既に依存ツリーにいる**
 # （notify-rust → これ）ので、直接依存へ上げてもビルドは増えない。プラグインを使わない
 # 理由は、あちらに desktop のクリックを受ける口が無いこと（`lib/notify.ts` の doc）。
 tauri-winrt-notification = "0.7"
+# 背景透過（issue #162）: アクリル / Mica のすりガラス効果を実行時に適用/解除する。
 window-vibrancy = "0.8"
 # window-vibrancy の API が要求するハンドルの trait。`Window` と `WebviewWindow` の
 # どちらでも受けられるようにするためだけに直接依存へ足してある（依存グラフには

@@ -37,10 +37,7 @@ pub(crate) const MAX_TITLE_CHARS: usize = 120;
 /// （実際、コピーした側は上限がリテラルで省略記号も付いていなかった）。
 pub(crate) fn shorten(text: &str) -> String {
     let line = text.lines().next().unwrap_or("").trim();
-    if line.chars().count() <= MAX_TITLE_CHARS {
-        return line.to_string();
-    }
-    line.chars().take(MAX_TITLE_CHARS).collect::<String>() + "…"
+    crate::types::truncate_chars(line, MAX_TITLE_CHARS)
 }
 
 /// ファイルの mtime を epoch ms へ。**失敗の扱いも 1 か所に置く**（アダプタごとに

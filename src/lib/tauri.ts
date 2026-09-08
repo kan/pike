@@ -545,10 +545,23 @@ export async function gitLogFileLines(
   })
 }
 
+/**
+ * ガターのホバーで見せる「消えた行」1 かたまり（#322）。Rust の `RemovedBlock`。
+ *
+ * `lines` は上限（40 行 / 1 行 200 文字）で切ってあり、`total` が本当の行数。
+ */
+export interface RemovedBlock {
+  /** 新しい側でこのかたまりが現れる行（`modified` の開始、または `deleted` の位置）。 */
+  line: number
+  lines: string[]
+  total: number
+}
+
 export interface GitDiffLines {
   added: [number, number][]
   modified: [number, number][]
   deleted: number[]
+  removed: RemovedBlock[]
 }
 
 export async function gitDiffLines(root: string, shell: ShellType, path: string): Promise<GitDiffLines> {

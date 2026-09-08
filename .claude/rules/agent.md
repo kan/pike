@@ -145,6 +145,12 @@ Claude Code の `Notification` / `Stop` hook を登録し、**そのターミナ
   - **#265 で一度作って外している。** そのときの実測は「バナーも出ず通知センターへ直行し、
     クリックも返らない」で、原因は**スタートメニューのショートカットに AppUserModelID が
     無かったこと**の 1 点。#318 で Pike 自身がショートカットを用意するようにして解けた
+    - **ショートカットに明示 AUMID を書いても、タスクバーのグループ化とジャンプリストは
+      変わらない**（#318 で実機確認）。プロセス側の AUMID（`SetCurrentProcessExplicitAppUserModelID`）
+      を設定していないためで、`project.md` の「AUMID は明示設定しない」はそのまま保たれる
+    - **開発版のショートカット（`Pike (dev).lnk`）は押しても使えない。** AUMID の登録専用で、
+      デバッグビルドは `devUrl`（Vite）を読み、コンソールを隠す `windows_subsystem` も
+      release にしか付かない。押すと端末が開いて「このページに到達できません」になる
   - **公式プラグインでは今も無理**（`tauri-plugin-notification` の desktop 実装は
     `notify_rust` へ投げっぱなしで、クリックを受ける口が無い。`onAction` はモバイル専用。
     WebView2 の Web Notification も `granted` のままクリックがページへ返らない）

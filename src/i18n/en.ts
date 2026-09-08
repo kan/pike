@@ -104,6 +104,7 @@ export default {
   'editor.cut': 'Cut',
   'editor.copy': 'Copy',
   'editor.paste': 'Paste',
+  'editor.removedMore': '{n} more lines',
   'editor.gitHistory': 'Git History',
   'editor.gitHistoryRange': 'Git History ({range})',
   'editor.sendToTerminal': 'Send to terminal',

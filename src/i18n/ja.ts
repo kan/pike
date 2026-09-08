@@ -104,6 +104,7 @@ export default {
   'editor.cut': '切り取り',
   'editor.copy': 'コピー',
   'editor.paste': '貼り付け',
+  'editor.removedMore': 'ほか {n} 行',
   'editor.gitHistory': 'Git 履歴',
   'editor.gitHistoryRange': 'Git 履歴 ({range})',
   'editor.sendToTerminal': 'ターミナルに送る',
