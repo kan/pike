@@ -105,11 +105,20 @@ Claude Code の `Notification` / `Stop` hook を登録し、**そのターミナ
 - **受け口は #299 と同じ 1 つ**（`pike agent-hook`）。違いは `--event=` が付くかどうかで、
   付いていれば通知、無ければアカウントの申告。**契機はコマンド行に書く**: `Notification` の
   stdin には 12 個ある matcher のどれで発火したかが入らない（あるのは `message` の文言だけ）
-- **配送は WM_COPYDATA**（`wait::send_to_first_instance`）。#299 がこれを避けた理由
+- **配送は WM_COPYDATA**（`wait::send_notice_to_first_instance`）。#299 がこれを避けた理由
   （受け側がメインスレッドで、解決のロックを待つあいだ UI が止まりうる）は、ロックを取らない
   配送には当てはまらない。**WSL の中からでも届く**（interop で起動された `pike.exe` は
   Windows プロセス）。**非 Windows には配送手段が無いので、通知の hook はそこでは登録しない**
   （`HookSpec::windows_only`）
+  - **宛先は開発版とインストール版の両方を探す**（`types::app_identifiers`、#333）。hook の
+    コマンド行はビルドで分けない（申告の置き場と同じく共有する）ので、**どちらの exe が
+    hook として走るかは登録した側で決まる一方、そのターミナルを持つ Pike はもう一方で
+    ありうる**。自分のビルドだけを探していたころは、通知だけがビルド固有という非対称が
+    でき、緩い一致（`matches_spec`）と噛み合って「インストール版の設定画面が開発版の行を
+    『登録済み』と出し、解除すると相手の行を消す」という形で出た
+  - **誤配は起きない**（届け先は pty id の uuid なので、そのタブを持たないインスタンスは
+    黙って捨てる）。**CLI の転送（`send_to_first_instance`）は自分のビルドだけ**: あちらは
+    二重起動した自分の argv を本体へ渡す経路で、相手へ渡すと頼んでいない側でファイルが開く
 - **hook の本文（`message` / `last_assistant_message`）は運ばない。** payload が `|` 区切り
   なのと、文言は UI 言語に従うべきものだという 2 つの理由（`AgentNotice` の doc）
 - **どのエージェントかも送り側が名乗る**（`--agent=`。契機と同じく登録するコマンド行に書く）。

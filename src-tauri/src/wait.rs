@@ -273,35 +273,66 @@ pub fn try_wait_and_exit() {}
 /// 戻らないので、Pike の UI スレッドが詰まっているあいだ（ジャンプリストの構築で実績が
 /// ある。`jumplist/mod.rs`）、Claude Code のターンの終わりが hook のタイムアウトまで
 /// 止まる。届かなかったときに失うのは通知 1 回だけなので、待たずに諦める。
+///
+/// **宛先が 2 つになっても（#333）これは合計の予算**。開発版とインストール版を同時に
+/// 走らせているマシンでだけ倍待つ、という形にしない。
 #[cfg(windows)]
-const NOTICE_TIMEOUT_MS: u32 = 1000;
+const NOTICE_TIMEOUT_MS: u64 = 1000;
 
 /// Send argv to the running instance the way the single-instance plugin does.
+///
+/// **宛先は自分のビルドだけ**（`app_id()`）。これは「二重起動した自分の argv を本体へ
+/// 渡す」経路なので、もう一方のビルドへ渡すと、開いたファイルもウィンドウの復元も
+/// 頼んでいない側で起きる。
 #[cfg(windows)]
 fn send_to_first_instance(args: &[String], cwd: &str) {
-    send_copydata(args, cwd, None)
+    send_copydata(app_id(), args, cwd, None)
 }
 
 /// 同じ経路で、返事を待たずに送る（#265）。hook プロセスは Tauri を起動しないので、
 /// この WM_COPYDATA が走っている Pike へ届ける唯一の手段。
 ///
+/// **こちらは両方のビルドへ送る（#333）。** hook のコマンド行は 1 本しか無いので、
+/// どちらの exe が hook として走るかは登録した側で決まる一方、**そのターミナルを
+/// 持っている Pike はもう一方でありうる**。自分のビルドだけを探していたころは、
+/// 通知だけがビルド固有という非対称ができ、緩い一致（`agent_hook::matches_spec`）と
+/// 噛み合って「インストール版の設定画面が開発版の行を『登録済み』と出し、解除すると
+/// 相手の行を消す」という形で出た。
+///
+/// **誤配は起きない。** 届け先は pty id（uuid）で決まるので、そのタブを持たない
+/// インスタンスは黙って捨てる（`agent_hook::emit_notice`）。走っていないほうは
+/// `FindWindowW` が空振りして即座に戻るので、片方だけのマシンでは往復も増えない。
+///
+/// **`NOTICE_TIMEOUT_MS` は 2 本の合計の予算**（1 本ごとではない）。あれが定めたのは
+/// 「ターンの終わりを止めてよい上限」なので、宛先が 2 つになったからといって倍に
+/// しない。1 本目で使い切ったら 2 本目は諦める（失うのは通知 1 回）。
+///
 /// **cwd は送らない。** 届け先は pty id で決まるので受け側が読まないうえ、hook プロセスの
 /// cwd は WSL の native パスで、Windows 側では意味を持たない。
 #[cfg(windows)]
 pub(crate) fn send_notice_to_first_instance(args: &[String]) {
-    send_copydata(args, "", Some(NOTICE_TIMEOUT_MS))
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(NOTICE_TIMEOUT_MS);
+    for id in crate::types::app_identifiers() {
+        let remaining = deadline
+            .saturating_duration_since(std::time::Instant::now())
+            .as_millis() as u32;
+        if remaining == 0 {
+            return;
+        }
+        send_copydata(id, args, "", Some(remaining));
+    }
 }
 
 #[cfg(windows)]
-fn send_copydata(args: &[String], cwd: &str, timeout_ms: Option<u32>) {
+fn send_copydata(identifier: &str, args: &[String], cwd: &str, timeout_ms: Option<u32>) {
     use windows::core::PCWSTR;
     use windows::Win32::System::DataExchange::COPYDATASTRUCT;
     use windows::Win32::UI::WindowsAndMessaging::{
         FindWindowW, SendMessageTimeoutW, SendMessageW, SMTO_ABORTIFHUNG, WM_COPYDATA,
     };
 
-    let class_name = encode_wide(&format!("{}{SI_CLASS_SUFFIX}", app_id()));
-    let window_name = encode_wide(&format!("{}{SI_WINDOW_SUFFIX}", app_id()));
+    let class_name = encode_wide(&format!("{identifier}{SI_CLASS_SUFFIX}"));
+    let window_name = encode_wide(&format!("{identifier}{SI_WINDOW_SUFFIX}"));
 
     unsafe {
         let hwnd = match FindWindowW(PCWSTR(class_name.as_ptr()), PCWSTR(window_name.as_ptr())) {

@@ -151,9 +151,15 @@ pub fn host_home() -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
+/// インストール版と開発版の identifier（`tauri.conf.json` / `tauri.dev.conf.json`）。
+#[cfg(windows)]
+const RELEASE_IDENTIFIER: &str = "com.pike.dev";
+#[cfg(windows)]
+const DEBUG_IDENTIFIER: &str = "com.pike.dev.debug";
+
 /// このビルドのアプリ identifier（`tauri.conf.json` の値）。
 ///
-/// **`AppHandle` を持てない場所のためにある。** 唯一の利用者は single-instance の
+/// **`AppHandle` を持てない場所のためにある。** 利用者は single-instance の
 /// ウィンドウ名（`wait.rs`）で、あれは WM_COPYDATA の経路なので Windows 専用。
 /// **`cfg` を外すと macOS で dead code になる**（Windows でだけ使われる関数を
 /// `cfg` 無しで置くと、手元の `just check` は通って macOS の CI だけが落ちる。
@@ -168,10 +174,29 @@ pub fn host_home() -> Option<String> {
 /// CSP の切り分け用の一時ビルドで、`wait.rs` も前から同じ前提で動いている。
 #[cfg(windows)]
 pub fn app_identifier() -> &'static str {
-    if cfg!(debug_assertions) {
-        "com.pike.dev.debug"
+    app_identifiers()[0]
+}
+
+/// 走っている Pike を探すときに当たる identifier を、**自分のビルドから順に**返す（#333）。
+///
+/// 使うのは hook からの通知（`wait::send_notice_to_first_instance`）だけ。**書いた側の
+/// ビルドではなく、そのターミナルを持っているビルドへ届けたい**ので、両方に当たる。
+/// hook のコマンド行は 1 本しか無く（申告と同じく開発版とインストール版で共有する）、
+/// どちらの exe が hook として走るかは登録した側で決まる一方、走っている Pike は
+/// もう一方でありうる。
+#[cfg(windows)]
+pub fn app_identifiers() -> [&'static str; 2] {
+    identifiers_for(cfg!(debug_assertions))
+}
+
+/// 並びの規則そのもの。**`cfg!` から切り離してあるのはテストのため**: テストは debug
+/// でしか走らないので、判定を中に持つとリリース側の並びを一度も確かめられない。
+#[cfg(windows)]
+fn identifiers_for(debug_build: bool) -> [&'static str; 2] {
+    if debug_build {
+        [DEBUG_IDENTIFIER, RELEASE_IDENTIFIER]
     } else {
-        "com.pike.dev"
+        [RELEASE_IDENTIFIER, DEBUG_IDENTIFIER]
     }
 }
 
@@ -1044,6 +1069,25 @@ pub struct MenuAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 通知の宛先は**自分のビルドが先頭で、もう一方も必ず入る**（#333）。片方しか
+    /// 見ていないと、開発版とインストール版のあいだで hook の通知が届かない。
+    ///
+    /// **先頭が入れ替わると通知以外も壊れる**: `app_identifier()` はこの先頭を返し、
+    /// single-instance のミューテックス名と CLI の転送（`wait.rs`）がそれを読むので、
+    /// `pike file.rs` と `pike --wait` が相手のビルドへ飛ぶ。
+    #[cfg(windows)]
+    #[test]
+    fn app_identifiers_start_with_this_build_and_include_the_other() {
+        assert_eq!(
+            identifiers_for(true),
+            [DEBUG_IDENTIFIER, RELEASE_IDENTIFIER]
+        );
+        assert_eq!(
+            identifiers_for(false),
+            [RELEASE_IDENTIFIER, DEBUG_IDENTIFIER]
+        );
+    }
 
     /// **複合コマンドを渡しても構文が壊れないこと。** `VAR=v cmd` の前置は単純コマンド
     /// にしか付けられないので、以前の書き方では `for … do … done` を渡した瞬間に
