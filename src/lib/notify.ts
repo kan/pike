@@ -8,9 +8,12 @@ let cached: NotifyFn | null | undefined
  * **`onClick` は当てにできない**（#265 で実機確認）。WebView2 の Web Notification は
  * `Notification.permission` が `granted` でも押したときに `onclick` が呼ばれず、ウィンドウが
  * 前に出ることもない。プラグイン側の desktop 実装は `notify_rust` へ投げっぱなしで、
- * クリックを受ける口がそもそも無い（`onAction` はモバイル専用）。**押させたい知らせを
- * ここに載せないこと**: 入力待ち（#265）はこれを使わず、タスクバーの点滅（`windowFlash`）と
- * 画面内の印にしてある。
+ * クリックを受ける口がそもそも無い（`onAction` はモバイル専用）。
+ *
+ * **押させたい知らせはここに載せないこと。** それは `lib/tauri.ts` の `toastNotify`
+ * （#318）の担当で、あちらは AUMID 付きショートカットを前提に `on_activated` を受ける。
+ * ここに残っているのはトレイのヒント（#161）だけで、**あれのクリックも同じ理由で効いて
+ * いない**（載せ替えれば直るが、押させる必要が無いので放置している）。
  */
 export async function resolveNotifier(): Promise<NotifyFn | null> {
   if (cached !== undefined) return cached

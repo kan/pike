@@ -122,11 +122,23 @@ export async function windowRestore(): Promise<void> {
 /**
  * タスクバーのボタンを点滅させて、このウィンドウに用があることを知らせる（#265）。
  *
- * **デスクトップ通知の代わり**（理由は Rust 側の `window_flash` の doc）。止めるのは OS の
- * 仕事で、ウィンドウがアクティブになれば消える。
+ * 止めるのは OS の仕事で、ウィンドウがアクティブになれば消える。**デスクトップ通知
+ * （`toastNotify`）と並べて使う**: あちらを見逃してもタスクバーに残る。
  */
 export async function windowFlash(): Promise<void> {
   return invoke<void>('window_flash')
+}
+
+/**
+ * デスクトップ通知を 1 件出す（#318、Windows のみ）。**押すとこのウィンドウが前に出る**
+ * （宛先は Rust 側が呼び出し元のウィンドウから決めるので、引数に取らない）。
+ *
+ * **`lib/notify.ts` の経路とは別物。** あちらは押せない知らせ（トレイのヒント）用で、
+ * こちらは AUMID 付きショートカットを前提に `on_activated` を受ける。判断の正本は
+ * Rust 側の `toast/mod.rs` の doc。
+ */
+export async function toastNotify(pty: string, title: string, body: string): Promise<void> {
+  return invoke<void>('toast_notify', { pty, title, body })
 }
 
 export async function ptyGetCwd(id: string): Promise<string | null> {

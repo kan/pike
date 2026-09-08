@@ -34,16 +34,11 @@ use std::hash::{Hash, Hasher};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::OnceLock;
 
-use windows::core::{Interface, HSTRING, PWSTR};
-use windows::Win32::Foundation::{E_OUTOFMEMORY, PROPERTYKEY};
-use windows::Win32::System::Com::StructuredStorage::{
-    PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
-};
+use windows::core::{Interface, HSTRING};
+use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoTaskMemAlloc, CLSCTX_INPROC_SERVER,
-    COINIT_APARTMENTTHREADED,
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
-use windows::Win32::System::Variant::VT_LPWSTR;
 use windows::Win32::UI::Shell::Common::{IObjectArray, IObjectCollection};
 use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 use windows::Win32::UI::Shell::{
@@ -324,36 +319,10 @@ unsafe fn make_link(
     }
 
     let store: IPropertyStore = link.cast()?;
-    let title_pv = title_propvariant(title)?;
+    let title_pv = crate::types::lpwstr_propvariant(title)?;
     store.SetValue(&PKEY_TITLE, &title_pv)?;
     store.Commit()?;
     Ok(link)
-}
-
-/// VT_LPWSTR の PROPVARIANT を作る。文字列は CoTaskMemAlloc で確保し、
-/// PROPVARIANT の Drop（PropVariantClear）が CoTaskMemFree で解放する。
-/// （crate の `From<&str>` は VT_BSTR になり、ジャンプリストのタイトルとして
-/// 表示されないため手組みする）
-unsafe fn title_propvariant(s: &str) -> windows::core::Result<PROPVARIANT> {
-    let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
-    let mem = CoTaskMemAlloc(wide.len() * 2) as *mut u16;
-    if mem.is_null() {
-        return Err(windows::core::Error::from(E_OUTOFMEMORY));
-    }
-    std::ptr::copy_nonoverlapping(wide.as_ptr(), mem, wide.len());
-    Ok(PROPVARIANT {
-        Anonymous: PROPVARIANT_0 {
-            Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
-                vt: VT_LPWSTR,
-                wReserved1: 0,
-                wReserved2: 0,
-                wReserved3: 0,
-                Anonymous: PROPVARIANT_0_0_0 {
-                    pwszVal: PWSTR(mem),
-                },
-            }),
-        },
-    })
 }
 
 /// BeginList が返した「ユーザーが削除した項目」の引数集合を作る。

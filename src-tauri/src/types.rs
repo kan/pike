@@ -5,6 +5,10 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
+/// `lpwstr_propvariant` の戻り値。シグネチャに出るぶんだけここで受ける（中で使う型は
+/// 関数の中で `use` する）。
+#[cfg(windows)]
+use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 
 /// 外部コマンドの既定の待ち時間。`run` 系と検索が共有する。
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -198,6 +202,50 @@ fn identifiers_for(debug_build: bool) -> [&'static str; 2] {
     } else {
         [RELEASE_IDENTIFIER, DEBUG_IDENTIFIER]
     }
+}
+
+/// VT_LPWSTR の `PROPVARIANT` を作る（シェルのプロパティを書く 2 箇所で共有）。
+///
+/// **crate の `From<&str>` は VT_BSTR になる。** シェルはそれを読まず、値が無いものとして
+/// 扱うので、ジャンプリストの項目名（`PKEY_Title`）はタイトルとして表示されず、
+/// ショートカットの `PKEY_AppUserModel_ID` は「AUMID が無い」と見なされる（＝トーストが
+/// 出ない）。どちらも**静かに効かなくなる**ので、手組みするしかない。
+///
+/// 文字列は `CoTaskMemAlloc` で確保し、`PROPVARIANT` の Drop（`PropVariantClear`）が
+/// `CoTaskMemFree` で解放する。
+///
+/// # Safety
+///
+/// COM が初期化されたスレッドで呼ぶこと（`CoTaskMemAlloc` の前提）。
+#[cfg(windows)]
+pub unsafe fn lpwstr_propvariant(s: &str) -> windows::core::Result<PROPVARIANT> {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::E_OUTOFMEMORY;
+    use windows::Win32::System::Com::CoTaskMemAlloc;
+    use windows::Win32::System::Com::StructuredStorage::{
+        PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
+    };
+    use windows::Win32::System::Variant::VT_LPWSTR;
+
+    let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
+    let mem = CoTaskMemAlloc(wide.len() * 2) as *mut u16;
+    if mem.is_null() {
+        return Err(windows::core::Error::from(E_OUTOFMEMORY));
+    }
+    std::ptr::copy_nonoverlapping(wide.as_ptr(), mem, wide.len());
+    Ok(PROPVARIANT {
+        Anonymous: PROPVARIANT_0 {
+            Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
+                vt: VT_LPWSTR,
+                wReserved1: 0,
+                wReserved2: 0,
+                wReserved3: 0,
+                Anonymous: PROPVARIANT_0_0_0 {
+                    pwszVal: PWSTR(mem),
+                },
+            }),
+        },
+    })
 }
 
 /// Tauri が `app_config_dir` に解決する場所を、`AppHandle` 無しで組み立てる。

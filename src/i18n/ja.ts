@@ -313,6 +313,11 @@ export default {
   'settings.agentNotifyAll': '完了も',
   'settings.agentNotifyHint':
     'hook を登録したアカウントの Claude Code が入力を待ったとき、タスクバーのボタンを点滅させ、タブとプロジェクトに緑の点を付けます。見えているタブでは何もしません（Windows のみ）。',
+  'settings.desktopNotify': 'デスクトップ通知',
+  'settings.desktopNotifyHint':
+    '上の知らせをデスクトップ通知でも出します。通知をクリックすると、そのタブのウィンドウが前に出ます（Windows のみ）。',
+  'agentNotice.waiting': '{agent} が入力を待っています',
+  'agentNotice.done': '{agent} のターンが完了しました',
   'settings.agentHookOffer':
     'Claude Code の設定ディレクトリが見つかりました。\n\n{dirs}\n\nPike と連携する hook を登録しますか？\n登録すると、使用量・アカウント表示・セッション一覧が実際のアカウントのものになり、エージェントが入力を待ったときに通知が届きます。\n\n各ディレクトリの settings.json に hook を追加します。設定タブからいつでも解除できます。',
   'settings.agentHookPartial': 'hook を登録できませんでした: {dirs}',

@@ -129,6 +129,7 @@ pike/
 │       ├── jumplist/mod.rs    # タスクバーのジャンプリスト（#160、Windows 専用 COM）
 │       ├── appmenu/mod.rs     # macOS のアプリケーションメニュー（#254、macOS 専用）
 │       ├── tray/mod.rs        # システムトレイ（#161）
+│       ├── toast/mod.rs       # デスクトップ通知（#318、Windows 専用。押すとウィンドウが前に出る）
 │       ├── diagnostics/mod.rs # 外部リンタ実行 → Problems パネル
 │       ├── codex_usage/mod.rs # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
 │       ├── claude_usage/
@@ -156,7 +157,7 @@ pike/
 │       ├── search/
 │       │   └── mod.rs         # rg/grep バックエンド判定・検索・list_project_files
 │       ├── tasks.rs           # package.json/Makefile/deno.json/Cargo.toml のタスク再帰検出
-│       └── bin/               # 検証バイナリ（verify_pty / verify_tmux / verify_bollard / verify_busy）
+│       └── bin/               # 検証バイナリ（verify_pty / verify_tmux / verify_bollard / verify_busy / verify_toast）
 ├── src/                       # Vue/TypeScript フロント
 │   ├── App.vue                # ルート（PTY ルーター初期化・プロジェクト復元）
 │   ├── main.ts

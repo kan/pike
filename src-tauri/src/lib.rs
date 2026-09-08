@@ -58,6 +58,9 @@ mod search;
 mod settings_sync;
 mod shell_probe;
 mod tasks;
+/// デスクトップ通知（#318）。中で Windows / それ以外を分けるので、ここでは割らない
+/// （`toast_notify` コマンドは両方でコンパイルされる必要がある）。
+mod toast;
 mod tray;
 mod types;
 /// main.rs から起動時に呼ぶ（macOS / Linux の GUI プロセスの PATH 補正）。
@@ -906,7 +909,7 @@ async fn window_set_backdrop(
 /// Show, unminimize and focus a window — the restore-from-tray/minimized triple.
 /// Showing main again undoes its logical close (#202): it counts as a live
 /// window from here on.
-fn restore_window(w: &WebviewWindow) {
+pub(crate) fn restore_window(w: &WebviewWindow) {
     if w.label() == "main" {
         MAIN_CLOSED_HIDDEN.store(false, Ordering::Relaxed);
     }
@@ -1649,6 +1652,7 @@ pub fn run() {
             window_close_quits_app,
             window_restore,
             window_flash,
+            toast::toast_notify,
             pty::pty_get_cwd,
             project::detect_wsl_distros,
             project::project_get_last,

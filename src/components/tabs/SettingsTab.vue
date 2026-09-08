@@ -905,6 +905,20 @@ const PREVIEW_LINES = [
           <SettingItem label-key="settings.agentNotify" hint-key="settings.agentNotifyHint">
             <SettingToggle v-model="settings.agentNotify" :options="AGENT_NOTIFY_OPTIONS" />
           </SettingItem>
+
+          <!--
+            デスクトップ通知（#318）。**上の知らせの「出し方」なので隣に置く**（何を
+            知らせるかは上、どう知らせるかがここ）。Windows でしか届かないので、他の
+            ホストでは項目ごと出さない（`useSettingsSearch` の doc が許す「存在しない
+            項目」の側）。
+          -->
+          <SettingItem
+            v-if="isWindowsHost"
+            label-key="settings.desktopNotify"
+            hint-key="settings.desktopNotifyHint"
+          >
+            <SettingToggle v-model="settings.desktopNotify" :options="ON_OFF" />
+          </SettingItem>
         </SettingGroup>
       </SettingSection>
 
