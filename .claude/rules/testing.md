@@ -16,8 +16,10 @@ src-tauri/src/bin/
 ├── verify_busy.rs     # 実行中プロセス判定（#178）。ConPTY / WSL の挙動確認なので中身ごと
 │                      # Windows 専用（`mod imp` を 1 つの cfg で包む。非 Windows でも
 │                      # cargo が拾うので main だけは常に生やす）
-└── verify_toast.rs    # デスクトップ通知（#318）。AUMID 付きショートカットの作成と、
-                       # トーストのクリックが返るかを実機で見る。同じく Windows 専用
+└── verify_toast.rs    # デスクトップ通知（#318 → #334）。AUMID と活性化 CLSID 付きの
+                       # ショートカット、`pike-dev://` の登録、プロトコル活性化のトーストを
+                       # 実機で見る（**通知センターからのクリックはそこでしか確かめられない**）。
+                       # 同じく Windows 専用
 ```
 
 各バイナリは単独で `cargo run --bin verify_xxx` できるように `fn main()` を持つ。

@@ -130,15 +130,17 @@ export async function windowFlash(): Promise<void> {
 }
 
 /**
- * デスクトップ通知を 1 件出す（#318、Windows のみ）。**押すとこのウィンドウが前に出る**
- * （宛先は Rust 側が呼び出し元のウィンドウから決めるので、引数に取らない）。
+ * デスクトップ通知を 1 件出す（#318、Windows のみ）。**押すとその知らせの出どころへ
+ * 連れて行く**（#334）。
  *
- * **`lib/notify.ts` の経路とは別物。** あちらは押せない知らせ（トレイのヒント）用で、
- * こちらは AUMID 付きショートカットを前提に `on_activated` を受ける。判断の正本は
- * Rust 側の `toast/mod.rs` の doc。
+ * **宛先はウィンドウではなく `pty` と `project`。** 押されるのは通知センターから数時間後
+ * でもよく、そのころ Pike が走っていないことすらある（Windows が `pike://` で起こし直す）。
+ * 判断の正本は Rust 側の `toast/activation.rs` の doc。
+ *
+ * **`lib/notify.ts` の経路とは別物。** あちらは押せない知らせ（トレイのヒント）用。
  */
-export async function toastNotify(pty: string, title: string, body: string): Promise<void> {
-  return invoke<void>('toast_notify', { pty, title, body })
+export async function toastNotify(pty: string, project: string | null, title: string, body: string): Promise<void> {
+  return invoke<void>('toast_notify', { pty, project, title, body })
 }
 
 export async function ptyGetCwd(id: string): Promise<string | null> {
@@ -805,11 +807,18 @@ export interface CliOpenProject {
   shell?: ShellType | null
 }
 
+/** 通知からのコールドスタートで行きたいプロジェクト（#334）。**開くのはフロント**で、
+ *  前回のセッションを復元してからそこへ行く（理由は Rust の `CliAction` の doc）。 */
+export interface CliFocusProject {
+  action: 'focusProject'
+  id: string
+}
+
 export interface CliNone {
   action: 'none'
 }
 
-export type CliAction = CliOpenFiles | CliOpenDirectory | CliOpenTerminal | CliOpenProject | CliNone
+export type CliAction = CliOpenFiles | CliOpenDirectory | CliOpenTerminal | CliOpenProject | CliFocusProject | CliNone
 
 export async function cliGetInitialAction(): Promise<CliAction> {
   return invoke<CliAction>('cli_get_initial_action')

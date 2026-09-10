@@ -84,6 +84,13 @@ async function handleNotice(notice: AgentNotice) {
   // hook は登録したままなので、戻せばすぐ効く（登録は #299 の申告にも要る）。
   if (mode === 'off') return
 
+  // **知らせないアイドルは、届かなかったものとして扱う（#338）。** 印だけ立てると、
+  // それが次の知らせの `known`（＝「もう知らせた」）として読まれ、**そのあとに来る本物の
+  // 入力待ちが握り潰される**。長いサブエージェントを待っているあいだに 60 秒の
+  // `idle_prompt` が来て、その後の権限確認が黙る、という #338 が直したい場面そのもので
+  // 起きる。印と「知らせた」を 1 つで持っている以上、ここで分けるしかない。
+  if (notice.event === 'idle' && !useSettingsStore().agentNotifyIdle) return
+
   const tabStore = useTabStore()
   const tab = tabStore.terminalByPty(notice.ptyId)
   if (!tab) return
@@ -125,7 +132,11 @@ async function handleNotice(notice: AgentNotice) {
       title,
     })
   }
-  await toastNotify(notice.ptyId, title, body).catch((e: unknown) => console.error('[agent-notice] toast failed:', e))
+  // **プロジェクトも渡す（#334）。** 通知センターから数時間後に押されたとき、その pty は
+  // もう無いことのほうが多い。そこまで分かっていればプロジェクトのウィンドウへは行ける。
+  await toastNotify(notice.ptyId, tab.projectId ?? null, title, body).catch((e: unknown) =>
+    console.error('[agent-notice] toast failed:', e),
+  )
 }
 
 /**
@@ -179,12 +190,9 @@ function agentName(id: AgentId): string {
  * **同じ待ちで 2 度光らせない。** 権限の確認が続けて出ると `Notification` も続けて来るが、
  * まだ答えていないのだから知らせ直す意味が無い（`markTabActivity` と同じ判断）。
  *
- * **`idle` は既定で黙る（#338）。** 60 秒なにも入力していないだけの知らせは、長く走る
- * サブエージェントの終わりを待っているあいだにも出るので、大半は鳴っても答えることが無い。
- * 設定（`agentNotifyIdle`）を入れた人にだけ届ける。
+ * ここに `idle` の分岐は無い（`handleNotice` の入口で落としてある）。知らせない契機を
+ * ここまで通すと、印を立てたことが「もう知らせた」として次の知らせを消す。
  */
 function shouldFlash(mode: AgentNotifyMode, event: NoticeKind, known: boolean): boolean {
-  if (event === 'done') return mode === 'all'
-  if (event === 'idle' && !useSettingsStore().agentNotifyIdle) return false
-  return !known
+  return event === 'done' ? mode === 'all' : !known
 }

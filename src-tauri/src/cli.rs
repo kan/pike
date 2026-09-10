@@ -44,6 +44,16 @@ pub enum CliAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shell: Option<crate::types::ShellConfig>,
     },
+    /// 通知（#334）からのコールドスタートで、行きたいプロジェクト。
+    ///
+    /// **`OpenProject` と分けてある。** あちらは昇格再起動の経路で、セッションの復元を
+    /// 飛ばしてターミナルを 1 枚足す。こちらは逆で、**前回のセッションを普通に復元して
+    /// から**そのプロジェクトへ行く（受け身の操作なので、前回開いていたウィンドウを
+    /// 失わせない）。`window_projects` に seed しないのも同じ理由: seed するとフロントが
+    /// 復元を飛ばし、`project_add_open` の全量書き直しで他のウィンドウの記録が消える。
+    FocusProject {
+        id: String,
+    },
     None,
 }
 

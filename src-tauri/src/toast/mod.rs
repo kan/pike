@@ -5,8 +5,15 @@
 //!
 //! `tauri-plugin-notification` の desktop 実装は `notify_rust` へ投げっぱなしで、
 //! クリックを受ける口がそもそも無い（`onAction` はモバイル専用）。押させたい知らせを
-//! あれに載せられないことは `lib/notify.ts` の doc が言っているとおりで、ここは
-//! `tauri-winrt-notification` を直接叩く（依存ツリーには `notify_rust` 経由で既にいる）。
+//! あれに載せられないことは `lib/notify.ts` の doc が言っているとおり。
+//!
+//! ## XML を自前で組む理由（#334）
+//!
+//! 押されたことを受けるのは**プロトコル活性化**（`activation.rs` の doc が正本）で、
+//! そのためには `<toast>` に `activationType="protocol"` と `launch` を書く必要がある。
+//! `tauri-winrt-notification` はテンプレートを内部で組み立てていて、この 2 つを書く口が
+//! 無い（出せる属性は `duration` と `scenario` だけ）。WinRT の口（`XmlDocument` ＋
+//! `ToastNotification`）は `windows` crate に既にあるので、そこだけ直に叩く。
 //!
 //! ## AUMID とショートカット
 //!
@@ -23,19 +30,21 @@
 //!
 //! ## 保持しない
 //!
-//! `Toast` を持ち続ける必要は無い（実機で確認）。`show()` がハンドラを登録した時点で
-//! COM 側が参照を取るので、Rust 側の値を drop してもクリックは返る。**送出した通知を
-//! 覚えておく仕組みを足さないこと**: 溜めれば解放の契機（`on_dismissed`）が要るが、
-//! 持たなければリークのしようがない。
+//! 送出した通知を覚えておく仕組みは持たない。**#334 で活性化がプロセスの外へ出た**ので、
+//! 押されたことを受けるのに Rust 側の値が生きている必要すらなくなった（Windows が
+//! `launch` の URL で新しい `pike.exe` を起こし、single-instance が走っているほうへ
+//! 転送する）。
+
+pub mod activation;
 
 #[cfg(windows)]
 mod imp {
+    use super::activation::{scheme, Activation};
     use std::path::PathBuf;
     use std::sync::mpsc::{channel, Sender};
     use std::sync::OnceLock;
-    use tauri::{AppHandle, Emitter, Manager};
-    use tauri_winrt_notification::Toast;
     use windows::core::{Interface, GUID, HSTRING};
+    use windows::Data::Xml::Dom::XmlDocument;
     use windows::Win32::Foundation::PROPERTYKEY;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER,
@@ -44,6 +53,7 @@ mod imp {
     use windows::Win32::System::Variant::VT_LPWSTR;
     use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
     use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 
     /// `PKEY_AppUserModel_ID`。`windows` crate の PKEY 定数は別 feature に入っているので、
     /// `jumplist` の `PKEY_TITLE` と同じく値を直接書く。
@@ -52,14 +62,31 @@ mod imp {
         pid: 5,
     };
 
-    /// 1 件ぶんの依頼と、それを届ける先。
+    /// `PKEY_AppUserModel_ToastActivatorCLSID`（#334）。AUMID と同じ fmtid の pid 26。
+    const PKEY_TOAST_ACTIVATOR_CLSID: PROPERTYKEY = PROPERTYKEY {
+        fmtid: GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+        pid: 26,
+    };
+
+    /// ショートカットに書く活性化 CLSID（#334）。
+    ///
+    /// **COM サーバーは実装しない**（スタブ）。Microsoft が挙げている 2 案のうち
+    /// 「スタブ CLSID ＋ プロトコル活性化」を採ったので、Windows がここを CoCreate して
+    /// 失敗したあと `launch` の URL へ落ちる。値は固定であればよく、**ビルドで分けない**:
+    /// 分ける先のショートカットが既に別（`link_name`）なので、同じ値でも取り違えない。
+    const TOAST_ACTIVATOR_CLSID: GUID = GUID::from_u128(0xc221827b_dacc_4e32_a805_a991753a6af8);
+
+    /// 1 件ぶんの依頼。
+    ///
+    /// **ウィンドウのラベルは持たない**（#334）。押されたことを受けるのはプロトコル
+    /// 経由になり、そのころ**このプロセスは生きていないことがある**ので、宛先は
+    /// 「今どのウィンドウにあるか」ではなく「何を探せばよいか」（pty とプロジェクト）で
+    /// 持つ。
     struct Job {
-        app: AppHandle,
-        /// 押されたときに前へ出すウィンドウのラベル。
-        window: String,
-        /// どのターミナルの知らせか。**押されたときにそのままフロントへ返す**
-        /// （`toast_activated`）ので、Rust 側はタブを知らなくてよい。
+        /// どのターミナルの知らせか。
         pty: String,
+        /// そのタブの持ち主。pty が見つからないときの行き先（#334）。
+        project: Option<String>,
         /// 太字で出る 1 行目。
         title: String,
         /// 2 行目（何が起きたか）。
@@ -120,11 +147,28 @@ mod imp {
         (!p.is_null()).then(|| p.to_string().ok()).flatten()
     }
 
-    /// AUMID を書いたショートカットを用意する。**冪等**で、既に入っていれば読むだけ。
+    /// 既に入っている活性化 CLSID（#334）。AUMID と同じく、読むのは「書いてあるか」だけ。
+    unsafe fn current_activator(store: &IPropertyStore) -> Option<GUID> {
+        use windows::Win32::System::Variant::VT_CLSID;
+        let pv = store.GetValue(&PKEY_TOAST_ACTIVATOR_CLSID).ok()?;
+        let inner = &*pv.Anonymous.Anonymous;
+        if inner.vt != VT_CLSID {
+            return None;
+        }
+        let p = inner.Anonymous.puuid;
+        (!p.is_null()).then(|| *p)
+    }
+
+    /// AUMID と活性化 CLSID を書いたショートカットを用意する。**冪等**で、既に両方
+    /// 入っていれば読むだけ。
     ///
     /// **既存のファイルは読み込んでから書き足す。** インストール版のショートカットは
     /// NSIS が作ったもので、ターゲットも作業ディレクトリもあちらの持ち物。作り直すと
     /// その内容を Pike が決めることになる。
+    ///
+    /// **CLSID を書くと、画面上のトーストもプロトコル経由になる**（#334。`activation.rs` の
+    /// doc）。だから「既に AUMID がある」だけで戻らないこと: #318 の版が書いた
+    /// ショートカットには CLSID が無く、そのままでは通知センターからのクリックが死ぬ。
     unsafe fn ensure_shortcut(aumid: &str) -> windows::core::Result<()> {
         let Some(path) = link_path() else {
             return Ok(());
@@ -138,7 +182,9 @@ mod imp {
 
         if path.is_file() {
             file.Load(&wide_path, STGM_READWRITE)?;
-            if current_aumid(&store).as_deref() == Some(aumid) {
+            if current_aumid(&store).as_deref() == Some(aumid)
+                && current_activator(&store) == Some(TOAST_ACTIVATOR_CLSID)
+            {
                 return Ok(());
             }
         } else {
@@ -156,9 +202,101 @@ mod imp {
 
         let pv = crate::types::lpwstr_propvariant(aumid)?;
         store.SetValue(&PKEY_APPUSERMODEL_ID, &pv)?;
+        let pv = crate::types::clsid_propvariant(TOAST_ACTIVATOR_CLSID)?;
+        store.SetValue(&PKEY_TOAST_ACTIVATOR_CLSID, &pv)?;
         store.Commit()?;
         file.Save(&wide_path, true)?;
         Ok(())
+    }
+
+    /// `pike://` を自分の exe に紐付ける（#334）。**冪等**で、同じ行が既に入っていれば
+    /// 何も書かない。
+    ///
+    /// **書くのは HKCU**（`HKEY_CLASSES_ROOT` はマシン全体で、管理者権限が要る）。
+    /// インストーラではなくアプリ自身が書くのは、開発版と、既に入れてある版の両方を
+    /// 同じ経路で賄うため（インストーラに足すと、更新しない限り登録されない）。
+    unsafe fn ensure_protocol() -> windows::core::Result<()> {
+        let exe = std::env::current_exe()?;
+        let command = format!("\"{}\" \"%1\"", exe.to_string_lossy());
+        let root = format!(r"Software\Classes\{}", scheme());
+        // シェルが「URL のハンドラ」と見なすのに要る 2 つ。値の中身は表示用で、
+        // 判定に使われるのは `URL Protocol` が**在ること**だけ。**名前はショートカットと
+        // 揃える**（`Pike` / `Pike (dev)`）: identifier をそのまま書くと、レジストリを
+        // 覗いた人に `URL:com.pike.dev.debug Protocol` という綴りが見える。
+        let name = link_name().trim_end_matches(".lnk");
+        write_reg(&root, None, &format!("URL:{name} Protocol"))?;
+        write_reg(&root, Some("URL Protocol"), "")?;
+        write_reg(&format!(r"{root}\shell\open\command"), None, &command)
+    }
+
+    /// HKCU の 1 つの値を書く（既に同じ値なら書かない）。`value` が `None` は既定値。
+    unsafe fn write_reg(path: &str, value: Option<&str>, data: &str) -> windows::core::Result<()> {
+        use windows::Win32::System::Registry::{
+            RegCloseKey, RegCreateKeyExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE,
+            REG_OPTION_NON_VOLATILE,
+        };
+        let mut key = HKEY::default();
+        RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(path),
+            None,
+            None,
+            REG_OPTION_NON_VOLATILE,
+            KEY_READ | KEY_WRITE,
+            None,
+            &mut key,
+            None,
+        )
+        .ok()?;
+        // **開いた鍵は必ず閉じる**（この関数は通知のたびには呼ばれないが、失敗しても
+        // 漏らさない形にしておく）。
+        let result = write_value(key, value, data);
+        let _ = RegCloseKey(key);
+        result
+    }
+
+    unsafe fn write_value(
+        key: windows::Win32::System::Registry::HKEY,
+        value: Option<&str>,
+        data: &str,
+    ) -> windows::core::Result<()> {
+        use windows::Win32::System::Registry::{RegQueryValueExW, RegSetValueExW, REG_SZ};
+        let name = value.map(HSTRING::from);
+        let name = name
+            .as_ref()
+            .map(|n| windows::core::PCWSTR(n.as_ptr()))
+            .unwrap_or(windows::core::PCWSTR::null());
+        // 同じ値なら書かない。レジストリは他人も見る場所なので、起動のたびに更新時刻を
+        // 動かさない。
+        let existing = {
+            // **`u16` のバッファで受ける。** `Vec<u8>` の先頭を `*const u16` として読むのは
+            // 未整列参照（実際のアロケータでは整列するが、仕様上は UB）。
+            // 入らなければ `ERROR_MORE_DATA` で失敗し、「違う値」として書き直すだけ
+            // （書く内容は同じなので実害は無い）。exe のパス 1 本ぶんの余裕は取る。
+            let mut buf = vec![0u16; 1024];
+            let mut size = (buf.len() * 2) as u32;
+            let ok = RegQueryValueExW(
+                key,
+                name,
+                None,
+                None,
+                Some(buf.as_mut_ptr() as *mut u8),
+                Some(&mut size),
+            )
+            .is_ok();
+            ok.then(|| {
+                let len = (size as usize / 2).min(buf.len());
+                String::from_utf16_lossy(&buf[..len])
+                    .trim_end_matches('\0')
+                    .to_string()
+            })
+        };
+        if existing.as_deref() == Some(data) {
+            return Ok(());
+        }
+        let wide: Vec<u16> = data.encode_utf16().chain(std::iter::once(0)).collect();
+        let bytes = std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
+        RegSetValueExW(key, name, None, REG_SZ, Some(bytes)).ok()
     }
 
     /// 常駐スレッドへの送信口。初回の通知でスレッドを起こす。
@@ -181,8 +319,8 @@ mod imp {
                         return;
                     }
                     let aumid = crate::types::app_identifier();
-                    // **ショートカットの用意は最初の 1 件のときだけ。** 通知を出さない人
-                    // （設定が off、hook 未登録）のスタートメニューには何も置かない。
+                    // **用意は最初の 1 件のときだけ。** 通知を出さない人（設定が off、
+                    // hook 未登録）のスタートメニューにもレジストリにも何も置かない。
                     // 失敗しても再試行しない: 直らない類の失敗（APPDATA が読めない等）で
                     // 毎回 COM を叩いても仕方がないうえ、show() は試す価値がある。
                     let mut prepared = false;
@@ -191,6 +329,11 @@ mod imp {
                             prepared = true;
                             if let Err(e) = unsafe { ensure_shortcut(aumid) } {
                                 log::warn!("[toast] shortcut setup failed: {e:?}");
+                            }
+                            // **ショートカットと対**（#334）。CLSID を書いた時点で活性化は
+                            // プロトコル経由になるので、宛先が無いと押しても何も起きない。
+                            if let Err(e) = unsafe { ensure_protocol() } {
+                                log::warn!("[toast] protocol setup failed: {e:?}");
                             }
                         }
                         show(aumid, job);
@@ -201,55 +344,88 @@ mod imp {
         })
     }
 
+    /// トーストの XML。**`launch` と `activationType` を書くために自前で組む**（モジュール
+    /// doc）。テンプレートは `ToastGeneric`: CLSID を指定したトーストでは、`ToastText02`
+    /// のようなレガシーテンプレートだと活性化が失敗する。
+    fn toast_xml(launch: &str, title: &str, body: &str) -> String {
+        format!(
+            r#"<toast activationType="protocol" launch="{}"><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text></binding></visual></toast>"#,
+            xml_escape(launch),
+            xml_escape(title),
+            xml_escape(body)
+        )
+    }
+
+    /// XML の属性とテキストに入れてよい形にする。**`launch` はクエリ（`&`）を含む**ので、
+    /// これを通さないと `LoadXml` がその場で失敗する（＝通知が 1 件も出なくなる）。
+    fn xml_escape(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for c in s.chars() {
+            match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                '\'' => out.push_str("&apos;"),
+                _ => out.push(c),
+            }
+        }
+        out
+    }
+
     fn show(aumid: &str, job: Job) {
         let Job {
-            app,
-            window: label,
             pty,
+            project,
             title,
             body,
         } = job;
-        let toast = Toast::new(aumid)
-            .title(&title)
-            .text1(&body)
-            .on_activated(move |_action| {
-                // **コールバックは WinRT のスレッドプールで走る**ので、ウィンドウを
-                // 直接触らずメインスレッドへ回す。`action` は `launch` 属性の値で、
-                // 設定していないので常に空。**どのウィンドウかはここで capture した
-                // ラベルが持つ**（アプリが生きているあいだのクリックだけが対象なので、
-                // XML に載せて往復させる必要が無い）。
-                let app = app.clone();
-                let label = label.clone();
-                let pty = pty.clone();
-                let _ = app.clone().run_on_main_thread(move || {
-                    let Some(w) = app.get_webview_window(&label) else {
-                        return;
-                    };
-                    crate::restore_window(&w);
-                    // **そのタブまで連れて行くのはフロントの仕事**（別プロジェクトの
-                    // タブなら切り替えが要り、その手順は `stores/project.ts` にある）。
-                    // ここは pty id をそのまま返すだけで、タブを知らない。
-                    let _ = w.emit("toast_activated", pty);
-                });
-                Ok(())
-            });
-        // **`on_dismissed` は登録しない。** 保持しないので解放する対象が無く、
-        // 消えたことを知っても何もすることがない。
-        if let Err(e) = toast.show() {
+        // **どのタブかは URL が持つ**（#334）。押されるのは数時間後でもよく、そのころ
+        // この プロセスは生きていないことがある。
+        let launch = Activation { pty, project }.to_url();
+        if let Err(e) = show_xml(aumid, &toast_xml(&launch, &title, &body)) {
             log::warn!("[toast] show failed: {e:?}");
         }
     }
 
+    fn show_xml(aumid: &str, xml: &str) -> windows::core::Result<()> {
+        let doc = XmlDocument::new()?;
+        doc.LoadXml(&HSTRING::from(xml))?;
+        let toast = ToastNotification::CreateToastNotification(&doc)?;
+        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(aumid))?.Show(&toast)
+    }
+
     /// トーストを 1 件出す。**呼ぶかどうかはフロントの設定（`desktopNotify`）が決める**
     /// ので、ここでは見ない（Rust 側に設定の写しを持たない）。
-    pub fn notify(app: &AppHandle, window: String, pty: String, title: String, body: String) {
+    pub fn notify(pty: String, project: Option<String>, title: String, body: String) {
         let _ = worker().send(Job {
-            app: app.clone(),
-            window,
             pty,
+            project,
             title,
             body,
         });
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// `launch` のクエリの `&` を escape しないと、`LoadXml` がその場で失敗して
+        /// **通知が 1 件も出なくなる**。
+        #[test]
+        fn escapes_the_launch_url() {
+            let xml = toast_xml("pike://focus?pty=a&project=b", "t", "b");
+            assert!(xml.contains("pty=a&amp;project=b"));
+            assert!(!xml.contains("pty=a&project=b"));
+        }
+
+        /// 見出しと本文にも人の書いた文字列が入る（プロジェクト名・タブ名）。
+        #[test]
+        fn escapes_the_text() {
+            let xml = toast_xml("pike://focus?pty=a", "a<b>", "x & y");
+            assert!(xml.contains("a&lt;b&gt;"));
+            assert!(xml.contains("x &amp; y"));
+        }
     }
 }
 
@@ -262,24 +438,14 @@ mod imp {
 /// 死角そのもので、Windows の手元では 1 行も見えない）。引数なら `_` を付ければ済む。
 #[cfg(not(windows))]
 mod imp {
-    pub fn notify(
-        _app: &tauri::AppHandle,
-        _window: String,
-        _pty: String,
-        _title: String,
-        _body: String,
-    ) {
-    }
+    pub fn notify(_pty: String, _project: Option<String>, _title: String, _body: String) {}
 }
 
 /// エージェントの知らせをデスクトップ通知で出す。
+///
+/// **`project` はタブの持ち主**（#334）。押されたときに pty が見つからなくても、そこまでは
+/// 連れて行けるように通知そのものへ載せる（通知センターからは数時間後に押されうる）。
 #[tauri::command]
-pub fn toast_notify(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-    pty: String,
-    title: String,
-    body: String,
-) {
-    imp::notify(&app, window.label().to_string(), pty, title, body);
+pub fn toast_notify(pty: String, project: Option<String>, title: String, body: String) {
+    imp::notify(pty, project, title, body);
 }

@@ -248,6 +248,44 @@ pub unsafe fn lpwstr_propvariant(s: &str) -> windows::core::Result<PROPVARIANT> 
     })
 }
 
+/// `PROPVARIANT`（`VT_CLSID`）を手組みする。ショートカットの
+/// `PKEY_AppUserModel_ToastActivatorCLSID` に書くための版（#334）。
+///
+/// **`lpwstr_propvariant` と同じ理由でここにある**（crate の `From` に VT_CLSID の口が
+/// 無い）。GUID は `CoTaskMemAlloc` で確保し、`PROPVARIANT` の Drop（`PropVariantClear`）が
+/// `CoTaskMemFree` で解放する。
+///
+/// # Safety
+///
+/// COM が初期化されたスレッドで呼ぶこと（`CoTaskMemAlloc` の前提）。
+#[cfg(windows)]
+pub unsafe fn clsid_propvariant(guid: windows::core::GUID) -> windows::core::Result<PROPVARIANT> {
+    use windows::Win32::Foundation::E_OUTOFMEMORY;
+    use windows::Win32::System::Com::CoTaskMemAlloc;
+    use windows::Win32::System::Com::StructuredStorage::{
+        PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
+    };
+    use windows::Win32::System::Variant::VT_CLSID;
+
+    let mem =
+        CoTaskMemAlloc(std::mem::size_of::<windows::core::GUID>()) as *mut windows::core::GUID;
+    if mem.is_null() {
+        return Err(windows::core::Error::from(E_OUTOFMEMORY));
+    }
+    std::ptr::write(mem, guid);
+    Ok(PROPVARIANT {
+        Anonymous: PROPVARIANT_0 {
+            Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
+                vt: VT_CLSID,
+                wReserved1: 0,
+                wReserved2: 0,
+                wReserved3: 0,
+                Anonymous: PROPVARIANT_0_0_0 { puuid: mem },
+            }),
+        },
+    })
+}
+
 /// Tauri が `app_config_dir` に解決する場所を、`AppHandle` 無しで組み立てる。
 ///
 /// **アプリが立ち上がる前**（`pike agent-hook`、`window_geom::prune_plugin_state`）と、

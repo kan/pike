@@ -26,7 +26,7 @@
  *
  * ## 聞いた記録
  *
- * `pike:agent-hook-asked` に `installKey` の配列で持つ。**マシンローカル**（同期の対象外）
+ * `ASKED_KEY` に `installKey` の配列で持つ（版付き。理由はその宣言の隣）。**マシンローカル**（同期の対象外）
  * なのは、hook が settings.json というマシン上のファイルへの登録だから。別のマシンで聞いた
  * ことは、このマシンで聞かない理由にならない（`pike:link-title-asked` と同じ判断）。
  */
@@ -39,7 +39,20 @@ import { useStatusMessageStore } from '../stores/statusMessage'
 import { installKey } from '../types/tab'
 import { confirmDialog, dialogOpen } from './useConfirmDialog'
 
-const ASKED_KEY = 'pike:agent-hook-asked'
+/**
+ * 聞いた記録の置き場。**末尾の版は、登録する hook の形（`HOOKS`）が変わったときに上げる。**
+ *
+ * 上げると全員に 1 回だけ聞き直すことになるが、**それが唯一の移行の経路**: 古い形の行を
+ * 作り直すのは `ensure_hook` の中だけで、そこへ入るのは登録の操作しかない。上げずに
+ * 済ませると、既に承諾している人（＝この機能を使っている人ほぼ全員）に移行が届かず、
+ * 設定画面で手で「登録」を押した人だけが直る。
+ *
+ * **聞かれるのは移行が要る人だけ**（下の `every(registered)` で弾かれる）。#338 のように
+ * matcher を割った改訂では、古い行しか無いファイルが「未登録」と判定される。
+ *
+ * 旧キー（`pike:agent-hook-asked`）は読まない。残っても害が無いので消していない。
+ */
+const ASKED_KEY = 'pike:agent-hook-asked-v2'
 /** 旧「断った」の記録（マシンに 1 つ）。読むのは移行のときだけ。 */
 const DECLINED_KEY = 'pike:agent-hook-declined'
 

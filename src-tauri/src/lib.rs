@@ -450,6 +450,11 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
     if agent_hook::try_handle_notice(app, args) {
         return;
     }
+    // デスクトップ通知が押された（#334）。**これも CLI のアクションではない**: `pike://…`
+    // をディスパッチへ流すと、そういう名前のファイルを開こうとする。
+    if try_handle_activation(app, args) {
+        return;
+    }
     let wait_id = wait::extract_wait_id(args);
     let from_window = cli::extract_from_window(args);
     let action = cli::parse_args(args, cwd);
@@ -586,6 +591,10 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
                 build_project_window(app, id, Some(action.clone()));
             }
         }
+
+        // 走っているインスタンスには来ない（通知の活性化は `try_handle_activation` が
+        // 先に受ける）。コールドスタートで `initial_action` に積むためだけの形。
+        cli::CliAction::FocusProject { .. } => {}
     }
 }
 
@@ -650,6 +659,46 @@ fn project_for_window(
 #[tauri::command]
 fn focus_project_window(project_id: String, app: AppHandle) -> bool {
     focus_project_window_anywhere(&app, &project_id, None)
+}
+
+/// デスクトップ通知が押されたら、その知らせの出どころまで連れて行く（#334）。押された
+/// ものだったら `true`。
+///
+/// **行き先は 3 段に落ちる。** タブが生きていればそこへ（フロントが必要なら別プロジェクトへ
+/// 切り替える）、無ければそのプロジェクトのウィンドウを前へ、それも無ければプロジェクトを
+/// 開く。**通知センターからは数時間後に押されうる**ので、タブが残っていないのはむしろ
+/// 普通の側で、そこで諦めると「押しても何も起きない」が戻ってくる。
+///
+/// **プロジェクトを持たない知らせ**（グローバルウィンドウのターミナル）でタブも無ければ、
+/// 開く先が無いので何もしない。それでも `true` を返すのは、これが CLI のアクションでは
+/// ないから（呼び出し元がディスパッチへ流さないための返り値）。
+fn try_handle_activation(app: &AppHandle, args: &[String]) -> bool {
+    let Some(act) = toast::activation::from_args(args) else {
+        return false;
+    };
+    log::debug!("[toast] activated: {act:?}");
+    if let Some(w) = app
+        .try_state::<pty::PtyState>()
+        .and_then(|state| pty::window_for_pty(&state, &act.pty))
+        .and_then(|label| app.get_webview_window(&label))
+    {
+        restore_window(&w);
+        // **そのタブまで連れて行くのはフロントの仕事**（別プロジェクトのタブなら切り替えが
+        // 要り、その手順は `stores/project.ts` にある）。ここは pty id をそのまま返す。
+        let _ = w.emit("toast_activated", act.pty);
+        return true;
+    }
+    // **実在を確かめてから開く。** 消したプロジェクトや、破棄済みの一時プロジェクト
+    // （#230。`pike .` で開いたディレクトリのタブでも通知は出る）の古いトーストを押すと、
+    // `switchProject` が `findProject` で早期 return するので、**プロジェクトも切替 UI も
+    // 無い空のウィンドウが 1 枚開く**。`project_root_for_id` は一時プロジェクトも見る。
+    if let Some(id) = act.project {
+        let projects = load_all_projects(app);
+        if project_root_for_id(app, &projects, &id).is_some() {
+            focus_or_build_project_window(app, &id);
+        }
+    }
+    true
 }
 
 /// Focus the project window for `id` if it's live, else build it. Shared by the
@@ -1406,7 +1455,16 @@ pub fn run() {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            let mut action = cli::parse_args(&args, &cwd);
+            // 通知からのコールドスタート（#334）。Pike が走っていなかったのだから
+            // **pty はもう無い**ので、行けるのはプロジェクトまで。**行き先を伝えるだけで、
+            // 開くのはフロント**（理由は `CliAction::FocusProject` の doc）。
+            let mut action =
+                match toast::activation::from_args(&args) {
+                    Some(act) => act.project.map_or(cli::CliAction::None, |id| {
+                        cli::CliAction::FocusProject { id }
+                    }),
+                    None => cli::parse_args(&args, &cwd),
+                };
             // Cold start on a project root (`pike <dir>`, a jump list entry with
             // Pike closed): hand the main window that project before its webview
             // mounts, the same way a running instance routes those arguments to a

@@ -3259,7 +3259,6 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-plugin-wdio-webdriver",
  "tauri-plugin-window-state",
- "tauri-winrt-notification",
  "tokio",
  "toml 1.1.5+spec-1.1.0",
  "uuid",

@@ -90,6 +90,12 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_WindowsAndMessaging",
+    # toast (#334): 通知の活性化をプロトコルに一本化するため、XML を自前で組んで
+    # ToastNotification を出す（`launch` / `activationType` を書く口が
+    # tauri-winrt-notification に無い）。URI スキームの登録は Registry。
+    "Data_Xml_Dom",
+    "UI_Notifications",
+    "Win32_System_Registry",
 ] }
 # drop_paths.rs の WebMessageReceived ブリッジ用。wry が同版を使っており
 # 新規の依存ツリー追加ではない（Cargo.lock に既存）。webview2-com の COM 型は
@@ -97,10 +103,9 @@ windows = { version = "0.62", features = [
 # Interface trait / PWSTR はこちらの windows-core を合わせて使う。
 webview2-com = "0.38"
 windows-core = "0.61"
-# デスクトップ通知（#318）。**`tauri-plugin-notification` 経由で既に依存ツリーにいる**
-# （notify-rust → これ）ので、直接依存へ上げてもビルドは増えない。プラグインを使わない
-# 理由は、あちらに desktop のクリックを受ける口が無いこと（`lib/notify.ts` の doc）。
-tauri-winrt-notification = "0.7"
+# デスクトップ通知（#318）で使っていた `tauri-winrt-notification` は #334 で外した。
+# `launch` / `activationType` を書く口が無く、通知センターからのクリックを受けられない
+# （`toast/mod.rs` の doc）。今は `windows` crate の ToastNotification を直に叩く。
 # 背景透過（issue #162）: アクリル / Mica のすりガラス効果を実行時に適用/解除する。
 window-vibrancy = "0.8"
 # window-vibrancy の API が要求するハンドルの trait。`Window` と `WebviewWindow` の

@@ -320,7 +320,7 @@ export default {
     'Flashes the taskbar button and marks the tab and project with a green dot when Claude Code in a hooked account waits for input. Tabs you can already see stay silent (Windows only).',
   'settings.agentNotifyIdle': 'Also notify when merely idle',
   'settings.agentNotifyIdleHint':
-    'Also notifies when the agent has had no input for 60 seconds. That fires while you wait for a long-running subagent too, so it is off by default. The tab and project dots appear either way.',
+    'Also notifies when the agent has had no input for 60 seconds. That fires while you wait for a long-running subagent too, so it is off by default. While off, the tab and project dots stay off as well.',
   'settings.desktopNotify': 'Desktop notifications',
   'settings.desktopNotifyHint':
     'Also shows the notice above as a desktop notification. Clicking it brings that tab’s window to the front (Windows only).',

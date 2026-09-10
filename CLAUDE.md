@@ -129,7 +129,9 @@ pike/
 │       ├── jumplist/mod.rs    # タスクバーのジャンプリスト（#160、Windows 専用 COM）
 │       ├── appmenu/mod.rs     # macOS のアプリケーションメニュー（#254、macOS 専用）
 │       ├── tray/mod.rs        # システムトレイ（#161）
-│       ├── toast/mod.rs       # デスクトップ通知（#318、Windows 専用。押すとウィンドウが前に出る）
+│       ├── toast/
+│       │   ├── mod.rs         # デスクトップ通知（#318、Windows 専用。押すとウィンドウが前に出る）
+│       │   └── activation.rs  # 押されたことを受ける `pike://` の組み立てと読み取り（#334）
 │       ├── diagnostics/mod.rs # 外部リンタ実行 → Problems パネル
 │       ├── codex_usage/mod.rs # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
 │       ├── claude_usage/

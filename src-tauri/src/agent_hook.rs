@@ -360,6 +360,9 @@ fn emit_notice(app: &tauri::AppHandle, notice: AgentNotice) {
     // #337 の調査用。見出しに別のプロジェクトの名前が出るという報告があり、届け先の
     // 解決までが合っているかを確かめる。**原因が分かったら消す**（フロント側の
     // `useAgentNotice.ts` の同じ印も一緒に）。
+    // **`debug!` にしないこと。** `tauri_plugin_log` の level は `Info` なので、
+    // `debug!` は開発ビルドでも出ない（release ではロガー自体を登録しないので、
+    // `info!` でも出力先が無い）。
     log::info!(
         "[agent-notice] pty={} event={:?} -> window={label}",
         notice.pty_id,
