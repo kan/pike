@@ -25,6 +25,15 @@
 //! インストール版の通知が `target\debug\pike.exe` を起こす）。ショートカットと AUMID が
 //! 既にビルドで分かれている（`toast/mod.rs` の `link_name`）ので、それに揃える。
 
+// **非 Windows では URL を組む側が居ない**（通知そのものが Windows 限定で、`to_url` を
+// 呼ぶのは `toast/mod.rs` の `imp` だけ）。一方**読む側**（`parse` / `from_args`）は
+// `lib.rs` が cfg なしで呼ぶので、モジュールごと `cfg(windows)` にすると呼び出し側に
+// 分岐が要る（`platform.md` の「stub を置いて呼び出し側は分岐させない」）。
+//
+// **これが無いと macOS の CI だけが落ちる**（`-D warnings` に dead_code が当たる）。
+// Windows の手元では 1 行も見えないので、`platform.md` が言う死角そのもの。
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 
 /// 通知を押されたときに開く URL の形。`focus` 以外の動作は今のところ無い。
