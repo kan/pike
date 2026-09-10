@@ -145,23 +145,28 @@ struct Store {
     entries: Vec<Declaration>,
 }
 
-/// 通知の契機（#265）。**2 つしかないのは、これが利用者に見せる区別そのものだから**
-/// （設定は `off` / 入力待ちのみ / 完了も の 3 択）。どの matcher で発火したかは、
-/// 鳴らすか鳴らさないかを分けないので運ばない。
+/// 通知の契機（#265 / #338）。**これが利用者に見せる区別そのもの**なので、鳴らし分けに
+/// 使わない違いは持たない（どの matcher で発火したかは運ばない）。
 /// **綴りの正本はバリアント名。** `serde` の `lowercase`（フロントへ渡る形）と `as_flag`
 /// （コマンド行に書く形）が同じ語になる。
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NoticeKind {
-    /// 入力を待っている（`Notification` の `permission_prompt` 等）。
+    /// 答えないと進まない（`Notification` の `permission_prompt` 等）。
     Waiting,
+    /// 待たせているだけ（`Notification` の `idle_prompt`。60 秒なにも入力していない）。
+    ///
+    /// **`Waiting` と分けてあるのは #338。** 長く走るサブエージェントの終わりを待って
+    /// いるあいだにも出るので、「答えを求められている」ものと同じ扱いにすると、鳴っても
+    /// することが無い通知が混ざる。既定では鳴らさない（設定は `agentNotifyIdle`）。
+    Idle,
     /// ターンが終わった（`Stop`）。
     Done,
 }
 
 impl NoticeKind {
     fn from_flag(value: &str) -> Option<Self> {
-        [Self::Waiting, Self::Done]
+        [Self::Waiting, Self::Idle, Self::Done]
             .into_iter()
             .find(|k| k.as_flag() == value)
     }
@@ -169,6 +174,7 @@ impl NoticeKind {
     fn as_flag(self) -> &'static str {
         match self {
             Self::Waiting => "waiting",
+            Self::Idle => "idle",
             Self::Done => "done",
         }
     }
@@ -351,6 +357,14 @@ fn emit_notice(app: &tauri::AppHandle, notice: AgentNotice) {
     let Some(label) = crate::pty::window_for_pty(&state, &notice.pty_id) else {
         return;
     };
+    // #337 の調査用。見出しに別のプロジェクトの名前が出るという報告があり、届け先の
+    // 解決までが合っているかを確かめる。**原因が分かったら消す**（フロント側の
+    // `useAgentNotice.ts` の同じ印も一緒に）。
+    log::info!(
+        "[agent-notice] pty={} event={:?} -> window={label}",
+        notice.pty_id,
+        notice.event
+    );
     // **そのウィンドウにだけ送る**（`emit` だと全ウィンドウが同じ通知を出す）。
     let _ = app.emit_to(label, "agent_notice", notice);
 }
@@ -558,8 +572,15 @@ const HOOKS: &[HookSpec] = &[
     // 待っているものが無い。
     HookSpec {
         event: "Notification",
-        matcher: Some("permission_prompt|idle_prompt|agent_needs_input|elicitation_dialog"),
+        matcher: Some("permission_prompt|agent_needs_input|elicitation_dialog"),
         kind: Some(NoticeKind::Waiting),
+    },
+    // 待たせているだけ（#338）。**同じ `Notification` でも行を分ける**: 契機はコマンド行に
+    // 書くものなので（`EVENT_FLAG`）、鳴らし分けたい単位で matcher を割るしかない。
+    HookSpec {
+        event: "Notification",
+        matcher: Some("idle_prompt"),
+        kind: Some(NoticeKind::Idle),
     },
     // ターンの完了（#265）。`Stop` は matcher を持たない。
     HookSpec {
@@ -765,13 +786,55 @@ fn has_any_hook(settings: &serde_json::Value) -> bool {
         .any(|spec| hook_commands(settings, spec.event).any(is_pike_command))
 }
 
-/// 足りない hook を足す。全部入っていれば `false`（書かない）。
+/// グループの中のコマンド行。
+fn group_commands(group: &serde_json::Value) -> impl Iterator<Item = &str> {
+    group
+        .get("hooks")
+        .and_then(|h| h.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|h| h.get("command")?.as_str())
+}
+
+/// そのグループが、この spec の置いた形か。**matcher まで見る**。
+fn group_matches_spec(group: &serde_json::Value, spec: &HookSpec) -> bool {
+    group.get("matcher").and_then(|v| v.as_str()) == spec.matcher
+        && group_commands(group).any(|c| matches_spec(c, spec))
+}
+
+/// 現行の表と形の合わない、Pike が置いた古い行か（#338）。
+///
+/// **matcher を見るのはここだけ。** `matches_spec` が契機しか見ないのは、コマンド行の
+/// 綴りが変わっても古い行に手が届くようにするため（`hook_command` の doc）。一方
+/// **matcher を割る改訂は行の意味そのものを変える**: #338 で `Notification` を「答えないと
+/// 進まない」と「待たせているだけ」に分けたとき、両方を含む古い matcher の行が残ると、
+/// idle が waiting としても届いて 2 回鳴る（しかも片方は新しい設定を素通りする）。
+///
+/// **契機だけが違う行は古いと見なさない**（`matches_spec` に任せる）。ここが見るのは
+/// 「今の表のどの行とも matcher が噛み合わない」ことだけ。
+fn is_stale_group(group: &serde_json::Value, event: &str) -> bool {
+    !HOOKS
+        .iter()
+        .filter(|spec| spec.event == event)
+        .any(|spec| group_matches_spec(group, spec))
+}
+
+/// 足りない hook を足す。**その前に、古い形の行を落とす**（`is_stale_group`）。
+/// 何も書き換えなければ `false`（書かない）。
 fn ensure_hook(settings: &mut serde_json::Value, command: &str) -> bool {
+    // 同じ event を持つ spec が並ぶと 2 度呼ぶことになるが、掃除は冪等（2 度目は
+    // 消すものが無い）。
+    let mut changed = false;
+    for spec in HOOKS {
+        changed |= remove_from_event(settings, spec.event, |group| {
+            is_stale_group(group, spec.event)
+        });
+    }
     let missing: Vec<&HookSpec> = installable_hooks()
         .filter(|spec| !has_spec(settings, spec))
         .collect();
     if missing.is_empty() {
-        return false;
+        return changed;
     }
     if !settings.is_object() {
         *settings = serde_json::json!({});
@@ -827,7 +890,8 @@ fn add_hook(settings: &mut serde_json::Value, spec: &HookSpec, command: &str) {
 fn remove_hook(settings: &mut serde_json::Value) -> bool {
     let mut removed = false;
     for spec in HOOKS {
-        removed |= remove_from_event(settings, spec.event);
+        // 外すのは「Pike の hook をやめる」操作なので、グループは選ばない。
+        removed |= remove_from_event(settings, spec.event, |_| true);
     }
     if settings
         .get("hooks")
@@ -842,7 +906,17 @@ fn remove_hook(settings: &mut serde_json::Value) -> bool {
     removed
 }
 
-fn remove_from_event(settings: &mut serde_json::Value, event: &str) -> bool {
+/// `hooks.<event>` から、`group_doomed` が真を返したグループの中の **Pike の行**を消す。
+/// 消したら `true`。
+///
+/// **述語がグループ単位なのは、行を消す前にグループ全体を見る必要があるため**（#338 の
+/// `is_stale_group` は matcher を読む）。コマンド単位の条件は `is_pike_command` に固定:
+/// 利用者が置いた hook は、どの述語で呼ばれても残す。
+fn remove_from_event(
+    settings: &mut serde_json::Value,
+    event: &str,
+    group_doomed: impl Fn(&serde_json::Value) -> bool,
+) -> bool {
     let Some(hooks) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) else {
         return false;
     };
@@ -853,6 +927,9 @@ fn remove_from_event(settings: &mut serde_json::Value, event: &str) -> bool {
     // 空になったグループを落とすのは**この呼び出しで空にしたときだけ**。元から
     // 空のグループは利用者が置いたものかもしれないので、そのまま残す。
     groups.retain_mut(|group| {
+        if !group_doomed(group) {
+            return true;
+        }
         let Some(entries) = group.get_mut("hooks").and_then(|h| h.as_array_mut()) else {
             return true;
         };
@@ -1298,6 +1375,13 @@ mod tests {
             notification["hooks"][0]["command"],
             "pike.exe agent-hook --event=waiting"
         );
+        // 待たせているだけのぶんは別の行（#338）。
+        let idle = &settings["hooks"]["Notification"][1];
+        assert_eq!(idle["matcher"], "idle_prompt");
+        assert_eq!(
+            idle["hooks"][0]["command"],
+            "pike.exe agent-hook --event=idle"
+        );
         assert_eq!(
             settings["hooks"]["Stop"][0]["hooks"][0]["command"],
             "pike.exe agent-hook --event=done"
@@ -1309,6 +1393,51 @@ mod tests {
             settings["hooks"]["SessionStart"][0]["hooks"][0]["command"],
             "pike.exe agent-hook"
         );
+    }
+
+    /// #265 の版が書いた「1 本にまとまった `Notification`」は作り直す（#338）。
+    ///
+    /// 残したままだと、`idle_prompt` が古い行の `--event=waiting` と新しい行の
+    /// `--event=idle` の両方で発火し、2 回鳴るうえ片方が新しい設定を素通りする。
+    #[cfg(windows)]
+    #[test]
+    fn replaces_the_old_combined_notification_matcher() {
+        let mut settings = serde_json::json!({
+            "hooks": {
+                "Notification": [{
+                    "matcher": "permission_prompt|idle_prompt|agent_needs_input|elicitation_dialog",
+                    "hooks": [{ "type": "command", "command": "pike.exe agent-hook --event=waiting" }],
+                }],
+            },
+        });
+        assert!(ensure_hook(&mut settings, "pike.exe agent-hook"));
+
+        let groups = settings["hooks"]["Notification"].as_array().unwrap();
+        assert_eq!(groups.len(), 2, "古い行が残っている: {groups:?}");
+        assert_eq!(
+            groups[0]["matcher"],
+            "permission_prompt|agent_needs_input|elicitation_dialog"
+        );
+        assert_eq!(groups[1]["matcher"], "idle_prompt");
+    }
+
+    /// 利用者が置いた `Notification` の hook は、matcher が表と違っても消さない（#338）。
+    #[cfg(windows)]
+    #[test]
+    fn keeps_hooks_that_are_not_pikes() {
+        let mut settings = serde_json::json!({
+            "hooks": {
+                "Notification": [{ "matcher": "idle_prompt", "hooks": [
+                    { "type": "command", "command": "notify-send hi" },
+                ]}],
+            },
+        });
+        ensure_hook(&mut settings, "pike.exe agent-hook");
+
+        let groups = settings["hooks"]["Notification"].as_array().unwrap();
+        assert!(groups
+            .iter()
+            .any(|g| g["hooks"][0]["command"] == "notify-send hi"));
     }
 
     /// #299 の版が書いた `SessionStart` だけの設定は「登録済み」ではない（#265）。

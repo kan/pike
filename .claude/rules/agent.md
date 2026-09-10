@@ -105,6 +105,14 @@ Claude Code の `Notification` / `Stop` hook を登録し、**そのターミナ
 - **受け口は #299 と同じ 1 つ**（`pike agent-hook`）。違いは `--event=` が付くかどうかで、
   付いていれば通知、無ければアカウントの申告。**契機はコマンド行に書く**: `Notification` の
   stdin には 12 個ある matcher のどれで発火したかが入らない（あるのは `message` の文言だけ）
+  - **鳴らし分けたい単位で matcher を割る**（#338）。契機がコマンド行にある以上、`Notification`
+    を「答えないと進まない」（`waiting`）と「待たせているだけ」（`idle`＝`idle_prompt`）に
+    分けるには行を 2 本にするしかない。後者は既定で鳴らさない（設定は `agentNotifyIdle`。
+    判断の実体は `stores/settings.ts` の宣言の隣が正本）
+  - **matcher を割る改訂では、古い行を作り直す**（`is_stale_group`）。`matches_spec` は
+    契機しか見ないので、両方の matcher を持つ #265 版の行はそのまま「登録済み」と読まれ、
+    新しい `idle` の行と二重に発火する（しかも片方は新しい設定を素通りする）。**掃除は
+    `ensure_hook` の中**なので、登録ボタンでも `agent_hook_install_missing` でも直る
 - **配送は WM_COPYDATA**（`wait::send_notice_to_first_instance`）。#299 がこれを避けた理由
   （受け側がメインスレッドで、解決のロックを待つあいだ UI が止まりうる）は、ロックを取らない
   配送には当てはまらない。**WSL の中からでも届く**（interop で起動された `pike.exe` は

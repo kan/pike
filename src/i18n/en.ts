@@ -318,10 +318,14 @@ export default {
   'settings.agentNotifyAll': 'Also when done',
   'settings.agentNotifyHint':
     'Flashes the taskbar button and marks the tab and project with a green dot when Claude Code in a hooked account waits for input. Tabs you can already see stay silent (Windows only).',
+  'settings.agentNotifyIdle': 'Also notify when merely idle',
+  'settings.agentNotifyIdleHint':
+    'Also notifies when the agent has had no input for 60 seconds. That fires while you wait for a long-running subagent too, so it is off by default. The tab and project dots appear either way.',
   'settings.desktopNotify': 'Desktop notifications',
   'settings.desktopNotifyHint':
     'Also shows the notice above as a desktop notification. Clicking it brings that tab’s window to the front (Windows only).',
   'agentNotice.waiting': '{agent} is waiting for input',
+  'agentNotice.idle': '{agent} is still idle',
   'agentNotice.done': '{agent} finished its turn',
   'settings.agentHookOffer':
     'Found Claude Code config directories:\n\n{dirs}\n\nRegister hooks so Claude Code talks to Pike?\nUsage, account and session history then follow the real account, and you get a notification when an agent waits for input.\n\nThis adds hooks to each settings.json. You can remove them from the Settings tab at any time.',

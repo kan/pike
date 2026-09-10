@@ -439,6 +439,19 @@ interface PersistedSettings {
   /** エージェントの入力待ち / 完了を知らせるか（#265。タスクバーの点滅と画面内の印）。 */
   agentNotify: AgentNotifyMode
   /**
+   * 「待たせているだけ」の知らせも出すか（#338。Claude Code の `idle_prompt`＝60 秒
+   * なにも入力していない）。
+   *
+   * **既定は false。** 長く走るサブエージェントの終わりを待っているあいだにも出るので、
+   * 大半は鳴っても答えることが無い。**`agentNotify` の選択肢に混ぜないのは軸が違うから**:
+   * あちらは「入力待ちまで／完了まで」という段階で、こちらはその入力待ちの中の種別。
+   * 混ぜると 4 択が「待ち」「待ち＋アイドル」「完了」「完了＋アイドル」に割れる。
+   *
+   * **印（タブの緑のドット）はこの設定に関わらず立つ。** 印が言うのは「待っている」ことで、
+   * 実際に待ってはいる。切りたいのは知らせのほう。
+   */
+  agentNotifyIdle: boolean
+  /**
    * その知らせをデスクトップ通知でも出すか（#318、Windows のみ）。
    *
    * **`agentNotify` とは別の軸。** あちらが「何を知らせるか」、こちらが「どう知らせるか」。
@@ -821,6 +834,8 @@ function defaults(): PersistedSettings {
     // 入力待ちだけ鳴らす（#265）。通知が届くのは hook を登録したアカウントのぶんだけ
     // なので、実質はそこでのオプトイン。
     agentNotify: 'waiting' as AgentNotifyMode,
+    // 待たせているだけの知らせは既定で出さない（#338）。
+    agentNotifyIdle: false,
     // デスクトップ通知も既定で出す（#318）。上と同じく hook の登録が前提なので、
     // 何もしていない人に勝手に出ることはない。
     desktopNotify: true,
@@ -890,6 +905,7 @@ export const useSettingsStore = defineStore('settings', () => {
   })
   const agentLaunchers = ref<AgentLauncher[]>(saved.agentLaunchers)
   const agentNotify = ref<AgentNotifyMode>(saved.agentNotify)
+  const agentNotifyIdle = ref(saved.agentNotifyIdle)
   const desktopNotify = ref(saved.desktopNotify)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
 
@@ -1246,6 +1262,7 @@ export const useSettingsStore = defineStore('settings', () => {
       windowOpacity: windowOpacity.value,
       agentLaunchers: agentLaunchers.value,
       agentNotify: agentNotify.value,
+      agentNotifyIdle: agentNotifyIdle.value,
       desktopNotify: desktopNotify.value,
       // 古い版の Pike が読む形も併記する（理由は `PersistedSettings` の宣言の隣）。
       ...legacyAgentFields(agentLaunchers.value),
@@ -1289,6 +1306,7 @@ export const useSettingsStore = defineStore('settings', () => {
     // 旧 2 本は読まない（`sanitize` が `agentLaunchers` へ畳んである）。
     agentLaunchers.value = s.agentLaunchers
     agentNotify.value = s.agentNotify
+    agentNotifyIdle.value = s.agentNotifyIdle
     desktopNotify.value = s.desktopNotify
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
@@ -1493,6 +1511,7 @@ export const useSettingsStore = defineStore('settings', () => {
       windowBackdrop,
       windowOpacity,
       agentNotify,
+      agentNotifyIdle,
       desktopNotify,
     ],
     onSettingsChanged,
@@ -1557,6 +1576,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalSurfaceBg,
     agentLaunchers,
     agentNotify,
+    agentNotifyIdle,
     desktopNotify,
     agentPrompts,
     allowedImageHosts,

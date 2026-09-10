@@ -35,7 +35,20 @@ interface AgentNotice {
   ptyId: string
   /** 表の id（`AgentId`）。**送り側が名乗る**ので、`AGENTS` に無い綴りは届かない。 */
   agent: AgentId
-  event: 'waiting' | 'done'
+  /** 契機。綴りの正本は Rust の `NoticeKind`。 */
+  event: NoticeKind
+}
+
+type NoticeKind = 'waiting' | 'idle' | 'done'
+
+/**
+ * 通知の本文。**`Record` で持つ**ので、Rust 側に契機を足したらここが型エラーになる
+ * （キーを組み立てる形だと、翻訳の無い契機が素の文字列として通知に出る）。
+ */
+const BODY_KEYS: Record<NoticeKind, string> = {
+  waiting: 'agentNotice.waiting',
+  idle: 'agentNotice.idle',
+  done: 'agentNotice.done',
 }
 
 let initialized = false
@@ -75,7 +88,9 @@ async function handleNotice(notice: AgentNotice) {
   const tab = tabStore.terminalByPty(notice.ptyId)
   if (!tab) return
 
-  const waiting = notice.event === 'waiting'
+  // **`idle` も「待っている」側**（#338）。分かれるのは知らせるかどうかだけで、印の意味は
+  // 同じ（実際に待ってはいる）。
+  const waiting = notice.event !== 'done'
   const known = tab.awaitingInput === true
   // 目の前にあるなら印は要らない（画面にプロンプトが出ている）。
   const seen = windowFocused.value && tabStore.isTabVisible(tab.id)
@@ -85,7 +100,7 @@ async function handleNotice(notice: AgentNotice) {
   // プロジェクト側の緑のドットも消えない）。**`all` でなくても下ろす**: 印が言うのは
   // 「待っている」ことなので、知らせるかどうかとは別。
   tabStore.markTabAwaiting(tab.id, waiting && !seen)
-  if (seen || !shouldFlash(mode, waiting, known)) return
+  if (seen || !shouldFlash(mode, notice.event, known)) return
 
   await windowFlash().catch((e: unknown) => console.error('[agent-notice] flash failed:', e))
   if (!useSettingsStore().desktopNotify) return
@@ -94,8 +109,22 @@ async function handleNotice(notice: AgentNotice) {
   // パーク中も含む全部を引く）。押せばそこへ切り替わるので、行き先が読める必要がある。
   // アプリ名は要らない（送信元の名前がトーストの上に既に出ている）。
   const agent = agentName(notice.agent)
-  const body = t(waiting ? 'agentNotice.waiting' : 'agentNotice.done', { agent })
+  const body = t(BODY_KEYS[notice.event], { agent })
   const title = [projectNameOf(tab.projectId), tabDisplayTitle(tab)].filter(Boolean).join(' ')
+  // #337 の調査用。見出しに別のプロジェクトの名前が出るという報告があり、ここまでの
+  // 材料（どの pty から、どのタブを引いて、その持ち主が誰か）が合っているかを確かめる。
+  // **原因が分かったら消す。** デバッグビルドのコンソールにしか出ない。
+  if (import.meta.env.DEV) {
+    console.info('[agent-notice]', {
+      pty: notice.ptyId,
+      event: notice.event,
+      tabId: tab.id,
+      tabTitle: tab.title,
+      tabProject: tab.projectId,
+      shownProject: useProjectStore().currentProject?.id,
+      title,
+    })
+  }
   await toastNotify(notice.ptyId, title, body).catch((e: unknown) => console.error('[agent-notice] toast failed:', e))
 }
 
@@ -149,7 +178,13 @@ function agentName(id: AgentId): string {
 /**
  * **同じ待ちで 2 度光らせない。** 権限の確認が続けて出ると `Notification` も続けて来るが、
  * まだ答えていないのだから知らせ直す意味が無い（`markTabActivity` と同じ判断）。
+ *
+ * **`idle` は既定で黙る（#338）。** 60 秒なにも入力していないだけの知らせは、長く走る
+ * サブエージェントの終わりを待っているあいだにも出るので、大半は鳴っても答えることが無い。
+ * 設定（`agentNotifyIdle`）を入れた人にだけ届ける。
  */
-function shouldFlash(mode: AgentNotifyMode, waiting: boolean, known: boolean): boolean {
-  return waiting ? !known : mode === 'all'
+function shouldFlash(mode: AgentNotifyMode, event: NoticeKind, known: boolean): boolean {
+  if (event === 'done') return mode === 'all'
+  if (event === 'idle' && !useSettingsStore().agentNotifyIdle) return false
+  return !known
 }

@@ -316,10 +316,14 @@ export default {
   'settings.agentNotifyAll': '完了も',
   'settings.agentNotifyHint':
     'hook を登録したアカウントの Claude Code が入力を待ったとき、タスクバーのボタンを点滅させ、タブとプロジェクトに緑の点を付けます。見えているタブでは何もしません（Windows のみ）。',
+  'settings.agentNotifyIdle': '待たせているだけの知らせも出す',
+  'settings.agentNotifyIdleHint':
+    'エージェントが 60 秒なにも受け取っていないときにも知らせます。長く動くサブエージェントの終わりを待っているあいだにも出るので、既定では出しません。タブとプロジェクトの点は、この設定に関わらず付きます。',
   'settings.desktopNotify': 'デスクトップ通知',
   'settings.desktopNotifyHint':
     '上の知らせをデスクトップ通知でも出します。通知をクリックすると、そのタブのウィンドウが前に出ます（Windows のみ）。',
   'agentNotice.waiting': '{agent} が入力を待っています',
+  'agentNotice.idle': '{agent} が待機したままです',
   'agentNotice.done': '{agent} のターンが完了しました',
   'settings.agentHookOffer':
     'Claude Code の設定ディレクトリが見つかりました。\n\n{dirs}\n\nPike と連携する hook を登録しますか？\n登録すると、使用量・アカウント表示・セッション一覧が実際のアカウントのものになり、エージェントが入力を待ったときに通知が届きます。\n\n各ディレクトリの settings.json に hook を追加します。設定タブからいつでも解除できます。',

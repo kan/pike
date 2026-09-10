@@ -907,6 +907,19 @@ const PREVIEW_LINES = [
           </SettingItem>
 
           <!--
+            待たせているだけの知らせ（#338）。**上の 3 択に混ぜず独立させた**理由は
+            `stores/settings.ts` の宣言の隣が正本。知らせを出さない設定のときは意味を
+            持たないので、そのあいだは項目ごと畳む（自動保存の待ち時間と同じ扱い）。
+          -->
+          <SettingItem
+            v-if="settings.agentNotify !== 'off'"
+            label-key="settings.agentNotifyIdle"
+            hint-key="settings.agentNotifyIdleHint"
+          >
+            <SettingToggle v-model="settings.agentNotifyIdle" :options="ON_OFF" />
+          </SettingItem>
+
+          <!--
             デスクトップ通知（#318）。**上の知らせの「出し方」なので隣に置く**（何を
             知らせるかは上、どう知らせるかがここ）。Windows でしか届かないので、他の
             ホストでは項目ごと出さない（`useSettingsSearch` の doc が許す「存在しない
