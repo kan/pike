@@ -10,6 +10,7 @@
  */
 
 import { t } from '../i18n'
+import { issueStartPrompt } from '../lib/issuePrompt'
 import { ptyPasteText } from '../lib/tauri'
 import { useStatusMessageStore } from '../stores/statusMessage'
 import { useTabStore } from '../stores/tabs'
@@ -45,4 +46,14 @@ export function injectToTerminal(text: string): boolean {
   ptyPasteText(target.ptyId, text).catch(() => {})
   useTabStore().setActiveTab(target.id)
   return true
+}
+
+/**
+ * 「この issue に着手して」をエージェントへ送る（#336）。issue パネルの 🤖 と右クリック
+ * メニュー、issue タブのボタンが共有する。**文面は `lib/issuePrompt.ts` の
+ * `issueStartPrompt` が正本**（同じ文面をクリップボードへ出す経路があるので、注入の側に
+ * 置くと片方だけ古くなる）。
+ */
+export function injectIssueStart(number: number, title: string): boolean {
+  return injectToTerminal(issueStartPrompt(number, title))
 }

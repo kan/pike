@@ -593,7 +593,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 
       <!-- Context menu -->
       <Teleport to="body">
-        <div v-if="ctxMenu" ref="ctxMenuEl" class="tree-ctx-menu popup-surface" :style="ctxMenuStyle" @mousedown.stop>
+        <div v-if="ctxMenu" ref="ctxMenuEl" class="panel-ctx-menu tree-ctx-menu popup-surface" :style="ctxMenuStyle" @mousedown.stop>
           <!-- ignored dirs: copy path / Explorer only, mutating actions stay off -->
           <template v-if="ctxMenu.ignored">
             <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>
@@ -603,7 +603,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
             <template v-if="ctxMenu.isDir">
               <button @click="startCreate('file')">{{ t('fileTree.newFile') }}</button>
               <button @click="startCreate('dir')">{{ t('fileTree.newFolder') }}</button>
-              <div class="tree-ctx-separator"></div>
+              <div class="ctx-separator"></div>
             </template>
             <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>
             <button @click="startRename(ctxMenu.path, ctxMenu.isDir)">{{ t('fileTree.rename') }}</button>
@@ -747,39 +747,8 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 </style>
 
 <style>
+/* 器は共有の `.panel-ctx-menu`（`theme.css`）。ここに残すのは幅だけ。 */
 .tree-ctx-menu {
-  position: fixed;
-  z-index: 2000;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 0;
   min-width: 120px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
-
-.tree-ctx-menu button {
-  display: block;
-  width: 100%;
-  padding: 6px 16px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.tree-ctx-menu button:hover {
-  background: var(--accent);
-  color: var(--text-active);
-}
-
-.tree-ctx-separator {
-  height: 1px;
-  margin: 4px 8px;
-  background: var(--border);
-}
-
-
 </style>

@@ -112,7 +112,7 @@ watch(() => projectStore.currentProject?.id, runIfIdle)
           <!-- Rule that fired: rustc lint name, TS error code, golangci linter. -->
           <span v-if="d.code" class="diag-code">{{ d.code }}</span>
           <span class="diag-loc">{{ d.line }}:{{ d.column }}</span>
-          <button class="diag-action" :title="t('diagnostics.askFix')" @click.stop="askAgentFix(d)">
+          <button class="row-action" :title="t('diagnostics.askFix')" @click.stop="askAgentFix(d)">
             <Bot :size="13" :stroke-width="2" />
           </button>
         </div>
@@ -296,28 +296,8 @@ watch(() => projectStore.currentProject?.id, runIfIdle)
   opacity: 0.75;
 }
 
-.diag-action {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 3px;
-  opacity: 0;
-}
-
-.diag-row:hover .diag-action {
+/* ボタン本体は共有の `.row-action`（`theme.css`）。ここに残すのは出す契機だけ。 */
+.diag-row:hover .row-action {
   opacity: 1;
-}
-
-.diag-action:hover {
-  background: var(--accent);
-  color: var(--text-active);
 }
 </style>

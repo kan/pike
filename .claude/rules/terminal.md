@@ -37,9 +37,13 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   - **`://` を含むトークンは捨てる**。`(?:[A-Za-z]:)?` のドライブ接頭辞は `https://…` の `s:` にも当たるので、行番号を必須にしていた頃は `:数字` で終わらず弾かれていた URL が、任意にした途端すり抜ける
   - **rg のグループ出力の分岐を「他にマッチが無いとき」に限定しない**。裸のパスを拾うようになったため、`12:const x = require('./foo.js')` のようなマッチ行で先頭の行番号がリンクにならなくなる。重なりだけを見る＋ rg/grep の heading 出力対応（マッチ行の行番号 → 直近のファイル名見出しを辿る）。`TerminalTab.vue` が xterm の link provider として登録（ワイド文字対応の char→セル列マップで範囲を正確化）。相対パスは `activeRoot` 起点で解決し、**`lib/openFile.ts` の `openPathInTab` に渡す**（`addEditorTab` 直呼びだったころは、画像や PDF のパスをクリックすると CodeMirror に入ってバイナリガードに当たっていた）。**ディレクトリのパスもここを通ってエディタタブに着く**: 拡張子ルーティングでは区別できないので、判定は EditorTab 側の読み込み失敗時に置いてある（次の bullet）
 - **ディレクトリを開いたときはエラーではなく開き方を出す**: `fs_read_file` はディレクトリでも読めないファイルでも同じように失敗するので、`EditorTab.vue` の `reportLoadError` が失敗時に `fsDirsExist` で理由を確かめ、ディレクトリなら専用のアクションを出す（**読み込みが成功する経路では 1 回も IPC を増やさない**）。登録済みなら「プロジェクトを開く」、未登録なら「ディレクトリを開く」（`openDirectory`＝#230 の一時プロジェクト）と「プロジェクトとして開く」（`openDirectoryAsProject`＝登録して開く）。**既定は新しいウィンドウ**で、`switch` は全タブ kill ＝クリック元のターミナルごと消えるため、チェックボックスで明示的に選ばせる。自動で開かないのも同じ理由（誤クリックで作業が消える）。判定を EditorTab に置いたので、Markdown リンクなど他の経路でディレクトリが着いても同じ画面になる
-- **エディタ選択範囲・診断をターミナルへ注入**: `composables/useTerminalInject.ts` の `injectToTerminal(text)` が注入先ターミナルを解決（**`lastTerminalId`（直近アクティブなターミナル）→ アクティブタブ → pinned → 任意**）し `ptyPasteText` で挿入、当該タブをアクティブ化。注入先が無ければ statusMessage で通知。`stores/tabs.ts` の `lastTerminalId` は `activeTabId` watcher で更新（タブ閉じは use 時の liveness 再チェックで自己修復）
+- **エディタ・診断・issue をターミナルへ注入**: `composables/useTerminalInject.ts` の `injectToTerminal(text)` が注入先ターミナルを解決（**`lastTerminalId`（直近アクティブなターミナル）→ アクティブタブ → pinned → 任意**）し `ptyPasteText` で挿入、当該タブをアクティブ化。注入先が無ければ statusMessage で通知。`stores/tabs.ts` の `lastTerminalId` は `activeTabId` watcher で更新（タブ閉じは use 時の liveness 再チェックで自己修復）
   - EditorTab: 右クリック「ターミナルに送る」（選択時のみ）→ `relpath:行` 参照 + 選択本文を注入
+  - EditorTab: 右クリック「参照をターミナルに送る」（#335。選択が要らない）→ 参照だけを注入。綴りは `lib/paths.ts` の `fileLineRef`（`editor.md`）
   - DiagnosticsPanel: 各行ホバーの 🤖 ボタン → `t('diagnostics.fixPrompt')`（i18n、UI 言語追従）で修正依頼文を注入
+  - IssuesPanel / IssueTab: 🤖 ボタンと行の右クリックメニュー（#336）→ 同じファイルの `injectIssueStart` で「この issue に着手して」を注入。**文面の正本は `lib/issuePrompt.ts` の `issueStartPrompt`**: 同じ文面をクリップボードへ出す項目（文字列の流し込みが効かないエージェント向けの逃げ道）があるので、注入の側に置くと片方だけ古くなる。**本文を運ばない**理由はあのファイルの doc が正本
+  - **パネルの右クリックメニューの器は `theme.css` の `.panel-ctx-menu`**（ファイルツリー・Git・issue が共有）。幅だけは置いた側に残す。キーの綴りを右に並べるメニュー（タブバー・エディタ）は `display: flex` の別様式なので、ここには乗らない
+  - **ホバーで出すボタンは `theme.css` の `.row-action`**（Problems と issue が共有）。置いた側に残すのは `.<行>:hover .row-action` の 1 行だけ
 - **設定**: `agentLaunchers` / `agentPrompts` は Settings の Agent セクションで追加/編集/削除/並べ替え。両方とも `pike:settings` の配列で deep-watch 永続化
 
 ## キーボードショートカット

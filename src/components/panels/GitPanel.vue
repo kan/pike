@@ -823,7 +823,7 @@ onUnmounted(() => {
       <div
         v-if="fileCtx"
         ref="fileCtxEl"
-        class="commit-file-ctx popup-surface"
+        class="panel-ctx-menu commit-file-ctx popup-surface"
         :style="fileCtxStyle"
         @mousedown.stop
       >
@@ -855,7 +855,7 @@ onUnmounted(() => {
       <div
         v-if="commitCtx"
         ref="commitCtxEl"
-        class="commit-file-ctx popup-surface"
+        class="panel-ctx-menu commit-file-ctx popup-surface"
         :style="commitCtxStyle"
         @mousedown.stop
       >
@@ -1315,37 +1315,8 @@ onUnmounted(() => {
   line-height: 1.5;
 }
 
+/* 器は共有の `.panel-ctx-menu`（`theme.css`）。ここに残すのは幅だけ。 */
 .commit-file-ctx {
-  position: fixed;
-  z-index: 2000;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 0;
   min-width: 140px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-}
-
-.commit-file-ctx button {
-  display: block;
-  width: 100%;
-  padding: 6px 16px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.commit-file-ctx button:hover {
-  background: var(--accent);
-  color: var(--text-active);
-}
-
-.commit-file-ctx .ctx-separator {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
 }
 </style>

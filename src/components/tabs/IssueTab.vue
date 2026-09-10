@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
-import { ExternalLink, RefreshCw } from 'lucide-vue-next'
+import { Bot, ExternalLink, RefreshCw } from 'lucide-vue-next'
 import { Marked } from 'marked'
 import { computed, onMounted, ref } from 'vue'
+import { injectIssueStart } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { issueRefs } from '../../lib/issueRefs'
 import { openUrlWithConfirm } from '../../lib/openUrl'
@@ -98,6 +99,17 @@ function openInBrowser() {
 }
 
 /**
+ * 「この issue に着手して」をターミナルのエージェントへ注入する（#336）。**送る内容の判断は
+ * `composables/useTerminalInject.ts` の `injectIssueStart` が正本**（パネルの 🤖 と共有）。
+ * 番号はタブが持っているが、題名は取ってきてからしか分からないので `detail` を待つ。
+ */
+function askAgentStart() {
+  const number = tab.value?.number
+  if (number === undefined || !detail.value) return
+  injectIssueStart(number, detail.value.title)
+}
+
+/**
  * **本文の中のリンクは必ずここで止める（#278）。** `v-html` で流し込んだ `<a>` を素のままに
  * すると、クリックで WebView がそのページへ**アプリごと**移動する: ウィンドウの全タブ・
  * PTY・エージェント・未保存のバッファが確認なしに消える（`App.vue` の window ガードは
@@ -160,6 +172,9 @@ function sameRepoIssueNumber(href: string): number | null {
       <span class="issue-num">#{{ tab?.number }}</span>
       <span v-if="detail" class="issue-state" :class="detail.state.toLowerCase()">{{ detail.state }}</span>
       <span class="issue-spacer" />
+      <button class="tool-btn" :disabled="!detail" :title="t('issues.startWork')" @click="askAgentStart">
+        <Bot :size="14" :stroke-width="2" />
+      </button>
       <button class="tool-btn" :disabled="loading" :title="t('common.refresh')" @click="load()">
         <RefreshCw :size="14" :stroke-width="2" :class="{ spin: loading }" />
       </button>

@@ -1,5 +1,14 @@
+/**
+ * 行番号の範囲の綴り（`42` / `10-20`）。**「1 行か範囲か」の分岐はここ 1 つ**にして、
+ * 表示用の `L`（{@link formatLineRange}）と参照用の `:`（`paths.ts` の `fileLineRef`）は
+ * 呼び出し側が前に付ける。分けていないと、桁を足したくなったときに直す場所が 3 つになる。
+ */
+export function lineRangeSuffix(range: { start: number; end: number }): string {
+  return range.start === range.end ? `${range.start}` : `${range.start}-${range.end}`
+}
+
 export function formatLineRange(range: { start: number; end: number }): string {
-  return range.start === range.end ? `L${range.start}` : `L${range.start}-${range.end}`
+  return `L${lineRangeSuffix(range)}`
 }
 
 /**

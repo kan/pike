@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronRight } from 'lucide-vue-next'
-import { computed, watch } from 'vue'
+import { Bot, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { computed, ref, useTemplateRef, watch } from 'vue'
+import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
+import { injectIssueStart } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
+import { issueStartPrompt } from '../../lib/issuePrompt'
+import { openUrlWithConfirm } from '../../lib/openUrl'
 import { relativeDate } from '../../lib/paths'
 import { projectColorValue } from '../../lib/projectColors'
 import { useIssuesStore } from '../../stores/issues'
@@ -107,6 +111,53 @@ const emptyMessage = computed(() => {
 function open(issue: IssueSummary) {
   tabStore.addIssueTab(issue.number)
 }
+
+/**
+ * 「この issue に着手して」をターミナルのエージェントへ注入する（#336）。Problems の 🤖 と
+ * 同じ形で、**送る内容の判断は `composables/useTerminalInject.ts` の `injectIssueStart` が
+ * 正本**（issue タブの同じボタンと共有する）。
+ */
+function askAgentStart(issue: IssueSummary) {
+  injectIssueStart(issue.number, issue.title)
+}
+
+/**
+ * 行の右クリックメニュー（#336）。**行のクリック（タブで開く）とホバーの 🤖 は残す**:
+ * よく使う 2 つは 1 手で届くほうがよく、メニューはその上位集合になる。
+ *
+ * 位置決めは他のメニューと同じ `useAnchoredPopup`（測ってから置く。#204）。器の見た目は
+ * `theme.css` の `.panel-ctx-menu` で、ファイルツリーと Git のメニューと共有する。
+ */
+const ctxIssue = ref<IssueSummary | null>(null)
+const { style: ctxStyle, placeAt: placeCtx, reset: resetCtx } = useAnchoredPopup(useTemplateRef<HTMLElement>('ctxEl'))
+
+async function openCtx(e: MouseEvent, issue: IssueSummary) {
+  e.preventDefault()
+  ctxIssue.value = issue
+  resetCtx()
+  await placeCtx({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeCtx, { once: true })
+}
+
+function closeCtx() {
+  ctxIssue.value = null
+  resetCtx()
+}
+
+/** 項目は「閉じてから実行」で揃える。開いたまま確認ダイアログが出る形にしない。 */
+function runCtx(action: (issue: IssueSummary) => void) {
+  const issue = ctxIssue.value
+  closeCtx()
+  if (issue) action(issue)
+}
+
+/**
+ * 指示文をクリップボードへ（#336）。**文字列の流し込みが効かないエージェント向けの逃げ道**で、
+ * 送る側と同じ文面を人が自分で貼れるようにしてある（正本は `lib/issuePrompt.ts`）。
+ */
+function copyStartPrompt(issue: IssueSummary) {
+  navigator.clipboard.writeText(issueStartPrompt(issue.number, issue.title)).catch(() => {})
+}
 </script>
 
 <template>
@@ -138,6 +189,7 @@ function open(issue: IssueSummary) {
         :title="row.tooltip"
         :style="{ paddingLeft: `${12 + row.depth * 12}px` }"
         @click="open(row.issue)"
+        @contextmenu="openCtx($event, row.issue)"
       >
         <!-- chevron は子を持つ行だけ。持たない行にも枠を残して番号の位置を揃える。 -->
         <span
@@ -153,7 +205,29 @@ function open(issue: IssueSummary) {
         <span class="issue-title">{{ row.issue.title }}</span>
         <span v-for="dot in row.dots" :key="dot.name" class="issue-dot" :style="dot.style" />
         <span class="issue-since">{{ row.since }}</span>
+        <!-- ホバーで出る 🤖（Problems の行と同じ）。行のクリックはタブを開くので `.stop`。 -->
+        <button class="row-action" :title="t('issues.startWork')" @click.stop="askAgentStart(row.issue)">
+          <Bot :size="13" :stroke-width="2" />
+        </button>
       </div>
+
+      <!-- 右クリックメニュー（#336）。行のクリックとホバーの 🤖 の上位集合。 -->
+      <Teleport to="body">
+        <div
+          v-if="ctxIssue"
+          ref="ctxEl"
+          class="panel-ctx-menu popup-surface"
+          :style="ctxStyle"
+          @mousedown.stop
+        >
+          <button @click="runCtx(open)">{{ t('issues.openTab') }}</button>
+          <!-- ブラウザへ出るので確認を挟む（外部 URL を開く規約、#311）。 -->
+          <button @click="runCtx((i) => openUrlWithConfirm(i.url))">{{ t('issues.openInBrowser') }}</button>
+          <div class="ctx-separator"></div>
+          <button @click="runCtx(askAgentStart)">{{ t('issues.startWork') }}</button>
+          <button @click="runCtx(copyStartPrompt)">{{ t('issues.copyStartPrompt') }}</button>
+        </div>
+      </Teleport>
     </template>
   </div>
 </template>
@@ -262,4 +336,10 @@ function open(issue: IssueSummary) {
   font-size: 10px;
   color: var(--text-secondary);
 }
+
+/* ボタン本体は共有の `.row-action`（`theme.css`）。ここに残すのは出す契機だけ。 */
+.issue-item:hover .row-action {
+  opacity: 1;
+}
+
 </style>

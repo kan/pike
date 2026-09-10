@@ -39,7 +39,11 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - ミニマップ: `@replit/codemirror-minimap` を採用。blocks モード、シンタックスカラー反映、正確なスクロール同期、git diff ガター表示
   - **本文と重ならないよう、ミニマップを `.cm-editor` 直下へ出してある（#282）**。パッケージは `.cm-scroller` の中へ `position: sticky; right: 0` で入れるが、`.cm-content` の幅は最長行で決まりミニマップの存在を知らないので、折り返し OFF で長い行があると**スクロールしていなくても**本文がその下を通る。**判断の実体は `lib/editorMinimap.ts` の doc コメントが正本**（なぜ padding でも margin でも直らないか、なぜ再親化してもパッケージが壊れないか、幅の受け渡しがループしない理由）。ここに写しを置くと必ず片方が古くなるので、触るときはあちらを読む
     - **`.cm-scroller` の `position` は触らないこと。** `static` にすれば同じ配置にできるが、CodeMirror が `scrollDOM` へ直接ぶら下げる `.cm-layer`（選択範囲・カーソル）はスクロール済み座標系を前提にしているので、スクロールすると選択とカーソルが本文から剥がれる。Pike は `drawSelection` / `dropCursor` を入れていないため今は表に出ず、足した日に無関係に見える形で壊れる
-- エディタコンテキストメニュー: Undo/Redo/Cut/Copy/Paste/Git History（Teleport パターン）
+- エディタコンテキストメニュー: Undo/Redo/Cut/Copy/Paste/Git History と、右クリックした行の参照（Teleport パターン）
+  - **参照（#335）の綴りは `lib/paths.ts` の `fileLineRef`**（`相対パス:行` / `相対パス:開始-終了`）。読む側（`lib/terminalLinks.ts` の `PATH_RE`）と対になるので、書く側もコンポーネントではなく `lib/` に置く。「1 行か範囲か」の分岐は `lib/format.ts` の `lineRangeSuffix` 1 つで、表示用の `L`（`formatLineRange`）もそこに乗る
+  - **コンポーネント側の入口は `withLineRef`**。参照を使う 3 つの項目（コピー・参照だけの注入・選択本文つきの注入）が通るので、メニューを閉じる契機と「参照を作れるか」の判定が 1 箇所に集まる
+  - 対象の行は `computeContextLineRange`（選択があればその範囲、無ければ右クリックした行）。「この行の Git 履歴」と共有する
+  - **可否は `tab.path` で見る（`hasFile` ではない）。** あれは `initialContent` の有無で、無題バッファは `addBlankEditorTab` が `initialContent: ''` で作るため**空文字が falsy で真になる**。参照に要るのは保存先のパスそのものなので、それを直に見る
 - ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
 - **いま開いているファイルの強調（#274）**: 「どのファイルを見ているか」は `composables/useActiveFile.ts` の 1 箇所。**タブの種類で持ち方が違う**ので、そこで絶対パスに揃える（エディタ / プレビュー / PDF は絶対、diff と履歴はルート相対で、**繋ぐ相手はそのタブの `root`**。`activeRoot` ではない理由は `git.md` の #321）。区切りも正規化する: git は常に `/` を返し、ファイルツリーはシェルの区切りを使うので、素の比較は Windows で一致しない。**ストアにしないこと**: タブとプロジェクトの両方を読むので、`stores/tabs.ts` に置くと `project → tabs → project` の循環になる。印は `theme.css` の `.active-file`（2 つのパネルで同じ見た目にするため）で、色は `--active-file-bg`。**行全体を塗る**（VSCode の explorer と同じ。細い線だけではざっと見て探せない）が、`selected`（ツリーで選んだ行）とは別の見た目にする。左端の線は inset の影で描く（行の左 padding が深さで変わるので `border-left` は使えない）
   - **各パネルに 2 行のカスケード用の規則が要る**: `.tree-item:hover` / `.tree-item.selected` は scoped の属性が付くぶん詳細度が高く、共有クラスの塗りを上書きしてしまう。色は共有の変数のままにして、詳細度だけ合わせる

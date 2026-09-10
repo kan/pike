@@ -1,5 +1,6 @@
 import { t } from '../i18n'
 import { isPosixShell, type ShellType } from '../types/tab'
+import { lineRangeSuffix } from './format'
 
 /**
  * そのシェルが扱うパスの区切り文字。**Rust の `ShellConfig::is_posix()` と対**で、
@@ -226,6 +227,20 @@ export function fuzzyMatch(text: string, pattern: string): boolean {
     if (lowerText[ti] === lowerPattern[pi]) pi++
   }
   return pi === lowerPattern.length
+}
+
+/**
+ * ファイルの参照（`相対パス:行`、範囲なら `相対パス:開始-終了`）。#335 でエディタの右クリック
+ * から作り、クリップボードとターミナルのエージェントへ渡す。
+ *
+ * **綴りはターミナルのリンク検出（`terminalLinks.ts` の `PATH_RE`）と対**にしてある。
+ * エージェントは受け取った参照をそのまま出力へ書き戻すので、同じ形なら Pike 側でクリックして
+ * 開ける（範囲付きは行番号の無いパスとして拾われるため、開く先はファイルの先頭になる）。
+ * **読む側が `lib/` にある以上、書く側もここに置く**: 片方をコンポーネントに埋めると、
+ * 次に同じ綴りを作る人がそこへ手を伸ばすことになる。
+ */
+export function fileLineRef(fullPath: string, root: string, range: { start: number; end: number }): string {
+  return `${toRelativePath(fullPath, root)}:${lineRangeSuffix(range)}`
 }
 
 /** Strip a root prefix to get a relative path. */

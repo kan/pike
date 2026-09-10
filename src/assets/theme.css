@@ -541,6 +541,68 @@
   flex-shrink: 0;
 }
 
+/* パネルの右クリックメニュー（ファイルツリー・Git のファイル/コミット・issue が共有）。
+   **幅だけは置いた側に残す**（項目のラベルの長さで決まるので、`.tree-chevron` の色と同じ
+   「消費者ごとの差」）。キーの綴りを右に並べるメニュー（タブバー・エディタ）は別様式で、
+   `display: flex` と `justify-content: space-between` を要るぶんここには乗らない。 */
+.panel-ctx-menu {
+  position: fixed;
+  z-index: 2000;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.panel-ctx-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.panel-ctx-menu button:hover {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
+.panel-ctx-menu .ctx-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+
+/* パネルの行の末尾に置く、ホバーで現れるボタン（Problems の 🤖 と issue の 🤖 が共有）。
+   **`opacity` で隠す**（`display: none` にすると、ホバーのたびに行の幅が変わって隣の
+   テキストの省略位置が動く）。出す契機は行のクラスが決めるので、置いた側に
+   `.<行>:hover .row-action { opacity: 1 }` の 1 行だけ残す。 */
+.row-action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0;
+}
+
+.row-action:hover {
+  background: var(--accent);
+  color: var(--text-active);
+}
+
 /* エディタのヘッダに並ぶアイコントグル（折り返し・ミニマップ）。**親のヘッダの様式に
    合わせず自前で持つ**: プレビュー付きツールバー（`.preview-toggle`）とパンくずヘッダ
    （`.header-icon-btn`）は別々のボタン様式を持っていて、どちらに置いても同じ見た目に

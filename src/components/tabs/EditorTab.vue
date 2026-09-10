@@ -34,7 +34,7 @@ import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
 import { imageHostOf, remoteImageDataUrl, retryRemoteImage } from '../../lib/externalImages'
 import { buildFontFamily } from '../../lib/fontDetection'
-import { formatLineRange } from '../../lib/format'
+import { formatLineRange, lineRangeSuffix } from '../../lib/format'
 import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel } from '../../lib/keys'
@@ -45,6 +45,7 @@ import {
   basename,
   dirname,
   extension,
+  fileLineRef,
   isEmbeddableImage,
   isMarkdownPath,
   mimeType,
@@ -982,19 +983,47 @@ async function execPaste() {
   if (text) editorView.dispatch(editorView.state.replaceSelection(text))
 }
 
+/** メニューに出す補助表示。パスは今開いているファイルなので、行の部分だけで足りる。 */
+const ctxLineSuffix = computed(() => (ctxLineRange.value ? `:${lineRangeSuffix(ctxLineRange.value)}` : ''))
+
+/**
+ * メニューを閉じ、右クリックした位置の参照（#335）を `sink` に渡す。参照を使う 3 つの項目
+ * （コピー・参照だけを送る・選択本文つきで送る）の入口で、**閉じる契機と「参照を作れるか」の
+ * 判定がここ 1 つに集まる**。綴りそのものは `lib/paths.ts` の `fileLineRef` が持つ。
+ *
+ * 参照を作れるかは **`tab.path` で見る（`hasFile` ではない）**。あれは `initialContent` の
+ * 有無で、無題バッファ（`addBlankEditorTab` が `initialContent: ''` で作る）では空文字が
+ * falsy なので真になる。要るのは保存先のパスそのもの。
+ */
+function withLineRef(sink: (ref: string) => void) {
+  const range = ctxLineRange.value
+  const path = tab.value?.path
+  closeCtxMenu()
+  if (!range || !path) return
+  sink(fileLineRef(path, projectStore.activeRoot, range))
+}
+
+function copyLineRef() {
+  withLineRef((ref) => {
+    navigator.clipboard.writeText(ref).catch(() => {})
+  })
+}
+
+function sendLineRefToTerminal() {
+  withLineRef((ref) => {
+    injectToTerminal(ref)
+  })
+}
+
 // Send the current selection to a terminal as a `relpath:lines` reference plus
 // the selected text, so the user can ask their agent about that exact code.
 function sendSelectionToTerminal() {
-  closeCtxMenu()
-  if (!editorView || !tab.value) return
-  const sel = editorView.state.selection.main
-  if (sel.empty) return
-  const text = editorView.state.doc.sliceString(sel.from, sel.to)
-  const start = editorView.state.doc.lineAt(sel.from).number
-  const end = editorView.state.doc.lineAt(sel.to).number
-  const rel = toRelativePath(tab.value.path, projectStore.activeRoot)
-  const loc = start === end ? `${rel}:${start}` : `${rel}:${start}-${end}`
-  injectToTerminal(`${loc}\n${text}`)
+  withLineRef((ref) => {
+    if (!editorView) return
+    const sel = editorView.state.selection.main
+    if (sel.empty) return
+    injectToTerminal(`${ref}\n${editorView.state.doc.sliceString(sel.from, sel.to)}`)
+  })
 }
 
 function openGitHistory() {
@@ -1950,6 +1979,12 @@ onUnmounted(() => {
         <button @click="execPaste" :disabled="isReadOnlyTab"><span>{{ t('editor.paste') }}</span><span class="ctx-key">{{ chordLabel('Mod+V') }}</span></button>
         <div class="ctx-separator"></div>
         <button @click="sendSelectionToTerminal" :disabled="!ctxHasSelection"><span>{{ t('editor.sendToTerminal') }}</span></button>
+        <button @click="copyLineRef" :disabled="!ctxLineRange || !tab?.path">
+          <span>{{ t('editor.copyLineRef') }}</span><span class="ctx-key">{{ ctxLineSuffix }}</span>
+        </button>
+        <button @click="sendLineRefToTerminal" :disabled="!ctxLineRange || !tab?.path">
+          <span>{{ t('editor.sendLineRefToTerminal') }}</span><span class="ctx-key">{{ ctxLineSuffix }}</span>
+        </button>
         <div class="ctx-separator"></div>
         <button @click="openGitHistory"><span>{{ t('editor.gitHistory') }}</span><span class="ctx-key">{{ chordLabel('Alt+H') }}</span></button>
         <button @click="openGitHistoryForLine" :disabled="!ctxLineRange">
