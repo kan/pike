@@ -268,14 +268,11 @@ onMounted(async () => {
       // window ephemeral so it never persists its lean session over the real one.
       ephemeralWindow.value = true
     } else {
-      await projectStore.restoreLastProject()
-      // 通知からのコールドスタート（#334）。**復元してから**そのプロジェクトへ行く
+      // 通知からのコールドスタート（#334）は、**復元してから**そのプロジェクトへ行く
       // （飛ばすと `project_add_open` の全量書き直しで、前回開いていた他のウィンドウの
       // 記録が `last_project.txt` から消える。通知のクリックは受け身の操作なので、そこで
-      // 失わせない）。復元で既に開いていれば前に出すだけ。
-      if (initial.action === 'focusProject') {
-        await projectStore.openProject(initial.id, 'focusOrSwitch')
-      }
+      // 失わせない）。順序と待ち合わせ（#340）は `restoreLastProject` が持つ。
+      await projectStore.restoreLastProject(initial.action === 'focusProject' ? initial.id : undefined)
     }
   }
 

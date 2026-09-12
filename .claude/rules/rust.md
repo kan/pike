@@ -6,7 +6,10 @@
 - **中身の変更と整形を混ぜない。** 手で狭く折った行が rustfmt に広げられる（またはその逆）ので、整形されていないコードを部分的に `cargo fmt` すると無関係な行が大量に動く。導入前はこれが理由で `cargo fmt` の実行そのものを禁じていた
 
 ## 基本方針
-- Tauri コマンドは `async fn` を既定にし、戻り値は `Result<T, String>`。**ウィンドウを触るものと、状態を読むだけで即答できるものは同期の `fn`** にしてある（`project_for_window` / `focus_project_window` / `window_close_quits_app` / `save_all_window_state` / `wait_signal_by_path` / `is_elevated` / `open_elevated_terminal`）
+- Tauri コマンドは `async fn` を既定にし、戻り値は `Result<T, String>`。**ウィンドウを触るものと、状態を読むだけで即答できるものは同期の `fn`** にしてある（`project_for_window` / `focus_project_window` / `window_restore` / `window_close_quits_app` / `save_all_window_state` / `wait_signal_by_path` / `is_elevated` / `open_elevated_terminal`）
+  - **ただしウィンドウを「作る」ものは例外で、必ず `async`**（`open_project_window` / `open_global_window`）。同期コマンドから `build_window` を呼ぶと Windows でデッドロックする（制約は**コマンドハンドラ**に対してで、イベントループ側のコールバックからは従来どおり呼べる。判断の実体は `build_window` の doc が正本）
+- **ウィンドウ操作は ack を待たない（#340）。** `show()` / `set_focus()` は `tauri-runtime-wry` の `send_user_message` を通り、**メインスレッド以外から呼ばれるとイベントを積むだけ**で返る（メインスレッドからならその場で処理する）。結果が要る `build()` や getter だけが待つ、という非対称がある
+  - だから「コマンドが解決した＝ウィンドウが出ている」は**成り立たない**。成り立たせている箇所と、その待ち方は `wait_for_window_queue` / `build_window` の doc が正本
 - エラーは `map_err(|e| e.to_string())` で文字列化してフロントに返す
 - **グローバル状態は 1 つの `AppState` にまとめず、モジュールごとの型を個別に `manage` する**（`CliState` / `WaitState` / `PtyState` / `WatcherState` / `DockerState` / `ProjectState` / `TransientState` / `SearchState`）。コマンドは `State<'_, PtyState>` のように要るものだけを受け取るので、引数の型がそのまま「このコマンドが触る状態」の宣言になる。共有する中身は `Arc<Mutex<>>` で包む
 - PTY プロセスのライフタイムは `PtyState` が所有し、ウィンドウ破棄時に `pty::cleanup_for_window` で cleanup

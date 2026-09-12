@@ -129,6 +129,7 @@ const EXTERNAL_NAMES = [
   'replace_csp_nonce', // tauri 内部
   'restore_state', // tauri-plugin-window-state
   'runHandlers', // CodeMirror 内部
+  'send_user_message', // tauri-runtime-wry 内部（ウィンドウ操作を同期にする理由として rust.md が出す）
   'set_csp', // tauri 内部（manager::set_csp）
   'subIssuesSummary', // gh の --json フィールド（使わない理由を editor.md が書くために出す）
   'transcript_path', // Claude Code の hook が stdin で渡すフィールド（#299）

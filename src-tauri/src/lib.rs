@@ -328,6 +328,31 @@ fn main_geom_key(app: &AppHandle) -> String {
         .unwrap_or_else(|| window_geom::GLOBAL_KEY.to_string())
 }
 
+/// そのウィンドウ宛てに積んだ操作が処理されるまで待つ。
+///
+/// **ウィンドウ操作は ack を待たない。** `show()` / `set_focus()` は `tauri-runtime-wry` の
+/// `send_user_message` を通り、**メインスレッド以外から呼ばれるとイベントを積むだけ**で返る
+/// （結果が要る `build()` や getter だけが待つ、という非対称）。だから「その関数から返った
+/// ＝もう出ている」は素直には成り立たない。
+///
+/// キューは FIFO なので、**空のタスクを 1 つ積んで、それが走るまで待てば**先に積んだぶんは
+/// 必ず処理済みになる。メインスレッドから呼ばれたときはその場で実行されるので、待ちも
+/// デッドロックも起きない。
+///
+/// **返り値を捨てる getter（`is_visible()` 等）で代えないこと。** 同じことは起きるが、
+/// 「その getter が毎回往復し続ける」という契約の無い性質に寄りかかることになるうえ、
+/// 値を使っていない行なので整理のパスで落とされうる。`run_on_main_thread` は公開された
+/// 契約で、名前が待ちの意図を述べる。
+fn wait_for_window_queue(window: &WebviewWindow) {
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    // 積めなかった（イベントループが終わっている）なら待つ相手が居ない。
+    if window.run_on_main_thread(move || drop(tx)).is_err() {
+        return;
+    }
+    // 送らずに落とすので `Err` で戻る。要るのは「走った」ことだけ。
+    let _ = rx.recv();
+}
+
 fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
     app.webview_windows()
         .into_values()
@@ -339,6 +364,24 @@ fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
 /// the project id for a project window, `GLOBAL_KEY` for a project-less one.
 /// tauri-plugin-window-state cannot do this itself because these labels are
 /// single-use uuids.
+///
+/// **事後条件: この関数から返った時点で、ウィンドウは画面に出ている**（`wait_for_window_queue`
+/// がそれを保証する。素直には成り立たない理由はあちらの doc）。**乗っているのは 2 つ**:
+///
+/// - 直後の `restore_desktop`（#317）。COM で HWND を直に叩くので tauri のキューを通らず、
+///   `Show` が未処理のまま走ると「表示されてからでないと仮想デスクトップの管理下に入らない」
+///   という前提を満たさない（あの節の「環境によって黙って失敗する」はこの競合の姿）
+/// - 復元した全ウィンドウを待ってから 1 枚を前に出す経路（#340、`restoreLastProject`）
+///
+/// **どちらか一方が消えても、もう一方のために残すこと。** 落ちても無音で、片方は確率的に、
+/// もう片方はコールドスタートかつ復元 2 枚以上のときだけ再現する。
+///
+/// **同期の Tauri コマンドから呼ばないこと。** `WebviewWindowBuilder::new` の doc が「Windows
+/// では同期コマンドとイベントハンドラの中でデッドロックする」と言っている。効いているのは
+/// **WebView2 の IPC 配送の内側で再入するな**という話（WebView2 の生成は `wait_with_pump` で
+/// メッセージループを回す）で、イベントループ側のコールバックから呼ぶのは問題ない
+/// （setup / トレイ / single-instance が実際にそうしている）。ウィンドウを作るコマンド
+/// （`open_project_window` / `open_global_window`）が `async` なのはこれが理由。
 fn build_window(
     app: &AppHandle,
     label: &str,
@@ -380,6 +423,7 @@ fn build_window(
     // 非表示で作ってあるので、ここで塗り直せば最初の 1 フレームから OS のテーマに合う。
     apply_startup_surface(&window);
     let _ = window.show();
+    wait_for_window_queue(&window);
     // **表示のあとにもう一度移す（#317）。** 仮想デスクトップの管理下に入るのは表示されて
     // からなので、`restore` の中の移動（非表示の時点）は環境によって黙って失敗する。冪等な
     // 操作で、既にそのデスクトップに居れば何も起きない。**先の 1 回を消さないこと**: 効く
@@ -598,6 +642,9 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
     }
 }
 
+/// プロジェクト 1 つに専用のウィンドウを与える（既に開いていればそちらを前に出す）。
+///
+/// **`async` のままにすること**（理由は `build_window` の doc）。
 #[tauri::command]
 async fn open_project_window(
     project_id: String,
@@ -997,7 +1044,8 @@ fn window_close_quits_app(window: WebviewWindow) -> bool {
     close_would_quit(window.app_handle(), window.label())
 }
 
-/// このウィンドウを前に出す（トレイのヒント通知）。
+/// このウィンドウを前に出す。**用途で持つ口**（呼び出し元はトレイのヒント通知と、
+/// プロジェクトの切り替えをこのウィンドウが引き受けたとき #340）。
 ///
 /// **フロントで `show()` を直に呼ばないこと。** 見た目は同じでも、`MAIN_CLOSED_HIDDEN` を
 /// 落とすのは `restore_window` だけで、素の show では**論理的に閉じた main が見えている

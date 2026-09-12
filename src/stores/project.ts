@@ -36,6 +36,7 @@ import {
   projectTransientGet,
   projectUpdate,
   type WindowSession,
+  windowRestore,
 } from '../lib/tauri'
 import { ephemeralWindow, globalMode, isMainWindow } from '../lib/window'
 import type { ProjectConfig, SyncedProject } from '../types/project'
@@ -51,7 +52,7 @@ import { useTaskStore } from './tasks'
 // settings debounce: a push is a read-modify-write of the whole file.
 const SYNC_PUSH_DEBOUNCE_MS = 2000
 
-/** Where `placeProject` puts a project. */
+/** How `openProject` places a project. */
 type OpenMode = 'switch' | 'window' | 'focusOrSwitch'
 
 /** What a pull did, so the caller can explain an empty result (#164). */
@@ -341,19 +342,22 @@ export const useProjectStore = defineStore('project', () => {
    *
    * - `switch`: take over this window.
    * - `window`: give it its own window (the backend focuses one already on it).
-   * - `focusOrSwitch`: jump to its window if one exists, else `switch`.
+   *
+   * **`focusOrSwitch` はここには来ない**（`openProject` が自分で解決してから、残りの 2 つに
+   * 潰して呼ぶ）。あのモードの意味は `openProject` が持つ 1 箇所だけにしてある: 両方が
+   * 解釈を持っていたころは、こちらの分岐が誰からも通らないまま「前に出さない版」の定義として
+   * 残り、`placeProject` を直に使う人に #340 を再現させる形になっていた。
    *
    * `openProject` runs this after its check. Calling it directly skips that, so
    * the only caller allowed to is project creation: the root the user just typed
    * may not exist yet and a new project has no origin, which would leave the
    * check refusing to open what was asked for.
    */
-  async function placeProject(id: string, mode: OpenMode): Promise<void> {
+  async function placeProject(id: string, mode: Exclude<OpenMode, 'focusOrSwitch'>): Promise<void> {
     if (mode === 'window') {
       await openProjectWindow(id)
       return
     }
-    if (mode === 'focusOrSwitch' && (await focusProjectWindow(id))) return
     await switchProject(id)
   }
 
@@ -366,7 +370,22 @@ export const useProjectStore = defineStore('project', () => {
     // left afterwards is this window, unless a dedicated one was asked for.
     if (mode === 'focusOrSwitch' && (await focusProjectWindow(id))) return
     const open = () => placeProject(id, mode === 'window' ? 'window' : 'switch')
-    if (await ensureRootPresent(id, open)) await open()
+    if (!(await ensureRootPresent(id, open))) return
+    await open()
+    // ここまで来た `focusOrSwitch` は「他にウィンドウが無いので**このウィンドウが引き受けた**」
+    // （見つかっていれば上の行で return している）。**前に出すところまでがモードの意味**で、
+    // 埋めないと「他のウィンドウなら前に出すが、自分のウィンドウなら出さない」という非対称が
+    // 残る。#340（通知からのコールドスタートで、あとから出てきた子ウィンドウにフォーカスを
+    // 奪われる）は、その穴が表に出た場面。
+    //
+    // **`open` の中に入れないこと。** あれは clone の完了後（`ensureRootPresent` の
+    // `onCloned`）にも走る。clone はターミナルで数分かかりうるので、そこで前に出すと、
+    // 別のアプリを使っている利用者からフォーカスを奪う。
+    //
+    // **このモードはフォーカスを奪うようになった。** 通知由来の経路（`useAgentNotice` は今
+    // `'switch'`）が乗り換えると、「見えているものには何もしない」という #265 の方針を
+    // 黙って破る。
+    if (mode === 'focusOrSwitch') await windowRestore().catch(() => {})
   }
 
   /** Open a project this window was handed rather than picked: the startup
@@ -1045,7 +1064,23 @@ export const useProjectStore = defineStore('project', () => {
     if (normalized) await addGroup(normalized)
   }
 
-  async function restoreLastProject() {
+  /**
+   * 前回のセッションを復元する（`last_project.txt` の 1 行につき 1 ウィンドウ、#264）。
+   *
+   * `focus` を渡すと、**復元で開いた子ウィンドウが出そろってから**そのプロジェクトを前に
+   * 出す（通知からのコールドスタート、#334 / #340）。子ウィンドウは表示のたびにフォーカスを
+   * 取るので、先に前へ出しても後から出てきたものに奪われる。
+   *
+   * **順序をこの関数の中に閉じてあるのは、半分だけ呼んで後半を忘れられないようにするため**
+   * （`adoptProject` と同じ理由）。待ち合わせの handle を返す形にすると、2 人目の呼び出し元が
+   * 待ち忘れても型検査も lint も通り、症状は #340 と同じ「コールドスタートのときだけ
+   * フォーカスが当たらない」になる。
+   *
+   * **前に出すところは await しない。** main の mount の続き（listener の登録・`initCliOpen`）を
+   * 子ウィンドウの生成で止めない（`isElevated` / `offerAgentHook` と同じ扱い）。`focus` が
+   * 無ければ待つものも無い。
+   */
+  async function restoreLastProject(focus?: string): Promise<void> {
     await loadProjects()
     // Take in projects registered on other machines. Not awaited: the sync file
     // usually sits in a cloud folder, where a read can block for seconds on an
@@ -1057,8 +1092,12 @@ export const useProjectStore = defineStore('project', () => {
     // 消してから各ウィンドウに書き直させる、はもう要らない（#264）。書き込みは生きて
     // いるウィンドウからの全量書き直しなので、古い行は最初の `project_add_open` で消える。
     const sessions = await projectGetLast().catch(() => [] as WindowSession[])
+    const known = (id: string) => projects.value.some((p) => p.id === id)
+    // 復元で開いた子ウィンドウ。1 枚ずつ待たない（生成は Rust 側でどのみち直列化される）ので、
+    // 入るのは「開き終わった」Promise。落ちた 1 枚が下の待ち合わせを壊さないよう、失敗は
+    // ここで潰してある。
+    let opened: Promise<void>[] = []
     if (sessions.length > 0) {
-      const known = (id: string) => projects.value.some((p) => p.id === id)
       // Main window opens the first window's project, and remembers what that
       // window was holding (#264).
       const main = sessions[0]
@@ -1067,17 +1106,20 @@ export const useProjectStore = defineStore('project', () => {
         setHeldProjects(main.held.filter(known))
       }
       // Remaining windows open separately, each adopting its own (#212)
-      for (const session of sessions.slice(1)) {
-        if (known(session.shown)) {
-          openProjectWindow(session.shown, session.held.filter(known)).catch(() => {})
-        }
-      }
-      return
+      opened = sessions
+        .slice(1)
+        .filter((session) => known(session.shown))
+        .map((session) => openProjectWindow(session.shown, session.held.filter(known)).catch(() => {}))
+    } else {
+      // Nothing to restore: show the switcher so the user can open/create a
+      // project or switch this window into global mode. Shown even with zero
+      // projects (first-ever launch) so the global-mode entry is reachable.
+      showSwitcher.value = true
     }
-    // Nothing to restore: show the switcher so the user can open/create a
-    // project or switch this window into global mode. Shown even with zero
-    // projects (first-ever launch) so the global-mode entry is reachable.
-    showSwitcher.value = true
+    if (!focus) return
+    void Promise.all(opened)
+      .then(() => openProject(focus, 'focusOrSwitch'))
+      .catch(() => {})
   }
 
   async function switchProject(id: string, opts?: { restoreSession?: boolean }) {
