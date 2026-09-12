@@ -125,7 +125,10 @@ interface TaskItem {
   kind: 'task'
   name: string
   command: string
-  /** justfile の doc comment。あれば command の代わりに出し、絞り込みにも使う */
+  /**
+   * 人が書いた説明（justfile の doc comment、deno.json の `description`、
+   * package.json の `"//name"` キー）。あれば command の代わりに出し、絞り込みにも使う
+   */
   description?: string
   runner: TaskRunner
   cwd?: string
@@ -288,6 +291,14 @@ function getDisplayPath(fullPath: string): string {
     return rel
   }
   return fullPath
+}
+
+/**
+ * タスク行の副題。**どちらの欄も空になりうる**（deno の依存だけを並べたタスクは
+ * コマンドを持たない）ので、空のものは区切りごと落とす。
+ */
+function taskSubtitle(item: TaskItem): string {
+  return [item.groupLabel, item.description ?? item.command].filter(Boolean).join(' · ')
 }
 
 // --- Actions ---
@@ -497,7 +508,7 @@ const footerHints = computed(() => {
                 <template v-else>
                   <span class="item-runner">{{ item.runner }}</span>
                   <span class="item-name">{{ item.name }}</span>
-                  <span class="item-path">{{ item.groupLabel }} · {{ item.description ?? item.command }}</span>
+                  <span class="item-path">{{ taskSubtitle(item) }}</span>
                 </template>
               </div>
             </template>

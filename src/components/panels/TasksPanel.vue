@@ -36,9 +36,12 @@ function isCollapsed(sourceFile: string): boolean {
   return taskStore.collapsedGroups.has(sourceFile)
 }
 
-/** ツールチップ: 呼び出し行と、あれば説明（justfile の doc comment）。 */
+/**
+ * ツールチップ: 呼び出し行と、あれば説明。**どちらの欄も空になりうる**（deno の
+ * 依存だけを並べたタスクはコマンドを持たない）ので、空のものは行ごと落とす。
+ */
 function taskTitle(task: TaskDefinition) {
-  return task.description ? `${task.command}\n${task.description}` : task.command
+  return [task.command, task.description].filter(Boolean).join('\n')
 }
 
 defineExpose({ refresh })

@@ -4,7 +4,11 @@ export interface TaskDefinition {
   name: string
   /** ツールチップ用。実行するシェル行は RUNNER_COMMANDS が name から組み立てる */
   command: string
-  /** 人が書いた説明（justfile の doc comment。他の runner は持たない） */
+  /**
+   * 人が書いた説明。出どころは justfile の doc comment、deno.json のタスクの
+   * `description`、package.json / deno.json の `"//name"` というコメント用のキーの
+   * 3 つで、振り分けは Rust の `tasks.rs` が済ませてある
+   */
   description?: string
   runner: TaskRunner
   cwd?: string

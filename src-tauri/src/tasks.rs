@@ -55,7 +55,9 @@ pub struct DiscoveredTask {
     /// 引数を含む呼び出し行。実行するシェル行はフロントの `RUNNER_COMMANDS` が
     /// 名前から組み立てるので、ここはツールチップにしか出ない
     pub command: String,
-    /// 人が書いた説明（今のところ justfile の doc comment だけが持つ）
+    /// 人が書いた説明。出どころは 3 つで、justfile の doc comment、deno.json の
+    /// タスクの `description`（Deno 2 の仕様）、package.json / deno.json の
+    /// `"//name"` というコメント用のキー（`comment_key_target` を見ること）
     pub description: Option<String>,
     pub runner: String,
 }
@@ -470,6 +472,41 @@ fn is_self_or_ancestor(ancestor: &str, dir: &str) -> bool {
             && matches!(dir.as_bytes()[ancestor.len()], b'/' | b'\\'))
 }
 
+/// コメント用のキー（`"//build"` / `"// build"` / `"//"`）なら、説明の宛先＝`//` を
+/// 外した名前を返す。宛先を持たない `"//"` 単発は空文字。
+///
+/// **npm に `//` の特別扱いは無い。** `npm run //build` はコメント本文をシェル行として
+/// 実行する（実測）ので、これをタスクとして並べると押した先が必ず壊れる。一覧から
+/// 落として同名スクリプトの説明に回す。
+///
+/// 同じ記法は「一時的に無効化したスクリプトの退避先」としても使われる
+/// （`decamelize` / `yocto-queue` の `"//test": "xo && ava && tsd"` が実例）。そちらでは
+/// 退避されたコマンドが説明欄に出るが、**実行できない行が一覧から消える利得のほうが
+/// 大きい**ので区別しない（字面から意図は読めない）。
+fn comment_key_target(name: &str) -> Option<&str> {
+    name.strip_prefix("//").map(str::trim)
+}
+
+/// コメント用のキーを「宛先の名前 → 説明」に畳む。値が文字列でないもの、宛先を持たない
+/// `"//"`、空の説明は落とす。
+fn collect_comment_keys(
+    map: &serde_json::Map<String, serde_json::Value>,
+) -> std::collections::HashMap<&str, &str> {
+    map.iter()
+        .filter_map(|(name, value)| {
+            let target = comment_key_target(name).filter(|t| !t.is_empty())?;
+            let text = value.as_str()?.trim();
+            (!text.is_empty()).then_some((target, text))
+        })
+        .collect()
+}
+
+/// 一覧に並べてよい名前か。コメント用のキーは実行できず、シェルに渡る名前は文字種を絞る。
+/// **2 つの JSON パーサが同じ規則を読む**ので、片方だけ古くならないよう 1 つにしてある。
+fn is_runnable_task_name(name: &str) -> bool {
+    comment_key_target(name).is_none() && is_safe_task_name(name)
+}
+
 fn parse_package_json(content: &str, pm: NodeRunner) -> Vec<DiscoveredTask> {
     let Ok(val) = serde_json::from_str::<serde_json::Value>(content) else {
         return vec![];
@@ -477,20 +514,28 @@ fn parse_package_json(content: &str, pm: NodeRunner) -> Vec<DiscoveredTask> {
     let Some(scripts) = val.get("scripts").and_then(|s| s.as_object()) else {
         return vec![];
     };
+    let comments = collect_comment_keys(scripts);
     scripts
         .iter()
-        .filter(|(name, _)| is_safe_task_name(name))
+        .filter(|(name, _)| is_runnable_task_name(name))
         .filter_map(|(name, cmd)| {
             cmd.as_str().map(|c| DiscoveredTask {
                 name: name.clone(),
                 command: c.to_string(),
-                description: None,
+                description: comments.get(name.as_str()).map(|d| (*d).to_string()),
                 runner: pm.as_str().into(),
             })
         })
         .collect()
 }
 
+/// deno.json の tasks。文字列のほか、**Deno 2 の `{ "description": …, "command": … }`
+/// というオブジェクト形式**も取る（`deno task` の一覧に説明を出すための公式の形で、
+/// 説明を書ける唯一の仕様上の経路）。`cmd.as_str()` だけを見ていたころは、この形式の
+/// タスクが説明どころか**丸ごと一覧から消えていた**。
+///
+/// `command` を持たないタスク（依存だけを並べる `dependencies` 形式）も `deno task` からは
+/// 実行できるので、コマンドを空にしたまま一覧には出す。
 fn parse_deno_json(content: &str) -> Vec<DiscoveredTask> {
     let stripped: String = strip_json_comments(content);
     let Ok(val) = serde_json::from_str::<serde_json::Value>(&stripped) else {
@@ -499,14 +544,32 @@ fn parse_deno_json(content: &str) -> Vec<DiscoveredTask> {
     let Some(tasks) = val.get("tasks").and_then(|t| t.as_object()) else {
         return vec![];
     };
+    let comments = collect_comment_keys(tasks);
     tasks
         .iter()
-        .filter(|(name, _)| is_safe_task_name(name))
-        .filter_map(|(name, cmd)| {
-            cmd.as_str().map(|c| DiscoveredTask {
+        .filter(|(name, _)| is_runnable_task_name(name))
+        .filter_map(|(name, value)| {
+            let (command, description) = match value {
+                serde_json::Value::String(cmd) => (cmd.as_str(), None),
+                serde_json::Value::Object(obj) => (
+                    obj.get("command")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or_default(),
+                    obj.get("description")
+                        .and_then(|d| d.as_str())
+                        .map(str::trim)
+                        .filter(|d| !d.is_empty()),
+                ),
+                _ => return None,
+            };
+            Some(DiscoveredTask {
                 name: name.clone(),
-                command: c.to_string(),
-                description: None,
+                command: command.to_string(),
+                // 宣言された説明が優先。コメント用のキーは書き手の間に合わせなので、
+                // 両方あれば仕様どおりの側を採る
+                description: description
+                    .or_else(|| comments.get(name.as_str()).copied())
+                    .map(str::to_string),
                 runner: "deno".into(),
             })
         })
@@ -1016,6 +1079,61 @@ lint = ["clippy", "--", "-D", "warnings"]
         let json = r#"{"tasks":{"ok":"echo hi","bad$(id)":"echo pwn"}}"#;
         let names: Vec<String> = parse_deno_json(json).into_iter().map(|t| t.name).collect();
         assert_eq!(names, vec!["ok"]);
+    }
+
+    #[test]
+    fn npm_comment_keys_describe_their_script() {
+        let json = r#"{"scripts":{
+            "//": "このプロジェクトのスクリプト",
+            "//build": "  バンドルして dist へ  ",
+            "build": "vite build",
+            "// test": "ユニットテスト",
+            "test": "vitest",
+            "//gone": "宛先の無いコメント",
+            "//quiet": "",
+            "quiet": "echo hi"
+        }}"#;
+        let tasks = parse_package_json(json, NodeRunner::Npm);
+        let mut names: Vec<&str> = tasks.iter().map(|t| t.name.as_str()).collect();
+        names.sort_unstable();
+        // コメント用のキーは 1 つも一覧に出さない（`"//"` 単発と、宛先の無いものも）
+        assert_eq!(names, vec!["build", "quiet", "test"]);
+        let by_name = |n: &str| tasks.iter().find(|t| t.name == n).unwrap();
+        let desc = |n: &str| by_name(n).description.clone();
+        assert_eq!(desc("build").as_deref(), Some("バンドルして dist へ"));
+        assert_eq!(desc("test").as_deref(), Some("ユニットテスト"));
+        // 空の説明は説明として扱わない
+        assert_eq!(desc("quiet"), None);
+    }
+
+    #[test]
+    fn deno_task_object_form_carries_its_description() {
+        let json = r#"{"tasks":{
+            "dev": "deno run --watch main.ts",
+            "//dev": "監視付きで起動する",
+            "analyze": {"description": "解析して結果を出す", "command": "deno run scripts/analyze.js"},
+            "//analyze": "コメント側の説明",
+            "all": {"dependencies": ["dev", "analyze"]},
+            "bad": 42
+        }}"#;
+        let tasks = parse_deno_json(json);
+        let by_name = |n: &str| tasks.iter().find(|t| t.name == n).unwrap();
+        // 文字列形式にはコメント用のキーが効く
+        assert_eq!(
+            by_name("dev").description.as_deref(),
+            Some("監視付きで起動する")
+        );
+        // 宣言された description は、コメント用のキーより優先される
+        assert_eq!(
+            by_name("analyze").description.as_deref(),
+            Some("解析して結果を出す")
+        );
+        assert_eq!(by_name("analyze").command, "deno run scripts/analyze.js");
+        // command を持たない依存だけのタスクも `deno task` から走るので一覧には出す
+        assert_eq!(by_name("all").command, "");
+        // 文字列でもオブジェクトでもない値はタスクにしない
+        assert!(!tasks.iter().any(|t| t.name == "bad"));
+        assert!(tasks.iter().all(|t| !t.name.starts_with("//")));
     }
 
     #[test]
