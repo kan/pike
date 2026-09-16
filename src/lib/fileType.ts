@@ -79,6 +79,9 @@ export const FILE_TYPE_LABELS = {
   svg: 'SVG',
   css: 'CSS',
   scss: 'SCSS',
+  less: 'Less',
+  // Ansible のテンプレート（#349）。`nginx.conf.j2` のように元の拡張子の後ろに付く。
+  j2: 'Jinja2',
   sql: 'SQL',
   lua: 'Lua',
   sh: 'Shell',
@@ -151,6 +154,9 @@ const NAME_KEYS: Record<string, string> = Object.assign(Object.create(null), {
   '.editorconfig': 'ini',
   '.npmrc': 'ini',
   '.gitconfig': 'ini',
+  // MySQL の設定（#349）。**拡張子 `cnf` をキーにしない**: `.cnf` は OpenSSL の設定など
+  // 別形式にも使われるので、名前が分かっているものだけ拾う。
+  'my.cnf': 'ini',
   'cargo.lock': 'toml',
   'uv.lock': 'toml',
   'poetry.lock': 'toml',

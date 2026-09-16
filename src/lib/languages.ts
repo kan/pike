@@ -7,10 +7,11 @@ import { rust } from '@codemirror/lang-rust'
 import { yaml } from '@codemirror/lang-yaml'
 import { type Language, LanguageSupport, StreamLanguage } from '@codemirror/language'
 import { c, cpp, csharp, java, kotlin, objectiveC, scala } from '@codemirror/legacy-modes/mode/clike'
-import { css as cssMode, sCSS } from '@codemirror/legacy-modes/mode/css'
+import { css as cssMode, less, sCSS } from '@codemirror/legacy-modes/mode/css'
 import { diff } from '@codemirror/legacy-modes/mode/diff'
 import { dockerFile } from '@codemirror/legacy-modes/mode/dockerfile'
 import { go } from '@codemirror/legacy-modes/mode/go'
+import { jinja2 } from '@codemirror/legacy-modes/mode/jinja2'
 import { lua } from '@codemirror/legacy-modes/mode/lua'
 import { nginx } from '@codemirror/legacy-modes/mode/nginx'
 import { perl } from '@codemirror/legacy-modes/mode/perl'
@@ -181,6 +182,8 @@ const EXT_MAP = table({
   m: () => legacy(objectiveC),
   css: () => legacy(cssMode),
   scss: () => legacy(sCSS),
+  less: () => legacy(less),
+  j2: () => legacy(jinja2),
   sql: () => legacy(standardSQL),
   lua: () => legacy(lua),
   dockerfile: () => legacy(dockerFile),
