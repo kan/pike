@@ -23,6 +23,7 @@ import { shell } from '@codemirror/legacy-modes/mode/shell'
 import { standardSQL } from '@codemirror/legacy-modes/mode/sql'
 import { swift } from '@codemirror/legacy-modes/mode/swift'
 import { toml } from '@codemirror/legacy-modes/mode/toml'
+import { xml as xmlMode } from '@codemirror/legacy-modes/mode/xml'
 // CM6 に公式の rst は無い（CM5 にはあった）ので、外部パッケージを 1 つだけ足している。
 // 依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる（#284）。
 import { rst } from 'codemirror-lang-rst'
@@ -191,7 +192,18 @@ const EXT_MAP = table({
   // `.editorconfig` / `.npmrc` / `.gitconfig` / `.env` 系もここへ寄せる（#347 / #348）。
   // どれも `KEY=value` とコメントだけなので properties のモードが素直に当たる。
   ini: () => legacy(properties),
+  xcconfig: () => legacy(properties),
   env: () => legacy(properties),
+  // XML（#345）。**legacy-modes の `xml` を使う**（導入済みなので依存が増えない）。
+  // `@codemirror/lang-xml` を足すと構文木が得られるが、アウトラインに XML を載せる予定が
+  // 無いので、その 1 点のために依存を増やさない。
+  xml: () => legacy(xmlMode),
+  xsd: () => legacy(xmlMode),
+  xsl: () => legacy(xmlMode),
+  xslt: () => legacy(xmlMode),
+  wsdl: () => legacy(xmlMode),
+  plist: () => legacy(xmlMode),
+  csproj: () => legacy(xmlMode),
   // `.gitignore` は shell ではないが、コメントと素の語だけなので shell のモードが素直に当たる。
   // 専用のキーにしてあるのは、`FILE_TYPE_LABELS` で「Shell」と名乗らせないため。
   gitignore: () => legacy(shell),

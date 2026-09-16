@@ -97,7 +97,20 @@ export const FILE_TYPE_LABELS = {
   // ない）。
   gitignore: 'Git Ignore',
   ini: 'INI',
+  // iOS のビルド設定（`Debug.xcconfig`）。**XML ではなく `KEY = value`** なので INI 側に
+  // 寄せる（#345）。
+  xcconfig: 'INI',
   env: 'DotEnv',
+  // #345。`svg` は `html()` のままにしてある（SVG は XML だが、実用上あちらで足りていて
+  // 困っていないため）。**`.xcconfig` はここに入れない**: 中身は XML ではなく `KEY = value`
+  // なので `ini` 側。
+  xml: 'XML',
+  xsd: 'XML',
+  xsl: 'XML',
+  xslt: 'XML',
+  wsdl: 'XML',
+  plist: 'XML',
+  csproj: 'XML',
   diff: 'Diff',
   patch: 'Diff',
   conf: 'Nginx',

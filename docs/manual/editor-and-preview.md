@@ -24,11 +24,12 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
 - **30+ 言語**のシンタックスハイライト。ファイル名で決まらないときは 1 行目の shebang も見ます（`#!/usr/bin/env python3` なら Python として色を付けます）。判定は開いたときの 1 回なので、あとから書き足したときは開き直してください。
 - **Markdown のコードブロックは、フェンスに書いた言語で色が付きます。** ```` ```ts ```` や ```` ```bash ```` のように言語を書いていれば、その中身も対応する言語としてハイライトします。`javascript` や `typescript` のような長い綴りも同じ言語として扱います。対応していない言語名を書いたときは、色が付かないだけで表示は崩れません。
 - **名前に環境名を足したファイルも判定します。** `Dockerfile.dev` は Dockerfile、`.env.local` や `.env.production` は `.env` として扱います。`GNUmakefile` や `Makefile.am` も Makefile です。
-- 設定ファイル系も判定します。対象は次の 4 組です。
+- 設定ファイル系も判定します。対象は次の 5 組です。
     - シェル：`justfile` / `.envrc` / `.profile` / `.bash_profile` / `.zprofile` / `.zshenv`
-    - `KEY=value` 形式：`.editorconfig` / `.npmrc` / `.gitconfig` / `.env` / 拡張子 `.ini`
+    - `KEY=value` 形式：`.editorconfig` / `.npmrc` / `.gitconfig` / `.env` / 拡張子 `.ini` と `.xcconfig`
     - TOML：`Cargo.lock` / `uv.lock` / `poetry.lock`（`yarn.lock` などは別形式なので対象外）
     - JavaScript / TypeScript：`.cjs` / `.mts` / `.cts`
+    - XML：`.xml` / `.xsd` / `.xsl` / `.xslt` / `.wsdl` / `.plist` / `.csproj`
 - ファイルの種別は、シンタックスハイライトだけでなく**アウトライン・定義ジャンプ・ファイルアイコンでも同じ判定**を使います。同じファイルで機能ごとに扱いが割れることはありません。
 - **保存**：`Ctrl+S`。未保存はタブタイトルに `*` が付きます。設定の[自動保存](settings.md#エディタ)を有効にすると、フォーカスが外れたとき、または打鍵が止まってから一定時間後に保存されます（`*` の表示と、閉じるときの確認はそのままです）。
 - **新規ファイル**：存在しないパスを開くと空の新規ファイルになり、タブに「new」バッジが付きます。最初の保存でファイルが作成されます。
