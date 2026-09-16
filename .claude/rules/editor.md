@@ -16,6 +16,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
   - **判定の表に CodeMirror を import しない。** アイコンやアウトラインから、種別を知りたいだけのために言語モードの束を読み込ませないため
   - 優先順（名前 → 拡張子 → 先頭セグメント → shebang）と、先頭セグメントで引く名前を絞る理由（`go.mod` の誤判定）は `fileTypeKey` の doc が正本
   - **shebang に載せるのは既に import 済みのモードだけ**（「軽さ最優先」。`fish` / `awk` はモードを増やすことになるので入れない）。`env` と `-S`、末尾のバージョン（`python3.11`）の扱いは `shebangKey` の doc が正本
+  - **Vue SFC の `<style lang="scss">` は `html()` の `nestedLanguages` で当てる（#346）。** 既定の規則が CSS を当てるのは `lang` が無いか `css` のときだけ。**`<script setup lang="ts">` は既に効いている**ので足さない。**テンプレートの式（`{{ }}` と `:prop` / `@event`）はここでは直らない**（`nestedAttributes` は属性名を固定で並べる形で、`:` と `@` で任意の名前が作られる Vue のバインディングを表せない）。直すには `@codemirror/lang-vue` が要る＝依存を増やす判断なので #346 で保留
   - **Markdown のフェンスの中身も `EXT_MAP` で解析する（#344）。** `markdown()` に `codeLanguages` を渡す形で、**依存は増えない**（`@codemirror/language-data` は入れない）。別名表（`FENCE_ALIASES`）を実在するフェンス名から作った理由と、`Language` をキーごとにキャッシュする理由は `languages.ts` の doc が正本
     - **アウトラインにフェンスの中身は出ない。** `@lezer/markdown` はフェンスを**オーバーレイ**としてマウントし、`Tree.iterate` はオーバーレイに入らないため（`IterMode` の指定では変わらないことを実測で確認）。**`resolveInner` 系へ書き換えるときは要注意**: あちらは中へ入るので、```` ```md ```` に貼ったコード例の見出しが文書の構造に混ざる
   - **アウトラインには効かない。** あちらへ渡す `langId` は `extension(path)`（拡張子そのもの）で別経路なので、shebang を効かせるならその決め方も変えることになる（#312 の範囲外）

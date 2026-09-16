@@ -121,6 +121,35 @@ function fenceLanguage(info: string): Language | null {
 const markdownSupport = () => markdown({ codeLanguages: fenceLanguage })
 
 /**
+ * `<style lang="…">` の中身に当てるパーサ（#346）。**モジュールの先頭で 1 度だけ作る**
+ * （`vueSupport` はファイルを開くたびに呼ばれるので、そこで `StreamLanguage.define` を
+ * やり直すと SFC ごとに別のパーサになる）。
+ */
+const STYLE_LANGS = [
+  { lang: 'scss', mode: sCSS },
+  { lang: 'less', mode: less },
+].map(({ lang, mode }) => ({
+  tag: 'style',
+  attrs: (attrs: Record<string, string>) => attrs.lang === lang,
+  parser: StreamLanguage.define(mode).parser,
+}))
+
+/**
+ * Vue SFC（#346）。**`<style lang="scss">` の中身を色付けするために `html()` へ渡す。**
+ * lang-html の既定の規則が CSS を当てるのは `lang` が無いか `css` のときだけなので、
+ * SCSS / Less を書いた SFC は style ブロックが丸ごと無色になっていた。
+ *
+ * **`<script setup lang="ts">` は既に効いている**（既定の規則に `attrs.lang == "ts"` →
+ * TypeScript がある）ので、こちらで足すことはない。
+ *
+ * **テンプレートの式（`{{ }}` と `v-if` / `:prop` / `@event` の属性値）はここでは直らない。**
+ * `nestedAttributes` は属性名を固定で並べる形なので、`:` と `@` で任意の名前が作られる
+ * Vue のバインディングは表現できない。直すには `@codemirror/lang-vue` を足すことになる
+ * （依存を増やす判断が要るので #346 で保留）。
+ */
+const vueSupport = () => html({ nestedLanguages: STYLE_LANGS })
+
+/**
  * キー → 言語モード。**キーの正本は `fileType.ts` の `FILE_TYPE_LABELS`**（#347）。
  *
  * `Partial<Record<FileTypeKey, …>>` で縛ってあるので、**ラベルを持たないキーにモードを
@@ -148,7 +177,7 @@ const EXT_MAP = table({
   rst: () => rst(),
   yaml: () => yaml(),
   yml: () => yaml(),
-  vue: () => html(),
+  vue: vueSupport,
   html: () => html(),
   htm: () => html(),
   svg: () => html(),
