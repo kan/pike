@@ -423,6 +423,19 @@ interface PersistedSettings {
   terminalCopyOnSelect: boolean
   terminalRightClickPaste: boolean
   /**
+   * ターミナルに重ねて出す 3 つのボタンを出すか（#341）。
+   *
+   * **1 本のフラグに畳まない。** 3 つは「エージェントを起動する」「文を差し込む」
+   * 「説明を読む」という別々の用があり、起動ボタンだけ邪魔（自分でコマンドを打つ）とか、
+   * ヘルプだけもう要らない（読んだ）といった切り方が実際にある。
+   *
+   * ヘルプが上の 2 つに連動する理由は `TerminalTab.vue` の `showHelp` の隣が正本
+   * （規則を持っているのはあの述語なので、写しをここに置かない）。
+   */
+  terminalAgentButton: boolean
+  terminalPromptButton: boolean
+  terminalHelpButton: boolean
+  /**
    * Markdown に URL を貼ったとき、そのページを取得してタイトル入りのリンクにするか（#241）。
    *
    * **既定は false。** これは Pike が作者の代わりに任意のホストへ通信する唯一の機能なので、
@@ -822,6 +835,11 @@ function defaults(): PersistedSettings {
     previewSmoothScroll: true,
     terminalCopyOnSelect: true,
     terminalRightClickPaste: true,
+    // 重ねて出すボタンは 3 つとも既定で出す（#341）。隠せるようにしただけで、
+    // 既定の見た目は変えない。
+    terminalAgentButton: true,
+    terminalPromptButton: true,
+    terminalHelpButton: true,
     markdownFetchLinkTitle: false,
     language: 'en',
     closeToTray: true,
@@ -884,6 +902,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const previewSmoothScroll = ref(saved.previewSmoothScroll)
   const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
   const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
+  const terminalAgentButton = ref(saved.terminalAgentButton)
+  const terminalPromptButton = ref(saved.terminalPromptButton)
+  const terminalHelpButton = ref(saved.terminalHelpButton)
   const markdownFetchLinkTitle = ref(saved.markdownFetchLinkTitle)
   const language = ref(saved.language)
   const closeToTray = ref(saved.closeToTray)
@@ -1255,6 +1276,9 @@ export const useSettingsStore = defineStore('settings', () => {
       previewSmoothScroll: previewSmoothScroll.value,
       terminalCopyOnSelect: terminalCopyOnSelect.value,
       terminalRightClickPaste: terminalRightClickPaste.value,
+      terminalAgentButton: terminalAgentButton.value,
+      terminalPromptButton: terminalPromptButton.value,
+      terminalHelpButton: terminalHelpButton.value,
       markdownFetchLinkTitle: markdownFetchLinkTitle.value,
       language: language.value,
       closeToTray: closeToTray.value,
@@ -1298,6 +1322,9 @@ export const useSettingsStore = defineStore('settings', () => {
     previewSmoothScroll.value = s.previewSmoothScroll
     terminalCopyOnSelect.value = s.terminalCopyOnSelect
     terminalRightClickPaste.value = s.terminalRightClickPaste
+    terminalAgentButton.value = s.terminalAgentButton
+    terminalPromptButton.value = s.terminalPromptButton
+    terminalHelpButton.value = s.terminalHelpButton
     markdownFetchLinkTitle.value = s.markdownFetchLinkTitle
     language.value = s.language
     closeToTray.value = s.closeToTray
@@ -1505,6 +1532,9 @@ export const useSettingsStore = defineStore('settings', () => {
       previewSmoothScroll,
       terminalCopyOnSelect,
       terminalRightClickPaste,
+      terminalAgentButton,
+      terminalPromptButton,
+      terminalHelpButton,
       markdownFetchLinkTitle,
       language,
       closeToTray,
@@ -1567,6 +1597,9 @@ export const useSettingsStore = defineStore('settings', () => {
     xtermTheme,
     terminalCopyOnSelect,
     terminalRightClickPaste,
+    terminalAgentButton,
+    terminalPromptButton,
+    terminalHelpButton,
     markdownFetchLinkTitle,
     language,
     closeToTray,

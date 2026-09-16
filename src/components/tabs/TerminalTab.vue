@@ -123,10 +123,25 @@ const inAltScreen = ref(false)
 const mouseActive = ref(false)
 
 // The launcher only makes sense when nothing is running fullscreen.
-const showAgentLaunch = computed(() => !inAltScreen.value && primaryCommand.value !== null)
+const showAgentLaunch = computed(
+  () => settingsStore.terminalAgentButton && !inAltScreen.value && primaryCommand.value !== null,
+)
 // The prompt-inject button also shows in the alt-screen when an interactive,
 // mouse-reporting app (an agent) owns it.
-const showPromptInject = computed(() => (!inAltScreen.value || mouseActive.value) && agentPrompts.value.length > 0)
+const showPromptInject = computed(
+  () =>
+    settingsStore.terminalPromptButton && (!inAltScreen.value || mouseActive.value) && agentPrompts.value.length > 0,
+)
+/**
+ * 「?」を出すか（#341）。**上の 2 つが両方隠れているときは一緒に消える**: あのボタンが
+ * 開くマニュアルはその 2 つの説明なので、ボタンの無いターミナルに残しても行き先が無い。
+ *
+ * **その連動をここで述語にする。** ツールバー自体の `v-if` が同じ条件なので今は二重だが、
+ * それは「`HelpButton` がその `div` の中にある」という入れ子の副作用でしかない。設定画面と
+ * マニュアルはこの連動を規則として説明しているので、入れ子に預けると、あとで「?」を外へ
+ * 出した日にその説明が黙って嘘になる（`check-docs` は名前の実在しか見ない）。
+ */
+const showHelp = computed(() => settingsStore.terminalHelpButton && (showAgentLaunch.value || showPromptInject.value))
 
 /** Run a launcher entry in the shell as-is. No `clear` in front: today's agents
  *  render in place and keep the scrollback readable above themselves. */
@@ -1266,7 +1281,12 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-      <HelpButton page="terminal-and-agents.md#エージェント起動ボタン--プロンプト挿入" :size="14" class="term-help" />
+      <HelpButton
+        v-if="showHelp"
+        page="terminal-and-agents.md#エージェント起動ボタン--プロンプト挿入"
+        :size="14"
+        class="term-help"
+      />
     </div>
     <div ref="termRef" class="terminal-inner"></div>
   </div>

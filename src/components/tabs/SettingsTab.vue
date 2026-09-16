@@ -731,6 +731,22 @@ const PREVIEW_LINES = [
           </SettingItem>
         </SettingGroup>
 
+        <!-- ターミナルに重ねて出すボタン（#341）。ここへまとめた理由は
+             `.claude/rules/terminal.md`。 -->
+        <SettingGroup title-key="settings.groupOverlay">
+          <SettingItem label-key="settings.terminalAgentButton" hint-key="settings.terminalAgentButtonHint">
+            <SettingToggle v-model="settings.terminalAgentButton" :options="ON_OFF" />
+          </SettingItem>
+
+          <SettingItem label-key="settings.terminalPromptButton">
+            <SettingToggle v-model="settings.terminalPromptButton" :options="ON_OFF" />
+          </SettingItem>
+
+          <SettingItem label-key="settings.terminalHelpButton" hint-key="settings.terminalHelpButtonHint">
+            <SettingToggle v-model="settings.terminalHelpButton" :options="ON_OFF" />
+          </SettingItem>
+        </SettingGroup>
+
         <SettingGroup title-key="settings.groupBehavior">
           <SettingItem label-key="settings.copyOnSelect">
             <SettingToggle v-model="settings.terminalCopyOnSelect" :options="ON_OFF" />

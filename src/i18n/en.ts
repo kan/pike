@@ -241,6 +241,7 @@ export default {
   // Sub-headings inside a section (#314); the same one is used in more than one section.
   'settings.groupDisplay': 'Display',
   'settings.groupBehavior': 'Behavior',
+  'settings.groupOverlay': 'Overlay Buttons',
   'settings.groupShell': 'Shells',
   'settings.groupLaunch': 'Launchers',
   'settings.groupIntegration': 'Integration & alerts',
@@ -289,6 +290,13 @@ export default {
   'settings.themeAuto': 'Auto (follow mode)',
   'settings.copyOnSelect': 'Copy on Select',
   'settings.rightClickPaste': 'Right Click Paste',
+  'settings.terminalAgentButton': 'Agent Launch Button',
+  'settings.terminalAgentButtonHint':
+    'The launch button floating over the top-right of the terminal. Turning it off does not stop agents — you can still type the command.',
+  'settings.terminalPromptButton': 'Prompt Insert Button',
+  'settings.terminalHelpButton': 'Help Button',
+  'settings.terminalHelpButtonHint':
+    'The "?" next to them. It disappears on its own when both buttons above are off, since it explains those two.',
   'settings.agentLaunchers': 'Agent Launchers',
   'settings.agentLaunchersHint':
     'What the terminal launcher offers, in order. The first usable entry is the default — the button runs that — and the rest go under "Other agents" in the menu. Claude Code, Codex, Copilot CLI and opencode are usable when installed; ones that are missing stay out of the menu even when visible here. Use "Add launcher" for your own command (e.g. claude --model opus).',

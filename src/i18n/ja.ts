@@ -240,6 +240,7 @@ export default {
   // セクションの中の小見出し（#314）。同じものを別のセクションでも使う。
   'settings.groupDisplay': '表示',
   'settings.groupBehavior': '操作',
+  'settings.groupOverlay': '重ねて出すボタン',
   'settings.groupShell': 'シェル',
   'settings.groupLaunch': '起動',
   'settings.groupIntegration': '連携と知らせ',
@@ -288,6 +289,13 @@ export default {
   'settings.themeAuto': 'Auto（モード追従）',
   'settings.copyOnSelect': '選択時にコピー',
   'settings.rightClickPaste': '右クリックで貼り付け',
+  'settings.terminalAgentButton': 'エージェント起動ボタン',
+  'settings.terminalAgentButtonHint':
+    'ターミナルの右上に重ねて出る起動ボタン。オフにしても、コマンドを打てばエージェントは動きます。',
+  'settings.terminalPromptButton': 'プロンプト挿入ボタン',
+  'settings.terminalHelpButton': 'ヘルプボタン',
+  'settings.terminalHelpButtonHint':
+    '同じ場所に出る「?」。上の 2 つを両方オフにすると、説明する相手が無くなるので一緒に消えます。',
   'settings.agentLaunchers': 'エージェントの起動行',
   'settings.agentLaunchersHint':
     'ターミナルの起動ボタンに出る行と、その並び順。上から見て最初に使える行が既定になり、ボタンを押すとそれが起動します。残りはメニューの「他のエージェント」に入ります。Claude Code・Codex・Copilot CLI・opencode はインストールされていれば使え、入っていなければ表示にしていてもメニューに出ません。「起動行を追加」で自分のコマンドを足せます（例: claude --model opus）。',
