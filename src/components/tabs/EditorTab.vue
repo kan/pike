@@ -33,12 +33,13 @@ import { presetKeymap } from '../../lib/editorPresetKeys'
 import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
 import { imageHostOf, remoteImageDataUrl, retryRemoteImage } from '../../lib/externalImages'
+import { fileTypeKey, firstLineOf } from '../../lib/fileType'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { formatLineRange, lineRangeSuffix } from '../../lib/format'
 import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel } from '../../lib/keys'
-import { firstLineOf, getLanguage, getLanguageLabel, languageByKey, languageLabelByKey } from '../../lib/languages'
+import { getLanguage, getLanguageLabel, languageByKey, languageLabelByKey } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import {
@@ -186,7 +187,7 @@ function registerOutlineSource() {
   outlineSource.set({
     tabId: props.tabId,
     path: tab.value.path ?? '',
-    langId: tab.value.path ? extension(tab.value.path) : '',
+    langId: tab.value.path ? fileTypeKey(tab.value.path) : '',
     view: editorView,
   })
 }
@@ -1276,7 +1277,7 @@ function createEditorView(container: HTMLElement, content: string) {
             filePath: t.path,
             projectRoot: projectStore.activeRoot,
             shell: project.shell,
-            langId: extension(t.path),
+            langId: fileTypeKey(t.path),
           }
         },
         onJump: (target) => {

@@ -13,6 +13,7 @@
 
 import type { EditorState } from '@codemirror/state'
 import type { ShellType } from '../../types/tab'
+import { fileTypeKey } from '../fileType'
 import { extractOutline, type OutlineNode } from '../outline'
 import { fsReadFile } from '../tauri'
 import { escapeRegExp } from '../text'
@@ -155,12 +156,15 @@ async function findLineInFile(path: string, name: string, shell: ShellType): Pro
   return line ?? undefined
 }
 
+/**
+ * 別のファイルを開かずに宣言を探すときの種別（#347）。**共通の判定を通す**ので、
+ * `Dockerfile.dev` のような複合名も他の 3 系統と同じキーになる。
+ *
+ * 以前は自前の正規表現で拡張子を取り、`mjs` / `cjs` を `js` に読み替えていた。分岐するのは
+ * `go` と `vue` の 2 つだけなので、読み替えは要らない。
+ */
 function guessLangId(path: string): string {
-  const m = /\.([A-Za-z0-9]+)$/.exec(path)
-  if (!m) return ''
-  const ext = m[1].toLowerCase()
-  if (ext === 'mjs' || ext === 'cjs') return 'js'
-  return ext
+  return fileTypeKey(path)
 }
 
 /**

@@ -13,7 +13,7 @@ import type { ShellType } from '../../types/tab'
 import { dirname, joinPath, pathSep } from '../paths'
 import { fsReadFile, fsResolveFirstExisting } from '../tauri'
 
-const TS_LIKE_EXTS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.vue']
+const TS_LIKE_EXTS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.vue']
 
 interface ResolveOpts {
   importPath: string

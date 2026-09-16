@@ -4,7 +4,6 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useOutlineSource } from '../../composables/useOutlineSource'
 import { useI18n } from '../../i18n'
 import { extractOutline, type OutlineNode, type OutlineResult } from '../../lib/outline'
-import { basename } from '../../lib/paths'
 import { createHeadingSlugger } from '../../lib/slug'
 import OutlineHistoryView from './outline/OutlineHistoryView.vue'
 import OutlineTreeView from './outline/OutlineTreeView.vue'
@@ -42,11 +41,7 @@ function recompute() {
     return
   }
   const text = src.view.state.doc.toString()
-  result.value = extractOutline(text, {
-    filename: basename(src.path),
-    langId: src.langId,
-    state: src.view.state,
-  })
+  result.value = extractOutline(text, { langId: src.langId, state: src.view.state })
 }
 
 function onSelect(node: OutlineNode) {

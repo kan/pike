@@ -38,7 +38,11 @@ export interface OutlineNode {
 }
 
 export interface ExtractContext {
-  filename: string
+  /**
+   * 種別のキー（`lib/fileType.ts` の `fileTypeKey`）。**ファイル名は渡さない**（#347 / #348）:
+   * 複合名（`Dockerfile.dev` / `GNUmakefile`）の解釈は共通の判定が済ませているので、抽出器の
+   * 振り分けに名前そのものが要らなくなった。
+   */
   langId: string
   state: EditorState
 }

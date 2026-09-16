@@ -1,3 +1,4 @@
+import type { FileTypeKey } from '../fileType'
 import { cssExtractor } from './extractors/css'
 import { dockerfileExtractor } from './extractors/dockerfile'
 import { goExtractor } from './extractors/go'
@@ -31,7 +32,7 @@ export function extractOutline(text: string, ctx: ExtractContext): OutlineResult
     return { kind: 'too-large' }
   }
 
-  const extractor = pickExtractor(ctx.langId, ctx.filename)
+  const extractor = extractorFor(ctx.langId)
   if (!extractor) return { kind: 'unsupported' }
 
   try {
@@ -43,28 +44,56 @@ export function extractOutline(text: string, ctx: ExtractContext): OutlineResult
   }
 }
 
-function pickExtractor(langId: string, filename: string): Extractor | null {
-  if (langId === 'md' || langId === 'markdown') return markdownExtractor
-  if (langId === 'ts' || langId === 'tsx' || langId === 'js' || langId === 'jsx' || langId === 'mjs') {
-    return typescriptExtractor
-  }
-  if (langId === 'vue') return vueExtractor
-  if (langId === 'html' || langId === 'htm') return htmlExtractor
-  if (langId === 'css' || langId === 'scss') return cssExtractor
-  if (langId === 'rs') return rustExtractor
-  if (langId === 'py') return pythonExtractor
-  if (langId === 'go') return goExtractor
-  if (langId === 'pl' || langId === 'pm') return perlExtractor
-  if (langId === 'yaml' || langId === 'yml') return yamlExtractor
-  if (langId === 'json' || langId === 'jsonc') return jsonExtractor
-  if (langId === 'rb') return rubyExtractor
-  if (langId === 'kt' || langId === 'kts') return kotlinExtractor
-  if (langId === 'swift') return swiftExtractor
-  if (langId === 'php' || langId === 'phtml') return phpExtractor
-  if (langId === 'toml') return tomlExtractor
-  if (langId === 'dockerfile' || /^dockerfile(\..*)?$/i.test(filename)) return dockerfileExtractor
-  if (langId === 'mk' || langId === 'mak' || langId === 'makefile' || /^(gnu)?makefile(\..*)?$/i.test(filename)) {
-    return makefileExtractor
-  }
-  return null
+/**
+ * 種別のキー → 抽出器（#347 / #348）。
+ *
+ * **キーは `lib/fileType.ts` の `fileTypeKey` が決める**（`ctx.langId` に入っている）。
+ * 以前はここが `extension(path)` を受けて `||` で並べ、`Dockerfile.dev` / `GNUmakefile` の
+ * ためだけに正規表現を 2 つ持っていた。複合名の扱いが共通の判定へ移ったので、この表は
+ * 「どのキーに抽出器があるか」だけを言う。
+ *
+ * **表にあるキーは `FILE_TYPE_LABELS` にもあること**（無いキーは `fileTypeKey` が返さないので、
+ * 書いても死ぬ）。`satisfies` で縛ってあるのでコンパイルエラーになる。
+ */
+const EXTRACTORS: Partial<Record<FileTypeKey, Extractor>> = {
+  md: markdownExtractor,
+  markdown: markdownExtractor,
+  ts: typescriptExtractor,
+  tsx: typescriptExtractor,
+  mts: typescriptExtractor,
+  cts: typescriptExtractor,
+  js: typescriptExtractor,
+  jsx: typescriptExtractor,
+  mjs: typescriptExtractor,
+  cjs: typescriptExtractor,
+  vue: vueExtractor,
+  html: htmlExtractor,
+  htm: htmlExtractor,
+  css: cssExtractor,
+  scss: cssExtractor,
+  rs: rustExtractor,
+  py: pythonExtractor,
+  go: goExtractor,
+  pl: perlExtractor,
+  pm: perlExtractor,
+  yaml: yamlExtractor,
+  yml: yamlExtractor,
+  json: jsonExtractor,
+  jsonc: jsonExtractor,
+  rb: rubyExtractor,
+  kt: kotlinExtractor,
+  kts: kotlinExtractor,
+  swift: swiftExtractor,
+  php: phpExtractor,
+  phtml: phpExtractor,
+  toml: tomlExtractor,
+  dockerfile: dockerfileExtractor,
+  makefile: makefileExtractor,
+  mk: makefileExtractor,
+  mak: makefileExtractor,
+} satisfies Partial<Record<FileTypeKey, Extractor>>
+
+/** 表を `string` で引くための見方（キーの検査は上の `satisfies` が済ませている）。 */
+function extractorFor(key: string): Extractor | undefined {
+  return (EXTRACTORS as Record<string, Extractor | undefined>)[key]
 }
