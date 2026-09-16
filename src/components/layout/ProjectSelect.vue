@@ -90,7 +90,7 @@ function closeMenu() {
 
 function choose(id: string) {
   closeMenu()
-  if (id === projectStore.currentProject?.id) return
+  // 今いるプロジェクトを選んだときに何もしないのは `openProject` の持ち物（#354）。
   void projectStore.openProject(id, 'switch')
 }
 

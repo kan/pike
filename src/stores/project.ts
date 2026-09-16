@@ -372,6 +372,16 @@ export const useProjectStore = defineStore('project', () => {
     if (mode === 'focusOrSwitch' && (await focusProjectWindow(id))) return
     const open = () => placeProject(id, mode === 'window' ? 'window' : 'switch')
     if (!(await ensureRootPresent(id, open))) return
+    // **今いるプロジェクトへは切り替えない（#354）。** `switchProject` は離れる側の後始末を
+    // 無条件に行うので、走らせると worktree の選択が main に戻り、検索・問題・タスク・issue の
+    // キャッシュも落ちる。**置き場はここ**: 一覧から選ぶ経路（スイッチャー・切替のプルダウン・
+    // パネル）が全部ここを通るので、呼び出し側それぞれに写しを置かずに済む。
+    //
+    // **`switchProject` 側に置けない**: `adoptProject` と clone 後の張り直し（すぐ上の
+    // `ensureRootPresent` の `onCloned`）が、**現在地と同じ id で意図的に**呼ぶ。
+    // **関数の先頭にも置けない**: `ensureRootPresent` ごと飛ばすと、今いるプロジェクトの
+    // root が消えたときに clone を提案できなくなる。
+    if (mode === 'switch' && id === currentProject.value?.id) return
     await open()
     // ここまで来た `focusOrSwitch` は「他にウィンドウが無いので**このウィンドウが引き受けた**」
     // （見つかっていれば上の行で return している）。**前に出すところまでがモードの意味**で、
@@ -675,6 +685,26 @@ export const useProjectStore = defineStore('project', () => {
 
   /** Projects visible on this machine — hidden ones (#164) are filtered out. */
   const visibleProjects = computed(() => projects.value.filter((p) => !useSettingsStore().isProjectHidden(p.id)))
+
+  /**
+   * 最近開いた順の並び（#354）。スイッチャーとプロジェクトパネルの「最近開いた順」が
+   * **同じ規則を読む**ための比較関数。
+   *
+   * **バックエンドの並びに頼らないこと。** `project_list` は `lastOpened` の降順で返すが、
+   * それは**読み込んだ時点の順**でしかない。`switchProject` は配列の中の `lastOpened` を
+   * 書き換えるだけで並べ替えないので、そのままだと**セッション中どれだけ行き来しても
+   * 並びが起動時のまま**になり、いま出てきたプロジェクトが上に来ない。
+   *
+   * 時刻は固定幅の ISO なので素の比較で足りる（`localeCompare` は要らない）。同じ時刻の
+   * とき（同期で入ってきた直後など）は名前で決める: 並びが実行のたびに変わらないほうが、
+   * 位置で覚えて押せる。
+   */
+  function byRecency(a: ProjectConfig, b: ProjectConfig): number {
+    if (a.lastOpened !== b.lastOpened) return a.lastOpened < b.lastOpened ? 1 : -1
+    return a.name.localeCompare(b.name)
+  }
+
+  const recentProjects = computed(() => [...visibleProjects.value].sort(byRecency))
 
   /** Portable form of a project, or null when it cannot be shared: no base set
    *  for its platform, or a root outside that base. */
@@ -1402,6 +1432,8 @@ export const useProjectStore = defineStore('project', () => {
     shellForIO,
     missingRoots,
     visibleProjects,
+    recentProjects,
+    byRecency,
     unsyncableProjects,
     pullProjectsFromSync,
     pushProjectsToSync,

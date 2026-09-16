@@ -54,6 +54,9 @@ function matchesFilter(p: ProjectConfig): boolean {
 
 const filteredProjects = computed<ProjectConfig[]>(() => projectStore.visibleProjects.filter(matchesFilter))
 
+/** 最近開いた順（#354）。**並びの規則はストアが持つ**（スイッチャーと共有）。 */
+const recentFiltered = computed<ProjectConfig[]>(() => [...filteredProjects.value].sort(projectStore.byRecency))
+
 /** Manual order first, then name for everything never dragged. */
 function sortByOrder(list: ProjectConfig[]): ProjectConfig[] {
   return [...list].sort(
@@ -110,8 +113,11 @@ function toggleGroup(name: string) {
 const rows = computed<PanelRow[]>(() => {
   // Recent mode is deliberately flat (#203): the group is a badge on the row,
   // not a section, so the list stays in one recency order.
+  //
+  // **並びはストアの `byRecency`**（#354）。バックエンドが返した順に頼っていたころは、
+  // 切り替えても並びが起動時のままだった（`switchProject` は `lastOpened` を書き換えるだけ）。
   if (sortMode.value === 'recent') {
-    return filteredProjects.value.map((project) => ({
+    return recentFiltered.value.map((project) => ({
       kind: 'project',
       project,
       grouped: false,

@@ -45,7 +45,7 @@
 - プロジェクトのグループ分け: `ProjectConfig.group?: string` で各プロジェクトの所属グループを保持。グループ一覧と表示順は `%APPDATA%/{identifier}/groups.json` に明示的に永続化（プロジェクト未割当の空グループも保持可能）。`project_groups_list` / `project_groups_save` コマンドで CRUD
 - ProjectPanel UI: 未分類プロジェクトはリスト直下にフラット表示（ヘッダーなし）、グループ所属はグループバー配下に折りたたみ可能で配置。「+ グループを追加」ボタンで空グループを作成、グループバーの鉛筆で一括リネーム（所属プロジェクトの `group` も更新）、✕ で削除（所属プロジェクトは ungroup）
 - プロジェクトの編集フォームではコンボボックス形式: `<select>` で「グループなし / 既存グループ / + 新規グループ...」、新規選択で text input に切替
-- **表示モード（#203）**: `グループ別`（既定）と `最近開いた順` の 2 つ。`最近開いた順` は**グループでまとめずフラット**に並べ（並びはバックエンドの `read_all_projects_sorted` = `lastOpened` 降順）、代わりに行にグループ名バッジを出す。`グループ別` は手動順（後述）→ 名前順。モードは `localStorage` (`pike:project-sort-mode`)、折りたたみ状態は同 `pike:project-group-collapsed` に永続化
+- **表示モード（#203）**: `グループ別`（既定）と `最近開いた順` の 2 つ。`最近開いた順` は**グループでまとめずフラット**に並べ（並びはストアの `recentProjects`。スイッチャーと共有する）、代わりに行にグループ名バッジを出す。`グループ別` は手動順（後述）→ 名前順。モードは `localStorage` (`pike:project-sort-mode`)、折りたたみ状態は同 `pike:project-group-collapsed` に永続化
 - **描画は 1 本の `rows` computed**（`PanelRow` = group ヘッダ or project 行の判別 union）に集約。以前はセクションごとに `ProjectListItem` の束縛を書き写していた。`siblings` はその行にドロップしたときの並び替えスコープ
 - **絞り込み（#203）**: パネル上部の常設入力。`lib/paths.ts` の共有 `fuzzyMatch` で name / root / group を対象（`ProjectSwitcher` / `QuickOpen` のローカル複製もこの共有版に統合済み）。グループ別表示では一致 0 件のグループを隠す
 - **装飾の役割分担（#203）**: 「このウィンドウで開いているプロジェクト」は**行全体の塗り**で示す（プロジェクトカラーがあればその色、無ければ `--accent`）。グループバーは背景＋枠だけの見出しにした（以前は両方が青い左線で紛らわしかった）。塗りの上の文字色は `lib/projectColors.ts` の `readableTextOn`（相対輝度で黒/白を選ぶ。閾値 0.179 は白背景・黒背景の WCAG コントラストが入れ替わる点）で決め、行内の meta / アイコン / アクションボタンは `color: inherit` にして塗りに追従させる。プリセットは黄色から紫まであるので、白固定でも黒固定でも読めない色が出る

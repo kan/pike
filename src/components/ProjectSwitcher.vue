@@ -50,7 +50,13 @@ function enterGlobalMode() {
 
 // --- Search mode ---
 const query = ref('')
-const selectedIdx = ref(0)
+/**
+ * 選んでいるプロジェクト。**index ではなく id で持つ**（#354）。並びが最近開いた順に
+ * なったので、**開いているあいだに一覧が並び替わる**ことがある（別のウィンドウが
+ * プロジェクトを切り替えると `lastOpened` の更新が broadcast で届く）。index で持つと、
+ * そのとき選択が別のプロジェクトへずれる。`null` は「まだ選んでいない」。
+ */
+const selectedId = ref<string | null>(null)
 const inputRef = ref<HTMLInputElement>()
 
 /**
@@ -59,12 +65,33 @@ const inputRef = ref<HTMLInputElement>()
  */
 const parkedIds = computed(() => new Set(projectStore.parkedProjectIds))
 
+/**
+ * 出す順は**最近開いた順**（#354）。絞り込みでもその順のままにする（fuzzy の得点で
+ * 並べ替えない: 打つほど並びが変わると、位置で覚えて押せない）。
+ */
 const filtered = computed(() => {
   const q = query.value.trim()
-  const list = q ? projectStore.visibleProjects.filter((p) => fuzzyMatch(p.name, q)) : projectStore.visibleProjects
+  const list = q ? projectStore.recentProjects.filter((p) => fuzzyMatch(p.name, q)) : projectStore.recentProjects
   if (parkedIds.value.size === 0) return list
   // 絞り込み中も並べ替える（保持中を探しているときほど、先頭に居てほしい）。
+  // `sort` は安定なので、保持中どうし・それ以外どうしは最近開いた順のまま。
   return [...list].sort((a, b) => Number(parkedIds.value.has(b.id)) - Number(parkedIds.value.has(a.id)))
+})
+
+/**
+ * 描画と移動のための位置。**まだ選んでいない（`null`）ときと、選んだものが一覧から
+ * 消えたときの既定も、ここが唯一の出典**（#354）。
+ *
+ * 既定は**今いるプロジェクトを飛ばした先頭**。最近開いた順では先頭が現在地になるので、
+ * そのまま Enter を押しても何も起きない行（`openProject` が弾く）を既定にしてしまう。
+ * Alt+Tab と同じで、既定の行き先は**1 つ前**。
+ */
+const selectedIdx = computed(() => {
+  const list = filtered.value
+  const i = list.findIndex((p) => p.id === selectedId.value)
+  if (i !== -1) return i
+  const next = list.findIndex((p) => p.id !== projectStore.currentProject?.id)
+  return next === -1 ? 0 : next
 })
 
 // --- New project form ---
@@ -132,6 +159,7 @@ async function onCreateProject() {
  *  project always goes to its own window there. */
 function selectProject(id: string, newWindow: boolean) {
   projectStore.showSwitcher = false
+  // 今いるプロジェクトを選んだときに何もしないのは `openProject` の持ち物（#354）。
   projectStore.openProject(id, newWindow || globalMode.value ? 'window' : 'switch')
 }
 
@@ -147,7 +175,7 @@ function resetForm() {
 
 // --- Lifecycle ---
 watch(query, () => {
-  selectedIdx.value = 0
+  selectedId.value = null
 })
 
 watch(
@@ -160,7 +188,7 @@ watch(
       // Mark the ones this machine has no copy of, like the project panel does.
       projectStore.checkRoots().catch(() => {})
       query.value = ''
-      selectedIdx.value = 0
+      selectedId.value = null
       resetForm()
       nextTick(() => inputRef.value?.focus())
     }
@@ -175,18 +203,11 @@ function onKeyDown(e: KeyboardEvent) {
     projectStore.showSwitcher = false
     return
   }
-  if (e.key === 'ArrowDown') {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
-    if (selectedIdx.value < filtered.value.length - 1) {
-      selectedIdx.value++
-    }
-    return
-  }
-  if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    if (selectedIdx.value > 0) {
-      selectedIdx.value--
-    }
+    // 端は「添字が外れる」ことで自然に止まる（境界を手で書くと上下で二重に持つ）。
+    const next = filtered.value[selectedIdx.value + (e.key === 'ArrowDown' ? 1 : -1)]
+    if (next) selectedId.value = next.id
     return
   }
   if (e.key === 'Enter') {
@@ -225,7 +246,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             class="switcher-item"
             :class="{ selected: i === selectedIdx, active: project.id === projectStore.currentProject?.id }"
             @click="selectProject(project.id, false)"
-            @mouseenter="selectedIdx = i"
+            @mouseenter="selectedId = project.id"
           >
             <span class="item-name">
               <ProjectIcon :icon="project.icon" /><ColorDot :color="project.color" />{{ project.name }}
