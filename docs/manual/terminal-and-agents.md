@@ -92,6 +92,11 @@ Pike が知っているのは **Claude Code・Codex・Copilot CLI・opencode** �
 
 **押しても即座には開かず、開く先を出して一度確認します。** 押すつもりのなかった語を踏んでも、そこで止まります。確認のチェックボックス「今後は確認せず開く」か、設定タブ →「ターミナル」→「リンク」で「すぐ開く」に変えられます。同じ場所で、パスと URL のリンク化そのものをオフにもできます。→ [設定](settings.md#ターミナル)
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/terminal-path-confirm-light.png">
+  <img alt="出力のパスを押したときの確認ダイアログ" src="img/terminal-path-confirm.png">
+</picture>
+
 エージェントが書いたファイルの案内（`› [file] /tmp/…/test.md (7.7KB)` のような行）も、行の一部にあるパスとして拾います。
 
 - 拡張子付きパスを検出します（誤検出を避けるため拡張子が必要）。
