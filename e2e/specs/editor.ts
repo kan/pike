@@ -52,6 +52,14 @@ const MD_SAMPLE = [
   'npm run dev',
   '```',
   '',
+  // コードブロックの色付け（#344 / #359）が編集側とプレビュー側の両方で分かるよう、
+  // キーワード・型・文字列・数値が混ざる短い TypeScript を置く。
+  '```ts',
+  'export function greet(name: string, times = 2): string {',
+  '  return `hello, ${name}`.repeat(times)',
+  '}',
+  '```',
+  '',
   '## 設定',
   '',
   '| 項目 | 既定 | 説明 |',

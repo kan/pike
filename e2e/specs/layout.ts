@@ -349,6 +349,17 @@ const HERO_README = [
   'npm run tauri:dev',
   '```',
   '',
+  // コードブロックの色付け（#344 / #359）が編集側とプレビュー側の両方で分かるよう、
+  // キーワード・型・文字列・数値が混ざる短い TypeScript を置く。
+  '```ts',
+  'import { invoke } from "@tauri-apps/api/core"',
+  '',
+  'export async function openProject(id: string): Promise<void> {',
+  '  const retries = 3',
+  '  await invoke("project_open", { id, retries })',
+  '}',
+  '```',
+  '',
   '> 初回起動時はプロジェクトスイッチャーが開きます。`Ctrl+Shift+P` でいつでも呼び出せます。',
   '',
   '## ショートカット',

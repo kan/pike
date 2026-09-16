@@ -69,6 +69,8 @@ MAP=(
   "split-panes:split-panes"
   "agent-menu:agent-menu"
   "settings-agents:settings-agents"
+  # v0.52.0 で新しく撮るもの
+  "terminal-path-confirm:terminal-path-confirm"
 )
 
 check=0

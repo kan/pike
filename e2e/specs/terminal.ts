@@ -48,6 +48,72 @@ describe('screenshots: terminal', () => {
   }
 })
 
+// --- terminal-path-confirm（出力のパスを押したときの確認、#343）--------------
+// リンクを押すところまで実際に操作して、確認ダイアログが出た状態を撮る。
+const LINT_SESSION = [
+  '\x1b[1;32muser@demo\x1b[0m:\x1b[1;34m~/demo-app\x1b[0m$ npm run lint\r\n',
+  '\r\n',
+  'src/stores/tasks.ts:42:7\r\n',
+  "  \x1b[31merror\x1b[0m  'pending' is assigned a value but never used  \x1b[2mno-unused-vars\x1b[0m\r\n",
+  '\r\n',
+  '\x1b[31m✖ 1 problem (1 error, 0 warnings)\x1b[0m\r\n',
+  '\r\n',
+  '\x1b[1;32muser@demo\x1b[0m:\x1b[1;34m~/demo-app\x1b[0m$ ',
+].join('')
+/** `LINT_SESSION` の中でパスが出る行（0 始まり）。行頭に置いてあるので桁は 0 で押せる。 */
+const PATH_ROW = 2
+
+/**
+ * ターミナルの `row` 行目の行頭を押す。
+ *
+ * **`moveTo()` / `click()` は使えない**（`hoverElement` の doc と同じく、撮影ウィンドウの DPR で
+ * ドライバの座標と CSS ピクセルが食い違う）。xterm のリンクは `.xterm-screen` の
+ * mousemove で当たりを付け、mousedown と mouseup が同じリンクの上だったときに起動するので、
+ * その 3 つを DOM に直接投げる。座標は行の `div` の矩形から取る（DOM レンダラなので行が要素）。
+ * mousemove のあとに待つのは、当たりの判定（リンクプロバイダの呼び出し）が非同期だから。
+ */
+async function clickTerminalRowStart(row: number): Promise<void> {
+  const fire = (type: string) =>
+    browser.execute(
+      (r, t) => {
+        const screen = document.querySelector('.xterm-screen')
+        const line = document.querySelectorAll('.xterm-rows > div')[r] as HTMLElement | undefined
+        if (!screen || !line) return
+        const rect = line.getBoundingClientRect()
+        const init = { bubbles: true, button: 0, buttons: 1, clientX: rect.left + 2, clientY: rect.top + rect.height / 2 }
+        screen.dispatchEvent(new MouseEvent(t, init))
+      },
+      row,
+      type,
+    )
+  await fire('mousemove')
+  await browser.pause(300)
+  await fire('mousedown')
+  await fire('mouseup')
+}
+
+describe('screenshots: terminal path confirm', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`terminal-path-confirm ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      // 押したパスをプロジェクトの root に繋いで見せるので、プロジェクトが要る。
+      await setFakeProject()
+      await mockPtySpawnUniqueIds()
+
+      await openTerminal()
+      await $('[data-testid="terminal"]').waitForDisplayed({ timeout: 10_000 })
+      await $('.xterm-screen').waitForExist({ timeout: 10_000 })
+      await browser.pause(300)
+
+      await feedActiveTerminal(LINT_SESSION)
+      await browser.pause(200)
+      await clickTerminalRowStart(PATH_ROW)
+      await $('.dialog-option').waitForDisplayed({ timeout: 10_000 })
+      await shoot('terminal-path-confirm', lang, theme)
+    })
+  }
+})
+
 // --- agent-menu（起動ボタンの ▾ と「最近のセッション」、#275 / #267）----------
 // 一覧は agent_sessions が返すものなので、撮影機の実際の履歴に依らないよう固定する。
 const SESSIONS = [
