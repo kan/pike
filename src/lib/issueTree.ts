@@ -79,7 +79,8 @@ export function indexIssues(issues: IssueSummary[]): {
  * **絞り込みでは一致した issue の祖先を残す**（親が消えると、子がどこにぶら下がっていたか
  * 読めなくなる）。逆に、一致した親の一致しない子は落とす。
  *
- * 並びは入力の順（更新の新しい順）を保つ。親の位置に子が引き寄せられるぶんフラットとは
+ * 並びは入力の順（`issues_list` が番号の降順で返す。#357）を保つ。親の位置に子が
+ * 引き寄せられるぶんフラットとは
  * 変わるが、それは木にするということそのもの。
  */
 export function buildIssueTree(issues: IssueSummary[], opts: IssueTreeOptions): IssueTreeRow[] {

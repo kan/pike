@@ -171,6 +171,19 @@ impl From<GhIssue> for IssueSummary {
     }
 }
 
+/// `gh` の JSON を一覧へ。**番号の降順に並べるところまでがこの関数の仕事**（#357。GitHub が
+/// 並べるのは `createdAt` なので番号と割れうる。理由は `issues_list` の doc）。切り出して
+/// あるのは、呼び出し元とテスト 4 本が同じ 2 行を書き写さずに済み、順序を純粋な関数として
+/// テストできるため。
+fn parse_list(stdout: &str) -> Result<Vec<IssueSummary>, serde_json::Error> {
+    let mut issues: Vec<IssueSummary> = serde_json::from_str::<Vec<GhIssue>>(stdout.trim())?
+        .into_iter()
+        .map(IssueSummary::from)
+        .collect();
+    issues.sort_unstable_by_key(|i| std::cmp::Reverse(i.number));
+    Ok(issues)
+}
+
 /// 失敗の理由。**stderr を優先し、空なら stdout を見る**（`gh` は認証エラーを stderr に
 /// 出すが、シェル側の失敗は stdout に出ることがある）。どちらも空なら終了コードだけを言う。
 /// 実行した行を添えるのは、何が走ったか読めるようにするため。
@@ -238,8 +251,24 @@ pub async fn issues_gh_available(
 /// （`--repo` を組み立てて渡す形にすると、origin の綴りを Pike 側でもう一度解釈することに
 /// なる。どのリポジトリかを決めるのは `gh` に任せる）。
 ///
-/// 並びは `sort:updated-desc`。`gh issue list` に並び替えのフラグは無く、検索の修飾子として
-/// 渡すのが唯一の方法（実測で効く）。
+/// **並びは issue 番号の降順で固定する**（#357）。以前は `--search "sort:updated-desc"` で、
+/// 誰かが触るたびに行が動いて追えなかった。
+///
+/// **並び替えの修飾子は渡さない。** `gh issue list` の既定が既に作成順の降順で、`--search`
+/// の有無で同じ並び・同じ件数が返ることは実測済み。足すと `gh` が**検索 API** 側へ回り、
+/// あちらはインデックス越しなので**作ったばかりの issue が更新ボタンを押しても出てこない**
+/// ことがある（レート枠も別）。パネルのヘッダから issue を作れる以上、その遅れは払わない。
+///
+/// **それでも受け取った側で `parse_list` が番号に並べ直す。** GitHub が並べるのは
+/// `createdAt` であって番号ではなく、他リポジトリから transfer した issue は `createdAt` を
+/// 保ったまま新しい番号を受け取るので、両者は実際に割れる。**この関数が約束するのは番号の
+/// 降順**なので、そこは戻り値の側で保証する。
+///
+/// **代償は、open が `limit` を超えるリポジトリで古い issue が窓から落ちること。**
+/// `--limit` の絞り込みはサーバー側なので、`updated-desc` のころは「今まさに動いているもの」
+/// が必ず窓に入っていた。作成順では番号の小さいものから順に外れ、パネルの絞り込み
+/// （取得済みに対するクライアント側の処理）からも拾えなくなる。番号の降順という並びを
+/// 選んだ以上、窓の軸もそちらへ揃うのが筋なので受け入れている。
 #[tauri::command]
 pub async fn issues_list(
     shell: ShellConfig,
@@ -249,7 +278,7 @@ pub async fn issues_list(
     // 引数はすべてこちらが決めた定数か数値なので、シェルの行に埋めても注入の余地が無い。
     let limit = limit.clamp(1, 200);
     let line = format!(
-        "gh issue list --state open --limit {limit} --search \"sort:updated-desc\" \
+        "gh issue list --state open --limit {limit} \
          --json number,title,url,author,updatedAt,labels,parent"
     );
     tauri::async_runtime::spawn_blocking(move || {
@@ -268,9 +297,9 @@ pub async fn issues_list(
                 error: Some(failure(&line, code, &stdout, &stderr)),
             };
         }
-        match serde_json::from_str::<Vec<GhIssue>>(stdout.trim()) {
-            Ok(list) => IssueListResult {
-                issues: list.into_iter().map(IssueSummary::from).collect(),
+        match parse_list(&stdout) {
+            Ok(issues) => IssueListResult {
+                issues,
                 error: None,
             },
             // 終了コード 0 なのに読めない出力は、`gh` の版が違うか、シェルの初期化が
@@ -326,12 +355,23 @@ mod tests {
            "number":308,"state":"OPEN","title":"分割","updatedAt":"2026-09-03T06:54:00Z",
            "url":"https://github.com/kan/pike/issues/308"}
         ]"#;
-        let parsed: Vec<GhIssue> = serde_json::from_str(json).unwrap();
-        let issues: Vec<IssueSummary> = parsed.into_iter().map(IssueSummary::from).collect();
+        let issues = parse_list(json).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].number, 308);
         assert_eq!(issues[0].author, "kan");
         assert_eq!(issues[0].labels[0].color, "a2eeef");
+    }
+
+    /// 並びは番号の降順（#357）。`gh` が何順で返しても、戻り値はこの順になる。
+    #[test]
+    fn sorts_by_issue_number_descending() {
+        let json = r#"[
+          {"number":12,"title":"a","url":"u","updatedAt":"","author":null,"labels":[]},
+          {"number":357,"title":"b","url":"u","updatedAt":"","author":null,"labels":[]},
+          {"number":100,"title":"c","url":"u","updatedAt":"","author":null,"labels":[]}
+        ]"#;
+        let numbers: Vec<u64> = parse_list(json).unwrap().iter().map(|i| i.number).collect();
+        assert_eq!(numbers, vec![357, 100, 12]);
     }
 
     /// sub-issue の `parent` は親の全体で返るが、番号だけ拾う（木を組むのは一覧の中だけ）。
@@ -344,10 +384,11 @@ mod tests {
           {"number":275,"title":"p","url":"pu","updatedAt":"2026-09-01T00:00:00Z",
            "author":{"login":"kan"},"labels":[],"parent":null}
         ]"#;
-        let parsed: Vec<GhIssue> = serde_json::from_str(json).unwrap();
-        let issues: Vec<IssueSummary> = parsed.into_iter().map(IssueSummary::from).collect();
-        assert_eq!(issues[0].parent, Some(275));
-        assert_eq!(issues[1].parent, None);
+        // 番号で引く（`parse_list` は並べ替えるので、添字は入力の順を意味しない）。
+        let issues = parse_list(json).unwrap();
+        let by = |n: u64| issues.iter().find(|i| i.number == n).unwrap();
+        assert_eq!(by(299).parent, Some(275));
+        assert_eq!(by(275).parent, None);
     }
 
     /// 消えたアカウントの issue は `author` が null で来る。落とさず空にする。
@@ -355,8 +396,7 @@ mod tests {
     fn tolerates_missing_author() {
         let json = r#"[{"number":1,"title":"t","url":"u",
                         "updatedAt":"2026-01-01T00:00:00Z","author":null,"labels":[]}]"#;
-        let parsed: Vec<GhIssue> = serde_json::from_str(json).unwrap();
-        let issues: Vec<IssueSummary> = parsed.into_iter().map(IssueSummary::from).collect();
+        let issues = parse_list(json).unwrap();
         assert_eq!(issues[0].author, "");
     }
 

@@ -333,7 +333,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 
 ## issue パネル（#278）
 
-GitHub の open issue を更新の新しい順に出す。実体は `src-tauri/src/issues/mod.rs`、
+GitHub の open issue を番号の降順に出す。実体は `src-tauri/src/issues/mod.rs`、
 `src/stores/issues.ts`、`src/components/panels/IssuesPanel.vue`。
 
 - **`api.github.com` を直接叩かない。** CSP の緩和（`connect-src`）とトークンの保管が要る。
@@ -341,8 +341,13 @@ GitHub の open issue を更新の新しい順に出す。実体は `src-tauri/s
   `raw.githubusercontent.com` から生の Markdown を取って自前で描いているのと同じ発想で、
   **issue のページ自体は埋め込めない**（GitHub は `X-Frame-Options: deny` と
   `frame-ancestors 'none'` の二重で拒否する。実測）
-- **並び替えは `--search "sort:updated-desc"`。** `gh issue list` に並び替えのフラグは無く、
-  検索の修飾子として渡すのが唯一の方法（`--state open` と併用できることも実測済み）
+- **並びは番号の降順で固定する（#357）。** 以前は `--search "sort:updated-desc"` を渡していて、
+  誰かが触るたびに行が動いて追えなかった。**いまは並び替えの修飾子を渡さない**（`gh issue
+  list` の既定が作成順の降順）。**判断の実体は `issues_list` の doc が正本**: `--search` を
+  足すと検索 API 側へ回ること、番号と `createdAt` が割れるので `parse_list` が並べ直すこと、
+  `--limit` がサーバー側であるがゆえの代償（古い issue が窓から落ちる）
+  - **ツリー表示（既定）では、この並びのままにはならない。** `buildIssueTree` が子を親の位置へ
+    引き寄せるため。番号の降順の列がそのまま出るのはフラット表示のほう
 - **未インストール・未認証・権限なしを「0 件」に見せない**（`ProviderRun.error` と同じ考え方）。
   どれも結果が空になるので、区別が付くよう `IssueListResult.error` に理由を入れる。**実行した
   行もそこへ畳む**: 成功時にも返る別のフィールドにすると、IPC が落ちた経路（フロントの catch）
