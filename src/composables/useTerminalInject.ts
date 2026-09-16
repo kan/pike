@@ -34,8 +34,12 @@ function resolveTarget(): LiveTerminal | null {
 }
 
 /**
- * Inject `text` into the resolved target terminal and activate it. Returns false
- * (and surfaces a status message) when no terminal is available.
+ * Inject `text` into the resolved target terminal and hand it the focus. Returns
+ * false (and surfaces a status message) when no terminal is available.
+ *
+ * **フォーカスまで渡すのは `tabStore.focusTerminal` の仕事**（#355）。流し込んだ直後に
+ * 打てないと、貼り付いた文をそのまま送るのにマウスでターミナルを 1 回押すことになる。
+ * `setActiveTab` では足りない理由はあちらの doc が正本。
  */
 export function injectToTerminal(text: string): boolean {
   const target = resolveTarget()
@@ -44,7 +48,7 @@ export function injectToTerminal(text: string): boolean {
     return false
   }
   ptyPasteText(target.ptyId, text).catch(() => {})
-  useTabStore().setActiveTab(target.id)
+  useTabStore().focusTerminal(target.id)
   return true
 }
 

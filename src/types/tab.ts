@@ -257,6 +257,12 @@ export type TerminalTab = {
    * 消す処理を別に持たない。
    */
   awaitingInput?: boolean
+  /**
+   * 注入のあと、このターミナルへ DOM のフォーカスを渡してほしいという合図（#355）。
+   * `EditorTab.reloadRequested` と同じ形の時刻で、**値そのものに意味は無い**
+   * （押し直しても必ず変わることだけが要る）。立てるのは `tabStore.focusTerminal`。
+   */
+  focusRequested?: number
   exitCode?: number | null
 }
 

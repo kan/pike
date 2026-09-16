@@ -524,6 +524,22 @@ export const useTabStore = defineStore('tabs', () => {
     activeByPane.value[focusedPane.value] = id
   }
 
+  /**
+   * ターミナルを選び、DOM のフォーカスまで渡す（#355）。文字列を流し込んだ側
+   * （`useTerminalInject`）が使う。
+   *
+   * **`setActiveTab` だけでは足りない。** `TerminalTab` が xterm を focus するのは
+   * 「打鍵の行き先になった」瞬間の watcher なので、**既にそのタブが選ばれていれば
+   * 発火しない**。issue パネルの 🤖 を押したときがまさにそれで、文字列は届くのに
+   * フォーカスは押したボタンに残る。
+   */
+  function focusTerminal(id: string) {
+    const tab = tabs.value.find((t) => t.id === id)
+    if (tab?.kind !== 'terminal') return
+    setActiveTab(id)
+    tab.focusRequested = Date.now()
+  }
+
   function setPtyId(tabId: string, ptyId: string) {
     const tab = tabs.value.find((t) => t.id === tabId)
     if (tab && tab.kind === 'terminal') {
@@ -1253,6 +1269,7 @@ export const useTabStore = defineStore('tabs', () => {
     closeAllTabs,
     reorderTab,
     setActiveTab,
+    focusTerminal,
     setPtyId,
     setTabTitle,
     togglePin,

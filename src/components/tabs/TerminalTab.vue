@@ -580,14 +580,33 @@ watch(
   },
 )
 
+/**
+ * xterm へフォーカスを渡す。`v-show` で出したばかりのタブでも当たるよう、上の
+ * 測り直しと同じだけ待ってから撃つ（display が解けるまで focus は効かない）。
+ */
+function focusSoon() {
+  nextTick(() => {
+    afterTwoFrames(() => terminal?.focus())
+  })
+}
+
 /** DOM のフォーカスは打鍵の行き先にだけ渡す（見えているだけのタブは奪わない）。 */
 watch(
   () => tabStore.isTabFocused(props.tabId),
   (focused) => {
-    if (!focused) return
-    nextTick(() => {
-      afterTwoFrames(() => terminal?.focus())
-    })
+    if (focused) focusSoon()
+  },
+)
+
+/**
+ * 外から流し込まれたあとにフォーカスを引き取る（#355）。上の watcher は行き先が
+ * **変わった**ときにしか発火しないので、既に選ばれているターミナルへ注入したときは
+ * 何も起きない（issue パネルや Problems の 🤖 を押した普通の場合がそれ）。
+ */
+watch(
+  () => terminalTab()?.focusRequested,
+  (at) => {
+    if (at) focusSoon()
   },
 )
 
