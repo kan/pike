@@ -22,6 +22,12 @@ const props = defineProps<{
   modelValue: T
   /** 並べる選択肢。`icon` を持つものはラベルの左にアイコンを出し、tooltip も付ける。 */
   options: { value: T; labelKey: string; icon?: Component }[]
+  /**
+   * 他の設定の都合で今は選べない（#341）。**見せる値は呼び出し側が決める**（`modelValue` に
+   * 固定の値を渡す）。ここで保存値を書き換えないのは、前提の設定を戻したときに元の選択へ
+   * 戻したいため。
+   */
+  disabled?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [T] }>()
 
@@ -30,12 +36,13 @@ inject(SETTINGS_ADD_KEYS, null)?.(props.options.map((o) => o.labelKey))
 </script>
 
 <template>
-  <div class="mode-toggle">
+  <div class="mode-toggle" :class="{ disabled }">
     <button
       v-for="opt in options"
       :key="String(opt.value)"
       class="mode-btn"
       :class="{ active: modelValue === opt.value }"
+      :disabled="disabled"
       :title="opt.icon ? t(opt.labelKey) : undefined"
       @click="emit('update:modelValue', opt.value)"
     >

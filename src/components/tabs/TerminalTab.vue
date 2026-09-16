@@ -137,9 +137,9 @@ const showPromptInject = computed(
  * 開くマニュアルはその 2 つの説明なので、ボタンの無いターミナルに残しても行き先が無い。
  *
  * **その連動をここで述語にする。** ツールバー自体の `v-if` が同じ条件なので今は二重だが、
- * それは「`HelpButton` がその `div` の中にある」という入れ子の副作用でしかない。設定画面と
- * マニュアルはこの連動を規則として説明しているので、入れ子に預けると、あとで「?」を外へ
- * 出した日にその説明が黙って嘘になる（`check-docs` は名前の実在しか見ない）。
+ * それは「`HelpButton` がその `div` の中にある」という入れ子の副作用でしかない。設定画面は
+ * この連動を UI で表している（2 つが両方オフの間はヘルプの切り替えを OFF に固定して押せなく
+ * する）ので、入れ子に預けると、あとで「?」を外へ出した日にその表示が黙って嘘になる。
  */
 const showHelp = computed(() => settingsStore.terminalHelpButton && (showAgentLaunch.value || showPromptInject.value))
 

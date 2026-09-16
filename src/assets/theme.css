@@ -685,9 +685,18 @@
   color: var(--text-active);
 }
 
-.mode-btn:not(.active):hover {
+.mode-btn:not(.active):not(:disabled):hover {
   background: var(--tab-hover-bg);
   color: var(--text-primary);
+}
+
+/* 他の設定の都合で選べないとき（#341）。値は見せたまま、押せないことだけを伝える。 */
+.mode-toggle.disabled {
+  opacity: 0.5;
+}
+
+.mode-btn:disabled {
+  cursor: default;
 }
 
 /* プロジェクトの行に出す小さな印。どちらもプロジェクトを出す 2 つの一覧（パネルと

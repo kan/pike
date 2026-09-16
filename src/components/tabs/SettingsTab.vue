@@ -77,6 +77,9 @@ const { t } = useI18n()
 const settings = useSettingsStore()
 const tabStore = useTabStore()
 
+/** ヘルプの「?」が説明する 2 つのボタンが両方オフで、「?」を出す余地が無い（#341）。 */
+const helpButtonLocked = computed(() => !settings.terminalAgentButton && !settings.terminalPromptButton)
+
 /** 待ち時間の入力を範囲に丸める。空欄や数字でない入力は既定値に戻す。 */
 function clampAutoSaveDelay(raw: string): number {
   // 丸めは `clampSize`（`sanitize` が保存済みの値に使うもの）と同じものを通す。
@@ -755,8 +758,16 @@ const PREVIEW_LINES = [
             <SettingToggle v-model="settings.terminalPromptButton" :options="ON_OFF" />
           </SettingItem>
 
-          <SettingItem label-key="settings.terminalHelpButton" hint-key="settings.terminalHelpButtonHint">
-            <SettingToggle v-model="settings.terminalHelpButton" :options="ON_OFF" />
+          <!-- 上の 2 つが両方オフなら OFF に固定して押せなくする（#341）。保存値は書き換えない
+               （どちらかを戻したときに元の選択へ戻る）。連動の判断は `TerminalTab.vue` の
+               `showHelp` の隣が正本。 -->
+          <SettingItem label-key="settings.terminalHelpButton">
+            <SettingToggle
+              :model-value="helpButtonLocked ? false : settings.terminalHelpButton"
+              :options="ON_OFF"
+              :disabled="helpButtonLocked"
+              @update:model-value="settings.terminalHelpButton = $event"
+            />
           </SettingItem>
         </SettingGroup>
 

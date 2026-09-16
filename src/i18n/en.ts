@@ -305,8 +305,6 @@ export default {
   'settings.terminalUrlLinksHint':
     'Make URLs in terminal output clickable. The confirmation for opening a browser is separate from this setting (except for hosts you have approved).',
   'settings.terminalHelpButton': 'Help Button',
-  'settings.terminalHelpButtonHint':
-    'The "?" next to them. It disappears on its own when both buttons above are off, since it explains those two.',
   'settings.agentLaunchers': 'Agent Launchers',
   'settings.agentLaunchersHint':
     'What the terminal launcher offers, in order. The first usable entry is the default — the button runs that — and the rest go under "Other agents" in the menu. Claude Code, Codex, Copilot CLI and opencode are usable when installed; ones that are missing stay out of the menu even when visible here. Use "Add launcher" for your own command (e.g. claude --model opus).',
