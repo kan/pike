@@ -4,6 +4,7 @@ import { json } from '@codemirror/lang-json'
 import { markdown } from '@codemirror/lang-markdown'
 import { php } from '@codemirror/lang-php'
 import { rust } from '@codemirror/lang-rust'
+import { vue } from '@codemirror/lang-vue'
 import { yaml } from '@codemirror/lang-yaml'
 import { type Language, LanguageSupport, StreamLanguage } from '@codemirror/language'
 import { c, cpp, csharp, java, kotlin, objectiveC, scala } from '@codemirror/legacy-modes/mode/clike'
@@ -135,19 +136,21 @@ const STYLE_LANGS = [
 }))
 
 /**
- * Vue SFC（#346）。**`<style lang="scss">` の中身を色付けするために `html()` へ渡す。**
- * lang-html の既定の規則が CSS を当てるのは `lang` が無いか `css` のときだけなので、
- * SCSS / Less を書いた SFC は style ブロックが丸ごと無色になっていた。
+ * Vue SFC（#346）。**土台の `html()` と `vue()` を重ねる。**
  *
- * **`<script setup lang="ts">` は既に効いている**（既定の規則に `attrs.lang == "ts"` →
- * TypeScript がある）ので、こちらで足すことはない。
+ * - **`<style lang="scss">` / `<style lang="less">`** … `html()` の `nestedLanguages`。
+ *   既定の規則が CSS を当てるのは `lang` が無いか `css` のときだけなので、これが無いと
+ *   SCSS / Less を書いた SFC は style ブロックが丸ごと無色になる
+ * - **テンプレートの式**（`{{ }}` の補間と `v-if` / `:prop` / `@event` の属性値）…
+ *   `@codemirror/lang-vue`。**`nestedAttributes` では代用できない**: あれは属性名を固定で
+ *   並べる形で、`:` と `@` で任意の名前が作られる Vue のバインディングを表せない
+ * - **`<script setup lang="ts">`** … lang-html の既定の規則（`attrs.lang == "ts"`）が
+ *   元から効いているので、こちらで足すものは無い
  *
- * **テンプレートの式（`{{ }}` と `v-if` / `:prop` / `@event` の属性値）はここでは直らない。**
- * `nestedAttributes` は属性名を固定で並べる形なので、`:` と `@` で任意の名前が作られる
- * Vue のバインディングは表現できない。直すには `@codemirror/lang-vue` を足すことになる
- * （依存を増やす判断が要るので #346 で保留）。
+ * **`base` は `html()` の結果でなければならない**（lang-vue の契約。ただの `LanguageSupport`
+ * を渡すと動かない）ので、style の設定はそちらへ乗せてから渡す。
  */
-const vueSupport = () => html({ nestedLanguages: STYLE_LANGS })
+const vueSupport = () => vue({ base: html({ nestedLanguages: STYLE_LANGS }) })
 
 /**
  * キー → 言語モード。**キーの正本は `fileType.ts` の `FILE_TYPE_LABELS`**（#347）。

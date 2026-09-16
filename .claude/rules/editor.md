@@ -21,7 +21,12 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
     - **`.jsonc` は壊れるのがコメントの範囲だけ。** `// comment` が 2 つのエラーノードになり、残りの property と値は正しく解析される。「エラーのあと色が全部落ちる」わけではない
     - **直す手はある（依存も増えない）が、代償がある。** `@codemirror/legacy-modes/mode/javascript` の `json` は stream なのでコメントを `comment` として拾い、複数レコードもエラー無しで通る（実測）。ただし**`jsonExtractor` は Lezer の木（`Object` / `Property`）を歩く**ので、`jsonc` を stream へ移すと `.jsonc` のアウトラインが消える。`property` のタグも既定の対応表に無いので `tokenTable` が要る
     - コメントを書くことが多い `tsconfig.json` / `.vscode/settings.json` は**拡張子が `.json`** なので、そもそも `jsonc` のキーに当たらない
-  - **Vue SFC の `<style lang="scss">` は `html()` の `nestedLanguages` で当てる（#346）。** 既定の規則が CSS を当てるのは `lang` が無いか `css` のときだけ。**`<script setup lang="ts">` は既に効いている**ので足さない。**テンプレートの式（`{{ }}` と `:prop` / `@event`）はここでは直らない**（`nestedAttributes` は属性名を固定で並べる形で、`:` と `@` で任意の名前が作られる Vue のバインディングを表せない）。直すには `@codemirror/lang-vue` が要る＝依存を増やす判断なので #346 で保留
+  - **Vue SFC は `vue({ base: html({ nestedLanguages }) })` の重ね方で作る（#346）。** 3 つの層が別々の理由で要る。判断の実体は `vueSupport` の doc が正本
+    - `<style lang="scss">` / `<style lang="less">` … `html()` の `nestedLanguages`（既定の規則が CSS を当てるのは `lang` が無いか `css` のときだけ）
+    - テンプレートの式（`{{ }}` と `v-if` / `:prop` / `@event` の属性値）… `@codemirror/lang-vue`。**`nestedAttributes` では代用できない**（属性名を固定で並べる形なので、`:` と `@` で任意の名前が作られる Vue のバインディングを表せない）
+    - `<script setup lang="ts">` … lang-html の既定の規則が元から効いているので足すものは無い
+    - **`base` は `html()` の結果でなければならない**（lang-vue の契約）。style の設定はそちらへ乗せてから渡す
+    - **定義ジャンプは壊れない。** `findInFile` が歩く `<script>` の部分木は変わらず、`tagNameAt` はそもそも構文木ではなく生テキストを見る（`FunctionDeclaration` / `ClassDeclaration` / `VariableDeclaration` / 型の 4 つが変更前と同じ行に解決することを実測で確認）。アウトラインの Vue 抽出は自前のパーサを回すので元から独立
   - **Markdown のフェンスの中身も `EXT_MAP` で解析する（#344）。** `markdown()` に `codeLanguages` を渡す形で、**依存は増えない**（`@codemirror/language-data` は入れない）。別名表（`FENCE_ALIASES`）を実在するフェンス名から作った理由と、`Language` をキーごとにキャッシュする理由は `languages.ts` の doc が正本
     - **アウトラインにフェンスの中身は出ない。** `@lezer/markdown` はフェンスを**オーバーレイ**としてマウントし、`Tree.iterate` はオーバーレイに入らないため（`IterMode` の指定では変わらないことを実測で確認）。**`resolveInner` 系へ書き換えるときは要注意**: あちらは中へ入るので、```` ```md ```` に貼ったコード例の見出しが文書の構造に混ざる
   - **アウトラインには効かない。** あちらへ渡す `langId` は `extension(path)`（拡張子そのもの）で別経路なので、shebang を効かせるならその決め方も変えることになる（#312 の範囲外）
