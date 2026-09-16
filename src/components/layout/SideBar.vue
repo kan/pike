@@ -8,6 +8,7 @@ import {
   onUnmounted,
   ref,
   useTemplateRef,
+  watch,
 } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { useDragResize } from '../../composables/useDragResize'
@@ -82,11 +83,31 @@ const searchStore = useSearchStore()
 const diagStore = useDiagnosticsStore()
 const dockerStore = useDockerStore()
 const issuesStore = useIssuesStore()
-const { isPanelAvailable } = usePanelAvailability()
+const { isPanelAvailable, isPanelRuledOut } = usePanelAvailability()
 const settingsStore = useSettingsStore()
 const shortcutsModal = useShortcutsModal()
 const showGearMenu = ref(false)
 const updater = useUpdater()
+
+/**
+ * 開いているパネルがそのプロジェクトで使えないなら、ファイルツリーへ逃がす（#353）。
+ *
+ * パネルの選択はマシンに 1 つ（`pike:activePanel`）なので、issue パネルを開いたまま
+ * GitHub でないプロジェクトへ切り替えると、アイコンが消えたうえに「使えません」だけが
+ * 残る。**ここが置き場**: サイドバーは自分の `activePanel` の持ち主で、プロジェクトを
+ * 持たないウィンドウには居ない（居ても直す相手が無い）。
+ *
+ * **監視するのは判定そのもの**（プロジェクトの id ではなく）。あれを鍵にすると、origin を
+ * 聞き終えて答えが出たときに再評価されない: 一時プロジェクトと初めて開くプロジェクトは
+ * `project.remoteUrl` を持たないので、切り替えた瞬間にはまだ答えが出ていない。
+ */
+watch(
+  () => !!sidebar.activePanel && isPanelRuledOut(sidebar.activePanel),
+  (ruledOut) => {
+    if (ruledOut) sidebar.fallbackPanel('files')
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   updater.checkOnceInBackground()

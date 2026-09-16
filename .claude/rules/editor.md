@@ -389,6 +389,12 @@ GitHub の open issue を更新の新しい順に出す。実体は `src-tauri/s
   - **`isGitHub` は永続化済みの `project.remoteUrl` を先に見る**。`gitStore.remoteUrl` は
     `git remote get-url` の往復が終わるまで null なので、そちらだけだとアイコン列が起動から
     数百 ms 遅れて増え、一度リフローする。git 側は補正役（リモートを付け替えたら勝つ）
+  - **述語は 2 つある（#353）**: `isPanelAvailable`（今そのパネルを出してよいか）と
+    `isPanelRuledOut`（**使えないと確定した**か。「使える」の否定ではない）。**開いている
+    パネルを逃がす判断は後者**で、理由はあの関数と `stores/issues.ts` の `ruledOut` の隣が正本
+    - 逃がす場所はサイドバー（`activePanel` の持ち主）で、**覚えている選択は書き換えない**
+      （`fallbackPanel`。人が選んだわけではないため）。監視するのは判定そのもので、
+      プロジェクトの id ではない
   - それでもパネル本体は自分で `visible` を見る。到達経路が上のとおり複数あるので、
     見ないと GitHub でないプロジェクトで `gh issue list` が走る
 - パネルのヘッダの更新ボタンは **`IconDef.refresh`（`SideBar.vue` の表）** から出す。

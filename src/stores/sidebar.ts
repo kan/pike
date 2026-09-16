@@ -24,6 +24,17 @@ export const useSidebarStore = defineStore('sidebar', () => {
     setPanel(panel)
   }
 
+  /**
+   * 使えないパネルから逃がす（#353）。**覚えている選択（`pike:activePanel`）は書き換えない。**
+   *
+   * 人が選んだわけではないので、ここで書くと**非対応のプロジェクトを開くたびに、覚えている
+   * 選択が上書きされる**（起動時にも起きるので、issue パネルを常用する人からは「選択を
+   * 覚える機能」が失われる）。表示だけ移して、覚えているほうは人が選んだときだけ動かす。
+   */
+  function fallbackPanel(panel: SidebarPanel) {
+    activePanel.value = panel
+  }
+
   function setPanel(panel: SidebarPanel | null) {
     activePanel.value = panel
     if (panel) {
@@ -43,5 +54,5 @@ export const useSidebarStore = defineStore('sidebar', () => {
     }, 300)
   }
 
-  return { activePanel, panelWidth, isPanelOpen, togglePanel, openPanel, setPanel, setPanelWidth }
+  return { activePanel, panelWidth, isPanelOpen, togglePanel, openPanel, setPanel, fallbackPanel, setPanelWidth }
 })

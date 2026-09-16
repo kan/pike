@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
@@ -46,6 +46,23 @@ export const useGitStore = defineStore('git', () => {
   const remoteBranches = ref<string[]>([])
   const fetchingBranches = ref(false)
   const remoteUrl = ref<string | null>(null)
+  /**
+   * `remoteUrl` を**どのプロジェクトについて**確かめ終えたか（#353）。公開するのは
+   * 下の `remoteResolved`（id の突き合わせをここに閉じる）。
+   */
+  const remoteResolvedFor = ref<string | null>(null)
+  /**
+   * 今のプロジェクトの origin を聞き終えたか（#353）。
+   *
+   * **`remoteUrl` の null が 2 つの意味を持つ**（まだ聞いていない / origin が無い）ので、
+   * それだけでは issue パネルを逃がしてよいかを決められない。聞く前に逃がすと、GitHub の
+   * プロジェクトでも勝手にファイルツリーへ飛ぶ。id で見るので、切り替えた直後は自動的に
+   * 「まだ」へ戻る。
+   */
+  const remoteResolved = computed(() => {
+    const project = useProjectStore().currentProject
+    return !!project && remoteResolvedFor.value === project.id
+  })
   const error = ref<string | null>(null)
   // Whether the active root is a git repository. `false` drives the panel's
   // "initialize repository" view instead of surfacing a raw git error.
@@ -356,6 +373,7 @@ export const useGitStore = defineStore('git', () => {
     const project = getProject()
     if (!project) {
       remoteUrl.value = null
+      remoteResolvedFor.value = null
       return
     }
     const root = getRoot()
@@ -364,6 +382,9 @@ export const useGitStore = defineStore('git', () => {
     } catch {
       remoteUrl.value = null
     }
+    // 「聞き終えた」を id で記録する（#353）。失敗（repo でない・origin が無い）も
+    // 答えのうちなので、`catch` の側も通る。
+    remoteResolvedFor.value = project.id
     // Persist origin on the project so a machine that lacks the checkout can
     // still clone it (#164). Only for the project's own root — a worktree can
     // sit in another repository. Never clears a stored URL from a transient
@@ -472,6 +493,7 @@ export const useGitStore = defineStore('git', () => {
     remoteBranches,
     fetchingBranches,
     remoteUrl,
+    remoteResolved,
     error,
     isRepo,
     pushing,

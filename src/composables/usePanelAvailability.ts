@@ -18,7 +18,10 @@ import type { SidebarPanel } from '../types/tab'
  * ここに並べても意味が無い（`.claude/rules/editor.md` の「パネルを開く行に `needsProject`
  * を付けない」は、プロジェクトの有無の話なのでこれとは別）。
  */
-export function usePanelAvailability(): { isPanelAvailable: (panel: SidebarPanel) => boolean } {
+export function usePanelAvailability(): {
+  isPanelAvailable: (panel: SidebarPanel) => boolean
+  isPanelRuledOut: (panel: SidebarPanel) => boolean
+} {
   const issuesStore = useIssuesStore()
 
   function isPanelAvailable(panel: SidebarPanel): boolean {
@@ -28,5 +31,20 @@ export function usePanelAvailability(): { isPanelAvailable: (panel: SidebarPanel
     return true
   }
 
-  return { isPanelAvailable }
+  /**
+   * **このプロジェクトでは使えないと確定した**か（#353）。開いているパネルを勝手に別の
+   * ものへ逃がす判断はこちらで行う。**「使える」の否定ではない**: まだ分からないあいだは
+   * false（逃がさない）で、判断の実体は `stores/issues.ts` の `ruledOut` が正本。
+   *
+   * `isPanelAvailable` と分けてあるのは、あれが**道具の検出（`gh`）を含む**から。あれで
+   * 逃がすと、検出が返る前に、使えるはずのプロジェクトでもファイルツリーへ飛ぶ（しかも
+   * 検出は「見つかった」しか覚えないので、戻ってこない）。`gh` が無いだけなら、パネルに
+   * 理由が出ているほうが親切（入れれば直る）。
+   */
+  function isPanelRuledOut(panel: SidebarPanel): boolean {
+    if (panel === 'issues') return issuesStore.ruledOut
+    return false
+  }
+
+  return { isPanelAvailable, isPanelRuledOut }
 }

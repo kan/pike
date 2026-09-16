@@ -83,6 +83,23 @@ export const useIssuesStore = defineStore('issues', () => {
 
   const isGitHub = computed(() => repoLink.value?.provider === 'github')
 
+  /**
+   * **このプロジェクトでは issue を扱えないと確定した**か（#353）。開いているパネルを
+   * 逃がしてよいかの判断（`usePanelAvailability`）がこれを読む。
+   *
+   * **`isGitHub` の否定では駄目。** あれは「origin が GitHub でない」と「origin をまだ
+   * 聞いていない」を同じ false に潰すので、**聞き終える前に GitHub のプロジェクトでも
+   * ファイルツリーへ飛ぶ**（一時プロジェクトと、初めて開くプロジェクトは
+   * `project.remoteUrl` を持たない）。**確定していないあいだは false に倒すこと。**
+   */
+  const ruledOut = computed(() => {
+    if (isGitHub.value) return false
+    const project = useProjectStore().currentProject
+    if (!project) return false
+    // 永続化済みの origin があるなら、それが GitHub でない時点で答えは出ている。
+    return !!project.remoteUrl || useGitStore().remoteResolved
+  })
+
   /** **今のシェルで**見つかっているか。シェルごとの表を引くので、切り替えて probe が
    *  返るまでのあいだ前のシェルの答えが `visible` に出ることはない。 */
   const ghAvailable = computed(() => ghProbe.answerFor(currentShell.value) === true)
@@ -257,6 +274,7 @@ export const useIssuesStore = defineStore('issues', () => {
     toggleAll,
     collapseAction,
     newIssueUrl,
+    ruledOut,
     visible,
     refresh,
     ensureLoaded,
