@@ -2,6 +2,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { openPathInTab } from '../lib/openFile'
 import { wslNativeToUnc } from '../lib/paths'
 import { type CliAction, type CliFileTarget, cliGetInitialAction } from '../lib/tauri'
+import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
@@ -50,14 +51,30 @@ async function handleActionLocal(action: CliAction) {
     }
   } else if (action.action === 'openDirectory') {
     tabStore.addTerminalTab({ cwd: action.path })
+  } else if (action.action === 'adoptProject') {
+    // `pike <dir>` を Pike のターミナルから叩いた（#352）。**このウィンドウで開く。**
+    // 一時プロジェクトの解決も、一覧が古いときの読み直しも、登録の提案（#230）も
+    // `adoptProject` が持っているので、ここは行き先を決めるだけ。
+    //
+    // **グローバルモードなら新しいウィンドウへ逃がす。** あのモードはサイドバーも
+    // QuickOpen も出さず、タブが尽きるとウィンドウごと閉じる（App.vue）ので、
+    // プロジェクトを抱えると半端な状態になる。**Rust 側のラベルの判定では足りない**:
+    // `main` はコールドスタートの引数次第で実行時にグローバルモードへ入る
+    // （`pike --terminal` / ファイル引数）ので、ラベルからは見分けられない。
+    const projectStore = useProjectStore()
+    if (globalMode.value) {
+      await projectStore.placeProject(action.id, 'window')
+      return
+    }
+    await projectStore.adoptProject(action.id)
   } else if (action.action === 'openProject') {
     // Elevated admin relaunch from a project window (#138): reopen the project
     // in normal mode (session restore skipped) and add the pinned-shell terminal.
     // A project-labelled window has already switched to it (windowProjectId path),
     // so only switch when this window isn't on that project yet.
+    // 一覧が古いときの読み直しは `adoptProject` の持ち物（#352）。
     const projectStore = useProjectStore()
     if (projectStore.currentProject?.id !== action.id) {
-      if (projectStore.projects.length === 0) await projectStore.loadProjects()
       await projectStore.adoptProject(action.id, { restoreSession: false })
     }
     const project = projectStore.currentProject

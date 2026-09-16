@@ -25,6 +25,7 @@ import {
   projectAddOpen,
   projectCreate,
   projectDelete,
+  projectGet,
   projectGetLast,
   projectGroupsList,
   projectGroupsSave,
@@ -401,8 +402,8 @@ export const useProjectStore = defineStore('project', () => {
     if (!projects.value.some((p) => p.id === id)) {
       const transient = await projectTransientGet(id).catch(() => null)
       if (transient) {
-        transientProject.value = transient
-        await switchProject(id, opts)
+        // 一時プロジェクトの据え付けと `projectTransientBind` は `switchProject` の持ち物。
+        await switchProject(id, { ...opts, transient })
         // Not awaited, for the same reason the clone offer below isn't: the
         // caller's startup sequence must not park on a dialog waiting for a
         // human. Kept in here rather than in the caller so a future adopt path
@@ -410,9 +411,16 @@ export const useProjectStore = defineStore('project', () => {
         offerToRegisterDirectory().catch(() => {})
         return
       }
+      // 一時でもないなら、このウィンドウの一覧が古い（#352）。Rust はディスクから読むので、
+      // 別のウィンドウが登録した / 同期で入ったプロジェクトを渡されうる。`applyExternalUpdate`
+      // は既にある id しか差し替えないため、足さないと下の `switchProject` が黙って戻る。
+      // **全件ではなく 1 件だけ読む**: 一覧の読み直しは `project.json` を全部開くので、
+      // 「渡された id が無い」を直すには高すぎる。
+      const fresh = await projectGet(id).catch(() => null)
+      if (fresh) projects.value = [...projects.value, fresh]
     }
     await switchProject(id, opts)
-    ensureRootPresent(id, () => switchProject(id, opts)).catch(() => {})
+    ensureRootPresent(id, () => void switchProject(id, opts)).catch(() => {})
   }
 
   /**
@@ -537,9 +545,9 @@ export const useProjectStore = defineStore('project', () => {
       await openProjectWindow(config.id)
       return
     }
-    transientProject.value = config
-    await projectTransientBind(config.id)
-    await switchProject(config.id)
+    // 据え付けも `projectTransientBind` も `switchProject` の持ち物（#352。自分で
+    // `transientProject` を差し替えると、離れる側の後始末が飛ぶ）。
+    if (!(await switchProject(config.id, { transient: config }))) return
     // 聞くかどうかの判断は `offerToRegisterDirectory` の 1 箇所に寄せてある（設定が
     // `never` なら黙って戻る）。**await しない**: CLI の adopt と同じ理由で、開く処理を
     // ダイアログの答えで止めない。
@@ -1122,12 +1130,20 @@ export const useProjectStore = defineStore('project', () => {
       .catch(() => {})
   }
 
-  async function switchProject(id: string, opts?: { restoreSession?: boolean }) {
+  async function switchProject(
+    id: string,
+    opts?: { restoreSession?: boolean; transient?: ProjectConfig },
+  ): Promise<boolean> {
     if (saveTimer) clearTimeout(saveTimer)
     const tabStore = useTabStore()
     const searchStore = useSearchStore()
-    const project = findProject(id)
-    if (!project) return
+    // **一時プロジェクト（#230）の入れ替えはここが唯一の場所（#352）。** 呼び出し側で
+    // `transientProject` を先に差し替えると、下の「離れる側の後始末」が自分自身を見て
+    // 素通りする（`id !== id` にならない）。一時 → 一時の切り替えで、確認も
+    // `closeProjectTabs` も `projectTransientDrop` も飛ばされ、**一覧に出ないのに
+    // プロセスを抱えたタブ**が残る。`pike <未登録 dir>` を続けて叩くと踏む。
+    const project = opts?.transient ?? findProject(id)
+    if (!project) return false
     // Moving this window off a transient project (#230) is the end of that
     // project: drop it here rather than at window close, or `pike <that dir>`
     // would keep focusing a window that no longer shows it.
@@ -1137,16 +1153,19 @@ export const useProjectStore = defineStore('project', () => {
       // タブが残るので、ここだけ挙動が違う。黙って捨てると、戻ってきて初めて気付く。
       // タブが無ければ失うものが無いので聞かない。
       if (tabStore.hasTabsFor(leaving.id)) {
-        if (!(await confirmDialog(t('project.confirmLeaveTransient', { name: leaving.name })))) return
+        if (!(await confirmDialog(t('project.confirmLeaveTransient', { name: leaving.name })))) return false
       }
       // **タブを先に手放す**（#264）。パークだけして記録を消すと、一覧にも出ず
       // 切り替えても戻れない id のタブが、プロセスを抱えたまま残る。断られたら
       // 切り替え自体をやめる（記録だけ消すと、同じ迷子のタブができる）。
-      if (!(await tabStore.closeProjectTabs(leaving.id))) return
+      if (!(await tabStore.closeProjectTabs(leaving.id))) return false
       forgetHeld(leaving.id)
       projectTransientDrop(leaving.id).catch(() => {})
       transientProject.value = null
     }
+    // 離れる側を片付けたあとで、入る側を据える（`isTransient` は `currentProject` と
+    // 突き合わせるので、下の `projectAddOpen` のガードより前であればよい）。
+    if (opts?.transient) transientProject.value = opts.transient
     // Elevated admin project window opens the project context only; the caller
     // adds the single pinned-shell terminal, so skip session/pinned restore.
     const restore = opts?.restoreSession !== false
@@ -1174,9 +1193,16 @@ export const useProjectStore = defineStore('project', () => {
     // Fire-and-forget: don't block tab restoration on metadata persistence
     if (!isTransient.value) {
       Promise.all([projectUpdate(project).catch(() => {}), projectAddOpen(id).catch(() => {})])
+    } else {
+      // 一時プロジェクトの `projectAddOpen` にあたるもの（#352）。**ここが置き場**:
+      // 呼び出し側に任せていたころは、切り替えが成ったかを各自で確かめる必要があり、
+      // 結び忘れると `window_projects` が古いまま残って `pike <同じ dir>` が 2 枚目の
+      // ウィンドウを開いた。ウィンドウ生成の経路では Rust が既に seed 済みだが、
+      // 同じ値を書くだけなので二重に呼んでも害が無い。
+      projectTransientBind(id).catch(() => {})
     }
 
-    if (!shouldRestore) return
+    if (!shouldRestore) return true
 
     if (project.lastSession && project.lastSession.tabs.length > 0) {
       // 分割（#308）は先に立てる。各タブの置き場は `def.pane` をそのまま渡し、
@@ -1225,6 +1251,7 @@ export const useProjectStore = defineStore('project', () => {
     if (!hasPlainTerminal) {
       tabStore.addTerminalTab({ cwd: activeRoot.value, shell: project.shell })
     }
+    return true
   }
 
   async function flushSession() {

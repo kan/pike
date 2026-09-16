@@ -555,22 +555,52 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
         }
 
         cli::CliAction::OpenDirectory { path, distro } => {
+            let existing = project_id_for_root(app, &projects, path);
+
             // 1. A window already on this root — registered or transient (#230)?
             //    → focus it, so a second `pike <dir>` never opens a duplicate.
-            if let Some(id) = project_id_for_root(app, &projects, path) {
-                if focus_project_window_anywhere(app, &id, None) {
+            //    **`from_window` より先に見る**（#352）: 1 プロジェクト 1 ウィンドウを
+            //    崩さない。叩いた当人のウィンドウが持っているなら、ここで前に出るだけ。
+            if let Some(id) = &existing {
+                if focus_project_window_anywhere(app, id, None) {
                     log::debug!("[single-instance] dir: focus project window for {id}");
                     return;
                 }
-                // 2. Registered but no window → new window for that project.
-                //    (A transient project cannot reach here: its entry is dropped
-                //    with the window, so a match implies a live window.)
+            }
+
+            // 2. Pike のターミナルから叩かれた（#352）→ そのウィンドウで開く。
+            //    **グローバルウィンドウは除く**: プロジェクトの入れ物になれない
+            //    （サイドバーを持たず、`globalMode` はラベルで決まって降りない）ので、
+            //    そこで切り替えるとプロジェクトはあるのに UI が無い半端な状態になる。
+            if let Some(label) = from_window
+                .as_deref()
+                .filter(|l| !l.starts_with(GLOBAL_PREFIX))
+            {
+                if let Some(w) = app.get_webview_window(label) {
+                    let id = existing.clone().or_else(|| {
+                        create_transient_project(app, &projects, path, distro.as_deref())
+                    });
+                    if let Some(id) = id {
+                        log::debug!(
+                            "[single-instance] dir: adopt {id} in originating window {label}"
+                        );
+                        emit_action_to(app, &w, &cli::CliAction::AdoptProject { id });
+                        return;
+                    }
+                }
+                log::debug!("[single-instance] dir: from_window {label} unusable, falling back");
+            }
+
+            // 3. Registered but no window → new window for that project.
+            //    (A transient project cannot reach here: its entry is dropped
+            //    with the window, so a match implies a live window.)
+            if let Some(id) = existing {
                 log::debug!("[single-instance] dir: open project {id} in new window");
                 build_project_window(app, &id, Some(action));
                 return;
             }
 
-            // 3. Unregistered directory → transient project window. The window
+            // 4. Unregistered directory → transient project window. The window
             //    asks whether to register it once it is up (#230).
             log::debug!("[single-instance] dir: transient window for {path}");
             if let Some(id) = create_transient_project(app, &projects, path, distro.as_deref()) {
@@ -639,6 +669,11 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
         // 走っているインスタンスには来ない（通知の活性化は `try_handle_activation` が
         // 先に受ける）。コールドスタートで `initial_action` に積むためだけの形。
         cli::CliAction::FocusProject { .. } => {}
+
+        // `parse_args` は作らない（`OpenDirectory` の腕が、叩いたウィンドウへ届けるために
+        // 組み立てる形。#352）。ここへ来るのは手で `--open-project` 相当を打った場合だけ
+        // なので、行き先が決まっていない以上は何もしない。
+        cli::CliAction::AdoptProject { .. } => {}
     }
 }
 

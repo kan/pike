@@ -814,11 +814,25 @@ export interface CliFocusProject {
   id: string
 }
 
+/** `pike <dir>` を Pike のターミナルから叩いたときに、そのウィンドウへ届く（#352）。
+ *  受け口は `adoptProject`（理由は Rust の `CliAction` の doc）。 */
+export interface CliAdoptProject {
+  action: 'adoptProject'
+  id: string
+}
+
 export interface CliNone {
   action: 'none'
 }
 
-export type CliAction = CliOpenFiles | CliOpenDirectory | CliOpenTerminal | CliOpenProject | CliFocusProject | CliNone
+export type CliAction =
+  | CliOpenFiles
+  | CliOpenDirectory
+  | CliOpenTerminal
+  | CliOpenProject
+  | CliFocusProject
+  | CliAdoptProject
+  | CliNone
 
 export async function cliGetInitialAction(): Promise<CliAction> {
   return invoke<CliAction>('cli_get_initial_action')

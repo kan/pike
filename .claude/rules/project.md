@@ -193,6 +193,24 @@
 - **コールドスタートでプロジェクトを開く（#212）**: 従来、Pike 停止中の `pike <dir>` は初期アクションを main に渡すだけで、フロントは `restoreLastProject` にフォールバックしていた（＝ジャンプリストから起動しても前回セッションが開く）。setup で root が登録済みプロジェクトに一致したら `project::set_window_project(state, "main", id)` で **`window_projects` を seed** し、フロントは既存の `project_for_window` 経路でそのプロジェクトに切り替わる（`window_projects` への書き込みはこの関数に一本化。`build_project_window` / `project_add_open` も同じ入口）。`last_project.txt` のクリアは**フロント側**（App.vue の `isMainWindow()` 分岐）で行う: この起動は前回セッションの復元ではなく、`project_add_open` が直後に自分を書き戻す。クリアしないと前回分が積み上がって次の素の起動で全部開く。`restoreLastProject` も同じ `projectSetLast([])` を呼ぶので、クリアの所有者はフロント 1 箇所に揃う
 - **`pike agent-hook` は Tauri を起動しない（#299）**: `main.rs` が argv を見て `agent_hook::try_agent_hook_and_exit` へ分岐し、そこでプロセスが終わる。**`wait::try_forward_pty_origin_and_exit` より先に見ること**（hook は Pike のターミナルの中で走るので `PIKE_WINDOW_LABEL` を持っており、あちらが先に走ると `--from-window` 付きで転送されて「`agent-hook` という名前のファイルを開く」になる）。**走行中のインスタンスへは何も送らない**（申告はファイルに書き、`resolve` のキャッシュが mtime で拾う）ので、single-instance の経路には一切現れない。詳細は `.claude/rules/agent.md` と `agent_hook.rs` の doc
 - ファイル引数のルーティング: `--from-window` 発ウィンドウ → **全ファイルを含む**プロジェクトウィンドウ → グローバルウィンドウの順（`CliState.pending` でアクションを転送）
+- **ディレクトリ引数も発ウィンドウで開く（#352）**: `pike <dir>` を Pike のターミナルから
+  叩いたら、そのウィンドウのプロジェクトを切り替える（`CliAction::AdoptProject` を届ける。
+  変種を分けた理由はあの宣言の隣）。**順序が要点**で、まず「どこかのウィンドウが既に持って
+  いるか」を見てから `--from-window` を見る（1 プロジェクト 1 ウィンドウを崩さない。自分の
+  ウィンドウが持っているなら前に出るだけ）
+  - **グローバルモードのウィンドウは除く**（プロジェクトを抱えられない）。**判定が Rust と
+    フロントの 2 段に分かれている**理由は `useCliOpen.ts` の受け口が正本。要点だけ:
+    `main` は実行時にグローバルモードへ入るので、ラベルからは見分けられない
+  - **既知の制約**: `--from-window` のラベルはプロセスをまたいで一意ではない。昇格した
+    インスタンス（#138、`--new-instance`）のターミナルから叩くと `main` が通常のインスタンス
+    の `main` に当たる。ファイル引数（`OpenFiles`）が前から抱えている穴と同じもので、塞ぐには
+    `PIKE_WINDOW_LABEL` にプロセスの目印を足すことになる
+  - **効くのは Windows だけ**（`--from-window` を付けるのは `wait.rs` の
+    `try_forward_pty_origin_and_exit` で、あれが WM_COPYDATA 前提）。他の OS では
+    従来どおり新しいウィンドウで開く
+  - **一時プロジェクト（#230）の据え付けと `projectTransientBind` は `switchProject` の
+    持ち物**（#352）。呼び出し側に置くと、離れる側の後始末が飛ぶ順序で書けてしまう（理由は
+    あの関数の中のコメント）
 - 既存エディタタブがある場合はフォーカス＋リロード（`reloadRequested` タイムスタンプ）
 - **NSIS インストーラフック**（`src-tauri/nsis/hooks.nsi`、`tauri.conf.json` の `bundle.windows.nsis.installerHooks`）: POSTINSTALL でユーザー PATH に `$INSTDIR` を冪等追加（#146。REG_EXPAND_SZ 維持・updater の再インストールでも重複しない）と、**エクスプローラー「プログラムから開く」候補登録**（`SHCTX\Software\Classes\Applications\pike.exe` に `FriendlyAppName` + `shell\open\command`。SupportedTypes 非設定 = 全拡張子の「別のアプリを選択」一覧に出る。既定の関連付けは変更しない）。PREUNINSTALL で両方を削除。MSI インストーラにはこのフックは無い（NSIS 推奨の理由の 1 つ）
 
