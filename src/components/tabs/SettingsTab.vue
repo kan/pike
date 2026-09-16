@@ -50,6 +50,7 @@ import {
   clampSize,
   type DiffWordWrap,
   type RegisterDirectoryMode,
+  type TerminalPathLinkMode,
   type ThemeMode,
   UI_FONT_SIZE_MAX,
   UI_FONT_SIZE_MIN,
@@ -103,6 +104,11 @@ const REGISTER_DIRECTORY_OPTIONS: { value: RegisterDirectoryMode; labelKey: stri
   { value: 'auto', labelKey: 'settings.registerDirectoryAuto' },
   { value: 'ask', labelKey: 'settings.registerDirectoryAsk' },
   { value: 'never', labelKey: 'settings.registerDirectoryNever' },
+]
+const TERMINAL_PATH_LINK_OPTIONS: { value: TerminalPathLinkMode; labelKey: string }[] = [
+  { value: 'confirm', labelKey: 'settings.terminalPathLinksConfirm' },
+  { value: 'open', labelKey: 'settings.terminalPathLinksOpen' },
+  { value: 'off', labelKey: 'settings.terminalPathLinksOff' },
 ]
 const THEME_MODE_OPTIONS: { value: ThemeMode; labelKey: string; icon: Component }[] = [
   { value: 'dark', labelKey: 'settings.darkMode', icon: Moon },
@@ -744,6 +750,17 @@ const PREVIEW_LINES = [
 
           <SettingItem label-key="settings.terminalHelpButton" hint-key="settings.terminalHelpButtonHint">
             <SettingToggle v-model="settings.terminalHelpButton" :options="ON_OFF" />
+          </SettingItem>
+        </SettingGroup>
+
+        <!-- 出力をリンクにするか（#343）。押したときの確認も同じ軸なのでここへ。 -->
+        <SettingGroup title-key="settings.groupLinks">
+          <SettingItem label-key="settings.terminalPathLinks" hint-key="settings.terminalPathLinksHint">
+            <SettingToggle v-model="settings.terminalPathLinks" :options="TERMINAL_PATH_LINK_OPTIONS" />
+          </SettingItem>
+
+          <SettingItem label-key="settings.terminalUrlLinks" hint-key="settings.terminalUrlLinksHint">
+            <SettingToggle v-model="settings.terminalUrlLinks" :options="ON_OFF" />
           </SettingItem>
         </SettingGroup>
 

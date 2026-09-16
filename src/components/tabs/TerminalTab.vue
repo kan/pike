@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 import { Bot, ChevronDown, ChevronLeft, MessageSquareText } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { confirmDialog } from '../../composables/useConfirmDialog'
+import { confirmDialog, confirmWithOption } from '../../composables/useConfirmDialog'
 import { copyOnSelect } from '../../composables/useCopyOnSelect'
 import {
   MAX_UPLOAD_SIZE,
@@ -15,6 +14,7 @@ import {
 } from '../../composables/useImagePaste'
 import { ptyRouter } from '../../composables/usePtyRouter'
 import { markTerminalOutput, registerTerminalPeek, unregisterTerminalPeek } from '../../composables/useTerminalPeek'
+import { attachUrlLinks } from '../../composables/useTerminalUrlLinks'
 import { useI18n } from '../../i18n'
 import { type AgentDef, type AgentId, launcherAgent, launcherLines } from '../../lib/agents'
 import { isMacHost, isWindowsHost } from '../../lib/host'
@@ -23,7 +23,6 @@ import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
-import { openUrlWithConfirm } from '../../lib/openUrl'
 import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
 import { agentSessionsList, ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
@@ -281,11 +280,24 @@ function detectAgents() {
 // routing applies: a terminal link to a PNG or a PDF used to land in CodeMirror
 // and trip its binary guard. A path that is a directory reaches the editor tab
 // too, which offers to open it as a project instead of reporting a read error.
-function openPathLink(target: PathLinkTarget) {
+//
+// **開く前に一拍置く（#343）。** 出力の中の語がリンクになる以上、押すつもりの無かった
+// ものを踏むことがある。確認するかは `terminalPathConfirm` で、チェックボックスと設定画面の
+// どちらからでも切り替えられる。**見せるのは解決済みの絶対パス**: リンクの字面は本人が
+// 見て押しているので、確認の値打ちは「どこに解決されたか」のほうにある。
+async function openPathLink(target: PathLinkTarget) {
   const project = projectStore.currentProject
   if (!project) return
   const sep = pathSep(project.shell)
   const full = isAbsolutePath(target.path) ? target.path : joinPath(projectStore.activeRoot, target.path, sep)
+  if (settingsStore.terminalPathLinks === 'confirm') {
+    const { ok, checked } = await confirmWithOption(
+      t('confirm.openPath', { path: full }),
+      t('confirm.openPathRemember'),
+    )
+    if (!ok) return
+    if (checked) settingsStore.terminalPathLinks = 'open'
+  }
   openPathInTab({ path: full, line: target.line, shell: project.shell }).catch(() => {})
 }
 
@@ -309,6 +321,13 @@ function findHeaderPathAbove(term: Terminal, y: number): string | null {
 function registerPathLinks(term: Terminal) {
   term.registerLinkProvider({
     provideLinks(y, callback) {
+      // **設定はここで見る（#343）。** URL 側（`attachUrlLinks`）はアドオンごと外すが、
+      // こちらは自前のプロバイダなので、何も返さなければリンクにならない。付け外しより
+      // 安く、切り替えた瞬間から効く。
+      if (settingsStore.terminalPathLinks === 'off') {
+        callback(undefined)
+        return
+      }
       const bufLine = term.buffer.active.getLine(y - 1)
       if (!bufLine) {
         callback(undefined)
@@ -328,7 +347,7 @@ function registerPathLinks(term: Terminal) {
       const makeLink = (start: number, end: number, target: PathLinkTarget) => ({
         text: text.slice(start, end + 1),
         range: { start: { x: colAt[start] ?? 1, y }, end: { x: colAt[end] ?? term.cols, y } },
-        activate: () => openPathLink(target),
+        activate: () => void openPathLink(target),
       })
 
       const matches = findPathLinks(text)
@@ -630,7 +649,7 @@ onMounted(async () => {
 
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
-  terminal.loadAddon(new WebLinksAddon((_e, uri) => openUrlWithConfirm(uri)))
+  attachUrlLinks(terminal)
   registerPathLinks(terminal)
 
   terminal.open(termRef.value)

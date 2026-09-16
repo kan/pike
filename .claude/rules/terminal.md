@@ -59,6 +59,12 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
     属するので、この設定では触らない（**場所も件数もここに写さないこと**。`check-docs` が見るのは
     バッククォートの名前が実在するかだけなので、黙って古くなる）
 - **定型プロンプト挿入ボタン**: 起動ボタンの隣の2つ目のドロップダウン。`agentPrompts`（`{ label, text }[]`、`pike:settings`）を**ブラケットペースト（`ESC[200~…ESC[201~`）で挿入のみ・Enter なし**（複数行も1入力として届き途中確定しない）。2つのメニューは相互排他、alt-screen 中は非表示。挿入の primitive は `lib/tauri.ts` の `ptyPasteText`
+- **リンク化は 2 つとも設定で切れる（#343）**: `terminalPathLinks`（3 値）と
+  `terminalUrlLinks`。**切り方が違うのがこの節の要点**で、片方は自前のプロバイダなので
+  `provideLinks` で何も返さないだけ、もう片方は `WebLinksAddon` ごと外す。それぞれの理由は
+  `stores/settings.ts` の宣言の隣と `composables/useTerminalUrlLinks.ts` の doc が正本
+  - 押したときの確認（見せるものと、URL 側と対称にしない理由）は `TerminalTab.vue` の
+    `openPathLink` の隣が正本
 - **出力のパスのクリックでファイルを開く**: `lib/terminalLinks.ts` の `findPathLinks`（インライン `path:line(:col)` 検出。拡張子必須で誤検出抑制、Windows ドライブ・URL 除外）
   - **行番号は任意（#252）**。エージェントは書いたファイルを `› [file] /tmp/…/test.md (7.7KB)` の形で案内してくるので、行の一部にある裸のパスも拾う（行全体がパスであることを求める `asPathHeader` では届かない）。開くのは 1 行目
   - **行番号が無いときだけ判定を厳しくする**（`isPathLike`）: 区切りを必須にして文章中の `foo.md` を落とし、先頭セグメントがホスト名に見えるもの（`www.example.com/a/b.html`）も落とす。ただし `.` 始まりは通す（`.claude/rules/editor.md` は実在する）

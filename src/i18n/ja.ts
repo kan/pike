@@ -241,6 +241,7 @@ export default {
   'settings.groupDisplay': '表示',
   'settings.groupBehavior': '操作',
   'settings.groupOverlay': '重ねて出すボタン',
+  'settings.groupLinks': 'リンク',
   'settings.groupShell': 'シェル',
   'settings.groupLaunch': '起動',
   'settings.groupIntegration': '連携と知らせ',
@@ -293,6 +294,15 @@ export default {
   'settings.terminalAgentButtonHint':
     'ターミナルの右上に重ねて出る起動ボタン。オフにしても、コマンドを打てばエージェントは動きます。',
   'settings.terminalPromptButton': 'プロンプト挿入ボタン',
+  'settings.terminalPathLinks': 'ファイルパスのリンク',
+  'settings.terminalPathLinksConfirm': '確認して開く',
+  'settings.terminalPathLinksOpen': 'すぐ開く',
+  'settings.terminalPathLinksOff': 'リンクにしない',
+  'settings.terminalPathLinksHint':
+    'ターミナルの出力に出た src/main.rs:42 のようなパスを押せるようにして、エディタで開きます。「確認して開く」では、押しても即座には開かず、開く先を出して一度確認します（確認のチェックボックスからも切り替えられます）。',
+  'settings.terminalUrlLinks': 'URL をリンクにする',
+  'settings.terminalUrlLinksHint':
+    '出力に出た URL を押せるようにします。外部ブラウザで開くときの確認は、この設定とは別に出ます（承認済みのホストを除く）。',
   'settings.terminalHelpButton': 'ヘルプボタン',
   'settings.terminalHelpButtonHint':
     '同じ場所に出る「?」。上の 2 つを両方オフにすると、説明する相手が無くなるので一緒に消えます。',
@@ -762,6 +772,8 @@ export default {
 
   // Confirm Dialog
   'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',
+  'confirm.openPath': '{path} を開きますか？',
+  'confirm.openPathRemember': '今後は確認せず開く',
   'confirm.copyOnSelect':
     'ターミナルで文字を選択したら、自動的にクリップボードへコピーしてよいですか？（設定 → ターミナルであとから変えられます）',
   'confirm.unsavedClose': '"{name}" に未保存の変更があります。保存せずに閉じますか？',

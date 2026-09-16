@@ -90,6 +90,11 @@ export function asPathHeader(text: string): string | null {
   if (!s || s === '--') return null // `--` separates rg context groups
   if (RG_BODY_RE.test(s)) return null // a match / context line, not a header
   if (/\s/.test(s)) return null // headers are a lone path, no spaces
+  // **URL は渡さない（#343）。** スラッシュを含むので、これが無いと `https://example.com/docs`
+  // だけの行がパスの見出しとして通り、`activeRoot` と連結されて実在しないファイルを開こうと
+  // する。`findPathLinks` と `isPathLike` は元から落としているので、3 つを揃えるだけ。
+  // **`WebLinksAddon` が先に拾うから大丈夫、には頼れない**（URL のリンク化は設定で切れる）。
+  if (s.includes('://')) return null
   if (s.includes('/') || s.includes('\\') || /\.\w{1,12}$/.test(s)) return s
   return null
 }

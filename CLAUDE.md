@@ -243,6 +243,7 @@ pike/
 │   │   ├── useBusyExit.ts    # Pike ごと終了する前の確認（#178。close と ⌘Q が共有）
 │   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts  useAnchoredPopup.ts
 │   │   ├── useCopyOnSelect.ts # 選択した文字列をクリップボードへ（#342。初回だけ確認する）
+│   │   ├── useTerminalUrlLinks.ts # 出力の URL のリンク化を設定で付け外しする（#343）
 │   │   ├── useDragResize.ts  # 横幅を変えるドラッグの配線（サイドバーの幅・diff の分割線、#297）
 │   │   ├── useTabDrag.ts     # タブを掴んでいるあいだの状態（2 本のタブバーで共有、#308）
 │   │   ├── useProjectAccent.ts # プロジェクトカラーを面として塗るための色の組（#298）

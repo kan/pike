@@ -242,6 +242,7 @@ export default {
   'settings.groupDisplay': 'Display',
   'settings.groupBehavior': 'Behavior',
   'settings.groupOverlay': 'Overlay Buttons',
+  'settings.groupLinks': 'Links',
   'settings.groupShell': 'Shells',
   'settings.groupLaunch': 'Launchers',
   'settings.groupIntegration': 'Integration & alerts',
@@ -294,6 +295,15 @@ export default {
   'settings.terminalAgentButtonHint':
     'The launch button floating over the top-right of the terminal. Turning it off does not stop agents — you can still type the command.',
   'settings.terminalPromptButton': 'Prompt Insert Button',
+  'settings.terminalPathLinks': 'File Path Links',
+  'settings.terminalPathLinksConfirm': 'Confirm First',
+  'settings.terminalPathLinksOpen': 'Open Right Away',
+  'settings.terminalPathLinksOff': 'No Links',
+  'settings.terminalPathLinksHint':
+    'Make paths in terminal output, such as src/main.rs:42, clickable so they open in the editor. "Confirm first" shows where the path resolves to and waits for you instead of opening straight away (the checkbox in that dialog switches this too).',
+  'settings.terminalUrlLinks': 'Link URLs',
+  'settings.terminalUrlLinksHint':
+    'Make URLs in terminal output clickable. The confirmation for opening a browser is separate from this setting (except for hosts you have approved).',
   'settings.terminalHelpButton': 'Help Button',
   'settings.terminalHelpButtonHint':
     'The "?" next to them. It disappears on its own when both buttons above are off, since it explains those two.',
@@ -763,6 +773,8 @@ export default {
 
   // Confirm Dialog
   'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',
+  'confirm.openPath': 'Open {path}?',
+  'confirm.openPathRemember': "Don't ask again; open right away",
   'confirm.copyOnSelect':
     'Copy to the clipboard automatically whenever you select text in a terminal? (You can change this later in Settings → Terminal.)',
   'confirm.unsavedClose': '"{name}" has unsaved changes. Close without saving?',

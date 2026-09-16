@@ -349,6 +349,20 @@ function sanitizeRegisterDirectory(v: unknown): RegisterDirectoryMode {
 }
 
 /**
+ * ターミナルの出力のファイルパスをどう扱うか（#343）。既定は `confirm`（押したら一度聞く）。
+ *
+ * **真偽値 2 つ（リンクにするか / 確認するか）に割らない。** 意味のある状態は 3 つしか
+ * 無いのに、割ると「リンクにしないが確認はする」という無意味な組み合わせが表現できてしまい、
+ * 設定画面にも「いま効かない項目」を畳む条件が要る。`registerDirectory` と同じ形。
+ */
+export const TERMINAL_PATH_LINK_MODES = ['confirm', 'open', 'off'] as const
+export type TerminalPathLinkMode = (typeof TERMINAL_PATH_LINK_MODES)[number]
+
+function sanitizeTerminalPathLinks(v: unknown): TerminalPathLinkMode {
+  return TERMINAL_PATH_LINK_MODES.includes(v as TerminalPathLinkMode) ? (v as TerminalPathLinkMode) : 'confirm'
+}
+
+/**
  * エージェントの通知をどこまで出すか（#265）。既定は `waiting`（入力待ちのときだけ）。
  *
  * **`all` は「ターンの完了でも鳴らす」。** どちらの契機も hook からは同じように届くので、
@@ -435,6 +449,20 @@ interface PersistedSettings {
   terminalAgentButton: boolean
   terminalPromptButton: boolean
   terminalHelpButton: boolean
+  /**
+   * ターミナルの出力のファイルパスの扱い（#343。値の意味は `TERMINAL_PATH_LINK_MODES`）。
+   * 確認のチェックボックスと設定画面のどちらからでも切り替えられる。
+   *
+   * **URL と別の設定にしてある。** パスの側は「拡張子らしきものを持つ語」を拾うので、
+   * ログの中の `foo.bar` のような無関係な語が下線を引かれることがあるが、URL の側
+   * （`WebLinksAddon`）にその問題は無い。
+   *
+   * **確認の軸も対称ではない。** URL の確認（`openUrlWithConfirm`）は外部ブラウザへ渡す
+   * ことへの同意で、承認はホスト単位。こちらが防ぐのは「押すつもりが無かったものが開く」
+   * ことなので、鍵にする単位が無く全体の切り替えで足りる。
+   */
+  terminalPathLinks: TerminalPathLinkMode
+  terminalUrlLinks: boolean
   /**
    * Markdown に URL を貼ったとき、そのページを取得してタイトル入りのリンクにするか（#241）。
    *
@@ -537,6 +565,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
     shortcutPreset: sanitizeShortcutPreset(s.shortcutPreset),
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
+    terminalPathLinks: sanitizeTerminalPathLinks(s.terminalPathLinks),
     agentNotify: sanitizeAgentNotify(s.agentNotify),
     autoSave: sanitizeAutoSave(s.autoSave),
     autoSaveDelay: clampSize(s.autoSaveDelay, AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX, AUTO_SAVE_DELAY_DEFAULT),
@@ -840,6 +869,9 @@ function defaults(): PersistedSettings {
     terminalAgentButton: true,
     terminalPromptButton: true,
     terminalHelpButton: true,
+    // リンク化は 2 つとも既定で入れたまま（従来の挙動）。パスは押したときに一拍置く（#343）。
+    terminalPathLinks: 'confirm' as TerminalPathLinkMode,
+    terminalUrlLinks: true,
     markdownFetchLinkTitle: false,
     language: 'en',
     closeToTray: true,
@@ -905,6 +937,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const terminalAgentButton = ref(saved.terminalAgentButton)
   const terminalPromptButton = ref(saved.terminalPromptButton)
   const terminalHelpButton = ref(saved.terminalHelpButton)
+  const terminalPathLinks = ref(saved.terminalPathLinks)
+  const terminalUrlLinks = ref(saved.terminalUrlLinks)
   const markdownFetchLinkTitle = ref(saved.markdownFetchLinkTitle)
   const language = ref(saved.language)
   const closeToTray = ref(saved.closeToTray)
@@ -1279,6 +1313,8 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalAgentButton: terminalAgentButton.value,
       terminalPromptButton: terminalPromptButton.value,
       terminalHelpButton: terminalHelpButton.value,
+      terminalPathLinks: terminalPathLinks.value,
+      terminalUrlLinks: terminalUrlLinks.value,
       markdownFetchLinkTitle: markdownFetchLinkTitle.value,
       language: language.value,
       closeToTray: closeToTray.value,
@@ -1325,6 +1361,8 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalAgentButton.value = s.terminalAgentButton
     terminalPromptButton.value = s.terminalPromptButton
     terminalHelpButton.value = s.terminalHelpButton
+    terminalPathLinks.value = s.terminalPathLinks
+    terminalUrlLinks.value = s.terminalUrlLinks
     markdownFetchLinkTitle.value = s.markdownFetchLinkTitle
     language.value = s.language
     closeToTray.value = s.closeToTray
@@ -1535,6 +1573,8 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalAgentButton,
       terminalPromptButton,
       terminalHelpButton,
+      terminalPathLinks,
+      terminalUrlLinks,
       markdownFetchLinkTitle,
       language,
       closeToTray,
@@ -1600,6 +1640,8 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalAgentButton,
     terminalPromptButton,
     terminalHelpButton,
+    terminalPathLinks,
+    terminalUrlLinks,
     markdownFetchLinkTitle,
     language,
     closeToTray,

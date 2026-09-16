@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { copyOnSelect } from '../../composables/useCopyOnSelect'
 import { dockerLogRouter } from '../../composables/useDockerLogRouter'
+import { attachUrlLinks } from '../../composables/useTerminalUrlLinks'
 import { useI18n } from '../../i18n'
-import { openUrlWithConfirm } from '../../lib/openUrl'
 import { dockerLogsStart, dockerLogsStop } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
@@ -96,7 +95,7 @@ onMounted(async () => {
 
   fitAddon = new FitAddon()
   terminal.loadAddon(fitAddon)
-  terminal.loadAddon(new WebLinksAddon((_e, uri) => openUrlWithConfirm(uri)))
+  attachUrlLinks(terminal)
 
   terminal.open(termRef.value)
   fitAddon.fit()
