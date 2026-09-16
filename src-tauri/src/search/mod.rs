@@ -90,19 +90,36 @@ fn prefer_newer(
 /// Probe for the best available search backend for `shell` (blocking: spawns
 /// `rg --version`). WSL never uses the bundled Windows rg.
 ///
-/// **非 WSL では両方を叩く**ので spawn が 2 回になるが、`install_key(shell)` 単位で
-/// キャッシュされるうえ、起動時ではなく最初の検索（かタスク検出）まで遅延する。
+/// **非 WSL では 2 本叩く**（PATH のものと同梱のサイドカー）。`install_key(shell)` 単位で
+/// キャッシュされ、起動時ではなく初回利用（検索、Ctrl+P のファイル一覧、タスク検出）まで
+/// 遅れるが、**直列に待つ理由が無いので並べて走らせる**（#356）。答えは互いに依存せず、
+/// 決めるのは `prefer_newer` の比較 1 回だけなので、待ちは和ではなく大きいほうになる
+/// （最悪値も 60 秒から 30 秒へ）。実測で 1 本あたり 55〜60ms（Windows・ウォーム）で、
+/// **macOS では初回の exec がさらに重い**（新しく入れたバイナリは Gatekeeper の評価を
+/// 通るため）。**それを最初に踏むのが検索とは限らない**: Ctrl+P のファイル一覧も同じ検出を
+/// 起こすので、先に押した側が払う。
+///
+/// **スコープのスレッドへ出すのは同梱のぶんだけ**（WSL では相手が居ないので 1 本も足さない）。
+/// **「スレッドを使わない」という意味ではない**: `probe_rg` は `ShellConfig::run` 越しなので、
+/// `wait_with_timeout` の見張りが 1 本につき 1 つ立つ。
 fn detect_backend(shell: &ShellConfig, bundled_rg: &Option<String>) -> SearchBackend {
-    // macOS / Linux では `augment_process_path` が起動時に PATH を広げているので、
-    // Homebrew 等に入った rg もここで見つかる。
-    let system = probe_rg(shell, "rg").map(|caps| ("rg".to_string(), caps));
     // 同梱の rg はホストのバイナリなので、WSL の中では実行できない。
-    let bundled = match shell {
+    let bundled_path = match shell {
         ShellConfig::Wsl { .. } => None,
-        _ => bundled_rg
-            .as_ref()
-            .and_then(|path| probe_rg(shell, path).map(|caps| (path.clone(), caps))),
+        _ => bundled_rg.as_deref(),
     };
+    let (system, bundled) = std::thread::scope(|scope| {
+        let bundled = bundled_path.map(|path| {
+            scope.spawn(move || probe_rg(shell, path).map(|caps| (path.to_string(), caps)))
+        });
+        // macOS / Linux では `augment_process_path` が起動時に PATH を広げているので、
+        // Homebrew 等に入った rg もここで見つかる。
+        let system = probe_rg(shell, "rg").map(|caps| ("rg".to_string(), caps));
+        // panic したら「見つからなかった」に落とす。**明示的に join したハンドルの panic は
+        // scope が拾い直さない**（実測で確認）ので、ここで握り潰せる。検出の失敗は grep へ
+        // 落ちるという答えそのものなので、呼び出し側に返す口は要らない。
+        (system, bundled.and_then(|h| h.join().ok().flatten()))
+    });
     match prefer_newer(system, bundled) {
         Some((program, caps)) => SearchBackend::Rg { program, caps },
         None => SearchBackend::Grep,
