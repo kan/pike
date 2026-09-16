@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
 import { ArrowUp, Home, Moon, RefreshCw, Sun } from 'lucide-vue-next'
-import { marked } from 'marked'
+import { Marked } from 'marked'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
+import { markedCodeHighlight, rehighlightCodeBlocks } from '../../lib/codeHighlight'
 import {
   DEFAULT_REF,
   fetchManual,
@@ -26,6 +27,12 @@ const props = defineProps<{ tabId: string }>()
 const { t } = useI18n()
 const tabStore = useTabStore()
 const settingsStore = useSettingsStore()
+
+/**
+ * マニュアルを組む marked。**素のグローバル `marked` を使わず自前のインスタンスにする**
+ * （#359 でコードブロックの色付けを足すため。グローバルに `use` すると他の描画にも漏れる）。
+ */
+const md2html = new Marked(markedCodeHighlight(() => settingsStore.effectiveEditorThemeName))
 
 const tab = computed(() => tabStore.tabs.find((t): t is ManualTab => t.id === props.tabId && t.kind === 'manual'))
 const page = computed(() => tab.value?.page ?? MANUAL_INDEX)
@@ -120,7 +127,7 @@ async function render(path: string, force = false) {
     const md = await fetchManual(path, force)
     manualRef.value = await getManualRef() // resolved by fetchManual; memoized
     if (splitPage(page.value)[0] !== path) return // navigated away while fetching
-    html.value = DOMPurify.sanitize(marked.parse(md) as string, { ALLOWED_URI_REGEXP })
+    html.value = DOMPurify.sanitize(md2html.parse(md) as string, { ALLOWED_URI_REGEXP })
     await nextTick()
     postProcess(path)
     setTitle(path)
@@ -251,6 +258,20 @@ watch(
     scrolled.value = false
   },
   { immediate: true },
+)
+
+// エディタのテーマを変えたら、コードブロックの色を付け直す（#359）。**ここは `html` を
+// computed ではなく `render` の中で代入している**ので、他の 3 つのプレビューと違って
+// テーマ名への依存が自動では張られない。
+//
+// **`render` を呼び直さないこと。** ページを丸ごと差し替えると、`postProcess` が作り直す
+// 画像が読み込み終わるまで高さ 0 になって読んでいた位置がずれ、遷移中の取得とも競合する
+// （`loading` を途中で下ろす）。コードブロックだけを DOM の上で塗り直す。
+watch(
+  () => settingsStore.effectiveEditorThemeName,
+  (theme) => {
+    if (containerRef.value) rehighlightCodeBlocks(containerRef.value, theme)
+  },
 )
 
 onUnmounted(() => cancelAnchorReflow?.())

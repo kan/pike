@@ -5,6 +5,7 @@ import { Marked } from 'marked'
 import { computed, onMounted, ref } from 'vue'
 import { injectIssueStart } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
+import { markedCodeHighlight } from '../../lib/codeHighlight'
 import { issueRefs } from '../../lib/issueRefs'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { relativeDate } from '../../lib/paths'
@@ -12,6 +13,7 @@ import { projectColorValue, readableTextOn } from '../../lib/projectColors'
 import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
 import { issuesView } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
+import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { IssueDetail } from '../../types/issues'
 import type { IssueTab as IssueTabDef } from '../../types/tab'
@@ -27,8 +29,15 @@ const projectStore = useProjectStore()
  * 本文を組む marked。**`#123` を別タブへのリンクにする拡張だけ入れる**（`lib/issueRefs.ts`）。
  * エディタのプレビューが持つフロントマター・mermaid・CSV の分岐は通さない: issue の本文は
  * ファイルではないので、そのどれも起こりえない。
+ *
+ * コードブロックの色付け（#359）も入れる。テーマ名は描画のたびに読むので、本文とコメントの
+ * computed がテーマに依存し、テーマを変えると組み直される。
  */
-const md2html = new Marked(issueRefs())
+const settingsStore = useSettingsStore()
+const md2html = new Marked(
+  issueRefs(),
+  markedCodeHighlight(() => settingsStore.effectiveEditorThemeName),
+)
 
 const detail = ref<IssueDetail | null>(null)
 const error = ref<string | null>(null)

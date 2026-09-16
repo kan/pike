@@ -261,6 +261,7 @@ pike/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── fileType.ts       # ファイル名 → 種別のキー（#347。ハイライト/アウトライン/ジャンプ/アイコンが共有）
+│   │   ├── codeHighlight.ts  # プレビューのコードブロックの色付け（#359。4 つのプレビューで共有）
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）
 │   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）
 │   │   ├── agents.ts        # Pike が知っているエージェントの表（#275。id・起動コマンドの正本）

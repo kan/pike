@@ -17,6 +17,7 @@ import { useMarkdownLinkPaste } from '../../composables/useMarkdownLinkPaste'
 import { type OutlineJump, useOutlineSource } from '../../composables/useOutlineSource'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
+import { highlightCodeBlock, markedCodeHighlight } from '../../lib/codeHighlight'
 import { conflictHighlight, hasConflictMarkers } from '../../lib/editorConflict'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
@@ -79,8 +80,12 @@ import HelpButton from '../HelpButton.vue'
 // type. Measured on concatenated manual pages: +13% at 49 KB, +136% at 390 KB,
 // all of it paid by documents that have no footnotes at all. One `includes`
 // keeps them on the plain parser.
-const markedPlain = new Marked()
-const markedFootnotes = new Marked(footnotes())
+//
+// コードブロックの色付け（#359）は両方に入れる。テーマ名は描画のたびに読むので、
+// `previewHtml` がテーマに依存し、テーマを変えると組み直される。
+const codeTheme = () => settingsStore.effectiveEditorThemeName
+const markedPlain = new Marked(markedCodeHighlight(codeTheme))
+const markedFootnotes = new Marked(footnotes(), markedCodeHighlight(codeTheme))
 
 /** The parser this text needs. */
 function parserFor(text: string): Marked {
@@ -454,7 +459,12 @@ const previewHtml = computed(() => {
   if (isJsonl.value) return buildJsonlPreview(text)
   // rst は SVG を出さない（mermaid も watcher で除外している）ので、`SVG_PURIFY_OPTS` の
   // 追加許可（`foreignObject` や SVG の属性）を持ち込まない。
-  if (isRst.value) return DOMPurify.sanitize(buildRstPreview(text), { ALLOWED_URI_REGEXP })
+  if (isRst.value) {
+    // テーマ名はここで読む（`code-block` を色付けするとき、この computed がテーマに依存するように）。
+    const theme = codeTheme()
+    const highlight = (code: string, lang: string) => highlightCodeBlock(code, lang, theme)
+    return DOMPurify.sanitize(buildRstPreview(text, highlight), { ALLOWED_URI_REGEXP })
+  }
   return DOMPurify.sanitize(buildMarkdownPreview(text), SVG_PURIFY_OPTS)
 })
 

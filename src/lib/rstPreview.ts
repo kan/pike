@@ -105,7 +105,17 @@ interface RstContext {
   notes: Map<string, Note>
   /** 置換の名前 → 組み上げた断片（#302）。扱えたものだけが入る。 */
   subs: Map<string, Html>
+  /** `code-block` に色を付ける（#359）。**入れ子へもこの文脈ごと引き継ぐ。** */
+  highlight?: CodeHighlighter
 }
+
+/**
+ * `code-block` の中身を色付きの `<pre>` にする関数（#359）。色を付けられなければ `null`。
+ *
+ * **呼び出し側から受け取る**（このファイルは CodeMirror を import しない。実体は
+ * `lib/codeHighlight.ts` の `highlightCodeBlock`）。
+ */
+export type CodeHighlighter = (code: string, lang: string) => Html | null
 
 /** 行頭のインデント幅（文字数）。 */
 function indentOf(line: string): number {
@@ -341,7 +351,7 @@ function noteKey(label: string): string {
  * **本文を組む前に一度だけ走る。** 定義は文書のどこにあってもよく、参照より後ろに書かれる
  * ことのほうが多いため。URL はここでエスケープしておく（`anchor` は `Html` しか受けない）。
  */
-function collectContext(lines: string[], inherited?: RstContext): RstContext {
+function collectContext(lines: string[], inherited?: RstContext, highlight?: CodeHighlighter): RstContext {
   // **入れ子のたびに複製しない。** 塊の中に定義が無ければ親のものをそのまま使い回す。
   // 複製すると `refPattern` のキャッシュ（Map の identity をキーにする）が塊ごとに外れ、
   // リンクの多い文書で正規表現の再コンパイルが効いてくる。
@@ -396,7 +406,7 @@ function collectContext(lines: string[], inherited?: RstContext): RstContext {
     if (note) noteFor(note[1].trim(), notes)
   }
 
-  const ctx: RstContext = { links, notes, subs }
+  const ctx: RstContext = { links, notes, subs, highlight: inherited?.highlight ?? highlight }
   const resolving = new Set<string>()
 
   /**
@@ -499,12 +509,23 @@ function noteFor(raw: string, notes: Map<string, Note>): Note {
 }
 
 /**
+ * rst のプレビュー。`highlight` を渡すと `code-block` に色が付く（#359）。
+ *
+ * **入口と入れ子の本体を分けてある。** 入れ子では `inherited`（外側の文脈）を渡し、その有無で
+ * ルートかどうかを見ている箇所がある（`.. meta::` を集めるのはルートだけ）。色付けの関数を
+ * `inherited` に混ぜて渡すとルートが入れ子に見えてしまうので、別の引数で受けて文脈に載せる。
+ */
+export function buildRstPreview(text: string, highlight?: CodeHighlighter): string {
+  return renderRst(text, undefined, highlight)
+}
+
+/**
  * `inherited` は入れ子（アドモニションの中身・リストの項目・セル）を組み直すときに渡す。
  * 文書のどこにあってもよい定義を、外側で集めたまま引き継ぐため。
  */
-export function buildRstPreview(text: string, inherited?: RstContext): string {
+function renderRst(text: string, inherited?: RstContext, highlight?: CodeHighlighter): string {
   const lines = text.replace(/\r\n?/g, '\n').split('\n')
-  const ctx = collectContext(lines, inherited)
+  const ctx = collectContext(lines, inherited, highlight)
   /** 見出しの記号 → レベル。**出現順で決まる**のが rst の規則で、記号そのものに意味は無い。 */
   const levels: string[] = []
   const out: string[] = []
@@ -723,14 +744,16 @@ function renderDirective(name: string, arg: string, body: string[], ctx: RstCont
     const cls = lang ? ` class="language-${escapeHtml(lang)}"` : ''
     // オプションと本文のあいだの空行はコードの一部ではない。
     const first = content.findIndex((l) => l.trim() !== '')
-    const code = first < 0 ? [] : content.slice(first)
-    return `<pre><code${cls}>${escapeHtml(code.join('\n'))}</code></pre>`
+    const code = (first < 0 ? [] : content.slice(first)).join('\n')
+    // 色を付けられるなら付ける（#359）。付けられなければ従来どおり無色で出す。
+    const highlighted = lang ? ctx.highlight?.(code, lang) : null
+    return highlighted ?? `<pre><code${cls}>${escapeHtml(code)}</code></pre>`
   }
   if (ADMONITIONS.has(name)) {
     const title = name.charAt(0).toUpperCase() + name.slice(1)
     // **指示行に書いた本文も本文**（`.. note:: 気をつけて` は docutils でいちばん普通の書き方）。
     // 落とすと中身の無い箱だけが出る。続きのインデント塊があれば同じ段落として繋がる。
-    const inner = buildRstPreview(withLead(arg.trim(), blankFirst, content).join('\n'), ctx)
+    const inner = renderRst(withLead(arg.trim(), blankFirst, content).join('\n'), ctx)
     return `<div class="rst-admonition rst-${escapeHtml(name)}"><p class="rst-admonition-title">${escapeHtml(title)}</p>${inner}</div>`
   }
   if (name === 'image' || name === 'figure') {
@@ -738,7 +761,7 @@ function renderDirective(name: string, arg: string, body: string[], ctx: RstCont
     const img = imageHtml(arg, asHtml(''))
     const caption = content.join('\n')
     if (name === 'figure' && caption.trim()) {
-      return `<figure>${img}<figcaption>${buildRstPreview(caption, ctx)}</figcaption></figure>`
+      return `<figure>${img}<figcaption>${renderRst(caption, ctx)}</figcaption></figure>`
     }
     return img
   }
@@ -910,7 +933,7 @@ function parseGridTable(lines: string[], start: number, ctx: RstContext): { html
 function renderFlow(body: string, ctx: RstContext): string {
   if (!body.trim()) return ''
   const multi = /\n\s*\n/.test(body) || body.split('\n').some((l) => BULLET.test(l.trim()))
-  if (multi) return buildRstPreview(body, ctx)
+  if (multi) return renderRst(body, ctx)
   return renderInline(
     body
       .split('\n')
@@ -1015,7 +1038,7 @@ function renderList(lines: string[], start: number, ctx: RstContext): { html: st
   const tag = ordered ? 'ol' : 'ul'
   const html = items
     .map(([first, ...rest]) => {
-      const nested = rest.length ? buildRstPreview(dedent(rest).join('\n'), ctx) : ''
+      const nested = rest.length ? renderRst(dedent(rest).join('\n'), ctx) : ''
       return `<li>${renderInline(first, ctx)}${nested}</li>`
     })
     .join('')

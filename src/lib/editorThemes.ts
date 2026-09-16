@@ -1,6 +1,6 @@
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import type { Extension } from '@codemirror/state'
-import { oneDark } from '@codemirror/theme-one-dark'
+import { oneDark, oneDarkHighlightStyle } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 
@@ -20,6 +20,12 @@ export interface EditorThemeDef {
   accent: string // representative color for preview (e.g. function name color)
   tokens: EditorThemeTokens
   extension: Extension
+  /**
+   * シンタックスの配色（#359）。**エディタの外でも同じ色で塗るために出してある**:
+   * プレビューのコードブロックはこの `specs` から自前の class と CSS を組む
+   * （`lib/codeHighlight.ts`）。`extension` の中にも同じものが入っている。
+   */
+  highlightStyle: HighlightStyle
 }
 
 const oneDarkDef: EditorThemeDef = {
@@ -30,6 +36,7 @@ const oneDarkDef: EditorThemeDef = {
   accent: '#98c379',
   tokens: { key: '#e06c75', string: '#98c379', number: '#d19a66', bool: '#d19a66', null: '#d19a66' },
   extension: oneDark,
+  highlightStyle: oneDarkHighlightStyle,
 }
 
 function makeTheme(
@@ -41,8 +48,9 @@ function makeTheme(
   activeLine: string,
   dark: boolean,
   highlights: Parameters<typeof HighlightStyle.define>[0],
-): Extension {
-  return [
+): Pick<EditorThemeDef, 'extension' | 'highlightStyle'> {
+  const highlightStyle = HighlightStyle.define(highlights)
+  const extension = [
     EditorView.theme(
       {
         '&': { backgroundColor: bg, color: fg },
@@ -58,8 +66,9 @@ function makeTheme(
       },
       { dark },
     ),
-    syntaxHighlighting(HighlightStyle.define(highlights)),
+    syntaxHighlighting(highlightStyle),
   ]
+  return { extension, highlightStyle }
 }
 
 const defaultLight: EditorThemeDef = {
@@ -69,7 +78,7 @@ const defaultLight: EditorThemeDef = {
   foreground: '#333333',
   accent: '#6f42c1',
   tokens: { key: '#005cc5', string: '#032f62', number: '#005cc5', bool: '#005cc5', null: '#005cc5' },
-  extension: makeTheme('#ffffff', '#333333', '#f5f5f5', '#999999', '#d7d4f0', '#f5f5f5', false, [
+  ...makeTheme('#ffffff', '#333333', '#f5f5f5', '#999999', '#d7d4f0', '#f5f5f5', false, [
     { tag: tags.keyword, color: '#d73a49' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#333333' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#6f42c1' },
@@ -101,7 +110,7 @@ const dracula: EditorThemeDef = {
   foreground: '#f8f8f2',
   accent: '#50fa7b',
   tokens: { key: '#66d9ef', string: '#f1fa8c', number: '#bd93f9', bool: '#bd93f9', null: '#bd93f9' },
-  extension: makeTheme('#282a36', '#f8f8f2', '#282a36', '#6272a4', '#44475a', '#2c2e3a', true, [
+  ...makeTheme('#282a36', '#f8f8f2', '#282a36', '#6272a4', '#44475a', '#2c2e3a', true, [
     { tag: tags.keyword, color: '#ff79c6' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#f8f8f2' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#50fa7b' },
@@ -130,7 +139,7 @@ const nord: EditorThemeDef = {
   foreground: '#d8dee9',
   accent: '#88c0d0',
   tokens: { key: '#8fbcbb', string: '#a3be8c', number: '#b48ead', bool: '#b48ead', null: '#b48ead' },
-  extension: makeTheme('#2e3440', '#d8dee9', '#2e3440', '#4c566a', '#434c5e', '#353b49', true, [
+  ...makeTheme('#2e3440', '#d8dee9', '#2e3440', '#4c566a', '#434c5e', '#353b49', true, [
     { tag: tags.keyword, color: '#81a1c1' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#d8dee9' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#88c0d0' },
@@ -159,7 +168,7 @@ const solarizedLight: EditorThemeDef = {
   foreground: '#657b83',
   accent: '#268bd2',
   tokens: { key: '#268bd2', string: '#2aa198', number: '#d33682', bool: '#d33682', null: '#d33682' },
-  extension: makeTheme('#fdf6e3', '#657b83', '#eee8d5', '#93a1a1', '#eee8d5', '#f5efdc', false, [
+  ...makeTheme('#fdf6e3', '#657b83', '#eee8d5', '#93a1a1', '#eee8d5', '#f5efdc', false, [
     { tag: tags.keyword, color: '#859900' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#657b83' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#268bd2' },
@@ -188,7 +197,7 @@ const monokai: EditorThemeDef = {
   foreground: '#f8f8f2',
   accent: '#a6e22e',
   tokens: { key: '#66d9ef', string: '#e6db74', number: '#ae81ff', bool: '#ae81ff', null: '#ae81ff' },
-  extension: makeTheme('#272822', '#f8f8f2', '#272822', '#90908a', '#49483e', '#3e3d32', true, [
+  ...makeTheme('#272822', '#f8f8f2', '#272822', '#90908a', '#49483e', '#3e3d32', true, [
     { tag: tags.keyword, color: '#f92672' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#f8f8f2' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#a6e22e' },

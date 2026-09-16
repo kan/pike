@@ -34,6 +34,12 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
     - **手動選択はこの設定に縛られない。** StatusBar は `languageByKey` を直に引くので、設定が `standard` のままでも 3 つの方言を選べる。`languageOptions()` はラベルで畳むが、`SQL` / `MySQL` / `PostgreSQL` / `SQLite` は別ラベルなので 4 つとも出る
     - **残りの方言（`mariaDB` / `msSQL` / `plSQL` 等）は入れない**（要望が出てから）
   - **Markdown のフェンスの中身も `EXT_MAP` で解析する（#344）。** `markdown()` に `codeLanguages` を渡す形で、**依存は増えない**（`@codemirror/language-data` は入れない）。別名表（`FENCE_ALIASES`）を実在するフェンス名から作った理由と、`Language` をキーごとにキャッシュする理由は `languages.ts` の doc が正本
+    - **プレビューのコードブロックにも同じ解析で色を付ける（#359）。** 実体は `lib/codeHighlight.ts` の `highlightCodeBlock` で、Markdown プレビュー・rst の `code-block`・issue タブ・マニュアルの 4 つが共有する（marked の 3 つは `markedCodeHighlight`、rst は `buildRstPreview` の引数）。**依存は増やしていない**（highlight.js / shiki は入れない）。判断の実体（配色をエディタのテーマに合わせる理由、class ではなくインラインの `style` で塗る理由、キャッシュ）はあのファイルの doc が正本
+      - **テーマの配色は `EditorThemeDef.highlightStyle` から取る。** テーマを足すときはこの欄も要る（`makeTheme` が返す）
+      - **テーマ名は関数で受けて描画のたびに読む。** marked のインスタンスは先に作るので、値で渡すと作った時点のテーマに固まる。computed の中で読めばテーマへの依存が張られる。**マニュアルだけは `html` を `render` で代入している**ので、テーマの watcher で**コードブロックだけを DOM の上で塗り直す**（`rehighlightCodeBlocks`）。`render` を呼び直すと、作り直した画像が読み込むまで高さ 0 になって読んでいた位置がずれ、遷移中の取得とも競合する
+      - **長いコードブロックは HTML のキャッシュに載せない**（件数の上限だけだと、大きな ```` ```json ```` を編集し続けるあいだ本文とその数倍の HTML が溜まる）
+      - **rst は `inherited` に混ぜない。** あの引数の有無でルートかどうかを見ている（`.. meta::` はルートだけ）ので、色付けの関数は別の引数で受けて文脈（`RstContext.highlight`）に載せ、入れ子へ引き継ぐ
+      - `mermaid` は当てるモードが無いので色付けを通らず、図への差し替えがそのまま効く
     - **アウトラインにフェンスの中身は出ない。** `@lezer/markdown` はフェンスを**オーバーレイ**としてマウントし、`Tree.iterate` はオーバーレイに入らないため（`IterMode` の指定では変わらないことを実測で確認）。**`resolveInner` 系へ書き換えるときは要注意**: あちらは中へ入るので、```` ```md ```` に貼ったコード例の見出しが文書の構造に混ざる
   - **shebang はアウトラインには効かない。** `langId` は `fileTypeKey(path)` で共通の判定を通るが、**1 行目を渡していない**ので shebang の段に届かない。効かせるなら `EditorTab.vue` が `langId` を作るところで 1 行目を渡すことになる（#312 の範囲外）
   - 判定は**開いたときと Save As の 1 回**。あとから shebang を書き足しても切り替わらない

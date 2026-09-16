@@ -99,7 +99,7 @@ const FENCE_ALIASES: Record<string, string> = table({
  */
 const fenceLanguages = new Map<string, Language | null>()
 
-function fenceLanguage(info: string): Language | null {
+export function fenceLanguage(info: string): Language | null {
   const name = info.toLowerCase()
   const key = FENCE_ALIASES[name] ?? name
   const cached = fenceLanguages.get(key)
