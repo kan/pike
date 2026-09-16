@@ -5,9 +5,10 @@ import { Terminal } from '@xterm/xterm'
 import { Bot, ChevronDown, ChevronLeft, MessageSquareText } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
+import { copyOnSelect } from '../../composables/useCopyOnSelect'
 import {
   MAX_UPLOAD_SIZE,
-  readClipboardImages,
+  readClipboard,
   saveUploadFile,
   toMb,
   UploadTooLargeError,
@@ -921,11 +922,7 @@ onMounted(async () => {
     }
   })
 
-  terminal.onSelectionChange(() => {
-    if (!settingsStore.terminalCopyOnSelect || !terminal) return
-    const text = terminal.getSelection()
-    if (text) navigator.clipboard.writeText(text.replace(/\r\n/g, '\n')).catch(() => {})
-  })
+  terminal.onSelectionChange(() => copyOnSelect(() => terminal?.getSelection() ?? ''))
 
   // Delegate to terminal.paste() for bracket paste mode support and to avoid
   // ConPTY truncation (Rust pty_write chunks at 4KB).
@@ -976,15 +973,16 @@ onMounted(async () => {
 
   // 画像優先 → なければテキストの順で paste。右クリックと Ctrl+V の両方から呼ぶ。
   // (xterm 経由の Ctrl+V は async Clipboard API の制約で画像とテキストのみ取得可能)
+  // **読むのは 1 回だけ**（`readClipboard`）。2 回に分けると macOS で貼り付けが無反応になる
+  // 理由は、あの関数の doc が正本。
   async function pasteFromClipboard() {
     if (!ptyId) return
-    const images = await readClipboardImages()
+    const { images, text } = await readClipboard()
     if (images.length > 0) {
       for (const file of images) await writeFileToPty(file)
       terminal?.focus()
       return
     }
-    const text = await navigator.clipboard.readText().catch(() => '')
     if (text) await pasteText(text)
   }
 

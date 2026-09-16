@@ -122,6 +122,7 @@ const EXTERNAL_NAMES = [
   'deny_unknown_fields', // serde の属性
   'effectiveAppearance', // AppKit の NSApplication（採らなかった選択肢として frontend.md が出す）
   'evaluateKeyboardEvent', // xterm 内部
+  'isSecureContext', // DOM（macOS の調査で何を見るかとして terminal.md が出す）
   'ld_prime', // Xcode 15 の新リンカ
   'offsetLeft', // DOM
   'offsetParent', // DOM

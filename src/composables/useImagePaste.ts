@@ -110,26 +110,39 @@ export function getClipboardFiles(e: ClipboardEvent): File[] {
 }
 
 /**
- * Async Clipboard API 経由で現在のクリップボード上の画像を取得。
- * Ctrl+V を keydown で食う xterm 経由の paste 等、ClipboardEvent が
- * 取れない経路でも使える。permission denied / 画像なしは空配列を返す。
- * NOTE: この API は画像とテキストしか返さず、任意のファイルは取得できない
- * （ブラウザ仕様）。ターミナルへの任意ファイル投入は D&D を主経路とする。
+ * Async Clipboard API 経由で現在のクリップボードの中身（画像とテキスト）を取得。
+ * Ctrl+V を keydown で食う xterm 経由の paste 等、ClipboardEvent が取れない経路でも使える。
+ * permission denied は空で返す。
+ *
+ * **画像とテキストを 1 回の `read()` でまとめて取る。** WebKit（macOS）のクリップボード
+ * *読み出し*は書き込みよりさらに厳しく、user gesture の中でしか通らないうえ、ページが
+ * 書いたものでなければ確認の UI を挟む。`read()` → `readText()` と 2 回に分けると、
+ * 1 回目の await で gesture が切れて 2 回目が拒否され、**右クリックしても何も貼られない**
+ * （握り潰しているので無反応にしか見えない）。Chromium は gesture を求めないので、これも
+ * macOS でだけ出る。
+ *
+ * NOTE: この API は画像とテキストしか返さず、任意のファイルは取得できない（仕様）。
+ * ターミナルへの任意ファイル投入は D&D を主経路とする。
  */
-export async function readClipboardImages(): Promise<File[]> {
+export async function readClipboard(): Promise<{ images: File[]; text: string }> {
   try {
     const items = await navigator.clipboard.read()
-    const files: File[] = []
+    const images: File[] = []
+    let text = ''
     for (const item of items) {
       const imageType = item.types.find((t) => t.startsWith('image/'))
       if (imageType) {
-        const blob = await item.getType(imageType)
-        files.push(new File([blob], 'clipboard', { type: imageType }))
+        images.push(new File([await item.getType(imageType)], 'clipboard', { type: imageType }))
+        continue
       }
+      if (!text && item.types.includes('text/plain')) text = await (await item.getType('text/plain')).text()
     }
-    return files
+    return { images, text }
   } catch {
-    return []
+    // **ここで `readText()` へ落ちない。** 拒否する理由（gesture が無い / 権限が無い）は
+    // 両方に等しく効くので、2 回目も同じように失敗する。上の doc が書いたとおり、その
+    // 2 回目こそが macOS で貼り付けを壊していたもの。
+    return { images: [], text: '' }
   }
 }
 

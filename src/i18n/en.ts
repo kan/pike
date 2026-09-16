@@ -763,6 +763,8 @@ export default {
 
   // Confirm Dialog
   'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',
+  'confirm.copyOnSelect':
+    'Copy to the clipboard automatically whenever you select text in a terminal? (You can change this later in Settings → Terminal.)',
   'confirm.unsavedClose': '"{name}" has unsaved changes. Close without saving?',
   'confirm.openUrl': 'Open {url} in external browser?',
   'confirm.openUrlRemember': "Don't ask again for {host}",

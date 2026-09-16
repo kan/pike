@@ -20,6 +20,24 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
 - `PtySession` に `Drop` 実装: セッション破棄時に `child.kill()` で子プロセスを確実に終了
 - ウィンドウ破棄時（`WindowEvent::Destroyed`）に全 PTY セッション・Docker log stream を一括 cleanup（main ウィンドウのみ）
 - タブ切替時の TUI 再描画: `nextTick` → `requestAnimationFrame` → `terminal.refresh()` + PTY resize nudge（1col 縮小→復元で SIGWINCH 発火）
+- **クリップボードは user gesture の中でしか触れない（WebKit ＝ macOS、#342）**:
+  Chromium（Windows の WebView2）は要求しないので、**症状は macOS にだけ出る**。
+  判断の実体は 2 つの doc コメントが正本で、ここに写しを置かない
+  - 選択してコピー … `composables/useCopyOnSelect.ts`（書く場所を mouseup へ持ち越さない
+    理由と、初回だけ聞く形）
+  - 右クリックで貼り付け … `useImagePaste.ts` の `readClipboard`（画像とテキストを
+    1 回の `read()` で取る。2 回に分けると 1 回目の await で gesture が切れる）
+  - **macOS で「動かないことがある」の原因はまだ確定していない**（#342 の調査）。上の
+    経路は gesture の中に居るので、gesture の規則だけでは説明が付かない。残る候補は
+    WKWebView で `navigator.clipboard` 自体が使えない（secure context 扱いでない）、
+    権限で拒否される、のどちらか。**確かめるには実機で `window.isSecureContext` と
+    `navigator.clipboard` の有無、書き込みの reject の中身を見る**（この開発機に macOS が
+    無いので未確認）。塞ぐならネイティブ側（Rust）のクリップボードを足すことになる
+  - **OSC 52（フルスクリーン TUI が出すクリップボード書き込み）は入力イベントを伴わない**
+    ので、WebKit では通らない。これもネイティブ側を足さないと直らない
+  - **確認のダイアログは「いいえ」と「答える前に別のダイアログへ置き換わった」を分けて
+    返す**（`useConfirmDialog` の `displaced`、#342）。分ける前は、初回の確認が横取り
+    されただけで設定が OFF に落ち、しかも二度と聞かれなかった
 - ターミナルアクティビティ表示: 非アクティブタブが **BEL を受け取ると**ドット表示（`hasActivity`。`terminal.onBell` 経由で、全出力での点灯はトークンを流し続けるエージェントで鳴りっぱなしになるため採らない。タブ活性化直後 500ms のベルは無視）、プロセス終了で終了コードバッジ（`exitCode`）、非 pinned タブはプロセス終了 1 秒後に自動クローズ
 
 ## ターミナルの coding agent 補助（#89）

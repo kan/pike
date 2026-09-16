@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { copyOnSelect } from '../../composables/useCopyOnSelect'
 import { dockerLogRouter } from '../../composables/useDockerLogRouter'
 import { useI18n } from '../../i18n'
 import { openUrlWithConfirm } from '../../lib/openUrl'
@@ -100,11 +101,7 @@ onMounted(async () => {
   terminal.open(termRef.value)
   fitAddon.fit()
 
-  terminal.onSelectionChange(() => {
-    if (!settingsStore.terminalCopyOnSelect || !terminal) return
-    const text = terminal.getSelection()
-    if (text) navigator.clipboard.writeText(text.replace(/\r\n/g, '\n')).catch(() => {})
-  })
+  terminal.onSelectionChange(() => copyOnSelect(() => terminal?.getSelection() ?? ''))
 
   try {
     streamId = await dockerLogsStart(tab.value.containerId)

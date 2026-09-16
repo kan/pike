@@ -11,7 +11,18 @@ const inputPlaceholder = ref('')
 const optionLabel = ref('')
 const optionChecked = ref(false)
 let resolveFn: (() => void) | null = null
-let confirmValue: ((value: boolean) => void) | null = null
+/**
+ * 確認の答え（#342）。**「いいえ」と「答える前に別のダイアログへ置き換わった」を分ける。**
+ * `dismiss()` は待っているものを false で解決するので、真偽値 1 つだと呼び出し側が
+ * 見分けられず、**見てもいないダイアログを「いいえ」と読んでしまう**（初回だけ聞いて
+ * 設定を切り替える `useCopyOnSelect` では、それが「二度と聞かれないまま OFF」になる）。
+ *
+ * **モジュールの変数 1 つでは分けられない**: `dismiss()` が解決した直後、待ち手の
+ * 継続が走るより前に、次のダイアログを開く側が同期でその変数を書き換える。答えと一緒に
+ * 運ぶ必要がある。
+ */
+type ConfirmResult = { ok: boolean; displaced: boolean }
+let confirmValue: ((value: ConfirmResult) => void) | null = null
 let promptValue: ((value: string | null) => void) | null = null
 
 function dismiss() {
@@ -24,7 +35,7 @@ function dismiss() {
   optionLabel.value = ''
   optionChecked.value = false
   if (confirmValue) {
-    confirmValue(false)
+    confirmValue({ ok: false, displaced: true })
     confirmValue = null
   }
   if (promptValue) {
@@ -55,16 +66,19 @@ export function dialogOpen(): boolean {
  * **`confirmDialog` の戻り値は真偽値のまま変えない。** 呼び出しが 20 箇所以上あり、そのどれも
  * チェックの状態を必要としていない。真偽値 1 つで済む問いのほうが多いままにしておく。
  */
-export async function confirmWithOption(msg: string, label: string): Promise<{ ok: boolean; checked: boolean }> {
+export async function confirmWithOption(
+  msg: string,
+  label: string,
+): Promise<{ ok: boolean; checked: boolean; displaced: boolean }> {
   dismiss()
   message.value = msg
   mode.value = 'confirm'
   optionLabel.value = label
   visible.value = true
-  const ok = await new Promise<boolean>((resolve) => {
+  const { ok, displaced } = await new Promise<ConfirmResult>((resolve) => {
     confirmValue = resolve
   })
-  return { ok, checked: optionChecked.value }
+  return { ok, checked: optionChecked.value, displaced }
 }
 
 export async function confirmDialog(msg: string): Promise<boolean> {
@@ -103,7 +117,7 @@ export function useConfirmDialog() {
         resolveFn = null
       }
     } else if (confirmValue) {
-      confirmValue(value)
+      confirmValue({ ok: value, displaced: false })
       confirmValue = null
       resolveFn = null
     } else if (resolveFn) {

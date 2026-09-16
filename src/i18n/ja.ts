@@ -762,6 +762,8 @@ export default {
 
   // Confirm Dialog
   'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',
+  'confirm.copyOnSelect':
+    'ターミナルで文字を選択したら、自動的にクリップボードへコピーしてよいですか？（設定 → ターミナルであとから変えられます）',
   'confirm.unsavedClose': '"{name}" に未保存の変更があります。保存せずに閉じますか？',
   'confirm.openUrl': '{url} を外部ブラウザで開きます。よろしいですか？',
   'confirm.openUrlRemember': '{host} のリンクは今後確認しない',
