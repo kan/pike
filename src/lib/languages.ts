@@ -5,7 +5,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { php } from '@codemirror/lang-php'
 import { rust } from '@codemirror/lang-rust'
 import { yaml } from '@codemirror/lang-yaml'
-import { LanguageSupport, StreamLanguage } from '@codemirror/language'
+import { type Language, LanguageSupport, StreamLanguage } from '@codemirror/language'
 import { c, cpp, csharp, java, kotlin, objectiveC, scala } from '@codemirror/legacy-modes/mode/clike'
 import { css as cssMode, sCSS } from '@codemirror/legacy-modes/mode/css'
 import { diff } from '@codemirror/legacy-modes/mode/diff'
@@ -31,7 +31,93 @@ function legacy(mode: Parameters<typeof StreamLanguage.define>[0]): LanguageSupp
   return new LanguageSupport(StreamLanguage.define(mode))
 }
 
-const EXT_MAP: Record<string, () => LanguageSupport> = {
+/**
+ * プロトタイプを持たない表を作る。**このファイルの表は全部これを通すこと。**
+ *
+ * 引くキーになるのは利用者が書いた文字列（ファイル名の拡張子、Markdown のフェンスの言語名）
+ * なので、素のオブジェクトリテラルだと `constructor` や `__proto__` でプロトタイプ側の値が
+ * 返る。`Record` の型はそこで破れ、`EXT_MAP` では**関数でないものを呼びに行く**
+ * （`constructor` は `Object` に当たるので、今は例外にならず空のオブジェクトが返るだけ）。
+ *
+ * **読む側にガードを置くより、作る側で閉じる。** 表は増えていく一方で、引く場所も
+ * `resolveLanguageKey` / `languageByKey` / `languageLabelByKey` / `shebangKey` /
+ * `fenceLanguage` と散っているため。`Object.keys` はプロトタイプ無しでも従来どおり動く。
+ */
+function table<T>(entries: Record<string, T>): Record<string, T> {
+  return Object.assign(Object.create(null), entries)
+}
+
+/**
+ * フェンスの info 文字列 → `EXT_MAP` のキー（#344）。**綴りが違うものだけを載せる**
+ * （info がキーそのものなら表を引く必要が無い）。
+ *
+ * **想像で網羅表を作らない**（「軽さ最優先」）。着手時に手元のリポジトリ 8 本の追跡済み md と、
+ * `node_modules` の README（約 4,000 件）でフェンスの名前を数え、実在した順に拾った:
+ * `javascript` 346 / `typescript` 280 / `console` 111 / `shell` 45 / `powershell` 37 /
+ * `rust` 23。残りの上位（`js` / `ts` / `sh` / `bash` / `html` / `json` / `yaml` / `toml` /
+ * `diff` / `vue` / `tsx` / `jsx` / `mjs` / `markdown`）は既に `EXT_MAP` のキーそのもの。
+ *
+ * **`console` は shell のセッション**（プロンプト付きの貼り付け）で、GitHub も shell として
+ * 色を付ける。実測で 111 件あり、無視すると `npm install` を並べた README が軒並み無色になる。
+ *
+ * 残り（`golang` 以降）は**この表の綴りの規則から漏れるもの**を足しただけで、実測には
+ * 出ていない。`text` / `txt` / `mermaid` / `cmd` / `ini` は当てるモードが無いので載せない
+ * （`null` に落ちて無色になる）。
+ */
+const FENCE_ALIASES: Record<string, string> = table({
+  javascript: 'js',
+  typescript: 'ts',
+  shell: 'sh',
+  console: 'sh',
+  rust: 'rs',
+  python: 'py',
+  ruby: 'rb',
+  perl: 'pl',
+  powershell: 'ps1',
+  golang: 'go',
+  csharp: 'cs',
+  'c#': 'cs',
+  kotlin: 'kt',
+  docker: 'dockerfile',
+  make: 'makefile',
+})
+
+/**
+ * フェンスに当てる `Language`（#344）。**キーごとにキャッシュするのが要点。**
+ *
+ * `codeLanguages` のコールバックは**フェンスごと・再パースごと**に呼ばれる。
+ * `languageByKey` は呼ぶたびに `LanguageSupport` を作り直し、legacy モードでは
+ * `StreamLanguage.define` もやり直すので、そのまま返すと同じ言語のフェンスが毎回**別の
+ * `Language`** になり、ネストした木を使い回せない。
+ *
+ * **未対応の名前も覚える**（`null` を入れる）。`mermaid` のように当てるモードが無い名前は
+ * README で普通に出てくるので、打鍵のたびに表を 2 つ引き直す必要が無い。
+ */
+const fenceLanguages = new Map<string, Language | null>()
+
+function fenceLanguage(info: string): Language | null {
+  const name = info.toLowerCase()
+  const key = FENCE_ALIASES[name] ?? name
+  const cached = fenceLanguages.get(key)
+  if (cached !== undefined) return cached
+  const language = languageByKey(key)?.language ?? null
+  fenceLanguages.set(key, language)
+  return language
+}
+
+/**
+ * Markdown（#344）。**フェンスの中身を `EXT_MAP` の言語で解析する。**
+ *
+ * `codeLanguages` を渡さないと lang-markdown はフェンスを素通りするので、コードブロックの
+ * 多い md（`CLAUDE.md` / README / エージェントが書いた設計メモ）が丸ごと無色になる。
+ * **依存は増えない**（`@codemirror/language-data` は入れず、既にある `EXT_MAP` を引く）。
+ *
+ * 受け取る `info` は**先頭の語だけ**（lang-markdown の `getCodeParser` が最初の空白までで
+ * 切る）なので、`ts title="x"` のように属性を書いたフェンスもこちらで気にしなくてよい。
+ */
+const markdownSupport = () => markdown({ codeLanguages: fenceLanguage })
+
+const EXT_MAP: Record<string, () => LanguageSupport> = table({
   // Official CM6 packages
   ts: () => javascript({ typescript: true }),
   tsx: () => javascript({ typescript: true, jsx: true }),
@@ -39,8 +125,8 @@ const EXT_MAP: Record<string, () => LanguageSupport> = {
   jsx: () => javascript({ jsx: true }),
   mjs: () => javascript(),
   rs: () => rust(),
-  md: () => markdown(),
-  markdown: () => markdown(),
+  md: markdownSupport,
+  markdown: markdownSupport,
   rst: () => rst(),
   yaml: () => yaml(),
   yml: () => yaml(),
@@ -92,7 +178,7 @@ const EXT_MAP: Record<string, () => LanguageSupport> = {
   psm1: () => legacy(powerShell),
   conf: () => legacy(nginx),
   proto: () => legacy(protobuf),
-}
+})
 
 /**
  * 拡張子では決まらないファイル名 → `EXT_MAP` / `LABEL_MAP` のキー。
@@ -102,10 +188,10 @@ const EXT_MAP: Record<string, () => LanguageSupport> = {
  * 名前そのものが、`.gitignore` は `gitignore` が拡張子として `EXT_MAP` に当たる。書くと
  * 同じ知識が 2 つの表に載るだけになる（この変更が消したかったのがまさにそれ）。
  */
-const NAME_KEYS: Record<string, string> = {
+const NAME_KEYS: Record<string, string> = table({
   '.bashrc': 'sh',
   '.zshrc': 'sh',
-}
+})
 
 /**
  * shebang のインタプリタ名 → キー（#312）。
@@ -113,7 +199,7 @@ const NAME_KEYS: Record<string, string> = {
  * **既に import 済みのモードだけを載せる**（「軽さ最優先」）。`fish` や `awk` はモードを
  * 増やすことになるので入れない。
  */
-const SHEBANG_KEYS: Record<string, string> = {
+const SHEBANG_KEYS: Record<string, string> = table({
   sh: 'sh',
   bash: 'sh',
   zsh: 'sh',
@@ -131,7 +217,7 @@ const SHEBANG_KEYS: Record<string, string> = {
   deno: 'ts',
   pwsh: 'ps1',
   powershell: 'ps1',
-}
+})
 
 /** 1 行目から読む最大文字数。minify された JS のように長い 1 行目を丸ごと走査しない。 */
 const SHEBANG_MAX = 256
@@ -200,7 +286,7 @@ function resolveLanguageKey(filename: string, firstLine = ''): string {
  * ラベルがモードと違う名前になるのは構わない。`conf` → Nginx、`gitignore` → Git Ignore は
  * どちらも意図的で、**キーを間に挟んでいるから表現できる**。
  */
-const LABEL_MAP: Record<string, string> = {
+const LABEL_MAP: Record<string, string> = table({
   ts: 'TypeScript',
   tsx: 'TypeScript (JSX)',
   js: 'JavaScript',
@@ -260,7 +346,7 @@ const LABEL_MAP: Record<string, string> = {
   patch: 'Diff',
   conf: 'Nginx',
   proto: 'Protobuf',
-}
+})
 
 /** キーを直に指定して言語を引く（StatusBar からの手動切り替え）。 */
 export function languageByKey(key: string): LanguageSupport | null {

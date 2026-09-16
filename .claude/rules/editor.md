@@ -11,6 +11,8 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）、シンタックスハイライトの対応言語は `lib/languages.ts` の `EXT_MAP` / `NAME_KEYS` / `SHEBANG_KEYS` が唯一の出典（件数をここに書かない。足すたびにずれる）
   - **ハイライトとラベルはキーを共有する**（`resolveLanguageKey`、#312）。優先順は**名前 → 拡張子 → shebang** で、拡張子で決まるファイルの中身は読まない。別々に解決していたころは `getLanguageLabel` 側にも名前の分岐が写されていて、`.bashrc` は色が付くのに種別が「Plain Text」と出ていた
   - **shebang に載せるのは既に import 済みのモードだけ**（「軽さ最優先」。`fish` / `awk` はモードを増やすことになるので入れない）。`env` と `-S`、末尾のバージョン（`python3.11`）の扱いは `shebangKey` の doc が正本
+  - **Markdown のフェンスの中身も `EXT_MAP` で解析する（#344）。** `markdown()` に `codeLanguages` を渡す形で、**依存は増えない**（`@codemirror/language-data` は入れない）。別名表（`FENCE_ALIASES`）を実在するフェンス名から作った理由と、`Language` をキーごとにキャッシュする理由は `languages.ts` の doc が正本
+    - **アウトラインにフェンスの中身は出ない。** `@lezer/markdown` はフェンスを**オーバーレイ**としてマウントし、`Tree.iterate` はオーバーレイに入らないため（`IterMode` の指定では変わらないことを実測で確認）。**`resolveInner` 系へ書き換えるときは要注意**: あちらは中へ入るので、```` ```md ```` に貼ったコード例の見出しが文書の構造に混ざる
   - **アウトラインには効かない。** あちらへ渡す `langId` は `extension(path)`（拡張子そのもの）で別経路なので、shebang を効かせるならその決め方も変えることになる（#312 の範囲外）
   - 判定は**開いたときと Save As の 1 回**。あとから shebang を書き足しても切り替わらない
   - **StatusBar から手動で上書きできる**（#312 の続き）。`fileTypeOverride` はタブ単位で

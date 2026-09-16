@@ -74,6 +74,11 @@ export const markdownExtractor: Extractor = (text: string, ctx: ExtractContext) 
   // heading whose text is the whole block. Drop anything inside it.
   const bodyFrom = detectFrontmatter(text)?.bodyFrom ?? 0
 
+  // **フェンスの中身は歩かない（#344）。** 言語を当てるようにしたのでマウントは存在するが、
+  // `@lezer/markdown` はそれを**オーバーレイ**として張り、`Tree.iterate` はオーバーレイに
+  // 入らない（`IterMode` をどう指定しても変わらないことを実測で確認）。おかげでコード例として
+  // 貼った見出しが文書の構造に混ざらずに済んでいる。
+  // **`resolveInner` 系へ書き換えるときは要注意**: あちらは中へ入り、`# 見出し` を返す。
   tree.iterate({
     enter: (node) => {
       const atx = ATX_LEVELS[node.name]
