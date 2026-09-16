@@ -22,7 +22,7 @@ import { protobuf } from '@codemirror/legacy-modes/mode/protobuf'
 import { python } from '@codemirror/legacy-modes/mode/python'
 import { ruby } from '@codemirror/legacy-modes/mode/ruby'
 import { shell } from '@codemirror/legacy-modes/mode/shell'
-import { standardSQL } from '@codemirror/legacy-modes/mode/sql'
+import { mySQL, pgSQL, sqlite, standardSQL } from '@codemirror/legacy-modes/mode/sql'
 import { swift } from '@codemirror/legacy-modes/mode/swift'
 import { toml } from '@codemirror/legacy-modes/mode/toml'
 import { xml as xmlMode } from '@codemirror/legacy-modes/mode/xml'
@@ -217,6 +217,12 @@ const EXT_MAP = table({
   less: () => legacy(less),
   j2: () => legacy(jinja2),
   sql: () => legacy(standardSQL),
+  // 方言（#358）。`.sql` の自動判定は既定では `sql`（標準）のままで、ここへ来るのは
+  // 設定で選んだときか、StatusBar から手で選んだとき。**残りの方言（mariaDB / msSQL /
+  // plSQL 等）は入れない**（要望が出てから足す）。
+  mysql: () => legacy(mySQL),
+  pgsql: () => legacy(pgSQL),
+  sqlite: () => legacy(sqlite),
   lua: () => legacy(lua),
   dockerfile: () => legacy(dockerFile),
   makefile: () => legacy(shell),

@@ -27,6 +27,10 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
     - `<script setup lang="ts">` … lang-html の既定の規則が元から効いているので足すものは無い
     - **`base` は `html()` の結果でなければならない**（lang-vue の契約）。style の設定はそちらへ乗せてから渡す
     - **定義ジャンプは壊れない。** `findInFile` が歩く `<script>` の部分木は変わらず、`tagNameAt` はそもそも構文木ではなく生テキストを見る（`FunctionDeclaration` / `ClassDeclaration` / `VariableDeclaration` / 型の 4 つが変更前と同じ行に解決することを実測で確認）。アウトラインの Vue 抽出は自前のパーサを回すので元から独立
+  - **SQL の方言はキーを分けて持つ（#358）。** `mysql` / `pgsql` / `sqlite` は**拡張子としては存在しないキー**で、`.sql` の自動判定が既定で解決するのは `sql`（標準）のまま。設定 `sqlDialect` が選ばれていると `fileTypeKey` がそこへ振り替える（`withSqlDialect`）
+    - **knob は `lib/fileType.ts` に置き、設定ストア側が流し込む**（`lib/shortcuts.ts` の `setShortcutPreset` と同じ形。あのモジュールはアイコンとアウトラインからも読まれるので、ストアを読む向きにすると依存が逆流する）。`immediate: true` が要る
+    - **手動選択はこの設定に縛られない。** StatusBar は `languageByKey` を直に引くので、設定が `standard` のままでも 3 つの方言を選べる。`languageOptions()` はラベルで畳むが、`SQL` / `MySQL` / `PostgreSQL` / `SQLite` は別ラベルなので 4 つとも出る
+    - **残りの方言（`mariaDB` / `msSQL` / `plSQL` 等）は入れない**（要望が出てから）
   - **Markdown のフェンスの中身も `EXT_MAP` で解析する（#344）。** `markdown()` に `codeLanguages` を渡す形で、**依存は増えない**（`@codemirror/language-data` は入れない）。別名表（`FENCE_ALIASES`）を実在するフェンス名から作った理由と、`Language` をキーごとにキャッシュする理由は `languages.ts` の doc が正本
     - **アウトラインにフェンスの中身は出ない。** `@lezer/markdown` はフェンスを**オーバーレイ**としてマウントし、`Tree.iterate` はオーバーレイに入らないため（`IterMode` の指定では変わらないことを実測で確認）。**`resolveInner` 系へ書き換えるときは要注意**: あちらは中へ入るので、```` ```md ```` に貼ったコード例の見出しが文書の構造に混ざる
   - **アウトラインには効かない。** あちらへ渡す `langId` は `extension(path)`（拡張子そのもの）で別経路なので、shebang を効かせるならその決め方も変えることになる（#312 の範囲外）

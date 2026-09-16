@@ -83,6 +83,17 @@ export const FILE_TYPE_LABELS = {
   // Ansible のテンプレート（#349）。`nginx.conf.j2` のように元の拡張子の後ろに付く。
   j2: 'Jinja2',
   sql: 'SQL',
+  // SQL の方言（#358）。`.sql` の自動判定が既定で解決するのは `sql`（標準）のままで、
+  // ここへ寄せるのは設定（`setSqlDialect`）か、StatusBar からの手動選択のとき。
+  //
+  // **この表はキーの正本であると同時に「引ける拡張子」の一覧でもある**（`keyFor` が
+  // `isKnown` で引く）ので、足すと `foo.mysql` / `foo.pgsql` / `foo.sqlite` も自動判定に
+  // 載る。前 2 つは SQL のソースの拡張子なので望ましい。**`.sqlite` だけはバイナリの
+  // SQLite データベースの拡張子でもある**が、そちらは `fs_read_file` の NUL ガードが先に
+  // 弾く（エディタに載らないので種別も出ない）。
+  mysql: 'MySQL',
+  pgsql: 'PostgreSQL',
+  sqlite: 'SQLite',
   lua: 'Lua',
   sh: 'Shell',
   bash: 'Shell',
@@ -238,6 +249,34 @@ function shebangKey(firstLine: string): string {
   return SHEBANG_KEYS[name.replace(/[\d.]+$/, '').toLowerCase()] ?? ''
 }
 
+/**
+ * `.sql` を自動判定したときの方言（#358）。**`standard` が既定で、従来どおり。**
+ *
+ * **設定ストアを import しない**（`lib/shortcuts.ts` の `setShortcutPreset` と同じ形）。
+ * このモジュールはアイコンとアウトラインからも読まれるので、ストアを読む向きにすると
+ * 依存が逆流する。設定の側が `immediate: true` の watcher で流し込む。
+ *
+ * **ハイライトとラベルはキーを共有する**（#312）ので、ここを動かすと StatusBar の種別も
+ * 一緒に `MySQL` などへ変わる。片方だけ変えない。
+ */
+export type SqlDialect = 'standard' | 'mysql' | 'pgsql' | 'sqlite'
+let sqlDialect: SqlDialect = 'standard'
+
+export function setSqlDialect(dialect: SqlDialect): void {
+  sqlDialect = dialect
+}
+
+/**
+ * `sql` に解決したものを、設定で選ばれた方言へ振り替える（#358）。
+ *
+ * **`sql` のときだけ動かす。** `foo.mysql` のように方言の拡張子で開いたものは、書き手が
+ * 方言を名乗っているので設定で振り替えない。手動選択は `languageByKey` を直に引くので、
+ * この関数を通らない（＝設定が `standard` でも方言を選べる）。
+ */
+function withSqlDialect(key: string): string {
+  return key === 'sql' && sqlDialect !== 'standard' ? sqlDialect : key
+}
+
 /** 候補を `NAME_KEYS` 越しに正規化して、扱えるキーなら返す。 */
 function keyFor(candidate: string): string {
   if (!candidate) return ''
@@ -263,11 +302,11 @@ function keyFor(candidate: string): string {
 export function fileTypeKey(filename: string, firstLine = ''): string {
   const name = basename(filename).toLowerCase()
   const byName = keyFor(name)
-  if (byName) return byName
+  if (byName) return withSqlDialect(byName)
 
   const segments = name.split('.')
   const byExt = keyFor(segments[segments.length - 1] ?? '')
-  if (byExt) return byExt
+  if (byExt) return withSqlDialect(byExt)
 
   // ドット始まりの名前は先頭が空文字になるので、そのときは 2 番目を見る。
   const head = segments[0] || segments[1] || ''

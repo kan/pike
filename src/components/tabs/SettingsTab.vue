@@ -23,6 +23,7 @@ import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { AGENTS, type AgentLauncher, isLauncherVisible, launcherLabel } from '../../lib/agents'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
+import type { SqlDialect } from '../../lib/fileType'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
@@ -130,6 +131,12 @@ const AUTO_SAVE_OPTIONS: { value: AutoSave; labelKey: string }[] = [
   { value: 'off', labelKey: 'common.off' },
   { value: 'onFocusChange', labelKey: 'settings.autoSaveOnFocusChange' },
   { value: 'afterDelay', labelKey: 'settings.autoSaveAfterDelay' },
+]
+const SQL_DIALECT_OPTIONS: { value: SqlDialect; labelKey: string }[] = [
+  { value: 'standard', labelKey: 'settings.sqlDialectStandard' },
+  { value: 'mysql', labelKey: 'settings.sqlDialectMysql' },
+  { value: 'pgsql', labelKey: 'settings.sqlDialectPgsql' },
+  { value: 'sqlite', labelKey: 'settings.sqlDialectSqlite' },
 ]
 const DIFF_WORD_WRAP_OPTIONS: { value: DiffWordWrap; labelKey: string }[] = [
   { value: 'auto', labelKey: 'common.auto' },
@@ -1040,6 +1047,12 @@ const PREVIEW_LINES = [
               <option :value="4">4</option>
               <option :value="8">8</option>
             </select>
+          </SettingItem>
+
+          <!-- 決めるのは「`.sql` を開いたときに何になるか」だけ（#358）。StatusBar の手動選択は
+               この設定に縛られず、`standard` のままでも 3 つの方言を選べる。 -->
+          <SettingItem label-key="settings.sqlDialect" hint-key="settings.sqlDialectHint">
+            <SettingToggle v-model="settings.sqlDialect" :options="SQL_DIALECT_OPTIONS" />
           </SettingItem>
         </SettingGroup>
 

@@ -31,6 +31,7 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
     - JavaScript / TypeScript：`.cjs` / `.mts` / `.cts`
     - XML：`.xml` / `.xsd` / `.xsl` / `.xslt` / `.wsdl` / `.plist` / `.csproj`
     - その他：`.less`（Less）、`.j2`（Jinja2。Ansible のテンプレート）、`my.cnf`（MySQL の設定）
+- **SQL は方言を選べます。** `.sql` は既定で標準 SQL として色付けますが、設定の[`.sql` の SQL 方言](settings.md#エディタ)で MySQL / PostgreSQL / SQLite に変えられます。設定を変えずに 1 つのファイルだけ方言を見たいときは、ステータスバーのファイルタイプから選んでください。
 - ファイルの種別は、シンタックスハイライトだけでなく**アウトライン・定義ジャンプ・ファイルアイコンでも同じ判定**を使います。同じファイルで機能ごとに扱いが割れることはありません。
 - **Vue の SFC** では、`<script setup lang="ts">` を TypeScript として色付けします。`<style lang="scss">` と `<style lang="less">` も同様です。テンプレート内の式も JavaScript として色が付きます（`{{ }}` の補間と、`v-if` / `:prop` / `@event` の属性値）。
 - **保存**：`Ctrl+S`。未保存はタブタイトルに `*` が付きます。設定の[自動保存](settings.md#エディタ)を有効にすると、フォーカスが外れたとき、または打鍵が止まってから一定時間後に保存されます（`*` の表示と、閉じるときの確認はそのままです）。

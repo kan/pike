@@ -3,6 +3,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
 import { AGENTS, type AgentId, type AgentLauncher, type AgentProfile } from '../lib/agents'
+import { type SqlDialect, setSqlDialect } from '../lib/fileType'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { hexToRgba } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
@@ -272,6 +273,21 @@ function sanitizeShortcutPreset(v: unknown): ShortcutPreset {
 }
 
 /**
+ * `.sql` を自動判定したときの SQL の方言（#358）。**既定は `standard`** で、従来の
+ * `standardSQL` のまま。
+ *
+ * **手動選択（StatusBar のファイルタイプ）はこの設定に縛られない。** あちらは
+ * `languageByKey` を直に引くので、`standard` のままでも MySQL / PostgreSQL / SQLite を
+ * 選べる。この設定が決めるのは「`.sql` を開いたときに何になるか」だけ。
+ *
+ * **同期の対象**（どのマシンでも同じ判断でよい）。
+ */
+const SQL_DIALECTS: SqlDialect[] = ['standard', 'mysql', 'pgsql', 'sqlite']
+function sanitizeSqlDialect(v: unknown): SqlDialect {
+  return SQL_DIALECTS.includes(v as SqlDialect) ? (v as SqlDialect) : 'standard'
+}
+
+/**
  * エディタの自動保存（#262）。**既定は `off`**: 保存の主体は `Ctrl+S` を押す人のままで、
  * これはその押し忘れを代行する設定という位置づけ（#276 で決めた原則）。
  *
@@ -426,6 +442,8 @@ interface PersistedSettings {
   diffWordWrap: DiffWordWrap
   /** キーボードショートカットのプリセット（#261）。 */
   shortcutPreset: ShortcutPreset
+  /** `.sql` を自動判定したときの SQL の方言（#358）。 */
+  sqlDialect: SqlDialect
   /** 未登録のディレクトリを開いたときにプロジェクト登録するか（#286）。 */
   registerDirectory: RegisterDirectoryMode
   /** エディタの自動保存の契機（#262）。 */
@@ -564,6 +582,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     windowBackdrop: sanitizeBackdrop(s.windowBackdrop),
     diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
     shortcutPreset: sanitizeShortcutPreset(s.shortcutPreset),
+    sqlDialect: sanitizeSqlDialect(s.sqlDialect),
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
     terminalPathLinks: sanitizeTerminalPathLinks(s.terminalPathLinks),
     agentNotify: sanitizeAgentNotify(s.agentNotify),
@@ -857,6 +876,7 @@ function defaults(): PersistedSettings {
     editorWordWrap: false,
     diffWordWrap: 'auto',
     shortcutPreset: 'vscode',
+    sqlDialect: 'standard',
     registerDirectory: 'ask',
     autoSave: 'off',
     autoSaveDelay: AUTO_SAVE_DELAY_DEFAULT,
@@ -927,6 +947,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorWordWrap = ref(saved.editorWordWrap)
   const diffWordWrap = ref(saved.diffWordWrap)
   const shortcutPreset = ref(saved.shortcutPreset)
+  const sqlDialect = ref(saved.sqlDialect)
   const registerDirectory = ref(saved.registerDirectory)
   const autoSave = ref(saved.autoSave)
   const autoSaveDelay = ref(saved.autoSaveDelay)
@@ -1303,6 +1324,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorWordWrap: editorWordWrap.value,
       diffWordWrap: diffWordWrap.value,
       shortcutPreset: shortcutPreset.value,
+      sqlDialect: sqlDialect.value,
       registerDirectory: registerDirectory.value,
       autoSave: autoSave.value,
       autoSaveDelay: autoSaveDelay.value,
@@ -1351,6 +1373,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorWordWrap.value = s.editorWordWrap
     diffWordWrap.value = s.diffWordWrap
     shortcutPreset.value = s.shortcutPreset
+    sqlDialect.value = s.sqlDialect
     registerDirectory.value = s.registerDirectory
     autoSave.value = s.autoSave
     autoSaveDelay.value = s.autoSaveDelay
@@ -1563,6 +1586,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorWordWrap,
       diffWordWrap,
       shortcutPreset,
+      sqlDialect,
       registerDirectory,
       autoSave,
       autoSaveDelay,
@@ -1597,6 +1621,9 @@ export const useSettingsStore = defineStore('settings', () => {
   // 流し込む）。**`immediate` が要る**: 起動直後に保存済みのプリセットへ揃わないと、
   // 最初の 1 回だけ既定のキーで動く。
   watch(shortcutPreset, (v) => setShortcutPreset(v), { immediate: true })
+  // 同じ理由で `lib/fileType.ts` にも流し込む（#358）。**`immediate` が要る**: 起動直後に
+  // 揃わないと、復元したタブが最初の 1 回だけ標準 SQL で開く。
+  watch(sqlDialect, (v) => setSqlDialect(v), { immediate: true })
   // `data-theme` は解決結果に、pin はモードに追従する（キーが違う理由は `applyThemePin`）。
   watch(darkMode, applyDarkMode, { immediate: true })
   watch(themeMode, applyThemePin, { immediate: true })
@@ -1629,6 +1656,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorWordWrap,
     diffWordWrap,
     shortcutPreset,
+    sqlDialect,
     registerDirectory,
     autoSave,
     autoSaveDelay,

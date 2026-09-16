@@ -1799,6 +1799,16 @@ watch(
   },
 )
 
+// `.sql` の方言（#358）を変えたら、開いているタブの言語も張り直す。**設定を流し込む側
+// （`stores/settings.ts` の `setSqlDialect`）だけでは足りない**: あれは次に判定するときの
+// 値を替えるだけなので、既に開いているタブは閉じて開き直すまで標準 SQL のままになる。
+// **手動で種別を選んでいるタブは動かない**（`applyLanguage` は上書きが立っていれば自動判定を
+// 見ない）ので、「手動選択はこの設定に縛られない」もそのまま保たれる。
+watch(
+  () => settingsStore.sqlDialect,
+  () => applyLanguage(tab.value?.path),
+)
+
 // Save As names an untitled buffer, which is what decides its language: without
 // this the buffer stays plain text after saving as `notes.md` — no highlighting
 // and, for Markdown, none of the language's own Enter/paste handling either.

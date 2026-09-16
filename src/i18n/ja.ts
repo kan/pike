@@ -365,6 +365,13 @@ export default {
   'settings.fetchLinkTitle': '貼り付けた URL をタイトル付きリンクにする',
   'settings.fetchLinkTitleHint': '有効にすると、Markdown に URL を貼るたびにそのページへ通信してタイトルを取得します。',
   'settings.tabSize': 'タブサイズ',
+  'settings.sqlDialect': '.sql の SQL 方言',
+  'settings.sqlDialectHint':
+    '.sql を開いたときにどの方言としてハイライトするかです。ステータスバーのファイルタイプから手動で選ぶ場合は、この設定に関係なく方言を選べます。',
+  'settings.sqlDialectStandard': '標準 SQL',
+  'settings.sqlDialectMysql': 'MySQL',
+  'settings.sqlDialectPgsql': 'PostgreSQL',
+  'settings.sqlDialectSqlite': 'SQLite',
   'settings.previewSmoothScroll': 'スムーススクロール（プレビュー）',
   'settings.imageHosts': '外部画像の許可ドメイン',
   'settings.imageHostsHint': 'Markdown プレビューが画像を読み込むドメイン。画像の代わりに出るボタンから追加する',

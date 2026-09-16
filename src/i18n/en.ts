@@ -368,6 +368,13 @@ export default {
   'settings.fetchLinkTitleHint':
     'With this on, every URL pasted into Markdown makes a request to that page to read its title.',
   'settings.tabSize': 'Tab Size',
+  'settings.sqlDialect': 'SQL dialect for .sql',
+  'settings.sqlDialectHint':
+    'Which dialect .sql files are highlighted as. Picking a dialect by hand from the status bar file type works regardless of this setting.',
+  'settings.sqlDialectStandard': 'Standard SQL',
+  'settings.sqlDialectMysql': 'MySQL',
+  'settings.sqlDialectPgsql': 'PostgreSQL',
+  'settings.sqlDialectSqlite': 'SQLite',
   'settings.previewSmoothScroll': 'Smooth scroll (preview)',
   'settings.imageHosts': 'External image domains',
   'settings.imageHostsHint':
