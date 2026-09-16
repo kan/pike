@@ -127,6 +127,7 @@ const EXTERNAL_NAMES = [
   'offsetLeft', // DOM
   'offsetParent', // DOM
   'on_activated', // tauri-winrt-notification（採らなかった選択肢として agent.md が出す）
+  'tokenTable', // @codemirror/language の StreamLanguage のオプション（#350 で採らなかった案の材料）
   'replace_csp_nonce', // tauri 内部
   'restore_state', // tauri-plugin-window-state
   'runHandlers', // CodeMirror 内部
