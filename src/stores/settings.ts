@@ -3,6 +3,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
 import { AGENTS, type AgentId, type AgentLauncher, type AgentProfile } from '../lib/agents'
+import { CSV_PAGE_SIZE_DEFAULT, CSV_PAGE_SIZES } from '../lib/csvPreview'
 import { type SqlDialect, setSqlDialect } from '../lib/fileType'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { hexToRgba } from '../lib/format'
@@ -287,6 +288,11 @@ function sanitizeSqlDialect(v: unknown): SqlDialect {
   return SQL_DIALECTS.includes(v as SqlDialect) ? (v as SqlDialect) : 'standard'
 }
 
+/** 数の選択肢のどれかならそのまま、違えば既定値（表示件数・ファイルの大きさの上限が共有する）。 */
+function sanitizeChoice(choices: readonly number[], v: unknown, fallback: number): number {
+  return typeof v === 'number' && choices.includes(v) ? v : fallback
+}
+
 /**
  * エディタで丸ごと開けるサイズの上限（MB、#362）。超えたファイルは開けない画面になり、そこから
  * 先頭だけを読み取り専用で開ける（部分読み込み）。**選択肢に絞るのは、Rust 側にも上限がある
@@ -297,9 +303,6 @@ function sanitizeSqlDialect(v: unknown): SqlDialect {
  */
 export const EDITOR_MAX_FILE_SIZES_MB = [2, 5, 10, 20, 50] as const
 const EDITOR_MAX_FILE_SIZE_DEFAULT = 10
-function sanitizeEditorMaxFileSize(v: unknown): number {
-  return (EDITOR_MAX_FILE_SIZES_MB as readonly unknown[]).includes(v) ? (v as number) : EDITOR_MAX_FILE_SIZE_DEFAULT
-}
 
 /**
  * エディタの自動保存（#262）。**既定は `off`**: 保存の主体は `Ctrl+S` を押す人のままで、
@@ -460,6 +463,8 @@ interface PersistedSettings {
   sqlDialect: SqlDialect
   /** エディタで丸ごと開けるサイズの上限（MB、#362）。`EDITOR_MAX_FILE_SIZES_MB` のどれか。 */
   editorMaxFileSizeMb: number
+  /** CSV プレビューの 1 ページの表示件数。`CSV_PAGE_SIZES` のどれか。 */
+  csvPageSize: number
   /** 未登録のディレクトリを開いたときにプロジェクト登録するか（#286）。 */
   registerDirectory: RegisterDirectoryMode
   /** エディタの自動保存の契機（#262）。 */
@@ -599,7 +604,9 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
     shortcutPreset: sanitizeShortcutPreset(s.shortcutPreset),
     sqlDialect: sanitizeSqlDialect(s.sqlDialect),
-    editorMaxFileSizeMb: sanitizeEditorMaxFileSize(s.editorMaxFileSizeMb),
+    editorMaxFileSizeMb: sanitizeChoice(EDITOR_MAX_FILE_SIZES_MB, s.editorMaxFileSizeMb, EDITOR_MAX_FILE_SIZE_DEFAULT),
+    // CSV プレビューの表示件数。選択肢と既定値は `lib/csvPreview.ts`。**同期の対象**（好み）。
+    csvPageSize: sanitizeChoice(CSV_PAGE_SIZES, s.csvPageSize, CSV_PAGE_SIZE_DEFAULT),
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
     terminalPathLinks: sanitizeTerminalPathLinks(s.terminalPathLinks),
     agentNotify: sanitizeAgentNotify(s.agentNotify),
@@ -895,6 +902,7 @@ function defaults(): PersistedSettings {
     shortcutPreset: 'vscode',
     sqlDialect: 'standard',
     editorMaxFileSizeMb: EDITOR_MAX_FILE_SIZE_DEFAULT,
+    csvPageSize: CSV_PAGE_SIZE_DEFAULT,
     registerDirectory: 'ask',
     autoSave: 'off',
     autoSaveDelay: AUTO_SAVE_DELAY_DEFAULT,
@@ -967,6 +975,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const shortcutPreset = ref(saved.shortcutPreset)
   const sqlDialect = ref(saved.sqlDialect)
   const editorMaxFileSizeMb = ref(saved.editorMaxFileSizeMb)
+  const csvPageSize = ref(saved.csvPageSize)
   const registerDirectory = ref(saved.registerDirectory)
   const autoSave = ref(saved.autoSave)
   const autoSaveDelay = ref(saved.autoSaveDelay)
@@ -1345,6 +1354,7 @@ export const useSettingsStore = defineStore('settings', () => {
       shortcutPreset: shortcutPreset.value,
       sqlDialect: sqlDialect.value,
       editorMaxFileSizeMb: editorMaxFileSizeMb.value,
+      csvPageSize: csvPageSize.value,
       registerDirectory: registerDirectory.value,
       autoSave: autoSave.value,
       autoSaveDelay: autoSaveDelay.value,
@@ -1395,6 +1405,7 @@ export const useSettingsStore = defineStore('settings', () => {
     shortcutPreset.value = s.shortcutPreset
     sqlDialect.value = s.sqlDialect
     editorMaxFileSizeMb.value = s.editorMaxFileSizeMb
+    csvPageSize.value = s.csvPageSize
     registerDirectory.value = s.registerDirectory
     autoSave.value = s.autoSave
     autoSaveDelay.value = s.autoSaveDelay
@@ -1609,6 +1620,7 @@ export const useSettingsStore = defineStore('settings', () => {
       shortcutPreset,
       sqlDialect,
       editorMaxFileSizeMb,
+      csvPageSize,
       registerDirectory,
       autoSave,
       autoSaveDelay,
@@ -1680,6 +1692,7 @@ export const useSettingsStore = defineStore('settings', () => {
     shortcutPreset,
     sqlDialect,
     editorMaxFileSizeMb,
+    csvPageSize,
     registerDirectory,
     autoSave,
     autoSaveDelay,

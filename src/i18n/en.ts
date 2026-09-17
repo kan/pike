@@ -374,6 +374,8 @@ export default {
   'settings.fetchLinkTitleHint':
     'With this on, every URL pasted into Markdown makes a request to that page to read its title.',
   'settings.tabSize': 'Tab Size',
+  'settings.csvPageSize': 'CSV preview rows per page',
+  'settings.csvPageSizeHint': 'How many rows one page shows. You can also change it above the preview table.',
   'settings.editorMaxFileSize': 'Largest file the editor opens',
   'settings.editorMaxFileSizeHint':
     'Larger files are not opened whole. You can load them from the start as read-only, or open them in another app.',
@@ -807,13 +809,22 @@ export default {
     'Processes are still running in {count} terminals ({names}). Terminate them and close?',
 
   // CSV Preview
-  'csv.truncated': 'Showing first {max} rows only.',
+  'csv.empty': 'Empty file',
   'csv.copied': 'Copied the selection as tab-separated text',
+  'csv.sortAsc': 'Sort Ascending',
+  'csv.sortDesc': 'Sort Descending',
+  'csv.sortReset': 'Restore Original Order',
+  'csv.pageRange': 'Rows {from}–{to} of {total}',
+  'csv.pageFirst': 'First page',
+  'csv.pagePrev': 'Previous page',
+  'csv.pageNext': 'Next page',
+  'csv.pageLast': 'Last page',
+  'csv.pageSize': 'Rows per page',
+  'csv.partialNotice': 'This file is larger than {limit}, so only part of it is loaded',
+  'csv.copyAllPagesHint': 'Copying the whole table or a column copies every row, not just this page',
   'csv.selectAll': 'Select All',
   'csv.selectRow': 'Select Row',
   'csv.selectColumn': 'Select Column',
-  'csv.copiedTruncated': 'Copied the selection (only within the first {max} rows shown)',
-
   // Markdown front matter
   'frontmatter.title': 'Front matter',
   'frontmatter.empty': '(no keys)',

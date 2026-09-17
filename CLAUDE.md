@@ -265,6 +265,7 @@ pike/
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── fileType.ts       # ファイル名 → 種別のキー（#347。ハイライト/アウトライン/ジャンプ/アイコンが共有）
 │   │   ├── codeHighlight.ts  # プレビューのコードブロックの色付け（#359。4 つのプレビューで共有）
+│   │   ├── csvPreview.ts     # CSV プレビューの表（読み込み・並べ替え・ページ送りの HTML）
 │   │   ├── domFind.ts        # 描画済み DOM の文字検索と CSS Custom Highlight の登録（#360）
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）
 │   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）

@@ -22,6 +22,7 @@ import { provideSettingsSearch } from '../../composables/useSettingsSearch'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { AGENTS, type AgentLauncher, isLauncherVisible, launcherLabel } from '../../lib/agents'
+import { CSV_PAGE_SIZES } from '../../lib/csvPreview'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import type { SqlDialect } from '../../lib/fileType'
 import { buildFontFamily } from '../../lib/fontDetection'
@@ -1058,6 +1059,16 @@ const PREVIEW_LINES = [
               <option :value="2">2</option>
               <option :value="4">4</option>
               <option :value="8">8</option>
+            </select>
+          </SettingItem>
+
+          <SettingItem label-key="settings.csvPageSize" hint-key="settings.csvPageSizeHint">
+            <select
+              class="setting-select setting-select-narrow"
+              :value="settings.csvPageSize"
+              @change="settings.csvPageSize = parseInt(($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="n in CSV_PAGE_SIZES" :key="n" :value="n">{{ n.toLocaleString() }}</option>
             </select>
           </SettingItem>
 

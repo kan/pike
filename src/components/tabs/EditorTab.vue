@@ -20,6 +20,15 @@ import { usePreviewFind } from '../../composables/usePreviewFind'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { highlightCodeBlock, markedCodeHighlight } from '../../lib/codeHighlight'
+import {
+  type CsvData,
+  type CsvSort,
+  csvPageBounds,
+  nextCsvSort,
+  parseCsv,
+  renderCsvPage,
+  sortCsvRows,
+} from '../../lib/csvPreview'
 import { conflictHighlight, hasConflictMarkers } from '../../lib/editorConflict'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
@@ -73,7 +82,7 @@ import {
   gitDiffLines,
   pickSaveFile,
 } from '../../lib/tauri'
-import { escapeHtml, splitDelimited } from '../../lib/text'
+import { escapeHtml } from '../../lib/text'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
@@ -200,6 +209,12 @@ const partial = ref<{
 } | null>(null)
 
 const loadingMore = ref(false)
+/**
+ * 部分読み込みに、まだ読んでいない続きがあるか（#362）。上部のバー・本文の末尾・CSV の表の上が見る。
+ * **`partial` の隣に置くこと**: `previewHtml` はこれを読み、その watcher が setup の途中で
+ * `previewHtml` を評価する。後ろで宣言すると初期化前の参照になり、タブが描けなくなる。
+ */
+const hasMore = computed(() => !!partial.value && partial.value.nextOffset < partial.value.totalSize)
 const maxFileBytes = () => settingsStore.editorMaxFileSizeMb * 1024 * 1024
 let savedContent = ''
 const isDirty = ref(false)
@@ -277,7 +292,11 @@ const showPreview = computed(() => viewMode.value !== 'edit')
 const findTarget = computed(() => (isMermaid.value ? mermaidRef.value : previewRef.value))
 const previewFind = usePreviewFind(findTarget, props.tabId)
 /** CSV プレビューの列・行の選択（Excel 風）。 */
-const csvSelection = useCsvSelection(previewRef)
+const csvSelection = useCsvSelection(previewRef, () => ({
+  data: csvData.value,
+  rows: csvRows.value,
+  pageOffset: csvBounds.value.offset,
+}))
 const findBar = useTemplateRef<{ focus: () => void }>('findBar')
 
 function openPreviewFind() {
@@ -353,34 +372,55 @@ const SVG_PURIFY_OPTS = {
   ALLOWED_URI_REGEXP,
 }
 
-/** CSV プレビューで描く行数の上限。選択のコピーもこの範囲になる。 */
-const CSV_MAX_ROWS = 10000
+// --- CSV プレビュー（ページ送り・表示件数・並べ替え。判断の実体は `lib/csvPreview.ts`） ---
+/** 表示中のページ（0 始まり）。範囲外は描くときに寄せる。 */
+const csvPage = ref(0)
+/** 並べ替え。null なら元の順。タブごとに持ち、保存しない。 */
+const csvSort = ref<CsvSort | null>(null)
 
-function buildCsvPreview(text: string): string {
-  const ext = fileExt.value
-  const delimiter = ext === 'tsv' ? '\t' : ','
-  const lines = text.split(/\r?\n/).filter((l) => l.length > 0)
-  if (lines.length === 0) return '<p>Empty</p>'
+/** 本文を読んだもの。本文が変わったときだけ読み直す（ページを動かしても読み直さない）。 */
+const csvData = computed<CsvData | null>(() => {
+  void debouncedDocVersion.value
+  if (!isCsv.value || !showPreview.value || !editorView) return null
+  return parseCsv(editorView.state.doc.iterLines(), fileExt.value === 'tsv' ? '\t' : ',')
+})
 
-  // RFC 4180 の引用符の扱いは `lib/text.ts` と共有する（rst の `csv-table` も同じ規則）。
-  const parseLine = (line: string) => splitDelimited(line, delimiter)
+/** 並べ替えを当てた行。選択のコピーもこの並びで組み立てる。 */
+const csvRows = computed(() => {
+  const data = csvData.value
+  if (!data) return []
+  const sort = csvSort.value
+  return sort && sort.col < data.headers.length ? sortCsvRows(data, sort) : data.rows
+})
 
-  const headers = parseLine(lines[0])
-  let html = '<table><thead><tr><th>#</th>'
-  for (const h of headers) html += `<th>${escapeHtml(h)}</th>`
-  html += '</tr></thead><tbody>'
-  const rowCount = Math.min(lines.length - 1, CSV_MAX_ROWS)
-  for (let i = 0; i < rowCount; i++) {
-    const cells = parseLine(lines[i + 1])
-    html += `<tr><td class="csv-row-num">${i + 1}</td>`
-    for (const c of cells) html += `<td>${escapeHtml(c)}</td>`
-    html += '</tr>'
-  }
-  html += '</tbody></table>'
-  // `csv-truncated` はコピーのときに「打ち切っているか」を見る印も兼ねる（`copyCsvSelection`）。
-  if (lines.length - 1 > CSV_MAX_ROWS)
-    html += `<p class="csv-truncated">${escapeHtml(t('csv.truncated', { max: String(CSV_MAX_ROWS) }))}</p>`
-  return html
+/** 表示するページ（範囲に収めたもの）。描画・ページ送り・行の選択のコピーが同じ値を読む。 */
+const csvBounds = computed(() => csvPageBounds(csvRows.value.length, csvPage.value, settingsStore.csvPageSize))
+
+// ページ・並べ方・件数が変わると、ページの中の位置で持っている選択は別の行を指す。
+watch([csvPage, csvSort, () => settingsStore.csvPageSize], () => {
+  if (!isCsv.value) return
+  csvSelection.clear()
+  previewRef.value?.scrollTo({ top: 0 })
+})
+
+// 表示件数は全タブ共通の設定なので、どのタブで変えてもここに届く。**ページも先頭に戻す**:
+// 件数が変わると同じページ番号が別の行を指し、ほかのタブが黙って別の場所を出すことになる。
+watch(
+  () => settingsStore.csvPageSize,
+  () => {
+    csvPage.value = 0
+  },
+)
+
+/** 並べ方を変えて先頭のページへ戻る（並べ替えたあとに途中のページを見ていても意味が無い）。 */
+function setCsvSort(sort: CsvSort | null) {
+  csvSort.value = sort
+  csvPage.value = 0
+}
+
+/** 右クリックした列で並べ替える。 */
+function sortFromMenu(m: CsvCellRef, dir: CsvSort['dir']) {
+  if (m.col !== null) setCsvSort({ col: m.col, dir })
 }
 
 const JSON_TOKEN =
@@ -500,10 +540,18 @@ function buildMarkdownPreview(text: string): string {
 }
 
 const previewHtml = computed(() => {
+  // CSV は `csvData` が本文を読み、本文の変更への依存もそちらが持つ（ページを動かしただけで
+  // 全文を読み直さないように）。
+  if (isCsv.value) {
+    const data = csvData.value
+    const partialLoad = hasMore.value
+      ? { limitMb: settingsStore.editorMaxFileSizeMb, loading: loadingMore.value }
+      : null
+    return data ? renderCsvPage(data, csvRows.value, csvBounds.value, csvSort.value, partialLoad) : ''
+  }
   void debouncedDocVersion.value
   if (!showPreview.value || !editorView) return ''
   const text = editorView.state.doc.toString()
-  if (isCsv.value) return buildCsvPreview(text)
   if (isMermaid.value) return '' // rendered asynchronously
   if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS)
   if (isJson.value) return buildJsonPreview(text)
@@ -998,9 +1046,6 @@ function openPartially() {
   partial.value = { nextOffset: 0, totalSize: 0 }
   void reopenWithEncoding()
 }
-
-/** 部分読み込みに、まだ読んでいない続きがあるか（#362）。上部のバーと本文の末尾が見る。 */
-const hasMore = computed(() => !!partial.value && partial.value.nextOffset < partial.value.totalSize)
 
 /** 本文の末尾の「続きを読む」（#362）。末尾まで読み終えたら出さない。 */
 function loadMoreExtension() {
@@ -1625,20 +1670,13 @@ function onPreviewKeydown(e: KeyboardEvent) {
 
 /** 列・行の選択をコピーしてステータスバーに出す。 */
 function copyCsvSelection(text: string) {
-  // 表示を 10,000 行で打ち切っているときは、コピーもその範囲だけになる（描画した表から組み立てるため）。
-  const truncated = !!previewRef.value?.querySelector('.csv-truncated')
-  copyToClipboard(
-    text,
-    truncated
-      ? { text: t('csv.copiedTruncated', { max: String(CSV_MAX_ROWS) }), variant: 'warn' }
-      : { text: t('csv.copied'), variant: 'success' },
-  )
+  copyToClipboard(text, t('csv.copied'))
 }
 
 /** クリップボードへ書き、結果をステータスバーに出す（CSV のコピーの 2 つの経路が共有する）。 */
-function copyToClipboard(text: string, done: { text: string; variant: 'success' | 'warn' }) {
+function copyToClipboard(text: string, message: string) {
   navigator.clipboard.writeText(text).then(
-    () => statusMessageStore.show(done),
+    () => statusMessageStore.show({ text: message, variant: 'success' }),
     (err) => statusMessageStore.show({ text: String(err), variant: 'error' }),
   )
 }
@@ -1683,7 +1721,7 @@ function copyFromCsvMenu(m: CsvCellRef) {
   const selected = csvSelection.selectedText()
   if (selected !== null) return copyCsvSelection(selected)
   const text = window.getSelection()?.toString() || m.text
-  if (text) copyToClipboard(text, { text: t('common.copied'), variant: 'success' })
+  if (text) copyToClipboard(text, t('common.copied'))
 }
 
 onMounted(async () => {
@@ -1829,8 +1867,42 @@ function resolveLocalPath(href: string): string | null {
   return fullPath
 }
 
+/**
+ * CSV の表に描いた操作（並べ替えのボタンとページ送り）。受け持ったら true。
+ * 見出しのクリックは列の選択なので、見出しの中の並べ替えボタンはそれより先に受ける。
+ */
+function handleCsvControls(e: MouseEvent): boolean {
+  const el = e.target as HTMLElement
+  const sortBtn = el.closest<HTMLElement>('[data-csv-sort]')
+  if (sortBtn) {
+    setCsvSort(nextCsvSort(csvSort.value, Number(sortBtn.dataset.csvSort)))
+    return true
+  }
+  if (el.closest('[data-csv-load-more]')) {
+    void loadMore(false)
+    return true
+  }
+  const pageBtn = el.closest<HTMLButtonElement>('[data-csv-page]')
+  if (pageBtn) {
+    // 範囲に収めるのは `csvPageBounds`（描くときに寄せる）。端のボタンは押せない。
+    const { pageCount, page } = csvBounds.value
+    const to = { first: 0, prev: page - 1, next: page + 1, last: pageCount - 1 }[pageBtn.dataset.csvPage ?? '']
+    if (to !== undefined) csvPage.value = to
+    return true
+  }
+  // 表示件数の選択はクリックでは何もしない（`change` で受ける）。列の選択に回さない。
+  return !!el.closest('.csv-pager')
+}
+
+/** 表の上の表示件数の選択。設定に書くので、ほかの CSV タブと次に開く CSV にも効く。 */
+function onPreviewChange(e: Event) {
+  const select = (e.target as HTMLElement).closest<HTMLSelectElement>('select[data-csv-page-size]')
+  if (!select) return
+  settingsStore.csvPageSize = Number(select.value)
+}
+
 async function onPreviewClick(e: MouseEvent) {
-  if (isCsv.value && csvSelection.handleClick(e)) return
+  if (isCsv.value && (handleCsvControls(e) || csvSelection.handleClick(e))) return
 
   // Approve a host for external images (#239). The chips are rebuilt on every
   // render, so the listener lives here rather than on each button.
@@ -2204,7 +2276,9 @@ onUnmounted(() => {
         })
       }}</span>
       <div class="notice-actions">
-        <button v-if="hasMore" :disabled="loadingMore" @click="loadMore(false)">
+        <!-- CSV のプレビューでは出さない。表のページの帯と並ぶと、どちらが何を送るのか紛らわしい
+             （続きはエディタの本文の末尾のボタンから読める）。 -->
+        <button v-if="hasMore && !isCsv" :disabled="loadingMore" @click="loadMore(false)">
           {{ loadingMore ? t('common.loading') : t('editor.loadMore') }}
         </button>
         <button @click="openFileWithDefaultApp">{{ t('common.openWithDefaultApp') }}</button>
@@ -2278,6 +2352,7 @@ onUnmounted(() => {
         @click="onPreviewClick"
         @keydown="onPreviewKeydown"
         @contextmenu="onPreviewContextMenu"
+        @change="onPreviewChange"
       ></div>
       <div
         v-if="showPreview && isMermaid"
@@ -2325,6 +2400,16 @@ onUnmounted(() => {
         </button>
         <button :disabled="csvMenu.col === null" @click="runCsvMenu((m) => csvSelection.selectOne('cols', m.col))">
           <span>{{ t('csv.selectColumn') }}</span>
+        </button>
+        <div class="ctx-separator"></div>
+        <button :disabled="csvMenu.col === null" @click="runCsvMenu((m) => sortFromMenu(m, 'asc'))">
+          <span>{{ t('csv.sortAsc') }}</span>
+        </button>
+        <button :disabled="csvMenu.col === null" @click="runCsvMenu((m) => sortFromMenu(m, 'desc'))">
+          <span>{{ t('csv.sortDesc') }}</span>
+        </button>
+        <button :disabled="!csvSort" @click="runCsvMenu(() => setCsvSort(null))">
+          <span>{{ t('csv.sortReset') }}</span>
         </button>
         <div class="ctx-separator"></div>
         <button :disabled="!csvMenu.text && !csvSelection.hasSelection()" @click="runCsvMenu(copyFromCsvMenu)">
@@ -2811,10 +2896,116 @@ onUnmounted(() => {
   font-size: 11px;
 }
 
-.csv-preview :deep(.csv-truncated) {
-  text-align: center;
-  color: var(--text-secondary);
+/* ページ送りと表示件数（`lib/csvPreview.ts` の `pager`）。表の上と下に同じものが出る。 */
+.csv-preview :deep(.csv-pager) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
   font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.csv-preview :deep(.csv-pager button) {
+  min-width: 24px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.csv-preview :deep(.csv-pager button:disabled) {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 幅は `min-width`（いちばん長い表記ぶん、`pager` が付ける）で取り、数字は等幅にして揃える。 */
+.csv-preview :deep(.csv-pager-info) {
+  display: inline-block;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.csv-preview :deep(.csv-pager-size) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.csv-preview :deep(.csv-pager-size select) {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.csv-preview :deep(.csv-pager-hint) {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+
+/* 巨大なファイルの一部だけを読んでいるときの案内（`lib/csvPreview.ts` の `CsvPartialLoad`）。 */
+.csv-preview :deep(.csv-partial) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.csv-preview :deep(.csv-partial button) {
+  padding: 1px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--text-active);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.csv-preview :deep(.csv-partial button:disabled) {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 見出しの並べ替えボタン。向きの記号は `data-dir` で出す（文字にするとセルのコピーに混ざる）。 */
+.csv-preview :deep(.csv-sort) {
+  margin-left: 4px;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.csv-preview :deep(.csv-sort::after) {
+  content: '⇅';
+}
+
+.csv-preview :deep(.csv-sort[data-dir='asc']),
+.csv-preview :deep(.csv-sort[data-dir='desc']) {
+  color: var(--accent);
+  opacity: 1;
+}
+
+.csv-preview :deep(.csv-sort[data-dir='asc']::after) {
+  content: '▲';
+}
+
+.csv-preview :deep(.csv-sort[data-dir='desc']::after) {
+  content: '▼';
+}
+
+.csv-preview :deep(th:hover .csv-sort) {
+  opacity: 1;
 }
 
 /* 列見出しと行番号は選択の入口（`useCsvSelection`）。文字選択にならないようにする。 */

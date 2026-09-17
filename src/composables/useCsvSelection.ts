@@ -12,21 +12,42 @@
  * **選択は描画に焼き込まない**。プレビューは打鍵のたびに `v-html` で作り直されるので、印は
  * `paint` が描画のあとに付け直す（`previewHtml` の watcher から呼ぶ）。何も選んでいなければ
  * `paint` は何もしない（CSV を編集するたびに数万セルを走査しないため）。
+ *
+ * **列の番号は `#` 列を数えない 0 始まり**（`lib/csvPreview.ts` と同じ）。DOM のセルの位置
+ * （`#` 列が 0）から直すのは、DOM を読み書きするこのファイルの `domCol` / `cellAt` だけ。
  */
 import { type Ref, watch } from 'vue'
+import { type CsvData, type CsvRow, cellsOf } from '../lib/csvPreview'
 import { hasMod } from '../lib/keys'
 import { joinTsv } from '../lib/text'
 
 type Selection = { kind: 'all' } | { kind: 'rows' | 'cols'; indices: Set<number>; anchor: number }
 
-/** 表の中の 1 セルの位置。行は本文の行（見出しは null）、列は `#` 列を除く（`#` 列は null）。 */
+/** 表の中の 1 セルの位置。行は本文の行（見出しは null）、列は `#` 列を数えない（`#` 列は null）。 */
 export interface CsvCellRef {
   row: number | null
   col: number | null
   text: string
 }
 
-export function useCsvSelection(container: Ref<HTMLElement | undefined>) {
+/** コピーの材料。`rows` は並べ替え済みの全行、`pageOffset` は表示中のページの先頭の位置。 */
+export interface CsvSelectionSource {
+  data: CsvData | null
+  rows: CsvRow[]
+  pageOffset: number
+}
+
+/** DOM のセルの位置（`#` 列が 0）を列の番号に直す。`#` 列なら null。 */
+const domCol = (cellIndex: number) => (cellIndex > 0 ? cellIndex - 1 : null)
+
+/**
+ * `source` は、コピーのときに読む表の中身（ページに区切られていない全行）。
+ *
+ * **コピーは描いた表（DOM）ではなくこちらから組み立てる。** 表はページ送りで 1 ページぶんしか
+ * 描いていないが、全体や列を選んだときは全ページぶんをコピーする（プレビューの帯に書いてある）。
+ * 行の選択だけはページの中の位置で持つ（行番号をクリックして選ぶのは、見えている行なので）。
+ */
+export function useCsvSelection(container: Ref<HTMLElement | undefined>, source: () => CsvSelectionSource) {
   // 描画には使わない（印は `paint` が DOM に付ける）ので reactive にしない。
   let selection: Selection | null = null
   /** 今の表に印が付いているか。付いていなければ消す走査を飛ばす。 */
@@ -46,8 +67,9 @@ export function useCsvSelection(container: Ref<HTMLElement | undefined>) {
     const el = e.target as HTMLElement
     const th = el.closest<HTMLTableCellElement>('thead th')
     if (th) {
-      if (th.cellIndex === 0) selectAll()
-      else pick('cols', th.cellIndex, e)
+      const col = domCol(th.cellIndex)
+      if (col === null) selectAll()
+      else pick('cols', col, e)
       return true
     }
     const rowNum = el.closest<HTMLTableCellElement>('td.csv-row-num')
@@ -91,7 +113,7 @@ export function useCsvSelection(container: Ref<HTMLElement | undefined>) {
     const row = cell.parentElement as HTMLTableRowElement
     return {
       row: row.parentElement?.tagName === 'TBODY' ? row.sectionRowIndex : null,
-      col: cell.cellIndex > 0 ? cell.cellIndex : null,
+      col: domCol(cell.cellIndex),
       text: cell.textContent ?? '',
     }
   }
@@ -125,23 +147,27 @@ export function useCsvSelection(container: Ref<HTMLElement | undefined>) {
     } else if (selection.kind === 'rows') {
       for (const i of selection.indices) tbl.tBodies[0]?.rows[i]?.classList.add('csv-sel')
     } else {
+      // DOM のセルは `#` 列のぶん 1 つずれる。
       for (const row of tbl.rows) {
-        for (const i of selection.indices) row.cells[i]?.classList.add('csv-sel')
+        for (const i of selection.indices) row.cells[i + 1]?.classList.add('csv-sel')
       }
     }
   }
 
-  /** 選んだ範囲をタブ区切りで返す。何も選んでいなければ null。`#` 列は含めない。 */
+  /** 選んだ範囲をタブ区切りで返す。何も選んでいなければ null。`#` 列（行番号）は含めない。 */
   function selectedText(): string | null {
-    const tbl = table()
-    if (!tbl || !selection) return null
-    const sorted = selection.kind === 'all' ? [] : [...selection.indices].sort((a, b) => a - b)
-    // 行: 全体と列は見出しを含む全行（Excel で列を選んでコピーしたときと同じ）、行は選んだ本文の行。
-    const rows = selection.kind === 'rows' ? sorted.flatMap((i) => tbl.tBodies[0]?.rows[i] ?? []) : [...tbl.rows]
-    // 列: 列を選んだときはその列、ほかは `#` 列を除いた全部。
-    const cols = (row: HTMLTableRowElement) =>
-      selection?.kind === 'cols' ? sorted : Array.from({ length: row.cells.length - 1 }, (_, k) => k + 1)
-    return joinTsv(rows.map((row) => cols(row).map((i) => row.cells[i]?.textContent ?? '')))
+    const { data, rows, pageOffset } = source()
+    if (!selection || !data) return null
+    const cells = (row: CsvRow) => cellsOf(row, data.delimiter)
+    if (selection.kind === 'rows') {
+      const picked = [...selection.indices].sort((a, b) => a - b).flatMap((i) => rows[pageOffset + i] ?? [])
+      return joinTsv(picked.map(cells))
+    }
+    // 全体と列は見出しの行も含めた全ページぶん（Excel で列を選んでコピーしたときと同じ）。
+    const table = [data.headers, ...rows.map(cells)]
+    if (selection.kind === 'all') return joinTsv(table)
+    const cols = [...selection.indices].sort((a, b) => a - b)
+    return joinTsv(table.map((r) => cols.map((i) => r[i] ?? '')))
   }
 
   return { handleClick, clear, paint, selectAll, selectOne, locate, hasSelection, selectedText }

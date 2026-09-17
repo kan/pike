@@ -371,6 +371,8 @@ export default {
   'settings.fetchLinkTitle': '貼り付けた URL をタイトル付きリンクにする',
   'settings.fetchLinkTitleHint': '有効にすると、Markdown に URL を貼るたびにそのページへ通信してタイトルを取得します。',
   'settings.tabSize': 'タブサイズ',
+  'settings.csvPageSize': 'CSV プレビューの表示件数',
+  'settings.csvPageSizeHint': '1 ページに表示する行数です。プレビューの表の上でも切り替えられます。',
   'settings.editorMaxFileSize': 'エディタで開けるファイルの大きさ',
   'settings.editorMaxFileSizeHint':
     'これより大きいファイルを開くと、先頭から読み取り専用で読み込むか、ほかのアプリで開くかを選ぶ画面になります。',
@@ -806,13 +808,22 @@ export default {
   'confirm.terminalBusyCloseMulti': '{count} 個のターミナルでプロセスが実行中です ({names})。終了して閉じますか？',
 
   // CSV Preview
-  'csv.truncated': '先頭 {max} 行のみ表示しています。',
+  'csv.empty': '空のファイルです',
   'csv.copied': '選択した範囲をタブ区切りでコピーしました',
+  'csv.sortAsc': '昇順で並べ替え',
+  'csv.sortDesc': '降順で並べ替え',
+  'csv.sortReset': '元の順に戻す',
+  'csv.pageRange': '{from}〜{to} 行目 / 全 {total} 行',
+  'csv.pageFirst': '最初のページ',
+  'csv.pagePrev': '前のページ',
+  'csv.pageNext': '次のページ',
+  'csv.pageLast': '最後のページ',
+  'csv.pageSize': '表示件数',
+  'csv.partialNotice': '{limit} を超えているファイルのため、一部を読み込んでいます',
+  'csv.copyAllPagesHint': '全体や列を選んでコピーすると、表示中のページに関係なく全行をコピーします',
   'csv.selectAll': '全体を選択',
   'csv.selectRow': '行を選択',
   'csv.selectColumn': '列を選択',
-  'csv.copiedTruncated': '選択した範囲をコピーしました（表示している先頭 {max} 行の中だけです）',
-
   // Markdown front matter
   'frontmatter.title': 'フロントマター',
   'frontmatter.empty': '(キーなし)',
