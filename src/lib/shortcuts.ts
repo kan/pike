@@ -242,8 +242,11 @@ const VSCODE_BINDINGS: KeyBinding[] = [
   { chords: ['F1'], action: 'manual', always: true },
   { chords: ['Mod+Shift+P'], action: 'projectSwitcher', always: true },
   { chords: ['Mod+P'], action: 'quickOpen', always: true },
-  // 実処理は別の層。エディタは CodeMirror、diff タブは自前の window リスナ。
-  { chords: ['Mod+S', 'Mod+F', 'Mod+H'] },
+  // 実処理は別の層。エディタは CodeMirror、diff タブ・プレビュー・ターミナルは自前の window リスナ。
+  { chords: ['Mod+S', 'Mod+H'] },
+  // 検索はターミナルでも Pike が取る（readline の forward-char より、ほかのタブと揃うほうを採る）。
+  // 全画面 TUI のあいだはシェルへ返す（vim / less の `Ctrl+F` は 1 画面進む）。
+  { chords: ['Mod+F'], terminalFirst: true, altScreenShell: true },
   { chords: ['Mod+W'], action: 'closeTab', terminalFirst: true, altScreenShell: true },
   // `altScreenShell` は `Ctrl+W` と同じ理由で付ける。ターミナルは `Ctrl+Shift+W` にも
   // `Ctrl+W` と同じバイト（0x17）を送るので、vim から見ればどちらもウィンドウ操作の prefix。

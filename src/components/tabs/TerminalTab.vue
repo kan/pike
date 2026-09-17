@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { FitAddon } from '@xterm/addon-fit'
+import { type ISearchOptions, SearchAddon } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
 import { Bot, ChevronDown, ChevronLeft, MessageSquareText } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { confirmDialog, confirmWithOption } from '../../composables/useConfirmDialog'
 import { copyOnSelect } from '../../composables/useCopyOnSelect'
 import {
@@ -21,9 +22,10 @@ import { isMacHost, isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
-import { normalizedKey } from '../../lib/keys'
+import { matchChord, normalizedKey } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
+import { readableTextOn } from '../../lib/projectColors'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
 import { agentSessionsList, ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import {
@@ -42,6 +44,7 @@ import { useTabStore } from '../../stores/tabs'
 import type { AgentSession } from '../../types/agentSession'
 import { isPowershellFamily, type ShellType } from '../../types/tab'
 import AgentSessionsMenu from '../AgentSessionsMenu.vue'
+import FindBar from '../editor/FindBar.vue'
 import HelpButton from '../HelpButton.vue'
 import '@xterm/xterm/css/xterm.css'
 
@@ -430,7 +433,102 @@ const termRef = ref<HTMLDivElement>()
 
 let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
+let searchAddon: SearchAddon | null = null
 let ptyId: string | null = null
+
+// --- 検索 ---------------------------------------------------------------------
+//
+// 一致を探すのと装飾は `@xterm/addon-search` の担当（折り返した行をつないで探す、
+// スクロールバックまで含める、を自前で持たない）。ここに残るのは検索バーとの受け渡しだけ。
+const findOpen = ref(false)
+const findQuery = ref('')
+const findCaseSensitive = ref(false)
+const findIndex = ref(0)
+const findCount = ref(0)
+/**
+ * アドオンは `highlightLimit` 件で数えるのをやめ、件数はその値で止まる。現在位置がその外に
+ * あると -1 で届く（`FindBar` は位置を出さない）。
+ */
+const FIND_LIMIT = 1000
+const findTruncated = computed(() => findCount.value >= FIND_LIMIT)
+
+/**
+ * 装飾の色。**アドオンは `#RRGGBB` しか受けない**ので、`theme.css` の `--find-*` 変数
+ * （半透明の rgba）を渡せない。明暗はアプリのテーマではなく**ターミナルの配色の下地**で選ぶ
+ * （ダークモードで Solarized Light を選ぶ人がいる）。
+ */
+const FIND_DECORATIONS = {
+  dark: { matchBackground: '#6b5500', activeMatchBackground: '#c77800' },
+  light: { matchBackground: '#ffe58f', activeMatchBackground: '#ffa629' },
+}
+
+function findOptions(incremental = false): ISearchOptions {
+  const onLight = readableTextOn(settingsStore.colorScheme.background) === '#000000'
+  return {
+    caseSensitive: findCaseSensitive.value,
+    incremental,
+    decorations: {
+      ...FIND_DECORATIONS[onLight ? 'light' : 'dark'],
+      matchOverviewRuler: '#ffc800',
+      activeMatchColorOverviewRuler: '#ff9f00',
+    },
+  }
+}
+
+const findBar = useTemplateRef<{ focus: () => void }>('findBar')
+
+/**
+ * **アドオンは開いたときに読み込み、閉じたら捨てる。** 読み込んだままだと、検索を使わない
+ * タブでも出力のたびに再検索の確認が走る（タブは v-show で生き続け、エージェントは出力を
+ * 流し続ける）。捨てれば装飾も検索語も一緒に消える。
+ */
+function openFind() {
+  // 開いた直後のフォーカスは `FindBar` 自身が取る。ここで呼ぶのは開いたまま押し直したときのため。
+  if (findOpen.value) return findBar.value?.focus()
+  if (!terminal) return
+  findOpen.value = true
+  searchAddon = new SearchAddon({ highlightLimit: FIND_LIMIT })
+  terminal.loadAddon(searchAddon)
+  searchAddon.onDidChangeResults(({ resultIndex, resultCount }) => {
+    findIndex.value = resultIndex
+    findCount.value = resultCount
+  })
+  // 前回の検索語が残っていれば探し直す（件数だけ古いまま出さない）。
+  searchFromQuery()
+}
+
+/** 検索語か大小の区別が変わったとき。打ち足したぶんは今の一致から伸ばす（打つたびに次へ飛ばない）。 */
+function searchFromQuery() {
+  if (!searchAddon) return
+  if (findQuery.value) searchAddon.findNext(findQuery.value, findOptions(true))
+  else searchAddon.clearDecorations()
+}
+
+function stepFind(delta: number) {
+  if (!searchAddon || !findQuery.value) return
+  if (delta > 0) searchAddon.findNext(findQuery.value, findOptions())
+  else searchAddon.findPrevious(findQuery.value, findOptions())
+}
+
+function closeFind() {
+  findOpen.value = false
+  searchAddon?.dispose()
+  searchAddon = null
+  terminal?.focus()
+}
+
+watch([findQuery, findCaseSensitive], searchFromQuery)
+
+/**
+ * 検索を開く（`Mod+F`）。**xterm のキーハンドラではなく window で受ける**（diff タブ・プレビューと
+ * 同じ）。Windows / Linux の `Ctrl+F` は表の行（`terminalFirst` / `altScreenShell`）がシェルへ
+ * 渡すかを決め、渡さなければここまで伝わる。mac の `⌘F` は xterm が PTY へ送らないので素通しで届く。
+ */
+function onFindKeydown(e: KeyboardEvent) {
+  if (!matchChord(e, 'Mod+F') || !tabStore.isTabFocused(props.tabId)) return
+  e.preventDefault()
+  openFind()
+}
 let resizeObserver: ResizeObserver | null = null
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 let windowFocusHandler: (() => void) | null = null
@@ -651,6 +749,7 @@ watch(
 )
 
 onMounted(async () => {
+  window.addEventListener('keydown', onFindKeydown)
   if (!termRef.value) return
 
   terminal = new Terminal({
@@ -960,7 +1059,12 @@ onMounted(async () => {
     }
   })
 
-  terminal.onSelectionChange(() => copyOnSelect(() => terminal?.getSelection() ?? ''))
+  // **検索バーが開いているあいだはコピーしない。** 検索アドオンは一致を選択範囲で示すので、
+  // 打鍵・前後移動・出力のたびの再検索がそのままクリップボードを書き換え、初回の確認ダイアログが
+  // 1 文字目で検索欄のフォーカスを奪う。代償として、その間に手で選択してもコピーされない。
+  terminal.onSelectionChange(() => {
+    if (!findOpen.value) copyOnSelect(() => terminal?.getSelection() ?? '')
+  })
 
   // Delegate to terminal.paste() for bracket paste mode support and to avoid
   // ConPTY truncation (Rust pty_write chunks at 4KB).
@@ -1203,6 +1307,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('keydown', onFindKeydown)
   if (windowFocusHandler) window.removeEventListener('focus', windowFocusHandler)
   if (windowBlurHandler) window.removeEventListener('blur', windowBlurHandler)
   window.removeEventListener('mousedown', closeAgentMenu)
@@ -1227,7 +1332,19 @@ onUnmounted(() => {
     :class="{ opaque: settingsStore.windowBackdrop === 'none' }"
     data-testid="terminal"
   >
-    <div v-if="showAgentLaunch || showPromptInject" class="hover-toolbar term-toolbar">
+    <!-- 検索バーと同じ角に出るので、開いているあいだは隠す（diff タブの折り返しボタンと同じ）。 -->
+    <FindBar
+      v-if="findOpen"
+      ref="findBar"
+      v-model:query="findQuery"
+      v-model:case-sensitive="findCaseSensitive"
+      :current="findIndex"
+      :total="findCount"
+      :truncated="findTruncated"
+      @step="stepFind"
+      @close="closeFind"
+    />
+    <div v-else-if="showAgentLaunch || showPromptInject" class="hover-toolbar term-toolbar">
       <div v-if="showPromptInject" class="agent-launch" :class="{ open: promptMenuOpen }">
         <button class="agent-btn solo" :title="t('terminal.promptInject')" @click="togglePromptMenu">
           <MessageSquareText :size="14" :stroke-width="2" />

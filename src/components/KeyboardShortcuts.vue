@@ -106,6 +106,7 @@ const sections = computed<ShortcutSection[]>(() => [
   {
     title: t('shortcuts.terminal'),
     items: [
+      { keys: ['Mod+F'], label: t('shortcuts.find') },
       { keys: [t('shortcuts.selectText')], label: t('shortcuts.selectCopy') },
       { keys: [t('shortcuts.rightClick')], label: t('shortcuts.rightClickPaste') },
       {

@@ -723,7 +723,7 @@ export default {
   'shortcuts.markdown': 'Markdown',
   'shortcuts.mdLink': 'Link (wins over the shortcut list while editing Markdown)',
   'shortcuts.mdListContinue': 'Continue the list or quote (empty item ends it)',
-  'shortcuts.shellFirst': 'Sent to the shell (except the tab keys)',
+  'shortcuts.shellFirst': 'Sent to the shell (except the tab and find keys)',
   'shortcuts.shellFirstMac': 'Sent to the shell',
 
   // Agent status panel (#226)

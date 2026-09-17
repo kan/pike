@@ -105,6 +105,13 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   - 例外を作る側は**割り当ての表の行に付けた印**（`lib/shortcuts.ts` の `terminalFirst`。タブの出し入れと文字の大きさだけ）。判定は同ファイルの `pikeTakesTerminalKey` で、`TerminalTab.vue` の `attachCustomKeyEventHandler` がそれで **`false` を返す**と `_keyDown` が即 return するので、PTY へも流れず `cancel` も通らず window まで伝わる。**`stopPropagation` や `preventDefault` を足す方向では直らない**（xterm 本体はこのハンドラの後に走り、そこで両方呼ぶ）
   - **印を行に付けてあるのは、プリセット（#261）で chord が変わっても追従させるため。** キー名の集合を別に持っていたころの形だと、IDEA 互換に切り替えた瞬間に「シェルへ返す一覧」だけが VSCode 互換のまま残る。Windows の IDEA では `Ctrl+W` と `Ctrl+T` がシェルへ戻り、代わりに `Ctrl+F4` と `Alt+←→` を Pike が取る（mac の IDEA は Cmd 側のキーマップなので、この入れ替わりが起きない。#280）
   - **`Ctrl+W` だけは代替画面（`inAltScreen`）のあいだシェルへ返す**（行の `altScreenShell`）。vim のウィンドウ操作の prefix なので、奪うと `Ctrl+W s` 等が打てないうえタブが閉じる。素のシェル（readline の unix-werase）では Pike 優先のままにするため、判定はキー単位ではなく代替画面の有無で行う。IDEA 互換では閉じるキーが Windows で `Ctrl+F4`、mac で `⌘W` になり、どちらも vim と衝突しないので、この印は付けない
+  - **`Ctrl+F`（検索）も同じ 2 つの印を持つ**。readline の forward-char より、エディタ・diff・プレビューと揃うほうを採った（VSCode のターミナルと同じ）。vim / less の `Ctrl+F` は 1 画面進むので代替画面では返す。**受けるのは window の keydown**（`onFindKeydown`。diff タブ・プレビューと同じ）で、xterm のハンドラに特例を足さない: Windows / Linux は表の行がシェルへ渡すかを決め、mac の `⌘F` は xterm が PTY へ送らず cancel もしないので素通しで届く
+- **ターミナルの検索は `@xterm/addon-search`**。折り返した行の結合とスクロールバックの走査を自前で持たないため。見た目は `components/editor/FindBar.vue`（diff タブ・プレビューと共有）
+  - **アドオンは検索バーを開いたときに読み込み、閉じたら捨てる**（`openFind` / `closeFind`）。読み込んだままだと、検索を使わないタブでも出力のたびに再検索の確認が走る。開いたままのタブが隠れているあいだの再走査は止めていない
+  - **装飾の色は `#RRGGBB` しか受けない**ので、`theme.css` の `--find-*`（rgba）を渡せず、`FIND_DECORATIONS` にダーク / ライトの 2 組を持つ。明暗はアプリのテーマではなくターミナルの配色の下地（`colorScheme.background`）で選ぶ
+  - **件数は `highlightLimit`（`FIND_LIMIT`=1000）で止まり、現在位置がその外だと `resultIndex` が -1 で届く**。打ち切りの判定は件数で行い（-1 だけを見ると先頭 1000 件の中にいるとき `+` が落ちる）、FindBar は `current < 0` を「位置不明」として件数だけ出す
+  - **検索バーが開いているあいだは選択のコピー（#342）を止める**。アドオンは一致を選択範囲で示すので、打鍵・移動・出力のたびの再検索がクリップボードを書き換える
+  - 開き直したら、残っている前回の検索語で探し直す（アドオンは閉じるときに捨てている）
   - **`attachCustomKeyEventHandler` は Alt も調停に通す**（#261）。Windows の IDEA 互換がタブ移動を `Alt+←→`、新規ターミナルを `Alt+F12` に置くので、Alt を無条件でシェルへ渡すとそれらが一度も発火しない。VSCode 互換では Alt の chord に `terminalFirst` が無いため、素通しの挙動は変わらない
   - readline が使う `Ctrl+K`（行末まで削除）・`Ctrl+P` / `Ctrl+N`（履歴）と、TUI アプリの `F1` はシェルに残す方針。**一覧をグローバルハンドラと同じファイルに置く**のは、そこが同じキーを取り合う相手だから（ターミナル側に置くと、`useKeyboardShortcuts.ts` に Ctrl+英字を足す人が「ターミナルでは効かない」ことに気付けない。readline の `Ctrl+A/E/U/D/Y` は未使用のまま残っている）
   - 変更したら 3 箇所（この定数・`KeyboardShortcuts.vue` のターミナル節・`docs/manual/shortcuts-and-cli.md`）を揃える

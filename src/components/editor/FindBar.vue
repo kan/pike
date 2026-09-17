@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * タブの右上に浮く検索バー（#176 の diff タブ、#360 のプレビュー）。
+ * タブの右上に浮く検索バー（#176 の diff タブ、#360 のプレビュー、ターミナル）。
  *
  * **持つのは見た目と入力の作法だけ**（Enter / Shift+Enter で移動、Escape で閉じる）。何を
  * 数えてどこへ動かすかは置いた側が決める: diff は行と欄の表を、プレビューは描画済みの DOM を
@@ -10,9 +10,10 @@
 import { CaseSensitive, ChevronDown, ChevronUp, X } from 'lucide-vue-next'
 import { computed, onMounted, useTemplateRef } from 'vue'
 import { useI18n } from '../../i18n'
+import { matchChord } from '../../lib/keys'
 
 const props = defineProps<{
-  /** 現在の一致（0 始まり）。 */
+  /** 現在の一致（0 始まり）。分からなければ -1。 */
   current: number
   total: number
   /** 上限で数えるのをやめたか（件数に `+` を付ける）。 */
@@ -28,11 +29,17 @@ const input = useTemplateRef<HTMLInputElement>('input')
 const info = computed(() => {
   if (!query.value) return ''
   if (props.total === 0) return t('search.noResults')
-  return `${props.current + 1} / ${props.total}${props.truncated ? '+' : ''}`
+  const count = `${props.total}${props.truncated ? '+' : ''}`
+  // 位置が分からない（ターミナルの検索は上限を超えると現在位置を返さない）。
+  return props.current < 0 ? count : `${props.current + 1} / ${count}`
 })
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
+  // 入力欄の中で押し直したら選び直すだけ。止めないと WebView のページ内検索に届きうる。
+  if (matchChord(e, 'Mod+F')) {
+    e.preventDefault()
+    focus()
+  } else if (e.key === 'Enter') {
     e.preventDefault()
     emit('step', e.shiftKey ? -1 : 1)
   } else if (e.key === 'Escape') {

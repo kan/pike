@@ -722,7 +722,7 @@ export default {
   'shortcuts.markdown': 'Markdown',
   'shortcuts.mdLink': 'リンク（Markdown 編集中はショートカット一覧より優先）',
   'shortcuts.mdListContinue': 'リスト・引用の継続（空の項目で解除）',
-  'shortcuts.shellFirst': 'シェルに渡す（タブ操作のキーを除く）',
+  'shortcuts.shellFirst': 'シェルに渡す（タブ操作と検索のキーを除く）',
   'shortcuts.shellFirstMac': 'シェルに渡す',
 
   // エージェント状態パネル (#226)
