@@ -808,6 +808,11 @@ export default {
 
   // CSV Preview
   'csv.truncated': 'Showing first {max} rows only.',
+  'csv.copied': 'Copied the selection as tab-separated text',
+  'csv.selectAll': 'Select All',
+  'csv.selectRow': 'Select Row',
+  'csv.selectColumn': 'Select Column',
+  'csv.copiedTruncated': 'Copied the selection (only within the first {max} rows shown)',
 
   // Markdown front matter
   'frontmatter.title': 'Front matter',

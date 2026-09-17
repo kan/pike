@@ -209,6 +209,10 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 ## プレビュー拡張
 - CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）
   - CSV/TSV: `buildCsvPreview` でテーブル化（RFC 4180 準拠の引用符対応パーサ、10,000 行 truncate、sticky ヘッダ）
+    - **列・行の選択は `composables/useCsvSelection.ts` が自前で持つ**（ブラウザの文字選択は文書の並びに沿った 1 本の範囲で、1 列だけを選べない）。印は class で付け、`v-html` で作り直されたら `paint` で付け直す。コピーは `lib/text.ts` の `joinTsv`
+    - **表の上の右クリックは自前のメニュー**（`onPreviewContextMenu`。全体・行・列の選択とコピー）。WebView の既定のメニュー（戻る・再読み込み・検証）は Pike では意味を持たない。行・列は右クリックしたセルのもの（`locate`）
+  - **`Ctrl+A` はフォーカスのあるペインの中だけを選ぶ**（`useKeyboardShortcuts` の `selectAllInPane`）。素のままだと、フォーカスを持たない面（プレビュー・diff・マニュアル・サイドバーのパネル）で押したときに WebView の文書全体（サイドバーやタブバーまで）が選ばれる。入力欄・CodeMirror・xterm は自分の全選択を持つので既定に譲る。**プレビューだけを直す形にしないこと**: 同じ穴はフォーカスを持たない面すべてにある
+  - **プレビューは `tabindex="-1"`**（クリックでフォーカスを持つ）。CSV の列・行の選択のキー（`Ctrl+A` で表全体・`Ctrl+C`・`Esc`）はペインの `@keydown`（`onPreviewKeydown`）で受け、`preventDefault` した `Ctrl+A` はグローバル側が素通しする。「フォーカスは body だから多分プレビュー」と推測する形は、フォーカスを取らない面が増えるたびに条件が要る
   - **reStructuredText（#284）**: ハイライトは `codemirror-lang-rst`（CM6 に公式のものが無いので入れた外部パッケージ。依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる）。プレビューは `lib/rstPreview.ts` の `buildRstPreview` で**自前**。判断の実体はあのファイルの doc コメントが正本だが、要点は次のとおり:
     - **変換器を入れなかったのは、#284 の時点で選択肢が悪かったから。** 当時の JS の rst → HTML は `rst2html`（2017 年）と `restructured`（2016 年）くらいで、後者は `power-assert`（650KB）と `commander`（207KB）を production dependencies に持つ
     - **その前提はもう古い（2026-09-01）。** `rst-compiler`（純 TypeScript・MIT・現役）が実用水準にある。`shiki` と `katex` を抱えるので見送っているだけで、**運用して不具合が続くようなら依存が太るのを許容して載せ替える**。Rust 側（`rust_parser` / `rst_renderer`）は完成度が変わらず、しかも「Rust は I/O ブリッジに徹する」に反して打鍵のたびに IPC を往復するので採らない。詳細は `lib/rstPreview.ts` の冒頭が正本

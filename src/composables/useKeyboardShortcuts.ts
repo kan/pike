@@ -2,6 +2,7 @@ import { onMounted, onUnmounted } from 'vue'
 import { hasMod, matchChord, normalizedKey } from '../lib/keys'
 import { keyBindings, MODIFIERLESS_KEYS } from '../lib/shortcuts'
 import { useProjectStore } from '../stores/project'
+import { useTabStore } from '../stores/tabs'
 import { useAppActions } from './useAppActions'
 
 /**
@@ -28,6 +29,7 @@ import { useAppActions } from './useAppActions'
  */
 export function useKeyboardShortcuts() {
   const projectStore = useProjectStore()
+  const tabStore = useTabStore()
   const actions = useAppActions()
 
   function onKeyDown(e: KeyboardEvent) {
@@ -44,6 +46,15 @@ export function useKeyboardShortcuts() {
     if (!hasMod(e) && !e.ctrlKey && !e.altKey && !MODIFIERLESS_KEYS.value.has(e.key)) return
 
     const overlayOpen = projectStore.showSwitcher || projectStore.showQuickOpen
+
+    // 全選択は、フォーカスのあるペインの中に閉じ込める。素のままだと、フォーカスを持たない
+    // 面（プレビュー・diff・マニュアル・サイドバーのパネル）で押したときに WebView の文書全体
+    // （サイドバーやタブバーまで）が選ばれる。入力欄・エディタ・ターミナルは自分の全選択を持つ
+    // ので既定に譲り、先に受けた層（CSV プレビューの表の選択）があればそちらを優先する。
+    if (matchChord(e, 'Mod+A') && !e.defaultPrevented && selectAllInPane()) {
+      e.preventDefault()
+      return
+    }
 
     for (const b of keyBindings.value) {
       if (overlayOpen && !b.always) continue
@@ -65,6 +76,21 @@ export function useKeyboardShortcuts() {
       e.preventDefault()
       actions.selectTabByDigit(digit)
     }
+  }
+
+  /** 全選択を引き受けたら true。自分の全選択を持つ要素にフォーカスがあれば false（既定に譲る）。 */
+  function selectAllInPane(): boolean {
+    const active = document.activeElement
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return false
+    if (active instanceof HTMLElement && (active.isContentEditable || active.closest('.cm-editor, .xterm'))) {
+      return false
+    }
+    // フォーカスを持つ面（`tabindex` を付けたプレビュー）はその面のペイン、無ければ操作対象のペイン。
+    const inPane = active && active !== document.body ? active.closest('.pane-content') : null
+    const root = inPane ?? document.getElementById(`pane-${tabStore.focusedPane}`)
+    if (!root) return false
+    window.getSelection()?.selectAllChildren(root)
+    return true
   }
 
   onMounted(() => {

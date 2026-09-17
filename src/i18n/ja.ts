@@ -807,6 +807,11 @@ export default {
 
   // CSV Preview
   'csv.truncated': '先頭 {max} 行のみ表示しています。',
+  'csv.copied': '選択した範囲をタブ区切りでコピーしました',
+  'csv.selectAll': '全体を選択',
+  'csv.selectRow': '行を選択',
+  'csv.selectColumn': '列を選択',
+  'csv.copiedTruncated': '選択した範囲をコピーしました（表示している先頭 {max} 行の中だけです）',
 
   // Markdown front matter
   'frontmatter.title': 'フロントマター',

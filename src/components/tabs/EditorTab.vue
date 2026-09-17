@@ -10,6 +10,7 @@ import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, dialogOpen, promptDialog } from '../../composables/useConfirmDialog'
+import { type CsvCellRef, useCsvSelection } from '../../composables/useCsvSelection'
 import { type EditorActions, useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useMarkdownImages } from '../../composables/useMarkdownImages'
@@ -275,6 +276,8 @@ const showPreview = computed(() => viewMode.value !== 'edit')
 // プレビューの検索（#360）。standalone の mermaid は別の要素に描くので、そちらを相手にする。
 const findTarget = computed(() => (isMermaid.value ? mermaidRef.value : previewRef.value))
 const previewFind = usePreviewFind(findTarget, props.tabId)
+/** CSV プレビューの列・行の選択（Excel 風）。 */
+const csvSelection = useCsvSelection(previewRef)
 const findBar = useTemplateRef<{ focus: () => void }>('findBar')
 
 function openPreviewFind() {
@@ -350,6 +353,9 @@ const SVG_PURIFY_OPTS = {
   ALLOWED_URI_REGEXP,
 }
 
+/** CSV プレビューで描く行数の上限。選択のコピーもこの範囲になる。 */
+const CSV_MAX_ROWS = 10000
+
 function buildCsvPreview(text: string): string {
   const ext = fileExt.value
   const delimiter = ext === 'tsv' ? '\t' : ','
@@ -359,12 +365,11 @@ function buildCsvPreview(text: string): string {
   // RFC 4180 の引用符の扱いは `lib/text.ts` と共有する（rst の `csv-table` も同じ規則）。
   const parseLine = (line: string) => splitDelimited(line, delimiter)
 
-  const maxRows = 10000
   const headers = parseLine(lines[0])
   let html = '<table><thead><tr><th>#</th>'
   for (const h of headers) html += `<th>${escapeHtml(h)}</th>`
   html += '</tr></thead><tbody>'
-  const rowCount = Math.min(lines.length - 1, maxRows)
+  const rowCount = Math.min(lines.length - 1, CSV_MAX_ROWS)
   for (let i = 0; i < rowCount; i++) {
     const cells = parseLine(lines[i + 1])
     html += `<tr><td class="csv-row-num">${i + 1}</td>`
@@ -372,8 +377,9 @@ function buildCsvPreview(text: string): string {
     html += '</tr>'
   }
   html += '</tbody></table>'
-  if (lines.length - 1 > maxRows)
-    html += `<p style="text-align:center;color:var(--text-secondary);font-size:12px">${escapeHtml(t('csv.truncated', { max: String(maxRows) }))}</p>`
+  // `csv-truncated` はコピーのときに「打ち切っているか」を見る印も兼ねる（`copyCsvSelection`）。
+  if (lines.length - 1 > CSV_MAX_ROWS)
+    html += `<p class="csv-truncated">${escapeHtml(t('csv.truncated', { max: String(CSV_MAX_ROWS) }))}</p>`
   return html
 }
 
@@ -698,6 +704,8 @@ async function trackFrontmatterToggle() {
 // **折り畳みの追従も両方で要る（#302）。** rst の `.. meta::` は Markdown のフロントマターと
 // 同じ `details.frontmatter` で出すので、通さないと打鍵のたびに開いた状態が閉じる。
 watch(previewHtml, () => {
+  // 選択の印は描画に焼き込んでいないので、作り直された表に付け直す。
+  if (isCsv.value) void nextTick(csvSelection.paint)
   if (isMarkdown.value) renderMarkdownMermaid()
   if (isProsePreview.value) {
     trackFrontmatterToggle()
@@ -1593,6 +1601,91 @@ function onGlobalKeyDown(e: KeyboardEvent) {
   }
 }
 
+/**
+ * CSV プレビューにフォーカスがあるときのキー（列・行の選択）。プレビューは `tabindex="-1"` で
+ * クリックするとフォーカスを持つので、ペインの `@keydown` で受ければ「どこに向いたキーか」を
+ * 推測しなくてよい。**`Ctrl+A` の既定（ペインの中の文字をすべて選ぶ）は `useKeyboardShortcuts`
+ * が持つ**。ここで `preventDefault` すると、あちらは表の選択を優先して何もしない。
+ */
+function onPreviewKeydown(e: KeyboardEvent) {
+  if (!isCsv.value) return
+  if (matchChord(e, 'Mod+A')) {
+    e.preventDefault()
+    csvSelection.selectAll()
+  } else if (matchChord(e, 'Mod+C')) {
+    // 列・行を選んでいないときは、セルの中の文字選択を普通にコピーさせる。
+    const text = csvSelection.selectedText()
+    if (text === null) return
+    e.preventDefault()
+    copyCsvSelection(text)
+  } else if (e.key === 'Escape') {
+    csvSelection.clear()
+  }
+}
+
+/** 列・行の選択をコピーしてステータスバーに出す。 */
+function copyCsvSelection(text: string) {
+  // 表示を 10,000 行で打ち切っているときは、コピーもその範囲だけになる（描画した表から組み立てるため）。
+  const truncated = !!previewRef.value?.querySelector('.csv-truncated')
+  copyToClipboard(
+    text,
+    truncated
+      ? { text: t('csv.copiedTruncated', { max: String(CSV_MAX_ROWS) }), variant: 'warn' }
+      : { text: t('csv.copied'), variant: 'success' },
+  )
+}
+
+/** クリップボードへ書き、結果をステータスバーに出す（CSV のコピーの 2 つの経路が共有する）。 */
+function copyToClipboard(text: string, done: { text: string; variant: 'success' | 'warn' }) {
+  navigator.clipboard.writeText(text).then(
+    () => statusMessageStore.show(done),
+    (err) => statusMessageStore.show({ text: String(err), variant: 'error' }),
+  )
+}
+
+// --- CSV プレビューの右クリックメニュー ---
+//
+// WebView の既定のメニュー（戻る・再読み込み・検証…）は Pike では意味を持たないので、表の上では
+// 選択とコピーのメニューに差し替える。行・列の項目は右クリックした場所のものを選ぶ。
+const csvMenu = ref<CsvCellRef | null>(null)
+const {
+  style: csvMenuStyle,
+  placeAt: placeCsvMenu,
+  reset: resetCsvMenu,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('csvMenuEl'))
+
+async function onPreviewContextMenu(e: MouseEvent) {
+  if (!isCsv.value) return
+  e.preventDefault()
+  resetCsvMenu()
+  csvMenu.value = csvSelection.locate(e.target as Element)
+  await placeCsvMenu({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeCsvMenu, { once: true })
+}
+
+function closeCsvMenu() {
+  csvMenu.value = null
+  resetCsvMenu()
+}
+
+/** メニューの項目を実行して閉じる。 */
+function runCsvMenu(action: (m: CsvCellRef) => void) {
+  const m = csvMenu.value
+  closeCsvMenu()
+  if (m) action(m)
+}
+
+/**
+ * メニューの「コピー」。列・行を選んでいればそれ、無ければセルの中で選んだ文字、それも無ければ
+ * 右クリックしたセルの中身。
+ */
+function copyFromCsvMenu(m: CsvCellRef) {
+  const selected = csvSelection.selectedText()
+  if (selected !== null) return copyCsvSelection(selected)
+  const text = window.getSelection()?.toString() || m.text
+  if (text) copyToClipboard(text, { text: t('common.copied'), variant: 'success' })
+}
+
 onMounted(async () => {
   document.addEventListener('keydown', onGlobalKeyDown)
   if (!editorRef.value || !tab.value) return
@@ -1737,6 +1830,8 @@ function resolveLocalPath(href: string): string | null {
 }
 
 async function onPreviewClick(e: MouseEvent) {
+  if (isCsv.value && csvSelection.handleClick(e)) return
+
   // Approve a host for external images (#239). The chips are rebuilt on every
   // render, so the listener lives here rather than on each button.
   const chip = (e.target as HTMLElement).closest<HTMLElement>('.external-image')
@@ -2168,6 +2263,7 @@ onUnmounted(() => {
         v-if="showPreview && !isMermaid"
         ref="previewRef"
         class="preview-pane"
+        tabindex="-1"
         :class="{
           // rst にも `md-preview` を当てる（#284）。見出し・段落・リスト・コード・表の
           // 見た目は同じでよく、rst 固有の要素だけを `rst-preview` 側で足す。
@@ -2180,11 +2276,14 @@ onUnmounted(() => {
         v-html="previewHtml"
         @scroll="onPreviewScroll"
         @click="onPreviewClick"
+        @keydown="onPreviewKeydown"
+        @contextmenu="onPreviewContextMenu"
       ></div>
       <div
         v-if="showPreview && isMermaid"
         ref="mermaidRef"
         class="preview-pane mermaid-preview"
+        tabindex="-1"
         :style="{ '--mermaid-zoom': mermaidZoom }"
       ></div>
       <button
@@ -2208,6 +2307,31 @@ onUnmounted(() => {
       />
     </div>
     <div v-if="saving" class="save-indicator popup-surface">{{ t('editor.saving') }}</div>
+
+    <!-- CSV プレビューの右クリックメニュー -->
+    <Teleport to="body">
+      <div
+        v-if="csvMenu"
+        ref="csvMenuEl"
+        class="editor-ctx-menu popup-surface"
+        :style="csvMenuStyle"
+        @mousedown.stop
+      >
+        <button @click="runCsvMenu(() => csvSelection.selectAll())">
+          <span>{{ t('csv.selectAll') }}</span><span class="ctx-key">{{ chordLabel('Mod+A') }}</span>
+        </button>
+        <button :disabled="csvMenu.row === null" @click="runCsvMenu((m) => csvSelection.selectOne('rows', m.row))">
+          <span>{{ t('csv.selectRow') }}</span>
+        </button>
+        <button :disabled="csvMenu.col === null" @click="runCsvMenu((m) => csvSelection.selectOne('cols', m.col))">
+          <span>{{ t('csv.selectColumn') }}</span>
+        </button>
+        <div class="ctx-separator"></div>
+        <button :disabled="!csvMenu.text && !csvSelection.hasSelection()" @click="runCsvMenu(copyFromCsvMenu)">
+          <span>{{ t('editor.copy') }}</span><span class="ctx-key">{{ chordLabel('Mod+C') }}</span>
+        </button>
+      </div>
+    </Teleport>
 
     <!-- Context Menu -->
     <Teleport to="body">
@@ -2427,6 +2551,11 @@ onUnmounted(() => {
 
 .editor-body.split > .preview-pane {
   border-right: none;
+}
+
+/* プレビューはキーを受けるためにフォーカスを持つ（`tabindex="-1"`）が、枠は出さない。 */
+.preview-pane:focus {
+  outline: none;
 }
 
 .editor-container {
@@ -2680,6 +2809,33 @@ onUnmounted(() => {
   text-align: right;
   min-width: 40px;
   font-size: 11px;
+}
+
+.csv-preview :deep(.csv-truncated) {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* 列見出しと行番号は選択の入口（`useCsvSelection`）。文字選択にならないようにする。 */
+.csv-preview :deep(th),
+.csv-preview :deep(.csv-row-num) {
+  cursor: pointer;
+  user-select: none;
+}
+
+.csv-preview :deep(th:hover),
+.csv-preview :deep(.csv-row-num:hover) {
+  color: var(--accent);
+}
+
+/* 選択した列・行・全体。`table.csv-sel` は全体、`tr.csv-sel` は行、セルの `csv-sel` は列。 */
+.csv-preview :deep(table.csv-sel td),
+.csv-preview :deep(table.csv-sel th),
+.csv-preview :deep(tr.csv-sel > td),
+.csv-preview :deep(td.csv-sel),
+.csv-preview :deep(th.csv-sel) {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
 
 .json-preview {

@@ -66,6 +66,16 @@ export function findRanges(text: string, query: string, caseSensitive: boolean, 
   return ranges
 }
 
+/**
+ * 表をタブ区切りの文字列にする（CSV プレビューの選択のコピー）。Excel やスプレッドシートに
+ * 貼ると、そのまま行と列に分かれる形。タブ・改行・引用符を含むセルは `splitDelimited` と同じ
+ * 規則（引用符で囲み、中の引用符は 2 つ重ねる）で包む。
+ */
+export function joinTsv(rows: string[][]): string {
+  const cell = (s: string) => (/[\t\r\n"]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s)
+  return rows.map((r) => r.map(cell).join('\t')).join('\n')
+}
+
 export function splitDelimited(line: string, delimiter: string): string[] {
   const cells: string[] = []
   let cur = ''
