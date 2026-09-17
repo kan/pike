@@ -183,6 +183,15 @@ async function bootstrap() {
       // initialContent を渡すと EditorTab は fs_read_file を読まずその内容で描画するため
       // invoke モック不要。initialViewMode は markdown 等プレビュー可能な拡張子でのみ効く。
       // 既存エディタタブは data-testid/セレクタ競合を避けるため閉じてから開く。
+      // 本文を渡さずにエディタタブを開く（読み込みを `fs_read_file` の invoke モックに任せる）。
+      // 読み込み結果で出し分ける画面（大きすぎるファイル #362 など）を撮るため。
+      openEditorFromDisk: (path: string) => {
+        project.showSwitcher = false
+        for (const t of [...tabs.tabs]) {
+          if (t.kind === 'editor') void tabs.closeTab(t.id)
+        }
+        tabs.addEditorTab({ path })
+      },
       openEditor: (opts: { path: string; content: string; viewMode?: 'edit' | 'split' | 'preview' }) => {
         project.showSwitcher = false
         for (const t of [...tabs.tabs]) {

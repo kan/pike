@@ -71,6 +71,8 @@ MAP=(
   "settings-agents:settings-agents"
   # v0.52.0 で新しく撮るもの
   "terminal-path-confirm:terminal-path-confirm"
+  # v0.53.0 で新しく撮るもの
+  "editor-too-large:editor-too-large"
 )
 
 check=0
