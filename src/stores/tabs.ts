@@ -400,6 +400,7 @@ export const useTabStore = defineStore('tabs', () => {
       await ptyKill(tab.ptyId).catch(() => {})
     }
 
+    const hadRight = rightHasTabs()
     tabs.value.splice(idx, 1)
     untitledContent.delete(id)
     // Closing before the command finished still resolves the waiter (-1, the
@@ -419,6 +420,7 @@ export const useTabStore = defineStore('tabs', () => {
       const list = tabsIn(pane)
       activeByPane.value[pane] = list[Math.min(paneIdx, list.length - 1)]?.id ?? null
     }
+    collapseIfRightEmptied(hadRight)
   }
 
   async function clearAllTabs() {
@@ -986,10 +988,12 @@ export const useTabStore = defineStore('tabs', () => {
     }
 
     const idsToClose = new Set(toClose.map((t) => t.id))
+    const hadRight = rightHasTabs()
     tabs.value = tabs.value.filter((t) => !idsToClose.has(t.id))
 
     // 選択が消えたペインだけ選び直す（#308。生きていれば `reselect` が据え置く）。
     for (const pane of PANES) reselect(pane)
+    collapseIfRightEmptied(hadRight)
 
     if (shouldClose) {
       await getCurrentWindow()
@@ -1103,14 +1107,8 @@ export const useTabStore = defineStore('tabs', () => {
    * 見ていたタブは選択ごと左へ引き継ぐので、閉じても画面の中身は変わらない。
    */
   function toggleSplit() {
-    if (split.value) {
-      const keep = activeTabId.value
-      split.value = false
-      focusedPane.value = 'left'
-      activeByPane.value.right = null
-      reselect('left', keep)
-      return
-    }
+    if (split.value) return closeSplit()
+
     split.value = true
     // 右に置いたままのタブがあれば拾い直す（解除では置き場を消していない）。
     reselect('right')
@@ -1122,6 +1120,37 @@ export const useTabStore = defineStore('tabs', () => {
     else focusedPane.value = 'right'
   }
 
+  /** 分割を閉じ、見ていたタブを左の選択に引き継ぐ（右が空で見ていなければ左の選択のまま）。 */
+  function closeSplit() {
+    const keep = activeTabId.value
+    split.value = false
+    focusedPane.value = 'left'
+    activeByPane.value.right = null
+    reselect('left', keep ?? activeByPane.value.left)
+  }
+
+  /** 右のペインに見えているタブがあるか。`collapseIfRightEmptied` へ渡す「前」の値を取る。 */
+  function rightHasTabs(): boolean {
+    return split.value && tabsIn('right').length > 0
+  }
+
+  /**
+   * 右のペインが空に**なった**ら分割を畳む（#361）。`hadRight` はタブを消す・移す直前の
+   * `rightHasTabs()`。タブを減らす経路（閉じる・左へ移す）だけが呼ぶ。
+   *
+   * **「右が空なら常に畳む」という状態の watcher にしないこと。** 空の右ペインは次の 2 つで
+   * 正当に生まれるので、状態で見ると両方とも壊れる。遷移（空でない → 空）で見れば巻き込まない。
+   * - 分割ボタンを押したときに送るタブが無い（開いた直後に畳まれて、ボタンが効かなくなる）
+   * - 別のプロジェクトへ切り替えた先に右のタブが無い（分割はウィンドウの見た目なので
+   *   切り替えでは落とさない。`beginSessionRestore` の doc）
+   *
+   * `tabsIn` は見えているタブしか数えないので、パーク中のタブが自動で閉じても畳まれない。
+   * **`hadRight` は await の後、消す直前に取ること**（確認ダイアログを待つあいだに状態が変わる）。
+   */
+  function collapseIfRightEmptied(hadRight: boolean) {
+    if (hadRight && !rightHasTabs()) closeSplit()
+  }
+
   /**
    * タブを指定のペインへ移す（#308）。右を指定すると、閉じていれば分割を開く。
    * 移した先を選んでフォーカスも移す（押した人が見たいのは移したタブなので）。
@@ -1130,6 +1159,7 @@ export const useTabStore = defineStore('tabs', () => {
     const tab = tabs.value.find((t) => t.id === id)
     if (!tab) return
     if (pane === 'right') split.value = true
+    const hadRight = rightHasTabs()
     const from = paneOf(tab)
     if (from !== pane) {
       tab.pane = pane
@@ -1138,6 +1168,7 @@ export const useTabStore = defineStore('tabs', () => {
     }
     focusedPane.value = pane
     activeByPane.value[pane] = id
+    collapseIfRightEmptied(hadRight)
   }
 
   /**
