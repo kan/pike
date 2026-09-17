@@ -314,7 +314,23 @@ fn create_transient_project(
 /// 既に seed されている（#212）。素の起動では `last_project.txt` の 1 行目で、フロントの
 /// `restoreLastProject` が `sessions[0]` として開くのと同じもの。どちらでもなければ、
 /// プロジェクトを持たないウィンドウとして開く。
+///
+/// **ファイルやターミナルを渡されたコールドスタートは、先にそちらを見る**（#363）。
+/// フロントはその起動をグローバルモードにする（App.vue の `peekInitialCliAction` の分岐と
+/// 同じ 2 つ）ので、`last_project.txt` の 1 行目を読むと、ジャンプリストから開いた
+/// ターミナルが前回のプロジェクトのデスクトップへ飛ぶ。
 fn main_geom_key(app: &AppHandle) -> String {
+    let opens_global = app.try_state::<cli::CliState>().is_some_and(|state| {
+        matches!(
+            state.initial_action.lock().ok().as_deref(),
+            Some(Some(
+                cli::CliAction::OpenFiles { .. } | cli::CliAction::OpenTerminal { .. }
+            ))
+        )
+    });
+    if opens_global {
+        return window_geom::GLOBAL_KEY.to_string();
+    }
     app.try_state::<project::ProjectState>()
         .and_then(|state| {
             state

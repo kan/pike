@@ -139,8 +139,11 @@ pub fn record_all(app: &AppHandle) {
             .unwrap_or_else(|| default_rect(&window));
         // **答えが無ければ前の値を残す**（#317）。最小化中や未表示のウィンドウは
         // `GUID_NULL` を返すので、そのまま書くと「どこにも属さない」を覚えてしまう。
-        let desktop =
-            crate::vdesk::desktop_id(&window).or_else(|| stored.and_then(|g| g.desktop.clone()));
+        let desktop = if remembers_desktop(&key) {
+            crate::vdesk::desktop_id(&window).or_else(|| stored.and_then(|g| g.desktop.clone()))
+        } else {
+            None
+        };
         let next = Geometry {
             maximized,
             desktop,
@@ -188,7 +191,7 @@ pub fn restore(app: &AppHandle, key: &str, window: &WebviewWindow) {
     // **デスクトップへ移すのは矩形より先**（#317）。移動そのものがウィンドウの位置を
     // 動かすわけではないが、順序を分けておけば「どのデスクトップの、どこに、どの大きさで」
     // が上から順に決まる。
-    move_to_stored_desktop(&geom, window);
+    move_to_stored_desktop(key, &geom, window);
     // Only restore the position while it still lands on a monitor: an unplugged
     // second display would otherwise put the window out of reach. Position first,
     // so that moving onto a display with a different scale factor (which makes
@@ -220,13 +223,30 @@ pub fn restore_desktop(app: &AppHandle, key: &str, window: &WebviewWindow) {
     let Some(geom) = load(app).get(key).cloned() else {
         return;
     };
-    move_to_stored_desktop(&geom, window);
+    move_to_stored_desktop(key, &geom, window);
+}
+
+/// そのキーのウィンドウが仮想デスクトップを覚えて戻るか（#363）。
+///
+/// **プロジェクトのウィンドウだけ。** あれは「そのプロジェクトを置いている場所」で、
+/// 開き直したら元のデスクトップへ戻るのが自然（#317）。グローバルウィンドウは違い、
+/// ジャンプリスト・トレイ・ターミナルからの `pike`・`--wait` のように**今いるデスクトップで
+/// その場で呼び出すもの**なので、覚えたデスクトップへ飛ばすと呼んだ本人の前に出てこない。
+/// サイズと位置は引き続き覚える（そちらは呼び出した場所と食い違わない）。
+///
+/// **書く側と読む側の両方で見る。** 書かないだけだと、この判定が入る前の
+/// `window-geometry.json` に残った `global` のデスクトップで飛び続ける。
+fn remembers_desktop(key: &str) -> bool {
+    key != GLOBAL_KEY
 }
 
 /// **失敗しても進む。** そのデスクトップがもう無ければ `MoveWindowToDesktop` は失敗するが、
 /// 公開 API では作り直せない（`vdesk` の doc）ので、現在のデスクトップに出す＝この機能が
 /// 入る前と同じ挙動へ落ちる。
-fn move_to_stored_desktop(geom: &Geometry, window: &WebviewWindow) {
+fn move_to_stored_desktop(key: &str, geom: &Geometry, window: &WebviewWindow) {
+    if !remembers_desktop(key) {
+        return;
+    }
     if let Some(id) = geom.desktop.as_deref() {
         crate::vdesk::move_to(window, id);
     }
