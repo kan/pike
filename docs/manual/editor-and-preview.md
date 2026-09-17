@@ -46,6 +46,13 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
 - **コンテキストメニュー**：Undo/Redo/Cut/Copy/Paste/Git History に加えて、右クリックした行の**参照**を扱う 2 つの項目があります。参照は `相対パス:行` の形で、「参照をコピー」はクリップボードへ入れ、「参照をターミナルに送る」はターミナルのエージェントへ送ります。範囲を選択しているときは `相対パス:開始-終了` になります。→ [ターミナルと AI エージェント](terminal-and-agents.md#ほかの画面からターミナルへ送る)
 - **外部変更の検知**：ディスク上でファイルが変わると、未編集タブは自動リロード、編集中タブはインライン警告バー（Reload / Overwrite / Dismiss）を出します。
 
+大きいファイルを開いたときは、次の画面から開き方を選びます。
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/editor-too-large-light.png">
+  <img alt="上限を超えたファイルの開き方を選ぶ画面" src="img/editor-too-large.png">
+</picture>
+
 エディタのフォント・サイズは設定タブの「エディタ」セクションで、ターミナルとは独立して設定できます。→ [設定](settings.md)
 
 ## 検索と置換
