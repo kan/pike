@@ -34,6 +34,12 @@ export function formatTokens(n: number): string {
   return String(n)
 }
 
+/** バイト数を画面に出す綴り（`1.5 MB` / `820 KB`）。MB 未満は KB で、小数を持たない。 */
+export function formatFileSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
 export function formatCost(usd: number): string {
   return `$${usd.toFixed(2)}`
 }

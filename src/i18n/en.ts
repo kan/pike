@@ -3,6 +3,7 @@ export default {
   'common.ok': 'OK',
   'common.cancel': 'Cancel',
   'common.loading': 'Loading...',
+  'common.openWithDefaultApp': 'Open with Default App',
   'common.save': 'Save',
   'common.delete': 'Delete',
   'common.back': 'Back',
@@ -128,6 +129,13 @@ export default {
   'editor.externalDeleted': 'This file has been deleted from disk.',
   'editor.reload': 'Reload',
   'editor.reloadFromDisk': 'Reload from disk',
+  'editor.tooLarge':
+    'This file is {size}, larger than the editor opens ({limit}). You can change the limit under Settings → Editor.',
+  'editor.openPartially': 'Load from the start (read-only)',
+  'editor.revealInFolder': 'Show in Folder',
+  'editor.partialLoaded': 'Showing the first {loaded} of {total}, read-only',
+  'editor.loadMore': 'Load more',
+  'editor.loadMoreRemaining': 'Load more ({size} left)',
   'editor.reloadDiscardConfirm': 'Discard unsaved changes and reload from disk?',
   'editor.dirRegistered': 'This path is a directory, registered as the project "{name}".',
   'editor.dirUnregistered': 'This path is a directory that is not registered as a project.',
@@ -366,6 +374,9 @@ export default {
   'settings.fetchLinkTitleHint':
     'With this on, every URL pasted into Markdown makes a request to that page to read its title.',
   'settings.tabSize': 'Tab Size',
+  'settings.editorMaxFileSize': 'Largest file the editor opens',
+  'settings.editorMaxFileSizeHint':
+    'Larger files are not opened whole. You can load them from the start as read-only, or open them in another app.',
   'settings.sqlDialect': 'SQL dialect for .sql',
   'settings.sqlDialectHint':
     'Which dialect .sql files are highlighted as. Picking a dialect by hand from the status bar file type works regardless of this setting.',
@@ -779,6 +790,7 @@ export default {
   // Confirm Dialog
   'confirm.pasteNewlines': 'Paste content contains newlines. Continue?',
   'confirm.openPath': 'Open {path}?',
+  'confirm.runExecutable': '"{name}" is an executable file. Opening it with its default app runs it. Continue?',
   'confirm.openPathRemember': "Don't ask again; open right away",
   'confirm.copyOnSelect':
     'Copy to the clipboard automatically whenever you select text in a terminal? (You can change this later in Settings → Terminal.)',

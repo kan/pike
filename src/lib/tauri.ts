@@ -325,24 +325,58 @@ export interface FileReadResult {
   /** True when the file does not exist yet: opened as a blank new file
    *  (vim-like); the first save creates it. */
   isNew: boolean
+  /** `maxBytes` を超えていたときのバイト数（#362）。このとき `content` は空。 */
+  tooLarge?: number
 }
 
+/**
+ * パスを OS に開かせる。**ディレクトリならエクスプローラー / Finder、ファイルなら関連付けられた
+ * アプリ**で開く（#362 の「関連付けられたアプリで開く」もこれ）。
+ */
 export async function fsOpenInExplorer(shell: ShellType, path: string): Promise<void> {
   return invoke('fs_open_in_explorer', { shell, path })
 }
 
+/** ファイルを選んだ状態でエクスプローラー / Finder を開く（#362）。 */
+export async function fsRevealInExplorer(shell: ShellType, path: string): Promise<void> {
+  return invoke('fs_reveal_in_explorer', { shell, path })
+}
+
+/**
+ * `maxBytes` を渡すと、上限を超えたファイルはエラーではなく `tooLarge`（バイト数）付きの結果で
+ * 返る（#362。`allowMissing` と `isNew` と同じ形）。渡さなければ従来どおり 2MB でエラーになる。
+ */
 export async function fsReadFile(
   shell: ShellType,
   path: string,
   encoding?: string,
-  options?: { allowMissing?: boolean },
+  options?: { allowMissing?: boolean; maxBytes?: number },
 ): Promise<FileReadResult> {
   return invoke<FileReadResult>('fs_read_file', {
     shell,
     path,
     encoding: encoding ?? null,
     allowMissing: options?.allowMissing ?? null,
+    maxBytes: options?.maxBytes ?? null,
   })
+}
+
+/** 部分読み込みの 1 回ぶん（#362）。`nextOffset >= totalSize` なら末尾まで読んだ。 */
+export interface FileChunk {
+  content: string
+  encoding: string
+  nextOffset: number
+  totalSize: number
+}
+
+export async function fsReadFileChunk(
+  shell: ShellType,
+  path: string,
+  offset: number,
+  len: number,
+  encoding?: string,
+): Promise<FileChunk> {
+  return invoke<FileChunk>('fs_read_file_chunk', { shell, path, offset, len, encoding: encoding ?? null })
 }
 
 export async function fsWriteFile(shell: ShellType, path: string, content: string, encoding?: string): Promise<void> {

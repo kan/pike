@@ -1824,6 +1824,8 @@ pub fn run() {
             fs::fs_resolve_first_existing,
             fs::fs_dirs_exist,
             fs::fs_open_in_explorer,
+            fs::fs_reveal_in_explorer,
+            fs::fs_read_file_chunk,
             settings_sync::settings_sync_read,
             settings_sync::settings_sync_write,
             watcher::fs_watch_start,

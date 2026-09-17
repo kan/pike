@@ -288,6 +288,20 @@ function sanitizeSqlDialect(v: unknown): SqlDialect {
 }
 
 /**
+ * エディタで丸ごと開けるサイズの上限（MB、#362）。超えたファイルは開けない画面になり、そこから
+ * 先頭だけを読み取り専用で開ける（部分読み込み）。**選択肢に絞るのは、Rust 側にも上限がある
+ * ため**（`fs/mod.rs` の `MAX_SIZE_CEILING`）。50MB を超えると全文を文字列で IPC に渡すことに
+ * なり、プレビューの変換も重くなる。
+ *
+ * **同期の対象**（マシンの性能に依らない好み）。
+ */
+export const EDITOR_MAX_FILE_SIZES_MB = [2, 5, 10, 20, 50] as const
+const EDITOR_MAX_FILE_SIZE_DEFAULT = 10
+function sanitizeEditorMaxFileSize(v: unknown): number {
+  return (EDITOR_MAX_FILE_SIZES_MB as readonly unknown[]).includes(v) ? (v as number) : EDITOR_MAX_FILE_SIZE_DEFAULT
+}
+
+/**
  * エディタの自動保存（#262）。**既定は `off`**: 保存の主体は `Ctrl+S` を押す人のままで、
  * これはその押し忘れを代行する設定という位置づけ（#276 で決めた原則）。
  *
@@ -444,6 +458,8 @@ interface PersistedSettings {
   shortcutPreset: ShortcutPreset
   /** `.sql` を自動判定したときの SQL の方言（#358）。 */
   sqlDialect: SqlDialect
+  /** エディタで丸ごと開けるサイズの上限（MB、#362）。`EDITOR_MAX_FILE_SIZES_MB` のどれか。 */
+  editorMaxFileSizeMb: number
   /** 未登録のディレクトリを開いたときにプロジェクト登録するか（#286）。 */
   registerDirectory: RegisterDirectoryMode
   /** エディタの自動保存の契機（#262）。 */
@@ -583,6 +599,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     diffWordWrap: sanitizeDiffWordWrap(s.diffWordWrap),
     shortcutPreset: sanitizeShortcutPreset(s.shortcutPreset),
     sqlDialect: sanitizeSqlDialect(s.sqlDialect),
+    editorMaxFileSizeMb: sanitizeEditorMaxFileSize(s.editorMaxFileSizeMb),
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
     terminalPathLinks: sanitizeTerminalPathLinks(s.terminalPathLinks),
     agentNotify: sanitizeAgentNotify(s.agentNotify),
@@ -877,6 +894,7 @@ function defaults(): PersistedSettings {
     diffWordWrap: 'auto',
     shortcutPreset: 'vscode',
     sqlDialect: 'standard',
+    editorMaxFileSizeMb: EDITOR_MAX_FILE_SIZE_DEFAULT,
     registerDirectory: 'ask',
     autoSave: 'off',
     autoSaveDelay: AUTO_SAVE_DELAY_DEFAULT,
@@ -948,6 +966,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const diffWordWrap = ref(saved.diffWordWrap)
   const shortcutPreset = ref(saved.shortcutPreset)
   const sqlDialect = ref(saved.sqlDialect)
+  const editorMaxFileSizeMb = ref(saved.editorMaxFileSizeMb)
   const registerDirectory = ref(saved.registerDirectory)
   const autoSave = ref(saved.autoSave)
   const autoSaveDelay = ref(saved.autoSaveDelay)
@@ -1325,6 +1344,7 @@ export const useSettingsStore = defineStore('settings', () => {
       diffWordWrap: diffWordWrap.value,
       shortcutPreset: shortcutPreset.value,
       sqlDialect: sqlDialect.value,
+      editorMaxFileSizeMb: editorMaxFileSizeMb.value,
       registerDirectory: registerDirectory.value,
       autoSave: autoSave.value,
       autoSaveDelay: autoSaveDelay.value,
@@ -1374,6 +1394,7 @@ export const useSettingsStore = defineStore('settings', () => {
     diffWordWrap.value = s.diffWordWrap
     shortcutPreset.value = s.shortcutPreset
     sqlDialect.value = s.sqlDialect
+    editorMaxFileSizeMb.value = s.editorMaxFileSizeMb
     registerDirectory.value = s.registerDirectory
     autoSave.value = s.autoSave
     autoSaveDelay.value = s.autoSaveDelay
@@ -1587,6 +1608,7 @@ export const useSettingsStore = defineStore('settings', () => {
       diffWordWrap,
       shortcutPreset,
       sqlDialect,
+      editorMaxFileSizeMb,
       registerDirectory,
       autoSave,
       autoSaveDelay,
@@ -1657,6 +1679,7 @@ export const useSettingsStore = defineStore('settings', () => {
     diffWordWrap,
     shortcutPreset,
     sqlDialect,
+    editorMaxFileSizeMb,
     registerDirectory,
     autoSave,
     autoSaveDelay,

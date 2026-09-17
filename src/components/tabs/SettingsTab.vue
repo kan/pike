@@ -50,6 +50,7 @@ import {
   COLOR_SCHEMES,
   clampSize,
   type DiffWordWrap,
+  EDITOR_MAX_FILE_SIZES_MB,
   type RegisterDirectoryMode,
   type TerminalPathLinkMode,
   type ThemeMode,
@@ -1057,6 +1058,17 @@ const PREVIEW_LINES = [
               <option :value="2">2</option>
               <option :value="4">4</option>
               <option :value="8">8</option>
+            </select>
+          </SettingItem>
+
+          <!-- 超えたファイルは開けない画面になり、そこから先頭だけを読み取り専用で開ける（#362）。 -->
+          <SettingItem label-key="settings.editorMaxFileSize" hint-key="settings.editorMaxFileSizeHint">
+            <select
+              class="setting-select setting-select-narrow"
+              :value="settings.editorMaxFileSizeMb"
+              @change="settings.editorMaxFileSizeMb = parseInt(($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="mb in EDITOR_MAX_FILE_SIZES_MB" :key="mb" :value="mb">{{ mb }} MB</option>
             </select>
           </SettingItem>
 

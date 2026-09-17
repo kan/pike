@@ -369,6 +369,40 @@ pub fn os_open(arg: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// ファイルを選んだ状態でファイラーを開く（#362）。戻りを待たない。
+///
+/// Windows は `explorer.exe /select,"<path>"`。**`raw_arg` で渡す**: `arg` に `/select,C:\a b` を
+/// 渡すと std が引数全体を引用符で包み（`"/select,C:\a b"`）、explorer はそれを解釈できずに
+/// 既定のフォルダ（ドキュメント）を開く。パスの側だけを引用符で包むのが explorer の作法。
+/// Linux にはファイルを選ぶ標準の手段が無いので、親ディレクトリを開くだけにする。
+pub fn os_reveal(path: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        silent_command("explorer.exe")
+            .raw_arg(format!("/select,\"{path}\""))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        silent_command("open")
+            .args(["-R", path])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let parent = std::path::Path::new(path)
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
+        os_open(&parent)
+    }
+}
+
 /// URL を既定のハンドラ（ブラウザ）で開く。
 ///
 /// **Windows で `explorer.exe` に渡さないのが要点。** あれに URL を渡すのは文書化されていない

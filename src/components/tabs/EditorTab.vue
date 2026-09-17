@@ -23,6 +23,7 @@ import { conflictHighlight, hasConflictMarkers } from '../../lib/editorConflict'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
+import { loadMoreRow } from '../../lib/editorLoadMore'
 import {
   isHttpUrl,
   type MarkdownAction,
@@ -37,12 +38,13 @@ import { getEditorTheme } from '../../lib/editorThemes'
 import { imageHostOf, remoteImageDataUrl, retryRemoteImage } from '../../lib/externalImages'
 import { fileTypeKey, firstLineOf } from '../../lib/fileType'
 import { buildFontFamily } from '../../lib/fontDetection'
-import { formatLineRange, lineRangeSuffix } from '../../lib/format'
+import { formatFileSize, formatLineRange, lineRangeSuffix } from '../../lib/format'
 import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel, matchChord } from '../../lib/keys'
 import { getLanguage, getLanguageLabel, languageByKey, languageLabelByKey } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
+import { openWithDefaultApp } from '../../lib/openFile'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import {
   basename,
@@ -59,7 +61,17 @@ import { relativeToBase } from '../../lib/projectPaths'
 import { buildRstPreview } from '../../lib/rstPreview'
 import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
 import { createHeadingSlugger } from '../../lib/slug'
-import { fsDirsExist, fsReadFile, fsReadFileBase64, fsWriteFile, gitDiffLines, pickSaveFile } from '../../lib/tauri'
+import {
+  type FileChunk,
+  fsDirsExist,
+  fsReadFile,
+  fsReadFileBase64,
+  fsReadFileChunk,
+  fsRevealInExplorer,
+  fsWriteFile,
+  gitDiffLines,
+  pickSaveFile,
+} from '../../lib/tauri'
 import { escapeHtml, splitDelimited } from '../../lib/text'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useProjectStore } from '../../stores/project'
@@ -117,6 +129,8 @@ const backdropCompartment = new Compartment()
 const conflictCompartment = new Compartment()
 /** プリセットで変わる CodeMirror のキー（#261）。 */
 const presetKeymapCompartment = new Compartment()
+/** 部分読み込みの「続きを読む」を本文の末尾に出す（#362）。残りの大きさと読み込み中で張り直す。 */
+const loadMoreCompartment = new Compartment()
 // A Save As turns an untitled buffer into a real file without rebuilding the
 // view, so everything the file's kind decides — its language and the Markdown
 // assist bindings (#241) — has to be reconfigurable rather than settled once.
@@ -168,6 +182,24 @@ const openInNewWindow = ref(true)
 const directoryProject = computed(() =>
   isDirectory.value && tab.value?.path ? projectStore.projectForRoot(tab.value.path) : null,
 )
+/**
+ * 上限を超えて丸ごとは開かなかったファイルのバイト数（#362）。null なら該当しない。
+ * 開き方（部分読み込み・ほかのアプリ）を選ばせる画面を出す。
+ */
+const tooLargeSize = ref<number | null>(null)
+/**
+ * 先頭から少しずつ読んでいるとき（#362）。**このあいだは読み取り専用**: 保存すると、読んで
+ * いない後半が消える。`nextOffset` は次に読むバイト位置。
+ */
+const partial = ref<{
+  nextOffset: number
+  totalSize: number
+  /** 続きを読むときに指定するエンコード。**UTF-8 のあいだは持たない**（`applyChunk`）。 */
+  encoding?: string
+} | null>(null)
+
+const loadingMore = ref(false)
+const maxFileBytes = () => settingsStore.editorMaxFileSizeMb * 1024 * 1024
 let savedContent = ''
 const isDirty = ref(false)
 const currentEncoding = ref('UTF-8')
@@ -694,7 +726,9 @@ function updateTitle() {
 }
 
 function updateDirtyState() {
-  if (!editorView) return
+  // 部分読み込み中は読み取り専用で、変わるのは「続きを読む」だけ（#362）。全文の比較は数十 MB を
+  // 足すたびに文書全体を文字列にするので、ここで抜ける。
+  if (!editorView || partial.value) return
   const current = editorView.state.doc.toString()
   const dirty = current !== savedContent
   if (dirty !== isDirty.value) {
@@ -730,7 +764,7 @@ function updateCursorInfo() {
 const shellForIO = computed(() => projectStore.shellForIO)
 
 async function save(overrideEncoding?: string, auto = false) {
-  if (!editorView || !tab.value || saving.value || tab.value.readOnly) return
+  if (!editorView || !tab.value || saving.value || isReadOnlyTab.value) return
 
   // Untitled tab: prompt for file path first
   if (!tab.value.path) {
@@ -814,7 +848,7 @@ let autoSaveFailed = false
 function maybeAutoSave() {
   if (settingsStore.autoSave === 'off') return
   if (!isDirty.value || saving.value) return
-  if (!tab.value?.path || tab.value.readOnly) return
+  if (!tab.value?.path || isReadOnlyTab.value) return
   if (externalChangeNotice.value) return
   if (editorView && hasConflictMarkers(editorView.state)) return
   // 見えていないタブ（別プロジェクトのぶんを保持している、#264）では書かない。
@@ -848,6 +882,14 @@ function scheduleAutoSave() {
  * output lands here whenever that path is a directory.
  */
 async function reportLoadError(e: unknown, seq: number) {
+  // 大きすぎるのはエラーではなく、開き方を選ばせる画面にする（#362）。
+  if (e instanceof FileTooLarge) {
+    tooLargeSize.value = e.size
+    error.value = null
+    isDirectory.value = false
+    return
+  }
+  tooLargeSize.value = null
   error.value = String(e)
   isDirectory.value = false
   const path = tab.value?.path
@@ -884,21 +926,133 @@ async function loadContent(encoding?: string): Promise<string> {
     return savedContent
   }
 
+  // 部分読み込み中なら、読み直しも先頭の 1 回ぶんから（#362）。上限を変えて丸ごと開き直したい
+  // ときは、上限を超える画面から入り直す（タブを開き直す）。
+  if (partial.value) {
+    const requested = encoding === 'UTF-8' ? undefined : encoding
+    const chunk = await fsReadFileChunk(shellForIO.value, tab.value.path, 0, maxFileBytes(), requested)
+    const content = applyChunk(chunk, requested)
+    currentLineEnding.value = chunk.content.includes('\r\n') ? 'CRLF' : 'LF'
+    savedContent = content
+    return content
+  }
+
   // allowMissing: a nonexistent path opens as a blank new file (vim-like);
   // the first Ctrl+S creates it. The tab shows a "new" badge until then.
-  const result = await fsReadFile(shellForIO.value, tab.value.path, encoding, { allowMissing: true })
+  const result = await fsReadFile(shellForIO.value, tab.value.path, encoding, {
+    allowMissing: true,
+    maxBytes: maxFileBytes(),
+  })
+  if (result.tooLarge !== undefined) throw new FileTooLarge(result.tooLarge)
   tab.value.isNewFile = result.isNew
   currentEncoding.value = result.encoding
   // Detect and normalize line endings for CodeMirror (which uses \n internally)
   currentLineEnding.value = result.content.includes('\r\n') ? 'CRLF' : 'LF'
-  const normalized = result.content.replace(/\r\n/g, '\n')
+  const normalized = normalizeLineEndings(result.content)
   savedContent = normalized
   return normalized
 }
 
+/** `loadContent` が上限を超えたファイルで投げる（#362）。呼び出し側は `reportLoadError` で受ける。 */
+class FileTooLarge {
+  constructor(readonly size: number) {}
+}
+
+/** CodeMirror は `\n` で持つ。CRLF を含まない断片では正規表現を走らせない（数十 MB の断片がある）。 */
+function normalizeLineEndings(content: string): string {
+  return content.includes('\r') ? content.replace(/\r\n/g, '\n') : content
+}
+
+/**
+ * 部分読み込みの断片を受け取り、`partial` とエンコードを進めて、エディタに渡す本文を返す（#362）。
+ * `requested` はその断片を読むときに指定したエンコード。
+ *
+ * **UTF-8 は「断片ごとに判定」のまま固定しない**: 先頭が ASCII だけのログは UTF-8 と判定されるが、
+ * 後ろに Shift_JIS が出てくることがある。丸ごと読めば Shift_JIS に落ちるファイルなので、UTF-8 を
+ * 固定すると続きだけが文字化けする。UTF-8 以外に決まったら、そこからは固定する（ASCII だけの
+ * 断片で UTF-8 に戻らないように）。
+ */
+function applyChunk(chunk: FileChunk, requested: string | undefined): string {
+  currentEncoding.value = chunk.encoding
+  partial.value = {
+    nextOffset: chunk.nextOffset,
+    totalSize: chunk.totalSize,
+    encoding: requested ?? (chunk.encoding === 'UTF-8' ? undefined : chunk.encoding),
+  }
+  return normalizeLineEndings(chunk.content)
+}
+
+/**
+ * 上限を超えたファイルを、先頭から読み取り専用で開く（#362）。エンコードは自動判定に戻す。
+ * ここで立てる `partial` は「部分読み込みで読み直す」の印で、中身は `loadContent` が埋める。
+ */
+function openPartially() {
+  partial.value = { nextOffset: 0, totalSize: 0 }
+  void reopenWithEncoding()
+}
+
+/** 部分読み込みに、まだ読んでいない続きがあるか（#362）。上部のバーと本文の末尾が見る。 */
+const hasMore = computed(() => !!partial.value && partial.value.nextOffset < partial.value.totalSize)
+
+/** 本文の末尾の「続きを読む」（#362）。末尾まで読み終えたら出さない。 */
+function loadMoreExtension() {
+  const p = partial.value
+  if (!p || !hasMore.value) return loadMoreRow(null)
+  return loadMoreRow({
+    label: loadingMore.value
+      ? t('common.loading')
+      : t('editor.loadMoreRemaining', { size: formatFileSize(p.totalSize - p.nextOffset) }),
+    busy: loadingMore.value,
+    onClick: () => void loadMore(true),
+  })
+}
+
+// 部分読み込みを使っていないタブ（ほとんど全部）では張り直さない。言語の切り替えは開いている
+// 全タブに届くので、空の行を空に張り直すだけの reconfigure がタブの数だけ走ることになる。
+watch([partial, loadingMore, locale], (_, [prevPartial]) => {
+  if (!partial.value && !prevPartial) return
+  editorView?.dispatch({ effects: loadMoreCompartment.reconfigure(loadMoreExtension()) })
+})
+
+/**
+ * 部分読み込みの続きを末尾に足す（#362）。**切れ目は Rust が行の境目に揃えている**
+ * （`chunk_end`）ので、足すだけで 1 行が割れない。
+ */
+async function loadMore(fromEnd: boolean) {
+  const p = partial.value
+  if (!p || !editorView || !tab.value || loadingMore.value) return
+  loadingMore.value = true
+  try {
+    const chunk = await fsReadFileChunk(shellForIO.value, tab.value.path, p.nextOffset, maxFileBytes(), p.encoding)
+    // 待っているあいだに読み直された（外部変更・エンコードの変更）なら、その結果を優先する。
+    if (partial.value !== p || !editorView) return
+    const text = applyChunk(chunk, p.encoding)
+    const end = editorView.state.doc.length
+    // `savedContent` は伸ばさない: 部分読み込み中は未保存にならない（`updateDirtyState`）。
+    editorView.dispatch({
+      changes: { from: end, insert: text },
+      // 末尾のボタンから読んだときは、それまでの最終行を画面の下端に据えたままにする（読んでいた
+      // 続きから下へスクロールして読める）。上部のバーから読んだときは、読んでいる位置を動かさない。
+      effects: fromEnd ? EditorView.scrollIntoView(end, { y: 'end' }) : [],
+    })
+  } catch (e) {
+    statusMessageStore.show({ text: String(e), variant: 'error' })
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+function openFileWithDefaultApp() {
+  if (tab.value?.path) void openWithDefaultApp(shellForIO.value, tab.value.path)
+}
+
+function revealInExplorer() {
+  if (tab.value?.path) fsRevealInExplorer(shellForIO.value, tab.value.path).catch(() => {})
+}
+
 // --- Git diff gutter ---
 async function refreshDiffGutter() {
-  if (!editorView || !tab.value || tab.value.readOnly || tab.value.initialContent !== undefined) return
+  if (!editorView || !tab.value || isReadOnlyTab.value || tab.value.initialContent !== undefined) return
   const project = projectStore.currentProject
   if (!project) return // git diff requires a project root
   try {
@@ -1069,7 +1223,8 @@ const gitHistoryLineLabel = computed(() => {
   return t('editor.gitHistoryRange', { range: formatLineRange(range) })
 })
 
-const isReadOnlyTab = computed(() => tab.value?.readOnly ?? false)
+/** 書けないタブ。git の過去の版と、部分読み込み中のファイル（#362）。**保存の可否もこれで見る**。 */
+const isReadOnlyTab = computed(() => (tab.value?.readOnly ?? false) || partial.value !== null)
 
 /**
  * このタブだけの折り返し。null は「設定に従う」。
@@ -1237,7 +1392,7 @@ function changeFileType(key: string | null) {
 }
 
 function createEditorView(container: HTMLElement, content: string) {
-  const isReadOnly = tab.value?.readOnly ?? false
+  const isReadOnly = isReadOnlyTab.value
   const lang = resolveLanguage(tab.value?.path, firstLineOf(content))
   const extensions = [
     themeCompartment.of(getEditorTheme(settingsStore.effectiveEditorThemeName).extension),
@@ -1248,6 +1403,7 @@ function createEditorView(container: HTMLElement, content: string) {
     editorSearch(),
     highlightSelectionMatches(),
     conflictCompartment.of(conflictHighlight()),
+    loadMoreCompartment.of(loadMoreExtension()),
     markdownCompartment.of(markdownAssist()),
     tabSizeCompartment.of(EditorState.tabSize.of(settingsStore.editorTabSize)),
     indentUnitCompartment.of(indentUnit.of(' '.repeat(settingsStore.editorTabSize))),
@@ -1365,7 +1521,7 @@ function createEditorView(container: HTMLElement, content: string) {
 // don't each append an EditorView into the same container — only the latest wins.
 let loadSeq = 0
 
-async function reopenWithEncoding(encoding: string) {
+async function reopenWithEncoding(encoding?: string) {
   if (!editorRef.value || !tab.value) return
   const seq = ++loadSeq
   loading.value = true
@@ -1377,6 +1533,7 @@ async function reopenWithEncoding(encoding: string) {
     loading.value = false
     error.value = null
     isDirectory.value = false
+    tooLargeSize.value = null
     editorView = createEditorView(editorRef.value, content)
     if (viewMode.value === 'split') {
       editorView.scrollDOM.addEventListener('scroll', onEditorScroll)
@@ -1395,6 +1552,8 @@ async function reopenWithEncoding(encoding: string) {
   } catch (e) {
     if (seq !== loadSeq) return
     loading.value = false
+    // 部分読み込みに失敗した（UTF-16 など）なら、次の再読み込みは丸ごと開く経路からやり直す。
+    partial.value = null
     await reportLoadError(e, seq)
   }
 }
@@ -1699,7 +1858,10 @@ watch(
       return
     }
     // modified — debounce to coalesce burst events
-    if (!isDirty.value) {
+    //
+    // **部分読み込み中は自動で読み直さない**（#362）。読み直しは先頭の 1 回ぶんに戻るので、
+    // 書き足され続けるログでは「続きを読む」で進めた位置が変更のたびに失われる。
+    if (!isDirty.value && !partial.value) {
       // A modify after a (transient) delete means the file is back — drop the notice.
       externalChangeNotice.value = null
       if (pendingReload) clearTimeout(pendingReload)
@@ -1923,37 +2085,69 @@ onUnmounted(() => {
       </div>
     </div>
     <!-- External change warning bar -->
-    <div v-if="externalChangeNotice === 'modified'" class="external-change-bar">
+    <div v-if="externalChangeNotice === 'modified'" class="notice-bar">
       <span>{{ t('editor.externalModified') }}</span>
-      <div class="external-change-actions">
+      <div class="notice-actions">
         <button @click="reloadExternal">{{ t('editor.reload') }}</button>
-        <button @click="overwriteExternal">{{ t('editor.overwrite') }}</button>
+        <button v-if="!isReadOnlyTab" @click="overwriteExternal">{{ t('editor.overwrite') }}</button>
         <button @click="dismissExternal">{{ t('editor.dismiss') }}</button>
       </div>
     </div>
-    <div v-if="externalChangeNotice === 'deleted'" class="external-change-bar warning">
+    <div v-if="externalChangeNotice === 'deleted'" class="notice-bar warning">
       <span>{{ t('editor.externalDeleted') }}</span>
-      <div class="external-change-actions">
-        <button @click="save()">{{ t('editor.save') }}</button>
+      <div class="notice-actions">
+        <button v-if="!isReadOnlyTab" @click="save()">{{ t('editor.save') }}</button>
         <button @click="dismissExternal">{{ t('editor.dismiss') }}</button>
+      </div>
+    </div>
+    <!-- 部分読み込み中（#362）。どこまで読んだかと、続き・ほかのアプリへの導線 -->
+    <div v-if="partial && !loading" class="notice-bar">
+      <span>{{
+        t('editor.partialLoaded', {
+          loaded: formatFileSize(Math.min(partial.nextOffset, partial.totalSize)),
+          total: formatFileSize(partial.totalSize),
+        })
+      }}</span>
+      <div class="notice-actions">
+        <button v-if="hasMore" :disabled="loadingMore" @click="loadMore(false)">
+          {{ loadingMore ? t('common.loading') : t('editor.loadMore') }}
+        </button>
+        <button @click="openFileWithDefaultApp">{{ t('common.openWithDefaultApp') }}</button>
       </div>
     </div>
     <div v-if="loading" class="editor-status">{{ t('common.loading') }}</div>
+    <!-- 上限を超えたファイル（#362）。エラーにせず、開き方を選ばせる -->
+    <div v-else-if="tooLargeSize !== null" class="editor-status choices">
+      <div class="choice-path">{{ tab?.path }}</div>
+      <div class="choice-note">
+        {{
+          t('editor.tooLarge', {
+            size: formatFileSize(tooLargeSize),
+            limit: `${settingsStore.editorMaxFileSizeMb} MB`,
+          })
+        }}
+      </div>
+      <div class="choice-actions">
+        <button class="choice-primary" @click="openPartially">{{ t('editor.openPartially') }}</button>
+        <button @click="openFileWithDefaultApp">{{ t('common.openWithDefaultApp') }}</button>
+        <button @click="revealInExplorer">{{ t('editor.revealInFolder') }}</button>
+      </div>
+    </div>
     <!-- ディレクトリはエディタでは開けないので、開き方を選ばせる -->
-    <div v-else-if="isDirectory" class="editor-status directory">
-      <div class="dir-path">{{ tab?.path }}</div>
-      <div class="dir-note">
+    <div v-else-if="isDirectory" class="editor-status choices">
+      <div class="choice-path">{{ tab?.path }}</div>
+      <div class="choice-note">
         {{
           directoryProject
             ? t('editor.dirRegistered', { name: directoryProject.name })
             : t('editor.dirUnregistered')
         }}
       </div>
-      <div class="dir-actions">
+      <div class="choice-actions">
         <button v-if="!directoryProject" @click="openDirectoryTab('directory')">
           {{ t('editor.dirOpenDirectory') }}
         </button>
-        <button class="dir-primary" @click="openDirectoryTab('project')">
+        <button class="choice-primary" @click="openDirectoryTab('project')">
           {{ directoryProject ? t('editor.dirOpenProject') : t('editor.dirOpenAsProject') }}
         </button>
       </div>
@@ -1968,7 +2162,7 @@ onUnmounted(() => {
         {{ t('editor.reload') }}
       </button>
     </div>
-    <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error && !isDirectory">
+    <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error && !isDirectory && tooLargeSize === null">
       <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
       <div
         v-if="showPreview && !isMermaid"
@@ -2659,7 +2853,8 @@ onUnmounted(() => {
   gap: 12px;
 }
 
-.editor-status.directory {
+/* 開けないものの開き方を選ばせる画面（ディレクトリと、上限を超えたファイル #362） */
+.editor-status.choices {
   flex-direction: column;
   /* .editor-status は中央寄せなので、縦並びにしたときも軸を揃える */
   align-items: center;
@@ -2669,22 +2864,22 @@ onUnmounted(() => {
   color: var(--text-primary);
 }
 
-.dir-path {
+.choice-path {
   max-width: 100%;
   font-family: var(--font-mono, monospace);
   word-break: break-all;
 }
 
-.dir-note {
+.choice-note {
   color: var(--text-secondary);
 }
 
-.dir-actions {
+.choice-actions {
   display: flex;
   gap: 8px;
 }
 
-.dir-actions .dir-primary {
+.choice-actions .choice-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
@@ -2699,7 +2894,7 @@ onUnmounted(() => {
 }
 
 .error-retry,
-.dir-actions button {
+.choice-actions button {
   padding: 3px 12px;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -2711,7 +2906,7 @@ onUnmounted(() => {
 }
 
 .error-retry:hover,
-.dir-actions button:hover {
+.choice-actions button:hover {
   background: var(--tab-hover-bg);
 }
 
@@ -2726,7 +2921,7 @@ onUnmounted(() => {
   border-radius: 3px;
 }
 
-.external-change-bar {
+.notice-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2738,16 +2933,16 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.external-change-bar.warning {
+.notice-bar.warning {
   border-bottom-color: var(--danger);
 }
 
-.external-change-actions {
+.notice-actions {
   display: flex;
   gap: 4px;
 }
 
-.external-change-actions button {
+.notice-actions button {
   padding: 2px 8px;
   border: 1px solid var(--border);
   background: var(--bg-secondary);
@@ -2757,7 +2952,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.external-change-actions button:hover {
+.notice-actions button:hover {
   background: var(--accent);
   color: var(--text-active);
   border-color: var(--accent);

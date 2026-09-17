@@ -13,7 +13,7 @@ import { fileToBase64 } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { isCopyDragModifier } from '../../lib/keys'
-import { openPathInTab } from '../../lib/openFile'
+import { openPathInTab, openWithDefaultApp } from '../../lib/openFile'
 import { basename, gitStatusColor, pathSep } from '../../lib/paths'
 import {
   type FsEntry,
@@ -22,7 +22,6 @@ import {
   fsCreateFile,
   fsDelete,
   fsListDir,
-  fsOpenInExplorer,
   fsRename,
   fsWriteFileBase64,
 } from '../../lib/tauri'
@@ -121,13 +120,12 @@ function closeCtxMenu() {
   resetCtxMenu()
 }
 
-function openInExplorer() {
-  if (!ctxMenu.value) return
+/** OS に開かせる。フォルダはエクスプローラー、ファイルは関連付けられたアプリ（実行形式は確認を挟む、#362）。 */
+function openInOs() {
+  const path = ctxMenu.value?.path
   const shell = projectStore.currentProject?.shell
-  if (shell) {
-    fsOpenInExplorer(shell, ctxMenu.value.path).catch(() => {})
-  }
   closeCtxMenu()
+  if (path && shell) void openWithDefaultApp(shell, path)
 }
 
 function startRename(path: string, isDir: boolean) {
@@ -597,7 +595,7 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
           <!-- ignored dirs: copy path / Explorer only, mutating actions stay off -->
           <template v-if="ctxMenu.ignored">
             <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>
-            <button @click="openInExplorer()">{{ t('fileTree.openInExplorer') }}</button>
+            <button @click="openInOs()">{{ t('fileTree.openInExplorer') }}</button>
           </template>
           <template v-else>
             <template v-if="ctxMenu.isDir">
@@ -609,7 +607,9 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
             <button @click="startRename(ctxMenu.path, ctxMenu.isDir)">{{ t('fileTree.rename') }}</button>
             <button @click="deleteItem()">{{ t('fileTree.delete') }}</button>
             <button v-if="!ctxMenu.isDir" @click="showGitHistory()">{{ t('fileTree.gitHistory') }}</button>
-            <button v-if="ctxMenu.isDir" @click="openInExplorer()">{{ t('fileTree.openInExplorer') }}</button>
+            <button @click="openInOs()">
+              {{ ctxMenu.isDir ? t('fileTree.openInExplorer') : t('common.openWithDefaultApp') }}
+            </button>
           </template>
         </div>
       </Teleport>

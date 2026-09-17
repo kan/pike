@@ -336,18 +336,49 @@ pub struct FileReadResult {
     /// True when the file does not exist yet: the editor opens it as a blank
     /// "new file" (vim-like) and the first save creates it.
     pub is_new: bool,
+    /// 上限を超えていたときのファイルのバイト数（#362）。**`max_bytes` を渡した呼び出しにだけ
+    /// 返る**（`is_new` が `allow_missing` を渡したときだけ立つのと同じ形）。本文は空。渡さない
+    /// 呼び出し元には、従来どおりエラーで返す。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub too_large: Option<u64>,
 }
 
-/// Read a file's raw bytes. `Ok(None)` means the file does not exist.
-fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Option<Vec<u8>>, String> {
-    const MAX_SIZE: u64 = 2_000_000;
+impl FileReadResult {
+    fn text(content: String, encoding: &str) -> Self {
+        Self {
+            content,
+            encoding: encoding.to_string(),
+            is_new: false,
+            too_large: None,
+        }
+    }
+}
+
+/// `read_raw_bytes` の結果。
+#[derive(Debug, PartialEq)]
+enum RawRead {
+    Missing,
+    TooLarge(u64),
+    Bytes(Vec<u8>),
+}
+
+/// 呼び出し側が上限を渡さないときの値。エディタ以外（定義ジャンプの設定ファイル読み、diff の
+/// 省略行の取り寄せ等）は従来どおり 2MB で止める。エディタは設定の値を渡す（#362）。
+const DEFAULT_MAX_SIZE: u64 = 2_000_000;
+
+/// エディタの上限として受け付ける最大値。設定の選択肢の最大（50MB）に余裕を持たせた値で、
+/// IPC の引数は誰でも投げられるので Rust 側でも抑える。
+const MAX_SIZE_CEILING: u64 = 64 * 1024 * 1024;
+
+/// Read a file's raw bytes, refusing (without reading) files over `max_size`.
+fn read_raw_bytes(shell: &ShellConfig, path: &str, max_size: u64) -> Result<RawRead, String> {
     match shell {
         ShellConfig::Wsl { .. } => {
             match shell.run_stdout("stat", &["-c", "%s", "--", path]) {
                 Ok(size_str) => {
                     if let Ok(size) = size_str.trim().parse::<u64>() {
-                        if size > MAX_SIZE {
-                            return Err("File too large (>2MB)".into());
+                        if size > max_size {
+                            return Ok(RawRead::TooLarge(size));
                         }
                     }
                 }
@@ -357,7 +388,7 @@ fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Option<Vec<u8>>, St
                     let script = format!("[ -e {} ]", crate::types::bash_quote(path));
                     if let Ok((code, _, _)) = shell.run("bash", &["-c", &script]) {
                         if code != 0 {
-                            return Ok(None);
+                            return Ok(RawRead::Missing);
                         }
                     }
                     return Err(stat_err);
@@ -370,18 +401,20 @@ fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Option<Vec<u8>>, St
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }
-            Ok(Some(output.stdout))
+            Ok(RawRead::Bytes(output.stdout))
         }
         _ => {
             let meta = match std::fs::metadata(path) {
                 Ok(m) => m,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(RawRead::Missing),
                 Err(e) => return Err(e.to_string()),
             };
-            if meta.len() > MAX_SIZE {
-                return Err("File too large (>2MB)".into());
+            if meta.len() > max_size {
+                return Ok(RawRead::TooLarge(meta.len()));
             }
-            Ok(Some(std::fs::read(path).map_err(|e| e.to_string())?))
+            Ok(RawRead::Bytes(
+                std::fs::read(path).map_err(|e| e.to_string())?,
+            ))
         }
     }
 }
@@ -389,66 +422,201 @@ fn read_raw_bytes(shell: &ShellConfig, path: &str) -> Result<Option<Vec<u8>>, St
 /// Bytes inspected for the binary-content guard.
 const BINARY_SNIFF_LEN: usize = 8192;
 
+/// バイナリと判定したときのエラー。丸ごと読む経路と部分読み込みの断片の両方が返す。
+const BINARY_FILE_ERROR: &str = "Binary file — cannot open in the editor";
+
 fn decode_bytes(bytes: &[u8], encoding_name: Option<&str>) -> Result<FileReadResult, String> {
     if let Some(name) = encoding_name {
         // Explicit encoding (re-open via StatusBar) is an escape hatch: no
         // binary guard, the user asked for this interpretation.
         if let Some(enc) = Encoding::for_label(name.as_bytes()) {
             let (content, actual_enc, _) = enc.decode(bytes);
-            return Ok(FileReadResult {
-                content: content.into_owned(),
-                encoding: actual_enc.name().to_string(),
-                is_new: false,
-            });
+            return Ok(FileReadResult::text(
+                content.into_owned(),
+                actual_enc.name(),
+            ));
         }
     }
     // UTF-16 text legitimately contains NUL bytes — detect by BOM before the
     // binary guard. (UTF-8 BOM falls through: from_utf8 keeps the BOM char,
     // preserving the existing save round-trip.)
-    if let Some((enc, _)) = Encoding::for_bom(bytes) {
-        if enc == encoding_rs::UTF_16LE || enc == encoding_rs::UTF_16BE {
-            let (content, actual_enc, _) = enc.decode(bytes);
-            return Ok(FileReadResult {
-                content: content.into_owned(),
-                encoding: actual_enc.name().to_string(),
-                is_new: false,
-            });
-        }
+    if let Some(enc) = utf16_bom(bytes) {
+        let (content, actual_enc, _) = enc.decode(bytes);
+        return Ok(FileReadResult::text(
+            content.into_owned(),
+            actual_enc.name(),
+        ));
     }
     // Safety net for unsupported binary formats (exe, zip, images opened via
     // CLI/"Open with", ...): refuse instead of rendering mojibake.
     if bytes.iter().take(BINARY_SNIFF_LEN).any(|&b| b == 0) {
-        return Err("Binary file — cannot open in the editor".into());
+        return Err(BINARY_FILE_ERROR.into());
     }
     Ok(match std::str::from_utf8(bytes) {
-        Ok(s) => FileReadResult {
-            content: s.to_string(),
-            encoding: "UTF-8".to_string(),
-            is_new: false,
-        },
+        Ok(s) => FileReadResult::text(s.to_string(), "UTF-8"),
         Err(_) => {
             let (content, enc, _) = encoding_rs::SHIFT_JIS.decode(bytes);
-            FileReadResult {
-                content: content.into_owned(),
-                encoding: enc.name().to_string(),
-                is_new: false,
-            }
+            FileReadResult::text(content.into_owned(), enc.name())
         }
     })
 }
 
-#[tauri::command]
-pub async fn fs_open_in_explorer(shell: ShellConfig, path: String) -> Result<(), String> {
-    // WSL paths are reachable from Explorer through the \\wsl.localhost\ UNC view.
-    let target = match &shell {
+/// UTF-16 の BOM で始まるか。UTF-16 は NUL を含むのでバイナリ判定より先に見る（`decode_bytes`）。
+/// 部分読み込みの対象外でもある（`fs_read_file_chunk`）。
+fn utf16_bom(bytes: &[u8]) -> Option<&'static Encoding> {
+    Encoding::for_bom(bytes)
+        .map(|(enc, _)| enc)
+        .filter(|&enc| enc == encoding_rs::UTF_16LE || enc == encoding_rs::UTF_16BE)
+}
+
+/// OS のファイラーやアプリから見えるパスにする。WSL は `\\wsl.localhost\` の UNC で見える。
+fn host_visible_path(shell: &ShellConfig, path: String) -> String {
+    match shell {
         ShellConfig::Wsl { distro } => {
             format!(r"\\wsl.localhost\{distro}{}", path.replace('/', "\\"))
         }
         _ => path,
-    };
+    }
+}
+
+/// パスを OS に開かせる。**ディレクトリならファイラー、ファイルなら関連付けられたアプリ**で
+/// 開く（`explorer.exe <file>` / `open <file>` / `xdg-open <file>` がどれもそう振る舞う）。
+/// ファイルツリーの「エクスプローラーで開く」と、大きすぎるファイルの「関連付けられたアプリで
+/// 開く」（#362）の両方がこれを呼ぶ。
+#[tauri::command]
+pub async fn fs_open_in_explorer(shell: ShellConfig, path: String) -> Result<(), String> {
+    let target = host_visible_path(&shell, path);
     tokio::task::spawn_blocking(move || crate::types::os_open(&target))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// ファイルを選んだ状態でファイラーを開く（#362）。
+#[tauri::command]
+pub async fn fs_reveal_in_explorer(shell: ShellConfig, path: String) -> Result<(), String> {
+    let target = host_visible_path(&shell, path);
+    tokio::task::spawn_blocking(move || crate::types::os_reveal(&target))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// 部分読み込みの 1 回ぶん（#362）。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileChunk {
+    pub content: String,
+    pub encoding: String,
+    /// 次に読む位置（バイト）。`total_size` 以上なら末尾まで読んだ。
+    pub next_offset: u64,
+    pub total_size: u64,
+}
+
+/// `offset` から最大 `len` バイトを読む。戻り値の 2 つ目はファイル全体のバイト数。
+fn read_byte_range(
+    shell: &ShellConfig,
+    path: &str,
+    offset: u64,
+    len: u64,
+) -> Result<(Vec<u8>, u64), String> {
+    match shell {
+        ShellConfig::Wsl { .. } => {
+            // サイズと中身を 1 回の起動で取る。先頭行がサイズで、その後ろが生のバイト列。
+            let p = bash_quote(path);
+            let script = format!(
+                "stat -c %s -- {p} && tail -c +{} -- {p} | head -c {len}",
+                offset + 1
+            );
+            let output = shell.run_raw("bash", &["-c", &script])?;
+            if !output.status.success() {
+                return Err(format!(
+                    "Failed to read file: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+            let mut stdout = output.stdout;
+            let nl = stdout
+                .iter()
+                .position(|&b| b == b'\n')
+                .ok_or("Failed to read file size")?;
+            let total = std::str::from_utf8(&stdout[..nl])
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .ok_or("Failed to read file size")?;
+            // 本文は最大で数十 MB あるので、コピーせずに先頭のサイズ行だけを取り除く。
+            stdout.drain(..=nl);
+            Ok((stdout, total))
+        }
+        _ => {
+            use std::io::{Read, Seek, SeekFrom};
+            let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+            let total = file.metadata().map_err(|e| e.to_string())?.len();
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|e| e.to_string())?;
+            let mut bytes = Vec::new();
+            file.take(len)
+                .read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            Ok((bytes, total))
+        }
+    }
+}
+
+/// 読んだバイト列のどこで切るか。**末尾でなければ最後の改行の直後**で切り、行を途中で割らない
+/// （続きを読んだとき、切れ目で 1 行が 2 行に割れない）。改行を 1 つも含まない（`len` より長い
+/// 1 行）ときだけ、UTF-8 の文字の途中を避けて切る。
+///
+/// 改行（`0x0A`）で切るのは UTF-8 でも Shift_JIS でも文字の途中にならない（どちらも 2 バイト目に
+/// `0x0A` を使わない）。UTF-16 は `0x0A` が文字の途中に現れるので、部分読み込みの対象外にしてある。
+fn chunk_end(bytes: &[u8], eof: bool) -> usize {
+    if eof {
+        return bytes.len();
+    }
+    if let Some(i) = bytes.iter().rposition(|&b| b == b'\n') {
+        return i + 1;
+    }
+    match std::str::from_utf8(bytes) {
+        Err(e) if e.error_len().is_none() && e.valid_up_to() > 0 => e.valid_up_to(),
+        _ => bytes.len(),
+    }
+}
+
+/// 大きすぎるファイルを先頭から少しずつ読む（#362）。`encoding` を省けば断片ごとに判定する
+/// （UTF-8 として読めなければ Shift_JIS）。UTF-8 以外に決まったあとの固定はフロントの
+/// `partialEncoding` が受け持つ。
+#[tauri::command]
+pub async fn fs_read_file_chunk(
+    shell: ShellConfig,
+    path: String,
+    offset: u64,
+    len: u64,
+    encoding: Option<String>,
+) -> Result<FileChunk, String> {
+    let len = len.clamp(1, MAX_SIZE_CEILING);
+    tokio::task::spawn_blocking(move || {
+        let (bytes, total_size) = read_byte_range(&shell, &path, offset, len)?;
+        let eof = offset + bytes.len() as u64 >= total_size;
+        let end = chunk_end(&bytes, eof);
+        let chunk = &bytes[..end];
+        // BOM は先頭の断片にしか無い。
+        if offset == 0 && utf16_bom(chunk).is_some() {
+            return Err("UTF-16 files cannot be opened partially".into());
+        }
+        // **断片の全体で NUL を見る。** `decode_bytes` の判定は先頭の 8KB だけで、続きの断片は
+        // テキストの行で始まることが多い（テキストの後ろにバイナリが続くファイルで、化けた本文が
+        // 足されていた）。断片は最大でも数十 MB で、`contains` は memchr なので安い。
+        if chunk.contains(&0) {
+            return Err(BINARY_FILE_ERROR.into());
+        }
+        let decoded = decode_bytes(chunk, encoding.as_deref())?;
+        Ok(FileChunk {
+            content: decoded.content,
+            encoding: decoded.encoding,
+            next_offset: offset + end as u64,
+            total_size,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -457,18 +625,25 @@ pub async fn fs_read_file(
     path: String,
     encoding: Option<String>,
     allow_missing: Option<bool>,
+    max_bytes: Option<u64>,
 ) -> Result<FileReadResult, String> {
+    let max_size = max_bytes.unwrap_or(DEFAULT_MAX_SIZE).min(MAX_SIZE_CEILING);
     tokio::task::spawn_blocking(move || {
-        match read_raw_bytes(&shell, &path)? {
-            Some(bytes) => decode_bytes(&bytes, encoding.as_deref()),
+        match read_raw_bytes(&shell, &path, max_size)? {
+            RawRead::Bytes(bytes) => decode_bytes(&bytes, encoding.as_deref()),
             // Editor opt-in: open a missing file as a blank new file (vim-like).
             // Other callers (existence probes, config reads) keep the error.
-            None if allow_missing.unwrap_or(false) => Ok(FileReadResult {
-                content: String::new(),
-                encoding: "UTF-8".to_string(),
+            RawRead::Missing if allow_missing.unwrap_or(false) => Ok(FileReadResult {
                 is_new: true,
+                ..FileReadResult::text(String::new(), "UTF-8")
             }),
-            None => Err("File not found".to_string()),
+            RawRead::Missing => Err("File not found".to_string()),
+            // 上限を頼んだ呼び出し（エディタ）には結果として返し、開き方を選ばせる（#362）。
+            RawRead::TooLarge(size) if max_bytes.is_some() => Ok(FileReadResult {
+                too_large: Some(size),
+                ..FileReadResult::text(String::new(), "UTF-8")
+            }),
+            RawRead::TooLarge(size) => Err(format!("File too large ({size} bytes)")),
         }
     })
     .await
@@ -1024,13 +1199,29 @@ mod tests {
     }
 
     #[test]
+    fn chunk_end_cuts_after_last_newline() {
+        assert_eq!(chunk_end(b"a\nbc\nde", false), 5);
+        // 末尾まで読んだなら切らない
+        assert_eq!(chunk_end(b"a\nbc\nde", true), 7);
+    }
+
+    #[test]
+    fn chunk_end_without_newline_avoids_splitting_utf8() {
+        // "あい" の 2 文字目の途中（3 + 2 バイト）で終わっている
+        let bytes = "あい".as_bytes();
+        assert_eq!(chunk_end(&bytes[..5], false), 3);
+        assert_eq!(chunk_end(b"abc", false), 3);
+    }
+
+    #[test]
     fn read_missing_native_file_is_new() {
         // Missing file (even under a missing directory) → Ok(None), not Err —
         // the editor opens it as a blank new file.
         let r = read_raw_bytes(
             &ShellConfig::Powershell,
             r"C:\pike-test-definitely-missing\nope.txt",
+            DEFAULT_MAX_SIZE,
         );
-        assert_eq!(r, Ok(None));
+        assert_eq!(r, Ok(RawRead::Missing));
     }
 }

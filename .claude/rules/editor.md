@@ -7,7 +7,16 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - Rust `fs` モジュールがファイル操作を提供（list_dir / read_file / write_file）。分岐は**「WSL かどうか」だけ**で、Windows も macOS も `std::fs` の腕に乗る
 - WSL: `wsl.exe find`, `wsl.exe cat`, `wsl.exe bash -c "cat > ..."` 経由
 - WSL 以外（Windows / macOS）: `std::fs` 直接アクセス
-- ファイルサイズ事前チェック（2MB 制限）
+- **ファイルサイズの上限（#362）**: エディタは設定の `editorMaxFileSizeMb`（2〜50MB、既定 10MB）を `fs_read_file` の `max_bytes` に渡す。**渡さない呼び出し元（定義ジャンプの設定ファイル読み・diff の省略行の取り寄せ等）は従来どおり 2MB**（`DEFAULT_MAX_SIZE`）
+  - **超えたらエラーではなく結果で返す**（`FileReadResult.too_large`。`allow_missing` と `is_new` と同じ「頼んだ呼び出しにだけ返る」形）。`max_bytes` を渡さない呼び出し元には従来どおりエラー。エラー文の綴りを Rust と TS で取り決める形は採らない
+  - EditorTab はエラー画面ではなく、開き方を選ばせる画面（`tooLargeSize`）を出す: 先頭から読み込む（部分読み込み）・関連付けられたアプリで開く（`lib/openFile.ts` の `openWithDefaultApp`。**実行形式の拡張子は確認を挟む**: Windows の `explorer.exe` はスクリプトもショートカットもそのまま起動する。ファイルツリーの右クリックもここを通る）・フォルダを開く（`fs_reveal_in_explorer`。Windows の `/select,` は `raw_arg` でないと効かない理由は `types::os_reveal` の doc）
+  - **部分読み込み（`fs_read_file_chunk`）の切れ目は最後の改行の直後**（`chunk_end`）。続きを足したとき 1 行が割れない。改行が無い長い 1 行だけ UTF-8 の文字境界で切る。**UTF-16 は対象外**（`0x0A` が文字の途中に現れる）。エンコードは**UTF-8 のあいだは断片ごとに判定し、UTF-8 以外に決まったら固定する**（`applyChunk`。先頭が ASCII だけのログを UTF-8 で固定すると、後ろの Shift_JIS が化ける）
+  - **「続きを読む」は上部のバーと本文の末尾の 2 か所**（末尾は `lib/editorLoadMore.ts` のブロック widget）。**押したときだけ読む**: 末尾までスクロールしたら自動で読む形は、スクロールしただけで数 MB ずつ読み込みとメモリが増えるので採らない
+    - **末尾の行は `overflow-anchor: none`**。押した直後に画面に残っているのはその行だけなので、ブラウザのスクロールアンカーに選ばれると、足した本文のぶんだけ送られて新しい末尾へ飛ぶ（実機で踏んだ）。末尾から読んだときは、それまでの最終行を下端に据える（`loadMore(fromEnd)`）
+  - **続きの断片は全体で NUL を見る**（`fs_read_file_chunk`）。`decode_bytes` の判定は先頭 8KB だけなので、テキストの後ろにバイナリが続くファイルで化けた本文が足される
+  - **部分読み込み中は読み取り専用**（`isReadOnlyTab` に含める。保存すると読んでいない後半が消える）。保存・自動保存・diff ガター・外部変更の「上書き」がすべてこの 1 つを見る
+  - **部分読み込み中は外部変更で自動リロードしない**。読み直しは先頭の 1 回ぶんに戻るので、書き足され続けるログで「続きを読む」の位置が変更のたびに失われる。警告バーの「再読み込み」は出す
+  - **部分読み込み中は `updateDirtyState` が何もしない**（読み取り専用で未保存になりようがない）。全文比較は続きを足すたびに文書全体（数十 MB）を文字列にするので、比較そのものを飛ばす。`savedContent` も伸ばさない
 - CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）
 - **「このファイルは何か」を決めるのは `lib/fileType.ts` の `fileTypeKey` ただ 1 つ（#347 / #348）。** 種別のキーとラベルの正本は同ファイルの `FILE_TYPE_LABELS`（件数をここに書かない。足すたびにずれる）。読む側は 4 つで、**新しく「ファイルの種別を見る」コードを書くときも必ずここを通す**
   - ハイライトと StatusBar の種別（`lib/languages.ts` の `EXT_MAP`）／アウトラインの抽出器（`lib/outline/index.ts` の `EXTRACTORS`）／定義ジャンプの `langId`（`lib/jumpTo/`）／ファイルアイコンの補い（`lib/fileIcons.ts` の `ICON_FALLBACK`）

@@ -1,8 +1,10 @@
+import { confirmDialog } from '../composables/useConfirmDialog'
+import { t } from '../i18n'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
 import type { ShellType } from '../types/tab'
-import { extension, isImageFile, mimeType } from './paths'
-import { fsReadFileBase64 } from './tauri'
+import { basename, extension, isImageFile, mimeType } from './paths'
+import { fsOpenInExplorer, fsReadFileBase64 } from './tauri'
 
 /**
  * Open a path in the tab kind that matches its extension: images go to the
@@ -38,4 +40,26 @@ export async function openPathInTab(opts: {
     return
   }
   tabStore.addEditorTab({ path, initialLine: opts.line })
+}
+
+/**
+ * 「開く」が「実行する」になる拡張子（#362）。OS の関連付けで開くと、これらはプログラムとして
+ * 走る（Windows の `explorer.exe` はスクリプトもショートカットもそのまま起動する）。信用しきって
+ * いないリポジトリを clone したあとに押す操作なので、黙って走らせない。
+ */
+const EXECUTABLE_EXTENSIONS = new Set([
+  ...['exe', 'com', 'bat', 'cmd', 'msi', 'msc', 'scr', 'pif', 'cpl', 'lnk', 'url', 'reg', 'hta', 'jar'],
+  ...['ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh', 'application', 'appref-ms'],
+  ...['app', 'command', 'sh', 'tool', 'pkg', 'terminal', 'workflow'],
+])
+
+/**
+ * ファイルを関連付けられたアプリで開く（#362）。**入口はここ 1 つ**（ファイルツリーの右クリックと、
+ * 大きすぎるファイルの画面）。実行形式に当たる拡張子だけ、押した人に確かめてから渡す。
+ */
+export async function openWithDefaultApp(shell: ShellType, path: string): Promise<void> {
+  if (EXECUTABLE_EXTENSIONS.has(extension(path))) {
+    if (!(await confirmDialog(t('confirm.runExecutable', { name: basename(path) })))) return
+  }
+  await fsOpenInExplorer(shell, path).catch(() => {})
 }

@@ -3,6 +3,7 @@ export default {
   'common.ok': 'OK',
   'common.cancel': 'キャンセル',
   'common.loading': '読み込み中...',
+  'common.openWithDefaultApp': '関連付けられたアプリで開く',
   'common.save': '保存',
   'common.delete': '削除',
   'common.back': '戻る',
@@ -128,6 +129,13 @@ export default {
   'editor.externalDeleted': 'ファイルがディスク上から削除されました。',
   'editor.reload': '再読み込み',
   'editor.reloadFromDisk': 'ディスクから再読み込み',
+  'editor.tooLarge':
+    'このファイルは {size} あり、エディタで開ける大きさ（{limit}）を超えています。上限は設定の「エディタ」で変えられます。',
+  'editor.openPartially': '先頭から読み込む（読み取り専用）',
+  'editor.revealInFolder': 'フォルダを開く',
+  'editor.partialLoaded': '{total} のうち先頭 {loaded} を読み取り専用で表示しています',
+  'editor.loadMore': '続きを読む',
+  'editor.loadMoreRemaining': '続きを読む（残り {size}）',
   'editor.reloadDiscardConfirm': '未保存の変更を破棄してディスクから読み直しますか？',
   'editor.dirRegistered': 'このパスはディレクトリです。登録済みのプロジェクト「{name}」です。',
   'editor.dirUnregistered': 'このパスはディレクトリです。プロジェクトには登録されていません。',
@@ -363,6 +371,9 @@ export default {
   'settings.fetchLinkTitle': '貼り付けた URL をタイトル付きリンクにする',
   'settings.fetchLinkTitleHint': '有効にすると、Markdown に URL を貼るたびにそのページへ通信してタイトルを取得します。',
   'settings.tabSize': 'タブサイズ',
+  'settings.editorMaxFileSize': 'エディタで開けるファイルの大きさ',
+  'settings.editorMaxFileSizeHint':
+    'これより大きいファイルを開くと、先頭から読み取り専用で読み込むか、ほかのアプリで開くかを選ぶ画面になります。',
   'settings.sqlDialect': '.sql の SQL 方言',
   'settings.sqlDialectHint':
     '.sql を開いたときにどの方言としてハイライトするかです。ステータスバーのファイルタイプから手動で選ぶ場合は、この設定に関係なく方言を選べます。',
@@ -778,6 +789,8 @@ export default {
   // Confirm Dialog
   'confirm.pasteNewlines': '貼り付け内容に改行が含まれています。続行しますか？',
   'confirm.openPath': '{path} を開きますか？',
+  'confirm.runExecutable':
+    '"{name}" は実行できるファイルです。関連付けられたアプリで開くと、そのまま実行されます。続けますか？',
   'confirm.openPathRemember': '今後は確認せず開く',
   'confirm.copyOnSelect':
     'ターミナルで文字を選択したら、自動的にクリップボードへコピーしてよいですか？（設定 → ターミナルであとから変えられます）',
