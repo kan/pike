@@ -1143,6 +1143,34 @@ async fn app_exit(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// トレイの「終了」。ターミナルで何か動いていれば、ウィンドウを閉じるときと同じ確認を出す（#178）。
+///
+/// **確認はフロントの `confirmAndExit` に任せ、出すのは main ウィンドウ**（`main-exit-requested`
+/// の受け手）。トレイに畳んでいると main は隠れているので、**表示してから**頼む。隠れたままだと
+/// ダイアログが誰にも見えず、終了が黙って止まる。何も動いていなければ、表示せずにそのまま終わる
+/// （押しただけで一瞬ウィンドウが出るのを避ける）。
+///
+/// **数えた件数は payload に載せる**。フロントがもう一度数えると、WSL のターミナル 1 枚につき
+/// `wsl.exe` の判定がもう 1 周走り、確認が出るまでの待ちが倍になる。
+///
+/// 代償として、フロントが応答しない（WebView が固まった）あいだは、何か動いていると「終了」が
+/// 効かない。以前の `app.exit(0)` は無条件の逃げ道だった。
+fn request_quit_from_tray(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        // 数えられなかったら 0（確認を出さずに終了する。ウィンドウの close と同じ扱い）。
+        let busy = pty::busy_count(&app.state::<pty::PtyState>())
+            .await
+            .unwrap_or(0);
+        if busy == 0 {
+            app.exit(0);
+            return;
+        }
+        show_main_window(&app);
+        let _ = app.emit_to("main", "main-exit-requested", busy);
+    });
+}
+
 /// Dispatch a tray menu click (see `tray::build_menu` for the item ids).
 pub(crate) fn tray_menu_action(app: &AppHandle, id: &str) {
     match id {
@@ -1153,7 +1181,7 @@ pub(crate) fn tray_menu_action(app: &AppHandle, id: &str) {
             // The main window listens for this and opens the project switcher.
             let _ = app.emit_to("main", "tray-open-switcher", ());
         }
-        "tray:quit" => app.exit(0),
+        "tray:quit" => request_quit_from_tray(app),
         // Per-shell terminal entries (#240). An id that no longer parses (a stale
         // menu, a distro that was renamed) opens nothing rather than falling back
         // to another shell.

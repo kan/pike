@@ -341,7 +341,8 @@ onMounted(async () => {
     getCurrentWindow().listen('main-window-hidden', () => projectStore.saveSessionNow())
     // closeToTray off and main is the last window: closing it quits Pike and
     // kills every window's PTYs, so Rust hands the decision here first (#178).
-    getCurrentWindow().listen('main-exit-requested', () => void confirmAndExit())
+    // トレイの「終了」は Rust が数えた件数を載せてくる（ウィンドウの close は載せない）。
+    getCurrentWindow().listen<number | null>('main-exit-requested', (e) => void confirmAndExit(e.payload ?? undefined))
   } else {
     // Child windows (project / global): closing one kills its own PTYs, and no
     // Rust handler intercepts it, so confirm here and veto if declined (#178).

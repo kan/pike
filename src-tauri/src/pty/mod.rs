@@ -537,6 +537,11 @@ pub async fn pty_is_busy(id: String, state: State<'_, PtyState>) -> Result<bool,
 /// concurrently so several WSL terminals don't add up to a visible stall.
 #[tauri::command]
 pub async fn pty_busy_count(state: State<'_, PtyState>) -> Result<usize, String> {
+    busy_count(&state).await
+}
+
+/// `pty_busy_count` の実体。コマンドを経ずに終了の判断をする経路（トレイの「終了」）も呼ぶ。
+pub async fn busy_count(state: &PtyState) -> Result<usize, String> {
     let probes: Vec<BusyProbe> = {
         let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
         sessions.values().map(|s| s.busy.clone()).collect()

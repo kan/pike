@@ -4,6 +4,7 @@ import { check, type Update } from '@tauri-apps/plugin-updater'
 import { computed, markRaw, type Raw, ref } from 'vue'
 import { saveAllWindowState } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
+import { confirmBusyExit } from './useBusyExit'
 
 type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'upToDate' | 'error'
 
@@ -43,6 +44,10 @@ export function useUpdater() {
 
   async function downloadAndInstall() {
     if (!pendingUpdate.value) return
+    // 更新は Pike ごと終了して再起動するので、ウィンドウを閉じるときと同じ確認を取る（#178）。
+    // **ダウンロードより前に聞く**: Windows のインストーラは適用した時点でアプリを終わらせるので、
+    // 後から聞く機会が無い。断られたら更新は始めない（「更新あり」の状態のまま）。
+    if (!(await confirmBusyExit())) return
     state.value = 'downloading'
     try {
       await pendingUpdate.value.downloadAndInstall()
