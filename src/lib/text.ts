@@ -49,6 +49,23 @@ export function escapeRegExp(s: string): string {
  * 区切り文字で 1 行を欄に割る（RFC 4180 の引用符に対応）。`"` の中の区切りは区切りではなく、
  * `""` は 1 つの `"`。CSV プレビュー（`.csv` / `.tsv`）と rst の `csv-table` が共有する。
  */
+/**
+ * `query` の出現位置を [start, end) で返す（diff タブ・設定画面の絞り込み・プレビューの検索が
+ * 共有する）。`limit` 件を超えたら 1 件多く見つけたところで止める（打ち切ったかを呼ぶ側が
+ * 件数で判定できるように）。
+ */
+export function findRanges(text: string, query: string, caseSensitive: boolean, limit = Infinity): [number, number][] {
+  if (!query) return []
+  const hay = caseSensitive ? text : text.toLowerCase()
+  const needle = caseSensitive ? query : query.toLowerCase()
+  const ranges: [number, number][] = []
+  for (let from = hay.indexOf(needle); from !== -1; from = hay.indexOf(needle, from + needle.length)) {
+    ranges.push([from, from + needle.length])
+    if (ranges.length > limit) break
+  }
+  return ranges
+}
+
 export function splitDelimited(line: string, delimiter: string): string[] {
   const cells: string[] = []
   let cur = ''

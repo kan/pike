@@ -217,6 +217,11 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
   - Mermaid (`.mermaid`/`.mmd`): `renderStandaloneMermaid` が `lib/mermaid.ts` の `getMermaid()` を遅延 import して SVG 描画（ズーム対応）
   - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
   - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
+- **プレビューの検索（#360）**: `Ctrl+F` でプレビューの右上に `components/editor/FindBar.vue`（diff タブと共有）を出す。一致の求め方と強調は `lib/domFind.ts`、数え直しの契機は `composables/usePreviewFind.ts`。判断の実体はその 2 ファイルの doc が正本
+  - **相手は描画済みの DOM**。`v-html` のあとに mermaid・画像のチップが非同期に書き足されるので、`previewHtml` ではなく DOM の変化の監視（MutationObserver）で数え直す。**数え直しでは動かさない**（分割表示で打鍵のたびにプレビューが飛び、スクロールの同期でエディタまで動く）
+  - **強調は CSS Custom Highlight API**（`::highlight(pike-find)` は `theme.css`）。`<mark>` で DOM を書き換えない。登録表は文書に 1 つなので、タブごとの範囲を `domFind.ts` のモジュールに集めて登録し直す。API の無い WebView では強調が出ないだけで、件数と移動は効く
+  - **分割表示ではエディタにフォーカスがあれば CodeMirror の検索に譲る**（判定は `EditorTab.vue` の `onGlobalKeyDown`）
+  - **`scrollIntoView` を使わない**（`overflow: hidden` の祖先まで動かす）。`revealRange` がコンテナまでのスクロール要素だけを動かす
 - Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
 - **Markdown フロントマター（#229）**: `lib/frontmatter.ts` の `detectFrontmatter` が範囲を返し、`lib/frontmatterParse.ts` の `parseFrontmatter` が `yaml` / `smol-toml` / `JSON.parse` で key/value に落とす。プレビュー（`buildMarkdownPreview` が `marked.parse` の前に本文を切り出して `<details>` の表を前置）とアウトライン（`extractors/markdown.ts` が `bodyFrom` より前の見出しを捨てる）で**範囲検出だけ**を共有する（描画経路がテキストと Lezer 構文木で別のため）
   - **ファイルを 2 つに割っているのはバンドルの都合**。`lib/outline/index.ts` が 18 個の extractor を静的 import で 1 チャンクに束ねるので、パーサを同居させると YAML/TOML パーサ（合わせて約 106KB）が Go や Rust のアウトラインにも載る。実測で outline チャンクが 267KB → 161KB。`frontmatter.ts` は依存ゼロを保つこと

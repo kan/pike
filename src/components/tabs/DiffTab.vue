@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { CaseSensitive, ChevronDown, ChevronsDownUp, ChevronUp, X } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ChevronDown, ChevronsDownUp, ChevronUp } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useDragResize } from '../../composables/useDragResize'
 import { useI18n } from '../../i18n'
 import { type Expanded, expandDiff, type Gap, matchesDiff } from '../../lib/diffExpand'
 import { parseDiff, parseRename } from '../../lib/diffParser'
 import { collectMatches, renderTokens } from '../../lib/diffSearch'
 import { displayWidth } from '../../lib/displayWidth'
-import { hasMod, normalizedKey } from '../../lib/keys'
+import { horizontalReveal } from '../../lib/domFind'
+import { matchChord } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { joinPath, pathSep, repoPath } from '../../lib/paths'
 import { fsReadFile, gitDiff, gitShowFile } from '../../lib/tauri'
@@ -16,6 +17,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import type { DiffTab } from '../../types/tab'
+import FindBar from '../editor/FindBar.vue'
 import WrapToggle from '../editor/WrapToggle.vue'
 import RenameNote from '../RenameNote.vue'
 
@@ -430,11 +432,8 @@ const showSearch = ref(false)
 const query = ref('')
 const caseSensitive = ref(false)
 const currentIndex = ref(0)
-const searchInput = ref<HTMLInputElement>()
+const findBar = useTemplateRef<{ focus: () => void }>('findBar')
 const scrollEl = ref<HTMLElement>()
-
-/** 一致へ横に寄せるときの余白（px）。端に貼り付くと前後が読めない。 */
-const SEARCH_REVEAL_PAD = 40
 
 const matches = computed(() => collectMatches(parsedLines.value, query.value, caseSensitive.value))
 
@@ -484,12 +483,6 @@ const blocks = computed<DiffBlock[]>(() => {
   return out
 })
 
-const matchInfo = computed(() => {
-  if (!query.value) return ''
-  if (matches.value.length === 0) return t('search.noResults')
-  return `${currentIndex.value + 1} / ${matches.value.length}`
-})
-
 function scrollToCurrent() {
   nextTick(() => {
     const target = scrollEl.value?.querySelector(`[data-match="${currentIndex.value}"]`)
@@ -500,10 +493,7 @@ function scrollToCurrent() {
     const cell = target.closest('.line-content')
     const bar = hscrollEl.value
     if (!cell || !bar) return
-    const t = target.getBoundingClientRect()
-    const c = cell.getBoundingClientRect()
-    if (t.left < c.left) bar.scrollLeft -= c.left - t.left + SEARCH_REVEAL_PAD
-    else if (t.right > c.right) bar.scrollLeft += t.right - c.right + SEARCH_REVEAL_PAD
+    bar.scrollLeft += horizontalReveal(target.getBoundingClientRect(), cell.getBoundingClientRect())
   })
 }
 
@@ -515,11 +505,9 @@ function step(delta: number) {
 }
 
 function openSearch() {
+  // 開いた直後のフォーカスは `FindBar` 自身が取る。ここで呼ぶのは開いたまま押し直したときのため。
+  if (showSearch.value) findBar.value?.focus()
   showSearch.value = true
-  nextTick(() => {
-    searchInput.value?.focus()
-    searchInput.value?.select()
-  })
 }
 
 function closeSearch() {
@@ -537,22 +525,12 @@ watch(matches, (m) => {
   if (currentIndex.value >= m.length) currentIndex.value = 0
 })
 
-function onSearchKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') {
-    e.preventDefault()
-    step(e.shiftKey ? -1 : 1)
-  } else if (e.key === 'Escape') {
-    e.preventDefault()
-    closeSearch()
-  }
-}
-
 // Tabs stay mounted (v-show), so only react to Ctrl+F when this diff tab is the
 // active one — otherwise every mounted DiffTab would grab the shortcut.
 function onKeydown(e: KeyboardEvent) {
-  // **Shift も見る。** `Ctrl+Shift+F`（検索パネル、#259）は別のショートカットで、
-  // どちらも window のリスナーなので、見ないとタブ内検索まで同時に開いて焦点を奪う。
-  if (hasMod(e) && !e.altKey && !e.shiftKey && normalizedKey(e) === 'f') {
+  // `matchChord` は書いていない修飾キーを弾くので、`Ctrl+Shift+F`（検索パネル、#259）とは
+  // 取り合わない（どちらも window のリスナー）。
+  if (matchChord(e, 'Mod+F')) {
     // 打鍵の行き先のタブだけが受ける（#308。分割していると 2 枚が見えているので、
     // `isTabVisible` だと両方が同じキーを取り合う）。
     if (!tabStore.isTabFocused(props.tabId)) return
@@ -753,29 +731,16 @@ onUnmounted(() => {
       <div v-if="!showSearch" class="hover-toolbar" :class="{ prominent: canScrollX }">
         <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
       </div>
-      <div v-if="showSearch" class="diff-search popup-surface">
-        <input
-          ref="searchInput"
-          v-model="query"
-          class="search-field"
-          type="text"
-          spellcheck="false"
-          :placeholder="t('search.placeholder')"
-          @keydown="onSearchKeydown"
-        />
-        <button
-          class="search-toggle-btn"
-          :class="{ active: caseSensitive }"
-          :title="t('search.matchCase')"
-          @click="caseSensitive = !caseSensitive"
-        >
-          <CaseSensitive :size="14" :stroke-width="2" />
-        </button>
-        <span class="search-match-info">{{ matchInfo }}</span>
-        <button class="search-icon-btn" :title="t('search.prevMatch')" @click="step(-1)"><ChevronUp :size="14" :stroke-width="2" /></button>
-        <button class="search-icon-btn" :title="t('search.nextMatch')" @click="step(1)"><ChevronDown :size="14" :stroke-width="2" /></button>
-        <button class="search-icon-btn" :title="t('search.close')" @click="closeSearch"><X :size="14" :stroke-width="2" /></button>
-      </div>
+      <FindBar
+        v-if="showSearch"
+        ref="findBar"
+        v-model:query="query"
+        v-model:case-sensitive="caseSensitive"
+        :current="currentIndex"
+        :total="matches.length"
+        @step="step"
+        @close="closeSearch"
+      />
       </template>
     </template>
   </div>
@@ -1000,13 +965,13 @@ onUnmounted(() => {
 }
 
 .search-hl {
-  background: rgba(255, 200, 0, 0.35);
+  background: var(--find-match-bg);
   border-radius: 2px;
 }
 
 .search-current {
-  background: rgba(255, 160, 0, 0.85);
-  color: #1a1a1a;
+  background: var(--find-current-bg);
+  color: var(--find-current-fg);
   border-radius: 2px;
 }
 
@@ -1041,49 +1006,7 @@ onUnmounted(() => {
   border-color: var(--accent);
 }
 
-/* Floating search panel (mirrors the editor's search look) */
-.diff-search {
-  position: absolute;
-  top: 8px;
-  right: 16px;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
-.search-field {
-  width: 180px;
-  padding: 3px 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px;
-  outline: none;
-}
-
-.search-field:focus {
-  border-color: var(--accent);
-}
-
-.search-match-info {
-  min-width: 56px;
-  padding: 0 4px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  text-align: center;
-  white-space: nowrap;
-}
-
-/* 枠なしのフラットなボタン（検索パネルと省略の帯が共有する）。寸法と文字色だけが違う。 */
-.search-icon-btn,
-.search-toggle-btn,
+/* 枠なしのフラットなボタン（省略の帯）。検索バーのボタンは `FindBar.vue` が持つ。 */
 .gap-btn,
 .gap-all {
   display: flex;
@@ -1094,29 +1017,8 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.search-icon-btn:hover,
-.search-toggle-btn:hover,
 .gap-btn:hover,
 .gap-all:hover {
   background: var(--tab-hover-bg);
-}
-
-.search-icon-btn,
-.search-toggle-btn {
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  color: var(--text-secondary);
-}
-
-.search-icon-btn:hover,
-.search-toggle-btn:hover {
-  color: var(--text-primary);
-}
-
-.search-toggle-btn.active {
-  background: var(--accent);
-  color: #fff;
 }
 </style>

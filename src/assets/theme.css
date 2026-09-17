@@ -640,6 +640,25 @@
   opacity: 0.3;
 }
 
+/* タブ内検索の一致の色（diff タブの `.search-hl` / `.search-current` とプレビューの検索が共有）。
+   テーマで変えないので `:root` に 1 回だけ置く。 */
+:root {
+  --find-match-bg: rgba(255, 200, 0, 0.35);
+  --find-current-bg: rgba(255, 160, 0, 0.85);
+  --find-current-fg: #1a1a1a;
+}
+
+/* プレビューの検索の強調（#360、`lib/domFind.ts`）。名前は文書に 1 つの登録表のキーなので
+   scoped CSS には置けない。 */
+::highlight(pike-find) {
+  background-color: var(--find-match-bg);
+}
+
+::highlight(pike-find-current) {
+  background-color: var(--find-current-bg);
+  color: var(--find-current-fg);
+}
+
 /* Shared keyboard shortcut hint for context menus / popup menus */
 .ctx-key {
   font-size: 11px;

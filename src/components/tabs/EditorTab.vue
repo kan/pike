@@ -15,6 +15,7 @@ import { markRecentlySaved } from '../../composables/useFsWatcher'
 import { useMarkdownImages } from '../../composables/useMarkdownImages'
 import { useMarkdownLinkPaste } from '../../composables/useMarkdownLinkPaste'
 import { type OutlineJump, useOutlineSource } from '../../composables/useOutlineSource'
+import { usePreviewFind } from '../../composables/usePreviewFind'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { highlightCodeBlock, markedCodeHighlight } from '../../lib/codeHighlight'
@@ -39,7 +40,7 @@ import { buildFontFamily } from '../../lib/fontDetection'
 import { formatLineRange, lineRangeSuffix } from '../../lib/format'
 import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
-import { chordLabel } from '../../lib/keys'
+import { chordLabel, matchChord } from '../../lib/keys'
 import { getLanguage, getLanguageLabel, languageByKey, languageLabelByKey } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
@@ -66,6 +67,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import { type EditorTab, shellToPlatform } from '../../types/tab'
+import FindBar from '../editor/FindBar.vue'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import MinimapToggle from '../editor/MinimapToggle.vue'
 import WrapToggle from '../editor/WrapToggle.vue'
@@ -237,6 +239,17 @@ const hasPreview = computed(
 
 const showEditor = computed(() => viewMode.value !== 'preview')
 const showPreview = computed(() => viewMode.value !== 'edit')
+
+// プレビューの検索（#360）。standalone の mermaid は別の要素に描くので、そちらを相手にする。
+const findTarget = computed(() => (isMermaid.value ? mermaidRef.value : previewRef.value))
+const previewFind = usePreviewFind(findTarget, props.tabId)
+const findBar = useTemplateRef<{ focus: () => void }>('findBar')
+
+function openPreviewFind() {
+  // 開いた直後のフォーカスは `FindBar` 自身が取る。ここで呼ぶのは開いたまま押し直したときのため。
+  if (previewFind.open.value) findBar.value?.focus()
+  previewFind.show()
+}
 
 // Header (plain editor): breadcrumb from the project root to the file.
 const breadcrumbSegments = computed(() => {
@@ -1411,6 +1424,14 @@ function onGlobalKeyDown(e: KeyboardEvent) {
   if (e.key === 'Escape' && jsonStringPopup.value) {
     closeJsonStringPopup()
   }
+  // プレビューの検索（#360）。**エディタにフォーカスがあるあいだは CodeMirror の検索に譲る**
+  // （分割表示でどちらを探すかは、最後に触ったほうで決める）。プレビューだけの表示では
+  // エディタが隠れているので、CodeMirror にキーが届くことは無い。
+  if (matchChord(e, 'Mod+F') && showPreview.value && tabStore.isTabFocused(props.tabId)) {
+    if (showEditor.value && editorRef.value?.contains(document.activeElement)) return
+    e.preventDefault()
+    openPreviewFind()
+  }
 }
 
 onMounted(async () => {
@@ -1980,6 +2001,17 @@ onUnmounted(() => {
       >
         <ArrowUp :size="18" :stroke-width="2" />
       </button>
+      <FindBar
+        v-if="previewFind.open.value"
+        ref="findBar"
+        v-model:query="previewFind.query.value"
+        v-model:case-sensitive="previewFind.caseSensitive.value"
+        :current="previewFind.currentIndex.value"
+        :total="previewFind.result.value.ranges.length"
+        :truncated="previewFind.result.value.truncated"
+        @step="previewFind.step"
+        @close="previewFind.close"
+      />
     </div>
     <div v-if="saving" class="save-indicator popup-surface">{{ t('editor.saving') }}</div>
 

@@ -5,6 +5,7 @@
  * tokens that overlay the search highlight on top of the diff highlight.
  */
 import type { DiffLine, DiffSegment } from './diffParser'
+import { findRanges } from './text'
 
 export type MatchSide = 'left' | 'right'
 
@@ -13,18 +14,6 @@ export interface DiffMatch {
   side: MatchSide
   start: number
   end: number
-}
-
-/** Every occurrence of `query` in `text`, as [start, end) ranges. */
-export function findRanges(text: string, query: string, caseSensitive: boolean): [number, number][] {
-  if (!query) return []
-  const hay = caseSensitive ? text : text.toLowerCase()
-  const needle = caseSensitive ? query : query.toLowerCase()
-  const ranges: [number, number][] = []
-  for (let from = hay.indexOf(needle); from !== -1; from = hay.indexOf(needle, from + needle.length)) {
-    ranges.push([from, from + needle.length])
-  }
-  return ranges
 }
 
 /** Matches across the whole diff in document order (row, then left before right). */

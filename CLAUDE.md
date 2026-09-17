@@ -202,6 +202,7 @@ pike/
 │   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── editor/
+│   │   │   ├── FindBar.vue          # タブ右上に浮く検索バー（diff タブ #176 とプレビュー #360 で共有）
 │   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
 │   │   │   ├── MinimapToggle.vue    # ミニマップの表示切り替え（タブ単位、#282）
 │   │   │   └── WrapToggle.vue       # 折り返しの切り替え（タブ単位、#241）
@@ -254,6 +255,7 @@ pike/
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
+│   │   ├── usePreviewFind.ts # プレビューの検索（#360。数え直しと移動の契機）
 │   │   ├── useTerminalPeek.ts # 別プロジェクトのターミナルを外から覗く口（#319）
 │   │   ├── useMarkdownImages.ts  # Markdown への画像挿入（選択/貼り付け/ドロップ、#241）
 │   │   ├── useMarkdownLinkPaste.ts # 貼り付けた URL をタイトル付きリンクにする（#241）
@@ -262,6 +264,7 @@ pike/
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── fileType.ts       # ファイル名 → 種別のキー（#347。ハイライト/アウトライン/ジャンプ/アイコンが共有）
 │   │   ├── codeHighlight.ts  # プレビューのコードブロックの色付け（#359。4 つのプレビューで共有）
+│   │   ├── domFind.ts        # 描画済み DOM の文字検索と CSS Custom Highlight の登録（#360）
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）
 │   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）
 │   │   ├── agents.ts        # Pike が知っているエージェントの表（#275。id・起動コマンドの正本）
@@ -275,7 +278,7 @@ pike/
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）
 │   │   ├── rstPreview.ts      # reStructuredText のプレビュー（自前の変換、#284）
 │   │   ├── displayWidth.ts    # 等幅フォントでの表示幅（diff の横幅と rst の表が共有、#284）
-│   │   ├── text.ts            # HTML 組み立ての共有部（Html 型・エスケープ・CSV 分割、#284）
+│   │   ├── text.ts            # HTML 組み立ての共有部（Html 型・エスケープ・CSV 分割、#284）と文字列の一致位置（`findRanges`）
 │   │   ├── sanitizeHtml.ts    # DOMPurify に渡す URI スキームの許可（4 つのプレビューで共有、#311）
 │   │   ├── externalImages.ts  # プレビューの外部画像のホスト判定と取得キャッシュ（#239）
 │   │   ├── terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts

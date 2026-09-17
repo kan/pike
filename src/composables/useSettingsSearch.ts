@@ -11,7 +11,7 @@ import {
   toRaw,
 } from 'vue'
 import { t } from '../i18n'
-import { findRanges } from '../lib/diffSearch'
+import { findRanges } from '../lib/text'
 
 /**
  * 設定画面の絞り込み（#314）。VS Code の設定画面と同じく、上部の入力欄で項目名と説明文を
