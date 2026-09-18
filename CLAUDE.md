@@ -169,6 +169,7 @@ pike/
 │   │   ├── project.ts         # ProjectConfig・PinnedTabDef
 │   │   ├── agentUsage.ts      # 使用量の共通の形（#263。種別ごとの型を持たない）
 │   │   ├── agentSession.ts    # 再開できるセッション 1 件（#267）
+│   │   ├── js-beautify.d.ts   # js-beautify の型（同梱されないので使う 3 関数だけ宣言、#366）
 │   │   ├── diagnostics.ts  docker.ts
 │   │   ├── git.ts  search.ts  tasks.ts  issues.ts
 │   ├── components/
@@ -293,6 +294,7 @@ pike/
 │   │   ├── dropPaths.ts       # WebView2 経由でドロップされたファイルの実パス取得
 │   │   ├── imeDebugLog.ts  imeFocusPark.ts  # IME 調査用（原因判明後に削除する）
 │   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts
+│   │   ├── editorFormat.ts   # クイック整形（#366。JSON / js-beautify / 行の整形）
 │   │   ├── editorLoadMore.ts # 部分読み込みの「続きを読む」を本文の末尾に出す（#362）
 │   │   ├── editorMacro.ts    # キーボードマクロの記録と再生（#180。サクラエディタ風）
 │   │   ├── editorJumpTo.ts  editorConflict.ts  editorDiagnostics.ts  editorMarkdown.ts

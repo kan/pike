@@ -85,6 +85,7 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: ['Mod+F'], label: t('shortcuts.find') },
       // mac の ⌘H は Hide Application なので、置換は ⌥⌘F（mac の慣習）。
       { keys: [editorChords.value.replace], label: t('shortcuts.findReplace') },
+      { keys: [editorChords.value.format], label: t('shortcuts.format') },
       { keys: ['F3', 'Shift+F3'], label: t('shortcuts.findNextPrev') },
       { keys: ['Mod+D'], label: t('shortcuts.selectNextMatch') },
       { keys: ['Mod+/'], label: t('shortcuts.toggleComment') },

@@ -1,4 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { runFormat } from '../lib/editorFormat'
 import { playMacro, toggleMacroRecording } from '../lib/editorMacro'
 import type { AppActionId } from '../lib/shortcuts'
 import { pickFolder } from '../lib/tauri'
@@ -166,6 +167,12 @@ export function useAppActions(): Record<AppActionId, () => void> & {
       if (!view) return
       playMacro(view)
       view.focus()
+    },
+    // クイック整形（#366）。種別は登録の `langId`（パスから決めたもの）で、StatusBar の手動の
+    // 上書きは知らない（上書きが効くのは右クリックとキーの入口）。
+    format: () => {
+      const src = useOutlineSource().current.value
+      if (src) void runFormat(src.view, 'auto', src.langId)
     },
     // macOS の ⌘Q。predefined の Quit と違い、走っているコマンドがあれば確認を挟む
     // （#178。閉じる経路と同じ確認で、ここだけ素通りすると全ウィンドウの PTY が黙って死ぬ）。

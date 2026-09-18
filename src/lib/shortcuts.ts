@@ -103,6 +103,8 @@ export const APP_ACTIONS = [
   // （`lib/editorMacro.ts`）。パレットからも引けるように行だけ置く。
   { id: 'macroRecord', palette: 'file' },
   { id: 'macroPlay', palette: 'file' },
+  // クイック整形（#366）。キーはプリセットで変わる CodeMirror 層（`editorChordsFor` の `format`）。
+  { id: 'format', palette: 'file' },
   { id: 'quit', labelKey: 'menu.quit' },
   // --- パネル（#270）。パレットから開ける。キーを持つのは検索だけ（`Mod+Shift+F`、#259）
   { id: 'panelFiles', palette: 'view', labelKey: 'sidebar.files', panel: 'files' },
@@ -393,7 +395,12 @@ export const keyBindings = computed<KeyBinding[]>(() => bindingsFor(preset.value
  * ため、VSCode 互換のときだけ mac で `⌥⌘F` に読み替える（IDEA の `⌘R` は mac でも通る）。
  */
 export function editorChordsFor(target: ShortcutPreset, mac: boolean) {
-  return { replace: target === 'idea' ? 'Mod+R' : mac ? 'Mod+Alt+F' : 'Mod+H' }
+  return {
+    replace: target === 'idea' ? 'Mod+R' : mac ? 'Mod+Alt+F' : 'Mod+H',
+    // クイック整形（#366）。VS Code の「ドキュメントのフォーマット」（Win / mac とも ⇧⌥F）と、
+    // IDEA の「Reformat Code」（Ctrl+Alt+L / ⌥⌘L）に合わせる。
+    format: target === 'idea' ? 'Mod+Alt+L' : 'Shift+Alt+F',
+  }
 }
 
 export const editorChords = computed(() => editorChordsFor(preset.value, isMacHost))

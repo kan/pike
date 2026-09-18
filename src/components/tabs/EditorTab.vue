@@ -31,6 +31,7 @@ import {
 } from '../../lib/csvPreview'
 import { conflictHighlight, hasConflictMarkers } from '../../lib/editorConflict'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
+import { FORMAT_MENU, type FormatKind, runFormat } from '../../lib/editorFormat'
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
 import { loadMoreRow } from '../../lib/editorLoadMore'
@@ -71,6 +72,7 @@ import {
 import { relativeToBase } from '../../lib/projectPaths'
 import { buildRstPreview } from '../../lib/rstPreview'
 import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
+import { editorChords } from '../../lib/shortcuts'
 import { createHeadingSlugger } from '../../lib/slug'
 import {
   type FileChunk,
@@ -1156,6 +1158,8 @@ const {
   reset: resetCtxMenu,
 } = useAnchoredPopup(useTemplateRef<HTMLElement>('ctxMenuEl'))
 const ctxLineRange = ref<{ start: number; end: number } | null>(null)
+/** 右クリックした位置（整形の一覧へ切り替えたときに測り直す起点）。 */
+let ctxMenuAnchor: { x: number; y: number } | null = null
 
 async function onEditorContextMenu(e: MouseEvent) {
   e.preventDefault()
@@ -1165,7 +1169,8 @@ async function onEditorContextMenu(e: MouseEvent) {
   ctxMenu.value = true
   // Measured, then clamped (#204): a right-click low in the editor used to open
   // a menu whose bottom entries were off-screen.
-  await placeCtxMenu({ x: e.clientX, y: e.clientY })
+  ctxMenuAnchor = { x: e.clientX, y: e.clientY }
+  await placeCtxMenu(ctxMenuAnchor)
   window.addEventListener('mousedown', closeCtxMenu, { once: true })
 }
 
@@ -1185,8 +1190,40 @@ function computeContextLineRange(e: MouseEvent): { start: number; end: number } 
 
 function closeCtxMenu() {
   ctxMenu.value = false
+  ctxFormatOpen.value = false
   resetCtxMenu()
 }
+
+// --- Quick format (#366) ---
+/** 右クリックのメニューを整形の一覧に切り替えているか（子メニューは位置合わせが要るので出さない）。 */
+const ctxFormatOpen = ref(false)
+
+/**
+ * 整形する（段取りの実体は `lib/editorFormat.ts` の `runFormat`）。ここで渡すのは種別だけで、
+ * **手動の上書き（StatusBar で選んだ言語）を優先する**。パレットの入口は上書きを知らない
+ * （`useOutlineSource` の `langId` はパスから決めたもの）ので、上書きが効くのはこの 2 つの入口。
+ */
+function formatInTab(kind: FormatKind | 'auto') {
+  closeCtxMenu()
+  const view = editorView
+  if (!view) return
+  const type = fileTypeOverride.value ?? fileTypeKey(tab.value?.path ?? '', firstLineOf(view.state.doc.line(1).text))
+  void runFormat(view, kind, type)
+}
+
+/**
+ * 一覧に切り替える。**メニューを測り直す**: 項目の数が変わるので、画面の下端で開いた
+ * メニューは切り替えたあとにはみ出しうる（位置は開いた場所のまま）。
+ */
+async function openFormatMenu() {
+  ctxFormatOpen.value = true
+  if (ctxMenuAnchor) await placeCtxMenu(ctxMenuAnchor)
+}
+
+/** キーボードの整形（ファイルの種別に合わせる）。`presetKeymap` に渡す。 */
+const formatByType = () => formatInTab('auto')
+
+const formatChordLabel = computed(() => chordLabel(editorChords.value.format))
 
 function execUndo() {
   closeCtxMenu()
@@ -1555,7 +1592,7 @@ function createEditorView(container: HTMLElement, content: string) {
       // プリセットで変わるキー（#261）。**`defaultKeymap` より前に置くこと**: IDEA 互換の
       // タブ移動 `Alt+←→` を CodeMirror の既定（`cursorSyntaxLeft/Right`）から奪い返す
       // 空のコマンドが入っている。
-      presetKeymapCompartment.of(presetKeymap()),
+      presetKeymapCompartment.of(presetKeymap(formatByType)),
       // キーボードマクロ（#180）。読み取り専用のタブには入れない（再生しても書けない）。
       editorMacro(),
       keymap.of([
@@ -2175,7 +2212,7 @@ watch(
 watch(
   () => settingsStore.shortcutPreset,
   () => {
-    editorView?.dispatch({ effects: presetKeymapCompartment.reconfigure(presetKeymap()) })
+    editorView?.dispatch({ effects: presetKeymapCompartment.reconfigure(presetKeymap(formatByType)) })
   },
 )
 
@@ -2451,12 +2488,31 @@ onUnmounted(() => {
         :style="ctxMenuStyle"
         @mousedown.stop
       >
+        <!-- クイック整形（#366）。「整形 ›」で同じメニューの中身を一覧に切り替える。 -->
+        <template v-if="ctxFormatOpen">
+          <button @click="ctxFormatOpen = false"><span>‹ {{ t('format.back') }}</span></button>
+          <div class="ctx-separator"></div>
+          <button @click="formatInTab('auto')">
+            <span>{{ t('format.kind.auto') }}</span><span class="ctx-key">{{ formatChordLabel }}</span>
+          </button>
+          <template v-for="(group, gi) in FORMAT_MENU" :key="gi">
+            <div class="ctx-separator"></div>
+            <button v-for="kind in group" :key="kind" @click="formatInTab(kind)">
+              <span>{{ t(`format.kind.${kind}`) }}</span>
+            </button>
+          </template>
+        </template>
+        <template v-else>
         <button @click="execUndo" :disabled="isReadOnlyTab"><span>{{ t('editor.undo') }}</span><span class="ctx-key">{{ chordLabel('Mod+Z') }}</span></button>
         <button @click="execRedo" :disabled="isReadOnlyTab"><span>{{ t('editor.redo') }}</span><span class="ctx-key">{{ chordLabel('Mod+Shift+Z') }}</span></button>
         <div class="ctx-separator"></div>
         <button @click="execCut" :disabled="isReadOnlyTab || !ctxHasSelection"><span>{{ t('editor.cut') }}</span><span class="ctx-key">{{ chordLabel('Mod+X') }}</span></button>
         <button @click="execCopy" :disabled="!ctxHasSelection"><span>{{ t('editor.copy') }}</span><span class="ctx-key">{{ chordLabel('Mod+C') }}</span></button>
         <button @click="execPaste" :disabled="isReadOnlyTab"><span>{{ t('editor.paste') }}</span><span class="ctx-key">{{ chordLabel('Mod+V') }}</span></button>
+        <div class="ctx-separator"></div>
+        <button :disabled="isReadOnlyTab" @click="openFormatMenu">
+          <span>{{ ctxHasSelection ? t('format.menuSelection') : t('format.menuFile') }}</span><span class="ctx-key">›</span>
+        </button>
         <div class="ctx-separator"></div>
         <button @click="sendSelectionToTerminal" :disabled="!ctxHasSelection"><span>{{ t('editor.sendToTerminal') }}</span></button>
         <button @click="copyLineRef" :disabled="!ctxLineRange || !tab?.path">
@@ -2470,6 +2526,7 @@ onUnmounted(() => {
         <button @click="openGitHistoryForLine" :disabled="!ctxLineRange">
           <span>{{ gitHistoryLineLabel }}</span>
         </button>
+        </template>
       </div>
     </Teleport>
 

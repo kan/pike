@@ -73,8 +73,8 @@ for (const { preset, label } of TABLES) {
       if (!b.action) continue
       for (const c of b.chords) expected.add(chordLabel(c, mac))
     }
-    // 置換だけは CodeMirror 側の割り当てで、`keyBindings` に無い（#261）。表には載っている。
-    expected.add(chordLabel(editorChordsFor(preset, mac).replace, mac))
+    // 置換と整形（#366）は CodeMirror 側の割り当てで、`keyBindings` に無い（#261）。表には載っている。
+    for (const c of Object.values(editorChordsFor(preset, mac))) expected.add(chordLabel(c, mac))
 
     for (const chord of expected) {
       if (!listed.has(chord)) {

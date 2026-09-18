@@ -29,7 +29,11 @@ import { editorChords, keyBindings } from './shortcuts'
  */
 const SHADOWABLE_CHORDS = ['Alt+ArrowLeft', 'Alt+ArrowRight']
 
-export function presetKeymap(): Extension {
+/**
+ * `onFormat` はクイック整形（#366）。何で整形するかはファイルの種別で決まり、それを知って
+ * いるのは `EditorTab` なので、呼び出し側から受ける。
+ */
+export function presetKeymap(onFormat: () => void): Extension {
   const replace: KeyBinding = {
     key: toCodeMirrorKey(editorChords.value.replace),
     preventDefault: true,
@@ -38,10 +42,18 @@ export function presetKeymap(): Extension {
       return true
     },
   }
+  const format: KeyBinding = {
+    key: toCodeMirrorKey(editorChords.value.format),
+    preventDefault: true,
+    run: () => {
+      onFormat()
+      return true
+    },
+  }
   const claimed = new Set(keyBindings.value.filter((b) => b.action).flatMap((b) => b.chords))
   const shadowed: KeyBinding[] = SHADOWABLE_CHORDS.filter((c) => claimed.has(c)).map((c) => ({
     key: toCodeMirrorKey(c),
     run: () => true,
   }))
-  return keymap.of([replace, ...shadowed])
+  return keymap.of([replace, format, ...shadowed])
 }
