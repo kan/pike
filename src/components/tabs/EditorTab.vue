@@ -2346,6 +2346,8 @@ onUnmounted(() => {
           'csv-preview': isCsv,
           'svg-preview': isSvg,
           'json-preview': isJson || isJsonl,
+          // 折り返しはエディタとプレビューで 1 つ（#367）。
+          wrap: wordWrapOn,
         }"
         v-html="previewHtml"
         @scroll="onPreviewScroll"
@@ -3027,6 +3029,36 @@ onUnmounted(() => {
 .csv-preview :deep(td.csv-sel),
 .csv-preview :deep(th.csv-sel) {
   background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* 折り返し ON のプレビュー（#367）。**class を付け外しするだけで `previewHtml` を
+   作り直さない**ので、切り替えても mermaid の再描画や画像の読み直しは起きない。
+   空白の無い長い値（URL・base64・ハッシュ）の割り方は容器に 1 つだけ置いて継承させる
+   （段落・インラインの code・pre・JSON のどれにも届く）。**`anywhere` にしないこと**: あれは
+   min-content を 1 文字幅まで縮めるので、容器より広い表（列の多い CSV）で列が潰れる。
+   `break-word` は min-content を変えず、表のセルは割らずに列が広がる。 */
+.preview-pane.wrap {
+  overflow-wrap: break-word;
+}
+
+/* 既定で折り返さないもの。JSON（`<pre class="json-pretty">`）もここに入る。 */
+.preview-pane.wrap :deep(pre) {
+  white-space: pre-wrap;
+}
+
+.preview-pane.wrap :deep(table) {
+  white-space: normal;
+}
+
+/* CSV の見出しは並べ替えのボタンと向きの記号を抱えるので、名前ごと割らない。 */
+.csv-preview.wrap :deep(th) {
+  white-space: nowrap;
+}
+
+/* JSONL の 1 行は grid の 2 列目。既定の `min-width: auto` のままだと中身の幅まで広がり、
+   折り返す前に列ごと横へはみ出す。 */
+.json-preview.wrap :deep(.jsonl-record > .json-pretty) {
+  min-width: 0;
 }
 
 .json-preview {

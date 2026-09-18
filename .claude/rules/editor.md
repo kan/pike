@@ -194,6 +194,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
   - `remote_image` と違い**リダイレクトを追い、http も許す**（承認ホストの一覧が無いので不追従にする意味が無く、短縮 URL が普通に来る）。守るのは timeout / 512KB / `text/html` / 5 ホップまで。**charset を見る**のが要点で、Shift_JIS や EUC-JP のページを UTF-8 で読むと化けたタイトルが文書に書き込まれる。ヘッダ → `<meta charset>` → UTF-8 の順
   - 失敗は全部 `Ok(None)`。URL は既に文書にあるので、呼び出し側が区別する意味が無い
 - **折り返しはタブ単位で上書きできる（#241）**。`EditorTab.vue` の `wordWrapOverride`（null = 設定に従う）で、実効値は `wordWrapOn`。分割表示でエディタ側が半分の幅になるときのための機能なので、タブに属するのが正しい。タブのコンポーネントは `v-show` で生き続けるから component-local な ref で足り、`viewMode` と同じ寿命になる（セッションには残さない）。一度触ったタブは以後その値のままで、設定変更に追従しない（戻すのはボタン 1 回）
+  - **プレビューにも同じ `wordWrapOn` が効く（#367）**。プレビューのペインに `wrap` の class を付け、CSS で `pre`（JSON も `<pre>`）と表の `white-space` を戻し、長い値の割り方は容器の `overflow-wrap: break-word` 1 つで継承させる。**`anywhere` にしないこと**（表の列が 1 文字幅まで潰れる。理由は CSS の隣のコメント）。**`previewHtml` に混ぜないこと**: 混ぜると切り替えのたびに HTML を作り直し、mermaid の再描画とローカル画像の読み直しが走る
   - **ミニマップも同じ形（`minimapOverride` / `minimapOn`、#282）**。隣にボタンを並べるので、片方だけ設定を直に触る作りにすると、並んだ 2 つで効き方が変わる。ボタンは `components/editor/` の `WrapToggle.vue` と `MinimapToggle.vue` で、**見た目は `theme.css` の `.editor-toggle` を共有する**（プレビュー付きツールバーとパンくずヘッダは別のボタン様式を持つので、どちらに置いても同じに見えるには親に合わせないほうが早い）。**2 つのヘッダは排他表示なので、ボタンを足すときは両方に置く**（片方だけだと目視で気付けない）
 - 脚注は本文に `[^n]`、**ファイル末尾**に定義行を足してカーソルを定義側へ移す。`n` は既存の `[^数字]` の最大値 + 1
 - **プレビューの脚注は `lib/markdownFootnotes.ts`（marked 拡張）**。marked は GFM 脚注を持たず、しかも素通しにならない: `[^1]` は**注釈本文を href に持つリンク**になり、定義行はリンク定義として消える。EditorTab は自前の `new Marked(footnotes())` を持つ（グローバルの `marked.use` にすると他のプレビューにも入る）
