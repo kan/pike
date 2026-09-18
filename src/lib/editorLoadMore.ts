@@ -55,7 +55,7 @@ const theme = EditorView.baseTheme({
     border: '1px solid var(--accent)',
     borderRadius: '4px',
     background: 'var(--accent)',
-    color: 'var(--text-active)',
+    color: 'var(--on-accent)',
     fontFamily: 'inherit',
     fontSize: '12px',
     cursor: 'pointer',

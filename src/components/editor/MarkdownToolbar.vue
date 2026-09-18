@@ -337,7 +337,7 @@ onUnmounted(() => window.removeEventListener('mousedown', closeMenu))
   border: 1px solid var(--border);
   border-radius: 3px;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   font-size: 12px;
   cursor: pointer;
 }

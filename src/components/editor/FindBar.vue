@@ -146,6 +146,6 @@ defineExpose({ focus })
 
 .find-btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 </style>

@@ -654,7 +654,7 @@ onUnmounted(() => {
 
 .sync-menu-item:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .sync-menu-item.danger {
@@ -663,7 +663,7 @@ onUnmounted(() => {
 
 .sync-menu-item.danger:hover {
   background: var(--danger);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .gear-menu {
@@ -696,11 +696,11 @@ onUnmounted(() => {
 
 .gear-menu-item:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .gear-menu-item:hover .ctx-key {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--on-accent-muted);
 }
 
 .gear-menu-item .ctx-key {
@@ -821,7 +821,7 @@ onUnmounted(() => {
 
 .header-btn.primary {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   opacity: 1;
 }
 
@@ -903,7 +903,7 @@ onUnmounted(() => {
 
 .count-badge.danger {
   background: #f44336;
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .gear-menu-divider {
@@ -916,7 +916,7 @@ onUnmounted(() => {
   font-size: 9px;
   font-weight: 700;
   background: #f44336;
-  color: #fff;
+  color: var(--on-accent);
   padding: 1px 5px;
   border-radius: 3px;
   margin-left: 8px;

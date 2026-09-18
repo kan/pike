@@ -886,7 +886,7 @@ onUnmounted(() => {
 }
 
 .shell-menu button:hover .shell-menu-icon {
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .shell-menu button.default-shell {
@@ -900,7 +900,7 @@ onUnmounted(() => {
 }
 
 .shell-menu button:hover .shell-default-check {
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .shell-menu-divider {
@@ -916,12 +916,12 @@ onUnmounted(() => {
 }
 
 .shell-menu button:hover .ctx-key {
-  color: var(--text-active);
+  color: var(--on-accent-muted);
 }
 
 .shell-menu button:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 /* "Open as administrator" context menu (fixed at the cursor) */
@@ -952,11 +952,11 @@ onUnmounted(() => {
 
 .shell-admin-menu button:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .shell-admin-menu button:hover .shell-menu-icon {
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .context-menu {
@@ -987,11 +987,11 @@ onUnmounted(() => {
 
 .context-menu button:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .context-menu button:hover .ctx-key {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--on-accent-muted);
 }
 
 .context-menu-separator {

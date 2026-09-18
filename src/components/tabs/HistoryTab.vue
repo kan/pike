@@ -185,7 +185,7 @@ onMounted(async () => {
   padding: 2px 6px;
   border-radius: 3px;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   flex-shrink: 0;
 }
 
@@ -247,7 +247,7 @@ onMounted(async () => {
 
 .c-hash:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .c-msg {

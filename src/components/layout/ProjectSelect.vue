@@ -427,7 +427,7 @@ onUnmounted(() => {
 
 .row-close:hover {
   background: var(--danger);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .menu-divider {

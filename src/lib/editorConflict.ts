@@ -306,13 +306,13 @@ const conflictTheme = EditorView.baseTheme({
   // barely reads against the light theme's near-white surfaces.
   '.cm-conflict-btn:hover': {
     background: 'var(--accent)',
-    color: 'var(--text-active)',
+    color: 'var(--on-accent)',
     borderColor: 'transparent',
   },
   '.cm-conflict-btn-primary': {
     borderColor: 'transparent',
     background: 'var(--accent)',
-    color: 'var(--text-active)',
+    color: 'var(--on-accent)',
   },
 })
 

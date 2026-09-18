@@ -382,7 +382,7 @@ onUnmounted(() => dockerStore.stopPolling())
 
 .c-actions button:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .empty {

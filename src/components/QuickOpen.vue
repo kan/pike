@@ -650,7 +650,7 @@ const footerHints = computed(() => {
 }
 
 .quickopen-item.selected .item-prefix {
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .item-runner {
@@ -669,7 +669,7 @@ const footerHints = computed(() => {
 }
 
 .quickopen-item.selected .item-name {
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .item-path {
@@ -690,7 +690,7 @@ const footerHints = computed(() => {
 }
 
 .quickopen-item.selected .item-path {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--on-accent-muted);
 }
 
 .quickopen-empty {

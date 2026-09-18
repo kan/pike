@@ -2568,7 +2568,7 @@ onUnmounted(() => {
 
 .preview-toggle.active {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .preview-toggle:hover:not(.active) {
@@ -2619,7 +2619,7 @@ onUnmounted(() => {
 
 .back-to-top:hover {
   opacity: 1;
-  color: var(--text-active);
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -2964,7 +2964,7 @@ onUnmounted(() => {
   border: 1px solid var(--accent);
   border-radius: 3px;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   font-size: 11px;
   cursor: pointer;
 }
@@ -3229,7 +3229,7 @@ onUnmounted(() => {
 .choice-actions .choice-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .dir-window {
@@ -3301,7 +3301,7 @@ onUnmounted(() => {
 
 .notice-actions button:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 </style>

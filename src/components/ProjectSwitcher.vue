@@ -371,7 +371,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 }
 
 .switcher-item.selected.active .item-name::after {
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .item-name {
@@ -384,12 +384,12 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 }
 
 .switcher-item.selected .item-name {
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .switcher-item.selected .missing-tag,
 .switcher-item.selected .parked-tag {
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .item-root {
@@ -401,7 +401,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 }
 
 .switcher-item.selected .item-root {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--on-accent-muted);
 }
 
 .switcher-empty {
@@ -516,7 +516,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
   padding: 8px;
   border: none;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   font-size: 13px;
   cursor: pointer;
   border-radius: 4px;

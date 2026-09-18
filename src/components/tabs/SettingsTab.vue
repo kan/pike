@@ -687,7 +687,7 @@ const PREVIEW_LINES = [
             </div>
           </SettingItem>
 
-          <SettingItem label-key="settings.colorScheme" :term-keys="['settings.themeAuto']" block>
+          <SettingItem label-key="settings.colorScheme" :term-keys="['settings.themeAuto']" wide>
             <div class="scheme-grid">
               <button
                 class="scheme-card"
@@ -726,7 +726,7 @@ const PREVIEW_LINES = [
             </div>
           </SettingItem>
 
-          <SettingItem label-key="settings.preview" block>
+          <SettingItem label-key="settings.preview" wide>
             <div
               class="terminal-preview"
               :style="{
@@ -805,7 +805,7 @@ const PREVIEW_LINES = [
             label-key="settings.shellProfiles"
             hint-key="settings.shellProfilesHint"
             data-testid="settings-shells"
-            block
+            wide
           >
             <div class="setting-list">
               <ProfileRow
@@ -842,7 +842,7 @@ const PREVIEW_LINES = [
             label-key="settings.agentLaunchers"
             hint-key="settings.agentLaunchersHint"
             data-testid="settings-agents"
-            block
+            wide
           >
             <div class="setting-list">
               <ProfileRow
@@ -874,7 +874,7 @@ const PREVIEW_LINES = [
             </button>
           </SettingItem>
 
-          <SettingItem label-key="settings.agentPrompts" hint-key="settings.agentPromptsHint" block>
+          <SettingItem label-key="settings.agentPrompts" hint-key="settings.agentPromptsHint" wide>
             <div class="setting-list">
               <div v-for="(p, i) in settings.agentPrompts" :key="i" class="setting-list-row prompt-row">
                 <div class="agent-cmd-reorder">
@@ -905,7 +905,7 @@ const PREVIEW_LINES = [
             呼べていることを意味しない（PATH に pike.exe が無い、等）。効いているかを
             言うのは申告のほうなので、両方を並べる。
           -->
-          <SettingItem label-key="settings.agentHook" hint-key="settings.agentHookHint" block>
+          <SettingItem label-key="settings.agentHook" hint-key="settings.agentHookHint" wide>
             <p v-if="!projectStore.activeRoot" class="setting-hint">{{ t('settings.agentHookNoProject') }}</p>
             <template v-else-if="hookStatus">
               <div class="setting-list">
@@ -1011,7 +1011,7 @@ const PREVIEW_LINES = [
             </div>
           </SettingItem>
 
-          <SettingItem label-key="settings.editorTheme" :term-keys="['settings.themeAuto']" block>
+          <SettingItem label-key="settings.editorTheme" :term-keys="['settings.themeAuto']" wide>
             <div class="scheme-grid">
               <button
                 class="scheme-card"
@@ -1132,18 +1132,18 @@ const PREVIEW_LINES = [
           <SettingToggle v-model="settings.markdownFetchLinkTitle" :options="ON_OFF" />
         </SettingItem>
 
-        <SettingItem label-key="settings.imageHosts" hint-key="settings.imageHostsHint" block>
+        <SettingItem label-key="settings.imageHosts" hint-key="settings.imageHostsHint" wide>
           <AllowedHostList :hosts="settings.allowedImageHosts" @forget="settings.forgetImageHost" />
         </SettingItem>
 
-        <SettingItem label-key="settings.urlHosts" hint-key="settings.urlHostsHint" block>
+        <SettingItem label-key="settings.urlHosts" hint-key="settings.urlHostsHint" wide>
           <AllowedHostList :hosts="settings.allowedUrlHosts" @forget="settings.forgetUrlHost" />
         </SettingItem>
       </SettingSection>
 
       <!-- Settings Sync -->
       <SettingSection v-bind="SECTIONS.sync">
-        <SettingItem label-key="settings.syncFilePath" hint-key="settings.syncHint" block>
+        <SettingItem label-key="settings.syncFilePath" hint-key="settings.syncHint" wide>
           <div class="sync-path-row">
             <input
               v-model="settings.syncFilePath"
@@ -1171,7 +1171,7 @@ const PREVIEW_LINES = [
           </div>
         </SettingItem>
 
-        <SettingItem label-key="settings.projectBase" hint-key="settings.projectBaseHint" block>
+        <SettingItem label-key="settings.projectBase" hint-key="settings.projectBaseHint" wide>
           <!-- base はプラットフォームごとに要る。macOS / Linux のプロジェクトは
                platform='unix' なので、この欄が無いと 1 件も同期対象にならない。
                ホスト側の欄は `hostBase` が 1 つに畳んでいる（Windows か Unix か）。 -->
@@ -1212,7 +1212,7 @@ const PREVIEW_LINES = [
           v-if="settings.hiddenProjects.length > 0"
           label-key="settings.hiddenProjects"
           hint-key="settings.hiddenProjectsHint"
-          block
+          wide
         >
           <div class="setting-list">
             <div v-for="p in settings.hiddenProjects" :key="p.id" class="setting-list-row">
@@ -1353,7 +1353,7 @@ const PREVIEW_LINES = [
   margin-bottom: 16px;
 }
 
-/* 1 項目ぶんの器（`.setting-block` / `.setting-row`）は `settings/SettingItem.vue` が持つ。
+/* 1 項目ぶんの器（`.setting-block`）は `settings/SettingItem.vue` が持つ。
    `.setting-label` / `.setting-hint` は `theme.css`（切り出した部品と共有）。 */
 
 .setting-select {
@@ -1529,7 +1529,7 @@ const PREVIEW_LINES = [
 
 .update-btn-primary {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 

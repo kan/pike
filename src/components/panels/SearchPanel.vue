@@ -261,7 +261,7 @@ onUnmounted(() => {
 
 .option-btn.active {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 

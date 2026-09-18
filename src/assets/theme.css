@@ -23,6 +23,12 @@
   --text-secondary: #969696;
   --text-active: #ffffff;
   --accent: #007acc;
+  /* `--accent` / `--danger` の地に載せる文字（#365）。**`--text-active` を使わないこと**: あれは
+     「強調した文字」でライトでは黒になり、青地では読めない。地の色はどちらのテーマでも濃いので、
+     こちらはテーマで変えず白 1 つにする（ライト側で再定義しない）。 */
+  --on-accent: #ffffff;
+  /* 同じ地に載せる副文字（選択行のパス・メニューのキー表記など）。 */
+  --on-accent-muted: rgb(255 255 255 / 0.7);
   --border: #404040;
   --tab-active-bg: rgb(30 30 30 / var(--surface-alpha));
   --tab-inactive-bg: rgb(45 45 45 / var(--surface-alpha));
@@ -225,6 +231,7 @@
    別物（幅 100%・枠あり・テキスト付き）を定義しているが、こちらは他に定義が無い。 */
 .setting-label {
   font-size: 13px;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
@@ -309,7 +316,7 @@
 
 .agent-menu-item:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .agent-menu-label,
@@ -330,7 +337,7 @@
 }
 
 .agent-menu-item:hover .agent-menu-cmd {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--on-accent-muted);
 }
 
 /* エージェント 1 つぶんのかたまり（#267）。**区切るのは間だけ**で、先頭に線を引かない
@@ -569,7 +576,7 @@
 
 .panel-ctx-menu button:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .panel-ctx-menu .ctx-separator {
@@ -600,7 +607,7 @@
 
 .row-action:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 /* エディタのヘッダに並ぶアイコントグル（折り返し・ミニマップ）。**親のヘッダの様式に
@@ -675,7 +682,7 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
-  /* 縮めない。狭いときは項目名のほうが折り返すか、この塊ごと次の行へ落ちる。 */
+  /* 縮めない。横に並べる場所（ショートカット一覧のヘッダ）で、見出しより先に潰れないように。 */
   flex-shrink: 0;
 }
 
@@ -689,8 +696,7 @@
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-  /* 選択肢のラベルは折り返さない。窮屈なときに縮むのは左の項目名のほうで、
-     こちらが折り返すと「自動登 / 録」のように語の途中で割れる。 */
+  /* 選択肢のラベルは折り返さない。折り返すと「自動登 / 録」のように語の途中で割れる。 */
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
 }
@@ -701,7 +707,7 @@
 
 .mode-btn.active {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .mode-btn:not(.active):not(:disabled):hover {

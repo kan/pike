@@ -259,7 +259,7 @@ function onSave() {
   padding: 4px 8px;
   border: none;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   font-size: 12px;
   cursor: pointer;
   border-radius: 3px;
@@ -306,7 +306,7 @@ function onSave() {
    The project's own color takes over via the inline style when it has one. */
 .project-item.active {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 /* Inherit so the fill (accent or project color) decides the contrast, instead
@@ -447,7 +447,7 @@ function onSave() {
 
 .action-btn:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .action-btn.danger:hover {

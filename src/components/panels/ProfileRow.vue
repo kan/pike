@@ -149,6 +149,6 @@ defineEmits<{ move: [dir: -1 | 1]; toggle: [] }>()
   font-size: 10px;
   border-radius: 8px;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 </style>

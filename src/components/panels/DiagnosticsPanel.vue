@@ -174,7 +174,7 @@ watch(() => projectStore.currentProject?.id, runIfIdle)
 }
 
 .golangci-toggle.on {
-  color: var(--text-active);
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }

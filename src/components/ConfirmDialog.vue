@@ -134,7 +134,7 @@ function onKeydown(e: KeyboardEvent) {
 .btn-ok {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn-ok:hover {

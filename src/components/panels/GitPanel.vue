@@ -979,7 +979,7 @@ onUnmounted(() => {
   padding: 5px 8px;
   border: none;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   font-size: 12px;
   cursor: pointer;
   border-radius: 3px;
@@ -1148,12 +1148,12 @@ onUnmounted(() => {
 
 .file-action:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .file-action.discard:hover {
   background: var(--git-deleted, #f44747);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .commit-group {
@@ -1237,7 +1237,7 @@ onUnmounted(() => {
 
 .view-btn.active {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .graph-container {
@@ -1303,7 +1303,7 @@ onUnmounted(() => {
   padding: 0 4px;
   border-radius: 3px;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   white-space: nowrap;
   flex-shrink: 0;
   max-width: 100px;
@@ -1355,7 +1355,7 @@ onUnmounted(() => {
   padding: 6px 8px;
   border: none;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   font-size: 12px;
   cursor: pointer;
   border-radius: 3px;

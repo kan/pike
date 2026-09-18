@@ -255,7 +255,7 @@ function sameRepoIssueNumber(href: string): number | null {
 
 .issue-state.open {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .issue-spacer {

@@ -4,9 +4,13 @@
  * 絞り込みの対象になる文言と画面に出る文言が同じものになる（別の表を持たない理由は
  * `useSettingsSearch` の doc）。
  *
- * 形は 2 つ。
- * - 既定（row）… 項目名の右に操作、その下に説明文
- * - `block` … 項目名・説明文の下に操作（一覧・カラースキームの並び・入力欄が伸びるもの）
+ * 形は 1 つで、**項目名・説明文・操作を上から縦に並べる**（#365。VS Code の設定画面と同じ）。
+ * 以前は既定が「項目名の右端に操作」だったので、幅の広い画面では名前と操作のあいだが
+ * 大きく空き、どの操作がどの項目のものか目で追えなかった。
+ *
+ * 操作は既定で中身の幅に置く（選択肢のボタンや select が行幅まで伸びないように）。
+ * 一覧・配色の並び・パスの入力欄のように幅いっぱいに広げたいものは `wide` を付ける。
+ * **CSS で要素の種類を並べて判定しないこと**: 項目を足すたびに漏れる。
  *
  * `data-testid` のような属性はフォールスルーでルートへ落ちるので、プロップにしない。
  */
@@ -28,7 +32,8 @@ const props = defineProps<{
    * 子（`SettingToggle`）が描く選択肢のラベルはあちらが `addKeys` で載せる。
    */
   termKeys?: string[]
-  block?: boolean
+  /** 操作を行幅いっぱいに広げる（一覧・並び・入力欄）。 */
+  wide?: boolean
 }>()
 
 const { t } = useI18n()
@@ -50,41 +55,37 @@ const visible = computed(() => search.itemVisible(entry))
 </script>
 
 <template>
-  <div v-show="visible" class="setting-block">
-    <template v-if="block">
+  <div v-show="visible" class="setting-block" :class="{ wide }">
+    <div class="setting-head">
       <label class="setting-label"><HighlightText :text="t(labelKey)" /></label>
       <p v-if="hintKey" class="setting-hint"><HighlightText :text="t(hintKey)" /></p>
-      <slot />
-    </template>
-    <template v-else>
-      <div class="setting-row">
-        <label class="setting-label"><HighlightText :text="t(labelKey)" /></label>
-        <slot />
-      </div>
-      <p v-if="hintKey" class="setting-hint"><HighlightText :text="t(hintKey)" /></p>
-    </template>
+    </div>
+    <slot />
   </div>
 </template>
 
 <style scoped>
-/* 器と「名前 + 操作」の行。**scoped のままでよい**: 描くのはこのファイルだけで、
-   スロットに渡る中身（`.mode-toggle` 等）は呼び出し側の scoped CSS が当てる。
-   `.setting-label` / `.setting-hint` が `theme.css` にあるのは、切り出した部品
-   （`panels/AllowedHostList.vue`）とも共有するため。 */
+/* **scoped のままでよい**: 描くのはこのファイルだけで、スロットに渡る中身
+   （`.mode-toggle` 等）は呼び出し側の scoped CSS が当てる。`.setting-label` /
+   `.setting-hint` は `theme.css` にある（`.setting-hint` は切り出した部品
+   `panels/AllowedHostList.vue` も使う）。 */
 .setting-block {
   display: flex;
   flex-direction: column;
+  /* 選択肢のボタン（`.mode-toggle`）が行幅まで伸びないように、左に寄せて中身の幅で置く。 */
+  align-items: flex-start;
   gap: 8px;
   padding: 8px 0;
 }
 
-.setting-row {
+.setting-block.wide {
+  align-items: stretch;
+}
+
+/* 名前と説明はひとかたまりに見せ、操作とのあいだより詰める。 */
+.setting-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  /* **狭いときは操作ごと次の行へ落とす。** 選択肢のボタンは語の途中で折り返さず
-     （`.mode-btn` の `white-space`）縮みもしないので、これが無いと見切れる。 */
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
 }
 </style>

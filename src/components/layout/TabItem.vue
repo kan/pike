@@ -175,7 +175,7 @@ function onTitleHover(e: MouseEvent) {
   padding: 1px 4px;
   border-radius: 3px;
   background: var(--danger);
-  color: #fff;
+  color: var(--on-accent);
   flex-shrink: 0;
 }
 
@@ -185,7 +185,7 @@ function onTitleHover(e: MouseEvent) {
   padding: 1px 4px;
   border-radius: 3px;
   background: var(--git-add);
-  color: #fff;
+  color: var(--on-accent);
   flex-shrink: 0;
 }
 
@@ -217,6 +217,6 @@ function onTitleHover(e: MouseEvent) {
 
 .tab-close:hover {
   background: var(--danger);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 </style>

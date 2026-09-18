@@ -645,7 +645,7 @@ async function onDelete(id: string) {
 
 .transient-register:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .add-btn {
@@ -688,7 +688,7 @@ async function onDelete(id: string) {
   padding: 4px 8px;
   border: none;
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   font-size: 12px;
   cursor: pointer;
   border-radius: 3px;
@@ -764,7 +764,7 @@ async function onDelete(id: string) {
 
 .sort-btn.active {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 
@@ -891,7 +891,7 @@ async function onDelete(id: string) {
 
 .group-action-btn:hover {
   background: var(--accent);
-  color: var(--text-active);
+  color: var(--on-accent);
 }
 
 .group-action-btn.danger:hover {

@@ -396,7 +396,7 @@ onUnmounted(() => cancelAnchorReflow?.())
 
 .back-to-top:hover {
   opacity: 1;
-  color: var(--text-active);
+  color: var(--on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
