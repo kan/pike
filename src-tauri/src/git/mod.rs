@@ -569,8 +569,14 @@ pub async fn git_log(
             "-n",
             &n,
         ];
+        // グラフ表示（#371）。`--all` にしないのは `refs/stash` を拾わないため（stash の
+        // コミットは親を 2〜3 個持ち、無関係なレーンを足す）。HEAD は detached のときのため。
+        // `--topo-order` は子を必ず親より先に出し、ブランチをまとめて並べる。既定の時刻順だと
+        // 並行するブランチが交互に並んでレーンが開きっぱなしになり、時計がずれて親が先に
+        // 出ると、そのレーンは一覧の最後まで閉じない。代償は commit-graph の無い
+        // リポジトリで `-n` に関わらず履歴全体を歩くこと。
         if all.unwrap_or(false) {
-            args.push("--all");
+            args.extend(["--branches", "--remotes", "--tags", "HEAD", "--topo-order"]);
         }
         run_git(&shell, &root, &args)
     })

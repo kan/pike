@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vu
 import { useActiveFile } from '../../composables/useActiveFile'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, infoDialog, promptDialog } from '../../composables/useConfirmDialog'
+import { useDragResize } from '../../composables/useDragResize'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
@@ -12,6 +13,7 @@ import { buildCommitLink } from '../../lib/gitRemote'
 import { openPathInTab } from '../../lib/openFile'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { basename, extension, gitStatusColor, isImageFile, mimeType, relativeDate, repoPath } from '../../lib/paths'
+import { loadJson, saveJson } from '../../lib/storage'
 import {
   fsDelete,
   fsReadFile,
@@ -98,9 +100,53 @@ const unpushedHashes = computed(() => {
   }
   return set
 })
+/** How far a stub for an out-of-range parent reaches, as a fraction of the dot-to-edge distance. */
+const STUB_REACH = 0.6
+
 const graphSvgWidth = computed(() => {
   const maxCol = graphRows.value.reduce((m, r) => Math.max(m, r.maxCol), 0)
   return (maxCol + 2) * LANE_WIDTH
+})
+
+// --- Graph column width (#371) ----------------------------------------------
+// Deep graphs used to take the whole row and push the commit message out of
+// view. The lanes are now clipped to a width the user can drag (SourceTree
+// style). The stored value is an upper bound, not a fixed width: a shallow
+// graph still takes only what it needs, so the message gets the rest.
+const GRAPH_WIDTH_KEY = 'pike:git-graph-width'
+const GRAPH_DEFAULT_MAX = 8 * LANE_WIDTH
+const GRAPH_MIN = 2 * LANE_WIDTH
+/** Stored when dragged all the way out: "show every lane", including lanes a later, deeper graph adds. */
+const GRAPH_UNBOUNDED = Number.MAX_SAFE_INTEGER
+const storedGraphWidth = loadJson<unknown>(GRAPH_WIDTH_KEY, GRAPH_DEFAULT_MAX)
+const graphMaxWidth = ref(
+  typeof storedGraphWidth === 'number' && Number.isFinite(storedGraphWidth) ? storedGraphWidth : GRAPH_DEFAULT_MAX,
+)
+watch(graphMaxWidth, (w) => saveJson(GRAPH_WIDTH_KEY, w))
+
+const clampGraphWidth = (w: number) => Math.min(graphSvgWidth.value, Math.max(GRAPH_MIN, w))
+const graphWidth = computed(() => clampGraphWidth(graphMaxWidth.value))
+const graphClipped = computed(() => graphSvgWidth.value > graphWidth.value)
+
+const graphContainerEl = useTemplateRef<HTMLElement>('graphContainer')
+let graphDragWidth = 0
+
+// While dragging, write the CSS variable directly instead of going through the
+// ref: every row reads it, and a reactive write per mousemove re-renders the
+// whole list. The ref is committed once on release (and only if it moved, so
+// a double-click doesn't re-render the list twice before resetting).
+const { start: onGraphResizeStart } = useDragResize({
+  onStart: () => {
+    graphDragWidth = graphWidth.value
+  },
+  onMove: (dx) => {
+    graphDragWidth = clampGraphWidth(graphWidth.value + dx)
+    graphContainerEl.value?.style.setProperty('--graph-width', `${graphDragWidth}px`)
+  },
+  onEnd: () => {
+    if (graphDragWidth === graphWidth.value) return
+    graphMaxWidth.value = graphDragWidth >= graphSvgWidth.value ? GRAPH_UNBOUNDED : graphDragWidth
+  },
 })
 
 function switchToGraph() {
@@ -733,7 +779,18 @@ onUnmounted(() => {
 
         <!-- Graph view -->
         <template v-if="commitView === 'graph'">
-          <div class="graph-container">
+          <div
+            ref="graphContainer"
+            class="graph-container"
+            :class="{ clipped: graphClipped }"
+            :style="{ '--graph-width': `${graphWidth}px` }"
+          >
+            <div
+              class="graph-resize drag-x-handle"
+              :title="t('git.graphResize')"
+              @mousedown="onGraphResizeStart"
+              @dblclick="graphMaxWidth = GRAPH_DEFAULT_MAX"
+            ></div>
             <div
               v-for="(row, i) in graphRows"
               :key="row.hash"
@@ -744,7 +801,7 @@ onUnmounted(() => {
               @mouseenter="gitStore.logEntries[i] && onCommitEnter(gitStore.logEntries[i], $event)"
               @mouseleave="onCommitLeave"
             >
-              <svg class="graph-svg" :width="graphSvgWidth" :height="ROW_HEIGHT">
+              <svg class="graph-svg" :height="ROW_HEIGHT">
                 <!-- Continuation lines -->
                 <line
                   v-for="(line, li) in row.lines"
@@ -756,14 +813,29 @@ onUnmounted(() => {
                   :stroke="line.color"
                   stroke-width="1.5"
                 />
-                <!-- This commit's own lane continuation (above dot) -->
+                <!-- This commit's own lane continuation. Stops at the dot when the
+                     first parent is outside the fetched range: the stub below takes over. -->
                 <line
                   :x1="row.column * LANE_WIDTH + LANE_WIDTH / 2"
                   :y1="0"
                   :x2="row.column * LANE_WIDTH + LANE_WIDTH / 2"
-                  :y2="ROW_HEIGHT"
+                  :y2="row.stubs.some((s) => s.toCol === row.column) ? ROW_HEIGHT / 2 : ROW_HEIGHT"
                   :stroke="row.color"
                   stroke-width="1.5"
+                />
+                <!-- Parents outside the fetched range (#371). Stops short of the row's
+                     bottom edge: the freed lane may be taken by an unrelated commit in the
+                     next row, and a line reaching the edge would join the two. -->
+                <line
+                  v-for="(st, si) in row.stubs"
+                  :key="'s' + si"
+                  :x1="st.fromCol * LANE_WIDTH + LANE_WIDTH / 2"
+                  :y1="ROW_HEIGHT / 2"
+                  :x2="(st.fromCol + (st.toCol - st.fromCol) * STUB_REACH) * LANE_WIDTH + LANE_WIDTH / 2"
+                  :y2="ROW_HEIGHT / 2 + (ROW_HEIGHT / 2) * STUB_REACH"
+                  :stroke="st.color"
+                  stroke-width="1.5"
+                  stroke-dasharray="2 2"
                 />
                 <!-- Merge lines -->
                 <line
@@ -1169,8 +1241,26 @@ onUnmounted(() => {
 }
 
 .graph-container {
+  position: relative;
   display: flex;
   flex-direction: column;
+}
+
+/* Spans every row at the lanes' right edge. `.graph-row.unpushed` shifts its
+   own lanes by its 2px border; the handle is wide enough to cover that. */
+.graph-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--graph-width) - 3px);
+  width: 6px;
+  z-index: 1;
+}
+
+/* Marks the cut so hidden lanes don't read as lines that just stop. One line
+   on the handle rather than a border on every row's SVG. */
+.graph-container.clipped .graph-resize:not(:hover) {
+  background: linear-gradient(var(--border), var(--border)) center / 1px 100% no-repeat;
 }
 
 .graph-row {
@@ -1189,8 +1279,13 @@ onUnmounted(() => {
   border-left: 2px solid var(--accent);
 }
 
+/* Lanes past `--graph-width` (#371) fall outside the viewport, and an inline
+   SVG clips its viewport (`overflow: hidden` in the UA stylesheet). No viewBox,
+   so narrowing cuts lanes off instead of scaling them down. */
 .graph-svg {
+  width: var(--graph-width);
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .graph-info {

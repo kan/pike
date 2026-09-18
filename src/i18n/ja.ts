@@ -525,6 +525,7 @@ export default {
   'git.behindInfo': 'リモートより {count} コミット遅延',
   'git.listView': 'リスト',
   'git.graphView': 'グラフ',
+  'git.graphResize': 'ドラッグでグラフの幅を変更（ダブルクリックで元に戻す）',
   'git.switchBranch': 'ブランチを切替...',
   'git.noBranches': 'ブランチが見つかりません',
   'git.remoteBranches': 'リモートブランチ',

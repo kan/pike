@@ -154,6 +154,9 @@
 - コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
 - ツールチップ・コンテキストメニューの位置決め（#204）: 高さが中身次第で決まるので、**hidden で描画 → 実測 → 配置**の順に置く。配線は `composables/useAnchoredPopup.ts`（`useTemplateRef` で受けた要素を `nextTick` 後に計測し、`style` に位置と `visibility` を返す）、幾何は `lib/popupPosition.ts`（`placeNearAnchor` = 上優先・入らなければ下、`clampToViewport` = カーソル位置を画面内へ）。測るまで hidden なのは仮位置に 1 フレーム出てから飛ぶのを防ぐため（`display: none` は測れず、`opacity: 0` はクリックを拾う）。ウィンドウより高いメッセージは CSS の `max-height` で頭を残して切る（`pointer-events: none` なのでスクロールできない）。**CSS の anchor positioning は採らない**: Chromium 125+ が要るが Tauri は WebView2 のバージョンを固定できず、失敗しても例外ではなく「変な位置に出る」だけで気付けない。カーソル位置に開くメニューは**全部この composable を通す**（GitPanel のコミット/ファイル、FileTreePanel、TabPane のタブ/管理者、SideBar の pull-push、EditorTab）。**新しいメニューを足すときも同じ**（生の `clientX/clientY` を `style` に流すと画面端で見切れる）。SideBar の pull/push メニューだけは `.sidebar.ui-zoom` の内側にあり、UI ズームが 1 以外だと clamp が概算になる（座標系が zoom 倍される。既定の 1 では厳密）
 - ブランチマージグラフ: `git log --all` + `%P`（親ハッシュ）/`%D`（refs）で取得、`gitGraph.ts` のレーン割当アルゴリズムで SVG 描画。List / Graph 切替
+  - **レーンの列は幅に上限を持つ（#371）**。SVG に viewBox を付けず幅を `--graph-width` にして、はみ出したレーンをビューポートで切る（viewBox を付けると切れずに縮む）。以前は SVG の幅をそのまま行に置いていたので、深いグラフでメッセージが右へ押し出されて見えなくなった。境目のドラッグで上限を変え（SourceTree と同じ）、`pike:git-graph-width`（マシンローカル・全プロジェクト共通）に残す。**保存するのは上限で固定幅ではない**: 浅いグラフは必要なぶんしか取らない。右端まで広げたら「全部出す」として記録し、あとで深くなったグラフも切らない
+  - **グラフを必要以上に深くしない（#371）**。取得は `--all` ではなく `--branches --remotes --tags HEAD --topo-order`（stash を除く理由と並び順の理由は `git_log` のコメントが正本）。取得範囲の外にいる親にはレーンを割り当てず、点線の短い線（`GraphRow.stubs`）で止める。割り当てると下で閉じる相手が来ないので、一覧の下端までレーンが開いたままになり、全行の幅を押し上げる
+  - ドラッグ中は `--graph-width` を DOM に直に書き、離したときだけ ref に入れる（全行がこの変数を読むので、ref にすると mousemove ごとに一覧全体が再描画される。diff の `--split` と同じ手）
 - git log フォーマット区切り: ASCII Unit Separator (`%x1f`) + Record Separator (`%x1e`) を使用（NUL だと `%D` が空のコミットでレコード区切りと衝突するため）
 
 ## Git worktree 連動

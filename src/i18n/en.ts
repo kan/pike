@@ -527,6 +527,7 @@ export default {
   'git.behindInfo': '{count} commit(s) behind remote',
   'git.listView': 'List',
   'git.graphView': 'Graph',
+  'git.graphResize': 'Drag to resize the graph (double-click to reset)',
   'git.switchBranch': 'Switch branch...',
   'git.noBranches': 'No matching branches',
   'git.remoteBranches': 'Remote branches',

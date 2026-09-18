@@ -20,6 +20,13 @@ export interface GraphRow {
   column: number
   lines: GraphLine[] // lines continuing through this row
   mergeLines: GraphLine[] // lines merging into this commit
+  /**
+   * Parents outside the fetched range (#371), drawn as a short dashed line from the dot
+   * toward `toCol` that stops before the row's edge (the lane is freed, so the next row may
+   * put an unrelated commit there). They don't get a lane: nothing below would ever close it, so it would
+   * run to the bottom of the list and widen every row.
+   */
+  stubs: GraphLine[]
   isMerge: boolean
   color: string
   refs: string
@@ -34,6 +41,7 @@ export function buildGraph(entries: GitLogEntry[]): GraphRow[] {
   // activeLanes[i] = hash of the commit expected in lane i, or null if free
   const activeLanes: (string | null)[] = []
   const rows: GraphRow[] = []
+  const fetched = new Set(entries.map((e) => e.hash))
 
   function laneColor(col: number): string {
     return LANE_COLORS[col % LANE_COLORS.length]
@@ -70,12 +78,15 @@ export function buildGraph(entries: GitLogEntry[]): GraphRow[] {
 
     // Handle parents
     const mergeLines: GraphLine[] = []
+    const stubs: GraphLine[] = []
     const firstParent = entry.parents[0] ?? null
 
     // Clear this commit's lane
     activeLanes[col] = null
 
-    if (firstParent) {
+    if (firstParent && !fetched.has(firstParent)) {
+      stubs.push({ fromCol: col, toCol: col, color })
+    } else if (firstParent) {
       // First parent takes this commit's lane
       const existingLane = findLane(firstParent)
       if (existingLane === -1) {
@@ -89,6 +100,10 @@ export function buildGraph(entries: GitLogEntry[]): GraphRow[] {
     // Second+ parents (merge sources)
     for (let pi = 1; pi < entry.parents.length; pi++) {
       const parentHash = entry.parents[pi]
+      if (!fetched.has(parentHash)) {
+        stubs.push({ fromCol: col, toCol: col + 1, color: laneColor(col + 1) })
+        continue
+      }
       const existingLane = findLane(parentHash)
       if (existingLane !== -1) {
         mergeLines.push({ fromCol: col, toCol: existingLane, color: laneColor(existingLane) })
@@ -108,10 +123,11 @@ export function buildGraph(entries: GitLogEntry[]): GraphRow[] {
       col,
       ...lines.map((l) => Math.max(l.fromCol, l.toCol)),
       ...mergeLines.map((l) => Math.max(l.fromCol, l.toCol)),
+      ...stubs.map((l) => l.toCol),
       0,
     )
 
-    rows.push({ hash: entry.hash, column: col, lines, mergeLines, isMerge, color, refs: entry.refs, maxCol })
+    rows.push({ hash: entry.hash, column: col, lines, mergeLines, stubs, isMerge, color, refs: entry.refs, maxCol })
   }
 
   return rows
