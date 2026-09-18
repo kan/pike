@@ -131,6 +131,8 @@ const EXTERNAL_NAMES = [
   'replace_csp_nonce', // tauri 内部
   'restore_state', // tauri-plugin-window-state
   'runHandlers', // CodeMirror 内部
+  'runScopeHandlers', // @codemirror/view（マクロの再生がキーマップへ流す口、#180）
+  'inputHandler', // @codemirror/view の EditorView.inputHandler（マクロの再生が文字入力で通す、#180）
   'send_user_message', // tauri-runtime-wry 内部（ウィンドウ操作を同期にする理由として rust.md が出す）
   'set_csp', // tauri 内部（manager::set_csp）
   'subIssuesSummary', // gh の --json フィールド（使わない理由を editor.md が書くために出す）

@@ -1,4 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { playMacro, toggleMacroRecording } from '../lib/editorMacro'
 import type { AppActionId } from '../lib/shortcuts'
 import { pickFolder } from '../lib/tauri'
 import { globalMode } from '../lib/window'
@@ -152,6 +153,19 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     gitHistory: () => {
       const active = tabStore.activeTab
       if (active?.kind === 'editor') tabStore.addHistoryTab({ filePath: active.path, root: projectStore.activeRoot })
+    },
+    // キーボードマクロ（#180）。対象は今見えているエディタ（`editorSelection` と同じく
+    // `useOutlineSource` の登録を借りる）。記録はエディタに届いた打鍵を拾うので、
+    // パレットを閉じたらフォーカスをエディタへ戻す。
+    macroRecord: () => {
+      toggleMacroRecording()
+      useOutlineSource().current.value?.view.focus()
+    },
+    macroPlay: () => {
+      const view = useOutlineSource().current.value?.view
+      if (!view) return
+      playMacro(view)
+      view.focus()
     },
     // macOS の ⌘Q。predefined の Quit と違い、走っているコマンドがあれば確認を挟む
     // （#178。閉じる経路と同じ確認で、ここだけ素通りすると全ウィンドウの PTY が黙って死ぬ）。

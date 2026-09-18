@@ -34,6 +34,7 @@ import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../
 import { gitDiffGutter, setDiffLines } from '../../lib/editorGitGutter'
 import { jumpToDefinitionExtension } from '../../lib/editorJumpTo'
 import { loadMoreRow } from '../../lib/editorLoadMore'
+import { editorMacro, playMacro, toggleMacroRecording } from '../../lib/editorMacro'
 import {
   isHttpUrl,
   type MarkdownAction,
@@ -90,6 +91,7 @@ import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import { type EditorTab, shellToPlatform } from '../../types/tab'
 import FindBar from '../editor/FindBar.vue'
+import MacroButtons from '../editor/MacroButtons.vue'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import MinimapToggle from '../editor/MinimapToggle.vue'
 import WrapToggle from '../editor/WrapToggle.vue'
@@ -785,15 +787,18 @@ function updateDirtyState() {
   // 部分読み込み中は読み取り専用で、変わるのは「続きを読む」だけ（#362）。全文の比較は数十 MB を
   // 足すたびに文書全体を文字列にするので、ここで抜ける。
   if (!editorView || partial.value) return
-  const current = editorView.state.doc.toString()
-  const dirty = current !== savedContent
+  const { doc } = editorView.state
+  // **長さが違えば全文を文字列にしない。** 打鍵のたびに走るうえ、マクロの再生（#180）は
+  // 1 手ごとに dispatch するので、長い文書では全文の文字列化が手数ぶん積み重なる。
+  // `doc.length` は改行を 1 文字と数え、`savedContent` も `doc.toString()` から作るので比べられる。
+  const dirty = doc.length !== savedContent.length || doc.toString() !== savedContent
   if (dirty !== isDirty.value) {
     isDirty.value = dirty
     updateTitle()
   }
   // Sync content for untitled tabs (non-reactive Map to avoid $subscribe churn)
   if (tab.value && !tab.value.path) {
-    tabStore.untitledContent.set(props.tabId, current)
+    tabStore.untitledContent.set(props.tabId, doc.toString())
   }
 }
 
@@ -1279,6 +1284,19 @@ const gitHistoryLineLabel = computed(() => {
 /** 書けないタブ。git の過去の版と、部分読み込み中のファイル（#362）。**保存の可否もこれで見る**。 */
 const isReadOnlyTab = computed(() => (tab.value?.readOnly ?? false) || partial.value !== null)
 
+// ツールバーのマクロのボタン（#180）。ボタンはフォーカスを奪わないが、プレビューを
+// 触ったあとなどエディタにフォーカスが無いこともあるので、押したら必ず戻す（記録は
+// エディタに届いた打鍵しか拾わない）。
+function onMacroToggle() {
+  toggleMacroRecording()
+  editorView?.focus()
+}
+
+function onMacroPlay() {
+  if (editorView) playMacro(editorView)
+  editorView?.focus()
+}
+
 /**
  * このタブだけの折り返し。null は「設定に従う」。
  *
@@ -1538,6 +1556,8 @@ function createEditorView(container: HTMLElement, content: string) {
       // タブ移動 `Alt+←→` を CodeMirror の既定（`cursorSyntaxLeft/Right`）から奪い返す
       // 空のコマンドが入っている。
       presetKeymapCompartment.of(presetKeymap()),
+      // キーボードマクロ（#180）。読み取り専用のタブには入れない（再生しても書けない）。
+      editorMacro(),
       keymap.of([
         ...searchKeymap,
         // CodeMirror's own redo is `Mod-y` plus a Linux-only `Ctrl-Shift-z`, so
@@ -2221,6 +2241,7 @@ onUnmounted(() => {
       </template>
       <MarkdownToolbar v-if="markdownAssistOn && showEditor" @run="runMarkdownToolbarAction" />
       <span class="toolbar-spacer" />
+      <MacroButtons v-if="showEditor && !isReadOnlyTab" @toggle="onMacroToggle" @play="onMacroPlay" />
       <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
       <MinimapToggle v-if="hasFile" :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
       <HelpButton page="editor-and-preview.md" :size="15" />
@@ -2237,6 +2258,7 @@ onUnmounted(() => {
         </template>
       </div>
       <div class="editor-header-actions">
+        <MacroButtons v-if="!isReadOnlyTab" @toggle="onMacroToggle" @play="onMacroPlay" />
         <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
         <MinimapToggle v-if="hasFile" :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
         <!-- Readonly snapshots (git show) carry initialContent — reloading from disk is meaningless there -->

@@ -190,6 +190,8 @@ macOS だけの割り当てもあります。**`⇧⌘]` / `⇧⌘[`**（次 / �
 | `Tab` / `Shift+Tab` | インデント / アンインデント |
 | `Ctrl+Click` / `F12` | 定義へジャンプ |
 | `Alt+H` | エディタで Git History を開く |
+| `Ctrl+Shift+M` | マクロの記録を開始 / 停止（[キーボードマクロ](editor-and-preview.md#キーボードマクロ)） |
+| `Ctrl+Shift+L` | マクロを再生 |
 
 ### Markdown 編集
 

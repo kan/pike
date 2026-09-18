@@ -99,6 +99,10 @@ export const APP_ACTIONS = [
   { id: 'manual', palette: 'help' },
   { id: 'shortcuts', palette: 'help', labelKey: 'shortcuts.keyboardShortcuts' },
   { id: 'gitHistory' },
+  // キーボードマクロ（#180）。キーは CodeMirror 層にあるので `keyBindings` には載せない
+  // （`lib/editorMacro.ts`）。パレットからも引けるように行だけ置く。
+  { id: 'macroRecord', palette: 'file' },
+  { id: 'macroPlay', palette: 'file' },
   { id: 'quit', labelKey: 'menu.quit' },
   // --- パネル（#270）。パレットから開ける。キーを持つのは検索だけ（`Mod+Shift+F`、#259）
   { id: 'panelFiles', palette: 'view', labelKey: 'sidebar.files', panel: 'files' },

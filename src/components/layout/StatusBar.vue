@@ -4,6 +4,7 @@ import {
   Archive,
   Bot,
   Check,
+  Circle,
   Cloud,
   FolderGit2,
   FolderOpen,
@@ -20,6 +21,7 @@ import { useAgentUsage } from '../../composables/useAgentUsage'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
+import { macroRecording, toggleMacroRecording } from '../../lib/editorMacro'
 import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
 import { languageOptions } from '../../lib/languages'
@@ -360,6 +362,18 @@ onUnmounted(() => {
       </span>
     </button>
 
+    <!-- キーボードマクロの記録中（#180）。止めるキーを忘れても、ここを押せば止まる。 -->
+    <button
+      v-if="macroRecording"
+      class="status-item clickable macro-badge"
+      data-testid="macro-recording"
+      :title="t('macro.recordingTitle')"
+      @click="toggleMacroRecording"
+    >
+      <Circle :size="10" :stroke-width="0" fill="currentColor" />
+      {{ t('macro.recording') }}
+    </button>
+
     <Transition name="status-msg">
       <div
         v-if="statusMessageStore.visible"
@@ -617,6 +631,11 @@ onUnmounted(() => {
 
 .status-item.clickable {
   cursor: pointer;
+}
+
+.status-item.macro-badge {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .status-item.clickable:hover {

@@ -203,6 +203,7 @@ pike/
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── editor/
 │   │   │   ├── FindBar.vue          # タブ右上に浮く検索バー（diff タブ #176 とプレビュー #360 で共有）
+│   │   │   ├── MacroButtons.vue     # キーボードマクロの記録・再生ボタン（#180）
 │   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
 │   │   │   ├── MinimapToggle.vue    # ミニマップの表示切り替え（タブ単位、#282）
 │   │   │   └── WrapToggle.vue       # 折り返しの切り替え（タブ単位、#241）
@@ -293,6 +294,7 @@ pike/
 │   │   ├── imeDebugLog.ts  imeFocusPark.ts  # IME 調査用（原因判明後に削除する）
 │   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts
 │   │   ├── editorLoadMore.ts # 部分読み込みの「続きを読む」を本文の末尾に出す（#362）
+│   │   ├── editorMacro.ts    # キーボードマクロの記録と再生（#180。サクラエディタ風）
 │   │   ├── editorJumpTo.ts  editorConflict.ts  editorDiagnostics.ts  editorMarkdown.ts
 │   │   ├── editorPresetKeys.ts # ショートカットのプリセットで変わる CodeMirror のキー（#261）
 │   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent）

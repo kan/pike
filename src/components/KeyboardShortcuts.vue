@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useShortcutsModal } from '../composables/useShortcutsModal'
 import { useI18n } from '../i18n'
+import { MACRO_CHORDS } from '../lib/editorMacro'
 import { isMacHost } from '../lib/host'
 import { chordChips } from '../lib/keys'
 import { chordsFor, editorChords, SHORTCUT_PRESETS } from '../lib/shortcuts'
@@ -92,6 +93,8 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: ['Mod+Click'], label: t('shortcuts.jumpToDefinition') },
       { keys: ['F12'], label: t('shortcuts.jumpToDefinition') },
       { keys: chordsFor('gitHistory'), label: t('shortcuts.gitHistory') },
+      { keys: [MACRO_CHORDS.record], label: t('shortcuts.macroRecord') },
+      { keys: [MACRO_CHORDS.play], label: t('shortcuts.macroPlay') },
     ],
   },
   {
