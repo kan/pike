@@ -493,16 +493,19 @@ export function canReorderTabs(a: Tab, b: Tab): boolean {
  * union と `stores/sidebar.ts` の検証用配列を手で並べていたころは、パネルを 1 つ増減する
  * たびに 2 ファイルを直す必要があり、片方を忘れても型は通った（症状は「足したパネルが
  * 再起動すると開かない」で、起動時にしか出ない）。
+ *
+ * **並びはアイコン列の既定の順**（#364）。並べ替えを触っていない人の列と「元に戻す」の
+ * 行き先がこれになり、パネルを足したときもこの位置に入る。
  */
 export const SIDEBAR_PANELS = [
   'files',
+  'outline',
   'git',
   'search',
+  'diagnostics',
   'docker',
   'projects',
   'tasks',
-  'outline',
-  'diagnostics',
   'issues',
 ] as const
 

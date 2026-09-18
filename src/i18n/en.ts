@@ -44,6 +44,8 @@ export default {
   'sidebar.outline': 'Outline',
   'sidebar.diagnostics': 'Problems',
   'sidebar.issues': 'Issues',
+  'sidebar.hideIcon': 'Hide "{name}"',
+  'sidebar.resetIcons': 'Reset order and visibility',
   'sidebar.keyboardShortcuts': 'Keyboard Shortcuts',
   'sidebar.settings': 'Settings',
   'sidebar.github': 'GitHub',

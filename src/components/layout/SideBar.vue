@@ -11,6 +11,7 @@ import {
   watch,
 } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
+import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useDragResize } from '../../composables/useDragResize'
 import { useGitStore } from '../../stores/git'
 import { useSidebarStore } from '../../stores/sidebar'
@@ -29,6 +30,7 @@ const IssuesPanel = defineAsyncComponent(() => import('../panels/IssuesPanel.vue
 import {
   ArrowDown,
   ArrowUp,
+  Check,
   ChevronsDownUp,
   ChevronsUpDown,
   CircleAlert,
@@ -55,6 +57,7 @@ import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { openUrlWithConfirm } from '../../lib/openUrl'
+import { sideOf } from '../../lib/reorder'
 import { actionChord } from '../../lib/shortcuts'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useDockerStore } from '../../stores/docker'
@@ -254,15 +257,20 @@ interface IconDef {
   refresh?: { run: () => void; busy?: () => boolean }
 }
 
-const icons: IconDef[] = [
-  {
+/**
+ * パネルごとの行。**並びは持たない**（既定は `SIDEBAR_PANELS`、利用者の並びは設定の
+ * `sidebarIcons`、#364）。全パネルを網羅する形なので、パネルを足して行を書き忘れると
+ * 型エラーになり、値の `panel` がキーと食い違っても同じく落ちる。
+ */
+const ICONS: { [P in SidebarPanel]: IconDef & { panel: P } } = {
+  files: {
     panel: 'files',
     labelKey: 'sidebar.files',
     icon: Files,
     refresh: { run: () => fileTreeRef.value?.refresh(), busy: () => !!fileTreeRef.value?.refreshing },
   },
-  { panel: 'outline', labelKey: 'sidebar.outline', icon: ListTree },
-  {
+  outline: { panel: 'outline', labelKey: 'sidebar.outline', icon: ListTree },
+  git: {
     panel: 'git',
     labelKey: 'sidebar.git',
     icon: GitBranch,
@@ -289,15 +297,15 @@ const icons: IconDef[] = [
     },
     refresh: { run: () => gitStore.refreshAll(), busy: () => gitStore.refreshing },
   },
-  { panel: 'search', labelKey: 'sidebar.search', icon: Search },
-  {
+  search: { panel: 'search', labelKey: 'sidebar.search', icon: Search },
+  diagnostics: {
     panel: 'diagnostics',
     labelKey: 'sidebar.diagnostics',
     icon: CircleAlert,
     badge: () => (diagStore.total > 0 ? { count: diagStore.total, danger: diagStore.errorCount > 0 } : null),
     refresh: { run: () => diagStore.run(), busy: () => diagStore.running },
   },
-  {
+  docker: {
     panel: 'docker',
     labelKey: 'sidebar.docker',
     icon: Container,
@@ -305,14 +313,14 @@ const icons: IconDef[] = [
     // compose が複数あると対象が一意に決まらないため、ここには置かない。
     refresh: { run: () => dockerStore.refreshContainers(true), busy: () => dockerStore.refreshing },
   },
-  { panel: 'projects', labelKey: 'sidebar.projects', icon: FolderOpen },
-  {
+  projects: { panel: 'projects', labelKey: 'sidebar.projects', icon: FolderOpen },
+  tasks: {
     panel: 'tasks',
     labelKey: 'sidebar.tasks',
     icon: Play,
     refresh: { run: () => tasksRef.value?.refresh() },
   },
-  {
+  issues: {
     panel: 'issues',
     labelKey: 'sidebar.issues',
     // GitHub の issue 記号（`CircleDot`）は他のアイコンに紛れて何のパネルか読めなかった
@@ -320,14 +328,101 @@ const icons: IconDef[] = [
     icon: ListTodo,
     refresh: { run: () => issuesStore.refresh(), busy: () => issuesStore.loading },
   },
-]
+}
 
-/** アイコン列に実際に並べるもの。`icons` は表の正本のままにして、ここで絞る
- *  （パネルの見出しは `icons` を引くので、隠れているあいだも名前が出る）。 */
-const navIcons = computed(() => icons.filter((i) => isPanelAvailable(i.panel)))
+/**
+ * 利用者の並び（#364）で、このプロジェクトで使えるパネル。非表示のものも含む（右クリックの
+ * 一覧は、隠したものを戻す入口でもあるため）。
+ */
+const orderedIcons = computed(() =>
+  settingsStore.sidebarIcons.flatMap((s) =>
+    isPanelAvailable(s.panel) ? [{ def: ICONS[s.panel] as IconDef, hidden: s.hidden }] : [],
+  ),
+)
+
+/** アイコン列に実際に並べるもの（隠したものを除く）。パネルの見出しは `ICONS` を
+ *  直に引くので、隠れているパネルをパレットから開いても名前が出る。 */
+const navIcons = computed(() => orderedIcons.value.filter((i) => !i.hidden).map((i) => i.def))
+
+// --- 並べ替えと非表示（#364） ------------------------------------------------
+// 非表示はアイコン列から外すだけで、パネルそのものは使える（パレットや `Ctrl+Shift+F` の
+// 入口は残す）。利用者が選んで隠したものを、明示的に開きに来た操作まで止める理由が無い。
+const { dragId: iconDragId, startDrag: startIconDrag, resetDrag: resetIconDrag } = useDragAndDrop<SidebarPanel>()
+const iconDrop = ref<{ panel: SidebarPanel; side: 'top' | 'bottom' } | null>(null)
+
+function onIconDragOver(e: DragEvent, panel: SidebarPanel) {
+  if (!iconDragId.value) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  const side = sideOf(e)
+  // dragover は連続して届くので、変わったときだけ書く（毎回書くとアイコン列が描き直される）。
+  if (iconDrop.value?.panel !== panel || iconDrop.value.side !== side) iconDrop.value = { panel, side }
+}
+
+function onIconDrop(panel: SidebarPanel) {
+  const moved = iconDragId.value
+  const side = iconDrop.value?.side ?? 'top'
+  endIconDrag()
+  if (moved && moved !== panel) settingsStore.moveSidebarIcon(moved, panel, side)
+}
+
+function endIconDrag() {
+  resetIconDrag()
+  iconDrop.value = null
+}
+
+/** 右クリックしたアイコン（空いたところなら null）。null でなければメニューが開いている。 */
+const iconMenu = ref<{ panel: SidebarPanel | null } | null>(null)
+const {
+  style: iconMenuStyle,
+  placeAt: placeIconMenu,
+  reset: resetIconMenu,
+} = useAnchoredPopup(useTemplateRef<HTMLElement>('iconMenuEl'))
+
+async function openIconMenu(e: MouseEvent, panel: SidebarPanel | null) {
+  resetIconMenu()
+  iconMenu.value = { panel }
+  await placeIconMenu({ x: e.clientX, y: e.clientY })
+  window.addEventListener('mousedown', closeIconMenu, { once: true })
+}
+
+function closeIconMenu() {
+  window.removeEventListener('mousedown', closeIconMenu)
+  iconMenu.value = null
+  resetIconMenu()
+}
+
+function setIconHidden(panel: SidebarPanel, hidden: boolean) {
+  closeIconMenu()
+  settingsStore.setSidebarIconHidden(panel, hidden)
+}
+
+/**
+ * **新しく**隠れたパネルが開いていたら閉じる。開いたままだと、アイコンの無いパネルが残って
+ * 閉じる入口が見えなくなる。操作したウィンドウだけでなく、ブロードキャストや同期で届いた
+ * ウィンドウでも閉じるよう、呼び出し側ではなく設定の変化を見る。
+ *
+ * **「隠れているパネルが開いている」を条件にしないこと**: パレットで隠したパネルを開いた
+ * 瞬間に閉じてしまう（隠したパネルも使える、という方針に反する）。
+ */
+watch(
+  () => settingsStore.sidebarIcons,
+  (now, prev) => {
+    const open = sidebar.activePanel
+    if (!open) return
+    const hiddenNow = now.some((i) => i.panel === open && i.hidden)
+    const hiddenBefore = prev.some((i) => i.panel === open && i.hidden)
+    if (hiddenNow && !hiddenBefore) sidebar.setPanel(null)
+  },
+)
+
+function resetIcons() {
+  closeIconMenu()
+  settingsStore.resetSidebarIcons()
+}
 
 /** 今開いているパネルの行（見出し・更新ボタンが読む）。 */
-const activeIcon = computed(() => icons.find((i) => i.panel === sidebar.activePanel))
+const activeIcon = computed<IconDef | undefined>(() => (sidebar.activePanel ? ICONS[sidebar.activePanel] : undefined))
 
 /** panel → manual-relative help target (`page#anchor`). 全パネルを網羅する `Record` なので、
  *  パネルを足してマニュアルの行き先を書き忘れると型エラーになる（`?` ボタンだけ黙って
@@ -348,14 +443,14 @@ const panelHelp = computed(() => (sidebar.activePanel ? PANEL_HELP[sidebar.activ
 /** panel → current badge/marker, recomputed once per reactive change (not per render). */
 const badges = computed(() => {
   const map: Partial<Record<SidebarPanel, BadgeInfo | null>> = {}
-  for (const item of icons) {
+  for (const item of Object.values<IconDef>(ICONS)) {
     if (item.badge) map[item.panel] = item.badge()
   }
   return map
 })
 const markers = computed(() => {
   const map: Partial<Record<SidebarPanel, MarkerInfo | null>> = {}
-  for (const item of icons) {
+  for (const item of Object.values<IconDef>(ICONS)) {
     if (item.marker) map[item.panel] = item.marker()
   }
   return map
@@ -395,14 +490,25 @@ onUnmounted(() => {
       プロジェクトカラー（#121）はここに敷く（#298）。ウィンドウ左端の 3px の線だったものを
       面に広げたもので、隣のプロジェクトバーと同じ色になるので 2 つで 1 つの帯に見える。
     -->
-    <nav class="icon-strip" :style="accentStyle">
+    <nav class="icon-strip" :style="accentStyle" @contextmenu.prevent="openIconMenu($event, null)">
       <button
         v-for="item in navIcons"
         :key="item.panel"
         class="icon-button"
-        :class="{ active: sidebar.activePanel === item.panel }"
+        :class="{
+          active: sidebar.activePanel === item.panel,
+          dragging: iconDragId === item.panel,
+          'drop-top': iconDrop?.panel === item.panel && iconDrop.side === 'top',
+          'drop-bottom': iconDrop?.panel === item.panel && iconDrop.side === 'bottom',
+        }"
         :title="iconTitle(item)"
+        draggable="true"
         @click="sidebar.togglePanel(item.panel)"
+        @contextmenu.prevent.stop="openIconMenu($event, item.panel)"
+        @dragstart="startIconDrag($event, item.panel)"
+        @dragover="onIconDragOver($event, item.panel)"
+        @drop.prevent="onIconDrop(item.panel)"
+        @dragend="endIconDrag"
       >
         <component :is="item.icon" :size="22" :stroke-width="1.5" class="icon" />
         <span
@@ -570,6 +676,30 @@ onUnmounted(() => {
         {{ t(a.key) }}
       </button>
     </div>
+
+    <!-- アイコン列の右クリック（#364）。隠したアイコンを戻す入口もここだけなので、
+         空いたところを右クリックしても開く。 -->
+    <div
+      v-if="iconMenu"
+      ref="iconMenuEl"
+      class="panel-ctx-menu icon-menu popup-surface"
+      data-testid="sidebar-icon-menu"
+      :style="iconMenuStyle"
+      @mousedown.stop
+    >
+      <template v-if="iconMenu.panel">
+        <button @click="setIconHidden(iconMenu.panel, true)">
+          {{ t('sidebar.hideIcon', { name: t(ICONS[iconMenu.panel].labelKey) }) }}
+        </button>
+        <div class="ctx-separator" />
+      </template>
+      <button v-for="i in orderedIcons" :key="i.def.panel" class="icon-menu-item" @click="setIconHidden(i.def.panel, !i.hidden)">
+        <Check :size="14" :class="{ invisible: i.hidden }" />
+        <span>{{ t(i.def.labelKey) }}</span>
+      </button>
+      <div class="ctx-separator" />
+      <button @click="resetIcons">{{ t('sidebar.resetIcons') }}</button>
+    </div>
   </div>
 </template>
 
@@ -727,6 +857,30 @@ onUnmounted(() => {
 
 .icon-button.active {
   opacity: 1;
+}
+
+/* ドラッグでの並べ替え（#364）。落とす位置は上下の端の線で示す（タブバーと同じ）。 */
+.icon-button.dragging {
+  opacity: 0.3;
+}
+
+.icon-button.drop-top {
+  box-shadow: inset 0 2px 0 var(--icon-strip-fg, var(--accent));
+}
+
+.icon-button.drop-bottom {
+  box-shadow: inset 0 -2px 0 var(--icon-strip-fg, var(--accent));
+}
+
+/* チェックの列を揃える（隠れているものは印だけ消して、幅は残す）。 */
+.icon-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-menu-item .invisible {
+  visibility: hidden;
 }
 
 /* プロジェクトカラーの上では `--accent`（青）が下地とぶつかるので、読める側の色で描く。 */

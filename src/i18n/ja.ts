@@ -44,6 +44,8 @@ export default {
   'sidebar.outline': 'アウトライン',
   'sidebar.diagnostics': '問題',
   'sidebar.issues': 'Issue',
+  'sidebar.hideIcon': '「{name}」を非表示',
+  'sidebar.resetIcons': '並び順と表示を元に戻す',
   'sidebar.keyboardShortcuts': 'キーボードショートカット',
   'sidebar.settings': '設定',
   'sidebar.github': 'GitHub',

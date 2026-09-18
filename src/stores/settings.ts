@@ -9,16 +9,20 @@ import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/font
 import { hexToRgba } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
 import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths'
+import { insertAt } from '../lib/reorder'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 import { setWebviewTheme, systemDark, windowFocused, windowLabel } from '../lib/window'
 import type { HiddenProject } from '../types/project'
 import {
+  isSidebarPanel,
   isWindowsShell,
   type MenuShell,
   type ShellProfile,
   type ShellType,
+  SIDEBAR_PANELS,
+  type SidebarPanel,
   shellFromId,
   shellId,
   shellProfileLabel,
@@ -553,6 +557,39 @@ interface PersistedSettings {
   agentPrompts: AgentPrompt[]
   allowedImageHosts: string[]
   allowedUrlHosts: string[]
+  /**
+   * サイドバーのアイコン列の並びと表示（#364）。**同期の対象**（好みはマシンに依存しない）。
+   * 1 本の配列で持つ（並び用と非表示用に割ると、片方にだけあるパネルの扱いが要る）。
+   * 形の保証は `sanitizeSidebarIcons`（全パネルがちょうど 1 回ずつ出る）。
+   */
+  sidebarIcons: SidebarIcon[]
+}
+
+export interface SidebarIcon {
+  panel: SidebarPanel
+  hidden: boolean
+}
+
+/**
+ * 全パネルがちょうど 1 回ずつ出る形に直す。**知らないパネルは落とし、無いパネルは末尾に
+ * 表示で足す。** 後者は新しい版でパネルが増えたときの経路で、隠したつもりのないパネルが
+ * 黙って見えないままになるのを防ぐ。
+ */
+function sanitizeSidebarIcons(v: unknown): SidebarIcon[] {
+  const out: SidebarIcon[] = []
+  const seen = new Set<SidebarPanel>()
+  if (Array.isArray(v)) {
+    for (const e of v) {
+      const panel = (e as { panel?: unknown })?.panel
+      if (typeof panel !== 'string' || !isSidebarPanel(panel) || seen.has(panel)) continue
+      seen.add(panel)
+      out.push({ panel, hidden: (e as { hidden?: unknown }).hidden === true })
+    }
+  }
+  for (const panel of SIDEBAR_PANELS) {
+    if (!seen.has(panel)) out.push({ panel, hidden: false })
+  }
+  return out
 }
 
 // Font-size slider bounds (terminal + editor); UI font size uses UI_FONT_SIZE_*.
@@ -615,6 +652,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
     allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
     allowedUrlHosts: sanitizeHostList(s.allowedUrlHosts),
+    sidebarIcons: sanitizeSidebarIcons(s.sidebarIcons),
     agentLaunchers,
     // 後方互換の 2 本も同じ 1 本から導くので、3 つが食い違う余地が無い。
     ...legacyAgentFields(agentLaunchers),
@@ -945,6 +983,7 @@ function defaults(): PersistedSettings {
     ],
     allowedImageHosts: [],
     allowedUrlHosts: [],
+    sidebarIcons: sanitizeSidebarIcons(null),
   }
 }
 
@@ -1032,6 +1071,33 @@ export const useSettingsStore = defineStore('settings', () => {
   // who trusts raw.githubusercontent.com for images has not said anything about
   // opening github.com. Machine-independent, so it rides along in the sync file.
   const allowedUrlHosts = ref<string[]>(saved.allowedUrlHosts)
+
+  // サイドバーのアイコン列（#364）。書き換えは下の 3 つだけで、どれも配列ごと差し替える
+  // （中身を書き換えないので、浅い watch で足りる）。**変わらないときは代入しない**:
+  // 代入のたびに保存・同期ファイルの書き出し・全ウィンドウへの broadcast が走る。
+  const sidebarIcons = ref<SidebarIcon[]>(saved.sidebarIcons)
+
+  function setSidebarIconHidden(panel: SidebarPanel, hidden: boolean) {
+    const list = sidebarIcons.value
+    if (list.some((i) => i.panel === panel && i.hidden === hidden)) return
+    sidebarIcons.value = list.map((i) => (i.panel === panel ? { panel, hidden } : i))
+  }
+
+  function moveSidebarIcon(moved: SidebarPanel, target: SidebarPanel, side: 'top' | 'bottom') {
+    const list = sidebarIcons.value
+    const find = (p: SidebarPanel) => list.find((i) => i.panel === p)
+    const m = find(moved)
+    const tg = find(target)
+    if (!m || !tg) return
+    const next = insertAt(list, m, tg, side)
+    if (next.every((i, n) => i === list[n])) return
+    sidebarIcons.value = next
+  }
+
+  /** 並びも表示も既定へ戻す。 */
+  function resetSidebarIcons() {
+    sidebarIcons.value = sanitizeSidebarIcons(null)
+  }
 
   function allowUrlHost(host: string) {
     allowedUrlHosts.value = withHost(allowedUrlHosts.value, host)
@@ -1381,6 +1447,7 @@ export const useSettingsStore = defineStore('settings', () => {
       agentPrompts: agentPrompts.value,
       allowedImageHosts: allowedImageHosts.value,
       allowedUrlHosts: allowedUrlHosts.value,
+      sidebarIcons: sidebarIcons.value,
     }
   }
 
@@ -1431,6 +1498,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
     allowedUrlHosts.value = s.allowedUrlHosts
+    sidebarIcons.value = s.sidebarIcons
   }
 
   // --- External settings-sync file ---------------------------------------
@@ -1651,6 +1719,7 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(agentPrompts, onSettingsChanged, { deep: true })
   watch(allowedImageHosts, onSettingsChanged)
   watch(allowedUrlHosts, onSettingsChanged)
+  watch(sidebarIcons, onSettingsChanged)
   // キーの割り当ての正本は `lib/shortcuts.ts`（ストアを import できないので、値はこちらから
   // 流し込む）。**`immediate` が要る**: 起動直後に保存済みのプリセットへ揃わないと、
   // 最初の 1 回だけ既定のキーで動く。
@@ -1724,6 +1793,10 @@ export const useSettingsStore = defineStore('settings', () => {
     allowedUrlHosts,
     allowUrlHost,
     forgetUrlHost,
+    sidebarIcons,
+    setSidebarIconHidden,
+    moveSidebarIcon,
+    resetSidebarIcons,
     globalShell,
     projectBase,
     hiddenProjects,

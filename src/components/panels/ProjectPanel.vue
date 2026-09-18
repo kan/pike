@@ -7,6 +7,7 @@ import { useI18n } from '../../i18n'
 import { defaultProjectPlatform } from '../../lib/host'
 import { fuzzyMatch } from '../../lib/paths'
 import type { ProjectPlatform } from '../../lib/projectPaths'
+import { insertAt, sideOf } from '../../lib/reorder'
 import { loadJson, saveJson } from '../../lib/storage'
 import { detectWslDistros, pickFolder, ptyGetCwd } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
@@ -237,23 +238,6 @@ const draggedGroup = computed(() =>
 function endDrag() {
   resetDrag()
   dropTarget.value = null
-}
-
-/** Which half of the hovered element the pointer is in (TabPane's insertion
- *  point logic, vertical). */
-function sideOf(e: DragEvent): 'top' | 'bottom' {
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  return e.clientY < rect.top + rect.height / 2 ? 'top' : 'bottom'
-}
-
-/** `ids` with `moved` taken out and put back at the drop point. Removing first
- *  means the target index needs no correction for the direction of the move. */
-function insertAt(ids: string[], moved: string, target: string, side: 'top' | 'bottom'): string[] {
-  const rest = ids.filter((id) => id !== moved)
-  const at = rest.indexOf(target)
-  if (at === -1) return [...rest, moved]
-  rest.splice(side === 'bottom' ? at + 1 : at, 0, moved)
-  return rest
 }
 
 function markDropTarget(e: DragEvent, key: DragKey, side: 'top' | 'bottom' | null) {
