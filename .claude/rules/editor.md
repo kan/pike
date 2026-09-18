@@ -170,7 +170,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - コマンドは `lib/editorMarkdown.ts`、ボタン列は `components/editor/MarkdownToolbar.vue`。ツールバーは **Edit/Split/Preview と同じ行**に入れる（専用の行を足すとエディタの高さが約 28px 減る）。出す条件は `isMarkdown && showEditor && !readOnly`
 - **UI は `MarkdownAction` を emit するだけ**にして、`EditorView` は EditorTab が持ったままにする。ショートカットとボタンが同じ関数を通るので、片方だけ壊れることがない
 - **リスト継続・番号の自動インクリメント・URL 貼り付けのリンク化は書かない**。`@codemirror/lang-markdown` の `markdown()` が既定（`addKeymap` / `pasteURLAsLink`）で `Prec.high` の Enter / Backspace と paste ハンドラを入れており、自前で書くと同じキーを取り合う。**足りないのはトグル**（既存行を箇条書きにする / 外す）だけ
-- **`Mod-k` は binding の `stopPropagation: true` で解決する**。`useKeyboardShortcuts` の window リスナーはバブル段階なので、CodeMirror がそこで止めればグローバル側は無改造で済む（`defaultPrevented` ガードを足すと、他のキーの取り合いまで一括で変わる）。`runHandlers` は **コマンドが true を返したときだけ** `stopPropagation` するので、read-only タブや非 Markdown では Ctrl+K は従来どおりショートカット一覧に届く
+- **`Mod-k` は binding の `stopPropagation: true` で解決する**。`useKeyboardShortcuts` の window リスナーはバブル段階なので、CodeMirror がそこで止めればグローバル側は無改造で済む（`defaultPrevented` ガードを足すと、他のキーの取り合いまで一括で変わる）。`runHandlers` は **コマンドが true を返したときだけ** `stopPropagation` するので、read-only タブや非 Markdown では `⌘K` は従来どおりショートカット一覧に届く。**取り合いが残っているのは macOS だけ**で、Windows / Linux の一覧は `Ctrl+Shift+/` に移した（#369。理由は `lib/shortcuts.ts` の行の隣）
 - 行単位のトグル（見出し・箇条書き・引用）は **選択全体で 1 つの判定**にする（`markerOf` が全行で一致したら外す）。行ごとに決めると、半分に付いた選択で押したとき付け外しが入り混じる
 - 空行は複数行選択のときだけ飛ばす（段落の区切りに `- ` を足さない）。1 行だけの選択ではリストの開始なので飛ばさない
 - テンプレートのプレースホルダは選択状態で入れる（最初の打鍵で置き換わる）。コードブロックだけは**言語の位置**にカーソルを置く（フェンスは書けても言語は書き手しか知らない）

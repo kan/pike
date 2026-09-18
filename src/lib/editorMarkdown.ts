@@ -109,11 +109,12 @@ export function runMarkdownAction(view: EditorView, action: MarkdownAction): boo
 /**
  * Bold / italic / link, on the keys every editor uses for them.
  *
- * `stopPropagation` is what makes `Mod-k` work: the shortcut list is bound on
- * `window`, which sees the key after CodeMirror unless the binding stops it
- * there. The list stays reachable from every other tab, from F1, and from the
- * `?` button. `onLink` is a callback because the toolbar reads the clipboard
- * for a target first, which a `Command` cannot wait for.
+ * `stopPropagation` is what makes `Mod-k` work on macOS, where the shortcut
+ * list is still `⌘K` (#369; Windows / Linux moved it to `Ctrl+Shift+/`): the
+ * list is bound on `window`, which sees the key after CodeMirror unless the
+ * binding stops it there. The list stays reachable from the gear menu (and
+ * the Help menu on macOS). `onLink` is a callback because the toolbar reads
+ * the clipboard for a target first, which a `Command` cannot wait for.
  */
 export function markdownAssistKeymap(onLink: () => void): KeyBinding[] {
   const inline = (mark: InlineMark): KeyBinding['run'] => {

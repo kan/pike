@@ -251,7 +251,9 @@ const VSCODE_BINDINGS: KeyBinding[] = [
   // 検索はターミナルでも Pike が取る（readline の forward-char より、ほかのタブと揃うほうを採る）。
   // 全画面 TUI のあいだはシェルへ返す（vim / less の `Ctrl+F` は 1 画面進む）。
   { chords: ['Mod+F'], terminalFirst: true, altScreenShell: true },
-  { chords: ['Mod+W'], action: 'closeTab', terminalFirst: true, altScreenShell: true },
+  // `Ctrl+F4` は Windows の「文書を閉じる」の作法（Chrome・Office・VS Code 自身も受ける、#369）。
+  // `altScreenShell` は行ごとなので、代替画面では `Ctrl+W` と一緒にシェルへ渡る（困らない）。
+  { chords: ['Mod+W', 'Mod+F4'], macChords: ['Mod+W'], action: 'closeTab', terminalFirst: true, altScreenShell: true },
   // `altScreenShell` は `Ctrl+W` と同じ理由で付ける。ターミナルは `Ctrl+Shift+W` にも
   // `Ctrl+W` と同じバイト（0x17）を送るので、vim から見ればどちらもウィンドウ操作の prefix。
   { chords: ['Mod+Shift+W'], action: 'closeWindow', terminalFirst: true, altScreenShell: true },
@@ -282,15 +284,20 @@ const VSCODE_BINDINGS: KeyBinding[] = [
   // 全体検索（#259）。VSCode の「Search across files」と同じキーで、IDEA の
   // 「Find in Path」とも一致するのでプリセットで変わらない。
   { chords: ['Mod+Shift+F'], action: 'panelSearch' },
-  { chords: ['Mod+K'], action: 'shortcuts' },
+  // ショートカット一覧（#369）。`Mod+K` は Markdown のリンク挿入（Office・Google ドキュメント・
+  // GitHub と同じキー）に譲った。`?` でヘルプを出すアプリに倣って `Ctrl+?`（`Ctrl+Shift+/`）。
+  // **macOS だけ `⌘K` のまま**: `⇧⌘/` は AppKit がヘルプメニューの検索に使うので届かない。
+  // mac にはヘルプメニューの項目という常に使える入口もある。
+  { chords: ['Mod+Shift+/'], macChords: ['Mod+K'], action: 'shortcuts' },
   { chords: ['Mod+,'], action: 'settings' },
   // 文字の大きさ（#260）。`Mod+0` は `Mod+1`〜`9`（タブ）と衝突しない。
   //
   // **大きくする側は配列で打ち方が変わる**ので 3 つ並べる。`matchChord` は chord に
-  // 書いていない修飾キーが押されていないことを求めるため、`Mod++` だけでは
-  // **Shift を押さずに `+` が出る numpad にしか一致しない**。US 配列の `Ctrl+Shift+=`、
-  // JIS 配列の `Ctrl+Shift+;` はどちらも「Shift 付きで `+` が出た」なので
-  // `Mod+Shift++` が受ける。`Mod+=` は US で Shift 無しに届く刻印。
+  // 書いていない修飾キーが押されていないことを求める。
+  // - `Mod++` … Shift 無し。numpad の `+` と、`+` の刻印キー（US は `=`、JIS は `;`。
+  //   `keys.ts` の `KEY_VK` が仮想キーで拾う、#369）
+  // - `Mod+Shift++` … Shift 付きで `+` が出た（US の `Ctrl+Shift+=`、JIS の `Ctrl+Shift+;`）
+  // - `Mod+=` … US では `Mod++` と重なるが、`=` が `VK_OEM_PLUS` 以外にある配列への保険として残す
   { chords: ['Mod+=', 'Mod++', 'Mod+Shift++'], action: 'fontIncrease', terminalFirst: true },
   { chords: ['Mod+-'], action: 'fontDecrease', terminalFirst: true },
   { chords: ['Mod+0'], action: 'fontReset', terminalFirst: true },

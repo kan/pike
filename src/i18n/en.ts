@@ -262,7 +262,7 @@ export default {
   'settings.shortcutPresetVscode': 'VSCode',
   'settings.shortcutPresetIdea': 'IDEA',
   'settings.shortcutPresetHint':
-    'Switch the key set to match the editor you are used to; press Ctrl+K for the full list. With IDEA keys, tab navigation moves to Alt+Left / Alt+Right, so Pike takes those keys while the terminal has focus.',
+    'Switch the key set to match the editor you are used to; the full list is under the gear menu → Keyboard Shortcuts. With IDEA keys, tab navigation moves to Alt+Left / Alt+Right, so Pike takes those keys while the terminal has focus.',
   'settings.registerDirectory': 'Opening a directory that is not a project',
   'settings.registerDirectoryAuto': 'Register it',
   'settings.registerDirectoryAsk': 'Ask',

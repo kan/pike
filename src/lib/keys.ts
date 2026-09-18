@@ -182,14 +182,28 @@ export function matchParsedChord(e: KeyboardEvent, { mods, key }: ParsedChord): 
   // 変え（`⌥H` は `˙`）、US 配列の `Shift+]` は `}` になる。どちらも「打った文字」が
   // chord の綴りと一致しようがないので、そのときだけ物理キーに落ちる。
   const code = KEY_CODES[key.toLowerCase()] ?? null
-  return code !== null && e.code === code
+  if (code !== null && e.code === code) return true
+  const vk = KEY_VK[key]
+  return vk !== undefined && e.keyCode === vk
 }
+
+/**
+ * `e.code` では届かないキーの仮想キーコード（#369）。`+` の 187（`VK_OEM_PLUS`）は US 配列
+ * では `=` のキー、JIS 配列では `;` のキーで、Chrome や Office は JIS の `Ctrl+;` を「拡大」
+ * として受ける。`e.code` は `Semicolon` になり US の `;` と区別できないので、配列ごとの
+ * 仮想キーを返す `keyCode`（非推奨だが代わりが無い）で見る。**配列ごとに値が変わるのは
+ * Windows だけ**で、macOS の JIS は `⌘⇧;`（`e.key` が `+`）で `Mod+Shift++` が受ける。
+ */
+const KEY_VK: Record<string, number> = { '+': 187 }
 
 /** `matchChord` が物理キーに落ちるときの対応（英数字と、chord に出る記号）。 */
 const KEY_CODES: Record<string, string> = {
   ']': 'BracketRight',
   '[': 'BracketLeft',
   ',': 'Comma',
+  // `Shift+/` は `?` になるので、`Mod+Shift+/`（ショートカット一覧、#369）は物理キーで受ける。
+  // US も JIS も同じ `Slash`。
+  '/': 'Slash',
   ...Object.fromEntries(Array.from('abcdefghijklmnopqrstuvwxyz', (c) => [c, `Key${c.toUpperCase()}`])),
   ...Object.fromEntries(Array.from('0123456789', (d) => [d, `Digit${d}`])),
 }

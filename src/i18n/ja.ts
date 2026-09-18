@@ -261,7 +261,7 @@ export default {
   'settings.shortcutPresetVscode': 'VSCode 互換',
   'settings.shortcutPresetIdea': 'IDEA 互換',
   'settings.shortcutPresetHint':
-    'よく使うエディタに合わせてキーの組を切り替えます。一覧は Ctrl+K で確認できます。IDEA 互換ではタブ移動が Alt+← / Alt+→ になるため、ターミナルにフォーカスがあるあいだ Pike がこのキーを先に取ります。',
+    'よく使うエディタに合わせてキーの組を切り替えます。一覧は歯車メニューの「キーボードショートカット」で確認できます。IDEA 互換ではタブ移動が Alt+← / Alt+→ になるため、ターミナルにフォーカスがあるあいだ Pike がこのキーを先に取ります。',
   'settings.registerDirectory': '未登録のディレクトリを開いたとき',
   'settings.registerDirectoryAuto': '自動登録',
   'settings.registerDirectoryAsk': '確認する',
