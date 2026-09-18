@@ -116,8 +116,52 @@ pub fn augment_process_path() {
     std::env::set_var("PATH", next);
 }
 
+/// Windows 版は**自分の置き場（インストール先）を PATH に足す**（#370）。
+///
+/// インストーラ（`hooks.nsi`）はユーザー PATH にインストール先を書くが、**既に走っている
+/// プロセスの環境は変わらない**。Pike は 2 つの経路で古い環境のまま起動しうる:
+///
+/// - **インストール直後の「Pike を起動」**。per-user インストールは昇格しないので、
+///   tauri の `RunAsUser` はインストーラ自身から `ShellExecuteW` する＝インストーラが
+///   起動した時点の環境（PATH 追記前）を継ぐ。WM_SETTINGCHANGE で追従するのは Explorer だけ
+/// - **セルフアップデート**。インストーラは Pike の子として起動し、再起動した Pike はその
+///   環境を継ぐ。一度古い環境で起動すると、**完全に終了して Explorer から起動し直すまで
+///   更新をまたいで古いまま**残る（トレイ常駐なので、終了する機会自体が少ない）
+///
+/// WSL は `wsl.exe` を起動したプロセスの PATH を distro の PATH の後ろに付ける（実測）ので、
+/// Pike のターミナルの WSL から `pike.exe` が見つからない。Windows のシェルも同じ。
+/// 足すのは**末尾**: 既に PATH にあるもの（インストール版）を押しのけない。開発版でも
+/// `target\debug` が末尾に付くだけで、インストール版があればそちらが先に解決される
+/// （`agent_hook::hook_command` の「PATH の `pike.exe` はインストール版」が保たれる）。
 #[cfg(windows)]
-pub fn augment_process_path() {}
+pub fn augment_process_path() {
+    let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()))
+    else {
+        return;
+    };
+    let current = std::env::var("PATH").unwrap_or_default();
+    if let Some(next) = path_with_dir(&current, &dir) {
+        std::env::set_var("PATH", next);
+    }
+}
+
+/// `dir` が `current` に無ければ末尾に足した PATH を返す（あれば `None`）。
+/// 一致は `hooks.nsi` と同じく大小無視・末尾の `\` を無視する（`normalize_win_path`）。
+#[cfg(windows)]
+fn path_with_dir(current: &str, dir: &str) -> Option<String> {
+    let target = normalize_win_path(dir);
+    if current.split(';').any(|e| normalize_win_path(e) == target) {
+        return None;
+    }
+    let mut next = current.trim_end_matches(';').to_string();
+    if !next.is_empty() {
+        next.push(';');
+    }
+    next.push_str(dir);
+    Some(next)
+}
 
 /// `augment_process_path` の判断部分。プロセスの環境を触らないので単体で確かめられる
 /// （`set_var` はテスト同士が干渉する）。**`exists` が真になったものだけを足す**: 存在しない
@@ -1363,6 +1407,23 @@ mod tests {
         let shell: ShellConfig =
             serde_json::from_str(r#"{"kind":"unix","program":"/bin/bash"}"#).unwrap();
         assert!(matches!(shell, ShellConfig::Unix { program } if program == "/bin/bash"));
+    }
+
+    /// インストール直後の古い環境（#370）: 自分の置き場が無ければ末尾に足し、
+    /// 大小や末尾の `\` が違うだけの既存エントリがあれば触らない。
+    #[cfg(windows)]
+    #[test]
+    fn path_with_dir_appends_install_dir_once() {
+        let dir = r"C:\Users\me\AppData\Local\Pike";
+        assert_eq!(
+            path_with_dir(r"C:\Windows;C:\bin;", dir).as_deref(),
+            Some(r"C:\Windows;C:\bin;C:\Users\me\AppData\Local\Pike")
+        );
+        assert_eq!(path_with_dir("", dir).as_deref(), Some(dir));
+        assert_eq!(
+            path_with_dir(r"C:\Windows;c:\users\me\appdata\local\pike\", dir),
+            None
+        );
     }
 
     /// GUI 起動の最小 PATH（launchd がくれるもの）に Homebrew 等が足され、

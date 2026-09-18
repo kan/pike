@@ -58,6 +58,11 @@ Pike の第一ターゲットは Windows で、macOS は**ローカルのシェ�
   1 本起こすことになり、rc が `exec tmux` する環境で固まる
 - 判断は純粋関数 `augmented_path_with` に置いてテストしてある（`set_var` を触るテストは
   互いに干渉するため）
+- **Windows 版の `augment_process_path` は自分のインストール先を足す**（#370）。インストーラが
+  ユーザー PATH に書いても、インストール直後の「Pike を起動」とセルフアップデート後の再起動は
+  **インストーラの（PATH 追記前の）環境を継ぐ**ので、Pike のターミナルから `pike.exe` が見つからない。
+  WSL は `wsl.exe` を起動したプロセスの PATH を distro の PATH に付ける（実測）ので、WSL も同じ。
+  理由の詳細は関数の doc が正本
 - 対話ターミナルは別経路で解決している。`pty_spawn` の `Unix` は**ログインシェル（`-l`）**で
   起動するので、rc / profile を読んで本来の PATH になる
 

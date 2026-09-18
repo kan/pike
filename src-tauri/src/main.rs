@@ -4,6 +4,7 @@
 fn main() {
     // macOS / Linux の GUI 起動は launchd の最小 PATH しか継がない。以降のあらゆる
     // spawn が前提にするので、実際に spawn する経路（wait::* と run()）より前に広げる。
+    // Windows ではインストール先を足す（インストーラ経由の起動は PATH 追記前の環境を継ぐ。#370）。
     // スレッドが立つ前でなければならない（set_var はプロセス全体を触る）。
     app_lib::augment_process_path();
 
