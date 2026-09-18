@@ -313,6 +313,10 @@ export default {
     'アプリ画面（サイドバー・タブ・パネル・ダイアログ）のフォントとサイズ。ターミナルとエディタは下の各自の設定が優先されます。',
   'settings.font': 'フォント',
   'settings.fontSize': 'フォントサイズ',
+  'settings.fontNotice.missing':
+    'このフォントは表示に使われていません。Pike の起動後にフォントを入れた場合は、Pike を再起動すると反映されます。',
+  'settings.fontNotice.icons':
+    'この Nerd Font のアイコン（Powerline の区切り記号など）が、このフォントで描かれていません。Pike の起動後にフォントを入れた場合は、Pike を再起動すると反映されます。',
   'settings.editorFont': 'フォント',
   'settings.editorFontSize': 'フォントサイズ',
   'settings.preview': 'プレビュー',

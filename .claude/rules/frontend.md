@@ -158,6 +158,7 @@
     - 本当に独立させるなら Rust 側（Windows の `AppsUseLightTheme` ＋ `WM_SETTINGCHANGE`、macOS の `effectiveAppearance`）をコマンドとイベントにすることになる。**pin 中に古くなるだけで、解除時に読み直せば閉じる**ので、OS ごとのコードを足す価値が無いと判断した
   - **書き出しの `darkMode` は後方互換**（同期ファイルは古い版の Pike も読む）。落としてよいのは、**同期ファイルを共有する全マシンが `themeMode` を知る版になったとき**。cross-version の経路は同期ファイル 1 本だけ（localStorage は同一インストール、broadcast は同一プロセス）なので、そこだけ見れば判断できる。目安は v0.48.0 以降しか相手にしなくてよくなった時点で、消すのは `withThemeMode` と `snapshot()` の 1 行
 - ターミナルフォント: `font-kit` クレートでシステムのモノスペースフォントを列挙（`spawn_blocking` で非同期実行）
+- **起動後に入れたフォントは、macOS の WebKit が再起動まで一部の文字を拾わない（#372）**。通常の文字は新しいフォントで描かれるのに、私用領域（Nerd Font のアイコン）だけがフォールバック先のまま残る。ターミナルは xterm.js の DOM レンダラーで、字形のキャッシュ（テクスチャアトラス）を持たないので、残る原因は WebKit のフォールバックのキャッシュ。**それがプロセス全体のものか、フォントの指定ごとのものかは未確認**で、今は検出して再起動を促すだけ（`lib/fontDetection.ts` の `checkFontRendering` が canvas で「選んだフォントで描いた画素」と「`serif` だけで描いた画素」を比べる。判断の実体と、原因によって検出が見逃す場合はあの doc）。確かめるのは**設定画面でターミナルかエディタのフォントを選び直したときだけ**（既定のフォント指定を入れていない人に毎回警告を出さない。同期や broadcast で届いた変更でも走らないよう、ストアではなく設定画面に置く）
 - フォントスキャンは Settings タブを開いた時に遅延ロード（起動時には実行しない）
 - カラースキーム: 6種（Default Dark, Solarized Dark/Light, Monokai, Dracula, Nord）
 - フォント・サイズ変更は既存ターミナルにライブ反映、カラースキーム変更は `terminal.refresh()` + PTY resize nudge で TUI 再描画
