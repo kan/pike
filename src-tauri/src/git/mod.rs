@@ -86,15 +86,9 @@ pub struct GitWorktree {
 }
 
 fn truncate_diff(output: String) -> String {
-    const MAX: usize = 100_000;
-    if output.len() > MAX {
-        let mut end = MAX;
-        while end > 0 && !output.is_char_boundary(end) {
-            end -= 1;
-        }
-        format!("{}...\n\n[Diff truncated at 100KB]", &output[..end])
-    } else {
-        output
+    match truncate_at_line(output, 100_000) {
+        (cut, true) => format!("{cut}...\n\n[Diff truncated at 100KB]"),
+        (whole, false) => whole,
     }
 }
 
@@ -449,9 +443,10 @@ fn stopped_commit(done: &str) -> Option<(String, String)> {
 }
 
 /// The id goes into a shell command line, and it comes out of a file git wrote
-/// rather than from a command we ran — hold it to the hex alphabet.
+/// rather than from a command we ran — hold it to the hex alphabet. Up to 64 digits
+/// so SHA-256 repositories pass too.
 fn is_sha(value: &str) -> bool {
-    (7..=40).contains(&value.len()) && value.chars().all(|c| c.is_ascii_hexdigit())
+    (7..=64).contains(&value.len()) && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn parse_operation(files: &StateFiles, has_conflicts: bool) -> Option<GitOperation> {
@@ -571,12 +566,16 @@ pub async fn git_log(
         ];
         // グラフ表示（#371）。`--all` にしないのは `refs/stash` を拾わないため（stash の
         // コミットは親を 2〜3 個持ち、無関係なレーンを足す）。HEAD は detached のときのため。
-        // `--topo-order` は子を必ず親より先に出し、ブランチをまとめて並べる。既定の時刻順だと
-        // 並行するブランチが交互に並んでレーンが開きっぱなしになり、時計がずれて親が先に
-        // 出ると、そのレーンは一覧の最後まで閉じない。代償は commit-graph の無い
-        // リポジトリで `-n` に関わらず履歴全体を歩くこと。
+        //
+        // **並びは `--date-order`（#374）。** SourceTree の既定の「日付順」と同じで、子を必ず
+        // 親より先に出したうえで日時順に並べる。素の時刻順（オプション無し）は時計がずれると
+        // 親が先に出て、そのレーンが一覧の最後まで閉じないので使わない。#371 では
+        // `--topo-order`（ブランチごとにまとめる）にしていたが、SourceTree と並びが食い違って
+        // 見比べられなかった。並行するブランチが交互に並ぶぶんレーンは増えるが、グラフの幅は
+        // パネル側で上限を付けられる。代償は commit-graph の無いリポジトリで `-n` に関わらず
+        // 履歴全体を歩くこと（`--topo-order` と同じ）。
         if all.unwrap_or(false) {
-            args.extend(["--branches", "--remotes", "--tags", "HEAD", "--topo-order"]);
+            args.extend(["--branches", "--remotes", "--tags", "HEAD", "--date-order"]);
         }
         run_git(&shell, &root, &args)
     })
@@ -1042,6 +1041,75 @@ pub async fn git_pull(
     .map_err(|e| e.to_string())?
 }
 
+/// コミットタブ（#374）に出す差分の上限。ファイル 1 つぶんの `truncate_diff`（100KB）より
+/// 大きくするのは、コミット全体（複数のファイル）を 1 本で運ぶため。これを超える差分は
+/// 描くだけで重いので、行の切れ目で打ち切って知らせる。
+const COMMIT_PATCH_MAX: usize = 1_000_000;
+
+/// コミット 1 つぶんの差分（コミットタブ、#374）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitPatch {
+    pub patch: String,
+    /// `COMMIT_PATCH_MAX` で打ち切ったか。
+    pub truncated: bool,
+}
+
+/// 行の切れ目で `max` バイト以内に切る。1 行が `max` を超えるときだけ文字境界で切る。
+fn truncate_at_line(mut output: String, max: usize) -> (String, bool) {
+    if output.len() <= max {
+        return (output, false);
+    }
+    let mut end = max;
+    while end > 0 && !output.is_char_boundary(end) {
+        end -= 1;
+    }
+    if let Some(nl) = output[..end].rfind('\n') {
+        end = nl + 1;
+    }
+    output.truncate(end);
+    (output, true)
+}
+
+/// コミット全体の差分（#374）。**比べる相手は呼び出し元が渡す第 1 親**で、マージコミットも
+/// 第 1 親との差分になる（`git show` の既定は combined diff で、`diffParser` が読めない）。
+/// 親が無い最初のコミットは `diff-tree --root` で全ファイルの追加として出す。親の一覧は
+/// パネルが `git log` で既に持っているので、ここで数え直す spawn は要らない。
+#[tauri::command]
+pub async fn git_commit_patch(
+    root: String,
+    shell: ShellConfig,
+    hash: String,
+    parent: Option<String>,
+) -> Result<CommitPatch, String> {
+    // コマンド行に入るので 16 進に限る（`-` で始まる値をオプションとして読ませない）。
+    if !is_sha(&hash) || parent.as_deref().is_some_and(|p| !is_sha(p)) {
+        return Err(format!("invalid commit id: {hash}"));
+    }
+    tokio::task::spawn_blocking(move || {
+        let output = match parent.as_deref() {
+            Some(parent) => run_git(&shell, &root, &["diff", "-M", parent, &hash])?,
+            None => run_git(
+                &shell,
+                &root,
+                &[
+                    "diff-tree",
+                    "-p",
+                    "-M",
+                    "-r",
+                    "--root",
+                    "--no-commit-id",
+                    &hash,
+                ],
+            )?,
+        };
+        let (patch, truncated) = truncate_at_line(output, COMMIT_PATCH_MAX);
+        Ok(CommitPatch { patch, truncated })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn git_show_files(
     root: String,
@@ -1476,6 +1544,20 @@ pub async fn git_diff_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncate_at_line_cuts_on_a_line_boundary() {
+        assert_eq!(
+            truncate_at_line("ab\ncd\n".into(), 10),
+            ("ab\ncd\n".into(), false)
+        );
+        assert_eq!(
+            truncate_at_line("ab\ncd\nef\n".into(), 7),
+            ("ab\ncd\n".into(), true)
+        );
+        // 改行が無ければ文字境界で切る（`あ` は 3 バイト）。
+        assert_eq!(truncate_at_line("ああ".into(), 4), ("あ".into(), true));
+    }
 
     #[test]
     fn parses_multiple_worktrees() {

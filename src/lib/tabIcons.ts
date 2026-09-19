@@ -1,4 +1,4 @@
-import { BookOpen, Gauge, Globe, ListTodo, ScrollText, Settings, Terminal } from 'lucide-vue-next'
+import { BookOpen, Gauge, GitCommitHorizontal, Globe, ListTodo, ScrollText, Settings, Terminal } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import type { Tab } from '../types/tab'
 import { fileIconSvg } from './fileIcons'
@@ -21,6 +21,7 @@ export const TAB_KIND_ICONS: Record<Tab['kind'], Component | null> = {
   manual: BookOpen,
   // サイドバーの issue パネルと同じアイコン（#278）。
   issue: ListTodo,
+  commit: GitCommitHorizontal,
   browser: Globe,
   editor: null,
   preview: null,

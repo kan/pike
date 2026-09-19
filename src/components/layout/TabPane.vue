@@ -35,6 +35,7 @@ const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue')
 const AgentStatusTab = defineAsyncComponent(() => import('../tabs/AgentStatusTab.vue'))
 const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const IssueTab = defineAsyncComponent(() => import('../tabs/IssueTab.vue'))
+const CommitTab = defineAsyncComponent(() => import('../tabs/CommitTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 const BrowserTab = defineAsyncComponent(() => import('../tabs/BrowserTab.vue'))
 
@@ -55,6 +56,7 @@ const TAB_COMPONENTS: Record<Tab['kind'], unknown> = {
   'agent-status': AgentStatusTab,
   manual: ManualTab,
   issue: IssueTab,
+  commit: CommitTab,
   browser: BrowserTab,
 }
 

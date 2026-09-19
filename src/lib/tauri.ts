@@ -555,6 +555,16 @@ export async function gitDiffCommit(root: string, shell: ShellType, hash: string
   return invoke<string>('git_diff_commit', { root, shell, hash, path })
 }
 
+/** コミット全体の差分（#374）。`parent` は第 1 親（最初のコミットなら `null`）。 */
+export async function gitCommitPatch(
+  root: string,
+  shell: ShellType,
+  hash: string,
+  parent: string | null,
+): Promise<{ patch: string; truncated: boolean }> {
+  return invoke<{ patch: string; truncated: boolean }>('git_commit_patch', { root, shell, hash, parent })
+}
+
 export async function gitShowFile(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
   return invoke<string>('git_show_file', { root, shell, hash, path })
 }

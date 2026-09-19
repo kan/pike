@@ -47,6 +47,12 @@ export function parseRename(raw: string): { from: string; to: string } | null {
   return from && to ? { from: from[1], to: to[1] } : null
 }
 
+/**
+ * hunk ヘッダ。1: 古い側の開始行、2: 行数（省略可）、3: 新しい側の開始行、4: 行数（省略可）。
+ * コミットタブの `commitPatch.ts` も同じものを使う。
+ */
+export const HUNK_HEADER_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+
 function plain(text: string): DiffSegment[] {
   return [{ text, highlight: false }]
 }
@@ -115,7 +121,7 @@ export function parseDiff(raw: string, opts: { charLevel?: boolean } = {}): Diff
   for (const line of lines) {
     if (line.startsWith('@@')) {
       // 行数は省略できる（`@@ -1 +1 @@` は 1 行の意味）。
-      const match = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
+      const match = line.match(HUNK_HEADER_RE)
       let hunk: HunkRange | undefined
       if (match) {
         leftNum = parseInt(match[1], 10) - 1

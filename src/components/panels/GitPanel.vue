@@ -283,10 +283,65 @@ async function openCommitDiffTab(hash: string, path: string) {
   tabStore.addDiffTab({ filePath: path, root, diff, commitHash: hash })
 }
 
+/**
+ * グラフ表示でのクリックはコミットタブを開く（#374）。グラフの行はファイルの一覧を展開する
+ * 場所を持たない（レーンの線が行の高さを前提にしている）ので、中身はタブで見せる。
+ */
+function openCommitTab(entry: GitLogEntry) {
+  tabStore.addCommitTab({
+    hash: entry.hash,
+    root: projectStore.activeRoot,
+    parent: entry.parents[0] ?? null,
+    author: entry.author,
+    date: entry.date,
+    refs: entry.refs,
+    message: entry.message,
+  })
+}
+
+// --- 履歴の自動読み込み（#374） ------------------------------------------------
+// 一覧の末尾に置いた印が見えたら次のページを足す。スクロールしているのはサイドバーの
+// パネルの器だが、`root` を省いた IntersectionObserver は祖先の `overflow` による切り取りを
+// 考慮するので、器を探して渡す必要は無い。`rootMargin` で少し手前から読み始める。
+const logEndEl = useTemplateRef<HTMLElement>('logEnd')
+let logEndVisible = false
+let loadingMore = false
+const logEndObserver = new IntersectionObserver(
+  (entries) => {
+    logEndVisible = entries.some((e) => e.isIntersecting)
+    void loadMoreWhileVisible()
+  },
+  { rootMargin: '0px 0px 300px 0px' },
+)
+watch(logEndEl, (el, prev) => {
+  if (prev) logEndObserver.unobserve(prev)
+  if (el) logEndObserver.observe(el)
+})
+
+/**
+ * 印が見えているあいだ足し続ける。1 ページ足しても画面が埋まらないときは印が見えたまま
+ * なので、観測の通知（見え方が変わったときにしか来ない）を待たずに続ける。
+ */
+async function loadMoreWhileVisible() {
+  if (loadingMore) return
+  loadingMore = true
+  try {
+    while (logEndVisible && gitStore.logHasMore) {
+      const before = gitStore.logEntries.length
+      await gitStore.loadMoreLog()
+      if (gitStore.logEntries.length <= before) break
+      // 足した行が描かれて、印の見え方が観測に反映されるまで待つ。
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    }
+  } finally {
+    loadingMore = false
+  }
+}
+
 const hoveredCommit = ref<GitLogEntry | null>(null)
 const {
   style: tooltipStyle,
-  placeNear: placeTooltip,
+  placeBeside: placeTooltip,
   reset: resetTooltip,
 } = useAnchoredPopup(useTemplateRef<HTMLElement>('tooltipEl'))
 let tooltipTimer: ReturnType<typeof setTimeout> | null = null
@@ -297,6 +352,8 @@ function onCommitEnter(entry: GitLogEntry, e: MouseEvent) {
   tooltipTimer = setTimeout(async () => {
     resetTooltip()
     hoveredCommit.value = entry
+    // **パネルの横に出す**（#374）。行の上下に出すと、展開したファイルの一覧や隣の行に
+    // 重なって、押そうとしたものが隠れる。行はパネルの幅いっぱいなので、行の右端＝パネルの右端。
     await placeTooltip(target.getBoundingClientRect())
   }, 400)
 }
@@ -587,6 +644,7 @@ watch(
 onMounted(refreshIfActive)
 onUnmounted(() => {
   if (tooltipTimer) clearTimeout(tooltipTimer)
+  logEndObserver.disconnect()
 })
 </script>
 
@@ -792,13 +850,13 @@ onUnmounted(() => {
               @dblclick="graphMaxWidth = GRAPH_DEFAULT_MAX"
             ></div>
             <div
-              v-for="(row, i) in graphRows"
+              v-for="row in graphRows"
               :key="row.hash"
               class="graph-row"
               :class="{ unpushed: unpushedHashes.has(row.hash) }"
-              @click="toggleCommitExpand(row.hash)"
-              @contextmenu="gitStore.logEntries[i] && onCommitContext($event, gitStore.logEntries[i])"
-              @mouseenter="gitStore.logEntries[i] && onCommitEnter(gitStore.logEntries[i], $event)"
+              @click="openCommitTab(row.entry)"
+              @contextmenu="onCommitContext($event, row.entry)"
+              @mouseenter="onCommitEnter(row.entry, $event)"
               @mouseleave="onCommitLeave"
             >
               <svg class="graph-svg" :height="ROW_HEIGHT">
@@ -813,13 +871,15 @@ onUnmounted(() => {
                   :stroke="line.color"
                   stroke-width="1.5"
                 />
-                <!-- This commit's own lane continuation. Stops at the dot when the
-                     first parent is outside the fetched range: the stub below takes over. -->
+                <!-- This commit's own lane (#374): the upper half only when a child above
+                     leads into it, the lower half only when the first parent keeps the lane
+                     (a parent on another lane gets a merge line, one outside the range a stub). -->
                 <line
+                  v-if="row.hasChild || row.continuesDown"
                   :x1="row.column * LANE_WIDTH + LANE_WIDTH / 2"
-                  :y1="0"
+                  :y1="row.hasChild ? 0 : ROW_HEIGHT / 2"
                   :x2="row.column * LANE_WIDTH + LANE_WIDTH / 2"
-                  :y2="row.stubs.some((s) => s.toCol === row.column) ? ROW_HEIGHT / 2 : ROW_HEIGHT"
+                  :y2="row.continuesDown ? ROW_HEIGHT : ROW_HEIGHT / 2"
                   :stroke="row.color"
                   stroke-width="1.5"
                 />
@@ -861,14 +921,16 @@ onUnmounted(() => {
               <div class="graph-info">
                 <ArrowUp v-if="unpushedHashes.has(row.hash)" class="unpushed-icon" :size="12" :stroke-width="2.5" />
                 <span v-if="row.refs" class="graph-refs">{{ row.refs }}</span>
-                <span class="graph-message">{{ gitStore.logEntries[i]?.message.split('\n')[0] }}</span>
-                <span class="graph-meta">{{ relativeDate(gitStore.logEntries[i]?.date ?? '') }}</span>
+                <span class="graph-message">{{ row.entry.message.split('\n')[0] }}</span>
+                <span class="graph-meta">{{ relativeDate(row.entry.date) }}</span>
               </div>
             </div>
           </div>
         </template>
 
         <div v-if="!gitStore.logEntries.length" class="empty">{{ t('git.noCommits') }}</div>
+        <!-- 自動読み込みの印（#374）。先があるあいだだけ置く。 -->
+        <div v-else-if="gitStore.logHasMore" ref="logEnd" class="empty small">{{ t('common.loading') }}</div>
       </div>
     </template>
 

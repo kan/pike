@@ -17,6 +17,8 @@ export interface GraphLine {
 
 export interface GraphRow {
   hash: string
+  /** The log entry this row draws, so the view doesn't re-index `logEntries` by position. */
+  entry: GitLogEntry
   column: number
   lines: GraphLine[] // lines continuing through this row
   mergeLines: GraphLine[] // lines merging into this commit
@@ -27,6 +29,15 @@ export interface GraphRow {
    * run to the bottom of the list and widen every row.
    */
   stubs: GraphLine[]
+  /**
+   * The commit's own lane is drawn only where it really runs (#374): the upper half when a
+   * child above was waiting for it, the lower half when its first parent keeps the lane.
+   * Drawing both halves unconditionally left a stray segment at every branch point (the
+   * parent is already on another lane, so nothing continues below) and at every branch tip,
+   * which read as the graph breaking off mid-list.
+   */
+  hasChild: boolean
+  continuesDown: boolean
   isMerge: boolean
   color: string
   refs: string
@@ -60,6 +71,8 @@ export function buildGraph(entries: GitLogEntry[]): GraphRow[] {
 
   for (const entry of entries) {
     let col = findLane(entry.hash)
+    // A lane holds a hash only because a child above reserved it for its parent.
+    const hasChild = col !== -1
     if (col === -1) {
       col = allocLane()
       activeLanes[col] = entry.hash
@@ -114,6 +127,8 @@ export function buildGraph(entries: GitLogEntry[]): GraphRow[] {
       }
     }
 
+    const continuesDown = firstParent !== null && activeLanes[col] === firstParent
+
     // Compact: trim trailing nulls
     while (activeLanes.length > 0 && activeLanes[activeLanes.length - 1] === null) {
       activeLanes.pop()
@@ -127,7 +142,20 @@ export function buildGraph(entries: GitLogEntry[]): GraphRow[] {
       0,
     )
 
-    rows.push({ hash: entry.hash, column: col, lines, mergeLines, stubs, isMerge, color, refs: entry.refs, maxCol })
+    rows.push({
+      hash: entry.hash,
+      entry,
+      column: col,
+      lines,
+      mergeLines,
+      stubs,
+      hasChild,
+      continuesDown,
+      isMerge,
+      color,
+      refs: entry.refs,
+      maxCol,
+    })
   }
 
   return rows

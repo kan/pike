@@ -1927,6 +1927,7 @@ pub fn run() {
             git::git_log_file,
             git::git_log_file_lines,
             git::git_diff_commit,
+            git::git_commit_patch,
             git::git_diff_lines,
             git::git_diff_working,
             font::font_list_monospace,

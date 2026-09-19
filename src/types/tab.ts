@@ -416,6 +416,30 @@ export type IssueTab = {
 }
 
 /**
+ * コミット 1 つの中身（メッセージ全文と、全ファイルの差分）を見るタブ（#374）。Git パネルの
+ * グラフ表示で行を押すと開く。**読み取り専用で、セッションには残さない**（差分は git を
+ * 叩き直せば得られ、復元のたびに外部プロセスを起こす理由が無い）。
+ *
+ * メッセージ・作者・日時・参照は**開いたときにパネルの `git log` の値を焼き込む**（もう
+ * 持っているものを取り直さない）。差分だけをタブが取る。
+ */
+export type CommitTab = {
+  id: string
+  kind: 'commit'
+  title: string
+  pinned: boolean
+  hash: string
+  /** 開いたときの root。`DiffTab.root` と同じ理由（worktree を切り替えてもタブは閉じない）。 */
+  root: string
+  /** 比べる相手（第 1 親）。最初のコミットは `null`。 */
+  parent: string | null
+  author: string
+  date: string
+  refs: string
+  message: string
+}
+
+/**
  * 外部のページを開くタブ（#368）。中身は Rust が作る子 webview で、タブの領域に重ねて
  * 描く（`BrowserTab.vue`・`src-tauri/src/browser.rs`）。
  *
@@ -495,6 +519,7 @@ export type Tab = (
   | PdfTab
   | ManualTab
   | IssueTab
+  | CommitTab
   | BrowserTab
 ) &
   TabOwner &

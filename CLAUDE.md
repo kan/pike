@@ -229,6 +229,7 @@ pike/
 │   │       ├── DockerLogsTab.vue  # コンテナログ（xterm 読み取り専用）
 │   │       ├── ManualTab.vue      # アプリ内マニュアル（docs/manual を F1 / ? ボタンで表示）
 │   │       ├── IssueTab.vue       # GitHub issue 1 件の読み取り専用表示（gh 経由、#278）
+│   │       ├── CommitTab.vue      # コミット 1 つのメッセージと全ファイルの差分（グラフ表示のクリック、#374）
 │   │       ├── BrowserTab.vue     # 外部のページ（子 webview をタブの領域に重ねる、#368。試作）
 │   │       ├── AgentStatusTab.vue # エージェント状態（/status 相当。アカウント・レート・トークン、#226）
 │   │       └── SettingsTab.vue    # 設定画面（8 セクションの中身と左ナビ・絞り込みの入力欄、#314）
@@ -286,6 +287,7 @@ pike/
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278）
 │   │   ├── issuePrompt.ts    # エージェントに渡す issue の指示文（#336。注入とコピーで共有）
+│   │   ├── commitPatch.ts    # コミット全体の差分をファイルごとの統合形式の行に落とす（#374）
 │   │   ├── gitGraph.ts  gitRemote.ts  gitignore.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）

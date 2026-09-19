@@ -13,6 +13,7 @@ import type { LastSession, SessionTabDef } from '../types/project'
 import type {
   AgentStatusTab,
   BrowserTab,
+  CommitTab,
   DiffTab,
   DockerLogsTab,
   EditorTab,
@@ -801,6 +802,27 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   /**
+   * コミットを 1 つ開く（#374）。**コミットと root ごとに 1 枚**で、既に開いていればそれを
+   * 見せる。所有プロジェクトも見る理由は `addIssueTab` と同じ（別のリポジトリに同じハッシュは
+   * まず無いが、同じリポジトリを別のプロジェクトとして登録していることはある）。
+   */
+  function addCommitTab(def: Omit<CommitTab, 'id' | 'kind' | 'title' | 'pinned'>): string {
+    const existing = tabs.value.find(
+      (t): t is CommitTab =>
+        t.kind === 'commit' && t.hash === def.hash && t.root === def.root && t.projectId === ownerProjectId.value,
+    )
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    const subject = def.message.split('\n')[0]
+    pushTab({ id, kind: 'commit', title: `${def.hash.slice(0, 7)} ${subject}`, pinned: false, ...def })
+    activeTabId.value = id
+    return id
+  }
+
+  /**
    * issue を 1 件開く（#278）。**番号ごとに 1 枚**なので、既に開いていればそれを見せる。
    * 題名は取ってきてから `IssueTab` が入れる（開く時点では番号しか分からない）。
    *
@@ -1340,6 +1362,7 @@ export const useTabStore = defineStore('tabs', () => {
     addAgentStatusTab,
     addManualTab,
     addIssueTab,
+    addCommitTab,
     addBrowserTab,
     addDiffTab,
     addPdfTab,
