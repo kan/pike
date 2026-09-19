@@ -105,10 +105,19 @@ const emptyMessage = computed(() => {
 })
 
 /**
- * 行をクリックしたら issue タブで開く（#278）。ブラウザへ出るのはタブの右上のボタンで、
- * **こちらは確認を挟まない**: Pike の中で開くだけなので、外部 URL を開く規約の対象外。
+ * 行をクリックしたら、その issue の GitHub のページをブラウザのタブで開く（#379）。
+ * コメントやラベルの操作は GitHub でするので、最初からそちらを開けば行き来が減る。
+ * **確認は挟まない**: Pike の中でタブを開くだけなので、外部 URL を開く規約の対象外。
  */
 function open(issue: IssueSummary) {
+  tabStore.addBrowserTab(issue.url)
+}
+
+/**
+ * `gh` で取った本文を描く読み取り専用の issue タブ（#278）。GitHub にログインせずに軽く読みたい
+ * とき用に、右クリックメニューに残す（#379）。
+ */
+function openReadOnly(issue: IssueSummary) {
   tabStore.addIssueTab(issue.number)
 }
 
@@ -220,8 +229,9 @@ function copyStartPrompt(issue: IssueSummary) {
           :style="ctxStyle"
           @mousedown.stop
         >
-          <button @click="runCtx(open)">{{ t('issues.openTab') }}</button>
-          <!-- ブラウザへ出るので確認を挟む（外部 URL を開く規約、#311）。 -->
+          <button @click="runCtx(open)">{{ t('issues.openBrowserTab') }}</button>
+          <button @click="runCtx(openReadOnly)">{{ t('issues.openTab') }}</button>
+          <!-- 外部ブラウザへ出るので確認を挟む（外部 URL を開く規約、#311）。 -->
           <button @click="runCtx((i) => openUrlWithConfirm(i.url))">{{ t('issues.openInBrowser') }}</button>
           <div class="ctx-separator"></div>
           <button @click="runCtx(askAgentStart)">{{ t('issues.startWork') }}</button>

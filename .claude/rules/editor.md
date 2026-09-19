@@ -503,7 +503,10 @@ GitHub の open issue を番号の降順に出す。実体は `src-tauri/src/iss
   `badge` / `marker` と同じ器で、以前は 5 パネルが同じ 3 行を書き写していた。**右側の
   コントロールは 1 つの `.header-actions` にまとめる**（`.panel-header` が
   `justify-content: space-between` なので、兄弟が 3 つ以上になると隙間が開く）
-- **1 件は issue タブで読む**（`tabs/IssueTab.vue`、`issues_view`）。マニュアルタブと同じ
+- **行のクリックは GitHub のページをブラウザのタブで開く**（#379）。コメントやラベルの操作は
+  GitHub でするので、最初からそちらを開けば行き来が減る。下の issue タブは右クリックメニューの
+  「読み取り専用のタブで開く」に残した（GitHub にログインせずに軽く読みたいとき用）
+- **1 件を読み取り専用で読むのは issue タブ**（`tabs/IssueTab.vue`、`issues_view`）。マニュアルタブと同じ
   位置づけの読み取り専用で、書き込み（コメント・クローズ・作成）は持たない
   - **描画・外部画像・リンクの横取りの判断は `IssueTab.vue` の doc コメントが正本**（ここに
     写しを置くと必ず片方が古くなる）。要点だけ: 見た目は `theme.css` の **`.md-body` /
