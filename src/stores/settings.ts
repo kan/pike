@@ -12,7 +12,7 @@ import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths
 import { moveByKey } from '../lib/reorder'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
 import { loadJson, saveJson } from '../lib/storage'
-import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
+import { fontListAll, fontListMonospace, type SiteRulePayload, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
 import { setWebviewTheme, systemDark, windowFocused, windowLabel } from '../lib/window'
 import type { HiddenProject } from '../types/project'
 import {
@@ -568,6 +568,76 @@ interface PersistedSettings {
    * 閲覧履歴はこちらに持たない（マシンごとで同期しない。`stores/browser.ts`）。
    */
   browserBookmarks: BrowserBookmark[]
+  /**
+   * ドメインごとの JS と CSS の差し込み（#368 の段階 3）。**同期の対象**: サイトに対する
+   * 好みでマシンに依存しない。同期ファイルに書かれた JS が他のマシンのページでも動くことに
+   * なるが、同期ファイルは利用者自身のものなので、そう割り切った（#368 で決めた）。
+   */
+  browserSiteRules: SiteRule[]
+}
+
+export interface SiteRule {
+  id: string
+  name: string
+  enabled: boolean
+  /** 入力されたままの文字列（`*.atlassian.net, github.com`）。分けるのは `activeSiteRules`。 */
+  domains: string
+  js: string
+  css: string
+}
+
+function sanitizeSiteRules(v: unknown): SiteRule[] {
+  if (!Array.isArray(v)) return []
+  const str = (x: unknown) => (typeof x === 'string' ? x : '')
+  const out: SiteRule[] = []
+  const seen = new Set<string>()
+  for (const e of v) {
+    const r = (e ?? {}) as Record<string, unknown>
+    const id = str(r.id)
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push({
+      id,
+      name: str(r.name),
+      enabled: r.enabled !== false,
+      domains: str(r.domains),
+      js: str(r.js),
+      css: str(r.css),
+    })
+  }
+  return out
+}
+
+/**
+ * 入力されたドメインを、ページの `location.hostname` と比べられる形にする。アドレス欄の URL を
+ * そのまま貼られることがあるので、**スキーム・パス・ポートを落とす**（残すと一致しないまま
+ * 黙って効かない）。`*.` の接頭辞は残す。
+ */
+function normalizeDomain(d: string): string {
+  return d
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+    .split(/[/?#]/)[0]
+    .replace(/:\d+$/, '')
+}
+
+function splitDomains(domains: string): string[] {
+  return domains
+    .split(/[\s,]+/)
+    .map(normalizeDomain)
+    .filter(Boolean)
+}
+
+/**
+ * ページへ差し込むルール（有効で、ドメインが 1 つ以上あるもの）。ドメインは空白とカンマで
+ * 分けて `normalizeDomain` を通す。Rust の `site_rules::SiteRule` と同じ形。
+ */
+export function activeSiteRules(rules: SiteRule[]): SiteRulePayload[] {
+  return rules.flatMap((r) => {
+    const domains = splitDomains(r.domains)
+    return r.enabled && domains.length ? [{ id: r.id, name: r.name, domains, js: r.js, css: r.css }] : []
+  })
 }
 
 export interface SidebarIcon {
@@ -683,6 +753,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     allowedUrlHosts: sanitizeHostList(s.allowedUrlHosts),
     sidebarIcons: sanitizeSidebarIcons(s.sidebarIcons),
     browserBookmarks: sanitizeBookmarks(s.browserBookmarks),
+    browserSiteRules: sanitizeSiteRules(s.browserSiteRules),
     agentLaunchers,
     // 後方互換の 2 本も同じ 1 本から導くので、3 つが食い違う余地が無い。
     ...legacyAgentFields(agentLaunchers),
@@ -1015,6 +1086,7 @@ function defaults(): PersistedSettings {
     allowedUrlHosts: [],
     sidebarIcons: sanitizeSidebarIcons(null),
     browserBookmarks: [],
+    browserSiteRules: [],
   }
 }
 
@@ -1150,6 +1222,21 @@ export const useSettingsStore = defineStore('settings', () => {
     const n = name.trim()
     if (!n || browserBookmarks.value.some((b) => b.url === url && b.name === n)) return
     browserBookmarks.value = browserBookmarks.value.map((b) => (b.url === url ? { url, name: n } : b))
+  }
+
+  // ドメインごとの差し込み（#368 の段階 3）。設定画面が行を v-model で直に書き換えるので、
+  // 監視は deep（`agentPrompts` と同じ）。
+  const browserSiteRules = ref<SiteRule[]>(saved.browserSiteRules)
+
+  function addSiteRule() {
+    browserSiteRules.value = [
+      ...browserSiteRules.value,
+      { id: crypto.randomUUID(), name: '', enabled: true, domains: '', js: '', css: '' },
+    ]
+  }
+
+  function removeSiteRule(id: string) {
+    browserSiteRules.value = browserSiteRules.value.filter((r) => r.id !== id)
   }
 
   function moveBookmark(moved: string, target: string, side: 'top' | 'bottom') {
@@ -1507,6 +1594,7 @@ export const useSettingsStore = defineStore('settings', () => {
       allowedUrlHosts: allowedUrlHosts.value,
       sidebarIcons: sidebarIcons.value,
       browserBookmarks: browserBookmarks.value,
+      browserSiteRules: browserSiteRules.value,
     }
   }
 
@@ -1559,6 +1647,7 @@ export const useSettingsStore = defineStore('settings', () => {
     allowedUrlHosts.value = s.allowedUrlHosts
     sidebarIcons.value = s.sidebarIcons
     browserBookmarks.value = s.browserBookmarks
+    browserSiteRules.value = s.browserSiteRules
   }
 
   // --- External settings-sync file ---------------------------------------
@@ -1781,6 +1870,7 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(allowedUrlHosts, onSettingsChanged)
   watch(sidebarIcons, onSettingsChanged)
   watch(browserBookmarks, onSettingsChanged)
+  watch(browserSiteRules, onSettingsChanged, { deep: true })
   // キーの割り当ての正本は `lib/shortcuts.ts`（ストアを import できないので、値はこちらから
   // 流し込む）。**`immediate` が要る**: 起動直後に保存済みのプリセットへ揃わないと、
   // 最初の 1 回だけ既定のキーで動く。
@@ -1864,6 +1954,9 @@ export const useSettingsStore = defineStore('settings', () => {
     removeBookmark,
     renameBookmark,
     moveBookmark,
+    browserSiteRules,
+    addSiteRule,
+    removeSiteRule,
     globalShell,
     projectBase,
     hiddenProjects,

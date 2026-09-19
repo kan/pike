@@ -269,6 +269,19 @@ export default {
   'settings.general': 'General',
   // The section nav is 120px wide, so keep this short ('External Access' wraps).
   'settings.external': 'Network',
+  'settings.browser': 'Browser Tabs',
+  'settings.siteRules': 'Per-domain JS and CSS',
+  'settings.siteRulesHint':
+    'Injects the JS and CSS you write into pages on the listed domains. The JS runs with the page’s own privileges and cannot call Pike. These rules are included in settings sync.',
+  'settings.siteRulesEmpty': 'No rules',
+  'settings.siteRuleEnabled': 'Enabled',
+  'settings.siteRuleName': 'Name',
+  'settings.siteRuleDomains': 'Domains (e.g. *.atlassian.net, github.com)',
+  'settings.siteRuleJs': 'JS (runs when the page starts loading)',
+  'settings.siteRuleCss': 'CSS',
+  'settings.siteRuleUnnamed': 'Unnamed rule',
+  'settings.siteRuleDeleteConfirm': 'Delete "{name}"?',
+  'settings.addSiteRule': 'Add rule',
   // Sub-headings inside a section (#314); the same one is used in more than one section.
   'settings.groupDisplay': 'Display',
   'settings.groupBehavior': 'Behavior',
@@ -730,6 +743,8 @@ export default {
   'browser.openExternal': 'Open in external browser',
   'browser.openTab': 'Open in tab',
   'browser.newTab': 'New tab',
+  'browser.siteRulesChanged': 'Per-domain JS and CSS have changed. Reopen the page to apply them to later pages too',
+  'browser.applySiteRules': 'Reopen to apply',
   'browser.blankTitle': 'New Tab',
   'browser.filterPlaceholder': 'Filter bookmarks and history',
   'browser.bookmarks': 'Bookmarks',

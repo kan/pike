@@ -16,6 +16,7 @@
 //! コマンドは全部 `async`。`add_child` はメインスレッドに作らせて結果を待つので、
 //! 同期コマンド（＝メインスレッド）から呼ぶとデッドロックする（`build_window` と同じ）。
 
+use crate::site_rules::{self, SiteRule};
 use serde::{Deserialize, Serialize};
 use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{
@@ -127,12 +128,23 @@ pub async fn browser_open(
     label: String,
     url: String,
     bounds: Bounds,
+    rules: Vec<SiteRule>,
 ) -> Result<(), String> {
     check_label(&label)?;
     let url = parse_web_url(&url)?;
     let opener_label = label.clone();
     let window_label = window.label().to_string();
-    let builder = WebviewBuilder::new(&label, WebviewUrl::External(url))
+    let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(url));
+    // ドメインごとの差し込み（段階 3）。**作った時点で固定される**ので、JS を変えたら
+    // フロントが子 webview を作り直す。CSS はあとから `browser_apply_css` で当て直せる。
+    for script in rules.iter().filter_map(site_rules::js_script) {
+        builder = builder.initialization_script(script);
+    }
+    // CSS を持つルールが無ければ入れない（ページごとに要素を探すだけの処理になる）。
+    if rules.iter().any(|r| !r.css.trim().is_empty()) {
+        builder = builder.initialization_script(site_rules::css_script(&rules));
+    }
+    let builder = builder
         .on_new_window(move |url, features| {
             // **ポップアップかどうかは大きさの指定の有無でしか見分けられない。** WebView2 が
             // 知らせるのは `window.open` の第 3 引数の位置と大きさで、`target=_blank` の
@@ -168,6 +180,18 @@ pub async fn browser_open(
     window
         .add_child(builder, rect.position, rect.size)
         .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// ルールを変えたとき、開いているページの CSS を当て直す（JS は作り直さないと変わらない）。
+#[tauri::command]
+pub async fn browser_apply_css(
+    app: AppHandle,
+    label: String,
+    rules: Vec<SiteRule>,
+) -> Result<(), String> {
+    webview(&app, &label)?
+        .eval(site_rules::css_script(&rules))
         .map_err(|e| e.to_string())
 }
 

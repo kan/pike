@@ -66,6 +66,7 @@ import { useTabStore } from '../../stores/tabs'
 import { isWindowsShell, type ShellProfile, shellFromId, shellId, shellProfileLabel } from '../../types/tab'
 import AllowedHostList from '../panels/AllowedHostList.vue'
 import ProfileRow from '../panels/ProfileRow.vue'
+import SiteRuleList from '../panels/SiteRuleList.vue'
 import SettingGroup from '../settings/SettingGroup.vue'
 import SettingItem from '../settings/SettingItem.vue'
 import SettingSection from '../settings/SettingSection.vue'
@@ -499,6 +500,7 @@ const SECTIONS = {
   terminal: { id: 'terminal', titleKey: 'settings.terminal', help: 'settings.md#ターミナル' },
   agent: { id: 'agent', titleKey: 'settings.agent', help: 'settings.md#エージェント' },
   editor: { id: 'editor', titleKey: 'settings.editor', help: 'settings.md#エディタ' },
+  browser: { id: 'browser', titleKey: 'settings.browser', help: 'browser.md#ドメインごとの-js-と-css' },
   external: { id: 'external', titleKey: 'settings.external', help: 'settings.md#外部との通信' },
   sync: { id: 'sync', titleKey: 'settings.sync', help: 'settings.md#設定の同期' },
   about: { id: 'about', titleKey: 'settings.about', help: 'settings.md#バージョン情報' },
@@ -1150,6 +1152,13 @@ const PREVIEW_LINES = [
             <SettingToggle v-model="settings.previewSmoothScroll" :options="ON_OFF" />
           </SettingItem>
         </SettingGroup>
+      </SettingSection>
+
+      <!-- ブラウザのタブ（#368）。ドメインごとの JS と CSS の差し込み。 -->
+      <SettingSection v-bind="SECTIONS.browser">
+        <SettingItem label-key="settings.siteRules" hint-key="settings.siteRulesHint" wide>
+          <SiteRuleList />
+        </SettingItem>
       </SettingSection>
 
       <!-- 外部との通信（#314）。**エディタから切り出してある**: 3 つとも「Pike が外の

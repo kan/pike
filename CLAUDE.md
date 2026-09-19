@@ -117,6 +117,7 @@ pike/
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
 │       ├── elevate.rs         # 管理者ターミナル（--new-instance で昇格起動、#138）
 │       ├── browser.rs         # ブラウザのタブの子 webview（#368。`unstable` の `add_child`）
+│       ├── site_rules.rs      # ドメインごとの JS と CSS を差し込むスクリプトの組み立て（#368）
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
 │       ├── page_title.rs      # 貼り付けた URL のページタイトル取得（Markdown リンク、#241）
 │       ├── remote_image.rs    # 承認済みホストの画像取得（Markdown プレビュー、#239）
@@ -201,7 +202,8 @@ pike/
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）
-│   │   │   ├── BrowserPanel.vue   # ブラウザのタブの URL 入力・ブックマーク・閲覧履歴（#368）
+│   │   │   ├── BrowserPanel.vue   # ブラウザのタブの新しいタブ・ブックマーク・閲覧履歴（#368）
+│   │   │   ├── SiteRuleList.vue   # ドメインごとの JS と CSS のルールの一覧（設定画面、#368）
 │   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── editor/

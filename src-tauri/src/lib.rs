@@ -58,6 +58,7 @@ mod remote_image;
 mod search;
 mod settings_sync;
 mod shell_probe;
+mod site_rules;
 mod tasks;
 /// デスクトップ通知（#318）。中で Windows / それ以外を分けるので、ここでは割らない
 /// （`toast_notify` コマンドは両方でコンパイルされる必要がある）。
@@ -1897,6 +1898,7 @@ pub fn run() {
             issues::issues_view,
             browser::browser_open,
             browser::browser_place,
+            browser::browser_apply_css,
             browser::browser_navigate,
             browser::browser_history,
             browser::browser_close,

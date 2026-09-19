@@ -655,8 +655,27 @@ export interface BrowserBounds {
   height: number
 }
 
-export async function browserOpen(label: string, url: string, bounds: BrowserBounds): Promise<void> {
-  return invoke('browser_open', { label, url, bounds })
+/** ページへ差し込む 1 ルール（Rust の `site_rules::SiteRule`。作るのは `activeSiteRules`）。 */
+export interface SiteRulePayload {
+  id: string
+  name: string
+  domains: string[]
+  js: string
+  css: string
+}
+
+export async function browserOpen(
+  label: string,
+  url: string,
+  bounds: BrowserBounds,
+  rules: SiteRulePayload[],
+): Promise<void> {
+  return invoke('browser_open', { label, url, bounds, rules })
+}
+
+/** ルールを変えたとき、開いているページの CSS を当て直す。 */
+export async function browserApplyCss(label: string, rules: SiteRulePayload[]): Promise<void> {
+  return invoke('browser_apply_css', { label, rules })
 }
 
 /**
