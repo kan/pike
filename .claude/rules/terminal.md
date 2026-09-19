@@ -14,6 +14,10 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   - Unix（macOS / Linux）: `$SHELL` を **`-l`（ログインシェル）** で起動する。GUI プロセスの PATH は最小なので、rc / profile を読ませないとターミナルから何も呼べない（`.claude/rules/platform.md` の「PATH」）
 - **シェル未指定（`None`）の既定は OS で変わる**。Windows は従来どおり WSL、macOS / Linux はログインシェル（`wsl.exe` が無いので WSL に落とすと即死する）
 - 環境変数 `TERM=xterm-256color` を cmd 以外に設定
+- **WSL のターミナルに `BROWSER` を渡さない（#381 で検討して見送った）**。素の WSL には Windows のブラウザを開くものが無く、Claude Code の `/login` は `$BROWSER` → `xdg-open` の順で呼ぶので、ブラウザが開かないまま URL だけが出る。`BROWSER` に Pike 自身を渡して `pike <URL>` で既定のブラウザを開く形を作ったが、次の 2 つで取り下げた（ログインは下の OSC 8 の修正で「URL を押せば開く」ようになる）
+  - `cargo doc --open` や Python の `webbrowser` は URL ではなくローカルのパス（`file://`）を `$BROWSER` に渡すので、それが Pike のエディタで開く（xdg-open が動いていた環境では後退になる）
+  - xdg-open と Python は `BROWSER` を空白で割るので、ユーザー名やインストール先に空白があると起動できない
+- **OSC 8 のハイパーリンクは `linkHandler` で `openUrlWithConfirm` へ送る（#381、`useTerminalUrlLinks.ts`）**。渡さないと xterm 既定の `window.confirm` → `window.open` が走り、WebView の中で開こうとして何も起きない。Claude Code はログイン URL をこれで出す（折り返した行をまたいでも URL 全体を持つ）。**URL のリンク化の設定では切らない**（理由はあのファイルのコメント）
 - リサイズは `pty.resize()` で PTY サイズを更新
 - **xterm は端数の行を持てないので、余白は上下に振り分ける（#268）**: 高さは `rows × セル高` で、FitAddon は行数を floor する。`.terminal-inner` を何もしないコンテナにすると端数（最大でセル 1 行ぶん ≒ 20px）が全部下に溜まり、4 辺 10px のはずの余白が下だけ広く見える。flex の `justify-content: center` で上下に割る。横も同じ理屈で余るが、セル幅は 8px 程度なので触っていない
 - `autoStart` 対応: PTY spawn 後に指定コマンドを自動実行（例: `claude`）

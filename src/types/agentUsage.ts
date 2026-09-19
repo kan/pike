@@ -58,4 +58,6 @@ export interface AgentUsage {
   facts: UsageFact[]
   /** データを取った時刻（epoch 秒）。 */
   fetchedAt: number | null
+  /** エージェントがログインを求めている（#381）。ログインのコマンドは `AgentDef.login`。 */
+  loginRequired: boolean
 }

@@ -610,6 +610,20 @@
   color: var(--on-accent);
 }
 
+/* アクセント地の主ボタン（#381。ログインの知らせのボタンが StatusBar と状態タブで共有）。
+   大きさ（padding / font-size）は置いた側で決める。 */
+.accent-btn {
+  border: none;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+
+.accent-btn:hover {
+  filter: brightness(1.1);
+}
+
 /* エディタのヘッダに並ぶアイコントグル（折り返し・ミニマップ）。**親のヘッダの様式に
    合わせず自前で持つ**: プレビュー付きツールバー（`.preview-toggle`）とパンくずヘッダ
    （`.header-icon-btn`）は別々のボタン様式を持っていて、どちらに置いても同じ見た目に

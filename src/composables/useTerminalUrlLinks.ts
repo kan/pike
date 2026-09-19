@@ -31,6 +31,17 @@ export function attachUrlLinks(term: Terminal) {
   const settings = useSettingsStore()
   let addon: WebLinksAddon | null = null
 
+  // **OSC 8 のハイパーリンク（出力する側が明示したリンク）も同じ入口へ送る（#381）。**
+  // 渡さないと xterm 既定の処理（`window.confirm` → `window.open`）が走り、WebView の中で
+  // 開こうとして失敗する。Claude Code の `/login` は長い URL をこれで出すので（折り返した
+  // 行をまたいでも URL 全体を持つ）、押しても何も起きなかった。
+  //
+  // **設定（`terminalUrlLinks`）では切らない。** あれは出力の文字列から URL を**推測して**
+  // リンクにする機能の話で、OSC 8 は出力した側が「ここはリンク」と宣言したもの。しかも
+  // xterm は OSC 8 を設定に関係なく下線付きで描くので、ここだけ黙らせると「押せる見た目で
+  // 何も起きない」になる（上の doc の禁止と同じ形）。
+  term.options.linkHandler = { activate: (_e, uri) => void openUrlWithConfirm(uri) }
+
   watch(
     () => settings.terminalUrlLinks,
     (on) => {

@@ -21,6 +21,7 @@ import { useAgentUsage } from '../../composables/useAgentUsage'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
+import type { AgentDef } from '../../lib/agents'
 import { macroRecording, toggleMacroRecording } from '../../lib/editorMacro'
 import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
@@ -73,7 +74,14 @@ const {
   headline: agentHeadline,
   refreshing: agentRefreshing,
   refreshAll: refreshAgentUsage,
+  needsLogin: agentsNeedingLogin,
+  login: loginAgent,
 } = useAgentUsage()
+
+function onLoginAgent(agent: AgentDef) {
+  showAgentStatus.value = false
+  loginAgent(agent)
+}
 
 const hasAgentStatus = computed(() => agentEntries.value.length > 0)
 
@@ -92,7 +100,12 @@ const headlineMeters = computed<Meter[]>(() => summaryMeters(agentHeadline.value
 
 /** ドロップダウンの行。**帯はここで 1 回だけ組む**（テンプレートで 2 回呼ばない）。 */
 const agentRows = computed(() =>
-  agentEntries.value.map(({ agent, usage }) => ({ agent, usage, meters: summaryMeters(usage) })),
+  agentEntries.value.map(({ agent, usage, needsLogin }) => ({
+    agent,
+    usage,
+    needsLogin,
+    meters: summaryMeters(usage),
+  })),
 )
 
 /** Which window is which, for the button's tooltip — the bare "25% / 5%" cannot say. */
@@ -443,7 +456,9 @@ onUnmounted(() => {
     <div v-if="hasAgentStatus" class="status-dropdown-area">
       <button class="status-item clickable small cc-usage" :title="headlineTitle" @click="toggleAgentStatus">
         <Gauge :size="13" :stroke-width="2" />
-        <template v-if="headlineMeters.length">
+        <!-- ログインが切れていたら、利用率より先にそれを出す（#381。古い数字は出さない） -->
+        <span v-if="agentsNeedingLogin.length" class="rate-warn">{{ t('agentStatus.loginRequiredShort') }}</span>
+        <template v-else-if="headlineMeters.length">
           <template v-for="(m, i) in headlineMeters" :key="m.label">
             <span v-if="i" class="cc-rate-sep">/</span>
             <span :class="rateLevelClass(m.percent)">{{ m.percent.toFixed(0) }}%</span>
@@ -470,10 +485,17 @@ onUnmounted(() => {
           使っているエージェントを順に出す（#263）。**種別の分岐を持たない**ので、
           レジストリに行を足すだけで増える。ここは要約だけで、内訳は状態タブへ。
         -->
-        <div v-for="{ agent, usage, meters } in agentRows" :key="agent.id" class="cc-agent">
+        <div v-for="{ agent, usage, needsLogin, meters } in agentRows" :key="agent.id" class="cc-agent">
           <div class="cc-agent-name">
             <Bot :size="12" :stroke-width="2" />
             <span>{{ agent.label }}</span>
+          </div>
+          <div v-if="needsLogin" class="cc-login">
+            <AlertTriangle :size="12" :stroke-width="2" class="rate-warn" />
+            <span>{{ t('agentStatus.loginRequired') }}</span>
+            <button class="accent-btn cc-login-btn" :title="agent.login" @click="onLoginAgent(agent)">
+              {{ t('agentStatus.login') }}
+            </button>
           </div>
           <div v-if="usage?.account?.email || usage?.account?.name" class="cc-account">
             <span class="cc-account-name">{{ usage.account.email ?? usage.account.name }}</span>
@@ -843,6 +865,22 @@ onUnmounted(() => {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-active);
+}
+
+/* ログインが切れている知らせ（#381）。 */
+.cc-login {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.cc-login-btn {
+  margin-left: auto;
+  padding: 1px 8px;
+  font-size: 11px;
 }
 
 .cc-meters {

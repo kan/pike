@@ -10,7 +10,7 @@
  * アダプタが返したもので決まる。4 つで取れるものが揃わない（Copilot にトークンは無く、
  * opencode に利用率は無い）ので、**無い節は出さない**のが基本。
  */
-import { Bot, RefreshCw } from 'lucide-vue-next'
+import { AlertTriangle, Bot, RefreshCw } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useAgentUsage } from '../../composables/useAgentUsage'
 import { useI18n } from '../../i18n'
@@ -22,7 +22,7 @@ import HelpButton from '../HelpButton.vue'
 import RateMeters from '../RateMeters.vue'
 
 const { t } = useI18n()
-const { visible, refreshing, refreshAll } = useAgentUsage()
+const { visible, refreshing, refreshAll, login } = useAgentUsage()
 
 /**
  * 種別固有の値の表示。**`last-activity` だけ整形する**（epoch 秒を相対時刻に）ので、
@@ -62,9 +62,9 @@ function columns(rows: TokenRow[]) {
  * `tokenRows` は合計しか無いとき新しい配列を作るので `:key` の参照も毎回変わる。
  */
 const cards = computed(() =>
-  visible.value.map(({ agent, usage }) => {
+  visible.value.map(({ agent, usage, needsLogin }) => {
     const rows = usage ? tokenRows(usage) : []
-    return { agent, usage, rows, cols: columns(rows), meters: (usage?.meters ?? []).map(toMeter) }
+    return { agent, usage, needsLogin, rows, cols: columns(rows), meters: (usage?.meters ?? []).map(toMeter) }
   }),
 )
 </script>
@@ -83,10 +83,17 @@ const cards = computed(() =>
     </header>
 
     <div class="cards">
-      <section v-for="{ agent, usage, rows, cols, meters } in cards" :key="agent.id" class="card">
+      <section v-for="{ agent, usage, needsLogin, rows, cols, meters } in cards" :key="agent.id" class="card">
         <div class="card-head">
           <Bot :size="15" :stroke-width="2" />
           <span>{{ agent.label }}</span>
+        </div>
+
+        <!-- ログインが切れている（#381）。ボタンは StatusBar のドロップダウンと同じ動き。 -->
+        <div v-if="needsLogin" class="login-notice">
+          <AlertTriangle :size="14" :stroke-width="2" />
+          <span>{{ t('agentStatus.loginRequired') }}</span>
+          <button class="accent-btn login-btn" :title="agent.login" @click="login(agent)">{{ t('agentStatus.login') }}</button>
         </div>
 
         <dl v-if="usage" class="facts">
@@ -226,6 +233,29 @@ const cards = computed(() =>
   font-size: 13px;
   font-weight: 600;
   color: var(--text-active);
+}
+
+.login-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--git-modify);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.login-notice > svg {
+  color: var(--git-modify);
+  flex-shrink: 0;
+}
+
+.login-btn {
+  margin-left: auto;
+  padding: 2px 10px;
+  font-size: 12px;
 }
 
 /* ラベル幅は固定。`auto` だと dl ごとに列幅が決まるので、Claude と Codex で、

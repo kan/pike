@@ -54,6 +54,12 @@ export interface AgentDef {
    * メニュー側は同じ扱いでよい。
    */
   resume: (sessionId: string) => string
+  /**
+   * ログインし直すコマンド（#381）。使用量が `loginRequired` を返したとき、StatusBar と
+   * 状態タブのボタンがこれをターミナルタブで走らせる。**持たないエージェントは省く**
+   * （ログインが切れたことを知る手段が今は Claude の `/usage` しか無い）。
+   */
+  login?: string
 }
 
 export const AGENTS: AgentDef[] = [
@@ -66,6 +72,7 @@ export const AGENTS: AgentDef[] = [
       { label: 'Claude Code (continue)', command: 'claude --continue' },
     ],
     resume: (id) => `claude --resume ${id}`,
+    login: 'claude auth login',
   },
   {
     id: 'codex',

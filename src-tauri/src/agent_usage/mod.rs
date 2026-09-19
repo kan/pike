@@ -155,6 +155,9 @@ pub struct AgentUsage {
     pub facts: Vec<UsageFact>,
     /// データを取った時刻（epoch 秒）。表示の鮮度に使う。
     pub fetched_at: Option<u64>,
+    /// エージェントがログインを求めている（#381）。今は Claude だけが立てる
+    /// （`claude -p "/usage"` の応答で分かる）。ログインのコマンドはフロントの表が持つ。
+    pub login_required: bool,
 }
 
 impl AgentUsage {
@@ -265,6 +268,7 @@ fn claude(shell: &ShellConfig, root: &str, force: bool) -> AgentUsage {
         // **レートを取った時刻**（トークンの集計はディスクを読むだけで常に最新）。
         // 表示の「いつ時点か」はこちらが持つ。
         fetched_at: rate.active.then_some(rate.fetched_at),
+        login_required: rate.login_required,
     }
 }
 
@@ -331,5 +335,6 @@ fn codex(shell: &ShellConfig, root: &str) -> AgentUsage {
         rows: Vec::new(),
         facts,
         fetched_at: now_secs(),
+        ..AgentUsage::for_id("codex")
     }
 }

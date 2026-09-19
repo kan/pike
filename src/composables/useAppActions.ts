@@ -22,6 +22,24 @@ import { useOutlineSource } from './useOutlineSource'
 import { useShortcutsModal } from './useShortcutsModal'
 
 /**
+ * 新しいターミナルのシェルと cwd。プロジェクトを持たないウィンドウは設定の `globalShell`
+ * で開く。ここを `undefined` にすると、バックエンドの `host_default()`（Windows なら
+ * PowerShell）に落ちて、WSL を既定にしている環境で「+」と `Ctrl+T` が別のシェルを起動する。
+ *
+ * **`useAppActions` の外に置く**（#381）。ストアを 2 つ読むだけなので、ログインのターミナル
+ * （`useAgentUsage`）のように「新規ターミナルと同じ場所で開きたい」側が、アクション表
+ * 全体を組み立てずに使える。
+ */
+export function terminalPlace(shellOverride?: ShellType): { cwd?: string; shell?: ShellType } {
+  if (globalMode.value) return { shell: shellOverride ?? useSettingsStore().globalShell }
+  const projectStore = useProjectStore()
+  const project = projectStore.currentProject
+  // cwd は `activeRoot`（選択中の worktree）。`project.root` を読むと、worktree を
+  // 切り替えたウィンドウで開いた新しいターミナルだけが main を指す（#269）。
+  return project ? { cwd: projectStore.activeRoot, shell: shellOverride ?? project.shell } : {}
+}
+
+/**
  * ショートカットと macOS メニューが共有するアクション表（#254）。
  *
  * 同じ操作の入口が 2 つある（window の keydown と、ネイティブメニューの
@@ -126,19 +144,6 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     // 空白で埋まって結果が全部消える。
     const text = doc.sliceString(from, to)
     return text.trim() ? text : null
-  }
-
-  /**
-   * 新しいターミナルのシェルと cwd。プロジェクトを持たないウィンドウは設定の `globalShell`
-   * で開く。ここを `undefined` にすると、バックエンドの `host_default()`（Windows なら
-   * PowerShell）に落ちて、WSL を既定にしている環境で「+」と `Ctrl+T` が別のシェルを起動する。
-   */
-  function terminalPlace(shellOverride?: ShellType): { cwd?: string; shell?: ShellType } {
-    if (globalMode.value) return { shell: shellOverride ?? settings.globalShell }
-    const project = projectStore.currentProject
-    // cwd は `activeRoot`（選択中の worktree）。`project.root` を読むと、worktree を
-    // 切り替えたウィンドウで開いた新しいターミナルだけが main を指す（#269）。
-    return project ? { cwd: projectStore.activeRoot, shell: shellOverride ?? project.shell } : {}
   }
 
   function openTerminal(shellOverride?: ShellType) {

@@ -11,8 +11,11 @@
  */
 import { computed } from 'vue'
 import { AGENTS, type AgentDef } from '../lib/agents'
+import { hostDefaultShell } from '../lib/host'
 import { useAgentUsageStore } from '../stores/agentUsage'
+import { useTabStore } from '../stores/tabs'
 import type { AgentUsage } from '../types/agentUsage'
+import { terminalPlace } from './useAppActions'
 
 export interface AgentUsageEntry {
   agent: AgentDef
@@ -22,10 +25,16 @@ export interface AgentUsageEntry {
    * どれかがある**こと。id しか無い応答（そのエージェントを使っていない）は出さない。
    */
   hasData: boolean
+  /**
+   * ログインの知らせとボタンを出すか（#381）。ログインを求められていて、かつログインの
+   * コマンドを表が持っていること。**読む側はこれだけを見る**（条件を画面ごとに書かない）。
+   */
+  needsLogin: boolean
 }
 
 export function useAgentUsage() {
   const stores = AGENTS.map((agent) => ({ agent, store: useAgentUsageStore(agent.id) }))
+  const tabStore = useTabStore()
 
   const entries = computed<AgentUsageEntry[]>(() =>
     stores.map(({ agent, store }) => {
@@ -33,9 +42,11 @@ export function useAgentUsage() {
       return {
         agent,
         usage,
+        needsLogin: Boolean(usage?.loginRequired && agent.login),
         hasData: Boolean(
           usage &&
-            (usage.account?.email ||
+            (usage.loginRequired ||
+              usage.account?.email ||
               usage.account?.name ||
               usage.account?.plan ||
               usage.meters.length > 0 ||
@@ -69,5 +80,26 @@ export function useAgentUsage() {
     for (const { store } of stores) void store.refreshUsage(true)
   }
 
-  return { entries, visible, headline, refreshing, refreshAll }
+  /** ログインを求めているエージェント（#381）。StatusBar の知らせはこれを見る。 */
+  const needsLogin = computed(() => visible.value.filter((e) => e.needsLogin))
+
+  /**
+   * ログインし直すターミナルを開く（#381）。**シェルと cwd は新規ターミナルと同じ決め方**
+   * （`terminalPlace`）: 利用者が `claude` を包む起動ラッパー（`CLAUDE_CONFIG_DIR` を
+   * repo ごとに被せる等）を使っていても、手で打つのと同じアカウントに入る。
+   * 終わったら使用量を取り直して、知らせを下ろす。
+   */
+  function login(agent: AgentDef) {
+    const command = agent.login
+    if (!command) return
+    const place = terminalPlace()
+    const store = stores.find((s) => s.agent.id === agent.id)?.store
+    tabStore.runCommandTab(command, place.cwd, place.shell ?? hostDefaultShell(), {
+      title: command,
+      keepOnError: true,
+      onExit: () => void store?.refreshUsage(true),
+    })
+  }
+
+  return { entries, visible, headline, refreshing, refreshAll, needsLogin, login }
 }

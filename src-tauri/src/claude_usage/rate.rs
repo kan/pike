@@ -37,6 +37,10 @@ pub struct ClaudeRateLimits {
     /// in the UI; retry pacing is tracked separately in the cache entry).
     pub fetched_at: u64,
     pub windows: Vec<ClaudeRateWindow>,
+    /// CLI がログインを求めて終わった（#381）。**取得の失敗と区別する**: 以前はどちらも
+    /// 「帯が空」に畳まれていたので、ログインが切れても StatusBar は前回の値を出し続け、
+    /// 2 時間後に黙って消えるだけだった。
+    pub login_required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -156,15 +160,28 @@ fn run_usage_cli(
         .map(|d| ("CLAUDE_CONFIG_DIR", d))
         .into_iter()
         .collect();
-    let windows = match shell.run_shell_line_env(project_root, &env, &line, CLI_TIMEOUT) {
-        Ok((_code, stdout, _stderr)) => parse_usage_output(&stdout),
-        Err(_) => Vec::new(),
-    };
+    let (windows, login_required) =
+        match shell.run_shell_line_env(project_root, &env, &line, CLI_TIMEOUT) {
+            Ok((_code, stdout, stderr)) => {
+                let windows = parse_usage_output(&stdout);
+                let login = windows.is_empty() && asks_for_login(&stdout, &stderr);
+                (windows, login)
+            }
+            Err(_) => (Vec::new(), false),
+        };
     ClaudeRateLimits {
         active: !windows.is_empty(),
         fetched_at: now_epoch(),
         windows,
+        login_required,
     }
+}
+
+/// CLI がログインを求めているか（#381）。未ログインは `Not logged in · Please run /login`
+/// （終了コード 1。空の `CLAUDE_CONFIG_DIR` で実測）で、トークンの失効も同じく `/login` を
+/// 案内する。文言の前半は版で変わりうるので、**案内しているコマンドのほうで見る**。
+fn asks_for_login(stdout: &str, stderr: &str) -> bool {
+    stdout.contains("/login") || stderr.contains("/login")
 }
 
 pub(crate) fn get_rate_limits(
@@ -200,7 +217,9 @@ pub(crate) fn get_rate_limits(
     // changed) eventually makes the item disappear instead of showing
     // hours-old percentages. `last_attempt` advances either way, so retries
     // stay paced at TTL_ACTIVE.
-    if !result.active {
+    // **ログインを求められたときは古い値に戻さない**（#381）。その値はもう手に入らない
+    // ことが確定していて、出し続けると「ログインが切れている」ことが見えなくなる。
+    if !result.active && !result.login_required {
         if let Some(prev) = cached.map(|c| c.data).filter(|d| d.active) {
             if now_epoch().saturating_sub(prev.fetched_at) < STALE_KEEP_MAX.as_secs() {
                 result = prev;
@@ -291,7 +310,18 @@ pub(crate) fn get_rate_limits_soon(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_usage_output, window_kind};
+    use super::{asks_for_login, parse_usage_output, window_kind};
+
+    #[test]
+    fn detects_the_login_prompt() {
+        assert!(asks_for_login("Not logged in · Please run /login\n", ""));
+        assert!(asks_for_login(
+            "",
+            "OAuth token has expired. Please run /login"
+        ));
+        assert!(!asks_for_login("Current session: 20% used", ""));
+        assert!(!asks_for_login("", "timeout"));
+    }
 
     #[test]
     fn parses_current_usage_lines() {
