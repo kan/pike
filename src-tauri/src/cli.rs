@@ -78,7 +78,7 @@ pub struct CliState {
 #[tauri::command]
 pub async fn cli_get_initial_action(
     state: State<'_, CliState>,
-    window: tauri::WebviewWindow,
+    window: tauri::Window,
 ) -> Result<CliAction, String> {
     let label = window.label().to_string();
     let mut pending = state.pending.lock().map_err(|e| e.to_string())?;

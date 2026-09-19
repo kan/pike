@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, Window};
 
 /// The only window label `tauri-plugin-window-state` still tracks.
 pub const TRACKED_LABEL: &str = "main";
@@ -100,7 +100,7 @@ fn key_for(app: &AppHandle, label: &str) -> String {
 /// The rect to restore the window to. None while it is maximized or minimized:
 /// those report the filled / hidden rect, which would overwrite the rect the
 /// window should return to.
-fn restorable_rect(window: &WebviewWindow) -> Option<Geometry> {
+fn restorable_rect(window: &Window) -> Option<Geometry> {
     if window.is_maximized().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
         return None;
     }
@@ -126,7 +126,7 @@ fn restorable_rect(window: &WebviewWindow) -> Option<Geometry> {
 pub fn record_all(app: &AppHandle) {
     let mut map = load(app);
     let mut changed = false;
-    for window in app.webview_windows().into_values() {
+    for window in app.windows().into_values() {
         let key = key_for(app, window.label());
         let maximized = window.is_maximized().unwrap_or(false);
         let stored = map.get(&key);
@@ -159,7 +159,7 @@ pub fn record_all(app: &AppHandle) {
     }
 }
 
-fn default_rect(window: &WebviewWindow) -> Geometry {
+fn default_rect(window: &Window) -> Geometry {
     let position = window
         .outer_position()
         .unwrap_or(PhysicalPosition { x: 0, y: 0 });
@@ -184,7 +184,7 @@ fn default_rect(window: &WebviewWindow) -> Geometry {
 /// the window up by the display's scale factor — a 150% display reopened every
 /// window 1.5x too wide and that much further right. Building the window hidden
 /// keeps this from showing as a jump from the default rect.
-pub fn restore(app: &AppHandle, key: &str, window: &WebviewWindow) {
+pub fn restore(app: &AppHandle, key: &str, window: &Window) {
     let Some(geom) = load(app).get(key).cloned() else {
         return;
     };
@@ -219,7 +219,7 @@ pub fn restore(app: &AppHandle, key: &str, window: &WebviewWindow) {
 /// 矩形は `tauri-plugin-window-state` が label で戻す。**あれは仮想デスクトップを知らない**
 /// ので、そこだけをここで補う。呼ぶのは setup（イベントループが回り出す前＝最初の描画の前）
 /// で、`apply_startup_surface` と同じ位置づけ。
-pub fn restore_desktop(app: &AppHandle, key: &str, window: &WebviewWindow) {
+pub fn restore_desktop(app: &AppHandle, key: &str, window: &Window) {
     let Some(geom) = load(app).get(key).cloned() else {
         return;
     };
@@ -243,7 +243,7 @@ fn remembers_desktop(key: &str) -> bool {
 /// **失敗しても進む。** そのデスクトップがもう無ければ `MoveWindowToDesktop` は失敗するが、
 /// 公開 API では作り直せない（`vdesk` の doc）ので、現在のデスクトップに出す＝この機能が
 /// 入る前と同じ挙動へ落ちる。
-fn move_to_stored_desktop(key: &str, geom: &Geometry, window: &WebviewWindow) {
+fn move_to_stored_desktop(key: &str, geom: &Geometry, window: &Window) {
     if !remembers_desktop(key) {
         return;
     }

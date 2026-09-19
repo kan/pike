@@ -399,7 +399,7 @@ export type ManualTab = {
  *
  * **シングルトンではない**（番号ごとに 1 枚）ので `title` は自前の名前を持つ。
  * セッションには残さない: 中身は `gh` を叩き直さないと得られず、復元のたびに外部
- * プロセスが起動することになる（`snapshotSession` が terminal / editor だけを拾う）。
+ * プロセスが起動することになる（`snapshotSession` が terminal / editor / browser だけを拾う）。
  */
 export type IssueTab = {
   id: string
@@ -407,6 +407,22 @@ export type IssueTab = {
   title: string
   pinned: boolean
   number: number
+}
+
+/**
+ * 外部のページを開くタブ（#368）。中身は Rust が作る子 webview で、タブの領域に重ねて
+ * 描く（`BrowserTab.vue`・`src-tauri/src/browser.rs`）。
+ *
+ * `url` は開いたときの URL で、ページの中で移動したら `BrowserTab` が書き換える。
+ * `title` もページの `<title>` に追従する。**セッションに残す**（`url` と `title`）が、
+ * 復元してもページは読み込まない。子 webview を作るのはタブが初めて見えたとき。
+ */
+export type BrowserTab = {
+  id: string
+  kind: 'browser'
+  title: string
+  pinned: boolean
+  url: string
 }
 
 /**
@@ -471,6 +487,7 @@ export type Tab = (
   | PdfTab
   | ManualTab
   | IssueTab
+  | BrowserTab
 ) &
   TabOwner &
   TabPlacement

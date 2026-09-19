@@ -78,7 +78,7 @@
 
 ## タブ管理
 - タブの状態は `src/stores/tabs.ts` で一元管理
-- **`Tab` 型の正本は `src/types/tab.ts`**（判別キーは `kind`）。現在の種別は `terminal` / `editor` / `preview` / `pdf` / `diff` / `history` / `docker-logs` / `settings` / `agent-status` / `manual` / `issue`。種別を増やすときは Union に足し、`TabPane.vue` の描画分岐と `snapshotSession`（永続化対象の絞り込み）の両方を更新する
+- **`Tab` 型の正本は `src/types/tab.ts`**（判別キーは `kind`）。現在の種別は `terminal` / `editor` / `preview` / `pdf` / `diff` / `history` / `docker-logs` / `settings` / `agent-status` / `manual` / `issue` / `browser`。種別を増やすときは Union に足し、`TabPane.vue` の描画分岐と `snapshotSession`（永続化対象の絞り込み）の両方を更新する
 - **タブ名を画面に出すときは `lib/tabTitle.ts` の `tabDisplayTitle(tab)` を通す**。シングルトンタブ（`settings` / `agent-status` / `manual`）は自分固有の名前を持たないので、`tab.title` に焼き込んだ英語リテラルではなく `SINGLETON_TITLE_KEYS` 経由で i18n を引く。`tab.title` を直接描くと、開いたときの言語のまま固定されて言語切替に追従しない（`types/tab.ts` は値 import を持たない方針なので、`t()` を呼ぶこの関数は `lib/` に置く）
 - ファイルを開く操作は `lib/openFile.ts` の `openPathInTab` を通す（拡張子で editor / preview / pdf を振り分ける唯一の入口。`addEditorTab` を直接呼ぶと画像や PDF が化ける）
 - pinned タブは ✕ ボタン非表示、Ctrl+W のハンドラで早期リターン
@@ -164,7 +164,8 @@
 - フォント・サイズ変更は既存ターミナルにライブ反映、カラースキーム変更は `terminal.refresh()` + PTY resize nudge で TUI 再描画
 - 設定タブにターミナルプレビュー表示（選択中のフォント・サイズ・カラースキームを即時反映）
 - Editor セクション: ミニマップ ON/OFF、ワードラップ ON/OFF、タブサイズ（2/4/8）。CM6 Compartment でライブ反映
-- settings タブはセッション永続化の対象外（`snapshotSession` は terminal/editor のみフィルタ）
+- settings タブはセッション永続化の対象外（`snapshotSession` は terminal / editor / browser のみフィルタ）
+- **セッションの欄を足したら、Rust の `project::SessionTabDef` / `LastSession` を通っても残るか確かめる。** 両方に `#[serde(flatten)]` の受け皿（`extra`）を置いてあるので今は残るが、無かったころは #308 の `pane` / `panes` が保存の時点で黙って消えていた（分割して再起動すると 1 ペインに戻る）
 
 ## 禁止事項
 - Monaco Editor（重い）

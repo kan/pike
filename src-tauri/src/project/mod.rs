@@ -7,7 +7,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use tauri::{Emitter, Manager, State, WebviewWindow};
+use tauri::{Emitter, Manager, State, Window};
 
 /// 1 つのウィンドウが持っているプロジェクト（#264）。
 ///
@@ -66,6 +66,12 @@ pub struct SessionTabDef {
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    /// **Rust が読まない欄の受け皿**（ペインの置き場 `pane`、ブラウザのタブの `url`、#368）。
+    /// セッションの中身はフロントが決めて `project_update` がそのまま書き戻すので、ここで
+    /// 型に無い欄を落とすと保存の時点で黙って消える。#308 の `pane` / `panes` が実際に
+    /// そうなっていた（分割しても再起動で 1 ペインに戻る）。
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +79,9 @@ pub struct SessionTabDef {
 pub struct LastSession {
     pub tabs: Vec<SessionTabDef>,
     pub active_tab_id: Option<String>,
+    /// `SessionTabDef::extra` と同じ理由の受け皿（#308 の `panes`）。
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,7 +158,7 @@ struct GroupsUpdatedPayload {
 #[tauri::command]
 pub async fn project_groups_save(
     groups: Vec<String>,
-    window: WebviewWindow,
+    window: Window,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
     let path = groups_file(&state);
@@ -318,7 +327,7 @@ pub(crate) fn write_open_windows(state: &ProjectState) -> Result<(), String> {
 #[tauri::command]
 pub async fn project_add_open(
     id: String,
-    window: WebviewWindow,
+    window: Window,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
     // Track window → project mapping for cleanup on window destroy
@@ -455,7 +464,7 @@ struct ProjectUpdatedPayload {
 #[tauri::command]
 pub async fn project_update(
     config: ProjectConfig,
-    window: WebviewWindow,
+    window: Window,
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
     validate_slug(&config.id, "Project ID")?;
@@ -487,4 +496,29 @@ pub async fn project_delete(id: String, state: State<'_, ProjectState>) -> Resul
         fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// フロントが足した欄（#308 の `pane` / `panes`、#368 の `url`）が、Rust を通っても
+    /// 消えないこと。
+    #[test]
+    fn session_keeps_fields_rust_does_not_know() {
+        let json = r#"{
+            "tabs": [
+                { "id": "a", "kind": "browser", "title": "Jira", "pinned": false,
+                  "url": "https://example.atlassian.net/", "pane": "right" }
+            ],
+            "activeTabId": "a",
+            "panes": { "focused": "right", "active": { "left": null, "right": "a" } }
+        }"#;
+        let session: LastSession = serde_json::from_str(json).unwrap();
+        let back = serde_json::to_value(&session).unwrap();
+        assert_eq!(back["tabs"][0]["url"], "https://example.atlassian.net/");
+        assert_eq!(back["tabs"][0]["pane"], "right");
+        assert_eq!(back["panes"]["focused"], "right");
+        assert_eq!(back["activeTabId"], "a");
+    }
 }

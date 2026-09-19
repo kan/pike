@@ -105,7 +105,7 @@ pub fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     // hide されているだけなので、そこへ送ると見えない場所でタブが開いたり閉じたりする。
     let mut visible: Option<String> = None;
     let mut focused: Option<String> = None;
-    for (label, w) in app.webview_windows() {
+    for (label, w) in app.windows() {
         if w.is_focused().unwrap_or(false) {
             focused = Some(label);
             break;

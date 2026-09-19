@@ -28,7 +28,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use tauri::{State, WebviewWindow};
+use tauri::{State, Window};
 
 use super::{read_all_projects, set_window_project, ProjectConfig, ProjectState};
 use crate::types::ShellConfig;
@@ -202,7 +202,7 @@ pub async fn project_transient_get(
 #[tauri::command]
 pub async fn project_transient_bind(
     id: String,
-    window: WebviewWindow,
+    window: Window,
     state: State<'_, ProjectState>,
     transient: State<'_, TransientState>,
 ) -> Result<(), String> {

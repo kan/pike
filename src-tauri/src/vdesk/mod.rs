@@ -24,7 +24,7 @@
 
 #[cfg(windows)]
 mod imp {
-    use tauri::WebviewWindow;
+    use tauri::Window;
     use windows::core::GUID;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
@@ -78,7 +78,7 @@ mod imp {
     ///
     /// COM が使えないときは `true`（見えているものとして扱う）。この答えはウィンドウを
     /// 選ぶ側が使うので、判定できないなら候補から外さないほうが安全。
-    pub fn on_current(window: &WebviewWindow) -> bool {
+    pub fn on_current(window: &Window) -> bool {
         let _com = ComScope::enter();
         let Some(hwnd) = crate::win32_hwnd(window, "vdesk") else {
             return true;
@@ -97,7 +97,7 @@ mod imp {
 
     /// 今いる仮想デスクトップ。**まだ決まっていなければ `None`**（最小化中や未表示では
     /// `GUID_NULL` が返る）。覚えても復元先にならないので、呼び出し側は前の値を残す。
-    pub fn desktop_id(window: &WebviewWindow) -> Option<String> {
+    pub fn desktop_id(window: &Window) -> Option<String> {
         let _com = ComScope::enter();
         let hwnd = crate::win32_hwnd(window, "vdesk")?;
         let id = match unsafe { manager("desktop_id")?.GetWindowDesktopId(hwnd) } {
@@ -112,7 +112,7 @@ mod imp {
 
     /// 保存しておいたデスクトップへ移す。**そのデスクトップが無ければ失敗する**ので、
     /// 呼び出し側は現在のデスクトップに出す側へ落とす。
-    pub fn move_to(window: &WebviewWindow, id: &str) -> bool {
+    pub fn move_to(window: &Window, id: &str) -> bool {
         let _com = ComScope::enter();
         let Ok(guid) = GUID::try_from(id) else {
             log::warn!("[vdesk] not a guid: {id}");
@@ -137,18 +137,18 @@ mod imp {
 /// 仮想デスクトップという概念が無い OS。**呼び出し側は分岐しない**（`platform.md`）。
 #[cfg(not(windows))]
 mod imp {
-    use tauri::WebviewWindow;
+    use tauri::Window;
 
     /// 隠れているデスクトップが無いので、常に見えている。
-    pub fn on_current(_window: &WebviewWindow) -> bool {
+    pub fn on_current(_window: &Window) -> bool {
         true
     }
 
-    pub fn desktop_id(_window: &WebviewWindow) -> Option<String> {
+    pub fn desktop_id(_window: &Window) -> Option<String> {
         None
     }
 
-    pub fn move_to(_window: &WebviewWindow, _id: &str) -> bool {
+    pub fn move_to(_window: &Window, _id: &str) -> bool {
         false
     }
 }

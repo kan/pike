@@ -523,7 +523,7 @@ GitHub の open issue を番号の降順に出す。実体は `src-tauri/src/iss
     見える。パスで dedupe する種別も distro 違いの WSL プロジェクトでは同じ絶対パスを持ちうる
     が、そちらは同じファイルを指しているので実害が無い
   - **セッションに残さない。** 中身は `gh` を叩き直さないと得られず、復元のたびに外部
-    プロセスが起動することになる（`snapshotSession` が terminal / editor だけを拾う）
+    プロセスが起動することになる（`snapshotSession` が terminal / editor / browser だけを拾う）
   - 題名は取得後に **`tabStore.setTabTitle`** で入れる（開く時点では番号しか分からない）。
     直に代入しないこと: あちらの「変わったときだけ書く」ガードを飛ばすと、更新のたびに
     セッションの書き出し（`project.json` の全量書き直しと全ウィンドウへの broadcast）が走る

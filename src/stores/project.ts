@@ -1255,6 +1255,10 @@ export const useProjectStore = defineStore('project', () => {
           } else if (def.content !== undefined) {
             tabStore.addBlankEditorTab({ title: def.title, content: def.content, pane: def.pane })
           }
+        } else if (def.kind === 'browser' && def.url) {
+          // ページは作らない（#368）。子 webview はタブが初めて見えたときに `BrowserTab` が作るので、
+          // 復元したタブの数だけ起動時に読み込みが走ることはない。
+          tabStore.addBrowserTab(def.url, { forceNew: true, title: def.title, pinned: def.pinned, pane: def.pane })
         }
         // `codex-chat` / `agent-chat` は #275 で廃止した。**専用の後始末は要らない**:
         // このループが知らない kind を読み飛ばし、`snapshotSession` は生きている kind だけを
@@ -1294,7 +1298,7 @@ export const useProjectStore = defineStore('project', () => {
     const next = useTabStore().snapshotSession()
     // **同じ内容なら書かない**（#321 で入れた `staleAt` の巻き添えを断つ）。書き出しは
     // `project.json` の全量書き直しと全ウィンドウへの broadcast を伴うのに、`snapshotSession`
-    // が拾うのは terminal / editor だけなので、他の種別のタブが持つ状態が動いても中身は
+    // が拾うのは terminal / editor / browser だけなので、他の種別のタブが持つ状態が動いても中身は
     // 変わらない。契機は `$subscribe`（タブの**どのフィールド**が変わっても発火する）で、
     // diff タブの自動取り直しはファイルが書き換わるたびにここへ来る。
     // Rust 側の `write_open_windows` が `last_written_sessions` で同じことをしている。

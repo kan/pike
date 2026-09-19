@@ -1,6 +1,8 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { t } from '../i18n'
 import { runFormat } from '../lib/editorFormat'
 import { playMacro, toggleMacroRecording } from '../lib/editorMacro'
+import { normalizeWebUrl } from '../lib/openUrl'
 import type { AppActionId } from '../lib/shortcuts'
 import { pickFolder } from '../lib/tauri'
 import { globalMode } from '../lib/window'
@@ -13,6 +15,7 @@ import { useSidebarStore } from '../stores/sidebar'
 import { useTabStore } from '../stores/tabs'
 import type { ShellType, SidebarPanel } from '../types/tab'
 import { confirmAndExit } from './useBusyExit'
+import { promptDialog } from './useConfirmDialog'
 import { useOutlineSource } from './useOutlineSource'
 import { useShortcutsModal } from './useShortcutsModal'
 
@@ -149,6 +152,12 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     nextTab: () => tabStore.cycleTab('next'),
     prevTab: () => tabStore.cycleTab('prev'),
     manual: () => tabStore.addManualTab(),
+    openBrowser: async () => {
+      const url = await promptDialog(t('browser.prompt'), 'https://', 'https://example.atlassian.net')
+      const trimmed = url?.trim()
+      if (!trimmed || trimmed === 'https://') return
+      tabStore.addBrowserTab(normalizeWebUrl(trimmed))
+    },
     shortcuts: () => shortcutsModal.toggle(),
     // エディタタブ以外では何もしない（履歴を出す対象が無い）。メニューには載せない。
     gitHistory: () => {

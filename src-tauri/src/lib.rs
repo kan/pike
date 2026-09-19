@@ -13,6 +13,7 @@ pub mod agent_hook;
 mod agent_sessions;
 mod agent_usage;
 mod agents;
+mod browser;
 mod cache;
 mod claude_usage;
 mod cli;
@@ -74,8 +75,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{
-    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
-    WindowEvent,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Window, WindowEvent,
 };
 use tauri_plugin_window_state::{AppHandleExt as _, StateFlags};
 
@@ -118,9 +118,8 @@ static ACRYLIC_BACKDROP: AtomicBool = AtomicBool::new(false);
 /// setting and the window's focus. Taking it off leaves the per-pixel alpha
 /// alone, so the window stays see-through. Must run on the thread owning it.
 ///
-/// Takes the handle trait window-vibrancy itself asks for, so both callers pass
-/// what they already hold: the window-event handler a `Window`, the command a
-/// `WebviewWindow`.
+/// Takes the handle trait window-vibrancy itself asks for, so the callers pass
+/// the `Window` they already hold.
 #[cfg(windows)]
 fn sync_acrylic_material(window: impl raw_window_handle::HasWindowHandle, focused: bool) {
     if ACRYLIC_BACKDROP.load(Ordering::Relaxed) && focused {
@@ -149,7 +148,7 @@ const LIGHT_SURFACE_RGB: (u8, u8, u8) = (255, 255, 255);
 /// 大半はこれで合い、明示モードで OS と逆を選んでいる人だけ mount までの数フレームがずれる。
 /// **そこまで消すには「前回の解決結果」を Rust から読めるファイルに持つ必要があり、
 /// 数フレームのために永続化を 1 つ増やす価値が無いと判断した。**
-fn apply_startup_surface(window: &WebviewWindow) {
+fn apply_startup_surface(window: &Window) {
     let (r, g, b) = if window.theme().ok() == Some(tauri::Theme::Light) {
         LIGHT_SURFACE_RGB
     } else {
@@ -159,11 +158,11 @@ fn apply_startup_surface(window: &WebviewWindow) {
 }
 
 /// The window's `HWND` as the `windows` crate version this crate depends on
-/// directly. `WebviewWindow::hwnd()` hands back tauri's own `HWND`, which comes
+/// directly. `Window::hwnd()` hands back tauri's own `HWND`, which comes
 /// from an older `windows` release and is therefore a *different* type, so the
 /// handle has to be re-wrapped through a raw pointer.
 #[cfg(windows)]
-fn win32_hwnd(window: &WebviewWindow, tag: &str) -> Option<windows::Win32::Foundation::HWND> {
+fn win32_hwnd(window: &Window, tag: &str) -> Option<windows::Win32::Foundation::HWND> {
     match window.hwnd() {
         Ok(h) => Some(windows::Win32::Foundation::HWND(h.0 as isize as *mut _)),
         Err(e) => {
@@ -359,7 +358,7 @@ fn main_geom_key(app: &AppHandle) -> String {
 /// 「その getter が毎回往復し続ける」という契約の無い性質に寄りかかることになるうえ、
 /// 値を使っていない行なので整理のパスで落とされうる。`run_on_main_thread` は公開された
 /// 契約で、名前が待ちの意図を述べる。
-fn wait_for_window_queue(window: &WebviewWindow) {
+fn wait_for_window_queue(window: &Window) {
     let (tx, rx) = std::sync::mpsc::channel::<()>();
     // 積めなかった（イベントループが終わっている）なら待つ相手が居ない。
     if window.run_on_main_thread(move || drop(tx)).is_err() {
@@ -369,8 +368,8 @@ fn wait_for_window_queue(window: &WebviewWindow) {
     let _ = rx.recv();
 }
 
-fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
-    app.webview_windows()
+fn current_desktop_windows(app: &AppHandle) -> Vec<Window> {
+    app.windows()
         .into_values()
         .filter(vdesk::on_current)
         .collect()
@@ -398,11 +397,7 @@ fn current_desktop_windows(app: &AppHandle) -> Vec<WebviewWindow> {
 /// メッセージループを回す）で、イベントループ側のコールバックから呼ぶのは問題ない
 /// （setup / トレイ / single-instance が実際にそうしている）。ウィンドウを作るコマンド
 /// （`open_project_window` / `open_global_window`）が `async` なのはこれが理由。
-fn build_window(
-    app: &AppHandle,
-    label: &str,
-    geom_key: &str,
-) -> Result<WebviewWindow, tauri::Error> {
+fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<Window, tauri::Error> {
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .title("Pike")
         .inner_size(
@@ -433,9 +428,12 @@ fn build_window(
         // 見えないよう、非表示で生成して適用後に show する。
         .visible(false)
         .disable_drag_drop_handler();
-    let window = builder.build()?;
+    let webview_window = builder.build()?;
+    // WebView2 の COM を触るので webview ごと渡す。作った直後（子 webview がまだ無い）なので
+    // `WebviewWindow` として扱えるのはここだけ（理由は `.claude/rules/rust.md`）。
+    drop_paths::attach(&webview_window);
+    let window = webview_window.as_ref().window();
     window_geom::restore(app, geom_key, &window);
-    drop_paths::attach(&window);
     // 非表示で作ってあるので、ここで塗り直せば最初の 1 フレームから OS のテーマに合う。
     apply_startup_surface(&window);
     let _ = window.show();
@@ -486,7 +484,7 @@ fn store_pending(app: &AppHandle, label: &str, action: cli::CliAction) {
 
 /// Send a CLI action to an existing window via event. The window may be hidden
 /// (main closed to the tray), so it goes through the shared restore.
-fn emit_action_to(app: &AppHandle, window: &WebviewWindow, action: &cli::CliAction) {
+fn emit_action_to(app: &AppHandle, window: &Window, action: &cli::CliAction) {
     restore_window(window);
     let _ = app.emit_to(window.label(), "cli_open", action);
 }
@@ -592,7 +590,7 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
                 .as_deref()
                 .filter(|l| !l.starts_with(GLOBAL_PREFIX))
             {
-                if let Some(w) = app.get_webview_window(label) {
+                if let Some(w) = app.get_window(label) {
                     let id = existing.clone().or_else(|| {
                         create_transient_project(app, &projects, path, distro.as_deref())
                     });
@@ -631,7 +629,7 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
             // 0. Invoked from inside a Pike terminal? Route to that window
             // unconditionally — the user explicitly chose where to launch it.
             if let Some(ref label) = from_window {
-                if let Some(w) = app.get_webview_window(label) {
+                if let Some(w) = app.get_window(label) {
                     log::debug!("[single-instance] files: open in originating window {label}");
                     emit_action_to(app, &w, &action);
                     return;
@@ -735,7 +733,7 @@ async fn open_project_window(
 /// 消える（実際に踏んだ）。1 回で返せばその順序の問題자体が無くなる。
 #[tauri::command]
 fn project_for_window(
-    window: WebviewWindow,
+    window: Window,
     state: State<'_, project::ProjectState>,
 ) -> Option<project::WindowSession> {
     state
@@ -778,7 +776,7 @@ fn try_handle_activation(app: &AppHandle, args: &[String]) -> bool {
     if let Some(w) = app
         .try_state::<pty::PtyState>()
         .and_then(|state| pty::window_for_pty(&state, &act.pty))
-        .and_then(|label| app.get_webview_window(&label))
+        .and_then(|label| app.get_window(&label))
     {
         restore_window(&w);
         // **そのタブまで連れて行くのはフロントの仕事**（別プロジェクトのタブなら切り替えが
@@ -834,7 +832,7 @@ fn focus_project_window_anywhere(
     let Some((label, shown)) = project::window_holding(&state, id) else {
         return false;
     };
-    let Some(w) = app.get_webview_window(&label) else {
+    let Some(w) = app.get_window(&label) else {
         return false;
     };
     // 見せているウィンドウに用が無ければ前面に出すだけ。保持しているだけなら、そちらへ
@@ -1008,11 +1006,7 @@ unsafe fn set_per_pixel_alpha(hwnd: windows::Win32::Foundation::HWND, enable: bo
 /// invoking tokio worker (they used to run there). Dispatching does not wait, so
 /// the command returns before the backdrop lands — fine for a cosmetic effect.
 #[tauri::command]
-async fn window_set_backdrop(
-    window: WebviewWindow,
-    kind: String,
-    base_rgb: String,
-) -> Result<(), String> {
+async fn window_set_backdrop(window: Window, kind: String, base_rgb: String) -> Result<(), String> {
     let opaque = kind == "none";
     // WebView2 は alpha 0 だけを透過として扱い、それ以外は不透明に丸める。
     // 不透明時にテーマ色を渡すのは、読み込み中・リサイズ中の地の色を合わせるため。
@@ -1056,7 +1050,7 @@ async fn window_set_backdrop(
 /// Show, unminimize and focus a window — the restore-from-tray/minimized triple.
 /// Showing main again undoes its logical close (#202): it counts as a live
 /// window from here on.
-pub(crate) fn restore_window(w: &WebviewWindow) {
+pub(crate) fn restore_window(w: &Window) {
     if w.label() == "main" {
         MAIN_CLOSED_HIDDEN.store(false, Ordering::Relaxed);
     }
@@ -1072,7 +1066,7 @@ pub(crate) fn restore_window(w: &WebviewWindow) {
 /// open window (#202).
 fn hide_main_window(app: &AppHandle, logically_closed: bool) {
     MAIN_CLOSED_HIDDEN.store(logically_closed, Ordering::Relaxed);
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_window("main") {
         let _ = w.hide();
     }
 }
@@ -1082,7 +1076,7 @@ fn hide_main_window(app: &AppHandle, logically_closed: bool) {
 /// closed, so the app must not outlive the last real window because of it (#202).
 fn close_would_quit(app: &AppHandle, label: &str) -> bool {
     let main_closed = MAIN_CLOSED_HIDDEN.load(Ordering::Relaxed);
-    app.webview_windows()
+    app.windows()
         .keys()
         .all(|l| l == label || (l == "main" && main_closed))
 }
@@ -1091,7 +1085,7 @@ fn close_would_quit(app: &AppHandle, label: &str) -> bool {
 /// it. The frontend asks before closing so it can confirm against the app-wide
 /// count of running terminals instead of just its own tabs (#178).
 #[tauri::command]
-fn window_close_quits_app(window: WebviewWindow) -> bool {
+fn window_close_quits_app(window: Window) -> bool {
     close_would_quit(window.app_handle(), window.label())
 }
 
@@ -1106,7 +1100,7 @@ fn window_close_quits_app(window: WebviewWindow) -> bool {
 /// この 1 本があるおかげで、`core:window:allow-show` / `allow-unminimize` も要らない
 /// （`core:window:default` は読み取り系しか含まない）。
 #[tauri::command]
-fn window_restore(window: WebviewWindow) {
+fn window_restore(window: Window) {
     restore_window(&window);
 }
 
@@ -1121,7 +1115,7 @@ fn window_restore(window: WebviewWindow) {
 /// 1 回光るだけの `Informational` より合っている。止めるのは OS の仕事で、ウィンドウが
 /// アクティブになった時点で消える。
 #[tauri::command]
-fn window_flash(window: WebviewWindow) -> Result<(), String> {
+fn window_flash(window: Window) -> Result<(), String> {
     window
         .request_user_attention(Some(tauri::UserAttentionType::Critical))
         .map_err(|e| e.to_string())
@@ -1130,7 +1124,7 @@ fn window_flash(window: WebviewWindow) -> Result<(), String> {
 /// Show and focus the main window, restoring it from the tray / a minimized
 /// state.
 pub(crate) fn show_main_window(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_window("main") {
         restore_window(&w);
     }
 }
@@ -1140,7 +1134,7 @@ pub(crate) fn show_main_window(app: &AppHandle) {
 /// never destroys main, so the session and PTYs stay alive — and it is not a
 /// close either, so main keeps counting as an open window.
 pub(crate) fn toggle_main_window(app: &AppHandle) {
-    let Some(w) = app.get_webview_window("main") else {
+    let Some(w) = app.get_window("main") else {
         return;
     };
     if w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false) {
@@ -1523,8 +1517,10 @@ pub fn run() {
 
             // The main window comes from tauri.conf.json (not build_window),
             // so it needs its own drop-paths bridge attachment.
+            // setup の時点ではブラウザのタブ（子 webview）がまだ無いので `WebviewWindow` で引ける。
             if let Some(main) = app.get_webview_window("main") {
                 drop_paths::attach(&main);
+                let main = main.as_ref().window();
                 // 同じ理由で下地も静的な `backgroundColor`（ダーク）のままなので、ここで
                 // OS のテーマに合わせる（#310）。setup はイベントループが回り出す前に
                 // 走るので、最初の描画に間に合う。
@@ -1642,7 +1638,7 @@ pub fn run() {
             // `pike <dir>` で開くプロジェクトが `window_projects` に入る前に読むことになり、
             // 常に前回セッションのデスクトップへ移してしまう。そして setup の中、つまり
             // イベントループが回り出す前でなければ、一瞬だけ今のデスクトップに出てから飛ぶ。
-            if let Some(main) = app.get_webview_window("main") {
+            if let Some(main) = app.get_window("main") {
                 window_geom::restore_desktop(app.handle(), &main_geom_key(app.handle()), &main);
             }
 
@@ -1899,6 +1895,11 @@ pub fn run() {
             issues::issues_gh_available,
             issues::issues_list,
             issues::issues_view,
+            browser::browser_open,
+            browser::browser_place,
+            browser::browser_navigate,
+            browser::browser_history,
+            browser::browser_close,
             git::git_status,
             git::git_is_repo,
             git::git_init,

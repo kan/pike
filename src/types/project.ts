@@ -57,12 +57,14 @@ export interface PinnedTabDef {
 
 export interface SessionTabDef {
   id: string
-  kind: 'terminal' | 'editor'
+  kind: 'terminal' | 'editor' | 'browser'
   title: string
   pinned: boolean
   autoStart?: string
   path?: string
   content?: string
+  /** ブラウザのタブの URL（#368）。 */
+  url?: string
   /** 左右どちらのペインで開いていたか（#308）。省略＝左。 */
   pane?: PaneId
 }

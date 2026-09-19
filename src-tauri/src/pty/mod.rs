@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, State, Window};
 
 pub mod busy;
 use busy::BusyProbe;
@@ -324,7 +324,7 @@ pub async fn pty_spawn(
     rows: u16,
     cwd: Option<String>,
     shell: Option<ShellConfig>,
-    window: WebviewWindow,
+    window: Window,
     app: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<PtySpawnResult, String> {
@@ -424,7 +424,7 @@ pub async fn pty_spawn_tmux(
     session_name: String,
     cols: u16,
     rows: u16,
-    window: WebviewWindow,
+    window: Window,
     app: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<PtySpawnResult, String> {

@@ -97,6 +97,8 @@ export const APP_ACTIONS = [
   { id: 'nextTab' },
   { id: 'prevTab' },
   { id: 'manual', palette: 'help' },
+  // ブラウザのタブ（#368）。URL を聞いてから開く。
+  { id: 'openBrowser', palette: 'view' },
   { id: 'shortcuts', palette: 'help', labelKey: 'shortcuts.keyboardShortcuts' },
   { id: 'gitHistory' },
   // キーボードマクロ（#180）。キーは CodeMirror 層にあるので `keyBindings` には載せない

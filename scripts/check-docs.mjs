@@ -137,6 +137,7 @@ const EXTERNAL_NAMES = [
   'set_csp', // tauri 内部（manager::set_csp）
   'subIssuesSummary', // gh の --json フィールド（使わない理由を editor.md が書くために出す）
   'transcript_path', // Claude Code の hook が stdin で渡すフィールド（#299）
+  'webview_windows', // tauri の AppHandle（使ってはいけない理由として rust.md が出す、#368）
   // このスクリプト自身の識別子。自分をコーパスから外している以上、外の名前と同じ扱いになる。
   'EXTERNAL_NAMES',
   'GONE_NAMES',

@@ -116,6 +116,7 @@ pike/
 │       ├── cli.rs             # CLI 引数パース・CliState・single-instance 連携
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
 │       ├── elevate.rs         # 管理者ターミナル（--new-instance で昇格起動、#138）
+│       ├── browser.rs         # ブラウザのタブの子 webview（#368。`unstable` の `add_child`）
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
 │       ├── page_title.rs      # 貼り付けた URL のページタイトル取得（Markdown リンク、#241）
 │       ├── remote_image.rs    # 承認済みホストの画像取得（Markdown プレビュー、#239）
@@ -224,6 +225,7 @@ pike/
 │   │       ├── DockerLogsTab.vue  # コンテナログ（xterm 読み取り専用）
 │   │       ├── ManualTab.vue      # アプリ内マニュアル（docs/manual を F1 / ? ボタンで表示）
 │   │       ├── IssueTab.vue       # GitHub issue 1 件の読み取り専用表示（gh 経由、#278）
+│   │       ├── BrowserTab.vue     # 外部のページ（子 webview をタブの領域に重ねる、#368。試作）
 │   │       ├── AgentStatusTab.vue # エージェント状態（/status 相当。アカウント・レート・トークン、#226）
 │   │       └── SettingsTab.vue    # 設定画面（8 セクションの中身と左ナビ・絞り込みの入力欄、#314）
 │   ├── stores/
@@ -256,6 +258,7 @@ pike/
 │   │   ├── usePanelAvailability.ts # サイドバーのパネルが使えるかの唯一の出典（#278）
 │   │   ├── useSettingsSearch.ts # 設定画面の絞り込み（#314。登録・一致・強調の切り分け）
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
+│   │   ├── useBrowserRouter.ts # ブラウザのタブへの通知をラベルで振り分ける（#368。usePtyRouter と同じ形）
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
 │   │   ├── usePreviewFind.ts # プレビューの検索（#360。数え直しと移動の契機）

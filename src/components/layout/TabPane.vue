@@ -36,6 +36,7 @@ const AgentStatusTab = defineAsyncComponent(() => import('../tabs/AgentStatusTab
 const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const IssueTab = defineAsyncComponent(() => import('../tabs/IssueTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
+const BrowserTab = defineAsyncComponent(() => import('../tabs/BrowserTab.vue'))
 
 /**
  * 種別ごとの中身（#308）。**`Record<Tab['kind'], …>` なので、種別を足したら型エラーで
@@ -54,6 +55,7 @@ const TAB_COMPONENTS: Record<Tab['kind'], unknown> = {
   'agent-status': AgentStatusTab,
   manual: ManualTab,
   issue: IssueTab,
+  browser: BrowserTab,
 }
 
 const { t } = useI18n()

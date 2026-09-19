@@ -12,6 +12,7 @@ import { windowFocused } from '../lib/window'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
   AgentStatusTab,
+  BrowserTab,
   DiffTab,
   DockerLogsTab,
   EditorTab,
@@ -823,6 +824,44 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  /**
+   * 外部のページをタブで開く（#368）。同じ URL を開いているタブがこのプロジェクトに
+   * あればそれを見せる（`addIssueTab` と同じく所有者まで見る）。
+   */
+  function addBrowserTab(
+    url: string,
+    options: {
+      /** 新しいタブとして開く（同じ URL のタブがあっても使い回さない）。ページから開いたリンク用。 */
+      forceNew?: boolean
+      /** セッションの復元で、前回のタイトル・固定・置き場を戻す（#368）。 */
+      title?: string
+      pinned?: boolean
+      pane?: PaneId
+    } = {},
+  ): string {
+    const existing = options.forceNew
+      ? undefined
+      : tabs.value.find(
+          (t): t is BrowserTab => t.kind === 'browser' && t.url === url && t.projectId === ownerProjectId.value,
+        )
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    let title = options.title || url
+    if (!options.title) {
+      try {
+        title = new URL(url).host || url
+      } catch {
+        // 読めない URL は Rust 側が弾く。タイトルは素のまま出しておく。
+      }
+    }
+    pushTab({ id, kind: 'browser', title, pinned: options.pinned ?? false, url, pane: options.pane })
+    activeTabId.value = id
+    return id
+  }
+
   function addPdfTab(options: { path: string; revision?: string; dataUrl?: string }): string {
     const existing = tabs.value.find(
       (t): t is PdfTab => t.kind === 'pdf' && t.path === options.path && t.revision === options.revision,
@@ -1195,8 +1234,11 @@ export const useTabStore = defineStore('tabs', () => {
     // 見えているタブだけ（#264）。パーク中の別プロジェクトのタブを、今のプロジェクトの
     // セッションとして書き出さない。
     const sessionTabs: SessionTabDef[] = visibleTabs.value
-      .filter((t) => t.kind === 'terminal' || t.kind === 'editor')
-      .map((t) => {
+      .filter(
+        (t): t is Tab & (TerminalTab | EditorTab | BrowserTab) =>
+          t.kind === 'terminal' || t.kind === 'editor' || t.kind === 'browser',
+      )
+      .map((t): SessionTabDef => {
         const base = { id: t.id, kind: t.kind, title: t.title, pinned: t.pinned, pane: t.pane }
         if (t.kind === 'terminal') {
           return { ...base, autoStart: t.autoStart }
@@ -1207,7 +1249,8 @@ export const useTabStore = defineStore('tabs', () => {
           }
           return { ...base, path: t.path }
         }
-        return base
+        // ブラウザのタブ（#368）。ページの中で移動した先（`BrowserTab` が書き換える `url`）を残す。
+        return { ...base, url: t.url }
       })
     return {
       tabs: sessionTabs,
@@ -1240,7 +1283,7 @@ export const useTabStore = defineStore('tabs', () => {
       reselect(pane, panes ? panes.active[pane] : pane === 'left' ? session.activeTabId : null)
     }
     focusedPane.value = split.value && panes?.focused === 'right' ? 'right' : 'left'
-    // セッションに残るのは terminal / editor だけなので、右に diff タブしか置いていない
+    // セッションに残るのは terminal / editor / browser だけなので、右に diff タブしか置いていない
     // 状態で終了すると「右が空・フォーカスは右」で戻ってくる。
     focusPaneWithTabs()
   }
@@ -1289,6 +1332,7 @@ export const useTabStore = defineStore('tabs', () => {
     addAgentStatusTab,
     addManualTab,
     addIssueTab,
+    addBrowserTab,
     addDiffTab,
     addPdfTab,
     closeTab,

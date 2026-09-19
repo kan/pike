@@ -11,6 +11,20 @@
 - **ウィンドウ操作は ack を待たない（#340）。** `show()` / `set_focus()` は `tauri-runtime-wry` の `send_user_message` を通り、**メインスレッド以外から呼ばれるとイベントを積むだけ**で返る（メインスレッドからならその場で処理する）。結果が要る `build()` や getter だけが待つ、という非対称がある
   - だから「コマンドが解決した＝ウィンドウが出ている」は**成り立たない**。成り立たせている箇所と、その待ち方は `wait_for_window_queue` / `build_window` の doc が正本
 - エラーは `map_err(|e| e.to_string())` で文字列化してフロントに返す
+- **ウィンドウは `Window` で扱い、`WebviewWindow` を使わない（#368）。** ブラウザのタブは
+  ウィンドウに子 webview を足すので、そのウィンドウは Tauri から見て「webview が 1 つだけの
+  ウィンドウ」ではなくなる。すると `WebviewWindow` を取るものが全部そのウィンドウを見失う:
+  - コマンドの引数の `WebviewWindow` … `current webview is not a WebviewWindow` で失敗する
+    （ブラウザのタブを開いていると新規ターミナルが開けない、という形で出た）
+  - `app.get_webview_window(label)` / `app.webview_windows()` … 黙って `None` / 除外になる
+    （CLI のルーティング、トレイからの復帰、ウィンドウ位置の保存が、そのウィンドウだけ効かない）
+  - 代わりに `Window` / `app.get_window` / `app.windows()` を使う。表示・フォーカス・位置・
+    `hwnd`・イベントの送信は同じものがある。**例外は webview そのもの（WebView2 の COM）を
+    触る `drop_paths::attach`** だけで、ウィンドウを作った直後（子がまだ無い）に呼ぶ
+  - **プラグインの中は直せない。** `tauri-plugin-window-state` の `save_window_state` は
+    `webview_windows()` で引くので、ブラウザのタブを開いている main ウィンドウは明示的な
+    保存（トレイの「終了」、更新の前）のときに最大化の状態を読み直さない。位置と大きさは
+    移動・リサイズのたびにプラグインが記録しているので、そちらは失われない
 - **グローバル状態は 1 つの `AppState` にまとめず、モジュールごとの型を個別に `manage` する**（`CliState` / `WaitState` / `PtyState` / `WatcherState` / `DockerState` / `ProjectState` / `TransientState` / `SearchState`）。コマンドは `State<'_, PtyState>` のように要るものだけを受け取るので、引数の型がそのまま「このコマンドが触る状態」の宣言になる。共有する中身は `Arc<Mutex<>>` で包む
 - PTY プロセスのライフタイムは `PtyState` が所有し、ウィンドウ破棄時に `pty::cleanup_for_window` で cleanup
 

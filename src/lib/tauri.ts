@@ -646,6 +646,41 @@ export async function issuesView(shell: ShellType, root: string, number: number)
   return invoke<IssueDetail>('issues_view', { shell, root, number })
 }
 
+// ブラウザのタブ（#368）。座標はウィンドウの client 領域の CSS ピクセル（論理ピクセル）。
+
+export interface BrowserBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export async function browserOpen(label: string, url: string, bounds: BrowserBounds): Promise<void> {
+  return invoke('browser_open', { label, url, bounds })
+}
+
+/**
+ * 位置と表示をまとめて 1 回で送る。`bounds` を省くと表示だけを変える（隠すときは
+ * 位置を送る意味が無い）。リサイズ中は毎フレーム呼ばれるので、2 往復に分けない。
+ */
+export async function browserPlace(label: string, visible: boolean, bounds?: BrowserBounds): Promise<void> {
+  return invoke('browser_place', { label, visible, bounds: bounds ?? null })
+}
+
+export async function browserNavigate(label: string, url: string): Promise<void> {
+  return invoke('browser_navigate', { label, url })
+}
+
+export type BrowserHistoryAction = 'back' | 'forward' | 'reload'
+
+export async function browserHistory(label: string, action: BrowserHistoryAction): Promise<void> {
+  return invoke('browser_history', { label, action })
+}
+
+export async function browserClose(label: string): Promise<void> {
+  return invoke('browser_close', { label })
+}
+
 // Docker
 
 export async function dockerPing(): Promise<boolean> {
