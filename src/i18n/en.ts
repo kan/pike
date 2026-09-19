@@ -81,7 +81,8 @@ export default {
   'tabs.newEditor': 'New Editor',
   'tabs.newTerminalShort': 'New Terminal',
   'tabs.newTerminal': 'New Terminal ({key})',
-  'tabs.openWithShell': 'Open with different shell',
+  'tabs.openWithShell': 'Choose what to open (editor, browser, agent, shell)',
+  'tabs.newAgent': 'Start agent',
   'tabs.showAll': 'All tabs',
   'tabs.openAsAdmin': 'Open as Administrator',
   'tabs.openAsAdminHint': 'Right-click to open as administrator',
@@ -301,6 +302,13 @@ export default {
   'settings.registerDirectoryAuto': 'Register it',
   'settings.registerDirectoryAsk': 'Ask',
   'settings.registerDirectoryNever': 'Leave it',
+  'settings.tabAddAction': 'What the tab bar "+" opens',
+  'settings.tabAddActionHint':
+    'The kind of tab "+" opens. The ▾ next to it lets you open any kind. With Agent, "+" runs the first agent launcher (or opens a terminal if no agent is available).',
+  'settings.tabAddTerminal': 'Terminal',
+  'settings.tabAddEditor': 'Editor',
+  'settings.tabAddBrowser': 'Browser',
+  'settings.tabAddAgent': 'Agent',
   'settings.registerDirectoryHint':
     'What happens when you open a directory that is not registered as a project. With "Ask", the dialog\'s "Stop asking and make this the default" switches this setting.',
   'settings.closeToTray': 'Minimize to tray on close',

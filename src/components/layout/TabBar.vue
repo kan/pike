@@ -12,7 +12,7 @@
  * **マウスを伴わない経路だけが自分で言う必要がある**（OS からのファイルドロップ）。
  */
 
-import { Check, ChevronDown, Columns2, Plus, ShieldPlus } from 'lucide-vue-next'
+import { Bot, Check, ChevronDown, Columns2, FilePlus, Globe, Plus, ShieldPlus } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { useAppActions } from '../../composables/useAppActions'
@@ -20,6 +20,7 @@ import { openFileTarget } from '../../composables/useCliOpen'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useTabDrag } from '../../composables/useTabDrag'
 import { useI18n } from '../../i18n'
+import { launcherLines } from '../../lib/agents'
 import { canResolveDroppedPaths, resolveDroppedPaths } from '../../lib/dropPaths'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { actionChord } from '../../lib/shortcuts'
@@ -27,6 +28,7 @@ import { TAB_KIND_ICONS, tabFileIconSvg } from '../../lib/tabIcons'
 import { tabDisplayTitle } from '../../lib/tabTitle'
 import { detectWslDistros, openElevatedTerminal } from '../../lib/tauri'
 import { elevated, globalMode } from '../../lib/window'
+import { useAgentStore } from '../../stores/agents'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useSidebarStore } from '../../stores/sidebar'
@@ -179,7 +181,76 @@ const isWindows = computed(() =>
 // シェルの決め方（グローバルモードの `globalShell` / プロジェクトの既定）は
 // `useAppActions` の `openTerminal` が持つ（#254）。`Ctrl+T` と macOS の
 // File ▸ New Terminal と同じ 1 本を通す。
-const { openTerminal, toggleSplit } = useAppActions()
+const { openTerminal, openAgentTab, openFromTabAdd, terminalPlace, toggleSplit } = useAppActions()
+const agentStore = useAgentStore()
+
+/**
+ * 新しいターミナルのシェルと cwd（決め方は `useAppActions` の `terminalPlace`）。▾ のエージェントの
+ * 行はこのシェルで見つかったものを出す。表示中のターミナルのシェルではない。
+ */
+const newTabPlace = computed(() => terminalPlace())
+
+/**
+ * ▾ の上段（#375）：ターミナル以外に開けるもの。エディタ、ブラウザのタブ、エージェントの起動行
+ * （**ターミナルに重ねて出す起動ボタンと同じ一覧**を平らに並べたもの）。「+」の設定で選んでいる
+ * ものに印を付ける（エージェントは先頭の行）。
+ */
+const kindMenuItems = computed(() => {
+  const action = settings.tabAddAction
+  const agents = agentStore
+    .launchersFor(newTabPlace.value.shell)
+    .flatMap((l) => launcherLines(l))
+    .map((line, i) => ({
+      // 同じコマンドの行は並びうる（カスタム行に `claude` を書いたときなど）ので、位置も鍵に入れる。
+      key: `agent:${i}:${line.command}`,
+      icon: Bot,
+      label: line.label,
+      checked: action === 'agent' && i === 0,
+      divider: i === 0,
+      run: () => openAgentTab(line.command, line.label),
+    }))
+  return [
+    {
+      key: 'editor',
+      icon: FilePlus,
+      label: t('tabs.newEditor'),
+      checked: action === 'editor',
+      divider: false,
+      run: () => tabStore.addBlankEditorTab(),
+    },
+    {
+      key: 'browser',
+      icon: Globe,
+      label: t('browser.newTab'),
+      checked: action === 'browser',
+      divider: false,
+      run: () => tabStore.addBrowserTab(''),
+    },
+    ...agents,
+  ]
+})
+
+function runKindItem(run: () => void) {
+  closeShellMenu()
+  run()
+}
+
+/** シェルの行を出すか（これまで ▾ を出していた条件。理由はテンプレートの隣）。 */
+const showShellRows = computed(() => isWindows.value || globalMode.value)
+
+/** 「+」のツールチップ。設定の `tabAddAction` で開くものが変わるので、それを言う。 */
+const tabAddTitle = computed(() => {
+  switch (settings.tabAddAction) {
+    case 'editor':
+      return t('tabs.newEditor')
+    case 'browser':
+      return t('browser.newTab')
+    case 'agent':
+      return t('tabs.newAgent')
+    default:
+      return t('tabs.newTerminal', { key: actionChord('newTerminal') })
+  }
+})
 
 // Shell dropdown: Windows projects offer the Windows shells; global-mode
 // windows additionally offer every detected WSL distro. Order and visibility
@@ -238,6 +309,10 @@ function toggleShellMenu() {
     return
   }
   if (globalMode.value) loadWslDistros()
+  // エージェントの行は新しいターミナルのシェルで見つかったものだけを出すので、そのシェルについて
+  // 聞いておく（べき等。答えを覚えていれば IPC も飛ばない）。**`detect` は使わない**: あちらは
+  // 表示中のターミナルの起動ボタンが読む「今のシェル」まで書き換える。
+  void agentStore.prefetch(newTabPlace.value.shell, newTabPlace.value.cwd ?? '')
   showShellMenu.value = true
   nextTick(() => {
     window.addEventListener('mousedown', closeShellMenu, { once: true })
@@ -560,9 +635,9 @@ onUnmounted(() => {
         :title="t('tabs.showAll')"
         @click.stop="toggleTabMenu"
       ><ChevronDown :size="12" :stroke-width="2" /></button>
-      <button class="tab-add" :title="t('tabs.newTerminal', { key: actionChord('newTerminal') })" @click="openTerminal()"><Plus :size="16" :stroke-width="2" /></button>
+      <!-- 「+」で開くものは設定の `tabAddAction`（#375）。▾ はいつも出す（種類を選ぶ入口）。 -->
+      <button class="tab-add" :title="tabAddTitle" @click="openFromTabAdd()"><Plus :size="16" :stroke-width="2" /></button>
       <button
-        v-if="isWindows || globalMode"
         class="tab-add-arrow"
         data-testid="tab-add-arrow"
         :title="t('tabs.openWithShell')"
@@ -601,18 +676,35 @@ onUnmounted(() => {
     </div>
     <!-- Shell dropdown -->
     <div v-if="showShellMenu" class="shell-menu popup-surface" data-testid="shell-menu" @mousedown.stop>
-      <button
-        v-for="s in shellMenuItems"
-        :key="s.key"
-        :class="{ 'default-shell': s.isDefault }"
-        :title="isWindowsShell(s.shell) && !elevated ? t('tabs.openAsAdminHint') : undefined"
-        @click="addTabWithShell(s.shell)"
-        @contextmenu.stop="onShellRowContext($event, s.shell)"
-      >
-        <component :is="SHELL_KIND_ICONS[s.shell.kind]" :size="14" :stroke-width="1.5" class="shell-menu-icon" />
-        <span>{{ s.label }}</span>
-        <Check v-if="s.isDefault" :size="12" :stroke-width="2.5" class="shell-default-check" />
-      </button>
+      <!-- ターミナル以外に開けるもの（#375）。「+」の設定で選んでいるものに印を付ける。 -->
+      <template v-for="item in kindMenuItems" :key="item.key">
+        <div v-if="item.divider" class="shell-menu-divider" />
+        <button :class="{ 'default-shell': item.checked }" @click="runKindItem(item.run)">
+          <component :is="item.icon" :size="14" :stroke-width="1.5" class="shell-menu-icon" />
+          <span>{{ item.label }}</span>
+          <Check v-if="item.checked" :size="12" :stroke-width="2.5" class="shell-default-check" />
+        </button>
+      </template>
+      <!--
+        シェルの行は、これまで ▾ を出していた条件（Windows のプロジェクトかグローバルモード）の
+        ときだけ。WSL のプロジェクトで Windows のシェルを並べると、WSL のパスを cwd にして
+        PowerShell を開くことになる。
+      -->
+      <template v-if="showShellRows">
+        <div class="shell-menu-divider" />
+        <button
+          v-for="s in shellMenuItems"
+          :key="s.key"
+          :class="{ 'default-shell': s.isDefault }"
+          :title="isWindowsShell(s.shell) && !elevated ? t('tabs.openAsAdminHint') : undefined"
+          @click="addTabWithShell(s.shell)"
+          @contextmenu.stop="onShellRowContext($event, s.shell)"
+        >
+          <component :is="SHELL_KIND_ICONS[s.shell.kind]" :size="14" :stroke-width="1.5" class="shell-menu-icon" />
+          <span>{{ s.label }}</span>
+          <Check v-if="s.isDefault" :size="12" :stroke-width="2.5" class="shell-default-check" />
+        </button>
+      </template>
       <template v-if="globalMode">
         <div class="shell-menu-divider" />
         <button @click="menuOpenShortcuts">

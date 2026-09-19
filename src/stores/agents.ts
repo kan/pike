@@ -51,10 +51,22 @@ export const useAgentStore = defineStore('agents', () => {
    * **先頭が既定**（ボタン本体が走らせるもの）。順序と既定を別々に持たないので、
    * 「並べ替えたのに既定が変わらない」という食い違いが起きない。
    */
-  const launchers = computed<AgentLauncher[]>(() => {
-    const detected = new Set(detectedBins.value)
+  const launchers = computed<AgentLauncher[]>(() => launchersFor(currentShell.value))
+
+  /**
+   * 指定したシェルで使える起動行（#375。タブバーの「+」と ▾ が、これから開くターミナルの
+   * シェルについて聞く）。**`currentShell` は変えない**: あれは表示中のターミナルの起動ボタンが
+   * 読むもので、書き換えると、見ているタブのボタンが別のシェルの答えを出す。
+   */
+  function launchersFor(shell: ShellType | null | undefined): AgentLauncher[] {
+    const detected = new Set(probe.answerFor(shell) ?? [])
     return settings.agentLaunchers.filter((l) => isLauncherVisible(l, detected))
-  })
+  }
+
+  /** そのシェルについて聞いておく（`detect` と違い、`currentShell` は変えない）。 */
+  async function prefetch(shell: ShellType | undefined, root: string): Promise<void> {
+    await probe.ask(shell, root)
+  }
 
   /**
    * 使えるエージェントを調べ、そのシェルを「今見ているもの」にする。
@@ -72,5 +84,5 @@ export const useAgentStore = defineStore('agents', () => {
     await probe.ask(shell, root)
   }
 
-  return { detectedBins, launchers, detect }
+  return { detectedBins, launchers, launchersFor, detect, prefetch }
 })

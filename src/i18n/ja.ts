@@ -81,7 +81,8 @@ export default {
   'tabs.newEditor': '新規エディタ',
   'tabs.newTerminalShort': '新規ターミナル',
   'tabs.newTerminal': '新規ターミナル ({key})',
-  'tabs.openWithShell': '他のシェルで開く',
+  'tabs.openWithShell': '開くものを選ぶ（エディタ・ブラウザ・エージェント・シェル）',
+  'tabs.newAgent': 'エージェントを起動',
   'tabs.showAll': 'すべてのタブ',
   'tabs.openAsAdmin': '管理者権限で開く',
   'tabs.openAsAdminHint': '右クリックで管理者権限で開く',
@@ -300,6 +301,13 @@ export default {
   'settings.registerDirectoryAuto': '自動登録',
   'settings.registerDirectoryAsk': '確認する',
   'settings.registerDirectoryNever': '登録しない',
+  'settings.tabAddAction': 'タブバーの「+」で開くもの',
+  'settings.tabAddActionHint':
+    '「+」を押したときに開くタブの種類です。横の ▾ からは、どの種類でも選んで開けます。エージェントを選んだ場合は、エージェントの起動行の先頭を実行します（使えるエージェントが無ければターミナルを開きます）。',
+  'settings.tabAddTerminal': 'ターミナル',
+  'settings.tabAddEditor': 'エディタ',
+  'settings.tabAddBrowser': 'ブラウザ',
+  'settings.tabAddAgent': 'エージェント',
   'settings.registerDirectoryHint':
     'プロジェクトとして登録していないディレクトリを開いたときの扱いです。「確認する」ではダイアログの「今後は確認せず、この選択を既定にする」でここを切り替えられます。',
   'settings.closeToTray': '閉じたときトレイに最小化',

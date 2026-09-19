@@ -53,6 +53,7 @@ import {
   type DiffWordWrap,
   EDITOR_MAX_FILE_SIZES_MB,
   type RegisterDirectoryMode,
+  type TabAddAction,
   type TerminalPathLinkMode,
   type ThemeMode,
   UI_FONT_SIZE_MAX,
@@ -114,6 +115,13 @@ const SHORTCUT_PRESET_OPTIONS: { value: ShortcutPreset; labelKey: string }[] = [
   { value: 'vscode', labelKey: 'settings.shortcutPresetVscode' },
   { value: 'idea', labelKey: 'settings.shortcutPresetIdea' },
 ]
+const TAB_ADD_ACTION_OPTIONS: { value: TabAddAction; labelKey: string }[] = [
+  { value: 'terminal', labelKey: 'settings.tabAddTerminal' },
+  { value: 'editor', labelKey: 'settings.tabAddEditor' },
+  { value: 'browser', labelKey: 'settings.tabAddBrowser' },
+  { value: 'agent', labelKey: 'settings.tabAddAgent' },
+]
+
 const REGISTER_DIRECTORY_OPTIONS: { value: RegisterDirectoryMode; labelKey: string }[] = [
   { value: 'auto', labelKey: 'settings.registerDirectoryAuto' },
   { value: 'ask', labelKey: 'settings.registerDirectoryAsk' },
@@ -655,6 +663,11 @@ const PREVIEW_LINES = [
              「今後は確認しない」もここを書き換える。 -->
         <SettingItem label-key="settings.registerDirectory" hint-key="settings.registerDirectoryHint">
           <SettingToggle v-model="settings.registerDirectory" :options="REGISTER_DIRECTORY_OPTIONS" />
+        </SettingItem>
+
+        <!-- タブバーの「+」で開くもの（#375）。▾ からはどれでも選べる。 -->
+        <SettingItem label-key="settings.tabAddAction" hint-key="settings.tabAddActionHint">
+          <SettingToggle v-model="settings.tabAddAction" :options="TAB_ADD_ACTION_OPTIONS" />
         </SettingItem>
 
         <SettingItem label-key="settings.closeToTray" hint-key="settings.closeToTrayHint">

@@ -386,6 +386,18 @@ function sanitizeRegisterDirectory(v: unknown): RegisterDirectoryMode {
 }
 
 /**
+ * タブバーの「+」を押したときに開くもの（#375）。既定は `terminal`（従来の挙動）。
+ * **好みなので同期の対象**。`agent` は起動行の先頭で、使えるエージェントが無ければターミナルに落ちる。
+ * `Ctrl+T`（新規ターミナル）はこの設定に従わない（キーの名前が「ターミナル」なので）。
+ */
+export const TAB_ADD_ACTIONS = ['terminal', 'editor', 'browser', 'agent'] as const
+export type TabAddAction = (typeof TAB_ADD_ACTIONS)[number]
+
+function sanitizeTabAddAction(v: unknown): TabAddAction {
+  return TAB_ADD_ACTIONS.includes(v as TabAddAction) ? (v as TabAddAction) : 'terminal'
+}
+
+/**
  * ターミナルの出力のファイルパスをどう扱うか（#343）。既定は `confirm`（押したら一度聞く）。
  *
  * **真偽値 2 つ（リンクにするか / 確認するか）に割らない。** 意味のある状態は 3 つしか
@@ -471,6 +483,8 @@ interface PersistedSettings {
   csvPageSize: number
   /** 未登録のディレクトリを開いたときにプロジェクト登録するか（#286）。 */
   registerDirectory: RegisterDirectoryMode
+  /** タブバーの「+」を押したときに開くもの（#375）。 */
+  tabAddAction: TabAddAction
   /** エディタの自動保存の契機（#262）。 */
   autoSave: AutoSave
   /** `autoSave: 'afterDelay'` の待ち時間（ミリ秒）。 */
@@ -753,6 +767,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     // CSV プレビューの表示件数。選択肢と既定値は `lib/csvPreview.ts`。**同期の対象**（好み）。
     csvPageSize: sanitizeChoice(CSV_PAGE_SIZES, s.csvPageSize, CSV_PAGE_SIZE_DEFAULT),
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
+    tabAddAction: sanitizeTabAddAction(s.tabAddAction),
     terminalPathLinks: sanitizeTerminalPathLinks(s.terminalPathLinks),
     agentNotify: sanitizeAgentNotify(s.agentNotify),
     autoSave: sanitizeAutoSave(s.autoSave),
@@ -1052,6 +1067,7 @@ function defaults(): PersistedSettings {
     editorMaxFileSizeMb: EDITOR_MAX_FILE_SIZE_DEFAULT,
     csvPageSize: CSV_PAGE_SIZE_DEFAULT,
     registerDirectory: 'ask',
+    tabAddAction: 'terminal',
     autoSave: 'off',
     autoSaveDelay: AUTO_SAVE_DELAY_DEFAULT,
     editorTabSize: 4,
@@ -1128,6 +1144,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorMaxFileSizeMb = ref(saved.editorMaxFileSizeMb)
   const csvPageSize = ref(saved.csvPageSize)
   const registerDirectory = ref(saved.registerDirectory)
+  const tabAddAction = ref(saved.tabAddAction)
   const autoSave = ref(saved.autoSave)
   const autoSaveDelay = ref(saved.autoSaveDelay)
   const editorTabSize = ref(saved.editorTabSize)
@@ -1592,6 +1609,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMaxFileSizeMb: editorMaxFileSizeMb.value,
       csvPageSize: csvPageSize.value,
       registerDirectory: registerDirectory.value,
+      tabAddAction: tabAddAction.value,
       autoSave: autoSave.value,
       autoSaveDelay: autoSaveDelay.value,
       editorTabSize: editorTabSize.value,
@@ -1646,6 +1664,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMaxFileSizeMb.value = s.editorMaxFileSizeMb
     csvPageSize.value = s.csvPageSize
     registerDirectory.value = s.registerDirectory
+    tabAddAction.value = s.tabAddAction
     autoSave.value = s.autoSave
     autoSaveDelay.value = s.autoSaveDelay
     editorTabSize.value = s.editorTabSize
@@ -1864,6 +1883,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMaxFileSizeMb,
       csvPageSize,
       registerDirectory,
+      tabAddAction,
       autoSave,
       autoSaveDelay,
       editorTabSize,
@@ -1939,6 +1959,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMaxFileSizeMb,
     csvPageSize,
     registerDirectory,
+    tabAddAction,
     autoSave,
     autoSaveDelay,
     editorTabSize,

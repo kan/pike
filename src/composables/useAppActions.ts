@@ -1,11 +1,13 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { t } from '../i18n'
+import { launcherLines } from '../lib/agents'
 import { runFormat } from '../lib/editorFormat'
 import { playMacro, toggleMacroRecording } from '../lib/editorMacro'
 import { normalizeWebUrl } from '../lib/openUrl'
 import type { AppActionId } from '../lib/shortcuts'
 import { pickFolder } from '../lib/tauri'
 import { globalMode } from '../lib/window'
+import { useAgentStore } from '../stores/agents'
 import { useDiagnosticsStore } from '../stores/diagnostics'
 import { useGitStore } from '../stores/git'
 import { useProjectStore } from '../stores/project'
@@ -44,6 +46,21 @@ export function useAppActions(): Record<AppActionId, () => void> & {
    * 入口ごとに規則が割れるため。メニューには載せないので `AppActionId` の外側。
    */
   selectTabByDigit: (digit: string) => void
+  /**
+   * エージェントの起動コマンドを走らせる新しいターミナルのタブ（#375。タブバーの ▾）。
+   * シェルと cwd の決め方は `openTerminal` と同じ。
+   */
+  openAgentTab: (command: string, title: string) => void
+  /**
+   * タブバーの「+」（#375）。設定の `tabAddAction` に従って開く。`agent` で使える
+   * エージェントが無ければターミナルに落ちる（押して何も起きないよりよい）。
+   */
+  openFromTabAdd: () => void
+  /**
+   * 新しいターミナルのシェルと cwd（`openTerminal` と同じ決め方）。タブバーの ▾ が、これから開く
+   * ターミナルのシェルでエージェントを探すのに使う（決め方を 2 か所に書かないため）。
+   */
+  terminalPlace: (shellOverride?: ShellType) => { cwd?: string; shell?: ShellType }
 } {
   // タブ・プロジェクト・設定はどの消費者も使うので先に取り、パネルや git のように
   // 一部のアクションでしか要らないものはクロージャの中で取る（`TabPane` は
@@ -111,20 +128,56 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     return text.trim() ? text : null
   }
 
-  function openTerminal(shellOverride?: ShellType) {
-    // プロジェクトを持たないウィンドウは設定の `globalShell` で開く。ここを
-    // `undefined` にすると、バックエンドの `host_default()`（Windows なら PowerShell）に
-    // 落ちて、WSL を既定にしている環境で「+」と `Ctrl+T` が別のシェルを起動する。
-    if (globalMode.value) {
-      tabStore.addTerminalTab({ shell: shellOverride ?? settings.globalShell })
-      return
-    }
+  /**
+   * 新しいターミナルのシェルと cwd。プロジェクトを持たないウィンドウは設定の `globalShell`
+   * で開く。ここを `undefined` にすると、バックエンドの `host_default()`（Windows なら
+   * PowerShell）に落ちて、WSL を既定にしている環境で「+」と `Ctrl+T` が別のシェルを起動する。
+   */
+  function terminalPlace(shellOverride?: ShellType): { cwd?: string; shell?: ShellType } {
+    if (globalMode.value) return { shell: shellOverride ?? settings.globalShell }
     const project = projectStore.currentProject
     // cwd は `activeRoot`（選択中の worktree）。`project.root` を読むと、worktree を
     // 切り替えたウィンドウで開いた新しいターミナルだけが main を指す（#269）。
-    tabStore.addTerminalTab(
-      project ? { cwd: projectStore.activeRoot, shell: shellOverride ?? project.shell } : undefined,
-    )
+    return project ? { cwd: projectStore.activeRoot, shell: shellOverride ?? project.shell } : {}
+  }
+
+  function openTerminal(shellOverride?: ShellType) {
+    tabStore.addTerminalTab(terminalPlace(shellOverride))
+  }
+
+  function openAgentTab(command: string, title: string) {
+    tabStore.addTerminalTab({ ...terminalPlace(), autoStart: command, title })
+  }
+
+  function openFromTabAdd() {
+    switch (settings.tabAddAction) {
+      case 'editor':
+        tabStore.addBlankEditorTab()
+        return
+      case 'browser':
+        tabStore.addBrowserTab('')
+        return
+      case 'agent':
+        void openFirstAgent()
+        return
+      default:
+        openTerminal()
+    }
+  }
+
+  /**
+   * 起動行の先頭を、**これから開くターミナルのシェル**で見つかったものから選ぶ（ターミナルに
+   * 重ねて出す起動ボタンの本体と同じ並び）。最後に見ていたタブのシェルの答えを使うと、別の
+   * シェルでしか見つからないコマンドを走らせる。まだ聞いていなければ先に聞く（べき等）。
+   */
+  async function openFirstAgent() {
+    const place = terminalPlace()
+    const agents = useAgentStore()
+    await agents.prefetch(place.shell, place.cwd ?? '')
+    const launcher = agents.launchersFor(place.shell)[0]
+    const first = launcher ? launcherLines(launcher)[0] : undefined
+    if (first) openAgentTab(first.command, first.label)
+    else openTerminal()
   }
 
   return {
@@ -217,6 +270,9 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     /** 見ているタブを反対のペインへ送る。分割していなければ、これが分割の入口になる。 */
     moveTabToOtherPane: () => tabStore.moveTabToOtherPane(),
     openTerminal,
+    openAgentTab,
+    openFromTabAdd,
+    terminalPlace,
     selectTabByDigit: (digit: string) => {
       // フォーカスのあるペインの中で数える（#308）。両ペインを合わせた並びだと、
       // 画面の「左から n 番目」と一致しない。
