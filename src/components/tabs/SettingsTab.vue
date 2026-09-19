@@ -1206,6 +1206,11 @@ const PREVIEW_LINES = [
 
       <!-- ブラウザのタブ（#368）。ドメインごとの JS と CSS の差し込み。 -->
       <SettingSection v-bind="SECTIONS.browser">
+        <!-- jirapp から写した Jira の拡張機能（#380）。機能ごとではなく全体で 1 つの切り替え。 -->
+        <SettingItem label-key="settings.jiraFeatures" hint-key="settings.jiraFeaturesHint">
+          <SettingToggle v-model="settings.browserJiraFeatures" :options="ON_OFF" />
+        </SettingItem>
+
         <SettingItem label-key="settings.siteRules" hint-key="settings.siteRulesHint" wide>
           <SiteRuleList />
         </SettingItem>

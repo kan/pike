@@ -271,6 +271,9 @@ export default {
   // The section nav is 120px wide, so keep this short ('External Access' wraps).
   'settings.external': 'Network',
   'settings.browser': 'Browser Tabs',
+  'settings.jiraFeatures': 'Jira enhancements',
+  'settings.jiraFeaturesHint':
+    'Adds to Jira Cloud (*.atlassian.net) pages: column header colors, copying card keys, slimmer column scrollbars, reload (F5 and a header button), automatic reload when idle, and a notice when a change in Jira breaks these features.',
   'settings.siteRules': 'Per-domain JS and CSS',
   'settings.siteRulesHint':
     'Injects the JS and CSS you write into pages on the listed domains. The JS runs with the page’s own privileges and cannot call Pike. These rules are included in settings sync.',
@@ -754,7 +757,8 @@ export default {
   'browser.siteRuleSettings': 'JS and CSS for this domain',
   'browser.mobileOn': 'Show at smartphone screen size',
   'browser.mobileOff': 'Back to full size',
-  'browser.siteRulesChanged': 'Per-domain JS and CSS have changed. Reopen the page to apply them to later pages too',
+  'browser.siteRulesChanged':
+    'The injected JS and CSS settings have changed. Reopen the page to apply them to later pages too',
   'browser.applySiteRules': 'Reopen to apply',
   'browser.blankTitle': 'New Tab',
   'browser.filterPlaceholder': 'Filter bookmarks and history',

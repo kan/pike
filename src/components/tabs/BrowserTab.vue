@@ -132,9 +132,10 @@ async function syncOnce() {
     state = 'creating'
     // 渡した時点のルールを覚える（JS はここで固定されるので、変わったら作り直しを促す）。
     const rules = siteRules.value
-    const key = rulesKeyOf(rules)
+    const jira = settingsStore.browserJiraFeatures
+    const key = rulesKeyOf(rules, jira)
     try {
-      await browserOpen(label, tab.value.url, bounds, rules)
+      await browserOpen(label, tab.value.url, bounds, rules, jira)
       openedRulesKey.value = key
       error.value = null
     } catch (e) {
@@ -194,13 +195,19 @@ const siteRules = computed(() => activeSiteRules(settingsStore.browserSiteRules)
 /**
  * ルールの鍵。**CSS も含める**: CSS はその場で当て直すが、それが効くのは今のページだけで、
  * 次に移動したページには子 webview を作った時点の CSS が差し込まれる（差し込みのスクリプトは
- * 作った時点で固定され、ページをまたいで値を持ち越す置き場も無い）。
+ * 作った時点で固定され、ページをまたいで値を持ち越す置き場も無い）。Jira の拡張機能（#380）の
+ * オン・オフも同じ理由で含める。
  */
-const rulesKeyOf = (rules: SiteRulePayload[]) => JSON.stringify(rules.map((r) => [r.domains, r.js, r.css]))
+const rulesKeyOf = (rules: SiteRulePayload[], jira: boolean) =>
+  JSON.stringify([jira, rules.map((r) => [r.domains, r.js, r.css])])
 /** 子 webview を作ったときのルールの鍵。まだ作っていなければ null。 */
 const openedRulesKey = ref<string | null>(null)
 /** ルールが作ったあとに変わった（作り直さないと、次のページ以降に効かない）。 */
-const rulesStale = computed(() => openedRulesKey.value !== null && openedRulesKey.value !== rulesKeyOf(siteRules.value))
+const rulesStale = computed(
+  () =>
+    openedRulesKey.value !== null &&
+    openedRulesKey.value !== rulesKeyOf(siteRules.value, settingsStore.browserJiraFeatures),
+)
 
 // CSS はその場で当て直す。設定画面の入力欄の打鍵ごとに来るので、少し待ってまとめる。
 let cssTimer: ReturnType<typeof setTimeout> | undefined

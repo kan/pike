@@ -118,6 +118,7 @@ pike/
 │       ├── elevate.rs         # 管理者ターミナル（--new-instance で昇格起動、#138）
 │       ├── browser.rs         # ブラウザのタブの子 webview（#368。`unstable` の `add_child`）
 │       ├── site_rules.rs      # ドメインごとの JS と CSS を差し込むスクリプトの組み立て（#368）
+│       ├── jira/              # Jira の拡張機能の JS（#380。jirapp から写した正本。site_rules.rs が include_str! で埋め込む）
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
 │       ├── page_title.rs      # 貼り付けた URL のページタイトル取得（Markdown リンク、#241）
 │       ├── remote_image.rs    # 承認済みホストの画像取得（Markdown プレビュー、#239）

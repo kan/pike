@@ -39,17 +39,27 @@ fn js_literal<T: serde::Serialize + ?Sized>(v: &T) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "null".into())
 }
 
+/// JS を、ホストが `domains` に一致するページでだけ動くように包む。実行時のエラーは `label` を
+/// 添えてコンソールに出し、その 1 本の中に閉じる。利用者のルールと Jira の拡張機能（#380）が
+/// 共有する（ドメインの判定を `HOST_MATCH_JS` の 1 つに保つため）。
+fn guarded_script<S: serde::Serialize>(domains: &[S], label: &str, js: &str) -> String {
+    format!(
+        "(function(){{if(!({HOST_MATCH_JS})(location.hostname,{domains}))return;\n\
+         try{{\n{js}\n}}catch(e){{console.error('[Pike] '+{label}+':',e);}}}})();",
+        domains = js_literal(domains),
+        label = js_literal(label),
+    )
+}
+
 /// 1 ルールの JS を差し込むスクリプト。JS が空なら `None`。
 pub fn js_script(rule: &SiteRule) -> Option<String> {
     if rule.js.trim().is_empty() {
         return None;
     }
-    Some(format!(
-        "(function(){{if(!({HOST_MATCH_JS})(location.hostname,{domains}))return;\n\
-         try{{\n{js}\n}}catch(e){{console.error('[Pike] site rule '+{name}+':',e);}}}})();",
-        domains = js_literal(&rule.domains),
-        js = rule.js,
-        name = js_literal(&rule.name),
+    Some(guarded_script(
+        &rule.domains,
+        &format!("site rule {}", rule.name),
+        &rule.js,
     ))
 }
 
@@ -76,6 +86,36 @@ pub fn css_script(rules: &[SiteRule]) -> String {
     )
 }
 
+/// Jira の拡張機能（#380）。jirapp が標準で Jira の画面に差し込んでいた JS を Pike に写したもの
+/// （正本は `src-tauri/src/jira/`）。**`machinery.js` が先頭**（他の機能が乗る `window.JIRAPP` を
+/// 用意する）。
+const JIRA_SCRIPTS: &[(&str, &str)] = &[
+    ("machinery", include_str!("jira/machinery.js")),
+    ("column_color", include_str!("jira/column_color.js")),
+    ("card_key_copy", include_str!("jira/card_key_copy.js")),
+    ("column_scrollbar", include_str!("jira/column_scrollbar.js")),
+    ("reload_shortcut", include_str!("jira/reload_shortcut.js")),
+    ("reload_button", include_str!("jira/reload_button.js")),
+    ("selfcheck", include_str!("jira/selfcheck.js")),
+];
+
+/// Jira Cloud のホスト。
+const JIRA_DOMAINS: &[&str] = &["*.atlassian.net"];
+
+/// Jira の拡張機能を差し込むスクリプト。`*.atlassian.net`（Jira Cloud）のページでだけ動くように
+/// 包む（ブラウザのタブは途中で別のサイトへ移りうる）。1 本ずつ別のスクリプトにするのは、
+/// 利用者のルールと同じく、1 本の構文エラーで他の機能を巻き込まないため。
+///
+/// **差し込み先はメインフレームだけでよい。** `machinery.js` は子フレームでは何もしない作りで、
+/// localStorage のための `about:blank` の iframe も、最上位のスクリプトから `contentWindow` 越しに
+/// 読むだけ（iframe の中でスクリプトを走らせる必要が無い）。
+pub fn jira_scripts() -> Vec<String> {
+    JIRA_SCRIPTS
+        .iter()
+        .map(|(name, js)| guarded_script(JIRA_DOMAINS, &format!("jira {name}"), js))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,8 +139,18 @@ mod tests {
     fn name_and_domains_are_escaped() {
         let s = js_script(&rule("console.log(1)", "")).unwrap();
         assert!(s.contains(r#"["*.atlassian.net"]"#));
-        assert!(s.contains(r#""Jira \"ボード\"""#));
+        assert!(s.contains(r#""site rule Jira \"ボード\"""#));
         assert!(s.contains("\nconsole.log(1)\n"));
+    }
+
+    #[test]
+    fn jira_scripts_are_guarded_and_machinery_first() {
+        let scripts = jira_scripts();
+        assert_eq!(scripts.len(), JIRA_SCRIPTS.len());
+        assert!(scripts[0].contains("window.JIRAPP = JIRAPP"));
+        assert!(scripts
+            .iter()
+            .all(|s| s.contains(r#"(location.hostname,["*.atlassian.net"]))return;"#)));
     }
 
     #[test]

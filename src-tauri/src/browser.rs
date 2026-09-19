@@ -129,12 +129,20 @@ pub async fn browser_open(
     url: String,
     bounds: Bounds,
     rules: Vec<SiteRule>,
+    jira: bool,
 ) -> Result<(), String> {
     check_label(&label)?;
     let url = parse_web_url(&url)?;
     let opener_label = label.clone();
     let window_label = window.label().to_string();
     let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(url));
+    // Jira の拡張機能（#380）。**利用者のルールより先に入れる**: ルールの JS から
+    // `window.JIRAPP` を使えるように。
+    if jira {
+        for script in site_rules::jira_scripts() {
+            builder = builder.initialization_script(script);
+        }
+    }
     // ドメインごとの差し込み（段階 3）。**作った時点で固定される**ので、JS を変えたら
     // フロントが子 webview を作り直す。CSS はあとから `browser_apply_css` で当て直せる。
     for script in rules.iter().filter_map(site_rules::js_script) {

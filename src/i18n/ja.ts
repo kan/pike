@@ -270,6 +270,9 @@ export default {
   'settings.general': '全般',
   'settings.external': '外部との通信',
   'settings.browser': 'ブラウザのタブ',
+  'settings.jiraFeatures': 'Jira の拡張機能',
+  'settings.jiraFeaturesHint':
+    'Jira Cloud（*.atlassian.net）のページに、列の見出しの色分け・カードのキーのコピー・列のスクロールバーを細くする・再読み込み（F5 とヘッダのボタン）・何もしていないときの自動再読み込み・画面の変化で機能が効かなくなったときの知らせ、を入れます。',
   'settings.siteRules': 'ドメインごとの JS と CSS',
   'settings.siteRulesHint':
     '対象のドメインのページに、書いた JS と CSS を差し込みます。JS はそのページと同じ権限で動き、Pike の機能は呼べません。このルールは設定の同期の対象です。',
@@ -753,7 +756,7 @@ export default {
   'browser.siteRuleSettings': 'このドメインの JS と CSS を設定',
   'browser.mobileOn': 'スマートフォンの画面の大きさで表示',
   'browser.mobileOff': '元の大きさに戻す',
-  'browser.siteRulesChanged': 'ドメインごとの JS と CSS が変わりました。次のページ以降にも効かせるには開き直します',
+  'browser.siteRulesChanged': '差し込む JS と CSS の設定が変わりました。次のページ以降にも効かせるには開き直します',
   'browser.applySiteRules': '開き直して反映',
   'browser.blankTitle': '新しいタブ',
   'browser.filterPlaceholder': 'ブックマークと履歴を絞り込む',

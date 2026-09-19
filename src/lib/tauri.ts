@@ -669,8 +669,10 @@ export async function browserOpen(
   url: string,
   bounds: BrowserBounds,
   rules: SiteRulePayload[],
+  /** Jira の拡張機能を入れるか（#380。入れるのは `*.atlassian.net` のページだけ）。 */
+  jira: boolean,
 ): Promise<void> {
-  return invoke('browser_open', { label, url, bounds, rules })
+  return invoke('browser_open', { label, url, bounds, rules, jira })
 }
 
 /** ルールを変えたとき、開いているページの CSS を当て直す。 */
