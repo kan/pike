@@ -25,7 +25,14 @@ async function remove(rule: SiteRule) {
 <template>
   <div class="rule-list">
     <p v-if="settings.browserSiteRules.length === 0" class="setting-hint">{{ t('settings.siteRulesEmpty') }}</p>
-    <div v-for="rule in settings.browserSiteRules" :key="rule.id" class="rule" :class="{ disabled: !rule.enabled }">
+    <!-- `data-site-rule` はブラウザのタブの歯車が目当てのルールを探す印（`SettingsTab.vue`）。 -->
+    <div
+      v-for="rule in settings.browserSiteRules"
+      :key="rule.id"
+      class="rule"
+      :class="{ disabled: !rule.enabled }"
+      :data-site-rule="rule.id"
+    >
       <div class="rule-head">
         <label class="rule-enabled" :title="t('settings.siteRuleEnabled')">
           <input v-model="rule.enabled" type="checkbox" />
@@ -82,6 +89,21 @@ async function remove(rule: SiteRule) {
 
 .rule.disabled {
   opacity: 0.6;
+}
+
+/* ブラウザのタブの歯車から開いたとき、どのルールかを一瞬だけ示す（`SettingsTab.vue` が付ける）。 */
+.rule.flash {
+  animation: rule-flash 1.2s ease-out;
+}
+
+@keyframes rule-flash {
+  from {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  to {
+    box-shadow: 0 0 0 2px transparent;
+  }
 }
 
 .rule-head {

@@ -1258,7 +1258,13 @@ export const useProjectStore = defineStore('project', () => {
         } else if (def.kind === 'browser' && def.url) {
           // ページは作らない（#368）。子 webview はタブが初めて見えたときに `BrowserTab` が作るので、
           // 復元したタブの数だけ起動時に読み込みが走ることはない。
-          tabStore.addBrowserTab(def.url, { forceNew: true, title: def.title, pinned: def.pinned, pane: def.pane })
+          tabStore.addBrowserTab(def.url, {
+            forceNew: true,
+            title: def.title,
+            pinned: def.pinned,
+            pane: def.pane,
+            mobile: def.mobile,
+          })
         }
         // `codex-chat` / `agent-chat` は #275 で廃止した。**専用の後始末は要らない**:
         // このループが知らない kind を読み飛ばし、`snapshotSession` は生きている kind だけを

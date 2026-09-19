@@ -757,14 +757,17 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function addSettingsTab(): string {
+  /** `focusSiteRule` を渡すと、そのドメインごとの差し込みルールまでスクロールして開く（#368）。 */
+  function addSettingsTab(options: { focusSiteRule?: string } = {}): string {
+    const focusRequest = options.focusSiteRule ? { siteRuleId: options.focusSiteRule, at: Date.now() } : undefined
     const existing = tabs.value.find((t): t is SettingsTab => t.kind === 'settings')
     if (existing) {
+      if (focusRequest) existing.focusRequest = focusRequest
       activeTabId.value = existing.id
       return existing.id
     }
     const id = genId()
-    pushTab({ id, kind: 'settings', title: 'Settings', pinned: false })
+    pushTab({ id, kind: 'settings', title: 'Settings', pinned: false, focusRequest })
     activeTabId.value = id
     return id
   }
@@ -837,6 +840,7 @@ export const useTabStore = defineStore('tabs', () => {
       title?: string
       pinned?: boolean
       pane?: PaneId
+      mobile?: boolean
     } = {},
   ): string {
     // **空の URL は常に新しいタブ**（ブラウザパネルの「新しいタブ」）。使い回すと、
@@ -853,7 +857,15 @@ export const useTabStore = defineStore('tabs', () => {
     }
     const id = genId()
     const title = options.title || (url ? displayHost(url) : t('browser.blankTitle'))
-    pushTab({ id, kind: 'browser', title, pinned: options.pinned ?? false, url, pane: options.pane })
+    pushTab({
+      id,
+      kind: 'browser',
+      title,
+      pinned: options.pinned ?? false,
+      url,
+      pane: options.pane,
+      mobile: options.mobile,
+    })
     activeTabId.value = id
     return id
   }
@@ -1246,7 +1258,7 @@ export const useTabStore = defineStore('tabs', () => {
           return { ...base, path: t.path }
         }
         // ブラウザのタブ（#368）。ページの中で移動した先（`BrowserTab` が書き換える `url`）を残す。
-        return { ...base, url: t.url }
+        return { ...base, url: t.url, mobile: t.mobile || undefined }
       })
     return {
       tabs: sessionTabs,

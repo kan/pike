@@ -28,6 +28,8 @@ pub struct SiteRule {
 }
 
 /// ホスト名がドメインの一覧に一致するか（JS の関数式）。**`hostname` で比べる**（ポートを見ない）。
+/// フロントの `stores/settings.ts` の `hostMatchesDomain`（ブラウザのタブの歯車がルールを探す）と
+/// 同じ規則にしておくこと。
 const HOST_MATCH_JS: &str = "function(h,ps){h=String(h).toLowerCase();\
 return ps.some(function(p){p=String(p).toLowerCase();\
 return p.indexOf('*.')===0?(h.length>p.length-1&&h.slice(-(p.length-1))===p.slice(1)):h===p;});}";

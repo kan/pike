@@ -65,6 +65,8 @@ export interface SessionTabDef {
   content?: string
   /** ブラウザのタブの URL（#368）。 */
   url?: string
+  /** ブラウザのタブをスマートフォンの画面の大きさで表示していたか（#368）。 */
+  mobile?: boolean
   /** 左右どちらのペインで開いていたか（#308）。省略＝左。 */
   pane?: PaneId
 }

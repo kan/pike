@@ -9,7 +9,7 @@
  * それ以外の浮くものは隠れたままになる（#368 で制約として受け入れた）。
  */
 
-import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, Star } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, Settings, Smartphone, Star } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { type BrowserHandlers, browserRouter } from '../../composables/useBrowserRouter'
 import { dialogOpen } from '../../composables/useConfirmDialog'
@@ -261,7 +261,12 @@ const routerHandlers: BrowserHandlers = {
 onMounted(() => {
   // 大きさの変化（ウィンドウのリサイズ、サイドバーや分割線のドラッグ、エラーの帯の出し入れ）。
   observer = new ResizeObserver(scheduleSync)
-  if (viewRef.value) observer.observe(viewRef.value)
+  if (viewRef.value) {
+    observer.observe(viewRef.value)
+    // スマートフォンの画面では枠の大きさが固定なので、入れ物の大きさが変わっても枠は
+    // 中央へ動くだけで ResizeObserver が発火しない。入れ物も見る。
+    if (viewRef.value.parentElement) observer.observe(viewRef.value.parentElement)
+  }
   scheduleSync()
   // 空のタブは URL を打つために開いたものなので、アドレス欄から始める。
   if (!tab.value?.url) addressRef.value?.focus()
@@ -310,6 +315,56 @@ function toggleBookmark() {
   else settingsStore.addBookmark(tab.value.url, tab.value.title)
 }
 
+/** スマートフォンの画面の大きさに絞る・戻す。枠の大きさが変わるので ResizeObserver が位置を合わせ直す。 */
+function toggleMobile() {
+  if (tab.value) tab.value.mobile = !tab.value.mobile
+}
+
+/**
+ * アドレス欄の補完候補。ブックマークを先に、閲覧履歴を新しい順に並べる（同じ URL は 1 つ）。
+ * 件数は絞る（履歴は最大 500 件あり、`<option>` を全部描くと打鍵のたびに重くなる）。
+ */
+const SUGGEST_MAX = 200
+const suggestId = `browser-suggest-${props.tabId}`
+const suggestions = computed(() => {
+  const seen = new Set<string>()
+  const out: { url: string; label: string }[] = []
+  const push = (url: string, label: string) => {
+    if (seen.has(url) || out.length >= SUGGEST_MAX) return
+    seen.add(url)
+    out.push({ url, label })
+  }
+  for (const b of settingsStore.browserBookmarks) push(b.url, b.name)
+  for (const v of browserStore.history) push(v.url, v.title)
+  return out
+})
+
+/**
+ * 補完候補を選んだら、そのまま移動する。**候補の選択は打鍵と同じ `input` イベントで届く**ので、
+ * `inputType` で見分ける（Chromium は候補の選択を `insertReplacementText` で知らせる。打鍵は
+ * `insertText`）。入った値が候補の URL と一致するときだけにする。
+ */
+function onAddressInput(e: Event) {
+  if ((e as InputEvent).inputType !== 'insertReplacementText') return
+  if (suggestions.value.some((s) => s.url === address.value)) void go()
+}
+
+/**
+ * 歯車：このページのドメインの JS と CSS のルールを設定タブで開く。合うルールが無ければ、
+ * ドメインにホスト名を入れたルールを作ってから開く（`settingsStore.siteRuleForHost`）。
+ */
+function openSiteRuleSettings() {
+  if (!tab.value?.url) return
+  let host: string
+  try {
+    host = new URL(tab.value.url).hostname
+  } catch {
+    return
+  }
+  if (!host) return
+  tabStore.addSettingsTab({ focusSiteRule: settingsStore.siteRuleForHost(host) })
+}
+
 function openExternal() {
   if (tab.value) void openUrlWithConfirm(tab.value.url)
 }
@@ -323,14 +378,32 @@ function openExternal() {
         <ArrowRight :size="14" />
       </button>
       <button class="tool-btn" :title="t('browser.reload')" @click="history('reload')"><RotateCw :size="14" /></button>
+      <!--
+        補完候補は `<datalist>`（#368 の段階 4）。**HTML で一覧を描かないこと**: ページ（子 webview）が
+        Pike の画面より手前に描かれるので、アドレス欄の下に出した一覧はページの下に隠れる。
+        `<datalist>` の候補は Chromium がネイティブの小さなウィンドウとして出す。
+      -->
       <input
         ref="addressRef"
         v-model="address"
         class="address"
         spellcheck="false"
+        :list="suggestId"
         :placeholder="t('browser.addressPlaceholder')"
         @keydown.enter="go"
+        @input="onAddressInput"
       />
+      <datalist :id="suggestId">
+        <option v-for="s in suggestions" :key="s.url" :value="s.url" :label="s.label" />
+      </datalist>
+      <button
+        class="tool-btn"
+        :class="{ active: tab?.mobile }"
+        :title="t(tab?.mobile ? 'browser.mobileOff' : 'browser.mobileOn')"
+        @click="toggleMobile"
+      >
+        <Smartphone :size="14" />
+      </button>
       <!-- 空のタブでは、登録する・外で開くページがまだ無い。 -->
       <button
         class="tool-btn"
@@ -340,6 +413,9 @@ function openExternal() {
         @click="toggleBookmark"
       >
         <Star :size="14" :fill="bookmarked ? 'currentColor' : 'none'" />
+      </button>
+      <button class="tool-btn" :disabled="!tab?.url" :title="t('browser.siteRuleSettings')" @click="openSiteRuleSettings">
+        <Settings :size="14" />
       </button>
       <button class="tool-btn" :disabled="!tab?.url" :title="t('browser.openExternal')" @click="openExternal">
         <ExternalLink :size="14" />
@@ -352,7 +428,10 @@ function openExternal() {
       <span>{{ t('browser.siteRulesChanged') }}</span>
       <button class="notice-btn" @click="recreate">{{ t('browser.applySiteRules') }}</button>
     </div>
-    <div ref="viewRef" class="browser-view" />
+    <!-- 子 webview を重ねるのは `.browser-frame`。スマートフォンの画面のときは枠を絞って中央に置く。 -->
+    <div class="browser-view" :class="{ mobile: tab?.mobile }">
+      <div ref="viewRef" class="browser-frame" />
+    </div>
   </div>
 </template>
 
@@ -422,5 +501,32 @@ function openExternal() {
 .browser-view {
   flex: 1;
   min-height: 0;
+  display: flex;
+}
+
+.browser-frame {
+  flex: 1;
+}
+
+/*
+ * スマートフォンの画面（#368 の段階 4）。**幅と高さを絞るだけで UA は変えない**（見送った）。
+ * CSS のメディアクエリは表示の幅で切り替わるので、多くのサイトはこれでスマートフォン向けになる。
+ * 大きさは iPhone の標準的な画面（390×844）。タブがそれより小さければ、はみ出さないよう縮める。
+ */
+.browser-view.mobile {
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+}
+
+.browser-view.mobile .browser-frame {
+  flex: 0 0 auto;
+  width: min(390px, 100%);
+  height: min(844px, 100%);
+  outline: 1px solid var(--border);
+}
+
+.tool-btn.active {
+  color: var(--accent);
 }
 </style>

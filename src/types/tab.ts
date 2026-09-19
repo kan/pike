@@ -361,6 +361,12 @@ export type SettingsTab = {
   kind: 'settings'
   title: string
   pinned: boolean
+  /**
+   * 開いたら見せてほしいもの（#368）。ブラウザのタブの歯車から、そのページのドメインの
+   * ルールを開くのに使う。`at` は `EditorTab.reloadRequested` と同じく合図のための時刻で、
+   * 同じルールを続けて頼んでも必ず変わる。
+   */
+  focusRequest?: { siteRuleId: string; at: number }
 }
 
 /** Singleton `/status` view for the agents (#226). */
@@ -423,6 +429,8 @@ export type BrowserTab = {
   title: string
   pinned: boolean
   url: string
+  /** スマートフォンの画面の大きさに絞って表示する（#368 の段階 4）。UA は変えない。 */
+  mobile?: boolean
 }
 
 /**

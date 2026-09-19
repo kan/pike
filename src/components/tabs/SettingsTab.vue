@@ -15,7 +15,7 @@ import {
   Trash2,
   X,
 } from 'lucide-vue-next'
-import { type Component, computed, ref, useTemplateRef, watch } from 'vue'
+import { type Component, computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { provideSettingsSearch } from '../../composables/useSettingsSearch'
@@ -63,7 +63,14 @@ import {
   type WindowBackdrop,
 } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
-import { isWindowsShell, type ShellProfile, shellFromId, shellId, shellProfileLabel } from '../../types/tab'
+import {
+  isWindowsShell,
+  type SettingsTab as SettingsTabDef,
+  type ShellProfile,
+  shellFromId,
+  shellId,
+  shellProfileLabel,
+} from '../../types/tab'
 import AllowedHostList from '../panels/AllowedHostList.vue'
 import ProfileRow from '../panels/ProfileRow.vue'
 import SiteRuleList from '../panels/SiteRuleList.vue'
@@ -525,6 +532,36 @@ function scrollToSection(id: string) {
   const el = document.getElementById(`settings-${id}`)
   el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
+
+/**
+ * ブラウザのタブの歯車から、そのドメインのルールを開く（#368）。**絞り込みは空にする**:
+ * 入力が残っていると、目当てのルールが `v-show` で隠れていて見せられない。ルールを作った直後は
+ * まだ描かれていないので、次の描画を待ってから探す。入力欄にフォーカスを置き、一瞬だけ枠を光らせる
+ * （見た目は `SiteRuleList.vue` の `.flash`）。
+ */
+watch(
+  () => tabStore.tabs.find((t): t is SettingsTabDef => t.id === props.tabId && t.kind === 'settings')?.focusRequest,
+  async (req) => {
+    if (!req) return
+    query.value = ''
+    await nextTick()
+    // 設定タブを開いた直後は、中身がまだ描かれていないことがある。数フレームだけ探し直す。
+    const selector = `[data-site-rule="${CSS.escape(req.siteRuleId)}"]`
+    let el = document.querySelector<HTMLElement>(selector)
+    for (let i = 0; !el && i < 30; i++) {
+      await new Promise((r) => requestAnimationFrame(r))
+      el = document.querySelector<HTMLElement>(selector)
+    }
+    if (!el) return
+    activeSection.value = SECTIONS.browser.id
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.querySelector<HTMLTextAreaElement>('textarea')?.focus({ preventScroll: true })
+    el.classList.remove('flash')
+    void el.offsetWidth // 続けて頼まれても光り直すよう、アニメーションを最初からにする
+    el.classList.add('flash')
+  },
+  { immediate: true },
+)
 
 function onSettingsScroll(e: Event) {
   // Use viewport rects (not offsetTop) so the active-section detection stays

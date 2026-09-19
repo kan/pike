@@ -622,6 +622,15 @@ function normalizeDomain(d: string): string {
     .replace(/:\d+$/, '')
 }
 
+/**
+ * ホスト名がドメインに一致するか。**Rust の `site_rules::HOST_MATCH_JS`（ページの中で走る判定）と
+ * 同じ規則**：`*.example.com` はサブドメインだけ、それ以外は完全一致。
+ */
+function hostMatchesDomain(host: string, domain: string): boolean {
+  const h = host.toLowerCase()
+  return domain.startsWith('*.') ? h.length > domain.length - 1 && h.endsWith(domain.slice(1)) : h === domain
+}
+
 function splitDomains(domains: string): string[] {
   return domains
     .split(/[\s,]+/)
@@ -1237,6 +1246,22 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function removeSiteRule(id: string) {
     browserSiteRules.value = browserSiteRules.value.filter((r) => r.id !== id)
+  }
+
+  /**
+   * そのホストのページに効くルールの id（ブラウザのタブの歯車、#368）。**無効にしてあるルールも
+   * 探す**（開いて有効に戻したい、が歯車を押す理由になりうる）。無ければ、ドメインにホスト名を
+   * 入れたルールを作って返す。
+   */
+  function siteRuleForHost(host: string): string {
+    const found = browserSiteRules.value.find((r) => splitDomains(r.domains).some((d) => hostMatchesDomain(host, d)))
+    if (found) return found.id
+    const id = crypto.randomUUID()
+    browserSiteRules.value = [
+      ...browserSiteRules.value,
+      { id, name: host, enabled: true, domains: host, js: '', css: '' },
+    ]
+    return id
   }
 
   function moveBookmark(moved: string, target: string, side: 'top' | 'bottom') {
@@ -1957,6 +1982,7 @@ export const useSettingsStore = defineStore('settings', () => {
     browserSiteRules,
     addSiteRule,
     removeSiteRule,
+    siteRuleForHost,
     globalShell,
     projectBase,
     hiddenProjects,
