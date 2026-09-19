@@ -118,6 +118,7 @@ export const APP_ACTIONS = [
   { id: 'panelDiagnostics', palette: 'view', labelKey: 'sidebar.diagnostics', panel: 'diagnostics' },
   { id: 'panelIssues', palette: 'view', labelKey: 'sidebar.issues', panel: 'issues' },
   { id: 'panelProjects', palette: 'view', labelKey: 'sidebar.projects', panel: 'projects' },
+  { id: 'panelBrowser', palette: 'view', labelKey: 'sidebar.browser', panel: 'browser' },
   // --- Git
   { id: 'gitPull', palette: 'git', labelKey: 'git.pull', needsProject: true },
   { id: 'gitPush', palette: 'git', labelKey: 'git.push', needsProject: true },

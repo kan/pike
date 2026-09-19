@@ -25,7 +25,6 @@ import { macroRecording, toggleMacroRecording } from '../../lib/editorMacro'
 import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
 import { languageOptions } from '../../lib/languages'
-import { openUrlWithConfirm } from '../../lib/openUrl'
 import { basename } from '../../lib/paths'
 import { traySetTooltip } from '../../lib/tauri'
 import { type Meter, rateLevelClass, toMeter } from '../../lib/usageFormat'
@@ -163,8 +162,12 @@ const repoIcon = computed(() => {
   }
 })
 
-async function openProjectRepo() {
-  if (repoLink.value) await openUrlWithConfirm(repoLink.value.url)
+/**
+ * リポジトリのページをブラウザのタブ（#368）で開く。Pike の中でタブを開くだけなので、
+ * 外部 URL を開く確認（`openUrlWithConfirm`）は挟まない（issue パネルの行のクリックと同じ）。
+ */
+function openProjectRepo() {
+  if (repoLink.value) tabStore.addBrowserTab(repoLink.value.url)
 }
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)

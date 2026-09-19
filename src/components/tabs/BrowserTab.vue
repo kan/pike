@@ -9,7 +9,7 @@
  * それ以外の浮くものは隠れたままになる（#368 で制約として受け入れた）。
  */
 
-import { ArrowLeft, ArrowRight, ExternalLink, RotateCw } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, Star } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { browserRouter } from '../../composables/useBrowserRouter'
 import { dialogOpen } from '../../composables/useConfirmDialog'
@@ -25,7 +25,9 @@ import {
   browserOpen,
   browserPlace,
 } from '../../lib/tauri'
+import { useBrowserStore } from '../../stores/browser'
 import { useProjectStore } from '../../stores/project'
+import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { BrowserTab } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
@@ -34,6 +36,8 @@ const { t } = useI18n()
 const props = defineProps<{ tabId: string }>()
 const tabStore = useTabStore()
 const projectStore = useProjectStore()
+const settingsStore = useSettingsStore()
+const browserStore = useBrowserStore()
 const shortcutsModal = useShortcutsModal()
 
 const tab = computed(() => tabStore.tabs.find((t): t is BrowserTab => t.id === props.tabId && t.kind === 'browser'))
@@ -47,6 +51,7 @@ const tab = computed(() => tabStore.tabs.find((t): t is BrowserTab => t.id === p
  */
 const label = `browser-${crypto.randomUUID()}`
 const viewRef = useTemplateRef<HTMLElement>('viewRef')
+const addressRef = useTemplateRef<HTMLInputElement>('addressRef')
 const address = ref(tab.value?.url ?? '')
 const error = ref<string | null>(null)
 /**
@@ -88,14 +93,38 @@ function scheduleSync() {
   })
 }
 
+/**
+ * **位置合わせは 1 本ずつ順に送る。** Rust のコマンドは別々のタスクで走るので、重ねて送ると
+ * 「見せる」と「隠す」の順が入れ替わり、隠したはずのページが最後に見えたまま残りうる。
+ * 走っている最中に頼まれたら印だけ付け、終わってから最新の状態でもう一度合わせる。
+ */
+let syncing = false
+let syncAgain = false
+
 async function sync() {
+  if (syncing) {
+    syncAgain = true
+    return
+  }
+  syncing = true
+  try {
+    await syncOnce()
+  } finally {
+    syncing = false
+    if (syncAgain) {
+      syncAgain = false
+      void sync()
+    }
+  }
+}
+
+async function syncOnce() {
   if (disposed || !tab.value) return
-  // 作っている途中の変化は、作り終えたあとの測り直しで拾う。
-  if (state === 'creating') return
   const bounds = measure()
   if (state === 'none') {
     // 最初に見えたときに作る。隠れたタブを復元で作っても、測れないので待つ。
-    if (!shown.value || !bounds) return
+    // 空のタブ（ブラウザパネルの「新しいタブ」）は、アドレス欄に URL が入るまで作らない。
+    if (!shown.value || !bounds || !tab.value.url) return
     state = 'creating'
     try {
       await browserOpen(label, tab.value.url, bounds)
@@ -111,8 +140,9 @@ async function sync() {
       void browserClose(label)
       return
     }
-    // 作っているあいだに隠れた・動いたぶんを反映する。
-    scheduleSync()
+    // 作っているあいだに隠れた・動いたぶんを反映する（`sync` が 1 本ずつなので、作っている
+    // 最中に来た頼みは `syncAgain` に溜まっている。溜まっていなくても 1 回は合わせ直す）。
+    syncAgain = true
     return
   }
   // **変わっていなければ送らない。** リサイズ中は毎フレーム来るうえ、隠れているタブにも
@@ -120,10 +150,12 @@ async function sync() {
   const visible = shown.value && !!bounds
   const key = visible && bounds ? `${bounds.x},${bounds.y},${bounds.width},${bounds.height}` : ''
   if (visible === lastVisible && key === lastBoundsKey) return
-  lastVisible = visible
-  lastBoundsKey = key
   try {
     await browserPlace(label, visible, visible ? (bounds ?? undefined) : undefined)
+    // **送れたときだけ覚える。** 失敗したのに覚えると、次に同じ状態を頼まれても
+    // 「変わっていない」と見なして送らず、見えたまま（隠れたまま）になる。
+    lastVisible = visible
+    lastBoundsKey = key
   } catch (e) {
     error.value = String(e)
   }
@@ -133,7 +165,9 @@ async function sync() {
 let lastVisible = true
 let lastBoundsKey = ''
 
-watch(shown, scheduleSync)
+// **隠すときはフレームを待たない。** 次のフレームまで待つと、そのあいだ別のタブの上に
+// ページが残る。フレームの更新が止まっている（webview が描画を止めている）場合でも隠れる。
+watch(shown, (v) => (v ? scheduleSync() : void sync()))
 
 let observer: ResizeObserver | null = null
 
@@ -148,14 +182,23 @@ onMounted(async () => {
   observer = new ResizeObserver(scheduleSync)
   if (viewRef.value) observer.observe(viewRef.value)
   scheduleSync()
+  // 空のタブは URL を打つために開いたものなので、アドレス欄から始める。
+  if (!tab.value?.url) addressRef.value?.focus()
   browserRouter.register(label, {
-    onState: ({ url, title }) => {
+    onState: ({ url, title, titleUrl }) => {
       if (!tab.value) return
+      if (title) {
+        tabStore.setTabTitle(props.tabId, title)
+        // SPA は URL を変えずにタイトルだけ変えることがある。履歴の行も追従させる。
+        // **`tab.value.url` を使わない**: 読み込みの途中ではまだ前のページを指している。
+        if (titleUrl) browserStore.setTitle(titleUrl, title)
+      }
       if (url) {
         tab.value.url = url
         address.value = url
+        // タイトルは読み込みの途中で先に届くことが多いので、その時点のタブの名前を使う。
+        browserStore.recordVisit(url, tab.value.title)
       }
-      if (title) tabStore.setTabTitle(props.tabId, title)
     },
     // ページが新しいウィンドウを開こうとした（`target=_blank` など）。ポップアップは Rust が
     // WebView2 に任せ、ここへ来るのは普通のリンクだけ。同じ URL のタブがあっても新しく開く
@@ -198,6 +241,15 @@ function history(action: BrowserHistoryAction) {
   if (state === 'ready') void browserHistory(label, action).catch((e) => (error.value = String(e)))
 }
 
+const bookmarked = computed(() => !!tab.value && settingsStore.isBookmarked(tab.value.url))
+
+/** ☆ で今のページをブックマークに足す・外す。名前はタブの名前（ページのタイトル）。 */
+function toggleBookmark() {
+  if (!tab.value) return
+  if (bookmarked.value) settingsStore.removeBookmark(tab.value.url)
+  else settingsStore.addBookmark(tab.value.url, tab.value.title)
+}
+
 function openExternal() {
   if (tab.value) void openUrlWithConfirm(tab.value.url)
 }
@@ -212,13 +264,24 @@ function openExternal() {
       </button>
       <button class="tool-btn" :title="t('browser.reload')" @click="history('reload')"><RotateCw :size="14" /></button>
       <input
+        ref="addressRef"
         v-model="address"
         class="address"
         spellcheck="false"
         :placeholder="t('browser.addressPlaceholder')"
         @keydown.enter="go"
       />
-      <button class="tool-btn" :title="t('browser.openExternal')" @click="openExternal">
+      <!-- 空のタブでは、登録する・外で開くページがまだ無い。 -->
+      <button
+        class="tool-btn"
+        :class="{ bookmarked }"
+        :disabled="!tab?.url"
+        :title="t(bookmarked ? 'browser.removeBookmark' : 'browser.addBookmark')"
+        @click="toggleBookmark"
+      >
+        <Star :size="14" :fill="bookmarked ? 'currentColor' : 'none'" />
+      </button>
+      <button class="tool-btn" :disabled="!tab?.url" :title="t('browser.openExternal')" @click="openExternal">
         <ExternalLink :size="14" />
       </button>
       <HelpButton page="browser.md" :size="15" />
@@ -247,6 +310,11 @@ function openExternal() {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 12px;
+}
+
+/* ブックマーク済みの ☆ は塗りつぶしに加えて色でも見分ける。 */
+.tool-btn.bookmarked {
+  color: var(--accent);
 }
 
 .browser-error {

@@ -19,3 +19,16 @@ export function insertAt<T>(ids: readonly T[], moved: T, target: T, side: 'top' 
   rest.splice(side === 'bottom' ? at + 1 : at, 0, moved)
   return rest
 }
+
+/**
+ * 鍵で要素を指して並べ替えた配列を返す（`insertAt` を鍵で呼ぶ形）。**変わらなければ元の配列を
+ * そのまま返す**ので、呼び出し側は `!==` で比べて、変わったときだけ代入できる（ストアの値に
+ * 代入すると、保存・同期・broadcast が走る）。どちらかの鍵が無ければ何もしない。
+ */
+export function moveByKey<T, K>(list: T[], keyOf: (item: T) => K, moved: K, target: K, side: 'top' | 'bottom'): T[] {
+  const m = list.find((i) => keyOf(i) === moved)
+  const tg = list.find((i) => keyOf(i) === target)
+  if (!m || !tg || m === tg) return list
+  const next = insertAt(list, m, tg, side)
+  return next.every((i, n) => i === list[n]) ? list : next
+}

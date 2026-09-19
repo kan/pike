@@ -4,7 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
 import { t } from '../i18n'
-import { formatLineRange } from '../lib/format'
+import { displayHost, formatLineRange } from '../lib/format'
 import { MANUAL_INDEX } from '../lib/manual'
 import { basename, normalizeSep, toRelativePath } from '../lib/paths'
 import { ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
@@ -839,24 +839,20 @@ export const useTabStore = defineStore('tabs', () => {
       pane?: PaneId
     } = {},
   ): string {
-    const existing = options.forceNew
-      ? undefined
-      : tabs.value.find(
-          (t): t is BrowserTab => t.kind === 'browser' && t.url === url && t.projectId === ownerProjectId.value,
-        )
+    // **空の URL は常に新しいタブ**（ブラウザパネルの「新しいタブ」）。使い回すと、
+    // 開いたまま放ってある空のタブへ飛ぶだけになる。
+    const existing =
+      options.forceNew || !url
+        ? undefined
+        : tabs.value.find(
+            (t): t is BrowserTab => t.kind === 'browser' && t.url === url && t.projectId === ownerProjectId.value,
+          )
     if (existing) {
       activeTabId.value = existing.id
       return existing.id
     }
     const id = genId()
-    let title = options.title || url
-    if (!options.title) {
-      try {
-        title = new URL(url).host || url
-      } catch {
-        // 読めない URL は Rust 側が弾く。タイトルは素のまま出しておく。
-      }
-    }
+    const title = options.title || (url ? displayHost(url) : t('browser.blankTitle'))
     pushTab({ id, kind: 'browser', title, pinned: options.pinned ?? false, url, pane: options.pane })
     activeTabId.value = id
     return id

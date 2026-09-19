@@ -201,6 +201,7 @@ pike/
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）
+│   │   │   ├── BrowserPanel.vue   # ブラウザのタブの URL 入力・ブックマーク・閲覧履歴（#368）
 │   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── editor/
@@ -233,6 +234,7 @@ pike/
 │   │   ├── sidebar.ts  settings.ts  project.ts
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
 │   │   ├── diagnostics.ts  issues.ts
+│   │   ├── browser.ts         # ブラウザのタブの閲覧履歴（#368。マシンごと。ブックマークは settings.ts）
 │   │   ├── agents.ts          # 使えるエージェントの検出（シェル単位、#275）
 │   │   ├── agentUsage.ts      # エージェントごとの使用量ストア（表 1 行につき 1 本、#263）
 │   │   ├── shellProbe.ts      # 「シェルごとに 1 回だけ聞いて覚える」の共通部（#275）

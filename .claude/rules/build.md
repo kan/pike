@@ -22,6 +22,9 @@
 - `import.meta.env.DEV` が true の場合、ウィンドウタイトルに `[DEBUG]` プレフィックスを付与
 - トレイアイコンも同じ表記で見分ける（`tray::app_label` が「Pike [DEBUG]」を返し、ツールチップとメニュー先頭の見出しに出る）。判定は `cfg!(debug_assertions)`（`tauri:dev`）または identifier の `.debug` 接尾辞（`tauri build --config tauri.dev.conf.json` は release プロファイルなので前者では拾えない）。アイコン画像はインストール版と共通なので、これが無いとトレイ上で区別できない
 - `npm run tauri dev` は identifier が本番と同一のため、インストール版と競合する点に注意
+- **`BrowserTab.vue`（#368）をホットリロードしたら、開発版を再起動する。** 作り直された
+  コンポーネントが新しいラベルで子 webview を作り、古いほうはウィンドウに残るので、
+  タブを切り替えても消えないページが出る（開発版だけの症状。実際に踏んで原因を探した）
 
 ## リンク時間
 

@@ -524,6 +524,7 @@ export const SIDEBAR_PANELS = [
   'projects',
   'tasks',
   'issues',
+  'browser',
 ] as const
 
 export type SidebarPanel = (typeof SIDEBAR_PANELS)[number]

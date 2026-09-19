@@ -6,10 +6,10 @@ import { AGENTS, type AgentId, type AgentLauncher, type AgentProfile } from '../
 import { CSV_PAGE_SIZE_DEFAULT, CSV_PAGE_SIZES } from '../lib/csvPreview'
 import { type SqlDialect, setSqlDialect } from '../lib/fileType'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
-import { hexToRgba } from '../lib/format'
+import { hexToRgba, isWebUrl } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
 import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths'
-import { insertAt } from '../lib/reorder'
+import { moveByKey } from '../lib/reorder'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
@@ -563,11 +563,40 @@ interface PersistedSettings {
    * 形の保証は `sanitizeSidebarIcons`（全パネルがちょうど 1 回ずつ出る）。
    */
   sidebarIcons: SidebarIcon[]
+  /**
+   * ブラウザのタブのブックマーク（#368）。**同期の対象**（URL はマシンに依存しない）。
+   * 閲覧履歴はこちらに持たない（マシンごとで同期しない。`stores/browser.ts`）。
+   */
+  browserBookmarks: BrowserBookmark[]
 }
 
 export interface SidebarIcon {
   panel: SidebarPanel
   hidden: boolean
+}
+
+export interface BrowserBookmark {
+  url: string
+  name: string
+}
+
+/**
+ * ブックマークの形を保証する。http(s) の URL だけを残し、同じ URL は最初の 1 つにする
+ * （ブラウザのタブが開けるのは http(s) だけなので、それ以外は押しても何も起きない）。
+ * 名前が空なら URL を名前にする。
+ */
+function sanitizeBookmarks(v: unknown): BrowserBookmark[] {
+  if (!Array.isArray(v)) return []
+  const out: BrowserBookmark[] = []
+  const seen = new Set<string>()
+  for (const e of v) {
+    const url = (e as { url?: unknown })?.url
+    if (typeof url !== 'string' || !isWebUrl(url) || seen.has(url)) continue
+    seen.add(url)
+    const name = (e as { name?: unknown }).name
+    out.push({ url, name: typeof name === 'string' && name.trim() ? name.trim() : url })
+  }
+  return out
 }
 
 /**
@@ -653,6 +682,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
     allowedUrlHosts: sanitizeHostList(s.allowedUrlHosts),
     sidebarIcons: sanitizeSidebarIcons(s.sidebarIcons),
+    browserBookmarks: sanitizeBookmarks(s.browserBookmarks),
     agentLaunchers,
     // 後方互換の 2 本も同じ 1 本から導くので、3 つが食い違う余地が無い。
     ...legacyAgentFields(agentLaunchers),
@@ -984,6 +1014,7 @@ function defaults(): PersistedSettings {
     allowedImageHosts: [],
     allowedUrlHosts: [],
     sidebarIcons: sanitizeSidebarIcons(null),
+    browserBookmarks: [],
   }
 }
 
@@ -1084,19 +1115,46 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function moveSidebarIcon(moved: SidebarPanel, target: SidebarPanel, side: 'top' | 'bottom') {
-    const list = sidebarIcons.value
-    const find = (p: SidebarPanel) => list.find((i) => i.panel === p)
-    const m = find(moved)
-    const tg = find(target)
-    if (!m || !tg) return
-    const next = insertAt(list, m, tg, side)
-    if (next.every((i, n) => i === list[n])) return
-    sidebarIcons.value = next
+    const next = moveByKey(sidebarIcons.value, (i) => i.panel, moved, target, side)
+    if (next !== sidebarIcons.value) sidebarIcons.value = next
   }
 
   /** 並びも表示も既定へ戻す。 */
   function resetSidebarIcons() {
     sidebarIcons.value = sanitizeSidebarIcons(null)
+  }
+
+  // ブラウザのタブのブックマーク（#368）。`sidebarIcons` と同じく配列ごと差し替える
+  // （浅い watch で足り、変わらないときは代入しない）。
+  const browserBookmarks = ref<BrowserBookmark[]>(saved.browserBookmarks)
+
+  function isBookmarked(url: string): boolean {
+    return browserBookmarks.value.some((b) => b.url === url)
+  }
+
+  /**
+   * 末尾に足す。**入口は `sanitizeBookmarks` と同じ規則を通す**（同じ URL は最初の 1 つに
+   * 畳まれるので、既にあれば件数が変わらず何もしない）。
+   */
+  function addBookmark(url: string, name: string) {
+    const next = sanitizeBookmarks([...browserBookmarks.value, { url, name }])
+    if (next.length !== browserBookmarks.value.length) browserBookmarks.value = next
+  }
+
+  function removeBookmark(url: string) {
+    if (!isBookmarked(url)) return
+    browserBookmarks.value = browserBookmarks.value.filter((b) => b.url !== url)
+  }
+
+  function renameBookmark(url: string, name: string) {
+    const n = name.trim()
+    if (!n || browserBookmarks.value.some((b) => b.url === url && b.name === n)) return
+    browserBookmarks.value = browserBookmarks.value.map((b) => (b.url === url ? { url, name: n } : b))
+  }
+
+  function moveBookmark(moved: string, target: string, side: 'top' | 'bottom') {
+    const next = moveByKey(browserBookmarks.value, (b) => b.url, moved, target, side)
+    if (next !== browserBookmarks.value) browserBookmarks.value = next
   }
 
   function allowUrlHost(host: string) {
@@ -1448,6 +1506,7 @@ export const useSettingsStore = defineStore('settings', () => {
       allowedImageHosts: allowedImageHosts.value,
       allowedUrlHosts: allowedUrlHosts.value,
       sidebarIcons: sidebarIcons.value,
+      browserBookmarks: browserBookmarks.value,
     }
   }
 
@@ -1499,6 +1558,7 @@ export const useSettingsStore = defineStore('settings', () => {
     allowedImageHosts.value = s.allowedImageHosts
     allowedUrlHosts.value = s.allowedUrlHosts
     sidebarIcons.value = s.sidebarIcons
+    browserBookmarks.value = s.browserBookmarks
   }
 
   // --- External settings-sync file ---------------------------------------
@@ -1720,6 +1780,7 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(allowedImageHosts, onSettingsChanged)
   watch(allowedUrlHosts, onSettingsChanged)
   watch(sidebarIcons, onSettingsChanged)
+  watch(browserBookmarks, onSettingsChanged)
   // キーの割り当ての正本は `lib/shortcuts.ts`（ストアを import できないので、値はこちらから
   // 流し込む）。**`immediate` が要る**: 起動直後に保存済みのプリセットへ揃わないと、
   // 最初の 1 回だけ既定のキーで動く。
@@ -1797,6 +1858,12 @@ export const useSettingsStore = defineStore('settings', () => {
     setSidebarIconHidden,
     moveSidebarIcon,
     resetSidebarIcons,
+    browserBookmarks,
+    isBookmarked,
+    addBookmark,
+    removeBookmark,
+    renameBookmark,
+    moveBookmark,
     globalShell,
     projectBase,
     hiddenProjects,

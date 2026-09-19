@@ -26,6 +26,7 @@ const TasksPanel = defineAsyncComponent(() => import('../panels/TasksPanel.vue')
 const OutlinePanel = defineAsyncComponent(() => import('../panels/OutlinePanel.vue'))
 const DiagnosticsPanel = defineAsyncComponent(() => import('../panels/DiagnosticsPanel.vue'))
 const IssuesPanel = defineAsyncComponent(() => import('../panels/IssuesPanel.vue'))
+const BrowserPanel = defineAsyncComponent(() => import('../panels/BrowserPanel.vue'))
 
 import {
   ArrowDown,
@@ -40,6 +41,7 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
+  Globe,
   List,
   ListTodo,
   ListTree,
@@ -328,6 +330,8 @@ const ICONS: { [P in SidebarPanel]: IconDef & { panel: P } } = {
     icon: ListTodo,
     refresh: { run: () => issuesStore.refresh(), busy: () => issuesStore.loading },
   },
+  // ブラウザのタブのブックマークと閲覧履歴（#368）。タブの種別と同じアイコン。
+  browser: { panel: 'browser', labelKey: 'sidebar.browser', icon: Globe },
 }
 
 /**
@@ -437,6 +441,7 @@ const PANEL_HELP: Record<SidebarPanel, string> = {
   outline: 'panels.md#アウトライン',
   diagnostics: 'panels.md#problems診断',
   issues: 'panels.md#issuegithub',
+  browser: 'browser.md#ブラウザパネル',
 }
 const panelHelp = computed(() => (sidebar.activePanel ? PANEL_HELP[sidebar.activePanel] : undefined))
 
@@ -652,6 +657,7 @@ onUnmounted(() => {
         <OutlinePanel v-else-if="sidebar.activePanel === 'outline'" />
         <DiagnosticsPanel v-else-if="sidebar.activePanel === 'diagnostics'" />
         <IssuesPanel v-else-if="sidebar.activePanel === 'issues'" />
+        <BrowserPanel v-else-if="sidebar.activePanel === 'browser'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>
       <div class="resize-handle drag-x-handle" @mousedown="onResizeStart"></div>

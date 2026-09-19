@@ -12,8 +12,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
  */
 
 export interface BrowserHandlers {
-  /** ページの読み込みが終わった（`url`）か、タイトルが変わった（`title`）。 */
-  onState: (state: { url?: string; title?: string }) => void
+  /**
+   * ページの読み込みが終わった（`url`）か、タイトルが変わった（`title`）。`titleUrl` は
+   * そのタイトルが属するページの URL（読み込みの完了より先に届くので、`url` とは別に来る）。
+   */
+  onState: (state: { url?: string; title?: string; titleUrl?: string }) => void
   /** ページが新しいウィンドウを開こうとした（`target=_blank` など）。 */
   onNewTab: (url: string) => void
 }
@@ -25,7 +28,7 @@ async function init() {
   if (initialized) return
   initialized = true
   const win = getCurrentWindow()
-  await win.listen<{ label: string; url?: string; title?: string }>('browser_state', (event) => {
+  await win.listen<{ label: string; url?: string; title?: string; titleUrl?: string }>('browser_state', (event) => {
     const { label, ...state } = event.payload
     handlers.get(label)?.onState(state)
   })

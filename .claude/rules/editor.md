@@ -534,7 +534,8 @@ GitHub の open issue を番号の降順に出す。実体は `src-tauri/src/iss
     あちらは「0 件」と区別が付かないので理由を値に載せるが、タブは中身が無ければ何も
     出せないので、呼び出し側が空と区別する必要が無い
 - ブラウザへ出るのはタブ右上のボタンと、ヘッダの「+」（新規作成）だけで、どちらも
-  `openUrlWithConfirm`（StatusBar のリポジトリリンクや GitPanel のコミットリンクと同じ規約）。
+  `openUrlWithConfirm`（GitPanel のコミットリンクと同じ規約。StatusBar のリポジトリリンクは
+  #368 からブラウザのタブで開くので、この規約の対象から外れた）。
   **パネルの行のクリックは確認を挟まない**: Pike の中でタブを開くだけなので、外部 URL を
   開く規約の対象外
 - **sub-issue の木は `parent` だけで組む**（`lib/issueTree.ts` の `buildIssueTree`）。`gh` は

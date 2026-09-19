@@ -43,10 +43,16 @@ struct BrowserNewTabPayload {
 #[serde(rename_all = "camelCase")]
 struct BrowserStatePayload {
     label: String,
+    /// 読み込みが終わったページの URL（`on_page_load` の Finished）。
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<String>,
+    /// `title` がどのページのものか。**タイトルは読み込みの完了より先に届く**ので、
+    /// フロントが持っている URL（まだ前のページ）に結び付けると、前のページの履歴の行が
+    /// 次のページの名前に書き換わる。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title_url: Option<String>,
 }
 
 fn check_label(label: &str) -> Result<(), String> {
@@ -96,6 +102,10 @@ fn webview(app: &AppHandle, label: &str) -> Result<Webview, String> {
 /// そのページのタブを持つウィンドウにだけ送る。全ウィンドウへ送ると、関係の無い
 /// ウィンドウまで起こして捨てさせることになる。
 fn emit_state(webview: &Webview, url: Option<String>, title: Option<String>) {
+    let title_url = title
+        .as_ref()
+        .and_then(|_| webview.url().ok())
+        .map(|u| u.to_string());
     let _ = webview.emit_to(
         EventTarget::window(webview.window().label()),
         "browser_state",
@@ -103,6 +113,7 @@ fn emit_state(webview: &Webview, url: Option<String>, title: Option<String>) {
             label: webview.label().to_string(),
             url,
             title,
+            title_url,
         },
     );
 }
