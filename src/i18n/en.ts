@@ -40,7 +40,7 @@ export default {
   'sidebar.search': 'Search',
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'Projects',
-  'sidebar.tasks': 'Tasks',
+  'sidebar.tasks': 'Task Runner',
   'sidebar.outline': 'Outline',
   'sidebar.diagnostics': 'Problems',
   'sidebar.issues': 'Issues',

@@ -437,7 +437,7 @@ const PANEL_HELP: Record<SidebarPanel, string> = {
   search: 'panels.md#検索ripgrep--grep',
   docker: 'panels.md#docker',
   projects: 'projects-and-windows.md',
-  tasks: 'panels.md#タスク',
+  tasks: 'panels.md#タスクランナー',
   outline: 'panels.md#アウトライン',
   diagnostics: 'panels.md#problems診断',
   issues: 'panels.md#issuegithub',
