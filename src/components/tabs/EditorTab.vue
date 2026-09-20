@@ -44,6 +44,7 @@ import {
   type ToolbarAction,
 } from '../../lib/editorMarkdown'
 import { minimap } from '../../lib/editorMinimap'
+import { editorPathJump } from '../../lib/editorPathJump'
 import { presetKeymap } from '../../lib/editorPresetKeys'
 import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
@@ -56,7 +57,7 @@ import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel, matchChord } from '../../lib/keys'
 import { getLanguage, getLanguageLabel, languageByKey, languageLabelByKey } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
-import { openWithDefaultApp } from '../../lib/openFile'
+import { openProjectPath, openWithDefaultApp } from '../../lib/openFile'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import {
   basename,
@@ -1551,6 +1552,11 @@ function createEditorView(container: HTMLElement, content: string) {
     extensions.push(diagnosticsExtension())
     extensions.push(minimapCompartment.of(minimapOn.value ? minimap() : []))
   }
+
+  // `パス:行` のタグジャンプ（#376）。検索結果を書き出した無題のタブで使うので、
+  // 定義ジャンプと違ってファイルを持たないタブにも入れる。相対パスはプロジェクト
+  // （worktree）のルートから解決する（書き出しもターミナルのリンクも同じ基準）。
+  extensions.push(editorPathJump((target) => void openProjectPath(target.path, target.line).catch(() => {})))
 
   // Go-to-definition (only for real files; previews / readonly snapshots skipped)
   if (hasFile.value) {

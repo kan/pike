@@ -306,6 +306,7 @@ pike/
 │   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts
 │   │   ├── editorFormat.ts   # クイック整形（#366。JSON / js-beautify / 行の整形）
 │   │   ├── editorLoadMore.ts # 部分読み込みの「続きを読む」を本文の末尾に出す（#362）
+│   │   ├── editorPathJump.ts # 本文の `パス:行` を Ctrl+Click / F12 で開く（#376。検索結果の書き出しのタグジャンプ）
 │   │   ├── editorMacro.ts    # キーボードマクロの記録と再生（#180。サクラエディタ風）
 │   │   ├── editorJumpTo.ts  editorConflict.ts  editorDiagnostics.ts  editorMarkdown.ts
 │   │   ├── editorPresetKeys.ts # ショートカットのプリセットで変わる CodeMirror のキー（#261）

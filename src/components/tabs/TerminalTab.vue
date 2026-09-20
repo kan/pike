@@ -23,8 +23,8 @@ import { isMacHost, isWindowsHost } from '../../lib/host'
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { matchChord, normalizedKey } from '../../lib/keys'
-import { openPathInTab } from '../../lib/openFile'
-import { isAbsolutePath, joinPath, pathSep } from '../../lib/paths'
+import { openPathInTab, projectPath } from '../../lib/openFile'
+import { isAbsolutePath } from '../../lib/paths'
 import { readableTextOn } from '../../lib/projectColors'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
 import { agentSessionsList, ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
@@ -290,9 +290,8 @@ function detectAgents() {
 // 見て押しているので、確認の値打ちは「どこに解決されたか」のほうにある。
 async function openPathLink(target: PathLinkTarget) {
   const project = projectStore.currentProject
-  if (!project) return
-  const sep = pathSep(project.shell)
-  const full = isAbsolutePath(target.path) ? target.path : joinPath(projectStore.activeRoot, target.path, sep)
+  const full = projectPath(target.path)
+  if (!project || !full) return
   if (settingsStore.terminalPathLinks === 'confirm') {
     const { ok, checked } = await confirmWithOption(
       t('confirm.openPath', { path: full }),

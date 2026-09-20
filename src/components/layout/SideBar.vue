@@ -578,7 +578,13 @@ onUnmounted(() => {
               <FolderPlus :size="14" :stroke-width="2" />
             </button>
           </template>
-          <span v-if="sidebar.activePanel === 'search'" class="backend-badge">{{ searchStore.backend ?? '...' }}</span>
+          <!-- 版はツールチップで（#376 でパネルの中の重複した表示を外したので、版はここだけが出す。
+               WSL は distro の rg を使うので、どの版かで出せる機能が変わる。#304） -->
+          <span
+            v-if="sidebar.activePanel === 'search'"
+            class="backend-badge"
+            :title="searchStore.backendInfo?.version ?? ''"
+          >{{ searchStore.backend ?? '...' }}</span>
           <template v-if="sidebar.activePanel === 'issues' && issuesStore.visible">
             <!-- 作成は Pike の中で持たないので、ブラウザの新規 issue ページへ逃がす。 -->
             <button

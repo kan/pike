@@ -37,7 +37,7 @@ export default {
   'palette.help': 'ヘルプ',
   'sidebar.files': 'ファイル',
   'sidebar.git': 'Git',
-  'sidebar.search': '検索',
+  'sidebar.search': 'プロジェクト内を検索',
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'プロジェクト',
   'sidebar.tasks': 'タスクランナー',
@@ -496,6 +496,7 @@ export default {
   'fileTree.delete': '削除',
   'fileTree.openInExplorer': 'エクスプローラーで開く',
   'fileTree.gitHistory': 'Git 履歴',
+  'fileTree.searchInFolder': 'このフォルダ内を検索',
   'fileTree.confirmDelete': '"{name}" を削除しますか？',
   'fileTree.confirmOverwrite': '"{name}" は既に存在します。上書きしますか？',
   'fileTree.dirDropUnsupported': 'フォルダのドロップは未対応です：{names}',
@@ -737,6 +738,17 @@ export default {
   'search.nextMatch': '次の一致',
   'search.close': '閉じる',
   'search.truncated': '結果を切り捨てました (最大500件)',
+  'search.scopeLabel': '対象:',
+  'search.scopeProject': 'プロジェクト全体',
+  'search.scopeClear': 'プロジェクト全体に戻す',
+  'search.resultCount': '{count} 件',
+  'search.extract': 'タブで開く',
+  'search.extractTooltip':
+    '同じ条件で最大 10,000 件まで検索し直し、grep の形（パス:行: 内容）でエディタのタブに書き出します',
+  'search.extractTitle': '検索: {query}',
+  'search.extractHeader': '"{query}" の検索結果 {count} 件',
+  'search.extractHint': 'Ctrl+クリック（macOS は ⌘+クリック）か F12 で、その行のファイルを開きます',
+  'search.extractTruncated': '{max} 件で打ち切りました',
 
   // Keyboard Shortcuts Modal
   // macOS のメニューバーの項目（#254）。**既定はショートカット一覧と同じ語**（`shortcuts.*`）を

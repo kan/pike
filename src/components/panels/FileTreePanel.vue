@@ -28,6 +28,7 @@ import {
 import { useFileTreeStore } from '../../stores/fileTree'
 import { useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
+import { useSearchStore } from '../../stores/search'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
 
@@ -228,6 +229,24 @@ async function commitCreate() {
     await confirmDialog(String(err))
   }
   creating.value = null
+}
+
+/**
+ * そのフォルダの中だけを検索する状態で検索パネルを開く（#376）。範囲は検索ストアが持ち、
+ * パネルが入力欄にフォーカスを移す（`Ctrl+Shift+F` と同じ `requestOpen` の経路）。
+ *
+ * **除外ディレクトリ（`node_modules` 等）とその配下には出さない**（`isUnderIgnored`）。rg はそこを起点に渡しても
+ * `.gitignore` の判定で中身を落とすことがあり（`node_modules/vue` は 0 件、その下の
+ * `dist` を渡すと当たる。実測）、押しても当たらない項目になる。
+ */
+function searchInFolder() {
+  const path = ctxMenu.value?.path
+  closeCtxMenu()
+  if (!path) return
+  const searchStore = useSearchStore()
+  searchStore.setScope(path)
+  searchStore.requestOpen(null)
+  sidebar.openPanel('search')
 }
 
 function showGitHistory() {
@@ -601,6 +620,9 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
             <template v-if="ctxMenu.isDir">
               <button @click="startCreate('file')">{{ t('fileTree.newFile') }}</button>
               <button @click="startCreate('dir')">{{ t('fileTree.newFolder') }}</button>
+              <button v-if="!fileTreeStore.isUnderIgnored(ctxMenu.path)" @click="searchInFolder()">
+                {{ t('fileTree.searchInFolder') }}
+              </button>
               <div class="ctx-separator"></div>
             </template>
             <button @click="copyRelativePath()">{{ t('fileTree.copyPath') }}</button>

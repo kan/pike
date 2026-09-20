@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { CaseSensitive, Parentheses, Regex, WholeWord } from 'lucide-vue-next'
+import { CaseSensitive, FileText, FolderSearch, Parentheses, Regex, WholeWord, X } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
-import { pathSep } from '../../lib/paths'
+import { openProjectPath } from '../../lib/openFile'
+import { relativeToBase } from '../../lib/projectPaths'
 import { useProjectStore } from '../../stores/project'
 import { useSearchStore } from '../../stores/search'
-import { useTabStore } from '../../stores/tabs'
+import { shellToPlatform } from '../../types/tab'
 
 const { t } = useI18n()
 
 const searchStore = useSearchStore()
 const projectStore = useProjectStore()
-const tabStore = useTabStore()
 
 const query = ref('')
 /**
@@ -102,21 +102,27 @@ watch(
   { immediate: true },
 )
 
+/**
+ * 範囲が変わったら検索し直す（#376。ファイルツリーの「このフォルダ内を検索」と、✕ で
+ * 全体に戻したとき）。語が入っていなければ、入力欄にフォーカスが来る（`pendingOpen`）
+ * ので打ち始めればよい。
+ */
+watch(
+  () => searchStore.scopeRel,
+  () => {
+    if (query.value.trim()) doSearch()
+  },
+)
+
 function openResult(match: { path: string; line: number }) {
-  const project = projectStore.currentProject
-  if (!project) return
-  const s = pathSep(project.shell)
-  const fullPath =
-    match.path.startsWith('/') || match.path.includes(':') ? match.path : projectStore.activeRoot + s + match.path
-  tabStore.addEditorTab({ path: fullPath, initialLine: match.line })
+  void openProjectPath(match.path, match.line).catch(() => {})
 }
 
+/** 表示用の相対パス。書き出し（`extractToTab`）と同じ `relativeToBase` で揃える。 */
 function relativePath(fullPath: string): string {
-  const root = projectStore.activeRoot
-  if (!root) return fullPath
-  const s = pathSep(projectStore.currentProject?.shell)
-  if (fullPath.startsWith(root + s)) return fullPath.slice(root.length + s.length)
-  return fullPath
+  const project = projectStore.currentProject
+  if (!project) return fullPath
+  return relativeToBase(projectStore.activeRoot, fullPath, shellToPlatform(project.shell)) ?? fullPath
 }
 
 onUnmounted(() => {
@@ -182,15 +188,38 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div
-      v-if="searchStore.backend"
-      class="backend-badge"
-      :title="searchStore.backendInfo?.version ?? ''"
-    >{{ searchStore.backend }}<span v-if="searchStore.backendInfo?.version" class="backend-version">{{ searchStore.backendInfo.version }}</span></div>
+    <!--
+      検索の対象（#376）。**横断検索であることを入力欄の近くで言う**。フォルダに絞って
+      いればそのパスと、プロジェクト全体に戻す ✕ を出す。rg / grep の表示はパネルの
+      見出しにあるので、ここには置かない（以前は両方に出ていた）。
+    -->
+    <div class="search-scope" data-testid="search-scope">
+      <FolderSearch :size="12" :stroke-width="2" />
+      <span class="scope-label">{{ t('search.scopeLabel') }}</span>
+      <span class="scope-path" :title="searchStore.scopeRel ?? ''">{{ searchStore.scopeRel ?? t('search.scopeProject') }}</span>
+      <button
+        v-if="searchStore.scopeRel"
+        class="scope-clear"
+        :title="t('search.scopeClear')"
+        @click="searchStore.setScope(null)"
+      ><X :size="12" :stroke-width="2" /></button>
+    </div>
 
     <div v-if="searchStore.searching" class="status">{{ t('search.searching') }}</div>
     <div v-else-if="searchStore.error" class="status error">{{ searchStore.error }}</div>
     <div v-else-if="!searchStore.results.length && query" class="status">{{ t('search.noResults') }}</div>
+    <div v-else-if="searchStore.results.length" class="result-summary">
+      <span>{{ t('search.resultCount', { count: String(searchStore.results.length) }) }}{{ searchStore.truncated ? '+' : '' }}</span>
+      <button
+        class="extract-btn"
+        :title="t('search.extractTooltip')"
+        :disabled="searchStore.extracting"
+        data-testid="search-extract"
+        @click="searchStore.extractToTab()"
+      >
+        <FileText :size="12" :stroke-width="2" />{{ t('search.extract') }}
+      </button>
+    </div>
 
     <div class="results-list">
       <div
@@ -333,23 +362,68 @@ onUnmounted(() => {
   padding: 4px 0;
 }
 
-/* 版はバッジの中に薄く添える。どの ripgrep が使われているかで出せる機能が変わるので
-   （WSL は distro のもの、#304）、パネルから読めるようにしてある。 */
-.backend-version {
-  opacity: 0.7;
-}
-
-.backend-version::before {
-  content: ' ';
-}
-
-.backend-badge {
-  font-size: 10px;
+.search-scope {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
   color: var(--text-secondary);
-  background: var(--bg-tertiary);
+  min-width: 0;
+}
+
+.scope-path {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.scope-clear {
+  display: flex;
+  align-items: center;
+  padding: 1px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
   border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.scope-clear:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.extract-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 1px 6px;
-  align-self: flex-start;
-  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.extract-btn:hover:not(:disabled) {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.extract-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 </style>

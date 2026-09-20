@@ -222,6 +222,11 @@ pub async fn search_detect_backend(
 }
 
 const MAX_MATCHES: usize = 500;
+/// 結果をタブに書き出すときの上限（#376。`SearchOptions.extract`）。1 行 200 バイトとして
+/// 2MB 程度で、エディタのタブが無理なく開ける量に収まる。
+const EXTRACT_MAX_MATCHES: usize = 10_000;
+/// パネルの検索での、ファイルごとの一致の上限（1 ファイルが結果を占めないため）。
+const PER_FILE_MATCHES: &str = "20";
 const MAX_FILES: usize = 10000;
 #[tauri::command]
 pub async fn list_project_files(
@@ -340,6 +345,11 @@ pub struct SearchOptions {
     pub glob_include: Option<String>,
     #[serde(default)]
     pub glob_exclude: Option<String>,
+    /// 結果をタブに書き出すための検索（#376）。パネルの上限（全体 `MAX_MATCHES`・ファイル
+    /// ごと 20 件）を外し、`EXTRACT_MAX_MATCHES` まで取る。パネルに出すのは目で追える量に
+    /// 絞るのが目的で、書き出しは grep の代わりなので、1 ファイルの全一致が要る。
+    #[serde(default)]
+    pub extract: bool,
 }
 
 #[tauri::command]
@@ -357,7 +367,13 @@ pub async fn search_execute(
         use_pcre2,
         glob_include,
         glob_exclude,
+        extract,
     } = options;
+    let cap = if extract {
+        EXTRACT_MAX_MATCHES
+    } else {
+        MAX_MATCHES
+    };
     if query.is_empty() {
         return Ok(SearchResult {
             matches: vec![],
@@ -411,20 +427,17 @@ pub async fn search_execute(
                 args.push("--glob".to_string());
                 args.push(format!("!{exc}"));
             }
-            args.push("--max-count".to_string());
-            args.push("20".to_string());
+            if !extract {
+                args.push("--max-count".to_string());
+                args.push(PER_FILE_MATCHES.to_string());
+            }
             args.push("-e".to_string());
             args.push(query);
             args.push("--".to_string());
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            spawn_capped_lines(
-                shell.command(program, &arg_refs),
-                "rg",
-                MAX_MATCHES,
-                parse_rg_line,
-            )
+            spawn_capped_lines(shell.command(program, &arg_refs), "rg", cap, parse_rg_line)
         } else {
             let mut args: Vec<String> = vec!["-rn".to_string()];
             if !is_regex {
@@ -443,8 +456,10 @@ pub async fn search_execute(
             if let Some(ref inc) = inc_glob {
                 args.push(format!("--include={inc}"));
             }
-            args.push("-m".to_string());
-            args.push("20".to_string());
+            if !extract {
+                args.push("-m".to_string());
+                args.push(PER_FILE_MATCHES.to_string());
+            }
             args.push("--exclude-dir=.git".to_string());
             args.push("--exclude-dir=node_modules".to_string());
             args.push("--exclude-dir=target".to_string());
@@ -461,7 +476,7 @@ pub async fn search_execute(
             spawn_capped_lines(
                 shell.command("grep", &arg_refs),
                 "grep",
-                MAX_MATCHES,
+                cap,
                 parse_grep_line,
             )
         };
@@ -480,7 +495,7 @@ pub async fn search_execute(
         }
         Ok(SearchResult {
             // 打ち切ったかは件数から分かる（`spawn_capped_lines` は上限で止まる）。
-            truncated: run.items.len() >= MAX_MATCHES,
+            truncated: run.items.len() >= cap,
             matches: run.items,
         })
     })

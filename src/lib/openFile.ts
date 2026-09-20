@@ -3,7 +3,7 @@ import { t } from '../i18n'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
 import type { ShellType } from '../types/tab'
-import { basename, extension, isImageFile, mimeType } from './paths'
+import { basename, extension, isAbsolutePath, isImageFile, joinPath, mimeType, pathSep } from './paths'
 import { fsOpenInExplorer, fsReadFileBase64 } from './tauri'
 
 /**
@@ -57,6 +57,27 @@ const EXECUTABLE_EXTENSIONS = new Set([
  * ファイルを関連付けられたアプリで開く（#362）。**入口はここ 1 つ**（ファイルツリーの右クリックと、
  * 大きすぎるファイルの画面）。実行形式に当たる拡張子だけ、押した人に確かめてから渡す。
  */
+/**
+ * 出力や検索結果に出てきたパスを絶対パスにする。相対パスはプロジェクト（worktree）の
+ * ルート（`activeRoot`）から解決する。プロジェクトが無ければ null。
+ *
+ * **解決の規則はここ 1 つ**（#376）。ターミナルのリンク、エディタのタグジャンプ、検索の
+ * 結果が同じものを使う（それぞれが書いていたころは、判定と連結の書き方が 3 通りあった）。
+ */
+export function projectPath(path: string): string | null {
+  const projectStore = useProjectStore()
+  const project = projectStore.currentProject
+  if (!project) return null
+  return isAbsolutePath(path) ? path : joinPath(projectStore.activeRoot, path, pathSep(project.shell))
+}
+
+/** `projectPath` で解決して、その行を開く。 */
+export async function openProjectPath(path: string, line?: number): Promise<void> {
+  const full = projectPath(path)
+  const shell = useProjectStore().currentProject?.shell
+  if (full) await openPathInTab({ path: full, line, shell })
+}
+
 export async function openWithDefaultApp(shell: ShellType, path: string): Promise<void> {
   if (EXECUTABLE_EXTENSIONS.has(extension(path))) {
     if (!(await confirmDialog(t('confirm.runExecutable', { name: basename(path) })))) return

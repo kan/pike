@@ -37,7 +37,7 @@ export default {
   'palette.help': 'Help',
   'sidebar.files': 'Files',
   'sidebar.git': 'Git',
-  'sidebar.search': 'Search',
+  'sidebar.search': 'Search in Project',
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'Projects',
   'sidebar.tasks': 'Task Runner',
@@ -499,6 +499,7 @@ export default {
   'fileTree.delete': 'Delete',
   'fileTree.openInExplorer': 'Open in Explorer',
   'fileTree.gitHistory': 'Git History',
+  'fileTree.searchInFolder': 'Search in Folder',
   'fileTree.confirmDelete': 'Delete "{name}"?',
   'fileTree.confirmOverwrite': '"{name}" already exists here. Overwrite?',
   'fileTree.dirDropUnsupported': 'Dropping folders is not supported yet: {names}',
@@ -739,6 +740,17 @@ export default {
   'search.nextMatch': 'Next Match',
   'search.close': 'Close',
   'search.truncated': 'Results truncated (max 500)',
+  'search.scopeLabel': 'In:',
+  'search.scopeProject': 'Whole project',
+  'search.scopeClear': 'Search the whole project',
+  'search.resultCount': '{count} results',
+  'search.extract': 'Open in tab',
+  'search.extractTooltip':
+    'Search again with the same options for up to 10,000 results and write them to an editor tab in grep form (path:line: text)',
+  'search.extractTitle': 'Search: {query}',
+  'search.extractHeader': '{count} results for "{query}"',
+  'search.extractHint': 'Ctrl+click (⌘+click on macOS) or F12 opens the file at that line',
+  'search.extractTruncated': 'Stopped at {max} results',
 
   // Keyboard Shortcuts Modal
   // macOS menu bar items (#254). Only the ones whose wording differs from the

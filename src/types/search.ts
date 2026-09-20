@@ -35,4 +35,6 @@ export interface SearchOptions {
   usePcre2?: boolean
   globInclude?: string | null
   globExclude?: string | null
+  /** 結果をタブに書き出すための検索（#376）。パネルより上限が広い（Rust 側の doc）。 */
+  extract?: boolean
 }

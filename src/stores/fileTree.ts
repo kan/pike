@@ -269,5 +269,6 @@ export const useFileTreeStore = defineStore('fileTree', () => {
     invalidateDir,
     invalidateCollapsed,
     saveExpanded,
+    isUnderIgnored,
   }
 })
