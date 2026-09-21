@@ -740,6 +740,10 @@ onUnmounted(() => {
   width: 0;
   min-width: 100%;
   border-bottom: 1px solid var(--border);
+  /* アイコン列との区切り（#378）。**アイコン列側に `border-right` を置かないこと**:
+     パネルを閉じているとこの列ごと無くなるので、`.sidebar` の右端の線と並んで
+     二重線になる。2 列目の側に置けば、列があるときだけ出る。 */
+  border-left: 1px solid var(--border);
 }
 
 .icon-strip {
@@ -748,8 +752,12 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   width: var(--sidebar-width);
-  padding-top: 4px;
+  /* **上に隙間を作らない**（#378）。プロジェクトの帯（`.sidebar-project`）と高さが
+     揃わず、1 つ目のアイコンだけ下がって見えていた。下は余白のままにする。 */
   padding-bottom: 4px;
+  /* 選択中の印（左の縦線と背景）の高さ。アイコン（22px）に上下の余白を足した大きさで、
+     線と背景がここ 1 つを読む。 */
+  --icon-active-size: 30px;
   /* Window transparency (issue #162): the parent .sidebar already paints
      --bg-secondary, so painting it again here stacked a second translucent layer
      and made the icon bar look heavier than the panels. Inherit the sidebar
@@ -900,10 +908,28 @@ onUnmounted(() => {
   content: "";
   position: absolute;
   left: 0;
-  top: 25%;
-  height: 50%;
+  top: 50%;
+  transform: translateY(-50%);
+  height: var(--icon-active-size);
   width: 2px;
   background: var(--icon-strip-fg, var(--accent));
+}
+
+/* 背景のハイライト（#378）。**同じ色を薄く敷く**ので、プロジェクトカラーを設定して
+   いるときもそのまま成立する（`--tab-hover-bg` のような固定色だと下地とぶつかる）。
+   **`z-index: -1` が要る**: 擬似要素は中身より後に描かれるので、そのままだとアイコンに
+   かぶる。負の値でもアイコン列の背景（親が塗っている）より前に出る。 */
+.icon-button.active::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: var(--icon-active-size);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--icon-strip-fg, var(--accent)) 14%, transparent);
 }
 
 /* 色を敷いているあいだは `readableTextOn` が選んだ黒か白。非アクティブとの差は
@@ -921,6 +947,8 @@ onUnmounted(() => {
   grid-row: 2;
   position: relative;
   border-right: 1px solid var(--border);
+  /* アイコン列との区切り（#378）。理由は `.sidebar-project` の同じ指定の隣。 */
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
