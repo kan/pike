@@ -92,7 +92,7 @@ pub fn open_elevated_terminal(shell: String, project_id: Option<String>) -> Resu
     }
     #[cfg(not(windows))]
     {
-        Err("elevation is only supported on Windows".to_string())
+        Err("elevation is only supported on Windows".to_owned())
     }
 }
 

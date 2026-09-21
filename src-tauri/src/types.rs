@@ -177,7 +177,7 @@ fn augmented_path_with(current: &str, home: &str, exists: impl Fn(&str) -> bool)
     let mut dirs: Vec<String> = current
         .split(':')
         .filter(|s| !s.is_empty())
-        .map(str::to_string)
+        .map(str::to_owned)
         .collect();
     for entry in UNIX_EXTRA_PATH.split(':') {
         let dir = entry.replace("$HOME", home);
@@ -442,7 +442,7 @@ pub fn os_reveal(path: &str) -> Result<(), String> {
         let parent = std::path::Path::new(path)
             .parent()
             .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.to_string());
+            .unwrap_or_else(|| path.to_owned());
         os_open(&parent)
     }
 }

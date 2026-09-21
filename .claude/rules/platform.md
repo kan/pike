@@ -203,6 +203,14 @@ key equivalent は AppKit が WebView へ渡す前に処理するので、`windo
 気付くのがリリースのタグを打った後だった（v0.43.0 で実際に 2 回落ちた）。macOS 専用の
 コードを足したら、ローカルの `just check` が通っても**それだけでは検査されていない**。
 
+**lint を足すときも同じ死角を踏む**（#382 で実際に落ちた）。`Cargo.toml` の
+`[lints.clippy]` はクレート全体に効く一方、**`cargo clippy --fix` が直せるのは手元の
+`cfg` から見えるコードだけ**なので、Windows で直し切ったつもりでも `cfg(not(windows))`
+の中が残って macOS のジョブで落ちる。**Linux だけの枝（`cfg(not(any(windows,
+target_os = "macos")))`）はどちらのジョブにも出てこない**ので、そこはコードを読むしかない。
+`cargo clippy --target aarch64-apple-darwin` を手元で回す手は使えない（objc2 の
+ビルドスクリプトが `cc` を要る）。
+
 ## ダイアログ
 
 フォルダ / ファイル選択は Windows が PowerShell + WinForms、macOS が `osascript` の
