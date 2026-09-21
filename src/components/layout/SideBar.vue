@@ -756,9 +756,12 @@ onUnmounted(() => {
   /* **上に隙間を作らない**（#378）。プロジェクトの帯（`.sidebar-project`）と高さが
      揃わず、1 つ目のアイコンだけ下がって見えていた。下は余白のままにする。 */
   padding-bottom: 4px;
-  /* 選択中の印（左の縦線と背景）の高さ。アイコン（22px）に上下の余白を足した大きさで、
-     線と背景がここ 1 つを読む。 */
-  --icon-active-size: 30px;
+  /* 選択中の印（左の縦線と背景）の高さ。線と背景がここ 1 つを読む。
+     **ボタン（`--sidebar-width` の正方形）から左右と同じ `--icon-active-inset` を引いた
+     値にする**ので、背景は四辺とも同じ余白＝正方形になる。固定の px にすると、列幅を
+     変えたときに縦だけ取り残されて長方形に戻る。 */
+  --icon-active-inset: 4px;
+  --icon-active-size: calc(var(--sidebar-width) - var(--icon-active-inset) * 2);
   /* Window transparency (issue #162): the parent .sidebar already paints
      --bg-secondary, so painting it again here stacked a second translucent layer
      and made the icon bar look heavier than the panels. Inherit the sidebar
@@ -870,6 +873,13 @@ onUnmounted(() => {
   position: relative;
   opacity: 0.6;
   transition: opacity 0.15s;
+  /* **選択中の背景（`.active::after`）が `z-index: -1` を使うので、ここで囲っておく**（#378）。
+     負の z-index は「いちばん近い stacking context の背景の上」に描かれるだけで、その
+     context を作っていない祖先の背景より前には出ない。`position: relative` だけでは
+     context にならず、`opacity` も 1 では作らない（非選択の 0.6 のときだけ偶然できる＝
+     **背景を出したい選択中にかぎって効かない**）。実際、入れた当初は `.sidebar` の
+     `--bg-secondary` の裏に描かれて一度も見えていなかった。 */
+  isolation: isolate;
 }
 
 .icon-button:hover {
@@ -919,13 +929,13 @@ onUnmounted(() => {
 /* 背景のハイライト（#378）。**同じ色を薄く敷く**ので、プロジェクトカラーを設定して
    いるときもそのまま成立する（`--tab-hover-bg` のような固定色だと下地とぶつかる）。
    **`z-index: -1` が要る**: 擬似要素は中身より後に描かれるので、そのままだとアイコンに
-   かぶる。負の値でもアイコン列の背景（親が塗っている）より前に出る。 */
+   かぶる。**効くのは `.icon-button` の `isolation: isolate` と対で**（理由はあちらの隣）。 */
 .icon-button.active::after {
   content: "";
   position: absolute;
   z-index: -1;
-  left: 4px;
-  right: 4px;
+  left: var(--icon-active-inset);
+  right: var(--icon-active-inset);
   top: 50%;
   transform: translateY(-50%);
   height: var(--icon-active-size);
