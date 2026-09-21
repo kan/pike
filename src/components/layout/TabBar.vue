@@ -681,7 +681,7 @@ onUnmounted(() => {
       ><ChevronDown :size="12" :stroke-width="2" /></button>
       <!-- 作業領域の分割（#308）。分割中は解除になる。 -->
       <button
-        class="tab-add-arrow tab-split"
+        class="tab-add tab-split"
         :class="{ 'split-on': tabStore.split }"
         data-testid="tab-split"
         :title="tabStore.split ? t('tabs.unsplit', { key: actionChord('toggleSplit') }) : t('tabs.splitRight', { key: actionChord('toggleSplit') })"
@@ -996,8 +996,11 @@ onUnmounted(() => {
   background: var(--tab-hover-bg);
 }
 
+/* 分割は「+」と同じ箱（#383）。以前は `.tab-add-arrow` を土台にして幅だけ上書きして
+   いたので、`.tab-add` の幅を変えても付いてこなかったうえ、中身が `Columns2` なのに
+   class が「矢印」と名乗っていた。区切りの線だけを足す。 */
 .tab-split {
-  width: 24px;
+  border-left: 1px solid var(--border);
 }
 
 .tab-split.split-on {

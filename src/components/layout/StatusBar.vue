@@ -26,6 +26,7 @@ import { macroRecording, toggleMacroRecording } from '../../lib/editorMacro'
 import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
 import { languageOptions } from '../../lib/languages'
+import { PIKE_REPO_URL } from '../../lib/manual'
 import { basename } from '../../lib/paths'
 import { traySetTooltip } from '../../lib/tauri'
 import { type Meter, rateLevelClass, toMeter } from '../../lib/usageFormat'
@@ -84,6 +85,13 @@ function onLoginAgent(agent: AgentDef) {
 }
 
 const hasAgentStatus = computed(() => agentEntries.value.length > 0)
+/**
+ * worktree / ブランチ / リポジトリの組を出すか（#383）。**テンプレートに論理式を置かない**:
+ * 中身の `v-if` を書き写した式にすると、この組に 4 つ目を足した人が伸ばし忘れたときに
+ * **空の組の左に区切りだけが出る**（`usePanelAvailability` で「可否の述語は 1 箇所」を
+ * 選んでいるのと同じ判断）。
+ */
+const hasRepoInfo = computed(() => worktreeStore.hasMultiple || !!gitStore.status || !!repoLink.value)
 
 /**
  * ヘッドラインの「25% / 5%」。**5h と週間だけ**に絞る（モデル別の枠まで並べると、
@@ -181,6 +189,16 @@ const repoIcon = computed(() => {
  */
 function openProjectRepo() {
   if (repoLink.value) tabStore.addBrowserTab(repoLink.value.url)
+}
+
+/**
+ * Pike 自身の GitHub（#383）。**隣のリポジトリのボタンと同じくブラウザのタブで開く**
+ * （`frontend.md` の「外部ブラウザで URL を開く」の規約は、#368 以降 StatusBar の
+ * リポジトリリンクには当たらない）。歯車メニューの「GitHub」は外部ブラウザのままで、
+ * あちらは Pike の外へ出る意図の操作。
+ */
+function openPikeRepo() {
+  tabStore.addBrowserTab(PIKE_REPO_URL)
 }
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)
@@ -409,8 +427,13 @@ onUnmounted(() => {
 
     <div class="spacer"></div>
 
+    <!--
+      右側は 4 つの組に分けて `|` で区切る（#383）。**区切りは後ろの組が描く**
+      （`.status-group + .status-group::before`）ので、前の組が消えても区切りだけが残らない。
+      最後の組（言語 + バージョン）だけは条件を持たず常に出る。
+    -->
     <!-- Editor info -->
-    <template v-if="editorInfo.current.value">
+    <div v-if="editorInfo.current.value" class="status-group">
       <span class="status-text">{{ t('statusBar.ln') }} {{ editorInfo.current.value.line }}, {{ t('statusBar.col') }} {{ editorInfo.current.value.col }}</span>
       <span class="status-text">{{ t('statusBar.spaces') }} {{ editorInfo.current.value.tabSize }}</span>
       <div class="status-dropdown-area">
@@ -450,10 +473,10 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
-    </template>
+    </div>
 
     <!-- Agents: one item for both Claude and Codex; the detail lives in the status tab (#226) -->
-    <div v-if="hasAgentStatus" class="status-dropdown-area">
+    <div v-if="hasAgentStatus" class="status-group status-dropdown-area">
       <button class="status-item clickable small cc-usage" :title="headlineTitle" @click="toggleAgentStatus">
         <Gauge :size="13" :stroke-width="2" />
         <!-- ログインが切れていたら、利用率より先にそれを出す（#381。古い数字は出さない） -->
@@ -517,101 +540,115 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div v-if="worktreeStore.hasMultiple" class="branch-area">
-      <button class="status-item clickable" data-testid="worktree-selector" :title="t('worktree.tooltip')" @click="openWorktreeSwitcher">
-        <FolderGit2 :size="14" :stroke-width="2" class="branch-icon" />
-        <span>{{ worktreeLabel }}</span>
-      </button>
+    <!-- worktree / ブランチ / リポジトリは同じリポジトリの話なので 1 つの組にする。 -->
+    <div v-if="hasRepoInfo" class="status-group">
+      <div v-if="worktreeStore.hasMultiple" class="branch-area">
+        <button class="status-item clickable" data-testid="worktree-selector" :title="t('worktree.tooltip')" @click="openWorktreeSwitcher">
+          <FolderGit2 :size="14" :stroke-width="2" class="branch-icon" />
+          <span>{{ worktreeLabel }}</span>
+        </button>
 
-      <div v-if="showWorktrees" class="branch-dropdown popup-surface" @mousedown.stop>
-        <div class="dropdown-label">
-          <span>{{ t('worktree.switch') }}</span>
-          <HelpButton page="git.md#worktree" :size="13" />
-        </div>
-        <div class="branch-list">
-          <button
-            v-for="w in worktreeStore.worktrees"
-            :key="w.path"
-            class="branch-option worktree-option"
-            :class="{ current: worktreeStore.isActive(w) }"
-            @click="onSelectWorktree(w)"
-          >
-            <span class="worktree-name">
-              {{ basename(w.path) }}
-              <span class="worktree-branch">{{ worktreeBranchLabel(w) }}</span>
-            </span>
-            <span v-if="worktreeStore.isActive(w)" class="current-mark">*</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="gitStore.status" class="branch-area">
-      <button class="status-item clickable" data-testid="branch-selector" @click="openBranchSwitcher">
-        <GitBranch :size="14" :stroke-width="2" class="branch-icon" />
-        <span>{{ gitStore.status.branch }}</span>
-        <span v-if="gitStore.status.isDirty" class="dirty-dot"></span>
-      </button>
-
-      <div v-if="showBranches" class="branch-dropdown popup-surface" @mousedown.stop>
-        <input
-          v-model="branchQuery"
-          class="branch-search"
-          :placeholder="t('git.switchBranch')"
-          @keydown.esc="closeBranches"
-        />
-        <div class="branch-list">
-          <button
-            v-for="b in filteredBranches"
-            :key="b"
-            class="branch-option"
-            :class="{ current: b === gitStore.status?.branch }"
-            @click="onSelectBranch(b)"
-          >
-            {{ b }}
-            <span v-if="b === gitStore.status?.branch" class="current-mark">*</span>
-          </button>
-          <template v-if="filteredRemoteBranches.length || gitStore.fetchingBranches">
-            <div class="dropdown-label group">
-              <span>{{ t('git.remoteBranches') }}</span>
-              <RefreshCw
-                v-if="gitStore.fetchingBranches"
-                :size="11"
-                :stroke-width="2"
-                class="spin-icon"
-              />
-            </div>
+        <div v-if="showWorktrees" class="branch-dropdown popup-surface" @mousedown.stop>
+          <div class="dropdown-label">
+            <span>{{ t('worktree.switch') }}</span>
+            <HelpButton page="git.md#worktree" :size="13" />
+          </div>
+          <div class="branch-list">
             <button
-              v-for="b in filteredRemoteBranches"
-              :key="b"
-              class="branch-option remote-option"
-              :title="t('git.checkoutRemoteHint', { branch: localBranchName(b) })"
-              @click="onSelectRemoteBranch(b)"
+              v-for="w in worktreeStore.worktrees"
+              :key="w.path"
+              class="branch-option worktree-option"
+              :class="{ current: worktreeStore.isActive(w) }"
+              @click="onSelectWorktree(w)"
             >
-              <Cloud :size="12" :stroke-width="2" class="remote-icon" />
-              <span class="remote-name">{{ b }}</span>
+              <span class="worktree-name">
+                {{ basename(w.path) }}
+                <span class="worktree-branch">{{ worktreeBranchLabel(w) }}</span>
+              </span>
+              <span v-if="worktreeStore.isActive(w)" class="current-mark">*</span>
             </button>
-          </template>
-          <div
-            v-if="!filteredBranches.length && !filteredRemoteBranches.length"
-            class="branch-empty"
-          >{{ t('git.noBranches') }}</div>
+          </div>
         </div>
       </div>
+
+      <div v-if="gitStore.status" class="branch-area">
+        <button class="status-item clickable" data-testid="branch-selector" @click="openBranchSwitcher">
+          <GitBranch :size="14" :stroke-width="2" class="branch-icon" />
+          <span>{{ gitStore.status.branch }}</span>
+          <span v-if="gitStore.status.isDirty" class="dirty-dot"></span>
+        </button>
+
+        <div v-if="showBranches" class="branch-dropdown popup-surface" @mousedown.stop>
+          <input
+            v-model="branchQuery"
+            class="branch-search"
+            :placeholder="t('git.switchBranch')"
+            @keydown.esc="closeBranches"
+          />
+          <div class="branch-list">
+            <button
+              v-for="b in filteredBranches"
+              :key="b"
+              class="branch-option"
+              :class="{ current: b === gitStore.status?.branch }"
+              @click="onSelectBranch(b)"
+            >
+              {{ b }}
+              <span v-if="b === gitStore.status?.branch" class="current-mark">*</span>
+            </button>
+            <template v-if="filteredRemoteBranches.length || gitStore.fetchingBranches">
+              <div class="dropdown-label group">
+                <span>{{ t('git.remoteBranches') }}</span>
+                <RefreshCw
+                  v-if="gitStore.fetchingBranches"
+                  :size="11"
+                  :stroke-width="2"
+                  class="spin-icon"
+                />
+              </div>
+              <button
+                v-for="b in filteredRemoteBranches"
+                :key="b"
+                class="branch-option remote-option"
+                :title="t('git.checkoutRemoteHint', { branch: localBranchName(b) })"
+                @click="onSelectRemoteBranch(b)"
+              >
+                <Cloud :size="12" :stroke-width="2" class="remote-icon" />
+                <span class="remote-name">{{ b }}</span>
+              </button>
+            </template>
+            <div
+              v-if="!filteredBranches.length && !filteredRemoteBranches.length"
+              class="branch-empty"
+            >{{ t('git.noBranches') }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- リポジトリはブランチの隣（#383）。 -->
+      <button
+        v-if="repoLink"
+        class="status-item clickable github-btn"
+        :title="t('statusBar.openProjectRepo', { provider: repoLink.label })"
+        @click="openProjectRepo"
+      >
+        <component :is="repoIcon" :size="14" :stroke-width="1.5" />
+      </button>
     </div>
 
-    <button class="status-item clickable small" @click="toggleLanguage">
-      {{ settingsStore.language.toUpperCase() }}
-    </button>
-    <span v-if="updater.appVersion.value" class="status-text version">v{{ updater.appVersion.value }}{{ devHash }}</span>
-    <button
-      v-if="repoLink"
-      class="status-item clickable github-btn"
-      :title="repoLink.label"
-      @click="openProjectRepo"
-    >
-      <component :is="repoIcon" :size="14" :stroke-width="1.5" />
-    </button>
+    <div class="status-group">
+      <button class="status-item clickable small" @click="toggleLanguage">
+        {{ settingsStore.language.toUpperCase() }}
+      </button>
+      <!-- 押すと Pike 自身の GitHub を開く（#383）。プロジェクトのリポジトリを開く
+           上のボタンと紛れないよう、ツールチップで何のバージョンかを言う。 -->
+      <button
+        v-if="updater.appVersion.value"
+        class="status-item clickable small version"
+        :title="t('statusBar.pikeVersion', { version: updater.appVersion.value })"
+        @click="openPikeRepo"
+      >v{{ updater.appVersion.value }}{{ devHash }}</button>
+    </div>
   </div>
 </template>
 
@@ -671,6 +708,37 @@ onUnmounted(() => {
   flex: 1;
 }
 
+/* 右側の組（#383）。**区切りは後ろの組が描く**ので、前の組が消えたときに区切りだけが
+   残らない。縦の中央は親の `align-items` で揃うが、組の中でも揃えておく（中身の
+   font-size が 11px と 12px で混ざるため）。 */
+.status-group {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* **区切りは流し込みの枠を占めない**（#383）。flex の子にすると、組がドロップダウンの
+   器を兼ねているとき `position: absolute; left: 0` の中身が区切りのぶんだけ右にずれ、
+   器をもう 1 枚かぶせる羽目になる。絶対配置なら組を分けずに済む（タブバーの
+   `.tab-add-arrow` が `border-left` でやっているのと同じ「箱を占めない区切り」）。
+   `~` なのは、表したいのが「先頭の組ではない」であって「隣り合っている」ではないため。 */
+.status-group ~ .status-group {
+  position: relative;
+  margin-left: 13px;
+}
+
+.status-group ~ .status-group::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 12px;
+  background: var(--border);
+}
+
+
 .status-message {
   display: flex;
   align-items: center;
@@ -723,17 +791,20 @@ onUnmounted(() => {
   opacity: 0.85;
 }
 
-.status-text.version {
+/* 淡く置いて、ホバーで戻す（#383）。隣の `.github-btn` と同じ対にしないと、並んだ
+   2 つの淡色ボタンで押せることの見え方が割れる。 */
+.version,
+.github-btn {
   opacity: 0.5;
+}
+
+.version:hover,
+.github-btn:hover {
+  opacity: 1;
 }
 
 .github-btn {
-  opacity: 0.5;
   padding: 0 4px !important;
-}
-
-.github-btn:hover {
-  opacity: 1;
 }
 
 .status-item.small {

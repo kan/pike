@@ -58,6 +58,7 @@ import { useProjectAccent } from '../../composables/useProjectAccent'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
+import { PIKE_REPO_URL } from '../../lib/manual'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { sideOf } from '../../lib/reorder'
 import { actionChord } from '../../lib/shortcuts'
@@ -208,7 +209,7 @@ function openManual() {
 
 async function openGitHub() {
   closeGearMenu()
-  await openUrlWithConfirm('https://github.com/kan/pike')
+  await openUrlWithConfirm(PIKE_REPO_URL)
 }
 
 async function checkUpdate() {

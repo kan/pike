@@ -19,6 +19,19 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   - xdg-open と Python は `BROWSER` を空白で割るので、ユーザー名やインストール先に空白があると起動できない
 - **OSC 8 のハイパーリンクは `linkHandler` で `openUrlWithConfirm` へ送る（#381、`useTerminalUrlLinks.ts`）**。渡さないと xterm 既定の `window.confirm` → `window.open` が走り、WebView の中で開こうとして何も起きない。Claude Code はログイン URL をこれで出す（折り返した行をまたいでも URL 全体を持つ）。**URL のリンク化の設定では切らない**（理由はあのファイルのコメント）
 - リサイズは `pty.resize()` で PTY サイズを更新
+- **xterm は右に溝を持つ（#383）。** FitAddon は列数を決めるとき親の幅から
+  `overviewRuler?.width || 14` を引き、xterm 6 のスクロールバー（vscode の
+  `ScrollableElement`）も同じ式で幅を決める。**1 つの値が確保量と描画幅の両方を決める**ので、
+  `theme.css` の `::-webkit-scrollbar { width: 6px }` はターミナルには当たらない
+  - 本文の右には必ずこのぶんが空く。左右に 10px ずつ置くと右だけ 24px に見えるので、
+    同じだけ左に置いて釣り合わせる（`--term-gutter` と共有クラス `.xterm-surface`）。
+    **余白をタブ側に書かないこと**: ターミナルと Docker ログの 2 面が同じ事情を持つ
+  - **`align-items: center` で端数を散らしてはいけない。** `.xterm` が本文ちょうどの幅に
+    縮み、スクロールバーが最終列に重なる（つまみのドラッグも取られうる）
+  - **`new Terminal({ overviewRuler: { width: N } })` を渡せば Pike がこの数字を持てる**
+    （スクロールバーもアプリの 6px に揃い、CSS のリテラルが消える）。ただし
+    `findOptions` が既に指定している `matchOverviewRuler` の印が同時に描かれ始めるので、
+    **見た目を実機で確かめてから入れる**
 - **xterm は端数の行を持てないので、余白は上下に振り分ける（#268）**: 高さは `rows × セル高` で、FitAddon は行数を floor する。`.terminal-inner` を何もしないコンテナにすると端数（最大でセル 1 行ぶん ≒ 20px）が全部下に溜まり、4 辺 10px のはずの余白が下だけ広く見える。flex の `justify-content: center` で上下に割る。横も同じ理屈で余るが、セル幅は 8px 程度なので触っていない
 - `autoStart` 対応: PTY spawn 後に指定コマンドを自動実行（例: `claude`）
 - `PtySession` に `Drop` 実装: セッション破棄時に `child.kill()` で子プロセスを確実に終了

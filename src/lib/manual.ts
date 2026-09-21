@@ -11,10 +11,14 @@
  */
 import { getVersion } from '@tauri-apps/api/app'
 
+/** Pike 自身のリポジトリ。**GitHub のページの綴りはここだけ**（#383。それまでは
+ *  SideBar と `REPO_BLOB_BASE` の 2 か所にあり、StatusBar が 3 か所目になるところだった）。
+ *  `REPO_BASE` は raw のホストが別なので、そちらは畳めない。 */
+export const PIKE_REPO_URL = 'https://github.com/kan/pike'
 const REPO_BASE = 'https://raw.githubusercontent.com/kan/pike/'
 /** GitHub's rendered view, for files handed to the browser: raw Markdown would
  *  arrive as plain text. */
-const REPO_BLOB_BASE = 'https://github.com/kan/pike/blob/'
+const REPO_BLOB_BASE = `${PIKE_REPO_URL}/blob/`
 /** Ref used when the running version has no matching release tag (dev builds). */
 export const DEFAULT_REF = 'main'
 

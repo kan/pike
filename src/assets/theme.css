@@ -48,6 +48,14 @@
   --graph-lane-4: #c678dd;
   --graph-lane-5: #98c379;
   --sidebar-width: 48px;
+  /* xterm が右に確保する溝（#383）。**この数字は xterm が持っている既定の写し**で、
+     FitAddon は列数を決めるとき親の幅から `overviewRuler?.width || 14` を引き、xterm 6 の
+     スクロールバー（vscode の ScrollableElement）も同じ式で幅を決める。つまり本文の右には
+     必ずこのぶんが空くので、左に同じだけ置いて釣り合わせる（`.xterm-surface`）。
+     **`new Terminal({ overviewRuler: { width: N } })` を渡せば Pike 側がこの数字を持てる**
+     （スクロールバーもアプリの 6px に揃う）が、`findOptions` が既に指定している
+     `matchOverviewRuler` の印が同時に描かれ始めるので、見た目を確かめてから入れること。 */
+  --term-gutter: 14px;
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(255, 255, 255, 0.1);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
@@ -103,6 +111,14 @@
   --graph-lane-4: #7b1fa2;
   --graph-lane-5: #2e7d32;
   --sidebar-width: 48px;
+  /* xterm が右に確保する溝（#383）。**この数字は xterm が持っている既定の写し**で、
+     FitAddon は列数を決めるとき親の幅から `overviewRuler?.width || 14` を引き、xterm 6 の
+     スクロールバー（vscode の ScrollableElement）も同じ式で幅を決める。つまり本文の右には
+     必ずこのぶんが空くので、左に同じだけ置いて釣り合わせる（`.xterm-surface`）。
+     **`new Terminal({ overviewRuler: { width: N } })` を渡せば Pike 側がこの数字を持てる**
+     （スクロールバーもアプリの 6px に揃う）が、`findOptions` が既に指定している
+     `matchOverviewRuler` の印が同時に描かれ始めるので、見た目を確かめてから入れること。 */
+  --term-gutter: 14px;
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
@@ -167,6 +183,14 @@
    このクラスを持つ要素の 1 枚だけが色を塗るようにする。**xterm を開くタブを足したら
    このクラスを付けること**（`.popup-surface` と同じで、付け忘れは backdrop を有効に
    したときしか再現しない）。不透明モードでは `.opaque` を併せて付けて素通しにする。 */
+/* xterm を載せるタブの面（ターミナルと Docker ログ）。**余白はここが持つ**（#383）:
+   下の溝の事情は xterm の側の話なので、面ごとに書き写すと片方だけ古くなる。
+   下地の色だけは `v-bind` が要るのでコンポーネント側に残る。 */
+.xterm-surface {
+  padding: 10px 0 10px var(--term-gutter);
+  box-sizing: border-box;
+}
+
 .xterm-surface:not(.opaque) .xterm,
 .xterm-surface:not(.opaque) .xterm .xterm-viewport,
 .xterm-surface:not(.opaque) .xterm .xterm-screen {

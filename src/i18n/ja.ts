@@ -885,6 +885,8 @@ export default {
   'statusBar.saveWithEncoding': 'このエンコードで保存',
   'statusBar.lfUnix': 'LF (Unix)',
   'statusBar.fileTypeAuto': '自動で判定',
+  'statusBar.openProjectRepo': 'プロジェクトのリポジトリ（{provider}）を開く',
+  'statusBar.pikeVersion': 'Pike {version}（押すと Pike の GitHub を開きます）',
   'statusBar.fileTypeHint': 'ファイルタイプを一時的に変える（開き直すと自動判定に戻ります）',
   'statusBar.crlfWindows': 'CRLF (Windows)',
   'statusBar.ccIn': '入力',

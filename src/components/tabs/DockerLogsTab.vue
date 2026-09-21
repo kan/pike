@@ -139,11 +139,10 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 余白は共有の `.xterm-surface` が持つ（#383）。ここは下地の色だけ（`v-bind` が要る）。 */
 .docker-logs-tab {
   position: absolute;
   inset: 0;
-  padding: 10px;
-  box-sizing: border-box;
   background: v-bind('settingsStore.terminalSurfaceBg');
 }
 

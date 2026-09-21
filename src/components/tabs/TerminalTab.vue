@@ -1371,8 +1371,9 @@ onUnmounted(() => {
 .terminal-wrapper {
   position: absolute;
   inset: 0;
-  padding: 10px;
-  box-sizing: border-box;
+  /* 余白は共有の `.xterm-surface` が持つ（#383。理由は `--term-gutter` の宣言の隣）。
+     **`align-items: center` で端数を散らしてはいけない**: `.xterm` が本文ちょうどの幅に
+     縮み、スクロールバーが最終列に重なる。 */
   background: v-bind('settingsStore.terminalSurfaceBg');
 }
 
