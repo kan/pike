@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { confirmDialog } from '../composables/useConfirmDialog'
+import { confirmDialog, secretDialog } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
 import {
@@ -16,12 +16,20 @@ import {
   gitPull,
   gitPush,
   gitRemoteUrl,
+  gitSshAdd,
   gitStage,
   gitStatus,
   gitUnstage,
 } from '../lib/tauri'
 import { windowFocused } from '../lib/window'
-import type { GitFileChange, GitLogEntry, GitStatusResult, PullOption, PushOption } from '../types/git'
+import type {
+  GitFileChange,
+  GitLogEntry,
+  GitNetworkResult,
+  GitStatusResult,
+  PullOption,
+  PushOption,
+} from '../types/git'
 import { chainOnSuccess } from '../types/tab'
 import { useProjectStore } from './project'
 import { useStatusMessageStore } from './statusMessage'
@@ -36,6 +44,9 @@ export function localBranchName(remoteBranch: string): string {
   const slash = remoteBranch.indexOf('/')
   return slash < 0 ? remoteBranch : remoteBranch.slice(slash + 1)
 }
+
+/** パスフレーズを聞いた結末（#386）。何を見せるかは呼び出し側が決める。 */
+type AddKeyOutcome = 'added' | 'cancelled' | 'failed'
 
 export const useGitStore = defineStore('git', () => {
   const status = ref<GitStatusResult | null>(null)
@@ -74,10 +85,22 @@ export const useGitStore = defineStore('git', () => {
    *   `terminal_command`（`ssh-add` を前に置くかの判断もあちら）
    * - `root` … その失敗がどのリポジトリのものか。プロジェクトや worktree を切り替えた
    *   あとも帯が残ると、**押した先が別のリポジトリになる**（`clearTransientError`）
+   * - `addKeyRetry` … 鍵のパスフレーズを聞けば直る失敗のときに、預けたあとでやり直す
+   *   もの（#386）。**真偽値と関数の 2 欄に割らないこと**: 「押せるのに何も起きない
+   *   ボタン」が型で表せてしまう。ボタンを出すかは `canAddKey`（この欄の有無）で決まる。
+   *   **やり直しまで持つのは、2 つのボタンを同じ結末に揃えるため**: 「ターミナルで実行」は
+   *   `ssh-add; git pull` を走らせる＝やり直しまで含むので、ダイアログ側だけ「鍵は入ったが
+   *   何も起きない」で終わると、同じ帯の隣り合ったボタンで結果が違うことになる
    */
-  const failure = ref<{ message: string; command: string | null; root: string } | null>(null)
+  const failure = ref<{
+    message: string
+    command: string | null
+    root: string
+    addKeyRetry: (() => Promise<void>) | null
+  } | null>(null)
   const error = computed(() => failure.value?.message ?? null)
   const authCommand = computed(() => failure.value?.command ?? null)
+  const canAddKey = computed(() => !!failure.value?.addKeyRetry)
   // Whether the active root is a git repository. `false` drives the panel's
   // "initialize repository" view instead of surfacing a raw git error.
   const isRepo = ref(true)
@@ -89,8 +112,8 @@ export const useGitStore = defineStore('git', () => {
    * パネルを閉じたまま実行したとき（パレットやサイドバーのボタン）に「何も起きなかった」
    * ように見える。入口ごとに通知を書くと、どれかが漏れる。
    */
-  function setError(message: string, command: string | null = null) {
-    setFailure(message, command)
+  function setError(message: string, command: string | null = null, addKeyRetry: (() => Promise<void>) | null = null) {
+    setFailure(message, command, addKeyRetry)
     // **押せる場所まで案内する**（#384）。知らせはアプリ全体（トースト）なのに、入力の
     // 入口は Git パネルの中にしかない。パレットやサイドバーから pull した人は、パネルを
     // 開けば拾えることに気付けない。
@@ -104,8 +127,88 @@ export const useGitStore = defineStore('git', () => {
    * `root` を添えるのがここ 1 箇所で、添え忘れると `clearTransientError` の判定が
    * 素通りする。
    */
-  function setFailure(message: string, command: string | null = null) {
-    failure.value = { message, command, root: getRoot() }
+  function setFailure(
+    message: string,
+    command: string | null = null,
+    addKeyRetry: (() => Promise<void>) | null = null,
+  ) {
+    failure.value = { message, command, root: getRoot(), addKeyRetry }
+  }
+
+  /**
+   * リモートに触る操作（pull / push）の失敗を記録する（#386）。
+   *
+   * **`GitNetworkResult` をそのまま受ける**ので、欄が増えたときに触るのはここだけになる。
+   */
+  function setNetworkError(message: string, result: GitNetworkResult | null, retry: () => Promise<void>) {
+    setError(message, result?.command ?? null, result?.canAddKey ? retry : null)
+  }
+
+  /**
+   * リモートに触る操作（pull / push）が失敗したときの始末（#386）。
+   *
+   * **鍵のパスフレーズで直る失敗では、帯を出す前に入力を聞く。** 利用者がしたいのは
+   * 「pull を通すこと」で、そこに要るのはパスフレーズ 1 つと分かっている。先に帯を出すと、
+   * エラーを読んでボタンを探す手間を挟むことになる。**断られて初めて**帯と
+   * 「ターミナルで実行」を出す（ホスト鍵の確認など、こちらで聞けないことも起きるため）。
+   *
+   * **入力して通らなかったときは帯だけ**（トーストを重ねない）。理由は
+   * `askAndAddKey` が既に「パスフレーズが違うかもしれません」として出している。
+   */
+  async function handleNetworkFailure(
+    message: string,
+    result: GitNetworkResult | null,
+    retry: () => Promise<void>,
+    keyAsked: boolean,
+  ) {
+    if (result?.canAddKey && !keyAsked) {
+      const outcome = await askAndAddKey(getRoot(), retry)
+      if (outcome === 'added') return
+      if (outcome === 'failed') {
+        setFailure(message, result.command, retry)
+        return
+      }
+    }
+    setNetworkError(message, result, retry)
+  }
+
+  /**
+   * パスフレーズを聞いて鍵を預け、通ったらやり直す（#386）。**帯は出さない**（何を
+   * 見せるかは結末を見て呼び出し側が決める）。
+   *
+   * - `added` … 預けられた（やり直しまで済んでいる、または相手が変わったので止めた）
+   * - `cancelled` … 入力しなかった
+   * - `failed` … 入力したが通らなかった（理由はトーストで出した）
+   *
+   * **`root` は待つたびに見る。** ダイアログと `ssh-add`（冷えた WSL で最長 30 秒）の
+   * あいだに切り替えられると、**別のリポジトリへ鍵を預け、別のリポジトリでやり直す**。
+   */
+  async function askAndAddKey(root: string, retry: () => Promise<void>): Promise<AddKeyOutcome> {
+    const project = getProject()
+    if (!project) return 'cancelled'
+    const passphrase = await secretDialog(t('git.passphrasePrompt'))
+    // 空文字も「入力しなかった」とみなす（`ssh-add` に渡しても失敗するだけ）。
+    if (!passphrase || root !== getRoot()) return 'cancelled'
+    try {
+      await gitSshAdd(root, project.shell, passphrase)
+    } catch (e) {
+      // **「パスフレーズが違う」を言えるのはここだけ。** `SSH_ASKPASS_REQUIRE=force` の
+      // `ssh-add` は間違えても**何も書かずに 1 で終わる**（聞き直す先が無いため）ので、
+      // Rust から来るのは試した鍵の名前くらいしかない。
+      useStatusMessageStore().show({
+        text: t('git.passphraseFailed', { reason: String(e) }),
+        variant: 'error',
+        durationMs: 8000,
+      })
+      return 'failed'
+    }
+    // 鍵は入った。やり直す相手が変わっていたら、そこで止めるだけ。
+    if (root !== getRoot()) return 'added'
+    // **やり直す前に帯を下ろす。** `retry` は新しい失敗を立てうるので、後ろで消すと
+    // そちらまで消す。
+    clearError()
+    await retry()
+    return 'added'
   }
 
   /** 失敗の表示を下ろす。 */
@@ -337,7 +440,12 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function push(options?: PushOption[]) {
+  /**
+   * `keyAsked` は「この操作のためにパスフレーズを既に聞いた」（#386）。**やり直しの側が
+   * 真を渡す**ので、聞くのは利用者が押した 1 回につき最大 1 度になる。無いと、鍵は
+   * 入るのに（別の鍵なので）pull が通らない構成で**入力欄が延々と出続ける**。
+   */
+  async function push(options?: PushOption[], keyAsked = false) {
     const project = getProject()
     // **ガードはここに置く**（#270）。以前は SideBar のボタンの disabled だけが多重実行を
     // 止めていたので、パレットから 2 回叩くと同じリポジトリで 2 本走り、`index.lock` で
@@ -346,37 +454,49 @@ export const useGitStore = defineStore('git', () => {
     pushing.value = true
     // 前回の資格情報待ちの帯は、次の試行を始めた時点で下ろす（`clearTransientError`）。
     clearError()
+    let failed: { message: string; result: GitNetworkResult | null } | null = null
     try {
       const result = await gitPush(getRoot(), project.shell, options)
-      if (result.error) setError(result.error, result.command)
+      if (result.error) failed = { message: result.error, result }
       else await refreshStatus()
     } catch (e) {
-      setError(String(e))
+      failed = { message: String(e), result: null }
     } finally {
+      // **旗は失敗の始末より先に下ろす。** やり直し（`push`）はこの旗を見て早期
+      // return するので、握ったまま呼ぶと黙って何も起きない。
       pushing.value = false
+    }
+    if (failed) {
+      await handleNetworkFailure(failed.message, failed.result, () => push(options, true), keyAsked)
     }
   }
 
-  async function pull(options?: PullOption[]) {
+  async function pull(options?: PullOption[], keyAsked = false) {
     const project = getProject()
     if (!project || pulling.value) return
     pulling.value = true
     clearError()
-    // ストアの `failure` とは別物（あちらは `root` を持つ 3 つ組）。同じ名前にしない。
-    let failed: { message: string; command: string | null } | null = null
+    // ストアの `failure` とは別物（あちらは `root` を持つ）。同じ名前にしない。
+    // **結果は欄ごとに写さず丸ごと持つ**: `GitNetworkResult` が伸びるたびにここを
+    // 直すことになるうえ、写し漏れが無言で `null` に化ける。
+    let failed: { message: string; result: GitNetworkResult | null } | null = null
     try {
       const result = await gitPull(getRoot(), project.shell, options)
-      if (result.error) failed = { message: result.error, command: result.command }
+      if (result.error) failed = { message: result.error, result }
     } catch (e) {
-      failed = { message: String(e), command: null }
+      failed = { message: String(e), result: null }
     } finally {
       // Refresh either way: a pull that stopped on a conflict rejects, and its
       // conflicts and the operation banner are exactly what the user needs to
       // see now rather than after the next poll (#222).
       await Promise.all([refreshStatus(), refreshLog()])
-      // ...and set the error only after, since a successful refresh clears it.
-      if (failed) setError(failed.message, failed.command)
       pulling.value = false
+    }
+    // **失敗の始末は `finally` の外**（#386）。中でやると、やり直し（`pull`）が
+    // `pulling` を握ったままの自分に早期 return される。帯を出すのも refresh の後
+    // でなければならない（成功した refresh が下ろしてしまう）。
+    if (failed) {
+      await handleNetworkFailure(failed.message, failed.result, () => pull(options, true), keyAsked)
     }
   }
 
@@ -427,6 +547,19 @@ export const useGitStore = defineStore('git', () => {
     if (!project || !f?.command || f.root !== getRoot()) return
     clearError()
     runInTerminal(f.command)
+  }
+
+  /**
+   * 帯の「パスフレーズを入力」（#386）。**2 回目以降の入口**で、1 回目は失敗した時点で
+   * `handleNetworkFailure` が自動で聞く。
+   *
+   * **失敗しても帯を残す**（何もしない）。間違えただけなら、もう一度押して入力し直せる
+   * ほうがよい。
+   */
+  async function addSshKey() {
+    const f = failure.value
+    if (!f?.addKeyRetry || f.root !== getRoot()) return
+    await askAndAddKey(f.root, f.addKeyRetry)
   }
 
   /**
@@ -624,6 +757,8 @@ export const useGitStore = defineStore('git', () => {
     error,
     authCommand,
     runAuthCommand,
+    canAddKey,
+    addSshKey,
     isRepo,
     pushing,
     pulling,

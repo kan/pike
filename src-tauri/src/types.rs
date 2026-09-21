@@ -739,6 +739,77 @@ impl ShellConfig {
         self.run_with_timeout(program, args, DEFAULT_TIMEOUT)
     }
 
+    /// POSIX のシェルで 1 行を走らせる `Command`（`run_shell_line_env` の POSIX の腕）。
+    ///
+    /// **切り出してあるのは、標準入力を繋ぐ経路（`run_posix_line_stdin`）が同じものを
+    /// 要るから**。引用規約（`posix_script` / `bash_quote`）を 2 コピーにすると、
+    /// `run_shell_line_env` の doc が言う「呼び出し側で組み立てると無言で壊れる」を
+    /// この関数自身がやることになる。**呼ぶ前に `is_posix()` を確かめること**
+    /// （Windows のシェルを渡すと bash で走らせてしまう）。
+    fn posix_line_command(&self, dir: &str, env: &[&(&str, &str)], line: &str) -> Command {
+        let script = posix_script(dir, env, self, line);
+        match self {
+            ShellConfig::Wsl { distro } => {
+                let mut c = silent_command("wsl.exe");
+                c.arg("-d")
+                    .arg(distro)
+                    .arg("-e")
+                    .arg("bash")
+                    .arg("-c")
+                    .arg(script);
+                c
+            }
+            _ => {
+                let mut c = silent_command("/bin/sh");
+                c.arg("-c").arg(script);
+                c
+            }
+        }
+    }
+
+    /// `run_shell_line` に**標準入力**を足したもの（#386）。**POSIX のシェル専用**。
+    ///
+    /// **秘密を渡す唯一の経路。** SSH 鍵のパスフレーズがここを通る。標準入力なので
+    /// argv にもディスクにも環境変数にも載らず、`ps` にも出ない（行そのものは argv に
+    /// 出るので、**行に秘密を埋めないこと**）。
+    ///
+    /// **`run` 系には足せない。** あちらが通る `spawn_piped` は stdin を閉じる（#384。
+    /// 閉じないと入力待ちのコマンドが黙って止まる）ので、ここだけ別に spawn する。
+    ///
+    /// 書き終えたら閉じる（`drop`）。閉じないと、`cat` のように EOF まで読む相手が
+    /// 返ってこない。
+    pub fn run_posix_line_stdin(
+        &self,
+        dir: &str,
+        line: &str,
+        input: &str,
+        timeout: Duration,
+    ) -> Result<(i32, String, String), String> {
+        if !self.is_posix() {
+            return Err("this shell cannot take input on stdin".to_owned());
+        }
+        let mut cmd = self.posix_line_command(dir, &[], line);
+        cmd.stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::piped());
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to run shell: {e}"))?;
+        let pid = child.id();
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write as _;
+            // 書けなかったこと自体は失敗にしない（子が既に終わっていれば broken pipe に
+            // なる）。答えは終了コードで分かる。
+            let _ = stdin.write_all(input.as_bytes());
+        }
+        let output = wait_with_timeout(pid, timeout, "shell", move || child.wait_with_output())?;
+        Ok((
+            output.status.code().unwrap_or(-1),
+            into_lossy_string(output.stdout),
+            into_lossy_string(output.stderr),
+        ))
+    }
+
     /// Run a shell command line inside `dir`, returning (exit_code, stdout, stderr)
     /// regardless of exit status (build/lint tools exit non-zero when they find
     /// problems). PATH is augmented so user toolchains (cargo, go, npx) resolve.
@@ -778,26 +849,7 @@ impl ShellConfig {
             // 書き写さないこと** — この関数の doc が「呼び出し側で組み立てると無言で
             // 壊れる」と言っている当のものが 2 コピーになる。
             // `cd` は `current_dir` ではなくスクリプトに入れる。
-            s if s.is_posix() => {
-                let script = posix_script(dir, &env, s, line);
-                match s {
-                    ShellConfig::Wsl { distro } => {
-                        let mut c = silent_command("wsl.exe");
-                        c.arg("-d")
-                            .arg(distro)
-                            .arg("-e")
-                            .arg("bash")
-                            .arg("-c")
-                            .arg(script);
-                        c
-                    }
-                    _ => {
-                        let mut c = silent_command("/bin/sh");
-                        c.arg("-c").arg(script);
-                        c
-                    }
-                }
-            }
+            s if s.is_posix() => s.posix_line_command(dir, &env, line),
             _ => {
                 // `current_dir` + `raw_arg` avoids the cmd.exe/Rust quoting clash
                 // that `cmd /C "cd /d ..."` triggers; cmd starts in `dir`, so

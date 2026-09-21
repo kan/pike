@@ -239,6 +239,35 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
   `setActiveWorktree` に割れているので、そこを 1 つにするところから。**次にスタンプを
   足したくなったら、先にそちらを畳む**
 
+### パスフレーズは Pike のダイアログで受け取る（#386）
+
+鍵が agent に入っていないときは、**帯を出す前に伏せ字の入力欄を開く**。受け取った値を
+`ssh-add` へ中継し、失敗した操作をやり直す。実体は `src-tauri/src/ssh_agent.rs`
+（**判断の正本はあのファイルの doc**）で、ここには規範だけ置く。
+
+- **聞くのが先、帯は断られてから**（`handleNetworkFailure`）。利用者がしたいのは
+  「pull を通すこと」で、要るものはパスフレーズ 1 つと分かっている。先に帯を出すと、
+  エラーを読んでボタンを探す手間を挟むことになる
+- **聞くのは利用者が押した 1 回につき最大 1 度**（`keyAsked`。やり直しの側が真を渡す）。
+  無いと、鍵は入るのに（`identity_for` が別の鍵を当てたので）pull が通らない構成で
+  **入力欄が延々と出続ける**
+
+- **保持するのは引き続き agent で、Pike ではない。** 受け取った値は子プロセスの標準入力へ
+  一度流すだけで、ディスクにも設定にも書かない。器（`inputValue`）にも残さない
+  （`secretDialog`）。**秘密を運ぶ経路は `types::run_posix_line_stdin` の 1 本**で、
+  **行そのものは argv に出る**のでそこへ埋めないこと
+- **対象は POSIX のシェルだけ。** Windows のシェルのプロジェクトは 1Password や Windows の
+  agent が鍵を持つので、`ssh-add` を走らせる話にならない
+- **ターミナルで実行する道は残す。** ホスト鍵の確認など、パスフレーズ以外を聞かれる
+  ことがある。**2 つのボタンは同じ結末に揃える**（`failure.addKeyRetry`）: あちらは
+  `ssh-add; git pull` を走らせる＝やり直しまで含むので、ダイアログ側だけ「鍵は入ったが
+  何も起きない」で終わると、隣り合ったボタンで結果が違うことになる
+- **`can_add_key` は `command` の言い換えではない。** あちらは「資格情報が要るか」、
+  こちらは「**どの**資格情報か」。ホスト鍵の確認や https の利用者名でパスフレーズを
+  聞いても何も進まない
+- **利用者が起こした agent には手を出さない。** Pike が起こすのは 1 つも届かないときだけで、
+  止めるのも自分で起こしたものだけ（`shutdown_all`）
+
 ## Git worktree 連動
 - `git_worktree_list` コマンド（`git worktree list --porcelain` をパース）が `{ path, branch, head, isBare, isDetached, isMain }[]` を返す。bare クローン構成では bare エントリを main 扱いせず**最初の非 bare** を `isMain` とし、`prunable`（ディレクトリ消失）worktree は一覧から除外
 - **参照ルートの単一の真実**: `stores/project.ts` の `activeRoot`（非 null computed = `activeWorktreeRoot ?? currentProject.root ?? ''`）。file tree / git / search / tasks / docker、およびエディタの git 操作（diff ガター・History・定義ジャンプ・MD リンク解決）はすべて `project.root` ではなく `activeRoot` を参照する。root 相対操作で残る `project.root` 直参照は worktree 追従漏れのサイン

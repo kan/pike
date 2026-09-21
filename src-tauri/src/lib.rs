@@ -59,6 +59,7 @@ mod search;
 mod settings_sync;
 mod shell_probe;
 mod site_rules;
+mod ssh_agent;
 mod tasks;
 /// デスクトップ通知（#318）。中で Windows / それ以外を分けるので、ここでは割らない
 /// （`toast_notify` コマンドは両方でコンパイルされる必要がある）。
@@ -1922,6 +1923,7 @@ pub fn run() {
             git::git_fetch,
             git::git_push,
             git::git_pull,
+            git::git_ssh_add,
             git::git_show_files,
             git::git_show_file,
             git::git_show_file_base64,
@@ -1942,6 +1944,10 @@ pub fn run() {
                 // Tray "Quit" destroys windows without a CloseRequested, so this is
                 // the only chance to catch a resize made in the last 500ms (#200).
                 window_geom::record_all(app_handle);
+                // Pike が起こした ssh-agent を止める（#386）。起こしっぱなしにすると、
+                // 開き直すたびに distro の中へ agent が 1 つずつ溜まる。他人が起こした
+                // agent はそもそも表に入っていないので触らない。
+                ssh_agent::shutdown_all();
                 // Stop this instance's socat tunnel containers before the
                 // process exits. Only when this session actually created a
                 // tunnel (avoids stalling exit on a hung daemon); leftovers

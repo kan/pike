@@ -1,5 +1,5 @@
 use crate::cache::ProbeRegistry;
-use crate::shell_probe::{ssh_auth_sock, SSH_AUTH_SOCK};
+use crate::shell_probe::SSH_AUTH_SOCK;
 use crate::types::{git_args, git_bash_prefix, install_key, ShellConfig};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -117,8 +117,10 @@ fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, Str
 /// だけで、従来どおりのエラー表示に落ちる。
 /// ssh: 鍵で認証できなかった。パスフレーズを聞けなかったときもここに来る。
 ///
-/// **名前で持つのは `terminal_command` が引くため。** `AUTH_MARKERS` の添字で指していると、
-/// 表の先頭に 1 行足しただけで `ssh-add` の前置が別の失敗（ホスト鍵・https）に付く。
+/// **名前で持つのは `GitNetworkResult::of` が引くため。** `AUTH_MARKERS` の添字で指して
+/// いると、表の先頭に 1 行足しただけで `ssh-add` の前置とパスフレーズのボタンが別の失敗
+/// （ホスト鍵・https）に付く。**走査するのは `of` の 1 か所**で、答えは `key_denied` として
+/// 2 つの消費者へ配る。
 const KEY_DENIED: &str = "Permission denied (publickey";
 
 const AUTH_MARKERS: [&str; 5] = [
@@ -143,9 +145,17 @@ fn needs_credentials(text: &str) -> bool {
 ///   値の取り方は `shell_probe::ssh_auth_sock` の doc が正本
 /// - `GIT_TERMINAL_PROMPT=0` … https のリモートで git 自身が利用者名を聞きに行くのを
 ///   止める。ssh 側の `BatchMode` と対で、**どの転送でも「聞かずに失敗する」に揃える**
-fn network_env(shell: &ShellConfig) -> Vec<(&'static str, String)> {
+///
+/// `user_sock` は利用者のログインシェルが持っている `SSH_AUTH_SOCK`（`run_git_network` が
+/// 1 回だけ引いて渡す。**あちらは同じ答えを `agent` の判定にも使う**ので、ここで引き直すと
+/// 同じ問いが 2 か所になる）。
+fn network_env(shell: &ShellConfig, user_sock: Option<&str>) -> Vec<(&'static str, String)> {
     let mut env = vec![("GIT_TERMINAL_PROMPT", "0".to_owned())];
-    if let Some(sock) = ssh_auth_sock(shell) {
+    // **Pike が起こした agent があればそちらが勝つ**（#386）。利用者の rc が古い（もう
+    // 死んでいる）ソケットを export している環境で、起こした生きた agent が使われないと
+    // 困るため。
+    let sock = crate::ssh_agent::started_sock(shell).or_else(|| user_sock.map(str::to_owned));
+    if let Some(sock) = sock {
         env.push((SSH_AUTH_SOCK, sock));
     }
     env
@@ -228,6 +238,16 @@ fn ssh_set_by_env() -> bool {
 ///
 /// `None` は「触らない」（`ssh_set_by_env` の doc）。
 fn ssh_config_arg(shell: &ShellConfig, root: &str) -> Option<String> {
+    ssh_arg_for(&ssh_base(shell, root))
+}
+
+/// 読めた `core.sshCommand`（未設定・未読はどちらも空文字）。
+///
+/// **`ssh_config_arg` から切り出してある**のは、鍵を解決する側（#386 の `identity_for`）が
+/// **同じ ssh に聞く**ため。素の `ssh -G` で聞くと、`core.sshCommand` で別の ssh や別の
+/// config（`ssh -F …`）を指している構成では**違う相手の答え**で鍵を名指しすることになる。
+/// キャッシュを共有するので、そのために `git config` がもう 1 回走ることもない。
+fn ssh_base(shell: &ShellConfig, root: &str) -> String {
     static REGISTRY: OnceLock<ProbeRegistry<(String, String), SshCommand>> = OnceLock::new();
     let fresh = |answer: &SshCommand| answer.at.is_some_and(|at| at.elapsed() < SSH_COMMAND_TTL);
     let entry = REGISTRY
@@ -260,8 +280,8 @@ fn ssh_config_arg(shell: &ShellConfig, root: &str) -> Option<String> {
         }
     }
     // 一度も読めていないときは `base` が空のまま＝「`core.sshCommand` は無い」として扱う。
-    let arg = ssh_arg_for(&entry.answer().base);
-    arg
+    let base = entry.answer().base.clone();
+    base
 }
 
 /// ネットワークの git を 1 回走らせた結果（#384）。
@@ -275,6 +295,9 @@ struct NetworkRun {
     stdout: String,
     stderr: String,
     agent: bool,
+    /// パスフレーズを受け取れるシェルか（#386）。Windows のシェルでは 1Password や
+    /// Windows の agent が鍵を持つので、`ssh-add` を走らせる話にならない。
+    posix: bool,
 }
 
 /// `run_git` のネットワーク版（#384）。終了コードと両方の流れを返すのは、資格情報が
@@ -289,14 +312,24 @@ fn run_git_network(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<Net
     let ssh = ssh_config_arg(shell, root);
     let prefix: Vec<&str> = ssh.as_deref().map_or_else(Vec::new, |v| vec!["-c", v]);
     let full = [&prefix[..], &git_args(root, args)].concat();
-    let env = network_env(shell);
-    let agent = env.iter().any(|(name, _)| *name == SSH_AUTH_SOCK);
+    // **利用者の agent は 1 回だけ引く。** 渡すソケットを決めるのと、`agent` を決めるのに
+    // 同じ答えが要る。
+    //
+    // **`agent` が見るのは「利用者の agent に届くか」**（#386）。`network_env` が渡す
+    // ソケットは Pike が起こした agent のものかもしれず、それは**利用者のターミナルには
+    // export されていない**。`terminal_command` が前に置く `ssh-add` はターミナルで走るので、
+    // そちらを基準にしないと `Could not open a connection to your authentication agent.`
+    // で落ちる 1 行を足すだけになる。
+    let user_sock = crate::shell_probe::ssh_auth_sock(shell);
+    let agent = user_sock.is_some();
+    let env = network_env(shell, user_sock.as_deref());
     let (code, stdout, stderr) = shell.run_env("git", &full, &env)?;
     Ok(NetworkRun {
         code,
         stdout,
         stderr,
         agent,
+        posix: shell.is_posix(),
     })
 }
 
@@ -316,6 +349,15 @@ pub struct GitNetworkResult {
     pub error: Option<String>,
     /// 資格情報が要るせいで失敗したときに、ターミナルで走らせ直す 1 行。
     pub command: Option<String>,
+    /// 鍵のパスフレーズを聞けば直る失敗か（#386）。
+    ///
+    /// **`command` と重複していない。** あちらは「資格情報が要るか」で、こちらは
+    /// 「**どの**資格情報か」。ホスト鍵の確認や https の利用者名では、パスフレーズを
+    /// 聞いても何も進まないので、同じボタンを出してはいけない。
+    ///
+    /// **`command` と同じ 1 つの分岐から導く**ので、「真なのにターミナルの行が無い」は
+    /// 作れない（`of` を参照）。
+    pub can_add_key: bool,
 }
 
 impl GitNetworkResult {
@@ -329,12 +371,21 @@ impl GitNetworkResult {
             return Self {
                 error: None,
                 command: None,
+                can_add_key: false,
             };
         }
         let text = format!("{}{}", run.stdout, run.stderr);
+        let needs = needs_credentials(&text);
+        // **鍵の拒否かどうかは 1 回だけ見る。** 2 つの消費者（ターミナルの行に `ssh-add` を
+        // 前置するかと、パスフレーズのボタンを出すか）が別々に走査していたころは、同じ
+        // 問いの答えが 2 か所にあった。
+        let key_denied = text.contains(KEY_DENIED);
         Self {
             error: Some(format!("git error: {}", text.trim())),
-            command: needs_credentials(&text).then(|| terminal_command(args, &text, run.agent)),
+            command: needs.then(|| terminal_command(args, key_denied, run.agent)),
+            // **同じ `needs` から導く**（`can_add_key` の doc）。別々に判定すると、
+            // 片方だけ真になる状態を作れてしまう。
+            can_add_key: needs && run.posix && key_denied,
         }
     }
 }
@@ -350,9 +401,9 @@ impl GitNetworkResult {
 /// ssh が tty で聞くのでその 1 回は通る。PowerShell 5 に `&&` が無い問題
 /// （`types/tab.ts` の `chainOnSuccess`）も、`;` なら避けて通れる。
 /// `agent` は「そのとき agent のソケットを渡せたか」（`NetworkRun` の doc）。
-fn terminal_command(args: &[&str], failure: &str, agent: bool) -> String {
+fn terminal_command(args: &[&str], key_denied: bool, agent: bool) -> String {
     let git = format!("git {}", args.join(" "));
-    if agent && failure.contains(KEY_DENIED) {
+    if agent && key_denied {
         format!("ssh-add; {git}")
     } else {
         git
@@ -1142,17 +1193,23 @@ pub async fn git_create_branch(
     .map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
-pub async fn git_remote_url(root: String, shell: ShellConfig) -> Result<Option<String>, String> {
-    let output = tokio::task::spawn_blocking(move || {
-        run_git(&shell, &root, &["remote", "get-url", "origin"])
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    Ok(output
+/// `origin` の URL（リポジトリでない・origin が無い・読めなかった、はどれも `None`）。
+///
+/// **同期の関数として切り出してある**のは、`spawn_blocking` の中から呼ぶ利用者が居るため
+/// （#386 の `git_ssh_add`）。空白と空文字の扱いをここ 1 か所に閉じないと、鍵の解決だけ
+/// trim を向こう任せにする、といった食い違いが残る。
+fn origin_url(shell: &ShellConfig, root: &str) -> Option<String> {
+    run_git(shell, root, &["remote", "get-url", "origin"])
         .ok()
         .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty()))
+        .filter(|s| !s.is_empty())
+}
+
+#[tauri::command]
+pub async fn git_remote_url(root: String, shell: ShellConfig) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || origin_url(&shell, &root))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// `git_remote_url` for many roots at once, in the same order. Used to backfill
@@ -1219,6 +1276,43 @@ pub async fn git_fetch(root: String, shell: ShellConfig) -> Result<GitNetworkRes
         let args = ["fetch", "--prune"];
         let run = run_git_network(&shell, &root, &args)?;
         Ok(GitNetworkResult::of(&args, run))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 鍵のパスフレーズを受け取って ssh-agent に預ける（#386）。
+///
+/// **成功したあとは、呼び出し側が失敗した操作をやり直すだけ**でよい（以後の pull / push は
+/// #384 の `SSH_AUTH_SOCK` の転送にそのまま乗る）。**ここで git を走らせ直さない**: どの
+/// 操作から来たのかはフロントが知っていて、Rust へ持ち込むと `PullOption` / `PushOption` を
+/// もう一度受け渡す形になる。
+///
+/// **POSIX のシェルだけ**（issue の線引き）。Windows のシェルのプロジェクトでは 1Password や
+/// Windows の agent が鍵を持っていて、`ssh-add` を走らせる話にならない。
+///
+/// **パスフレーズは受け取ってそのまま子の標準入力へ渡す。** 覚えないし、ログにも出さない
+/// （失敗しても返すのは `ssh-add` の stderr の 1 行目だけ）。
+#[tauri::command]
+pub async fn git_ssh_add(
+    root: String,
+    shell: ShellConfig,
+    passphrase: String,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        if !shell.is_posix() {
+            return Err("ssh-add is only available on POSIX shells".to_owned());
+        }
+        // 鍵を名指しできると、1 回のパスフレーズで確実に 1 つだけ開く（理由は
+        // `ssh_agent::identity_for` の doc）。名指しできなければ既定の鍵に任せる。
+        let identity = origin_url(&shell, &root)
+            .and_then(|url| crate::ssh_agent::ssh_host(&url))
+            .and_then(|host| {
+                // **鍵を解決する ssh は、繋ぐときの ssh と同じものにする**（`ssh_base`）。
+                let ssh = ssh_base(&shell, &root);
+                crate::ssh_agent::identity_for(&shell, &root, &host, &ssh)
+            });
+        crate::ssh_agent::add_key(&shell, &root, identity.as_deref(), &passphrase)
     })
     .await
     .map_err(|e| e.to_string())?

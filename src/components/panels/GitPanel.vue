@@ -678,7 +678,13 @@ onUnmounted(() => {
     <template v-else-if="gitStore.status">
       <div v-if="gitStore.error" class="error-strip">
         <div class="error-text" :title="gitStore.error">{{ gitStore.error }}</div>
-        <!-- パスフレーズなどの入力が要るときだけ（#384）。バックエンドの git には TTY が
+        <!-- 鍵のパスフレーズで直る失敗のときだけ（#386）。伏せ字で受け取って ssh-agent に
+             預け、失敗した操作をやり直す。**先に置く**のが普通の直し方で、ターミナルの
+             ほうはホスト鍵の確認など「パスフレーズ以外も聞かれる」ときの逃げ道。 -->
+        <button v-if="gitStore.canAddKey" class="op-btn" @click="gitStore.addSshKey()">
+          {{ t('git.enterPassphrase') }}
+        </button>
+        <!-- 資格情報の入力が要るときだけ（#384）。バックエンドの git には TTY が
              無いので、ターミナルタブで走らせ直すのが唯一の入力できる場所。 -->
         <button
           v-if="gitStore.authCommand"

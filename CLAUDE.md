@@ -124,6 +124,7 @@ pike/
 │       ├── remote_image.rs    # 承認済みホストの画像取得（Markdown プレビュー、#239）
 │       ├── cache.rs           # mtime キャッシュと、キーごとの probe レジストリ（#315）
 │       ├── shell_probe.rs     # シェルに PATH と環境変数を 1 回で聞く共有部（#275）
+│       ├── ssh_agent.rs       # 鍵を ssh-agent に預ける（#386。パスフレーズは子の stdin 経由）
 │       ├── settings_sync.rs   # 設定・プロジェクト一覧の同期ファイル読み書き（#164）
 │       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）と仮想デスクトップ（#317）
 │       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）

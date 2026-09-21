@@ -7,6 +7,13 @@ const message = ref('')
 const mode = ref<Mode>('confirm')
 const inputValue = ref('')
 const inputPlaceholder = ref('')
+/**
+ * 入力を伏せ字にするか（#386 の鍵のパスフレーズ）。
+ *
+ * **`mode` を 4 つ目に増やさない。** 聞き方も答えの運び方も `prompt` と同じで、違うのは
+ * `<input>` の `type` 1 つ。増やすと `respond` の分岐が両方を同じに扱う羽目になる。
+ */
+const inputMasked = ref(false)
 /** 添えるチェックボックスの文言。空なら出さない。 */
 const optionLabel = ref('')
 const optionChecked = ref(false)
@@ -41,6 +48,7 @@ function dismiss() {
   if (promptValue) {
     promptValue(null)
     promptValue = null
+    forgetSecret()
   }
   if (resolveFn) {
     resolveFn()
@@ -96,15 +104,42 @@ export function infoDialog(msg: string): Promise<void> {
 }
 
 export function promptDialog(msg: string, defaultValue = '', placeholder = ''): Promise<string | null> {
+  return ask(msg, defaultValue, placeholder, false)
+}
+
+/**
+ * 伏せ字で 1 つ聞く（#386 の鍵のパスフレーズ）。
+ *
+ * **答えを返したら `inputValue` から消す**（`forgetSecret`）。ここに残ると、次に
+ * `promptDialog` を開いた人の入力欄へ秘密が既定値として出る。**Pike は秘密を覚えない**と
+ * いうのがこの機能の前提なので、器のほうにも残さない。
+ */
+export function secretDialog(msg: string, placeholder = ''): Promise<string | null> {
+  return ask(msg, '', placeholder, true)
+}
+
+function ask(msg: string, defaultValue: string, placeholder: string, masked: boolean): Promise<string | null> {
   dismiss()
   message.value = msg
   mode.value = 'prompt'
   inputValue.value = defaultValue
   inputPlaceholder.value = placeholder
+  inputMasked.value = masked
   visible.value = true
   return new Promise<string | null>((resolve) => {
     promptValue = resolve
   })
+}
+
+/**
+ * 伏せ字で聞いた答えを入力欄から消す。**同期で呼ぶこと**（`dismiss` と `respond`）。
+ *
+ * `await` の後ろ（`finally`）に置くと 1 マイクロタスク遅れるので、**次に開いた
+ * ダイアログが同期で書いた既定値を消す**（`promptDialog` に既定値を渡す呼び出しは
+ * 5 つある）。答えは解決の引数として既に渡っているので、ここで消して困る人は居ない。
+ */
+function forgetSecret() {
+  if (inputMasked.value) inputValue.value = ''
 }
 
 export function useConfirmDialog() {
@@ -115,6 +150,7 @@ export function useConfirmDialog() {
         promptValue(value ? inputValue.value : null)
         promptValue = null
         resolveFn = null
+        forgetSecret()
       }
     } else if (confirmValue) {
       confirmValue({ ok: value, displaced: false })
@@ -126,5 +162,15 @@ export function useConfirmDialog() {
     }
   }
 
-  return { visible, message, mode, inputValue, inputPlaceholder, optionLabel, optionChecked, respond }
+  return {
+    visible,
+    message,
+    mode,
+    inputValue,
+    inputPlaceholder,
+    inputMasked,
+    optionLabel,
+    optionChecked,
+    respond,
+  }
 }

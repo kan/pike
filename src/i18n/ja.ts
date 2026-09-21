@@ -563,6 +563,10 @@ export default {
   'git.opContinueBlocked': 'コンフリクトを解消してステージすると続行できます',
   'git.runInTerminal': 'ターミナルで実行',
   'git.runInTerminalHint': 'Git パネルの「ターミナルで実行」から入力できます',
+  'git.enterPassphrase': 'パスフレーズを入力',
+  'git.passphrasePrompt':
+    'SSH 鍵のパスフレーズを入力してください。ssh-agent に預けるので、次からは聞かれません。Pike はパスフレーズを保存しません。',
+  'git.passphraseFailed': '鍵を預けられませんでした。パスフレーズが違うかもしれません（{reason}）',
   'git.opAbort': '中止',
   'git.opRecommit': 'コミットし直して続行',
   'git.abortConfirm': '開始前の状態に戻します。よろしいですか？\n\n{command}',

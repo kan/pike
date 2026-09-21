@@ -565,6 +565,10 @@ export default {
   'git.opContinueBlocked': 'Available once the conflicts are resolved and staged',
   'git.runInTerminal': 'Run in terminal',
   'git.runInTerminalHint': 'Enter it from "Run in terminal" in the Git panel',
+  'git.enterPassphrase': 'Enter passphrase',
+  'git.passphrasePrompt':
+    'Enter the passphrase for your SSH key. It goes to ssh-agent, so you will not be asked again. Pike does not store it.',
+  'git.passphraseFailed': 'Could not add the key. The passphrase may be wrong ({reason}).',
   'git.opAbort': 'Abort',
   'git.opRecommit': 'Recreate commit and continue',
   'git.abortConfirm': 'Go back to the state before it started.\n\n{command}',

@@ -541,6 +541,17 @@ export async function gitPull(root: string, shell: ShellType, options?: PullOpti
 }
 
 /**
+ * 鍵のパスフレーズを ssh-agent へ預ける（#386）。
+ *
+ * **これが秘密を運ぶ唯一の IPC。** Rust 側は受け取った値を `ssh-add` の標準入力へ一度
+ * 流すだけで、どこにも書かない（`ssh_agent::add_key`）。**呼び出し側も覚えないこと**:
+ * 保持するのは agent で、Pike ではない。
+ */
+export async function gitSshAdd(root: string, shell: ShellType, passphrase: string): Promise<void> {
+  return invoke<void>('git_ssh_add', { root, shell, passphrase })
+}
+
+/**
  * Raw bytes of a file at a commit, base64-encoded. Needed to open a binary
  * revision (an image) in its viewer — `gitShowFile` returns decoded text.
  */

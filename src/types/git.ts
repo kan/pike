@@ -65,6 +65,12 @@ export interface GitNetworkResult {
   error: string | null
   /** 資格情報が要るせいで失敗したときに、ターミナルで走らせ直す 1 行。 */
   command: string | null
+  /**
+   * 鍵のパスフレーズを聞けば直る失敗か（#386）。**`command` の言い換えではない**:
+   * あちらは「資格情報が要るか」、こちらは「どの資格情報か」。ホスト鍵の確認や https の
+   * 利用者名では、パスフレーズを聞いても何も進まない。
+   */
+  canAddKey: boolean
 }
 
 export interface GitBranches {

@@ -4,7 +4,8 @@ import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useI18n } from '../i18n'
 
 const { t } = useI18n()
-const { visible, message, mode, inputValue, inputPlaceholder, optionLabel, optionChecked, respond } = useConfirmDialog()
+const { visible, message, mode, inputValue, inputPlaceholder, inputMasked, optionLabel, optionChecked, respond } =
+  useConfirmDialog()
 const okBtn = ref<HTMLButtonElement | null>(null)
 const inputEl = ref<HTMLInputElement | null>(null)
 
@@ -28,6 +29,7 @@ function onKeydown(e: KeyboardEvent) {
           ref="inputEl"
           v-model="inputValue"
           class="dialog-input"
+          :type="inputMasked ? 'password' : 'text'"
           :placeholder="inputPlaceholder"
           @keydown.enter.stop="respond(true)"
         />
