@@ -200,13 +200,21 @@
         try {
           fn(JIRAPP);
         } catch (e) {
-          console.error("[jirapp] feature '" + name + "' error", e);
+          console.error("[Pike] jira feature '" + name + "' error", e);
         }
       }
       if (document.body) run();
       else document.addEventListener("DOMContentLoaded", run);
     }
   };
+  // **識別子の `jirapp` は写した元の名前のまま残す**（Pike #380）。画面とコンソールに出る
+  // 文言だけを `Pike` に直した。名前を揃えたくなったときのために、残す理由を書いておく:
+  //   - `jirapp.columnColors.v1`（store のキー）… 変えると**利用者が付けた列の色が消える**。
+  //     移行を書くだけの値でもないので、名前のために消す理由が無い
+  //   - `data-jirapp-col` / `data-jirapp-sb`（属性）と `__jirapp-*`（要素の id）… JS と CSS の
+  //     両方が同じ綴りを読むので、片方だけ直すと黙って効かなくなる
+  //   - `window.JIRAPP` / `__JIRAPP_CONFIG__` … ページの JS から見える名前。Jira の画面に
+  //     居座る以上、他所とぶつからない珍しい綴りであることのほうが価値がある
   window.JIRAPP = JIRAPP;
 
   // ============================================================

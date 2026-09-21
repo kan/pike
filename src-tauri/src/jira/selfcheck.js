@@ -63,7 +63,7 @@ JIRAPP.registerFeature("selfCheck", function (app) {
     var box = document.createElement("div");
     box.id = BANNER_ID;
     var head = document.createElement("div");
-    head.textContent = "jirapp: Jira の画面構成が変わったようです。次の機能が効いていません。";
+    head.textContent = "Pike: Jira の画面構成が変わったようです。次の機能が効いていません。";
     box.appendChild(head);
     var ul = document.createElement("ul");
     for (var i = 0; i < lost.length; i++) {
@@ -99,7 +99,7 @@ JIRAPP.registerFeature("selfCheck", function (app) {
     }
     if (++strikes < STRIKES) return;
     clearInterval(timer);
-    console.warn("[jirapp] Jira の DOM に追従できていない可能性: " + lost.join(" / "));
+    console.warn("[Pike] jira: Jira の DOM に追従できていない可能性: " + lost.join(" / "));
     showBanner(lost);
   }, POLL_MS);
 });
