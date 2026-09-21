@@ -659,8 +659,33 @@ export const useTabStore = defineStore('tabs', () => {
       initialContent: content,
       pane: options?.pane,
     })
+    // **中身を持たせて作ったら、ここで `untitledContent` にも入れる**（#376）。あれを
+    // 書くのは `EditorTab` の打鍵の経路だけなので、種を置かないと**一度も編集しないまま
+    // 再起動したときに空のタブが復元される**。検索結果の書き出しで実際に出た。
+    //
+    // **復元の経路もここを通る**ので、種を置かないと「復元 → 触らない → もう一度再起動」
+    // で消える（1 回目は残るぶん、気付くのが遅れる）。
+    if (content) untitledContent.set(id, content)
     activeTabId.value = id
     return id
+  }
+
+  /**
+   * 無題のタブの中身を差し替える（#376）。**時間のかかる書き出しを、先にタブを出してから
+   * 埋めるため**にある（検索結果の書き出しは rg を上限 10,000 件で回し直すので、押してから
+   * 数秒かかる。待っているあいだ何も出ないと、押せていないように見える）。
+   *
+   * `reloadRequested` は `EditorTab` が中身を読み直す合図で、無題のタブでは
+   * `loadContent` が `initialContent` をそのまま返す。**閉じられていたら何もしない**
+   * （待っているあいだに閉じられる）。
+   */
+  function setUntitledContent(id: string, content: string) {
+    const tab = tabs.value.find((t) => t.id === id)
+    if (tab?.kind !== 'editor' || tab.initialContent === undefined) return
+    tab.initialContent = content
+    // セッションへ出るのはこちら（`addBlankEditorTab` の種と同じ理由）。
+    untitledContent.set(id, content)
+    tab.reloadRequested = Date.now()
   }
 
   function addPreviewTab(options: { path: string; dataUrl: string; revision?: string }): string {
@@ -1354,6 +1379,7 @@ export const useTabStore = defineStore('tabs', () => {
     reportExit,
     addEditorTab,
     addBlankEditorTab,
+    setUntitledContent,
     untitledContent,
     addPreviewTab,
     addHistoryTab,

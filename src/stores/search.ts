@@ -69,9 +69,19 @@ export const useSearchStore = defineStore('search', () => {
     pendingOpen.value = { seed }
   }
 
-  /** 範囲を絞る（null で全体に戻す）。**範囲を変える入口はこれだけ。** */
+  /**
+   * 範囲を絞る（null で全体に戻す）。**範囲を変える入口はこれだけ。**
+   *
+   * **前の結果は捨てる**（#376）。パネルは `v-else-if` でマウントし直されるので入力欄は
+   * 空に戻るが、ここを触らないとストアの結果だけが前の検索のまま残る。「In: src/lib」と
+   * 出ているのに一覧はプロジェクト全体のヒット、という食い違いになり、しかも
+   * `results.length` が非 0 なので「結果をタブで開く」が出たままになる。押すと
+   * `lastOptions.query` を**新しい範囲で**引き直すので、画面と中身の違うタブができる。
+   */
   function setScope(folder: string | null) {
+    if (folder === scope.value) return
     scope.value = folder
+    clear()
   }
 
   /** 検索の起点。絞っていればそのフォルダ、無ければプロジェクト（worktree）のルート。 */
@@ -128,19 +138,36 @@ export const useSearchStore = defineStore('search', () => {
       lastOptions.value = options
       truncated.value = result.truncated
     } catch (e) {
+      // **失敗も seq で捨てる**（#376）。1 本目が 30 秒の `wait_with_timeout` や rg の
+      // exit 2 で落ちるころには、2 本目の結果が出ていることがある。`lastOptions` まで
+      // 消すと「結果をタブで開く」も何も起こさなくなる。
+      if (mySeq !== searchSeq) return
       error.value = String(e)
       results.value = []
       lastOptions.value = null
     } finally {
-      searching.value = false
+      if (mySeq === searchSeq) searching.value = false
     }
   }
 
+  /**
+   * いま出ている結果を捨てる（プロジェクトや worktree の切り替え、範囲の変更、語を消したとき）。
+   *
+   * **`searching` の扱いは `stores/issues.ts` の `load` の doc が正本**（「seq を進めた者が
+   * 持つ。例外は `clear()`」）。ここもその形で、`searchSeq` を進めて自分で下ろす。
+   *
+   * search 固有の帰結（#376）: 進めないと、捨てた直後に前の検索が返って `results` と
+   * `lastOptions` を書き戻す。範囲を絞った場合は「In: そのフォルダ」の下にプロジェクト
+   * 全体のヒットが並び、しかも「結果をタブで開く」が押せる、という `setScope` の doc が
+   * 防ぐと書いた状態そのものになる。
+   */
   function clear() {
+    searchSeq++
     results.value = []
     lastOptions.value = null
     truncated.value = false
     error.value = null
+    searching.value = false
   }
 
   const extracting = ref(false)
@@ -158,6 +185,14 @@ export const useSearchStore = defineStore('search', () => {
     const options = lastOptions.value
     if (!project || !options || extracting.value) return
     extracting.value = true
+    const tabStore = useTabStore()
+    // **タブは先に出す**（#376）。書き出しは上限 10,000 件で rg を回し直すので、押してから
+    // 数秒かかる。結果が揃ってから作る形だと、そのあいだ画面が何も変わらず、押せていない
+    // ように見える。`setUntitledContent` が届いたところで中身を差し替える。
+    const tabId = tabStore.addBlankEditorTab({
+      title: t('search.extractTitle', { query: options.query }),
+      content: `# ${t('search.extracting', { query: options.query })}\n`,
+    })
     try {
       const root = projectStore.activeRoot
       const result = await searchExecute(project.shell, searchRoot(), { ...options, extract: true })
@@ -168,12 +203,12 @@ export const useSearchStore = defineStore('search', () => {
       ]
       if (result.truncated) header.push(`# ${t('search.extractTruncated', { max: String(result.matches.length) })}`)
       const body = result.matches.map((m) => `${rel(m.path)}:${m.line}: ${m.content}`)
-      useTabStore().addBlankEditorTab({
-        title: t('search.extractTitle', { query: options.query }),
-        content: `${[...header, '', ...body].join('\n')}\n`,
-      })
+      tabStore.setUntitledContent(tabId, `${[...header, '', ...body].join('\n')}\n`)
     } catch (e) {
       error.value = String(e)
+      // **失敗もタブに出す**（先に出した「検索中」のまま残さない）。パネルのエラー帯は
+      // 見えていないことがある（書き出しのあとはタブへ目が移っている）。
+      tabStore.setUntitledContent(tabId, `# ${t('search.extractFailed')}\n# ${String(e)}\n`)
     } finally {
       extracting.value = false
     }

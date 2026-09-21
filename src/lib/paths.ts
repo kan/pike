@@ -22,8 +22,14 @@ export function normalizeSep(path: string, sep: '/' | '\\' = '/'): string {
   return sep === '\\' ? path.replace(/\//g, '\\') : path.replace(/\\/g, '/')
 }
 
+/**
+ * 絶対パスか。**ドライブの直後の区切りは `\` と `/` の両方を受ける**（#376）。
+ * プロジェクトの root は作成フォームの入力がそのまま入るので `C:/src/pike` の形が
+ * 実在し、`\` しか受けないと rg が返した `C:/src/pike\src\a.ts` が相対と見なされて
+ * root ともう一度繋がれる（検索結果のクリックが読み込みエラーになっていた）。
+ */
 export function isAbsolutePath(path: string): boolean {
-  return path.startsWith('/') || /^[A-Z]:\\/i.test(path) || path.startsWith('\\\\')
+  return path.startsWith('/') || /^[A-Z]:[\\/]/i.test(path) || path.startsWith('\\\\')
 }
 
 export function basename(path: string): string {

@@ -6,8 +6,14 @@
  * どのエディタのタブにも入るが、効くのは**行頭の `パス:行`** だけ（`pathLinkAt`）なので、
  * 保存した grep の結果や、同じ形のログでも使える。
  *
- * **判定はターミナルと同じ `findPathLinks`**（`lib/terminalLinks.ts`）。出力の中のパスを
- * 拾う規則が 2 つあると、ターミナルでは押せるのにエディタでは押せない、が起きる。
+ * **判定は 2 本立て**（#376）。ターミナルの出力と同じ形は `findPathLinks`
+ * （`lib/terminalLinks.ts`）で拾い、Pike 自身が書き出した形はここの `EXTRACT_LINE_RE` で
+ * 受ける。**なぜ 1 本にしないかは `EXTRACT_LINE_RE` の doc が正本**（要点だけ: あちらは
+ * 任意のターミナル出力という広い面を守っていて、拡張子と ASCII の縛りを緩めると誤爆が
+ * そちらへ出る）。
+ *
+ * 代償として、拡張子の無いファイル名（`Makefile:12:`）と非 ASCII を含むパスは**エディタで
+ * だけ押せる**。ターミナル側を揃えるなら `PATH_RE` の側を触ることになる。
  *
  * **定義ジャンプ（`editorJumpTo.ts`）より先に置く。** 押した位置にパスが無ければ何もせず
  * `false` を返し、定義ジャンプへ譲る。
@@ -16,6 +22,31 @@ import { type Extension, Prec } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { hasMod } from './keys'
 import { findPathLinks, type PathLinkTarget } from './terminalLinks'
+
+/**
+ * 書き出しの行の形（`パス:行: 本文`）。**`findPathLinks` が拾えないぶんを受ける**（#376）。
+ *
+ * あちらの `PATH_RE` は任意のターミナル出力が相手なので、誤爆を避けるために拡張子
+ * （`\.\w{1,12}`）を必須にし、文字クラスも ASCII に閉じている。そのため
+ * `Makefile:12:` / `Dockerfile:5:` / `.gitignore:2:` は 1 件も一致せず、非 ASCII を
+ * 含むパス（`docs/設計/a.md:12:`）は非 ASCII の**後ろ**からしか一致しないので
+ * `index === 0` に落ちる。タブのヘッダは「`Ctrl+Click` で開ける」と書いているのに、
+ * 見た目が同じ行で黙って何も起きなかった。
+ *
+ * **`PATH_RE` を広げるのではなくこちらを足す。** あの規則はターミナルの出力という
+ * ずっと広い面を守っていて、緩めると誤爆がそちらへ出る。
+ *
+ * **パスに空白と引用符を許さないこと。** `[^:]+` まで緩めると、ソースの
+ * `let m = parse_grep_line("src/lib.rs:7:  …")` のような行が丸ごとパスとして一致する。
+ * この拡張は `Prec.high` で定義ジャンプより前に走るので、そうなると識別子の
+ * `Ctrl+Click` を横取りしたうえで `.catch` が失敗を飲み、**この変更が消そうとした
+ * 「黙って何も起きない」を逆向きに作る**（この repo の追跡ファイルだけで 13 行が当たった）。
+ * 空白を含むパスは `findPathLinks` 側も元から拾わないので、制限は揃っている。
+ *
+ * ドライブ文字だけは通し、それ以外にコロンを許さないので `https://example.com:8080:` の
+ * ような行には当たらない。
+ */
+const EXTRACT_LINE_RE = /^((?:[A-Za-z]:)?[^\s:"'`]+):(\d+):/
 
 /**
  * `pos` を含む `パス:行` を探す。**行頭から始まり、行番号を持つものだけ**（grep の出力の
@@ -31,7 +62,12 @@ function pathLinkAt(view: EditorView, pos: number): PathLinkTarget | null {
   const hit = findPathLinks(line.text).find(
     (m) => m.index === 0 && line.text[m.path.length] === ':' && col >= m.index && col <= m.index + m.length,
   )
-  return hit ?? null
+  if (hit) return hit
+  const m = EXTRACT_LINE_RE.exec(line.text)
+  if (!m) return null
+  // 末尾の `:` は本文との区切りなので、押せる範囲に入れない。
+  if (col > m[0].length - 1) return null
+  return { path: m[1], line: Number(m[2]) }
 }
 
 export function editorPathJump(open: (target: PathLinkTarget) => void): Extension {

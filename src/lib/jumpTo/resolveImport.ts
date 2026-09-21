@@ -10,7 +10,7 @@
  */
 
 import type { ShellType } from '../../types/tab'
-import { dirname, joinPath, pathSep } from '../paths'
+import { dirname, isAbsolutePath, joinPath, pathSep } from '../paths'
 import { fsReadFile, fsResolveFirstExisting } from '../tauri'
 
 const TS_LIKE_EXTS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.vue']
@@ -38,7 +38,7 @@ export async function resolveImport(opts: ResolveOpts): Promise<string | null> {
   }
 
   // Absolute (rare in JS, but legal)
-  if (importPath.startsWith('/') || /^[A-Z]:[/\\]/i.test(importPath)) {
+  if (isAbsolutePath(importPath)) {
     return resolveByCandidates(importPath, sep, shell)
   }
 
@@ -381,7 +381,7 @@ function extractAliasValue(rhs: string, viteConfigDir: string, sep: '/' | '\\'):
   const strMatch = /^(['"`])([^'"`]+)\1$/.exec(t)
   if (strMatch) {
     const lit = strMatch[2]
-    if (lit.startsWith('/') || /^[A-Z]:[/\\]/i.test(lit)) return lit
+    if (isAbsolutePath(lit)) return lit
     return joinPath(viteConfigDir, lit, sep)
   }
 

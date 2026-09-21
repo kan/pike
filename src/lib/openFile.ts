@@ -54,10 +54,6 @@ const EXECUTABLE_EXTENSIONS = new Set([
 ])
 
 /**
- * ファイルを関連付けられたアプリで開く（#362）。**入口はここ 1 つ**（ファイルツリーの右クリックと、
- * 大きすぎるファイルの画面）。実行形式に当たる拡張子だけ、押した人に確かめてから渡す。
- */
-/**
  * 出力や検索結果に出てきたパスを絶対パスにする。相対パスはプロジェクト（worktree）の
  * ルート（`activeRoot`）から解決する。プロジェクトが無ければ null。
  *
@@ -78,6 +74,10 @@ export async function openProjectPath(path: string, line?: number): Promise<void
   if (full) await openPathInTab({ path: full, line, shell })
 }
 
+/**
+ * ファイルを関連付けられたアプリで開く（#362）。**入口はここ 1 つ**（ファイルツリーの右クリックと、
+ * 大きすぎるファイルの画面）。実行形式に当たる拡張子だけ、押した人に確かめてから渡す。
+ */
 export async function openWithDefaultApp(shell: ShellType, path: string): Promise<void> {
   if (EXECUTABLE_EXTENSIONS.has(extension(path))) {
     if (!(await confirmDialog(t('confirm.runExecutable', { name: basename(path) })))) return

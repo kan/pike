@@ -749,6 +749,8 @@ export default {
   'search.extractHeader': '"{query}" の検索結果 {count} 件',
   'search.extractHint': 'Ctrl+クリック（macOS は ⌘+クリック）か F12 で、その行のファイルを開きます',
   'search.extractTruncated': '{max} 件で打ち切りました',
+  'search.extracting': '"{query}" を検索しています…',
+  'search.extractFailed': '検索に失敗しました',
 
   // Keyboard Shortcuts Modal
   // macOS のメニューバーの項目（#254）。**既定はショートカット一覧と同じ語**（`shortcuts.*`）を

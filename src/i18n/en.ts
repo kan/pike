@@ -751,6 +751,8 @@ export default {
   'search.extractHeader': '{count} results for "{query}"',
   'search.extractHint': 'Ctrl+click (⌘+click on macOS) or F12 opens the file at that line',
   'search.extractTruncated': 'Stopped at {max} results',
+  'search.extracting': 'Searching for "{query}"…',
+  'search.extractFailed': 'Search failed',
 
   // Keyboard Shortcuts Modal
   // macOS menu bar items (#254). Only the ones whose wording differs from the
