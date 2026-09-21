@@ -5,10 +5,6 @@ import { useActiveFile } from '../../composables/useActiveFile'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
-// 使うのは `startError`（inotify-tools 未導入の案内）だけ。**変更の受け手は
-// `stores/fileTree.ts`**（#303）: このパネルは `v-if` でマウントされるので、ここで
-// 購読すると別のパネルを見ているあいだ変更が届かない。
-import { fsWatcher } from '../../composables/useFsWatcher'
 import { fileToBase64 } from '../../composables/useImagePaste'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
@@ -31,6 +27,10 @@ import { useProjectStore } from '../../stores/project'
 import { useSearchStore } from '../../stores/search'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
+// 監視についての知らせは `WatcherNotice.vue`（#385）が自分で読む。**変更の受け手は
+// `stores/fileTree.ts`**（#303）: このパネルは `v-if` でマウントされるので、ここで
+// 購読すると別のパネルを見ているあいだ変更が届かない。
+import WatcherNotice from '../WatcherNotice.vue'
 
 const { t } = useI18n()
 const { activeFilePath, isActiveFile } = useActiveFile()
@@ -510,10 +510,8 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   <div class="filetree-panel" ref="panelEl" data-testid="files-panel">
     <div v-if="!projectStore.currentProject" class="empty">{{ t('fileTree.noProject') }}</div>
     <template v-else>
-      <div v-if="fsWatcher.startError.value" class="watcher-notice">
-        <span>{{ t('fileTree.inotifyMissing') }}</span>
-        <code>sudo apt install inotify-tools</code>
-      </div>
+      <!-- 監視についての知らせ（#385）。出すかどうかも中身も部品側が決める。 -->
+      <WatcherNotice />
       <!-- Create input at root level -->
       <div
         v-if="creating && creating.parentPath === projectStore.activeRoot"
@@ -641,25 +639,6 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
 </template>
 
 <style scoped>
-.watcher-notice {
-  padding: 6px 8px;
-  margin-bottom: 8px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  line-height: 1.5;
-}
-
-.watcher-notice code {
-  display: block;
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--accent);
-  font-family: "Cascadia Code", monospace;
-  user-select: all;
-}
-
 .filetree-panel {
   display: flex;
   flex-direction: column;

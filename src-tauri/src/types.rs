@@ -975,11 +975,7 @@ pub fn spawn_capped_lines<T: Send + 'static>(
         .take()
         .ok_or_else(|| format!("{label}: no stderr pipe"))?;
 
-    let stderr_thread = std::thread::spawn(move || {
-        let mut buf = String::new();
-        let _ = BufReader::new(stderr).read_to_string(&mut buf);
-        buf
-    });
+    let stderr_thread = std::thread::spawn(move || drain_stderr(stderr));
 
     wait_with_timeout(pid, DEFAULT_TIMEOUT, label, move || {
         // 読みで失敗しても後始末は必ず通す。`?` で抜けると、殺さないまま `Child` を drop
@@ -1084,6 +1080,35 @@ pub fn for_each_line(source: impl Read, mut on_line: impl FnMut(&str) -> bool) {
             return;
         }
     }
+}
+
+/// 覚えておく stderr の上限。理由を当てるのに要るのは先頭だけ。
+const STDERR_KEEP_MAX: usize = 64 * 1024;
+
+/// 子プロセスの stderr を**最後まで吸いながら**、先頭 `STDERR_KEEP_MAX` バイトだけ残す。
+///
+/// **上限で読むのをやめないこと。** `Read::take` は上限で EOF を返すので、抜けた時点で
+/// 読み側のパイプが閉じる。以後 stderr へ書いた子は broken pipe（Linux なら SIGPIPE）で
+/// 落ちるので、「保持する量を切る」つもりの上限が「それ以上書いたら子を殺す」になる。
+/// 上限に当たった `inotifywait` はディレクトリの数だけ `Failed to watch …` を出すので、
+/// これは普通に起きる。
+///
+/// **`read_to_string` も使わないこと。** 不正な UTF-8 で `Err` になり、**buf を空のまま
+/// 残す**（`rust.md` が子プロセスの出力に lossy 変換を義務付けているのはこのため）。
+/// `wsl.exe` 自身のエラー（distro が無い・止まっている）は UTF-16 で出るので、読めない
+/// ときこそ手がかりが丸ごと消える。`for_each_line` が行ごとに lossy 変換するので、
+/// ここはそれに乗る（＝上限はバイトではなく行の境目で当たる）。
+pub fn drain_stderr(source: impl Read) -> String {
+    let mut kept = String::new();
+    for_each_line(source, |line| {
+        if kept.len() < STDERR_KEEP_MAX {
+            kept.push_str(line);
+            kept.push('\n');
+        }
+        // 上限を超えても `true`。捨てるのは覚える量だけで、吸うのは最後まで。
+        true
+    });
+    kept
 }
 
 /// Spawn a prepared Command, wait up to 30 s, and return stdout on success.

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 pub struct WatcherState {
     pub handles: Arc<Mutex<HashMap<String, WatcherHandle>>>,
@@ -44,6 +44,103 @@ pub enum ChangeKind {
     Create,
     Modify,
     Delete,
+}
+
+/// 監視が止まった理由（#385）。
+///
+/// **`&'static str` にしないこと。** この値は Rust の分類器・TS の union・i18n のキーの
+/// 3 か所を渡り歩くので、素の文字列だと 4 つ目を足したときにどこも照合してくれない
+/// （`translate` は知らないキーをそのまま返すので、帯にキー文字列が出る）。enum なら
+/// `classify_watch_failure` の `match` が網羅性で気付かせる。`ChangeKind` と同じ形。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WatchFailReason {
+    /// `inotifywait` が distro に入っていない。
+    MissingTool,
+    /// `fs.inotify.max_user_watches` に届いた。
+    WatchLimit,
+    /// 当てられなかった（`detail` をそのまま見せる側）。
+    Other,
+}
+
+/// 監視が落ちたことの知らせ（#385）。
+///
+/// **spawn の成否では分からない。** WSL では起こすのが `wsl.exe` なので、distro の中に
+/// `inotifywait` が無くても spawn は成功し、子が終了コード 1 と stderr の 1 行だけを
+/// 残して消える。以前はその stderr を捨てていたので、**監視が始まらなかったことが
+/// 誰にも届かなかった**（ファイルツリーのパネルに置いた案内も一度も出ていない）。
+///
+/// **ネイティブ側（`notify`）も同じ口から知らせる。** あちらは監視が張れなかったことを
+/// コールバックの `Err` で言うので、捨てると Windows / macOS では同じ「静かに止まる」が
+/// 残る（`fs_watch_failed` という一般的な名前に実装を合わせた）。
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsWatchFailedPayload {
+    pub watcher_id: String,
+    pub reason: WatchFailReason,
+    /// 実際に出た文言。理由を当てられなかったときの唯一の手がかりになる。
+    pub detail: String,
+}
+
+/// stderr から理由を当てる。**当てられないときは `Other`**（`detail` をそのまま見せる）。
+fn classify_watch_failure(stderr: &str) -> WatchFailReason {
+    // `wsl.exe` の relay が出す形（`execvpe(inotifywait) failed: …`）と、シェル越しに
+    // 起動されたときの形の両方を見る。
+    if stderr.contains("execvpe(inotifywait)") || stderr.contains("inotifywait: not found") {
+        WatchFailReason::MissingTool
+    } else if stderr.contains("upper limit on inotify watches") {
+        // `--exclude` はイベントを捨てるだけで監視は張るので、大きなツリーではここに来る。
+        WatchFailReason::WatchLimit
+    } else {
+        WatchFailReason::Other
+    }
+}
+
+/// 監視が止まったことを 1 回だけ知らせて、自分を入れ物から外す。
+///
+/// **自分の後始末は自分でする。** 外さないと、`inotifywait` の無い distro ではプロジェクトを
+/// 切り替えるたびに 100ms ポーリングのスレッドが 1 本ずつ残り、死んだ PID を抱えたハンドルが
+/// 溜まる。ウィンドウを閉じるときの `stop_all` はそれ全部に `taskkill /F /T` を撃つので、
+/// **Windows が再利用した PID の無関係なプロセスツリーを殺しうる**。
+///
+/// **自分で止めたときは知らせない**（`stop_flag`）。プロジェクトの切り替えやウィンドウの
+/// 破棄で毎回ダイアログが出てしまう。
+fn report_watch_failure(
+    app: &AppHandle,
+    watcher_id: &str,
+    stop_flag: &Arc<Mutex<bool>>,
+    reason: WatchFailReason,
+    detail: String,
+) {
+    {
+        let mut stopped = stop_flag.lock().unwrap();
+        if *stopped {
+            return;
+        }
+        *stopped = true;
+    }
+    let removed = app.try_state::<WatcherState>().and_then(|state| {
+        state
+            .handles
+            .lock()
+            .ok()
+            .and_then(|mut handles| handles.remove(watcher_id))
+    });
+    // **落とすのは別スレッドで。** ネイティブ側ではこの関数が `notify` のコールバック
+    // スレッドから呼ばれるので、`RecommendedWatcher` をここで drop すると**自分のスレッドを
+    // join しに行く**（macOS の `FsEventWatcher` は実際に join する）。ここで止まると、
+    // 監視が死んだことを知らせる経路そのものが固まる。
+    if let Some(handle) = removed {
+        std::thread::spawn(move || drop(handle));
+    }
+    let _ = app.emit(
+        "fs_watch_failed",
+        FsWatchFailedPayload {
+            watcher_id: watcher_id.to_owned(),
+            reason,
+            detail: detail.trim().to_owned(),
+        },
+    );
 }
 
 fn path_contains_ignored(path: &Path) -> bool {
@@ -185,6 +282,9 @@ fn start_native_watcher(
     let buffer = Arc::new(Mutex::new(EventBuffer::new()));
     let stop_flag = Arc::new(Mutex::new(false));
 
+    let failed_app = app.clone();
+    let failed_id = id.clone();
+    let failed_flag = stop_flag.clone();
     spawn_flush_thread(buffer.clone(), stop_flag.clone(), app, id.clone());
 
     let root_for_filter = root_path.clone();
@@ -192,30 +292,45 @@ fn start_native_watcher(
     let buffer_cb = buffer;
     let mut watcher = RecommendedWatcher::new(
         move |res: Result<Event, notify::Error>| {
-            if let Ok(event) = res {
-                let kind = match event_kind_to_change(&event.kind) {
-                    Some(k) => k,
-                    None => return,
-                };
-                for path in &event.paths {
-                    let rel = match path.strip_prefix(&root_for_filter) {
-                        Ok(r) => r,
-                        Err(_) => continue,
-                    };
-                    if path_contains_ignored(rel) {
-                        continue;
-                    }
-                    let parent = path.parent().unwrap_or(path).to_string_lossy().into_owned();
-                    let file_path = path.to_string_lossy().into_owned();
-                    let mut buf = buffer_cb.lock().unwrap();
-                    buf.add(
-                        parent,
-                        FsChangeEntry {
-                            path: file_path,
-                            kind: kind.clone(),
-                        },
+            let event = match res {
+                Ok(event) => event,
+                // **黙って捨てないこと**（#385）。`notify` はここで監視が続けられなく
+                // なったことを言う（`MaxFilesWatch`、root の消滅や改名のあとの
+                // `ReadDirectoryChangesW`）。捨てると WSL 側で直したのと同じ「静かに
+                // 止まる」が Windows / macOS に残る。理由は当てられないので `Other`。
+                Err(e) => {
+                    report_watch_failure(
+                        &failed_app,
+                        &failed_id,
+                        &failed_flag,
+                        WatchFailReason::Other,
+                        e.to_string(),
                     );
+                    return;
                 }
+            };
+            let kind = match event_kind_to_change(&event.kind) {
+                Some(k) => k,
+                None => return,
+            };
+            for path in &event.paths {
+                let rel = match path.strip_prefix(&root_for_filter) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                if path_contains_ignored(rel) {
+                    continue;
+                }
+                let parent = path.parent().unwrap_or(path).to_string_lossy().into_owned();
+                let file_path = path.to_string_lossy().into_owned();
+                let mut buf = buffer_cb.lock().unwrap();
+                buf.add(
+                    parent,
+                    FsChangeEntry {
+                        path: file_path,
+                        kind: kind.clone(),
+                    },
+                );
             }
         },
         notify::Config::default(),
@@ -278,11 +393,13 @@ fn start_wsl_watcher(
     ]);
 
     cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::null());
+    // **stderr を捨てないこと**（#385）。`inotifywait` が無い・監視の上限に当たった、の
+    // どちらもここにしか出ず、spawn は成功するので他に知る手段がない。
+    cmd.stderr(std::process::Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|e| {
-        format!("inotifywait not available: {e}\nInstall with: sudo apt install inotify-tools")
-    })?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to start the WSL watcher: {e}"))?;
 
     let child_pid = child.id();
     let stdout = child
@@ -290,10 +407,18 @@ fn start_wsl_watcher(
         .take()
         .ok_or_else(|| "Failed to capture inotifywait stdout".to_owned())?;
 
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Failed to capture inotifywait stderr".to_owned())?;
+    let stderr_thread = std::thread::spawn(move || crate::types::drain_stderr(stderr));
+
     let buffer = Arc::new(Mutex::new(EventBuffer::new()));
 
-    spawn_flush_thread(buffer.clone(), stop_flag.clone(), app, id.clone());
+    spawn_flush_thread(buffer.clone(), stop_flag.clone(), app.clone(), id.clone());
 
+    let failed_id = id.clone();
+    let failed_flag = stop_flag.clone();
     std::thread::spawn(move || {
         // 1 行ずつ、バッファを使い回して読む（#382）。ビルド 1 回で数千行が流れるうえ、
         // 区切りを持たない行はその場で捨てる。
@@ -333,6 +458,9 @@ fn start_wsl_watcher(
             true
         });
         let _ = child.wait();
+        let detail = stderr_thread.join().unwrap_or_default();
+        let reason = classify_watch_failure(&detail);
+        report_watch_failure(&app, &failed_id, &failed_flag, reason, detail);
     });
 
     state.handles.lock().unwrap().insert(
@@ -344,6 +472,45 @@ fn start_wsl_watcher(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_watch_failure, WatchFailReason};
+
+    /// 実測した文言（Windows + WSL、2026-09-21）に当たること。
+    #[test]
+    fn tells_the_failures_apart() {
+        // `wsl.exe` の relay が出す形。コマンド名まで見るので、別のコマンドでは当たらない。
+        let missing = "<3>WSL (1 - Relay) ERROR: CreateProcessCommon:818:             execvpe(inotifywait) failed: No such file or directory";
+        assert_eq!(
+            classify_watch_failure(missing),
+            WatchFailReason::MissingTool
+        );
+        assert_eq!(
+            classify_watch_failure("sh: 1: inotifywait: not found"),
+            WatchFailReason::MissingTool
+        );
+
+        let limit = "Failed to watch /home/k/x; upper limit on inotify watches reached!";
+        assert_eq!(classify_watch_failure(limit), WatchFailReason::WatchLimit);
+
+        // 当てられないものは `Other`（detail をそのまま見せる側へ落とす）。
+        assert_eq!(classify_watch_failure(""), WatchFailReason::Other);
+        assert_eq!(
+            classify_watch_failure("Setting up watches. Beware:"),
+            WatchFailReason::Other
+        );
+    }
+
+    /// TS の union と i18n のキーがこの綴りを前提にしている（`useFsWatcher.ts`）。
+    #[test]
+    fn reason_serializes_as_camel_case() {
+        let json = serde_json::to_string(&WatchFailReason::MissingTool).unwrap();
+        assert_eq!(json, "\"missingTool\"");
+        let json = serde_json::to_string(&WatchFailReason::WatchLimit).unwrap();
+        assert_eq!(json, "\"watchLimit\"");
+    }
 }
 
 #[tauri::command]

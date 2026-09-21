@@ -489,8 +489,6 @@ export default {
   'settings.restoreNoBase': 'Cannot restore: no base directory resolves this project on this machine',
   'settings.restoreNoEntry':
     'Cannot restore: this project is not in the sync file (it was never inside a base directory)',
-  'settings.inotifyMissing':
-    'File watching is not available. Install inotify-tools in WSL to enable automatic file change detection:',
 
   // File Tree
   'fileTree.noProject': 'No project selected',
@@ -506,7 +504,15 @@ export default {
   'fileTree.dirDropUnsupported': 'Dropping folders is not supported yet: {names}',
   'fileTree.newFile': 'New File',
   'fileTree.newFolder': 'New Folder',
-  'fileTree.inotifyMissing': 'File watching unavailable. Install in WSL:',
+  // File watcher (#385). Key spellings pair with Rust's `WatchFailReason`.
+  'watcher.installPrompt':
+    "Detecting file changes in WSL needs inotify-tools, and it isn't installed. Without it the editor and file tree cannot follow changes made outside Pike (an agent writing files, for example).\n\nOpen a terminal and install it? (You will be asked for your sudo password.)",
+  'watcher.installTitle': 'Install inotify-tools',
+  'watcher.missingTool': 'inotify-tools was not found.',
+  'watcher.watchLimit': 'Reached the limit on watched files (fs.inotify.max_user_watches).',
+  'watcher.wslUnc':
+    'This project opens a WSL folder but is set to a Windows platform. Changes made inside WSL cannot be detected — only changes made from Windows arrive. Switch the project to WSL in its settings.',
+  'watcher.other': 'File watching stopped.',
 
   // Git Panel
   'git.noProject': 'No project selected',

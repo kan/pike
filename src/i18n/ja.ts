@@ -486,8 +486,6 @@ export default {
   'settings.restoreNoBase': '復活できません: このマシンの base ディレクトリではパスを解決できません',
   'settings.restoreNoEntry':
     '復活できません: このプロジェクトは同期ファイルにありません（base の外にあったため書き出されていません）',
-  'settings.inotifyMissing':
-    'ファイル監視が利用できません。WSL に inotify-tools をインストールすると、ファイル変更の自動検知が有効になります:',
 
   // File Tree
   'fileTree.noProject': 'プロジェクトが選択されていません',
@@ -503,7 +501,15 @@ export default {
   'fileTree.dirDropUnsupported': 'フォルダのドロップは未対応です：{names}',
   'fileTree.newFile': '新規ファイル',
   'fileTree.newFolder': '新規フォルダ',
-  'fileTree.inotifyMissing': 'ファイル監視が利用できません。WSL で以下を実行:',
+  // File watcher（#385）。キーの綴りは Rust の `WatchFailReason` と対。
+  'watcher.installPrompt':
+    'WSL のファイル変更を検出するには inotify-tools が要ります。入っていないため、エディタやファイルツリーが外部の変更（エージェントの書き込みなど）に追従できません。\n\nターミナルを開いてインストールしますか？（sudo のパスワードを聞かれます）',
+  'watcher.installTitle': 'inotify-tools をインストール',
+  'watcher.missingTool': 'inotify-tools が見つかりませんでした。',
+  'watcher.watchLimit': '監視できる数の上限に達しました（fs.inotify.max_user_watches）。',
+  'watcher.wslUnc':
+    'このプロジェクトは Windows の種別のまま WSL のフォルダを開いています。WSL の中で行われた変更は検出できません（Windows 側からの変更だけが届きます）。プロジェクトの設定で WSL に変えてください。',
+  'watcher.other': 'ファイル監視が止まりました。',
 
   // Git Panel
   'git.noProject': 'プロジェクトが選択されていません',

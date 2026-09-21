@@ -32,6 +32,7 @@
  */
 
 import { t } from '../i18n'
+import { loadAskedKeys, rememberAskedKey } from '../lib/storage'
 import { agentHookInstallMissing, agentHookStatus } from '../lib/tauri'
 import { isMainWindow } from '../lib/window'
 import { useProjectStore } from '../stores/project'
@@ -118,26 +119,8 @@ export async function offerAgentHook(): Promise<void> {
   }
 }
 
-function loadAsked(): string[] {
-  try {
-    const raw = localStorage.getItem(ASKED_KEY)
-    const list: unknown = raw ? JSON.parse(raw) : []
-    return Array.isArray(list) ? list.filter((v): v is string => typeof v === 'string') : []
-  } catch {
-    // ストレージが使えない環境では「まだ聞いていない」として進む。
-    return []
-  }
-}
-
-/**
- * 「聞いた」を記録する。**書く直前に読み直す**（`localStorage` はウィンドウ間で共有
- * なので、手元の配列を書き戻すと、待っているあいだに別のウィンドウが足したキーを消す）。
- */
-function remember(key: string) {
-  try {
-    localStorage.setItem(ASKED_KEY, JSON.stringify([...new Set([...loadAsked(), key])]))
-  } catch {}
-}
+const loadAsked = () => loadAskedKeys(ASKED_KEY)
+const remember = (key: string) => rememberAskedKey(ASKED_KEY, key)
 
 /**
  * 旧「断った」の記録を、**今のシェルについて聞いた**という記録に読み替える（#265）。
