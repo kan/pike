@@ -79,6 +79,7 @@ export default {
 
   // Tabs
   'tabs.newEditor': 'New Editor',
+  'tabs.newBrowser': 'New Browser',
   'tabs.newTerminalShort': 'New Terminal',
   'tabs.newTerminal': 'New Terminal ({key})',
   'tabs.openWithShell': 'Choose what to open (editor, browser, agent, shell)',

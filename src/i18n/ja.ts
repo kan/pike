@@ -79,6 +79,7 @@ export default {
 
   // Tabs
   'tabs.newEditor': '新規エディタ',
+  'tabs.newBrowser': '新規ブラウザ',
   'tabs.newTerminalShort': '新規ターミナル',
   'tabs.newTerminal': '新規ターミナル ({key})',
   'tabs.openWithShell': '開くものを選ぶ（エディタ・ブラウザ・エージェント・シェル）',

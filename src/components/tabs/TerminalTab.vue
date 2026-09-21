@@ -4,6 +4,7 @@ import { type ISearchOptions, SearchAddon } from '@xterm/addon-search'
 import { Terminal } from '@xterm/xterm'
 import { Bot, ChevronDown, ChevronLeft, MessageSquareText } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { useAgentMenu } from '../../composables/useAgentMenu'
 import { confirmDialog, confirmWithOption } from '../../composables/useConfirmDialog'
 import { copyOnSelect } from '../../composables/useCopyOnSelect'
 import {
@@ -17,7 +18,6 @@ import { ptyRouter } from '../../composables/usePtyRouter'
 import { markTerminalOutput, registerTerminalPeek, unregisterTerminalPeek } from '../../composables/useTerminalPeek'
 import { attachUrlLinks } from '../../composables/useTerminalUrlLinks'
 import { useI18n } from '../../i18n'
-import { type AgentDef, type AgentId, launcherAgent, launcherLines } from '../../lib/agents'
 import { isMacHost, isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
@@ -27,7 +27,7 @@ import { openPathInTab, projectPath } from '../../lib/openFile'
 import { isAbsolutePath } from '../../lib/paths'
 import { readableTextOn } from '../../lib/projectColors'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
-import { agentSessionsList, ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
+import { ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import {
   asPathHeader,
   findPathLinks,
@@ -41,7 +41,6 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
-import type { AgentSession } from '../../types/agentSession'
 import { isPowershellFamily, type ShellType } from '../../types/tab'
 import AgentSessionsMenu from '../AgentSessionsMenu.vue'
 import FindBar from '../editor/FindBar.vue'
@@ -102,12 +101,17 @@ const statusMessage = useStatusMessageStore()
  * 検出を通してから出す。
  */
 const agentStore = useAgentStore()
-/** 既定の起動行。ボタン本体とメニューの第 1 階層はこれ。 */
-const defaultLauncher = computed(() => agentStore.launchers[0] ?? null)
-/** 既定以外。「他のエージェント」のサブメニューに入る。 */
-const otherLaunchers = computed(() => agentStore.launchers.slice(1))
-/** 既定の行が出すコマンド（エージェントなら素の起動と「続きから」、カスタムなら 1 行）。 */
-const defaultLines = computed(() => (defaultLauncher.value ? launcherLines(defaultLauncher.value) : []))
+/**
+ * メニューの構成と再開一覧の取得は `useAgentMenu`（#375 でタブバーの ▾ と共有）。
+ * ここが渡すのは「どのシェルの起動行か」「どこの履歴を引くか」「選んだら何をするか」の 3 つ。
+ */
+const agentMenu = useAgentMenu({
+  launchers: () => agentStore.launchers,
+  where: sessionsWhere,
+  run: (command) => runAgentCommand(command),
+})
+const { defaultLines, defaultAgent, otherRows, sessionsMenuBind } = agentMenu
+const agentSubOpen = agentMenu.subOpen
 /** ボタン本体で走る行。 */
 const primaryCommand = computed(() => defaultLines.value[0] ?? null)
 const agentMenuOpen = ref(false)
@@ -161,67 +165,9 @@ function terminalTab() {
   return tab?.kind === 'terminal' ? tab : undefined
 }
 
-// Past Claude Code sessions of this terminal's directory, i.e. what `claude -r`
-// would offer. Loaded when the launcher menu opens (the transcripts live on
-// disk — over the WSL share for WSL projects — so it isn't worth polling).
-/**
- * 再開できる過去セッション（#220 / #267）。**エージェントごとに、そのサブメニューを
- * 開いたときだけ読む。** ディスクを読み（WSL では `\\wsl.localhost` 越し）、opencode では
- * プロセスを起こすので、メニューを開いた時点で 4 つまとめて取りには行かない。
- */
-const sessions = ref<Record<string, AgentSession[]>>({})
-/**
- * いま読んでいるエージェント。**1 枠ではなく集合で持つ**: サブメニューを次々にホバーすると
- * 取得が重なるので、1 枠だと A の完了が B のスピナーを消す。取得中かの判定（二重に
- * 起こさない印）もこれが兼ねる。
- */
-const sessionsLoading = ref<AgentId[]>([])
-/**
- * メニューを開いている世代。**飛んでいる取得を捨てるための印**（`closeAgentMenu` が
- * 一覧を捨てるので、あとから届いた結果を書き戻すと次に開いたとき古い並びが出る）。
- */
-let sessionsEpoch = 0
-/**
- * 開いている再開一覧。**鍵はメニュー上の位置**（`default` / `other:<i>`）で、エージェントの
- * id ではない: 既定が `claude` でカスタム行に `claude --model opus` を置いている構成だと、
- * id を鍵にすると片方にホバーしただけで両方のサブメニューが開く。
- */
-const sessionsOpenAt = ref<string | null>(null)
-/** 「他のエージェント」を開いているか。 */
-const agentSubOpen = ref(false)
-
-/** 既定の行が起動するエージェント（第 1 階層の再開一覧はこれ）。 */
-const defaultAgent = computed(() => launcherAgent(defaultLauncher.value))
-
-/**
- * 「他のエージェント」の各行。**導出はここで 1 回**（テンプレートで `launcherAgent(o)` を
- * 呼ぶと、行ごと・セッション行ごとに `commandMentionsAgent` の正規表現が走る）。
- */
-const otherRows = computed(() =>
-  otherLaunchers.value.map((l) => ({ lines: launcherLines(l), agent: launcherAgent(l) })),
-)
-
-/** 再開一覧の 1 か所ぶんの束縛（`at` はメニュー上の位置）。 */
-function sessionsMenuBind(agent: AgentDef, at: string) {
-  return {
-    agent,
-    sessions: sessions.value[agent.id] ?? [],
-    loading: sessionsLoading.value.includes(agent.id),
-    open: sessionsOpenAt.value === at,
-    onEnter: () => {
-      sessionsOpenAt.value = at
-      void openSessions(agent)
-    },
-    onLeave: () => {
-      sessionsOpenAt.value = null
-    },
-    onPick: (command: string) => runAgentCommand(command),
-  }
-}
-
 /**
  * 一覧を引く先（シェルと基準ディレクトリ）。**メニューを開いているあいだは 1 回だけ聞く**
- * （`sessionsEpoch` が世代）。4 つのサブメニューをホバーすれば `pty_get_cwd` の IPC が
+ * （`useAgentMenu` が世代を渡す）。4 つのサブメニューをホバーすれば `pty_get_cwd` の IPC が
  * そのぶん飛ぶが、開いているあいだにシェルも現在地も変わらない。
  *
  * **参照するディレクトリは `pty_get_cwd`**（OSC 7 の現在地）→ タブの cwd → プロジェクトの
@@ -238,28 +184,6 @@ async function sessionsWhere(epoch: number): Promise<{ shell: ShellType; root: s
   if (!shell || !root) return null
   sessionsWhereCache = { epoch, shell, root }
   return sessionsWhereCache
-}
-
-/** そのエージェントの一覧を、まだ読んでいなければ読む。 */
-async function openSessions(agent: AgentDef) {
-  // **取得済み・取得中なら何もしない。** 印を最初の `await` より前に立てるのが要点で、
-  // 無いとポインタが行き来するたびに `agent_sessions` が飛ぶ（opencode は結果を
-  // キャッシュしないので、そのたびに `bash -lic` と node のプロセスが上がる）。
-  if (sessions.value[agent.id] || sessionsLoading.value.includes(agent.id)) return
-  const epoch = sessionsEpoch
-  sessionsLoading.value = [...sessionsLoading.value, agent.id]
-  try {
-    const where = await sessionsWhere(epoch)
-    if (!where) return
-    const list = await agentSessionsList(agent.id, where.shell, where.root).catch(() => [])
-    if (epoch !== sessionsEpoch) return
-    sessions.value = { ...sessions.value, [agent.id]: list }
-  } finally {
-    // 閉じたあとに戻ってきたぶんは触らない（`closeAgentMenu` が既に空にしている）。
-    if (epoch === sessionsEpoch) {
-      sessionsLoading.value = sessionsLoading.value.filter((id) => id !== agent.id)
-    }
-  }
 }
 
 /**
@@ -395,14 +319,8 @@ function toggleAgentMenu() {
 function closeAgentMenu() {
   window.removeEventListener('mousedown', closeAgentMenu)
   agentMenuOpen.value = false
-  agentSubOpen.value = false
-  sessionsOpenAt.value = null
-  // **取った一覧は捨てる。** 次に開くまでに新しいセッションができているのが普通なので、
-  // 残すと古い並びを見せることになる（読むのはメニューを開いたときだけなので、
-  // 開き直すコストは元から払っている）。飛んでいる取得は世代で捨てる。
-  sessions.value = {}
-  sessionsLoading.value = []
-  sessionsEpoch += 1
+  // サブメニューと取った一覧の後始末は `useAgentMenu` が持つ（理由はあちらの doc）。
+  agentMenu.close()
 }
 
 // Inject a prompt's text into the current PTY. Bracketed paste keeps a multi-line

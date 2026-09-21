@@ -12,15 +12,15 @@
  * **マウスを伴わない経路だけが自分で言う必要がある**（OS からのファイルドロップ）。
  */
 
-import { Bot, Check, ChevronDown, Columns2, FilePlus, Globe, Plus, ShieldPlus } from 'lucide-vue-next'
+import { Bot, Check, ChevronDown, ChevronLeft, Columns2, FilePlus, Globe, Plus, ShieldPlus } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { useAgentMenu } from '../../composables/useAgentMenu'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { useAppActions } from '../../composables/useAppActions'
 import { openFileTarget } from '../../composables/useCliOpen'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useTabDrag } from '../../composables/useTabDrag'
 import { useI18n } from '../../i18n'
-import { launcherLines } from '../../lib/agents'
 import { canResolveDroppedPaths, resolveDroppedPaths } from '../../lib/dropPaths'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { actionChord } from '../../lib/shortcuts'
@@ -35,6 +35,7 @@ import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
 import type { PaneId, ShellType, Tab } from '../../types/tab'
 import { canReorderTabs, isWindowsShell, shellId, shellProfileLabel } from '../../types/tab'
+import AgentSessionsMenu from '../AgentSessionsMenu.vue'
 import HelpButton from '../HelpButton.vue'
 import ProjectSelect from './ProjectSelect.vue'
 import TabItem from './TabItem.vue'
@@ -191,25 +192,58 @@ const agentStore = useAgentStore()
 const newTabPlace = computed(() => terminalPlace())
 
 /**
+ * ▾ のエージェントの節（#375）。**構成と再開一覧の取得は `useAgentMenu`**（ターミナルに
+ * 重ねる起動ボタンと共有）。ここが渡すのは「これから開くターミナルのシェルの起動行」と
+ * 「その cwd の履歴」と「選んだら新しいターミナルのタブで走らせる」の 3 つ。
+ */
+const agentMenu = useAgentMenu({
+  launchers: () => agentStore.launchersFor(newTabPlace.value.shell),
+  where: async () => {
+    const place = newTabPlace.value
+    const shell = place.shell ?? projectStore.currentProject?.shell
+    const root = place.cwd ?? projectStore.activeRoot
+    return shell && root ? { shell, root } : null
+  },
+  run: (command, label) => {
+    closeShellMenu()
+    openAgentTab(command, label)
+  },
+})
+
+/**
  * ▾ の上段（#375）：ターミナル以外に開けるもの。エディタ、ブラウザのタブ、エージェントの起動行
  * （**ターミナルに重ねて出す起動ボタンと同じ一覧**を平らに並べたもの）。「+」の設定で選んでいる
  * ものに印を付ける（エージェントは先頭の行）。
  */
 const kindMenuItems = computed(() => {
   const action = settings.tabAddAction
-  const agents = agentStore
-    .launchersFor(newTabPlace.value.shell)
-    .flatMap((l) => launcherLines(l))
-    .map((line, i) => ({
-      // 同じコマンドの行は並びうる（カスタム行に `claude` を書いたときなど）ので、位置も鍵に入れる。
-      key: `agent:${i}:${line.command}`,
-      icon: Bot,
-      label: line.label,
-      checked: action === 'agent' && i === 0,
-      divider: i === 0,
-      run: () => openAgentTab(line.command, line.label),
-    }))
+  // **第 1 階層は既定の起動行だけ**（#375）。残りと再開一覧はサブメニューで、構成は
+  // ターミナルに重ねる起動ボタンと同じ（規則は `useAgentMenu` の doc が正本）。
+  const agents = agentMenu.defaultLines.value.map((line, i) => ({
+    // 同じコマンドの行は並びうる（カスタム行に `claude` を書いたときなど）ので、位置も鍵に入れる。
+    key: `agent:${i}:${line.command}`,
+    icon: Bot,
+    label: line.label,
+    checked: action === 'agent' && i === 0,
+    divider: i === 0,
+    run: () => openAgentTab(line.command, line.label),
+  }))
   return [
+    {
+      // **素のターミナルの行を外さないこと**（#375）。下のシェルの行は Windows の
+      // プロジェクトとグローバルモードでしか出ないので、これが無いと WSL と macOS の
+      // プロジェクトで `tabAddAction` を `terminal` 以外にした人は、タブバーから
+      // ターミナルへ行く手段を失う（`Ctrl+T` とパレットしか残らない）。
+      // 上段は `TAB_ADD_ACTIONS` の 4 つと 1 対 1 に並べる。
+      key: 'terminal',
+      // **タブ種別のアイコン**（シェル別ではない）。上段は「何を開くか」の 4 行で、
+      // 「どのシェルで開くか」は下のシェルの行。並びの他の 3 行と同じく固定にする。
+      icon: TAB_KIND_ICONS.terminal,
+      label: t('tabs.newTerminalShort'),
+      checked: action === 'terminal',
+      divider: false,
+      run: () => openTerminal(),
+    },
     {
       key: 'editor',
       icon: FilePlus,
@@ -221,7 +255,7 @@ const kindMenuItems = computed(() => {
     {
       key: 'browser',
       icon: Globe,
-      label: t('browser.newTab'),
+      label: t('tabs.newBrowser'),
       checked: action === 'browser',
       divider: false,
       run: () => tabStore.addBrowserTab(''),
@@ -244,7 +278,7 @@ const tabAddTitle = computed(() => {
     case 'editor':
       return t('tabs.newEditor')
     case 'browser':
-      return t('browser.newTab')
+      return t('tabs.newBrowser')
     case 'agent':
       return t('tabs.newAgent')
     default:
@@ -322,6 +356,8 @@ function toggleShellMenu() {
 function closeShellMenu() {
   window.removeEventListener('mousedown', closeShellMenu)
   showShellMenu.value = false
+  // サブメニューと取った一覧の後始末は `useAgentMenu` が持つ（理由はあちらの doc）。
+  agentMenu.close()
 }
 
 function addTabWithShell(shell: ShellType) {
@@ -676,7 +712,7 @@ onUnmounted(() => {
     </div>
     <!-- Shell dropdown -->
     <div v-if="showShellMenu" class="shell-menu popup-surface" data-testid="shell-menu" @mousedown.stop>
-      <!-- ターミナル以外に開けるもの（#375）。「+」の設定で選んでいるものに印を付ける。 -->
+      <!-- 何を開くか（#375）。「+」の設定で選んでいるものに印を付ける。 -->
       <template v-for="item in kindMenuItems" :key="item.key">
         <div v-if="item.divider" class="shell-menu-divider" />
         <button :class="{ 'default-shell': item.checked }" @click="runKindItem(item.run)">
@@ -685,10 +721,50 @@ onUnmounted(() => {
           <Check v-if="item.checked" :size="12" :stroke-width="2.5" class="shell-default-check" />
         </button>
       </template>
+      <!-- 既定の行の再開一覧（#267 / #375）。ターミナルの起動ボタンと同じ位置づけ。 -->
+      <AgentSessionsMenu
+        v-if="agentMenu.defaultAgent.value"
+        v-bind="agentMenu.sessionsMenuBind(agentMenu.defaultAgent.value, 'default')"
+      />
+      <!--
+        既定以外の起動行（#375）。**サブメニューは親の行の内側**なので、そちらへマウスを
+        移しても `mouseleave` が発火しない（閉じるのを遅らせるタイマーが要らない）。
+        **開くのは左**（`.agent-submenu` をターミナルの起動ボタンと共有する）。この ▾ は
+        `+` の隣＝タブバーの右端に出るので、右へ開くとウィンドウから見切れる。
+      -->
+      <div
+        v-if="agentMenu.otherRows.value.length > 0"
+        class="agent-menu-item agent-menu-sub"
+        @mouseenter="agentMenu.subOpen.value = true"
+        @mouseleave="agentMenu.subOpen.value = false"
+      >
+        <ChevronLeft :size="12" :stroke-width="2" class="agent-menu-caret" />
+        <span class="agent-menu-label">{{ t('terminal.otherAgents') }}</span>
+        <div v-if="agentMenu.subOpen.value" class="agent-menu agent-submenu popup-surface">
+          <!-- 行のかたまりごとに区切る（#267）。どこまでが同じエージェントかを目で追える。 -->
+          <div v-for="(o, i) in agentMenu.otherRows.value" :key="i" class="agent-menu-group">
+            <button
+              v-for="l in o.lines"
+              :key="l.command"
+              class="agent-menu-item"
+              @click="runKindItem(() => openAgentTab(l.command, l.label))"
+            >
+              <span class="agent-menu-label">{{ l.label }}</span>
+              <span class="agent-menu-cmd">{{ l.command }}</span>
+            </button>
+            <!-- そのエージェントの再開一覧（サブのサブ）。 -->
+            <AgentSessionsMenu v-if="o.agent" v-bind="agentMenu.sessionsMenuBind(o.agent, `other:${i}`)" />
+          </div>
+        </div>
+      </div>
       <!--
         シェルの行は、これまで ▾ を出していた条件（Windows のプロジェクトかグローバルモード）の
         ときだけ。WSL のプロジェクトで Windows のシェルを並べると、WSL のパスを cwd にして
         PowerShell を開くことになる。
+
+        **これは「どのシェルで開くか」の選択で、上段の「何を開くか」とは別の軸。**
+        既定のシェルで開くだけなら上段の「新規ターミナル」が常に出ているので、ここが
+        出ないプラットフォームでもターミナルへは行ける（#375）。
       -->
       <template v-if="showShellRows">
         <div class="shell-menu-divider" />
@@ -953,6 +1029,23 @@ onUnmounted(() => {
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+}
+
+/* エージェントのサブメニューの行（#375）。見た目は `theme.css` の `.agent-menu-item`
+   （ラベルとコマンドの縦積み）を共有するが、**scoped の属性セレクタが付くぶん上の
+   `.shell-menu button` のほうが詳細度で勝つ**ので、縦積みに `align-items: center` が
+   被って中身が中央寄せになる。ここで戻す。共有クラス側を直す形は採れない（あちらは
+   ターミナルの起動ボタンとも共有していて、そちらでは何も起きていない）。 */
+.shell-menu .agent-menu-item {
+  align-items: stretch;
+  gap: 1px;
+  padding: 5px 12px;
+}
+
+/* サブメニューを開く行だけは横並び（印とラベル）。 */
+.shell-menu .agent-menu-sub {
+  align-items: center;
+  gap: 6px;
 }
 
 .shell-menu-icon {
