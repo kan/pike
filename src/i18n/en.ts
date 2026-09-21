@@ -986,7 +986,7 @@ export default {
   'issues.newIssue': 'New issue (opens in browser)',
   'issues.openInBrowser': 'Open in external browser',
   'issues.openBrowserTab': 'Open in browser tab',
-  'issues.openTab': 'Open read-only tab',
+  'issues.openTab': 'Open in quick view',
   'issues.startWork': 'Ask the agent to start',
   'issues.copyStartPrompt': 'Copy the start instruction',
   'issues.startPrompt': 'Start working on #{number} "{title}". Run `gh issue view {number}` for details.',

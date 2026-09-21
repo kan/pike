@@ -984,7 +984,7 @@ export default {
   'issues.newIssue': 'issue を作成（ブラウザで開く）',
   'issues.openInBrowser': '外部ブラウザで開く',
   'issues.openBrowserTab': 'ブラウザのタブで開く',
-  'issues.openTab': '読み取り専用のタブで開く',
+  'issues.openTab': '簡易表示で開く',
   'issues.startWork': 'エージェントに着手を指示',
   'issues.copyStartPrompt': '着手の指示文をコピー',
   'issues.startPrompt': '#{number}「{title}」に着手して。詳細は gh issue view {number} で確認して。',
