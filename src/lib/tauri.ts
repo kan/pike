@@ -7,6 +7,7 @@ import type {
   GitBranches,
   GitFileChange,
   GitLogEntry,
+  GitNetworkResult,
   GitStatusResult,
   GitWorktree,
   PullOption,
@@ -527,16 +528,16 @@ export async function gitRemoteUrls(shell: ShellType, roots: string[]): Promise<
   return invoke<(string | null)[]>('git_remote_urls', { shell, roots })
 }
 
-export async function gitFetch(root: string, shell: ShellType): Promise<void> {
-  return invoke('git_fetch', { root, shell })
+export async function gitFetch(root: string, shell: ShellType): Promise<GitNetworkResult> {
+  return invoke<GitNetworkResult>('git_fetch', { root, shell })
 }
 
-export async function gitPush(root: string, shell: ShellType, options?: PushOption[]): Promise<string> {
-  return invoke<string>('git_push', { root, shell, options })
+export async function gitPush(root: string, shell: ShellType, options?: PushOption[]): Promise<GitNetworkResult> {
+  return invoke<GitNetworkResult>('git_push', { root, shell, options })
 }
 
-export async function gitPull(root: string, shell: ShellType, options?: PullOption[]): Promise<string> {
-  return invoke<string>('git_pull', { root, shell, options })
+export async function gitPull(root: string, shell: ShellType, options?: PullOption[]): Promise<GitNetworkResult> {
+  return invoke<GitNetworkResult>('git_pull', { root, shell, options })
 }
 
 /**

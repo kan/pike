@@ -555,6 +555,8 @@ export default {
   'git.opHint.stopped': '操作が途中で止まっています。',
   'git.opContinue': '続行',
   'git.opContinueBlocked': 'コンフリクトを解消してステージすると続行できます',
+  'git.runInTerminal': 'ターミナルで実行',
+  'git.runInTerminalHint': 'Git パネルの「ターミナルで実行」から入力できます',
   'git.opAbort': '中止',
   'git.opRecommit': 'コミットし直して続行',
   'git.abortConfirm': '開始前の状態に戻します。よろしいですか？\n\n{command}',

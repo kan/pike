@@ -112,6 +112,7 @@ const EXTERNAL_NAMES = [
   'IVirtualDesktopManagerInternal', // Windows の非公開 COM（採らなかった選択肢として project.md が出す）
   'MERGE_MSG', // git が書く状態ファイル（Pike は読まない）
   'ReadDirectoryChangesW', // Win32（notify クレート経由）
+  'SSH_ASKPASS_REQUIRE', // OpenSSH 8.4+ の環境変数（採らなかった選択肢として git.md が出す）
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）
   'WORK', // 同期ファイルの例に出てくるグループ名
   '__VERSION__', // tauri-action がタグ名に埋めるプレースホルダ

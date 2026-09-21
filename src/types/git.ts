@@ -54,6 +54,19 @@ export interface GitLogEntry {
 export type PullOption = 'rebase' | 'autostash' | 'ff-only'
 export type PushOption = 'force-with-lease' | 'tags' | 'set-upstream'
 
+/**
+ * リモートに触る git（fetch / pull / push）の結果（#384）。
+ *
+ * **失敗が例外ではなく値で返る**のは、「パスフレーズなどの入力が要るのか、それ以外で
+ * 失敗したのか」をフロントが出し分けるため。エラー文字列の綴りを Rust と TS で
+ * 取り決める形は採らない（判定は Rust の `AUTH_MARKERS`）。
+ */
+export interface GitNetworkResult {
+  error: string | null
+  /** 資格情報が要るせいで失敗したときに、ターミナルで走らせ直す 1 行。 */
+  command: string | null
+}
+
 export interface GitBranches {
   local: string[]
   /** `<remote>/<branch>` form, e.g. `origin/main`. */

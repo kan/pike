@@ -71,6 +71,32 @@ pub fn git_bash_prefix(root: &str) -> String {
     format!("git {} -C {}", QUOTEPATH_OFF.join(" "), bash_quote(root))
 }
 
+/// `WSLENV` に名前を足した値。**同じ名前は 2 度入れない**（`WSLENV` はコロン区切りで、
+/// 各項目は `NAME` か `NAME/フラグ` の形）。
+///
+/// **WSL では `Command::env` が distro の中へ届かない**（付くのは `wsl.exe` という Windows
+/// プロセスにだけ）。Win32 → WSL へ値を渡す仕組みは `WSLENV` ひとつで、そこに並べた名前の
+/// 値が Windows 側のプロセス環境から共有される。
+///
+/// **フラグは付けない**（`/p` のパス変換も要らない）。渡すのは distro の中で読み取った値
+/// そのもので、そのまま distro の中で使われる。この既定は双方向なので、WSL から起こした
+/// Windows バイナリもそれを継ぐ（`pty::apply_pike_env` が頼っているのはそちら側）。
+pub fn wslenv_with(current: &str, names: &[&str]) -> String {
+    let mut out = current.to_owned();
+    for name in names {
+        if out.split(':').any(|s| s.split('/').next() == Some(*name)) {
+            continue;
+        }
+        if out.is_empty() {
+            out = (*name).to_owned();
+        } else {
+            out.push(':');
+            out.push_str(name);
+        }
+    }
+    out
+}
+
 /// `WSL_EXTRA_PATH` の macOS / Linux 版。**WSL 以上に必要**で、理由は
 /// Finder / Dock から起動した GUI プロセスが `launchd` の最小 PATH
 /// （`/usr/bin:/bin:/usr/sbin:/sbin`）しか継承しないこと。ターミナルから
@@ -622,14 +648,52 @@ impl ShellConfig {
         }
     }
 
-    /// Execute with a 30 s timeout and return (exit_code, stdout, stderr).
-    pub fn run(&self, program: &str, args: &[&str]) -> Result<(i32, String, String), String> {
-        let output = self.run_with_timeout(program, args, DEFAULT_TIMEOUT)?;
+    /// `command` に、そのコマンドにだけ効く環境変数を足したもの（#384）。
+    ///
+    /// **argv の形のまま渡せるのが要点。** 環境変数を前置する既存の口
+    /// （`run_shell_line_env`）はシェルの 1 行を組み立てるので、引用を自分で正しく保つ
+    /// 必要があり、しかも `run` 系の呼び出し（git など）はどれも argv で書かれている。
+    ///
+    /// WSL へ渡すために `WSLENV` を足す理由は `wslenv_with` の doc が正本。
+    pub fn command_env(&self, program: &str, args: &[&str], env: &[(&str, String)]) -> Command {
+        let mut cmd = self.command(program, args);
+        if env.is_empty() {
+            return cmd;
+        }
+        for (name, value) in env {
+            cmd.env(name, value);
+        }
+        if matches!(self, ShellConfig::Wsl { .. }) {
+            let names: Vec<&str> = env.iter().map(|(name, _)| *name).collect();
+            let current = std::env::var("WSLENV").unwrap_or_default();
+            cmd.env("WSLENV", wslenv_with(&current, &names));
+        }
+        cmd
+    }
+
+    /// `run` に環境変数を足したもの（`command_env`）。
+    pub fn run_env(
+        &self,
+        program: &str,
+        args: &[&str],
+        env: &[(&str, String)],
+    ) -> Result<(i32, String, String), String> {
+        let output = spawn_with_timeout(
+            self.command_env(program, args, env),
+            program,
+            DEFAULT_TIMEOUT,
+        )?;
         Ok((
             output.status.code().unwrap_or(-1),
             into_lossy_string(output.stdout),
             into_lossy_string(output.stderr),
         ))
+    }
+
+    /// Execute with a 30 s timeout and return (exit_code, stdout, stderr).
+    pub fn run(&self, program: &str, args: &[&str]) -> Result<(i32, String, String), String> {
+        // 環境変数が空なら `command_env` は `command` をそのまま返すので、経路は同じ。
+        self.run_env(program, args, &[])
     }
 
     /// Execute with a 30 s timeout and return stdout on success, Err on failure.
@@ -843,9 +907,20 @@ pub fn marker_values(stdout: &str, tag: &str) -> Vec<String> {
 }
 
 /// Pipe stdout/stderr and spawn `cmd`.
+///
+/// **stdin は閉じる（#384）。** 閉じないと Pike のプロセスの stdin をそのまま継ぐので、
+/// 入力を待つコマンドはタイムアウトまで黙って止まる（`rate.rs` が headless claude に対して
+/// 個別にやっていたのと同じ話で、ここに置けば `run` 系の全員に効く）。**こちらに stdin を
+/// 書く経路は 1 つも無い**（`Stdio::piped()` を stdin に設定している箇所が無く、
+/// `child.stdin` を取り出す者も居ない）ので、閉じて失うものが無い。
+///
+/// **これだけでは ssh のパスフレーズ待ちは止まらない**（あれは stdin ではなく `/dev/tty` を
+/// 開く。`wsl.exe` 越しでは stdio を 3 つとも繋ぎ替えても開けることを実測した）。そちらは
+/// `git::ssh_config_arg` が `BatchMode=yes` で受け持つ。
 fn spawn_piped(mut cmd: Command, label: &str) -> Result<std::process::Child, String> {
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .stdin(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to run {label}: {e}"))
 }
@@ -1388,6 +1463,16 @@ mod tests {
         // 代入の直後がループの先頭に来ない（`;` で切れている）。
         assert!(!script.contains("$PATH\" for "));
         assert!(script.contains("$PATH\"; for "));
+    }
+
+    /// `WSLENV` は既にある名前を 2 度入れない（`wslenv_with`）。
+    #[test]
+    fn wslenv_adds_each_name_once() {
+        assert_eq!(wslenv_with("", &["A", "B"]), "A:B");
+        assert_eq!(wslenv_with("A", &["A", "B"]), "A:B");
+        // フラグ付きで既に入っているものも「ある」とみなす。
+        assert_eq!(wslenv_with("A/p:C", &["A", "B"]), "A/p:C:B");
+        assert_eq!(wslenv_with("C", &[]), "C");
     }
 
     /// **目印の付いた行だけを拾う。** `.bashrc` はバナーを出すことがある（この開発機の

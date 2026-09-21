@@ -230,24 +230,15 @@ fn spawn_pty_with_command(
 /// WSLENV flags: `/u` is Win32→WSL only and `/w` is WSL→Win32 only. We need
 /// both directions (env enters WSL bash, then a pike.exe spawned from bash
 /// must inherit it back), so we use no flag — the documented bidirectional
-/// default — with no path translation.
+/// default — with no path translation. 組み立ては `types::wslenv_with`（#384 で
+/// `command_env` と共有した）。
 fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, pty_id: &str, is_wsl: bool) {
     cmd.env("PIKE_WINDOW_LABEL", label);
     cmd.env("PIKE_PTY_ID", pty_id);
     if is_wsl {
-        let mut wslenv = std::env::var("WSLENV").unwrap_or_default();
-        for name in ["PIKE_WINDOW_LABEL", "PIKE_PTY_ID"] {
-            let already_present = wslenv.split(':').any(|s| s.split('/').next() == Some(name));
-            if already_present {
-                continue;
-            }
-            if wslenv.is_empty() {
-                wslenv = name.to_owned();
-            } else {
-                wslenv = format!("{wslenv}:{name}");
-            }
-        }
-        cmd.env("WSLENV", wslenv);
+        let current = std::env::var("WSLENV").unwrap_or_default();
+        let names = ["PIKE_WINDOW_LABEL", "PIKE_PTY_ID"];
+        cmd.env("WSLENV", crate::types::wslenv_with(&current, &names));
     }
 }
 

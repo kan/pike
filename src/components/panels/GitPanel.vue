@@ -676,7 +676,19 @@ onUnmounted(() => {
     </template>
 
     <template v-else-if="gitStore.status">
-      <div v-if="gitStore.error" class="error-strip" :title="gitStore.error">{{ gitStore.error }}</div>
+      <div v-if="gitStore.error" class="error-strip">
+        <div class="error-text" :title="gitStore.error">{{ gitStore.error }}</div>
+        <!-- パスフレーズなどの入力が要るときだけ（#384）。バックエンドの git には TTY が
+             無いので、ターミナルタブで走らせ直すのが唯一の入力できる場所。 -->
+        <button
+          v-if="gitStore.authCommand"
+          class="op-btn danger"
+          :title="gitStore.authCommand"
+          @click="gitStore.runAuthCommand()"
+        >
+          {{ t('git.runInTerminal') }}
+        </button>
+      </div>
 
       <!-- A rebase/merge/… git stopped in the middle of (#222) -->
       <!-- data-testid は E2E の撮影が待ち合わせに使う。 -->
@@ -1067,15 +1079,25 @@ onUnmounted(() => {
 
 /* A git error alongside a usable status: a strip, never the whole panel (#222). */
 .error-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   padding: 4px 8px;
   border-left: 2px solid var(--danger);
   background: var(--bg-tertiary);
   color: var(--danger);
   font-size: 11px;
+}
+
+/* 切り詰めるのは本文だけ。帯ごと `overflow: hidden` にすると、長いエラーのときに
+   下のボタン（#384）が隠れて押せなくなる。 */
+.error-text {
   max-height: 4.5em;
   overflow: hidden;
   white-space: pre-wrap;
 }
+
 
 .op-banner {
   display: flex;
@@ -1111,6 +1133,19 @@ onUnmounted(() => {
 
 .op-btn:hover {
   filter: brightness(1.15);
+}
+
+/* 帯の中の危険側（#384 の「ターミナルで実行」）。形は `.op-btn` のまま、色だけ変える。 */
+.op-btn.danger {
+  border-color: var(--danger);
+  background: transparent;
+  color: var(--danger);
+}
+
+.op-btn.danger:hover {
+  background: var(--danger);
+  color: var(--on-accent);
+  filter: none;
 }
 
 .file-section {

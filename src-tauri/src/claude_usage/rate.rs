@@ -151,8 +151,10 @@ fn run_usage_cli(
     project_root: &str,
     config_dir: Option<&str>,
 ) -> ClaudeRateLimits {
-    // stdin must be closed explicitly — headless claude waits 3s for piped input.
-    let line = format!("claude -p \"/usage\" < {}", shell.null_device());
+    // stdin を閉じるのは `types::spawn_piped` の担当になった（#384 で `run` 系の全員へ
+    // 引き上げた）。ここが自分で `< /dev/null` を付けていたころの理由（headless claude が
+    // piped input を 3 秒待つ）はそのまま生きているが、シェルを起こす側で閉じている。
+    let line = "claude -p \"/usage\"".to_owned();
     // `CLAUDE_CONFIG_DIR` はここで明示的に渡す（#225）。この経路は WSL では
     // `bash -c`（非対話・非ログイン）なので、ユーザーが `.bashrc` や `.envrc` で
     // 設定していても、渡さない限り既定の `~/.claude` のアカウントを見てしまう。

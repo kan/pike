@@ -30,7 +30,7 @@
 //! （`claude_usage/config.rs` の `shell_env_value`）はコマンドではない素の関数で、
 //! `State` を受け取れない。同じ理由であちらが元から `OnceLock` を持っていた。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -52,8 +52,27 @@ const PROBE_TTL: Duration = Duration::from_secs(300);
 /// 見つかった名前を出すときの目印。`.bashrc` がバナー（このマシンの WSL は
 /// `git status` の結果を出す）を混ぜてくるので、行の位置では選べない。
 const AGENT_MARKER: &str = "PIKEAGENT";
-/// 環境変数の値を出すときの目印。
+/// 環境変数の値を出すときの目印。値は `<目印>\t<名前>\t<値>` の形で出す。
+/// **名前を載せるのが要点**（#384 で 2 つ目を足した）: 順番で読むと、片方が未設定で
+/// 行が出ないときに残りの値が別の名前のものとして入る。
 const ENV_MARKER: &str = "PIKEENV";
+
+/// 複数アカウントの `~/.claude`（#225）。**WSL でだけ聞く**（他の POSIX シェルでは
+/// `claude_usage/config.rs` が Pike のプロセス環境を見る決まり）。
+const CLAUDE_CONFIG_DIR: &str = "CLAUDE_CONFIG_DIR";
+/// ssh-agent のソケット（#384）。**POSIX なら WSL でなくても聞く**: macOS の GUI プロセスも
+/// rc の export を継がないので、同じ穴がある。
+pub const SSH_AUTH_SOCK: &str = "SSH_AUTH_SOCK";
+
+/// そのシェルに聞く環境変数。Windows シェルには何も聞かない（Pike のプロセス環境を
+/// そのまま継ぐので、呼び出し側が自分で読める）。
+fn env_names(shell: &ShellConfig) -> &'static [&'static str] {
+    match shell {
+        ShellConfig::Wsl { .. } => &[CLAUDE_CONFIG_DIR, SSH_AUTH_SOCK],
+        ShellConfig::Unix { .. } => &[SSH_AUTH_SOCK],
+        _ => &[],
+    }
+}
 
 /// 1 つの導入単位ぶんの答え。
 ///
@@ -66,8 +85,8 @@ struct Answer {
     asked: HashSet<String>,
     /// そのうち PATH にあったもの。
     found: HashSet<String>,
-    /// `CLAUDE_CONFIG_DIR`。**空文字は `None` に落とす**（未設定と同じ扱い）。
-    env: Option<String>,
+    /// 聞いた環境変数の値（名前 → 値）。**空文字は入れない**（未設定と同じ扱い）。
+    env: HashMap<String, String>,
 }
 
 /// 1 つの導入単位ぶんの入れ物。
@@ -139,6 +158,40 @@ pub fn agent_bins(shell: &ShellConfig, root: &str, wanted: &[String]) -> HashSet
 /// プロジェクトの解決も**待っていた。今そこで待つのは、同じ (インストール, root) を
 /// 見に来た者 —— つまり `probing()` が畳む相手そのもの。
 pub fn config_dir_env(shell: &ShellConfig) -> Option<String> {
+    env_value(shell, CLAUDE_CONFIG_DIR)
+}
+
+/// そのシェルの対話ログインシェルが持っている `SSH_AUTH_SOCK`（#384）。**POSIX 専用**
+/// （`env_names` が Windows シェルには何も聞かない）。
+///
+/// **背景**: バックエンドの git は非対話（WSL なら `bash -c`）で走るので、rc が export した
+/// この変数を継がない。継がないと ssh は agent に届かず、パスフレーズ付きの鍵では
+/// `/dev/tty` を開いて入力を待ち、誰も答えられないままタイムアウトまで固まる。
+/// **ターミナルでは打てるのにバックエンドでは失敗する**という、`agent.md` が
+/// `CLAUDE_CONFIG_DIR` について書いているのと同じ形。
+///
+/// **`SSH_AGENT_PID` は運ばない。** agent に繋ぐのに要るのはソケットだけで、pid は
+/// `ssh-agent -k` が使う。運ぶと、Pike が起こしたわけでもない agent を止められる形の
+/// 情報がバックエンドの環境に増えるだけになる。
+///
+/// **最初の 1 回だけ `-lic` を待ちうる**（`env_value` の待ち方は `config_dir_env` と同じ）。
+/// 実際に待つ場面はまれで、プロジェクトを開いた時点の usage のポーリングが同じ probe を
+/// 通る（`config_dir_env`）ため、pull を押すころには答えが入っている。**まとめてある
+/// 効き目はここにも出る**（`SSH_AUTH_SOCK` のためにシェルを起こし直さない）。
+pub fn ssh_auth_sock(shell: &ShellConfig) -> Option<String> {
+    env_value(shell, SSH_AUTH_SOCK)
+}
+
+/// 覚えている環境変数を 1 つ返す。鮮度と probe の待ち方は 2 つの呼び出し元で同じ
+/// （上の doc が正本）なので、名前だけを引数にして 1 本にしてある。
+///
+/// **そのシェルに聞かない名前では probe を起こさない。** Windows シェルは
+/// `env_names` が空なので、ここを通しても答えは永久に `None` になる。ガードが無いと、
+/// Windows プロジェクトで pull を押すたびに `where` の 1 行（＝外部プロセス）が走る。
+fn env_value(shell: &ShellConfig, name: &str) -> Option<String> {
+    if !env_names(shell).contains(&name) {
+        return None;
+    }
     let entry = entry_for(shell);
     let (stale, answered) = {
         let answer = entry.answer();
@@ -159,7 +212,7 @@ pub fn config_dir_env(shell: &ShellConfig) -> Option<String> {
         }
     }
     let answer = entry.answer();
-    answer.env.clone()
+    answer.env.get(name).cloned()
 }
 
 fn is_fresh(answer: &Answer) -> bool {
@@ -216,10 +269,25 @@ fn refresh_if_stale(shell: &ShellConfig, root: &str, entry: &Entry, wanted: &[St
     // シェルに対して呼ばれるたびに 30 秒待つ）。
     if let Some(stdout) = stdout {
         answer.found = marker_values(&stdout, AGENT_MARKER).into_iter().collect();
-        answer.env = marker_values(&stdout, ENV_MARKER).into_iter().next();
+        answer.env = parse_env(&stdout);
     }
     answer.asked = bins.into_iter().collect();
     answer.at = Some(Instant::now());
+}
+
+/// 目印の付いた行から環境変数を拾う。
+///
+/// 未設定の変数は `<名前>\t` までしか出ないので、`marker_values` の trim のあとはタブを
+/// 持たない 1 語になる。値が無いものは覚えない（`Answer.env` の doc）。
+fn parse_env(stdout: &str) -> HashMap<String, String> {
+    marker_values(stdout, ENV_MARKER)
+        .into_iter()
+        .filter_map(|line| {
+            let (name, value) = line.split_once('\t')?;
+            let value = value.trim();
+            (!value.is_empty()).then(|| (name.to_owned(), value.to_owned()))
+        })
+        .collect()
 }
 
 /// シェルの行に埋めてよい名前か。**組み立てる側が検証する**（`tasks.rs` の
@@ -238,15 +306,19 @@ pub fn is_safe_bin_name(name: &str) -> bool {
 /// `unset HISTFILE` と `exit 0` は `run_login_script` が前後に付ける（起こし方の契約は
 /// あちらが持つ）。ここが持つのは問いだけ。
 ///
-/// **環境変数を聞くのは WSL のときだけ。** 他の POSIX シェル（macOS のローカルシェル）
-/// では `claude_usage/config.rs` が Pike のプロセス環境を見る決まりで、ここで値を取っても
-/// 使い道が無い（`.claude/rules/platform.md` の「macOS で拾えない環境変数」。**この
-/// まとめによって代償は消えた**ので、有効にするなら向こうの 1 行を変えるだけになった）。
+/// **どの変数を聞くかは `env_names`。** `CLAUDE_CONFIG_DIR` が WSL のときだけなのは、
+/// 他の POSIX シェル（macOS のローカルシェル）では `claude_usage/config.rs` が Pike の
+/// プロセス環境を見る決まりで、ここで値を取っても使い道が無いため
+/// （`.claude/rules/platform.md` の「macOS で拾えない環境変数」。**このまとめによって
+/// 代償は消えた**ので、有効にするなら向こうの 1 行を変えるだけになった）。
+///
+/// **変数ごとに 1 行の `printf` を並べる**（`for` で回して `${!v}` で引かない）。
+/// 間接展開の綴りは bash と zsh で違い、`Unix` のログインシェルは zsh でありうる。
 fn posix_script(shell: &ShellConfig, bins: &[String]) -> String {
     let mut lines: Vec<String> = Vec::new();
-    if matches!(shell, ShellConfig::Wsl { .. }) {
+    for name in env_names(shell) {
         lines.push(format!(
-            "printf '{ENV_MARKER}\\t%s\\n' \"$CLAUDE_CONFIG_DIR\""
+            "printf '{ENV_MARKER}\\t{name}\\t%s\\n' \"${name}\""
         ));
     }
     if !bins.is_empty() {
@@ -284,7 +356,14 @@ mod tests {
     #[test]
     fn wsl_script_asks_both_questions_in_one_go() {
         let script = posix_script(&wsl(), &["claude".to_owned(), "codex".to_owned()]);
-        assert!(script.contains("PIKEENV\\t%s"), "{script}");
+        assert!(
+            script.contains("PIKEENV\\tCLAUDE_CONFIG_DIR\\t%s\\n' \"$CLAUDE_CONFIG_DIR\""),
+            "{script}"
+        );
+        assert!(
+            script.contains("PIKEENV\\tSSH_AUTH_SOCK\\t%s\\n' \"$SSH_AUTH_SOCK\""),
+            "{script}"
+        );
         assert!(script.contains("for c in claude codex;"), "{script}");
         assert!(script.contains("PIKEAGENT\\t%s"), "{script}");
         // 起こし方の契約は `run_login_script` の担当なので、ここでは付けない。
@@ -292,16 +371,18 @@ mod tests {
         assert!(!script.contains("exit 0"), "{script}");
     }
 
-    /// macOS のローカルシェルでは環境変数を聞かない（`posix_script` の doc）。
+    /// macOS のローカルシェルでは `CLAUDE_CONFIG_DIR` を聞かない（`posix_script` の doc）。
+    /// `SSH_AUTH_SOCK` は POSIX なら聞く（#384）。
     #[test]
-    fn local_unix_script_asks_only_for_bins() {
+    fn local_unix_script_skips_the_claude_config_dir() {
         let script = posix_script(
             &ShellConfig::Unix {
                 program: String::new(),
             },
             &["claude".to_owned()],
         );
-        assert!(!script.contains(ENV_MARKER), "{script}");
+        assert!(!script.contains(CLAUDE_CONFIG_DIR), "{script}");
+        assert!(script.contains(SSH_AUTH_SOCK), "{script}");
         assert!(script.contains(AGENT_MARKER), "{script}");
     }
 
@@ -310,7 +391,26 @@ mod tests {
     #[test]
     fn empty_bin_list_leaves_out_the_loop() {
         let script = posix_script(&wsl(), &[]);
-        assert_eq!(script, "printf 'PIKEENV\\t%s\\n' \"$CLAUDE_CONFIG_DIR\"");
+        assert_eq!(
+            script,
+            "printf 'PIKEENV\\tCLAUDE_CONFIG_DIR\\t%s\\n' \"$CLAUDE_CONFIG_DIR\"\n\
+             printf 'PIKEENV\\tSSH_AUTH_SOCK\\t%s\\n' \"$SSH_AUTH_SOCK\""
+        );
+    }
+
+    /// 目印の行から名前と値を拾えること。**未設定の変数は覚えない**（`Answer.env`）。
+    #[test]
+    fn env_lines_carry_their_name() {
+        let stdout = "banner\n\
+            PIKEENV\tCLAUDE_CONFIG_DIR\t/home/k/.claude-ai\n\
+            PIKEENV\tSSH_AUTH_SOCK\t\n\
+            PIKEAGENT\tclaude\n";
+        let env = parse_env(stdout);
+        assert_eq!(
+            env.get(CLAUDE_CONFIG_DIR).map(String::as_str),
+            Some("/home/k/.claude-ai")
+        );
+        assert_eq!(env.get(SSH_AUTH_SOCK), None);
     }
 
     #[test]

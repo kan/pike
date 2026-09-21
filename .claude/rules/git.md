@@ -5,7 +5,7 @@
 
 ## Git 統合
 - `git` CLI 経由（WSL / Windows / macOS のいずれでも動く）。`git2` クレートは使わない
-- Rust 側は `types.rs` の `git_args` が引数（`-c core.quotePath=false` と `-C <root>`）を組み、`ShellConfig::run*` が ShellConfig に応じて `wsl.exe git` / `git` を起動する（`git/mod.rs` の `run_git` / `run_git_full` / `run_git_raw_stdout` がその入口）。WSL で複数の git 呼び出しを 1 回の spawn にまとめる経路だけ、argv ではなく bash 行を組む `git_bash_prefix` を使う
+- Rust 側は `types.rs` の `git_args` が引数（`-c core.quotePath=false` と `-C <root>`）を組み、`ShellConfig::run*` が ShellConfig に応じて `wsl.exe git` / `git` を起動する（`git/mod.rs` の `run_git` / `run_git_network` / `run_git_raw_stdout` がその入口）。WSL で複数の git 呼び出しを 1 回の spawn にまとめる経路だけ、argv ではなく bash 行を組む `git_bash_prefix` を使う
 - ステータスバーにブランチ名+ダーティ表示、クリックでブランチ切替
 - ブランチ切替ドロップダウンのリモートブランチ対応（#197）: `git_branch_list` は `for-each-ref --format=%(refname) refs/heads refs/remotes` で `GitBranches { local, remote }` を返す（`<remote>/HEAD` は symbolic ref なので除外）。リモートは**ローカルに同名が無いものだけ**を「リモートブランチ」見出し配下に出し、選択で `git_checkout_track`（`git checkout --track origin/foo`）で追跡ローカルブランチを作って切替。ローカル名は git に決めさせる（`localBranchName` は表示判定専用のヘルパーで、リモート名にスラッシュを含む稀なケースでも checkout 側は壊れない）。既にローカルがある場合は `--track` が失敗するので `gitCheckout` にフォールバック。ドロップダウンを開くと `refreshRemoteBranches` が**既存の throttled `fetchInBackground`（60 秒間隔・focus 必須）**を再利用して fetch → 一覧再読込（開くたびに通信しない）。一覧は cached refs で即表示し、fetch は待たない。QuickOpen の `!` モードはローカルのみ（従来どおり）
 - Git パネル: ステージング/アンステージ、コミット、push/pull/refresh、コミットツリー展開
@@ -163,6 +163,81 @@
   - **グラフを必要以上に深くしない（#371）**。取得は `--all` ではなく `--branches --remotes --tags HEAD --date-order`（stash を除く理由と並び順の理由は `git_log` のコメントが正本）。取得範囲の外にいる親にはレーンを割り当てず、点線の短い線（`GraphRow.stubs`）で止める。割り当てると下で閉じる相手が来ないので、一覧の下端までレーンが開いたままになり、全行の幅を押し上げる
   - ドラッグ中は `--graph-width` を DOM に直に書き、離したときだけ ref に入れる（全行がこの変数を読むので、ref にすると mousemove ごとに一覧全体が再描画される。diff の `--split` と同じ手）
 - git log フォーマット区切り: ASCII Unit Separator (`%x1f`) + Record Separator (`%x1e`) を使用（NUL だと `%D` が空のコミットでレコード区切りと衝突するため）
+
+## リモートに触る 3 つ（fetch / pull / push、#384）
+
+**バックエンドの git には TTY が無い。** だから鍵にパスフレーズが付いていると、ssh が
+入力を待ったまま 30 秒のタイムアウトで殺される。通るのは `run_git_network` の 1 本で、
+そこだけが次の 3 つを足す。**残りの git 呼び出しは従来どおり**（ローカルの操作に ssh は
+要らないし、`git status` は 10 秒ごとに走る）。
+
+- **`SSH_AUTH_SOCK` を運ぶ**（`shell_probe::ssh_auth_sock`）。非対話の `bash -c` は rc の
+  export を継がないので、**ターミナルでは打てるのにバックエンドでは agent に届かない**。
+  `agent.md` が `CLAUDE_CONFIG_DIR` について書いているのと同じ形で、同じ `-lic` の probe に
+  相乗りしている。**WSL では `Command::env` が distro の中へ届かない**ので、`WSLENV` に
+  名前を並べる（`types::wslenv_with` / `command_env`）。**運ぶのは POSIX のシェルだけ**
+  （`env_names`）: Windows のシェルは Pike のプロセス環境をそのまま継ぐ。Git Bash で
+  `.bashrc` から agent を起こしている人には届かないが、そこは probe が cmd 構文なので
+  別の話になる
+- **`BatchMode=yes` を足す**（`ssh_config_arg`）。ssh を「聞かずに失敗する」に倒すと、
+  待ち込みが即座の失敗に変わり、失敗の文字列で資格情報待ちを見分けられる
+  （`AUTH_MARKERS`）。**利用者の `core.sshCommand` は潰さない**: 読んでから末尾に足す
+  （`compose_ssh_command`）。Windows の `ssh.exe` を指している構成が実在する。
+  **覚えるのは確かめられた答えだけ**（終了コード 0 か 1）: 冷えた WSL のタイムアウトを
+  覚えると、利用者の設定を 5 分のあいだ素の `ssh` に落とし、それ自体が認証を失敗させる。
+  **`core.sshCommand` が無く、ssh の起動を env で決めている構成には手を出さない**
+  （`ssh_set_by_env`）: `GIT_SSH_COMMAND` があれば `-c` は読まれず、`GIT_SSH` は `-c` に
+  負けるので、渡すと PuTTY / plink の転送を素の `ssh` に差し替えてしまう
+- **`GIT_TERMINAL_PROMPT=0`**。https のリモートでも git 自身が聞きに行かないよう揃える。
+  資格情報ヘルパー（GCM など）はこれでは止まらないので、Windows の利用者は従来どおり
+
+**待ち込む形は環境依存なので、塞ぎ方も環境に依らないものを選んだ。** 実測した 2 つ:
+`wsl.exe` 越しでは stdio を 3 つとも繋ぎ替えても `/dev/tty` が開ける（＝`spawn_piped` の
+stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass を選んで即座に失敗する。
+どちらに落ちるかはシェルの起こし方と `ssh-askpass` の有無で変わる。
+
+**代償**: GUI の askpass でパスフレーズを出せていた構成では、そこが出なくなる。代わりに
+下の「ターミナルで実行」で入力する形に揃う。
+
+**`SSH_ASKPASS=<存在しないパス>` ＋ `SSH_ASKPASS_REQUIRE=force` に置き換える案は見送った。**
+`core.sshCommand` を読まずに済む（＝上の読みとキャッシュが丸ごと消える）ぶん魅力はあるが、
+(1) `SSH_ASKPASS_REQUIRE` は OpenSSH 8.4 以降にしか無い、(2) 存在しない askpass を指すのは
+同じ代償を回りくどく払う形、(3) plink（`GIT_SSH`）はどちらの手も無視するので、あちらの
+待ち込みはどのみち塞げない。`BatchMode` は古い ssh にもあり、この開発機と報告者の形の
+両方で実測してある。
+
+### 入力する場所はターミナルタブ
+
+失敗が資格情報待ちだったときだけ、Git パネルのエラーの帯に「ターミナルで実行」を出す
+（`GitNetworkResult.command` を `gitStore.runAuthCommand` が走らせる）。`runRecovery`
+（#222）と同じ理由でバックエンドへ戻さない。
+
+- **失敗を `Err` ではなく値で返す**（`FileReadResult.too_large` と同じ形）。エラー文字列の
+  綴りを Rust と TS で取り決める形は採らない。**3 つとも同じ形**にしてあり、「背景の取得だから
+  黙る」は呼び出し側（`fetchInBackground`）の方針として持つ。戻り値の型に焼き込んでいた
+  ころは、fetch だけエラー文の整形を書き写したうえで唯一の呼び出し元が捨てていた
+- **「資格情報が要る」の真偽値は持たない**（`command` の有無がそれ）。2 つ持つと「真なのに
+  ボタンが出ない」という説明できない状態を作れる
+- **走らせる 1 行は Rust が組む**（`terminal_command`）。オプション → git のフラグの対応は
+  `PullOption` / `PushOption` が持っているので、TS 側で組み直すと必ずずれる
+- **鍵が拒否されたときは `ssh-add` を前に置く**（agent に届いていると分かっているときだけ）。
+  これが issue の「アプリ起動中はパスフレーズを保持する」の答えで、**保持するのは agent**:
+  Pike はパスフレーズを受け取らないし、どこにも書かない。素の `git pull` だけを走らせると
+  ssh がその 1 回のために聞いて捨てるので、次の pull でまた聞かれる
+- **`error` を直に `null` にしないこと**（`stores/git.ts` の `clearError`）。ボタンはその失敗に
+  紐づくので、片方だけ残ると押せる嘘のボタンになる
+- **ポーリングの成功では下ろさない**（`clearTransientError`）。10 秒ごとの `git status` が
+  通っても pull が失敗した事実は変わらないのに、素の `clearError` を置くと**入力する唯一の
+  入口が押される前に消える**。下りるのは次の pull / push を始めた時点か、ボタンを押した時点
+- **ステータスバーの知らせからも入口へ導く**（`git.runInTerminalHint`）。知らせはアプリ全体
+  （パレットやサイドバーから pull できる）なのに、押せるのは Git パネルの中だけなので、
+  そこまで書かないと開けば拾えることに気付けない。**`statusMessage` にボタンを持たせるのは
+  見送った**（あの器は今のところ文言だけで、入口を 1 つ増やすために作りを変えることになる）
+- **root に紐づく状態のスタンプが、このストアで 3 つ目**（`remoteResolvedFor` #353、
+  `logScope` #374 に続く）。本筋は `activeRoot` の watcher を 1 本置いて root 依存の状態を
+  まとめて捨てることだが、「root が変わった」の入口が App.vue の watcher と
+  `setActiveWorktree` に割れているので、そこを 1 つにするところから。**次にスタンプを
+  足したくなったら、先にそちらを畳む**
 
 ## Git worktree 連動
 - `git_worktree_list` コマンド（`git worktree list --porcelain` をパース）が `{ path, branch, head, isBare, isDetached, isMain }[]` を返す。bare クローン構成では bare エントリを main 扱いせず**最初の非 bare** を `isMain` とし、`prunable`（ディレクトリ消失）worktree は一覧から除外

@@ -1,7 +1,11 @@
-use crate::types::{git_args, git_bash_prefix, ShellConfig};
+use crate::cache::ProbeRegistry;
+use crate::shell_probe::{ssh_auth_sock, SSH_AUTH_SOCK};
+use crate::types::{git_args, git_bash_prefix, install_key, ShellConfig};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,14 +101,262 @@ fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, Str
     shell.run_stdout("git", &git_args(root, args))
 }
 
-/// Like `run_git` but hands back the exit code and both streams, for the
-/// callers that need to say more than "it failed".
-fn run_git_full(
-    shell: &ShellConfig,
-    root: &str,
-    args: &[&str],
-) -> Result<(i32, String, String), String> {
-    shell.run("git", &git_args(root, args))
+/// 資格情報が要るせいで止まったときに ssh / git が出す文字列（#384）。
+///
+/// **止まったことを「待たせる」ではなく「すぐ失敗する」に変えてあるから、この判定が
+/// 成り立つ**（`ssh_config_arg` の `BatchMode=yes`）。素のままだと ssh は `/dev/tty` を
+/// 開いてパスフレーズを待ち、誰も答えられないまま 30 秒のタイムアウトで殺される。
+///
+/// **当てになるのは ssh 側の 2 つだけ**（OpenSSH はメッセージを訳さない）。この issue が
+/// 相手にしている鍵のパスフレーズは必ずそちらに出る。
+///
+/// **git 側の 3 つは訳されうる。** バックエンドの git も distro の `LANG` を継ぐ
+/// （非対話の `bash -c` でも `ja_JP.UTF-8` が入っていることを実測した）ので、git の翻訳が
+/// 入っている環境では一致しない。**`LC_ALL=C` を被せて英語に倒す形は採らない**: 利用者に
+/// 見えるエラー文まで英語になる。取りこぼしても「ターミナルで実行」のボタンが出ない
+/// だけで、従来どおりのエラー表示に落ちる。
+/// ssh: 鍵で認証できなかった。パスフレーズを聞けなかったときもここに来る。
+///
+/// **名前で持つのは `terminal_command` が引くため。** `AUTH_MARKERS` の添字で指していると、
+/// 表の先頭に 1 行足しただけで `ssh-add` の前置が別の失敗（ホスト鍵・https）に付く。
+const KEY_DENIED: &str = "Permission denied (publickey";
+
+const AUTH_MARKERS: [&str; 5] = [
+    KEY_DENIED,
+    // ssh: 未知のホスト鍵を確認できなかった。
+    "Host key verification failed",
+    // git: https の資格情報を聞けなかった（`GIT_TERMINAL_PROMPT=0`）。
+    "could not read Username",
+    "terminal prompts disabled",
+    // git: https の資格情報が違う。
+    "Authentication failed",
+];
+
+fn needs_credentials(text: &str) -> bool {
+    AUTH_MARKERS.iter().any(|marker| text.contains(marker))
+}
+
+/// ネットワークを使う git（fetch / pull / push）にだけ足す環境変数（#384）。
+///
+/// - `SSH_AUTH_SOCK` … バックエンドの git は非対話で走るので rc の export を継がない。
+///   継がないと ssh が agent に届かず、パスフレーズ付きの鍵が毎回入力を要求する。
+///   値の取り方は `shell_probe::ssh_auth_sock` の doc が正本
+/// - `GIT_TERMINAL_PROMPT=0` … https のリモートで git 自身が利用者名を聞きに行くのを
+///   止める。ssh 側の `BatchMode` と対で、**どの転送でも「聞かずに失敗する」に揃える**
+fn network_env(shell: &ShellConfig) -> Vec<(&'static str, String)> {
+    let mut env = vec![("GIT_TERMINAL_PROMPT", "0".to_owned())];
+    if let Some(sock) = ssh_auth_sock(shell) {
+        env.push((SSH_AUTH_SOCK, sock));
+    }
+    env
+}
+
+/// 利用者の `core.sshCommand`（空なら素の `ssh`）に `BatchMode=yes` を足した値。
+///
+/// **末尾に足すだけ**にしてあるのは、既存の値の引用を解かないため。git は `core.sshCommand`
+/// をシェル風に分解するので、空白を含むパスを利用者が引用していれば、そのまま残る。
+fn compose_ssh_command(base: &str) -> String {
+    let base = base.trim();
+    let base = if base.is_empty() { "ssh" } else { base };
+    format!("core.sshCommand={base} -o BatchMode=yes")
+}
+
+/// `core.sshCommand` を読み直すまでの間隔。設定を変えた人が待つのはここまで。
+///
+/// **長いのは値の性質から。** ほとんどは `~/.gitconfig` 由来で、変える頻度は年単位。
+/// ここを通る操作自体が最短でも 60 秒に 1 回（背景 fetch）なので、短くしても効くのは
+/// spawn を増やす側だけになる。
+const SSH_COMMAND_TTL: Duration = Duration::from_secs(3600);
+
+/// 読めた `core.sshCommand`（`ssh_config_arg`）。
+///
+/// **`at` は「最後に読みに行った時刻」**（読めた時刻ではない）。読めなくても打つので、
+/// 壊れた環境でも間隔が空く。`base` は読めたときだけ書き換わるので、前に読めた値は
+/// そのまま残る。未設定と未読はどちらも空文字で、区別する必要はない（どちらも
+/// 「`core.sshCommand` は無い」として扱ってよい）。
+#[derive(Default)]
+struct SshCommand {
+    at: Option<Instant>,
+    base: String,
+}
+
+/// その `core.sshCommand` に対して実際に渡す `-c` の値。`None` は「触らない」。
+fn ssh_arg_for(base: &str) -> Option<String> {
+    (!base.is_empty() || !ssh_set_by_env()).then(|| compose_ssh_command(base))
+}
+
+/// ssh の起動を env で決めている構成か。
+///
+/// git の優先順は `GIT_SSH_COMMAND`（env）→ `core.sshCommand`（config）→ `GIT_SSH`（env）→
+/// `ssh`。**`core.sshCommand` が無いのにこのどちらかがある構成には手を出さない**:
+///
+/// - `GIT_SSH_COMMAND` があると `-c core.sshCommand=…` は読まれないので、渡しても無駄
+/// - `GIT_SSH` は `-c` に**負ける**ので、渡すと PuTTY / plink を使う構成の転送を
+///   素の `ssh` に差し替えてしまう（**Pike からだけ push できなくなる**）
+///
+/// 見るのは Pike のプロセス環境。Windows のシェルはそれを継ぐので一致し、WSL の中の値は
+/// 見えないが、非対話の `bash -c` にこれらが入っていることはまず無い。
+fn ssh_set_by_env() -> bool {
+    ["GIT_SSH_COMMAND", "GIT_SSH"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty()))
+}
+
+/// ネットワークの git に前置する `-c core.sshCommand=…` の値（#384）。
+///
+/// **「聞かずに失敗する」に倒すのが目的。** `BatchMode=yes` を足すと、ssh はパスフレーズも
+/// ホスト鍵の確認も尋ねずに即座に失敗する。足さないと `/dev/tty` を開いて待ち込み、
+/// **stdio を 3 つとも繋ぎ替えても `wsl.exe` 越しに `/dev/tty` は開ける**（実測）ので、
+/// 30 秒のタイムアウトまで何も起きない。60 秒ごとの背景 fetch では、その待ちが間隔の
+/// 半分を占める。
+///
+/// **利用者の設定を潰さないために、読んでから足す。** `core.sshCommand` に Windows の
+/// `ssh.exe` を指している構成が実在する（この開発機がそれで、WSL の git が
+/// `/mnt/c/Windows/System32/OpenSSH/ssh.exe` を呼ぶ）。`-c` も `GIT_SSH_COMMAND` も
+/// 上書きしかできないので、既存の値の末尾にオプションを足した文字列を作る。
+///
+/// **代償**: GUI の askpass（`SSH_ASKPASS`）でパスフレーズを出せていた構成では、そこが
+/// 出なくなる。代わりに「ターミナルで実行」で入力する形に揃う。
+///
+/// **答えは (導入単位, root) ごとに覚える。** 読みは git の spawn 1 回ぶんで、WSL なら
+/// `wsl.exe` の起動。背景 fetch が毎回払うには重い。
+///
+/// **時刻は読めなくても打つ**（`shell_probe::refresh_if_stale` と同じ規約）。打たないと、
+/// 読みが通らない環境（distro 停止・`git` 不在）では**ネットワークの git のたびに 30 秒
+/// ブロックし続け、しかも自己修復しない**。読めなかったときに上書きしないのは `base` の
+/// ほうで、前に読めた値はそのまま残る。
+///
+/// `None` は「触らない」（`ssh_set_by_env` の doc）。
+fn ssh_config_arg(shell: &ShellConfig, root: &str) -> Option<String> {
+    static REGISTRY: OnceLock<ProbeRegistry<(String, String), SshCommand>> = OnceLock::new();
+    let fresh = |answer: &SshCommand| answer.at.is_some_and(|at| at.elapsed() < SSH_COMMAND_TTL);
+    let entry = REGISTRY
+        .get_or_init(ProbeRegistry::new)
+        .entry((install_key(shell), root.to_owned()));
+
+    if !fresh(&entry.answer()) {
+        // 同じ問いを 2 回払わない（`cache::ProbeEntry` の 2 段ロック）。ロックを待つ
+        // あいだに前の持ち主が済ませていることがあるので、取ってからもう一度見る。
+        // **読みのあいだ答えのロックは握らない**（外部プロセスの起動を含むため）。
+        let _probing = entry.probing();
+        if !fresh(&entry.answer()) {
+            let read = shell.run(
+                "git",
+                &git_args(root, &["config", "--get", "core.sshCommand"]),
+            );
+            let mut answer = entry.answer();
+            // **確かめられた答えだけを覚える。** `git config --get` は未設定なら 1 を返すので、
+            // 0 と 1 だけが「読めた」。冷えた WSL のタイムアウトを覚えると、利用者の
+            // `core.sshCommand`（Windows の `ssh.exe` を指している構成が実在する）を
+            // 次の期限まで素の `ssh` に落とすことになり、**それ自体が認証を失敗させる**。
+            if let Ok((code @ (0 | 1), stdout, _)) = read {
+                answer.base = if code == 0 {
+                    stdout.trim().to_owned()
+                } else {
+                    String::new()
+                };
+            }
+            answer.at = Some(Instant::now());
+        }
+    }
+    // 一度も読めていないときは `base` が空のまま＝「`core.sshCommand` は無い」として扱う。
+    let arg = ssh_arg_for(&entry.answer().base);
+    arg
+}
+
+/// ネットワークの git を 1 回走らせた結果（#384）。
+///
+/// **`agent` を持たせるのが要点。** 「ssh-agent のソケットを渡せたか」は `network_env` が
+/// 作るときに分かっているので、あとから `ssh_auth_sock` を引き直さない。引き直すと、
+/// git が最長 30 秒走ったあいだに probe の期限が切れていた場合、**利用者が待っている
+/// エラー表示の直前に対話ログインシェルが 1 本上がる**。
+struct NetworkRun {
+    code: i32,
+    stdout: String,
+    stderr: String,
+    agent: bool,
+}
+
+/// `run_git` のネットワーク版（#384）。終了コードと両方の流れを返すのは、資格情報が
+/// 要るのかを呼び出し側が見分けるため。`ssh_config_arg` と `network_env` を通すのは
+/// **リモートに触る 3 つ（fetch / pull / push）だけ**で、残りの git 呼び出しは従来どおり。
+///
+/// **効いている区分は「ネットワークに触るか」ではなく「人に聞きうるか」**で、署名で
+/// pinentry / 1Password が出うる `git_commit` は後者に入りながらバックエンドのままにして
+/// ある（#222 の `runRecovery` がある理由そのもの）。そこを広げる日が来たら、この 1 本と
+/// 「ターミナルで実行」をそのまま使い回すこと（並行の仕組みを発明しない）。
+fn run_git_network(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<NetworkRun, String> {
+    let ssh = ssh_config_arg(shell, root);
+    let prefix: Vec<&str> = ssh.as_deref().map_or_else(Vec::new, |v| vec!["-c", v]);
+    let full = [&prefix[..], &git_args(root, args)].concat();
+    let env = network_env(shell);
+    let agent = env.iter().any(|(name, _)| *name == SSH_AUTH_SOCK);
+    let (code, stdout, stderr) = shell.run_env("git", &full, &env)?;
+    Ok(NetworkRun {
+        code,
+        stdout,
+        stderr,
+        agent,
+    })
+}
+
+/// リモートに触る git（fetch / pull / push）の結果（#384）。
+///
+/// **失敗を `Err` ではなく値で返す**（`FileReadResult.too_large` と同じ形）。フロントは
+/// 「資格情報が要るのか、それ以外で失敗したのか」で出し分けるので、エラー文字列の綴りを
+/// Rust と TS で取り決める形は採らない。
+///
+/// **「資格情報が要る」の真偽値は持たない。** `command` の有無がそれで、2 つ持つと
+/// 「真なのにボタンが出ない」という説明できない状態を作れる。成功したときの stdout も
+/// 運ばない（フロントは一度も読んでいない）。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitNetworkResult {
+    /// 失敗の理由（成功なら `None`）。
+    pub error: Option<String>,
+    /// 資格情報が要るせいで失敗したときに、ターミナルで走らせ直す 1 行。
+    pub command: Option<String>,
+}
+
+impl GitNetworkResult {
+    /// 走らせた結果を、フロントが出し分けられる形に落とす。
+    ///
+    /// **エラー文には stdout も混ぜる。** 止まった merge / rebase は
+    /// `CONFLICT (content): …` を stdout に書くので、stderr だけを渡すと競合の理由が
+    /// 消える（#222）。
+    fn of(args: &[&str], run: NetworkRun) -> Self {
+        if run.code == 0 {
+            return Self {
+                error: None,
+                command: None,
+            };
+        }
+        let text = format!("{}{}", run.stdout, run.stderr);
+        Self {
+            error: Some(format!("git error: {}", text.trim())),
+            command: needs_credentials(&text).then(|| terminal_command(args, &text, run.agent)),
+        }
+    }
+}
+
+/// ターミナルで走らせ直す 1 行。
+///
+/// **鍵が拒否されたときは `ssh-add` を前に置く**（agent に届いていると分かっているとき
+/// だけ）。これが issue の「アプリ起動中はパスフレーズを保持する」の答えで、**保持するのは
+/// agent**: Pike はパスフレーズを受け取らないし、どこにも書かない。素の `git pull` を
+/// 走らせるだけだと ssh がその 1 回のために聞いて捨てるので、次の pull でまた聞かれる。
+///
+/// 区切りは `;`（`&&` ではない）。`ssh-add` が失敗しても git は走ってよく、そのときは
+/// ssh が tty で聞くのでその 1 回は通る。PowerShell 5 に `&&` が無い問題
+/// （`types/tab.ts` の `chainOnSuccess`）も、`;` なら避けて通れる。
+/// `agent` は「そのとき agent のソケットを渡せたか」（`NetworkRun` の doc）。
+fn terminal_command(args: &[&str], failure: &str, agent: bool) -> String {
+    let git = format!("git {}", args.join(" "));
+    if agent && failure.contains(KEY_DENIED) {
+        format!("ssh-add; {git}")
+    } else {
+        git
+    }
 }
 
 /// Like `run_git` but returns stdout regardless of exit code. Used for
@@ -959,10 +1211,14 @@ fn remote_urls_wsl(shell: &ShellConfig, roots: &[String]) -> Result<Vec<Option<S
 }
 
 #[tauri::command]
-pub async fn git_fetch(root: String, shell: ShellConfig) -> Result<(), String> {
+pub async fn git_fetch(root: String, shell: ShellConfig) -> Result<GitNetworkResult, String> {
     tokio::task::spawn_blocking(move || {
-        run_git(&shell, &root, &["fetch", "--prune"])?;
-        Ok(())
+        // **3 つとも同じ形で返す**（#384）。「背景の取得だから知らせない」は呼び出し側の
+        // 方針なので、戻り値の型に焼き込まない。焼き込んでいたころは、エラー文の整形を
+        // ここへ書き写したうえで唯一の呼び出し元が捨てていた。
+        let args = ["fetch", "--prune"];
+        let run = run_git_network(&shell, &root, &args)?;
+        Ok(GitNetworkResult::of(&args, run))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -994,7 +1250,7 @@ pub async fn git_push(
     root: String,
     shell: ShellConfig,
     options: Option<Vec<PushOption>>,
-) -> Result<String, String> {
+) -> Result<GitNetworkResult, String> {
     tokio::task::spawn_blocking(move || {
         let mut args = vec!["push"];
         // `--set-upstream` needs an explicit destination, and it has to come
@@ -1012,7 +1268,8 @@ pub async fn git_push(
             }
         }
         args.extend_from_slice(destination);
-        run_git(&shell, &root, &args)
+        let run = run_git_network(&shell, &root, &args)?;
+        Ok(GitNetworkResult::of(&args, run))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1023,7 +1280,7 @@ pub async fn git_pull(
     root: String,
     shell: ShellConfig,
     options: Option<Vec<PullOption>>,
-) -> Result<String, String> {
+) -> Result<GitNetworkResult, String> {
     tokio::task::spawn_blocking(move || {
         let mut args = vec!["pull"];
         for opt in options.unwrap_or_default() {
@@ -1035,12 +1292,10 @@ pub async fn git_pull(
         }
         // Unlike every other git call, keep stdout when pull fails: a stopped
         // merge/rebase writes `CONFLICT (content): Merge conflict in …` there,
-        // and `run_git` would hand back only the terse stderr half (#222).
-        let (code, stdout, stderr) = run_git_full(&shell, &root, &args)?;
-        if code == 0 {
-            return Ok(stdout);
-        }
-        Err(format!("git error: {}", format!("{stdout}{stderr}").trim()))
+        // and the terse stderr half alone would lose it (#222). 組み立ては
+        // `GitNetworkResult::of` が持つ（push と同じ扱い）。
+        let run = run_git_network(&shell, &root, &args)?;
+        Ok(GitNetworkResult::of(&args, run))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1549,6 +1804,47 @@ pub async fn git_diff_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 利用者の設定を潰さず、末尾に足すだけであること（#384）。
+    #[test]
+    fn ssh_command_keeps_the_users_value() {
+        assert_eq!(
+            compose_ssh_command(""),
+            "core.sshCommand=ssh -o BatchMode=yes"
+        );
+        assert_eq!(
+            compose_ssh_command("  \n"),
+            "core.sshCommand=ssh -o BatchMode=yes"
+        );
+        assert_eq!(
+            compose_ssh_command("C:/Windows/System32/OpenSSH/ssh.exe"),
+            "core.sshCommand=C:/Windows/System32/OpenSSH/ssh.exe -o BatchMode=yes"
+        );
+        // 空白を含むパスは利用者が引用している。その引用は解かない。
+        assert_eq!(
+            compose_ssh_command("\"C:/Program Files/ssh.exe\" -F /dev/null"),
+            "core.sshCommand=\"C:/Program Files/ssh.exe\" -F /dev/null -o BatchMode=yes"
+        );
+    }
+
+    /// `BatchMode` で即座に失敗したものを、資格情報待ちとして見分けられること（#384）。
+    #[test]
+    fn credential_failures_are_told_apart() {
+        assert!(needs_credentials(
+            "git@github.com: Permission denied (publickey)."
+        ));
+        assert!(needs_credentials("Host key verification failed."));
+        assert!(needs_credentials(
+            "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+        ));
+        // 競合で止まった pull や、普通のネットワーク断は対象外。
+        assert!(!needs_credentials(
+            "CONFLICT (content): Merge conflict in src/main.rs"
+        ));
+        assert!(!needs_credentials(
+            "fatal: unable to access 'https://example.com/': Could not resolve host"
+        ));
+    }
 
     #[test]
     fn truncate_at_line_cuts_on_a_line_boundary() {

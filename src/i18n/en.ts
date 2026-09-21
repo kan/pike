@@ -557,6 +557,8 @@ export default {
   'git.opHint.stopped': 'The operation is stopped part-way through.',
   'git.opContinue': 'Continue',
   'git.opContinueBlocked': 'Available once the conflicts are resolved and staged',
+  'git.runInTerminal': 'Run in terminal',
+  'git.runInTerminalHint': 'Enter it from "Run in terminal" in the Git panel',
   'git.opAbort': 'Abort',
   'git.opRecommit': 'Recreate commit and continue',
   'git.abortConfirm': 'Go back to the state before it started.\n\n{command}',
