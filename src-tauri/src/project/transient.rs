@@ -112,15 +112,15 @@ impl TransientState {
             (native, ShellConfig::Wsl { distro })
         } else if let Some(distro) = distro_hint {
             (
-                path.to_string(),
+                path.to_owned(),
                 ShellConfig::Wsl {
-                    distro: distro.to_string(),
+                    distro: distro.to_owned(),
                 },
             )
         } else {
             // UNC でも distro ヒントでもない＝ホストのパス。Windows なら PowerShell、
             // macOS / Linux ならログインシェル。
-            (path.to_string(), ShellConfig::host_default())
+            (path.to_owned(), ShellConfig::host_default())
         };
 
         let dir_name = root
@@ -134,9 +134,9 @@ impl TransientState {
             .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
             .collect::<String>()
             .trim_matches('-')
-            .to_string();
+            .to_owned();
         let base: String = if slug.is_empty() {
-            "dir".to_string()
+            "dir".to_owned()
         } else {
             slug.chars().take(48).collect()
         };
@@ -150,7 +150,7 @@ impl TransientState {
 
         Some(ProjectConfig {
             id,
-            name: dir_name.to_string(),
+            name: dir_name.to_owned(),
             root,
             shell,
             pinned_tabs: vec![],

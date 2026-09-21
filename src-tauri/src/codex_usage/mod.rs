@@ -291,17 +291,17 @@ fn read_account(codex_dir: &Path) -> Option<CodexAccount> {
 fn read_account_uncached(codex_dir: &Path) -> Option<CodexAccount> {
     let text = fs::read_to_string(codex_dir.join("auth.json")).ok()?;
     let json: Value = serde_json::from_str(&text).ok()?;
-    let auth_mode = json["auth_mode"].as_str().map(str::to_string);
+    let auth_mode = json["auth_mode"].as_str().map(str::to_owned);
     let claims = json["tokens"]["id_token"]
         .as_str()
         .and_then(jwt_claims)
         .unwrap_or(Value::Null);
     let account = CodexAccount {
-        email: claims["email"].as_str().map(str::to_string),
+        email: claims["email"].as_str().map(str::to_owned),
         // プランは OpenAI 独自クレーム（URL がキー名）の中。
         plan: claims["https://api.openai.com/auth"]["chatgpt_plan_type"]
             .as_str()
-            .map(str::to_string),
+            .map(str::to_owned),
         auth_mode,
     };
     (account.email.is_some() || account.auth_mode.is_some()).then_some(account)
@@ -332,8 +332,8 @@ fn parse_session(path: &Path) -> Option<SessionAgg> {
         if cwd.is_none() && line.contains("\"session_meta\"") {
             if let Ok(v) = serde_json::from_str::<Value>(&line) {
                 let p = &v["payload"];
-                cwd = p["cwd"].as_str().map(str::to_string);
-                session_id = p["id"].as_str().map(str::to_string);
+                cwd = p["cwd"].as_str().map(str::to_owned);
+                session_id = p["id"].as_str().map(str::to_owned);
             }
             continue;
         }
@@ -343,7 +343,7 @@ fn parse_session(path: &Path) -> Option<SessionAgg> {
         if line.contains("\"turn_context\"") && line.contains("\"model\"") {
             if let Ok(v) = serde_json::from_str::<Value>(&line) {
                 if let Some(m) = v["payload"]["model"].as_str() {
-                    model = Some(m.to_string());
+                    model = Some(m.to_owned());
                 }
             }
             continue;
@@ -427,7 +427,7 @@ pub(crate) fn get_usage_for_project(
         last_activity = Some(last_activity.map_or(*modified, |t: SystemTime| t.max(*modified)));
         totals.add(&agg.usage);
         by_model
-            .entry(agg.model.clone().unwrap_or_else(|| "unknown".to_string()))
+            .entry(agg.model.clone().unwrap_or_else(|| "unknown".to_owned()))
             .or_default()
             .add(&agg.usage);
         // First matching session is the newest (files sorted desc).
@@ -602,8 +602,8 @@ fn read_session_head(path: &Path) -> Option<SessionHead> {
                 id: meta["id"]
                     .as_str()
                     .or_else(|| meta["session_id"].as_str())?
-                    .to_string(),
-                cwd: meta["cwd"].as_str()?.to_string(),
+                    .to_owned(),
+                cwd: meta["cwd"].as_str()?.to_owned(),
                 title: String::new(),
             });
             continue;

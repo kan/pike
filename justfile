@@ -82,9 +82,25 @@ fmt-check:
     cargo fmt --check
 
 # clippy（警告もエラー扱い）
+#
+# **`--all-targets` が要る**（#382）。無しだと lib と bin しか見ないので、
+# `#[cfg(test)]` の中だけが素通りする。`Cargo.toml` の `[lints.clippy]` を
+# 入れたときに実測して分かった: テストコードに違反を仕込んでも何も出なかった。
+#
+# **feature の軸は開けたまま。** `--all-targets` は既定でない feature を有効に
+# しないので、`lib.rs` の `#[cfg(feature = "e2e")]` は今も lint されない。
+# 2 箇所だけなので `--all-features` のビルド時間を払っていない。e2e の側を
+# 増やすなら、ここを見直すこと。
 [working-directory('src-tauri')]
 clippy:
-    cargo clippy -- -D warnings
+    cargo clippy --all-targets -- -D warnings
+
+# 棚卸し用の clippy（#382）。常時は当てない 3 つを足して見るだけで、`check` には
+# 入れない（誤検出があり、CI を落とすため）。理由は src-tauri/Cargo.toml の
+# `[lints.clippy]` の上のコメント。
+[working-directory('src-tauri')]
+clippy-deep:
+    cargo clippy --all-targets -- -W clippy::redundant_clone -W clippy::needless_collect -W clippy::assigning_clones
 
 # Rust のユニットテスト
 [working-directory('src-tauri')]

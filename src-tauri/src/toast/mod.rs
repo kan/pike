@@ -288,7 +288,7 @@ mod imp {
                 let len = (size as usize / 2).min(buf.len());
                 String::from_utf16_lossy(&buf[..len])
                     .trim_end_matches('\0')
-                    .to_string()
+                    .to_owned()
             })
         };
         if existing.as_deref() == Some(data) {

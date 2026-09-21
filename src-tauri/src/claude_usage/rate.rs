@@ -91,9 +91,9 @@ fn parse_usage_output(out: &str) -> Vec<ClaudeRateWindow> {
         };
         let resets_at = after
             .split_once("resets")
-            .map(|(_, when)| when.trim().to_string())
+            .map(|(_, when)| when.trim().to_owned())
             .filter(|s| !s.is_empty());
-        let label = label.trim().to_string();
+        let label = label.trim().to_owned();
         windows.push(ClaudeRateWindow {
             kind: window_kind(&label),
             label,
@@ -298,7 +298,7 @@ pub(crate) fn get_rate_limits_soon(
             .unwrap_or_else(|e| e.into_inner())
             .insert(key.clone());
         if started {
-            let (shell, root) = (shell.clone(), project_root.to_string());
+            let (shell, root) = (shell.clone(), project_root.to_owned());
             std::thread::spawn(move || {
                 let _guard = RefreshGuard(key);
                 get_rate_limits(&shell, &root, session_active, false);

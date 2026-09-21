@@ -111,7 +111,7 @@ fn emit_state(webview: &Webview, url: Option<String>, title: Option<String>) {
         EventTarget::window(webview.window().label()),
         "browser_state",
         BrowserStatePayload {
-            label: webview.label().to_string(),
+            label: webview.label().to_owned(),
             url,
             title,
             title_url,
@@ -134,7 +134,7 @@ pub async fn browser_open(
     check_label(&label)?;
     let url = parse_web_url(&url)?;
     let opener_label = label.clone();
-    let window_label = window.label().to_string();
+    let window_label = window.label().to_owned();
     let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(url));
     // Jira の拡張機能（#380）。**利用者のルールより先に入れる**: ルールの JS から
     // `window.JIRAPP` を使えるように。

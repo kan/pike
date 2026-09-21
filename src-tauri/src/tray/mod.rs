@@ -124,7 +124,7 @@ pub fn set_tooltip(app: &AppHandle, detail: &str) {
     };
     let label = app_label(app);
     let text = if detail.is_empty() {
-        label.to_string()
+        label.to_owned()
     } else {
         format!("{label} · {detail}")
     };

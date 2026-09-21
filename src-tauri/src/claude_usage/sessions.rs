@@ -88,7 +88,7 @@ impl TranscriptScan {
             }
         }
         if self.git_branch.is_none() {
-            self.git_branch = raw_str_field(line, GIT_BRANCH_PAT).map(str::to_string);
+            self.git_branch = raw_str_field(line, GIT_BRANCH_PAT).map(str::to_owned);
         }
         // Claude writes its title a handful of lines in, so stopping there keeps
         // a multi-MB session as cheap as a short one. Untitled sessions fall
@@ -133,7 +133,7 @@ fn read_session(path: &Path, modified_at: u64) -> Option<AgentSession> {
 
     let (title, git_branch) = scan.finish()?;
     Some(AgentSession {
-        id: id.to_string(),
+        id: id.to_owned(),
         title,
         modified_at,
         git_branch,
@@ -221,7 +221,7 @@ mod tests {
         ]);
         assert_eq!(
             got,
-            Some(("Nice title".to_string(), Some("main".to_string())))
+            Some(("Nice title".to_owned(), Some("main".to_owned())))
         );
     }
 

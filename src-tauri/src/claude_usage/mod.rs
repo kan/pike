@@ -293,7 +293,7 @@ impl UsageAccumulator {
         }
         let Some(msg) = parsed.message else { return };
         let Some(usage) = msg.usage else { return };
-        let model = msg.model.unwrap_or_else(|| "unknown".to_string());
+        let model = msg.model.unwrap_or_else(|| "unknown".to_owned());
         let counts = TokenCounts {
             input: usage.input_tokens,
             output: usage.output_tokens,

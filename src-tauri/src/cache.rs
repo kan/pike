@@ -258,9 +258,9 @@ mod tests {
     #[test]
     fn hands_out_one_entry_per_key() {
         let registry = ProbeRegistry::<String, u32>::new();
-        let a = registry.entry("wsl:Ubuntu".to_string());
-        let b = registry.entry("wsl:Ubuntu".to_string());
-        let c = registry.entry("windows".to_string());
+        let a = registry.entry("wsl:Ubuntu".to_owned());
+        let b = registry.entry("wsl:Ubuntu".to_owned());
+        let c = registry.entry("windows".to_owned());
         assert!(Arc::ptr_eq(&a, &b));
         assert!(!Arc::ptr_eq(&a, &c));
 

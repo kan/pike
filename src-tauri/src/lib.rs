@@ -206,13 +206,13 @@ pub(crate) fn normalize_path(p: &str) -> String {
     p.to_lowercase()
         .replace('\\', "/")
         .trim_end_matches('/')
-        .to_string()
+        .to_owned()
 }
 
 fn is_under_root(file_path: &str, root: &str) -> bool {
     let f = normalize_path(file_path);
     let r = normalize_path(root);
-    f.starts_with(&format!("{r}/")) || f == r
+    f == r || types::starts_with_segment(&f, &r, '/')
 }
 
 fn load_all_projects(app: &AppHandle) -> Vec<project::ProjectConfig> {
@@ -329,7 +329,7 @@ fn main_geom_key(app: &AppHandle) -> String {
         )
     });
     if opens_global {
-        return window_geom::GLOBAL_KEY.to_string();
+        return window_geom::GLOBAL_KEY.to_owned();
     }
     app.try_state::<project::ProjectState>()
         .and_then(|state| {
@@ -341,7 +341,7 @@ fn main_geom_key(app: &AppHandle) -> String {
                 .filter(|shown| !shown.is_empty())
                 .or_else(|| project::first_shown(&state))
         })
-        .unwrap_or_else(|| window_geom::GLOBAL_KEY.to_string())
+        .unwrap_or_else(|| window_geom::GLOBAL_KEY.to_owned())
 }
 
 /// そのウィンドウ宛てに積んだ操作が処理されるまで待つ。
@@ -478,7 +478,7 @@ fn build_project_window(
 fn store_pending(app: &AppHandle, label: &str, action: cli::CliAction) {
     if let Some(state) = app.try_state::<cli::CliState>() {
         if let Ok(mut pending) = state.pending.lock() {
-            pending.insert(label.to_string(), action);
+            pending.insert(label.to_owned(), action);
         }
     }
 }
@@ -845,7 +845,7 @@ fn focus_project_window_anywhere(
             app,
             &w,
             &cli::CliAction::OpenProject {
-                id: id.to_string(),
+                id: id.to_owned(),
                 shell: None,
             },
         ),
@@ -1221,7 +1221,7 @@ async fn open_url(url: String) -> Result<(), String> {
     // フロント側の対の述語は `lib/openUrl.ts` の `isExternalLink`。
     let allowed = ["http://", "https://", "mailto:"];
     if !allowed.iter().any(|p| url.starts_with(p)) {
-        return Err("Only http/https/mailto URLs are allowed".to_string());
+        return Err("Only http/https/mailto URLs are allowed".to_owned());
     }
     tokio::task::spawn_blocking(move || types::os_open_url(&url))
         .await
@@ -1252,7 +1252,7 @@ mod dialog {
             if !output.status.success() {
                 return Ok(None);
             }
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             Ok(if path.is_empty() { None } else { Some(path) })
         })
         .await
@@ -1272,7 +1272,7 @@ mod dialog {
         // （`spawn` が `spawn_blocking` を使っているのと同じ理由。ここで直に呼ぶと、
         // ダイアログを開くたびに tokio のワーカーが PTY の出力ごと止まる）。
         let program = tokio::task::spawn_blocking(|| {
-            crate::pty::find_pwsh_path().unwrap_or_else(|| "powershell.exe".to_string())
+            crate::pty::find_pwsh_path().unwrap_or_else(|| "powershell.exe".to_owned())
         })
         .await
         .map_err(|e| e.to_string())?;
@@ -1282,7 +1282,7 @@ mod dialog {
     /// PowerShell のリテラルに埋める（単引用符の中では引用符を重ねるのが唯一の逃げ方）。
     #[cfg(windows)]
     fn ps_quote(value: &str) -> String {
-        format!("'{}'", value.replace("'", "''"))
+        format!("'{}'", value.replace('\'', "''"))
     }
 
     /// `initial` はダイアログの初期位置（#271）。WSL プロジェクトでは
@@ -1464,9 +1464,9 @@ pub fn run() {
             // input-synchronous context.  COM cross-apartment calls
             // (IVirtualDesktopManager) fail with RPC_E_CANTCALLOUT_ININPUTSYNCCALL
             // while inside SendMessage.
+            // `args` と `cwd` はプラグインが所有権ごと渡してくる（#382）。
+            // 写し直さず、そのままスレッドへ移す。
             let app_handle = app.clone();
-            let args: Vec<String> = args.to_vec();
-            let cwd = cwd.to_string();
             std::thread::spawn(move || {
                 let app2 = app_handle.clone();
                 let _ = app_handle.run_on_main_thread(move || {
@@ -1970,9 +1970,9 @@ mod tests {
 
     fn project(id: &str, root: &str) -> ProjectConfig {
         ProjectConfig {
-            id: id.to_string(),
-            name: id.to_string(),
-            root: root.to_string(),
+            id: id.to_owned(),
+            name: id.to_owned(),
+            root: root.to_owned(),
             shell: ShellConfig::Powershell,
             pinned_tabs: vec![],
             last_opened: String::new(),
@@ -1989,9 +1989,9 @@ mod tests {
     fn open_file(path: &str, line: Option<u32>) -> CliAction {
         CliAction::OpenFiles {
             files: vec![CliFileTarget {
-                path: path.to_string(),
+                path: path.to_owned(),
                 line,
-                distro: Some("Ubuntu".to_string()),
+                distro: Some("Ubuntu".to_owned()),
             }],
         }
     }
@@ -2027,12 +2027,12 @@ mod tests {
         let many = CliAction::OpenFiles {
             files: vec![
                 CliFileTarget {
-                    path: "/home/kan/pike".to_string(),
+                    path: "/home/kan/pike".to_owned(),
                     line: None,
                     distro: None,
                 },
                 CliFileTarget {
-                    path: "/home/kan/a.rs".to_string(),
+                    path: "/home/kan/a.rs".to_owned(),
                     line: None,
                     distro: None,
                 },

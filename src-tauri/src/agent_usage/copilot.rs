@@ -93,7 +93,7 @@ fn parse_events(path: &Path, head_only: bool) -> Option<Session> {
         let data = &v["data"];
         if is_start {
             if let Some(cwd) = data["context"]["cwd"].as_str() {
-                out.cwd = Some(cwd.to_string());
+                out.cwd = Some(cwd.to_owned());
             }
         } else if is_usage {
             if let Some(n) = data["totalPremiumRequests"].as_f64() {
@@ -196,7 +196,7 @@ pub(crate) fn list_sessions(
             continue;
         };
         out.push(crate::agent_sessions::AgentSession {
-            id: id.to_string(),
+            id: id.to_owned(),
             title: session.title,
             modified_at: crate::agent_sessions::modified_ms(modified).unwrap_or(0),
             git_branch: None,

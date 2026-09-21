@@ -315,9 +315,9 @@ fn run_one(
                 None
             };
             let run = ProviderRun {
-                name: spec.name.to_string(),
+                name: spec.name.to_owned(),
                 dir: dir_rel,
-                command: command.to_string(),
+                command: command.to_owned(),
                 ok: error.is_none(),
                 error,
                 count: parsed.len(),
@@ -326,9 +326,9 @@ fn run_one(
         }
         Err(e) => (
             ProviderRun {
-                name: spec.name.to_string(),
+                name: spec.name.to_owned(),
                 dir: dir_rel,
-                command: command.to_string(),
+                command: command.to_owned(),
                 ok: false,
                 error: Some(e),
                 count: 0,
@@ -377,7 +377,7 @@ fn golangci_tasks(
         return go_dirs
             .into_iter()
             .min_by_key(|d| d.matches(sep).count())
-            .map(|dir| (dir, command.to_string()))
+            .map(|dir| (dir, command.to_owned()))
             .into_iter()
             .collect();
     }
@@ -401,7 +401,7 @@ fn golangci_tasks(
             let from_go_mod = src.as_deref().and_then(go_mod_golangci);
             let has_config = config_dirs.iter().any(|c| is_at_or_under(dir, c, sep));
             let command = from_go_mod.or_else(|| has_config.then_some(GOLANGCI_PATH_CMD))?;
-            Some((dir.clone(), command.to_string()))
+            Some((dir.clone(), command.to_owned()))
         })
         .collect()
 }
@@ -443,10 +443,7 @@ fn tool_directive(line: &str) -> Option<&str> {
 
 /// Is `dir` the same directory as `ancestor`, or nested under it?
 fn is_at_or_under(dir: &str, ancestor: &str, sep: char) -> bool {
-    dir == ancestor
-        || dir
-            .strip_prefix(ancestor)
-            .is_some_and(|rest| rest.starts_with(sep))
+    dir == ancestor || crate::types::starts_with_segment(dir, ancestor, sep)
 }
 
 /// Directories (absolute) where `manifest` was found, collapsing nested
@@ -474,17 +471,21 @@ fn dirs_for(manifests: &[String], manifest: &str, root: &str, sep: char) -> Vec<
 
 fn parent_dir(path: &str, root: &str, sep: char) -> String {
     match path.rsplit_once(['/', '\\']) {
-        Some((dir, _)) if !dir.is_empty() => dir.to_string(),
-        _ => root.trim_end_matches([sep]).to_string(),
+        Some((dir, _)) if !dir.is_empty() => dir.to_owned(),
+        _ => root.trim_end_matches([sep]).to_owned(),
     }
 }
 
+/// `root` からの相対。**前置を `format!` で組まない**（#382。`fs::rel_path_of` と同じ形）。
+/// 診断 1 件につき呼ばれ、上限は `MAX_DIAGNOSTICS` 件。
 fn rel_path(path: &str, root: &str, sep: char) -> String {
     if path == root {
         return String::new();
     }
-    let prefix = format!("{root}{sep}");
-    path.strip_prefix(&prefix).unwrap_or(path).to_string()
+    path.strip_prefix(root)
+        .and_then(|rest| rest.strip_prefix(sep))
+        .unwrap_or(path)
+        .to_owned()
 }
 
 fn dedup(diags: &mut Vec<Diagnostic>) {
@@ -543,6 +544,12 @@ fn parse_cargo(stdout: &str, dir: &str, root: &str, sep: char, source: &str) -> 
         if !line.starts_with('{') {
             continue;
         }
+        // 捨てる行に Value の木を組まない（#382。`parse_rg_line` と同じ前置フィルタ）。
+        // `cargo` は `compiler-artifact` をコンパイル単位ごとに 1 行出すので、依存が
+        // 数百あればその数だけ、しかも `filenames` の配列つきで届く。
+        if !line.contains("\"compiler-message\"") {
+            continue;
+        }
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
@@ -563,7 +570,7 @@ fn parse_cargo(stdout: &str, dir: &str, root: &str, sep: char, source: &str) -> 
             .get("code")
             .and_then(|c| c.get("code"))
             .and_then(|c| c.as_str())
-            .map(|s| s.to_string());
+            .map(|s| s.to_owned());
         let Some(spans) = msg.get("spans").and_then(|s| s.as_array()) else {
             continue;
         };
@@ -592,8 +599,8 @@ fn parse_cargo(stdout: &str, dir: &str, root: &str, sep: char, source: &str) -> 
                 .and_then(|c| c.as_u64())
                 .map(|n| n as u32),
             severity,
-            message: text.to_string(),
-            source: source.to_string(),
+            message: text.to_owned(),
+            source: source.to_owned(),
             code,
         });
     }
@@ -629,8 +636,8 @@ fn parse_go(stderr: &str, dir: &str, root: &str, sep: char, source: &str) -> Vec
                 end_line: None,
                 end_column: None,
                 severity: Severity::Warning,
-                message: message.trim().to_string(),
-                source: source.to_string(),
+                message: message.trim().to_owned(),
+                source: source.to_owned(),
                 code: None,
             })
         })
@@ -667,7 +674,7 @@ fn parse_golangci(stdout: &str, dir: &str, root: &str, sep: char, source: &str) 
                     Severity::Warning
                 },
                 message,
-                source: source.to_string(),
+                source: source.to_owned(),
                 code: linter,
             })
         })
@@ -681,8 +688,8 @@ fn split_linter(message: &str) -> (String, Option<String>) {
             .filter(|(_, name)| is_linter_name(name))
     });
     match name {
-        Some((head, name)) => (head.trim_end().to_string(), Some(name.to_string())),
-        None => (message.to_string(), None),
+        Some((head, name)) => (head.trim_end().to_owned(), Some(name.to_owned())),
+        None => (message.to_owned(), None),
     }
 }
 
@@ -723,8 +730,8 @@ fn parse_tsc(stdout: &str, dir: &str, root: &str, sep: char, source: &str) -> Ve
         };
         // after: "TS2304: message"
         let (code, message) = match after.split_once(": ") {
-            Some((c, m)) => (Some(c.trim().to_string()), m.to_string()),
-            None => (None, after.to_string()),
+            Some((c, m)) => (Some(c.trim().to_owned()), m.to_owned()),
+            None => (None, after.to_owned()),
         };
         out.push(Diagnostic {
             file: resolve(file, dir, root, sep),
@@ -734,7 +741,7 @@ fn parse_tsc(stdout: &str, dir: &str, root: &str, sep: char, source: &str) -> Ve
             end_column: None,
             severity,
             message,
-            source: source.to_string(),
+            source: source.to_owned(),
             code,
         });
     }
@@ -925,21 +932,21 @@ mod tests {
         // one entry point — running it per module would duplicate every finding
         // under a different base path.
         let manifests = vec![
-            "/proj/services/b/go.mod".to_string(),
-            "/proj/services/a/go.mod".to_string(),
-            "/proj/tools/go.mod".to_string(),
+            "/proj/services/b/go.mod".to_owned(),
+            "/proj/services/a/go.mod".to_owned(),
+            "/proj/tools/go.mod".to_owned(),
         ];
         let shell = ShellConfig::Powershell;
         let tasks = golangci_tasks(&shell, &manifests, "/proj", '/', Some("  make lint  "));
         assert_eq!(
             tasks,
-            vec![("/proj/tools".to_string(), "make lint".to_string())]
+            vec![("/proj/tools".to_owned(), "make lint".to_owned())]
         );
     }
 
     #[test]
     fn golangci_blank_override_falls_back_to_detection() {
-        let manifests = vec!["/proj/go.mod".to_string()];
+        let manifests = vec!["/proj/go.mod".to_owned()];
         let shell = ShellConfig::Powershell;
         // No config and an unreadable go.mod: nothing qualifies, so a blank
         // override must not stand in as an opt-in.
@@ -949,10 +956,10 @@ mod tests {
     #[test]
     fn dirs_for_collapses_nested() {
         let manifests = vec![
-            "/proj/Cargo.toml".to_string(),
-            "/proj/crates/a/Cargo.toml".to_string(),
+            "/proj/Cargo.toml".to_owned(),
+            "/proj/crates/a/Cargo.toml".to_owned(),
         ];
         let dirs = dirs_for(&manifests, "Cargo.toml", "/proj", '/');
-        assert_eq!(dirs, vec!["/proj".to_string()]);
+        assert_eq!(dirs, vec!["/proj".to_owned()]);
     }
 }

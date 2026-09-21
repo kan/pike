@@ -256,7 +256,7 @@ fn notify_running_pike(kind: NoticeKind) {
     // 転送しない**: `--install-key=` は申告のためのもので、通知には要らない。
     let mut args = vec![
         std::env::args().next().unwrap_or_default(),
-        SUBCOMMAND.to_string(),
+        SUBCOMMAND.to_owned(),
         format!("{EVENT_FLAG}{}", kind.as_flag()),
         format!("{PTY_FLAG}{pty_id}"),
     ];
@@ -299,7 +299,7 @@ fn flag_value(prefix: &str) -> Option<String> {
 /// 受け取った argv から `--name=値` を取る（`flag_value` の、自分以外の argv 版）。
 fn find_flag(args: impl IntoIterator<Item = impl AsRef<str>>, prefix: &str) -> Option<String> {
     args.into_iter()
-        .find_map(|a| a.as_ref().strip_prefix(prefix).map(str::to_string))
+        .find_map(|a| a.as_ref().strip_prefix(prefix).map(str::to_owned))
         .filter(|v| safe_flag_value(v))
 }
 
@@ -345,7 +345,7 @@ fn parse_notice(args: &[String]) -> Option<AgentNotice> {
 
 /// 表にある id なら `AgentId`。`serde` の変換に通すので、綴りの正本は enum 側 1 つ。
 fn agent_from_flag(value: &str) -> Option<AgentId> {
-    let id: AgentId = serde_json::from_value(serde_json::Value::String(value.to_string())).ok()?;
+    let id: AgentId = serde_json::from_value(serde_json::Value::String(value.to_owned())).ok()?;
     (id != AgentId::Unknown).then_some(id)
 }
 
@@ -388,7 +388,7 @@ fn config_dir_from_transcript(transcript: &str) -> Option<String> {
         return None;
     }
     let dir = parent_dir_of(projects);
-    (!dir.is_empty()).then(|| dir.to_string())
+    (!dir.is_empty()).then(|| dir.to_owned())
 }
 
 /// 申告を書き足す。同じ (agent, インストール, cwd) は差し替える。
@@ -401,9 +401,9 @@ fn record(agent: &str, cwd: &str, config_dir: &str, install: String) {
         .entries
         .retain(|e| !(e.agent == agent && e.cwd == cwd && e.install == install));
     store.entries.push(Declaration {
-        agent: agent.to_string(),
-        cwd: cwd.to_string(),
-        config_dir: config_dir.to_string(),
+        agent: agent.to_owned(),
+        cwd: cwd.to_owned(),
+        config_dir: config_dir.to_owned(),
         install,
         at: epoch_secs(),
     });
@@ -555,7 +555,7 @@ impl HookSpec {
     fn command(&self, base: &str) -> String {
         match self.kind {
             Some(kind) => format!("{base} {EVENT_FLAG}{}", kind.as_flag()),
-            None => base.to_string(),
+            None => base.to_owned(),
         }
     }
 }
@@ -672,7 +672,7 @@ fn hook_command(shell: &ShellConfig) -> String {
     let program = own
         .then(|| current_exe_for(shell))
         .flatten()
-        .unwrap_or_else(|| "pike.exe".to_string());
+        .unwrap_or_else(|| "pike.exe".to_owned());
     // どのインストールの hook かを載せる（`Declaration::install`）。hook プロセスは
     // 自分がどの distro の中から呼ばれたかを知らないので、ここで書いておく。
     // エージェントも同じく、受け側で決め打ちにしない（`AGENT_FLAG`）。
@@ -1022,7 +1022,7 @@ fn candidate_dirs(shell: &ShellConfig) -> Vec<(String, PathBuf)> {
         .flatten()
         .flatten()
         .filter_map(|e| {
-            let name = e.file_name().to_str()?.to_string();
+            let name = e.file_name().to_str()?.to_owned();
             let read = e.path();
             // **`DirEntry::file_type` で絞らない**（#320）。あれはリンクを辿らないので、
             // `~/.claude` ごと dotfiles への symlink にしている構成では「ディレクトリでは
@@ -1089,7 +1089,7 @@ fn status_for(shell: &ShellConfig, project_root: &str, distros: &[String]) -> Ho
                 config.read_path.as_deref(),
             ) {
                 if !dirs.iter().any(|(_, p)| p == read) {
-                    dirs.insert(0, (native.to_string(), read.to_path_buf()));
+                    dirs.insert(0, (native.to_owned(), read.to_path_buf()));
                 }
             }
         }
@@ -1472,8 +1472,8 @@ mod tests {
     #[test]
     fn parses_a_notice_from_the_forwarded_argv() {
         let args = |rest: &[&str]| {
-            let mut v = vec!["pike.exe".to_string(), "agent-hook".to_string()];
-            v.extend(rest.iter().map(|s| s.to_string()));
+            let mut v = vec!["pike.exe".to_owned(), "agent-hook".to_owned()];
+            v.extend(rest.iter().map(|s| (*s).to_owned()));
             v
         };
         let notice =
@@ -1600,7 +1600,7 @@ mod tests {
     #[test]
     fn puts_settings_json_under_the_config_dir_in_the_shells_own_spelling() {
         let wsl = ShellConfig::Wsl {
-            distro: "Ubuntu".to_string(),
+            distro: "Ubuntu".to_owned(),
         };
         assert_eq!(
             settings_path("/home/kan/.claude-ai", &wsl),
@@ -1619,7 +1619,7 @@ mod tests {
     #[test]
     fn matches_a_declaration_made_in_a_subdirectory() {
         let wsl = ShellConfig::Wsl {
-            distro: "Ubuntu".to_string(),
+            distro: "Ubuntu".to_owned(),
         };
         assert!(cwd_under_root(&wsl, "/home/kan/pike/src", "/home/kan/pike"));
         assert!(cwd_under_root(&wsl, "/home/kan/pike", "/home/kan/pike/"));

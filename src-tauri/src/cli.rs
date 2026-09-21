@@ -80,7 +80,7 @@ pub async fn cli_get_initial_action(
     state: State<'_, CliState>,
     window: tauri::Window,
 ) -> Result<CliAction, String> {
-    let label = window.label().to_string();
+    let label = window.label().to_owned();
     let mut pending = state.pending.lock().map_err(|e| e.to_string())?;
     log::debug!(
         "[cli] cli_get_initial_action: label={label}, pending_keys={:?}",
@@ -117,7 +117,7 @@ pub async fn cli_set_pending_action(
 /// from inside a Pike terminal — see PIKE_WINDOW_LABEL forwarding in wait.rs).
 pub fn extract_from_window(args: &[String]) -> Option<String> {
     args.iter()
-        .find_map(|a| a.strip_prefix("--from-window=").map(|s| s.to_string()))
+        .find_map(|a| a.strip_prefix("--from-window=").map(|s| s.to_owned()))
         .filter(|s| !s.is_empty())
 }
 
@@ -151,7 +151,7 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
     {
         if crate::types::validate_slug(id, "project id").is_ok() {
             return CliAction::OpenProject {
-                id: id.to_string(),
+                id: id.to_owned(),
                 shell: shell_hint.clone(),
             };
         }
@@ -167,8 +167,8 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
         if let Some(shell) = shell_hint {
             let cwd_override = meaningful.iter().find_map(|s| s.strip_prefix("--cwd="));
             let cwd = cwd_override
-                .map(|c| c.to_string())
-                .or_else(|| (!cwd.is_empty()).then(|| cwd.to_string()));
+                .map(|c| c.to_owned())
+                .or_else(|| (!cwd.is_empty()).then(|| cwd.to_owned()));
             let cwd = terminal_cwd_for(&shell, cwd);
             return CliAction::OpenTerminal {
                 cwd,
@@ -257,7 +257,7 @@ pub fn terminal_action_for_cwd(cwd: &str) -> CliAction {
         }
     } else {
         CliAction::OpenTerminal {
-            cwd: (!cwd.is_empty()).then(|| cwd.to_string()),
+            cwd: (!cwd.is_empty()).then(|| cwd.to_owned()),
             shell: None,
         }
     }
@@ -282,7 +282,7 @@ pub(crate) fn split_wsl_unc(path: &str) -> Option<(String, String)> {
         .strip_prefix("//wsl.localhost/")
         .or_else(|| norm.strip_prefix("//wsl$/"))?;
     let mut parts = rest.splitn(2, '/');
-    let distro = parts.next().filter(|s| !s.is_empty())?.to_string();
+    let distro = parts.next().filter(|s| !s.is_empty())?.to_owned();
     let tail = parts.next().unwrap_or("");
     Some((distro, format!("/{tail}")))
 }
@@ -397,16 +397,16 @@ mod tests {
 
     #[test]
     fn test_parse_args_empty() {
-        let args = vec!["pike.exe".to_string()];
+        let args = vec!["pike.exe".to_owned()];
         assert!(matches!(parse_args(&args, "."), CliAction::None));
     }
 
     #[test]
     fn test_parse_args_open_subcommand() {
         let args = vec![
-            "pike.exe".to_string(),
-            "open".to_string(),
-            "file.rs".to_string(),
+            "pike.exe".to_owned(),
+            "open".to_owned(),
+            "file.rs".to_owned(),
         ];
         let f = expect_single_file(parse_args(&args, "C:\\project"));
         assert!(f.path.contains("file.rs"));
@@ -417,9 +417,9 @@ mod tests {
     fn test_parse_args_multiple_files() {
         // Drag & drop onto pike.exe / Explorer "Open with" pass multiple paths
         let args = vec![
-            "pike.exe".to_string(),
-            "a-nonexistent.rs".to_string(),
-            "b-nonexistent.md:12".to_string(),
+            "pike.exe".to_owned(),
+            "a-nonexistent.rs".to_owned(),
+            "b-nonexistent.md:12".to_owned(),
         ];
         match parse_args(&args, "C:\\project") {
             CliAction::OpenFiles { files } => {
@@ -456,14 +456,14 @@ mod tests {
 
     #[test]
     fn test_parse_args_flags_ignored() {
-        let args = vec!["pike.exe".to_string(), "--help".to_string()];
+        let args = vec!["pike.exe".to_owned(), "--help".to_owned()];
         assert!(matches!(parse_args(&args, "."), CliAction::None));
     }
 
     #[test]
     fn test_parse_args_terminal_flag() {
         // --terminal forces a global terminal launch, carrying the cwd.
-        let args = vec!["pike.exe".to_string(), "--terminal".to_string()];
+        let args = vec!["pike.exe".to_owned(), "--terminal".to_owned()];
         match parse_args(&args, r"C:\Users\foo") {
             CliAction::OpenTerminal { cwd, shell } => {
                 assert_eq!(cwd.as_deref(), Some(r"C:\Users\foo"));
@@ -487,11 +487,11 @@ mod tests {
     fn test_parse_args_terminal_explicit_shell() {
         // Elevated relaunch: --shell pins the shell, --cwd overrides the cwd.
         let args = vec![
-            "pike.exe".to_string(),
-            "--terminal".to_string(),
-            "--shell=pwsh".to_string(),
-            "--cwd=C:\\work".to_string(),
-            "--new-instance".to_string(),
+            "pike.exe".to_owned(),
+            "--terminal".to_owned(),
+            "--shell=pwsh".to_owned(),
+            "--cwd=C:\\work".to_owned(),
+            "--new-instance".to_owned(),
         ];
         match parse_args(&args, r"C:\ignored") {
             CliAction::OpenTerminal { cwd, shell } => {
@@ -502,9 +502,9 @@ mod tests {
         }
         // Unknown / out-of-scope shell kind falls back to cwd inference.
         let args2 = vec![
-            "pike.exe".to_string(),
-            "--terminal".to_string(),
-            "--shell=wsl".to_string(),
+            "pike.exe".to_owned(),
+            "--terminal".to_owned(),
+            "--shell=wsl".to_owned(),
         ];
         match parse_args(&args2, r"C:\Users\foo") {
             CliAction::OpenTerminal { shell, .. } => assert!(shell.is_none()),
@@ -518,9 +518,9 @@ mod tests {
         // %USERPROFILE%, which means nothing inside the distro — drop it so the
         // terminal starts at the Linux home.
         let args = vec![
-            "pike.exe".to_string(),
-            "--terminal".to_string(),
-            "--shell=wsl:Ubuntu-24.04".to_string(),
+            "pike.exe".to_owned(),
+            "--terminal".to_owned(),
+            "--shell=wsl:Ubuntu-24.04".to_owned(),
         ];
         match parse_args(&args, r"C:\Users\foo") {
             CliAction::OpenTerminal { cwd, shell } => {
@@ -537,52 +537,46 @@ mod tests {
     fn terminal_cwd_for_drops_paths_the_shell_cannot_use() {
         use crate::types::ShellConfig;
         let ubuntu = ShellConfig::Wsl {
-            distro: "Ubuntu".to_string(),
+            distro: "Ubuntu".to_owned(),
         };
         // A UNC cwd for that same distro comes back as its native path.
         assert_eq!(
-            terminal_cwd_for(
-                &ubuntu,
-                Some(r"\\wsl.localhost\Ubuntu\home\kan".to_string())
-            ),
-            Some("/home/kan".to_string())
+            terminal_cwd_for(&ubuntu, Some(r"\\wsl.localhost\Ubuntu\home\kan".to_owned())),
+            Some("/home/kan".to_owned())
         );
         // Another distro's UNC path is dropped rather than opened in this one.
         assert_eq!(
-            terminal_cwd_for(
-                &ubuntu,
-                Some(r"\\wsl.localhost\Debian\home\kan".to_string())
-            ),
+            terminal_cwd_for(&ubuntu, Some(r"\\wsl.localhost\Debian\home\kan".to_owned())),
             None
         );
         // Native paths pass through (invoked from inside the distro).
         assert_eq!(
-            terminal_cwd_for(&ubuntu, Some("/srv/app".to_string())),
-            Some("/srv/app".to_string())
+            terminal_cwd_for(&ubuntu, Some("/srv/app".to_owned())),
+            Some("/srv/app".to_owned())
         );
         // Windows shells keep a Windows cwd...
         assert_eq!(
-            terminal_cwd_for(&ShellConfig::Pwsh, Some(r"C:\work".to_string())),
-            Some(r"C:\work".to_string())
+            terminal_cwd_for(&ShellConfig::Pwsh, Some(r"C:\work".to_owned())),
+            Some(r"C:\work".to_owned())
         );
         // ...and PowerShell keeps a UNC one, which it can actually open.
         assert_eq!(
             terminal_cwd_for(
                 &ShellConfig::Powershell,
-                Some(r"\\wsl.localhost\Ubuntu\srv".to_string())
+                Some(r"\\wsl.localhost\Ubuntu\srv".to_owned())
             ),
-            Some(r"\\wsl.localhost\Ubuntu\srv".to_string())
+            Some(r"\\wsl.localhost\Ubuntu\srv".to_owned())
         );
         // cmd.exe cannot, and no Windows shell can resolve a WSL-native path.
         assert_eq!(
             terminal_cwd_for(
                 &ShellConfig::Cmd,
-                Some(r"\\wsl.localhost\Ubuntu\srv".to_string())
+                Some(r"\\wsl.localhost\Ubuntu\srv".to_owned())
             ),
             None
         );
         assert_eq!(
-            terminal_cwd_for(&ShellConfig::GitBash, Some("/srv/app".to_string())),
+            terminal_cwd_for(&ShellConfig::GitBash, Some("/srv/app".to_owned())),
             None
         );
     }
@@ -591,10 +585,10 @@ mod tests {
     fn test_parse_args_open_project() {
         // Elevated relaunch from a project window: reopen project + pinned shell.
         let args = vec![
-            "pike.exe".to_string(),
-            "--new-instance".to_string(),
-            "--open-project=my-proj_1".to_string(),
-            "--shell=cmd".to_string(),
+            "pike.exe".to_owned(),
+            "--new-instance".to_owned(),
+            "--open-project=my-proj_1".to_owned(),
+            "--shell=cmd".to_owned(),
         ];
         match parse_args(&args, r"C:\ignored") {
             CliAction::OpenProject { id, shell } => {
@@ -604,7 +598,7 @@ mod tests {
             other => panic!("expected OpenProject, got: {other:?}"),
         }
         // An id with unsafe characters is rejected (falls through, not OpenProject).
-        let bad = vec!["pike.exe".to_string(), "--open-project=../evil".to_string()];
+        let bad = vec!["pike.exe".to_owned(), "--open-project=../evil".to_owned()];
         assert!(!matches!(
             parse_args(&bad, "."),
             CliAction::OpenProject { .. }
@@ -615,11 +609,11 @@ mod tests {
     fn test_wsl_distro_from_path() {
         assert_eq!(
             wsl_distro_from_path(r"\\wsl.localhost\Ubuntu\home\user"),
-            Some("Ubuntu".to_string())
+            Some("Ubuntu".to_owned())
         );
         assert_eq!(
             wsl_distro_from_path(r"\\wsl$\Debian\tmp"),
-            Some("Debian".to_string())
+            Some("Debian".to_owned())
         );
         assert_eq!(wsl_distro_from_path(r"C:\Users\foo"), None);
     }
@@ -629,7 +623,7 @@ mod tests {
         // /home/user/file.rs from a WSL UNC cwd should resolve to a native
         // WSL path (not UNC), so it matches WSL project roots and is readable
         // inside `wsl.exe bash -c "cat ..."`.
-        let args = vec!["pike.exe".to_string(), "/home/user/file.rs".to_string()];
+        let args = vec!["pike.exe".to_owned(), "/home/user/file.rs".to_owned()];
         let f = expect_single_file(parse_args(&args, r"\\wsl.localhost\Ubuntu\home\user"));
         assert_eq!(f.path, "/home/user/file.rs");
         assert_eq!(f.distro.as_deref(), Some("Ubuntu"));
@@ -639,16 +633,16 @@ mod tests {
     fn test_split_wsl_unc() {
         assert_eq!(
             split_wsl_unc(r"\\wsl.localhost\Ubuntu\home\user\file.rs"),
-            Some(("Ubuntu".to_string(), "/home/user/file.rs".to_string()))
+            Some(("Ubuntu".to_owned(), "/home/user/file.rs".to_owned()))
         );
         assert_eq!(
             split_wsl_unc(r"\\wsl$\Debian\tmp\foo"),
-            Some(("Debian".to_string(), "/tmp/foo".to_string()))
+            Some(("Debian".to_owned(), "/tmp/foo".to_owned()))
         );
         // Distro root (no tail)
         assert_eq!(
             split_wsl_unc(r"\\wsl.localhost\Ubuntu"),
-            Some(("Ubuntu".to_string(), "/".to_string()))
+            Some(("Ubuntu".to_owned(), "/".to_owned()))
         );
         // Non-WSL paths pass through
         assert_eq!(split_wsl_unc(r"C:\Users\foo"), None);
@@ -661,10 +655,7 @@ mod tests {
         // native WSL — this is the common case (`pike file.md` from inside
         // a WSL terminal where cwd is reported as the UNC view).
         // Use a guaranteed-nonexistent path so canonicalize can't rewrite it.
-        let args = vec![
-            "pike.exe".to_string(),
-            "pike-test-nonexistent.md".to_string(),
-        ];
+        let args = vec!["pike.exe".to_owned(), "pike-test-nonexistent.md".to_owned()];
         let f = expect_single_file(parse_args(
             &args,
             r"\\wsl.localhost\Ubuntu\home\pike-test-user\does-not-exist",
@@ -679,20 +670,20 @@ mod tests {
     #[test]
     fn test_from_window_flag_stripped_and_extracted() {
         let args = vec![
-            "pike.exe".to_string(),
-            "--from-window=project-abc".to_string(),
-            "file.rs".to_string(),
+            "pike.exe".to_owned(),
+            "--from-window=project-abc".to_owned(),
+            "file.rs".to_owned(),
         ];
         let f = expect_single_file(parse_args(&args, "C:\\project"));
         assert!(f.path.contains("file.rs"), "got: {}", f.path);
-        assert_eq!(extract_from_window(&args), Some("project-abc".to_string()));
+        assert_eq!(extract_from_window(&args), Some("project-abc".to_owned()));
 
         // Empty value yields None
-        let empty = vec!["pike.exe".to_string(), "--from-window=".to_string()];
+        let empty = vec!["pike.exe".to_owned(), "--from-window=".to_owned()];
         assert_eq!(extract_from_window(&empty), None);
 
         // Missing flag yields None
-        let none = vec!["pike.exe".to_string(), "file.rs".to_string()];
+        let none = vec!["pike.exe".to_owned(), "file.rs".to_owned()];
         assert_eq!(extract_from_window(&none), None);
     }
 
@@ -700,9 +691,9 @@ mod tests {
     fn test_wait_flag_stripped() {
         // --wait should be stripped; file.rs should still be parsed
         let args = vec![
-            "pike.exe".to_string(),
-            "--wait".to_string(),
-            "file.rs".to_string(),
+            "pike.exe".to_owned(),
+            "--wait".to_owned(),
+            "file.rs".to_owned(),
         ];
         let f = expect_single_file(parse_args(&args, "C:\\project"));
         assert!(
@@ -713,9 +704,9 @@ mod tests {
 
         // --wait-id=xxx should also be stripped
         let args2 = vec![
-            "pike.exe".to_string(),
-            "--wait-id=abc123".to_string(),
-            "file.rs".to_string(),
+            "pike.exe".to_owned(),
+            "--wait-id=abc123".to_owned(),
+            "file.rs".to_owned(),
         ];
         let f2 = expect_single_file(parse_args(&args2, "C:\\project"));
         assert!(

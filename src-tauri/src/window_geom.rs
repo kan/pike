@@ -94,7 +94,7 @@ fn key_for(app: &AppHandle, label: &str) -> String {
                 .and_then(|map| map.get(label).map(|w| w.shown.clone()))
         })
         .filter(|shown| !shown.is_empty())
-        .unwrap_or_else(|| GLOBAL_KEY.to_string())
+        .unwrap_or_else(|| GLOBAL_KEY.to_owned())
 }
 
 /// The rect to restore the window to. None while it is maximized or minimized:

@@ -127,7 +127,7 @@ struct Entry {
 /// STA スレッドに投げっぱなしにする（UI スレッドを塞がないため）。
 pub fn refresh(lang: &str, projects: &[project::ProjectConfig], shells: &[MenuShell]) {
     let job = (
-        lang.to_string(),
+        lang.to_owned(),
         collect_entries(projects),
         terminal_tasks(&labels(lang), shells),
     );
@@ -169,7 +169,7 @@ fn open_arg_for(shell: &ShellConfig, root: &str) -> String {
             };
             format!(r"\\wsl.localhost\{distro}{tail}")
         }
-        _ => root.to_string(),
+        _ => root.to_owned(),
     }
 }
 
@@ -338,7 +338,7 @@ unsafe fn removed_arg_set(removed: &IObjectArray) -> HashSet<String> {
             let s = String::from_utf16_lossy(&buf);
             let s = s.trim_end_matches('\0');
             if !s.is_empty() {
-                set.insert(s.to_string());
+                set.insert(s.to_owned());
             }
         }
     }
@@ -365,44 +365,44 @@ mod tests {
         let shell = ShellConfig::Powershell;
         assert_eq!(
             open_arg_for(&shell, r"C:\work\pike"),
-            r"C:\work\pike".to_string()
+            r"C:\work\pike".to_owned()
         );
     }
 
     #[test]
     fn wsl_project_becomes_unc() {
         let shell = ShellConfig::Wsl {
-            distro: "Ubuntu".to_string(),
+            distro: "Ubuntu".to_owned(),
         };
         // native /home/kan/foo -> \\wsl.localhost\Ubuntu\home\kan\foo so the CLI
         // (cli::resolve_path_arg) can convert it back and match the WSL root.
         assert_eq!(
             open_arg_for(&shell, "/home/kan/foo"),
-            r"\\wsl.localhost\Ubuntu\home\kan\foo".to_string()
+            r"\\wsl.localhost\Ubuntu\home\kan\foo".to_owned()
         );
         // distro root
         assert_eq!(
             open_arg_for(&shell, "/"),
-            r"\\wsl.localhost\Ubuntu\".to_string()
+            r"\\wsl.localhost\Ubuntu\".to_owned()
         );
     }
 
     #[test]
     fn quote_arg_wraps_and_escapes() {
-        assert_eq!(quote_arg(r"C:\a b\c"), r#""C:\a b\c""#.to_string());
-        assert_eq!(quote_arg(r#"a"b"#), r#""a\"b""#.to_string());
+        assert_eq!(quote_arg(r"C:\a b\c"), r#""C:\a b\c""#.to_owned());
+        assert_eq!(quote_arg(r#"a"b"#), r#""a\"b""#.to_owned());
     }
 
     #[test]
     fn terminal_tasks_list_each_shell() {
         let shells = vec![
             MenuShell {
-                id: "powershell".to_string(),
-                label: "PowerShell".to_string(),
+                id: "powershell".to_owned(),
+                label: "PowerShell".to_owned(),
             },
             MenuShell {
-                id: "wsl:Ubuntu-24.04".to_string(),
-                label: "WSL (Ubuntu-24.04)".to_string(),
+                id: "wsl:Ubuntu-24.04".to_owned(),
+                label: "WSL (Ubuntu-24.04)".to_owned(),
             },
         ];
         let tasks = terminal_tasks(&labels("ja"), &shells);

@@ -98,7 +98,7 @@ fn model_label(raw: Option<String>) -> Option<String> {
     let provider = v["providerID"].as_str();
     match (provider, id) {
         (Some(p), Some(i)) => Some(format!("{p}/{i}")),
-        (None, Some(i)) => Some(i.to_string()),
+        (None, Some(i)) => Some(i.to_owned()),
         _ => Some(raw),
     }
 }
@@ -127,8 +127,7 @@ fn query(shell: &ShellConfig, root: &str, force: bool) -> Vec<Row> {
             }
         }
     }
-    if !crate::shell_probe::agent_bins(shell, root, &["opencode".to_string()]).contains("opencode")
-    {
+    if !crate::shell_probe::agent_bins(shell, root, &["opencode".to_owned()]).contains("opencode") {
         return Vec::new();
     }
     // **二重引用符で囲む。** POSIX では bash、Windows では `cmd.exe /C` を通るので、
@@ -236,7 +235,8 @@ pub fn collect(shell: &ShellConfig, root: &str, force: bool) -> AgentUsage {
         }
         if last_activity.is_none() || last_activity.is_some_and(|prev| updated > prev) {
             last_activity = Some(updated);
-            model = row.model.clone();
+            // 行が新しくなるたびに通るので、前の String を捨てずに詰め替える。
+            model.clone_from(&row.model);
         }
     }
 
@@ -289,14 +289,14 @@ mod tests {
     fn folds_the_model_json_into_a_name() {
         assert_eq!(
             model_label(Some(
-                r#"{"id":"big-pickle","providerID":"opencode"}"#.to_string()
+                r#"{"id":"big-pickle","providerID":"opencode"}"#.to_owned()
             )),
-            Some("opencode/big-pickle".to_string())
+            Some("opencode/big-pickle".to_owned())
         );
         // 解けない値は字面のまま（列の形が変わっても、名前が消えるより読める）。
         assert_eq!(
-            model_label(Some("claude-sonnet-5".to_string())),
-            Some("claude-sonnet-5".to_string())
+            model_label(Some("claude-sonnet-5".to_owned())),
+            Some("claude-sonnet-5".to_owned())
         );
         assert_eq!(model_label(Some(String::new())), None);
         assert_eq!(model_label(None), None);

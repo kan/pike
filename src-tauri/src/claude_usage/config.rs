@@ -106,7 +106,7 @@ fn plan_label(a: &OauthAccount) -> Option<String> {
         .or(a.organization_rate_limit_tier.as_deref())
         .or(a.organization_type.as_deref())?;
     let trimmed = raw.strip_prefix("default_").unwrap_or(raw);
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 /// シェルが持っている `CLAUDE_CONFIG_DIR`。
@@ -167,7 +167,7 @@ fn expand_value(raw: &str, home: Option<&str>) -> Option<String> {
         }
         // HOME が分からないなら `~`/`$HOME` は解けない。
         None if unquoted.starts_with('~') => return None,
-        None => unquoted.to_string(),
+        None => unquoted.to_owned(),
     };
     // コマンド置換も、`$HOME` 以外の変数も、ここに引っかかる。
     if expanded.contains('$') {
@@ -290,7 +290,7 @@ pub fn resolve(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
     static CACHE: OnceLock<ProbeRegistry<(String, String), Option<CacheEntry>>> = OnceLock::new();
     let entry = CACHE
         .get_or_init(ProbeRegistry::new)
-        .entry((install_key(shell), project_root.to_string()));
+        .entry((install_key(shell), project_root.to_owned()));
     let declared_at = crate::agent_hook::declarations_mtime();
 
     let cached = usable(&entry.answer(), declared_at);

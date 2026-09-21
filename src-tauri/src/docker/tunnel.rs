@@ -34,7 +34,7 @@ async fn ensure_socat_image(docker: &Docker) -> Result<(), String> {
         return Ok(());
     }
     let options = CreateImageOptions {
-        from_image: Some(SOCAT_IMAGE.to_string()),
+        from_image: Some(SOCAT_IMAGE.to_owned()),
         ..Default::default()
     };
     docker
@@ -80,7 +80,7 @@ async fn create_tunnel(
         .map(|n| n.trim_start_matches('/'))
         .unwrap_or_default();
     let target_host = if net_name != "bridge" && !container_name.is_empty() {
-        container_name.to_string()
+        container_name.to_owned()
     } else {
         net_info
             .ip_address
@@ -91,10 +91,10 @@ async fn create_tunnel(
     };
 
     let mut labels = HashMap::new();
-    labels.insert(TUNNEL_LABEL.to_string(), "true".to_string());
-    labels.insert(OWNER_LABEL.to_string(), owner.to_string());
-    labels.insert(TARGET_LABEL.to_string(), target_id.to_string());
-    labels.insert(PORT_LABEL.to_string(), target_port.to_string());
+    labels.insert(TUNNEL_LABEL.to_owned(), "true".to_owned());
+    labels.insert(OWNER_LABEL.to_owned(), owner.to_owned());
+    labels.insert(TARGET_LABEL.to_owned(), target_id.to_owned());
+    labels.insert(PORT_LABEL.to_owned(), target_port.to_string());
 
     // Empty host port = the daemon picks a free port in its own network
     // namespace (a host-side probe would race and, on the WSL2 TCP fallback,
@@ -103,7 +103,7 @@ async fn create_tunnel(
     port_bindings.insert(
         format!("{target_port}/tcp"),
         Some(vec![PortBinding {
-            host_ip: Some("127.0.0.1".to_string()),
+            host_ip: Some("127.0.0.1".to_owned()),
             host_port: Some(String::new()),
         }]),
     );
@@ -116,7 +116,7 @@ async fn create_tunnel(
     };
 
     let config = ContainerCreateBody {
-        image: Some(SOCAT_IMAGE.to_string()),
+        image: Some(SOCAT_IMAGE.to_owned()),
         cmd: Some(vec![
             format!("TCP-LISTEN:{target_port},fork,reuseaddr"),
             format!("TCP-CONNECT:{target_host}:{target_port}"),
@@ -159,7 +159,7 @@ async fn create_tunnel(
 
     Ok(TunnelInfo {
         tunnel_id: created.id,
-        target_id: target_id.to_string(),
+        target_id: target_id.to_owned(),
         target_port,
         local_port,
     })
@@ -178,7 +178,7 @@ async fn assigned_host_port(
         .and_then(|ns| ns.ports)
         .and_then(|mut ports| ports.remove(&format!("{target_port}/tcp")).flatten())
         .and_then(|bindings| bindings.into_iter().find_map(|b| b.host_port?.parse().ok()))
-        .ok_or_else(|| "Failed to determine assigned local port".to_string())
+        .ok_or_else(|| "Failed to determine assigned local port".to_owned())
 }
 
 // Best-effort readiness probe so "open in browser" right after creation
@@ -198,7 +198,7 @@ async fn wait_listening(port: u16) {
 fn tunnel_filters(owner: &str) -> HashMap<String, Vec<String>> {
     let mut filters = HashMap::new();
     filters.insert(
-        "label".to_string(),
+        "label".to_owned(),
         vec![
             format!("{TUNNEL_LABEL}=true"),
             format!("{OWNER_LABEL}={owner}"),

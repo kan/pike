@@ -155,7 +155,7 @@ fn path_with_dir(current: &str, dir: &str) -> Option<String> {
     if current.split(';').any(|e| normalize_win_path(e) == target) {
         return None;
     }
-    let mut next = current.trim_end_matches(';').to_string();
+    let mut next = current.trim_end_matches(';').to_owned();
     if !next.is_empty() {
         next.push(';');
     }
@@ -379,7 +379,7 @@ pub fn default_unix_shell() -> String {
     std::env::var("SHELL")
         .ok()
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "/bin/zsh".to_string())
+        .unwrap_or_else(|| "/bin/zsh".to_owned())
 }
 
 /// OS 標準の「これを開く」プログラム。URL でもフォルダでも同じものが受け取る。
@@ -510,12 +510,12 @@ fn posix_script(dir: &str, env: &[&(&str, &str)], shell: &ShellConfig, line: &st
 /// Bash-specific (single-quote wrapping); NOT safe for cmd.exe or PowerShell.
 pub fn bash_quote(s: &str) -> String {
     if s.is_empty() {
-        return "''".to_string();
+        return "''".to_owned();
     }
     if s.chars()
         .all(|c| c.is_alphanumeric() || "-_./=@:+".contains(c))
     {
-        return s.to_string();
+        return s.to_owned();
     }
     format!("'{}'", s.replace('\'', "'\\''"))
 }
@@ -628,8 +628,8 @@ impl ShellConfig {
         let output = self.run_with_timeout(program, args, DEFAULT_TIMEOUT)?;
         Ok((
             output.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&output.stdout).into_owned(),
-            String::from_utf8_lossy(&output.stderr).into_owned(),
+            into_lossy_string(output.stdout),
+            into_lossy_string(output.stderr),
         ))
     }
 
@@ -761,8 +761,8 @@ impl ShellConfig {
         let output = spawn_with_timeout(cmd, "shell", timeout)?;
         Ok((
             output.status.code().unwrap_or(-1),
-            String::from_utf8_lossy(&output.stdout).into_owned(),
-            String::from_utf8_lossy(&output.stderr).into_owned(),
+            into_lossy_string(output.stdout),
+            into_lossy_string(output.stderr),
         ))
     }
 
@@ -814,7 +814,7 @@ impl ShellConfig {
         let out = self
             .run_with_timeout(&program, &["-lic", &script], timeout)
             .ok()?;
-        Some(String::from_utf8_lossy(&out.stdout).into_owned())
+        Some(into_lossy_string(out.stdout))
     }
 
     /// `-lic` で起こすシェル。**WSL は distro の `bash`、ローカル Unix は利用者の
@@ -822,7 +822,7 @@ impl ShellConfig {
     /// `.zshrc` にある）。`-lic` の綴りは bash と zsh で同じ意味を持つ。
     fn login_shell_program(&self) -> String {
         match self {
-            ShellConfig::Wsl { .. } => "bash".to_string(),
+            ShellConfig::Wsl { .. } => "bash".to_owned(),
             _ => self.unix_program(),
         }
     }
@@ -838,7 +838,7 @@ pub fn marker_values(stdout: &str, tag: &str) -> Vec<String> {
     stdout
         .lines()
         .filter_map(|line| line.trim_start().strip_prefix(tag)?.strip_prefix('\t'))
-        .map(|v| v.trim().to_string())
+        .map(|v| v.trim().to_owned())
         .filter(|v| !v.is_empty())
         .collect()
 }
@@ -949,6 +949,20 @@ fn read_capped<T>(
     Ok(items)
 }
 
+/// 子プロセスの出力を `String` にする。**正常な UTF-8 なら 1 バイトも写さない**（#382）。
+///
+/// **`String::from_utf8_lossy(&bytes).into_owned()` を書かないこと。** あれは正常な
+/// UTF-8 に対して `Cow::Borrowed` を返すので、`into_owned()` が出力の全長を memcpy する。
+/// ここを通るのは Pike のほぼ全部の外部コマンドで、`git status`（10 秒ポーリング ×
+/// ウィンドウ数）・`git diff`（ファイルを開くたび、保存のたび）・
+/// `cargo check --message-format=json`（数 MB）が含まれる。
+///
+/// `from_utf8` は成功すれば `Vec` のバッファをそのまま `String` にする。壊れたバイトが
+/// 混じっていたときだけ、これまでどおり置換文字を入れて作り直す（結果は同じ）。
+pub fn into_lossy_string(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
+
 /// Spawn a prepared Command, wait up to 30 s, and return stdout on success.
 fn spawn_stdout(cmd: Command, label: &str) -> Result<String, String> {
     let output = spawn_with_timeout(cmd, label, DEFAULT_TIMEOUT)?;
@@ -956,7 +970,7 @@ fn spawn_stdout(cmd: Command, label: &str) -> Result<String, String> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("{label} error: {stderr}"));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(into_lossy_string(output.stdout))
 }
 
 /// Run a closure in a background thread with a timeout.
@@ -1028,6 +1042,21 @@ pub fn epoch_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// `s` が `prefix` で始まり、その直後が区切り `sep` か。
+///
+/// **前置を `format!("{prefix}/")` で組んでから `starts_with` に渡さない**（#382）。
+/// 判定 1 回につき捨てるだけの文字列を 1 つ作ることになる。
+///
+/// **「配下か」を見る述語はここを通す。** 以前は同じ判定が 3 通りの綴りで散っていた
+/// （`diagnostics` の `is_at_or_under`、`tasks` の `is_self_or_ancestor` は byte index
+/// で区切りを見ていた、`lib.rs` の `is_under_root` は `format!` で前置を組んでいた）。
+/// 完全一致を含めるか、区切りが 1 種か 2 種か、比べる前に正規化するかは**呼び出し側の
+/// 政策**なので、ここには持ち込まない。
+pub fn starts_with_segment(s: &str, prefix: &str, sep: char) -> bool {
+    s.strip_prefix(prefix)
+        .is_some_and(|rest| rest.starts_with(sep))
+}
+
 /// `cwd` がプロジェクトの `root` そのものか、その配下か。
 ///
 /// `cwd_matches_root` が完全一致しか見ないのは、あちらの用途（セッションの記録を
@@ -1044,10 +1073,10 @@ pub fn cwd_under_root(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
     }
     if shell.is_posix() {
         let root = root.trim_end_matches('/');
-        !root.is_empty() && cwd.starts_with(&format!("{root}/"))
+        !root.is_empty() && starts_with_segment(cwd, root, '/')
     } else {
         let root = normalize_win_path(root);
-        !root.is_empty() && normalize_win_path(cwd).starts_with(&format!("{root}\\"))
+        !root.is_empty() && starts_with_segment(&normalize_win_path(cwd), &root, '\\')
     }
 }
 
@@ -1073,7 +1102,7 @@ pub fn first_line(text: &str) -> Option<String> {
 pub fn truncate_chars(s: &str, max: usize) -> String {
     match s.char_indices().nth(max) {
         Some((at, _)) => format!("{}…", &s[..at]),
-        None => s.to_string(),
+        None => s.to_owned(),
     }
 }
 
@@ -1087,8 +1116,8 @@ pub fn install_key(shell: &ShellConfig) -> String {
         ShellConfig::Wsl { distro } => format!("wsl:{distro}"),
         // ホスト上のインストールは 1 つ。Unix と Windows でキーを分けているのは
         // 同じプロセスで両方が出てくることが無いためで、区別のためではない。
-        ShellConfig::Unix { .. } => "host".to_string(),
-        _ => "windows".to_string(),
+        ShellConfig::Unix { .. } => "host".to_owned(),
+        _ => "windows".to_owned(),
     }
 }
 
@@ -1113,8 +1142,8 @@ pub fn wsl_home_cached(shell: &ShellConfig, distro: &str) -> Option<String> {
     cache
         .lock()
         .ok()?
-        .insert(distro.to_string(), home.to_string());
-    Some(home.to_string())
+        .insert(distro.to_owned(), home.to_owned());
+    Some(home.to_owned())
 }
 
 /// Map a WSL-native path to the Windows UNC that reaches it, probing the modern
@@ -1131,9 +1160,9 @@ pub fn wsl_native_to_unc(distro: &str, native: &str) -> Option<PathBuf> {
         None => ["wsl.localhost", "wsl$"]
             .into_iter()
             .find(|host| PathBuf::from(format!("\\\\{host}\\{distro}\\")).is_dir())?
-            .to_string(),
+            .to_owned(),
     };
-    cache.lock().ok()?.insert(distro.to_string(), host.clone());
+    cache.lock().ok()?.insert(distro.to_owned(), host.clone());
     let tail = native.trim_end_matches('/').replace('/', "\\");
     Some(PathBuf::from(format!("\\\\{host}\\{distro}{tail}")))
 }
@@ -1144,7 +1173,7 @@ pub fn wsl_native_to_unc(distro: &str, native: &str) -> Option<PathBuf> {
 pub fn wsl_home_subdir_cached(shell: &ShellConfig, distro: &str, subdir: &str) -> Option<PathBuf> {
     static CACHE: OnceLock<Mutex<HashMap<(String, String), PathBuf>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let key = (distro.to_string(), subdir.to_string());
+    let key = (distro.to_owned(), subdir.to_owned());
     if let Some(dir) = cache.lock().ok()?.get(&key) {
         return Some(dir.clone());
     }
@@ -1186,14 +1215,14 @@ pub fn shell_from_id(id: &str) -> Option<ShellConfig> {
                 .chars()
                 .any(|c| c.is_control() || c == '"' || c == '\\');
         return ok.then(|| ShellConfig::Wsl {
-            distro: distro.to_string(),
+            distro: distro.to_owned(),
         });
     }
     // `unix:<絶対パス>`（例 `unix:/bin/zsh`）。distro と違いここはシェルの実行ファイルを
     // 直接 spawn するので、絶対パスであることだけは確かめる（PATH 探索させない）。
     if let Some(program) = id.strip_prefix("unix:") {
         return is_valid_unix_program(program).then(|| ShellConfig::Unix {
-            program: program.to_string(),
+            program: program.to_owned(),
         });
     }
     match id {
@@ -1385,7 +1414,7 @@ mod tests {
     fn unix_program_rejects_values_that_shell_from_id_would_reject() {
         // 相対名は PATH 探索になるので採らない。既定のログインシェルへ落ちる。
         let relative = ShellConfig::Unix {
-            program: "zsh".to_string(),
+            program: "zsh".to_owned(),
         };
         assert_eq!(relative.unix_program(), default_unix_shell());
         // 空は「既定に任せる」の意味。
@@ -1395,7 +1424,7 @@ mod tests {
         assert_eq!(empty.unix_program(), default_unix_shell());
         // 絶対パスはそのまま通る。
         let absolute = ShellConfig::Unix {
-            program: "/bin/bash".to_string(),
+            program: "/bin/bash".to_owned(),
         };
         assert_eq!(absolute.unix_program(), "/bin/bash");
     }
@@ -1452,5 +1481,21 @@ mod tests {
     fn augmented_path_skips_missing_dirs() {
         let got = augmented_path_with("/usr/bin", "/Users/me", |_| false);
         assert_eq!(got, "/usr/bin");
+    }
+
+    /// 前置の一致（#382）。
+    #[test]
+    fn starts_with_segment_wants_a_separator_right_after_the_prefix() {
+        for (s, prefix, sep, want) in [
+            ("/home/kan/pike/src", "/home/kan/pike", '/', true),
+            // 隣り合う名前を配下と読まない（素の `starts_with` との違い）
+            ("/home/kan/pike-old", "/home/kan/pike", '/', false),
+            // 完全一致は「配下」ではない（呼び出し側が別に見る）
+            ("/home/kan/pike", "/home/kan/pike", '/', false),
+            (r"c:\src\pike\a", r"c:\src\pike", '\\', true),
+            ("/a", "/b", '/', false),
+        ] {
+            assert_eq!(starts_with_segment(s, prefix, sep), want, "{s} / {prefix}");
+        }
     }
 }

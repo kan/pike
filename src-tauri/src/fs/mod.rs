@@ -2,6 +2,7 @@ use crate::types::{bash_quote, git_args, wait_with_timeout, ShellConfig};
 use base64::Engine as _;
 use encoding_rs::Encoding;
 use serde::Serialize;
+use std::fmt::Write as _;
 use std::io::Write as IoWrite;
 
 #[derive(Serialize)]
@@ -55,7 +56,7 @@ pub fn rel_path_of(path: &str, root: &str) -> String {
     if rel.contains('\\') {
         rel.replace('\\', "/")
     } else {
-        rel.to_string()
+        rel.to_owned()
     }
 }
 
@@ -98,7 +99,7 @@ pub fn batch_read_files(
                     .split(rs)
                     .map(|s| {
                         let trimmed = s.trim();
-                        (!trimmed.is_empty()).then(|| trimmed.to_string())
+                        (!trimmed.is_empty()).then(|| trimmed.to_owned())
                     })
                     .collect(),
                 Err(_) => paths.iter().map(|_| None).collect(),
@@ -143,7 +144,7 @@ pub fn walk_files_by_name(
             shell
                 .run_stdout("bash", &["-c", &script])
                 .ok()
-                .map(|s| s.lines().map(|l| l.to_string()).collect())
+                .map(|s| s.lines().map(|l| l.to_owned()).collect())
                 .unwrap_or_default()
         }
         _ => {
@@ -183,7 +184,7 @@ fn walk_native(
             walk_native(&entry.path(), lower_names, max_depth, depth + 1, results);
         } else if lower_names.contains(&name.to_lowercase()) {
             if let Some(p) = entry.path().to_str() {
-                results.push(p.to_string());
+                results.push(p.to_owned());
             }
         }
     }
@@ -251,7 +252,7 @@ fn check_ignored(
         Ok((_code, stdout, _stderr)) => stdout
             .lines()
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
+            .map(|s| s.to_owned())
             .collect(),
         Err(_) => HashSet::new(),
     }
@@ -273,7 +274,7 @@ fn list_dir_wsl(shell: &ShellConfig, path: &str) -> Result<Vec<FsEntry>, String>
         }
         let mut parts = line.splitn(2, '\t');
         let kind = parts.next().unwrap_or("");
-        let name = parts.next().unwrap_or("").to_string();
+        let name = parts.next().unwrap_or("").to_owned();
         if name.is_empty() || name.starts_with(".DS_Store") {
             continue;
         }
@@ -322,8 +323,11 @@ fn list_dir_native(path: &str) -> Result<Vec<FsEntry>, String> {
         }
     }
 
-    dirs.sort_by_key(|e| e.name.to_lowercase());
-    files.sort_by_key(|e| e.name.to_lowercase());
+    // `sort_by_key` はキーを O(n log n) 回作り直す（#382）。小文字化は確保を伴うので、
+    // 1 要素 1 回で済む `sort_by_cached_key` を使う。`node_modules` を展開すると
+    // 数千件のディレクトリが来る（#303）。
+    dirs.sort_by_cached_key(|e| e.name.to_lowercase());
+    files.sort_by_cached_key(|e| e.name.to_lowercase());
     dirs.extend(files);
     Ok(dirs)
 }
@@ -347,7 +351,7 @@ impl FileReadResult {
     fn text(content: String, encoding: &str) -> Self {
         Self {
             content,
-            encoding: encoding.to_string(),
+            encoding: encoding.to_owned(),
             is_new: false,
             too_large: None,
         }
@@ -453,7 +457,7 @@ fn decode_bytes(bytes: &[u8], encoding_name: Option<&str>) -> Result<FileReadRes
         return Err(BINARY_FILE_ERROR.into());
     }
     Ok(match std::str::from_utf8(bytes) {
-        Ok(s) => FileReadResult::text(s.to_string(), "UTF-8"),
+        Ok(s) => FileReadResult::text(s.to_owned(), "UTF-8"),
         Err(_) => {
             let (content, enc, _) = encoding_rs::SHIFT_JIS.decode(bytes);
             FileReadResult::text(content.into_owned(), enc.name())
@@ -637,7 +641,7 @@ pub async fn fs_read_file(
                 is_new: true,
                 ..FileReadResult::text(String::new(), "UTF-8")
             }),
-            RawRead::Missing => Err("File not found".to_string()),
+            RawRead::Missing => Err("File not found".to_owned()),
             // 上限を頼んだ呼び出し（エディタ）には結果として返し、開き方を選ばせる（#362）。
             RawRead::TooLarge(size) if max_bytes.is_some() => Ok(FileReadResult {
                 too_large: Some(size),
@@ -826,7 +830,7 @@ pub async fn fs_read_file_base64(shell: ShellConfig, path: String) -> Result<Str
                 }
             }
             let stdout = shell.run_stdout("base64", &["-w0", "--", &path])?;
-            Ok(stdout.trim().to_string())
+            Ok(stdout.trim().to_owned())
         }
         _ => {
             let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
@@ -990,11 +994,11 @@ pub async fn fs_write_file_base64(
         }
         // Ensure parent directory exists
         let parent = match &shell {
-            ShellConfig::Wsl { .. } => path.rsplit_once('/').map(|(p, _)| p.to_string()),
+            ShellConfig::Wsl { .. } => path.rsplit_once('/').map(|(p, _)| p.to_owned()),
             _ => std::path::Path::new(&path)
                 .parent()
                 .and_then(|p| p.to_str())
-                .map(|s| s.to_string()),
+                .map(|s| s.to_owned()),
         };
         if let Some(dir) = parent {
             let _ = ensure_dir(&shell, &dir);
@@ -1042,16 +1046,17 @@ fn resolve_first_existing_wsl(
     let mut script = String::new();
     for path in candidates {
         let quoted = bash_quote(path);
-        script.push_str(&format!(
-            "if [ -f {quoted} ]; then printf '%s' {quoted}; exit 0; fi\n"
-        ));
+        let _ = writeln!(
+            script,
+            "if [ -f {quoted} ]; then printf '%s' {quoted}; exit 0; fi"
+        );
     }
     let (_, stdout, _) = shell.run("bash", &["-c", &script])?;
     let trimmed = stdout.trim_end_matches(['\n', '\r']);
     if trimmed.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(trimmed.to_string()))
+        Ok(Some(trimmed.to_owned()))
     }
 }
 

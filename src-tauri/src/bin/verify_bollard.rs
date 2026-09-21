@@ -26,7 +26,7 @@ async fn connect_docker() -> Result<Docker, String> {
             }
         }
     }
-    Err("Docker is not reachable. Tried: named pipe, TCP :2375, TCP :2376".to_string())
+    Err("Docker is not reachable. Tried: named pipe, TCP :2375, TCP :2376".to_owned())
 }
 
 #[tokio::main]
@@ -87,7 +87,7 @@ async fn main() {
                         .state
                         .as_ref()
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                        .unwrap_or_else(|| "unknown".to_owned());
                     let image = container.image.as_deref().unwrap_or("unknown");
                     println!("    {} | {} | {}", names, state, image);
                 }
@@ -121,7 +121,7 @@ async fn main() {
             let log_options = LogsOptions {
                 stdout: true,
                 stderr: true,
-                tail: "10".to_string(),
+                tail: "10".to_owned(),
                 follow: true,
                 ..Default::default()
             };

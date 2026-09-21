@@ -112,10 +112,10 @@ fn client(redirects: Redirects) -> Result<Client, String> {
 pub fn parse_content_type(raw: &str) -> (String, Option<String>) {
     let lower = raw.to_ascii_lowercase();
     let mut parts = lower.split(';');
-    let mime = parts.next().unwrap_or("").trim().to_string();
+    let mime = parts.next().unwrap_or("").trim().to_owned();
     let charset = parts
         .filter_map(|p| p.trim().strip_prefix("charset="))
-        .map(|c| c.trim_matches('"').trim().to_string())
+        .map(|c| c.trim_matches('"').trim().to_owned())
         .find(|c| !c.is_empty());
     (mime, charset)
 }
@@ -129,9 +129,9 @@ pub async fn fetch(url: &str, policy: &FetchPolicy) -> Result<Fetched, String> {
     let ok_scheme = parsed.scheme() == "https" || (policy.allow_http && parsed.scheme() == "http");
     if !ok_scheme {
         return Err(if policy.allow_http {
-            "Only http/https URLs are allowed".to_string()
+            "Only http/https URLs are allowed".to_owned()
         } else {
-            "Only https URLs are allowed".to_string()
+            "Only https URLs are allowed".to_owned()
         });
     }
 

@@ -1,6 +1,7 @@
 use crate::types::{git_args, git_bash_prefix, ShellConfig};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,7 +111,7 @@ fn run_git_full(
 /// commands like `git diff --no-index` that exit with code 1 when files differ.
 fn run_git_raw_stdout(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, String> {
     let output = shell.run_raw("git", &git_args(root, args))?;
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(crate::types::into_lossy_string(output.stdout))
 }
 
 fn parse_status(output: &str) -> GitStatusResult {
@@ -124,9 +125,9 @@ fn parse_status(output: &str) -> GitStatusResult {
 
     for line in output.lines() {
         if let Some(oid) = line.strip_prefix("# branch.oid ") {
-            head = oid.to_string();
+            head = oid.to_owned();
         } else if let Some(head) = line.strip_prefix("# branch.head ") {
-            branch = head.to_string();
+            branch = head.to_owned();
         } else if let Some(rest) = line.strip_prefix("# branch.ab ") {
             // Format: "# branch.ab +N -M"
             let parts: Vec<&str> = rest.split_whitespace().collect();
@@ -154,20 +155,20 @@ fn parse_status(output: &str) -> GitStatusResult {
                 // `splitn` の最後の要素なので、そのまま残る。
                 let last = parts[fields - 1];
                 let (path, orig_path) = match last.split_once('\t') {
-                    Some((new, orig)) if is_rename => (new, Some(orig.to_string())),
+                    Some((new, orig)) if is_rename => (new, Some(orig.to_owned())),
                     _ => (last, None),
                 };
                 if x != "." {
                     staged.push(GitFileChange {
-                        path: path.to_string(),
-                        status: x.to_string(),
+                        path: path.to_owned(),
+                        status: x.to_owned(),
                         orig_path: orig_path.clone(),
                     });
                 }
                 if y != "." {
                     unstaged.push(GitFileChange {
-                        path: path.to_string(),
-                        status: y.to_string(),
+                        path: path.to_owned(),
+                        status: y.to_owned(),
                         orig_path,
                     });
                 }
@@ -178,16 +179,16 @@ fn parse_status(output: &str) -> GitStatusResult {
             let parts: Vec<&str> = line.splitn(11, ' ').collect();
             if parts.len() >= 11 {
                 conflicted.push(GitFileChange {
-                    path: parts[10].to_string(),
-                    status: parts[1].to_string(),
+                    path: parts[10].to_owned(),
+                    status: parts[1].to_owned(),
                     orig_path: None,
                 });
             }
         } else if let Some(path) = line.strip_prefix("? ") {
             // Untracked: "? path"
             unstaged.push(GitFileChange {
-                path: path.to_string(),
-                status: "?".to_string(),
+                path: path.to_owned(),
+                status: "?".to_owned(),
                 orig_path: None,
             });
         }
@@ -232,25 +233,25 @@ fn parse_log(output: &str) -> Vec<GitLogEntry> {
                 let parents = parts[1]
                     .split_whitespace()
                     .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
+                    .map(|s| s.to_owned())
                     .collect();
                 Some(GitLogEntry {
-                    hash: parts[0].to_string(),
+                    hash: parts[0].to_owned(),
                     parents,
-                    refs: parts[2].trim().to_string(),
-                    author: parts[3].to_string(),
-                    date: parts[4].to_string(),
-                    message: parts[5].trim().to_string(),
+                    refs: parts[2].trim().to_owned(),
+                    author: parts[3].to_owned(),
+                    date: parts[4].to_owned(),
+                    message: parts[5].trim().to_owned(),
                 })
             } else if parts.len() == 4 {
                 // Backward compat: git_log_file uses 4-field format
                 Some(GitLogEntry {
-                    hash: parts[0].to_string(),
+                    hash: parts[0].to_owned(),
                     parents: vec![],
                     refs: String::new(),
-                    author: parts[1].to_string(),
-                    date: parts[2].to_string(),
-                    message: parts[3].trim().to_string(),
+                    author: parts[1].to_owned(),
+                    date: parts[2].to_owned(),
+                    message: parts[3].trim().to_owned(),
                 })
             } else {
                 None
@@ -332,14 +333,18 @@ fn status_and_state_wsl(shell: &ShellConfig, root: &str) -> Result<(String, Stat
     for (name, read) in OP_STATE_FILES {
         // One record per entry, in table order: `exists FS contents`. Positional
         // like `remote_urls_wsl`, so the name never travels through the stream.
+        // 組み立てるシェル 1 行はテンプレート 1 本のまま置く（3 文に割ると、途中の
+        // `else …` が単独の行に見えて読めなくなる）。`cat` の String は `read` が真の
+        // ぶんだけで、この関数はその直後に `wsl.exe` を起こす。
         let cat = if *read {
             format!("cat \"$d/{name}\" 2>/dev/null; ")
         } else {
             String::new()
         };
-        script.push_str(&format!(
-            "if [ -e \"$d/{name}\" ]; then printf '1{FS}'; {cat}else printf '0{FS}'; fi; printf '{RS}'\n"
-        ));
+        let _ = writeln!(
+            script,
+            "if [ -e \"$d/{name}\" ]; then printf '1{FS}'; {cat}else printf '0{FS}'; fi; printf '{RS}'"
+        );
     }
     let (code, mut stdout, stderr) = shell.run("bash", &["-c", &script])?;
     if code != 0 {
@@ -404,7 +409,7 @@ fn parse_state_records(rest: &str) -> StateFiles {
     for ((name, _), record) in OP_STATE_FILES.iter().zip(rest.split(RS)) {
         if let Some((exists, content)) = record.split_once(FS) {
             if exists == "1" {
-                files.insert(name, content.to_string());
+                files.insert(name, content.to_owned());
             }
         }
     }
@@ -437,9 +442,9 @@ fn stopped_commit(done: &str) -> Option<(String, String)> {
     }
     let subject = parts
         .next()
-        .map(|rest| rest.trim_start_matches('#').trim().to_string())
+        .map(|rest| rest.trim_start_matches('#').trim().to_owned())
         .unwrap_or_default();
-    Some((sha.to_string(), subject))
+    Some((sha.to_owned(), subject))
 }
 
 /// The id goes into a shell command line, and it comes out of a file git wrote
@@ -456,7 +461,7 @@ fn parse_operation(files: &StateFiles, has_conflicts: bool) -> Option<GitOperati
     let branch_of = |key: &str| {
         content(key).map(|v| {
             let v = v.trim();
-            v.strip_prefix("refs/heads/").unwrap_or(v).to_string()
+            v.strip_prefix("refs/heads/").unwrap_or(v).to_owned()
         })
     };
 
@@ -520,11 +525,11 @@ fn parse_operation(files: &StateFiles, has_conflicts: bool) -> Option<GitOperati
         .map_or((None, None), |(s, t)| (Some(s), Some(t)));
 
     Some(GitOperation {
-        kind: kind.to_string(),
+        kind: kind.to_owned(),
         branch,
         step,
         total,
-        stop: stop.to_string(),
+        stop: stop.to_owned(),
         stopped_sha,
         stopped_subject,
         // `am` wants the mailbox and `bisect` wants good/bad; neither belongs
@@ -706,14 +711,14 @@ fn parse_branch_refs(output: &str) -> GitBranches {
     for line in output.lines() {
         let line = line.trim();
         if let Some(name) = line.strip_prefix("refs/heads/") {
-            branches.local.push(name.to_string());
+            branches.local.push(name.to_owned());
         } else if let Some(name) = line.strip_prefix("refs/remotes/") {
             // `<remote>/HEAD` is a symbolic ref mirroring the remote's default
             // branch, not a branch of its own.
             if name.ends_with("/HEAD") {
                 continue;
             }
-            branches.remote.push(name.to_string());
+            branches.remote.push(name.to_owned());
         }
     }
     branches
@@ -780,11 +785,11 @@ fn parse_worktrees(output: &str) -> Vec<GitWorktree> {
         if line.is_empty() {
             flush(&mut rec, &mut worktrees);
         } else if let Some(p) = line.strip_prefix("worktree ") {
-            rec.path = Some(p.to_string());
+            rec.path = Some(p.to_owned());
         } else if let Some(h) = line.strip_prefix("HEAD ") {
-            rec.head = Some(h.to_string());
+            rec.head = Some(h.to_owned());
         } else if let Some(b) = line.strip_prefix("branch ") {
-            rec.branch = Some(b.strip_prefix("refs/heads/").unwrap_or(b).to_string());
+            rec.branch = Some(b.strip_prefix("refs/heads/").unwrap_or(b).to_owned());
         } else if line == "bare" {
             rec.is_bare = true;
         } else if line == "detached" {
@@ -851,19 +856,19 @@ pub async fn git_checkout_track(
 fn validate_ref_name(name: &str) -> Result<(), String> {
     // 最低限のフラグ injection 対策と git のリファレンス命名規約に沿った検証
     if name.is_empty() {
-        return Err("branch name is empty".to_string());
+        return Err("branch name is empty".to_owned());
     }
     if name.starts_with('-') {
-        return Err("branch name cannot start with '-'".to_string());
+        return Err("branch name cannot start with '-'".to_owned());
     }
     if name
         .chars()
         .any(|c| c.is_control() || matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
     {
-        return Err("branch name contains invalid characters".to_string());
+        return Err("branch name contains invalid characters".to_owned());
     }
     if name.contains("..") || name.contains("@{") {
-        return Err("branch name contains invalid sequence".to_string());
+        return Err("branch name contains invalid sequence".to_owned());
     }
     Ok(())
 }
@@ -894,7 +899,7 @@ pub async fn git_remote_url(root: String, shell: ShellConfig) -> Result<Option<S
     .map_err(|e| e.to_string())?;
     Ok(output
         .ok()
-        .map(|s| s.trim().to_string())
+        .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty()))
 }
 
@@ -914,7 +919,7 @@ pub async fn git_remote_urls(
             .map(|root| {
                 run_git(&shell, root, &["remote", "get-url", "origin"])
                     .ok()
-                    .map(|s| s.trim().to_string())
+                    .map(|s| s.trim().to_owned())
                     .filter(|s| !s.is_empty())
             })
             .collect()),
@@ -944,7 +949,7 @@ fn remote_urls_wsl(shell: &ShellConfig, roots: &[String]) -> Result<Vec<Option<S
         .lines()
         .map(|l| {
             let trimmed = l.trim();
-            (!trimmed.is_empty()).then(|| trimmed.to_string())
+            (!trimmed.is_empty()).then(|| trimmed.to_owned())
         })
         .collect();
     // A distro that fails to start prints nothing: report "no origin" rather
@@ -1140,8 +1145,8 @@ pub async fn git_show_files(
             // （porcelain v2 の `2 ` 行とは逆）。**コミットの差分は `--follow` 側で解決する**
             // ので、ここで埋めた元の名前を diff に渡す消費者は今のところ無い。
             let (path, orig_path) = match rest.split_once('\t') {
-                Some((orig, new)) => (new.to_string(), Some(orig.to_string())),
-                None => (rest.to_string(), None),
+                Some((orig, new)) => (new.to_owned(), Some(orig.to_owned())),
+                None => (rest.to_owned(), None),
             };
             Some(GitFileChange {
                 path,
@@ -1180,7 +1185,7 @@ pub async fn git_diff_commit(
         )?;
         let patch = commit_patch(&output, &hash);
         if !patch.is_empty() {
-            return Ok(truncate_diff(patch.to_string()));
+            return Ok(truncate_diff(patch.to_owned()));
         }
 
         // **マージコミットは `--follow` で出せない。** パスを絞った `git log` はマージを
@@ -1254,7 +1259,7 @@ pub async fn git_show_file_base64(
         let spec = format!("{hash}:{path}");
         let output = shell.run_raw("git", &git_args(&root, &["show", &spec]))?;
         if !output.status.success() {
-            return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+            return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
         }
         Ok(base64::engine::general_purpose::STANDARD.encode(&output.stdout))
     })
@@ -1303,7 +1308,7 @@ pub async fn git_log_file_lines(
     count: Option<u32>,
 ) -> Result<Vec<GitLogEntry>, String> {
     if start_line == 0 || end_line < start_line {
-        return Err("invalid line range".to_string());
+        return Err("invalid line range".to_owned());
     }
     let range = format!("{},{}:{}", start_line, end_line, path);
     let output = tokio::task::spawn_blocking(move || {
@@ -1740,7 +1745,7 @@ mod operation_tests {
             .iter()
             .filter_map(|(name, content)| {
                 let key = OP_STATE_FILES.iter().find(|(n, _)| n == name)?.0;
-                Some((key, (*content)?.to_string()))
+                Some((key, (*content)?.to_owned()))
             })
             .collect()
     }
@@ -1928,7 +1933,7 @@ index 111..222 100644\n\
         assert_eq!(got.deleted, vec![2]);
         assert_eq!(got.removed.len(), 1);
         assert_eq!(got.removed[0].line, 2);
-        assert_eq!(got.removed[0].lines, vec!["gone".to_string()]);
+        assert_eq!(got.removed[0].lines, vec!["gone".to_owned()]);
     }
 
     /// **追加だけの変更は何も持たない**（ホバーで出すものが無い）。
@@ -1945,7 +1950,7 @@ index 111..222 100644\n\
     fn caps_the_preview_but_keeps_the_real_count() {
         let mut diff = String::from("@@ -1,60 +1,1 @@\n");
         for i in 0..60 {
-            diff.push_str(&format!("-line {i}\n"));
+            let _ = writeln!(diff, "-line {i}");
         }
         diff.push_str("+one\n");
         let got = parse_diff_lines(&diff);
@@ -1962,9 +1967,9 @@ index 111..222 100644\n\
         let mut diff = String::new();
         for h in 0..12 {
             let at = h * 50 + 1;
-            diff.push_str(&format!("@@ -{at},41 +{at},1 @@\n"));
+            let _ = writeln!(diff, "@@ -{at},41 +{at},1 @@");
             for i in 0..40 {
-                diff.push_str(&format!("-h{h} line {i}\n"));
+                let _ = writeln!(diff, "-h{h} line {i}");
             }
             diff.push_str("+one\n");
         }

@@ -181,7 +181,7 @@ fn start_native_watcher(
     app: AppHandle,
     state: &State<'_, WatcherState>,
 ) -> Result<(), String> {
-    let id = watcher_id.to_string();
+    let id = watcher_id.to_owned();
     let root_path = PathBuf::from(root);
     let buffer = Arc::new(Mutex::new(EventBuffer::new()));
     let stop_flag = Arc::new(Mutex::new(false));
@@ -189,7 +189,8 @@ fn start_native_watcher(
     spawn_flush_thread(buffer.clone(), stop_flag.clone(), app, id.clone());
 
     let root_for_filter = root_path.clone();
-    let buffer_cb = buffer.clone();
+    // ここが `buffer` の最後の持ち主なので、Arc をもう 1 本増やさずそのまま渡す。
+    let buffer_cb = buffer;
     let mut watcher = RecommendedWatcher::new(
         move |res: Result<Event, notify::Error>| {
             if let Ok(event) = res {
@@ -244,7 +245,7 @@ fn start_wsl_watcher(
     app: AppHandle,
     state: &State<'_, WatcherState>,
 ) -> Result<(), String> {
-    let id = watcher_id.to_string();
+    let id = watcher_id.to_owned();
     let stop_flag = Arc::new(Mutex::new(false));
 
     let exclude_pattern = IGNORED_DIRS
@@ -288,7 +289,7 @@ fn start_wsl_watcher(
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "Failed to capture inotifywait stdout".to_string())?;
+        .ok_or_else(|| "Failed to capture inotifywait stdout".to_owned())?;
 
     let buffer = Arc::new(Mutex::new(EventBuffer::new()));
 
@@ -305,7 +306,7 @@ fn start_wsl_watcher(
             if parts.len() != 2 {
                 continue;
             }
-            let file_path = parts[0].to_string();
+            let file_path = parts[0].to_owned();
             let event_str = parts[1].to_uppercase();
 
             let kind = if event_str.contains("CREATE") || event_str.contains("MOVED_TO") {

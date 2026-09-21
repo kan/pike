@@ -11,6 +11,7 @@ use bollard::Docker;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::OnceCell;
@@ -93,17 +94,21 @@ pub struct ContainerListResult {
     pub tunnels: Vec<tunnel::TunnelInfo>,
 }
 
+/// **文字列は借りる**（#382。`pty/mod.rs` の `PtyOutputPayload` と同じ理由）。
+/// ログは 50ms ごとに flush されるので、所有すると 1 回につき stream の uuid を
+/// 複製することになる。本文を借りれば `buffer` を `clear()` で使い回せる
+/// （`mem::take` は容量を持たない `String` を残すので、次の行で確保し直していた）。
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DockerLogPayload {
-    stream_id: String,
-    data: String,
+struct DockerLogPayload<'a> {
+    stream_id: &'a str,
+    data: &'a str,
 }
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DockerLogExitPayload {
-    stream_id: String,
+struct DockerLogExitPayload<'a> {
+    stream_id: &'a str,
 }
 
 async fn try_connect(owner: String) -> Result<Docker, String> {
@@ -167,7 +172,7 @@ fn normalize_project_name(dir_name: &str) -> String {
         .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_' || *c == '-')
         .collect::<String>()
         .trim_start_matches(['_', '-'])
-        .to_string()
+        .to_owned()
 }
 
 fn parse_compose_file(root: &str, path: &str, content: &str) -> Option<ComposeProject> {
@@ -187,7 +192,7 @@ fn parse_compose_file(root: &str, path: &str, content: &str) -> Option<ComposePr
     let mut names: Vec<String> = services.into_keys().collect();
     names.sort();
     Some(ComposeProject {
-        dir: dir.to_string(),
+        dir: dir.to_owned(),
         file: rel_path_of(path, root),
         name: parsed
             .name
@@ -285,7 +290,7 @@ pub async fn docker_list_containers(
                 .and_then(|n| n.first().cloned())
                 .unwrap_or_default()
                 .trim_start_matches('/')
-                .to_string(),
+                .to_owned(),
             image: c.image.unwrap_or_default(),
             state: c.state.map(|s| s.to_string()).unwrap_or_default(),
             status: c.status.unwrap_or_default(),
@@ -349,7 +354,7 @@ pub async fn docker_logs_start(
         follow: true,
         stdout: true,
         stderr: true,
-        tail: "200".to_string(),
+        tail: "200".to_owned(),
         ..Default::default()
     };
 
@@ -364,24 +369,20 @@ pub async fn docker_logs_start(
                 item = tokio::time::timeout(stale_timeout, stream.next()) => {
                     match item.ok().flatten() {
                         Some(Ok(output)) => {
-                            buffer.push_str(&output.to_string());
+                            let _ = write!(buffer, "{output}");
                         }
                         _ => {
                             // Flush remaining buffer
                             if !buffer.is_empty() {
                                 let _ = app.emit(
                                     "docker_log_output",
-                                    DockerLogPayload {
-                                        stream_id: sid.clone(),
-                                        data: std::mem::take(&mut buffer),
-                                    },
+                                    DockerLogPayload { stream_id: &sid, data: &buffer },
                                 );
+                                buffer.clear();
                             }
                             let _ = app.emit(
                                 "docker_log_exit",
-                                DockerLogExitPayload {
-                                    stream_id: sid.clone(),
-                                },
+                                DockerLogExitPayload { stream_id: &sid },
                             );
                             break;
                         }
@@ -391,11 +392,9 @@ pub async fn docker_logs_start(
                     if !buffer.is_empty() {
                         let _ = app.emit(
                             "docker_log_output",
-                            DockerLogPayload {
-                                stream_id: sid.clone(),
-                                data: std::mem::take(&mut buffer),
-                            },
+                            DockerLogPayload { stream_id: &sid, data: &buffer },
                         );
+                        buffer.clear();
                     }
                 }
             }
@@ -452,9 +451,9 @@ pub async fn docker_detect_shell(
 
     let name = shell_name.trim();
     if name == "bash" {
-        Ok("/bin/bash".to_string())
+        Ok("/bin/bash".to_owned())
     } else {
-        Ok("/bin/sh".to_string())
+        Ok("/bin/sh".to_owned())
     }
 }
 

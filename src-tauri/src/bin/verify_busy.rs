@@ -186,7 +186,7 @@ mod imp {
             .args(["-e", "bash", "-c", &script])
             .output();
         match out {
-            Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+            Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_owned(),
             Err(e) => format!("error: {e}"),
         }
     }

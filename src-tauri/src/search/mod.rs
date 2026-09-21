@@ -43,7 +43,7 @@ fn parse_rg_version(stdout: &str) -> Option<RgCaps> {
         .strip_prefix("ripgrep ")?
         .split_whitespace()
         .next()?
-        .to_string();
+        .to_owned();
     let mut semver = [0u32; 3];
     // major だけは読めることを求める（読めなければ rg ではない何かとみなす）。
     // minor / patch は distro が付ける接尾辞で崩れうるので、読めなければ 0 のまま。
@@ -110,11 +110,11 @@ fn detect_backend(shell: &ShellConfig, bundled_rg: &Option<String>) -> SearchBac
     };
     let (system, bundled) = std::thread::scope(|scope| {
         let bundled = bundled_path.map(|path| {
-            scope.spawn(move || probe_rg(shell, path).map(|caps| (path.to_string(), caps)))
+            scope.spawn(move || probe_rg(shell, path).map(|caps| (path.to_owned(), caps)))
         });
         // macOS / Linux では `augment_process_path` が起動時に PATH を広げているので、
         // Homebrew 等に入った rg もここで見つかる。
-        let system = probe_rg(shell, "rg").map(|caps| ("rg".to_string(), caps));
+        let system = probe_rg(shell, "rg").map(|caps| ("rg".to_owned(), caps));
         // panic したら「見つからなかった」に落とす。**明示的に join したハンドルの panic は
         // scope が拾い直さない**（実測で確認）ので、ここで握り潰せる。検出の失敗は grep へ
         // 落ちるという答えそのものなので、呼び出し側に返す口は要らない。
@@ -215,7 +215,7 @@ pub async fn search_detect_backend(
 
     let caps = backend.as_rg().map(|(_, caps)| caps);
     Ok(SearchBackendInfo {
-        backend: backend.label().to_string(),
+        backend: backend.label().to_owned(),
         version: caps.map(|c| c.version.clone()),
         pcre2: caps.is_some_and(|c| c.pcre2),
     })
@@ -268,7 +268,7 @@ pub async fn list_project_files(
         // 検索と同じく上限で打ち切る（#257）。大きなリポジトリでは `--files` の出力も
         // 数 MB になり、`MAX_FILES` を超えた分は作らせるだけ無駄になる。
         let run = spawn_capped_lines(cmd, "file list", MAX_FILES, |line| {
-            (!line.is_empty()).then(|| line.to_string())
+            (!line.is_empty()).then(|| line.to_owned())
         })?;
         Ok(run.items)
     })
@@ -300,12 +300,12 @@ fn parse_rg_line(line: &str) -> Option<SearchMatch> {
             .and_then(|p| p.get("text"))
             .and_then(|t| t.as_str())
             .unwrap_or("")
-            .to_string(),
+            .to_owned(),
         line: data
             .get("line_number")
             .and_then(|n| n.as_u64())
             .unwrap_or(0) as u32,
-        content: raw.trim_end().to_string(),
+        content: raw.trim_end().to_owned(),
     })
 }
 
@@ -319,9 +319,9 @@ fn parse_grep_line(line: &str) -> Option<SearchMatch> {
         return None;
     }
     Some(SearchMatch {
-        path: path.to_string(),
+        path: path.to_owned(),
         line: line_num,
-        content: content.to_string(),
+        content: content.to_owned(),
     })
 }
 
@@ -403,73 +403,73 @@ pub async fn search_execute(
     tokio::task::spawn_blocking(move || {
         let backend = resolve_backend(&shell, &bundled, &cache);
         let run = if let Some((program, caps)) = backend.as_rg() {
-            let mut args: Vec<String> = vec!["--json".to_string()];
+            let mut args: Vec<String> = vec!["--json".to_owned()];
             if !is_regex {
-                args.push("-F".to_string());
+                args.push("-F".to_owned());
             }
             if !case_sensitive {
-                args.push("-i".to_string());
+                args.push("-i".to_owned());
             }
             if whole_word {
-                args.push("-w".to_string());
+                args.push("-w".to_owned());
             }
             // `-P` は正規表現のときだけ意味を持つ（`-F` と併せてもエラーにはならないが、
             // メタ文字を持たない検索に別のエンジンを使わせるだけになる。実測で確認）。
             // 持っていないビルドに渡すと rg が落ちるので、機能を確かめてから足す。
             if is_regex && use_pcre2 && caps.pcre2 {
-                args.push("-P".to_string());
+                args.push("-P".to_owned());
             }
             if let Some(ref inc) = inc_glob {
-                args.push("--glob".to_string());
+                args.push("--glob".to_owned());
                 args.push(inc.clone());
             }
             if let Some(ref exc) = exc_glob {
-                args.push("--glob".to_string());
+                args.push("--glob".to_owned());
                 args.push(format!("!{exc}"));
             }
             if !extract {
-                args.push("--max-count".to_string());
-                args.push(PER_FILE_MATCHES.to_string());
+                args.push("--max-count".to_owned());
+                args.push(PER_FILE_MATCHES.to_owned());
             }
-            args.push("-e".to_string());
+            args.push("-e".to_owned());
             args.push(query);
-            args.push("--".to_string());
+            args.push("--".to_owned());
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
             spawn_capped_lines(shell.command(program, &arg_refs), "rg", cap, parse_rg_line)
         } else {
-            let mut args: Vec<String> = vec!["-rn".to_string()];
+            let mut args: Vec<String> = vec!["-rn".to_owned()];
             if !is_regex {
-                args.push("-F".to_string());
+                args.push("-F".to_owned());
             } else {
-                args.push("-E".to_string());
+                args.push("-E".to_owned());
             }
             // 大文字小文字と単語単位は grep にも同じフラグがある。PCRE2 と置換は無い
             // （`-P` は GNU grep 限定で macOS の BSD grep に無く、`-r` は再帰の意味）。
             if !case_sensitive {
-                args.push("-i".to_string());
+                args.push("-i".to_owned());
             }
             if whole_word {
-                args.push("-w".to_string());
+                args.push("-w".to_owned());
             }
             if let Some(ref inc) = inc_glob {
                 args.push(format!("--include={inc}"));
             }
             if !extract {
-                args.push("-m".to_string());
-                args.push(PER_FILE_MATCHES.to_string());
+                args.push("-m".to_owned());
+                args.push(PER_FILE_MATCHES.to_owned());
             }
-            args.push("--exclude-dir=.git".to_string());
-            args.push("--exclude-dir=node_modules".to_string());
-            args.push("--exclude-dir=target".to_string());
+            args.push("--exclude-dir=.git".to_owned());
+            args.push("--exclude-dir=node_modules".to_owned());
+            args.push("--exclude-dir=target".to_owned());
             if let Some(ref exc) = exc_glob {
                 args.push(format!("--exclude={exc}"));
                 args.push(format!("--exclude-dir={exc}"));
             }
-            args.push("-e".to_string());
+            args.push("-e".to_owned());
             args.push(query);
-            args.push("--".to_string());
+            args.push("--".to_owned());
             args.push(root);
 
             let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
@@ -565,8 +565,8 @@ mod tests {
         };
         let pick = |a: Option<&str>, b: Option<&str>| {
             prefer_newer(
-                a.map(|v| ("rg".to_string(), caps(v))),
-                b.map(|v| ("/bundled/rg".to_string(), caps(v))),
+                a.map(|v| ("rg".to_owned(), caps(v))),
+                b.map(|v| ("/bundled/rg".to_owned(), caps(v))),
             )
             .map(|(program, c)| (program, c.version))
         };

@@ -13,6 +13,35 @@ default-run = "pike"
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# 文字列まわりの無駄を再発させないための追加 lint（#382）。`just clippy` は
+# `-D warnings` なので、ここに並べたものは CI が落とす。
+#
+# **常時は当てない 3 つがある。** 棚卸しのときだけ `just clippy-deep` で足して見る
+# （コピペ用のコマンドをここに書かない。入口は justfile、という #231 の規約に従う）。
+#
+# - `redundant_clone` / `needless_collect` … nursery。誤検出があり（#382 の時点で
+#   `pty/busy.rs` の並列化のための `collect` が実際に誤検出された）、しかも
+#   toolchain を上げた日に増えうる
+# - `assigning_clones` … 得があるのは**繰り返し代入する変数**だけ（`agent_usage/
+#   opencode.rs` が `clone_from` を使っているのがそれ）。1 回しか通らない代入にも
+#   当たるので、そこでは `x = y.to_owned()` を `y.clone_into(&mut x)` に変えて
+#   読みにくくするだけになる（#382 の時点で 4 件がそれ）
+[lints.clippy]
+# `&str` に `to_string()` を呼ばない。生成コードは `to_owned()` と同一で速さは
+# 変わらないが、綴りが混ざると「どちらが安いのか」を毎回考えることになる
+str_to_string = "warn"
+# `&&T`（T: Display）の `to_string()`。`Display` の blanket impl を通るので、
+# memcpy 1 回では済まず `fmt::Formatter` を回る。**`str` は例外**で、std が
+# `&str` から `&&&&&&&&&&&&str` まで特殊化してあるため速さは変わらない
+# （それでも参照を 1 段外すほうが読み手に優しいので当てたままにする）
+inefficient_to_string = "warn"
+# 所有している値への `to_vec()` / `to_owned()`
+implicit_clone = "warn"
+# `s.push_str(&format!(…))`（`write!` なら中間の String を作らない）
+format_push_string = "warn"
+# `replace("'", …)` のような 1 文字の文字列パターン
+single_char_pattern = "warn"
+
 [features]
 # E2E スクリーンショット自動化 (issue #142)。既定 OFF。`tauri build --features e2e`
 # のときだけ wdio WebDriver プラグインと dynamic-acl を有効化する。cfg(debug_assertions)

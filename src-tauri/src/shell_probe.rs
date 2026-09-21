@@ -277,13 +277,13 @@ mod tests {
 
     fn wsl() -> ShellConfig {
         ShellConfig::Wsl {
-            distro: "Ubuntu".to_string(),
+            distro: "Ubuntu".to_owned(),
         }
     }
 
     #[test]
     fn wsl_script_asks_both_questions_in_one_go() {
-        let script = posix_script(&wsl(), &["claude".to_string(), "codex".to_string()]);
+        let script = posix_script(&wsl(), &["claude".to_owned(), "codex".to_owned()]);
         assert!(script.contains("PIKEENV\\t%s"), "{script}");
         assert!(script.contains("for c in claude codex;"), "{script}");
         assert!(script.contains("PIKEAGENT\\t%s"), "{script}");
@@ -299,7 +299,7 @@ mod tests {
             &ShellConfig::Unix {
                 program: String::new(),
             },
-            &["claude".to_string()],
+            &["claude".to_owned()],
         );
         assert!(!script.contains(ENV_MARKER), "{script}");
         assert!(script.contains(AGENT_MARKER), "{script}");
@@ -325,7 +325,7 @@ mod tests {
 
     #[test]
     fn windows_line_uses_cmd_syntax() {
-        let line = windows_line(&["claude".to_string(), "codex".to_string()]);
+        let line = windows_line(&["claude".to_owned(), "codex".to_owned()]);
         assert_eq!(
             line,
             "where claude >nul 2>&1 && echo PIKEAGENT\tclaude & where codex >nul 2>&1 && echo PIKEAGENT\tcodex"

@@ -40,7 +40,7 @@ pub struct WaitState {
 
 pub fn extract_wait_id(args: &[String]) -> Option<String> {
     args.iter()
-        .find_map(|a| a.strip_prefix("--wait-id=").map(|s| s.to_string()))
+        .find_map(|a| a.strip_prefix("--wait-id=").map(|s| s.to_owned()))
 }
 
 pub fn register(state: &WaitState, wait_id: String, path: &str, window: &str) {
@@ -51,7 +51,7 @@ pub fn register(state: &WaitState, wait_id: String, path: &str, window: &str) {
             wait_id,
             WaitEntry {
                 path: norm,
-                window: window.to_string(),
+                window: window.to_owned(),
             },
         );
     }

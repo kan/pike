@@ -31,15 +31,19 @@ impl Drop for PtySession {
     }
 }
 
+/// **文字列は借りる**（#382）。`emit` は `Serialize + Clone` しか求めないので、
+/// ここで所有する理由が無い。**Pike で最も数が出る経路**で（ビルドログを流すと
+/// 4KB ごとに呼ばれる）、所有すると 1 回につき id と本文の 2 つを作って、JSON へ
+/// 書き出した直後に捨てることになる。
 #[derive(Clone, Serialize)]
-struct PtyOutputPayload {
-    id: String,
-    data: String,
+struct PtyOutputPayload<'a> {
+    id: &'a str,
+    data: &'a str,
 }
 
 #[derive(Clone, Serialize)]
-struct PtyExitPayload {
-    id: String,
+struct PtyExitPayload<'a> {
+    id: &'a str,
     code: i32,
 }
 
@@ -125,7 +129,7 @@ fn spawn_pty_with_command(
         std::thread::spawn(move || {
             let code = child.wait().map(|s| s.exit_code() as i32).unwrap_or(-1);
             if !exit_emitted_flag.swap(true, Ordering::SeqCst) {
-                let _ = wait_app.emit("pty_exit", PtyExitPayload { id: wait_id, code });
+                let _ = wait_app.emit("pty_exit", PtyExitPayload { id: &wait_id, code });
             }
         });
     }
@@ -146,7 +150,7 @@ fn spawn_pty_with_command(
                         let _ = app.emit(
                             "pty_exit",
                             PtyExitPayload {
-                                id: read_id.clone(),
+                                id: &read_id,
                                 code: 0,
                             },
                         );
@@ -176,19 +180,20 @@ fn spawn_pty_with_command(
                         let _ = app.emit(
                             "pty_output",
                             PtyOutputPayload {
-                                id: read_id.clone(),
-                                data: valid.to_owned(),
+                                id: &read_id,
+                                data: valid,
                             },
                         );
                     }
                     // Keep only incomplete trailing bytes (max 3 for UTF-8)
                     if remainder.len() > 4 {
                         // Not an incomplete sequence — flush as lossy
+                        let lossy = String::from_utf8_lossy(remainder);
                         let _ = app.emit(
                             "pty_output",
                             PtyOutputPayload {
-                                id: read_id.clone(),
-                                data: String::from_utf8_lossy(remainder).into_owned(),
+                                id: &read_id,
+                                data: &lossy,
                             },
                         );
                         carry.clear();
@@ -201,7 +206,7 @@ fn spawn_pty_with_command(
                         let _ = app.emit(
                             "pty_exit",
                             PtyExitPayload {
-                                id: read_id.clone(),
+                                id: &read_id,
                                 code: -1,
                             },
                         );
@@ -237,7 +242,7 @@ fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, pty_id: &str, is_wsl: b
                 continue;
             }
             if wslenv.is_empty() {
-                wslenv = name.to_string();
+                wslenv = name.to_owned();
             } else {
                 wslenv = format!("{wslenv}:{name}");
             }
@@ -259,7 +264,7 @@ fn find_pwsh() -> String {
     // 見つからなくても素の `pwsh.exe` に賭ける（Store 版の実行エイリアスは PATH 上の
     // ファイルとして見えないことがある）。**確実に在るものが要る呼び出し側は
     // `find_pwsh_path` を使うこと。**
-    find_pwsh_path().unwrap_or_else(|| "pwsh.exe".to_string())
+    find_pwsh_path().unwrap_or_else(|| "pwsh.exe".to_owned())
 }
 
 /// 実在が確認できた pwsh のパス。無ければ `None`。
@@ -283,9 +288,9 @@ fn find_git_bash() -> Result<String, String> {
         r"C:\Program Files\Git\bin\bash.exe",
         r"C:\Program Files (x86)\Git\bin\bash.exe",
     ];
-    for path in &candidates {
+    for path in candidates {
         if std::path::Path::new(path).exists() {
-            return Ok(path.to_string());
+            return Ok(path.to_owned());
         }
     }
     // Try PATH (with 5s timeout to avoid hanging)
@@ -410,7 +415,7 @@ pub async fn pty_spawn(
             cols,
             rows,
             cwd,
-            window_label: window.label().to_string(),
+            window_label: window.label().to_owned(),
         },
         app,
         &state,
@@ -446,7 +451,7 @@ pub async fn pty_spawn_tmux(
             cols,
             rows,
             cwd: None,
-            window_label: window.label().to_string(),
+            window_label: window.label().to_owned(),
         },
         app,
         &state,

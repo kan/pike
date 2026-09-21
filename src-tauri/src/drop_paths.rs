@@ -42,7 +42,7 @@ const MESSAGE_PREFIX: &str = "pike:drop-paths:";
 /// closure until the platform webview exists.
 pub fn attach(window: &WebviewWindow) {
     let app = window.app_handle().clone();
-    let label = window.label().to_string();
+    let label = window.label().to_owned();
     let _ = window.with_webview(move |webview| unsafe {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
             ICoreWebView2File, ICoreWebView2WebMessageReceivedEventArgs2,
@@ -98,7 +98,7 @@ pub fn attach(window: &WebviewWindow) {
                 label.as_str(),
                 "drop_paths",
                 DropPathsPayload {
-                    id: id.to_string(),
+                    id: id.to_owned(),
                     entries,
                 },
             );

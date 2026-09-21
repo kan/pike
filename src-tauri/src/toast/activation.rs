@@ -35,6 +35,7 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use std::fmt::Write as _;
 
 /// 通知を押されたときに開く URL の形。`focus` 以外の動作は今のところ無い。
 const HOST: &str = "focus";
@@ -74,7 +75,7 @@ impl Activation {
     pub fn to_url(&self) -> String {
         let mut url = format!("{}://{HOST}?pty={}", scheme(), encode(&self.pty));
         if let Some(project) = self.project.as_deref().filter(|p| !p.is_empty()) {
-            url.push_str(&format!("&project={}", encode(project)));
+            let _ = write!(url, "&project={}", encode(project));
         }
         url
     }
@@ -92,7 +93,9 @@ pub fn from_args(args: &[String]) -> Option<Activation> {
 /// 相手（Windows のシェル）は `launch` に書いた文字列をそのまま返す。壊れた形は
 /// `None` にして黙って捨てる（押した人に見せる先が無い）。
 pub fn parse(url: &str) -> Option<Activation> {
-    let rest = url.strip_prefix(&format!("{}://", scheme()))?;
+    let rest = url
+        .strip_prefix(scheme())
+        .and_then(|r| r.strip_prefix("://"))?;
     let (host, query) = rest.split_once('?')?;
     // 末尾の `/` はシェルが足すことがある（`pike://focus/?…`）。
     if host.trim_end_matches('/') != HOST {
@@ -184,16 +187,16 @@ mod tests {
     #[test]
     fn accepts_a_trailing_slash_on_the_host() {
         let url = format!("{}://focus/?pty=abc", scheme());
-        assert_eq!(parse(&url).map(|a| a.pty), Some("abc".to_string()));
+        assert_eq!(parse(&url).map(|a| a.pty), Some("abc".to_owned()));
     }
 
     #[test]
     fn finds_the_url_among_the_argv() {
         let args = vec![
-            "pike.exe".to_string(),
+            "pike.exe".to_owned(),
             format!("{}://focus?pty=xyz", scheme()),
         ];
-        assert_eq!(from_args(&args).map(|a| a.pty), Some("xyz".to_string()));
-        assert_eq!(from_args(&["pike.exe".to_string()]), None);
+        assert_eq!(from_args(&args).map(|a| a.pty), Some("xyz".to_owned()));
+        assert_eq!(from_args(&["pike.exe".to_owned()]), None);
     }
 }

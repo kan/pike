@@ -77,14 +77,14 @@ pub fn open_elevated_terminal(shell: String, project_id: Option<String>) -> Resu
     #[cfg(windows)]
     {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let mut params = vec!["--new-instance".to_string()];
+        let mut params = vec!["--new-instance".to_owned()];
         match project_id.filter(|s| !s.is_empty()) {
             Some(id) => {
                 params.push(format!("--open-project={id}"));
                 params.push(format!("--shell={shell}"));
             }
             None => {
-                params.push("--terminal".to_string());
+                params.push("--terminal".to_owned());
                 params.push(format!("--shell={shell}"));
             }
         }
@@ -113,7 +113,7 @@ fn run_elevated(exe: &std::path::Path, params: &[String]) -> Result<(), String> 
         .iter()
         .any(|p| p.is_empty() || p.chars().any(|c| c == '"' || c.is_whitespace()))
     {
-        return Err("internal: unsafe argument for elevated launch".to_string());
+        return Err("internal: unsafe argument for elevated launch".to_owned());
     }
     let joined = params.join(" ");
 

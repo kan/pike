@@ -52,7 +52,7 @@ impl BusyProbe {
         match kind {
             ProbeKind::Wsl(distro) => BusyProbe::Wsl {
                 distro,
-                marker: pty_id.to_string(),
+                marker: pty_id.to_owned(),
             },
             ProbeKind::Host => {
                 shell_pid.map_or(BusyProbe::Unavailable, |pid| BusyProbe::HostTree { pid })
@@ -88,13 +88,13 @@ pub fn count_busy(probes: &[BusyProbe]) -> usize {
         host_pids.iter().filter(|pid| parents.contains(pid)).count()
     };
 
-    let wsl: Vec<&BusyProbe> = probes
-        .iter()
-        .filter(|p| matches!(p, BusyProbe::Wsl { .. }))
-        .collect();
     let wsl_busy = std::thread::scope(|scope| {
-        let handles: Vec<_> = wsl
+        // **この `collect` を外さないこと**（`clippy::needless_collect` が外せと言う）。
+        // 全部 spawn し終えてから join するから並列になるので、繋いで 1 本の iterator に
+        // すると 1 つ起こしては待つ形になり、distro の数だけ直列で足し算される。
+        let handles: Vec<_> = probes
             .iter()
+            .filter(|p| matches!(p, BusyProbe::Wsl { .. }))
             .map(|p| scope.spawn(move || p.is_busy()))
             .collect();
         // join は handle を consume するので、filter ではなく map で受ける
@@ -181,7 +181,7 @@ fn probe_stdout(cmd: &mut std::process::Command, label: &'static str) -> String 
     };
     let pid = child.id();
     crate::types::wait_with_timeout(pid, PROBE_TIMEOUT, label, move || child.wait_with_output())
-        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+        .map(|out| crate::types::into_lossy_string(out.stdout))
         .unwrap_or_default()
 }
 

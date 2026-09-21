@@ -163,7 +163,7 @@ pub struct AgentUsage {
 impl AgentUsage {
     fn for_id(id: &str) -> Self {
         Self {
-            id: id.to_string(),
+            id: id.to_owned(),
             ..Default::default()
         }
     }
@@ -171,7 +171,7 @@ impl AgentUsage {
 
 fn fact(key: &str, value: impl Into<String>) -> UsageFact {
     UsageFact {
-        key: key.to_string(),
+        key: key.to_owned(),
         value: value.into(),
     }
 }
@@ -218,7 +218,7 @@ fn claude(shell: &ShellConfig, root: &str, force: bool) -> AgentUsage {
     }
 
     AgentUsage {
-        id: "claude".to_string(),
+        id: "claude".to_owned(),
         active: usage.active,
         account: usage.account.as_ref().map(|a| AgentAccount {
             email: a.email.clone(),
@@ -233,7 +233,7 @@ fn claude(shell: &ShellConfig, root: &str, force: bool) -> AgentUsage {
             rate.windows
                 .iter()
                 .map(|w| UsageMeter {
-                    kind: w.kind.to_string(),
+                    kind: w.kind.to_owned(),
                     label: Some(w.label.clone()),
                     used_percent: w.used_percent,
                     resets_at: w.resets_at.clone(),
@@ -290,7 +290,7 @@ fn codex(shell: &ShellConfig, root: &str) -> AgentUsage {
     let mut meters = Vec::new();
     if let Some(w) = &usage.rate_limit_primary {
         meters.push(UsageMeter {
-            kind: "session".to_string(),
+            kind: "session".to_owned(),
             label: None,
             used_percent: w.used_percent,
             resets_at: None,
@@ -298,7 +298,7 @@ fn codex(shell: &ShellConfig, root: &str) -> AgentUsage {
     }
     if let Some(w) = &usage.rate_limit_secondary {
         meters.push(UsageMeter {
-            kind: "weekAll".to_string(),
+            kind: "weekAll".to_owned(),
             label: None,
             used_percent: w.used_percent,
             resets_at: None,
@@ -314,7 +314,7 @@ fn codex(shell: &ShellConfig, root: &str) -> AgentUsage {
     }
 
     AgentUsage {
-        id: "codex".to_string(),
+        id: "codex".to_owned(),
         active: usage.active,
         account: usage.account.as_ref().map(|a| AgentAccount {
             email: a.email.clone(),

@@ -166,7 +166,7 @@ pub async fn task_discover(
             let rel = if path.starts_with(&root) {
                 path[root.len()..]
                     .trim_start_matches(['/', '\\'])
-                    .to_string()
+                    .to_owned()
             } else {
                 path.clone()
             };
@@ -174,7 +174,7 @@ pub async fn task_discover(
             let dir_rel = rel
                 .rsplit_once('/')
                 .or_else(|| rel.rsplit_once('\\'))
-                .map(|(d, _)| d.to_string())
+                .map(|(d, _)| d.to_owned())
                 .unwrap_or_default();
             let cwd = if dir_rel.is_empty() {
                 root.clone()
@@ -290,7 +290,7 @@ pub async fn task_discover(
             let rel = if path.starts_with(&root) {
                 path[root.len()..]
                     .trim_start_matches(['/', '\\'])
-                    .to_string()
+                    .to_owned()
             } else {
                 path.clone()
             };
@@ -360,7 +360,7 @@ fn find_task_files_raw(
         args.push(root);
         if let Ok((code, stdout, _)) = shell.run(program, &args) {
             if code == 0 || !stdout.is_empty() {
-                return stdout.lines().map(|l| l.to_string()).collect();
+                return stdout.lines().map(|l| l.to_owned()).collect();
             }
         }
     }
@@ -452,7 +452,7 @@ fn node_runner_for(
         .contains("\"packageManager\"")
         .then(|| serde_json::from_str::<serde_json::Value>(content).ok())
         .flatten()
-        .and_then(|v| v.get("packageManager")?.as_str().map(str::to_string))
+        .and_then(|v| v.get("packageManager")?.as_str().map(str::to_owned))
         .and_then(|spec| NodeRunner::from_name(spec.split('@').next().unwrap_or_default().trim()));
     declared
         .or_else(|| {
@@ -465,11 +465,12 @@ fn node_runner_for(
         .unwrap_or(NodeRunner::Npm)
 }
 
+/// 区切りは 2 種とも受ける（タスク検出は WSL と Windows のパスを同じ表で扱う）。
 fn is_self_or_ancestor(ancestor: &str, dir: &str) -> bool {
+    use crate::types::starts_with_segment;
     dir == ancestor
-        || (dir.len() > ancestor.len()
-            && dir.starts_with(ancestor)
-            && matches!(dir.as_bytes()[ancestor.len()], b'/' | b'\\'))
+        || starts_with_segment(dir, ancestor, '/')
+        || starts_with_segment(dir, ancestor, '\\')
 }
 
 /// コメント用のキー（`"//build"` / `"// build"` / `"//"`）なら、説明の宛先＝`//` を
@@ -521,8 +522,8 @@ fn parse_package_json(content: &str, pm: NodeRunner) -> Vec<DiscoveredTask> {
         .filter_map(|(name, cmd)| {
             cmd.as_str().map(|c| DiscoveredTask {
                 name: name.clone(),
-                command: c.to_string(),
-                description: comments.get(name.as_str()).map(|d| (*d).to_string()),
+                command: c.to_owned(),
+                description: comments.get(name.as_str()).copied().map(str::to_owned),
                 runner: pm.as_str().into(),
             })
         })
@@ -564,12 +565,12 @@ fn parse_deno_json(content: &str) -> Vec<DiscoveredTask> {
             };
             Some(DiscoveredTask {
                 name: name.clone(),
-                command: command.to_string(),
+                command: command.to_owned(),
                 // 宣言された説明が優先。コメント用のキーは書き手の間に合わせなので、
                 // 両方あれば仕様どおりの側を採る
                 description: description
                     .or_else(|| comments.get(name.as_str()).copied())
-                    .map(str::to_string),
+                    .map(str::to_owned),
                 runner: "deno".into(),
             })
         })
@@ -762,7 +763,7 @@ fn parse_justfile(content: &str) -> Vec<DiscoveredTask> {
             continue;
         }
         if let Some(comment) = line.strip_prefix('#') {
-            doc = Some(comment.trim().to_string());
+            doc = Some(comment.trim().to_owned());
             continue;
         }
         // 属性行（`[private]` / `[group('build')]` / `[working-directory('x')]`）
@@ -794,7 +795,7 @@ fn parse_justfile(content: &str) -> Vec<DiscoveredTask> {
             format!("just {name} {params}")
         };
         tasks.push(DiscoveredTask {
-            name: name.to_string(),
+            name: name.to_owned(),
             command,
             description,
             runner: "just".into(),
@@ -827,7 +828,7 @@ fn split_recipe_head(line: &str) -> Option<&str> {
 }
 
 fn parent_dir(path: &str) -> String {
-    crate::fs::parent_dir_of(path).to_string()
+    crate::fs::parent_dir_of(path).to_owned()
 }
 
 fn parse_makefile_targets(content: &str) -> Vec<DiscoveredTask> {
@@ -854,8 +855,8 @@ fn parse_makefile_targets(content: &str) -> Vec<DiscoveredTask> {
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '/')
             {
                 targets.push(DiscoveredTask {
-                    name: name.to_string(),
-                    command: name.to_string(),
+                    name: name.to_owned(),
+                    command: name.to_owned(),
                     description: None,
                     runner: "make".into(),
                 });
@@ -958,7 +959,7 @@ name = 'verify_tmux'
             .into_iter()
             .map(|t| t.name)
             .collect();
-        assert!(names.contains(&"run".to_string()));
+        assert!(names.iter().any(|n| n == "run"));
 
         // With explicit [[bin]] targets, plain run is ambiguous: use the
         // package name for the default target
@@ -967,9 +968,9 @@ name = 'verify_tmux'
             .into_iter()
             .map(|t| t.name)
             .collect();
-        assert!(names.contains(&"run --bin cli".to_string()));
-        assert!(names.contains(&"run --bin extra".to_string()));
-        assert!(!names.contains(&"run".to_string()));
+        assert!(names.iter().any(|n| n == "run --bin cli"));
+        assert!(names.iter().any(|n| n == "run --bin extra"));
+        assert!(!names.iter().any(|n| n == "run"));
     }
 
     #[test]
@@ -1016,16 +1017,13 @@ lint = ["clippy", "--", "-D", "warnings"]
             .into_iter()
             .map(|t| t.name)
             .collect();
-        assert!(names.contains(&"build".to_string()));
-        assert!(names.contains(&"build:prod".to_string()));
+        assert!(names.iter().any(|n| n == "build"));
+        assert!(names.iter().any(|n| n == "build:prod"));
         assert!(names.iter().all(|n| !n.contains(';') && !n.contains(' ')));
     }
 
     fn marks(pairs: &[(&str, NodeRunner)]) -> std::collections::HashMap<String, NodeRunner> {
-        pairs
-            .iter()
-            .map(|(d, pm)| ((*d).to_string(), *pm))
-            .collect()
+        pairs.iter().map(|&(d, pm)| (d.to_owned(), pm)).collect()
     }
 
     #[test]

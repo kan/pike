@@ -175,7 +175,7 @@ pub async fn project_groups_save(
     let _ = window.app_handle().emit(
         "project_groups_updated",
         GroupsUpdatedPayload {
-            source_label: window.label().to_string(),
+            source_label: window.label().to_owned(),
             groups,
         },
     );
@@ -213,7 +213,7 @@ pub async fn detect_wsl_distros() -> Result<Vec<String>, String> {
 
     Ok(distros
         .lines()
-        .map(|l| l.trim().trim_start_matches('\u{feff}').to_string())
+        .map(|l| l.trim().trim_start_matches('\u{feff}').to_owned())
         .filter(|l| !l.is_empty())
         .collect())
 }
@@ -244,7 +244,7 @@ pub async fn project_get_last(
             line.split('\t')
                 .map(|s| s.trim())
                 .filter(|s| !s.is_empty() && project_file(&state, s).exists())
-                .map(|s| s.to_string())
+                .map(|s| s.to_owned())
                 .collect::<Vec<String>>()
         })
         .filter(|ids| !ids.is_empty())
@@ -276,7 +276,7 @@ pub(crate) fn first_shown(state: &ProjectState) -> Option<String> {
         line.split('\t')
             .map(str::trim)
             .find(|s| !s.is_empty() && project_file(state, s).exists())
-            .map(str::to_string)
+            .map(str::to_owned)
     })
 }
 
@@ -341,14 +341,14 @@ pub async fn project_add_open(
 /// `held ⊇ {shown}` を保つ唯一の足し場（重複させない）。
 fn push_held(entry: &mut WindowProjects, id: &str) {
     if !id.is_empty() && !entry.held.iter().any(|h| h == id) {
-        entry.held.push(id.to_string());
+        entry.held.push(id.to_owned());
     }
 }
 
 pub fn set_window_project(state: &ProjectState, window_label: &str, id: &str) {
     if let Ok(mut map) = state.window_projects.lock() {
-        let entry = map.entry(window_label.to_string()).or_default();
-        entry.shown = id.to_string();
+        let entry = map.entry(window_label.to_owned()).or_default();
+        entry.shown = id.to_owned();
         push_held(entry, id);
     }
 }
@@ -372,7 +372,7 @@ pub async fn project_set_parked(
     state: State<'_, ProjectState>,
 ) -> Result<(), String> {
     if let Ok(mut map) = state.window_projects.lock() {
-        let entry = map.entry(window.label().to_string()).or_default();
+        let entry = map.entry(window.label().to_owned()).or_default();
         entry.held = ids;
         let shown = entry.shown.clone();
         push_held(entry, &shown);
@@ -384,7 +384,7 @@ pub async fn project_set_parked(
 /// 新しいウィンドウに「保持していたもの」を種として渡す（復元用）。
 pub fn seed_window_held(state: &ProjectState, window_label: &str, held: &[String]) {
     if let Ok(mut map) = state.window_projects.lock() {
-        let entry = map.entry(window_label.to_string()).or_default();
+        let entry = map.entry(window_label.to_owned()).or_default();
         for id in held {
             push_held(entry, id);
         }
@@ -481,7 +481,7 @@ pub async fn project_update(
     let _ = window.app_handle().emit(
         "project_updated",
         ProjectUpdatedPayload {
-            source_label: window.label().to_string(),
+            source_label: window.label().to_owned(),
             config,
         },
     );

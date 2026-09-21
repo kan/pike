@@ -302,7 +302,7 @@ mod tests {
         let (bytes, _, _) = encoding_rs::SHIFT_JIS.encode("日本語");
         let mut html =
             "<!-- charset note --><link rel=preload data-charset><meta charset=shift_jis><title>"
-                .to_string()
+                .to_owned()
                 .into_bytes();
         html.extend_from_slice(&bytes);
         html.extend_from_slice(b"</title>");

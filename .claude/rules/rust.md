@@ -5,6 +5,17 @@
 - `just check` が `just fmt-check`（= `cargo fmt --check`）を回すので、**整形されていないコードはコミット前に落ちる**
 - **中身の変更と整形を混ぜない。** 手で狭く折った行が rustfmt に広げられる（またはその逆）ので、整形されていないコードを部分的に `cargo fmt` すると無関係な行が大量に動く。導入前はこれが理由で `cargo fmt` の実行そのものを禁じていた
 
+## 文字列（#382）
+
+**どれも正本はコード側の doc**。ここは規範と行き先だけ置く。
+
+- 追加の lint と、常時当てないものの理由 … `src-tauri/Cargo.toml` の `[lints.clippy]`。棚卸しは `just clippy-deep`
+- **`&str` → `String` は `to_owned()`**（`to_string()` と混ぜない。`str_to_string` が CI で落とす）
+- **ストリームの emit payload は借りる** … `pty/mod.rs` の `PtyOutputPayload` と `docker/mod.rs` の `DockerLogPayload` の doc。イベント単位の payload は対象外（借りても作る回数が減らない）
+- **子プロセスの出力は `types.rs` の `into_lossy_string`** に通す（`from_utf8_lossy(&bytes).into_owned()` を書かない）
+- **「配下か」の判定は `types.rs` の `starts_with_segment`**（前置を `format!` で組まない）
+- **clippy に従ってはいけない場所が 1 つある** … `pty/busy.rs` の `collect`（並列化のためのもの。`needless_collect` に従うと直列になる）
+
 ## 基本方針
 - Tauri コマンドは `async fn` を既定にし、戻り値は `Result<T, String>`。**ウィンドウを触るものと、状態を読むだけで即答できるものは同期の `fn`** にしてある（`project_for_window` / `focus_project_window` / `window_restore` / `window_close_quits_app` / `save_all_window_state` / `wait_signal_by_path` / `is_elevated` / `open_elevated_terminal`）
   - **ただしウィンドウを「作る」ものは例外で、必ず `async`**（`open_project_window` / `open_global_window`）。同期コマンドから `build_window` を呼ぶと Windows でデッドロックする（制約は**コマンドハンドラ**に対してで、イベントループ側のコールバックからは従来どおり呼べる。判断の実体は `build_window` の doc が正本）
