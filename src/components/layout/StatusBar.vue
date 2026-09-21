@@ -760,9 +760,12 @@ onUnmounted(() => {
 }
 
 /* Full-width menu items — exclude inline icon buttons (help, rate refresh). */
-/* メニュー項目だけを全幅にする。`.detail-link` を除外しないと、見出し行の
-   リンクが幅いっぱいに広がって見出しを潰し、更新・ヘルプが枠外へ押し出される。 */
-.status-dropdown button:not(.help-btn):not(.rate-refresh):not(.detail-link) {
+/* メニュー項目だけを全幅にする。**除外を名前で 1 つずつ増やさない**（#381）:
+   `.detail-link` を除外し忘れたときは見出し行のリンクが幅いっぱいに広がって見出しを
+   潰し、`.accent-btn` のときはログインボタンが全幅になって文言が 2 行に折れた。
+   `.accent-btn` は「共有のボタン様式を当てたもの＝メニュー項目ではない」という印なので、
+   ここで除けば次に足すボタンも自動的に外れる。 */
+.status-dropdown button:not(.help-btn):not(.rate-refresh):not(.detail-link):not(.accent-btn) {
   display: block;
   width: 100%;
   padding: 5px 12px;
@@ -774,7 +777,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.status-dropdown button:not(.help-btn):not(.rate-refresh):hover {
+.status-dropdown button:not(.help-btn):not(.rate-refresh):not(.accent-btn):hover {
   background: var(--tab-hover-bg);
 }
 

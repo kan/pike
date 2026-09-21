@@ -113,6 +113,8 @@ const EXTERNAL_NAMES = [
   'MERGE_MSG', // git が書く状態ファイル（Pike は読まない）
   'ReadDirectoryChangesW', // Win32（notify クレート経由）
   'SSH_ASKPASS_REQUIRE', // OpenSSH 8.4+ の環境変数（採らなかった選択肢として git.md が出す）
+  'expiresAt', // Claude Code の .credentials.json のキー（Pike は読まない。#381 の調査の記録）
+  'refreshTokenExpiresAt', // 同上
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）
   'WORK', // 同期ファイルの例に出てくるグループ名
   '__VERSION__', // tauri-action がタグ名に埋めるプレースホルダ

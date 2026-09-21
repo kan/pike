@@ -8,7 +8,7 @@
 //! runtime) and must never run on every status-bar poll.
 
 use crate::types::{install_key, ShellConfig};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -135,7 +135,14 @@ fn cache_key(shell: &ShellConfig, config_dir: Option<&str>) -> String {
     }
 }
 
-fn needs_fetch(entry: &CacheEntry, session_active: bool) -> bool {
+/// **ログアウトが分かっているのに帯を出している答えは、TTL を待たずに捨てる**（#381）。
+/// `/logout` した直後のキャッシュは「ログイン済みで残量あり」なので、待つと最長 1 時間
+/// 古い残量を出し続ける。1 回取り直せば `login_required` が立って `active` が false に
+/// なるので、この枝は自動的に閉じる（叩き続けにならない）。
+fn needs_fetch(entry: &CacheEntry, session_active: bool, logged_out: bool) -> bool {
+    if logged_out && entry.data.active {
+        return true;
+    }
     let age = now_epoch().saturating_sub(entry.last_attempt);
     // Failed fetches and active sessions retry on the short TTL; idle windows
     // still refresh eventually (other projects / time-based resets move quota).
@@ -146,10 +153,53 @@ fn needs_fetch(entry: &CacheEntry, session_active: bool) -> bool {
     }
 }
 
+/// `claude auth status --json` の返り（#381）。読むのは 1 つだけ。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthStatus {
+    logged_in: bool,
+}
+
+/// CLI に「ログインしているか」を直接聞く（#381）。
+///
+/// **これが一番確かな印。** `/usage` の文言で見る形は、CLI が未ログインでも `/login` に
+/// 触れなくなった版（2.1.278）で丸ごと効かなくなった（`asks_for_login` の doc）。
+///
+/// **`/usage` より桁違いに軽い**ので、取得のたびに一緒に起こしてよい（この開発機で
+/// Windows 0.28 秒 / WSL 0.71 秒、`claude -p "/usage"` は 3.8 秒）。あちらはエージェントの
+/// ランタイムを起こすが、こちらは手元の資格情報を読むだけ。
+///
+/// **`--json` は既定だが明示する**（`--text` もあるので、既定が変わったときに黙って
+/// パースが外れないように）。
+///
+/// **読めなかったら `None`**（＝何も言えない）。`claude` が入っていないシェルでは
+/// 毎回ここに来るが、その場合は使用量そのものも取れないので表示は元から空になる。
+fn run_auth_status(
+    shell: &ShellConfig,
+    project_root: &str,
+    config_dir: Option<&str>,
+) -> Option<bool> {
+    let env: Vec<(&str, &str)> = config_dir
+        .map(|d| ("CLAUDE_CONFIG_DIR", d))
+        .into_iter()
+        .collect();
+    let (_code, stdout, _stderr) = shell
+        .run_shell_line_env(project_root, &env, "claude auth status --json", CLI_TIMEOUT)
+        .ok()?;
+    // `.bashrc` がバナーを出すことがあるので、JSON の始まりから読む。
+    let start = stdout.find('{')?;
+    Some(
+        serde_json::from_str::<AuthStatus>(&stdout[start..])
+            .ok()?
+            .logged_in,
+    )
+}
+
 fn run_usage_cli(
     shell: &ShellConfig,
     project_root: &str,
     config_dir: Option<&str>,
+    logged_out: bool,
 ) -> ClaudeRateLimits {
     // stdin を閉じるのは `types::spawn_piped` の担当になった（#384 で `run` 系の全員へ
     // 引き上げた）。ここが自分で `< /dev/null` を付けていたころの理由（headless claude が
@@ -162,15 +212,20 @@ fn run_usage_cli(
         .map(|d| ("CLAUDE_CONFIG_DIR", d))
         .into_iter()
         .collect();
-    let (windows, login_required) =
+    let (windows, asked_login) =
         match shell.run_shell_line_env(project_root, &env, &line, CLI_TIMEOUT) {
             Ok((_code, stdout, stderr)) => {
                 let windows = parse_usage_output(&stdout);
-                let login = windows.is_empty() && asks_for_login(&stdout, &stderr);
-                (windows, login)
+                let asked = windows.is_empty() && asks_for_login(&stdout, &stderr);
+                (windows, asked)
             }
             Err(_) => (Vec::new(), false),
         };
+    // **帯が取れたなら聞くまでもない**（ログインしていなければ取れない）。取れなかった
+    // ときだけ CLI に直接聞き、それも読めなければ `.claude.json` の印に落ちる。
+    let login_required = windows.is_empty()
+        && run_auth_status(shell, project_root, config_dir)
+            .map_or(logged_out || asked_login, |logged_in| !logged_in);
     ClaudeRateLimits {
         active: !windows.is_empty(),
         fetched_at: now_epoch(),
@@ -179,9 +234,14 @@ fn run_usage_cli(
     }
 }
 
-/// CLI がログインを求めているか（#381）。未ログインは `Not logged in · Please run /login`
-/// （終了コード 1。空の `CLAUDE_CONFIG_DIR` で実測）で、トークンの失効も同じく `/login` を
-/// 案内する。文言の前半は版で変わりうるので、**案内しているコマンドのほうで見る**。
+/// CLI がログインを求めているか（#381）。文言の前半は版で変わりうるので、**案内している
+/// コマンドのほうで見る**。
+///
+/// **これは最後の手段。** 実装時（CLI 2.0 系）は未ログインが
+/// `Not logged in · Please run /login`（終了コード 1）だったが、**2.1.278 では終了コード 0 で
+/// `Total cost: $0.00…` の要約だけを出し、`/login` に触れない**（Windows と WSL の両方で実測）。
+/// 印の優先順は `run_auth_status`（CLI に直接聞く）→ `config::ClaudeConfig::logged_out`
+/// （`.claude.json` から `oauthAccount` が消えている）→ この関数。
 fn asks_for_login(stdout: &str, stderr: &str) -> bool {
     stdout.contains("/login") || stderr.contains("/login")
 }
@@ -192,12 +252,14 @@ pub(crate) fn get_rate_limits(
     session_active: bool,
     force: bool,
 ) -> ClaudeRateLimits {
-    let config_dir = super::config::resolve(shell, project_root).native_override;
+    let resolved = super::config::resolve(shell, project_root);
+    let logged_out = resolved.logged_out;
+    let config_dir = resolved.native_override;
     let key = cache_key(shell, config_dir.as_deref());
 
     let cached = cache().lock().unwrap().get(&key).cloned();
     if let Some(entry) = &cached {
-        if !force && !needs_fetch(entry, session_active) {
+        if !force && !needs_fetch(entry, session_active, logged_out) {
             return entry.data.clone();
         }
     }
@@ -206,13 +268,13 @@ pub(crate) fn get_rate_limits(
     // Double-check: another caller may have fetched while we waited on the lock.
     if !force {
         if let Some(entry) = cache().lock().unwrap().get(&key) {
-            if !needs_fetch(entry, session_active) {
+            if !needs_fetch(entry, session_active, logged_out) {
                 return entry.data.clone();
             }
         }
     }
 
-    let mut result = run_usage_cli(shell, project_root, config_dir.as_deref());
+    let mut result = run_usage_cli(shell, project_root, config_dir.as_deref(), logged_out);
     // Keep the previous data when a refresh fails (CLI hiccup / timeout) —
     // stale rate info beats a flickering status item. Bounded by
     // STALE_KEEP_MAX so a permanently broken CLI (uninstalled, output format
@@ -285,12 +347,14 @@ pub(crate) fn get_rate_limits_soon(
     if force {
         return get_rate_limits(shell, project_root, session_active, true);
     }
-    let config_dir = super::config::resolve(shell, project_root).native_override;
+    let resolved = super::config::resolve(shell, project_root);
+    let logged_out = resolved.logged_out;
+    let config_dir = resolved.native_override;
     let key = cache_key(shell, config_dir.as_deref());
     let cached = cache().lock().unwrap().get(&key).cloned();
     let stale = cached
         .as_ref()
-        .map_or(true, |entry| needs_fetch(entry, session_active));
+        .map_or(true, |entry| needs_fetch(entry, session_active, logged_out));
 
     if stale {
         // 既に走っていれば足さない（`fetch_lock` でも直列化されるが、待つスレッドを
@@ -312,7 +376,50 @@ pub(crate) fn get_rate_limits_soon(
 
 #[cfg(test)]
 mod tests {
-    use super::{asks_for_login, parse_usage_output, window_kind};
+    use super::{
+        asks_for_login, needs_fetch, now_epoch, parse_usage_output, window_kind, CacheEntry,
+        ClaudeRateLimits,
+    };
+
+    fn entry(active: bool, age_secs: u64) -> CacheEntry {
+        CacheEntry {
+            last_attempt: now_epoch() - age_secs,
+            data: ClaudeRateLimits {
+                active,
+                ..Default::default()
+            },
+        }
+    }
+
+    /// `claude auth status --json` の形（実ファイルから抜粋）。`.bashrc` のバナーが
+    /// 先に出ても読めること、余分なキーがあっても落ちないことを見る。
+    #[test]
+    fn reads_logged_in_out_of_auth_status() {
+        let json = r#"{"loggedIn":true,"authMethod":"claude.ai","email":"k@example.com","subscriptionType":"max"}"#;
+        let parsed: super::AuthStatus = serde_json::from_str(json).unwrap();
+        assert!(parsed.logged_in);
+
+        let out = format!(
+            "On branch main
+{}",
+            r#"{"loggedIn":false,"authMethod":"none"}"#
+        );
+        let start = out.find('{').unwrap();
+        let parsed: super::AuthStatus = serde_json::from_str(&out[start..]).unwrap();
+        assert!(!parsed.logged_in);
+    }
+
+    /// ログアウトが分かっているのに残量を出している答えは、TTL を待たずに捨てる（#381）。
+    #[test]
+    fn logged_out_drops_a_stale_active_answer() {
+        // 取ったばかりでも捨てる（普段なら 1 時間は使い回す）。
+        assert!(needs_fetch(&entry(true, 5), false, true));
+        // 取り直したあとは `active` が false になるので、叩き続けにならない。
+        assert!(!needs_fetch(&entry(false, 5), false, true));
+        // ログアウトが分かっていないときは従来どおり TTL で決める。
+        assert!(!needs_fetch(&entry(true, 5), false, false));
+        assert!(needs_fetch(&entry(true, 4000), false, false));
+    }
 
     #[test]
     fn detects_the_login_prompt() {

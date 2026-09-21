@@ -46,6 +46,12 @@ pub struct ClaudeConfig {
     /// 読み直すと UNC 越しに毎回全文を舐めることになる。中身（メールアドレス）が変わる
     /// のはログインし直したときだけなので、この TTL に相乗りさせる。
     pub account: Option<ClaudeAccount>,
+    /// `.claude.json` を**読めたうえで** `oauthAccount` が無かったか（#381）。
+    ///
+    /// `/logout` はこのキーを消すので、これが「ログインが切れている」の確かな印になる。
+    /// **`account` が `None` であることを印にしてはいけない**: ファイルを読めなかった
+    /// ときも `None` になるので、読めない構成で「要ログイン」を出し続けることになる。
+    pub logged_out: bool,
 }
 
 /// `.claude.json` の `oauthAccount` から、どのアカウントかが分かる分だけ取り出す。
@@ -247,10 +253,13 @@ fn resolve_uncached(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
             },
         ),
     };
+    let read = read_path
+        .as_deref()
+        .and_then(|dir| read_account(dir, native_override.is_some()));
     ClaudeConfig {
-        account: read_path
-            .as_deref()
-            .and_then(|dir| read_account(dir, native_override.is_some())),
+        // 読めて、かつアカウントが無いときだけ「ログアウト済み」と言える。
+        logged_out: matches!(read, Some(None)),
+        account: read.flatten(),
         native_override,
         read_path,
     }
@@ -323,7 +332,11 @@ pub fn resolve(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
 /// まだ `.claude.json` が無いとき（ログイン前など）に親を見ると、`~/.claude.json` の
 /// **既定アカウント**を上書き先のものとして表示してしまう。「今どのアカウントか」を
 /// 出すための表示で嘘をつくのは、出さないより悪い。
-fn read_account(dir: &Path, overridden: bool) -> Option<ClaudeAccount> {
+/// **「読めなかった」を「アカウントが無い」と混ぜない**（#381）。外側の `None` は
+/// 「分からない」で、`Some(None)` が「読めたが `oauthAccount` が無い」＝**ログアウト
+/// 済み**。混ぜると、WSL の設定ディレクトリを symlink で配っている構成（`.claude.json`
+/// を UNC 越しに読めない、`agent.md` の既知の制約）で「要ログイン」を出してしまう。
+fn read_account(dir: &Path, overridden: bool) -> Option<Option<ClaudeAccount>> {
     let base = if overridden {
         dir.to_path_buf()
     } else {
@@ -331,7 +344,7 @@ fn read_account(dir: &Path, overridden: bool) -> Option<ClaudeAccount> {
     };
     let text = std::fs::read_to_string(base.join(".claude.json")).ok()?;
     let parsed = serde_json::from_str::<ClaudeJson>(&text).ok()?;
-    Some(parsed.oauth_account?.into())
+    Some(parsed.oauth_account.map(Into::into))
 }
 
 #[cfg(test)]
