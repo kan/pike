@@ -6,7 +6,6 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
@@ -317,7 +316,6 @@ fn jwt_claims(token: &str) -> Option<Value> {
 
 fn parse_session(path: &Path) -> Option<SessionAgg> {
     let file = fs::File::open(path).ok()?;
-    let reader = BufReader::new(file);
 
     let mut cwd: Option<String> = None;
     let mut session_id: Option<String> = None;
@@ -326,33 +324,31 @@ fn parse_session(path: &Path) -> Option<SessionAgg> {
     let mut primary: Option<RateLimitWindow> = None;
     let mut secondary: Option<RateLimitWindow> = None;
 
-    for line in reader.lines() {
-        let Ok(line) = line else { continue };
-
+    crate::types::for_each_line(file, |line| {
         if cwd.is_none() && line.contains("\"session_meta\"") {
-            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+            if let Ok(v) = serde_json::from_str::<Value>(line) {
                 let p = &v["payload"];
                 cwd = p["cwd"].as_str().map(str::to_owned);
                 session_id = p["id"].as_str().map(str::to_owned);
             }
-            continue;
+            return true;
         }
 
         // `turn_context.payload.model` — keep the last one seen (model can be
         // switched mid-session).
         if line.contains("\"turn_context\"") && line.contains("\"model\"") {
-            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+            if let Ok(v) = serde_json::from_str::<Value>(line) {
                 if let Some(m) = v["payload"]["model"].as_str() {
                     model = Some(m.to_owned());
                 }
             }
-            continue;
+            return true;
         }
 
         // token_count carries the cumulative `total_token_usage` plus account-wide
         // rate limits; keep the last occurrence.
         if line.contains("\"token_count\"") {
-            if let Ok(v) = serde_json::from_str::<Value>(&line) {
+            if let Ok(v) = serde_json::from_str::<Value>(line) {
                 let tu = &v["payload"]["info"]["total_token_usage"];
                 if tu.is_object() {
                     usage = Some(TokenUsage {
@@ -368,9 +364,9 @@ fn parse_session(path: &Path) -> Option<SessionAgg> {
                     secondary = parse_rate_window(&rl["secondary"]);
                 }
             }
-            continue;
         }
-    }
+        true
+    });
 
     Some(SessionAgg {
         cwd: cwd?,
@@ -582,6 +578,10 @@ fn read_session_head(path: &Path) -> Option<SessionHead> {
     let file = fs::File::open(path).ok()?;
     let mut head: Option<SessionHead> = None;
     let mut read = 0u64;
+    // **ここは `types::for_each_line` に寄せていない**（#382）。あちらへ移すと、壊れた
+    // `session_meta` で諦める 4 つの `?` を旗に置き換えることになって読みにくくなる。
+    // 読むのは先頭 `MAX_HEAD_BYTES` までで、しかもメニューを開いたときだけなので、
+    // 行ごとの確保が積み上がる側（使用量の集計）とは事情が違う。
     for line in BufReader::new(file).lines().map_while(Result::ok) {
         read += line.len() as u64 + 1;
         if read > MAX_HEAD_BYTES {

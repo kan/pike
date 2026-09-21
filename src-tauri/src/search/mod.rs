@@ -276,6 +276,57 @@ pub async fn list_project_files(
     .map_err(|e| e.to_string())?
 }
 
+/// rg の `--json` の 1 行から拾う形（#382）。
+///
+/// **`serde_json::Value` の木を組まない。** あれはマッチ 1 件につき Map と `String` を
+/// 15〜25 本作り、使うのは 2 本だけ。パネルは 500 件で止まるが、**書き出し（#376）は
+/// `EXTRACT_MAX_MATCHES` = 10,000 件**なので 20 万本規模になる。要る欄だけを宣言すれば、
+/// 残りは値を組まずに読み飛ばされる。
+///
+/// **`&str` ではなく `Cow` で受ける。** serde_json が借用できるのはエスケープを含まない
+/// 文字列だけで、ソースの行には `\"` も `\\` も普通に入る。`&str` にすると、そういう行が
+/// まるごと「壊れた行」になって検索結果から消える。`Cow` なら、エスケープのある行だけ
+/// その場で組み立てる。
+#[derive(Deserialize)]
+struct RgLine<'a> {
+    #[serde(rename = "type")]
+    kind: &'a str,
+    #[serde(borrow)]
+    data: RgData<'a>,
+}
+
+#[derive(Deserialize)]
+struct RgData<'a> {
+    #[serde(borrow, default)]
+    path: Option<RgText<'a>>,
+    #[serde(borrow, default)]
+    lines: Option<RgText<'a>>,
+    /// **`Option` で受ける。** rg は行番号が無いとき、キーを省くのではなく
+    /// `"line_number":null` を出す（同梱の 15.2.0 で実測）。`#[serde(default)]` が効くのは
+    /// キーが「無い」ときだけなので、`u64` のままだと `null` で行ごとパースに失敗し、
+    /// **すべてのマッチが黙って捨てられて検索結果が 0 件になる**。
+    ///
+    /// Pike は `-N` を渡さないが、rg は `RIPGREP_CONFIG_PATH` の設定ファイルを自分で読み、
+    /// 子プロセスはその環境変数を継ぐ。設定に `--no-line-number` を書いている利用者で起きる。
+    #[serde(default)]
+    line_number: Option<u64>,
+}
+
+/// rg は UTF-8 でない中身を `{"bytes": "<base64>"}` で返すので、`text` は欠けうる。
+#[derive(Deserialize)]
+struct RgText<'a> {
+    #[serde(borrow, default)]
+    text: Option<std::borrow::Cow<'a, str>>,
+}
+
+impl<'a> RgText<'a> {
+    /// 欄ごと無い（`path` / `lines` が来ない）のと、中の `text` が無い（`bytes` で
+    /// 返った）のを、同じ「空」に畳む。呼ぶ側がどちらも区別しないので 2 段で持たない。
+    fn str(field: Option<Self>) -> std::borrow::Cow<'a, str> {
+        field.and_then(|t| t.text).unwrap_or_default()
+    }
+}
+
 /// rg の `--json` の 1 行。マッチ以外（`begin` / `end` / `summary`）と壊れた行は `None`。
 fn parse_rg_line(line: &str) -> Option<SearchMatch> {
     // 捨てる行に DOM を組まない。rg はマッチするファイルごとに `begin` と `end` を出すので、
@@ -284,28 +335,18 @@ fn parse_rg_line(line: &str) -> Option<SearchMatch> {
     if !line.contains("\"match\"") {
         return None;
     }
-    let v = serde_json::from_str::<serde_json::Value>(line).ok()?;
-    if v.get("type").and_then(|t| t.as_str()) != Some("match") {
+    let v = serde_json::from_str::<RgLine>(line).ok()?;
+    if v.kind != "match" {
         return None;
     }
-    let data = v.get("data")?;
-    let raw = data
-        .get("lines")
-        .and_then(|l| l.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap_or("");
+    // 末尾を切るのは `into_owned()` の**あと**。先に `trim_end().to_owned()` と書くと、
+    // エスケープを含む行では serde が作った `Cow::Owned` の隣にもう 1 本作ることになる。
+    let mut content = RgText::str(v.data.lines).into_owned();
+    content.truncate(content.trim_end().len());
     Some(SearchMatch {
-        path: data
-            .get("path")
-            .and_then(|p| p.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_owned(),
-        line: data
-            .get("line_number")
-            .and_then(|n| n.as_u64())
-            .unwrap_or(0) as u32,
-        content: raw.trim_end().to_owned(),
+        path: RgText::str(v.data.path).into_owned(),
+        line: v.data.line_number.unwrap_or(0) as u32,
+        content,
     })
 }
 
@@ -516,6 +557,38 @@ mod tests {
         assert_eq!(m.path, "src/main.rs");
         assert_eq!(m.line, 12);
         assert_eq!(m.content, "fn main() {");
+    }
+
+    /// **エスケープを含む本文が消えないこと**（#382）。ソースの行には `\"` も `\\` も
+    /// 普通に入る。借用しか受けない形（`&str`）にすると、そういう行がまるごと
+    /// 「壊れた行」になって検索結果から落ちる。
+    #[test]
+    fn rg_keeps_lines_that_contain_escapes() {
+        let line = r#"{"type":"match","data":{"path":{"text":"a\\b.rs"},"lines":{"text":"let s = \"x\\ny\";"},"line_number":3}}"#;
+        let m = parse_rg_line(line).expect("match line");
+        assert_eq!(m.path, r"a\b.rs");
+        assert_eq!(m.content, "let s = \"x\\ny\";");
+        assert_eq!(m.line, 3);
+    }
+
+    /// **行番号が `null` でもマッチを落とさない**（#382）。rg は `--no-line-number` の
+    /// とき、キーを省くのではなく `"line_number":null` を出す。`u64` で受けると行ごと
+    /// パースに失敗し、検索結果が丸ごと 0 件になる。
+    #[test]
+    fn rg_match_with_null_line_number_is_kept() {
+        let line = r#"{"type":"match","data":{"path":{"text":"a.rs"},"lines":{"text":"x"},"line_number":null}}"#;
+        let m = parse_rg_line(line).expect("match line");
+        assert_eq!(m.path, "a.rs");
+        assert_eq!(m.line, 0);
+    }
+
+    /// UTF-8 でない中身を rg は `{"bytes": …}` で返す（`text` が無い）。落とさず空で通す。
+    #[test]
+    fn rg_match_without_text_is_empty() {
+        let line = r#"{"type":"match","data":{"path":{"bytes":"eA=="},"lines":{"bytes":"eA=="},"line_number":1}}"#;
+        let m = parse_rg_line(line).expect("match line");
+        assert_eq!(m.path, "");
+        assert_eq!(m.content, "");
     }
 
     #[test]

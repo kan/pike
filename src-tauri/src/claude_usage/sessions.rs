@@ -11,7 +11,6 @@ use crate::agent_sessions::{shorten, AgentSession};
 use crate::types::{validate_slug, ShellConfig};
 use serde::Deserialize;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -116,20 +115,19 @@ fn read_session(path: &Path, modified_at: u64) -> Option<AgentSession> {
     let id = path.file_stem()?.to_str()?;
     validate_slug(id, "session id").ok()?;
 
-    let mut reader = BufReader::new(fs::File::open(path).ok()?);
+    // バッファを使い回す読み方は `types::for_each_line`（#382 でここから切り出した。
+    // 同じ形を 4 つの利用者が手書きしていた）。
     let mut scan = TranscriptScan::default();
-    let mut line = String::new();
     let mut read = 0;
-    while read < MAX_TRANSCRIPT_BYTES {
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(n) => read += n,
+    crate::types::for_each_line(fs::File::open(path).ok()?, |line| {
+        // 上限は**読む前**に見る（元の `while read < MAX` と同じ順）。上限をまたいだ
+        // 1 行はそのまま処理して、次の行で止まる。
+        if read >= MAX_TRANSCRIPT_BYTES {
+            return false;
         }
-        if !scan.add_line(&line) {
-            break;
-        }
-    }
+        read += line.len() + 1;
+        scan.add_line(line)
+    });
 
     let (title, git_branch) = scan.finish()?;
     Some(AgentSession {

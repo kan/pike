@@ -7,7 +7,6 @@ use config::ClaudeAccount;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -328,10 +327,10 @@ impl UsageAccumulator {
         let Ok(file) = fs::File::open(jsonl_path) else {
             return;
         };
-        for line in BufReader::new(file).lines() {
-            let Ok(line) = line else { continue };
-            self.add_line(&line);
-        }
+        crate::types::for_each_line(file, |line| {
+            self.add_line(line);
+            true
+        });
     }
 
     fn finish(self) -> HashMap<String, TokenCounts> {

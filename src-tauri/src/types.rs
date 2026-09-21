@@ -148,11 +148,10 @@ pub fn augment_process_path() {
 }
 
 /// `dir` が `current` に無ければ末尾に足した PATH を返す（あれば `None`）。
-/// 一致は `hooks.nsi` と同じく大小無視・末尾の `\` を無視する（`normalize_win_path`）。
+/// 一致は `hooks.nsi` と同じく大小無視・末尾の `\` を無視する（`win_path_eq`）。
 #[cfg(windows)]
 fn path_with_dir(current: &str, dir: &str) -> Option<String> {
-    let target = normalize_win_path(dir);
-    if current.split(';').any(|e| normalize_win_path(e) == target) {
+    if current.split(';').any(|e| win_path_eq(e, dir)) {
         return None;
     }
     let mut next = current.trim_end_matches(';').to_owned();
@@ -963,6 +962,55 @@ pub fn into_lossy_string(bytes: Vec<u8>) -> String {
     String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
+/// 1 行ずつ読む。**バッファを 1 本使い回す**（#382）。
+///
+/// **`BufReader::lines()` を使わないこと。** あれは行ごとに `String` を確保する。
+/// ここを通るのは使用量の集計（Claude の稼働中セッションの JSONL は数 MB・数万行まで
+/// 育つうえ、30 秒ごとのポーリングで舐め直す）と、WSL の `inotifywait` の出力
+/// （ビルド 1 回で数千行が流れる）。しかも大半は `contains` の前置フィルタや
+/// 区切りの検査で即座に捨てられるので、確保したぶんはほぼそのまま無駄になる。
+///
+/// **ファイルにも子プロセスの stdout にも使う**ので `impl Read` で受ける。
+///
+/// `on_line` が `false` を返したら止める（先頭だけ読む利用者のため）。行末の改行は
+/// 落として渡す（`lines()` と同じく `\r\n` も）。
+///
+/// **UTF-8 として読めない行も渡す**（置換文字を入れた形で）。**飛ばさないのが要点**:
+/// 読んだ量を数えているのは閉包の側なので、飛ばすとその行が 1 バイトも数えられず、
+/// 呼び出し側のバイト上限が上限でなくなる（壊れた行を多く含むファイルで、`read_session`
+/// が 1MB の枠を超えて末尾まで読む形になっていた）。読めない行は `contains` にも
+/// `from_str` にも当たらないので、渡しても捨てられるだけ。**打ち切りもしない**:
+/// 壊れたバイトが 1 本混ざっただけでファイルの残りが集計から消えるのは割に合わない。
+/// 子プロセスの出力を `into_lossy_string` で受けているのと同じ判断。
+///
+/// **読む量の上限は持たない。** 要る利用者が `read += line.len() + 1` で数えて `false` を
+/// 返す（3 か所が同じ 2 行を持つ）。ここへ移すと「上限をまたいだ 1 行を処理するか」が
+/// 全員で揃ってしまい、いま揃っていない（`copilot` は捨て、`sessions` は処理する）ぶんの
+/// 挙動が変わる。4MB の枠に対して 1 行の差なので実害は無いが、確保を減らす変更で
+/// 挙動を動かす理由が無い。
+///
+/// **`?` で関数ごと抜けたい読み手は `lines()` のままでよい。** 閉包の中からは
+/// 関数を抜けられないので、旗に置き換えることになって読みにくくなる
+/// （例: `codex_usage` の `session_head`。あちらは先頭 256KB だけを読む）。
+pub fn for_each_line(source: impl Read, mut on_line: impl FnMut(&str) -> bool) {
+    let mut reader = BufReader::new(source);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        // `read_line` ではなく `read_until`。あちらは読めないバイトを `Err` にして
+        // 消費した行数を捨てるので、上の「渡す」が書けない。
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {}
+        }
+        // 正常な UTF-8 なら `Cow::Borrowed`（確保ゼロ）。読めない行のときだけ作り直す。
+        let line = String::from_utf8_lossy(&buf);
+        if !on_line(line.trim_end_matches(['\n', '\r'])) {
+            return;
+        }
+    }
+}
+
 /// Spawn a prepared Command, wait up to 30 s, and return stdout on success.
 fn spawn_stdout(cmd: Command, label: &str) -> Result<String, String> {
     let output = spawn_with_timeout(cmd, label, DEFAULT_TIMEOUT)?;
@@ -1026,8 +1074,34 @@ pub fn cwd_matches_root(shell: &ShellConfig, cwd: &str, root: &str) -> bool {
     if shell.is_posix() {
         cwd.trim_end_matches('/') == root.trim_end_matches('/')
     } else {
-        normalize_win_path(cwd) == normalize_win_path(root)
+        win_path_eq(cwd, root)
     }
+}
+
+/// Windows のパス 2 つが同じ場所を指すか。**文字列を作らずに比べる**（#382）。
+///
+/// `normalize_win_path` を両辺に掛けると 1 回の比較で `String` が 4 本できる
+/// （`replace` と `to_lowercase` がそれぞれ 1 本ずつ）。ここは使用量の集計が記録の件数だけ
+/// 回すところで、POSIX 側は元から無確保なので、**同じ問いの 2 つの腕で確保が揃っていない**
+/// という形でもあった。
+///
+/// ASCII なら畳んで比べ、そうでなければこれまでどおり作って比べる。`to_lowercase` は
+/// Unicode の規則（ギリシャ語の語末シグマなど）を持つので、**非 ASCII の答えは変えない**。
+///
+/// **「配下か」を見る `cwd_under_root` は確保する側のまま。** あちらは一致ではなく
+/// 残りが要る（`starts_with_segment` に渡す）ので、同じ畳み方では書けない。呼ぶのは
+/// hook の申告の突き合わせで、件数は集計側よりずっと少ない。
+fn win_path_eq(a: &str, b: &str) -> bool {
+    let a = a.trim_end_matches(['/', '\\']);
+    let b = b.trim_end_matches(['/', '\\']);
+    if a.is_ascii() && b.is_ascii() {
+        let sep = |c: u8| if c == b'/' { b'\\' } else { c };
+        return a.len() == b.len()
+            && a.bytes()
+                .zip(b.bytes())
+                .all(|(x, y)| sep(x).eq_ignore_ascii_case(&sep(y)));
+    }
+    normalize_win_path(a) == normalize_win_path(b)
 }
 
 /// エポック秒。時計が壊れているときは 0（比較に使うだけで、0 なら「最も古い」）。
@@ -1496,6 +1570,48 @@ mod tests {
             ("/a", "/b", '/', false),
         ] {
             assert_eq!(starts_with_segment(s, prefix, sep), want, "{s} / {prefix}");
+        }
+    }
+
+    /// **壊れた 1 行でファイルの残りを捨てない**（#382）。使用量の集計がこれを通るので、
+    /// 打ち切るとトークン合計が黙って下振れする。
+    ///
+    /// **飛ばさずに渡す**のも要点で、読んだ量を数えているのは閉包の側。飛ばすと
+    /// その行が数えられず、呼び出し側のバイト上限が効かなくなる。
+    #[test]
+    fn undecodable_lines_are_passed_through_not_fatal() {
+        let data: &[u8] = b"first\n\xff\xfe bad\nthird\n";
+        let mut seen = Vec::new();
+        for_each_line(data, |line| {
+            seen.push(line.to_owned());
+            true
+        });
+        assert_eq!(seen.len(), 3, "壊れた行も 1 行として届く: {seen:?}");
+        assert_eq!(seen[0], "first");
+        assert_eq!(seen[2], "third");
+        assert!(
+            seen[1].ends_with(" bad"),
+            "読めたところは残る: {:?}",
+            seen[1]
+        );
+    }
+
+    /// Windows のパスの突き合わせ（#382）。**確保を減らしても答えを変えない**ことを、
+    /// ASCII の速い腕と非 ASCII の腕の両方で見る。
+    #[test]
+    fn win_paths_match_regardless_of_separator_and_case() {
+        for (a, b, want) in [
+            (r"C:\src\Pike", r"c:/src/pike", true),
+            (r"C:\src\pike\", r"C:\src\pike", true),
+            (r"C:\src\pike", r"C:\src\pike2", false),
+            (r"C:\src\pike", r"C:\src\pik", false),
+            // 非 ASCII は `to_lowercase` の腕へ落ちる（答えは従来どおり）。
+            (r"C:\ユーザー\Pike", r"c:/ユーザー/pike", true),
+            (r"C:\ユーザー\pike", r"C:\ユーザー\pike2", false),
+        ] {
+            assert_eq!(win_path_eq(a, b), want, "{a} / {b}");
+            // 対称であること（片方の腕にしか通らない組を作らない）。
+            assert_eq!(win_path_eq(b, a), want, "{b} / {a}");
         }
     }
 }

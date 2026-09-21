@@ -3,7 +3,6 @@ use crate::types::{silent_command, ShellConfig};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -296,18 +295,16 @@ fn start_wsl_watcher(
     spawn_flush_thread(buffer.clone(), stop_flag.clone(), app, id.clone());
 
     std::thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            let line = match line {
-                Ok(l) => l,
-                Err(_) => break,
+        // 1 行ずつ、バッファを使い回して読む（#382）。ビルド 1 回で数千行が流れるうえ、
+        // 区切りを持たない行はその場で捨てる。
+        crate::types::for_each_line(stdout, |line| {
+            // **`splitn(2).collect::<Vec<_>>()` にしないこと。** 1 行につきヒープ確保が
+            // 1 回増えて、行ごとの `String` を消した意味が半分になる。
+            let Some((path, event)) = line.split_once('|') else {
+                return true;
             };
-            let parts: Vec<&str> = line.splitn(2, '|').collect();
-            if parts.len() != 2 {
-                continue;
-            }
-            let file_path = parts[0].to_owned();
-            let event_str = parts[1].to_uppercase();
+            let file_path = path.to_owned();
+            let event_str = event.to_uppercase();
 
             let kind = if event_str.contains("CREATE") || event_str.contains("MOVED_TO") {
                 ChangeKind::Create
@@ -316,7 +313,7 @@ fn start_wsl_watcher(
             } else if event_str.contains("MODIFY") {
                 ChangeKind::Modify
             } else {
-                continue;
+                return true;
             };
 
             let parent = if let Some(pos) = file_path.rfind('/') {
@@ -333,7 +330,8 @@ fn start_wsl_watcher(
                     kind,
                 },
             );
-        }
+            true
+        });
         let _ = child.wait();
     });
 

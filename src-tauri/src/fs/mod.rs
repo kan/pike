@@ -148,11 +148,10 @@ pub fn walk_files_by_name(
                 .unwrap_or_default()
         }
         _ => {
-            let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
             let mut results = Vec::new();
             walk_native(
                 std::path::Path::new(root),
-                &lower,
+                names,
                 max_depth,
                 0,
                 &mut results,
@@ -162,9 +161,12 @@ pub fn walk_files_by_name(
     }
 }
 
+/// `names` は探すファイル名（大小は問わない）。**小文字に揃えて渡す必要は無い**（#382）:
+/// 比較は `eq_ignore_ascii_case` なので、呼ぶ側で `to_lowercase` の Vec を作るのは
+/// 死んだ仕事だった。
 fn walk_native(
     dir: &std::path::Path,
-    lower_names: &[String],
+    names: &[&str],
     max_depth: u32,
     depth: u32,
     results: &mut Vec<String>,
@@ -176,13 +178,22 @@ fn walk_native(
         return;
     };
     for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
+        // **名前で `String` を作らない**（#382）。`to_string_lossy()` は正常な UTF-8 なら
+        // `Cow::Borrowed` を返すので、`.to_string()` を付けた時点で写しが 1 本、
+        // `to_lowercase()` でもう 1 本増える。ここはタスク検出と compose 探索が深さ 5 まで
+        // 歩く経路で、実リポジトリでは 5,000〜50,000 エントリになる。
+        // （`file_name()` が返す `OsString` だけは `DirEntry` の仕様で避けられない。）
+        let raw = entry.file_name();
+        let name = raw.to_string_lossy();
         if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            if IGNORED_DIRS.contains(&name.as_str()) {
+            if IGNORED_DIRS.contains(&name.as_ref()) {
                 continue;
             }
-            walk_native(&entry.path(), lower_names, max_depth, depth + 1, results);
-        } else if lower_names.contains(&name.to_lowercase()) {
+            walk_native(&entry.path(), names, max_depth, depth + 1, results);
+        } else if names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+            // 探す名前（`package.json` / `Makefile` / `Cargo.toml` …）はすべて ASCII なので、
+            // 大小の畳み方を ASCII に閉じてよい。非 ASCII のファイル名は、どちらの畳み方でも
+            // これらと一致しない。
             if let Some(p) = entry.path().to_str() {
                 results.push(p.to_owned());
             }

@@ -15,7 +15,6 @@
 //! 走査の打ち切りと窓の考え方は `codex_usage` と揃えてある（あちらの doc が正本）。
 
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
@@ -67,28 +66,28 @@ fn parse_events(path: &Path, head_only: bool) -> Option<Session> {
     let file = fs::File::open(path).ok()?;
     let mut out = Session::default();
     let mut read = 0u64;
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
+    crate::types::for_each_line(file, |line| {
         read += line.len() as u64 + 1;
         if read > MAX_EVENTS_BYTES {
-            break;
+            return false;
         }
         if head_only && out.had_turn && out.cwd.is_some() && !out.title.is_empty() {
-            break;
+            return false;
         }
         // 行の型を先に見て、要らない行は JSON にすら起こさない（1 行が数十 KB になる
         // ことがある。`session.usage_checkpoint` はツールの一覧まで抱えている）。
         if line.contains("\"assistant.turn_start\"") {
             out.had_turn = true;
-            continue;
+            return true;
         }
         let is_start = line.contains("\"session.start\"");
         let is_usage = line.contains("\"session.usage_checkpoint\"");
         let is_user = out.title.is_empty() && line.contains("\"user.message\"");
         if !is_start && !is_usage && !is_user {
-            continue;
+            return true;
         }
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
-            continue;
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            return true;
         };
         let data = &v["data"];
         if is_start {
@@ -104,7 +103,8 @@ fn parse_events(path: &Path, head_only: bool) -> Option<Session> {
             // `<current_datetime>…` などを前置した加工後の文字列で、一覧がその字面で埋まる。
             out.title = crate::agent_sessions::shorten(text);
         }
-    }
+        true
+    });
     Some(out)
 }
 
