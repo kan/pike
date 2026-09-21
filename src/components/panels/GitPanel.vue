@@ -645,6 +645,12 @@ onMounted(refreshIfActive)
 onUnmounted(() => {
   if (tooltipTimer) clearTimeout(tooltipTimer)
   logEndObserver.disconnect()
+  // **`disconnect()` だけでは足りない**（#374）。最後の `isIntersecting: false` は配られない
+  // ので、`logEndVisible` は true のまま残る。読み込みの最中にパネルを閉じると、飛んでいる
+  // `git log` が返ったところでループが再開し、`logHasMore` が false になるまで
+  // `git log -n <limit>` を走らせ続ける（`loadMoreLog` は毎回先頭から取り直すので、
+  // 5 万コミットの repo なら 250 回ぶんの spawn。WSL では毎回 `wsl.exe` が上がる）。
+  logEndVisible = false
 })
 </script>
 

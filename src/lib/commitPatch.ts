@@ -64,7 +64,11 @@ export function parsePatch(raw: string): PatchFile[] {
   let newNum = 0
   let inHunks = false
 
-  for (const line of raw.split('\n')) {
+  const rawLines = raw.split('\n')
+  // パッチ終端の改行が作る空要素は、ここで 1 個だけ落とす。残すと下の「空行は context 行」に
+  // 当たって、実在しない行が 1 つ増える。
+  if (rawLines[rawLines.length - 1] === '') rawLines.pop()
+  for (const line of rawLines) {
     if (line.startsWith('diff --git ')) {
       file = { path: pathFromHeader(line), oldPath: null, status: 'M', binary: false, added: 0, removed: 0, lines: [] }
       files.push(file)
@@ -114,8 +118,13 @@ export function parsePatch(raw: string): PatchFile[] {
       file.removed++
     } else if (line.startsWith(' ')) {
       file.lines.push({ type: 'ctx', oldNum: oldNum++, newNum: newNum++, text: line.slice(1) })
+    } else if (line === '') {
+      // **空行を捨てないこと**（#374）。「context 行は必ず先頭に空白を持つ」は
+      // `diff.suppressBlankEmpty=true` では成り立たず、空の context 行が裸の空行で出る。
+      // 捨てると `oldNum` / `newNum` が進まないまま、**そのハンク以降の行番号が空行の数だけ
+      // ずれる**（表示が崩れるのではなく、黙って誤った番号になる）。
+      file.lines.push({ type: 'ctx', oldNum: oldNum++, newNum: newNum++, text: '' })
     }
-    // 空行（末尾の改行が作るもの）は捨てる。context 行は必ず先頭に空白を持つ。
   }
   return files
 }
