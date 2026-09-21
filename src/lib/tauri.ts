@@ -702,6 +702,11 @@ export async function browserNavigate(label: string, url: string): Promise<void>
   return invoke('browser_navigate', { label, url })
 }
 
+/** 今いるページの URL。ページの中の移動を拾うために定期的に引く（#368）。 */
+export async function browserUrl(label: string): Promise<string> {
+  return invoke('browser_url', { label })
+}
+
 export type BrowserHistoryAction = 'back' | 'forward' | 'reload'
 
 export async function browserHistory(label: string, action: BrowserHistoryAction): Promise<void> {

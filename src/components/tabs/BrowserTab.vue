@@ -13,8 +13,10 @@ import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, Settings, Smartphone, St
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { type BrowserHandlers, browserRouter } from '../../composables/useBrowserRouter'
 import { dialogOpen } from '../../composables/useConfirmDialog'
+import { useFocusPolling } from '../../composables/useFocusPolling'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useI18n } from '../../i18n'
+import { isWebUrl } from '../../lib/format'
 import { normalizeWebUrl, openUrlWithConfirm } from '../../lib/openUrl'
 import {
   type BrowserBounds,
@@ -25,6 +27,7 @@ import {
   browserNavigate,
   browserOpen,
   browserPlace,
+  browserUrl,
   type SiteRulePayload,
 } from '../../lib/tauri'
 import { useBrowserStore } from '../../stores/browser'
@@ -57,6 +60,17 @@ let label = newLabel()
 const viewRef = useTemplateRef<HTMLElement>('viewRef')
 const addressRef = useTemplateRef<HTMLInputElement>('addressRef')
 const address = ref(tab.value?.url ?? '')
+/**
+ * アドレス欄を打ちかけか（#368）。**打ちかけのあいだは移動してきた URL で上書きしない。**
+ * 重いページを開いたまま次の URL を打ち始めると、最初のページの読み込みが終わった時点で
+ * 打った文字列が消えていた。既定で有効な Jira の自動リロード（`jira/machinery.js`）でも
+ * 同じことが起きる。
+ *
+ * 戻すのは `Escape`（今いるページの URL に戻す）と、移動を始めた `go()` の 2 つだけ。
+ * フォーカスの有無では見ない: 候補の一覧（`<datalist>`）を選ぶあいだにフォーカスが
+ * 外れることがある。
+ */
+const addressEdited = ref(false)
 const error = ref<string | null>(null)
 /**
  * 子 webview の状態。**作っている途中（`creating`）を別に持つ**: 作り終える前に位置や表示を
@@ -241,6 +255,46 @@ function recreate() {
   scheduleSync()
 }
 
+/**
+ * 移動してきた URL を反映する（タブ・アドレス欄・閲覧履歴）。
+ *
+ * **入口は 2 つ**: 読み込みの完了（`onState` の `url`）と、ページの中の移動を拾う
+ * ポーリング（`pollUrl`）。同じ URL で 2 度来ても `recordVisit` が URL で畳む。
+ *
+ * **http(s) か確かめてから採る**。`webview.url()` はその瞬間のもので、ページが
+ * `blob:` や `about:blank` にいることがある。ここで入れた値は `snapshotSession` で
+ * `project.json` に残り、復元のときに `browser_open` へ返るので、そのまま採ると
+ * 開けないタブになる。
+ */
+function applyUrl(url: string) {
+  if (!tab.value || url === tab.value.url || !isWebUrl(url)) return
+  tab.value.url = url
+  if (!addressEdited.value) address.value = url
+  // タイトルは読み込みの途中で先に届くことが多いので、その時点のタブの名前を使う。
+  browserStore.recordVisit(url, tab.value.title)
+}
+
+/**
+ * ページの中の移動（`history.pushState`）を拾う（#368）。
+ *
+ * **イベントでは届かない**。`on_page_load` も `on_navigation` も文書の読み込みを伴う
+ * 遷移でしか発火せず、ページ側から知らせる手も無い（子 webview は capability の
+ * 対象外なので `invoke` が通らない）。理由の詳細は `browser_url` の doc が正本。
+ *
+ * ウィンドウがアクティブで、このタブが描かれているあいだだけ引く（`useFocusPolling`）。
+ */
+const urlPoll = useFocusPolling([
+  {
+    every: 1000,
+    tick: () => {
+      if (state !== 'ready') return
+      void browserUrl(label)
+        .then(applyUrl)
+        .catch(() => {})
+    },
+  },
+])
+
 const routerHandlers: BrowserHandlers = {
   onState: ({ url, title, titleUrl }) => {
     if (!tab.value) return
@@ -250,12 +304,7 @@ const routerHandlers: BrowserHandlers = {
       // **`tab.value.url` を使わない**: 読み込みの途中ではまだ前のページを指している。
       if (titleUrl) browserStore.setTitle(titleUrl, title)
     }
-    if (url) {
-      tab.value.url = url
-      address.value = url
-      // タイトルは読み込みの途中で先に届くことが多いので、その時点のタブの名前を使う。
-      browserStore.recordVisit(url, tab.value.title)
-    }
+    if (url) applyUrl(url)
   },
   // ページが新しいウィンドウを開こうとした（`target=_blank` など）。ポップアップは Rust が
   // WebView2 に任せ、ここへ来るのは普通のリンクだけ。同じ URL のタブがあっても新しく開く
@@ -280,8 +329,13 @@ onMounted(() => {
   browserRouter.register(label, routerHandlers)
 })
 
+// 描かれているあいだだけ引く。`shown` はダイアログや QuickOpen で隠したときも false に
+// なるが、そのときもページは動いていないので止めてよい。
+watch(shown, (visible) => (visible ? urlPoll.start() : urlPoll.stop()), { immediate: true })
+
 onUnmounted(() => {
   disposed = true
+  urlPoll.stop()
   observer?.disconnect()
   if (frame) cancelAnimationFrame(frame)
   if (cssTimer !== undefined) clearTimeout(cssTimer)
@@ -292,6 +346,8 @@ onUnmounted(() => {
 
 async function go() {
   if (!address.value.trim() || !tab.value) return
+  // 打ちかけはここで確定する。以後は移動してきた URL で上書きしてよい。
+  addressEdited.value = false
   const url = normalizeWebUrl(address.value)
   if (state !== 'ready') {
     // まだ作れていない（最初の URL が読めずに失敗した、など）。打ち直した URL で作り直す。
@@ -352,8 +408,16 @@ const suggestions = computed(() => {
  * `insertText`）。入った値が候補の URL と一致するときだけにする。
  */
 function onAddressInput(e: Event) {
+  addressEdited.value = true
   if ((e as InputEvent).inputType !== 'insertReplacementText') return
   if (suggestions.value.some((s) => s.url === address.value)) void go()
+}
+
+/** 打ちかけを捨てて、今いるページの URL に戻す。 */
+function revertAddress() {
+  addressEdited.value = false
+  address.value = tab.value?.url ?? ''
+  addressRef.value?.blur()
 }
 
 /**
@@ -398,6 +462,7 @@ function openExternal() {
         :list="suggestId"
         :placeholder="t('browser.addressPlaceholder')"
         @keydown.enter="go"
+        @keydown.esc.stop="revertAddress"
         @input="onAddressInput"
       />
       <datalist :id="suggestId">

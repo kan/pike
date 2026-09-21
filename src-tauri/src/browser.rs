@@ -9,9 +9,21 @@
 //! フロントが決め、ここは言われたとおりに動かすだけにする（`BrowserTab.vue` が
 //! `getBoundingClientRect` を測って送る）。
 //!
-//! **外部のページに IPC は開かない。** capability は既定でローカルの origin にしか
-//! 効かない（`remote.urls` を書いていない）ので、ここで作る webview から `invoke` は
-//! 通らない。
+//! **外部のページに IPC は開かない。** 守りは 2 枚ある。
+//!
+//! 1. **`capabilities/default.json` が `windows` ではなく `webviews` で絞る**（#368）。
+//!    あそこの判定は `resolve_access` の
+//!    `cmd.webviews.any(matches(webview)) || cmd.windows.any(matches(window))` で、
+//!    **`windows` はウィンドウの中の子 webview まで丸ごと通す**。`WebviewWindowBuilder`
+//!    はウィンドウと webview に同じラベルを付けるので、`webviews` に移すだけで Pike
+//!    本体（`main` / `project-*` / `global-*`）はそのまま通り、ここで作る
+//!    `browser-{uuid}` は**オリジンに関わらず**対象から外れる。**`webviews` は絞り込み
+//!    ではなく OR で足す側**なので、`windows` を残したまま併記しても意味が無い
+//! 2. `AppOrigin` が、そもそも Pike 自身のオリジンへ移動させない
+//!
+//! 1 だけで足りるが、2 も残す。capability は tauri の版で意味が変わりうるうえ、
+//! アドレス欄に打った利用者にはエラーを見せたほうが親切（1 だけだと、権限の無い
+//! Pike の画面がそのまま開く）。
 //!
 //! コマンドは全部 `async`。`add_child` はメインスレッドに作らせて結果を待つので、
 //! 同期コマンド（＝メインスレッド）から呼ぶとデッドロックする（`build_window` と同じ）。
@@ -66,13 +78,69 @@ fn check_label(label: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// tauri がアプリ本体を配信するホスト。**Windows と Android では独自プロトコルが
+/// `http(s)://tauri.localhost` に載る**ので、http(s) しか通さない検査では素通りする
+/// （`tauri::manager` の `tauri_protocol_url`）。
+const APP_HOST: &str = "tauri.localhost";
+
+/// **Pike 自身のオリジンへは移動させない**（#368。モジュール doc の守りの 2 枚目）。
+///
+/// **入口は 2 つあり、両方を塞ぐ**: アドレス欄から来るコマンド（`parse_web_url`）と、
+/// ページ自身の遷移（`location = …`。`on_navigation` で見る。Rust のコマンドを一度も
+/// 通らないので、コマンド側だけを塞いでも意味が無い）。
+///
+/// 判定は `contains` の 1 か所に置く。**入口を数え上げる防御は取りこぼす**ので、
+/// 本命は capability の側（モジュール doc の 1 枚目）。
+/// `Default` は製品ビルドの形（`dev` 無し）と同じなので、テストはそれを突く。
+#[derive(Default)]
+struct AppOrigin {
+    /// 開発ビルドの配信元（Vite の `devUrl`）。そちらも `is_local_url` は
+    /// 「ローカル」と見なす。
+    dev: Option<Url>,
+}
+
+impl AppOrigin {
+    fn of(app: &AppHandle) -> Self {
+        Self {
+            // **`cfg!(dev)` で囲うこと。** `devUrl` は配布版の埋め込み設定にも残る
+            // （`tauri-codegen` はアセットの選び分けに使うだけで、設定からは落とさない）。
+            // 囲わないと、製品版で `http://localhost:1420` を開こうとしたときに
+            // 「Pike 自身のオリジン」として誤って拒否する。
+            dev: cfg!(dev)
+                .then(|| app.config().build.dev_url.clone())
+                .flatten(),
+        }
+    }
+
+    fn contains(&self, url: &Url) -> bool {
+        if url.host_str() == Some(APP_HOST) {
+            return true;
+        }
+        self.dev.as_ref().is_some_and(|dev| {
+            dev.host_str() == url.host_str()
+                && dev.port_or_known_default() == url.port_or_known_default()
+        })
+    }
+}
+
 /// 開けるのは http(s) だけ（`open_url` と同じ線引き。`file:` や `javascript:` を通さない）。
-fn parse_web_url(url: &str) -> Result<Url, String> {
+fn check_web_url(url: &str) -> Result<Url, String> {
     let parsed = Url::parse(url.trim()).map_err(|e| e.to_string())?;
     match parsed.scheme() {
-        "http" | "https" => Ok(parsed),
-        other => Err(format!("unsupported scheme: {other}")),
+        "http" | "https" => {}
+        other => return Err(format!("unsupported scheme: {other}")),
     }
+    Ok(parsed)
+}
+
+const APP_ORIGIN_REFUSED: &str = "refusing to open Pike's own origin";
+
+fn parse_web_url(origin: &AppOrigin, url: &str) -> Result<Url, String> {
+    let parsed = check_web_url(url)?;
+    if origin.contains(&parsed) {
+        return Err(APP_ORIGIN_REFUSED.to_owned());
+    }
+    Ok(parsed)
 }
 
 /// タブの中身の矩形。ウィンドウの client 領域の CSS ピクセル（＝論理ピクセル）。
@@ -132,7 +200,8 @@ pub async fn browser_open(
     jira: bool,
 ) -> Result<(), String> {
     check_label(&label)?;
-    let url = parse_web_url(&url)?;
+    let origin = AppOrigin::of(&app);
+    let url = parse_web_url(&origin, &url)?;
     let opener_label = label.clone();
     let window_label = window.label().to_owned();
     let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(url));
@@ -153,6 +222,11 @@ pub async fn browser_open(
         builder = builder.initialization_script(site_rules::css_script(&rules));
     }
     let builder = builder
+        // **ページ自身の遷移（`location = …`）はコマンドを通らない。** アドレス欄の
+        // 経路（`parse_web_url`）だけを塞いでも、ここが開いていれば同じことができる。
+        // スキームは見ない（`blob:` や `about:blank` は普通のページの動きで、止めると
+        // 壊れる）。弾くのは Pike 自身のオリジンだけ。
+        .on_navigation(move |url| !origin.contains(url))
         .on_new_window(move |url, features| {
             // **ポップアップかどうかは大きさの指定の有無でしか見分けられない。** WebView2 が
             // 知らせるのは `window.open` の第 3 引数の位置と大きさで、`target=_blank` の
@@ -222,9 +296,29 @@ pub async fn browser_place(
 
 #[tauri::command]
 pub async fn browser_navigate(app: AppHandle, label: String, url: String) -> Result<(), String> {
-    let url = parse_web_url(&url)?;
+    let url = parse_web_url(&AppOrigin::of(&app), &url)?;
     webview(&app, &label)?
         .navigate(url)
+        .map_err(|e| e.to_string())
+}
+
+/// 今いるページの URL（WebView2 の `Source`）。
+///
+/// **ページの中の移動（`history.pushState`）を拾う唯一の手**（#368）。イベントでは
+/// 届かない: `on_page_load` も `on_navigation` も**文書の読み込みを伴う遷移でしか
+/// 発火しない**（WebView2 の `NavigationStarting` / `NavigationCompleted`）。
+/// `on_document_title_changed` に相乗りする形も試したが、**契機がページ側の都合**に
+/// なる（タイトルを変えないサイトでは何も起きず、pushState より先にタイトルを変える
+/// サイトでは前のページの URL を拾う）。`Source` のほうは pushState で更新されるので、
+/// 契機だけをこちらから作る。
+///
+/// 差し込むスクリプトから知らせる形は採れない。ブラウザのタブの子 webview は
+/// capability の対象外なので（モジュール doc）、ページから `invoke` は通らない。
+#[tauri::command]
+pub async fn browser_url(app: AppHandle, label: String) -> Result<String, String> {
+    webview(&app, &label)?
+        .url()
+        .map(|u| u.to_string())
         .map_err(|e| e.to_string())
 }
 
@@ -265,9 +359,23 @@ mod tests {
 
     #[test]
     fn only_web_schemes() {
-        assert!(parse_web_url("https://example.atlassian.net/browse/X-1").is_ok());
-        assert!(parse_web_url(" http://localhost:3000 ").is_ok());
-        assert!(parse_web_url("file:///C:/Windows").is_err());
-        assert!(parse_web_url("javascript:alert(1)").is_err());
+        assert!(check_web_url("https://example.atlassian.net/browse/X-1").is_ok());
+        assert!(check_web_url(" http://localhost:3000 ").is_ok());
+        assert!(check_web_url("file:///C:/Windows").is_err());
+        assert!(check_web_url("javascript:alert(1)").is_err());
+    }
+
+    /// Pike 自身の配信オリジンへは移動させない（#368）。**スキームの検査だけでは
+    /// 止まらない**のが要点で、Windows の独自プロトコルは http に載る。
+    /// 製品ビルドでは `dev` が無いので `AppOrigin::default()` が実物と同じ形になる。
+    #[test]
+    fn refuses_the_app_origin() {
+        let refused = |u: &str| AppOrigin::default().contains(&Url::parse(u).unwrap());
+        assert!(refused("http://tauri.localhost/"));
+        assert!(refused("https://tauri.localhost/index.html"));
+        // 普通の localhost は通す（Docker のポートフォワードや開発中のサーバー）。
+        assert!(!refused("http://localhost:3000"));
+        // ホスト名の一部に含むだけのものは別物。
+        assert!(!refused("https://tauri.localhost.example.com/"));
     }
 }

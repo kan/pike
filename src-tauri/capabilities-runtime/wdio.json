@@ -1,7 +1,7 @@
 {
   "identifier": "wdio",
   "description": "WebDriver E2E automation permissions (issue #142). Registered at runtime in debug builds only via add_capability; never present in release.",
-  "windows": [
+  "webviews": [
     "main",
     "project-*",
     "global-*"

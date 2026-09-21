@@ -67,6 +67,10 @@ export async function openUrlWithConfirm(url: string): Promise<void> {
  * **`openUrlWithConfirm` の中で loopback を無条件に承認済み扱いにする形は採らない。**
  * README に書かれた `http://127.0.0.1:9999/` のような文書由来のリンクまで無確認になる。
  */
+export async function openLocalTunnel(port: number): Promise<void> {
+  await openUrl(`http://127.0.0.1:${port}/`)
+}
+
 /**
  * ブラウザのタブ（#368）に打ち込まれた文字列を URL にする。スキームを省いたもの
  * （`example.atlassian.net`）には `https://` を補う。開けるかどうかの判定は Rust の
@@ -78,10 +82,6 @@ export async function openUrlWithConfirm(url: string): Promise<void> {
 export function normalizeWebUrl(value: string): string {
   const v = value.trim()
   return /^https?:\/\//i.test(v) ? v : `https://${v}`
-}
-
-export async function openLocalTunnel(port: number): Promise<void> {
-  await openUrl(`http://127.0.0.1:${port}/`)
 }
 
 /**

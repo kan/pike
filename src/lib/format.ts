@@ -68,11 +68,6 @@ export function estimateOpenAICost(model: string, inputTokens: number, outputTok
 }
 
 /**
- * URL を画面に出すときのホスト（ポート付き、#368）。読めない URL は素のまま返す。
- * ブラウザのタブの既定の名前とブラウザパネルのホスト欄が同じものを出すための 1 か所。
- * 承認の鍵に使う `lib/openUrl.ts` の `httpHost`（ポートを見ない・小文字化する）とは用途が違う。
- */
-/**
  * ブラウザのタブで開ける URL か（http(s) として読めるか）。**前方一致の正規表現で代えない**:
  * 大小の扱いが割れるうえ、`https://` で始まるだけの読めない文字列を通してしまう。
  */
@@ -85,6 +80,11 @@ export function isWebUrl(url: string): boolean {
   }
 }
 
+/**
+ * URL を画面に出すときのホスト（ポート付き、#368）。読めない URL は素のまま返す。
+ * ブラウザのタブの既定の名前とブラウザパネルのホスト欄が同じものを出すための 1 か所。
+ * 承認の鍵に使う `lib/openUrl.ts` の `httpHost`（ポートを見ない・小文字化する）とは用途が違う。
+ */
 export function displayHost(url: string): string {
   try {
     return new URL(url).host || url

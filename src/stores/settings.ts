@@ -658,13 +658,20 @@ function splitDomains(domains: string): string[] {
 }
 
 /**
- * ページへ差し込むルール（有効で、ドメインが 1 つ以上あるもの）。ドメインは空白とカンマで
- * 分けて `normalizeDomain` を通す。Rust の `site_rules::SiteRule` と同じ形。
+ * ページへ差し込むルール（有効で、ドメインが 1 つ以上あり、**中身を持つ**もの）。
+ * ドメインは空白とカンマで分けて `normalizeDomain` を通す。Rust の
+ * `site_rules::SiteRule` と同じ形。
+ *
+ * **JS も CSS も空の行を含めないこと**（#368）。差し込むものが無いので Rust 側は元から
+ * 何もしないが、一覧に並ぶと `rulesKeyOf` が変わる。歯車から開いたときに
+ * `siteRuleForHost` が空の行を足すので、**ルールを見ただけで全ブラウザタブに
+ * 「開き直して反映」の帯が出て、押しても何も変わらないのにページが作り直されていた**。
  */
 export function activeSiteRules(rules: SiteRule[]): SiteRulePayload[] {
   return rules.flatMap((r) => {
     const domains = splitDomains(r.domains)
-    return r.enabled && domains.length ? [{ id: r.id, name: r.name, domains, js: r.js, css: r.css }] : []
+    const hasContent = r.js.trim() !== '' || r.css.trim() !== ''
+    return r.enabled && domains.length && hasContent ? [{ id: r.id, name: r.name, domains, js: r.js, css: r.css }] : []
   })
 }
 

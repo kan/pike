@@ -1900,6 +1900,7 @@ pub fn run() {
             browser::browser_place,
             browser::browser_apply_css,
             browser::browser_navigate,
+            browser::browser_url,
             browser::browser_history,
             browser::browser_close,
             git::git_status,
