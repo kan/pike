@@ -2105,12 +2105,14 @@ watch(
   },
 )
 
-function reloadExternal() {
-  externalChangeNotice.value = null
-  reopenWithEncoding(currentEncoding.value)
-}
-
-/** Reload the file from disk (header button). Confirms before discarding unsaved edits. */
+/**
+ * ディスクから読み直す。未保存の変更があれば先に確認する。
+ *
+ * **外部変更の警告バーもここを通す**（#385）。以前はバー専用に、確認しない同じ処理が
+ * 別にあった。バーは編集中のタブにしか出ず、すぐ隣に「上書き」と「無視」が並ぶので、
+ * 押し間違えるとその場で編集が消えていた。ヘッダのボタンは元から確認していたので、
+ * 同じ操作で挙動が割れてもいた。
+ */
 async function reloadFromDisk() {
   if (isDirty.value && !(await confirmDialog(t('editor.reloadDiscardConfirm')))) return
   externalChangeNotice.value = null
@@ -2320,7 +2322,7 @@ onUnmounted(() => {
     <div v-if="externalChangeNotice === 'modified'" class="notice-bar">
       <span>{{ t('editor.externalModified') }}</span>
       <div class="notice-actions">
-        <button @click="reloadExternal">{{ t('editor.reload') }}</button>
+        <button @click="reloadFromDisk">{{ t('editor.reload') }}</button>
         <button v-if="!isReadOnlyTab" @click="overwriteExternal">{{ t('editor.overwrite') }}</button>
         <button @click="dismissExternal">{{ t('editor.dismiss') }}</button>
       </div>
