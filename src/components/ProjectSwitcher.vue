@@ -1,24 +1,18 @@
 <script setup lang="ts">
 import { FolderOpen, Globe } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
+import { useAppActions } from '../composables/useAppActions'
 import { useI18n } from '../i18n'
-import { defaultProjectPlatform } from '../lib/host'
 import { chordLabel, hasMod } from '../lib/keys'
 import { useOverlay } from '../lib/overlay'
 import { fuzzyMatch } from '../lib/paths'
-import type { ProjectPlatform } from '../lib/projectPaths'
-import { detectWslDistros, openGlobalWindow, pickFolder } from '../lib/tauri'
+import { openGlobalWindow } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import { useSettingsStore } from '../stores/settings'
 import { useTabStore } from '../stores/tabs'
-import type { ProjectConfig } from '../types/project'
-import { buildShell, rootPlaceholder as rootPlaceholderFn, slugify, type WindowsShellKind } from '../types/tab'
 import ColorDot from './ColorDot.vue'
 import ProjectIcon from './ProjectIcon.vue'
-import ColorSelect from './panels/ColorSelect.vue'
-import IconSelect from './panels/IconSelect.vue'
-import ProjectPlatformFields from './panels/ProjectPlatformFields.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
@@ -26,14 +20,14 @@ const projectStore = useProjectStore()
 useOverlay(() => projectStore.showSwitcher)
 const settings = useSettingsStore()
 
-/** Open a directory without registering it as a project (#230). The pick itself
- *  answers "register this?", so the store records the root and nothing asks. */
-async function onOpenDirectory() {
-  const path = await pickFolder()
-  if (!path) return
-  projectStore.showSwitcher = false
-  await projectStore.openDirectory(path)
-}
+/**
+ * フォルダを選んで開く（#373。実体は `useAppActions`）。**登録するかは設定
+ * （`registerDirectory`）に従う**ので（#230）、ここに「登録する」ボタンは置かない。
+ *
+ * 以前はここに 7 項目の新規作成フォームがあったが、ルートを決めればプラットフォーム・
+ * distro・シェルは推測できるので落とした。登録だけを頼む入口はプロジェクトパネル。
+ */
+const { openDirectory: onOpenDirectory } = useAppActions()
 
 function enterGlobalMode() {
   projectStore.showSwitcher = false
@@ -97,83 +91,12 @@ const selectedIdx = computed(() => {
   return next === -1 ? 0 : next
 })
 
-// --- New project form ---
-const showNewForm = ref(false)
-const formName = ref('')
-const formRoot = ref('')
-const formPlatform = ref<ProjectPlatform>(defaultProjectPlatform())
-const formDistro = ref('Ubuntu')
-const formWindowsShell = ref<WindowsShellKind>('powershell')
-const formColor = ref<string | undefined>(undefined)
-const formIcon = ref<string | undefined>(undefined)
-const distros = ref<string[]>([])
-const distrosLoaded = ref(false)
-
-async function loadDistros() {
-  if (distrosLoaded.value) return
-  try {
-    distros.value = await detectWslDistros()
-    settings.syncShellProfiles(distros.value)
-    const visible = settings.visibleWslDistros(distros.value)
-    if (visible.length > 0) {
-      formDistro.value = visible[0]
-    }
-  } catch {
-    distros.value = ['Ubuntu']
-  }
-  distrosLoaded.value = true
-}
-
-// Dropdown options honor the shell profile visibility/order (#129); the
-// current selection stays listed so the select never loses its value.
-
-function openNewForm() {
-  formWindowsShell.value = settings.defaultWindowsShellKind()
-  showNewForm.value = true
-  loadDistros()
-}
-
-async function onCreateProject() {
-  const slug = slugify(formName.value)
-  if (!slug) return
-  const id = projectStore.uniqueProjectId(slug)
-
-  const config: ProjectConfig = {
-    id,
-    name: formName.value,
-    root: formRoot.value,
-    shell: buildShell(formPlatform.value, formDistro.value, formWindowsShell.value),
-    pinnedTabs: [],
-    lastOpened: new Date().toISOString(),
-    color: formColor.value,
-    icon: formIcon.value,
-  }
-
-  await projectStore.addProject(config)
-  // `placeProject`, not `openProject`: the root the user just typed may not
-  // exist yet and a brand-new project has no origin, so the missing-root check
-  // could only refuse to open what was asked for.
-  await projectStore.placeProject(id, globalMode.value ? 'window' : 'switch')
-  projectStore.showSwitcher = false
-  resetForm()
-}
-
 /** Open the picked project: global-mode windows stay project-less, so the
  *  project always goes to its own window there. */
 function selectProject(id: string, newWindow: boolean) {
   projectStore.showSwitcher = false
   // 今いるプロジェクトを選んだときに何もしないのは `openProject` の持ち物（#354）。
   projectStore.openProject(id, newWindow || globalMode.value ? 'window' : 'switch')
-}
-
-function resetForm() {
-  showNewForm.value = false
-  formName.value = ''
-  formRoot.value = ''
-  formPlatform.value = defaultProjectPlatform()
-  formWindowsShell.value = settings.defaultWindowsShellKind()
-  formColor.value = undefined
-  formIcon.value = undefined
 }
 
 // --- Lifecycle ---
@@ -192,15 +115,12 @@ watch(
       projectStore.checkRoots().catch(() => {})
       query.value = ''
       selectedId.value = null
-      resetForm()
       nextTick(() => inputRef.value?.focus())
     }
   },
 )
 
 function onKeyDown(e: KeyboardEvent) {
-  if (showNewForm.value) return // Let form handle its own keys
-
   if (e.key === 'Escape') {
     e.preventDefault()
     projectStore.showSwitcher = false
@@ -223,17 +143,13 @@ function onKeyDown(e: KeyboardEvent) {
     return
   }
 }
-
-const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value))
 </script>
 
 <template>
   <Teleport to="body">
     <div v-if="projectStore.showSwitcher" class="switcher-overlay ui-zoom" @mousedown.self="projectStore.showSwitcher = false">
       <div class="switcher popup-surface" data-testid="project-switcher">
-        <!-- Search bar (hidden when creating) -->
         <input
-          v-if="!showNewForm"
           ref="inputRef"
           v-model="query"
           class="switcher-input"
@@ -242,7 +158,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
         />
 
         <!-- Project list -->
-        <div v-if="!showNewForm" class="switcher-list">
+        <div class="switcher-list">
           <div
             v-for="(project, i) in filtered"
             :key="project.id"
@@ -267,8 +183,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
           </div>
         </div>
 
-        <!-- New project button -->
-        <div v-if="!showNewForm" class="switcher-footer">
+        <div class="switcher-footer">
           <div class="footer-hints">
             <span v-if="globalMode" class="hint">{{ t('projectSwitcher.enterOpenWindow') }}</span>
             <template v-else>
@@ -283,29 +198,7 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
             <button class="footer-btn" data-testid="switcher-open-directory" @click="onOpenDirectory">
               <FolderOpen :size="14" :stroke-width="2" />{{ t('projectSwitcher.openDirectory') }}
             </button>
-            <button class="footer-btn" data-testid="switcher-new-project" @click="openNewForm">{{ t('projectSwitcher.newProject') }}</button>
           </div>
-        </div>
-
-        <!-- New project form -->
-        <div v-if="showNewForm" class="new-form" data-testid="new-project-form">
-          <div class="new-form-header">
-            <span>{{ t('projectSwitcher.formTitle') }}</span>
-            <button class="back-btn" @click="resetForm">{{ t('common.back') }}</button>
-          </div>
-          <form class="new-form-body" @submit.prevent="onCreateProject">
-            <input v-model="formName" :placeholder="t('project.projectName')" required />
-            <input v-model="formRoot" :placeholder="formRootPlaceholder" required />
-            <ProjectPlatformFields
-              v-model:platform="formPlatform"
-              v-model:distro="formDistro"
-              v-model:win-shell="formWindowsShell"
-              :distros="distros"
-            />
-            <ColorSelect v-model="formColor" />
-            <IconSelect v-model="formIcon" />
-            <button type="submit" class="create-btn">{{ t('projectSwitcher.createAndOpen') }}</button>
-          </form>
         </div>
       </div>
     </div>
@@ -433,8 +326,8 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
 .footer-buttons {
   display: flex;
   gap: 6px;
-  /* Three buttons no longer fit one row at every UI zoom, and a label broken
-     mid-word reads worse than a second row. */
+  /* The labels do not fit one row at every UI zoom, and a label broken mid-word
+     reads worse than a second row. */
   flex-wrap: wrap;
 }
 
@@ -460,73 +353,4 @@ const formRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value)
   background: var(--bg-tertiary);
 }
 
-/* New project form */
-.new-form {
-  display: flex;
-  flex-direction: column;
-}
-
-.new-form-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
-  color: var(--text-active);
-}
-
-.back-btn {
-  padding: 2px 10px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 3px;
-}
-
-.back-btn:hover {
-  color: var(--text-primary);
-  background: var(--tab-hover-bg);
-}
-
-.new-form-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-}
-
-.new-form-body input[type="text"],
-.new-form-body input:not([type]),
-.new-form-body select {
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  border-radius: 4px;
-  outline: none;
-}
-
-.new-form-body input:focus,
-.new-form-body select:focus {
-  border-color: var(--accent);
-}
-
-.create-btn {
-  padding: 8px;
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 13px;
-  cursor: pointer;
-  border-radius: 4px;
-  margin-top: 4px;
-}
-
-.create-btn:hover {
-  opacity: 0.9;
-}
 </style>

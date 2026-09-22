@@ -6,8 +6,6 @@ export default {
   'common.openWithDefaultApp': '関連付けられたアプリで開く',
   'common.save': '保存',
   'common.delete': '削除',
-  'common.back': '戻る',
-  'common.create': '作成',
   'common.auto': '自動',
   'common.on': 'ON',
   'common.off': 'OFF',
@@ -648,14 +646,17 @@ export default {
   'docker.composeDownConfirm': '「docker compose down」を実行しますか？（全サービスのコンテナが停止・削除されます）',
 
   // Project Panel
-  'project.addProject': '+ プロジェクト追加',
+  'project.registerFolder': 'ディレクトリを登録',
+  'project.registeredHint': '「{name}」をプロジェクトとして登録しました。名前・色・アイコンは鉛筆から直せます',
+  'project.registerCwd': 'このディレクトリをプロジェクトとして登録',
+  'project.registerCwdNoTerminal': 'ターミナルのタブがありません',
+  'project.registerCwdNoDir': 'ターミナルの現在のディレクトリが分かりませんでした',
   // 登録せずに開いたディレクトリ（#230）
   'project.registerDirectory': 'プロジェクトに登録',
   'project.registerDirectoryConfirm':
     'このディレクトリをプロジェクトとして登録しますか？\n\n{root}\n\n登録しない場合は何も保存せずに開き、このディレクトリでは次回から確認しません。',
   'project.registerDirectoryRemember': '今後は確認せず、この選択を既定にする',
   'project.projectName': 'プロジェクト名',
-  'project.detect': '検出',
   'project.browse': '参照...',
   'project.golangciCommand': 'golangci-lint コマンド（任意）',
   'project.golangciCommandHint':
@@ -714,11 +715,8 @@ export default {
   'projectSwitcher.enterSwitch': 'Enter: 切替',
   'projectSwitcher.ctrlEnterWindow': '{key}: 新しいウィンドウ',
   'projectSwitcher.enterOpenWindow': 'Enter: 新しいウィンドウで開く',
-  'projectSwitcher.newProject': '+ 新規プロジェクト',
   'projectSwitcher.openGlobal': 'グローバルモード',
   'projectSwitcher.openDirectory': 'ディレクトリを開く',
-  'projectSwitcher.formTitle': '新規プロジェクト',
-  'projectSwitcher.createAndOpen': '作成して開く',
 
   // Quick Open
   'quickOpen.recentDir': '最近',
@@ -899,8 +897,10 @@ export default {
   // StatusBar
   'statusBar.admin': '管理者',
   'statusBar.transient': '未登録',
-  'statusBar.transientHint':
-    'このディレクトリはプロジェクトではありません。タブや設定は保存されません。プロジェクトパネルから登録できます。',
+  'statusBar.transientRegisterHint':
+    'このディレクトリはプロジェクトではありません。タブや設定は保存されません。押すと登録します。',
+  'statusBar.transientRegisterConfirm':
+    'このディレクトリをプロジェクトとして登録しますか？\n\n{root}\n\n登録すると、タブの並びや設定が次回から復元されます。',
   'statusBar.adminTooltip': '管理者権限で実行中（Windows 側のみ／WSL 内では無効）',
   'statusBar.ln': '行',
   'statusBar.col': '列',

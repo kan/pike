@@ -201,7 +201,7 @@ pike/
 │   │   │   ├── GroupComboBox.vue  ProjectListItem.vue  ColorSelect.vue  IconSelect.vue
 │   │   │   ├── AllowedHostList.vue # 承認済みホストの一覧（設定画面。画像 #239 とリンク #311 で共有）
 │   │   │   ├── ProfileRow.vue     # 並べ替え + 表示/非表示の 1 行（シェル #129 とエージェント #275 で共有）
-│   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（作成・編集の 3 フォームで共有）
+│   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（#373 以降は編集フォームだけ）
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）

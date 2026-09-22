@@ -18,6 +18,7 @@ import {
 } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useAgentUsage } from '../../composables/useAgentUsage'
+import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
@@ -49,6 +50,24 @@ const settingsStore = useSettingsStore()
 
 function toggleLanguage() {
   settingsStore.language = settingsStore.language === 'en' ? 'ja' : 'en'
+}
+
+/**
+ * 「未登録」を押したときの登録（#373）。**確認を挟む**: この印が名乗っているのは状態で
+ * あって操作ではないので、押した先が「ディレクトリを `project.json` に書く」だとは
+ * 読み取れない。プロジェクトパネルの帯のボタンは「プロジェクトに登録」と名乗っているので
+ * そちらでは聞かない（確認を `registerTransientProject` の中へ置くと、名乗っている側にも
+ * 付く）。
+ *
+ * 断っても何も覚えない。**`offerToRegisterDirectory`（開いたときの確認）と混同しないこと**:
+ * あちらは「いいえ」でその root を記録して二度と聞かないが、ここは押した人が能動的に
+ * 開いた確認なので、閉じたら何も起きないのが素直。
+ */
+async function registerTransient() {
+  const root = projectStore.currentProject?.root ?? ''
+  if (await confirmDialog(t('statusBar.transientRegisterConfirm', { root }))) {
+    await projectStore.registerTransientProject()
+  }
 }
 const gitStore = useGitStore()
 const worktreeStore = useWorktreeStore()
@@ -402,11 +421,22 @@ onUnmounted(() => {
     >
       <FolderOpen :size="14" :stroke-width="2" />
       {{ projectStore.currentProject?.name ?? "No project" }}
-      <!-- Directory opened without registering it (#230): nothing here is saved,
-           so say so rather than letting it pass for a project. -->
-      <span v-if="projectStore.isTransient" class="missing-tag transient-tag" :title="t('statusBar.transientHint')">
-        {{ t('statusBar.transient') }}
-      </span>
+    </button>
+    <!--
+      登録せずに開いたディレクトリ（#230）。ここは保存されないので、そう言っておく。
+      **押すと確認してから登録する**（#373）。プロジェクトパネルまで行かずに済ませられる
+      唯一の入口で、以前は説明のツールチップだけだった。
+      **上のボタンの中に置かない**: `<button>` の中の `<button>` は置けないし、`<span>` に
+      クリックを付けると、押す場所が入れ子になっていることが読み取れない。
+    -->
+    <button
+      v-if="projectStore.isTransient"
+      class="status-item clickable transient-btn"
+      data-testid="statusbar-register"
+      :title="t('statusBar.transientRegisterHint')"
+      @click="registerTransient"
+    >
+      <span class="missing-tag transient-tag">{{ t('statusBar.transient') }}</span>
     </button>
 
     <!-- キーボードマクロの記録中（#180）。止めるキーを忘れても、ここを押せば止まる。 -->
@@ -701,6 +731,11 @@ onUnmounted(() => {
   border-style: dashed;
   color: inherit;
   opacity: 0.75;
+}
+
+/* バッジ 1 つだけのボタン。左右の余白は中のバッジが持つので、ここでは詰める。 */
+.transient-btn {
+  padding: 0 4px;
 }
 
 .status-item.admin-badge {

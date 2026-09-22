@@ -20,6 +20,7 @@ import { useAppActions } from '../../composables/useAppActions'
 import { openFileTarget } from '../../composables/useCliOpen'
 import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useTabDrag } from '../../composables/useTabDrag'
+import { isLiveTerminal, type LiveTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { canResolveDroppedPaths, resolveDroppedPaths } from '../../lib/dropPaths'
 import { useOverlay } from '../../lib/overlay'
@@ -183,7 +184,13 @@ const isWindows = computed(() =>
 // シェルの決め方（グローバルモードの `globalShell` / プロジェクトの既定）は
 // `useAppActions` の `openTerminal` が持つ（#254）。`Ctrl+T` と macOS の
 // File ▸ New Terminal と同じ 1 本を通す。
-const { openTerminal, openAgentTab, openFromTabAdd, terminalPlace, toggleSplit } = useAppActions()
+const { openTerminal, openAgentTab, openFromTabAdd, registerTerminalCwd, terminalPlace, toggleSplit } = useAppActions()
+
+/** 右クリックしたターミナルの現在地を登録する（#373）。メニューは閉じる。 */
+function registerCwd(tab: LiveTerminal) {
+  closeContextMenu()
+  registerTerminalCwd(tab)
+}
 const agentStore = useAgentStore()
 
 /**
@@ -887,6 +894,16 @@ onUnmounted(() => {
     <button @click="tabStore.closeAllTabs(pane); closeContextMenu()">
       {{ t('tabs.closeAll') }}
     </button>
+    <!--
+      ターミナルの現在地をプロジェクトとして登録する（#373）。プロジェクトパネルの
+      フォームが開いた瞬間に cwd を埋めていた仕掛けの置き換えで、**押したときだけ**動く。
+    -->
+    <template v-if="isLiveTerminal(contextTab)">
+      <div class="context-menu-separator" />
+      <button @click="registerCwd(contextTab)">
+        {{ t('project.registerCwd') }}
+      </button>
+    </template>
     <template v-if="contextTabPath">
       <div class="context-menu-separator" />
       <button @click="copyPath()">

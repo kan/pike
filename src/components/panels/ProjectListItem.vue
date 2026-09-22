@@ -138,7 +138,6 @@ function onSave() {
     <ColorSelect v-model="editColor" />
     <IconSelect v-model="editIcon" />
     <ProjectPlatformFields
-      compact
       v-model:platform="editPlatform"
       v-model:distro="editDistro"
       v-model:win-shell="editWindowsShell"

@@ -16,20 +16,27 @@ import { useStatusMessageStore } from '../stores/statusMessage'
 import { useTabStore } from '../stores/tabs'
 import type { Tab, TerminalTab } from '../types/tab'
 
-type LiveTerminal = TerminalTab & { ptyId: string }
+export type LiveTerminal = TerminalTab & { ptyId: string }
 
-function isLive(tab: Tab | null | undefined): tab is LiveTerminal {
+export function isLiveTerminal(tab: Tab | null | undefined): tab is LiveTerminal {
   return !!tab && tab.kind === 'terminal' && !!tab.ptyId
 }
 
-function resolveTarget(): LiveTerminal | null {
+/**
+ * 流し込む先のターミナル（このモジュールの doc の順）。
+ *
+ * **公開してあるのは、同じ「どのターミナルか」を聞く側がほかにもあるため**（#373 の
+ * 「ターミナルの cwd をプロジェクトとして登録」）。各所で選び直すと、注入と登録で
+ * 別のタブを相手にしうる。
+ */
+export function resolveTargetTerminal(): LiveTerminal | null {
   const tabStore = useTabStore()
   // 見えているタブから探す（#264）。全体から拾うと、パーク中の別プロジェクトの
   // ターミナルに貼り付けたうえ、そのタブをアクティブにしてしまう。
   const byId = tabStore.visibleTabs.find((t) => t.id === tabStore.lastTerminalId)
-  if (isLive(byId)) return byId
-  if (isLive(tabStore.activeTab)) return tabStore.activeTab
-  const terminals = tabStore.visibleTabs.filter(isLive)
+  if (isLiveTerminal(byId)) return byId
+  if (isLiveTerminal(tabStore.activeTab)) return tabStore.activeTab
+  const terminals = tabStore.visibleTabs.filter(isLiveTerminal)
   return terminals.find((t) => t.pinned) ?? terminals[0] ?? null
 }
 
@@ -42,7 +49,7 @@ function resolveTarget(): LiveTerminal | null {
  * `setActiveTab` では足りない理由はあちらの doc が正本。
  */
 export function injectToTerminal(text: string): boolean {
-  const target = resolveTarget()
+  const target = resolveTargetTerminal()
   if (!target) {
     useStatusMessageStore().show({ text: t('terminal.injectNoTarget'), variant: 'warn' })
     return false

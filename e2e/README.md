@@ -47,7 +47,6 @@ just e2e
 命名規則は `{画面}-{lang}-{theme}.png`。
 
 - `project-switcher`：プロジェクト切替モーダル
-- `new-project`：新規プロジェクト作成フォーム
 - `settings`：設定画面（外観セクション）
 - `settings-shells`：設定のシェル一覧
 - `shell-dropdown`：ターミナル追加の ▾ プルダウン（globalMode 文脈で撮影）
@@ -72,10 +71,11 @@ just e2e
 - 言語・テーマ・ウィンドウサイズは `support/prepare.ts` の `prepare()` で固定。
 - 言語・テーマの切替は e2e ビルド限定の `window.__pikeE2E`（`setLanguage` /
   `setDarkMode`）でリロードなしに行う。
-- 画面遷移は data-testid（`project-switcher` / `switcher-new-project` /
-  `new-project-form` / `settings-screen` / `settings-shells` / `tab-add` /
-  `shell-menu`）と、`__pikeE2E` の `openSwitcher` / `closeSwitcher` /
-  `openSettings` / `enterGlobalMode` で行う。
+- 画面遷移は data-testid（`project-switcher` / `settings-screen` /
+  `settings-shells` / `tab-add` / `shell-menu`）と、`__pikeE2E` の
+  `openSwitcher` / `closeSwitcher` / `openSettings` / `enterGlobalMode` で行う。
+- **プロジェクトの登録は撮らない**（#373）。聞くのが OS のフォルダ選択ダイアログだけに
+  なったので、Pike 側に撮る画面が無い。以前の `new-project` の spec と画像は落とした。
 - タブを開くメニューは「+」（`tab-add`）から出す（#396。▾ は設定で「直接開く」に
   したときだけ出るので、撮影では使わない）。中のシェルの行は globalMode（または
   Windows プロジェクト）のときだけ出るため、`enterGlobalMode`（WSL 検出でシェル

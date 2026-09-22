@@ -52,16 +52,17 @@ NSIS インストーラは 2 つの登録をします。インストール先を
 ## 最初のプロジェクトを登録する
 
 <picture>
-  <source media="(prefers-color-scheme: light)" srcset="img/new-project-light.png">
-  <img alt="新規プロジェクト登録" src="img/new-project.png">
+  <source media="(prefers-color-scheme: light)" srcset="img/project-panel-light.png">
+  <img alt="プロジェクトパネル" src="img/project-panel.png">
 </picture>
 
 1. 左サイドバーの **📁 プロジェクト** を開く
-2. 「新規作成」からプロジェクトを追加する
-3. プラットフォームを選ぶ
-   - **WSL プロジェクト**：ディストロを指定し、ルートを WSL パスで指定
-   - **Windows プロジェクト**：デフォルトシェル（cmd / PowerShell / PowerShell 7 / Git Bash）を選び、ルートを Windows パスで指定
-4. 登録したプロジェクトをクリックすると切り替わり、ターミナルのタブが 1 枚とファイルツリーが読み込まれます
+2. 「ディレクトリを登録」を押して、プロジェクトにしたいフォルダを選ぶ
+3. 選ぶとそのまま登録して開きます。名前はフォルダ名、プラットフォーム（WSL / Windows / macOS）とシェルは選んだパスから決まります
+
+**聞かれるのはフォルダだけです。** 名前・色・アイコン・シェルを変えたいときは、登録したあとにプロジェクトパネルの行の鉛筆から直します。→ [プロジェクトとウィンドウ](projects-and-windows.md)
+
+WSL のフォルダも同じ手順で選べます。フォルダ選択ダイアログの左側（ナビゲーションペイン）の「Linux」から辿ってください。
 
 プロジェクトは**グループ**にまとめて折りたたんで整理できます。詳しくは [プロジェクトとウィンドウ](projects-and-windows.md) を参照してください。
 

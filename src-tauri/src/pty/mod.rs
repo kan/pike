@@ -20,6 +20,9 @@ pub struct PtySession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     cwd: Arc<Mutex<Option<String>>>,
+    /// このシェルが MSYS のパスで現在地を報告するか（Git Bash、#373）。
+    /// 変換の理由は `pty_get_cwd` の doc。
+    msys: bool,
     window_label: String,
     /// タブを閉じる前に「シェル以外が動いているか」を調べる手段 (#178)
     busy: BusyProbe,
@@ -63,6 +66,8 @@ struct SpawnSpec {
     cols: u16,
     rows: u16,
     cwd: Option<String>,
+    /// Git Bash か（#373。`PtySession::msys` の理由はそちら）。
+    msys: bool,
     window_label: String,
 }
 
@@ -78,6 +83,7 @@ fn spawn_pty_with_command(
         cols,
         rows,
         cwd,
+        msys,
         window_label,
     } = spec;
     let pty_system = native_pty_system();
@@ -113,6 +119,7 @@ fn spawn_pty_with_command(
                 writer: Arc::new(Mutex::new(writer)),
                 killer,
                 cwd: Arc::clone(&shared_cwd),
+                msys,
                 window_label,
                 busy,
             },
@@ -406,6 +413,7 @@ pub async fn pty_spawn(
             cols,
             rows,
             cwd,
+            msys: matches!(shell, Some(ShellConfig::GitBash)),
             window_label: window.label().to_owned(),
         },
         app,
@@ -442,6 +450,8 @@ pub async fn pty_spawn_tmux(
             cols,
             rows,
             cwd: None,
+            // tmux は WSL の中で起こすので、報告される現在地は WSL の native なパス。
+            msys: false,
             window_label: window.label().to_owned(),
         },
         app,
@@ -449,17 +459,33 @@ pub async fn pty_spawn_tmux(
     )
 }
 
+/// このセッションの現在地。**シェルが名乗る形ではなく、Pike が扱える形で返す**（#373）。
+///
+/// **Git Bash は MSYS のパスで名乗る。** OSC 7 のフックは Git Bash にも入れてあり
+/// （`TerminalTab.vue` の `isBash`）、そこで報告されるのは `$PWD`＝`/c/Users/x`。
+/// **しかも形式はセッションの途中で変わる**: ここは spawn 時の cwd（Windows のパス）で
+/// 始まり、最初のプロンプトで MSYS のパスに入れ替わる。生のまま返すと、消費者は
+/// 「どちらの形か」を自分で見分けることになる。実際、見分けていなかった 2 つが
+/// 黙って壊れていた（プロジェクトの登録は Windows が解決できない root を作り、
+/// エージェントのセッション一覧は名前が一致せず常に空になる）。
+///
+/// **名前を付けられない場所は `None`**（`/usr/bin` のように Git のインストール先へ
+/// 写されるパス）。消費者はどちらも「現在地が分からない」枝を既に持っている。
 #[tauri::command]
 pub async fn pty_get_cwd(id: String, state: State<'_, PtyState>) -> Result<Option<String>, String> {
-    let cwd_arc = {
+    let (cwd_arc, msys) = {
         let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
         let Some(session) = sessions.get(&id) else {
             return Ok(None);
         };
-        Arc::clone(&session.cwd)
+        (Arc::clone(&session.cwd), session.msys)
     };
-    let cwd = cwd_arc.lock().map_err(|e| e.to_string())?;
-    Ok(cwd.clone())
+    let cwd = cwd_arc.lock().map_err(|e| e.to_string())?.clone();
+    // spawn 時の値はまだ Windows のパスなので、`/` で始まるものだけを直す。
+    match cwd {
+        Some(p) if msys && p.starts_with('/') => Ok(crate::types::msys_to_windows(&p)),
+        other => Ok(other),
+    }
 }
 
 #[tauri::command]

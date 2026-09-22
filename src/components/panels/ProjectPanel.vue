@@ -1,37 +1,21 @@
 <script setup lang="ts">
-import { BookmarkPlus, ChevronDown, ChevronRight, Pencil, Plus, Search, X } from 'lucide-vue-next'
+import { BookmarkPlus, ChevronDown, ChevronRight, FolderPlus, Pencil, Plus, Search, X } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
 import { useI18n } from '../../i18n'
-import { defaultProjectPlatform } from '../../lib/host'
 import { fuzzyMatch } from '../../lib/paths'
-import type { ProjectPlatform } from '../../lib/projectPaths'
 import { insertAt, sideOf } from '../../lib/reorder'
 import { loadJson, saveJson } from '../../lib/storage'
-import { detectWslDistros, pickFolder, ptyGetCwd } from '../../lib/tauri'
+import { detectWslDistros, pickFolder } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
-import { useTabStore } from '../../stores/tabs'
 import type { ProjectConfig } from '../../types/project'
-import {
-  buildShell,
-  rootPlaceholder as rootPlaceholderFn,
-  shellToDistro,
-  shellToPlatform,
-  shellToWinKind,
-  slugify,
-  type WindowsShellKind,
-} from '../../types/tab'
-import ColorSelect from './ColorSelect.vue'
-import GroupComboBox from './GroupComboBox.vue'
-import IconSelect from './IconSelect.vue'
 import ProjectListItem from './ProjectListItem.vue'
 
 const { t } = useI18n()
 
 const projectStore = useProjectStore()
-const tabStore = useTabStore()
 const settings = useSettingsStore()
 
 const COLLAPSE_STORAGE_KEY = 'pike:project-group-collapsed'
@@ -318,8 +302,29 @@ async function onDropGroup(e: DragEvent, groupName: string) {
   await projectStore.reorderProjects([...ids.filter((id) => id !== movedProject), movedProject], groupName)
 }
 
+/**
+ * 編集フォーム（`ProjectListItem.vue`）の distro の選択肢。
+ *
+ * **鉛筆を押すまで取りに行かない**（#373）。`detect_wsl_distros` はキャッシュを持たず
+ * 毎回 `wsl.exe --list` を起こすので、mount で呼ぶと**プロジェクトパネルを開いたまま
+ * 終了した人は起動のたび、しかも復元するウィンドウの数だけ**払うことになる
+ * （`.claude/rules/project.md` の「検出のためだけに起動時へ `wsl.exe` を足さない」）。
+ * 差分より前は新規作成フォームが mount 時に要ったので正当化されていたが、その理由は
+ * フォームごと無くなった。形はタブバーの ▾（`TabBar.vue` の `loadWslDistros`）と同じ。
+ */
 const distros = ref<string[]>([])
-const detecting = ref(false)
+let distrosRequested = false
+
+async function loadDistros() {
+  if (distrosRequested) return
+  distrosRequested = true
+  try {
+    distros.value = await detectWslDistros()
+    settings.syncShellProfiles(distros.value)
+  } catch {
+    distros.value = ['Ubuntu']
+  }
+}
 
 onMounted(async () => {
   await projectStore.loadProjects()
@@ -328,99 +333,37 @@ onMounted(async () => {
   // the store, and not awaited — the list renders while WSL probes run.
   projectStore.checkRoots().catch(() => {})
   await projectStore.loadGroups()
-  try {
-    distros.value = await detectWslDistros()
-    settings.syncShellProfiles(distros.value)
-    const visible = settings.visibleWslDistros(distros.value)
-    if (visible.length > 0) {
-      formDistro.value = visible[0]
-    }
-  } catch {
-    distros.value = ['Ubuntu']
-  }
-  // Preselect a sensible, visible default (PowerShell if shown) for the create form
-  formWindowsShell.value = settings.defaultWindowsShellKind()
 })
 
-// Dropdown options honor the shell profile visibility/order (#129); the
-// current selection stays listed so the select never loses its value.
-
-const showForm = ref(false)
-const formName = ref('')
-const formRoot = ref('')
-const formGroup = ref<string | undefined>(undefined)
-const formColor = ref<string | undefined>(undefined)
-const formIcon = ref<string | undefined>(undefined)
-const formPlatform = ref<ProjectPlatform>(defaultProjectPlatform())
-const formDistro = ref('Ubuntu')
-const formWindowsShell = ref<WindowsShellKind>('powershell')
-
-const createRootPlaceholder = computed(() => rootPlaceholderFn(formPlatform.value))
-
-watch(showForm, async (show) => {
-  if (show) await detectFromTerminal()
-})
-
-async function detectFromTerminal() {
-  const activeTab = tabStore.activeTab
-  if (activeTab?.kind !== 'terminal' || !activeTab.ptyId) return
-
-  if (activeTab.shell) {
-    formPlatform.value = shellToPlatform(activeTab.shell)
-    formDistro.value = shellToDistro(activeTab.shell)
-    formWindowsShell.value = shellToWinKind(activeTab.shell)
-  }
-
-  detecting.value = true
-  try {
-    const cwd = await ptyGetCwd(activeTab.ptyId)
-    if (cwd) {
-      formRoot.value = cwd
-      if (!formName.value) {
-        const sep = cwd.includes('\\') ? '\\' : '/'
-        formName.value = cwd.split(sep).filter(Boolean).pop() ?? ''
-      }
-    }
-  } finally {
-    detecting.value = false
-  }
-}
-
-async function browseCreateFolder() {
-  const folder = await pickFolder()
-  if (!folder) return
-  formRoot.value = folder
-  if (!formName.value) {
-    formName.value = folder.split(/[/\\]/).filter(Boolean).pop() ?? ''
-  }
-}
-
-async function onCreate() {
-  const slug = slugify(formName.value)
-  if (!slug) return
-  const id = projectStore.uniqueProjectId(slug)
-  const config: ProjectConfig = {
-    id,
-    name: formName.value,
-    root: formRoot.value,
-    shell: buildShell(formPlatform.value, formDistro.value, formWindowsShell.value),
-    pinnedTabs: [],
-    lastOpened: new Date().toISOString(),
-    group: formGroup.value,
-    color: formColor.value,
-    icon: formIcon.value,
-  }
-  await projectStore.addProject(config)
-  if (formGroup.value) await projectStore.addGroup(formGroup.value)
-  showForm.value = false
-  formName.value = ''
-  formRoot.value = ''
-  formGroup.value = undefined
-  formColor.value = undefined
-  formIcon.value = undefined
+/**
+ * ディレクトリを選んで登録する（#373）。**必ず登録する入口はここ 1 つ**（スイッチャーの
+ * 「ディレクトリを開く」は、登録するかを設定に従って決める #230 の経路）。
+ *
+ * **以前はここに 8 項目のフォームがあった**（名前・ルート・グループ・色・アイコン・
+ * プラットフォーム・distro・シェル）。ルートを決めれば後ろの 3 つは推測でき、実際
+ * `openDirectoryAsProject` が推測している。残りは登録してから鉛筆で直せる。
+ *
+ * **フォームを開いた瞬間にターミナルの cwd で埋める仕掛けも落とした。** 何も操作して
+ * いないのに欄が埋まるうえ、埋まるのは「今見ているターミナル」の cwd で、登録したい
+ * ディレクトリとは限らなかった。cwd から登録したいときの入口は別に用意してある
+ * （ターミナルタブの右クリック・パレット）。
+ *
+ * 開き方は `switch` 固定。グローバルモードのウィンドウはサイドバーごと出ないので、
+ * このパネルはプロジェクトを持てるウィンドウにしか存在しない。
+ */
+async function pickAndRegisterDirectory() {
+  const path = await pickFolder(projectStore.pickerStartDir())
+  if (!path) return
+  await projectStore.openDirectoryAsProject(path, 'switch')
 }
 
 const editingId = ref<string | null>(null)
+
+/** 鉛筆。**distro を取りに行くのはここ**（理由は `distros` の doc）。 */
+function startEdit(id: string) {
+  editingId.value = id
+  void loadDistros()
+}
 
 async function onSaveEdit(updated: ProjectConfig) {
   await projectStore.saveProject(updated)
@@ -448,35 +391,10 @@ async function onDelete(id: string) {
       </button>
     </div>
 
-    <button class="add-btn" @click="showForm = !showForm">
-      {{ showForm ? t('common.cancel') : t('project.addProject') }}
+    <!-- 登録はディレクトリを選ぶだけ（#373。理由は `registerFolder` の doc）。 -->
+    <button class="add-btn" data-testid="register-folder" @click="pickAndRegisterDirectory">
+      <FolderPlus :size="14" :stroke-width="2" />{{ t('project.registerFolder') }}
     </button>
-
-    <form v-if="showForm" class="form" @submit.prevent="onCreate">
-      <input v-model="formName" :placeholder="t('project.projectName')" required />
-      <div class="input-row">
-        <input v-model="formRoot" :placeholder="createRootPlaceholder" required />
-        <button v-if="formPlatform !== 'wsl'" type="button" class="detect-btn" @click="browseCreateFolder">
-          {{ t('project.browse') }}
-        </button>
-        <button v-if="formPlatform === 'wsl'" type="button" class="detect-btn" :disabled="detecting" @click="detectFromTerminal">
-          {{ detecting ? "..." : t('project.detect') }}
-        </button>
-      </div>
-
-      <GroupComboBox v-model="formGroup" :groups="projectStore.groups" />
-      <ColorSelect v-model="formColor" />
-      <IconSelect v-model="formIcon" />
-
-      <ProjectPlatformFields
-        compact
-        v-model:platform="formPlatform"
-        v-model:distro="formDistro"
-        v-model:win-shell="formWindowsShell"
-        :distros="distros"
-      />
-      <button type="submit">{{ t('common.create') }}</button>
-    </form>
 
     <div class="filter-row">
       <Search :size="12" :stroke-width="2" class="filter-icon" />
@@ -551,7 +469,7 @@ async function onDelete(id: string) {
           :drop-side="dropSideFor(projectKey(row.project.id))"
           @select="projectStore.openProject(row.project.id, 'focusOrSwitch')"
           @open-window="projectStore.openProject(row.project.id, 'window')"
-          @request-edit="editingId = row.project.id"
+          @request-edit="startEdit(row.project.id)"
           @cancel-edit="editingId = null"
           @save="onSaveEdit"
           @clone="projectStore.cloneProject(row.project.id)"
@@ -580,7 +498,7 @@ async function onDelete(id: string) {
       </div>
     </div>
 
-    <div v-if="projectStore.visibleProjects.length === 0 && !showForm" class="empty">
+    <div v-if="projectStore.visibleProjects.length === 0" class="empty">
       {{ t('project.noProjects') }}
     </div>
     <div v-else-if="filterText && filteredProjects.length === 0" class="empty">
@@ -617,12 +535,8 @@ async function onDelete(id: string) {
   text-align: left;
 }
 
-/* Same geometry as .add-btn; the accent edge is the deliberate difference. */
+/* 形は `.add-btn` のまま（アイコンの並びもあちらが持つ）。違いは accent の縁だけ。 */
 .transient-register {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -633,6 +547,10 @@ async function onDelete(id: string) {
 }
 
 .add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 6px 8px;
   border: 1px solid var(--border);
   background: transparent;
@@ -644,70 +562,6 @@ async function onDelete(id: string) {
 
 .add-btn:hover {
   background: var(--tab-hover-bg);
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form input,
-.form select {
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-  border-radius: 3px;
-  outline: none;
-}
-
-.form input:focus,
-.form select:focus {
-  border-color: var(--accent);
-}
-
-.form > button[type="submit"] {
-  padding: 4px 8px;
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 3px;
-}
-
-.input-row {
-  display: flex;
-  gap: 4px;
-}
-
-.input-row input {
-  flex: 1;
-  min-width: 0;
-}
-
-.detect-btn {
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  cursor: pointer;
-  border-radius: 3px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.detect-btn:hover:not(:disabled) {
-  background: var(--tab-hover-bg);
-  color: var(--text-primary);
-}
-
-.detect-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* `.filter-row` / `.filter-icon` / `.filter-input` は `theme.css` の共有クラス

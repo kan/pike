@@ -1283,6 +1283,34 @@ pub fn starts_with_segment(s: &str, prefix: &str, sep: char) -> bool {
         .is_some_and(|rest| rest.starts_with(sep))
 }
 
+/// Git Bash の MSYS パス（`/c/Users/x`）を Windows のパスに直す（#373）。
+///
+/// **直せないものがある**ので `Option`。`/usr/bin` のように Git のインストール先へ
+/// 写されるパスはドライブ文字を持たないので、Windows の名前が決まらない。呼ぶ側は
+/// `None` を「その場所は名前を付けられない」として扱う（`pty_get_cwd` の doc）。
+///
+/// `/cygdrive/` は Cygwin の形。Git Bash は使わないが、同じ規則で直せるので受ける。
+pub fn msys_to_windows(path: &str) -> Option<String> {
+    let rest = path.strip_prefix('/')?;
+    let rest = rest.strip_prefix("cygdrive/").unwrap_or(rest);
+    let mut chars = rest.chars();
+    let drive = chars.next().filter(|c| c.is_ascii_alphabetic())?;
+    let tail = chars.as_str();
+    // ドライブ文字の直後は区切りか終端（`/tmp` を `T:` にしない）。
+    if !tail.is_empty() && !tail.starts_with('/') {
+        return None;
+    }
+    Some(format!(
+        "{}:{}",
+        drive.to_ascii_uppercase(),
+        if tail.is_empty() {
+            "\\".to_owned()
+        } else {
+            tail.replace('/', "\\")
+        }
+    ))
+}
+
 /// `cwd` がプロジェクトの `root` そのものか、その配下か。
 ///
 /// `cwd_matches_root` が完全一致しか見ないのは、あちらの用途（セッションの記録を
@@ -1733,6 +1761,28 @@ mod tests {
         ] {
             assert_eq!(starts_with_segment(s, prefix, sep), want, "{s} / {prefix}");
         }
+    }
+
+    /// Git Bash が OSC 7 で名乗るパスを Windows の名前に直す（#373）。**名前を付けられない
+    /// 場所は `None`**（Git のインストール先へ写されるもの）。
+    #[test]
+    fn msys_paths_become_windows_paths() {
+        let win = |p: &str| msys_to_windows(p);
+        assert_eq!(
+            win("/c/Users/kan/pike").as_deref(),
+            Some(r"C:\Users\kan\pike")
+        );
+        assert_eq!(win("/d/src").as_deref(), Some(r"D:\src"));
+        // ドライブの直下。
+        assert_eq!(win("/c").as_deref(), Some(r"C:\"));
+        assert_eq!(win("/c/").as_deref(), Some(r"C:\"));
+        // Cygwin の綴りも同じ規則で直せる。
+        assert_eq!(win("/cygdrive/e/tmp").as_deref(), Some(r"E:\tmp"));
+        // ドライブ文字に見えるだけのもの（`/tmp` を `T:` にしない）。
+        assert_eq!(win("/tmp"), None);
+        assert_eq!(win("/usr/bin"), None);
+        // Windows のパスはそのまま渡ってくる側（呼び出し側が `/` 始まりだけを通す）。
+        assert_eq!(win(r"C:\Users\kan"), None);
     }
 
     /// **壊れた 1 行でファイルの残りを捨てない**（#382）。使用量の集計がこれを通るので、

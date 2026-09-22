@@ -46,6 +46,7 @@ import { useDiagnosticsStore } from './diagnostics'
 import { useIssuesStore } from './issues'
 import { useSearchStore } from './search'
 import { useSettingsStore } from './settings'
+import { useStatusMessageStore } from './statusMessage'
 import { useTabStore } from './tabs'
 import { useTaskStore } from './tasks'
 
@@ -574,10 +575,28 @@ export const useProjectStore = defineStore('project', () => {
    * as a Windows project and the new window looks for `/home/...` on the C:
    * drive. Windows and UNC paths must not get a hint: it would win over the path.
    */
-  function distroHintFor(path: string): string | null {
+  function distroHintFor(path: string, from?: ShellType): string | null {
     if (!path.startsWith('/')) return null
-    const shell = currentProject.value?.shell
+    // **渡されたシェルを優先する**（#373）。ターミナルの cwd から登録する経路は、その
+    // タブのシェルを知っている。ウィンドウの今のプロジェクトを見るだけだと、グローバル
+    // モードの WSL ターミナル（プロジェクトが無い）で distro を取りこぼす。
+    const shell = from ?? currentProject.value?.shell
     return shell?.kind === 'wsl' ? shell.distro : null
+  }
+
+  /**
+   * このウィンドウが登録せずに開いているディレクトリ（#230）の root か（#373）。
+   *
+   * **`projectForRoot` では引けない。** あちらが見る `projects` は登録済みの一覧で、
+   * `transientProject` は意図的にそこから外してある（一覧・同期・ジャンプリストに
+   * 出さないため）。ここを通さないと同じ root で 2 つ目の id が生まれ、`placeProject` の
+   * 切り替えが「一時プロジェクトから離れる」枝に入って**今開いているタブを全部閉じる**
+   * （右クリックしたターミナルごと消える）。`registerTransientProject` なら id を保った
+   * まま登録し、タブの持ち主も付け替える。
+   */
+  function matchesTransient(root: string): boolean {
+    const transient = transientProject.value
+    return !!transient && isTransient.value && rootKey(transient.root) === rootKey(root)
   }
 
   /** The registered project whose root is this path, if there is one. */
@@ -596,30 +615,70 @@ export const useProjectStore = defineStore('project', () => {
    * the defaults a directory picked in the switcher would get. `placeProject`
    * is the creation entry point: the root was just probed, so there is nothing
    * for `openProject`'s clone check to do.
+   *
+   * **選んだパスがプロジェクトになるのはここだけ**（#373。そのウィンドウ自身が登録せずに
+   * 開いているディレクトリは `registerTransientProject` が受ける。3 つ目の入口を足さない
+   * こと）。以前あった「新規プロジェクト」のフォーム 2 つ（パネルとスイッチャー）は、
+   * 同じことを 7 項目で聞いていたので落とした。プラットフォーム・シェル・distro は
+   * root から推測できるもので、実際この経路が推測している。
+   *
+   * `from` は、パスの出どころのシェル（ターミナルの cwd から登録する経路）。
    */
-  async function openDirectoryAsProject(path: string, mode: 'switch' | 'window'): Promise<void> {
+  async function openDirectoryAsProject(path: string, mode: 'switch' | 'window', from?: ShellType): Promise<void> {
     const existing = projectForRoot(path)
     if (existing) {
       await openProject(existing.id, mode)
       return
     }
-    const config = await projectTransientCreate(path, distroHintFor(path))
+    // **このウィンドウが登録せずに開いているディレクトリなら、それを登録する**（#373。
+    // 理由は `matchesTransient` の doc）。**生のパスで先に引く**ので、当たるうちは
+    // `projectTransientCreate` の往復ごと省ける。
+    if (matchesTransient(path)) {
+      await registerTransientProject()
+      return
+    }
+    const config = await projectTransientCreate(path, distroHintFor(path, from))
+    // 比べるために作っただけの一時プロジェクトの後始末。**失敗は握り潰す**（もう
+    // 無ければそれでよい）ので、その作法を 1 か所に残す。
+    const dropConfig = () => projectTransientDrop(config.id).catch(() => {})
     // **正規化した root でもう一度引く。** `rootKey` は区切りと大小を揃えるだけなので、
     // WSL を UNC（`\\wsl.localhost\<distro>\home\…`）で選ぶと登録済みの native な root
     // （`/home/…`）と一致しない。バックエンドは UNC から distro を読んで native に直すので、
     // ここで引き直さないと同じディレクトリを指すエントリが 2 つ `project.json` に残る
-    // （フォルダ選択ダイアログは WSL を UNC で返すため、普通の操作で踏む）。
+    // （フォルダ選択ダイアログは WSL を UNC で返すため、普通の操作で踏む）。同じ理由で、
+    // 一時プロジェクトとの突き合わせもここでやり直す。
+    if (matchesTransient(config.root)) {
+      await dropConfig()
+      await registerTransientProject()
+      return
+    }
     const same = projectForRoot(config.root)
     if (same) {
-      await projectTransientDrop(config.id).catch(() => {})
+      await dropConfig()
       await openProject(same.id, mode)
       return
     }
     const stored = { ...config, id: uniqueProjectId(config.id), lastOpened: new Date().toISOString() }
-    await projectTransientDrop(config.id).catch(() => {})
+    await dropConfig()
     await addProject(stored)
     useSettingsStore().forgetTransientRoot(stored.root)
     await placeProject(stored.id, mode)
+    // **登録したときだけ知らせる**（#373）。名前・色・アイコンを聞かなくなったぶん、
+    // 何が起きたかを言わないと「開いただけ」と区別が付かない。既に登録済みだった枝は
+    // 普通に開くだけなので出さない（一時プロジェクトの枝は向こうが出す）。
+    notifyRegistered(stored.name)
+  }
+
+  /**
+   * 登録したことの知らせ（#373）。**編集フォームは開かない**: 色やアイコンを付けない人に
+   * 閉じる手間が増えるので、直したい人がプロジェクトパネルの鉛筆へ行く形にする。
+   */
+  function notifyRegistered(name: string) {
+    useStatusMessageStore().show({
+      text: t('project.registeredHint', { name }),
+      variant: 'success',
+      durationMs: 6000,
+    })
   }
 
   /**
@@ -644,6 +703,7 @@ export const useProjectStore = defineStore('project', () => {
     useSettingsStore().forgetTransientRoot(stored.root)
     await projectAddOpen(stored.id).catch(() => {})
     await flushSession()
+    notifyRegistered(stored.name)
   }
 
   /**
@@ -1463,8 +1523,9 @@ export const useProjectStore = defineStore('project', () => {
     restoreLastProject,
     saveSessionDebounced,
     saveSessionNow,
-    addProject,
-    uniqueProjectId,
+    // **`addProject` と `uniqueProjectId` は公開しない**（#373）。登録を書けるのは
+    // `openDirectoryAsProject` と `registerTransientProject` の 2 つだけ、という
+    // 不変条件を型で守る（`switchProject` を非公開にしてあるのと同じ手）。
     saveProject,
     applyExternalUpdate,
     applyExternalGroups,

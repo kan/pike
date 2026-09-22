@@ -5,7 +5,7 @@ import { runFormat } from '../lib/editorFormat'
 import { playMacro, toggleMacroRecording } from '../lib/editorMacro'
 import { normalizeWebUrl } from '../lib/openUrl'
 import type { AppActionId } from '../lib/shortcuts'
-import { pickFolder } from '../lib/tauri'
+import { pickFolder, ptyGetCwd } from '../lib/tauri'
 import { globalMode } from '../lib/window'
 import { useAgentStore } from '../stores/agents'
 import { useDiagnosticsStore } from '../stores/diagnostics'
@@ -14,12 +14,14 @@ import { useProjectStore } from '../stores/project'
 import { useSearchStore } from '../stores/search'
 import { FONT_SIZE_DEFAULT, FONT_SIZE_MAX, FONT_SIZE_MIN, useSettingsStore } from '../stores/settings'
 import { useSidebarStore } from '../stores/sidebar'
+import { useStatusMessageStore } from '../stores/statusMessage'
 import { useTabStore } from '../stores/tabs'
 import type { ShellType, SidebarPanel } from '../types/tab'
 import { confirmAndExit } from './useBusyExit'
 import { promptDialog } from './useConfirmDialog'
 import { useOutlineSource } from './useOutlineSource'
 import { useShortcutsModal } from './useShortcutsModal'
+import { type LiveTerminal, resolveTargetTerminal } from './useTerminalInject'
 
 /**
  * 新しいターミナルのシェルと cwd。プロジェクトを持たないウィンドウは設定の `globalShell`
@@ -80,6 +82,11 @@ export function useAppActions(): Record<AppActionId, () => void> & {
    * ターミナルのシェルでエージェントを探すのに使う（決め方を 2 か所に書かないため）。
    */
   terminalPlace: (shellOverride?: ShellType) => { cwd?: string; shell?: ShellType }
+  /**
+   * ターミナルの現在地をプロジェクトとして登録する（#373）。タブの右クリックメニューが、
+   * **そのタブ**を相手に呼ぶ（パレットの行は相手を省いて、流し込みと同じ規則で選ぶ）。
+   */
+  registerTerminalCwd: (tab?: LiveTerminal) => void
 } {
   // タブ・プロジェクト・設定はどの消費者も使うので先に取り、パネルや git のように
   // 一部のアクションでしか要らないものはクロージャの中で取る（`TabPane` は
@@ -94,6 +101,35 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     if (!path) return
     projectStore.showSwitcher = false
     await projectStore.openDirectory(path)
+  }
+
+  /**
+   * ターミナルの現在地をプロジェクトとして登録する（#373）。
+   *
+   * **プロジェクトパネルのフォームにあった自動補完の置き換え**。あちらはフォームを開いた
+   * だけで「今見ているターミナル」の cwd を欄に入れていたので、登録したいディレクトリとは
+   * 限らない値が黙って入った。こちらは押したときだけ動く。
+   *
+   * `tab` を渡すのはタブの右クリックメニュー（そのタブが相手）。省くとパレットからの
+   * 経路で、流し込み先と同じ規則（`resolveTargetTerminal`）で選ぶ。
+   */
+  async function registerTerminalCwd(tab?: LiveTerminal) {
+    const status = useStatusMessageStore()
+    const target = tab ?? resolveTargetTerminal()
+    if (!target) {
+      status.show({ text: t('project.registerCwdNoTerminal'), variant: 'warn' })
+      return
+    }
+    // Git Bash の MSYS パス（`/c/Users/x`）は `pty_get_cwd` が直して返す。名前を
+    // 付けられない場所（`/usr/bin`）は `null` になるので、ここは同じ枝で受ける。
+    const cwd = await ptyGetCwd(target.ptyId).catch(() => null)
+    if (!cwd) {
+      status.show({ text: t('project.registerCwdNoDir'), variant: 'warn' })
+      return
+    }
+    // **シェルも渡す**: WSL の native な cwd（`/home/…`）には distro が乗っていないので、
+    // これが無いとグローバルモードで Windows のプロジェクトとして組み立てられる。
+    await projectStore.openDirectoryAsProject(cwd, globalMode.value ? 'window' : 'switch', target.shell)
   }
 
   function zoomFont(step: number) {
@@ -192,6 +228,9 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     // ウィンドウはプロジェクトを持たないので、別ウィンドウで開く（スイッチャーの
     // 「ディレクトリを開く」と同じ判断）。
     openDirectory: () => void pickAndOpenDirectory(),
+    // **表の行は引数を取らない**（`Record<AppActionId, () => void>`）が、タブの右クリック
+    // メニューは相手のタブを渡す。戻り値の型が交差なので、どちらの呼び方も通る。
+    registerTerminalCwd: (tab?: LiveTerminal) => void registerTerminalCwd(tab),
     projectSwitcher: () => projectStore.toggleSwitcher(),
     newTerminal: () => openTerminal(),
     newFile: () => tabStore.addBlankEditorTab(),

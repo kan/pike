@@ -3,6 +3,47 @@
 プロジェクトの設定と同期、ウィンドウの生成と復元、OS 統合（トレイ・ジャンプリスト）、`pike` CLI。
 実体は `src-tauri/src/project/`、`src-tauri/src/cli.rs`、`src-tauri/src/wait.rs`、`src-tauri/src/tray/`、`src-tauri/src/jumplist/`、`src-tauri/src/window_geom.rs`、`src/stores/project.ts`。
 
+## 登録の UI（#373）
+
+**登録で聞くのはディレクトリ 1 つだけ。** 入口は「ディレクトリを登録」（プロジェクト
+パネルの上と、スイッチャーのフッター）で、どちらも `pickFolder` →
+`openDirectoryAsProject` を呼ぶ。名前はディレクトリ名、プラットフォーム・distro・シェルは
+backend の推測、色とアイコンは未設定。
+
+- **フォームを復活させないこと。** 以前はパネル（8 項目）とスイッチャー（7 項目）に同じ
+  フォームがあり、共有していたのは `ProjectPlatformFields` の 3 項目だけだった。ルートを
+  決めれば後ろの 3 つは推測でき、実際「ディレクトリを開く」（#230）の経路が推測していた。
+  **1 手で終わることを 7 項目で聞いていた**のが問題だった
+- **細かい設定は登録のときに聞かない。** 名前・色・アイコン・グループ・シェルは、
+  プロジェクトパネルの行の鉛筆（`ProjectListItem.vue` の編集フォーム）で直す。登録の直後に
+  そこを開くこともしない（付けない人に閉じる手間が増える）。代わりに登録したことを
+  ステータスバーに 1 回出す（`notifyRegistered`）
+- **ルートを手で打つ欄は持たない。** まだ存在しないディレクトリを登録する使い方は落とした。
+  作るなら選択ダイアログの「新しいフォルダー」を使う
+- **ターミナルの cwd で欄を埋める仕掛けも落とした。** フォームを開いただけで「今見ている
+  ターミナル」の cwd が入るので、登録したいディレクトリとは限らない値が黙って入った。
+  代わりに**押したときだけ**動く入口を 3 つ置いてある: ターミナルタブの右クリック、
+  ステータスバーの「未登録」バッジ、パレットの `registerTerminalCwd`
+  - **どのターミナルかは `resolveTargetTerminal`**（`useTerminalInject`）。右クリックだけは
+    そのタブが相手。各所で選び直すと、流し込みと登録で別のタブを相手にしうる
+  - **`pty_get_cwd` は「Pike が扱える形」で返す**（#373）。Git Bash は OSC 7 で MSYS の
+    パスを名乗る（`/c/Users/x`）ので、`types.rs` の `msys_to_windows` で直してから返す。
+    **変換を呼び出し側に置かないこと**: 消費者は登録とエージェントのセッション一覧の
+    2 つで、どちらも綴りが合わないと黙って壊れる（前者は Windows が解決できない root を
+    作り、後者は一覧が常に空になる）。**しかも形式はセッションの途中で変わる**（spawn 時の
+    cwd は Windows のパスで、最初のプロンプトで MSYS に入れ替わる）ので、見分けを消費者に
+    やらせると必ず片方が落ちる。名前を付けられない場所（`/usr/bin`）は `None`
+  - **ステータスバーの「未登録」バッジは別物**。あれが登録するのは**ウィンドウが開いて
+    いるディレクトリ**（`registerTransientProject`）で、ターミナルの現在地ではない。
+    `cd` したあとは 2 つが食い違う
+  - **バッジだけは確認を挟む**（`StatusBar.vue` の `registerTransient`）。名乗っているのが
+    状態（「未登録」）であって操作ではないので、押した先が `project.json` への書き込みだと
+    読み取れない。**確認を `registerTransientProject` の中へ置かないこと**: 「プロジェクトに
+    登録」と名乗っているパネルの帯のボタンにも付く
+- **スイッチャーに「登録」は置かない**。あそこの「ディレクトリを開く」は**登録するかを
+  設定（`registerDirectory`）に従って決める**ので、開いたあとでも登録するか選べる（#230）。
+  必ず登録する入口はプロジェクトパネルの「ディレクトリを登録」1 つ
+
 ## プロジェクト管理
 - プロジェクト設定は `%APPDATA%/{identifier}/projects/{id}/project.json` に保存（identifier は `tauri.conf.json` の値で、現在は `com.pike.dev`。**`com.tauri.dev` は雛形のままだった頃の残骸**で、古い環境にはそちらのディレクトリが残っている）
 - **`last_project.txt` は 1 行 1 ウィンドウ**で `見せていたid <TAB> 保持していたid...`（#264）。起動時は 1 行につき 1 ウィンドウを復元する。タブを持たない古い形式（1 行 1 id）はそのまま「保持なし」として読める
@@ -62,13 +103,15 @@
 - **プロジェクトを開く 3 つの入口（#212）**: 同期（#164）で入ってきたプロジェクトは root がこのマシンに無いことがある。未取得チェック（`ensureRootPresent`）を全経路に効かせるため、`stores/project.ts` の公開 API を次の 3 つに絞り、**`switchProject` は非公開にした**（返却オブジェクトから外してある＝素通りする経路を書けない）。**プロジェクトを開く導線を足すときはこの 3 つのどれかを通す**
   - `openProject(id, mode)`: **一覧から選んで開く**経路（ProjectSwitcher の選択、ProjectPanel の行クリックと「新しいウィンドウで開く」）。開く前に確認し、clone 完了後に同じ open を実行する。`mode` は `switch` / `window`（専用ウィンドウ。既に開いていれば Rust 側が focus）/ `focusOrSwitch`（開いていれば focus、無ければ switch）。`focusOrSwitch` の focus はチェックより**前**に試す（ウィンドウが開けている時点で root の存在は確定しているので、probe を待たせる意味がない）
   - `adoptProject(id, opts?)`: **ウィンドウが先にプロジェクトを渡された**経路（App.vue の `windowProjectId` 分岐＝ジャンプリスト / トレイ / 別ウィンドウ、`restoreLastProject` の main、昇格再起動の `useCliOpen`）。ここは開いた後にしか聞けないので、switch → 確認 → clone 完了で switch し直す、を**1 関数にまとめてある**（前半だけ書いて後半を忘れられないようにするため）
-  - `placeProject(id, mode)`: チェック無しで配置するだけ。**新規作成専用**（ProjectSwitcher の `onCreateProject`）。これから作るパスに対して「取得できません」と拒否しても意味がないため
+  - `placeProject(id, mode)`: チェック無しで配置するだけ。**登録した直後に開く専用**（`openDirectoryAsProject` と `registerTransientProject` が通る）。root は登録の直前に確認済みなので、「取得できません」と拒否しても意味がないため
   - `ensureRootPresent(id, onCloned)`（非公開）の戻り値＝「今 root がある」。false は開いてはいけない（URL が無いか clone を開始した）。`cloneProject(id, onCloned?)` は onCloned があれば従来の「切り替えますか？」confirm を出さない
   - 判定は**バッチ済みの `missingRoots` を読む**（`checkRoots` は distro ごとに 1 回の `wsl.exe`。パネル / スイッチャーは開くたびに、ストアの watcher は一覧が変わるたびに更新している）。1 プロジェクトだけ個別 probe すると、起動時にウィンドウ数ぶん余分な `wsl.exe` が走り、一覧のバッジと開いたときの判定がずれうる。`checkRoots` は**実行中の probe を join** する（watcher の probe 中に読むと未反映の set を見てしまうため）。force はいつでも再 probe する（clone 直後の判定が clone より前の結果になっては困る）
   - 判定は `checkRoots`（バッジ用の全件プローブ。distro ごとに `wsl.exe` 起動＋`backfillRemotes` の git 往復）ではなく、**当該 root 1 件の `fsDirsExist`**。プロジェクトを開くたびに全件プローブを待たせないため。プローブ失敗は「分からない」なので present 扱いで開かせる（`checkRoots` と同じ規約）
   - 「未取得」バッジは ProjectPanel と ProjectSwitcher の両方に出るので、`theme.css` の共有クラス `.missing-tag`（`.ctx-key` と同じ位置づけ）。行を塗る側は自分の scoped CSS で色を上書きする
   - **ネイティブな WSL パス（`/home/...`）を渡すときは distro のヒントが要る**。`project_transient_create` は `\\wsl.localhost\<distro>\...` の UNC 形からしか distro を読めないので、ヒント無しだと Windows プロジェクトとして組み立てられ、開いたウィンドウが `/home/...` を C ドライブに探しに行く。`stores/project.ts` の `distroHintFor` が「`/` 始まりのパス」かつ「今のプロジェクトが WSL」のときだけ現在の distro を渡す（Windows パスや UNC に渡すとヒントのほうが勝ってしまう）。`openDirectory` / `openDirectoryAsProject` の両方が通る
-  - `openDirectoryAsProject(path, mode)` は「登録して開く」。未登録なら `projectTransientCreate` で backend にプラットフォーム / シェル / distro を推測させ、`uniqueProjectId` を通して登録してから `placeProject`（新規作成なので未取得チェックの対象外）。登録済みの root を渡されたら `openProject` に流す。root を渡された時点で存在は確認済み（ディレクトリだと判定してから呼ぶ）
+    - **シェルを渡せる**（#373）。ターミナルの cwd から登録する経路はそのタブのシェルを知っているので、そちらを優先する。ウィンドウの今のプロジェクトだけを見ると、**グローバルモードの WSL ターミナル**（プロジェクトが無い）で distro を取りこぼす
+  - `openDirectoryAsProject(path, mode, from?)` は「登録して開く」で、**登録の唯一の入口**（#373）。未登録なら `projectTransientCreate` で backend にプラットフォーム / シェル / distro を推測させ、`uniqueProjectId` を通して登録してから `placeProject`（未取得チェックの対象外）。登録済みの root を渡されたら `openProject` に流す。root を渡された時点で存在は確認済み（ディレクトリだと判定してから呼ぶ）
+    - **そのウィンドウが登録せずに開いている root なら `registerTransientProject` へ渡す**（#373）。`projectForRoot` は登録済みの一覧しか見ない（`transientProject` は意図的に外してある）ので、ここを通さないと同じ root で 2 つ目の id が生まれ、`placeProject` の切り替えが「一時プロジェクトから離れる」枝に入って**今開いているタブを全部閉じる**（右クリックしたターミナルごと消える）
   - `openDirectory(path, mode)`（#230）はこの 3 つの外側にあるが、**一覧から選ぶ経路ではない**（ユーザーがピッカーで指したディレクトリなので、そこに無いなら選べていない）ため未取得チェックの対象外。`placeProject` と同じ位置づけ
 - **登録せずに開くディレクトリ（一時プロジェクト、#230）**: `pike <dir>` は未登録のディレクトリに対して `project.json` を書いていたので、中を見たいだけのディレクトリが一覧・`last_project.txt`・ジャンプリスト・同期ファイルに残り、手で消すしか戻す道がなかった。代わりに `src-tauri/src/project/transient.rs` の `TransientState`（id → `ProjectConfig` のメモリ内マップ）に載せる
   - **`window_projects` には登録済みと同じように id を入れる**。これが要点で、ウィンドウの focus・CLI ルーティング・`project_for_window` は「匿名ウィンドウ」という概念を持たなくて済む。特別扱いが要るのは**書き込み側だけ**で、その一覧は `transient.rs` のモジュール doc が正本（`project.json` 系 / `last_project.txt` / 同期・シェルメニュー / ウィンドウ geometry）

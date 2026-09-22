@@ -86,6 +86,8 @@ export const APP_ACTIONS = [
   { id: 'quickOpen' },
   { id: 'projectSwitcher', palette: 'project' },
   { id: 'openDirectory', palette: 'project' },
+  // ターミナルの現在地を登録する（#373。プロジェクトパネルの自動補完の置き換え）。
+  { id: 'registerTerminalCwd', palette: 'project', labelKey: 'project.registerCwd' },
   { id: 'newTerminal', palette: 'terminal' },
   { id: 'fontIncrease', palette: 'view' },
   { id: 'fontDecrease', palette: 'view' },

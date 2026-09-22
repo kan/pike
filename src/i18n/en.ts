@@ -6,8 +6,6 @@ export default {
   'common.openWithDefaultApp': 'Open with Default App',
   'common.save': 'Save',
   'common.delete': 'Delete',
-  'common.back': 'Back',
-  'common.create': 'Create',
   'common.auto': 'Auto',
   'common.on': 'ON',
   'common.off': 'OFF',
@@ -650,14 +648,17 @@ export default {
   'docker.composeDownConfirm': 'Run "docker compose down"? All service containers will be stopped and removed.',
 
   // Project Panel
-  'project.addProject': '+ Add Project',
+  'project.registerFolder': 'Register a directory',
+  'project.registeredHint': 'Registered "{name}" as a project. Rename it or set a color and icon from the pencil',
+  'project.registerCwd': 'Register this directory as a project',
+  'project.registerCwdNoTerminal': 'No terminal tab',
+  'project.registerCwdNoDir': "Could not tell the terminal's current directory",
   // Directory opened without registering it (#230)
   'project.registerDirectory': 'Register as a project',
   'project.registerDirectoryConfirm':
     'Register this directory as a project?\n\n{root}\n\nIf not, it opens without saving anything and this directory will not ask again.',
   'project.registerDirectoryRemember': 'Stop asking and make this the default',
   'project.projectName': 'Project name',
-  'project.detect': 'Detect',
   'project.browse': 'Browse...',
   'project.golangciCommand': 'golangci-lint command (optional)',
   'project.golangciCommandHint':
@@ -716,11 +717,8 @@ export default {
   'projectSwitcher.enterSwitch': 'Enter: switch',
   'projectSwitcher.ctrlEnterWindow': '{key}: new window',
   'projectSwitcher.enterOpenWindow': 'Enter: open in new window',
-  'projectSwitcher.newProject': '+ New Project',
   'projectSwitcher.openGlobal': 'Global Mode',
   'projectSwitcher.openDirectory': 'Open a Directory',
-  'projectSwitcher.formTitle': 'New Project',
-  'projectSwitcher.createAndOpen': 'Create & Open',
 
   // Quick Open
   'quickOpen.recentDir': 'recent',
@@ -901,8 +899,10 @@ export default {
   // StatusBar
   'statusBar.admin': 'Admin',
   'statusBar.transient': 'unregistered',
-  'statusBar.transientHint':
-    'This directory is not a project: tabs and settings are not saved. Register it from the Projects panel.',
+  'statusBar.transientRegisterHint':
+    'This directory is not a project: tabs and settings are not saved. Click to register it.',
+  'statusBar.transientRegisterConfirm':
+    'Register this directory as a project?\n\n{root}\n\nOnce registered, its tabs and settings come back next time.',
   'statusBar.adminTooltip': 'Running as administrator (Windows side only; not inside WSL)',
   'statusBar.ln': 'Ln',
   'statusBar.col': 'Col',
