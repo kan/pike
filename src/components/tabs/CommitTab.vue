@@ -202,7 +202,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="commit-tab">
+  <div class="commit-tab" data-testid="commit-tab">
     <div class="md-toolbar">
       <span class="commit-title">{{ subject }}</span>
       <button class="tool-btn" :title="t('commitTab.refresh')" :disabled="loading" @click="load">

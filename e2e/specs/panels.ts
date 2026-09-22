@@ -106,7 +106,18 @@ const GIT_LOG = [
     refs: '',
     author: 'Kan Fushihara',
     date: '2026-01-06 11:20',
-    message: 'feat: スクリーンショット自動化を追加',
+    // 本文つき（コミットタブの左上はメッセージ全文を出すので、1 行だけだと空く）。
+    // 一覧とグラフの行は 1 行目しか読まないので、こちらの見え方は変わらない。
+    message: [
+      'feat: スクリーンショット自動化を追加',
+      '',
+      'wdio でマニュアルの画像を ja / en × light / dark の 4 通り撮る。',
+      '撮影用のビルドは identifier を分けてあるので、インストール版と',
+      '同時に起動できる。',
+      '',
+      '同期は scripts/sync-manual-images.sh に分けた（撮り直しと',
+      'マニュアルへの反映を別の手順にしておきたいため）。',
+    ].join('\n'),
   },
   {
     hash: 'f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5',
@@ -157,8 +168,11 @@ async function mockGit(): Promise<void> {
 }
 
 /** Git パネルを開いた状態まで持っていく（背景エディタ込み）。 */
-async function openGitPanel(variant: (typeof MATRIX)[number]): Promise<void> {
-  await prepare(variant)
+async function openGitPanel(
+  variant: (typeof MATRIX)[number],
+  size?: { width: number; height: number },
+): Promise<void> {
+  await prepare({ ...variant, ...size })
   await mockGit()
   await setFakeProject()
   await openEditor({ path: 'README.md', content: README_MD })
@@ -178,6 +192,121 @@ describe('screenshots: git panel (graph)', () => {
       // クリックしたボタンにフォーカスリングが残ると、実行のたびに画像へ差分が出る。
       await browser.execute(() => (document.activeElement as HTMLElement | null)?.blur())
       await shoot('git-graph', lang, theme)
+    })
+  }
+})
+
+// コミットタブ（#374 / #396）。グラフ表示の行を押すと開く。**見せたいのは 3 分割の配置**
+// （左上にメタとメッセージ・左下にファイルの一覧・右に選んだ 1 ファイルの差分）なので、
+// パネルのクローズアップより広い寸法で撮る。
+const COMMIT_SIZE = { width: 1600, height: 1000 }
+
+// **中身は寸法に合わせて厚くしてある**（`e2e/README.md` の「フィクスチャが短いと下半分が
+// 空く」）。最初のファイルが右のペインに出るので、そこだけは画面が埋まる長さにする。
+const COMMIT_PATCH = [
+  'diff --git a/e2e/specs/screenshots.ts b/e2e/specs/screenshots.ts',
+  'new file mode 100644',
+  'index 0000000..9a8b7c6',
+  '--- /dev/null',
+  '+++ b/e2e/specs/screenshots.ts',
+  '@@ -0,0 +1,32 @@',
+  "+import { MATRIX, openPanel, prepare, setFakeProject, shoot } from '../support/prepare'",
+  '+',
+  '+// 撮影は ja / en × light / dark の 4 通り。寸法は prepare() が固定する。',
+  "+describe('screenshots: settings', () => {",
+  '+  for (const variant of MATRIX) {',
+  '+    const { lang, theme } = variant',
+  '+    it(`settings ${lang} ${theme}`, async () => {',
+  '+      await prepare(variant)',
+  '+      await setFakeProject()',
+  "+      await openPanel('settings')",
+  "+      await shoot('settings', lang, theme)",
+  '+    })',
+  '+  }',
+  '+})',
+  '+',
+  "+describe('screenshots: project panel', () => {",
+  '+  for (const variant of MATRIX) {',
+  '+    const { lang, theme } = variant',
+  '+    it(`project-panel ${lang} ${theme}`, async () => {',
+  '+      await prepare(variant)',
+  '+      await setFakeProject()',
+  "+      await openPanel('projects')",
+  "+      await $('[data-testid=\"project-panel\"]').waitForDisplayed({ timeout: 10_000 })",
+  "+      await shoot('project-panel', lang, theme)",
+  '+    })',
+  '+  }',
+  '+})',
+  'diff --git a/package.json b/package.json',
+  'index 1a2b3c4..5d6e7f8 100644',
+  '--- a/package.json',
+  '+++ b/package.json',
+  '@@ -5,6 +5,8 @@',
+  '   "scripts": {',
+  '     "dev": "vite",',
+  '     "build": "vue-tsc --noEmit && vite build",',
+  '+    "e2e": "wdio run e2e/wdio.conf.ts",',
+  '+    "e2e:sync": "bash scripts/sync-manual-images.sh",',
+  '     "lint": "biome check src/",',
+  '     "test": "vitest run"',
+  '   }',
+  '@@ -18,6 +20,7 @@',
+  '   "devDependencies": {',
+  '     "@biomejs/biome": "2.3.1",',
+  '     "typescript": "5.9.3",',
+  '+    "@wdio/cli": "9.21.1",',
+  '     "vite": "7.1.12"',
+  '   }',
+  ' }',
+  'diff --git a/scripts/sync-manual-images.sh b/scripts/sync-manual-images.sh',
+  'new file mode 100755',
+  'index 0000000..4b5c6d7',
+  '--- /dev/null',
+  '+++ b/scripts/sync-manual-images.sh',
+  '@@ -0,0 +1,8 @@',
+  '+#!/usr/bin/env bash',
+  '+# 撮影したスクリーンショットをマニュアルの画像へ同期する。',
+  '+set -euo pipefail',
+  '+',
+  '+for name in project-panel settings git-graph; do',
+  '+  cp "artifacts/screenshots/${name}-ja-dark.png" "docs/manual/img/${name}.png"',
+  '+  cp "artifacts/screenshots/${name}-ja-light.png" "docs/manual/img/${name}-light.png"',
+  '+done',
+  'diff --git a/docs/manual/README.md b/docs/manual/README.md',
+  'index 2c3d4e5..6f7a8b9 100644',
+  '--- a/docs/manual/README.md',
+  '+++ b/docs/manual/README.md',
+  '@@ -1,6 +1,6 @@',
+  ' # Pike マニュアル',
+  ' ',
+  '-画像は手で撮って差し替えます。',
+  '+画像は `npm run e2e` で撮り直します。',
+  ' ',
+  ' ## 目次',
+  ' ',
+  'diff --git a/docs/manual/img/old-settings.png b/docs/manual/img/old-settings.png',
+  'deleted file mode 100644',
+  'index 7e8f9a0..0000000',
+  'Binary files a/docs/manual/img/old-settings.png and /dev/null differ',
+  '',
+].join('\n')
+
+describe('screenshots: commit tab', () => {
+  for (const variant of MATRIX) {
+    const { lang, theme } = variant
+    it(`commit-tab ${lang} ${theme}`, async () => {
+      await openGitPanel(variant, COMMIT_SIZE)
+      await mockInvoke('git_commit_patch', { patch: COMMIT_PATCH, truncated: false })
+      await $('.view-toggle .view-btn:last-child').click()
+      await $('.graph-row').waitForDisplayed({ timeout: 10_000 })
+      // 2 行目（マージではない普通のコミット）を開く。wdio の click はホバーの
+      // ツールチップを呼ぶので、DOM 側で押す（同じ理由で下の sync-menu も execute）。
+      await browser.execute(() => {
+        document.querySelectorAll<HTMLElement>('.graph-row')[1]?.click()
+      })
+      await $('[data-testid="commit-tab"]').waitForDisplayed({ timeout: 10_000 })
+      await browser.execute(() => (document.activeElement as HTMLElement | null)?.blur())
+      await shoot('commit-tab', lang, theme)
     })
   }
 })

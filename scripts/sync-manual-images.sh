@@ -72,6 +72,8 @@ MAP=(
   "terminal-path-confirm:terminal-path-confirm"
   # v0.53.0 で新しく撮るもの
   "editor-too-large:editor-too-large"
+  # v0.56.0 で新しく撮るもの
+  "commit-tab:commit-tab"
 )
 
 check=0
