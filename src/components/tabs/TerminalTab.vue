@@ -24,6 +24,7 @@ import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { matchChord, normalizedKey } from '../../lib/keys'
 import { openPathInTab, projectPath } from '../../lib/openFile'
+import { useOverlay } from '../../lib/overlay'
 import { isAbsolutePath } from '../../lib/paths'
 import { readableTextOn } from '../../lib/projectColors'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
@@ -38,7 +39,7 @@ import {
 import { elevated } from '../../lib/window'
 import { useAgentStore } from '../../stores/agents'
 import { useProjectStore } from '../../stores/project'
-import { useSettingsStore } from '../../stores/settings'
+import { TERM_SCROLLBAR_WIDTH, useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import { isPowershellFamily, type ShellType } from '../../types/tab'
@@ -119,6 +120,9 @@ const agentMenuOpen = ref(false)
 // running agent in the current terminal. Configurable in Settings.
 const agentPrompts = computed(() => settingsStore.agentPrompts)
 const promptMenuOpen = ref(false)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。入れ子の
+// サブメニュー（`agentSubOpen`）は、親を開いた時点で数えられているので登録しない。
+useOverlay(() => agentMenuOpen.value || promptMenuOpen.value)
 // Hidden while a full-screen TUI owns the alternate screen buffer (vim, less,
 // lazygit, …) so the launcher can't inject text into a running program.
 const inAltScreen = ref(false)
@@ -676,6 +680,8 @@ onMounted(async () => {
     scrollback: 5000,
     cursorBlink: true,
     allowProposedApi: true,
+    // スクロールバーと右の溝の幅（#396。既定の 14px はアプリの他の面より太い）。
+    overviewRuler: { width: TERM_SCROLLBAR_WIDTH },
     // Window transparency (issue #162): let the translucent theme background
     // composite over the desktop. Only enabled when a backdrop is active — the
     // opaque default keeps xterm's cheaper non-transparent render path.

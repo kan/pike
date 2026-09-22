@@ -226,7 +226,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  margin: -12px;
+  /* パネルの padding を打ち消して端まで使う。**`.panel-content` と同じ変数で組むこと**
+     （#396。右だけレールぶん狭い）。値をリテラルで書くと、片方だけ変えたときに差が
+     そのまま横スクロールバーになる（`overflow-y: scroll` は `overflow-x` を `auto` にする）。 */
+  margin: calc(-1 * var(--panel-pad)) calc(-1 * var(--scrollbar-size)) calc(-1 * var(--panel-pad))
+    calc(-1 * var(--panel-pad));
 }
 
 .outline-tabs {

@@ -7,7 +7,7 @@ import { dockerLogRouter } from '../../composables/useDockerLogRouter'
 import { attachUrlLinks } from '../../composables/useTerminalUrlLinks'
 import { useI18n } from '../../i18n'
 import { dockerLogsStart, dockerLogsStop } from '../../lib/tauri'
-import { useSettingsStore } from '../../stores/settings'
+import { TERM_SCROLLBAR_WIDTH, useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import type { DockerLogsTab } from '../../types/tab'
 import '@xterm/xterm/css/xterm.css'
@@ -89,6 +89,8 @@ onMounted(async () => {
     cursorBlink: false,
     disableStdin: true,
     convertEol: true,
+    // スクロールバーと右の溝の幅（#396）。ターミナルと同じ値にそろえる。
+    overviewRuler: { width: TERM_SCROLLBAR_WIDTH },
     // 背景透過（#162）: 透明な theme の背景をそのまま描かせる。TerminalTab と同じ。
     allowTransparency: settingsStore.windowBackdrop !== 'none',
   })

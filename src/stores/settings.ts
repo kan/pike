@@ -241,6 +241,24 @@ export const UI_FONT_SIZE_MIN = 9
 export const UI_FONT_SIZE_MAX = 20
 
 /**
+ * xterm が右に確保する溝の幅（#383 / #396）。**スクロールバーの太さでもある**:
+ * FitAddon は列数を決めるとき親の幅からこれを引き、xterm 6 のスクロールバー
+ * （vscode の `ScrollableElement`）も同じ値で幅を決める。
+ *
+ * 既定は 14px で、アプリの他のスクロールバー（`theme.css` の `--scrollbar-size`）は
+ * 6px なので、**ターミナルだけ倍以上太く見えていた**。ここを渡して 6px に揃える。
+ *
+ * **代償が 2 つある。** 検索中はこの帯に一致の印（`matchOverviewRuler`）が並ぶこと
+ * （VSCode と同じ見え方）と、**幅を渡すと xterm が `OverviewRulerRenderer` を作る**こと。
+ * 既定では幅が falsy なので作られず、渡すと描画のたびに rAF で細い canvas を塗り直す
+ * 仕事が 1 つ増える。xterm に他の knob は無いので、避ける手は 14px のままにすることだけ。
+ *
+ * **`theme.css` の `--term-gutter` と同じ値にすること**（CSS からこの定数は読めない）。
+ * あちらは `--scrollbar-size` を読み、左に同じだけ余白を置いて本文を左右で釣り合わせる。
+ */
+export const TERM_SCROLLBAR_WIDTH = 6
+
+/**
  * Window background transparency mode (issue #162). `none` = fully opaque
  * (current look). `transparent` = plain translucency (no blur) so the desktop
  * shows through crisply at the chosen opacity. `acrylic` applies the Windows 11
@@ -386,15 +404,23 @@ function sanitizeRegisterDirectory(v: unknown): RegisterDirectoryMode {
 }
 
 /**
- * タブバーの「+」を押したときに開くもの（#375）。既定は `terminal`（従来の挙動）。
- * **好みなので同期の対象**。`agent` は起動行の先頭で、使えるエージェントが無ければターミナルに落ちる。
- * `Ctrl+T`（新規ターミナル）はこの設定に従わない（キーの名前が「ターミナル」なので）。
+ * タブバーの「+」を押したときに開くもの（#375 / #396）。**既定は `menu`**（何を開くかの
+ * 一覧を出す）で、そのときは ▾ を出さない。残りの 4 つを選ぶとその種別を直接開き、
+ * 一覧は ▾ に戻る。**好みなので同期の対象**。`agent` は起動行の先頭で、使えるエージェントが
+ * 無ければターミナルに落ちる。`Ctrl+T`（新規ターミナル）はこの設定に従わない
+ * （キーの名前が「ターミナル」なので）。
+ *
+ * **これは #375 の `tabAddAction` を置き換えた新しい鍵。** あちらに 5 つ目の値を足して
+ * 既定を差し替える形だと、v0.55.0 で `terminal` が保存済みの人に新しい既定が届かず
+ * （`snapshot()` は全フィールドを書く）、届かせるには「利用者が自分で選んだ `terminal`」を
+ * 書き換える移行が要る。見分ける手段が無いので、鍵ごと変えて `undefined` から既定へ
+ * 落ちるようにした。代償は、`editor` などへ変えていた人が 1 度選び直すこと。
  */
-export const TAB_ADD_ACTIONS = ['terminal', 'editor', 'browser', 'agent'] as const
+export const TAB_ADD_ACTIONS = ['menu', 'terminal', 'editor', 'browser', 'agent'] as const
 export type TabAddAction = (typeof TAB_ADD_ACTIONS)[number]
 
 function sanitizeTabAddAction(v: unknown): TabAddAction {
-  return TAB_ADD_ACTIONS.includes(v as TabAddAction) ? (v as TabAddAction) : 'terminal'
+  return TAB_ADD_ACTIONS.includes(v as TabAddAction) ? (v as TabAddAction) : 'menu'
 }
 
 /**
@@ -483,8 +509,8 @@ interface PersistedSettings {
   csvPageSize: number
   /** 未登録のディレクトリを開いたときにプロジェクト登録するか（#286）。 */
   registerDirectory: RegisterDirectoryMode
-  /** タブバーの「+」を押したときに開くもの（#375）。 */
-  tabAddAction: TabAddAction
+  /** タブバーの「+」を押したときに開くもの（#396。宣言の隣が正本）。 */
+  tabAddOpens: TabAddAction
   /** エディタの自動保存の契機（#262）。 */
   autoSave: AutoSave
   /** `autoSave: 'afterDelay'` の待ち時間（ミリ秒）。 */
@@ -779,7 +805,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     // CSV プレビューの表示件数。選択肢と既定値は `lib/csvPreview.ts`。**同期の対象**（好み）。
     csvPageSize: sanitizeChoice(CSV_PAGE_SIZES, s.csvPageSize, CSV_PAGE_SIZE_DEFAULT),
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
-    tabAddAction: sanitizeTabAddAction(s.tabAddAction),
+    tabAddOpens: sanitizeTabAddAction(s.tabAddOpens),
     terminalPathLinks: sanitizeTerminalPathLinks(s.terminalPathLinks),
     agentNotify: sanitizeAgentNotify(s.agentNotify),
     autoSave: sanitizeAutoSave(s.autoSave),
@@ -1079,7 +1105,8 @@ function defaults(): PersistedSettings {
     editorMaxFileSizeMb: EDITOR_MAX_FILE_SIZE_DEFAULT,
     csvPageSize: CSV_PAGE_SIZE_DEFAULT,
     registerDirectory: 'ask',
-    tabAddAction: 'terminal',
+    // 「+」は既定でメニューを開く（#396）。
+    tabAddOpens: 'menu' as TabAddAction,
     autoSave: 'off',
     autoSaveDelay: AUTO_SAVE_DELAY_DEFAULT,
     editorTabSize: 4,
@@ -1157,7 +1184,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorMaxFileSizeMb = ref(saved.editorMaxFileSizeMb)
   const csvPageSize = ref(saved.csvPageSize)
   const registerDirectory = ref(saved.registerDirectory)
-  const tabAddAction = ref(saved.tabAddAction)
+  const tabAddOpens = ref(saved.tabAddOpens)
   const autoSave = ref(saved.autoSave)
   const autoSaveDelay = ref(saved.autoSaveDelay)
   const editorTabSize = ref(saved.editorTabSize)
@@ -1283,15 +1310,16 @@ export const useSettingsStore = defineStore('settings', () => {
    * そのホストのページに効くルールの id（ブラウザのタブの歯車、#368）。**無効にしてあるルールも
    * 探す**（開いて有効に戻したい、が歯車を押す理由になりうる）。無ければ、ドメインにホスト名を
    * 入れたルールを作って返す。
+   *
+   * **名前はホスト名そのままにしない**（#396）。一覧では名前とドメインの欄が縦に並ぶので、
+   * 同じ文字列が 2 行続いて、名前の欄が何を書く場所なのか読めなかった。
    */
   function siteRuleForHost(host: string): string {
     const found = browserSiteRules.value.find((r) => splitDomains(r.domains).some((d) => hostMatchesDomain(host, d)))
     if (found) return found.id
     const id = crypto.randomUUID()
-    browserSiteRules.value = [
-      ...browserSiteRules.value,
-      { id, name: host, enabled: true, domains: host, js: '', css: '' },
-    ]
+    const name = t('settings.siteRuleDefaultName', { host })
+    browserSiteRules.value = [...browserSiteRules.value, { id, name, enabled: true, domains: host, js: '', css: '' }]
     return id
   }
 
@@ -1623,7 +1651,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMaxFileSizeMb: editorMaxFileSizeMb.value,
       csvPageSize: csvPageSize.value,
       registerDirectory: registerDirectory.value,
-      tabAddAction: tabAddAction.value,
+      tabAddOpens: tabAddOpens.value,
       autoSave: autoSave.value,
       autoSaveDelay: autoSaveDelay.value,
       editorTabSize: editorTabSize.value,
@@ -1679,7 +1707,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMaxFileSizeMb.value = s.editorMaxFileSizeMb
     csvPageSize.value = s.csvPageSize
     registerDirectory.value = s.registerDirectory
-    tabAddAction.value = s.tabAddAction
+    tabAddOpens.value = s.tabAddOpens
     autoSave.value = s.autoSave
     autoSaveDelay.value = s.autoSaveDelay
     editorTabSize.value = s.editorTabSize
@@ -1899,7 +1927,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorMaxFileSizeMb,
       csvPageSize,
       registerDirectory,
-      tabAddAction,
+      tabAddOpens,
       autoSave,
       autoSaveDelay,
       editorTabSize,
@@ -1976,7 +2004,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorMaxFileSizeMb,
     csvPageSize,
     registerDirectory,
-    tabAddAction,
+    tabAddOpens,
     autoSave,
     autoSaveDelay,
     editorTabSize,

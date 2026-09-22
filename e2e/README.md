@@ -73,11 +73,13 @@ just e2e
 - 言語・テーマの切替は e2e ビルド限定の `window.__pikeE2E`（`setLanguage` /
   `setDarkMode`）でリロードなしに行う。
 - 画面遷移は data-testid（`project-switcher` / `switcher-new-project` /
-  `new-project-form` / `settings-screen` / `settings-shells` / `tab-add-arrow` /
+  `new-project-form` / `settings-screen` / `settings-shells` / `tab-add` /
   `shell-menu`）と、`__pikeE2E` の `openSwitcher` / `closeSwitcher` /
   `openSettings` / `enterGlobalMode` で行う。
-- ▾ プルダウンは globalMode（または Windows プロジェクト）のときだけ出るため、
-  `enterGlobalMode`（WSL 検出でシェルプロファイルを揃えてから globalMode に入る）で撮る。
+- タブを開くメニューは「+」（`tab-add`）から出す（#396。▾ は設定で「直接開く」に
+  したときだけ出るので、撮影では使わない）。中のシェルの行は globalMode（または
+  Windows プロジェクト）のときだけ出るため、`enterGlobalMode`（WSL 検出でシェル
+  プロファイルを揃えてから globalMode に入る）で撮る。
 
 ## invoke 駆動パネルの撮影（invoke モック）
 

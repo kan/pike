@@ -30,6 +30,7 @@ import { computed, nextTick, onUnmounted, ref, useTemplateRef } from 'vue'
 import { useI18n } from '../../i18n'
 import type { TableSpec, ToolbarAction } from '../../lib/editorMarkdown'
 import { chordLabel } from '../../lib/keys'
+import { useOverlay } from '../../lib/overlay'
 
 const emit = defineEmits<{ run: [action: ToolbarAction] }>()
 
@@ -112,6 +113,9 @@ const segments = computed<Segment[]>(() => [
 ])
 
 const openMenu = ref<'heading' | 'block' | null>(null)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。分割していれば
+// 反対のペインにブラウザのタブが出ているので、エディタの中のメニューでも被りうる。
+useOverlay(() => openMenu.value !== null)
 /** Set while the block menu is showing the table form instead of its items. */
 const picker = ref<'table' | null>(null)
 

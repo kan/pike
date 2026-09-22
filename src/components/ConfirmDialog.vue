@@ -2,10 +2,13 @@
 import { nextTick, ref, watch } from 'vue'
 import { useConfirmDialog } from '../composables/useConfirmDialog'
 import { useI18n } from '../i18n'
+import { useOverlay } from '../lib/overlay'
 
 const { t } = useI18n()
 const { visible, message, mode, inputValue, inputPlaceholder, inputMasked, optionLabel, optionChecked, respond } =
   useConfirmDialog()
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => visible.value)
 const okBtn = ref<HTMLButtonElement | null>(null)
 const inputEl = ref<HTMLInputElement | null>(null)
 

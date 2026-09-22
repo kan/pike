@@ -22,6 +22,7 @@ import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useTabDrag } from '../../composables/useTabDrag'
 import { useI18n } from '../../i18n'
 import { canResolveDroppedPaths, resolveDroppedPaths } from '../../lib/dropPaths'
+import { useOverlay } from '../../lib/overlay'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { actionChord } from '../../lib/shortcuts'
 import { TAB_KIND_ICONS, tabFileIconSvg } from '../../lib/tabIcons'
@@ -216,7 +217,7 @@ const agentMenu = useAgentMenu({
  * ものに印を付ける（エージェントは先頭の行）。
  */
 const kindMenuItems = computed(() => {
-  const action = settings.tabAddAction
+  const action = settings.tabAddOpens
   // **第 1 階層は既定の起動行だけ**（#375）。残りと再開一覧はサブメニューで、構成は
   // ターミナルに重ねる起動ボタンと同じ（規則は `useAgentMenu` の doc が正本）。
   const agents = agentMenu.defaultLines.value.map((line, i) => ({
@@ -232,9 +233,9 @@ const kindMenuItems = computed(() => {
     {
       // **素のターミナルの行を外さないこと**（#375）。下のシェルの行は Windows の
       // プロジェクトとグローバルモードでしか出ないので、これが無いと WSL と macOS の
-      // プロジェクトで `tabAddAction` を `terminal` 以外にした人は、タブバーから
+      // プロジェクトで `tabAddOpens` を `terminal` 以外にした人は、タブバーから
       // ターミナルへ行く手段を失う（`Ctrl+T` とパレットしか残らない）。
-      // 上段は `TAB_ADD_ACTIONS` の 4 つと 1 対 1 に並べる。
+      // 上段は `TAB_ADD_ACTIONS` の `menu` 以外の 4 つと 1 対 1 に並べる。
       key: 'terminal',
       // **タブ種別のアイコン**（シェル別ではない）。上段は「何を開くか」の 4 行で、
       // 「どのシェルで開くか」は下のシェルの行。並びの他の 3 行と同じく固定にする。
@@ -272,9 +273,21 @@ function runKindItem(run: () => void) {
 /** シェルの行を出すか（これまで ▾ を出していた条件。理由はテンプレートの隣）。 */
 const showShellRows = computed(() => isWindows.value || globalMode.value)
 
-/** 「+」のツールチップ。設定の `tabAddAction` で開くものが変わるので、それを言う。 */
+/**
+ * 「+」を押したとき（#396）。設定の `tabAddOpens` が `menu` ならメニューを開き、それ以外は
+ * その種別を直接開く。**どちらを呼ぶかの判定はここ 1 か所**（`useAppActions` 側へ持ち込むと、
+ * メニューの開閉という TabBar のローカルな状態をあちらが知ることになる）。
+ */
+function onTabAdd() {
+  if (settings.tabAddOpens === 'menu') toggleShellMenu()
+  else openFromTabAdd()
+}
+
+/** 「+」のツールチップ。押して何が起きるかが設定で変わるので、それを言う。 */
 const tabAddTitle = computed(() => {
-  switch (settings.tabAddAction) {
+  switch (settings.tabAddOpens) {
+    case 'menu':
+      return t('tabs.openWithShell')
     case 'editor':
       return t('tabs.newEditor')
     case 'browser':
@@ -558,6 +571,13 @@ const contextTab = computed(() =>
   contextMenu.value?.tabId ? (tabStore.tabs.find((t) => t.id === contextMenu.value!.tabId) ?? null) : null,
 )
 
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。入れ子のものは
+// 親を開いた時点で数えられているので登録しない（`agentMenu.subOpen` と、シェルの行の
+// 右クリックで出る `adminMenu`）。
+// **読む ref より後に置くこと**: `watch` の `immediate` はここで 1 回評価するので、
+// まだ宣言していない `const` を読むと ReferenceError になる（型検査では出ない）。
+useOverlay(() => showTabMenu.value || showShellMenu.value || contextMenu.value !== null)
+
 const contextTabPath = computed(() => {
   const tab = contextTab.value
   if (!tab) return null
@@ -669,14 +689,32 @@ onUnmounted(() => {
         v-if="tabsOverflow"
         class="tab-add-arrow"
         :title="t('tabs.showAll')"
+        @mousedown.stop
         @click.stop="toggleTabMenu"
       ><ChevronDown :size="12" :stroke-width="2" /></button>
-      <!-- 「+」で開くものは設定の `tabAddAction`（#375）。▾ はいつも出す（種類を選ぶ入口）。 -->
-      <button class="tab-add" :title="tabAddTitle" @click="openFromTabAdd()"><Plus :size="16" :stroke-width="2" /></button>
+      <!--
+        「+」は既定でメニューを開く（#396）。設定の `tabAddOpens` で種別を選んだときだけ
+        それを直接開き、そのときに限って ▾（メニューの入口）を戻す。
+        **両方出したままにしないこと**: メニューが「+」から出るなら ▾ は同じものを開く
+        2 つ目のボタンでしかない。
+
+        **メニューを開くボタンには `@mousedown.stop` が要る。** 開くときに
+        `window` の `mousedown` へ「外を押したら閉じる」を 1 回だけ張るので、止めないと
+        押し直したときに mousedown で閉じ → click で開き直し、となって永久に閉じない。
+      -->
       <button
+        class="tab-add"
+        data-testid="tab-add"
+        :title="tabAddTitle"
+        @mousedown.stop
+        @click.stop="onTabAdd"
+      ><Plus :size="16" :stroke-width="2" /></button>
+      <button
+        v-if="settings.tabAddOpens !== 'menu'"
         class="tab-add-arrow"
         data-testid="tab-add-arrow"
         :title="t('tabs.openWithShell')"
+        @mousedown.stop
         @click.stop="toggleShellMenu"
       ><ChevronDown :size="12" :stroke-width="2" /></button>
       <!-- 作業領域の分割（#308）。分割中は解除になる。 -->

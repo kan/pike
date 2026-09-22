@@ -84,9 +84,17 @@ pub struct FsWatchFailedPayload {
 
 /// stderr から理由を当てる。**当てられないときは `Other`**（`detail` をそのまま見せる）。
 fn classify_watch_failure(stderr: &str) -> WatchFailReason {
-    // `wsl.exe` の relay が出す形（`execvpe(inotifywait) failed: …`）と、シェル越しに
-    // 起動されたときの形の両方を見る。
-    if stderr.contains("execvpe(inotifywait)") || stderr.contains("inotifywait: not found") {
+    // **`wsl.exe` が出す綴りは 1 つではない**（#396）。どちらも実測した:
+    //   `CreateProcessCommon:818: execvpe(inotifywait) failed: No such file or directory`
+    //   `CreateProcessEntryCommon:502: execvpe inotifywait failed 2`
+    // 括弧まで含めて見ていたころは後者が `Other` に落ち、インストールの導線の代わりに
+    // 生の WSL のエラーが帯に出ていた。**`execvpe` とコマンド名の同居で見る**（関数名も
+    // 括弧の有無も WSL の版で変わるが、この 2 語は両方に出る）。
+    // シェル越しに起動されたときの `inotifywait: not found` / `command not found` も
+    // 同じ形で拾える（コマンド名は 1 回だけ書く）。
+    let missing = stderr.contains("inotifywait")
+        && (stderr.contains("execvpe") || stderr.contains("not found"));
+    if missing {
         WatchFailReason::MissingTool
     } else if stderr.contains("upper limit on inotify watches") {
         // `--exclude` はイベントを捨てるだけで監視は張るので、大きなツリーではここに来る。
@@ -486,6 +494,18 @@ mod tests {
         assert_eq!(
             classify_watch_failure(missing),
             WatchFailReason::MissingTool
+        );
+        // 括弧を持たない綴り（#396。この開発機の WSL が出したのはこちら）。
+        let missing2 =
+            "<3>WSL (83715) ERROR: CreateProcessEntryCommon:502: execvpe inotifywait failed 2";
+        assert_eq!(
+            classify_watch_failure(missing2),
+            WatchFailReason::MissingTool
+        );
+        // コマンド名が違えば当たらない（`execvpe` だけで拾わない）。
+        assert_eq!(
+            classify_watch_failure("CreateProcessEntryCommon:502: execvpe tmux failed 2"),
+            WatchFailReason::Other
         );
         assert_eq!(
             classify_watch_failure("sh: 1: inotifywait: not found"),

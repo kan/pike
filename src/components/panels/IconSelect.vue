@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
+import { useOverlay } from '../../lib/overlay'
 import { projectIconValue, searchProjectIcons } from '../../lib/projectIcons'
 
 const model = defineModel<string | undefined>()
 
 const { t } = useI18n()
 const open = ref(false)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => open.value)
 const query = ref('')
 const searchEl = ref<HTMLInputElement>()
 

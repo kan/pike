@@ -120,6 +120,10 @@ async function remove(rule: SiteRule) {
 
 .rule-input {
   width: 100%;
+  /* padding と枠を含めて親幅に収める（#396）。**このプロジェクトは `box-sizing` を
+     グローバルに設定していない**ので、`width: 100%` と併せると左右 14px ぶん枠から
+     はみ出す（ドメインの欄が箱の外へ出ていた。`.agent-menu-item` と同じ踏み方）。 */
+  box-sizing: border-box;
   padding: 4px 6px;
   border: 1px solid var(--border);
   border-radius: 3px;

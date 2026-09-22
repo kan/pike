@@ -16,6 +16,7 @@ import { confirmDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
 import { displayHost } from '../../lib/format'
 import { openUrlWithConfirm } from '../../lib/openUrl'
+import { useOverlay } from '../../lib/overlay'
 import { fuzzyMatch, relativeDate } from '../../lib/paths'
 import { sideOf } from '../../lib/reorder'
 import { useBrowserStore } from '../../stores/browser'
@@ -86,6 +87,8 @@ function onDragEnd() {
 /** 右クリックした行。`name` はブックマークなら名前、履歴ならページのタイトル。 */
 type CtxTarget = { kind: 'bookmark' | 'history'; url: string; name: string }
 const ctx = ref<CtxTarget | null>(null)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => ctx.value !== null)
 const { style: ctxStyle, placeAt: placeCtx, reset: resetCtx } = useAnchoredPopup(useTemplateRef<HTMLElement>('ctxEl'))
 
 async function openCtx(e: MouseEvent, target: CtxTarget) {

@@ -6,6 +6,7 @@ import { injectIssueStart } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { issueStartPrompt } from '../../lib/issuePrompt'
 import { openUrlWithConfirm } from '../../lib/openUrl'
+import { useOverlay } from '../../lib/overlay'
 import { relativeDate } from '../../lib/paths'
 import { projectColorValue } from '../../lib/projectColors'
 import { useIssuesStore } from '../../stores/issues'
@@ -138,6 +139,8 @@ function askAgentStart(issue: IssueSummary) {
  * `theme.css` の `.panel-ctx-menu` で、ファイルツリーと Git のメニューと共有する。
  */
 const ctxIssue = ref<IssueSummary | null>(null)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => ctxIssue.value !== null)
 const { style: ctxStyle, placeAt: placeCtx, reset: resetCtx } = useAnchoredPopup(useTemplateRef<HTMLElement>('ctxEl'))
 
 async function openCtx(e: MouseEvent, issue: IssueSummary) {

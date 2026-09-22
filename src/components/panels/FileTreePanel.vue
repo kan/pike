@@ -10,6 +10,7 @@ import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { isCopyDragModifier } from '../../lib/keys'
 import { openPathInTab, openWithDefaultApp } from '../../lib/openFile'
+import { useOverlay } from '../../lib/overlay'
 import { basename, gitStatusColor, pathSep } from '../../lib/paths'
 import {
   type FsEntry,
@@ -96,6 +97,8 @@ async function openFile(path: string) {
 
 // Context menu
 const ctxMenu = ref<{ path: string; isDir: boolean; ignored: boolean } | null>(null)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => ctxMenu.value !== null)
 const {
   style: ctxMenuStyle,
   placeAt: placeCtxMenu,

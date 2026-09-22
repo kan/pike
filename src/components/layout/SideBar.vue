@@ -60,6 +60,7 @@ import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { PIKE_REPO_URL } from '../../lib/manual'
 import { openUrlWithConfirm } from '../../lib/openUrl'
+import { useOverlay } from '../../lib/overlay'
 import { sideOf } from '../../lib/reorder'
 import { actionChord } from '../../lib/shortcuts'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
@@ -378,6 +379,8 @@ function endIconDrag() {
 
 /** 右クリックしたアイコン（空いたところなら null）。null でなければメニューが開いている。 */
 const iconMenu = ref<{ panel: SidebarPanel | null } | null>(null)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => showGearMenu.value || syncMenu.value !== null || iconMenu.value !== null)
 const {
   style: iconMenuStyle,
   placeAt: placeIconMenu,
@@ -1042,10 +1045,18 @@ onUnmounted(() => {
   text-transform: lowercase;
 }
 
+/*
+ * パネルの中身（#396）。**`auto` ではなく `scroll` にして、右の padding からレールぶんを
+ * 引く。** `auto` だと、スクロールバーが出た瞬間に右の余白がレール（6px）ぶん増えて
+ * 「右だけ太い」状態になる（`.diff-tab` の横スクロールの帯が `scroll` なのと同じ事情）。
+ * 常にレールを確保しておけば、出ていても出ていなくても本文の右端からパネルの端までは
+ * 12px で変わらない。トラックは透明なので、スクロールしない一覧でレールは見えない。
+ * 代償は、スクロールしないときも幅が 6px 狭くなること。
+ */
 .panel-content {
   flex: 1;
-  overflow-y: auto;
-  padding: 12px;
+  overflow-y: scroll;
+  padding: var(--panel-pad) var(--scrollbar-size) var(--panel-pad) var(--panel-pad);
 }
 
 /* 見た目（カーソル・ホバー）は `theme.css` の `.drag-x-handle` と共有する。 */

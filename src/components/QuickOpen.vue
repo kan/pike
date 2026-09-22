@@ -4,6 +4,7 @@ import { useAppActions } from '../composables/useAppActions'
 import { usePanelAvailability } from '../composables/usePanelAvailability'
 import { useI18n } from '../i18n'
 import { openPathInTab } from '../lib/openFile'
+import { useOverlay } from '../lib/overlay'
 import { basename, fuzzyMatch } from '../lib/paths'
 import { paletteActions } from '../lib/shortcuts'
 import { tabDisplayTitle } from '../lib/tabTitle'
@@ -16,6 +17,8 @@ import type { TaskRunner } from '../types/tasks'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => projectStore.showQuickOpen)
 const { isPanelAvailable } = usePanelAvailability()
 const tabStore = useTabStore()
 const appActions = useAppActions()

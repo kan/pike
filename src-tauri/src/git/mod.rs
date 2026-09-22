@@ -71,6 +71,17 @@ pub struct GitLogEntry {
     pub parents: Vec<String>,
     pub refs: String,
     pub author: String,
+    /// **committer date（`%cI`）。author date ではない**（#396）。
+    ///
+    /// git に「push した時刻」は無く、持っているのは 2 つだけ: 変更を書いた時刻
+    /// （author date）と、そのコミットオブジェクトを作った時刻（committer date）。
+    /// rebase / cherry-pick / amend で更新されるのは後者なので、**その履歴に載った
+    /// 時刻**としてはこちらが近く、SourceTree の既定の Date 列とも揃う。`--date-order`
+    /// の並びも committer date 基準なので、グラフの並びと表示が食い違わない。
+    ///
+    /// **`%aI` に戻すなら 3 か所とも戻すこと**（`git_log` / `git_log_file` /
+    /// `git_log_file_lines`）。片方だけだと、同じコミットが Git パネルとファイル履歴で
+    /// 違う時刻に見える。
     pub date: String,
     pub message: String,
 }
@@ -868,7 +879,8 @@ pub async fn git_log(
         let mut args = vec![
             "log",
             NO_SHOW_SIGNATURE,
-            "--format=%H%x1f%P%x1f%D%x1f%an%x1f%aI%x1f%B%x1e",
+            // 日時は committer date（理由は `GitLogEntry.date` の doc）。
+            "--format=%H%x1f%P%x1f%D%x1f%an%x1f%cI%x1f%B%x1e",
             "-n",
             &n,
         ];
@@ -1631,7 +1643,8 @@ pub async fn git_log_file(
             &[
                 "log",
                 NO_SHOW_SIGNATURE,
-                "--format=%H%x1f%an%x1f%aI%x1f%s%x1e",
+                // 日時は committer date（理由は `GitLogEntry.date` の doc）。
+                "--format=%H%x1f%an%x1f%cI%x1f%s%x1e",
                 "-n",
                 &n,
                 "--",
@@ -1667,7 +1680,8 @@ pub async fn git_log_file_lines(
             &[
                 "log",
                 NO_SHOW_SIGNATURE,
-                "--format=%H%x1f%an%x1f%aI%x1f%s%x1e",
+                // 日時は committer date（理由は `GitLogEntry.date` の doc）。
+                "--format=%H%x1f%an%x1f%cI%x1f%s%x1e",
                 "-s",
                 "-L",
                 &range,

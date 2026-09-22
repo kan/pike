@@ -454,6 +454,11 @@ type FileCtx =
   | { section: 'staged' | 'unstaged' | 'conflict'; file: GitFileChange }
   | { section: 'commit'; file: GitFileChange; hash: string }
 const fileCtx = ref<FileCtx | null>(null)
+// **このパネルは `useOverlay` に登録しない**（#396）。ここのポップアップ（ファイルと
+// コミットの右クリックメニュー、コミットのツールチップ）はどれもパネルが開いている
+// あいだにしか出ないが、**ブラウザのタブはこのパネルが開いているあいだずっと隠す**
+// ことにしたので、`BrowserTab.vue` の 1 つの条件が全部を覆う。ホバーで出入りする
+// ツールチップを数に入れると、行をなぞるたびにページが点滅する（理由はあちらの `shown`）。
 const {
   style: fileCtxStyle,
   placeAt: placeFileCtx,

@@ -115,6 +115,8 @@ const SHORTCUT_PRESET_OPTIONS: { value: ShortcutPreset; labelKey: string }[] = [
   { value: 'idea', labelKey: 'settings.shortcutPresetIdea' },
 ]
 const TAB_ADD_ACTION_OPTIONS: { value: TabAddAction; labelKey: string }[] = [
+  // 既定は「メニューを出す」（#396）。残りは押したらその種別を直接開く。
+  { value: 'menu', labelKey: 'settings.tabAddMenu' },
   { value: 'terminal', labelKey: 'settings.tabAddTerminal' },
   { value: 'editor', labelKey: 'settings.tabAddEditor' },
   { value: 'browser', labelKey: 'settings.tabAddBrowser' },
@@ -659,9 +661,9 @@ const PREVIEW_LINES = [
           <SettingToggle v-model="settings.registerDirectory" :options="REGISTER_DIRECTORY_OPTIONS" />
         </SettingItem>
 
-        <!-- タブバーの「+」で開くもの（#375）。▾ からはどれでも選べる。 -->
+        <!-- タブバーの「+」（#375 / #396）。既定はメニューで、そのときは ▾ を出さない。 -->
         <SettingItem label-key="settings.tabAddAction" hint-key="settings.tabAddActionHint">
-          <SettingToggle v-model="settings.tabAddAction" :options="TAB_ADD_ACTION_OPTIONS" />
+          <SettingToggle v-model="settings.tabAddOpens" :options="TAB_ADD_ACTION_OPTIONS" />
         </SettingItem>
 
         <SettingItem label-key="settings.closeToTray" hint-key="settings.closeToTrayHint">

@@ -36,6 +36,11 @@
     `webview_windows()` で引くので、ブラウザのタブを開いている main ウィンドウは明示的な
     保存（トレイの「終了」、更新の前）のときに最大化の状態を読み直さない。位置と大きさは
     移動・リサイズのたびにプラグインが記録しているので、そちらは失われない
+- **webview を作るときは `disable_drag_drop_handler()` を必ず付ける（#396）。** Windows では
+  wry がウィンドウに OLE のドロップ先を張るので、有効なままだとページ上のドラッグが
+  横取りされ、HTML5 の drag & drop が「禁止」のカーソルで止まる（Jira のカードを動かせない、
+  という形で出た）。Pike 本体は最初から切ってある（`build_window` と `tauri.conf.json`）が、
+  **ブラウザのタブの子 webview（`browser_open`）だけが取り残されていた**
 - **グローバル状態は 1 つの `AppState` にまとめず、モジュールごとの型を個別に `manage` する**（`CliState` / `WaitState` / `PtyState` / `WatcherState` / `DockerState` / `ProjectState` / `TransientState` / `SearchState`）。コマンドは `State<'_, PtyState>` のように要るものだけを受け取るので、引数の型がそのまま「このコマンドが触る状態」の宣言になる。共有する中身は `Arc<Mutex<>>` で包む
 - PTY プロセスのライフタイムは `PtyState` が所有し、ウィンドウ破棄時に `pty::cleanup_for_window` で cleanup
 

@@ -27,6 +27,7 @@ import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
 import { languageOptions } from '../../lib/languages'
 import { PIKE_REPO_URL } from '../../lib/manual'
+import { useOverlay } from '../../lib/overlay'
 import { basename } from '../../lib/paths'
 import { traySetTooltip } from '../../lib/tauri'
 import { type Meter, rateLevelClass, toMeter } from '../../lib/usageFormat'
@@ -325,6 +326,18 @@ function selectFileType(key: string | null) {
 const showBranches = ref(false)
 const branchQuery = ref('')
 
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(
+  () =>
+    showBranches.value ||
+    showWorktrees.value ||
+    showAgentStatus.value ||
+    showEncodingMenu.value ||
+    showEncodingAction.value ||
+    showLineEndingMenu.value ||
+    showFileTypeMenu.value,
+)
+
 const filteredBranches = computed(() => {
   const q = branchQuery.value.toLowerCase()
   if (!q) return gitStore.branches
@@ -434,8 +447,8 @@ onUnmounted(() => {
     -->
     <!-- Editor info -->
     <div v-if="editorInfo.current.value" class="status-group">
-      <span class="status-text">{{ t('statusBar.ln') }} {{ editorInfo.current.value.line }}, {{ t('statusBar.col') }} {{ editorInfo.current.value.col }}</span>
-      <span class="status-text">{{ t('statusBar.spaces') }} {{ editorInfo.current.value.tabSize }}</span>
+      <span class="status-text" :title="t('statusBar.cursorHint')">{{ t('statusBar.ln') }} {{ editorInfo.current.value.line }}, {{ t('statusBar.col') }} {{ editorInfo.current.value.col }}</span>
+      <span class="status-text" :title="t('statusBar.spacesHint')">{{ t('statusBar.spaces') }} {{ editorInfo.current.value.tabSize }}</span>
       <div class="status-dropdown-area">
         <button class="status-item clickable small" @click="toggleEncodingMenu">{{ editorInfo.current.value.encoding }}</button>
         <div v-if="showEncodingMenu" class="status-dropdown popup-surface" @mousedown.stop>
@@ -572,7 +585,12 @@ onUnmounted(() => {
       </div>
 
       <div v-if="gitStore.status" class="branch-area">
-        <button class="status-item clickable" data-testid="branch-selector" @click="openBranchSwitcher">
+        <button
+          class="status-item clickable"
+          data-testid="branch-selector"
+          :title="t('statusBar.branchHint')"
+          @click="openBranchSwitcher"
+        >
           <GitBranch :size="14" :stroke-width="2" class="branch-icon" />
           <span>{{ gitStore.status.branch }}</span>
           <span v-if="gitStore.status.isDirty" class="dirty-dot"></span>
@@ -637,7 +655,7 @@ onUnmounted(() => {
     </div>
 
     <div class="status-group">
-      <button class="status-item clickable small" @click="toggleLanguage">
+      <button class="status-item clickable small" :title="t('statusBar.languageHint')" @click="toggleLanguage">
         {{ settingsStore.language.toUpperCase() }}
       </button>
       <!-- 押すと Pike 自身の GitHub を開く（#383）。プロジェクトのリポジトリを開く

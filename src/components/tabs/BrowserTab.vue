@@ -4,20 +4,21 @@
  * webview（`src-tauri/src/browser.rs`）を、`.browser-view` の矩形に合わせて重ねる。
  * このコンポーネントの仕事は、その矩形を測って送ることと、見えていないときに隠すこと。
  *
- * **子 webview は Pike の DOM より手前に描かれる**ので、ダイアログや QuickOpen が開いて
- * いるあいだは隠す（隠さないとその下に埋もれて操作できない）。右クリックメニューなど
- * それ以外の浮くものは隠れたままになる（#368 で制約として受け入れた）。
+ * **子 webview は Pike の DOM より手前に描かれる**ので、手前に浮くものが開いているあいだは
+ * 隠す（隠さないとその下に埋もれて操作できない）。#368 では確認ダイアログ・QuickOpen・
+ * スイッチャー・ショートカット一覧の 4 つだけを見ていて、右クリックメニューやプルダウンは
+ * 隠れたままという制約を受け入れていた。#396 でそれも数えるようにしてある
+ * （開閉の出典は `lib/overlay.ts`）。
  */
 
 import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, Settings, Smartphone, Star } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { type BrowserHandlers, browserRouter } from '../../composables/useBrowserRouter'
-import { dialogOpen } from '../../composables/useConfirmDialog'
 import { useFocusPolling } from '../../composables/useFocusPolling'
-import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useI18n } from '../../i18n'
 import { isWebUrl } from '../../lib/format'
 import { normalizeWebUrl, openUrlWithConfirm } from '../../lib/openUrl'
+import { overlayOpen } from '../../lib/overlay'
 import {
   type BrowserBounds,
   type BrowserHistoryAction,
@@ -31,8 +32,8 @@ import {
   type SiteRulePayload,
 } from '../../lib/tauri'
 import { useBrowserStore } from '../../stores/browser'
-import { useProjectStore } from '../../stores/project'
 import { activeSiteRules, useSettingsStore } from '../../stores/settings'
+import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
 import type { BrowserTab } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
@@ -40,10 +41,9 @@ import HelpButton from '../HelpButton.vue'
 const { t } = useI18n()
 const props = defineProps<{ tabId: string }>()
 const tabStore = useTabStore()
-const projectStore = useProjectStore()
+const sidebar = useSidebarStore()
 const settingsStore = useSettingsStore()
 const browserStore = useBrowserStore()
-const shortcutsModal = useShortcutsModal()
 
 const tab = computed(() => tabStore.tabs.find((t): t is BrowserTab => t.id === props.tabId && t.kind === 'browser'))
 
@@ -80,18 +80,30 @@ let state: 'none' | 'creating' | 'ready' = 'none'
 let disposed = false
 
 /**
- * 重ねてよいか。タブが描かれていて、かつ手前に出る Pike のモーダル（確認ダイアログ・
- * QuickOpen・プロジェクトスイッチャー・ショートカット一覧）が無いとき。
- * `dialogOpen()` はモジュールの ref を読むので、computed の中で呼べば追従する。
+ * 重ねてよいか。タブが描かれていて、手前に出るものが 1 つも無く、Git パネルも閉じているとき。
+ *
+ * **「何が手前にあるか」の出典は `lib/overlay.ts` の 1 つ**（#396）。#368 の版は確認
+ * ダイアログ・QuickOpen・スイッチャー・ショートカット一覧の 4 つを名前で見ていたが、
+ * それだと 5 つ目のモーダルを足す人が「ここに書くのか、レジストリに登録するのか」を
+ * 選ぶことになる。4 つとも `useOverlay` に登録してあるので、ここは数を見るだけでよい。
+ *
+ * **Git パネルだけは、開いているあいだずっと隠す**（#396）。あそこはコミットの行を
+ * なぞるだけでツールチップがパネルの横＝タブの領域に出るので、`useOverlay` に登録すると
+ * 行をなぞるたびにページが出入りして点滅する。パネル単位で隠せば、点滅もせず、
+ * コミットの中身も読める。**他のパネルは対象外**: ツールチップを出すのはここだけで、
+ * 右クリックメニューは押したときにしか出ないぶんレジストリで足りる。
  */
-const shown = computed(
-  () =>
-    tabStore.isTabVisible(props.tabId) &&
-    !dialogOpen() &&
-    !projectStore.showQuickOpen &&
-    !projectStore.showSwitcher &&
-    !shortcutsModal.visible.value,
-)
+const shown = computed(() => tabStore.isTabVisible(props.tabId) && !overlayOpen() && sidebar.activePanel !== 'git')
+
+/**
+ * 隠しているあいだ、その場に出す案内（#396）。**理由で文言を分ける**: Git パネルは
+ * 開けっぱなしにできるので、閉じれば戻ることを言わないと戻し方が分からない。
+ * メニューのほうは押せば閉じるので、一時的だと言うだけでよい。
+ */
+const hiddenNotice = computed(() => {
+  if (!tabStore.isTabVisible(props.tabId) || shown.value) return ''
+  return sidebar.activePanel === 'git' ? t('browser.hiddenByPanel') : t('browser.hiddenByOverlay')
+})
 
 function measure(): BrowserBounds | null {
   const el = viewRef.value
@@ -502,7 +514,14 @@ function openExternal() {
     </div>
     <!-- 子 webview を重ねるのは `.browser-frame`。スマートフォンの画面のときは枠を絞って中央に置く。 -->
     <div class="browser-view" :class="{ mobile: tab?.mobile }">
-      <div ref="viewRef" class="browser-frame" />
+      <div ref="viewRef" class="browser-frame">
+        <!--
+          隠しているあいだの案内（#396）。ページが消えるのは Pike の都合なので、そう書いて
+          おかないと「読み込みに失敗した」ように見える。**出すのはこのタブを見ている
+          あいだだけ**（他のタブへ切り替えて隠れているときは、そもそも誰も見ていない）。
+        -->
+        <div v-if="hiddenNotice" class="browser-hidden">{{ hiddenNotice }}</div>
+      </div>
     </div>
   </div>
 </template>
@@ -578,6 +597,20 @@ function openExternal() {
 
 .browser-frame {
   flex: 1;
+  /* 子 webview は DOM の外なので、中に置けるのは隠しているあいだの案内だけ。 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.browser-hidden {
+  max-width: 28em;
+  padding: 0 16px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
 }
 
 /*

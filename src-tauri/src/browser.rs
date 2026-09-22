@@ -123,6 +123,21 @@ impl AppOrigin {
     }
 }
 
+/// ローカルのファイルへの遷移か（#396）。
+///
+/// **`disable_drag_drop_handler` の代償を埋める。** それを切ると WebView2 の既定の外部
+/// ドロップが戻るので、ページにファイルを落とすと**そのページが `file://` へ移動する**
+/// （アドレス欄の `parse_web_url` は通らないので、http(s) だけという線引きがそこだけ
+/// 破れる）。差し込みのスクリプト（利用者のルールと Jira の拡張機能）も、その `file://`
+/// の文書で走ることになる。
+///
+/// **許可制ではなく `file:` の拒否にしてある。** ここへ来るのは普通のページの動き
+/// （`blob:` / `about:blank`、外部アプリを起こすスキーム）も含むので、並べ上げた
+/// スキームだけを通す形にすると、並べ忘れたものが黙って動かなくなる。
+fn is_local_file(url: &Url) -> bool {
+    url.scheme() == "file"
+}
+
 /// 開けるのは http(s) だけ（`open_url` と同じ線引き。`file:` や `javascript:` を通さない）。
 fn check_web_url(url: &str) -> Result<Url, String> {
     let parsed = Url::parse(url.trim()).map_err(|e| e.to_string())?;
@@ -222,11 +237,23 @@ pub async fn browser_open(
         builder = builder.initialization_script(site_rules::css_script(&rules));
     }
     let builder = builder
+        // **ネイティブの D&D を切らないと、ページの中のドラッグが効かない**（#396）。
+        // Windows では wry がウィンドウに OLE のドロップ先を張るので、有効なままだと
+        // ページ上のドラッグが横取りされ、HTML5 の drag & drop が「禁止」のカーソルで
+        // 止まる（Jira のカードを動かせない、という形で出た）。Pike 本体の webview は
+        // 最初からこれを切ってある（`lib.rs` の `build_window` と `tauri.conf.json`）ので、
+        // **子 webview だけが取り残されていた**。
+        //
+        // **代償がある**: wry が `SetAllowExternalDrop(false)` を呼ぶのは自前の
+        // ハンドラを張るときだけ（`webview2/mod.rs`）なので、切ると WebView2 の既定の
+        // 外部ドロップが復活する。つまり**ファイルを落とすとそのページが `file://` へ
+        // 移動する**。それを止めるのが下の `on_navigation` のスキームの検査。
+        .disable_drag_drop_handler()
         // **ページ自身の遷移（`location = …`）はコマンドを通らない。** アドレス欄の
         // 経路（`parse_web_url`）だけを塞いでも、ここが開いていれば同じことができる。
-        // スキームは見ない（`blob:` や `about:blank` は普通のページの動きで、止めると
-        // 壊れる）。弾くのは Pike 自身のオリジンだけ。
-        .on_navigation(move |url| !origin.contains(url))
+        // 弾くのは Pike 自身のオリジンと `file:` の 2 つだけ（`blob:` や `about:blank` は
+        // 普通のページの動きなので、スキームの許可制にはしない）。
+        .on_navigation(move |url| !origin.contains(url) && !is_local_file(url))
         .on_new_window(move |url, features| {
             // **ポップアップかどうかは大きさの指定の有無でしか見分けられない。** WebView2 が
             // 知らせるのは `window.open` の第 3 引数の位置と大きさで、`target=_blank` の
@@ -355,6 +382,18 @@ mod tests {
         assert!(check_label("main").is_err());
         assert!(check_label("browser-").is_err());
         assert!(check_label("browser-a b").is_err());
+    }
+
+    /// ドロップで起きる `file://` への遷移を止める（#396）。`disable_drag_drop_handler`
+    /// の代償を埋めるガードなので、普通のページの動きは通したままにする。
+    #[test]
+    fn refuses_local_files() {
+        let local = |u: &str| is_local_file(&Url::parse(u).unwrap());
+        assert!(local("file:///C:/Users/me/secret.txt"));
+        assert!(local("file://host/share/x"));
+        assert!(!local("https://example.com/a"));
+        assert!(!local("about:blank"));
+        assert!(!local("blob:https://example.com/1234"));
     }
 
     #[test]

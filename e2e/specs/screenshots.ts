@@ -66,14 +66,15 @@ describe('screenshots: shell dropdown', () => {
   for (const { lang, theme } of MATRIX) {
     it(`shell-dropdown ${lang} ${theme}`, async () => {
       await prepare({ lang, theme })
-      // ▾ プルダウンは globalMode（または Windows プロジェクト）のときだけ出る。
+      // シェルの行は globalMode（または Windows プロジェクト）のときだけ出る。
       await callE2E('enterGlobalMode')
-      const arrow = await $('[data-testid="tab-add-arrow"]')
-      await arrow.waitForDisplayed({ timeout: 15_000 })
-      // ▾ はトグル。前イテレーションで開いたままのことがあるので、閉じている時だけ開く。
+      // メニューを開くのは「+」（#396。▾ は `tabAddDirect` を ON にしたときだけ出る）。
+      const add = await $('[data-testid="tab-add"]')
+      await add.waitForDisplayed({ timeout: 15_000 })
+      // トグルなので、前イテレーションで開いたままのことがある。閉じている時だけ開く。
       const menu = await $('[data-testid="shell-menu"]')
       if (!(await menu.isDisplayed())) {
-        await arrow.click()
+        await add.click()
       }
       await menu.waitForDisplayed({ timeout: 10_000 })
       await shoot('shell-dropdown', lang, theme)

@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
+import { useOverlay } from '../../lib/overlay'
 import { PROJECT_COLORS, projectColorValue } from '../../lib/projectColors'
 
 const model = defineModel<string | undefined>()
 
 const { t } = useI18n()
 const open = ref(false)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => open.value)
 
 const selected = computed(() => PROJECT_COLORS.find((c) => c.name === model.value))
 // A hand-edited config may hold a raw hex instead of a preset name; keep it

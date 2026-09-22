@@ -70,8 +70,9 @@ export function useAppActions(): Record<AppActionId, () => void> & {
    */
   openAgentTab: (command: string, title: string) => void
   /**
-   * タブバーの「+」（#375）。設定の `tabAddAction` に従って開く。`agent` で使える
+   * タブバーの「+」（#375）。設定の `tabAddOpens` に従って開く。`agent` で使える
    * エージェントが無ければターミナルに落ちる（押して何も起きないよりよい）。
+   * **`menu` のときは呼ばれない**（そちらは TabBar がメニューを開く）。
    */
   openFromTabAdd: () => void
   /**
@@ -155,7 +156,7 @@ export function useAppActions(): Record<AppActionId, () => void> & {
   }
 
   function openFromTabAdd() {
-    switch (settings.tabAddAction) {
+    switch (settings.tabAddOpens) {
       case 'editor':
         tabStore.addBlankEditorTab()
         return

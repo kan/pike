@@ -59,6 +59,7 @@ import { getLanguage, getLanguageLabel, languageByKey, languageLabelByKey } from
 import { footnotes } from '../../lib/markdownFootnotes'
 import { openProjectPath, openWithDefaultApp } from '../../lib/openFile'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
+import { useOverlay } from '../../lib/overlay'
 import {
   basename,
   dirname,
@@ -1749,6 +1750,9 @@ function copyToClipboard(text: string, message: string) {
 // WebView の既定のメニュー（戻る・再読み込み・検証…）は Pike では意味を持たないので、表の上では
 // 選択とコピーのメニューに差し替える。行・列の項目は右クリックした場所のものを選ぶ。
 const csvMenu = ref<CsvCellRef | null>(null)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。分割していれば
+// 反対のペインにブラウザのタブが出ているので、エディタの中のメニューでも被りうる。
+useOverlay(() => ctxMenu.value || csvMenu.value !== null || jsonStringPopup.value !== null)
 const {
   style: csvMenuStyle,
   placeAt: placeCsvMenu,

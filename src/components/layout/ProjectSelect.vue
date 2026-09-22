@@ -16,6 +16,7 @@ import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { useProjectAccent } from '../../composables/useProjectAccent'
 import { peekTerminal, terminalLastOutputAt } from '../../composables/useTerminalPeek'
 import { useI18n } from '../../i18n'
+import { useOverlay } from '../../lib/overlay'
 import { relativeTime } from '../../lib/paths'
 import { actionChord } from '../../lib/shortcuts'
 import { useProjectStore } from '../../stores/project'
@@ -131,6 +132,9 @@ const peekEl = useTemplateRef<HTMLElement>('peekEl')
 const peek = useAnchoredPopup(peekEl)
 /** チラ見しているプロジェクト。null なら出していない。 */
 const peekFor = ref<string | null>(null)
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。チラ見の
+// ポップアップは一覧の行から出るので、`open` が真のあいだにしか存在しない。
+useOverlay(() => open.value)
 /**
  * 見せている中身。**行と時刻を 1 つに持つ**（常に一緒に書き換わり、一緒に読まれる）。
  *

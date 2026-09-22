@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CaseSensitive, FileText, FolderSearch, Parentheses, Regex, WholeWord, X } from 'lucide-vue-next'
+import { CaseSensitive, Ellipsis, FileText, FolderSearch, Parentheses, Regex, WholeWord, X } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { openProjectPath } from '../../lib/openFile'
@@ -22,6 +22,16 @@ const query = ref('')
 const toggles = ref({ caseSensitive: false, wholeWord: false, isRegex: false, usePcre2: false })
 const globInclude = ref('')
 const globExclude = ref('')
+/**
+ * 含む / 除外の行を出すか（#396。VSCode の「…」と同じ）。
+ *
+ * **覚えない。** パネルは `v-if` でマウントされるので、glob の値そのものが他のパネルへ
+ * 移った時点で消える（従来どおり）。開閉だけを覚えると、次に開いたときに空の欄が
+ * 開きっぱなしになるだけになる。
+ */
+const showGlobs = ref(false)
+/** 畳んでいても指定が効いていることを ⋯ の色で示す。 */
+const hasGlob = computed(() => !!globInclude.value.trim() || !!globExclude.value.trim())
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
 // PCRE2 は正規表現のときだけ意味を持つ（`-F` では使うエンジンが変わるだけ）。
@@ -133,58 +143,89 @@ onUnmounted(() => {
 <template>
   <div class="search-panel" data-testid="search-panel">
     <div class="search-input-area">
-      <input
-        ref="searchInput"
-        v-model="query"
-        class="search-input"
-        data-testid="search-input"
-        :placeholder="t('search.placeholder')"
-        @input="onInput"
-        @keydown.enter="doSearch"
-      />
-      <div class="search-options">
+      <!--
+        VSCode に寄せた配置（#396）。**オプションは入力欄の中（右端）**に置き、枠は
+        `.search-field` が持つ。`padding-right` を空けて絶対配置する形にしないこと:
+        PCRE2 のボタンは正規表現のときだけ出るので、空ける量が固定にならない。
+      -->
+      <div class="search-row">
+        <!-- 枠と focus の見た目は共有の `.filter-row`（`theme.css`）。 -->
+        <div class="filter-row search-field">
+          <input
+            ref="searchInput"
+            v-model="query"
+            class="filter-input search-input"
+            data-testid="search-input"
+            :placeholder="t('search.placeholder')"
+            @input="onInput"
+            @keydown.enter="doSearch"
+          />
+          <div class="search-options">
+            <button
+              class="option-btn"
+              :class="{ active: toggles.caseSensitive }"
+              :title="t('search.matchCase')"
+              data-testid="search-case"
+              @click="toggle('caseSensitive')"
+            ><CaseSensitive :size="14" :stroke-width="2" /></button>
+            <button
+              class="option-btn"
+              :class="{ active: toggles.wholeWord }"
+              :title="t('search.wholeWord')"
+              data-testid="search-whole-word"
+              @click="toggle('wholeWord')"
+            ><WholeWord :size="14" :stroke-width="2" /></button>
+            <button
+              class="option-btn"
+              :class="{ active: toggles.isRegex }"
+              :title="t('search.useRegex')"
+              @click="toggle('isRegex')"
+            ><Regex :size="14" :stroke-width="2" /></button>
+            <button
+              v-if="pcre2Available"
+              class="option-btn"
+              :class="{ active: toggles.usePcre2 }"
+              :title="t('search.usePcre2')"
+              data-testid="search-pcre2"
+              @click="toggle('usePcre2')"
+            ><Parentheses :size="14" :stroke-width="2" /></button>
+          </div>
+        </div>
+        <!--
+          含む / 除外の開閉（VSCode の「…」）。**指定が入っていても畳める**。畳んだあいだも
+          指定は効いたままなので、そのことは ⋯ の色で示す（`has-glob`）。
+        -->
         <button
-          class="option-btn"
-          :class="{ active: toggles.caseSensitive }"
-          :title="t('search.matchCase')"
-          data-testid="search-case"
-          @click="toggle('caseSensitive')"
-        ><CaseSensitive :size="14" :stroke-width="2" /></button>
-        <button
-          class="option-btn"
-          :class="{ active: toggles.wholeWord }"
-          :title="t('search.wholeWord')"
-          data-testid="search-whole-word"
-          @click="toggle('wholeWord')"
-        ><WholeWord :size="14" :stroke-width="2" /></button>
-        <button
-          class="option-btn"
-          :class="{ active: toggles.isRegex }"
-          :title="t('search.useRegex')"
-          @click="toggle('isRegex')"
-        ><Regex :size="14" :stroke-width="2" /></button>
-        <button
-          v-if="pcre2Available"
-          class="option-btn"
-          :class="{ active: toggles.usePcre2 }"
-          :title="t('search.usePcre2')"
-          data-testid="search-pcre2"
-          @click="toggle('usePcre2')"
-        ><Parentheses :size="14" :stroke-width="2" /></button>
-        <input
-          v-model="globInclude"
-          class="glob-input"
-          :placeholder="t('search.include')"
-          @input="onInput"
-          @keydown.enter="doSearch"
-        />
-        <input
-          v-model="globExclude"
-          class="glob-input"
-          :placeholder="t('search.exclude')"
-          @input="onInput"
-          @keydown.enter="doSearch"
-        />
+          class="option-btn glob-toggle"
+          :class="{ active: showGlobs, 'has-glob': hasGlob }"
+          :title="t('search.toggleGlobs')"
+          data-testid="search-glob-toggle"
+          @click="showGlobs = !showGlobs"
+        ><Ellipsis :size="14" :stroke-width="2" /></button>
+      </div>
+
+      <!-- 含む / 除外は 1 行ずつ（#396）。名前を左に置くので、例は placeholder へ回す。 -->
+      <div v-if="showGlobs" class="glob-rows" data-testid="search-globs">
+        <label class="glob-row">
+          <span class="glob-label">{{ t('search.include') }}</span>
+          <input
+            v-model="globInclude"
+            class="glob-input"
+            :placeholder="t('search.includePlaceholder')"
+            @input="onInput"
+            @keydown.enter="doSearch"
+          />
+        </label>
+        <label class="glob-row">
+          <span class="glob-label">{{ t('search.exclude') }}</span>
+          <input
+            v-model="globExclude"
+            class="glob-input"
+            :placeholder="t('search.excludePlaceholder')"
+            @input="onInput"
+            @keydown.enter="doSearch"
+          />
+        </label>
       </div>
     </div>
 
@@ -208,8 +249,9 @@ onUnmounted(() => {
     <div v-if="searchStore.searching" class="status">{{ t('search.searching') }}</div>
     <div v-else-if="searchStore.error" class="status error">{{ searchStore.error }}</div>
     <div v-else-if="!searchStore.results.length && query" class="status">{{ t('search.noResults') }}</div>
+    <!-- 件数とその隣に書き出しのボタン（#396。右端へ寄せると、どの数字に対する操作か遠い）。 -->
     <div v-else-if="searchStore.results.length" class="result-summary">
-      <span>{{ t('search.resultCount', { count: String(searchStore.results.length) }) }}{{ searchStore.truncated ? '+' : '' }}</span>
+      <span class="result-count">{{ t('search.resultCount', { count: String(searchStore.results.length) }) }}{{ searchStore.truncated ? '+' : '' }}</span>
       <button
         class="extract-btn"
         :title="t('search.extractTooltip')"
@@ -255,29 +297,34 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-.search-input {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 13px;
-  border-radius: 3px;
-  outline: none;
+.search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
 }
 
-.search-input:focus {
-  border-color: var(--accent);
+/* 共有の `.filter-row` / `.filter-input` に、この欄だけの違いを足す（行の中で伸びること、
+   絞り込みの欄より大きい文字）。枠と focus の見た目はあちらが持つ。 */
+.search-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.search-input {
+  padding: 6px 0;
+  font-size: 13px;
 }
 
 .search-options {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   align-items: center;
 }
 
+/* 入力欄の中に並ぶので枠は持たない（押せることは hover と active の塗りで示す）。 */
 .option-btn {
-  padding: 2px 6px;
-  border: 1px solid var(--border);
+  padding: 2px 4px;
+  border: none;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -288,16 +335,60 @@ onUnmounted(() => {
   justify-content: center;
 }
 
+.option-btn:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
 .option-btn.active {
   background: var(--accent);
   color: var(--on-accent);
-  border-color: var(--accent);
+}
+
+/* 見た目は `.option-btn` に乗せ、違うところだけ持つ（入力欄の外に出るので縦に伸ばし、
+   押している状態は「絞り込みが効いている」ではないので塗りを変える）。 */
+.glob-toggle {
+  padding: 0 5px;
+}
+
+.glob-toggle.active {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+/* 畳んでいても指定が効いていることを色で示す。 */
+.glob-toggle.has-glob {
+  color: var(--accent);
+}
+
+.glob-toggle.active.has-glob {
+  color: var(--accent);
+}
+
+.glob-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.glob-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.glob-label {
+  flex-shrink: 0;
+  width: 3.5em;
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 .glob-input {
   flex: 1;
   min-width: 0;
-  padding: 2px 6px;
+  padding: 3px 6px;
   border: 1px solid var(--border);
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -399,9 +490,13 @@ onUnmounted(() => {
 .result-summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+.result-count {
+  flex-shrink: 0;
 }
 
 .extract-btn {

@@ -48,14 +48,22 @@
   --graph-lane-4: #c678dd;
   --graph-lane-5: #98c379;
   --sidebar-width: 48px;
-  /* xterm が右に確保する溝（#383）。**この数字は xterm が持っている既定の写し**で、
-     FitAddon は列数を決めるとき親の幅から `overviewRuler?.width || 14` を引き、xterm 6 の
-     スクロールバー（vscode の ScrollableElement）も同じ式で幅を決める。つまり本文の右には
-     必ずこのぶんが空くので、左に同じだけ置いて釣り合わせる（`.xterm-surface`）。
-     **`new Terminal({ overviewRuler: { width: N } })` を渡せば Pike 側がこの数字を持てる**
-     （スクロールバーもアプリの 6px に揃う）が、`findOptions` が既に指定している
-     `matchOverviewRuler` の印が同時に描かれ始めるので、見た目を確かめてから入れること。 */
-  --term-gutter: 14px;
+  /* スクロールバーのレールの幅（#396）。**`::-webkit-scrollbar` と、レールぶんの余白を
+     空けたり詰めたりする側が全部これを読む**（ターミナルの溝・サイドバーのパネルの右
+     padding・その padding を打ち消す `OutlinePanel`）。リテラルで散らすと、片方だけ
+     変えたときに「右だけ太い」や「6px の横スクロールバーが出る」が黙って戻る。
+     テーマでは変えない。 */
+  --scrollbar-size: 6px;
+  /* パネルの中身の余白（#396）。`.panel-content` と、それを打ち消す `OutlinePanel` が読む。 */
+  --panel-pad: 12px;
+  /* xterm が右に確保する溝（#383 / #396）。FitAddon は列数を決めるとき親の幅からこれを
+     引き、xterm 6 のスクロールバー（vscode の ScrollableElement）も同じ値で幅を決める。
+     つまり本文の右には必ずこのぶんが空くので、左に同じだけ置いて釣り合わせる
+     （`.xterm-surface`）。**`stores/settings.ts` の `TERM_SCROLLBAR_WIDTH` と同じ値に
+     すること**（CSS からあの定数は読めない。xterm へ渡すのはあちらで、理由の正本もあちら）。
+     以前は xterm の既定の 14px に合わせていたので、ターミナルのスクロールバーだけが
+     他の面（`::-webkit-scrollbar`）の倍以上に太く見えていた。 */
+  --term-gutter: var(--scrollbar-size);
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(255, 255, 255, 0.1);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
@@ -111,14 +119,6 @@
   --graph-lane-4: #7b1fa2;
   --graph-lane-5: #2e7d32;
   --sidebar-width: 48px;
-  /* xterm が右に確保する溝（#383）。**この数字は xterm が持っている既定の写し**で、
-     FitAddon は列数を決めるとき親の幅から `overviewRuler?.width || 14` を引き、xterm 6 の
-     スクロールバー（vscode の ScrollableElement）も同じ式で幅を決める。つまり本文の右には
-     必ずこのぶんが空くので、左に同じだけ置いて釣り合わせる（`.xterm-surface`）。
-     **`new Terminal({ overviewRuler: { width: N } })` を渡せば Pike 側がこの数字を持てる**
-     （スクロールバーもアプリの 6px に揃う）が、`findOptions` が既に指定している
-     `matchOverviewRuler` の印が同時に描かれ始めるので、見た目を確かめてから入れること。 */
-  --term-gutter: 14px;
   --tabbar-height: 36px;
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
@@ -129,8 +129,8 @@
 
 /* Thin overlay scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
 }
 
 ::-webkit-scrollbar-track {
@@ -259,9 +259,9 @@
   color: var(--text-primary);
 }
 
-/* 絞り込みの入力欄（アイコン + 枠なし input）。プロジェクトパネルの絞り込み（#203）と
-   設定画面の検索（#314）が共有する。消す ✕ はどちらも自前のボタン様式を持つので、
-   ここには無い。 */
+/* 枠を持つ入力欄の箱（アイコンやボタン + 枠なし input）。プロジェクトパネルの絞り込み
+   （#203）・設定画面の検索（#314）・ブラウザパネル・検索パネルの入力欄（#396）が共有する。
+   消す ✕ はどれも自前のボタン様式を持つので、ここには無い。 */
 .filter-row {
   display: flex;
   align-items: center;
@@ -678,14 +678,21 @@
   cursor: default;
 }
 
-/* 横幅を変えるドラッグの取っ手（サイドバーの幅・diff タブの分割線）。**位置と大きさは
-   置く側が決め、ここは操作の見た目だけを持つ**（片方はパネルの右端、もう片方は表の列の
-   境界に重ねるので、寸法は共有しようがない）。配線は `composables/useDragResize.ts`。 */
+/* 大きさを変えるドラッグの取っ手（サイドバーの幅・diff タブの分割線・コミットタブの
+   左の列）。**位置と大きさは置く側が決め、ここは操作の見た目だけを持つ**（パネルの
+   右端・表の列の境界・列の中の横線と、寸法は共有しようがない）。配線は
+   `composables/useDragResize.ts`。 */
 .drag-x-handle {
   cursor: col-resize;
 }
 
-.drag-x-handle:hover {
+/* 縦に動かす分割線（#396。コミットタブの左の列の中）。違うのはカーソルだけ。 */
+.drag-y-handle {
+  cursor: row-resize;
+}
+
+.drag-x-handle:hover,
+.drag-y-handle:hover {
   background: var(--accent);
   opacity: 0.3;
 }

@@ -4,6 +4,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { defaultProjectPlatform } from '../lib/host'
 import { chordLabel, hasMod } from '../lib/keys'
+import { useOverlay } from '../lib/overlay'
 import { fuzzyMatch } from '../lib/paths'
 import type { ProjectPlatform } from '../lib/projectPaths'
 import { detectWslDistros, openGlobalWindow, pickFolder } from '../lib/tauri'
@@ -21,6 +22,8 @@ import ProjectPlatformFields from './panels/ProjectPlatformFields.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => projectStore.showSwitcher)
 const settings = useSettingsStore()
 
 /** Open a directory without registering it as a project (#230). The pick itself

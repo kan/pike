@@ -5,11 +5,14 @@ import { useI18n } from '../i18n'
 import { MACRO_CHORDS } from '../lib/editorMacro'
 import { isMacHost } from '../lib/host'
 import { chordChips } from '../lib/keys'
+import { useOverlay } from '../lib/overlay'
 import { chordsFor, editorChords, SHORTCUT_PRESETS } from '../lib/shortcuts'
 import { useSettingsStore } from '../stores/settings'
 
 const { t } = useI18n()
 const { visible } = useShortcutsModal()
+// 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
+useOverlay(() => visible.value)
 const settings = useSettingsStore()
 const panelRef = ref<HTMLDivElement>()
 
