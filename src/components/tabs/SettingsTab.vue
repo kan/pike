@@ -25,8 +25,10 @@ import { EDITOR_THEMES } from '../../lib/editorThemes'
 import type { SqlDialect } from '../../lib/fileType'
 import { buildFontFamily, checkFontRendering, type FontNotice } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
+import { absoluteDate } from '../../lib/paths'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import type { ShortcutPreset } from '../../lib/shortcuts'
+import { SYNC_CATEGORIES, type SyncCategory } from '../../lib/syncFormat'
 import {
   type AgentHookStatus,
   type AgentHookTarget,
@@ -61,6 +63,7 @@ import {
   WINDOW_OPACITY_MIN,
   type WindowBackdrop,
 } from '../../stores/settings'
+import { useSyncStore } from '../../stores/sync'
 import { useTabStore } from '../../stores/tabs'
 import {
   isWindowsShell,
@@ -320,41 +323,30 @@ async function browseSyncFile() {
   if (path) settings.syncFilePath = path
 }
 
-// The buttons cover both halves of the file: the UI settings (last write wins)
-// and the project list (#164, merged by id). Projects go second on export so
-// they see a freshly written file, and first on import so a newly created
-// project is in place before the settings apply.
-async function exportAll() {
-  await settings.exportToSyncFile()
-  await projectStore.pushProjectsToSync().catch(() => {})
+const sync = useSyncStore()
+
+/** 同期する種類（#403。マシンごと）の切り替え。 */
+function setSyncCategory(c: SyncCategory, on: boolean) {
+  const list = sync.categories.filter((x) => x !== c)
+  sync.setCategories(on ? [...list, c] : list)
 }
 
-async function importAll() {
-  const pulled = await projectStore.pullProjectsFromSync().catch(() => null)
-  await settings.importFromSyncFile()
-  if (pulled) {
-    settings.syncMessage = t('settings.syncPullSummary', {
-      entries: pulled.entries,
-      created: pulled.created,
-      skipped: pulled.hidden + pulled.unresolvable,
-    })
-  }
-}
+/** 「戻す」の結果の知らせ（戻らないことがあるので、黙らない）。 */
+const restoreMessage = ref('')
 
-/** Un-hide, then pull: the project was deleted from disk when it was hidden, so
- *  it only reappears once the sync file's entry recreates it — which only works
- *  if it ever reached the file (it needs a base-relative path) and if this
- *  machine can resolve that path back. Say so when it doesn't. */
-async function restoreProject(id: string) {
-  settings.unhideProject(id)
-  const pulled = await projectStore.pullProjectsFromSync().catch(() => null)
-  if (projectStore.projects.some((p) => p.id === id)) {
-    settings.syncStatus = 'loaded'
-    settings.syncMessage = ''
+/**
+ * このマシンで消した記録を外して同期する。同期ファイルにまだ残っていれば作り直される
+ * （他のマシンが持ち続けているとき）。消したことが既に伝わってファイルから消えていれば
+ * 戻らない。**同期先が無ければ記録を外さない**（外しても戻る道が無く、一覧から消えるだけ）。
+ */
+function restoreProject(id: string) {
+  if (!sync.hasTarget) {
+    restoreMessage.value = t('sync.restoreNoTarget')
     return
   }
-  settings.syncStatus = 'error'
-  settings.syncMessage = pulled && pulled.unresolvable > 0 ? t('settings.restoreNoBase') : t('settings.restoreNoEntry')
+  settings.unhideProject(id)
+  restoreMessage.value = t('sync.restoreRequested')
+  sync.syncNow()
 }
 
 /**
@@ -1266,19 +1258,43 @@ const PREVIEW_LINES = [
             </button>
           </div>
           <div class="sync-actions">
-            <button class="update-btn" :disabled="!settings.syncFilePath" @click="exportAll">
-              {{ t('settings.syncExport') }}
+            <button
+              class="update-btn"
+              :disabled="!sync.hasTarget || sync.syncing"
+              @click="sync.syncNow()"
+            >
+              {{ t('sync.syncNow') }}
             </button>
-            <button class="update-btn" :disabled="!settings.syncFilePath" @click="importAll">
-              {{ t('settings.syncImport') }}
-            </button>
-            <span v-if="settings.syncStatus === 'saved'" class="update-info update-ok">{{ t('settings.syncSaved') }}</span>
-            <span v-else-if="settings.syncStatus === 'loaded'" class="update-info update-ok">{{ t('settings.syncLoaded') }}</span>
-            <span v-else-if="settings.syncStatus === 'error'" class="update-info update-err">
-              {{ t('settings.syncError') }}{{ settings.syncMessage ? ': ' + settings.syncMessage : '' }}
+            <span v-if="sync.syncing" class="update-info">{{ t('sync.syncing') }}</span>
+            <template v-else-if="sync.status === 'conflicts'">
+              <span class="update-info update-err">{{ t('sync.conflictsCount', { count: sync.conflicts.length }) }}</span>
+              <button class="update-btn" @click="tabStore.addSyncConflictsTab()">{{ t('sync.openConflicts') }}</button>
+            </template>
+            <span v-else-if="sync.status === 'error'" class="update-info update-err">
+              {{ t('sync.error', { message: sync.message }) }}
+            </span>
+            <span v-else-if="sync.lastSyncedAt" class="update-info update-ok">
+              {{ t('sync.lastSynced', { at: absoluteDate(sync.lastSyncedAt) }) }}
+              {{ sync.message }}
             </span>
           </div>
         </SettingItem>
+
+        <SettingGroup title-key="sync.categories">
+          <!-- 説明は先頭の 1 行にだけ付ける（3 行に同じ文を並べない）。 -->
+          <SettingItem
+            v-for="(c, i) in SYNC_CATEGORIES"
+            :key="c"
+            :label-key="`sync.category.${c}`"
+            :hint-key="i === 0 ? 'sync.categoriesHint' : undefined"
+          >
+            <SettingToggle
+              :model-value="sync.categories.includes(c)"
+              :options="ON_OFF"
+              @update:model-value="(on: boolean) => setSyncCategory(c, on)"
+            />
+          </SettingItem>
+        </SettingGroup>
 
         <SettingItem label-key="settings.projectBase" hint-key="settings.projectBaseHint" wide>
           <!-- base はプラットフォームごとに要る。macOS / Linux のプロジェクトは
@@ -1331,6 +1347,7 @@ const PREVIEW_LINES = [
               </button>
             </div>
           </div>
+          <p v-if="restoreMessage" class="setting-hint">{{ restoreMessage }}</p>
         </SettingItem>
       </SettingSection>
 
@@ -1776,6 +1793,7 @@ const PREVIEW_LINES = [
 .sync-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 10px;
 }

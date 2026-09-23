@@ -1,4 +1,14 @@
-import { BookOpen, Gauge, GitCommitHorizontal, Globe, ListTodo, ScrollText, Settings, Terminal } from 'lucide-vue-next'
+import {
+  BookOpen,
+  Gauge,
+  GitCommitHorizontal,
+  GitMerge,
+  Globe,
+  ListTodo,
+  ScrollText,
+  Settings,
+  Terminal,
+} from 'lucide-vue-next'
 import type { Component } from 'vue'
 import type { Tab } from '../types/tab'
 import { browserIcon } from './browserIcons'
@@ -27,6 +37,7 @@ export const TAB_KIND_ICONS: Record<Tab['kind'], Component | null> = {
   'docker-logs': ScrollText,
   settings: Settings,
   'agent-status': Gauge,
+  'sync-conflicts': GitMerge,
   manual: BookOpen,
   // サイドバーの issue パネルと同じアイコン（#278）。
   issue: ListTodo,

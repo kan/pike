@@ -12,7 +12,7 @@ import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths
 import { moveByKey } from '../lib/reorder'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
 import { loadJson, saveJson } from '../lib/storage'
-import { fontListAll, fontListMonospace, type SiteRulePayload, settingsSyncRead, settingsSyncWrite } from '../lib/tauri'
+import { fontListAll, fontListMonospace, type SiteRulePayload } from '../lib/tauri'
 import { setWebviewTheme, systemDark, windowFocused, windowLabel } from '../lib/window'
 import type { HiddenProject } from '../types/project'
 import {
@@ -224,8 +224,6 @@ const HIDDEN_PROJECTS_KEY = 'pike:project-hidden'
 // Directories the user chose to open without registering (#230). Real paths on
 // this machine, so machine-local like the keys above.
 const TRANSIENT_ROOTS_KEY = 'pike:transient-roots'
-// Debounce window for mirroring settings changes out to the sync file.
-const SYNC_WRITE_DEBOUNCE_MS = 1500
 // Cross-window settings sync: broadcast changes so every open Pike window stays
 // in sync (new windows already read the shared localStorage at startup).
 const SETTINGS_CHANGED_EVENT = 'pike://settings-changed'
@@ -997,11 +995,12 @@ function sanitizeHiddenProjects(v: unknown): HiddenProject[] {
   const seen = new Set<string>()
   for (const item of v) {
     if (!item || typeof item !== 'object') continue
-    const { id, name, root, remoteUrl } = item as {
+    const { id, name, root, remoteUrl, shared } = item as {
       id?: unknown
       name?: unknown
       root?: unknown
       remoteUrl?: unknown
+      shared?: unknown
     }
     if (typeof id !== 'string' || !id || seen.has(id)) continue
     seen.add(id)
@@ -1010,6 +1009,7 @@ function sanitizeHiddenProjects(v: unknown): HiddenProject[] {
       name: typeof name === 'string' ? name : id,
       root: typeof root === 'string' && root ? root : undefined,
       remoteUrl: typeof remoteUrl === 'string' && remoteUrl ? remoteUrl : undefined,
+      shared: shared === true ? true : undefined,
     })
   }
   return out
@@ -1379,6 +1379,11 @@ export const useSettingsStore = defineStore('settings', () => {
     return hiddenProjectIds.value.has(id)
   }
 
+  /** このマシンで消し、その削除を同期で伝えるプロジェクトか（#403。`HiddenProject.shared`）。 */
+  function isProjectDeletedForSync(id: string): boolean {
+    return hiddenProjects.value.some((p) => p.id === id && p.shared)
+  }
+
   // Directories opened without registering them (#230). Answering "no" to the
   // register prompt — or picking the switcher's "open a directory" entry — puts
   // the root here so the same directory never asks again. Re-read on every write
@@ -1743,121 +1748,29 @@ export const useSettingsStore = defineStore('settings', () => {
     browserSiteRules.value = s.browserSiteRules
   }
 
-  // --- External settings-sync file ---------------------------------------
-  // Pike has no built-in sync service; instead it mirrors `snapshot()` to a
-  // JSON file at a user-chosen host path (point it at Dropbox/OneDrive/git).
+  // --- 同期（#403） ---------------------------------------------------------
+  // いつ・どう同期するかは同期の調停役（`stores/sync.ts`）が持つ。ここに残るのは、固定パスの
+  // 同期先のパス（マシンごと）と、マージの結果を受け取る口だけ。
   const syncFilePath = ref(loadJson<string>(SYNC_PATH_KEY, ''))
-  // 'idle' | 'saved' | 'loaded' | 'error'
-  const syncStatus = ref<'idle' | 'saved' | 'loaded' | 'error'>('idle')
-  const syncMessage = ref('')
-  let importing = false
-  let syncWriteTimer: ReturnType<typeof setTimeout> | null = null
   // True while applying a snapshot received from another window — suppresses
-  // re-persisting to the sync file and re-broadcasting (avoids feedback loops).
+  // re-broadcasting (avoids feedback loops).
   let applyingRemote = false
   let broadcastTimer: ReturnType<typeof setTimeout> | null = null
-  // Serializes every read-modify-write of the sync file (see mutateSyncFile).
-  let syncWriteChain: Promise<boolean> = Promise.resolve(true)
 
   watch(syncFilePath, (v) => saveJson(SYNC_PATH_KEY, v))
 
   /**
-   * The sync file parsed as a plain object: `{}` when there is no file yet,
-   * and null when it exists but could not be read or parsed. Callers must not
-   * write on null — the file is there, so overwriting it from an empty base
-   * would drop whatever a concurrent writer (or the other section) put in it.
+   * 同期のマージの結果を反映する。`partial` に無いキー（同期しない種類）は今の値のまま。
+   * **普通の変更と同じ経路を通す**（watcher が保存と他のウィンドウへの知らせを行う）。
+   * 形の検査と古い形からの移行は `sanitize` が持つ。
    */
-  async function readSyncFile(): Promise<Record<string, unknown> | null> {
-    if (!syncFilePath.value) return null
-    try {
-      const raw = await settingsSyncRead(syncFilePath.value)
-      if (raw === null) return {}
-      const parsed = JSON.parse(raw)
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
-      return parsed as Record<string, unknown>
-    } catch {
-      return null
-    }
-  }
-
-  /**
-   * The one read-modify-write path for the sync file. `mutate` receives the
-   * current contents and returns the keys to overwrite, or null to write
-   * nothing. Keys it does not mention survive, which is what lets the project
-   * list (#164) share the file while merging by project id rather than
-   * wholesale. Calls are serialized: settings and projects debounce on separate
-   * timers and every window writes, so overlapping read-modify-writes would
-   * otherwise let the later one revert the earlier.
-   */
-  async function mutateSyncFile(
-    mutate: (file: Record<string, unknown>) => Record<string, unknown> | null,
-  ): Promise<boolean> {
-    if (!syncFilePath.value) return false
-    const run = async (): Promise<boolean> => {
-      try {
-        const file = await readSyncFile()
-        if (!file) {
-          syncStatus.value = 'error'
-          syncMessage.value = t('settings.syncUnreadable')
-          return false
-        }
-        const sections = mutate(file)
-        if (!sections) return true
-        await settingsSyncWrite(syncFilePath.value, JSON.stringify({ ...file, ...sections }, null, 2))
-        return true
-      } catch (e) {
-        syncStatus.value = 'error'
-        syncMessage.value = String(e)
-        return false
-      }
-    }
-    syncWriteChain = syncWriteChain.then(run, run)
-    return syncWriteChain
-  }
-
-  /** Write the current settings out to the sync file, preserving keys owned by
-   *  other writers (the project list). */
-  async function exportToSyncFile(): Promise<boolean> {
-    if (!(await mutateSyncFile(() => snapshot() as unknown as Record<string, unknown>))) return false
-    syncStatus.value = 'saved'
-    syncMessage.value = ''
-    return true
-  }
-
-  /** Load settings from the sync file and apply them. */
-  async function importFromSyncFile(): Promise<boolean> {
-    if (!syncFilePath.value) return false
-    try {
-      const parsed = await readSyncFile()
-      if (!parsed) throw new Error(t('settings.syncUnreadable'))
-      importing = true
-      applySettings(sanitize(parsed as Partial<PersistedSettings>))
-      await nextTick() // let change-watchers flush while writes are suppressed
-      importing = false
-      persist() // mirror the imported settings into localStorage
-      syncStatus.value = 'loaded'
-      syncMessage.value = ''
-      return true
-    } catch (e) {
-      importing = false
-      syncStatus.value = 'error'
-      syncMessage.value = String(e)
-      return false
-    }
-  }
-
-  function scheduleSyncWrite() {
-    if (!syncFilePath.value || importing || applyingRemote) return
-    if (syncWriteTimer) clearTimeout(syncWriteTimer)
-    syncWriteTimer = setTimeout(() => {
-      syncWriteTimer = null
-      void exportToSyncFile()
-    }, SYNC_WRITE_DEBOUNCE_MS)
+  function applySyncedSettings(partial: Record<string, unknown>) {
+    applySettings(sanitize({ ...snapshot(), ...partial } as Partial<PersistedSettings>))
   }
 
   // Broadcast the current settings to every other open Pike window (debounced).
   function scheduleBroadcast() {
-    if (importing || applyingRemote) return
+    if (applyingRemote) return
     if (broadcastTimer) clearTimeout(broadcastTimer)
     broadcastTimer = setTimeout(() => {
       broadcastTimer = null
@@ -1869,7 +1782,7 @@ export const useSettingsStore = defineStore('settings', () => {
   async function applyRemoteSettings(payload: PersistedSettings) {
     applyingRemote = true
     applySettings(sanitize(payload))
-    await nextTick() // let change-watchers flush while writes/broadcast are suppressed
+    await nextTick() // let change-watchers flush while the broadcast is suppressed
     applyingRemote = false
     persist() // mirror into this window's localStorage too
   }
@@ -1881,7 +1794,6 @@ export const useSettingsStore = defineStore('settings', () => {
 
   function onSettingsChanged() {
     persist()
-    scheduleSyncWrite()
     scheduleBroadcast()
   }
 
@@ -1978,9 +1890,6 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(themeMode, applyThemePin, { immediate: true })
   watch([uiFontFamily, uiFontSize], applyUiAppearance, { immediate: true })
 
-  // On startup, pull the latest settings from the sync file (if configured).
-  if (syncFilePath.value) void importFromSyncFile()
-
   return {
     fontFamily,
     fontName,
@@ -2061,6 +1970,7 @@ export const useSettingsStore = defineStore('settings', () => {
     hideProject,
     unhideProject,
     isProjectHidden,
+    isProjectDeletedForSync,
     rememberTransientRoot,
     forgetTransientRoot,
     skipsRegisterPrompt,
@@ -2074,12 +1984,8 @@ export const useSettingsStore = defineStore('settings', () => {
     loadAvailableFonts,
     setFontByName,
     syncFilePath,
-    syncStatus,
-    syncMessage,
-    exportToSyncFile,
-    importFromSyncFile,
-    readSyncFile,
-    mutateSyncFile,
+    snapshot,
+    applySyncedSettings,
   }
 })
 

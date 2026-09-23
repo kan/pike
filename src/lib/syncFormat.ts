@@ -142,14 +142,14 @@ export function toItems(src: SyncSource): SyncItems {
   return items
 }
 
-/** 同期ファイルの中身（パース済み）を `SyncSource` にする。形の検査は呼び出し側が済ませる。 */
+/** 同期ファイルの中身（パース済み）を `SyncSource` にする。 */
 export function fromSyncFile(file: Record<string, unknown>): SyncSource {
   const settings: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(file)) if (!RESERVED.has(k)) settings[k] = v
   return {
     settings,
-    projects: Array.isArray(file[PROJECTS_KEY]) ? (file[PROJECTS_KEY] as SyncedProject[]) : [],
-    groups: asList(file[GROUPS_KEY]),
+    projects: parseSyncedProjects(file[PROJECTS_KEY]),
+    groups: parseSyncedGroups(file[GROUPS_KEY]),
   }
 }
 
@@ -213,8 +213,12 @@ export function toSyncFile(
 
 // --- マージ ---
 
-/** `mergeSyncItems` の結果。`resolveSyncItems` にそのまま渡す（マージに使った手元を持ち回る）。 */
+/**
+ * `mergeSyncItems` の結果。`resolveSyncItems` / `nextBaseline` にそのまま渡す（マージに使った
+ * baseline と手元を持ち回る。どちらも `mergeSyncItems` が調整したもの）。
+ */
 export interface SyncMerge extends MergeResult {
+  base: SyncItems | null
   local: SyncItems
   remote: SyncItems
 }
@@ -222,26 +226,110 @@ export interface SyncMerge extends MergeResult {
 /**
  * 同期の 3-way マージ。
  *
- * **`tracked` は必須**: このマシンが追っていないプロジェクト（基準のディレクトリの外で解決
- * できない、別のマシンが登録したもの）を手元に無いからと削除と読むと、同期するたびにファイル
- * から消してしまう。追っていない id は baseline のまま据え置く（手元の項目に写す）。追って
- * いるのは、手元にあるプロジェクトと、手元で消したと分かっているもの（非表示の記録）。
+ * **`deletedHere` は必須**（このマシンで消したと分かっているプロジェクトか。非表示の記録）。
+ * 手元に無いプロジェクトは 2 通りに分かれる。
+ *
+ * - **消したもの**（`deletedHere`）。baseline に無くても（初めての同期や、#403 より前に
+ *   消したもの）、baseline にリモートの値があったことにして削除として扱う。そうしないと
+ *   「リモートにだけある」＝追加と読まれ、消したプロジェクトが全部戻ってくる
+ * - **このマシンが追っていないもの**（基準のディレクトリの外で作れない、別のマシンが登録した
+ *   もの）。手元に無いからと削除と読むと、同期するたびにファイルから消してしまう。baseline
+ *   のまま据え置く（手元の項目に写す）
  */
 export function mergeSyncItems(
-  base: SyncItems | null,
+  baseIn: SyncItems | null,
   local: SyncItems,
   remote: SyncItems,
-  tracked: (projectId: string) => boolean,
+  deletedHere: (projectId: string) => boolean,
 ): SyncMerge {
+  let base = baseIn
+  for (const [key, v] of remote) {
+    const k = parseItemKey(key)
+    if (k[0] !== 'project' || !deletedHere(k[1]) || baseIn?.has(itemKey(['project', k[1]]))) continue
+    // 呼び出し側の baseline は書き換えない（写してから足す）。
+    if (base === baseIn) base = new Map(baseIn ?? [])
+    base?.set(key, v)
+  }
+  const localIds = new Set(
+    [...local.keys()]
+      .map(parseItemKey)
+      .filter((k) => k[0] === 'project')
+      .map((k) => k[1]),
+  )
+  const tracked = (id: string) => localIds.has(id) || deletedHere(id)
   const carried: SyncItems = new Map(local)
   for (const [key, v] of base ?? []) {
     const k = parseItemKey(key)
     if (k[0] === 'project' && !tracked(k[1]) && !carried.has(key)) carried.set(key, v)
   }
-  return { ...merge3(base, carried, remote, MERGE_OPTIONS), local: carried, remote }
+  // **この版の Pike が知らない設定のキーも「変えていない」**（新しい版が書いたキー）。手元に
+  // 無いことを削除と読むと、古い版で同期するたびに新しい版の設定を消す。
+  for (const key of new Set([...(base?.keys() ?? []), ...remote.keys()])) {
+    if (parseItemKey(key)[0] !== 'setting' || carried.has(key)) continue
+    carried.set(key, base?.has(key) ? base.get(key) : remote.get(key))
+  }
+  // **置き場所は作るときにだけ使う**（`CREATE_ONLY_FIELDS`）。既に共有されているプロジェクトでは
+  // 手元の値の代わりに共有されている値を置き、比べる対象から外す。
+  for (const [key] of local) {
+    const k = parseItemKey(key)
+    if (k[0] !== 'project' || k.length !== 3 || !CREATE_ONLY_FIELDS.has(k[2])) continue
+    const shared = base?.has(key) ? base.get(key) : remote.get(key)
+    if (shared !== undefined) carried.set(key, shared)
+  }
+  return { ...merge3(base, carried, remote, MERGE_OPTIONS), base, local: carried, remote }
 }
+
+/**
+ * プロジェクトの置き場所（基準のディレクトリからの相対パスとプラットフォーム）。**作る
+ * ときにだけ使い、あとから比べない**。マシンごとにディレクトリの配置が違うことがあり、
+ * 比べると「どちらのマシンの配置か」の衝突が毎回出るうえ、どちらを選んでも手元のルートは
+ * 動かないので、次の同期で手元の値が「変えた」ことになって交互に書き換わる。
+ */
+const CREATE_ONLY_FIELDS: ReadonlySet<string> = new Set(['platform', 'path'] satisfies (keyof SyncedProject)[])
 
 /** 衝突の選択を反映して最終的な項目を作る。選ばれていない衝突は `fallback` の側。 */
 export function resolveSyncItems(m: SyncMerge, choices: ReadonlyMap<string, Side>, fallback?: Side): SyncItems {
   return resolve(m, m.local, m.remote, choices, { ...MERGE_OPTIONS, fallback })
+}
+
+/**
+ * 次の baseline を作る。決着した項目は書き出す値（`written`）、**まだ選ばれていない衝突は
+ * 前の baseline のまま**にする。こうすると、次の同期でも手元とリモートの両方が baseline から
+ * 変わったままなので、同じ衝突がもう一度出る（保留が消えない）。
+ */
+export function nextBaseline(m: SyncMerge, written: SyncItems, choices: ReadonlyMap<string, Side>): SyncItems {
+  const base = m.base
+  const out: SyncItems = new Map(written)
+  const pending = new Set(m.conflicts.filter((c) => !choices.has(c.key)).map((c) => c.key))
+  if (pending.size === 0) return out
+  const restore = (key: string) => {
+    const v = base?.get(key)
+    if (v === undefined) out.delete(key)
+    else out.set(key, v)
+  }
+  for (const key of pending) restore(key)
+  // 親の衝突は、子も前の baseline に戻す（どちらの子が残るかはまだ決まっていない）。
+  const children = new Set([...out.keys(), ...(base?.keys() ?? [])].filter((key) => pending.has(parentOf(key) ?? '')))
+  for (const key of children) restore(key)
+  return out
+}
+
+/** 同期ファイルの `groups`（表示順のグループ名、#203）。 */
+function parseSyncedGroups(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter((g): g is string => typeof g === 'string' && !!g.trim())
+}
+
+/**
+ * 同期ファイルの `projects`。**知らない platform のエントリも落とさない**（#164 のころは
+ * 落としていて、書き戻すと他のマシンが書いたものを消していた）。そういうエントリは手元で
+ * 作れないだけで、項目としては持ち回る（`mergeSyncItems` の「追っていない」もの）。
+ */
+function parseSyncedProjects(raw: unknown): SyncedProject[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter((e): e is SyncedProject => {
+    if (!e || typeof e !== 'object') return false
+    const p = e as Partial<SyncedProject>
+    return typeof p.id === 'string' && !!p.id && typeof p.name === 'string' && typeof p.path === 'string'
+  })
 }

@@ -11,7 +11,6 @@ import { ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
 import { windowFocused } from '../lib/window'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
-  AgentStatusTab,
   BrowserTab,
   CommitTab,
   DiffTab,
@@ -798,18 +797,30 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
-  function addAgentStatusTab(): string {
-    const existing = tabs.value.find((t): t is AgentStatusTab => t.kind === 'agent-status')
+  /**
+   * 引数を持たないシングルトン（エージェント状態・同期の衝突）を開くか、前に出す。
+   * タイトルは英語リテラル: 表示名は `tabDisplayTitle` が kind から i18n を引くので、
+   * ここの値はフォールバック。
+   */
+  function openSimpleSingleton(kind: 'agent-status' | 'sync-conflicts', title: string): string {
+    const existing = tabs.value.find((t) => t.kind === kind)
     if (existing) {
       activeTabId.value = existing.id
       return existing.id
     }
     const id = genId()
-    // 他のシングルトン（Settings / Manual）と同じく英語リテラルを置く。表示名は
-    // `tabDisplayTitle` が kind から i18n を引くので、ここの値はフォールバック。
-    pushTab({ id, kind: 'agent-status', title: 'Agent Status', pinned: false })
+    pushTab({ id, kind, title, pinned: false })
     activeTabId.value = id
     return id
+  }
+
+  function addAgentStatusTab(): string {
+    return openSimpleSingleton('agent-status', 'Agent Status')
+  }
+
+  /** 設定の同期の衝突を解消するタブ（#403）。 */
+  function addSyncConflictsTab(): string {
+    return openSimpleSingleton('sync-conflicts', 'Sync Conflicts')
   }
 
   /** Open (or focus) the singleton manual viewer, navigating it to `page`. */
@@ -1394,6 +1405,7 @@ export const useTabStore = defineStore('tabs', () => {
     addDockerLogsTab,
     addSettingsTab,
     addAgentStatusTab,
+    addSyncConflictsTab,
     addManualTab,
     addIssueTab,
     addCommitTab,

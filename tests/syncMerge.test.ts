@@ -5,6 +5,7 @@ import {
   fromItems,
   itemKey,
   mergeSyncItems,
+  nextBaseline,
   parseItemKey,
   resolveSyncItems,
   type SyncSource,
@@ -28,10 +29,9 @@ const proj = (id: string, extra: Partial<SyncedProject> = {}): SyncedProject => 
   ...extra,
 })
 const src = (o: Partial<SyncSource>): SyncSource => ({ settings: {}, projects: [], groups: [], ...o })
-/** 全プロジェクトを手元で追っている（手元に無ければ消したものとして扱う）。 */
-const tracked = () => true
-const merge = (base: SyncSource, local: SyncSource, remote: SyncSource) =>
-  mergeSyncItems(toItems(base), toItems(local), toItems(remote), tracked)
+/** `deleted` はこのマシンで消したと分かっているプロジェクト（非表示の記録）。 */
+const merge = (base: SyncSource | null, local: SyncSource, remote: SyncSource, deleted: string[] = []) =>
+  mergeSyncItems(base && toItems(base), toItems(local), toItems(remote), (id) => deleted.includes(id))
 
 describe('merge3', () => {
   test('片方だけが変えた項目はその値、両方が変えた項目は衝突', () => {
@@ -100,14 +100,14 @@ describe('プロジェクト', () => {
   })
 
   test('片方が消し、もう片方が触っていなければ消える（削除が伝わる）', () => {
-    const m = merge(src({ projects: [proj('x')] }), src({}), src({ projects: [proj('x')] }))
+    const m = merge(src({ projects: [proj('x')] }), src({}), src({ projects: [proj('x')] }), ['x'])
     assert.equal(m.conflicts.length, 0)
     assert.equal(m.merged.has(p('x')), false)
     assert.equal(m.merged.has(pf('x', 'name')), false)
   })
 
   test('片方が消し、もう片方がフィールドを変えたら、プロジェクト単位の衝突にまとめる', () => {
-    const m = merge(src({ projects: [proj('x')] }), src({}), src({ projects: [proj('x', { color: 'red' })] }))
+    const m = merge(src({ projects: [proj('x')] }), src({}), src({ projects: [proj('x', { color: 'red' })] }), ['x'])
     assert.deepEqual(
       m.conflicts.map((c) => c.key),
       [p('x')],
@@ -128,7 +128,7 @@ describe('プロジェクト', () => {
   })
 
   test('残した側がフィールドを空にしたのも変更として数える（削除と衝突する）', () => {
-    const m = merge(src({ projects: [proj('x', { color: 'red' })] }), src({}), src({ projects: [proj('x')] }))
+    const m = merge(src({ projects: [proj('x', { color: 'red' })] }), src({}), src({ projects: [proj('x')] }), ['x'])
     assert.deepEqual(
       m.conflicts.map((c) => c.key),
       [p('x')],
@@ -142,12 +142,54 @@ describe('プロジェクト', () => {
   })
 
   test('手元で追っていないプロジェクトは消さない', () => {
-    const base = toItems(src({ projects: [proj('x')] }))
-    const remote = toItems(src({ projects: [proj('x')] }))
+    const both = src({ projects: [proj('x')] })
     // このマシンは x を解決できない（手元の一覧に無い）。追っていないので据え置く。
-    assert.equal(mergeSyncItems(base, toItems(src({})), remote, () => false).merged.get(p('x')), true)
+    assert.equal(merge(both, src({}), both).merged.get(p('x')), true)
     // 手元で消したと分かっているものは、消したものとして扱う。
-    assert.equal(mergeSyncItems(base, toItems(src({})), remote, () => true).merged.has(p('x')), false)
+    assert.equal(merge(both, src({}), both, ['x']).merged.has(p('x')), false)
+  })
+
+  test('初めての同期でも、手元で消したものは戻ってこない', () => {
+    const m = merge(null, src({}), src({ projects: [proj('x'), proj('y')] }), ['x'])
+    assert.equal(m.conflicts.length, 0)
+    assert.equal(m.merged.has(p('x')), false)
+    assert.equal(m.merged.get(p('y')), true)
+  })
+
+  test('置き場所（path）はマシンごとに違っても比べない', () => {
+    const m = merge(
+      src({ projects: [proj('x', { path: 'src/x' })] }),
+      src({ projects: [proj('x', { path: 'work/x' })] }),
+      src({ projects: [proj('x', { path: 'src/x' })] }),
+    )
+    assert.equal(m.conflicts.length, 0)
+    assert.equal(m.merged.get(pf('x', 'path')), 'src/x')
+  })
+})
+
+describe('設定', () => {
+  test('この版が知らない設定のキーは消さない（新しい版が書いたもの）', () => {
+    const remote = src({ settings: { fontSize: 12, fromNewerPike: 1 } })
+    const m = merge(remote, src({ settings: { fontSize: 14 } }), remote)
+    assert.equal(m.conflicts.length, 0)
+    assert.equal(m.merged.get(s('fontSize')), 14)
+    assert.equal(m.merged.get(s('fromNewerPike')), 1)
+  })
+})
+
+describe('nextBaseline', () => {
+  test('選んでいない衝突は前の baseline に据え置く（次の同期でも同じ衝突が出る）', () => {
+    const base = src({ settings: { a: 1, b: 1 } })
+    const local = src({ settings: { a: 2, b: 2 } })
+    const remote = src({ settings: { a: 3, b: 1 } })
+    const m = merge(base, local, remote)
+    const written = resolveSyncItems(m, new Map(), 'remote')
+    const next = nextBaseline(m, written, new Map())
+    assert.equal(next.get(s('a')), 1)
+    assert.equal(next.get(s('b')), 2)
+    // 選んだ衝突は決着した値になる。
+    const chosen = new Map([[s('a'), 'local' as const]])
+    assert.equal(nextBaseline(m, resolveSyncItems(m, chosen, 'remote'), chosen).get(s('a')), 2)
   })
 })
 

@@ -38,6 +38,7 @@ import { useDiagnosticsStore } from './stores/diagnostics'
 import { useGitStore } from './stores/git'
 import { useProjectStore } from './stores/project'
 import { useSettingsStore } from './stores/settings'
+import { useSyncStore } from './stores/sync'
 import { useTabStore } from './stores/tabs'
 import { useWorktreeStore } from './stores/worktree'
 import type { ProjectConfig } from './types/project'
@@ -52,6 +53,9 @@ const worktreeStore = useWorktreeStore()
 const agentUsageStores = AGENTS.map((a) => useAgentUsageStore(a.id))
 const diagStore = useDiagnosticsStore()
 const settingsStore = useSettingsStore()
+// 設定の同期（#403）。main は同期の依頼を受ける口を、他のウィンドウは状態を受ける口を
+// ここで開く（どのパネルも開かれていなくても、依頼と衝突の印が届くように）。
+useSyncStore()
 
 useKeyboardShortcuts()
 // macOS のメニューバーからの操作（#254）。他の OS ではメニューが無いので発火しない。

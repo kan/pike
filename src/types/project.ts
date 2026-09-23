@@ -19,16 +19,17 @@ export interface SyncedProject {
   /** Custom golangci-lint command (#213). Machine-independent: it names the
    *  project's own lint entry point, not anything about this machine. */
   golangciCommand?: string
-  /** Manual position inside its group. Unlike the other fields this one is
-   *  overwritten rather than gap-filled on merge: an order is one user's intent
-   *  over a whole list, so a half-merged one means nothing (#203). */
+  /** Manual position inside its group. The sync merges it per group as one
+   *  list, not per project (#403, `lib/syncFormat.ts`): an order is one user's
+   *  intent over a whole list, so a half-merged one means nothing (#203). */
   order?: number
 }
 
 /**
- * A project hidden on this machine, so the merge-only sync cannot resurrect it.
- * Carries the root and origin as well as the id because the sync file can hold
- * several ids for one repository — see the match in `pullProjectsFromSync`.
+ * A project deleted on this machine. The sync (#403) reads it as a deletion to
+ * pass on, never as "not seen here yet". Carries the root and origin as well as
+ * the id because the sync file can hold several ids for one repository — see
+ * the match in `applySyncedProjects`.
  */
 export interface HiddenProject {
   id: string
@@ -37,6 +38,12 @@ export interface HiddenProject {
   /** Both absent for entries hidden before Pike started recording them. */
   root?: string
   remoteUrl?: string
+  /**
+   * 削除として同期で他のマシンへ伝えるか（#403）。**#403 より前の記録には付いていない**:
+   * 当時の非表示は「このマシンでだけ隠す」意味で、同期ファイルには残す約束だった。印の
+   * 無い記録を削除として広げると、アップデートした最初の同期で他の PC からも消える。
+   */
+  shared?: boolean
 }
 
 /**

@@ -240,6 +240,7 @@ pike/
 │   │       ├── CommitTab.vue      # コミット 1 つのメッセージと全ファイルの差分（グラフ表示のクリック、#374）
 │   │       ├── BrowserTab.vue     # 外部のページ（子 webview をタブの領域に重ねる、#368。試作）
 │   │       ├── AgentStatusTab.vue # エージェント状態（/status 相当。アカウント・レート・トークン、#226）
+│   │       ├── SyncConflictsTab.vue # 設定の同期の衝突を項目ごとに選ぶ（#403）
 │   │       └── SettingsTab.vue    # 設定画面（8 セクションの中身と左ナビ・絞り込みの入力欄、#314）
 │   ├── stores/
 │   │   ├── tabs.ts            # タブ状態管理 (Pinia)
@@ -247,6 +248,7 @@ pike/
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
 │   │   ├── diagnostics.ts  issues.ts
 │   │   ├── browser.ts         # ブラウザのタブの閲覧履歴（#368。マシンごと。ブックマークは settings.ts）
+│   │   ├── sync.ts            # 設定の同期の調停役（#403。同期するのは main だけ、衝突は保留して選ばせる）
 │   │   ├── agents.ts          # 使えるエージェントの検出（シェル単位、#275）
 │   │   ├── agentUsage.ts      # エージェントごとの使用量ストア（表 1 行につき 1 本、#263）
 │   │   ├── shellProbe.ts      # 「シェルごとに 1 回だけ聞いて覚える」の共通部（#275）

@@ -68,6 +68,7 @@ import { useDockerStore } from '../../stores/docker'
 import { useIssuesStore } from '../../stores/issues'
 import { useSearchStore } from '../../stores/search'
 import { useSettingsStore } from '../../stores/settings'
+import { useSyncStore } from '../../stores/sync'
 import { useTabStore } from '../../stores/tabs'
 import HelpButton from '../HelpButton.vue'
 import ProjectSelect from './ProjectSelect.vue'
@@ -201,6 +202,14 @@ function openSettings() {
 function openAgentStatus() {
   closeGearMenu()
   tabStore.addAgentStatusTab()
+}
+
+/** 設定の同期の衝突（#403）。残っているあいだは歯車に印を出し、メニューから開けるようにする。 */
+const sync = useSyncStore()
+
+function openSyncConflicts() {
+  closeGearMenu()
+  tabStore.addSyncConflictsTab()
 }
 
 function openManual() {
@@ -555,6 +564,10 @@ onUnmounted(() => {
           <button class="gear-menu-item" @click="openAgentStatus">
             <span>{{ t('agentStatus.title') }}</span>
           </button>
+          <button v-if="sync.conflicts.length > 0" class="gear-menu-item" @click="openSyncConflicts">
+            <span>{{ t('sync.conflictsTitle') }}</span>
+            <span class="update-badge">{{ sync.conflicts.length }}</span>
+          </button>
           <div class="gear-menu-divider" />
           <button class="gear-menu-item" @click="openManual">
             <span>{{ t('sidebar.manual') }}</span>
@@ -570,7 +583,7 @@ onUnmounted(() => {
           @click="onGearClick"
         >
           <Settings :size="22" :stroke-width="1.5" class="icon" />
-          <span v-if="updater.hasUpdate.value" class="update-dot" />
+          <span v-if="updater.hasUpdate.value || sync.conflicts.length > 0" class="update-dot" />
         </button>
       </div>
     </nav>

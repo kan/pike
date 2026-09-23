@@ -16,6 +16,7 @@ import {
 } from '../lib/projectPaths'
 import { menuActions } from '../lib/shortcuts'
 import { loadJson, pushRecent } from '../lib/storage'
+import { stableKey } from '../lib/syncMerge'
 import {
   focusProjectWindow,
   fsDirsExist,
@@ -39,7 +40,7 @@ import {
   type WindowSession,
   windowRestore,
 } from '../lib/tauri'
-import { ephemeralWindow, globalMode, isMainWindow } from '../lib/window'
+import { ephemeralWindow, globalMode } from '../lib/window'
 import type { ProjectConfig, SyncedProject } from '../types/project'
 import { buildShell, quoteArg, type ShellType, shellId, shellToPlatform } from '../types/tab'
 import { useDiagnosticsStore } from './diagnostics'
@@ -50,23 +51,29 @@ import { useStatusMessageStore } from './statusMessage'
 import { useTabStore } from './tabs'
 import { useTaskStore } from './tasks'
 
-// Debounce for republishing the project list to the sync file. Longer than the
-// settings debounce: a push is a read-modify-write of the whole file.
-const SYNC_PUSH_DEBOUNCE_MS = 2000
-
 /** How `openProject` places a project. */
 type OpenMode = 'switch' | 'window' | 'focusOrSwitch'
 
-/** What a pull did, so the caller can explain an empty result (#164). */
-export interface PullResult {
-  /** Entries found in the sync file. */
-  entries: number
+/** 同期の結果を手元に反映したときに何が起きたか（#403。設定画面の報告に使う）。 */
+export interface SyncApplyResult {
   created: number
-  /** Skipped because this machine hid them. */
-  hidden: number
-  /** Skipped because no base (or WSL distro) resolves their path here. */
+  updated: number
+  /** 他のマシンで消されたので、ここでも消したもの。 */
+  removed: number
+  /** このマシンでは作れない（基準のディレクトリや WSL の distro が無い）もの。 */
   unresolvable: number
 }
+
+/** 同期で結果の値にそろえるプロジェクトのフィールド（置き場所の platform / path は含めない）。 */
+const SYNCED_FIELDS = [
+  'name',
+  'color',
+  'icon',
+  'group',
+  'remoteUrl',
+  'golangciCommand',
+  'order',
+] as const satisfies readonly (keyof ProjectConfig)[]
 
 /**
  * 固定タブの `autoStart` を「続きから」に読み替える。対応は `lib/agents.ts` の表が持つ
@@ -790,86 +797,39 @@ export const useProjectStore = defineStore('project', () => {
    *  root outside it. Surfaced in settings so the exclusion isn't silent. */
   const unsyncableProjects = computed(() => projects.value.filter((p) => !toSynced(p, useSettingsStore().projectBase)))
 
-  /** The shared group list: names in display order (#203). */
-  function parseSyncedGroups(raw: unknown): string[] {
-    if (!Array.isArray(raw)) return []
-    return raw.filter((g): g is string => typeof g === 'string' && !!g.trim())
-  }
-
-  function parseSyncedProjects(raw: unknown): SyncedProject[] {
-    if (!Array.isArray(raw)) return []
-    return raw.filter((e): e is SyncedProject => {
-      if (!e || typeof e !== 'object') return false
-      const p = e as Partial<SyncedProject>
-      return (
-        typeof p.id === 'string' &&
-        !!p.id &&
-        typeof p.name === 'string' &&
-        typeof p.path === 'string' &&
-        // push は `existing` をこのフィルタに通してから全体を書き戻すので、知らない
-        // platform のエントリは落ちるのではなく**同期ファイルから消える**（別のマシンが
-        // 書いたものを消す）。一覧は `PROJECT_PLATFORMS` から導くので足し忘れは起きない。
-        isProjectPlatform(p.platform)
-      )
-    })
+  /** 同期する形のプロジェクト（#403。基準のディレクトリの外にあるものは含めない）。 */
+  function syncableProjects(): SyncedProject[] {
+    const base = useSettingsStore().projectBase
+    return projects.value.map((p) => toSynced(p, base)).filter((p): p is SyncedProject => p !== null)
   }
 
   /**
-   * Publish this machine's shareable projects: an entry for a project that is
-   * here is replaced by what is here, and every other entry is left alone.
+   * 同期のマージの結果（#403）を手元に反映する。**決めるのはマージの側**で、ここは言われた
+   * 状態に合わせるだけ。
    *
-   * Filling only the file's empty fields (what this used to do) made the first
-   * value the file ever saw permanent, so a field *cleared* here kept its stale
-   * value there and the next pull filled it back in. The cost of publishing
-   * as-is is that with two machines the last one to run owns the record.
+   * **変えるのは、マージに使った手元（`before`）から結果が変わったところだけ。** 同期の
+   * 最中（同期ファイルの読み込みを待つあいだ）に利用者が変えたものを、開始時点の値で
+   * 巻き戻さないため。
    *
-   * Note what this does *not* buy: the pull still only fills gaps, so a machine
-   * that already has the project keeps its own name, color and group whatever
-   * the file says. Edits reach the file, and from there only machines that have
-   * yet to create the project. Making them converge needs a per-record
-   * `updatedAt` on both sides, which nothing has asked for yet.
+   * - `before` にあるもの（このマシンから出したもの）は、結果で変わったフィールドだけを
+   *   そろえる。結果に無ければ、他のマシンで消されたのでここでも消す
+   * - 手元にあるが `before` に無いもの（base の外にあって同期しない）には触らない
+   * - 手元に無いものは、このマシンの基準のディレクトリの下に作る。作れない（基準が無い、
+   *   WSL の distro が無い）ものと、同じリポジトリを別の id で既に持っているものは作らない。
+   *   どちらもファイルには残る（同期の側がこのマシンの「追っていない」ものとして据え置く）
+   * - このマシンで消したもの（非表示の記録）が結果にあるのは、削除を伝える記録
+   *   （`shared`）なら衝突で「残す」を選んだときだけなので、記録を外して作り直す。#403 より
+   *   前の記録（このマシンでだけ隠す）は作らない
    */
-  async function pushProjectsToSync() {
+  async function applySyncedProjects(
+    target: { projects: SyncedProject[]; groups: string[] },
+    before: { projects: SyncedProject[]; groups: string[] },
+  ): Promise<SyncApplyResult> {
+    const result: SyncApplyResult = { created: 0, updated: 0, removed: 0, unresolvable: 0 }
     const settings = useSettingsStore()
-    if (!settings.syncFilePath) return
     const base = settings.projectBase
-    await settings.mutateSyncFile((file) => {
-      const existing = parseSyncedProjects(file.projects)
-      const merged = new Map(existing.map((e) => [e.id, e]))
-      for (const project of projects.value) {
-        const entry = toSynced(project, base)
-        if (!entry) continue
-        merged.set(entry.id, entry)
-      }
-      const out = [...merged.values()]
-      const outGroups = [...groups.value]
-      // Skip the write when nothing changed: every window pushes, and a plain
-      // startup re-publishes what it just read, so the sync folder (usually
-      // Dropbox) would otherwise see a touched file on every launch.
-      const same =
-        JSON.stringify(out) === JSON.stringify(existing) &&
-        JSON.stringify(outGroups) === JSON.stringify(parseSyncedGroups(file.groups))
-      return same ? null : { projects: out, groups: outGroups }
-    })
-  }
-
-  /**
-   * Take in projects other machines registered. Existing projects only get
-   * their gaps filled (a local edit always wins) and missing ones are created
-   * under this machine's base — unless this machine deleted them, which is
-   * matched by id, root and origin so a local delete is not undone by the next
-   * pull. Returns what happened so callers can say why nothing appeared — every
-   * skip here is silent otherwise.
-   */
-  async function pullProjectsFromSync(): Promise<PullResult> {
-    const result: PullResult = { entries: 0, created: 0, hidden: 0, unresolvable: 0 }
-    const settings = useSettingsStore()
-    if (!settings.syncFilePath) return result
-    const base = settings.projectBase
-    const file = await settings.readSyncFile()
-    const entries = file ? parseSyncedProjects(file.projects) : []
-    result.entries = entries.length
-    if (entries.length === 0) return result
+    const entries = target.projects
+    const published = new Map(before.projects.map((p) => [p.id, p]))
     // Re-read first: writing back a config this window loaded at startup would
     // roll back the session another window has been updating since.
     await loadProjects()
@@ -888,35 +848,29 @@ export const useProjectStore = defineStore('project', () => {
     const compactSet = (values: (string | null | undefined)[]) => new Set(values.filter((v): v is string => !!v))
     const localRemotes = compactSet(projects.value.map((p) => normalizeRemoteUrl(p.remoteUrl)))
     const localRoots = compactSet(projects.value.map((p) => rootKey(p.root)))
-    const hiddenRoots = compactSet(settings.hiddenProjects.map((p) => p.root && rootKey(p.root)))
-    const hiddenRemotes = compactSet(settings.hiddenProjects.map((p) => normalizeRemoteUrl(p.remoteUrl)))
-    // Patches to known projects go out together at the end: adopting a shared
-    // order (#203) touches every project in a reordered group, and one
-    // round trip each would make the startup pull that much longer.
+    // Patches to known projects go out together at the end: a shared order (#203)
+    // touches every project in a reordered group.
     const patched: ProjectConfig[] = []
     for (const entry of entries) {
-      if (settings.isProjectHidden(entry.id)) {
-        result.hidden++
-        continue
-      }
       const local = known.get(entry.id)
       if (local) {
-        const patch: Partial<ProjectConfig> = {}
-        if (!local.color && entry.color) patch.color = entry.color
-        if (!local.icon && entry.icon) patch.icon = entry.icon
-        if (!local.group && entry.group) patch.group = entry.group
-        if (!local.remoteUrl && entry.remoteUrl) patch.remoteUrl = entry.remoteUrl
-        if (!local.golangciCommand && entry.golangciCommand) patch.golangciCommand = entry.golangciCommand
-        // Order is adopted rather than gap-filled (#203): a manual order is one
-        // intent over a whole list, and half of one machine's interleaved with
-        // half of another's is nobody's order.
-        if (entry.order !== undefined && entry.order !== local.order) patch.order = entry.order
-        if (Object.keys(patch).length > 0) patched.push({ ...local, ...patch })
+        const prev = published.get(entry.id)
+        if (!prev) continue
+        // 置き場所（platform / path）は作るときにだけ使う（`lib/syncFormat.ts` の
+        // `CREATE_ONLY_FIELDS`）。残りは、結果で変わったフィールドだけをそろえる。
+        const changed = SYNCED_FIELDS.filter((f) => entry[f] !== prev[f] && entry[f] !== local[f])
+        if (changed.length > 0) patched.push({ ...local, ...Object.fromEntries(changed.map((f) => [f, entry[f]])) })
         continue
       }
-      const baseDir = baseForPlatform(base, entry.platform)
-      // Unresolvable here: no base for that platform, or (for WSL) no distro to
-      // resolve it in. The entry stays in the file for a machine that has one.
+      if (settings.isProjectHidden(entry.id)) {
+        // #403 より前の記録（このマシンでだけ隠す）は作らない。
+        if (!settings.isProjectDeletedForSync(entry.id)) continue
+        // 衝突で「残す」を選んだ（手元で消していた）もの。記録を外して作り直す。
+        settings.unhideProject(entry.id)
+      }
+      const baseDir = isProjectPlatform(entry.platform) ? baseForPlatform(base, entry.platform) : ''
+      // Unresolvable here: an unknown platform, no base for it, or (for WSL) no
+      // distro to resolve it in. The entry stays in the file for a machine that has one.
       if (!baseDir || (entry.platform === 'wsl' && !base.wslDistro)) {
         result.unresolvable++
         continue
@@ -926,14 +880,13 @@ export const useProjectStore = defineStore('project', () => {
       if (localRoots.has(key)) continue
       const remote = normalizeRemoteUrl(entry.remoteUrl)
       if (remote && localRemotes.has(remote)) continue
-      // The id check at the top of the loop only catches the entry the deletion
-      // was recorded against. A sibling entry for the same repository carries a
-      // different id, and recognising it needs the resolved root — which is why
-      // this half of the check waits until here.
-      if (hiddenRoots.has(key) || (remote && hiddenRemotes.has(remote))) {
-        result.hidden++
-        continue
-      }
+      // A sibling entry for a repository deleted here (another machine's id for the
+      // same checkout) is recognised by where it lands and what it clones from.
+      // 読むのはここ（ループの前に集めない）: すぐ上で記録を外したものを数えないため。
+      const deleted = settings.hiddenProjects.some(
+        (h) => (h.root && rootKey(h.root) === key) || (remote && normalizeRemoteUrl(h.remoteUrl) === remote),
+      )
+      if (deleted) continue
       await addProject({
         id: entry.id,
         name: entry.name,
@@ -954,48 +907,26 @@ export const useProjectStore = defineStore('project', () => {
       if (remote) localRemotes.add(remote)
       result.created++
     }
+    result.updated = patched.length
     await Promise.all(patched.map((config) => saveProject(config).catch(() => {})))
-    // Take the shared group order (#203), keeping groups only this machine has.
-    // loadGroups() also picks up any group the new projects reference.
-    const sharedGroups = parseSyncedGroups(file?.groups)
-    await loadGroups()
-    if (sharedGroups.length > 0) await reorderGroups(sharedGroups.filter((g) => groups.value.includes(g)))
+    // 他のマシンで消されたもの。タブの後始末で断られたら残る（次の同期でまた出て行く）。
+    const kept = new Set(entries.map((e) => e.id))
+    for (const p of [...projects.value]) {
+      if (!published.has(p.id) || kept.has(p.id)) continue
+      await removeProject(p.id).catch(() => {})
+      if (!projects.value.some((q) => q.id === p.id)) result.removed++
+    }
+    // グループは結果の一覧と順にそろえる。プロジェクトが参照しているのに一覧に無いものは
+    // 後ろへ足す（`loadGroups` と同じ扱い）。**同期の最中に手元で変えていたら触らない**
+    // （開始時点の一覧で巻き戻さない。次の同期で手元の変更として出て行く）。
+    const beforeGroups = stableKey(before.groups)
+    if (stableKey(target.groups) !== beforeGroups && stableKey(groups.value) === beforeGroups) {
+      const referenced = projects.value.map((p) => p.group?.trim()).filter((g): g is string => !!g)
+      groups.value = [...new Set([...target.groups, ...referenced])]
+      await persistGroups()
+    }
     if (result.created > 0) await checkRoots(true)
     return result
-  }
-
-  // Publish on any change to a shared field. Keyed like the menu watcher below
-  // so session flushes and recency updates don't republish. Only the main
-  // window writes: every window sees the same project set (the project_updated
-  // broadcast keeps them in step), so N windows would just mean N identical
-  // read-modify-writes racing on one file.
-  let pushTimer: ReturnType<typeof setTimeout> | null = null
-  if (isMainWindow()) {
-    watch(
-      () =>
-        JSON.stringify([
-          projects.value.map((p) => [
-            p.id,
-            p.name,
-            p.root,
-            p.color,
-            p.icon,
-            p.group,
-            p.order,
-            p.remoteUrl,
-            p.golangciCommand,
-            p.shell.kind,
-          ]),
-          groups.value,
-        ]),
-      () => {
-        if (pushTimer) clearTimeout(pushTimer)
-        pushTimer = setTimeout(() => {
-          pushTimer = null
-          pushProjectsToSync().catch(() => {})
-        }, SYNC_PUSH_DEBOUNCE_MS)
-      },
-    )
   }
 
   // Keep `missingRoots` owned by the store rather than by whoever happens to
@@ -1180,13 +1111,7 @@ export const useProjectStore = defineStore('project', () => {
    */
   async function restoreLastProject(focus?: string): Promise<void> {
     await loadProjects()
-    // Take in projects registered on other machines. Not awaited: the sync file
-    // usually sits in a cloud folder, where a read can block for seconds on an
-    // un-hydrated placeholder, and nothing here should hold up the first window.
-    // Newly created projects show up in the list as they arrive. Only this path
-    // pulls — child windows are handed a project id, and concurrent merges would
-    // race on the same file.
-    pullProjectsFromSync().catch(() => {})
+    // 同期（#403）は起動時に読まない。いつ同期するかは同期の調停役（`stores/sync.ts`）が決める。
     // 消してから各ウィンドウに書き直させる、はもう要らない（#264）。書き込みは生きて
     // いるウィンドウからの全量書き直しなので、古い行は最初の `project_add_open` で消える。
     const sessions = await projectGetLast().catch(() => [] as WindowSession[])
@@ -1460,6 +1385,8 @@ export const useProjectStore = defineStore('project', () => {
       name: project?.name ?? id,
       root: project?.root,
       remoteUrl: project?.remoteUrl,
+      // 削除として同期で伝える（#403。`HiddenProject.shared`）。
+      shared: true,
     })
     projects.value = projects.value.filter((p) => p.id !== id)
     if (currentProject.value?.id === id) {
@@ -1505,8 +1432,8 @@ export const useProjectStore = defineStore('project', () => {
     recentProjects,
     byRecency,
     unsyncableProjects,
-    pullProjectsFromSync,
-    pushProjectsToSync,
+    syncableProjects,
+    applySyncedProjects,
     checkRoots,
     cloneProject,
     placeProject,

@@ -369,6 +369,14 @@ export type AgentStatusTab = {
   pinned: boolean
 }
 
+/** 設定の同期の衝突を解消するタブ（#403）。中身は同期の調停役（`stores/sync.ts`）が持つ。 */
+export type SyncConflictsTab = {
+  id: string
+  kind: 'sync-conflicts'
+  title: string
+  pinned: boolean
+}
+
 export type PdfTab = {
   id: string
   kind: 'pdf'
@@ -494,7 +502,7 @@ export type TabPlacement = {
  * `lib/tabTitle.ts`（名前を i18n から引く側）が同じ集合を別々に持っていたので、
  * 4 つ目を足したときに片方だけ直すと無言でずれる。
  */
-export const SINGLETON_KINDS = ['settings', 'agent-status', 'manual'] as const
+export const SINGLETON_KINDS = ['settings', 'agent-status', 'manual', 'sync-conflicts'] as const
 
 export function isSingletonTab(kind: Tab['kind']): boolean {
   return (SINGLETON_KINDS as readonly string[]).includes(kind)
@@ -509,6 +517,7 @@ export type Tab = (
   | HistoryTab
   | SettingsTab
   | AgentStatusTab
+  | SyncConflictsTab
   | PdfTab
   | ManualTab
   | IssueTab
