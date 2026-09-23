@@ -45,6 +45,90 @@ describe('screenshots: settings shells', () => {
   }
 })
 
+// 設定の同期（#403）。同期先は SettingToggle の並び（none / gist / file）で選ぶ。**撮ったら
+// 「同期しない」へ戻す**: 同期先はマシンごとの設定として localStorage に残り、衝突の印（歯車の
+// ドット）が後ろの spec の撮影に写り込む。
+async function setSyncTarget(index: 1 | 2 | 3): Promise<void> {
+  await $(`[data-testid="sync-target"] .mode-btn:nth-child(${index})`).click()
+}
+
+async function scrollToSync(): Promise<void> {
+  await $('[data-testid="sync-target"]').waitForExist({ timeout: 10_000 })
+  await browser.execute(() => {
+    document.querySelector('[data-testid="sync-target"]')?.closest('section')?.scrollIntoView({ block: 'start' })
+  })
+  await browser.pause(200)
+}
+
+const GIST_LIST = [
+  { id: '4f2c9a1b7e3d4c5a8b9e0f1a2b3c4d5e', description: 'Pike settings sync', updatedAt: '2026-09-22T09:14:00Z' },
+  { id: '9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b', description: 'Pike settings sync', updatedAt: '2026-08-30T21:02:00Z' },
+]
+
+describe('screenshots: settings sync', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`settings-sync ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('detect_wsl_distros', ['Ubuntu'])
+      await mockInvoke('sync_gist_list', GIST_LIST)
+      await callE2E('openSettings')
+      await scrollToSync()
+      await setSyncTarget(2)
+      // Gist の ID は入れない（入れると自動の同期が走り、時刻入りの状態が写る）。一覧だけ出す。
+      await $('[data-testid="sync-gist-choose"]').click()
+      await $('[data-testid="sync-gist-list"]').waitForDisplayed({ timeout: 10_000 })
+      await scrollToSync()
+      await shoot('settings-sync', lang, theme)
+      await setSyncTarget(1)
+    })
+  }
+})
+
+// 同期の衝突（#403）。固定のパスの同期先で「今すぐ同期」を押し、手元と違う値を持つ同期
+// ファイルを読ませる。前回の内容が無い初めての同期なので、値の違う項目が衝突として並ぶ。
+const SYNC_FILE = JSON.stringify({
+  fontSize: 17,
+  editorTabSize: 8,
+  colorSchemeName: 'Dracula',
+  uiFontSize: 15,
+})
+
+describe('screenshots: sync conflicts', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`sync-conflicts ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('settings_sync_read', SYNC_FILE)
+      await mockInvoke('settings_sync_write', null)
+      // 前のバリアントの同期が残した「前回の内容」を捨てる。書き込みはモックなので同期
+      // ファイルは変わらず、残すとテーマの切り替えなどが「リモートで消した」と読まれる。
+      await browser.execute(() => {
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith('pike:sync-base:') || key.startsWith('pike:sync-last:')) localStorage.removeItem(key)
+        }
+      })
+      await callE2E('openSettings')
+      await scrollToSync()
+      await setSyncTarget(3)
+      await browser.execute(() => {
+        const input = document.querySelector<HTMLInputElement>('[data-testid="sync-file-path"]')
+        if (!input) return
+        input.value = 'C:\\Users\\dev\\Dropbox\\pike\\pike-settings.json'
+        input.dispatchEvent(new Event('change'))
+      })
+      await $('[data-testid="sync-now"]').click()
+      const open = await $('[data-testid="sync-open-conflicts"]')
+      await open.waitForDisplayed({ timeout: 15_000 })
+      await open.click()
+      await $('[data-testid="sync-conflicts"] .row').waitForDisplayed({ timeout: 10_000 })
+      await shoot('sync-conflicts', lang, theme)
+      // 後ろの spec に衝突の印を残さない（同期先を外すと状態も捨てる）。
+      await callE2E('openSettings')
+      await scrollToSync()
+      await setSyncTarget(1)
+    })
+  }
+})
+
 // globalMode に入りセッション状態を変えるため、他シナリオへの影響を避けて最後に置く。
 describe('screenshots: shell dropdown', () => {
   for (const { lang, theme } of MATRIX) {

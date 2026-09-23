@@ -160,7 +160,7 @@ const chosenCount = computed(() => (isImport ? importChosenCount(choices.value) 
 </script>
 
 <template>
-  <div class="sync-conflicts">
+  <div class="sync-conflicts" data-testid="sync-conflicts">
     <header class="head">
       <h1>
         <FileInput v-if="isImport" :size="16" :stroke-width="2" />

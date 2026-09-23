@@ -1306,6 +1306,7 @@ const PREVIEW_LINES = [
       <SettingSection v-bind="SECTIONS.sync">
         <SettingItem label-key="sync.target.label" hint-key="settings.syncHint">
           <SettingToggle
+            data-testid="sync-target"
             :model-value="sync.target.kind"
             :options="syncTargetOptions"
             @update:model-value="(kind: SyncTargetKind) => sync.setTarget({ kind })"
@@ -1334,12 +1335,18 @@ const PREVIEW_LINES = [
                 <Loader v-if="gistBusy === 'create'" :size="12" :stroke-width="2" class="spin" />
                 {{ t('sync.gistCreate') }}
               </button>
-              <button type="button" class="detect-btn busy-btn" :disabled="gistLocked" @click="listGists">
+              <button
+                type="button"
+                class="detect-btn busy-btn"
+                data-testid="sync-gist-choose"
+                :disabled="gistLocked"
+                @click="listGists"
+              >
                 <Loader v-if="gistBusy === 'list'" :size="12" :stroke-width="2" class="spin" />
                 {{ t('sync.gistChoose') }}
               </button>
             </div>
-            <div v-if="gistChoices" class="setting-list">
+            <div v-if="gistChoices" class="setting-list" data-testid="sync-gist-list">
               <p v-if="gistChoices.length === 0" class="setting-hint">{{ t('sync.gistNone') }}</p>
               <div v-for="g in gistChoices" :key="g.id" class="setting-list-row">
                 <span class="setting-list-name">{{ g.description || g.id }}（{{ absoluteDate(g.updatedAt) }}）</span>
@@ -1353,6 +1360,7 @@ const PREVIEW_LINES = [
         <SettingItem v-if="sync.target.kind === 'file'" label-key="settings.syncFilePath" wide>
           <div class="sync-path-row">
             <input
+              data-testid="sync-file-path"
               :value="sync.target.filePath"
               class="agent-cmd-input sync-path-input"
               type="text"
@@ -1371,6 +1379,7 @@ const PREVIEW_LINES = [
             <button
               class="update-btn"
               :disabled="!sync.hasTarget || gistLocked"
+              data-testid="sync-now"
               @click="sync.syncNow()"
             >
               <Loader v-if="sync.syncing" :size="14" :stroke-width="2" class="spin" />
@@ -1380,7 +1389,9 @@ const PREVIEW_LINES = [
             <template v-if="sync.syncing"></template>
             <template v-else-if="sync.status === 'conflicts'">
               <span class="update-info update-err">{{ t('sync.conflictsCount', { count: sync.conflicts.length }) }}</span>
-              <button class="update-btn" @click="tabStore.addSyncConflictsTab()">{{ t('sync.openConflicts') }}</button>
+              <button class="update-btn" data-testid="sync-open-conflicts" @click="tabStore.addSyncConflictsTab()">
+                {{ t('sync.openConflicts') }}
+              </button>
             </template>
             <span v-else-if="sync.status === 'error'" class="update-info update-err">
               {{ t('sync.error', { message: sync.message }) }}

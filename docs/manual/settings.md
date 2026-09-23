@@ -161,6 +161,11 @@ Pike が外部のホストへ接続する機能の設定です。どれも既定
 - **ファイル**：指定したパスに置きます。Dropbox / OneDrive / git で同期されるフォルダを指定すると、複数の PC で使えます。**今すぐ同期**を押したときだけ同期します。
 - **同期しない**：同期を止めます。
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/settings-sync-light.png">
+  <img alt="設定の同期（GitHub Gist を選び、既存の Gist の一覧を出したところ）" src="img/settings-sync.png">
+</picture>
+
 共通の動きは次のとおりです。
 
 - 最後に同期した時刻と、プロジェクトを追加・更新・削除した件数が **今すぐ同期** の横に出ます。
@@ -199,6 +204,11 @@ Gist を選んだあとは、次のときに自動で同期します。
 ### 衝突の解消
 
 衝突があると、ボタンの横に件数が出て、歯車アイコンに通知ドットが付きます。**衝突を解消**（歯車メニューからも開けます）で**同期の衝突**タブを開きます。
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/sync-conflicts-light.png">
+  <img alt="同期の衝突タブ" src="img/sync-conflicts.png">
+</picture>
 
 - 衝突した項目ごとに、このマシンの値（ローカル）と同期ファイルの値（リモート）を並べて表示します。採るほうを押して選びます。
 - **すべてローカル** / **すべてリモート** で全部をまとめて選べます。

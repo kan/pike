@@ -74,6 +74,10 @@ MAP=(
   "editor-too-large:editor-too-large"
   # v0.56.0 で新しく撮るもの
   "commit-tab:commit-tab"
+  # v0.57.0 で新しく撮るもの
+  "search-replace:search-replace"
+  "settings-sync:settings-sync"
+  "sync-conflicts:sync-conflicts"
 )
 
 check=0

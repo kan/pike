@@ -542,7 +542,15 @@ const SEARCH_RESULT = {
 
 /** `search_detect_backend` は `SearchBackendInfo` を返す（#304）。文字列だと `backend`
  *  computed が null になり、パネルの版バッジが丸ごと消えたまま撮影される。 */
-const SEARCH_BACKEND = { backend: 'rg', version: '15.2.0', pcre2: true }
+const SEARCH_BACKEND = {
+  backend: 'rg',
+  version: '15.2.0',
+  pcre2: true,
+  // 置換の ▸（#401）と、WSL の ripgrep の案内の帯（古い・無い）を決める欄。
+  replace: true,
+  outdated: false,
+  rgMissing: false,
+}
 
 describe('screenshots: search panel', () => {
   for (const { lang, theme } of MATRIX) {
@@ -560,6 +568,54 @@ describe('screenshots: search panel', () => {
       await browser.keys('Enter')
       await $('.result-item').waitForDisplayed({ timeout: 10_000 })
       await shoot('search-panel', lang, theme)
+    })
+  }
+})
+
+// 置換（#401）。**置換後の行は rg が組む**ので、モックも `replace`（一致の位置と置換後の行）を
+// 持たせて返す。一致の位置は UTF-16 の添字（`LineReplace` の doc）。
+const REPLACE_FROM = 'invoke'
+const REPLACE_TO = 'callBackend'
+const REPLACE_RESULT = {
+  matches: SEARCH_RESULT.matches
+    .filter((m) => m.content.includes(REPLACE_FROM))
+    .map((m) => {
+      const start = m.content.indexOf(REPLACE_FROM)
+      return {
+        ...m,
+        replace: {
+          spans: [{ start, end: start + REPLACE_FROM.length, text: REPLACE_TO }],
+          line: m.content.replace(REPLACE_FROM, REPLACE_TO),
+        },
+      }
+    }),
+  truncated: false,
+}
+
+describe('screenshots: search replace', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`search-replace ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('search_detect_backend', SEARCH_BACKEND)
+      await mockInvoke('search_execute', REPLACE_RESULT)
+      await setFakeProject()
+      await openEditor({ path: 'src/lib/tauri.ts', content: TAURI_TS })
+      await openPanel('search')
+      await $('[data-testid="search-panel"]').waitForDisplayed({ timeout: 10_000 })
+      // トグルなので、前の it で開いたままのことがある。閉じている時だけ開く。
+      if (!(await $('[data-testid="search-replace-row"]').isDisplayed())) {
+        await $('[data-testid="search-replace-toggle"]').click()
+      }
+      const input = await $('[data-testid="search-input"]')
+      await input.click()
+      await input.setValue(REPLACE_FROM)
+      const replace = await $('[data-testid="search-replace-input"]')
+      await replace.click()
+      await replace.setValue(REPLACE_TO)
+      await browser.keys('Enter')
+      await $('.result-item').waitForDisplayed({ timeout: 10_000 })
+      await browser.execute(() => (document.activeElement as HTMLElement | null)?.blur())
+      await shoot('search-replace', lang, theme)
     })
   }
 })
