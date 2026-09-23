@@ -754,6 +754,38 @@ export async function browserClose(label: string): Promise<void> {
   return inOrder(() => invoke('browser_close', { label }))
 }
 
+/**
+ * HTML のプレビュー（#399）に置くフロント製のファイル（#397 の前提）。`path` は `__pike/` で
+ * 始まるルートからの相対パスで、ディスクより先に同じ origin で返る。
+ */
+export interface PreviewVirtualFile {
+  path: string
+  content: string
+  mime?: string
+}
+
+/**
+ * HTML のプレビューの子 webview を作る（`src-tauri/src/html_preview.rs`）。`root` の下だけを
+ * `pike-preview` のスキームで配信し、`entry`（ルートからの相対パス）を開く。位置合わせ・
+ * 再読み込み・閉じるはブラウザのタブのコマンド（`browserPlace` / `browserHistory` /
+ * `browserClose`）をそのまま使う。
+ */
+export async function previewOpen(
+  label: string,
+  root: string,
+  shell: ShellType,
+  entry: string,
+  bounds: BrowserBounds,
+  files?: PreviewVirtualFile[],
+): Promise<void> {
+  return inOrder(() => invoke('preview_open', { label, root, shell, entry, bounds, files }))
+}
+
+/** 仮想ファイルを置き直す（置き直したら `browserHistory(label, 'reload')` で描き直す）。 */
+export async function previewSetFiles(label: string, files: PreviewVirtualFile[]): Promise<void> {
+  return invoke('preview_set_files', { label, files })
+}
+
 // Docker
 
 export async function dockerPing(): Promise<boolean> {

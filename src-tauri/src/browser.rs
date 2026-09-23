@@ -42,12 +42,13 @@ const LABEL_PREFIX: &str = "browser-";
 
 /// ページが新しいウィンドウを開こうとした（`target=_blank` など）ことをフロントへ知らせる。
 /// フロントは、開こうとしたタブと同じペインに新しいブラウザのタブを作る。
+/// HTML のプレビュー（#399、`html_preview.rs`）のリンクも同じ知らせで送る。
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct BrowserNewTabPayload {
+pub(crate) struct BrowserNewTabPayload {
     /// 開こうとしたページのタブ（子 webview のラベル）。
-    label: String,
-    url: String,
+    pub(crate) label: String,
+    pub(crate) url: String,
 }
 
 /// ページの状態が変わったことをフロントへ知らせる（開いたウィンドウにだけ送り、フロントの
@@ -68,7 +69,7 @@ struct BrowserStatePayload {
     title_url: Option<String>,
 }
 
-fn check_label(label: &str) -> Result<(), String> {
+pub(crate) fn check_label(label: &str) -> Result<(), String> {
     let rest = label
         .strip_prefix(LABEL_PREFIX)
         .ok_or("invalid browser label")?;
@@ -168,7 +169,7 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    fn rect(self) -> Rect {
+    pub(crate) fn rect(self) -> Rect {
         Rect {
             position: LogicalPosition::new(self.x, self.y).into(),
             // 0 以下の大きさは WebView2 が嫌うので 1 に丸める（隠すのは `browser_place`）。

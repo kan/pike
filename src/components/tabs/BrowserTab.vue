@@ -1,41 +1,34 @@
 <script setup lang="ts">
 /**
  * 外部のページを開くタブ（#368）。**ページそのものは DOM の中に無い**: Rust が作る子
- * webview（`src-tauri/src/browser.rs`）を、`.browser-view` の矩形に合わせて重ねる。
- * このコンポーネントの仕事は、その矩形を測って送ることと、見えていないときに隠すこと。
- *
- * **子 webview は Pike の DOM より手前に描かれる**ので、手前に浮くものが開いているあいだは
- * 隠す（隠さないとその下に埋もれて操作できない）。#368 では確認ダイアログ・QuickOpen・
- * スイッチャー・ショートカット一覧の 4 つだけを見ていて、右クリックメニューやプルダウンは
- * 隠れたままという制約を受け入れていた。#396 でそれも数えるようにしてある
- * （開閉の出典は `lib/overlay.ts`）。
+ * webview（`src-tauri/src/browser.rs`）を、`.browser-frame` の矩形に合わせて重ねる。
+ * 矩形を測って送ること・見えていないときに隠すこと・手前に浮くものがあるあいだ隠すことは
+ * `composables/useChildWebview.ts`（HTML のプレビュー #399 と共有）が持ち、ここに残るのは
+ * ページの中身（アドレス欄・履歴・ルール・別のタブへの譲り渡し）だけ。
  */
 
 import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, Settings, Smartphone, Star } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
-import { type BrowserHandlers, browserRouter } from '../../composables/useBrowserRouter'
+import type { BrowserHandlers } from '../../composables/useBrowserRouter'
+import { useChildWebview } from '../../composables/useChildWebview'
 import { useFocusPolling } from '../../composables/useFocusPolling'
 import { useI18n } from '../../i18n'
 import { registerBrowserDonor, takeBrowserView, unregisterBrowserDonor } from '../../lib/browserHandoff'
 import { requestBrowserIcon } from '../../lib/browserIcons'
 import { isWebUrl } from '../../lib/format'
 import { normalizeWebUrl, openUrlWithConfirm } from '../../lib/openUrl'
-import { overlayOpen } from '../../lib/overlay'
 import {
-  type BrowserBounds,
   type BrowserHistoryAction,
   browserApplyCss,
   browserClose,
   browserHistory,
   browserNavigate,
   browserOpen,
-  browserPlace,
   browserUrl,
   type SiteRulePayload,
 } from '../../lib/tauri'
 import { useBrowserStore } from '../../stores/browser'
 import { activeSiteRules, useSettingsStore } from '../../stores/settings'
-import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
 import type { BrowserTab, TabOwner } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
@@ -43,7 +36,6 @@ import HelpButton from '../HelpButton.vue'
 const { t } = useI18n()
 const props = defineProps<{ tabId: string }>()
 const tabStore = useTabStore()
-const sidebar = useSidebarStore()
 const settingsStore = useSettingsStore()
 const browserStore = useBrowserStore()
 
@@ -59,8 +51,6 @@ const tab = computed(() =>
  * 復元した 2 つのウィンドウでぶつかりうる。
  */
 const newLabel = () => `browser-${crypto.randomUUID()}`
-/** 作り直す（`recreate`）と変わる。 */
-let label = newLabel()
 const viewRef = useTemplateRef<HTMLElement>('viewRef')
 const addressRef = useTemplateRef<HTMLInputElement>('addressRef')
 const address = ref(tab.value?.url ?? '')
@@ -76,147 +66,59 @@ const address = ref(tab.value?.url ?? '')
  */
 const addressEdited = ref(false)
 const error = ref<string | null>(null)
-/**
- * 子 webview の状態。**作っている途中（`creating`）を別に持つ**: 作り終える前に位置や表示を
- * 送ると相手がいないので失敗し、隠す指示もそこで失われる。作り終えたら測り直す。
- */
-let state: 'none' | 'creating' | 'ready' = 'none'
-let disposed = false
 
-/**
- * 重ねてよいか。タブが描かれていて、手前に出るものが 1 つも無く、Git パネルも閉じているとき。
- *
- * **「何が手前にあるか」の出典は `lib/overlay.ts` の 1 つ**（#396）。#368 の版は確認
- * ダイアログ・QuickOpen・スイッチャー・ショートカット一覧の 4 つを名前で見ていたが、
- * それだと 5 つ目のモーダルを足す人が「ここに書くのか、レジストリに登録するのか」を
- * 選ぶことになる。4 つとも `useOverlay` に登録してあるので、ここは数を見るだけでよい。
- *
- * **Git パネルだけは、開いているあいだずっと隠す**（#396）。あそこはコミットの行を
- * なぞるだけでツールチップがパネルの横＝タブの領域に出るので、`useOverlay` に登録すると
- * 行をなぞるたびにページが出入りして点滅する。パネル単位で隠せば、点滅もせず、
- * コミットの中身も読める。**他のパネルは対象外**: ツールチップを出すのはここだけで、
- * 右クリックメニューは押したときにしか出ないぶんレジストリで足りる。
- */
-const shown = computed(() => tabStore.isTabVisible(props.tabId) && !overlayOpen() && sidebar.activePanel !== 'git')
-
-/**
- * 隠しているあいだ、その場に出す案内（#396）。**理由で文言を分ける**: Git パネルは
- * 開けっぱなしにできるので、閉じれば戻ることを言わないと戻し方が分からない。
- * メニューのほうは押せば閉じるので、一時的だと言うだけでよい。
- */
-const hiddenNotice = computed(() => {
-  if (!tabStore.isTabVisible(props.tabId) || shown.value) return ''
-  return sidebar.activePanel === 'git' ? t('browser.hiddenByPanel') : t('browser.hiddenByOverlay')
-})
-
-function measure(): BrowserBounds | null {
-  const el = viewRef.value
-  if (!el) return null
-  const r = el.getBoundingClientRect()
-  if (r.width <= 0 || r.height <= 0) return null
-  return { x: r.left, y: r.top, width: r.width, height: r.height }
-}
-
-/** 位置合わせは 1 フレームに 1 回へ畳む（リサイズ中は ResizeObserver が連続で来る）。 */
-let frame = 0
-function scheduleSync() {
-  if (frame) return
-  frame = requestAnimationFrame(() => {
-    frame = 0
-    void sync()
-  })
-}
-
-/**
- * **位置合わせは 1 本ずつ順に送る。** Rust のコマンドは別々のタスクで走るので、重ねて送ると
- * 「見せる」と「隠す」の順が入れ替わり、隠したはずのページが最後に見えたまま残りうる。
- * 走っている最中に頼まれたら印だけ付け、終わってから最新の状態でもう一度合わせる。
- */
-let syncing = false
-let syncAgain = false
-
-async function sync() {
-  if (syncing) {
-    syncAgain = true
-    return
-  }
-  syncing = true
-  try {
-    await syncOnce()
-  } finally {
-    syncing = false
-    if (syncAgain) {
-      syncAgain = false
-      void sync()
+/** ページからの知らせ（`useBrowserRouter` がラベルで振り分ける）。 */
+const routerHandlers: BrowserHandlers = {
+  onState: ({ url, title, titleUrl }) => {
+    if (!tab.value) return
+    if (title) {
+      tabStore.setTabTitle(props.tabId, title)
+      // SPA は URL を変えずにタイトルだけ変えることがある。履歴の行も追従させる。
+      // **`tab.value.url` を使わない**: 読み込みの途中ではまだ前のページを指している。
+      if (titleUrl) browserStore.setTitle(titleUrl, title)
     }
-  }
+    if (url) {
+      applyUrl(url)
+      // 読み込みが終わったページのサイトのアイコン（#400）。オリジンごとに 1 回だけ取る。
+      requestBrowserIcon(url)
+    }
+  },
+  // ページが新しいウィンドウを開こうとした（`target=_blank` など）。ポップアップは Rust が
+  // WebView2 に任せ、ここへ来るのは普通のリンクだけ。同じ URL のタブがあっても新しく開く
+  // （ブラウザと同じ）。置き場はこのタブと同じペイン。
+  onNewTab: (url) => {
+    if (tab.value) tabStore.addBrowserTab(url, { forceNew: true, pane: tabStore.paneOf(tab.value) })
+  },
 }
 
-async function syncOnce() {
-  if (disposed || !tab.value) return
-  const bounds = measure()
-  if (state === 'none') {
-    // 最初に見えたときに作る。隠れたタブを復元で作っても、測れないので待つ。
-    // 空のタブ（ブラウザパネルの「新しいタブ」）は、アドレス欄に URL が入るまで作らない。
-    if (!shown.value || !bounds || !tab.value.url) return
+/**
+ * 子 webview の面倒（位置合わせ・隠す・閉じる・作り直し）。ここへ渡すのは、作る中身と
+ * 作る前に別のタブから譲り受けられるかの問い合わせだけ。
+ */
+const view = useChildWebview({
+  el: viewRef,
+  visible: () => tabStore.isTabVisible(props.tabId),
+  newLabel,
+  // 空のタブ（ブラウザパネルの「新しいタブ」）は、アドレス欄に URL が入るまで作らない。
+  canCreate: () => !!tab.value?.url,
+  beforeCreate: () => {
+    if (!tab.value) return Promise.resolve(false)
+    return tryAdopt(tab.value.url, rulesKeyOf(siteRules.value, settingsStore.browserJiraFeatures))
+  },
+  create: async (label, bounds) => {
+    if (!tab.value) throw new Error('tab closed')
     // 渡した時点のルールを覚える（JS はここで固定されるので、変わったら作り直しを促す）。
     const rules = siteRules.value
     const jira = settingsStore.browserJiraFeatures
-    const key = rulesKeyOf(rules, jira)
-    if (await tryAdopt(tab.value.url, key)) return
-    // 聞いているあいだに閉じられた・隠れた・動いたら測り直す（`browser_url` を待っている）。
-    const at = measure()
-    if (disposed || !tab.value || !shown.value || !at) return
-    state = 'creating'
-    try {
-      await browserOpen(label, tab.value.url, at, rules, jira)
-      openedRulesKey.value = key
-      error.value = null
-    } catch (e) {
-      state = 'none'
-      error.value = String(e)
-      return
-    }
-    state = 'ready'
-    // 作っているあいだに閉じられたら片付ける。
-    if (disposed) {
-      void browserClose(label)
-      return
-    }
-    // 作っているあいだに隠れた・動いたぶんを反映する（`sync` が 1 本ずつなので、作っている
-    // 最中に来た頼みは `syncAgain` に溜まっている。溜まっていなくても 1 回は合わせ直す）。
-    syncAgain = true
-    return
-  }
-  // **変わっていなければ送らない。** リサイズ中は毎フレーム来るうえ、隠れているタブにも
-  // ResizeObserver が届く（大きさが 0 になる通知）。
-  const visible = shown.value && !!bounds
-  const key = visible && bounds ? `${bounds.x},${bounds.y},${bounds.width},${bounds.height}` : ''
-  if (visible === lastVisible && key === lastBoundsKey) return
-  // 送っているあいだに作り直された（`recreate`）ら、この応答は古い子 webview のもの。
-  // 成功も失敗も捨てる（閉じた相手への指示なので `no browser webview` が返りうる）。
-  const target = label
-  try {
-    await browserPlace(target, visible, visible ? (bounds ?? undefined) : undefined)
-    if (target !== label) return
-    // **送れたときだけ覚える。** 失敗したのに覚えると、次に同じ状態を頼まれても
-    // 「変わっていない」と見なして送らず、見えたまま（隠れたまま）になる。
-    lastVisible = visible
-    lastBoundsKey = key
-  } catch (e) {
-    if (target === label) error.value = String(e)
-  }
-}
-
-/** 最後に送った表示と位置（`browser_open` は見えている状態で作る）。 */
-let lastVisible = true
-let lastBoundsKey = ''
-
-// **隠すときはフレームを待たない。** 次のフレームまで待つと、そのあいだ別のタブの上に
-// ページが残る。フレームの更新が止まっている（webview が描画を止めている）場合でも隠れる。
-watch(shown, (v) => (v ? scheduleSync() : void sync()))
-
-let observer: ResizeObserver | null = null
+    await browserOpen(label, tab.value.url, bounds, rules, jira)
+    openedRulesKey.value = rulesKeyOf(rules, jira)
+  },
+  handlers: routerHandlers,
+  onError: (e) => (error.value = e),
+  // ルールの鍵はその子 webview のもの。差し替えたら捨てる（譲り受けたときは `tryAdopt` が入れ直す）。
+  onReset: () => (openedRulesKey.value = null),
+})
+const { shown, hiddenNotice, scheduleSync } = view
 
 /**
  * 反対のペインへ移ったとき（#308）。分割比が 50/50 だと大きさが変わらないので
@@ -249,64 +151,13 @@ watch(siteRules, (rules) => {
   if (cssTimer !== undefined) clearTimeout(cssTimer)
   cssTimer = setTimeout(() => {
     cssTimer = undefined
-    if (state !== 'ready') return
-    const target = label
+    if (!view.ready()) return
+    const target = view.label()
     browserApplyCss(target, rules).catch((e) => {
-      if (target === label) error.value = String(e)
+      if (target === view.label()) error.value = String(e)
     })
   }, 300)
 })
-
-/**
- * 持つ子 webview を差し替える。ページからの知らせ（`browserRouter`）の受け先もラベルで
- * 決まるので、一緒に付け替える。
- */
-function switchLabel(next: string) {
-  browserRouter.unregister(label)
-  label = next
-  browserRouter.register(label, routerHandlers)
-}
-
-/**
- * 子 webview を作り直す（JS のルールを反映する）。**ラベルも変える**: 閉じる指示は非同期なので、
- * 同じラベルで作り直すと、古いものがまだ残っていて作れないことがある。
- */
-function recreate() {
-  if (state !== 'ready') return
-  void browserClose(label)
-  release()
-  scheduleSync()
-}
-
-/**
- * 持つ子 webview を差し替え、位置合わせの記録も一緒に戻す。**`release` と `adopt` はこれを
- * 通す**（位置合わせの状態を足したときに、片方だけ戻し忘れないように）。
- */
-function resetView(next: string, nextState: 'none' | 'ready', rulesKey: string | null, visible: boolean) {
-  switchLabel(next)
-  state = nextState
-  openedRulesKey.value = rulesKey
-  lastVisible = visible
-  lastBoundsKey = ''
-}
-
-/**
- * 子 webview を手放して「まだ作っていない」に戻る。閉じるかどうかは呼ぶ側が決める
- * （作り直すなら閉じ、別のタブへ譲るなら閉じない）。
- */
-function release() {
-  resetView(newLabel(), 'none', null, true)
-}
-
-/**
- * 別のタブから譲られた子 webview を受け取る（#402）。最後に送った表示を「隠れている」に
- * しておき、すぐ後の位置合わせで見せる（譲った側が隠していなくても、位置ごと送り直す）。
- */
-function adopt(next: string, rulesKey: string) {
-  resetView(next, 'ready', rulesKey, false)
-  error.value = null
-  syncAgain = true
-}
 
 /**
  * 別のプロジェクトのタブが同じページを読み込み済みなら、それを譲り受ける（#402）。
@@ -316,31 +167,32 @@ async function tryAdopt(url: string, rulesKey: string): Promise<boolean> {
   const donated = await takeBrowserView(props.tabId, tab.value?.projectId, url, rulesKey)
   if (!donated) return false
   // 聞いているあいだに閉じられたら、受け取ったページは行き場が無いので閉じる。
-  if (disposed || !tab.value) {
+  if (view.disposed() || !tab.value) {
     void browserClose(donated.label)
     return true
   }
-  adopt(donated.label, rulesKey)
+  view.adopt(donated.label)
+  openedRulesKey.value = rulesKey
   if (donated.title) tabStore.setTabTitle(props.tabId, donated.title)
   // 聞いているあいだに別の URL を打たれていたら、そちらへ移る。
-  if (tab.value.url !== url) void browserNavigate(label, tab.value.url).catch(() => {})
+  if (tab.value.url !== url) void browserNavigate(view.label(), tab.value.url).catch(() => {})
   return true
 }
 
 /** 譲れる状態か（条件は `lib/browserHandoff.ts` の doc）。描かれているあいだは譲らない。 */
 function holdable(): boolean {
-  return state === 'ready' && !disposed && !tabStore.isTabVisible(props.tabId)
+  return view.ready() && !tabStore.isTabVisible(props.tabId)
 }
 
 registerBrowserDonor(props.tabId, {
   hold: (projectId, url, rulesKey) =>
     holdable() && tab.value?.projectId !== projectId && tab.value?.url === url && openedRulesKey.value === rulesKey
-      ? label
+      ? view.label()
       : null,
   release: (target) => {
-    if (!holdable() || label !== target) return null
+    if (!holdable() || view.label() !== target) return null
     const title = tab.value?.title ?? ''
-    release()
+    view.release()
     return title
   },
 })
@@ -377,66 +229,28 @@ const urlPoll = useFocusPolling([
   {
     every: 1000,
     tick: () => {
-      if (state !== 'ready') return
-      void browserUrl(label)
+      if (!view.ready()) return
+      void browserUrl(view.label())
         .then(applyUrl)
         .catch(() => {})
     },
   },
 ])
 
-const routerHandlers: BrowserHandlers = {
-  onState: ({ url, title, titleUrl }) => {
-    if (!tab.value) return
-    if (title) {
-      tabStore.setTabTitle(props.tabId, title)
-      // SPA は URL を変えずにタイトルだけ変えることがある。履歴の行も追従させる。
-      // **`tab.value.url` を使わない**: 読み込みの途中ではまだ前のページを指している。
-      if (titleUrl) browserStore.setTitle(titleUrl, title)
-    }
-    if (url) {
-      applyUrl(url)
-      // 読み込みが終わったページのサイトのアイコン（#400）。オリジンごとに 1 回だけ取る。
-      requestBrowserIcon(url)
-    }
-  },
-  // ページが新しいウィンドウを開こうとした（`target=_blank` など）。ポップアップは Rust が
-  // WebView2 に任せ、ここへ来るのは普通のリンクだけ。同じ URL のタブがあっても新しく開く
-  // （ブラウザと同じ）。置き場はこのタブと同じペイン。
-  onNewTab: (url) => {
-    if (tab.value) tabStore.addBrowserTab(url, { forceNew: true, pane: tabStore.paneOf(tab.value) })
-  },
-}
-
 onMounted(() => {
-  // 大きさの変化（ウィンドウのリサイズ、サイドバーや分割線のドラッグ、エラーの帯の出し入れ）。
-  observer = new ResizeObserver(scheduleSync)
-  if (viewRef.value) {
-    observer.observe(viewRef.value)
-    // スマートフォンの画面では枠の大きさが固定なので、入れ物の大きさが変わっても枠は
-    // 中央へ動くだけで ResizeObserver が発火しない。入れ物も見る。
-    if (viewRef.value.parentElement) observer.observe(viewRef.value.parentElement)
-  }
-  scheduleSync()
   // 空のタブは URL を打つために開いたものなので、アドレス欄から始める。
   if (!tab.value?.url) addressRef.value?.focus()
-  browserRouter.register(label, routerHandlers)
 })
 
 // 描かれているあいだだけ引く。`shown` はダイアログや QuickOpen で隠したときも false に
 // なるが、そのときもページは動いていないので止めてよい。
 watch(shown, (visible) => (visible ? urlPoll.start() : urlPoll.stop()), { immediate: true })
 
+// 子 webview を閉じるのは `useChildWebview` の後始末。
 onUnmounted(() => {
-  disposed = true
   unregisterBrowserDonor(props.tabId)
   urlPoll.stop()
-  observer?.disconnect()
-  if (frame) cancelAnimationFrame(frame)
   if (cssTimer !== undefined) clearTimeout(cssTimer)
-  browserRouter.unregister(label)
-  // 作っている途中なら、作り終えたところで `sync` が片付ける。
-  if (state === 'ready') void browserClose(label)
 })
 
 async function go() {
@@ -444,7 +258,7 @@ async function go() {
   // 打ちかけはここで確定する。以後は移動してきた URL で上書きしてよい。
   addressEdited.value = false
   const url = normalizeWebUrl(address.value)
-  if (state !== 'ready') {
+  if (!view.ready()) {
     // まだ作れていない（最初の URL が読めずに失敗した、など）。打ち直した URL で作り直す。
     // 作っている途中なら、その結果を待つ（打ち直した URL は次の失敗のあとに効く）。
     tab.value.url = url
@@ -453,7 +267,7 @@ async function go() {
     return
   }
   try {
-    await browserNavigate(label, url)
+    await browserNavigate(view.label(), url)
     error.value = null
   } catch (e) {
     error.value = String(e)
@@ -461,7 +275,7 @@ async function go() {
 }
 
 function history(action: BrowserHistoryAction) {
-  if (state === 'ready') void browserHistory(label, action).catch((e) => (error.value = String(e)))
+  if (view.ready()) void browserHistory(view.label(), action).catch((e) => (error.value = String(e)))
 }
 
 const bookmarked = computed(() => !!tab.value && settingsStore.isBookmarked(tab.value.url))
@@ -593,7 +407,8 @@ function openExternal() {
     <!-- ルールは子 webview を作った時点で固定される。変わったら作り直しを促す。 -->
     <div v-if="rulesStale" class="browser-notice">
       <span>{{ t('browser.siteRulesChanged') }}</span>
-      <button class="notice-btn" @click="recreate">{{ t('browser.applySiteRules') }}</button>
+      <!-- 作り直すと JS のルールも入れ直される。 -->
+      <button class="notice-btn" @click="view.recreate()">{{ t('browser.applySiteRules') }}</button>
     </div>
     <!-- 子 webview を重ねるのは `.browser-frame`。スマートフォンの画面のときは枠を絞って中央に置く。 -->
     <div class="browser-view" :class="{ mobile: tab?.mobile }">

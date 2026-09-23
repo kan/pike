@@ -5,7 +5,7 @@ import { highlightSelectionMatches } from '@codemirror/search'
 import { Compartment, EditorState, type StateEffect } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
 import DOMPurify from 'dompurify'
-import { ArrowUp, RefreshCw } from 'lucide-vue-next'
+import { ArrowUp, RefreshCw, Smartphone } from 'lucide-vue-next'
 import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
@@ -95,6 +95,7 @@ import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import { type EditorTab, shellToPlatform } from '../../types/tab'
 import FindBar from '../editor/FindBar.vue'
+import HtmlPreview from '../editor/HtmlPreview.vue'
 import MacroButtons from '../editor/MacroButtons.vue'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import MinimapToggle from '../editor/MinimapToggle.vue'
@@ -261,6 +262,19 @@ const isSvg = computed(() => fileExt.value === 'svg')
 const isJson = computed(() => fileExt.value === 'json' || fileExt.value === 'jsonc')
 const isJsonl = computed(() => fileExt.value === 'jsonl' || fileExt.value === 'ndjson')
 const isRst = computed(() => fileExt.value === 'rst')
+/**
+ * 子 webview に描くプレビュー（#399 の HTML、`HtmlPreview.vue`）。**描くのは保存したファイル**
+ * なので、無題のバッファには出さない（`hasFile` は無題でも真になるので path を見る）。
+ * DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）はこれで外す。
+ * Vue SFC（#397）を足すときも、ここに条件を足せば残りは付いてくる。
+ */
+const webviewPreview = computed(() => (fileExt.value === 'html' || fileExt.value === 'htm') && !!tab.value?.path)
+const htmlPreview = useTemplateRef<{ onSaved: () => void }>('htmlPreview')
+/**
+ * スマートフォンの縦長の画面で見る（ブラウザのタブの同名の機能と同じ大きさ）。タブ単位で
+ * セッションには残さない（`viewMode` と同じ寿命）。
+ */
+const previewMobile = ref(false)
 
 /**
  * 本文を HTML として出すプレビュー（#284）。**画像の `data:` 化と見出し id を通す種別**という
@@ -288,7 +302,14 @@ function closeJsonStringPopup() {
 }
 const hasPreview = computed(
   () =>
-    isMarkdown.value || isRst.value || isCsv.value || isMermaid.value || isSvg.value || isJson.value || isJsonl.value,
+    isMarkdown.value ||
+    isRst.value ||
+    isCsv.value ||
+    isMermaid.value ||
+    isSvg.value ||
+    isJson.value ||
+    isJsonl.value ||
+    webviewPreview.value,
 )
 
 const showEditor = computed(() => viewMode.value !== 'preview')
@@ -556,7 +577,8 @@ const previewHtml = computed(() => {
     return data ? renderCsvPage(data, csvRows.value, csvBounds.value, csvSort.value, partialLoad) : ''
   }
   void debouncedDocVersion.value
-  if (!showPreview.value || !editorView) return ''
+  // HTML は子 webview が描く（#399）。本文を文字列にしない。
+  if (!showPreview.value || !editorView || webviewPreview.value) return ''
   const text = editorView.state.doc.toString()
   if (isMermaid.value) return '' // rendered asynchronously
   if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS)
@@ -873,6 +895,8 @@ async function save(overrideEncoding?: string, auto = false) {
     updateTitle()
     refreshDiffGutter()
     diagStore.triggerAutoRun()
+    // 監視の届かないファイル（グローバルモード・プロジェクトの外）でも描き直す。
+    htmlPreview.value?.onSaved()
   } catch (e) {
     // **自動保存の失敗で本文を隠さない。** `error` が立つとエディタ本体が `v-show` で
     // 消え、画面に残るのは「破棄して読み直す」ボタンだけになる。人が `Ctrl+S` を押した
@@ -1703,7 +1727,8 @@ function onGlobalKeyDown(e: KeyboardEvent) {
   // プレビューの検索（#360）。**エディタにフォーカスがあるあいだは CodeMirror の検索に譲る**
   // （分割表示でどちらを探すかは、最後に触ったほうで決める）。プレビューだけの表示では
   // エディタが隠れているので、CodeMirror にキーが届くことは無い。
-  if (matchChord(e, 'Mod+F') && showPreview.value && tabStore.isTabFocused(props.tabId)) {
+  // 子 webview のプレビュー（#399）は DOM の外なので、Pike の検索は届かない。
+  if (matchChord(e, 'Mod+F') && showPreview.value && !webviewPreview.value && tabStore.isTabFocused(props.tabId)) {
     if (showEditor.value && editorRef.value?.contains(document.activeElement)) return
     e.preventDefault()
     openPreviewFind()
@@ -2290,6 +2315,15 @@ onUnmounted(() => {
       </template>
       <MarkdownToolbar v-if="markdownAssistOn && showEditor" @run="runMarkdownToolbarAction" />
       <span class="toolbar-spacer" />
+      <button
+        v-if="webviewPreview && showPreview"
+        class="editor-toggle"
+        :class="{ active: previewMobile }"
+        :title="t(previewMobile ? 'browser.mobileOff' : 'browser.mobileOn')"
+        @click="previewMobile = !previewMobile"
+      >
+        <Smartphone :size="14" :stroke-width="2" />
+      </button>
       <MacroButtons v-if="showEditor && !isReadOnlyTab" @toggle="onMacroToggle" @play="onMacroPlay" />
       <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
       <MinimapToggle v-if="hasFile" :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
@@ -2404,8 +2438,16 @@ onUnmounted(() => {
     </div>
     <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error && !isDirectory && tooLargeSize === null">
       <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
+      <HtmlPreview
+        v-if="showPreview && webviewPreview && tab?.path"
+        ref="htmlPreview"
+        class="preview-pane"
+        :tab-id="props.tabId"
+        :path="tab.path"
+        :mobile="previewMobile"
+      />
       <div
-        v-if="showPreview && !isMermaid"
+        v-if="showPreview && !isMermaid && !webviewPreview"
         ref="previewRef"
         class="preview-pane"
         tabindex="-1"
@@ -2435,7 +2477,7 @@ onUnmounted(() => {
         :style="{ '--mermaid-zoom': mermaidZoom }"
       ></div>
       <button
-        v-if="showPreview && !isMermaid && previewScrolled"
+        v-if="showPreview && !isMermaid && !webviewPreview && previewScrolled"
         class="back-to-top"
         :title="t('editor.backToTop')"
         @click="scrollPreviewToTop"

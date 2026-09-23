@@ -415,8 +415,9 @@ pub(crate) enum RawRead {
 const DEFAULT_MAX_SIZE: u64 = 2_000_000;
 
 /// エディタの上限として受け付ける最大値。設定の選択肢の最大（50MB）に余裕を持たせた値で、
-/// IPC の引数は誰でも投げられるので Rust 側でも抑える。
-const MAX_SIZE_CEILING: u64 = 64 * 1024 * 1024;
+/// IPC の引数は誰でも投げられるので Rust 側でも抑える。HTML のプレビュー（#399）の
+/// 1 ファイルの上限も兼ねる。
+pub(crate) const MAX_SIZE_CEILING: u64 = 64 * 1024 * 1024;
 
 /// Read a file's raw bytes, refusing (without reading) files over `max_size`.
 pub(crate) fn read_raw_bytes(

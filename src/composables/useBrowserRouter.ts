@@ -16,7 +16,7 @@ export interface BrowserHandlers {
    * ページの読み込みが終わった（`url`）か、タイトルが変わった（`title`）。`titleUrl` は
    * そのタイトルが属するページの URL（読み込みの完了より先に届くので、`url` とは別に来る）。
    */
-  onState: (state: { url?: string; title?: string; titleUrl?: string }) => void
+  onState?: (state: { url?: string; title?: string; titleUrl?: string }) => void
   /** ページが新しいウィンドウを開こうとした（`target=_blank` など）。 */
   onNewTab: (url: string) => void
 }
@@ -30,7 +30,7 @@ async function init() {
   const win = getCurrentWindow()
   await win.listen<{ label: string; url?: string; title?: string; titleUrl?: string }>('browser_state', (event) => {
     const { label, ...state } = event.payload
-    handlers.get(label)?.onState(state)
+    handlers.get(label)?.onState?.(state)
   })
   await win.listen<{ label: string; url: string }>('browser_new_tab', (event) => {
     handlers.get(event.payload.label)?.onNewTab(event.payload.url)

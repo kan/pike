@@ -51,6 +51,7 @@ mod jumplist {
     ) {
     }
 }
+mod html_preview;
 mod http;
 mod page_title;
 mod project;
@@ -1501,6 +1502,10 @@ pub fn run() {
             initial_action: std::sync::Mutex::new(None),
             pending: std::sync::Mutex::new(HashMap::new()),
         })
+        // HTML のプレビュー（#399）。ハンドラはアプリ全体に効くので、返してよいかは
+        // 要求した webview のラベルで決める（`html_preview.rs` のモジュール doc）。
+        .register_asynchronous_uri_scheme_protocol(html_preview::SCHEME, html_preview::handle)
+        .manage(html_preview::PreviewState::default())
         .manage(wait::WaitState {
             active: std::sync::Mutex::new(HashMap::new()),
         })
@@ -1914,6 +1919,8 @@ pub fn run() {
             browser::browser_url,
             browser::browser_history,
             browser::browser_close,
+            html_preview::preview_open,
+            html_preview::preview_set_files,
             git::git_status,
             git::git_is_repo,
             git::git_init,

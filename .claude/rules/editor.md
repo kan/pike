@@ -268,6 +268,21 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
   - **強調は CSS Custom Highlight API**（`::highlight(pike-find)` は `theme.css`）。`<mark>` で DOM を書き換えない。登録表は文書に 1 つなので、タブごとの範囲を `domFind.ts` のモジュールに集めて登録し直す。API の無い WebView では強調が出ないだけで、件数と移動は効く
   - **分割表示ではエディタにフォーカスがあれば CodeMirror の検索に譲る**（判定は `EditorTab.vue` の `onGlobalKeyDown`）
   - **`scrollIntoView` を使わない**（`overflow: hidden` の祖先まで動かす）。`revealRange` がコンテナまでのスクロール要素だけを動かす
+- **HTML のプレビュー（#399）**: `components/editor/HtmlPreview.vue` がブラウザのタブ（#368）と同じ子 webview を Preview / Split の枠に重ね、Rust の `html_preview.rs` が `pike-preview` のスキームで配信する。判断の実体は 2 つのファイルの doc が正本
+  - **WSL のファイルは distro の中で読む**（`realpath`・範囲の確認・`cat` を 1 本の `wsl.exe` に束ねる。`fs::read_raw_bytes` は stat と cat で 2 本起こすので、資源の多いページで遅い）。`file://`（module と `fetch` が CORS で通らない）と asset protocol（WSL を UNC 越しの `std::fs` で読む）を採らなかった理由はそれ
+  - **ページは任意の JS を動かす**ので、ルートの下でも `.` で始まる名前（`.git` / `.env`）と、実体がルートの外にあるもの（symlink を解決してから確かめる）は返さない。**CSP は付けていない**（外の CDN を読むページを壊さないため）ので、読めたものを外へ送ることは止めていない。守りは「読めるものを絞る」側にある
+  - **返してよいかは要求した webview のラベルで決める**（`PreviewState`）。ハンドラはアプリ全体に効くので、ブラウザのタブで開いた外部のページも `http://pike-preview.localhost/` を要求できる。**URL にルートやプロジェクト id を載せないこと**（当てれば読める形になる）
+  - **ラベルは `browser-preview-{uuid}`**。`browser-` の下に置いたので、位置合わせ・再読み込み・閉じるはブラウザのタブのコマンドを使う。**capability に足さない**（ブラウザのタブと同じく対象外に置く。`browser.rs` のモジュール doc）
+  - **仮想ファイル（`__pike/` の下）は #397（Vue SFC のプレビュー）の前提**。フロントが作った入口の HTML やコンパイル結果をディスクより先に同じ origin で返し、相対パスの CSS や画像はディスクへ落とす。置き直すのは `preview_set_files` → `browser_history(reload)`
+  - **重ねる・隠す・閉じるは `composables/useChildWebview.ts`**（ブラウザのタブと共有）。位置合わせの直列化、変わらなければ送らない、隠すときはフレームを待たない、手前に浮くものと Git パネルで隠す、の 4 つがあそこにある。**子 webview を使う 3 つ目を足すときも書き写さない**
+  - **描くのは保存したファイル**。描き直しの契機は配信ルートの下の `fs_changed` で、`isRecentlySaved` は読まない（印を消費するのは App.vue だけ）
+    - 監視で拾うのは**ページが読みうる拡張子**だけ（エージェントが `.ts` を書くたびに描き直し続けない）。`node_modules` などは監視の側（`IGNORED_DIRS`）が最初から捨てているので、ここで写しを持たない
+    - **監視は今の `activeRoot` しか見ない**。配信ルートがその範囲に入っていない（プロジェクトの外の HTML、別プロジェクトで保持中のタブ、worktree の切り替え）ときだけ、`EditorTab.save()` の直後に描き直し、範囲から外れていたら戻ったときに 1 回描き直す。**範囲の中では保存の側から描き直さない**: Rust の監視は最長 1 秒まとめてから送るので、畳めずに 2 回描き直す
+    - Save As で `path` が変わったら子 webview を作り直す（配信のルートと入口は作った時点で固定）
+  - ページのスクリプトがリンクを連打してもタブが溢れないよう、ブラウザのタブへ逃がすのは 1 秒に 1 回まで。**Rust の側で間引く**（押されたかどうかが分からないことを知っているのはあちらで、振り替えの唯一の出口でもある）
+  - **配信の登録の後始末はブラウザのタブの側に持ち込まない**。次の `preview_open` が、もう無い webview のぶんを落とす（閉じた知らせを受ける口を持たない）。`browser_close` からプレビューを知る形にすると、依存が循環する
+  - DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）を外す判定は `EditorTab.vue` の `webviewPreview` 1 つ。#397 もここに条件を足す
+  - プレビューの中のリンクは Rust の `on_navigation` で止め、`browser_new_tab` でブラウザのタブへ逃がす
 - Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
 - **Markdown フロントマター（#229）**: `lib/frontmatter.ts` の `detectFrontmatter` が範囲を返し、`lib/frontmatterParse.ts` の `parseFrontmatter` が `yaml` / `smol-toml` / `JSON.parse` で key/value に落とす。プレビュー（`buildMarkdownPreview` が `marked.parse` の前に本文を切り出して `<details>` の表を前置）とアウトライン（`extractors/markdown.ts` が `bodyFrom` より前の見出しを捨てる）で**範囲検出だけ**を共有する（描画経路がテキストと Lezer 構文木で別のため）
   - **ファイルを 2 つに割っているのはバンドルの都合**。`lib/outline/index.ts` が 18 個の extractor を静的 import で 1 チャンクに束ねるので、パーサを同居させると YAML/TOML パーサ（合わせて約 106KB）が Go や Rust のアウトラインにも載る。実測で outline チャンクが 267KB → 161KB。`frontmatter.ts` は依存ゼロを保つこと

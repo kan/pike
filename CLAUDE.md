@@ -117,6 +117,7 @@ pike/
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
 │       ├── elevate.rs         # 管理者ターミナル（--new-instance で昇格起動、#138）
 │       ├── browser.rs         # ブラウザのタブの子 webview（#368。`unstable` の `add_child`）
+│       ├── html_preview.rs    # HTML のプレビューの配信（#399。`pike-preview` のスキームと仮想ファイル）
 │       ├── site_rules.rs      # ドメインごとの JS と CSS を差し込むスクリプトの組み立て（#368）
 │       ├── jira/              # Jira の拡張機能の JS（#380。jirapp から写した正本。site_rules.rs が include_str! で埋め込む）
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
@@ -214,6 +215,7 @@ pike/
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── editor/
 │   │   │   ├── FindBar.vue          # タブ右上に浮く検索バー（diff タブ #176 とプレビュー #360 で共有）
+│   │   │   ├── HtmlPreview.vue      # HTML のプレビュー（#399。子 webview を Preview / Split の枠に重ねる）
 │   │   │   ├── MacroButtons.vue     # キーボードマクロの記録・再生ボタン（#180）
 │   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
 │   │   │   ├── MinimapToggle.vue    # ミニマップの表示切り替え（タブ単位、#282）
@@ -271,6 +273,7 @@ pike/
 │   │   ├── useSettingsSearch.ts # 設定画面の絞り込み（#314。登録・一致・強調の切り分け）
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useBrowserRouter.ts # ブラウザのタブへの通知をラベルで振り分ける（#368。usePtyRouter と同じ形）
+│   │   ├── useChildWebview.ts # 子 webview の位置合わせ・隠す・閉じる（#399。ブラウザのタブと HTML のプレビューで共有）
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
 │   │   ├── usePreviewFind.ts # プレビューの検索（#360。数え直しと移動の契機）
