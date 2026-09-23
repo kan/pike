@@ -89,12 +89,12 @@ const PROJECT_WINDOW_PREFIX: &str = "project-";
 /// Must match the prefix checked in isGlobalWindow() in src/lib/window.ts
 const GLOBAL_PREFIX: &str = "global-";
 
-/// Close-to-tray setting (issue #161): when true (default), closing main hides
-/// it to the tray and keeps Pike resident; when false, closing main exits the
+/// Close-to-tray setting (issue #161): when true, closing main hides it to the
+/// tray and keeps Pike resident; when false (default), closing main exits the
 /// app. The frontend syncs the persisted `closeToTray` setting via
 /// `tray_set_close_to_tray`. Read synchronously in the main CloseRequested
 /// handler, so it lives in a process-global atomic rather than managed state.
-static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
+static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(false);
 
 /// Set when main was hidden by its own close while close-to-tray is off (#202).
 /// Main can never be destroyed — it owns the async runtime — so hiding stands in
@@ -554,19 +554,18 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
 
     match &action {
         cli::CliAction::None => {
-            // Plain `pike` while already running: open a global terminal
-            // window (Windows Terminal replacement). Shell is inferred from
-            // the invocation cwd (WSL UNC path → that distro, else the
-            // frontend's globalShell setting).
-            let action = cli::terminal_action_for_cwd(cwd);
-            log::debug!("[single-instance] no args: global terminal window: {action:?}");
-            let label = create_global_window(app);
-            store_pending(app, &label, action);
+            // 引数なしの `pike`（走っているあいだ）: **main ウィンドウを前に出す**（トレイの
+            // 「表示」と同じ）。以前はグローバルのターミナルウィンドウを開いていたが、
+            // タスクバーのボタンからの起動も同じ経路に来るので、トレイに畳んだ Pike を
+            // 呼び戻そうとするとグローバルモードのウィンドウが開いた。ターミナルの
+            // ウィンドウはジャンプリストとトレイのメニュー（`--terminal`）から開ける。
+            log::debug!("[single-instance] no args: show main window");
+            show_main_window(app);
         }
 
         cli::CliAction::OpenTerminal { .. } => {
-            // Not produced by parse_args (built from None above), but route it
-            // sanely if it ever arrives: dedicated global terminal window.
+            // `--terminal`（ジャンプリストとトレイのシェルごとの項目）: 専用の
+            // グローバルのターミナルウィンドウを開く。
             let label = create_global_window(app);
             store_pending(app, &label, action);
         }

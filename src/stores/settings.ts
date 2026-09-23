@@ -1123,7 +1123,8 @@ function defaults(): PersistedSettings {
     terminalUrlLinks: true,
     markdownFetchLinkTitle: false,
     language: 'en',
-    closeToTray: true,
+    // 既定は閉じたら終わる（トレイに残すのはオプトイン）。
+    closeToTray: false,
     windowBackdrop: 'none' as WindowBackdrop,
     windowOpacity: 0.85,
     // 並びは表のまま（使える先頭が既定）。全部見える状態で始める。**カスタム行は
