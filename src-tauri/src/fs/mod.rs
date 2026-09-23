@@ -370,7 +370,7 @@ impl FileReadResult {
 
 /// `read_raw_bytes` の結果。
 #[derive(Debug, PartialEq)]
-enum RawRead {
+pub(crate) enum RawRead {
     Missing,
     TooLarge(u64),
     Bytes(Vec<u8>),
@@ -385,7 +385,11 @@ const DEFAULT_MAX_SIZE: u64 = 2_000_000;
 const MAX_SIZE_CEILING: u64 = 64 * 1024 * 1024;
 
 /// Read a file's raw bytes, refusing (without reading) files over `max_size`.
-fn read_raw_bytes(shell: &ShellConfig, path: &str, max_size: u64) -> Result<RawRead, String> {
+pub(crate) fn read_raw_bytes(
+    shell: &ShellConfig,
+    path: &str,
+    max_size: u64,
+) -> Result<RawRead, String> {
     match shell {
         ShellConfig::Wsl { .. } => {
             match shell.run_stdout("stat", &["-c", "%s", "--", path]) {

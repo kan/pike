@@ -996,6 +996,17 @@ pub struct CappedRun<T> {
     pub stderr: String,
 }
 
+impl<T> CappedRun<T> {
+    /// 終了コードと stderr はそのままに、読んだものだけを作り変える。
+    pub fn map_items<U>(self, f: impl FnOnce(Vec<T>) -> Vec<U>) -> CappedRun<U> {
+        CappedRun {
+            items: f(self.items),
+            code: self.code,
+            stderr: self.stderr,
+        }
+    }
+}
+
 /// stdout を 1 行ずつ読み、`cap` 件そろったところで打ち切る（#257）。
 ///
 /// **出力を全部溜める `run` 系との違いはここだけ。** あちらは子の出力をメモリに溜めてから

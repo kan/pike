@@ -29,7 +29,7 @@ import type {
   TabOwner,
   TerminalTab,
 } from '../types/tab'
-import { canReorderTabs, isSingletonTab, PANES } from '../types/tab'
+import { canReorderTabs, isSingletonTab, isUnsavedEditor, PANES } from '../types/tab'
 
 let counter = 0
 
@@ -387,7 +387,7 @@ export const useTabStore = defineStore('tabs', () => {
 
     // Confirm close if editor tab has unsaved changes (title ends with *)
     const tab = tabs.value[idx]
-    if (tab.kind === 'editor' && tab.title.endsWith(' *')) {
+    if (isUnsavedEditor(tab)) {
       if (!(await confirmDialog(t('confirm.unsavedClose', { name: tab.title.slice(0, -2) })))) {
         return
       }
@@ -1050,7 +1050,7 @@ export const useTabStore = defineStore('tabs', () => {
     const toClose = tabs.value.filter((t) => ids.includes(t.id))
     if (toClose.length === 0) return true
 
-    const dirtyEditors = toClose.filter((t) => t.kind === 'editor' && t.title.endsWith(' *'))
+    const dirtyEditors = toClose.filter(isUnsavedEditor)
     if (dirtyEditors.length > 0) {
       const names = dirtyEditors.map((t) => t.title.slice(0, -2)).join(', ')
       const msg =
@@ -1137,7 +1137,7 @@ export const useTabStore = defineStore('tabs', () => {
   // 出る操作なので、押されたバーが自分のペインを知っている。
   async function closeSavedTabs(pane: PaneId) {
     const ids = tabsIn(pane)
-      .filter((t) => !t.pinned && !(t.kind === 'editor' && t.title.endsWith(' *')))
+      .filter((t) => !t.pinned && !isUnsavedEditor(t))
       .map((t) => t.id)
     await closeTabs(ids)
   }

@@ -2,6 +2,35 @@ export interface SearchMatch {
   path: string
   line: number
   content: string
+  /** 置換を頼んだ検索のときだけ（#401）。Rust の `LineReplace`。 */
+  replace?: LineReplace
+}
+
+/**
+ * 1 行ぶんの置換（#401）。**置換後の行は rg が組む**（`$1` の展開を JS の正規表現で
+ * 真似ると、プレビューと実際の一致がずれる）。
+ */
+export interface LineReplace {
+  /** `content` の中の一致の位置（UTF-16。`String.prototype.slice` にそのまま使える）。 */
+  spans: { start: number; end: number; text: string }[]
+  /** 置換後の行（改行を含まない）。 */
+  line: string
+}
+
+/** `search_replace_apply` に渡す 1 ファイルぶん。`from` は検索したときの `content`。 */
+export interface ReplaceFileEdit {
+  path: string
+  lines: { line: number; from: string; to: string }[]
+}
+
+export type ReplaceFailReason = 'missing' | 'tooLarge' | 'notUtf8' | 'io'
+
+export interface ReplaceOutcome {
+  files: number
+  lines: number
+  /** 検索のあとに中身が変わっていて書かなかった行。 */
+  stale: number
+  failed: { path: string; reason: ReplaceFailReason; detail: string | null }[]
 }
 
 export interface SearchResult {
@@ -23,6 +52,8 @@ export interface SearchBackendInfo {
   version: string | null
   /** `-P/--pcre2`（先読み・後方参照）のトグルを出してよいか。 */
   pcre2: boolean
+  /** 置換（#401）を出してよいか。rg なら版を問わず true、grep では false。 */
+  replace: boolean
 }
 
 /** 検索の指定。Rust の `SearchOptions` と同じ形（camelCase で渡る）。 */
@@ -37,4 +68,9 @@ export interface SearchOptions {
   globExclude?: string | null
   /** 結果をタブに書き出すための検索（#376）。パネルより上限が広い（Rust 側の doc）。 */
   extract?: boolean
+  /**
+   * 置換後の文字列（#401）。**空文字も置換**（一致を消す）なので、置換しないときは
+   * null / 省略にする。正規表現のときは `$1` を展開し、そうでなければ字面のまま。
+   */
+  replacement?: string | null
 }

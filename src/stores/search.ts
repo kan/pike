@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
-import { relativeToBase } from '../lib/projectPaths'
-import { searchDetectBackend, searchExecute } from '../lib/tauri'
-import type { SearchBackendInfo, SearchMatch, SearchOptions } from '../types/search'
-import { shellToPlatform } from '../types/tab'
+import { relativeToBase, rootKey } from '../lib/projectPaths'
+import { searchDetectBackend, searchExecute, searchReplaceApply } from '../lib/tauri'
+import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchMatch, SearchOptions } from '../types/search'
+import { isUnsavedEditor, type ShellType, shellToPlatform } from '../types/tab'
 import { useProjectStore } from './project'
 import { createShellProbe } from './shellProbe'
+import { useStatusMessageStore } from './statusMessage'
 import { useTabStore } from './tabs'
 
 /** 検出に失敗したときの想定。grep に PCRE2 は無い。 */
@@ -14,6 +16,7 @@ const GREP_ONLY: SearchBackendInfo = {
   backend: 'grep',
   version: null,
   pcre2: false,
+  replace: false,
 }
 
 export const useSearchStore = defineStore('search', () => {
@@ -214,11 +217,144 @@ export const useSearchStore = defineStore('search', () => {
     }
   }
 
+  /** 置換を書いているあいだ（#401）。二重に押させない。 */
+  const replacing = ref(false)
+
+  /**
+   * エディタで未保存のファイル（比較キー）。置換はこれらを飛ばす（#401）。ディスクに
+   * 書くと、エディタには外部変更の警告が出るだけで、そのまま保存すれば置換が消える。
+   *
+   * **`visibleTabs` ではなく `tabs` を見る。** 保持中の別プロジェクト（#264）のタブでも、
+   * 同じファイルを開いていれば同じディスクの内容を上書きしうる。
+   */
+  function dirtyPathKeys(): Set<string> {
+    const keys = new Set<string>()
+    for (const tab of useTabStore().tabs) {
+      if (isUnsavedEditor(tab) && tab.path) keys.add(rootKey(tab.path))
+    }
+    return keys
+  }
+
+  /** 置換を書き込み、結果を知らせる（#401）。一覧をどう直すかは呼び出し側が決める。 */
+  async function applyMatches(shell: ShellType, root: string, matches: SearchMatch[]): Promise<ReplaceOutcome | null> {
+    const dirty = dirtyPathKeys()
+    const byFile = new Map<string, ReplaceFileEdit>()
+    const skippedDirty = new Set<string>()
+    for (const m of matches) {
+      if (!m.replace) continue
+      if (dirty.has(rootKey(m.path))) {
+        skippedDirty.add(m.path)
+        continue
+      }
+      let edit = byFile.get(m.path)
+      if (!edit) {
+        edit = { path: m.path, lines: [] }
+        byFile.set(m.path, edit)
+      }
+      edit.lines.push({ line: m.line, from: m.content, to: m.replace.line })
+    }
+    const outcome = byFile.size > 0 ? await searchReplaceApply(shell, [...byFile.values()]) : null
+    await reportReplace(shell, root, outcome, [...skippedDirty])
+    return outcome
+  }
+
+  async function reportReplace(
+    shell: ShellType,
+    root: string,
+    outcome: ReplaceOutcome | null,
+    skippedDirty: string[],
+  ): Promise<void> {
+    const rel = (p: string) => relativeToBase(root, p, shellToPlatform(shell)) ?? p
+    const lines = outcome?.lines ?? 0
+    const stale = outcome?.stale ?? 0
+    const failed = outcome?.failed ?? []
+    useStatusMessageStore().show({
+      text:
+        t('search.replaceDone', { count: String(lines), files: String(outcome?.files ?? 0) }) +
+        (stale > 0 ? ` ${t('search.replaceStale', { count: String(stale) })}` : ''),
+      variant: lines > 0 && !failed.length && !skippedDirty.length ? 'success' : 'warn',
+      durationMs: 4000,
+    })
+    // 飛ばしたファイルはステータスバーの 1 行に収まらないので、名前を挙げて知らせる。
+    const notes: string[] = []
+    if (skippedDirty.length) {
+      notes.push(t('search.replaceSkippedDirty', { names: skippedDirty.map(rel).join('\n') }))
+    }
+    if (failed.length) {
+      const names = failed.map(
+        (f) => `${rel(f.path)}: ${t(`search.replaceFail.${f.reason}`)}${f.detail ? ` (${f.detail})` : ''}`,
+      )
+      notes.push(t('search.replaceFailed', { names: names.join('\n') }))
+    }
+    if (notes.length) await infoDialog(notes.join('\n\n'))
+  }
+
+  /**
+   * 置換の段取りの共通部。二重に押させない印と、失敗の受け取りを 1 か所に置く。
+   * シェルと root は押した時点のものを渡す（待つあいだにプロジェクトを切り替えられても、
+   * 頼まれた場所に書く）。
+   */
+  async function withReplacing(fn: (shell: ShellType, root: string) => Promise<void>): Promise<void> {
+    const projectStore = useProjectStore()
+    const project = projectStore.currentProject
+    if (!project || replacing.value) return
+    replacing.value = true
+    try {
+      await fn(project.shell, projectStore.activeRoot)
+    } catch (e) {
+      error.value = String(e)
+    } finally {
+      replacing.value = false
+    }
+  }
+
+  /**
+   * 1 行ぶんを置換する（結果の行のボタン）。**検索し直さず、その行を一覧から外す**:
+   * 行を順に押していくたびにプロジェクト全体の rg を回すことになるため。
+   */
+  function replaceMatch(match: SearchMatch): Promise<void> {
+    return withReplacing(async (shell, root) => {
+      const outcome = await applyMatches(shell, root, [match])
+      if (outcome?.lines) results.value = results.value.filter((m) => m !== match)
+    })
+  }
+
+  /**
+   * `options` の一致をすべて置換する（#401）。**パネルの結果は使わない**: あちらは
+   * ファイルごと 20 件・全体 500 件で切ってあるので、書き出し（`extractToTab`）と同じ
+   * 上限で検索し直してから、件数を見せて確かめる。**条件は呼び出し側が今の入力から渡す**
+   * （`lastOptions` は打鍵のデバウンス中だと 1 つ前の置換文字列のまま）。書いたあとは
+   * 同じ条件で検索し直し、残った一致を出す。
+   */
+  function replaceAll(options: SearchOptions): Promise<void> {
+    const replacement = options.replacement
+    if (replacement == null || !options.query.trim()) return Promise.resolve()
+    return withReplacing(async (shell, root) => {
+      const result = await searchExecute(shell, searchRoot(), { ...options, extract: true })
+      const matches = result.matches.filter((m) => m.replace)
+      if (!matches.length) return
+      const files = new Set(matches.map((m) => m.path)).size
+      let msg = t('search.replaceAllConfirm', {
+        query: options.query,
+        replacement,
+        count: String(matches.length),
+        files: String(files),
+      })
+      if (result.truncated) msg += `\n\n${t('search.replaceAllTruncated', { max: String(result.matches.length) })}`
+      if (!(await confirmDialog(msg))) return
+      await applyMatches(shell, root, matches)
+      await search(options)
+    })
+  }
+
   return {
     scopeRel,
     setScope,
     extracting,
     extractToTab,
+    replacing,
+    replaceMatch,
+    replaceAll,
     backend,
     backendInfo,
     pendingOpen,

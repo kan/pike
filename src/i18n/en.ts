@@ -775,6 +775,22 @@ export default {
   'search.extractTruncated': 'Stopped at {max} results',
   'search.extracting': 'Searching for "{query}"…',
   'search.extractFailed': 'Search failed',
+  'search.toggleReplace': 'Toggle Replace',
+  'search.replacePlaceholder': 'Replace',
+  'search.replaceAllTooltip': 'Replace All',
+  'search.replaceLine': 'Replace this line',
+  'search.replaceAllConfirm':
+    'Replace "{query}" with "{replacement}" ({count} matches in {files} files)?\nFiles are written directly, so the editor\'s Undo cannot revert this.',
+  'search.replaceAllTruncated':
+    'There are too many matches; only the first {max} will be replaced. Press "Replace All" again for the rest.',
+  'search.replaceDone': 'Replaced {count} lines in {files} files',
+  'search.replaceStale': '{count} lines changed after the search and were left as is',
+  'search.replaceSkippedDirty': 'These files have unsaved changes in the editor and were not replaced:\n{names}',
+  'search.replaceFailed': 'These files could not be replaced:\n{names}',
+  'search.replaceFail.missing': 'file not found',
+  'search.replaceFail.tooLarge': 'too large (10 MB max)',
+  'search.replaceFail.notUtf8': 'not UTF-8',
+  'search.replaceFail.io': 'read or write failed',
 
   // Keyboard Shortcuts Modal
   // macOS menu bar items (#254). Only the ones whose wording differs from the

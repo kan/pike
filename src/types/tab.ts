@@ -518,6 +518,14 @@ export type Tab = (
   TabPlacement
 
 /**
+ * 未保存のエディタか。印はタイトル末尾の ` *`（`EditorTab.vue` が付ける）で、**判定は
+ * ここだけに置く**（閉じる確認・「保存済みを閉じる」・置換 #401 が読む）。
+ */
+export function isUnsavedEditor(tab: Tab): tab is EditorTab {
+  return tab.kind === 'editor' && tab.title.endsWith(' *')
+}
+
+/**
  * ドラッグで並べ替えられる組か（#305）。**固定タブと普通のタブは別の列**なので、またぐ
  * 移動は `tabs` の順を変えても画面上は何も起きない。
  *

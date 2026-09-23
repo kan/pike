@@ -30,6 +30,16 @@ pub struct RgCaps {
     pub pcre2: bool,
 }
 
+impl RgCaps {
+    /// `--json` と `-r` を併せたとき、置換後の文字列を `submatches[].replacement` に
+    /// 載せるか（#401）。15 より前の rg は `-r` を `--json` で黙って無視する（ripgrep #1872）
+    /// ので、`-o -r` をもう 1 本走らせて突き合わせる（`attach_replacements`）。WSL の distro
+    /// に apt で入る rg は 14 系が普通なので、こちらを落とすと WSL では置換が使えない。
+    fn json_replacement(&self) -> bool {
+        self.semver[0] >= 15
+    }
+}
+
 /// `rg --version` の出力から版と機能を読む。想定する形は次の 2 行目まで:
 ///
 /// ```text
@@ -185,6 +195,8 @@ pub struct SearchBackendInfo {
     pub version: Option<String>,
     /// `-P/--pcre2` のトグルを出してよいか。
     pub pcre2: bool,
+    /// 置換（#401）を出してよいか。rg なら版を問わず出す（grep では出さない）。
+    pub replace: bool,
 }
 
 #[derive(Serialize)]
@@ -193,6 +205,30 @@ pub struct SearchMatch {
     pub path: String,
     pub line: u32,
     pub content: String,
+    /// 置換を頼んだ検索のときだけ（#401）。この行を置換するとどうなるか。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replace: Option<LineReplace>,
+}
+
+/// 1 行ぶんの置換（#401）。**置換後の行は rg に作らせる**: `$1` の展開もエスケープも
+/// rg の規則で決まるので、フロントで JS の正規表現を使って組み立てると、プレビューと
+/// 実際に一致したものがずれる。
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LineReplace {
+    /// プレビュー用。`content` の中の一致の位置（**UTF-16 の位置**。JS の文字列の添字と
+    /// 同じ数え方にしてある）と、そこへ入る文字列。
+    pub spans: Vec<ReplaceSpan>,
+    /// 置換後の行（改行は含まない）。適用（`search_replace_apply`）にそのまま渡す。
+    pub line: String,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceSpan {
+    pub start: u32,
+    pub end: u32,
+    pub text: String,
 }
 
 #[derive(Serialize)]
@@ -218,6 +254,7 @@ pub async fn search_detect_backend(
         backend: backend.label().to_owned(),
         version: caps.map(|c| c.version.clone()),
         pcre2: caps.is_some_and(|c| c.pcre2),
+        replace: caps.is_some(),
     })
 }
 
@@ -225,6 +262,9 @@ const MAX_MATCHES: usize = 500;
 /// 結果をタブに書き出すときの上限（#376。`SearchOptions.extract`）。1 行 200 バイトとして
 /// 2MB 程度で、エディタのタブが無理なく開ける量に収まる。
 const EXTRACT_MAX_MATCHES: usize = 10_000;
+/// rg 14 以前の置換（`attach_replacements`）で、`-o -r` の出力を読む上限の倍率。あちらは
+/// 1 行に一致の数だけ出るので、`--json` の行数と同じ上限では足りない。
+const PLAIN_REPLACE_FACTOR: usize = 8;
 /// パネルの検索での、ファイルごとの一致の上限（1 ファイルが結果を占めないため）。
 const PER_FILE_MATCHES: &str = "20";
 const MAX_FILES: usize = 10000;
@@ -310,6 +350,18 @@ struct RgData<'a> {
     /// 子プロセスはその環境変数を継ぐ。設定に `--no-line-number` を書いている利用者で起きる。
     #[serde(default)]
     line_number: Option<u64>,
+    /// 一致の位置（`lines.text` の中のバイト位置）。`-r` を渡したときだけ
+    /// `replacement` が付く（#401）。
+    #[serde(borrow, default)]
+    submatches: Vec<RgSubmatch<'a>>,
+}
+
+#[derive(Deserialize)]
+struct RgSubmatch<'a> {
+    start: usize,
+    end: usize,
+    #[serde(borrow, default)]
+    replacement: Option<RgText<'a>>,
 }
 
 /// rg は UTF-8 でない中身を `{"bytes": "<base64>"}` で返すので、`text` は欠けうる。
@@ -327,8 +379,18 @@ impl<'a> RgText<'a> {
     }
 }
 
+/// `--json` の 1 行を読んだもの。`deferred` は置換を後から組むとき（rg 14 以前。
+/// `attach_replacements`）だけ持つ: rg が返した行そのもの（改行を含む）と一致の位置。
+struct RgHit {
+    m: SearchMatch,
+    deferred: Option<(String, Vec<(usize, usize)>)>,
+}
+
 /// rg の `--json` の 1 行。マッチ以外（`begin` / `end` / `summary`）と壊れた行は `None`。
-fn parse_rg_line(line: &str) -> Option<SearchMatch> {
+///
+/// `defer_replace` は、置換を頼んだが rg が `--json` で置換を返せないとき（14 以前）。
+/// そのときは行と位置を残しておき、`-o -r` の出力と突き合わせてから組む。
+fn parse_rg_line(line: &str, defer_replace: bool) -> Option<RgHit> {
     // 捨てる行に DOM を組まない。rg はマッチするファイルごとに `begin` と `end` を出すので、
     // 500 件が 200 ファイルに散っていれば 400 行が作った端から捨てられる。文字列を含むかの
     // 判定だけ先にやる（本文に "match" を含む行は素通りして、下の本パースが弾く）。
@@ -342,12 +404,168 @@ fn parse_rg_line(line: &str) -> Option<SearchMatch> {
     // 末尾を切るのは `into_owned()` の**あと**。先に `trim_end().to_owned()` と書くと、
     // エスケープを含む行では serde が作った `Cow::Owned` の隣にもう 1 本作ることになる。
     let mut content = RgText::str(v.data.lines).into_owned();
+    let subs = &v.data.submatches;
+    let (replace, deferred) = if defer_replace {
+        let spans = subs.iter().map(|s| (s.start, s.end)).collect();
+        (None, Some((content.clone(), spans)))
+    } else {
+        (
+            json_subs(subs).and_then(|s| build_replace(&content, &s)),
+            None,
+        )
+    };
     content.truncate(content.trim_end().len());
-    Some(SearchMatch {
-        path: RgText::str(v.data.path).into_owned(),
-        line: v.data.line_number.unwrap_or(0) as u32,
-        content,
+    Some(RgHit {
+        m: SearchMatch {
+            path: RgText::str(v.data.path).into_owned(),
+            line: v.data.line_number.unwrap_or(0) as u32,
+            content,
+            replace,
+        },
+        deferred,
     })
+}
+
+/// 置換 1 か所。`start` / `end` は rg が返した行の中のバイト位置。
+struct Sub<'a> {
+    start: usize,
+    end: usize,
+    text: &'a str,
+}
+
+/// `--json -r`（rg 15 以降）の `submatches` から置換を取り出す。1 つでも欠ければ `None`。
+fn json_subs<'a>(subs: &'a [RgSubmatch<'a>]) -> Option<Vec<Sub<'a>>> {
+    // `-r` を渡していない検索（ほとんどの検索）では、何も確保せずに戻る。
+    subs.first()?.replacement.as_ref()?;
+    subs.iter()
+        .map(|s| {
+            Some(Sub {
+                start: s.start,
+                end: s.end,
+                text: s.replacement.as_ref()?.text.as_deref()?,
+            })
+        })
+        .collect()
+}
+
+/// rg 14 以前の `-o --column -n -H --null -r` の 1 行（`パス\0行:列:置換後`）。
+/// **列は置換後の行での位置**（前の置換で後ろがずれる。rg 14.1.0 で実測）。
+struct PlainReplacement {
+    path: String,
+    line: u32,
+    column: usize,
+    text: String,
+}
+
+fn parse_plain_replacement(line: &str) -> Option<PlainReplacement> {
+    let (path, rest) = line.split_once('\0')?;
+    let mut parts = rest.splitn(3, ':');
+    let line_no = parts.next()?.parse().ok()?;
+    let column = parts.next()?.parse().ok()?;
+    // `--crlf` を付けると出力の改行も CRLF になる。
+    let text = parts.next()?;
+    let text = text.strip_suffix('\r').unwrap_or(text);
+    Some(PlainReplacement {
+        path: path.to_owned(),
+        line: line_no,
+        column,
+        text: text.to_owned(),
+    })
+}
+
+/// `-o -r` の出力を、同じ行の一致へ**出てきた順に**対応付ける（#401、rg 14 以前）。
+///
+/// 数が合わない行と、列番号の検算（`位置 + それまでのずれ + 1`）が合わない行は置換を
+/// 組まない（置換の対象から外れるだけで、検索結果には残る）。2 本の rg は並べて走るので
+/// ファイルの順は揃わないが、行の中の順は揃う。
+fn attach_replacements(hits: Vec<RgHit>, plain: Vec<PlainReplacement>) -> Vec<SearchMatch> {
+    let mut by_line: HashMap<(String, u32), Vec<(usize, String)>> = HashMap::new();
+    for p in plain {
+        by_line
+            .entry((p.path, p.line))
+            .or_default()
+            .push((p.column, p.text));
+    }
+    hits.into_iter()
+        .map(|RgHit { mut m, deferred }| {
+            if let Some((raw, spans)) = deferred {
+                m.replace = by_line
+                    .get(&(m.path.clone(), m.line))
+                    .and_then(|found| deferred_replace(&raw, &spans, found));
+            }
+            m
+        })
+        .collect()
+}
+
+fn deferred_replace(
+    raw: &str,
+    spans: &[(usize, usize)],
+    found: &[(usize, String)],
+) -> Option<LineReplace> {
+    if spans.len() != found.len() {
+        return None;
+    }
+    let mut shift: isize = 0;
+    let mut subs = Vec::with_capacity(spans.len());
+    for (&(start, end), (column, text)) in spans.iter().zip(found) {
+        if (start as isize + shift + 1) != *column as isize {
+            return None;
+        }
+        shift += text.len() as isize - (end as isize - start as isize);
+        subs.push(Sub { start, end, text });
+    }
+    build_replace(raw, &subs)
+}
+
+/// rg の一致と置換文字列から、1 行ぶんの置換を組み立てる（#401）。`raw` は rg が返した
+/// 行そのもの（改行を含む）。
+///
+/// **組み立てられないときは `None`**（`-r` を渡していない、UTF-8 でない行、位置が文字の
+/// 途中を指す）。`None` の行は置換の対象から外れるだけで、検索結果には残る。
+fn build_replace(raw: &str, subs: &[Sub]) -> Option<LineReplace> {
+    if subs.is_empty() {
+        return None;
+    }
+    let (body, _) = split_eol(raw);
+    // プレビューの位置は、表示する `content`（末尾の空白を落としたもの）に収める。
+    let shown = body.trim_end().len();
+    let utf16 = |s: &str| s.encode_utf16().count() as u32;
+
+    let mut line = String::with_capacity(body.len());
+    let mut spans = Vec::with_capacity(subs.len());
+    let (mut pos, mut pos16) = (0usize, 0u32);
+    for sub in subs {
+        let text = sub.text;
+        // **本文の長さで切る。** `--crlf` で `.` と `$` は `\r` を越えなくなったが、`\s` や
+        // 否定の文字クラスはまだ `\r` に当たる。切らないと行を組めずに黙って置換の対象から
+        // 外れる。`\r` は適用のときにファイルの改行として戻る（`apply_line_edits`）。
+        let (start, end) = (sub.start.min(body.len()), sub.end.min(body.len()));
+        if start < pos || end < start {
+            return None;
+        }
+        line.push_str(body.get(pos..start)?);
+        line.push_str(text);
+        let start16 = pos16 + utf16(body.get(pos..start.min(shown).max(pos))?);
+        let end16 = start16 + utf16(body.get(start.min(shown)..end.min(shown))?);
+        spans.push(ReplaceSpan {
+            start: start16,
+            end: end16,
+            text: text.to_owned(),
+        });
+        pos = end;
+        pos16 = end16;
+    }
+    line.push_str(body.get(pos..)?);
+    Some(LineReplace { spans, line })
+}
+
+/// 行を本文と改行（`\n` / `\r\n` / 無し）に分ける。プレビュー（`build_replace`）と適用
+/// （`apply_line_edits`）が同じ分け方をしないと、見せた行と書く行がずれる。
+fn split_eol(raw: &str) -> (&str, &str) {
+    let body = raw.strip_suffix('\n').unwrap_or(raw);
+    let body = body.strip_suffix('\r').unwrap_or(body);
+    (body, &raw[body.len()..])
 }
 
 /// grep の `-rn` の 1 行（`パス:行:本文`）。行番号を持たない行は `None`。
@@ -363,6 +581,8 @@ fn parse_grep_line(line: &str) -> Option<SearchMatch> {
         path: path.to_owned(),
         line: line_num,
         content: content.to_owned(),
+        // grep に置換は無い（`search_detect_backend` が置換を出さない）。
+        replace: None,
     })
 }
 
@@ -391,6 +611,21 @@ pub struct SearchOptions {
     /// 絞るのが目的で、書き出しは grep の代わりなので、1 ファイルの全一致が要る。
     #[serde(default)]
     pub extract: bool,
+    /// 置換後の文字列（#401）。あれば一致ごとに置換後の行を返す（`SearchMatch.replace`）。
+    /// 正規表現のときは `$1` / `${name}` を rg の規則で展開し、そうでなければ字面のまま
+    /// 使う。grep では無視する（置換は rg にしか無い）。
+    #[serde(default)]
+    pub replacement: Option<String>,
+}
+
+/// `-r` に渡す文字列。rg は `-F` でも `$` を展開するので、正規表現でない検索では
+/// `$$` にして字面のまま入れる（VS Code の置換と同じ扱い）。
+fn rg_replacement(text: &str, is_regex: bool) -> String {
+    if is_regex {
+        text.to_owned()
+    } else {
+        text.replace('$', "$$")
+    }
 }
 
 #[tauri::command]
@@ -409,6 +644,7 @@ pub async fn search_execute(
         glob_include,
         glob_exclude,
         extract,
+        replacement,
     } = options;
     let cap = if extract {
         EXTRACT_MAX_MATCHES
@@ -444,7 +680,10 @@ pub async fn search_execute(
     tokio::task::spawn_blocking(move || {
         let backend = resolve_backend(&shell, &bundled, &cache);
         let run = if let Some((program, caps)) = backend.as_rg() {
-            let mut args: Vec<String> = vec!["--json".to_owned()];
+            // `--crlf`: CRLF のファイルでも `$` を行末に当て、`.` に `\r` を含めない（#401）。
+            // 無いと `foo$` が CRLF の行に 1 件も当たらず、`(bar.*)` の置換はキャプチャに
+            // `\r` を持ち込んで行の途中に書き込む。LF のファイルでは何も変わらない。
+            let mut args: Vec<String> = vec!["--crlf".to_owned()];
             if !is_regex {
                 args.push("-F".to_owned());
             }
@@ -472,13 +711,58 @@ pub async fn search_execute(
                 args.push("--max-count".to_owned());
                 args.push(PER_FILE_MATCHES.to_owned());
             }
-            args.push("-e".to_owned());
-            args.push(query);
-            args.push("--".to_owned());
-            args.push(root);
+            let replace_arg = replacement.map(|text| rg_replacement(&text, is_regex));
+            let tail = ["-e".to_owned(), query, "--".to_owned(), root];
+            let command = |head: &[&str], replace: bool| {
+                let mut all: Vec<&str> = head.to_vec();
+                all.extend(args.iter().map(String::as_str));
+                if let (true, Some(r)) = (replace, replace_arg.as_deref()) {
+                    all.extend(["-r", r]);
+                }
+                all.extend(tail.iter().map(String::as_str));
+                shell.command(program, &all)
+            };
 
-            let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-            spawn_capped_lines(shell.command(program, &arg_refs), "rg", cap, parse_rg_line)
+            if replace_arg.is_none() || caps.json_replacement() {
+                spawn_capped_lines(command(&["--json"], true), "rg", cap, |l| {
+                    parse_rg_line(l, false)
+                })
+                .map(|run| run.map_items(|items| items.into_iter().map(|hit| hit.m).collect()))
+            } else {
+                // **rg 14 以前は `--json` で置換を返さない**（ripgrep #1872）。置換後の文字列は
+                // `-o -r` の素の出力から取り、`--json` の一致の位置と突き合わせる
+                // （`attach_replacements`）。置換の組み立てを rg に任せるのは 15 と同じ。
+                // 2 本は互いに依存しないので並べて走らせる。素の出力は 1 行に一致の数だけ
+                // 出るので、上限を広げておく（足りなかった行は置換の対象から外れるだけ）。
+                let json = command(&["--json"], false);
+                let plain = command(
+                    &[
+                        "-o",
+                        "--column",
+                        "-n",
+                        "-H",
+                        "--null",
+                        "--no-heading",
+                        "--color=never",
+                    ],
+                    true,
+                );
+                std::thread::scope(|scope| {
+                    let plain = scope.spawn(move || {
+                        spawn_capped_lines(
+                            plain,
+                            "rg",
+                            cap * PLAIN_REPLACE_FACTOR,
+                            parse_plain_replacement,
+                        )
+                    });
+                    let hits = spawn_capped_lines(json, "rg", cap, |l| parse_rg_line(l, true))?;
+                    let plain = plain
+                        .join()
+                        .map_err(|_| "rg: replacement pass panicked".to_owned())??;
+                    Ok(hits.map_items(|items| attach_replacements(items, plain.items)))
+                })
+            }
         } else {
             let mut args: Vec<String> = vec!["-rn".to_owned()];
             if !is_regex {
@@ -544,9 +828,201 @@ pub async fn search_execute(
     .map_err(|e| e.to_string())?
 }
 
+/// 1 行の書き換え（#401）。`from` は検索したときの行（`SearchMatch.content`＝末尾の空白を
+/// 落としたもの）、`to` は置換後の行（`LineReplace.line`）。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineEdit {
+    pub line: u32,
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileEdit {
+    pub path: String,
+    pub lines: Vec<LineEdit>,
+}
+
+/// 書けなかったファイルの理由。文言はフロントが i18n で当てる。
+#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum ReplaceFailReason {
+    Missing,
+    TooLarge,
+    /// UTF-8 として読めない。バイトのまま書き戻す手段を持たないので触らない。
+    NotUtf8,
+    Io,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceFailure {
+    pub path: String,
+    pub reason: ReplaceFailReason,
+    pub detail: Option<String>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceOutcome {
+    /// 書き換えたファイルの数。
+    pub files: u32,
+    /// 書き換えた行の数。
+    pub lines: u32,
+    /// 検索したあとに中身が変わっていて、書き換えなかった行の数。
+    pub stale: u32,
+    pub failed: Vec<ReplaceFailure>,
+}
+
+/// 置換で読むファイルの上限。エディタの既定（10MB）と揃える。
+const REPLACE_MAX_BYTES: u64 = 10 * 1024 * 1024;
+/// 同時に書き換えるファイルの数。WSL は 1 ファイルにつき `wsl.exe` を 3 本（stat・cat・
+/// 書き込み）起こすので、直列だと 100 ファイルで数十秒かかる。
+const REPLACE_WORKERS: usize = 4;
+
+/// `text` の行を `edits` のとおりに書き換える。戻り値は（新しい本文、書き換えた行、
+/// 中身が変わっていて飛ばした行）。
+///
+/// **行が検索したときのままのときだけ書き換える**（`from` と比べる）。検索から適用まで
+/// のあいだにエージェントや別のエディタが書いていれば、その行は飛ばす。rg の位置
+/// （バイトのオフセット）で直に書かないのはこのため。改行（LF / CRLF）と行末の空白は
+/// ファイルのものを残す。
+fn apply_line_edits(text: &str, edits: &[LineEdit]) -> (String, u32, u32) {
+    let by_line: HashMap<u32, &LineEdit> = edits.iter().map(|e| (e.line, e)).collect();
+    let mut out = String::with_capacity(text.len());
+    let mut applied = 0u32;
+    for (i, raw) in text.split_inclusive('\n').enumerate() {
+        let Some(edit) = by_line.get(&(i as u32 + 1)) else {
+            out.push_str(raw);
+            continue;
+        };
+        let (body, terminator) = split_eol(raw);
+        // rg は UTF-8 の BOM を落として読むので、1 行目は BOM を外して比べ、書くときに戻す。
+        let (bom, cmp) = match body.strip_prefix('\u{feff}') {
+            Some(rest) if i == 0 => ("\u{feff}", rest),
+            _ => ("", body),
+        };
+        if cmp.trim_end() == edit.from {
+            out.push_str(bom);
+            out.push_str(&edit.to);
+            out.push_str(terminator);
+            applied += 1;
+        } else {
+            out.push_str(raw);
+        }
+    }
+    // 書き換えなかった行は全部「変わっていた」に数える（ファイルが縮んでいて届かなかった
+    // 行も含む）。
+    (out, applied, by_line.len() as u32 - applied)
+}
+
+fn replace_in_file(shell: &ShellConfig, edit: &FileEdit) -> Result<(u32, u32), ReplaceFailure> {
+    let fail = |reason, detail: Option<String>| ReplaceFailure {
+        path: edit.path.clone(),
+        reason,
+        detail,
+    };
+    let bytes = match crate::fs::read_raw_bytes(shell, &edit.path, REPLACE_MAX_BYTES) {
+        Ok(crate::fs::RawRead::Bytes(b)) => b,
+        Ok(crate::fs::RawRead::Missing) => return Err(fail(ReplaceFailReason::Missing, None)),
+        Ok(crate::fs::RawRead::TooLarge(_)) => return Err(fail(ReplaceFailReason::TooLarge, None)),
+        Err(e) => return Err(fail(ReplaceFailReason::Io, Some(e))),
+    };
+    let text = String::from_utf8(bytes).map_err(|_| fail(ReplaceFailReason::NotUtf8, None))?;
+    let (new_text, applied, stale) = apply_line_edits(&text, &edit.lines);
+    if applied > 0 {
+        crate::fs::write_bytes_atomic(shell, &edit.path, new_text.as_bytes())
+            .map_err(|e| fail(ReplaceFailReason::Io, Some(e)))?;
+    }
+    Ok((applied, stale))
+}
+
+/// 検索結果の置換を書き込む（#401）。行の組み立ては検索のとき（rg の `-r`）に済んでいて、
+/// ここは「行がまだ検索したときのままか」を確かめて差し替えるだけ。
+///
+/// **エディタで未保存のファイルは渡さないこと**（フロントが除く）。ここで書くと、エディタ
+/// には外部変更の警告が出て、そのまま保存すれば置換が消える。
+#[tauri::command]
+pub async fn search_replace_apply(
+    shell: ShellConfig,
+    edits: Vec<FileEdit>,
+) -> Result<ReplaceOutcome, String> {
+    tokio::task::spawn_blocking(move || {
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let results = Mutex::new(Vec::with_capacity(edits.len()));
+        std::thread::scope(|scope| {
+            for _ in 0..REPLACE_WORKERS.min(edits.len()) {
+                scope.spawn(|| loop {
+                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(edit) = edits.get(i) else { break };
+                    let r = replace_in_file(&shell, edit);
+                    if let Ok(mut all) = results.lock() {
+                        all.push(r);
+                    }
+                });
+            }
+        });
+        let mut outcome = ReplaceOutcome::default();
+        for r in results.into_inner().map_err(|e| e.to_string())? {
+            match r {
+                Ok((applied, stale)) => {
+                    outcome.files += u32::from(applied > 0);
+                    outcome.lines += applied;
+                    outcome.stale += stale;
+                }
+                Err(f) => outcome.failed.push(f),
+            }
+        }
+        Ok(outcome)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 置換を後回しにしない読み方（ほとんどのテストはこれで足りる）。
+    fn parse_rg_line(line: &str) -> Option<SearchMatch> {
+        super::parse_rg_line(line, false).map(|hit| hit.m)
+    }
+
+    /// rg 14 の `-o -r` と `--json` を突き合わせる（#401。rg 14.1.0 の実際の出力。
+    /// 列番号は置換後の行での位置なので、2 つ目の一致は 9 ではなく 11 になる）。
+    #[test]
+    fn rg14_replacements_are_matched_by_order_and_column() {
+        let json = r#"{"type":"match","data":{"path":{"text":"/t/a.txt"},"lines":{"text":"foo bar foo\r\n"},"line_number":1,"submatches":[{"match":{"text":"foo"},"start":0,"end":3},{"match":{"text":"foo"},"start":8,"end":11}]}}"#;
+        let hit = super::parse_rg_line(json, true).expect("match line");
+        let plain = ["/t/a.txt\u{0}1:1:[foo]\r", "/t/a.txt\u{0}1:11:[foo]\r"]
+            .iter()
+            .map(|l| parse_plain_replacement(l).expect("plain line"))
+            .collect();
+        let m = attach_replacements(vec![hit], plain).remove(0);
+        let r = m.replace.expect("replace");
+        assert_eq!(r.line, "[foo] bar [foo]");
+        assert_eq!((r.spans[1].start, r.spans[1].end), (8, 11));
+    }
+
+    /// 数か列番号が合わない行は置換を組まない（対象から外すだけで、結果には残す）。
+    #[test]
+    fn rg14_mismatched_replacements_are_dropped() {
+        let json = r#"{"type":"match","data":{"path":{"text":"a"},"lines":{"text":"foo foo\n"},"line_number":1,"submatches":[{"match":{"text":"foo"},"start":0,"end":3},{"match":{"text":"foo"},"start":4,"end":7}]}}"#;
+        let one = |col: &str| {
+            let hit = super::parse_rg_line(json, true).expect("match line");
+            let plain = ["a\u{0}1:1:X".to_owned(), format!("a\u{0}1:{col}:X")]
+                .iter()
+                .map(|l| parse_plain_replacement(l).expect("plain line"))
+                .collect();
+            attach_replacements(vec![hit], plain).remove(0)
+        };
+        // 1 つ目で 2 バイト縮むので、2 つ目は 5 - 2 = 3。
+        assert_eq!(one("3").replace.expect("replace").line, "X X");
+        assert!(one("5").replace.is_none());
+        assert_eq!(one("5").content, "foo foo");
+    }
 
     #[test]
     fn rg_match_line_is_parsed() {
@@ -589,6 +1065,109 @@ mod tests {
         let m = parse_rg_line(line).expect("match line");
         assert_eq!(m.path, "");
         assert_eq!(m.content, "");
+    }
+
+    /// `-r` を渡したときの行（#401。同梱の 15.2.0 の実際の出力の形）。位置は UTF-16 で返す。
+    #[test]
+    fn rg_replacement_builds_the_new_line() {
+        let line = r#"{"type":"match","data":{"path":{"text":"a.txt"},"lines":{"text":"あいう foo foo  \r\n"},"line_number":2,"submatches":[{"match":{"text":"foo"},"replacement":{"text":"Xfoo"},"start":10,"end":13},{"match":{"text":"foo"},"replacement":{"text":"Xfoo"},"start":14,"end":17}]}}"#;
+        let m = parse_rg_line(line).expect("match line");
+        assert_eq!(m.content, "あいう foo foo");
+        let r = m.replace.expect("replace");
+        // 改行は落とし、行末の空白は残す（適用のときにファイルの改行を足す）。
+        assert_eq!(r.line, "あいう Xfoo Xfoo  ");
+        assert_eq!(
+            r.spans,
+            vec![
+                ReplaceSpan {
+                    start: 4,
+                    end: 7,
+                    text: "Xfoo".into()
+                },
+                ReplaceSpan {
+                    start: 8,
+                    end: 11,
+                    text: "Xfoo".into()
+                },
+            ]
+        );
+    }
+
+    /// `-r` を渡していない検索では、一致の位置があっても置換は組まない。
+    #[test]
+    fn rg_without_replacement_has_no_replace() {
+        let line = r#"{"type":"match","data":{"path":{"text":"a.txt"},"lines":{"text":"foo\n"},"line_number":1,"submatches":[{"match":{"text":"foo"},"start":0,"end":3}]}}"#;
+        assert!(parse_rg_line(line).expect("match line").replace.is_none());
+    }
+
+    /// 行末の空白の中の一致は、表示する本文の外なので長さ 0 の位置に畳む。
+    #[test]
+    fn replacement_spans_are_clamped_to_the_shown_content() {
+        let subs = [Sub {
+            start: 1,
+            end: 3,
+            text: "",
+        }];
+        let r = build_replace("a  \n", &subs).expect("replace");
+        assert_eq!(r.line, "a");
+        assert_eq!(r.spans[0].start, 1);
+        assert_eq!(r.spans[0].end, 1);
+    }
+
+    /// CRLF の行で一致が `\r` まで伸びても置換を組む（`-e 'bar.*'` の実際の位置）。
+    #[test]
+    fn replacement_reaching_into_cr_is_clamped() {
+        let subs = [Sub {
+            start: 4,
+            end: 12,
+            text: "Z",
+        }];
+        let r = build_replace("foo bar foo\r\n", &subs).expect("replace");
+        assert_eq!(r.line, "foo Z");
+        assert_eq!((r.spans[0].start, r.spans[0].end), (4, 11));
+    }
+
+    #[test]
+    fn literal_replacement_escapes_dollars() {
+        assert_eq!(rg_replacement("$1 $x", false), "$$1 $$x");
+        assert_eq!(rg_replacement("$1", true), "$1");
+    }
+
+    fn edit(line: u32, from: &str, to: &str) -> LineEdit {
+        LineEdit {
+            line,
+            from: from.into(),
+            to: to.into(),
+        }
+    }
+
+    #[test]
+    fn line_edits_keep_line_endings() {
+        // `from` は末尾の空白を落とした本文で比べ、`to`（rg が組んだ行）はそのまま書く。
+        let text = "one\r\ntwo  \r\nthree";
+        let (out, applied, stale) =
+            apply_line_edits(text, &[edit(2, "two", "TWO  "), edit(3, "three", "3")]);
+        assert_eq!(out, "one\r\nTWO  \r\n3");
+        assert_eq!((applied, stale), (2, 0));
+    }
+
+    /// 検索のあとに変わった行と、ファイルが縮んで無くなった行は書かない。
+    #[test]
+    fn line_edits_skip_changed_lines() {
+        let text = "a\nb\n";
+        let (out, applied, stale) = apply_line_edits(
+            text,
+            &[edit(1, "x", "y"), edit(2, "b", "B"), edit(9, "z", "Z")],
+        );
+        assert_eq!(out, "a\nB\n");
+        assert_eq!((applied, stale), (1, 2));
+    }
+
+    #[test]
+    fn line_edits_keep_the_bom() {
+        let (out, applied, _) = apply_line_edits("\u{feff}foo\n", &[edit(1, "foo", "bar")]);
+        assert_eq!(out, "\u{feff}bar\n");
+        assert_eq!(applied, 1);
     }
 
     #[test]

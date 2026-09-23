@@ -1888,6 +1888,7 @@ pub fn run() {
             docker::tunnel::docker_container_ports,
             search::search_detect_backend,
             search::search_execute,
+            search::search_replace_apply,
             search::list_project_files,
             agents::agent_detect,
             agent_usage::agent_usage,

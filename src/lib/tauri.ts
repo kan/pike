@@ -15,7 +15,7 @@ import type {
 } from '../types/git'
 import type { IssueDetail, IssueListResult } from '../types/issues'
 import type { ProjectConfig } from '../types/project'
-import type { SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
+import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
 import type { MenuAction, MenuShell, ShellType } from '../types/tab'
 
 // invoke の唯一のチョークポイント。E2E 撮影ビルド (#142) では、パネルへ決定的な
@@ -643,6 +643,10 @@ export async function searchDetectBackend(shell: ShellType): Promise<SearchBacke
 
 export async function searchExecute(shell: ShellType, root: string, options: SearchOptions): Promise<SearchResult> {
   return invoke<SearchResult>('search_execute', { shell, root, options })
+}
+
+export async function searchReplaceApply(shell: ShellType, edits: ReplaceFileEdit[]): Promise<ReplaceOutcome> {
+  return invoke<ReplaceOutcome>('search_replace_apply', { shell, edits })
 }
 
 export async function listProjectFiles(shell: ShellType, root: string): Promise<string[]> {

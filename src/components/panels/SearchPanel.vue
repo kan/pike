@@ -1,11 +1,25 @@
 <script setup lang="ts">
-import { CaseSensitive, Ellipsis, FileText, FolderSearch, Parentheses, Regex, WholeWord, X } from 'lucide-vue-next'
+import {
+  CaseSensitive,
+  ChevronDown,
+  ChevronRight,
+  Ellipsis,
+  FileText,
+  FolderSearch,
+  Parentheses,
+  Regex,
+  Replace,
+  ReplaceAll,
+  WholeWord,
+  X,
+} from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { openProjectPath } from '../../lib/openFile'
 import { relativeToBase } from '../../lib/projectPaths'
 import { useProjectStore } from '../../stores/project'
 import { useSearchStore } from '../../stores/search'
+import type { SearchMatch, SearchOptions } from '../../types/search'
 import { shellToPlatform } from '../../types/tab'
 
 const { t } = useI18n()
@@ -37,23 +51,25 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null
 // PCRE2 は正規表現のときだけ意味を持つ（`-F` では使うエンジンが変わるだけ）。
 const pcre2Available = computed(() => (searchStore.backendInfo?.pcre2 ?? false) && toggles.value.isRegex)
 
+/**
+ * 置換の行（#401。VSCode の左端の ▸ と同じ）。**開いているあいだは、空の置換も置換**
+ * （一致を消す）なので、検索に置換後の文字列を渡してプレビューを出す。覚えないのは
+ * 含む / 除外の開閉と同じ理由（パネルは `v-if` で作り直される）。
+ */
+const showReplace = ref(false)
+const replacement = ref('')
+/** rg 15 以降だけ。grep と古い rg は `-r` を `--json` で返せない（Rust の `json_replacement`）。 */
+const replaceAvailable = computed(() => searchStore.backendInfo?.replace ?? false)
+const replaceMode = computed(() => showReplace.value && replaceAvailable.value)
+const replaceInput = useTemplateRef<HTMLInputElement>('replaceInput')
+
 function onInput() {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => doSearch(), 300)
 }
 
-function doSearch() {
-  // 待っている打鍵ぶんを捨てる。消さないと、トグルや Enter で即時検索した直後に
-  // 同じ検索がもう 1 回走る（`searchSeq` は結果を捨てるだけで、rg は止まらない）。
-  if (debounceTimer) {
-    clearTimeout(debounceTimer)
-    debounceTimer = null
-  }
-  if (!query.value.trim()) {
-    searchStore.clear()
-    return
-  }
-  searchStore.search({
+function currentOptions(): SearchOptions {
+  return {
     query: query.value,
     isRegex: toggles.value.isRegex,
     caseSensitive: toggles.value.caseSensitive,
@@ -62,8 +78,70 @@ function doSearch() {
     usePcre2: toggles.value.usePcre2,
     globInclude: globInclude.value || null,
     globExclude: globExclude.value || null,
-  })
+    replacement: replaceMode.value ? replacement.value : null,
+  }
 }
+
+function doSearch(): Promise<void> {
+  // 待っている打鍵ぶんを捨てる。消さないと、トグルや Enter で即時検索した直後に
+  // 同じ検索がもう 1 回走る（`searchSeq` は結果を捨てるだけで、rg は止まらない）。
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+  if (!query.value.trim()) {
+    searchStore.clear()
+    return Promise.resolve()
+  }
+  return searchStore.search(currentOptions())
+}
+
+function toggleReplace() {
+  showReplace.value = !showReplace.value
+  // 開けばプレビューが、閉じればただの検索結果が要る。
+  if (query.value.trim()) doSearch()
+  if (showReplace.value) nextTick(() => replaceInput.value?.focus())
+}
+
+/**
+ * 「すべて置換」。**条件は今の入力から渡す**（ストアは渡された条件で検索し直す）。
+ * 待っている打鍵ぶんの検索は、置換のあとの検索し直しで足りるので捨てる。
+ */
+function onReplaceAll() {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer)
+    debounceTimer = null
+  }
+  void searchStore.replaceAll(currentOptions())
+}
+
+/** 結果の行を、残す部分・消える部分・入る部分に分ける（プレビュー）。 */
+type Piece = { text: string; kind: 'keep' | 'old' | 'new' }
+/** 一致より前をこれ以上残さない。行が長いと、一致が省略記号の向こうに隠れる。 */
+const PREVIEW_LEAD = 24
+
+function previewPieces(match: SearchMatch): Piece[] {
+  const r = match.replace
+  if (!r) return [{ text: match.content, kind: 'keep' }]
+  const pieces: Piece[] = []
+  let pos = 0
+  const first = r.spans[0]?.start ?? 0
+  if (first > PREVIEW_LEAD) {
+    pos = first - PREVIEW_LEAD
+    pieces.push({ text: '…', kind: 'keep' })
+  }
+  for (const s of r.spans) {
+    if (s.start > pos) pieces.push({ text: match.content.slice(pos, s.start), kind: 'keep' })
+    if (s.end > s.start) pieces.push({ text: match.content.slice(s.start, s.end), kind: 'old' })
+    if (s.text) pieces.push({ text: s.text, kind: 'new' })
+    pos = Math.max(pos, s.end)
+  }
+  if (pos < match.content.length) pieces.push({ text: match.content.slice(pos), kind: 'keep' })
+  return pieces
+}
+
+/** 結果ごとの分け方。一覧の描き直し（`replacing` の切り替えなど）のたびに組み直さない。 */
+const piecesOf = computed(() => new Map(searchStore.results.map((m) => [m, previewPieces(m)])))
 
 /** トグルは押した時点で検索し直す（次の打鍵を待たせない）。 */
 function toggle(key: keyof typeof toggles.value) {
@@ -148,84 +226,124 @@ onUnmounted(() => {
         `.search-field` が持つ。`padding-right` を空けて絶対配置する形にしないこと:
         PCRE2 のボタンは正規表現のときだけ出るので、空ける量が固定にならない。
       -->
-      <div class="search-row">
-        <!-- 枠と focus の見た目は共有の `.filter-row`（`theme.css`）。 -->
-        <div class="filter-row search-field">
-          <input
-            ref="searchInput"
-            v-model="query"
-            class="filter-input search-input"
-            data-testid="search-input"
-            :placeholder="t('search.placeholder')"
-            @input="onInput"
-            @keydown.enter="doSearch"
-          />
-          <div class="search-options">
+      <!--
+        置換の開閉（#401）は VSCode と同じく左端で、検索と置換の 2 行にまたがる。置換を
+        作れない環境（grep）ではボタンごと出さない（押せないボタンを置かない）。
+      -->
+      <div class="search-main">
+        <button
+          v-if="replaceAvailable"
+          class="option-btn side-btn replace-toggle"
+          :title="t('search.toggleReplace')"
+          data-testid="search-replace-toggle"
+          @click="toggleReplace"
+        >
+          <ChevronDown v-if="showReplace" :size="14" :stroke-width="2" />
+          <ChevronRight v-else :size="14" :stroke-width="2" />
+        </button>
+        <div class="search-fields">
+          <div class="search-row">
+            <!-- 枠と focus の見た目は共有の `.filter-row`（`theme.css`）。 -->
+            <div class="filter-row search-field">
+              <input
+                ref="searchInput"
+                v-model="query"
+                class="filter-input search-input"
+                data-testid="search-input"
+                :placeholder="t('search.placeholder')"
+                @input="onInput"
+                @keydown.enter="doSearch"
+              />
+              <div class="search-options">
+                <button
+                  class="option-btn"
+                  :class="{ active: toggles.caseSensitive }"
+                  :title="t('search.matchCase')"
+                  data-testid="search-case"
+                  @click="toggle('caseSensitive')"
+                ><CaseSensitive :size="14" :stroke-width="2" /></button>
+                <button
+                  class="option-btn"
+                  :class="{ active: toggles.wholeWord }"
+                  :title="t('search.wholeWord')"
+                  data-testid="search-whole-word"
+                  @click="toggle('wholeWord')"
+                ><WholeWord :size="14" :stroke-width="2" /></button>
+                <button
+                  class="option-btn"
+                  :class="{ active: toggles.isRegex }"
+                  :title="t('search.useRegex')"
+                  @click="toggle('isRegex')"
+                ><Regex :size="14" :stroke-width="2" /></button>
+                <button
+                  v-if="pcre2Available"
+                  class="option-btn"
+                  :class="{ active: toggles.usePcre2 }"
+                  :title="t('search.usePcre2')"
+                  data-testid="search-pcre2"
+                  @click="toggle('usePcre2')"
+                ><Parentheses :size="14" :stroke-width="2" /></button>
+              </div>
+            </div>
+            <!--
+              含む / 除外の開閉（VSCode の「…」）。**指定が入っていても畳める**。畳んだあいだも
+              指定は効いたままなので、そのことは ⋯ の色で示す（`has-glob`）。
+            -->
             <button
-              class="option-btn"
-              :class="{ active: toggles.caseSensitive }"
-              :title="t('search.matchCase')"
-              data-testid="search-case"
-              @click="toggle('caseSensitive')"
-            ><CaseSensitive :size="14" :stroke-width="2" /></button>
+              class="option-btn side-btn glob-toggle"
+              :class="{ active: showGlobs, 'has-glob': hasGlob }"
+              :title="t('search.toggleGlobs')"
+              data-testid="search-glob-toggle"
+              @click="showGlobs = !showGlobs"
+            ><Ellipsis :size="14" :stroke-width="2" /></button>
+          </div>
+
+          <!-- 置換の行（#401）。「すべて置換」は ⋯ の真下に置く。 -->
+          <div v-if="replaceMode" class="search-row" data-testid="search-replace-row">
+            <div class="filter-row search-field">
+              <input
+                ref="replaceInput"
+                v-model="replacement"
+                class="filter-input search-input"
+                data-testid="search-replace-input"
+                :placeholder="t('search.replacePlaceholder')"
+                @input="onInput"
+                @keydown.enter="doSearch"
+              />
+            </div>
             <button
-              class="option-btn"
-              :class="{ active: toggles.wholeWord }"
-              :title="t('search.wholeWord')"
-              data-testid="search-whole-word"
-              @click="toggle('wholeWord')"
-            ><WholeWord :size="14" :stroke-width="2" /></button>
-            <button
-              class="option-btn"
-              :class="{ active: toggles.isRegex }"
-              :title="t('search.useRegex')"
-              @click="toggle('isRegex')"
-            ><Regex :size="14" :stroke-width="2" /></button>
-            <button
-              v-if="pcre2Available"
-              class="option-btn"
-              :class="{ active: toggles.usePcre2 }"
-              :title="t('search.usePcre2')"
-              data-testid="search-pcre2"
-              @click="toggle('usePcre2')"
-            ><Parentheses :size="14" :stroke-width="2" /></button>
+              class="option-btn side-btn"
+              :title="t('search.replaceAllTooltip')"
+              :disabled="!query.trim() || searchStore.replacing"
+              data-testid="search-replace-all"
+              @click="onReplaceAll"
+            ><ReplaceAll :size="14" :stroke-width="2" /></button>
+          </div>
+
+          <!-- 含む / 除外は 1 行ずつ（#396）。名前を左に置くので、例は placeholder へ回す。 -->
+          <div v-if="showGlobs" class="glob-rows" data-testid="search-globs">
+            <label class="glob-row">
+              <span class="glob-label">{{ t('search.include') }}</span>
+              <input
+                v-model="globInclude"
+                class="glob-input"
+                :placeholder="t('search.includePlaceholder')"
+                @input="onInput"
+                @keydown.enter="doSearch"
+              />
+            </label>
+            <label class="glob-row">
+              <span class="glob-label">{{ t('search.exclude') }}</span>
+              <input
+                v-model="globExclude"
+                class="glob-input"
+                :placeholder="t('search.excludePlaceholder')"
+                @input="onInput"
+                @keydown.enter="doSearch"
+              />
+            </label>
           </div>
         </div>
-        <!--
-          含む / 除外の開閉（VSCode の「…」）。**指定が入っていても畳める**。畳んだあいだも
-          指定は効いたままなので、そのことは ⋯ の色で示す（`has-glob`）。
-        -->
-        <button
-          class="option-btn glob-toggle"
-          :class="{ active: showGlobs, 'has-glob': hasGlob }"
-          :title="t('search.toggleGlobs')"
-          data-testid="search-glob-toggle"
-          @click="showGlobs = !showGlobs"
-        ><Ellipsis :size="14" :stroke-width="2" /></button>
-      </div>
-
-      <!-- 含む / 除外は 1 行ずつ（#396）。名前を左に置くので、例は placeholder へ回す。 -->
-      <div v-if="showGlobs" class="glob-rows" data-testid="search-globs">
-        <label class="glob-row">
-          <span class="glob-label">{{ t('search.include') }}</span>
-          <input
-            v-model="globInclude"
-            class="glob-input"
-            :placeholder="t('search.includePlaceholder')"
-            @input="onInput"
-            @keydown.enter="doSearch"
-          />
-        </label>
-        <label class="glob-row">
-          <span class="glob-label">{{ t('search.exclude') }}</span>
-          <input
-            v-model="globExclude"
-            class="glob-input"
-            :placeholder="t('search.excludePlaceholder')"
-            @input="onInput"
-            @keydown.enter="doSearch"
-          />
-        </label>
       </div>
     </div>
 
@@ -279,7 +397,18 @@ onUnmounted(() => {
           <span class="result-path">{{ relativePath(match.path) }}</span>
           <span class="result-line">:{{ match.line }}</span>
         </div>
-        <div class="result-content">{{ match.content }}</div>
+        <!-- 置換のプレビュー（#401）。消える部分を打ち消し線、入る部分を緑で並べる。 -->
+        <div class="result-content">
+          <span v-for="(p, j) in piecesOf.get(match)" :key="j" :class="`piece-${p.kind}`">{{ p.text }}</span>
+        </div>
+        <button
+          v-if="match.replace"
+          class="row-action replace-line"
+          :title="t('search.replaceLine')"
+          :disabled="searchStore.replacing"
+          data-testid="search-replace-line"
+          @click.stop="searchStore.replaceMatch(match)"
+        ><Replace :size="14" :stroke-width="2" /></button>
       </div>
     </div>
 
@@ -297,6 +426,20 @@ onUnmounted(() => {
 }
 
 .search-input-area {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-main {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.search-fields {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -340,9 +483,14 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-.option-btn:hover {
+.option-btn:hover:not(:disabled) {
   background: var(--tab-hover-bg);
   color: var(--text-primary);
+}
+
+.option-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .option-btn.active {
@@ -350,12 +498,18 @@ onUnmounted(() => {
   color: var(--on-accent);
 }
 
-/* 見た目は `.option-btn` に乗せ、違うところだけ持つ（入力欄の外に出るので縦に伸ばし、
-   押している状態は「絞り込みが効いている」ではないので塗りを変える）。 */
-.glob-toggle {
+/* 入力欄の外に並ぶボタン（⋯・「すべて置換」・置換の開閉）。見た目は `.option-btn` に乗せ、縦に伸ばす。 */
+.side-btn {
   padding: 0 5px;
 }
 
+/* 置換の開閉（#401）。検索と置換の 2 行ぶんの高さを取る。 */
+.replace-toggle {
+  width: 16px;
+  padding: 0;
+}
+
+/* 押している状態は「絞り込みが効いている」ではないので塗りを変える。 */
 .glob-toggle.active {
   background: var(--tab-hover-bg);
   color: var(--text-primary);
@@ -412,6 +566,7 @@ onUnmounted(() => {
 }
 
 .result-item {
+  position: relative;
   padding: 4px 4px;
   cursor: pointer;
   border-radius: 3px;
@@ -419,6 +574,27 @@ onUnmounted(() => {
 
 .result-item:hover {
   background: var(--tab-hover-bg);
+}
+
+/* 行ごとの置換（#401）。本体は共有の `.row-action`、ここは出す契機と位置だけ。 */
+.result-item:hover .row-action {
+  opacity: 1;
+}
+
+.replace-line {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+
+/* 置換のプレビュー。色は diff タブの文字単位の強調と揃える。 */
+.piece-old {
+  background: rgba(244, 71, 71, 0.3);
+  text-decoration: line-through;
+}
+
+.piece-new {
+  background: rgba(78, 201, 176, 0.3);
 }
 
 .result-location {

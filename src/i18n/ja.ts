@@ -774,6 +774,22 @@ export default {
   'search.extractTruncated': '{max} 件で打ち切りました',
   'search.extracting': '"{query}" を検索しています…',
   'search.extractFailed': '検索に失敗しました',
+  'search.toggleReplace': '置換を表示',
+  'search.replacePlaceholder': '置換',
+  'search.replaceAllTooltip': '一括で置換',
+  'search.replaceLine': 'この行を置換',
+  'search.replaceAllConfirm':
+    '"{query}" を "{replacement}" に置換します（{count} 件、{files} ファイル）。\nファイルに直接書き込むので、エディタの「元に戻す」では戻せません。',
+  'search.replaceAllTruncated':
+    '一致が多いため、最初の {max} 件だけを置換します。残りはもう一度「すべて置換」を押してください。',
+  'search.replaceDone': '{count} 行を置換しました（{files} ファイル）',
+  'search.replaceStale': '{count} 行は検索のあとに変更されていたため書き換えませんでした',
+  'search.replaceSkippedDirty': 'エディタで未保存のため、次のファイルは置換しませんでした:\n{names}',
+  'search.replaceFailed': '次のファイルは置換できませんでした:\n{names}',
+  'search.replaceFail.missing': 'ファイルがありません',
+  'search.replaceFail.tooLarge': '大きすぎます（10MB まで）',
+  'search.replaceFail.notUtf8': 'UTF-8 ではありません',
+  'search.replaceFail.io': '読み書きに失敗しました',
 
   // Keyboard Shortcuts Modal
   // macOS のメニューバーの項目（#254）。**既定はショートカット一覧と同じ語**（`shortcuts.*`）を
