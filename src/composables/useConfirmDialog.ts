@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { loadAskedKeys, rememberAskedKey } from '../lib/storage'
 
 type Mode = 'confirm' | 'info' | 'prompt'
 
@@ -87,6 +88,25 @@ export async function confirmWithOption(
     confirmValue = resolve
   })
   return { ok, checked: optionChecked.value, displaced }
+}
+
+/**
+ * 「一度だけ聞く」提案（ツールの導入や hook の登録）。`storageKey` の記録に `key` があれば
+ * 聞かない。返り値は答え、**`null` は聞けなかった**（記録済み・他のダイアログが開いている・
+ * 答える前に置き換えられた）。
+ *
+ * **段取りをここに 1 つだけ置く**（inotify-tools・hook の登録・ripgrep が使う）。写していた
+ * ころは、置き換えられたとき（`displaced`、#342）に記録しない扱いが 1 つにしか無く、残りは
+ * 答えを聞いていないのに「断った」として封じ、二度と聞かなくなっていた。
+ * - **他のダイアログが開いていたら譲る**（記録もしない）。割り込むと相手の答えを奪う
+ * - **記録は答えのあと**。先に書くと、割り込まれたときに見ないまま封じられる
+ */
+export async function askOnce(storageKey: string, key: string, msg: string): Promise<boolean | null> {
+  if (loadAskedKeys(storageKey).includes(key) || dialogOpen()) return null
+  const { ok, displaced } = await confirmWithOption(msg, '')
+  if (displaced) return null
+  rememberAskedKey(storageKey, key)
+  return ok
 }
 
 export async function confirmDialog(msg: string): Promise<boolean> {

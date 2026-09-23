@@ -54,6 +54,14 @@ export interface SearchBackendInfo {
   pcre2: boolean
   /** 置換（#401）を出してよいか。rg なら版を問わず true、grep では false。 */
   replace: boolean
+  /**
+   * rg だが更新を勧めるほど古い（13 以前。判定は Rust の `RgCaps::outdated`）。
+   * `outdated` と `rgMissing` は**事実だけ**で、勧めるのは WSL だけという方針は
+   * `stores/search.ts` の `ripgrepNotice` が持つ。
+   */
+  outdated: boolean
+  /** rg が**確かに**無い（時間切れで grep に落ちたのではない）。導入を勧めるのはこのときだけ。 */
+  rgMissing: boolean
 }
 
 /** 検索の指定。Rust の `SearchOptions` と同じ形（camelCase で渡る）。 */

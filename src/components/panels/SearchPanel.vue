@@ -21,6 +21,7 @@ import { useProjectStore } from '../../stores/project'
 import { useSearchStore } from '../../stores/search'
 import type { SearchMatch, SearchOptions } from '../../types/search'
 import { shellToPlatform } from '../../types/tab'
+import ToolNotice from '../ToolNotice.vue'
 
 const { t } = useI18n()
 
@@ -369,6 +370,16 @@ onUnmounted(() => {
       ><X :size="12" :stroke-width="2" /></button>
     </div>
 
+    <!-- WSL の ripgrep が無い・古い（inotify-tools の帯と同じ役目）。 -->
+    <ToolNotice
+      v-if="searchStore.ripgrepNoticeText"
+      class="search-notice"
+      data-testid="search-ripgrep-notice"
+      :text="searchStore.ripgrepNoticeText"
+      :action-label="searchStore.ripgrepActionLabel"
+      @action="searchStore.installRipgrep()"
+    />
+
     <div v-if="searchStore.searching" class="status">{{ t('search.searching') }}</div>
     <div v-else-if="searchStore.error" class="status error">{{ searchStore.error }}</div>
     <div v-else-if="!searchStore.results.length && query" class="status">{{ t('search.noResults') }}</div>
@@ -666,6 +677,11 @@ onUnmounted(() => {
 .scope-clear:hover {
   background: var(--tab-hover-bg);
   color: var(--text-primary);
+}
+
+/* パネルは `gap` で間を取るので、帯自身の下の余白は要らない。 */
+.search-notice {
+  margin-bottom: 0;
 }
 
 .result-summary {

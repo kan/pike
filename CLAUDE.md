@@ -189,6 +189,7 @@ pike/
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── WatcherNotice.vue    # ファイル監視の知らせの帯（ツリーと設定画面で共有、#385）
+│   │   ├── ToolNotice.vue       # 足りないツールの帯の見た目（ファイル監視と ripgrep で共有）
 │   │   ├── layout/
 │   │   │   ├── ProjectSelect.vue # プロジェクトの表示と切替（サイドバー上部 / タブバー左、#298）
 │   │   │   ├── SideBar.vue    # アイコンナビ + パネル

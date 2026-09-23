@@ -637,8 +637,9 @@ export async function gitDiffWorking(root: string, shell: ShellType): Promise<st
 
 // Search
 
-export async function searchDetectBackend(shell: ShellType): Promise<SearchBackendInfo> {
-  return invoke<SearchBackendInfo>('search_detect_backend', { shell })
+/** `refresh` は覚えた答えを捨てて聞き直す（ripgrep を入れ直したあと）。 */
+export async function searchDetectBackend(shell: ShellType, refresh = false): Promise<SearchBackendInfo> {
+  return invoke<SearchBackendInfo>('search_detect_backend', { shell, refresh })
 }
 
 export async function searchExecute(shell: ShellType, root: string, options: SearchOptions): Promise<SearchResult> {

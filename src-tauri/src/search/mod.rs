@@ -38,6 +38,12 @@ impl RgCaps {
     fn json_replacement(&self) -> bool {
         self.semver[0] >= 15
     }
+
+    /// 更新を勧めるほど古いか。**13 以前**（Ubuntu 22.04 の apt が入れる版）。14 はまだ
+    /// 普通に配られている（24.04 の apt）うえ、置換も動く（`attach_replacements`）ので勧めない。
+    fn outdated(&self) -> bool {
+        self.semver[0] <= 13
+    }
 }
 
 /// `rg --version` の出力から版と機能を読む。想定する形は次の 2 行目まで:
@@ -75,10 +81,30 @@ fn parse_rg_version(stdout: &str) -> Option<RgCaps> {
 ///
 /// **存在確認も兼ねる**（`which` / `where` を別に叩かない）。プログラムが無ければ
 /// spawn 自体が失敗するか、シェル越しなら非 0 で返るので、どちらも `None` になる。
-fn probe_rg(shell: &ShellConfig, program: &str) -> Option<RgCaps> {
+fn probe_rg(shell: &ShellConfig, program: &str) -> Probe {
     match shell.run(program, &["--version"]) {
-        Ok((0, stdout, _)) => parse_rg_version(&stdout),
-        _ => None,
+        Ok((0, stdout, _)) => parse_rg_version(&stdout).map_or(Probe::Missing, Probe::Found),
+        // 走ったが失敗した（`wsl.exe -e rg` は無ければ終了コード 1 で返る。実測）。
+        Ok(_) => Probe::Missing,
+        // 起こせなかった・時間切れ（冷えた WSL の起動で普通に起きる）。無いとは言えない。
+        Err(_) => Probe::Unknown,
+    }
+}
+
+/// `probe_rg` の答え。**「無い」と「分からなかった」を分ける**: 後者で ripgrep の導入を
+/// 勧めると、入っている人に sudo のインストールを持ちかけることになる。
+enum Probe {
+    Found(RgCaps),
+    Missing,
+    Unknown,
+}
+
+impl Probe {
+    fn found(self, program: &str) -> Option<(String, RgCaps)> {
+        match self {
+            Probe::Found(caps) => Some((program.to_owned(), caps)),
+            _ => None,
+        }
     }
 }
 
@@ -119,20 +145,24 @@ fn detect_backend(shell: &ShellConfig, bundled_rg: &Option<String>) -> SearchBac
         _ => bundled_rg.as_deref(),
     };
     let (system, bundled) = std::thread::scope(|scope| {
-        let bundled = bundled_path.map(|path| {
-            scope.spawn(move || probe_rg(shell, path).map(|caps| (path.to_owned(), caps)))
-        });
+        let bundled =
+            bundled_path.map(|path| scope.spawn(move || probe_rg(shell, path).found(path)));
         // macOS / Linux では `augment_process_path` が起動時に PATH を広げているので、
         // Homebrew 等に入った rg もここで見つかる。
-        let system = probe_rg(shell, "rg").map(|caps| ("rg".to_owned(), caps));
+        let system = probe_rg(shell, "rg");
         // panic したら「見つからなかった」に落とす。**明示的に join したハンドルの panic は
         // scope が拾い直さない**（実測で確認）ので、ここで握り潰せる。検出の失敗は grep へ
         // 落ちるという答えそのものなので、呼び出し側に返す口は要らない。
         (system, bundled.and_then(|h| h.join().ok().flatten()))
     });
-    match prefer_newer(system, bundled) {
+    // 「確かに無い」かは環境の rg だけで決める（同梱のものは WSL では候補に入らない）。
+    let rg_missing = matches!(system, Probe::Missing);
+    match prefer_newer(system.found("rg"), bundled) {
         Some((program, caps)) => SearchBackend::Rg { program, caps },
-        None => SearchBackend::Grep,
+        None => SearchBackend::Grep {
+            rg_missing,
+            at: std::time::Instant::now(),
+        },
     }
 }
 
@@ -145,7 +175,7 @@ pub(crate) fn resolve_backend(
 ) -> SearchBackend {
     let key = crate::types::install_key(shell);
     if let Ok(map) = cache.lock() {
-        if let Some(b) = map.get(&key) {
+        if let Some(b) = map.get(&key).filter(|b| !b.expired()) {
             return b.clone();
         }
     }
@@ -156,12 +186,25 @@ pub(crate) fn resolve_backend(
     backend
 }
 
+/// 分からなかった grep（`Grep { rg_missing: false }`）を覚えておく時間。**覚えないと**
+/// WSL が遅いあいだ検索・Ctrl+P・タスク検出のたびに `wsl.exe` で探し直し、そのたびに最長
+/// `DEFAULT_TIMEOUT` 待つ。**ずっと覚えると**冷えた起動の 1 回がプロセスの寿命ぶん残る。
+const UNCERTAIN_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// 同梱の rg と、その環境に入っている rg は**同じ腕**にまとめてある（`program` が違うだけ）。
 /// 分けていたころは、機能を持たせるたびに 2 つの variant を同じように扱う `match` が増えた。
 #[derive(Clone)]
 pub(crate) enum SearchBackend {
-    Rg { program: String, caps: RgCaps },
-    Grep,
+    Rg {
+        program: String,
+        caps: RgCaps,
+    },
+    /// `rg_missing` は「rg が確かに無い」（起こせたが見つからなかった）。偽なら、時間切れ
+    /// などで分からなかっただけ（`resolve_backend` はその答えを `UNCERTAIN_TTL` しか覚えない）。
+    Grep {
+        rg_missing: bool,
+        at: std::time::Instant,
+    },
 }
 
 impl SearchBackend {
@@ -172,15 +215,20 @@ impl SearchBackend {
     pub(crate) fn as_rg(&self) -> Option<(&str, &RgCaps)> {
         match self {
             SearchBackend::Rg { program, caps } => Some((program, caps)),
-            SearchBackend::Grep => None,
+            SearchBackend::Grep { .. } => None,
         }
     }
 
     fn label(&self) -> &str {
         match self {
             SearchBackend::Rg { .. } => "rg",
-            SearchBackend::Grep => "grep",
+            SearchBackend::Grep { .. } => "grep",
         }
+    }
+
+    /// 分からなかった grep で、覚えておく時間（`UNCERTAIN_TTL`）を過ぎたもの。
+    fn expired(&self) -> bool {
+        matches!(self, SearchBackend::Grep { rg_missing: false, at } if at.elapsed() > UNCERTAIN_TTL)
     }
 }
 
@@ -197,6 +245,11 @@ pub struct SearchBackendInfo {
     pub pcre2: bool,
     /// 置換（#401）を出してよいか。rg なら版を問わず出す（grep では出さない）。
     pub replace: bool,
+    /// rg だが更新を勧めるほど古い（`RgCaps::outdated`）。
+    pub outdated: bool,
+    /// rg が**確かに**無い（grep に落ちた理由が時間切れなどではない）。導入を勧めてよいのは
+    /// これが真のときだけ。
+    pub rg_missing: bool,
 }
 
 #[derive(Serialize)]
@@ -241,10 +294,18 @@ pub struct SearchResult {
 #[tauri::command]
 pub async fn search_detect_backend(
     shell: ShellConfig,
+    refresh: Option<bool>,
     state: State<'_, SearchState>,
 ) -> Result<SearchBackendInfo, String> {
     let bundled = state.bundled_rg.clone();
     let cache = state.detected.clone();
+    // **入れ直したあとは覚えた答えを捨てる**（ripgrep の導入・更新の導線）。キャッシュは
+    // プロセスの寿命ぶん持つので、捨てないと再起動するまで古い rg（や grep）のまま。
+    if refresh.unwrap_or(false) {
+        if let Ok(mut map) = cache.lock() {
+            map.remove(&crate::types::install_key(&shell));
+        }
+    }
     let backend = tokio::task::spawn_blocking(move || resolve_backend(&shell, &bundled, &cache))
         .await
         .map_err(|e| e.to_string())?;
@@ -255,6 +316,14 @@ pub async fn search_detect_backend(
         version: caps.map(|c| c.version.clone()),
         pcre2: caps.is_some_and(|c| c.pcre2),
         replace: caps.is_some(),
+        outdated: caps.is_some_and(RgCaps::outdated),
+        rg_missing: matches!(
+            backend,
+            SearchBackend::Grep {
+                rg_missing: true,
+                ..
+            }
+        ),
     })
 }
 
@@ -1201,6 +1270,12 @@ mod tests {
             parse_rg_version("ripgrep 14.1").expect("version").semver,
             [14, 1, 0]
         );
+
+        // 更新を勧めるのは 13 以前だけ（14 は 24.04 の apt が配る版）。
+        assert!(!old.outdated());
+        assert!(parse_rg_version("ripgrep 13.0.0")
+            .expect("version")
+            .outdated());
 
         // pcre2 無しのビルド。`-pcre2` を `+pcre2` と読み違えない。
         let no_pcre = parse_rg_version("ripgrep 15.2.0\n\nfeatures:-pcre2\n").expect("version");

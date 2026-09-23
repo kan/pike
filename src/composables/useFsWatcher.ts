@@ -2,11 +2,10 @@ import { listen } from '@tauri-apps/api/event'
 import { computed, ref } from 'vue'
 import { t } from '../i18n'
 import { normalizeSep, wslUncToNative } from '../lib/paths'
-import { loadAskedKeys, rememberAskedKey } from '../lib/storage'
 import { fsWatchStart, fsWatchStop } from '../lib/tauri'
 import { useTabStore } from '../stores/tabs'
 import { installKey, isWindowsShell, type ShellType } from '../types/tab'
-import { confirmDialog, dialogOpen } from './useConfirmDialog'
+import { askOnce } from './useConfirmDialog'
 
 export interface FsChangeEntry {
   path: string
@@ -196,21 +195,9 @@ async function askToInstallInotify() {
   if (!target) return
   // **`shellId` ではなく `installKey`**（`useAgentHookPrompt` と同じ鍵）。distro ごとに
   // 1 度で、Windows の 4 シェルは同じ 1 つにまとまる。
-  const key = installKey(target.shell)
-  if (loadAskedKeys(ASKED_KEY).includes(key)) return
-
-  // **他のダイアログが開いていたら譲る（記録もしない）。** `confirmDialog` は開く前に
-  // 前のものを `dismiss()`＝偽で解決するので、割り込むと相手の答えを奪ううえ、自分も
-  // 「断られた」ことになって記録される。プロジェクトを切り替えると監視の張り直しと
-  // `useAgentHookPrompt` が同じ契機で走るので、これは普通に起きる。
-  if (dialogOpen()) return
-
-  const ok = await confirmDialog(t('watcher.installPrompt'))
-  // **記録は答えのあと。** 先に書くと、上の割り込みで見ないまま封じられる。`rememberAskedKey`
-  // が書く直前に読み直すので、待っているあいだに別のウィンドウが足したキーを消さない。
-  rememberAskedKey(ASKED_KEY, key)
-  if (!ok) return
-  installInotify()
+  // 譲り方と記録の順序は `askOnce` の doc。プロジェクトを切り替えると監視の張り直しと
+  // `useAgentHookPrompt` が同じ契機で走るので、ダイアログの取り合いは普通に起きる。
+  if (await askOnce(ASKED_KEY, installKey(target.shell), t('watcher.installPrompt'))) installInotify()
 }
 
 /**

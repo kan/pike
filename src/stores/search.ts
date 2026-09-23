@@ -1,23 +1,51 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
+import { askOnce, confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
 import { relativeToBase, rootKey } from '../lib/projectPaths'
 import { searchDetectBackend, searchExecute, searchReplaceApply } from '../lib/tauri'
 import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchMatch, SearchOptions } from '../types/search'
-import { isUnsavedEditor, type ShellType, shellToPlatform } from '../types/tab'
+import { installKey, isUnsavedEditor, type ShellType, shellToPlatform } from '../types/tab'
 import { useProjectStore } from './project'
 import { createShellProbe } from './shellProbe'
 import { useStatusMessageStore } from './statusMessage'
 import { useTabStore } from './tabs'
 
-/** 検出に失敗したときの想定。grep に PCRE2 は無い。 */
+/**
+ * 検出に失敗したときの想定。grep に PCRE2 は無い。**ripgrep の導入は勧めない**
+ * （`rgMissing` が偽）: IPC が落ちただけで「入っていない」と言うことになる。
+ */
 const GREP_ONLY: SearchBackendInfo = {
   backend: 'grep',
   version: null,
   pcre2: false,
   replace: false,
+  outdated: false,
+  rgMissing: false,
 }
+
+/**
+ * WSL に公式リリースの ripgrep を入れる 1 行。**apt は使わない**: Ubuntu 22.04 の apt が
+ * 入れるのは 13 で、入れた直後に「古い」側へ回る。`musl` の静的リンクのバイナリなので
+ * distro を問わず動く。置き場は `/usr/local/bin`（`wsl.exe -e` の既定の PATH で `/usr/bin`
+ * より前にあるので、Pike の検出もターミナルも新しいほうを拾う）。sha256 を照合してから置く。
+ *
+ * `bash -c` で包むのは、ターミナルの対話シェルに `set -e` と `exit` を流さないため。
+ * **中身に単引用符を使わないこと**（包みが割れる）。
+ */
+const INSTALL_RIPGREP =
+  'bash -c \'set -e; case "$(uname -m)" in x86_64) t=x86_64-unknown-linux-musl;; ' +
+  'aarch64|arm64) t=aarch64-unknown-linux-musl;; *) echo "unsupported: $(uname -m)"; exit 1;; esac; ' +
+  'v=$(curl -fsSLI -o /dev/null -w "%{url_effective}" https://github.com/BurntSushi/ripgrep/releases/latest); ' +
+  'v=${v##*/}; d=$(mktemp -d); trap "rm -rf \\"$d\\"" EXIT; cd "$d"; n=ripgrep-$v-$t; ' +
+  'u=https://github.com/BurntSushi/ripgrep/releases/download/$v/$n.tar.gz; ' +
+  'curl -fsSLO "$u"; curl -fsSLO "$u.sha256"; sha256sum -c "$n.tar.gz.sha256"; tar xzf "$n.tar.gz"; ' +
+  'sudo install -m 755 "$n/rg" /usr/local/bin/rg; /usr/local/bin/rg --version\''
+
+/** 「ripgrep を入れますか」を聞いたことの記録（`installKey:missing` / `installKey:outdated`）。 */
+const RIPGREP_ASKED_KEY = 'pike:ripgrep-asked'
+
+export type RipgrepNotice = 'missing' | 'outdated'
 
 export const useSearchStore = defineStore('search', () => {
   /**
@@ -27,7 +55,9 @@ export const useSearchStore = defineStore('search', () => {
    * **失敗もそのまま覚える。** grep への落ちは「検出できなかった」ではなく答えそのもので、
    * 覚えないと検索のたびに `wsl.exe` が 1 本上がる。
    */
-  const backendProbe = createShellProbe<SearchBackendInfo>((shell) => searchDetectBackend(shell).catch(() => GREP_ONLY))
+  const backendProbe = createShellProbe<SearchBackendInfo>((shell, _root, force) =>
+    searchDetectBackend(shell, force).catch(() => GREP_ONLY),
+  )
   /**
    * 今のシェルのバックエンド。**シェルごとの表を引く**ので、切り替えて probe が返るまでの
    * あいだ前のシェルの答え（別 distro の rg の機能）が出ることはない。
@@ -121,7 +151,67 @@ export const useSearchStore = defineStore('search', () => {
    */
   async function detectBackend(): Promise<void> {
     const projectStore = useProjectStore()
-    await backendProbe.ask(projectStore.currentProject?.shell, projectStore.activeRoot)
+    // **帯が出ているあいだ（rg が無い・古い）だけ、覚えた答えを捨てて聞き直す。** Pike の
+    // 導線を通さずに入れた rg（apt・手で置いたもの）を、再起動せずに拾うため。正常な環境では
+    // 聞き直さないので、パネルを開くたびに `wsl.exe` が増えることはない。
+    const retry = ripgrepNotice.value !== null
+    await backendProbe.ask(projectStore.currentProject?.shell, projectStore.activeRoot, retry)
+    void offerRipgrep()
+  }
+
+  /**
+   * WSL の ripgrep が無い・古い（inotify-tools と同じ導線）。**WSL だけ**: Windows と macOS は
+   * Pike が同梱する rg と比べて新しいほうを使うので、ここに来ない。grep に落ちると置換も
+   * PCRE2 も `.gitignore` の尊重も無くなる。
+   */
+  const ripgrepNotice = computed<RipgrepNotice | null>(() => {
+    const info = backendInfo.value
+    if (!info || useProjectStore().currentProject?.shell.kind !== 'wsl') return null
+    // **確かに無いときだけ**（Rust の `Probe::Missing`）。冷えた WSL の時間切れでも grep に
+    // 落ちるので、`backend === 'grep'` だけで見ると入っている人に sudo の導入を持ちかける。
+    if (info.rgMissing) return 'missing'
+    return info.outdated ? 'outdated' : null
+  })
+
+  /**
+   * 入れるか（更新するか）を 1 度だけ聞く。**聞く単位はシェルの導入単位と、無い / 古いの
+   * 別**（入れたあとで古いと分かることは無いが、古い rg を消した人にはもう一度聞く）。
+   * 譲り方と記録の順序は `askOnce` の doc。
+   */
+  async function offerRipgrep(): Promise<void> {
+    const kind = ripgrepNotice.value
+    const shell = useProjectStore().currentProject?.shell
+    if (!kind || !shell) return
+    const msg = t(`search.ripgrep.${kind}Prompt`, { version: backendInfo.value?.version ?? '' })
+    if (await askOnce(RIPGREP_ASKED_KEY, `${installKey(shell)}:${kind}`, msg)) installRipgrep()
+  }
+
+  /** 帯の文面とボタンの文言（パネルは読むだけ。`fsWatcher.noticeText` と同じ形）。 */
+  const ripgrepNoticeText = computed(() =>
+    ripgrepNotice.value
+      ? t(`search.ripgrep.${ripgrepNotice.value}`, { version: backendInfo.value?.version ?? '' })
+      : null,
+  )
+  const ripgrepActionLabel = computed(() =>
+    ripgrepNotice.value ? t(`search.ripgrep.${ripgrepNotice.value}Title`) : '',
+  )
+
+  /**
+   * 入れる（更新する）。パネルの帯のボタンもここを呼ぶ（「聞いたか」は見ない。
+   * `installInotify` と同じ理由）。終わったら検出をやり直す。
+   */
+  function installRipgrep(): void {
+    const projectStore = useProjectStore()
+    const shell = projectStore.currentProject?.shell
+    const root = projectStore.activeRoot
+    if (!shell) return
+    useTabStore().runCommandTab(INSTALL_RIPGREP, root, shell, {
+      title: ripgrepActionLabel.value,
+      keepOnError: true,
+      onExit: (code) => {
+        if (code === 0) void backendProbe.ask(shell, root, true)
+      },
+    })
   }
 
   async function search(options: SearchOptions) {
@@ -357,6 +447,9 @@ export const useSearchStore = defineStore('search', () => {
     replaceAll,
     backend,
     backendInfo,
+    ripgrepNoticeText,
+    ripgrepActionLabel,
+    installRipgrep,
     pendingOpen,
     requestOpen,
     resultsFor,

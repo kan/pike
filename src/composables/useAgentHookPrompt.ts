@@ -38,7 +38,7 @@ import { isMainWindow } from '../lib/window'
 import { useProjectStore } from '../stores/project'
 import { useStatusMessageStore } from '../stores/statusMessage'
 import { installKey } from '../types/tab'
-import { confirmDialog, dialogOpen } from './useConfirmDialog'
+import { askOnce } from './useConfirmDialog'
 
 /**
  * 聞いた記録の置き場。**末尾の版は、登録する hook の形（`HOOKS`）が変わったときに上げる。**
@@ -87,19 +87,12 @@ export async function offerAgentHook(): Promise<void> {
     return
   }
 
-  // **他のダイアログが開いていたら譲る**（記録もしない）。`confirmDialog` は開く前に
-  // 前のものを `dismiss()`＝**偽で解決**するので、割り込むと相手の答えを奪ううえ、
-  // 自分も「断られた」ことになって記録される。そうなるとそのシェルは二度と聞かれない。
-  // 起こりうるのは、`agentHookStatus` の probe（数秒）のあいだに一時プロジェクトの
-  // 「登録しますか」が出たときや、その最中にもう一度プロジェクトを切り替えたとき。
-  if (dialogOpen()) return
-
+  // 他のダイアログへの譲り方と記録の順序は `askOnce` の doc。取り合いが起きるのは、
+  // `agentHookStatus` の probe（数秒）のあいだに一時プロジェクトの「登録しますか」が
+  // 出たときや、その最中にもう一度プロジェクトを切り替えたとき。**答えに関わらず記録する**
+  // （断られたら聞かない、承諾されたら登録済みになる）のも `askOnce` の中。
   const dirs = status.targets.map((target) => `- ${target.configDir}`).join('\n')
-  const ok = await confirmDialog(t('settings.agentHookOffer', { dirs }))
-  // **答えに関わらず記録する。** 断られたら聞かない、承諾されたら登録済みになるので、
-  // どちらでも次はここへ来ない。
-  remember(key)
-  if (!ok) return
+  if (!(await askOnce(ASKED_KEY, key, t('settings.agentHookOffer', { dirs })))) return
   // **書けなかった宛先があることを黙って飲まない**（#320）。`agentHookInstallMissing` は
   // 「1 つでも書ければ成功」なので、承諾したのに一部だけ入っていない状態が普通に起きる。
   // 気付く先が設定画面しか無いと、hook が要る機能（通知・アカウントの申告）が動かない

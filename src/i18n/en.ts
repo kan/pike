@@ -775,6 +775,15 @@ export default {
   'search.extractTruncated': 'Stopped at {max} results',
   'search.extracting': 'Searching for "{query}"…',
   'search.extractFailed': 'Search failed',
+  'search.ripgrep.missing':
+    'ripgrep is not installed in WSL, so searches use grep. Replace, PCRE2, and .gitignore filtering are unavailable.',
+  'search.ripgrep.outdated': 'The ripgrep in WSL ({version}) is old; some features are unavailable.',
+  'search.ripgrep.missingPrompt':
+    'ripgrep was not found in WSL, so searches use grep. Replace, PCRE2, and .gitignore filtering are unavailable, and searching is slower.\n\nOpen a terminal and install ripgrep? (Downloads the official GitHub release into /usr/local/bin. You will be asked for your sudo password.)',
+  'search.ripgrep.outdatedPrompt':
+    'The ripgrep in WSL ({version}) is old; some features are unavailable.\n\nOpen a terminal and update to the latest release? (Downloads the official GitHub release into /usr/local/bin. You will be asked for your sudo password.)',
+  'search.ripgrep.missingTitle': 'Install ripgrep',
+  'search.ripgrep.outdatedTitle': 'Update ripgrep',
   'search.toggleReplace': 'Toggle Replace',
   'search.replacePlaceholder': 'Replace',
   'search.replaceAllTooltip': 'Replace All',

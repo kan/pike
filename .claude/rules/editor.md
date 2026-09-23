@@ -401,7 +401,14 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
   - 遅延マウントのパネルへ意思を届ける形（ストアの合図）と、その受け取り方は `stores/search.ts` の `pendingOpen` の doc コメントが正本
   - **「開いたら常にフォーカス」にしないこと。** `activePanel` は localStorage に残るので、検索を開いたまま終了すると次の起動でパネルが最初からマウントされる。そこでフォーカスを奪うとターミナルに打てない
   - **選択文字列は `useOutlineSource` の登録から取る**（専用のレジストリを足さない）。あそこに入っているのが「今見えているエディタ」であることは `OutlineSource.view` の doc が約束する。**ターミナルの選択は拾わない**（`terminal.getSelection()` はタブの中にしか無く、外から引く口が無い）
-- 初回利用時に `rg --version` で backend 判定、以降シェルごとにキャッシュして固定
+- 初回利用時に `rg --version` で backend 判定、以降シェルごとにキャッシュして固定（入れ直したあとだけ `search_detect_backend` の `refresh` で捨てる）
+- **WSL の ripgrep の導入・更新の導線**（inotify-tools の #385 と同じ形。`stores/search.ts` の `ripgrepNotice` / `offerRipgrep` / `installRipgrep`）。無い（grep に落ちた）か 13 以前（`RgCaps::outdated`）なら、シェルの導入単位ごとに 1 度だけ聞き、以後はパネルの帯にボタンを残す。**WSL だけ**（Windows と macOS は同梱の rg と比べて新しいほうを使う）
+  - **apt を使わない**。Ubuntu 22.04 の apt は 13 を入れるので、入れた直後に「古い」側へ回る。公式リリースの musl の tar.gz を sha256 で照合し、`/usr/local/bin` に `sudo install` する（`INSTALL_RIPGREP`）。**置き場を `~/.local/bin` にしないこと**: 検出と検索は `wsl.exe -e rg` で起こすので distro の既定の PATH しか見ず、`~/.local/bin` は入らない。`/usr/local/bin` はそこで `/usr/bin` より前にある（実測）
+  - **勧めるのは rg が確かに無いときだけ**（`SearchBackendInfo.rg_missing`。Rust の `Probe` が「起こせたが無い」と「時間切れ・起こせない」を分ける）。冷えた WSL の時間切れでも grep に落ちるので、`backend === 'grep'` で見ると入っている人に sudo の導入を持ちかける。**分からなかった grep は `UNCERTAIN_TTL`（60 秒）だけ覚える**（`SearchBackend::expired`）。ずっと覚えると冷えた起動の 1 回がプロセスの寿命ぶん残り、覚えないと WSL が遅いあいだ検索のたびに探し直す
+  - **「一度だけ聞く」の段取りは `useConfirmDialog.ts` の `askOnce`**（inotify-tools・hook の登録と共有）。他のダイアログへの譲り方、置き換えられたとき（`displaced`、#342）に記録しないこと、記録を答えのあとに書くことはあそこが持つ。**写さないこと**: 写していたころは `displaced` の扱いが 1 か所にしか無かった
+  - **帯が出ているあいだは、パネルを開くたびに検出をやり直す**（`detectBackend` が `force` で聞く＝Rust の `refresh` で覚えた答えを捨てる）。Pike の導線を通さずに入れた rg を再起動せずに拾うため。**正常な環境では聞き直さない**
+  - 帯の見た目は `components/ToolNotice.vue`（ファイル監視の帯と共有）。文面とボタンの文言はストア（`ripgrepNoticeText` / `ripgrepActionLabel`）
+  - 13 を境にしたのは、14 は 24.04 の apt が配る版で、置換も動く（`attach_replacements`）ため
 - rg: `rg --json -F/-e --glob` でパース容易な出力
 - grep: `grep -rn --include/--exclude` でフォールバック
 - フロントには検索バックエンドと rg の版をバッジ表示

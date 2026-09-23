@@ -774,6 +774,15 @@ export default {
   'search.extractTruncated': '{max} 件で打ち切りました',
   'search.extracting': '"{query}" を検索しています…',
   'search.extractFailed': '検索に失敗しました',
+  'search.ripgrep.missing':
+    'WSL に ripgrep が無いため grep で検索しています。置換・PCRE2・.gitignore による除外は使えません。',
+  'search.ripgrep.outdated': 'WSL の ripgrep（{version}）が古いため、使えない機能があります。',
+  'search.ripgrep.missingPrompt':
+    'WSL に ripgrep が見つからないため、grep で検索しています。置換・PCRE2・.gitignore による除外が使えず、検索も遅くなります。\n\nターミナルを開いて ripgrep をインストールしますか？（GitHub の公式リリースを取得し、/usr/local/bin に置きます。sudo のパスワードを聞かれます）',
+  'search.ripgrep.outdatedPrompt':
+    'WSL の ripgrep（{version}）が古いため、使えない機能があります。\n\nターミナルを開いて最新版に更新しますか？（GitHub の公式リリースを取得し、/usr/local/bin に置きます。sudo のパスワードを聞かれます）',
+  'search.ripgrep.missingTitle': 'ripgrep をインストール',
+  'search.ripgrep.outdatedTitle': 'ripgrep を更新',
   'search.toggleReplace': '置換を表示',
   'search.replacePlaceholder': '置換',
   'search.replaceAllTooltip': '一括で置換',
