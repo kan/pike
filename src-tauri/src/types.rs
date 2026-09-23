@@ -685,8 +685,8 @@ impl ShellConfig {
         )?;
         Ok((
             output.status.code().unwrap_or(-1),
-            into_lossy_string(output.stdout),
-            into_lossy_string(output.stderr),
+            decode_console_output(output.stdout),
+            decode_console_output(output.stderr),
         ))
     }
 
@@ -874,10 +874,12 @@ impl ShellConfig {
             }
         };
         let output = spawn_with_timeout(cmd, "shell", timeout)?;
+        // cmd 経由（Windows のシェル）では、cmd 自身のエラー文や組み込みコマンドの出力が
+        // コンソールの文字コードで来る。
         Ok((
             output.status.code().unwrap_or(-1),
-            into_lossy_string(output.stdout),
-            into_lossy_string(output.stderr),
+            decode_console_output(output.stdout),
+            decode_console_output(output.stderr),
         ))
     }
 
@@ -1096,6 +1098,70 @@ pub fn into_lossy_string(bytes: Vec<u8>) -> String {
     String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
+/// Windows のコンソールのプログラム（cmd の組み込みコマンドとエラー文、`where` など）の
+/// 出力を読む。**UTF-8 として読めなければ、コンソールの文字コード（OEM。日本語の Windows
+/// では Shift_JIS）で読み直す。**
+///
+/// パイプへ書くときの文字コードはプログラムごとに違い、1 回の出力に混ざりうる（`git` や
+/// `node` は UTF-8、cmd の「認識されていません」は OEM）。UTF-8 を先に試すのは、Shift_JIS
+/// の日本語が UTF-8 として正しく読めることはまず無いため。`into_lossy_string` で読むと
+/// 日本語が置換文字に化け、それがパスならそのまま化けたパスとして使われる。
+///
+/// Windows 以外では `into_lossy_string` と同じ（OEM の文字コードという考えが無い）。
+#[cfg(windows)]
+pub fn decode_console_output(bytes: Vec<u8>) -> String {
+    // SAFETY: 引数を取らず、システムの設定を返すだけ。
+    let cp = unsafe { windows::Win32::Globalization::GetOEMCP() };
+    match codepage_encoding(cp) {
+        Some(enc) => decode_or(bytes, enc),
+        None => into_lossy_string(bytes),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn decode_console_output(bytes: Vec<u8>) -> String {
+    into_lossy_string(bytes)
+}
+
+/// UTF-8 として読み、読めない**行だけ** `fallback` で読む。
+///
+/// **行ごとに決める。** 全体で決めると、1 行だけ Shift_JIS が混ざった出力（Problems の
+/// リンタが元のソース行を引用する、cmd のエラー文が UTF-8 の出力に挟まる）で UTF-8 の
+/// 行まで Shift_JIS として読み、日本語が化けるうえ、2 バイト文字が後ろの `:` を
+/// 取り込んで `path:line:col:` の解析が外れる。
+#[cfg(any(windows, test))]
+fn decode_or(bytes: Vec<u8>, fallback: &'static encoding_rs::Encoding) -> String {
+    let bytes = match String::from_utf8(bytes) {
+        Ok(s) => return s,
+        Err(e) => e.into_bytes(),
+    };
+    let mut out = String::with_capacity(bytes.len());
+    for line in bytes.split_inclusive(|&b| b == b'\n') {
+        match std::str::from_utf8(line) {
+            Ok(s) => out.push_str(s),
+            Err(_) => out.push_str(&fallback.decode_without_bom_handling(line).0),
+        }
+    }
+    out
+}
+
+/// コードページ番号から encoding_rs の文字コードへ。**encoding_rs に無いもの（437 / 850 など
+/// 西欧の OEM）は `None`**（置換文字で読む。これまでと同じ）。
+#[cfg(windows)]
+fn codepage_encoding(cp: u32) -> Option<&'static encoding_rs::Encoding> {
+    use encoding_rs::{Encoding, BIG5, EUC_KR, GBK, IBM866, SHIFT_JIS, UTF_8};
+    match cp {
+        932 => Some(SHIFT_JIS),
+        936 => Some(GBK),
+        949 => Some(EUC_KR),
+        950 => Some(BIG5),
+        866 => Some(IBM866),
+        65001 => Some(UTF_8),
+        874 | 1250..=1258 => Encoding::for_label(format!("windows-{cp}").as_bytes()),
+        _ => None,
+    }
+}
+
 /// 1 行ずつ読む。**バッファを 1 本使い回す**（#382）。
 ///
 /// **`BufReader::lines()` を使わないこと。** あれは行ごとに `String` を確保する。
@@ -1178,10 +1244,10 @@ pub fn drain_stderr(source: impl Read) -> String {
 fn spawn_stdout(cmd: Command, label: &str) -> Result<String, String> {
     let output = spawn_with_timeout(cmd, label, DEFAULT_TIMEOUT)?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = decode_console_output(output.stderr);
         return Err(format!("{label} error: {stderr}"));
     }
-    Ok(into_lossy_string(output.stdout))
+    Ok(decode_console_output(output.stdout))
 }
 
 /// Run a closure in a background thread with a timeout.
@@ -1542,6 +1608,38 @@ pub struct MenuAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// コンソールの出力は UTF-8 で読めればそのまま、読めなければコンソールの文字コードで
+    /// 読み直す（日本語の Windows の cmd は Shift_JIS で書く。実測の `dir` の出力の形）。
+    #[test]
+    fn console_output_falls_back_to_the_oem_code_page() {
+        let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode(r"C:\Users\kan\日本語\同期.json");
+        let sjis = sjis.into_owned();
+        let oem = encoding_rs::SHIFT_JIS;
+        assert_eq!(
+            decode_or(sjis.clone(), oem),
+            r"C:\Users\kan\日本語\同期.json"
+        );
+        // UTF-8 で書くプログラム（git など）の出力は、OEM に関係なくそのまま読む。
+        assert_eq!(decode_or("日本語".as_bytes().to_vec(), oem), "日本語");
+        // **行ごとに決める**: Shift_JIS の行が混ざっても、UTF-8 の行は UTF-8 のまま読む。
+        let mut mixed = "a.go:1:2: 日本語の指摘\n".as_bytes().to_vec();
+        mixed.extend_from_slice(&sjis);
+        assert_eq!(
+            decode_or(mixed, oem),
+            "a.go:1:2: 日本語の指摘\nC:\\Users\\kan\\日本語\\同期.json"
+        );
+    }
+
+    /// 対応表に無いコードページ（西欧の OEM）は `None`＝置換文字で読む。
+    #[cfg(windows)]
+    #[test]
+    fn codepages_map_to_encodings() {
+        assert_eq!(codepage_encoding(932), Some(encoding_rs::SHIFT_JIS));
+        assert_eq!(codepage_encoding(1252), Some(encoding_rs::WINDOWS_1252));
+        assert_eq!(codepage_encoding(874), Some(encoding_rs::WINDOWS_874));
+        assert!(codepage_encoding(437).is_none());
+    }
 
     /// 通知の宛先は**自分のビルドが先頭で、もう一方も必ず入る**（#333）。片方しか
     /// 見ていないと、開発版とインストール版のあいだで hook の通知が届かない。

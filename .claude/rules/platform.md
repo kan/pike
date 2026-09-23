@@ -217,6 +217,23 @@ target_os = "macos")))`）はどちらのジョブにも出てこない**ので�
 `choose folder` / `choose file` / `choose file name`（`lib.rs`）。**キャンセルの見分け方が違う**:
 PowerShell 版は「空文字」、`osascript` は「終了コード 1」なので、成功したときだけ stdout を見る。
 
+**PowerShell の出力は UTF-8 に固定する**（`dialog::powershell` の先頭の
+`[Console]::OutputEncoding`）。パイプへの出力は既定でコンソールの文字コード（日本語の
+Windows では Shift_JIS）になり、選んだパスに日本語があると化ける。**化けたパスはその
+まま使われる**: 設定の同期ファイルの置き場で、化けた名前のフォルダとファイルが作られた。
+
+**Windows のコンソールのプログラムの出力は `types::decode_console_output` で読む**
+（`ShellConfig` の `run` / `run_stdout` / `run_shell_line` はこれを通す。Windows 以外では
+`into_lossy_string` と同じ）。UTF-8 として
+読めない**行だけ** OEM の文字コード（`GetOEMCP`）で読み直す。全体で決めると、1 行混ざった
+Shift_JIS のせいで UTF-8 の行まで化け、Problems の `path:line:col:` の解析が外れる。cmd の組み込みコマンド（`dir`・
+`echo`）とエラー文は OEM で書き、**`chcp 65001` を前に置いても組み込みコマンドには
+効かない**（`where` のような外部コマンドには効く。実測）。一方 git や node は UTF-8 で
+書くので、1 回の出力に両方が混ざりうる。**cmd の組み込みコマンドの出力を読む経路は
+増やさないこと**。ファイル一覧の切り戻しは `dir` をやめて `fs::list_files_native` にし、
+Git Bash の場所は `where git` をやめて PATH を自分で歩く（`find_pwsh_path` と同じ）。
+**プロセスを起こさずに済むなら、そもそも出力を読まない**のがいちばん確か。
+
 **Windows では pwsh があればそちらで出す**（#271）。PowerShell 7 は .NET 5+ なので、同じ
 `FolderBrowserDialog` がモダンなダイアログになり、アドレス欄でパスを打て、ナビゲーション
 ペインに WSL の「Linux」が出る。`powershell.exe`（.NET Framework）は旧式の「フォルダーの

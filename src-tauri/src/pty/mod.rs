@@ -291,30 +291,19 @@ fn find_git_bash() -> Result<String, String> {
             return Ok(path.to_owned());
         }
     }
-    // Try PATH (with 5s timeout to avoid hanging)
-    if let Ok(child) = crate::types::silent_command("where")
-        .arg("git")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        let pid = child.id();
-        if let Ok(output) = crate::types::wait_with_timeout(
-            pid,
-            std::time::Duration::from_secs(5),
-            "where git",
-            move || child.wait_with_output(),
-        ) {
-            if let Ok(git_path) = String::from_utf8(output.stdout) {
-                if let Some(line) = git_path.lines().next() {
-                    let git_dir = std::path::Path::new(line.trim());
-                    if let Some(parent) = git_dir.parent().and_then(|p| p.parent()) {
-                        let bash = parent.join("bin").join("bash.exe");
-                        if bash.exists() {
-                            return Ok(bash.to_string_lossy().into_owned());
-                        }
-                    }
-                }
+    // PATH の git.exe から辿る（`find_pwsh_path` と同じく自分で歩く）。以前は `where git` を
+    // 起こしていたが、あれはコンソールの文字コードで書くので、日本語を含むパスが UTF-8 として
+    // 読めずに「見つからない」扱いになっていた。
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    for dir in std::env::split_paths(&path_var) {
+        if !dir.join("git.exe").is_file() {
+            continue;
+        }
+        // `<Git>/cmd/git.exe` → `<Git>/bin/bash.exe`
+        if let Some(root) = dir.parent() {
+            let bash = root.join("bin").join("bash.exe");
+            if bash.is_file() {
+                return Ok(bash.to_string_lossy().into_owned());
             }
         }
     }

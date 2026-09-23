@@ -148,10 +148,17 @@ pub fn walk_files_by_name(
         }
         _ => {
             let mut results = Vec::new();
+            // 探す名前（`package.json` / `Makefile` / `Cargo.toml` …）はすべて ASCII なので、
+            // 大小の畳み方を ASCII に閉じてよい。非 ASCII のファイル名は、どちらの畳み方でも
+            // これらと一致しない。**小文字に揃えて渡す必要は無い**（#382）。
+            let accept = |name: &str| names.iter().any(|n| n.eq_ignore_ascii_case(name));
             walk_native(
                 std::path::Path::new(root),
-                names,
-                max_depth,
+                &Walk {
+                    max_depth,
+                    cap: usize::MAX,
+                    accept: &accept,
+                },
                 0,
                 &mut results,
             );
@@ -160,17 +167,38 @@ pub fn walk_files_by_name(
     }
 }
 
-/// `names` は探すファイル名（大小は問わない）。**小文字に揃えて渡す必要は無い**（#382）:
-/// 比較は `eq_ignore_ascii_case` なので、呼ぶ側で `to_lowercase` の Vec を作るのは
-/// 死んだ仕事だった。
-fn walk_native(
-    dir: &std::path::Path,
-    names: &[&str],
+/// ホスト上のファイルを `cap` 件まで並べる（`IGNORED_DIRS` は飛ばす）。rg が無いときの
+/// Ctrl+P のファイル一覧（`search::list_project_files`）が使う。
+///
+/// **cmd の `dir /S /B` に戻さないこと**（日本語のファイル名が化ける。理由は
+/// `.claude/rules/platform.md` の「ダイアログ」）。
+pub fn list_files_native(root: &str, cap: usize) -> Vec<String> {
+    let mut results = Vec::new();
+    walk_native(
+        std::path::Path::new(root),
+        &Walk {
+            max_depth: u32::MAX,
+            cap,
+            accept: &|_| true,
+        },
+        0,
+        &mut results,
+    );
+    results
+}
+
+/// `walk_native` の条件。
+struct Walk<'a> {
     max_depth: u32,
-    depth: u32,
-    results: &mut Vec<String>,
-) {
-    if depth >= max_depth {
+    /// ここまで集めたら止める。
+    cap: usize,
+    /// ファイル名で拾うか決める。
+    accept: &'a dyn Fn(&str) -> bool,
+}
+
+/// ホスト上を再帰でたどり、`accept` が通したファイルを集める（`IGNORED_DIRS` は飛ばす）。
+fn walk_native(dir: &std::path::Path, walk: &Walk, depth: u32, results: &mut Vec<String>) {
+    if depth >= walk.max_depth || results.len() >= walk.cap {
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -178,24 +206,30 @@ fn walk_native(
     };
     for entry in entries.flatten() {
         // **名前で `String` を作らない**（#382）。`to_string_lossy()` は正常な UTF-8 なら
-        // `Cow::Borrowed` を返すので、`.to_string()` を付けた時点で写しが 1 本、
-        // `to_lowercase()` でもう 1 本増える。ここはタスク検出と compose 探索が深さ 5 まで
-        // 歩く経路で、実リポジトリでは 5,000〜50,000 エントリになる。
+        // `Cow::Borrowed` を返すので、`.to_string()` を付けた時点で写しが 1 本増える。
+        // ここはタスク検出と compose 探索が深さ 5 まで歩く経路で、実リポジトリでは
+        // 5,000〜50,000 エントリになる。
         // （`file_name()` が返す `OsString` だけは `DirEntry` の仕様で避けられない。）
         let raw = entry.file_name();
         let name = raw.to_string_lossy();
-        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            if IGNORED_DIRS.contains(&name.as_ref()) {
-                continue;
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            if !IGNORED_DIRS.contains(&name.as_ref()) {
+                walk_native(&entry.path(), walk, depth + 1, results);
             }
-            walk_native(&entry.path(), names, max_depth, depth + 1, results);
-        } else if names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
-            // 探す名前（`package.json` / `Makefile` / `Cargo.toml` …）はすべて ASCII なので、
-            // 大小の畳み方を ASCII に閉じてよい。非 ASCII のファイル名は、どちらの畳み方でも
-            // これらと一致しない。
-            if let Some(p) = entry.path().to_str() {
-                results.push(p.to_owned());
+        } else if (walk.accept)(&name)
+            // ディレクトリを指す symlink / ジャンクションは飛ばす（`file_type` はリンクを
+            // 辿らないので、そのままだとファイルとして拾う）。**辿りはしない**: 循環しうる。
+            && !(kind.is_symlink() && std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir()))
+        {
+            if let Ok(p) = entry.path().into_os_string().into_string() {
+                results.push(p);
             }
+        }
+        if results.len() >= walk.cap {
+            return;
         }
     }
 }
@@ -1132,6 +1166,25 @@ fn copy_dir_recursive(src: &str, dst: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 日本語の名前をそのまま返し、除外ディレクトリの中は並べない。上限で止まる。
+    #[test]
+    fn list_files_native_keeps_multibyte_names() {
+        let dir = std::env::temp_dir().join(format!("pike-list-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("日本語").join("node_modules")).unwrap();
+        std::fs::write(dir.join("日本語").join("ファイル.txt"), "").unwrap();
+        std::fs::write(dir.join("日本語").join("node_modules").join("x.js"), "").unwrap();
+
+        let files = list_files_native(dir.to_str().unwrap(), 100);
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("ファイル.txt"), "{files:?}");
+        assert!(files[0].contains("日本語"));
+
+        std::fs::write(dir.join("b.txt"), "").unwrap();
+        assert_eq!(list_files_native(dir.to_str().unwrap(), 1).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// ホストのシェル（`Unix` の腕）。symlink を作れる OS でしか意味が無いので、
     /// この 2 本は `cfg(unix)`＝**CI の macOS ジョブでだけ走る**（`platform.md`）。

@@ -282,8 +282,7 @@ pub async fn list_project_files(
         let cmd = if let Some((program, _)) = backend.as_rg() {
             shell.command(program, &["--files", "--", &root])
         } else if shell.is_posix() {
-            // Fallback to find (POSIX) or dir (Windows). macOS のローカルシェルも
-            // find 側（`cmd.exe` に落とすと Ctrl+P の一覧が丸ごと空になる）。
+            // Fallback to find (POSIX). macOS のローカルシェルも find 側。
             shell.command(
                 "find",
                 &[
@@ -302,7 +301,9 @@ pub async fn list_project_files(
                 ],
             )
         } else {
-            shell.command("cmd.exe", &["/C", &format!("dir /S /B /A:-D \"{root}\"")])
+            // Windows のシェルはホストのファイルシステムなので、プロセスを起こさずに歩く
+            // （cmd の `dir` は日本語のファイル名を化かす。`fs::list_files_native` の doc）。
+            return Ok(crate::fs::list_files_native(&root, MAX_FILES));
         };
 
         // 検索と同じく上限で打ち切る（#257）。大きなリポジトリでは `--files` の出力も

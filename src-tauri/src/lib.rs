@@ -1253,6 +1253,8 @@ mod dialog {
             if !output.status.success() {
                 return Ok(None);
             }
+            // UTF-8 で読めるのは、PowerShell 側で出力の文字コードを固定しているから
+            // （`powershell`）。osascript は元から UTF-8。
             let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
             Ok(if path.is_empty() { None } else { Some(path) })
         })
@@ -1268,7 +1270,12 @@ mod dialog {
     /// は旧式の「フォルダーの参照」ツリーで、UNC を打ち込む手段が無い。
     #[cfg(windows)]
     async fn powershell(script: String) -> Result<Option<String>, String> {
-        let cmd = format!("Add-Type -AssemblyName System.Windows.Forms; {script}");
+        // **出力を UTF-8 に固定する**（BOM なし）。既定のままだと日本語のパスが化ける
+        // （理由は `.claude/rules/platform.md` の「ダイアログ」）。
+        let cmd = format!(
+            "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false; \
+             Add-Type -AssemblyName System.Windows.Forms; {script}"
+        );
         // pwsh の探索は PATH を辿る stat の連なりなので、実行と同じくブロッキング側で行う
         // （`spawn` が `spawn_blocking` を使っているのと同じ理由。ここで直に呼ぶと、
         // ダイアログを開くたびに tokio のワーカーが PTY の出力ごと止まる）。

@@ -104,6 +104,8 @@ windows = { version = "0.62", features = [
     # そのブラー領域 (CreateRectRgn / DeleteObject)
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
+    # cmd やダイアログの出力を読むためのコンソールの文字コード（GetOEMCP）
+    "Win32_Globalization",
     "Win32_System_Com",
     # jumplist: PROPVARIANT の手組み (VT_LPWSTR) と Variant 定数
     "Win32_System_Com_StructuredStorage",
