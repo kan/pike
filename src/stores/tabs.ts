@@ -802,7 +802,7 @@ export const useTabStore = defineStore('tabs', () => {
    * タイトルは英語リテラル: 表示名は `tabDisplayTitle` が kind から i18n を引くので、
    * ここの値はフォールバック。
    */
-  function openSimpleSingleton(kind: 'agent-status' | 'sync-conflicts', title: string): string {
+  function openSimpleSingleton(kind: 'agent-status' | 'sync-conflicts' | 'sync-import', title: string): string {
     const existing = tabs.value.find((t) => t.kind === kind)
     if (existing) {
       activeTabId.value = existing.id
@@ -821,6 +821,11 @@ export const useTabStore = defineStore('tabs', () => {
   /** 設定の同期の衝突を解消するタブ（#403）。 */
   function addSyncConflictsTab(): string {
     return openSimpleSingleton('sync-conflicts', 'Sync Conflicts')
+  }
+
+  /** インポートで取り込む項目を選ぶタブ（#403 の段階 5）。 */
+  function addSyncImportTab(): string {
+    return openSimpleSingleton('sync-import', 'Import Settings')
   }
 
   /** Open (or focus) the singleton manual viewer, navigating it to `page`. */
@@ -1406,6 +1411,7 @@ export const useTabStore = defineStore('tabs', () => {
     addSettingsTab,
     addAgentStatusTab,
     addSyncConflictsTab,
+    addSyncImportTab,
     addManualTab,
     addIssueTab,
     addCommitTab,

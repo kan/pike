@@ -28,6 +28,7 @@ import {
   categoryOf,
   fromItems,
   fromSyncFile,
+  importSyncItems,
   itemKey,
   mergeSyncItems,
   nextBaseline,
@@ -37,14 +38,17 @@ import {
   SYNC_CATEGORIES,
   type SyncCategory,
   type SyncMerge,
+  type SyncSource,
   toItems,
   toSyncFile,
   withUnsyncedFromRemote,
 } from '../lib/syncFormat'
-import { type Side, type SyncConflict, stableKey } from '../lib/syncMerge'
+import { type Side, type SyncConflict, type SyncItems, stableKey } from '../lib/syncMerge'
 import {
   type GhPlace,
   type GistError,
+  pickOpenFile,
+  pickSaveFile,
   settingsSyncRead,
   settingsSyncWrite,
   syncGistCreate,
@@ -54,7 +58,7 @@ import {
 } from '../lib/tauri'
 import { isMainWindow, windowFocused } from '../lib/window'
 import { useProjectStore } from './project'
-import { useSettingsStore } from './settings'
+import { type PersistedSettings, useSettingsStore } from './settings'
 
 /** 同期する種類（マシンごと。同期しない）。 */
 const CATEGORIES_KEY = 'pike:sync-categories'
@@ -68,6 +72,12 @@ const BASE_KEY_PREFIX = 'pike:sync-base:'
 const LAST_KEY_PREFIX = 'pike:sync-last:'
 /** Gist ごとの、このマシンが最後に書いた版の時刻（古い読み込みを見分ける）。 */
 const WRITTEN_KEY_PREFIX = 'pike:sync-written:'
+
+/**
+ * 同期ファイルの既定の名前（固定のパスの同期先を選ぶときと、エクスポートの保存先）。Gist の
+ * 中のファイル名（`settings_gist.rs` の `FILE_NAME`）とも揃えてある。
+ */
+export const SYNC_FILE_NAME = 'pike-settings.json'
 
 const STATE_EVENT = 'pike://sync-state'
 const COMMAND_EVENT = 'pike://sync-command'
@@ -183,6 +193,10 @@ function parseFile(raw: string | null): Record<string, unknown> {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error(t('sync.unreadable'))
   return parsed as Record<string, unknown>
 }
+
+/** インポートで取り込む項目の数（ファイルの側を選んだもの。手元のままは選ばなかったのと同じ）。 */
+export const importChosenCount = (choices: ReadonlyMap<string, Side>) =>
+  [...choices.values()].filter((s) => s === 'remote').length
 
 /** 失敗を画面の文言にする。`gh` の失敗は種類で届く（`GistError`）。 */
 export function describeError(e: unknown): string {
@@ -307,6 +321,55 @@ export const useSyncStore = defineStore('sync', () => {
    */
   const isCurrent = (b: SyncBackend) => backend.value?.key === b.key
 
+  /** 手元の今の内容（同期とエクスポート・インポートが共有する）。 */
+  function readLocal() {
+    const snapshot = settings.snapshot()
+    const localSrc: SyncSource = {
+      settings: snapshot as unknown as Record<string, unknown>,
+      projects: projectStore.syncableProjects(),
+      // 写しを取る（反映のときに「同期の最中に変わったか」をこれと比べる）。
+      groups: [...projectStore.groups],
+    }
+    return { snapshot, localSrc }
+  }
+
+  /** 導出のキー（古い版の Pike が読む）は今の値で入れ直す（`DERIVED_SETTING_KEYS`）。 */
+  const derivedOf = (s: PersistedSettings) => ({
+    darkMode: s.darkMode,
+    agentProfiles: s.agentProfiles,
+    agentCommands: s.agentCommands,
+  })
+
+  /**
+   * 手元へ反映する。**マージに使った手元の値（`before`）から変わったものだけを当てる。**
+   * 同期の最中に利用者が変えたものを、開始時点の値で巻き戻さないため。戻り値は知らせる文言。
+   */
+  async function applyLocal(result: SyncItems, before: SyncItems, localSrc: SyncSource): Promise<string> {
+    let summary = ''
+    const changedSettings: Record<string, unknown> = {}
+    let projectsChanged = false
+    for (const key of new Set([...result.keys(), ...before.keys()])) {
+      const v = result.get(key)
+      if (stableKey(v) === stableKey(before.get(key))) continue
+      const k = parseItemKey(key)
+      // 設定の項目は消えることが無い（既定の値がある）ので、値のあるものだけ。
+      if (k[0] !== 'setting') projectsChanged = true
+      else if (v !== undefined) changedSettings[k[1]] = v
+    }
+    if (Object.keys(changedSettings).length > 0) settings.applySyncedSettings(changedSettings)
+    // プロジェクトに変化が無ければ反映を飛ばす（一覧の読み直しと比べ直しが要らない）。
+    if (projectsChanged) {
+      const src = fromItems(result)
+      const r = await projectStore.applySyncedProjects(
+        { projects: src.projects, groups: src.groups },
+        { projects: localSrc.projects, groups: localSrc.groups },
+      )
+      // 作れないものだけなら出さない（同期のたびに同じ件数が出るだけになる）。
+      if (r.created + r.updated + r.removed > 0) summary = t('sync.projectSummary', { ...r })
+    }
+    return summary
+  }
+
   /** 1 回ぶん。読んでから書くまでにリモートが変わっていたら false（読み直してやり直す）。 */
   async function syncOnce(backend: SyncBackend, choices: ReadonlyMap<string, Side>) {
     const { file, revision } = await backend.read()
@@ -316,13 +379,7 @@ export const useSyncStore = defineStore('sync', () => {
     // **プロジェクトの一覧が読み込み済みであることを確かめてから比べる。** 読み込みの前
     // （起動直後）に比べると、手元の一覧が空のまま「全部消した」と読まれて、他の PC からも消える。
     if (enabled.has('projects')) await projectStore.ensureListsLoaded()
-    const snapshot = settings.snapshot()
-    const localSrc = {
-      settings: snapshot as unknown as Record<string, unknown>,
-      projects: projectStore.syncableProjects(),
-      // 写しを取る（反映のときに「同期の最中に変わったか」をこれと比べる）。
-      groups: [...projectStore.groups],
-    }
+    const { snapshot, localSrc } = readLocal()
     const m = mergeSyncItems(
       storedBase && onlyCategories(storedBase, enabled),
       onlyCategories(toItems(localSrc), enabled),
@@ -335,11 +392,7 @@ export const useSyncStore = defineStore('sync', () => {
     const forRemote = resolveSyncItems(m, choices, 'remote')
 
     // 導出のキー（古い版の Pike が読む）は今の値で入れ直す（`DERIVED_SETTING_KEYS`）。
-    const out = toSyncFile(withUnsyncedFromRemote(forRemote, remoteAll, enabled), {
-      darkMode: snapshot.darkMode,
-      agentProfiles: snapshot.agentProfiles,
-      agentCommands: snapshot.agentCommands,
-    })
+    const out = toSyncFile(withUnsyncedFromRemote(forRemote, remoteAll, enabled), derivedOf(snapshot))
     // 変わらなければ書かない（同期先に毎回「更新された」ものを作らない）。
     if (stableKey(out) !== stableKey(file)) {
       // **読んだときから変わっていないかを確かめてから書く。** 変わっていたら読み直す。
@@ -347,31 +400,10 @@ export const useSyncStore = defineStore('sync', () => {
       await backend.write(JSON.stringify(out, null, 2))
     }
 
-    // **手元へは、マージに使った手元の値から変わったものだけを反映する。** 同期の最中に
-    // 利用者が変えたものを、開始時点の値で巻き戻さないため。
-    let summary = ''
-    const changedSettings: Record<string, unknown> = {}
-    let projectsChanged = false
-    for (const key of new Set([...forLocal.keys(), ...m.local.keys()])) {
-      const v = forLocal.get(key)
-      if (stableKey(v) === stableKey(m.local.get(key))) continue
-      const k = parseItemKey(key)
-      // 設定の項目は消えることが無い（既定の値がある）ので、値のあるものだけ。
-      if (k[0] !== 'setting') projectsChanged = true
-      else if (v !== undefined) changedSettings[k[1]] = v
-    }
+    // 同期の反映は自分の変更ではないので、自動の同期の契機にしない（前後で印を付ける。反映の
+    // 途中で走る watcher も数えないため）。インポートは手元の変更なので付けない。
     appliedAt = Date.now()
-    if (Object.keys(changedSettings).length > 0) settings.applySyncedSettings(changedSettings)
-    // プロジェクトに変化が無ければ反映を飛ばす（一覧の読み直しと比べ直しが要らない）。
-    if (projectsChanged) {
-      const src = fromItems(forLocal)
-      const r = await projectStore.applySyncedProjects(
-        { projects: src.projects, groups: src.groups },
-        { projects: localSrc.projects, groups: localSrc.groups },
-      )
-      // 作れないものだけなら出さない（同期のたびに同じ件数が出るだけになる）。
-      if (r.created + r.updated + r.removed > 0) summary = t('sync.projectSummary', { ...r })
-    }
+    const summary = await applyLocal(forLocal, m.local, localSrc)
     appliedAt = Date.now()
 
     // 同期しない種類の baseline は前のまま残す（戻したときに、そのあいだの差を比べられる）。
@@ -461,6 +493,76 @@ export const useSyncStore = defineStore('sync', () => {
     if (prevKey !== nextKey) scheduleAuto(0)
   }
 
+  // --- エクスポート / インポート（段階 5。毎回ファイルを選ぶ。どのウィンドウでも動く） ---
+
+  /**
+   * 手元の内容を同期ファイルと同じ形で書き出す。**同期する種類の選択に依らず全部**
+   * （バックアップなので、このマシンで同期を切っている種類も残したい）。
+   */
+  async function exportTo(path: string): Promise<void> {
+    await projectStore.ensureListsLoaded()
+    const { snapshot, localSrc } = readLocal()
+    const out = toSyncFile(toItems(localSrc), derivedOf(snapshot))
+    await settingsSyncWrite(path, JSON.stringify(out, null, 2))
+  }
+
+  /**
+   * 取り込むファイルと手元の差（インポートのタブが並べる）。**ウィンドウごとに持つ**: 読んだ
+   * ウィンドウでそのまま選んで当てるだけで、同期のように main に集める理由が無い。
+   */
+  const importReview = ref<{ path: string; items: SyncConflictView[] } | null>(null)
+  /** 当てるときに使うマージの結果。大きな Map なので reactive にしない。 */
+  let importMerge: { m: SyncMerge; localSrc: SyncSource } | null = null
+  const importMessage = ref('')
+
+  /** ファイルを読んで、手元との差を並べる（まだ何も当てない）。 */
+  async function loadImport(path: string): Promise<void> {
+    const [raw] = await Promise.all([settingsSyncRead(path), projectStore.ensureListsLoaded()])
+    if (raw === null) throw new Error(t('sync.importMissing'))
+    const fileSrc = fromSyncFile(parseFile(raw))
+    const { localSrc } = readLocal()
+    // 手元で作られないプロジェクトは並べない（反映が黙って飛ばすもの。判定は反映と共有する）。
+    const creatable = projectStore.creatableSyncedIds(fileSrc.projects)
+    const m = importSyncItems(toItems(localSrc), toItems(fileSrc), (id) => !creatable.has(id))
+    importMerge = { m, localSrc }
+    importReview.value = { path, items: viewConflicts(m.conflicts, m) }
+    importMessage.value = ''
+  }
+
+  /** 選んだ項目（`remote`＝ファイルの側）だけを取り込む。残りは捨てる。 */
+  async function applyImport(choices: ReadonlyMap<string, Side>): Promise<void> {
+    if (!importMerge) return
+    const { m, localSrc } = importMerge
+    // 取り込んだものは手元の変更として、自動の同期の監視が拾って同期先へ出す（main 以外では、
+    // 設定は broadcast、プロジェクトは作ったものも含めて `project_updated` で main へ届く）。
+    const summary = await applyLocal(resolveSyncItems(m, choices, 'local'), m.local, localSrc)
+    const count = importChosenCount(choices)
+    cancelImport()
+    importMessage.value = [t('sync.imported', { count }), summary].filter(Boolean).join(' ')
+  }
+
+  /** 読んだ差を捨てる（当てたとき・インポートのタブを閉じたとき）。 */
+  function cancelImport() {
+    importMerge = null
+    importReview.value = null
+  }
+
+  /** ファイルを選ばせて読む（設定画面とインポートのタブが共有）。選ばなければ false。 */
+  async function chooseImportFile(): Promise<boolean> {
+    const path = await pickOpenFile(['json'])
+    if (!path) return false
+    await loadImport(path)
+    return true
+  }
+
+  /** 保存先を選ばせて書き出す。選ばなければ null、書いたら書いた先。 */
+  async function chooseExportFile(): Promise<string | null> {
+    const path = await pickSaveFile(SYNC_FILE_NAME)
+    if (!path) return null
+    await exportTo(path)
+    return path
+  }
+
   // --- 自動の同期（Gist だけ、main だけ） ---
 
   let autoTimer: ReturnType<typeof setTimeout> | null = null
@@ -543,5 +645,11 @@ export const useSyncStore = defineStore('sync', () => {
     createGist,
     syncNow,
     resolveConflicts,
+    importReview,
+    importMessage,
+    applyImport,
+    cancelImport,
+    chooseImportFile,
+    chooseExportFile,
   }
 })

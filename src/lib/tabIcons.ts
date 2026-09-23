@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  FileInput,
   Gauge,
   GitCommitHorizontal,
   GitMerge,
@@ -38,6 +39,7 @@ export const TAB_KIND_ICONS: Record<Tab['kind'], Component | null> = {
   settings: Settings,
   'agent-status': Gauge,
   'sync-conflicts': GitMerge,
+  'sync-import': FileInput,
   manual: BookOpen,
   // サイドバーの issue パネルと同じアイコン（#278）。
   issue: ListTodo,

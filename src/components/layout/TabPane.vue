@@ -56,6 +56,7 @@ const TAB_COMPONENTS: Record<Tab['kind'], unknown> = {
   settings: SettingsTab,
   'agent-status': AgentStatusTab,
   'sync-conflicts': SyncConflictsTab,
+  'sync-import': SyncConflictsTab,
   manual: ManualTab,
   issue: IssueTab,
   commit: CommitTab,

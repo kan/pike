@@ -6,30 +6,92 @@
  * **中身は同期の調停役（`stores/sync.ts`）が持つ。** 選んだら、その選択を持ってもう一度
  * 同期する（読み直してマージし直すので、選んでいるあいだにリモートが変わっても古い値で
  * 上書きしない）。選ばなかった項目は保留のまま残る。
+ *
+ * **インポート（`sync-import`、段階 5）も同じ画面で描く。** こちらは「手元」と「取り込む
+ * ファイル」を並べ、ファイルの側を選んだ項目だけを取り込む（選ばなかった項目は手元のまま）。
+ * 保留は無いので、当てたら一覧は閉じる。
  */
 
-import { GitMerge, RefreshCw } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { FileInput, GitMerge, RefreshCw } from 'lucide-vue-next'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { absoluteDate } from '../../lib/paths'
 import { parseItemKey, SYNC_CATEGORIES } from '../../lib/syncFormat'
 import type { Side } from '../../lib/syncMerge'
-import { type SyncConflictView, useSyncStore } from '../../stores/sync'
+import { describeError, importChosenCount, type SyncConflictView, useSyncStore } from '../../stores/sync'
+import { useTabStore } from '../../stores/tabs'
 import HelpButton from '../HelpButton.vue'
+
+const props = defineProps<{ tabId: string }>()
 
 const { t } = useI18n()
 const sync = useSyncStore()
-const busy = computed(() => sync.syncing)
+const tabStore = useTabStore()
+/** タブの種別は作ったあと変わらないので、1 度だけ読む。 */
+const isImport = tabStore.tabs.find((x) => x.id === props.tabId)?.kind === 'sync-import'
 
-/** 項目ごとの選択。衝突の一覧が変わったら、今も残っている項目のぶんだけ持ち越す。 */
-const choices = ref(new Map<string, Side>())
-watch(
-  () => sync.conflicts,
-  (list) => {
-    const keys = new Set(list.map((c) => c.key))
-    choices.value = new Map([...choices.value].filter(([k]) => keys.has(k)))
-  },
+/** 画面の文言（i18n のキー）。2 つの画面の違いをここに集め、テンプレートでは分岐しない。 */
+const TEXT = isImport
+  ? {
+      title: 'sync.importTitle',
+      help: 'settings.md#エクスポートとインポート',
+      allLocal: 'sync.importNone',
+      allRemote: 'sync.importAll',
+      chosen: 'sync.importChosen',
+      apply: 'sync.importApply',
+      remote: 'sync.importFile',
+    }
+  : {
+      title: 'sync.conflictsTitle',
+      help: 'settings.md#設定の同期',
+      allLocal: 'sync.allLocal',
+      allRemote: 'sync.allRemote',
+      chosen: 'sync.chosen',
+      apply: 'sync.apply',
+      remote: 'sync.remote',
+    }
+const hint = computed(() =>
+  isImport ? 'sync.importHint' : sync.firstSync ? 'sync.firstSyncHint' : 'sync.conflictsHint',
 )
+
+/** インポートのファイルを読む・当てるあいだ（同期と違ってストアに印が無い）。 */
+const importing = ref(false)
+const importError = ref('')
+const busy = computed(() => (isImport ? importing.value : sync.syncing))
+const error = computed(() =>
+  isImport ? importError.value : sync.status === 'error' ? t('sync.error', { message: sync.message }) : '',
+)
+
+/** 並べる項目。インポートは読んだファイルとの差、同期は保留中の衝突。 */
+const items = computed(() => (isImport ? (sync.importReview?.items ?? []) : sync.conflicts))
+
+/**
+ * 項目ごとの選択。同期の衝突は、一覧が変わっても今も残っている項目のぶんを持ち越す（同じ
+ * 項目の同じ対立）。**インポートは読み直したら捨てる**: 同じキーでも値は別のファイルのもので、
+ * 見ていない値を取り込むことになる。
+ */
+const choices = ref(new Map<string, Side>())
+watch(items, (list) => {
+  const keys = new Set(list.map((c) => c.key))
+  choices.value = isImport ? new Map() : new Map([...choices.value].filter(([k]) => keys.has(k)))
+})
+
+// 読んだ差はタブを閉じたら要らない（ストアに残すと、開き直したときに古い一覧が出る）。
+onUnmounted(() => {
+  if (isImport) sync.cancelImport()
+})
+
+async function runImport(run: () => Promise<unknown>) {
+  importing.value = true
+  importError.value = ''
+  try {
+    await run()
+  } catch (e) {
+    importError.value = describeError(e)
+  } finally {
+    importing.value = false
+  }
+}
 
 function choose(key: string, side: Side) {
   const next = new Map(choices.value)
@@ -38,11 +100,12 @@ function choose(key: string, side: Side) {
 }
 
 function chooseAll(side: Side) {
-  choices.value = new Map(sync.conflicts.map((c) => [c.key, side]))
+  choices.value = new Map(items.value.map((c) => [c.key, side]))
 }
 
 function apply() {
-  sync.resolveConflicts(choices.value)
+  if (isImport) void runImport(() => sync.applyImport(choices.value))
+  else sync.resolveConflicts(choices.value)
 }
 
 /** プロジェクトのフィールドの名前（`sync.field.<名前>`）。訳が無ければフィールド名のまま。 */
@@ -87,41 +150,48 @@ function show(c: SyncConflictView, v: unknown): string {
 const groups = computed(() =>
   SYNC_CATEGORIES.map((category) => ({
     category,
-    rows: sync.conflicts
+    rows: items.value
       .filter((c) => c.category === category)
       .map((c) => ({ key: c.key, label: label(c), local: show(c, c.local), remote: show(c, c.remote) })),
   })).filter((g) => g.rows.length > 0),
 )
 
-const chosenCount = computed(() => choices.value.size)
+const chosenCount = computed(() => (isImport ? importChosenCount(choices.value) : choices.value.size))
 </script>
 
 <template>
   <div class="sync-conflicts">
     <header class="head">
       <h1>
-        <GitMerge :size="16" :stroke-width="2" />
-        <span>{{ t('sync.conflictsTitle') }}</span>
+        <FileInput v-if="isImport" :size="16" :stroke-width="2" />
+        <GitMerge v-else :size="16" :stroke-width="2" />
+        <span>{{ t(TEXT.title) }}</span>
       </h1>
       <div class="head-actions">
-        <button class="btn" :disabled="busy" @click="sync.syncNow()">
+        <button v-if="isImport" class="btn" :disabled="busy" @click="runImport(sync.chooseImportFile)">
+          <RefreshCw v-if="busy" :size="13" :stroke-width="2" class="spin" />
+          <FileInput v-else :size="13" :stroke-width="2" />
+          <span>{{ t('sync.importChoose') }}</span>
+        </button>
+        <button v-else class="btn" :disabled="busy" @click="sync.syncNow()">
           <RefreshCw :size="13" :stroke-width="2" :class="{ spin: busy }" />
           <span>{{ t('sync.syncNow') }}</span>
         </button>
-        <HelpButton page="settings.md#設定の同期" :size="15" />
+        <HelpButton :page="TEXT.help" :size="15" />
       </div>
     </header>
 
-    <p v-if="sync.status === 'error'" class="error">{{ t('sync.error', { message: sync.message }) }}</p>
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="isImport && sync.importReview" class="hint">{{ t('sync.importFrom', { path: sync.importReview.path }) }}</p>
 
-    <template v-if="sync.conflicts.length > 0">
-      <p class="hint">{{ t(sync.firstSync ? 'sync.firstSyncHint' : 'sync.conflictsHint') }}</p>
+    <template v-if="items.length > 0">
+      <p class="hint">{{ t(hint) }}</p>
       <div class="bulk">
-        <button class="btn" :disabled="busy" @click="chooseAll('local')">{{ t('sync.allLocal') }}</button>
-        <button class="btn" :disabled="busy" @click="chooseAll('remote')">{{ t('sync.allRemote') }}</button>
+        <button class="btn" :disabled="busy" @click="chooseAll('local')">{{ t(TEXT.allLocal) }}</button>
+        <button class="btn" :disabled="busy" @click="chooseAll('remote')">{{ t(TEXT.allRemote) }}</button>
         <span class="spacer" />
-        <span class="muted">{{ t('sync.chosen', { chosen: chosenCount, total: sync.conflicts.length }) }}</span>
-        <button class="accent-btn" :disabled="busy || chosenCount === 0" @click="apply">{{ t('sync.apply') }}</button>
+        <span class="muted">{{ t(TEXT.chosen, { chosen: chosenCount, total: items.length }) }}</span>
+        <button class="accent-btn" :disabled="busy || chosenCount === 0" @click="apply">{{ t(TEXT.apply) }}</button>
       </div>
 
       <section v-for="g in groups" :key="g.category" class="group">
@@ -137,7 +207,7 @@ const chosenCount = computed(() => choices.value.size)
               :disabled="busy"
               @click="choose(row.key, side)"
             >
-              <span class="side-head">{{ t(side === 'local' ? 'sync.local' : 'sync.remote') }}</span>
+              <span class="side-head">{{ t(side === 'local' ? 'sync.local' : TEXT.remote) }}</span>
               <pre class="value">{{ row[side] }}</pre>
             </button>
           </div>
@@ -145,6 +215,9 @@ const chosenCount = computed(() => choices.value.size)
       </section>
     </template>
 
+    <p v-else-if="isImport" class="empty">
+      {{ sync.importMessage || t(sync.importReview ? 'sync.importNoDiff' : 'sync.importEmpty') }}
+    </p>
     <p v-else class="empty">
       {{ t('sync.noConflicts') }}
       <template v-if="sync.lastSyncedAt">

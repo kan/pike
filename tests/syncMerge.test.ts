@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   fromItems,
+  importSyncItems,
   itemKey,
   mergeSyncItems,
   nextBaseline,
@@ -287,5 +288,50 @@ describe('ファイルの形', () => {
     const out = withUnsyncedFromRemote(merged, remote, new Set(['settings', 'projects']))
     assert.equal(out.get(s('fontSize')), 14)
     assert.equal(out.has(s('browserBookmarks')), false)
+  })
+})
+
+describe('importSyncItems', () => {
+  const local = src({ settings: { fontSize: 13, theme: 'dark' }, projects: [proj('a', { color: 'red' })] })
+  const file = src({
+    settings: { fontSize: 16, theme: 'dark', futureKey: 1 },
+    projects: [proj('a', { color: 'blue', path: 'moved' }), proj('b', { color: 'green' })],
+  })
+  const m = importSyncItems(toItems(local), toItems(file))
+  const keys = m.conflicts.map((c) => c.key)
+
+  test('手元と違う項目だけを並べ、知らない設定と既存のプロジェクトの置き場所は並べない', () => {
+    assert.ok(keys.includes(s('fontSize')))
+    assert.ok(keys.includes(pf('a', 'color')))
+    assert.ok(!keys.includes(s('theme')))
+    assert.ok(!keys.includes(s('futureKey')))
+    assert.ok(!keys.includes(pf('a', 'path')))
+  })
+
+  test('手元に無いプロジェクトは有無の 1 行にまとめ、取り込むとフィールドも付いてくる', () => {
+    assert.ok(keys.includes(p('b')))
+    assert.ok(!keys.includes(pf('b', 'color')))
+    const out = resolveSyncItems(m, new Map([[p('b'), 'remote']]), 'local')
+    assert.equal(out.get(pf('b', 'color')), 'green')
+    assert.equal(out.get(pf('b', 'path')), 'b')
+    // 選ばなかった項目は手元のまま。
+    assert.equal(out.get(s('fontSize')), 13)
+    assert.equal(out.get(pf('a', 'color')), 'red')
+  })
+
+  test('手元で作れないプロジェクトは並べず、並び順は共通の要素の相対順だけで比べる', () => {
+    const here = src({ projects: [proj('a', { order: 0 }), proj('c', { order: 1 })] })
+    const there = src({ projects: [proj('a', { order: 0 }), proj('b', { order: 1 }), proj('c', { order: 2 })] })
+    const r = importSyncItems(toItems(here), toItems(there), (id) => id === 'b')
+    assert.deepEqual(
+      r.conflicts.map((c) => c.key),
+      [],
+    )
+  })
+
+  test('選ばなければ何も変わらず、手元にだけある項目も消えない', () => {
+    const only = importSyncItems(toItems(src({ projects: [proj('x')] })), toItems(src({})))
+    const out = resolveSyncItems(only, new Map(), 'local')
+    assert.equal(stableKey([...out]), stableKey([...only.local]))
   })
 })

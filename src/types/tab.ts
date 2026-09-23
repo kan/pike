@@ -369,10 +369,14 @@ export type AgentStatusTab = {
   pinned: boolean
 }
 
-/** 設定の同期の衝突を解消するタブ（#403）。中身は同期の調停役（`stores/sync.ts`）が持つ。 */
+/**
+ * 設定の同期の衝突を解消するタブと、インポートで取り込む項目を選ぶタブ（#403）。中身は同期の
+ * 調停役（`stores/sync.ts`）が持ち、描くのは同じ `SyncConflictsTab.vue`（どちらも「手元と
+ * もう一方の値を並べて、項目ごとに選ぶ」画面）。
+ */
 export type SyncConflictsTab = {
   id: string
-  kind: 'sync-conflicts'
+  kind: 'sync-conflicts' | 'sync-import'
   title: string
   pinned: boolean
 }
@@ -502,7 +506,7 @@ export type TabPlacement = {
  * `lib/tabTitle.ts`（名前を i18n から引く側）が同じ集合を別々に持っていたので、
  * 4 つ目を足したときに片方だけ直すと無言でずれる。
  */
-export const SINGLETON_KINDS = ['settings', 'agent-status', 'manual', 'sync-conflicts'] as const
+export const SINGLETON_KINDS = ['settings', 'agent-status', 'manual', 'sync-conflicts', 'sync-import'] as const
 
 export function isSingletonTab(kind: Tab['kind']): boolean {
   return (SINGLETON_KINDS as readonly string[]).includes(kind)

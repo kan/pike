@@ -444,6 +444,7 @@ pub async fn project_get(
 #[tauri::command]
 pub async fn project_create(
     config: ProjectConfig,
+    window: Window,
     state: State<'_, ProjectState>,
 ) -> Result<ProjectConfig, String> {
     validate_slug(&config.id, "Project ID")?;
@@ -451,7 +452,21 @@ pub async fn project_create(
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     fs::write(project_file(&state, &config.id), content).map_err(|e| e.to_string())?;
+    // 作ったことも `project_update` と同じ口で知らせる（#403）。同期するのは main だけなので、
+    // 他のウィンドウで登録・取り込んだプロジェクトが main の一覧に入らないと、同期先へ出ない。
+    emit_project_updated(&window, config.clone());
     Ok(config)
+}
+
+/// 他のウィンドウにメモリ上の写しを差し替えさせる（受け側は `applyExternalUpdate`）。
+fn emit_project_updated(window: &Window, config: ProjectConfig) {
+    let _ = window.app_handle().emit(
+        "project_updated",
+        ProjectUpdatedPayload {
+            source_label: window.label().to_owned(),
+            config,
+        },
+    );
 }
 
 #[derive(Clone, Serialize)]
@@ -478,13 +493,7 @@ pub async fn project_update(
     // Broadcast so other windows refresh their in-memory copy; without this,
     // their full-object writes (session flush / project switch) would revert
     // the edit with stale data.
-    let _ = window.app_handle().emit(
-        "project_updated",
-        ProjectUpdatedPayload {
-            source_label: window.label().to_owned(),
-            config,
-        },
-    );
+    emit_project_updated(&window, config);
     Ok(())
 }
 

@@ -820,6 +820,77 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /**
+   * 手元のプロジェクトがどこにあり、どこから clone したものか（同期で入ってきたものが
+   * 「既に持っているもの」かを見る鍵）。id は鍵にならない: 別々に登録したマシンごとに 1 つの
+   * リポジトリが別の id を持つので、置き場所と origin でも照合する。origin は正規化して比べる
+   * （同じリポジトリが `git@host:owner/repo.git` と `https://host/owner/repo` の両方で届く）。
+   */
+  function localIdentities() {
+    const compactSet = (values: (string | null | undefined)[]) => new Set(values.filter((v): v is string => !!v))
+    return {
+      roots: compactSet(projects.value.map((p) => rootKey(p.root))),
+      remotes: compactSet(projects.value.map((p) => normalizeRemoteUrl(p.remoteUrl))),
+    }
+  }
+
+  type CreatePlan =
+    | { kind: 'create'; root: string; key: string; remote: string | null }
+    | { kind: 'skip' | 'unresolvable' }
+
+  /**
+   * 手元に無い同期のエントリを、このマシンで作るか（#403）。**反映（`applySyncedProjects`）と
+   * インポートの一覧（`creatableSyncedIds`）がこの 1 つを読む**: 片方だけ判定を足すと、
+   * 一覧に「取り込める」と出たものが黙って作られない、またはその逆が起きる。
+   * 重複の判定と削除の判定を並べて持つのも同じ理由（どちらかだけ直すと、複製か復活が出る）。
+   * 副作用は持たない（消した記録を外すのは作ると決めた呼び出し側）。
+   */
+  function planSyncedCreate(entry: SyncedProject, seen: { roots: Set<string>; remotes: Set<string> }): CreatePlan {
+    const settings = useSettingsStore()
+    const base = settings.projectBase
+    // #403 より前の記録（このマシンでだけ隠す）は作らない。削除を伝える記録（`shared`）が
+    // 結果にあるのは、衝突やインポートで「残す」を選んだときなので作り直す。
+    if (settings.isProjectHidden(entry.id) && !settings.isProjectDeletedForSync(entry.id)) return { kind: 'skip' }
+    const baseDir = isProjectPlatform(entry.platform) ? baseForPlatform(base, entry.platform) : ''
+    // Unresolvable here: an unknown platform, no base for it, or (for WSL) no
+    // distro to resolve it in. The entry stays in the file for a machine that has one.
+    if (!baseDir || (entry.platform === 'wsl' && !base.wslDistro)) return { kind: 'unresolvable' }
+    const root = joinBase(baseDir, entry.path, entry.platform)
+    const key = rootKey(root)
+    if (seen.roots.has(key)) return { kind: 'skip' }
+    const remote = normalizeRemoteUrl(entry.remoteUrl)
+    if (remote && seen.remotes.has(remote)) return { kind: 'skip' }
+    // A sibling entry for a repository deleted here (another machine's id for the
+    // same checkout) is recognised by where it lands and what it clones from.
+    // そのエントリ自身の記録は数えない（上で作り直すと決めたもの）。
+    const deleted = settings.hiddenProjects.some(
+      (h) =>
+        h.id !== entry.id &&
+        ((h.root && rootKey(h.root) === key) || (remote && normalizeRemoteUrl(h.remoteUrl) === remote)),
+    )
+    return deleted ? { kind: 'skip' } : { kind: 'create', root, key, remote }
+  }
+
+  /**
+   * 同期のエントリのうち、手元に無く、このマシンで作られるものの id（インポートの一覧が、
+   * 取り込んでも何も起きない行を出さないために使う）。同じリポジトリのエントリが 2 つあれば、
+   * 反映と同じく先のものだけ。
+   */
+  function creatableSyncedIds(entries: SyncedProject[]): Set<string> {
+    const seen = localIdentities()
+    const ids = new Set(projects.value.map((p) => p.id))
+    const out = new Set<string>()
+    for (const entry of entries) {
+      if (ids.has(entry.id)) continue
+      const plan = planSyncedCreate(entry, seen)
+      if (plan.kind !== 'create') continue
+      out.add(entry.id)
+      seen.roots.add(plan.key)
+      if (plan.remote) seen.remotes.add(plan.remote)
+    }
+    return out
+  }
+
+  /**
    * 同期のマージの結果（#403）を手元に反映する。**決めるのはマージの側**で、ここは言われた
    * 状態に合わせるだけ。
    *
@@ -851,20 +922,8 @@ export const useProjectStore = defineStore('project', () => {
     // 差し替わり、`currentProject` とずれる。書いたものは `saveProject` が 1 件ずつ差し替える。
     const fresh = await projectList()
     const known = new Map(fresh.map((p) => [p.id, p]))
-    // What counts as "a project this machine already decided about", by every
-    // key that survives the trip through the file. Ids do not: one repository
-    // ends up with an id per machine that registered it separately, so an entry
-    // is matched by where it lands and what it clones from as well.
-    //
-    // Kept together because the two readers below must agree — the dedup, so a
-    // second copy is not created and then pushed back, and the deletion check,
-    // so a sibling entry cannot recreate what was deleted here. Origins compare
-    // normalized: the same repository reaches the file as
-    // `git@host:owner/repo.git` from one machine and `https://host/owner/repo`
-    // from another, and a raw comparison reads those as two projects.
-    const compactSet = (values: (string | null | undefined)[]) => new Set(values.filter((v): v is string => !!v))
-    const localRemotes = compactSet(projects.value.map((p) => normalizeRemoteUrl(p.remoteUrl)))
-    const localRoots = compactSet(projects.value.map((p) => rootKey(p.root)))
+    // 作ったものも鍵に足していく（同じリポジトリのエントリが 2 つあれば先のものだけ作る）。
+    const seen = localIdentities()
     // Patches to known projects go out together at the end: a shared order (#203)
     // touches every project in a reordered group.
     const patched: ProjectConfig[] = []
@@ -880,31 +939,12 @@ export const useProjectStore = defineStore('project', () => {
         if (changed.length > 0) patched.push({ ...local, ...Object.fromEntries(changed.map((f) => [f, entry[f]])) })
         continue
       }
-      if (settings.isProjectHidden(entry.id)) {
-        // #403 より前の記録（このマシンでだけ隠す）は作らない。
-        if (!settings.isProjectDeletedForSync(entry.id)) continue
-        // 衝突で「残す」を選んだ（手元で消していた）もの。記録を外して作り直す。
-        settings.unhideProject(entry.id)
-      }
-      const baseDir = isProjectPlatform(entry.platform) ? baseForPlatform(base, entry.platform) : ''
-      // Unresolvable here: an unknown platform, no base for it, or (for WSL) no
-      // distro to resolve it in. The entry stays in the file for a machine that has one.
-      if (!baseDir || (entry.platform === 'wsl' && !base.wslDistro)) {
-        result.unresolvable++
-        continue
-      }
-      const root = joinBase(baseDir, entry.path, entry.platform)
-      const key = rootKey(root)
-      if (localRoots.has(key)) continue
-      const remote = normalizeRemoteUrl(entry.remoteUrl)
-      if (remote && localRemotes.has(remote)) continue
-      // A sibling entry for a repository deleted here (another machine's id for the
-      // same checkout) is recognised by where it lands and what it clones from.
-      // 読むのはここ（ループの前に集めない）: すぐ上で記録を外したものを数えないため。
-      const deleted = settings.hiddenProjects.some(
-        (h) => (h.root && rootKey(h.root) === key) || (remote && normalizeRemoteUrl(h.remoteUrl) === remote),
-      )
-      if (deleted) continue
+      const plan = planSyncedCreate(entry, seen)
+      if (plan.kind === 'unresolvable') result.unresolvable++
+      if (plan.kind !== 'create') continue
+      const { root, key, remote } = plan
+      // 衝突で「残す」を選んだ（手元で消していた）もの。記録を外して作り直す。
+      if (settings.isProjectHidden(entry.id)) settings.unhideProject(entry.id)
       await addProject({
         id: entry.id,
         name: entry.name,
@@ -921,8 +961,8 @@ export const useProjectStore = defineStore('project', () => {
         golangciCommand: entry.golangciCommand,
         order: entry.order,
       }).catch(() => {})
-      localRoots.add(key)
-      if (remote) localRemotes.add(remote)
+      seen.roots.add(key)
+      if (remote) seen.remotes.add(remote)
       result.created++
     }
     result.updated = patched.length
@@ -1381,6 +1421,9 @@ export const useProjectStore = defineStore('project', () => {
   function applyExternalUpdate(config: ProjectConfig) {
     const idx = projects.value.findIndex((p) => p.id === config.id)
     if (idx !== -1) projects.value[idx] = config
+    // 他のウィンドウで作られたもの（`project_create` も同じ口で知らせる）。一覧をまだ読んで
+    // いないウィンドウには足さない（読むときにディスクから入る。足すと読んだことになりかねない）。
+    else if (projectsLoaded) projects.value.unshift(config)
     if (currentProject.value?.id === config.id) {
       currentProject.value = { ...config, lastSession: currentProject.value.lastSession }
     }
@@ -1452,6 +1495,7 @@ export const useProjectStore = defineStore('project', () => {
     byRecency,
     unsyncableProjects,
     syncableProjects,
+    creatableSyncedIds,
     applySyncedProjects,
     checkRoots,
     cloneProject,

@@ -67,6 +67,7 @@ import {
 } from '../../stores/settings'
 import {
   describeError as describeSyncError,
+  SYNC_FILE_NAME,
   SYNC_TARGET_KINDS,
   type SyncTargetKind,
   useSyncStore,
@@ -332,7 +333,7 @@ const sync = useSyncStore()
 const syncTargetOptions = SYNC_TARGET_KINDS.map((value) => ({ value, labelKey: `sync.target.${value}` }))
 
 async function browseSyncFile() {
-  const path = await pickSaveFile('pike-settings.json')
+  const path = await pickSaveFile(SYNC_FILE_NAME)
   if (path) sync.setTarget({ filePath: path })
 }
 
@@ -377,6 +378,30 @@ function chooseGist(id: string) {
 
 function createGist() {
   void withGist('create', () => sync.createGist(sync.target.ghPlace))
+}
+
+// --- エクスポート / インポート（#403 の段階 5。毎回ファイルを選ぶ） ---
+
+const backupBusy = ref<'export' | 'import' | null>(null)
+/** 直前の結果（文言と、失敗かどうかは対で持つ）。 */
+const backupResult = ref<{ text: string; error: boolean } | null>(null)
+
+async function runBackup(kind: 'export' | 'import') {
+  backupBusy.value = kind
+  backupResult.value = null
+  try {
+    if (kind === 'export') {
+      const path = await sync.chooseExportFile()
+      if (path) backupResult.value = { text: t('sync.exported', { path }), error: false }
+    } else if (await sync.chooseImportFile()) {
+      // 取り込む項目はタブで選ぶ（読んだだけでは何も変えない）。
+      tabStore.addSyncImportTab()
+    }
+  } catch (e) {
+    backupResult.value = { text: describeSyncError(e), error: true }
+  } finally {
+    backupBusy.value = null
+  }
 }
 
 /** 同期する種類（#403。マシンごと）の切り替え。 */
@@ -1449,6 +1474,25 @@ const PREVIEW_LINES = [
           </div>
           <p v-if="restoreMessage" class="setting-hint">{{ restoreMessage }}</p>
         </SettingItem>
+
+        <!-- 同期先に依らず使える（同期しないマシンでもバックアップは取れる）。 -->
+        <SettingGroup title-key="sync.backup">
+          <SettingItem label-key="sync.backupFile" hint-key="sync.backupHint" wide>
+            <div class="sync-actions">
+              <button class="update-btn" :disabled="backupBusy !== null" @click="runBackup('export')">
+                <Loader v-if="backupBusy === 'export'" :size="14" :stroke-width="2" class="spin" />
+                {{ t('sync.export') }}
+              </button>
+              <button class="update-btn" :disabled="backupBusy !== null" @click="runBackup('import')">
+                <Loader v-if="backupBusy === 'import'" :size="14" :stroke-width="2" class="spin" />
+                {{ t('sync.import') }}
+              </button>
+              <span v-if="backupResult" class="update-info" :class="backupResult.error ? 'update-err' : 'update-ok'">
+                {{ backupResult.text }}
+              </span>
+            </div>
+          </SettingItem>
+        </SettingGroup>
       </SettingSection>
 
       <!-- About / Update -->

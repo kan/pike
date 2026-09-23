@@ -87,6 +87,15 @@ export function appendMissing(head: readonly string[], candidates: readonly stri
   return out
 }
 
+/** 2 つの並びが、共通の要素の相対順で同じか（`merge3` と同じく、片方にしか無い要素は数えない）。 */
+export function sameSharedOrder(a: readonly string[], b: readonly string[]): boolean {
+  const inA = new Set(a)
+  const inB = new Set(b)
+  const sa = a.filter((x) => inB.has(x))
+  const sb = b.filter((x) => inA.has(x))
+  return sa.length === sb.length && sa.every((x, i) => x === sb[i])
+}
+
 const allKeys = (...maps: (SyncItems | null)[]) => new Set(maps.flatMap((m) => (m ? [...m.keys()] : [])))
 
 /** 並び順の項目を、3 者に共通する要素だけに絞る（相対順だけを比べるため）。 */

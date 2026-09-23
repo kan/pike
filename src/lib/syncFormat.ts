@@ -22,7 +22,18 @@
 
 import type { PersistedSettings } from '../stores/settings'
 import type { SyncedProject } from '../types/project'
-import { appendMissing, asList, type MergeResult, merge3, resolve, type Side, type SyncItems } from './syncMerge'
+import {
+  appendMissing,
+  asList,
+  type MergeResult,
+  merge3,
+  resolve,
+  type Side,
+  type SyncConflict,
+  type SyncItems,
+  sameSharedOrder,
+  stableKey,
+} from './syncMerge'
 
 /** 同期の対象の種類（#403）。種類ごとに同期するかを切り替えられる。 */
 export type SyncCategory = 'settings' | 'projects' | 'bookmarks'
@@ -286,6 +297,51 @@ export function mergeSyncItems(
  * 動かないので、次の同期で手元の値が「変えた」ことになって交互に書き換わる。
  */
 const CREATE_ONLY_FIELDS: ReadonlySet<string> = new Set(['platform', 'path'] satisfies (keyof SyncedProject)[])
+
+/**
+ * インポート（#403 の段階 5）。**取り込むファイルの値を手元に重ねたもの**をリモートとし、
+ * 手元と違う項目を全部「選ぶ対象」（`conflicts`）として並べる。`resolveSyncItems` に
+ * `fallback: 'local'` で渡せば、選んだものだけを取り込んだ手元になる。
+ *
+ * 3-way ではない（取り込むファイルとのあいだに共通の過去が無い）。そのうえで次の 3 つを守る。
+ *
+ * - **手元にだけあるものは消さない**。ファイルに無いことは「消した」ではなく「そのファイルが
+ *   知らない」（古いバックアップを戻して、あとで足したプロジェクトが消えては困る）
+ * - **手元に無いプロジェクトは有無の 1 行にまとめる**。フィールドは取り込むと決めたときに
+ *   ファイルから一緒に持ってくる（`resolve` の親子の扱い）。フィールドを 1 つずつ選ばせると
+ *   半分だけのプロジェクトができる
+ * - **取り込んでも何も起きない行は並べない**。この版が知らない設定、既にあるプロジェクトの
+ *   置き場所（作るときにしか使わない。`CREATE_ONLY_FIELDS`）、手元で作れないと分かっている
+ *   プロジェクト（`ignoreProject`＝基準のディレクトリの外にある・消した記録がある・同じ
+ *   リポジトリを別の id で持っている。反映の側が黙って飛ばす）
+ * - **並び順は共通の要素の相対順だけで比べる**（`merge3` と同じ）。丸ごと比べると、
+ *   プロジェクトが 1 つ多いだけで並びの行が出て、選ぶと手元にだけあるものが末尾へ動く
+ */
+export function importSyncItems(
+  local: SyncItems,
+  imported: SyncItems,
+  ignoreProject: (id: string) => boolean = () => false,
+): SyncMerge {
+  const remote: SyncItems = new Map(local)
+  const conflicts: SyncConflict[] = []
+  for (const [key, v] of imported) {
+    const k = parseItemKey(key)
+    if (k[0] === 'setting' && !local.has(key)) continue
+    const present = k[0] === 'project' && local.has(itemKey(['project', k[1]]))
+    const field = k[0] === 'project' && k.length === 3
+    if (k[0] === 'project' && !present && ignoreProject(k[1])) continue
+    if (field && present && CREATE_ONLY_FIELDS.has(k[2])) continue
+    remote.set(key, v)
+    // 手元に無いプロジェクトのフィールドは、有無の行と一緒に持ってくる（行は出さない）。
+    if (field && !present) continue
+    if (k[0] === 'order' && sameSharedOrder(asList(local.get(key)), asList(v))) continue
+    if (stableKey(local.get(key)) !== stableKey(v)) {
+      conflicts.push({ key, base: undefined, local: local.get(key), remote: v })
+    }
+  }
+  // `merged` は読むだけ（`resolve` が写してから書く）なので、手元をそのまま渡す。
+  return { merged: local, conflicts, base: null, local, remote }
+}
 
 /** 衝突の選択を反映して最終的な項目を作る。選ばれていない衝突は `fallback` の側。 */
 export function resolveSyncItems(m: SyncMerge, choices: ReadonlyMap<string, Side>, fallback?: Side): SyncItems {

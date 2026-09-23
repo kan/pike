@@ -15,6 +15,7 @@ import { isSingletonTab, type SINGLETON_KINDS, type Tab } from '../types/tab'
 const SINGLETON_TITLE_KEYS: Record<(typeof SINGLETON_KINDS)[number], string> = {
   'agent-status': 'agentStatus.title',
   'sync-conflicts': 'sync.conflictsTitle',
+  'sync-import': 'sync.importTitle',
   settings: 'settings.title',
   manual: 'manual.title',
 }
