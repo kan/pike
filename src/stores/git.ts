@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { confirmDialog, secretDialog } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
+import { isRespelling } from '../lib/gitRemote'
 import {
   gitBranchList,
   gitCheckout,
@@ -16,6 +17,7 @@ import {
   gitPull,
   gitPush,
   gitRemoteUrl,
+  gitSetOrigin,
   gitSshAdd,
   gitStage,
   gitStatus,
@@ -654,9 +656,21 @@ export const useGitStore = defineStore('git', () => {
     // 「worktree に居るか」なので、そのものを見る。
     const url = remoteUrl.value
     const projectStore = useProjectStore()
-    if (url && projectStore.activeWorktreeRoot === null && project.remoteUrl !== url) {
-      projectStore.saveProject({ ...project, remoteUrl: url }).catch(() => {})
+    if (!url || projectStore.activeWorktreeRoot !== null || project.remoteUrl === url) return
+    // **同じリポジトリの書き方違い（ssh / https）なら、記録ではなく手元の origin を記録に
+    // そろえる**（#403）。記録し直すと、端末ごとの書き方が同期のたびに衝突していた。記録は
+    // 同期された値で、利用者が選んだ書き方でもある。別のリポジトリなら従来どおり記録する。
+    if (project.remoteUrl && isRespelling(url, project.remoteUrl)) {
+      const wanted = project.remoteUrl
+      await gitSetOrigin(root, project.shell, wanted).then(
+        () => {
+          if (remoteResolvedFor.value === project.id) remoteUrl.value = wanted
+        },
+        () => {},
+      )
+      return
     }
+    projectStore.saveProject({ ...project, remoteUrl: url }).catch(() => {})
   }
 
   async function initRepo() {

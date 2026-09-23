@@ -1943,6 +1943,7 @@ pub fn run() {
             git::git_create_branch,
             git::git_remote_url,
             git::git_remote_urls,
+            git::git_set_origin,
             git::git_fetch,
             git::git_push,
             git::git_pull,

@@ -3,7 +3,6 @@ import {
   Bot,
   ChevronDown,
   ChevronUp,
-  Eye,
   Loader,
   Monitor,
   Moon,
@@ -408,24 +407,6 @@ async function runBackup(kind: 'export' | 'import') {
 function setSyncCategory(c: SyncCategory, on: boolean) {
   const list = sync.categories.filter((x) => x !== c)
   sync.setCategories(on ? [...list, c] : list)
-}
-
-/** 「戻す」の結果の知らせ（戻らないことがあるので、黙らない）。 */
-const restoreMessage = ref('')
-
-/**
- * このマシンで消した記録を外して同期する。同期ファイルにまだ残っていれば作り直される
- * （他のマシンが持ち続けているとき）。消したことが既に伝わってファイルから消えていれば
- * 戻らない。**同期先が無ければ記録を外さない**（外しても戻る道が無く、一覧から消えるだけ）。
- */
-function restoreProject(id: string) {
-  if (!sync.hasTarget) {
-    restoreMessage.value = t('sync.restoreNoTarget')
-    return
-  }
-  settings.unhideProject(id)
-  restoreMessage.value = t('sync.restoreRequested')
-  sync.syncNow()
 }
 
 /**
@@ -1456,23 +1437,6 @@ const PREVIEW_LINES = [
           <p v-if="sync.hasTarget && projectStore.unsyncableProjects.length > 0" class="setting-hint">
             {{ t('settings.projectBaseOutside', { count: projectStore.unsyncableProjects.length }) }}
           </p>
-        </SettingItem>
-
-        <SettingItem
-          v-if="settings.hiddenProjects.length > 0"
-          label-key="settings.hiddenProjects"
-          hint-key="settings.hiddenProjectsHint"
-          wide
-        >
-          <div class="setting-list">
-            <div v-for="p in settings.hiddenProjects" :key="p.id" class="setting-list-row">
-              <span class="setting-list-name">{{ p.name }}</span>
-              <button class="icon-btn" :title="t('settings.hiddenProjectsRestore')" @click="restoreProject(p.id)">
-                <Eye :size="14" :stroke-width="2" />
-              </button>
-            </div>
-          </div>
-          <p v-if="restoreMessage" class="setting-hint">{{ restoreMessage }}</p>
         </SettingItem>
 
         <!-- 同期先に依らず使える（同期しないマシンでもバックアップは取れる）。 -->

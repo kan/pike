@@ -14,7 +14,7 @@ import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, type SiteRulePayload } from '../lib/tauri'
 import { setWebviewTheme, systemDark, windowFocused, windowLabel } from '../lib/window'
-import type { HiddenProject } from '../types/project'
+import type { DeletedProject } from '../types/project'
 import {
   isSidebarPanel,
   isWindowsShell,
@@ -214,10 +214,11 @@ const GLOBAL_SHELL_KEY = 'pike:global-shell'
 // machine's WSL distros — same machine-local treatment as GLOBAL_SHELL_KEY.
 const SHELL_PROFILES_KEY = 'pike:shell-profiles'
 // Project base directories (#164) point at this machine's checkout layout, and
-// the hidden list records what this machine does not want back from the merge-
-// only project sync — both machine-local, like the keys above.
+// the deleted list records what this machine deleted (passed on by the sync as
+// deletions) — both machine-local, like the keys above. The key keeps its #164
+// name ("hidden") so records written by older versions still load.
 const PROJECT_BASE_KEY = 'pike:project-base'
-const HIDDEN_PROJECTS_KEY = 'pike:project-hidden'
+const DELETED_PROJECTS_KEY = 'pike:project-hidden'
 // Directories the user chose to open without registering (#230). Real paths on
 // this machine, so machine-local like the keys above.
 const TRANSIENT_ROOTS_KEY = 'pike:transient-roots'
@@ -986,18 +987,18 @@ function sanitizeStringList(v: unknown): string[] {
 }
 
 /** Guard the machine-local hidden-project list against corrupt persisted values. */
-function sanitizeHiddenProjects(v: unknown): HiddenProject[] {
+function sanitizeDeletedProjects(v: unknown): DeletedProject[] {
   if (!Array.isArray(v)) return []
-  const out: HiddenProject[] = []
+  const out: DeletedProject[] = []
   const seen = new Set<string>()
   for (const item of v) {
     if (!item || typeof item !== 'object') continue
-    const { id, name, root, remoteUrl, shared } = item as {
+    // 古い記録の `shared`（#403 の段階 5 まで）は読み捨てる。削除は常に同期で伝える。
+    const { id, name, root, remoteUrl } = item as {
       id?: unknown
       name?: unknown
       root?: unknown
       remoteUrl?: unknown
-      shared?: unknown
     }
     if (typeof id !== 'string' || !id || seen.has(id)) continue
     seen.add(id)
@@ -1006,7 +1007,6 @@ function sanitizeHiddenProjects(v: unknown): HiddenProject[] {
       name: typeof name === 'string' ? name : id,
       root: typeof root === 'string' && root ? root : undefined,
       remoteUrl: typeof remoteUrl === 'string' && remoteUrl ? remoteUrl : undefined,
-      shared: shared === true ? true : undefined,
     })
   }
   return out
@@ -1348,37 +1348,32 @@ export const useSettingsStore = defineStore('settings', () => {
   const projectBase = ref<ProjectBase>(sanitizeProjectBase(loadJson<unknown>(PROJECT_BASE_KEY, null)))
   watch(projectBase, (v) => saveJson(PROJECT_BASE_KEY, v), { deep: true })
 
-  // Projects hidden on this machine (#164). Deleting a project locally adds it
-  // here, so the merge-only sync cannot resurrect it on the next pull. Machine-
-  // local: another PC may well want to keep the project.
-  const hiddenProjects = ref<HiddenProject[]>(sanitizeHiddenProjects(loadJson<unknown>(HIDDEN_PROJECTS_KEY, null)))
-  watch(hiddenProjects, (v) => saveJson(HIDDEN_PROJECTS_KEY, v), { deep: true })
+  // Projects deleted on this machine (#164 / #403). The sync passes each record on
+  // as a deletion to every machine (`DeletedProject`). Stored per machine: the
+  // record is what this PC did, and the sync carries its effect.
+  const deletedProjects = ref<DeletedProject[]>(sanitizeDeletedProjects(loadJson<unknown>(DELETED_PROJECTS_KEY, null)))
+  watch(deletedProjects, (v) => saveJson(DELETED_PROJECTS_KEY, v), { deep: true })
 
   // localStorage is shared between windows but each window's ref is the copy it
-  // loaded at startup, so mutating from the ref would drop hides made in another
-  // window. Both writers re-read first — losing a hide resurrects a deleted
-  // project on the next pull.
-  function updateHiddenProjects(mutate: (list: HiddenProject[]) => HiddenProject[]) {
-    hiddenProjects.value = mutate(sanitizeHiddenProjects(loadJson<unknown>(HIDDEN_PROJECTS_KEY, null)))
+  // loaded at startup, so mutating from the ref would drop records made in another
+  // window. Both writers re-read first — losing a record resurrects a deleted
+  // project on the next sync.
+  function updateDeletedProjects(mutate: (list: DeletedProject[]) => DeletedProject[]) {
+    deletedProjects.value = mutate(sanitizeDeletedProjects(loadJson<unknown>(DELETED_PROJECTS_KEY, null)))
   }
 
-  function hideProject(entry: HiddenProject) {
-    updateHiddenProjects((list) => (list.some((p) => p.id === entry.id) ? list : [...list, entry]))
+  function recordDeletedProject(entry: DeletedProject) {
+    updateDeletedProjects((list) => (list.some((p) => p.id === entry.id) ? list : [...list, entry]))
   }
 
-  function unhideProject(id: string) {
-    updateHiddenProjects((list) => list.filter((p) => p.id !== id))
+  function forgetDeletedProject(id: string) {
+    updateDeletedProjects((list) => list.filter((p) => p.id !== id))
   }
 
-  const hiddenProjectIds = computed(() => new Set(hiddenProjects.value.map((p) => p.id)))
+  const deletedProjectIds = computed(() => new Set(deletedProjects.value.map((p) => p.id)))
 
-  function isProjectHidden(id: string): boolean {
-    return hiddenProjectIds.value.has(id)
-  }
-
-  /** このマシンで消し、その削除を同期で伝えるプロジェクトか（#403。`HiddenProject.shared`）。 */
-  function isProjectDeletedForSync(id: string): boolean {
-    return hiddenProjects.value.some((p) => p.id === id && p.shared)
+  function isProjectDeleted(id: string): boolean {
+    return deletedProjectIds.value.has(id)
   }
 
   // Directories opened without registering them (#230). Answering "no" to the
@@ -1960,11 +1955,10 @@ export const useSettingsStore = defineStore('settings', () => {
     siteRuleForHost,
     globalShell,
     projectBase,
-    hiddenProjects,
-    hideProject,
-    unhideProject,
-    isProjectHidden,
-    isProjectDeletedForSync,
+    deletedProjects,
+    recordDeletedProject,
+    forgetDeletedProject,
+    isProjectDeleted,
     rememberTransientRoot,
     forgetTransientRoot,
     skipsRegisterPrompt,

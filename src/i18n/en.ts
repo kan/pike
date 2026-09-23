@@ -476,10 +476,6 @@ export default {
   'settings.projectBaseNoDistro': '(no distro)',
   'settings.projectBaseLocal': 'Local',
   'settings.projectBaseOutside': '{count} project(s) sit outside the base and stay on this machine.',
-  'settings.hiddenProjects': 'Projects deleted on this machine',
-  'settings.hiddenProjectsHint':
-    'Projects deleted here. Syncing removes them from other PCs too. Restoring drops the record and syncs; the project is recreated if the sync file still has it.',
-  'settings.hiddenProjectsRestore': 'Restore',
 
   // Settings Sync (#403)
   'sync.target.label': 'Sync with',
@@ -513,8 +509,7 @@ export default {
     'Projects: {created} added, {updated} updated, {removed} removed, {unresolvable} cannot be created on this machine.',
   'sync.conflictsCount': '{count} conflict(s)',
   'sync.openConflicts': 'Resolve conflicts',
-  'sync.restoreNoTarget': 'Cannot restore: no sync destination is set.',
-  'sync.restoreRequested': 'Removed the record and synced. The project is recreated if the sync file still has it.',
+  'sync.originsAligned': 'Updated the origin of {count} repository(ies) to the synced URL.',
   'sync.categories': 'What to sync',
   'sync.categoriesHint':
     'The kinds this machine syncs (this choice itself is not synced). Kinds you turn off are left as they are in the sync file.',

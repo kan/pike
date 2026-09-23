@@ -579,6 +579,11 @@ export async function gitRemoteUrls(shell: ShellType, roots: string[]): Promise<
   return invoke<(string | null)[]>('git_remote_urls', { shell, roots })
 }
 
+/** origin の URL を差し替える（#403）。差し替えてよいかは呼び出し側が決める。 */
+export async function gitSetOrigin(root: string, shell: ShellType, url: string): Promise<void> {
+  return invoke<void>('git_set_origin', { root, shell, url })
+}
+
 export async function gitFetch(root: string, shell: ShellType): Promise<GitNetworkResult> {
   return invoke<GitNetworkResult>('git_fetch', { root, shell })
 }

@@ -62,6 +62,16 @@ export interface SyncApplyResult {
   removed: number
   /** このマシンでは作れない（基準のディレクトリや WSL の distro が無い）もの。 */
   unresolvable: number
+  /** 同期で remote URL が変わったもの（呼び出し側が手元の origin をそろえる）。 */
+  remoteChanged: RemoteChange[]
+}
+
+/** 同期で remote URL が変わったプロジェクト（`SyncApplyResult.remoteChanged`）。 */
+export interface RemoteChange {
+  id: string
+  root: string
+  shell: ShellType
+  url: string
 }
 
 /** 同期で結果の値にそろえるプロジェクトのフィールド（置き場所の platform / path は含めない）。 */
@@ -258,8 +268,8 @@ export const useProjectStore = defineStore('project', () => {
   /** Group projects by what a batched shell probe can answer in one call: one
    *  bucket per WSL distro, one for every host shell (native probes run in
    *  this process and never look at the shell). */
-  function byProbeShell(list: ProjectConfig[]): ProjectConfig[][] {
-    const buckets = new Map<string, ProjectConfig[]>()
+  function byProbeShell<T extends { shell: ShellType }>(list: T[]): T[][] {
+    const buckets = new Map<string, T[]>()
     for (const p of list) {
       const key = p.shell.kind === 'wsl' ? shellId(p.shell) : 'host'
       const bucket = buckets.get(key)
@@ -767,7 +777,7 @@ export const useProjectStore = defineStore('project', () => {
   // and agent session ids.
 
   /** Projects visible on this machine — hidden ones (#164) are filtered out. */
-  const visibleProjects = computed(() => projects.value.filter((p) => !useSettingsStore().isProjectHidden(p.id)))
+  const visibleProjects = computed(() => projects.value.filter((p) => !useSettingsStore().isProjectDeleted(p.id)))
 
   /**
    * 最近開いた順の並び（#354）。スイッチャーとプロジェクトパネルの「最近開いた順」が
@@ -847,9 +857,8 @@ export const useProjectStore = defineStore('project', () => {
   function planSyncedCreate(entry: SyncedProject, seen: { roots: Set<string>; remotes: Set<string> }): CreatePlan {
     const settings = useSettingsStore()
     const base = settings.projectBase
-    // #403 より前の記録（このマシンでだけ隠す）は作らない。削除を伝える記録（`shared`）が
-    // 結果にあるのは、衝突やインポートで「残す」を選んだときなので作り直す。
-    if (settings.isProjectHidden(entry.id) && !settings.isProjectDeletedForSync(entry.id)) return { kind: 'skip' }
+    // このマシンで消したもの（削除の記録がある）が結果にあるのは、衝突やインポートで「残す」を
+    // 選んだときなので、作り直す（記録を外すのは呼び出し側）。
     const baseDir = isProjectPlatform(entry.platform) ? baseForPlatform(base, entry.platform) : ''
     // Unresolvable here: an unknown platform, no base for it, or (for WSL) no
     // distro to resolve it in. The entry stays in the file for a machine that has one.
@@ -862,7 +871,7 @@ export const useProjectStore = defineStore('project', () => {
     // A sibling entry for a repository deleted here (another machine's id for the
     // same checkout) is recognised by where it lands and what it clones from.
     // そのエントリ自身の記録は数えない（上で作り直すと決めたもの）。
-    const deleted = settings.hiddenProjects.some(
+    const deleted = settings.deletedProjects.some(
       (h) =>
         h.id !== entry.id &&
         ((h.root && rootKey(h.root) === key) || (remote && normalizeRemoteUrl(h.remoteUrl) === remote)),
@@ -904,15 +913,16 @@ export const useProjectStore = defineStore('project', () => {
    * - 手元に無いものは、このマシンの基準のディレクトリの下に作る。作れない（基準が無い、
    *   WSL の distro が無い）ものと、同じリポジトリを別の id で既に持っているものは作らない。
    *   どちらもファイルには残る（同期の側がこのマシンの「追っていない」ものとして据え置く）
-   * - このマシンで消したもの（非表示の記録）が結果にあるのは、削除を伝える記録
-   *   （`shared`）なら衝突で「残す」を選んだときだけなので、記録を外して作り直す。#403 より
-   *   前の記録（このマシンでだけ隠す）は作らない
+   * - このマシンで消したもの（削除の記録）が結果にあるのは、衝突やインポートで「残す」を
+   *   選んだときだけなので、記録を外して作り直す
+   * - remote URL が変わったものは `remoteChanged` で返す（手元の origin をそろえるのは
+   *   呼び出し側。git のストアを読むとストアの依存が循環する）
    */
   async function applySyncedProjects(
     target: { projects: SyncedProject[]; groups: string[] },
     before: { projects: SyncedProject[]; groups: string[] },
   ): Promise<SyncApplyResult> {
-    const result: SyncApplyResult = { created: 0, updated: 0, removed: 0, unresolvable: 0 }
+    const result: SyncApplyResult = { created: 0, updated: 0, removed: 0, unresolvable: 0, remoteChanged: [] }
     const settings = useSettingsStore()
     const base = settings.projectBase
     const entries = target.projects
@@ -936,7 +946,13 @@ export const useProjectStore = defineStore('project', () => {
         // 置き場所（platform / path）は作るときにだけ使う（`lib/syncFormat.ts` の
         // `CREATE_ONLY_FIELDS`）。残りは、結果で変わったフィールドだけをそろえる。
         const changed = SYNCED_FIELDS.filter((f) => entry[f] !== prev[f] && entry[f] !== local[f])
-        if (changed.length > 0) patched.push({ ...local, ...Object.fromEntries(changed.map((f) => [f, entry[f]])) })
+        if (changed.length > 0) {
+          const config: ProjectConfig = { ...local, ...Object.fromEntries(changed.map((f) => [f, entry[f]])) }
+          patched.push(config)
+          if (changed.includes('remoteUrl') && config.remoteUrl && !missingRoots.value.has(config.id)) {
+            result.remoteChanged.push({ id: config.id, root: config.root, shell: config.shell, url: config.remoteUrl })
+          }
+        }
         continue
       }
       const plan = planSyncedCreate(entry, seen)
@@ -944,7 +960,7 @@ export const useProjectStore = defineStore('project', () => {
       if (plan.kind !== 'create') continue
       const { root, key, remote } = plan
       // 衝突で「残す」を選んだ（手元で消していた）もの。記録を外して作り直す。
-      if (settings.isProjectHidden(entry.id)) settings.unhideProject(entry.id)
+      if (settings.isProjectDeleted(entry.id)) settings.forgetDeletedProject(entry.id)
       await addProject({
         id: entry.id,
         name: entry.name,
@@ -1376,7 +1392,7 @@ export const useProjectStore = defineStore('project', () => {
    */
   function uniqueProjectId(base: string): string {
     const settings = useSettingsStore()
-    const taken = (id: string) => projects.value.some((p) => p.id === id) || settings.isProjectHidden(id)
+    const taken = (id: string) => projects.value.some((p) => p.id === id) || settings.isProjectDeleted(id)
     if (!taken(base)) return base
     for (let n = 2; ; n++) {
       const candidate = `${base}-${n}`
@@ -1438,17 +1454,16 @@ export const useProjectStore = defineStore('project', () => {
     if (!(await tabStore.closeProjectTabs(id))) return
     forgetHeld(id)
     await projectDelete(id)
-    // Remember the deletion locally (#164): the sync file only ever gains
-    // entries, so without this the next pull would recreate the project. The
-    // root and origin go in the record too — see the match in the pull. After
-    // the delete succeeds — a project hidden but still on disk is unreachable.
-    useSettingsStore().hideProject({
+    // Remember the deletion (#164 / #403): the sync reads the record as a deletion
+    // to pass on to every machine, and without it a machine syncing for the first
+    // time would read the project as "not seen here yet" and recreate it. The
+    // root and origin go in the record too — see `planSyncedCreate`. After the
+    // delete succeeds — a project hidden but still on disk is unreachable.
+    useSettingsStore().recordDeletedProject({
       id,
       name: project?.name ?? id,
       root: project?.root,
       remoteUrl: project?.remoteUrl,
-      // 削除として同期で伝える（#403。`HiddenProject.shared`）。
-      shared: true,
     })
     projects.value = projects.value.filter((p) => p.id !== id)
     if (currentProject.value?.id === id) {
@@ -1496,6 +1511,7 @@ export const useProjectStore = defineStore('project', () => {
     unsyncableProjects,
     syncableProjects,
     creatableSyncedIds,
+    byProbeShell,
     applySyncedProjects,
     checkRoots,
     cloneProject,

@@ -1224,6 +1224,22 @@ pub async fn git_remote_url(root: String, shell: ShellConfig) -> Result<Option<S
         .map_err(|e| e.to_string())
 }
 
+/// `origin` の URL を差し替える（#403。同期された書き方にそろえる）。**差し替えてよいかは
+/// 呼び出し側が決める**（同じリポジトリの書き方違いだけ。判定の正規化はフロントの
+/// `normalizeRemoteUrl` にしか無い）。origin が無ければ git が失敗するので、足すことはない。
+#[tauri::command]
+pub async fn git_set_origin(root: String, shell: ShellConfig, url: String) -> Result<(), String> {
+    // 位置引数に渡るので、フラグとして読まれる形と行を割る文字は受けない。
+    if url.is_empty() || url.starts_with('-') || url.contains(['\n', '\r', '\0']) {
+        return Err(format!("invalid remote url: {url}"));
+    }
+    tokio::task::spawn_blocking(move || {
+        run_git(&shell, &root, &["remote", "set-url", "origin", &url]).map(|_| ())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// `git_remote_url` for many roots at once, in the same order. Used to backfill
 /// the origin of projects registered before Pike stored it (#164): a WSL probe
 /// costs a `wsl.exe` launch, so all of one distro's roots share a single call.

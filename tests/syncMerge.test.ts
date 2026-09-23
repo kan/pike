@@ -1,6 +1,7 @@
 // 同期の 3-way マージ（#403）。`just test-ts` で走る（`tsx --test`、node:test）。
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import { isRespelling } from '../src/lib/gitRemote.ts'
 import {
   fromItems,
   importSyncItems,
@@ -333,5 +334,15 @@ describe('importSyncItems', () => {
     const only = importSyncItems(toItems(src({ projects: [proj('x')] })), toItems(src({})))
     const out = resolveSyncItems(only, new Map(), 'local')
     assert.equal(stableKey([...out]), stableKey([...only.local]))
+  })
+})
+
+describe('isRespelling', () => {
+  test('同じリポジトリの書き方違いだけを差し替え対象にする', () => {
+    assert.equal(isRespelling('git@github.com:kan/pike.git', 'https://github.com/kan/pike'), true)
+    assert.equal(isRespelling('https://github.com/kan/pike', 'https://github.com/kan/pike'), false)
+    // fork と upstream は別のリポジトリ（差し替えると push 先が変わる）。
+    assert.equal(isRespelling('git@github.com:me/pike.git', 'git@github.com:kan/pike.git'), false)
+    assert.equal(isRespelling(null, 'https://github.com/kan/pike'), false)
   })
 })

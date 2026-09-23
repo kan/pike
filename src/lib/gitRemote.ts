@@ -77,6 +77,18 @@ export function normalizeRemoteUrl(url: string | null | undefined): string | nul
   return split && `${split.host}/${split.path}`.toLowerCase()
 }
 
+/**
+ * `current` を `wanted` に差し替えてよいか（#403）: **同じリポジトリの書き方違いだけ**。
+ * 別のリポジトリ（fork と upstream など）を指していたら差し替えない。確認なしに差し替えると、
+ * 次の push が別のリポジトリへ飛ぶ。同期で origin をそろえる 2 か所（同期の反映と、
+ * プロジェクトを開いたときの記録）がこの判定を共有する。
+ */
+export function isRespelling(current: string | null | undefined, wanted: string | null | undefined): boolean {
+  if (!current || !wanted || current === wanted) return false
+  const key = normalizeRemoteUrl(current)
+  return key !== null && key === normalizeRemoteUrl(wanted)
+}
+
 export interface RemoteLink {
   url: string
   label: string

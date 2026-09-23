@@ -23,6 +23,7 @@ import { emit, listen } from '@tauri-apps/api/event'
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { t } from '../i18n'
+import { isRespelling } from '../lib/gitRemote'
 import { loadJson, saveJson } from '../lib/storage'
 import {
   categoryOf,
@@ -47,6 +48,8 @@ import { type Side, type SyncConflict, type SyncItems, stableKey } from '../lib/
 import {
   type GhPlace,
   type GistError,
+  gitRemoteUrls,
+  gitSetOrigin,
   pickOpenFile,
   pickSaveFile,
   settingsSyncRead,
@@ -57,7 +60,8 @@ import {
   syncGistWrite,
 } from '../lib/tauri'
 import { isMainWindow, windowFocused } from '../lib/window'
-import { useProjectStore } from './project'
+import { useGitStore } from './git'
+import { type RemoteChange, useProjectStore } from './project'
 import { type PersistedSettings, useSettingsStore } from './settings'
 
 /** 同期する種類（マシンごと。同期しない）。 */
@@ -364,10 +368,52 @@ export const useSyncStore = defineStore('sync', () => {
         { projects: src.projects, groups: src.groups },
         { projects: localSrc.projects, groups: localSrc.groups },
       )
+      const { created, updated, removed, unresolvable } = r
       // 作れないものだけなら出さない（同期のたびに同じ件数が出るだけになる）。
-      if (r.created + r.updated + r.removed > 0) summary = t('sync.projectSummary', { ...r })
+      if (created + updated + removed > 0) {
+        summary = t('sync.projectSummary', { created, updated, removed, unresolvable })
+      }
+      const aligned = await alignOrigins(r.remoteChanged)
+      if (aligned > 0) summary = [summary, t('sync.originsAligned', { count: aligned })].filter(Boolean).join(' ')
     }
     return summary
+  }
+
+  /**
+   * 同期で remote URL が変わったプロジェクトの origin を、手元のリポジトリでもそろえる。
+   * **書き方（ssh / https）の違いもそろえる**: 端末ごとにばらけると、各端末が自分の origin を
+   * 記録し直す（`stores/git.ts` の `loadRemoteUrl`）たびに同期で衝突していた。
+   *
+   * **差し替えるのは同じリポジトリの書き方違いだけ**（`isRespelling`）。失敗（まだ clone して
+   * いない・origin が無い）も黙って飛ばす。戻り値は差し替えた数。
+   */
+  async function alignOrigins(changed: RemoteChange[]): Promise<number> {
+    const aligned: RemoteChange[] = []
+    // 今の origin は distro ごとに 1 回でまとめて読む（WSL では 1 件ごとに `wsl.exe` が起きる）。
+    await Promise.all(
+      projectStore.byProbeShell(changed).map(async (group) => {
+        const current = await gitRemoteUrls(
+          group[0].shell,
+          group.map((p) => p.root),
+        ).catch(() => null)
+        if (!current) return
+        await Promise.all(
+          group.map(async (p, i) => {
+            if (!isRespelling(current[i], p.url)) return
+            if (
+              await gitSetOrigin(p.root, p.shell, p.url).then(
+                () => true,
+                () => false,
+              )
+            )
+              aligned.push(p)
+          }),
+        )
+      }),
+    )
+    // 開いているプロジェクトなら、ステータスバーのリポジトリのリンクも読み直す。
+    if (aligned.some((p) => p.id === projectStore.currentProject?.id)) void useGitStore().loadRemoteUrl()
+    return aligned.length
   }
 
   /** 1 回ぶん。読んでから書くまでにリモートが変わっていたら false（読み直してやり直す）。 */
@@ -384,8 +430,8 @@ export const useSyncStore = defineStore('sync', () => {
       storedBase && onlyCategories(storedBase, enabled),
       onlyCategories(toItems(localSrc), enabled),
       onlyCategories(remoteAll, enabled),
-      // 削除として伝えるのは #403 以降に消したものだけ（`HiddenProject.shared`）。
-      (id) => settings.isProjectDeletedForSync(id),
+      // このマシンで消したもの（削除の記録）は、全端末へ削除として伝える。
+      (id) => settings.isProjectDeleted(id),
     )
     // 選んだ衝突は決着させる。残りは手元とリモートをそれぞれの値のまま残す。
     const forLocal = resolveSyncItems(m, choices, 'local')

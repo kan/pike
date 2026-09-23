@@ -472,10 +472,6 @@ export default {
   'settings.projectBaseNoDistro': '（ディストロ未選択）',
   'settings.projectBaseLocal': 'ローカル',
   'settings.projectBaseOutside': '{count} 件のプロジェクトは base の外にあるため、このマシン専用です。',
-  'settings.hiddenProjects': 'このマシンで削除したプロジェクト',
-  'settings.hiddenProjectsHint':
-    'このマシンで削除したプロジェクトです。同期すると他の PC からも消えます。戻すと記録を外して同期し、同期ファイルにまだ残っていれば作り直します。',
-  'settings.hiddenProjectsRestore': '戻す',
 
   // Settings Sync (#403)
   'sync.target.label': '同期先',
@@ -508,8 +504,7 @@ export default {
     'プロジェクト: 追加 {created} 件、更新 {updated} 件、削除 {removed} 件、このマシンでは作れない {unresolvable} 件。',
   'sync.conflictsCount': '衝突 {count} 件',
   'sync.openConflicts': '衝突を解消',
-  'sync.restoreNoTarget': '同期先が設定されていないため、戻せません。',
-  'sync.restoreRequested': '記録を外して同期しました。同期ファイルに残っていれば作り直します。',
+  'sync.originsAligned': '{count} 件のリポジトリの origin を同期された URL に合わせました。',
   'sync.categories': '同期する対象',
   'sync.categoriesHint':
     'このマシンで同期する種類を選びます（この選択は同期しません）。外した種類は、同期ファイルの中身をそのまま残します。',
