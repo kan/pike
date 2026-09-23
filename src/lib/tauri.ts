@@ -686,6 +686,21 @@ export interface SiteRulePayload {
   css: string
 }
 
+/**
+ * 子 webview を作る・動かす・閉じる指示を、**ウィンドウの中で送った順に 1 本ずつ**流す（#402）。
+ *
+ * Rust のコマンドは別々のタスクで走るので、続けて送ると届く順が入れ替わりうる。タブ 1 枚の中は
+ * `BrowserTab.vue` の `sync` が直列にしているが、子 webview を別のタブへ譲る（`lib/browserHandoff.ts`）
+ * と、譲った側が送った「隠す」が受け取った側の「見せる」より後に届き、見えるはずのページが
+ * 消えたまま残りうる。ここで並べれば、どのタブから送ったものでも順が保たれる。
+ */
+let browserChain: Promise<unknown> = Promise.resolve()
+function inOrder<T>(send: () => Promise<T>): Promise<T> {
+  const run = browserChain.then(send, send)
+  browserChain = run.catch(() => {})
+  return run
+}
+
 export async function browserOpen(
   label: string,
   url: string,
@@ -694,7 +709,7 @@ export async function browserOpen(
   /** Jira の拡張機能を入れるか（#380。入れるのは `*.atlassian.net` のページだけ）。 */
   jira: boolean,
 ): Promise<void> {
-  return invoke('browser_open', { label, url, bounds, rules, jira })
+  return inOrder(() => invoke('browser_open', { label, url, bounds, rules, jira }))
 }
 
 /** ルールを変えたとき、開いているページの CSS を当て直す。 */
@@ -707,7 +722,7 @@ export async function browserApplyCss(label: string, rules: SiteRulePayload[]): 
  * 位置を送る意味が無い）。リサイズ中は毎フレーム呼ばれるので、2 往復に分けない。
  */
 export async function browserPlace(label: string, visible: boolean, bounds?: BrowserBounds): Promise<void> {
-  return invoke('browser_place', { label, visible, bounds: bounds ?? null })
+  return inOrder(() => invoke('browser_place', { label, visible, bounds: bounds ?? null }))
 }
 
 export async function browserNavigate(label: string, url: string): Promise<void> {
@@ -726,7 +741,7 @@ export async function browserHistory(label: string, action: BrowserHistoryAction
 }
 
 export async function browserClose(label: string): Promise<void> {
-  return invoke('browser_close', { label })
+  return inOrder(() => invoke('browser_close', { label }))
 }
 
 // Docker

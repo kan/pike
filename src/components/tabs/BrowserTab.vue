@@ -16,6 +16,7 @@ import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vu
 import { type BrowserHandlers, browserRouter } from '../../composables/useBrowserRouter'
 import { useFocusPolling } from '../../composables/useFocusPolling'
 import { useI18n } from '../../i18n'
+import { registerBrowserDonor, takeBrowserView, unregisterBrowserDonor } from '../../lib/browserHandoff'
 import { requestBrowserIcon } from '../../lib/browserIcons'
 import { isWebUrl } from '../../lib/format'
 import { normalizeWebUrl, openUrlWithConfirm } from '../../lib/openUrl'
@@ -36,7 +37,7 @@ import { useBrowserStore } from '../../stores/browser'
 import { activeSiteRules, useSettingsStore } from '../../stores/settings'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
-import type { BrowserTab } from '../../types/tab'
+import type { BrowserTab, TabOwner } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 
 const { t } = useI18n()
@@ -46,7 +47,9 @@ const sidebar = useSidebarStore()
 const settingsStore = useSettingsStore()
 const browserStore = useBrowserStore()
 
-const tab = computed(() => tabStore.tabs.find((t): t is BrowserTab => t.id === props.tabId && t.kind === 'browser'))
+const tab = computed(() =>
+  tabStore.tabs.find((t): t is BrowserTab & TabOwner => t.id === props.tabId && t.kind === 'browser'),
+)
 
 /**
  * 子 webview のラベル。Rust は `browser-` で始まるものしか受け付けない。
@@ -156,13 +159,17 @@ async function syncOnce() {
     // 最初に見えたときに作る。隠れたタブを復元で作っても、測れないので待つ。
     // 空のタブ（ブラウザパネルの「新しいタブ」）は、アドレス欄に URL が入るまで作らない。
     if (!shown.value || !bounds || !tab.value.url) return
-    state = 'creating'
     // 渡した時点のルールを覚える（JS はここで固定されるので、変わったら作り直しを促す）。
     const rules = siteRules.value
     const jira = settingsStore.browserJiraFeatures
     const key = rulesKeyOf(rules, jira)
+    if (await tryAdopt(tab.value.url, key)) return
+    // 聞いているあいだに閉じられた・隠れた・動いたら測り直す（`browser_url` を待っている）。
+    const at = measure()
+    if (disposed || !tab.value || !shown.value || !at) return
+    state = 'creating'
     try {
-      await browserOpen(label, tab.value.url, bounds, rules, jira)
+      await browserOpen(label, tab.value.url, at, rules, jira)
       openedRulesKey.value = key
       error.value = null
     } catch (e) {
@@ -251,22 +258,92 @@ watch(siteRules, (rules) => {
 })
 
 /**
+ * 持つ子 webview を差し替える。ページからの知らせ（`browserRouter`）の受け先もラベルで
+ * 決まるので、一緒に付け替える。
+ */
+function switchLabel(next: string) {
+  browserRouter.unregister(label)
+  label = next
+  browserRouter.register(label, routerHandlers)
+}
+
+/**
  * 子 webview を作り直す（JS のルールを反映する）。**ラベルも変える**: 閉じる指示は非同期なので、
  * 同じラベルで作り直すと、古いものがまだ残っていて作れないことがある。
  */
 function recreate() {
   if (state !== 'ready') return
-  const old = label
-  browserRouter.unregister(old)
-  void browserClose(old)
-  label = newLabel()
-  browserRouter.register(label, routerHandlers)
-  state = 'none'
-  openedRulesKey.value = null
-  lastVisible = true
-  lastBoundsKey = ''
+  void browserClose(label)
+  release()
   scheduleSync()
 }
+
+/**
+ * 持つ子 webview を差し替え、位置合わせの記録も一緒に戻す。**`release` と `adopt` はこれを
+ * 通す**（位置合わせの状態を足したときに、片方だけ戻し忘れないように）。
+ */
+function resetView(next: string, nextState: 'none' | 'ready', rulesKey: string | null, visible: boolean) {
+  switchLabel(next)
+  state = nextState
+  openedRulesKey.value = rulesKey
+  lastVisible = visible
+  lastBoundsKey = ''
+}
+
+/**
+ * 子 webview を手放して「まだ作っていない」に戻る。閉じるかどうかは呼ぶ側が決める
+ * （作り直すなら閉じ、別のタブへ譲るなら閉じない）。
+ */
+function release() {
+  resetView(newLabel(), 'none', null, true)
+}
+
+/**
+ * 別のタブから譲られた子 webview を受け取る（#402）。最後に送った表示を「隠れている」に
+ * しておき、すぐ後の位置合わせで見せる（譲った側が隠していなくても、位置ごと送り直す）。
+ */
+function adopt(next: string, rulesKey: string) {
+  resetView(next, 'ready', rulesKey, false)
+  error.value = null
+  syncAgain = true
+}
+
+/**
+ * 別のプロジェクトのタブが同じページを読み込み済みなら、それを譲り受ける（#402）。
+ * 受け取れたら true。
+ */
+async function tryAdopt(url: string, rulesKey: string): Promise<boolean> {
+  const donated = await takeBrowserView(props.tabId, tab.value?.projectId, url, rulesKey)
+  if (!donated) return false
+  // 聞いているあいだに閉じられたら、受け取ったページは行き場が無いので閉じる。
+  if (disposed || !tab.value) {
+    void browserClose(donated.label)
+    return true
+  }
+  adopt(donated.label, rulesKey)
+  if (donated.title) tabStore.setTabTitle(props.tabId, donated.title)
+  // 聞いているあいだに別の URL を打たれていたら、そちらへ移る。
+  if (tab.value.url !== url) void browserNavigate(label, tab.value.url).catch(() => {})
+  return true
+}
+
+/** 譲れる状態か（条件は `lib/browserHandoff.ts` の doc）。描かれているあいだは譲らない。 */
+function holdable(): boolean {
+  return state === 'ready' && !disposed && !tabStore.isTabVisible(props.tabId)
+}
+
+registerBrowserDonor(props.tabId, {
+  hold: (projectId, url, rulesKey) =>
+    holdable() && tab.value?.projectId !== projectId && tab.value?.url === url && openedRulesKey.value === rulesKey
+      ? label
+      : null,
+  release: (target) => {
+    if (!holdable() || label !== target) return null
+    const title = tab.value?.title ?? ''
+    release()
+    return title
+  },
+})
 
 /**
  * 移動してきた URL を反映する（タブ・アドレス欄・閲覧履歴）。
@@ -352,6 +429,7 @@ watch(shown, (visible) => (visible ? urlPoll.start() : urlPoll.stop()), { immedi
 
 onUnmounted(() => {
   disposed = true
+  unregisterBrowserDonor(props.tabId)
   urlPoll.stop()
   observer?.disconnect()
   if (frame) cancelAnimationFrame(frame)
