@@ -149,7 +149,8 @@
   - **`git commit -C <SHA>` の誤爆ガード**: SHA は `rebase-merge/done` の**末尾行**から取る（競合停止では todo が空になるため、todo の先頭行は当てにできない。両方の停止で実測）。`done` は追記書き込みなので末尾行が不完全なことがあり、`pick`/`reword`/`edit`/`squash`/`fixup` で始まり SHA が hex であることを確認する。`exec` / `break` の停止ではコミットは既に成功しているので**ボタンを出さない**（出すと他コミットの author・日時・メッセージを被せた偽コミットを黙って作る）。押下時は確認ダイアログに SHA・件名・実行コマンドを出す
 - `git_pull` だけ失敗時に stdout も返す（`CONFLICT (content): …` は stdout 側で、共通の `spawn_stdout` は stderr しか残さない）。`spawn_stdout` 自体は触らない（全 git コマンドのエラー文が変わる）
 - **`gitStore.error` はパネル全体を置き換えない**: `status` があるときはセクション上部のストリップとして出す。以前は `v-else-if` でパネル本体ごと差し替えていたため、pull が止まった瞬間に競合一覧もコミット欄も消えていた。`pull()` は失敗時も `refreshStatus` / `refreshLog` を呼ぶ（呼ばないとバナーと競合一覧が次のポーリングまで 10 秒出ない）。**エラーの代入は refresh の後**（`doRefreshStatus` は成功時に `error` を null に戻すので、先に入れると消える）
-- SideBar の git マーカー（ahead/behind の矢印）は、操作が止まっているときは `!` を優先表示する。署名失敗の pull は競合 0・変更件数 0 なので、パネルを閉じているとバッジにも矢印にも出ない
+- SideBar の git マーカー（ahead/behind のドット）は、操作が止まっているときは赤い `!` を優先表示する。署名失敗の pull は競合 0・変更件数 0 なので、パネルを閉じているとバッジにもドットにも出ない
+  - **ahead/behind は文字ではなくドットにした**（`MarkerInfo.kind`）。以前の `↑↓` は 11px で見分けにくいと報告があった。向きと件数はツールチップ（`title`）で読む
 - ahead/behind: `git status --porcelain=v2 --branch` の `# branch.ab` 行をパース。GitPanel コミットボタン下にテキスト表示、SideBar の pull/push ボタンを primary スタイルに変更
 - コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
 - **日時は committer date（`%cI`、#396）。author date ではない。** git に「push した時刻」は

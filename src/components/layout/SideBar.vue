@@ -240,9 +240,12 @@ interface BadgeInfo {
   count: number
   danger?: boolean
 }
-/** Small glyph in the icon's bottom-right corner, with a tooltip suffix. */
+/**
+ * アイコンの右下の小さな印と、ツールチップに足す文言。`dot` は「知らせることがある」
+ * だけを示す丸で、中身はツールチップで読む。`alert` は手当てが要る状態の「!」。
+ */
 interface MarkerInfo {
-  text: string
+  kind: 'dot' | 'alert'
   title: string
 }
 interface IconDef {
@@ -284,20 +287,21 @@ const ICONS: { [P in SidebarPanel]: IconDef & { panel: P } } = {
       const n = s.staged.length + s.unstaged.length + s.conflicted.length
       return n > 0 ? { count: n, danger: s.conflicted.length > 0 } : null
     },
-    // Unpushed / unpulled commits. The count badge is taken by the working-tree
-    // change count, so this rides along as an arrow in the opposite corner.
+    // 未 push / 未 pull のコミット。件数のバッジは作業ツリーの変更件数が使っているので、
+    // 反対の角にドットで出す。以前は ↑↓ の文字だったが、11px の矢印は見分けにくかった。
+    // 向きと件数はツールチップで読む。
     marker: () => {
       const s = gitStore.status
       if (!s) return null
-      // A stopped rebase/merge outranks the arrows: a `git pull` that failed to
+      // A stopped rebase/merge outranks the dot: a `git pull` that failed to
       // sign leaves no conflicts and no change count, so this is the only sign
       // of it while the panel is closed (#222).
-      if (s.operation) return { text: '!', title: t(`git.op.${s.operation.kind}`) }
+      if (s.operation) return { kind: 'alert', title: t(`git.op.${s.operation.kind}`) }
       if (!s.ahead && !s.behind) return null
       const parts: string[] = []
       if (s.ahead) parts.push(t('git.aheadInfo', { count: s.ahead }))
       if (s.behind) parts.push(t('git.behindInfo', { count: s.behind }))
-      return { text: `${s.ahead ? '↑' : ''}${s.behind ? '↓' : ''}`, title: parts.join(' · ') }
+      return { kind: 'dot', title: parts.join(' · ') }
     },
     refresh: { run: () => gitStore.refreshAll(), busy: () => gitStore.refreshing },
   },
@@ -525,7 +529,12 @@ onUnmounted(() => {
           class="count-badge"
           :class="{ danger: badges[item.panel]?.danger }"
         >{{ badges[item.panel]?.count }}</span>
-        <span v-if="markers[item.panel]" class="marker-badge">{{ markers[item.panel]?.text }}</span>
+        <span
+          v-if="markers[item.panel]"
+          class="marker-badge"
+          :class="markers[item.panel]?.kind"
+          :data-testid="`marker-${item.panel}`"
+        >{{ markers[item.panel]?.kind === 'alert' ? '!' : '' }}</span>
       </button>
       <div class="icon-spacer" />
       <div class="gear-wrapper">
@@ -1105,16 +1114,34 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+/* 右下の印。縁取りを下地の色にして、アイコンの線に重なっても形が切れないようにする。 */
 .marker-badge {
   position: absolute;
-  bottom: 3px;
-  right: 5px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -1px;
-  color: var(--icon-strip-fg, var(--accent));
+  bottom: 4px;
+  right: 4px;
+  box-sizing: border-box;
+  border: 2px solid var(--icon-strip-bg, var(--bg-secondary));
+  border-radius: 50%;
   pointer-events: none;
+}
+
+/* 未 push / 未 pull。色は件数のバッジと揃える（プロジェクトカラーの上でも読める側）。 */
+.marker-badge.dot {
+  width: 10px;
+  height: 10px;
+  background: var(--icon-strip-fg, var(--accent));
+}
+
+/* 止まっている rebase / merge（#222）。手当てが要るので赤地に「!」。 */
+.marker-badge.alert {
+  width: 15px;
+  height: 15px;
+  background: #f44336;
+  color: var(--on-accent);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 11px;
+  text-align: center;
 }
 
 .count-badge.danger {
