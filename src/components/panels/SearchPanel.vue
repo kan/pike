@@ -234,10 +234,15 @@ onUnmounted(() => {
       いればそのパスと、プロジェクト全体に戻す ✕ を出す。rg / grep の表示はパネルの
       見出しにあるので、ここには置かない（以前は両方に出ていた）。
     -->
-    <div class="search-scope" data-testid="search-scope">
+    <!-- 絞り込み方はファイルツリーの右クリックにしか無いので、ここで入口を教える（#400）。 -->
+    <div
+      class="search-scope"
+      data-testid="search-scope"
+      :title="searchStore.scopeRel ? `${searchStore.scopeRel}\n\n${t('search.scopeHint')}` : t('search.scopeHint')"
+    >
       <FolderSearch :size="12" :stroke-width="2" />
       <span class="scope-label">{{ t('search.scopeLabel') }}</span>
-      <span class="scope-path" :title="searchStore.scopeRel ?? ''">{{ searchStore.scopeRel ?? t('search.scopeProject') }}</span>
+      <span class="scope-path">{{ searchStore.scopeRel ?? t('search.scopeProject') }}</span>
       <button
         v-if="searchStore.scopeRel"
         class="scope-clear"

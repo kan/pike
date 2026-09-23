@@ -855,6 +855,11 @@ export async function remoteImageFetch(url: string): Promise<RemoteImage> {
   return invoke<RemoteImage>('remote_image_fetch', { url })
 }
 
+/** ブラウザのタブに出すサイトのアイコン（#400）。取れなければ null。 */
+export async function browserFavicon(url: string): Promise<RemoteImage | null> {
+  return invoke<RemoteImage | null>('browser_favicon', { url })
+}
+
 /**
  * A web page's `<title>`, for turning a pasted URL into `[title](url)` (#241).
  *

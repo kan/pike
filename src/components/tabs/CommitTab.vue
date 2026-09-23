@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n'
 import { type PatchFile, type PatchLine, parsePatch } from '../../lib/commitPatch'
 import { buildCommitLink } from '../../lib/gitRemote'
 import { openUrlWithConfirm } from '../../lib/openUrl'
-import { gitStatusColor, relativeDate } from '../../lib/paths'
+import { absoluteDate, gitStatusColor, relativeDate } from '../../lib/paths'
 import { loadJson, saveJson } from '../../lib/storage'
 import { gitCommitPatch } from '../../lib/tauri'
 import { useGitStore } from '../../stores/git'
@@ -56,7 +56,7 @@ const totals = computed(() =>
     removed: 0,
   }),
 )
-const absoluteDate = computed(() => (tab.value ? new Date(tab.value.date).toLocaleString() : ''))
+const dateTitle = computed(() => (tab.value ? absoluteDate(tab.value.date) : ''))
 
 /**
  * 画面の割り方（#396）。**比で持ち、開き方（`stacked`）と一緒にマシンごとに覚える**
@@ -231,7 +231,7 @@ onMounted(load)
               <Copy :size="11" />{{ tab.hash.slice(0, 10) }}
             </button>
             <span>{{ tab.author }}</span>
-            <span :title="absoluteDate">{{ relativeDate(tab.date) }}</span>
+            <span :title="dateTitle">{{ relativeDate(tab.date) }}</span>
             <span v-if="tab.refs" class="refs">{{ tab.refs }}</span>
           </div>
           <pre class="commit-message">{{ message }}</pre>

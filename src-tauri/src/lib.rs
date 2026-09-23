@@ -31,6 +31,7 @@ mod drop_paths {
     pub fn attach(_window: &tauri::WebviewWindow) {}
 }
 mod elevate;
+mod favicon;
 mod font;
 mod fs;
 mod git;
@@ -1898,6 +1899,7 @@ pub fn run() {
             issues::issues_list,
             issues::issues_view,
             browser::browser_open,
+            favicon::browser_favicon,
             browser::browser_place,
             browser::browser_apply_css,
             browser::browser_navigate,

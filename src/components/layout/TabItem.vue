@@ -16,9 +16,10 @@
 import { Pin, X } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from '../../i18n'
-import { TAB_KIND_ICONS, tabFileIconSvg } from '../../lib/tabIcons'
+import { tabImageIcon } from '../../lib/tabIcons'
 import { tabDisplayTitle } from '../../lib/tabTitle'
 import type { Tab } from '../../types/tab'
+import TabIcon from './TabIcon.vue'
 
 const props = defineProps<{
   tab: Tab
@@ -35,8 +36,16 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-/** `v-if` と `v-html` で 2 回呼ばないための控え。タブバーはタイトルが変わるたびに描き直す。 */
-const iconSvg = computed(() => tabFileIconSvg(props.tab))
+/**
+ * 固定したタブのうち、**サイトのアイコンが取れたもの**はアイコンだけにする（#400。
+ * ブラウザの固定タブと同じ形）。ピンの印も出さない（アイコンだけの形そのものが固定の印）。
+ * 名前はツールチップに回す。
+ *
+ * **条件は「そのタブ固有の画像アイコンがあるか」で見る。** 種別の lucide アイコンは同じ種別で
+ * 共通なので、固定したターミナル（Claude Code と Codex など）や、アイコンが取れる前の
+ * ブラウザのタブで名前を消すと見分けが付かない。
+ */
+const iconOnly = computed(() => props.tab.pinned && tabImageIcon(props.tab) !== null)
 
 /**
  * タイトルが実際に切れているときだけ native のツールチップを出す（#198）。ホバーで属性を
@@ -58,21 +67,16 @@ function onTitleHover(e: MouseEvent) {
       dragging,
       'drag-over-left': dropSide === 'left',
       'drag-over-right': dropSide === 'right',
+      'icon-only': iconOnly,
     }"
+    :title="iconOnly ? tabDisplayTitle(tab) : undefined"
     draggable="true"
     @click="emit('select')"
     @mousedown.middle.prevent="emit('close')"
   >
-    <Pin v-if="tab.pinned" :size="12" :stroke-width="2" class="tab-pin" :title="t('tabs.pinned')" />
-    <span v-if="iconSvg" class="row-icon row-icon-svg" v-html="iconSvg" />
-    <component
-      :is="TAB_KIND_ICONS[tab.kind]"
-      v-else-if="TAB_KIND_ICONS[tab.kind]"
-      :size="14"
-      :stroke-width="1.5"
-      class="tab-icon"
-    />
-    <span class="tab-title" @mouseenter="onTitleHover">{{ tabDisplayTitle(tab) }}</span>
+    <Pin v-if="tab.pinned && !iconOnly" :size="12" :stroke-width="2" class="tab-pin" :title="t('tabs.pinned')" />
+    <TabIcon :tab="tab" kind-class="tab-icon" />
+    <span v-if="!iconOnly" class="tab-title" @mouseenter="onTitleHover">{{ tabDisplayTitle(tab) }}</span>
     <span v-if="tab.kind === 'editor' && tab.isNewFile" class="tab-new-badge" :title="t('tabs.newFileBadge')">new</span>
     <span
       v-if="tab.kind === 'terminal' && tab.exitCode != null"
@@ -148,6 +152,13 @@ function onTitleHover(e: MouseEvent) {
 .tab-icon {
   flex-shrink: 0;
   opacity: 0.7;
+}
+
+/* 固定したブラウザのタブ（#400）。アイコンだけなので、普通のタブの最小幅を外す。 */
+.tab.icon-only {
+  min-width: 0;
+  padding: 0 10px;
+  justify-content: center;
 }
 
 .tab-title {

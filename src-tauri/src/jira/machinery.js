@@ -230,6 +230,40 @@
     window.addEventListener(ev, touch, { passive: true, capture: true });
   });
 
+  // --- iframe の上に居るあいだ（Pike #400）---
+  // iframe の中の操作（チケットの詳細に埋め込まれるアプリや Confluence のページ）は、この文書の
+  // イベントとして届かない。そこをスクロールして読んでいても「操作が無い」に見えて読み込み直して
+  // いたので、**ポインタが iframe の上に来てから閾値ぶんのあいだは操作中とみなす**。入ったことは
+  // この文書から見た iframe 要素の mouseover で分かる。
+  //
+  // **期限を切るのは、出たことが分からない場合があるから。** iframe がページの端まで届いていると、
+  // そこから Pike のサイドバーやターミナルへ抜けたときにこの文書には何も届かない。真偽値の
+  // ままだと、そこで自動の再読み込みが止まったままになる。隠れたときも下ろす。
+  var iframeEnteredAt = 0;
+  window.addEventListener(
+    "mouseover",
+    function (e) {
+      iframeEnteredAt = e.target && e.target.tagName === "IFRAME" ? Date.now() : 0;
+    },
+    { passive: true, capture: true }
+  );
+  document.addEventListener(
+    "mouseleave",
+    function () {
+      iframeEnteredAt = 0;
+    },
+    { passive: true }
+  );
+  function overIframe(c) {
+    return iframeEnteredAt !== 0 && Date.now() - iframeEnteredAt < idleMs(c);
+  }
+
+  // 操作のイベントが無くても「使っている」とみなす状態。放置の判定と、戻ったときの判定の
+  // 両方がここを見る（止める条件を足すときに片方だけ古くならないように）。
+  function inUse(c) {
+    return isEditing() || overIframe(c);
+  }
+
   // --- 編集中の判定 ---
   // チケットの説明・コメント欄などに入力中でも問答無用でリロードすると編集内容が消える。
   // フォーカスが入力系要素にある間はアイドル計測をリセットし続け、フォーカスを外してから
@@ -269,7 +303,7 @@
       if (!c.autoReloadEnabled) return;
       // 隠れているあいだは判定しない（Pike #380）。表に戻ったときの扱いは visibilitychange が持つ。
       if (document.hidden) return;
-      if (isEditing()) {
+      if (inUse(c)) {
         lastActivity = Date.now();
         return;
       }
@@ -285,19 +319,35 @@
   // 取り込む）。**閾値を見るのは、短い隠れ方でリロードしないため**：Pike はダイアログや
   // QuickOpen を開いているあいだも子 webview を隠すので、閉じるたびにリロードされてしまう。
   // 閾値に届かなければ、隠れていた時間はアイドルに数えない（戻った時点から数え直す）。
+  //
+  // **戻った瞬間には読み込み直さない**（Pike #400）。Pike のウィンドウを前に出したり、タブを
+  // 切り替えて戻ったりした直後にそのまま読み始める（スクロールする）ことは多く、そこで読み込み
+  // 直すと操作の最中にページが入れ替わる。`RETURN_GRACE_MS` のあいだ操作が無かったときだけ
+  // 読み込み直し、操作があればアイドルの計測をそこから数え直す。
+  var RETURN_GRACE_MS = 3000;
   var hiddenAt = null;
+  var returnTimer = null;
   document.addEventListener("visibilitychange", function () {
+    if (returnTimer) {
+      clearTimeout(returnTimer);
+      returnTimer = null;
+    }
     if (document.hidden) {
       hiddenAt = Date.now();
+      iframeEnteredAt = 0;
       return;
     }
     var c = window.__JIRAPP_CONFIG__;
     var away = hiddenAt == null ? 0 : Date.now() - hiddenAt;
     hiddenAt = null;
-    lastActivity = Date.now();
-    if (c.autoReloadEnabled && !isEditing() && away >= idleMs(c)) {
+    var shownAt = Date.now();
+    lastActivity = shownAt;
+    if (!c.autoReloadEnabled || away < idleMs(c)) return;
+    returnTimer = setTimeout(function () {
+      returnTimer = null;
+      if (document.hidden || inUse(c) || lastActivity > shownAt) return;
       location.reload();
-    }
+    }, RETURN_GRACE_MS);
   });
 
   // 設定適用のエントリポイント（jirapp では Rust が push_config_script 経由で呼んだ。Pike では

@@ -275,7 +275,7 @@ export default {
     'Adds to Jira Cloud (*.atlassian.net) pages: column header colors, copying card keys, slimmer column scrollbars, reload (F5 and a header button), automatic reload when idle, and a notice when a change in Jira breaks these features.',
   'settings.siteRules': 'Per-domain JS and CSS',
   'settings.siteRulesHint':
-    'Injects the JS and CSS you write into pages on the listed domains. The JS runs with the page’s own privileges and cannot call Pike. These rules are included in settings sync.',
+    'Injects the JS and CSS you write into pages on the listed domains. The JS runs with the page’s own privileges and cannot call Pike. Included in settings sync.',
   'settings.siteRulesEmpty': 'No rules',
   'settings.siteRuleEnabled': 'Enabled',
   'settings.siteRuleName': 'Name',
@@ -285,7 +285,7 @@ export default {
   'settings.siteRuleCss': 'CSS',
   'settings.siteRuleUnnamed': 'Unnamed rule',
   'settings.siteRuleDeleteConfirm': 'Delete "{name}"?',
-  'settings.addSiteRule': 'Add rule',
+  'settings.addSiteRule': 'Add a new domain',
   // Sub-headings inside a section (#314); the same one is used in more than one section.
   'settings.groupDisplay': 'Display',
   'settings.groupBehavior': 'Behavior',
@@ -764,6 +764,7 @@ export default {
   'search.scopeLabel': 'In:',
   'search.scopeProject': 'Whole project',
   'search.scopeClear': 'Search the whole project',
+  'search.scopeHint': 'Right-click a folder in the file tree and choose "Search in Folder" to limit the search to it',
   'search.resultCount': '{count} results',
   'search.extract': 'Open results in a tab',
   'search.extractTooltip':
@@ -809,7 +810,7 @@ export default {
   'browser.hiddenByOverlay':
     'The page is hidden while a menu or dialog is open. It is drawn in front of the Pike window, so it would cover the menu. It comes back when you close it.',
   'browser.hiddenByPanel':
-    'The page is hidden while the Git panel is open, so commit tooltips are not covered by it. It comes back when you close the panel.',
+    'The page is hidden while the Git panel is open in the sidebar, so commit tooltips are not covered by it. It comes back when you close the panel.',
   'browser.applySiteRules': 'Reopen to apply',
   'browser.blankTitle': 'New Tab',
   'browser.filterPlaceholder': 'Filter bookmarks and history',

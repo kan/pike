@@ -26,7 +26,7 @@ import { canResolveDroppedPaths, resolveDroppedPaths } from '../../lib/dropPaths
 import { useOverlay } from '../../lib/overlay'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { actionChord } from '../../lib/shortcuts'
-import { TAB_KIND_ICONS, tabFileIconSvg } from '../../lib/tabIcons'
+import { TAB_KIND_ICONS } from '../../lib/tabIcons'
 import { tabDisplayTitle } from '../../lib/tabTitle'
 import { detectWslDistros, openElevatedTerminal } from '../../lib/tauri'
 import { elevated, globalMode } from '../../lib/window'
@@ -40,6 +40,7 @@ import { canReorderTabs, isWindowsShell, shellId, shellProfileLabel } from '../.
 import AgentSessionsMenu from '../AgentSessionsMenu.vue'
 import HelpButton from '../HelpButton.vue'
 import ProjectSelect from './ProjectSelect.vue'
+import TabIcon from './TabIcon.vue'
 import TabItem from './TabItem.vue'
 
 /**
@@ -743,14 +744,7 @@ onUnmounted(() => {
         :class="{ 'default-shell': tab.id === activeId }"
         @click="pickTab(tab.id)"
       >
-        <span v-if="tabFileIconSvg(tab)" class="row-icon row-icon-svg shell-menu-icon" v-html="tabFileIconSvg(tab)" />
-        <component
-          :is="TAB_KIND_ICONS[tab.kind]"
-          v-else-if="TAB_KIND_ICONS[tab.kind]"
-          :size="14"
-          :stroke-width="1.5"
-          class="shell-menu-icon"
-        />
+        <TabIcon :tab="tab" class="shell-menu-icon" />
         <span class="tab-menu-title">{{ tabDisplayTitle(tab) }}</span>
         <Check v-if="tab.id === activeId" :size="12" :stroke-width="2.5" class="shell-default-check" />
       </button>

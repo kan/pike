@@ -274,7 +274,7 @@ export default {
     'Jira Cloud（*.atlassian.net）のページに、列の見出しの色分け・カードのキーのコピー・列のスクロールバーを細くする・再読み込み（F5 とヘッダのボタン）・何もしていないときの自動再読み込み・画面の変化で機能が効かなくなったときの知らせ、を入れます。',
   'settings.siteRules': 'ドメインごとの JS と CSS',
   'settings.siteRulesHint':
-    '対象のドメインのページに、書いた JS と CSS を差し込みます。JS はそのページと同じ権限で動き、Pike の機能は呼べません。このルールは設定の同期の対象です。',
+    '対象のドメインのページに、書いた JS と CSS を差し込みます。JS はそのページと同じ権限で動き、Pike の機能は呼べません。設定同期の対象です。',
   'settings.siteRulesEmpty': 'ルールはありません',
   'settings.siteRuleEnabled': '有効',
   'settings.siteRuleName': '名前',
@@ -284,7 +284,7 @@ export default {
   'settings.siteRuleCss': 'CSS',
   'settings.siteRuleUnnamed': '名前のないルール',
   'settings.siteRuleDeleteConfirm': '「{name}」を削除しますか？',
-  'settings.addSiteRule': 'ルールを追加',
+  'settings.addSiteRule': '新しいドメインを追加',
   // セクションの中の小見出し（#314）。同じものを別のセクションでも使う。
   'settings.groupDisplay': '表示',
   'settings.groupBehavior': '操作',
@@ -762,6 +762,8 @@ export default {
   'search.scopeLabel': '対象:',
   'search.scopeProject': 'プロジェクト全体',
   'search.scopeClear': 'プロジェクト全体に戻す',
+  'search.scopeHint':
+    'ファイルツリーでフォルダを右クリックし、「このフォルダ内を検索」を選ぶと、検索する範囲をそのフォルダに絞れます',
   'search.resultCount': '{count} 件',
   'search.extract': '結果をタブで開く',
   'search.extractTooltip':
@@ -807,7 +809,7 @@ export default {
   'browser.hiddenByOverlay':
     'メニューやダイアログを開いているあいだ、ページを一時的に隠しています。ページは Pike の画面より手前に描かれるため、隠さないとメニューが読めません。閉じると戻ります。',
   'browser.hiddenByPanel':
-    'Git パネルを開いているあいだ、ページを一時的に隠しています。コミットのツールチップがページの下に隠れないようにするためです。パネルを閉じると戻ります。',
+    'サイドバーで Git パネルを開いているあいだ、ページを一時的に隠しています。コミットのツールチップがページの下に隠れないようにするためです。パネルを閉じると戻ります。',
   'browser.applySiteRules': '開き直して反映',
   'browser.blankTitle': '新しいタブ',
   'browser.filterPlaceholder': 'ブックマークと履歴を絞り込む',

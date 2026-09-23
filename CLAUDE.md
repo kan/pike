@@ -121,6 +121,7 @@ pike/
 │       ├── jira/              # Jira の拡張機能の JS（#380。jirapp から写した正本。site_rules.rs が include_str! で埋め込む）
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
 │       ├── page_title.rs      # 貼り付けた URL のページタイトル取得（Markdown リンク、#241）
+│       ├── favicon.rs         # ブラウザのタブに出すサイトのアイコンの取得（#400）
 │       ├── remote_image.rs    # 承認済みホストの画像取得（Markdown プレビュー、#239）
 │       ├── cache.rs           # mtime キャッシュと、キーごとの probe レジストリ（#315）
 │       ├── shell_probe.rs     # シェルに PATH と環境変数を 1 回で聞く共有部（#275）
@@ -194,6 +195,7 @@ pike/
 │   │   │   ├── TabPane.vue    # 作業領域（1〜2 ペイン）とタブの中身の配置（#308）
 │   │   │   ├── TabBar.vue     # 1 ペインぶんのタブバー（+ / シェル選択 / 各種メニュー、#308）
 │   │   │   ├── TabItem.vue    # タブバーの 1 枚（固定タブの列と通常の列で共有、#305）
+│   │   │   ├── TabIcon.vue    # タブの種別のアイコン（タブバーと溢れた一覧で共有、#400）
 │   │   │   └── StatusBar.vue  # ブランチ/worktree セレクタ/ahead-behind/トークン使用量/エンコード/改行/repo リンク
 │   │   ├── panels/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
@@ -278,6 +280,7 @@ pike/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── reorder.ts        # ドラッグでの並べ替え（プロジェクト一覧とサイドバーのアイコン列、#364）
+│   │   ├── browserIcons.ts   # ブラウザのタブのサイトのアイコン（#400。オリジンごとに覚える）
 │   │   ├── overlay.ts        # 手前に浮いているものの数（#396。ブラウザのタブの子 webview を隠す判断）
 │   │   ├── fileType.ts       # ファイル名 → 種別のキー（#347。ハイライト/アウトライン/ジャンプ/アイコンが共有）
 │   │   ├── codeHighlight.ts  # プレビューのコードブロックの色付け（#359。4 つのプレビューで共有）

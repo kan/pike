@@ -56,8 +56,15 @@ pub async fn remote_image_fetch(url: String) -> Result<RemoteImage, String> {
     if !fetched.mime.starts_with("image/") {
         return Err(format!("Not an image ({})", fetched.mime));
     }
-    Ok(RemoteImage {
-        mime: fetched.mime,
-        base64: base64::engine::general_purpose::STANDARD.encode(&fetched.body),
-    })
+    Ok(RemoteImage::from_bytes(fetched.mime, &fetched.body))
+}
+
+impl RemoteImage {
+    /// 取ってきたバイト列を data URL の材料にする（`favicon` と共有）。
+    pub fn from_bytes(mime: String, body: &[u8]) -> Self {
+        Self {
+            mime,
+            base64: base64::engine::general_purpose::STANDARD.encode(body),
+        }
+    }
 }

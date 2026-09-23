@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useI18n } from '../../../i18n'
-import { relativeDate } from '../../../lib/paths'
+import { commitTooltip, relativeDate } from '../../../lib/paths'
 import { gitDiffCommit, gitLogFile } from '../../../lib/tauri'
 import { useProjectStore } from '../../../stores/project'
 import { useTabStore } from '../../../stores/tabs'
@@ -71,7 +71,7 @@ async function openCommitDiff(hash: string) {
         v-for="entry in entries"
         :key="entry.hash"
         class="commit-row"
-        :title="`${entry.hash}\n${entry.author}\n${entry.date}\n\n${entry.message}`"
+        :title="commitTooltip(entry)"
         @click="openCommitDiff(entry.hash)"
       >
         <span class="c-hash">{{ entry.hash.slice(0, 7) }}</span>

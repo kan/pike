@@ -12,7 +12,16 @@ import { appendGitignoreLine, gitignoreEntry, hasGitignoreEntry } from '../../li
 import { buildCommitLink } from '../../lib/gitRemote'
 import { openPathInTab } from '../../lib/openFile'
 import { openUrlWithConfirm } from '../../lib/openUrl'
-import { basename, extension, gitStatusColor, isImageFile, mimeType, relativeDate, repoPath } from '../../lib/paths'
+import {
+  absoluteDate,
+  basename,
+  extension,
+  gitStatusColor,
+  isImageFile,
+  mimeType,
+  relativeDate,
+  repoPath,
+} from '../../lib/paths'
 import { loadJson, saveJson } from '../../lib/storage'
 import {
   fsDelete,
@@ -976,7 +985,7 @@ onUnmounted(() => {
         :style="tooltipStyle"
       >
         <div class="tooltip-meta">{{ hoveredCommit.hash.slice(0, 10) }}</div>
-        <div class="tooltip-meta">{{ hoveredCommit.author }} &middot; {{ hoveredCommit.date }}</div>
+        <div class="tooltip-meta">{{ hoveredCommit.author }} &middot; {{ absoluteDate(hoveredCommit.date) }}</div>
         <div class="tooltip-message">{{ hoveredCommit.message }}</div>
       </div>
     </Teleport>

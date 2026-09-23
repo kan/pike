@@ -211,6 +211,30 @@ export function relativeDate(iso: string): string {
   return relativeTime(new Date(iso).getTime())
 }
 
+/**
+ * `toLocaleString()` と同じ表記の整形器。**使い回す**: 履歴の一覧は行ごとのツールチップで
+ * 呼ぶので、`toLocaleString` のように毎回 Intl の整形器を作ると、再描画のたびに数百個作る。
+ */
+const dateTimeFormat = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: 'numeric',
+  second: 'numeric',
+})
+
+/** git の ISO 8601（`2026-09-23T12:34:56+09:00`）を手元の時刻の表記にする。`T` とオフセットを見せない。 */
+export function absoluteDate(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : dateTimeFormat.format(d)
+}
+
+/** 履歴の行のツールチップ（ファイル履歴タブとアウトラインの履歴が共有する）。 */
+export function commitTooltip(entry: { hash: string; author: string; date: string; message: string }): string {
+  return `${entry.hash}\n${entry.author}\n${absoluteDate(entry.date)}\n\n${entry.message}`
+}
+
 /** Same as {@link relativeDate} for a timestamp already in epoch ms. */
 export function relativeTime(epochMs: number): string {
   const diff = Date.now() - epochMs

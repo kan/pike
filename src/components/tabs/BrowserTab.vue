@@ -16,6 +16,7 @@ import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vu
 import { type BrowserHandlers, browserRouter } from '../../composables/useBrowserRouter'
 import { useFocusPolling } from '../../composables/useFocusPolling'
 import { useI18n } from '../../i18n'
+import { requestBrowserIcon } from '../../lib/browserIcons'
 import { isWebUrl } from '../../lib/format'
 import { normalizeWebUrl, openUrlWithConfirm } from '../../lib/openUrl'
 import { overlayOpen } from '../../lib/overlay'
@@ -316,7 +317,11 @@ const routerHandlers: BrowserHandlers = {
       // **`tab.value.url` を使わない**: 読み込みの途中ではまだ前のページを指している。
       if (titleUrl) browserStore.setTitle(titleUrl, title)
     }
-    if (url) applyUrl(url)
+    if (url) {
+      applyUrl(url)
+      // 読み込みが終わったページのサイトのアイコン（#400）。オリジンごとに 1 回だけ取る。
+      requestBrowserIcon(url)
+    }
   },
   // ページが新しいウィンドウを開こうとした（`target=_blank` など）。ポップアップは Rust が
   // WebView2 に任せ、ここへ来るのは普通のリンクだけ。同じ URL のタブがあっても新しく開く

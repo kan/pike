@@ -68,8 +68,9 @@ const { t } = useI18n()
   background: var(--tab-hover-bg);
 }
 
+/* 伸ばさない（#400）: 削除のボタンを行の右端ではなくホスト名の直後に置く。 */
 .host-name {
-  flex: 1;
+  min-width: 0;
   font-size: 12px;
   color: var(--text-primary);
 }

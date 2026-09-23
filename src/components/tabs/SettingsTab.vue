@@ -536,10 +536,25 @@ watch(query, () => {
   if (scroller.value) scroller.value.scrollTop = 0
 })
 
+/**
+ * 設定画面のスクロール領域だけを動かして `el` を見せる。**`scrollIntoView` を使わないこと**（#400）:
+ * あれは `overflow: hidden` の祖先まで動かすので、ブラウザのタブの歯車から開いたときに
+ * タブの中身ごと上へずれ、スクロールバーの上端がタブバーの下に隠れた。
+ */
+function revealInScroller(el: HTMLElement, block: 'start' | 'center') {
+  const box = scroller.value
+  if (!box) return
+  const boxRect = box.getBoundingClientRect()
+  const rect = el.getBoundingClientRect()
+  let delta = rect.top - boxRect.top
+  if (block === 'center') delta -= (boxRect.height - rect.height) / 2
+  box.scrollTo({ top: box.scrollTop + delta, behavior: 'smooth' })
+}
+
 function scrollToSection(id: string) {
   activeSection.value = id
   const el = document.getElementById(`settings-${id}`)
-  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  if (el) revealInScroller(el, 'start')
 }
 
 /**
@@ -563,7 +578,7 @@ watch(
     }
     if (!el) return
     activeSection.value = SECTIONS.browser.id
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    revealInScroller(el, 'center')
     el.querySelector<HTMLTextAreaElement>('textarea')?.focus({ preventScroll: true })
     el.classList.remove('flash')
     void el.offsetWidth // 続けて頼まれても光り直すよう、アニメーションを最初からにする
@@ -928,7 +943,12 @@ const PREVIEW_LINES = [
                     class="profile-icon"
                   />
                 </template>
-                <template v-if="l.kind === 'custom'">
+                <!--
+                  `#default` を付けて**条件付きのスロット**にする（#400）。素の `<template v-if>` は
+                  既定のスロットの中身として扱われ、偽でもスロット自体は残るので、`ProfileRow` が
+                  組み込みの行まで「入力欄の行」とみなして伸ばし、目のアイコンが右端へ飛んだ。
+                -->
+                <template v-if="l.kind === 'custom'" #default>
                   <input v-model="l.label" class="agent-cmd-input label" :placeholder="t('settings.agentCommandLabel')" />
                   <input v-model="l.command" class="agent-cmd-input cmd" :placeholder="t('settings.agentCommandCommand')" />
                 </template>
@@ -1667,8 +1687,9 @@ const PREVIEW_LINES = [
   gap: 6px;
 }
 
+/* 伸ばさない（#400）: 後ろに並ぶボタンを行の右端ではなく名前の直後に置く。 */
 .setting-list-name {
-  flex: 1;
+  min-width: 0;
   font-size: 12px;
   color: var(--text-primary);
 }

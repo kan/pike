@@ -94,7 +94,7 @@ fn extract_title(bytes: &[u8], header_charset: Option<&str>) -> Option<String> {
 ///
 /// **`to_ascii_lowercase()` でコピーを作らないため**にある。素朴に書くと、タグ 1 つを
 /// 探すために最大 512 KB の複製と全走査が発生する。
-fn find_ascii_ci(haystack: &str, needle: &str) -> Option<usize> {
+pub(crate) fn find_ascii_ci(haystack: &str, needle: &str) -> Option<usize> {
     let (h, n) = (haystack.as_bytes(), needle.as_bytes());
     if n.is_empty() || h.len() < n.len() {
         return None;
@@ -157,7 +157,7 @@ fn meta_charset(bytes: &[u8]) -> Option<String> {
 /// 生まれる。1 パスなら、戻した文字が次の判定に混ざらないので縛り自体が消える。
 ///
 /// 名前付きは全表を持たない。タイトルに出るものだけを並べ、知らないものはそのまま残す。
-fn decode_entities(s: &str) -> String {
+pub(crate) fn decode_entities(s: &str) -> String {
     const NAMED: [(&str, char); 8] = [
         ("amp;", '&'),
         ("lt;", '<'),

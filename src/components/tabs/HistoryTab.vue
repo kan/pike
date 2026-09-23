@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
 import { parseDiff, parseRename } from '../../lib/diffParser'
 import { formatLineRange } from '../../lib/format'
-import { relativeDate } from '../../lib/paths'
+import { commitTooltip, relativeDate } from '../../lib/paths'
 import { gitDiffCommit, gitLogFile, gitLogFileLines } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
@@ -125,7 +125,7 @@ onMounted(async () => {
           :key="entry.hash"
           class="commit-row"
           :class="{ selected: entry.hash === selectedHash }"
-          :title="`${entry.hash}\n${entry.author}\n${entry.date}\n\n${entry.message}`"
+          :title="commitTooltip(entry)"
           @click="selectCommit(entry.hash)"
         >
           <span class="c-hash" :title="copiedHash === entry.hash ? t('common.copied') : 'Click to copy'" @click.stop="copyHash(entry.hash)">{{ copiedHash === entry.hash ? t('common.copied') : entry.hash.slice(0, 7) }}</span>

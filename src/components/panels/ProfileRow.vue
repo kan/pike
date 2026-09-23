@@ -14,9 +14,12 @@
  */
 
 import { ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-vue-next'
+import { useSlots } from 'vue'
 import { useI18n } from '../../i18n'
 
 const { t } = useI18n()
+/** 中身を差し替えた行（入力欄を持つ）だけ幅いっぱいに伸ばす。名前だけの行は伸ばさない。 */
+const slots = useSlots()
 
 defineProps<{
   /** 行に出す名前。**default スロットで中身を差し替えたときは使われない。** */
@@ -49,7 +52,7 @@ defineEmits<{ move: [dir: -1 | 1]; toggle: [] }>()
       起動行（#275）にコマンドを直に書く行が混ざるため。「デフォルト」バッジは差し替えの
       外に置くので、どちらの形の行でも同じ位置に出る。
     -->
-    <div class="profile-main">
+    <div class="profile-main" :class="{ grow: !!slots.default }">
       <slot>
         <span class="profile-label">{{ label }}</span>
       </slot>
@@ -122,14 +125,18 @@ defineEmits<{ move: [dir: -1 | 1]; toggle: [] }>()
   color: var(--text-secondary);
 }
 
-/* 幅を取るのはこちら。**`.profile-label` に `flex: 1` を持たせないこと**: バッジが名前の
-   すぐ右ではなく行の右端へ飛ぶし、差し替えた中身（入力欄が 2 つ）が伸びなくなる。 */
+/* 名前だけの行は伸ばさない（#400）。伸ばすと目のトグルが名前の後ろではなく行の右端へ飛び、
+   幅の広い画面ではどの行のボタンか読めなくなる。入力欄を持つ行（`grow`）だけ幅を取る。
+   **`.profile-label` に `flex: 1` を持たせないこと**: バッジが名前のすぐ右ではなくなる。 */
 .profile-main {
-  flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.profile-main.grow {
+  flex: 1;
 }
 
 .profile-label {

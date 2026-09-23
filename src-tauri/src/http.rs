@@ -55,6 +55,8 @@ pub struct FetchPolicy {
 }
 
 pub struct Fetched {
+    /// リダイレクトを追ったあとの URL。本文の中の相対パスはこちらを基準に解決する。
+    pub url: String,
     /// `Content-Type` の本体（`image/svg+xml` など）。ヘッダが無ければ空。
     pub mime: String,
     /// `Content-Type` の `charset` パラメータ。
@@ -144,6 +146,7 @@ pub async fn fetch(url: &str, policy: &FetchPolicy) -> Result<Fetched, String> {
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status().as_u16()));
     }
+    let final_url = resp.url().to_string();
     let (mime, charset) = parse_content_type(
         resp.headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -181,6 +184,7 @@ pub async fn fetch(url: &str, policy: &FetchPolicy) -> Result<Fetched, String> {
         }
     }
     Ok(Fetched {
+        url: final_url,
         mime,
         charset,
         body,
