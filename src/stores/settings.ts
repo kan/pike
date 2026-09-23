@@ -205,13 +205,10 @@ const AUTO_SCHEME_DARK = 'Default Dark'
 const AUTO_SCHEME_LIGHT = 'Solarized Light'
 
 const STORAGE_KEY = 'pike:settings'
-// The external sync-file path is itself environment-specific (the Dropbox
-// folder differs per PC), so it is stored separately and never written into the
-// synced payload.
-const SYNC_PATH_KEY = 'pike:sync-path'
 // The global-mode default shell references this machine's WSL distros, so it
-// is likewise machine-local: stored under its own key, excluded from the
-// synced payload and the cross-window broadcast.
+// is machine-local: stored under its own key, excluded from the synced payload
+// and the cross-window broadcast. (The sync destination is machine-local too,
+// but its owner is `stores/sync.ts`.)
 const GLOBAL_SHELL_KEY = 'pike:global-shell'
 // Shell profile list (#129: dropdown order / visibility) also references this
 // machine's WSL distros — same machine-local treatment as GLOBAL_SHELL_KEY.
@@ -1749,15 +1746,12 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   // --- 同期（#403） ---------------------------------------------------------
-  // いつ・どう同期するかは同期の調停役（`stores/sync.ts`）が持つ。ここに残るのは、固定パスの
-  // 同期先のパス（マシンごと）と、マージの結果を受け取る口だけ。
-  const syncFilePath = ref(loadJson<string>(SYNC_PATH_KEY, ''))
+  // いつ・どこへ同期するかは同期の調停役（`stores/sync.ts`）が持つ。ここに残るのは、
+  // マージの結果を受け取る口（`applySyncedSettings`）だけ。
   // True while applying a snapshot received from another window — suppresses
   // re-broadcasting (avoids feedback loops).
   let applyingRemote = false
   let broadcastTimer: ReturnType<typeof setTimeout> | null = null
-
-  watch(syncFilePath, (v) => saveJson(SYNC_PATH_KEY, v))
 
   /**
    * 同期のマージの結果を反映する。`partial` に無いキー（同期しない種類）は今の値のまま。
@@ -1983,7 +1977,6 @@ export const useSettingsStore = defineStore('settings', () => {
     availableFonts,
     loadAvailableFonts,
     setFontByName,
-    syncFilePath,
     snapshot,
     applySyncedSettings,
   }

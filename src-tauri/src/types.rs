@@ -788,26 +788,13 @@ impl ShellConfig {
         if !self.is_posix() {
             return Err("this shell cannot take input on stdin".to_owned());
         }
-        let mut cmd = self.posix_line_command(dir, &[], line);
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::piped());
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("Failed to run shell: {e}"))?;
-        let pid = child.id();
-        if let Some(mut stdin) = child.stdin.take() {
-            use std::io::Write as _;
-            // 書けなかったこと自体は失敗にしない（子が既に終わっていれば broken pipe に
-            // なる）。答えは終了コードで分かる。
-            let _ = stdin.write_all(input.as_bytes());
-        }
-        let output = wait_with_timeout(pid, timeout, "shell", move || child.wait_with_output())?;
-        Ok((
-            output.status.code().unwrap_or(-1),
-            into_lossy_string(output.stdout),
-            into_lossy_string(output.stderr),
-        ))
+        run_with_stdin(
+            self.posix_line_command(dir, &[], line),
+            input,
+            timeout,
+            "shell",
+        )
+        .map_err(|e| format!("Failed to run shell: {e}"))
     }
 
     /// Run a shell command line inside `dir`, returning (exit_code, stdout, stderr)
@@ -1248,6 +1235,56 @@ fn spawn_stdout(cmd: Command, label: &str) -> Result<String, String> {
         return Err(format!("{label} error: {stderr}"));
     }
     Ok(decode_console_output(output.stdout))
+}
+
+/// `cmd` を起こし、`input` を標準入力に書いて閉じ、`(終了コード, stdout, stderr)` を返す。
+/// `ShellConfig::run_posix_line_stdin` と、Windows のホストの `gh` を直に起こす経路
+/// （`settings_gist.rs`）が共有する。
+///
+/// **書き終えたら閉じる**（`drop`）。閉じないと、`cat` のように EOF まで読む相手が返って
+/// こない。起こせなかったときの `io::Error` はそのまま返す（呼び出し側が「見つからない」を
+/// 見分ける）。
+pub fn run_with_stdin(
+    mut cmd: Command,
+    input: &str,
+    timeout: Duration,
+    label: &str,
+) -> Result<(i32, String, String), RunError> {
+    cmd.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::piped());
+    let mut child = cmd.spawn().map_err(RunError::Spawn)?;
+    let pid = child.id();
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write as _;
+        // 書けなかったこと自体は失敗にしない（子が既に終わっていれば broken pipe に
+        // なる）。答えは終了コードで分かる。
+        let _ = stdin.write_all(input.as_bytes());
+    }
+    let output = wait_with_timeout(pid, timeout, label, move || child.wait_with_output())
+        .map_err(RunError::Wait)?;
+    Ok((
+        output.status.code().unwrap_or(-1),
+        into_lossy_string(output.stdout),
+        into_lossy_string(output.stderr),
+    ))
+}
+
+/// `run_with_stdin` の失敗。起こせなかった（`Spawn`）と、起こしたあと待てなかった（時間切れ
+/// など）を分ける。
+#[derive(Debug)]
+pub enum RunError {
+    Spawn(std::io::Error),
+    Wait(String),
+}
+
+impl std::fmt::Display for RunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RunError::Spawn(e) => write!(f, "{e}"),
+            RunError::Wait(e) => write!(f, "{e}"),
+        }
+    }
 }
 
 /// Run a closure in a background thread with a timeout.

@@ -58,6 +58,7 @@ mod project;
 mod pty;
 mod remote_image;
 mod search;
+mod settings_gist;
 mod settings_sync;
 mod shell_probe;
 mod site_rules;
@@ -1883,6 +1884,11 @@ pub fn run() {
             fs::fs_read_file_chunk,
             settings_sync::settings_sync_read,
             settings_sync::settings_sync_write,
+            settings_gist::sync_gist_list,
+            settings_gist::sync_gist_create,
+            settings_gist::sync_gist_read,
+            settings_gist::sync_gist_revision,
+            settings_gist::sync_gist_write,
             watcher::fs_watch_start,
             watcher::fs_watch_stop,
             docker::docker_ping,

@@ -37,8 +37,10 @@ import {
   agentHookStatus,
   agentHookUninstall,
   detectWslDistros,
+  type GistInfo,
   pickFolder,
   pickSaveFile,
+  syncGistList,
 } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import {
@@ -63,7 +65,12 @@ import {
   WINDOW_OPACITY_MIN,
   type WindowBackdrop,
 } from '../../stores/settings'
-import { useSyncStore } from '../../stores/sync'
+import {
+  describeError as describeSyncError,
+  SYNC_TARGET_KINDS,
+  type SyncTargetKind,
+  useSyncStore,
+} from '../../stores/sync'
 import { useTabStore } from '../../stores/tabs'
 import {
   isWindowsShell,
@@ -318,12 +325,59 @@ function onEditorFontChange(name: string) {
 
 const updater = useUpdater()
 
+const sync = useSyncStore()
+
+// --- 同期先（#403。マシンごと。持ち主は sync ストアで、main が同期する） ---
+
+const syncTargetOptions = SYNC_TARGET_KINDS.map((value) => ({ value, labelKey: `sync.target.${value}` }))
+
 async function browseSyncFile() {
   const path = await pickSaveFile('pike-settings.json')
-  if (path) settings.syncFilePath = path
+  if (path) sync.setTarget({ filePath: path })
 }
 
-const sync = useSyncStore()
+/** `gh` の場所の選択肢（ホストと、検出できた WSL の distro）。値は `select` に載せる文字列。 */
+const ghPlaceValue = computed(() => (sync.target.ghPlace.kind === 'wsl' ? `wsl:${sync.target.ghPlace.distro}` : 'host'))
+
+function onGhPlaceChange(value: string) {
+  sync.setTarget({ ghPlace: value.startsWith('wsl:') ? { kind: 'wsl', distro: value.slice(4) } : { kind: 'host' } })
+}
+
+/** 既存の Gist から選ぶ（同期ファイルを持つものの一覧）。 */
+const gistChoices = ref<GistInfo[] | null>(null)
+/** 実行中の Gist の操作（押したボタンにだけローディングを出す）。 */
+const gistBusy = ref<'create' | 'list' | null>(null)
+const gistError = ref('')
+/** Gist の操作と同期は互いを待たせる（同期の最中に同期先を変えない）。 */
+const gistLocked = computed(() => gistBusy.value !== null || sync.syncing)
+
+async function withGist(kind: 'create' | 'list', run: () => Promise<void>) {
+  gistBusy.value = kind
+  gistError.value = ''
+  try {
+    await run()
+  } catch (e) {
+    gistError.value = describeSyncError(e)
+  } finally {
+    gistBusy.value = null
+  }
+}
+
+function listGists() {
+  void withGist('list', async () => {
+    gistChoices.value = await syncGistList(sync.target.ghPlace)
+  })
+}
+
+/** 同期先が変わると main が同期を始める（ここで呼ぶと 2 回走る）。 */
+function chooseGist(id: string) {
+  gistChoices.value = null
+  sync.setTarget({ gistId: id })
+}
+
+function createGist() {
+  void withGist('create', () => sync.createGist(sync.target.ghPlace))
+}
 
 /** 同期する種類（#403。マシンごと）の切り替え。 */
 function setSyncCategory(c: SyncCategory, on: boolean) {
@@ -1244,28 +1298,80 @@ const PREVIEW_LINES = [
 
       <!-- Settings Sync -->
       <SettingSection v-bind="SECTIONS.sync">
-        <SettingItem label-key="settings.syncFilePath" hint-key="settings.syncHint" wide>
+        <SettingItem label-key="sync.target.label" hint-key="settings.syncHint">
+          <SettingToggle
+            :model-value="sync.target.kind"
+            :options="syncTargetOptions"
+            @update:model-value="(kind: SyncTargetKind) => sync.setTarget({ kind })"
+          />
+        </SettingItem>
+
+        <!-- GitHub Gist（段階 4）。`gh` の場所と、どの Gist を使うか。 -->
+        <template v-if="sync.target.kind === 'gist'">
+          <SettingItem label-key="sync.ghPlace" hint-key="sync.ghPlaceHint">
+            <select class="base-distro" :value="ghPlaceValue" @change="onGhPlaceChange(($event.target as HTMLSelectElement).value)">
+              <option value="host">{{ t('sync.ghPlaceHost') }}</option>
+              <option v-for="d in distros" :key="d" :value="`wsl:${d}`">WSL: {{ d }}</option>
+            </select>
+          </SettingItem>
+          <SettingItem label-key="sync.gist" hint-key="sync.gistHint" wide>
+            <div class="sync-path-row">
+              <input
+                :value="sync.target.gistId"
+                class="agent-cmd-input sync-path-input"
+                type="text"
+                spellcheck="false"
+                :placeholder="t('sync.gistPlaceholder')"
+                @change="sync.setTarget({ gistId: ($event.target as HTMLInputElement).value.trim() })"
+              />
+              <button type="button" class="detect-btn busy-btn" :disabled="gistLocked" @click="createGist">
+                <Loader v-if="gistBusy === 'create'" :size="12" :stroke-width="2" class="spin" />
+                {{ t('sync.gistCreate') }}
+              </button>
+              <button type="button" class="detect-btn busy-btn" :disabled="gistLocked" @click="listGists">
+                <Loader v-if="gistBusy === 'list'" :size="12" :stroke-width="2" class="spin" />
+                {{ t('sync.gistChoose') }}
+              </button>
+            </div>
+            <div v-if="gistChoices" class="setting-list">
+              <p v-if="gistChoices.length === 0" class="setting-hint">{{ t('sync.gistNone') }}</p>
+              <div v-for="g in gistChoices" :key="g.id" class="setting-list-row">
+                <span class="setting-list-name">{{ g.description || g.id }}（{{ absoluteDate(g.updatedAt) }}）</span>
+                <button class="update-btn" :disabled="gistLocked" @click="chooseGist(g.id)">{{ t('sync.gistUse') }}</button>
+              </div>
+            </div>
+            <p v-if="gistError" class="setting-hint update-err">{{ gistError }}</p>
+          </SettingItem>
+        </template>
+
+        <SettingItem v-if="sync.target.kind === 'file'" label-key="settings.syncFilePath" wide>
           <div class="sync-path-row">
             <input
-              v-model="settings.syncFilePath"
+              :value="sync.target.filePath"
               class="agent-cmd-input sync-path-input"
               type="text"
               spellcheck="false"
               :placeholder="t('settings.syncFilePathPlaceholder')"
+              @change="sync.setTarget({ filePath: ($event.target as HTMLInputElement).value.trim() })"
             />
             <button type="button" class="detect-btn" @click="browseSyncFile">
               {{ t('project.browse') }}
             </button>
           </div>
+        </SettingItem>
+
+        <SettingItem v-if="sync.target.kind !== 'none'" label-key="sync.status" wide>
           <div class="sync-actions">
             <button
               class="update-btn"
-              :disabled="!sync.hasTarget || sync.syncing"
+              :disabled="!sync.hasTarget || gistLocked"
               @click="sync.syncNow()"
             >
-              {{ t('sync.syncNow') }}
+              <Loader v-if="sync.syncing" :size="14" :stroke-width="2" class="spin" />
+              {{ sync.syncing ? t('sync.syncing') : t('sync.syncNow') }}
             </button>
-            <span v-if="sync.syncing" class="update-info">{{ t('sync.syncing') }}</span>
+            <!-- 同期中は結果を出さない（前回の結果が今のものに見える）。表示はボタンが持つ。 -->
+            <template v-if="sync.syncing"></template>
             <template v-else-if="sync.status === 'conflicts'">
               <span class="update-info update-err">{{ t('sync.conflictsCount', { count: sync.conflicts.length }) }}</span>
               <button class="update-btn" @click="tabStore.addSyncConflictsTab()">{{ t('sync.openConflicts') }}</button>
@@ -1280,14 +1386,8 @@ const PREVIEW_LINES = [
           </div>
         </SettingItem>
 
-        <SettingGroup title-key="sync.categories">
-          <!-- 説明は先頭の 1 行にだけ付ける（3 行に同じ文を並べない）。 -->
-          <SettingItem
-            v-for="(c, i) in SYNC_CATEGORIES"
-            :key="c"
-            :label-key="`sync.category.${c}`"
-            :hint-key="i === 0 ? 'sync.categoriesHint' : undefined"
-          >
+        <SettingGroup v-if="sync.target.kind !== 'none'" title-key="sync.categories" hint-key="sync.categoriesHint">
+          <SettingItem v-for="c in SYNC_CATEGORIES" :key="c" :label-key="`sync.category.${c}`">
             <SettingToggle
               :model-value="sync.categories.includes(c)"
               :options="ON_OFF"
@@ -1328,7 +1428,7 @@ const PREVIEW_LINES = [
               <option v-for="d in distros" :key="d" :value="d">{{ d }}</option>
             </select>
           </div>
-          <p v-if="settings.syncFilePath && projectStore.unsyncableProjects.length > 0" class="setting-hint">
+          <p v-if="sync.hasTarget && projectStore.unsyncableProjects.length > 0" class="setting-hint">
             {{ t('settings.projectBaseOutside', { count: projectStore.unsyncableProjects.length }) }}
           </p>
         </SettingItem>
@@ -1785,7 +1885,18 @@ const PREVIEW_LINES = [
   flex-shrink: 0;
 }
 
-.detect-btn:hover {
+.busy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.detect-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.detect-btn:hover:not(:disabled) {
   background: var(--tab-hover-bg);
   color: var(--text-primary);
 }

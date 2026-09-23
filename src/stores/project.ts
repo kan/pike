@@ -235,8 +235,24 @@ export const useProjectStore = defineStore('project', () => {
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
+  /** 一覧を一度でも読んだか（同期が「空の一覧」を「全部消した」と読まないため、#403）。 */
+  let projectsLoaded = false
+  let groupsLoaded = false
+
   async function loadProjects() {
     projects.value = await projectList()
+    projectsLoaded = true
+  }
+
+  /**
+   * 同期（#403）の前に、プロジェクトとグループの一覧が読み込み済みであることを保証する。
+   * **読み込み済みなら読み直さない**: 読み直すと `projects` の要素が新しいオブジェクトに
+   * 差し替わり、同じ要素を指しているはずの `currentProject` とずれる（自動の同期は数秒ごとに
+   * 走りうる）。
+   */
+  async function ensureListsLoaded() {
+    if (!projectsLoaded) await loadProjects()
+    if (!groupsLoaded) await loadGroups()
   }
 
   /** Group projects by what a batched shell probe can answer in one call: one
@@ -830,10 +846,11 @@ export const useProjectStore = defineStore('project', () => {
     const base = settings.projectBase
     const entries = target.projects
     const published = new Map(before.projects.map((p) => [p.id, p]))
-    // Re-read first: writing back a config this window loaded at startup would
-    // roll back the session another window has been updating since.
-    await loadProjects()
-    const known = new Map(projects.value.map((p) => [p.id, p]))
+    // 書き換える元はディスクから読み直す（他のウィンドウが更新したセッションを、このウィンドウの
+    // 古い写しで巻き戻さないため）。**`projects` には代入しない**: 要素が新しいオブジェクトに
+    // 差し替わり、`currentProject` とずれる。書いたものは `saveProject` が 1 件ずつ差し替える。
+    const fresh = await projectList()
+    const known = new Map(fresh.map((p) => [p.id, p]))
     // What counts as "a project this machine already decided about", by every
     // key that survives the trip through the file. Ids do not: one repository
     // ends up with an id per machine that registered it separately, so an entry
@@ -852,7 +869,8 @@ export const useProjectStore = defineStore('project', () => {
     // touches every project in a reordered group.
     const patched: ProjectConfig[] = []
     for (const entry of entries) {
-      const local = known.get(entry.id)
+      // このウィンドウで開いているものはメモリの写しが最新（セッションの書き出しは遅れて届く）。
+      const local = currentProject.value?.id === entry.id ? currentProject.value : known.get(entry.id)
       if (local) {
         const prev = published.get(entry.id)
         if (!prev) continue
@@ -1003,6 +1021,7 @@ export const useProjectStore = defineStore('project', () => {
         }
       }
       groups.value = stored
+      groupsLoaded = true
       if (added) await persistGroups()
     } catch {
       groups.value = []
@@ -1441,6 +1460,7 @@ export const useProjectStore = defineStore('project', () => {
     adoptProject,
     loadProjects,
     loadGroups,
+    ensureListsLoaded,
     addGroup,
     renameGroup,
     removeGroup,

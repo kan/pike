@@ -11,7 +11,8 @@ import { SETTINGS_GROUP, useSettingsSearch } from '../../composables/useSettings
 import { useI18n } from '../../i18n'
 import HighlightText from './HighlightText.vue'
 
-const props = defineProps<{ titleKey: string }>()
+/** `hintKey` は小見出しの直下に出す、その群れ全体の説明（各項目に同じ文を並べない）。 */
+const props = defineProps<{ titleKey: string; hintKey?: string }>()
 
 const { t } = useI18n()
 const search = useSettingsSearch()
@@ -24,6 +25,7 @@ const visible = computed(() => search.groupVisible(id))
 <template>
   <div v-show="visible" class="setting-group">
     <h4 class="group-title"><HighlightText :text="t(titleKey)" /></h4>
+    <p v-if="hintKey" class="setting-hint group-hint">{{ t(hintKey) }}</p>
     <slot />
   </div>
 </template>
@@ -39,5 +41,9 @@ const visible = computed(() => search.groupVisible(id))
   color: var(--text-secondary);
   margin: 12px 0 2px 0;
   opacity: 0.8;
+}
+
+.group-hint {
+  margin: 0 0 4px 0;
 }
 </style>

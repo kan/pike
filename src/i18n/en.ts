@@ -467,7 +467,7 @@ export default {
   'settings.shellProfileHide': 'Hide',
   'settings.sync': 'Settings Sync',
   'settings.syncHint':
-    'Share your settings, project list and groups, and bookmarks with other PCs through one JSON file. Point the path at a folder synced by Dropbox or similar; syncing happens when you press "Sync now". If both PCs changed the same item to different values, you choose which one to keep.',
+    'Share your settings, project list and groups, and bookmarks with other PCs. A GitHub Gist syncs automatically; a file syncs when you press "Sync now". If both PCs changed the same item to different values, you choose which one to keep.',
   'settings.syncFilePath': 'Sync file path',
   'settings.syncFilePathPlaceholder': 'e.g. C:\\Users\\you\\Dropbox\\pike\\settings.json',
   'settings.projectBase': 'Project base directory',
@@ -482,6 +482,27 @@ export default {
   'settings.hiddenProjectsRestore': 'Restore',
 
   // Settings Sync (#403)
+  'sync.target.label': 'Sync with',
+  'sync.target.none': 'Off',
+  'sync.target.gist': 'GitHub Gist',
+  'sync.target.file': 'File',
+  'sync.ghPlace': 'gh command',
+  'sync.ghPlaceHint':
+    'Which GitHub CLI (gh) reads and writes the gist. Sign in (gh auth login) with this gh first. This choice is not synced.',
+  'sync.ghPlaceHost': 'This machine (host)',
+  'sync.gist': 'Gist',
+  'sync.gistHint':
+    'The ID of the gist used for syncing. On the first PC, "Create gist" makes a secret gist; on the others, "Choose an existing gist" picks the same one.',
+  'sync.gistPlaceholder': 'Gist ID',
+  'sync.gistCreate': 'Create gist',
+  'sync.gistChoose': 'Choose an existing gist',
+  'sync.gistNone': 'No gist with a sync file was found.',
+  'sync.gistUse': 'Use',
+  'sync.ghMissing': 'gh was not found. Install the GitHub CLI, or choose another gh command.',
+  'sync.ghAuth': 'gh is not signed in. Run gh auth login in a terminal.',
+  'sync.staleRead':
+    'The gist returned a version older than this machine last wrote, so the sync was skipped. The next sync reads it again.',
+  'sync.status': 'Sync',
   'sync.syncNow': 'Sync now',
   'sync.syncing': 'Syncing…',
   'sync.lastSynced': 'Synced at {at}.',
@@ -492,12 +513,12 @@ export default {
     'Projects: {created} added, {updated} updated, {removed} removed, {unresolvable} cannot be created on this machine.',
   'sync.conflictsCount': '{count} conflict(s)',
   'sync.openConflicts': 'Resolve conflicts',
-  'sync.restoreNoTarget': 'Cannot restore: no sync file path is set.',
+  'sync.restoreNoTarget': 'Cannot restore: no sync destination is set.',
   'sync.restoreRequested': 'Removed the record and synced. The project is recreated if the sync file still has it.',
   'sync.categories': 'What to sync',
   'sync.categoriesHint':
     'The kinds this machine syncs (this choice itself is not synced). Kinds you turn off are left as they are in the sync file.',
-  'sync.category.settings': 'Settings',
+  'sync.category.settings': 'General settings',
   'sync.category.projects': 'Projects and groups',
   'sync.category.bookmarks': 'Bookmarks and site rules',
   'sync.conflictsTitle': 'Sync Conflicts',

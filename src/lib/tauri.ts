@@ -447,6 +447,52 @@ export async function settingsSyncWrite(path: string, content: string): Promise<
   return invoke('settings_sync_write', { path, content })
 }
 
+// 設定の同期の同期先としての GitHub Gist（#403、`src-tauri/src/settings_gist.rs`）。
+// 認証は `gh` に任せる。失敗のうち `gh-missing` / `gh-auth` は決まった文字列で来る。
+
+/** どこの `gh` を使うか（ホストか、WSL の distro か）。 */
+export type GhPlace = { kind: 'host' } | { kind: 'wsl'; distro: string }
+
+export interface GistInfo {
+  id: string
+  description: string
+  updatedAt: string
+}
+
+export interface GistContent {
+  /** Gist に同期ファイルがまだ無ければ null。 */
+  content: string | null
+  /** Gist の版。書く前にこれが変わっていないかを確かめる。 */
+  revision: string
+  /** 最新の版を作った時刻（ISO 8601）。このマシンが最後に書いた時刻より前なら、古い読み込み。 */
+  revisedAt: string
+}
+
+export async function syncGistList(place: GhPlace): Promise<GistInfo[]> {
+  return invoke<GistInfo[]>('sync_gist_list', { place })
+}
+
+export async function syncGistCreate(place: GhPlace, content: string): Promise<string> {
+  return invoke<string>('sync_gist_create', { place, content })
+}
+
+export async function syncGistRead(place: GhPlace, id: string): Promise<GistContent> {
+  return invoke<GistContent>('sync_gist_read', { place, id })
+}
+
+/** 最新の版だけを聞く（書く前の確かめ。本文を運ばない）。 */
+export async function syncGistRevision(place: GhPlace, id: string): Promise<string> {
+  return invoke<string>('sync_gist_revision', { place, id })
+}
+
+/** `sync_gist_*` の失敗（`settings_gist.rs` の `GistError`）。 */
+export type GistError = { kind: 'ghMissing' } | { kind: 'ghAuth' } | { kind: 'other'; message: string }
+
+/** 書いた版の時刻（`revisedAt`）を返す。 */
+export async function syncGistWrite(place: GhPlace, id: string, content: string): Promise<string> {
+  return invoke<string>('sync_gist_write', { place, id, content })
+}
+
 // Watcher
 
 export async function fsWatchStart(shell: ShellType, root: string): Promise<string> {

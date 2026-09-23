@@ -129,6 +129,7 @@ pike/
 │       ├── shell_probe.rs     # シェルに PATH と環境変数を 1 回で聞く共有部（#275）
 │       ├── ssh_agent.rs       # 鍵を ssh-agent に預ける（#386。パスフレーズは子の stdin 経由）
 │       ├── settings_sync.rs   # 設定・プロジェクト一覧の同期ファイル読み書き（#164）
+│       ├── settings_gist.rs   # 設定の同期の同期先としての GitHub Gist（#403。`gh api` 経由、本文は標準入力）
 │       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）と仮想デスクトップ（#317）
 │       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）
 │       ├── ime_debug.rs       # IME 調査用の一時ログ（原因判明後に削除する）
