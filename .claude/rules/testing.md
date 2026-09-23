@@ -3,6 +3,10 @@
 ## 基本方針
 - 自動テストは最小限。動作確認は手動（GUI で実挙動を確認）で行う
 - Rust のユニットテストは純粋なロジック（パース処理等）にのみ書く
+- フロントも**純粋なロジックだけ**テストを書く（`tests/*.test.ts`、`just test-ts`。#403 の同期のマージから）
+  - 走らせるのは `tsx --test`（Node 標準の `node:test`）。**vitest は入れていない**: `tsx` は `check-shortcuts` で既に使っていて、依存を増やさずに済む
+  - 置き場を `src/` の外にしているのは、`vue-tsc` の対象（`src/` の DOM 向けの設定）に `node:` の型を持ち込まないため。テストのファイル自体は型検査されない（`tsx` は型を剥がして走らせるだけ）
+  - テストにしたいロジックは、ストアから切り出して `src/lib/` の純粋な関数にする（`lib/syncMerge.ts` が例）
 - PTY / Docker / git などの外部プロセス依存部分は統合テストの対象外
 - Vue コンポーネントのテストは当面スコープ外
 - PTY / tmux / bollard の接続検証は `src-tauri/src/bin/` に小さい検証バイナリを作って `cargo run --bin verify_xxx` で確認する

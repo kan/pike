@@ -478,7 +478,11 @@ export interface AgentPrompt {
   text: string
 }
 
-interface PersistedSettings {
+/**
+ * 保存・同期する設定の形。`export` は型のため（`lib/syncFormat.ts` がキーの表をこの型で縛る。
+ * 型だけの import なので、あちらがストアを読むことにはならない）。
+ */
+export interface PersistedSettings {
   fontFamily: string
   fontSize: number
   editorFontName: string

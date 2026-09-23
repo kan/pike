@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["src/**/*.ts", "src/**/*.vue"]
+    "includes": ["src/**/*.ts", "src/**/*.vue", "tests/**/*.ts"]
   },
   "formatter": {
     "enabled": true,

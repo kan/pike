@@ -95,6 +95,7 @@ pike/
 │   ├── check-docs.mjs         # ドキュメント整合チェック（just check-docs が呼ぶ）
 │   ├── check-shortcuts.ts     # マニュアルの早見表と実装の割り当ての照合（just check-shortcuts、#280）
 │   └── make-icons.sh          # アイコン一式を icon.svg から作り直す（#256）
+├── tests/                     # フロントの純粋なロジックのテスト（*.test.ts。just test-ts、#403）
 ├── src-tauri/
 │   ├── Cargo.toml
 │   ├── rustfmt.toml       # Rust の整形設定（#313。max_width = 100）
@@ -284,6 +285,8 @@ pike/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── reorder.ts        # ドラッグでの並べ替え（プロジェクト一覧とサイドバーのアイコン列、#364）
+│   │   ├── syncMerge.ts      # 設定の同期の 3-way マージ（#403。種別を知らない純粋な計算）
+│   │   ├── syncFormat.ts     # 同期ファイルとマージの項目の行き来・同期の種類（#403）
 │   │   ├── browserIcons.ts   # ブラウザのタブのサイトのアイコン（#400。オリジンごとに覚える）
 │   │   ├── browserHandoff.ts # 別プロジェクトの同じ URL のタブへ子 webview を譲る（#402）
 │   │   ├── overlay.ts        # 手前に浮いているものの数（#396。ブラウザのタブの子 webview を隠す判断）
@@ -403,12 +406,13 @@ pike/
 - どちらもコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは適用後のコードを試す）。
 - `/code-review` はスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
 
-その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 7 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
+その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 8 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
 
-- **Frontend**: `just lint`（= `npm run lint` = `biome check src/`）
+- **Frontend**: `just lint`（= `npm run lint` = `biome check src/ tests/`）
 - **TypeScript 型検査**: `just typecheck`（= `npx vue-tsc --noEmit`。`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
 - **ドキュメント整合**: `just check-docs`（= `node scripts/check-docs.mjs`）
 - **ショートカット照合**: `just check-shortcuts`（= `tsx scripts/check-shortcuts.ts`。マニュアルの早見表と実装の割り当てを突き合わせる。#280）
+- **TS のテスト**: `just test-ts`（= `tsx --test tests/*.test.ts`。Node 標準の `node:test` で、フロントの純粋なロジックだけを見る。#403）
 - **Rust の整形**: `just fmt-check`（= `src-tauri/` で `cargo fmt --check`。設定は `src-tauri/rustfmt.toml`。整形するときは `just fmt`。#313）
 - **Rust**: `just clippy`（= `src-tauri/` で `cargo clippy --all-targets -- -D warnings`。`--all-targets` が無いと `#[cfg(test)]` の中だけ素通りする。追加の lint は `src-tauri/Cargo.toml` の `[lints.clippy]`、#382）
 - **Rust テスト**: `just test`（= `src-tauri/` で `cargo test`）

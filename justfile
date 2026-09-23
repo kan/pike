@@ -48,10 +48,10 @@ fetch-rg:
 
 # --- コミット前チェック ---
 
-# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / 整形 / clippy / test）
-check: lint typecheck check-docs check-shortcuts fmt-check clippy test
+# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / TS のテスト / 整形 / clippy / test）
+check: lint typecheck check-docs check-shortcuts test-ts fmt-check clippy test
 
-# Biome（src/）
+# Biome（src/ と tests/）
 lint:
     npm run lint
 
@@ -70,6 +70,10 @@ check-docs:
 # マニュアルの「プリセット別の早見表」と実装の割り当て表の照合（#280）
 check-shortcuts:
     npm run check:shortcuts
+
+# フロントの純粋なロジックのテスト（tests/*.test.ts。tsx で node:test を走らせる。#403）
+test-ts:
+    npm run test:ts
 
 # rustfmt で整形する（設定は src-tauri/rustfmt.toml、#313）
 [working-directory('src-tauri')]

@@ -74,6 +74,11 @@ jobs:
         if: runner.os == 'Windows'
         run: just check-shortcuts
 
+      # Frontend: 純粋なロジックのテスト（tests/*.test.ts、#403）。OS に依らない。
+      - name: TypeScript unit tests
+        if: runner.os == 'Windows'
+        run: just test-ts
+
       # Frontend: TypeScript type check + Vite build
       - name: Vue/TypeScript check & build
         if: runner.os == 'Windows'
