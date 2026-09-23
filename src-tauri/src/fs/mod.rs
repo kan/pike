@@ -2,7 +2,6 @@ use crate::types::{bash_quote, git_args, wait_with_timeout, ShellConfig};
 use base64::Engine as _;
 use encoding_rs::Encoding;
 use serde::Serialize;
-use std::fmt::Write as _;
 use std::io::Write as IoWrite;
 
 #[derive(Serialize)]
@@ -1027,48 +1026,61 @@ pub async fn fs_resolve_first_existing(
     shell: ShellConfig,
     candidates: Vec<String>,
 ) -> Result<Option<String>, String> {
-    tokio::task::spawn_blocking(move || match &shell {
-        ShellConfig::Wsl { .. } => resolve_first_existing_wsl(&shell, &candidates),
-        _ => Ok(resolve_first_existing_native(&candidates)),
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tokio::task::spawn_blocking(move || Ok(existing_paths(&shell, candidates)?.into_iter().next()))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
-fn resolve_first_existing_native(candidates: &[String]) -> Option<String> {
-    for path in candidates {
-        if let Ok(meta) = std::fs::metadata(path) {
-            if meta.is_file() {
-                return Some(path.clone());
-            }
-        }
-    }
-    None
+/// Return every candidate that exists as a regular file, in the given order.
+/// The alias lookup of the definition jump (#398) needs all of them: a
+/// `tsconfig.json` without `paths` must not hide the `vite.config.ts` next to
+/// it, and `fs_resolve_first_existing` stops at the first hit.
+#[tauri::command]
+pub async fn fs_existing_paths(
+    shell: ShellConfig,
+    candidates: Vec<String>,
+) -> Result<Vec<String>, String> {
+    tokio::task::spawn_blocking(move || existing_paths(&shell, candidates))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
-fn resolve_first_existing_wsl(
-    shell: &ShellConfig,
-    candidates: &[String],
-) -> Result<Option<String>, String> {
-    if candidates.is_empty() {
-        return Ok(None);
+fn existing_paths(shell: &ShellConfig, candidates: Vec<String>) -> Result<Vec<String>, String> {
+    let flags = match shell {
+        // A distro that fails to start yields no output; `zip` then drops the
+        // unanswered candidates, i.e. treats them as missing.
+        ShellConfig::Wsl { .. } => test_paths_wsl(shell, &candidates, "-f")?,
+        _ => candidates
+            .iter()
+            .map(|p| std::fs::metadata(p).is_ok_and(|m| m.is_file()))
+            .collect(),
+    };
+    Ok(candidates
+        .into_iter()
+        .zip(flags)
+        .filter_map(|(p, ok)| ok.then_some(p))
+        .collect())
+}
+
+/// Run `[ <test> path ]` for every path in one bash call (a WSL probe costs a
+/// `wsl.exe` launch). One flag per line, in order; shorter than `paths` when
+/// the distro fails to start, so each caller decides what "unknown" means.
+fn test_paths_wsl(shell: &ShellConfig, paths: &[String], test: &str) -> Result<Vec<bool>, String> {
+    if paths.is_empty() {
+        return Ok(vec![]);
     }
-    // Single bash call: print first candidate that is a regular file.
-    let mut script = String::new();
-    for path in candidates {
-        let quoted = bash_quote(path);
-        let _ = writeln!(
-            script,
-            "if [ -f {quoted} ]; then printf '%s' {quoted}; exit 0; fi"
-        );
-    }
+    let script = paths
+        .iter()
+        .map(|p| {
+            format!(
+                "if [ {test} {} ]; then echo 1; else echo 0; fi",
+                bash_quote(p)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let (_, stdout, _) = shell.run("bash", &["-c", &script])?;
-    let trimmed = stdout.trim_end_matches(['\n', '\r']);
-    if trimmed.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(trimmed.to_owned()))
-    }
+    Ok(stdout.lines().map(|l| l.trim() == "1").collect())
 }
 
 /// Report, for each path, whether it exists as a directory. Batched so the
@@ -1088,17 +1100,7 @@ pub async fn fs_dirs_exist(shell: ShellConfig, paths: Vec<String>) -> Result<Vec
 }
 
 fn dirs_exist_wsl(shell: &ShellConfig, paths: &[String]) -> Result<Vec<bool>, String> {
-    if paths.is_empty() {
-        return Ok(vec![]);
-    }
-    // One bash call prints a 0/1 line per path, in order.
-    let script = paths
-        .iter()
-        .map(|p| format!("if [ -d {} ]; then echo 1; else echo 0; fi", bash_quote(p)))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let (_, stdout, _) = shell.run("bash", &["-c", &script])?;
-    let mut flags: Vec<bool> = stdout.lines().map(|l| l.trim() == "1").collect();
+    let mut flags = test_paths_wsl(shell, paths, "-d")?;
     // A distro that fails to start yields no output; treat the roots as unknown
     // (= present) rather than reporting every WSL project as missing.
     flags.resize(paths.len(), true);

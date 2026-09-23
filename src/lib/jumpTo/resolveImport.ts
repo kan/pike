@@ -3,7 +3,9 @@
  *
  * Supports:
  *  - Relative paths (`./foo`, `../foo`) with extension/index fallback
- *  - TS path aliases via tsconfig.json `compilerOptions.paths`
+ *  - TS path aliases via tsconfig/jsconfig `compilerOptions.paths` (following
+ *    relative `extends` and one level of `references`) and vite.config
+ *    `resolve.alias`
  *
  * Bare specifiers (`react`, `vue`, ...) are intentionally NOT resolved; we
  * don't want to walk into node_modules from a lightweight editor.
@@ -11,7 +13,7 @@
 
 import type { ShellType } from '../../types/tab'
 import { dirname, isAbsolutePath, joinPath, pathSep } from '../paths'
-import { fsReadFile, fsResolveFirstExisting } from '../tauri'
+import { fsExistingPaths, fsReadFile, fsResolveFirstExisting } from '../tauri'
 
 const TS_LIKE_EXTS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.vue']
 
@@ -99,7 +101,8 @@ async function resolveAlias(
     if (matched === null) continue
     for (const tgt of entry.targets) {
       const replaced = tgt.replaceAll('*', matched)
-      const absTarget = joinPath(map.baseUrl, replaced, sep)
+      // vite.config targets are already absolute; `joinPath` would append them.
+      const absTarget = resolveFrom(map.baseUrl, replaced, sep)
       const resolved = await resolveByCandidates(absTarget, sep, shell)
       if (resolved) return resolved
     }
@@ -125,13 +128,22 @@ async function loadAliasMap(
   sep: '/' | '\\',
   shell: ShellType,
 ): Promise<AliasMap | null> {
-  // Walk up from fromFile toward projectRoot looking for any of tsconfig.json,
-  // jsconfig.json, or vite.config.{ts,js,mjs,cjs}. tsconfig wins ties because
-  // it's listed first per directory. Single IPC call covers the whole walk.
-  const configPath = await findNearestConfig(fromFile, projectRoot, sep, shell)
-  if (!configPath) return null
-  const map = await loadCached(configPath, () => readAliasMap(configPath, sep, shell))
-  return map && map.paths.length > 0 ? map : null
+  // Walk up from fromFile toward projectRoot collecting every tsconfig.json,
+  // jsconfig.json and vite.config.{ts,js,mjs,cjs}, nearest directory first and
+  // tsconfig first within a directory. The first one that yields any alias
+  // wins (#398): stopping at the first file found meant a `tsconfig.json`
+  // holding only `references` (the `npm create vue` layout) hid the
+  // `vite.config.ts` next to it. Only the nearest directory that has any
+  // config is considered, though: climbing past a package's own tsconfig to
+  // the monorepo root would apply an alias TypeScript doesn't give that
+  // package. Single IPC call covers the whole walk.
+  const configs = await fsExistingPaths(shell, ancestorCandidates(fromFile, projectRoot, sep, ALIAS_CONFIG_FILENAMES))
+  const nearestDir = configs.length > 0 ? dirname(configs[0]) : null
+  for (const configPath of configs.filter((c) => dirname(c) === nearestDir)) {
+    const map = await loadCached(configPath, () => readAliasMap(configPath, sep, shell))
+    if (map) return map
+  }
+  return null
 }
 
 async function loadCached(key: string, factory: () => Promise<AliasMap | null>): Promise<AliasMap | null> {
@@ -151,15 +163,6 @@ const ALIAS_CONFIG_FILENAMES = [
   'vite.config.cjs',
 ] as const
 
-async function findNearestConfig(
-  fromFile: string,
-  projectRoot: string,
-  sep: '/' | '\\',
-  shell: ShellType,
-): Promise<string | null> {
-  return findNearestUpward(fromFile, projectRoot, sep, shell, ALIAS_CONFIG_FILENAMES)
-}
-
 /**
  * Walk up from `fromFile`'s directory toward `projectRoot` and return the
  * first ancestor that contains any of `filenames`. Listed earlier names win
@@ -172,6 +175,16 @@ export async function findNearestUpward(
   shell: ShellType,
   filenames: readonly string[],
 ): Promise<string | null> {
+  return fsResolveFirstExisting(shell, ancestorCandidates(fromFile, projectRoot, sep, filenames))
+}
+
+/** `filenames` joined onto each directory from `fromFile`'s up to `projectRoot`, nearest first. */
+function ancestorCandidates(
+  fromFile: string,
+  projectRoot: string,
+  sep: '/' | '\\',
+  filenames: readonly string[],
+): string[] {
   const normalizedRoot = projectRoot.replace(/[/\\]+$/, '')
   const dirs: string[] = []
   let cur = dirname(fromFile)
@@ -191,41 +204,143 @@ export async function findNearestUpward(
   for (const d of dirs) {
     for (const fn of filenames) candidates.push(joinPath(d, fn, sep))
   }
-  return fsResolveFirstExisting(shell, candidates)
+  return candidates
 }
 
-async function readAliasMap(configPath: string, sep: '/' | '\\', shell: ShellType): Promise<AliasMap | null> {
-  let text: string
+async function readText(shell: ShellType, path: string): Promise<string | null> {
   try {
-    const result = await fsReadFile(shell, configPath)
-    text = result.content
+    return (await fsReadFile(shell, path)).content
   } catch {
     return null
   }
-  const dir = dirname(configPath)
-  const isTs = configPath.endsWith('tsconfig.json') || configPath.endsWith('jsconfig.json')
-  return isTs ? parseTsconfigAliases(text, dir, sep) : parseViteAliases(text, dir, sep)
 }
 
-function parseTsconfigAliases(text: string, tsconfigDir: string, sep: '/' | '\\'): AliasMap | null {
+async function readAliasMap(configPath: string, sep: '/' | '\\', shell: ShellType): Promise<AliasMap | null> {
+  const isTs = configPath.endsWith('tsconfig.json') || configPath.endsWith('jsconfig.json')
+  if (isTs) return readTsconfigAliases(configPath, sep, shell)
+  const text = await readText(shell, configPath)
+  return text === null ? null : parseViteAliases(text, dirname(configPath), sep)
+}
+
+// --- tsconfig / jsconfig (compilerOptions.paths, extends, references) ---
+
+/** What one tsconfig file contributes, with paths already made absolute. */
+interface TsconfigLayer {
+  /** Absolute `baseUrl`, if this file sets one. */
+  baseUrl?: string
+  /** `paths` and the directory of the file that declared them, if this file sets them. */
+  paths?: { entries: AliasMap['paths']; dir: string }
+}
+
+/**
+ * Read a tsconfig, following relative `extends` and — only from the file the
+ * lookup started at — one level of `references` (#398).
+ *
+ * Package-name `extends` (`@vue/tsconfig/...`) are skipped: resolving them
+ * means walking node_modules, and those shared bases don't carry `paths`
+ * anyway. `references` covers the `npm create vue` layout, where the root
+ * `tsconfig.json` is only `files: []` + `references` and the alias lives in
+ * `tsconfig.app.json`; without Vite that is the only way to the alias.
+ */
+async function readTsconfigAliases(configPath: string, sep: '/' | '\\', shell: ShellType): Promise<AliasMap | null> {
+  const own = await readTsconfigChain(configPath, sep, shell, new Set())
+  if (!own) return null
+  const map = toAliasMap(own.layer)
+  if (map) return map
+  // Read the referenced projects together (one wsl.exe each under WSL), then
+  // take the first with `paths` in declaration order.
+  const refs = await Promise.all(own.references.map((ref) => readTsconfigChain(ref, sep, shell, new Set())))
+  for (const refd of refs) {
+    const refMap = refd && toAliasMap(refd.layer)
+    if (refMap) return refMap
+  }
+  return null
+}
+
+/** Read one tsconfig and its relative `extends` chain, merged. */
+async function readTsconfigChain(
+  configPath: string,
+  sep: '/' | '\\',
+  shell: ShellType,
+  seen: Set<string>,
+): Promise<{ layer: TsconfigLayer; references: string[] } | null> {
+  // Guard against `extends` cycles and absurdly deep chains.
+  if (seen.has(configPath) || seen.size >= 8) return null
+  seen.add(configPath)
+  const text = await readText(shell, configPath)
+  if (text === null) return null
   const json = parseJsonc(text)
   if (!json || typeof json !== 'object') return null
-  const compilerOptions = (json as Record<string, unknown>).compilerOptions
-  if (!compilerOptions || typeof compilerOptions !== 'object') return null
-  const co = compilerOptions as Record<string, unknown>
-  const baseUrlRel = typeof co.baseUrl === 'string' ? co.baseUrl : '.'
-  const baseUrl = joinPath(tsconfigDir, baseUrlRel, sep)
-  const rawPaths = co.paths
-  const paths: AliasMap['paths'] = []
+  const obj = json as Record<string, unknown>
+  const dir = dirname(configPath)
+
+  // TS 5.0 allows an array; later entries override earlier ones.
+  let base: TsconfigLayer = {}
+  for (const ext of relativeExtends(obj.extends)) {
+    const target = resolveFrom(dir, ext.endsWith('.json') ? ext : `${ext}.json`, sep)
+    const parent = await readTsconfigChain(target, sep, shell, seen)
+    if (parent) base = mergeTsconfigLayers(base, parent.layer)
+  }
+  const layer = mergeTsconfigLayers(base, parseTsconfigLayer(obj, dir, sep))
+  return { layer, references: tsconfigReferences(obj, dir, sep) }
+}
+
+/** `extends` entries that point at a file (relative or absolute), not a package. */
+function relativeExtends(raw: unknown): string[] {
+  const list = typeof raw === 'string' ? [raw] : Array.isArray(raw) ? raw : []
+  return list.filter((e): e is string => typeof e === 'string' && (e.startsWith('.') || isAbsolutePath(e)))
+}
+
+/** `references[].path`, each resolved to a config file (a directory means its tsconfig.json). */
+function tsconfigReferences(obj: Record<string, unknown>, dir: string, sep: '/' | '\\'): string[] {
+  if (!Array.isArray(obj.references)) return []
+  const out: string[] = []
+  for (const ref of obj.references) {
+    const p = ref && typeof ref === 'object' ? (ref as Record<string, unknown>).path : undefined
+    if (typeof p !== 'string') continue
+    const abs = resolveFrom(dir, p, sep)
+    out.push(abs.endsWith('.json') ? abs : joinPath(abs, 'tsconfig.json', sep))
+  }
+  return out
+}
+
+/** `joinPath` appends even an absolute `rel`, so pass those through as-is. */
+function resolveFrom(dir: string, rel: string, sep: '/' | '\\'): string {
+  return isAbsolutePath(rel) ? rel : joinPath(dir, rel, sep)
+}
+
+function parseTsconfigLayer(obj: Record<string, unknown>, dir: string, sep: '/' | '\\'): TsconfigLayer {
+  const co = obj.compilerOptions
+  if (!co || typeof co !== 'object') return {}
+  const { baseUrl, paths: rawPaths } = co as Record<string, unknown>
+  const layer: TsconfigLayer = {}
+  if (typeof baseUrl === 'string') layer.baseUrl = joinPath(dir, baseUrl, sep)
   if (rawPaths && typeof rawPaths === 'object') {
+    const entries: AliasMap['paths'] = []
     for (const [pattern, targets] of Object.entries(rawPaths as Record<string, unknown>)) {
       if (Array.isArray(targets)) {
         const ts = targets.filter((t): t is string => typeof t === 'string')
-        if (ts.length > 0) paths.push({ pattern, targets: ts })
+        if (ts.length > 0) entries.push({ pattern, targets: ts })
       }
     }
+    layer.paths = { entries, dir }
   }
-  return { baseUrl, paths }
+  return layer
+}
+
+/** `extends` semantics: whatever the child sets replaces the base's value wholesale. */
+function mergeTsconfigLayers(base: TsconfigLayer, child: TsconfigLayer): TsconfigLayer {
+  return { baseUrl: child.baseUrl ?? base.baseUrl, paths: child.paths ?? base.paths }
+}
+
+/**
+ * `paths` resolve against `baseUrl` when one is set anywhere in the chain,
+ * otherwise against the directory of the file that declared `paths` (TS 4.1+).
+ * Null when there is nothing to match, the same as `parseViteAliases`.
+ */
+function toAliasMap(layer: TsconfigLayer): AliasMap | null {
+  if (!layer.paths || layer.paths.entries.length === 0) return null
+  return { baseUrl: layer.baseUrl ?? layer.paths.dir, paths: layer.paths.entries }
 }
 
 // --- Vite config (resolve.alias) ---

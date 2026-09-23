@@ -425,6 +425,11 @@ export async function fsResolveFirstExisting(shell: ShellType, candidates: strin
   return invoke<string | null>('fs_resolve_first_existing', { shell, candidates })
 }
 
+/** Every candidate that exists as a regular file, in the given order (one round-trip). */
+export async function fsExistingPaths(shell: ShellType, candidates: string[]): Promise<string[]> {
+  return invoke<string[]>('fs_existing_paths', { shell, candidates })
+}
+
 /** Per-path "is this a directory?" for one shell, in a single round-trip. */
 export async function fsDirsExist(shell: ShellType, paths: string[]): Promise<boolean[]> {
   return invoke<boolean[]>('fs_dirs_exist', { shell, paths })

@@ -79,6 +79,7 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
 - 同一ファイル内の宣言（構文木ベース）と、import 経由のクロスファイル定義の両方に対応。
 - TS / JS / Vue / Go の import パスをたどります。Vue コンポーネントは `<script setup>` の PascalCase import / Options-API `components` / `app.component()` グローバル登録を解決します。
 - tsconfig/jsconfig の `paths`、vite.config の `resolve.alias`（モノレポ対応）も解決します。
+  - `npm create vue` の構成のように、`tsconfig.json` が `references` だけを持ち、`paths` を `tsconfig.app.json` に書いている場合も解決します。`extends` は相対パスで指したファイルだけをたどり、パッケージ名で指したもの（`@vue/tsconfig/...` など）は読みません。
 - 進捗・結果（開いたファイル名 / 見つからない 等）はステータスバーに表示されます。
 
 ## キーボードマクロ

@@ -1865,6 +1865,7 @@ pub fn run() {
             fs::fs_create_dir,
             fs::fs_write_file_base64,
             fs::fs_resolve_first_existing,
+            fs::fs_existing_paths,
             fs::fs_dirs_exist,
             fs::fs_open_in_explorer,
             fs::fs_reveal_in_explorer,

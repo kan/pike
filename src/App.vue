@@ -163,7 +163,9 @@ watch(
   },
 )
 
-const ALIAS_CONFIG_NAMES = /[\\/](?:tsconfig|jsconfig)\.json$|[\\/]vite\.config\.(?:[mc]?js|ts)$/
+// `tsconfig.app.json` / `tsconfig.base.json` too: the alias lookup reads them
+// through `references` and `extends` (#398).
+const ALIAS_CONFIG_NAMES = /[\\/](?:tsconfig|jsconfig)[^\\/]*\.json$|[\\/]vite\.config\.(?:[mc]?js|ts)$/
 const MAIN_FILE_NAMES = /[\\/]main\.(?:[mc]?js|ts)$/
 
 fsWatcher.onFileChange((files: FsChangeEntry[]) => {
