@@ -1194,22 +1194,30 @@ export const useTabStore = defineStore('tabs', () => {
    * 右のペインを開く／閉じる（#308）。
    *
    * **閉じるときに `tab.pane` は書き換えない。** 分割していないあいだは右に置いたままの
-   * タブも左に出る（`paneOf`）ので、どこにも出ないタブは生まれず、開き直せば元の側へ
-   * 戻る。**`tabs` を舐めて書き換えないこと**: あそこにはパーク中の別プロジェクトのタブも
-   * 入っている（#264）ので、B で解除した操作が A の置き場まで消す。
+   * タブも左に出る（`paneOf`）ので、どこにも出ないタブは生まれない。**`tabs` を舐めて
+   * 書き換えないこと**: あそこにはパーク中の別プロジェクトのタブも入っている（#264）ので、
+   * B で解除した操作が A の置き場まで消す。
+   *
+   * **開くときは、見ているタブだけを右へ送る**（VS Code と同じ）。以前は右に置いたままの
+   * タブを拾い直していた（開き直せば元の側へ戻る）が、どのタブの置き場が残っているかは
+   * 画面から見えない。固定したブラウザのタブが一度でも右に置かれていると、分割するたびに
+   * 見ているタブではなくそちらが右に出た。だから開く前に、**今のプロジェクトのタブ
+   * （`visibleTabs`）だけ**置き場を左へ戻す。パーク中のタブは上と同じ理由で触らない。
    *
    * 見ていたタブは選択ごと左へ引き継ぐので、閉じても画面の中身は変わらない。
    */
   function toggleSplit() {
     if (split.value) return closeSplit()
 
+    for (const tab of visibleTabs.value) {
+      if (tab.pane === 'right') tab.pane = 'left'
+    }
     split.value = true
-    // 右に置いたままのタブがあれば拾い直す（解除では置き場を消していない）。
-    reselect('right')
+    activeByPane.value.right = null
     // **開いたら中身まで決める。** 空のペインだけ出しても、そこから何を出すかを
     // もう一度選ばせることになる。入口を足す人が同じ後追いを書き写さずに済むよう、
     // 「送る」までをこの 1 本に入れてある。
-    const send = activeByPane.value.right ? null : activeByPane.value.left
+    const send = activeByPane.value.left
     if (send) moveTabToPane(send, 'right')
     else focusedPane.value = 'right'
   }
@@ -1323,8 +1331,8 @@ export const useTabStore = defineStore('tabs', () => {
    * `stores/project.ts` に残る（あちらが cwd もシェルも resume の解決も持っている）。
    *
    * **分割は立てることはあっても落とさない。** 分割はウィンドウの見た目で、別の
-   * プロジェクトを開いたことを理由に畳むと、そちらのタブが左へ寄って戻ってこない
-   * （`tab.pane` は残るので、開き直せば右に戻る）。
+   * プロジェクトを開いたことを理由に畳むと、分割したまま戻ってきたときに、そちらの
+   * タブが左へ寄って見える（`tab.pane` は残っているが、分割が落ちていれば左に出る）。
    */
   function beginSessionRestore(session: LastSession) {
     if (session.panes) split.value = true
