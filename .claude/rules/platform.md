@@ -47,7 +47,7 @@ Pike の第一ターゲットは Windows で、macOS は**ローカルのシェ�
   同期で答えが要る場所から呼ばれるので、IPC にすると起動直後だけ別の一覧が出る）。
   `isUnixHost` のような否定の別名も、3 値の enum も置かない（区別が要る問いが出てから足す）
 - ホスト依存の既定値（`hostDefaultShell` / `defaultProjectPlatform`）も `lib/host.ts` に置く。
-  **`types/tab.ts` へ戻さないこと**: あちらは値 import を持たない方針（`frontend.md`）で、
+  **`types/tab.ts` へ戻さないこと**: あちらは値 import を持たない方針（`tabs.md`）で、
   これらは `navigator` を読む。逆に `isPosixShell` のような `ShellType` の純粋な述語は
   `types/tab.ts` 側に置く（`lib/paths.ts` がそれを import する向きが正しい）
 - ファイル I/O のシェルは **`projectStore.shellForIO`** を通す。プロジェクトが無いウィンドウの
@@ -124,13 +124,11 @@ macOS ユーザーは、使用量・レート・セッション一覧のすべ�
 **現状は既知の制約として据え置く**（`.envrc` 検出と同じく、失敗しても黙って既定に落ちる規約に沿う。
 気付く先は StatusBar のアカウント行）。
 
-**据え置く理由は「代償」ではなくなった（#275 の宿題 3）。** 直すには WSL 側と同じ `-lic` プローブを
-`Unix` の腕にも生やすことになる、というのは変わらないが、**その `-lic` は既に上がっている**:
-エージェントの検出（`shell_probe.rs`）が macOS でも対話ログインシェルを起こしており、環境変数は
-同じ 1 回に相乗りできる。実際に変えるのは `shell_env_value` の腕と `posix_script` の 1 行だけ。
-それでも入れていないのは、**このリポジトリの開発機に macOS が無く、値が正しいことを実機で
-確かめられない**ため（`resolve` は実在を確認できたディレクトリしか採らないので安全側ではあるが、
-「読めない値を採らない」は取り違えを防ぐだけで、正しさの確認にはならない）。
+**据え置く理由は、開発機に macOS が無く、値が正しいことを実機で確かめられないこと。** 直す手間は
+小さい: エージェントの検出（`shell_probe.rs`）が macOS でも対話ログインシェル（`-lic`）を既に
+起こしているので、環境変数はその 1 回に相乗りでき、変えるのは `shell_env_value` の腕と
+`posix_script` の 1 行だけ。`resolve` は実在を確認できたディレクトリしか採らないので安全側では
+あるが、それは取り違えを防ぐだけで、正しさの確認にはならない。
 
 ## プライバシー保護されたリソース（TCC、#296）
 
@@ -138,9 +136,8 @@ macOS ユーザーは、使用量・レート・セッション一覧のすべ�
 対して可否を決める。実体は `src-tauri/entitlements.plist` と `src-tauri/Info.plist`。
 
 **署名すると要件が 1 つ増える。** `codesign --options runtime`（hardened runtime）は
-既定でリソースアクセスを禁じ、entitlement で個別に開ける。未署名だった頃は
-usage description の不在だけが問題だったので、**署名前の分析のまま Info.plist だけ
-足すと「開発ビルドでは直るのに配布物では直らない」**という気付きにくい状態になる。
+既定でリソースアクセスを禁じ、entitlement で個別に開ける。**Info.plist の usage description
+だけ足すと「開発ビルドでは直るのに配布物では直らない」**という気付きにくい状態になる。
 
 ```
 tccd: Prompting policy for hardened runtime; service: kTCCServiceCalendar
@@ -169,7 +166,7 @@ tccd: Policy disallows prompt for Sub:{com.pike.dev}; access denied
 - **許可は再ビルドをまたいで持続する**（#283 の署名が前提）。TCC のレコードは指定要件
   （`identifier "com.pike.dev" and anchor apple generic and ... leaf[subject.OU] = <Team ID>`）に
   紐付くので、cdhash が変わっても一致する。ad-hoc 署名では `anchor apple generic` を
-  満たせず、更新のたびに許可が消えていた
+  満たせず、更新のたびに許可が消える
 - 調査は `log show --last 3m --info --debug --predicate 'process == "tccd"'`。
   検証をやり直すときは `tccutil reset All com.pike.dev` で記録を消す
 
@@ -177,8 +174,8 @@ tccd: Policy disallows prompt for Sub:{com.pike.dev}; access denied
 
 **`Cmd` 付きのショートカットは macOS のネイティブメニューが唯一の入口。** メニューの
 key equivalent は AppKit が WebView へ渡す前に処理するので、`window` の keydown では
-絶対に拾えない（メニューを持たなかったころ、Tauri の既定メニューの `Close Window ⌘W`
-が効いて「タブではなくウィンドウが閉じる」になっていた）。
+絶対に拾えない（自前のメニューが無いと Tauri の既定メニューの `Close Window ⌘W` が効き、
+タブではなくウィンドウが閉じる）。
 
 - 実体は `src-tauri/src/appmenu/mod.rs`（macOS 専用。他の OS はメニューバーを持たず、
   `lib.rs` の `#[cfg(not(target_os = "macos"))] mod appmenu` が何もしない stub）
@@ -209,18 +206,16 @@ key equivalent は AppKit が WebView へ渡す前に処理するので、`windo
 - **キーの割り当ての正本は `src/lib/shortcuts.ts` の `keyBindings`。** chord は
   `'Mod+Shift+P'` の表記で書き、判定（`matchChord`）・一覧の表記（`chordChips`）・
   macOS のメニューのアクセラレータ（`menuActions()` → `menusRefresh`）が同じ文字列を読む。
-  **リテラルを増やさないこと**: 以前は 4 箇所に書かれていて型検査も効かず、導入直後に
-  既に 1 件ずれていた（実装は全 OS で受ける `Mod+Shift+]` を、一覧が mac だけに出していた）
+  **リテラルを増やさないこと**: 写しには型検査が効かず、実装と一覧の表記がずれる
 - **メニューの項目名も Rust に写しを持たせない。** ラベルは `menu.*` の i18n が正本で、
   `MenuAction` として渡す。Rust が持つのはサブメニューの見出し 5 語と、メニューの構造
   （AppKit の作法なのでフロントに語彙が無い）だけ
 
 **macOS のコードは CI の `Check & Test (macos-latest)` ジョブでしか型検査されない。** Windows 側のジョブは
-`cfg` に阻まれて `appmenu` を 1 行も見ないので、このジョブを足すまでは壊れていることに
-気付くのがリリースのタグを打った後だった（v0.43.0 で実際に 2 回落ちた）。macOS 専用の
-コードを足したら、ローカルの `just check` が通っても**それだけでは検査されていない**。
+`cfg` に阻まれて `appmenu` を 1 行も見ない。macOS 専用のコードを足したら、ローカルの
+`just check` が通っても**それだけでは検査されていない**。
 
-**lint を足すときも同じ死角を踏む**（#382 で実際に落ちた）。`Cargo.toml` の
+**lint を足すときも同じ死角を踏む**。`Cargo.toml` の
 `[lints.clippy]` はクレート全体に効く一方、**`cargo clippy --fix` が直せるのは手元の
 `cfg` から見えるコードだけ**なので、Windows で直し切ったつもりでも `cfg(not(windows))`
 の中が残って macOS のジョブで落ちる。**Linux だけの枝（`cfg(not(any(windows,
@@ -237,7 +232,7 @@ PowerShell 版は「空文字」、`osascript` は「終了コード 1」なの�
 **PowerShell の出力は UTF-8 に固定する**（`dialog::powershell` の先頭の
 `[Console]::OutputEncoding`）。パイプへの出力は既定でコンソールの文字コード（日本語の
 Windows では Shift_JIS）になり、選んだパスに日本語があると化ける。**化けたパスはその
-まま使われる**: 設定の同期ファイルの置き場で、化けた名前のフォルダとファイルが作られた。
+まま使われ**、化けた名前のフォルダやファイルが作られる。
 
 **Windows のコンソールのプログラムの出力は `types::decode_console_output` で読む**
 （`ShellConfig` の `run` / `run_stdout` / `run_shell_line` はこれを通す。Windows 以外では
@@ -247,8 +242,8 @@ Shift_JIS のせいで UTF-8 の行まで化け、Problems の `path:line:col:` 
 `echo`）とエラー文は OEM で書き、**`chcp 65001` を前に置いても組み込みコマンドには
 効かない**（`where` のような外部コマンドには効く。実測）。一方 git や node は UTF-8 で
 書くので、1 回の出力に両方が混ざりうる。**cmd の組み込みコマンドの出力を読む経路は
-増やさないこと**。ファイル一覧の切り戻しは `dir` をやめて `fs::list_files_native` にし、
-Git Bash の場所は `where git` をやめて PATH を自分で歩く（`find_pwsh_path` と同じ）。
+増やさないこと**。ファイル一覧の切り戻しは `dir` ではなく `fs::list_files_native`、
+Git Bash の場所は `where git` ではなく PATH を自分で歩いて探す（`find_pwsh_path` と同じ）。
 **プロセスを起こさずに済むなら、そもそも出力を読まない**のがいちばん確か。
 
 **Windows では pwsh があればそちらで出す**（#271）。PowerShell 7 は .NET 5+ なので、同じ

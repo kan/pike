@@ -112,7 +112,7 @@ const CORPUS_SKIP_EXT = /\.(md|png|jpg|svg|ico|icns|log)$/i
  * ブラウザ / xterm / CodeMirror / tauri / serde / Win32 / git / Apple のもの。
  */
 const EXTERNAL_NAMES = [
-  'AppsUseLightTheme', // Win32 のレジストリ値（採らなかった選択肢として frontend.md が出す）
+  'AppsUseLightTheme', // Win32 のレジストリ値（採らなかった選択肢として settings-ui.md が出す）
   'CapturePreview', // WebView2 の COM（まだ実装していない案として frontend.md が出す）
   'DisabledCspModificationKind', // tauri の config の型
   'IVirtualDesktopManagerInternal', // Windows の非公開 COM（採らなかった選択肢として project.md が出す）
@@ -129,13 +129,12 @@ const EXTERNAL_NAMES = [
   'brotliDecompressSync', // node の zlib
   'defaultPrevented', // DOM
   'deny_unknown_fields', // serde の属性
-  'effectiveAppearance', // AppKit の NSApplication（採らなかった選択肢として frontend.md が出す）
+  'effectiveAppearance', // AppKit の NSApplication（採らなかった選択肢として settings-ui.md が出す）
   'evaluateKeyboardEvent', // xterm 内部
   'isSecureContext', // DOM（macOS の調査で何を見るかとして terminal.md が出す）
   'ld_prime', // Xcode 15 の新リンカ
   'offsetLeft', // DOM
   'offsetParent', // DOM
-  'on_activated', // tauri-winrt-notification（採らなかった選択肢として agent.md が出す）
   'tokenTable', // @codemirror/language の StreamLanguage のオプション（#350 で採らなかった案の材料）
   'replace_csp_nonce', // tauri 内部
   'restore_state', // tauri-plugin-window-state
@@ -144,7 +143,7 @@ const EXTERNAL_NAMES = [
   'inputHandler', // @codemirror/view の EditorView.inputHandler（マクロの再生が文字入力で通す、#180）
   'send_user_message', // tauri-runtime-wry 内部（ウィンドウ操作を同期にする理由として rust.md が出す）
   'set_csp', // tauri 内部（manager::set_csp）
-  'subIssuesSummary', // gh の --json フィールド（使わない理由を editor.md が書くために出す）
+  'subIssuesSummary', // gh の --json フィールド（使わない理由を issues.md が書くために出す）
   'transcript_path', // Claude Code の hook が stdin で渡すフィールド（#299）
   'webview_windows', // tauri の AppHandle（使ってはいけない理由として rust.md が出す、#368）
   'BROWSER', // Linux の環境変数（渡さないと決めた理由として terminal.md が出す、#381）
@@ -160,11 +159,7 @@ const EXTERNAL_NAMES = [
  */
 const GONE_NAMES = [
   'AppState', // 1 つにまとめていない、と rust.md が書くための名前
-  'CLAUDE_CONFIG_PATH', // issue の表題にあるが実在しない変数（agent.md）
-  'getWindowProjectId', // #175 で廃止
-  'inlineSmallTextFiles', // #275 で削除
-  'tryInlineFile', // #275 で削除
-  'window_project_id', // #175 で廃止
+  'CLAUDE_CONFIG_PATH', // issue の表題にあるが実在しない変数（agent-hook.md）
 ]
 
 const allowedNames = new Set([...EXTERNAL_NAMES, ...GONE_NAMES])

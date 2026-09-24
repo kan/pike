@@ -1,35 +1,37 @@
 ---
 paths:
   - "src-tauri/src/agents.rs"
-  - "src-tauri/src/agent_hook.rs"
   - "src-tauri/src/agent_sessions.rs"
   - "src-tauri/src/shell_probe.rs"
   - "src-tauri/src/cache.rs"
-  - "src-tauri/src/agent_usage/**"
-  - "src-tauri/src/claude_usage/**"
-  - "src-tauri/src/codex_usage/**"
-  - "src-tauri/src/toast/**"
+  - "src-tauri/src/claude_usage/sessions.rs"
   - "src/lib/agents.ts"
-  - "src/lib/usageFormat.ts"
-  - "src/lib/notify.ts"
   - "src/stores/agents.ts"
-  - "src/stores/agentUsage.ts"
-  - "src/stores/usageStore.ts"
   - "src/stores/shellProbe.ts"
-  - "src/types/agentUsage.ts"
   - "src/types/agentSession.ts"
-  - "src/composables/useAgent*.ts"
-  - "src/components/tabs/AgentStatusTab.vue"
-  - "src/components/RateMeters.vue"
+  - "src/composables/useAgentMenu.ts"
   - "src/components/AgentSessionsMenu.vue"
-  - "src/components/layout/StatusBar.vue"
 ---
 
 # エージェント実装ルール
 
-エージェントの一覧（レジストリ）とトークン使用量の集計。
-実体は `src/lib/agents.ts`、`src-tauri/src/agents.rs`、`src-tauri/src/claude_usage/`、
-`src-tauri/src/codex_usage/`。
+エージェントの一覧（レジストリ）と検出、再開できるセッションの一覧。
+実体は `src/lib/agents.ts`、`src-tauri/src/agents.rs`、`src-tauri/src/shell_probe.rs`、
+`src-tauri/src/agent_sessions.rs`。関連する規則はほかに 2 本ある。
+
+- `agent-usage.md` … トークン使用量・レート・エージェント状態タブ
+- `agent-hook.md` … hook（入力待ちの知らせ・アカウントの申告）と `CLAUDE_CONFIG_DIR` の解決
+
+## 方針
+
+- **エージェントはターミナルで動かす（#275）。** 独自 UI で会話を進めるチャットのタブと、
+  その裏の統一エージェント API は持たない（ターミナルで agent CLI を直接動かして支障が無く、
+  独自 UI を保つ価値が薄い）。**新しいエージェントを足すときもチャットは実装しない**
+- **エージェント向けのタスク置き場は作らない（#278）。** エージェントが自分のタスク管理を内蔵
+  しているので、別の置き場を用意する意味が薄い（TODO パネルと `pike todo` はこの理由で削除した）。
+  ユーザーの `.pike/todo.md` は消さない
+- hook を持たないエージェント（Copilot CLI / opencode）向けの、出力のパターン一致による
+  入力待ちの検出は未実装
 
 ## エージェントの一覧（#275 / #267）
 
@@ -42,20 +44,63 @@ paths:
   記録の置き場と行の形式を Rust 側で知る必要があるので、この id で振り分ける。**分担の
   正本は `src/lib/agents.ts` の doc**（ここに写しを置かない）。起動・再開のコマンド文字列は
   表の側が持ち、Rust は組み立てない
+- **種別ごとの違いは真偽のフラグではなく、実体で持つ**（#267）。セッション一覧は
+  フロントが `AgentDef.resume`（id を受けて再開コマンドの文字列を返す関数）、Rust が
+  `agent_sessions.rs` のアダプタ（id で 4 つの出所へ振り分ける）を持つ。`sessions?: true`
+  のような欄にすると「真にすればその名前の下に履歴が出る」という通る嘘になる。**表に 1 行
+  足すときは `resume` も書く**（型が要求する）。Rust 側の腕は `AgentId` の `match` が
+  網羅性で気付かせる
+- **シェルの行に埋まる名前は Rust 側で検証する**（`is_safe_bin_name`）。表の値しか来ない
+  前提でも、IPC の引数は誰でも投げられる
+- **種別をコマンド文字列の正規表現で当てない。** 字面を見るのはカスタム行に対してだけで、
+  **判定は表を引く `commandMentionsAgent` の 1 箇所**に閉じる（各所に正規表現を書くと、
+  表に 5 つ目を足したとき片方だけ古くなる）
+
+### 起動行
+
+- **起動行は 1 本のリスト（`agentLaunchers`）で持つ。** 表のエージェント（`kind: 'agent'`）と
+  利用者が書いた行（`kind: 'custom'`）が同じ順序に並び、**使える先頭が既定**（ボタン本体で
+  走る行、かつメニューの第 1 階層）。残りは「他のエージェント」のサブメニュー
+  - **2 本に分けないこと。** 分けると優先順位が 1 か所の `??` にしか残らず、`claude --model opus`
+    をボタンにしていた利用者が表の既定に戻され、戻す手段が UI から消える
+  - **カスタム行は検出を通さない**（空でなければ使える）。`npx claude` や
+    `docker compose exec -T dev claude` のように、bin 名では表せない起動が普通にある
+  - **セッション一覧は行ごとに、その行が起動するエージェントのものを出す**（#267）。
+    どのエージェントかは表の行なら id、カスタム行なら `commandMentionsAgent` で字面を見る
+    （wrapper 越しの起動を落とさないため）。既定の行のぶんは第 1 階層のサブメニュー、
+    他のエージェントのぶんは「他のエージェント」の各行のサブメニュー（第 3 階層）で、
+    **どれの履歴かはメニューの位置が言う**
+  - 旧 2 フィールド（`agentProfiles` / `agentCommands`）は**移行の入力と、同期ファイルへの
+    後方互換の書き出しにだけ残る**。`snapshot()` は全量置換なので、書かないと更新して
+    いないマシンが publish した瞬間に新しい並びごと消える（`darkMode` と同じ手）
+- **昔の既定 2 行（`claude` / `claude --continue`）は 1 回だけ落とす**
+  （`dropLegacyAgentDefaults`）。1 文字でも編集していればそれは意図した行なので残し、
+  カスタムの起動行として一覧に入る
+
+### 検出（シェルへの問い合わせ）
+
 - **検出できたものだけメニューに出す。** 押しても `command not found` になる項目を並べない。
   `wsl.exe` を余分に起こさないよう、**1 回のシェル起動で全部聞く**。聞き方とキャッシュは
   `src-tauri/src/shell_probe.rs`（`agents.rs` に残るのはコマンドの形と名前の検証だけ）で、
   答えはシェルの導入単位でプロセスに 1 つ持つ（`IssuesState` と同じ形）
 - **POSIX 側は対話ログインシェル（`-lic`）で聞く。** nvm / fnm / asdf / mise / Homebrew は
   どれも rc の中で PATH を足すので、非対話の `bash -c` では**ターミナルでは打てるのに
-  検出では見つからない**（この開発機の WSL がまさにそれで、`claude` が非対話から見えない）。
-  判定する環境を PTY に合わせる、というのが `claude_usage/config.rs` の環境変数プローブと
-  同じ判断。起こし方の契約（`unset HISTFILE`・終了コードを見ない）は `run_login_script` が持つ
+  検出では見つからない**。判定する環境を PTY に合わせる。起こし方の契約
+  （`unset HISTFILE`・終了コードを見ない）は `run_login_script` が持つ
+  - **`HISTFILE` を unset する理由**：対話シェルは終了時に履歴を書き戻すので、`HISTSIZE` の
+    設定次第でプローブがユーザーの `.bash_history` を削りうる
 - **同じシェルへの 2 つの問いは 1 本にまとめる。** エージェントの `bin` を探すのと
-  `CLAUDE_CONFIG_DIR` を引くのは、どちらも同じ `-lic` に聞ける。別々に起こしていたころは
-  同じ distro に対話ログインシェルが 2 本上がっていた。**費用のほぼ全部は rc の評価**なので、
-  1 回の起動で両方の目印を出させれば半分になる（`shell_probe.rs` の `posix_script`）。
+  `CLAUDE_CONFIG_DIR` を引くのは、どちらも同じ `-lic` に聞ける。**費用のほぼ全部は rc の評価**
+  なので、1 回の起動で両方の目印を出させれば半分になる（`shell_probe.rs` の `posix_script`）。
   片方の期限が切れたときは**もう片方も一緒に聞き直す**（ずらすと結局 2 回起きる）
+  - 答えはマーカー行（目印 + タブ）で拾う。`.bashrc` がバナーを stdout に出すことがあるので
+    行の位置では選ばない。**目印は問いごとに別**（`ENV_MARKER` / `AGENT_MARKER`）
+  - 環境変数のプローブは **distro 単位**でキャッシュする（rc ファイル由来なのでプロジェクトでは
+    変わらない）。ウィンドウを何枚開いても distro につき 5 分に 1 回
+  - **同じキーのプローブは 1 本に畳む**。usage と rate のポーリングは同じ tick で走るので、
+    畳まないと期限切れのたびに 2 本が同時にシェルを起動する。**畳むのは probe のロック**
+    （`cache::ProbeEntry` の 2 段ロック。#315）で、答えのロックではない（答えのロックで畳むと、
+    あるプロジェクトの解決が他のプロジェクトの解決まで止める）
 - **TTL は 2 つあり、役割が違う。** Rust の `PROBE_TTL` は**プロセスを起こさない**ため、
   ストアの `ASK_TTL` は**IPC を投げない**ため。永久に覚えると冷えた WSL でタイムアウト
   した 1 回が再起動まで残り、毎回聞き直すとタブを切り替えるたびに IPC が飛ぶ
@@ -64,233 +109,8 @@ paths:
 - **ストアはシェルごとの表で持つ**（1 枠ではなく）。1 枠だと、同じウィンドウで WSL のタブと
   PowerShell のタブを行き来するだけで毎回聞き直し、`launchers` が「どのシェルの答えか」を
   知らないまま入れ替わる。表なら**プロジェクトを切り替えたときに捨てる必要も無い**
-  （シェルが変われば別のキーを引くだけ）
-- **起動行は 1 本のリスト（`agentLaunchers`）で持つ。** 表のエージェント（`kind: 'agent'`）と
-  利用者が書いた行（`kind: 'custom'`）が同じ順序に並び、**使える先頭が既定**（ボタン本体で
-  走る行、かつメニューの第 1 階層）。残りは「他のエージェント」のサブメニュー
-  - **2 本に分けないこと。** 分けていたころは、どちらが優先かが `TerminalTab.vue` の `??`
-    1 個にしかなく、**`claude --model opus` をボタンにしていた利用者は表が入った版で素の
-    `claude` に戻り、戻す手段が UI から消えていた**。「デフォルト」バッジも片方の一覧にしか
-    付かなかった
-  - **カスタム行は検出を通さない**（空でなければ使える）。`npx claude` や
-    `docker compose exec -T dev claude` のように、bin 名では表せない起動が普通にある
-  - **セッション一覧は行ごとに、その行が起動するエージェントのものを出す**（#267）。
-    どのエージェントかは表の行なら id、カスタム行なら `commandMentionsAgent` で字面を見る
-    （wrapper 越しの起動＝`npx claude` や `docker compose exec -T dev claude` を落とさない
-    ため）。既定の行のぶんは第 1 階層のサブメニュー、他のエージェントのぶんは
-    「他のエージェント」の各行のサブメニュー（第 3 階層）で、**どれの履歴かはメニューの
-    位置が言う**
-  - 旧 2 フィールド（`agentProfiles` / `agentCommands`）は**移行の入力と、同期ファイルへの
-    後方互換の書き出しにだけ残る**。`snapshot()` は全量置換なので、書かないと更新して
-    いないマシンが publish した瞬間に新しい並びごと消える（#310 の `darkMode` と同じ手）
 - **検出は PTY を起こしたあとと、タブが見えるようになったときに撃って待たない。**
-  「検出のためだけに起動時へ `wsl.exe` を足さない」（`project.md`）の例外で、issue
+  「検出のためだけに起動時へ `wsl.exe` を足さない」（`os-integration.md`）の例外で、issue
   パネルの `gh` と同じ理由（ボタンを出すかが答えに依存するので、メニューを開くまで
-  遅らせられない）。タブが見えたときにも撃つのは、#264 でタブが生き続ける＝プロジェクトを
+  遅らせられない）。タブが見えたときにも撃つのは、タブが生き続ける＝プロジェクトを
   切り替えても PTY が起こし直されないため（べき等なので毎回呼んでよい）
-- **種別ごとの違いは真偽のフラグではなく、実体で持つ**（#267）。セッション一覧は
-  フロントが `AgentDef.resume`（id を受けて再開コマンドの文字列を返す関数）、Rust が
-  `agent_sessions.rs` のアダプタ（id で 4 つの出所へ振り分ける）を持つ。`sessions?: true`
-  のような欄にすると「真にすればその名前の下に履歴が出る」という通る嘘になる（#220 の
-  ころは実際に Claude 決め打ちだったので、フラグを置けばそうなっていた）。**表に 1 行
-  足すときは `resume` も書く**（型が要求するので忘れられない）ぶん、Rust 側の腕は
-  `AgentId` の `match` が網羅性で気付かせる
-- **シェルの行に埋まる名前は Rust 側で検証する**（`is_safe_bin_name`）。表の値しか来ない
-  前提でも、IPC の引数は誰でも投げられる
-- **種別をコマンド文字列の正規表現で当てない。** 以前は
-  `/(^|[\\/\s])claude(\s|$)/` が `TerminalTab.vue` に直接書かれていた。字面を見るのは
-  カスタム行に対してだけで、**判定は表を引く `commandMentionsAgent` の 1 箇所**に閉じる
-  （各所に正規表現を書くと、表に 5 つ目を足したとき片方だけ古くなる）
-- **昔の既定 2 行（`claude` / `claude --continue`）は 1 回だけ落とす**
-  （`dropLegacyAgentDefaults`）。1 文字でも編集していればそれは意図した行なので残し、
-  カスタムの起動行として一覧に入る
-
-**エージェントはターミナルで動かす（#275）。** 独自 UI で会話を進める `agent-chat` タブと、その裏の
-統一エージェント API（Codex app-server / ACP の runtime、`src-tauri/src/agent/` と
-`src-tauri/src/codex/`）は削除した。運用ではターミナルタブで agent CLI を直接動かして支障が無く、
-独自 UI を保つ価値が薄いという判断。**新しいエージェントを足すときもチャットは実装しない**。
-
-この削除で下の 2 つが単純になっている。
-
-- **使用量の出所が 1 つになった**。以前は Codex だけ「active な agent-chat のセッションを優先し、
-  無ければ CLI のログ解析に落ちる」の二本立てだった
-- **入力待ちの検出は hook が担う**（#265）。runtime がターンの終了や承認待ちを知っている経路は
-  無くなったが、代わりに #299 の受け口へ相乗りした（次節）。hook を持たないエージェント
-  （Copilot CLI / opencode）向けの出力のパターン一致は、まだ実装していない
-
-## 入力待ちの知らせ（#265）
-
-Claude Code の `Notification` / `Stop` hook を登録し、**そのターミナルを持つウィンドウへ届けて**
-タスクバーを点滅させ、タブとプロジェクトにドットを出す（**デスクトップ通知は使わない**。
-理由は下）。実体は `src-tauri/src/agent_hook.rs`、
-`src/composables/useAgentNotice.ts`、`src/components/layout/ProjectSelect.vue`。
-
-**判断の実体は 2 つの doc コメントが正本**（`agent_hook.rs` のモジュール doc ＝経路と登録、
-`useAgentNotice.ts` ＝受け取ったあとの扱い）。ここに写しを置くと必ず片方が古くなるので、
-方針だけ残す。
-
-- **受け口は #299 と同じ 1 つ**（`pike agent-hook`）。違いは `--event=` が付くかどうかで、
-  付いていれば通知、無ければアカウントの申告。**契機はコマンド行に書く**: `Notification` の
-  stdin には 12 個ある matcher のどれで発火したかが入らない（あるのは `message` の文言だけ）
-  - **鳴らし分けたい単位で matcher を割る**（#338）。契機がコマンド行にある以上、`Notification`
-    を「答えないと進まない」（`waiting`）と「待たせているだけ」（`idle`＝`idle_prompt`）に
-    分けるには行を 2 本にするしかない。後者は既定で鳴らさない（設定は `agentNotifyIdle`。
-    判断の実体は `stores/settings.ts` の宣言の隣が正本）
-  - **matcher を割る改訂では、古い行を作り直す**（`is_stale_group`）。`matches_spec` は
-    契機しか見ないので、両方の matcher を持つ #265 版の行はそのまま「登録済み」と読まれ、
-    新しい `idle` の行と二重に発火する（しかも片方は新しい設定を素通りする）。**掃除は
-    `ensure_hook` の中**なので、登録ボタンでも `agent_hook_install_missing` でも直る
-  - **表を変えたら `useAgentHookPrompt` の `ASKED_KEY` の版も上げる。** 掃除の入口が
-    登録の操作しか無い一方、あの記録は「シェルごとに一度きり」なので、上げないと
-    **既に承諾している人（＝ほぼ全員）に移行が届かない**。上げても、聞かれるのは
-    未登録と判定される人だけ
-- **配送は WM_COPYDATA**（`wait::send_notice_to_first_instance`）。#299 がこれを避けた理由
-  （受け側がメインスレッドで、解決のロックを待つあいだ UI が止まりうる）は、ロックを取らない
-  配送には当てはまらない。**WSL の中からでも届く**（interop で起動された `pike.exe` は
-  Windows プロセス）。**非 Windows には配送手段が無いので、通知の hook はそこでは登録しない**
-  （`HookSpec::windows_only`）
-  - **宛先は開発版とインストール版の両方を探す**（`types::app_identifiers`、#333）。hook の
-    コマンド行はビルドで分けない（申告の置き場と同じく共有する）ので、**どちらの exe が
-    hook として走るかは登録した側で決まる一方、そのターミナルを持つ Pike はもう一方で
-    ありうる**。自分のビルドだけを探していたころは、通知だけがビルド固有という非対称が
-    でき、緩い一致（`matches_spec`）と噛み合って「インストール版の設定画面が開発版の行を
-    『登録済み』と出し、解除すると相手の行を消す」という形で出た
-  - **誤配は起きない**（届け先は pty id の uuid なので、そのタブを持たないインスタンスは
-    黙って捨てる）。**CLI の転送（`send_to_first_instance`）は自分のビルドだけ**: あちらは
-    二重起動した自分の argv を本体へ渡す経路で、相手へ渡すと頼んでいない側でファイルが開く
-- **hook の本文（`message` / `last_assistant_message`）は運ばない。** payload が `|` 区切り
-  なのと、文言は UI 言語に従うべきものだという 2 つの理由（`AgentNotice` の doc）
-- **どのエージェントかも送り側が名乗る**（`--agent=`。契機と同じく登録するコマンド行に書く）。
-  受け側で定数を差し込むと、2 つ目のエージェントが hook を持った日や、利用者が別の
-  ラッパーからこのサブコマンドを呼んだ日に、**黙って「Claude Code」という嘘の表示名**を
-  出す。型は `AgentId` なので、上の「Rust との継ぎ目は `AgentId`」にそのまま乗る
-- **「登録済み」は 3 つ揃って初めて。** #299 の版は `SessionStart` しか書かないので、緩く見ると
-  通知の 2 つが永久に入らないまま「登録済み」と出る。既存の登録は登録ボタン 1 回で足りない
-  ぶんだけ足される（`ensure_hook` は既にある行を動かさない）
-- **hook の登録は通知の設定（`agentNotify`）で変えない。** 登録は #299 のアカウントの申告にも
-  要るもので、設定を切り替えるたびに他人も読むファイルを書き換えることになる
-- **印はタブが持ち（`awaitingInput`）、プロジェクト単位のドットはその集約**
-  （`tabStore.awaitingProjectIds`）。消す処理を別に持たないので、消え残りが出ない。タブの印は
-  そのタブを選んだ時点で下りる（`hasActivity` と同じ契機）
-- **`hasActivity` に相乗りさせない。** あちらはベル由来の「何か出力があった」で、こちらは
-  「答えるまで進まない」。意味が違うので色も分ける（`--success` の緑）
-- **見えているものには何もしない。** ウィンドウがアクティブ（`windowFocused`）で、かつタブが
-  描かれている（`isTabVisible`）なら、プロンプトは既に目の前にある
-- **知らせ方は 2 つ並べる**（#265 のタスクバーの点滅と、#318 のデスクトップ通知）。**排他に
-  しない**: トーストを見逃してもタスクバーには残っていてほしい。通知だけ設定で切れる
-  （`desktopNotify`。何を知らせるかの `agentNotify` とは別の軸）
-  - **判断の実体は `src-tauri/src/toast/mod.rs` の doc が正本**（AUMID とショートカット、
-    プロセス AUMID を触らない理由、通知を保持しない理由）。ここに写しを置かない
-  - **押されたことはプロトコルで受ける**（#334。`toast/activation.rs` の doc が正本）。
-    通知センターへ移ったあとのクリックはインプロセスの `Activated` を通らないので、
-    **経路をプロトコルに一本化する**（ショートカットに CLSID を書いた時点で、画面上の
-    トーストもそちら側になる）。スキームはビルドで分ける（`pike:` / `pike-dev:`）
-    - **行き先は 3 段に落ちる**（`lib.rs` の `try_handle_activation`）。タブが生きて
-      いればそこへ、無ければそのプロジェクトのウィンドウを前へ、それも無ければ
-      プロジェクトを開く。**通知は数時間後に押されうる**ので、タブが残っていないのは
-      むしろ普通の側。だから通知そのものに pty とプロジェクトの両方を載せる
-    - **Pike が走っていないときのクリックも同じ形**（Windows が `pike://` で起こす）。
-      そのときは pty が無いので `CliAction::FocusProject` を積むだけにして、**前回の
-      セッションを普通に復元してから**そのプロジェクトへ行く（App.vue）。
-      **`window_projects` に seed しないこと**: フロントが復元を飛ばし、
-      `project_add_open` の全量書き直しで前回開いていた他のウィンドウの記録が消える。
-      `pike <dir>` では許されるが、通知のクリックは受け身の操作
-    - **「同じ形」だが調停者は別**（#340）。走行中は Rust（`try_handle_activation` →
-      `focus_or_build_project_window`）、コールドスタートはフロント（`restoreLastProject` の
-      `focus`）で、**順序を持つのは後者だけ**（復元で開く子ウィンドウが出そろってから前に
-      出す）。#340 はそちらにだけ存在したバグなので、**通知の行き先を増やすときは 2 つとも
-      見ること**
-  - **#265 で一度作って外している。** そのときの実測は「バナーも出ず通知センターへ直行し、
-    クリックも返らない」で、原因は**スタートメニューのショートカットに AppUserModelID が
-    無かったこと**の 1 点。#318 で Pike 自身がショートカットを用意するようにして解けた
-    - **ショートカットに明示 AUMID を書いても、タスクバーのグループ化とジャンプリストは
-      変わらない**（#318 で実機確認）。プロセス側の AUMID（`SetCurrentProcessExplicitAppUserModelID`）
-      を設定していないためで、`project.md` の「AUMID は明示設定しない」はそのまま保たれる
-    - **開発版のショートカット（`Pike (dev).lnk`）は押しても使えない。** AUMID の登録専用で、
-      デバッグビルドは `devUrl`（Vite）を読み、コンソールを隠す `windows_subsystem` も
-      release にしか付かない。押すと端末が開いて「このページに到達できません」になる
-  - **公式プラグインでは今も無理**（`tauri-plugin-notification` の desktop 実装は
-    `notify_rust` へ投げっぱなしで、クリックを受ける口が無い。`onAction` はモバイル専用。
-    WebView2 の Web Notification も `granted` のままクリックがページへ返らない）
-  - `lib/notify.ts` は**押させない知らせ専用のまま**（トレイのヒントが使う）。**トレイの
-    ヒント通知（#161）のクリックはいまも効いていない**が、これは同じ経路に載せ替えれば
-    直る（#318 の範囲外）
-
-## トークン使用量表示（Claude usage）
-- `src-tauri/src/claude_usage/` が `~/.claude` 配下のログを解析し、セッションのトークン使用量を集計
-- StatusBar のエージェント項目は**メーターアイコン＋ 5h / 週間の 2 つの利用率**（`25% / 5%`）。クリックで開くドロップダウンに**使っているエージェントを順に**並べ（#263。種別の分岐は無い）、モデル別の枠を含む内訳はエージェント状態タブへ
-- **間接 Codex（CLI）usage**: Claude の codex スキルや `codex` を呼ぶスクリプト等、Pike の agent runtime を経由しない Codex も `src-tauri/src/codex_usage/` が `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` を解析して集計。`session_meta.cwd` を `project_root` と突き合わせ、`token_count` イベントの `total_token_usage`（累計）と `rate_limits.used_percent` を取得。pid が無いため**動作中判定はファイル mtime（直近 `ACTIVE_WINDOW_SECS`=300 秒、長いターンでもチラつかない幅）**。day-dir は session 開始日のフォルダに書かれるため最新 `SCAN_DAY_DIRS`=14 日分を走査（数字名の日付ディレクトリのみ。stat→mtime フィルタなので負荷は軽い）。未来 mtime（WSL/Windows 時計ズレ）は age 0=fresh 扱い。コストは**モデル別に集計**し cached を割引単価で計算（`input_tokens` は cached を含む）。表示は Claude と共通のエージェント項目（#226）。`gpt-5*-codex` は単価未登録のため費用は出さず利用率%を主指標とする
-- **Claude レート制限（#117）**: `src-tauri/src/claude_usage/rate.rs` が `claude -p "/usage"` を `run_shell_line` で実行し、`Current <label>: N% used · resets <when>` 行をパース（5h セッション枠・週間枠・モデル別枠）。ラベル→`kind`（session/weekAll/other）の分類はパーサ隣の `window_kind` で行い、フロントは CLI 文言を文字列一致しない（session 枠が無ければチップの%表示自体を出さない）。CLI は起動に 10 秒超かかり時々ハングするため、**プロセス内キャッシュ（キーは wsl:distro / windows のインストール単位）+ fetch 直列化 Mutex + 90 秒タイムアウト**。試行間隔は `CacheEntry.last_attempt` で管理し、**active セッション中と失敗後リトライは 5 分（`TTL_ACTIVE`）、idle 中も 1 時間ごと（`TTL_IDLE`）に再取得**（別プロジェクトのセッションや 5h/週間枠の時間リセットで idle 中も値が動くため。sessionActive はプロジェクトスコープ、キャッシュはアカウントスコープという不一致を TTL_IDLE が緩和）。失敗時は前回値を保持するが **`STALE_KEEP_MAX`=2h を超えた古いデータは破棄**（CLI が恒久的に壊れたら表示を消す）。`fetched_at` はデータ取得時刻としてドロップダウンに表示。stdin は `null_device()` でクローズ（headless claude が stdin 待ちで 3 秒固まるため）。結果の `active` フィールドは usage-store ファクトリ契約（`{ active: boolean }`）に合わせた命名。手動更新は `createUsageStore` の `refreshUsage(force)` 経由（IPC 1 回）
-- **ログイン切れ（#381）**: `ClaudeRateLimits.login_required` → `AgentUsage.login_required` で運ぶ。**検出のためにプロセスを増やさない**（`/usage` は元から定期的に走っている）。`claude auth status` は手元の認証情報を見るだけで、サーバー側で失効したトークンに気付けないので使わない
-  - **確かな印は `.claude.json` から `oauthAccount` が消えていること**（`config::ClaudeConfig` の `logged_out`）。`/logout` はこのキーを消す。**`account` が `None` であることを印にしてはいけない**: ファイルを読めなかったときも `None` になるので、UNC 越しに読めない構成（symlink で配った設定ディレクトリ）で「要ログイン」を出し続ける。`read_account` が「読めなかった」と「アカウントが無い」を分けて返すのはこのため
-  - **一番確かな印は `claude auth status --json` の `loggedIn`**（`run_auth_status`）。`/usage` より桁違いに軽く（この開発機で Windows 0.28 秒 / WSL 0.71 秒、`claude -p "/usage"` は 3.8 秒）、帯が取れなかったときだけ起こす。`--json` は既定だが明示する（`--text` もあるので、既定が変わったときに黙ってパースが外れないように）
-  - **CLI の文言（`asks_for_login`）は最後の手段**。実装時（CLI 2.0 系）は未ログインが `Not logged in · Please run /login`（終了コード 1）だったが、**2.1.278 では終了コード 0 で `Total cost: $0.00…` の要約だけを出し、`/login` に触れない**（Windows と WSL の両方で実測）。文言に頼り切ると、この版で検出が丸ごと効かなくなる
-  - **ログアウトが分かっているのに残量を出しているキャッシュは、TTL を待たずに捨てる**（`needs_fetch`）。`/logout` の直後のキャッシュは「ログイン済みで残量あり」なので、待つと最長 1 時間そのまま出る
-  - **拾えるのは「ログアウト」と「資格情報が手元で無効」まで**。`~/.claude/.credentials.json` は `expiresAt`（アクセストークン、1 時間程度）と `refreshTokenExpiresAt` を持ち、`claude auth status` はそれを見て答える。**サーバー側で明示的に取り消された状態だけは、呼び出して 401 が返るまで分からない**（`claude auth status` にサーバーへ問い合わせる口は無い。`--json` / `--text` だけ）
-  - **ログインを求められたら古い値に戻さない**（`STALE_KEEP_MAX` の据え置きを飛ばす）。出し続けると切れていることが見えない
-  - ボタンが走らせるコマンドは表の `AgentDef.login`（`claude auth login`）。**シェルと cwd は新規ターミナルと同じ `terminalPlace`**: `CLAUDE_CONFIG_DIR` を被せる起動ラッパーを使っていても、手で打つのと同じアカウントに入る（Pike が解決した設定ディレクトリを前置する形は採らない。シェルごとの引用が要るうえ、ラッパーの判断と二重になる）。終わったら `refreshUsage(true)` で取り直す
-- **複数アカウント（`CLAUDE_CONFIG_DIR`、#225）**: Claude Code はこの環境変数で `~/.claude` の位置ごと差し替える。空ディレクトリを指して起動して確かめたところ、`projects/` も `sessions/` も `.claude.json` もそこへ移るので、**集計・セッション一覧・レート取得の 3 つとも** `claude_usage/config.rs` の `resolve` を通す。検出の順と `.envrc` を評価しない理由はそのファイルの doc コメントが正本。issue の表題にある `CLAUDE_CONFIG_PATH` という変数は存在しない
-  - **解決の順は「hook の申告 → `.envrc` → シェルの環境変数 → 既定」**（#299）。先頭だけが**実際に走った claude が見ていた場所**で、残りの 2 つは起動前の予測。予測では取りこぼす構成が実在する（`claude` の起動ラッパーがシェル関数で `CLAUDE_CONFIG_DIR` を被せる運用では、`.envrc` にもシェルの環境変数にも現れない）
-  - **申告の仕組みは `src-tauri/src/agent_hook.rs` の doc が正本**（受け口の形・`SessionStart` の作法）。ここに写しを置かない。要点だけ: Claude Code の `SessionStart` hook が `pike agent-hook` を起動し、stdin の JSON の `transcript_path` から設定ディレクトリが確定する
-  - **走っている Pike へ知らせる経路は持たない。** 申告はファイルに書くだけで、反映は `resolve` のキャッシュが**そのファイルの mtime を見る**ことで起きる（`declarations_mtime`）。IPC で「捨てろ」と伝える形は、受け側がメインスレッドなので解決のロック（プローブ中も保持、最長 30 秒）を待つあいだ UI が止まりうるうえ、WM_COPYDATA が Windows にしか無いぶん非 Windows だけ遅れ、申告 1 件で全プロジェクトの解決を捨てることになる。**入力の更新時刻を見れば 3 つとも起きない**
-  - **登録先は 1 つではない。** 設定画面は**ホーム直下の設定ディレクトリらしいものを全部並べて**、それぞれに登録できるようにする（`candidate_dirs`）。解決結果だけを宛先にすると、まだ申告が届いていないあいだは既定の `~/.claude` しか出ず、実際に使っている `~/.claude-ai` へ hook が入らないまま「登録済み」に見える＝申告が永久に届かない
-  - **候補はプロジェクトのシェルに絞らない**（`shells_for_targets`）。hook はアカウントごとに持つもので、そこはマシン全体の話。Windows のプロジェクトを開いているからといって WSL の `~/.claude` を隠すと、**WSL で claude を使っている人が登録できない**（「Windows のパスしか出ない」という形で実際に出た）。distro の一覧はフロントが渡す（設定タブが既に検出しているものを使い回し、Rust 側で `wsl.exe` を増やさない）。宛先ごとにシェルが違うので、`HookTarget` は `install_key` と `command` を持ち、install / uninstall はそれを受ける
-  - **申告の置き場はビルドで分けない**（`STORE_IDENTIFIER`）。申告は Pike のアプリ状態ではなく「この cwd はこの設定ディレクトリを使っている」という**利用者の環境についての観測**なので、開発版とインストール版で 1 本を共有する。**分けていたころの特別扱いから 2 つの不具合が出た**: `settings.json` に 2 行並べるための厳しい一致判定（パスの綴りを直しただけで古い行に手が届かなくなる）と、開発ビルド専用のコマンド行（下記）
-  - **`settings.json` は Claude Code 自身も書き戻すファイル**なので、`hooks.SessionStart` に 1 グループ足すだけにする。`serde_json` の `preserve_order` を有効にしてあるのは、触っていないキーまで並び替えて返さないため
-  - **`settings.json` は symlink でありうる**（dotfiles から配る構成、#320）。ここを踏むと**利用者の設定が hook だけの内容に置き換わる**ので、読み書きは 3 つとも守る:
-    - **UNC 越しに触らない。** `\\wsl.localhost` から見た WSL の symlink はリパースポイントで、Windows API は追従できず `NotFound` を返す。**読みも書きも distro の中で行う**（`fs::read_text` と `fs::write_bytes_atomic`。対になるので両方 `fs` に置く）。候補の列挙（`read_dir`）だけは UNC のままなので、リンクを辿る述語を使わない: 中身の有無は `exists()` ではなく `symlink_metadata()`、ディレクトリかの判定は `DirEntry::file_type()`（辿らない）ではなく `metadata()`（辿る）で見る。**後者が効くのはホスト側だけ**で、`~/.claude` ごと symlink にした WSL の構成は UNC の限界でどのみち中を読めない
-    - **存在の判定に `-e` だけを使わない。** あれもリンクを辿るので、リンク先がまだ無い symlink（dotfiles を展開していないマシン）を「無い」と言う。そこで書くと、解決した先＝dotfiles の中に hook だけのファイルを作る。`[ -e p ] || [ -L p ]` で「リンクはある」ほうへ落とし、`cat` の失敗として `Err` にする
-    - **書き込みは元のモードを引き継ぐ**（`chmod --reference` / `set_permissions`）。tmp + `mv` は新しい inode を被せるので、0600 の設定が umask 次第で 0644 に緩む（`env` に鍵を置く人がいる）うえ、リンク先が dotfiles なら登録のたびに mode の差分が出る。一時ファイルの後始末も `mv` の失敗だけでなく `trap ... EXIT` で見る（`cat` が途中で落ちると、利用者のディレクトリに `.tmp` が残る）
-    - **同じ盲点が `claude_usage::config` の読みに残っている**（既知の制約）。`.claude.json`（アカウント）と `CLAUDE_CONFIG_DIR` の実在確認（`is_dir`）は UNC 越しの `std::fs` のままなので、そこを symlink で配っている構成ではアカウントが空になるか、既定の `~/.claude` に落ちる。`.claude.json` は Claude Code が数十秒ごとに書き換えるカウンタ置き場なので symlink で配る動機が薄く、直すなら `resolve` ごと distro の中へ移すことになる
-    - **「読めなかった」を「無い」と混ぜない。** 無ければ `None`（新規作成してよい）、読めなければ `Err`（**書かない**）。混ぜると、読めないファイルを空とみなして丸ごと上書きする。#320 で実際にこれが起きた
-    - **`rename` の前にリンクを辿る**（`fs::write_bytes_atomic`）。素朴な「一時ファイル ＋ `rename`」は symlink そのものを置き換える。同じ理由で `agent_hook::write_atomic`（申告の置き場専用）を利用者のファイルに使わない
-    - 症状は**静かに壊れる側**だった: 書き込みは成功しているのに、読めないので設定画面は「未登録」のまま。「登録したのに登録されない」と「設定が消える」が同じ原因の表と裏になる。`agent_hook_install_missing` は「1 つでも書ければ成功」なので、承諾したあとに未登録が残ったら**フロントが知らせる**（`useAgentHookPrompt`）
-  - **開発ビルドは hook のコマンドに自分自身の絶対パスを書く**（`hook_command`）。PATH の `pike.exe` はインストール版なので、そのままでは開発中の変更を確かめられない
-    - **Windows 向けの綴りではバックスラッシュを残さないこと。** hook を走らせるシェルは Claude Code が選び、Windows の既定は Git Bash。そこへ `C:\Users\...` を裸で渡すと `\` がエスケープとして食われ、`C:Userskanfu...: command not found` になる（実際に踏んだ）。スラッシュに直せば Windows API がそのまま解決する。**常に引用符で囲むのも駄目**で、PowerShell は引用符で始まる行を文字列式として評価する（実行には `&` が要る）
-    - **開発版で通知を試したら、あとでインストール版から登録し直す**（#339）。デバッグ
-      ビルドの exe は `windows_subsystem = "windows"` を持たない（`main.rs` は
-      `not(debug_assertions)` のときだけ付ける）ので、**hook として起動されるたびに
-      コンソールが一瞬出る**。`agent-hook` は WM_COPYDATA を送って即終了するぶん、
-      「黒い窓が一瞬光る」という形でしか見えず、原因に当たりが付きにくい。登録し直せば
-      4 行とも `pike.exe` に揃う（`ensure_hook` は綴りの違う行にも手が届く）
-  - **登録済みの判定は緩く**（`has_hook`。コマンド行にサブコマンドを含むか）。置き場を共有しているので 1 行あれば足り、**綴りが違う行にも手が届く**（パス表記を直した版から古い行を消せる）。一致で見ていたころは、直した瞬間に「未登録」へ化けて古い行が UI から消せなくなった
-  - **外す口も持つ**（`remove_hook`）。開発版が書くのは `target/debug` の絶対パスなので、ビルドを消すと死んだ行になり、`SessionStart` のたびに Claude Code のトランスクリプトへエラーが出る。利用者が置いた別の hook は残す。空になった入れ物（`"SessionStart": []` / `"hooks": {}`）は畳んで、足す前の形に戻す
-    - **空にしたグループだけを落とす**（`retain_mut` の中で判定）。「1 つでも消したなら空のグループを全部落とす」だと、元から `"hooks": []` だった利用者のグループまで消える
-    - **`Map::remove` を使わないこと。** `preserve_order` の下では `swap_remove` で、末尾のキーが削除位置へ動く＝あの feature を入れた理由を自分で壊す。`shift_remove` を使う（`preserve_order` を外すとコンパイルエラーになるので、意図が型で守られる）
-  - **申告のキーには `install_key` も入れる**（`Declaration::install`）。cwd だけだと、distro を 2 つ持っていて両方に `/home/kan/pike` があるときに片方の申告がもう片方へ返る。hook プロセスは自分がどの distro から呼ばれたかを知らない（`WSL_DISTRO_NAME` は `WSLENV` に載らない）ので、**登録するときにコマンド行へ書いておく**（`--install-key=`）
-  - **シェルごとに 1 度だけ提案する**（`composables/useAgentHookPrompt.ts`）。設定画面まで来ない人は、推測が外れていることに気付きようがない。聞く条件と「聞いた記録」の置き場は、あのファイルの doc が正本。要点は 4 つ: **main ウィンドウだけ**（マシン全体の話なので、復元で開く各ウィンドウが聞くことではない）、**そのシェルの候補に未登録があるとき**、**そのシェルについてまだ聞いていないとき**、**候補は今のシェルとホストのぶんだけ**（全 distro を並べると起動時に `wsl.exe` が要る＝`project.md` の規約に反する）
-    - **「マシンに 1 つ」の判断にしないこと**（#265 で直した）。以前は「1 つでも登録済みなら聞かない」「断ったら二度と聞かない」だったので、**Windows のプロジェクトで承諾しても WSL 側には何も入らない**（候補に挙がるのは今のシェルのホームだけ）まま「登録済み」と見なされ、WSL のプロジェクトへ切り替えても何も起きなかった。hook は設定ディレクトリごとに要り、その置き場はシェルで変わるので、記録も判断もシェル単位（`types/tab.ts` の `installKey`）にする
-    - **契機はプロジェクトの切り替え**（`App.vue` の watcher）。記録があれば IPC を投げずに戻るので、切り替えのたびに `agentHookStatus`（解決 ＋ 候補ぶんの `settings.json` 読み）を払わずに済む
-  - **捨てる口が要る**（`forget_declarations`）。申告は `.envrc` とシェルの環境変数より優先されるので、hook を入れていないアカウントへ起動ラッパーを切り替えると、**古い申告がそのプロジェクトを恒久的に古いアカウントへ縛る**（しかも、この機能が入る前は正しく答えていた 2 つの経路まで上書きする）。設定画面のゴミ箱と、hook を外したときの後始末がここを通る
-  - **`transcript_path` の分解に `Path` を使わない**。区切りの解釈はターゲット依存で、macOS では `\` がただの文字になる。Windows で走る Pike には WSL の `/home/...` と Windows の `C:\Users\...` の両方が届くので、両方を区切りとして扱う（`Path` で書いていたときは、Windows パスのテストが**macOS の CI でだけ**落ちる形になっていた）
-  - コマンドは 3 つとも **`spawn_blocking` に逃がす**（`rust.md`）。`resolve` は WSL では対話ログインシェルを起こし（最長 10 秒、しかもロックを握ったまま）、候補の列挙は UNC 越しの `read_dir`、登録はファイル I/O
-  - **claude を起動する側には明示的に渡す**（`rate.rs` の `/usage`）。`bash -c`（非対話・非ログイン）で起動するので、渡さないと既定の `~/.claude` のアカウントで動き、ステータスバーが別アカウントの残量を出す
-  - **WSL では `Command::env` が効かない**（`wsl.exe` という Windows プロセスにしか付かず distro の中へ渡らない）。bash に渡す行の頭で代入する。シェル別のクォート（bash の `VAR=v cmd` と cmd の `set "VAR=v" && cmd`）は `types.rs` の `run_shell_line_env` に集約してある。呼び出し側で前置を組み立てると、シェルの振り分けが変わったとき黙って壊れる
-  - 環境変数のプローブは **distro 単位**でキャッシュする（rc ファイル由来なのでプロジェクトでは変わらない）。プロジェクトごとに違う入力は `.envrc` だけで、これは UNC 越しにただのファイルとして読めるので spawn が要らない。ウィンドウを何枚開いても distro につき 5 分に 1 回。**問い方とキャッシュは `shell_probe.rs`**（エージェント検出と同じ `-lic` に相乗りする。上の「2 つの問いは 1 本にまとめる」）
-  - **同じキーのプローブは 1 本に畳む**。usage と rate のポーリングは同じ tick で走るので、畳まないと期限切れのたびに 2 本が同時にシェルを起動する。**畳むのは probe のロック**（`cache::ProbeEntry` の 2 段ロック。#315）で、答えのロックではない: 1 本にしていたころは、あるプロジェクトの解決が**他のプロジェクトの解決まで**止めていた
-  - **プローブの先頭で `HISTFILE` を unset する**。対話シェル（`-lic`。`.bashrc` の export を拾うために必要）は終了時に履歴を書き戻すので、`HISTSIZE` の設定次第でプローブがユーザーの `.bash_history` を削りうる
-  - マーカー行（目印 + タブ）で拾う。`.bashrc` がバナーを stdout に出すことがあるので行の位置では選ばない（このマシンの `.bashrc` は実際に `git status` の結果を出す）。2 つの問いを 1 本にまとめてあるので、**目印は問いごとに別**（`shell_probe.rs` の `ENV_MARKER` / `AGENT_MARKER`）
-  - **実在を確認できたディレクトリだけ採用する**。読めない値を `native_override` に残すと、`claude` を起動する側がそれを export して別の場所を作らせてしまう。確認できなければ検出そのものを無かったことにして既定へ落ちる
-  - Windows シェルは Pike のプロセス環境を見る（cmd / Git Bash は起動時に継承するので同じ値）。**PowerShell のプロファイルの中だけで設定した場合は拾えない**
-  - **`.claude.json` の場所は 2 通り**。`CLAUDE_CONFIG_DIR` を設定していればその中、**既定では `~/.claude` の中ではなく隣**の `~/.claude.json`（Windows・WSL の実機で確認）。設定ディレクトリの中を先に見て、無ければ親を見る。中だけを見ていたころは、上書きしていない環境でアカウントが常に空だった
-  - アカウント（`.claude.json` の `oauthAccount`）は **`resolve` の中で一緒に読む**。あのファイルは Claude Code のカウンタ置き場でもあって数十 KB あり、稼働中は数十秒ごとに mtime が変わるので、mtime キーのキャッシュだと 30 秒ポーリングのたびに UNC 越しに全文を読む。中身が変わるのはログインし直したときだけなので TTL に相乗りさせる
-  - **検出に失敗しても黙って既定に落ちる**（`.bashrc` が `exec tmux` する、`.envrc` が `$(…)` を使う等）。プロジェクト単位の設定欄は作っていないので、そこが唯一の逃げ道は StatusBar のアカウント行になる。「思っていたのと違うメールアドレスが出ている」で気付ける形にはしてある
-- cwd↔root 一致判定（`cwd_matches_root`）と WSL ホーム解決（`wsl_home_subdir_cached`）は `types.rs` の共通ヘルパーで、`claude_usage` / `codex_usage` が共有
-- **エージェント状態タブ（#226 / #263）**: `tabs/AgentStatusTab.vue`（設定タブと同じシングルトン）。**記録のあるエージェントをカードにして並べる**（1 つのマークアップを回すだけで、種別の分岐は無い）。出るのはアダプタが返したものだけで、**4 つで揃わない**（Copilot にトークンは無く、opencode に利用率は無い）ので、無い節は出さない。導線は歯車メニューと StatusBar のドロップダウンの「詳細」の 2 つ。**StatusBar のドロップダウンは要約だけ**（アカウント・トークン合計・5h 枠）にして、内訳はこちらへ寄せた
-  - **導出は `composables/useAgentUsage.ts` に集約**（どちらの Codex を優先するか、何をアカウント有りとみなすか、枠を帯に落とす変換）。2 つの画面に同じ computed を置いていたときは、「アカウント有り」の判定が既に食い違っていた。表示整形（ラベル・リセット時刻の日本語化・80/90% の色分け）は `lib/usageFormat.ts`。手動更新のスピナーは `createUsageStore` が公開する `refreshing`（両方の画面から同じ更新を駆動するため、コンポーネントのローカル ref では足りない）
-  - **Codex は集計の窓と `active` を分ける**。`ACTIVE_WINDOW_SECS`=5 分は「今動いているか」で、集計は `RECENT_WINDOW_SECS`=24 時間。分ける前は 5 分前に終わった作業が状態画面から丸ごと消えていた（Claude の plugin 経由で使った直後でも「記録はありません」）。窓を広げたぶん `parse_session_cached` が mtime でキャッシュする（終わったロールアウトは変わらないので読み直す必要がない。キーにプロジェクトを含めないので、ウィンドウを何枚開いても 1 回しか読まない。掃除は**走査結果ではなく古さ**で行う（キャッシュはプロセス共有なので、片方のプロジェクトの走査結果で retain すると、シェルの違うもう片方のエントリを毎回全部落としてしまう））
-  - **Codex のアカウントは `~/.codex/auth.json` の `tokens.id_token`（JWT）から読む**。メールアドレスは `email`、プランは `https://api.openai.com/auth` 内の `chatgpt_plan_type`。**署名は検証しない**（自分のマシンの自分の情報を表示するだけで、認証の判断には使わない）。取り出すのは 2 クレームだけで、トークン自体は外に出さない
-  - **Claude のプランは `seatTier` に無いことがある**。個人のサブスクリプションでは null で、Team / Enterprise の席にしか入らない（実機で確認）。`organizationRateLimitTier` → `organizationType` の順に落とし、情報を持たない `default_` の接頭辞だけ外す。値そのものは加工しない（将来増える等級を勝手に読み替えると誤った名前を出す）
-- フロント: ポーリング基盤は `stores/usageStore.ts` の `createUsageStore(id, fetcher)` ファクトリに集約（全フィールド deep 比較で rate%・cached 等も再描画。`refreshUsage(force)` で fetcher に force を伝搬）。**ストアは表 1 行につき 1 本**（`stores/agentUsage.ts` が `AGENTS` から作る）。型は `types/agentUsage.ts`、整形は `lib/format.ts` の `formatTokens` / `formatCost` と `lib/usageFormat.ts`。StatusBar は全エージェントを**1 項目に統合**し、ドロップダウンの中で節に分ける（#226。分けていたころは Codex 側が active のときしか出ず、状態タブと食い違っていた）。ヘッドラインは `useAgentUsage` の `headline`（**利用率を出せる先頭のエージェント**の 5h＋週間）。**2 つの数字は片方のエージェントから揃って取る**（並べた数字にどちらの枠か書く余地がないため、混ぜない）
-
-## TODO パネルと `pike todo` の廃止（#278）
-
-TODO パネル（`.pike/todo.md` のチェックリスト、#139・#163）と、それを端末から操作する
-`pike todo` サブコマンド、`plugins/` のエージェント向けスキルは削除した。**エージェントが
-自分のタスク管理を内蔵するようになり、別の置き場を用意する意味が薄れた**という判断で、
-チャットを外した #275 と同じ流れ。
-
-- **新しいエージェントを足すときも、この種のタスク置き場は作らない**
-- ユーザーの `.pike/todo.md` は消さない（ただのファイルなので、そのまま残って読める）
-- 空いたパネルの枠には issue パネルが入った（#278。詳細は `editor.md` の「issue パネル」）
-

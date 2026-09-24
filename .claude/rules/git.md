@@ -6,42 +6,33 @@ paths:
   - "src/stores/worktree.ts"
   - "src/types/git.ts"
   - "src/components/panels/GitPanel.vue"
-  - "src/components/tabs/DiffTab.vue"
-  - "src/components/tabs/HistoryTab.vue"
-  - "src/components/tabs/CommitTab.vue"
-  - "src/components/RenameNote.vue"
   - "src/lib/git*.ts"
-  - "src/lib/diff*.ts"
-  - "src/lib/commitPatch.ts"
   - "src/lib/editorConflict.ts"
   - "src/lib/editorGitGutter.ts"
   - "src/lib/popupPosition.ts"
   - "src/composables/useAnchoredPopup.ts"
-  - "src/composables/useDragResize.ts"
 ---
 
 # Git 実装ルール
 
 `git` CLI ブリッジ（`git2` クレートは使わない）と worktree 連動。
 実体は `src-tauri/src/git/mod.rs`、`src/stores/git.ts`、`src/stores/worktree.ts`、`src/components/panels/GitPanel.vue`、`src/lib/editorConflict.ts`。
+diff タブは `git-diff.md`、ブランチグラフとコミットタブは `git-graph.md`。
 
 ## Git 統合
 - `git` CLI 経由（WSL / Windows / macOS のいずれでも動く）。`git2` クレートは使わない
 - Rust 側は `types.rs` の `git_args` が引数（`-c core.quotePath=false` と `-C <root>`）を組み、`ShellConfig::run*` が ShellConfig に応じて `wsl.exe git` / `git` を起動する（`git/mod.rs` の `run_git` / `run_git_network` / `run_git_raw_stdout` がその入口）。WSL で複数の git 呼び出しを 1 回の spawn にまとめる経路だけ、argv ではなく bash 行を組む `git_bash_prefix` を使う
 - ステータスバーにブランチ名+ダーティ表示、クリックでブランチ切替
-- ブランチ切替ドロップダウンのリモートブランチ対応（#197）: `git_branch_list` は `for-each-ref --format=%(refname) refs/heads refs/remotes` で `GitBranches { local, remote }` を返す（`<remote>/HEAD` は symbolic ref なので除外）。リモートは**ローカルに同名が無いものだけ**を「リモートブランチ」見出し配下に出し、選択で `git_checkout_track`（`git checkout --track origin/foo`）で追跡ローカルブランチを作って切替。ローカル名は git に決めさせる（`localBranchName` は表示判定専用のヘルパーで、リモート名にスラッシュを含む稀なケースでも checkout 側は壊れない）。既にローカルがある場合は `--track` が失敗するので `gitCheckout` にフォールバック。ドロップダウンを開くと `refreshRemoteBranches` が**既存の throttled `fetchInBackground`（60 秒間隔・focus 必須）**を再利用して fetch → 一覧再読込（開くたびに通信しない）。一覧は cached refs で即表示し、fetch は待たない。QuickOpen の `!` モードはローカルのみ（従来どおり）
+- ブランチ切替ドロップダウンのリモートブランチ対応（#197）: `git_branch_list` は `for-each-ref --format=%(refname) refs/heads refs/remotes` で `GitBranches { local, remote }` を返す（`<remote>/HEAD` は symbolic ref なので除外）。リモートは**ローカルに同名が無いものだけ**を「リモートブランチ」見出し配下に出し、選択で `git_checkout_track`（`git checkout --track origin/foo`）で追跡ローカルブランチを作って切替。ローカル名は git に決めさせる（`localBranchName` は表示判定専用のヘルパーで、リモート名にスラッシュを含む稀なケースでも checkout 側は壊れない）。既にローカルがある場合は `--track` が失敗するので `gitCheckout` にフォールバック。ドロップダウンを開くと `refreshRemoteBranches` が**既存の throttled `fetchInBackground`（60 秒間隔・focus 必須）**を再利用して fetch → 一覧再読込（開くたびに通信しない）。一覧は cached refs で即表示し、fetch は待たない。QuickOpen の `!` モードはローカルのみ
 - Git パネル: ステージング/アンステージ、コミット、push/pull/refresh、コミットツリー展開
 - **porcelain v2 の `2 ` 行（リネーム / コピー）はフィールドが 1 つ多い（#306）**。`1 ` が
   `<XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>` の 9 個なのに対し、`2 ` はそのあいだに
   スコア（`R100` / `C75`）が入って 10 個で、最後が `<path><TAB><origPath>`（**新しい名前が先**）。
-  どちらも `splitn(9)` で分けていたころは、9 個目に「スコア + 空白 + パス」がまるごと残り、
-  タブで切っても `R100 new.md` がファイル名になっていた
-  - 症状は**静かに壊れる側**だった: 存在しない名前がパネルに並び、クリックすると
-    `git diff -- "R100 new.md"` が exit 0 の無出力を返すので**空の diff タブが黙って開く**。
-    アンステージも exit 0 で何もしない（ステージだけは `pathspec ... did not match` で落ちる）
+  `splitn(9)` で分けると 9 個目に「スコア + 空白 + パス」がまるごと残り、`R100 new.md` がファイル名になる
+  - 誤ると**静かに壊れる**: 存在しない名前がパネルに並び、`git diff -- "R100 new.md"` が exit 0 の
+    無出力を返すので空の diff タブが黙って開く。アンステージも exit 0 で何もしない
   - **アンステージは両方の名前を渡す。** 新しい名前だけを `git reset` すると、元の名前が
-    「削除」としてステージに残り、新しいほうが untracked になる（実測）。押した人は
-    そんな半端な状態を頼んでいない
+    「削除」としてステージに残り、新しいほうが untracked になる（実測）
   - `git show --pretty= --name-status` 側（`git_show_files`）は別の形（`R100\told\tnew`）で、
     **元の名前が先**（porcelain v2 の `2 ` 行とは逆）。`u ` 行はリネームを伴わないので 11 個で固定
 - **リネームした差分は、片側だけの pathspec では出ない（#306）**。`git diff -- <新しい名前>` の
@@ -51,38 +42,34 @@ paths:
     **pathspec にもう 1 つ足す**。作業ツリー側に元の名前はもう無いが、一致しない pathspec は
     無視されるだけなので、staged かどうかで分けない
   - コミット（`git_diff_commit`）: 元の名前を知らない呼び出し元（履歴タブ）があるので
-    `git log --follow -p` で追う。親を持たない最初のコミットもそのまま扱えるので、以前の
-    `--root` フォールバックは要らない
+    `git log --follow -p` で追う。親を持たない最初のコミットもそのまま扱える
     - **`--format=%H` を付けて、要求したコミットのものか確かめる**（`commit_patch`）。`git log` は
       pathspec に一致しないコミットを飛ばして遡るので、「そのコミットはこのパスを触っていない」
-      場合に**祖先の差分**が返る（実測）。置き換える前の `git diff <hash>~1 <hash>` は空だった
+      場合に**祖先の差分**が返る（実測）
     - **`--no-show-signature` は `git log` を叩く 4 箇所すべてに要る**（`NO_SHOW_SIGNATURE`）。
       `log.showSignature=true` を設定していると、`git log` は検証結果を**標準出力の
       `--format` より前**に出すので、位置で読む側（`parse_log` / `parse_log_simple` /
       `commit_patch`）が丸ごと外れ、履歴もコミットの差分も空になる。`git diff` は影響を
       受けないぶん気付きにくい
-    - **マージコミットだけは従来どおり第 1 親との差分**。パスを絞った `git log` はマージを
-      素通りして祖先へ遡るので、上の確認で弾かれて空になる。リネーム検出は効かないが、
-      置き換える前と同じ見え方に戻す
+    - **マージコミットだけは第 1 親との差分**。パスを絞った `git log` はマージを
+      素通りして祖先へ遡るので、上の確認で弾かれて空になる。リネーム検出は効かない
       - **代償は、マージのファイルを開いたときだけ spawn が 2 回になること**（1 回目が作った
         祖先のパッチは丸ごと捨てる）。呼び出し元が親の数を知っていれば先に振り分けられるが、
         3 つのうち 2 つ（履歴タブ・アウトラインの履歴）が読む `git_log_file` の書式に `%P` が
         無く、そこへ通す配線のほうが高くつくので採っていない
-      - **失敗を空に潰さないこと。** 「変更なし」と出して終わると、この issue が直したのと
-        同じ「静かに壊れる」形になる。`~1` を持たない最初のコミットだけ `--root` で拾う
-  - **リネームは hunk を持たないことがある**（内容が同じなら `rename from/to` のヘッダだけ）。
-    `parseDiff` は最初の `@@` より前を読み飛ばすので 0 行になる。`parseRename` がヘッダから
-    拾い、`DiffTab` が差分の有無に関わらず上に見出しを出す
+      - **失敗を空に潰さないこと。** 「変更なし」と出して終わると「静かに壊れる」形になる。
+        `~1` を持たない最初のコミットだけ `--root` で拾う
+  - リネームが hunk を持たない場合の表示は `git-diff.md`
 - 非 git リポジトリ対応（#156）: `git status` がエラーの時、`git_is_repo`（`git rev-parse --is-inside-work-tree`、非 repo でも Err にせず `false` を返す）で「リポジトリじゃない」を切り分け、`gitStore.isRepo=false` にして生の git エラーを出さない。GitPanel は専用ビュー（メッセージ + 「リポジトリを初期化」ボタン → `git_init`）を表示（VSCode 風）。init 後は status/log/remote を再読込
 - コンフリクト（unmerged）表示: `parse_status` が porcelain v2 の `u ` 行をパースし `GitStatusResult.conflicted`（status は XY コード `UU`/`AA` 等）に格納。GitPanel 最上部の専用「Conflicts」セクションでパスを赤字（`--danger`）表示、クリックで作業ツリーのファイルをエディタで開く。SideBar の Git バッジ件数に conflicted を加算し、コンフリクト時は danger（赤）バッジ。エディタは `lib/editorConflict.ts`（CodeMirror ViewPlugin）でマーカー行（`<<<<<<<`/`|||||||`/`=======`/`>>>>>>>`）と各セクション本文を色分けハイライト（半透明オーバーレイで両テーマ対応）
-- **エディタ上のコンフリクト解消（#223）**: 同じ `editorConflict.ts` に、各領域の上へブロック widget のボタン列（ours / theirs / 両方）と、`showPanel` の上部バー（件数＋ファイル全体の一括適用）を足した
+- **エディタ上のコンフリクト解消（#223）**: 同じ `editorConflict.ts` に、各領域の上へブロック widget のボタン列（ours / theirs / 両方）と、`showPanel` の上部バー（件数＋ファイル全体の一括適用）がある
   - **パースは `StateField<Conflict[]>` に 1 回だけ**（`editorGitGutter.ts` の `diffField` と同じ形）。decoration・パネルの出し入れ・パネルの中身・widget が全部これを読む。この拡張は**全エディタタブに常時入っている**ので、素朴に書くと打鍵ごとに全行走査が 4 周する（コンフリクトの無いファイルでも）。走査は `doc.iterLines()` の 1 パスで、行ごとの `doc.line(i)`（木を毎回降りる）は使わない
   - `Conflict.lines` が領域内の全行と色分け種別を持つので、**decoration の構築はドキュメント全行ではなくコンフリクト行数に比例する**
   - **ボタンのラベルはマーカー行から取る**（`<<<<<<< HEAD` → 「HEAD を採用」）。無ければ「現在の変更を採用」に落とす
   - **diff3（`|||||||` あり）では ours の終端が `=======` ではなく base マーカー**。base セクションはどちらの側でもない
   - 置換は 1 トランザクションにまとめる（一括適用も `Ctrl+Z` 一回で戻る）。片側が空のときは直前の改行ごと消す（残すと空行が残る）
   - **保存もステージもしない**。`Ctrl+S` と Git パネルの担当のままにして、解消 → 保存 → ステージ → #222 の「続行」という既存の流れに乗せる
-  - **ステージの導線は Conflicts セクションに足した**（各行の Check ボタンと見出しの「すべて解決済みに」）。porcelain v2 の `u ` 行は `conflicted` にしか入らず、コンフリクト中のファイルは Unstaged 一覧に出ないため、**それまでは Pike からステージする手段が無かった**（作業ツリーのマーカーを消しても index は unmerged のままで、`git add` するまで一覧に残り続ける）。マーカーが残っているファイルは `fs_read_file` で見て名前を挙げて確認する（そのままステージするとマーカーごとコミットされる）
+  - **ステージの導線は Conflicts セクションにある**（各行の Check ボタンと見出しの「すべて解決済みに」）。porcelain v2 の `u ` 行は `conflicted` にしか入らず、コンフリクト中のファイルは Unstaged 一覧に出ないため、ここが無いと Pike からステージできない（作業ツリーのマーカーを消しても index は unmerged のままで、`git add` するまで一覧に残り続ける）。マーカーが残っているファイルは `fs_read_file` で見て名前を挙げて確認する（そのままステージするとマーカーごとコミットされる）
   - 未完成の領域（`<<<<<<<` はあるが `>>>>>>>` がまだ無い＝編集中）は色分けだけして**ボタンを出さない**。丸ごと書き換えられる領域だけが対象
   - **読み取り専用の判定は `EditorState.readOnly`**。`EditorView.editable` は Pike が一度も設定しない別 facet（既定 true）なので、あれを見てもガードにならない
   - `WidgetType.eq` はオフセットを比較しない（上を編集するたびに全部の行がずれて、下の widget が毎打鍵で作り直される）。index とラベルだけを見て、クリック時に `conflictField` から現在の領域を読み直す
@@ -112,68 +99,23 @@ paths:
   - パスの組み立ては `workingPath`（git は常に `/` を返すので `joinPath` でシェルの区切りへ
     揃える）。**素の文字列連結に戻さないこと**: 混ざった区切りのパスは fs watcher のイベント
     （完全一致で比べる）と噛み合わない
-- diff タブ: 左右分割表示、文字単位ハイライト（common prefix/suffix 方式）
-- **片側だけを選ばせる（#321）**: `<table>` のテキスト選択は行方向に広がるので、素のままだと左の欄をドラッグしただけで右の欄まで入り、コピーすると両側が混ざる。**セルをまたぐ選択そのものは止められない**ので、押した欄（`markSelectSide`）と反対側を `user-select: none` にする（あの指定の要素はコピーにも入らない）。行番号は元から選択できない。`mousedown` を受けるのは行番号と本文の両方のセル（行番号からドラッグを始めることがある）
-- **作業ツリーの差分は、ファイルが書き換わったら取り直す（#321）**: 照合は **`App.vue` の fs watcher が済ませて `tab.staleAt` を立て**、タブはそれを watch して取り直す。エディタの `externalChange` と同じ形で、ルート相対から絶対への組み立て・区切りの正規化・別プロジェクトのタブの除外があの 1 か所に閉じる（**タブごとに `onFileChange` を購読する形にしないこと**: 同じ照合が実体の数だけ走り、`HistoryTab` が同じ不具合を直すときに再利用できるものが残らない）。取り直すと `tab.diff` の watcher が展開状態などを捨てるので、**この差分に紐づく状態のリセットはあの 1 箇所のまま**
-  - **対象は作業ツリーのぶんだけ。** `commitHash` を持つタブはそのコミットの差分なので変わらず、`staged` は index と HEAD の比較なので作業ツリーを書き換えても変わらない
-  - **`isRecentlySaved` の `continue` より前で印を立てる。** あれは「エディタに外部変更の警告を出すか」の印で、消費してよいのは 1 人だけ（`useFsWatcher` の doc）。差分は**自分が保存したときこそ**追いついてほしいので、値に受けて（`selfWrite`）diff の分岐だけ先に通す。**後ろに置く形では直らない**（Pike のエディタで保存した経路がまさにそこで落ちる。これが #321 の症状）
-  - **描かれていないタブでは取り直さない**（`isTabVisible`）。`tab.diff` への代入は全行の再パースと、仮想化していない表の再描画を起こす。見えていないあいだの変更は持ち越して、描かれた時点で 1 回だけ取り直す。**契機の watcher を 1 本にまとめないこと**: 「表示が切り替わっただけ」と「ファイルが変わった」を区別できず、タブを行き来するたびに取り直すことになる
-  - 取り直しの材料（`root` / `untracked` / `origPath`）はタブが持つ（`staged` / `commitHash` と同じ「このタブを開き直す手順」）。**飛んでいる取得は最後のものだけを採り**（`refreshSeq`）、**内容が変わったときだけ代入する**（タブへの代入はセッションの書き出しを起こす）
-  - **基準の root はタブに焼き込む**（`DiffTab.root` / `HistoryTab.root`）。**この 2 つは worktree の切り替えで閉じない**（`setActiveWorktree` はパネルとエディタを読み直すだけ）ので、`activeRoot` を読む側と `filePath`（ルート相対）が食い違い、worktree で開いたタブが**main の同名ファイルの差分に黙って化ける**（タイトルもファイル名も同じなので気付けない）。読む側は diff が 5 つ（照合＝`App.vue`・取り直し＝`refreshFromDisk`・省略行の取り寄せ＝`loadNewSide`・作業ツリーを開く＝`openWorkingCopy`・`useActiveFile`）、履歴が 4 つ（`selectCommit` と `git log` の 2 つ、`useActiveFile`）。**`activeRoot` を引き直す経路を増やさないこと**
-    - **`HistoryTab.filePath` は `addHistoryTab` が相対へ揃える**。呼び出し元は 7 つあり、ツリーと Git パネルはルート相対、エディタとタブバーは絶対（`EditorTab.path`）を渡す。揃える前は**同じファイルでも開いた場所によって別のタブになり**、`useActiveFile` が絶対パスの側で `joinPath(root, 絶対)` という壊れた文字列を作っていた（ツリーの強調が当たらない）
-    - **`root` は await の前に捕まえる**。WSL 越しの `git diff` は秒単位かかることがあり、そのあいだに worktree を切り替えられると「新しい root と古い差分」が組になって、以後の取り直しが恒久的に別の worktree を見る
-    - **開き直したときだけ更新する**（`addDiffTab` の再利用の枝）。別の worktree で開き直すのは人が明示的に頼んだ切り替えで、黙って化けるのは頼んでいない fs watcher 経由のほう
-    - **`addDiffTab` は呼び出し側から受ける。** ストアで `activeRoot` を読むと `project → tabs → project` の循環になる（`useActiveFile` と同じ理由）
-  - **未追跡のタブは見方を保つ**（`--no-index` は追跡状態に依らずファイルの中身を全行の追加として出す）。途中で `git add` されても「このファイルの中身」を見せ続け、中身だけが最新になる。`staged` を焼き込むのと同じで、タブは開いたときの文脈を保つ
-  - **差分が変われば展開状態（#285）と横位置は戻る。** 行がずれるので正しいが、自動保存（#262）を有効にして diff タブをエディタの隣に置くと、**打鍵が止まるたびに畳まれる**。引き継ぐには `Gap.key`（直後の hunk の `rawLines` での位置）を行番号ベースに作り替えることになるので、体感が問題になってから手を付ける
-  - **選択の印は `classList` を直に触る**（次の bullet の理由と同じ）。`:class` に載せると側を押し替えるたびに表全体の render が走り、広げた差分では掴んだ瞬間に固まる
-- **diff の横スクロールはセルの中で起こす（#272 → #297）**: `table-layout: fixed` ＋ `width: 100%` ＋ セルの `overflow: hidden` だと、長い行はセルの中で切られて**テーブルが横に伸びない**＝スクロールすべき領域そのものが生まれない（#272 の「横スクロールが効かない」の正体）。かといって表を最長行に合わせて広げると（#272 の直し方）、左右の欄はどちらも最長行の幅になるので**右のペインの開始位置が画面の外へ出る**（#297）。いまは表をウィンドウ幅に固定し、欄の中身（`.cell-inner`）を `transform` でずらす。ずらす量は下端に置いた 1 本の帯（`.hscroll`）の `scrollLeft`
-  - **左右は連動させる**（同じ行の左右を見比べる用途なので、同じ桁が両側に出ているほうがよい）。連動するから帯は 1 本で足りる
-  - **表をやめて左右を別々のスクロール領域に割らないこと**。いまの `<table>` が「同じ行の左右が必ず同じ高さに揃う」を保証していて、折り返し ON では左右で行の高さが変わりうる
-  - **`.cell-inner` は `display: block`**。素のインライン要素には `transform` が効かない
-  - **帯は要るときだけ高さを持たせる**（`display: none` にすると幅を測れず、出すかどうかの判定そのものができなくなる）。`height: 0` ＋ `overflow-x: scroll` なら測れる
-  - `table-layout: fixed` は最初の行から列幅を取るので、**列幅は `<colgroup>` で決める**（#285 の帯が先頭に来ると 4 列が等分される）。左の欄だけ `--split` で幅を持ち、右は残りを取る
-  - **分割線はドラッグできる**（`--split`、タブ単位でセッションには残さない。ダブルクリックで半々）。表の列のあいだには要素を置けないので、位置は実測して重ねる（縦スクロールバーの幅も込みになる）。配線は `composables/useDragResize.ts`（サイドバーの幅と共有。見た目は `theme.css` の `.drag-x-handle`）
-  - **スクロールとドラッグの最中は Vue を通さない**。`--scroll-x` や `--split` を `:style` に載せると、動かすたびにコンポーネントの render が丸ごと走り、仮想化していない表の vnode が行数ぶん作り直される。書きたいのはカスタムプロパティ 1 つなので、そこだけ素の DOM 操作に逃がす。確定値だけを ref に入れて、そこで 1 回測り直す（ドラッグ中に `measureLayout` を呼ぶと強制リフローが mousemove ごとに走る）
-  - `--scroll-x` の置き場は `.diff-scroll`（読むのは `.cell-inner` だけ）。ツールバーや検索パネルまで含む `.diff-tab` に置くと、無関係な部分までスタイル再計算の検討対象になる。`--split` / `--content-ch` は帯（表の外）も読むので `.diff-tab` に置く
-  - 幅の見積もりは**セル数**で数える（`ch` は等幅フォントの 1 セル）。全角は 2、タブは 8（`tab-size` 未指定なので CSS の既定値。エディタの `editorTabSize` とは無関係）と、どちらも上限側に倒す。多く見積もっても余分にスクロールできるだけだが、少ないと `overflow: hidden` が黙って切る。**ASCII は `charCodeAt` で先に片付ける**: 折り返し OFF が既定なので diff を開くたびに全文を 1 度なめる。code point の反復子は 1 文字ごとに文字列を作るので 4 倍かかる
-  - **`calc()` は CSS 側に置く**（`.hscroll-inner`）。足すのは行番号列の幅と padding で、どれもすぐ上の `.line-num` / `.line-content` の宣言そのもの。px の合計を JS に持たせると、padding を変えたときに横スクロールの範囲が黙って足りなくなる。**寸法とフォントの変数は `.diff-tab` に置く**（帯は表の外にあり、`1ch` を同じフォントで解決する必要がある）
-  - 折り返しはタブ単位で上書きできる（既定は設定の `diffWordWrap` = `auto` / `on` / `off`）。エディタの `WrapToggle.vue` を共用し、検索パネルと同じ角に出るので開いているあいだは隠す
-  - **`auto` の判定はブラウザに測らせる**（帯のはみ出しを狭いほうの欄の幅で割って `AUTO_WRAP_RATIO`=2 超）。`--content-ch` は見積もりで、フォントの実寸もペインの幅も知らない。**live な computed にしないこと**: 折り返すとはみ出しが消えるので、はみ出し量から直に導くと ON と OFF を往復する。折り返しているあいだは測らず、結果は `autoWrapped` に latch する
-  - 既定を `auto` にしたのは、**横スクロールに気付けない**ため（`theme.css` のスクロールバーは 6px）。同じ理由で、横にスクロールできる差分では折り返しボタンを薄くせず出したままにし、帯だけ 10px にしてある
-  - **検索の移動は横にも寄せる**。桁の外にある一致は `scrollIntoView` では出てこない（あちらはスクロールできる祖先しか動かさない）
-  - **欄は `overflow: clip`（`hidden` ではない）**。`hidden` は欄自身をスクロール領域にするので、`scrollIntoView` が欄そのものを横に動かし、`--scroll-x` のずらしと二重にかかる
-  - **横のホイールを受けても、縦成分があるなら `preventDefault` しない**。タッチパッドの斜めのジェスチャは `deltaX` と `deltaY` を同時に持つので、止めると縦に動かなくなる
-  - **代償は、横スクロールがネイティブの合成から外れること**。`--scroll-x` の書き換えは（表を仮想化していないので）全セルの再計算を伴うので、書き込みは `requestAnimationFrame` で 1 フレーム 1 回に畳んである。数千行の diff で重くなるなら、次の手は行の仮想化（左右の高さを揃える保証をどう保つかから設計し直しになる）
-  - **「まとめて表示」には上限がある**（`EXPAND_ALL_MAX`=2000）。仮想化していないので、2 万行のファイルの 1 行を直した差分では 1 クリックでウィンドウが固まる。上限を超える領域はボタンの文言を変えて「N 行のうち M 行」と出す
-- **省略された行の展開（#285）**: hunk と hunk のあいだをボタンで少しずつ広げる（GitHub / VS Code と同じ）。`diffParser.ts` の `DiffLine.hunk`（`@@` 行だけが持つ `HunkRange`）が唯一の情報源で、計算は **`lib/diffExpand.ts` の `expandDiff`**（純粋）が「展開済み ＋ 残り ＋ 展開済み」に分けて行を積む。`DiffTab.vue` に残るのは取得（IPC）と操作だけ（`parseDiff` / `collectMatches` と同じ分け方）
-  - **取り寄せるのは新しい側のファイルだけでよい**。省略されているのは変更のない context 行なので左右の欄は同じテキストになり、行番号は hunk ヘッダから引ける。旧側も取ると IPC が 2 回になるうえ、両者の対応付けを自前で持つことになる
-  - 取得先は diff の出どころで変わる: コミットならそのコミット、ステージ済みなら index（`git show :<path>`＝空リビジョン）、それ以外は作業ツリー。**押されるまで取りに行かない**（開いただけの diff で IPC を増やさない）。**例外は帯が 1 つも出ないとき**で、そのときだけ自分から 1 回取りに行く: 末尾の省略は行数が分からないと帯を出せず、その行数は取り寄せて初めて分かるので、hunk が 1 つで 1 行目から始まる差分（先頭の省略も無い）は押す場所が生まれず一生広げられない
-  - **取り寄せた全文が diff のものか `matchesDiff` で確かめる**。差分と作業ツリーはずれうる（#321 で作業ツリーのタブは追いつくようになったが、取り直しが終わるまでの窓は残るし、コミットや index の差分はそもそも追わない）。確かめずに使うと、行番号だけ付いた空行や別の場所の内容が「省略されていた行」として無言で混ざる。改行コードは比べない（`core.autocrlf` の環境では diff が LF・作業ツリーが CRLF になる）
-  - **展開の状態のキーは直後の hunk の `rawLines` での位置**。帯を出す位置（`Gap.at`）は展開するたびに動くので、そちらを覚えると 1 回広げた時点で行き先を見失う
-  - `head` / `tail`（上・下に hunk が無い）でボタンを出し分ける。ファイル先頭の領域は上へ、末尾の領域は下へしか意味がない
-  - **広げ切っても帯は残す**（`Gap.count` が 0 になり `shown` が残る）。畳み直す入口はそこにしか無いので、消すと一度広げた領域を元に戻せない
-  - **列幅は `<colgroup>` で決める。** `table-layout: fixed` は既定で最初の行から幅を取るので、帯（`colspan="4"` の 1 セル）が先頭に来ると 4 列が等分され、行番号の欄が本文と同じ幅になる（差分が 3 分割されたように見える）。`<col>` の幅は border-box なので、セルの `width` と `padding` を足した値にする
-  - **`parseDiff` は末尾の改行が作る空要素を捨てる**。context 行として拾うと実在しない空行が最終行の次に付き、行番号も 1 つ余分に進む。長らく「diff の最後に空行が 1 つ出る」だけだったが、省略された行を埋めるようになって、埋めた行の番号が実ファイルとずれる形で表に出た
-  - 帯と行は `blocks` の 1 本の列にまとめる。末尾のぶんを `v-for` の外に出すと、同じマークアップを 2 つ持つことになる。`gaps` は `at` の昇順で出てくるので、合流はポインタ 1 本で足りる
-  - 折り返しの「自動」の判断は**差分が入れ替わったときだけ**やり直す。展開のたびに `autoWrapped` を落とすと、折り返しが外れてから測り直して戻るので画面が揺れる
 - **途中停止した操作の検出と再開（#222）**: `GitStatusResult.operation`（`GitOperation { kind, branch, step, total, stop, stoppedSha, stoppedSubject }`）を `git_status` の中で埋め、GitPanel 最上部にバナー＋続行 / 中止ボタンを出す。別コマンドにしないのは、10 秒ポーリング・StatusBar・worktree ストアが既に `git_status` を通っているため（2 つに分けると「競合あり」と「操作なし」が食い違いうる）。探索の失敗は握り潰す（`operation` のせいで status が Err になってはいけない）
-  - **検出を条件で間引かない**: 「HEAD が detached、または競合あり」のときだけ探索する案は**素の `git pull`（マージ）の停止を丸ごと取りこぼす**。実測で、マージ競合停止は `# branch.head` が `main` のままで、署名失敗のマージに至っては競合 0・detached でない・`MERGE_HEAD` だけが痕跡という状態になる。代わりに探索を `git status` と同じ 1 往復に畳んだ（WSL は `remote_urls_wsl` と同じ「`bash -c` で複数の git 呼び出しを 1 回の `wsl.exe` にまとめる」手口。定常コストは従来と同じ 1 spawn）
+  - **検出を条件で間引かない**: 「HEAD が detached、または競合あり」のときだけ探索する案は**素の `git pull`（マージ）の停止を丸ごと取りこぼす**。実測で、マージ競合停止は `# branch.head` が `main` のままで、署名失敗のマージに至っては競合 0・detached でない・`MERGE_HEAD` だけが痕跡という状態になる。代わりに探索を `git status` と同じ 1 往復に畳んである（WSL は `remote_urls_wsl` と同じ「`bash -c` で複数の git 呼び出しを 1 回の `wsl.exe` にまとめる」手口。定常コストは 1 spawn）
   - 状態ファイルは gitdir 配下にあるので、`git rev-parse --absolute-git-dir` 1 回で `.git` がファイルの linked worktree も通る。ただし **Windows 側は `<root>/.git` がディレクトリなら rev-parse を省く**（通常のリポジトリはこれで当たり、プロセス起動が 1 回で済む。WSL 側は既に同じ spawn の中なので分岐しない）。**パスのキャッシュは持たない**（ステートレス方針）
   - **存在判定に `fs::batch_read_files` を使わない**: あれは中身を trim して空を `None` に潰すため、`message` が「空」なのか「無い」のか区別できない。`commit-failed` の判定はそこに乗っている。WSL 側は `exists FS content` のレコードを `OP_STATE_FILES` の順で返す（`remote_urls_wsl` と同じ位置対応。名前は流さない）
   - `OP_STATE_FILES` は `(パス, 内容を読むか)` の表。ほとんどは「git が書いたか」だけが信号なので `cat` しない。とくに `BISECT_LOG` は bisect の 1 ステップごとに増えるため、読むと 10 秒ごとに全文がパイプを渡る
   - **どの種別にボタンを出すかは Rust が `can_continue` で返す**（`am` はメールボックス、`bisect` は good/bad が要るので対象外）。フロントの定数にすると、種別を増やしたときに更新漏れが型エラーにならず無言でボタンが消える
   - **`rebase-merge/interactive` は `-i` の判別に使えない**（素の `git rebase` でも作られる。実測）。rebase / am の区別は `rebase-apply/applying` の有無
   - `stop` の分類: 競合あり → `conflict`（`.git` から再導出せず、パース済みの `conflicted` を使う）/ rebase かつ競合なしかつ `message` も `stopped-sha` も無い → `commit-failed` / それ以外 → `stopped`。**マージ系に `commit-failed` の特別扱いは要らない**（`git merge --continue` が `MERGE_MSG` でコミットし直すので、署名失敗でも通常の続行で復帰する。実測）
-  - **復帰コマンドはターミナルタブで走らせる**（`runCommandTab`、`cwd=activeRoot`・`keepOnError: true`・`onExit` で status/log 再取得）。`git rebase --continue` は `$EDITOR` を開き、署名は 1Password の承認ダイアログを伴い、バックエンドの git 呼び出しは TTY 無し・stdout 破棄・30 秒タイムアウトでどれも通らない。`--abort` も同じ経路（失敗しうるものをバックエンドに回すと、この issue が直そうとしている「生の stderr がパネルを潰す」経路に戻る）
+  - **復帰コマンドはターミナルタブで走らせる**（`runCommandTab`、`cwd=activeRoot`・`keepOnError: true`・`onExit` で status/log 再取得）。`git rebase --continue` は `$EDITOR` を開き、署名は 1Password の承認ダイアログを伴い、バックエンドの git 呼び出しは TTY 無し・stdout 破棄・30 秒タイムアウトでどれも通らない。`--abort` も同じ経路（失敗しうるものをバックエンドに回すと、生の stderr がパネルを潰す）
   - **コンフリクトが残っている間は「続行」を押せない**（`conflicted` が非空なら disable ＋ ツールチップ、store 側にも同じガード）。どの `--continue` も未 merge のパスがあると `You must edit all merge conflicts and then mark them as resolved using git add` で即座に拒否するので、押せるようにしておくとユーザーをそのエラーに突き当てるだけになる
   - **コマンドの連結は `types/tab.ts` の `chainOnSuccess` を通す**: **Windows PowerShell 5 には `&&` が無く**（パースエラー。pwsh 7 / cmd / bash 系にはある）、`;` は失敗しても次を走らせてしまうので、あのシェルだけ `; if ($LASTEXITCODE -eq 0) { … }` に落とす。復帰は「コミットし直してから続行」の 2 段なので、コミットが再び失敗したら続行してはいけない
   - **`git commit -C <SHA>` の誤爆ガード**: SHA は `rebase-merge/done` の**末尾行**から取る（競合停止では todo が空になるため、todo の先頭行は当てにできない。両方の停止で実測）。`done` は追記書き込みなので末尾行が不完全なことがあり、`pick`/`reword`/`edit`/`squash`/`fixup` で始まり SHA が hex であることを確認する。`exec` / `break` の停止ではコミットは既に成功しているので**ボタンを出さない**（出すと他コミットの author・日時・メッセージを被せた偽コミットを黙って作る）。押下時は確認ダイアログに SHA・件名・実行コマンドを出す
 - `git_pull` だけ失敗時に stdout も返す（`CONFLICT (content): …` は stdout 側で、共通の `spawn_stdout` は stderr しか残さない）。`spawn_stdout` 自体は触らない（全 git コマンドのエラー文が変わる）
-- **`gitStore.error` はパネル全体を置き換えない**: `status` があるときはセクション上部のストリップとして出す。以前は `v-else-if` でパネル本体ごと差し替えていたため、pull が止まった瞬間に競合一覧もコミット欄も消えていた。`pull()` は失敗時も `refreshStatus` / `refreshLog` を呼ぶ（呼ばないとバナーと競合一覧が次のポーリングまで 10 秒出ない）。**エラーの代入は refresh の後**（`doRefreshStatus` は成功時に `error` を null に戻すので、先に入れると消える）
+- **`gitStore.error` はパネル全体を置き換えない**: `status` があるときはセクション上部のストリップとして出す。パネル本体ごと差し替えると、pull が止まった瞬間に競合一覧もコミット欄も消える。`pull()` は失敗時も `refreshStatus` / `refreshLog` を呼ぶ（呼ばないとバナーと競合一覧が次のポーリングまで 10 秒出ない）。**エラーの代入は refresh の後**（`doRefreshStatus` は成功時に `error` を null に戻すので、先に入れると消える）
 - SideBar の git マーカー（ahead/behind のドット）は、操作が止まっているときは赤い `!` を優先表示する。署名失敗の pull は競合 0・変更件数 0 なので、パネルを閉じているとバッジにもドットにも出ない
-  - **ahead/behind は文字ではなくドットにした**（`MarkerInfo.kind`）。以前の `↑↓` は 11px で見分けにくいと報告があった。向きと件数はツールチップ（`title`）で読む
-- ahead/behind: `git status --porcelain=v2 --branch` の `# branch.ab` 行をパース。GitPanel コミットボタン下にテキスト表示、SideBar の pull/push ボタンを primary スタイルに変更
+  - **ahead/behind は文字ではなくドット**（`MarkerInfo.kind`）。`↑↓` は 11px で見分けにくい。向きと件数はツールチップ（`title`）で読む
+- ahead/behind: `git status --porcelain=v2 --branch` の `# branch.ab` 行をパース。GitPanel コミットボタン下にテキスト表示、SideBar の pull/push ボタンを primary スタイルにする
 - コミットログは `%B`（全文）取得、一覧は1行目のみ表示、ホバーで全文ツールチップ
 - **日時は committer date（`%cI`、#396）。author date ではない。** git に「push した時刻」は
   無く、持っているのは変更を書いた時刻（author date）と、コミットオブジェクトを作った時刻
@@ -183,51 +125,18 @@ paths:
   **戻すなら 3 か所とも戻すこと**（`git_log` / `git_log_file` / `git_log_file_lines`）。
   片方だけだと、同じコミットが Git パネルとファイル履歴で違う時刻に見える
 - ツールチップ・コンテキストメニューの位置決め（#204）: 高さが中身次第で決まるので、**hidden で描画 → 実測 → 配置**の順に置く。配線は `composables/useAnchoredPopup.ts`（`useTemplateRef` で受けた要素を `nextTick` 後に計測し、`style` に位置と `visibility` を返す）、幾何は `lib/popupPosition.ts`（`placeNearAnchor` = 上優先・入らなければ下、`clampToViewport` = カーソル位置を画面内へ）。測るまで hidden なのは仮位置に 1 フレーム出てから飛ぶのを防ぐため（`display: none` は測れず、`opacity: 0` はクリックを拾う）。ウィンドウより高いメッセージは CSS の `max-height` で頭を残して切る（`pointer-events: none` なのでスクロールできない）。**CSS の anchor positioning は採らない**: Chromium 125+ が要るが Tauri は WebView2 のバージョンを固定できず、失敗しても例外ではなく「変な位置に出る」だけで気付けない。カーソル位置に開くメニューは**全部この composable を通す**（GitPanel のコミット/ファイル、FileTreePanel、TabPane のタブ/管理者、SideBar の pull-push、EditorTab）。**新しいメニューを足すときも同じ**（生の `clientX/clientY` を `style` に流すと画面端で見切れる）。SideBar の pull/push メニューだけは `.sidebar.ui-zoom` の内側にあり、UI ズームが 1 以外だと clamp が概算になる（座標系が zoom 倍される。既定の 1 では厳密）
-- ブランチマージグラフ: `git log --all` + `%P`（親ハッシュ）/`%D`（refs）で取得、`gitGraph.ts` のレーン割当アルゴリズムで SVG 描画。List / Graph 切替
-  - **レーンの列は幅に上限を持つ（#371）**。SVG に viewBox を付けず幅を `--graph-width` にして、はみ出したレーンをビューポートで切る（viewBox を付けると切れずに縮む）。以前は SVG の幅をそのまま行に置いていたので、深いグラフでメッセージが右へ押し出されて見えなくなった。境目のドラッグで上限を変え（SourceTree と同じ）、`pike:git-graph-width`（マシンローカル・全プロジェクト共通）に残す。**保存するのは上限で固定幅ではない**: 浅いグラフは必要なぶんしか取らない。右端まで広げたら「全部出す」として記録し、あとで深くなったグラフも切らない
-  - **並びは `--date-order`（#374）**。SourceTree の既定の「日付順」と同じで、見比べたときに並びが食い違わない。#371 では `--topo-order`（ブランチごとにまとめる）にしていたが、並行するブランチが交互に並ぶぶんレーンが増えることより、並びが揃うことを採った（幅は下の上限で抑えられる）。素の時刻順（オプション無し）には戻さないこと: 時計がずれると親が子より先に出て、そのレーンが一覧の最後まで閉じない
-  - **自分のレーンの線は、実際に続いている半分だけ描く（#374）**（`GraphRow.hasChild` / `continuesDown`）。上半分は上の子がこのコミットを待っていたとき、下半分は第 1 親がこのレーンを引き継ぐときだけ。無条件に行の上端から下端まで描いていたころは、分岐点（第 1 親が既に別のレーンにいる）とブランチの先端で行の境目に宙に浮いた線が出て、「グラフが途中で途切れる」と報告された
-  - **履歴は `LOG_PAGE`=200 件ずつ読む（#374、`stores/git.ts`）**。パネルの末尾の印（IntersectionObserver）が見えたら足す。足すときも `--skip` で続きだけを取らず、件数を増やして先頭から取り直す（ポーリングの取り直しと同じ経路に乗り、途中にコミットが増えても重複や抜けが出ない）。root か一覧 / グラフが変わったら 1 ページ目に戻す
-  - **グラフ表示の行のクリックはコミットタブ（`tabs/CommitTab.vue`）を開く（#374）**。一覧表示の行はファイルの一覧を開閉するが、グラフの行は高さがレーンの線の前提（`ROW_HEIGHT`）なので、その下に展開する場所を持たない。差分は `git_commit_patch`（第 1 親との `git diff -M`。親はパネルの `git log` が持っているので渡す。最初のコミットは `diff-tree --root`）で、ファイルごとに分けるのは `lib/commitPatch.ts`
-    - **コミットタブの配置は SourceTree の下半分にそろえる（#396）**: 左上にメタと
-      メッセージ、左下に変更されたファイルの一覧、右に選んだ 1 ファイルの差分。分割線は
-      ドラッグで動く（`useDragResize`。縦に動かすほうは `axis: 'y'`）。以前は全ファイルの
-      差分を縦に積んでいたので、目当てのファイルまでスクロールし続けることになり、
-      大きいファイルを畳む仕掛けを別に持つ必要もあった。**1 ファイルずつ描けばその仕掛けが
-      丸ごと要らない**
-      - **分割の位置は比で持ち、開き方と一緒に `pike:commit-split` に覚える**（マシンごと・
-        全プロジェクト共通。グラフの列幅と同じ扱いで、同期の対象にはしない）。px ではなく
-        比なのは、覚えた値をウィンドウの大きさが違う環境でも使うため。**下限だけは px で
-        見る**: 比の下限にすると、狭いウィンドウで左の列が読めない幅まで詰められる
-      - **右のペインは統合形式と「新旧を上下」を切り替えられる**（#396）。**上下の行は
-        統合形式の行を濾して作る**ので、差分を取り直さない（新しい側は削除行を、古い側は
-        追加行を落とす）。**hunk の見出しは両方に残すこと**: 飛ばした範囲の目印なので、
-        片方から落とすと離れた変更どうしが続きの行に見える
-        - 以前ここにあった「左右に並べて見る」（diff タブを開くボタン）は置き換えた。
-          1 ファイルの文字単位の強調が要るときは、Git パネルから diff タブを開く
-      - **ドラッグ中は Vue を通さない**（diff タブの `--split` と同じ。理由は下の
-        「ドラッグ中は…」の bullet）。右のペインは仮想化していない表なので、`:style` に
-        載せると mousemove ごとに行数ぶんの vnode が作り直される
-      - **ブラウザのタブは、Git パネルが開いているあいだ隠れる**（#396。理由は
-        `frontend.md` の「手前に浮くものの数」）
-    - **メッセージの 1 行目に見出しの様式を当てない（#396）**。件名と本文は 1 つの文章で、
-      git 自身も 1 行目を特別な書式として扱わない。太く大きくすると、本文の 1 行目だけが
-      見出しに見える
-  - **コミットのツールチップはパネルの横に出す（#374、`placeBeside`）**。上下に出すと展開したファイルの一覧や隣の行に重なった
-  - **グラフを必要以上に深くしない（#371）**。取得は `--all` ではなく `--branches --remotes --tags HEAD --date-order`（stash を除く理由と並び順の理由は `git_log` のコメントが正本）。取得範囲の外にいる親にはレーンを割り当てず、点線の短い線（`GraphRow.stubs`）で止める。割り当てると下で閉じる相手が来ないので、一覧の下端までレーンが開いたままになり、全行の幅を押し上げる
-  - ドラッグ中は `--graph-width` を DOM に直に書き、離したときだけ ref に入れる（全行がこの変数を読むので、ref にすると mousemove ごとに一覧全体が再描画される。diff の `--split` と同じ手）
 - git log フォーマット区切り: ASCII Unit Separator (`%x1f`) + Record Separator (`%x1e`) を使用（NUL だと `%D` が空のコミットでレコード区切りと衝突するため）
 
 ## リモートに触る 3 つ（fetch / pull / push、#384）
 
 **バックエンドの git には TTY が無い。** だから鍵にパスフレーズが付いていると、ssh が
 入力を待ったまま 30 秒のタイムアウトで殺される。通るのは `run_git_network` の 1 本で、
-そこだけが次の 3 つを足す。**残りの git 呼び出しは従来どおり**（ローカルの操作に ssh は
+そこだけが次の 3 つを足す。**残りの git 呼び出しには足さない**（ローカルの操作に ssh は
 要らないし、`git status` は 10 秒ごとに走る）。
 
 - **`SSH_AUTH_SOCK` を運ぶ**（`shell_probe::ssh_auth_sock`）。非対話の `bash -c` は rc の
   export を継がないので、**ターミナルでは打てるのにバックエンドでは agent に届かない**。
-  `agent.md` が `CLAUDE_CONFIG_DIR` について書いているのと同じ形で、同じ `-lic` の probe に
+  `agent-hook.md` が `CLAUDE_CONFIG_DIR` について書いているのと同じ形で、同じ `-lic` の probe に
   相乗りしている。**WSL では `Command::env` が distro の中へ届かない**ので、`WSLENV` に
   名前を並べる（`types::wslenv_with` / `command_env`）。**運ぶのは POSIX のシェルだけ**
   （`env_names`）: Windows のシェルは Pike のプロセス環境をそのまま継ぐ。Git Bash で
@@ -243,9 +152,9 @@ paths:
   （`ssh_set_by_env`）: `GIT_SSH_COMMAND` があれば `-c` は読まれず、`GIT_SSH` は `-c` に
   負けるので、渡すと PuTTY / plink の転送を素の `ssh` に差し替えてしまう
 - **`GIT_TERMINAL_PROMPT=0`**。https のリモートでも git 自身が聞きに行かないよう揃える。
-  資格情報ヘルパー（GCM など）はこれでは止まらないので、Windows の利用者は従来どおり
+  資格情報ヘルパー（GCM など）はこれでは止まらないので、Windows の利用者はそちらが聞く
 
-**待ち込む形は環境依存なので、塞ぎ方も環境に依らないものを選んだ。** 実測した 2 つ:
+**待ち込む形は環境依存なので、塞ぎ方も環境に依らないものを選んである。** 実測した 2 つ:
 `wsl.exe` 越しでは stdio を 3 つとも繋ぎ替えても `/dev/tty` が開ける（＝`spawn_piped` の
 stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass を選んで即座に失敗する。
 どちらに落ちるかはシェルの起こし方と `ssh-askpass` の有無で変わる。
@@ -253,12 +162,11 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
 **代償**: GUI の askpass でパスフレーズを出せていた構成では、そこが出なくなる。代わりに
 下の「ターミナルで実行」で入力する形に揃う。
 
-**`SSH_ASKPASS=<存在しないパス>` ＋ `SSH_ASKPASS_REQUIRE=force` に置き換える案は見送った。**
+**`SSH_ASKPASS=<存在しないパス>` ＋ `SSH_ASKPASS_REQUIRE=force` に置き換える案は採らない。**
 `core.sshCommand` を読まずに済む（＝上の読みとキャッシュが丸ごと消える）ぶん魅力はあるが、
 (1) `SSH_ASKPASS_REQUIRE` は OpenSSH 8.4 以降にしか無い、(2) 存在しない askpass を指すのは
 同じ代償を回りくどく払う形、(3) plink（`GIT_SSH`）はどちらの手も無視するので、あちらの
-待ち込みはどのみち塞げない。`BatchMode` は古い ssh にもあり、この開発機と報告者の形の
-両方で実測してある。
+待ち込みはどのみち塞げない。`BatchMode` は古い ssh にもあり、実測してある。
 
 ### 入力する場所はターミナルタブ
 
@@ -268,16 +176,14 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
 
 - **失敗を `Err` ではなく値で返す**（`FileReadResult.too_large` と同じ形）。エラー文字列の
   綴りを Rust と TS で取り決める形は採らない。**3 つとも同じ形**にしてあり、「背景の取得だから
-  黙る」は呼び出し側（`fetchInBackground`）の方針として持つ。戻り値の型に焼き込んでいた
-  ころは、fetch だけエラー文の整形を書き写したうえで唯一の呼び出し元が捨てていた
+  黙る」は呼び出し側（`fetchInBackground`）の方針として持つ
 - **「資格情報が要る」の真偽値は持たない**（`command` の有無がそれ）。2 つ持つと「真なのに
   ボタンが出ない」という説明できない状態を作れる
 - **走らせる 1 行は Rust が組む**（`terminal_command`）。オプション → git のフラグの対応は
   `PullOption` / `PushOption` が持っているので、TS 側で組み直すと必ずずれる
 - **鍵が拒否されたときは `ssh-add` を前に置く**（agent に届いていると分かっているときだけ）。
-  これが issue の「アプリ起動中はパスフレーズを保持する」の答えで、**保持するのは agent**:
-  Pike はパスフレーズを受け取らないし、どこにも書かない。素の `git pull` だけを走らせると
-  ssh がその 1 回のために聞いて捨てるので、次の pull でまた聞かれる
+  **パスフレーズを保持するのは agent**: Pike はパスフレーズを受け取らないし、どこにも書かない。
+  素の `git pull` だけを走らせると ssh がその 1 回のために聞いて捨てるので、次の pull でまた聞かれる
 - **`error` を直に `null` にしないこと**（`stores/git.ts` の `clearError`）。ボタンはその失敗に
   紐づくので、片方だけ残ると押せる嘘のボタンになる
 - **ポーリングの成功では下ろさない**（`clearTransientError`）。10 秒ごとの `git status` が
@@ -286,7 +192,7 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
 - **ステータスバーの知らせからも入口へ導く**（`git.runInTerminalHint`）。知らせはアプリ全体
   （パレットやサイドバーから pull できる）なのに、押せるのは Git パネルの中だけなので、
   そこまで書かないと開けば拾えることに気付けない。**`statusMessage` にボタンを持たせるのは
-  見送った**（あの器は今のところ文言だけで、入口を 1 つ増やすために作りを変えることになる）
+  採らない**（あの器は今のところ文言だけで、入口を 1 つ増やすために作りを変えることになる）
 - **root に紐づく状態のスタンプが、このストアで 3 つ目**（`remoteResolvedFor` #353、
   `logScope` #374 に続く）。本筋は `activeRoot` の watcher を 1 本置いて root 依存の状態を
   まとめて捨てることだが、「root が変わった」の入口が App.vue の watcher と
@@ -305,7 +211,6 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
 - **聞くのは利用者が押した 1 回につき最大 1 度**（`keyAsked`。やり直しの側が真を渡す）。
   無いと、鍵は入るのに（`identity_for` が別の鍵を当てたので）pull が通らない構成で
   **入力欄が延々と出続ける**
-
 - **保持するのは引き続き agent で、Pike ではない。** 受け取った値は子プロセスの標準入力へ
   一度流すだけで、ディスクにも設定にも書かない。器（`inputValue`）にも残さない
   （`secretDialog`）。**秘密を運ぶ経路は `types::run_posix_line_stdin` の 1 本**で、
@@ -325,14 +230,13 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
 ## Git worktree 連動
 - `git_worktree_list` コマンド（`git worktree list --porcelain` をパース）が `{ path, branch, head, isBare, isDetached, isMain }[]` を返す。bare クローン構成では bare エントリを main 扱いせず**最初の非 bare** を `isMain` とし、`prunable`（ディレクトリ消失）worktree は一覧から除外
 - **参照ルートの単一の真実**: `stores/project.ts` の `activeRoot`（非 null computed = `activeWorktreeRoot ?? currentProject.root ?? ''`）。file tree / git / search / tasks / docker、およびエディタの git 操作（diff ガター・History・定義ジャンプ・MD リンク解決）はすべて `project.root` ではなく `activeRoot` を参照する。root 相対操作で残る `project.root` 直参照は worktree 追従漏れのサイン
-- **「これから開くもの」も追従する（#269）**: 新規ターミナルの cwd（`useAppActions.openTerminal` / `useCliOpen` / セッション復元）・アップロード先（`.pike/uploads`）・usage の集計 root。**以前は「意図的にプロジェクト固定」としていたが、固定する理由が無かった**: どれも受け手はターミナルやエージェントの cwd で、そちらが worktree に居るなら基準が食い違う。実害は 2 つで、(1) 貼り付いた `.pike/uploads/…` の相対パスがエージェントに届かない、(2) usage は cwd と root の一致で集計するので、worktree で作業しているあいだ数字が 0 になる
+- **「これから開くもの」も追従する（#269）**: 新規ターミナルの cwd（`useAppActions.openTerminal` / `useCliOpen` / セッション復元）・アップロード先（`.pike/uploads`）・usage の集計 root。**プロジェクトに固定しない**: どれも受け手はターミナルやエージェントの cwd で、そちらが worktree に居るなら基準が食い違う。固定すると (1) 貼り付いた `.pike/uploads/…` の相対パスがエージェントに届かない、(2) usage は cwd と root の一致で集計するので、worktree で作業しているあいだ数字が 0 になる
 - **走っているターミナルの基準は動かさない**: ドロップの相対パスはそのタブを開いた cwd を基準にする。ここで `activeRoot` を読み直すと、あとから worktree を切り替えたときに、走っているシェルへ届かないパスを送る
   - **`saveUploadFile` の置き場も同じ理由で呼び出し側が決める**（`root` 引数）。ターミナルはそのタブを開いた cwd。ここだけ `activeRoot` にすると、切り替え前から開いているタブに貼ったファイルが、そのタブからは見えない場所に置かれる。**ターミナルはシェルの現在地（OSC 7）を使わない**: `cd` するたびにその先へ `.pike/` を作ることになり、置き場がリポジトリ内に散らばる
-  - `.pike/` を作る側は **`lib/pikeDir.ts` の `ensurePikeDir`** を通す（`.gitignore` の設置込み）。以前はアップロードと TODO パネルが同じ手順を別々に持っていて、「1 度だけ」の記憶をどちらもディレクトリ単位に変えたときに完全な複製になった
-  - **usage の追従は `createUsageStore` が持つ**。工場側で `activeRoot` を watch し、取得中に root が変わったら結果を捨てて取り直す（`refreshGuard` は取得のあいだ立ちっぱなしなので、切り替え側から叩いても弾かれる）。**切り替え側から名指しで叩かないこと**: 「どの usage が root に依存するか」の知識が 2 箇所に分かれ、store を増やしたときに片方だけ漏れる。以前あった「レートだけ追従しない」の例外は、#263 で usage とレートを 1 回にまとめたときに消えた（取り直しても Rust のキャッシュが返す）
+  - `.pike/` を作る側は **`lib/pikeDir.ts` の `ensurePikeDir`** を通す（`.gitignore` の設置込み）。手順を呼び出し側ごとに持つと複製になる
+  - **usage の追従は `createUsageStore` が持つ**。工場側で `activeRoot` を watch し、取得中に root が変わったら結果を捨てて取り直す（`refreshGuard` は取得のあいだ立ちっぱなしなので、切り替え側から叩いても弾かれる）。**切り替え側から名指しで叩かないこと**: 「どの usage が root に依存するか」の知識が 2 箇所に分かれ、store を増やしたときに片方だけ漏れる。レートも同じ経路で追従する（取り直しても Rust のキャッシュが返す）
 - **追従させないもの**: worktree 一覧の取得（`gitWorktreeList` は main から引く）と `git.ts` の remoteUrl 記録（main のときだけ書く、が仕様）
 - `stores/worktree.ts`: worktree 一覧・`setActiveWorktree(w)`（`isMain` フラグで null/パスを決定。文字列一致に依存しない）・focus 連動ポーリング（`gitStore.status` が非 null の git リポジトリのみ。同一ウィンドウ内ターミナルでの `git worktree add` を反映、古い load 結果は projectId で stale ガード）
 - ステータスバーの worktree セレクタ（`FolderGit2`、worktree が 2 つ以上の時のみ表示）。選択で 5 パネル + エディタを再読込
 - fs watcher は App.vue の `watch(activeRoot)` 単一所有で再ポイント（worktree 切替・プロジェクト切替の両方をカバー。リポジトリ外の worktree でも更新を取得）
 - 切替単位はウィンドウ（プロジェクト）ごとに 1 つ。起動時は常に main worktree（`activeWorktreeRoot=null`）から開始、セッション非永続。タブ切替による自動追従は未実装（agent を root で起動し内部で worktree を選ぶ運用では cwd ベース検出が効かないため手動セレクタを主軸とする。将来 agent タブ常用時に再検討）
-

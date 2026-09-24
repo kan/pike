@@ -1,0 +1,171 @@
+---
+paths:
+  - "src/components/tabs/EditorTab.vue"
+  - "src/components/tabs/PreviewTab.vue"
+  - "src/components/tabs/PdfTab.vue"
+  - "src/components/tabs/ManualTab.vue"
+  - "src/components/editor/MarkdownToolbar.vue"
+  - "src/components/editor/HtmlPreview.vue"
+  - "src/components/editor/FindBar.vue"
+  - "src/lib/editorMarkdown.ts"
+  - "src/lib/codeHighlight.ts"
+  - "src/lib/csvPreview.ts"
+  - "src/lib/rstPreview.ts"
+  - "src/lib/markdownFootnotes.ts"
+  - "src/lib/frontmatter*.ts"
+  - "src/lib/mermaid.ts"
+  - "src/lib/domFind.ts"
+  - "src/lib/displayWidth.ts"
+  - "src/lib/text.ts"
+  - "src/lib/sanitizeHtml.ts"
+  - "src/lib/externalImages.ts"
+  - "src/composables/useMarkdown*.ts"
+  - "src/composables/useCsvSelection.ts"
+  - "src/composables/usePreviewFind.ts"
+  - "src/composables/useChildWebview.ts"
+  - "src-tauri/src/http.rs"
+  - "src-tauri/src/page_title.rs"
+  - "src-tauri/src/remote_image.rs"
+  - "src-tauri/src/html_preview.rs"
+---
+
+# プレビューと Markdown の入力支援
+
+エディタタブの Edit/Split/Preview（Markdown・CSV・rst・JSON・SVG・Mermaid・HTML）、
+Markdown の入力支援、画像ビューワと PDF、外部ホストへの取得（画像とページタイトル）。
+エディタ本体の規則は `editor.md`。
+
+## Markdown の入力支援（#241）
+- コマンドは `lib/editorMarkdown.ts`、ボタン列は `components/editor/MarkdownToolbar.vue`。ツールバーは **Edit/Split/Preview と同じ行**に入れる（専用の行を足すとエディタの高さが約 28px 減る）。出す条件は `isMarkdown && showEditor && !readOnly`
+- **UI は `MarkdownAction` を emit するだけ**にして、`EditorView` は EditorTab が持ったままにする。ショートカットとボタンが同じ関数を通るので、片方だけ壊れることがない
+- **リスト継続・番号の自動インクリメント・URL 貼り付けのリンク化は書かない**。`@codemirror/lang-markdown` の `markdown()` が既定（`addKeymap` / `pasteURLAsLink`）で `Prec.high` の Enter / Backspace と paste ハンドラを入れており、自前で書くと同じキーを取り合う。**足りないのはトグル**（既存行を箇条書きにする / 外す）だけ
+- **`Mod-k` は binding の `stopPropagation: true` で解決する**。`useKeyboardShortcuts` の window リスナーはバブル段階なので、CodeMirror がそこで止めればグローバル側は無改造で済む（`defaultPrevented` ガードを足すと、他のキーの取り合いまで一括で変わる）。`runHandlers` は **コマンドが true を返したときだけ** `stopPropagation` するので、read-only タブや非 Markdown では `⌘K` はショートカット一覧に届く。**取り合いが残っているのは macOS だけ**で、Windows / Linux の一覧は `Ctrl+Shift+/`（#369。理由は `lib/shortcuts.ts` の行の隣）
+- 行単位のトグル（見出し・箇条書き・引用）は **選択全体で 1 つの判定**にする（`markerOf` が全行で一致したら外す）。行ごとに決めると、半分に付いた選択で押したとき付け外しが入り混じる
+- 空行は複数行選択のときだけ飛ばす（段落の区切りに `- ` を足さない）。1 行だけの選択ではリストの開始なので飛ばさない
+- テンプレートのプレースホルダは選択状態で入れる（最初の打鍵で置き換わる）。コードブロックだけは**言語の位置**にカーソルを置く（フェンスは書けても言語は書き手しか知らない）
+- 「Markdown か」の判定は **`paths.ts` の `isMarkdownPath`** を通す。拡張子ごとの言語は `languages.ts` の `EXT_MAP` が正本で、`.markdown` もそこに足してある（構造が違うので述語には畳めない。片方だけが `.markdown` を知っていると「ツールバーは出るのに Enter の継続が効かない」になる）。`lib/outline/index.ts` の `EXTRACTORS` は種別のキーで引く別の形なので通していない
+- **画像は `composables/useMarkdownImages.ts`**。`.pike/uploads`（チャットとターミナルの置き場）には入れない。あそこは `.gitignore` に `*` があり、ドキュメントが指す画像はドキュメントと一緒にコミットされる必要がある。基準は `project.root` ではなく**そのファイルのディレクトリ**（`tab.path`）と `shellForIO`。無題タブでは挿入できない（置き場所が決まらないので statusMessage で保存を促す）
+  - **プロジェクト内の画像はコピーせず相対パスで参照する**（`../` を含む。`paths.ts` の `relativeFromDir`）。コピーするとリポジトリに同じ画像が 2 つ残る。「プロジェクト内か」は `projectPaths.ts` の `relativeToBase`（区切りを正規化してから比べる。素の前方一致だと `C:/src/pike` と `C:\src\pike` が別物になる）。プロジェクトが無いウィンドウでは「内」の範囲がドキュメントのディレクトリになる
+  - **バイトをフロントに通すのはクリップボードだけ**。ディスク上のファイルは `fs_import_file` で運ぶ。Windows のファイルを WSL プロジェクトへ入れるときも、**宛先を UNC 形で書けば Windows 側の 1 回のコピーで済む**（`wslNativeToUnc`）。`fs_read_file_base64` → `fs_write_file_base64` の往復にすると、画像が base64 で IPC を 2 回渡るうえ、read 側の 10MB 上限が write 側の 50MB と食い違う
+  - **`fs_copy` は使わない**。あれは `std::fs::copy`＝`CopyFileExW` で、**NTFS の代替データストリームまで運ぶ**。ダウンロードした画像には `Zone.Identifier` が付いているので、それを WSL 側へコピーすると 9p にストリームの置き場が無く、隣に `name.png:Zone.Identifier` という**見える実ファイル**ができる。`fs_import_file` は名前でファイルを開いて本文だけを写す。ツリーのコピー（`fs_copy`）は Windows 内で完結し、ストリームは見えないままなのでそれでよい
+  - **ドロップされたファイルは `resolveDroppedPaths` で実パスに戻してから**扱う（タブバーのドロップと同じ仕組み）。戻せなければ持っているバイトで書く。実パスが取れれば上の「プロジェクト内ならリンクだけ」もそのまま効く
+  - ファイル選択ダイアログは Windows のものなので、WSL プロジェクトの中のファイルは UNC 形で返る。`wslUncToNative` で native に直すが、**distro が一致するときだけ**採用する
+  - **書き込みは `useImagePaste` の `saveFileTo` を通す**。あれが `MAX_UPLOAD_SIZE` の番人で、素の `fsWriteFileBase64` を直接呼ぶと上限なしのファイルが base64 で IPC を渡る
+  - `pick_open_file` の拡張子は **Rust 側で英数字だけに絞ってから** PowerShell のフィルタ文字列に埋める（コマンドラインを組み立てる側が検証する）。ダイアログ 3 種の共通部分は `lib.rs` の `dialog` モジュール（`dialog::powershell` が WinForms 側、`dialog::osascript` が macOS 側）
+  - 貼り付けとドロップは `EditorView.domEventHandlers` を **markdown の compartment に載せる**ので、read-only タブと非 Markdown では素通りする。画像以外は `false` を返して CodeMirror の既定に任せる（`pasteURLAsLink` を潰さない）。ドロップ位置は `posAtCoords` でカーソルを移してから挿入する
+  - **複数枚は 1 トランザクションで書く**。1 枚ずつ dispatch すると、直前の挿入が alt テキストを選択したままなので次がその中に入る（`![![b](b.png)](a.png)` になる）
+  - **ファイルツリーからのドロップは `text/plain` を読む**が、パスに見えるか（`isAbsolutePath`）を確かめてから信じる。あのスロットは 4 つのパネルが別々の語彙で使っていて、他アプリから `foo.png` という文字列をドラッグしただけでも届く
+- **表は形を先に聞く**（行数・列数）ので、固定テンプレートの `block` ではなく独立した action kind。UI はブロックメニューの中身をフォームに差し替える形で、メニューを閉じると `picker` を戻す。**見出し行は必ず入れる**: GFM に見出しの無い表は無く（区切り行はそもそも見出しの下にしか置けない）、セルを空にすると本文の上に空の帯が出るだけなので、見出しの有無を選ばせる余地がない。指定する行数は見出しを除いた本文の行数
+- **貼り付けた URL のタイトル取得（#241）は `composables/useMarkdownLinkPaste.ts`**。受け持つのは「カーソルだけの位置に裸の URL を貼った」場合のみで、**選択範囲があるときは触らない**（`pasteURLAsLink` の担当で、作者が自分で書いた文字のほうが取得したタイトルより良い）
+  - **URL を先に入れて、タイトルは後から差し替える**。取得を待ってから挿入すると、貼ったのに数秒何も起きない見た目になる。失敗しても「ただの URL が貼られた」で終わり、undo 1 回で素の URL に戻る
+  - **差し替え位置は `StateField` で追跡する**（`editorGitGutter.ts` の `diffField` と同じ形）。取得の最中に作者が上の行を編集しても位置がずれない。素朴に from/to を覚えると別の場所を壊す。差し替え前に `sliceDoc` で中身が URL のままかを確かめる
+  - **`mapPos` の assoc は `from` に +1、`to` に -1**（既定の向きの逆）。境界に入った文字を範囲の**外**へ置くための指定で、既定のままだと両端が貪欲になる。貼った直後のカーソルは `to` にあるので、取得を待つあいだに書き続けるという最も自然な操作で打った文字が範囲に入り、`sliceDoc` の確認に引っかかってタイトルが黙って入らない
+  - **カーソルが複数あるときは見送る**。`replaceSelection` は全部の位置に入れるので、main から求めた 1 つの範囲では差し替え先が決まらない
+  - **「聞いた」の記録はダイアログの答えが返ってから**。先に書くと、続けて 2 本目を貼ったときに「もう聞いた」と誤認し、Escape で閉じた場合は二度と提案されなくなる。同時に貼られたぶんは 1 つのダイアログを共有する
+  - 取得中の表示は**件数を数える**（StatusBar は 1 つしかないので、先に終わったぶんが hide すると、まだ動いている取得の最中に「何もしていない」表示になる）
+  - **既定は OFF で、最初の 1 回だけ有効化を提案する**。これは Pike が作者の代わりに任意のホストへ通信する唯一の機能なので、黙って有効にしない。聞いたかどうかは `pike:link-title-asked`（マシンローカル）に持ち、設定そのもの（`markdownFetchLinkTitle`）は同期対象にする（どのマシンでも同じ判断でよいため）
+  - **無効なときは貼り付けに触らない**。OFF（かつ提案済み）なら `false` を返して CodeMirror の既定に任せる。常に横取りして自前で挿入する形だと、既定 OFF の常用パスが素の貼り付けの再実装になる。提案がまだのときも横取りせず、素の貼り付けをさせてから聞き、承諾されたら既に入っている URL をそのまま追跡対象にする
+  - **`extension` はハンドラと同じ markdown の compartment に入れる**。基本の拡張リストに置くと、Markdown でないタブや読み取り専用タブ（pending が入りようのないタブ）でも打鍵のたびに `update` が走る。`update` 自身も、何も待っていなければ即座に戻す（空配列を毎回 map しない）
+  - **paste ハンドラの順は画像が先**。ファイルを伴う貼り付けはあちらの担当で、URL の判定まで行かせない。返り値の規約（受け持たなければ `false`）は `useMarkdownImages` と同じ
+  - リンクの文字列は `editorMarkdown.ts` の **`markdownLink`**（`markdownImage` の対）で作る。宛先のエスケープの判断は `toLinkTarget` にあり、呼び出し側で組み立てるとそれが効かない。URL の判定は同ファイルの **`isHttpUrl`** に寄せてある（ツールバーの `clipboardUrl` と貼り付けで許容する文字が割れると、通る URL が食い違う）
+  - **一行に畳むのは Rust の責務**（`collapse_whitespace`）。フロント側は角括弧のエスケープだけを持つ
+  - **外部ホストへの取得は `http.rs` に集約**。呼び出し元は 2 つ（画像 #239 / タイトル #241）で方針は本当に違う（リダイレクト・スキーム・不完全な本文の扱い）が、仕組み（TLS プロバイダ・クライアントの使い回し・`Content-Type` の分解・上限付き読み）は同じ
+    - **クライアントを毎回組み直さないこと**: rustls の設定とトラストアンカーを読み直すので、同じホストへの 2 回目も TLS ハンドシェイクからやり直しになる（`docker/mod.rs` が `OnceCell` を持つのと同じ理由）。ただし**失敗はキャッシュしない**（`.ok()` を `get_or_init` に入れると、最初の 1 回の失敗がプロセスの寿命ぶん残り、再起動するまで直らない）
+    - **途中で切れた本文を握り潰さないこと**。`Partial::Fail` の側（画像）は上限超過も通信断も失敗にする。`Ok` で返すと呼び出し元が完全な本文と区別できず、欠けた画像が data URL として `externalImages` のキャッシュに載る。再試行のチップは null のエントリしか消さないので、壊れた画像が残り続ける
+  - Rust 側は `page_title.rs`。**charset は BOM → ヘッダ → `<meta>` → UTF-8 の順**（UTF-16 のページは `<meta>` すら ASCII として読めないので BOM が最初でないと後ろ 2 つが効かない。Shift_JIS や EUC-JP のページを UTF-8 で読むと化けたタイトルが文書に書き込まれる）。**数値実体参照（`&#8211;` / `&#x2019;`）を必ず戻す**: CMS の `<title>` に普通に入っていて、残すと `[Post Title &#8211; Site]` がそのまま文書に書き込まれる。**`<meta charset>` は最初の `charset` という語で打ち切らない**（コメントや `data-charset` 属性が先に来ると宣言を見落とす）
+  - `remote_image` と違い**リダイレクトを追い、http も許す**（承認ホストの一覧が無いので不追従にする意味が無く、短縮 URL が普通に来る）。守るのは timeout / 512KB / `text/html` / 5 ホップまで
+  - 失敗は全部 `Ok(None)`。URL は既に文書にあるので、呼び出し側が区別する意味が無い
+- 脚注は本文に `[^n]`、**ファイル末尾**に定義行を足してカーソルを定義側へ移す。`n` は既存の `[^数字]` の最大値 + 1
+- **プレビューの脚注は `lib/markdownFootnotes.ts`（marked 拡張）**。marked は GFM 脚注を持たず、しかも素通しにならない: `[^1]` は**注釈本文を href に持つリンク**になり、定義行はリンク定義として消える。EditorTab は自前の `new Marked(footnotes())` を持つ（グローバルの `marked.use` にすると他のプレビューにも入る）
+  - 定義は**書かれた場所にそのまま描く**（末尾に集めない）。ツールバーもユーザーもファイル末尾に足すので位置は同じで、トークンをまたぐ集計が要らない
+  - **block の `start` は「行頭の定義」だけを返す**。marked は `start` に**先頭 1 文字を除いた src** を渡し、`index + 1` で段落を切る。`/^\[\^/m` にすると行の途中のオフセットを返してしまい、段落が 2 つに割れて再結合のときに改行が紛れ込む
+  - 番号は**登場順**に振り、`hooks.preprocess` でパースごとにリセットする（プレビューは打鍵のたびに作り直される）。`id` を持つのは最初の参照だけ（同じ id を 2 回出さないため）
+- **プレビューの marked インスタンスは 2 つ**（`markedPlain` / `markedFootnotes`）で、`parserFor` が本文に `[^` があるかで選ぶ。block 拡張を 1 つでも登録すると marked は `startBlock` の経路に入り、**段落ごとに残り全文をコピーする**（文書サイズに対して二次オーダー。390KB の文書で +136%）。プレビューは打鍵のたびに作り直されるので、脚注を使わない文書にこれを払わせない
+
+## プレビュー拡張
+- CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）。Markdown は 3 モード、スクロール同期、250ms デバウンス
+- Markdown プレビュー内リンク: 外部 URL は confirm 付きで `open_url` 経由の外部ブラウザ起動、ローカルファイルはプロジェクトルート内に限定して EditorTab で開く（`resolveLocalPath` でディレクトリトラバーサル防止 + `decodeURIComponent` 対応）
+- **プレビューのコードブロックはエディタと同じ解析で色を付ける（#359）。** 実体は `lib/codeHighlight.ts` の `highlightCodeBlock` で、Markdown プレビュー・rst の `code-block`・issue タブ・マニュアルの 4 つが共有する（marked の 3 つは `markedCodeHighlight`、rst は `buildRstPreview` の引数）。**依存は増やしていない**（highlight.js / shiki は入れない）。判断の実体（配色をエディタのテーマに合わせる理由、class ではなくインラインの `style` で塗る理由、キャッシュ）はあのファイルの doc が正本
+  - **テーマの配色は `EditorThemeDef.highlightStyle` から取る。** テーマを足すときはこの欄も要る（`makeTheme` が返す）
+  - **テーマ名は関数で受けて描画のたびに読む。** marked のインスタンスは先に作るので、値で渡すと作った時点のテーマに固まる。computed の中で読めばテーマへの依存が張られる。**マニュアルだけは `html` を `render` で代入している**ので、テーマの watcher で**コードブロックだけを DOM の上で塗り直す**（`rehighlightCodeBlocks`）。`render` を呼び直すと、作り直した画像が読み込むまで高さ 0 になって読んでいた位置がずれ、遷移中の取得とも競合する
+  - **長いコードブロックは HTML のキャッシュに載せない**（件数の上限だけだと、大きな ```` ```json ```` を編集し続けるあいだ本文とその数倍の HTML が溜まる）
+  - **rst は `inherited` に混ぜない。** あの引数の有無でルートかどうかを見ている（`.. meta::` はルートだけ）ので、色付けの関数は別の引数で受けて文脈（`RstContext.highlight`）に載せ、入れ子へ引き継ぐ
+  - `mermaid` は当てるモードが無いので色付けを通らず、図への差し替えがそのまま効く
+- CSV/TSV: `lib/csvPreview.ts` でテーブル化（RFC 4180 準拠の引用符対応パーサ、sticky ヘッダ）。**ページ送り・表示件数（設定 `csvPageSize`）・並べ替え**を持つ
+  - **行はセルに分けないまま持つ**（`CsvRow.line`、分けるのは `cellsOf`）。本文は打鍵が止まるたびに読み直すので、全行をセルに分けると数 MB の CSV で編集が重くなる。分けるのは描くページの行・並べ替えの列・全体や列のコピーのときだけ
+  - 表示件数は全タブ共通の設定なので、変わったら**どのタブもページを先頭に戻す**（同じページ番号が別の行を指すため）
+  - **列の番号は `#` 列を数えない 0 始まりで統一する**（並べ替え・選択・右クリックのメニュー）。DOM のセルの位置（`#` 列が 0）から直すのは `useCsvSelection` の `domCol` だけ。表示件数の選択肢と既定値は `lib/csvPreview.ts` が持ち、設定ストアはそれを読んで検証する（`SHORTCUT_PRESETS` と同じ向き）
+  - **読み込み（`parseCsv`）・並べ替え（`sortCsvRows`）・1 ページの HTML（`renderCsvPage`）を分けてある**。EditorTab の computed も `csvData` → `csvRows` → `previewHtml` の 3 段で、ページを動かしても本文を読み直さない
+  - ページ送り・並べ替えのボタンは `v-html` の中に描き、`data-csv-*` の印で受ける（`handleCsvControls` / `onPreviewChange`）。**見出しのクリックは列の選択**なので、並べ替えはその中の小さなボタンと右クリックのメニュー。向きの記号は CSS の `::after`（文字にすると見出しのセルのコピーに混ざる）
+  - 並べ替えは空のセルを向きに関係なく末尾、数として読めるセルは数として比べる。並べ替えはタブごとで保存しない
+  - **選択のコピーは描いた表ではなく読み込んだデータから組み立てる**（`useCsvSelection` の `source`）。全体と列は全ページぶん、行はページの中の位置。ページ・並べ方・件数が変わったら選択を捨てる。**全ページぶんをコピーすることはページの帯に書いてある**（`csv.copyAllPagesHint`）。見えている範囲とコピーされる範囲が食い違うため
+  - **列・行の選択は `composables/useCsvSelection.ts` が自前で持つ**（ブラウザの文字選択は文書の並びに沿った 1 本の範囲で、1 列だけを選べない）。印は class で付け、`v-html` で作り直されたら `paint` で付け直す。コピーは `lib/text.ts` の `joinTsv`
+  - **表の上の右クリックは自前のメニュー**（`onPreviewContextMenu`。全体・行・列の選択とコピー）。WebView の既定のメニュー（戻る・再読み込み・検証）は Pike では意味を持たない。行・列は右クリックしたセルのもの（`locate`）
+- **`Ctrl+A` はフォーカスのあるペインの中だけを選ぶ**（`useKeyboardShortcuts` の `selectAllInPane`）。素のままだと、フォーカスを持たない面（プレビュー・diff・マニュアル・サイドバーのパネル）で押したときに WebView の文書全体（サイドバーやタブバーまで）が選ばれる。入力欄・CodeMirror・xterm は自分の全選択を持つので既定に譲る。**プレビューだけを直す形にしないこと**: 同じ穴はフォーカスを持たない面すべてにある
+- **プレビューは `tabindex="-1"`**（クリックでフォーカスを持つ）。CSV の列・行の選択のキー（`Ctrl+A` で表全体・`Ctrl+C`・`Esc`）はペインの `@keydown`（`onPreviewKeydown`）で受け、`preventDefault` した `Ctrl+A` はグローバル側が素通しする。「フォーカスは body だから多分プレビュー」と推測する形は、フォーカスを取らない面が増えるたびに条件が要る
+- **reStructuredText（#284）**: ハイライトは `codemirror-lang-rst`（CM6 に公式のものが無いので入れた外部パッケージ。依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる）。プレビューは `lib/rstPreview.ts` の `buildRstPreview` で**自前**。判断の実体はあのファイルの doc コメントが正本だが、要点は次のとおり:
+  - **変換器は入れていない。** `rst-compiler`（純 TypeScript・MIT・現役）は実用水準にあるが、`shiki` と `katex` を抱えるので見送っている。**運用して不具合が続くようなら依存が太るのを許容して載せ替える**。Rust 側（`rust_parser` / `rst_renderer`）は「Rust は I/O ブリッジに徹する」に反して打鍵のたびに IPC を往復するので採らない。詳細は `lib/rstPreview.ts` の冒頭が正本
+  - **解釈できなかったものは捨てずに字面のまま出す**（セル結合のある表、`toctree` / `math` のような未対応ディレクティブ、扱えなかった置換定義）。**本文から消してよいのは真のコメント・リンク定義・差し替えられた置換定義だけ**で、`..` の分岐はそれ以外の明示マークアップ全部の受け皿でもある（脚注・引用・置換をここで捨てると本文が消える）。見た目は `md-preview` を共有し、rst 固有の要素（アドモニション・フィールドリスト）だけ `rst-preview` 側で足す
+  - **置換記法（#302）は `replace` と `image` だけ差し替える。** 扱える種別の出典は
+    `SUBSTITUTION_RENDERERS` の表 1 つで、定義行を本文から消してよいかの判定もそこを引く
+    （2 箇所に分けると、片方だけ増やしたときに定義が差し替えも字面も無いまま消える）。
+    半端に解けた値を採用しない理由と、循環の止め方は `collectContext` の `resolveSub` の
+    doc コメントが正本
+  - **`.. meta::` は本文ではなく文書のメタデータ**（docutils は `<meta>` タグにする）なので、折り畳みの表にして先頭へ出す（#302）。集める先を持てるのはルートの呼び出しだけなので、入れ子（アドモニションの中など）では拾わず字面で出る
+    - **Markdown のフロントマター（#229）と同じ `details.frontmatter` を使う**ので、CSS も開閉状態の復元（`trackFrontmatterToggle`）もそのまま効く。**あの watcher を Markdown 限定に戻さないこと**（打鍵のたびに開いた状態が閉じる）。CSS は `EditorTab.vue` の `.md-preview :deep(.frontmatter > …)` という子結合子なので、**Markdown 側でこのマークアップの入れ子を変えると rst のメタデータが黙って素の `<details>` に戻る**
+  - **脚注と引用は Markdown プレビューの脚注（#241）と同じ HTML 構造で出す。** `md-preview` の CSS がそのまま当たるので、rst 側に見た目を書かずに済む。定義は**書かれた場所に描く**（`buildRstPreview` は入れ子でも呼ばれるので、末尾に集める先を決められない）
+  - **エスケープ済みかどうかは `lib/text.ts` の `Html` 型で持つ。** 生の文字列を属性へ差し込む経路がコンパイルエラーになる。引用符を戻した文字列が属性から抜ける穴は、散文のコメントでは守れなかった
+  - **表は 4 種（grid / simple / `list-table` / `csv-table`）に対応する。** 桁の切り出しは `lib/displayWidth.ts` の `sliceByWidth`（rst の表は**表示幅**で桁を合わせるので、`slice` を code unit で行うと全角を含む表が崩れる）。同ファイルの `displayWidth` は diff タブの横幅の見積もり（#272）と共有する。**セルの結合には対応しない**: grid の途中の罫線で境界の桁が埋まっていたら結合とみなし、`null` を返して字面のまま出す側へ落とす
+- Mermaid (`.mermaid`/`.mmd`): `renderStandaloneMermaid` が `lib/mermaid.ts` の `getMermaid()` を遅延 import して SVG 描画（ズーム対応）
+- Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
+- JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
+- SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
+- **プレビューの検索（#360）**: `Ctrl+F` でプレビューの右上に `components/editor/FindBar.vue`（diff タブと共有）を出す。一致の求め方と強調は `lib/domFind.ts`、数え直しの契機は `composables/usePreviewFind.ts`。判断の実体はその 2 ファイルの doc が正本
+  - **相手は描画済みの DOM**。`v-html` のあとに mermaid・画像のチップが非同期に書き足されるので、`previewHtml` ではなく DOM の変化の監視（MutationObserver）で数え直す。**数え直しでは動かさない**（分割表示で打鍵のたびにプレビューが飛び、スクロールの同期でエディタまで動く）
+  - **強調は CSS Custom Highlight API**（`::highlight(pike-find)` は `theme.css`）。`<mark>` で DOM を書き換えない。登録表は文書に 1 つなので、タブごとの範囲を `domFind.ts` のモジュールに集めて登録し直す。API の無い WebView では強調が出ないだけで、件数と移動は効く
+  - **分割表示ではエディタにフォーカスがあれば CodeMirror の検索に譲る**（判定は `EditorTab.vue` の `onGlobalKeyDown`）
+  - **`scrollIntoView` を使わない**（`overflow: hidden` の祖先まで動かす）。`revealRange` がコンテナまでのスクロール要素だけを動かす
+- **HTML のプレビュー（#399）**: `components/editor/HtmlPreview.vue` がブラウザのタブ（#368）と同じ子 webview を Preview / Split の枠に重ね、Rust の `html_preview.rs` が `pike-preview` のスキームで配信する。判断の実体は 2 つのファイルの doc が正本
+  - **WSL のファイルは distro の中で読む**（`realpath`・範囲の確認・`cat` を 1 本の `wsl.exe` に束ねる。`fs::read_raw_bytes` は stat と cat で 2 本起こすので、資源の多いページで遅い）。`file://`（module と `fetch` が CORS で通らない）と asset protocol（WSL を UNC 越しの `std::fs` で読む）を採らなかった理由はそれ
+  - **ページは任意の JS を動かす**ので、ルートの下でも `.` で始まる名前（`.git` / `.env`）と、実体がルートの外にあるもの（symlink を解決してから確かめる）は返さない。**CSP は付けていない**（外の CDN を読むページを壊さないため）ので、読めたものを外へ送ることは止めていない。守りは「読めるものを絞る」側にある
+  - **返してよいかは要求した webview のラベルで決める**（`PreviewState`）。ハンドラはアプリ全体に効くので、ブラウザのタブで開いた外部のページも `http://pike-preview.localhost/` を要求できる。**URL にルートやプロジェクト id を載せないこと**（当てれば読める形になる）
+  - **ラベルは `browser-preview-{uuid}`**。`browser-` の下に置いたので、位置合わせ・再読み込み・閉じるはブラウザのタブのコマンドを使う。**capability に足さない**（ブラウザのタブと同じく対象外に置く。`browser.rs` のモジュール doc）
+  - **仮想ファイル（`__pike/` の下）は #397（Vue SFC のプレビュー）の前提**。フロントが作った入口の HTML やコンパイル結果をディスクより先に同じ origin で返し、相対パスの CSS や画像はディスクへ落とす。置き直すのは `preview_set_files` → `browser_history(reload)`
+  - **重ねる・隠す・閉じるは `composables/useChildWebview.ts`**（ブラウザのタブと共有）。位置合わせの直列化、変わらなければ送らない、隠すときはフレームを待たない、手前に浮くものと Git パネルで隠す、の 4 つがあそこにある。**子 webview を使う 3 つ目を足すときも書き写さない**
+  - **描くのは保存したファイル**。描き直しの契機は配信ルートの下の `fs_changed` で、`isRecentlySaved` は読まない（印を消費するのは App.vue だけ）
+    - 監視で拾うのは**ページが読みうる拡張子**だけ（エージェントが `.ts` を書くたびに描き直し続けない）。`node_modules` などは監視の側（`IGNORED_DIRS`）が最初から捨てているので、ここで写しを持たない
+    - **監視は今の `activeRoot` しか見ない**。配信ルートがその範囲に入っていない（プロジェクトの外の HTML、別プロジェクトで保持中のタブ、worktree の切り替え）ときだけ、`EditorTab.save()` の直後に描き直し、範囲から外れていたら戻ったときに 1 回描き直す。**範囲の中では保存の側から描き直さない**: Rust の監視は最長 1 秒まとめてから送るので、畳めずに 2 回描き直す
+    - Save As で `path` が変わったら子 webview を作り直す（配信のルートと入口は作った時点で固定）
+  - ページのスクリプトがリンクを連打してもタブが溢れないよう、ブラウザのタブへ逃がすのは 1 秒に 1 回まで。**Rust の側で間引く**（押されたかどうかが分からないことを知っているのはあちらで、振り替えの唯一の出口でもある）
+  - **配信の登録の後始末はブラウザのタブの側に持ち込まない**。次の `preview_open` が、もう無い webview のぶんを落とす（閉じた知らせを受ける口を持たない）。`browser_close` からプレビューを知る形にすると、依存が循環する
+  - DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）を外す判定は `EditorTab.vue` の `webviewPreview` 1 つ。#397 もここに条件を足す
+  - プレビューの中のリンクは Rust の `on_navigation` で止め、`browser_new_tab` でブラウザのタブへ逃がす
+- **Markdown フロントマター（#229）**: `lib/frontmatter.ts` の `detectFrontmatter` が範囲を返し、`lib/frontmatterParse.ts` の `parseFrontmatter` が `yaml` / `smol-toml` / `JSON.parse` で key/value に落とす。プレビュー（`buildMarkdownPreview` が `marked.parse` の前に本文を切り出して `<details>` の表を前置）とアウトライン（`extractors/markdown.ts` が `bodyFrom` より前の見出しを捨てる）で**範囲検出だけ**を共有する（描画経路がテキストと Lezer 構文木で別のため）
+  - **ファイルを 2 つに割っているのはバンドルの都合**。`lib/outline/index.ts` が 18 個の extractor を静的 import で 1 チャンクに束ねるので、パーサを同居させると YAML/TOML パーサ（合わせて約 106KB）が Go や Rust のアウトラインにも載る。`frontmatter.ts` は依存ゼロを保つこと
+  - **パース失敗は理由（`reason`）で返し、文言はプレビュー側で当てる**。`t()` をパーサに置くと、`not-mapping` だけ日本語で `yaml` クレート由来のメッセージは英語のまま、という食い違いになる
+  - **切り離さないとフロントマターが `<h2>` に化ける**。CommonMark では水平線と setext 見出しが両方成立するとき setext が勝つので、開きの `---` が見出し本文、閉じの `---` がその下線になる。marked のバグではない。アウトラインでも Lezer が同じ判定で `SetextHeading2` を作る
+  - **判定はファイル 1 行目のデリミタだけ**。フロントマターに仕様は無く（Jekyll 発祥の慣習で、CommonMark にも GFM にも規定がない）実装ごとに差があるので、文書の途中の `---` を拾わない線引きに寄せる。YAML `---` / TOML `+++` / JSON `{`（Hugo。フェンスが無いので波括弧の釣り合いで終端を決める）の 3 つ
+  - 閉じデリミタが無ければフロントマター無しとして扱う。BOM は不可視のまま全オフセットをずらすので先に長さを測る
+  - **パース失敗は握り潰さず生テキストを `<pre>` で出す**（黙って消すと本文が消えたようにしか見えない）。この場合だけ `<details>` を開いた状態で出す
+  - 開閉状態は `frontmatterOpen`（**ref ではなく素の変数**）に持ち、`trackFrontmatterToggle` が描画のたびに DOM へ復元する。`previewHtml` は編集のたびに HTML を作り直すので DOM 側だけに置くと打鍵で閉じるが、reactive にすると開閉のクリックごとに `previewHtml` が無効化され、mermaid の再描画とローカル画像 1 枚につき 1 回の IPC 読みが走る
+- **外部ドメインの画像（#239）**: README のバッジを出せるようにするためのドメイン単位のオプトイン。**CSP は広げない**（`img-src` は `'self' data: blob:` ＋マニュアル用の raw.githubusercontent.com のまま）。承認済みホストの画像だけ `remote_image_fetch` で取ってきて `data:` URL にする。承認は `settings` の `allowedImageHosts`（`pike:settings` に載るので同期・クロスウィンドウ broadcast の対象）
+  - **CSP を `https:` まで広げる案は採らない**。CSP は文書単位なので、プレビューのために緩めると**SVG プレビューとマニュアル**まで一緒に壁を失う。代わりに `resolveMarkdownImages` が**ローカル画像で既に使っている `data:` URL 化**に相乗りする（`fs_read_file_base64` の隣に `remote_image_fetch` を置いた形）
+  - この分担だと**実際に遮断しているのは CSP で、フロントの処理は見た目だけ**になる。取りこぼした経路があっても壊れた画像が出るだけで、黙って通信が飛ぶことはない
+  - **画像の解決はすべて `resolveMarkdownImages` の 1 パス**。ローカルと外部を分けると、同じ `<img>` を 2 回走査したうえに「どちらが後に src を書いたか」に依存する。読み込みは `Promise.all` で並列（遅いホストが隣の画像を待たせない）
+  - **`srcset` と `<picture><source>` は落とす**。ブラウザは `src` より先にそちらを見るので、残すと解決した `src` が使われない。挿入後に落として構わない（CSP が既にリクエストを止めている）
+  - 対象は `https:` だけ。`http:` はバックエンドが弾くので承認する意味がなく、チップも出さない
+  - **ローカル画像の解決は `resolveLocalImage` の 3 つのガードで決まる（#241）**: 拡張子の判定の前に `?` / `#` 以降を落とす、`paths.ts` の `isEmbeddableImage`（＝`isImageFile` + svg）で見る、`/` で始まる src はプロジェクトルート起点にする。**`IMAGE_EXTS` に svg を足さないこと**（あれはタブの振り分け用で、`.svg` は EditorTab で開く仕様）。`<img>` の中の SVG はスクリプトも外部参照も走らない（secure static mode）ので、`.svg` タブ側のサニタイズは要らない
+  - **取得結果はモジュールレベルでキャッシュする**（`lib/externalImages.ts`）。プレビューは打鍵のたびに作り直すので、無いとバッジを打鍵ごとに取りに行く。**失敗も覚える**（死んだ URL を同じ頻度で叩かないため）。チップのクリックが `retryRemoteImage` でその 1 件だけ忘れる
+  - チップの文言は DOM に焼き込まれるので、再適用の watcher は許可リストと `locale` の 2 つ。**`previewHtml` は許可リストに依存させない**（依存させると承認のたびに mermaid の再描画とローカル画像 1 枚につき 1 回の IPC 読みが走る）
+  - **許可は同期対象にしてある**: バッジのホストを信用したという判断はマシンに依存しない（`globalShell` 等のマシンローカル扱いとは別）
+  - Rust 側のガードは https / **リダイレクト不追従** / `image/*` / 15 秒 / 8MB の 5 つ。**どのホストを許すかは持たない**（承認リストとダイアログはフロントの持ち物）。リダイレクトを追わないのはフロントの判定を意味あるものに保つため（追うと `img.shields.io` を許可したつもりが 302 で任意のホストへ飛べる＝承認したホストと応答するホストがずれる）。解決先アドレスの制限（loopback / RFC1918 / link-local）は**入れていない**: 社内の画像サーバーを指す README は実在するうえ、ホスト名を出したダイアログで承認させている。入れるなら解決したアドレスを接続に固定するところまでやらないと、リテラル IP を弾くだけで rebinding は通る。TLS プロバイダは updater と同じ ring を明示的に入れる（updater は自分がクライアントを組むときにしか入れないので、更新確認より先に画像を取ると provider 無しで落ちる）
+
+## 画像ビューワと PDF
+- 画像: `PreviewTab.vue`（base64 dataUrl を `<img>` 表示）。上部ツールバーで**表示専用**（ファイルは無変更）のビューワ操作を提供:
+  - 拡大 / 縮小 / 100% / ウィンドウに合わせる（fit）、左右 90° 回転・左右反転
+  - スクロールコンテナは flex 中央寄せを使わず**ステージ側 `margin: auto`** で中央寄せ（`align-items: center` だと画像がビューポートより大きいとき上端がスクロール領域外に押し出され到達不能になる）。スクロール領域は**回転後のバウンディングボックス**（`stageW`/`stageH` computed）が駆動
+  - ズームは transform scale ではなく img の width/height で表現し、回転・反転は `translate(-50%,-50%) rotate() scaleX()` の transform で適用
+  - `applyZoom` がズーム前後のスクロール比から `scrollLeft/Top` を補正し、カーソル（または中央）位置を固定。Ctrl+ホイールズーム / ドラッグでパン（`canPan` 時のみ、グローバル mousemove/mouseup は `onUnmounted` でも除去）/ ダブルクリックで fit⇔100%
+  - キーボード（canvas に `tabindex="0"`）: `+`/`-` ズーム、`0`=100%、`f`=fit、`r`/`Shift+R`=回転。透過グリッド（チェッカーボード）背景の切替、画像実寸（W×H）表示。ツールバー文言は `preview.*` i18n（日英）
+- PDF: `PdfTab.vue`（`<iframe src="data:application/pdf;base64,...">` による WebView2 内蔵レンダリング）
+- ファイルツリー `openFile()` が拡張子で画像→PreviewTab / PDF→PdfTab / その他→EditorTab を振り分ける

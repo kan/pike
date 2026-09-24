@@ -29,13 +29,28 @@ macOS はローカルのシェルで開発できるところまで対応する�
 | ファイル | 中身 |
 |---|---|
 | `rust.md` | Tauri コマンドの形・状態管理・PTY のライフタイム・非同期・命名規約 |
-| `frontend.md` | Vue/Pinia の構成・タブ管理・xterm.js・スタイル・アイコン・i18n・設定画面・禁止事項 |
+| `frontend.md` | どの画面にも当てはまる規則（Vue/Pinia の構成・URL を開く・overlay・フォーカス・スタイル・アイコン・i18n・禁止事項） |
+| `tabs.md` | タブ管理・タブバー・作業領域の分割・OS ファイルドロップ |
+| `settings-ui.md` | 設定画面・テーマの追従・フォント |
 | `testing.md` | 自動テストの範囲・検証バイナリの置き場 |
-| `terminal.md` | PTY とシェル対応・ターミナルの coding agent 補助・キーボードショートカットの取り合い |
-| `project.md` | プロジェクト管理と同期・ウィンドウの生成と復元・トレイ・ジャンプリスト・`pike` CLI |
-| `git.md` | git CLI ブリッジ・worktree・コンフリクト解消 |
-| `editor.md` | エディタとプレビュー・ファイルツリー・検索/タスク/アウトライン/診断/issue の各パネル・ファイル監視 |
-| `agent.md` | トークン使用量（エージェントはターミナルで動かす、#275） |
+| `terminal.md` | PTY とシェル対応・ターミナルの coding agent 補助・ターミナル検索 |
+| `shortcuts.md` | キーボードショートカットの層と正本・ターミナルとのキーの取り合い・マニュアルとの照合 |
+| `project.md` | プロジェクトの登録・管理・切替・一時プロジェクト・セッション永続化 |
+| `sync.md` | 設定とプロジェクト一覧の同期（#403） |
+| `window.md` | マルチウィンドウ・ウィンドウ状態の永続化・仮想デスクトップ・背景透過 |
+| `os-integration.md` | グローバルモード・`pike` CLI・`--wait`・ジャンプリスト・トレイ |
+| `git.md` | git CLI ブリッジ・コンフリクト解消・ログ・リモート操作・worktree |
+| `git-diff.md` | diff タブと履歴タブ |
+| `git-graph.md` | ブランチグラフとコミットタブ |
+| `editor.md` | ファイルツリー・エディタ本体・保存の責任・QuickOpen・定義ジャンプ・アウトライン |
+| `preview.md` | Markdown の入力支援・各種プレビュー・画像ビューワと PDF |
+| `search.md` | 検索パネル・rg の検出・置換 |
+| `watcher.md` | ファイル監視 |
+| `issues.md` | issue パネルと issue タブ |
+| `panels.md` | 診断パネル（Problems）とタスクランナー |
+| `agent.md` | エージェントの一覧と起動・シェルへの問い合わせ（エージェントはターミナルで動かす、#275） |
+| `agent-hook.md` | 入力待ちの知らせ・デスクトップ通知・hook による申告・`CLAUDE_CONFIG_DIR` |
+| `agent-usage.md` | トークン使用量とレート制限の表示 |
 | `docker.md` | bollard 連携・compose の探索・ログ・ポートフォワード |
 | `build.md` | 開発ビルド・本番ビルド限定の落とし穴（CSP）・E2E スクリーンショット・CI・セルフアップデート |
 | `platform.md` | Windows / macOS の分岐の作法・GUI プロセスの PATH・macOS で持たない機能・rg サイドカー |

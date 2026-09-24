@@ -19,16 +19,15 @@ paths:
 実体は `justfile`、`src-tauri/tauri*.conf.json`、`e2e/`、`scripts/`、`.github/workflows/`。
 
 ## タスクランナー（just、#231）
-- 開発タスクの入口は `justfile`。`just` でレシピ一覧、`just check` でコミット前チェック一式、`just bump X.Y.Z` でバージョン更新。CI の 3 ワークフローも同じレシピを呼ぶ（ステップ名は残したまま中身だけ just に寄せてあるので、失敗箇所の粒度は従来どおり）
+- 開発タスクの入口は `justfile`。`just` でレシピ一覧、`just check` でコミット前チェック一式、`just bump X.Y.Z` でバージョン更新。CI の 3 ワークフローも同じレシピを呼ぶ（ステップは 1 レシピずつに分けてあるので、どこで落ちたかがステップ名で分かる）
 - **レシピの実体は `package.json` の scripts に置いたまま**、just はその薄いファサードにしてある。tauri CLI や CI の慣習で npm 経由が要るもの（`npm run build` 等）を壊さないため。例外は `e2e-sync` 系で、こちらは `scripts/*.sh` を直接呼ぶ（理由は次の bullet）
-- **`set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-cu"]` が要る**。理由は 2 つで、(1) just の Windows 既定シェルは `sh -c` だが **`sh` はこのマシンの PATH に無い**（全レシピが即座に落ちる）、(2) PATH 上の `bash` は `C:\Windows\System32\bash.exe`＝**WSL ランチャ**で、そちらには Windows 側の node / tauri / ImageMagick が無い。Git Bash を指すと `magick` も PATH で解決するので、「`npm run e2e:sync` を WSL の bash で回すと ImageMagick が見つからず止まる」という従来の落とし穴もレシピ側で塞がる
+- **`set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-cu"]` が要る**。理由は 2 つで、(1) just の Windows 既定シェルは `sh -c` だが **`sh` はこのマシンの PATH に無い**（全レシピが即座に落ちる）、(2) PATH 上の `bash` は `C:\Windows\System32\bash.exe`＝**WSL ランチャ**で、そちらには Windows 側の node / tauri / ImageMagick が無い。Git Bash を指すと E2E の画像合成が使う `magick` も PATH で解決する
 - `cmd.exe /c` は候補から外した。**先頭が引用符の行を cmd が引用符ごと剥がす**ため、`"C:/Program Files/Git/bin/bash.exe" scripts/x.sh` が `'C:/Program' は…認識されていません` になる（実測）
 - 別の場所に Git を入れている環境は `just --shell <bash へのパス>` で上書きする（設定値は文字列リテラルしか取れないので変数化できない）
 - **シェルスクリプトは `bash script.sh` の形で呼ぶ**（`package.json` の scripts が最初からそうしている）。
   直接呼ぶとファイルの実行ビットに依存するが、**Windows の Git Bash は shebang があれば実行ビットが
-  無くても走らせてしまう**ので、Windows だけで開発しているあいだは気付けない。v0.43.0 のリリースで
-  macOS のジョブが `just fetch-rg` の `Permission denied` で落ちて初めて出た（`scripts/*.sh` は
-  `100644` のままだった）。実行ビット自体も立てたが、呼び方のほうが本命
+  無くても走らせてしまう**ので、Windows では気付けず macOS で `Permission denied` になる。
+  実行ビットも立ててあるが、呼び方のほうが本命
 - CI での just 導入は `extractions/setup-just`（他の action と同じく SHA ピン留め）
 
 ## 開発ビルド
@@ -39,7 +38,7 @@ paths:
 - `npm run tauri dev` は identifier が本番と同一のため、インストール版と競合する点に注意
 - **`BrowserTab.vue`（#368）をホットリロードしたら、開発版を再起動する。** 作り直された
   コンポーネントが新しいラベルで子 webview を作り、古いほうはウィンドウに残るので、
-  タブを切り替えても消えないページが出る（開発版だけの症状。実際に踏んで原因を探した）
+  タブを切り替えても消えないページが出る（開発版だけの症状）
 
 ## リンク時間
 
@@ -65,14 +64,14 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   どちらも同じ量の PDB を作るので当然で、リンカを替えても PDB の話は解決しない。
   なお `-C linker-features=+lld` は `-C help` に出るが実際は nightly 専用で、stable で
   使うなら `-Clinker=<sysroot>/lib/rustlib/<target>/bin/rust-lld.exe -Clinker-flavor=lld-link`
-- **macOS で mold は使えない**（ELF 専用で Mach-O は対象外）。かつての `zld` も Xcode 15 の
-  新リンカ（`ld_prime`）に置き換えられてアーカイブ済みで、macOS の既定リンカは既に新実装。
-  リンカ側は何もしないのが妥当で、上の `debug = false` は OS 非依存に効く
+- **macOS で mold は使えない**（ELF 専用で Mach-O は対象外）。`zld` はアーカイブ済みで、
+  macOS の既定リンカは Xcode 15 以降の新実装（`ld_prime`）。リンカ側は何もしないのが妥当で、
+  上の `debug = false` は OS 非依存に効く
 - **CI では `cargo clippy` は影響を受けない**（リンクしない）。効くのは `cargo test` の
   テストバイナリのリンクと、`just build`。release は `[profile.release]` が既定で
   デバッグ情報を持たないため対象外
 
-## CSP と動的スタイル注入（本番ビルド限定の落とし穴、#v0.26.3）
+## CSP と動的スタイル注入（本番ビルド限定の落とし穴）
 `tauri.conf.json` の `app.security.csp` を設定すると、**本番（埋め込み）ビルドでのみ** Tauri が `style-src` / `script-src` に nonce/hash を注入する（`tauri` クレートの `manager::set_csp` → `replace_csp_nonce`）。CSP 仕様上、**nonce か hash が directive に 1 つでも入ると同 directive の `'unsafe-inline'` は無視される**。
 
 - **症状**: xterm（ターミナルの色・フォント）と CodeMirror（style-mod で実行時に `<style>` を注入。エディタ本文・シンタックス色）が実行時注入するスタイルが全滅する。ターミナルは色/フォント崩れ、エディタは本文が消えて**行番号ガターだけ**残る。**dev（`tauri:dev`）は Vite 配信で nonce/hash 注入が走らないため再現しない**＝「本番ビルドだけ崩れる」形になる
@@ -86,36 +85,34 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 1. `just e2e-build`: 撮影用バイナリをビルド（`PIKE_E2E=1` + `--features e2e` + `tauri.e2e.conf.json`。identifier=`com.pike.e2e` で既存 Pike / dev 版と single-instance 衝突しない）
 2. `just e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ寸法は 3 クラス: クローズアップ＝既定 1280×832（内枠 1259×777）、全体レイアウト系（layout.ts の `FULL`）＝1600×1000（内枠 1578×945）、**外枠付きヒーロー（`HERO` = `FULL` の 2 倍）＝3200×2000（内枠 3179×1944）**
    - `HERO` はプライマリモニタ（3413×1440）より縦が大きいが、WebView2 の撮影は画面外にはみ出した分も含めて撮れるので問題ない。DPR を上げる方向（`--force-device-scale-factor=2`）は撮影が CSS ピクセル基準で行われるため効かない（実測済み）
-   - **論理サイズを 2 倍にすると表示内容が増える**ぶん、フィクスチャが短いと下半分が空く。`HERO` を使う spec（overview / hero-editor / hero-git）のダミーデータは、この寸法で画面が埋まる量にしてある（README は 60 行超、ターミナルのセッションは 78 行、コミット履歴は 8 件）。寸法を変えたら埋まり方も見直す。**v0.46.0 で実際に踏んだ**: #275 でチャットを外したとき `hero-git` の右ペインを 30 行のターミナルに置き換えたところ、下半分が空いた状態で README のヒーローに載った
+   - **論理サイズを 2 倍にすると表示内容が増える**ぶん、フィクスチャが短いと下半分が空く。`HERO` を使う spec（overview / hero-editor / hero-git）のダミーデータは、この寸法で画面が埋まる量にしてある（README は 60 行超、ターミナルのセッションは 78 行、コミット履歴は 8 件）。寸法を変えたら埋まり方も見直す。**画面の中身を差し替えたときも同じ**（行数の少ないものに替えると、下半分が空いたまま README のヒーローに載る）
 > `just e2e-build` の出力を `| tail` などに通さないこと。Rust のコンパイルが落ちても
-> パイプ側の終了コード 0 が返り、**古いバイナリのまま撮影して気付けない**（実際に
-> 「新しい画面が出ない」を追う羽目になった）。ログはファイルに落として `$?` を見る。
+> パイプ側の終了コード 0 が返り、**古いバイナリのまま撮影して気付けない**。
+> ログはファイルに落として `$?` を見る。
 >
 > **撮影用のビルドは開発版と同じ `target/debug/pike.exe` を差し替える。** 開発版
 > （`just dev`）や以前の撮影が動いたままだと、コンパイルは全部通ったあとに
 > `failed to remove file ... アクセスが拒否されました。 (os error 5)` で落ちる。
-> リリース前は動作確認で開発版を起動していることが多いので、撮影の前に閉じる
-> （v0.47.0 のリリースで踏んだ）。残っているかは `Get-Process pike` の `Path` で分かる
+> リリース前は動作確認で開発版を起動していることが多いので、撮影の前に閉じる。
+> 残っているかは `Get-Process pike` の `Path` で分かる
 > （インストール版は `AppData\Local\Pike\pike.exe` なので、そちらは閉じなくてよい）。
 
 3. `scripts/sync-manual-images.sh --check` でドライラン → 引数なしで `docs/manual/img/` へ同期。スクリプト内 `MAP` が「マニュアル名 ← E2E ベース名」を対応付け、ja の dark（`{名前}.png`）+ light（`{名前}-light.png`）の 2 枚を持つ（GitHub の `<picture>` 切替用）
 4. 変更画像を目視確認してコミット
 
-- 外枠付きヒーロー画像（README / overview の `screenshot-*`）は `scripts/sync-hero-images.sh`（内部で `frame-screenshot.sh` を呼ぶ）で合成・配置する。`sync-manual-images.sh` の MAP には含まれないため、**同期は 2 本を続けて走らせる `just e2e-sync`（確認は `e2e-sync-check`）を使う**。以前この合成が e2e/README の手打ちコマンドだけだったため、7-20 の再撮影でヒーローだけ v0.26 世代のまま取り残された
+- 外枠付きヒーロー画像（README / overview の `screenshot-*`）は `scripts/sync-hero-images.sh`（内部で `frame-screenshot.sh` を呼ぶ）で合成・配置する。`sync-manual-images.sh` の MAP には含まれないため、**同期は 2 本を続けて走らせる `just e2e-sync`（確認は `e2e-sync-check`）を使う**。片方だけ走らせると、ヒーローだけ古い世代のまま取り残される
 - **ヒーロー画像の合成には ImageMagick（`magick`）が要る**。マニュアル画像のコピーは要らないので、`magick` が無いと**マニュアルのぶんだけ更新されてヒーロー 6 枚が古いまま残る**（`sync-hero-images.sh` が `magick: command not found` で落ちるが、**先に走る `sync-manual-images.sh` は成功している**）。`just e2e-sync` は 2 本を続けて走らせるので、**成否は最後の行だけでなく両方の「更新 N / 同一 N」を見ること**
-  - **クリーンな環境には入っていない。** `winget install ImageMagick.Q16-HDRI` で入れる（`magick` は `AppData\Local\Microsoft\WindowsApps` の実行エイリアスとして PATH に入り、Git Bash からそのまま解決する）。v0.47.0 のリリースを clone 直後のマシンで回して実際に踏んだ
-  - 入っている環境では Windows 側にあり **WSL の PATH には無い**ので、WSL の bash で回すとここで止まる（v0.35.0 の再撮影で踏んだ）。`just e2e-sync` は Git Bash で走るので解決する（#231。それ以前は `npm run e2e:sync` が WSL の bash を掴んでいた）
+  - **クリーンな環境には入っていない。** `winget install ImageMagick.Q16-HDRI` で入れる（`magick` は `AppData\Local\Microsoft\WindowsApps` の実行エイリアスとして PATH に入り、Git Bash からそのまま解決する）
+  - 入っている環境では Windows 側にあり **WSL の PATH には無い**ので、WSL の bash で回すとここで止まる。`just e2e-sync` は Git Bash で走るので解決する（#231）
 - 撮影画面を追加したら `e2e/specs/` に追記し、マニュアルで使う場合は `sync-manual-images.sh` の MAP にも対応を追加
 - **MAP に足し忘れた画像は「撮っているのに使われない」まま溜まる。** `check-docs` は
   「マニュアルが参照する画像が実在するか」と「参照されない画像が `docs/manual/img/` に残っていないか」は
-  見るが、`artifacts/screenshots/` にしか無いものには気付けない。v0.43.0 の棚卸しでは 9 枚
-  （`outline-panel` / `diff-tab` / `history-tab` / `csv-preview` / `json-preview` / `mermaid-preview` /
-  `svg-preview` / `pdf-tab` / `agent-claude`）がこの状態だった。差分を見るには
+  見るが、`artifacts/screenshots/` にしか無いものには気付けない。差分を見るには
   `comm -23 <(grep -rhoE "shoot\('[a-z0-9-]+'" e2e/specs/*.ts | sed "s/shoot('//;s/'//" | sort -u) <(grep -oE '"[a-z0-9-]+:[a-z0-9-]+"' scripts/sync-manual-images.sh | sed 's/.*://;s/"//' | sort -u)`
   （`overview` と `hero-*` は `sync-hero-images.sh` の担当なので出てきてよい）
 - **待ち合わせに使うセレクタは `data-testid` を足す。** クラス名は見た目の都合で変わるが、
-  testid は撮影のための契約として残る（`diagnostics-panel` / `git-operation` はこのために足した）
-- **画像には StatusBar のバージョン（`v0.33.0`）が写る**。`useUpdater` の `getVersion()` は `@tauri-apps/api` 経由で `tauri.conf.json` の version を読むため、`lib/tauri.ts` の invoke ラッパを通らず **E2E のモックでは差し替えられない**（`tauri.e2e.conf.json` で version を上書きするのは 2 箇所 bump の drift 要因なので採らない）。リリースに合わせて撮り直すときは **bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順）
+  testid は撮影のための契約として残る（例: `diagnostics-panel` / `git-operation`）
+- **画像には StatusBar のバージョンが写る**。`useUpdater` の `getVersion()` は `@tauri-apps/api` 経由で `tauri.conf.json` の version を読むため、`lib/tauri.ts` の invoke ラッパを通らず **E2E のモックでは差し替えられない**（`tauri.e2e.conf.json` で version を上書きするのは 2 箇所 bump の drift 要因なので採らない）。リリースに合わせて撮り直すときは **bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順）
 - ドロップダウンやトースト等、アニメーションを含む UI は**静止するまで待ってから撮る**（例: リモートブランチ取得中の `.spin-icon` が残ると実行ごとに回転角の差分が出る）。撮影に安定したセレクタが必要な場合は `data-testid` を足す（`worktree-selector` / `branch-selector`）
 - 撮影コードを本番ビルドに混入させない仕組み（`e2e` Cargo feature / vite define `__PIKE_E2E__` / `capabilities-runtime` の実行時登録）は `e2e/README.md` を参照
 
@@ -129,13 +126,13 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 
 ## CI/CD
 - `.github/workflows/ci.yml`: push/PR で **Windows と macOS の 2 ジョブ**（`fail-fast: false`）を回す。各ステップは `justfile` を呼ぶので、ローカルの `just check` と同じコマンドが走る
-  - **Windows だけが持つのは OS に依らない検査**（`just lint` / `check-docs` / `check-shortcuts` / `build-web`）。2 回走らせても同じ結果にしかならない
+  - **Windows だけが持つのは OS に依らない検査**（`just lint` / `fmt-check` / `check-docs` / `check-shortcuts` / `test-ts` / `build-web`）。2 回走らせても同じ結果にしかならない
   - **macOS 側は `just build-web-dist`（`vite build` だけ）→ `clippy` → `test`**。`generate_context!` が `dist/` を読むので Rust の検査にもフロントの成果物が要るが、型検査は Windows 側が済ませている
   - macOS ジョブを足した理由（`cfg` の向こう側が Windows のジョブからは 1 行も見えない）は `platform.md` の「キーボードショートカット」の末尾
 - `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-action` が **Windows と macOS(arm64) の 2 ジョブ**を **`max-parallel: 1` で直列に**走らせ、同じタグのドラフトへ両方の成果物をアップロードする（2 つ目のジョブは既存のドラフトを見つけて追加する）
-  - **macOS も updater の経路に載せる**（#283 で Developer ID 署名と公証が入ったため）。以前は未署名で Gatekeeper に隔離されるため外していた
+  - **macOS も updater の経路に載せる**（#283 の Developer ID 署名と公証が前提。未署名だと Gatekeeper に隔離される）
   - **`max-parallel: 1` で直列に走らせる。** 両ジョブが `latest.json` を上げるようになったので、並列だと取り合う。`tauri-action` はアップロード前にリリースの既存 `latest.json` を読んで `platforms` をマージするので、順に走れば 2 つの OS が 1 つのファイルに揃う。並列のままだと後から読んだ側がもう片方の書き込み前の内容を見て、そのプラットフォームを落としたファイルを上げうる。**失敗は静かで「その OS にだけ更新が来ない」という形でしか気付けない**
-    - 代償はリリースの所要時間が倍になること（実測 v0.46.0: macOS 8m19s / Windows 9m06s で全体 9 分 → 直列で 18 分前後。`.dmg` の公証待ちがさらに乗る）
+    - 代償はリリースの所要時間がほぼ倍になること（各 OS 9 分前後なので直列で 18 分前後。`.dmg` の公証待ちがさらに乗る）
     - **`fail-fast` は既定（true）のまま。** Windows が落ちれば待機中の macOS が取り消されるので、darwin だけの `latest.json` は作られない。**ただし逆向きは防げない**（Windows が成功したあとに macOS が落ちると、windows だけの `latest.json` がドラフトに残る）。だから**公開前に `platforms` を目視する**手順が `release` スキル（`.claude/skills/release/SKILL.md`）に入っている
     - 両方向を機械的に塞ぐなら、両ジョブを `uploadUpdaterJson: false` にして成果物だけ artifact に上げ、`needs: build` の合流ジョブで `latest.json` を**組み立てて** 1 回だけ上げる形になる。読んで書き直す構造が消えるうえ並列に戻せるが、YAML が 20 行ほど増えて手元で検証できない。**今は直列＋目視で回し、面倒が続くようなら移る**
   - **`.dmg` は tauri が公証しない。** 公証・staple するのは `.app` だけで、そのあとに作る `.dmg` は署名するだけ。配布物は `.dmg` なので、そのままだとダウンロードした利用者の Gatekeeper が弾く（`spctl -a -t open --context context:primary-signature` が `rejected / source=Unnotarized Developer ID` を返す。macOS 実機で確認）。tauri-action のあとに `xcrun notarytool submit` → `xcrun stapler staple` → `gh release upload --clobber` で差し替える

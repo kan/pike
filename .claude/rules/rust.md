@@ -10,7 +10,7 @@ paths:
 ## 整形（rustfmt、#313）
 - 整形は `just fmt`（= `cargo fmt`）。設定は `src-tauri/rustfmt.toml` の `max_width = 100` だけで、選んだ理由はそのファイルのコメントが正本
 - `just check` が `just fmt-check`（= `cargo fmt --check`）を回すので、**整形されていないコードはコミット前に落ちる**
-- **中身の変更と整形を混ぜない。** 手で狭く折った行が rustfmt に広げられる（またはその逆）ので、整形されていないコードを部分的に `cargo fmt` すると無関係な行が大量に動く。導入前はこれが理由で `cargo fmt` の実行そのものを禁じていた
+- **中身の変更と整形を混ぜない。** 手で狭く折った行が rustfmt に広げられる（またはその逆）ので、整形されていないコードを部分的に `cargo fmt` すると無関係な行が大量に動く
 
 ## 文字列（#382）
 
@@ -33,7 +33,6 @@ paths:
   ウィンドウに子 webview を足すので、そのウィンドウは Tauri から見て「webview が 1 つだけの
   ウィンドウ」ではなくなる。すると `WebviewWindow` を取るものが全部そのウィンドウを見失う:
   - コマンドの引数の `WebviewWindow` … `current webview is not a WebviewWindow` で失敗する
-    （ブラウザのタブを開いていると新規ターミナルが開けない、という形で出た）
   - `app.get_webview_window(label)` / `app.webview_windows()` … 黙って `None` / 除外になる
     （CLI のルーティング、トレイからの復帰、ウィンドウ位置の保存が、そのウィンドウだけ効かない）
   - 代わりに `Window` / `app.get_window` / `app.windows()` を使う。表示・フォーカス・位置・
@@ -45,10 +44,11 @@ paths:
     移動・リサイズのたびにプラグインが記録しているので、そちらは失われない
 - **webview を作るときは `disable_drag_drop_handler()` を必ず付ける（#396）。** Windows では
   wry がウィンドウに OLE のドロップ先を張るので、有効なままだとページ上のドラッグが
-  横取りされ、HTML5 の drag & drop が「禁止」のカーソルで止まる（Jira のカードを動かせない、
-  という形で出た）。Pike 本体は最初から切ってある（`build_window` と `tauri.conf.json`）が、
-  **ブラウザのタブの子 webview（`browser_open`）だけが取り残されていた**
-- **グローバル状態は 1 つの `AppState` にまとめず、モジュールごとの型を個別に `manage` する**（`CliState` / `WaitState` / `PtyState` / `WatcherState` / `DockerState` / `ProjectState` / `TransientState` / `SearchState`）。コマンドは `State<'_, PtyState>` のように要るものだけを受け取るので、引数の型がそのまま「このコマンドが触る状態」の宣言になる。共有する中身は `Arc<Mutex<>>` で包む
+  横取りされ、HTML5 の drag & drop が「禁止」のカーソルで止まる。今付けているのは Pike 本体
+  （`build_window` と `tauri.conf.json` の `dragDropEnabled`）と、子 webview の 2 つ
+  （ブラウザのタブの `browser_open`、HTML のプレビューの `html_preview.rs`）。**子 webview を
+  作る箇所を足すときに付け忘れやすい**
+- **グローバル状態は 1 つの `AppState` にまとめず、モジュールごとの型を個別に `manage` する**（`CliState` / `WaitState` / `PtyState` / `WatcherState` / `DockerState` / `ProjectState` / `TransientState` / `SearchState` / `PreviewState` / `IssuesState`。一覧の正本は `lib.rs` の `manage` の並び）。コマンドは `State<'_, PtyState>` のように要るものだけを受け取るので、引数の型がそのまま「このコマンドが触る状態」の宣言になる。共有する中身は `Arc<Mutex<>>` で包む
 - PTY プロセスのライフタイムは `PtyState` が所有し、ウィンドウ破棄時に `pty::cleanup_for_window` で cleanup
 
 ## PTY

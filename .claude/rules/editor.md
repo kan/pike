@@ -1,121 +1,77 @@
 ---
 paths:
   - "src-tauri/src/fs/**"
-  - "src-tauri/src/search/**"
-  - "src-tauri/src/watcher/**"
-  - "src-tauri/src/diagnostics/**"
-  - "src-tauri/src/issues/**"
-  - "src-tauri/src/tasks.rs"
-  - "src-tauri/src/http.rs"
-  - "src-tauri/src/page_title.rs"
-  - "src-tauri/src/remote_image.rs"
-  - "src-tauri/src/html_preview.rs"
-  - "src/components/editor/**"
+  - "src/components/editor/MacroButtons.vue"
+  - "src/components/editor/WrapToggle.vue"
+  - "src/components/editor/MinimapToggle.vue"
   - "src/components/tabs/EditorTab.vue"
-  - "src/components/tabs/PreviewTab.vue"
-  - "src/components/tabs/PdfTab.vue"
-  - "src/components/tabs/IssueTab.vue"
-  - "src/components/tabs/ManualTab.vue"
   - "src/components/panels/FileTreePanel.vue"
-  - "src/components/panels/SearchPanel.vue"
-  - "src/components/panels/TasksPanel.vue"
   - "src/components/panels/OutlinePanel.vue"
   - "src/components/panels/outline/**"
-  - "src/components/panels/DiagnosticsPanel.vue"
-  - "src/components/panels/IssuesPanel.vue"
   - "src/components/QuickOpen.vue"
-  - "src/components/WatcherNotice.vue"
-  - "src/components/ToolNotice.vue"
   - "src/lib/editor*.ts"
   - "src/lib/jumpTo/**"
   - "src/lib/outline/**"
   - "src/lib/fileType.ts"
   - "src/lib/languages.ts"
   - "src/lib/fileIcons.ts"
-  - "src/lib/codeHighlight.ts"
-  - "src/lib/csvPreview.ts"
-  - "src/lib/rstPreview.ts"
-  - "src/lib/markdownFootnotes.ts"
-  - "src/lib/frontmatter*.ts"
-  - "src/lib/mermaid.ts"
-  - "src/lib/domFind.ts"
-  - "src/lib/displayWidth.ts"
-  - "src/lib/text.ts"
-  - "src/lib/sanitizeHtml.ts"
-  - "src/lib/externalImages.ts"
-  - "src/lib/issue*.ts"
   - "src/lib/openFile.ts"
   - "src/stores/fileTree.ts"
-  - "src/stores/search.ts"
-  - "src/stores/tasks.ts"
-  - "src/stores/diagnostics.ts"
-  - "src/stores/issues.ts"
-  - "src/composables/useMarkdown*.ts"
-  - "src/composables/useCsvSelection.ts"
-  - "src/composables/usePreviewFind.ts"
-  - "src/composables/useFsWatcher.ts"
-  - "src/composables/useChildWebview.ts"
   - "src/composables/useOutlineSource.ts"
   - "src/composables/useActiveFile.ts"
   - "src/composables/useImagePaste.ts"
-  - "src/composables/usePanelAvailability.ts"
 ---
 
-# エディタ・パネル実装ルール
+# エディタ実装ルール
 
-CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイドバーの各パネル（検索・タスク・アウトライン・診断・issue）、ファイル監視。
-実体は `src/components/tabs/EditorTab.vue`、`src/components/editor/MarkdownToolbar.vue`、`src/components/panels/`、`src/lib/editor*.ts`、`src/lib/outline/`、`src-tauri/src/fs/`、`src-tauri/src/search/`、`src-tauri/src/watcher/`、`src-tauri/src/tasks.rs`、`src-tauri/src/diagnostics/`、`src-tauri/src/issues/`。
+CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整形、QuickOpen、定義ジャンプ、アウトライン。
+実体は `src/components/tabs/EditorTab.vue`、`src/lib/editor*.ts`、`src/lib/outline/`、`src-tauri/src/fs/`。
+
+同じ領域の別ファイル: プレビューと Markdown の入力支援は `preview.md`、検索は `search.md`、
+ファイル監視は `watcher.md`、issue パネルは `issues.md`、診断とタスクのパネルは `panels.md`。
 
 ## ファイルツリー / エディタ
 - Rust `fs` モジュールがファイル操作を提供（list_dir / read_file / write_file）。分岐は**「WSL かどうか」だけ**で、Windows も macOS も `std::fs` の腕に乗る
 - WSL: `wsl.exe find`, `wsl.exe cat`, `wsl.exe bash -c "cat > ..."` 経由
-- WSL 以外（Windows / macOS）: `std::fs` 直接アクセス
-- **ファイルサイズの上限（#362）**: エディタは設定の `editorMaxFileSizeMb`（2〜50MB、既定 10MB）を `fs_read_file` の `max_bytes` に渡す。**渡さない呼び出し元（定義ジャンプの設定ファイル読み・diff の省略行の取り寄せ等）は従来どおり 2MB**（`DEFAULT_MAX_SIZE`）
-  - **超えたらエラーではなく結果で返す**（`FileReadResult.too_large`。`allow_missing` と `is_new` と同じ「頼んだ呼び出しにだけ返る」形）。`max_bytes` を渡さない呼び出し元には従来どおりエラー。エラー文の綴りを Rust と TS で取り決める形は採らない
+- **ファイルサイズの上限（#362）**: エディタは設定の `editorMaxFileSizeMb`（2〜50MB、既定 10MB）を `fs_read_file` の `max_bytes` に渡す。**渡さない呼び出し元（定義ジャンプの設定ファイル読み・diff の省略行の取り寄せ等）は 2MB**（`DEFAULT_MAX_SIZE`）
+  - **超えたらエラーではなく結果で返す**（`FileReadResult.too_large`。`allow_missing` と `is_new` と同じ「頼んだ呼び出しにだけ返る」形）。`max_bytes` を渡さない呼び出し元にはエラー。エラー文の綴りを Rust と TS で取り決める形は採らない
   - EditorTab はエラー画面ではなく、開き方を選ばせる画面（`tooLargeSize`）を出す: 先頭から読み込む（部分読み込み）・関連付けられたアプリで開く（`lib/openFile.ts` の `openWithDefaultApp`。**実行形式の拡張子は確認を挟む**: Windows の `explorer.exe` はスクリプトもショートカットもそのまま起動する。ファイルツリーの右クリックもここを通る）・フォルダを開く（`fs_reveal_in_explorer`。Windows の `/select,` は `raw_arg` でないと効かない理由は `types::os_reveal` の doc）
   - **部分読み込み（`fs_read_file_chunk`）の切れ目は最後の改行の直後**（`chunk_end`）。続きを足したとき 1 行が割れない。改行が無い長い 1 行だけ UTF-8 の文字境界で切る。**UTF-16 は対象外**（`0x0A` が文字の途中に現れる）。エンコードは**UTF-8 のあいだは断片ごとに判定し、UTF-8 以外に決まったら固定する**（`applyChunk`。先頭が ASCII だけのログを UTF-8 で固定すると、後ろの Shift_JIS が化ける）
   - **「続きを読む」は上部のバーと本文の末尾の 2 か所**（末尾は `lib/editorLoadMore.ts` のブロック widget）。**CSV では上部のバーのボタンを出さず、表の上（コピーの注意書きの下）に案内とボタンを描く**（`lib/csvPreview.ts` の `CsvPartialLoad`、クリックは `handleCsvControls`）。ページの帯と並ぶと、どちらが何を送るのか紛らわしいうえ、「全行をコピー」の全行が読み込んだ範囲だと同じ場所で言える。**押したときだけ読む**: 末尾までスクロールしたら自動で読む形は、スクロールしただけで数 MB ずつ読み込みとメモリが増えるので採らない
-    - **末尾の行は `overflow-anchor: none`**。押した直後に画面に残っているのはその行だけなので、ブラウザのスクロールアンカーに選ばれると、足した本文のぶんだけ送られて新しい末尾へ飛ぶ（実機で踏んだ）。末尾から読んだときは、それまでの最終行を下端に据える（`loadMore(fromEnd)`）
+    - **末尾の行は `overflow-anchor: none`**。押した直後に画面に残っているのはその行だけなので、ブラウザのスクロールアンカーに選ばれると、足した本文のぶんだけ送られて新しい末尾へ飛ぶ。末尾から読んだときは、それまでの最終行を下端に据える（`loadMore(fromEnd)`）
   - **続きの断片は全体で NUL を見る**（`fs_read_file_chunk`）。`decode_bytes` の判定は先頭 8KB だけなので、テキストの後ろにバイナリが続くファイルで化けた本文が足される
   - **部分読み込み中は読み取り専用**（`isReadOnlyTab` に含める。保存すると読んでいない後半が消える）。保存・自動保存・diff ガター・外部変更の「上書き」がすべてこの 1 つを見る
   - **部分読み込み中は外部変更で自動リロードしない**。読み直しは先頭の 1 回ぶんに戻るので、書き足され続けるログで「続きを読む」の位置が変更のたびに失われる。警告バーの「再読み込み」は出す
   - **部分読み込み中は `updateDirtyState` が何もしない**（読み取り専用で未保存になりようがない）。全文比較は続きを足すたびに文書全体（数十 MB）を文字列にするので、比較そのものを飛ばす。`savedContent` も伸ばさない
 - CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）
-- **「このファイルは何か」を決めるのは `lib/fileType.ts` の `fileTypeKey` ただ 1 つ（#347 / #348）。** 種別のキーとラベルの正本は同ファイルの `FILE_TYPE_LABELS`（件数をここに書かない。足すたびにずれる）。読む側は 4 つで、**新しく「ファイルの種別を見る」コードを書くときも必ずここを通す**
+- **「このファイルは何か」を決めるのは `lib/fileType.ts` の `fileTypeKey` ただ 1 つ（#347 / #348）。** 種別のキーとラベルの正本は同ファイルの `FILE_TYPE_LABELS`（件数をここに書かない。足すたびにずれる）。読む側は 4 つで、**新しく「ファイルの種別を見る」コードを書くときも必ずここを通す**（系統ごとに判定すると、同じファイルで答えが割れる）
   - ハイライトと StatusBar の種別（`lib/languages.ts` の `EXT_MAP`）／アウトラインの抽出器（`lib/outline/index.ts` の `EXTRACTORS`）／定義ジャンプの `langId`（`lib/jumpTo/`）／ファイルアイコンの補い（`lib/fileIcons.ts` の `ICON_FALLBACK`）
-  - **以前は 4 系統がそれぞれ判定していた**ので、同じファイルで答えが割れていた（`Dockerfile.dev` はアイコンとアウトラインでは Dockerfile なのに、エディタだけ Plain Text）。複合名を拾う正規表現がアウトラインの振り分けにだけ 2 本あったのもそれ
-  - **`EXT_MAP` と `EXTRACTORS` は `Partial<Record<FileTypeKey, …>>` で縛ってある。** ラベルを持たないキーにモードや抽出器を足すとコンパイルエラーになるので、「色は付くのに種別が Plain Text」（#312 で直した食い違い）が型の届かないところに戻らない。逆（ラベルだけあってモードが無い）は許す
+  - **`EXT_MAP` と `EXTRACTORS` は `Partial<Record<FileTypeKey, …>>` で縛ってある。** ラベルを持たないキーにモードや抽出器を足すとコンパイルエラーになるので、「色は付くのに種別が Plain Text」が型の届かないところに戻らない。逆（ラベルだけあってモードが無い）は許す
   - **判定の表に CodeMirror を import しない。** アイコンやアウトラインから、種別を知りたいだけのために言語モードの束を読み込ませないため
   - 優先順（名前 → 拡張子 → 先頭セグメント → shebang）と、先頭セグメントで引く名前を絞る理由（`go.mod` の誤判定）は `fileTypeKey` の doc が正本
   - **shebang に載せるのは既に import 済みのモードだけ**（「軽さ最優先」。`fish` / `awk` はモードを増やすことになるので入れない）。`env` と `-S`、末尾のバージョン（`python3.11`）の扱いは `shebangKey` の doc が正本
-  - **`.jsonc` / `.jsonl` は `json()`（Lezer）のままにしてある（#350。調査して現状維持と判断）。** 崩れ方を実測したので、同じ疑問で調べ直さないこと
-    - **`.jsonl` / `.ndjson` は壊れていない。** パーサはレコードごとに復帰し、各行が `Object` / `Property` / `PropertyName` として正しく解析される。行の境目に入るのは**幅 0** のエラーノードだけで、トークンの色は落ちない（「2 行目以降がエラーになる」は起票時の推測で、実際は違う）
-    - **`.jsonc` は壊れるのがコメントの範囲だけ。** `// comment` が 2 つのエラーノードになり、残りの property と値は正しく解析される。「エラーのあと色が全部落ちる」わけではない
-    - **直す手はある（依存も増えない）が、代償がある。** `@codemirror/legacy-modes/mode/javascript` の `json` は stream なのでコメントを `comment` として拾い、複数レコードもエラー無しで通る（実測）。ただし**`jsonExtractor` は Lezer の木（`Object` / `Property`）を歩く**ので、`jsonc` を stream へ移すと `.jsonc` のアウトラインが消える。`property` のタグも既定の対応表に無いので `tokenTable` が要る
+  - **`.jsonc` / `.jsonl` は `json()`（Lezer）のままにしてある（#350 で実測して現状維持）。同じ疑問で調べ直さないこと**
+    - `.jsonl` / `.ndjson` は壊れていない。パーサはレコードごとに復帰し、行の境目に入るのは**幅 0** のエラーノードだけで、トークンの色は落ちない
+    - `.jsonc` で壊れるのはコメントの範囲だけ（`// comment` が 2 つのエラーノードになり、残りは正しく解析される）
+    - `@codemirror/legacy-modes/mode/javascript` の `json`（stream）に移せばコメントも複数レコードも通るが、**`jsonExtractor` は Lezer の木（`Object` / `Property`）を歩く**ので `.jsonc` のアウトラインが消える。`property` のタグも既定の対応表に無いので `tokenTable` が要る
     - コメントを書くことが多い `tsconfig.json` / `.vscode/settings.json` は**拡張子が `.json`** なので、そもそも `jsonc` のキーに当たらない
   - **Vue SFC は `vue({ base: html({ nestedLanguages }) })` の重ね方で作る（#346）。** 3 つの層が別々の理由で要る。判断の実体は `vueSupport` の doc が正本
     - `<style lang="scss">` / `<style lang="less">` … `html()` の `nestedLanguages`（既定の規則が CSS を当てるのは `lang` が無いか `css` のときだけ）
     - テンプレートの式（`{{ }}` と `v-if` / `:prop` / `@event` の属性値）… `@codemirror/lang-vue`。**`nestedAttributes` では代用できない**（属性名を固定で並べる形なので、`:` と `@` で任意の名前が作られる Vue のバインディングを表せない）
     - `<script setup lang="ts">` … lang-html の既定の規則が元から効いているので足すものは無い
     - **`base` は `html()` の結果でなければならない**（lang-vue の契約）。style の設定はそちらへ乗せてから渡す
-    - **定義ジャンプは壊れない。** `findInFile` が歩く `<script>` の部分木は変わらず、`tagNameAt` はそもそも構文木ではなく生テキストを見る（`FunctionDeclaration` / `ClassDeclaration` / `VariableDeclaration` / 型の 4 つが変更前と同じ行に解決することを実測で確認）。アウトラインの Vue 抽出は自前のパーサを回すので元から独立
+    - **定義ジャンプは壊れない。** `findInFile` が歩く `<script>` の部分木は変わらず、`tagNameAt` はそもそも構文木ではなく生テキストを見る（実測で確認済み）。アウトラインの Vue 抽出は自前のパーサを回すので元から独立
   - **SQL の方言はキーを分けて持つ（#358）。** `.sql` の自動判定が既定で解決するのは `sql`（標準）のまま。設定 `sqlDialect` が選ばれていると `fileTypeKey` がそこへ振り替える（`withSqlDialect`。動くのは `sql` に解決したときだけ）
     - **`FILE_TYPE_LABELS` は「引ける拡張子」の一覧でもある**ので、キーを足したことで `foo.mysql` / `foo.pgsql` / `foo.sqlite` も自動判定に載る。**`.sqlite` はバイナリ DB の拡張子でもある**が、`fs_read_file` の NUL ガードが先に弾く。方言の拡張子で開いたものは設定で振り替えない（書き手が方言を名乗っているため）
     - **開いているタブにも反映する**（`EditorTab.vue` の `sqlDialect` の watcher が言語を張り直す）。流し込みだけでは次に判定するときの値が替わるだけで、開いているタブは開き直すまで変わらない
     - **knob は `lib/fileType.ts` に置き、設定ストア側が流し込む**（`lib/shortcuts.ts` の `setShortcutPreset` と同じ形。あのモジュールはアイコンとアウトラインからも読まれるので、ストアを読む向きにすると依存が逆流する）。`immediate: true` が要る
     - **手動選択はこの設定に縛られない。** StatusBar は `languageByKey` を直に引くので、設定が `standard` のままでも 3 つの方言を選べる。`languageOptions()` はラベルで畳むが、`SQL` / `MySQL` / `PostgreSQL` / `SQLite` は別ラベルなので 4 つとも出る
     - **残りの方言（`mariaDB` / `msSQL` / `plSQL` 等）は入れない**（要望が出てから）
-  - **Markdown のフェンスの中身も `EXT_MAP` で解析する（#344）。** `markdown()` に `codeLanguages` を渡す形で、**依存は増えない**（`@codemirror/language-data` は入れない）。別名表（`FENCE_ALIASES`）を実在するフェンス名から作った理由と、`Language` をキーごとにキャッシュする理由は `languages.ts` の doc が正本
-    - **プレビューのコードブロックにも同じ解析で色を付ける（#359）。** 実体は `lib/codeHighlight.ts` の `highlightCodeBlock` で、Markdown プレビュー・rst の `code-block`・issue タブ・マニュアルの 4 つが共有する（marked の 3 つは `markedCodeHighlight`、rst は `buildRstPreview` の引数）。**依存は増やしていない**（highlight.js / shiki は入れない）。判断の実体（配色をエディタのテーマに合わせる理由、class ではなくインラインの `style` で塗る理由、キャッシュ）はあのファイルの doc が正本
-      - **テーマの配色は `EditorThemeDef.highlightStyle` から取る。** テーマを足すときはこの欄も要る（`makeTheme` が返す）
-      - **テーマ名は関数で受けて描画のたびに読む。** marked のインスタンスは先に作るので、値で渡すと作った時点のテーマに固まる。computed の中で読めばテーマへの依存が張られる。**マニュアルだけは `html` を `render` で代入している**ので、テーマの watcher で**コードブロックだけを DOM の上で塗り直す**（`rehighlightCodeBlocks`）。`render` を呼び直すと、作り直した画像が読み込むまで高さ 0 になって読んでいた位置がずれ、遷移中の取得とも競合する
-      - **長いコードブロックは HTML のキャッシュに載せない**（件数の上限だけだと、大きな ```` ```json ```` を編集し続けるあいだ本文とその数倍の HTML が溜まる）
-      - **rst は `inherited` に混ぜない。** あの引数の有無でルートかどうかを見ている（`.. meta::` はルートだけ）ので、色付けの関数は別の引数で受けて文脈（`RstContext.highlight`）に載せ、入れ子へ引き継ぐ
-      - `mermaid` は当てるモードが無いので色付けを通らず、図への差し替えがそのまま効く
+  - **Markdown のフェンスの中身も `EXT_MAP` で解析する（#344）。** `markdown()` に `codeLanguages` を渡す形で、**依存は増えない**（`@codemirror/language-data` は入れない）。別名表（`FENCE_ALIASES`）を実在するフェンス名から作った理由と、`Language` をキーごとにキャッシュする理由は `languages.ts` の doc が正本。プレビューのコードブロックの色付け（#359）は `preview.md`
     - **アウトラインにフェンスの中身は出ない。** `@lezer/markdown` はフェンスを**オーバーレイ**としてマウントし、`Tree.iterate` はオーバーレイに入らないため（`IterMode` の指定では変わらないことを実測で確認）。**`resolveInner` 系へ書き換えるときは要注意**: あちらは中へ入るので、```` ```md ```` に貼ったコード例の見出しが文書の構造に混ざる
-  - **shebang はアウトラインには効かない。** `langId` は `fileTypeKey(path)` で共通の判定を通るが、**1 行目を渡していない**ので shebang の段に届かない。効かせるなら `EditorTab.vue` が `langId` を作るところで 1 行目を渡すことになる（#312 の範囲外）
+  - **shebang はアウトラインには効かない。** `langId` は `fileTypeKey(path)` で共通の判定を通るが、**1 行目を渡していない**ので shebang の段に届かない。効かせるなら `EditorTab.vue` が `langId` を作るところで 1 行目を渡すことになる
   - 判定は**開いたときと Save As の 1 回**。あとから shebang を書き足しても切り替わらない
-  - **StatusBar から手動で上書きできる**（#312 の続き）。`fileTypeOverride` はタブ単位で
+  - **StatusBar から手動で上書きできる**。`fileTypeOverride` はタブ単位で
     セッションに残さない（`wordWrapOverride` / `minimapOverride` と同じ）。選択肢は
     `languageOptions()` が `EXT_MAP` から作り、**ラベルで畳む**（利用者に見せたいのは言語で
     あって拡張子ではない）。**ラベルを持たないキーは出さない**: 選んでも表示が `Plain Text` の
@@ -124,8 +80,10 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
       `hasPreview`）は `tab.path` から導いたままにする。連動させると、プレビュー表示中に
       Plain Text を選んだときの `viewMode` の戻し先まで設計が要る。線引きはマニュアルにも書いた
   - StatusBar へ渡す操作は `EditorActions` の 1 オブジェクト。**登録が 2 箇所ある**（読み込み
-    直後とタブ切替）ので、位置引数のままだと片方で末尾が抜ける（実際「タブを切り替えて戻すと
-    『このエンコードで保存』だけ効かない」状態だった）
+    直後とタブ切替）ので、位置引数にすると片方で末尾が抜ける
+- **Save As は `tab.path` を書き換えるだけでビューを作り直さない**ので、ファイルの種類で決まるものは `tab.path` の watcher で張り直す。対象は**言語（`languageCompartment`）・入力支援のキー（`markdownCompartment`）・アウトラインの登録（`registerOutlineSource`）の 3 つ**。言語を入れ忘れると、無題バッファを `notes.md` として保存したときに「ツールバーとショートカットは効くのにハイライトも Enter の継続も無い」という半端な状態になる（Enter の継続は `@codemirror/lang-markdown` が持ち込むため）。アウトラインは登録時の path を焼き込むうえ、そのタブは既に active なので activeTabId の watcher では張り直されない
+  - **compartment を 1 つにまとめないこと**。2 つは拡張リスト上の位置が違い、その順序が効いている: `defaultKeymap` が `Mod-i` を `selectParentSyntax` に割り当てているので、入力支援の keymap は**それより前に登録されている**から勝てる。言語は最後
+  - diff ガター・Problems・ミニマップ・定義ジャンプは path を遅延で読むので張り直し不要（`hasFile` は無題バッファでも真になる）
 - Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）。Ctrl+Z/Shift+Z で Undo/Redo
 - エディタ内検索・置換: Ctrl+F / Ctrl+H でカスタム検索パネル（右上フローティング、アイコンボタン、マッチ数表示）
 - Git diff ガター: 追加行（緑）・変更行（黄）・削除行（赤三角）をガターに表示。`git_diff_lines` コマンドで行単位の差分を取得
@@ -137,21 +95,22 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
     - ツールチップは `pointer-events: none`（本文に重なるため）＋ `overflow: hidden`。**`auto` にしないこと**: ガターから離れると消えるので、出したスクロールバーは押せない
     - ホバーの検出は `gutter` の `domEventHandlers`。**`mouseleave` も届く**（CodeMirror は gutter 要素そのものに `addEventListener` する）。`mousemove` は 1 ピクセルごとに来るので、**行が変わったときだけ dispatch する**
     - **`gutterMarkers` は `diffField` の結果を読む**（`tr.state.field(diffField)`）。`buildDiffData` を 2 度走らせないためで、`gitDiffGutter()` があちらを先に並べていることに依存する（StateField は extension の順に計算される）。**並びを変えるときはここも見ること**
-    - **on-demand で取りに行く形は採らない。** ホバーのたびに `git diff` を起こすことになり、対話 UI のために外部プロセスを起こさないという方針（`agent.md` / `project.md`）に反する。代償は「ホバーしない人も保存のたびに払う」ことだが、上限で最悪 80KB 程度のローカル IPC に収まる
+    - **on-demand で取りに行く形は採らない。** ホバーのたびに `git diff` を起こすことになり、対話 UI のために外部プロセスを起こさないという方針（`agent.md` / `os-integration.md`）に反する。代償は「ホバーしない人も保存のたびに払う」ことだが、上限で最悪 80KB 程度のローカル IPC に収まる
 - ミニマップ: `@replit/codemirror-minimap` を採用。blocks モード、シンタックスカラー反映、正確なスクロール同期、git diff ガター表示
-  - **本文と重ならないよう、ミニマップを `.cm-editor` 直下へ出してある（#282）**。パッケージは `.cm-scroller` の中へ `position: sticky; right: 0` で入れるが、`.cm-content` の幅は最長行で決まりミニマップの存在を知らないので、折り返し OFF で長い行があると**スクロールしていなくても**本文がその下を通る。**判断の実体は `lib/editorMinimap.ts` の doc コメントが正本**（なぜ padding でも margin でも直らないか、なぜ再親化してもパッケージが壊れないか、幅の受け渡しがループしない理由）。ここに写しを置くと必ず片方が古くなるので、触るときはあちらを読む
+  - **本文と重ならないよう、ミニマップを `.cm-editor` 直下へ出してある（#282）**。パッケージは `.cm-scroller` の中へ `position: sticky; right: 0` で入れるが、`.cm-content` の幅は最長行で決まりミニマップの存在を知らないので、折り返し OFF で長い行があると**スクロールしていなくても**本文がその下を通る。**判断の実体は `lib/editorMinimap.ts` の doc コメントが正本**（なぜ padding でも margin でも直らないか、なぜ再親化してもパッケージが壊れないか、幅の受け渡しがループしない理由）。触るときはあちらを読む
     - **`.cm-scroller` の `position` は触らないこと。** `static` にすれば同じ配置にできるが、CodeMirror が `scrollDOM` へ直接ぶら下げる `.cm-layer`（選択範囲・カーソル）はスクロール済み座標系を前提にしているので、スクロールすると選択とカーソルが本文から剥がれる。Pike は `drawSelection` / `dropCursor` を入れていないため今は表に出ず、足した日に無関係に見える形で壊れる
+- **折り返しはタブ単位で上書きできる（#241）**。`EditorTab.vue` の `wordWrapOverride`（null = 設定に従う）で、実効値は `wordWrapOn`。分割表示でエディタ側が半分の幅になるときのための機能なので、タブに属するのが正しい。タブのコンポーネントは `v-show` で生き続けるから component-local な ref で足り、`viewMode` と同じ寿命になる（セッションには残さない）。一度触ったタブは以後その値のままで、設定変更に追従しない（戻すのはボタン 1 回）
+  - **プレビューにも同じ `wordWrapOn` が効く（#367）**。プレビューのペインに `wrap` の class を付け、CSS で `pre`（JSON も `<pre>`）と表の `white-space` を戻し、長い値の割り方は容器の `overflow-wrap: break-word` 1 つで継承させる。**`anywhere` にしないこと**（表の列が 1 文字幅まで潰れる。理由は CSS の隣のコメント）。**`previewHtml` に混ぜないこと**: 混ぜると切り替えのたびに HTML を作り直し、mermaid の再描画とローカル画像の読み直しが走る
+  - **ミニマップも同じ形（`minimapOverride` / `minimapOn`、#282）**。隣にボタンを並べるので、片方だけ設定を直に触る作りにすると、並んだ 2 つで効き方が変わる。ボタンは `components/editor/` の `WrapToggle.vue` と `MinimapToggle.vue` で、**見た目は `theme.css` の `.editor-toggle` を共有する**（プレビュー付きツールバーとパンくずヘッダは別のボタン様式を持つので、どちらに置いても同じに見えるには親に合わせないほうが早い）。**2 つのヘッダは排他表示なので、ボタンを足すときは両方に置く**（片方だけだと目視で気付けない）
 - エディタコンテキストメニュー: Undo/Redo/Cut/Copy/Paste/Git History と、右クリックした行の参照（Teleport パターン）
   - **参照（#335）の綴りは `lib/paths.ts` の `fileLineRef`**（`相対パス:行` / `相対パス:開始-終了`）。読む側（`lib/terminalLinks.ts` の `PATH_RE`）と対になるので、書く側もコンポーネントではなく `lib/` に置く。「1 行か範囲か」の分岐は `lib/format.ts` の `lineRangeSuffix` 1 つで、表示用の `L`（`formatLineRange`）もそこに乗る
   - **コンポーネント側の入口は `withLineRef`**。参照を使う 3 つの項目（コピー・参照だけの注入・選択本文つきの注入）が通るので、メニューを閉じる契機と「参照を作れるか」の判定が 1 箇所に集まる
   - 対象の行は `computeContextLineRange`（選択があればその範囲、無ければ右クリックした行）。「この行の Git 履歴」と共有する
   - **可否は `tab.path` で見る（`hasFile` ではない）。** あれは `initialContent` の有無で、無題バッファは `addBlankEditorTab` が `initialContent: ''` で作るため**空文字が falsy で真になる**。参照に要るのは保存先のパスそのものなので、それを直に見る
 - ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
-- **いま開いているファイルの強調（#274）**: 「どのファイルを見ているか」は `composables/useActiveFile.ts` の 1 箇所。**タブの種類で持ち方が違う**ので、そこで絶対パスに揃える（エディタ / プレビュー / PDF は絶対、diff と履歴はルート相対で、**繋ぐ相手はそのタブの `root`**。`activeRoot` ではない理由は `git.md` の #321）。区切りも正規化する: git は常に `/` を返し、ファイルツリーはシェルの区切りを使うので、素の比較は Windows で一致しない。**ストアにしないこと**: タブとプロジェクトの両方を読むので、`stores/tabs.ts` に置くと `project → tabs → project` の循環になる。印は `theme.css` の `.active-file`（2 つのパネルで同じ見た目にするため）で、色は `--active-file-bg`。**行全体を塗る**（VSCode の explorer と同じ。細い線だけではざっと見て探せない）が、`selected`（ツリーで選んだ行）とは別の見た目にする。左端の線は inset の影で描く（行の左 padding が深さで変わるので `border-left` は使えない）
+- **いま開いているファイルの強調（#274）**: 「どのファイルを見ているか」は `composables/useActiveFile.ts` の 1 箇所。**タブの種類で持ち方が違う**ので、そこで絶対パスに揃える（エディタ / プレビュー / PDF は絶対、diff と履歴はルート相対で、**繋ぐ相手はそのタブの `root`**。`activeRoot` ではない理由は `git-diff.md` の #321）。区切りも正規化する: git は常に `/` を返し、ファイルツリーはシェルの区切りを使うので、素の比較は Windows で一致しない。**ストアにしないこと**: タブとプロジェクトの両方を読むので、`stores/tabs.ts` に置くと `project → tabs → project` の循環になる。印は `theme.css` の `.active-file`（2 つのパネルで同じ見た目にするため）で、色は `--active-file-bg`。**行全体を塗る**（VSCode の explorer と同じ。細い線だけではざっと見て探せない）が、`selected`（ツリーで選んだ行）とは別の見た目にする。左端の線は inset の影で描く（行の左 padding が深さで変わるので `border-left` は使えない）
   - **各パネルに 2 行のカスケード用の規則が要る**: `.tree-item:hover` / `.tree-item.selected` は scoped の属性が付くぶん詳細度が高く、共有クラスの塗りを上書きしてしまう。色は共有の変数のままにして、詳細度だけ合わせる
-  - **ツリーの追従は選択ではなく `revealFile`**（畳んである親を開く）。深いところにあるファイルは、親が畳まれていると行そのものが描かれず、選択もスクロールも見えない。判定は同じ computed を読む: あちらが独自に `kind === 'editor'` を見ていたころは、印の付く行と選択がずれていた
-- 画像ビューワタブ（base64 経由、ズーム/回転/反転/パン/fit の表示専用操作）、Markdown プレビュー（Edit/Split/Preview 3モード、スクロール同期、250ms デバウンス）
-- Markdown プレビュー内リンク: 外部 URL は confirm 付きで `open_url` 経由の外部ブラウザ起動、ローカルファイルはプロジェクトルート内に限定して EditorTab で開く（`resolveLocalPath` でディレクトリトラバーサル防止 + `decodeURIComponent` 対応）
+  - **ツリーの追従は選択ではなく `revealFile`**（畳んである親を開く）。深いところにあるファイルは、親が畳まれていると行そのものが描かれず、選択もスクロールも見えない。判定は強調と同じ computed を読む（別々に判定すると、印の付く行と選択がずれる）
 - 文字コード対応: `encoding_rs` で自動検出 + 指定エンコードでの開き直し/保存（StatusBar 2段階 UI）
 - 改行コード LF/CRLF 切替（StatusBar クリック）、保存時に適用
 - ファイルツリーコンテキストメニュー: リネーム（インライン入力）、削除（カスタム confirm ダイアログ）、Git History（専用タブ）、フォルダ限定「エクスプローラーで開く」（`fs_open_in_explorer`。WSL は `\\wsl.localhost\{distro}` UNC に変換して explorer.exe 起動）
@@ -163,7 +122,7 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - ダーティエディタタブの閉じ確認ダイアログ（カスタム confirm）
 - WSL コマンドにパス引数前の `--` を付与（フラグ injection 防止）
 - 外部 URL オープン: `open_url` コマンドは **http / https / mailto のみ許可**（Rust 側でバリデーション）。開くのは `types::os_open_url`＝Windows は `ShellExecuteW`、他は `open` / `xdg-open`（`cmd.exe /C start` はシェルメタ文字インジェクションの危険があるため不使用）。フロント側でも confirm ダイアログを表示
-  - **`explorer.exe` に URL を渡さないこと。** あれの引数はまずシェルのオブジェクト（パス）として解釈されるので、**クエリや fragment を含む URL ではブラウザではなくエクスプローラーのウィンドウが開く**（実測）。理由は `types.rs` の `os_open_url` の doc が正本。ディレクトリを開く `os_open` は従来どおり `explorer.exe`
+  - **`explorer.exe` に URL を渡さないこと。** あれの引数はまずシェルのオブジェクト（パス）として解釈されるので、**クエリや fragment を含む URL ではブラウザではなくエクスプローラーのウィンドウが開く**。理由は `types.rs` の `os_open_url` の doc が正本。ディレクトリを開く `os_open` は `explorer.exe`
   - **フロント側の規約は `frontend.md` の「外部ブラウザで URL を開く」**（#311）。呼び出し元が 8 か所に散る横断的な話なので、エディタ領域には置いていない
 
 ## 保存の責任（#276）
@@ -180,8 +139,8 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
   マーカーが残っている**（`editorConflict.ts` の `hasConflictMarkers`。解消の中間状態を勝手に
   残さない）の 4 つ
 - **`*`（ダーティ表示）と閉じるときの確認は残す。** 自動保存が有効でも、保存されるまでの
-  あいだは未保存であることに変わりがない。`afterDelay` の待ち時間中に閉じたら、これまでどおり
-  確認が出る（タイマーは `onUnmounted` で捨てる）
+  あいだは未保存であることに変わりがない。`afterDelay` の待ち時間中に閉じたら確認が出る
+  （タイマーは `onUnmounted` で捨てる）
 - 契機は CodeMirror の `updateListener` で取る。`focusChanged && !hasFocus` は**タブ切替でも
   発火する**（`v-show` の `display: none` はフォーカスを外す）ので、`activeTabId` を別に
   見る必要はない
@@ -200,14 +159,10 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - **ダイアログが開いているあいだも書かない**（`useConfirmDialog` の `dialogOpen`）。「未保存の
   変更を破棄しますか」は答えを待つあいだコンポーネントが生きているので、待っていたタイマーが
   その裏で書くと、破棄したはずの内容がディスクに残る
-- **自己書き込みの印（`markRecentlySaved`）は通知 1 回ぶんで使い切る。** 「保存から 2 秒のあいだの
-  通知を全部捨てる」形だと、自動保存が 2 秒より短い間隔で走るあいだ窓が開きっぱなしになり、
-  **その最中にエージェントが同じファイルを書いても外部変更として届かない**＝上の「警告中は
-  保存しない」ガードが素通りして、次の自動保存が相手の変更を黙って上書きする。使い切りに
-  できるのは、Rust 側の `EventBuffer` が**パスで畳んでから**送るようにしたため（1 回の書き込みは
-  Create と Modify のように複数の生イベントを生む）。まとめ切れずに 2 回に割れたときは、余った
-  ほうが外部変更として出る（clean なら同じ内容で読み直すだけ、dirty なら消せる警告バーが 1 回）。
-  **黙って上書きするより、消せる誤検知を採る**
+- **自己書き込みの印（`markRecentlySaved`）は通知 1 回ぶんで使い切る。** 時間の窓で捨てる形だと、
+  自動保存が短い間隔で走るあいだ窓が開きっぱなしになり、エージェントの書き込みが外部変更として
+  届かず、上の「警告中は保存しない」ガードが素通りする。**黙って上書きするより、消せる誤検知を採る**。
+  理由と使い切れる前提（Rust の `EventBuffer` がパスで畳む）は `isRecentlySaved` の隣の doc が正本
 - 未完成のコンフリクト領域（閉じ `>>>>>>>` がまだ無いもの）も `hasConflictMarkers` は true を返す。
   行頭に `<<<<<<< ` を書いた文書では自動保存が効かなくなるが、そのときはコンフリクトバーも
   出ているので気付ける。**安全側に倒したまま**にしてある
@@ -216,10 +171,10 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 
 サクラエディタ風の記録・再生（`Mod+Shift+M` / `Mod+Shift+L`）。**判断の実体は `lib/editorMacro.ts` の doc が正本**（キーを記録して差分を記録しない理由・IME と貼り付けだけ文字列で持つ理由・記録しないもの）。
 
-- **キーは CodeMirror の層**（`keyBindings` の表には載せない）。エディタの中でしか意味が無く、ターミナルでは同じキーがシェルへ行くのが正しい。一覧（`KeyboardShortcuts.vue`）とマニュアルは手で揃える（`terminal.md` の「表に無い層のキー」）。キーの綴りは `MACRO_CHORDS` が正本で、記録から自分のキーを除く判定もそこから作る
+- **キーは CodeMirror の層**（`keyBindings` の表には載せない）。エディタの中でしか意味が無く、ターミナルでは同じキーがシェルへ行くのが正しい。一覧（`KeyboardShortcuts.vue`）とマニュアルは手で揃える（`shortcuts.md` の「表に無い層のキー」）。キーの綴りは `MACRO_CHORDS` が正本で、記録から自分のキーを除く判定もそこから作る
   - **プリセット別の早見表には載せない**（`editorChordsFor` にも入れない）。あの表は「プリセットで変わるキー」のもので、エディタの中だけで効きプリセットで変わらないキーは載せない決まり
   - **`APP_ACTIONS` には行を置く**（`macroRecord` / `macroPlay`。パレットから引けるように）。実装は `useOutlineSource` の登録にある「今見えているエディタ」に対して呼ぶ
-- `Mod-Shift-l` は `searchKeymap` の「同じ文字列をすべて選択」と同じキーで、`Prec.high` で奪っている。読み取り専用のタブにはマクロを入れないので、そこでは今も「すべて選択」が効く
+- `Mod-Shift-l` は `searchKeymap` の「同じ文字列をすべて選択」と同じキーで、`Prec.high` で奪っている。読み取り専用のタブにはマクロを入れないので、そこでは「すべて選択」が効く
 - **ツールバーのボタン（`components/editor/MacroButtons.vue`）は `mousedown` を止めてフォーカスを奪わない**。記録はエディタに届いた打鍵しか拾わないので、ボタンにフォーカスが移ると記録を始めた直後の打鍵が消える。押したあとは `EditorTab` がエディタへフォーカスを戻す
 - **再生は読み取り専用なら何もしない**（`playMacro` の先頭）。部分読み込み（#362）はビューを作ったあとから読み取り専用になるので、拡張を入れるかどうかでは守れない
 - **再生はキーマップへ流すだけ**（`runScopeHandlers`）。受け手の無い印字キーだけ文字として入れ、そのときも `EditorView.inputHandler` を通す（括弧の自動補完などが打鍵と同じに効く）
@@ -229,9 +184,8 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 選択範囲、無ければファイル全体を整形する。実体は `lib/editorFormat.ts`（判断の正本はあのファイルの doc）。入口は右クリックの「整形 ›」、プリセットのキー（`editorChordsFor` の `format`）、パレット（`APP_ACTIONS` の `format`）の 3 つで、**段取り（種別の解決・区切り文字を聞く・整形・適用・通知）は `runFormat` の 1 つ**。入口を足すときもコンポーネントに段取りを書かない。
 
 - **StatusBar で選んだ言語（手動の上書き）が効くのは右クリックとキーだけ**。パレットは `useOutlineSource` の `langId`（パスから決めたもの）を使う既知の制約
-
-- **HTML / XML / CSS / JavaScript は `js-beautify`**。依存を足した理由は精度（`pre` / `script` / 閉じタグの要らない要素）。**動的 import で使うときだけ読む**（ビルドで約 100KB の別チャンクになることを確認済み）。CommonJS なので、関数が `default` の下に入る読み込み方がある（Node の ESM）。型は同梱されないので `types/js-beautify.d.ts` に使う分だけ宣言した
-- **TypeScript と Vue をファイル種別の自動整形に入れないこと**。`js-beautify` は型引数を `Map < string, number[] >` に崩す（実測）。Vue は `<script lang="ts">` の中身が同じ経路で崩れる
+- **HTML / XML / CSS / JavaScript は `js-beautify`**。依存を足した理由は精度（`pre` / `script` / 閉じタグの要らない要素）。**動的 import で使うときだけ読む**（ビルドで約 100KB の別チャンクになる）。CommonJS なので、関数が `default` の下に入る読み込み方がある（Node の ESM）。型は同梱されないので `types/js-beautify.d.ts` に使う分だけ宣言した
+- **TypeScript と Vue をファイル種別の自動整形に入れないこと**。`js-beautify` は型引数を `Map < string, number[] >` に崩す。Vue は `<script lang="ts">` の中身が同じ経路で崩れる
 - **JSON は `JSON.stringify` で書き直さない**（`reindentJson` が文字の並びだけを見て字下げする）。往復すると 2^53 を超える整数の精度・重複したキー・`1.0` の書き方が黙って変わる。構文の検査にだけ `JSON.parse` を使う
 - **末尾の改行は整形の外に置く**（`formatText` が外して付け直す）。整形器に渡すと落ちるうえ、並べ替えでは空行が先頭へ移る
 - **整形の読み込みを待つあいだに本文が変わったら書かない**（`EditorTab` の `runFormat` が doc の同一性を見る）。変わらなければ dispatch しない（Undo の履歴を汚さない）
@@ -242,338 +196,35 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - 言語パッケージは使うもの（Go, Rust, TypeScript, Vue, YAML 等）だけ import
 - ファイル保存は `Ctrl+S` → `invoke('fs_write_file', ...)`
 
-## Markdown の入力支援（#241）
-- コマンドは `lib/editorMarkdown.ts`、ボタン列は `components/editor/MarkdownToolbar.vue`。ツールバーは **Edit/Split/Preview と同じ行**に入れる（専用の行を足すとエディタの高さが約 28px 減る）。出す条件は `isMarkdown && showEditor && !readOnly`
-- **UI は `MarkdownAction` を emit するだけ**にして、`EditorView` は EditorTab が持ったままにする。ショートカットとボタンが同じ関数を通るので、片方だけ壊れることがない
-- **リスト継続・番号の自動インクリメント・URL 貼り付けのリンク化は書かない**。`@codemirror/lang-markdown` の `markdown()` が既定（`addKeymap` / `pasteURLAsLink`）で `Prec.high` の Enter / Backspace と paste ハンドラを入れており、自前で書くと同じキーを取り合う。**足りないのはトグル**（既存行を箇条書きにする / 外す）だけ
-- **`Mod-k` は binding の `stopPropagation: true` で解決する**。`useKeyboardShortcuts` の window リスナーはバブル段階なので、CodeMirror がそこで止めればグローバル側は無改造で済む（`defaultPrevented` ガードを足すと、他のキーの取り合いまで一括で変わる）。`runHandlers` は **コマンドが true を返したときだけ** `stopPropagation` するので、read-only タブや非 Markdown では `⌘K` は従来どおりショートカット一覧に届く。**取り合いが残っているのは macOS だけ**で、Windows / Linux の一覧は `Ctrl+Shift+/` に移した（#369。理由は `lib/shortcuts.ts` の行の隣）
-- 行単位のトグル（見出し・箇条書き・引用）は **選択全体で 1 つの判定**にする（`markerOf` が全行で一致したら外す）。行ごとに決めると、半分に付いた選択で押したとき付け外しが入り混じる
-- 空行は複数行選択のときだけ飛ばす（段落の区切りに `- ` を足さない）。1 行だけの選択ではリストの開始なので飛ばさない
-- テンプレートのプレースホルダは選択状態で入れる（最初の打鍵で置き換わる）。コードブロックだけは**言語の位置**にカーソルを置く（フェンスは書けても言語は書き手しか知らない）
-- **画像は `composables/useMarkdownImages.ts`**。`.pike/uploads`（チャットとターミナルの置き場）には入れない。あそこは `.gitignore` に `*` があり、ドキュメントが指す画像はドキュメントと一緒にコミットされる必要がある。基準は `project.root` ではなく**そのファイルのディレクトリ**（`tab.path`）と `shellForIO`。無題タブでは挿入できない（置き場所が決まらないので statusMessage で保存を促す）
-  - **プロジェクト内の画像はコピーせず相対パスで参照する**（`../` を含む。`paths.ts` の `relativeFromDir`）。コピーするとリポジトリに同じ画像が 2 つ残る。「プロジェクト内か」は `projectPaths.ts` の `relativeToBase`（区切りを正規化してから比べる。素の前方一致だと `C:/src/pike` と `C:\src\pike` が別物になる）。プロジェクトが無いウィンドウでは「内」の範囲がドキュメントのディレクトリになる
-  - **バイトをフロントに通すのはクリップボードだけ**。ディスク上のファイルは `fs_import_file` で運ぶ。Windows のファイルを WSL プロジェクトへ入れるときも、**宛先を UNC 形で書けば Windows 側の 1 回のコピーで済む**（`wslNativeToUnc`）。`fs_read_file_base64` → `fs_write_file_base64` の往復にすると、画像が base64 で IPC を 2 回渡るうえ、read 側の 10MB 上限が write 側の 50MB と食い違う
-  - **`fs_copy` は使わない**。あれは `std::fs::copy`＝`CopyFileExW` で、**NTFS の代替データストリームまで運ぶ**。ダウンロードした画像には `Zone.Identifier` が付いているので、それを WSL 側へコピーすると 9p にストリームの置き場が無く、隣に `name.png:Zone.Identifier` という**見える実ファイル**ができる（実測）。`fs_import_file` は名前でファイルを開いて本文だけを写す。ツリーのコピー（`fs_copy`）は Windows 内で完結し、ストリームは見えないままなので従来どおりでよい
-  - **ドロップされたファイルは `resolveDroppedPaths` で実パスに戻してから**扱う（タブバーのドロップと同じ仕組み）。戻せなければ持っているバイトで書く。実パスが取れれば上の「プロジェクト内ならリンクだけ」もそのまま効く
-  - ファイル選択ダイアログは Windows のものなので、WSL プロジェクトの中のファイルは UNC 形で返る。`wslUncToNative` で native に直すが、**distro が一致するときだけ**採用する
-  - **書き込みは `useImagePaste` の `saveFileTo` を通す**。あれが `MAX_UPLOAD_SIZE` の番人で、素の `fsWriteFileBase64` を直接呼ぶと上限なしのファイルが base64 で IPC を渡る
-  - `pick_open_file` の拡張子は **Rust 側で英数字だけに絞ってから** PowerShell のフィルタ文字列に埋める（コマンドラインを組み立てる側が検証する）。ダイアログ 3 種の共通部分は `lib.rs` の `dialog` モジュール（`dialog::powershell` が WinForms 側、`dialog::osascript` が macOS 側）
-  - 貼り付けとドロップは `EditorView.domEventHandlers` を **markdown の compartment に載せる**ので、read-only タブと非 Markdown では素通りする。画像以外は `false` を返して CodeMirror の既定に任せる（`pasteURLAsLink` を潰さない）。ドロップ位置は `posAtCoords` でカーソルを移してから挿入する
-  - **複数枚は 1 トランザクションで書く**。1 枚ずつ dispatch すると、直前の挿入が alt テキストを選択したままなので次がその中に入る（`![![b](b.png)](a.png)` になる）
-  - **ファイルツリーからのドロップは `text/plain` を読む**が、パスに見えるか（`isAbsolutePath`）を確かめてから信じる。あのスロットは 4 つのパネルが別々の語彙で使っていて、他アプリから `foo.png` という文字列をドラッグしただけでも届く
-- **表は形を先に聞く**（行数・列数）ので、固定テンプレートの `block` ではなく独立した action kind。UI はブロックメニューの中身をフォームに差し替える形で、メニューを閉じると `picker` を戻す。**見出し行は必ず入れる**: GFM に見出しの無い表は無く（区切り行はそもそも見出しの下にしか置けない）、セルを空にすると本文の上に空の帯が出るだけなので、見出しの有無を選ばせる余地がない。指定する行数は見出しを除いた本文の行数
-- **貼り付けた URL のタイトル取得（#241）は `composables/useMarkdownLinkPaste.ts`**。受け持つのは「カーソルだけの位置に裸の URL を貼った」場合のみで、**選択範囲があるときは触らない**（`pasteURLAsLink` の担当で、作者が自分で書いた文字のほうが取得したタイトルより良い）
-  - **URL を先に入れて、タイトルは後から差し替える**。取得を待ってから挿入すると、貼ったのに数秒何も起きない見た目になる。失敗しても「ただの URL が貼られた」で終わり、undo 1 回で素の URL に戻る
-  - **差し替え位置は `StateField` で追跡する**（`editorGitGutter.ts` の `diffField` と同じ形）。取得の最中に作者が上の行を編集しても位置がずれない。素朴に from/to を覚えると別の場所を壊す。差し替え前に `sliceDoc` で中身が URL のままかを確かめる
-  - **`mapPos` の assoc は `from` に +1、`to` に -1**（既定の向きの逆）。境界に入った文字を範囲の**外**へ置くための指定で、既定のままだと両端が貪欲になる。貼った直後のカーソルは `to` にあるので、取得を待つあいだに書き続けるという最も自然な操作で打った文字が範囲に入り、`sliceDoc` の確認に引っかかってタイトルが黙って入らない
-  - **カーソルが複数あるときは見送る**。`replaceSelection` は全部の位置に入れるので、main から求めた 1 つの範囲では差し替え先が決まらない
-  - **「聞いた」の記録はダイアログの答えが返ってから**。先に書くと、続けて 2 本目を貼ったときに「もう聞いた」と誤認し、Escape で閉じた場合は二度と提案されなくなる。同時に貼られたぶんは 1 つのダイアログを共有する
-  - 取得中の表示は**件数を数える**（StatusBar は 1 つしかないので、先に終わったぶんが hide すると、まだ動いている取得の最中に「何もしていない」表示になる）
-  - **既定は OFF で、最初の 1 回だけ有効化を提案する**。これは Pike が作者の代わりに任意のホストへ通信する唯一の機能なので、黙って有効にしない。聞いたかどうかは `pike:link-title-asked`（マシンローカル）に持ち、設定そのもの（`markdownFetchLinkTitle`）は同期対象にする（どのマシンでも同じ判断でよいため）
-  - **無効なときは貼り付けに触らない**。OFF（かつ提案済み）なら `false` を返して CodeMirror の既定に任せる。常に横取りして自前で挿入する形だと、既定 OFF の常用パスが素の貼り付けの再実装になる。提案がまだのときも横取りせず、素の貼り付けをさせてから聞き、承諾されたら既に入っている URL をそのまま追跡対象にする
-  - **`extension` はハンドラと同じ markdown の compartment に入れる**。基本の拡張リストに置くと、Markdown でないタブや読み取り専用タブ（pending が入りようのないタブ）でも打鍵のたびに `update` が走る。`update` 自身も、何も待っていなければ即座に戻す（空配列を毎回 map しない）
-  - **paste ハンドラの順は画像が先**。ファイルを伴う貼り付けはあちらの担当で、URL の判定まで行かせない。返り値の規約（受け持たなければ `false`）は `useMarkdownImages` と同じ
-  - リンクの文字列は `editorMarkdown.ts` の **`markdownLink`**（`markdownImage` の対）で作る。宛先のエスケープの判断は `toLinkTarget` にあり、呼び出し側で組み立てるとそれが効かない。URL の判定は同ファイルの **`isHttpUrl`** に寄せてある（ツールバーの `clipboardUrl` と貼り付けで許容する文字が割れると、通る URL が食い違う）
-  - **一行に畳むのは Rust の責務**（`collapse_whitespace`）。フロント側は角括弧のエスケープだけを持つ
-  - **外部ホストへの取得は `http.rs` に集約**。呼び出し元は 2 つ（画像 #239 / タイトル #241）で方針は本当に違う（リダイレクト・スキーム・不完全な本文の扱い）が、仕組み（TLS プロバイダ・クライアントの使い回し・`Content-Type` の分解・上限付き読み）は同じ
-    - **クライアントを毎回組み直さないこと**: rustls の設定とトラストアンカーを読み直すので、同じホストへの 2 回目も TLS ハンドシェイクからやり直しになる（`docker/mod.rs` が `OnceCell` を持つのと同じ理由）。ただし**失敗はキャッシュしない**（`.ok()` を `get_or_init` に入れると、最初の 1 回の失敗がプロセスの寿命ぶん残り、再起動するまで直らない）
-    - **途中で切れた本文を握り潰さないこと**。`Partial::Fail` の側（画像）は上限超過も通信断も失敗にする。`Ok` で返すと呼び出し元が完全な本文と区別できず、欠けた画像が data URL として `externalImages` のキャッシュに載る。再試行のチップは null のエントリしか消さないので、壊れた画像が残り続ける
-  - Rust 側は `page_title.rs`。**charset は BOM → ヘッダ → `<meta>` → UTF-8 の順**（UTF-16 のページは `<meta>` すら ASCII として読めないので BOM が最初でないと後ろ 2 つが効かない）。**数値実体参照（`&#8211;` / `&#x2019;`）を必ず戻す**: CMS の `<title>` に普通に入っていて、残すと `[Post Title &#8211; Site]` がそのまま文書に書き込まれる。**`<meta charset>` は最初の `charset` という語で打ち切らない**（コメントや `data-charset` 属性が先に来ると宣言を見落とし、この関数が防ぐはずの文字化けが起きる）
-  - `remote_image` と違い**リダイレクトを追い、http も許す**（承認ホストの一覧が無いので不追従にする意味が無く、短縮 URL が普通に来る）。守るのは timeout / 512KB / `text/html` / 5 ホップまで。**charset を見る**のが要点で、Shift_JIS や EUC-JP のページを UTF-8 で読むと化けたタイトルが文書に書き込まれる。ヘッダ → `<meta charset>` → UTF-8 の順
-  - 失敗は全部 `Ok(None)`。URL は既に文書にあるので、呼び出し側が区別する意味が無い
-- **折り返しはタブ単位で上書きできる（#241）**。`EditorTab.vue` の `wordWrapOverride`（null = 設定に従う）で、実効値は `wordWrapOn`。分割表示でエディタ側が半分の幅になるときのための機能なので、タブに属するのが正しい。タブのコンポーネントは `v-show` で生き続けるから component-local な ref で足り、`viewMode` と同じ寿命になる（セッションには残さない）。一度触ったタブは以後その値のままで、設定変更に追従しない（戻すのはボタン 1 回）
-  - **プレビューにも同じ `wordWrapOn` が効く（#367）**。プレビューのペインに `wrap` の class を付け、CSS で `pre`（JSON も `<pre>`）と表の `white-space` を戻し、長い値の割り方は容器の `overflow-wrap: break-word` 1 つで継承させる。**`anywhere` にしないこと**（表の列が 1 文字幅まで潰れる。理由は CSS の隣のコメント）。**`previewHtml` に混ぜないこと**: 混ぜると切り替えのたびに HTML を作り直し、mermaid の再描画とローカル画像の読み直しが走る
-  - **ミニマップも同じ形（`minimapOverride` / `minimapOn`、#282）**。隣にボタンを並べるので、片方だけ設定を直に触る作りにすると、並んだ 2 つで効き方が変わる。ボタンは `components/editor/` の `WrapToggle.vue` と `MinimapToggle.vue` で、**見た目は `theme.css` の `.editor-toggle` を共有する**（プレビュー付きツールバーとパンくずヘッダは別のボタン様式を持つので、どちらに置いても同じに見えるには親に合わせないほうが早い）。**2 つのヘッダは排他表示なので、ボタンを足すときは両方に置く**（片方だけだと目視で気付けない）
-- 脚注は本文に `[^n]`、**ファイル末尾**に定義行を足してカーソルを定義側へ移す。`n` は既存の `[^数字]` の最大値 + 1
-- **プレビューの脚注は `lib/markdownFootnotes.ts`（marked 拡張）**。marked は GFM 脚注を持たず、しかも素通しにならない: `[^1]` は**注釈本文を href に持つリンク**になり、定義行はリンク定義として消える。EditorTab は自前の `new Marked(footnotes())` を持つ（グローバルの `marked.use` にすると他のプレビューにも入る）
-  - 定義は**書かれた場所にそのまま描く**（末尾に集めない）。ツールバーもユーザーもファイル末尾に足すので位置は同じで、トークンをまたぐ集計が要らない
-  - **block の `start` は「行頭の定義」だけを返す**。marked は `start` に**先頭 1 文字を除いた src** を渡し、`index + 1` で段落を切る。`/^\[\^/m` にすると行の途中のオフセットを返してしまい、段落が 2 つに割れて再結合のときに改行が紛れ込む（`` `[^x]` `` のコードスパンの中に空白が 1 つ増える、という形で出た）
-  - 番号は**登場順**に振り、`hooks.preprocess` でパースごとにリセットする（プレビューは打鍵のたびに作り直される）。`id` を持つのは最初の参照だけ（同じ id を 2 回出さないため）
-- 「Markdown か」の判定は **`paths.ts` の `isMarkdownPath`** を通す。拡張子ごとの言語は `languages.ts` の `EXT_MAP` が正本で、`.markdown` もそこに足してある（構造が違うので述語には畳めない。片方だけ `.markdown` を知っていたせいで「ツールバーは出るのに Enter の継続が効かない」が起きた）。`lib/outline/index.ts` の `EXTRACTORS` は種別のキーで引く別の形なので通していない
-- **プレビューの marked インスタンスは 2 つ**（`markedPlain` / `markedFootnotes`）で、`parserFor` が本文に `[^` があるかで選ぶ。block 拡張を 1 つでも登録すると marked は `startBlock` の経路に入り、**段落ごとに残り全文をコピーする**（文書サイズに対して二次オーダー）。マニュアルを連結した実測で 49KB +13% / 390KB +136%。プレビューは打鍵のたびに作り直されるので、脚注を使わない文書にこれを払わせない
-- **Save As は `tab.path` を書き換えるだけでビューを作り直さない**ので、ファイルの種類で決まるものは `tab.path` の watcher で張り直す。対象は**言語（`languageCompartment`）・入力支援のキー（`markdownCompartment`）・アウトラインの登録（`registerOutlineSource`）の 3 つ**。言語を入れ忘れると、無題バッファを `notes.md` として保存したときに「ツールバーとショートカットは効くのにハイライトも Enter の継続も無い」という半端な状態になる（Enter の継続は `@codemirror/lang-markdown` が持ち込むため）。アウトラインは登録時の path を焼き込むうえ、そのタブは既に active なので activeTabId の watcher では張り直されない
-  - **compartment を 1 つにまとめないこと**。2 つは拡張リスト上の位置が違い、その順序が効いている: `defaultKeymap` が `Mod-i` を `selectParentSyntax` に割り当てているので、入力支援の keymap は**それより前に登録されている**から勝てる。言語は従来どおり最後
-  - diff ガター・Problems・ミニマップ・定義ジャンプは path を遅延で読むので張り直し不要（`hasFile` は無題バッファでも真になる）
-
-## プレビュー拡張
-- CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）
-  - CSV/TSV: `lib/csvPreview.ts` でテーブル化（RFC 4180 準拠の引用符対応パーサ、sticky ヘッダ）。**ページ送り・表示件数（設定 `csvPageSize`）・並べ替え**を持つ
-    - **行はセルに分けないまま持つ**（`CsvRow.line`、分けるのは `cellsOf`）。本文は打鍵が止まるたびに読み直すので、全行をセルに分けると数 MB の CSV で編集が重くなる。分けるのは描くページの行・並べ替えの列・全体や列のコピーのときだけ
-    - 表示件数は全タブ共通の設定なので、変わったら**どのタブもページを先頭に戻す**（同じページ番号が別の行を指すため）
-    - **列の番号は `#` 列を数えない 0 始まりで統一する**（並べ替え・選択・右クリックのメニュー）。DOM のセルの位置（`#` 列が 0）から直すのは `useCsvSelection` の `domCol` だけ。表示件数の選択肢と既定値は `lib/csvPreview.ts` が持ち、設定ストアはそれを読んで検証する（`SHORTCUT_PRESETS` と同じ向き）
-    - **読み込み（`parseCsv`）・並べ替え（`sortCsvRows`）・1 ページの HTML（`renderCsvPage`）を分けてある**。EditorTab の computed も `csvData` → `csvRows` → `previewHtml` の 3 段で、ページを動かしても本文を読み直さない。以前は先頭 10,000 行を毎回 HTML にし、後ろは表示していなかった
-    - ページ送り・並べ替えのボタンは `v-html` の中に描き、`data-csv-*` の印で受ける（`handleCsvControls` / `onPreviewChange`）。**見出しのクリックは列の選択**なので、並べ替えはその中の小さなボタンと右クリックのメニュー。向きの記号は CSS の `::after`（文字にすると見出しのセルのコピーに混ざる）
-    - 並べ替えは空のセルを向きに関係なく末尾、数として読めるセルは数として比べる。並べ替えはタブごとで保存しない
-    - **選択のコピーは描いた表ではなく読み込んだデータから組み立てる**（`useCsvSelection` の `source`）。全体と列は全ページぶん、行はページの中の位置。ページ・並べ方・件数が変わったら選択を捨てる。**全ページぶんをコピーすることはページの帯に書いてある**（`csv.copyAllPagesHint`）。見えている範囲とコピーされる範囲が食い違うため
-    - **列・行の選択は `composables/useCsvSelection.ts` が自前で持つ**（ブラウザの文字選択は文書の並びに沿った 1 本の範囲で、1 列だけを選べない）。印は class で付け、`v-html` で作り直されたら `paint` で付け直す。コピーは `lib/text.ts` の `joinTsv`
-    - **表の上の右クリックは自前のメニュー**（`onPreviewContextMenu`。全体・行・列の選択とコピー）。WebView の既定のメニュー（戻る・再読み込み・検証）は Pike では意味を持たない。行・列は右クリックしたセルのもの（`locate`）
-  - **`Ctrl+A` はフォーカスのあるペインの中だけを選ぶ**（`useKeyboardShortcuts` の `selectAllInPane`）。素のままだと、フォーカスを持たない面（プレビュー・diff・マニュアル・サイドバーのパネル）で押したときに WebView の文書全体（サイドバーやタブバーまで）が選ばれる。入力欄・CodeMirror・xterm は自分の全選択を持つので既定に譲る。**プレビューだけを直す形にしないこと**: 同じ穴はフォーカスを持たない面すべてにある
-  - **プレビューは `tabindex="-1"`**（クリックでフォーカスを持つ）。CSV の列・行の選択のキー（`Ctrl+A` で表全体・`Ctrl+C`・`Esc`）はペインの `@keydown`（`onPreviewKeydown`）で受け、`preventDefault` した `Ctrl+A` はグローバル側が素通しする。「フォーカスは body だから多分プレビュー」と推測する形は、フォーカスを取らない面が増えるたびに条件が要る
-  - **reStructuredText（#284）**: ハイライトは `codemirror-lang-rst`（CM6 に公式のものが無いので入れた外部パッケージ。依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる）。プレビューは `lib/rstPreview.ts` の `buildRstPreview` で**自前**。判断の実体はあのファイルの doc コメントが正本だが、要点は次のとおり:
-    - **変換器を入れなかったのは、#284 の時点で選択肢が悪かったから。** 当時の JS の rst → HTML は `rst2html`（2017 年）と `restructured`（2016 年）くらいで、後者は `power-assert`（650KB）と `commander`（207KB）を production dependencies に持つ
-    - **その前提はもう古い（2026-09-01）。** `rst-compiler`（純 TypeScript・MIT・現役）が実用水準にある。`shiki` と `katex` を抱えるので見送っているだけで、**運用して不具合が続くようなら依存が太るのを許容して載せ替える**。Rust 側（`rust_parser` / `rst_renderer`）は完成度が変わらず、しかも「Rust は I/O ブリッジに徹する」に反して打鍵のたびに IPC を往復するので採らない。詳細は `lib/rstPreview.ts` の冒頭が正本
-    - **解釈できなかったものは捨てずに字面のまま出す**（セル結合のある表、`toctree` / `math` のような未対応ディレクティブ、扱えなかった置換定義）。**本文から消してよいのは真のコメント・リンク定義・差し替えられた置換定義だけ**で、`..` の分岐はそれ以外の明示マークアップ全部の受け皿でもある（脚注・引用・置換をここで捨てていたのが実際のバグだった）。見た目は `md-preview` を共有し、rst 固有の要素（アドモニション・フィールドリスト）だけ `rst-preview` 側で足す
-    - **置換記法（#302）は `replace` と `image` だけ差し替える。** 扱える種別の出典は
-      `SUBSTITUTION_RENDERERS` の表 1 つで、定義行を本文から消してよいかの判定もそこを引く
-      （2 箇所に分けると、片方だけ増やしたときに定義が差し替えも字面も無いまま消える）。
-      半端に解けた値を採用しない理由と、循環の止め方は `collectContext` の `resolveSub` の
-      doc コメントが正本
-    - **`.. meta::` は本文ではなく文書のメタデータ**（docutils は `<meta>` タグにする）なので、折り畳みの表にして先頭へ出す（#302）。集める先を持てるのはルートの呼び出しだけなので、入れ子（アドモニションの中など）では拾わず従来どおり字面で出る
-      - **Markdown のフロントマター（#229）と同じ `details.frontmatter` を使う**ので、CSS も開閉状態の復元（`trackFrontmatterToggle`）もそのまま効く。**あの watcher を Markdown 限定に戻さないこと**（打鍵のたびに開いた状態が閉じる）。CSS は `EditorTab.vue` の `.md-preview :deep(.frontmatter > …)` という子結合子なので、**Markdown 側でこのマークアップの入れ子を変えると rst のメタデータが黙って素の `<details>` に戻る**
-    - **脚注と引用は Markdown プレビューの脚注（#241）と同じ HTML 構造で出す。** `md-preview` の CSS がそのまま当たるので、rst 側に見た目を書かずに済む。定義は**書かれた場所に描く**（`buildRstPreview` は入れ子でも呼ばれるので、末尾に集める先を決められない）
-    - **エスケープ済みかどうかは `lib/text.ts` の `Html` 型で持つ。** 生の文字列を属性へ差し込む経路がコンパイルエラーになる。セキュリティレビューで実際に見つかったのがこの穴（`anchor` が引用符を戻していて属性から抜けられた）で、散文のコメントでは守れなかった
-    - **表は 4 種（grid / simple / `list-table` / `csv-table`）に対応する。** 桁の切り出しは `lib/displayWidth.ts` の `sliceByWidth`（rst の表は**表示幅**で桁を合わせるので、`slice` を code unit で行うと全角を含む表が崩れる）。同ファイルの `displayWidth` は diff タブの横幅の見積もり（#272）から切り出したもので、2 つの消費者が同じ数え方を共有する。**セルの結合には対応しない**: grid の途中の罫線で境界の桁が埋まっていたら結合とみなし、`null` を返して字面のまま出す側へ落とす
-  - Mermaid (`.mermaid`/`.mmd`): `renderStandaloneMermaid` が `lib/mermaid.ts` の `getMermaid()` を遅延 import して SVG 描画（ズーム対応）
-  - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
-  - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
-- **プレビューの検索（#360）**: `Ctrl+F` でプレビューの右上に `components/editor/FindBar.vue`（diff タブと共有）を出す。一致の求め方と強調は `lib/domFind.ts`、数え直しの契機は `composables/usePreviewFind.ts`。判断の実体はその 2 ファイルの doc が正本
-  - **相手は描画済みの DOM**。`v-html` のあとに mermaid・画像のチップが非同期に書き足されるので、`previewHtml` ではなく DOM の変化の監視（MutationObserver）で数え直す。**数え直しでは動かさない**（分割表示で打鍵のたびにプレビューが飛び、スクロールの同期でエディタまで動く）
-  - **強調は CSS Custom Highlight API**（`::highlight(pike-find)` は `theme.css`）。`<mark>` で DOM を書き換えない。登録表は文書に 1 つなので、タブごとの範囲を `domFind.ts` のモジュールに集めて登録し直す。API の無い WebView では強調が出ないだけで、件数と移動は効く
-  - **分割表示ではエディタにフォーカスがあれば CodeMirror の検索に譲る**（判定は `EditorTab.vue` の `onGlobalKeyDown`）
-  - **`scrollIntoView` を使わない**（`overflow: hidden` の祖先まで動かす）。`revealRange` がコンテナまでのスクロール要素だけを動かす
-- **HTML のプレビュー（#399）**: `components/editor/HtmlPreview.vue` がブラウザのタブ（#368）と同じ子 webview を Preview / Split の枠に重ね、Rust の `html_preview.rs` が `pike-preview` のスキームで配信する。判断の実体は 2 つのファイルの doc が正本
-  - **WSL のファイルは distro の中で読む**（`realpath`・範囲の確認・`cat` を 1 本の `wsl.exe` に束ねる。`fs::read_raw_bytes` は stat と cat で 2 本起こすので、資源の多いページで遅い）。`file://`（module と `fetch` が CORS で通らない）と asset protocol（WSL を UNC 越しの `std::fs` で読む）を採らなかった理由はそれ
-  - **ページは任意の JS を動かす**ので、ルートの下でも `.` で始まる名前（`.git` / `.env`）と、実体がルートの外にあるもの（symlink を解決してから確かめる）は返さない。**CSP は付けていない**（外の CDN を読むページを壊さないため）ので、読めたものを外へ送ることは止めていない。守りは「読めるものを絞る」側にある
-  - **返してよいかは要求した webview のラベルで決める**（`PreviewState`）。ハンドラはアプリ全体に効くので、ブラウザのタブで開いた外部のページも `http://pike-preview.localhost/` を要求できる。**URL にルートやプロジェクト id を載せないこと**（当てれば読める形になる）
-  - **ラベルは `browser-preview-{uuid}`**。`browser-` の下に置いたので、位置合わせ・再読み込み・閉じるはブラウザのタブのコマンドを使う。**capability に足さない**（ブラウザのタブと同じく対象外に置く。`browser.rs` のモジュール doc）
-  - **仮想ファイル（`__pike/` の下）は #397（Vue SFC のプレビュー）の前提**。フロントが作った入口の HTML やコンパイル結果をディスクより先に同じ origin で返し、相対パスの CSS や画像はディスクへ落とす。置き直すのは `preview_set_files` → `browser_history(reload)`
-  - **重ねる・隠す・閉じるは `composables/useChildWebview.ts`**（ブラウザのタブと共有）。位置合わせの直列化、変わらなければ送らない、隠すときはフレームを待たない、手前に浮くものと Git パネルで隠す、の 4 つがあそこにある。**子 webview を使う 3 つ目を足すときも書き写さない**
-  - **描くのは保存したファイル**。描き直しの契機は配信ルートの下の `fs_changed` で、`isRecentlySaved` は読まない（印を消費するのは App.vue だけ）
-    - 監視で拾うのは**ページが読みうる拡張子**だけ（エージェントが `.ts` を書くたびに描き直し続けない）。`node_modules` などは監視の側（`IGNORED_DIRS`）が最初から捨てているので、ここで写しを持たない
-    - **監視は今の `activeRoot` しか見ない**。配信ルートがその範囲に入っていない（プロジェクトの外の HTML、別プロジェクトで保持中のタブ、worktree の切り替え）ときだけ、`EditorTab.save()` の直後に描き直し、範囲から外れていたら戻ったときに 1 回描き直す。**範囲の中では保存の側から描き直さない**: Rust の監視は最長 1 秒まとめてから送るので、畳めずに 2 回描き直す
-    - Save As で `path` が変わったら子 webview を作り直す（配信のルートと入口は作った時点で固定）
-  - ページのスクリプトがリンクを連打してもタブが溢れないよう、ブラウザのタブへ逃がすのは 1 秒に 1 回まで。**Rust の側で間引く**（押されたかどうかが分からないことを知っているのはあちらで、振り替えの唯一の出口でもある）
-  - **配信の登録の後始末はブラウザのタブの側に持ち込まない**。次の `preview_open` が、もう無い webview のぶんを落とす（閉じた知らせを受ける口を持たない）。`browser_close` からプレビューを知る形にすると、依存が循環する
-  - DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）を外す判定は `EditorTab.vue` の `webviewPreview` 1 つ。#397 もここに条件を足す
-  - プレビューの中のリンクは Rust の `on_navigation` で止め、`browser_new_tab` でブラウザのタブへ逃がす
-- Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
-- **Markdown フロントマター（#229）**: `lib/frontmatter.ts` の `detectFrontmatter` が範囲を返し、`lib/frontmatterParse.ts` の `parseFrontmatter` が `yaml` / `smol-toml` / `JSON.parse` で key/value に落とす。プレビュー（`buildMarkdownPreview` が `marked.parse` の前に本文を切り出して `<details>` の表を前置）とアウトライン（`extractors/markdown.ts` が `bodyFrom` より前の見出しを捨てる）で**範囲検出だけ**を共有する（描画経路がテキストと Lezer 構文木で別のため）
-  - **ファイルを 2 つに割っているのはバンドルの都合**。`lib/outline/index.ts` が 18 個の extractor を静的 import で 1 チャンクに束ねるので、パーサを同居させると YAML/TOML パーサ（合わせて約 106KB）が Go や Rust のアウトラインにも載る。実測で outline チャンクが 267KB → 161KB。`frontmatter.ts` は依存ゼロを保つこと
-  - **パース失敗は理由（`reason`）で返し、文言はプレビュー側で当てる**。`t()` をパーサに置くと、`not-mapping` だけ日本語で `yaml` クレート由来のメッセージは英語のまま、という食い違いになる
-  - **切り離さないとフロントマターが `<h2>` に化ける**。CommonMark では水平線と setext 見出しが両方成立するとき setext が勝つので、開きの `---` が見出し本文、閉じの `---` がその下線になる。marked のバグではない。アウトラインに出ていたのも Lezer が同じ判定で `SetextHeading2` を作るため
-  - **判定はファイル 1 行目のデリミタだけ**。フロントマターに仕様は無く（Jekyll 発祥の慣習で、CommonMark にも GFM にも規定がない）実装ごとに差があるので、文書の途中の `---` を拾わない線引きに寄せる。YAML `---` / TOML `+++` / JSON `{`（Hugo。フェンスが無いので波括弧の釣り合いで終端を決める）の 3 つ
-  - 閉じデリミタが無ければフロントマター無しとして扱う。BOM は不可視のまま全オフセットをずらすので先に長さを測る
-  - **パース失敗は握り潰さず生テキストを `<pre>` で出す**（黙って消すと本文が消えたようにしか見えない）。この場合だけ `<details>` を開いた状態で出す
-  - 開閉状態は `frontmatterOpen`（**ref ではなく素の変数**）に持ち、`trackFrontmatterToggle` が描画のたびに DOM へ復元する。`previewHtml` は編集のたびに HTML を作り直すので DOM 側だけに置くと打鍵で閉じるが、reactive にすると開閉のクリックごとに `previewHtml` が無効化され、mermaid の再描画とローカル画像 1 枚につき 1 回の IPC 読みが走る
-- **外部ドメインの画像（#239）**: README のバッジを出せるようにするためのドメイン単位のオプトイン。**CSP は広げない**（`img-src` は `'self' data: blob:` ＋マニュアル用の raw.githubusercontent.com のまま）。承認済みホストの画像だけ `remote_image_fetch` で取ってきて `data:` URL にする。承認は `settings` の `allowedImageHosts`（`pike:settings` に載るので同期・クロスウィンドウ broadcast の対象）
-  - **CSP を `https:` まで広げる案は採らなかった**。CSP は文書単位なので、プレビューのために緩めると**SVG プレビューとマニュアル**まで一緒に壁を失う。代わりに `resolveMarkdownImages` が**ローカル画像で既に使っている `data:` URL 化**に相乗りさせた（`fs_read_file_base64` の隣に `remote_image_fetch` を置いた形）
-  - この分担だと**実際に遮断しているのは CSP で、フロントの処理は見た目だけ**になる。取りこぼした経路があっても壊れた画像が出るだけで、黙って通信が飛ぶことはない
-  - **画像の解決はすべて `resolveMarkdownImages` の 1 パス**。ローカルと外部を分けると、同じ `<img>` を 2 回走査したうえに「どちらが後に src を書いたか」に依存する。読み込みは `Promise.all` で並列（遅いホストが隣の画像を待たせない）
-  - **`srcset` と `<picture><source>` は落とす**。ブラウザは `src` より先にそちらを見るので、残すと解決した `src` が使われない。挿入後に落として構わない（CSP が既にリクエストを止めている）
-  - 対象は `https:` だけ。`http:` はバックエンドが弾くので承認する意味がなく、チップも出さない
-  - **ローカル画像の解決は `resolveLocalImage` の 3 つのガードで決まる（#241）**: 拡張子の判定の前に `?` / `#` 以降を落とす、`paths.ts` の `isEmbeddableImage`（＝`isImageFile` + svg）で見る、`/` で始まる src はプロジェクトルート起点にする。**`IMAGE_EXTS` に svg を足さないこと**（あれはタブの振り分け用で、`.svg` は EditorTab で開く仕様）。`<img>` の中の SVG はスクリプトも外部参照も走らない（secure static mode）ので、`.svg` タブ側のサニタイズは要らない
-  - **取得結果はモジュールレベルでキャッシュする**（`lib/externalImages.ts`）。プレビューは打鍵のたびに作り直すので、無いとバッジを打鍵ごとに取りに行く。**失敗も覚える**（死んだ URL を同じ頻度で叩かないため）。チップのクリックが `retryRemoteImage` でその 1 件だけ忘れる
-  - チップの文言は DOM に焼き込まれるので、再適用の watcher は許可リストと `locale` の 2 つ。**`previewHtml` は許可リストに依存させない**（依存させると承認のたびに mermaid の再描画とローカル画像 1 枚につき 1 回の IPC 読みが走る）
-  - **許可は同期対象にしてある**: バッジのホストを信用したという判断はマシンに依存しない（`globalShell` 等のマシンローカル扱いとは別）
-  - Rust 側のガードは https / **リダイレクト不追従** / `image/*` / 15 秒 / 8MB の 5 つ。**どのホストを許すかは持たない**（承認リストとダイアログはフロントの持ち物）。リダイレクトを追わないのはフロントの判定を意味あるものに保つため（追うと `img.shields.io` を許可したつもりが 302 で任意のホストへ飛べる＝承認したホストと応答するホストがずれる）。解決先アドレスの制限（loopback / RFC1918 / link-local）は**入れていない**: 社内の画像サーバーを指す README は実在するうえ、ホスト名を出したダイアログで承認させている。入れるなら解決したアドレスを接続に固定するところまでやらないと、リテラル IP を弾くだけで rebinding は通る。TLS プロバイダは updater と同じ ring を明示的に入れる（updater は自分がクライアントを組むときにしか入れないので、更新確認より先に画像を取ると provider 無しで落ちる）
-- 画像: `PreviewTab.vue`（base64 dataUrl を `<img>` 表示）。上部ツールバーで**表示専用**（ファイルは無変更）のビューワ操作を提供:
-  - 拡大 / 縮小 / 100% / ウィンドウに合わせる（fit）、左右 90° 回転・左右反転
-  - スクロールコンテナは flex 中央寄せを使わず**ステージ側 `margin: auto`** で中央寄せ（`align-items: center` だと画像がビューポートより大きいとき上端がスクロール領域外に押し出され到達不能になる不具合を回避）。スクロール領域は**回転後のバウンディングボックス**（`stageW`/`stageH` computed）が駆動
-  - ズームは transform scale ではなく img の width/height で表現し、回転・反転は `translate(-50%,-50%) rotate() scaleX()` の transform で適用
-  - `applyZoom` がズーム前後のスクロール比から `scrollLeft/Top` を補正し、カーソル（または中央）位置を固定。Ctrl+ホイールズーム / ドラッグでパン（`canPan` 時のみ、グローバル mousemove/mouseup は `onUnmounted` でも除去）/ ダブルクリックで fit⇔100%
-  - キーボード（canvas に `tabindex="0"`）: `+`/`-` ズーム、`0`=100%、`f`=fit、`r`/`Shift+R`=回転。透過グリッド（チェッカーボード）背景の切替、画像実寸（W×H）表示。ツールバー文言は `preview.*` i18n（日英）
-- PDF: `PdfTab.vue`（`<iframe src="data:application/pdf;base64,...">` による WebView2 内蔵レンダリング）
-- ファイルツリー `openFile()` が拡張子で画像→PreviewTab / PDF→PdfTab / その他→EditorTab を振り分ける
-
 ## ファイル/画像ペースト
 - `composables/useImagePaste.ts`。クリップボード/D&D のファイルを `.pike/uploads/` に保存 → ターミナルへ相対パスを挿入する。画像専用ではなく**任意のファイル**が対象（PDF 等も可）
-- **Markdown エディタはここを通さない**（#241）。ドキュメントが指す画像は `.pike/uploads`（gitignore 済み）ではなくファイルの隣に置く。詳細は「Markdown の入力支援」を参照。共有しているのは書き込みの primitive `saveFileTo`（`MAX_UPLOAD_SIZE` の番人）とファイル名生成だけ
+- **Markdown エディタはここを通さない**（#241）。ドキュメントが指す画像は `.pike/uploads`（gitignore 済み）ではなくファイルの隣に置く。詳細は `preview.md` の「Markdown の入力支援」。共有しているのは書き込みの primitive `saveFileTo`（`MAX_UPLOAD_SIZE` の番人）とファイル名生成だけ
 - 判別は **file か string か**（`ClipboardEvent` は `item.kind === 'file'`、D&D は `dataTransfer.files`）。テキスト（string）は長さに関係なくインライン貼り付けのまま
 - 保存ファイル名は元名を保持（`stem-{hex}.ext`、衝突回避）。名前を持たないクリップボード blob（画像等）は `upload-{ts}-{hex}.{ext}` を生成
 - 初回保存時に各プロジェクトへ `.pike/.gitignore`（中身 `*`）を書き込み、退避ファイルを repo から除外
-- 小ファイルのインライン展開（`inlineSmallTextFiles` / `tryInlineFile`）は **AgentChatTab 限定**だったので、#275 で一緒に落とした。ターミナルへのドロップは元から常にアップロードで、そちらは変わらない
+- ターミナルへのドロップは常にアップロード（小さいファイルを本文としてインライン展開する経路は持たない）
 - xterm は Ctrl+V を SYN(`\x16`) として食うため `attachCustomKeyEventHandler` で横取り。右クリック/Ctrl+V は `navigator.clipboard.read()` 経由だが、この API は**画像とテキストのみ**返す（任意ファイルは取得不可）→ ターミナルへの任意ファイル投入は D&D が主経路
 - ファイルツリー / OS からのドラッグ&ドロップにも対応
 
-## ファイル監視 (File Watcher)
-- Windows プロジェクト: `notify` クレート（v7）で `ReadDirectoryChangesW` ベースの再帰監視
-- WSL プロジェクト: `wsl.exe inotifywait -m -r` を長寿命サブプロセスとして起動（**`inotify-tools` が必須**）
-  - **落ちたことは stderr でしか分からない（#385）。** 起こすのは `wsl.exe` なので、distro の
-    中に `inotifywait` が無くても **spawn は成功する**（子が終了コード 1 と
-    `execvpe(inotifywait) failed: …` を残して消えるだけ）。以前は stderr を捨てていたので
-    監視が始まらなかったことが誰にも届かず、**ファイルツリーに置いた案内も一度も出て
-    いなかった**。いまは stderr を読み、子が終わったら `fs_watch_failed` で知らせる
-  - 理由は Rust が当てる（`classify_watch_failure`）。`MissingTool` はダイアログで
-    インストールを提案し（`askToInstallInotify`。聞くのはシェルの導入単位ごとに 1 度で、
-    **他のダイアログが開いていたら譲る・記録は答えのあと**＝`useAgentHookPrompt` と同じ
-    作法）、残りはパネルと設定画面の帯に出す
-    - **`wsl.exe` が出す綴りは 1 つではない**（#396）。`CreateProcessCommon:818:
-      execvpe(inotifywait) failed: …` と `CreateProcessEntryCommon:502: execvpe
-      inotifywait failed 2` の両方を実測した。括弧まで含めて見ていたころは後者が
-      `Other` に落ち、**インストールの導線の代わりに生の WSL のエラーが帯に出ていた**。
-      関数名も括弧の有無も WSL の版で変わるので、`execvpe` とコマンド名の同居で見る
-  - **理由は enum で持つ**（`WatchFailReason`）。この値は Rust の分類器・TS の union・
-    i18n のキー（`watcher.<reason>`）の 3 か所を渡り歩くので、`&'static str` だと 4 つ目を
-    足したときにどこも照合してくれない（`translate` は知らないキーをそのまま返すので、
-    帯にキー文字列が出る）。serialize は camelCase で、**綴りは Rust 側が正本**
-  - **提案と実行を分ける**（`installInotify`）。帯のボタンが出ている時点で提案は必ず
-    済んでいるので、提案の側へ繋ぐと「聞いたか」の記録に当たって**押しても何も起きない
-    ボタン**になる
-  - **「聞いた」の記録は `lib/storage.ts` の `loadAskedKeys` / `rememberAskedKey`**。
-    **書く直前に読み直す**のが共有している理由で、ダイアログを開く前に読んだ配列を
-    そのまま書き戻すと、待っているあいだに別のウィンドウが足したキーを消す（#385 で
-    3 つ目の写しを書いたときに実際にここが落ちた）。鍵は `shellId` ではなく
-    **`installKey`**（`useAgentHookPrompt` と同じ単位）
-  - **理由と文言を別々の ref にしない**（`WatchNotice` の 1 本）。3 か所すべてで対で
-    代入・対でクリアされるので、分けると「理由は null なのに文言は前回のまま」という
-    表せてはいけない状態が作れる。**案内の文面は computed で引く**（`t()` の結果を ref に
-    焼き込むと、UI 言語を切り替えても帯だけ古い言語のまま残る）
-  - **帯は `components/WatcherNotice.vue` の 1 部品**（ファイルツリーと設定画面で共有）。
-    書き写していたころは `display: block` の 1 行だけが片方に付いていて、同じ役目の
-    ボタンが 2 つの画面で違う位置に出ていた。**状態は props で受けない**（置いた側が
-    読み直す形にすると、どの理由でボタンを出すかの判定が置いた数だけ増える）
-  - **子が死んだら Rust 側が自分で後始末する**（`report_watch_failure` が印を立てて
-    `handles` から外す）。フロントは id を落とすだけで `fs_watch_stop` を投げない。投げると
-    死んだ PID に `taskkill` を撃つことになり、Windows が再利用していれば無関係な
-    プロセスツリーを殺す
-  - **`--exclude` はイベントを捨てるだけで監視は張る。** `node_modules` も上限
-    （`fs.inotify.max_user_watches`）を消費するので、大きなツリーでは `WatchLimit` に来る
-  - **自分で止めたときは知らせない**（`stop_flag` を見る）。プロジェクトの切り替えや
-    ウィンドウの破棄で毎回ダイアログが出てしまう
-  - **stderr の読み方は `types::drain_stderr`**（`spawn_capped_lines` と共有）。上限で
-    読むのをやめるとパイプが閉じて子を殺し、`read_to_string` は不正な UTF-8 で buf を
-    空のまま残す。理由はあの関数の doc が正本。**#385 の前は同じ知見が watcher にだけ
-    あり、共有しているほう（rg / grep の stderr）が欠陥のある側だった**
-- **ネイティブ側（`notify`）の失敗も同じ口から知らせる（#385）。** コールバックの `Err`
-  （`MaxFilesWatch`、root の消滅や改名のあとの `ReadDirectoryChangesW`）を捨てていたので、
-  Windows / macOS では監視が死んでも誰にも届かなかった。理由は当てられないので `Other` で、
-  `detail` に `notify` の文言を入れる
-- **Windows の種別で WSL の UNC パスを監視している構成は、静かに何も届かない（#385）。**
-  `\\wsl.localhost\...` に対する `ReadDirectoryChangesW` は**開始が成功するのに、WSL の
-  中からの書き込みを 1 件も受け取らない**（9p 越しでは通知が上がらない。2026-09-21 に
-  実測: 開始 OK / 受信 0 件）。エラーが出ないので `inotify-tools` の不在より気付きにくい
-  - 判定は**フロントの `unwatchableWslUnc`**（`isWindowsShell` かつ `wslUncToNative` が
-    当たる）。Rust に置かないのは、根がプロジェクトの種別で、直し方が「WSL のプロジェクト
-    として登録し直す」＝Rust の知らない話だから。材料（シェルと root）は `start()` が持っている
-  - **監視は止めない**（Windows 側からの変更は届く）ので、`fs_watch_failed` は通さず
-    `wslUnc` の帯を出すだけ。**理由の集合がフロントで 1 つ広い**のはこのため
-- イベントバッチ処理: 200ms デバウンス + 1s max wait でフロントに送信
-- `IGNORED_DIRS` (.git, node_modules 等) をフィルタ
-- `fs_changed` イベントで `changedDirs`（ツリー更新用）+ `changedFiles`（エディタ更新用）を送信
-- エディタ外部変更検知: clean タブは自動リロード、dirty タブはインライン警告バー（Reload/Overwrite/Dismiss）
-- 自己書き込み除外: `markRecentlySaved()` で 2秒 TTL のパス Set を管理
-- ウィンドウ破棄時に全 watcher 停止（`watcher::stop_all`）
-- Rust 側は `watcher::WatcherState` を `manage` して持ち、`fs_watch_start` / `fs_watch_stop` コマンドで出し入れする
-- **`changedDirs` の受け手は `stores/fileTree.ts` に置く（#303）。** パネルは `v-if` で
-  マウントされるので、あちらで購読すると別のパネルを見ているあいだ購読ごと外れる。溜めて
-  おく仕組みと、それを `ensureInit` で流す理由は、あのファイルの doc コメントが正本
-- **パスの比較は文字列一致**（root か、展開中のディレクトリか）なので、`activeRoot` は
-  末尾の区切りを落とした値を配る（`lib/paths.ts` の `stripTrailingSep`）。**逆に、
-  正規化済みの `activeRoot` と生の `project.root` を突き合わせないこと**: 末尾に `/` の
-  付いた root が実在するので、その比較は永久に false になる（`stores/git.ts` の origin の
-  記録が実際にこれで壊れた。「worktree に居るか」は `activeWorktreeRoot` を見る）
-- **`IGNORED_DIRS` のディレクトリは展開できる（#303）が、監視の対象外なのは変わらない。**
-  開いているあいだに中身が変わっても自動では反映されない（Rust 側が `path_contains_ignored`
-  で捨てるため）。歯車付きのアイコンは、そこが「見えるが追わない場所」だという印
-  - **中の listing では `git check-ignore` を走らせない**（`fileTree.ts` の `isUnderIgnored`
-    が `checkGitignore` に `false` を渡す）。丸ごと ignore される前提で色を分ける意味が無く、
-    `node_modules` 直下は名前を全部並べるとコマンドラインが Windows の上限に近づく
-  - **この判定を Rust に置かないこと**: パスのセグメントを見るだけの述語では、`C:\dist\myproj`
-    のように `IGNORED_DIRS` と同名のディレクトリの下に置いたプロジェクトで誤爆し、色分けが
-    全ディレクトリで黙って消える。root を知っているのはフロント側だけ
-  - **展開状態は保存しない**（`saveExpanded` が落とす）。覚えると次にプロジェクトを開くたびに
-    そこを読み直すことになる（WSL では 1 ディレクトリにつき `wsl.exe` 1 本）
-
-## 検索 (rg / grep)
-- **`Ctrl+Shift+F` だけはトグルしない（#307）**。8 つのパネルアクションのうち**キーを持つのはこれだけ**で、「検索したい」という意思表示に対して閉じるのは答えになっていない。残り 7 つはパレット専用で、**キーボードからパネルを閉じる唯一の手段**なのでトグルのまま。アイコンのクリックも従来どおり
-  - 遅延マウントのパネルへ意思を届ける形（ストアの合図）と、その受け取り方は `stores/search.ts` の `pendingOpen` の doc コメントが正本
-  - **「開いたら常にフォーカス」にしないこと。** `activePanel` は localStorage に残るので、検索を開いたまま終了すると次の起動でパネルが最初からマウントされる。そこでフォーカスを奪うとターミナルに打てない
-  - **選択文字列は `useOutlineSource` の登録から取る**（専用のレジストリを足さない）。あそこに入っているのが「今見えているエディタ」であることは `OutlineSource.view` の doc が約束する。**ターミナルの選択は拾わない**（`terminal.getSelection()` はタブの中にしか無く、外から引く口が無い）
-- 初回利用時に `rg --version` で backend 判定、以降シェルごとにキャッシュして固定（入れ直したあとだけ `search_detect_backend` の `refresh` で捨てる）
-- **WSL の ripgrep の導入・更新の導線**（inotify-tools の #385 と同じ形。`stores/search.ts` の `ripgrepNotice` / `offerRipgrep` / `installRipgrep`）。無い（grep に落ちた）か 13 以前（`RgCaps::outdated`）なら、シェルの導入単位ごとに 1 度だけ聞き、以後はパネルの帯にボタンを残す。**WSL だけ**（Windows と macOS は同梱の rg と比べて新しいほうを使う）
-  - **apt を使わない**。Ubuntu 22.04 の apt は 13 を入れるので、入れた直後に「古い」側へ回る。公式リリースの musl の tar.gz を sha256 で照合し、`/usr/local/bin` に `sudo install` する（`INSTALL_RIPGREP`）。**置き場を `~/.local/bin` にしないこと**: 検出と検索は `wsl.exe -e rg` で起こすので distro の既定の PATH しか見ず、`~/.local/bin` は入らない。`/usr/local/bin` はそこで `/usr/bin` より前にある（実測）
-  - **勧めるのは rg が確かに無いときだけ**（`SearchBackendInfo.rg_missing`。Rust の `Probe` が「起こせたが無い」と「時間切れ・起こせない」を分ける）。冷えた WSL の時間切れでも grep に落ちるので、`backend === 'grep'` で見ると入っている人に sudo の導入を持ちかける。**分からなかった grep は `UNCERTAIN_TTL`（60 秒）だけ覚える**（`SearchBackend::expired`）。ずっと覚えると冷えた起動の 1 回がプロセスの寿命ぶん残り、覚えないと WSL が遅いあいだ検索のたびに探し直す
-  - **「一度だけ聞く」の段取りは `useConfirmDialog.ts` の `askOnce`**（inotify-tools・hook の登録と共有）。他のダイアログへの譲り方、置き換えられたとき（`displaced`、#342）に記録しないこと、記録を答えのあとに書くことはあそこが持つ。**写さないこと**: 写していたころは `displaced` の扱いが 1 か所にしか無かった
-  - **帯が出ているあいだは、パネルを開くたびに検出をやり直す**（`detectBackend` が `force` で聞く＝Rust の `refresh` で覚えた答えを捨てる）。Pike の導線を通さずに入れた rg を再起動せずに拾うため。**正常な環境では聞き直さない**
-  - 帯の見た目は `components/ToolNotice.vue`（ファイル監視の帯と共有）。文面とボタンの文言はストア（`ripgrepNoticeText` / `ripgrepActionLabel`）
-  - 13 を境にしたのは、14 は 24.04 の apt が配る版で、置換も動く（`attach_replacements`）ため
-- rg: `rg --json -F/-e --glob` でパース容易な出力
-- grep: `grep -rn --include/--exclude` でフォールバック
-- フロントには検索バックエンドと rg の版をバッジ表示
-- **rg の機能は版で決め打ちにせず、実物に聞く（#304）**: `parse_rg_version` が `rg --version` の出力から `RgCaps { version, semver, pcre2 }` を作り、`search_detect_backend` が**機能ごとの真偽値**にしてフロントへ返す。Windows は同梱のサイドカーなのでこのリポジトリが版を決めているが、**WSL では distro に入っているものが使われる**ので、14 系や pcre2 無しのビルドが普通にありうる
-  - **版を見ての判定はフロントに持たせない。** パネルが受け取るのは「そのトグルを出してよいか」だけ。版を配って向こうで比べると、同じ知識が 2 箇所に散る。`version` は表示（バッジ）専用で、比較には `semver` を使う
-  - 存在確認も `--version` が兼ねる（`which` / `where` を別に叩かない）。無ければ spawn が失敗するか、シェル越しなら非 0 で返る
-  - **`+pcre2` を含むかで見る**（`features:` の行の位置ではなく）。機能の行を持たない版があるうえ、`-pcre2` を含む否定形にも当たらない
-  - 同梱の rg と環境の rg は `SearchBackend::Rg { program, caps }` の**同じ腕**。分けていたころは、機能を足すたびに 2 つの variant を同じように扱う `match` が増えた。呼び出し側は `as_rg() -> Option<(&str, &RgCaps)>` で 1 回だけ分解する。「rg か」「プログラム名」「機能」を別々に聞ける形にしていたころは、Grep の腕が嘘のプログラム名を返し、rg だと分かっている枝の中で機能を `Option` として開き直していた（経緯は `as_rg` の doc コメントが正本）
-  - **どちらを使うかは版で決める**（`prefer_newer`）。PATH 上のものと同梱のものを両方 probe して**新しいほう**を採り、同値なら利用者が入れたほうを残す。「入っているものを優先」だと古い rg を入れっぱなしのマシンで機能が減り、「同梱を優先」だと `brew upgrade` で新しくした人の意思と gitignore の修正を捨てる。代償は非 WSL での spawn が 2 回になることだが、シェル単位でキャッシュされるうえ起動時ではなく初回利用まで遅延する。**2 本は並べて走らせる**（#356。形と理由は `detect_backend` の doc が正本）
-  - **フロントの検出もべき等**（`stores/shellProbe.ts` の `createShellProbe`）。検出済みのシェルなら何もしないので、呼ぶ側に「無効化」を持たせない。プロジェクトストアが `resetBackend()` を呼ぶ約束にしていたころは、シェルを差し替える経路を足した人が忘れると別の distro の rg の機能でトグルが出たままになる形だった
-- **rg はインデックスを持たない（#356）。だから「起動時に作らせておく」対象が無い。**
-  `--help` にキャッシュ／インデックスのフラグも無い純粋なストリーミング検索器で、毎回
-  ディレクトリを歩いてファイルを読む
-  - **2 回目の検索が速いのは OS のファイルキャッシュ。** Windows でも再現する
-    （**以下はどれも素の `rg` を直接叩いた値**。2026-09-16・この開発機の NTFS）:
-    `omocha` **12,590→380ms**、`musql` 372→77ms、pike 自身 148→69ms
-  - **温めるには本文まで読む必要があり、それは検索 1 回ぶんの費用そのもの。** ディレクトリを
-    歩くだけでは足りないことは実測で確かめた: `~/go` は `rg --files` に 652ms かけて歩いた
-    **あと**でも最初の全文検索が **17.1 秒**かかり、2 回目が 507ms。**だから起動時の
-    バックグラウンド温めは入れていない**: 検索しない人にも全リポジトリ読みを払わせることに
-    なり、「軽さ最優先」と「起動時に外部プロセスを足さない」（`project.md`）の両方に反する
-  - **Pike の検索はこの数字より軽いことがある。** `MAX_MATCHES`=500 で `spawn_capped_lines` が
-    子を止める（#257）ので、よく当たる語では全部は読まない。上の値が効くのは**ヒットの少ない
-    語**（そこは最後まで読む）
-  - **macOS の初回 exec（Gatekeeper）の上乗せは検出の `rg --version` が先に払う**。詳細は
-    `detect_backend` の doc
-- **検索の指定は `SearchOptions` の 1 引数**（#304）。並べていたころは 7 つあり、トグルを足すたびに Rust・IPC ラッパー・ストア・パネルの 4 箇所で位置を合わせることになった
-- **大文字小文字の既定は「区別しない」**（`-i`）。VS Code の検索と同じで、`Aa` を押したときだけ区別する。**これは #304 で変えた**（それまでは無指定＝区別する側だった）
-- `-w`（単語単位）は rg と grep の両方にある。**`-P`（PCRE2）は rg だけ**: grep の `-P` は GNU 限定で macOS の BSD grep に無い
-- **`-P` は正規表現のときだけ渡す。** `-F` と併せてもエラーにはならないが（実測）、メタ文字を持たない検索に別のエンジンを使わせるだけになる
-- **置換（#401）はプレビューと適用の両方を持つ。** #304 でプレビューだけを作って戻した経緯があり、#401 で適用まで入れて作り直した。rg なら版を問わず出し、grep では開閉のボタン（▸）ごと出さない
-  - **rg 14 以前は `-r` を `--json` で黙って無視する**（ripgrep #1872。`RgCaps::json_replacement`）。WSL の distro に apt で入る rg は 14 系が普通なので、切り捨てると WSL では実質使えない（#401 の動作確認で実際にそうなった）。そこでは `-o --column -r` をもう 1 本並べて走らせ、同じ行の一致へ出てきた順に対応付ける（`attach_replacements`）。**あちらの列番号は置換後の行での位置**なので、ずれを足して検算し、合わない行は置換の対象から外す。`--crlf` を付けると素の出力の改行も CRLF になる（`parse_plain_replacement` が落とす）
-  - **置換後の行は rg に作らせる**（`SearchOptions.replacement` → `-r`）。`submatches[]` の `replacement` と位置から `build_replace` が行を組み、プレビュー用の位置を **UTF-16** に直して返す（`LineReplace`）。フロントで JS の正規表現を使って組み立てると、`$1` の展開もエスケープも別の言語の規則になるので、プレビューと実際にマッチしたものがずれる。**`lines.text` は置換前のまま**（rg 15.2.0 で実測）
-  - **正規表現でない検索では `$` を `$$` にして渡す**（`rg_replacement`）。rg は `-F` でも置換文字列の `$` を展開する
-  - **rg には常に `--crlf` を渡す**（検索も含む）。無いと rg は `\r` を普通の文字として扱い、`foo$` が CRLF の行に当たらず、`(bar.*)` の置換はキャプチャに `\r` を持ち込んで行の途中に書く。`\s` や否定の文字クラスは `--crlf` でも `\r` に当たるので、`build_replace` は位置を本文の長さで切る。改行の分け方は `split_eol` の 1 つで、プレビューと適用が共有する
-  - **書くのは `search_replace_apply`**（Rust）。rg のバイト位置で直に書かず、**行が検索したときのままか（`from`＝`content`）を比べてから行ごと差し替える**（`apply_line_edits`）。検索から押すまでのあいだにエージェントが書いた行は飛ばして件数だけ返す。改行（LF / CRLF）と UTF-8 の BOM はファイルのものを残す（rg は BOM を落として返すので、1 行目は外して比べる）
-  - **UTF-8 として読めないファイルは触らない**（`NotUtf8`）。rg は UTF-16 を変換して読むので一致はするが、書き戻す手段が無い
-  - **エディタで未保存のファイルはフロントが除く**（`dirtyPathKeys`。判定は `types/tab.ts` の `isUnsavedEditor`。保持中の別プロジェクトのタブも見るので `tabs` を読む）。書くと外部変更の警告が出るだけで、そのまま保存すれば置換が消える
-  - **「すべて置換」はパネルの結果を使わない**（ファイルごと 20 件・全体 500 件で切ってある）。書き出しと同じ上限（`EXTRACT_MAX_MATCHES`）で検索し直してから件数を見せて確かめ、書いたあとも検索し直す。**条件はパネルが今の入力から渡す**（`replaceAll(options)`）: `lastOptions` はデバウンスの最中だと 1 つ前の置換文字列のまま
-  - 行ごとの置換は検索し直さず、その行を一覧から外すだけ（押していくたびにプロジェクト全体の rg を回さない）。
-  - **WSL では 1 ファイルにつき `wsl.exe` を 3 本起こす**（`read_raw_bytes` の stat と cat、書き込み）。`REPLACE_WORKERS` 本で並べているが、数百ファイルの置換では数十秒かかる。重さが問題になったら、読みを 1 本のスクリプトに束ねる
-  - **ファイル単位の差分プレビュー（VS Code の diff エディタ）は作っていない**: diff タブは git の差分を取り直す仕組み（`staleAt` / `refreshFromDisk`）と結び付いているので、合成した差分を載せると fs watcher の取り直しで中身が git の差分に化ける
-- 結果クリックでエディタタブを開き、`initialLine` で該当行にジャンプ
-- **フォルダに絞る（#376）**: ファイルツリーの右クリック「このフォルダ内を検索」が `setScope` で範囲を置いてから `requestOpen` でパネルを開き、検索の起点（rg / grep に渡すパス）をそのフォルダにする。**`scope` は今の `activeRoot` の配下にあるときだけ効く**（`scopeRel`）ので、プロジェクトや worktree を切り替える経路ごとに消す約束が要らない。`clear()` では消さない（検索語を消したときにも呼ばれる）
-  - **除外ディレクトリには出さない**。rg は `.gitignore` の判定で、起点に渡した `node_modules/vue` の中身を落とすことがある（その下の `dist` なら当たる。実測）
-- **結果をタブで開く（#376、`extractToTab`）**: 同じ指定で `extract: true` を付けて検索し直し（上限 `EXTRACT_MAX_MATCHES`=10,000・ファイルごとの制限なし）、grep の形（`パス:行: 内容`、パスはルート相対）で無題のエディタタブに書く。パネルの結果をそのまま使わないのは、パネルの上限（500 件・ファイルごと 20 件）が「目で追える量」のためのもので、書き出しは grep の代わりだから
-  - タブの `パス:行` は `lib/editorPathJump.ts` が `Ctrl+Click` / F12 で開く（タグジャンプ）。**判定はターミナルと同じ `findPathLinks`**（規則が 2 つあると、片方でだけ押せる）。**定義ジャンプより先に置き**、押した位置にパスが無ければ譲る。ファイルを持たないタブ（無題）にも入れる
-  - **拾うのは行頭の、行番号付きの `パス:行` だけ**（grep の形）。行の途中まで拾うと `import Foo from './Foo.vue'` を定義ジャンプから横取りし、しかもファイルの場所ではなくルート基準で開く（レビューで見つかった）
-- **rg / grep の表示はパネルの見出しのバッジだけ**（#376。以前はパネルの中にも出ていた）。版はバッジのツールチップ
-- **配置は VSCode に寄せてある（#396）**: オプションのトグルは入力欄の**中**（右端）、含む /
-  除外は「⋯」で開く 1 行ずつの欄、書き出しのボタンは件数の**隣**
-  - **枠は入力欄ではなく `.search-field` が持つ。** `padding-right` を空けてトグルを絶対配置
-    する形は採れない: PCRE2 のボタンは正規表現のときだけ出るので、空ける量が固定にならない
-  - **「⋯」の開閉は覚えない。** パネルは `v-if` でマウントされるので、含む / 除外の値そのものが
-    他のパネルへ移った時点で消える。開閉だけ覚えると、次に開いたときに空の欄が開きっぱなしに
-    なるだけになる。畳んでいても指定が効いていることは「⋯」の色で示す
-- 最大 500 件で打ち切り（`MAX_MATCHES`）、デバウンス 300ms
-- **プロセスの実行が `run` 系を通らない唯一の経路（#257）**: `types.rs` の `spawn_capped_lines` が stdout を 1 行ずつ読み、上限に達したらパイプを閉じて子を止める。`run` 系は出力を全部メモリに溜めてから返すので、「大量に出るが先頭しか要らない」検索では作らせたものの大半を捨てることになる（`function` の検索で rg が 8.3MB を作り、実測 2,054ms → 打ち切りで 215ms。検索そのものは 22ms）。rg には**全体**の件数上限にあたるフラグが無い（`--max-count` はファイルごと）ので、受け取る側で止めるしかない
-  - **止め方はパイプを閉じること**。`kill` も撃つが、WSL では `wsl.exe` を殺してもディストロの中の rg には届かない
-  - **stderr は別スレッドで吸う**。読まずに置くと、エラーを大量に出すコマンドがパイプを埋めたところで止まる
-  - `search/mod.rs` に残るのは引数の組み立てと 1 行ごとのパーサ（`parse_rg_line` / `parse_grep_line`）。**打ち切ったかは件数から導く**（上限で止まるので `items.len() >= cap` と同値）
-  - `list_project_files`（`--files`、`MAX_FILES`=10,000）も同じ経路
-- rg サイドカーバンドル: `src-tauri/binaries/rg-{target}.exe` を `externalBin` でアプリに同梱
-  - Windows プロジェクト: システム rg → バンドル版 rg → grep の順でフォールバック
-  - WSL プロジェクト: WSL の rg → WSL の grep（バンドル版は Windows バイナリのため使用不可）
-  - `scripts/download-rg.sh` でビルド前にダウンロード（バイナリは .gitignore）
-- `list_project_files` コマンド: `rg --files` / `find` でプロジェクト内ファイル一覧取得（QuickOpen 用）
-
 ## QuickOpen コマンドパレット（Ctrl+P）
 - 先頭文字でモード切替: 無印=ファイル fuzzy open、`>`=**コマンドとタスク**、`@`=タブ切替、`:`=行ジャンプ、`!`=Git ブランチ切替、`?`=ヘルプ。`filename:42` サフィックスで行番号ジャンプ
-- **`>` に出すコマンドの正本は `lib/shortcuts.ts` の `APP_ACTIONS`**（#270）。ここに `palette`（分類）を持つ行を流すだけで、**パレット側に一覧を持たない**。以前は `QuickOpen.vue` に 3 件ハードコードされていて、機能を足しても誰も気付かなかった（この issue そのもの）
+- **`>` に出すコマンドの正本は `lib/shortcuts.ts` の `APP_ACTIONS`**（#270）。ここに `palette`（分類）を持つ行を流すだけで、**パレット側に一覧を持たない**（パレットに一覧を持つと、機能を足しても載らない）
   - **機能を足したらこの表に 1 行足す。** 実装（`useAppActions`）は `Record<AppActionId, …>` なので、足して実装を忘れると型エラーになる。逆向き（機能を足して表に書き忘れる）は型では拾えないので、ここに書いてある
   - 表示は `分類 / 名前 / キー`。絞り込みは**日本語と英語の両方**に当たる（`search` に両方入れてある）。UI 言語が日本語でも `> settings` や `> pull` で引ける
   - `needsProject` を持つ行は、プロジェクトを持たないウィンドウでは出さない。パネルを開く行には付けない（サイドバーのアイコンは常に出ていて、クリックすれば空のパネルが開く。パレットだけ隠すと入口で挙動が割れる）
-  - キーの割り当ては別の表（`keyBindings`）。詳細は `.claude/rules/terminal.md` の「キーボードショートカット」
+  - キーの割り当ては別の表（`keyBindings`）。詳細は `.claude/rules/shortcuts.md`
 - `QuickOpen.vue` は ProjectSwitcher と同じオーバーレイ + モーダル構造、表示状態は `project.showQuickOpen`
 - fzf 風 fuzzy match（ファイル名優先 → パスマッチ）、最近開いたファイルを上位表示
 - **最近開いたもの（#271）**: ファイルは**プロジェクトごと**（`pike:recent-files:{projectId}`。他プロジェクトのファイルが混ざると上位表示の役に立たない）、ディレクトリは**マシン全体**（`pike:recent-dirs`。どのプロジェクトからでも同じ場所に戻りたい）。どちらもパスなので同期の対象にしない。ディレクトリは `>` モードにコマンドとタスクの間で出す（「開く」操作の続きなので、コマンドのすぐ下）
-- `rg --files` の結果をフロントでキャッシュ、プロジェクト切替時にリセット
+- `rg --files` の結果をフロントでキャッシュ、プロジェクト切替時にリセット（取得は `search.md` の `list_project_files`）
 
 ## 定義ジャンプ（Ctrl+Click / F12）
 - `lib/editorJumpTo.ts` + `lib/jumpTo/`。TS/JS/Vue/Go の import パスを Ctrl+Click でファイル open
 - 識別子は同一ファイル内宣言（Lezer 構文木）と import 経由のクロスファイル定義の両方に対応
 - Vue カスタムコンポーネントは `<script setup>` の PascalCase import / Options-API `components` / `app.component()` グローバル登録の 3 段で解決
 - path alias 解決: tsconfig/jsconfig の `compilerOptions.paths` と vite.config の `resolve.alias`（祖先方向に config 探索、モノレポ対応、設定変更で自動 invalidate）
-  - **最初に見つかった設定ファイルで打ち切らない（#398）**。`fs_existing_paths` で実在するものを近い順（同じ階層では tsconfig → jsconfig → vite.config）に全部受け取り、**いちばん近い階層のものの中で** alias を得られた最初のものを採る（祖先まで上ると、モノレポのパッケージに TS が与えないルートの alias を当ててしまう）。1 つで打ち切っていたころは、`references` だけの `tsconfig.json`（`npm create vue` の構成）が隣の `vite.config.ts` を隠していた
-  - **vite.config の alias は、この修正まで一度も効いていなかった**（#398）。置換先は `path.resolve(__dirname, …)` を解いた絶対パスなのに、`paths` と同じく `joinPath(baseUrl, …)` に通していたので `/app/home/kan/app/src/…` になっていた。`joinPath` は絶対パスの `rel` でも後ろに足すので、alias の置換先は `resolveFrom` を通す
+  - **最初に見つかった設定ファイルで打ち切らない（#398）**。`fs_existing_paths` で実在するものを近い順（同じ階層では tsconfig → jsconfig → vite.config）に全部受け取り、**いちばん近い階層のものの中で** alias を得られた最初のものを採る（祖先まで上ると、モノレポのパッケージに TS が与えないルートの alias を当ててしまう）。1 つで打ち切ると、`references` だけの `tsconfig.json`（`npm create vue` の構成）が隣の `vite.config.ts` を隠す
+  - **vite.config の alias の置換先は `resolveFrom` を通す**（#398）。置換先は `path.resolve(__dirname, …)` を解いた絶対パスで、`joinPath` は絶対パスの `rel` でも後ろに足すので、`paths` と同じく `joinPath(baseUrl, …)` に通すと壊れたパスになる
   - tsconfig は相対パスの `extends` をたどり、起点のファイルからだけ `references` を 1 段たどる。**パッケージ名の `extends` は読まない**（node_modules を歩くことになる）。`paths` の基準は TS と同じく「チェーンのどこかの `baseUrl`、無ければ `paths` を書いたファイルのディレクトリ」
 - 進捗・結果は `stores/statusMessage.ts` 経由で StatusBar に表示（スピナー / 開いたファイル名 / 見つからない）
 
@@ -582,184 +233,3 @@ CodeMirror 6 のエディタとプレビュー、ファイルツリー、サイ�
 - カーソル位置追従ハイライト・祖先自動展開・scrollIntoView、タブ別スクロール位置保持
 - Outline / History 2 タブ構成（`OutlineTreeView.vue` / `OutlineHistoryView.vue`）。History はファイル別 git log を表示、行クリックで diff タブを開く
 - 行オフセットは `buildLineOffsets` / `lineStart` で O(N) 前計算（`composables/useOutlineSource.ts`）
-
-## 診断パネル（Problems）
-- **常駐 LSP は持たない**（「軽さ最優先」）。`src-tauri/src/diagnostics/mod.rs` が検出したツールチェインの CLI を**オンデマンドで 1 回**走らせ、構造化出力をパースして `Diagnostic` に正規化する
-  - Rust: `cargo check --message-format=json`（stdout の JSON Lines）/ Go: `go vet ./...`（stderr のテキスト）/ TS・JS: `tsc --noEmit --pretty false`（stdout のテキスト）
-  - マニフェスト（`Cargo.toml` / `go.mod` / `tsconfig.json`）の探索深さは `MAX_DEPTH`=4。コマンドは**そのマニフェストのディレクトリ**で実行するので、出力のパスがそのまま解決できる
-  - 冷えた `cargo check` / `tsc` は遅いので `TIMEOUT_SECS`=180。UI が溢れないよう `MAX_DIAGNOSTICS`=2000 で打ち切る
-  - 結果は `ProviderRun`（プロバイダ名 / 実行ディレクトリ / **実行したコマンド** / ok / error / 件数）も返し、パネルのヘッダで失敗したチェッカーを提示する（`title` にコマンドとエラー文。コマンドはプロジェクト側で上書きできるので、名前だけでは何が走ったか分からない）
-  - `Task.command` は `Option`。**既定は `None`＝worker 側で解決**で、`golangci` だけ go.mod を読んだついでに確定済みの値を載せる。`ts` の vue-tsc プローブ（WSL では 1 dir につき `wsl.exe` 1 回）は worker で走らせないと並列性を失い、tsconfig の数だけ直列の待ちが増える
-- **golangci-lint（#213、opt-in）**: Go モジュールに `.golangci.{yml,yaml,toml,json}` が同階層以上にある、または go.mod が golangci-lint を参照していれば対象（`golangci_tasks`）。**検出は毎回・実行は要求時だけ**で、`diagnostics_run(shell, root, golangci)` の引数と結果の `golangciAvailable` で分ける（モジュール全体の型検査を伴い他のチェッカーより重いため、自動更新に常時混ぜない）
-  - 起動方法は go.mod 由来（`go_mod_golangci` がコマンド文字列を直接返す）: Go 1.24 の `tool` ディレクティブなら `go tool golangci-lint run ./...`、それ以外で名前が出てくれば PATH 上のバイナリ。go.mod は `crate::fs::batch_read_files` で**全モジュールを 1 回の wsl.exe 往復**で読む（トグルが OFF でも可否判定に go.mod が要るので Go プロジェクトでは毎回 1 往復かかる。秒単位のチェッカーの隣なので許容している）
-  - **コマンド上書き（`ProjectConfig.golangciCommand`）**: lint の入口が Docker にあるプロジェクト向け（sitter の `docker compose exec -T golang make lint` 等）。**上書きがあれば検出も go.mod 読みもしない**（プロジェクトが lint 方法を宣言している時点で opt-in なので、`.golangci.*` の有無を問わず go.mod のあるディレクトリ全部が対象になる）。実行ディレクトリは組み込みと同じ Go モジュールのディレクトリで、コンテナ側の作業ディレクトリにそのモジュールをマウントしていれば出力のパスがそのまま解決できる。**モジュールが複数あっても実行は 1 回**（いちばん浅いディレクトリ）: 兄弟モジュールに配ると同じコマンドが N 回走るうえ、同一の指摘が別々の base で解決されて `dedup` が畳めない（存在しないパスを指すコピーが N-1 個出る）。UI は ProjectPanel の編集フォーム（`ProjectListItem.vue`）の入力欄で、パネルのトグルの tooltip に実行するコマンドを出す。同期（#164）の共有フィールドにも入れてある（マシン非依存なため）
-  - **出力フォーマットのフラグは渡さない**。JSON 出力のフラグ名が v1（`--out-format`）と v2（`--output.json.path`）で変わっており、知らないフラグを渡すと実行自体が落ちる。既定のテキスト出力は両者共通で、色は stdout が TTY でないため自動的に切れる
-  - パースは go vet と同じ `path:line:col: message` なので `split_location` を共有。末尾の `(linter)` は `code` に移し、`typecheck` だけ Error（実際のコンパイルエラーのため）。**v1 が各指摘の下に流す元ソース行とキャレットは、行頭が空白かどうかで落とす**（`"a:1:2: x"` のような文字列リテラルを含む行が位置行として通ってしまうため。指摘行は必ずパスで始まる）
-  - **未インストールを「問題なし」に見せない**: `ProviderSpec.optional_binary`（golangci だけ true）が立っていると、終了コード != 0 かつパース結果 0 件のとき stderr の 1 行目を `ProviderRun.error` に出す。issue 検出時も非 0 で終わるので、パース結果 0 件が「そもそも走らなかった」の目印になる。cargo / go vet / tsc も同じ死角を持つが、既存プロジェクトの表示を変えることになるので false のまま据え置いている
-- フロントは `stores/diagnostics.ts` + `panels/DiagnosticsPanel.vue`。パネルを開いた時に未実行なら `run()`（`lastRunAt` で判定）。行クリックで該当箇所をエディタで開き、ホバーの 🤖 で修正依頼をターミナルへ注入（前述の `useTerminalInject`）。エディタ側のインライン下線は `lib/editorDiagnostics.ts`。`golangciAvailable` のときだけ出る golangci-lint トグルは `localStorage` の `pike:diagnostics-golangci` に**プロジェクト id の配列**で永続化する（`golangciAvailable` はプロジェクト固有なので `clear()` で落とす）。**グローバルな真偽値にしないこと**: パネルは初回 `run()` の応答で可否を知るので、フラグが立っていると別プロジェクトを開いてパネルを出した瞬間に、そのプロジェクトの（コンテナ実行かもしれない）lint が同意なしに走る
-
-## issue パネル（#278）
-
-GitHub の open issue を番号の降順に出す。実体は `src-tauri/src/issues/mod.rs`、
-`src/stores/issues.ts`、`src/components/panels/IssuesPanel.vue`。
-
-- **`api.github.com` を直接叩かない。** CSP の緩和（`connect-src`）とトークンの保管が要る。
-  `gh` に寄せれば認証は丸ごと向こうの持ち物で、Pike はトークンに触らない。マニュアルタブが
-  `raw.githubusercontent.com` から生の Markdown を取って自前で描いているのと同じ発想で、
-  **issue のページ自体は埋め込めない**（GitHub は `X-Frame-Options: deny` と
-  `frame-ancestors 'none'` の二重で拒否する。実測）
-- **並びは番号の降順で固定する（#357）。** 以前は `--search "sort:updated-desc"` を渡していて、
-  誰かが触るたびに行が動いて追えなかった。**いまは並び替えの修飾子を渡さない**（`gh issue
-  list` の既定が作成順の降順）。**判断の実体は `issues_list` の doc が正本**: `--search` を
-  足すと検索 API 側へ回ること、番号と `createdAt` が割れるので `parse_list` が並べ直すこと、
-  `--limit` がサーバー側であるがゆえの代償（古い issue が窓から落ちる）
-  - **ツリー表示（既定）では、この並びのままにはならない。** `buildIssueTree` が子を親の位置へ
-    引き寄せるため。番号の降順の列がそのまま出るのはフラット表示のほう
-- **未インストール・未認証・権限なしを「0 件」に見せない**（`ProviderRun.error` と同じ考え方）。
-  どれも結果が空になるので、区別が付くよう `IssueListResult.error` に理由を入れる。**実行した
-  行もそこへ畳む**: 成功時にも返る別のフィールドにすると、IPC が落ちた経路（フロントの catch）
-  だけ古い行が残る。1 行の長さは `types.rs` の `first_line` が 200 文字で切る（`diagnostics` と共有）
-- **`gh` の検出は `issues_gh_available`。** `--version` が存在確認を兼ね（`which` を別に叩かない）、
-  **一覧と同じ `run_shell_line` を通す**（WSL では `WSL_EXTRA_PATH` が前置されるので
-  `~/.local/bin` の `gh` も見つかる。素の `run` で探すと、探し方と走らせ方が食い違って
-  「検出できないのに手で打てば動く」になる）。認証までは見ない（`gh auth status` をもう 1 回
-  起こすことになるうえ、切れていることは一覧の `error` で分かる）
-  - 答えは **`IssuesState` がシェルの導入単位でプロセスに 1 つ**持つ（`SearchState.detected` と
-    同じ形）。Pinia のストアはウィンドウごとなので、フロントだけで覚えると同じリポジトリを
-    N 枚開いたときに `gh --version` が N 回、WSL では `wsl.exe` の起動が N 回になる。
-    **同じ導入単位の probe は 1 本に畳む**（`cache::ProbeEntry` の `probing()`。#315）: 畳まないと、
-    前回のセッションを復元して複数のウィンドウが同時に立ち上がるときに全部が miss する。
-    **キーごとに分かれているので、別の distro を見に来た者は待たない**（1 本の `Mutex` を
-    probe 中も握っていたころは、冷えた distro の `gh` を待つあいだ全部が止まっていた）
-  - **これは「検出のためだけに起動時へ `wsl.exe` を足さない」（`project.md`）の例外**。
-    `search` のバックエンド検出は初回の検索まで遅延できるが、こちらは**アイコンを出すか
-    どうかが答えに依存する**ので、パネルを開くより前に答えが要る。origin が GitHub だと
-    分かってからしか走らないので、対象は GitHub のプロジェクトのウィンドウだけ
-  - **覚えるのは「見つかった」だけ**（Rust もフロントのラッチも）。見つからなかったほうを
-    焼き付けると、`PROBE_TIMEOUT` に届いた 1 回（WSL の冷えた起動で普通に起きる）で
-    パネルが消え、**アイコンもパレットも出ないので更新ボタンに手が届かない**＝再起動しか
-    手が無くなる。見つからないあいだは watcher が発火するたび（プロジェクト切替・シェル
-    変更）に聞き直すので、`gh` を入れれば次の切り替えで出てくる
-  - **`force` の逃げ道も残す。** 更新ボタンがその入口で、**`gh` が見つかっていないときだけ**
-    再検出する（見つかっているのに probe すると、一覧の前に外部プロセスをもう 1 本
-    起こすだけになる）
-- **走っている検出はシェルのキーで見張る**（`stores/shellProbe.ts`）。真偽値のガードだと、A の
-  probe（最長 10 秒）の最中に B へ切り替えたとき、B の watcher が A の Promise を待ったうえで
-  A の答えを B のキーで焼き込む。以後 B は一度も probe されず自己回復しない。**同じ罠を
-  3 つのストアが別々に書いていた**ので、#275 でファクトリに畳んだ（`search` の rg・
-  この `gh`・エージェント検出）
-- **`loading` は「古い取得は下ろさない・`clear()` が下ろす」で分ける。** 取得中にプロジェクトを
-  切り替えると、飛んでいる応答は seq で捨てられるぶん下ろす者が居なくなり、次の
-  `ensureLoaded` が「取得中だから」で弾かれて空のまま座る。逆に古い取得に下ろさせると、
-  切り替え後に走り始めた取得の最中にスピナーが消える
-- **「使えるか」は `composables/usePanelAvailability.ts` の 1 箇所**（origin が GitHub かつ
-  `gh` がある）。**アイコン列の行に述語を置かないこと**: パネルへの入口は 4 つあり
-  （アイコン・`pike:activePanel` からの復元・パレットの `> …`・`panelIssues` アクション）、
-  アイコンだけ隠すと残り 3 つから「使えません」しか出ないパネルが開く。`lib/shortcuts.ts` には
-  置けない（`stores/project.ts` から import されるので循環する）ので、`APP_ACTIONS` の行は
-  `panel` で「どのパネルか」だけを言い、可否は読む側が composable に聞く
-  - **`isGitHub` は永続化済みの `project.remoteUrl` を先に見る**。`gitStore.remoteUrl` は
-    `git remote get-url` の往復が終わるまで null なので、そちらだけだとアイコン列が起動から
-    数百 ms 遅れて増え、一度リフローする。git 側は補正役（リモートを付け替えたら勝つ）
-  - **述語は 2 つある（#353）**: `isPanelAvailable`（今そのパネルを出してよいか）と
-    `isPanelRuledOut`（**使えないと確定した**か。「使える」の否定ではない）。**開いている
-    パネルを逃がす判断は後者**で、理由はあの関数と `stores/issues.ts` の `ruledOut` の隣が正本
-    - 逃がす場所はサイドバー（`activePanel` の持ち主）で、**覚えている選択は書き換えない**
-      （`fallbackPanel`。人が選んだわけではないため）。監視するのは判定そのもので、
-      プロジェクトの id ではない
-  - それでもパネル本体は自分で `visible` を見る。到達経路が上のとおり複数あるので、
-    見ないと GitHub でないプロジェクトで `gh issue list` が走る
-- パネルのヘッダの更新ボタンは **`IconDef.refresh`（`SideBar.vue` の表）** から出す。
-  `badge` / `marker` と同じ器で、以前は 5 パネルが同じ 3 行を書き写していた。**右側の
-  コントロールは 1 つの `.header-actions` にまとめる**（`.panel-header` が
-  `justify-content: space-between` なので、兄弟が 3 つ以上になると隙間が開く）
-- **行のクリックは GitHub のページをブラウザのタブで開く**（#379）。コメントやラベルの操作は
-  GitHub でするので、最初からそちらを開けば行き来が減る。下の issue タブは右クリックメニューの
-  「簡易表示で開く」に残した（GitHub にログインせずに軽く読みたいとき用）
-- **1 件を読み取り専用で読むのは issue タブ**（`tabs/IssueTab.vue`、`issues_view`）。マニュアルタブと同じ
-  位置づけの読み取り専用で、書き込み（コメント・クローズ・作成）は持たない
-  - **描画・外部画像・リンクの横取りの判断は `IssueTab.vue` の doc コメントが正本**（ここに
-    写しを置くと必ず片方が古くなる）。要点だけ: 見た目は `theme.css` の **`.md-body` /
-    `.md-page` / `.md-toolbar` / `.tool-btn` / `.spin`** をマニュアルタブと共有し、**本文の
-    中のリンクは必ずクリックを横取りして止める**（素のままだと WebView が**アプリごと**
-    移動し、全タブ・PTY・未保存のバッファが確認なしに消える）
-  - **`#123` は別の issue タブへのリンクにする**（`lib/issueRefs.ts` の marked 拡張）。GitHub
-    側の変換なので `gh` が返す本文には残っておらず、自前で拾う必要がある。コードスパンと
-    コードブロックは marked が先に取るので自動的に除外される。同じリポジトリの issue / PR の
-    **URL も同じ扱い**にする（marked が裸の URL を自動リンクするので、本文には両方の書き方が
-    混ざる）。基準は `detail.url` から導く（ストアに聞くと、タブがパネルの状態に依存する）
-  - **更新に失敗しても読めていた中身は消さない**（パネルのエラー帯と同じ扱い）。開き直しても
-    `addIssueTab` は同じタブを返すので、消すと戻す手が無くなる
-  - **番号だけで dedupe しない**（`addIssueTab`）。issue の番号はリポジトリごとに 1 から
-    振られるので、所有プロジェクトも見ないと、A で #12 を開いたまま B の #12 を押したときに
-    パーク中の A のタブが `activeTabId` になり、タブバーには何も出ないのに中身だけ A のものが
-    見える。パスで dedupe する種別も distro 違いの WSL プロジェクトでは同じ絶対パスを持ちうる
-    が、そちらは同じファイルを指しているので実害が無い
-  - **セッションに残さない。** 中身は `gh` を叩き直さないと得られず、復元のたびに外部
-    プロセスが起動することになる（`snapshotSession` が terminal / editor / browser だけを拾う）
-  - 題名は取得後に **`tabStore.setTabTitle`** で入れる（開く時点では番号しか分からない）。
-    直に代入しないこと: あちらの「変わったときだけ書く」ガードを飛ばすと、更新のたびに
-    セッションの書き出し（`project.json` の全量書き直しと全ウィンドウへの broadcast）が走る
-  - **相対時刻を markdown の computed に混ぜない。** `relativeDate` は `t()` を通るので、
-    混ぜると UI 言語を切り替えるだけで全コメントの markdown を組み直すことになる（#264 で
-    パーク中のタブも生きているので、別プロジェクトのぶんまで走る）
-  - **失敗の形が一覧と違う**（`issues_view` は `Err`、`issues_list` は値の中の `error`）。
-    あちらは「0 件」と区別が付かないので理由を値に載せるが、タブは中身が無ければ何も
-    出せないので、呼び出し側が空と区別する必要が無い
-- ブラウザへ出るのはタブ右上のボタンと、ヘッダの「+」（新規作成）だけで、どちらも
-  `openUrlWithConfirm`（GitPanel のコミットリンクと同じ規約。StatusBar のリポジトリリンクは
-  #368 からブラウザのタブで開くので、この規約の対象から外れた）。
-  **パネルの行のクリックは確認を挟まない**: Pike の中でタブを開くだけなので、外部 URL を
-  開く規約の対象外
-- **sub-issue の木は `parent` だけで組む**（`lib/issueTree.ts` の `buildIssueTree`）。`gh` は
-  `parent` / `subIssues` / `subIssuesSummary` の 3 つを `--json` で返すが、**`subIssues` は
-  一覧に載っていない子（closed・取得件数の枠外）も返す**ので、使うと一覧と木で件数が
-  食い違う。`parent` を上向きに辿るだけなら、出てくるのは必ず取ってきた一覧の中のものになる。
-  フィールドを 1 つ足す代償は実測で 1.03 秒 → 1.20 秒（open 50 件）で、spawn も IPC も 1 回のまま
-  - **親が一覧に居ない子はトップレベルに出す。** そこで隠すと「絞り込んでいないのに
-    見えない issue」ができる
-  - **絞り込みでは一致した issue の祖先を残す**（親が消えると、子がどこにぶら下がっていたか
-    読めなくなる）。**フラット表示では足さない**: 木が無い以上、一致していない親が混ざる
-    理由が無い
-  - **親のリンクが輪になったときは、止まるだけでなく拾い直す。** 経路の Set で無限ループは
-    防げるが、輪の全員が親を持つので根から到達できず、「絞り込んでいないのに issue が数件
-    消える」というもっと気付きにくい壊れ方になる。走査のあと、**祖先を辿って根に着かない**
-    ものをトップレベルへ足す（「出力されていないもの」を印にはできない。畳んだ親の下は
-    正しく隠れているだけなので、そちらまで引きずり出すことになる）
-  - **畳んだ状態は永続化しない。** issue の番号は増え続けるので、覚えると死んだ番号が
-    溜まる。全展開 / 全畳みのボタンが 1 回で戻せる（`tasks` の折り畳みを覚えているのは、
-    キーがファイル名で数も増えないため）。ツリー / フラットの選択だけは好みなので
-    `pike:issues-view` に持つ（マシンローカル・プロジェクト共通）
-  - **輪の扱いを知っているのは `indexIssues` だけ。** `parent` は外から来る値なので輪に
-    なりうるが、各所にガードを撒くと「無限ループはしないが issue が数件消える」という
-    もっと気付きにくい壊れ方が残る。**輪に参加する辺をそこで切って**、以降は普通の森として
-    扱う（`buildIssueTree` の遡りも走査も、`issueParentNumbers` もガードを持たない）
-- **ラベルは色のドットだけにする。** パネルの既定幅は 250px で、名前を並べるとタイトルが
-  隠れる。名前は行のツールチップに畳む（ドットだけでは何のラベルか読めないので、行の情報を
-  1 箇所に揃える）
-- 表示の整形（相対時刻・ツールチップ・ラベル色）は**一覧そのものを入力にした番号引きの
-  computed に畳む**（`formatted`）。**絞り込みにも木の形にも依存させないこと**: 絞り込み欄は
-  同じコンポーネントの `v-model` なので、依存させると打鍵のたびに全行の日付整形と色の検証を
-  やり直す（描く行のほうは木と畳み具合で毎回変わるので、そちらを入力にすると畳んだ意味が
-  無くなる）。相対時刻は `lib/paths.ts` の `relativeDate`、ラベル色の綴りの検証は
-  `projectColorValue`（任意の CSS 値を style バインドへ通さない規則はあそこが持っている）
-
-## タスクランナー（Tasks パネル）
-- `tasks` サイドバーパネル。`src-tauri/src/tasks.rs` の `task_discover` がプロジェクトルートを**最大深さ 5**で再帰走査し、`package.json` / `Makefile` / `justfile` / `deno.json` / `Cargo.toml` を検出
-- **npm scripts と deno tasks の並びは、そのファイルに書いてある順**（アルファベット順ではない）。`serde_json` の `preserve_order`（#299 で `settings.json` のキー順を保つために入れた）はクレート全体に効くので、`Value` の object を `iter()` で回すここにも波及する。**意図した並びなので戻さない**（書き手が並べた順のほうが読みやすい）が、あの feature を外すとアルファベット順に戻る
-- `package.json` の `scripts`、Makefile のターゲット、deno tasks、cargo（#122: 標準サブコマンド build/check/test/clippy/fmt + `[[bin]]` ごとの `run --bin {name}` を合成。パースは `toml` クレート。**Tauri 判定はマニフェスト隣の `tauri.conf.json` 存在**（tauri-cli 自身の契約。依存名スキャンだとプラグイン開発リポジトリ等で誤検出）で `tauri dev`/`tauri build` を追加。`src/main.rs` があれば `run`（`[[bin]]` 併存時は `run --bin {package名}`）。**workspace メンバーは標準セットを出さない**（ルートと重複して洪水になるため。bins/tauri/run のみ）。bin/package 名は Makefile と同じ文字種検証（英数 `-_.`）でシェルメタ文字注入を防止。`tauri.conf.json`/`main.rs` は existence-only マーカーとしてグロブに含め content は読まない。`[package]`/`[workspace]` を持たない Cargo.toml は対象外。vendor/ 配下は全タスク検出から除外、読み込みは `MAX_TASK_FILES`=300 で打ち切り）をそれぞれ「グループ」として一覧表示（ラベルに相対ディレクトリ名を付与）
-- **パッケージマネージャの判別**: `package.json` の scripts は npm 決め打ちではなく、`node_runner_for` が npm / pnpm / yarn / bun を選ぶ（`RUNNER_COMMANDS` が `pnpm run {name}` などを組む）。優先順は (1) そのファイルの `packageManager` フィールド（corepack。パッケージ自身の宣言なので最優先。`pnpm@9.1.0` の名前部分だけ見る）、(2) **直近の祖先**にある lock ファイル、(3) npm。**祖先方向に辿るのが要点**で、pnpm モノレポでは lock がリポジトリ root にしか無く、配下の `packages/*/package.json` は自分のディレクトリを見ても分からない（実測: ratatoskr の `web/package.json`）。lock ファイルは cargo の `tauri.conf.json` と同じ existence-only マーカー（`pnpm-lock.yaml` / `pnpm-workspace.yaml` / `yarn.lock` / `bun.lockb` / `bun.lock` / `package-lock.json`）で、中身は読まない。同じディレクトリに複数あるときは `rank` の高いほうを採り、**`package-lock.json` を最も弱くする**（pnpm へ移行しても消し忘れて残りがちなため）。祖先判定は文字列の前方一致だけでは足りず区切り文字まで見る（`/repo/app2` は `/repo/app` の配下ではない）
-- **just（#231）**: `parse_justfile` が justfile を自前でパースする（`just --summary` を叩かない。**just 未インストールでも一覧が出る**し、他の runner と同じ「見つけたファイルを `batch_read_files` で 1 回まとめて読む」に乗る＝WSL への往復が増えない）。レシピ行は「インデントされていない行のうち、クォートの外に `:` を持つもの」で、`x := "y"` の代入・`alias b := build`・`set shell := [...]` は `:` の直後が `=`、`import 'x'` / `mod sub` はそもそも `:` を持たないので落ちる。`_` 始まりと `[private]` 属性は出さない。ファイル名は just と同じく大小文字の変種（`justfile` / `Justfile` / `JUSTFILE` / `.justfile`）を並べる（rg の glob と WSL の `find -name` は大小を区別する。`.justfile` は隠しファイルだが `--hidden` は `.cargo/` 用に既に付いている）
-- **doc comment を表示に使う**（#231）: just はレシピ直前の `#` コメント（`just --list` が右に出すもの）を `DiscoveredTask.description` に入れる。パネルはこれを名前の右に薄く出し、QuickOpen の `>` モードでは `command` の代わりに出して**絞り込みの対象にも入れる**（日本語で書いたコメントから引ける）。名前だけでは何をするレシピか分からないため。`command` は `just bump VERSION` のような**引数込みの呼び出し行**にしてあり（実行されるのは `RUNNER_COMMANDS` が名前から組む `just bump` なので）、引数が要るレシピはツールチップで分かる
-- **説明の出どころは 3 つ**: justfile の doc comment（上）、deno.json のタスクの `description`、package.json / deno.json の `"//name"` というコメント用のキー。パネルと QuickOpen はどれも同じ `description` として扱うので、増やすときに触るのは `tasks.rs` だけ
-  - **`//` は npm の仕様ではない。** `npm run` の一覧にそのまま並び、`npm run //build` は**コメント本文をシェル行として実行する**（npm 11.17.0 で実測）。JSON にコメントを書けないことへの民間の回避策にすぎないので、**タスクとして並べると押した先が必ず壊れる**。一覧から落として同名スクリプトの説明に回す。判断の実体は `comment_key_target` の doc が正本
-  - **普及しているとは言えない**ので、期待しすぎないこと。手元の node_modules の package.json 598 件（scripts 持ち）で `"//name"` は 2 件だけで、しかも**用法が違う**: `decamelize` / `yocto-queue` の `"//test": "xo && ava && tsd"` は説明ではなく「一時的に無効化したスクリプトの退避先」。字面から意図は読めないので区別せず、退避されたコマンドが説明欄に出るのは許容する（**実行できない行が一覧から消える利得のほうが大きい**）。ただし **QuickOpen の `>` モードでは説明が呼び出し行を置き換える**（justfile のための既定）ので、そのプロジェクトでは実際に走るものと違う字面がパレットに出る。パネルのツールチップには両方出る
-  - **deno.json のオブジェクト形式は仕様のほう**（Deno 2 の `{ description, command }`）。`cmd.as_str()` だけを見ていたころは、この形式のタスクが説明どころか**丸ごと一覧から消えていた**。`command` を持たない依存だけのタスク（`dependencies`）も `deno task` からは走るので、コマンドを空にして一覧には出す。両方あるときは宣言された `description` を採る（コメント用のキーは書き手の間に合わせなので）
-- **cargo alias**: `.cargo/config.toml` の `[alias]` を検出し `cargo {alias名}` タスクとして表示。同じベースディレクトリ（`.cargo` の親）に Cargo.toml があればその cargo グループの**先頭**にマージ（同名の合成タスクは除去。alias は builtin を上書きできないため実行結果は同一）、なければ独立グループ「cargo alias」（例: musql の repo root）。alias 名は `is_safe_cargo_name` で検証（シェルに渡るのは名前のみ）、値（string / string 配列）は tooltip 表示用の展開コマンドにのみ使用。検出は rg なら `--hidden -g '!.git'` + `**/.cargo/config.toml` glob（隠しディレクトリのため）、find/walkdir フォールバックは basename `config.toml` マッチ後に親が `.cargo` のものだけ残す（Hugo 等の無関係な config.toml は content-read しない）。ancestor 方向の alias 継承（cargo 本来の config 解決）は追わず同一ディレクトリのみ
-- 除外: `IGNORED_DIRS`（`.git node_modules __pycache__ .next .nuxt target dist build .cache .venv venv`）
-- `.gitignore` を尊重するのは **rg バックエンド使用時のみ**（`rg --files --max-depth 5 -g <glob>`）。rg が無く `find`(WSL)/walkdir(Windows) フォールバックの場合は `.gitignore` を見ず `IGNORED_DIRS` のみで除外するため、ネストした `package.json` がより多く出る
-- タスク実行はプロジェクトのデフォルトシェルで `autoStart` + `closeOnExit`（完了でタブ自動クローズ）。サブディレクトリのタスクは正しい CWD で起動
-- **グループの折り畳み（#273）**: 状態は `stores/tasks.ts` が持ち、`localStorage` のキーは**プロジェクトごと**（`pike:tasks-collapsed:{projectId}`。`fileTree` の `expanded` と同型）。`sourceFile` はルート相対なので、1 つのキーに全プロジェクトを入れると別プロジェクトの `package.json` と衝突するうえ、他のウィンドウが書いた分を読み直してから差し替える羽目になる
-- グループ見出しの sourceFile クリックで定義ファイルをエディタタブで開く（#159。`taskStore.openSourceFile`、`group.cwd` + `basename(sourceFile)` で絶対パス化）
-- フロント: `stores/tasks.ts` + `components/panels/TasksPanel.vue` + `types/tasks.ts`
-
