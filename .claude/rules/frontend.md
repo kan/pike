@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/**/*.{vue,ts}"
+  - "src/assets/theme.css"
+  - "index.html"
+---
+
 # フロント実装ルール
 
 ## 基本方針

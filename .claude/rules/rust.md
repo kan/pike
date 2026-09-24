@@ -1,3 +1,10 @@
+---
+paths:
+  - "src-tauri/**/*.rs"
+  - "src-tauri/Cargo.toml"
+  - "src-tauri/rustfmt.toml"
+---
+
 # Rust 実装ルール
 
 ## 整形（rustfmt、#313）

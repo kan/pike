@@ -1,3 +1,12 @@
+---
+paths:
+  - "src-tauri/src/docker/**"
+  - "src/stores/docker.ts"
+  - "src/components/panels/DockerPanel.vue"
+  - "src/components/tabs/DockerLogsTab.vue"
+  - "src/composables/useDockerLogRouter.ts"
+---
+
 # Docker 実装ルール
 
 bollard 経由の Docker API 連携、compose の探索、ログストリーム、ポートフォワード。

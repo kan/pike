@@ -1,3 +1,25 @@
+---
+paths:
+  - "src-tauri/src/pty/**"
+  - "src/components/tabs/TerminalTab.vue"
+  - "src/components/KeyboardShortcuts.vue"
+  - "src/components/AgentSessionsMenu.vue"
+  - "src/composables/usePtyRouter.ts"
+  - "src/composables/useTerminal*.ts"
+  - "src/composables/useKeyboardShortcuts.ts"
+  - "src/composables/useShortcutsModal.ts"
+  - "src/composables/useAppActions.ts"
+  - "src/composables/useCopyOnSelect.ts"
+  - "src/composables/useImagePaste.ts"
+  - "src/composables/useAgentMenu.ts"
+  - "src/lib/shortcuts.ts"
+  - "src/lib/keys.ts"
+  - "src/lib/terminalLinks.ts"
+  - "src/lib/editorPresetKeys.ts"
+  - "scripts/check-shortcuts.ts"
+  - "docs/manual/shortcuts-and-cli.md"
+---
+
 # ターミナル実装ルール
 
 PTY・シェル・xterm.js と、ターミナル上で動かすコーディングエージェントの補助。

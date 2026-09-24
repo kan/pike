@@ -1,3 +1,20 @@
+---
+paths:
+  - "src-tauri/src/types.rs"
+  - "src-tauri/src/main.rs"
+  - "src-tauri/src/lib.rs"
+  - "src-tauri/src/appmenu/**"
+  - "src-tauri/src/pty/**"
+  - "src-tauri/*.plist"
+  - "src-tauri/icons/**"
+  - "src/lib/host.ts"
+  - "src/lib/keys.ts"
+  - "src/types/tab.ts"
+  - "src/composables/useAppMenu.ts"
+  - "scripts/download-rg.sh"
+  - "scripts/make-icons.sh"
+---
+
 # プラットフォーム対応ルール（Windows / macOS）
 
 Pike の第一ターゲットは Windows で、macOS は**ローカルのシェルで開発できる**ところまでを持つ。

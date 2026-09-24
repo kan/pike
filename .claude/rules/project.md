@@ -1,3 +1,42 @@
+---
+paths:
+  - "src-tauri/src/project/**"
+  - "src-tauri/src/tray/**"
+  - "src-tauri/src/jumplist/**"
+  - "src-tauri/src/vdesk/**"
+  - "src-tauri/src/cli.rs"
+  - "src-tauri/src/wait.rs"
+  - "src-tauri/src/elevate.rs"
+  - "src-tauri/src/window_geom.rs"
+  - "src-tauri/src/settings_sync.rs"
+  - "src-tauri/src/settings_gist.rs"
+  - "src-tauri/src/lib.rs"
+  - "src-tauri/capabilities/**"
+  - "src-tauri/nsis/**"
+  - "src/App.vue"
+  - "src/stores/project.ts"
+  - "src/stores/sync.ts"
+  - "src/stores/tabs.ts"
+  - "src/types/project.ts"
+  - "src/lib/sync*.ts"
+  - "src/lib/project*.ts"
+  - "src/lib/window.ts"
+  - "src/lib/gitRemote.ts"
+  - "src/components/ProjectSwitcher.vue"
+  - "src/components/ColorDot.vue"
+  - "src/components/ProjectIcon.vue"
+  - "src/components/panels/Project*.vue"
+  - "src/components/panels/GroupComboBox.vue"
+  - "src/components/panels/ColorSelect.vue"
+  - "src/components/panels/IconSelect.vue"
+  - "src/components/layout/ProjectSelect.vue"
+  - "src/components/tabs/SyncConflictsTab.vue"
+  - "src/composables/useCliOpen.ts"
+  - "src/composables/useTerminalPeek.ts"
+  - "src/composables/useProjectAccent.ts"
+  - "src/composables/useBusyExit.ts"
+---
+
 # プロジェクト・ウィンドウ・CLI 実装ルール
 
 プロジェクトの設定と同期、ウィンドウの生成と復元、OS 統合（トレイ・ジャンプリスト）、`pike` CLI。

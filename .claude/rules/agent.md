@@ -1,3 +1,30 @@
+---
+paths:
+  - "src-tauri/src/agents.rs"
+  - "src-tauri/src/agent_hook.rs"
+  - "src-tauri/src/agent_sessions.rs"
+  - "src-tauri/src/shell_probe.rs"
+  - "src-tauri/src/cache.rs"
+  - "src-tauri/src/agent_usage/**"
+  - "src-tauri/src/claude_usage/**"
+  - "src-tauri/src/codex_usage/**"
+  - "src-tauri/src/toast/**"
+  - "src/lib/agents.ts"
+  - "src/lib/usageFormat.ts"
+  - "src/lib/notify.ts"
+  - "src/stores/agents.ts"
+  - "src/stores/agentUsage.ts"
+  - "src/stores/usageStore.ts"
+  - "src/stores/shellProbe.ts"
+  - "src/types/agentUsage.ts"
+  - "src/types/agentSession.ts"
+  - "src/composables/useAgent*.ts"
+  - "src/components/tabs/AgentStatusTab.vue"
+  - "src/components/RateMeters.vue"
+  - "src/components/AgentSessionsMenu.vue"
+  - "src/components/layout/StatusBar.vue"
+---
+
 # エージェント実装ルール
 
 エージェントの一覧（レジストリ）とトークン使用量の集計。

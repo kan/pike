@@ -1,3 +1,9 @@
+---
+paths:
+  - "tests/**"
+  - "src-tauri/src/bin/**"
+---
+
 # テスト方針
 
 ## 基本方針

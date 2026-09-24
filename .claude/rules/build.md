@@ -1,3 +1,18 @@
+---
+paths:
+  - "justfile"
+  - "package.json"
+  - "vite.config.ts"
+  - "src-tauri/tauri*.conf.json"
+  - "src-tauri/Cargo.toml"
+  - "src-tauri/build.rs"
+  - "e2e/**"
+  - "scripts/**"
+  - ".github/**"
+  - "src/composables/useUpdater.ts"
+  - "CHANGELOG.md"
+---
+
 # ビルド・CI・配布ルール
 
 開発ビルドの起動、本番ビルド限定の落とし穴、E2E スクリーンショット、CI ワークフロー、セルフアップデート。

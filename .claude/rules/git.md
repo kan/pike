@@ -1,3 +1,25 @@
+---
+paths:
+  - "src-tauri/src/git/**"
+  - "src-tauri/src/ssh_agent.rs"
+  - "src/stores/git.ts"
+  - "src/stores/worktree.ts"
+  - "src/types/git.ts"
+  - "src/components/panels/GitPanel.vue"
+  - "src/components/tabs/DiffTab.vue"
+  - "src/components/tabs/HistoryTab.vue"
+  - "src/components/tabs/CommitTab.vue"
+  - "src/components/RenameNote.vue"
+  - "src/lib/git*.ts"
+  - "src/lib/diff*.ts"
+  - "src/lib/commitPatch.ts"
+  - "src/lib/editorConflict.ts"
+  - "src/lib/editorGitGutter.ts"
+  - "src/lib/popupPosition.ts"
+  - "src/composables/useAnchoredPopup.ts"
+  - "src/composables/useDragResize.ts"
+---
+
 # Git 実装ルール
 
 `git` CLI ブリッジ（`git2` クレートは使わない）と worktree 連動。
