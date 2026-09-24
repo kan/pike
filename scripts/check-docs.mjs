@@ -141,11 +141,11 @@ const EXTERNAL_NAMES = [
   'runHandlers', // CodeMirror 内部
   'runScopeHandlers', // @codemirror/view（マクロの再生がキーマップへ流す口、#180）
   'inputHandler', // @codemirror/view の EditorView.inputHandler（マクロの再生が文字入力で通す、#180）
-  'send_user_message', // tauri-runtime-wry 内部（ウィンドウ操作を同期にする理由として rust.md が出す）
+  'send_user_message', // tauri-runtime-wry 内部（ウィンドウ操作が ack を待たない理由として rust-window.md が出す）
   'set_csp', // tauri 内部（manager::set_csp）
   'subIssuesSummary', // gh の --json フィールド（使わない理由を issues.md が書くために出す）
   'transcript_path', // Claude Code の hook が stdin で渡すフィールド（#299）
-  'webview_windows', // tauri の AppHandle（使ってはいけない理由として rust.md が出す、#368）
+  'webview_windows', // tauri の AppHandle（使ってはいけない理由として rust-window.md が出す、#368）
   'BROWSER', // Linux の環境変数（渡さないと決めた理由として terminal.md が出す、#381）
   // このスクリプト自身の識別子。自分をコーパスから外している以上、外の名前と同じ扱いになる。
   'EXTERNAL_NAMES',

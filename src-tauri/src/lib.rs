@@ -435,7 +435,7 @@ fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<Window, 
         .disable_drag_drop_handler();
     let webview_window = builder.build()?;
     // WebView2 の COM を触るので webview ごと渡す。作った直後（子 webview がまだ無い）なので
-    // `WebviewWindow` として扱えるのはここだけ（理由は `.claude/rules/rust.md`）。
+    // `WebviewWindow` として扱えるのはここだけ（理由は `.claude/rules/rust-window.md`）。
     drop_paths::attach(&webview_window);
     let window = webview_window.as_ref().window();
     window_geom::restore(app, geom_key, &window);

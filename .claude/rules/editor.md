@@ -112,6 +112,7 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
   - **各パネルに 2 行のカスケード用の規則が要る**: `.tree-item:hover` / `.tree-item.selected` は scoped の属性が付くぶん詳細度が高く、共有クラスの塗りを上書きしてしまう。色は共有の変数のままにして、詳細度だけ合わせる
   - **ツリーの追従は選択ではなく `revealFile`**（畳んである親を開く）。深いところにあるファイルは、親が畳まれていると行そのものが描かれず、選択もスクロールも見えない。判定は強調と同じ computed を読む（別々に判定すると、印の付く行と選択がずれる）
 - 文字コード対応: `encoding_rs` で自動検出 + 指定エンコードでの開き直し/保存（StatusBar 2段階 UI）
+- **バイナリ安全装置**: `fs_read_file` の自動判定時に先頭 8KB（`BINARY_SNIFF_LEN`）の NUL バイトで Err を返す（EditorTab がエラー表示）。UTF-16 BOM は先に BOM 判定してテキスト扱い、UTF-8 BOM は素通し（保存ラウンドトリップ維持）。StatusBar からの明示エンコード指定はガードなし（escape hatch）
 - 改行コード LF/CRLF 切替（StatusBar クリック）、保存時に適用
 - ファイルツリーコンテキストメニュー: リネーム（インライン入力）、削除（カスタム confirm ダイアログ）、Git History（専用タブ）、フォルダ限定「エクスプローラーで開く」（`fs_open_in_explorer`。WSL は `\\wsl.localhost\{distro}` UNC に変換して explorer.exe 起動）
 - ドラッグ&ドロップ移動 + コピーの修飾キー（`dragDropEnabled: false` で Tauri ネイティブ D&D を無効化）。

@@ -34,3 +34,13 @@ paths:
 - 設定タブにターミナルプレビュー表示（選択中のフォント・サイズ・カラースキームを即時反映）
 - Editor セクション: ミニマップ ON/OFF、ワードラップ ON/OFF、タブサイズ（2/4/8）。CM6 Compartment でライブ反映
 - settings タブはセッション永続化の対象外（`snapshotSession` は terminal / editor / browser のみフィルタ）
+
+## シェルプロファイル（#129）
+
+ターミナル追加の ▾ プルダウンと各シェル選択肢の並び順・表示/非表示を管理する。実体は `stores/settings.ts`、UI は SettingsTab「シェル一覧」（↑↓・目トグル・デフォルトバッジ。行は `ProfileRow.vue`）。
+
+- `ShellProfile { id, shell, hidden? }` の配列を `pike:shell-profiles` キーにマシンローカル永続化（`globalShell` と同じく**同期ファイルの対象外**。マシンの WSL distro に依存するため）
+- ただし**クロスウィンドウ broadcast はする**（`pike://shell-profiles-changed`、#240）: マシンローカルでも同じマシンのウィンドウ同士では揃っている必要がある。ジャンプリストとトレイはプロセスに 1 つの資源で、どのウィンドウからでも張り直されるため、起動時のコピーを持ったままのウィンドウが「別のウィンドウが検出した WSL の distro が無い」「今隠したシェルがまだ居る」一覧を publish してしまう。**publish の直前に localStorage を読み直す形は採らない**（同じ変更で走る永続化 watcher と読みが競合する）
+- `syncShellProfiles(distros)` が `detect_wsl_distros` の結果と照合する（新規 distro は先頭に追加・消えた distro は除去・既存の順序と hidden は維持）。**空検出は過渡状態とみなし reconcile しない**（カスタマイズの消失を防ぐ）
+- `windowsShellOptions(currentKind?)` / `visibleWslDistros(detected, currentDistro?)` が hidden を除いた選択肢を返す（現在値は hidden でも残す）。`defaultWindowsShellKind()` は作成フォームの既定（powershell 優先）
+- `ensureVisiblePerCategory` で WSL/Windows の各カテゴリに最低 1 つは可視を保証する（UI の `canHideShellProfile` と二重ガード）。既定シェルは ▾ で hidden でも一覧に残す

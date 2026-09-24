@@ -22,19 +22,24 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
 ## PTY / シェル対応
 - WSL のコマンドは `bash -c`（非ログイン）で走るので、`.profile` が足すパスは効かない。ツールチェインの場所は `types.rs` の `WSL_EXTRA_PATH` に明示する（抜けると `go vet` のような外部ツールの実行が無言で空振りする）
 - PTY 管理は `portable-pty` クレートを使う（ConPTY 対応済み）
+- PTY プロセスのライフタイムは `PtyState` が所有し、ウィンドウ破棄時に `pty::cleanup_for_window` で cleanup
+- セッション ID（UUID）でタブと PTY インスタンスを 1:1 で紐付ける
+- PTY の stdout 読み取りは専用スレッド（`std::thread::spawn`）で行い、`app_handle.emit` でフロントに送る
 - `pty_spawn` コマンドが `ShellConfig` に応じてシェルを起動:
   - WSL: `wsl.exe [-d distro] [--cd path] bash`
   - cmd: `cmd.exe`
   - PowerShell: `powershell.exe -NoLogo`
   - Git Bash: `C:\Program Files\Git\bin\bash.exe --login`（自動検出）
   - Unix（macOS / Linux）: `$SHELL` を **`-l`（ログインシェル）** で起動する。GUI プロセスの PATH は最小なので、rc / profile を読ませないとターミナルから何も呼べない（`.claude/rules/platform.md` の「PATH」）
+- **PowerShell 7（pwsh、#127）**: Windows PowerShell 5（`ShellConfig::Powershell`）と併存する独立シェル種別 `ShellConfig::Pwsh` / `ShellType {kind:'pwsh'}`。`pty/mod.rs` の `find_pwsh()` が PATH → `C:\Program Files\PowerShell\7\pwsh.exe` → bare `pwsh.exe`（Store 版の実行エイリアス対策）の順で解決する。実在が確認できたものだけが要る呼び出し側は `find_pwsh_path`。`cls`/`;`/`$LASTEXITCODE` の PowerShell 系分岐は front `isPowershellFamily(kind)` で powershell/pwsh 共通化
+- 起動できるシェルの並びと表示/非表示（シェルプロファイル、#129）は `settings-ui.md`
 - **シェル未指定（`None`）の既定は OS で変わる**。Windows は WSL、macOS / Linux はログインシェル（`wsl.exe` が無いので WSL に落とすと即死する）
 - 環境変数 `TERM=xterm-256color` を cmd 以外に設定
 - **WSL のターミナルに `BROWSER` を渡さない（#381 で見送った）**。Claude Code の `/login` のような「ブラウザを開く」は下の OSC 8 のリンクを押せば開く。`BROWSER` に Pike 自身を渡す形は次の 2 つで採らない
   - `cargo doc --open` や Python の `webbrowser` は URL ではなくローカルのパス（`file://`）を `$BROWSER` に渡すので、それが Pike のエディタで開く（xdg-open が動いていた環境では後退になる）
   - xdg-open と Python は `BROWSER` を空白で割るので、ユーザー名やインストール先に空白があると起動できない
 - **OSC 8 のハイパーリンクは `linkHandler` で `openUrlWithConfirm` へ送る（#381、`useTerminalUrlLinks.ts`）**。渡さないと xterm 既定の `window.confirm` → `window.open` が走り、WebView の中で開こうとして何も起きない。Claude Code はログイン URL をこれで出す（折り返した行をまたいでも URL 全体を持つ）。**URL のリンク化の設定では切らない**（理由はあのファイルのコメント）
-- リサイズは `pty.resize()` で PTY サイズを更新
+- リサイズは `pty.resize()`（`portable-pty` の `PtySize`）で PTY サイズを更新
 - **xterm は右に溝を持つ（#383 / #396）。** FitAddon は列数を決めるとき親の幅から
   `overviewRuler?.width` を引き、xterm 6 のスクロールバー（vscode の `ScrollableElement`）も
   同じ値で幅を決める。**1 つの値が確保量と描画幅の両方を決める**ので、`theme.css` の
