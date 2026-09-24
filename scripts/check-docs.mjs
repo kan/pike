@@ -2,9 +2,9 @@
 // ドキュメントと実装の機械的な整合チェック（node scripts/check-docs.mjs / npm run check:docs）。
 //
 // 「文章として正しいか」は見ない。人間が見落とす類の乖離だけを対象にする:
-//   1. src/ と src-tauri/src/ のファイルが CLAUDE.md のディレクトリ構成に載っているか
-//   2. CLAUDE.md と .claude/rules/ が挙げるファイルパスが実在するか（削除・改名の取り残し）
-//   3. CLAUDE.md と .claude/rules/ が挙げるシンボル名が実在するか（関数の改名・削除の取り残し）
+//   1. src/ と src-tauri/src/ のファイルが .claude/structure.md の構成に載っているか
+//   2. 開発ノート（CLAUDE.md と .claude/ 配下の md）が挙げるファイルパスが実在するか（削除・改名の取り残し）
+//   3. 開発ノートが挙げるシンボル名が実在するか（関数の改名・削除の取り残し）
 //   4. README とマニュアルが参照する画像が実在するか / 使われていない画像が残っていないか
 //   5. md 間のリンクとページ内アンカーが解決するか（Pike のプレビューと同じ slug 規則）
 //
@@ -41,8 +41,9 @@ function walk(dir, out = []) {
   return out
 }
 
-// --- 1. CLAUDE.md のディレクトリ構成に載っているか -----------------------------
-const claudeMd = read('CLAUDE.md')
+// --- 1. .claude/structure.md の構成に載っているか ------------------------------
+const STRUCTURE = '.claude/structure.md'
+const structureMd = read(STRUCTURE)
 
 function treeKey(path) {
   const name = path.slice(path.lastIndexOf('/') + 1)
@@ -55,21 +56,25 @@ const sources = [...walk('src'), ...walk('src-tauri/src')].filter(
   (p) => /\.(rs|ts|vue)$/.test(p) && !skipFile(p) && !COLLECTIVE_DIRS.includes(dirname(p)),
 )
 for (const path of sources) {
-  if (!claudeMd.includes(treeKey(path))) fail(`CLAUDE.md の構成に未記載: ${path}`)
+  if (!structureMd.includes(treeKey(path))) fail(`${STRUCTURE} の構成に未記載: ${path}`)
 }
 for (const dir of COLLECTIVE_DIRS) {
   const name = dir.slice(dir.lastIndexOf('/') + 1)
-  if (!claudeMd.includes(`${name}/`)) fail(`CLAUDE.md の構成に未記載（ディレクトリ単位）: ${dir}/`)
+  if (!structureMd.includes(`${name}/`)) fail(`${STRUCTURE} の構成に未記載（ディレクトリ単位）: ${dir}/`)
 }
 
-// --- 2. CLAUDE.md と .claude/rules/ が挙げるパスが実在するか --------------------
+// --- 2. 開発ノートが挙げるパスが実在するか -------------------------------------
 // Rust は src-tauri/src 配下、フロントは src 配下の .ts/.vue だけを Pike 自身の
 // パスとみなす。`src/main.rs` のような他プロジェクトの慣例を指す言及（cargo の
 // タスク検出の説明など）を実在チェックに巻き込まないため。
 const ownPathPatterns = [/src-tauri\/src\/[\w./-]+\.rs/g, /\bsrc\/[\w./-]+\.(?:ts|vue)/g]
-const noteFiles = ['CLAUDE.md', ...walk('.claude/rules').filter((p) => p.endsWith('.md'))]
+const noteFiles = [
+  'CLAUDE.md',
+  STRUCTURE,
+  ...[...walk('.claude/rules'), ...walk('.claude/skills')].filter((p) => p.endsWith('.md')),
+]
 for (const file of noteFiles) {
-  const body = file === 'CLAUDE.md' ? claudeMd : read(file)
+  const body = read(file)
   for (const pattern of ownPathPatterns) {
     for (const m of body.matchAll(pattern)) {
       if (!existsSync(join(root, m[0]))) fail(`${file} が実在しないパスを参照: ${m[0]}`)
@@ -155,7 +160,6 @@ const EXTERNAL_NAMES = [
  */
 const GONE_NAMES = [
   'AppState', // 1 つにまとめていない、と rust.md が書くための名前
-  'build_git_command', // このチェックが無かったころの取り残しの例（CLAUDE.md）
   'CLAUDE_CONFIG_PATH', // issue の表題にあるが実在しない変数（agent.md）
   'getWindowProjectId', // #175 で廃止
   'inlineSmallTextFiles', // #275 で削除
@@ -186,7 +190,7 @@ for (const file of tracked) {
 const looksLikeSymbol = (name) => name.includes('_') || /[a-z][A-Z]/.test(name) || /^[A-Z0-9]+$/.test(name)
 
 for (const file of noteFiles) {
-  const body = stripFences(file === 'CLAUDE.md' ? claudeMd : read(file))
+  const body = stripFences(read(file))
   const seen = new Set()
   for (const m of body.matchAll(/`([A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.)[A-Za-z_][A-Za-z0-9_]*)*)(?:\(\))?`/g)) {
     // `types::os_open` や `EditorView.editable` は末尾の 1 語で照合する（手前は
@@ -270,7 +274,7 @@ if (problems.length > 0) {
   console.error(`ドキュメント整合チェック: ${problems.length} 件\n`)
   for (const p of problems) console.error(`  - ${p}`)
   console.error(
-    '\nCLAUDE.md の構成・参照パス、マニュアルの画像とリンクを直してください。\n' +
+    '\n.claude/structure.md の構成、開発ノートの参照パス、マニュアルの画像とリンクを直してください。\n' +
       '「実在しないシンボル」は、改名したなら本文を直す。他所の API なら EXTERNAL_NAMES、\n' +
       '無いことを説明するために出しているなら GONE_NAMES へ（どちらもこのスクリプトの中）。',
   )

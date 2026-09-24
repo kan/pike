@@ -63,7 +63,7 @@ fix:
 typecheck:
     npx vue-tsc --noEmit
 
-# CLAUDE.md のディレクトリ構成・参照パス、マニュアルの画像とリンク
+# .claude/structure.md の構成・開発ノートの参照パス、マニュアルの画像とリンク
 check-docs:
     npm run check:docs
 

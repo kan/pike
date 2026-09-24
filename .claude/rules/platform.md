@@ -300,4 +300,4 @@ Windows は zip・それ以外は tar.gz と、アーカイブ形式も接尾辞
 取り直すこと。CI はクリーンなランナーなので毎回ダウンロードするが、取ってくるのは
 `VERSION` に書いてあるものであって最新版ではない（`ci.yml` / `release.yml` はどちらも
 `just fetch-rg` を呼ぶだけ）。**この差分に気付ける仕組みが無い**ので、確認する手順を
-CLAUDE.md のリリース手順の先頭に置いてある。
+`release` スキル（`.claude/skills/release/SKILL.md`）の手順 1 に置いてある。
