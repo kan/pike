@@ -7,6 +7,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch 
 import { useAgentMenu } from '../../composables/useAgentMenu'
 import { confirmDialog, confirmWithOption } from '../../composables/useConfirmDialog'
 import { copyOnSelect } from '../../composables/useCopyOnSelect'
+import { devServerUrls } from '../../composables/useDevServerUrls'
 import {
   MAX_UPLOAD_SIZE,
   readClipboard,
@@ -878,6 +879,8 @@ onMounted(async () => {
   })
 
   const termRef_ = terminal
+  // 開発サーバーの URL を拾うときの手がかり（#397。どのプロジェクトのサーバーか）。
+  const devServerCwd = tabData?.cwd ?? projectStore.activeRoot ?? undefined
   ptyRouter.register(
     ptyId,
     (data) => {
@@ -885,8 +888,10 @@ onMounted(async () => {
       // 「今ちゃんと動いているか」の目安（#319）。**出力のたびに来る**ので、ここでは
       // 時刻を 1 つ置くだけ（`markTerminalOutput` の doc）。
       markTerminalOutput(props.tabId)
+      devServerUrls.feed(props.tabId, data, devServerCwd)
     },
     (code) => {
+      devServerUrls.forget(props.tabId)
       termRef_.write(`\r\n${t('terminal.exited', { code: String(code) })}\r\n`)
       tabStore.reportExit(props.tabId, code)
       const tab = terminalTab()
@@ -1238,6 +1243,7 @@ onUnmounted(() => {
   if (resizeTimer) clearTimeout(resizeTimer)
   resizeObserver?.disconnect()
   unregisterTerminalPeek(props.tabId)
+  devServerUrls.forget(props.tabId)
   if (ptyId) {
     ptyRouter.unregister(ptyId)
     ptyKill(ptyId).catch(() => {})

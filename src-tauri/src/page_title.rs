@@ -23,7 +23,7 @@
 //! 取得そのもの（プロバイダの用意・クライアントの使い回し・上限付き読み）は `http` に
 //! ある。ここに残すのは HTML の読み方だけ。
 
-use crate::http::{self, FetchPolicy, Partial, Redirects};
+use crate::http::{self, FetchPolicy, Partial, Redirects, Target};
 use std::time::Duration;
 
 /// A title lives in `<head>`, so the first chunk of the document is enough. The
@@ -43,6 +43,7 @@ pub async fn page_title_fetch(url: String) -> Result<Option<String>, String> {
     let policy = FetchPolicy {
         allow_http: true,
         redirects: Redirects::Follow,
+        target: Target::Public,
         timeout: TIMEOUT,
         max_bytes: MAX_BYTES,
         // `<title>` は先頭にあるので、途中までしか読めなくても手元のぶんで足りる。

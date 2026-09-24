@@ -7,8 +7,8 @@ import { type BrowserHandlers, browserRouter } from './useBrowserRouter'
 
 /**
  * 子 webview（`Window::add_child`）を DOM の 1 要素の矩形に重ねて面倒を見る（#399）。
- * ブラウザのタブ（#368、`BrowserTab.vue`）と HTML のプレビュー（#399、`HtmlPreview.vue`）が
- * 共有する。**作る中身だけが呼び出し側の持ち物**で、位置合わせ・隠す・閉じる・作り直しは
+ * ブラウザのタブ（#368、`BrowserTab.vue`）と HTML のプレビュー（#399、`HtmlPreview.vue`）、
+ * Vue SFC のプレビュー（#397、`VuePreview.vue`）が共有する。**作る中身だけが呼び出し側の持ち物**で、位置合わせ・隠す・閉じる・作り直しは
  * ここにしか書かない。書き写すと、下の約束を片方だけ直す事故が起きる。
  *
  * - **位置合わせは 1 本ずつ順に送る**（`sync`）。Rust のコマンドは別々のタスクで走るので、
@@ -135,6 +135,8 @@ export function useChildWebview(opts: ChildWebviewOptions) {
       } catch (e) {
         state = 'none'
         opts.onError(String(e))
+        // 失敗した古い中身のエラーを出したまま待たせない。
+        takePendingRecreate()
         return
       }
       state = 'ready'
@@ -143,6 +145,8 @@ export function useChildWebview(opts: ChildWebviewOptions) {
         void browserClose(label)
         return
       }
+      // 作ったものは古い。
+      if (takePendingRecreate()) return
       // 作っているあいだに隠れた・動いたぶんを反映する（溜まっていなくても 1 回は合わせ直す）。
       syncAgain = true
       return
@@ -197,14 +201,38 @@ export function useChildWebview(opts: ChildWebviewOptions) {
     syncAgain = true
   }
 
+  /** 作っている途中に `recreate` を頼まれた（作り終えたところで作り直す）。 */
+  let recreatePending = false
+
   /**
-   * 閉じて作り直す。**ラベルも変える**: 閉じる指示は非同期なので、同じラベルで作り直すと、
-   * 古いものがまだ残っていて作れないことがある。
+   * 作り終えた（成否を問わない）ところで、作っているあいだに頼まれた作り直しを果たす。
+   * 開く中身が変わったので、成功していれば閉じて作り直し、失敗していれば新しい中身で作る
+   * （どちらも `recreate` がそのときの状態に合わせて行う）。果たしたら true。
+   */
+  function takePendingRecreate(): boolean {
+    if (!recreatePending) return false
+    recreatePending = false
+    recreate()
+    return true
+  }
+
+  /**
+   * 閉じて作り直す（作れなければ閉じるだけ。`canCreate` が見る）。**どの状態から呼んでも効く**:
+   * 作っている途中なら作り終えたところで作り直し、まだ無ければ作るだけ。開く中身が変わったと
+   * 伝える側（Save As・開発サーバーの URL の変化）は、状態を気にせずこれを呼べばよい。
+   *
+   * **ラベルも変える**: 閉じる指示は非同期なので、同じラベルで作り直すと、古いものがまだ
+   * 残っていて作れないことがある。
    */
   function recreate() {
-    if (state !== 'ready') return
-    void browserClose(label)
-    release()
+    if (state === 'creating') {
+      recreatePending = true
+      return
+    }
+    if (state === 'ready') {
+      void browserClose(label)
+      release()
+    }
     scheduleSync()
   }
 

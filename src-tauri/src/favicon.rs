@@ -15,7 +15,7 @@
 use reqwest::Url;
 use std::time::Duration;
 
-use crate::http::{self, FetchPolicy, Partial, Redirects};
+use crate::http::{self, FetchPolicy, Partial, Redirects, Target};
 use crate::page_title::{decode_entities, find_ascii_ci};
 use crate::remote_image::RemoteImage;
 
@@ -86,6 +86,7 @@ fn policy(max_bytes: usize, partial: Partial) -> FetchPolicy {
     FetchPolicy {
         allow_http: true,
         redirects: Redirects::Follow,
+        target: Target::Public,
         timeout: TIMEOUT,
         max_bytes,
         partial,

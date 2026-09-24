@@ -20,6 +20,7 @@ import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { AGENTS, type AgentLauncher, isLauncherVisible, launcherLabel } from '../../lib/agents'
 import { CSV_PAGE_SIZES } from '../../lib/csvPreview'
+import { DEFAULT_DEV_SERVER_URL, normalizeDevServerUrl } from '../../lib/devServer'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import type { SqlDialect } from '../../lib/fileType'
 import { buildFontFamily, checkFontRendering, type FontNotice } from '../../lib/fontDetection'
@@ -106,6 +107,18 @@ function clampAutoSaveDelay(raw: string): number {
   // `Number('')` は 0 なので、空欄は先に「数値でない」側へ寄せる。
   const n = raw.trim() === '' ? Number.NaN : Math.round(Number(raw))
   return clampSize(n, AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX, AUTO_SAVE_DELAY_DEFAULT)
+}
+
+/**
+ * 開発サーバーの URL を確定する（#397）。読めない入力は捨てて元の値を欄に戻す（`:value` は
+ * 値が変わらないと描き直されないので、欄は自分で戻す）。空欄は既定へ戻す。
+ */
+function onDevServerUrlChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const raw = input.value.trim()
+  const url = raw === '' ? DEFAULT_DEV_SERVER_URL : normalizeDevServerUrl(raw)
+  if (url) settings.devServerUrl = url
+  input.value = settings.devServerUrl
 }
 const projectStore = useProjectStore()
 settings.loadAvailableFonts()
@@ -1269,6 +1282,18 @@ const PREVIEW_LINES = [
           <SettingItem label-key="settings.previewSmoothScroll">
             <SettingToggle v-model="settings.previewSmoothScroll" :options="ON_OFF" />
           </SettingItem>
+
+          <!-- Vue SFC のプレビュー（#397）。ほかの手がかりで見つからなかったときに試す最後の候補。 -->
+          <SettingItem label-key="settings.devServerUrl" hint-key="settings.devServerUrlHint" wide>
+            <input
+              :value="settings.devServerUrl"
+              class="agent-cmd-input dev-server-input"
+              type="text"
+              spellcheck="false"
+              :placeholder="DEFAULT_DEV_SERVER_URL"
+              @change="onDevServerUrlChange"
+            />
+          </SettingItem>
         </SettingGroup>
       </SettingSection>
 
@@ -1859,6 +1884,11 @@ const PREVIEW_LINES = [
 .agent-cmd-input.label {
   flex: 0 0 130px;
   min-width: 0;
+}
+
+.dev-server-input {
+  width: 100%;
+  max-width: 360px;
 }
 
 .sync-path-row {

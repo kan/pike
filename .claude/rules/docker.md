@@ -21,6 +21,7 @@ bollard 経由の Docker API 連携、compose の探索、ログストリーム�
 - グループ見出しのパスをクリックすると compose ファイルをエディタで開く（Tasks パネルの `openSourceFile`（#159）と同じ操作感に揃えてある）
 - start / stop / restart / refresh を UI から実行、5 秒ポーリングで状態更新（ウィンドウがアクティブなあいだだけ。`useFocusPolling`）
 - compose up / down（#157、#221 でグループ単位へ）: DockerPanel の**グループ見出し**（Play / Square）→ confirm 後に `docker compose up -d` / `docker compose down` をターミナルタブで実行（`dockerStore.composeUp/composeDown(target)`、cwd=**その compose ファイルのディレクトリ**・closeOnExit。タスク実行と同じパターン）。compose が複数あると対象が一意に決まらないため、パネル全体に効く up / down のボタンは置かない
+- **Vue SFC のプレビュー（#397）が読むもの**: `docker_list_containers` の `ports`（公開ポート。TCP だけで、`0.0.0.0` と `::` の重複は畳む）と、`docker_virtual_hosts`（inspect の環境変数の `VIRTUAL_HOST`。カンマ区切りで複数ある）。どちらも compose ファイルではなく動いているコンテナから取る（`${VAR}` が展開済みで、止まっているものは入らない）。使い方は `preview.md`
 - ログストリーミングは 50ms バッファリング + Tauri イベント emit
 - DockerLogsTab は xterm.js ベース（読み取り専用、`convertEol: true`）
 - `docker exec` シェル: bollard exec API でコンテナ内シェルを検出（bash → sh フォールバック）、プロジェクトのシェル内で `docker exec -it` を autoStart 実行

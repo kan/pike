@@ -121,6 +121,7 @@ const EXTERNAL_NAMES = [
   'SSH_ASKPASS_REQUIRE', // OpenSSH 8.4+ の環境変数（採らなかった選択肢として git.md が出す）
   'expiresAt', // Claude Code の .credentials.json のキー（Pike は読まない。#381 の調査の記録）
   'refreshTokenExpiresAt', // 同上
+  'ServerCertificateErrorDetected', // WebView2 の COM のイベント（採らなかった選択肢として preview.md が出す）
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）
   'WORK', // 同期ファイルの例に出てくるグループ名
   '__VERSION__', // tauri-action がタグ名に埋めるプレースホルダ

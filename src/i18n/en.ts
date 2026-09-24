@@ -439,6 +439,9 @@ export default {
   'settings.sqlDialectPgsql': 'PostgreSQL',
   'settings.sqlDialectSqlite': 'SQLite',
   'settings.previewSmoothScroll': 'Smooth scroll (preview)',
+  'settings.devServerUrl': 'Dev server for Vue previews',
+  'settings.devServerUrlHint':
+    'A Vue file preview looks for the dev server in this order: the Vite URL printed in a terminal, the vite.config settings, and running Docker containers (VIRTUAL_HOST, then published ports). This URL is tried when none of them answers.',
   'settings.imageHosts': 'External image domains',
   'settings.imageHostsHint':
     'Domains the Markdown preview may load images from. Allow one from the button the preview shows in place of the image.',
@@ -910,6 +913,21 @@ export default {
   'browser.hiddenByPanel':
     'The page is hidden while the Git panel is open in the sidebar, so commit tooltips are not covered by it. It comes back when you close the panel.',
   'browser.applySiteRules': 'Reopen to apply',
+  'vuePreview.searching': 'Looking for the dev server…',
+  'vuePreview.noVite':
+    'No vite.config found. Vue files are previewed through the project’s Vite dev server (Vite projects only).',
+  'vuePreview.noServer':
+    'No dev server found. Start Vite (for example with npm run dev). The preview picks up the URL Vite prints in the terminal and reopens by itself.',
+  'vuePreview.retry': 'Search again',
+  'vuePreview.openTasks': 'Open the Tasks panel',
+  'vuePreview.source.terminal': '(terminal)',
+  'vuePreview.source.config': '(vite.config)',
+  'vuePreview.source.virtualHost': '(Docker VIRTUAL_HOST)',
+  'vuePreview.source.docker': '(Docker published port)',
+  'vuePreview.source.default': '(setting)',
+  'vuePreview.probe.unreachable': 'not reachable',
+  'vuePreview.probe.notFound': 'no entry page (another project’s server, or a different base)',
+  'vuePreview.probe.notVite': 'not a Vite dev server',
   'browser.blankTitle': 'New Tab',
   'browser.filterPlaceholder': 'Filter bookmarks and history',
   'browser.bookmarks': 'Bookmarks',

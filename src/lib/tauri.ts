@@ -806,16 +806,6 @@ export async function browserClose(label: string): Promise<void> {
 }
 
 /**
- * HTML のプレビュー（#399）に置くフロント製のファイル（#397 の前提）。`path` は `__pike/` で
- * 始まるルートからの相対パスで、ディスクより先に同じ origin で返る。
- */
-export interface PreviewVirtualFile {
-  path: string
-  content: string
-  mime?: string
-}
-
-/**
  * HTML のプレビューの子 webview を作る（`src-tauri/src/html_preview.rs`）。`root` の下だけを
  * `pike-preview` のスキームで配信し、`entry`（ルートからの相対パス）を開く。位置合わせ・
  * 再読み込み・閉じるはブラウザのタブのコマンド（`browserPlace` / `browserHistory` /
@@ -827,14 +817,24 @@ export async function previewOpen(
   shell: ShellType,
   entry: string,
   bounds: BrowserBounds,
-  files?: PreviewVirtualFile[],
 ): Promise<void> {
-  return inOrder(() => invoke('preview_open', { label, root, shell, entry, bounds, files }))
+  return inOrder(() => invoke('preview_open', { label, root, shell, entry, bounds }))
 }
 
-/** 仮想ファイルを置き直す（置き直したら `browserHistory(label, 'reload')` で描き直す）。 */
-export async function previewSetFiles(label: string, files: PreviewVirtualFile[]): Promise<void> {
-  return invoke('preview_set_files', { label, files })
+/**
+ * Vue SFC のプレビュー（#397）の子 webview を作り、開発サーバーの `url` を開く。ページが
+ * 自分で動けるのは同じオリジンの中だけ（外へのリンクはブラウザのタブへ逃がす）。
+ */
+export async function previewDevOpen(label: string, url: string, bounds: BrowserBounds): Promise<void> {
+  return inOrder(() => invoke('preview_dev_open', { label, url, bounds }))
+}
+
+/** 開発サーバーの入口を取りに行った結果（`html_preview.rs` の `DevProbe`）。 */
+export type DevProbe = 'ready' | 'unreachable' | 'notFound' | 'notVite'
+
+/** `marker` は入口に埋めた印（`lib/devServer.ts` の `previewMarker`）。 */
+export async function previewDevProbe(url: string, marker: string): Promise<DevProbe> {
+  return invoke<DevProbe>('preview_dev_probe', { url, marker })
 }
 
 // Docker
@@ -850,6 +850,11 @@ export async function dockerComposeDiscover(root: string, shell: ShellType): Pro
 
 export async function dockerListContainers(): Promise<ContainerListResult> {
   return invoke<ContainerListResult>('docker_list_containers')
+}
+
+/** コンテナの環境変数 `VIRTUAL_HOST` に書かれた名前（リバースプロキシ用。#397）。 */
+export async function dockerVirtualHosts(ids: string[]): Promise<string[]> {
+  return invoke<string[]>('docker_virtual_hosts', { ids })
 }
 
 export async function dockerStart(containerId: string): Promise<void> {

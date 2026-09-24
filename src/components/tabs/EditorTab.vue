@@ -99,6 +99,7 @@ import HtmlPreview from '../editor/HtmlPreview.vue'
 import MacroButtons from '../editor/MacroButtons.vue'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import MinimapToggle from '../editor/MinimapToggle.vue'
+import VuePreview from '../editor/VuePreview.vue'
 import WrapToggle from '../editor/WrapToggle.vue'
 import HelpButton from '../HelpButton.vue'
 
@@ -263,12 +264,14 @@ const isJson = computed(() => fileExt.value === 'json' || fileExt.value === 'jso
 const isJsonl = computed(() => fileExt.value === 'jsonl' || fileExt.value === 'ndjson')
 const isRst = computed(() => fileExt.value === 'rst')
 /**
- * 子 webview に描くプレビュー（#399 の HTML、`HtmlPreview.vue`）。**描くのは保存したファイル**
+ * 子 webview に描くプレビュー（#399 の HTML は `HtmlPreview.vue`、#397 の Vue SFC は
+ * `VuePreview.vue`）。**描くのは保存したファイル**（Vue は開発サーバーが読むディスクの中身）
  * なので、無題のバッファには出さない（`hasFile` は無題でも真になるので path を見る）。
  * DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）はこれで外す。
- * Vue SFC（#397）を足すときも、ここに条件を足せば残りは付いてくる。
  */
-const webviewPreview = computed(() => (fileExt.value === 'html' || fileExt.value === 'htm') && !!tab.value?.path)
+const isHtml = computed(() => fileExt.value === 'html' || fileExt.value === 'htm')
+const isVue = computed(() => fileExt.value === 'vue')
+const webviewPreview = computed(() => (isHtml.value || isVue.value) && !!tab.value?.path)
 const htmlPreview = useTemplateRef<{ onSaved: () => void }>('htmlPreview')
 /**
  * スマートフォンの縦長の画面で見る（ブラウザのタブの同名の機能と同じ大きさ）。タブ単位で
@@ -2438,8 +2441,15 @@ onUnmounted(() => {
     </div>
     <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error && !isDirectory && tooLargeSize === null">
       <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
+      <VuePreview
+        v-if="showPreview && isVue && tab?.path"
+        class="preview-pane"
+        :tab-id="props.tabId"
+        :path="tab.path"
+        :mobile="previewMobile"
+      />
       <HtmlPreview
-        v-if="showPreview && webviewPreview && tab?.path"
+        v-else-if="showPreview && webviewPreview && tab?.path"
         ref="htmlPreview"
         class="preview-pane"
         :tab-id="props.tabId"

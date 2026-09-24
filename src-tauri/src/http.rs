@@ -45,13 +45,63 @@ pub enum Partial {
     Keep,
 }
 
+/// 相手がどこか。証明書の検証と名前解決の扱いが変わる。
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    /// 外のホスト（既定の経路はすべてこれ）。証明書を検証し、名前は OS が解決する。
+    Public,
+    /// **この機械の開発サーバー**（Vue SFC のプレビュー、#397）。宛先は loopback に限り
+    /// （`is_loopback`）、**リダイレクトは追わない**（`FetchPolicy::redirects` は見ない）。
+    /// その代わりに次の 3 つを開発サーバー向けにする（どれもクライアントに組み込む）。
+    ///
+    /// - **証明書を検証しない。** 開発サーバーの証明書は自己署名か mkcert（mkcert の CA は OS の
+    ///   証明書ストアに入るが、rustls が読むのは webpki のトラストアンカーなので通らない）
+    /// - **`*.localhost` を loopback に解決する**（RFC 6761。`LocalhostResolver`）。Chromium と
+    ///   curl は自分でそう解決するが、Windows の OS の解決は引けない。リバースプロキシ
+    ///   （nginx-proxy や roji の `VIRTUAL_HOST=app.localhost`）の URL がここに来る
+    /// - **ページとして要求する**（`Accept: text/html`）。`Accept` を見て `text/html` 以外を
+    ///   API サーバーへ回す Vite の `proxy` 設定がある。webview は常に付けて要求するので、
+    ///   付けないと確認だけが別の応答を見る
+    LocalDevServer,
+}
+
 pub struct FetchPolicy {
     /// http を許すか。https は常に許す。
     pub allow_http: bool,
     pub redirects: Redirects,
+    pub target: Target,
     pub timeout: Duration,
     pub max_bytes: usize,
     pub partial: Partial,
+}
+
+/// `*.localhost` と `localhost` を loopback に解決する（`Target::LocalDevServer` の名前解決）。
+/// それ以外の名前は来ない（`fetch` が loopback 以外を先に弾く）。
+struct LocalhostResolver;
+
+impl reqwest::dns::Resolve for LocalhostResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let localhost = is_localhost_name(name.as_str());
+        Box::pin(async move {
+            if !localhost {
+                return Err("only localhost names are resolved here".into());
+            }
+            // ポートの 0 は reqwest が URL のポートで置き換える。
+            let addrs: [std::net::SocketAddr; 2] = [
+                (std::net::Ipv4Addr::LOCALHOST, 0).into(),
+                (std::net::Ipv6Addr::LOCALHOST, 0).into(),
+            ];
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
+}
+
+/// `localhost` か、その下の名前（`app.localhost`）か。
+fn is_localhost_name(host: &str) -> bool {
+    host.trim_end_matches('.')
+        .rsplit('.')
+        .next()
+        .is_some_and(|label| label.eq_ignore_ascii_case("localhost"))
 }
 
 pub struct Fetched {
@@ -79,13 +129,16 @@ fn ensure_crypto_provider() {
 /// webpki のトラストアンカーを全部読み、接続プールと DNS リゾルバを確保する。呼び出しごとに
 /// 捨てると同じホストへの 2 回目も TLS ハンドシェイクからやり直しになる（`docker/mod.rs` が
 /// `OnceCell` でクライアントを持つのと同じ理由）。タイムアウトはリクエスト単位で指定できるので、
-/// 方針の違いはリダイレクトだけに畳める。
-fn client(redirects: Redirects) -> Result<Client, String> {
+/// 方針の違いはリダイレクトと相手（`Target`）だけに畳める。
+fn client(redirects: Redirects, target: Target) -> Result<Client, String> {
     static NEVER: OnceLock<Client> = OnceLock::new();
     static FOLLOW: OnceLock<Client> = OnceLock::new();
-    let slot = match redirects {
-        Redirects::Never => &NEVER,
-        Redirects::Follow => &FOLLOW,
+    static DEV_SERVER: OnceLock<Client> = OnceLock::new();
+    let (slot, redirects) = match (target, redirects) {
+        (Target::Public, Redirects::Never) => (&NEVER, Redirects::Never),
+        (Target::Public, Redirects::Follow) => (&FOLLOW, Redirects::Follow),
+        // 宛先を loopback に固定しておくため、追わない。
+        (Target::LocalDevServer, _) => (&DEV_SERVER, Redirects::Never),
     };
     if let Some(client) = slot.get() {
         return Ok(client.clone());
@@ -98,13 +151,45 @@ fn client(redirects: Redirects) -> Result<Client, String> {
         Redirects::Never => reqwest::redirect::Policy::none(),
         Redirects::Follow => reqwest::redirect::Policy::limited(MAX_REDIRECTS),
     };
-    let client = Client::builder()
-        .redirect(policy)
-        .build()
-        .map_err(|e| e.to_string())?;
+    let mut builder = Client::builder().redirect(policy);
+    if target == Target::LocalDevServer {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("text/html,application/xhtml+xml,*/*;q=0.8"),
+        );
+        builder = builder
+            .danger_accept_invalid_certs(true)
+            .dns_resolver(LocalhostResolver)
+            .default_headers(headers);
+    }
+    let client = builder.build().map_err(|e| e.to_string())?;
     // 競合したときは先に入ったほうを使う（どちらも同じ方針なので等価）。
     let _ = slot.set(client.clone());
     Ok(client)
+}
+
+/// 宛先が loopback（`localhost` と `*.localhost` / `127.0.0.0/8` / `::1`）か。`*.localhost` は
+/// `LocalhostResolver` が loopback へ解決するので、ここでも loopback に数えてよい。
+fn is_loopback(url: &reqwest::Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    // IPv6 は `[::1]` の形で来る。
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    is_localhost_name(host)
+        || bare
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// 状態コードで失敗したときのエラーの接頭辞（`HTTP 404`）。
+const STATUS_ERROR_PREFIX: &str = "HTTP ";
+
+/// `fetch` のエラーが状態コードによるもの（サーバーは応えた）か。繋がらなかった・読めなかった
+/// ものと見分けたい呼び出し元（Vue SFC のプレビューの `preview_dev_probe`）が使う。
+pub fn is_status_error(err: &str) -> bool {
+    err.starts_with(STATUS_ERROR_PREFIX)
 }
 
 /// `Content-Type` を本体と charset に分ける。
@@ -137,14 +222,18 @@ pub async fn fetch(url: &str, policy: &FetchPolicy) -> Result<Fetched, String> {
         });
     }
 
-    let mut resp = client(policy.redirects)?
+    if policy.target == Target::LocalDevServer && !is_loopback(&parsed) {
+        return Err("A local dev server fetch is only allowed for loopback hosts".to_owned());
+    }
+
+    let mut resp = client(policy.redirects, policy.target)?
         .get(parsed)
         .timeout(policy.timeout)
         .send()
         .await
         .map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status().as_u16()));
+        return Err(format!("{STATUS_ERROR_PREFIX}{}", resp.status().as_u16()));
     }
     let final_url = resp.url().to_string();
     let (mime, charset) = parse_content_type(
@@ -194,6 +283,20 @@ pub async fn fetch(url: &str, policy: &FetchPolicy) -> Result<Fetched, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_loopback_hosts_are_dev_servers() {
+        let lb = |s: &str| is_loopback(&reqwest::Url::parse(s).unwrap());
+        assert!(lb("https://localhost:5173/"));
+        assert!(lb("https://sitter.kan.localhost/"));
+        assert!(lb("https://App.Localhost/"));
+        assert!(!lb("https://notlocalhost/"));
+        assert!(lb("https://127.0.0.1:5173/"));
+        assert!(lb("https://[::1]:5173/"));
+        assert!(!lb("https://example.com/"));
+        assert!(!lb("https://localhost.example.com/"));
+        assert!(!lb("https://192.168.0.2:5173/"));
+    }
 
     #[test]
     fn splits_content_type_into_mime_and_charset() {

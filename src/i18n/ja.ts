@@ -436,6 +436,9 @@ export default {
   'settings.sqlDialectPgsql': 'PostgreSQL',
   'settings.sqlDialectSqlite': 'SQLite',
   'settings.previewSmoothScroll': 'スムーススクロール（プレビュー）',
+  'settings.devServerUrl': 'Vue のプレビューの開発サーバー',
+  'settings.devServerUrlHint':
+    'Vue ファイルのプレビューは、ターミナルに出た Vite の URL、vite.config の設定、Docker で動くコンテナ（VIRTUAL_HOST と公開ポート）の順に開発サーバーを探します。どれでも見つからなかったときに、この URL を試します。',
   'settings.imageHosts': '外部画像の許可ドメイン',
   'settings.imageHostsHint': 'Markdown プレビューが画像を読み込むドメイン。画像の代わりに出るボタンから追加する',
   // 承認済みホストの一覧（画像とリンク）が共有する空表示。
@@ -907,6 +910,21 @@ export default {
   'browser.hiddenByPanel':
     'サイドバーで Git パネルを開いているあいだ、ページを一時的に隠しています。コミットのツールチップがページの下に隠れないようにするためです。パネルを閉じると戻ります。',
   'browser.applySiteRules': '開き直して反映',
+  'vuePreview.searching': '開発サーバーを探しています…',
+  'vuePreview.noVite':
+    'vite.config が見つかりません。Vue ファイルのプレビューは、プロジェクトの Vite 開発サーバーで描きます（Vite のプロジェクトだけが対象です）。',
+  'vuePreview.noServer':
+    '開発サーバーが見つかりません。npm run dev などで Vite を起動してください。起動したときにターミナルに出る URL を拾って、自動で開き直します。',
+  'vuePreview.retry': 'もう一度探す',
+  'vuePreview.openTasks': 'タスクパネルを開く',
+  'vuePreview.source.terminal': '（ターミナル）',
+  'vuePreview.source.config': '（vite.config）',
+  'vuePreview.source.virtualHost': '（Docker の VIRTUAL_HOST）',
+  'vuePreview.source.docker': '（Docker の公開ポート）',
+  'vuePreview.source.default': '（設定の既定）',
+  'vuePreview.probe.unreachable': '繋がりません',
+  'vuePreview.probe.notFound': '入口がありません（別のプロジェクトのサーバーか、base が違います）',
+  'vuePreview.probe.notVite': 'Vite の開発サーバーではありません',
   'browser.blankTitle': '新しいタブ',
   'browser.filterPlaceholder': 'ブックマークと履歴を絞り込む',
   'browser.bookmarks': 'ブックマーク',

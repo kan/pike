@@ -18,22 +18,24 @@
 //! 載せる形だと、それを当てれば任意のプロジェクトを読めてしまう。ここでは
 //! `preview_open` が登録したラベルからの要求にだけ、そのラベルのルートの下を返す。
 //!
-//! **仮想ファイル**（#397 の前提）。フロントが作った中身を、ディスクより先に同じ
-//! origin で返せる。Vue SFC のプレビューは、コンパイル結果と入口の HTML をここへ
-//! 置き、import の解決（相対パスの CSS や画像）はディスクへ落とす、という形になる。
-//! 置き場は `__pike/` の下に限る（利用者のファイルと名前がぶつからないように）。
+//! **Vue SFC のプレビュー（#397）も同じ子 webview に描くが、配信はしない。** コンパイルは
+//! プロジェクトの Vite 開発サーバーに任せ（Pike はコンパイラを抱えない）、子 webview は
+//! その URL を直接開く（`preview_dev_open`）。こちらの登録は配信のルートを持たないので、
+//! `pike-preview` のスキームからは何も返らない。共有するのはリンクをブラウザのタブへ
+//! 逃がす部分と、ラベルの約束と、後始末。
 //!
 //! ラベルは `browser-preview-{uuid}`。`browser.rs` の `check_label` を通るので、位置
 //! 合わせ・再読み込み・閉じる（`browser_place` / `browser_history` / `browser_close`）は
 //! ブラウザのタブのコマンドをそのまま使う。capability の対象外であることも同じ
 //! （`browser.rs` のモジュール doc）。**登録の後始末はブラウザのタブの側に持ち込まない**:
-//! 次の `preview_open` が、もう無い webview のぶんを落とす（`prune`）。
+//! 次の `preview_open` / `preview_dev_open` が、もう無い webview のぶんを落とす（`prune`）。
 
 use crate::browser::{self, Bounds};
 use crate::fs::MAX_SIZE_CEILING;
+use crate::http::{self, FetchPolicy, Partial, Redirects, Target};
 use crate::types::{into_lossy_string, ShellConfig};
 use percent_encoding::percent_decode_str;
-use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -51,29 +53,20 @@ pub const SCHEME: &str = "pike-preview";
 /// ラベルの接頭辞。`browser-` の下に置くのは、ブラウザのタブのコマンドを通すため。
 const LABEL_PREFIX: &str = "browser-preview-";
 
-/// 仮想ファイルの置き場（#397）。
-const VIRTUAL_PREFIX: &str = "__pike/";
-
 /// ページのリンクをブラウザのタブへ逃がす最短の間隔。**押されたかどうかは分からない**
 /// （`location = …` も同じ経路で来る）ので、スクリプトが連打してもタブが溢れないようにする。
 const LINK_INTERVAL: Duration = Duration::from_secs(1);
 
-/// フロントが渡す仮想ファイル。
-#[derive(Debug, Clone, Deserialize)]
-pub struct VirtualFile {
-    /// `__pike/` で始まる、ルートからの相対パス。
-    path: String,
-    content: String,
-    /// 省略すれば拡張子から決める。
-    #[serde(default)]
-    mime: Option<String>,
-}
-
-struct Entry {
+/// `pike-preview` で配信するルート。
+struct ServedRoot {
     /// WSL ならそのままのパス、それ以外は実体を解決したパス（`canonical_root`）。
     root: String,
     shell: ShellConfig,
-    files: HashMap<String, VirtualFile>,
+}
+
+struct Entry {
+    /// 開発サーバーを描くプレビュー（#397）は持たない。
+    served: Option<ServedRoot>,
     /// 最後にブラウザのタブへ逃がした時刻（`LINK_INTERVAL`）。
     last_link: Option<Instant>,
 }
@@ -199,17 +192,6 @@ fn redirect_to_dir(url: &Url) -> Response<Vec<u8>> {
     )
 }
 
-/// 仮想ファイルを引く。見つからなければ `None`（ディスクへ落とす）。
-fn virtual_file(entry: &Entry, rel: &str) -> Option<Response<Vec<u8>>> {
-    let file = entry.files.get(rel)?;
-    let mime = file.mime.as_deref().unwrap_or_else(|| mime_of(rel));
-    Some(respond(
-        StatusCode::OK,
-        mime,
-        file.content.clone().into_bytes(),
-    ))
-}
-
 /// `.` で始まる名前（`.git` / `.env` / `.ssh`）か。**プレビューするページは任意の JS を
 /// 動かす**ので、ルートの下でも秘密を置きがちな場所は返さない。
 fn is_hidden(segments: &[String]) -> bool {
@@ -315,13 +297,10 @@ fn serve(state: &PreviewState, label: &str, uri: &str) -> Response<Vec<u8>> {
     // 読むあいだロックを握らない（WSL では wsl.exe を起こす）。
     let (root, shell) = {
         let entries = state.lock();
-        let Some(entry) = entries.get(label) else {
+        let Some(served) = entries.get(label).and_then(|e| e.served.as_ref()) else {
             return text(StatusCode::FORBIDDEN, "not a preview");
         };
-        if let Some(res) = virtual_file(entry, &rel) {
-            return res;
-        }
-        (entry.root.clone(), entry.shell.clone())
+        (served.root.clone(), served.shell.clone())
     };
     if is_hidden(&segments) {
         return text(StatusCode::FORBIDDEN, "hidden files are not served");
@@ -352,21 +331,6 @@ pub fn handle<R: Runtime>(
     });
 }
 
-fn check_virtual(files: &[VirtualFile]) -> Result<(), String> {
-    for f in files {
-        let ok = f.path.starts_with(VIRTUAL_PREFIX)
-            && relative_segments(&f.path).is_some_and(|s| s.join("/") == f.path);
-        if !ok {
-            return Err(format!("invalid virtual path: {}", f.path));
-        }
-    }
-    Ok(())
-}
-
-fn to_map(files: Vec<VirtualFile>) -> HashMap<String, VirtualFile> {
-    files.into_iter().map(|f| (f.path.clone(), f)).collect()
-}
-
 /// もう無い子 webview の登録を落とす。**閉じた知らせを受ける口を持たない**（タブを閉じた、
 /// ウィンドウごと閉じた、作っている途中で捨てた、のどれでも同じ形で消える）ので、次に
 /// 開くときに掃除する。
@@ -374,8 +338,7 @@ fn prune(app: &AppHandle, entries: &mut HashMap<String, Entry>) {
     entries.retain(|label, _| app.get_webview(label).is_some());
 }
 
-/// 呼んだウィンドウにプレビューの子 webview を作り、`entry`（ルートからの相対パス。
-/// 仮想ファイルでもよい）を開く。
+/// 呼んだウィンドウにプレビューの子 webview を作り、`entry`（ルートからの相対パス）を開く。
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn preview_open(
@@ -387,11 +350,8 @@ pub async fn preview_open(
     shell: ShellConfig,
     entry: String,
     bounds: Bounds,
-    files: Option<Vec<VirtualFile>>,
 ) -> Result<(), String> {
     check_label(&label)?;
-    let files = files.unwrap_or_default();
-    check_virtual(&files)?;
     let Some(segments) = relative_segments(&entry) else {
         return Err("entry is outside the root".into());
     };
@@ -402,15 +362,125 @@ pub async fn preview_open(
         .clear()
         .extend(&segments);
     let root = canonical_root(&shell, root)?;
+    let served = ServedRoot { root, shell };
+    open_child(
+        app,
+        &window,
+        &state,
+        label,
+        Some(served),
+        url,
+        bounds,
+        is_preview_url,
+    )
+}
+
+/// 開発サーバー（Vite）のページを描くプレビューの子 webview を作る（#397）。ページが自分で
+/// 動いてよいのは `url` と同じオリジンの中だけ（HMR の WebSocket は遷移ではないので通る）。
+#[tauri::command]
+pub async fn preview_dev_open(
+    app: AppHandle,
+    window: Window,
+    state: tauri::State<'_, PreviewState>,
+    label: String,
+    url: String,
+    bounds: Bounds,
+) -> Result<(), String> {
+    check_label(&label)?;
+    let url = browser::check_page_url(&app, &url)?;
+    let origin = url.origin();
+    let stays = move |u: &Url| u.origin() == origin;
+    open_child(app, &window, &state, label, None, url, bounds, stays)
+}
+
+/// 開発サーバーの入口を取りに行った結果（#397）。フロントは候補の URL を順に試し、
+/// `Ready` を返した最初のものを開く。
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DevProbe {
+    /// Vite が入口を返した。
+    Ready,
+    /// 繋がらない（開発サーバーが動いていない）。
+    Unreachable,
+    /// 繋がったが入口が無い（別のプロジェクトのサーバー、`base` の食い違い、SSR の構成）。
+    /// 別のプロジェクトの Vite は無い `.html` にも `index.html` を 200 で返すので、印
+    /// （`marker`）の無い Vite のページもここに入る。
+    NotFound,
+    /// 返ってきたが Vite の開発サーバーのページではない。
+    NotVite,
+}
+
+/// 開発サーバーの応答だけを見るので短く切る（候補を順に試すあいだ待たせない）。
+const DEV_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Vite が開発時の HTML に差し込むクライアント（`base` が付いても末尾はこの形）。
+const VITE_CLIENT: &[u8] = b"/@vite/client";
+
+/// `url`（開発サーバー上の入口）を取りに行き、Vite が返したかを確かめる。**入口は Pike が
+/// そのプロジェクトの下に書いたファイル**で、`marker` はそこに埋めた印（`lib/devServer.ts` の
+/// `previewMarker`）。別のプロジェクトの Vite や別のサーバーはここで落ちる（ポートだけを
+/// 見る形より取り違えが無い）。
+#[tauri::command]
+pub async fn preview_dev_probe(
+    app: AppHandle,
+    url: String,
+    marker: String,
+) -> Result<DevProbe, String> {
+    let url = browser::check_page_url(&app, &url)?;
+    let policy = FetchPolicy {
+        allow_http: true,
+        // 追うと `base` の食い違いを別のページで埋めてしまう。
+        redirects: Redirects::Never,
+        // 自己署名の証明書・`*.localhost`（リバースプロキシの `VIRTUAL_HOST`）・ページとしての
+        // 要求（`Accept: text/html`）。中身は `Target::LocalDevServer` の doc。
+        target: Target::LocalDevServer,
+        timeout: DEV_PROBE_TIMEOUT,
+        max_bytes: 64 * 1024,
+        partial: Partial::Keep,
+    };
+    Ok(match http::fetch(url.as_str(), &policy).await {
+        Ok(page) => classify(&page.body, &marker),
+        Err(e) if http::is_status_error(&e) => DevProbe::NotFound,
+        Err(_) => DevProbe::Unreachable,
+    })
+}
+
+fn contains(body: &[u8], needle: &[u8]) -> bool {
+    !needle.is_empty() && body.windows(needle.len()).any(|w| w == needle)
+}
+
+/// 返ってきたページを見分ける。印が無い Vite のページは SPA のフォールバック（`NotFound`）。
+fn classify(body: &[u8], marker: &str) -> DevProbe {
+    if !contains(body, VITE_CLIENT) {
+        DevProbe::NotVite
+    } else if contains(body, marker.as_bytes()) {
+        DevProbe::Ready
+    } else {
+        DevProbe::NotFound
+    }
+}
+
+/// 子 webview を作って登録する（HTML と開発サーバーのプレビューで共通）。`stays` はページが
+/// 自分で移動してよい URL か。**外へは移動させない**: リンクはブラウザのタブで開く（プレビューは
+/// そのファイルを見る場所で、移動を始めると戻る手段が要る）。
+#[allow(clippy::too_many_arguments)]
+fn open_child(
+    app: AppHandle,
+    window: &Window,
+    state: &PreviewState,
+    label: String,
+    served: Option<ServedRoot>,
+    url: Url,
+    bounds: Bounds,
+    stays: impl Fn(&Url) -> bool + Send + 'static,
+) -> Result<(), String> {
     {
         let mut entries = state.lock();
         prune(&app, &mut entries);
         entries.insert(
             label.clone(),
             Entry {
-                root,
-                shell,
-                files: to_map(files),
+                served,
                 last_link: None,
             },
         );
@@ -422,10 +492,8 @@ pub async fn preview_open(
     let builder = WebviewBuilder::new(&label, WebviewUrl::External(url))
         // ブラウザのタブと同じ理由（`browser_open` のコメント）。
         .disable_drag_drop_handler()
-        // **プレビューの外へは移動させない。** リンクはブラウザのタブで開く（プレビューは
-        // そのファイルを見る場所で、移動を始めると戻る手段が要る）。
         .on_navigation(move |url| {
-            if is_preview_url(url) {
+            if stays(url) {
                 return true;
             }
             redirect(url);
@@ -475,21 +543,6 @@ fn open_in_browser_tab(app: &AppHandle, window: &str, opener: &str, url: &Url) {
             url: url.to_string(),
         },
     );
-}
-
-/// 仮想ファイルを差し替える（#397。コンパイルし直したら置き直してから再読み込みする）。
-#[tauri::command]
-pub async fn preview_set_files(
-    state: tauri::State<'_, PreviewState>,
-    label: String,
-    files: Vec<VirtualFile>,
-) -> Result<(), String> {
-    check_label(&label)?;
-    check_virtual(&files)?;
-    let mut entries = state.lock();
-    let entry = entries.get_mut(&label).ok_or("no preview")?;
-    entry.files = to_map(files);
-    Ok(())
 }
 
 #[cfg(test)]
@@ -549,16 +602,15 @@ mod tests {
     }
 
     #[test]
-    fn virtual_paths_live_under_the_prefix() {
-        let f = |p: &str| VirtualFile {
-            path: p.to_owned(),
-            content: String::new(),
-            mime: None,
-        };
-        assert!(check_virtual(&[f("__pike/entry.html")]).is_ok());
-        assert!(check_virtual(&[f("index.html")]).is_err());
-        assert!(check_virtual(&[f("__pike/../x")]).is_err());
-        assert!(check_virtual(&[f("__pike//x")]).is_err());
+    fn only_our_entry_is_ready() {
+        let ours = br#"<script type="module" src="/app/@vite/client"></script>
+            <meta name="pike-preview" content="pike-preview-0a1b2c3d" />"#;
+        let fallback = br#"<script type="module" src="/@vite/client"></script><div id="app">"#;
+        let m = "pike-preview-0a1b2c3d";
+        assert_eq!(classify(ours, m), DevProbe::Ready);
+        assert_eq!(classify(fallback, m), DevProbe::NotFound);
+        assert_eq!(classify(b"<p>nginx</p>", m), DevProbe::NotVite);
+        assert_eq!(classify(ours, ""), DevProbe::NotFound);
     }
 
     #[test]

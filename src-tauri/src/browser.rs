@@ -159,6 +159,12 @@ fn parse_web_url(origin: &AppOrigin, url: &str) -> Result<Url, String> {
     Ok(parsed)
 }
 
+/// 子 webview に開かせてよいページの URL か（`browser_open` と同じ線引き）。Vue SFC の
+/// プレビュー（#397、`html_preview.rs`）が開発サーバーの URL を確かめるのに使う。
+pub(crate) fn check_page_url(app: &AppHandle, url: &str) -> Result<Url, String> {
+    parse_web_url(&AppOrigin::of(app), url)
+}
+
 /// タブの中身の矩形。ウィンドウの client 領域の CSS ピクセル（＝論理ピクセル）。
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Bounds {

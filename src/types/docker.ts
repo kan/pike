@@ -2,6 +2,12 @@ export interface ComposeService {
   name: string
 }
 
+/** A TCP port a container publishes on the Docker host (`docker/mod.rs` `PublishedPort`). */
+export interface PublishedPort {
+  privatePort: number
+  publicPort: number
+}
+
 /** One compose file and its services. A monorepo yields several (#221). */
 export interface ComposeProject {
   /** Absolute directory holding the file — where `docker compose` runs, and
@@ -38,4 +44,6 @@ export interface ContainerInfo {
   composeProject: string | null
   /** Directory compose ran in — how a container is tied to a discovered file. */
   composeWorkingDir: string | null
+  /** Host ports published for the container (TCP). The Vue SFC preview (#397) reads them. */
+  ports: PublishedPort[]
 }

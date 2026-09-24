@@ -38,5 +38,5 @@ Tauri のウィンドウ・webview を Rust から扱うときの規則。ウィ
   wry がウィンドウに OLE のドロップ先を張るので、有効なままだとページ上のドラッグが
   横取りされ、HTML5 の drag & drop が「禁止」のカーソルで止まる。今付けているのは Pike 本体
   （`build_window` と `tauri.conf.json` の `dragDropEnabled`）と、子 webview の 2 つ
-  （ブラウザのタブの `browser_open`、HTML のプレビューの `html_preview.rs`）。**子 webview を
+  （ブラウザのタブの `browser_open`、HTML と Vue のプレビューの `html_preview.rs` の `open_child`）。**子 webview を
   作る箇所を足すときに付け忘れやすい**

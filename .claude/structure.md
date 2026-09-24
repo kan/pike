@@ -43,7 +43,7 @@ pike/
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
 │       ├── elevate.rs         # 管理者ターミナル（--new-instance で昇格起動、#138）
 │       ├── browser.rs         # ブラウザのタブの子 webview（#368。`unstable` の `add_child`）
-│       ├── html_preview.rs    # HTML のプレビューの配信（#399。`pike-preview` のスキームと仮想ファイル）
+│       ├── html_preview.rs    # HTML のプレビューの配信（#399。`pike-preview` のスキーム）と Vue SFC のプレビューの子 webview・開発サーバーの確認（#397）
 │       ├── site_rules.rs      # ドメインごとの JS と CSS を差し込むスクリプトの組み立て（#368）
 │       ├── jira/              # Jira の拡張機能の JS（#380。jirapp から写した正本。site_rules.rs が include_str! で埋め込む）
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
@@ -146,6 +146,7 @@ pike/
 │   │   │   ├── MacroButtons.vue     # キーボードマクロの記録・再生ボタン（#180）
 │   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
 │   │   │   ├── MinimapToggle.vue    # ミニマップの表示切り替え（タブ単位、#282）
+│   │   │   ├── VuePreview.vue       # Vue SFC のプレビュー（#397。Vite 開発サーバーの入口を子 webview で開く）
 │   │   │   └── WrapToggle.vue       # 折り返しの切り替え（タブ単位、#241）
 │   │   ├── settings/          # 設定画面の器（#314。節・小見出し・1 項目・一致の強調）
 │   │   │   ├── SettingSection.vue  # 1 セクション（左ナビの飛び先）
@@ -201,7 +202,8 @@ pike/
 │   │   ├── useSettingsSearch.ts # 設定画面の絞り込み（#314。登録・一致・強調の切り分け）
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useBrowserRouter.ts # ブラウザのタブへの通知をラベルで振り分ける（#368。usePtyRouter と同じ形）
-│   │   ├── useChildWebview.ts # 子 webview の位置合わせ・隠す・閉じる（#399。ブラウザのタブと HTML のプレビューで共有）
+│   │   ├── useChildWebview.ts # 子 webview の位置合わせ・隠す・閉じる（#399。ブラウザのタブと HTML / Vue のプレビューで共有）
+│   │   ├── useDevServerUrls.ts # ターミナルに出た開発サーバーの `Local:` の URL を覚える（#397）
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
 │   │   ├── usePreviewFind.ts # プレビューの検索（#360。数え直しと移動の契機）
@@ -210,7 +212,7 @@ pike/
 │   │   ├── useMarkdownLinkPaste.ts # 貼り付けた URL をタイトル付きリンクにする（#241）
 │   ├── lib/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
-│   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
+│   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードと Vue のプレビューの入口の置き場）
 │   │   ├── reorder.ts        # ドラッグでの並べ替え（プロジェクト一覧とサイドバーのアイコン列、#364）
 │   │   ├── syncMerge.ts      # 設定の同期の 3-way マージ（#403。種別を知らない純粋な計算）
 │   │   ├── syncFormat.ts     # 同期ファイルとマージの項目の行き来・同期の種類（#403）
@@ -220,6 +222,8 @@ pike/
 │   │   ├── fileType.ts       # ファイル名 → 種別のキー（#347。ハイライト/アウトライン/ジャンプ/アイコンが共有）
 │   │   ├── codeHighlight.ts  # プレビューのコードブロックの色付け（#359。4 つのプレビューで共有）
 │   │   ├── csvPreview.ts     # CSV プレビューの表（読み込み・並べ替え・ページ送りの HTML）
+│   │   ├── devServer.ts      # Vue SFC のプレビューの開発サーバー探しと入口の HTML（#397。純粋なロジック）
+│   │   ├── jsScan.ts         # 設定ファイルを評価せずに読む走査（コメント除去・括弧の対応。定義ジャンプと #397 で共有）
 │   │   ├── domFind.ts        # 描画済み DOM の文字検索と CSS Custom Highlight の登録（#360）
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）
 │   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）

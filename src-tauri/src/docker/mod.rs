@@ -3,9 +3,10 @@ pub mod tunnel;
 use crate::fs::{batch_read_files, file_name_of, parent_dir_of, rel_path_of, walk_files_by_name};
 use crate::types::ShellConfig;
 use bollard::exec::{CreateExecOptions, StartExecResults};
+use bollard::models::{PortSummary, PortSummaryTypeEnum};
 use bollard::query_parameters::{
-    ListContainersOptions, LogsOptions, RestartContainerOptions, StartContainerOptions,
-    StopContainerOptions,
+    InspectContainerOptions, ListContainersOptions, LogsOptions, RestartContainerOptions,
+    StartContainerOptions, StopContainerOptions,
 };
 use bollard::Docker;
 use futures_util::StreamExt;
@@ -47,6 +48,41 @@ pub struct ContainerInfo {
     /// project got its name (`-p`, `COMPOSE_PROJECT_NAME` in the environment or
     /// in the directory's `.env`, …).
     pub compose_working_dir: Option<String>,
+    /// Host ports published for this container (TCP only). The Vue SFC preview
+    /// (#397) looks here for a Vite dev server running in compose.
+    pub ports: Vec<PublishedPort>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishedPort {
+    /// Port inside the container.
+    pub private_port: u16,
+    /// Port on the Docker host (reachable as `localhost` from Pike).
+    pub public_port: u16,
+}
+
+/// TCP ports published to the host, deduplicated (Docker lists a binding once
+/// per address family, so `0.0.0.0` and `::` repeat the same pair).
+fn published_ports(ports: Option<Vec<PortSummary>>) -> Vec<PublishedPort> {
+    let mut out: Vec<PublishedPort> = Vec::new();
+    for p in ports.unwrap_or_default() {
+        let tcp = matches!(p.typ, None | Some(PortSummaryTypeEnum::TCP));
+        let Some(public_port) = p.public_port.filter(|_| tcp) else {
+            continue;
+        };
+        let private_port = p.private_port;
+        if !out
+            .iter()
+            .any(|o| o.private_port == private_port && o.public_port == public_port)
+        {
+            out.push(PublishedPort {
+                private_port,
+                public_port,
+            });
+        }
+    }
+    out
 }
 
 #[derive(Serialize)]
@@ -299,6 +335,7 @@ pub async fn docker_list_containers(
             compose_working_dir: labels
                 .get("com.docker.compose.project.working_dir")
                 .cloned(),
+            ports: published_ports(c.ports),
         });
     }
     Ok(result)
@@ -457,6 +494,42 @@ pub async fn docker_detect_shell(
     }
 }
 
+/// Hostnames the given containers ask a reverse proxy for, via `VIRTUAL_HOST`
+/// (nginx-proxy's convention, also read by roji and similar local proxies).
+/// The Vue SFC preview (#397) tries them when the dev server runs in compose
+/// behind such a proxy with no published port. Read from the running
+/// container, not the compose file, so `${VAR}` in `environment:` is already
+/// expanded. Containers that fail to inspect are skipped.
+#[tauri::command]
+pub async fn docker_virtual_hosts(
+    state: State<'_, DockerState>,
+    ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let docker = get_docker(&state).await?;
+    let infos = futures_util::future::join_all(
+        ids.iter()
+            .map(|id| docker.inspect_container(id, None::<InspectContainerOptions>)),
+    )
+    .await;
+    // 重複は受け取る側が URL 単位で畳む（`devServerCandidates`）。
+    Ok(infos
+        .into_iter()
+        .flatten()
+        .flat_map(|info| virtual_hosts(&info.config.and_then(|c| c.env).unwrap_or_default()))
+        .collect())
+}
+
+/// `VIRTUAL_HOST` may list several names separated by commas.
+fn virtual_hosts(env: &[String]) -> Vec<String> {
+    env.iter()
+        .filter_map(|e| e.strip_prefix("VIRTUAL_HOST="))
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
 #[tauri::command]
 pub async fn docker_logs_stop(
     stream_id: String,
@@ -475,7 +548,21 @@ pub async fn docker_logs_stop(
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_project_name, parse_compose_file};
+    use super::{normalize_project_name, parse_compose_file, virtual_hosts};
+
+    #[test]
+    fn virtual_host_lists_are_split() {
+        let env = [
+            "PATH=/usr/bin".to_owned(),
+            "VIRTUAL_HOST=sitter.kan.localhost, admin.kan.localhost".to_owned(),
+            "VIRTUAL_PORT=3000".to_owned(),
+        ];
+        assert_eq!(
+            virtual_hosts(&env),
+            ["sitter.kan.localhost", "admin.kan.localhost"]
+        );
+        assert!(virtual_hosts(&["VIRTUAL_HOST=".to_owned()]).is_empty());
+    }
 
     #[test]
     fn project_name_matches_compose_normalization() {

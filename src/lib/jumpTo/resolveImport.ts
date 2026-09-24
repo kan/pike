@@ -11,8 +11,11 @@
  * don't want to walk into node_modules from a lightweight editor.
  */
 
-import type { ShellType } from '../../types/tab'
+import { type ShellType, shellToPlatform } from '../../types/tab'
+import { VITE_CONFIG_NAMES } from '../devServer'
+import { extractBalanced, splitTopLevel, stripCommentsForScan } from '../jsScan'
 import { dirname, isAbsolutePath, joinPath, pathSep } from '../paths'
+import { isSameOrUnder, rootKey } from '../projectPaths'
 import { fsExistingPaths, fsReadFile, fsResolveFirstExisting } from '../tauri'
 
 const TS_LIKE_EXTS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.vue']
@@ -137,7 +140,10 @@ async function loadAliasMap(
   // config is considered, though: climbing past a package's own tsconfig to
   // the monorepo root would apply an alias TypeScript doesn't give that
   // package. Single IPC call covers the whole walk.
-  const configs = await fsExistingPaths(shell, ancestorCandidates(fromFile, projectRoot, sep, ALIAS_CONFIG_FILENAMES))
+  const configs = await fsExistingPaths(
+    shell,
+    ancestorCandidates(fromFile, projectRoot, sep, shell, ALIAS_CONFIG_FILENAMES),
+  )
   const nearestDir = configs.length > 0 ? dirname(configs[0]) : null
   for (const configPath of configs.filter((c) => dirname(c) === nearestDir)) {
     const map = await loadCached(configPath, () => readAliasMap(configPath, sep, shell))
@@ -154,14 +160,8 @@ async function loadCached(key: string, factory: () => Promise<AliasMap | null>):
   return promise
 }
 
-const ALIAS_CONFIG_FILENAMES = [
-  'tsconfig.json',
-  'jsconfig.json',
-  'vite.config.ts',
-  'vite.config.js',
-  'vite.config.mjs',
-  'vite.config.cjs',
-] as const
+// vite.config の名前は Vue SFC のプレビュー（#397）と同じ一覧（Vite 自身が探す順）。
+const ALIAS_CONFIG_FILENAMES = ['tsconfig.json', 'jsconfig.json', ...VITE_CONFIG_NAMES] as const
 
 /**
  * Walk up from `fromFile`'s directory toward `projectRoot` and return the
@@ -175,30 +175,35 @@ export async function findNearestUpward(
   shell: ShellType,
   filenames: readonly string[],
 ): Promise<string | null> {
-  return fsResolveFirstExisting(shell, ancestorCandidates(fromFile, projectRoot, sep, filenames))
+  return fsResolveFirstExisting(shell, ancestorCandidates(fromFile, projectRoot, sep, shell, filenames))
 }
 
-/** `filenames` joined onto each directory from `fromFile`'s up to `projectRoot`, nearest first. */
+/**
+ * `filenames` joined onto each directory from `fromFile`'s upward, nearest
+ * first. Stops at `projectRoot` when `fromFile` is under it; a file outside the
+ * project (another repo opened by path, or the project switched afterwards)
+ * walks up its own tree instead, since the project's configs say nothing about
+ * it. The comparison goes through `isSameOrUnder`, so separators, a trailing
+ * separator and (on Windows) drive-letter case don't matter.
+ */
 function ancestorCandidates(
   fromFile: string,
   projectRoot: string,
   sep: '/' | '\\',
+  shell: ShellType,
   filenames: readonly string[],
 ): string[] {
-  const normalizedRoot = projectRoot.replace(/[/\\]+$/, '')
+  const under = projectRoot !== '' && isSameOrUnder(projectRoot, fromFile, shellToPlatform(shell))
+  const stopKey = rootKey(projectRoot)
   const dirs: string[] = []
   let cur = dirname(fromFile)
-  // Cap iteration to avoid runaway when fromFile sits outside projectRoot.
+  // Cap iteration to avoid runaway on a malformed path.
   for (let i = 0; i < 32; i++) {
     dirs.push(cur)
-    if (cur === normalizedRoot) break
+    if (under && rootKey(cur) === stopKey) break
     const parent = dirname(cur)
     if (parent === cur) break
     cur = parent
-    if (!cur.startsWith(normalizedRoot)) {
-      if (dirs[dirs.length - 1] !== normalizedRoot) dirs.push(normalizedRoot)
-      break
-    }
   }
   const candidates: string[] = []
   for (const d of dirs) {
@@ -404,43 +409,6 @@ function extractAliasBlock(text: string): { kind: 'object' | 'array'; body: stri
   return { kind: open === '{' ? 'object' : 'array', body }
 }
 
-/**
- * Starting at `startIdx` (just after an opening bracket `open`), return the
- * substring up to (but not including) the matching closing bracket. Returns
- * null if unbalanced. Skips contents of string literals and template strings.
- */
-function extractBalanced(text: string, startIdx: number, open: '{' | '['): string | null {
-  const close = open === '{' ? '}' : ']'
-  let depth = 1
-  let i = startIdx
-  let inStr: '"' | "'" | '`' | null = null
-  while (i < text.length && depth > 0) {
-    const ch = text[i]
-    if (inStr) {
-      if (ch === '\\' && i + 1 < text.length) {
-        i += 2
-        continue
-      }
-      if (ch === inStr) inStr = null
-      i++
-      continue
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      inStr = ch
-      i++
-      continue
-    }
-    if (ch === '{' || ch === '[' || ch === '(') depth++
-    else if (ch === '}' || ch === ']' || ch === ')') depth--
-    if (depth === 0) {
-      if (ch !== close) return null
-      return text.slice(startIdx, i)
-    }
-    i++
-  }
-  return null
-}
-
 function parseAliasObjectEntries(body: string): { key: string; rhs: string }[] {
   const out: { key: string; rhs: string }[] = []
   for (const seg of splitTopLevel(body, ',')) {
@@ -501,87 +469,6 @@ function extractAliasValue(rhs: string, viteConfigDir: string, sep: '/' | '\\'):
   }
 
   return null
-}
-
-function splitTopLevel(text: string, delimiter: string): string[] {
-  const out: string[] = []
-  let depth = 0
-  let inStr: '"' | "'" | '`' | null = null
-  let buf = ''
-  let i = 0
-  while (i < text.length) {
-    const ch = text[i]
-    if (inStr) {
-      buf += ch
-      if (ch === '\\' && i + 1 < text.length) {
-        buf += text[i + 1]
-        i += 2
-        continue
-      }
-      if (ch === inStr) inStr = null
-      i++
-      continue
-    }
-    if (ch === '"' || ch === "'" || ch === '`') {
-      inStr = ch
-      buf += ch
-      i++
-      continue
-    }
-    if (ch === '{' || ch === '[' || ch === '(') depth++
-    else if (ch === '}' || ch === ']' || ch === ')') depth--
-    if (ch === delimiter && depth === 0) {
-      out.push(buf)
-      buf = ''
-      i++
-      continue
-    }
-    buf += ch
-    i++
-  }
-  if (buf.trim()) out.push(buf)
-  return out
-}
-
-/** Strip line/block comments for the alias-block scanner. Strings are preserved. */
-function stripCommentsForScan(text: string): string {
-  let out = ''
-  let i = 0
-  let inStr: '"' | "'" | '`' | null = null
-  while (i < text.length) {
-    const c = text[i]
-    const next = text[i + 1]
-    if (inStr) {
-      out += c
-      if (c === '\\' && i + 1 < text.length) {
-        out += text[i + 1]
-        i += 2
-        continue
-      }
-      if (c === inStr) inStr = null
-      i++
-      continue
-    }
-    if (c === '"' || c === "'" || c === '`') {
-      inStr = c
-      out += c
-      i++
-      continue
-    }
-    if (c === '/' && next === '/') {
-      while (i < text.length && text[i] !== '\n') i++
-      continue
-    }
-    if (c === '/' && next === '*') {
-      i += 2
-      while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++
-      i += 2
-      continue
-    }
-    out += c
-    i++
-  }
-  return out
 }
 
 /**

@@ -4,6 +4,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
 import { AGENTS, type AgentId, type AgentLauncher, type AgentProfile } from '../lib/agents'
 import { CSV_PAGE_SIZE_DEFAULT, CSV_PAGE_SIZES } from '../lib/csvPreview'
+import { DEFAULT_DEV_SERVER_URL, normalizeDevServerUrl } from '../lib/devServer'
 import { type SqlDialect, setSqlDialect } from '../lib/fileType'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { hexToRgba, isWebUrl } from '../lib/format'
@@ -507,6 +508,11 @@ export interface PersistedSettings {
   editorMaxFileSizeMb: number
   /** CSV プレビューの 1 ページの表示件数。`CSV_PAGE_SIZES` のどれか。 */
   csvPageSize: number
+  /**
+   * Vue SFC のプレビュー（#397）で、ほかの手がかり（ターミナルの `Local:`・`vite.config`・
+   * Docker）で開発サーバーが見つからなかったときに試す URL。候補の順は `lib/devServer.ts`。
+   */
+  devServerUrl: string
   /** 未登録のディレクトリを開いたときにプロジェクト登録するか（#286）。 */
   registerDirectory: RegisterDirectoryMode
   /** タブバーの「+」を押したときに開くもの（#396。宣言の隣が正本）。 */
@@ -804,6 +810,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     editorMaxFileSizeMb: sanitizeChoice(EDITOR_MAX_FILE_SIZES_MB, s.editorMaxFileSizeMb, EDITOR_MAX_FILE_SIZE_DEFAULT),
     // CSV プレビューの表示件数。選択肢と既定値は `lib/csvPreview.ts`。**同期の対象**（好み）。
     csvPageSize: sanitizeChoice(CSV_PAGE_SIZES, s.csvPageSize, CSV_PAGE_SIZE_DEFAULT),
+    devServerUrl: normalizeDevServerUrl(s.devServerUrl) ?? DEFAULT_DEV_SERVER_URL,
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
     tabAddOpens: sanitizeTabAddAction(s.tabAddOpens),
     terminalPathLinks: sanitizeTerminalPathLinks(s.terminalPathLinks),
@@ -1105,6 +1112,7 @@ function defaults(): PersistedSettings {
     sqlDialect: 'standard',
     editorMaxFileSizeMb: EDITOR_MAX_FILE_SIZE_DEFAULT,
     csvPageSize: CSV_PAGE_SIZE_DEFAULT,
+    devServerUrl: DEFAULT_DEV_SERVER_URL,
     registerDirectory: 'ask',
     // 「+」は既定でメニューを開く（#396）。
     tabAddOpens: 'menu' as TabAddAction,
@@ -1185,6 +1193,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const sqlDialect = ref(saved.sqlDialect)
   const editorMaxFileSizeMb = ref(saved.editorMaxFileSizeMb)
   const csvPageSize = ref(saved.csvPageSize)
+  const devServerUrl = ref(saved.devServerUrl)
   const registerDirectory = ref(saved.registerDirectory)
   const tabAddOpens = ref(saved.tabAddOpens)
   const autoSave = ref(saved.autoSave)
@@ -1652,6 +1661,7 @@ export const useSettingsStore = defineStore('settings', () => {
       sqlDialect: sqlDialect.value,
       editorMaxFileSizeMb: editorMaxFileSizeMb.value,
       csvPageSize: csvPageSize.value,
+      devServerUrl: devServerUrl.value,
       registerDirectory: registerDirectory.value,
       tabAddOpens: tabAddOpens.value,
       autoSave: autoSave.value,
@@ -1708,6 +1718,7 @@ export const useSettingsStore = defineStore('settings', () => {
     sqlDialect.value = s.sqlDialect
     editorMaxFileSizeMb.value = s.editorMaxFileSizeMb
     csvPageSize.value = s.csvPageSize
+    devServerUrl.value = s.devServerUrl
     registerDirectory.value = s.registerDirectory
     tabAddOpens.value = s.tabAddOpens
     autoSave.value = s.autoSave
@@ -1832,6 +1843,7 @@ export const useSettingsStore = defineStore('settings', () => {
       sqlDialect,
       editorMaxFileSizeMb,
       csvPageSize,
+      devServerUrl,
       registerDirectory,
       tabAddOpens,
       autoSave,
@@ -1906,6 +1918,7 @@ export const useSettingsStore = defineStore('settings', () => {
     sqlDialect,
     editorMaxFileSizeMb,
     csvPageSize,
+    devServerUrl,
     registerDirectory,
     tabAddOpens,
     autoSave,

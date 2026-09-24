@@ -6,6 +6,9 @@ paths:
   - "src/components/tabs/ManualTab.vue"
   - "src/components/editor/MarkdownToolbar.vue"
   - "src/components/editor/HtmlPreview.vue"
+  - "src/components/editor/VuePreview.vue"
+  - "src/lib/devServer.ts"
+  - "src/composables/useDevServerUrls.ts"
   - "src/components/editor/FindBar.vue"
   - "src/lib/editorMarkdown.ts"
   - "src/lib/codeHighlight.ts"
@@ -31,7 +34,7 @@ paths:
 
 # プレビューと Markdown の入力支援
 
-エディタタブの Edit/Split/Preview（Markdown・CSV・rst・JSON・SVG・Mermaid・HTML）、
+エディタタブの Edit/Split/Preview（Markdown・CSV・rst・JSON・SVG・Mermaid・HTML・Vue）、
 Markdown の入力支援、画像ビューワと PDF、外部ホストへの取得（画像とページタイトル）。
 エディタ本体の規則は `editor.md`。
 
@@ -130,7 +133,6 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **ページは任意の JS を動かす**ので、ルートの下でも `.` で始まる名前（`.git` / `.env`）と、実体がルートの外にあるもの（symlink を解決してから確かめる）は返さない。**CSP は付けていない**（外の CDN を読むページを壊さないため）ので、読めたものを外へ送ることは止めていない。守りは「読めるものを絞る」側にある
   - **返してよいかは要求した webview のラベルで決める**（`PreviewState`）。ハンドラはアプリ全体に効くので、ブラウザのタブで開いた外部のページも `http://pike-preview.localhost/` を要求できる。**URL にルートやプロジェクト id を載せないこと**（当てれば読める形になる）
   - **ラベルは `browser-preview-{uuid}`**。`browser-` の下に置いたので、位置合わせ・再読み込み・閉じるはブラウザのタブのコマンドを使う。**capability に足さない**（ブラウザのタブと同じく対象外に置く。`browser.rs` のモジュール doc）
-  - **仮想ファイル（`__pike/` の下）は #397（Vue SFC のプレビュー）の前提**。フロントが作った入口の HTML やコンパイル結果をディスクより先に同じ origin で返し、相対パスの CSS や画像はディスクへ落とす。置き直すのは `preview_set_files` → `browser_history(reload)`
   - **重ねる・隠す・閉じるは `composables/useChildWebview.ts`**（ブラウザのタブと共有）。位置合わせの直列化、変わらなければ送らない、隠すときはフレームを待たない、手前に浮くものと Git パネルで隠す、の 4 つがあそこにある。**子 webview を使う 3 つ目を足すときも書き写さない**
   - **描くのは保存したファイル**。描き直しの契機は配信ルートの下の `fs_changed` で、`isRecentlySaved` は読まない（印を消費するのは App.vue だけ）
     - 監視で拾うのは**ページが読みうる拡張子**だけ（エージェントが `.ts` を書くたびに描き直し続けない）。`node_modules` などは監視の側（`IGNORED_DIRS`）が最初から捨てているので、ここで写しを持たない
@@ -138,8 +140,28 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
     - Save As で `path` が変わったら子 webview を作り直す（配信のルートと入口は作った時点で固定）
   - ページのスクリプトがリンクを連打してもタブが溢れないよう、ブラウザのタブへ逃がすのは 1 秒に 1 回まで。**Rust の側で間引く**（押されたかどうかが分からないことを知っているのはあちらで、振り替えの唯一の出口でもある）
   - **配信の登録の後始末はブラウザのタブの側に持ち込まない**。次の `preview_open` が、もう無い webview のぶんを落とす（閉じた知らせを受ける口を持たない）。`browser_close` からプレビューを知る形にすると、依存が循環する
-  - DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）を外す判定は `EditorTab.vue` の `webviewPreview` 1 つ。#397 もここに条件を足す
-  - プレビューの中のリンクは Rust の `on_navigation` で止め、`browser_new_tab` でブラウザのタブへ逃がす
+  - DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）を外す判定は `EditorTab.vue` の `webviewPreview` 1 つ（Vue SFC もここに入る）。子 webview を使うプレビューを足すときも、ここに条件を足す
+  - プレビューの中のリンクは Rust の `on_navigation` で止め、`browser_new_tab` でブラウザのタブへ逃がす。子 webview を作る手順（登録・`disable_drag_drop_handler`・遷移の振り替え）は `html_preview.rs` の `open_child` 1 つで、HTML と Vue が共有する
+- **Vue SFC のプレビュー（#397）**: `components/editor/VuePreview.vue` が HTML と同じ子 webview を重ね、**プロジェクトの Vite 開発サーバーが配る入口**を開く（Rust は `preview_dev_open`）。判断の実体は `VuePreview.vue` と `lib/devServer.ts` の doc が正本
+  - **Pike は SFC をコンパイルしない**（`@vue/compiler-sfc` を積まない。依存が太るうえ、子コンポーネント・ストア・alias を解決し直すことになる）。入口を **Vite のルートの `.pike/preview/`** に 2 つ書く（印を持つ HTML と、SFC を import して mount する JS）。Vite のルートは SFC から上へ辿って最初に `vite.config.*` があるディレクトリ（プロジェクトの下ならルートまで、外ならファイル自身の木を上へ）
+    - **JS は inline にせず、HTML から `../../@id/.pike/preview/X.js` で読む**。inline の module script は Vite が `X.html?html-proxy&index=0.js` という別の要求にするが、`/` を丸ごと API サーバーへ回して `/src/` などだけを素通しする `proxy` 設定（sitter がそう）では、`/.pike/…` への `text/html` 以外の要求が API サーバーへ行って 404 になり、ページが真っ白になる。`/@id/` は Vite が自分の内部のモジュールに使う接頭辞なので、そういう設定でも素通しされる（されないと Vite 自身が動かない）。Vite 5 と 8 で確かめた
+    - import は入口からの相対パス（`../../src/…`）。ルート起点にすると `base` を足し忘れる
+    - `pinia` が依存にあれば `createPinia()` を入れる。**依存に無いものを import すると Vite が入口ごと 500 を返す**ので、`package.json` で確かめてから入れる
+    - 入口は SFC ごとに決まった名前で、中身が同じなら書き直さない（書くと Vite がそのページを読み直す）
+    - **入口は閉じても消さない。** 消す形は、同じ SFC を開いている別のタブや別のウィンドウ（数える表がウィンドウごとに分かれる）のページを SPA のフォールバックへ落とし、閉じてすぐ開き直すと消す指示と書く指示が前後する。残しても増えるのは SFC の数までで、`.gitignore` があり、Vite の依存の走査はドットで始まるディレクトリを見ない
+  - **開発サーバーは候補を並べて全部取りに行き、順の早いものを採る**（`devServerCandidates`）。順はターミナルの `Local:` → `vite.config` → Docker の公開ポート → 設定 `devServerUrl`。並べて取りに行くのは、応えないポート（DB など）の待ち時間を重ねないため
+    - **Vite は無い `.html` にも 200 と `/@vite/client` を返す**（`appType: 'spa'` の既定で `index.html` へ落とす）。`/@vite/client` の有無だけでは別プロジェクトの Vite を取り違えるので、**入口に印（`previewMarker`。SFC の絶対パスのハッシュ）を埋め、`preview_dev_probe` が印まで確かめる**。ポートだけで決める形にしないこと
+    - `vite.config` は評価しない（任意のコードで、Pike は Node を持たない）。リテラルの `server.port` / `server.https` / `base` だけを拾い、式は既定へ落とす。**正規表現で本文を探さず、階層ごとにキーと値へ分けて読む**（`entries`。設定のオブジェクトの見つけ方は `configBody`）。本文を探す形は、`preview.port`・`hmr.port`・`proxy` の `'https://…'`・vitest の `test.server`・プラグインの `base` を取り違える
+    - **自己署名の証明書（`basicSsl`）の開発サーバーは表示できない**（マニュアルにも書いた）。確認の要求は証明書を検証しないので「見つかった」になるが、WebView2 は OS の証明書ストアで検証して証明書エラーの画面を出す。mkcert（CA が OS に入る）は通る。WebView2 に許させるには `ServerCertificateErrorDetected` を COM で受けることになるので見送った
+    - ターミナルの `Local:` は `composables/useDevServerUrls.ts` が `TerminalTab` の出力の受け口で拾う。**出力のたびに呼ばれる**ので、`Local` を含まないチャンクは末尾を持ち越すだけで返す。Vite はポートだけを太字にするので、ANSI を落としてから照合する
+    - Docker は、Vite のルートに関係する動いている compose のコンテナから 2 つ取る。**compose ファイルは読まない**（`${PORT:-5173}` を展開できず、止まっているコンテナも拾う）。Docker に繋がらなければ一覧が空になり、どちらも出ない
+      - **`VIRTUAL_HOST`**（`docker_virtual_hosts` が inspect の環境変数から読む）。nginx-proxy や roji のようなリバースプロキシで、ポートを公開せず名前だけで出す構成のため。https → http の順（プロキシは http を https へ 301 で送ることが多く、確認はリダイレクトを追わない）で、公開ポートより前に置く
+      - 公開ポート（`docker_list_containers` の `ports`）
+    - **確認の要求（`http.rs` の `Target::LocalDevServer`）は開発用に 3 つ緩める**: loopback の宛先に限って証明書を検証しない（自己署名・mkcert）、`*.localhost` を loopback に解決する（RFC 6761。Chromium と curl は自分でそうするが、Windows の OS の解決は引けない）、`Accept: text/html` を付ける（`Accept` を見て `text/html` 以外を API サーバーへ回す Vite の `proxy` 設定がある。webview は常に付けて要求するので、付けないと確認だけが別の応答を見る）
+  - **保存も監視も見ない**。描き直しは Vite の HMR が受け持つ。この Vite のルートに関係するターミナルに新しい `Local:` が出たら探し直し（入口と設定の読み込みは使い回す。WSL では fs のたびに `wsl.exe` が起きる）、開く URL が変わったときだけ子 webview を作り直す
+  - **`useChildWebview` の `recreate()` はどの状態から呼んでも効く**（作っている途中なら作り終えてから作り直す）。開く中身が変わったと伝える側（HTML の Save As・Vue の URL の変化）は状態を見ずに呼ぶ。呼び出し側で「作り終えたか」を見て回避しないこと
+  - `vite.config` を読む走査（コメント除去・括弧の対応）は `lib/jsScan.ts`（定義ジャンプの alias 解決と共有）。設定ファイルの名前の一覧は `devServer.ts` の `VITE_CONFIG_NAMES` 1 つで、`resolveImport.ts` もこれを使う
+  - 子 webview が動いてよいのは開発サーバーと同じオリジンの中だけ（`preview_dev_open` の `stays`）。HMR の WebSocket は遷移ではないので通る。開く URL は `browser::check_page_url` で確かめる（Pike 自身のオリジンを拒む）
 - **Markdown フロントマター（#229）**: `lib/frontmatter.ts` の `detectFrontmatter` が範囲を返し、`lib/frontmatterParse.ts` の `parseFrontmatter` が `yaml` / `smol-toml` / `JSON.parse` で key/value に落とす。プレビュー（`buildMarkdownPreview` が `marked.parse` の前に本文を切り出して `<details>` の表を前置）とアウトライン（`extractors/markdown.ts` が `bodyFrom` より前の見出しを捨てる）で**範囲検出だけ**を共有する（描画経路がテキストと Lezer 構文木で別のため）
   - **ファイルを 2 つに割っているのはバンドルの都合**。`lib/outline/index.ts` が 18 個の extractor を静的 import で 1 チャンクに束ねるので、パーサを同居させると YAML/TOML パーサ（合わせて約 106KB）が Go や Rust のアウトラインにも載る。`frontmatter.ts` は依存ゼロを保つこと
   - **パース失敗は理由（`reason`）で返し、文言はプレビュー側で当てる**。`t()` をパーサに置くと、`not-mapping` だけ日本語で `yaml` クレート由来のメッセージは英語のまま、という食い違いになる
