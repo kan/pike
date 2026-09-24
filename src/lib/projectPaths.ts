@@ -87,6 +87,15 @@ export function rootKey(root: string): string {
   return normalizeSep(root).replace(/\/+$/, '').toLowerCase()
 }
 
+/**
+ * `path` が `base` と同じディレクトリか、その下にあるか。同じかどうかは `rootKey`、下にあるか
+ * は `relativeToBase` で見る（HTML のプレビューの監視の範囲や、定義ジャンプが設定ファイルを
+ * 探す範囲の判断に使う）。
+ */
+export function isSameOrUnder(base: string, path: string, platform: ProjectPlatform): boolean {
+  return rootKey(base) === rootKey(path) || relativeToBase(base, path, platform) !== null
+}
+
 /** Inverse of `relativeToBase`: an absolute root in this machine's layout. */
 export function joinBase(base: string, rel: string, platform: ProjectPlatform): string {
   return joinPath(base, rel, platformSep(platform))

@@ -21,7 +21,7 @@ import { useChildWebview } from '../../composables/useChildWebview'
 import { fsWatcher } from '../../composables/useFsWatcher'
 import { basename, dirname } from '../../lib/paths'
 import type { ProjectPlatform } from '../../lib/projectPaths'
-import { relativeToBase, rootKey } from '../../lib/projectPaths'
+import { isSameOrUnder, relativeToBase } from '../../lib/projectPaths'
 import { browserHistory, previewOpen } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
@@ -97,7 +97,7 @@ const covered = computed(() => {
   const s = served.value
   const active = projectStore.activeRoot
   if (!s || !active) return false
-  return rootKey(s.root) === rootKey(active) || relativeToBase(active, s.root, s.platform) !== null
+  return isSameOrUnder(active, s.root, s.platform)
 })
 
 /**
