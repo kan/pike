@@ -476,18 +476,34 @@ function scrollToSelected() {
   }
 }
 
-async function revealActiveFile() {
-  const path = activeFilePath.value
+/** ツリーを `path` まで開いて選び、見える位置まで送る。追従も依頼もここを通る。 */
+async function reveal(path: string | null) {
   if (!path) return
-  const found = await fileTreeStore.revealFile(path)
-  if (found) {
-    nextTick(() => scrollToSelected())
-  }
+  if (await fileTreeStore.revealFile(path)) nextTick(() => scrollToSelected())
 }
 
+const revealActiveFile = () => reveal(activeFilePath.value)
+
+/**
+ * 他のパネルからの「ここを出しておいて」を消化する（#407）。**依頼のほうが、開いている
+ * ファイルへの追従より優先**: 人が今そこへ行きたいと言った結果なので、`revealActiveFile`
+ * に上書きされては意味が無い。**先に消す**ので 1 回だけ効く。
+ */
+async function takePendingReveal(): Promise<boolean> {
+  const path = fileTreeStore.pendingReveal
+  if (!path) return false
+  fileTreeStore.pendingReveal = null
+  await reveal(path)
+  return true
+}
+
+// **`pendingReveal` を watch しない。** パネルは `v-else-if` で排他にマウントされるので、
+// 頼む側（別のパネル）が描かれているあいだ、このコンポーネントは存在しない。消化する場所は
+// マウント直後の 1 つで足りる。
 onMounted(async () => {
   if (sidebar.activePanel === 'files' && projectStore.currentProject) {
     fileTreeStore.ensureInit()
+    if (await takePendingReveal()) return
     if (activeFilePath.value) {
       await revealActiveFile()
     } else {

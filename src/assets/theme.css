@@ -71,6 +71,18 @@
   --active-file-bg: color-mix(in srgb, var(--accent) 30%, transparent);
   --statusbar-bg: rgb(27 27 27 / var(--surface-alpha));
   --shadow-color: rgba(0, 0, 0, 0.4);
+  /* 選択範囲の塗り（#407）。**不透明にする**: 文字の色はそのまま残したいので `::selection`
+     では背景しか指定せず、半透明だと下の地の色に引かれて濃さがテーマごとにぶれる。
+     **`--accent` から導かない**（`--active-file-bg` とはそこが違う）: あれは「今いる行」の印で
+     accent と同じものを指すのが正しいが、選択範囲は本文の上に広く乗るので、青が強いと文字が
+     沈む。ダークとライトで別々に、文字が読める濃さを目で決めてある。 */
+  --selection-bg: #3a5f85;
+  /* UA が自前で色を決めるもの（既定の `::selection`・ネイティブのフォーム部品・
+     `<select>` のドロップダウン）を app のテーマに従わせる（#407）。これが無いと、
+     Pike をライトにしていても OS がダークなら選択範囲だけダークの色合いで描かれる。
+     **`prefers-color-scheme` では代用できない**: あれは CSS へ問い合わせる側の話で、
+     UA 自身の配色を決めるのはこのプロパティ。 */
+  color-scheme: dark;
 }
 
 /* mount までの下地（#310）。`data-theme` が付くのは Vue の mount 後だが、CSS は
@@ -84,6 +96,7 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
     --bg-primary-rgb: 255 255 255;
+    color-scheme: light;
   }
 }
 
@@ -125,6 +138,17 @@
   --active-file-bg: color-mix(in srgb, var(--accent) 18%, transparent);
   --statusbar-bg: rgb(224 224 224 / var(--surface-alpha));
   --shadow-color: rgba(0, 0, 0, 0.15);
+  --selection-bg: #a9d2f5;
+  color-scheme: light;
+}
+
+/* 選択範囲（#407）。エディタの外（プレビュー・diff・パネル・マニュアル・issue）はここが塗る。
+   エディタは CodeMirror のテーマが `.cm-content ::selection` で上書きし、ターミナルは
+   xterm が自前の要素で描くので、どちらもここには当たらない。
+   **`color` は指定しないこと**: 指定するとプレビューのコードブロックの色分けが、選択した
+   あいだだけ 1 色に潰れる。 */
+::selection {
+  background: var(--selection-bg);
 }
 
 /* Thin overlay scrollbars */
@@ -254,7 +278,7 @@
    **`.icon-btn` を上げないのとは事情が違う**: あちらは `panels/IconSelect.vue` が同じ名前で
    別物（幅 100%・枠あり・テキスト付き）を定義しているが、こちらは他に定義が無い。 */
 .setting-label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -294,8 +318,30 @@
 
 .setting-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
+}
+
+/* 設定画面の一覧の器（`frontend.md` の「共有している形に、消費者の一方の名前を付けない」）。
+   設定タブ本体と、そこから切り出した `panels/AllowedHostList.vue` が共有する。scoped CSS は
+   子コンポーネントの中まで届かないので、`.setting-label` / `.setting-hint` と同じくここに置く。 */
+.setting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.setting-list-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 伸ばさない（#400）: 後ろに並ぶボタンを行の右端ではなく名前の直後に置く。 */
+.setting-list-name {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary);
 }
 
 /* エージェント起動メニュー（#275 / #267）。**`TerminalTab.vue` と、そこから切り出した

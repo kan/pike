@@ -512,6 +512,7 @@ export default {
   'sync.category.settings': 'General settings',
   'sync.category.projects': 'Projects and groups',
   'sync.category.bookmarks': 'Bookmarks and site rules',
+  'sync.category.fonts': 'Fonts and font sizes',
   'sync.conflictsTitle': 'Sync Conflicts',
   'sync.conflictsHint':
     'Items changed to different values both here and on another machine since the last sync. Choose which to keep, then press "Sync with choices". Items you leave unchosen keep their own values until you choose.',
@@ -833,7 +834,8 @@ export default {
   'search.scopeLabel': 'In:',
   'search.scopeProject': 'Whole project',
   'search.scopeClear': 'Search the whole project',
-  'search.scopeHint': 'Right-click a folder in the file tree and choose "Search in Folder" to limit the search to it',
+  'search.scopeHint':
+    'Click to show this scope in the file tree. Right-click a folder there and choose "Search in Folder" to limit the search to it',
   'search.resultCount': '{count} results',
   'search.extract': 'Open results in a tab',
   'search.extractTooltip':
@@ -1005,6 +1007,7 @@ export default {
   'statusBar.spacesHint': 'Tab size (width of one indent; change it in Settings)',
   'statusBar.cursorHint': 'Cursor position (line and column)',
   'statusBar.languageHint': 'Language (click to switch between Japanese and English)',
+  'statusBar.themeHint': 'Theme: {mode} (click to cycle dark → light → follow system)',
   'statusBar.branchHint': 'Current branch (click to switch)',
   'statusBar.reopenWithEncoding': 'Reopen with this encoding',
   'statusBar.saveWithEncoding': 'Save with this encoding',

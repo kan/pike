@@ -38,19 +38,19 @@ const visible = computed(() => search.sectionVisible(props.id))
 
 <style scoped>
 .settings-section {
-  margin-bottom: 28px;
+  margin-bottom: 36px;
 }
 
 .section-title {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
-  margin: 0 0 12px 0;
+  margin: 0 0 16px 0;
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
 }

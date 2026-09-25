@@ -31,6 +31,7 @@ import { PIKE_REPO_URL } from '../../lib/manual'
 import { useOverlay } from '../../lib/overlay'
 import { basename } from '../../lib/paths'
 import { traySetTooltip } from '../../lib/tauri'
+import { THEME_MODE_VIEW } from '../../lib/themeModes'
 import { type Meter, rateLevelClass, toMeter } from '../../lib/usageFormat'
 import { elevated, globalMode, isMainWindow } from '../../lib/window'
 import { localBranchName, useGitStore } from '../../stores/git'
@@ -51,6 +52,14 @@ const settingsStore = useSettingsStore()
 function toggleLanguage() {
   settingsStore.language = settingsStore.language === 'en' ? 'ja' : 'en'
 }
+
+/**
+ * テーマのモードの表示（#407）。アイコンと文言は設定画面と同じ表（`lib/themeModes.ts`）。
+ * **ツールチップも computed にする**: この行は桁と行番号を描いている都合で打鍵のたびに
+ * 再描画されるので、テンプレートに置くと i18n の補間がそのたびに走る。
+ */
+const themeView = computed(() => THEME_MODE_VIEW[settingsStore.themeMode])
+const themeTitle = computed(() => t('statusBar.themeHint', { mode: t(themeView.value.labelKey) }))
 
 /**
  * 「未登録」を押したときの登録（#373）。**確認を挟む**: この印が名乗っているのは状態で
@@ -685,6 +694,16 @@ onUnmounted(() => {
     </div>
 
     <div class="status-group">
+      <!-- ダーク / ライト / システム追従を順に巡る（#407）。設定画面まで行かずに切り替えられる
+           唯一の入口なので、言語の切り替えと並べて常に出す。 -->
+      <button
+        class="status-item clickable small"
+        data-testid="theme-toggle"
+        :title="themeTitle"
+        @click="settingsStore.cycleThemeMode()"
+      >
+        <component :is="themeView.icon" :size="13" :stroke-width="2" />
+      </button>
       <button class="status-item clickable small" :title="t('statusBar.languageHint')" @click="toggleLanguage">
         {{ settingsStore.language.toUpperCase() }}
       </button>

@@ -17,8 +17,10 @@ import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from 'vue
 import { useI18n } from '../../i18n'
 import { openProjectPath } from '../../lib/openFile'
 import { relativeToBase } from '../../lib/projectPaths'
+import { useFileTreeStore } from '../../stores/fileTree'
 import { useProjectStore } from '../../stores/project'
 import { useSearchStore } from '../../stores/search'
+import { useSidebarStore } from '../../stores/sidebar'
 import type { SearchMatch, SearchOptions } from '../../types/search'
 import { shellToPlatform } from '../../types/tab'
 import ToolNotice from '../ToolNotice.vue'
@@ -27,6 +29,8 @@ const { t } = useI18n()
 
 const searchStore = useSearchStore()
 const projectStore = useProjectStore()
+const fileTreeStore = useFileTreeStore()
+const sidebar = useSidebarStore()
 
 const query = ref('')
 /**
@@ -207,6 +211,18 @@ function openResult(match: { path: string; line: number }) {
   void openProjectPath(match.path, match.line).catch(() => {})
 }
 
+/**
+ * 「対象」を押したとき（#407）。ファイルツリーのパネルへ切り替え、いまの範囲のフォルダを
+ * 選んだ状態にする（親が畳まれていれば開く）。**絞り込みと解除の操作はあちらの右クリックに
+ * しか無い**ので、ツールチップで教えるだけでなくそこまで連れて行く。
+ */
+function revealScope() {
+  // **依頼を置いてから開く。** `revealFile` を直に呼ぶと、そのあと mount される
+  // `FileTreePanel` の `onMounted` が展開と選択を捨てる（`fileTree.ts` の `pendingReveal`）。
+  fileTreeStore.requestReveal(searchStore.searchRoot())
+  sidebar.openPanel('files')
+}
+
 /** 表示用の相対パス。書き出し（`extractToTab`）と同じ `relativeToBase` で揃える。 */
 function relativePath(fullPath: string): string {
   const project = projectStore.currentProject
@@ -353,15 +369,20 @@ onUnmounted(() => {
       いればそのパスと、プロジェクト全体に戻す ✕ を出す。rg / grep の表示はパネルの
       見出しにあるので、ここには置かない（以前は両方に出ていた）。
     -->
-    <!-- 絞り込み方はファイルツリーの右クリックにしか無いので、ここで入口を教える（#400）。 -->
-    <div
-      class="search-scope"
-      data-testid="search-scope"
-      :title="searchStore.scopeRel ? `${searchStore.scopeRel}\n\n${t('search.scopeHint')}` : t('search.scopeHint')"
-    >
-      <FolderSearch :size="12" :stroke-width="2" />
-      <span class="scope-label">{{ t('search.scopeLabel') }}</span>
-      <span class="scope-path">{{ searchStore.scopeRel ?? t('search.scopeProject') }}</span>
+    <!-- 絞り込み方はファイルツリーの右クリックにしか無いので、ここで入口を教える（#400）。
+         **押すとファイルツリーを開いて今の範囲を選ぶ**（#407）: 絞り込むのも解除するのも
+         あちらの右クリックなので、教えるだけでなくそこまで連れて行く。
+         ✕ は別のボタンにする（`<button>` の中に `<button>` は置けない）。 -->
+    <div class="search-scope" data-testid="search-scope">
+      <button
+        class="scope-open"
+        :title="searchStore.scopeRel ? `${searchStore.scopeRel}\n\n${t('search.scopeHint')}` : t('search.scopeHint')"
+        @click="revealScope"
+      >
+        <FolderSearch :size="12" :stroke-width="2" />
+        <span class="scope-label">{{ t('search.scopeLabel') }}</span>
+        <span class="scope-path">{{ searchStore.scopeRel ?? t('search.scopeProject') }}</span>
+      </button>
       <button
         v-if="searchStore.scopeRel"
         class="scope-clear"
@@ -654,6 +675,36 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+/* 帯の中の 2 つのボタン（ファイルツリーを開く #407・プロジェクト全体へ戻す）。**見た目は
+   帯のままにしたい**ので、どちらも枠も地も持たず、ホバーでだけ押せることを言う。 */
+.scope-open,
+.scope-clear {
+  display: flex;
+  align-items: center;
+  padding: 1px 3px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.scope-open:hover,
+.scope-clear:hover {
+  background: var(--tab-hover-bg);
+  color: var(--text-primary);
+}
+
+.scope-open {
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  /* 帯の他の要素と行がずれないよう、押せる範囲として足した padding を打ち消す。 */
+  margin: -1px -3px;
+  text-align: left;
+}
+
 .scope-path {
   color: var(--text-primary);
   overflow: hidden;
@@ -663,20 +714,7 @@ onUnmounted(() => {
 }
 
 .scope-clear {
-  display: flex;
-  align-items: center;
-  padding: 1px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 3px;
   flex-shrink: 0;
-}
-
-.scope-clear:hover {
-  background: var(--tab-hover-bg);
-  color: var(--text-primary);
 }
 
 /* パネルは `gap` で間を取るので、帯自身の下の余白は要らない。 */

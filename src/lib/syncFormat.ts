@@ -36,9 +36,20 @@ import {
 } from './syncMerge'
 
 /** 同期の対象の種類（#403）。種類ごとに同期するかを切り替えられる。 */
-export type SyncCategory = 'settings' | 'projects' | 'bookmarks'
+export type SyncCategory = 'settings' | 'projects' | 'bookmarks' | 'fonts'
 
-export const SYNC_CATEGORIES: readonly SyncCategory[] = ['settings', 'projects', 'bookmarks']
+export const SYNC_CATEGORIES: readonly SyncCategory[] = ['settings', 'projects', 'bookmarks', 'fonts']
+
+/**
+ * 何も選んでいないときの既定（#407）。**`fonts` だけ外してある**: フォント名は OS ごとに
+ * 入っているものが違い（`Consolas` は macOS に無く、`Menlo` は Windows に無い）、文字サイズも
+ * 画面の解像度で当たりが変わるので、そろえると嬉しいより困るほうが多い。同じ構成の
+ * マシンどうしでそろえたい人は設定で入れる。
+ *
+ * **`SYNC_CATEGORIES` から導かないこと**（「既定で入れる種類」と「選べる種類」は別物で、
+ * 片方から他方を導くと、次に既定オフの種類を足す人が気付けない）。
+ */
+export const DEFAULT_SYNC_CATEGORIES: readonly SyncCategory[] = ['settings', 'projects', 'bookmarks']
 
 /** ファイルの最上位で、設定ではないキー。 */
 const PROJECTS_KEY = 'projects'
@@ -59,11 +70,26 @@ const DERIVED_SETTING_KEYS = [
 export type DerivedSettingKey = (typeof DERIVED_SETTING_KEYS)[number]
 const DERIVED: ReadonlySet<string> = new Set(DERIVED_SETTING_KEYS)
 
-/** 「ブックマークとサイトのルール」に属する設定のキー。残りの設定は「設定」。 */
-const BOOKMARK_SETTING_KEYS: ReadonlySet<string> = new Set([
-  'browserBookmarks',
-  'browserSiteRules',
-] satisfies (keyof PersistedSettings)[])
+/**
+ * 設定のキーのうち、「設定」から切り出してある種類（#403 / #407）。**ここに並べていない
+ * キーは全部「設定」**なので、種類を足すときに触るのはこの表の 1 エントリだけで済む
+ * （`categoryOf` に分岐を足さない。同じキーを 2 つの種類に書いても型は止めないが、分岐の
+ * 順序という暗黙の優先順位は無くなる）。
+ *
+ * `fonts` が名前とサイズを 1 つにまとめているのは、名前だけ同期しても、そのフォントが無い
+ * マシンでは「サイズだけがずれた別のフォント」になるため。既定で同期しない理由は
+ * `DEFAULT_SYNC_CATEGORIES`。
+ */
+const CATEGORY_SETTING_KEYS = {
+  bookmarks: ['browserBookmarks', 'browserSiteRules'],
+  fonts: ['fontFamily', 'fontSize', 'editorFontName', 'editorFontSize', 'uiFontFamily', 'uiFontSize'],
+} as const satisfies Record<Exclude<SyncCategory, 'settings' | 'projects'>, readonly (keyof PersistedSettings)[]>
+
+const SETTING_CATEGORY: ReadonlyMap<string, SyncCategory> = new Map(
+  Object.entries(CATEGORY_SETTING_KEYS).flatMap(([category, keys]) =>
+    keys.map((key) => [key, category as SyncCategory] as const),
+  ),
+)
 
 export type ItemKey =
   | ['setting', string]
@@ -88,8 +114,8 @@ const MERGE_OPTIONS = { parentOf, isOrder: (key: string) => parseItemKey(key)[0]
 
 export function categoryOf(key: string): SyncCategory {
   const k = parseItemKey(key)
-  if (k[0] === 'setting') return BOOKMARK_SETTING_KEYS.has(k[1]) ? 'bookmarks' : 'settings'
-  return 'projects'
+  if (k[0] !== 'setting') return 'projects'
+  return SETTING_CATEGORY.get(k[1]) ?? 'settings'
 }
 
 /** 同期する種類だけを残す。 */

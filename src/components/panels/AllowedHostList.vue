@@ -20,9 +20,9 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div v-if="hosts.length > 0" class="host-list">
-    <div v-for="host in hosts" :key="host" class="host-row">
-      <span class="host-name">{{ host }}</span>
+  <div v-if="hosts.length > 0" class="setting-list">
+    <div v-for="host in hosts" :key="host" class="setting-list-row">
+      <span class="setting-list-name">{{ host }}</span>
       <button class="icon-btn danger" :title="t('common.delete')" @click="$emit('forget', host)">
         <Trash2 :size="14" :stroke-width="2" />
       </button>
@@ -32,20 +32,10 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
-/* `.setting-hint`（空表示）は `theme.css` の共有クラス。親の scoped CSS はこの中まで
-   届かないので、ここで使う見た目は共有クラスか自前の定義のどちらかになる。 */
-
-.host-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.host-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+/* 一覧の器（`.setting-list` / `-row` / `-name`）と空表示（`.setting-hint`）は `theme.css` の
+   共有クラス。親の scoped CSS はこの中まで届かないので、ここで使う見た目は共有クラスか
+   自前の定義のどちらかになる。**別名で持ち直さないこと**: 以前は `host-*` という自前の
+   3 つを持っていて、設定タブ側と同じ形が 2 通りの名前で並んでいた。 */
 
 /* **`.icon-btn` は自前で持つ。** 呼び出し元（`SettingsTab.vue`）にも同名の定義があるが、
    scoped CSS は子コンポーネントのルート要素までしか届かないので、中のボタンには当たらない
@@ -68,10 +58,4 @@ const { t } = useI18n()
   background: var(--tab-hover-bg);
 }
 
-/* 伸ばさない（#400）: 削除のボタンを行の右端ではなくホスト名の直後に置く。 */
-.host-name {
-  min-width: 0;
-  font-size: 12px;
-  color: var(--text-primary);
-}
 </style>

@@ -31,15 +31,17 @@ const visible = computed(() => search.groupVisible(id))
 </template>
 
 <style scoped>
+/* 小見出しの上の余白は、項目どうしの隙間（`SettingItem` の `padding`）より広く取る。
+   同じか狭いと、小見出しが「次の群れの始まり」ではなく 1 項目の一部に見える。 */
 .setting-group {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .group-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
-  margin: 12px 0 2px 0;
+  margin: 18px 0 4px 0;
   opacity: 0.8;
 }
 

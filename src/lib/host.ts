@@ -40,9 +40,23 @@ export function hostDefaultShell(): ShellType {
 }
 
 /**
+ * このホストが持ちうるプロジェクトのプラットフォーム、**このホストらしい順**。
+ *
+ * base を設定しているかとは別の話で、OS そのものの制約を言う。macOS / Linux に Windows と
+ * WSL のプロジェクトは存在しえず、逆に Windows にローカルの `unix` は無い。**順序も含めて
+ * ここが出典**で、先頭が新規プロジェクトの既定（`defaultProjectPlatform`）、並び全体は同期で
+ * 「このマシンが持てないプラットフォームのエントリ」を落とす先の候補になる（#407 の
+ * `resolveCreatePlatform`）。
+ *
+ * Linux は `isWindowsHost` でも `isMacHost` でもないが、プロジェクトの置き場所としては
+ * macOS と同じ `unix` 1 つ（POSIX のローカルなパス）なので、否定側にまとめてよい。
+ */
+export const HOST_PLATFORMS: readonly ProjectPlatform[] = isWindowsHost ? ['wsl', 'windows'] : ['unix']
+
+/**
  * このホストで新規プロジェクトの既定にするプラットフォーム。Windows は従来どおり
  * WSL、macOS / Linux はローカル。フォームの初期値とリセット先が全部ここを通る。
  */
 export function defaultProjectPlatform(): ProjectPlatform {
-  return isWindowsHost ? 'wsl' : 'unix'
+  return HOST_PLATFORMS[0]
 }

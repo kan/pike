@@ -507,6 +507,7 @@ export default {
   'sync.category.settings': '一般的設定',
   'sync.category.projects': 'プロジェクトとグループ',
   'sync.category.bookmarks': 'ブックマークとサイトのルール',
+  'sync.category.fonts': 'フォントと文字サイズ',
   'sync.conflictsTitle': '同期の衝突',
   'sync.conflictsHint':
     '前回同期したあと、このマシンと他のマシンの両方で別の値に変えた項目です。どちらを採るかを選び、「選んだ内容で同期」を押してください。選ばなかった項目は、次に選ぶまでそれぞれの値のまま残ります。',
@@ -830,7 +831,7 @@ export default {
   'search.scopeProject': 'プロジェクト全体',
   'search.scopeClear': 'プロジェクト全体に戻す',
   'search.scopeHint':
-    'ファイルツリーでフォルダを右クリックし、「このフォルダ内を検索」を選ぶと、検索する範囲をそのフォルダに絞れます',
+    '押すとファイルツリーでこの範囲を表示します。フォルダを右クリックして「このフォルダ内を検索」を選ぶと、検索する範囲をそのフォルダに絞れます',
   'search.resultCount': '{count} 件',
   'search.extract': '結果をタブで開く',
   'search.extractTooltip':
@@ -1002,6 +1003,7 @@ export default {
   'statusBar.spacesHint': 'タブスペース（インデント 1 つぶんの幅。設定で変えられます）',
   'statusBar.cursorHint': 'カーソルの位置（行と列）',
   'statusBar.languageHint': '言語設定（押すと日本語と英語を切り替えます）',
+  'statusBar.themeHint': 'テーマ：{mode}（押すとダーク → ライト → システム追従と切り替わります）',
   'statusBar.branchHint': '現在のブランチ（押すと切り替えます）',
   'statusBar.reopenWithEncoding': 'このエンコードで開き直す',
   'statusBar.saveWithEncoding': 'このエンコードで保存',

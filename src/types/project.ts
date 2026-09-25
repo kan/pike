@@ -39,6 +39,13 @@ export interface DeletedProject {
   /** Both absent for entries hidden before Pike started recording them. */
   root?: string
   remoteUrl?: string
+  /**
+   * どのプラットフォームの複製を消したか（#404）。**origin での照合をここで絞る**: 同じ
+   * リポジトリを WSL と Windows の両方へ clone して別々に登録している場合、片方を消した
+   * ことがもう片方の作り直しまで止めてしまう。**記録を取る前に消したものには無い**ので、
+   * そのときは従来どおりプラットフォームを問わず照合する。
+   */
+  platform?: ProjectPlatform
 }
 
 /**

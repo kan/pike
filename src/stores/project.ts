@@ -4,13 +4,14 @@ import { confirmDialog, confirmWithOption, infoDialog } from '../composables/use
 import { locale, t } from '../i18n'
 import { resumeCommandFor } from '../lib/agents'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
-import { hostDefaultShell, isMacHost } from '../lib/host'
+import { HOST_PLATFORMS, hostDefaultShell, isMacHost } from '../lib/host'
 import { stripTrailingSep, wslNativeToUnc } from '../lib/paths'
 import {
   baseForPlatform,
   isProjectPlatform,
   joinBase,
   type ProjectBase,
+  type ProjectPlatform,
   relativeToBase,
   rootKey,
 } from '../lib/projectPaths'
@@ -41,7 +42,7 @@ import {
   windowRestore,
 } from '../lib/tauri'
 import { ephemeralWindow, globalMode } from '../lib/window'
-import type { ProjectConfig, SyncedProject } from '../types/project'
+import type { DeletedProject, ProjectConfig, SyncedProject } from '../types/project'
 import { buildShell, quoteArg, type ShellType, shellId, shellToPlatform } from '../types/tab'
 import { useDiagnosticsStore } from './diagnostics'
 import { useIssuesStore } from './issues'
@@ -834,18 +835,85 @@ export const useProjectStore = defineStore('project', () => {
    * 「既に持っているもの」かを見る鍵）。id は鍵にならない: 別々に登録したマシンごとに 1 つの
    * リポジトリが別の id を持つので、置き場所と origin でも照合する。origin は正規化して比べる
    * （同じリポジトリが `git@host:owner/repo.git` と `https://host/owner/repo` の両方で届く）。
+   *
+   * **origin は「どのプラットフォームで持っているか」まで覚える**（#404）。同じリポジトリを
+   * WSL と Windows の両方へ clone して別々に登録することがあり、origin だけで畳むと 2 つ目の
+   * エントリが「既に持っている」と判定されて、他のマシンには片方しか作られない。
+   * 照合の当て方は `hasRepo` が持つ。
    */
-  function localIdentities() {
-    const compactSet = (values: (string | null | undefined)[]) => new Set(values.filter((v): v is string => !!v))
-    return {
-      roots: compactSet(projects.value.map((p) => rootKey(p.root))),
-      remotes: compactSet(projects.value.map((p) => normalizeRemoteUrl(p.remoteUrl))),
+  interface SeenIdentities {
+    roots: Set<string>
+    remotes: Map<string, Set<ProjectPlatform>>
+  }
+
+  function rememberRemote(seen: SeenIdentities, platform: ProjectPlatform, remote: string) {
+    const platforms = seen.remotes.get(remote)
+    if (platforms) platforms.add(platform)
+    else seen.remotes.set(remote, new Set([platform]))
+  }
+
+  /**
+   * このリポジトリを手元に持っているか。**`inferred`（落とし先を推測した）ならプラットフォームを
+   * 問わない**（#407）: 推測した先は手元の同じリポジトリと別のプラットフォームになりうるので、
+   * そろえて比べると「実体の無いパスを指す複製」ができる。名乗れているエントリだけ厳密に見る。
+   */
+  function hasRepo(seen: SeenIdentities, remote: string, platform: ProjectPlatform, inferred: boolean): boolean {
+    const platforms = seen.remotes.get(remote)
+    return !!platforms && (inferred || platforms.has(platform))
+  }
+
+  function localIdentities(): SeenIdentities {
+    const seen: SeenIdentities = { roots: new Set(), remotes: new Map() }
+    for (const p of projects.value) {
+      seen.roots.add(rootKey(p.root))
+      const remote = normalizeRemoteUrl(p.remoteUrl)
+      if (remote) rememberRemote(seen, shellToPlatform(p.shell), remote)
     }
+    return seen
   }
 
   type CreatePlan =
-    | { kind: 'create'; root: string; key: string; remote: string | null }
+    | { kind: 'create'; root: string; key: string; remote: string | null; platform: ProjectPlatform }
     | { kind: 'skip' | 'unresolvable' }
+
+  /**
+   * エントリをこのマシンのどこへ作るか（#407）。`baseDir` も返すのは、呼び出し側が同じ
+   * `baseForPlatform` を引き直さずに済ませるため（「空でない」の前提を 2 度置かない）。
+   *
+   * **このホストがそもそも持てないプラットフォームのときだけ、持てるほうへ落とす。** macOS には
+   * `windows` / `wsl` の base が無いので、落とさないと Windows で登録したプロジェクトが 1 件も
+   * materialize せず、「同期したのに一覧が空のまま」になる（要約に出るのは「このマシンでは
+   * 作れない N 件」だけ）。落とす先の候補と順は `lib/host.ts` の `HOST_PLATFORMS`。
+   *
+   * **持てるのに base を設定していないだけなら落とさない**（null＝作れない）。Windows で
+   * WSL の base だけを設定している人に、Windows 側のプロジェクトを WSL の下へ作るのは
+   * 「設定していない」という選択を踏み越えることになる。知らない platform（新しい版の Pike が
+   * 書いたもの）も同じく落とさず、ファイルに残して知っているマシンに任せる。
+   *
+   * **落とした先は同期ファイルへ書き戻らない**（`platform` は `CREATE_ONLY_FIELDS`）ので、
+   * 各マシンが自分の流儀で解決するだけで、値がマシン間で行き来しない。
+   */
+  interface CreateTarget {
+    platform: ProjectPlatform
+    baseDir: string
+    /** 落とし先を推測したか（エントリが名乗るプラットフォームをこのホストが持てなかった）。 */
+    inferred: boolean
+  }
+
+  function resolveCreatePlatform(entry: SyncedProject, base: ProjectBase): CreateTarget | null {
+    // WSL は distro が決まっていないと native パスを解決できない。
+    const baseDirOf = (p: ProjectPlatform) => (p !== 'wsl' || base.wslDistro ? baseForPlatform(base, p) : '')
+    if (!isProjectPlatform(entry.platform)) return null
+    if (HOST_PLATFORMS.includes(entry.platform)) {
+      const baseDir = baseDirOf(entry.platform)
+      return baseDir ? { platform: entry.platform, baseDir, inferred: false } : null
+    }
+    for (const platform of HOST_PLATFORMS) {
+      const baseDir = baseDirOf(platform)
+      if (baseDir) return { platform, baseDir, inferred: true }
+    }
+    return null
+  }
 
   /**
    * 手元に無い同期のエントリを、このマシンで作るか（#403）。**反映（`applySyncedProjects`）と
@@ -854,29 +922,32 @@ export const useProjectStore = defineStore('project', () => {
    * 重複の判定と削除の判定を並べて持つのも同じ理由（どちらかだけ直すと、複製か復活が出る）。
    * 副作用は持たない（消した記録を外すのは作ると決めた呼び出し側）。
    */
-  function planSyncedCreate(entry: SyncedProject, seen: { roots: Set<string>; remotes: Set<string> }): CreatePlan {
+  function planSyncedCreate(entry: SyncedProject, seen: SeenIdentities): CreatePlan {
     const settings = useSettingsStore()
     const base = settings.projectBase
     // このマシンで消したもの（削除の記録がある）が結果にあるのは、衝突やインポートで「残す」を
     // 選んだときなので、作り直す（記録を外すのは呼び出し側）。
-    const baseDir = isProjectPlatform(entry.platform) ? baseForPlatform(base, entry.platform) : ''
-    // Unresolvable here: an unknown platform, no base for it, or (for WSL) no
-    // distro to resolve it in. The entry stays in the file for a machine that has one.
-    if (!baseDir || (entry.platform === 'wsl' && !base.wslDistro)) return { kind: 'unresolvable' }
-    const root = joinBase(baseDir, entry.path, entry.platform)
+    const target = resolveCreatePlatform(entry, base)
+    // このマシンでは置き場所を決められない。エントリはファイルに残り、決められるマシンが作る。
+    if (!target) return { kind: 'unresolvable' }
+    const { platform, baseDir, inferred } = target
+    const root = joinBase(baseDir, entry.path, platform)
     const key = rootKey(root)
     if (seen.roots.has(key)) return { kind: 'skip' }
     const remote = normalizeRemoteUrl(entry.remoteUrl)
-    if (remote && seen.remotes.has(remote)) return { kind: 'skip' }
+    if (remote && hasRepo(seen, remote, platform, inferred)) return { kind: 'skip' }
     // A sibling entry for a repository deleted here (another machine's id for the
     // same checkout) is recognised by where it lands and what it clones from.
     // そのエントリ自身の記録は数えない（上で作り直すと決めたもの）。
+    // origin での照合の軸は `hasRepo` と同じ（記録にプラットフォームが無い古いものは問わない）。
+    // **プラットフォームの比較を先に置く**: `normalizeRemoteUrl` は正規表現と `URL` の構築を
+    // 含むので、記録の数だけ回るここでは安い側から短絡させる。
+    const sameRepo = (h: DeletedProject) =>
+      (inferred || (h.platform ?? platform) === platform) && normalizeRemoteUrl(h.remoteUrl) === remote
     const deleted = settings.deletedProjects.some(
-      (h) =>
-        h.id !== entry.id &&
-        ((h.root && rootKey(h.root) === key) || (remote && normalizeRemoteUrl(h.remoteUrl) === remote)),
+      (h) => h.id !== entry.id && ((h.root && rootKey(h.root) === key) || (remote && sameRepo(h))),
     )
-    return deleted ? { kind: 'skip' } : { kind: 'create', root, key, remote }
+    return deleted ? { kind: 'skip' } : { kind: 'create', root, key, remote, platform }
   }
 
   /**
@@ -894,7 +965,7 @@ export const useProjectStore = defineStore('project', () => {
       if (plan.kind !== 'create') continue
       out.add(entry.id)
       seen.roots.add(plan.key)
-      if (plan.remote) seen.remotes.add(plan.remote)
+      if (plan.remote) rememberRemote(seen, plan.platform, plan.remote)
     }
     return out
   }
@@ -958,7 +1029,7 @@ export const useProjectStore = defineStore('project', () => {
       const plan = planSyncedCreate(entry, seen)
       if (plan.kind === 'unresolvable') result.unresolvable++
       if (plan.kind !== 'create') continue
-      const { root, key, remote } = plan
+      const { root, key, remote, platform } = plan
       // 衝突で「残す」を選んだ（手元で消していた）もの。記録を外して作り直す。
       if (settings.isProjectDeleted(entry.id)) settings.forgetDeletedProject(entry.id)
       await addProject({
@@ -967,7 +1038,9 @@ export const useProjectStore = defineStore('project', () => {
         root,
         // 同期ファイルはプラットフォームしか持たないので、シェルはこのマシンの
         // 流儀で決める（`unix` はローカルのログインシェル 1 つしかない）。
-        shell: buildShell(entry.platform, base.wslDistro, settings.defaultWindowsShellKind()),
+        // **`entry.platform` ではなく解決した先**（#407）: macOS で Windows のエントリを
+        // 受けたとき、そのまま渡すと動かない PowerShell のプロジェクトができる。
+        shell: buildShell(platform, base.wslDistro, settings.defaultWindowsShellKind()),
         pinnedTabs: [],
         lastOpened: new Date().toISOString(),
         color: entry.color,
@@ -978,7 +1051,7 @@ export const useProjectStore = defineStore('project', () => {
         order: entry.order,
       }).catch(() => {})
       seen.roots.add(key)
-      if (remote) seen.remotes.add(remote)
+      if (remote) rememberRemote(seen, platform, remote)
       result.created++
     }
     result.updated = patched.length
@@ -1464,6 +1537,7 @@ export const useProjectStore = defineStore('project', () => {
       name: project?.name ?? id,
       root: project?.root,
       remoteUrl: project?.remoteUrl,
+      platform: project ? shellToPlatform(project.shell) : undefined,
     })
     projects.value = projects.value.filter((p) => p.id !== id)
     if (currentProject.value?.id === id) {

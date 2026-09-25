@@ -239,6 +239,7 @@ pike/
 │   │   ├── sanitizeHtml.ts    # DOMPurify に渡す URI スキームの許可（4 つのプレビューで共有、#311）
 │   │   ├── externalImages.ts  # プレビューの外部画像のホスト判定と取得キャッシュ（#239）
 │   │   ├── terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
+│   │   ├── themeModes.ts      # テーマのモードのアイコンと文言（設定画面とステータスバーで共有、#407）
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
 │   │   ├── openUrl.ts         # 外部ブラウザで URL を開く唯一の入口（確認とホストの許可、#311）
 │   │   ├── tabTitle.ts        # タブの表示名（シングルトンタブは kind から i18n を引く）

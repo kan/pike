@@ -129,7 +129,7 @@ async function remove(rule: SiteRule) {
   border-radius: 3px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
 }
 
@@ -182,7 +182,7 @@ async function remove(rule: SiteRule) {
   border-radius: 3px;
   background: transparent;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 

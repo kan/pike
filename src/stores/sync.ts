@@ -27,6 +27,7 @@ import { isRespelling } from '../lib/gitRemote'
 import { loadJson, saveJson } from '../lib/storage'
 import {
   categoryOf,
+  DEFAULT_SYNC_CATEGORIES,
   fromItems,
   fromSyncFile,
   importSyncItems,
@@ -151,9 +152,14 @@ interface SyncBackend {
   write(content: string): Promise<void>
 }
 
+/**
+ * 同期する種類（マシンごと）。**選んだことが無ければ `DEFAULT_SYNC_CATEGORIES`**（#407）で、
+ * 全種類ではない。既に選んである人の一覧に、あとから足した種類が勝手に入らないのも同じ経路
+ * （保存された一覧に無いものは外れる）。
+ */
 function loadSyncCategories(): SyncCategory[] {
-  const raw = loadJson<unknown>(CATEGORIES_KEY, SYNC_CATEGORIES)
-  return Array.isArray(raw) ? SYNC_CATEGORIES.filter((c) => raw.includes(c)) : [...SYNC_CATEGORIES]
+  const raw = loadJson<unknown>(CATEGORIES_KEY, DEFAULT_SYNC_CATEGORIES)
+  return Array.isArray(raw) ? SYNC_CATEGORIES.filter((c) => raw.includes(c)) : [...DEFAULT_SYNC_CATEGORIES]
 }
 
 function sanitizeGhPlace(v: unknown): GhPlace {

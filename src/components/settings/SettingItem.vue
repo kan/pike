@@ -69,13 +69,16 @@ const visible = computed(() => search.itemVisible(entry))
    （`.mode-toggle` 等）は呼び出し側の scoped CSS が当てる。`.setting-label` /
    `.setting-hint` は `theme.css` にある（`.setting-hint` は切り出した部品
    `panels/AllowedHostList.vue` も使う）。 */
+/* 余白は文字の大きさと対で決める（#407）。設定画面の文字を 1px 上げたときに刻みも広げた
+   （項目のあいだは上下の padding の和なので、11px で 22px になる）。**字だけ大きくすると
+   項目の切れ目が読めなくなる**: 隣の項目の操作と、この項目の説明文が同じ間隔で並ぶ。 */
 .setting-block {
   display: flex;
   flex-direction: column;
   /* 選択肢のボタン（`.mode-toggle`）が行幅まで伸びないように、左に寄せて中身の幅で置く。 */
   align-items: flex-start;
-  gap: 8px;
-  padding: 8px 0;
+  gap: 10px;
+  padding: 11px 0;
 }
 
 .setting-block.wide {
@@ -86,6 +89,6 @@ const visible = computed(() => search.itemVisible(entry))
 .setting-head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 </style>

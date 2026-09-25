@@ -28,6 +28,50 @@ export interface EditorThemeDef {
   highlightStyle: HighlightStyle
 }
 
+/**
+ * 選択行と選択範囲を塗る規則（#407）。**綴りの出典はここ 1 つ**で、6 テーマぶんを組む
+ * `makeTheme` と、One Dark に重ねる `oneDarkTuning` が読む。
+ *
+ * **`::selection` を必ず併記すること。** Pike は `drawSelection` を入れていない
+ * （`lib/editorMinimap.ts` の doc の理由による）ので、選択範囲を描くのは CodeMirror の
+ * `.cm-selectionBackground` ではなく**ブラウザ自身**で、そこへ届くのは `::selection` だけ。
+ * 片方しか書かないと、テーマの選択色が 1 つも効かず WebView の既定色（app のテーマに追従
+ * しない）のまま残る。`.cm-selectionBackground` のほうは `drawSelection` を足した日のために
+ * 残してある。**選択行と行番号のガターも対で塗る**（片方だけ塗ると行の帯が途中で切れる）。
+ *
+ * `root` は `&`（エディタのルート要素）に足す綴り。既定のテーマは `'&'` のまま、パッケージの
+ * テーマに重ねる側だけ詳細度を上げるために使う（`oneDarkTuning`）。
+ */
+function selectionRules(selection: string, activeLine: string, root = '&') {
+  const selected = [
+    `${root}.cm-focused .cm-selectionBackground`,
+    `${root} .cm-selectionBackground`,
+    `${root} .cm-content ::selection`,
+  ].join(', ')
+  return {
+    [selected]: { backgroundColor: selection },
+    [`${root} .cm-activeLine`]: { backgroundColor: activeLine },
+    [`${root} .cm-activeLineGutter`]: { backgroundColor: activeLine },
+  }
+}
+
+/**
+ * 選択行（`.cm-activeLine`）と選択範囲の濃さ（#407）。**選択行は「以前の選択範囲」くらい、
+ * 選択範囲はそれより一段濃い**、という関係で 6 テーマとも値を決めてある。以前は選択行が
+ * 背景とほとんど見分けられず（One Dark は `#6699ff0b`＝不透明度 4%）、選択範囲のほうも
+ * テーマの canonical な値そのままで淡かった。どちらも本文が読める濃さに収める必要があるので、
+ * 色はテーマごとに手で置く（背景色からの機械的な計算にしない）。
+ *
+ * One Dark だけはパッケージのテーマを触れないので、この 2 色を重ねて上書きする。
+ * **勝ち方は詳細度で、並びではない。** `&.cm-editor` を足すと `.ͼN.cm-editor .cm-activeLine`
+ * になり、`oneDark` 側の `.ͼM .cm-activeLine` に 1 クラスぶん勝つ。mount の順でも勝てる
+ * （CodeMirror は theme の facet を `styleModules.concat(baseTheme).reverse()` で渡すので、
+ * facet の先頭が最後に mount される＝いちばん強い）が、**あれは `@codemirror/view` の内部の
+ * 挙動で公開契約ではない**。順序に頼ると、パッケージの更新で無言で効かなくなり、気付けるのは
+ * 目視だけになる。詳細度なら CSS の規格が保証する。
+ */
+const oneDarkTuning = EditorView.theme(selectionRules('#4c5878', '#333845', '&.cm-editor'), { dark: true })
+
 const oneDarkDef: EditorThemeDef = {
   name: 'One Dark',
   dark: true,
@@ -35,7 +79,7 @@ const oneDarkDef: EditorThemeDef = {
   foreground: '#abb2bf',
   accent: '#98c379',
   tokens: { key: '#e06c75', string: '#98c379', number: '#d19a66', bool: '#d19a66', null: '#d19a66' },
-  extension: oneDark,
+  extension: [oneDark, oneDarkTuning],
   highlightStyle: oneDarkHighlightStyle,
 }
 
@@ -59,9 +103,7 @@ function makeTheme(
           color: gutterFg,
           borderRight: '1px solid rgba(128,128,128,0.2)',
         },
-        '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: selection },
-        '.cm-activeLine': { backgroundColor: activeLine },
-        '.cm-activeLineGutter': { backgroundColor: activeLine },
+        ...selectionRules(selection, activeLine),
         '.cm-cursor': { borderLeftColor: fg },
       },
       { dark },
@@ -78,7 +120,7 @@ const defaultLight: EditorThemeDef = {
   foreground: '#333333',
   accent: '#6f42c1',
   tokens: { key: '#005cc5', string: '#032f62', number: '#005cc5', bool: '#005cc5', null: '#005cc5' },
-  ...makeTheme('#ffffff', '#333333', '#f5f5f5', '#999999', '#d7d4f0', '#f5f5f5', false, [
+  ...makeTheme('#ffffff', '#333333', '#f5f5f5', '#999999', '#bfb9ec', '#e8e6f4', false, [
     { tag: tags.keyword, color: '#d73a49' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#333333' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#6f42c1' },
@@ -110,7 +152,7 @@ const dracula: EditorThemeDef = {
   foreground: '#f8f8f2',
   accent: '#50fa7b',
   tokens: { key: '#66d9ef', string: '#f1fa8c', number: '#bd93f9', bool: '#bd93f9', null: '#bd93f9' },
-  ...makeTheme('#282a36', '#f8f8f2', '#282a36', '#6272a4', '#44475a', '#2c2e3a', true, [
+  ...makeTheme('#282a36', '#f8f8f2', '#282a36', '#6272a4', '#565b7d', '#33364a', true, [
     { tag: tags.keyword, color: '#ff79c6' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#f8f8f2' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#50fa7b' },
@@ -139,7 +181,7 @@ const nord: EditorThemeDef = {
   foreground: '#d8dee9',
   accent: '#88c0d0',
   tokens: { key: '#8fbcbb', string: '#a3be8c', number: '#b48ead', bool: '#b48ead', null: '#b48ead' },
-  ...makeTheme('#2e3440', '#d8dee9', '#2e3440', '#4c566a', '#434c5e', '#353b49', true, [
+  ...makeTheme('#2e3440', '#d8dee9', '#2e3440', '#4c566a', '#556180', '#3a4252', true, [
     { tag: tags.keyword, color: '#81a1c1' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#d8dee9' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#88c0d0' },
@@ -168,7 +210,7 @@ const solarizedLight: EditorThemeDef = {
   foreground: '#657b83',
   accent: '#268bd2',
   tokens: { key: '#268bd2', string: '#2aa198', number: '#d33682', bool: '#d33682', null: '#d33682' },
-  ...makeTheme('#fdf6e3', '#657b83', '#eee8d5', '#93a1a1', '#eee8d5', '#f5efdc', false, [
+  ...makeTheme('#fdf6e3', '#657b83', '#eee8d5', '#93a1a1', '#ddd3b0', '#f0e9d2', false, [
     { tag: tags.keyword, color: '#859900' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#657b83' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#268bd2' },
@@ -197,7 +239,7 @@ const monokai: EditorThemeDef = {
   foreground: '#f8f8f2',
   accent: '#a6e22e',
   tokens: { key: '#66d9ef', string: '#e6db74', number: '#ae81ff', bool: '#ae81ff', null: '#ae81ff' },
-  ...makeTheme('#272822', '#f8f8f2', '#272822', '#90908a', '#49483e', '#3e3d32', true, [
+  ...makeTheme('#272822', '#f8f8f2', '#272822', '#90908a', '#5d5c46', '#3c3d33', true, [
     { tag: tags.keyword, color: '#f92672' },
     { tag: [tags.name, tags.deleted, tags.character, tags.macroName], color: '#f8f8f2' },
     { tag: [tags.function(tags.variableName), tags.labelName], color: '#a6e22e' },

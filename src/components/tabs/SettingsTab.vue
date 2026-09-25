@@ -1,18 +1,5 @@
 <script setup lang="ts">
-import {
-  Bot,
-  ChevronDown,
-  ChevronUp,
-  Loader,
-  Monitor,
-  Moon,
-  Plus,
-  Search,
-  SquareTerminal,
-  Sun,
-  Trash2,
-  X,
-} from 'lucide-vue-next'
+import { Bot, ChevronDown, ChevronUp, Loader, Plus, Search, SquareTerminal, Trash2, X } from 'lucide-vue-next'
 import { type Component, computed, nextTick, ref, useTemplateRef, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { provideSettingsSearch } from '../../composables/useSettingsSearch'
@@ -41,6 +28,7 @@ import {
   pickSaveFile,
   syncGistList,
 } from '../../lib/tauri'
+import { THEME_MODE_VIEW } from '../../lib/themeModes'
 import { useProjectStore } from '../../stores/project'
 import {
   type AgentNotifyMode,
@@ -56,6 +44,7 @@ import {
   type RegisterDirectoryMode,
   type TabAddAction,
   type TerminalPathLinkMode,
+  THEME_MODES,
   type ThemeMode,
   UI_FONT_SIZE_MAX,
   UI_FONT_SIZE_MIN,
@@ -143,11 +132,11 @@ const TERMINAL_PATH_LINK_OPTIONS: { value: TerminalPathLinkMode; labelKey: strin
   { value: 'open', labelKey: 'settings.terminalPathLinksOpen' },
   { value: 'off', labelKey: 'settings.terminalPathLinksOff' },
 ]
-const THEME_MODE_OPTIONS: { value: ThemeMode; labelKey: string; icon: Component }[] = [
-  { value: 'dark', labelKey: 'settings.darkMode', icon: Moon },
-  { value: 'light', labelKey: 'settings.lightMode', icon: Sun },
-  { value: 'system', labelKey: 'settings.systemMode', icon: Monitor },
-]
+// 並びは `THEME_MODES`、アイコンと文言は `lib/themeModes.ts`（ステータスバーと共有）。
+const THEME_MODE_OPTIONS: { value: ThemeMode; labelKey: string; icon: Component }[] = THEME_MODES.map((value) => ({
+  value,
+  ...THEME_MODE_VIEW[value],
+}))
 // 背景透過（issue #162）: none / transparent / acrylic のセグメントトグル。
 const BACKDROP_OPTIONS: { value: WindowBackdrop; labelKey: string }[] = [
   { value: 'none', labelKey: 'settings.backdropNone' },
@@ -1511,7 +1500,7 @@ const PREVIEW_LINES = [
   border-radius: 4px;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-align: left;
@@ -1547,7 +1536,7 @@ const PREVIEW_LINES = [
 }
 
 .settings-title {
-  font-size: 20px;
+  font-size: 21px;
   font-weight: 600;
   color: var(--text-active);
   margin: 0;
@@ -1578,7 +1567,7 @@ const PREVIEW_LINES = [
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
   min-width: 200px;
 }
@@ -1598,7 +1587,7 @@ const PREVIEW_LINES = [
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 13px;
   font-family: inherit;
   width: 120px;
 }
@@ -1620,7 +1609,7 @@ const PREVIEW_LINES = [
 }
 
 .font-size-value {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   min-width: 36px;
   text-align: right;
@@ -1690,13 +1679,13 @@ const PREVIEW_LINES = [
   padding: 8px 10px;
   border-radius: 4px;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
 }
 
 .scheme-name {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   text-align: center;
   padding: 2px 0;
@@ -1709,7 +1698,7 @@ const PREVIEW_LINES = [
 
 /* About / Update */
 .version-value {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-secondary);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
 }
@@ -1729,7 +1718,7 @@ const PREVIEW_LINES = [
   border-radius: 4px;
   background: var(--bg-tertiary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -1754,7 +1743,7 @@ const PREVIEW_LINES = [
 }
 
 .update-info {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
@@ -1770,29 +1759,13 @@ const PREVIEW_LINES = [
   animation: spin 1s linear infinite;
 }
 
-/* 設定画面の「縦に並ぶ行の一覧」の共通の形。シェル一覧・エージェント一覧・起動コマンド・
-   定型プロンプト・非表示のプロジェクトが共有する。**`agent-cmd-*` という名前だった**が、
-   5 つのうち 4 つはエージェントのコマンドではないうえ、#275 でシェル一覧を
-   `panels/ProfileRow.vue` へ出したときに、同じ形を別名（`shell-row` / `shell-name`）で
-   使っていた非表示プロジェクトの一覧だけが定義を失って崩れた。 */
-.setting-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.setting-list-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* 伸ばさない（#400）: 後ろに並ぶボタンを行の右端ではなく名前の直後に置く。 */
-.setting-list-name {
-  min-width: 0;
-  font-size: 12px;
-  color: var(--text-primary);
-}
+/* 設定画面の「縦に並ぶ行の一覧」の共通の形（`.setting-list` / `-row` / `-name`）は
+   `theme.css` にある。シェル一覧・エージェント一覧・起動コマンド・定型プロンプト・
+   非表示のプロジェクトと、切り出した `panels/AllowedHostList.vue` が共有する。
+   **`agent-cmd-*` という名前だった**が、5 つのうち 4 つはエージェントのコマンドでは
+   ないうえ、#275 でシェル一覧を `panels/ProfileRow.vue` へ出したときに、同じ形を別名
+   （`shell-row` / `shell-name`）で使っていた非表示プロジェクトの一覧だけが定義を失って
+   崩れた。 */
 
 /* 並べ替えと目のトグルを持つ行（シェル一覧・エージェント一覧）の見た目は
    `panels/ProfileRow.vue` が持つ。 */
@@ -1811,7 +1784,7 @@ const PREVIEW_LINES = [
   border: 1px solid var(--border);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   border-radius: 3px;
   outline: none;
 }
@@ -1842,7 +1815,7 @@ const PREVIEW_LINES = [
   width: 56px;
   flex-shrink: 0;
   align-self: center;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -1852,7 +1825,7 @@ const PREVIEW_LINES = [
   border: 1px solid var(--border);
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   border-radius: 3px;
 }
 
@@ -1861,7 +1834,7 @@ const PREVIEW_LINES = [
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   border-radius: 3px;
   white-space: nowrap;
@@ -1947,7 +1920,7 @@ const PREVIEW_LINES = [
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   border-radius: 3px;
   cursor: pointer;
 }
@@ -1976,7 +1949,7 @@ const PREVIEW_LINES = [
   border-radius: 3px;
   background: var(--accent);
   color: var(--bg-primary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* 色と寸法は共有の `.setting-hint`（theme.css）。ここは縮ませない指定だけ。 */

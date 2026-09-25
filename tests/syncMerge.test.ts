@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import { isRespelling } from '../src/lib/gitRemote.ts'
 import {
+  categoryOf,
+  DEFAULT_SYNC_CATEGORIES,
   fromItems,
   importSyncItems,
   itemKey,
@@ -284,11 +286,24 @@ describe('ファイルの形', () => {
   })
 
   test('同期しない種類はリモートのまま書き戻す（手元にしか無い値も出さない）', () => {
-    const remote = toItems(src({ settings: { fontSize: 12 } }))
-    const merged = toItems(src({ settings: { fontSize: 14, browserBookmarks: ['local'] } }))
+    const remote = toItems(src({ settings: { colorSchemeName: 'Nord' } }))
+    const merged = toItems(src({ settings: { colorSchemeName: 'Dracula', browserBookmarks: ['local'] } }))
     const out = withUnsyncedFromRemote(merged, remote, new Set(['settings', 'projects']))
-    assert.equal(out.get(s('fontSize')), 14)
+    assert.equal(out.get(s('colorSchemeName')), 'Dracula')
     assert.equal(out.has(s('browserBookmarks')), false)
+  })
+
+  test('フォントは種類が分かれ、既定には入らない（#407）', () => {
+    for (const key of ['fontFamily', 'fontSize', 'editorFontName', 'editorFontSize', 'uiFontFamily', 'uiFontSize']) {
+      assert.equal(categoryOf(s(key)), 'fonts', key)
+    }
+    assert.equal(categoryOf(s('colorSchemeName')), 'settings')
+    assert.equal(DEFAULT_SYNC_CATEGORIES.includes('fonts'), false)
+    // 既定のままなら、手元のフォントはリモートの値のまま書き戻る（＝出て行かない）。
+    const remote = toItems(src({ settings: { fontSize: 12 } }))
+    const merged = toItems(src({ settings: { fontSize: 14 } }))
+    const out = withUnsyncedFromRemote(merged, remote, new Set(DEFAULT_SYNC_CATEGORIES))
+    assert.equal(out.get(s('fontSize')), 12)
   })
 })
 

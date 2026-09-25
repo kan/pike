@@ -25,6 +25,7 @@ paths:
     - **Gist は書いた直後の読み込みが古い版を返しうる**。このマシンが最後に書いた版の時刻（`pike:sync-written:<同期先>`）より前の版を読んだら同期しない。マージすると、書いたばかりの値を「リモートが戻した」と読んで手元を巻き戻す
     - **前に出したときの間隔は、成功した時刻ではなく試みた時刻で測る**（`gh` がログインしていないあいだ、前に出すたびに `gh` を起こし直さない）。main 以外のウィンドウが前に出たことも main へ知らせる
     - **同期の直前に一覧を読み直すのは、まだ一度も読んでいないときだけ**（`ensureListsLoaded`）。読み直すと `projects` の要素が差し替わり、`currentProject` とずれる。反映（`applySyncedProjects`）もディスクの写しを別に読むだけで、`projects` には代入しない
+  - **種類は 4 つで、既定に入るのは 3 つ**（`lib/syncFormat.ts` の `SYNC_CATEGORIES` と `DEFAULT_SYNC_CATEGORIES`）。**この 2 つを片方から導かないこと**: 「選べる種類」と「既定で入れる種類」は別物で、畳むと次に既定オフの種類を足す人が気付けない。`fonts`（#407）を既定から外してあるのは、フォント名が OS ごとに違い（`Consolas` は macOS に無い）、文字サイズも画面で当たりが変わるため
   - **同期先と同期する種類はマシンごとで、持ち主は sync ストア**（`pike:sync-path` / `pike:sync-target` / `pike:sync-categories`）。どのウィンドウからでも変えられるが、書いたら main に読み直させて配る。各ウィンドウが自分で読んだ値を持つ形だと、他のウィンドウで変えた同期先に main が気付かない
   - **プロジェクトの新しい共有フィールドは 4 か所に足す**: `SyncedProject`（型）、`toSynced`（出す）、`SYNCED_FIELDS`（`applySyncedProjects` が変わったものをそろえる）、`applySyncedProjects` の中の `addProject`（作るとき）。衝突の画面に出す名前は i18n の `sync.field.<フィールド名>`（無ければフィールド名のまま出る）。置き場所（`platform` / `path`）は作るときにだけ使い、あとから比べない（`CREATE_ONLY_FIELDS`）
   - **手元へは、マージに使った手元の値から変わったものだけを反映する**（`applySyncedSettings` に渡すのは変わったキーだけ、`applySyncedProjects` は `before` と比べる）。結果を丸ごと当てると、同期ファイルの読み込みを待つあいだに利用者が変えたものが開始時点の値に巻き戻る
@@ -48,5 +49,9 @@ paths:
   - **照合は `planSyncedCreate` の中で重複ガード（`localIdentities` の鍵）と並べて組み立てる**: 「同じプロジェクトか」の判定軸を増やしたとき、片方だけ直すと無言で複製か復活が出る
   - root の比較キーは `lib/projectPaths.ts` の `rootKey`（区切りの正規化＋末尾スラッシュ除去＋小文字化。`relativeToBase` と違い WSL でも大小を無視する＝「同じディレクトリを登録済みか」の判定なので）
   - origin の比較は `lib/gitRemote.ts` の `normalizeRemoteUrl` を通すこと: 同じリポジトリが `git@host:owner/repo.git` と `https://host/owner/repo` の両方の形でファイルに入るため、生の文字列比較では重複ガードが素通りする
+  - **origin は「どのプラットフォームで持っているか」まで覚える**（#404。`localIdentities` の `remotes` は `origin → プラットフォームの集合`）。同じリポジトリを WSL と Windows の両方へ clone して別々に登録することがあり、origin だけで畳むと 2 つ目が「既に持っている」と判定されて、他のマシンには片方しか作られない。削除の記録（`DeletedProject.platform`）でも同じように絞る。**記録を取る前に消したものには無い**ので、そこは従来どおり問わない
+    - **ただし落とし先を推測したエントリ（下の `inferred`）は、プラットフォームを問わず照合する**（`hasRepo`）。推測した先は手元の同じリポジトリと別のプラットフォームになりうるので、そろえて比べると**実体の無いパスを指す複製**ができる（Windows で WSL の base も設定していると、Mac の `unix` エントリが `wsl` へ落ちて、既にある Windows のプロジェクトと食い違う）
+  - **このホストが持てないプラットフォームのときだけ、持てるほうへ落とす**（#407 の `resolveCreatePlatform`）。macOS には `windows` / `wsl` のプロジェクトが存在しえないので、落とさないと Windows で登録したものが 1 件も materialize せず「同期したのに一覧が空」になる。**候補と順の出典は `lib/host.ts` の `HOST_PLATFORMS`**（Windows は `wsl` → `windows`、それ以外は `unix`）で、`defaultProjectPlatform` もその先頭を読む。同じ知識をここに書き写さないこと。**シェルも落とした先で組む**（`entry.platform` を渡すと macOS に動かない PowerShell のプロジェクトができる）。落とした先が同期ファイルへ書き戻らないのは `platform` が `CREATE_ONLY_FIELDS` だから
+    - **持てるのに base が無いだけなら落とさない。** Windows で WSL の base しか設定していない人に、Windows 側のプロジェクトを WSL の下へ作るのは「設定していない」という選択を踏み越える。知らない platform（新しい版の Pike が書いたもの）も同じく落とさず、知っているマシンに任せる
   - root も origin も持たない古い削除の記録には、この照合は効かない
 - **グループ一覧の broadcast が無いと、同期ファイルへ古いグループ一覧が出る**（経路は `project.md` のグループの節）

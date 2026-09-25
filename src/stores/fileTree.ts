@@ -16,6 +16,25 @@ export const useFileTreeStore = defineStore('fileTree', () => {
   const scrollTop = ref(0)
   const selectedPath = ref<string | null>(null)
 
+  /**
+   * 他のパネルから「ここを出しておいて」と頼まれたパス（#407。検索パネルの「対象」）。
+   *
+   * **`revealFile` を直に呼ばせないこと。** パネルを開いてから呼ぶと、`FileTreePanel` の
+   * `onMounted` がそのあとに走り、`ensureInit()`（未読みなら `initTree` が展開と選択を
+   * 捨てる）と `revealActiveFile()`（選択を今のエディタのファイルで上書きする）が結果を
+   * 潰す。依頼を置いてパネル側に消化させる形なら、開いていても閉じていても同じ道を通る
+   * （検索パネルの `pendingOpen` と同じ作り）。
+   *
+   * **`initTree` で消さない。** パネルを初めて開いたときは `ensureInit` がそこへ落ちるので、
+   * 消すとこの機能そのものが効かない。別のプロジェクトへの依頼が残っても、`revealFile` が
+   * 今のルートの配下でないパスを弾く。
+   */
+  const pendingReveal = ref<string | null>(null)
+
+  function requestReveal(path: string) {
+    pendingReveal.value = path
+  }
+
   let currentProjectId: string | null = null
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -262,6 +281,8 @@ export const useFileTreeStore = defineStore('fileTree', () => {
     loading,
     scrollTop,
     selectedPath,
+    pendingReveal,
+    requestReveal,
     loadDir,
     initTree,
     ensureInit,

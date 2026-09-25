@@ -8,7 +8,7 @@ import { type SqlDialect, setSqlDialect } from '../lib/fileType'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { hexToRgba, isWebUrl } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
-import { emptyProjectBase, type ProjectBase, rootKey } from '../lib/projectPaths'
+import { emptyProjectBase, isProjectPlatform, type ProjectBase, rootKey } from '../lib/projectPaths'
 import { moveByKey } from '../lib/reorder'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
 import { loadJson, saveJson } from '../lib/storage'
@@ -994,11 +994,12 @@ function sanitizeDeletedProjects(v: unknown): DeletedProject[] {
   for (const item of v) {
     if (!item || typeof item !== 'object') continue
     // 古い記録の `shared`（#403 の段階 5 まで）は読み捨てる。削除は常に同期で伝える。
-    const { id, name, root, remoteUrl } = item as {
+    const { id, name, root, remoteUrl, platform } = item as {
       id?: unknown
       name?: unknown
       root?: unknown
       remoteUrl?: unknown
+      platform?: unknown
     }
     if (typeof id !== 'string' || !id || seen.has(id)) continue
     seen.add(id)
@@ -1007,6 +1008,7 @@ function sanitizeDeletedProjects(v: unknown): DeletedProject[] {
       name: typeof name === 'string' ? name : id,
       root: typeof root === 'string' && root ? root : undefined,
       remoteUrl: typeof remoteUrl === 'string' && remoteUrl ? remoteUrl : undefined,
+      platform: isProjectPlatform(platform) ? platform : undefined,
     })
   }
   return out
@@ -1177,6 +1179,15 @@ export const useSettingsStore = defineStore('settings', () => {
    * 配ると、OS の設定が違うマシンで食い違う。
    */
   const darkMode = computed(() => (themeMode.value === 'system' ? systemDark.value : themeMode.value === 'dark'))
+  /**
+   * ステータスバーのボタン（#407）。**`THEME_MODES` の順に巡る**ので、モードを足せば
+   * ここも自動で増える。2 状態（ダークとライトの往復）にしないのは、追従を選んでいる人が
+   * 一度押すと設定画面まで行かないと戻せなくなるため。
+   */
+  function cycleThemeMode() {
+    const i = THEME_MODES.indexOf(themeMode.value)
+    themeMode.value = THEME_MODES[(i + 1) % THEME_MODES.length]
+  }
   const editorThemeName = ref(saved.editorThemeName)
   const editorMinimap = ref(saved.editorMinimap)
   const editorWordWrap = ref(saved.editorWordWrap)
@@ -1971,6 +1982,7 @@ export const useSettingsStore = defineStore('settings', () => {
     availableFonts,
     loadAvailableFonts,
     setFontByName,
+    cycleThemeMode,
     snapshot,
     applySyncedSettings,
   }

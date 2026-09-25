@@ -44,6 +44,10 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
   - **部分読み込み中は外部変更で自動リロードしない**。読み直しは先頭の 1 回ぶんに戻るので、書き足され続けるログで「続きを読む」の位置が変更のたびに失われる。警告バーの「再読み込み」は出す
   - **部分読み込み中は `updateDirtyState` が何もしない**（読み取り専用で未保存になりようがない）。全文比較は続きを足すたびに文書全体（数十 MB）を文字列にするので、比較そのものを飛ばす。`savedContent` も伸ばさない
 - CodeMirror 6 でエディタタブ。テーマは `lib/editorThemes.ts` の 6 種（One Dark / Default Light / Dracula / Nord / Solarized Light / Monokai）+ Auto（ダーク/ライト追従）
+  - **選択範囲の色には `::selection` を必ず併記する**（#407。綴りの出典は同ファイルの `selectionRules` で、選択行と行番号のガターを対で塗るのもあそこ）。Pike は `drawSelection` を入れていないので、選択を描くのは `.cm-selectionBackground` ではなく**ブラウザ自身**で、そこへ届くのは `::selection` だけ。書かないとテーマの選択色が 1 つも効かず、WebView の既定色（app のテーマに追従しない）のまま残る。以前は One Dark だけが正しく見えていたのは、パッケージ側のテーマがこの綴りを持っていたため
+  - **選択行（`.cm-activeLine`）と選択範囲の濃さは、テーマごとに手で置く。** 背景色からの機械的な計算にしないのは、本文が読める濃さがテーマによって違うため。関係は「選択行 < 選択範囲」で、One Dark はパッケージのテーマを触れないので `oneDarkTuning` を重ねる（あちらの `.cm-activeLine` は不透明度 4% で、背景とほぼ見分けられない）
+    - **重ねるモジュールは詳細度で勝たせる**（`&.cm-editor` を足す）。拡張の並びでも勝てるが、その根拠は `@codemirror/view` が theme の facet を `reverse()` して mount するという**内部の挙動で、公開契約ではない**。順序に頼るとパッケージの更新で無言で効かなくなり、気付けるのは目視だけになる
+  - **エディタの外の選択範囲は `theme.css` の `::selection` と `color-scheme`**（#407）。`color-scheme` を宣言しないと、UA が自前で決める色（既定の選択範囲・ネイティブのフォーム部品）が OS のテーマのままになり、Pike をライトにしていても選択範囲だけダークの色合いで描かれる
 - **「このファイルは何か」を決めるのは `lib/fileType.ts` の `fileTypeKey` ただ 1 つ（#347 / #348）。** 種別のキーとラベルの正本は同ファイルの `FILE_TYPE_LABELS`（件数をここに書かない。足すたびにずれる）。読む側は 4 つで、**新しく「ファイルの種別を見る」コードを書くときも必ずここを通す**（系統ごとに判定すると、同じファイルで答えが割れる）
   - ハイライトと StatusBar の種別（`lib/languages.ts` の `EXT_MAP`）／アウトラインの抽出器（`lib/outline/index.ts` の `EXTRACTORS`）／定義ジャンプの `langId`（`lib/jumpTo/`）／ファイルアイコンの補い（`lib/fileIcons.ts` の `ICON_FALLBACK`）
   - **`EXT_MAP` と `EXTRACTORS` は `Partial<Record<FileTypeKey, …>>` で縛ってある。** ラベルを持たないキーにモードや抽出器を足すとコンパイルエラーになるので、「色は付くのに種別が Plain Text」が型の届かないところに戻らない。逆（ラベルだけあってモードが無い）は許す

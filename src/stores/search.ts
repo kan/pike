@@ -440,6 +440,7 @@ export const useSearchStore = defineStore('search', () => {
   return {
     scopeRel,
     setScope,
+    searchRoot,
     extracting,
     extractToTab,
     replacing,
