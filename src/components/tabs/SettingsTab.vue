@@ -6,6 +6,7 @@ import { provideSettingsSearch } from '../../composables/useSettingsSearch'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { AGENTS, type AgentLauncher, isLauncherVisible, launcherLabel } from '../../lib/agents'
+import { COPY_ON_SELECT_OPTIONS } from '../../lib/copyOnSelect'
 import { CSV_PAGE_SIZES } from '../../lib/csvPreview'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import type { SqlDialect } from '../../lib/fileType'
@@ -890,7 +891,7 @@ const PREVIEW_LINES = [
 
         <SettingGroup title-key="settings.groupBehavior">
           <SettingItem label-key="settings.copyOnSelect">
-            <SettingToggle v-model="settings.terminalCopyOnSelect" :options="ON_OFF" />
+            <SettingToggle v-model="settings.terminalCopyOnSelectMode" :options="COPY_ON_SELECT_OPTIONS" />
           </SettingItem>
 
           <SettingItem label-key="settings.rightClickPaste">

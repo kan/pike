@@ -69,7 +69,8 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   Chromium（Windows の WebView2）は要求しないので、**症状は macOS にだけ出る**。
   判断の実体は 2 つの doc コメントが正本で、ここに写しを置かない
   - 選択してコピー … `composables/useCopyOnSelect.ts`（書く場所を mouseup へ持ち越さない
-    理由と、初回だけ聞く形）
+    理由と、`ask` のときに選択のたびに聞く形。#408 で 3 値の `terminalCopyOnSelectMode` に
+    した。旧キーの真偽値は古い版のために派生で書き続ける）
   - 右クリックで貼り付け … `useImagePaste.ts` の `readClipboard`（画像とテキストを
     1 回の `read()` で取る。2 回に分けると 1 回目の await で gesture が切れる）
   - **macOS で「動かないことがある」の原因はまだ確定していない**（#342 の調査）。上の

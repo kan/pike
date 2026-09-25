@@ -345,6 +345,9 @@ export default {
   'settings.colorScheme': 'カラースキーム',
   'settings.themeAuto': 'Auto（モード追従）',
   'settings.copyOnSelect': '選択時にコピー',
+  'settings.copyOnSelectAlways': '常にコピー',
+  'settings.copyOnSelectAsk': '毎回確認',
+  'settings.copyOnSelectOff': 'OFF',
   'settings.rightClickPaste': '右クリックで貼り付け',
   'settings.terminalAgentButton': 'エージェント起動ボタン',
   'settings.terminalAgentButtonHint':
@@ -1045,7 +1048,7 @@ export default {
     '"{name}" は実行できるファイルです。関連付けられたアプリで開くと、そのまま実行されます。続けますか？',
   'confirm.openPathRemember': '今後は確認せず開く',
   'confirm.copyOnSelect':
-    'ターミナルで文字を選択したら、自動的にクリップボードへコピーしてよいですか？（設定 → ターミナルであとから変えられます）',
+    '選択した文字をクリップボードへコピーしますか？\n選んだものが「選択時にコピー」の設定になります（設定 → ターミナルであとから変えられます）。「毎回確認」は今回だけコピーし、次の選択でもまた確認します。',
   'confirm.unsavedClose': '"{name}" に未保存の変更があります。保存せずに閉じますか？',
   'confirm.openUrl': '{url} を外部ブラウザで開きます。よろしいですか？',
   'confirm.openUrlRemember': '{host} のリンクは今後確認しない',

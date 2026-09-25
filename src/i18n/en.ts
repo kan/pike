@@ -346,6 +346,9 @@ export default {
   'settings.colorScheme': 'Color Scheme',
   'settings.themeAuto': 'Auto (follow mode)',
   'settings.copyOnSelect': 'Copy on Select',
+  'settings.copyOnSelectAlways': 'Always Copy',
+  'settings.copyOnSelectAsk': 'Ask Every Time',
+  'settings.copyOnSelectOff': 'Off',
   'settings.rightClickPaste': 'Right Click Paste',
   'settings.terminalAgentButton': 'Agent Launch Button',
   'settings.terminalAgentButtonHint':
@@ -1048,7 +1051,7 @@ export default {
   'confirm.runExecutable': '"{name}" is an executable file. Opening it with its default app runs it. Continue?',
   'confirm.openPathRemember': "Don't ask again; open right away",
   'confirm.copyOnSelect':
-    'Copy to the clipboard automatically whenever you select text in a terminal? (You can change this later in Settings → Terminal.)',
+    'Copy the selected text to the clipboard?\nYour choice becomes the "Copy on Select" setting (you can change it later in Settings → Terminal). "Ask Every Time" copies this once and asks again on the next selection.',
   'confirm.unsavedClose': '"{name}" has unsaved changes. Close without saving?',
   'confirm.openUrl': 'Open {url} in external browser?',
   'confirm.openUrlRemember': "Don't ask again for {host}",

@@ -6,6 +6,7 @@ import {
   categoryOf,
   DEFAULT_SYNC_CATEGORIES,
   fromItems,
+  fromSyncFile,
   importSyncItems,
   itemKey,
   mergeSyncItems,
@@ -349,6 +350,24 @@ describe('importSyncItems', () => {
     const only = importSyncItems(toItems(src({ projects: [proj('x')] })), toItems(src({})))
     const out = resolveSyncItems(only, new Map(), 'local')
     assert.equal(stableKey([...out]), stableKey([...only.local]))
+  })
+})
+
+describe('選択時にコピーの古い真偽値（#408）', () => {
+  const modeOf = (file: Record<string, unknown>) => fromSyncFile(file).settings.terminalCopyOnSelectMode
+
+  test('鍵と食い違う真偽値は古い版の変更として鍵に映す', () => {
+    assert.equal(modeOf({ terminalCopyOnSelect: false, terminalCopyOnSelectMode: 'ask' }), 'off')
+    assert.equal(modeOf({ terminalCopyOnSelect: true, terminalCopyOnSelectMode: 'off' }), 'ask')
+    // 鍵の無いファイル（古い版しか書いていない）
+    assert.equal(modeOf({ terminalCopyOnSelect: false }), 'off')
+    assert.equal(modeOf({ terminalCopyOnSelect: true }), 'ask')
+  })
+
+  test('食い違わなければ鍵のまま', () => {
+    assert.equal(modeOf({ terminalCopyOnSelect: true, terminalCopyOnSelectMode: 'always' }), 'always')
+    assert.equal(modeOf({ terminalCopyOnSelect: false, terminalCopyOnSelectMode: 'off' }), 'off')
+    assert.equal(modeOf({ terminalCopyOnSelectMode: 'ask' }), 'ask')
   })
 })
 

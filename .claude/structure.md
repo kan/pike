@@ -189,7 +189,7 @@ pike/
 │   │   ├── useAppMenu.ts     # macOS のメニューバーからの操作を受ける（#254）
 │   │   ├── useBusyExit.ts    # Pike ごと終了する前の確認（#178。close と ⌘Q が共有）
 │   │   ├── useConfirmDialog.ts  usePtyRouter.ts  useFsWatcher.ts  useCliOpen.ts  useAnchoredPopup.ts
-│   │   ├── useCopyOnSelect.ts # 選択した文字列をクリップボードへ（#342。初回だけ確認する）
+│   │   ├── useCopyOnSelect.ts # 選択した文字列をクリップボードへ（#342。#408 で常に / 毎回確認 / OFF の 3 値。値の定義は lib/copyOnSelect.ts）
 │   │   ├── useCsvSelection.ts # CSV プレビューの列・行の選択とタブ区切りのコピー（Excel 風）
 │   │   ├── useTerminalUrlLinks.ts # 出力の URL のリンク化を設定で付け外しする（#343）
 │   │   ├── useDragResize.ts  # 横幅を変えるドラッグの配線（サイドバーの幅・diff の分割線、#297）
@@ -220,6 +220,7 @@ pike/
 │   │   ├── fileType.ts       # ファイル名 → 種別のキー（#347。ハイライト/アウトライン/ジャンプ/アイコンが共有）
 │   │   ├── codeHighlight.ts  # プレビューのコードブロックの色付け（#359。4 つのプレビューで共有）
 │   │   ├── csvPreview.ts     # CSV プレビューの表（読み込み・並べ替え・ページ送りの HTML）
+│   │   ├── copyOnSelect.ts   # ターミナルの「選択時にコピー」の 3 値と、古い版の真偽値との読み替え（#408）
 │   │   ├── domFind.ts        # 描画済み DOM の文字検索と CSS Custom Highlight の登録（#360）
 │   │   ├── host.ts           # ホスト OS の判定とホスト依存の既定値（出し分けの唯一の出典）
 │   │   ├── keys.ts           # ショートカットの修飾キー判定（mac は Cmd / 他は Ctrl、#254）

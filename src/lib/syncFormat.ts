@@ -22,6 +22,7 @@
 
 import type { PersistedSettings } from '../stores/settings'
 import type { SyncedProject } from '../types/project'
+import { copyOnSelectEnabled, legacyCopyOnSelectMode, sanitizeCopyOnSelectMode } from './copyOnSelect'
 import {
   appendMissing,
   asList,
@@ -62,10 +63,11 @@ const RESERVED = new Set([PROJECTS_KEY, GROUPS_KEY])
  * 書き出すときに呼び出し側が今の値で入れ直す（`toSyncFile` の `derived`）。
  * 型で `PersistedSettings` に結んであるので、キーを改名すればコンパイルエラーになる。
  */
-const DERIVED_SETTING_KEYS = [
+export const DERIVED_SETTING_KEYS = [
   'darkMode',
   'agentProfiles',
   'agentCommands',
+  'terminalCopyOnSelect',
 ] as const satisfies readonly (keyof PersistedSettings)[]
 export type DerivedSettingKey = (typeof DERIVED_SETTING_KEYS)[number]
 const DERIVED: ReadonlySet<string> = new Set(DERIVED_SETTING_KEYS)
@@ -179,10 +181,28 @@ export function toItems(src: SyncSource): SyncItems {
   return items
 }
 
+/**
+ * 古い版が書いた「選択時にコピー」の真偽値を、3 値の鍵に映す（#408）。
+ *
+ * `terminalCopyOnSelect` は導出のキー（比べない）なので、**古い版がそれだけを変えると、
+ * 映さない限り新しい版はその変更を読まず、次の書き出しで上書きして戻す**（古い版で OFF に
+ * したものが ON に戻り、黙ってクリップボードを書き換える）。そこで、ファイルの真偽値が
+ * 3 値の鍵と食い違っていたら（鍵が無いときも）古い版が変えたと読み、鍵をそれに合わせる。
+ * どのマシンが書いたかは分からないので、聞いたかは知らない扱い（ON は `ask`）。
+ */
+function withLegacyCopyOnSelect(settings: Record<string, unknown>) {
+  const on = settings.terminalCopyOnSelect
+  if (typeof on !== 'boolean') return
+  const mode = settings.terminalCopyOnSelectMode
+  if (mode !== undefined && on === copyOnSelectEnabled(sanitizeCopyOnSelectMode(mode))) return
+  settings.terminalCopyOnSelectMode = legacyCopyOnSelectMode(on, false)
+}
+
 /** 同期ファイルの中身（パース済み）を `SyncSource` にする。 */
 export function fromSyncFile(file: Record<string, unknown>): SyncSource {
   const settings: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(file)) if (!RESERVED.has(k)) settings[k] = v
+  withLegacyCopyOnSelect(settings)
   return {
     settings,
     projects: parseSyncedProjects(file[PROJECTS_KEY]),

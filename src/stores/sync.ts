@@ -28,6 +28,8 @@ import { loadJson, saveJson } from '../lib/storage'
 import {
   categoryOf,
   DEFAULT_SYNC_CATEGORIES,
+  DERIVED_SETTING_KEYS,
+  type DerivedSettingKey,
   fromItems,
   fromSyncFile,
   importSyncItems,
@@ -344,11 +346,8 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   /** 導出のキー（古い版の Pike が読む）は今の値で入れ直す（`DERIVED_SETTING_KEYS`）。 */
-  const derivedOf = (s: PersistedSettings) => ({
-    darkMode: s.darkMode,
-    agentProfiles: s.agentProfiles,
-    agentCommands: s.agentCommands,
-  })
+  const derivedOf = (s: PersistedSettings) =>
+    Object.fromEntries(DERIVED_SETTING_KEYS.map((k) => [k, s[k]])) as Pick<PersistedSettings, DerivedSettingKey>
 
   /**
    * 手元へ反映する。**マージに使った手元の値（`before`）から変わったものだけを当てる。**

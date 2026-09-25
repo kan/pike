@@ -3,6 +3,13 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
 import { locale, t } from '../i18n'
 import { AGENTS, type AgentId, type AgentLauncher, type AgentProfile } from '../lib/agents'
+import {
+  type CopyOnSelectMode,
+  copyOnSelectEnabled,
+  LEGACY_COPY_ON_SELECT_ASKED_KEY,
+  legacyCopyOnSelectMode,
+  sanitizeCopyOnSelectMode,
+} from '../lib/copyOnSelect'
 import { CSV_PAGE_SIZE_DEFAULT, CSV_PAGE_SIZES } from '../lib/csvPreview'
 import { type SqlDialect, setSqlDialect } from '../lib/fileType'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
@@ -382,6 +389,18 @@ function withThemeMode(raw: Partial<PersistedSettings>): Partial<PersistedSettin
   return { ...raw, themeMode: raw.darkMode ? 'dark' : 'light' }
 }
 
+/**
+ * 真偽値の `terminalCopyOnSelect` しか知らない版が書いた手元のデータに、3 値の鍵を補う
+ * （#408）。`withThemeMode` と同じく**マージ前の生の値に当てる**。手元のデータなので、
+ * このマシンで聞いたかの記録で `true` を読み分けられる（`legacyCopyOnSelectMode`）。
+ * 同期ファイルから来た値は `lib/syncFormat.ts` が先に補うので、ここには来ない。
+ */
+function withCopyOnSelectMode(raw: Partial<PersistedSettings>): Partial<PersistedSettings> {
+  if (raw.terminalCopyOnSelectMode !== undefined || raw.terminalCopyOnSelect === undefined) return raw
+  const asked = loadJson<boolean>(LEGACY_COPY_ON_SELECT_ASKED_KEY, false)
+  return { ...raw, terminalCopyOnSelectMode: legacyCopyOnSelectMode(raw.terminalCopyOnSelect, asked) }
+}
+
 function sanitizeDiffWordWrap(v: unknown): DiffWordWrap {
   // 真偽値だったころの値が localStorage / 同期ファイルに残っていることがある。
   if (typeof v === 'boolean') return v ? 'on' : 'off'
@@ -517,6 +536,14 @@ export interface PersistedSettings {
   autoSaveDelay: number
   editorTabSize: number
   previewSmoothScroll: boolean
+  /** ターミナルで選択したときにクリップボードへコピーするか（#408。宣言の隣が正本）。 */
+  terminalCopyOnSelectMode: CopyOnSelectMode
+  /**
+   * 真偽値だったころの鍵（#342）。**もう読み手は移行だけ**（`withCopyOnSelectMode`）で、
+   * `snapshot()` は `terminalCopyOnSelectMode` から導いた値を書く。書き続けるのは同期ファイルを
+   * 読む古い版のため（`darkMode` と同じ手）。同じ鍵を 3 値に変えると、古い版が `'off'` を
+   * 真と読んでコピーする。
+   */
   terminalCopyOnSelect: boolean
   terminalRightClickPaste: boolean
   /**
@@ -806,7 +833,7 @@ function cleanName(v: unknown, fallback: string): string {
  */
 function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
   const d = defaults()
-  const s: PersistedSettings = { ...d, ...withAgentLaunchers(withThemeMode(raw)) }
+  const s: PersistedSettings = { ...d, ...withAgentLaunchers(withCopyOnSelectMode(withThemeMode(raw))) }
   const agentLaunchers = sanitizeAgentLaunchers(s.agentLaunchers)
   return {
     ...s,
@@ -827,6 +854,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
     tabAddOpens: sanitizeTabAddAction(s.tabAddOpens),
     terminalPathLinks: sanitizeTerminalPathLinks(s.terminalPathLinks),
+    terminalCopyOnSelectMode: sanitizeCopyOnSelectMode(s.terminalCopyOnSelectMode),
     agentNotify: sanitizeAgentNotify(s.agentNotify),
     autoSave: sanitizeAutoSave(s.autoSave),
     autoSaveDelay: clampSize(s.autoSaveDelay, AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX, AUTO_SAVE_DELAY_DEFAULT),
@@ -1135,6 +1163,7 @@ function defaults(): PersistedSettings {
     autoSaveDelay: AUTO_SAVE_DELAY_DEFAULT,
     editorTabSize: 4,
     previewSmoothScroll: true,
+    terminalCopyOnSelectMode: 'ask',
     terminalCopyOnSelect: true,
     terminalRightClickPaste: true,
     // 重ねて出すボタンは 3 つとも既定で出す（#341）。隠せるようにしただけで、
@@ -1224,7 +1253,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const autoSaveDelay = ref(saved.autoSaveDelay)
   const editorTabSize = ref(saved.editorTabSize)
   const previewSmoothScroll = ref(saved.previewSmoothScroll)
-  const terminalCopyOnSelect = ref(saved.terminalCopyOnSelect)
+  const terminalCopyOnSelectMode = ref<CopyOnSelectMode>(saved.terminalCopyOnSelectMode)
   const terminalRightClickPaste = ref(saved.terminalRightClickPaste)
   const terminalAgentButton = ref(saved.terminalAgentButton)
   const terminalPromptButton = ref(saved.terminalPromptButton)
@@ -1709,7 +1738,9 @@ export const useSettingsStore = defineStore('settings', () => {
       autoSaveDelay: autoSaveDelay.value,
       editorTabSize: editorTabSize.value,
       previewSmoothScroll: previewSmoothScroll.value,
-      terminalCopyOnSelect: terminalCopyOnSelect.value,
+      terminalCopyOnSelectMode: terminalCopyOnSelectMode.value,
+      // 古い版のため（宣言の隣）。
+      terminalCopyOnSelect: copyOnSelectEnabled(terminalCopyOnSelectMode.value),
       terminalRightClickPaste: terminalRightClickPaste.value,
       terminalAgentButton: terminalAgentButton.value,
       terminalPromptButton: terminalPromptButton.value,
@@ -1766,7 +1797,7 @@ export const useSettingsStore = defineStore('settings', () => {
     autoSaveDelay.value = s.autoSaveDelay
     editorTabSize.value = s.editorTabSize
     previewSmoothScroll.value = s.previewSmoothScroll
-    terminalCopyOnSelect.value = s.terminalCopyOnSelect
+    terminalCopyOnSelectMode.value = s.terminalCopyOnSelectMode
     terminalRightClickPaste.value = s.terminalRightClickPaste
     terminalAgentButton.value = s.terminalAgentButton
     terminalPromptButton.value = s.terminalPromptButton
@@ -1891,7 +1922,7 @@ export const useSettingsStore = defineStore('settings', () => {
       autoSaveDelay,
       editorTabSize,
       previewSmoothScroll,
-      terminalCopyOnSelect,
+      terminalCopyOnSelectMode,
       terminalRightClickPaste,
       terminalAgentButton,
       terminalPromptButton,
@@ -1968,7 +1999,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorTabSize,
     previewSmoothScroll,
     xtermTheme,
-    terminalCopyOnSelect,
+    terminalCopyOnSelectMode,
     terminalRightClickPaste,
     terminalAgentButton,
     terminalPromptButton,

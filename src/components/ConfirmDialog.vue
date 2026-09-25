@@ -5,8 +5,19 @@ import { useI18n } from '../i18n'
 import { useOverlay } from '../lib/overlay'
 
 const { t } = useI18n()
-const { visible, message, mode, inputValue, inputPlaceholder, inputMasked, optionLabel, optionChecked, respond } =
-  useConfirmDialog()
+const {
+  visible,
+  message,
+  mode,
+  inputValue,
+  inputPlaceholder,
+  inputMasked,
+  optionLabel,
+  optionChecked,
+  choices,
+  respond,
+  choose,
+} = useConfirmDialog()
 // 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。
 useOverlay(() => visible.value)
 const okBtn = ref<HTMLButtonElement | null>(null)
@@ -17,7 +28,9 @@ watch(visible, (val) => {
 })
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') respond(true)
+  // 選択肢のときの Enter は、フォーカスのあるボタン自身に任せる（Tab で移った先を選ぶ）。
+  // ここで primary を選ぶと、別のボタンにいても primary になる。
+  if (e.key === 'Enter' && mode.value !== 'choice') respond(true)
   if (e.key === 'Escape') respond(false)
 }
 </script>
@@ -40,7 +53,18 @@ function onKeydown(e: KeyboardEvent) {
           <input v-model="optionChecked" type="checkbox" />
           <span>{{ optionLabel }}</span>
         </label>
-        <div class="dialog-actions">
+        <!-- 3 択以上（#408）。primary に最初のフォーカスが入る（Enter と同じもの）。 -->
+        <div v-if="mode === 'choice'" class="dialog-actions">
+          <button
+            v-for="c in choices"
+            :key="c.value"
+            :ref="(el) => { if (c.primary) okBtn = el as HTMLButtonElement | null }"
+            class="btn"
+            :class="c.primary ? 'btn-ok' : 'btn-cancel'"
+            @click="choose(c.value)"
+          >{{ c.label }}</button>
+        </div>
+        <div v-else class="dialog-actions">
           <button v-if="mode !== 'info'" class="btn btn-cancel" @click="respond(false)">{{ t('common.cancel') }}</button>
           <button ref="okBtn" class="btn btn-ok" @click="respond(true)">{{ t('common.ok') }}</button>
         </div>

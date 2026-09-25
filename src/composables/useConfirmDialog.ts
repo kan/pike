@@ -1,7 +1,14 @@
 import { ref } from 'vue'
 import { loadAskedKeys, rememberAskedKey } from '../lib/storage'
 
-type Mode = 'confirm' | 'info' | 'prompt'
+type Mode = 'confirm' | 'info' | 'prompt' | 'choice'
+
+/** `choiceDialog` のボタン 1 つ。`primary` は Enter で選ばれ、最初にフォーカスが入る。 */
+export interface DialogChoice<T extends string = string> {
+  value: T
+  label: string
+  primary?: boolean
+}
 
 const visible = ref(false)
 const message = ref('')
@@ -22,8 +29,8 @@ let resolveFn: (() => void) | null = null
 /**
  * 確認の答え（#342）。**「いいえ」と「答える前に別のダイアログへ置き換わった」を分ける。**
  * `dismiss()` は待っているものを false で解決するので、真偽値 1 つだと呼び出し側が
- * 見分けられず、**見てもいないダイアログを「いいえ」と読んでしまう**（初回だけ聞いて
- * 設定を切り替える `useCopyOnSelect` では、それが「二度と聞かれないまま OFF」になる）。
+ * 見分けられず、**見てもいないダイアログを「いいえ」と読んでしまう**（一度だけ聞く
+ * `askOnce` では、それが「二度と聞かれないまま断った」になる）。
  *
  * **モジュールの変数 1 つでは分けられない**: `dismiss()` が解決した直後、待ち手の
  * 継続が走るより前に、次のダイアログを開く側が同期でその変数を書き換える。答えと一緒に
@@ -32,6 +39,9 @@ let resolveFn: (() => void) | null = null
 type ConfirmResult = { ok: boolean; displaced: boolean }
 let confirmValue: ((value: ConfirmResult) => void) | null = null
 let promptValue: ((value: string | null) => void) | null = null
+/** `choiceDialog` の選択肢と答え（#408）。 */
+const choices = ref<DialogChoice[]>([])
+let choiceValue: ((value: string | null) => void) | null = null
 
 function dismiss() {
   // **チェックボックスは先に落とす**（#286）。ここは「答えないまま別のダイアログに
@@ -50,6 +60,10 @@ function dismiss() {
     promptValue(null)
     promptValue = null
     forgetSecret()
+  }
+  if (choiceValue) {
+    choiceValue(null)
+    choiceValue = null
   }
   if (resolveFn) {
     resolveFn()
@@ -113,6 +127,23 @@ export async function confirmDialog(msg: string): Promise<boolean> {
   return (await confirmWithOption(msg, '')).ok
 }
 
+/**
+ * ボタンを並べて 1 つ選ばせる（#408 の選択時にコピー）。返り値は選んだ `value`、**`null` は
+ * 選ばなかった**（Escape・オーバーレイ・答える前に別のダイアログへ置き換わった）。
+ * 呼び出し側が「何もしない」に倒せば済むものだけに使う（置き換わったのと断ったのを
+ * 分けたいなら `confirmWithOption` の `displaced`）。
+ */
+export function choiceDialog<T extends string>(msg: string, list: DialogChoice<T>[]): Promise<T | null> {
+  dismiss()
+  message.value = msg
+  mode.value = 'choice'
+  choices.value = list
+  visible.value = true
+  return new Promise<T | null>((resolve) => {
+    choiceValue = resolve as (value: string | null) => void
+  })
+}
+
 export function infoDialog(msg: string): Promise<void> {
   dismiss()
   message.value = msg
@@ -163,7 +194,21 @@ function forgetSecret() {
 }
 
 export function useConfirmDialog() {
+  /** `choiceDialog` のボタン。`null` は選ばなかった。 */
+  function choose(value: string | null) {
+    visible.value = false
+    if (choiceValue) {
+      choiceValue(value)
+      choiceValue = null
+    }
+  }
+
   function respond(value: boolean) {
+    if (mode.value === 'choice') {
+      // Enter は primary を選ぶ。Escape とオーバーレイは選ばない
+      choose(value ? (choices.value.find((c) => c.primary)?.value ?? null) : null)
+      return
+    }
     visible.value = false
     if (mode.value === 'prompt') {
       if (promptValue) {
@@ -191,6 +236,8 @@ export function useConfirmDialog() {
     inputMasked,
     optionLabel,
     optionChecked,
+    choices,
     respond,
+    choose,
   }
 }
