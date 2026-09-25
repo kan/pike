@@ -118,7 +118,7 @@ watch(
 )
 
 onMounted(() => {
-  updater.checkOnceInBackground()
+  updater.startBackgroundCheck()
 })
 
 // Pull/push option menus (#179): right-clicking the header button offers the
@@ -224,16 +224,15 @@ async function openGitHub() {
 
 async function checkUpdate() {
   closeGearMenu()
-  if (!updater.hasUpdate.value) {
-    await updater.checkForUpdate()
-  }
-  if (updater.hasUpdate.value) {
+  // 「更新あり」でも取り直す。先に見つけた版より新しいリリースが出ていることがある（#414）
+  const result = await updater.checkForUpdate()
+  if (result === 'available') {
     if (await confirmDialog(t('settings.updateConfirm', { version: updater.updateVersion.value }))) {
       await updater.downloadAndInstall()
     }
-  } else if (updater.state.value === 'upToDate') {
+  } else if (result === 'upToDate') {
     await infoDialog(t('settings.upToDate'))
-  } else {
+  } else if (result === 'error') {
     await infoDialog(t('settings.updateError'))
   }
 }

@@ -121,7 +121,8 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 - 署名キー: `~/.tauri/pike.key`（秘密鍵）、公開鍵は `tauri.conf.json` の `plugins.updater.pubkey` に埋め込み
 - CI: `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` を GitHub Secrets に設定
 - Settings タブの About セクションに「更新を確認」ボタン + 「更新して再起動」ボタン
-- SideBar 歯車アイコンに更新通知ドット（起動時に `check()` でバックグラウンド確認）
+- SideBar 歯車アイコンに更新通知ドット（`startBackgroundCheck` が起動時と以後 1 時間ごとに `check()` で確認）
+- **確認のたびに結果を置き換える**（#414）。「更新あり」になったあとも自動チェック・歯車メニュー・設定画面のボタンは取り直す。取り直さないと、さらに新しいリリースが出ても最初に見つけた版のまま固定される。置き換えた古い `Update` は Rust 側のリソースを握っているので `close()` する。**適用中は差し替えない**（`installing`。確認ダイアログを出した時点から立てる。使用中の `Update` を閉じるとダウンロードが壊れ、ダイアログで見せた版と違う版を入れることにもなる）。取り直しに失敗しても、先に見つけた更新があれば「更新あり」のまま残す
 - `bundle.createUpdaterArtifacts: true` で `.sig` ファイルを自動生成
 
 ## CI/CD

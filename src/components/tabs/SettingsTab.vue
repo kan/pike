@@ -1437,21 +1437,14 @@ const PREVIEW_LINES = [
         </SettingItem>
         <SettingItem label-key="settings.checkUpdate">
           <div class="update-actions">
-            <button
-              v-if="updater.state.value === 'idle' || updater.state.value === 'upToDate' || updater.state.value === 'error'"
-              class="update-btn"
-              @click="updater.checkForUpdate"
-            >{{ t('settings.checkUpdate') }}</button>
-            <button v-else-if="updater.state.value === 'checking'" class="update-btn" disabled>
-              <Loader :size="14" :stroke-width="2" class="spin" />
-              {{ t('settings.checking') }}
-            </button>
-            <button v-else-if="updater.state.value === 'available'" class="update-btn update-btn-primary" @click="updater.downloadAndInstall">
+            <button v-if="updater.state.value === 'available'" class="update-btn update-btn-primary" @click="updater.downloadAndInstall">
               {{ t('settings.updateAndRestart') }}
             </button>
-            <button v-else-if="updater.state.value === 'downloading'" class="update-btn" disabled>
+            <!-- 「更新あり」のときも出す。見つけた版より新しいリリースが出ていることがある（#414） -->
+            <button v-if="!updater.busy.value" class="update-btn" @click="updater.checkForUpdate">{{ t('settings.checkUpdate') }}</button>
+            <button v-else class="update-btn" disabled>
               <Loader :size="14" :stroke-width="2" class="spin" />
-              {{ t('settings.downloading') }}
+              {{ t(updater.state.value === 'checking' ? 'settings.checking' : 'settings.downloading') }}
             </button>
             <span v-if="updater.state.value === 'available'" class="update-info">
               {{ t('settings.updateAvailable', { version: updater.updateVersion.value }) }}
