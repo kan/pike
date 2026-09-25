@@ -30,7 +30,7 @@ import {
   relativeFromDir,
   stem,
   wslNativeToUnc,
-  wslUncToNative,
+  wslUncForShell,
 } from '../lib/paths'
 import { relativeToBase } from '../lib/projectPaths'
 import { fsImportFile, pickOpenFile } from '../lib/tauri'
@@ -72,9 +72,7 @@ export function useMarkdownImages(docDir: Ref<string>, shell: Ref<ShellType>, ro
    * as a UNC path — and only the project's own distro can be named natively.
    */
   function asLocalPath(picked: string): string | null {
-    if (shell.value.kind !== 'wsl') return picked
-    const unc = wslUncToNative(picked)
-    return unc?.distro === shell.value.distro ? unc.path : null
+    return wslUncForShell(picked, shell.value)
   }
 
   /** Copy `source` (a Windows path) into the document's directory. */

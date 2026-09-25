@@ -12,7 +12,18 @@
  * **マウスを伴わない経路だけが自分で言う必要がある**（OS からのファイルドロップ）。
  */
 
-import { Bot, Check, ChevronDown, ChevronLeft, Columns2, FilePlus, Globe, Plus, ShieldPlus } from 'lucide-vue-next'
+import {
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  Columns2,
+  FilePlus,
+  FolderOpen,
+  Globe,
+  Plus,
+  ShieldPlus,
+} from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAgentMenu } from '../../composables/useAgentMenu'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
@@ -23,6 +34,7 @@ import { useTabDrag } from '../../composables/useTabDrag'
 import { isLiveTerminal, type LiveTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { canResolveDroppedPaths, resolveDroppedPaths } from '../../lib/dropPaths'
+import { pickAndOpenFile } from '../../lib/openFile'
 import { useOverlay } from '../../lib/overlay'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import { actionChord } from '../../lib/shortcuts'
@@ -260,6 +272,16 @@ const kindMenuItems = computed(() => {
       checked: action === 'editor',
       divider: false,
       run: () => tabStore.addBlankEditorTab(),
+    },
+    {
+      // 任意のファイルを開く（#410）。プロジェクトの外のファイルも開ける。**「+」の設定の
+      // 選択肢（`TAB_ADD_ACTIONS`）ではない**ので、印は付かない（上の 1 対 1 の例外）。
+      key: 'openFile',
+      icon: FolderOpen,
+      label: t('tabs.openFile'),
+      checked: false,
+      divider: false,
+      run: () => void pickAndOpenFile(),
     },
     {
       key: 'browser',

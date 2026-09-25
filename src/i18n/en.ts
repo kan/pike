@@ -78,6 +78,10 @@ export default {
   // Tabs
   'tabs.newEditor': 'New Editor',
   'tabs.newBrowser': 'New Browser',
+  'tabs.openFile': 'Open File…',
+  'tabs.openFileFailed': 'Could not choose a file: {error}',
+  'tabs.openFileUnreachable':
+    "This file can't be opened because the current project's shell can't read it (another WSL distro or a network location):\n{path}",
   'tabs.newTerminalShort': 'New Terminal',
   'tabs.newTerminal': 'New Terminal ({key})',
   'tabs.openWithShell': 'Choose what to open (editor, browser, agent, shell)',

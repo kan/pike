@@ -78,6 +78,10 @@ export default {
   // Tabs
   'tabs.newEditor': '新規エディタ',
   'tabs.newBrowser': '新規ブラウザ',
+  'tabs.openFile': 'ファイルを開く…',
+  'tabs.openFileFailed': 'ファイルを選べませんでした: {error}',
+  'tabs.openFileUnreachable':
+    'このファイルは今のプロジェクトのシェルから読めないため開けません（別の WSL ディストロやネットワーク上のファイル）:\n{path}',
   'tabs.newTerminalShort': '新規ターミナル',
   'tabs.newTerminal': '新規ターミナル ({key})',
   'tabs.openWithShell': '開くものを選ぶ（エディタ・ブラウザ・エージェント・シェル）',

@@ -1,10 +1,19 @@
-import { confirmDialog } from '../composables/useConfirmDialog'
+import { confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
 import type { ShellType } from '../types/tab'
-import { basename, extension, isAbsolutePath, isImageFile, joinPath, mimeType, pathSep } from './paths'
-import { fsOpenInExplorer, fsReadFileBase64 } from './tauri'
+import {
+  basename,
+  extension,
+  isAbsolutePath,
+  isImageFile,
+  joinPath,
+  mimeType,
+  pathSep,
+  pickedPathForShell,
+} from './paths'
+import { fsOpenInExplorer, fsReadFileBase64, pickOpenFile } from './tauri'
 
 /**
  * Open a path in the tab kind that matches its extension: images go to the
@@ -40,6 +49,33 @@ export async function openPathInTab(opts: {
     return
   }
   tabStore.addEditorTab({ path, initialLine: opts.line })
+}
+
+/**
+ * ファイルのダイアログで選んだファイルを開く（#410。タブバーの「+」のメニュー）。プロジェクトの
+ * 外のファイルも開ける。初期位置は今のプロジェクトのルート。
+ *
+ * 読むのは今のプロジェクトのシェル（エディタのタブはタブごとのシェルを持たない）なので、
+ * 選んだパスをそのシェルの形に直す（`pickedPathForShell`）。直せないもの（WSL のプロジェクトで
+ * 別の distro のファイルを選んだなど）は、開かずにそう知らせる。
+ */
+export async function pickAndOpenFile(): Promise<void> {
+  const projectStore = useProjectStore()
+  let picked: string | null
+  try {
+    picked = await pickOpenFile([], projectStore.pickerStartDir())
+  } catch (e) {
+    await infoDialog(t('tabs.openFileFailed', { error: String(e) }))
+    return
+  }
+  if (!picked) return
+  const shell = projectStore.shellForIO
+  const path = pickedPathForShell(picked, shell)
+  if (!path) {
+    await infoDialog(t('tabs.openFileUnreachable', { path: picked }))
+    return
+  }
+  await openPathInTab({ path, shell })
 }
 
 /**

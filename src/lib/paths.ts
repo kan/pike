@@ -159,6 +159,34 @@ export function wslUncToNative(path: string): { distro: string; path: string } |
   return { distro: m[1], path: `/${m[2].replace(/\\/g, '/')}` }
 }
 
+/**
+ * ファイルのダイアログ（Windows のダイアログ）で選んだパスを、`shell` がそのまま名指しできる
+ * 形にする。できなければ null。WSL では、その distro の UNC だけを distro の中のパスに直す
+ * （ほかの distro の UNC も、ドライブのパスも null）。
+ *
+ * Markdown の画像の挿入（`useMarkdownImages`）はドライブのパスで null が返ることを使って、
+ * UNC 越しに Windows 側でコピーする経路へ分ける。
+ */
+export function wslUncForShell(picked: string, shell: ShellType): string | null {
+  if (shell.kind !== 'wsl') return picked
+  const unc = wslUncToNative(picked)
+  return unc?.distro === shell.distro ? unc.path : null
+}
+
+/**
+ * ファイルのダイアログで選んだパスを、`shell` から**読める**形にする（#410）。読めなければ null。
+ *
+ * `wslUncForShell` に加えて、WSL ではドライブのパスを `/mnt/<drive>/...` にする（WSL の
+ * 既定の自動マウントが前提。`agent_hook.rs` の `windows_to_mnt` と同じ前提）。別の distro の
+ * UNC とネットワーク上の共有は、その distro から名指しできないので null。
+ */
+export function pickedPathForShell(picked: string, shell: ShellType): string | null {
+  const local = wslUncForShell(picked, shell)
+  if (local !== null || wslUncToNative(picked)) return local
+  const drive = /^([A-Za-z]):[\\/](.*)$/.exec(picked)
+  return drive ? `/mnt/${drive[1].toLowerCase()}/${drive[2].replace(/\\/g, '/')}` : null
+}
+
 /** The inverse: the name Windows knows a WSL file by. */
 export function wslNativeToUnc(distro: string, path: string): string {
   return `\\\\wsl.localhost\\${distro}${normalizeSep(path, '\\')}`

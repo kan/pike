@@ -996,9 +996,12 @@ export async function pickSaveFile(defaultName?: string): Promise<string | null>
   return invoke<string | null>('pick_save_file', { defaultName: defaultName ?? null })
 }
 
-/** Open-file dialog limited to `extensions` (bare, no dot). Windows path or null. */
-export async function pickOpenFile(extensions: string[]): Promise<string | null> {
-  return invoke<string | null>('pick_open_file', { extensions })
+/**
+ * Open-file dialog limited to `extensions` (bare, no dot); an empty list means any file (#410).
+ * `initial` is the directory it starts in. Windows path or null.
+ */
+export async function pickOpenFile(extensions: string[], initial?: string): Promise<string | null> {
+  return invoke<string | null>('pick_open_file', { extensions, initial: initial ?? null })
 }
 
 // CLI

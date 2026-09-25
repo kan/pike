@@ -1295,31 +1295,47 @@ mod dialog {
         format!("'{}'", value.replace('\'', "''"))
     }
 
+    /// ダイアログの初期位置を `$f.<prop>` に入れる文（#271 / #410）。無ければ空文字列。
+    #[cfg(windows)]
+    fn ps_seed(prop: &str, initial: Option<String>) -> String {
+        initial
+            .filter(|p| !p.is_empty())
+            .map(|p| format!("$f.{prop} = {};", ps_quote(&p)))
+            .unwrap_or_default()
+    }
+
     /// `initial` はダイアログの初期位置（#271）。WSL プロジェクトでは
     /// `wsl.localhost` の UNC を渡すので、そのまま WSL の中から選べる。
     #[cfg(windows)]
     pub async fn folder(initial: Option<String>) -> Result<Option<String>, String> {
-        let seed = initial
-            .filter(|p| !p.is_empty())
-            .map(|p| format!("$f.SelectedPath = {};", ps_quote(&p)))
-            .unwrap_or_default();
+        let seed = ps_seed("SelectedPath", initial);
         powershell(format!(
             "$f = New-Object System.Windows.Forms.FolderBrowserDialog; {seed} if($f.ShowDialog() -eq 'OK'){{$f.SelectedPath}}"
         ))
         .await
     }
 
+    /// `extensions` が空なら絞らない（#410 の「ファイルを開く」）。`initial` は初期位置。
     #[cfg(windows)]
-    pub async fn open(extensions: &[String]) -> Result<Option<String>, String> {
-        let patterns = extensions
-            .iter()
-            .map(|e| format!("*.{e}"))
-            .collect::<Vec<_>>()
-            .join(";");
+    pub async fn open(
+        extensions: &[String],
+        initial: Option<String>,
+    ) -> Result<Option<String>, String> {
         // Filter syntax is `description|patterns`; the patterns read fine as their
         // own description.
+        let filter = if extensions.is_empty() {
+            String::new()
+        } else {
+            let patterns = extensions
+                .iter()
+                .map(|e| format!("*.{e}"))
+                .collect::<Vec<_>>()
+                .join(";");
+            format!("$f.Filter = '{patterns}|{patterns}';")
+        };
+        let seed = ps_seed("InitialDirectory", initial);
         powershell(format!(
-            "$f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = '{patterns}|{patterns}'; if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
+            "$f = New-Object System.Windows.Forms.OpenFileDialog; {filter} {seed} if($f.ShowDialog() -eq 'OK'){{$f.FileName}}"
         ))
         .await
     }
@@ -1348,15 +1364,15 @@ mod dialog {
         s.replace('\\', "\\\\").replace('"', "\\\"")
     }
 
-    /// `initial` はダイアログの初期位置（#271）。
+    /// ダイアログの初期位置（#271 / #410）を `choose ...` に付ける句。無ければ空文字列。
     ///
     /// **渡す前に実在を確かめる。** `POSIX file` はパスを参照に変えるだけで存在確認を
-    /// しないので、消えたディレクトリを渡すと `choose folder` がエラーで終わる。
+    /// しないので、消えたディレクトリを渡すと `choose ...` がエラーで終わる。
     /// それは終了コードでしか分からず、`spawn` はキャンセルと同じ `None` に畳むため、
     /// 「ダイアログが一瞬で閉じた」ようにしか見えない。
     #[cfg(target_os = "macos")]
-    pub async fn folder(initial: Option<String>) -> Result<Option<String>, String> {
-        let at = initial
+    fn default_location(initial: Option<String>) -> String {
+        initial
             .filter(|p| std::path::Path::new(p).is_dir())
             .map(|p| {
                 format!(
@@ -1364,20 +1380,35 @@ mod dialog {
                     applescript_quote(&p)
                 )
             })
-            .unwrap_or_default();
-        osascript(format!("POSIX path of (choose folder{at})")).await
+            .unwrap_or_default()
     }
 
     #[cfg(target_os = "macos")]
-    pub async fn open(extensions: &[String]) -> Result<Option<String>, String> {
+    pub async fn folder(initial: Option<String>) -> Result<Option<String>, String> {
+        let at = default_location(initial);
+        osascript(format!("POSIX path of (choose folder{at})")).await
+    }
+
+    /// `extensions` が空なら絞らない（#410）。
+    #[cfg(target_os = "macos")]
+    pub async fn open(
+        extensions: &[String],
+        initial: Option<String>,
+    ) -> Result<Option<String>, String> {
         // `choose file of type` は拡張子と UTI のどちらも受ける。呼び出し側で英数字だけに
         // 絞ってあるので、AppleScript のリテラルとしてそのまま並べられる。
-        let types = extensions
-            .iter()
-            .map(|e| format!("\"{e}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
-        osascript(format!("POSIX path of (choose file of type {{{types}}})")).await
+        let of_type = if extensions.is_empty() {
+            String::new()
+        } else {
+            let types = extensions
+                .iter()
+                .map(|e| format!("\"{e}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(" of type {{{types}}}")
+        };
+        let at = default_location(initial);
+        osascript(format!("POSIX path of (choose file{of_type}{at})")).await
     }
 
     #[cfg(target_os = "macos")]
@@ -1406,7 +1437,10 @@ mod dialog {
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
-    pub async fn open(_extensions: &[String]) -> Result<Option<String>, String> {
+    pub async fn open(
+        _extensions: &[String],
+        _initial: Option<String>,
+    ) -> Result<Option<String>, String> {
         unsupported()
     }
 
@@ -1421,22 +1455,28 @@ async fn pick_folder(initial: Option<String>) -> Result<Option<String>, String> 
     dialog::folder(initial).await
 }
 
-/// Open-file dialog restricted to the given extensions (#241).
+/// Open-file dialog restricted to the given extensions (#241). An empty list
+/// means any file (#410); `initial` is the directory it starts in.
 ///
 /// The extensions end up inside a shell/AppleScript command line, so they are
 /// checked here rather than trusted: the front end decides which formats to
-/// offer, but this is what builds the process arguments.
+/// offer, but this is what builds the process arguments. A non-empty list that
+/// filters down to nothing is still an error — widening it to "any file"
+/// would silently drop the caller's restriction.
 #[tauri::command]
-async fn pick_open_file(extensions: Vec<String>) -> Result<Option<String>, String> {
+async fn pick_open_file(
+    extensions: Vec<String>,
+    initial: Option<String>,
+) -> Result<Option<String>, String> {
     let usable: Vec<String> = extensions
         .iter()
         .filter(|e| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric()))
         .map(|e| e.to_ascii_lowercase())
         .collect();
-    if usable.is_empty() {
+    if usable.is_empty() && !extensions.is_empty() {
         return Err("no usable extensions".into());
     }
-    dialog::open(&usable).await
+    dialog::open(&usable, initial).await
 }
 
 #[tauri::command]
