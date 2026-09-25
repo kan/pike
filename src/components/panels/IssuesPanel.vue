@@ -246,13 +246,14 @@ function copyStartPrompt(issue: IssueSummary) {
 </template>
 
 <style scoped>
+/* スクロールはサイドバーの `.panel-content` に任せる（自分で持つと二重になる）。 */
 .issues-panel {
   padding: 4px 0;
-  overflow-y: auto;
-  height: 100%;
 }
 
+/* `box-sizing` が無いと padding と枠のぶん（14px）親からはみ出し、横スクロールバーが出る。 */
 .filter {
+  box-sizing: border-box;
   width: calc(100% - 16px);
   margin: 4px 8px 6px;
   padding: 4px 6px;

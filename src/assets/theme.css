@@ -54,6 +54,10 @@
      変えたときに「右だけ太い」や「6px の横スクロールバーが出る」が黙って戻る。
      テーマでは変えない。 */
   --scrollbar-size: 6px;
+  /* サイドバーのパネルの縦のレールの幅。パネルは幅が狭いので、他の面の半分にしてある。
+     **`.panel-content` の右 padding と、それを打ち消す `OutlinePanel` もこれを読む**
+     （`--scrollbar-size` と同じ事情で、リテラルで散らすと片方だけ古くなる）。 */
+  --panel-scrollbar-size: 3px;
   /* パネルの中身の余白（#396）。`.panel-content` と、それを打ち消す `OutlinePanel` が読む。 */
   --panel-pad: 12px;
   /* xterm が右に確保する溝（#383 / #396）。FitAddon は列数を決めるとき親の幅からこれを
@@ -172,6 +176,13 @@
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* サイドバーのパネルの縦のレール（`--panel-scrollbar-size`）。パネルの中にある入れ子の
+   スクロール領域（アウトラインの本文など）も同じ太さにする。 */
+.panel-content::-webkit-scrollbar,
+.panel-content ::-webkit-scrollbar {
+  width: var(--panel-scrollbar-size);
 }
 
 @keyframes spin {

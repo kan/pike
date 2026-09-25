@@ -222,10 +222,9 @@ async function clearHistory() {
 </template>
 
 <style scoped>
+/* スクロールはサイドバーの `.panel-content` に任せる（自分で持つと二重になる）。 */
 .browser-panel {
   padding: 4px 0;
-  overflow-y: auto;
-  height: 100%;
 }
 
 .new-tab-btn {

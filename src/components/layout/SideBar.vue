@@ -1069,16 +1069,21 @@ onUnmounted(() => {
 
 /*
  * パネルの中身（#396）。**`auto` ではなく `scroll` にして、右の padding からレールぶんを
- * 引く。** `auto` だと、スクロールバーが出た瞬間に右の余白がレール（6px）ぶん増えて
+ * 引く。** `auto` だと、スクロールバーが出た瞬間に右の余白がレールぶん増えて
  * 「右だけ太い」状態になる（`.diff-tab` の横スクロールの帯が `scroll` なのと同じ事情）。
  * 常にレールを確保しておけば、出ていても出ていなくても本文の右端からパネルの端までは
  * 12px で変わらない。トラックは透明なので、スクロールしない一覧でレールは見えない。
- * 代償は、スクロールしないときも幅が 6px 狭くなること。
+ * 代償は、スクロールしないときもレールぶん幅が狭くなること。
+ *
+ * **中のパネルは自分でスクロールしないこと。** ルートに `height: 100%` と
+ * `overflow-y: auto` を付けると、ここと二重のスクロール領域になる（中身があふれると
+ * レールが 2 本並ぶ。ルートの縦 padding のぶんだけここもあふれ、あふれていないのに
+ * レールが出る）。
  */
 .panel-content {
   flex: 1;
   overflow-y: scroll;
-  padding: var(--panel-pad) var(--scrollbar-size) var(--panel-pad) var(--panel-pad);
+  padding: var(--panel-pad) var(--panel-scrollbar-size) var(--panel-pad) var(--panel-pad);
 }
 
 /* 見た目（カーソル・ホバー）は `theme.css` の `.drag-x-handle` と共有する。 */

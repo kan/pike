@@ -78,11 +78,15 @@ paths:
   常にレールを確保して右の padding からそのぶんを引けば、出ていても出ていなくても本文の
   右端からパネルの端までは変わらない（トラックは透明なので、スクロールしない一覧で
   レールは見えない）。`.diff-tab` の横スクロールの帯が `scroll` なのと同じ事情
-  - **寸法は `theme.css` の `--scrollbar-size` / `--panel-pad` で組む。** レールの幅は
-    `::-webkit-scrollbar` とターミナルの溝（`--term-gutter`）も読む 1 つの事実で、
-    リテラルで散らすと片方だけ変えたときに戻る。**`OutlinePanel` はこの padding を
-    負の margin で打ち消して端まで使う**ので、同じ変数で引くこと（値がずれると、
-    その差がそのまま横スクロールバーになる）
+  - **寸法は `theme.css` の `--panel-scrollbar-size` / `--panel-pad` で組む。** パネルの
+    レールは幅が狭いぶん他の面（`--scrollbar-size`＝`::-webkit-scrollbar` とターミナルの溝）の
+    半分の 3px で、`theme.css` の `.panel-content ::-webkit-scrollbar` がパネルの中の入れ子の
+    スクロール領域ごと細くする。リテラルで散らすと片方だけ変えたときに戻る。
+    **`OutlinePanel` はこの padding を負の margin で打ち消して端まで使う**ので、同じ変数で
+    引くこと（値がずれると、その差がそのまま横スクロールバーになる）
+  - **パネルのルートに `height: 100%` + `overflow-y: auto` を付けない。** `.panel-content` と
+    二重のスクロール領域になり、ルートの縦 padding のぶんあふれていないのにレールが出る
+    （issue・ブラウザ・タスクのパネルで踏んだ）
 
 ## xterm.js
 - `Terminal` インスタンスはタブごとに生成し、コンポーネントの `onUnmounted` で `.dispose()`
