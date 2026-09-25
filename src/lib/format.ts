@@ -81,6 +81,21 @@ export function isWebUrl(url: string): boolean {
 }
 
 /**
+ * 2 つの URL が同じページを指すか（オリジンとパスが同じ。`?` 以降と `#` 以降は見ない、#412）。
+ * 読めない URL は同じとみなさない。使いどころはブラウザのタブの閲覧履歴（`BrowserTab.vue` の
+ * `applyUrl`）。
+ */
+export function isSamePage(a: string, b: string): boolean {
+  try {
+    const x = new URL(a)
+    const y = new URL(b)
+    return x.origin === y.origin && x.pathname === y.pathname
+  } catch {
+    return false
+  }
+}
+
+/**
  * URL を画面に出すときのホスト（ポート付き、#368）。読めない URL は素のまま返す。
  * ブラウザのタブの既定の名前とブラウザパネルのホスト欄が同じものを出すための 1 か所。
  * 承認の鍵に使う `lib/openUrl.ts` の `httpHost`（ポートを見ない・小文字化する）とは用途が違う。

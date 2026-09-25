@@ -15,7 +15,7 @@ import { useFocusPolling } from '../../composables/useFocusPolling'
 import { useI18n } from '../../i18n'
 import { registerBrowserDonor, takeBrowserView, unregisterBrowserDonor } from '../../lib/browserHandoff'
 import { requestBrowserIcon } from '../../lib/browserIcons'
-import { isWebUrl } from '../../lib/format'
+import { isSamePage, isWebUrl } from '../../lib/format'
 import { normalizeWebUrl, openUrlWithConfirm } from '../../lib/openUrl'
 import {
   type BrowserHistoryAction,
@@ -201,19 +201,67 @@ registerBrowserDonor(props.tabId, {
  * 移動してきた URL を反映する（タブ・アドレス欄・閲覧履歴）。
  *
  * **入口は 2 つ**: 読み込みの完了（`onState` の `url`）と、ページの中の移動を拾う
- * ポーリング（`pollUrl`）。同じ URL で 2 度来ても `recordVisit` が URL で畳む。
+ * ポーリング（`pollUrl`、`sameDocument`）。同じ URL を 2 度履歴へ回さないのは `queuedUrl`。
  *
  * **http(s) か確かめてから採る**。`webview.url()` はその瞬間のもので、ページが
  * `blob:` や `about:blank` にいることがある。ここで入れた値は `snapshotSession` で
  * `project.json` に残り、復元のときに `browser_open` へ返るので、そのまま採ると
  * 開けないタブになる。
+ *
+ * **ページの中の移動は、パスが変わったときだけ履歴に載せる**（#412、`isSamePage`）。
+ * Jira はチケットを開くとクエリだけを書き換えるので、全部載せると開いたチケットの数だけ
+ * 行が増える（Chrome / Edge の履歴では増えない）。GitHub のようにパスごと移る SPA の移動は載せる。
  */
-function applyUrl(url: string) {
-  if (!tab.value || url === tab.value.url || !isWebUrl(url)) return
+function applyUrl(url: string, sameDocument = false) {
+  // ポーリングは URL が変わらない回がほとんどなので、URL を解析する前に抜ける。
+  if (!tab.value || (sameDocument && url === tab.value.url) || !isWebUrl(url)) return
+  const prev = tab.value.url
   tab.value.url = url
   if (!addressEdited.value) address.value = url
-  // タイトルは読み込みの途中で先に届くことが多いので、その時点のタブの名前を使う。
-  browserStore.recordVisit(url, tab.value.title)
+  // **タブの URL と履歴は別々に比べる。** WebView2 の `Source` は読み込みを終える前に次の
+  // URL へ変わるので、クエリだけ違うページを開くとポーリングが先にそれを拾い、ページの中の
+  // 移動として見送る。そのあと届く読み込みの完了は、タブの URL とは同じでも履歴にはまだ
+  // 載っていないので、ここで載せる。
+  if (url === queuedUrl) return
+  if (sameDocument && isSamePage(prev, url)) return
+  queueVisit(url)
+}
+
+/**
+ * 履歴に載せるのを待つ時間（#412）。この間に同じタブが次のページへ移ったら、そのページは
+ * リダイレクトとみなして載せない。
+ *
+ * **「リダイレクト中…」のページを落とすため。** サーバーのリダイレクト（3xx）は途中の
+ * ページが読み込まれないので元から載らないが、ログインの経路などにある JS やメタ refresh の
+ * リダイレクトは、途中のページが読み込みを終えてから次へ移る。Chromium はこれをクライアント
+ * リダイレクトとして記録し、履歴の画面には連鎖の終点だけを出す（`visit_database.cc` の
+ * `TransitionIsVisible` が `PAGE_TRANSITION_CHAIN_END` を見る）。Tauri の API はユーザーの
+ * 操作による移動かを出していないので、時間で近似する。代償は、読み込んでから 3 秒以内に
+ * リンクを押して移ったページも載らないこと。WebView2 の `NavigationStarting` の
+ * `IsUserInitiated` を Rust で受ければ近似が要らなくなる（#416）。
+ */
+const VISIT_COMMIT_DELAY_MS = 3000
+/**
+ * 最後に履歴へ回した URL（待っているもの・載せたもの）。同じ URL を 2 度回さない。
+ * **始まりはタブを作った時点の URL**: 以前はタブの URL と同じなら載せなかったので、
+ * 復元したタブが起動のたびに履歴の先頭へ上がることは無かった。それを変えない。
+ */
+let queuedUrl = tab.value?.url ?? ''
+let pendingTimer: ReturnType<typeof setTimeout> | undefined
+
+/** 前に待っていたページは捨て（リダイレクトとみなす）、このページを待たせる。 */
+function queueVisit(url: string) {
+  if (pendingTimer !== undefined) clearTimeout(pendingTimer)
+  queuedUrl = url
+  pendingTimer = setTimeout(commitVisit, VISIT_COMMIT_DELAY_MS)
+}
+
+function commitVisit() {
+  pendingTimer = undefined
+  // タイトルは待っているあいだに届いていることが多いので、この時点のタブの名前を使う。
+  // まだなら、あとから `setTitle` が入れる。
+  const current = tab.value
+  browserStore.recordVisit(queuedUrl, current && isSamePage(current.url, queuedUrl) ? current.title : undefined)
 }
 
 /**
@@ -231,7 +279,7 @@ const urlPoll = useFocusPolling([
     tick: () => {
       if (!view.ready()) return
       void browserUrl(view.label())
-        .then(applyUrl)
+        .then((url) => applyUrl(url, true))
         .catch(() => {})
     },
   },
@@ -251,6 +299,12 @@ onUnmounted(() => {
   unregisterBrowserDonor(props.tabId)
   urlPoll.stop()
   if (cssTimer !== undefined) clearTimeout(cssTimer)
+  // **待っている訪問は捨てずに載せる**（#412）。次のページへ移っていない以上リダイレクト
+  // ではなく、開いてすぐ閉じたページも履歴から辿れるほうがよい。
+  if (pendingTimer !== undefined) {
+    clearTimeout(pendingTimer)
+    commitVisit()
+  }
 })
 
 async function go() {
