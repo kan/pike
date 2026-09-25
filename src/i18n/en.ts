@@ -340,10 +340,6 @@ export default {
     'Font and size for the app interface (sidebar, tabs, panels, dialogs). The terminal and editor keep their own font settings below.',
   'settings.font': 'Font',
   'settings.fontSize': 'Font Size',
-  'settings.fontNotice.missing':
-    'This font is not being used for display. If you installed it after starting Pike, restart Pike to pick it up.',
-  'settings.fontNotice.icons':
-    'The icons of this Nerd Font (Powerline separators and the like) are not drawn with it. If you installed the font after starting Pike, restart Pike to pick them up.',
   'settings.editorFont': 'Font',
   'settings.editorFontSize': 'Font Size',
   'settings.preview': 'Preview',

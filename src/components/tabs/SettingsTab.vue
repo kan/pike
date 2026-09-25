@@ -22,7 +22,7 @@ import { AGENTS, type AgentLauncher, isLauncherVisible, launcherLabel } from '..
 import { CSV_PAGE_SIZES } from '../../lib/csvPreview'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import type { SqlDialect } from '../../lib/fileType'
-import { buildFontFamily, checkFontRendering, type FontNotice } from '../../lib/fontDetection'
+import { buildFontFamily } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
 import { absoluteDate } from '../../lib/paths'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
@@ -303,25 +303,6 @@ function onGlobalShellChange(e: Event) {
 
 // CSS font-family for the editor preview swatch (built from the editor font name).
 const editorFontFamily = computed(() => buildFontFamily(settings.editorFontName))
-
-/**
- * ターミナルとエディタのフォントが実際に使われているか（#372）。**選び直したときだけ**確かめる
- * （既定のフォント指定を入れていない人に、設定画面を開くたびに警告を出さないため）。
- * 起動後に入れたフォントは、macOS では再起動するまでアイコン（私用領域の文字）が描かれない。
- */
-const terminalFontNotice = ref<FontNotice | null>(null)
-const editorFontNotice = ref<FontNotice | null>(null)
-
-function onTerminalFontChange(name: string) {
-  settings.setFontByName(name)
-  terminalFontNotice.value = checkFontRendering(name)
-}
-
-// エディタ（CodeMirror）も同じ WebKit のフォールバックを通るので、同じ確かめ方をする。
-function onEditorFontChange(name: string) {
-  settings.editorFontName = name
-  editorFontNotice.value = checkFontRendering(name)
-}
 
 const updater = useUpdater()
 
@@ -797,7 +778,7 @@ const PREVIEW_LINES = [
             <select
               class="setting-select"
               :value="settings.fontName"
-              @change="onTerminalFontChange(($event.target as HTMLSelectElement).value)"
+              @change="settings.setFontByName(($event.target as HTMLSelectElement).value)"
             >
               <option
                 v-for="font in settings.availableFonts"
@@ -805,9 +786,6 @@ const PREVIEW_LINES = [
                 :value="font"
               >{{ font }}</option>
             </select>
-            <p v-if="terminalFontNotice" class="setting-hint font-notice" data-testid="font-notice">
-              {{ t(`settings.fontNotice.${terminalFontNotice}`) }}
-            </p>
           </SettingItem>
 
           <SettingItem label-key="settings.fontSize">
@@ -1134,16 +1112,9 @@ const PREVIEW_LINES = [
       <SettingSection v-bind="SECTIONS.editor">
         <SettingGroup title-key="settings.groupDisplay">
           <SettingItem label-key="settings.editorFont">
-            <select
-              class="setting-select"
-              :value="settings.editorFontName"
-              @change="onEditorFontChange(($event.target as HTMLSelectElement).value)"
-            >
+            <select class="setting-select" v-model="settings.editorFontName">
               <option v-for="font in settings.availableFonts" :key="font" :value="font">{{ font }}</option>
             </select>
-            <p v-if="editorFontNotice" class="setting-hint font-notice">
-              {{ t(`settings.fontNotice.${editorFontNotice}`) }}
-            </p>
           </SettingItem>
 
           <SettingItem label-key="settings.editorFontSize">
@@ -1600,13 +1571,6 @@ const PREVIEW_LINES = [
 
 /* 1 項目ぶんの器（`.setting-block`）は `settings/SettingItem.vue` が持つ。
    `.setting-label` / `.setting-hint` は `theme.css`（切り出した部品と共有）。 */
-
-/* 選んだフォントが表示に使われていない（#372）。 */
-.font-notice {
-  /* `--warning` はテーマに無い。注意の色は `RateMeters.vue` と同じ `--git-modify`。 */
-  color: var(--git-modify);
-  max-width: 480px;
-}
 
 .setting-select {
   padding: 4px 8px;
