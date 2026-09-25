@@ -14,6 +14,7 @@
 //!   ページ」に対するもので、埋め込まれた他所の iframe にまで入れる理由が無い
 
 use serde::Deserialize;
+use std::collections::HashMap;
 
 /// フロントが渡す 1 ルール（有効なものだけが来る）。
 #[derive(Debug, Clone, Deserialize)]
@@ -116,6 +117,56 @@ pub fn jira_scripts() -> Vec<String> {
         .collect()
 }
 
+/// 列の色分け（`jira/column_color.js`）が色の表を Pike へ送るときに開く URL（#405）。
+/// **ページには IPC が無い**（`browser.rs` の doc）ので、`window.open` を `on_new_window` で
+/// 受け止めて、開かずに中身だけ読む。`.invalid` は実在しえない TLD（RFC 2606）。
+/// `column_color.js` の `PIKE_COLORS_URL` と同じ値にしておくこと。
+pub const JIRA_COLORS_URL: &str = "https://pike.invalid/jira-column-colors";
+
+/// `JIRA_COLORS_URL?c=<JSON>` から色の変更（ステータス名→色の名前。消したものは `None`）を読む。
+/// 当てはまらなければ `None`。送ってくるのは変えた列だけで、重ねるのはフロント
+/// （`patchJiraColumnColors`）。
+pub fn parse_jira_colors_message(url: &tauri::Url) -> Option<HashMap<String, Option<String>>> {
+    let base = url.as_str().split(['?', '#']).next()?;
+    if base != JIRA_COLORS_URL {
+        return None;
+    }
+    let (_, json) = url.query_pairs().find(|(k, _)| k == "c")?;
+    serde_json::from_str(&json).ok()
+}
+
+/// ホスト名がドメインの一覧に一致するか。**`HOST_MATCH_JS` と同じ規則**（ページの中の判定と
+/// 食い違うと、スクリプトは差し込まれるのに色を受け付けない、が起きる）。
+fn host_matches(host: &str, domains: &[&str]) -> bool {
+    let h = host.to_ascii_lowercase();
+    domains.iter().any(|p| {
+        let p = p.to_ascii_lowercase();
+        match p.strip_prefix('*') {
+            Some(suffix) => h.len() > suffix.len() && h.ends_with(suffix),
+            None => h == p,
+        }
+    })
+}
+
+/// Jira のページか（色の表を受け付けるのは Jira のページからだけ）。
+pub fn is_jira_host(url: &tauri::Url) -> bool {
+    url.host_str()
+        .is_some_and(|h| host_matches(h, JIRA_DOMAINS))
+}
+
+/// 色の表を開いているページへ渡すスクリプト（#405）。`column_color.js` が `pike-jira-colors`
+/// のイベントで受け取る。読み込みの前に届いたときのために、表は `window` にも置いておく。
+pub fn jira_colors_script(colors: &HashMap<String, String>) -> String {
+    guarded_script(
+        JIRA_DOMAINS,
+        "jira colors",
+        &format!(
+            "window.__PIKE_JIRA_COLORS__={};window.dispatchEvent(new Event('pike-jira-colors'));",
+            js_literal(colors)
+        ),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,5 +210,62 @@ mod tests {
         let s = css_script(&[rule("", "a::after{content:\"'\"}</style>")]);
         assert!(s.contains(r#"a::after{content:\"'\"}</style>"#));
         assert!(!css_script(&[rule("", " ")]).contains("r1"));
+    }
+
+    fn url(s: &str) -> tauri::Url {
+        tauri::Url::parse(s).unwrap()
+    }
+
+    #[test]
+    fn reads_the_colors_message() {
+        // `encodeURIComponent(JSON.stringify({"進行中":"blue"}))` と同じ形
+        let m = parse_jira_colors_message(&url(&format!(
+            "{JIRA_COLORS_URL}?c=%7B%22%E9%80%B2%E8%A1%8C%E4%B8%AD%22%3A%22blue%22%7D"
+        )))
+        .unwrap();
+        assert_eq!(m.get("進行中"), Some(&Some("blue".to_owned())));
+        // 消した列は null で届く（`{"a":null}`）
+        let m =
+            parse_jira_colors_message(&url(&format!("{JIRA_COLORS_URL}?c=%7B%22a%22%3Anull%7D")))
+                .unwrap();
+        assert_eq!(m.get("a"), Some(&None));
+    }
+
+    #[test]
+    fn ignores_other_urls() {
+        assert!(
+            parse_jira_colors_message(&url("https://example.com/jira-column-colors?c=%7B%7D"))
+                .is_none()
+        );
+        assert!(parse_jira_colors_message(&url(&format!("{JIRA_COLORS_URL}x?c=%7B%7D"))).is_none());
+        assert!(parse_jira_colors_message(&url(&format!("{JIRA_COLORS_URL}?c=nope"))).is_none());
+        assert!(parse_jira_colors_message(&url(JIRA_COLORS_URL)).is_none());
+    }
+
+    #[test]
+    fn jira_host() {
+        assert!(is_jira_host(&url(
+            "https://Example.atlassian.net/jira/boards/1"
+        )));
+        assert!(!is_jira_host(&url("https://atlassian.net.example.com/")));
+        // `*.` はサブドメインだけ（`HOST_MATCH_JS` と同じく、ドメイン自身は含まない）
+        assert!(!is_jira_host(&url("https://atlassian.net/")));
+        assert!(!is_jira_host(&url("https://example.com/")));
+    }
+
+    #[test]
+    fn page_uses_the_same_colors_url() {
+        // `column_color.js` の `PIKE_COLORS_URL` と食い違うと、色の送信が素通りして
+        // 新しいタブを開く
+        assert!(include_str!("jira/column_color.js").contains(&format!("\"{JIRA_COLORS_URL}\"")));
+    }
+
+    #[test]
+    fn colors_script_escapes_names() {
+        let s = jira_colors_script(&HashMap::from([(
+            "a'</script>".to_owned(),
+            "red".to_owned(),
+        )]));
+        assert!(s.contains(r#"window.__PIKE_JIRA_COLORS__={"a'</script>":"red"};"#));
     }
 }

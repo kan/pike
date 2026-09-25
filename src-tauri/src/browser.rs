@@ -30,6 +30,7 @@
 
 use crate::site_rules::{self, SiteRule};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
 use tauri::{
     AppHandle, Emitter, EventTarget, LogicalPosition, LogicalSize, Manager, Rect, Url, Webview,
@@ -49,6 +50,13 @@ pub(crate) struct BrowserNewTabPayload {
     /// 開こうとしたページのタブ（子 webview のラベル）。
     pub(crate) label: String,
     pub(crate) url: String,
+}
+
+/// Jira のページで列の色を変えた（#405）。`colors` は変えた列だけ（消した列は `null`）。
+#[derive(Clone, Serialize)]
+struct BrowserJiraColorsPayload {
+    label: String,
+    colors: HashMap<String, Option<String>>,
 }
 
 /// ページの状態が変わったことをフロントへ知らせる（開いたウィンドウにだけ送り、フロントの
@@ -256,6 +264,27 @@ pub async fn browser_open(
         // 普通のページの動きなので、スキームの許可制にはしない）。
         .on_navigation(move |url| !origin.contains(url) && !is_local_file(url))
         .on_new_window(move |url, features| {
+            // 列の色分けが色の表を送ってきた（#405）。開かずに読むだけ。受け付けるのは
+            // Jira のページからだけ（他のサイトが同じ URL を開いても、色を書き換えさせない）。
+            // **ページから Pike へ知らせる経路はここに集める**（ページには IPC が無い）。
+            // 2 つ目ができたら、`pike.invalid/<channel>` を汎用の知らせにして振り分ける。
+            if let Some(colors) = site_rules::parse_jira_colors_message(&url) {
+                let from_jira = app
+                    .get_webview(&opener_label)
+                    .and_then(|w| w.url().ok())
+                    .is_some_and(|u| site_rules::is_jira_host(&u));
+                if from_jira {
+                    let _ = app.emit_to(
+                        EventTarget::window(&window_label),
+                        "browser_jira_colors",
+                        BrowserJiraColorsPayload {
+                            label: opener_label.clone(),
+                            colors,
+                        },
+                    );
+                }
+                return NewWindowResponse::Deny;
+            }
             // **ポップアップかどうかは大きさの指定の有無でしか見分けられない。** WebView2 が
             // 知らせるのは `window.open` の第 3 引数の位置と大きさで、`target=_blank` の
             // リンクや第 3 引数の無い `window.open` はどちらも持たない。ログイン用の
@@ -290,6 +319,19 @@ pub async fn browser_open(
     window
         .add_child(builder, rect.position, rect.size)
         .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Jira の列の色の表（ステータス名→色の名前）を開いているページへ渡す（#405）。読み込みが
+/// 終わるたびと、設定が変わったときにフロントが呼ぶ。Jira 以外のページでは何もしない。
+#[tauri::command]
+pub async fn browser_jira_colors(
+    app: AppHandle,
+    label: String,
+    colors: HashMap<String, String>,
+) -> Result<(), String> {
+    webview(&app, &label)?
+        .eval(site_rules::jira_colors_script(&colors))
         .map_err(|e| e.to_string())
 }
 

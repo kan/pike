@@ -1921,6 +1921,7 @@ pub fn run() {
             favicon::browser_favicon,
             browser::browser_place,
             browser::browser_apply_css,
+            browser::browser_jira_colors,
             browser::browser_navigate,
             browser::browser_url,
             browser::browser_history,

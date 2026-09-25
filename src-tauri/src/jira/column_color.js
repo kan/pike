@@ -18,12 +18,25 @@
 //  - 列メニューの同定: トリガを押すと `aria-controls="ds--dropdown--…"` が付き、その id の
 //    要素の中に `[role="menu"]` が描画される。この対応で「今開いたのが押した列のメニューか」を
 //    locale にも testid にも依存せず判定でき、カード側の ⋯ メニューへの誤爆も防げる。
-//  - 永続化: JIRAPP.store（iframe 経由 native localStorage）に名前→hue マップを保存する。
-//    Jira ウィンドウは IPC を持たず設定ストアへは書けないため、この WebView 内保存を用いる。
+//  - 永続化（Pike #405）: 名前→hue マップの正本は **Pike の設定**（`browserJiraColumnColors`。
+//    設定の同期に乗る）。ページには IPC が無いので、やり取りは次の 2 本:
+//      Pike → ページ: 読み込みのたびと設定が変わったときに、Pike が `window.__PIKE_JIRA_COLORS__`
+//                     に表を置いて `pike-jira-colors` イベントを投げる（`site_rules::jira_colors_script`）
+//      ページ → Pike: 色を変えたら、変えた列だけを PIKE_COLORS_URL で `window.open` する。Rust の
+//                     `on_new_window` が開かずに中身を読む（`site_rules::parse_jira_colors_message`）
+//    JIRAPP.store（iframe 経由 native localStorage）は、Pike の表が届くまでの表示に使う控え。
+//    Pike より前の版が localStorage に貯めた色は、Pike の表が空のときだけ送って移す（`receive`）。
 //  - 常駐: SPA 遷移や再描画で属性が失われても MutationObserver で貼り直す。マップはメモリに
 //    キャッシュし、保存時のみ更新する（再適用のたびに localStorage を読み直さない）。
+//
+// ページのスクリプトが差し替える前の window.open を掴んでおく（document-start で走る）。
+var openNative = window.open;
 JIRAPP.registerFeature("columnColor", function (app) {
   var STORE_KEY = "jirapp.columnColors.v1";
+  // localStorage の色を Pike へ足し終えた印（#405）。
+  var MIGRATED_KEY = "jirapp.columnColors.pikeMigrated";
+  // `site_rules.rs` の `JIRA_COLORS_URL` と同じ値にしておくこと。
+  var PIKE_COLORS_URL = "https://pike.invalid/jira-column-colors";
 
   // Jira の accent パレット名（hue）と日本語ラベル。--ds-background-accent-<hue>-subtlest に対応。
   var HUES = [
@@ -52,8 +65,49 @@ JIRAPP.registerFeature("columnColor", function (app) {
 
   // 名前→hue マップはメモリに保持し、保存時のみ更新する（再適用ごとの読み直しを避ける）。
   var map = app.store.get(STORE_KEY, {}) || {};
-  function save() {
+  // **送るのは変えた列だけ**（名前→hue。消したら null）。Pike が今の表に重ねる。表を丸ごと
+  // 送ると、Pike の表が届く前（読み込みの完了前）に変えたとき、古い控えでほかのタブや
+  // マシンが変えた色を上書きする。
+  function sendToPike(patch) {
+    try {
+      openNative.call(window, PIKE_COLORS_URL + "?c=" + encodeURIComponent(JSON.stringify(patch)));
+    } catch {}
+  }
+  // 色を変えた（hue が null なら消した）。控えに書いて Pike へ送る（Pike が設定に書き、
+  // ほかのタブとマシンへ配る）。
+  function save(name, hue) {
+    if (hue) map[name] = hue;
+    else delete map[name];
     app.store.set(STORE_KEY, map);
+    applyAll();
+    closePalette();
+    var patch = {};
+    patch[name] = hue;
+    sendToPike(patch);
+  }
+  function sameMap(a, b) {
+    var ka = Object.keys(a);
+    return ka.length === Object.keys(b).length && ka.every(function (k) { return a[k] === b[k]; });
+  }
+  // Pike から表が届いた。
+  //
+  // 旧版の色を移すのは **Pike の表が空のときだけ**（最初の 1 回）。移行の印はサイトごとの
+  // localStorage にしか置けないので、空でなくても足すと、消した色が未訪問のサイトの控えから
+  // 足し直されて全マシンへ広がる。
+  function receive(pikeMap) {
+    if (!pikeMap || typeof pikeMap !== "object") return;
+    if (!app.store.get(MIGRATED_KEY, false)) {
+      app.store.set(MIGRATED_KEY, true);
+      if (Object.keys(pikeMap).length === 0 && Object.keys(map).length > 0) {
+        sendToPike(map);
+        return; // Pike が当てた表が折り返し届く
+      }
+    }
+    // 色を変えたページ自身にも折り返し届く。同じなら書き直さない
+    if (sameMap(map, pikeMap)) return;
+    map = Object.assign({}, pikeMap);
+    app.store.set(STORE_KEY, map);
+    applyAll();
   }
 
   // 着色スタイルシートを一度だけ用意する（hue ごとの !important ルール）。
@@ -144,10 +198,7 @@ JIRAPP.registerFeature("columnColor", function (app) {
         (map[name] === h[0] ? "var(--ds-border-selected,#0c66e4)" : "transparent") +
         ";background-color:var(--ds-background-accent-" + h[0] + "-subtlest);";
       sw.addEventListener("click", function () {
-        map[name] = h[0];
-        save();
-        applyAll();
-        closePalette();
+        save(name, h[0]);
       });
       pop.appendChild(sw);
     });
@@ -160,10 +211,7 @@ JIRAPP.registerFeature("columnColor", function (app) {
       "border:1px solid var(--ds-border,rgba(9,30,66,.14));border-radius:4px;background:transparent;" +
       "color:var(--ds-text,#172b4d);";
     clr.addEventListener("click", function () {
-      delete map[name];
-      save();
-      applyAll();
-      closePalette();
+      save(name, null);
     });
     pop.appendChild(clr);
 
@@ -208,4 +256,10 @@ JIRAPP.registerFeature("columnColor", function (app) {
   // （無関係な SPA 変化で全列再走査しない）。
   applyAll();
   app.watchDom(applyAll, [sel(T_CELL), sel(T_HDR)]);
+
+  // Pike からの表（#405）。この機能が組み上がる前に届いていたら、置いてあるものを読む。
+  window.addEventListener("pike-jira-colors", function () {
+    receive(window.__PIKE_JIRA_COLORS__);
+  });
+  receive(window.__PIKE_JIRA_COLORS__);
 });

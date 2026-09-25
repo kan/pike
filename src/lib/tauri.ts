@@ -778,6 +778,11 @@ export async function browserApplyCss(label: string, rules: SiteRulePayload[]): 
   return invoke('browser_apply_css', { label, rules })
 }
 
+/** Jira の列の色の表（ステータス名→色の名前）を開いているページへ渡す（#405）。 */
+export async function browserJiraColors(label: string, colors: Record<string, string>): Promise<void> {
+  return invoke('browser_jira_colors', { label, colors })
+}
+
 /**
  * 位置と表示をまとめて 1 回で送る。`bounds` を省くと表示だけを変える（隠すときは
  * 位置を送る意味が無い）。リサイズ中は毎フレーム呼ばれるので、2 往復に分けない。

@@ -22,6 +22,7 @@ import {
   browserApplyCss,
   browserClose,
   browserHistory,
+  browserJiraColors,
   browserNavigate,
   browserOpen,
   browserUrl,
@@ -81,8 +82,10 @@ const routerHandlers: BrowserHandlers = {
       applyUrl(url)
       // 読み込みが終わったページのサイトのアイコン（#400）。オリジンごとに 1 回だけ取る。
       requestBrowserIcon(url)
+      pushJiraColors()
     }
   },
+  onJiraColors: (colors) => settingsStore.patchJiraColumnColors(colors),
   // ページが新しいウィンドウを開こうとした（`target=_blank` など）。ポップアップは Rust が
   // WebView2 に任せ、ここへ来るのは普通のリンクだけ。同じ URL のタブがあっても新しく開く
   // （ブラウザと同じ）。置き場はこのタブと同じペイン。
@@ -158,6 +161,22 @@ watch(siteRules, (rules) => {
     })
   }, 300)
 })
+
+// --- Jira の列の色（#405） ---
+
+/**
+ * 設定の色の表を今のページへ渡す。**読み込みが終わるたびに渡す**: ページ側の控え
+ * （localStorage）はそのページで最後に見た表なので、ほかのタブやマシンで変えた色は
+ * こちらから届けないと反映されない。Jira のページかはここで見ない（渡すスクリプトが
+ * `JIRA_DOMAINS` で包んであり、ほかのページでは何もしない）。
+ */
+function pushJiraColors() {
+  if (!settingsStore.browserJiraFeatures || !view.ready()) return
+  browserJiraColors(view.label(), settingsStore.browserJiraColumnColors).catch(() => {})
+}
+
+// ほかのタブ・ウィンドウ・マシン（同期）で色が変わった。
+watch(() => settingsStore.browserJiraColumnColors, pushJiraColors)
 
 /**
  * 別のプロジェクトのタブが同じページを読み込み済みなら、それを譲り受ける（#402）。

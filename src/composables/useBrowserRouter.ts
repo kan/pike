@@ -19,6 +19,8 @@ export interface BrowserHandlers {
   onState?: (state: { url?: string; title?: string; titleUrl?: string }) => void
   /** ページが新しいウィンドウを開こうとした（`target=_blank` など）。 */
   onNewTab: (url: string) => void
+  /** Jira のページで列の色を変えた（#405）。`colors` は変えた列だけ（消した列は `null`）。 */
+  onJiraColors?: (colors: Record<string, string | null>) => void
 }
 
 const handlers = new Map<string, BrowserHandlers>()
@@ -34,6 +36,9 @@ async function init() {
   })
   await win.listen<{ label: string; url: string }>('browser_new_tab', (event) => {
     handlers.get(event.payload.label)?.onNewTab(event.payload.url)
+  })
+  await win.listen<{ label: string; colors: Record<string, string | null> }>('browser_jira_colors', (event) => {
+    handlers.get(event.payload.label)?.onJiraColors?.(event.payload.colors)
   })
 }
 

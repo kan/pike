@@ -589,6 +589,12 @@ export interface PersistedSettings {
    */
   browserJiraFeatures: boolean
   /**
+   * Jira の列の色分け（#405）。ステータス名 → 色の名前（`jira/column_color.js` の `HUES`）。**同期の対象**（好み）。
+   * 書くのはページ側（`jira/column_color.js` が色を変えたときに送ってくる）で、Pike は持って配るだけ。
+   * **Jira のサイトを区別しない**（同じステータス名なら同じ色）。
+   */
+  browserJiraColumnColors: Record<string, string>
+  /**
    * 昔の 2 本のリスト（#275 の当初の形）。**もう読み手は移行だけ**（`sanitizeAgentLaunchers`）
    * で、`snapshot()` は `agentLaunchers` から導いた値を書く。
    *
@@ -629,6 +635,20 @@ export interface SiteRule {
   domains: string
   js: string
   css: string
+}
+
+/**
+ * 空のステータス名と文字列でない色を落とす。**色の名前の一覧は持たない**（正本は
+ * `jira/column_color.js` の `HUES`）。知らない名前が来ても、ページにその色のスタイルが無く
+ * 色が付かないだけ。
+ */
+function sanitizeJiraColumnColors(v: unknown): Record<string, string> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {}
+  const out: Record<string, string> = {}
+  for (const [name, hue] of Object.entries(v)) {
+    if (name && typeof hue === 'string' && hue) out[name] = hue
+  }
+  return out
 }
 
 function sanitizeSiteRules(v: unknown): SiteRule[] {
@@ -816,6 +836,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     sidebarIcons: sanitizeSidebarIcons(s.sidebarIcons),
     browserBookmarks: sanitizeBookmarks(s.browserBookmarks),
     browserSiteRules: sanitizeSiteRules(s.browserSiteRules),
+    browserJiraColumnColors: sanitizeJiraColumnColors(s.browserJiraColumnColors),
     agentLaunchers,
     // 後方互換の 2 本も同じ 1 本から導くので、3 つが食い違う余地が無い。
     ...legacyAgentFields(agentLaunchers),
@@ -1156,6 +1177,7 @@ function defaults(): PersistedSettings {
     sidebarIcons: sanitizeSidebarIcons(null),
     browserBookmarks: [],
     browserSiteRules: [],
+    browserJiraColumnColors: {},
   }
 }
 
@@ -1233,6 +1255,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const agentNotifyIdle = ref(saved.agentNotifyIdle)
   const desktopNotify = ref(saved.desktopNotify)
   const browserJiraFeatures = ref(saved.browserJiraFeatures)
+  const browserJiraColumnColors = ref<Record<string, string>>(saved.browserJiraColumnColors)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
 
   // Hosts the Markdown preview may load images from (#239). Nothing here is
@@ -1313,6 +1336,23 @@ export const useSettingsStore = defineStore('settings', () => {
       ...browserSiteRules.value,
       { id: crypto.randomUUID(), name: '', enabled: true, domains: '', js: '', css: '' },
     ]
+  }
+
+  /**
+   * ページから届いた Jira の列の色の変更（変えた列だけ。消した列は `null`）を今の表に重ねる
+   * （#405）。**中身が同じなら書かない**: 当てると開いている Jira のタブへ配り直すので、
+   * 送ってきたページへの折り返しで余計に 1 周する。
+   */
+  function patchJiraColumnColors(patch: Record<string, string | null>) {
+    const next = { ...browserJiraColumnColors.value }
+    let changed = false
+    for (const [name, hue] of Object.entries(patch)) {
+      if (!name || next[name] === (hue || undefined)) continue
+      if (typeof hue === 'string' && hue) next[name] = hue
+      else delete next[name]
+      changed = true
+    }
+    if (changed) browserJiraColumnColors.value = next
   }
 
   function removeSiteRule(id: string) {
@@ -1694,6 +1734,7 @@ export const useSettingsStore = defineStore('settings', () => {
       sidebarIcons: sidebarIcons.value,
       browserBookmarks: browserBookmarks.value,
       browserSiteRules: browserSiteRules.value,
+      browserJiraColumnColors: browserJiraColumnColors.value,
     }
   }
 
@@ -1749,6 +1790,7 @@ export const useSettingsStore = defineStore('settings', () => {
     sidebarIcons.value = s.sidebarIcons
     browserBookmarks.value = s.browserBookmarks
     browserSiteRules.value = s.browserSiteRules
+    browserJiraColumnColors.value = s.browserJiraColumnColors
   }
 
   // --- 同期（#403） ---------------------------------------------------------
@@ -1878,6 +1920,8 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(sidebarIcons, onSettingsChanged)
   watch(browserBookmarks, onSettingsChanged)
   watch(browserSiteRules, onSettingsChanged, { deep: true })
+  // 表は丸ごと差し替える（`patchJiraColumnColors`）ので浅い watch でよい。
+  watch(browserJiraColumnColors, onSettingsChanged)
   // キーの割り当ての正本は `lib/shortcuts.ts`（ストアを import できないので、値はこちらから
   // 流し込む）。**`immediate` が要る**: 起動直後に保存済みのプリセットへ揃わないと、
   // 最初の 1 回だけ既定のキーで動く。
@@ -1961,6 +2005,8 @@ export const useSettingsStore = defineStore('settings', () => {
     renameBookmark,
     moveBookmark,
     browserSiteRules,
+    browserJiraColumnColors,
+    patchJiraColumnColors,
     addSiteRule,
     removeSiteRule,
     siteRuleForHost,
