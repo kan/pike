@@ -7,6 +7,7 @@ paths:
   - "src/components/editor/MarkdownToolbar.vue"
   - "src/components/editor/HtmlPreview.vue"
   - "src/components/editor/VuePreview.vue"
+  - "src/components/editor/VuePreviewForm.vue"
   - "src/components/editor/PreviewFrame.vue"
   - "src/components/editor/FindBar.vue"
   - "src/lib/editorMarkdown.ts"
@@ -163,6 +164,15 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - 描き直す契機は、前回の結果の `deps` と、SFC 自身・**まだ無い fixture（`<name>.preview.json`）と `vue-preview.config.json`**（無いファイルは `deps` に載らないので、作ったときに描き直せない。`affectsVuePreview`）
   - **描いているあいだの要求は 1 回に畳み、終わってから描き直す**（重ねると古い結果が後から届いて勝つ）。描いているあいだは前の結果を残し、帯に「描画中…」を出す。失敗は理由を子 webview の案内ページに出す（DOM の文言は子 webview の下に隠れる）
   - 案内のページの配色は `prefers-color-scheme` に合わせる（Pike のテーマの変数は別の文書に届かない）
+  - **値を仮に入れるフォーム**：欄は vue-preview の `--json` の `inputs`（props と、描画中にテンプレートが参照した値）。Rust は `inputs` を**解釈せずに**中継する（`serde_json::Value`。欄の形を Rust に写すと、増えるたびに 2 か所を直すことになる）。欄の組み立てと入力の読み取りは `lib/vuePreview.ts` の `inputFields` / `fixtureFromFields`
+    - 入れた値は `.pike/preview/<相対パスを 1 段にした名前>.json`（`pikeFixtureName`。置くのは `ensurePikeDir` 経由で、`.gitignore` も付く）。**リポジトリに入れない**のは、手で試す仮の値だから（共有したい値は SFC の隣の `<name>.preview.json` に書く）。置いてあるあいだは `--fixture` で渡し、隣の fixture より優先する
+    - 欄の初期値は、入れた値、無ければ隣の fixture（`inputs.fixture`）。**今回参照されなかった値も欄に残す**（`v-if` で隠れた部分の値を入れ直させない）
+    - 入力は JSON として読み、読めなければ文字列として扱う（引用符なしの `山田 太郎` を通すため）
+    - **composable から受け取った値（`origin: "call"`）は畳んだ群に分ける**（`InputField.kind` の `call`）。`t` やストアや composable の関数は JSON で意味のある値を与えにくく、普通の値と並べると雑音になる（pike 自身の `ProjectSwitcher.vue` で `t` / `projectStore` / `onOpenDirectory` が並んだ。`useI18n()` の名前は vue-preview 0.5 から訳して返され、`inputs` に出なくなった）
+    - 静的な初期値は `初期値 ""` の添え書きと入力欄のプレースホルダで出す（`= ""` の形は項目名の一部に見えた）
+    - **一覧が届かなくてもフォームは開く**（入れた値だけの欄で）。入れた値のせいで描画が失敗し続けると `inputs` が届かないので、開けないと値を消す手段が無くなる
+    - 全部の欄を空にして適用したら「消す」と同じ扱い（空の fixture を残すと、隣の fixture が使われなくなる）。消すのに失敗したら理由を出して状態は変えない（消えたように見せると、次に開いたとき黙って戻ってくる）
+    - 表示は `VuePreviewForm.vue`、保存と描き直しは `VuePreview.vue`。`.pike/preview/` のパスは `lib/pikeDir.ts` の `pikeDirPath`（`ensurePikeDir` と共有）
 - **Markdown フロントマター（#229）**: `lib/frontmatter.ts` の `detectFrontmatter` が範囲を返し、`lib/frontmatterParse.ts` の `parseFrontmatter` が `yaml` / `smol-toml` / `JSON.parse` で key/value に落とす。プレビュー（`buildMarkdownPreview` が `marked.parse` の前に本文を切り出して `<details>` の表を前置）とアウトライン（`extractors/markdown.ts` が `bodyFrom` より前の見出しを捨てる）で**範囲検出だけ**を共有する（描画経路がテキストと Lezer 構文木で別のため）
   - **ファイルを 2 つに割っているのはバンドルの都合**。`lib/outline/index.ts` が 18 個の extractor を静的 import で 1 チャンクに束ねるので、パーサを同居させると YAML/TOML パーサ（合わせて約 106KB）が Go や Rust のアウトラインにも載る。`frontmatter.ts` は依存ゼロを保つこと
   - **パース失敗は理由（`reason`）で返し、文言はプレビュー側で当てる**。`t()` をパーサに置くと、`not-mapping` だけ日本語で `yaml` クレート由来のメッセージは英語のまま、という食い違いになる

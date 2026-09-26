@@ -229,7 +229,14 @@ Markdown ファイル（`.md` / `.markdown`）を開くと、Edit / Split / Prev
     - ページは Pike の画面より手前に描かれるため、メニューやダイアログを開いているあいだと、Git パネルを開いているあいだは一時的に隠します（ブラウザのタブと同じです）。プレビューの中では `Ctrl+F` の検索は使えません
 - **Vue**（`.vue`）：外部コマンドの [vue-preview](https://github.com/kan/vue-preview) で、コンポーネント（SFC）を 1 枚の HTML に描いて表示します。**vue-preview が入っているときだけ**、Edit / Split / Preview のトグルが出ます。
     - **入れ方**：[Releases](https://github.com/kan/vue-preview/releases) から、プロジェクトのシェルに合うバイナリを取ります。それを `vue-preview`（Windows は `vue-preview.exe`）という名前で、PATH の通った場所に置きます。WSL のプロジェクトでは `vue-preview-linux-x64` を WSL の中（`/usr/local/bin` や `~/.local/bin`）に置きます。Windows のシェルのプロジェクトでは `vue-preview-windows-x64.exe` を Windows 側に置きます。置いたあとに .vue のタブを開き直すと、トグルが出ます
-    - **`<script>` は実行しません**。テンプレートの値は、コンポーネントの隣に置いた `<名前>.preview.json`（fixture）と、`{{ user.name }}` のようなプレースホルダで埋めます。書き方と対応している構成（PrimeVue・Tailwind CSS など）は vue-preview の README を見てください
+    - **`<script>` は実行しません**。テンプレートの値は、コンポーネントの隣に置いた `<名前>.preview.json`（fixture）と、プレースホルダで埋めます。プレースホルダは参照式の末尾（`data[0].user.name` なら `{{ name }}`）を表示し、ポイントすると全体が出ます。書き方と対応している構成（PrimeVue・Tailwind CSS など）は vue-preview の README を見てください
+    - **i18n の文言**：`src/i18n/ja.ts` のようなメッセージファイルがあれば、`$t('key')` と `useI18n()` の `t` を日本語で表示します。vue-i18n と自前の実装のどちらにも対応します（vue-preview 0.5 以降）
+    - **値を仮に入れる**：上の帯の「値を入れる」で、props と、テンプレートが使った値の一覧をフォームで開きます。値を JSON で入れて「適用」を押すと、その値で描き直します（文字列は引用符なしでも入れられます。空の欄は与えません）。`modelValue` が false で中身を出さないダイアログや、`onMounted` でデータを取る画面を確かめるときに使います
+        - 入れた値は、プロジェクトの `.pike/preview/` に保存します（リポジトリには入りません）。保存したあいだは、コンポーネントの隣の fixture より優先し、帯に「仮の値を使用中」と出します。「入れた値を消す」で元に戻ります
+        - 一覧に並ぶ値は、描かれた部分が使ったものだけです。`v-if` で隠れている部分の値は、条件を満たす値を入れて描き直すと現れます
+        - 欄名の下には、props かどうか、型、ソースから読み取れた初期値（`初期値 ""` など）を添えます。初期値は入力欄にも薄く出ます
+        - 関数の戻り値から受け取った値（`const store = useProjectStore()` などの composable の関数やストア）は、JSON では与えにくい値です。そこで、畳んだ「composable から受け取った値」の中にまとめます
+        - vue-preview 0.5 以降が必要です
     - .vue のファイルから上へ辿って、いちばん近い `package.json` のあるディレクトリを基準にします（リポジトリの `app/` の下に Vue のプロジェクトがある構成でも描けます）。node_modules がコンテナの中にしか無いプロジェクトでも、vue-preview がロックファイルから依存を用意して描きます。**そのプロジェクトで初めて描くときは、依存の準備に数十秒かかることがあります**
     - **表示するのは保存したファイルの中身です**。コンポーネント自身、読み込んでいる子コンポーネントや CSS、fixture、`vue-preview.config.json` を保存すると描き直します。描き直しているあいだは前の表示のまま、上の帯に「描画中…」を出します
     - vue-preview が出した警告は、上の帯に件数を出します。押すと一覧を開きます。描けなかったときは、プレビューに理由を出します

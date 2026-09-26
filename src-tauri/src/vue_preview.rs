@@ -57,6 +57,11 @@ struct Output {
     deps: Vec<String>,
     #[serde(default)]
     warnings: Vec<String>,
+    /// fixture で与えられる props と値の一覧（vue-preview 0.4 以降）。**形は解釈せずに
+    /// フロントへ渡す**（入力フォームを作るのはフロントで、Rust が写しの型を持つと、欄が
+    /// 増えるたびに 2 か所を直すことになる）。古い vue-preview では欠ける。
+    #[serde(default)]
+    inputs: Option<serde_json::Value>,
 }
 
 /// フロントへ返すもの。**HTML は返さない**（`put_virtual` で置いてある）。
@@ -67,6 +72,7 @@ pub struct VueRender {
     /// 描き直す。
     deps: Vec<String>,
     warnings: Vec<String>,
+    inputs: Option<serde_json::Value>,
 }
 
 /// 失敗の理由。**stderr を丸ごと返す**（先頭の 1 行ではない。`issues` の `failure` と方針が
@@ -82,17 +88,27 @@ fn failure(line: &str, code: i32, stdout: &str, stderr: &str) -> String {
 }
 
 /// `path`（ルートからの相対パス、区切りは `/`）の SFC を描き、子 webview `label` の仮想
-/// ファイル `entry` に置く。再読み込みはフロントが呼ぶ。
+/// ファイル `entry` に置く。再読み込みはフロントが呼ぶ。`fixture` はプレビューの入力フォームで
+/// 入れた値のファイル（`.pike/preview/` の下、絶対パス）で、あれば `--fixture` で渡す。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn vue_preview_render(
     shell: ShellConfig,
     root: String,
     path: String,
     label: String,
     entry: String,
+    fixture: Option<String>,
     preview: State<'_, PreviewState>,
 ) -> Result<VueRender, String> {
-    let line = format!("vue-preview render {} --json", shell.line_arg(&path)?);
+    let fixture_arg = match &fixture {
+        Some(f) => format!(" --fixture {}", shell.line_arg(f)?),
+        None => String::new(),
+    };
+    let line = format!(
+        "vue-preview render {} --json{fixture_arg}",
+        shell.line_arg(&path)?
+    );
     let out: Output = tauri::async_runtime::spawn_blocking(move || {
         let (code, stdout, stderr) = shell.run_shell_line(&root, &line, RENDER_TIMEOUT)?;
         if code != 0 {
@@ -107,6 +123,7 @@ pub async fn vue_preview_render(
     Ok(VueRender {
         deps: out.deps,
         warnings: out.warnings,
+        inputs: out.inputs,
     })
 }
 
