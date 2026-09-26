@@ -57,6 +57,7 @@ import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel, matchChord } from '../../lib/keys'
 import { getLanguage, getLanguageLabel, languageByKey, languageLabelByKey } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
+import { renderMermaid } from '../../lib/mermaid'
 import { openProjectPath, openWithDefaultApp } from '../../lib/openFile'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import { useOverlay } from '../../lib/overlay'
@@ -597,6 +598,20 @@ const previewHtml = computed(() => {
 
 const mermaidZoom = ref(1)
 
+/** 図を描いて `.mermaid-inline` に包む。元のソースは `data-mermaid-source` に持つ（描き直し用）。 */
+async function mermaidDiagram(source: string, id: string): Promise<HTMLDivElement> {
+  const svg = await renderMermaid(source, id, {
+    dark: settingsStore.darkMode,
+    font: settingsStore.uiFontFamily,
+  })
+  const wrapper = document.createElement('div')
+  wrapper.className = 'mermaid-inline'
+  wrapper.dataset.mermaidSource = source
+  // そのまま入れる（SVG_PURIFY_OPTS に通すと本家のラベルが消える。理由は `lib/mermaid.ts`）
+  wrapper.innerHTML = svg
+  return wrapper
+}
+
 async function renderStandaloneMermaid() {
   await nextTick()
   if (!mermaidRef.value || !editorView) return
@@ -606,15 +621,8 @@ async function renderStandaloneMermaid() {
     return
   }
   try {
-    const { getMermaid } = await import('../../lib/mermaid')
-    const mermaid = await getMermaid()
-    const id = `mermaid-${props.tabId}-${Date.now()}`
-    const { svg } = await mermaid.render(id, source)
-    // Insert mermaid's rendered SVG as-is (its documented usage). Mermaid runs
-    // in 'antiscript' mode and sanitizes label text internally with DOMPurify;
-    // running it through our SVG_PURIFY_OPTS here would strip the foreignObject
-    // label contents and blank every label.
-    mermaidRef.value.innerHTML = `<div class="mermaid-inline">${svg}</div>`
+    const diagram = await mermaidDiagram(source, `mermaid-${props.tabId}-${Date.now()}`)
+    mermaidRef.value.replaceChildren(diagram)
   } catch (e) {
     const pre = document.createElement('pre')
     pre.className = 'mermaid-render-error'
@@ -623,35 +631,33 @@ async function renderStandaloneMermaid() {
   }
 }
 
+/**
+ * Markdown の中の ```mermaid``` を図に差し替える。描いた図は元のソースを `data-mermaid-source` に
+ * 持ち、テーマの切り替えではそれを描き直す（#417）。`previewHtml` を作り直させて描き直す形は
+ * 採れない: 図だけの文書では HTML がテーマで変わらず、computed が同じ値を返して watcher が動かない。
+ *
+ * **後から始まった描画が前の描画を止める**（`markdownMermaidRun`）。`previewHtml` とテーマの
+ * watcher が同じ切り替えで両方動くことがあり、打鍵が描画より速いと古いループが外れた要素を描き続ける。
+ */
+let markdownMermaidRun = 0
 async function renderMarkdownMermaid() {
+  const run = ++markdownMermaidRun
   await nextTick()
   if (!previewRef.value) return
-  const codeBlocks = previewRef.value.querySelectorAll('code.language-mermaid')
-  if (codeBlocks.length === 0) return
-  try {
-    const { getMermaid } = await import('../../lib/mermaid')
-    const mermaid = await getMermaid()
-    let idx = 0
-    for (const block of codeBlocks) {
-      const pre = block.parentElement
-      if (pre?.tagName !== 'PRE') continue
-      const source = block.textContent ?? ''
-      try {
-        const id = `md-mermaid-${props.tabId}-${idx++}-${Date.now()}`
-        const { svg } = await mermaid.render(id, source.trim())
-        const wrapper = document.createElement('div')
-        wrapper.className = 'mermaid-inline'
-        // Mermaid-generated SVG (label text already sanitized by mermaid in
-        // 'antiscript' mode); insert as-is — our SVG sanitizer would blank the
-        // foreignObject labels.
-        wrapper.innerHTML = svg
-        pre.replaceWith(wrapper)
-      } catch {
-        // Leave code block as-is on syntax error
-      }
+  const targets = previewRef.value.querySelectorAll<HTMLElement>(
+    'pre > code.language-mermaid, .mermaid-inline[data-mermaid-source]',
+  )
+  let idx = 0
+  for (const el of targets) {
+    if (run !== markdownMermaidRun) return
+    const host = el.tagName === 'CODE' ? (el.parentElement as HTMLElement) : el
+    const source = el.dataset.mermaidSource ?? (el.textContent ?? '').trim()
+    try {
+      const diagram = await mermaidDiagram(source, `md-mermaid-${props.tabId}-${idx++}-${Date.now()}`)
+      if (run === markdownMermaidRun) host.replaceWith(diagram)
+    } catch {
+      // Leave code block as-is on syntax error
     }
-  } catch {
-    // mermaid not available
   }
 }
 
@@ -659,6 +665,15 @@ async function renderMarkdownMermaid() {
 watch([debouncedDocVersion, showPreview], () => {
   if (isMermaid.value && showPreview.value) renderStandaloneMermaid()
 })
+// 図の色は描いた時点のテーマで焼き込むので、ライト／ダークの切り替えでも描き直す（#417）
+watch(
+  () => settingsStore.darkMode,
+  () => {
+    if (!showPreview.value) return
+    if (isMermaid.value) renderStandaloneMermaid()
+    else if (isMarkdown.value) renderMarkdownMermaid()
+  },
+)
 /**
  * Give every <img> in the preview a source the webview is allowed to load.
  *

@@ -116,8 +116,13 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **脚注と引用は Markdown プレビューの脚注（#241）と同じ HTML 構造で出す。** `md-preview` の CSS がそのまま当たるので、rst 側に見た目を書かずに済む。定義は**書かれた場所に描く**（`buildRstPreview` は入れ子でも呼ばれるので、末尾に集める先を決められない）
   - **エスケープ済みかどうかは `lib/text.ts` の `Html` 型で持つ。** 生の文字列を属性へ差し込む経路がコンパイルエラーになる。引用符を戻した文字列が属性から抜ける穴は、散文のコメントでは守れなかった
   - **表は 4 種（grid / simple / `list-table` / `csv-table`）に対応する。** 桁の切り出しは `lib/displayWidth.ts` の `sliceByWidth`（rst の表は**表示幅**で桁を合わせるので、`slice` を code unit で行うと全角を含む表が崩れる）。同ファイルの `displayWidth` は diff タブの横幅の見積もり（#272）と共有する。**セルの結合には対応しない**: grid の途中の罫線で境界の桁が埋まっていたら結合とみなし、`null` を返して字面のまま出す側へ落とす
-- Mermaid (`.mermaid`/`.mmd`): `renderStandaloneMermaid` が `lib/mermaid.ts` の `getMermaid()` を遅延 import して SVG 描画（ズーム対応）
-- Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し `mermaid.render()` で SVG に差し替え
+- Mermaid (`.mermaid`/`.mmd`): `renderStandaloneMermaid` が `lib/mermaid.ts` の `renderMermaid` で SVG 描画（ズーム対応）
+- Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し、同じ `renderMermaid` で SVG に差し替え
+- **描画器は 2 つ（#417）**。1 行目の見出しが beautiful-mermaid の扱う 6 種（flowchart / state / sequence / class / ER / xychart）なら先にあちらで描き、それ以外と、あちらが投げた図は本家の mermaid に回す。判定は `isBeautifulDiagram`、判断の実体は `lib/mermaid.ts` の doc が正本
+  - **beautiful-mermaid の `<style>` は素のセレクタ**（`text { font-family }` など）なので、`scopeSvgStyles` が CSSOM で `#id` の下へ絞ってから埋める。絞らないとページ中の SVG に効く。`@scope` は古い WKWebView が規則ごと捨てるので使わない。Google Fonts の `@import` も同じ関数で落とす（CSP が止める）
+  - **配色は app のテーマから実際の色を読んで渡す**（`var()` を渡すと xychart の系列の色が既定の青に落ちる）。その代わりライト／ダークの切り替えで描き直しが要る: standalone は watcher が `darkMode` を見る。Markdown は描いた図が元のソースを `data-mermaid-source` に持ち、`darkMode` の watcher が `renderMarkdownMermaid` でそれを描き直す。**`previewHtml` に `darkMode` を読ませる形にしないこと**: 図だけの文書では HTML がテーマで変わらないので computed が同じ値を返し、watcher が動かない。本家もテーマを `dark` / `default` で切り替える
+  - **beautiful-mermaid の出力はキャッシュする**（`beautifulCache`、キーはテーマ・書体・ソース）。Markdown のプレビューは打鍵のたびに全部の図を描き直し、あちらは ELK のレイアウトを同期で回すので、無いと変わっていない図のぶんまでメインスレッドを塞ぐ。本家の出力は id が焼き込まれるので載せない
+  - **beautiful-mermaid は投げずに読み違えることがある**（空白を挟まない `A-->B` でエッジが消えてノードが `A--` になる、`click` がノードになる）。flowchart / state だけは描く前に `misreadsGraph` で `parseMermaid` の結果を見て、化けたノード名か本家にしか無い文があれば本家に回す
 - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
 - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
 - **プレビューの検索（#360）**: `Ctrl+F` でプレビューの右上に `components/editor/FindBar.vue`（diff タブと共有）を出す。一致の求め方と強調は `lib/domFind.ts`、数え直しの契機は `composables/usePreviewFind.ts`。判断の実体はその 2 ファイルの doc が正本
