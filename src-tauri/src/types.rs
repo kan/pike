@@ -814,6 +814,33 @@ impl ShellConfig {
         self.run_shell_line_env(dir, &[], line, timeout)
     }
 
+    /// `run_shell_line` の行に埋める 1 つの引数（ファイルのパスなど）。**引用は下の振り分けが
+    /// 決める**ので、呼び出し側で組み立てず、振り分けの隣に置く（`run_shell_line_env` の doc
+    /// と同じ理由）。POSIX は `bash_quote`、Windows のシェルは `cmd /C` なので `"…"` で包む。
+    /// **cmd は `"` の中でも `%` を展開する**ので、`%` と `"` を含む値は断る。
+    pub fn line_arg(&self, s: &str) -> Result<String, String> {
+        if self.is_posix() {
+            return Ok(bash_quote(s));
+        }
+        if s.contains(['"', '%']) {
+            return Err(format!("unsupported character in argument: {s}"));
+        }
+        Ok(format!("\"{s}\""))
+    }
+
+    /// 外部コマンドが使えるか（`gh` / `vue-preview` の検出）。**`--version` が存在確認を兼ね**
+    /// （`which` / `where` を別に叩かない）、**実際に走らせるときと同じ `run_shell_line` を
+    /// 通す**。WSL では `WSL_EXTRA_PATH` が前置されるので `~/.local/bin` のものも見つかる。
+    /// 素の `run` で探すと、探し方と走らせ方が食い違って「検出できないのに手で打てば動く」
+    /// になる。`bin` はこちらが決めた定数だけを渡すこと（行にそのまま埋まる）。
+    pub fn has_command(&self, dir: &str, bin: &str) -> bool {
+        const TIMEOUT: Duration = Duration::from_secs(10);
+        matches!(
+            self.run_shell_line(dir, &format!("{bin} --version"), TIMEOUT),
+            Ok((0, _, _))
+        )
+    }
+
     /// `run_shell_line` plus environment variables for that one command. The
     /// quoting differs per shell (`export VAR=v; cmd` under bash, `set "VAR=v" && cmd`
     /// under cmd), so it lives here next to the dispatch that decides which shell
@@ -1474,6 +1501,19 @@ pub fn truncate_chars(s: &str, max: usize) -> String {
     }
 }
 
+/// `truncate_chars` の逆向き。**末尾の `max` 文字を残し**、切ったときだけ先頭に `…` を足す
+/// （原因が後ろの行に出るエラー出力のため）。
+pub fn truncate_chars_tail(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        return s.to_owned();
+    }
+    match s.char_indices().nth(count - max) {
+        Some((at, _)) => format!("…{}", &s[at..]),
+        None => s.to_owned(),
+    }
+}
+
 /// Cache key for things that are per claude/codex *installation* rather than per
 /// project — a WSL distro has its own home and its own tool config, the Windows
 /// shells all share the host's. Shared so the several caches keyed this way
@@ -1645,6 +1685,28 @@ pub struct MenuAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn line_args_are_quoted_per_shell() {
+        let wsl = ShellConfig::Wsl {
+            distro: "Ubuntu".to_owned(),
+        };
+        assert_eq!(
+            wsl.line_arg("src/it's.vue").unwrap(),
+            bash_quote("src/it's.vue")
+        );
+        assert_eq!(
+            ShellConfig::Cmd.line_arg("src/A B.vue").unwrap(),
+            "\"src/A B.vue\""
+        );
+        assert!(ShellConfig::Powershell.line_arg("src/100%.vue").is_err());
+    }
+
+    #[test]
+    fn truncate_tail_keeps_the_end() {
+        assert_eq!(truncate_chars_tail("あいうえお", 10), "あいうえお");
+        assert_eq!(truncate_chars_tail("あいうえお", 2), "…えお");
+    }
 
     /// コンソールの出力は UTF-8 で読めればそのまま、読めなければコンソールの文字コードで
     /// 読み直す（日本語の Windows の cmd は Shift_JIS で書く。実測の `dir` の出力の形）。

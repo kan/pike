@@ -28,7 +28,7 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 - **エディタ**：CodeMirror 6（30+ 言語）、ミニマップ、検索・置換、git diff ガター、コンフリクトの解消、定義ジャンプ、タブごとの折り返し切替、文字コード/改行コード対応
 - **Markdown の入力支援**：記法を挿入するツールバー、表と脚注のテンプレート、画像の挿入（選択・貼り付け・ドロップ）、貼り付けた URL をページのタイトル付きリンクに変換
 - **ブラウザのタブ**：Jira や GitHub などの外部のページをタブで開く。ログイン状態を保ち、再起動後もタブを復元する
-- **プレビュー**：Markdown / reStructuredText / Mermaid / CSV / JSON / SVG / PDF、外部画像はドメイン単位で許可、表示専用の画像ビューア
+- **プレビュー**：Markdown / reStructuredText / Mermaid / CSV / JSON / SVG / HTML / PDF、Vue コンポーネント（[vue-preview](https://github.com/kan/vue-preview) を入れたとき）、外部画像はドメイン単位で許可、表示専用の画像ビューア
 - **Git**：ステージング、コミット、push/pull、diff、コミットグラフ、コンフリクトの解消、止まった rebase / merge の再開、ブランチ切替、worktree 切替
 - **サイドバーパネル**：ファイルツリー、検索（ripgrep 同梱）、Docker（モノレポの compose も検出）、タスクランナー（npm / pnpm / just / cargo ほか）、アウトライン、Problems
 - **プロジェクト管理**：WSL / Windows / macOS ローカルのプロジェクト、グループ整理（絞り込み・ドラッグでの並べ替え・絵文字アイコン）、マルチウィンドウ、セッション復元、プロジェクトごとのウィンドウ位置とサイズ、手元に無いプロジェクトの clone

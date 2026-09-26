@@ -6,6 +6,8 @@ paths:
   - "src/components/tabs/ManualTab.vue"
   - "src/components/editor/MarkdownToolbar.vue"
   - "src/components/editor/HtmlPreview.vue"
+  - "src/components/editor/VuePreview.vue"
+  - "src/components/editor/PreviewFrame.vue"
   - "src/components/editor/FindBar.vue"
   - "src/lib/editorMarkdown.ts"
   - "src/lib/codeHighlight.ts"
@@ -19,19 +21,23 @@ paths:
   - "src/lib/text.ts"
   - "src/lib/sanitizeHtml.ts"
   - "src/lib/externalImages.ts"
+  - "src/lib/vuePreview.ts"
+  - "src/stores/vuePreview.ts"
   - "src/composables/useMarkdown*.ts"
   - "src/composables/useCsvSelection.ts"
   - "src/composables/usePreviewFind.ts"
   - "src/composables/useChildWebview.ts"
+  - "src/composables/usePreviewRefresh.ts"
   - "src-tauri/src/http.rs"
   - "src-tauri/src/page_title.rs"
   - "src-tauri/src/remote_image.rs"
   - "src-tauri/src/html_preview.rs"
+  - "src-tauri/src/vue_preview.rs"
 ---
 
 # プレビューと Markdown の入力支援
 
-エディタタブの Edit/Split/Preview（Markdown・CSV・rst・JSON・SVG・Mermaid・HTML）、
+エディタタブの Edit/Split/Preview（Markdown・CSV・rst・JSON・SVG・Mermaid・HTML・Vue）、
 Markdown の入力支援、画像ビューワと PDF、外部ホストへの取得（画像とページタイトル）。
 エディタ本体の規則は `editor.md`。
 
@@ -135,17 +141,28 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **ページは任意の JS を動かす**ので、ルートの下でも `.` で始まる名前（`.git` / `.env`）と、実体がルートの外にあるもの（symlink を解決してから確かめる）は返さない。**CSP は付けていない**（外の CDN を読むページを壊さないため）ので、読めたものを外へ送ることは止めていない。守りは「読めるものを絞る」側にある
   - **返してよいかは要求した webview のラベルで決める**（`PreviewState`）。ハンドラはアプリ全体に効くので、ブラウザのタブで開いた外部のページも `http://pike-preview.localhost/` を要求できる。**URL にルートやプロジェクト id を載せないこと**（当てれば読める形になる）
   - **ラベルは `browser-preview-{uuid}`**。`browser-` の下に置いたので、位置合わせ・再読み込み・閉じるはブラウザのタブのコマンドを使う。**capability に足さない**（ブラウザのタブと同じく対象外に置く。`browser.rs` のモジュール doc）
-  - **仮想ファイル（`__pike/` の下）は #397（Vue SFC のプレビュー）の前提**。フロントが作った入口の HTML やコンパイル結果をディスクより先に同じ origin で返し、相対パスの CSS や画像はディスクへ落とす。置き直すのは `preview_set_files` → `browser_history(reload)`
-  - **重ねる・隠す・閉じるは `composables/useChildWebview.ts`**（ブラウザのタブと共有）。位置合わせの直列化、変わらなければ送らない、隠すときはフレームを待たない、手前に浮くものと Git パネルで隠す、の 4 つがあそこにある。**子 webview を使う 3 つ目を足すときも書き写さない**
-  - **描くのは保存したファイル**。描き直しの契機は配信ルートの下の `fs_changed` で、`isRecentlySaved` は読まない（印を消費するのは App.vue だけ）
-    - 監視で拾うのは**ページが読みうる拡張子**だけ（エージェントが `.ts` を書くたびに描き直し続けない）。`node_modules` などは監視の側（`IGNORED_DIRS`）が最初から捨てているので、ここで写しを持たない
+  - **仮想ファイル（`__pike/` の下）**: フロントが作った中身をディスクより先に同じ origin で返し、相対パスの CSS や画像はディスクへ落とす。Vue SFC のプレビュー（#397）が vue-preview の出力を置く場所。置き直すのは `preview_set_files` → `browser_history(reload)`
+  - **重ねる・隠す・閉じるは `composables/useChildWebview.ts`**（ブラウザのタブ・HTML・Vue のプレビューで共有）。位置合わせの直列化、変わらなければ送らない、隠すときはフレームを待たない、手前に浮くものと Git パネルで隠す、の 4 つがあそこにある。**子 webview を使うものを足すときも書き写さない**
+  - **描くのは保存したファイル**。描き直しの契機は配信ルートの下の `fs_changed` で、`isRecentlySaved` は読まない（印を消費するのは App.vue だけ）。**いつ描き直すかは `composables/usePreviewRefresh.ts`**（HTML と Vue で共有）。呼び出し側が持つのは「何をするか」と「どのファイルが効くか」だけ
+    - HTML で拾うのは**ページが読みうる拡張子**だけ（エージェントが `.ts` を書くたびに描き直し続けない）。`node_modules` などは監視の側（`IGNORED_DIRS`）が最初から捨てているので、ここで写しを持たない
     - **監視は今の `activeRoot` しか見ない**。配信ルートがその範囲に入っていない（プロジェクトの外の HTML、別プロジェクトで保持中のタブ、worktree の切り替え）ときだけ、`EditorTab.save()` の直後に描き直し、範囲から外れていたら戻ったときに 1 回描き直す。**範囲の中では保存の側から描き直さない**: Rust の監視は最長 1 秒まとめてから送るので、畳めずに 2 回描き直す
     - Save As で `path` が変わったら子 webview を作り直す（配信のルートと入口は作った時点で固定）
     - **`useChildWebview` の `recreate()` はどの状態から呼んでも効く**（作っている途中なら作り終えてから作り直し、まだ無ければ作るだけ）。開く中身が変わったと伝える側は状態を見ずに呼ぶ。以前は作り終える前の要求を捨てていたので、作成中に Save As すると元のファイルを描き続けた
   - ページのスクリプトがリンクを連打してもタブが溢れないよう、ブラウザのタブへ逃がすのは 1 秒に 1 回まで。**Rust の側で間引く**（押されたかどうかが分からないことを知っているのはあちらで、振り替えの唯一の出口でもある）
   - **配信の登録の後始末はブラウザのタブの側に持ち込まない**。次の `preview_open` が、もう無い webview のぶんを落とす（閉じた知らせを受ける口を持たない）。`browser_close` からプレビューを知る形にすると、依存が循環する
-  - DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）を外す判定は `EditorTab.vue` の `webviewPreview` 1 つ。#397 もここに条件を足す
+  - DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）を外す判定は `EditorTab.vue` の `webviewPreview` 1 つ（`isHtmlPreview` と `isVuePreview` の和）
   - プレビューの中のリンクは Rust の `on_navigation` で止め、`browser_new_tab` でブラウザのタブへ逃がす
+- **器（枠・スマートフォンの画面の大きさ・案内）は `components/editor/PreviewFrame.vue`**、ラベル（`browser-preview-{uuid}`）とリンクの振り替えは `useChildWebview.ts` の `previewWebviewOptions`（どちらも HTML と Vue で共有）
+- **Vue SFC のプレビュー（#397）**: 外部コマンド `vue-preview`（kan/vue-preview）が描いた 1 枚の HTML を、HTML のプレビューと同じ子 webview の仮想ファイル（`lib/vuePreview.ts` の `VUE_PREVIEW_ENTRY`）として出す（`components/editor/VuePreview.vue`）。判断の実体は `src-tauri/src/vue_preview.rs` のモジュール doc が正本
+  - **HTML は Rust が直接置く**（`html_preview::put_virtual`）。数百 KB の HTML をフロントへ返して `preview_set_files` で送り直させない。フロントへ返すのは `deps` と警告だけ
+  - **Pike は SFC をコンパイルしない**（コンパイラとランタイムを抱えない）。Vite の開発サーバーに描かせる方式は試して見送った（必須の props と `main.ts` の初期化を再現できない。経緯は issue #397 のコメント）
+  - **`gh` と同じ「入っていれば使える」形**。検出は `vue_preview_available`（探し方は `ShellConfig::has_command`、Rust での覚え方は `cache::ProbeEntry::found`。どちらも `issues_gh_available` と共有）とストアの `stores/vuePreview.ts`。**Preview のトグルは見つかったシェルの .vue にだけ出す**（`isVuePreview`）。検出は .vue のタブを開いたとき（`EditorTab` の watch）で、起動時には聞かない
+    - **ストアは「見つからない」も 60 秒覚える**（`gh` は覚えない）。検出が .vue を開くたびに撃たれるので、覚えないと入れていない大半の人が開くたびに `wsl.exe` を起こす
+  - パスはシェルの行に埋めるので、引用は `ShellConfig::line_arg`（振り分けの隣。cmd では `%` と `"` を断る）
+  - **プロジェクトのシェルで、SFC からいちばん近い `package.json` のディレクトリを cwd にして走らせる**（vue-preview の `--root`。探索は定義ジャンプの `findNearestUpward` で、今のプロジェクトのルートまで）。**プロジェクトのルートを使わないこと**: `app/` の下に Vue を置くリポジトリ（業務の sitter がそう）では、ルートに package.json が無くて描けない。node_modules がコンテナの中にしか無いプロジェクトでも、vue-preview がロックファイルから依存を自前のキャッシュへ入れて描く（vue-preview の REPORT V7）ので、**Pike は Docker を知らない**。その初回は 10〜30 秒かかるので、描画の時間切れは `RENDER_TIMEOUT`（300 秒）と長い
+  - 描き直す契機は、前回の結果の `deps` と、SFC 自身・**まだ無い fixture（`<name>.preview.json`）と `vue-preview.config.json`**（無いファイルは `deps` に載らないので、作ったときに描き直せない。`affectsVuePreview`）
+  - **描いているあいだの要求は 1 回に畳み、終わってから描き直す**（重ねると古い結果が後から届いて勝つ）。描いているあいだは前の結果を残し、帯に「描画中…」を出す。失敗は理由を子 webview の案内ページに出す（DOM の文言は子 webview の下に隠れる）
+  - 案内のページの配色は `prefers-color-scheme` に合わせる（Pike のテーマの変数は別の文書に届かない）
 - **Markdown フロントマター（#229）**: `lib/frontmatter.ts` の `detectFrontmatter` が範囲を返し、`lib/frontmatterParse.ts` の `parseFrontmatter` が `yaml` / `smol-toml` / `JSON.parse` で key/value に落とす。プレビュー（`buildMarkdownPreview` が `marked.parse` の前に本文を切り出して `<details>` の表を前置）とアウトライン（`extractors/markdown.ts` が `bodyFrom` より前の見出しを捨てる）で**範囲検出だけ**を共有する（描画経路がテキストと Lezer 構文木で別のため）
   - **ファイルを 2 つに割っているのはバンドルの都合**。`lib/outline/index.ts` が 18 個の extractor を静的 import で 1 チャンクに束ねるので、パーサを同居させると YAML/TOML パーサ（合わせて約 106KB）が Go や Rust のアウトラインにも載る。`frontmatter.ts` は依存ゼロを保つこと
   - **パース失敗は理由（`reason`）で返し、文言はプレビュー側で当てる**。`t()` をパーサに置くと、`not-mapping` だけ日本語で `yaml` クレート由来のメッセージは英語のまま、という食い違いになる

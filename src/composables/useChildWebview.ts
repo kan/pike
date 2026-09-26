@@ -3,6 +3,7 @@ import { useI18n } from '../i18n'
 import { overlayOpen } from '../lib/overlay'
 import { type BrowserBounds, browserClose, browserPlace } from '../lib/tauri'
 import { useSidebarStore } from '../stores/sidebar'
+import { useTabStore } from '../stores/tabs'
 import { type BrowserHandlers, browserRouter } from './useBrowserRouter'
 
 /**
@@ -46,6 +47,27 @@ export interface ChildWebviewOptions {
    * 結び付けて持っている状態は、ここで捨てる。
    */
   onReset?: () => void
+}
+
+/**
+ * エディタの Preview に重ねる子 webview（HTML の #399、Vue SFC の #397）に共通の欄。
+ * **ラベルは `browser-preview-{uuid}`**（Rust の `html_preview.rs` の `check_label` と対。
+ * `browser-` の下なので、位置合わせ・再読み込み・閉じるはブラウザのタブのコマンドを使う）。
+ * プレビューの中のリンク（Rust がブラウザのタブへ振り替えたもの）は、同じペインの新しい
+ * ブラウザのタブで開く。
+ */
+export function previewWebviewOptions(tabId: string): Pick<ChildWebviewOptions, 'visible' | 'newLabel' | 'handlers'> {
+  const tabStore = useTabStore()
+  return {
+    visible: () => tabStore.isTabVisible(tabId),
+    newLabel: () => `browser-preview-${crypto.randomUUID()}`,
+    handlers: {
+      onNewTab: (url) => {
+        const tab = tabStore.tabs.find((x) => x.id === tabId)
+        tabStore.addBrowserTab(url, { forceNew: true, pane: tab ? tabStore.paneOf(tab) : undefined })
+      },
+    },
+  }
 }
 
 export function useChildWebview(opts: ChildWebviewOptions) {

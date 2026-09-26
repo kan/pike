@@ -918,6 +918,11 @@ export default {
     'The page is hidden while a menu or dialog is open. It is drawn in front of the Pike window, so it would cover the menu. It comes back when you close it.',
   'browser.hiddenByPanel':
     'The page is hidden while the Git panel is open in the sidebar, so commit tooltips are not covered by it. It comes back when you close the panel.',
+  'vuePreview.rendering':
+    'Rendering with vue-preview (the first render in a project can take tens of seconds while dependencies are prepared)',
+  'vuePreview.renderingShort': 'Rendering…',
+  'vuePreview.failed': 'vue-preview could not render this component',
+  'vuePreview.warnings': '{count} warnings',
   'browser.applySiteRules': 'Reopen to apply',
   'browser.blankTitle': 'New Tab',
   'browser.filterPlaceholder': 'Filter bookmarks and history',

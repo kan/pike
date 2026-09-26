@@ -18,10 +18,9 @@
 //! 載せる形だと、それを当てれば任意のプロジェクトを読めてしまう。ここでは
 //! `preview_open` が登録したラベルからの要求にだけ、そのラベルのルートの下を返す。
 //!
-//! **仮想ファイル**（#397 の前提）。フロントが作った中身を、ディスクより先に同じ
-//! origin で返せる。Vue SFC のプレビューは、コンパイル結果と入口の HTML をここへ
-//! 置き、import の解決（相対パスの CSS や画像）はディスクへ落とす、という形になる。
-//! 置き場は `__pike/` の下に限る（利用者のファイルと名前がぶつからないように）。
+//! **仮想ファイル**。フロントが作った中身を、ディスクより先に同じ origin で返せる。
+//! Vue SFC のプレビュー（#397、`vue_preview.rs`）は、vue-preview が描いた 1 枚の HTML を
+//! ここへ置く。置き場は `__pike/` の下に限る（利用者のファイルと名前がぶつからないように）。
 //!
 //! ラベルは `browser-preview-{uuid}`。`browser.rs` の `check_label` を通るので、位置
 //! 合わせ・再読み込み・閉じる（`browser_place` / `browser_history` / `browser_close`）は
@@ -489,6 +488,28 @@ pub async fn preview_set_files(
     let mut entries = state.lock();
     let entry = entries.get_mut(&label).ok_or("no preview")?;
     entry.files = to_map(files);
+    Ok(())
+}
+
+/// 仮想ファイルを 1 つ置く（Rust の側で作った中身。Vue SFC のプレビューの描画結果、#397）。
+/// **数百 KB になる HTML をフロントへ返して `preview_set_files` で送り直させない**ために、
+/// 作った側が直接置く。ほかの仮想ファイルはそのまま残す。
+pub fn put_virtual(
+    state: &PreviewState,
+    label: &str,
+    path: &str,
+    content: String,
+) -> Result<(), String> {
+    check_label(label)?;
+    let file = VirtualFile {
+        path: path.to_owned(),
+        content,
+        mime: None,
+    };
+    check_virtual(std::slice::from_ref(&file))?;
+    let mut entries = state.lock();
+    let entry = entries.get_mut(label).ok_or("no preview")?;
+    entry.files.insert(file.path.clone(), file);
     Ok(())
 }
 

@@ -917,6 +917,32 @@ export async function previewSetFiles(label: string, files: PreviewVirtualFile[]
   return invoke('preview_set_files', { label, files })
 }
 
+/** `vue-preview` がそのシェルで使えるか（#397、`src-tauri/src/vue_preview.rs`）。 */
+export async function vuePreviewAvailable(shell: ShellType, root: string, force: boolean): Promise<boolean> {
+  return invoke<boolean>('vue_preview_available', { shell, root, force })
+}
+
+/** 描いた結果のうち、フロントが要る欄。`deps` はルートからの相対パス（区切りは `/`）。 */
+export interface VueRender {
+  deps: string[]
+  warnings: string[]
+}
+
+/**
+ * `path`（ルートからの相対パス）の SFC を、`root` を cwd にして描き、子 webview `label` の
+ * 仮想ファイル `entry` に置く（HTML は IPC を通らない）。再読み込みは呼び出し側。失敗は理由の
+ * 文字列で投げる。
+ */
+export async function vuePreviewRender(
+  shell: ShellType,
+  root: string,
+  path: string,
+  label: string,
+  entry: string,
+): Promise<VueRender> {
+  return invoke<VueRender>('vue_preview_render', { shell, root, path, label, entry })
+}
+
 // Docker
 
 export async function dockerPing(): Promise<boolean> {

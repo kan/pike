@@ -15,7 +15,6 @@ use tauri::State;
 /// `gh` の一覧取得は実測で約 1 秒（`gh --version` は 0.14 秒）。ネットワークを伴うので
 /// 既定の 30 秒より短くするが、遅い回線でも 1 回は諦めない程度に取ってある。
 const LIST_TIMEOUT: Duration = Duration::from_secs(20);
-const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// **`gh` が見つかったシェルをプロセス単位で覚える**（`SearchState.detected` と同じ形）。
 /// Pinia のストアはウィンドウごとなので、フロントだけで覚えると同じリポジトリを N 枚
@@ -31,7 +30,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 ///
 /// **入れ物だけは共有する**（#315 で `cache::ProbeRegistry` に上げた）。1 本の `Mutex` を
 /// probe 中も握っていたころは、冷えた distro の `gh` を待つあいだ**別の導入単位の
-/// 問い合わせも止まっていた**（最長 `PROBE_TIMEOUT`）。キーごとに分ければ、その待ちは
+/// 問い合わせも止まっていた**（最長で `has_command` の時間切れまで）。キーごとに分ければ、その待ちは
 /// 同じ distro を見に来た者だけのものになる。
 #[derive(Default)]
 pub struct IssuesState {
@@ -287,27 +286,18 @@ fn failure(line: &str, code: i32, stdout: &str, stderr: &str) -> String {
     format!("{msg}\n{line}")
 }
 
-/// `gh` が使えるか。**`--version` が存在確認も兼ねる**（`which` / `where` を別に叩かない）。
+/// `gh` が使えるか。探し方（`--version` を一覧と同じ `run_shell_line` で走らせる）は
+/// `ShellConfig::has_command`（`vue-preview` の検出と共有）。
 ///
 /// ここでは認証までは見ない: `gh auth status` をもう 1 回起こすことになるうえ、認証が
 /// 切れているかどうかは一覧の取得が返す `error` で分かる。ここで見たいのは
 /// 「サイドバーにアイコンを出してよいか」だけ。
 ///
-/// **一覧と同じ `run_shell_line` を通す**。WSL では `WSL_EXTRA_PATH` が前置されるので、
-/// `~/.local/bin` に入れた `gh` も見つかる。素の `run` で探すと、探し方と実際の走らせ方が
-/// 食い違って「検出できないのに手で打てば動く」になる。
-///
 /// **覚えるのは「見つかった」だけ**（`force` は更新ボタンからの明示的なやり直し）。
-///
-/// 見つからなかったほうを焼き付けると、`PROBE_TIMEOUT` に届いた 1 回（WSL の冷えた起動で
+/// 見つからなかったほうを焼き付けると、時間切れになった 1 回（WSL の冷えた起動で
 /// 普通に起きる）でプロセスの寿命ぶんパネルが消え、**アイコンもパレットも出ないので
-/// 更新ボタンに手が届かない**＝再起動しか手が無くなる。見つからない側は安いので
-/// （`gh` が無ければ即座に失敗する）、聞かれるたびに確かめてよい。
-///
-/// **同じ導入単位への問い合わせは 1 本に畳む**（`probing()` で待つ）。畳まないと、前回の
-/// セッションを復元して 3 枚のウィンドウが同時に立ち上がるときに 3 本とも miss して
-/// `gh --version` が 3 回走る（WSL では `wsl.exe` の起動 3 回）。待った側は、先客が入れた
-/// 答えを読んで戻る。**別の導入単位は待たない**（キーごとに入れ物が分かれているため）。
+/// 更新ボタンに手が届かない**。覚え方と、同じ導入単位への問い合わせを 1 本に畳むのは
+/// `cache::ProbeEntry::found`（`vue-preview` の検出と共有）。
 #[tauri::command]
 pub async fn issues_gh_available(
     shell: ShellConfig,
@@ -317,24 +307,7 @@ pub async fn issues_gh_available(
 ) -> Result<bool, String> {
     let entry = state.gh.entry(install_key(&shell));
     tauri::async_runtime::spawn_blocking(move || {
-        if !force && *entry.answer() {
-            return true;
-        }
-        let _probing = entry.probing();
-        // 待っているあいだに先客が答えを入れていれば、そのまま使う（3 枚同時に
-        // 立ち上がったときに 2 本目以降が走らないのはここ）。
-        if !force && *entry.answer() {
-            return true;
-        }
-        let found = matches!(
-            shell.run_shell_line(&root, "gh --version", PROBE_TIMEOUT),
-            Ok((0, _, _))
-        );
-        // **「見つからなかった」も書く**（更新ボタンで `gh` を消したことを反映できる）。
-        // それでも焼き付かないのは、偽のときに早期 return が無い＝聞かれるたびに確かめる
-        // から。真だけを書いて偽を素通りさせると、更新ボタンが「消えた」ことを反映できない。
-        *entry.answer() = found;
-        found
+        entry.found(force, || shell.has_command(&root, "gh"))
     })
     .await
     .map_err(|e| e.to_string())

@@ -29,7 +29,8 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
   どれも結果が空になるので、区別が付くよう `IssueListResult.error` に理由を入れる。**実行した
   行もそこへ畳む**: 成功時にも返る別のフィールドにすると、IPC が落ちた経路（フロントの catch）
   だけ古い行が残る。1 行の長さは `types.rs` の `first_line` が 200 文字で切る（`diagnostics` と共有）
-- **`gh` の検出は `issues_gh_available`。** `--version` が存在確認を兼ね（`which` を別に叩かない）、
+- **`gh` の検出は `issues_gh_available`。** 探し方は `ShellConfig::has_command`（`vue-preview` の
+  検出と共有）で、`--version` が存在確認を兼ね（`which` を別に叩かない）、
   **一覧と同じ `run_shell_line` を通す**（WSL では `WSL_EXTRA_PATH` が前置されるので
   `~/.local/bin` の `gh` も見つかる。素の `run` で探すと、探し方と走らせ方が食い違って
   「検出できないのに手で打てば動く」になる）。認証までは見ない（`gh auth status` をもう 1 回
@@ -37,7 +38,7 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
   - 答えは **`IssuesState` がシェルの導入単位でプロセスに 1 つ**持つ（`SearchState.detected` と
     同じ形）。Pinia のストアはウィンドウごとなので、フロントだけで覚えると同じリポジトリを
     N 枚開いたときに `gh --version` が N 回、WSL では `wsl.exe` の起動が N 回になる。
-    **同じ導入単位の probe は 1 本に畳む**（`cache::ProbeEntry` の `probing()`。#315）: 畳まないと、
+    **同じ導入単位の probe は 1 本に畳む**（`cache::ProbeEntry::found`。#315）: 畳まないと、
     前回のセッションを復元して複数のウィンドウが同時に立ち上がるときに全部が miss する。
     **キーごとに分かれているので、別の distro を見に来た者は待たない**（1 本の `Mutex` を
     probe 中も握ると、冷えた distro の `gh` を待つあいだ全部が止まる）
@@ -46,7 +47,7 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
     どうかが答えに依存する**ので、パネルを開くより前に答えが要る。origin が GitHub だと
     分かってからしか走らないので、対象は GitHub のプロジェクトのウィンドウだけ
   - **覚えるのは「見つかった」だけ**（Rust もフロントのラッチも）。見つからなかったほうを
-    焼き付けると、`PROBE_TIMEOUT` に届いた 1 回（WSL の冷えた起動で普通に起きる）で
+    焼き付けると、時間切れになった 1 回（WSL の冷えた起動で普通に起きる）で
     パネルが消え、**アイコンもパレットも出ないので更新ボタンに手が届かない**＝再起動しか
     手が無くなる。見つからないあいだは watcher が発火するたび（プロジェクト切替・シェル
     変更）に聞き直すので、`gh` を入れれば次の切り替えで出てくる

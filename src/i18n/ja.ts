@@ -914,6 +914,11 @@ export default {
     'メニューやダイアログを開いているあいだ、ページを一時的に隠しています。ページは Pike の画面より手前に描かれるため、隠さないとメニューが読めません。閉じると戻ります。',
   'browser.hiddenByPanel':
     'サイドバーで Git パネルを開いているあいだ、ページを一時的に隠しています。コミットのツールチップがページの下に隠れないようにするためです。パネルを閉じると戻ります。',
+  'vuePreview.rendering':
+    'vue-preview で描画しています（このプロジェクトで初めて描くときは、依存の準備に数十秒かかることがあります）',
+  'vuePreview.renderingShort': '描画中…',
+  'vuePreview.failed': 'vue-preview で描画できませんでした',
+  'vuePreview.warnings': '警告 {count} 件',
   'browser.applySiteRules': '開き直して反映',
   'browser.blankTitle': '新しいタブ',
   'browser.filterPlaceholder': 'ブックマークと履歴を絞り込む',

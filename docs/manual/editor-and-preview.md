@@ -10,7 +10,7 @@ Pike のエディタは **CodeMirror 6** ベースで、軽さを優先してシ
 - [Git diff ガターとコンフリクトの解消](#git-diff-ガターとコンフリクトの解消)
 - [文字コードと改行コード](#文字コードと改行コード)
 - [Markdown の入力支援](#markdown-の入力支援)
-- [プレビュー（Markdown / rst / CSV / JSON / Mermaid / SVG / HTML）](#プレビューmarkdown--rst--csv--json--mermaid--svg--html)
+- [プレビュー（Markdown / rst / CSV / JSON / Mermaid / SVG / HTML / Vue）](#プレビューmarkdown--rst--csv--json--mermaid--svg--html--vue)
 - [リンクを開く](#リンクを開く)
 - [外部ドメインの画像](#外部ドメインの画像)
 - [画像ビューア](#画像ビューア)
@@ -195,7 +195,7 @@ Markdown ファイル（`.md` / `.markdown`）を開くと、Edit / Split / Prev
 
 折り返しボタンの隣のミニマップボタンで、そのタブだけミニマップの表示を切り替えられます。押していないタブは設定の既定値に従い、切り替えはタブを開いているあいだだけ保たれます（どちらも折り返しと同じです）。既定値は設定 → エディタの「ミニマップ」で変えられます。
 
-## プレビュー（Markdown / rst / CSV / JSON / Mermaid / SVG / HTML）
+## プレビュー（Markdown / rst / CSV / JSON / Mermaid / SVG / HTML / Vue）
 
 これらの形式は専用タブではなく、エディタタブの **Edit / Split / Preview** トグルで切り替えて表示します。
 
@@ -227,6 +227,13 @@ Markdown ファイル（`.md` / `.markdown`）を開くと、Edit / Split / Prev
     - ページの中のリンクは、プレビューの中では移動せず、新しいブラウザのタブで開きます
     - ツールバーのスマートフォンのボタンで、プレビューをスマートフォンの画面の大きさ（390×844）に絞って表示します。ブラウザのタブの同じボタンと同じ大きさです。幅で切り替わる CSS（メディアクエリ）を確かめるときに使えます。タブを閉じると元に戻ります
     - ページは Pike の画面より手前に描かれるため、メニューやダイアログを開いているあいだと、Git パネルを開いているあいだは一時的に隠します（ブラウザのタブと同じです）。プレビューの中では `Ctrl+F` の検索は使えません
+- **Vue**（`.vue`）：外部コマンドの [vue-preview](https://github.com/kan/vue-preview) で、コンポーネント（SFC）を 1 枚の HTML に描いて表示します。**vue-preview が入っているときだけ**、Edit / Split / Preview のトグルが出ます。
+    - **入れ方**：[Releases](https://github.com/kan/vue-preview/releases) から、プロジェクトのシェルに合うバイナリを取ります。それを `vue-preview`（Windows は `vue-preview.exe`）という名前で、PATH の通った場所に置きます。WSL のプロジェクトでは `vue-preview-linux-x64` を WSL の中（`/usr/local/bin` や `~/.local/bin`）に置きます。Windows のシェルのプロジェクトでは `vue-preview-windows-x64.exe` を Windows 側に置きます。置いたあとに .vue のタブを開き直すと、トグルが出ます
+    - **`<script>` は実行しません**。テンプレートの値は、コンポーネントの隣に置いた `<名前>.preview.json`（fixture）と、`{{ user.name }}` のようなプレースホルダで埋めます。書き方と対応している構成（PrimeVue・Tailwind CSS など）は vue-preview の README を見てください
+    - .vue のファイルから上へ辿って、いちばん近い `package.json` のあるディレクトリを基準にします（リポジトリの `app/` の下に Vue のプロジェクトがある構成でも描けます）。node_modules がコンテナの中にしか無いプロジェクトでも、vue-preview がロックファイルから依存を用意して描きます。**そのプロジェクトで初めて描くときは、依存の準備に数十秒かかることがあります**
+    - **表示するのは保存したファイルの中身です**。コンポーネント自身、読み込んでいる子コンポーネントや CSS、fixture、`vue-preview.config.json` を保存すると描き直します。描き直しているあいだは前の表示のまま、上の帯に「描画中…」を出します
+    - vue-preview が出した警告は、上の帯に件数を出します。押すと一覧を開きます。描けなかったときは、プレビューに理由を出します
+    - スマートフォンの画面の大きさで表示するボタン、リンクの開き方、一時的に隠す条件は HTML と同じです
 
 CSV / JSON / Mermaid / SVG の表示はそれぞれ次のようになります。
 

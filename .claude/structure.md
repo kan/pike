@@ -46,6 +46,7 @@ pike/
 │       ├── browser.rs         # ブラウザのタブの子 webview（#368。`unstable` の `add_child`）
 │       ├── browser_nav.rs     # 子 webview の移動を WebView2 のイベントで見分ける（ユーザーの操作か・ページの中の移動か、#416。Windows のみ）
 │       ├── html_preview.rs    # HTML のプレビューの配信（#399。`pike-preview` のスキームと仮想ファイル）
+│       ├── vue_preview.rs     # Vue SFC のプレビュー（#397。外部コマンド `vue-preview` の検出と描画）
 │       ├── site_rules.rs      # ドメインごとの JS と CSS を差し込むスクリプトの組み立て（#368）
 │       ├── jira/              # Jira の拡張機能の JS（#380。jirapp から写した正本。site_rules.rs が include_str! で埋め込む）
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
@@ -148,6 +149,8 @@ pike/
 │   │   │   ├── MacroButtons.vue     # キーボードマクロの記録・再生ボタン（#180）
 │   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
 │   │   │   ├── MinimapToggle.vue    # ミニマップの表示切り替え（タブ単位、#282）
+│   │   │   ├── PreviewFrame.vue     # 子 webview のプレビューの器（枠・スマートフォンの画面・案内。HTML と Vue で共有）
+│   │   │   ├── VuePreview.vue       # Vue SFC のプレビュー（#397。vue-preview の出力を HTML のプレビューと同じ子 webview に置く）
 │   │   │   └── WrapToggle.vue       # 折り返しの切り替え（タブ単位、#241）
 │   │   ├── settings/          # 設定画面の器（#314。節・小見出し・1 項目・一致の強調）
 │   │   │   ├── SettingSection.vue  # 1 セクション（左ナビの飛び先）
@@ -181,6 +184,7 @@ pike/
 │   │   ├── agentUsage.ts      # エージェントごとの使用量ストア（表 1 行につき 1 本、#263）
 │   │   ├── shellProbe.ts      # 「シェルごとに 1 回だけ聞いて覚える」の共通部（#275）
 │   │   ├── usageStore.ts      # createUsageStore ファクトリ（ポーリング基盤）
+│   │   ├── vuePreview.ts      # vue-preview の検出（シェル単位、#397）
 │   │   └── statusMessage.ts   # StatusBar 汎用メッセージ（jumpTo 進捗等）
 │   ├── composables/
 │   │   ├── useAgentHookPrompt.ts  # hook の登録をシェルごとに 1 度だけ聞く（#299 / #265）
@@ -203,7 +207,8 @@ pike/
 │   │   ├── useSettingsSearch.ts # 設定画面の絞り込み（#314。登録・一致・強調の切り分け）
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useBrowserRouter.ts # ブラウザのタブへの通知をラベルで振り分ける（#368。usePtyRouter と同じ形）
-│   │   ├── useChildWebview.ts # 子 webview の位置合わせ・隠す・閉じる（#399。ブラウザのタブと HTML のプレビューで共有）
+│   │   ├── useChildWebview.ts # 子 webview の位置合わせ・隠す・閉じる（#399。ブラウザのタブと HTML / Vue のプレビューで共有）
+│   │   ├── usePreviewRefresh.ts # 子 webview のプレビューをディスクの変化で描き直す段取り（HTML #399 と Vue #397 で共有）
 │   │   ├── useDragAndDrop.ts  useEditorInfo.ts  useImagePaste.ts
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
 │   │   ├── usePreviewFind.ts # プレビューの検索（#360。数え直しと移動の契機）
@@ -240,6 +245,7 @@ pike/
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）
 │   │   ├── rstPreview.ts      # reStructuredText のプレビュー（自前の変換、#284）
+│   │   ├── vuePreview.ts      # Vue SFC のプレビューの純粋な部分（描き直す契機・案内のページ、#397）
 │   │   ├── displayWidth.ts    # 等幅フォントでの表示幅（diff の横幅と rst の表が共有、#284）
 │   │   ├── text.ts            # HTML 組み立ての共有部（Html 型・エスケープ・CSV 分割、#284）と文字列の一致位置（`findRanges`）
 │   │   ├── sanitizeHtml.ts    # DOMPurify に渡す URI スキームの許可（4 つのプレビューで共有、#311）

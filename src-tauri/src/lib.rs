@@ -74,6 +74,7 @@ mod types;
 /// main.rs から起動時に呼ぶ（macOS / Linux の GUI プロセスの PATH 補正）。
 pub use types::augment_process_path;
 mod vdesk;
+mod vue_preview;
 pub mod wait;
 mod watcher;
 mod window_geom;
@@ -1549,6 +1550,7 @@ pub fn run() {
         // 要求した webview のラベルで決める（`html_preview.rs` のモジュール doc）。
         .register_asynchronous_uri_scheme_protocol(html_preview::SCHEME, html_preview::handle)
         .manage(html_preview::PreviewState::default())
+        .manage(vue_preview::VuePreviewState::default())
         .manage(wait::WaitState {
             active: std::sync::Mutex::new(HashMap::new()),
         })
@@ -1968,6 +1970,8 @@ pub fn run() {
             browser::browser_close,
             html_preview::preview_open,
             html_preview::preview_set_files,
+            vue_preview::vue_preview_available,
+            vue_preview::vue_preview_render,
             git::git_status,
             git::git_is_repo,
             git::git_init,

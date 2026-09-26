@@ -150,6 +150,32 @@ impl<V> ProbeEntry<V> {
     }
 }
 
+impl ProbeEntry<bool> {
+    /// **外部コマンドが見つかるか**を、「見つかった」ときだけ覚えて答える（`gh` と
+    /// `vue-preview` の検出が共有する）。`probe` は実際に探す関数で、`force` は覚えた答えを
+    /// 飛ばして探し直す（更新ボタンのような明示的なやり直し）。
+    ///
+    /// **見つからなかったほうは焼き付けない。** 冷えた WSL の起動で時間切れになった 1 回を
+    /// 覚えると、機能の入口ごと消えて再起動しか手が無くなる。見つからない側は安い（無ければ
+    /// 即座に失敗する）ので、聞かれるたびに確かめてよい。それでも**偽も書く**のは、`force`
+    /// でコマンドを消したことを反映するため（真だけ書くと、消しても見つかったままになる）。
+    ///
+    /// 同じキーへの問い合わせは `probing()` で 1 本に畳み、待った側は先客が入れた答えを読んで
+    /// 戻る（前回のセッションを復元して複数のウィンドウが同時に立ち上がるとき）。
+    pub fn found(&self, force: bool, probe: impl FnOnce() -> bool) -> bool {
+        if !force && *self.answer() {
+            return true;
+        }
+        let _probing = self.probing();
+        if !force && *self.answer() {
+            return true;
+        }
+        let found = probe();
+        *self.answer() = found;
+        found
+    }
+}
+
 impl<V: Default> Default for ProbeEntry<V> {
     fn default() -> Self {
         Self {

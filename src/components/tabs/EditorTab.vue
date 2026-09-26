@@ -94,12 +94,14 @@ import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
+import { useVuePreviewStore } from '../../stores/vuePreview'
 import { type EditorTab, shellToPlatform } from '../../types/tab'
 import FindBar from '../editor/FindBar.vue'
 import HtmlPreview from '../editor/HtmlPreview.vue'
 import MacroButtons from '../editor/MacroButtons.vue'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import MinimapToggle from '../editor/MinimapToggle.vue'
+import VuePreview from '../editor/VuePreview.vue'
 import WrapToggle from '../editor/WrapToggle.vue'
 import HelpButton from '../HelpButton.vue'
 
@@ -129,6 +131,7 @@ const props = defineProps<{ tabId: string }>()
 const tabStore = useTabStore()
 const projectStore = useProjectStore()
 const settingsStore = useSettingsStore()
+const vuePreviewStore = useVuePreviewStore()
 const editorInfo = useEditorInfo()
 const outlineSource = useOutlineSource()
 const statusMessageStore = useStatusMessageStore()
@@ -264,13 +267,31 @@ const isJson = computed(() => fileExt.value === 'json' || fileExt.value === 'jso
 const isJsonl = computed(() => fileExt.value === 'jsonl' || fileExt.value === 'ndjson')
 const isRst = computed(() => fileExt.value === 'rst')
 /**
- * 子 webview に描くプレビュー（#399 の HTML、`HtmlPreview.vue`）。**描くのは保存したファイル**
- * なので、無題のバッファには出さない（`hasFile` は無題でも真になるので path を見る）。
- * DOM のプレビューに要る処理（`previewHtml`・検索・先頭へ戻るボタン）はこれで外す。
- * Vue SFC（#397）を足すときも、ここに条件を足せば残りは付いてくる。
+ * 子 webview に描くプレビュー（#399 の HTML は `HtmlPreview.vue`、#397 の Vue SFC は
+ * `VuePreview.vue`）。**描くのは保存したファイル**なので、無題のバッファには出さない
+ * （`hasFile` は無題でも真になるので path を見る）。DOM のプレビューに要る処理
+ * （`previewHtml`・検索・先頭へ戻るボタン）は `webviewPreview` で外す。
  */
-const webviewPreview = computed(() => (fileExt.value === 'html' || fileExt.value === 'htm') && !!tab.value?.path)
-const htmlPreview = useTemplateRef<{ onSaved: () => void }>('htmlPreview')
+const isHtmlPreview = computed(() => (fileExt.value === 'html' || fileExt.value === 'htm') && !!tab.value?.path)
+/**
+ * Vue SFC のプレビュー（#397）。**`vue-preview` が見つかったシェルの .vue にだけ出す**。
+ * 描画のルート（いちばん近い package.json）は `VuePreview.vue` が探す。検出は下の watch。
+ */
+const isVueFile = computed(() => fileExt.value === 'vue' && !!tab.value?.path)
+const isVuePreview = computed(() => isVueFile.value && vuePreviewStore.available(projectStore.shellForIO))
+// .vue を開いたら（シェルやプロジェクトが替わったら）vue-preview を探す。べき等で、答えを
+// 覚えているあいだは何もしない（`stores/vuePreview.ts`）。cwd は見つかるかに関係しないので、
+// プロジェクトが無いウィンドウではファイルの隣で聞く。
+watch(
+  [isVueFile, () => projectStore.shellForIO, () => projectStore.activeRoot],
+  ([isVue, shell, root]) => {
+    const path = tab.value?.path
+    if (isVue && path) void vuePreviewStore.detect(shell, root ?? dirname(path))
+  },
+  { immediate: true },
+)
+const webviewPreview = computed(() => isHtmlPreview.value || isVuePreview.value)
+const webPreview = useTemplateRef<{ onSaved: () => void }>('webPreview')
 /**
  * スマートフォンの縦長の画面で見る（ブラウザのタブの同名の機能と同じ大きさ）。タブ単位で
  * セッションには残さない（`viewMode` と同じ寿命）。
@@ -315,6 +336,12 @@ const hasPreview = computed(
 
 const showEditor = computed(() => viewMode.value !== 'preview')
 const showPreview = computed(() => viewMode.value !== 'edit')
+// プレビューが後から無くなったら編集に戻す（#397）。Vue のプレビューはプロジェクトのルートと
+// シェルにも依存するので、worktree の切り替えなどで消えうる。戻さないと、切り替えのトグルが
+// 消えたまま Preview だけの表示に残り、エディタへ戻れなくなる。
+watch(hasPreview, (has) => {
+  if (!has) viewMode.value = 'edit'
+})
 
 // プレビューの検索（#360）。standalone の mermaid は別の要素に描くので、そちらを相手にする。
 const findTarget = computed(() => (isMermaid.value ? mermaidRef.value : previewRef.value))
@@ -911,7 +938,7 @@ async function save(overrideEncoding?: string, auto = false) {
     refreshDiffGutter()
     diagStore.triggerAutoRun()
     // 監視の届かないファイル（グローバルモード・プロジェクトの外）でも描き直す。
-    htmlPreview.value?.onSaved()
+    webPreview.value?.onSaved()
   } catch (e) {
     // **自動保存の失敗で本文を隠さない。** `error` が立つとエディタ本体が `v-show` で
     // 消え、画面に残るのは「破棄して読み直す」ボタンだけになる。人が `Ctrl+S` を押した
@@ -2453,9 +2480,10 @@ onUnmounted(() => {
     </div>
     <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error && !isDirectory && tooLargeSize === null">
       <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
-      <HtmlPreview
+      <component
+        :is="isHtmlPreview ? HtmlPreview : VuePreview"
         v-if="showPreview && webviewPreview && tab?.path"
-        ref="htmlPreview"
+        ref="webPreview"
         class="preview-pane"
         :tab-id="props.tabId"
         :path="tab.path"
