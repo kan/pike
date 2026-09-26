@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { Bot, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { Bot, ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleX } from 'lucide-vue-next'
 import { computed, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
-import { injectIssueStart } from '../../composables/useTerminalInject'
+import { injectIssuePrompt } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
-import { issueStartPrompt } from '../../lib/issuePrompt'
+import { ISSUE_KIND_TEXT, issueAgentPrompt } from '../../lib/issuePrompt'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { useOverlay } from '../../lib/overlay'
 import { relativeDate } from '../../lib/paths'
@@ -13,7 +13,7 @@ import { useIssuesStore } from '../../stores/issues'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
-import type { IssueSummary } from '../../types/issues'
+import type { CheckState, IssueSummary } from '../../types/issues'
 
 const { t } = useI18n()
 const sidebar = useSidebarStore()
@@ -29,8 +29,11 @@ const tabStore = useTabStore()
 // （`activePanel` は localStorage に残るし、パレットからも開ける）ので、条件を見ずに
 // 取ると **GitHub でないプロジェクトや `gh` の無い環境で `gh issue list` が走る**。
 // 検出は開いたあとに終わることもあるので、真になった時点でも取りに行く。
+//
+// **種類（issue / PR、#413）もキーに入れる。** 取得済みかどうかは種類ごとなので、初めて
+// PR へ切り替えたときはここが取りに行く。
 watch(
-  [() => sidebar.activePanel, () => projectStore.currentProject?.id, () => issuesStore.visible],
+  [() => sidebar.activePanel, () => projectStore.currentProject?.id, () => issuesStore.visible, () => issuesStore.kind],
   ([panel, , visible]) => {
     if (panel === 'issues' && visible) void issuesStore.ensureLoaded()
   },
@@ -51,6 +54,17 @@ interface IssueRow {
 }
 
 /**
+ * PR の CI の状態（#413）のアイコンと文言。**行にはアイコンだけ**を出し、文言はツールチップに
+ * 畳む（ラベルのドットと同じ理由で、パネルの幅ではタイトルが隠れる）。
+ */
+const CHECK_ICON = { success: CircleCheck, failure: CircleX, pending: CircleDashed } as const
+const CHECK_LABEL = {
+  success: 'issues.checksSuccess',
+  failure: 'issues.checksFailure',
+  pending: 'issues.checksPending',
+} as const satisfies Record<CheckState, string>
+
+/**
  * issue ごとの整形（相対時刻・ツールチップ・ラベル色）。**入力は一覧そのもの**で、絞り込みにも
  * 木の形にも依存させない: 絞り込み欄はこのコンポーネントの `v-model` なので、依存させると
  * 打鍵のたびに全行の日付整形と色の検証をやり直すことになる。ここが再計算されるのは取得した
@@ -65,7 +79,15 @@ const formatted = computed(() => {
       since,
       // ラベル名はここに畳む。ドットだけでは何のラベルか読めないので、行の情報は
       // ツールチップで揃えて出す。
-      tooltip: [`#${issue.number} ${issue.title}`, `${issue.author} · ${since}`, names].filter(Boolean).join('\n'),
+      tooltip: [
+        `#${issue.number} ${issue.title}`,
+        `${issue.author} · ${since}`,
+        issue.draft ? t('issues.draft') : '',
+        issue.checks ? t(CHECK_LABEL[issue.checks]) : '',
+        names,
+      ]
+        .filter(Boolean)
+        .join('\n'),
       dots: issue.labels.map((l) => ({ name: l.name, style: dotStyle(l.color) })),
     })
   }
@@ -94,6 +116,9 @@ function dotStyle(color: string): Record<string, string> {
   return { background: projectColorValue(`#${color}`) ?? 'var(--text-secondary)' }
 }
 
+/** 種類（issue / PR、#413）で変わる文言のキー。表の正本は `lib/issuePrompt.ts`。 */
+const text = computed(() => ISSUE_KIND_TEXT[issuesStore.kind])
+
 /** 何も出す行が無いときの文言。**判断を 1 箇所にまとめる**（テンプレートに散らすと、
  *  状態を足すときに 3 箇所を見ることになる）。 */
 const emptyMessage = computed(() => {
@@ -102,7 +127,7 @@ const emptyMessage = computed(() => {
   // 失敗しているときは黙る。エラー帯の下に「open な issue はありません」を並べると、
   // その帯が防ぐはずだった「0 件との区別が付かない」に半分戻る。
   if (issuesStore.error) return null
-  return issuesStore.issues.length === 0 ? t('issues.empty') : t('issues.noMatch')
+  return t(issuesStore.issues.length === 0 ? text.value.empty : text.value.noMatch)
 })
 
 /**
@@ -123,12 +148,12 @@ function openReadOnly(issue: IssueSummary) {
 }
 
 /**
- * 「この issue に着手して」をターミナルのエージェントへ注入する（#336）。Problems の 🤖 と
- * 同じ形で、**送る内容の判断は `composables/useTerminalInject.ts` の `injectIssueStart` が
- * 正本**（issue タブの同じボタンと共有する）。
+ * 「この issue に着手して」（PR の一覧では「マージしたいのでレビューして」、#413）をターミナルの
+ * エージェントへ注入する（#336）。Problems の 🤖 と同じ形で、**送る内容の判断は
+ * `composables/useTerminalInject.ts` の `injectIssuePrompt` が正本**（issue タブの同じボタンと共有する）。
  */
-function askAgentStart(issue: IssueSummary) {
-  injectIssueStart(issue.number, issue.title)
+function askAgent(issue: IssueSummary) {
+  injectIssuePrompt(issuesStore.kind, issue.number, issue.title)
 }
 
 /**
@@ -167,8 +192,8 @@ function runCtx(action: (issue: IssueSummary) => void) {
  * 指示文をクリップボードへ（#336）。**文字列の流し込みが効かないエージェント向けの逃げ道**で、
  * 送る側と同じ文面を人が自分で貼れるようにしてある（正本は `lib/issuePrompt.ts`）。
  */
-function copyStartPrompt(issue: IssueSummary) {
-  navigator.clipboard.writeText(issueStartPrompt(issue.number, issue.title)).catch(() => {})
+function copyPrompt(issue: IssueSummary) {
+  navigator.clipboard.writeText(issueAgentPrompt(issuesStore.kind, issue.number, issue.title)).catch(() => {})
 }
 </script>
 
@@ -181,6 +206,25 @@ function copyStartPrompt(issue: IssueSummary) {
     -->
     <div v-if="!issuesStore.visible" class="empty">{{ t('issues.unavailable') }}</div>
     <template v-else>
+      <!-- issue と PR は混ぜずに切り替える（#413）。見た目はアウトラインの上部のタブと共有。 -->
+      <div class="panel-tabs kind-tabs">
+        <button
+          class="panel-tab"
+          :class="{ active: issuesStore.kind === 'issue' }"
+          data-testid="issues-kind-issue"
+          @click="issuesStore.setKind('issue')"
+        >
+          {{ t('issues.kindIssues') }}
+        </button>
+        <button
+          class="panel-tab"
+          :class="{ active: issuesStore.kind === 'pr' }"
+          data-testid="issues-kind-pr"
+          @click="issuesStore.setKind('pr')"
+        >
+          {{ t('issues.kindPulls') }}
+        </button>
+      </div>
       <input
         v-model="issuesStore.filter"
         class="filter"
@@ -212,13 +256,26 @@ function copyStartPrompt(issue: IssueSummary) {
           <ChevronRight v-if="row.collapsed" :size="12" :stroke-width="2" />
           <ChevronDown v-else :size="12" :stroke-width="2" />
         </span>
-        <span v-else-if="issuesStore.view === 'tree'" class="tree-chevron-space" />
+        <span v-else-if="issuesStore.treeView" class="tree-chevron-space" />
         <span class="issue-number">#{{ row.issue.number }}</span>
-        <span class="issue-title">{{ row.issue.title }}</span>
+        <!-- ドラフトの PR は題名を淡くする（名前はツールチップ）。バッジを並べるとタイトルが隠れる。 -->
+        <span class="issue-title" :class="{ draft: row.issue.draft }">{{ row.issue.title }}</span>
         <span v-for="dot in row.dots" :key="dot.name" class="issue-dot" :style="dot.style" />
+        <component
+          :is="CHECK_ICON[row.issue.checks]"
+          v-if="row.issue.checks"
+          class="issue-checks"
+          :class="row.issue.checks"
+          :size="12"
+          :stroke-width="2"
+        />
         <span class="issue-since">{{ row.since }}</span>
         <!-- ホバーで出る 🤖（Problems の行と同じ）。行のクリックはタブを開くので `.stop`。 -->
-        <button class="row-action" :title="t('issues.startWork')" @click.stop="askAgentStart(row.issue)">
+        <button
+          class="row-action"
+          :title="t(text.action)"
+          @click.stop="askAgent(row.issue)"
+        >
           <Bot :size="13" :stroke-width="2" />
         </button>
       </div>
@@ -233,12 +290,14 @@ function copyStartPrompt(issue: IssueSummary) {
           @mousedown.stop
         >
           <button @click="runCtx(open)">{{ t('issues.openBrowserTab') }}</button>
+          <!-- PR でも出す（#413）: `gh issue view` は PR の番号でも本文と会話のコメントを返す
+               （レビューのコメントと差分は載らない）。 -->
           <button @click="runCtx(openReadOnly)">{{ t('issues.openTab') }}</button>
           <!-- 外部ブラウザへ出るので確認を挟む（外部 URL を開く規約、#311）。 -->
           <button @click="runCtx((i) => openUrlWithConfirm(i.url))">{{ t('issues.openInBrowser') }}</button>
           <div class="ctx-separator"></div>
-          <button @click="runCtx(askAgentStart)">{{ t('issues.startWork') }}</button>
-          <button @click="runCtx(copyStartPrompt)">{{ t('issues.copyStartPrompt') }}</button>
+          <button @click="runCtx(askAgent)">{{ t(text.action) }}</button>
+          <button @click="runCtx(copyPrompt)">{{ t(text.copy) }}</button>
         </div>
       </Teleport>
     </template>
@@ -249,6 +308,12 @@ function copyStartPrompt(issue: IssueSummary) {
 /* スクロールはサイドバーの `.panel-content` に任せる（自分で持つと二重になる）。 */
 .issues-panel {
   padding: 4px 0;
+}
+
+/* 様式は共有の `.panel-tabs`（`theme.css`）。`.panel-content` の padding とルートの上の
+   padding を打ち消して、アウトラインと同じくパネルの端から端まで張る（同じ変数で組むこと）。 */
+.kind-tabs {
+  margin: calc(-1 * var(--panel-pad) - 4px) calc(-1 * var(--panel-scrollbar-size)) 6px calc(-1 * var(--panel-pad));
 }
 
 /* `box-sizing` が無いと padding と枠のぶん（14px）親からはみ出し、横スクロールバーが出る。 */
@@ -330,6 +395,10 @@ function copyStartPrompt(issue: IssueSummary) {
   white-space: nowrap;
 }
 
+.issue-title.draft {
+  color: var(--text-secondary);
+}
+
 /* ラベルは色のドットだけ。名前を並べるとタイトルが隠れる（パネルは既定 250px）。 */
 .issue-dot {
   flex-shrink: 0;
@@ -343,6 +412,20 @@ function copyStartPrompt(issue: IssueSummary) {
    1 つ目のドットにも当たってタイトル側へ食い込む。 */
 .issue-dot + .issue-dot {
   margin-left: -3px;
+}
+
+/* CI の状態（#413）。実行中は色を付けない（結果が出ていないので、注意を引く理由が無い）。 */
+.issue-checks {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.issue-checks.success {
+  color: var(--success);
+}
+
+.issue-checks.failure {
+  color: var(--danger);
 }
 
 .issue-since {

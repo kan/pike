@@ -1,11 +1,11 @@
 import { defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { buildRepoLink } from '../lib/gitRemote'
 import { buildIssueTree, issueParentNumbers } from '../lib/issueTree'
 import { fuzzyMatch } from '../lib/paths'
 import { loadJson, saveJson } from '../lib/storage'
 import { issuesGhAvailable, issuesList } from '../lib/tauri'
-import type { IssueSummary } from '../types/issues'
+import type { IssueKind, IssueSummary } from '../types/issues'
 import { useGitStore } from './git'
 import { useProjectStore } from './project'
 import { createShellProbe } from './shellProbe'
@@ -26,7 +26,28 @@ const LIMIT = 50
  */
 const VIEW_KEY = 'pike:issues-view'
 
+/** issue と PR のどちらを出すか（#413）。`VIEW_KEY` と同じくマシンローカルの好み。 */
+const KIND_KEY = 'pike:issues-kind'
+
 export type IssueView = 'tree' | 'flat'
+
+/**
+ * 種類ごとの一覧（#413）。**取得の状態も種類ごとに持つ**: 1 本の `loading` / `seq` を共有すると、
+ * issue の取得中に PR へ切り替えたとき、PR の `ensureLoaded` が「取得中だから」で弾かれたうえ、
+ * 飛んでいた issue の応答が後から来ても PR を取りに行く者が居ない。
+ */
+interface KindList {
+  items: IssueSummary[]
+  error: string | null
+  loading: boolean
+  /** 1 度でも一覧を取ったか。時刻は誰も読まないので真偽値で足りる。 */
+  loaded: boolean
+  seq: number
+}
+
+function emptyList(): KindList {
+  return { items: [], error: null, loading: false, loaded: false, seq: 0 }
+}
 
 /**
  * GitHub issue の簡易表示（#278）。
@@ -38,9 +59,13 @@ export type IssueView = 'tree' | 'flat'
  * 外部プロセスの起動を定期実行に混ぜない）。開き直しでは取り直さない（`loaded`）。
  */
 export const useIssuesStore = defineStore('issues', () => {
-  const issues = ref<IssueSummary[]>([])
-  const error = ref<string | null>(null)
-  const loading = ref(false)
+  const kind = ref<IssueKind>(loadJson<IssueKind>(KIND_KEY, 'issue') === 'pr' ? 'pr' : 'issue')
+  const lists = reactive<Record<IssueKind, KindList>>({ issue: emptyList(), pr: emptyList() })
+  /** 今の種類の一覧。パネルもヘッダも、読むのはこちらだけ。 */
+  const current = computed(() => lists[kind.value])
+  const issues = computed(() => current.value.items)
+  const error = computed(() => current.value.error)
+  const loading = computed(() => current.value.loading)
   const filter = ref('')
 
   const view = ref<IssueView>(loadJson<IssueView>(VIEW_KEY, 'tree') === 'flat' ? 'flat' : 'tree')
@@ -67,9 +92,6 @@ export const useIssuesStore = defineStore('issues', () => {
   const ghProbe = createShellProbe<boolean>((shell, root, force) => issuesGhAvailable(shell, root, force), {
     keep: (found) => found,
   })
-  /** 1 度でも一覧を取ったか。時刻は誰も読まないので真偽値で足りる。 */
-  let loaded = false
-  let seq = 0
 
   /** 今のプロジェクトのシェル。検出のラッチを引くキー。 */
   const currentShell = computed(() => useProjectStore().currentProject?.shell ?? null)
@@ -122,6 +144,13 @@ export const useIssuesStore = defineStore('issues', () => {
   })
 
   /**
+   * 今ツリーで描いているか。**`view` を直に読まず、これを読むこと**（行・字下げの枠・ヘッダの
+   * 全展開ボタン）。PR（#413）は親子を持たないので、好みが `tree` でもフラットで描く。
+   * `view` は好みとして残す（issue へ戻ったらツリーに戻る）。
+   */
+  const treeView = computed(() => kind.value === 'issue' && view.value === 'tree')
+
+  /**
    * 描く行。ツリーでは `parent` だけで組んで平らに落とし（`lib/issueTree.ts`）、フラットでは
    * 一致したものを取ってきた順（番号の降順。#357）に並べる。
    *
@@ -129,7 +158,7 @@ export const useIssuesStore = defineStore('issues', () => {
    * （ツリー側で残すのは、親が消えると子がどこにぶら下がっていたか読めなくなるから）。
    */
   const rows = computed(() => {
-    if (view.value === 'flat') {
+    if (!treeView.value) {
       return issues.value.filter(matcher.value).map((issue) => ({ issue, depth: 0, hasChildren: false }))
     }
     return buildIssueTree(issues.value, { matches: matcher.value, collapsed: collapsed.value })
@@ -151,6 +180,12 @@ export const useIssuesStore = defineStore('issues', () => {
   function setView(next: IssueView) {
     view.value = next
     saveJson(VIEW_KEY, next)
+  }
+
+  /** 取得はパネルの watcher（`ensureLoaded`）に任せる。種類ごとに 1 回だけ取る。 */
+  function setKind(next: IssueKind) {
+    kind.value = next
+    saveJson(KIND_KEY, next)
   }
 
   function toggleCollapsed(number: number) {
@@ -185,34 +220,37 @@ export const useIssuesStore = defineStore('issues', () => {
    * 起こすだけになる。
    */
   async function load(redetect: boolean): Promise<void> {
-    const mySeq = ++seq
-    loading.value = true
+    // 種類は呼んだ時点で固定する（取得中に切り替えても、応答は取りに行った側へ入る）。
+    const k = kind.value
+    const list = lists[k]
+    const mySeq = ++list.seq
+    list.loading = true
     try {
       if (redetect && !ghAvailable.value) await detect(true)
-      if (mySeq !== seq) return
+      if (mySeq !== list.seq) return
       // 条件を満たさないなら `gh issue list` は走らせない: GitHub でないリポジトリで
       // 叩いても、読めないエラー文が出るだけで誰の役にも立たない。
       const projectStore = useProjectStore()
       const project = projectStore.currentProject
       if (!project || !visible.value) {
-        issues.value = []
-        error.value = null
+        list.items = []
+        list.error = null
         return
       }
-      const result = await issuesList(project.shell, projectStore.activeRoot, LIMIT)
-      if (mySeq !== seq) return
-      issues.value = result.issues
-      error.value = result.error
-      loaded = true
+      const result = await issuesList(project.shell, projectStore.activeRoot, LIMIT, k)
+      if (mySeq !== list.seq) return
+      list.items = result.issues
+      list.error = result.error
+      list.loaded = true
     } catch (e) {
-      if (mySeq !== seq) return
-      issues.value = []
-      error.value = String(e)
-      loaded = true
+      if (mySeq !== list.seq) return
+      list.items = []
+      list.error = String(e)
+      list.loaded = true
     } finally {
       // **古くなった取得は下ろさない。** 下ろすと、切り替え後に走り始めた取得の最中に
       // スピナーが消える。立てたままになる心配は無い（`clear()` が自分で下ろす）。
-      if (mySeq === seq) loading.value = false
+      if (mySeq === list.seq) list.loading = false
     }
   }
 
@@ -220,8 +258,13 @@ export const useIssuesStore = defineStore('issues', () => {
    * 新規 issue の作成ページ（`<repo>/issues/new`）。**作成は Pike の中で持たない**ので、
    * ヘッダの「+」はブラウザへ逃がす（読み取り専用という位置づけを崩さない）。
    * `visible` のときしか押せないので、ここが null を返すのは remote が取れない過渡状態だけ。
+   *
+   * **PR の一覧では出さない**（#413）。PR はブランチを push してから作るもので、一覧の
+   * 横から始める流れが無い。
    */
-  const newIssueUrl = computed(() => (isGitHub.value ? `${repoLink.value?.url}/issues/new` : null))
+  const newIssueUrl = computed(() =>
+    isGitHub.value && kind.value === 'issue' ? `${repoLink.value?.url}/issues/new` : null,
+  )
 
   /** 更新ボタン。`gh` の再検出を挟む。 */
   async function refresh(): Promise<void> {
@@ -229,21 +272,19 @@ export const useIssuesStore = defineStore('issues', () => {
     await load(true)
   }
 
-  /** パネルを開いたときの取得。まだ 1 回も取っていないときだけ走る（再検出は挟まない）。 */
+  /** パネルを開いたときの取得。今の種類をまだ 1 回も取っていないときだけ走る（再検出は挟まない）。 */
   async function ensureLoaded(): Promise<void> {
-    if (loaded || loading.value) return
+    if (current.value.loaded || loading.value) return
     await load(false)
   }
 
   function clear() {
-    seq++
-    // **ここで下ろす。** 取得中に切り替えると、飛んでいる `gh` の応答は seq で捨てられる
-    // ぶん `loading` を下ろす者が居なくなり、次のプロジェクトの `ensureLoaded` が
-    // 「取得中だから」で弾かれて空のまま座る（手で更新するまで直らない）。
-    loading.value = false
-    loaded = false
-    issues.value = []
-    error.value = null
+    for (const list of Object.values(lists)) {
+      // **seq を進めてから下ろす。** 取得中に切り替えると、飛んでいる `gh` の応答は seq で
+      // 捨てられるぶん `loading` を下ろす者が居なくなり、次のプロジェクトの `ensureLoaded` が
+      // 「取得中だから」で弾かれて空のまま座る（手で更新するまで直らない）。
+      Object.assign(list, emptyList(), { seq: list.seq + 1 })
+    }
     filter.value = ''
     collapsed.value = new Set()
     // `gh` の有無はシェルの性質なので、`detect` の watcher に任せて落とさない。
@@ -273,6 +314,9 @@ export const useIssuesStore = defineStore('issues', () => {
     rows,
     view,
     setView,
+    treeView,
+    kind,
+    setKind,
     collapsed,
     toggleCollapsed,
     toggleAll,

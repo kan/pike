@@ -666,6 +666,43 @@
   background: var(--border);
 }
 
+/* パネルの上端に並べる切り替えのタブ（アウトラインの「アウトライン / 履歴」と、issue パネルの
+   「Issue / Pull request」が共有。#413）。 */
+.panel-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.panel-tab {
+  flex: 1;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.panel-tab:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.panel-tab.active {
+  color: var(--text-active);
+  border-bottom-color: var(--accent);
+}
+
+.panel-tab:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* パネルの行の末尾に置く、ホバーで現れるボタン（Problems の 🤖 と issue の 🤖 が共有）。
    **`opacity` で隠す**（`display: none` にすると、ホバーのたびに行の幅が変わって隣の
    テキストの省略位置が動く）。出す契機は行のクラスが決めるので、置いた側に

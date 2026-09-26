@@ -181,16 +181,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="outline-panel" data-testid="outline-panel">
-    <div class="outline-tabs">
+    <div class="panel-tabs">
       <button
-        class="outline-tab"
+        class="panel-tab"
         :class="{ active: activeTab === 'outline' }"
         @click="activeTab = 'outline'"
       >
         {{ t('outline.tabOutline') }}
       </button>
       <button
-        class="outline-tab"
+        class="panel-tab"
         :class="{ active: activeTab === 'history' }"
         :disabled="!currentPath"
         @click="activeTab = 'history'"
@@ -231,41 +231,6 @@ onBeforeUnmount(() => {
      そのまま横スクロールバーになる（`overflow-y: scroll` は `overflow-x` を `auto` にする）。 */
   margin: calc(-1 * var(--panel-pad)) calc(-1 * var(--panel-scrollbar-size)) calc(-1 * var(--panel-pad))
     calc(-1 * var(--panel-pad));
-}
-
-.outline-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
-  flex-shrink: 0;
-}
-
-.outline-tab {
-  flex: 1;
-  padding: 6px 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-}
-
-.outline-tab:hover:not(:disabled) {
-  color: var(--text-primary);
-}
-
-.outline-tab.active {
-  color: var(--text-active);
-  border-bottom-color: var(--accent);
-}
-
-.outline-tab:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .outline-body {

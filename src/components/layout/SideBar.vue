@@ -622,7 +622,7 @@ onUnmounted(() => {
             </button>
             <!-- 全展開 / 全畳み。畳める親が 1 つも無ければ押しても何も起きないので出さない。 -->
             <button
-              v-if="issuesStore.view === 'tree' && issuesStore.collapseAction"
+              v-if="issuesStore.treeView && issuesStore.collapseAction"
               class="header-btn"
               :title="t(issuesStore.collapseAction === 'collapse' ? 'issues.collapseAll' : 'issues.expandAll')"
               @click="issuesStore.toggleAll()"
@@ -630,8 +630,10 @@ onUnmounted(() => {
               <ChevronsDownUp v-if="issuesStore.collapseAction === 'collapse'" :size="14" :stroke-width="2" />
               <ChevronsUpDown v-else :size="14" :stroke-width="2" />
             </button>
-            <!-- ツリー ⇄ フラット。アイコンは**今の表示**（押すと切り替わる）。 -->
+            <!-- ツリー ⇄ フラット。アイコンは**今の表示**（押すと切り替わる）。PR は親子を
+                 持たないので出さない（#413）。 -->
             <button
+              v-if="issuesStore.kind === 'issue'"
               class="header-btn"
               :title="t(issuesStore.view === 'tree' ? 'issues.viewTree' : 'issues.viewFlat')"
               @click="issuesStore.setView(issuesStore.view === 'tree' ? 'flat' : 'tree')"

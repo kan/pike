@@ -1125,6 +1125,18 @@ export default {
   'issues.startWork': 'エージェントに着手を指示',
   'issues.copyStartPrompt': '着手の指示文をコピー',
   'issues.startPrompt': '#{number}「{title}」に着手して。詳細は gh issue view {number} で確認して。',
+  'issues.kindIssues': 'Issue',
+  'issues.kindPulls': 'Pull request',
+  'issues.emptyPulls': 'open な pull request はありません',
+  'issues.noMatchPulls': '一致する pull request はありません',
+  'issues.draft': 'ドラフト',
+  'issues.checksSuccess': 'CI：成功',
+  'issues.checksFailure': 'CI：失敗',
+  'issues.checksPending': 'CI：実行中',
+  'issues.review': 'エージェントにレビューを依頼',
+  'issues.copyReviewPrompt': 'レビューの指示文をコピー',
+  'issues.reviewPrompt':
+    'PullRequest #{number}「{title}」をマージしたいのでレビューして。詳細は gh pr view {number} と gh pr diff {number} で確認して。',
   // Outline
   'outline.empty': 'ファイルが開かれていません',
   'outline.unsupported': 'このファイルのアウトラインには対応していません',

@@ -133,7 +133,7 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   - EditorTab: 右クリック「ターミナルに送る」（選択時のみ）→ `relpath:行` 参照 + 選択本文を注入
   - EditorTab: 右クリック「参照をターミナルに送る」（#335。選択が要らない）→ 参照だけを注入。綴りは `lib/paths.ts` の `fileLineRef`（`editor.md`）
   - DiagnosticsPanel: 各行ホバーの 🤖 ボタン → `t('diagnostics.fixPrompt')`（i18n、UI 言語追従）で修正依頼文を注入
-  - IssuesPanel / IssueTab: 🤖 ボタンと行の右クリックメニュー（#336）→ 同じファイルの `injectIssueStart` で「この issue に着手して」を注入。**文面の正本は `lib/issuePrompt.ts` の `issueStartPrompt`**: 同じ文面をクリップボードへ出す項目（文字列の流し込みが効かないエージェント向けの逃げ道）があるので、注入の側に置くと片方だけ古くなる。**本文を運ばない**理由はあのファイルの doc が正本
+  - IssuesPanel / IssueTab: 🤖 ボタンと行の右クリックメニュー（#336）→ 同じファイルの `injectIssuePrompt` で「この issue に着手して」（PR なら「マージしたいのでレビューして」、#413）を注入。**文面の正本は `lib/issuePrompt.ts` の `issueAgentPrompt`**: 同じ文面をクリップボードへ出す項目（文字列の流し込みが効かないエージェント向けの逃げ道）があるので、注入の側に置くと片方だけ古くなる。**本文を運ばない**理由はあのファイルの doc が正本
   - **パネルの右クリックメニューの器は `theme.css` の `.panel-ctx-menu`**（ファイルツリー・Git・issue が共有）。幅だけは置いた側に残す。キーの綴りを右に並べるメニュー（タブバー・エディタ）は `display: flex` の別様式なので、ここには乗らない
   - **ホバーで出すボタンは `theme.css` の `.row-action`**（Problems と issue が共有）。置いた側に残すのは `.<行>:hover .row-action` の 1 行だけ
 - **設定**: `agentLaunchers` / `agentPrompts` は Settings の Agent セクションで追加/編集/削除/並べ替え。両方とも `pike:settings` の配列で deep-watch 永続化

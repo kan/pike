@@ -15,7 +15,17 @@ export interface IssueSummary {
   labels: IssueLabel[]
   /** 親 issue の番号（sub-issue のとき）。一覧に居ない親は木を組むとき無視する。 */
   parent: number | null
+  /** ドラフトの PR か（#413）。issue では常に false。 */
+  draft: boolean
+  /** PR の CI をまとめた状態（#413）。issue と、チェックが無い PR は null。 */
+  checks: CheckState | null
 }
+
+/** Rust の `CheckState`。落ちたものが 1 つでもあれば failure、次に走っているものがあれば pending。 */
+export type CheckState = 'success' | 'failure' | 'pending'
+
+/** 一覧の種類（#413）。PR も同じ `IssueSummary` で運ぶ（Rust の `ListKind`）。 */
+export type IssueKind = 'issue' | 'pr'
 
 /** 1 件の issue（タブで読む用、#278）。書き込みは持たないので編集に要る情報は取らない。 */
 export interface IssueDetail {

@@ -10,10 +10,11 @@
  */
 
 import { t } from '../i18n'
-import { issueStartPrompt } from '../lib/issuePrompt'
+import { issueAgentPrompt } from '../lib/issuePrompt'
 import { ptyPasteText } from '../lib/tauri'
 import { useStatusMessageStore } from '../stores/statusMessage'
 import { useTabStore } from '../stores/tabs'
+import type { IssueKind } from '../types/issues'
 import type { Tab, TerminalTab } from '../types/tab'
 
 export type LiveTerminal = TerminalTab & { ptyId: string }
@@ -60,11 +61,11 @@ export function injectToTerminal(text: string): boolean {
 }
 
 /**
- * 「この issue に着手して」をエージェントへ送る（#336）。issue パネルの 🤖 と右クリック
- * メニュー、issue タブのボタンが共有する。**文面は `lib/issuePrompt.ts` の
- * `issueStartPrompt` が正本**（同じ文面をクリップボードへ出す経路があるので、注入の側に
- * 置くと片方だけ古くなる）。
+ * issue なら「この issue に着手して」（#336）、PR なら「マージしたいのでレビューして」（#413）を
+ * エージェントへ送る。issue パネルの 🤖 と右クリックメニュー、issue タブのボタンが共有する。
+ * **文面は `lib/issuePrompt.ts` の `issueAgentPrompt` が正本**（同じ文面をクリップボードへ
+ * 出す経路があるので、注入の側に置くと片方だけ古くなる）。
  */
-export function injectIssueStart(number: number, title: string): boolean {
-  return injectToTerminal(issueStartPrompt(number, title))
+export function injectIssuePrompt(kind: IssueKind, number: number, title: string): boolean {
+  return injectToTerminal(issueAgentPrompt(kind, number, title))
 }

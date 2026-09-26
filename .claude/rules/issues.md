@@ -10,7 +10,7 @@ paths:
 
 # issue パネル（#278）実装ルール
 
-GitHub の open issue を番号の降順に出す。実体は `src-tauri/src/issues/mod.rs`、
+GitHub の open issue（と、切り替えて open PR。#413）を番号の降順に出す。実体は `src-tauri/src/issues/mod.rs`、
 `src/stores/issues.ts`、`src/components/panels/IssuesPanel.vue`。
 
 ## 取得と検出
@@ -101,6 +101,35 @@ GitHub の open issue を番号の降順に出す。実体は `src-tauri/src/iss
   やり直す（描く行のほうは木と畳み具合で毎回変わるので、そちらを入力にすると畳んだ意味が
   無くなる）。相対時刻は `lib/paths.ts` の `relativeDate`、ラベル色の綴りの検証は
   `projectColorValue`（任意の CSS 値を style バインドへ通さない規則はあそこが持っている）
+
+## PR の一覧（#413）
+- **issue と混ぜず、パネル上部のタブで切り替える**（`issuesStore.kind`。`pike:issues-kind` に
+  覚える＝`pike:issues-view` と同じ扱い）。タブの見た目は `theme.css` の `.panel-tabs` /
+  `.panel-tab` をアウトラインと共有する
+- **取得は `issues_list` の `kind` で分けるだけ**（`ListKind`）。PR も `IssueSummary` で運び、
+  片方にしか無いフィールド（issue の `parent`、PR の `isDraft`＝`draft`）だけが違う。
+  **`--json` のフィールドは種類ごとに要求する**（`ListKind::list_line`）: `gh pr list` は
+  `parent` を、`gh issue list` は `isDraft` を知らず、渡すとエラーで落ちる
+- **取得の状態（一覧・`error`・`loading`・`loaded`・seq）は種類ごとに持つ**（`stores/issues.ts` の
+  `KindList`）。1 本を共有すると、issue の取得中に PR へ切り替えたとき PR の `ensureLoaded` が
+  「取得中だから」で弾かれ、issue の応答が来ても PR を取りに行く者が居ない。`load` は呼んだ
+  時点の種類に固定して書き込む。`clear()` は両方を捨てる。更新ボタンは表示中の種類だけ
+- **CI の状態は一覧と同じ `gh pr list` で取る**（`statusCheckRollup`）。`gh` の起動は増えないが、
+  取得は遅くなる（実測、`--state all --limit 50` で約 0.8 秒 → 約 4.4 秒）。後から別に取る形より
+  起動 1 回を選んだ（利用者の判断）。**Rust 側で 1 値にまとめて返す**（`summarize_checks` と
+  `CheckState`。並びが優先順位で、失敗 > 実行中 > 成功）: 生の配列は 50 件で約 86KB あり、
+  行に出すのはアイコン 1 つなので運ぶ理由が無い。`CheckRun` と `StatusContext` の 2 つの形が
+  混ざって来る点は `GhCheck` の doc
+- PR は親子を持たないので**常にフラットで描く**。**「今ツリーか」は `treeView` の 1 つ**で、行・
+  字下げの枠・全展開ボタンがこれを読む（`view` を直に読むと、好みが `tree` のまま PR へ切り替えた
+  ときに字下げの空きが残る）。ツリー / フラットのボタンも PR では出さない
+- **種類で変わる文言は `lib/issuePrompt.ts` の `ISSUE_KIND_TEXT` の表 1 つ**（🤖・右クリック・空表示）。
+  呼び出し側に `isPr ? a : b` を散らさない。🤖 と「コピー」は PR では「マージしたいのでレビューして」で、
+  文面は `issueAgentPrompt`、注入は `injectIssuePrompt`（どちらも種類を受け取る）。**簡易表示（issue タブ）は PR にも出す**:
+  `gh issue view` は PR の番号でも本文と会話のコメントを返す（実測。レビューのコメントと差分は
+  載らない）。ヘッダの「+」は issue のときだけ（`newIssueUrl`）
+  - **issue タブの 🤖 も PR ならレビューの依頼を送る。** タブに種類は持たせず、`detail.url` が
+    `/pull/N` かで見分ける（`IssueTab.vue` の `ownUrl`。本文のリンクの判定と同じ解析を共有する。本文の `#123` から PR を開いた場合も同じ）
 
 ## sub-issue の木
 - **木は `parent` だけで組む**（`lib/issueTree.ts` の `buildIssueTree`）。`gh` は

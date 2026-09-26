@@ -3,9 +3,10 @@ import DOMPurify from 'dompurify'
 import { Bot, ExternalLink, RefreshCw } from 'lucide-vue-next'
 import { Marked } from 'marked'
 import { computed, onMounted, ref } from 'vue'
-import { injectIssueStart } from '../../composables/useTerminalInject'
+import { injectIssuePrompt } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { markedCodeHighlight } from '../../lib/codeHighlight'
+import { ISSUE_KIND_TEXT } from '../../lib/issuePrompt'
 import { issueRefs } from '../../lib/issueRefs'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { relativeDate } from '../../lib/paths'
@@ -15,7 +16,7 @@ import { issuesView } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
-import type { IssueDetail } from '../../types/issues'
+import type { IssueDetail, IssueKind } from '../../types/issues'
 import type { IssueTab as IssueTabDef } from '../../types/tab'
 
 // 相対時刻は `relativeDate` が `t()` を通るので、`comments` / テンプレートの computed が
@@ -109,14 +110,27 @@ function openInBrowser() {
 
 /**
  * 「この issue に着手して」をターミナルのエージェントへ注入する（#336）。**送る内容の判断は
- * `composables/useTerminalInject.ts` の `injectIssueStart` が正本**（パネルの 🤖 と共有）。
+ * `composables/useTerminalInject.ts` の `injectIssuePrompt` が正本**（パネルの 🤖 と共有）。
  * 番号はタブが持っているが、題名は取ってきてからしか分からないので `detail` を待つ。
+ *
+ * **PR を開いたタブ（#413）ではレビューの依頼を送る**（パネルの PR 一覧の 🤖 と同じ）。
+ * `gh issue view` は PR の番号でも答え、そのとき `url` が `/pull/N` になるので、タブに種類を
+ * 持たせずにそこで見分ける（`ownUrl`）。
  */
-function askAgentStart() {
+function askAgent() {
   const number = tab.value?.number
   if (number === undefined || !detail.value) return
-  injectIssueStart(number, detail.value.title)
+  injectIssuePrompt(ownUrl.value?.kind ?? 'issue', number, detail.value.title)
 }
+
+/**
+ * 表示している issue / PR の URL（`https://…/kan/pike/issues/278`）を、リポジトリの基準と
+ * 種類に割る。**`detail.url` の解釈はここ 1 つ**（🤖 の出し分けと、本文のリンクの判定が読む）。
+ */
+const ownUrl = computed<{ base: string; kind: IssueKind } | null>(() => {
+  const m = /^(.*)\/(issues|pull)\/\d+$/.exec(detail.value?.url ?? '')
+  return m ? { base: m[1], kind: m[2] === 'pull' ? 'pr' : 'issue' } : null
+})
 
 /**
  * **本文の中のリンクは必ずここで止める（#278）。** `v-html` で流し込んだ `<a>` を素のままに
@@ -160,10 +174,8 @@ function onContentClick(e: MouseEvent) {
  * issue の URL だけで足りる。
  */
 function sameRepoIssueNumber(href: string): number | null {
-  const own = detail.value?.url
-  if (!own) return null
-  const base = own.replace(/\/(issues|pull)\/\d+$/, '')
-  if (base === own) return null
+  const base = ownUrl.value?.base
+  if (!base) return null
   // 正規表現を組み立てず前方一致で見る（URL をパターンに埋めるとエスケープが要る）。
   for (const kind of ['issues', 'pull']) {
     const prefix = `${base}/${kind}/`
@@ -181,7 +193,12 @@ function sameRepoIssueNumber(href: string): number | null {
       <span class="issue-num">#{{ tab?.number }}</span>
       <span v-if="detail" class="issue-state" :class="detail.state.toLowerCase()">{{ detail.state }}</span>
       <span class="issue-spacer" />
-      <button class="tool-btn" :disabled="!detail" :title="t('issues.startWork')" @click="askAgentStart">
+      <button
+        class="tool-btn"
+        :disabled="!detail"
+        :title="t(ISSUE_KIND_TEXT[ownUrl?.kind ?? 'issue'].action)"
+        @click="askAgent"
+      >
         <Bot :size="14" :stroke-width="2" />
       </button>
       <button class="tool-btn" :disabled="loading" :title="t('common.refresh')" @click="load()">

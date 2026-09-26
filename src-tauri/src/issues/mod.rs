@@ -1,4 +1,4 @@
-//! GitHub issue の一覧（#278）。
+//! GitHub issue の一覧（#278）と PR の一覧（#413）。
 //!
 //! **認証は `gh` に丸ごと任せる。** `api.github.com` を直接叩くと CSP の緩和とトークンの
 //! 保管が要るが、`gh` なら手元の認証をそのまま使えて、Pike はトークンに触らずに済む。
@@ -62,6 +62,49 @@ pub struct IssueSummary {
     /// 親 issue の番号（sub-issue のとき）。**番号だけ返す**: 木を組むのは取ってきた
     /// 一覧の中だけで、そこに居ない親は子をトップレベルに出すので、題名も URL も要らない。
     pub parent: Option<u64>,
+    /// ドラフトの PR か（#413）。issue では常に false。
+    pub draft: bool,
+    /// PR の CI の状態（#413）。issue と、チェックが 1 つも無い PR は `None`。
+    pub checks: Option<CheckState>,
+}
+
+/// PR のチェックを 1 つにまとめた状態（#413）。**行に出すのはアイコン 1 つ**なので、
+/// どのジョブが落ちたかは運ばない（GitHub のページで見る）。
+///
+/// **並びが優先順位**（`summarize_checks` が `max` を取る）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CheckState {
+    Success,
+    Pending,
+    Failure,
+}
+
+/// 一覧の種類（#413）。**PR も同じ器で運ぶ**: パネルに出す列（番号・題名・作者・更新・
+/// ラベル）は issue と同じで、違うのは `gh` のサブコマンドと、片方にしか無いフィールド
+/// （issue の `parent`、PR の `isDraft`）だけ。
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ListKind {
+    Issue,
+    Pr,
+}
+
+impl ListKind {
+    /// 実行する行。**フィールドは種類ごとに要求する**（`gh pr list` は `parent` を、
+    /// `gh issue list` は `isDraft` を知らず、渡すとエラーで落ちる）。
+    fn list_line(self, limit: u32) -> String {
+        match self {
+            ListKind::Issue => format!(
+                "gh issue list --state open --limit {limit} \
+                 --json number,title,url,author,updatedAt,labels,parent"
+            ),
+            ListKind::Pr => format!(
+                "gh pr list --state open --limit {limit} \
+                 --json number,title,url,author,updatedAt,labels,isDraft,statusCheckRollup"
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,6 +198,54 @@ struct GhIssue {
     labels: Vec<IssueLabel>,
     #[serde(default)]
     parent: Option<GhParent>,
+    #[serde(default)]
+    is_draft: bool,
+    /// PR のチェック（#413）。issue では要求しないので来ない。`null` でも落とさないよう
+    /// `Option` で受ける。
+    #[serde(default)]
+    status_check_rollup: Option<Vec<GhCheck>>,
+}
+
+/// `statusCheckRollup` の 1 件。**2 つの形が混ざって来る**: GitHub Actions などの
+/// `CheckRun` は `status`（`COMPLETED` / `IN_PROGRESS` …）と `conclusion`（`SUCCESS` /
+/// `FAILURE` …）、外部 CI が使う古い Status API の `StatusContext` は `state`（`SUCCESS` /
+/// `PENDING` / `FAILURE` / `ERROR`）だけを持つ。
+#[derive(Deserialize)]
+struct GhCheck {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    conclusion: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+}
+
+impl GhCheck {
+    fn state(&self) -> CheckState {
+        // `StatusContext` は `state` だけで決まる。
+        if let Some(state) = &self.state {
+            return match state.as_str() {
+                "SUCCESS" => CheckState::Success,
+                "FAILURE" | "ERROR" => CheckState::Failure,
+                _ => CheckState::Pending,
+            };
+        }
+        if self.status.as_deref() != Some("COMPLETED") {
+            return CheckState::Pending;
+        }
+        // 見送られたもの（`NEUTRAL` / `SKIPPED`）は落ちていないので成功に寄せる
+        // （GitHub の PR 一覧の ✓ と同じ扱い）。
+        match self.conclusion.as_deref() {
+            Some("SUCCESS" | "NEUTRAL" | "SKIPPED") => CheckState::Success,
+            _ => CheckState::Failure,
+        }
+    }
+}
+
+/// チェックを 1 つにまとめる。**1 つでも落ちていれば失敗、次に 1 つでも走っていれば実行中**
+/// （走っているあいだに落ちたものがあれば、それを先に知らせる）。空なら `None`。
+fn summarize_checks(checks: &[GhCheck]) -> Option<CheckState> {
+    checks.iter().map(GhCheck::state).max()
 }
 
 impl From<GhIssue> for IssueSummary {
@@ -167,6 +258,8 @@ impl From<GhIssue> for IssueSummary {
             updated_at: g.updated_at,
             labels: g.labels,
             parent: g.parent.map(|p| p.number),
+            draft: g.is_draft,
+            checks: summarize_checks(g.status_check_rollup.as_deref().unwrap_or_default()),
         }
     }
 }
@@ -269,18 +362,17 @@ pub async fn issues_gh_available(
 /// が必ず窓に入っていた。作成順では番号の小さいものから順に外れ、パネルの絞り込み
 /// （取得済みに対するクライアント側の処理）からも拾えなくなる。番号の降順という並びを
 /// 選んだ以上、窓の軸もそちらへ揃うのが筋なので受け入れている。
+///
+/// **PR（#413）も同じコマンドで取る**（`kind`）。並び・件数・失敗の扱いは issue と同じ。
 #[tauri::command]
 pub async fn issues_list(
     shell: ShellConfig,
     root: String,
     limit: u32,
+    kind: ListKind,
 ) -> Result<IssueListResult, String> {
     // 引数はすべてこちらが決めた定数か数値なので、シェルの行に埋めても注入の余地が無い。
-    let limit = limit.clamp(1, 200);
-    let line = format!(
-        "gh issue list --state open --limit {limit} \
-         --json number,title,url,author,updatedAt,labels,parent"
-    );
+    let line = kind.list_line(limit.clamp(1, 200));
     tauri::async_runtime::spawn_blocking(move || {
         let (code, stdout, stderr) = match shell.run_shell_line(&root, &line, LIST_TIMEOUT) {
             Ok(v) => v,
@@ -389,6 +481,54 @@ mod tests {
         let by = |n: u64| issues.iter().find(|i| i.number == n).unwrap();
         assert_eq!(by(299).parent, Some(275));
         assert_eq!(by(275).parent, None);
+    }
+
+    /// PR の `isDraft` を拾う（#413）。issue には無いフィールドなので、無ければ false。
+    #[test]
+    fn reads_draft_flag_of_pull_requests() {
+        let json = r#"[
+          {"number":2,"title":"d","url":"u","updatedAt":"","author":null,"labels":[],"isDraft":true},
+          {"number":1,"title":"r","url":"u","updatedAt":"","author":null,"labels":[]}
+        ]"#;
+        let issues = parse_list(json).unwrap();
+        assert!(issues[0].draft);
+        assert!(!issues[1].draft);
+    }
+
+    /// CI のチェックを 1 値にまとめる（#413）。落ちたもの > 走っているもの > 成功、の順。
+    /// `CheckRun`（`status` / `conclusion`）と `StatusContext`（`state`）が混ざって来る。
+    #[test]
+    fn summarizes_status_check_rollup() {
+        let json = r#"[
+          {"number":5,"title":"","url":"","updatedAt":"","author":null,"labels":[],
+           "statusCheckRollup":[
+             {"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
+             {"__typename":"CheckRun","status":"IN_PROGRESS","conclusion":""},
+             {"__typename":"CheckRun","status":"COMPLETED","conclusion":"FAILURE"}]},
+          {"number":4,"title":"","url":"","updatedAt":"","author":null,"labels":[],
+           "statusCheckRollup":[
+             {"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
+             {"__typename":"StatusContext","state":"PENDING"}]},
+          {"number":3,"title":"","url":"","updatedAt":"","author":null,"labels":[],
+           "statusCheckRollup":[
+             {"__typename":"CheckRun","status":"COMPLETED","conclusion":"SKIPPED"},
+             {"__typename":"StatusContext","state":"SUCCESS"}]},
+          {"number":2,"title":"","url":"","updatedAt":"","author":null,"labels":[],
+           "statusCheckRollup":[]},
+          {"number":1,"title":"","url":"","updatedAt":"","author":null,"labels":[],
+           "statusCheckRollup":null}
+        ]"#;
+        let checks: Vec<_> = parse_list(json).unwrap().iter().map(|i| i.checks).collect();
+        assert_eq!(
+            checks,
+            vec![
+                Some(CheckState::Failure),
+                Some(CheckState::Pending),
+                Some(CheckState::Success),
+                None,
+                None,
+            ]
+        );
     }
 
     /// 消えたアカウントの issue は `author` が null で来る。落とさず空にする。

@@ -13,7 +13,7 @@ import type {
   PullOption,
   PushOption,
 } from '../types/git'
-import type { IssueDetail, IssueListResult } from '../types/issues'
+import type { IssueDetail, IssueKind, IssueListResult } from '../types/issues'
 import type { ProjectConfig } from '../types/project'
 import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
 import type { MenuAction, MenuShell, ShellType } from '../types/tab'
@@ -722,8 +722,13 @@ export async function issuesGhAvailable(shell: ShellType, root: string, force: b
   return invoke<boolean>('issues_gh_available', { shell, root, force })
 }
 
-export async function issuesList(shell: ShellType, root: string, limit: number): Promise<IssueListResult> {
-  return invoke<IssueListResult>('issues_list', { shell, root, limit })
+export async function issuesList(
+  shell: ShellType,
+  root: string,
+  limit: number,
+  kind: IssueKind,
+): Promise<IssueListResult> {
+  return invoke<IssueListResult>('issues_list', { shell, root, limit, kind })
 }
 
 export async function issuesView(shell: ShellType, root: string, number: number): Promise<IssueDetail> {

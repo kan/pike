@@ -1129,6 +1129,18 @@ export default {
   'issues.startWork': 'Ask the agent to start',
   'issues.copyStartPrompt': 'Copy the start instruction',
   'issues.startPrompt': 'Start working on #{number} "{title}". Run `gh issue view {number}` for details.',
+  'issues.kindIssues': 'Issues',
+  'issues.kindPulls': 'Pull requests',
+  'issues.emptyPulls': 'No open pull requests',
+  'issues.noMatchPulls': 'No matching pull requests',
+  'issues.draft': 'Draft',
+  'issues.checksSuccess': 'CI: passed',
+  'issues.checksFailure': 'CI: failed',
+  'issues.checksPending': 'CI: running',
+  'issues.review': 'Ask the agent to review',
+  'issues.copyReviewPrompt': 'Copy the review instruction',
+  'issues.reviewPrompt':
+    'I want to merge pull request #{number} "{title}". Please review it. Run `gh pr view {number}` and `gh pr diff {number}` for details.',
   // Outline
   'outline.empty': 'No file opened',
   'outline.unsupported': 'No outline available for this file',
