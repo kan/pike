@@ -166,6 +166,28 @@ function parseImportsGo(text: string): ImportEntry[] {
 }
 
 /**
+ * The import source of component `name` in a generated `components.d.ts` (#406).
+ * unplugin-vue-components and Nuxt register components without an import in
+ * the SFC, and record each one in that file as a type-level import:
+ *
+ *   HelloWorld: typeof import('./src/components/HelloWorld.vue')['default']   // unplugin
+ *   'AppHeader': typeof import("../components/AppHeader.vue")['default']      // Nuxt 3
+ *   'LazyAppHeader': LazyComponent<typeof import("../components/AppHeader.vue")['default']>
+ *   export const AppHeader: typeof import("../components/AppHeader.vue")['default']  // Nuxt 2
+ *
+ * The source is relative to the d.ts itself, so the caller resolves it with
+ * the d.ts as `fromFile` — the same path an import line takes. The first entry
+ * wins when a name repeats (Nuxt lists it in several interfaces).
+ */
+export function findComponentDeclaration(text: string, name: string): string | null {
+  const re = /['"]?([A-Za-z_$][\w$]*)['"]?\s*:\s*(?:[\w$.]+\s*<\s*)?typeof\s+import\s*\(\s*(['"])([^'"]+)\2\s*\)/g
+  for (const m of text.matchAll(re)) {
+    if (m[1] === name) return m[3]
+  }
+  return null
+}
+
+/**
  * Memoized version of `parseImports` keyed by the underlying CodeMirror
  * `Text` instance — stable across non-doc-changing transactions, so hover
  * lookups don't re-run regex on every mousemove.

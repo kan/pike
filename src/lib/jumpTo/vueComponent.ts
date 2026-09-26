@@ -7,14 +7,18 @@
  *
  * Also handles `components: { Foo }` and `components: { Foo: SomeOther }`
  * registration in non-setup `<script>` so that Options-API style works too.
+ *
+ * Falls back to `app.component()` in main.{ts,js} and then to the
+ * `components.d.ts` that unplugin-vue-components / Nuxt generate for
+ * components used without an import (#406).
  */
 
 import type { ShellType } from '../../types/tab'
 import { pathSep } from '../paths'
 import { fsReadFile } from '../tauri'
 import { escapeRegExp } from '../text'
-import { findImportForName, type ImportEntry, parseImports } from './parseImports'
-import { findNearestUpward, resolveImport } from './resolveImport'
+import { findComponentDeclaration, findImportForName, type ImportEntry, parseImports } from './parseImports'
+import { findAllUpward, findNearestUpward, resolveImport } from './resolveImport'
 
 export interface VueComponentResolveOpts {
   componentName: string
@@ -52,7 +56,8 @@ export async function resolveVueComponent(opts: VueComponentResolveOpts): Promis
 
   // 3. Globally registered via `app.component('Name', X)` in main.{ts,js,...}
   const globals = await loadGlobalComponents(fromFile, projectRoot, shell)
-  return globals.get(target) ?? null
+  // 4. Auto-registered (unplugin-vue-components / Nuxt) via components.d.ts
+  return globals.get(target) ?? resolveAutoComponent(target, fromFile, projectRoot, shell)
 }
 
 function toPascalCase(name: string): string {
@@ -129,6 +134,48 @@ async function parseGlobalComponents(
   }
   await Promise.all(tasks)
   return out
+}
+
+// --- Auto-registered components (components.d.ts, #406) ---
+
+/**
+ * Where the generators write the d.ts, tried at each ancestor directory.
+ * unplugin-vue-components defaults to the root and is often pointed at `src/`
+ * or a `types/` directory; Nuxt always writes `.nuxt/components.d.ts`.
+ */
+const COMPONENTS_DTS_NAMES = [
+  'components.d.ts',
+  'src/components.d.ts',
+  'types/components.d.ts',
+  'src/types/components.d.ts',
+  '.nuxt/components.d.ts',
+] as const
+
+/**
+ * Not cached, unlike `main.ts`: `.nuxt` is in the watcher's `IGNORED_DIRS`, so
+ * a cache would miss Nuxt's regeneration. It only runs on a click that nothing
+ * else resolved, so one read per click is cheap.
+ */
+async function resolveAutoComponent(
+  target: string,
+  fromFile: string,
+  projectRoot: string,
+  shell: ShellType,
+): Promise<string | null> {
+  // Every existing d.ts, not just the first: a hand-written `types/components.d.ts`
+  // (e.g. only `declare module '*.vue'`) would otherwise hide `.nuxt/components.d.ts`.
+  const dtsPaths = await findAllUpward(fromFile, projectRoot, pathSep(shell), shell, COMPONENTS_DTS_NAMES)
+  for (const dtsPath of dtsPaths) {
+    let text: string
+    try {
+      text = (await fsReadFile(shell, dtsPath)).content
+    } catch {
+      continue
+    }
+    const source = findComponentDeclaration(text, target)
+    if (source) return resolveImport({ importPath: source, fromFile: dtsPath, projectRoot, shell, langId: 'ts' })
+  }
+  return null
 }
 
 /**

@@ -138,10 +138,7 @@ async function loadAliasMap(
   // config is considered, though: climbing past a package's own tsconfig to
   // the monorepo root would apply an alias TypeScript doesn't give that
   // package. Single IPC call covers the whole walk.
-  const configs = await fsExistingPaths(
-    shell,
-    ancestorCandidates(fromFile, projectRoot, sep, shell, ALIAS_CONFIG_FILENAMES),
-  )
+  const configs = await findAllUpward(fromFile, projectRoot, sep, shell, ALIAS_CONFIG_FILENAMES)
   const nearestDir = configs.length > 0 ? dirname(configs[0]) : null
   for (const configPath of configs.filter((c) => dirname(c) === nearestDir)) {
     const map = await loadCached(configPath, () => readAliasMap(configPath, sep, shell))
@@ -180,6 +177,17 @@ export async function findNearestUpward(
   filenames: readonly string[],
 ): Promise<string | null> {
   return fsResolveFirstExisting(shell, ancestorCandidates(fromFile, projectRoot, sep, shell, filenames))
+}
+
+/** Like `findNearestUpward`, but every existing match, nearest first. */
+export async function findAllUpward(
+  fromFile: string,
+  projectRoot: string,
+  sep: '/' | '\\',
+  shell: ShellType,
+  filenames: readonly string[],
+): Promise<string[]> {
+  return fsExistingPaths(shell, ancestorCandidates(fromFile, projectRoot, sep, shell, filenames))
 }
 
 /**

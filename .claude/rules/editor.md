@@ -226,7 +226,11 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
 ## 定義ジャンプ（Ctrl+Click / F12）
 - `lib/editorJumpTo.ts` + `lib/jumpTo/`。TS/JS/Vue/Go の import パスを Ctrl+Click でファイル open
 - 識別子は同一ファイル内宣言（Lezer 構文木）と import 経由のクロスファイル定義の両方に対応
-- Vue カスタムコンポーネントは `<script setup>` の PascalCase import / Options-API `components` / `app.component()` グローバル登録の 3 段で解決
+- Vue カスタムコンポーネントは `<script setup>` の PascalCase import / Options-API `components` / `app.component()` グローバル登録 / `components.d.ts` の 4 段で解決
+  - **`components.d.ts` は import の無い自動登録（unplugin-vue-components・Nuxt）のため（#406）**。生成物が `Name: typeof import('./x.vue')['default']` の形で定義元を書くので、その文字列を **d.ts 自身を起点に** `resolveImport` へ渡す（import 行と同じ解決）。置き場の候補は `COMPONENTS_DTS_NAMES`、解析は `findComponentDeclaration`
+  - **最初に見つかった d.ts で打ち切らない**。実在するものを近い順に全部受け取り（`findAllUpward`）、名前が載っている最初のものを採る。手書きの `types/components.d.ts`（`declare module '*.vue'` だけ等）が `.nuxt/components.d.ts` を隠すため（alias の #398 と同じ形）
+  - **d.ts はキャッシュしない。** `.nuxt` は監視の `IGNORED_DIRS` に入っているので、`main.ts` のようにキャッシュすると Nuxt の再生成を取りこぼす。他の段で解決できなかったクリックでだけ読むので、1 クリック 1 回の読み込みで足りる
+  - `RouterLink: typeof import('vue-router')` のようなパッケージの登録は、import 行と同じく解決できない（node_modules は歩かない）
 - path alias 解決: tsconfig/jsconfig の `compilerOptions.paths` と vite.config の `resolve.alias`（祖先方向に config 探索、モノレポ対応、設定変更で自動 invalidate）
   - **最初に見つかった設定ファイルで打ち切らない（#398）**。`fs_existing_paths` で実在するものを近い順（同じ階層では tsconfig → jsconfig → vite.config）に全部受け取り、**いちばん近い階層のものの中で** alias を得られた最初のものを採る（祖先まで上ると、モノレポのパッケージに TS が与えないルートの alias を当ててしまう）。1 つで打ち切ると、`references` だけの `tsconfig.json`（`npm create vue` の構成）が隣の `vite.config.ts` を隠す
   - **プロジェクトの外のファイルは、そのファイル自身の木を上へ辿る**（`ancestorCandidates`）。プロジェクトのルートで止めるのは、ファイルがその下にあるときだけ（判定は `projectPaths.ts` の `isSameOrUnder`）。以前は外のファイルでも今のプロジェクトのルートを候補に足していたので、別の repo のファイルに今のプロジェクトの alias が当たった
