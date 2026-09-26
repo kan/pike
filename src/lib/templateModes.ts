@@ -15,6 +15,7 @@ import { css } from '@codemirror/legacy-modes/mode/css'
 import { javascript } from '@codemirror/legacy-modes/mode/javascript'
 import { ruby } from '@codemirror/legacy-modes/mode/ruby'
 import { html } from '@codemirror/legacy-modes/mode/xml'
+import { KOLON_LINE_CODE } from './jumpTo/xslateInclude'
 import { escapeRegExp } from './text'
 
 type AnyParser = StreamParser<unknown>
@@ -414,5 +415,5 @@ export const smarty = template('smarty', { open: '{*', close: '*}' }, [
  */
 export const xslate = template('xslate', { line: ': #' }, [
   { open: /<:/g, close: /:>/g, mode: kolonExpr },
-  { open: /^[ \t]*:(?!>)/g, mode: kolonExpr },
+  { open: KOLON_LINE_CODE, mode: kolonExpr },
 ])

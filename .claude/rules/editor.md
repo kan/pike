@@ -241,11 +241,16 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
   - **最初に見つかった d.ts で打ち切らない**。実在するものを近い順に全部受け取り（`findAllUpward`）、名前が載っている最初のものを採る。手書きの `types/components.d.ts`（`declare module '*.vue'` だけ等）が `.nuxt/components.d.ts` を隠すため（alias の #398 と同じ形）
   - **d.ts はキャッシュしない。** `.nuxt` は監視の `IGNORED_DIRS` に入っているので、`main.ts` のようにキャッシュすると Nuxt の再生成を取りこぼす。他の段で解決できなかったクリックでだけ読むので、1 クリック 1 回の読み込みで足りる
   - `RouterLink: typeof import('vue-router')` のようなパッケージの登録は、import 行と同じく解決できない（node_modules は歩かない）
+- **Text::Xslate（`.tx`）は `include` / `cascade` の引数でテンプレートを開く**（`lib/jumpTo/xslateInclude.ts` の `xslateTemplateAt`）。裸の名前は Xslate と同じく `::` → `/` と `.tx` を足す。見るのは Kolon のコードの中だけ（行頭の `:` 以降と `<: :>`）
+  - **解決は「開いているファイルから上へ辿り、`ディレクトリ + 名前` が実在する最初の場所」**（`findNearestUpward`）。Xslate はテンプレートを Perl 側の設定（`path`）のディレクトリから引くが、Pike はそれを読めない。テンプレートの木の中のファイル同士なら木の根で見つかる。`path` に並べた別のディレクトリのものは開けない（見つからない表示）
+  - 行コードの始まりの正規表現は `KOLON_LINE_CODE` の 1 つを、ハイライト（`templateModes.ts`）と共有する。片方だけ直すと色の付く範囲と Ctrl+Click の効く範囲が食い違う
+  - `$` / `.` の直後の裸の名前は拾わない（`: include $tmpl` の変数を `tmpl.tx` と読まない）
 - path alias 解決: tsconfig/jsconfig の `compilerOptions.paths` と vite.config の `resolve.alias`（祖先方向に config 探索、モノレポ対応、設定変更で自動 invalidate）
   - **最初に見つかった設定ファイルで打ち切らない（#398）**。`fs_existing_paths` で実在するものを近い順（同じ階層では tsconfig → jsconfig → vite.config）に全部受け取り、**いちばん近い階層のものの中で** alias を得られた最初のものを採る（祖先まで上ると、モノレポのパッケージに TS が与えないルートの alias を当ててしまう）。1 つで打ち切ると、`references` だけの `tsconfig.json`（`npm create vue` の構成）が隣の `vite.config.ts` を隠す
   - **プロジェクトの外のファイルは、そのファイル自身の木を上へ辿る**（`ancestorCandidates`）。プロジェクトのルートで止めるのは、ファイルがその下にあるときだけ（判定は `projectPaths.ts` の `isSameOrUnder`）。以前は外のファイルでも今のプロジェクトのルートを候補に足していたので、別の repo のファイルに今のプロジェクトの alias が当たった
   - **vite.config の alias の置換先は `resolveFrom` を通す**（#398）。置換先は `path.resolve(__dirname, …)` を解いた絶対パスで、`joinPath` は絶対パスの `rel` でも後ろに足すので、`paths` と同じく `joinPath(baseUrl, …)` に通すと壊れたパスになる
   - tsconfig は相対パスの `extends` をたどり、起点のファイルからだけ `references` を 1 段たどる。**パッケージ名の `extends` は読まない**（node_modules を歩くことになる）。`paths` の基準は TS と同じく「チェーンのどこかの `baseUrl`、無ければ `paths` を書いたファイルのディレクトリ」
+- **Ctrl+ホバーの下線の範囲はジャンプの側が返す**（`jumpableRangeAt`。import のパス・Vue のタグ名・Xslate のテンプレート名・識別子）。呼び出し側で語の範囲を推し量ると、`foo::bar` や `@/foo` のように語の文字で切れる対象で下線がずれる。判定と範囲を 1 つの関数にしてあるので、言語を足すときは分岐を 1 か所に書けばよい
 - 進捗・結果は `stores/statusMessage.ts` 経由で StatusBar に表示（スピナー / 開いたファイル名 / 見つからない）
 
 ## アウトラインパネル（Outline）

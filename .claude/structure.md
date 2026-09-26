@@ -255,7 +255,7 @@ pike/
 │   │   ├── editorMacro.ts    # キーボードマクロの記録と再生（#180。サクラエディタ風）
 │   │   ├── editorJumpTo.ts  editorConflict.ts  editorDiagnostics.ts  editorMarkdown.ts
 │   │   ├── editorPresetKeys.ts # ショートカットのプリセットで変わる CodeMirror のキー（#261）
-│   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent）
+│   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent/xslateInclude）
 │   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 18 言語）
 │   └── assets/
 │       └── theme.css          # CSS Variables テーマ定義（ダーク/ライト）

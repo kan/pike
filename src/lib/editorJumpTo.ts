@@ -12,7 +12,7 @@
 import { type Extension, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import type { ShellType } from '../types/tab'
-import { isJumpableAt, type JumpTarget, jumpToDefinition } from './jumpTo'
+import { type JumpTarget, jumpableRangeAt, jumpToDefinition } from './jumpTo'
 import { hasMod } from './keys'
 
 export interface JumpToContext {
@@ -140,19 +140,7 @@ function scheduleHover(view: EditorView, offset: number, ctx: JumpToContext): vo
   // Hover uses the sync IPC-free pre-check — running the full async resolver
   // (which may read tsconfig / vite.config from disk) on every mousemove is
   // too expensive. The actual click handler still runs the full resolver.
-  const jumpable = isJumpableAt({
-    state: view.state,
-    offset,
-    filePath: ctx.filePath,
-    projectRoot: ctx.projectRoot,
-    shell: ctx.shell,
-    langId: ctx.langId,
-  })
-  if (!jumpable) {
-    clearHover(view)
-    return
-  }
-  const range = wordRangeAt(view, offset)
+  const range = jumpableRangeAt({ state: view.state, offset, ...ctx })
   if (!range) {
     clearHover(view)
     return
@@ -165,19 +153,6 @@ function scheduleHover(view: EditorView, offset: number, ctx: JumpToContext): vo
     return false
   })
   if (!same) view.dispatch({ effects: setHoverRange.of(range) })
-}
-
-function wordRangeAt(view: EditorView, offset: number): { from: number; to: number } | null {
-  const line = view.state.doc.lineAt(offset)
-  const col = offset - line.from
-  const text = line.text
-  const isWord = (ch: string) => /[A-Za-z0-9_$\-./]/.test(ch)
-  let s = col
-  while (s > 0 && isWord(text[s - 1])) s--
-  let e = col
-  while (e < text.length && isWord(text[e])) e++
-  if (s === e) return null
-  return { from: line.from + s, to: line.from + e }
 }
 
 async function runJump(view: EditorView, offset: number, ctx: JumpToContext, opts: JumpToOptions): Promise<void> {

@@ -15,12 +15,14 @@ import type { EditorState } from '@codemirror/state'
 import type { ShellType } from '../../types/tab'
 import { fileTypeKey } from '../fileType'
 import { extractOutline, type OutlineNode } from '../outline'
+import { pathSep } from '../paths'
 import { fsReadFile } from '../tauri'
 import { escapeRegExp } from '../text'
 import { findDefinitionInFile, wordAt } from './findInFile'
 import { findImportAt, findImportForName, importedNameFor, parseImportsCached } from './parseImports'
-import { resolveImport } from './resolveImport'
+import { findNearestUpward, resolveImport } from './resolveImport'
 import { looksLikeCustomComponent, resolveVueComponent, tagNameAt } from './vueComponent'
+import { xslateTemplateAt } from './xslateInclude'
 
 export interface JumpTarget {
   path: string
@@ -43,32 +45,54 @@ export interface JumpContext {
   langId: string
 }
 
+export interface JumpRange {
+  from: number
+  to: number
+}
+
 /**
- * Sync, IPC-free pre-check used by hover decoration. Returns true when
- * something at `offset` *might* resolve — without doing any filesystem work.
- * The actual click handler still runs `jumpToDefinition` for the real lookup.
+ * Sync, IPC-free pre-check used by hover decoration. Returns the range to
+ * underline when something at `offset` *might* resolve — without doing any
+ * filesystem work — or null. The actual click handler still runs
+ * `jumpToDefinition` for the real lookup.
+ *
+ * **範囲は各分岐が自分で返す**（import のパス・Vue のタグ名・Xslate のテンプレート名・識別子）。
+ * 呼び出し側が語の範囲を推し量ると、`foo::bar` や `@/foo` のように語の文字で切れる対象で
+ * 下線がずれる。
  */
-export function isJumpableAt(ctx: JumpContext): boolean {
+export function jumpableRangeAt(ctx: JumpContext): JumpRange | null {
+  // 文書全体を文字列にする前に返す（Xslate は行だけを見る）。
+  if (ctx.langId === 'tx') return xslateRefAt(ctx)
+
   const text = ctx.state.doc.toString()
   const imports = parseImportsCached(ctx.state.doc, text, ctx.langId)
 
-  if (findImportAt(imports, ctx.offset)) return true
+  const imp = findImportAt(imports, ctx.offset)
+  if (imp) return { from: imp.sourceFrom, to: imp.sourceTo }
 
   if (ctx.langId === 'vue') {
     const tag = tagNameAt(text, ctx.offset)
-    if (tag && looksLikeCustomComponent(tag.name)) return true
+    if (tag && looksLikeCustomComponent(tag.name)) return tag
   }
 
   const word = wordAt(ctx.state, ctx.offset)
-  if (!word) return false
+  if (!word) return null
 
   const local = findDefinitionInFile(word.text, ctx.state, ctx.langId)
-  if (local && !(ctx.offset >= local.from && ctx.offset <= local.to)) return true
+  if (local && !(ctx.offset >= local.from && ctx.offset <= local.to)) return word
 
-  return findImportForName(imports, word.text) !== null
+  return findImportForName(imports, word.text) ? word : null
 }
 
 export async function jumpToDefinition(ctx: JumpContext): Promise<JumpResult | null> {
+  // Text::Xslate: `include` / `cascade` の引数 → テンプレートを開く（行だけを見るので先に返す）
+  if (ctx.langId === 'tx') {
+    const ref = xslateRefAt(ctx)
+    if (!ref) return null
+    const path = await findNearestUpward(ctx.filePath, ctx.projectRoot, pathSep(ctx.shell), ctx.shell, [ref.name])
+    return path ? { target: { path } } : null
+  }
+
   const text = ctx.state.doc.toString()
 
   // 1. Click on an import path string → open file
@@ -134,6 +158,20 @@ export async function jumpToDefinition(ctx: JumpContext): Promise<JumpResult | n
   }
 
   return null
+}
+
+/**
+ * Text::Xslate の `include` / `cascade` の対象。
+ *
+ * **テンプレートは Perl 側の設定（`path`）のディレクトリから引かれる**が、Pike はそれを読めない。
+ * そのため解決は「開いているファイルから上へ辿り、`ディレクトリ + 名前` が実在する最初の場所」
+ * にする（`findNearestUpward`）。テンプレートの木の中のファイル同士なら、木の根に着いた時点で
+ * 見つかる。`path` に並べた別のディレクトリのテンプレートは開けない（見つからない表示になる）。
+ */
+function xslateRefAt(ctx: JumpContext) {
+  const line = ctx.state.doc.lineAt(ctx.offset)
+  const ref = xslateTemplateAt(line.text, ctx.offset - line.from)
+  return ref && { name: ref.name, from: line.from + ref.from, to: line.from + ref.to }
 }
 
 /**
