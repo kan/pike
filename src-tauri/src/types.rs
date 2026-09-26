@@ -118,7 +118,8 @@ pub fn wslenv_with(current: &str, names: &[&str]) -> String {
 #[cfg(not(windows))]
 pub const UNIX_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.cargo/bin:$HOME/go/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/go/bin";
 
-/// GUI から起動したプロセスの PATH に、`UNIX_EXTRA_PATH` のうち実在するものを足す。
+/// GUI から起動したプロセスの PATH に、`UNIX_EXTRA_PATH` のうち実在するもの（と
+/// `UNIX_INSTALL_BIN`）を足す。
 ///
 /// **Finder / Dock / `open` から起動した macOS の GUI プロセスは `launchd` の最小 PATH
 /// （`/usr/bin:/bin:/usr/sbin:/sbin`）しか持たない。** そのため素の `Command::new("git")`
@@ -159,18 +160,39 @@ pub fn augment_process_path() {
 /// 足すのは**末尾**: 既に PATH にあるもの（インストール版）を押しのけない。開発版でも
 /// `target\debug` が末尾に付くだけで、インストール版があればそちらが先に解決される
 /// （`agent_hook::hook_command` の「PATH の `pike.exe` はインストール版」が保たれる）。
+///
+/// もう 1 つ `%USERPROFILE%\.local\bin`（`user_bin_dir`）も足す。
 #[cfg(windows)]
 pub fn augment_process_path() {
-    let Some(dir) = std::env::current_exe()
+    let install_dir = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()))
-    else {
-        return;
-    };
-    let current = std::env::var("PATH").unwrap_or_default();
-    if let Some(next) = path_with_dir(&current, &dir) {
-        std::env::set_var("PATH", next);
+        .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()));
+    let mut path = std::env::var("PATH").unwrap_or_default();
+    let mut changed = false;
+    for dir in [install_dir, user_bin_dir()].into_iter().flatten() {
+        if let Some(next) = path_with_dir(&path, &dir) {
+            path = next;
+            changed = true;
+        }
     }
+    if changed {
+        std::env::set_var("PATH", path);
+    }
+}
+
+/// `%USERPROFILE%\.local\bin`。Pike が Windows のシェルに vue-preview を入れる場所（#397。
+/// 入れる 1 行は `src/lib/vuePreview.ts` の `vuePreviewInstallCommand`）。
+///
+/// **実在しなくても足す**（macOS の `augmented_path_with` と違う）: 無い状態で起動したあとに
+/// Pike の導線で入れたとき、再起動せずに検出（`has_command`）とターミナルから見つかるように
+/// するため。PATH は起動時にしか広げられない（`set_var` はスレッドが立つ前だけ）。足すのは
+/// 1 つだけなので、無いディレクトリを探索する費用は無視できる。
+#[cfg(windows)]
+fn user_bin_dir() -> Option<String> {
+    std::env::var("USERPROFILE")
+        .ok()
+        .filter(|home| !home.is_empty())
+        .map(|home| format!(r"{home}\.local\bin"))
 }
 
 /// `dir` が `current` に無ければ末尾に足した PATH を返す（あれば `None`）。
@@ -188,15 +210,20 @@ fn path_with_dir(current: &str, dir: &str) -> Option<String> {
     Some(next)
 }
 
+/// Pike が自分で入れるものの置き場（#397 の vue-preview。入れる 1 行は
+/// `src/lib/vuePreview.ts` の `vuePreviewInstallCommand`）。`augmented_path_with` が
+/// 実在しなくても足す。
+#[cfg(not(windows))]
+const UNIX_INSTALL_BIN: &str = "$HOME/.local/bin";
+
 /// `augment_process_path` の判断部分。プロセスの環境を触らないので単体で確かめられる
 /// （`set_var` はテスト同士が干渉する）。**`exists` が真になったものだけを足す**: 存在しない
 /// ディレクトリを並べても動作は変わらないが、PATH が長いほど毎回の exec 探索が伸びる。
 ///
-/// 以前は `$HOME/.local/bin` だけ `exists` を免除していた。Pike 自身が
-/// `npm install -g --prefix $HOME/.local` で ACP エージェントを入れており、**入れるまで
-/// そのディレクトリが存在しない**ため、インストール直後の `which` が外れるのを避ける必要が
-/// あったため。#275 でそのインストーラごと消えたので、例外の根拠も無くなった（ユーザー自身の
-/// npm / pipx が作っていれば `exists` で普通に拾う）。
+/// **例外は `UNIX_INSTALL_BIN` だけ**。Pike の導線で vue-preview を入れると、**入れるまで
+/// そのディレクトリが存在しない**ことがある。PATH は起動時にしか広げられないので、免除しないと
+/// 入れた直後の検出が外れ、再起動するまで見つからない（#275 で ACP エージェントのインストーラが
+/// 消えたときに一度外した例外を、#397 で同じ理由から戻した。Windows の `user_bin_dir` と同じ）。
 #[cfg(not(windows))]
 fn augmented_path_with(current: &str, home: &str, exists: impl Fn(&str) -> bool) -> String {
     let mut dirs: Vec<String> = current
@@ -206,7 +233,7 @@ fn augmented_path_with(current: &str, home: &str, exists: impl Fn(&str) -> bool)
         .collect();
     for entry in UNIX_EXTRA_PATH.split(':') {
         let dir = entry.replace("$HOME", home);
-        if !dirs.iter().any(|d| d == &dir) && exists(&dir) {
+        if !dirs.iter().any(|d| d == &dir) && (entry == UNIX_INSTALL_BIN || exists(&dir)) {
             dirs.push(dir);
         }
     }
@@ -834,11 +861,25 @@ impl ShellConfig {
     /// 素の `run` で探すと、探し方と走らせ方が食い違って「検出できないのに手で打てば動く」
     /// になる。`bin` はこちらが決めた定数だけを渡すこと（行にそのまま埋まる）。
     pub fn has_command(&self, dir: &str, bin: &str) -> bool {
+        self.probe_command(dir, bin) == CommandProbe::Found
+    }
+
+    /// `has_command` の三値版（`CommandProbe`）。「無いなら入れる」を勧める呼び出し
+    /// （`vue_preview_available`、#397）が使う。
+    ///
+    /// **POSIX（WSL / Unix）で無いと言うのは、シェルの「コマンドが見つからない」の 127 だけ**。
+    /// それ以外の非 0 は `wsl.exe` 自体の失敗でも返るので分からない側に置く。**Windows の
+    /// シェルは非 0 なら無い**: `run_shell_line` はどれも `cmd /C` で走らせ、見つからないときの
+    /// 終了コードは 1（9009 はバッチの中の ERRORLEVEL で、プロセスの終了コードではない。実測）。
+    /// cmd 自体を起こせなければ `Err` に来る。時間切れ（冷えた WSL で普通に起きる）は `Unknown`。
+    /// そこで「無い」と言うと、入っている人に入れ直しを勧め、押せば動いているものを上書きする。
+    pub fn probe_command(&self, dir: &str, bin: &str) -> CommandProbe {
         const TIMEOUT: Duration = Duration::from_secs(10);
-        matches!(
-            self.run_shell_line(dir, &format!("{bin} --version"), TIMEOUT),
-            Ok((0, _, _))
-        )
+        match self.run_shell_line(dir, &format!("{bin} --version"), TIMEOUT) {
+            Ok((0, _, _)) => CommandProbe::Found,
+            Ok((code, _, _)) if code == 127 || !self.is_posix() => CommandProbe::Missing,
+            _ => CommandProbe::Unknown,
+        }
     }
 
     /// `run_shell_line` plus environment variables for that one command. The
@@ -1514,6 +1555,18 @@ pub fn truncate_chars_tail(s: &str, max: usize) -> String {
     }
 }
 
+/// `ShellConfig::probe_command` の答え。そのままフロントへ返せる形にしてある
+/// （`vue_preview_available`。`missing` のときだけ入れ方を案内する）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommandProbe {
+    Found,
+    /// シェルが「コマンドが見つからない」と答えた。
+    Missing,
+    /// 時間切れなどで分からない。**入れ方を勧めない**（入っている人に上書きさせない）。
+    Unknown,
+}
+
 /// Cache key for things that are per claude/codex *installation* rather than per
 /// project — a WSL distro has its own home and its own tool config, the Windows
 /// shells all share the host's. Shared so the several caches keyed this way
@@ -1947,12 +2000,13 @@ mod tests {
         assert!(dirs.contains(&"/Users/me/.cargo/bin"));
     }
 
-    /// 実在しないものは 1 つも足さない（#275 で最後の例外が消えたので、規則は 1 本）。
+    /// 実在しないものは足さない。例外は Pike が入れる先の `~/.local/bin` だけ（#397。
+    /// 入れる前に起動していても、入れた直後に見つかるように）。
     #[cfg(not(windows))]
     #[test]
-    fn augmented_path_skips_missing_dirs() {
+    fn augmented_path_skips_missing_dirs_but_the_install_bin() {
         let got = augmented_path_with("/usr/bin", "/Users/me", |_| false);
-        assert_eq!(got, "/usr/bin");
+        assert_eq!(got, "/usr/bin:/Users/me/.local/bin");
     }
 
     /// 前置の一致（#382）。

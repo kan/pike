@@ -928,6 +928,13 @@ export default {
   'vuePreview.apply': '適用',
   'vuePreview.clearValues': '入れた値を消す',
   'vuePreview.close': '閉じる',
+  'vuePreview.missing': 'Vue のプレビューには vue-preview が必要です',
+  'vuePreview.installHint':
+    'vue-preview は .vue のコンポーネントを 1 枚の HTML に描く外部コマンドです。GitHub から最新版を取り、このプロジェクトのシェルの {dir} に置きます。',
+  'vuePreview.install': 'vue-preview を入れる',
+  'vuePreview.installing': '入れています…',
+  'vuePreview.installTitle': 'vue-preview のインストール',
+  'vuePreview.releases': 'Releases を開く',
   'browser.applySiteRules': '開き直して反映',
   'browser.blankTitle': '新しいタブ',
   'browser.filterPlaceholder': 'ブックマークと履歴を絞り込む',

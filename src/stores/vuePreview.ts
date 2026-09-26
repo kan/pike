@@ -1,11 +1,15 @@
 import { defineStore } from 'pinia'
-import { vuePreviewAvailable } from '../lib/tauri'
-import type { ShellType } from '../types/tab'
+import { ref } from 'vue'
+import { t } from '../i18n'
+import { type VuePreviewAvailability, vuePreviewAvailable } from '../lib/tauri'
+import { vuePreviewInstallCommand } from '../lib/vuePreview'
+import { type ShellType, shellId } from '../types/tab'
 import { createShellProbe } from './shellProbe'
+import { useTabStore } from './tabs'
 
 /**
- * `vue-preview` の検出（#397）。見つかったシェルでだけ、.vue のエディタに Preview を出す
- * （`gh` の issue パネルと同じ「入っていれば使える」形）。
+ * `vue-preview` の検出（#397）。見つかったシェルでは .vue のエディタに Preview を出し、
+ * 確かに無いシェルでは Preview の欄に入れ方の案内とボタンを出す。
  *
  * **「見つからない」も `ASK_TTL` のあいだ覚える**（`gh` と違う）。検出は .vue のタブを開く
  * たびに撃つので、覚えないと入れていない大半の人が .vue を開くたびに `wsl.exe` を 1 本
@@ -15,13 +19,49 @@ import { createShellProbe } from './shellProbe'
 const ASK_TTL = 60_000
 
 export const useVuePreviewStore = defineStore('vuePreview', () => {
-  const probe = createShellProbe<boolean>((shell, root, force) => vuePreviewAvailable(shell, root, force), {
-    ttl: ASK_TTL,
-  })
+  const probe = createShellProbe<VuePreviewAvailability>(
+    (shell, root, force) => vuePreviewAvailable(shell, root, force),
+    { ttl: ASK_TTL },
+  )
+  /**
+   * 入れている最中のシェル（`shellId`。答えと同じキーにそろえる）。ボタンを押せなくして、
+   * 二重に走らせない。
+   */
+  const installing = ref(new Set<string>())
 
   function available(shell: ShellType | null | undefined): boolean {
-    return probe.answerFor(shell) === true
+    return probe.answerFor(shell) === 'found'
   }
 
-  return { available, detect: probe.ask }
+  /**
+   * 確かに無い（シェルが「コマンドが見つからない」と答えた）。時間切れなどの `unknown` と
+   * 聞いている途中は含めない: そこで入れ方を勧めると、入っている人に上書きさせる。
+   */
+  function missing(shell: ShellType | null | undefined): boolean {
+    return probe.answerFor(shell) === 'missing'
+  }
+
+  function isInstalling(shell: ShellType | null | undefined): boolean {
+    return !!shell && installing.value.has(shellId(shell))
+  }
+
+  /**
+   * `shell` のターミナルのタブで入れる（ripgrep の `installRipgrep` と同じ形）。終わったら
+   * 覚えた答えを捨てて探し直すので、入った時点で開いているタブに Preview が出る。
+   */
+  function install(shell: ShellType, root: string): void {
+    const key = shellId(shell)
+    if (installing.value.has(key)) return
+    installing.value.add(key)
+    useTabStore().runCommandTab(vuePreviewInstallCommand(shell), root, shell, {
+      title: t('vuePreview.installTitle'),
+      keepOnError: true,
+      onExit: (code) => {
+        installing.value.delete(key)
+        if (code === 0) void probe.ask(shell, root, true)
+      },
+    })
+  }
+
+  return { available, missing, isInstalling, install, detect: probe.ask }
 })

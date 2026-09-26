@@ -4,6 +4,7 @@
  * 描けるまで／描けなかったときに子 webview へ置くページ、値を仮に埋める入力フォームの欄。
  */
 
+import { isPosixShell, type ShellType } from '../types/tab'
 import { escapeHtml } from './text'
 
 /** 子 webview で開く仮想ファイル（`html_preview.rs` の `__pike/` の下）。 */
@@ -126,4 +127,80 @@ body{margin:0;padding:24px;font:13px/1.6 system-ui,sans-serif;color:#555}
 @media (prefers-color-scheme:dark){body{background:#1e1e1e;color:#aaa}}
 pre{white-space:pre-wrap;word-break:break-all;font:12px/1.5 ui-monospace,Consolas,monospace}
 </style></head><body><p>${escapeHtml(title)}</p>${body}</body></html>`
+}
+
+/** vue-preview の最新版のリリース（`latest/download/<名前>` は GitHub が最新のタグへ振り替える）。 */
+export const VUE_PREVIEW_RELEASES = 'https://github.com/kan/vue-preview/releases'
+const LATEST = `${VUE_PREVIEW_RELEASES}/latest/download`
+
+/**
+ * WSL / macOS で入れる 1 行。置き場は `~/.local/bin`（sudo が要らない。WSL は Pike の
+ * `WSL_EXTRA_PATH`、macOS は起動時の `augment_process_path` がそこを PATH に入れる）。
+ * sha256 を照合してから置く。配っているのは linux-x64 と darwin-arm64 だけ。
+ *
+ * `bash -c` で包むのは、ターミナルの対話シェル（zsh でも）に `set -e` と `exit` を流さないため。
+ * **中身に単引用符を使わないこと**（包みが割れる）。macOS には `sha256sum` が無いことがあるので
+ * `shasum -a 256` に落とす。
+ */
+const INSTALL_POSIX =
+  'bash -c \'set -e; case "$(uname -s)-$(uname -m)" in Linux-x86_64) t=linux-x64;; ' +
+  'Darwin-arm64) t=darwin-arm64;; *) echo "unsupported: $(uname -sm)"; exit 1;; esac; ' +
+  `n=vue-preview-$t; u=${LATEST}/$n; d=$(mktemp -d); trap "rm -rf \\"$d\\"" EXIT; cd "$d"; ` +
+  'curl -fsSLO "$u"; curl -fsSLO "$u.sha256"; ' +
+  'if command -v sha256sum >/dev/null; then sha256sum -c "$n.sha256"; else shasum -a 256 -c "$n.sha256"; fi; ' +
+  'mkdir -p "$HOME/.local/bin"; install -m 755 "$n" "$HOME/.local/bin/vue-preview"; ' +
+  '"$HOME/.local/bin/vue-preview" --version\''
+
+/**
+ * Windows のシェル（cmd / PowerShell / Git Bash）で入れるスクリプト。置き場は
+ * `%USERPROFILE%\.local\bin`（Pike が起動時に PATH の末尾へ足す。`types.rs` の
+ * `augment_process_path`）。
+ *
+ * **cmdlet を使わず .NET を直に呼ぶ**。pwsh（PowerShell 7）から `powershell.exe`（5.1）を
+ * 起こすと 7 の `PSModulePath` を継いでしまい、`Get-FileHash` などのモジュールの cmdlet が
+ * 読めずに落ちる（実測）。
+ */
+const INSTALL_WINDOWS = [
+  "$ErrorActionPreference='Stop'",
+  '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12',
+  `$n='vue-preview-windows-x64.exe'; $u="${LATEST}/$n"`,
+  '$tmp = [IO.Path]::Combine([IO.Path]::GetTempPath(), [Guid]::NewGuid().ToString())',
+  '[void][IO.Directory]::CreateDirectory($tmp); $f = [IO.Path]::Combine($tmp, $n)',
+  'try {',
+  '  $web = New-Object Net.WebClient',
+  '  $web.DownloadFile($u, $f)',
+  '  $want = $web.DownloadString("$u.sha256").Trim().Split(" ")[0]',
+  '  $s = [IO.File]::OpenRead($f)',
+  '  try { $hash = [Security.Cryptography.SHA256]::Create().ComputeHash($s) } finally { $s.Dispose() }',
+  '  $got = [BitConverter]::ToString($hash).Replace("-", "")',
+  '  if ($got -ne $want) { throw "sha256 mismatch: $got <> $want" }',
+  '  $d = [IO.Path]::Combine($env:USERPROFILE, ".local", "bin"); [void][IO.Directory]::CreateDirectory($d)',
+  '  $exe = [IO.Path]::Combine($d, "vue-preview.exe"); [IO.File]::Copy($f, $exe, $true)',
+  '  & $exe --version; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }',
+  '} finally { [IO.Directory]::Delete($tmp, $true) }',
+].join('\n')
+
+/**
+ * PowerShell の `-EncodedCommand` に渡す形（UTF-16LE の base64）。**引用を 1 つも持たない**ので、
+ * 打ち込む先が cmd でも PowerShell でも Git Bash でも同じ 1 行で通る（`-Command "..."` だと、
+ * 打ち込んだ先の PowerShell が `$` を先に展開する）。
+ */
+export function powershellEncoded(script: string): string {
+  let bytes = ''
+  for (let i = 0; i < script.length; i++) {
+    const c = script.charCodeAt(i)
+    bytes += String.fromCharCode(c & 0xff, c >> 8)
+  }
+  return btoa(bytes)
+}
+
+/** `shell` のターミナルで vue-preview を入れる 1 行（`stores/vuePreview.ts` の `install` が流す）。 */
+export function vuePreviewInstallCommand(shell: ShellType): string {
+  if (isPosixShell(shell)) return INSTALL_POSIX
+  return `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${powershellEncoded(INSTALL_WINDOWS)}`
+}
+
+/** `vuePreviewInstallCommand` が置く場所（案内に出す表記）。 */
+export function vuePreviewInstallDir(shell: ShellType): string {
+  return isPosixShell(shell) ? '~/.local/bin' : '%USERPROFILE%\\.local\\bin'
 }

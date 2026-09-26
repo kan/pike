@@ -932,6 +932,13 @@ export default {
   'vuePreview.apply': 'Apply',
   'vuePreview.clearValues': 'Clear values',
   'vuePreview.close': 'Close',
+  'vuePreview.missing': 'The Vue preview needs vue-preview',
+  'vuePreview.installHint':
+    'vue-preview is an external command that renders a .vue component into a single HTML page. Pike downloads the latest release from GitHub and places it in {dir} of this project’s shell.',
+  'vuePreview.install': 'Install vue-preview',
+  'vuePreview.installing': 'Installing…',
+  'vuePreview.installTitle': 'Install vue-preview',
+  'vuePreview.releases': 'Open Releases',
   'browser.applySiteRules': 'Reopen to apply',
   'browser.blankTitle': 'New Tab',
   'browser.filterPlaceholder': 'Filter bookmarks and history',

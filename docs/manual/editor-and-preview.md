@@ -227,8 +227,11 @@ Markdown ファイル（`.md` / `.markdown`）を開くと、Edit / Split / Prev
     - ページの中のリンクは、プレビューの中では移動せず、新しいブラウザのタブで開きます
     - ツールバーのスマートフォンのボタンで、プレビューをスマートフォンの画面の大きさ（390×844）に絞って表示します。ブラウザのタブの同じボタンと同じ大きさです。幅で切り替わる CSS（メディアクエリ）を確かめるときに使えます。タブを閉じると元に戻ります
     - ページは Pike の画面より手前に描かれるため、メニューやダイアログを開いているあいだと、Git パネルを開いているあいだは一時的に隠します（ブラウザのタブと同じです）。プレビューの中では `Ctrl+F` の検索は使えません
-- **Vue**（`.vue`）：外部コマンドの [vue-preview](https://github.com/kan/vue-preview) で、コンポーネント（SFC）を 1 枚の HTML に描いて表示します。**vue-preview が入っているときだけ**、Edit / Split / Preview のトグルが出ます。
-    - **入れ方**：[Releases](https://github.com/kan/vue-preview/releases) から、プロジェクトのシェルに合うバイナリを取ります。それを `vue-preview`（Windows は `vue-preview.exe`）という名前で、PATH の通った場所に置きます。WSL のプロジェクトでは `vue-preview-linux-x64` を WSL の中（`/usr/local/bin` や `~/.local/bin`）に置きます。Windows のシェルのプロジェクトでは `vue-preview-windows-x64.exe` を Windows 側に置きます。置いたあとに .vue のタブを開き直すと、トグルが出ます
+- **Vue**（`.vue`）：外部コマンドの [vue-preview](https://github.com/kan/vue-preview) で、コンポーネント（SFC）を 1 枚の HTML に描いて表示します。
+    - **入れ方**：vue-preview が入っていないシェルでは、Preview の欄に案内と「vue-preview を入れる」ボタンが出ます。押すとターミナルのタブが開き、GitHub の最新版を取って sha256 を照合してから置きます。入れ終わると、そのまま Preview に切り替わります
+        - 置き場は、WSL と macOS が `~/.local/bin`、Windows のシェル（cmd・PowerShell・Git Bash）が `%USERPROFILE%\.local\bin` です。どちらも Pike が PATH に足すので、sudo も PATH の設定も要りません
+        - 手で入れるときは [Releases](https://github.com/kan/vue-preview/releases) から、プロジェクトのシェルに合うバイナリを取ります。それを `vue-preview`（Windows は `vue-preview.exe`）という名前で、PATH の通った場所に置きます
+        - 配っているのは linux-x64、windows-x64、darwin-arm64（Apple シリコンの Mac）の 3 つです
     - **`<script>` は実行しません**。テンプレートの値は、コンポーネントの隣に置いた `<名前>.preview.json`（fixture）と、プレースホルダで埋めます。プレースホルダは参照式の末尾（`data[0].user.name` なら `{{ name }}`）を表示し、ポイントすると全体が出ます。書き方と対応している構成（PrimeVue・Tailwind CSS など）は vue-preview の README を見てください
     - **i18n の文言**：`src/i18n/ja.ts` のようなメッセージファイルがあれば、`$t('key')` と `useI18n()` の `t` を日本語で表示します。vue-i18n と自前の実装のどちらにも対応します（vue-preview 0.5 以降）
     - **値を仮に入れる**：上の帯の「値を入れる」で、props と、テンプレートが使った値の一覧をフォームで開きます。値を JSON で入れて「適用」を押すと、その値で描き直します（文字列は引用符なしでも入れられます。空の欄は与えません）。`modelValue` が false で中身を出さないダイアログや、`onMounted` でデータを取る画面を確かめるときに使います

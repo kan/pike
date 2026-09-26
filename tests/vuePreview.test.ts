@@ -7,6 +7,8 @@ import {
   fixtureOf,
   inputFields,
   pikeFixtureName,
+  powershellEncoded,
+  vuePreviewInstallCommand,
   vuePreviewMessagePage,
 } from '../src/lib/vuePreview.ts'
 
@@ -85,4 +87,35 @@ test('案内のページは本文を HTML として解釈しない', () => {
   assert.ok(!page.includes('<script>alert'))
   assert.ok(page.includes('&#60;script&#62;alert(1)&#60;/script&#62; &#38; &#34;x&#34;'))
   assert.ok(!vuePreviewMessagePage('描画中').includes('<pre>'))
+})
+
+test('WSL と macOS は bash で ~/.local/bin に入れる（包みの単引用符を中で使わない）', () => {
+  for (const shell of [{ kind: 'wsl', distro: 'Ubuntu' }, { kind: 'unix' }] as const) {
+    const cmd = vuePreviewInstallCommand(shell)
+    assert.ok(cmd.startsWith("bash -c '") && cmd.endsWith("'"))
+    assert.equal(cmd.slice("bash -c '".length, -1).includes("'"), false)
+    assert.ok(cmd.includes('https://github.com/kan/vue-preview/releases/latest/download/$n'))
+    assert.ok(cmd.includes('sha256sum -c') && cmd.includes('shasum -a 256 -c'))
+    assert.ok(cmd.includes('install -m 755 "$n" "$HOME/.local/bin/vue-preview"'))
+  }
+})
+
+test('Windows のシェルは PowerShell の -EncodedCommand で 1 行にする（どのシェルに打っても引用が要らない）', () => {
+  /** `-EncodedCommand` の中身（UTF-16LE の base64）を戻す。 */
+  const decode = (b64: string) => {
+    const bin = atob(b64)
+    let s = ''
+    for (let i = 0; i < bin.length; i += 2) s += String.fromCharCode(bin.charCodeAt(i) | (bin.charCodeAt(i + 1) << 8))
+    return s
+  }
+  for (const kind of ['cmd', 'powershell', 'pwsh', 'git-bash'] as const) {
+    const cmd = vuePreviewInstallCommand({ kind })
+    const encoded = /^powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$/.exec(cmd)?.[1]
+    assert.ok(encoded, cmd)
+    const script = decode(encoded)
+    assert.ok(script.includes('vue-preview-windows-x64.exe'))
+    assert.ok(script.includes('SHA256'))
+    assert.ok(script.includes('$env:USERPROFILE, ".local", "bin"'))
+  }
+  assert.equal(decode(powershellEncoded('a$b')), 'a$b')
 })

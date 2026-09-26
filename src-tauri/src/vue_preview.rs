@@ -15,7 +15,7 @@
 
 use crate::cache::ProbeRegistry;
 use crate::html_preview::{self, PreviewState};
-use crate::types::{install_key, truncate_chars_tail, ShellConfig};
+use crate::types::{install_key, truncate_chars_tail, CommandProbe, ShellConfig};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::State;
@@ -32,17 +32,29 @@ pub struct VuePreviewState {
     found: ProbeRegistry<String, bool>,
 }
 
-/// `vue-preview` が使えるか（探し方は `ShellConfig::has_command`。`gh` の検出と共有）。
+/// `vue-preview` が使えるか（探し方は `ShellConfig::probe_command`。`gh` の `has_command` と共有）。
+/// 覚えるのは見つかったことだけ（`ProbeEntry::found`）で、無い・分からないは毎回聞き直す。
+/// 先客の問い合わせに合流した側は答えの中身を知らないので、見つからなければ `Unknown`
+/// （入れ方は勧めない側に倒す）。
 #[tauri::command]
 pub async fn vue_preview_available(
     shell: ShellConfig,
     root: String,
     force: bool,
     state: State<'_, VuePreviewState>,
-) -> Result<bool, String> {
+) -> Result<CommandProbe, String> {
     let entry = state.found.entry(install_key(&shell));
     tauri::async_runtime::spawn_blocking(move || {
-        entry.found(force, || shell.has_command(&root, "vue-preview"))
+        let mut answer = CommandProbe::Unknown;
+        let found = entry.found(force, || {
+            answer = shell.probe_command(&root, "vue-preview");
+            answer == CommandProbe::Found
+        });
+        if found {
+            CommandProbe::Found
+        } else {
+            answer
+        }
     })
     .await
     .map_err(|e| e.to_string())

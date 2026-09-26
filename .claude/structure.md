@@ -152,6 +152,7 @@ pike/
 │   │   │   ├── PreviewFrame.vue     # 子 webview のプレビューの器（枠・スマートフォンの画面・案内。HTML と Vue で共有）
 │   │   │   ├── VuePreview.vue       # Vue SFC のプレビュー（#397。vue-preview の出力を HTML のプレビューと同じ子 webview に置く）
 │   │   │   ├── VuePreviewForm.vue   # Vue SFC のプレビューで、マウント時の値を仮に入れるフォーム（表示だけ）
+│   │   │   ├── VuePreviewInstall.vue # vue-preview が無いシェルで Preview の欄に出す、入れ方の案内とボタン（表示だけ）
 │   │   │   └── WrapToggle.vue       # 折り返しの切り替え（タブ単位、#241）
 │   │   ├── settings/          # 設定画面の器（#314。節・小見出し・1 項目・一致の強調）
 │   │   │   ├── SettingSection.vue  # 1 セクション（左ナビの飛び先）

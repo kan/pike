@@ -102,6 +102,7 @@ import MacroButtons from '../editor/MacroButtons.vue'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import MinimapToggle from '../editor/MinimapToggle.vue'
 import VuePreview from '../editor/VuePreview.vue'
+import VuePreviewInstall from '../editor/VuePreviewInstall.vue'
 import WrapToggle from '../editor/WrapToggle.vue'
 import HelpButton from '../HelpButton.vue'
 
@@ -270,12 +271,13 @@ const isRst = computed(() => fileExt.value === 'rst')
  * 子 webview に描くプレビュー（#399 の HTML は `HtmlPreview.vue`、#397 の Vue SFC は
  * `VuePreview.vue`）。**描くのは保存したファイル**なので、無題のバッファには出さない
  * （`hasFile` は無題でも真になるので path を見る）。DOM のプレビューに要る処理
- * （`previewHtml`・検索・先頭へ戻るボタン）は `webviewPreview` で外す。
+ * （`previewHtml`・検索・先頭へ戻るボタン）は `ownPanePreview` で外す。
  */
 const isHtmlPreview = computed(() => (fileExt.value === 'html' || fileExt.value === 'htm') && !!tab.value?.path)
 /**
- * Vue SFC のプレビュー（#397）。**`vue-preview` が見つかったシェルの .vue にだけ出す**。
- * 描画のルート（いちばん近い package.json）は `VuePreview.vue` が探す。検出は下の watch。
+ * Vue SFC のプレビュー（#397）。**`vue-preview` が見つかったシェルの .vue にだけ描く**
+ * （確かに無いシェルでは入れ方の案内、`isVueInstall`）。描画のルート（いちばん近い
+ * package.json）は `VuePreview.vue` が探す。検出は下の watch。
  */
 const isVueFile = computed(() => fileExt.value === 'vue' && !!tab.value?.path)
 const isVuePreview = computed(() => isVueFile.value && vuePreviewStore.available(projectStore.shellForIO))
@@ -291,6 +293,13 @@ watch(
   { immediate: true },
 )
 const webviewPreview = computed(() => isHtmlPreview.value || isVuePreview.value)
+/**
+ * vue-preview が確かに無いシェルの .vue。Preview の欄に入れ方の案内とボタンを出す
+ * （`VuePreviewInstall.vue`）。聞いている途中はどちらにも入らない（トグルも出さない）。
+ */
+const isVueInstall = computed(() => isVueFile.value && vuePreviewStore.missing(projectStore.shellForIO))
+/** Preview の欄を DOM のプレビュー（`previewHtml`・検索・先頭へ戻るボタン）以外が持つか。 */
+const ownPanePreview = computed(() => webviewPreview.value || isVueInstall.value)
 const webPreview = useTemplateRef<{ onSaved: () => void }>('webPreview')
 /**
  * スマートフォンの縦長の画面で見る（ブラウザのタブの同名の機能と同じ大きさ）。タブ単位で
@@ -331,7 +340,7 @@ const hasPreview = computed(
     isSvg.value ||
     isJson.value ||
     isJsonl.value ||
-    webviewPreview.value,
+    ownPanePreview.value,
 )
 
 const showEditor = computed(() => viewMode.value !== 'preview')
@@ -606,7 +615,7 @@ const previewHtml = computed(() => {
   }
   void debouncedDocVersion.value
   // HTML は子 webview が描く（#399）。本文を文字列にしない。
-  if (!showPreview.value || !editorView || webviewPreview.value) return ''
+  if (!showPreview.value || !editorView || ownPanePreview.value) return ''
   const text = editorView.state.doc.toString()
   if (isMermaid.value) return '' // rendered asynchronously
   if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS)
@@ -1770,7 +1779,7 @@ function onGlobalKeyDown(e: KeyboardEvent) {
   // （分割表示でどちらを探すかは、最後に触ったほうで決める）。プレビューだけの表示では
   // エディタが隠れているので、CodeMirror にキーが届くことは無い。
   // 子 webview のプレビュー（#399）は DOM の外なので、Pike の検索は届かない。
-  if (matchChord(e, 'Mod+F') && showPreview.value && !webviewPreview.value && tabStore.isTabFocused(props.tabId)) {
+  if (matchChord(e, 'Mod+F') && showPreview.value && !ownPanePreview.value && tabStore.isTabFocused(props.tabId)) {
     if (showEditor.value && editorRef.value?.contains(document.activeElement)) return
     e.preventDefault()
     openPreviewFind()
@@ -2489,8 +2498,14 @@ onUnmounted(() => {
         :path="tab.path"
         :mobile="previewMobile"
       />
+      <VuePreviewInstall
+        v-if="showPreview && isVueInstall && projectStore.shellForIO && tab?.path"
+        class="preview-pane"
+        :shell="projectStore.shellForIO"
+        :root="projectStore.activeRoot ?? dirname(tab.path)"
+      />
       <div
-        v-if="showPreview && !isMermaid && !webviewPreview"
+        v-if="showPreview && !isMermaid && !ownPanePreview"
         ref="previewRef"
         class="preview-pane"
         tabindex="-1"
@@ -2520,7 +2535,7 @@ onUnmounted(() => {
         :style="{ '--mermaid-zoom': mermaidZoom }"
       ></div>
       <button
-        v-if="showPreview && !isMermaid && !webviewPreview && previewScrolled"
+        v-if="showPreview && !isMermaid && !ownPanePreview && previewScrolled"
         class="back-to-top"
         :title="t('editor.backToTop')"
         @click="scrollPreviewToTop"

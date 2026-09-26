@@ -52,6 +52,7 @@ import {
   vuePreviewMessagePage,
 } from '../../lib/vuePreview'
 import { useProjectStore } from '../../stores/project'
+import { useVuePreviewStore } from '../../stores/vuePreview'
 import { type ShellType, shellToPlatform } from '../../types/tab'
 import PreviewFrame from './PreviewFrame.vue'
 import VuePreviewForm from './VuePreviewForm.vue'
@@ -64,6 +65,7 @@ const props = defineProps<{
 }>()
 const { t } = useI18n()
 const projectStore = useProjectStore()
+const vuePreviewStore = useVuePreviewStore()
 
 const frame = useTemplateRef<{ host: HTMLElement | null }>('frame')
 const error = ref<string | null>(null)
@@ -188,6 +190,10 @@ async function renderOnce(s: Served) {
     result = await vuePreviewRender(s.shell, s.root, s.rel, label, VUE_PREVIEW_ENTRY, fixture)
   } catch (e) {
     failure = String(e)
+    // vue-preview が消えたのかもしれない。Rust は「見つかった」をプロセスの寿命ぶん覚えているので、
+    // 覚えた答えを捨てて探し直す。無ければ EditorTab がこの欄を入れ方の案内に替える。失敗の
+    // 文面（シェルと言語で変わる）では見分けず、失敗した回にだけ 1 本起こす。
+    void vuePreviewStore.detect(s.shell, s.root, true)
   }
   // 描いているあいだに作り直した・閉じた: この結果は別の子 webview のもの。
   if (view.disposed() || served.value !== s) return

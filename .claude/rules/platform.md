@@ -80,6 +80,11 @@ Pike の第一ターゲットは Windows で、macOS は**ローカルのシェ�
   **インストーラの（PATH 追記前の）環境を継ぐ**ので、Pike のターミナルから `pike.exe` が見つからない。
   WSL は `wsl.exe` を起動したプロセスの PATH を distro の PATH に付ける（実測）ので、WSL も同じ。
   理由の詳細は関数の doc が正本
+- **Pike が自分で入れるものの置き場（`~/.local/bin` と `%USERPROFILE%\.local\bin`、#397 の
+  vue-preview）は、実在しなくても PATH に足す**（macOS は `UNIX_INSTALL_BIN`、Windows は
+  `user_bin_dir`）。PATH は起動時にしか広げられないので、無い状態で起動してから Pike の導線で
+  入れると、足していないと再起動するまで見つからない。**他のディレクトリは実在するものだけ**の
+  規則のまま
 - 対話ターミナルは別経路で解決している。`pty_spawn` の `Unix` は**ログインシェル（`-l`）**で
   起動するので、rc / profile を読んで本来の PATH になる
 

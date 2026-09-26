@@ -918,9 +918,18 @@ export async function previewSetFiles(label: string, files: PreviewVirtualFile[]
   return invoke('preview_set_files', { label, files })
 }
 
-/** `vue-preview` がそのシェルで使えるか（#397、`src-tauri/src/vue_preview.rs`）。 */
-export async function vuePreviewAvailable(shell: ShellType, root: string, force: boolean): Promise<boolean> {
-  return invoke<boolean>('vue_preview_available', { shell, root, force })
+/**
+ * `vue-preview` がそのシェルで使えるか（#397、`src-tauri/src/types.rs` の `CommandProbe`）。
+ * `missing` はシェルが「コマンドが見つからない」と答えたときだけで、時間切れなどは `unknown`。
+ */
+export type VuePreviewAvailability = 'found' | 'missing' | 'unknown'
+
+export async function vuePreviewAvailable(
+  shell: ShellType,
+  root: string,
+  force: boolean,
+): Promise<VuePreviewAvailability> {
+  return invoke<VuePreviewAvailability>('vue_preview_available', { shell, root, force })
 }
 
 /** 描いた結果のうち、フロントが要る欄。`deps` はルートからの相対パス（区切りは `/`）。 */
