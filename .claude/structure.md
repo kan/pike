@@ -33,6 +33,7 @@ pike/
 │       ├── types.rs           # ShellConfig・WSL_EXTRA_PATH・bash_quote 等の共通型/ヘルパー
 │       ├── agents.rs          # PATH にあるエージェントの検出（#275。一覧はフロントの表）
 │       ├── agent_hook.rs      # エージェントの hook からの申告を受ける口（#299。`pike agent-hook`）
+│       ├── app_log.rs         # ログファイル（インストール版でも書く・フロントのエラーの受け口・フォルダを開く、#415）
 │       ├── agent_sessions.rs  # 再開できる過去セッションの一覧（#267。出所は 4 つとも違う）
 │       ├── agent_usage/
 │       │   ├── mod.rs         # 使用量を種別に依らない形で返す（#263。id でアダプタへ振り分け）
@@ -210,6 +211,7 @@ pike/
 │   │   ├── useMarkdownLinkPaste.ts # 貼り付けた URL をタイトル付きリンクにする（#241）
 │   ├── lib/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
+│   │   ├── errorLog.ts        # フロントの例外をログファイルへ流す受け口と間引き（#415）
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── reorder.ts        # ドラッグでの並べ替え（プロジェクト一覧とサイドバーのアイコン列、#364）
 │   │   ├── syncMerge.ts      # 設定の同期の 3-way マージ（#403。種別を知らない純粋な計算）

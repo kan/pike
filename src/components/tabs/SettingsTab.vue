@@ -25,6 +25,7 @@ import {
   agentHookUninstall,
   detectWslDistros,
   type GistInfo,
+  logOpenDir,
   pickFolder,
   pickSaveFile,
   syncGistList,
@@ -321,6 +322,18 @@ const gistBusy = ref<'create' | 'list' | null>(null)
 const gistError = ref('')
 /** Gist の操作と同期は互いを待たせる（同期の最中に同期先を変えない）。 */
 const gistLocked = computed(() => gistBusy.value !== null || sync.syncing)
+
+// ログのフォルダ（#415）。開けなかった理由はボタンの横に出す（黙って何も起きないと、
+// ログが無いのか開けないのか区別できない）。
+const logDirError = ref('')
+async function openLogDir() {
+  logDirError.value = ''
+  try {
+    await logOpenDir()
+  } catch (e) {
+    logDirError.value = String(e)
+  }
+}
 
 async function withGist(kind: 'create' | 'list', run: () => Promise<void>) {
   gistBusy.value = kind
@@ -1456,6 +1469,14 @@ const PREVIEW_LINES = [
             <span v-else-if="updater.state.value === 'error'" class="update-info update-err">
               {{ t('settings.updateError') }}{{ updater.errorMessage.value ? ': ' + updater.errorMessage.value : '' }}
             </span>
+          </div>
+        </SettingItem>
+        <SettingItem label-key="settings.logFolder" hint-key="settings.logFolderHint">
+          <div class="update-actions">
+            <button class="update-btn" data-testid="settings-open-log-folder" @click="openLogDir">
+              {{ t('settings.openLogFolder') }}
+            </button>
+            <span v-if="logDirError" class="update-info update-err">{{ logDirError }}</span>
           </div>
         </SettingItem>
       </SettingSection>

@@ -2,6 +2,8 @@ import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import App from './App.vue'
 import './assets/theme.css'
+import { installErrorLogging } from './lib/errorLog'
+import { logFrontend } from './lib/tauri'
 
 async function bootstrap() {
   // E2E 撮影ビルド (issue #142) でのみ wdio guest を初期化し、Tauri invoke を
@@ -20,6 +22,8 @@ async function bootstrap() {
   }
 
   const app = createApp(App)
+  // mount より前に張る。起動直後の描画で出たエラーも残すため（#415）。
+  installErrorLogging(app, logFrontend)
   app.use(createPinia())
   app.mount('#app')
 

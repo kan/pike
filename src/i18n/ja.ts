@@ -456,6 +456,10 @@ export default {
   'settings.updateConfirm': 'v{version} に更新して再起動しますか？',
   'settings.upToDate': '最新です',
   'settings.updateError': '更新の確認に失敗しました',
+  'settings.logFolder': 'ログ',
+  'settings.logFolderHint':
+    'エラーの記録を残すファイルの場所。不具合を報告するときに添えてください（ファイルのパスや開いたページの URL が含まれるので、送る前に中身を確認してください）。',
+  'settings.openLogFolder': 'ログのフォルダを開く',
   'settings.globalShell': 'グローバルモードの既定シェル',
   'settings.globalShellHint': 'プロジェクトに依らないウィンドウで + を押した時に開くシェル。',
   'settings.shellProfiles': 'シェル一覧',

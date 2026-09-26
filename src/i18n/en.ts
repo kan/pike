@@ -460,6 +460,10 @@ export default {
   'settings.updateConfirm': 'Update to v{version} and restart?',
   'settings.upToDate': 'You are up to date',
   'settings.updateError': 'Update check failed',
+  'settings.logFolder': 'Logs',
+  'settings.logFolderHint':
+    'Where errors are recorded. Attach the log when reporting a problem (it contains file paths and the URLs of pages you opened, so check it before sending).',
+  'settings.openLogFolder': 'Open Log Folder',
   'settings.globalShell': 'Default shell in global mode',
   'settings.globalShellHint': 'Shell opened by + in project-independent (global) windows.',
   'settings.shellProfiles': 'Shell list',

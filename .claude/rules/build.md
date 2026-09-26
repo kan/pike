@@ -10,6 +10,8 @@ paths:
   - "scripts/**"
   - ".github/**"
   - "src/composables/useUpdater.ts"
+  - "src-tauri/src/app_log.rs"
+  - "src/lib/errorLog.ts"
   - "CHANGELOG.md"
 ---
 
@@ -115,6 +117,22 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 - **画像には StatusBar のバージョンが写る**。`useUpdater` の `getVersion()` は `@tauri-apps/api` 経由で `tauri.conf.json` の version を読むため、`lib/tauri.ts` の invoke ラッパを通らず **E2E のモックでは差し替えられない**（`tauri.e2e.conf.json` で version を上書きするのは 2 箇所 bump の drift 要因なので採らない）。リリースに合わせて撮り直すときは **bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順）
 - ドロップダウンやトースト等、アニメーションを含む UI は**静止するまで待ってから撮る**（例: リモートブランチ取得中の `.spin-icon` が残ると実行ごとに回転角の差分が出る）。撮影に安定したセレクタが必要な場合は `data-testid` を足す（`worktree-selector` / `branch-selector`）
 - 撮影コードを本番ビルドに混入させない仕組み（`e2e` Cargo feature / vite define `__PIKE_E2E__` / `capabilities-runtime` の実行時登録）は `e2e/README.md` を参照
+
+## ログファイル（#415）
+- **インストール版でもログをファイルに書く**（`src-tauri/src/app_log.rs`）。リリースビルドは DevTools を開けず（`devtools` feature を入れていない）、以前はプラグインを開発版でしか登録していなかったので、Rust の `log::warn!` もフロントの例外もどこにも残らなかった（#411 が再現も調査もできなかった理由）
+  - 置き場は `app_log_dir`（Windows は `%LOCALAPPDATA%\{identifier}\logs\Pike.log`）。開発版（`com.pike.dev.debug`）とインストール版（`com.pike.dev`）は identifier で分かれる。標準出力にも出すのは開発版だけ
+  - **レベルは全体を Warn、Pike 自身（`app_lib`）だけ Info**。依存クレートの Info まで書くと、何も起きていないときもファイルが伸びる
+  - **panic も書く**（`log_panics`）。コマンドの中で panic すると invoke が戻らないまま残り、下の「戻らない」の行だけが残って原因が分からない。既定の hook は後ろに繋ぐ
+  - **サイズと世代は明示する**（`MAX_FILE_SIZE` / `KEEP_ROTATED`）。プラグインの既定は 40KB・`KeepOne` で、スタックトレースを数件書けば回り、回った瞬間に直前のログが消える。時刻も既定は UTC なのでローカルにしてある
+  - **登録は `setup` の先頭で、失敗しても起動を続ける**（`app_log::init`）。Builder に `.plugin()` で載せると、フォルダを作れない・ファイルを開けない・起動時のローテーションで rename できない、のどれでも `run` の `expect` まで届いて Pike が起動しなくなる。`setup` は single-instance の初期化より後なので 2 つ目に起動したプロセスはログファイルを開かずに終わり、先頭なので `setup` の途中の `log::warn!` も拾える
+  - **`--new-instance`（管理者として開き直したプロセス、#138）は `Pike-elevated.log` に書く**。single-instance を通らず元のプロセスと並んで動くので、同じファイルだと互いのサイズの数え方がずれ、片方のローテーションがもう片方の書いているファイルを動かす
+- **フロントの例外は `lib/errorLog.ts` の 3 つの受け口**（`error` / `unhandledrejection` / Vue の `errorHandler`）から `log_frontend` へ流す。Vue の中の例外は前 2 つに届かないので 3 つとも要る。`errorHandler` を置くと Vue は自分で console に出さなくなるので `console.error` を続けて呼ぶ
+  - **同じエラーは 60 秒に 1 件だけ書く**（`createThrottle`。鍵はスタックを除いた 1 行目）。描画のたびに出るエラーでファイルが膨らまないように。省いた回数は次に書く 1 件に添える
+  - **`errorLog.ts` は tauri を import しない**（書き込み先を引数で受ける）。間引きと整形を Node のテストから確かめるため
+  - **ログを書く失敗は捨てる**（`logFrontend`）。書けないことをまたログに書こうとすると、受け口と回り続ける
+  - URL やファイルのパスはそのまま書く（伏せると調べる手がかりが消える）。外へは送らないので、共有するかは利用者が中身を見て決める。設定画面の説明とマニュアルにそう書いてある
+- **子 webview への指示が 5 秒戻らないと 1 行残す**（`lib/tauri.ts` の `inOrder` と `checkStall`。見張りは鎖が動いているあいだだけ 1 本で、1 件ごとにタイマーを張らない。`browser_place` はリサイズ中に毎フレーム流れる。#411 の「`inOrder` の鎖の 1 件が戻らず、全部のブラウザのタブが止まる」説を確かめるため）。戻ったときにももう 1 行書くので、遅いだけか永久に戻らないかを分けられる。測るのは順番が来て送った時点からで、前に詰まって待たされていた時間は含めない（詰まらせた 1 件だけが名前を残す）
+- 設定画面の「バージョン情報」に「ログのフォルダを開く」（`log_open_dir`。まだ 1 行も書いていなくてもフォルダを作って開く）
 
 ## セルフアップデート
 - `tauri-plugin-updater` + `tauri-plugin-process` で GitHub Releases の `latest.json` を参照

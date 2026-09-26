@@ -17,6 +17,7 @@ import type { IssueDetail, IssueListResult } from '../types/issues'
 import type { ProjectConfig } from '../types/project'
 import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
 import type { MenuAction, MenuShell, ShellType } from '../types/tab'
+import type { LogLevel } from './errorLog'
 
 // invoke の唯一のチョークポイント。E2E 撮影ビルド (#142) では、パネルへ決定的な
 // ダミーデータを与えるため window.__wdio_mocks__（@wdio/tauri-service が
@@ -756,10 +757,79 @@ export interface SiteRulePayload {
  * 消えたまま残りうる。ここで並べれば、どのタブから送ったものでも順が保たれる。
  */
 let browserChain: Promise<unknown> = Promise.resolve()
-function inOrder<T>(send: () => Promise<T>): Promise<T> {
+function inOrder<T = void>(command: string, args: { label: string } & Record<string, unknown>): Promise<T> {
+  const send = () => {
+    const slot: InFlight = { command, label: args.label, started: performance.now(), stalled: false }
+    inFlight = slot
+    stallWatchdog ??= setInterval(checkStall, STALL_CHECK_MS)
+    const sent = invoke<T>(command, args)
+    const settle = () => {
+      if (slot.stalled) {
+        const ms = Math.round(performance.now() - slot.started)
+        logFrontend('warn', `[inOrder] ${command} ${slot.label}: returned after ${ms}ms`)
+      }
+      if (inFlight === slot) inFlight = null
+    }
+    sent.then(settle, settle)
+    return sent
+  }
   const run = browserChain.then(send, send)
   browserChain = run.catch(() => {})
   return run
+}
+
+/**
+ * `inOrder` の 1 件が戻らないとき、コマンド名とラベルをログに書く（#415）。
+ *
+ * #411（全部のブラウザのタブが止まる）の「鎖の 1 件が戻らず、後ろが全部詰まる」説を確かめる
+ * ためのもの。**戻ったときにももう 1 行書く**: 遅いだけなのか、永久に戻らないのかを分けたい。
+ * 測るのは鎖の順番が来て送った時点からで、前が詰まって待たされていた時間は含めない
+ * （詰まらせた 1 件だけが名前を残す）。
+ *
+ * **1 件ごとにタイマーを張らない。** 鎖は直列なので送信中は常に高々 1 件で、それを `inFlight`
+ * に持てば見張りは 1 本で足りる。`browser_place` はリサイズ中に毎フレーム流れるので、
+ * 1 件ごとに張ると、まず起きないことを見るためにフレームごとにタイマーを張って消すことになる。
+ * 見張りは鎖が空になった次の見回りで止まる。
+ */
+interface InFlight {
+  command: string
+  label: string
+  started: number
+  stalled: boolean
+}
+let inFlight: InFlight | null = null
+let stallWatchdog: ReturnType<typeof setInterval> | null = null
+
+/** 戻らないとみなすまでの時間と、見回りの間隔。書かれるのは 5〜6 秒のどこか。 */
+const STALL_LOG_MS = 5_000
+const STALL_CHECK_MS = 1_000
+
+function checkStall() {
+  const slot = inFlight
+  if (!slot) {
+    if (stallWatchdog !== null) clearInterval(stallWatchdog)
+    stallWatchdog = null
+    return
+  }
+  const ms = Math.round(performance.now() - slot.started)
+  if (!slot.stalled && ms >= STALL_LOG_MS) {
+    slot.stalled = true
+    logFrontend('warn', `[inOrder] ${slot.command} ${slot.label}: no response after ${ms}ms`)
+  }
+}
+
+/**
+ * ログファイルへ 1 件書く（#415。Rust の `app_log::log_frontend`）。**失敗は捨てる**:
+ * ログを書けないことをまたログに書こうとすると、エラーの受け口（`lib/errorLog.ts`）と
+ * 回り続ける。戻り値を待つ呼び出し元も無い。
+ */
+export function logFrontend(level: LogLevel, message: string): void {
+  invoke('log_frontend', { level, message }).catch(() => {})
+}
+
+/** ログのフォルダを OS のファイラで開く（設定画面のボタン）。 */
+export async function logOpenDir(): Promise<void> {
+  return invoke('log_open_dir')
 }
 
 export async function browserOpen(
@@ -770,7 +840,7 @@ export async function browserOpen(
   /** Jira の拡張機能を入れるか（#380。入れるのは `*.atlassian.net` のページだけ）。 */
   jira: boolean,
 ): Promise<void> {
-  return inOrder(() => invoke('browser_open', { label, url, bounds, rules, jira }))
+  return inOrder('browser_open', { label, url, bounds, rules, jira })
 }
 
 /** ルールを変えたとき、開いているページの CSS を当て直す。 */
@@ -788,7 +858,7 @@ export async function browserJiraColors(label: string, colors: Record<string, st
  * 位置を送る意味が無い）。リサイズ中は毎フレーム呼ばれるので、2 往復に分けない。
  */
 export async function browserPlace(label: string, visible: boolean, bounds?: BrowserBounds): Promise<void> {
-  return inOrder(() => invoke('browser_place', { label, visible, bounds: bounds ?? null }))
+  return inOrder('browser_place', { label, visible, bounds: bounds ?? null })
 }
 
 export async function browserNavigate(label: string, url: string): Promise<void> {
@@ -807,7 +877,7 @@ export async function browserHistory(label: string, action: BrowserHistoryAction
 }
 
 export async function browserClose(label: string): Promise<void> {
-  return inOrder(() => invoke('browser_close', { label }))
+  return inOrder('browser_close', { label })
 }
 
 /**
@@ -834,7 +904,7 @@ export async function previewOpen(
   bounds: BrowserBounds,
   files?: PreviewVirtualFile[],
 ): Promise<void> {
-  return inOrder(() => invoke('preview_open', { label, root, shell, entry, bounds, files }))
+  return inOrder('preview_open', { label, root, shell, entry, bounds, files })
 }
 
 /** 仮想ファイルを置き直す（置き直したら `browserHistory(label, 'reload')` で描き直す）。 */

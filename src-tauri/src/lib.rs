@@ -13,6 +13,7 @@ pub mod agent_hook;
 mod agent_sessions;
 mod agent_usage;
 mod agents;
+mod app_log;
 mod browser;
 mod cache;
 mod claude_usage;
@@ -1565,7 +1566,10 @@ pub fn run() {
         // macOS のメニューバーのクリック（#254）。トレイのメニュー項目も同じ
         // リスナに届くので、`appmenu` 側が自分の id 接頭辞だけを拾う。
         .on_menu_event(appmenu::on_menu_event)
-        .setup(|app| {
+        .setup(move |app| {
+            // ログはインストール版でも書く（#415）。先頭に置くのは、この後の `log::warn!`
+            // （トレイの作成失敗など）も拾うため。失敗しても起動は続ける（理由は `app_log::init`）。
+            app_log::init(app.handle(), standalone);
             if let Some(state) = app.try_state::<docker::DockerState>() {
                 let _ = state.instance_id.set(app.config().identifier.clone());
             }
@@ -1708,13 +1712,6 @@ pub fn run() {
                 log::warn!("[tray] failed to create tray icon: {e}");
             }
 
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1853,6 +1850,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            app_log::log_frontend,
+            app_log::log_open_dir,
             cli::cli_get_initial_action,
             cli::cli_set_pending_action,
             wait::wait_signal_by_path,
