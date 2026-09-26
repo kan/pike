@@ -30,6 +30,7 @@ import { xml as xmlMode } from '@codemirror/legacy-modes/mode/xml'
 // 依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる（#284）。
 import { rst } from 'codemirror-lang-rst'
 import { type FileTypeKey, fileTypeKey, fileTypeLabel, fileTypeLabelOf } from './fileType'
+import { blade, erb, smarty, twig, xslate } from './templateModes'
 
 function legacy(mode: Parameters<typeof StreamLanguage.define>[0]): LanguageSupport {
   return new LanguageSupport(StreamLanguage.define(mode))
@@ -216,6 +217,12 @@ const EXT_MAP = table({
   scss: () => legacy(sCSS),
   less: () => legacy(less),
   j2: () => legacy(jinja2),
+  // テンプレートエンジン（#409）。HTML に区切りの内側だけ別のモードを差し込む。
+  erb: () => legacy(erb),
+  blade: () => legacy(blade),
+  twig: () => legacy(twig),
+  tpl: () => legacy(smarty),
+  tx: () => legacy(xslate),
   sql: () => legacy(standardSQL),
   // 方言（#358）。`.sql` の自動判定は既定では `sql`（標準）のままで、ここへ来るのは
   // 設定で選んだときか、StatusBar から手で選んだとき。**残りの方言（mariaDB / msSQL /

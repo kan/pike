@@ -232,6 +232,7 @@ pike/
 │   │   ├── issuePrompt.ts    # エージェントに渡す issue の指示文（#336。注入とコピーで共有）
 │   │   ├── commitPatch.ts    # コミット全体の差分をファイルごとの統合形式の行に落とす（#374）
 │   │   ├── gitGraph.ts  gitRemote.ts  gitignore.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
+│   │   ├── templateModes.ts   # テンプレートエンジンのハイライト（HTML に区切りの内側だけ別モードを差し込む、#409）
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）
 │   │   ├── rstPreview.ts      # reStructuredText のプレビュー（自前の変換、#284）

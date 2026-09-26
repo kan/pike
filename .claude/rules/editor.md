@@ -14,6 +14,7 @@ paths:
   - "src/lib/outline/**"
   - "src/lib/fileType.ts"
   - "src/lib/languages.ts"
+  - "src/lib/templateModes.ts"
   - "src/lib/fileIcons.ts"
   - "src/lib/openFile.ts"
   - "src/stores/fileTree.ts"
@@ -52,8 +53,17 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
   - ハイライトと StatusBar の種別（`lib/languages.ts` の `EXT_MAP`）／アウトラインの抽出器（`lib/outline/index.ts` の `EXTRACTORS`）／定義ジャンプの `langId`（`lib/jumpTo/`）／ファイルアイコンの補い（`lib/fileIcons.ts` の `ICON_FALLBACK`）
   - **`EXT_MAP` と `EXTRACTORS` は `Partial<Record<FileTypeKey, …>>` で縛ってある。** ラベルを持たないキーにモードや抽出器を足すとコンパイルエラーになるので、「色は付くのに種別が Plain Text」が型の届かないところに戻らない。逆（ラベルだけあってモードが無い）は許す
   - **判定の表に CodeMirror を import しない。** アイコンやアウトラインから、種別を知りたいだけのために言語モードの束を読み込ませないため
-  - 優先順（名前 → 拡張子 → 先頭セグメント → shebang）と、先頭セグメントで引く名前を絞る理由（`go.mod` の誤判定）は `fileTypeKey` の doc が正本
+  - 優先順（名前 → 後ろ 2 セグメント → 拡張子 → 先頭セグメント → shebang）と、先頭セグメントで引く名前を絞る理由（`go.mod` の誤判定）は `fileTypeKey` の doc が正本
   - **shebang に載せるのは既に import 済みのモードだけ**（「軽さ最優先」。`fish` / `awk` はモードを増やすことになるので入れない）。`env` と `-S`、末尾のバージョン（`python3.11`）の扱いは `shebangKey` の doc が正本
+  - **テンプレートエンジン（ERB / Blade / Twig / Smarty / Text::Xslate、#409）は `lib/templateModes.ts` の `multiplex`。** legacy の `html` モードに、区切りの内側だけ別の StreamParser を差し込む（CM5 の multiplex と同じ手法）。依存は増やさない
+    - **外側は `lang-html`（Lezer）ではなく legacy の `html`**。行の文字列を閉じの区切りの手前で切って（`withCut`）内側のモードに見せる手法は、StreamParser 同士でしか組めない
+    - 中身は ERB だけ `ruby` のモード、残りは自前の小さな式のモード（`exprMode`。語彙を切り替えて使う）。**legacy-modes に PHP は無い**（`lang-php` は Lezer）ので、Blade も `exprMode`
+    - **`<script>` / `<style>` の中身は legacy の JS / CSS にし、その中でも同じ区切りを拾う**（`template` の `embed`）。`.blade.php` は以前 `lang-php` 経由でここに色が付いていたので、落とすと退行になる。入り方は正規表現の開きではなく `enterAfter`（外側が `>` を読んだ直後に行のそこまでを見る）。後読みの開きだと `<script>` と同じ行でしか当たらず、中身が次の行から始まる普通の書き方で入れない
+    - **Mod+/ のために `commentTokens` を渡す**（エンジンのコメント記法。Xslate は行コードの `: #`）。StreamParser が持たないと、コメントの切り替えが何もしない
+    - `.blade.php` のアウトラインは出なくなった（以前は `phpExtractor`）。拾うのは `class` / `function` の宣言だけで、ビューには無いので実害は無い
+    - **`.blade.php` は `fileTypeKey` の `SUFFIX_KEYS`（後ろ 2 セグメント）で拡張子より先に拾う**。最後の拡張子で引くと PHP になる
+    - Smarty は **`{` の直後が空白ならタグにしない**（Smarty 3 の auto_literal）。埋め込んだ JS / CSS の波括弧を拾わないため。`.tpl` を Smarty に当てたのは #409 での判断（他のエンジンも使う拡張子）
+    - Haml / Slim は対象外（HTML への埋め込みではなくインデントで構造を表す形で、専用のモードが要る。#409 で見送り）
   - **`.jsonc` / `.jsonl` は `json()`（Lezer）のままにしてある（#350 で実測して現状維持）。同じ疑問で調べ直さないこと**
     - `.jsonl` / `.ndjson` は壊れていない。パーサはレコードごとに復帰し、行の境目に入るのは**幅 0** のエラーノードだけで、トークンの色は落ちない
     - `.jsonc` で壊れるのはコメントの範囲だけ（`// comment` が 2 つのエラーノードになり、残りは正しく解析される）

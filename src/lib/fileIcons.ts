@@ -14,6 +14,8 @@ const ICON_FALLBACK: Record<string, string> = Object.assign(Object.create(null),
   // `justfile` / `.justfile` / `Justfile` はどれも既定のアイコンになる（2.4.0 で確認）。
   // レシピを並べるファイルなので Makefile のアイコンを借りる。
   justfile: 'makefile',
+  // Text::Xslate のテンプレート（#409）。`.tx` は向こうに無いので、Perl のアイコンを借りる。
+  tx: 'perl',
 })
 
 /** 名前で引いたアイコンの SVG。`getAllIcons()` は配列を毎回作るので 1 度だけ畳む。 */

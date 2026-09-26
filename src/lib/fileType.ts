@@ -82,6 +82,14 @@ export const FILE_TYPE_LABELS = {
   less: 'Less',
   // Ansible のテンプレート（#349）。`nginx.conf.j2` のように元の拡張子の後ろに付く。
   j2: 'Jinja2',
+  // テンプレートエンジン（#409）。`.html.erb` / `.html.twig` は最後の拡張子で当たる。
+  // `.blade.php` は最後が `php` なので `SUFFIX_KEYS` で先に拾う。
+  erb: 'ERB',
+  blade: 'Blade',
+  twig: 'Twig',
+  // `.tpl` は他のエンジンでも使う拡張子だが、PHP の Smarty がいちばん多い（#409 で選んだ）。
+  tpl: 'Smarty',
+  tx: 'Text::Xslate',
   sql: 'SQL',
   // SQL の方言（#358）。`.sql` の自動判定が既定で解決するのは `sql`（標準）のままで、
   // ここへ寄せるのは設定（`setSqlDialect`）か、StatusBar からの手動選択のとき。
@@ -172,6 +180,16 @@ const NAME_KEYS: Record<string, string> = Object.assign(Object.create(null), {
   'uv.lock': 'toml',
   'poetry.lock': 'toml',
   gnumakefile: 'makefile',
+})
+
+/**
+ * 後ろ 2 つのセグメント → キー（#409）。**最後の拡張子より先に引く。**
+ *
+ * `welcome.blade.php` は最後の拡張子が `php` なので、拡張子で引くと PHP になる。Blade の
+ * ファイルは必ずこの形なので、拡張子の手前で拾う。
+ */
+const SUFFIX_KEYS: Record<string, string> = Object.assign(Object.create(null), {
+  'blade.php': 'blade',
 })
 
 /**
@@ -287,9 +305,10 @@ function keyFor(candidate: string): string {
 /**
  * このファイルの種別のキー。当たらなければ空文字。
  *
- * **優先順は 名前 → 拡張子 → 先頭セグメント → shebang。**
+ * **優先順は 名前 → 後ろ 2 セグメント → 拡張子 → 先頭セグメント → shebang。**
  *
  * - **名前**: `.bashrc` / `Cargo.lock` / `GNUmakefile` のように、拡張子では引けないもの
+ * - **後ろ 2 セグメント**: `.blade.php` のように、最後の拡張子では別の種別になるもの（#409）
  * - **拡張子は `paths.ts` の `extension` ではなく `split('.').pop()` で取る。** あちらは
  *   「最後のドットより後ろ、ただし先頭のドットは除く」なので `.gitignore` も `Makefile` も
  *   空を返す。ここは**拡張子を持たない名前をそのままキーとして引きたい**ので、意図して
@@ -305,6 +324,9 @@ export function fileTypeKey(filename: string, firstLine = ''): string {
   if (byName) return withSqlDialect(byName)
 
   const segments = name.split('.')
+  const bySuffix = segments.length > 2 ? SUFFIX_KEYS[segments.slice(-2).join('.')] : undefined
+  if (bySuffix) return bySuffix
+
   const byExt = keyFor(segments[segments.length - 1] ?? '')
   if (byExt) return withSqlDialect(byExt)
 
