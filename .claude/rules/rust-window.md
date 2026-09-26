@@ -4,6 +4,7 @@ paths:
   - "src-tauri/src/window_geom.rs"
   - "src-tauri/src/vdesk/**"
   - "src-tauri/src/browser.rs"
+  - "src-tauri/src/browser_nav.rs"
   - "src-tauri/src/html_preview.rs"
   - "src-tauri/src/drop_paths.rs"
   - "src-tauri/src/cli.rs"
@@ -30,6 +31,10 @@ Tauri のウィンドウ・webview を Rust から扱うときの規則。ウィ
   - 代わりに `Window` / `app.get_window` / `app.windows()` を使う。表示・フォーカス・位置・
     `hwnd`・イベントの送信は同じものがある。**例外は webview そのもの（WebView2 の COM）を
     触る `drop_paths::attach`** だけで、ウィンドウを作った直後（子がまだ無い）に呼ぶ
+  - **子 webview の COM は `Webview` から触る**（`browser_nav::attach`、#416）。`add_child` が
+    返す `Webview` の `with_webview` で `ICoreWebView2` に届くので、`WebviewWindow` は要らない。
+    イベントの送り先は、その時点の親ウィンドウを `app.get_webview(label)` から引く（子 webview は
+    別のタブへ譲られる、#402）
   - **プラグインの中は直せない。** `tauri-plugin-window-state` の `save_window_state` は
     `webview_windows()` で引くので、ブラウザのタブを開いている main ウィンドウは明示的な
     保存（トレイの「終了」、更新の前）のときに最大化の状態を読み直さない。位置と大きさは

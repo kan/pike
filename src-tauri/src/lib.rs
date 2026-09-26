@@ -15,6 +15,7 @@ mod agent_usage;
 mod agents;
 mod app_log;
 mod browser;
+mod browser_nav;
 mod cache;
 mod claude_usage;
 mod cli;

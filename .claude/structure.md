@@ -44,6 +44,7 @@ pike/
 │       ├── wait.rs            # `pike --wait`（GIT_EDITOR 連携）・WM_COPYDATA 待機管理
 │       ├── elevate.rs         # 管理者ターミナル（--new-instance で昇格起動、#138）
 │       ├── browser.rs         # ブラウザのタブの子 webview（#368。`unstable` の `add_child`）
+│       ├── browser_nav.rs     # 子 webview の移動を WebView2 のイベントで見分ける（ユーザーの操作か・ページの中の移動か、#416。Windows のみ）
 │       ├── html_preview.rs    # HTML のプレビューの配信（#399。`pike-preview` のスキームと仮想ファイル）
 │       ├── site_rules.rs      # ドメインごとの JS と CSS を差し込むスクリプトの組み立て（#368）
 │       ├── jira/              # Jira の拡張機能の JS（#380。jirapp から写した正本。site_rules.rs が include_str! で埋め込む）
@@ -218,6 +219,7 @@ pike/
 │   │   ├── syncFormat.ts     # 同期ファイルとマージの項目の行き来・同期の種類（#403）
 │   │   ├── browserIcons.ts   # ブラウザのタブのサイトのアイコン（#400。オリジンごとに覚える）
 │   │   ├── browserHandoff.ts # 別プロジェクトの同じ URL のタブへ子 webview を譲る（#402）
+│   │   ├── browserVisits.ts   # 閲覧履歴に載せる時点（リダイレクトを落とす。Windows は移動の知らせ・macOS は 3 秒の近似、#412 / #416）
 │   │   ├── overlay.ts        # 手前に浮いているものの数（#396。ブラウザのタブの子 webview を隠す判断）
 │   │   ├── fileType.ts       # ファイル名 → 種別のキー（#347。ハイライト/アウトライン/ジャンプ/アイコンが共有）
 │   │   ├── codeHighlight.ts  # プレビューのコードブロックの色付け（#359。4 つのプレビューで共有）

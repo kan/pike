@@ -28,6 +28,7 @@
 //! コマンドは全部 `async`。`add_child` はメインスレッドに作らせて結果を待つので、
 //! 同期コマンド（＝メインスレッド）から呼ぶとデッドロックする（`build_window` と同じ）。
 
+use crate::browser_nav;
 use crate::site_rules::{self, SiteRule};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -193,14 +194,23 @@ fn webview(app: &AppHandle, label: &str) -> Result<Webview, String> {
 }
 
 /// そのページのタブを持つウィンドウにだけ送る。全ウィンドウへ送ると、関係の無い
-/// ウィンドウまで起こして捨てさせることになる。
+/// ウィンドウまで起こして捨てさせることになる。**親はその時点で引く**: 子 webview は
+/// 別のタブへ譲られることがある（#402）。
+pub(crate) fn emit_to_owner<T: Serialize + Clone>(webview: &Webview, event: &str, payload: T) {
+    let _ = webview.emit_to(
+        EventTarget::window(webview.window().label()),
+        event,
+        payload,
+    );
+}
+
 fn emit_state(webview: &Webview, url: Option<String>, title: Option<String>) {
     let title_url = title
         .as_ref()
         .and_then(|_| webview.url().ok())
         .map(|u| u.to_string());
-    let _ = webview.emit_to(
-        EventTarget::window(webview.window().label()),
+    emit_to_owner(
+        webview,
         "browser_state",
         BrowserStatePayload {
             label: webview.label().to_owned(),
@@ -316,10 +326,12 @@ pub async fn browser_open(
             }
         });
     let rect = bounds.rect();
-    window
+    let view = window
         .add_child(builder, rect.position, rect.size)
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // 移動がユーザーの操作によるものか・ページの中の移動かを WebView2 から受ける（#416）。
+    browser_nav::attach(&view);
+    Ok(())
 }
 
 /// Jira の列の色の表（ステータス名→色の名前）を開いているページへ渡す（#405）。読み込みが
@@ -374,9 +386,10 @@ pub async fn browser_navigate(app: AppHandle, label: String, url: String) -> Res
 
 /// 今いるページの URL（WebView2 の `Source`）。
 ///
-/// **ページの中の移動（`history.pushState`）を拾う唯一の手**（#368）。イベントでは
-/// 届かない: `on_page_load` も `on_navigation` も**文書の読み込みを伴う遷移でしか
-/// 発火しない**（WebView2 の `NavigationStarting` / `NavigationCompleted`）。
+/// **macOS でページの中の移動（`history.pushState`）を拾う唯一の手**（#368）。Windows は
+/// WebView2 の `SourceChanged` を直接受けて届けるので、これを引かない（#416、`browser_nav.rs`）。
+/// Tauri の API ではイベントで届かない: `on_page_load` も `on_navigation` も**文書の読み込みを
+/// 伴う遷移でしか発火しない**（WebView2 の `NavigationStarting` / `NavigationCompleted`）。
 /// `on_document_title_changed` に相乗りする形も試したが、**契機がページ側の都合**に
 /// なる（タイトルを変えないサイトでは何も起きず、pushState より先にタイトルを変える
 /// サイトでは前のページの URL を拾う）。`Source` のほうは pushState で更新されるので、

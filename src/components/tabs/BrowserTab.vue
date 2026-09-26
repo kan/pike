@@ -15,7 +15,9 @@ import { useFocusPolling } from '../../composables/useFocusPolling'
 import { useI18n } from '../../i18n'
 import { registerBrowserDonor, takeBrowserView, unregisterBrowserDonor } from '../../lib/browserHandoff'
 import { requestBrowserIcon } from '../../lib/browserIcons'
+import { createVisitQueue } from '../../lib/browserVisits'
 import { isSamePage, isWebUrl } from '../../lib/format'
+import { isWindowsHost } from '../../lib/host'
 import { normalizeWebUrl, openUrlWithConfirm } from '../../lib/openUrl'
 import {
   type BrowserHistoryAction,
@@ -86,6 +88,9 @@ const routerHandlers: BrowserHandlers = {
     }
   },
   onJiraColors: (colors) => settingsStore.patchJiraColumnColors(colors),
+  // Windows だけが送る（#416）。前のページを載せるか捨てるかがここで決まる。
+  onNavigationStarting: (userInitiated) => visits.navigationStarting(userInitiated),
+  onSameDocument: (url) => applyUrl(url, true),
   // ページが新しいウィンドウを開こうとした（`target=_blank` など）。ポップアップは Rust が
   // WebView2 に任せ、ここへ来るのは普通のリンクだけ。同じ URL のタブがあっても新しく開く
   // （ブラウザと同じ）。置き場はこのタブと同じペイン。
@@ -194,7 +199,10 @@ async function tryAdopt(url: string, rulesKey: string): Promise<boolean> {
   openedRulesKey.value = rulesKey
   if (donated.title) tabStore.setTabTitle(props.tabId, donated.title)
   // 聞いているあいだに別の URL を打たれていたら、そちらへ移る。
-  if (tab.value.url !== url) void browserNavigate(view.label(), tab.value.url).catch(() => {})
+  if (tab.value.url !== url) {
+    leaveByUser()
+    void browserNavigate(view.label(), tab.value.url).catch(() => {})
+  }
   return true
 }
 
@@ -219,8 +227,9 @@ registerBrowserDonor(props.tabId, {
 /**
  * 移動してきた URL を反映する（タブ・アドレス欄・閲覧履歴）。
  *
- * **入口は 2 つ**: 読み込みの完了（`onState` の `url`）と、ページの中の移動を拾う
- * ポーリング（`pollUrl`、`sameDocument`）。同じ URL を 2 度履歴へ回さないのは `queuedUrl`。
+ * **入口は 2 つ**: 読み込みの完了（`onState` の `url`）と、ページの中の移動（`sameDocument`。
+ * Windows は WebView2 の知らせ `onSameDocument`、macOS はポーリング `urlPoll`）。同じ URL を
+ * 2 度履歴へ回さないのは `visits.queue`。
  *
  * **http(s) か確かめてから採る**。`webview.url()` はその瞬間のもので、ページが
  * `blob:` や `about:blank` にいることがある。ここで入れた値は `snapshotSession` で
@@ -240,54 +249,49 @@ function applyUrl(url: string, sameDocument = false) {
   // **タブの URL と履歴は別々に比べる。** WebView2 の `Source` は読み込みを終える前に次の
   // URL へ変わるので、クエリだけ違うページを開くとポーリングが先にそれを拾い、ページの中の
   // 移動として見送る。そのあと届く読み込みの完了は、タブの URL とは同じでも履歴にはまだ
-  // 載っていないので、ここで載せる。
-  if (url === queuedUrl) return
+  // 載っていないので、ここで載せる。同じ URL を 2 度回さない判定は `visits.queue` の中にある
+  // （スクリプトによる読み直しの扱いと一緒に決まるため）。
   if (sameDocument && isSamePage(prev, url)) return
-  queueVisit(url)
+  visits.queue(url)
 }
 
 /**
- * 履歴に載せるのを待つ時間（#412）。この間に同じタブが次のページへ移ったら、そのページは
- * リダイレクトとみなして載せない。
- *
- * **「リダイレクト中…」のページを落とすため。** サーバーのリダイレクト（3xx）は途中の
- * ページが読み込まれないので元から載らないが、ログインの経路などにある JS やメタ refresh の
- * リダイレクトは、途中のページが読み込みを終えてから次へ移る。Chromium はこれをクライアント
- * リダイレクトとして記録し、履歴の画面には連鎖の終点だけを出す（`visit_database.cc` の
- * `TransitionIsVisible` が `PAGE_TRANSITION_CHAIN_END` を見る）。Tauri の API はユーザーの
- * 操作による移動かを出していないので、時間で近似する。代償は、読み込んでから 3 秒以内に
- * リンクを押して移ったページも載らないこと。WebView2 の `NavigationStarting` の
- * `IsUserInitiated` を Rust で受ければ近似が要らなくなる（#416）。
+ * **移動の見分け方はホストで分ける**（#416）。Windows は WebView2 の知らせ（ユーザーの操作による
+ * 移動か・ページの中の移動か）で決め、macOS は WKWebView に同じ知らせが無いので近似のまま
+ * （3 秒の待ちと、ページの中の移動を拾う 1 秒ごとのポーリング）。決め方の中身は `lib/browserVisits.ts`。
  */
+const navEvents = isWindowsHost
+/** macOS の近似で、履歴に載せるのを待つ時間（#412）。 */
 const VISIT_COMMIT_DELAY_MS = 3000
+
+const visits = createVisitQueue({
+  delayMs: navEvents ? null : VISIT_COMMIT_DELAY_MS,
+  initialUrl: tab.value?.url ?? '',
+  commit: (url) => {
+    // タイトルは待っているあいだに届いていることが多いので、この時点のタブの名前を使う。
+    // まだなら、あとから `setTitle` が入れる。
+    const current = tab.value
+    browserStore.recordVisit(url, current && isSamePage(current.url, url) ? current.title : undefined)
+  },
+})
+
 /**
- * 最後に履歴へ回した URL（待っているもの・載せたもの）。同じ URL を 2 度回さない。
- * **始まりはタブを作った時点の URL**: 以前はタブの URL と同じなら載せなかったので、
- * 復元したタブが起動のたびに履歴の先頭へ上がることは無かった。それを変えない。
+ * **Pike 自身が移動を起こす直前に呼ぶ**（アドレス欄・戻る・進む・再読み込み・譲り受けた
+ * ページの移動、#416）。WebView2 から見るとこれらはユーザーの操作ではない（`Navigate` の API と、
+ * ページの中で走らせる `history.back()`）ので、知らせを待つと今のページをリダイレクトと
+ * 取り違える。送る前に載せておけば、あとから来る知らせは待っているページを持たない。
+ * Pike の移動はどれもここから始まるので、Rust で「次の移動は Pike のもの」を覚えなくてよい。
  */
-let queuedUrl = tab.value?.url ?? ''
-let pendingTimer: ReturnType<typeof setTimeout> | undefined
-
-/** 前に待っていたページは捨て（リダイレクトとみなす）、このページを待たせる。 */
-function queueVisit(url: string) {
-  if (pendingTimer !== undefined) clearTimeout(pendingTimer)
-  queuedUrl = url
-  pendingTimer = setTimeout(commitVisit, VISIT_COMMIT_DELAY_MS)
-}
-
-function commitVisit() {
-  pendingTimer = undefined
-  // タイトルは待っているあいだに届いていることが多いので、この時点のタブの名前を使う。
-  // まだなら、あとから `setTitle` が入れる。
-  const current = tab.value
-  browserStore.recordVisit(queuedUrl, current && isSamePage(current.url, queuedUrl) ? current.title : undefined)
+function leaveByUser() {
+  visits.flush()
 }
 
 /**
- * ページの中の移動（`history.pushState`）を拾う（#368）。
+ * ページの中の移動（`history.pushState`）を拾う（#368）。**macOS だけ**（Windows は
+ * `onSameDocument` で届く）。
  *
- * **イベントでは届かない**。`on_page_load` も `on_navigation` も文書の読み込みを伴う
- * 遷移でしか発火せず、ページ側から知らせる手も無い（子 webview は capability の
+ * WKWebView ではイベントで届かない。`on_page_load` も `on_navigation` も文書の読み込みを
+ * 伴う遷移でしか発火せず、ページ側から知らせる手も無い（子 webview は capability の
  * 対象外なので `invoke` が通らない）。理由の詳細は `browser_url` の doc が正本。
  *
  * ウィンドウがアクティブで、このタブが描かれているあいだだけ引く（`useFocusPolling`）。
@@ -311,19 +315,24 @@ onMounted(() => {
 
 // 描かれているあいだだけ引く。`shown` はダイアログや QuickOpen で隠したときも false に
 // なるが、そのときもページは動いていないので止めてよい。
-watch(shown, (visible) => (visible ? urlPoll.start() : urlPoll.stop()), { immediate: true })
+if (!navEvents) watch(shown, (visible) => (visible ? urlPoll.start() : urlPoll.stop()), { immediate: true })
+
+/**
+ * **待っている訪問は捨てずに載せる**（#412）。次のページへ移っていない以上リダイレクトでは
+ * なく、開いてすぐ閉じたページも履歴から辿れるほうがよい。ウィンドウを閉じたときは
+ * コンポーネントが外れないので、`beforeunload` でも載せる（Windows では今見ているページが
+ * 離れるまで待たされるので、ここで載せないと最後のページが残らない）。
+ */
+const flushVisits = () => visits.flush()
+window.addEventListener('beforeunload', flushVisits)
 
 // 子 webview を閉じるのは `useChildWebview` の後始末。
 onUnmounted(() => {
   unregisterBrowserDonor(props.tabId)
   urlPoll.stop()
   if (cssTimer !== undefined) clearTimeout(cssTimer)
-  // **待っている訪問は捨てずに載せる**（#412）。次のページへ移っていない以上リダイレクト
-  // ではなく、開いてすぐ閉じたページも履歴から辿れるほうがよい。
-  if (pendingTimer !== undefined) {
-    clearTimeout(pendingTimer)
-    commitVisit()
-  }
+  window.removeEventListener('beforeunload', flushVisits)
+  flushVisits()
 })
 
 async function go() {
@@ -340,6 +349,7 @@ async function go() {
     return
   }
   try {
+    leaveByUser()
     await browserNavigate(view.label(), url)
     error.value = null
   } catch (e) {
@@ -348,7 +358,9 @@ async function go() {
 }
 
 function history(action: BrowserHistoryAction) {
-  if (view.ready()) void browserHistory(view.label(), action).catch((e) => (error.value = String(e)))
+  if (!view.ready()) return
+  leaveByUser()
+  void browserHistory(view.label(), action).catch((e) => (error.value = String(e)))
 }
 
 const bookmarked = computed(() => !!tab.value && settingsStore.isBookmarked(tab.value.url))

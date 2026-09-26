@@ -21,6 +21,13 @@ export interface BrowserHandlers {
   onNewTab: (url: string) => void
   /** Jira のページで列の色を変えた（#405）。`colors` は変えた列だけ（消した列は `null`）。 */
   onJiraColors?: (colors: Record<string, string | null>) => void
+  /**
+   * 次の移動が始まった（#416。Windows だけ。WebView2 の `NavigationStarting`）。
+   * `userInitiated` は Pike のアドレス欄・戻る・進む・再読み込みも真。
+   */
+  onNavigationStarting?: (userInitiated: boolean) => void
+  /** ページの中の移動（#416。Windows だけ。WebView2 の `SourceChanged` で新しい文書でないもの）。 */
+  onSameDocument?: (url: string) => void
 }
 
 const handlers = new Map<string, BrowserHandlers>()
@@ -39,6 +46,12 @@ async function init() {
   })
   await win.listen<{ label: string; colors: Record<string, string | null> }>('browser_jira_colors', (event) => {
     handlers.get(event.payload.label)?.onJiraColors?.(event.payload.colors)
+  })
+  await win.listen<{ label: string; userInitiated: boolean }>('browser_navigation_starting', (event) => {
+    handlers.get(event.payload.label)?.onNavigationStarting?.(event.payload.userInitiated)
+  })
+  await win.listen<{ label: string; url: string }>('browser_same_document', (event) => {
+    handlers.get(event.payload.label)?.onSameDocument?.(event.payload.url)
   })
 }
 
