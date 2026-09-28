@@ -16,7 +16,7 @@ import { FileInput, GitMerge, RefreshCw } from 'lucide-vue-next'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { absoluteDate } from '../../lib/paths'
-import { parseItemKey, SYNC_CATEGORIES } from '../../lib/syncFormat'
+import { isMapEntry, parseItemKey, SYNC_CATEGORIES } from '../../lib/syncFormat'
 import type { Side } from '../../lib/syncMerge'
 import { describeError, importChosenCount, type SyncConflictView, useSyncStore } from '../../stores/sync'
 import { useTabStore } from '../../stores/tabs'
@@ -120,7 +120,7 @@ function label(c: SyncConflictView): string {
   const k = parseItemKey(c.key)
   switch (k[0]) {
     case 'setting':
-      return k[1]
+      return isMapEntry(k) ? `${k[1]} › ${k[2]}` : k[1]
     case 'project':
       if (k.length === 2) return t('sync.item.project', { name: c.projectName ?? k[1] })
       return `${c.projectName ?? k[1]} › ${fieldLabel(k[2])}`

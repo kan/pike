@@ -322,6 +322,13 @@ export default {
   'settings.closeToTray': 'Minimize to tray on close',
   'settings.closeToTrayHint':
     'When on, closing the window keeps Pike running in the system tray (quit from the tray menu). When off, closing the last window exits Pike; other open windows stay open.',
+  'settings.autostart': 'Launch at sign-in',
+  'settings.autostartHint':
+    'When on, Pike starts when you sign in to Windows. You can also toggle this in Windows Settings > Apps > Startup.',
+  'settings.autostartFailed': 'Could not change the launch-at-sign-in setting: {error}',
+  'settings.dockerComposeConfirm': 'Confirm compose commands',
+  'settings.dockerComposeConfirmHint':
+    'When on, Pike asks before running docker compose up / down from the Docker panel. Checking "Don\'t ask again" in that dialog turns this off.',
   'settings.terminal': 'Terminal',
   'settings.agent': 'Agents',
   'settings.editor': 'Editor',
@@ -727,6 +734,7 @@ export default {
   'docker.composeDown': 'docker compose down',
   'docker.composeUpConfirm': 'Run "docker compose up -d"?',
   'docker.composeDownConfirm': 'Run "docker compose down"? All service containers will be stopped and removed.',
+  'docker.composeConfirmRemember': "Don't ask again; run right away",
 
   // Project Panel
   'project.registerFolder': 'Register a directory',

@@ -423,6 +423,20 @@ export async function fsWriteFileBase64(shell: ShellType, path: string, data: st
   return invoke('fs_write_file_base64', { shell, path, data })
 }
 
+/** ログイン時に Pike を起動するか（#419、Windows のみ）。正本はレジストリ（`autostart.rs`）。 */
+export async function autostartGet(): Promise<boolean> {
+  return invoke<boolean>('autostart_get')
+}
+
+export async function autostartSet(enabled: boolean): Promise<void> {
+  return invoke('autostart_set', { enabled })
+}
+
+/** そのシェルから見たホームディレクトリ（#419）。WSL は distro の中のパス。分からなければ null。 */
+export async function fsHomeDir(shell: ShellType): Promise<string | null> {
+  return invoke<string | null>('fs_home_dir', { shell })
+}
+
 export async function fsResolveFirstExisting(shell: ShellType, candidates: string[]): Promise<string | null> {
   return invoke<string | null>('fs_resolve_first_existing', { shell, candidates })
 }

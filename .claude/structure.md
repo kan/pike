@@ -34,6 +34,7 @@ pike/
 │       ├── agents.rs          # PATH にあるエージェントの検出（#275。一覧はフロントの表）
 │       ├── agent_hook.rs      # エージェントの hook からの申告を受ける口（#299。`pike agent-hook`）
 │       ├── app_log.rs         # ログファイル（インストール版でも書く・フロントのエラーの受け口・フォルダを開く、#415）
+│       ├── autostart.rs       # ログイン時の起動（HKCU の Run キー、Windows のみ、#419）
 │       ├── agent_sessions.rs  # 再開できる過去セッションの一覧（#267。出所は 4 つとも違う）
 │       ├── agent_usage/
 │       │   ├── mod.rs         # 使用量を種別に依らない形で返す（#263。id でアダプタへ振り分け）

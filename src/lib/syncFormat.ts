@@ -11,6 +11,7 @@
  * ため、区切り文字で組み立てない。
  *
  * - `["setting", key]` … 設定 1 つ
+ * - `["setting", key, name]` … 表の形の設定の 1 件（`MAP_SETTING_KEYS`）
  * - `["project", id]`（有無）と `["project", id, field]` … プロジェクト（`order` を除く）
  * - `["group", name]` … グループの有無
  * - `["order", "groups"]` / `["order", "projects", group]` … 並び順
@@ -87,6 +88,14 @@ const CATEGORY_SETTING_KEYS = {
   fonts: ['fontFamily', 'fontSize', 'editorFontName', 'editorFontSize', 'uiFontFamily', 'uiFontSize'],
 } as const satisfies Record<Exclude<SyncCategory, 'settings' | 'projects'>, readonly (keyof PersistedSettings)[]>
 
+/**
+ * 表（名前 → 値）の形の設定のうち、**1 件ずつの項目に分けて比べる**もの（#419）。表を丸ごと
+ * 1 項目にすると、別々のマシンで別の件を変えただけで衝突になり、選ぶまでどちらのマシンにも
+ * 届かない（Jira の列の色は、ページが旧版の控えを移す経路でも起動のたびに手元の表が変わる）。
+ * **ファイルの形は変えない**（表のまま書く）ので、古い版の Pike とも混在できる。
+ */
+const MAP_SETTING_KEYS: ReadonlySet<string> = new Set(['browserJiraColumnColors'] satisfies (keyof PersistedSettings)[])
+
 const SETTING_CATEGORY: ReadonlyMap<string, SyncCategory> = new Map(
   Object.entries(CATEGORY_SETTING_KEYS).flatMap(([category, keys]) =>
     keys.map((key) => [key, category as SyncCategory] as const),
@@ -95,6 +104,7 @@ const SETTING_CATEGORY: ReadonlyMap<string, SyncCategory> = new Map(
 
 export type ItemKey =
   | ['setting', string]
+  | ['setting', string, string]
   | ['project', string]
   | ['project', string, string]
   | ['group', string]
@@ -104,6 +114,9 @@ export type ItemKey =
 export const itemKey = (k: ItemKey): string => JSON.stringify(k)
 
 export const parseItemKey = (key: string): ItemKey => JSON.parse(key) as ItemKey
+
+/** 表の形の設定の 1 件か（`MAP_SETTING_KEYS`）。 */
+export const isMapEntry = (k: ItemKey): k is ['setting', string, string] => k[0] === 'setting' && k.length === 3
 
 /** プロジェクトのフィールドなら、そのプロジェクトの有無の項目。 */
 function parentOf(key: string): string | null {
@@ -166,7 +179,9 @@ export function toItems(src: SyncSource): SyncItems {
   const items: SyncItems = new Map()
   for (const [k, v] of Object.entries(src.settings)) {
     if (RESERVED.has(k) || DERIVED.has(k) || v === undefined) continue
-    items.set(itemKey(['setting', k]), v)
+    if (MAP_SETTING_KEYS.has(k) && v && typeof v === 'object' && !Array.isArray(v)) {
+      for (const [name, e] of Object.entries(v)) if (e !== undefined) items.set(itemKey(['setting', k, name]), e)
+    } else items.set(itemKey(['setting', k]), v)
   }
   for (const p of src.projects) {
     items.set(itemKey(['project', p.id]), true)
@@ -223,7 +238,11 @@ export function fromItems(items: SyncItems): SyncSource {
   let groupOrder: unknown
   for (const [key, v] of items) {
     const k = parseItemKey(key)
-    if (k[0] === 'setting') settings[k[1]] = v
+    if (isMapEntry(k)) {
+      // 表の 1 件。1 件も無ければキーごと書かない（既定の値は空の表）。
+      settings[k[1]] ??= {}
+      ;(settings[k[1]] as Record<string, unknown>)[k[2]] = v
+    } else if (k[0] === 'setting') settings[k[1]] = v
     else if (k[0] === 'group') groups.push(k[1])
     else if (k[0] === 'order') {
       if (k[1] === 'groups') groupOrder = v
@@ -320,9 +339,11 @@ export function mergeSyncItems(
     if (k[0] === 'project' && !tracked(k[1]) && !carried.has(key)) carried.set(key, v)
   }
   // **この版の Pike が知らない設定のキーも「変えていない」**（新しい版が書いたキー）。手元に
-  // 無いことを削除と読むと、古い版で同期するたびに新しい版の設定を消す。
+  // 無いことを削除と読むと、古い版で同期するたびに新しい版の設定を消す。**表の 1 件
+  // （`MAP_SETTING_KEYS`）は除く**: 表は知っているので、手元に無い件は消したもの。
   for (const key of new Set([...(base?.keys() ?? []), ...remote.keys()])) {
-    if (parseItemKey(key)[0] !== 'setting' || carried.has(key)) continue
+    const k = parseItemKey(key)
+    if (k[0] !== 'setting' || isMapEntry(k) || carried.has(key)) continue
     carried.set(key, base?.has(key) ? base.get(key) : remote.get(key))
   }
   // **置き場所は作るときにだけ使う**（`CREATE_ONLY_FIELDS`）。既に共有されているプロジェクトでは
@@ -372,7 +393,8 @@ export function importSyncItems(
   const conflicts: SyncConflict[] = []
   for (const [key, v] of imported) {
     const k = parseItemKey(key)
-    if (k[0] === 'setting' && !local.has(key)) continue
+    // 知らない設定は取り込んでも効かないので並べない（表の 1 件は手元に無くても取り込める）。
+    if (k[0] === 'setting' && !isMapEntry(k) && !local.has(key)) continue
     const present = k[0] === 'project' && local.has(itemKey(['project', k[1]]))
     const field = k[0] === 'project' && k.length === 3
     if (k[0] === 'project' && !present && ignoreProject(k[1])) continue

@@ -611,6 +611,11 @@ export interface PersistedSettings {
    */
   desktopNotify: boolean
   /**
+   * Docker パネルの compose 操作（up / down）の前に確認するか（#419）。確認ダイアログの
+   * 「今後は確認しない」がここを切る。**同期の対象**（好み）。既定はオン。
+   */
+  dockerComposeConfirm: boolean
+  /**
    * ブラウザのタブで Jira（`*.atlassian.net`）を開いたとき、jirapp から写した拡張機能（列の色分け・
    * キーのコピー・再読み込みなど）を入れるか（#380）。**同期の対象**（好み）。既定はオン。
    */
@@ -1192,6 +1197,7 @@ function defaults(): PersistedSettings {
     // デスクトップ通知も既定で出す（#318）。上と同じく hook の登録が前提なので、
     // 何もしていない人に勝手に出ることはない。
     desktopNotify: true,
+    dockerComposeConfirm: true,
     browserJiraFeatures: true,
     // 移行の入力と、同期ファイルへの後方互換の書き出しにしか使わない（`PersistedSettings`）。
     agentProfiles: AGENTS.map((a) => ({ id: a.id })),
@@ -1283,6 +1289,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const agentNotify = ref<AgentNotifyMode>(saved.agentNotify)
   const agentNotifyIdle = ref(saved.agentNotifyIdle)
   const desktopNotify = ref(saved.desktopNotify)
+  const dockerComposeConfirm = ref(saved.dockerComposeConfirm)
   const browserJiraFeatures = ref(saved.browserJiraFeatures)
   const browserJiraColumnColors = ref<Record<string, string>>(saved.browserJiraColumnColors)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
@@ -1756,6 +1763,7 @@ export const useSettingsStore = defineStore('settings', () => {
       agentNotify: agentNotify.value,
       agentNotifyIdle: agentNotifyIdle.value,
       desktopNotify: desktopNotify.value,
+      dockerComposeConfirm: dockerComposeConfirm.value,
       browserJiraFeatures: browserJiraFeatures.value,
       // 古い版の Pike が読む形も併記する（理由は `PersistedSettings` の宣言の隣）。
       ...legacyAgentFields(agentLaunchers.value),
@@ -1814,6 +1822,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentNotify.value = s.agentNotify
     agentNotifyIdle.value = s.agentNotifyIdle
     desktopNotify.value = s.desktopNotify
+    dockerComposeConfirm.value = s.dockerComposeConfirm
     browserJiraFeatures.value = s.browserJiraFeatures
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
@@ -1937,6 +1946,7 @@ export const useSettingsStore = defineStore('settings', () => {
       agentNotify,
       agentNotifyIdle,
       desktopNotify,
+      dockerComposeConfirm,
       browserJiraFeatures,
     ],
     onSettingsChanged,
@@ -2017,6 +2027,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentNotify,
     agentNotifyIdle,
     desktopNotify,
+    dockerComposeConfirm,
     browserJiraFeatures,
     agentPrompts,
     allowedImageHosts,

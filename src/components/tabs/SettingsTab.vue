@@ -23,6 +23,8 @@ import {
   agentHookInstall,
   agentHookStatus,
   agentHookUninstall,
+  autostartGet,
+  autostartSet,
   detectWslDistros,
   type GistInfo,
   logOpenDir,
@@ -31,6 +33,7 @@ import {
   syncGistList,
 } from '../../lib/tauri'
 import { THEME_MODE_VIEW } from '../../lib/themeModes'
+import { windowFocused } from '../../lib/window'
 import { useProjectStore } from '../../stores/project'
 import {
   type AgentNotifyMode,
@@ -334,6 +337,32 @@ async function openLogDir() {
     logDirError.value = String(e)
   }
 }
+
+// ログイン時の起動（#419、Windows のみ）。正本はレジストリ（`autostart.rs`）で、設定のストアには
+// 持たない（マシンに結び付くうえ、Windows の設定画面からも切り替えられる）。開いたときと、
+// ウィンドウが前に出たとき（Windows の設定画面で切り替えて戻ってきた）に読み直す。
+const autostart = ref(false)
+const autostartError = ref('')
+function loadAutostart() {
+  autostartGet()
+    .then((on) => (autostart.value = on))
+    .catch(() => {})
+}
+if (isWindowsHost) {
+  loadAutostart()
+  watch(windowFocused, (focused) => {
+    if (focused) loadAutostart()
+  })
+}
+const autostartModel = computed({
+  get: () => autostart.value,
+  set: (on: boolean) => {
+    autostartError.value = ''
+    autostartSet(on)
+      .then(() => (autostart.value = on))
+      .catch((e) => (autostartError.value = t('settings.autostartFailed', { error: String(e) })))
+  },
+})
 
 async function withGist(kind: 'create' | 'list', run: () => Promise<void>) {
   gistBusy.value = kind
@@ -719,6 +748,16 @@ const PREVIEW_LINES = [
 
         <SettingItem label-key="settings.closeToTray" hint-key="settings.closeToTrayHint">
           <SettingToggle v-model="settings.closeToTray" :options="ON_OFF" />
+        </SettingItem>
+
+        <SettingItem v-if="isWindowsHost" label-key="settings.autostart" hint-key="settings.autostartHint">
+          <SettingToggle v-model="autostartModel" :options="ON_OFF" />
+          <span v-if="autostartError" class="update-info update-err">{{ autostartError }}</span>
+        </SettingItem>
+
+        <!-- Docker パネルの compose 操作（#419）。確認ダイアログの「今後は確認しない」もここを書き換える。 -->
+        <SettingItem label-key="settings.dockerComposeConfirm" hint-key="settings.dockerComposeConfirmHint">
+          <SettingToggle v-model="settings.dockerComposeConfirm" :options="ON_OFF" />
         </SettingItem>
       </SettingSection>
 

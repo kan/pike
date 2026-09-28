@@ -321,6 +321,13 @@ export default {
   'settings.closeToTray': '閉じたときトレイに最小化',
   'settings.closeToTrayHint':
     'オンのとき、ウィンドウを閉じても Pike はトレイに常駐し続けます（終了はトレイメニューから）。オフのとき、最後のウィンドウを閉じると Pike を終了します（他のウィンドウが開いていれば、そのウィンドウは残ります）。',
+  'settings.autostart': 'ログイン時に起動',
+  'settings.autostartHint':
+    'オンにすると、Windows にサインインしたとき Pike を起動します。Windows の「設定 > アプリ > スタートアップ」からも切り替えられます。',
+  'settings.autostartFailed': 'ログイン時の起動を切り替えられませんでした: {error}',
+  'settings.dockerComposeConfirm': 'compose の操作を確認',
+  'settings.dockerComposeConfirmHint':
+    'オンのとき、Docker パネルで docker compose up / down を実行する前に確認します。確認ダイアログで「今後は確認せずに実行する」を選ぶとオフになります。',
   'settings.terminal': 'ターミナル',
   'settings.agent': 'エージェント',
   'settings.editor': 'エディタ',
@@ -723,6 +730,7 @@ export default {
   'docker.composeDown': 'docker compose down',
   'docker.composeUpConfirm': '「docker compose up -d」を実行しますか？',
   'docker.composeDownConfirm': '「docker compose down」を実行しますか？（全サービスのコンテナが停止・削除されます）',
+  'docker.composeConfirmRemember': '今後は確認せずに実行する',
 
   // Project Panel
   'project.registerFolder': 'ディレクトリを登録',

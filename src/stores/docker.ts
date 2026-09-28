@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { confirmDialog } from '../composables/useConfirmDialog'
+import { confirmWithOption } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
 import {
@@ -15,6 +15,7 @@ import {
 } from '../lib/tauri'
 import type { ComposeProject, ContainerInfo, TunnelInfo } from '../types/docker'
 import { useProjectStore } from './project'
+import { useSettingsStore } from './settings'
 import { useTabStore } from './tabs'
 
 export const useDockerStore = defineStore('docker', () => {
@@ -76,11 +77,21 @@ export const useDockerStore = defineStore('docker', () => {
    * Run a compose command in a terminal tab (confirm first) so the user sees
    * the output. The tab starts in the directory that compose file was found in,
    * and the panel's polling picks up the resulting container-state changes.
+   *
+   * 確認は「今後は確認しない」で切れる（#419。`dockerComposeConfirm`）。戻すのは設定画面。
    */
   async function runCompose(target: ComposeProject, command: string, confirmMsg: string) {
     const project = useProjectStore().currentProject
     if (!project) return
-    if (!(await confirmDialog(`${confirmMsg}\n\n${target.file}`))) return
+    const settings = useSettingsStore()
+    if (settings.dockerComposeConfirm) {
+      const { ok, checked } = await confirmWithOption(
+        `${confirmMsg}\n\n${target.file}`,
+        t('docker.composeConfirmRemember'),
+      )
+      if (!ok) return
+      if (checked) settings.dockerComposeConfirm = false
+    }
     useTabStore().runCommandTab(command, target.dir, project.shell)
   }
 

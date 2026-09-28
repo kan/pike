@@ -182,6 +182,33 @@ describe('設定', () => {
   })
 })
 
+describe('Jira の列の色（#419）', () => {
+  const colors = (c: Record<string, string>) => src({ settings: { browserJiraColumnColors: c } })
+
+  test('別々のマシンで別の列に色を付けても衝突せず、両方残る', () => {
+    const m = merge(colors({}), colors({ 実施予定: 'green' }), colors({ 要件確認: 'red' }))
+    assert.equal(m.conflicts.length, 0)
+    assert.deepEqual(toSyncFile(m.merged).browserJiraColumnColors, { 実施予定: 'green', 要件確認: 'red' })
+  })
+
+  test('表を丸ごと持つ古い baseline からでも、別の列なら衝突しない', () => {
+    const oldBase = items({ [s('browserJiraColumnColors')]: {} })
+    const m = mergeSyncItems(oldBase, toItems(colors({ a: 'green' })), toItems(colors({ b: 'red' })), () => false)
+    assert.equal(m.conflicts.length, 0)
+    assert.deepEqual(toSyncFile(m.merged).browserJiraColumnColors, { a: 'green', b: 'red' })
+  })
+
+  test('消した列は伝わり、同じ列を別の色にしたらその列だけが衝突', () => {
+    const base = colors({ a: 'green', b: 'red' })
+    const m = merge(base, colors({ b: 'blue' }), colors({ a: 'green', b: 'teal' }))
+    assert.deepEqual(
+      m.conflicts.map((c) => c.key),
+      [itemKey(['setting', 'browserJiraColumnColors', 'b'])],
+    )
+    assert.equal(m.merged.has(itemKey(['setting', 'browserJiraColumnColors', 'a'])), false)
+  })
+})
+
 describe('nextBaseline', () => {
   test('選んでいない衝突は前の baseline に据え置く（次の同期でも同じ衝突が出る）', () => {
     const base = src({ settings: { a: 1, b: 1 } })

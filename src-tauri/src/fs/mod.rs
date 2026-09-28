@@ -1058,6 +1058,17 @@ pub async fn fs_write_file_base64(
     .map_err(|e| e.to_string())?
 }
 
+/// そのシェルから見たホームディレクトリ（ターミナルのリンクの `~` を展開する、#419）。
+/// WSL は distro の中のネイティブのパス、それ以外はホストのホーム。分からなければ `None`。
+#[tauri::command]
+pub async fn fs_home_dir(shell: ShellConfig) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        crate::claude_usage::config::shell_home(&shell).map(|(native, _)| native)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Return the first candidate path that exists as a regular file (not dir).
 /// Used by import resolution to probe extension/index variants in one round-trip.
 #[tauri::command]

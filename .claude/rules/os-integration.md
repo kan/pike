@@ -5,6 +5,7 @@ paths:
   - "src-tauri/src/cli.rs"
   - "src-tauri/src/wait.rs"
   - "src-tauri/src/elevate.rs"
+  - "src-tauri/src/autostart.rs"
   - "src-tauri/src/tray/**"
   - "src-tauri/src/jumplist/**"
   - "src-tauri/nsis/**"
@@ -61,6 +62,11 @@ paths:
     あの関数の中のコメント）
 - 既存エディタタブがある場合はフォーカス＋リロード（`reloadRequested` タイムスタンプ）
 - **NSIS インストーラフック**（`src-tauri/nsis/hooks.nsi`、`tauri.conf.json` の `bundle.windows.nsis.installerHooks`）: POSTINSTALL でユーザー PATH に `$INSTDIR` を冪等追加（#146。REG_EXPAND_SZ 維持・updater の再インストールでも重複しない）と、**エクスプローラー「プログラムから開く」候補登録**（`SHCTX\Software\Classes\Applications\pike.exe` に `FriendlyAppName` + `shell\open\command`。SupportedTypes 非設定 = 全拡張子の「別のアプリを選択」一覧に出る。既定の関連付けは変更しない）。PREUNINSTALL で両方を削除。MSI インストーラにはこのフックは無い（NSIS 推奨の理由の 1 つ）
+
+## ログイン時の起動（#419）
+- `src-tauri/src/autostart.rs`。HKCU の `Run` キーに exe を登録する（値の名前はインストール版が `Pike`、開発版が `Pike (dev)`）。登録すると Windows の「設定 > アプリ > スタートアップ」にも並ぶ
+- **正本はレジストリで、設定のストアに持たない。** Windows の設定画面からも切り替えられ、マシンに結び付く値なので同期にも乗せない。設定画面は開いたときと、ウィンドウが前に出たとき（`windowFocused`）に `autostart_get` で読み直す（Windows の設定画面で切り替えて戻ってきた場合）
+- **Windows 側で切ると `Run` の値は残り、`StartupApproved\Run` に無効の印（先頭のバイトが奇数）が付く。** 読むときは両方を見る。書くときはその印を消す（残っていると、`Run` に書いても無効のまま）
 
 ## `pike --wait`（GIT_EDITOR 連携）
 - `src-tauri/src/wait.rs`。`GIT_EDITOR="pike.exe --wait"` でコミットメッセージ編集に対応

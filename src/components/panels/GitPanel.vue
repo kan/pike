@@ -853,6 +853,7 @@ onUnmounted(() => {
               <span class="expand-icon"><ChevronDown v-if="expandedCommits.has(entry.hash)" :size="12" :stroke-width="2" /><ChevronRight v-else :size="12" :stroke-width="2" /></span>
               <ArrowUp v-if="unpushedHashes.has(entry.hash)" class="unpushed-icon" :size="12" :stroke-width="2.5" />
               <span class="log-message">{{ entry.message.split('\n')[0] }}</span>
+              <span class="log-meta log-author">{{ entry.author }}</span>
               <span class="log-meta">{{ relativeDate(entry.date) }}</span>
             </div>
             <div v-if="expandedCommits.has(entry.hash)" class="commit-files">
@@ -960,6 +961,7 @@ onUnmounted(() => {
                 <ArrowUp v-if="unpushedHashes.has(row.hash)" class="unpushed-icon" :size="12" :stroke-width="2.5" />
                 <span v-if="row.refs" class="graph-refs">{{ row.refs }}</span>
                 <span class="graph-message">{{ row.entry.message.split('\n')[0] }}</span>
+                <span class="log-meta log-author">{{ row.entry.author }}</span>
                 <span class="graph-meta">{{ relativeDate(row.entry.date) }}</span>
               </div>
             </div>
@@ -1331,6 +1333,13 @@ onUnmounted(() => {
   color: var(--text-secondary);
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* 一覧とグラフで共有。長い名前はメッセージより先に場所を取らないよう、幅を絞って省略する。 */
+.log-author {
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .commit-files {

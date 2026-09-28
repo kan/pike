@@ -101,6 +101,7 @@ Pike の第一ターゲットは Windows で、macOS は**ローカルのシェ�
 | ウィンドウ背景の透過・アクリル（#162） | `transparent` は `macos-private-api` feature が要るのでビルダーにメソッドが生えない。不透明で生成する。**設定の値も潰す**（`sanitizeBackdrop`）: この設定は同期対象なので、Windows 機でアクリルにした値が流れてくると、透けない下地の上に半透明の UI が描かれて黒く潰れる |
 | 仮想デスクトップごとのウィンドウ復元（#317） | `IVirtualDesktopManager`（COM）。macOS の Spaces と Linux のワークスペースには相当する公開 API が無い。`vdesk` の stub が「常に見えている / どこにも属さない / 移せない」を返し、復元は現在のデスクトップに出す側へ落ちる |
 | デスクトップ通知（#318） | WinRT のトーストと、AUMID を書いたスタートメニューのショートカット（`IShellLinkW` + `IPropertyStore`）。**そもそも入力待ちの知らせ（#265）が Windows 限定**（配送の WM_COPYDATA がそこにしか無い）なので、通知が要る場面も無い。`toast` の stub が何もしない |
+| ログイン時の起動（#419） | HKCU の `Run` キー。macOS のログイン項目は別の仕組み。`autostart` の stub が「しない」と答え、設定画面は `isWindowsHost` のときだけ項目を出す |
 
 `busy` 判定（#178）は**代替がある**ので実装してある: WSL の `/proc/*/environ` マーカー走査に
 あたるものが、ローカル Unix では `ps -Ao ppid=`（PID が同じ名前空間にあるのでマーカーが

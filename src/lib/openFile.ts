@@ -13,7 +13,7 @@ import {
   pathSep,
   pickedPathForShell,
 } from './paths'
-import { fsOpenInExplorer, fsReadFileBase64, pickOpenFile } from './tauri'
+import { fsHomeDir, fsOpenInExplorer, fsReadFileBase64, pickOpenFile } from './tauri'
 
 /**
  * Open a path in the tab kind that matches its extension: images go to the
@@ -95,17 +95,26 @@ const EXECUTABLE_EXTENSIONS = new Set([
  *
  * **解決の規則はここ 1 つ**（#376）。ターミナルのリンク、エディタのタグジャンプ、検索の
  * 結果が同じものを使う（それぞれが書いていたころは、判定と連結の書き方が 3 通りあった）。
+ *
+ * **`~` で始まるパスはシェルのホームから解決する**（#419）。ターミナルの出力には
+ * `~/.claude/...` の形が出るが、相対パスとしてルートに連結すると無いファイルを開く
+ * （空のエディタになる）。ホームが分からなければ相対パスの扱いに落ちる。
  */
-export function projectPath(path: string): string | null {
+export async function projectPath(path: string): Promise<string | null> {
   const projectStore = useProjectStore()
   const project = projectStore.currentProject
   if (!project) return null
-  return isAbsolutePath(path) ? path : joinPath(projectStore.activeRoot, path, pathSep(project.shell))
+  const sep = pathSep(project.shell)
+  if (/^~(?:$|[/\\])/.test(path)) {
+    const home = await fsHomeDir(project.shell).catch(() => null)
+    if (home) return joinPath(home, path.slice(1), sep)
+  }
+  return isAbsolutePath(path) ? path : joinPath(projectStore.activeRoot, path, sep)
 }
 
 /** `projectPath` で解決して、その行を開く。 */
 export async function openProjectPath(path: string, line?: number): Promise<void> {
-  const full = projectPath(path)
+  const full = await projectPath(path)
   const shell = useProjectStore().currentProject?.shell
   if (full) await openPathInTab({ path: full, line, shell })
 }

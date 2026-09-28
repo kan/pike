@@ -33,6 +33,7 @@ import {
   fromItems,
   fromSyncFile,
   importSyncItems,
+  isMapEntry,
   itemKey,
   mergeSyncItems,
   nextBaseline,
@@ -356,14 +357,21 @@ export const useSyncStore = defineStore('sync', () => {
   async function applyLocal(result: SyncItems, before: SyncItems, localSrc: SyncSource): Promise<string> {
     let summary = ''
     const changedSettings: Record<string, unknown> = {}
+    const changedMaps = new Set<string>()
     let projectsChanged = false
     for (const key of new Set([...result.keys(), ...before.keys()])) {
       const v = result.get(key)
       if (stableKey(v) === stableKey(before.get(key))) continue
       const k = parseItemKey(key)
-      // 設定の項目は消えることが無い（既定の値がある）ので、値のあるものだけ。
+      // 設定の項目は消えることが無い（既定の値がある）ので、値のあるものだけ。表の 1 件は
+      // 消えることがあるので、表ごと組み直して当てる。
       if (k[0] !== 'setting') projectsChanged = true
+      else if (isMapEntry(k)) changedMaps.add(k[1])
       else if (v !== undefined) changedSettings[k[1]] = v
+    }
+    if (changedMaps.size > 0) {
+      const merged = fromItems(result).settings
+      for (const name of changedMaps) changedSettings[name] = merged[name] ?? {}
     }
     if (Object.keys(changedSettings).length > 0) settings.applySyncedSettings(changedSettings)
     // プロジェクトに変化が無ければ反映を飛ばす（一覧の読み直しと比べ直しが要らない）。

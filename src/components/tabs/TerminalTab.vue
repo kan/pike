@@ -218,7 +218,7 @@ function detectAgents() {
 // 見て押しているので、確認の値打ちは「どこに解決されたか」のほうにある。
 async function openPathLink(target: PathLinkTarget) {
   const project = projectStore.currentProject
-  const full = projectPath(target.path)
+  const full = await projectPath(target.path)
   if (!project || !full) return
   if (settingsStore.terminalPathLinks === 'confirm') {
     const { ok, checked } = await confirmWithOption(

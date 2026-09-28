@@ -14,6 +14,7 @@ mod agent_sessions;
 mod agent_usage;
 mod agents;
 mod app_log;
+mod autostart;
 mod browser;
 mod browser_nav;
 mod cache;
@@ -1855,6 +1856,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             app_log::log_frontend,
             app_log::log_open_dir,
+            autostart::autostart_get,
+            autostart::autostart_set,
             cli::cli_get_initial_action,
             cli::cli_set_pending_action,
             wait::wait_signal_by_path,
@@ -1918,6 +1921,7 @@ pub fn run() {
             fs::fs_create_file,
             fs::fs_create_dir,
             fs::fs_write_file_base64,
+            fs::fs_home_dir,
             fs::fs_resolve_first_existing,
             fs::fs_existing_paths,
             fs::fs_dirs_exist,
