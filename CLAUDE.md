@@ -176,12 +176,13 @@ pike/
 - どちらもコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは適用後のコードを試す）。
 - `/code-review` はスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
 
-その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 8 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
+その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 9 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
 
 - **Frontend**: `just lint`（= `npm run lint` = `biome check src/ tests/`）
 - **TypeScript 型検査**: `just typecheck`（= `npx vue-tsc --noEmit`。`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
 - **ドキュメント整合**: `just check-docs`（= `node scripts/check-docs.mjs`）
 - **ショートカット照合**: `just check-shortcuts`（= `tsx scripts/check-shortcuts.ts`。マニュアルの早見表と実装の割り当てを突き合わせる。#280）
+- **クレジット照合**: `just check-credits`（= `node scripts/gen-credits.mjs --check`。About に出す依存のライセンス一覧 `src/assets/credits.json` が lockfile と合っているか。**依存を変えたら `just credits` で作り直して同じコミットに入れる**。#420）
 - **TS のテスト**: `just test-ts`（= `tsx --test tests/*.test.ts`。Node 標準の `node:test` で、フロントの純粋なロジックだけを見る。#403）
 - **Rust の整形**: `just fmt-check`（= `src-tauri/` で `cargo fmt --check`。設定は `src-tauri/rustfmt.toml`。整形するときは `just fmt`。#313）
 - **Rust**: `just clippy`（= `src-tauri/` で `cargo clippy --all-targets -- -D warnings`。`--all-targets` が無いと `#[cfg(test)]` の中だけ素通りする。追加の lint は `src-tauri/Cargo.toml` の `[lints.clippy]`、#382）

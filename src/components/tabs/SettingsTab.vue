@@ -77,6 +77,7 @@ import {
 import AllowedHostList from '../panels/AllowedHostList.vue'
 import ProfileRow from '../panels/ProfileRow.vue'
 import SiteRuleList from '../panels/SiteRuleList.vue'
+import UpdateControls from '../panels/UpdateControls.vue'
 import SettingGroup from '../settings/SettingGroup.vue'
 import SettingItem from '../settings/SettingItem.vue'
 import SettingSection from '../settings/SettingSection.vue'
@@ -752,7 +753,7 @@ const PREVIEW_LINES = [
 
         <SettingItem v-if="isWindowsHost" label-key="settings.autostart" hint-key="settings.autostartHint">
           <SettingToggle v-model="autostartModel" :options="ON_OFF" />
-          <span v-if="autostartError" class="update-info update-err">{{ autostartError }}</span>
+          <span v-if="autostartError" class="setting-result setting-result-err">{{ autostartError }}</span>
         </SettingItem>
 
         <!-- Docker パネルの compose 操作（#419）。確認ダイアログの「今後は確認しない」もここを書き換える。 -->
@@ -1363,10 +1364,10 @@ const PREVIEW_LINES = [
               <p v-if="gistChoices.length === 0" class="setting-hint">{{ t('sync.gistNone') }}</p>
               <div v-for="g in gistChoices" :key="g.id" class="setting-list-row">
                 <span class="setting-list-name">{{ g.description || g.id }}（{{ absoluteDate(g.updatedAt) }}）</span>
-                <button class="update-btn" :disabled="gistLocked" @click="chooseGist(g.id)">{{ t('sync.gistUse') }}</button>
+                <button class="setting-btn" :disabled="gistLocked" @click="chooseGist(g.id)">{{ t('sync.gistUse') }}</button>
               </div>
             </div>
-            <p v-if="gistError" class="setting-hint update-err">{{ gistError }}</p>
+            <p v-if="gistError" class="setting-hint setting-result-err">{{ gistError }}</p>
           </SettingItem>
         </template>
 
@@ -1390,7 +1391,7 @@ const PREVIEW_LINES = [
         <SettingItem v-if="sync.target.kind !== 'none'" label-key="sync.status" wide>
           <div class="sync-actions">
             <button
-              class="update-btn"
+              class="setting-btn"
               :disabled="!sync.hasTarget || gistLocked"
               data-testid="sync-now"
               @click="sync.syncNow()"
@@ -1401,15 +1402,15 @@ const PREVIEW_LINES = [
             <!-- 同期中は結果を出さない（前回の結果が今のものに見える）。表示はボタンが持つ。 -->
             <template v-if="sync.syncing"></template>
             <template v-else-if="sync.status === 'conflicts'">
-              <span class="update-info update-err">{{ t('sync.conflictsCount', { count: sync.conflicts.length }) }}</span>
-              <button class="update-btn" data-testid="sync-open-conflicts" @click="tabStore.addSyncConflictsTab()">
+              <span class="setting-result setting-result-err">{{ t('sync.conflictsCount', { count: sync.conflicts.length }) }}</span>
+              <button class="setting-btn" data-testid="sync-open-conflicts" @click="tabStore.addSyncConflictsTab()">
                 {{ t('sync.openConflicts') }}
               </button>
             </template>
-            <span v-else-if="sync.status === 'error'" class="update-info update-err">
+            <span v-else-if="sync.status === 'error'" class="setting-result setting-result-err">
               {{ t('sync.error', { message: sync.message }) }}
             </span>
-            <span v-else-if="sync.lastSyncedAt" class="update-info update-ok">
+            <span v-else-if="sync.lastSyncedAt" class="setting-result setting-result-ok">
               {{ t('sync.lastSynced', { at: absoluteDate(sync.lastSyncedAt) }) }}
               {{ sync.message }}
             </span>
@@ -1467,15 +1468,15 @@ const PREVIEW_LINES = [
         <SettingGroup title-key="sync.backup">
           <SettingItem label-key="sync.backupFile" hint-key="sync.backupHint" wide>
             <div class="sync-actions">
-              <button class="update-btn" :disabled="backupBusy !== null" @click="runBackup('export')">
+              <button class="setting-btn" :disabled="backupBusy !== null" @click="runBackup('export')">
                 <Loader v-if="backupBusy === 'export'" :size="14" :stroke-width="2" class="spin" />
                 {{ t('sync.export') }}
               </button>
-              <button class="update-btn" :disabled="backupBusy !== null" @click="runBackup('import')">
+              <button class="setting-btn" :disabled="backupBusy !== null" @click="runBackup('import')">
                 <Loader v-if="backupBusy === 'import'" :size="14" :stroke-width="2" class="spin" />
                 {{ t('sync.import') }}
               </button>
-              <span v-if="backupResult" class="update-info" :class="backupResult.error ? 'update-err' : 'update-ok'">
+              <span v-if="backupResult" class="setting-result" :class="backupResult.error ? 'setting-result-err' : 'setting-result-ok'">
                 {{ backupResult.text }}
               </span>
             </div>
@@ -1489,33 +1490,14 @@ const PREVIEW_LINES = [
           <span class="version-value">{{ updater.appVersion.value }}</span>
         </SettingItem>
         <SettingItem label-key="settings.checkUpdate">
-          <div class="update-actions">
-            <button v-if="updater.state.value === 'available'" class="update-btn update-btn-primary" @click="updater.downloadAndInstall">
-              {{ t('settings.updateAndRestart') }}
-            </button>
-            <!-- 「更新あり」のときも出す。見つけた版より新しいリリースが出ていることがある（#414） -->
-            <button v-if="!updater.busy.value" class="update-btn" @click="updater.checkForUpdate">{{ t('settings.checkUpdate') }}</button>
-            <button v-else class="update-btn" disabled>
-              <Loader :size="14" :stroke-width="2" class="spin" />
-              {{ t(updater.state.value === 'checking' ? 'settings.checking' : 'settings.downloading') }}
-            </button>
-            <span v-if="updater.state.value === 'available'" class="update-info">
-              {{ t('settings.updateAvailable', { version: updater.updateVersion.value }) }}
-            </span>
-            <span v-else-if="updater.state.value === 'upToDate'" class="update-info update-ok">
-              {{ t('settings.upToDate') }}
-            </span>
-            <span v-else-if="updater.state.value === 'error'" class="update-info update-err">
-              {{ t('settings.updateError') }}{{ updater.errorMessage.value ? ': ' + updater.errorMessage.value : '' }}
-            </span>
-          </div>
+          <UpdateControls />
         </SettingItem>
         <SettingItem label-key="settings.logFolder" hint-key="settings.logFolderHint">
-          <div class="update-actions">
-            <button class="update-btn" data-testid="settings-open-log-folder" @click="openLogDir">
+          <div class="setting-actions">
+            <button class="setting-btn" data-testid="settings-open-log-folder" @click="openLogDir">
               {{ t('settings.openLogFolder') }}
             </button>
-            <span v-if="logDirError" class="update-info update-err">{{ logDirError }}</span>
+            <span v-if="logDirError" class="setting-result setting-result-err">{{ logDirError }}</span>
           </div>
         </SettingItem>
       </SettingSection>
@@ -1755,62 +1737,6 @@ const PREVIEW_LINES = [
   font-size: 14px;
   color: var(--text-secondary);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
-}
-
-.update-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.update-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.update-btn:hover:not(:disabled) {
-  background: var(--tab-hover-bg);
-}
-
-.update-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.update-btn-primary {
-  background: var(--accent);
-  color: var(--on-accent);
-  border-color: var(--accent);
-}
-
-.update-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
-.update-info {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.update-ok {
-  color: #4caf50;
-}
-
-.update-err {
-  color: #f44336;
-}
-
-.spin {
-  animation: spin 1s linear infinite;
 }
 
 /* 設定画面の「縦に並ぶ行の一覧」の共通の形（`.setting-list` / `-row` / `-name`）は

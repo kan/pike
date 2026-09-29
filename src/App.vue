@@ -2,6 +2,7 @@
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { nextTick, onMounted, watch } from 'vue'
+import AboutDialog from './components/AboutDialog.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import SideBar from './components/layout/SideBar.vue'
@@ -377,6 +378,7 @@ onMounted(async () => {
     <QuickOpen v-if="!globalMode" />
     <ConfirmDialog />
     <KeyboardShortcuts />
+    <AboutDialog />
   </div>
 </template>
 

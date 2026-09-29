@@ -17,6 +17,10 @@ Claude が実行する。通常のコミット運用と異なり push の個別�
 「コミット & push 運用ルール」のとおり（ロックファイルを共有するので 1 件ずつマージせず、
 ローカルでまとめて取り込む）。取り込み → `just check` → push の後に 1 へ進む。
 
+**依存が変わったらクレジットを作り直す**（#420）。`just credits` で `src/assets/credits.json` を
+作り直し、取り込みと同じコミットに入れる。忘れると `just check` の `check-credits` が落ちる
+（About に出すライセンスの一覧が、配布物の依存と食い違うため）。
+
 ### 1. rg サイドカーのバージョン確認
 
 `scripts/download-rg.sh` の `VERSION` を [ripgrep のリリース](https://github.com/BurntSushi/ripgrep/releases)
@@ -33,7 +37,8 @@ just fetch-rg
 毎回最新を取ることは別）。消してから取り直すのは、スクリプトがファイルの有無しか見ないため
 （詳細は `.claude/rules/platform.md`）。
 
-バイナリは `.gitignore` 済みなので、コミットするのは `scripts/download-rg.sh` だけ。
+バイナリは `.gitignore` 済みなので、コミットするのは `scripts/download-rg.sh` と、`just credits` で
+作り直した `src/assets/credits.json`（ripgrep の版とライセンスの本文が載っている）。
 バージョン bump とは別のコミットにする（`chore: rg サイドカーを X.Y.Z に上げる`）。
 
 ### 2. バージョン番号の更新

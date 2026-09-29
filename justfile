@@ -48,8 +48,8 @@ fetch-rg:
 
 # --- コミット前チェック ---
 
-# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / TS のテスト / 整形 / clippy / test）
-check: lint typecheck check-docs check-shortcuts test-ts fmt-check clippy test
+# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / クレジット照合 / TS のテスト / 整形 / clippy / test）
+check: lint typecheck check-docs check-shortcuts check-credits test-ts fmt-check clippy test
 
 # Biome（src/ と tests/）
 lint:
@@ -70,6 +70,14 @@ check-docs:
 # マニュアルの「プリセット別の早見表」と実装の割り当て表の照合（#280）
 check-shortcuts:
     npm run check:shortcuts
+
+# クレジット（src/assets/credits.json）が lockfile の依存と合っているか（#420。本文は読まない）
+check-credits:
+    npm run check:credits
+
+# クレジットを作り直す（依存を変えたら。ライセンスの本文を取りにネットワークへ出ることがある）
+credits:
+    npm run credits
 
 # フロントの純粋なロジックのテスト（tests/*.test.ts。tsx で node:test を走らせる。#403）
 test-ts:

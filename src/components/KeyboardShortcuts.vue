@@ -144,13 +144,13 @@ const sections = computed<ShortcutSection[]>(() => [
   <Teleport to="body">
     <div
       v-if="visible"
-      class="shortcuts-overlay ui-zoom"
+      class="modal-overlay ui-zoom"
       @mousedown.self="visible = false"
       @keydown="onKeyDown"
     >
-      <div ref="panelRef" class="shortcuts-panel popup-surface" tabindex="-1">
-        <div class="shortcuts-header">
-          <span class="shortcuts-title">{{ t('shortcuts.title') }}</span>
+      <div ref="panelRef" class="modal-panel shortcuts-panel popup-surface" tabindex="-1">
+        <div class="modal-header">
+          <span class="modal-title">{{ t('shortcuts.title') }}</span>
           <!-- 一覧を見ながら切り替えられるようにする（#261）。設定の「全般」と同じ値。 -->
           <div class="mode-toggle" role="group" :aria-label="t('settings.shortcutPreset')">
             <button
@@ -163,7 +163,7 @@ const sections = computed<ShortcutSection[]>(() => [
               {{ t(p === 'idea' ? 'settings.shortcutPresetIdea' : 'settings.shortcutPresetVscode') }}
             </button>
           </div>
-          <button class="close-btn" @click="visible = false">&times;</button>
+          <button class="modal-close" @click="visible = false">&times;</button>
         </div>
         <div class="shortcuts-body">
           <div v-for="section in sections" :key="section.title" class="shortcut-section">
@@ -185,67 +185,16 @@ const sections = computed<ShortcutSection[]>(() => [
 </template>
 
 <style scoped>
-.shortcuts-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  justify-content: center;
-  padding-top: 60px;
-}
-
+/* 枠（`.modal-*`）は `theme.css`。About と共有する（#420）。 */
 .shortcuts-panel {
   width: 480px;
   max-height: 520px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  align-self: flex-start;
-  outline: none;
 }
 
-.shortcuts-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.shortcuts-header .shortcuts-title {
-  /* 見出しに余りを吸わせて、プリセットと ✕ を右端へ寄せる。 */
-  flex: 1;
-}
-
-/* 見出しに余りを吸わせたぶん、切り替えは `theme.css` の共有クラス（設定画面と同じ形）。 */
+/* 切り替えは `theme.css` の共有クラス（設定画面と同じ形）。 */
 .mode-btn {
   /* 一覧の見出しに収めるので、設定画面より少し詰める。 */
   padding: 3px 10px;
-}
-
-.shortcuts-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-active);
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 18px;
-  cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-}
-
-.close-btn:hover {
-  color: var(--text-active);
 }
 
 .shortcuts-body {

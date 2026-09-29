@@ -32,6 +32,13 @@ paths:
   実行ビットも立ててあるが、呼び方のほうが本命
 - CI での just 導入は `extractions/setup-just`（他の action と同じく SHA ピン留め）
 
+## クレジット（#420）
+- About（`components/AboutDialog.vue`）に出す依存のライセンス一覧は `scripts/gen-credits.mjs` が作る `src/assets/credits.json`。**生成物を commit する**（ビルドのたびに作ると、ビルドが cargo のレジストリと node_modules の中身に依存する）
+  - 集める範囲は、リリースするターゲット（Windows x64 と macOS arm64）の通常の依存でたどれるクレート、package-lock.json の `dev` でないパッケージ、ripgrep。**build / dev の依存は含めない**（配布物に入らない）。ターゲットを増やしたら `RUST_TARGETS` も直す
+  - 本文を同梱していないパッケージは SPDX の標準文で補う（`standard`、版を固定した `SPDX_TEXT` から取る）。ripgrep の本文も GitHub から取るので、**作り直しはネットワークに出る**。`--check` は名前と版の集合しか見ないので出ない
+  - **フロントは `?url` で資産として出して、About を開いたときに `fetch` する。** `import` すると起動時のバンドルに約 1MB 乗るうえ、`resolveJsonModule` で vue-tsc が巨大な JSON の型を推論する
+- 依存を変えたら `just credits` で作り直して同じコミットに入れる。忘れると `just check-credits`（CI では Windows のジョブ）が落ちる
+
 ## 開発ビルド
 - `just dev`（= `npm run tauri:dev`）で開発版を起動（`tauri.dev.conf.json` で identifier を `com.pike.dev.debug` に上書き）
 - インストール版 Pike (`com.pike.dev`) と開発版 (`com.pike.dev.debug`) は single-instance が別扱いになるため共存可能

@@ -71,16 +71,5 @@ const dir = computed(() => vuePreviewInstallDir(props.shell))
   cursor: default;
 }
 
-.link-btn {
-  border: none;
-  background: none;
-  padding: 0;
-  color: var(--accent);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.link-btn:hover {
-  text-decoration: underline;
-}
+/* `.link-btn` は `theme.css`（About と共有、#420）。 */
 </style>

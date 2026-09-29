@@ -19,6 +19,7 @@ pike/
 │   ├── bump-version.mjs       # バージョンを 3 ファイルに書き込む（just bump が呼ぶ）
 │   ├── check-docs.mjs         # ドキュメント整合チェック（just check-docs が呼ぶ）
 │   ├── check-shortcuts.ts     # マニュアルの早見表と実装の割り当ての照合（just check-shortcuts、#280）
+│   ├── gen-credits.mjs        # 依存のライセンス一覧を src/assets/credits.json に作る（just credits / check-credits、#420）
 │   └── make-icons.sh          # アイコン一式を icon.svg から作り直す（#256）
 ├── tests/                     # フロントの純粋なロジックのテスト（*.test.ts。just test-ts、#403）
 ├── src-tauri/
@@ -114,6 +115,7 @@ pike/
 │   │   ├── QuickOpen.vue        # Ctrl+P コマンドパレット（ファイル/>タスク/@タブ/:行/!ブランチ/?ヘルプ）
 │   │   ├── ConfirmDialog.vue    # カスタム確認ダイアログ（Teleport、prompt 入力対応）
 │   │   ├── KeyboardShortcuts.vue # ショートカット一覧モーダル
+│   │   ├── AboutDialog.vue      # About（バージョンと依存のライセンス。StatusBar のバージョンから開く、#420）
 │   │   ├── HelpButton.vue       # 各 UI からマニュアル該当ページを開く「?」ボタン
 │   │   ├── RateMeters.vue       # 利用率の帯グラフ（StatusBar と状態タブで共有、#226）
 │   │   ├── ColorDot.vue         # プロジェクトカラーのドット（#121）
@@ -142,6 +144,7 @@ pike/
 │   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）
 │   │   │   ├── BrowserPanel.vue   # ブラウザのタブの新しいタブ・ブックマーク・閲覧履歴（#368）
 │   │   │   ├── SiteRuleList.vue   # ドメインごとの JS と CSS のルールの一覧（設定画面、#368）
+│   │   │   ├── UpdateControls.vue # 更新の確認と適用のボタン（設定画面のバージョン情報と About で共有、#420）
 │   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── editor/
@@ -193,7 +196,7 @@ pike/
 │   │   ├── useAgentHookPrompt.ts  # hook の登録をシェルごとに 1 度だけ聞く（#299 / #265）
 │   │   ├── useAgentMenu.ts    # エージェントの起動メニューの構成と再開一覧（#375。ターミナルの起動ボタンとタブバーの ▾ で共有）
 │   │   ├── useAgentNotice.ts  # エージェントの入力待ちを受けて通知する（#265）
-│   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts
+│   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts  useAboutModal.ts
 │   │   ├── useAppActions.ts  # ショートカットと macOS メニューが共有する動作の実体（#254）
 │   │   ├── useAppMenu.ts     # macOS のメニューバーからの操作を受ける（#254）
 │   │   ├── useBusyExit.ts    # Pike ごと終了する前の確認（#178。close と ⌘Q が共有）
@@ -271,7 +274,8 @@ pike/
 │   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent/xslateInclude）
 │   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 18 言語）
 │   └── assets/
-│       └── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
+│       ├── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
+│       └── credits.json       # 依存のライセンス一覧（生成物。scripts/gen-credits.mjs、#420）
 └── .claude/
     ├── structure.md       # このファイル
     ├── rules/             # 領域別の実装ルール（paths: で必要なときだけ読み込む。索引は CLAUDE.md）

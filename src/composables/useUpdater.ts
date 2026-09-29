@@ -28,6 +28,12 @@ let inflight: Promise<Update | null> | null = null
 let installing = false
 
 export const hasUpdate = computed(() => state.value === 'available')
+/**
+ * 画面に出すバージョン（`v0.58.0`。開発版はコミットを添えて `v0.58.0-abc1234`）。StatusBar と
+ * About が同じ表記を出す（#420）。読み込む前は空。
+ */
+const devHash = import.meta.env.DEV && __GIT_COMMIT_HASH__ ? `-${__GIT_COMMIT_HASH__}` : ''
+const versionLabel = computed(() => (appVersion.value ? `v${appVersion.value}${devHash}` : ''))
 /** 確認中・ダウンロード中。表示はその操作が持っているので、ほかから書き換えない */
 const busy = computed(() => state.value === 'checking' || state.value === 'downloading')
 
@@ -125,6 +131,7 @@ export function useUpdater() {
     state,
     busy,
     appVersion,
+    versionLabel,
     updateVersion,
     errorMessage,
     hasUpdate,

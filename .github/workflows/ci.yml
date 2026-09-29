@@ -74,6 +74,12 @@ jobs:
         if: runner.os == 'Windows'
         run: just check-shortcuts
 
+      # クレジット（src/assets/credits.json）と lockfile の依存の照合（#420）。
+      # `cargo metadata --filter-platform` で両 OS のぶんを見るので Windows だけでよい。
+      - name: Credits check
+        if: runner.os == 'Windows'
+        run: just check-credits
+
       # Frontend: 純粋なロジックのテスト（tests/*.test.ts、#403）。OS に依らない。
       - name: TypeScript unit tests
         if: runner.os == 'Windows'

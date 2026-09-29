@@ -17,6 +17,7 @@ import {
   ShieldCheck,
 } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { useAboutModal } from '../../composables/useAboutModal'
 import { useAgentUsage } from '../../composables/useAgentUsage'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
@@ -27,7 +28,6 @@ import { macroRecording, toggleMacroRecording } from '../../lib/editorMacro'
 import { formatCost, formatTokens } from '../../lib/format'
 import { buildRepoLink } from '../../lib/gitRemote'
 import { languageOptions } from '../../lib/languages'
-import { PIKE_REPO_URL } from '../../lib/manual'
 import { useOverlay } from '../../lib/overlay'
 import { basename } from '../../lib/paths'
 import { traySetTooltip } from '../../lib/tauri'
@@ -46,6 +46,7 @@ import HelpButton from '../HelpButton.vue'
 import RateMeters from '../RateMeters.vue'
 
 const { t } = useI18n()
+const { open: openAbout } = useAboutModal()
 const projectStore = useProjectStore()
 const settingsStore = useSettingsStore()
 
@@ -194,9 +195,6 @@ function openAgentStatus() {
   tabStore.addAgentStatusTab()
 }
 
-declare const __GIT_COMMIT_HASH__: string
-const devHash = import.meta.env.DEV && __GIT_COMMIT_HASH__ ? `-${__GIT_COMMIT_HASH__}` : ''
-
 const repoLink = computed(() => buildRepoLink(gitStore.remoteUrl))
 const repoIcon = computed(() => {
   switch (repoLink.value?.provider) {
@@ -218,16 +216,6 @@ const repoIcon = computed(() => {
  */
 function openProjectRepo() {
   if (repoLink.value) tabStore.addBrowserTab(repoLink.value.url)
-}
-
-/**
- * Pike 自身の GitHub（#383）。**隣のリポジトリのボタンと同じくブラウザのタブで開く**
- * （`frontend.md` の「外部ブラウザで URL を開く」の規約は、#368 以降 StatusBar の
- * リポジトリリンクには当たらない）。歯車メニューの「GitHub」は外部ブラウザのままで、
- * あちらは Pike の外へ出る意図の操作。
- */
-function openPikeRepo() {
-  tabStore.addBrowserTab(PIKE_REPO_URL)
 }
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)
@@ -707,14 +695,14 @@ onUnmounted(() => {
       <button class="status-item clickable small" :title="t('statusBar.languageHint')" @click="toggleLanguage">
         {{ settingsStore.language.toUpperCase() }}
       </button>
-      <!-- 押すと Pike 自身の GitHub を開く（#383）。プロジェクトのリポジトリを開く
-           上のボタンと紛れないよう、ツールチップで何のバージョンかを言う。 -->
+      <!-- 押すと About を開く（#420。Pike 自身の GitHub へのリンクは About の中、#383）。
+           プロジェクトのリポジトリを開く上のボタンと紛れないよう、ツールチップで何のバージョンかを言う。 -->
       <button
         v-if="updater.appVersion.value"
         class="status-item clickable small version"
         :title="t('statusBar.pikeVersion', { version: updater.appVersion.value })"
-        @click="openPikeRepo"
-      >v{{ updater.appVersion.value }}{{ devHash }}</button>
+        @click="openAbout"
+      >{{ updater.versionLabel.value }}</button>
     </div>
   </div>
 </template>
