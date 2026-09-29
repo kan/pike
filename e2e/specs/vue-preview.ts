@@ -137,14 +137,26 @@ async function placePreviewPage(): Promise<void> {
   )
 }
 
+/**
+ * サイドバーのパネルを閉じる。開いているパネルは永続化されるので、先に走った spec（layout /
+ * panels）が開いたものが残る。**Git パネルが開いていると子 webview を作らない**
+ * （`useChildWebview` の `shown`、#396）ので、残ると帯が出ないまま時間切れになる
+ * （全体を撮ったときだけ落ちていた）。インストールの案内も、パネルが写り込まないよう閉じる。
+ */
+async function closeSidePanel(): Promise<void> {
+  await browser.execute(() => {
+    ;(window as unknown as { __pikeE2E?: { closePanel?: () => void } }).__pikeE2E?.closePanel?.()
+  })
+}
+
 async function openVuePreview(lang: 'ja' | 'en', theme: 'light' | 'dark'): Promise<void> {
   await prepare({ lang, theme })
   await setFakeProject()
+  await closeSidePanel()
   await mockVuePreview('found')
   await openEditor({ path: SFC_PATH, content: SFC_SOURCE, viewMode: 'split' })
-  // 描画のモックが返ると、上の帯に「値を入れる」が出る。ビルド直後の初回は 10 秒で
-  // 足りなかったことがあるので長めに待つ。
-  await $('.vue-preview-bar').waitForDisplayed({ timeout: 30_000 })
+  // 描画のモックが返ると、上の帯に「値を入れる」が出る。
+  await $('.vue-preview-bar').waitForDisplayed({ timeout: 10_000 })
   await placePreviewPage()
 }
 
@@ -176,6 +188,7 @@ describe('screenshots: vue preview install', () => {
     it(`vue-preview-install ${lang} ${theme}`, async () => {
       await prepare({ lang, theme })
       await setFakeProject()
+      await closeSidePanel()
       await mockVuePreview('missing')
       await openEditor({ path: SFC_PATH, content: SFC_SOURCE, viewMode: 'split' })
       await $('.vue-preview-install').waitForDisplayed({ timeout: 10_000 })

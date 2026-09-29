@@ -134,6 +134,11 @@ async function bootstrap() {
       openPanel: (name: string) => {
         sidebar.openPanel(name as Exclude<typeof sidebar.activePanel, null>)
       },
+      // パネルを閉じる。開いているパネルは永続化されるので、前の spec が開いたものが残る
+      // （Git パネルが開いていると子 webview を作らない。#396 / #418）。
+      closePanel: () => {
+        sidebar.setPanel(null)
+      },
       // ファイルツリーの git ステータス色を撮るため、gitStore.status を直接セットする。
       // 通常 git status はフェッチ駆動だが、files パネルだけ開くと発火しないため。
       setGitStatus: (status: unknown) => {
