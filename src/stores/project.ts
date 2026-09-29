@@ -692,7 +692,7 @@ export const useProjectStore = defineStore('project', () => {
       await openProject(same.id, mode)
       return
     }
-    const stored = { ...config, id: uniqueProjectId(config.id), lastOpened: new Date().toISOString() }
+    const stored = { ...config, id: newProjectId(config.id), lastOpened: new Date().toISOString() }
     await dropConfig()
     await addProject(stored)
     useSettingsStore().forgetTransientRoot(stored.root)
@@ -718,16 +718,15 @@ export const useProjectStore = defineStore('project', () => {
   /**
    * Turn the directory this window opened into a registered project.
    *
-   * The backend kept the id unique against the registered and transient ones,
-   * but it cannot see the hidden list (#164) — that lives in localStorage — so
-   * the id is re-checked here before it is written. `projectAddOpen` then points
-   * `window_projects` at whatever id won, which is also what keeps focus and CLI
-   * routing on this window when the slug had to change.
+   * The id always changes here: `newProjectId` adds a random suffix to the
+   * transient slug so it cannot collide with another machine's project (#404).
+   * `projectAddOpen` then points `window_projects` at the new id, which is what
+   * keeps focus and CLI routing on this window.
    */
   async function registerTransientProject(): Promise<void> {
     const config = transientProject.value
     if (!config || !isTransient.value) return
-    const stored = { ...config, id: uniqueProjectId(config.id), lastOpened: new Date().toISOString() }
+    const stored = { ...config, id: newProjectId(config.id), lastOpened: new Date().toISOString() }
     await addProject(stored)
     await projectTransientDrop(config.id).catch(() => {})
     transientProject.value = null
@@ -1458,17 +1457,23 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /**
-   * A project id not already taken locally, nor left behind by a project this
-   * machine hid (#164): reusing an id would silently adopt the hidden entry's
-   * state, and once ids travel between machines a collision means two different
-   * repositories fighting over one sync entry.
+   * 登録するプロジェクトの id（`dotfiles-k3f9x2` の形）。一時プロジェクトの id（ディレクトリ名の
+   * slug）に**ランダムな接尾辞を付ける**（#404）。
+   *
+   * **同期ファイルはプロジェクトを id で突き合わせる**（`lib/syncFormat.ts` の `project/<id>/…`）。
+   * slug のままだと、別々の端末で同じ名前のディレクトリ（WSL と Windows の dotfiles など）を
+   * 同期の前に登録したとき、中身の違う 2 つが同じ id になり、名前や色が片方にそろうか衝突する。
+   * 手元の一覧をどれだけ見ても、まだ届いていない他の端末の id は避けられない。
+   *
+   * 手元の一覧と、この端末で消したもの（#164）の id も避ける: 消したものの id を使い回すと、
+   * そのエントリの状態を黙って引き継ぐ。
    */
-  function uniqueProjectId(base: string): string {
+  function newProjectId(base: string): string {
     const settings = useSettingsStore()
     const taken = (id: string) => projects.value.some((p) => p.id === id) || settings.isProjectDeleted(id)
-    if (!taken(base)) return base
-    for (let n = 2; ; n++) {
-      const candidate = `${base}-${n}`
+    for (;;) {
+      const suffix = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => (b % 36).toString(36)).join('')
+      const candidate = `${base}-${suffix}`
       if (!taken(candidate)) return candidate
     }
   }
@@ -1604,7 +1609,7 @@ export const useProjectStore = defineStore('project', () => {
     restoreLastProject,
     saveSessionDebounced,
     saveSessionNow,
-    // **`addProject` と `uniqueProjectId` は公開しない**（#373）。登録を書けるのは
+    // **`addProject` と `newProjectId` は公開しない**（#373）。登録を書けるのは
     // `openDirectoryAsProject` と `registerTransientProject` の 2 つだけ、という
     // 不変条件を型で守る（`switchProject` を非公開にしてあるのと同じ手）。
     saveProject,

@@ -50,6 +50,7 @@ paths:
   - **照合は `planSyncedCreate` の中で重複ガード（`localIdentities` の鍵）と並べて組み立てる**: 「同じプロジェクトか」の判定軸を増やしたとき、片方だけ直すと無言で複製か復活が出る
   - root の比較キーは `lib/projectPaths.ts` の `rootKey`（区切りの正規化＋末尾スラッシュ除去＋小文字化。`relativeToBase` と違い WSL でも大小を無視する＝「同じディレクトリを登録済みか」の判定なので）
   - origin の比較は `lib/gitRemote.ts` の `normalizeRemoteUrl` を通すこと: 同じリポジトリが `git@host:owner/repo.git` と `https://host/owner/repo` の両方の形でファイルに入るため、生の文字列比較では重複ガードが素通りする
+  - **登録時の id には端末ごとにランダムな接尾辞が付く**（#404。`stores/project.ts` の `newProjectId`）。反映は id で突き合わせるので、ディレクトリ名の slug のままだと、別々の端末で登録した同じ名前のディレクトリが 1 つのエントリに畳まれ、名前や色が片方にそろう
   - **origin は「どのプラットフォームで持っているか」まで覚える**（#404。`localIdentities` の `remotes` は `origin → プラットフォームの集合`）。同じリポジトリを WSL と Windows の両方へ clone して別々に登録することがあり、origin だけで畳むと 2 つ目が「既に持っている」と判定されて、他のマシンには片方しか作られない。削除の記録（`DeletedProject.platform`）でも同じように絞る。**記録を取る前に消したものには無い**ので、そこは従来どおり問わない
     - **ただし落とし先を推測したエントリ（下の `inferred`）は、プラットフォームを問わず照合する**（`hasRepo`）。推測した先は手元の同じリポジトリと別のプラットフォームになりうるので、そろえて比べると**実体の無いパスを指す複製**ができる（Windows で WSL の base も設定していると、Mac の `unix` エントリが `wsl` へ落ちて、既にある Windows のプロジェクトと食い違う）
   - **このホストが持てないプラットフォームのときだけ、持てるほうへ落とす**（#407 の `resolveCreatePlatform`）。macOS には `windows` / `wsl` のプロジェクトが存在しえないので、落とさないと Windows で登録したものが 1 件も materialize せず「同期したのに一覧が空」になる。**候補と順の出典は `lib/host.ts` の `HOST_PLATFORMS`**（Windows は `wsl` → `windows`、それ以外は `unix`）で、`defaultProjectPlatform` もその先頭を読む。同じ知識をここに書き写さないこと。**シェルも落とした先で組む**（`entry.platform` を渡すと macOS に動かない PowerShell のプロジェクトができる）。落とした先が同期ファイルへ書き戻らないのは `platform` が `CREATE_ONLY_FIELDS` だから

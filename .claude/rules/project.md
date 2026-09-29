@@ -128,7 +128,7 @@ backend の推測、色とアイコンは未設定。
   - 「未取得」バッジは ProjectPanel と ProjectSwitcher の両方に出るので、`theme.css` の共有クラス `.missing-tag`（`.ctx-key` と同じ位置づけ）。行を塗る側は自分の scoped CSS で色を上書きする
   - **ネイティブな WSL パス（`/home/...`）を渡すときは distro のヒントが要る**。`project_transient_create` は `\\wsl.localhost\<distro>\...` の UNC 形からしか distro を読めないので、ヒント無しだと Windows プロジェクトとして組み立てられ、開いたウィンドウが `/home/...` を C ドライブに探しに行く。`stores/project.ts` の `distroHintFor` が「`/` 始まりのパス」かつ「今のプロジェクトが WSL」のときだけ現在の distro を渡す（Windows パスや UNC に渡すとヒントのほうが勝ってしまう）。`openDirectory` / `openDirectoryAsProject` の両方が通る
     - **シェルを渡せる**（#373）。ターミナルの cwd から登録する経路はそのタブのシェルを知っているので、そちらを優先する。ウィンドウの今のプロジェクトだけを見ると、**グローバルモードの WSL ターミナル**（プロジェクトが無い）で distro を取りこぼす
-  - `openDirectoryAsProject(path, mode, from?)` は「登録して開く」で、**登録の唯一の入口**（#373）。未登録なら `projectTransientCreate` で backend にプラットフォーム / シェル / distro を推測させ、`uniqueProjectId` を通して登録してから `placeProject`（未取得チェックの対象外）。登録済みの root を渡されたら `openProject` に流す。root を渡された時点で存在は確認済み（ディレクトリだと判定してから呼ぶ）
+  - `openDirectoryAsProject(path, mode, from?)` は「登録して開く」で、**登録の唯一の入口**（#373）。未登録なら `projectTransientCreate` で backend にプラットフォーム / シェル / distro を推測させ、`newProjectId` を通して登録してから `placeProject`（未取得チェックの対象外）。登録済みの root を渡されたら `openProject` に流す。root を渡された時点で存在は確認済み（ディレクトリだと判定してから呼ぶ）
     - **そのウィンドウが登録せずに開いている root なら `registerTransientProject` へ渡す**（#373）。`projectForRoot` は登録済みの一覧しか見ない（`transientProject` は意図的に外してある）ので、ここを通さないと同じ root で 2 つ目の id が生まれ、`placeProject` の切り替えが「一時プロジェクトから離れる」枝に入って**今開いているタブを全部閉じる**（右クリックしたターミナルごと消える）
   - `openDirectory(path, mode)`（#230）はこの 3 つの外側にあるが、**一覧から選ぶ経路ではない**（ユーザーがピッカーで指したディレクトリなので、そこに無いなら選べていない）ため未取得チェックの対象外。`placeProject` と同じ位置づけ
 - **登録せずに開くディレクトリ（一時プロジェクト、#230）**: 中を見たいだけのディレクトリに `project.json` を書くと、一覧・`last_project.txt`・ジャンプリスト・同期ファイルに残り、手で消すしか戻す道がない。代わりに `src-tauri/src/project/transient.rs` の `TransientState`（id → `ProjectConfig` のメモリ内マップ）に載せる
@@ -137,9 +137,12 @@ backend の推測、色とアイコンは未設定。
   - **`project.json` への書き込みガードは `saveProject` に置く**（呼び出し側ではなく）。あそこが `ProjectConfig` をディスクへ書く唯一の場所で、`stores/git.ts` が origin を記録するのに既に通っている。呼び出し側に置くと、他の呼び出し側が同じ無言の失敗を踏みうる
   - **登録するか聞くのは `adoptProject` の中**（App.vue ではなく）。clone の確認（#212）と同じ「adopt → 聞く → 実行」なので、同じ関数に畳んで「前半だけ書いて後半を忘れる」を防ぐ。ただし**await しない**: mount の続き（クロスウィンドウ listener・`beforeunload`・トレイ周り）がダイアログの前で止まる
   - **他のプロジェクトへ切り替えたら、その場でエントリを落とす**（ウィンドウを閉じるときではなく）。残すと `pike <そのディレクトリ>` が、もう表示していないウィンドウを focus し続ける
-  - **登録するときは `uniqueProjectId` を通す**。Rust 側は登録済みと他の一時プロジェクトに対しては一意にしているが、**hide 済みの id（#164、localStorage にある）は見えない**。ぶつかったまま書くと、その sync エントリの identity を引き継いでしまう。id が変わっても `projectAddOpen` が `window_projects` を張り直すので focus と CLI ルーティングは繋がったまま
+  - **登録するときは `newProjectId` を通す**。一時プロジェクトの slug に**ランダムな接尾辞を付ける**（`dotfiles-k3f9x2`、#404）。**同期ファイルはプロジェクトを id で突き合わせる**ので、slug のままだと別々の端末で同じ名前のディレクトリを同期の前に登録したとき、中身の違う 2 つが同じ id になって名前や色が片方にそろう。手元の一覧をどれだけ見ても、まだ届いていない他の端末の id は避けられない
+    - 手元の一覧と **hide 済みの id（#164、localStorage にある。Rust 側からは見えない）**も避ける。ぶつかったまま書くと、その sync エントリの identity を引き継いでしまう
+    - id は登録で必ず変わるが、`projectAddOpen` が `window_projects` を張り直すので focus と CLI ルーティングは繋がったまま。**ウィンドウ geometry（#200）は一時プロジェクトの id で覚えたぶんを引き継がない**（登録後の id で覚え直す）
+    - **既存の id は変えない**（slug だけの id もそのまま使える）。変えると同期ファイルの上では別のプロジェクトになり、他の端末で重複する
   - フロントは `transientProject` ref に持ち、**`projects` 配列には入れない**。パネル / スイッチャー / ジャンプリスト / 同期 push はすべてあの配列を見ているので、入れないことがそのまま「出て行かない」になる（各所でフラグを見るのではなく）
-  - id は**ディレクトリ名の slug**（登録済みと他の一時プロジェクトの両方に対して一意化）。uuid にしないのは、同じディレクトリを開き直したときにウィンドウ geometry（#200）を引き継ぐため
+  - 一時プロジェクトの id は**ディレクトリ名の slug**（登録済みと他の一時プロジェクトの両方に対して一意化）。uuid にしないのは、同じディレクトリを開き直したときにウィンドウ geometry（#200）を引き継ぐため。登録するとランダムな接尾辞が付く（上の `newProjectId`）
   - **同じディレクトリの 2 回目は既存ウィンドウを focus する**。`project_id_for_root` が登録済み一覧に続けて `TransientState` も引く。エントリはウィンドウの `Destroyed` で落とすので、「一致したのにウィンドウが無い」は起こらない
   - **`OpenFiles` のルーティングも一時プロジェクトを引く**（`project_root_for_id`。逆向きは `project_id_for_root`）。登録済み一覧だけを見ていると、そのディレクトリ配下のファイルを `pike file.rs` で開いてもサイドバーの無いグローバルウィンドウが出る
   - **開いたときに 1 度だけ登録するか聞く**（`stores/project.ts` の `offerToRegisterDirectory`）。「いいえ」でその root を `pike:transient-roots`（マシンローカル、同期・broadcast の対象外）に記録して次回から聞かない
