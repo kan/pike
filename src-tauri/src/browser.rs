@@ -168,7 +168,7 @@ fn parse_web_url(origin: &AppOrigin, url: &str) -> Result<Url, String> {
     Ok(parsed)
 }
 
-/// タブの中身の矩形。ウィンドウの client 領域の CSS ピクセル（＝論理ピクセル）。
+/// タブの中身の矩形。Pike 本体の webview の CSS ピクセル（＝論理ピクセル）。
 #[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Bounds {
     x: f64,
@@ -178,13 +178,84 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    pub(crate) fn rect(self) -> Rect {
+    /// 子 webview を作るときの矩形。**macOS はタイトルバーの高さを足す**（`title_bar_inset`）。
+    /// 作った後に動かすのは `place_bounds`。
+    pub(crate) fn rect(self, window: &Window) -> Rect {
+        self.rect_at(title_bar_inset(window))
+    }
+
+    fn rect_at(self, title_bar_inset: f64) -> Rect {
         Rect {
-            position: LogicalPosition::new(self.x, self.y).into(),
+            position: LogicalPosition::new(self.x, self.y + title_bar_inset).into(),
             // 0 以下の大きさは WebView2 が嫌うので 1 に丸める（隠すのは `browser_place`）。
             size: LogicalSize::new(self.width.max(1.0), self.height.max(1.0)).into(),
         }
     }
+}
+
+/// macOS でタイトルバーが覆う高さ（論理ピクセル）。子 webview の y に足す（#430）。
+///
+/// **Tauri は macOS の既定のタイトルバー（`TitleBarStyle::Visible`）でも
+/// `NSFullSizeContentViewWindowMask` を立てる**（tauri-runtime-wry の `title_bar_style`。
+/// devtools の不具合 tauri#10225 の回避）。content view はタイトルバーの裏まで広がり、
+/// Pike 本体の WKWebView はタイトルバーの下から描く（DOM の y=0 はタイトルバーの直下）。
+/// 一方 wry は子 webview の y を content view の上端から数えるので、足さないとページが
+/// タイトルバーの高さだけ上へずれてツールバーを覆い、下に同じ幅の隙間が空く。
+/// 差は `contentLayoutRect`（タイトルバーに覆われない部分）から取るので、フルスクリーンでは 0 になる。
+///
+/// **メインスレッドから呼ぶこと**（AppKit を読む）。コマンドから使う形は `title_bar_inset` と
+/// `place_bounds`。
+#[cfg(target_os = "macos")]
+fn read_title_bar_inset(window: &Window) -> f64 {
+    let inset = window.ns_window().ok().and_then(|ptr| {
+        // SAFETY: tauri が返す生きている NSWindow を、メインスレッドから読むだけ。
+        let ns_window = unsafe { &*ptr.cast::<objc2_app_kit::NSWindow>() };
+        let full = ns_window.contentView()?.frame().size.height;
+        Some((full - ns_window.contentLayoutRect().size.height).max(0.0))
+    });
+    inset.unwrap_or(0.0)
+}
+
+/// `read_title_bar_inset` をメインスレッドで読んで待つ。子 webview を作るときの 1 回だけに使う
+/// （位置合わせは毎フレーム来るので待たない。`place_bounds`）。
+#[cfg(target_os = "macos")]
+fn title_bar_inset(window: &Window) -> f64 {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let w = window.clone();
+    let sent = window.run_on_main_thread(move || {
+        let _ = tx.send(read_title_bar_inset(&w));
+    });
+    if sent.is_err() {
+        return 0.0;
+    }
+    rx.recv().unwrap_or(0.0)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn title_bar_inset(_window: &Window) -> f64 {
+    0.0
+}
+
+/// 子 webview を動かす。**macOS はメインスレッドへ投げて待たない**: タイトルバーの高さを
+/// 読むのにメインスレッドが要るので、読むのと動かすのを 1 つの仕事にまとめる（リサイズ中は
+/// 毎フレーム呼ばれるので、往復を待つとそれが位置合わせの間隔の下限になる）。後に続く
+/// `show` / `hide` も同じキューに積まれるので、順は入れ替わらない。
+#[cfg(target_os = "macos")]
+fn place_bounds(view: &Webview, bounds: Bounds) -> Result<(), String> {
+    let target = view.clone();
+    view.run_on_main_thread(move || {
+        let rect = bounds.rect_at(read_title_bar_inset(&target.window()));
+        if let Err(e) = target.set_bounds(rect) {
+            log::warn!("[browser] failed to place {}: {e}", target.label());
+        }
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn place_bounds(view: &Webview, bounds: Bounds) -> Result<(), String> {
+    view.set_bounds(bounds.rect_at(0.0))
+        .map_err(|e| e.to_string())
 }
 
 fn webview(app: &AppHandle, label: &str) -> Result<Webview, String> {
@@ -325,7 +396,7 @@ pub async fn browser_open(
                 emit_state(&webview, Some(payload.url().to_string()), None);
             }
         });
-    let rect = bounds.rect();
+    let rect = bounds.rect(&window);
     let view = window
         .add_child(builder, rect.position, rect.size)
         .map_err(|e| e.to_string())?;
@@ -370,7 +441,7 @@ pub async fn browser_place(
 ) -> Result<(), String> {
     let view = webview(&app, &label)?;
     if let Some(b) = bounds {
-        view.set_bounds(b.rect()).map_err(|e| e.to_string())?;
+        place_bounds(&view, b)?;
     }
     let result = if visible { view.show() } else { view.hide() };
     result.map_err(|e| e.to_string())

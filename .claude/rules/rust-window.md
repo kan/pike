@@ -45,3 +45,9 @@ Tauri のウィンドウ・webview を Rust から扱うときの規則。ウィ
   （`build_window` と `tauri.conf.json` の `dragDropEnabled`）と、子 webview の 2 つ
   （ブラウザのタブの `browser_open`、HTML のプレビューの `html_preview.rs`）。**子 webview を
   作る箇所を足すときに付け忘れやすい**
+- **子 webview の矩形は作るときは `Bounds::rect`、動かすときは `place_bounds` を通す（#430）。**
+  macOS では Tauri が既定のタイトルバーでも `NSFullSizeContentViewWindowMask` を立てるので、
+  wry が数える子 webview の y の原点（content view の上端＝タイトルバーの上端）と、フロントが
+  測る DOM の y の原点（タイトルバーの直下）がタイトルバーの高さだけ食い違う。どちらもその差
+  （`read_title_bar_inset`）を足す。`LogicalPosition` を直に組んで `add_child` / `set_bounds` に
+  渡すと、macOS でだけページが上へずれる

@@ -434,7 +434,7 @@ pub async fn preview_open(
             on_new_window(&url);
             NewWindowResponse::Deny
         });
-    let rect = bounds.rect();
+    let rect = bounds.rect(&window);
     let result = window
         .add_child(builder, rect.position, rect.size)
         .map(|_| ())

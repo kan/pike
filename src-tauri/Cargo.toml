@@ -96,6 +96,16 @@ tauri-plugin-wdio-webdriver = { version = "1", optional = true }
 [target.'cfg(not(windows))'.dependencies]
 libc = "0.2"
 
+# 子 webview の位置合わせでタイトルバーの高さを NSWindow から読む（#430、
+# browser.rs の `title_bar_inset`）。wry と tao が同版を使っており、新規の依存ツリー追加ではない。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+] }
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
     "Win32_Foundation",

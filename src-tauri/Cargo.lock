@@ -3242,6 +3242,7 @@ dependencies = [
  "libc",
  "log",
  "notify",
+ "objc2-app-kit",
  "percent-encoding",
  "portable-pty",
  "raw-window-handle",
