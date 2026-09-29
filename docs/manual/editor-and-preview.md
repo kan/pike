@@ -267,6 +267,27 @@ CSV / JSON / Mermaid / SVG の表示はそれぞれ次のようになります�
   <img alt="SVG プレビュー" src="img/svg-preview.png">
 </picture>
 
+Vue のプレビューは次のように表示します。値を与えていない参照は、プレースホルダ（`{{ name }}` など）で描きます。
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/vue-preview-light.png">
+  <img alt="Vue のプレビュー（Split）" src="img/vue-preview.png">
+</picture>
+
+上の帯の「値を入れる」を押すと、props と、テンプレートが使った値のフォームが開きます。
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/vue-preview-form-light.png">
+  <img alt="Vue のプレビューに値を入れるフォーム" src="img/vue-preview-form.png">
+</picture>
+
+vue-preview が入っていないシェルでは、Preview の欄に入れ方の案内が出ます。
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/vue-preview-install-light.png">
+  <img alt="vue-preview のインストールの案内" src="img/vue-preview-install.png">
+</picture>
+
 
 ### Markdown のフロントマター
 

@@ -203,6 +203,12 @@ async function bootstrap() {
         }
         tabs.addEditorTab({ path: opts.path, initialContent: opts.content, initialViewMode: opts.viewMode })
       },
+      // vue-preview の有無を聞き直す（#418）。答えは `ASK_TTL`（60 秒）のあいだ覚えるので、
+      // `vue_preview_available` のモックを差し替えた spec は、これで取り直さないと前の答えで描く。
+      redetectVuePreview: async () => {
+        const { useVuePreviewStore } = await import('./stores/vuePreview')
+        await useVuePreviewStore().detect(project.shellForIO, project.activeRoot ?? '', true)
+      },
       // 画像ビューワ（PreviewTab）を dataUrl 直指定で開く（fs_read_file_base64 不要）。
       openImage: (opts: { path: string; dataUrl: string }) => {
         project.showSwitcher = false

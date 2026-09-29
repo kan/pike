@@ -131,6 +131,15 @@ EditorTab は `fs_read_file` を読まずその内容で描画するため、決
   render。待機は `.csv-preview table` / `.json-preview` / `.svg-preview svg` /
   `.mermaid-preview svg`（mermaid は render 完了まで長めに待つ）。実装例は
   `e2e/specs/preview.ts`（`csv-preview` / `json-preview` / `mermaid-preview` / `svg-preview`）。
+- **子 webview（Vue / HTML のプレビュー、ブラウザのタブ）はスクリーンショットに写らない**（#418）。
+  撮影は WebDriver が Pike 本体の webview の DOM を撮るもので、`Window::add_child` の子 webview は
+  別のネイティブの webview なので入らない。子 webview を作る・置くコマンド（`preview_open` /
+  `preview_set_files` / `browser_place` / `browser_history` / `browser_close`）をモックで空振りさせ、
+  枠（`.preview-frame-host`）に見立ての HTML を iframe で置いて撮る。実装例は
+  `e2e/specs/vue-preview.ts`（`vue-preview` / `vue-preview-form` / `vue-preview-install`）
+  - vue-preview の有無の答えは 60 秒覚えるので、`vue_preview_available` のモックを差し替えたら
+    `__pikeE2E.redetectVuePreview()` で聞き直す。**エディタを開く前に聞く**（開いた時点で答えが
+    無いと、Split の右がプレビューにならない）
 
 ## 画像 / 差分 / ファイル履歴
 

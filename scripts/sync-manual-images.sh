@@ -78,6 +78,10 @@ MAP=(
   "search-replace:search-replace"
   "settings-sync:settings-sync"
   "sync-conflicts:sync-conflicts"
+  # v0.59.0 で新しく撮るもの（#418）
+  "vue-preview:vue-preview"
+  "vue-preview-form:vue-preview-form"
+  "vue-preview-install:vue-preview-install"
 )
 
 check=0
