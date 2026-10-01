@@ -26,6 +26,7 @@ import { clearGlobalComponentsCache } from './lib/jumpTo/vueComponent'
 import { resolveNotifier } from './lib/notify'
 import { normalizeSep, repoPath } from './lib/paths'
 import {
+  fsExistingPaths,
   isElevated,
   projectForWindow,
   traySetCloseToTray,
@@ -43,6 +44,7 @@ import { useSyncStore } from './stores/sync'
 import { useTabStore } from './stores/tabs'
 import { useWorktreeStore } from './stores/worktree'
 import type { ProjectConfig } from './types/project'
+import type { Tab } from './types/tab'
 
 const { t } = useI18n()
 
@@ -173,6 +175,15 @@ watch(
 const ALIAS_CONFIG_NAMES = /[\\/](?:tsconfig|jsconfig)[^\\/]*\.json$|[\\/]vite\.config\.(?:[mc]?js|ts)$/
 const MAIN_FILE_NAMES = /[\\/]main\.(?:[mc]?js|ts)$/
 
+/**
+ * 作業ツリーの差分のタブか。ディスクの書き換えで古くなるのはこれだけ（コミットの差分は
+ * 変わらず、staged は index と HEAD の比較なので作業ツリーの書き換えでは動かない）。
+ * 取り直しはタブの側（#321）。
+ */
+function isWorktreeDiff(tab: Tab): tab is Extract<Tab, { kind: 'diff' }> {
+  return tab.kind === 'diff' && !tab.commitHash && !tab.staged
+}
+
 fsWatcher.onFileChange((files: FsChangeEntry[]) => {
   let aliasInvalidated = false
   let globalsInvalidated = false
@@ -194,9 +205,7 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
     const changedPath = normalizeSep(change.path)
     // 監視しているのは `activeRoot` だけなので、変更は今のプロジェクトのタブにしか当たらない。
     for (const tab of tabStore.visibleTabs) {
-      // 作業ツリーの差分だけが古くなる（コミットの差分は変わらず、staged は index と HEAD の
-      // 比較なので作業ツリーの書き換えでは動かない）。取り直しはタブの側（#321）。
-      if (tab.kind === 'diff' && !tab.commitHash && !tab.staged) {
+      if (isWorktreeDiff(tab)) {
         // **基準はタブが開いたときの root**（#321）。`activeRoot` を読むと、worktree で
         // 開いたタブが main の同名ファイルの変更に反応して、別の worktree の差分へ
         // 黙って化ける。監視しているのは `activeRoot` 配下なので、いま見ていない
@@ -213,6 +222,41 @@ fsWatcher.onFileChange((files: FsChangeEntry[]) => {
   // Re-check diagnostics on source changes (throttled; no-op until the user has
   // opened the Problems panel at least once).
   diagStore.triggerAutoRun()
+})
+
+// 監視が張り直された（#433）。止まっていたあいだの変更は届いていないので、**今のプロジェクトの
+// タブは全部変わったものとして扱う**（上の受け手が 1 件ずつやっていることを、対象を選ばずに行う）。
+//
+// **編集中のタブには外部変更の警告バーが出る。** 実際には変わっていないこともあるが、
+// 確かめずに黙っていると、止まっていたあいだにエージェントが書いた内容を次の保存が上書きする。
+// 消せる誤検知のほうを採る（`useFsWatcher` の `selfWrites` と同じ判断）。未編集のタブは
+// 読み直すだけで、見えていないものは見えたときまで読み直しを遅らせる（`EditorTab` の
+// `reloadWhenShown`。開いているタブを一斉に読むと、WSL では 1 枚につき `wsl.exe` が 3 本立つ）。
+//
+// **消えたファイルは先に見分ける。** `modified` を立てると未編集のタブは読み直しに進み、
+// 読み直しは無いファイルを空の新規ファイルとして返すので、本文も Undo の履歴も消える。
+// 削除の知らせ（`deleted`）ならバーが出るだけで、バッファは残って書き戻せる。確かめられ
+// なかったとき（WSL が落ちている等）はエディタに触らない。
+fsWatcher.onRestart(async () => {
+  clearAliasCache()
+  clearGlobalComponentsCache()
+  diagStore.triggerAutoRun()
+  const paths: string[] = []
+  for (const tab of tabStore.visibleTabs) {
+    if (isWorktreeDiff(tab)) tab.staleAt = Date.now()
+    else if (tab.kind === 'editor' && tab.path) paths.push(tab.path)
+  }
+  if (paths.length === 0) return
+  const existing = await fsExistingPaths(projectStore.shellForIO, paths).catch(() => null)
+  if (!existing) return
+  const found = new Set(existing)
+  // 待っているあいだにタブが変わりうるので、渡したパスに含まれるものだけを触る。
+  const asked = new Set(paths)
+  for (const tab of tabStore.visibleTabs) {
+    if (tab.kind === 'editor' && tab.path && asked.has(tab.path)) {
+      tab.externalChange = found.has(tab.path) ? 'modified' : 'deleted'
+    }
+  }
 })
 
 // Global-mode windows exist only for their tabs: closing the last one closes

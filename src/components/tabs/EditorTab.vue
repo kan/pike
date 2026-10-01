@@ -2156,6 +2156,13 @@ watch(
 // External file change detection
 const externalChangeNotice = ref<'modified' | 'deleted' | null>(null)
 let pendingReload: ReturnType<typeof setTimeout> | null = null
+/**
+ * 見えていないあいだに外部変更が届いた（#433）。**読み直すのは見えたとき**（diff タブの
+ * `staleFromDisk` と同じ形）。読み直しは 1 枚につきディスク読みと `git diff` を伴い、WSL では
+ * `wsl.exe` が 3 本立つ。監視を張り直したときは開いているタブ全部に知らせが来るので、
+ * 見ていないタブまでその場で読むと、枚数ぶんが一度に走る。
+ */
+let reloadWhenShown = false
 
 watch(
   () => tab.value?.externalChange,
@@ -2165,6 +2172,8 @@ watch(
 
     if (change === 'deleted') {
       externalChangeNotice.value = 'deleted'
+      // 遅らせた読み直しは捨てる。無いファイルを読み直すと空の新規ファイルになり、本文が消える。
+      reloadWhenShown = false
       return
     }
     // modified — debounce to coalesce burst events
@@ -2174,6 +2183,10 @@ watch(
     if (!isDirty.value && !partial.value) {
       // A modify after a (transient) delete means the file is back — drop the notice.
       externalChangeNotice.value = null
+      if (!tabStore.isTabVisible(props.tabId)) {
+        reloadWhenShown = true
+        return
+      }
       if (pendingReload) clearTimeout(pendingReload)
       pendingReload = setTimeout(() => {
         pendingReload = null
@@ -2226,7 +2239,14 @@ watch(
 watch(
   () => tabStore.isTabVisible(props.tabId),
   (visible) => {
-    if (visible) editorView?.requestMeasure()
+    if (!visible) return
+    editorView?.requestMeasure()
+    // 見えていないあいだに届いた外部変更を、ここで 1 回だけ読み直す（`reloadWhenShown` の doc）。
+    // 隠れているタブは編集できないので、遅らせたあいだに未保存になっていることは無い。
+    if (reloadWhenShown) {
+      reloadWhenShown = false
+      void reopenWithEncoding(currentEncoding.value)
+    }
   },
 )
 

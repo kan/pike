@@ -601,6 +601,7 @@ export default {
   'watcher.wslUnc':
     'This project opens a WSL folder but is set to a Windows platform. Changes made inside WSL cannot be detected — only changes made from Windows arrive. Switch the project to WSL in its settings.',
   'watcher.other': 'File watching stopped.',
+  'watcher.restart': 'Restart',
 
   // Git Panel
   'git.noProject': 'No project selected',

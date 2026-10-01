@@ -123,6 +123,8 @@ const notice = ref<WatchNotice | null>(null)
 const noticeText = computed(() => (notice.value ? t(`watcher.${notice.value.reason}`) : null))
 const dirHandlers: DirChangeHandler[] = []
 const fileHandlers: FileChangeHandler[] = []
+/** 張り直したあとに呼ぶ受け手（`restart` の doc）。 */
+const restartHandlers: (() => void)[] = []
 
 let initialized = false
 
@@ -153,8 +155,36 @@ async function init() {
 /** 直近の監視の材料。落ちたあと入れ直したときに、同じ相手で張り直すために持つ。 */
 let lastTarget: { shell: ShellType; root: string } | null = null
 
-async function start(shell: ShellType, root: string) {
-  await stop()
+/**
+ * 監視を出し入れする操作の列（#433）。**1 つずつ順に走らせる。**
+ *
+ * `fsWatchStart` を待っているあいだは `currentWatcherId` がまだ null なので、そこへ次の
+ * `start` が重なると、止める相手を知らないまま 2 本目を立てる。先に返った id は上書きされ、
+ * ウィンドウを閉じるまで誰も止めない（WSL では `inotifywait` が 1 本余り、watch の上限も
+ * 二重に使う）。入口がプロジェクトの切り替えだけだったころは重なりにくかったが、帯の
+ * 「再開」で人が押せるようになった。
+ */
+let queue: Promise<void> = Promise.resolve()
+
+function enqueue(op: () => Promise<void>): Promise<void> {
+  const run = queue.then(op)
+  // 失敗しても列は止めない（次の操作まで道連れにしない）。
+  queue = run.catch(() => {})
+  return run
+}
+
+async function doStop() {
+  if (!currentWatcherId.value) return
+  try {
+    await fsWatchStop(currentWatcherId.value)
+  } catch {
+    /* ignore */
+  }
+  currentWatcherId.value = null
+}
+
+async function doStart(shell: ShellType, root: string) {
+  await doStop()
   lastTarget = { shell, root }
   try {
     currentWatcherId.value = await fsWatchStart(shell, root)
@@ -162,6 +192,33 @@ async function start(shell: ShellType, root: string) {
   } catch (e) {
     notice.value = { reason: 'other', detail: String(e) }
   }
+}
+
+const start = (shell: ShellType, root: string) => enqueue(() => doStart(shell, root))
+const stop = () => enqueue(doStop)
+
+/**
+ * 落ちた監視を、同じ相手で張り直す（#433。帯の「再開」と、`inotify-tools` を入れた直後）。
+ *
+ * **張り直しただけでは足りない。** 止まっていたあいだの変更は 1 件も届いていないので、
+ * そのままだとファイルツリーも開いているエディタも古いまま「監視は動いている」ことになる。
+ * 何が変わったかは分からないので、受け手（`onRestart`）がそれぞれ見えているものを取り直す。
+ *
+ * **張り直せなかったら受け手は呼ばない**（帯が失敗の理由に差し替わるだけ）。WSL は
+ * spawn が成功してから子が落ちることがある（`fs_watch_failed` で届く）ので、その場合は
+ * 受け手が走ったあとに帯が戻る。取り直しは無害なので、そこまでは待たない。
+ *
+ * **順番が来たときに監視が動いていれば何もしない。** 相手（`lastTarget`）も動いているかも、
+ * 押した時点ではなく順番が来た時点で見る。連打の 2 回目と、切り替えの `start` を待って
+ * いるあいだに押された 1 回がここで落ちる。
+ */
+function restart() {
+  return enqueue(async () => {
+    const target = lastTarget
+    if (!target || currentWatcherId.value) return
+    await doStart(target.shell, target.root)
+    if (currentWatcherId.value) for (const h of restartHandlers) h()
+  })
 }
 
 /**
@@ -214,22 +271,12 @@ function installInotify() {
     title: t('watcher.installTitle'),
     keepOnError: true,
     // 入ったら張り直す。**切り替えで相手が変わっていたら何もしない**（`lastTarget` を
-    // 見るので、そのときは新しい相手の監視が既に動いている）。
+    // 見るので、そのときは新しい相手の監視が既に動いている）。入れるまでのあいだの
+    // 変更も届いていないので、帯の「再開」と同じ道を通す。
     onExit: (code) => {
-      if (code === 0 && lastTarget === target) void start(target.shell, target.root)
+      if (code === 0 && lastTarget === target) void restart()
     },
   })
-}
-
-async function stop() {
-  if (currentWatcherId.value) {
-    try {
-      await fsWatchStop(currentWatcherId.value)
-    } catch {
-      /* ignore */
-    }
-    currentWatcherId.value = null
-  }
 }
 
 function onDirChange(handler: DirChangeHandler) {
@@ -248,12 +295,23 @@ function onFileChange(handler: FileChangeHandler) {
   }
 }
 
+/** 監視を張り直したあとに呼ばれる。止まっていたあいだの変更を取り直す場所（`restart` の doc）。 */
+function onRestart(handler: () => void) {
+  restartHandlers.push(handler)
+  return () => {
+    const idx = restartHandlers.indexOf(handler)
+    if (idx >= 0) restartHandlers.splice(idx, 1)
+  }
+}
+
 export const fsWatcher = {
   init,
   start,
   stop,
+  restart,
   onDirChange,
   onFileChange,
+  onRestart,
   notice,
   noticeText,
   installInotify,

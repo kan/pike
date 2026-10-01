@@ -239,6 +239,15 @@ export const useFileTreeStore = defineStore('fileTree', () => {
     }
   }
 
+  // 監視が張り直された（#433）。止まっていたあいだに何が変わったかは分からないので、
+  // **全部のディレクトリが変わったものとして扱う**: 畳んであるものはキャッシュを捨て、
+  // 展開中のもの（ルートを含む）は変更の知らせと同じ道へ流す。パネルを見ていなければ
+  // 溜めるだけ、という `applyDirChanges` の作法がそのまま効く。
+  fsWatcher.onRestart(() => {
+    invalidateCollapsed()
+    applyDirChanges([...expanded.value])
+  })
+
   async function revealFile(filePath: string): Promise<boolean> {
     const root = useProjectStore().activeRoot
     if (!root) return false

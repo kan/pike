@@ -90,8 +90,15 @@ export function usePreviewRefresh<S extends Served>(opts: PreviewRefreshOptions<
     if (hit) schedule()
   })
 
+  // 監視が張り直された（#433）。止まっていたあいだに何が変わったかは分からないので、
+  // 範囲の中のプレビューは描き直す（範囲の外は元から保存の側が描き直している）。
+  const stopResync = fsWatcher.onRestart(() => {
+    if (covered.value) schedule()
+  })
+
   onUnmounted(() => {
     stopWatching()
+    stopResync()
     if (timer !== undefined) clearTimeout(timer)
   })
 

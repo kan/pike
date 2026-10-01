@@ -18,7 +18,7 @@ paths:
 - イベントバッチ処理: 200ms デバウンス + 1s max wait でフロントに送信
 - `IGNORED_DIRS` (.git, node_modules 等) をフィルタ
 - `fs_changed` イベントで `changedDirs`（ツリー更新用）+ `changedFiles`（エディタ更新用）を送信
-- エディタ外部変更検知: clean タブは自動リロード、dirty タブはインライン警告バー（Reload/Overwrite/Dismiss）
+- エディタ外部変更検知: clean タブは自動リロード（見えていないタブは見えたときに。#433）、dirty タブはインライン警告バー（Reload/Overwrite/Dismiss）
 - 自己書き込み除外: `markRecentlySaved()` がパスごとに印を置き（2 秒で失効）、`isRecentlySaved` が通知 1 回ぶんで使い切る（理由は `editor.md` の「保存の責任」と `useFsWatcher.ts` の doc）
 - ウィンドウ破棄時に全 watcher 停止（`watcher::stop_all`）
 - Rust 側は `watcher::WatcherState` を `manage` して持ち、`fs_watch_start` / `fs_watch_stop` コマンドで出し入れする
@@ -89,6 +89,36 @@ paths:
   （`MaxFilesWatch`、root の消滅や改名のあとの `ReadDirectoryChangesW`）を捨てると、
   Windows / macOS では監視が死んでも誰にも届かない。理由は当てられないので `Other` で、
   `detail` に `notify` の文言を入れる
+- **落ちた監視は帯の「再開」で張り直せる（#433）。** `fsWatcher.restart` が `lastTarget`
+  （直近の `start` の相手）で `start` をやり直す。Rust 側に足したものは無い（落ちた監視は
+  `report_watch_failure` が片付け済みなので、新しく起こすだけでよい）
+  - **ボタンを出す理由は `WatcherNotice.vue` の `action` が正本**。`other` と `watchLimit` は
+    再開、`missingTool` はインストール、`wslUnc` は出さない（監視は動いている）。帯のボタンは
+    1 つなので、理由ごとに 1 つを選ぶ
+  - **張り直したら、止まっていたあいだのぶんを取り直す**（`fsWatcher.onRestart`）。何が
+    変わったかは分からないので、受け手がそれぞれ全部変わったものとして扱う。主な受け手は 2 つ:
+    `stores/fileTree.ts`（展開中のディレクトリを `applyDirChanges` へ流し、畳んであるものは
+    キャッシュを捨てる）と `App.vue`（今のプロジェクトのエディタタブに `externalChange`、
+    作業ツリーの diff タブに `staleAt`）。**取り直しを省かないこと**: 省くと「監視は動いて
+    いる」のに画面が古く、編集中のタブの次の保存が、止まっていたあいだの外部の書き込みを
+    黙って上書きする
+  - **編集中のタブには、変わっていなくても警告バーが出る**。消せる誤検知のほうを採る
+    （自己書き込みの印を 1 回で使い切るのと同じ判断）
+  - **消えたファイルは `fsExistingPaths` で先に見分けて `deleted` を立てる。** `modified` だと
+    未編集のタブは読み直しに進み、読み直しは無いファイルを空の新規ファイルとして返すので、
+    本文と Undo の履歴が消える
+  - **監視の出し入れは 1 つずつ順に走らせる**（`useFsWatcher.ts` の `enqueue`）。
+    `fsWatchStart` を待つあいだは id がまだ無いので、重なると止める相手を知らないまま
+    2 本目を立て、先の 1 本が残る。`restart` は順番が来た時点で監視が動いていれば何もしない
+  - **`inotify-tools` を入れた直後の張り直しも同じ道**（`installInotify` の `onExit`）。
+    入れるまでのあいだの変更も届いていない
+  - HTML / Vue のプレビュー（`usePreviewRefresh`）も `onRestart` を受けて描き直す。受け手を
+    足すときは、コンポーネントの寿命のものは返り値で購読を外す（`onFileChange` と同じ）
+  - **未編集のタブの読み直しは、見えていなければ見えたときまで遅らせる**（`EditorTab.vue` の
+    `reloadWhenShown`。diff タブの `staleFromDisk` と同じ形）。張り直しは開いているタブ全部に
+    知らせるので、その場で読むと WSL では 1 枚につき `wsl.exe` が 3 本（stat・cat・`git diff`）
+    一度に立つ。**この遅延は普段の外部変更にも効く**（知らせの出所を区別していない）。
+    遅らせているあいだに削除の知らせが来たら、読み直しは捨てる
 - **Windows の種別で WSL の UNC パスを監視している構成は、静かに何も届かない。**
   `\\wsl.localhost\...` に対する `ReadDirectoryChangesW` は**開始が成功するのに、WSL の
   中からの書き込みを 1 件も受け取らない**（9p 越しでは通知が上がらない。実測済み）。

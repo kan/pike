@@ -596,6 +596,7 @@ export default {
   'watcher.wslUnc':
     'このプロジェクトは Windows の種別のまま WSL のフォルダを開いています。WSL の中で行われた変更は検出できません（Windows 側からの変更だけが届きます）。プロジェクトの設定で WSL に変えてください。',
   'watcher.other': 'ファイル監視が止まりました。',
+  'watcher.restart': '再開',
 
   // Git Panel
   'git.noProject': 'プロジェクトが選択されていません',
