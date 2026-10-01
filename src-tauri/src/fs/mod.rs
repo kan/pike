@@ -137,13 +137,17 @@ pub fn walk_files_by_name(
                 .collect::<Vec<_>>()
                 .join(" -o ");
             let script = format!(
-                "find '{}' -maxdepth {max_depth} \\( {prune} \\) -prune -o \\( {name_expr} \\) -print",
+                "find '{}' -maxdepth {max_depth} \\( {prune} \\) -prune -o \\( {name_expr} \\) -print 2>/dev/null",
                 root.replace('\'', "'\\''"),
             );
+            // **終了コードを見ない**（#434）。`find` は読めないディレクトリが 1 つあるだけで
+            // 1 を返すが、見つけたぶんは stdout に出している。`run_stdout` は非 0 を `Err` に
+            // するので、あちらを通すと見つけたファイルごと結果が空になる。コンテナが作る
+            // データディレクトリ（MySQL の `.data/mysql` は所有者が別で 750）で普通に起きる。
+            // 読めない場所は探索から外れるだけでよい。起こせなかったときは空のまま。
             shell
-                .run_stdout("bash", &["-c", &script])
-                .ok()
-                .map(|s| s.lines().map(|l| l.to_owned()).collect())
+                .run("bash", &["-c", &script])
+                .map(|(_, stdout, _)| stdout.lines().map(|l| l.to_owned()).collect())
                 .unwrap_or_default()
         }
         _ => {
