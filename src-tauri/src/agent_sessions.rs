@@ -14,6 +14,11 @@
 //! | `copilot` | `~/.copilot/session-state/<uuid>/events.jsonl` | `assistant.turn_start` がある |
 //! | `opencode` | `opencode db` の `session` テーブル | 全部（TUI しか記録を作らない） |
 //!
+//! **Claude だけは、そのリポジトリの worktree の記録も読む**（#432）。記録の置き場が
+//! 「書いた時点の作業ディレクトリ」で決まるので、途中で worktree へ移ったセッションは
+//! 起動した場所の一覧に出ない。再開も移動先でしか通らないので、[`AgentSession::resume_dir`] で
+//! 移る先を返す。他の 3 つで同じことが起きるかは未確認で、対象にしていない。
+//!
 //! **読むのはメニューを開いたときだけ。** ポーリングしない（WSL プロジェクトでは
 //! `\\wsl.localhost` 越しの読みになり、opencode はプロセスを起こす）。
 
@@ -59,6 +64,13 @@ pub struct AgentSession {
     pub modified_at: u64,
     /// 当時のブランチ。取れないエージェントでは `None`。
     pub git_branch: Option<String>,
+    /// 再開の前に移るディレクトリ（#432）。**一覧を引いた場所のままで再開できるなら `None`**
+    /// なので、フロントは有無だけを見ればよい（パスを比べない）。今のところ埋めるのは
+    /// Claude だけで、決め方は `claude_usage::sessions` の `session_dirs` の doc が正本。
+    ///
+    /// **記録が持つ `cwd`（そのセッションが動いていた場所）を入れないこと。** 他のアダプタは
+    /// 照合のためにそれを読んでいるが、ここへ入れると全部の行に移動が付く。
+    pub resume_dir: Option<String>,
 }
 
 /// そのエージェントの過去セッション。新しい順。

@@ -524,6 +524,7 @@ pub(crate) fn list_sessions(
             title: head.title,
             modified_at: crate::agent_sessions::modified_ms(modified).unwrap_or(0),
             git_branch: None,
+            resume_dir: None,
         });
     }
     out

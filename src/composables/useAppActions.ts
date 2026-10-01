@@ -68,9 +68,10 @@ export function useAppActions(): Record<AppActionId, () => void> & {
   selectTabByDigit: (digit: string) => void
   /**
    * エージェントの起動コマンドを走らせる新しいターミナルのタブ（#375。タブバーの ▾）。
-   * シェルと cwd の決め方は `openTerminal` と同じ。
+   * シェルと cwd の決め方は `openTerminal` と同じ。`cwd` を渡すとそこで開く（#432。記録が
+   * worktree にある過去セッションの再開。新しいタブなので `cd` を流さず、開く場所を変える）。
    */
-  openAgentTab: (command: string, title: string) => void
+  openAgentTab: (command: string, title: string, cwd?: string | null) => void
   /**
    * タブバーの「+」（#375）。設定の `tabAddOpens` に従って開く。`agent` で使える
    * エージェントが無ければターミナルに落ちる（押して何も起きないよりよい）。
@@ -187,8 +188,9 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     tabStore.addTerminalTab(terminalPlace(shellOverride))
   }
 
-  function openAgentTab(command: string, title: string) {
-    tabStore.addTerminalTab({ ...terminalPlace(), autoStart: command, title })
+  function openAgentTab(command: string, title: string, cwd?: string | null) {
+    const place = terminalPlace()
+    tabStore.addTerminalTab({ ...place, cwd: cwd ?? place.cwd, autoStart: command, title })
   }
 
   function openFromTabAdd() {

@@ -189,6 +189,7 @@ pub(crate) fn list_sessions(
                 title: row.title.unwrap_or_default(),
                 modified_at: row.time_updated.unwrap_or(0).max(0) as u64,
                 git_branch: None,
+                resume_dir: None,
             })
         })
         .take(limit)

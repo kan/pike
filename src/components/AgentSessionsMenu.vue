@@ -30,14 +30,24 @@ const props = defineProps<{
 const emit = defineEmits<{
   enter: []
   leave: []
-  /** 選ばれたセッションの再開コマンド。組み立ては表の `resume` が持つ。 */
-  pick: [command: string]
+  /**
+   * 選ばれたセッションの再開コマンドと、その前に移るディレクトリ（#432。移らなくてよければ
+   * null）。コマンドの組み立ては表の `resume` が持つ。**移り方は受け手が決める**: 走っている
+   * シェルへ流すなら `cd` を前に置き、新しいタブで開くならそこを cwd にする。
+   */
+  pick: [command: string, resumeDir: string | null]
 }>()
 
 const { t } = useI18n()
 
 function resumeCommand(session: AgentSession): string {
   return props.agent.resume(session.id)
+}
+
+/** 行のツールチップ。移る先があれば 2 行目に出す（どの worktree のものかはここで分かる）。 */
+function rowTitle(session: AgentSession): string {
+  const command = resumeCommand(session)
+  return session.resumeDir ? `${command}\n${session.resumeDir}` : command
 }
 </script>
 
@@ -59,8 +69,8 @@ function resumeCommand(session: AgentSession): string {
           v-for="s in sessions"
           :key="s.id"
           class="agent-menu-item"
-          :title="resumeCommand(s)"
-          @click="emit('pick', resumeCommand(s))"
+          :title="rowTitle(s)"
+          @click="emit('pick', resumeCommand(s), s.resumeDir)"
         >
           <span class="agent-menu-label">{{ s.title || s.id }}</span>
           <span class="agent-menu-cmd">

@@ -225,9 +225,9 @@ const agentMenu = useAgentMenu({
     const root = place.cwd ?? projectStore.activeRoot
     return shell && root ? { shell, root } : null
   },
-  run: (command, label) => {
+  resume: (command, label, resumeDir) => {
     closeShellMenu()
-    openAgentTab(command, label)
+    openAgentTab(command, label, resumeDir)
   },
 })
 

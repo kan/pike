@@ -42,7 +42,7 @@ import { useProjectStore } from '../../stores/project'
 import { TERM_SCROLLBAR_WIDTH, useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
-import { isPowershellFamily, type ShellType } from '../../types/tab'
+import { isPowershellFamily, runInDir, type ShellType } from '../../types/tab'
 import AgentSessionsMenu from '../AgentSessionsMenu.vue'
 import FindBar from '../editor/FindBar.vue'
 import HelpButton from '../HelpButton.vue'
@@ -109,7 +109,7 @@ const agentStore = useAgentStore()
 const agentMenu = useAgentMenu({
   launchers: () => agentStore.launchers,
   where: sessionsWhere,
-  run: (command) => runAgentCommand(command),
+  resume: (command, _label, resumeDir) => runAgentCommand(command, resumeDir),
 })
 const { defaultLines, defaultAgent, otherRows, sessionsMenuBind } = agentMenu
 const agentSubOpen = agentMenu.subOpen
@@ -155,11 +155,17 @@ const showPromptInject = computed(
 const showHelp = computed(() => settingsStore.terminalHelpButton && (showAgentLaunch.value || showPromptInject.value))
 
 /** Run a launcher entry in the shell as-is. No `clear` in front: today's agents
- *  render in place and keep the scrollback readable above themselves. */
-function runAgentCommand(command: string) {
+ *  render in place and keep the scrollback readable above themselves.
+ *
+ *  `dir` は、記録が別の場所（worktree）にある過去セッションの再開だけが持つ（#432）。
+ *  走っているシェルへ流すので、そこへ移って走らせ、**抜けたら元の場所へ戻る**
+ *  （`runInDir`。戻す理由はあちらの doc）。 */
+function runAgentCommand(command: string, dir?: string | null) {
   agentMenuOpen.value = false
   if (!ptyId) return
-  ptyWrite(ptyId, `${command}\r`).catch(() => {})
+  const shell = terminalTab()?.shell ?? projectStore.currentProject?.shell
+  const line = dir && shell ? runInDir(shell, dir, command) : command
+  ptyWrite(ptyId, `${line}\r`).catch(() => {})
   terminal?.focus()
 }
 

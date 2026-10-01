@@ -13,4 +13,10 @@ export interface AgentSession {
   modifiedAt: number
   /** 当時のブランチ。取れないエージェントでは null。 */
   gitBranch: string | null
+  /**
+   * 再開の前に移るディレクトリ（#432）。**一覧を引いた場所のままで再開できるなら null**
+   * なので、読む側は有無だけを見る。決め方は Rust の `session_dirs` の doc が正本。
+   * **「そのセッションが動いていた場所」ではない**（それを入れると全部の行に移動が付く）。
+   */
+  resumeDir: string | null
 }

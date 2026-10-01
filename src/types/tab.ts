@@ -131,10 +131,37 @@ export function isPowershellFamily(kind: string | undefined): boolean {
  * has no pipeline chain operator at all** — it is a parse error there, so that
  * one shell gets an explicit exit-code test. `;` would not do: it runs `next`
  * regardless, which for a retry-then-continue pair is exactly wrong.
+ *
+ * **`first` にコマンドレットを渡さないこと。** PowerShell 5 の腕が見る `$LASTEXITCODE` は
+ * 最後に走った**外部コマンド**の終了コードで、`Set-Location` などでは変わらない。
  */
 export function chainOnSuccess(first: string, next: string, shell?: ShellType): string {
   if (shell?.kind === 'powershell') return `${first}; if ($LASTEXITCODE -eq 0) { ${next} }`
   return `${first} && ${next}`
+}
+
+/**
+ * `dir` で `command` を走らせて、**終わったら元の場所へ戻る** 1 行（#432）。移れなかったら
+ * 走らせない。
+ *
+ * **戻るのは、走っているシェルへ流す行だから。** `cd` したままにすると、エージェントを
+ * 抜けたあとのシェルが知らないうちに別のディレクトリ（worktree）に居る。セッションの中で
+ * その worktree を片付けていれば、消えたディレクトリに取り残される。
+ *
+ * - bash 系はサブシェル。親のシェルは動かないので、戻す操作そのものが要らない
+ * - cmd は `pushd`（`cd` と違ってドライブもまたぐ）。`&` で繋ぐので、`command` が失敗しても戻る
+ * - PowerShell は `-LiteralPath`（素のパスは `[` `]` をワイルドカードとして読む）。成否は
+ *   `$?` で見る（`Push-Location` はコマンドレットなので `$LASTEXITCODE` は変わらない。
+ *   `chainOnSuccess` に渡せないのはこのため）。5 と 7 で同じ行が通る
+ *
+ * 3 つとも実機で確認済み（移れないときは走らず、元の場所に居る）。
+ */
+export function runInDir(shell: ShellType, dir: string, command: string): string {
+  const quoted = quoteArg(shell, dir)
+  if (shell.kind === 'cmd') return `pushd ${quoted} && (${command} & popd)`
+  if (isPowershellFamily(shell.kind))
+    return `Push-Location -LiteralPath ${quoted}; if ($?) { ${command}; Pop-Location }`
+  return `(cd ${quoted} && ${command})`
 }
 
 /**

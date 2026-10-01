@@ -1129,13 +1129,29 @@ pub async fn git_worktree_list(
     root: String,
     shell: ShellConfig,
 ) -> Result<Vec<GitWorktree>, String> {
-    let output = tokio::task::spawn_blocking(move || {
-        run_git(&shell, &root, &["worktree", "list", "--porcelain"])
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    tokio::task::spawn_blocking(move || worktree_list(&shell, &root))
+        .await
+        .map_err(|e| e.to_string())?
+}
 
-    Ok(parse_worktrees(&output))
+/// `git worktree list` を走らせて読む。コマンドの腕と下の `worktree_paths` が共有する。
+fn worktree_list(shell: &ShellConfig, root: &str) -> Result<Vec<GitWorktree>, String> {
+    run_git(shell, root, &["worktree", "list", "--porcelain"]).map(|out| parse_worktrees(&out))
+}
+
+/// `root` を含むリポジトリの worktree のパス（#432）。**同期で呼ぶ版**で、呼ぶ側が既に
+/// `spawn_blocking` の中に居るとき用（Claude のセッション一覧）。
+///
+/// **失敗は空**。git のリポジトリでない場所でも呼ばれるので、そのときは「worktree は無い」と
+/// 同じ扱いでよい。bare のエントリは作業ツリーではないので外す。消えた worktree
+/// （`prunable`）は `parse_worktrees` が元から落としている。
+pub(crate) fn worktree_paths(shell: &ShellConfig, root: &str) -> Vec<String> {
+    worktree_list(shell, root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|w| !w.is_bare)
+        .map(|w| w.path)
+        .collect()
 }
 
 #[tauri::command]

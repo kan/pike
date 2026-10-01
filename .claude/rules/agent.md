@@ -33,6 +33,29 @@ paths:
 - hook を持たないエージェント（Copilot CLI / opencode）向けの、出力のパターン一致による
   入力待ちの検出は未実装
 
+## Claude のセッション一覧と worktree（#432）
+
+**Claude は記録を「書いた時点の作業ディレクトリ」の slug（`projects/<slug>/`）に置く。**
+セッションの途中で worktree へ移ると、以降の記録は移動先の slug に書かれ、`claude --resume` も
+そのディレクトリでしか通らない。実体は `claude_usage/sessions.rs` の `session_dirs`（doc が正本）。
+
+- **slug からパスへは戻せない**（`/`・`.`・`-` がどれも `-` になる）ので、逆向きに
+  「分かっているパスを slug にする」。読むのは一覧を引いた場所と、`git worktree list` が返す
+  worktree（`git/mod.rs` の `worktree_paths`）。**slug の前方一致で探さないこと**（`repo` の
+  slug は `repo-old` の slug の前置でもある）
+- **再開先を記録の `cwd` から決めない。** パスから slug を作った時点で再開先は決まっている。
+  記録の `cwd` には Bash で `cd` したサブディレクトリも混ざるので、最後の行は使えず、
+  全行を読むことになる（題が取れた時点で読むのを止める今の読み方と両立しない）
+- **同じ id は新しいほうだけ出す。** 起動した場所と移動先の両方に同じ名前の記録が残りうる
+- 消えた worktree（`prunable`）は `parse_worktrees` が落とすので、そこのセッションは並ばない
+  （再開できないものを並べない）
+- **git を 1 回起こす**。読むのはメニューを開いたときだけ、という前提（`agent_sessions.rs` の
+  doc）の上に乗っている。ポーリングへ移すならここが費用になる
+- 設定ディレクトリは一覧を引いた場所で解決したもの 1 つを使う（`config::resolve`）。worktree
+  ごとに `CLAUDE_CONFIG_DIR` を変えている構成は拾わない
+- 他の 3 つ（Codex / Copilot / opencode）は対象外（#432 は Claude に絞った）。worktree で
+  動かしたセッションが一覧に出るか、再開が場所に依るかは**未確認**
+
 ## エージェントの一覧（#275 / #267）
 
 **正本は `src/lib/agents.ts` の `AGENTS`。** 起動ボタン・使用量・入力待ちの通知は同じ

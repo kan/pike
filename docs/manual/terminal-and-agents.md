@@ -85,6 +85,7 @@ Pike が知っているのは **Claude Code・Codex・Copilot CLI・opencode** �
 | opencode | `opencode db` の session テーブル | `opencode --session <ID>` |
 
 - 対象はそのターミナルの現在のディレクトリです。`cd` したあとは移動先のセッションが並びます。
+- Claude Code は、同じリポジトリの worktree で動かしたセッションも並べます。途中で worktree へ移ったセッションの記録は移動先に書かれ、`claude --resume` はそのディレクトリでしか通りません。そこで、選ぶとその worktree で再開します。起動ボタンのメニューでは、セッションを抜けると元のディレクトリへ戻ります。タブバーの `▾` では、その worktree を作業ディレクトリにしたターミナルを開きます。移る先は行のツールチップに出ます。削除済みの worktree のセッションは並びません。
 - 対話で使ったセッションだけが並びます。Claude Code の `claude -p` 経由の実行（Pike が利用状況の取得に使うものを含む）と、Codex の `codex exec` は除きます。Copilot CLI では、起動しただけでやり取りの無いセッションを除きます。
 - 並ぶのは新しいものから 20 件までです。
 - 読み込みは**そのサブメニューを開いたときだけ**行います。

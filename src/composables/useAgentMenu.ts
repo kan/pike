@@ -29,8 +29,12 @@ export interface AgentMenuOptions {
    * `epoch` はメニューを開いている世代で、1 回開いているあいだは同じ答えを使ってよい。
    */
   where: (epoch: number) => Promise<{ shell: ShellType; root: string } | null>
-  /** 行を選んだ。 */
-  run: (command: string, label: string) => void
+  /**
+   * 過去セッションを選んだ（起動行は通らない。あちらは消費者が自分で走らせる）。
+   * `resumeDir` は走らせる前に移るディレクトリで、記録が別の場所（worktree）にあるもの
+   * だけが持つ（#432）。
+   */
+  resume: (command: string, label: string, resumeDir: string | null) => void
 }
 
 export function useAgentMenu(opts: AgentMenuOptions) {
@@ -108,7 +112,7 @@ export function useAgentMenu(opts: AgentMenuOptions) {
       onLeave: () => {
         sessionsOpenAt.value = null
       },
-      onPick: (command: string) => opts.run(command, agent.label),
+      onPick: (command: string, resumeDir: string | null) => opts.resume(command, agent.label, resumeDir),
     }
   }
 

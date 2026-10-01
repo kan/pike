@@ -109,7 +109,9 @@ impl TranscriptScan {
     }
 }
 
-fn read_session(path: &Path, modified_at: u64) -> Option<AgentSession> {
+/// `resume_dir` は置き場で決まる（[`session_dirs`]）ので、どこから読んだかを知っている
+/// 呼び出し側が渡す。
+fn read_session(path: &Path, modified_at: u64, resume_dir: Option<&str>) -> Option<AgentSession> {
     // The id is interpolated into a shell command line, and it comes from a
     // file name rather than from Claude itself — keep it to the id alphabet.
     let id = path.file_stem()?.to_str()?;
@@ -135,7 +137,61 @@ fn read_session(path: &Path, modified_at: u64) -> Option<AgentSession> {
         title,
         modified_at,
         git_branch,
+        resume_dir: resume_dir.map(str::to_owned),
     })
+}
+
+/// 記録を探すディレクトリ 1 つ（`projects/<slug>/`）。
+#[derive(Debug, PartialEq)]
+struct SessionDir {
+    slug: String,
+    /// そこの記録を再開する前に移るディレクトリ。一覧を引いた場所そのものなら `None`。
+    resume_dir: Option<String>,
+}
+
+/// 一覧を引いた場所と、そのリポジトリの worktree から、記録を探すディレクトリを決める（#432）。
+///
+/// **Claude は記録を「書いた時点の作業ディレクトリ」の slug に置く。** セッションの途中で
+/// worktree へ移ると、以降の記録は移動先の slug の下に書かれ、起動した場所の slug からは
+/// 見えない。再開も同じで、`claude --resume` は今居るディレクトリの slug しか探さない。
+///
+/// **slug からパスへは戻せない**（`/`・`.`・`-` がどれも `-` になる）ので、逆向きに
+/// 「分かっているパスを slug にする」。こうすると再開先のディレクトリは slug と一緒に
+/// 決まり、記録の中身から `cwd` を探す必要が無い（あちらは Bash で `cd` したサブ
+/// ディレクトリも混ざるので、最後の行をそのまま使えない）。
+///
+/// **slug の前方一致で探さないこと。** `repo` の slug は `repo-old` という別のディレクトリの
+/// slug の前置でもある。
+///
+/// 先頭は必ず `root`。同じ slug になるものは先のものを残す（`root` 自身も worktree の
+/// 一覧に出てくる。Windows では区切りが `\` と `/` で違うが、slug は同じになる）。
+///
+/// **`fold_case` は Windows 側のシェルで真にする。** ターミナルの現在地は打った綴りの
+/// まま（`cd c:\users\x`）で、git は実際の綴りで返す。大文字小文字を区別しない
+/// ファイルシステムではどちらの slug も同じディレクトリを指すので、畳まないと同じ記録を
+/// 2 回読み、移らなくてよいセッションに移る先が付く。
+fn session_dirs(root: &str, worktrees: &[String], fold_case: bool) -> Vec<SessionDir> {
+    let same = |a: &str, b: &str| {
+        if fold_case {
+            a.eq_ignore_ascii_case(b)
+        } else {
+            a == b
+        }
+    };
+    let mut dirs = vec![SessionDir {
+        slug: encode_project_path(root),
+        resume_dir: None,
+    }];
+    for path in worktrees {
+        let slug = encode_project_path(path);
+        if dirs.iter().all(|d| !same(&d.slug, &slug)) {
+            dirs.push(SessionDir {
+                slug,
+                resume_dir: Some(path.clone()),
+            });
+        }
+    }
+    dirs
 }
 
 fn modified_ms(meta: &fs::Metadata) -> Option<u64> {
@@ -158,26 +214,45 @@ pub(crate) fn list_sessions(
     let Some(claude_dir) = config::resolve(shell, project_root).read_path else {
         return Vec::new();
     };
-    let dir = claude_dir
-        .join("projects")
-        .join(encode_project_path(project_root));
-    let Ok(entries) = fs::read_dir(&dir) else {
-        return Vec::new();
-    };
+    // worktree の記録も読む（#432。理由は `session_dirs` の doc）。**git を 1 回起こす**が、
+    // ここが走るのはメニューを開いたときだけ（`agent_sessions` の doc）。
+    let projects = claude_dir.join("projects");
+    let dirs = session_dirs(
+        project_root,
+        &crate::git::worktree_paths(shell, project_root),
+        shell.is_windows(),
+    );
 
-    let mut files: Vec<(PathBuf, u64)> = entries
-        .flatten()
-        .filter(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
-        .filter_map(|e| Some((e.path(), modified_ms(&e.metadata().ok()?)?)))
-        .collect();
-    files.sort_unstable_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+    let mut files: Vec<(PathBuf, u64, Option<&str>)> = Vec::new();
+    for dir in &dirs {
+        let Ok(entries) = fs::read_dir(projects.join(&dir.slug)) else {
+            continue;
+        };
+        let resume_dir = dir.resume_dir.as_deref();
+        files.extend(
+            entries
+                .flatten()
+                .filter(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
+                .filter_map(|e| Some((e.path(), modified_ms(&e.metadata().ok()?)?, resume_dir))),
+        );
+    }
+    files.sort_unstable_by_key(|(_, modified, _)| std::cmp::Reverse(*modified));
 
-    let mut sessions = Vec::new();
-    for (path, modified_at) in files.into_iter().take(MAX_SCAN_FILES) {
+    let mut sessions: Vec<AgentSession> = Vec::new();
+    for (path, modified_at, resume_dir) in files.into_iter().take(MAX_SCAN_FILES) {
         if sessions.len() >= limit {
             break;
         }
-        if let Some(session) = read_session(&path, modified_at) {
+        // **同じ id は新しいほうだけ出す。** 途中で worktree へ移ったセッションは、起動した
+        // 場所と移動先の両方に同じ名前の記録を残しうる。続きが書かれているのは新しいほうで、
+        // 再開先もそちら。id はファイル名なので、開く前に分かる。
+        if sessions
+            .iter()
+            .any(|s| path.file_stem().is_some_and(|stem| stem == s.id.as_str()))
+        {
+            continue;
+        }
+        if let Some(session) = read_session(&path, modified_at, resume_dir) {
             sessions.push(session);
         }
     }
@@ -188,8 +263,84 @@ pub(crate) fn list_sessions(
 
 #[cfg(test)]
 mod tests {
-    use super::{raw_str_field, shorten, TranscriptScan, ENTRYPOINT_PAT, GIT_BRANCH_PAT};
+    use super::{
+        raw_str_field, session_dirs, shorten, SessionDir, TranscriptScan, ENTRYPOINT_PAT,
+        GIT_BRANCH_PAT,
+    };
     use crate::agent_sessions::MAX_TITLE_CHARS;
+
+    fn dir(slug: &str, resume_dir: Option<&str>) -> SessionDir {
+        SessionDir {
+            slug: slug.to_owned(),
+            resume_dir: resume_dir.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn session_dirs_adds_worktrees_after_the_root() {
+        let worktrees = [
+            "/home/kan/sitter".to_owned(),
+            "/home/kan/sitter/.worktree/com-531".to_owned(),
+        ];
+        assert_eq!(
+            session_dirs("/home/kan/sitter", &worktrees, false),
+            [
+                // 一覧を引いた場所は移らずに再開できる。worktree の一覧に出てきた同じ場所は畳む。
+                dir("-home-kan-sitter", None),
+                dir(
+                    "-home-kan-sitter--worktree-com-531",
+                    Some("/home/kan/sitter/.worktree/com-531")
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn session_dirs_folds_separators_that_encode_alike() {
+        // git は Windows でも `/` で返す。slug は同じなので、`root` の側（移らない）を残す。
+        let worktrees = [
+            "C:/Users/k/pike".to_owned(),
+            "C:/Users/k/pike-wt".to_owned(),
+        ];
+        assert_eq!(
+            session_dirs(r"C:\Users\k\pike", &worktrees, true),
+            [
+                dir("C--Users-k-pike", None),
+                dir("C--Users-k-pike-wt", Some("C:/Users/k/pike-wt")),
+            ]
+        );
+    }
+
+    #[test]
+    fn session_dirs_folds_case_only_where_the_filesystem_does() {
+        // 打った綴り（`cd c:\users\k\PIKE`）と git が返す実際の綴りは、Windows では同じ場所。
+        let worktrees = ["C:/Users/k/pike".to_owned()];
+        assert_eq!(
+            session_dirs(r"c:\users\k\PIKE", &worktrees, true),
+            [dir("c--users-k-PIKE", None)]
+        );
+        // POSIX では別のディレクトリなので畳まない。
+        let worktrees = ["/r/Wt".to_owned()];
+        assert_eq!(
+            session_dirs("/r/wt", &worktrees, false),
+            [dir("-r-wt", None), dir("-r-Wt", Some("/r/Wt"))]
+        );
+    }
+
+    #[test]
+    fn session_dirs_from_inside_a_worktree_offers_the_main_tree() {
+        // worktree のターミナルで開いたときは、main の記録が「移ってから再開」になる。
+        let worktrees = ["/r".to_owned(), "/r/.wt/a".to_owned()];
+        assert_eq!(
+            session_dirs("/r/.wt/a", &worktrees, false),
+            [dir("-r--wt-a", None), dir("-r", Some("/r"))]
+        );
+    }
+
+    #[test]
+    fn session_dirs_without_worktrees_is_just_the_root() {
+        assert_eq!(session_dirs("/r", &[], false), [dir("-r", None)]);
+    }
 
     fn scan(lines: &[&str]) -> Option<(String, Option<String>)> {
         let mut scan = TranscriptScan::default();
