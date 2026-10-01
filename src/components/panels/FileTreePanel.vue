@@ -683,6 +683,9 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   font-size: 12px;
   border-radius: 3px;
   white-space: nowrap;
+  /* 行は押す対象で、読んで写す本文ではない（#431）。付けないと、ダブルクリックで
+     ブラウザの単語選択が走り、名前が区切り文字（`.` や `-`）までの半端な範囲で塗られる。 */
+  user-select: none;
 }
 
 .tree-item:hover,
@@ -756,6 +759,9 @@ defineExpose({ refresh, refreshing, startCreateAtRoot })
   font-size: 12px;
   border-radius: 2px;
   outline: none;
+  /* 入力欄は `.tree-item` の中に居るので、行の `user-select: none` を戻しておく。
+     WebKit（macOS）は親の `none` を入力欄にも効かせることがあり、文字が打てなくなる。 */
+  user-select: text;
 }
 
 .empty {
