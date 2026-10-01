@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.59.2] - 2026-10-01
+
+### Bug Fixes
+
+- **WSL のプロジェクトで、Docker パネルに compose の構成を出せない場合があったのを直した**：プロジェクトの中に読めないディレクトリがあると、見つけたファイルごと探索の結果を捨てていました。コンテナが作るデータディレクトリ（MySQL など）で起きます。診断の対象の検出も同じ原因で空になっていました (#434)
+
 ## [0.59.1] - 2026-10-01
 
 ### Features
