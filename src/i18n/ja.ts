@@ -477,7 +477,7 @@ export default {
   'settings.shellProfileHide': '非表示にする',
   'settings.sync': '設定の同期',
   'settings.syncHint':
-    '設定・プロジェクト一覧とグループ・ブックマークを複数の PC と共有します。GitHub Gist は自動で同期し、ファイルは「今すぐ同期」を押したときに同期します。両方の PC で同じ項目を別の値に変えていたら、どちらを採るかを選べます。',
+    '設定・プロジェクト一覧とグループ・ブックマークを複数の PC と共有します。起動時、変更の数秒後、ウィンドウを前に出したときに自動で同期します。両方の PC で同じ項目を別の値に変えていたら、どちらを採るかを選べます。',
   'settings.syncFilePath': '同期ファイルのパス',
   'settings.syncFilePathPlaceholder': '例: C:\\Users\\you\\Dropbox\\pike\\settings.json',
   'settings.projectBase': 'プロジェクトの base ディレクトリ',

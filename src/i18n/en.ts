@@ -481,7 +481,7 @@ export default {
   'settings.shellProfileHide': 'Hide',
   'settings.sync': 'Settings Sync',
   'settings.syncHint':
-    'Share your settings, project list and groups, and bookmarks with other PCs. A GitHub Gist syncs automatically; a file syncs when you press "Sync now". If both PCs changed the same item to different values, you choose which one to keep.',
+    'Share your settings, project list and groups, and bookmarks with other PCs. It syncs automatically at startup, a few seconds after a change, and when a window comes to the front. If both PCs changed the same item to different values, you choose which one to keep.',
   'settings.syncFilePath': 'Sync file path',
   'settings.syncFilePathPlaceholder': 'e.g. C:\\Users\\you\\Dropbox\\pike\\settings.json',
   'settings.projectBase': 'Project base directory',

@@ -14,9 +14,13 @@
  * **同期先は 2 つ**（`SyncBackend`）。どちらも「読む・版を確かめる・書く」の 3 つだけで、
  * マージは共通。
  *
- * - **固定のパス**: 「今すぐ同期」のときだけ（#403 の方針）
- * - **GitHub Gist**（`gh` 経由、段階 4）: 自動でも同期する（`scheduleAuto`）。起動時・
- *   変更の数秒後・ウィンドウが前に出たとき（間隔を空ける）
+ * - **固定のパス**
+ * - **GitHub Gist**（`gh` 経由、段階 4）
+ *
+ * **どちらも自動で同期する**（`scheduleAuto`）。起動時・変更の数秒後・ウィンドウが前に
+ * 出たとき（間隔を空ける）。固定のパスは #403 で「今すぐ同期」のときだけにしていたが、
+ * 押し忘れると他の PC の変更を拾わないまま手元を変え続けることになり、衝突が増えるだけ
+ * だった（#435）。
  */
 
 import { emit, listen } from '@tauri-apps/api/event'
@@ -92,11 +96,11 @@ const COMMAND_EVENT = 'pike://sync-command'
 
 /** 読んでから書くまでにリモートが変わったときに、読み直してやり直す回数。 */
 const MAX_ATTEMPTS = 3
-/** 自動の同期（Gist）: 変更からこれだけ待つ（続けて変えたら待ち直す）。 */
+/** 自動の同期: 変更からこれだけ待つ（続けて変えたら待ち直す）。 */
 const AUTO_DEBOUNCE_MS = 5_000
-/** 自動の同期（Gist）: ウィンドウが前に出たときに同期する、前回からの最短の間隔。 */
+/** 自動の同期: ウィンドウが前に出たときに同期する、前回からの最短の間隔。 */
 const AUTO_FOCUS_INTERVAL_MS = 5 * 60_000
-/** 自動の同期（Gist）: 起動してから最初に同期するまで（プロジェクトの読み込みを待つ）。 */
+/** 自動の同期: 起動してから最初に同期するまで（プロジェクトの読み込みを待つ）。 */
 const AUTO_STARTUP_DELAY_MS = 3_000
 /** 同期で手元を書き換えた直後の変更は、自分の反映なので自動の同期の契機にしない。 */
 const AUTO_SELF_QUIET_MS = 2_000
@@ -142,7 +146,7 @@ interface SyncState {
 
 /**
  * 他のウィンドウから main への依頼。`focus` は「そのウィンドウが前に出た」の知らせで、
- * 自動の同期（Gist）は main のウィンドウでなくても、Pike が前に出たら他の PC の変更を拾う。
+ * 自動の同期は main のウィンドウでなくても、Pike が前に出たら他の PC の変更を拾う。
  */
 type SyncCommand = { kind: 'state' } | { kind: 'focus' } | { kind: 'sync'; choices?: [string, Side][] }
 
@@ -622,12 +626,12 @@ export const useSyncStore = defineStore('sync', () => {
     return path
   }
 
-  // --- 自動の同期（Gist だけ、main だけ） ---
+  // --- 自動の同期（main だけ） ---
 
   let autoTimer: ReturnType<typeof setTimeout> | null = null
 
-  /** 自動で同期する同期先か（固定のパスは「今すぐ同期」のときだけ）。 */
-  const autoEnabled = () => state.value.target.kind === 'gist' && backend.value !== null
+  /** 自動で同期できるか（同期先が決まっているか。種類は問わない、#435）。 */
+  const autoEnabled = () => backend.value !== null
 
   function scheduleAuto(delay: number) {
     if (!isMainWindow() || !autoEnabled()) return
@@ -657,8 +661,8 @@ export const useSyncStore = defineStore('sync', () => {
     })
     // 起動時。プロジェクトの一覧の読み込みを待つ（`syncOnce` も確かめるが、起動の混雑を避ける）。
     scheduleAuto(AUTO_STARTUP_DELAY_MS)
-    // 変更の数秒後。**自動で同期する同期先のときだけ、同期する種類だけを見る**（見るだけで
-    // 文字列にするので、ファイルの同期先ではスライダーを動かすたびに無駄になる）。
+    // 変更の数秒後。**同期先があるときだけ、同期する種類だけを見る**（見るだけで文字列に
+    // するので、同期していない人のスライダーの操作に仕事を足さない）。
     // **同期の反映による変更は数えない**（数えると同期のたびにもう 1 回走る）。
     watch(
       () => {
