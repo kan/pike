@@ -1389,6 +1389,7 @@ pub fn wait_with_timeout<T: Send + 'static>(
                     .stderr(Stdio::null())
                     .status();
             });
+            // この綴りはフロントの `lib/gitErrors.ts` が `timeout` の案内を出すために見ている（#436）。
             Err(format!("{label} timed out after {}s", timeout.as_secs()))
         }
     }

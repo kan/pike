@@ -335,7 +335,7 @@ function copyPrompt(issue: IssueSummary) {
   border-color: var(--accent);
 }
 
-/* GitPanel の同名クラスと同じ様式（左に危険色の線、高さは頭を残して切る）。 */
+/* 左に危険色の線、高さは頭を残して切る。 */
 .error-strip {
   margin: 0 8px 6px;
   padding: 4px 6px;

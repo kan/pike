@@ -851,6 +851,25 @@
   color: var(--on-accent);
 }
 
+/* Git パネルの帯の中に置く控えめなボタン（#222 の「中止」と、#436 のエラー表示の
+   ボタン列が共有）。アイコンを添えられるよう flex にしてある。 */
+.op-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.op-btn:hover {
+  filter: brightness(1.15);
+}
+
 /* アクセント地の主ボタン（#381。ログインの知らせのボタンが StatusBar と状態タブで共有）。
    大きさ（padding / font-size）は置いた側で決める。 */
 .accent-btn {

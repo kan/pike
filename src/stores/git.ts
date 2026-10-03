@@ -32,7 +32,7 @@ import type {
   PullOption,
   PushOption,
 } from '../types/git'
-import { chainOnSuccess } from '../types/tab'
+import { chainOnSuccess, type ShellType } from '../types/tab'
 import { useProjectStore } from './project'
 import { useStatusMessageStore } from './statusMessage'
 import { useTabStore } from './tabs'
@@ -93,12 +93,16 @@ export const useGitStore = defineStore('git', () => {
    *   **やり直しまで持つのは、2 つのボタンを同じ結末に揃えるため**: 「ターミナルで実行」は
    *   `ssh-add; git pull` を走らせる＝やり直しまで含むので、ダイアログ側だけ「鍵は入ったが
    *   何も起きない」で終わると、同じ帯の隣り合ったボタンで結果が違うことになる
+   * - `fromPoll` … 10 秒ごとの `git status` が立てた失敗か（#436）。**下ろし方が違う**:
+   *   ポーリングの失敗は次に通れば直っているが、利用者の操作の失敗は `git status` が
+   *   通っても直っていない（`clearTransientError`）
    */
   const failure = ref<{
     message: string
     command: string | null
     root: string
     addKeyRetry: (() => Promise<void>) | null
+    fromPoll: boolean
   } | null>(null)
   const error = computed(() => failure.value?.message ?? null)
   const authCommand = computed(() => failure.value?.command ?? null)
@@ -133,8 +137,9 @@ export const useGitStore = defineStore('git', () => {
     message: string,
     command: string | null = null,
     addKeyRetry: (() => Promise<void>) | null = null,
+    fromPoll = false,
   ) {
-    failure.value = { message, command, root: getRoot(), addKeyRetry }
+    failure.value = { message, command, root: getRoot(), addKeyRetry, fromPoll }
   }
 
   /**
@@ -219,18 +224,34 @@ export const useGitStore = defineStore('git', () => {
   }
 
   /**
-   * ポーリングが成功したときの後始末。**資格情報待ちの表示だけは残す**（#384）。
+   * ポーリングが成功したときの後始末。**下ろすのはポーリング自身の失敗だけ**（#384 / #436）。
    *
-   * 10 秒ごとの `git status` が通っても、pull が失敗した事実は変わらない。ここで消すと、
-   * 入力する唯一の入口（「ターミナルで実行」）が押される前に消える。下りるのは、次の
-   * pull / push を始めた時点か、そのボタンを押した時点。
+   * 10 秒ごとの `git status` が通っても、コミットや pull が失敗した事実は変わらない。
+   * ここで消すと、読む前にエラーが消え、資格情報待ちなら入力する唯一の入口（「ターミナルで
+   * 実行」）も押される前に消える。操作の失敗が下りるのは、× を押した時点か、次の操作を
+   * 始めた時点（`clearUnlessAuthPending`）。
    *
    * **ただし、別のリポジトリを見ているなら下ろす。** プロジェクトの切り替えと worktree の
    * 切り替えはどちらも直後に `refreshStatus` を通るので、ここが掃除の場所になる。残すと
    * **A の失敗の帯が B のパネルに出たまま、押すと B で `git pull` が走る**。
    */
   function clearTransientError() {
-    if (!failure.value?.command || failure.value.root !== getRoot()) clearError()
+    if (failure.value?.fromPoll || failure.value?.root !== getRoot()) clearError()
+  }
+
+  /**
+   * 役目を終えた失敗を下ろす（#436）。契機は 2 つで、どちらも残すと直したあとも古い
+   * エラーが出続ける。
+   *
+   * - 利用者が次の操作を始めた（`runAction` / `runRecovery`）。やり直しか別の手で対処
+   *   しようとしている
+   * - 止まっていた操作が終わった（`doRefreshStatus`）。Pike を通らずに片付いている
+   *
+   * **資格情報待ちの表示は残す**（#384）。ステージやコミットは pull の失敗と無関係で、
+   * 下ろすと入力の入口が消える。あちらが下りるのは次の pull / push か、そのボタン。
+   */
+  function clearUnlessAuthPending() {
+    if (!failure.value?.command) clearError()
   }
 
   /** ステータスとログをまとめて取り直す（「更新」の実体。入口が 2 つある）。 */
@@ -271,6 +292,9 @@ export const useGitStore = defineStore('git', () => {
       const [s] = await Promise.all([gitStatus(getRoot(), project.shell), minDelay])
       status.value = s
       clearTransientError()
+      // 止まっていた操作が終わったら、それを報せていた失敗も下ろす（#436）。ターミナルで
+      // `git merge --abort` した場合など、Pike の操作を通らない終わり方がある。
+      if (lastStatus?.operation && !s.operation) clearUnlessAuthPending()
       isRepo.value = true
       // Auto-refresh the commit log when the repo's commit state changed since
       // the last poll. Skip the very first observation to avoid a redundant
@@ -292,7 +316,11 @@ export const useGitStore = defineStore('git', () => {
         clearError()
       } else {
         isRepo.value = true
-        setFailure(String(e))
+        // 操作の失敗が出ているあいだは上書きしない（#436）。あちらは利用者が読んで
+        // 対処するもので、`git status` の失敗に差し替わると元のエラーへ戻る手が無い。
+        // **残すかどうかの判定は成功時と同じ**なので、同じ関数に聞く。
+        clearTransientError()
+        if (!failure.value) setFailure(String(e), null, null, true)
       }
       if (minDelay) await minDelay
     } finally {
@@ -389,15 +417,29 @@ export const useGitStore = defineStore('git', () => {
     return logInFlight
   }
 
-  async function stageFiles(paths: string[]) {
+  /**
+   * 利用者が起こすローカルの操作（ステージ・コミット・チェックアウト）の共通の骨格（#436）。
+   *
+   * **「始めた時点で前の失敗を下ろす」をここ 1 か所に置く。** 操作ごとに書くと、次に足す
+   * 操作で落としても型にもテストにも掛からず、直したあとも古いエラーが残るだけになる。
+   * pull / push は通さない（あちらは資格情報待ちも下ろし、失敗を値で受ける別の形）。
+   */
+  async function runAction(run: (root: string, shell: ShellType) => Promise<unknown>) {
     const project = getProject()
     if (!project) return
+    clearUnlessAuthPending()
     try {
-      await gitStage(getRoot(), project.shell, paths)
-      await refreshStatus()
+      await run(getRoot(), project.shell)
     } catch (e) {
       setFailure(String(e))
     }
+  }
+
+  function stageFiles(paths: string[]) {
+    return runAction(async (root, shell) => {
+      await gitStage(root, shell, paths)
+      await refreshStatus()
+    })
   }
 
   /**
@@ -408,38 +450,26 @@ export const useGitStore = defineStore('git', () => {
    * **パスではなく `GitFileChange` を受ける**のはそのため。呼ぶ側で `origPath` を展開する
    * 形にしていたころは、1 つずつ外すボタンだけが通っていて「すべて外す」が漏れていた。
    */
-  async function unstageFiles(files: GitFileChange[]) {
-    const project = getProject()
-    if (!project) return
+  function unstageFiles(files: GitFileChange[]) {
     const paths = files.flatMap((f) => (f.origPath ? [f.path, f.origPath] : [f.path]))
-    try {
-      await gitUnstage(getRoot(), project.shell, paths)
+    return runAction(async (root, shell) => {
+      await gitUnstage(root, shell, paths)
       await refreshStatus()
-    } catch (e) {
-      setFailure(String(e))
-    }
+    })
   }
 
-  async function discardChanges(paths: string[]) {
-    const project = getProject()
-    if (!project) return
-    try {
-      await gitDiscardChanges(getRoot(), project.shell, paths)
+  function discardChanges(paths: string[]) {
+    return runAction(async (root, shell) => {
+      await gitDiscardChanges(root, shell, paths)
       await refreshStatus()
-    } catch (e) {
-      setFailure(String(e))
-    }
+    })
   }
 
-  async function commitChanges(message: string) {
-    const project = getProject()
-    if (!project) return
-    try {
-      await gitCommit(getRoot(), project.shell, message)
+  function commitChanges(message: string) {
+    return runAction(async (root, shell) => {
+      await gitCommit(root, shell, message)
       await Promise.all([refreshStatus(), refreshLog()])
-    } catch (e) {
-      setFailure(String(e))
-    }
+    })
   }
 
   /**
@@ -514,6 +544,7 @@ export const useGitStore = defineStore('git', () => {
     // The operation may have finished in another terminal since the last poll.
     await refreshStatus()
     if (!status.value?.operation?.canContinue) return
+    clearUnlessAuthPending()
     runInTerminal(command)
   }
 
@@ -688,15 +719,11 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  async function checkoutBranch(branch: string) {
-    const project = getProject()
-    if (!project) return
-    try {
-      await gitCheckout(getRoot(), project.shell, branch)
+  function checkoutBranch(branch: string) {
+    return runAction(async (root, shell) => {
+      await gitCheckout(root, shell, branch)
       await Promise.all([refreshStatus(), refreshLog()])
-    } catch (e) {
-      setFailure(String(e))
-    }
+    })
   }
 
   /**
@@ -707,15 +734,11 @@ export const useGitStore = defineStore('git', () => {
   async function checkoutRemoteBranch(remoteBranch: string) {
     const local = localBranchName(remoteBranch)
     if (branches.value.includes(local)) return checkoutBranch(local)
-    const project = getProject()
-    if (!project) return
-    try {
-      await gitCheckoutTrack(getRoot(), project.shell, remoteBranch)
+    return runAction(async (root, shell) => {
+      await gitCheckoutTrack(root, shell, remoteBranch)
       // The new local branch has to show up in the switcher's local list.
       await Promise.all([refreshStatus(), refreshLog(), loadBranches()])
-    } catch (e) {
-      setFailure(String(e))
-    }
+    })
   }
 
   async function fetchInBackground() {
@@ -769,6 +792,7 @@ export const useGitStore = defineStore('git', () => {
     remoteUrl,
     remoteResolved,
     error,
+    clearError,
     authCommand,
     runAuthCommand,
     canAddKey,

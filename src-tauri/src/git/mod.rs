@@ -134,6 +134,9 @@ fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, Str
 /// 2 つの消費者へ配る。
 const KEY_DENIED: &str = "Permission denied (publickey";
 
+// **フロントの `lib/gitErrors.ts` も同じ綴りを見ている**（#436。エラー表示の案内文を選ぶ表）。
+// ここへ足したら、あちらの `auth` / `hostKey` にも足す。片方だけだと、ボタンは出るのに
+// 案内が出ない（またはその逆）になる。
 const AUTH_MARKERS: [&str; 5] = [
     KEY_DENIED,
     // ssh: 未知のホスト鍵を確認できなかった。

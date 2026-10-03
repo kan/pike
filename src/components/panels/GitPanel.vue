@@ -40,6 +40,7 @@ import { useSidebarStore } from '../../stores/sidebar'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import type { GitFileChange, GitLogEntry } from '../../types/git'
+import GitErrorBlock from './GitErrorBlock.vue'
 
 const { t } = useI18n()
 const { isActiveFile } = useActiveFile()
@@ -686,29 +687,12 @@ onUnmounted(() => {
     <!-- Only when there is no status to show: an error must not take the panel
          away from a stopped rebase, which is when it is needed most (#222). -->
     <template v-else-if="gitStore.error && !gitStore.status">
-      <div class="empty">{{ gitStore.error }}</div>
+      <GitErrorBlock />
     </template>
 
     <template v-else-if="gitStore.status">
-      <div v-if="gitStore.error" class="error-strip">
-        <div class="error-text" :title="gitStore.error">{{ gitStore.error }}</div>
-        <!-- 鍵のパスフレーズで直る失敗のときだけ（#386）。伏せ字で受け取って ssh-agent に
-             預け、失敗した操作をやり直す。**先に置く**のが普通の直し方で、ターミナルの
-             ほうはホスト鍵の確認など「パスフレーズ以外も聞かれる」ときの逃げ道。 -->
-        <button v-if="gitStore.canAddKey" class="op-btn" @click="gitStore.addSshKey()">
-          {{ t('git.enterPassphrase') }}
-        </button>
-        <!-- 資格情報の入力が要るときだけ（#384）。バックエンドの git には TTY が
-             無いので、ターミナルタブで走らせ直すのが唯一の入力できる場所。 -->
-        <button
-          v-if="gitStore.authCommand"
-          class="op-btn danger"
-          :title="gitStore.authCommand"
-          @click="gitStore.runAuthCommand()"
-        >
-          {{ t('git.runInTerminal') }}
-        </button>
-      </div>
+      <!-- status があるときも、パネルを差し替えずに上へ足す（#222）。 -->
+      <GitErrorBlock />
 
       <!-- A rebase/merge/… git stopped in the middle of (#222) -->
       <!-- data-testid は E2E の撮影が待ち合わせに使う。 -->
@@ -1099,28 +1083,6 @@ onUnmounted(() => {
   padding: 2px 0;
 }
 
-/* A git error alongside a usable status: a strip, never the whole panel (#222). */
-.error-strip {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 4px 8px;
-  border-left: 2px solid var(--danger);
-  background: var(--bg-tertiary);
-  color: var(--danger);
-  font-size: 11px;
-}
-
-/* 切り詰めるのは本文だけ。帯ごと `overflow: hidden` にすると、長いエラーのときに
-   下のボタン（#384）が隠れて押せなくなる。 */
-.error-text {
-  max-height: 4.5em;
-  overflow: hidden;
-  white-space: pre-wrap;
-}
-
-
 .op-banner {
   display: flex;
   flex-direction: column;
@@ -1140,34 +1102,6 @@ onUnmounted(() => {
 .op-actions {
   display: flex;
   gap: 6px;
-}
-
-/* The secondary half of the pair; the primary one reuses `.commit-btn`. */
-.op-btn {
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.op-btn:hover {
-  filter: brightness(1.15);
-}
-
-/* 帯の中の危険側（#384 の「ターミナルで実行」）。形は `.op-btn` のまま、色だけ変える。 */
-.op-btn.danger {
-  border-color: var(--danger);
-  background: transparent;
-  color: var(--danger);
-}
-
-.op-btn.danger:hover {
-  background: var(--danger);
-  color: var(--on-accent);
-  filter: none;
 }
 
 .file-section {

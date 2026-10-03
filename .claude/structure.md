@@ -140,6 +140,7 @@ pike/
 │   │   │   ├── ProfileRow.vue     # 並べ替え + 表示/非表示の 1 行（シェル #129 とエージェント #275 で共有）
 │   │   │   ├── ProjectPlatformFields.vue # プラットフォーム/distro/シェルの選択欄（#373 以降は編集フォームだけ）
 │   │   │   ├── GitPanel.vue  SearchPanel.vue  DockerPanel.vue  TasksPanel.vue
+│   │   │   ├── GitErrorBlock.vue  # Git パネル上部のエラー表示（閉じる・コピー・エージェントへの依頼、#436）
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）
 │   │   │   ├── BrowserPanel.vue   # ブラウザのタブの新しいタブ・ブックマーク・閲覧履歴（#368）
@@ -246,6 +247,7 @@ pike/
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278）
 │   │   ├── issuePrompt.ts    # エージェントに渡す issue の指示文（#336。注入とコピーで共有）
 │   │   ├── commitPatch.ts    # コミット全体の差分をファイルごとの統合形式の行に落とす（#374）
+│   │   ├── gitErrors.ts      # git のエラー文からよくある原因を見分ける（#436。案内の文言は i18n）
 │   │   ├── gitGraph.ts  gitRemote.ts  gitignore.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── templateModes.ts   # テンプレートエンジンのハイライト（HTML に区切りの内側だけ別モードを差し込む、#409）
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）

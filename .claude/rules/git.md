@@ -6,6 +6,7 @@ paths:
   - "src/stores/worktree.ts"
   - "src/types/git.ts"
   - "src/components/panels/GitPanel.vue"
+  - "src/components/panels/GitErrorBlock.vue"
   - "src/lib/git*.ts"
   - "src/lib/editorConflict.ts"
   - "src/lib/editorGitGutter.ts"
@@ -112,7 +113,13 @@ diff タブは `git-diff.md`、ブランチグラフとコミットタブは `gi
   - **コマンドの連結は `types/tab.ts` の `chainOnSuccess` を通す**: **Windows PowerShell 5 には `&&` が無く**（パースエラー。pwsh 7 / cmd / bash 系にはある）、`;` は失敗しても次を走らせてしまうので、あのシェルだけ `; if ($LASTEXITCODE -eq 0) { … }` に落とす。復帰は「コミットし直してから続行」の 2 段なので、コミットが再び失敗したら続行してはいけない
   - **`git commit -C <SHA>` の誤爆ガード**: SHA は `rebase-merge/done` の**末尾行**から取る（競合停止では todo が空になるため、todo の先頭行は当てにできない。両方の停止で実測）。`done` は追記書き込みなので末尾行が不完全なことがあり、`pick`/`reword`/`edit`/`squash`/`fixup` で始まり SHA が hex であることを確認する。`exec` / `break` の停止ではコミットは既に成功しているので**ボタンを出さない**（出すと他コミットの author・日時・メッセージを被せた偽コミットを黙って作る）。押下時は確認ダイアログに SHA・件名・実行コマンドを出す
 - `git_pull` だけ失敗時に stdout も返す（`CONFLICT (content): …` は stdout 側で、共通の `spawn_stdout` は stderr しか残さない）。`spawn_stdout` 自体は触らない（全 git コマンドのエラー文が変わる）
-- **`gitStore.error` はパネル全体を置き換えない**: `status` があるときはセクション上部のストリップとして出す。パネル本体ごと差し替えると、pull が止まった瞬間に競合一覧もコミット欄も消える。`pull()` は失敗時も `refreshStatus` / `refreshLog` を呼ぶ（呼ばないとバナーと競合一覧が次のポーリングまで 10 秒出ない）。**エラーの代入は refresh の後**（`doRefreshStatus` は成功時に `error` を null に戻すので、先に入れると消える）
+- **`gitStore.error` はパネル全体を置き換えない**: `status` があるときはパネル上部のブロック（`GitErrorBlock.vue`）として出す。パネル本体ごと差し替えると、pull が止まった瞬間に競合一覧もコミット欄も消える。`pull()` は失敗時も `refreshStatus` / `refreshLog` を呼ぶ（呼ばないとバナーと競合一覧が次のポーリングまで 10 秒出ない）。エラーの代入は refresh の後に置いたままにする（`pull` の `finally` の外。#386 のやり直しが `pulling` を見るため）
+- **エラーの表示は勝手に消さない（#436）**。以前は 10 秒ごとの `git status` が通るたびに下ろしていたので、コミットやチェックアウトの失敗は読む前に消えた。判断の実体は `stores/git.ts` の `failure` と、その下の 2 つの関数の doc が正本
+  - **下ろす契機は 4 つ**: × を押す、利用者が次の操作を始める、止まっていた操作が終わる（`doRefreshStatus` が `operation` の消えたことを見る。ターミナルで `git merge --abort` した場合など、Pike の操作を通らない終わり方があるため）、別のリポジトリへ移る。2 つ目と 3 つ目は `clearUnlessAuthPending`（資格情報待ちは残す）、4 つ目は `clearTransientError`
+  - **ポーリングが触れるのは、ポーリング自身が立てた失敗と別のリポジトリの失敗だけ**（`failure.fromPoll`。判定は `clearTransientError` の 1 か所で、成功時も失敗時もそこを通る）。成功で操作の失敗を下ろさず、失敗で操作の失敗を上書きしない。差し替わると元のエラーへ戻る手が無い
+  - **ローカルの操作は `runAction` を通す**（ステージ・コミット・チェックアウト）。「始めた時点で前の失敗を下ろす」がそこにあるので、操作を足すときに書き忘れない。#222 の続行 / 中止（`runRecovery`）はガードの後ろで自分で下ろす。pull / push は通さない（資格情報待ちも下ろす別の形）
+  - **原文を地の文に出さない**（`GitErrorBlock.vue`）。出すのは「エラーが発生しました」と、原因を見分けられたときの概要・直し方だけで、原文はコピーとエージェントへの依頼（`injectToTerminal`）で渡す。**依頼しても表示は下ろさない**
+  - **原因の見分けは `lib/gitErrors.ts` の表が正本**（`classifyGitError`。文言は i18n の `git.err.*` / `git.errFix.*`）。当たらなければ案内を出さないだけなので、無理に当てに行かない。**表の並びが優先順位**で、理由はあのファイルの doc
 - SideBar の git マーカー（ahead/behind のドット）は、操作が止まっているときは赤い `!` を優先表示する。署名失敗の pull は競合 0・変更件数 0 なので、パネルを閉じているとバッジにもドットにも出ない
   - **ahead/behind は文字ではなくドット**（`MarkerInfo.kind`）。`↑↓` は 11px で見分けにくい。向きと件数はツールチップ（`title`）で読む
 - ahead/behind: `git status --porcelain=v2 --branch` の `# branch.ab` 行をパース。GitPanel コミットボタン下にテキスト表示、SideBar の pull/push ボタンを primary スタイルにする
@@ -188,7 +195,8 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
   紐づくので、片方だけ残ると押せる嘘のボタンになる
 - **ポーリングの成功では下ろさない**（`clearTransientError`）。10 秒ごとの `git status` が
   通っても pull が失敗した事実は変わらないのに、素の `clearError` を置くと**入力する唯一の
-  入口が押される前に消える**。下りるのは次の pull / push を始めた時点か、ボタンを押した時点
+  入口が押される前に消える**。下りるのは次の pull / push を始めた時点か、ボタンを押した時点。
+  **ステージやコミットでも下ろさない**（`clearUnlessAuthPending` が `command` を見る。#436）
 - **ステータスバーの知らせからも入口へ導く**（`git.runInTerminalHint`）。知らせはアプリ全体
   （パレットやサイドバーから pull できる）なのに、押せるのは Git パネルの中だけなので、
   そこまで書かないと開けば拾えることに気付けない。**`statusMessage` にボタンを持たせるのは
