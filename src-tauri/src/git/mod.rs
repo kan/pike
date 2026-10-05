@@ -1315,12 +1315,22 @@ fn remote_urls_wsl(shell: &ShellConfig, roots: &[String]) -> Result<Vec<Option<S
 }
 
 #[tauri::command]
-pub async fn git_fetch(root: String, shell: ShellConfig) -> Result<GitNetworkResult, String> {
+pub async fn git_fetch(
+    root: String,
+    shell: ShellConfig,
+    options: Option<Vec<FetchOption>>,
+) -> Result<GitNetworkResult, String> {
     tokio::task::spawn_blocking(move || {
         // **3 つとも同じ形で返す**（#384）。「背景の取得だから知らせない」は呼び出し側の
         // 方針なので、戻り値の型に焼き込まない。焼き込んでいたころは、エラー文の整形を
         // ここへ書き写したうえで唯一の呼び出し元が捨てていた。
-        let args = ["fetch", "--prune"];
+        let mut args = vec!["fetch", "--prune"];
+        for opt in options.unwrap_or_default() {
+            match opt {
+                FetchOption::All => args.push("--all"),
+                FetchOption::Tags => args.push("--tags"),
+            }
+        }
         let run = run_git_network(&shell, &root, &args)?;
         Ok(GitNetworkResult::of(&args, run))
     })
@@ -1376,6 +1386,15 @@ pub enum PullOption {
     Rebase,
     Autostash,
     FfOnly,
+}
+
+/// Git パネルのメニューから選ぶ fetch の変種（#438）。素の fetch（背景の取得と同じ
+/// `git fetch --prune`）に足すフラグ。
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FetchOption {
+    All,
+    Tags,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]

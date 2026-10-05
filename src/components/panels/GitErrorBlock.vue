@@ -9,9 +9,9 @@
  * **勝手に消えない。** 下ろすのは × と、利用者の次の操作だけ（`stores/git.ts` の
  * `clearTransientError` / `clearUnlessAuthPending`）。
  */
-import { Bot, Copy, X } from 'lucide-vue-next'
-import { computed } from 'vue'
-import { injectToTerminal } from '../../composables/useTerminalInject'
+import { Bot, Copy, Loader, X } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { injectToTerminal, resolveTargetTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
 import { classifyGitError } from '../../lib/gitErrors'
 import { useGitStore } from '../../stores/git'
@@ -31,11 +31,30 @@ function copyError() {
     .catch(() => {})
 }
 
+/** 依頼の前の fetch を待っているあいだ。二重に押させない。 */
+const asking = ref(false)
+
 // 送るだけで、表示は下ろさない。エージェントが直し終えるまで、何が起きていたかを
 // パネルで読めるほうがよい（直ったあとの操作か × で下りる）。
-function askAgent() {
+//
+// **送る前にリモートの最新を取り、取れたかどうかを依頼文に添える**（#438。理由は
+// `gitStore.fetchForAgent` の doc）。
+async function askAgent() {
   const message = gitStore.error
-  if (message) injectToTerminal(t('git.errorFixPrompt', { message }))
+  if (!message || asking.value) return
+  // 送り先が無いなら、fetch を待たせずにその場で知らせる（`injectToTerminal` と同じ文面）。
+  if (!resolveTargetTerminal()) {
+    useStatusMessageStore().show({ text: t('terminal.injectNoTarget'), variant: 'warn' })
+    return
+  }
+  asking.value = true
+  try {
+    const fetched = await gitStore.fetchForAgent()
+    const note = t(fetched ? 'git.errorFixFetched' : 'git.errorFixFetchFailed')
+    injectToTerminal(`${t('git.errorFixPrompt', { message })}\n\n${note}`)
+  } finally {
+    asking.value = false
+  }
 }
 </script>
 
@@ -72,8 +91,9 @@ function askAgent() {
         <Copy :size="12" :stroke-width="2" />
         {{ t('git.errorCopy') }}
       </button>
-      <button class="op-btn" @click="askAgent">
-        <Bot :size="12" :stroke-width="2" />
+      <button class="op-btn" :disabled="asking" :title="t('git.errorAskAgentHint')" @click="askAgent">
+        <Loader v-if="asking" :size="12" :stroke-width="2" class="spin" />
+        <Bot v-else :size="12" :stroke-width="2" />
         {{ t('git.errorAskAgent') }}
       </button>
     </div>

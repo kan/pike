@@ -51,6 +51,7 @@ export interface GitLogEntry {
 
 /** Options offered by the pull/push button context menus (#179). Mirrors the
  *  Rust `PullOption` / `PushOption` enums, which map them to git flags. */
+export type FetchOption = 'all' | 'tags'
 export type PullOption = 'rebase' | 'autostash' | 'ff-only'
 export type PushOption = 'force-with-lease' | 'tags' | 'set-upstream'
 

@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, type Ref, ref } from 'vue'
 import { confirmDialog, secretDialog } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
@@ -25,6 +25,7 @@ import {
 } from '../lib/tauri'
 import { windowFocused } from '../lib/window'
 import type {
+  FetchOption,
   GitFileChange,
   GitLogEntry,
   GitNetworkResult,
@@ -112,6 +113,8 @@ export const useGitStore = defineStore('git', () => {
   const isRepo = ref(true)
   const pushing = ref(false)
   const pulling = ref(false)
+  /** 利用者が頼んだ fetch が走っているあいだ（#438）。背景の取得（`fetchGuard`）とは別。 */
+  const fetching = ref(false)
 
   /**
    * 失敗を記録し、**ステータスバーにも出す**（#270）。Git パネルのストリップだけだと、
@@ -264,8 +267,12 @@ export const useGitStore = defineStore('git', () => {
   let statusPending: Promise<void> | null = null
   let logInFlight: Promise<void> | null = null
   let logPending: Promise<void> | null = null
+  /** 背景の取得の間隔。 */
+  const FETCH_INTERVAL_MS = 60_000
   let fetchGuard = false
   let lastFetchTime = 0
+  /** 走っている fetch の列（#438）。持ち主は `runFetch`。 */
+  let fetchQueue: Promise<unknown> = Promise.resolve()
   const logAllMode = ref(false)
   // Status from the previous poll. When HEAD/ahead/behind change between polls —
   // e.g. a commit made in a terminal, a pull, or a branch switch — the commit
@@ -477,30 +484,48 @@ export const useGitStore = defineStore('git', () => {
    * 真を渡す**ので、聞くのは利用者が押した 1 回につき最大 1 度になる。無いと、鍵は
    * 入るのに（別の鍵なので）pull が通らない構成で**入力欄が延々と出続ける**。
    */
-  async function push(options?: PushOption[], keyAsked = false) {
+  function push(options?: PushOption[], keyAsked = false): Promise<void> {
+    return runNetworkOp(
+      pushing,
+      (root, shell) => gitPush(root, shell, options),
+      refreshStatus,
+      () => push(options, true),
+      keyAsked,
+    )
+  }
+
+  /**
+   * 成功したときだけ後始末をする、リモートに触る操作の骨格（push と、利用者が頼む fetch）。
+   * **pull は通さない**: あちらは失敗しても読み直す（競合で止まった pull の結果を見せる）。
+   */
+  async function runNetworkOp(
+    busy: Ref<boolean>,
+    call: (root: string, shell: ShellType) => Promise<GitNetworkResult>,
+    onSuccess: () => Promise<unknown>,
+    retry: () => Promise<void>,
+    keyAsked: boolean,
+  ) {
     const project = getProject()
     // **ガードはここに置く**（#270）。以前は SideBar のボタンの disabled だけが多重実行を
     // 止めていたので、パレットから 2 回叩くと同じリポジトリで 2 本走り、`index.lock` で
     // ぶつかったうえ、先に終わったほうがフラグを戻していた。
-    if (!project || pushing.value) return
-    pushing.value = true
+    if (!project || busy.value) return
+    busy.value = true
     // 前回の資格情報待ちの帯は、次の試行を始めた時点で下ろす（`clearTransientError`）。
     clearError()
     let failed: { message: string; result: GitNetworkResult | null } | null = null
     try {
-      const result = await gitPush(getRoot(), project.shell, options)
+      const result = await call(getRoot(), project.shell)
       if (result.error) failed = { message: result.error, result }
-      else await refreshStatus()
+      else await onSuccess()
     } catch (e) {
       failed = { message: String(e), result: null }
     } finally {
-      // **旗は失敗の始末より先に下ろす。** やり直し（`push`）はこの旗を見て早期
+      // **旗は失敗の始末より先に下ろす。** やり直し（`retry`）はこの旗を見て早期
       // return するので、握ったまま呼ぶと黙って何も起きない。
-      pushing.value = false
+      busy.value = false
     }
-    if (failed) {
-      await handleNetworkFailure(failed.message, failed.result, () => push(options, true), keyAsked)
-    }
+    if (failed) await handleNetworkFailure(failed.message, failed.result, retry, keyAsked)
   }
 
   async function pull(options?: PullOption[], keyAsked = false) {
@@ -530,6 +555,71 @@ export const useGitStore = defineStore('git', () => {
     if (failed) {
       await handleNetworkFailure(failed.message, failed.result, () => pull(options, true), keyAsked)
     }
+  }
+
+  /**
+   * 利用者が頼んだ fetch（#438。Git パネルのメニューとパレット）。**`push` と同じ骨格**
+   * （`runNetworkOp`）で、失敗を帯に出し、鍵のパスフレーズで直るなら先に聞く。背景の取得（`fetchInBackground`）と
+   * 違うのはそこだけで、走らせる git は同じ。
+   *
+   * 成功は知らせる: pull / push と違い、パネルの見た目が何も変わらないことがある
+   * （リモートに新しいコミットが無いとき）ので、黙ると押せたのかが分からない。
+   */
+  function fetchRemote(options?: FetchOption[], keyAsked = false): Promise<void> {
+    return runNetworkOp(
+      fetching,
+      (root, shell) => runFetch(root, shell, options),
+      async () => {
+        // ブランチの一覧は読み直さない（切り替えのドロップダウンが開くたびに読む）。
+        await Promise.all([refreshStatus(), refreshLog()])
+        useStatusMessageStore().show({ text: t('git.fetched') })
+      },
+      () => fetchRemote(options, true),
+      keyAsked,
+    )
+  }
+
+  /**
+   * エージェントへ依頼する前に、リモートの最新を取っておく（#438）。取れたかを返す。
+   *
+   * **エージェントの側からは fetch が通らないことがある**（鍵が agent に入っておらず
+   * パスフレーズを聞かれる、サンドボックスがネットワークを閉じている）。Pike のバックエンドは
+   * `SSH_AUTH_SOCK` を運べる（#384）ので、ここで済ませて、済んだことを依頼文に添える。
+   *
+   * **失敗を記録しない**（`fetchRemote` と違い `failure` に触れない）。依頼の対象はいま出ている
+   * エラーで、ここで差し替えると送る原文が失われる。パスフレーズも聞かない。
+   *
+   * **取れなかったことも呼び出し側が依頼文に書く。** 黙ると、エージェントは古いリモート
+   * 追跡ブランチを最新として扱う。
+   */
+  async function fetchForAgent(): Promise<boolean> {
+    const project = getProject()
+    if (!project) return false
+    // **毎回取りに行く**（直前に取ったかを覚えない）。覚えるには root ごとの印が要るが、
+    // このストアは root に紐づく印を既に 3 つ抱えている。差分の無い fetch は軽い。
+    try {
+      return !(await runFetch(getRoot(), project.shell)).error
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * fetch を走らせる唯一の場所（#438）。入口が 3 つある（背景・利用者・エージェントへの
+   * 依頼の前）ので、**Pike の fetch どうしは 1 本ずつ走らせる**。同じリポジトリで
+   * `git fetch --prune` が並ぶと、片方が ref のロックを取れずに失敗しうる
+   * （`cannot lock ref`）。背景の取得は 60 秒ごとに走るので、利用者が押した側がそれに
+   * 負けると、何も悪くないのにエラーが出る。
+   *
+   * **pull / push は並べていない**（あちらは従来どおり背景の取得と重なりうる）。
+   *
+   * **`lastFetchTime` は「取得済み」の根拠にならない。** あれは背景の取得を間引く時刻で、
+   * 失敗しても、スリープ復帰で見送っただけでも進む。
+   */
+  function runFetch(root: string, shell: ShellType, options?: FetchOption[]): Promise<GitNetworkResult> {
+    const run = fetchQueue.then(() => gitFetch(root, shell, options))
+    fetchQueue = run.catch(() => {})
+    return run
   }
 
   /**
@@ -745,7 +835,7 @@ export const useGitStore = defineStore('git', () => {
     if (fetchGuard) return
     if (!windowFocused.value) return
     const elapsed = Date.now() - lastFetchTime
-    if (lastFetchTime > 0 && elapsed < 60_000) return
+    if (lastFetchTime > 0 && elapsed < FETCH_INTERVAL_MS) return
     // Likely resumed from sleep — defer until next normal cycle
     if (lastFetchTime > 0 && elapsed > 300_000) {
       lastFetchTime = Date.now()
@@ -757,7 +847,7 @@ export const useGitStore = defineStore('git', () => {
     try {
       // **背景の取得なので、資格情報が要ることは知らせない**（60 秒ごとに同じ知らせが
       // 出る）。結果の形が pull / push と同じなのは、整形を Rust の 1 か所に残すため。
-      await gitFetch(getRoot(), project.shell)
+      await runFetch(getRoot(), project.shell)
       lastFetchTime = Date.now()
       await refreshStatus()
     } catch {
@@ -769,7 +859,7 @@ export const useGitStore = defineStore('git', () => {
 
   const polling = useFocusPolling([
     { every: 10_000, tick: refreshStatus },
-    { every: 60_000, tick: fetchInBackground },
+    { every: FETCH_INTERVAL_MS, tick: fetchInBackground },
   ])
 
   function startPolling() {
@@ -800,6 +890,7 @@ export const useGitStore = defineStore('git', () => {
     isRepo,
     pushing,
     pulling,
+    fetching,
     refreshing,
     refreshStatus,
     refreshAll,
@@ -812,6 +903,8 @@ export const useGitStore = defineStore('git', () => {
     commitChanges,
     push,
     pull,
+    fetchRemote,
+    fetchForAgent,
     continueOperation,
     abortOperation,
     loadBranches,

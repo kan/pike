@@ -306,6 +306,7 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     panelProjects: () => togglePanel('projects'),
     panelBrowser: () => togglePanel('browser'),
     // 失敗の通知はストア側（`setError`）。入口ごとに書くと、どれかが漏れる。
+    gitFetch: () => void useGitStore().fetchRemote(),
     gitPull: () => void useGitStore().pull(),
     gitPush: () => void useGitStore().push(),
     gitRefresh: () => void useGitStore().refreshAll(),

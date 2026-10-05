@@ -175,6 +175,14 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
 同じ代償を回りくどく払う形、(3) plink（`GIT_SSH`）はどちらの手も無視するので、あちらの
 待ち込みはどのみち塞げない。`BatchMode` は古い ssh にもあり、実測してある。
 
+### 利用者が頼む fetch とメニュー（#438）
+
+- **fetch の入口は 3 つで、走らせる git は 1 つ**（`git_fetch`＝`git fetch --prune`）。背景の取得（`fetchInBackground`。黙って失敗する）、利用者が頼む `fetchRemote`（`push` と同じ形で失敗を帯に出し、パスフレーズを聞く）、エージェントへの依頼の前の `fetchForAgent`（`failure` に触れない）。違いは失敗の扱いだけで、理由は `stores/git.ts` のそれぞれの doc が正本
+  - **3 つとも `runFetch` を通す**（Pike の fetch どうしを 1 本ずつ走らせる。理由はあの関数の doc）。**`lastFetchTime` を「取得済み」の根拠にしないこと**
+- **変種は `FetchOption`**（`--all` / `--tags`）。`PullOption` と同じく enum で受け、フロントから任意の引数を git に渡させない
+- **「≡」は pull / push の右クリックと同じメニューを使う**（`SideBar.vue` の `SYNC_MENUS`。組を並べて区切り線を入れるだけ）。項目を足すときは組に 1 行足す。**右クリックのメニューは残す**（#179 から案内している入口）
+- **エージェントへ依頼する前に Pike が fetch し、取れたかどうかを依頼文に添える**（`GitErrorBlock.vue` の `askAgent`。理由は `fetchForAgent` の doc）。**取れなかったときも書く**
+
 ### 入力する場所はターミナルタブ
 
 失敗が資格情報待ちだったときだけ、Git パネルのエラーの帯に「ターミナルで実行」を出す

@@ -4,6 +4,7 @@ import type { AgentUsage } from '../types/agentUsage'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
+  FetchOption,
   GitBranches,
   GitFileChange,
   GitLogEntry,
@@ -600,8 +601,8 @@ export async function gitSetOrigin(root: string, shell: ShellType, url: string):
   return invoke<void>('git_set_origin', { root, shell, url })
 }
 
-export async function gitFetch(root: string, shell: ShellType): Promise<GitNetworkResult> {
-  return invoke<GitNetworkResult>('git_fetch', { root, shell })
+export async function gitFetch(root: string, shell: ShellType, options?: FetchOption[]): Promise<GitNetworkResult> {
+  return invoke<GitNetworkResult>('git_fetch', { root, shell, options })
 }
 
 export async function gitPush(root: string, shell: ShellType, options?: PushOption[]): Promise<GitNetworkResult> {

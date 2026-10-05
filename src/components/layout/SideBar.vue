@@ -46,6 +46,7 @@ import {
   ListTodo,
   ListTree,
   Loader,
+  Menu,
   Play,
   Plus,
   RefreshCw,
@@ -126,7 +127,11 @@ onMounted(() => {
 // Positioned at the cursor with `position: fixed`, because `.panel` clips its
 // children (`overflow: hidden`) and an absolutely-placed menu gets cut off at
 // the panel edge. Same approach as the tab context menu.
-const syncMenu = ref<{ kind: 'pull' | 'push' } | null>(null)
+//
+// `more` はボタンの並びの「≡」から開く全部入り（#438）。右クリックに気付かなくても同じ
+// 変種へ届き、fetch のようにボタンを持たない操作の置き場にもなる。
+type SyncMenuKind = 'pull' | 'push' | 'more'
+const syncMenu = ref<{ kind: SyncMenuKind } | null>(null)
 const {
   style: syncMenuStyle,
   placeAt: placeSyncMenu,
@@ -150,9 +155,31 @@ const PUSH_ACTIONS: SyncAction[] = [
   { key: 'git.pushForceWithLease', danger: true, run: () => gitStore.push(['force-with-lease']) },
 ]
 
-const syncActions = computed(() => (syncMenu.value?.kind === 'push' ? PUSH_ACTIONS : PULL_ACTIONS))
+const FETCH_ACTIONS: SyncAction[] = [
+  { key: 'git.fetchPlain', run: () => gitStore.fetchRemote() },
+  { key: 'git.fetchAll', run: () => gitStore.fetchRemote(['all']) },
+  { key: 'git.fetchTags', run: () => gitStore.fetchRemote(['tags']) },
+]
 
-async function openSyncMenu(which: 'pull' | 'push', e: MouseEvent) {
+/** メニューに並べる組。組のあいだに区切り線が入る。 */
+const SYNC_MENUS: Record<SyncMenuKind, SyncAction[][]> = {
+  pull: [PULL_ACTIONS],
+  push: [PUSH_ACTIONS],
+  more: [FETCH_ACTIONS, PULL_ACTIONS, PUSH_ACTIONS],
+}
+
+const syncGroups = computed(() => (syncMenu.value ? SYNC_MENUS[syncMenu.value.kind] : []))
+
+/** 「≡」は押し直すと閉じる（開く側は `mousedown.stop` で「外を押したら閉じる」を避けている）。 */
+function toggleMoreMenu(e: MouseEvent) {
+  if (syncMenu.value?.kind === 'more') return closeSyncMenu()
+  // **ボタンの下に置く**（カーソルの位置ではなく）。キーボードで押した click は座標が 0 で、
+  // そのまま渡すとメニューがウィンドウの左上に出る。
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  void openSyncMenu('more', { clientX: rect.left, clientY: rect.bottom })
+}
+
+async function openSyncMenu(which: SyncMenuKind, e: Pick<MouseEvent, 'clientX' | 'clientY'>) {
   resetSyncMenu()
   syncMenu.value = { kind: which }
   // Measured, then clamped (#204): these buttons sit at the bottom of the
@@ -666,6 +693,17 @@ onUnmounted(() => {
               <Loader v-if="gitStore.pushing" :size="14" :stroke-width="2" class="spin" />
               <ArrowUp v-else :size="14" :stroke-width="2" />
             </button>
+            <!-- fetch と、pull / push の変種をまとめたメニュー（#438）。fetch 中はここが回る。 -->
+            <button
+              class="header-btn"
+              data-testid="git-more"
+              :title="t('git.moreHint')"
+              @mousedown.stop
+              @click="toggleMoreMenu"
+            >
+              <Loader v-if="gitStore.fetching" :size="14" :stroke-width="2" class="spin" />
+              <Menu v-else :size="14" :stroke-width="2" />
+            </button>
           </template>
           <!-- 更新ボタンは表（`IconDef.refresh`）から。理由はその宣言の doc。 -->
           <button
@@ -705,15 +743,18 @@ onUnmounted(() => {
       :style="syncMenuStyle"
       @mousedown.stop
     >
-      <button
-        v-for="a in syncActions"
-        :key="a.key"
-        class="sync-menu-item"
-        :class="{ danger: a.danger }"
-        @click="runSyncAction(a)"
-      >
-        {{ t(a.key) }}
-      </button>
+      <template v-for="(group, i) in syncGroups" :key="i">
+        <div v-if="i > 0" class="sync-menu-sep" />
+        <button
+          v-for="a in group"
+          :key="a.key"
+          class="sync-menu-item"
+          :class="{ danger: a.danger }"
+          @click="runSyncAction(a)"
+        >
+          {{ t(a.key) }}
+        </button>
+      </template>
     </div>
 
     <!-- アイコン列の右クリック（#364）。隠したアイコンを戻す入口もここだけなので、
@@ -835,6 +876,12 @@ onUnmounted(() => {
 .sync-menu-item:hover {
   background: var(--accent);
   color: var(--on-accent);
+}
+
+.sync-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
 }
 
 .sync-menu-item.danger {

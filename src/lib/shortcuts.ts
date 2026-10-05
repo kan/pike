@@ -122,6 +122,7 @@ export const APP_ACTIONS = [
   { id: 'panelProjects', palette: 'view', labelKey: 'sidebar.projects', panel: 'projects' },
   { id: 'panelBrowser', palette: 'view', labelKey: 'sidebar.browser', panel: 'browser' },
   // --- Git
+  { id: 'gitFetch', palette: 'git', labelKey: 'git.fetch', needsProject: true },
   { id: 'gitPull', palette: 'git', labelKey: 'git.pull', needsProject: true },
   { id: 'gitPush', palette: 'git', labelKey: 'git.push', needsProject: true },
   { id: 'gitRefresh', palette: 'git', labelKey: 'common.refresh', needsProject: true },

@@ -658,6 +658,12 @@ export default {
   'git.errorDismiss': 'Dismiss',
   'git.errorCopy': 'Copy error',
   'git.errorAskAgent': 'Ask agent to resolve',
+  'git.errorAskAgentHint':
+    'Fetches from the remote first (git fetch), then sends the error to the agent in the terminal',
+  'git.errorFixFetched':
+    'Pike has already fetched from the remote (git fetch --prune has been run). There is no need to run git fetch again.',
+  'git.errorFixFetchFailed':
+    'Fetching from the remote (git fetch --prune) failed from Pike. Remote-tracking branches may be out of date.',
   'git.errorFixPrompt': 'A git operation failed. Please resolve it. The error follows.\n\n{message}',
   'git.err.auth': 'Authentication with the remote failed.',
   'git.errFix.auth': 'Check that your SSH key or access token has access to this repository.',
@@ -706,6 +712,12 @@ export default {
   'git.pull': 'Pull',
   'git.push': 'Push',
   'git.binaryRevision': '"{name}" is binary — this revision cannot be shown',
+  'git.fetch': 'Fetch',
+  'git.fetched': 'Fetched',
+  'git.moreHint': 'More Git actions',
+  'git.fetchPlain': 'git fetch --prune',
+  'git.fetchAll': 'git fetch --prune --all',
+  'git.fetchTags': 'git fetch --prune --tags',
   'git.pullHint': 'Pull (right-click for options)',
   'git.pushHint': 'Push (right-click for options)',
   'git.pullPlain': 'git pull',

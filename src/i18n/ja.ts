@@ -654,6 +654,12 @@ export default {
   'git.errorDismiss': '閉じる',
   'git.errorCopy': 'エラーをコピー',
   'git.errorAskAgent': 'エージェントに解決させる',
+  'git.errorAskAgentHint':
+    '先にリモートの最新を取得（git fetch）してから、エラーの内容をターミナルのエージェントへ送ります',
+  'git.errorFixFetched':
+    'リモートの最新は Pike が取得済みです（git fetch --prune を実行済み）。git fetch をやり直す必要はありません。',
+  'git.errorFixFetchFailed':
+    'Pike からのリモートの取得（git fetch --prune）は失敗しました。リモート追跡ブランチは最新でない可能性があります。',
   'git.errorFixPrompt': 'Git の操作で問題が発生したので解消してください。以下エラーです\n\n{message}',
   'git.err.auth': 'リモートの認証に失敗しました。',
   'git.errFix.auth': 'SSH 鍵またはアクセストークンが、このリポジトリに届くものか確認してください。',
@@ -701,6 +707,12 @@ export default {
   'git.pull': 'プル',
   'git.push': 'プッシュ',
   'git.binaryRevision': '"{name}" はバイナリのため、このバージョンを表示できません',
+  'git.fetch': 'フェッチ',
+  'git.fetched': 'フェッチしました',
+  'git.moreHint': 'その他の Git 操作',
+  'git.fetchPlain': 'git fetch --prune',
+  'git.fetchAll': 'git fetch --prune --all',
+  'git.fetchTags': 'git fetch --prune --tags',
   'git.pullHint': 'プル（右クリックでオプション）',
   'git.pushHint': 'プッシュ（右クリックでオプション）',
   'git.pullPlain': 'git pull',
