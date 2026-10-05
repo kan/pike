@@ -30,7 +30,8 @@ Tauri のウィンドウ・webview を Rust から扱うときの規則。ウィ
     （CLI のルーティング、トレイからの復帰、ウィンドウ位置の保存が、そのウィンドウだけ効かない）
   - 代わりに `Window` / `app.get_window` / `app.windows()` を使う。表示・フォーカス・位置・
     `hwnd`・イベントの送信は同じものがある。**例外は webview そのもの（WebView2 の COM）を
-    触る `drop_paths::attach`** だけで、ウィンドウを作った直後（子がまだ無い）に呼ぶ
+    触る `drop_paths::attach` と `webview_focus::attach`** だけで、ウィンドウを作った直後
+    （子がまだ無い）に呼ぶ
   - **子 webview の COM は `Webview` から触る**（`browser_nav::attach`、#416）。`add_child` が
     返す `Webview` の `with_webview` で `ICoreWebView2` に届くので、`WebviewWindow` は要らない。
     イベントの送り先は、その時点の親ウィンドウを `app.get_webview(label)` から引く（子 webview は
@@ -39,6 +40,12 @@ Tauri のウィンドウ・webview を Rust から扱うときの規則。ウィ
     `webview_windows()` で引くので、ブラウザのタブを開いている main ウィンドウは明示的な
     保存（トレイの「終了」、更新の前）のときに最大化の状態を読み直さない。位置と大きさは
     移動・リサイズのたびにプラグインが記録しているので、そちらは失われない
+- **ウィンドウが得たフォーカスは自分で webview へ渡す（#439、Windows）。** `unstable` feature
+  （#368）を有効にしているあいだ、wry はこの転送をしない。渡さないと、Alt+Tab などで前に
+  出したあと**ページ内をクリックするまで打鍵がどこにも届かない**。`src-tauri/src/webview_focus.rs` が
+  ウィンドウの `WM_SETFOCUS` を受けて渡す（仕組みと、外してよい条件はあのファイルの doc が正本）
+  - **`WindowEvent::Focused` に載せないこと**（実機で 2 通りに壊れた。理由は同じ doc）
+  - **ウィンドウを作る箇所を足したら `webview_focus::attach` も呼ぶ**（`drop_paths::attach` と対）
 - **webview を作るときは `disable_drag_drop_handler()` を必ず付ける（#396）。** Windows では
   wry がウィンドウに OLE のドロップ先を張るので、有効なままだとページ上のドラッグが
   横取りされ、HTML5 の drag & drop が「禁止」のカーソルで止まる。今付けているのは Pike 本体

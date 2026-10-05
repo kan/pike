@@ -33,6 +33,14 @@ mod drop_paths;
 mod drop_paths {
     pub fn attach(_window: &tauri::WebviewWindow) {}
 }
+/// 本体の webview へのフォーカスの転送（#439）。wry の Windows 実装が落とした処理の補いなので、
+/// 非 Windows では何もしない。
+#[cfg(windows)]
+mod webview_focus;
+#[cfg(not(windows))]
+mod webview_focus {
+    pub fn attach(_window: &tauri::WebviewWindow) {}
+}
 mod elevate;
 mod favicon;
 mod font;
@@ -441,6 +449,7 @@ fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<Window, 
     // WebView2 の COM を触るので webview ごと渡す。作った直後（子 webview がまだ無い）なので
     // `WebviewWindow` として扱えるのはここだけ（理由は `.claude/rules/rust-window.md`）。
     drop_paths::attach(&webview_window);
+    webview_focus::attach(&webview_window);
     let window = webview_window.as_ref().window();
     window_geom::restore(app, geom_key, &window);
     // 非表示で作ってあるので、ここで塗り直せば最初の 1 フレームから OS のテーマに合う。
@@ -1583,6 +1592,7 @@ pub fn run() {
             // setup の時点ではブラウザのタブ（子 webview）がまだ無いので `WebviewWindow` で引ける。
             if let Some(main) = app.get_webview_window("main") {
                 drop_paths::attach(&main);
+                webview_focus::attach(&main);
                 let main = main.as_ref().window();
                 // 同じ理由で下地も静的な `backgroundColor`（ダーク）のままなので、ここで
                 // OS のテーマに合わせる（#310）。setup はイベントループが回り出す前に

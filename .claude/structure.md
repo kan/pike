@@ -62,6 +62,7 @@ pike/
 │       ├── settings_gist.rs   # 設定の同期の同期先としての GitHub Gist（#403。`gh api` 経由、本文は標準入力）
 │       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）と仮想デスクトップ（#317）
 │       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）
+│       ├── webview_focus.rs   # ウィンドウが得たフォーカスを本体の webview へ渡す（#439、WebView2 COM）
 │       ├── ime_debug.rs       # IME 調査用の一時ログ（原因判明後に削除する）
 │       ├── vdesk/mod.rs       # 仮想デスクトップ（#317、Windows 専用 COM。他 OS は stub）
 │       ├── jumplist/mod.rs    # タスクバーのジャンプリスト（#160、Windows 専用 COM）

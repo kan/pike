@@ -61,6 +61,7 @@ paths:
 ## ウィンドウのフォーカス
 - 「このウィンドウがアクティブか」の出典は **`lib/window.ts` の `windowFocused`** ただ 1 つ。元は Rust の `WindowEvent::Focused`（`onFocusChanged`）で、アクリルの付け外し（#277）と同じ信号
 - **`document.hasFocus()` で代用しないこと**。タイトルバーだけをクリックしてウィンドウがアクティブになったときは webview にフォーカスが入らないので、そのあいだ止まったままになる
+  - Windows では、ウィンドウがフォーカスを得たら Rust が webview へ渡す（#439、`rust-window.md`）。それでも出典は分けない（macOS にはこの転送が無い）
 - 「アクティブなあいだだけポーリングし、戻ってきたら 1 回取り直す」は **`composables/useFocusPolling.ts`**。`{ every, tick }` の配列を渡すだけで、`git` / `docker` / `worktree` / `usageStore` が共有する
   - **タイマーも composable が持つ**。フォーカス側だけ畳むと「張る前に必ず消す」が呼び出し側に 4 つ残り、5 つ目を書く人が落とせる
   - 復帰時に撃つのは**先頭の interval だけ**。どのストアもそれが主ポーリングで、後ろに続くのは自前の間隔ガードを持つ重い処理（git の `fetchInBackground`）
