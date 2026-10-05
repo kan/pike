@@ -37,6 +37,16 @@ export function basename(path: string): string {
 }
 
 /**
+ * `basename` の残り（末尾の区切りは落とす）。**区切りが無ければ空文字**なので、
+ * 「名前＋薄く出すフォルダ」の見出し（Problems・検索）にそのまま使える。`dirname` は
+ * そこでパス自身を返すので、名前が 2 度出る。
+ */
+export function fileDir(path: string): string {
+  const name = basename(path)
+  return path.length > name.length ? path.slice(0, path.length - name.length - 1) : ''
+}
+
+/**
  * 末尾の区切りを落とす。ルート自身（`/` と `C:\`）は区切りを残す。
  *
  * **プロジェクトの root は末尾に `/` が付いた形で登録されていることがある**（このマシンの

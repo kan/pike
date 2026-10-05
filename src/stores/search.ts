@@ -3,10 +3,12 @@ import { computed, ref } from 'vue'
 import { askOnce, confirmDialog, infoDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
 import { relativeToBase, rootKey } from '../lib/projectPaths'
+import { formatExtractBody } from '../lib/searchResults'
 import { searchDetectBackend, searchExecute, searchReplaceApply } from '../lib/tauri'
 import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchMatch, SearchOptions } from '../types/search'
 import { installKey, isUnsavedEditor, type ShellType, shellToPlatform } from '../types/tab'
 import { useProjectStore } from './project'
+import { useSettingsStore } from './settings'
 import { createShellProbe } from './shellProbe'
 import { useStatusMessageStore } from './statusMessage'
 import { useTabStore } from './tabs'
@@ -266,9 +268,11 @@ export const useSearchStore = defineStore('search', () => {
   const extracting = ref(false)
 
   /**
-   * いまの結果と同じ条件で、上限を広げて検索し直し、grep の出力の形でエディタのタブに
-   * 書き出す（#376）。パスはプロジェクトのルートからの相対で、`パス:行: 内容` の 1 行ずつ。
-   * タブでは `Ctrl+Click` / F12 でその行のファイルへ飛べる（`lib/editorPathJump.ts`）。
+   * いまの結果と同じ条件で、上限を広げて検索し直し、エディタのタブに書き出す（#376）。
+   * パスはプロジェクトのルートからの相対。**書式はパネルの並べ方に従う**（#440。設定の
+   * `searchResultView`）: ファイルごとにまとめた形か、grep の形（`パス:行: 内容`）。
+   * 形の正本は `lib/searchResults.ts` の `formatExtractBody`。どちらもタブでは
+   * `Ctrl+Click` / F12 でその行のファイルへ飛べる（`lib/editorPathJump.ts`）。
    *
    * **無題のタブにする**（ファイルに書かない）。保存すれば残せるし、閉じれば消える。
    */
@@ -295,7 +299,8 @@ export const useSearchStore = defineStore('search', () => {
         `# ${t('search.extractHint')}`,
       ]
       if (result.truncated) header.push(`# ${t('search.extractTruncated', { max: String(result.matches.length) })}`)
-      const body = result.matches.map((m) => `${rel(m.path)}:${m.line}: ${m.content}`)
+      // 書式はパネルの並べ方に合わせる（#440）。どちらの形もタブから同じ操作で開ける。
+      const body = formatExtractBody(result.matches, rel, useSettingsStore().searchResultView)
       tabStore.setUntitledContent(tabId, `${[...header, '', ...body].join('\n')}\n`)
     } catch (e) {
       error.value = String(e)

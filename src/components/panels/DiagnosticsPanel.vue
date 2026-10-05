@@ -3,7 +3,7 @@ import { Bot, Check, CircleAlert, Play, TriangleAlert } from 'lucide-vue-next'
 import { computed, onMounted, watch } from 'vue'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
-import { basename, isAbsolutePath, pathSep } from '../../lib/paths'
+import { basename, fileDir, isAbsolutePath, pathSep } from '../../lib/paths'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
@@ -36,11 +36,6 @@ const golangciTitle = computed(
 )
 
 const fileName = basename
-
-function fileDir(path: string): string {
-  const name = basename(path)
-  return path.length > name.length ? path.slice(0, path.length - name.length - 1) : ''
-}
 
 function runIfIdle() {
   if (!diagStore.lastRunAt && !diagStore.running) diagStore.run()

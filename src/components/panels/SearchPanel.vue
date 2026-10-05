@@ -3,9 +3,13 @@ import {
   CaseSensitive,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Ellipsis,
   FileText,
   FolderSearch,
+  List,
+  ListTree,
   Parentheses,
   Regex,
   Replace,
@@ -15,11 +19,15 @@ import {
 } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
+import { fileIconSvg } from '../../lib/fileIcons'
 import { openProjectPath } from '../../lib/openFile'
+import { basename, fileDir } from '../../lib/paths'
 import { relativeToBase } from '../../lib/projectPaths'
+import { groupByFile } from '../../lib/searchResults'
 import { useFileTreeStore } from '../../stores/fileTree'
 import { useProjectStore } from '../../stores/project'
 import { useSearchStore } from '../../stores/search'
+import { useSettingsStore } from '../../stores/settings'
 import { useSidebarStore } from '../../stores/sidebar'
 import type { SearchMatch, SearchOptions } from '../../types/search'
 import { shellToPlatform } from '../../types/tab'
@@ -31,6 +39,7 @@ const searchStore = useSearchStore()
 const projectStore = useProjectStore()
 const fileTreeStore = useFileTreeStore()
 const sidebar = useSidebarStore()
+const settings = useSettingsStore()
 
 const query = ref('')
 /**
@@ -230,6 +239,50 @@ function relativePath(fullPath: string): string {
   return relativeToBase(projectStore.activeRoot, fullPath, shellToPlatform(project.shell)) ?? fullPath
 }
 
+/**
+ * ファイルごとにまとめるか（#440。既定）。設定に置くのは、パネルが `v-if` で作り直される
+ * ので、ここに持つと他のパネルへ移るたびに既定へ戻るため。
+ */
+const grouped = computed(() => settings.searchResultView === 'grouped')
+
+/**
+ * 描く単位。**1 件 1 行のときも「見出しの無い 1 グループ」にして同じテンプレートを通す**
+ * （行のマークアップ＝置換のプレビューとボタンを 2 通り持たない）。
+ */
+const groups = computed(() => {
+  if (!grouped.value) return [{ path: '', rel: '', matches: searchStore.results }]
+  return groupByFile(searchStore.results).map((g) => ({ ...g, rel: relativePath(g.path) }))
+})
+
+/** 件数の表示。まとめているときはファイル数も添える。 */
+const countLabel = computed(() => {
+  const count = `${searchStore.results.length}${searchStore.truncated ? '+' : ''}`
+  return grouped.value
+    ? t('search.resultCountFiles', { count, files: String(groups.value.length) })
+    : t('search.resultCount', { count })
+})
+
+/**
+ * 畳んだファイル。**検索の条件が変わったら捨てる**（語・トグル・含む / 除外・範囲）。置換の
+ * 文字列は条件に数えない: 打つたびに検索し直すので、数えると 1 文字ごとに全部開く。
+ * 行ごとの置換で一覧が縮むだけのときも残る。
+ */
+const collapsed = ref(new Set<string>())
+const conditionKey = computed(() =>
+  JSON.stringify({ ...currentOptions(), replacement: null, scope: searchStore.scopeRel }),
+)
+watch(conditionKey, () => collapsed.value.clear())
+
+function toggleGroup(path: string) {
+  if (!collapsed.value.delete(path)) collapsed.value.add(path)
+}
+
+const allCollapsed = computed(() => groups.value.every((g) => collapsed.value.has(g.path)))
+
+function toggleAllGroups() {
+  collapsed.value = allCollapsed.value ? new Set() : new Set(groups.value.map((g) => g.path))
+}
+
 onUnmounted(() => {
   if (debounceTimer) clearTimeout(debounceTimer)
 })
@@ -406,7 +459,7 @@ onUnmounted(() => {
     <div v-else-if="!searchStore.results.length && query" class="status">{{ t('search.noResults') }}</div>
     <!-- 件数とその隣に書き出しのボタン（#396。右端へ寄せると、どの数字に対する操作か遠い）。 -->
     <div v-else-if="searchStore.results.length" class="result-summary">
-      <span class="result-count">{{ t('search.resultCount', { count: String(searchStore.results.length) }) }}{{ searchStore.truncated ? '+' : '' }}</span>
+      <span class="result-count">{{ countLabel }}</span>
       <button
         class="extract-btn"
         :title="t('search.extractTooltip')"
@@ -416,32 +469,74 @@ onUnmounted(() => {
       >
         <FileText :size="12" :stroke-width="2" />{{ t('search.extract') }}
       </button>
+      <!-- 並べ方の切り替え（#440）。押すと移る先を示す（VSCode の「ツリー / リスト表示」と同じ）。 -->
+      <div class="view-actions">
+        <button
+          v-if="grouped"
+          class="option-btn"
+          :title="t(allCollapsed ? 'search.expandAll' : 'search.collapseAll')"
+          data-testid="search-collapse-all"
+          @click="toggleAllGroups"
+        >
+          <ChevronsUpDown v-if="allCollapsed" :size="14" :stroke-width="2" />
+          <ChevronsDownUp v-else :size="14" :stroke-width="2" />
+        </button>
+        <button
+          class="option-btn"
+          :title="t(grouped ? 'search.viewList' : 'search.viewGrouped')"
+          data-testid="search-view-toggle"
+          @click="settings.searchResultView = grouped ? 'list' : 'grouped'"
+        >
+          <List v-if="grouped" :size="14" :stroke-width="2" />
+          <ListTree v-else :size="14" :stroke-width="2" />
+        </button>
+      </div>
     </div>
 
-    <div class="results-list">
-      <div
-        v-for="(match, i) in searchStore.results"
-        :key="i"
-        class="result-item"
-        @click="openResult(match)"
-      >
-        <div class="result-location">
-          <span class="result-path">{{ relativePath(match.path) }}</span>
-          <span class="result-line">:{{ match.line }}</span>
+    <div class="results-list" :class="{ grouped }">
+      <template v-for="group in groups" :key="group.path">
+        <!-- ファイルの見出し（#440）。押すと、そのファイルの行を畳む。 -->
+        <div
+          v-if="grouped"
+          class="result-group"
+          :title="group.rel"
+          data-testid="search-group"
+          @click="toggleGroup(group.path)"
+        >
+          <ChevronRight v-if="collapsed.has(group.path)" class="group-chevron" :size="14" :stroke-width="2" />
+          <ChevronDown v-else class="group-chevron" :size="14" :stroke-width="2" />
+          <span class="row-icon row-icon-svg" v-html="fileIconSvg(group.path)" />
+          <span class="group-name">{{ basename(group.rel) }}</span>
+          <span class="group-dir">{{ fileDir(group.rel) }}</span>
+          <span class="group-count">{{ group.matches.length }}</span>
         </div>
-        <!-- 置換のプレビュー（#401）。消える部分を打ち消し線、入る部分を緑で並べる。 -->
-        <div class="result-content">
-          <span v-for="(p, j) in piecesOf.get(match)" :key="j" :class="`piece-${p.kind}`">{{ p.text }}</span>
-        </div>
-        <button
-          v-if="match.replace"
-          class="row-action replace-line"
-          :title="t('search.replaceLine')"
-          :disabled="searchStore.replacing"
-          data-testid="search-replace-line"
-          @click.stop="searchStore.replaceMatch(match)"
-        ><Replace :size="14" :stroke-width="2" /></button>
-      </div>
+        <template v-if="!grouped || !collapsed.has(group.path)">
+          <div
+            v-for="(match, i) in group.matches"
+            :key="i"
+            class="result-item"
+            @click="openResult(match)"
+          >
+            <div v-if="!grouped" class="result-location">
+              <span class="result-path">{{ relativePath(match.path) }}</span>
+              <span class="result-line">:{{ match.line }}</span>
+            </div>
+            <!-- 置換のプレビュー（#401）。消える部分を打ち消し線、入る部分を緑で並べる。 -->
+            <div class="result-content">
+              <span v-if="grouped" class="result-lineno">{{ match.line }}</span>
+              <span v-for="(p, j) in piecesOf.get(match)" :key="j" :class="`piece-${p.kind}`">{{ p.text }}</span>
+            </div>
+            <button
+              v-if="match.replace"
+              class="row-action replace-line"
+              :title="t('search.replaceLine')"
+              :disabled="searchStore.replacing"
+              data-testid="search-replace-line"
+              @click.stop="searchStore.replaceMatch(match)"
+            ><Replace :size="14" :stroke-width="2" /></button>
+          </div>
+        </template>
+      </template>
     </div>
 
     <div v-if="searchStore.truncated" class="status truncated">
@@ -608,6 +703,67 @@ onUnmounted(() => {
   background: var(--tab-hover-bg);
 }
 
+/* ファイルごとにまとめた表示（#440）。見出しの下に、そのファイルの行を字下げして並べる。 */
+.result-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 0;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 3px;
+  user-select: none;
+  min-width: 0;
+}
+
+.result-group:hover {
+  background: var(--tab-hover-bg);
+}
+
+.group-chevron {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.group-name {
+  flex-shrink: 0;
+  max-width: 100%;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 名前を優先して見せ、フォルダは余った幅に収める。 */
+.group-dir {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-count {
+  flex-shrink: 0;
+  padding: 0 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+/* 字下げは見出しのシェブロン（14px）＋ gap ぶん。 */
+.results-list.grouped .result-item {
+  padding: 2px 4px 2px 18px;
+}
+
+.result-lineno {
+  margin-right: 8px;
+  color: var(--text-secondary);
+}
+
 /* 行ごとの置換（#401）。本体は共有の `.row-action`、ここは出す契機と位置だけ。 */
 .result-item:hover .row-action {
   opacity: 1;
@@ -750,6 +906,13 @@ onUnmounted(() => {
 .extract-btn:hover:not(:disabled) {
   background: var(--tab-hover-bg);
   color: var(--text-primary);
+}
+
+/* 並べ方のボタンは右端へ寄せる（件数と書き出しは左にまとめたまま）。 */
+.view-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
 }
 
 .extract-btn:disabled {

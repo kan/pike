@@ -6,6 +6,9 @@
  * どのエディタのタブにも入るが、効くのは**行頭の `パス:行`** だけ（`pathLinkAt`）なので、
  * 保存した grep の結果や、同じ形のログでも使える。
  *
+ * ファイルごとにまとめた書き出し（#440。見出しのパスの下に `行: 内容` が並ぶ形）も
+ * 同じ操作で開ける。そちらの読み方は `lib/searchResults.ts` の `headingTargetAt`。
+ *
  * **判定は 2 本立て**（#376）。ターミナルの出力と同じ形は `findPathLinks`
  * （`lib/terminalLinks.ts`）で拾い、Pike 自身が書き出した形はここの `EXTRACT_LINE_RE` で
  * 受ける。**なぜ 1 本にしないかは `EXTRACT_LINE_RE` の doc が正本**（要点だけ: あちらは
@@ -21,6 +24,7 @@
 import { type Extension, Prec } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { hasMod } from './keys'
+import { headingTargetAt } from './searchResults'
 import { findPathLinks, type PathLinkTarget } from './terminalLinks'
 
 /**
@@ -64,10 +68,13 @@ function pathLinkAt(view: EditorView, pos: number): PathLinkTarget | null {
   )
   if (hit) return hit
   const m = EXTRACT_LINE_RE.exec(line.text)
-  if (!m) return null
-  // 末尾の `:` は本文との区切りなので、押せる範囲に入れない。
-  if (col > m[0].length - 1) return null
-  return { path: m[1], line: Number(m[2]) }
+  if (m) {
+    // 末尾の `:` は本文との区切りなので、押せる範囲に入れない。
+    return col > m[0].length - 1 ? null : { path: m[1], line: Number(m[2]) }
+  }
+  // ファイルごとにまとめた書き出し（#440）。行番号の行は、上の見出しがファイルを持つ。
+  const doc = view.state.doc
+  return headingTargetAt((n) => (n >= 1 && n <= doc.lines ? doc.line(n).text : null), line.number, col)
 }
 
 export function editorPathJump(open: (target: PathLinkTarget) => void): Extension {

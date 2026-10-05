@@ -900,7 +900,12 @@ export default {
   'search.resultCount': '{count} results',
   'search.extract': 'Open results in a tab',
   'search.extractTooltip':
-    'Search again with the same options for up to 10,000 results and write them to an editor tab in grep form (path:line: text)',
+    'Search again with the same options for up to 10,000 results and write them to an editor tab in the current layout (grouped by file / one per line)',
+  'search.resultCountFiles': '{count} results in {files} files',
+  'search.viewGrouped': 'Group by file',
+  'search.viewList': 'One result per line (grep form)',
+  'search.collapseAll': 'Collapse all',
+  'search.expandAll': 'Expand all',
   'search.extractTitle': 'Search: {query}',
   'search.extractHeader': '{count} results for "{query}"',
   'search.extractHint': 'Ctrl+click (⌘+click on macOS) or F12 opens the file at that line',

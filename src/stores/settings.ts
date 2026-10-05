@@ -17,6 +17,7 @@ import { hexToRgba, isWebUrl } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
 import { emptyProjectBase, isProjectPlatform, type ProjectBase, rootKey } from '../lib/projectPaths'
 import { moveByKey } from '../lib/reorder'
+import { SEARCH_RESULT_VIEWS, type SearchResultView } from '../lib/searchResults'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, type SiteRulePayload } from '../lib/tauri'
@@ -453,6 +454,18 @@ function sanitizeTerminalPathLinks(v: unknown): TerminalPathLinkMode {
 }
 
 /**
+ * 検索パネルの結果の並べ方（#440）。値の意味は `lib/searchResults.ts` の
+ * `SEARCH_RESULT_VIEWS`。**「結果をタブで開く」の書式もこれに従う**（`stores/search.ts` の
+ * `extractToTab`）。
+ *
+ * 切り替えはパネルの件数の行のボタンで、設定画面には行を持たない（見ている一覧の形を
+ * その場で変える操作なので）。好みはマシンに依らないので同期の対象。
+ */
+function sanitizeSearchResultView(v: unknown): SearchResultView {
+  return SEARCH_RESULT_VIEWS.includes(v as SearchResultView) ? (v as SearchResultView) : 'grouped'
+}
+
+/**
  * エージェントの通知をどこまで出すか（#265）。既定は `waiting`（入力待ちのときだけ）。
  *
  * **`all` は「ターンの完了でも鳴らす」。** どちらの契機も hook からは同じように届くので、
@@ -573,6 +586,8 @@ export interface PersistedSettings {
    */
   terminalPathLinks: TerminalPathLinkMode
   terminalUrlLinks: boolean
+  /** 検索結果の並べ方（#440）。`SEARCH_RESULT_VIEWS` の doc。 */
+  searchResultView: SearchResultView
   /**
    * Markdown に URL を貼ったとき、そのページを取得してタイトル入りのリンクにするか（#241）。
    *
@@ -859,6 +874,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     registerDirectory: sanitizeRegisterDirectory(s.registerDirectory),
     tabAddOpens: sanitizeTabAddAction(s.tabAddOpens),
     terminalPathLinks: sanitizeTerminalPathLinks(s.terminalPathLinks),
+    searchResultView: sanitizeSearchResultView(s.searchResultView),
     terminalCopyOnSelectMode: sanitizeCopyOnSelectMode(s.terminalCopyOnSelectMode),
     agentNotify: sanitizeAgentNotify(s.agentNotify),
     autoSave: sanitizeAutoSave(s.autoSave),
@@ -1179,6 +1195,7 @@ function defaults(): PersistedSettings {
     // リンク化は 2 つとも既定で入れたまま（従来の挙動）。パスは押したときに一拍置く（#343）。
     terminalPathLinks: 'confirm' as TerminalPathLinkMode,
     terminalUrlLinks: true,
+    searchResultView: 'grouped' as SearchResultView,
     markdownFetchLinkTitle: false,
     language: 'en',
     // 既定は閉じたら終わる（トレイに残すのはオプトイン）。
@@ -1266,6 +1283,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const terminalHelpButton = ref(saved.terminalHelpButton)
   const terminalPathLinks = ref(saved.terminalPathLinks)
   const terminalUrlLinks = ref(saved.terminalUrlLinks)
+  const searchResultView = ref<SearchResultView>(saved.searchResultView)
   const markdownFetchLinkTitle = ref(saved.markdownFetchLinkTitle)
   const language = ref(saved.language)
   const closeToTray = ref(saved.closeToTray)
@@ -1754,6 +1772,7 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalHelpButton: terminalHelpButton.value,
       terminalPathLinks: terminalPathLinks.value,
       terminalUrlLinks: terminalUrlLinks.value,
+      searchResultView: searchResultView.value,
       markdownFetchLinkTitle: markdownFetchLinkTitle.value,
       language: language.value,
       closeToTray: closeToTray.value,
@@ -1812,6 +1831,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalHelpButton.value = s.terminalHelpButton
     terminalPathLinks.value = s.terminalPathLinks
     terminalUrlLinks.value = s.terminalUrlLinks
+    searchResultView.value = s.searchResultView
     markdownFetchLinkTitle.value = s.markdownFetchLinkTitle
     language.value = s.language
     closeToTray.value = s.closeToTray
@@ -1938,6 +1958,7 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalHelpButton,
       terminalPathLinks,
       terminalUrlLinks,
+      searchResultView,
       markdownFetchLinkTitle,
       language,
       closeToTray,
@@ -2016,6 +2037,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalHelpButton,
     terminalPathLinks,
     terminalUrlLinks,
+    searchResultView,
     markdownFetchLinkTitle,
     language,
     closeToTray,

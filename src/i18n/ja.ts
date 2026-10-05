@@ -895,7 +895,12 @@ export default {
   'search.resultCount': '{count} 件',
   'search.extract': '結果をタブで開く',
   'search.extractTooltip':
-    '同じ条件で最大 10,000 件まで検索し直し、grep の形（パス:行: 内容）でエディタのタブに書き出します',
+    '同じ条件で最大 10,000 件まで検索し直し、いまの並べ方（ファイルごと / 1 件 1 行）でエディタのタブに書き出します',
+  'search.resultCountFiles': '{count} 件（{files} ファイル）',
+  'search.viewGrouped': 'ファイルごとにまとめる',
+  'search.viewList': '1 件 1 行で並べる（grep の形）',
+  'search.collapseAll': 'すべて折りたたむ',
+  'search.expandAll': 'すべて展開',
   'search.extractTitle': '検索: {query}',
   'search.extractHeader': '"{query}" の検索結果 {count} 件',
   'search.extractHint': 'Ctrl+クリック（macOS は ⌘+クリック）か F12 で、その行のファイルを開きます',
