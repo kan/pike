@@ -243,6 +243,12 @@ export const useProjectStore = defineStore('project', () => {
   const ROOT_CHECK_TTL_MS = 10_000
   let lastRootCheck = 0
   let rootCheck: Promise<void> | null = null
+  /**
+   * 最後に終わった probe が調べたプロジェクト。**`missingRoots` に居ないことは、ここに
+   * 居て初めて「ある」を意味する**（居なければ、まだ調べていないだけ）。同期や他の
+   * ウィンドウで足されたばかりのプロジェクトがそれに当たる。
+   */
+  let probedIds = new Set<string>()
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -303,8 +309,11 @@ export const useProjectStore = defineStore('project', () => {
 
   async function probeRoots() {
     const missing = new Set<string>()
+    // 調べる相手はここで固定する。待っているあいだに足されたプロジェクトは、この probe の
+    // 答えを持たない（`probedIds` に入れない）。
+    const targets = [...projects.value]
     await Promise.all(
-      byProbeShell(projects.value).map(async (group) => {
+      byProbeShell(targets).map(async (group) => {
         const flags = await fsDirsExist(
           group[0].shell,
           group.map((p) => p.root),
@@ -317,6 +326,7 @@ export const useProjectStore = defineStore('project', () => {
       }),
     )
     missingRoots.value = missing
+    probedIds = new Set(targets.map((p) => p.id))
     // Not awaited: it only reads origins of roots that are present, so it can
     // change neither this set nor the URL of a project waiting to be cloned.
     // Whoever is blocked on the answer above should not also wait on git.
@@ -754,7 +764,22 @@ export const useProjectStore = defineStore('project', () => {
     // on open, the list watcher re-probes on any change), the batch costs one
     // `wsl.exe` launch per distro instead of one per project, and the badge in
     // those lists then cannot disagree with what happens on click.
-    await checkRoots().catch(() => {})
+    //
+    // **答えが既にあって「ある」なら、probe を待たずに開く（#441）。** probe は登録済みの
+    // 全プロジェクトを調べ、WSL は distro ごとに `wsl.exe` を起こす。TTL（10 秒）が切れた
+    // あとの切り替えがそれを毎回待っていたので、WSL が冷えていると、押しても数秒から
+    // 最長 30 秒（`run` の上限）何も起きなかった。行き先が Windows のプロジェクトでも、
+    // タブを保持したままのプロジェクトでも同じだけ待つ。
+    //
+    // 取り直しは裏で走らせる（一覧のバッジと次の判定のため）。代償は、最後の probe の
+    // あとに root が消えたプロジェクトを 1 度は開いてしまうこと（#212 より前と同じ挙動で、
+    // パネルが読み込みに失敗するだけ）。**「無い」と出ているほうは待つ**: clone を
+    // 持ちかける前に、いまも無いことを確かめる。**そのプロジェクトの答えがまだ無いあいだ**
+    // （起動直後にウィンドウがプロジェクトを渡された場面と、同期で足された直後）も、
+    // これまでどおり待つ。
+    const probe = checkRoots().catch(() => {})
+    if (probedIds.has(id) && !missingRoots.value.has(id)) return true
+    await probe
     if (!missingRoots.value.has(id)) return true
     const project = projects.value.find((p) => p.id === id)
     if (!project) return false
