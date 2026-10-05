@@ -80,6 +80,25 @@ paths:
     `set "VAR=v" && cmd`）は `types.rs` の `run_shell_line_env` に集約してある。呼び出し側で前置を
     組み立てると、シェルの振り分けが変わったとき黙って壊れる
 
+### 同梱の mod からの報告（#437）
+
+Pike のターミナルで claude が動いているあいだ、同梱の mod（`agent-hook.md`）が 5h 枠と週間枠を
+知らせてくる（枠が動いたときと、それ以外は最短 60 秒おき）。置き場は `agent-usage.json`
+（`agent_hook::reported_usage`）。
+
+- **重ねるのは `get_rate_limits_soon` の 1 か所**（`overlay_reported`）。同じ `kind` の枠だけ
+  差し替え、モデル別の枠は CLI のものを残す
+- **報告が新しい（`REPORT_FRESH`）あいだは CLI を idle の間隔へ落とす**。完全には止めない
+  （モデル別の枠が報告に無い）
+- **`resets_at` は ISO 8601 のまま渡る**（CLI は文言）。両方を受けるのは
+  `lib/usageFormat.ts` の `localizedResetLabel`
+- **報告は申告（`agent-hooks.json`）と別のファイルに書く**（理由は `agent_hook.rs` の
+  `USAGE_FILENAME` の doc）
+- **突き合わせは解決済みの設定ディレクトリの一致だけ**（`config::resolve` の答えで引く。
+  cwd では見ない。理由は `reported_usage` の doc）。レートはアカウントのものなので、同じ
+  アカウントの別プロジェクトのセッションの値も読める
+- コンテキストの埋まり具合（`session.measure` の `context`）はまだ受け取っていない
+
 ### ログイン切れ（#381）
 
 `ClaudeRateLimits.login_required` → `AgentUsage.login_required` で運ぶ。**検出のためにプロセスを

@@ -239,12 +239,27 @@ fn spawn_pty_with_command(
 /// must inherit it back), so we use no flag — the documented bidirectional
 /// default — with no path translation. 組み立ては `types::wslenv_with`（#384 で
 /// `command_env` と共有した）。
-fn apply_pike_env(cmd: &mut CommandBuilder, label: &str, pty_id: &str, is_wsl: bool) {
+///
+/// `agent_mod` は、同梱の Claude Code の mod を読み込ませるための環境変数（#437。
+/// `agent_mod::pty_env`）。使わない設定のときは `None`。
+fn apply_pike_env(
+    cmd: &mut CommandBuilder,
+    label: &str,
+    pty_id: &str,
+    is_wsl: bool,
+    agent_mod: Option<Vec<(&'static str, String)>>,
+) {
     cmd.env("PIKE_WINDOW_LABEL", label);
     cmd.env("PIKE_PTY_ID", pty_id);
+    let mut names = vec!["PIKE_WINDOW_LABEL", "PIKE_PTY_ID"];
+    if let Some(vars) = agent_mod {
+        for (name, value) in &vars {
+            cmd.env(name, value);
+        }
+        names.extend(crate::agent_mod::WSLENV_NAMES);
+    }
     if is_wsl {
         let current = std::env::var("WSLENV").unwrap_or_default();
-        let names = ["PIKE_WINDOW_LABEL", "PIKE_PTY_ID"];
         cmd.env("WSLENV", crate::types::wslenv_with(&current, &names));
     }
 }
@@ -311,11 +326,16 @@ fn find_git_bash() -> Result<String, String> {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn pty_spawn(
     cols: u16,
     rows: u16,
     cwd: Option<String>,
     shell: Option<ShellConfig>,
+    // 同梱の Claude Code の mod を読み込ませるか（#437）。**設定はフロントの持ち物**なので
+    // spawn のたびに受ける（プロセスに 1 つの static へ写す形だと、起動直後に復元される
+    // ターミナルが写しより先に立ちうる）。
+    agent_mod: bool,
     window: Window,
     app: AppHandle,
     state: State<'_, PtyState>,
@@ -393,7 +413,12 @@ pub async fn pty_spawn(
     };
     let is_wsl = matches!(probe_kind, busy::ProbeKind::Wsl(_));
     let id = uuid::Uuid::new_v4().to_string();
-    apply_pike_env(&mut cmd, window.label(), &id, is_wsl);
+    let mod_env = if agent_mod {
+        crate::agent_mod::pty_env(shell.as_ref())
+    } else {
+        None
+    };
+    apply_pike_env(&mut cmd, window.label(), &id, is_wsl, mod_env);
     spawn_pty_with_command(
         cmd,
         SpawnSpec {
@@ -430,7 +455,7 @@ pub async fn pty_spawn_tmux(
     cmd.args(["bash", "-lc", &tmux_cmd]);
     cmd.env("TERM", "xterm-256color");
     let id = uuid::Uuid::new_v4().to_string();
-    apply_pike_env(&mut cmd, window.label(), &id, true);
+    apply_pike_env(&mut cmd, window.label(), &id, true, None);
     spawn_pty_with_command(
         cmd,
         SpawnSpec {

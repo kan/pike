@@ -344,6 +344,83 @@ pub(crate) fn get_rate_limits_soon(
     session_active: bool,
     force: bool,
 ) -> ClaudeRateLimits {
+    // 同梱の mod が報告した値（#437）。**新しいあいだは CLI を idle の間隔へ落とす**:
+    // 動いているセッションが毎分知らせてくるので、5 分ごとに `claude -p "/usage"`
+    // （起動に 10 秒超、時々ハング）を起こす理由が無い。CLI を完全には止めないのは、
+    // モデル別の枠が mod の報告に無いため。
+    //
+    // **設定ディレクトリは CLI のキャッシュと同じ解決結果で引く**（アカウントの取り違えを
+    // 作らない）。既定の `~/.claude` で申告も無いプロジェクト（`native_override` が無い）は
+    // 対象外で、これまでどおり CLI だけになる。mod が動けば申告が届くので、そこで拾える。
+    let reported = super::config::resolve(shell, project_root)
+        .native_override
+        .and_then(|dir| crate::agent_hook::reported_usage(&install_key(shell), &dir))
+        .filter(|r| now_epoch().saturating_sub(r.at) < REPORT_FRESH.as_secs());
+    let cli = cli_rate_limits_soon(
+        shell,
+        project_root,
+        session_active && reported.is_none(),
+        force,
+    );
+    match reported {
+        Some(report) => overlay_reported(cli, &report.windows, report.at),
+        None => cli,
+    }
+}
+
+/// mod の報告 1 件を CLI の `kind` と表示名へ写す。知らない枠（ゲートウェイの
+/// `spend_limit` など）は載せない: 表示側が持っているのは 5h と週間の 2 つだけ。
+fn reported_window(w: &crate::agent_hook::ReportedWindow) -> Option<ClaudeRateWindow> {
+    // 表示名は CLI のものに合わせる（`kind` は CLI と同じ `window_kind` が決める）。
+    let label = match w.kind.as_str() {
+        "five_hour" => "session",
+        "seven_day" => "week (all models)",
+        _ => return None,
+    };
+    Some(ClaudeRateWindow {
+        label: label.to_owned(),
+        kind: window_kind(label),
+        used_percent: w.percent_used,
+        resets_at: w.resets_at.clone(),
+    })
+}
+
+/// CLI の結果に mod の報告を重ねる（#437）。**同じ `kind` の枠だけ差し替え、残り
+/// （モデル別の枠）は CLI のものを残す。** 報告に無い枠を消すと、mod が動いているあいだ
+/// モデル別の残量が見えなくなる。
+///
+/// `resets_at` は ISO 8601 のまま渡る（CLI は `Jul 2, 2:39pm (Asia/Tokyo)` の形）。
+/// 表示の整形はフロントの `lib/usageFormat.ts` が両方を受ける。
+fn overlay_reported(
+    mut data: ClaudeRateLimits,
+    windows: &[crate::agent_hook::ReportedWindow],
+    at: u64,
+) -> ClaudeRateLimits {
+    let reported: Vec<ClaudeRateWindow> = windows.iter().filter_map(reported_window).collect();
+    if reported.is_empty() {
+        return data;
+    }
+    data.windows
+        .retain(|w| reported.iter().all(|r| r.kind != w.kind));
+    // 5h → 週間 → モデル別、の並びを保つ（CLI の出力順）。
+    data.windows.splice(0..0, reported);
+    data.active = true;
+    data.fetched_at = at;
+    // 値が届いている以上、ログインはしている。
+    data.login_required = false;
+    data
+}
+
+/// mod の報告を「いまの値」として扱う幅。mod は動いているあいだ毎分送ってくるので、
+/// これより古ければセッションが終わっている（＝他の場所で枠が動いても分からない）。
+const REPORT_FRESH: Duration = TTL_ACTIVE;
+
+fn cli_rate_limits_soon(
+    shell: &ShellConfig,
+    project_root: &str,
+    session_active: bool,
+    force: bool,
+) -> ClaudeRateLimits {
     if force {
         return get_rate_limits(shell, project_root, session_active, true);
     }
@@ -389,6 +466,79 @@ mod tests {
                 ..Default::default()
             },
         }
+    }
+
+    /// mod の報告は同じ種類の枠だけを差し替え、モデル別の枠は CLI のものを残す（#437）。
+    #[test]
+    fn overlay_replaces_matching_windows_and_keeps_the_rest() {
+        use crate::agent_hook::ReportedWindow;
+        let cli = ClaudeRateLimits {
+            active: true,
+            fetched_at: 100,
+            windows: parse_usage_output(
+                "Current session: 10% used · resets Jul 2, 2:39pm (Asia/Tokyo)\n\
+                 Current week (all models): 20% used\n\
+                 Current week (Fable): 30% used\n",
+            ),
+            login_required: false,
+        };
+        let reported = [
+            ReportedWindow {
+                kind: "five_hour".to_owned(),
+                percent_used: 15.0,
+                resets_at: Some("2026-10-05T17:50:00.000Z".to_owned()),
+            },
+            ReportedWindow {
+                kind: "spend_limit".to_owned(),
+                percent_used: 1.0,
+                resets_at: None,
+            },
+        ];
+        let merged = super::overlay_reported(cli, &reported, 200);
+        let shape: Vec<(&str, f64)> = merged
+            .windows
+            .iter()
+            .map(|w| (w.label.as_str(), w.used_percent))
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("session", 15.0),
+                ("week (all models)", 20.0),
+                ("week (Fable)", 30.0)
+            ]
+        );
+        assert_eq!(merged.fetched_at, 200);
+        assert_eq!(
+            merged.windows[0].resets_at.as_deref(),
+            Some("2026-10-05T17:50:00.000Z")
+        );
+    }
+
+    /// CLI がまだ何も持っていなくても、mod の報告だけで帯を出せる。知らない枠だけの
+    /// 報告では何も変えない。
+    #[test]
+    fn overlay_alone_activates_and_unknown_kinds_change_nothing() {
+        use crate::agent_hook::ReportedWindow;
+        let window = |kind: &str| ReportedWindow {
+            kind: kind.to_owned(),
+            percent_used: 43.0,
+            resets_at: None,
+        };
+        let merged = super::overlay_reported(
+            ClaudeRateLimits {
+                login_required: true,
+                ..Default::default()
+            },
+            &[window("seven_day")],
+            7,
+        );
+        assert!(merged.active && !merged.login_required);
+        assert_eq!(merged.windows[0].kind, "weekAll");
+
+        let untouched =
+            super::overlay_reported(ClaudeRateLimits::default(), &[window("spend_limit")], 7);
+        assert!(!untouched.active && untouched.windows.is_empty());
     }
 
     /// `claude auth status --json` の形（実ファイルから抜粋）。`.bashrc` のバナーが

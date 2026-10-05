@@ -586,6 +586,18 @@ export interface PersistedSettings {
    */
   terminalPathLinks: TerminalPathLinkMode
   terminalUrlLinks: boolean
+  /**
+   * Pike のターミナルで動く Claude Code に、同梱の mod を読み込ませるか（#437）。
+   *
+   * **既定は true。** mod は `settings.json` を書き換えずにアカウントの申告・入力待ちの
+   * 知らせ・レート制限を受け取る道で、hook の登録（設定ディレクトリごと・シェルごと）を
+   * 要らなくするのが目的なので、入っていないと意味が薄い。**切れるようにしてある**のは、
+   * mod が利用者の権限で claude のプロセスの中で動くため（何をするかはマニュアルに書く）。
+   *
+   * **効くのは次に開くターミナルから。** 読み込ませる手段が PTY の環境変数なので、
+   * 開いているターミナルの claude には届かない（`pty_spawn` の `agent_mod`）。
+   */
+  agentMod: boolean
   /** 検索結果の並べ方（#440）。`SEARCH_RESULT_VIEWS` の doc。 */
   searchResultView: SearchResultView
   /**
@@ -1195,6 +1207,7 @@ function defaults(): PersistedSettings {
     // リンク化は 2 つとも既定で入れたまま（従来の挙動）。パスは押したときに一拍置く（#343）。
     terminalPathLinks: 'confirm' as TerminalPathLinkMode,
     terminalUrlLinks: true,
+    agentMod: true,
     searchResultView: 'grouped' as SearchResultView,
     markdownFetchLinkTitle: false,
     language: 'en',
@@ -1283,6 +1296,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const terminalHelpButton = ref(saved.terminalHelpButton)
   const terminalPathLinks = ref(saved.terminalPathLinks)
   const terminalUrlLinks = ref(saved.terminalUrlLinks)
+  const agentMod = ref(saved.agentMod)
   const searchResultView = ref<SearchResultView>(saved.searchResultView)
   const markdownFetchLinkTitle = ref(saved.markdownFetchLinkTitle)
   const language = ref(saved.language)
@@ -1772,6 +1786,7 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalHelpButton: terminalHelpButton.value,
       terminalPathLinks: terminalPathLinks.value,
       terminalUrlLinks: terminalUrlLinks.value,
+      agentMod: agentMod.value,
       searchResultView: searchResultView.value,
       markdownFetchLinkTitle: markdownFetchLinkTitle.value,
       language: language.value,
@@ -1831,6 +1846,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalHelpButton.value = s.terminalHelpButton
     terminalPathLinks.value = s.terminalPathLinks
     terminalUrlLinks.value = s.terminalUrlLinks
+    agentMod.value = s.agentMod
     searchResultView.value = s.searchResultView
     markdownFetchLinkTitle.value = s.markdownFetchLinkTitle
     language.value = s.language
@@ -1958,6 +1974,7 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalHelpButton,
       terminalPathLinks,
       terminalUrlLinks,
+      agentMod,
       searchResultView,
       markdownFetchLinkTitle,
       language,
@@ -2037,6 +2054,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalHelpButton,
     terminalPathLinks,
     terminalUrlLinks,
+    agentMod,
     searchResultView,
     markdownFetchLinkTitle,
     language,

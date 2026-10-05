@@ -1,6 +1,8 @@
 ---
 paths:
   - "src-tauri/src/agent_hook.rs"
+  - "src-tauri/src/agent_mod.rs"
+  - "src-tauri/claude-mod/**"
   - "src-tauri/src/toast/**"
   - "src-tauri/src/claude_usage/config.rs"
   - "src/lib/notify.ts"
@@ -13,6 +15,35 @@ paths:
 
 Claude Code の hook から Pike へ届く 2 つのもの（入力待ちの知らせ #265 と、アカウントの申告 #299）と、
 `CLAUDE_CONFIG_DIR` の解決（#225）。エージェントの一覧は `agent.md`、使用量は `agent-usage.md`。
+
+## 同梱の mod（#437）
+
+Pike は Claude Code の mod（プロセス内で動くイベントハンドラ）を同梱し、Pike のターミナルで
+起動した claude に読み込ませる。**`settings.json` に登録する hook と同じ 3 つ（申告・入力待ち・
+完了）に加えて、レート制限を受け取る。** 実体は `src-tauri/claude-mod/pike/`（mod 本体）、
+`src-tauri/src/agent_mod.rs`（配置と環境変数）、`agent_hook.rs`（受け口）。
+
+**判断の正本は `agent_mod.rs` のモジュール doc**（置き場をデータフォルダにする理由、古い
+Claude Code と mod を止めている環境、届かないもの）。ここには規範だけ置く。
+
+- **mod は `pike agent-hook` を起こすだけ**（`--via=mod` を付ける）。申告の置き場も配送も
+  Rust の側に 1 つで、mod と settings の hook が同じ受け口を通る。**mod の側に仕事を
+  増やさないこと**: mod の API は early access でリリースごとに変わりうるので、触れる面を
+  小さく保つ
+- **二重に知らせない仕組みは mod が立てる環境変数**（`agent_hook::MOD_ENV`。理由はあの
+  定数の doc）。**Pike が PTY の環境に立てる形にしないこと**。WSL へ渡すには `WSLENV` にも
+  並べる（`agent_mod::WSLENV_NAMES`）
+- **settings の hook の登録は残す**（mod が動かない環境と、Pike の外で起動した claude のため）。
+  登録の提案（`useAgentHookPrompt`）もそのまま
+- **mod を使うかの設定（`agentMod`）は spawn のたびにフロントが渡す**（`pty_spawn` の
+  `agent_mod`）。効くのは次に開くターミナルから
+- **mod を変えたら 3 つを通す**: `claude plugin validate src-tauri/claude-mod/pike`、型検査
+  （型定義は Claude Code が書き出す `claude-code.d.ts`。`just check` には入っていない）、
+  Pike のターミナルの対話セッションでの確認。**`claude -p` では `session.measure` も
+  `classic.Notification` も発火しない**（実測）ので、対話でしか確かめられない
+- **mod のファイルを足したら `agent_mod.rs` の `FILES` にも足す**（バイナリへの埋め込みなので、
+  漏れると配られない）
+- レートの報告の扱い（CLI との重ね方）は `agent-usage.md`
 
 ## 入力待ちの知らせ（#265）
 

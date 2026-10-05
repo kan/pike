@@ -102,6 +102,21 @@ const EVENT_FLAG: &str = "--event=";
 /// 読むので、登録するコマンド行には書かない）。
 const PTY_FLAG: &str = "--pty=";
 
+/// 同梱の mod（#437）が起こした呼び出しの印。`settings.json` に登録した行には付かない。
+const VIA_MOD_FLAG: &str = "--via=mod";
+
+/// レートの報告（#437）。stdin の JSON を `agent-usage.json` へ書く。mod だけが使う。
+const USAGE_FLAG: &str = "--usage";
+
+/// 同梱の mod がそのセッションで動いている目印（mod が自分で立てる環境変数）。
+///
+/// **`settings.json` の hook は、これが立っていれば何もしない。** mod と settings の hook は
+/// 同じ契機で両方走るので、黙らせないと通知が二重になる。立てるのが Pike（PTY の環境）では
+/// なく mod 自身なのは、**mod が実際に動いたことの証拠**が要るため: 古い Claude Code や
+/// `disableAllHooks` の環境では mod が読み込まれず、そのとき settings の hook まで黙ると
+/// 何も届かなくなる。
+pub const MOD_ENV: &str = "PIKE_AGENT_MOD";
+
 /// フラグの値に受け入れる長さ。値は `install_key` や `pty_spawn` が作ったものだが、
 /// argv は誰でも渡せるので、ファイルへ書く・別プロセスへ渡す前に丈だけ見る（一致
 /// しない値は無視されるので、これ以上の検証は要らない）。
@@ -223,6 +238,15 @@ fn run_hook() {
     // **契機が付いていれば通知（#265）、無ければ申告（#299）。** stdin は分岐の前に
     // 読み切る: 読まずに終えると、書いている側（Claude Code）が EPIPE を受ける。
     let text = read_stdin();
+    let via_mod = std::env::args().any(|a| a == VIA_MOD_FLAG);
+    // mod が動いているセッションでは、settings の hook は mod に任せて黙る（`MOD_ENV`）。
+    if !via_mod && std::env::var_os(MOD_ENV).is_some() {
+        return;
+    }
+    if std::env::args().any(|a| a == USAGE_FLAG) {
+        record_usage(&text);
+        return;
+    }
     match flag_value(EVENT_FLAG)
         .as_deref()
         .and_then(NoticeKind::from_flag)
@@ -288,6 +312,131 @@ fn record_declaration(text: &str) {
         &config_dir,
         flag_value(INSTALL_KEY_FLAG).unwrap_or_default(),
     );
+}
+
+// --- レートの報告（#437。同梱の mod から） ---
+
+/// 報告の置き場。**申告（`FILENAME`）とは別のファイル**にする: あちらの更新時刻は
+/// `claude_usage::config` の解決を解き直す合図で、レートの報告（動いているあいだ毎分）を
+/// 同じファイルに書くと、解決（WSL では対話ログインシェルを起こす）が毎分走る。
+const USAGE_FILENAME: &str = "agent-usage.json";
+
+/// 保持する報告の数。同じ (インストール, 設定ディレクトリ) は上書きするので、増えるのは
+/// アカウントの数ぶんだけ。
+const MAX_USAGE_ENTRIES: usize = 50;
+
+/// mod が渡すレートの報告（stdin）。`rate_limits` は Claude Code の `SessionRateLimit`。
+#[derive(Debug, Deserialize)]
+struct UsagePayload {
+    transcript_path: Option<String>,
+    #[serde(default)]
+    rate_limits: Vec<ReportedWindow>,
+}
+
+/// レートの枠 1 つ。綴りは Claude Code の mod API（`SessionRateLimit`）のまま。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportedWindow {
+    /// `five_hour` / `seven_day` / ゲートウェイの `spend_limit`。
+    pub kind: String,
+    pub percent_used: f64,
+    /// リセットの時刻（ISO 8601）。
+    #[serde(default)]
+    pub resets_at: Option<String>,
+}
+
+/// 1 アカウントぶんの、最後に届いたレート。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageReport {
+    /// 設定ディレクトリ（native パス）。**レートはアカウントのもの**なので、これが
+    /// 突き合わせの鍵になる（同じ設定ディレクトリを使う別のプロジェクトも読める）。
+    pub config_dir: String,
+    pub install: String,
+    /// 報告の時刻（epoch 秒）。
+    pub at: u64,
+    pub windows: Vec<ReportedWindow>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct UsageStore {
+    reports: Vec<UsageReport>,
+}
+
+fn usage_store_path() -> Option<PathBuf> {
+    pike_config_dir_for(STORE_IDENTIFIER).map(|dir| dir.join(USAGE_FILENAME))
+}
+
+/// レートの報告を書く。同じ (インストール, 設定ディレクトリ) は差し替える。
+fn record_usage(text: &str) {
+    let Ok(payload) = serde_json::from_str::<UsagePayload>(text) else {
+        return;
+    };
+    let Some(config_dir) = payload
+        .transcript_path
+        .as_deref()
+        .and_then(config_dir_from_transcript)
+    else {
+        return;
+    };
+    let Some(path) = usage_store_path() else {
+        return;
+    };
+    if payload.rate_limits.is_empty() {
+        return;
+    }
+    let install = flag_value(INSTALL_KEY_FLAG).unwrap_or_default();
+    let mut store: UsageStore = read_store(&path);
+    store
+        .reports
+        .retain(|r| !(r.install == install && r.config_dir == config_dir));
+    store.reports.push(UsageReport {
+        config_dir,
+        install,
+        at: epoch_secs(),
+        windows: payload.rate_limits,
+    });
+    store.reports.sort_by_key(|r| std::cmp::Reverse(r.at));
+    store.reports.truncate(MAX_USAGE_ENTRIES);
+    let _ = write_store(&path, &store);
+}
+
+/// その設定ディレクトリ（＝アカウント）について、mod が最後に報告したレート。
+///
+/// **鍵は設定ディレクトリで、報告したセッションの cwd ではない。** レートはアカウントの
+/// ものなので、同じアカウントの別のプロジェクトで動いているセッションの値も読める。
+/// 逆に cwd で拾うと、同じディレクトリで別のアカウントの claude が動いたとき（起動
+/// ラッパー、親ディレクトリをプロジェクトにしている場合）に別のアカウントの値を返す。
+///
+/// **どの設定ディレクトリかは呼び出し側が解決して渡す**（`claude_usage::config::resolve`）。
+/// CLI の結果のキャッシュと同じ答えを使うので、重ねる相手とアカウントが食い違わない。
+///
+/// **新しさは見ない**（呼び出し側の `claude_usage::rate` が決める）。
+pub fn reported_usage(install: &str, config_dir: &str) -> Option<UsageReport> {
+    let path = usage_store_path()?;
+    read_store::<UsageStore>(&path)
+        .reports
+        .into_iter()
+        .find(|r| r.install == install && r.config_dir == config_dir)
+}
+
+/// mod が `pike` を起こすときの実行ファイル（`agent_mod` が環境変数で渡す）。
+///
+/// **引数ベクタの先頭にそのまま置く形**で返す（mod はシェルを通さないので、引用も
+/// スラッシュへの置き換えも要らない。`current_exe_for` は settings の hook のコマンド行＝
+/// シェルが解釈する 1 行のためのもので、形が違う）。WSL へは `/mnt/c/...` に直して渡し、
+/// 直せないとき（UNC 上の実行ファイルなど）は PATH の `pike.exe` に任せる。
+pub(crate) fn exe_argv0_for(shell: Option<&ShellConfig>) -> String {
+    let exe = std::env::current_exe()
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned());
+    let wsl = cfg!(windows) && matches!(shell, None | Some(ShellConfig::Wsl { .. }));
+    let resolved = if wsl {
+        exe.as_deref().and_then(windows_to_mnt)
+    } else {
+        exe
+    };
+    resolved.unwrap_or_else(|| "pike.exe".to_owned())
 }
 
 /// 自分の argv から `--name=値` を取る。**長すぎる値と制御文字を含む値は無かったことに
@@ -396,7 +545,7 @@ fn record(agent: &str, cwd: &str, config_dir: &str, install: String) {
     let Some(path) = store_path() else {
         return;
     };
-    let mut store = read_store(&path);
+    let mut store: Store = read_store(&path);
     store
         .entries
         .retain(|e| !(e.agent == agent && e.cwd == cwd && e.install == install));
@@ -414,14 +563,14 @@ fn record(agent: &str, cwd: &str, config_dir: &str, install: String) {
 
 /// 読めない・壊れているときは空。「読めなかった」と「1 件も無い」を呼び出し側が
 /// 区別する意味が無いので、`Option` にしない。
-fn read_store(path: &Path) -> Store {
+fn read_store<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
     std::fs::read_to_string(path)
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_default()
 }
 
-fn write_store(path: &Path, store: &Store) -> std::io::Result<()> {
+fn write_store<T: Serialize>(path: &Path, store: &T) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -473,7 +622,7 @@ pub fn declarations_mtime() -> Option<SystemTime> {
 pub fn declared_config_dir(shell: &ShellConfig, project_root: &str) -> Option<String> {
     let path = store_path()?;
     let install = crate::types::install_key(shell);
-    read_store(&path)
+    read_store::<Store>(&path)
         .entries
         .into_iter()
         .filter(|e| matches_project(e, &install, shell, project_root))
@@ -507,7 +656,7 @@ pub fn forget_declarations(shell: &ShellConfig, project_root: &str) -> bool {
         return false;
     };
     let install = crate::types::install_key(shell);
-    let mut store = read_store(&path);
+    let mut store: Store = read_store(&path);
     let before = store.entries.len();
     store
         .entries

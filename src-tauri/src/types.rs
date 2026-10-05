@@ -84,7 +84,9 @@ pub fn git_bash_prefix(root: &str) -> String {
 pub fn wslenv_with(current: &str, names: &[&str]) -> String {
     let mut out = current.to_owned();
     for name in names {
-        if out.split(':').any(|s| s.split('/').next() == Some(*name)) {
+        // 足す側もフラグ付きで来うる（`NAME/l`、#437）。名前の部分だけで比べる。
+        let key = name.split('/').next();
+        if out.split(':').any(|s| s.split('/').next() == key) {
             continue;
         }
         if out.is_empty() {
@@ -1840,6 +1842,9 @@ mod tests {
         // フラグ付きで既に入っているものも「ある」とみなす。
         assert_eq!(wslenv_with("A/p:C", &["A", "B"]), "A/p:C:B");
         assert_eq!(wslenv_with("C", &[]), "C");
+        // 足す側がフラグ付きでも、名前が同じなら重ねない（#437）。
+        assert_eq!(wslenv_with("A", &["B/l"]), "A:B/l");
+        assert_eq!(wslenv_with("A:B/l", &["B/l", "B"]), "A:B/l");
     }
 
     /// **目印の付いた行だけを拾う。** `.bashrc` はバナーを出すことがある（この開発機の

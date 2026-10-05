@@ -387,9 +387,12 @@ export default {
   'settings.agentPromptLabel': 'Label',
   'settings.agentPromptText': 'Prompt text',
   'settings.addAgentPrompt': 'Add prompt',
+  'settings.agentMod': 'Load the Pike mod into Claude Code',
+  'settings.agentModHint':
+    'Loads the mod bundled with Pike into Claude Code (2.1.287 or later) started from a Pike terminal. Pike then receives the account, input-wait notices and rate limits without editing settings.json. The mod runs inside the Claude Code process and does nothing other than report to Pike. Changes apply to terminals opened afterwards.',
   'settings.agentHook': 'Claude Code hook',
   'settings.agentHookHint':
-    'Lets a running Claude Code report its config directory (which account it uses) when a session starts. Usage, account and session history then follow the real account even when a launcher wrapper sets CLAUDE_CONFIG_DIR.',
+    'For setups that cannot use the mod (older Claude Code, mods disabled) and for Claude Code started outside Pike. Lets a running Claude Code report its config directory (which account it uses) when a session starts. Usage, account and session history then follow the real account even when a launcher wrapper sets CLAUDE_CONFIG_DIR.',
   'settings.agentHookNoProject': 'Register this from a window that has a project open.',
   'settings.agentHookNoTarget': 'No config directory found.',
   'settings.agentHookActive': 'Used by this project',

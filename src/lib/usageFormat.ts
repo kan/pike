@@ -71,6 +71,14 @@ const RESET_MONTHS: Record<string, number> = {
  * passed through untouched.
  */
 export function localizedResetLabel(resetsAt: string): string {
+  // 同梱の mod が報告する値は ISO 8601（#437）。CLI の文言と違って時刻そのものなので、
+  // この端末の時刻帯と UI の言語で書く。
+  if (/^\d{4}-\d{2}-\d{2}T/.test(resetsAt)) {
+    const at = new Date(resetsAt)
+    if (!Number.isNaN(at.getTime())) {
+      return at.toLocaleString(locale.value, { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    }
+  }
   if (locale.value !== 'ja') return resetsAt
   return resetsAt.replace(
     /([A-Z][a-z]{2}) (\d{1,2})(?:, (\d{4}))?,?/,

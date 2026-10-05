@@ -1,0 +1,6 @@
+{
+  "name": "pike",
+  "version": "0.1.0",
+  "description": "Reports the account, input-wait notices and rate limits of this Claude Code session to the Pike terminal it runs in.",
+  "author": { "name": "Pike" }
+}

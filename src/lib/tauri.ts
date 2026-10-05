@@ -46,13 +46,15 @@ export interface PtySpawnResult {
 export async function ptySpawn(
   cols: number,
   rows: number,
-  opts?: { cwd?: string; shell?: ShellType },
+  opts?: { cwd?: string; shell?: ShellType; agentMod?: boolean },
 ): Promise<PtySpawnResult> {
   return invoke<PtySpawnResult>('pty_spawn', {
     cols,
     rows,
     cwd: opts?.cwd ?? null,
     shell: opts?.shell ?? null,
+    // 同梱の Claude Code の mod を読み込ませるか（#437）。設定を持つのはフロント。
+    agentMod: opts?.agentMod ?? false,
   })
 }
 

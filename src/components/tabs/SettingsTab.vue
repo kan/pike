@@ -1063,6 +1063,14 @@ const PREVIEW_LINES = [
 
         <SettingGroup title-key="settings.groupIntegration">
           <!--
+            同梱の Claude Code の mod（#437）。**hook の登録より上に置く**: こちらが効いて
+            いれば下の登録は要らない（古い Claude Code と、mod を止めている環境のために残す）。
+          -->
+          <SettingItem label-key="settings.agentMod" hint-key="settings.agentModHint">
+            <SettingToggle v-model="settings.agentMod" :options="ON_OFF" />
+          </SettingItem>
+
+          <!--
             Claude Code の hook（#299）。**「登録済み」と「申告が届いた」は別に出す**:
             settings.json に書いてあることは、そのマシンで実際に claude が Pike を
             呼べていることを意味しない（PATH に pike.exe が無い、等）。効いているかを

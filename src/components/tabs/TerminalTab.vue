@@ -853,7 +853,8 @@ onMounted(async () => {
   const rows = terminal.rows
 
   const tabData = terminalTab()
-  const spawnOpts = tabData ? { cwd: tabData.cwd, shell: tabData.shell } : undefined
+  // mod を読み込ませるかは spawn のたびに渡す（#437。効くのは次に開くターミナルから）。
+  const spawnOpts = { cwd: tabData?.cwd, shell: tabData?.shell, agentMod: settingsStore.agentMod }
 
   let spawnedAt = 0
   try {

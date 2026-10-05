@@ -10,6 +10,7 @@ mod appmenu {
 }
 /// エージェントの hook からの申告（#299）。`main.rs` が Tauri より前に呼ぶので pub。
 pub mod agent_hook;
+mod agent_mod;
 mod agent_sessions;
 mod agent_usage;
 mod agents;
@@ -1583,6 +1584,8 @@ pub fn run() {
             // ログはインストール版でも書く（#415）。先頭に置くのは、この後の `log::warn!`
             // （トレイの作成失敗など）も拾うため。失敗しても起動は続ける（理由は `app_log::init`）。
             app_log::init(app.handle(), standalone);
+            // 同梱の Claude Code の mod を書き出す（#437）。ターミナルを開くより前に要る。
+            agent_mod::install(&app.config().identifier);
             if let Some(state) = app.try_state::<docker::DockerState>() {
                 let _ = state.instance_id.set(app.config().identifier.clone());
             }

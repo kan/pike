@@ -385,9 +385,12 @@ export default {
   'settings.agentPromptLabel': 'ラベル',
   'settings.agentPromptText': 'プロンプト本文',
   'settings.addAgentPrompt': 'プロンプトを追加',
+  'settings.agentMod': 'Claude Code に Pike の mod を読み込ませる',
+  'settings.agentModHint':
+    'Pike のターミナルで起動した Claude Code（2.1.287 以降）に、Pike 同梱の mod を読み込ませます。settings.json を書き換えずに、アカウント・入力待ちの知らせ・レート制限を受け取れます。mod は Claude Code のプロセスの中で動き、Pike へ知らせる以外のことはしません。切り替えは次に開くターミナルから効きます。',
   'settings.agentHook': 'Claude Code の hook',
   'settings.agentHookHint':
-    'セッションの開始時に、動いている Claude Code から設定ディレクトリ（どのアカウントか）を受け取ります。起動ラッパーで CLAUDE_CONFIG_DIR を切り替えている場合でも、使用量・アカウント表示・セッション一覧が実際のアカウントのものになります。',
+    'mod を使えない環境（古い Claude Code、mod を止めている設定）と、Pike の外で起動した Claude Code のための登録です。セッションの開始時に、動いている Claude Code から設定ディレクトリ（どのアカウントか）を受け取ります。起動ラッパーで CLAUDE_CONFIG_DIR を切り替えている場合でも、使用量・アカウント表示・セッション一覧が実際のアカウントのものになります。',
   'settings.agentHookNoProject': 'プロジェクトを開いているウィンドウで登録してください。',
   'settings.agentHookNoTarget': '設定ディレクトリが見つかりません。',
   'settings.agentHookActive': 'このプロジェクトで使用中',
