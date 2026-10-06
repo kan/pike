@@ -130,6 +130,7 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **配色は app のテーマから実際の色を読んで渡す**（`var()` を渡すと xychart の系列の色が既定の青に落ちる）。その代わりライト／ダークの切り替えで描き直しが要る: standalone は watcher が `darkMode` を見る。Markdown は描いた図が元のソースを `data-mermaid-source` に持ち、`darkMode` の watcher が `renderMarkdownMermaid` でそれを描き直す。**`previewHtml` に `darkMode` を読ませる形にしないこと**: 図だけの文書では HTML がテーマで変わらないので computed が同じ値を返し、watcher が動かない。本家もテーマを `dark` / `default` で切り替える
   - **beautiful-mermaid の出力はキャッシュする**（`beautifulCache`、キーはテーマ・書体・ソース）。Markdown のプレビューは打鍵のたびに全部の図を描き直し、あちらは ELK のレイアウトを同期で回すので、無いと変わっていない図のぶんまでメインスレッドを塞ぐ。本家の出力は id が焼き込まれるので載せない
   - **beautiful-mermaid は投げずに読み違えることがある**（空白を挟まない `A-->B` でエッジが消えてノードが `A--` になる、`click` がノードになる）。flowchart / state だけは描く前に `misreadsGraph` で `parseMermaid` の結果を見て、化けたノード名か本家にしか無い文があれば本家に回す
+  - **本家は 12 から既定のレイアウトが ELK、外観が `neo`**（11 までは dagre と `classic`）。`getMermaid` の `initialize` は `theme` しか渡さず、新しい既定のまま使う。11 の見た目に戻すなら `layout: 'dagre'` と `look: 'classic'` を足す。12 は ES2024 / Safari 17.4 以上を求めるので、古い macOS の WKWebView では本家に回った図が描けないことがある
 - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
 - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
 - **プレビューの検索（#360）**: `Ctrl+F` でプレビューの右上に `components/editor/FindBar.vue`（diff タブと共有）を出す。一致の求め方と強調は `lib/domFind.ts`、数え直しの契機は `composables/usePreviewFind.ts`。判断の実体はその 2 ファイルの doc が正本
