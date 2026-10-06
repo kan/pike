@@ -260,6 +260,7 @@ export default {
   // Agent notices (#265)
   'agent.awaitingTab': 'The agent is waiting for input',
   'agent.awaitingProject': 'An agent is waiting for input',
+  'agent.runningTab': 'The agent is running',
 
   // Docker Logs
   'dockerLogs.failedStart': '[Failed to start log stream: {error}]',
@@ -389,7 +390,7 @@ export default {
   'settings.addAgentPrompt': 'Add prompt',
   'settings.agentMod': 'Load the Pike mod into Claude Code',
   'settings.agentModHint':
-    'Loads the mod bundled with Pike into Claude Code (2.1.287 or later) started from a Pike terminal. Pike then receives the account, input-wait notices and rate limits without editing settings.json. The mod runs inside the Claude Code process and does nothing other than report to Pike. Changes apply to terminals opened afterwards.',
+    'Loads the mod bundled with Pike into Claude Code (2.1.287 or later) started from a Pike terminal. Pike then receives the account, input-wait notices, rate limits and the state of each terminal (whether a turn is running, and context usage) without editing settings.json. The mod runs inside the Claude Code process and does nothing other than report to Pike. Changes apply to terminals opened afterwards.',
   'settings.agentHook': 'Claude Code hook',
   'settings.agentHookHint':
     'For setups that cannot use the mod (older Claude Code, mods disabled) and for Claude Code started outside Pike. Lets a running Claude Code report its config directory (which account it uses) when a session starts. Usage, account and session history then follow the real account even when a launcher wrapper sets CLAUDE_CONFIG_DIR.',
@@ -1105,6 +1106,12 @@ export default {
   'agentStatus.premiumRequests': 'Premium requests',
   'agentStatus.authMode': 'Auth',
   'agentStatus.noAgents': 'No agent activity for this project',
+  'agentStatus.terminals': 'Terminal sessions',
+  'agentStatus.terminal': 'Terminal',
+  'agentStatus.state': 'State',
+  'agentStatus.stateWaiting': 'Waiting for input',
+  'agentStatus.stateIdle': 'Idle',
+  'agentStatus.context': 'Context',
 
   // StatusBar
   'statusBar.admin': 'Admin',

@@ -260,6 +260,7 @@ export default {
   // Agent notices (#265)
   'agent.awaitingTab': 'エージェントが入力を待っています',
   'agent.awaitingProject': '入力待ちのエージェントがあります',
+  'agent.runningTab': 'エージェントが実行中です',
 
   // Docker Logs
   'dockerLogs.failedStart': '[ログストリームの開始に失敗: {error}]',
@@ -387,7 +388,7 @@ export default {
   'settings.addAgentPrompt': 'プロンプトを追加',
   'settings.agentMod': 'Claude Code に Pike の mod を読み込ませる',
   'settings.agentModHint':
-    'Pike のターミナルで起動した Claude Code（2.1.287 以降）に、Pike 同梱の mod を読み込ませます。settings.json を書き換えずに、アカウント・入力待ちの知らせ・レート制限を受け取れます。mod は Claude Code のプロセスの中で動き、Pike へ知らせる以外のことはしません。切り替えは次に開くターミナルから効きます。',
+    'Pike のターミナルで起動した Claude Code（2.1.287 以降）に、Pike 同梱の mod を読み込ませます。settings.json を書き換えずに、アカウント・入力待ちの知らせ・レート制限・ターミナルごとの状態（実行中かどうかとコンテキストの使用量）を受け取れます。mod は Claude Code のプロセスの中で動き、Pike へ知らせる以外のことはしません。切り替えは次に開くターミナルから効きます。',
   'settings.agentHook': 'Claude Code の hook',
   'settings.agentHookHint':
     'mod を使えない環境（古い Claude Code、mod を止めている設定）と、Pike の外で起動した Claude Code のための登録です。セッションの開始時に、動いている Claude Code から設定ディレクトリ（どのアカウントか）を受け取ります。起動ラッパーで CLAUDE_CONFIG_DIR を切り替えている場合でも、使用量・アカウント表示・セッション一覧が実際のアカウントのものになります。',
@@ -1100,6 +1101,12 @@ export default {
   'agentStatus.premiumRequests': 'premium request',
   'agentStatus.authMode': '認証方法',
   'agentStatus.noAgents': 'このプロジェクトでのエージェントの記録はありません',
+  'agentStatus.terminals': 'ターミナルのセッション',
+  'agentStatus.terminal': 'ターミナル',
+  'agentStatus.state': '状態',
+  'agentStatus.stateWaiting': '入力待ち',
+  'agentStatus.stateIdle': '待機中',
+  'agentStatus.context': 'コンテキスト',
 
   // StatusBar
   'statusBar.admin': '管理者',

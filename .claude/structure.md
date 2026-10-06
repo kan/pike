@@ -199,6 +199,7 @@ pike/
 │   │   ├── useAgentHookPrompt.ts  # hook の登録をシェルごとに 1 度だけ聞く（#299 / #265）
 │   │   ├── useAgentMenu.ts    # エージェントの起動メニューの構成と再開一覧（#375。ターミナルの起動ボタンとタブバーの ▾ で共有）
 │   │   ├── useAgentNotice.ts  # エージェントの入力待ちを受けて通知する（#265）
+│   │   ├── useAgentRun.ts  # ターミナルで動くエージェントの状態を受けてタブへ写す（#437）
 │   │   ├── useKeyboardShortcuts.ts  useShortcutsModal.ts  useAboutModal.ts
 │   │   ├── useAppActions.ts  # ショートカットと macOS メニューが共有する動作の実体（#254）
 │   │   ├── useAppMenu.ts     # macOS のメニューバーからの操作を受ける（#254）

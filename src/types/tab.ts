@@ -1,3 +1,4 @@
+import type { AgentId } from '../lib/agents'
 import type { ProjectPlatform } from '../lib/projectPaths'
 
 export type ShellType =
@@ -252,6 +253,33 @@ export function rootPlaceholder(platform: ProjectPlatform): string {
   return 'Path (e.g. C:\\Users\\user\\project)'
 }
 
+/**
+ * ターミナルで動いているエージェントのセッション（#437）。同梱の mod が知らせた値で、
+ * **セッションの保存には載せない**（`snapshotSession` は欄を選んで写す）。
+ */
+export interface AgentRun {
+  agent: AgentId
+  sessionId?: string
+  /**
+   * いまの状態。`waiting` は許可の確認が出ていて、答えるまで進まないこと。
+   *
+   * **`TerminalTab.awaitingInput` とは別物**: あちらは「まだ見ていない」印で、タブを見れば
+   * 下りる。こちらは答えるまで続く。質問など、許可の確認以外の待ちはこちらに現れない
+   * （答えが出たことを知る契機が無い）ので、表示は 2 つを合わせて読む（`isAgentWaiting`）。
+   */
+  phase: 'running' | 'waiting' | 'idle'
+  /** コンテキストの埋まり具合。最初の応答より前と、圧縮の直後には無い。 */
+  context?: { tokens: number; window: number }
+}
+
+/**
+ * そのターミナルのエージェントが答えを待っているか。タブの印と状態タブが同じ判定を読む。
+ * 型は構造で受ける（`TerminalTab` はこの下で宣言する）。
+ */
+export function isAgentWaiting(tab: { awaitingInput?: boolean; agentRun?: AgentRun }): boolean {
+  return tab.awaitingInput === true || tab.agentRun?.phase === 'waiting'
+}
+
 export type TerminalTab = {
   id: string
   kind: 'terminal'
@@ -276,6 +304,11 @@ export type TerminalTab = {
    * 消す処理を別に持たない。
    */
   awaitingInput?: boolean
+  /**
+   * このターミナルで動いているエージェントの状態（#437）。セッションが無ければ持たない。
+   * 立てるのも下ろすのも `composables/useAgentRun.ts`。
+   */
+  agentRun?: AgentRun
   /**
    * 注入のあと、このターミナルへ DOM のフォーカスを渡してほしいという合図（#355）。
    * `EditorTab.reloadRequested` と同じ形の時刻で、**値そのものに意味は無い**

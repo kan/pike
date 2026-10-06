@@ -8,6 +8,7 @@ paths:
   - "src/lib/notify.ts"
   - "src/composables/useAgentNotice.ts"
   - "src/composables/useAgentHookPrompt.ts"
+  - "src/composables/useAgentRun.ts"
   - "src/components/layout/ProjectSelect.vue"
 ---
 
@@ -20,7 +21,7 @@ Claude Code の hook から Pike へ届く 2 つのもの（入力待ちの知�
 
 Pike は Claude Code の mod（プロセス内で動くイベントハンドラ）を同梱し、Pike のターミナルで
 起動した claude に読み込ませる。**`settings.json` に登録する hook と同じ 3 つ（申告・入力待ち・
-完了）に加えて、レート制限を受け取る。** 実体は `src-tauri/claude-mod/pike/`（mod 本体）、
+完了）に加えて、レート制限とターミナルごとの状態を受け取る。** 実体は `src-tauri/claude-mod/pike/`（mod 本体）、
 `src-tauri/src/agent_mod.rs`（配置と環境変数）、`agent_hook.rs`（受け口）。
 
 **判断の正本は `agent_mod.rs` のモジュール doc**（置き場をデータフォルダにする理由、古い
@@ -33,8 +34,39 @@ Claude Code と mod を止めている環境、届かないもの）。ここに
 - **二重に知らせない仕組みは mod が立てる環境変数**（`agent_hook::MOD_ENV`。理由はあの
   定数の doc）。**Pike が PTY の環境に立てる形にしないこと**。WSL へ渡すには `WSLENV` にも
   並べる（`agent_mod::WSLENV_NAMES`）
-- **settings の hook の登録は残す**（mod が動かない環境と、Pike の外で起動した claude のため）。
-  登録の提案（`useAgentHookPrompt`）もそのまま
+- **settings の hook の登録は残す**（mod が動かない環境と、Pike の外で起動した claude のため）
+  - **登録の提案は、mod が運ぶ環境では「動いていないと分かったとき」だけ**
+    （`useAgentHookPrompt` の `modCarriesHooks`）。プロジェクトの切り替えでは聞かず、Pike が
+    起動した claude から状態の報告が `REPORT_GRACE_MS` 届かなかったときに聞く
+    （`useAgentRun` の `expectAgentReport`）。**手で打った `claude` は見張れない**（いつ
+    起動したかを Pike が知らない）。その場合の入口は設定画面
+  - **Windows 以外は従来どおり切り替えで聞く。** 気付くための報告が WM_COPYDATA で届くので、
+    他の OS では「報告が来ない」が何も意味しない
+- **ターミナルごとの状態は、通知と同じ配送に載せる**（`--state=`。`agent_hook.rs` の
+  `StateKind` の doc が正本）。受けるのは `composables/useAgentRun.ts` で、タブの `agentRun` へ
+  写す。タブバーの実行中の印（`TabItem.vue`）とエージェント状態タブの一覧がそれを読む
+  - `--event=` は「知らせるか」、`--state=` は「いまどうなっているか」。**許可待ちは両方に
+    現れる**: タブの `awaitingInput` は「まだ見ていない」印で見れば下り、`agentRun.phase` の
+    `waiting` は答えるまで続く。表示は 2 つを合わせて読む（`types/tab.ts` の
+    `isAgentWaiting`）。質問などの待ちは `phase` に現れない（答えが出たことを知る契機が無い）
+  - **状態の報告は mod が 1 本ずつ、起きた順に送る**（`register.ts` の `enqueue`）。報告は
+    1 件ごとに別のプロセスなので、並べて起こすと届く順が入れ替わり、終わったセッションの
+    行や実行中の印が残る。**受け側（`useAgentRun`）は順序を疑わない**
+  - **`SessionStart` は申告と状態の報告を 1 回で渡す**（`--state=session` に stdin の申告を
+    添える）。プロセスを 2 つ起こさない
+  - **ターンの終わりは `turn.complete` で取る**（`session.measure` ではない）。あちらは値が
+    動いたときにしか来ないので、応答の前に中断したターンではタブが「実行中」のまま残る。
+    コンテキストの埋まり具合もそこで `$.session.usage()` から読んで添える
+  - **許可待ちは `classic.PermissionRequest` で即時に知らせる**（状態と知らせを 1 プロセスで
+    渡す）。`Notification` の `permission_prompt` は同じ確認の約 6 秒後に来る（実測）。あちらも
+    残してあり、2 度目は `useAgentNotice` の `known` が捨てる。答えが出たことは
+    `PostToolUse` / `PostToolUseFailure` / `PermissionDenied` で取り、「実行中」へ戻す
+  - **提案の誤検出を避ける条件は `expectAgentReport` の doc が正本**（spawn 時に mod を
+    読み込ませたか、時間が来たときにそのシェルで何か動いているか、相手はそのターミナルの
+    シェル）。提案はシェルごとに 1 度きりなので、誤って使い切らない側へ倒す
+  - **`agentRun` はセッションの保存に載せない**（`snapshotSession` は欄を選んで写す）。
+    シェルが終われば下ろす（`tabStore.reportExit`。kill された claude からは `session.end` が
+    届かないことがある）
 - **mod を使うかの設定（`agentMod`）は spawn のたびにフロントが渡す**（`pty_spawn` の
   `agent_mod`）。効くのは次に開くターミナルから
 - **mod を変えたら 3 つを通す**: `claude plugin validate src-tauri/claude-mod/pike`、型検査

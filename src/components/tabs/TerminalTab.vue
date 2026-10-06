@@ -5,6 +5,7 @@ import { Terminal } from '@xterm/xterm'
 import { Bot, ChevronDown, ChevronLeft, MessageSquareText } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAgentMenu } from '../../composables/useAgentMenu'
+import { expectAgentReport } from '../../composables/useAgentRun'
 import { confirmDialog, confirmWithOption } from '../../composables/useConfirmDialog'
 import { copyOnSelect } from '../../composables/useCopyOnSelect'
 import {
@@ -166,7 +167,19 @@ function runAgentCommand(command: string, dir?: string | null) {
   const shell = terminalTab()?.shell ?? projectStore.currentProject?.shell
   const line = dir && shell ? runInDir(shell, dir, command) : command
   ptyWrite(ptyId, `${line}\r`).catch(() => {})
+  expectReport(ptyId, command)
   terminal?.focus()
+}
+
+/**
+ * 起動したエージェントから mod の報告が届くかを見張る（#437。`expectAgentReport` の doc）。
+ * 渡すのは**このターミナルの**シェルと場所で、今のプロジェクトのものとは限らない。
+ */
+function expectReport(pty: string, command: string) {
+  const tab = terminalTab()
+  const root = tab?.cwd ?? projectStore.activeRoot
+  if (!root) return
+  expectAgentReport(pty, command, modLoaded, { shell: tab?.shell ?? projectStore.shellForIO, root })
 }
 
 /** This tab's terminal record — the store owns its shell and cwd. */
@@ -362,6 +375,8 @@ let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let searchAddon: SearchAddon | null = null
 let ptyId: string | null = null
+/** このターミナルを開いたときに、同梱の mod を読み込ませたか（#437）。設定の今の値ではない。 */
+let modLoaded = false
 
 // --- 検索 ---------------------------------------------------------------------
 //
@@ -855,6 +870,7 @@ onMounted(async () => {
   const tabData = terminalTab()
   // mod を読み込ませるかは spawn のたびに渡す（#437。効くのは次に開くターミナルから）。
   const spawnOpts = { cwd: tabData?.cwd, shell: tabData?.shell, agentMod: settingsStore.agentMod }
+  modLoaded = spawnOpts.agentMod
 
   let spawnedAt = 0
   try {
@@ -940,6 +956,7 @@ onMounted(async () => {
 
     if (tabData.autoStart) {
       initLines.push(buildAutoStartLine(tabData.autoStart, shellKind, tabData.closeOnExit))
+      expectReport(currentPtyId, tabData.autoStart)
     } else if (initLines.length > 0) {
       initLines.push(clearCmd)
     }

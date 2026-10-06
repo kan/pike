@@ -11,6 +11,7 @@ import { ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
 import { windowFocused } from '../lib/window'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
+  AgentRun,
   BrowserTab,
   CommitTab,
   DiffTab,
@@ -336,7 +337,12 @@ export const useTabStore = defineStore('tabs', () => {
   /** Record a terminal's exit code (-1 = spawn failure) and notify any waiter. */
   function reportExit(id: string, code: number) {
     const tab = tabs.value.find((t) => t.id === id)
-    if (tab?.kind === 'terminal') tab.exitCode = code
+    if (tab?.kind === 'terminal') {
+      tab.exitCode = code
+      // シェルごと終わったら、エージェントのセッションも無い（#437。`session.end` の
+      // 知らせは、kill された claude からは届かないことがある）。
+      tab.agentRun = undefined
+    }
     const handler = exitHandlers.get(id)
     if (handler) {
       exitHandlers.delete(id)
@@ -575,6 +581,13 @@ export const useTabStore = defineStore('tabs', () => {
     const tab = tabs.value.find((t) => t.id === tabId)
     if (tab?.kind !== 'terminal') return
     tab.awaitingInput = awaiting
+  }
+
+  /** エージェントのセッションの状態を置く / 下ろす（#437）。 */
+  function setAgentRun(tabId: string, run: AgentRun | undefined) {
+    const tab = tabs.value.find((t) => t.id === tabId)
+    if (tab?.kind !== 'terminal') return
+    tab.agentRun = run
   }
 
   /**
@@ -1435,6 +1448,7 @@ export const useTabStore = defineStore('tabs', () => {
     markTabActivity,
     terminalByPty,
     markTabAwaiting,
+    setAgentRun,
     clearAllAwaiting,
     awaitingProjectIds,
     snapshotSession,

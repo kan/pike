@@ -13,12 +13,12 @@
  * ドラッグ関連のイベントは emit を定義していない。単一ルートなので、親が
  * `@dragstart` などを書けばそのままルート要素へ落ちる。
  */
-import { Pin, X } from 'lucide-vue-next'
+import { LoaderCircle, Pin, X } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from '../../i18n'
 import { tabImageIcon } from '../../lib/tabIcons'
 import { tabDisplayTitle } from '../../lib/tabTitle'
-import type { Tab } from '../../types/tab'
+import { isAgentWaiting, type Tab } from '../../types/tab'
 import TabIcon from './TabIcon.vue'
 
 const props = defineProps<{
@@ -89,10 +89,21 @@ function onTitleHover(e: MouseEvent) {
       ため（あちらは「何か出力があった」、こちらは「答えるまで進まない」）。
     -->
     <span
-      v-else-if="tab.kind === 'terminal' && tab.awaitingInput && !active"
+      v-else-if="tab.kind === 'terminal' && isAgentWaiting(tab) && !active"
       class="tab-activity-dot awaiting"
       :title="t('agent.awaitingTab')"
     />
+    <!--
+      エージェントのターンが走っている（#437）。質問で待っているあいだもターンは
+      続いているので、入力待ちの印を先に見る。
+    -->
+    <span
+      v-else-if="tab.kind === 'terminal' && tab.agentRun?.phase === 'running' && !active"
+      class="tab-running"
+      :title="t('agent.runningTab')"
+    >
+      <LoaderCircle :size="12" :stroke-width="2" class="spin" />
+    </span>
     <span v-else-if="tab.kind === 'terminal' && tab.hasActivity && !active" class="tab-activity-dot" />
     <button v-if="!tab.pinned" class="tab-close" :title="t('tabs.close')" @click.stop="emit('close')">
       <X :size="14" :stroke-width="2" />
@@ -178,6 +189,13 @@ function onTitleHover(e: MouseEvent) {
    言っていると読み取れるようにする。 */
 .tab-activity-dot.awaiting {
   background: var(--success);
+}
+
+/* 実行中（#437）。ドットの 2 つは「まだ見ていない」印で、こちらは状態なので形を分ける。 */
+.tab-running {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--accent);
 }
 
 .tab-exit-badge {

@@ -38,6 +38,13 @@
 //! `WSLENV` 経由で渡る）で決まる。cwd では紐付けられない: 同じディレクトリで 2 枚
 //! 開くと区別できない。
 //!
+//! ## ターミナルごとの状態（#437）
+//!
+//! 同梱の mod は、セッションの開始と終了・ターンの開始と終了を `--state=` 付きで知らせる
+//! （`StateKind`）。**配送は通知と同じ**（`send_to_running_pike`）で、受けたウィンドウは
+//! タブへ写す（フロントの `composables/useAgentRun.ts`）。settings に登録する hook には
+//! この契機が無いので、mod が動いているセッションでしか届かない。
+//!
 //! ## 守ること（`SessionStart` の作法）
 //!
 //! - **stdout に何も出さない。** exit 0 のときの stdout は Claude のコンテキストへ
@@ -107,6 +114,18 @@ const VIA_MOD_FLAG: &str = "--via=mod";
 
 /// レートの報告（#437）。stdin の JSON を `agent-usage.json` へ書く。mod だけが使う。
 const USAGE_FLAG: &str = "--usage";
+
+/// ターミナルごとの状態の報告（#437。`StateKind`）。mod だけが使い、**通知と同じ配送で
+/// 走っている Pike へ届ける**（`report_state`）。`--event=` と分けてあるのは、あちらが
+/// 「知らせるか」を決める契機で、こちらは「いまどうなっているか」という状態だから:
+/// 同じ値に畳むと、実行中になっただけで通知の判定を通ることになる。
+const STATE_FLAG: &str = "--state=";
+
+/// 状態の報告に添えるセッション id（`StateKind::Session`）。
+const SESSION_FLAG: &str = "--session=";
+
+/// 状態の報告に添えるコンテキストの埋まり具合（`ContextUsage::parse` の形）。
+const CONTEXT_FLAG: &str = "--context=";
 
 /// 同梱の mod がそのセッションで動いている目印（mod が自分で立てる環境変数）。
 ///
@@ -212,6 +231,90 @@ pub struct AgentNotice {
     pub event: NoticeKind,
 }
 
+/// ターミナルで動くエージェントの状態（#437）。同梱の mod が、状態が変わるたびに知らせる。
+///
+/// **通知の契機（`NoticeKind`）とは別の軸。** あちらは「人に知らせるか」で、こちらは
+/// タブに出す「いまどうなっているか」。
+///
+/// **起きた順に届くことは送る側が守る**（mod が 1 本ずつ送る。`register.ts` の `enqueue`）。
+/// 報告は 1 件ごとに別のプロセスなので、並べて起こすと順が入れ替わる。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StateKind {
+    /// セッションが始まった（`SessionStart`。起動・再開・`/clear` のあと）。
+    Session,
+    /// ターンが走っている（`turn.start`。許可の確認に答えたあともここへ戻る）。
+    Running,
+    /// 許可の確認が出ていて、答えるまで進まない（`PermissionRequest`）。
+    ///
+    /// **タブの印（`awaitingInput`）とは別に持つ。** あちらは「まだ見ていない」印で、
+    /// タブを見れば下りる。確認に答えないままタブを離れても、待っていることは変わらない。
+    Waiting,
+    /// ターンが終わった（`turn.complete`。中断と失敗も含む）。
+    Idle,
+    /// セッションが終わった（`session.end`）。
+    Ended,
+}
+
+impl StateKind {
+    fn from_flag(value: &str) -> Option<Self> {
+        [
+            Self::Session,
+            Self::Running,
+            Self::Waiting,
+            Self::Idle,
+            Self::Ended,
+        ]
+        .into_iter()
+        .find(|k| k.as_flag() == value)
+    }
+
+    fn as_flag(self) -> &'static str {
+        match self {
+            Self::Session => "session",
+            Self::Running => "running",
+            Self::Waiting => "waiting",
+            Self::Idle => "idle",
+            Self::Ended => "ended",
+        }
+    }
+}
+
+/// コンテキストの埋まり具合（Claude Code の `SessionContextUsage`）。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct ContextUsage {
+    /// 最後の応答が読んだ入力トークン。
+    pub tokens: u64,
+    /// そのセッションのモデルのコンテキスト長。
+    pub window: u64,
+}
+
+impl ContextUsage {
+    /// `<tokens>/<window>`。割合は運ばない（受け側が同じ 2 つから出せる）。
+    fn parse(value: &str) -> Option<Self> {
+        let (tokens, window) = value.split_once('/')?;
+        let window = window.parse().ok().filter(|w| *w > 0)?;
+        Some(Self {
+            tokens: tokens.parse().ok()?,
+            window,
+        })
+    }
+}
+
+/// 走っているウィンドウへ届ける状態 1 件（#437）。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentState {
+    /// どのターミナルか（`PIKE_PTY_ID`）。
+    pub pty_id: String,
+    pub agent: AgentId,
+    pub state: StateKind,
+    /// `Session` のときのセッション id。
+    pub session_id: Option<String>,
+    /// `Idle` のときに添えられる。最初の応答より前には値が無い。
+    pub context: Option<ContextUsage>,
+}
+
 fn store_path() -> Option<PathBuf> {
     pike_config_dir_for(STORE_IDENTIFIER).map(|dir| dir.join(FILENAME))
 }
@@ -247,13 +350,34 @@ fn run_hook() {
         record_usage(&text);
         return;
     }
-    match flag_value(EVENT_FLAG)
+    if let Some(state) = flag_value(STATE_FLAG)
         .as_deref()
-        .and_then(NoticeKind::from_flag)
+        .and_then(StateKind::from_flag)
     {
+        // **セッションの開始は申告も兼ねる**（#299 と同じ stdin）。mod は `SessionStart` で
+        // この 1 回だけ `pike` を起こし、申告と状態の報告にプロセスを 2 つ使わない。
+        if state == StateKind::Session {
+            record_declaration(&text);
+        }
+        report_state(state);
+        // **契機も付いていれば、知らせも同じプロセスから送る**（許可の確認は、状態と
+        // 知らせの両方が同時に変わる）。
+        if let Some(kind) = notice_flag() {
+            notify_running_pike(kind);
+        }
+        return;
+    }
+    match notice_flag() {
         Some(kind) => notify_running_pike(kind),
         None => record_declaration(&text),
     }
+}
+
+/// 自分の argv に書かれた通知の契機。
+fn notice_flag() -> Option<NoticeKind> {
+    flag_value(EVENT_FLAG)
+        .as_deref()
+        .and_then(NoticeKind::from_flag)
 }
 
 fn read_stdin() -> String {
@@ -270,6 +394,23 @@ fn read_stdin() -> String {
 /// **Pike が走っていなくても何もしない**（`FindWindowW` が空振りする）。hook は
 /// エージェントの起動元とは無関係に走りうるので、これは異常ではない。
 fn notify_running_pike(kind: NoticeKind) {
+    send_to_running_pike(vec![format!("{EVENT_FLAG}{}", kind.as_flag())]);
+}
+
+/// 走っている Pike へ「このターミナルのエージェントの状態が変わった」と伝える（#437）。
+/// 届け方も、届かないときに黙るのも `notify_running_pike` と同じ。
+fn report_state(kind: StateKind) {
+    let mut flags = vec![format!("{STATE_FLAG}{}", kind.as_flag())];
+    for prefix in [SESSION_FLAG, CONTEXT_FLAG] {
+        if let Some(value) = flag_value(prefix) {
+            flags.push(format!("{prefix}{value}"));
+        }
+    }
+    send_to_running_pike(flags);
+}
+
+/// `flags` に、どのターミナルか・どのエージェントかを足して、走っている Pike へ送る。
+fn send_to_running_pike(flags: Vec<String>) {
     let Some(pty_id) = std::env::var("PIKE_PTY_ID")
         .ok()
         .filter(|v| !v.is_empty() && safe_flag_value(v))
@@ -281,9 +422,9 @@ fn notify_running_pike(kind: NoticeKind) {
     let mut args = vec![
         std::env::args().next().unwrap_or_default(),
         SUBCOMMAND.to_owned(),
-        format!("{EVENT_FLAG}{}", kind.as_flag()),
-        format!("{PTY_FLAG}{pty_id}"),
     ];
+    args.extend(flags);
+    args.push(format!("{PTY_FLAG}{pty_id}"));
     // 名乗りは受け取ったものをそのまま回す（登録行に無ければ付けない＝受け側が
     // 古い行として Claude に落とす）。
     if let Some(agent) = flag_value(AGENT_FLAG) {
@@ -473,10 +614,41 @@ pub fn try_handle_notice(app: &tauri::AppHandle, args: &[String]) -> bool {
     if args.get(1).map(String::as_str) != Some(SUBCOMMAND) {
         return false;
     }
-    if let Some(notice) = parse_notice(args) {
+    // 状態の報告（#437）と通知は同じ配送に載ってくる。**1 通はどちらか片方**（送る側が
+    // 分けて送る）で、`--state=` を持つものが状態。
+    if let Some(state) = parse_state(args) {
+        emit_state(app, state);
+    } else if let Some(notice) = parse_notice(args) {
         emit_notice(app, notice);
     }
     true
+}
+
+fn parse_state(args: &[String]) -> Option<AgentState> {
+    let state = find_flag(args, STATE_FLAG).and_then(|v| StateKind::from_flag(&v))?;
+    Some(AgentState {
+        pty_id: find_flag(args, PTY_FLAG)?,
+        // 状態を送るのは mod だけで、mod は必ず名乗る。無いものは受けない。
+        agent: agent_from_flag(&find_flag(args, AGENT_FLAG)?)?,
+        state,
+        session_id: find_flag(args, SESSION_FLAG),
+        context: find_flag(args, CONTEXT_FLAG).and_then(|v| ContextUsage::parse(&v)),
+    })
+}
+
+fn emit_state(app: &tauri::AppHandle, state: AgentState) {
+    use tauri::Emitter;
+    if let Some(label) = window_of(app, &state.pty_id) {
+        let _ = app.emit_to(label, "agent_state", state);
+    }
+}
+
+/// そのターミナルを持つウィンドウ。通知も状態も**ここにだけ送る**（`emit` だと
+/// 全ウィンドウが同じものを受ける）。
+fn window_of(app: &tauri::AppHandle, pty_id: &str) -> Option<String> {
+    use tauri::Manager;
+    let state = app.try_state::<crate::pty::PtyState>()?;
+    crate::pty::window_for_pty(&state, pty_id)
 }
 
 fn parse_notice(args: &[String]) -> Option<AgentNotice> {
@@ -499,11 +671,8 @@ fn agent_from_flag(value: &str) -> Option<AgentId> {
 }
 
 fn emit_notice(app: &tauri::AppHandle, notice: AgentNotice) {
-    use tauri::{Emitter, Manager};
-    let Some(state) = app.try_state::<crate::pty::PtyState>() else {
-        return;
-    };
-    let Some(label) = crate::pty::window_for_pty(&state, &notice.pty_id) else {
+    use tauri::Emitter;
+    let Some(label) = window_of(app, &notice.pty_id) else {
         return;
     };
     // #337 の調査用。見出しに別のプロジェクトの名前が出るという報告があり、届け先の
@@ -517,7 +686,6 @@ fn emit_notice(app: &tauri::AppHandle, notice: AgentNotice) {
         notice.pty_id,
         notice.event
     );
-    // **そのウィンドウにだけ送る**（`emit` だと全ウィンドウが同じ通知を出す）。
     let _ = app.emit_to(label, "agent_notice", notice);
 }
 
@@ -1615,6 +1783,61 @@ mod tests {
         assert_eq!(groups[0]["hooks"][0]["command"], "pike.exe agent-hook");
         assert!(settings["hooks"]["Notification"].is_array());
         assert!(settings["hooks"]["Stop"].is_array());
+    }
+
+    /// 状態の報告（#437）。名乗りと pty id が要り、添え物は読めなければ落とすだけ。
+    #[test]
+    fn parses_a_state_report_from_the_forwarded_argv() {
+        let args = |rest: &[&str]| {
+            let mut v = vec!["pike.exe".to_owned(), "agent-hook".to_owned()];
+            v.extend(rest.iter().map(|s| (*s).to_owned()));
+            v
+        };
+        let started = parse_state(&args(&[
+            "--state=session",
+            "--session=0b5c",
+            "--pty=abc",
+            "--agent=claude",
+        ]))
+        .unwrap();
+        assert_eq!(started.state, StateKind::Session);
+        assert_eq!(started.session_id.as_deref(), Some("0b5c"));
+        assert_eq!(started.context, None);
+
+        let idle = parse_state(&args(&[
+            "--state=idle",
+            "--context=84000/200000",
+            "--pty=abc",
+            "--agent=claude",
+        ]))
+        .unwrap();
+        assert_eq!(
+            idle.context,
+            Some(ContextUsage {
+                tokens: 84_000,
+                window: 200_000
+            })
+        );
+        // 読めない添え物は落とすだけで、状態そのものは届ける。
+        let odd = parse_state(&args(&[
+            "--state=idle",
+            "--context=84000/0",
+            "--pty=abc",
+            "--agent=claude",
+        ]))
+        .unwrap();
+        assert_eq!(odd.context, None);
+
+        // 許可の確認は状態と知らせを別々の 1 通で送るので、状態の側に契機は付かない。
+        let waiting =
+            parse_state(&args(&["--state=waiting", "--pty=abc", "--agent=claude"])).unwrap();
+        assert_eq!(waiting.state, StateKind::Waiting);
+
+        assert!(parse_state(&args(&["--state=nope", "--pty=abc", "--agent=claude"])).is_none());
+        assert!(parse_state(&args(&["--state=running", "--agent=claude"])).is_none());
+        assert!(parse_state(&args(&["--state=running", "--pty=abc"])).is_none());
+        // 通知の argv は状態として読まない（`try_handle_notice` が通知へ回す）。
+        assert!(parse_state(&args(&["--event=waiting", "--pty=abc", "--agent=claude"])).is_none());
     }
 
     /// 通知の argv から届け先が決まる。契機か pty id が欠けたら何も送らない。

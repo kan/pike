@@ -12,6 +12,7 @@ import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import { offerAgentHook } from './composables/useAgentHookPrompt'
 import { initAgentNotice } from './composables/useAgentNotice'
+import { initAgentRun } from './composables/useAgentRun'
 import { useAppMenu } from './composables/useAppMenu'
 import { confirmAndExit, confirmBusyExit } from './composables/useBusyExit'
 import { initCliOpen, peekInitialCliAction } from './composables/useCliOpen'
@@ -290,7 +291,8 @@ onMounted(async () => {
 
   // エージェントの入力待ちの通知（#265）もここで受け始める。届くのは PTY が上がった
   // あとだが、ルーター群と同じく「このウィンドウ宛てのイベントの受け口」なので隣に置く。
-  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initAgentNotice()])
+  // エージェントの状態（#437）も同じ配送で届く。
+  await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initAgentNotice(), initAgentRun()])
 
   // Which project this window shows comes from the backend window_projects map
   // (seeded at build), not the opaque label. null for main/global windows.
@@ -336,7 +338,8 @@ onMounted(async () => {
   //
   // **切り替えたときにも聞く。** hook は設定ディレクトリごとに要り、その置き場はシェルで
   // 変わるので、Windows のプロジェクトで登録しただけでは WSL 側に何も入らない。聞くかの
-  // 判断（シェル単位の記録）は `offerAgentHook` が持つので、ここは契機を渡すだけ。
+  // 判断（シェル単位の記録と、同梱の mod が運ぶ環境では聞かないこと #437）は
+  // `offerAgentHook` が持つので、ここは契機を渡すだけ。
   watch(
     () => projectStore.currentProject?.id,
     () => {

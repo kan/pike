@@ -14,15 +14,27 @@ import { AlertTriangle, Bot, RefreshCw } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useAgentUsage } from '../../composables/useAgentUsage'
 import { useI18n } from '../../i18n'
+import type { AgentId } from '../../lib/agents'
 import { formatCost, formatTokens } from '../../lib/format'
 import { relativeTime } from '../../lib/paths'
-import { agentFactLabel, fetchedAtLabel, toMeter } from '../../lib/usageFormat'
+import { tabDisplayTitle } from '../../lib/tabTitle'
+import { agentFactLabel, fetchedAtLabel, rateLevelClass, toMeter } from '../../lib/usageFormat'
+import { useTabStore } from '../../stores/tabs'
 import type { TokenRow, UsageFact } from '../../types/agentUsage'
+import { isAgentWaiting } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 import RateMeters from '../RateMeters.vue'
 
 const { t } = useI18n()
 const { visible, refreshing, refreshAll, login } = useAgentUsage()
+const tabStore = useTabStore()
+
+/** セッションの状態の表示名（i18n のキー）。 */
+const RUN_STATES = {
+  waiting: 'agentStatus.stateWaiting',
+  running: 'agentStatus.running',
+  idle: 'agentStatus.stateIdle',
+} as const
 
 /**
  * 種別固有の値の表示。**`last-activity` だけ整形する**（epoch 秒を相対時刻に）ので、
@@ -64,9 +76,55 @@ function columns(rows: TokenRow[]) {
 const cards = computed(() =>
   visible.value.map(({ agent, usage, needsLogin }) => {
     const rows = usage ? tokenRows(usage) : []
-    return { agent, usage, needsLogin, rows, cols: columns(rows), meters: (usage?.meters ?? []).map(toMeter) }
+    return {
+      agent,
+      usage,
+      needsLogin,
+      rows,
+      cols: columns(rows),
+      meters: (usage?.meters ?? []).map(toMeter),
+    }
   }),
 )
+
+/**
+ * このプロジェクトのターミナルで動いているセッション（#437）。出所はタブの `agentRun`
+ * （同梱の mod の報告）で、**使用量のストアとは別**: あちらはアカウントとプロジェクトの
+ * 集計で、こちらはターミナル 1 枚ごとの今の状態。
+ *
+ * **見えているタブだけ**（`visibleTabs`）。カードの他の値はどれも今のプロジェクトのもの
+ * なので、保持している別プロジェクトのセッションを混ぜない。
+ *
+ * **`cards` に混ぜない。** こちらはターンのたびに変わるので、混ぜるとそのたびにトークンの
+ * 表と帯を全部組み直す。
+ */
+const runsByAgent = computed(() => {
+  const byAgent = new Map<AgentId, RunRow[]>()
+  for (const tab of tabStore.visibleTabs) {
+    if (tab.kind !== 'terminal' || !tab.agentRun) continue
+    const { agent, phase, context } = tab.agentRun
+    const row: RunRow = {
+      id: tab.id,
+      title: tabDisplayTitle(tab),
+      // 入力待ちが先。質問で待っているあいだも、ターンそのものは続いている。
+      state: RUN_STATES[isAgentWaiting(tab) ? 'waiting' : phase],
+      context: context && { ...context, percent: (context.tokens / context.window) * 100 },
+    }
+    const rows = byAgent.get(agent)
+    if (rows) rows.push(row)
+    else byAgent.set(agent, [row])
+  }
+  return byAgent
+})
+
+/** 一覧の 1 行（ターミナル 1 枚）。 */
+interface RunRow {
+  id: string
+  title: string
+  /** 状態の表示名（i18n のキー）。 */
+  state: string
+  context?: { tokens: number; window: number; percent: number }
+}
 </script>
 
 <template>
@@ -116,6 +174,39 @@ const cards = computed(() =>
           <dt>{{ t('agentStatus.session') }}</dt>
           <dd>{{ usage.active ? t('agentStatus.running') : t('agentStatus.noSession') }}</dd>
         </dl>
+
+        <!-- ターミナルで動いているセッション（#437）。状態を知らせてくるエージェントにだけ出る。 -->
+        <div v-if="runsByAgent.has(agent.id)" class="block">
+          <div class="block-head">
+            <span>{{ t('agentStatus.terminals') }}</span>
+          </div>
+          <table class="grid">
+            <thead>
+              <tr>
+                <th>{{ t('agentStatus.terminal') }}</th>
+                <th class="run-state">{{ t('agentStatus.state') }}</th>
+                <th class="run-context">{{ t('agentStatus.context') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="run in runsByAgent.get(agent.id)" :key="run.id">
+                <th>
+                  <button class="run-link" @click="tabStore.setActiveTab(run.id)">{{ run.title }}</button>
+                </th>
+                <td class="run-state">{{ t(run.state) }}</td>
+                <td class="run-context">
+                  <template v-if="run.context">
+                    <span :class="rateLevelClass(run.context.percent)">{{ run.context.percent.toFixed(0) }}%</span>
+                    <span class="muted">
+                      {{ formatTokens(run.context.tokens) }} / {{ formatTokens(run.context.window) }}
+                    </span>
+                  </template>
+                  <template v-else>—</template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <!-- 利用率を出せないエージェント（opencode は BYOK、Copilot は非対話で読めない）では節ごと出さない。 -->
         <div v-if="meters.length > 0" class="block">
@@ -353,6 +444,45 @@ const cards = computed(() =>
   white-space: nowrap;
 }
 
+.grid .run-state {
+  width: 7em;
+}
+
+.grid .run-context {
+  width: 14em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.run-context .muted {
+  margin-left: 6px;
+}
+
+/* 埋まり具合の色分け（`rateLevelClass`）。利用率の帯と同じ閾値と色。 */
+.run-context .rate-warn {
+  color: var(--git-modify);
+}
+
+.run-context .rate-danger {
+  color: var(--danger);
+}
+
+/* 押すとそのターミナルへ移る。表の中なので、ボタンの見た目は持たせない。 */
+.run-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.run-link:hover {
+  text-decoration: underline;
+}
 
 .empty {
   margin: 0;

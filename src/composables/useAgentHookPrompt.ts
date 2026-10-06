@@ -7,6 +7,8 @@
  *
  * ## 聞く条件
  *
+ * - **同梱の mod（#437）が運ぶ環境では、mod が動いていないと分かったときだけ**
+ *   （`modCarriesHooks` の doc）。以下の条件はそのうえで見る
  * - **main ウィンドウだけ**。hook の登録はマシン全体の話で、ウィンドウごとに聞くことでは
  *   ない（複数ウィンドウを復元する起動で同じダイアログが並ぶ）
  * - **プロジェクトを開いているとき**。候補はシェルから決まるので、どのシェルのアカウントを
@@ -32,12 +34,14 @@
  */
 
 import { t } from '../i18n'
+import { isWindowsHost } from '../lib/host'
 import { loadAskedKeys, rememberAskedKey } from '../lib/storage'
 import { agentHookInstallMissing, agentHookStatus } from '../lib/tauri'
 import { isMainWindow } from '../lib/window'
 import { useProjectStore } from '../stores/project'
+import { useSettingsStore } from '../stores/settings'
 import { useStatusMessageStore } from '../stores/statusMessage'
-import { installKey } from '../types/tab'
+import { installKey, type ShellType } from '../types/tab'
 import { askOnce } from './useConfirmDialog'
 
 /**
@@ -57,8 +61,36 @@ const ASKED_KEY = 'pike:agent-hook-asked-v2'
 /** 旧「断った」の記録（マシンに 1 つ）。読むのは移行のときだけ。 */
 const DECLINED_KEY = 'pike:agent-hook-declined'
 
+/** hook を勧める相手（どのシェルの、どこで動く claude か）。 */
+export interface HookPlace {
+  shell: ShellType
+  root: string
+}
+
+/**
+ * 申告と知らせを、同梱の mod（#437）が運ぶ環境か。**そのあいだは、プロジェクトを切り替えた
+ * だけでは聞かない。** mod が動いていれば `settings.json` への登録は要らず、聞くと
+ * 「入れなくても動くもの」を勧めることになる。
+ *
+ * **mod が実際に動くかは、ここでは分からない**（古い Claude Code や `disableAllHooks` の
+ * 環境では、設定がオンでも読み込まれない）。そちらは起動したエージェントから報告が
+ * 来ないことで気付く（`useAgentRun` の `expectAgentReport`）。
+ *
+ * **Windows だけ。** 気付くための報告は通知と同じ配送（WM_COPYDATA）で届くので、他の OS では
+ * 「報告が来ない」が何も意味しない。そこでは従来どおり切り替えたときに聞く。
+ */
+export function modCarriesHooks(): boolean {
+  return isWindowsHost && useSettingsStore().agentMod
+}
+
 /**
  * 条件がそろっていれば聞いて、承諾されたら未登録の候補すべてに登録する。
+ *
+ * `unreported` は、Pike が起動したエージェントから mod の報告が来なかったときの呼び出し
+ * （`modCarriesHooks` の doc）。**そのターミナルのシェルと場所を渡す**: 今のプロジェクトの
+ * シェルとは限らない（Windows のプロジェクトで開いた WSL のタブ、待っているあいだの
+ * プロジェクトの切り替え）ので、取り違えると別のシェルの設定ディレクトリを勧め、「聞いた
+ * 記録」もそちらに付く。
  *
  * **候補は今のプロジェクトのシェルとホストのぶんだけ**（distro の一覧を渡さない）。全 distro を
  * 並べるには `wsl.exe` を起こす必要があり、「検出のためだけに起動時へ `wsl.exe` を足さない」
@@ -67,19 +99,29 @@ const DECLINED_KEY = 'pike:agent-hook-declined'
  * **登録できなかった宛先は StatusBar で知らせる**（#320）。聞くのはシェルごとに一度きりなので、
  * 黙って落とすと「承諾したのに入っていない」状態に気付く先が設定画面しか無くなる。
  */
-export async function offerAgentHook(): Promise<void> {
-  if (!isMainWindow()) return
+export async function offerAgentHook(opts?: { unreported?: HookPlace }): Promise<void> {
   const projectStore = useProjectStore()
-  if (!projectStore.activeRoot) return
+  let place = opts?.unreported
+  if (!place) {
+    // 切り替えを契機に聞くのは main だけ（冒頭の doc）。**報告が来なかったときは、
+    // どのウィンドウでも聞く**: 契機が 1 回の起動なので復元で並ぶことが無く、main に
+    // 限ると子ウィンドウでだけ claude を使う人に入口が無くなる。
+    if (!isMainWindow()) return
+    // mod が運ぶ環境では、動いていないと分かったとき（`unreported`）にだけ聞く。
+    if (modCarriesHooks()) return
+    if (!projectStore.activeRoot) return
+    place = { shell: projectStore.shellForIO, root: projectStore.activeRoot }
+  }
+  const { shell, root } = place
 
-  const key = installKey(projectStore.shellForIO)
+  const key = installKey(shell)
   const asked = migrateDeclined(key, loadAsked())
   // **記録があれば IPC を投げない。** `agentHookStatus` は解決（WSL では対話ログイン
   // シェル）と候補ぶんの `settings.json` 読みを伴うので、プロジェクトを切り替えるたびに
   // 走らせるには重い。
   if (asked.includes(key)) return
 
-  const status = await agentHookStatus(projectStore.shellForIO, projectStore.activeRoot, [])
+  const status = await agentHookStatus(shell, root, [])
   if (status.targets.length === 0) return
   // 全部入っているなら聞くことが無い。**記録は残す**（次の切り替えで IPC を投げないため）。
   if (status.targets.every((target) => target.registered)) {
@@ -98,7 +140,7 @@ export async function offerAgentHook(): Promise<void> {
   // 気付く先が設定画面しか無いと、hook が要る機能（通知・アカウントの申告）が動かない
   // 理由を探すことになる。**全部書けなかったときだけ reject する**ので、呼び出し元が
   // 例外を捨てる（`App.vue`）ぶんもここで拾って、登録前の一覧から同じ知らせを出す。
-  const install = agentHookInstallMissing(projectStore.shellForIO, projectStore.activeRoot, [])
+  const install = agentHookInstallMissing(shell, root, [])
   const after = await install.catch(() => status)
   const left = after.targets.filter((target) => !target.registered)
   if (left.length > 0) {
