@@ -160,7 +160,11 @@ backend の推測、色とアイコンは未設定。
 - Pinia `$subscribe` でタブ変更を検知 → 1秒デバウンスで `project.json` に書き出し
 - `beforeunload` で即時保存（best-effort、async なので保証なし）
 - プロジェクト復元時: `lastSession` があればそこから復元、なければ `pinnedTabs` にフォールバック
-- AI エージェントのセッション復帰は各ツールの resume 機能に委譲（`RESUME_MAP` で `claude` → `claude --continue` に変換）
+- AI エージェントのセッション復帰は各ツールの resume 機能に委譲する。固定タブの `autoStart` を読み替えるのは `lib/agents.ts` の `restoreCommandFor`（`claude` → `claude --continue`）
+  - **そのタブのセッション id が分かっていれば、id を指定して再開する**（#437。`claude --resume <id>`）。「続きから」はそのディレクトリで最後に使ったセッションを開くので、同じプロジェクトに固定タブが 2 枚あると両方が同じ会話へ戻る。id は同梱の mod が知らせ、`TerminalTab.agentSession` → `SessionTabDef.agentSession` で保存する（覚える契機と忘れる契機は `useAgentRun` の `rememberSession` の doc が正本）
+  - **対象は固定タブだけ**（利用者の判断）。手で `claude` と打ったターミナルは、これまでどおり素のシェルで復元する。利用者が書いた起動行（`claude --model opus`）にも id を足さない（どこへ足すかをこちらで決められない）
+  - **タブの `autoStart` は書き換えない**。読み替えた行は `TerminalTab.restore`（保存しない）に置き、今回だけ走らせる。`autoStart` を再開行で上書きすると、それが保存されて次の復元が起動行として読めなくなる（自分で抜けたあとも古い id で再開し続ける）
+  - **worktree へ移ったセッションは再開に失敗しうる**（既知の制約）。Claude の記録は書いた時点の作業ディレクトリに置かれ、`--resume` はそこでしか通らない（`agent.md` の #432）。復元はタブの cwd で走らせる。**失敗は 1 回で止まる**: 再開できなければ id を覚え直さないので、次の復元は「続きから」に落ちる
 - tmux はオプション機能として `pty_spawn_tmux` コマンドで利用可能（必須ではない）
 - タブのドラッグ&ドロップ入れ替え（HTML5 Drag and Drop API、box-shadow でドロップ位置表示）
 - タブコンテキストメニュー: Pin/Unpin、Close、Close Others、Close to the Right、Close Saved、Close All

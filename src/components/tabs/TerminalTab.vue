@@ -954,9 +954,11 @@ onMounted(async () => {
     const shellKind = tabData.shell?.kind
     const clearCmd = shellKind === 'cmd' || isPowershellFamily(shellKind) ? 'cls' : 'clear'
 
-    if (tabData.autoStart) {
-      initLines.push(buildAutoStartLine(tabData.autoStart, shellKind, tabData.closeOnExit))
-      expectReport(currentPtyId, tabData.autoStart)
+    // 復元したタブは、今回だけ読み替えた行を走らせる（#437。`TerminalTab.restore` の doc）。
+    const startLine = tabData.restore?.command ?? tabData.autoStart
+    if (startLine) {
+      initLines.push(buildAutoStartLine(startLine, shellKind, tabData.closeOnExit))
+      expectReport(currentPtyId, startLine)
     } else if (initLines.length > 0) {
       initLines.push(clearCmd)
     }

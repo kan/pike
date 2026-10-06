@@ -127,6 +127,9 @@ const SESSION_FLAG: &str = "--session=";
 /// 状態の報告に添えるコンテキストの埋まり具合（`ContextUsage::parse` の形）。
 const CONTEXT_FLAG: &str = "--context=";
 
+/// `StateKind::Ended` に添える、利用者が自分でセッションを抜けた印（`AgentState::left`）。
+const LEFT_FLAG: &str = "--left";
+
 /// 同梱の mod がそのセッションで動いている目印（mod が自分で立てる環境変数）。
 ///
 /// **`settings.json` の hook は、これが立っていれば何もしない。** mod と settings の hook は
@@ -313,6 +316,12 @@ pub struct AgentState {
     pub session_id: Option<String>,
     /// `Idle` のときに添えられる。最初の応答より前には値が無い。
     pub context: Option<ContextUsage>,
+    /// `Ended` のとき、利用者が自分で抜けたか（`/exit`、Ctrl+C、ログアウト）。
+    ///
+    /// **プロセスごと落とされた終わりと分ける**ために要る。Pike を閉じると PTY が kill され、
+    /// そのときも `session.end` は来る。そこで「このタブのセッションは終わった」と覚えると、
+    /// 次の起動で再開する相手（タブに結び付けたセッション id）を自分で消すことになる。
+    pub left: bool,
 }
 
 fn store_path() -> Option<PathBuf> {
@@ -405,6 +414,9 @@ fn report_state(kind: StateKind) {
         if let Some(value) = flag_value(prefix) {
             flags.push(format!("{prefix}{value}"));
         }
+    }
+    if std::env::args().any(|a| a == LEFT_FLAG) {
+        flags.push(LEFT_FLAG.to_owned());
     }
     send_to_running_pike(flags);
 }
@@ -633,6 +645,7 @@ fn parse_state(args: &[String]) -> Option<AgentState> {
         state,
         session_id: find_flag(args, SESSION_FLAG),
         context: find_flag(args, CONTEXT_FLAG).and_then(|v| ContextUsage::parse(&v)),
+        left: args.iter().any(|a| a == LEFT_FLAG),
     })
 }
 
@@ -1827,6 +1840,16 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(odd.context, None);
+
+        // 自分で抜けた終わりと、プロセスごと落とされた終わりを分けて届ける。
+        let ended = |rest: &[&str]| parse_state(&args(rest)).unwrap().left;
+        assert!(ended(&[
+            "--state=ended",
+            "--left",
+            "--pty=abc",
+            "--agent=claude"
+        ]));
+        assert!(!ended(&["--state=ended", "--pty=abc", "--agent=claude"]));
 
         // 許可の確認は状態と知らせを別々の 1 通で送るので、状態の側に契機は付かない。
         let waiting =

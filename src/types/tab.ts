@@ -1,4 +1,4 @@
-import type { AgentId } from '../lib/agents'
+import type { AgentId, AgentSessionRef } from '../lib/agents'
 import type { ProjectPlatform } from '../lib/projectPaths'
 
 export type ShellType =
@@ -309,6 +309,26 @@ export type TerminalTab = {
    * 立てるのも下ろすのも `composables/useAgentRun.ts`。
    */
   agentRun?: AgentRun
+  /**
+   * このタブで最後に動いていたエージェントのセッション（#437）。**セッションの保存に載り**、
+   * 復元のとき `autoStart` の「続きから」をこの id の再開に置き換える（`lib/agents.ts` の
+   * `restoreCommandFor`）。同じプロジェクトにエージェントのタブが複数あっても、それぞれが
+   * 自分のセッションへ戻る。
+   *
+   * **`agentRun` と寿命が違う。** あちらはシェルが終われば下りるが、こちらは Pike を閉じて
+   * PTY が kill されても残す（次の起動で再開する相手なので）。覚える契機と忘れる契機は
+   * `useAgentRun` の `rememberSession` が正本。
+   */
+  agentSession?: AgentSessionRef
+  /**
+   * セッションの復元で、今回だけ `autoStart` の代わりに走らせる行と、それが再開する
+   * セッション（#437）。**保存には載せない。**
+   *
+   * **`autoStart` を書き換えない**ために分けてある。あちらは保存される行で、再開行
+   * （`claude --resume <id>`）に置き換えると、次の復元がそれを起動行として読めなくなる
+   * （自分で抜けたあとも古い id で再開し続ける）。
+   */
+  restore?: { command: string; session?: AgentSessionRef }
   /**
    * 注入のあと、このターミナルへ DOM のフォーカスを渡してほしいという合図（#355）。
    * `EditorTab.reloadRequested` と同じ形の時刻で、**値そのものに意味は無い**

@@ -177,7 +177,11 @@ export const register: Register = (on) => {
   on('session.end', async ($, e, next) => {
     const pike = await pikeOf($)
     // 列の後ろに並べて待つ。先に送ると、まだ列にいるターンの終わりが後から届く。
-    if (pike) await enqueue(() => report($, pike, ['--state=ended'], {}))
+    // 利用者が自分で抜けたときは印を付ける（`agent_hook.rs` の `AgentState::left`）。
+    // `clear` と `resume` は付けない: 同じプロセスが次のセッションを始めて名乗り直す。
+    const left = e.reason === 'prompt_input_exit' || e.reason === 'logout'
+    const flags = left ? ['--state=ended', '--left'] : ['--state=ended']
+    if (pike) await enqueue(() => report($, pike, flags, {}))
     return next(e)
   })
 

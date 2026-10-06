@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { confirmDialog, confirmWithOption, infoDialog } from '../composables/useConfirmDialog'
 import { locale, t } from '../i18n'
-import { resumeCommandFor } from '../lib/agents'
+import { restoreCommandFor } from '../lib/agents'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
 import { HOST_PLATFORMS, hostDefaultShell, isMacHost } from '../lib/host'
 import { stripTrailingSep, wslNativeToUnc } from '../lib/paths'
@@ -85,15 +85,6 @@ const SYNCED_FIELDS = [
   'golangciCommand',
   'order',
 ] as const satisfies readonly (keyof ProjectConfig)[]
-
-/**
- * 固定タブの `autoStart` を「続きから」に読み替える。対応は `lib/agents.ts` の表が持つ
- * （#275。ここに第 2 の表を置くと、エージェントを増やすたびに両方を揃えることになる）。
- */
-function resolveResumeCommand(autoStart?: string): string | undefined {
-  if (!autoStart) return undefined
-  return resumeCommandFor(autoStart) ?? autoStart
-}
 
 export const useProjectStore = defineStore('project', () => {
   const projects = ref<ProjectConfig[]>([])
@@ -1401,7 +1392,12 @@ export const useProjectStore = defineStore('project', () => {
             id: def.id,
             title: def.title,
             pinned: def.pinned,
-            autoStart: def.pinned ? resolveResumeCommand(def.autoStart) : undefined,
+            // 固定タブの `autoStart` は「続きから」に読み替える。対応は `lib/agents.ts` の
+            // 表が持つ（#275。ここに第 2 の表を置くと、エージェントを増やすたびに両方を
+            // 揃えることになる）。そのタブのセッションが分かっていればそれを再開する（#437）。
+            // **`autoStart` は書き換えない**（保存される行。`TerminalTab.restore` の doc）。
+            autoStart: def.pinned ? def.autoStart : undefined,
+            restore: def.pinned && def.autoStart ? restoreCommandFor(def.autoStart, def.agentSession) : undefined,
             cwd: activeRoot.value,
             shell: project.shell,
             pane: def.pane,

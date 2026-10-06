@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { confirmDialog } from '../composables/useConfirmDialog'
 import { ptyRouter } from '../composables/usePtyRouter'
 import { t } from '../i18n'
+import type { AgentSessionRef } from '../lib/agents'
 import { displayHost, formatLineRange } from '../lib/format'
 import { MANUAL_INDEX } from '../lib/manual'
 import { basename, normalizeSep, toRelativePath } from '../lib/paths'
@@ -286,11 +287,14 @@ export const useTabStore = defineStore('tabs', () => {
     shell?: ShellType
     /** 置き場（#308）。省略＝フォーカスのあるペイン。セッションの復元が使う。 */
     pane?: PaneId
+    /** セッションの復元で、今回だけ `autoStart` の代わりに走らせるもの（#437）。 */
+    restore?: TerminalTab['restore']
   }): string {
     const id = options?.id ?? genId()
     pushTab({
       id,
       pane: options?.pane,
+      restore: options?.restore,
       kind: 'terminal',
       title: options?.title ?? 'Shell',
       pinned: options?.pinned ?? false,
@@ -588,6 +592,18 @@ export const useTabStore = defineStore('tabs', () => {
     const tab = tabs.value.find((t) => t.id === tabId)
     if (tab?.kind !== 'terminal') return
     tab.agentRun = run
+  }
+
+  /**
+   * 復元で再開するセッションを覚える / 忘れる（#437。`TerminalTab.agentSession`）。
+   * **再開の途中だという印（`restore.session`）もここで下ろす**: 相手が決まった時点で、
+   * 「これから再開する」は済んでいる。
+   */
+  function setAgentSession(tabId: string, session: AgentSessionRef | undefined) {
+    const tab = tabs.value.find((t) => t.id === tabId)
+    if (tab?.kind !== 'terminal') return
+    tab.agentSession = session
+    if (tab.restore) tab.restore.session = undefined
   }
 
   /**
@@ -1333,7 +1349,7 @@ export const useTabStore = defineStore('tabs', () => {
       .map((t): SessionTabDef => {
         const base = { id: t.id, kind: t.kind, title: t.title, pinned: t.pinned, pane: t.pane }
         if (t.kind === 'terminal') {
-          return { ...base, autoStart: t.autoStart }
+          return { ...base, autoStart: t.autoStart, agentSession: t.agentSession }
         }
         if (t.kind === 'editor') {
           if (!t.path) {
@@ -1449,6 +1465,7 @@ export const useTabStore = defineStore('tabs', () => {
     terminalByPty,
     markTabAwaiting,
     setAgentRun,
+    setAgentSession,
     clearAllAwaiting,
     awaitingProjectIds,
     snapshotSession,

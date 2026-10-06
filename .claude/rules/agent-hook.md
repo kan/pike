@@ -64,6 +64,10 @@ Claude Code と mod を止めている環境、届かないもの）。ここに
   - **提案の誤検出を避ける条件は `expectAgentReport` の doc が正本**（spawn 時に mod を
     読み込ませたか、時間が来たときにそのシェルで何か動いているか、相手はそのターミナルの
     シェル）。提案はシェルごとに 1 度きりなので、誤って使い切らない側へ倒す
+  - **セッション id は固定タブの復元に使う**（`TerminalTab.agentSession`。`project.md` の
+    「セッション永続化」）。`session.end` には「利用者が自分で抜けたか」を添える（`--left`、
+    `AgentState::left`）: Pike を閉じて PTY が kill されたときの終わりで id を忘れると、
+    次の起動で再開する相手を自分で消すことになる
   - **`agentRun` はセッションの保存に載せない**（`snapshotSession` は欄を選んで写す）。
     シェルが終われば下ろす（`tabStore.reportExit`。kill された claude からは `session.end` が
     届かないことがある）

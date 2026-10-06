@@ -19,7 +19,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { type AgentId, agentById, commandMentionsAgent } from '../lib/agents'
 import { ptyIsBusy } from '../lib/tauri'
 import { useTabStore } from '../stores/tabs'
-import type { AgentRun } from '../types/tab'
+import type { AgentRun, TerminalTab } from '../types/tab'
 import { type HookPlace, modCarriesHooks, offerAgentHook } from './useAgentHookPrompt'
 
 /** Rust の `AgentState`（`agent_hook.rs`）。 */
@@ -30,6 +30,8 @@ interface AgentStateReport {
   state: 'session' | 'running' | 'waiting' | 'idle' | 'ended'
   sessionId: string | null
   context: NonNullable<AgentRun['context']> | null
+  /** `ended` のとき、利用者が自分で抜けたか。 */
+  left: boolean
 }
 
 /**
@@ -67,7 +69,41 @@ function applyState(report: AgentStateReport) {
   // 合わせて読む（`isAgentWaiting`）ので、印だけ残ると、進み出したあとも待っていると出る
   // （分割して見えているタブで答えた場合など、タブを選び直さない経路がある）。
   if (tab.agentRun?.phase === 'waiting' && report.state !== 'waiting') tabStore.markTabAwaiting(tab.id, false)
-  tabStore.setAgentRun(tab.id, nextRun(tab.agentRun, report))
+  const run = nextRun(tab.agentRun, report)
+  tabStore.setAgentRun(tab.id, run)
+  rememberSession(tab, run, report)
+}
+
+/**
+ * 復元で再開する相手（`TerminalTab.agentSession`）を覚える / 忘れる。
+ *
+ * **覚えるのは、記録があると分かっているセッションだけ。** 記録の無い id を指定して
+ * 再開すると「見つからない」で終わる。
+ *
+ * - ターンが走ったら覚える。1 度も送っていないセッションは記録を持たない
+ * - 復元で再開した直後のセッションは、始まった時点で覚える（`restore.session`。再開できた
+ *   以上、記録はある）。**復元のときに先に覚えさせない**のは、再開に失敗した id
+ *   （記録が掃除された、worktree へ移っていた）を次の起動でも使い続けないため。失敗すれば
+ *   どの報告も来ないので、何も覚えないまま保存され、次は「続きから」に落ちる
+ * - 別のセッションが始まったら忘れる（`/clear`、`/resume`）。覚え直すのは次のターン
+ * - 利用者が自分で抜けたら忘れる（`left`）。**Pike を閉じて PTY が kill されたときの
+ *   終わりでは忘れない**（次の起動で再開する相手を自分で消すことになる）
+ */
+function rememberSession(tab: TerminalTab, run: AgentRun | undefined, report: AgentStateReport) {
+  const tabStore = useTabStore()
+  const current = run?.sessionId ? { agent: run.agent, id: run.sessionId } : undefined
+  switch (report.state) {
+    case 'ended':
+      if (report.left) tabStore.setAgentSession(tab.id, undefined)
+      break
+    case 'running':
+      if (current) tabStore.setAgentSession(tab.id, current)
+      break
+    case 'session':
+      if (tab.restore?.session?.agent === report.agent) tabStore.setAgentSession(tab.id, current)
+      else if (tab.agentSession && tab.agentSession.id !== current?.id) tabStore.setAgentSession(tab.id, undefined)
+      break
+  }
 }
 
 function nextRun(prev: AgentRun | undefined, report: AgentStateReport): AgentRun | undefined {

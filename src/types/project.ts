@@ -1,3 +1,4 @@
+import type { AgentSessionRef } from '../lib/agents'
 import type { ProjectPlatform } from '../lib/projectPaths'
 import type { PaneId, ShellType } from './tab'
 
@@ -70,6 +71,8 @@ export interface SessionTabDef {
   title: string
   pinned: boolean
   autoStart?: string
+  /** ターミナルで最後に動いていたエージェントのセッション（#437。`TerminalTab.agentSession`）。 */
+  agentSession?: AgentSessionRef
   path?: string
   content?: string
   /** ブラウザのタブの URL（#368）。 */

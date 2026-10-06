@@ -23,6 +23,12 @@
 /** 表にあるエージェントの id。使用量（#263）と入力待ち（#265）もこの id で引く。 */
 export type AgentId = 'claude' | 'codex' | 'copilot' | 'opencode'
 
+/** どのエージェントの、どのセッションか（#437。タブに結び付けて、復元で再開する相手）。 */
+export interface AgentSessionRef {
+  agent: AgentId
+  id: string
+}
+
 export interface AgentDef {
   id: AgentId
   /**
@@ -186,13 +192,44 @@ export function agentById(id: AgentId): AgentDef | undefined {
 /**
  * その起動コマンドの「続きから」版（`launch` の 2 行目）。無ければ `undefined`。
  *
- * **固定タブのセッション復元が使う**（`stores/project.ts`）。以前は `RESUME_MAP` という
+ * **固定タブのセッション復元が使う**（下の `restoreCommandFor` 経由）。以前は `RESUME_MAP` という
  * 別の表が `claude` だけを知っていて、`codex` を固定タブにしていると復元で素の `codex` が
  * 走っていた。表が 2 つあると、エージェントを増やすたびに両方を揃えることになる。
  */
 export function resumeCommandFor(command: string): string | undefined {
   return AGENTS.find((a) => a.launch[0]?.command === command)?.launch[1]?.command
 }
+
+/**
+ * 固定タブを復元するときに走らせるコマンド（#437）。
+ *
+ * **そのタブで動いていたセッションが分かっていれば、id を指定して再開する。** 「続きから」
+ * （`resumeCommandFor`）は「そのディレクトリで最後に使ったセッション」を開くので、同じ
+ * プロジェクトにエージェントのタブが 2 枚あると、両方が同じセッションへ戻る。
+ *
+ * **id を使うのは、そのタブの `autoStart` が同じエージェントの表の起動行のときだけ。**
+ * 利用者が書いた行（`claude --model opus` など）は、どこへ id を足せばよいかをこちらで
+ * 決められないので、そのまま走らせる。エージェントが食い違うとき（固定タブの中で別の
+ * エージェントを手で起動した）も同じ。
+ *
+ * **id は形を確かめてからシェルの行に入れる**（`SESSION_ID`）。保存された `project.json` から
+ * 読んだ値が、次の起動でそのまま実行される行になる。
+ *
+ * 返すのは走らせる行と、id で再開するならその相手（呼び出し側が「再開の途中」と覚える）。
+ */
+export function restoreCommandFor(
+  command: string,
+  session?: AgentSessionRef,
+): { command: string; session?: AgentSessionRef } {
+  const agent = session && agentById(session.agent)
+  if (agent && SESSION_ID.test(session.id) && agent.launch.some((l) => l.command === command)) {
+    return { command: agent.resume(session.id), session }
+  }
+  return { command: resumeCommandFor(command) ?? command }
+}
+
+/** セッション id として受け入れる形（どのエージェントも uuid か英数字の並び）。 */
+const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 /**
  * 設定の行がそのエージェントを起動しているように見えるか。
