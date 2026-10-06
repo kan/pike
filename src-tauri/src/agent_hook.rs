@@ -127,6 +127,12 @@ const SESSION_FLAG: &str = "--session=";
 /// 状態の報告に添えるコンテキストの埋まり具合（`ContextUsage::parse` の形）。
 const CONTEXT_FLAG: &str = "--context=";
 
+/// 状態の報告に添える、セッションのプロジェクトルート（`AgentState::root`）。
+const ROOT_FLAG: &str = "--root=";
+
+/// パスとして受け入れる長さ（`ROOT_FLAG`）。
+const MAX_PATH_VALUE: usize = 1024;
+
 /// `StateKind::Ended` に添える、利用者が自分でセッションを抜けた印（`AgentState::left`）。
 const LEFT_FLAG: &str = "--left";
 
@@ -316,6 +322,14 @@ pub struct AgentState {
     pub session_id: Option<String>,
     /// `Idle` のときに添えられる。最初の応答より前には値が無い。
     pub context: Option<ContextUsage>,
+    /// `Idle` のときに添えられる、セッションのプロジェクトルート（そのシェルから見た
+    /// native パス。Claude Code の `$.session.root()`）。
+    ///
+    /// **セッションを再開できる場所。** Claude は記録を「書いた時点の作業ディレクトリ」に
+    /// 置くので、途中で worktree へ移ったセッションは移動先でしか `--resume` が通らない
+    /// （`.claude/rules/agent.md` の #432）。シェルの `cd` では動かない値なので、Bash で
+    /// サブディレクトリへ入っただけのターンで再開先がずれることは無い。
+    pub root: Option<String>,
     /// `Ended` のとき、利用者が自分で抜けたか（`/exit`、Ctrl+C、ログアウト）。
     ///
     /// **プロセスごと落とされた終わりと分ける**ために要る。Pike を閉じると PTY が kill され、
@@ -410,8 +424,12 @@ fn notify_running_pike(kind: NoticeKind) {
 /// 届け方も、届かないときに黙るのも `notify_running_pike` と同じ。
 fn report_state(kind: StateKind) {
     let mut flags = vec![format!("{STATE_FLAG}{}", kind.as_flag())];
-    for prefix in [SESSION_FLAG, CONTEXT_FLAG] {
-        if let Some(value) = flag_value(prefix) {
+    for (prefix, max) in [
+        (SESSION_FLAG, MAX_FLAG_VALUE),
+        (CONTEXT_FLAG, MAX_FLAG_VALUE),
+        (ROOT_FLAG, MAX_PATH_VALUE),
+    ] {
+        if let Some(value) = find_flag_within(std::env::args(), prefix, max) {
             flags.push(format!("{prefix}{value}"));
         }
     }
@@ -600,16 +618,32 @@ fn flag_value(prefix: &str) -> Option<String> {
 
 /// 受け取った argv から `--name=値` を取る（`flag_value` の、自分以外の argv 版）。
 fn find_flag(args: impl IntoIterator<Item = impl AsRef<str>>, prefix: &str) -> Option<String> {
+    find_flag_within(args, prefix, MAX_FLAG_VALUE)
+}
+
+/// `find_flag` の、丈の上限を選べる版（パスは id より長い）。
+fn find_flag_within(
+    args: impl IntoIterator<Item = impl AsRef<str>>,
+    prefix: &str,
+    max: usize,
+) -> Option<String> {
     args.into_iter()
         .find_map(|a| a.as_ref().strip_prefix(prefix).map(str::to_owned))
-        .filter(|v| safe_flag_value(v))
+        .filter(|v| safe_value(v, max))
 }
 
 /// そのまま回してよい値か。**フラグから来た値も環境変数から来た値も同じ述語を通す**:
 /// どちらもファイルへ書く / 別プロセスへ渡すもので、片方だけ緩いと、緩いほうが
 /// WM_COPYDATA に載って出て行く（`PIKE_PTY_ID` がまさにそれ）。
 fn safe_flag_value(value: &str) -> bool {
-    value.len() <= MAX_FLAG_VALUE && !value.contains(char::is_control)
+    safe_value(value, MAX_FLAG_VALUE)
+}
+
+/// **配送の区切り（`|`）を含む値も落とす**: single-instance の payload は `|` で argv を
+/// 繋ぐので、含んだまま送ると受け側で別の引数に割れる。id や契機には現れないが、パスには
+/// 現れうる（Linux のファイル名は `|` を許す）。
+fn safe_value(value: &str, max: usize) -> bool {
+    value.len() <= max && !value.contains(char::is_control) && !value.contains('|')
 }
 
 // --- Pike 側（通知を受ける、#265） ---
@@ -645,6 +679,7 @@ fn parse_state(args: &[String]) -> Option<AgentState> {
         state,
         session_id: find_flag(args, SESSION_FLAG),
         context: find_flag(args, CONTEXT_FLAG).and_then(|v| ContextUsage::parse(&v)),
+        root: find_flag_within(args, ROOT_FLAG, MAX_PATH_VALUE),
         left: args.iter().any(|a| a == LEFT_FLAG),
     })
 }
@@ -1840,6 +1875,25 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(odd.context, None);
+
+        // 再開先のパスは id より長くてよいが、配送の区切りを含むものは落とす。
+        let root = |path: &str| {
+            parse_state(&args(&[
+                "--state=idle",
+                &format!("--root={path}"),
+                "--pty=abc",
+                "--agent=claude",
+            ]))
+            .unwrap()
+            .root
+        };
+        let long = format!("/home/kan/{}", "w".repeat(300));
+        assert_eq!(root(&long).as_deref(), Some(long.as_str()));
+        assert_eq!(
+            root(r"C:\Users\kan\my repo").as_deref(),
+            Some(r"C:\Users\kan\my repo")
+        );
+        assert_eq!(root("/home/kan/a|b"), None);
 
         // 自分で抜けた終わりと、プロセスごと落とされた終わりを分けて届ける。
         let ended = |rest: &[&str]| parse_state(&args(rest)).unwrap().left;

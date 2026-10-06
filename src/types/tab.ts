@@ -270,6 +270,8 @@ export interface AgentRun {
   phase: 'running' | 'waiting' | 'idle'
   /** コンテキストの埋まり具合。最初の応答より前と、圧縮の直後には無い。 */
   context?: { tokens: number; window: number }
+  /** セッションのプロジェクトルート（`AgentSessionRef.dir` の出所）。最初のターンが終わるまで無い。 */
+  root?: string
 }
 
 /**

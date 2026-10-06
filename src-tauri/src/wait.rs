@@ -378,6 +378,10 @@ fn send_copydata(identifier: &str, args: &[String], cwd: &str, timeout_ms: Optio
 #[cfg(not(windows))]
 pub(crate) fn send_notice_to_first_instance(_args: &[String]) {}
 
+/// `send_notice_to_first_instance` が実際に届けるか。送る側（同梱の mod、
+/// `agent_mod::pty_env`）が、届け先の無い OS で `pike` を起こさないために読む。
+pub(crate) const DELIVERS_NOTICES: bool = cfg!(windows);
+
 #[cfg(windows)]
 fn encode_wide(s: &str) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;

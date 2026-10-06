@@ -27,6 +27,12 @@ export type AgentId = 'claude' | 'codex' | 'copilot' | 'opencode'
 export interface AgentSessionRef {
   agent: AgentId
   id: string
+  /**
+   * そのセッションを再開できる場所（そのシェルから見た native パス）。**セッションの途中で
+   * worktree へ移ったときだけ、タブの場所と食い違う**（記録が移動先に書かれ、再開もそこで
+   * しか通らない。`.claude/rules/agent.md` の #432）。分からなければ無い。
+   */
+  dir?: string
 }
 
 export interface AgentDef {
@@ -223,10 +229,16 @@ export function restoreCommandFor(
 ): { command: string; session?: AgentSessionRef } {
   const agent = session && agentById(session.agent)
   if (agent && SESSION_ID.test(session.id) && agent.launch.some((l) => l.command === command)) {
-    return { command: agent.resume(session.id), session }
+    // 再開する場所も保存から読んだ値で、シェルの行に入る（引用はするが、改行は行そのものを
+    // 割る）。形がおかしければ場所だけ捨てて、タブの場所で再開する。
+    const odd = session.dir !== undefined && CONTROL_CHARS.test(session.dir)
+    return { command: agent.resume(session.id), session: odd ? { agent: session.agent, id: session.id } : session }
   }
   return { command: resumeCommandFor(command) ?? command }
 }
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: 制御文字そのものを探している
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/
 
 /** セッション id として受け入れる形（どのエージェントも uuid か英数字の並び）。 */
 const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/

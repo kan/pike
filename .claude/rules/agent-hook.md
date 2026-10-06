@@ -68,6 +68,12 @@ Claude Code と mod を止めている環境、届かないもの）。ここに
     「セッション永続化」）。`session.end` には「利用者が自分で抜けたか」を添える（`--left`、
     `AgentState::left`）: Pike を閉じて PTY が kill されたときの終わりで id を忘れると、
     次の起動で再開する相手を自分で消すことになる
+  - **配送の無い OS では、知らせと状態のために `pike` を起こさない**。Pike が PTY の環境に
+    `PIKE_HOOK_LIVE` を立てるのは配送があるときだけ（`agent_mod.rs` の `LIVE_ENV`、
+    `wait::DELIVERS_NOTICES`）で、mod はそれを見る（`register.ts` の `liveOf`）。**申告と
+    レートの報告はこの変数に依らず送る**（ファイルに書くものなので、macOS でも要る）
+  - **状態の報告に載せるパスは、配送の区切り `|` を含むと落ちる**（`safe_value`）。
+    single-instance の payload が `|` で argv を繋ぐため
   - **`agentRun` はセッションの保存に載せない**（`snapshotSession` は欄を選んで写す）。
     シェルが終われば下ろす（`tabStore.reportExit`。kill された claude からは `session.end` が
     届かないことがある）

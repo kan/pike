@@ -30,6 +30,8 @@ interface AgentStateReport {
   state: 'session' | 'running' | 'waiting' | 'idle' | 'ended'
   sessionId: string | null
   context: NonNullable<AgentRun['context']> | null
+  /** `idle` のときに添えられる、セッションを再開できる場所。 */
+  root: string | null
   /** `ended` のとき、利用者が自分で抜けたか。 */
   left: boolean
 }
@@ -91,7 +93,12 @@ function applyState(report: AgentStateReport) {
  */
 function rememberSession(tab: TerminalTab, run: AgentRun | undefined, report: AgentStateReport) {
   const tabStore = useTabStore()
-  const current = run?.sessionId ? { agent: run.agent, id: run.sessionId } : undefined
+  // **再開できる場所は、届いていないあいだ前の値を引き継ぐ。** `run.root` はターンの終わりに
+  // しか届かず、セッションの開始（復元の直後、自動の圧縮）で一度空になる。そのまま書くと、
+  // 覚えていた worktree の場所を消してしまい、次の復元がタブの場所で再開して失敗する。
+  const resumed = tab.restore?.session
+  const kept = tab.agentSession?.id === run?.sessionId ? tab.agentSession?.dir : resumed?.dir
+  const current = run?.sessionId ? { agent: run.agent, id: run.sessionId, dir: run.root ?? kept } : undefined
   switch (report.state) {
     case 'ended':
       if (report.left) tabStore.setAgentSession(tab.id, undefined)
@@ -99,8 +106,15 @@ function rememberSession(tab: TerminalTab, run: AgentRun | undefined, report: Ag
     case 'running':
       if (current) tabStore.setAgentSession(tab.id, current)
       break
+    case 'idle':
+      // 再開できる場所はターンの終わりに届く。覚えている相手のものなら書き足す
+      // （worktree へ移ったターンのあとは、ここで移動先に替わる）。
+      if (current && tab.agentSession?.id === current.id && tab.agentSession.dir !== current.dir) {
+        tabStore.setAgentSession(tab.id, current)
+      }
+      break
     case 'session':
-      if (tab.restore?.session?.agent === report.agent) tabStore.setAgentSession(tab.id, current)
+      if (resumed?.agent === report.agent) tabStore.setAgentSession(tab.id, current)
       else if (tab.agentSession && tab.agentSession.id !== current?.id) tabStore.setAgentSession(tab.id, undefined)
       break
   }
@@ -113,12 +127,19 @@ function nextRun(prev: AgentRun | undefined, report: AgentStateReport): AgentRun
     case 'session':
       // **いまの状態は引き継ぐ。** `SessionStart` はターンの途中にも来る（自動の圧縮）。
       // コンテキストは捨てる: 新しいセッションでも圧縮のあとでも、前の値はもう違う。
+      // 再開できる場所も捨てる（別のセッションのものかもしれない。次のターンの終わりに届く）。
       return { agent: report.agent, sessionId: report.sessionId ?? undefined, phase: prev?.phase ?? 'idle' }
     case 'running':
     case 'waiting':
       return { ...prev, agent: report.agent, phase: report.state }
     case 'idle':
-      return { ...prev, agent: report.agent, phase: 'idle', context: report.context ?? prev?.context }
+      return {
+        ...prev,
+        agent: report.agent,
+        phase: 'idle',
+        context: report.context ?? prev?.context,
+        root: report.root ?? prev?.root,
+      }
   }
 }
 

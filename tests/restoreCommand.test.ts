@@ -21,6 +21,13 @@ describe('restoreCommandFor', () => {
     assert.deepEqual(restoreCommandFor('claude --continue', session), { command: 'claude --resume 0b5c', session })
   })
 
+  it('再開する場所は一緒に返し、改行を含むものは場所だけ捨てる', () => {
+    const at = (dir: string) => restoreCommandFor('claude', { ...session, dir }).session?.dir
+    assert.equal(at('/home/kan/pike/.claude/worktrees/x'), '/home/kan/pike/.claude/worktrees/x')
+    assert.equal(at('C:\\src\\my repo'), 'C:\\src\\my repo')
+    assert.equal(at('C:\\src\r\ncalc.exe'), undefined)
+  })
+
   it('利用者が書いた行と、別のエージェントの行には id を足さない', () => {
     assert.deepEqual(restoreCommandFor('claude --model opus', session), { command: 'claude --model opus' })
     assert.deepEqual(restoreCommandFor('claude --resume abc --model opus', session), {

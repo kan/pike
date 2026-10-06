@@ -164,7 +164,8 @@ backend の推測、色とアイコンは未設定。
   - **そのタブのセッション id が分かっていれば、id を指定して再開する**（#437。`claude --resume <id>`）。「続きから」はそのディレクトリで最後に使ったセッションを開くので、同じプロジェクトに固定タブが 2 枚あると両方が同じ会話へ戻る。id は同梱の mod が知らせ、`TerminalTab.agentSession` → `SessionTabDef.agentSession` で保存する（覚える契機と忘れる契機は `useAgentRun` の `rememberSession` の doc が正本）
   - **対象は固定タブだけ**（利用者の判断）。手で `claude` と打ったターミナルは、これまでどおり素のシェルで復元する。利用者が書いた起動行（`claude --model opus`）にも id を足さない（どこへ足すかをこちらで決められない）
   - **タブの `autoStart` は書き換えない**。読み替えた行は `TerminalTab.restore`（保存しない）に置き、今回だけ走らせる。`autoStart` を再開行で上書きすると、それが保存されて次の復元が起動行として読めなくなる（自分で抜けたあとも古い id で再開し続ける）
-  - **worktree へ移ったセッションは再開に失敗しうる**（既知の制約）。Claude の記録は書いた時点の作業ディレクトリに置かれ、`--resume` はそこでしか通らない（`agent.md` の #432）。復元はタブの cwd で走らせる。**失敗は 1 回で止まる**: 再開できなければ id を覚え直さないので、次の復元は「続きから」に落ちる
+  - **再開できる場所も一緒に覚える**（`AgentSessionRef.dir`）。Claude の記録は書いた時点の作業ディレクトリに置かれ、セッションの途中で worktree へ移ると `--resume` は移動先でしか通らない（`agent.md` の #432）。出所は mod の `$.session.root()`（worktree の移動には追従し、シェルの `cd` では動かない）で、ターンの終わりに届く。タブの場所と違うときだけ、そこへ移って走らせて戻る（`types/tab.ts` の `runInDir`。メニューからの再開と同じ 1 行）。**タブの cwd は変えない**: 固定タブのシェルが知らないうちに worktree に居ることになり、片付けたあとは開けなくなる
+  - **再開の失敗は 1 回で止まる**: 再開できなければ id を覚え直さないので、次の復元は「続きから」に落ちる（worktree が消えていた、記録が掃除された）
 - tmux はオプション機能として `pty_spawn_tmux` コマンドで利用可能（必須ではない）
 - タブのドラッグ&ドロップ入れ替え（HTML5 Drag and Drop API、box-shadow でドロップ位置表示）
 - タブコンテキストメニュー: Pin/Unpin、Close、Close Others、Close to the Right、Close Saved、Close All

@@ -28,6 +28,7 @@ import { openPathInTab, projectPath } from '../../lib/openFile'
 import { useOverlay } from '../../lib/overlay'
 import { isAbsolutePath } from '../../lib/paths'
 import { readableTextOn } from '../../lib/projectColors'
+import { rootKey } from '../../lib/projectPaths'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
 import { ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import {
@@ -957,7 +958,12 @@ onMounted(async () => {
     // 復元したタブは、今回だけ読み替えた行を走らせる（#437。`TerminalTab.restore` の doc）。
     const startLine = tabData.restore?.command ?? tabData.autoStart
     if (startLine) {
-      initLines.push(buildAutoStartLine(startLine, shellKind, tabData.closeOnExit))
+      // 再開できる場所がこのタブの場所と違う（セッションの途中で worktree へ移っていた）なら、
+      // そこへ移って走らせる。抜けたら元の場所へ戻る（`runInDir`。メニューからの再開と同じ）。
+      const dir = tabData.restore?.session?.dir
+      const { shell, cwd } = tabData
+      const line = dir && shell && rootKey(dir) !== rootKey(cwd ?? '') ? runInDir(shell, dir, startLine) : startLine
+      initLines.push(buildAutoStartLine(line, shellKind, tabData.closeOnExit))
       expectReport(currentPtyId, startLine)
     } else if (initLines.length > 0) {
       initLines.push(clearCmd)

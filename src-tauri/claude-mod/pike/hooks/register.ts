@@ -27,7 +27,12 @@ const NOTICE_EVENTS: Record<string, string> = {
   idle_prompt: 'idle',
 }
 
-type Pike = { exe: string; installKey: string }
+type Pike = {
+  exe: string
+  installKey: string
+  /** 走っている Pike へ届ける配送があるか（Pike が `PIKE_HOOK_LIVE` で知らせる。無い OS がある）。 */
+  live: boolean
+}
 
 /**
  * `session.measure` は記録の場所（どのアカウントかの手がかり）を持たないので、classic の
@@ -48,8 +53,22 @@ async function pikeOf($: EngineInterface): Promise<Pike | undefined> {
   const exe = await $.env.get('PIKE_HOOK_EXE')
   const pty = await $.env.get('PIKE_PTY_ID')
   if (!exe || !pty) return undefined
-  pikeCache = { exe, installKey: (await $.env.get('PIKE_INSTALL_KEY')) ?? '' }
+  pikeCache = {
+    exe,
+    installKey: (await $.env.get('PIKE_INSTALL_KEY')) ?? '',
+    live: (await $.env.get('PIKE_HOOK_LIVE')) === '1',
+  }
   return pikeCache
+}
+
+/**
+ * 知らせと状態の報告の宛先。**走っている Pike へ届ける配送が無い環境では `undefined`**
+ * （`Pike.live`）で、そこではプロセスを起こさない。申告とレートの報告は `pikeOf` を使う
+ * （ファイルに書くものなので、配送に依らない）。
+ */
+async function liveOf($: EngineInterface): Promise<Pike | undefined> {
+  const pike = await pikeOf($)
+  return pike?.live ? pike : undefined
 }
 
 /** `pike agent-hook` を起こす。**待たない**（呼び出し側は `void` で捨てる）。 */
@@ -90,7 +109,7 @@ async function reportResumed($: EngineInterface): Promise<void> {
 /** ターンが走っていることを知らせる（始まったときと、確認に答えが出たとき）。 */
 async function reportRunning($: EngineInterface): Promise<void> {
   awaitingPermission = false
-  const pike = await pikeOf($)
+  const pike = await liveOf($)
   if (pike) void enqueue(() => report($, pike, ['--state=running'], {}))
 }
 
@@ -109,6 +128,13 @@ async function reportIdle($: EngineInterface, pike: Pike): Promise<void> {
   } catch {
     // 読めなくても、終わったことは知らせる。
   }
+  try {
+    // セッションを再開できる場所（`agent_hook.rs` の `AgentState::root`）。worktree へ
+    // 移ると動くので、ターンのたびに読む。
+    flags.push(`--root=${await $.session.root()}`)
+  } catch {
+    // 無ければ、Pike はタブの場所で再開する。
+  }
   await report($, pike, flags, {})
 }
 
@@ -121,7 +147,8 @@ export const register: Register = (on) => {
     await $.env.set('PIKE_AGENT_MOD', '1')
     transcriptPath = e.transcript_path
     // 申告（stdin）と、このターミナルでセッションが始まったことを 1 回で渡す。
-    const flags = ['--state=session', `--session=${e.session_id}`]
+    // 配送が無い環境では申告だけ（フラグ無しが申告。`agent_hook.rs` の `run_hook`）。
+    const flags = pike.live ? ['--state=session', `--session=${e.session_id}`] : []
     void enqueue(() => report($, pike, flags, { transcript_path: e.transcript_path, cwd: e.cwd }))
     return next(e)
   })
@@ -131,7 +158,7 @@ export const register: Register = (on) => {
     // 許可の確認は `PermissionRequest` で知らせ済み。答えを待っているあいだに来る
     // 同じ確認の `permission_prompt` では、プロセスを起こさない。
     const known = awaitingPermission && e.notification_type === 'permission_prompt'
-    const pike = event && !known ? await pikeOf($) : undefined
+    const pike = event && !known ? await liveOf($) : undefined
     if (pike) void report($, pike, [`--event=${event}`], {})
     return next(e)
   })
@@ -142,7 +169,7 @@ export const register: Register = (on) => {
   // 状態（`--state=waiting`）も同じ 1 回で渡す。知らせは「まだ見ていない」あいだだけの
   // 印で、状態は答えるまで続く（`agent_hook.rs` の `StateKind::Waiting`）。
   on('classic.PermissionRequest', async ($, e, next) => {
-    const pike = await pikeOf($)
+    const pike = await liveOf($)
     if (pike) {
       awaitingPermission = true
       void enqueue(() => report($, pike, ['--state=waiting', '--event=waiting'], {}))
@@ -157,7 +184,7 @@ export const register: Register = (on) => {
 
   on('classic.Stop', async ($, e, next) => {
     transcriptPath = e.transcript_path
-    const pike = await pikeOf($)
+    const pike = await liveOf($)
     if (pike) void report($, pike, ['--event=done'], {})
     return next(e)
   })
@@ -168,14 +195,14 @@ export const register: Register = (on) => {
   on('turn.complete', async ($, e, next) => {
     // サブエージェントの終わりは本線の終わりではない。
     if (e.agentId !== undefined) return next(e)
-    const pike = await pikeOf($)
+    const pike = await liveOf($)
     awaitingPermission = false
     if (pike) void enqueue(() => reportIdle($, pike))
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
-    const pike = await pikeOf($)
+    const pike = await liveOf($)
     // 列の後ろに並べて待つ。先に送ると、まだ列にいるターンの終わりが後から届く。
     // 利用者が自分で抜けたときは印を付ける（`agent_hook.rs` の `AgentState::left`）。
     // `clear` と `resume` は付けない: 同じプロセスが次のセッションを始めて名乗り直す。

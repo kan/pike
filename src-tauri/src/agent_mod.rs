@@ -40,6 +40,12 @@ const HOOK_EXE_ENV: &str = "PIKE_HOOK_EXE";
 /// 動いているかを知らないので、spawn する側が渡す（`Declaration::install` と同じ事情）。
 const INSTALL_KEY_ENV: &str = "PIKE_INSTALL_KEY";
 
+/// 走っている Pike へ届ける配送があるか（`wait::DELIVERS_NOTICES`）。**無い OS では立てない。**
+/// mod はこれを見て、知らせと状態の報告のために `pike` を起こすかを決める: 届け先が無いのに
+/// 起こすと、ターンのたびにプロセスだけが立って何もせずに終わる。申告とレートの報告は
+/// ファイルに書くものなので、この変数に依らず送る。
+const LIVE_ENV: &str = "PIKE_HOOK_LIVE";
+
 /// mod のファイル。**足したらここにも 1 行**（埋め込みなので、漏れると配られない）。
 const FILES: &[(&str, &str)] = &[
     (
@@ -91,13 +97,15 @@ pub fn install(identifier: &str) {
 ///
 /// - **フォルダの並びだけ `/l`（パスの並びとして変換）を付ける**。Windows のパスが
 ///   `/mnt/c/...` になり、区切りも `:` に直る（実測）
+/// - `LIVE_ENV` は WSL の中の mod が読む（配送は Windows 側にあるので、WSL でも立てる）
 /// - **mod が立てる目印（`agent_hook::MOD_ENV`）も並べる。** WSL の settings の hook が
 ///   起こすのは interop 越しの `pike.exe`（Windows プロセス）で、そこへ渡るのは `WSLENV` に
 ///   載せた変数だけ。載せないと目印が届かず、mod と hook の両方が知らせて通知が二重になる
-pub const WSLENV_NAMES: [&str; 4] = [
+pub const WSLENV_NAMES: [&str; 5] = [
     "CLAUDE_CODE_PLUGIN_DIRS/l",
     HOOK_EXE_ENV,
     INSTALL_KEY_ENV,
+    LIVE_ENV,
     crate::agent_hook::MOD_ENV,
 ];
 
@@ -122,6 +130,9 @@ pub fn pty_env(shell: Option<&ShellConfig>) -> Option<Vec<(&'static str, String)
     // インストールで突き合わせる）。プロジェクトのターミナルは必ずシェルを持つ。
     if let Some(shell) = shell {
         vars.push((INSTALL_KEY_ENV, crate::types::install_key(shell)));
+    }
+    if crate::wait::DELIVERS_NOTICES {
+        vars.push((LIVE_ENV, "1".to_owned()));
     }
     Some(vars)
 }
