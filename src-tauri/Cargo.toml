@@ -1,6 +1,6 @@
 [package]
 name = "pike"
-version = "0.59.2"
+version = "0.60.0"
 description = "Lightweight AI-coding-focused development environment"
 authors = ["Kan Fushihara <kan.fushihara@gmail.com>"]
 license = "MIT"
@@ -89,7 +89,13 @@ tauri-plugin-notification = "2"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # E2E 撮影 (issue #142)。`e2e` feature でのみ有効。本番ビルドには含まれない。
-tauri-plugin-wdio-webdriver = { version = "1", optional = true }
+#
+# **crates.io の 1.4.0 は tauri 2.12 でコンパイルできない**（webview2-com 0.38 を前提にして
+# いて、tauri が渡す 0.39 の型と食い違う。上流の webdriverio/desktop-mobile#684）。直した
+# コミットがまだ公開されていないので、そこを git で指す。**1.4.0 より新しい版が crates.io に
+# 出たら `version = "1"` に戻すこと。** 通常のビルドはこの依存を引かないので、気付けるのは
+# `just e2e-build` だけ（CI は撮影用のビルドを回さない）。
+tauri-plugin-wdio-webdriver = { git = "https://github.com/webdriverio/desktop-mobile", rev = "e4bdb66ec5b1d96b7fd766d70370a8e8361e0459", optional = true }
 
 # プロセス生存確認（`claude_usage::is_process_alive`）に `kill(pid, 0)` が要る。
 # Windows の `OpenProcess` に相当するものが std に無いため、非 Windows でだけ足す。
