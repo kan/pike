@@ -21,7 +21,6 @@ import { attachUrlLinks } from '../../composables/useTerminalUrlLinks'
 import { useI18n } from '../../i18n'
 import { isMacHost, isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
-import { imeLog, imeLogSessionStart } from '../../lib/imeDebugLog'
 import { parkFocusForIme } from '../../lib/imeFocusPark'
 import { matchChord, normalizedKey } from '../../lib/keys'
 import { openPathInTab, projectPath } from '../../lib/openFile'
@@ -746,7 +745,6 @@ onMounted(async () => {
   // setTimeout is queued after xterm's own read (registered on the textarea
   // target) and therefore runs later; the compositionstart listener stays in
   // CAPTURE phase so, when it does clear, it precedes xterm recording the offset.
-  imeLogSessionStart(props.tabId)
   let imeSending = false
   let imeComposing = false
   // 「謎のバックスペース」対策（xterm 6.0.0）。IME 有効時の打鍵を監視する
@@ -759,7 +757,6 @@ onMounted(async () => {
     'compositionstart',
     () => {
       imeComposing = true
-      imeLog('compositionstart', terminal?.textarea?.value ?? '', `sending=${imeSending}`)
       // Regular repeated conversions arrive here with no send pending, so it is
       // safe to reset the offset to 0. During an SKK confirm-by-continue streak a
       // send is still in flight, so leave the textarea intact for xterm to read.
@@ -767,16 +764,11 @@ onMounted(async () => {
     },
     true,
   )
-  // 調査用: 変換候補の遷移を追う（削除対象）。
-  termRef.value.addEventListener('compositionupdate', (e) => {
-    imeLog('compositionupdate', (e as CompositionEvent).data ?? '')
-  })
   termRef.value.addEventListener('compositionend', (e) => {
     imeComposing = false
     imeSending = true
     const committed = (e as CompositionEvent).data ?? ''
     if (committed) pendingCommit = { data: committed, at: Date.now() }
-    imeLog('compositionend', committed, `ta="${terminal?.textarea?.value ?? ''}"`)
     setTimeout(() => {
       imeSending = false
       // If a new composition has already taken over (SKK streak), leave the
@@ -785,27 +777,12 @@ onMounted(async () => {
       if (!imeComposing && terminal?.textarea) terminal.textarea.value = ''
     }, 0)
   })
-  // 調査用: IME が「確定済みの文字を消す」要求を出しているかを見る。
-  // deleteContentBackward が出ていれば BS の出所はこちら側。
-  termRef.value.addEventListener('beforeinput', (e) => {
-    const ie = e as InputEvent
-    imeLog('beforeinput', ie.data ?? '', `type=${ie.inputType} composing=${ie.isComposing}`)
-  })
-  // 調査用: beforeinput が preventDefault されず実際に適用されたかの裏取り（削除対象）。
-  termRef.value.addEventListener('input', (e) => {
-    const ie = e as InputEvent
-    imeLog('input', ie.data ?? '', `type=${ie.inputType} composing=${ie.isComposing}`)
-  })
   // 本人が押した BS / Delete は差し替えの対象外（確定直後でもそのまま通す）。
-  // ここは調査用ではないので、imeLog 群を掃除するときも残すこと。
   termRef.value.addEventListener(
     'keydown',
     (e) => {
       const ke = e as KeyboardEvent
-      if (ke.key !== 'Backspace' && ke.key !== 'Delete') return
-      pendingCommit = null
-      // 調査用: BS の出所と、変換中フラグの食い違いを見る（この行だけ削除対象）。
-      imeLog('keydown', ke.key, `composing=${ke.isComposing} code=${ke.code}`)
+      if (ke.key === 'Backspace' || ke.key === 'Delete') pendingCommit = null
     },
     true,
   )
@@ -991,18 +968,12 @@ onMounted(async () => {
     const commit = pendingCommit
     pendingCommit = null
     const data = commit && raw === DEL && Date.now() - commit.at < COMMIT_DEL_WINDOW_MS ? commit.data : raw
-    if (data !== raw) imeLog('onData:DEL_FIXUP', data)
     if (hasNonAscii(data)) {
       const now = Date.now()
-      if (data === lastIMEData && now - lastIMETime < 30) {
-        // 調査用: ここで捨てた分が「消えた 1 文字」の正体かを確かめる。
-        imeLog('onData:DROPPED', data, `sinceLast=${now - lastIMETime}ms`)
-        return
-      }
+      if (data === lastIMEData && now - lastIMETime < 30) return
       lastIMEData = data
       lastIMETime = now
     }
-    imeLog('onData', data)
     ptyWrite(ptyId, data.replace(/\r\n/g, '\r')).catch(() => {})
   })
 

@@ -64,7 +64,6 @@ pike/
 │       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）と仮想デスクトップ（#317）
 │       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）
 │       ├── webview_focus.rs   # ウィンドウが得たフォーカスを本体の webview へ渡す（#439、WebView2 COM）
-│       ├── ime_debug.rs       # IME 調査用の一時ログ（原因判明後に削除する）
 │       ├── vdesk/mod.rs       # 仮想デスクトップ（#317、Windows 専用 COM。他 OS は stub）
 │       ├── jumplist/mod.rs    # タスクバーのジャンプリスト（#160、Windows 専用 COM）
 │       ├── appmenu/mod.rs     # macOS のアプリケーションメニュー（#254、macOS 専用）
@@ -271,7 +270,7 @@ pike/
 │   │   ├── tabTitle.ts        # タブの表示名（シングルトンタブは kind から i18n を引く）
 │   │   ├── manual.ts  slug.ts # アプリ内マニュアルの読み込みと見出しスラッグ
 │   │   ├── dropPaths.ts       # WebView2 経由でドロップされたファイルの実パス取得
-│   │   ├── imeDebugLog.ts  imeFocusPark.ts  # IME 調査用（原因判明後に削除する）
+│   │   ├── imeFocusPark.ts    # ウィンドウが非アクティブのあいだ、DOM のフォーカスを置いておく入力欄（IME が切れたままになるのを防ぐ）
 │   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts
 │   │   ├── editorFormat.ts   # クイック整形（#366。JSON / js-beautify / 行の整形）
 │   │   ├── editorLoadMore.ts # 部分読み込みの「続きを読む」を本文の末尾に出す（#362）

@@ -47,7 +47,6 @@ mod favicon;
 mod font;
 mod fs;
 mod git;
-mod ime_debug;
 mod issues;
 /// ジャンプリスト（タスクバー右クリック、#160）は `ICustomDestinationList` という
 /// Windows 専用 COM API。macOS の Dock メニューは別物なので、ここでは何もしない
@@ -1882,8 +1881,6 @@ pub fn run() {
             tray_set_tooltip,
             tray_set_close_to_tray,
             window_set_backdrop,
-            ime_debug::ime_debug_enabled,
-            ime_debug::ime_debug_log,
             elevate::is_elevated,
             elevate::open_elevated_terminal,
             save_all_window_state,
