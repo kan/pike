@@ -548,8 +548,10 @@ export async function gitDiff(
   untracked = false,
   /** `GitFileChange.origPath`（#306）。 */
   origPath: string | null = null,
+  /** 空白の違いを無視する（#453。diff タブの切り替え）。 */
+  ignoreSpace = false,
 ): Promise<string> {
-  return invoke<string>('git_diff', { root, shell, path, staged, untracked, origPath })
+  return invoke<string>('git_diff', { root, shell, path, staged, untracked, origPath, ignoreSpace })
 }
 
 export async function gitStage(root: string, shell: ShellType, paths: string[]): Promise<void> {
@@ -638,8 +640,15 @@ export async function gitShowFiles(root: string, shell: ShellType, hash: string)
   return invoke<GitFileChange[]>('git_show_files', { root, shell, hash })
 }
 
-export async function gitDiffCommit(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
-  return invoke<string>('git_diff_commit', { root, shell, hash, path })
+export async function gitDiffCommit(
+  root: string,
+  shell: ShellType,
+  hash: string,
+  path: string,
+  /** 空白の違いを無視する（#453。diff タブの切り替え）。 */
+  ignoreSpace = false,
+): Promise<string> {
+  return invoke<string>('git_diff_commit', { root, shell, hash, path, ignoreSpace })
 }
 
 /** コミット全体の差分（#374）。`parent` は第 1 親（最初のコミットなら `null`）。 */
@@ -648,8 +657,10 @@ export async function gitCommitPatch(
   shell: ShellType,
   hash: string,
   parent: string | null,
+  /** 空白の違いを無視する（#453）。空白だけが違うファイルは結果から消える。 */
+  ignoreSpace = false,
 ): Promise<{ patch: string; truncated: boolean }> {
-  return invoke<{ patch: string; truncated: boolean }>('git_commit_patch', { root, shell, hash, parent })
+  return invoke<{ patch: string; truncated: boolean }>('git_commit_patch', { root, shell, hash, parent, ignoreSpace })
 }
 
 export async function gitShowFile(root: string, shell: ShellType, hash: string, path: string): Promise<string> {

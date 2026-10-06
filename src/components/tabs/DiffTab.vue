@@ -4,14 +4,14 @@ import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch 
 import { useDragResize } from '../../composables/useDragResize'
 import { useI18n } from '../../i18n'
 import { type Expanded, expandDiff, type Gap, matchesDiff } from '../../lib/diffExpand'
-import { parseDiff, parseRename } from '../../lib/diffParser'
+import { isBinaryDiff, parseDiff, parseRename } from '../../lib/diffParser'
 import { collectMatches, renderTokens } from '../../lib/diffSearch'
 import { displayWidth } from '../../lib/displayWidth'
 import { horizontalReveal } from '../../lib/domFind'
 import { matchChord } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
 import { joinPath, pathSep, repoPath } from '../../lib/paths'
-import { fsReadFile, gitDiff, gitShowFile } from '../../lib/tauri'
+import { fsReadFile, gitDiff, gitDiffCommit, gitShowFile } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
@@ -19,6 +19,7 @@ import { useTabStore } from '../../stores/tabs'
 import type { DiffTab } from '../../types/tab'
 import FindBar from '../editor/FindBar.vue'
 import WrapToggle from '../editor/WrapToggle.vue'
+import IgnoreSpaceToggle from '../IgnoreSpaceToggle.vue'
 import RenameNote from '../RenameNote.vue'
 
 const { t } = useI18n()
@@ -32,7 +33,7 @@ const tab = computed(() => tabStore.tabs.find((t): t is DiffTab => t.id === prop
 
 const rawLines = computed(() => (tab.value ? parseDiff(tab.value.diff, { charLevel: true }) : []))
 
-const isBinaryDiff = computed(() => tab.value?.diff.includes('Binary files') ?? false)
+const binary = computed(() => (tab.value ? isBinaryDiff(tab.value.diff) : false))
 
 const renamed = computed(() => (tab.value ? parseRename(tab.value.diff) : null))
 
@@ -43,9 +44,13 @@ const renamed = computed(() => (tab.value ? parseRename(tab.value.diff) : null))
  * `rename from/to` と `Binary files … differ` の両方を持ち hunk が出ない。リネームの側を
  * 先に見ると「内容は同じです」と嘘をつくうえ、開くボタンも消える。
  */
-const emptyState = computed<'binary' | 'rename' | 'raw' | 'none' | null>(() => {
+const emptyState = computed<'binary' | 'space' | 'rename' | 'raw' | 'none' | null>(() => {
   if (!tab.value || parsedLines.value.length) return null
-  if (isBinaryDiff.value) return 'binary'
+  if (binary.value) return 'binary'
+  // **空白を無視しているあいだは、リネームより先に見る**（#453）。空白だけが違うリネームは
+  // `-w` で hunk が消えてヘッダだけになるので、リネームの側を先に見ると「内容は同じです」と
+  // 嘘をつく。モードの変更と重なったとき（下の `raw`）も同じで、出すべきは「空白以外は同じ」。
+  if (tab.value.ignoreSpace) return 'space'
   if (renamed.value) return 'rename'
   return tab.value.diff ? 'raw' : 'none'
 })
@@ -576,22 +581,93 @@ let refreshSeq = 0
 
 async function refreshFromDisk() {
   const t = tab.value
-  const project = projectStore.currentProject
-  if (!t || !project) return
-  const seq = ++refreshSeq
-  let diff: string
+  if (!t) return
   try {
-    // **基準はこのタブの root**（#321）。`activeRoot` を読むと、worktree で開いたタブが
-    // main の差分に黙って差し替わる（`App.vue` の照合と対で、両方が同じ root を見る）。
-    diff = await gitDiff(t.root, project.shell, t.filePath, t.staged ?? false, t.untracked ?? false, t.origPath ?? null)
+    await refetch(t.ignoreSpace ?? false)
   } catch {
     // 失敗しても、読めていた差分はそのまま残す（次の変更で取り直す）。
-    return
   }
+}
+
+/**
+ * このタブの差分を取り直して差し替える。**出どころ（コミット / index / 作業ツリー）は
+ * タブが持つ材料から決まる**（`loadNewSide` と同じ分け方）。後から飛んだ取得に追い越されたら
+ * 何も書かない。失敗は投げる（扱いは呼び出し側で違う）。
+ *
+ * **見方（`ignoreSpace`）も、差分と同じところで書く。** 取り直せてから変えるのは、先に印だけ
+ * 変えると、失敗したときに「無視している」と出ているのに中身は無視していない差分が残るため。
+ * 同じ tick に書くのは描き直しを 1 回で済ませるため（仮想化していない表なので、分けると
+ * 全行の差分取りが余分に走る）。
+ *
+ * **待っているあいだにタブが開き直されていたら捨てる**（`DiffTab.opens`）。Git パネルから
+ * 開き直すと、差分・見方・取り直しの材料（root など）が外から差し替わる（`addDiffTab`）。
+ * そこへ前の材料で取った差分を書くと、ボタンと中身が食い違い、別の worktree で開き直した
+ * ときは古い root の差分が入る。
+ */
+async function refetch(ignoreSpace: boolean): Promise<void> {
+  const t = tab.value
+  const project = projectStore.currentProject
+  if (!t || !project) return
+  const opens = t.opens
+  const seq = ++refreshSeq
+  // **基準はこのタブの root**（#321）。`activeRoot` を読むと、worktree で開いたタブが
+  // main の差分に黙って差し替わる（`App.vue` の照合と対で、両方が同じ root を見る）。
+  const diff = t.commitHash
+    ? await gitDiffCommit(t.root, project.shell, t.commitHash, t.filePath, ignoreSpace)
+    : await gitDiff(
+        t.root,
+        project.shell,
+        t.filePath,
+        t.staged ?? false,
+        t.untracked ?? false,
+        t.origPath ?? null,
+        ignoreSpace,
+      )
   // 追い越された取得は捨てる。**変わったときだけ書く**のは、タブへの代入がセッションの
   // 書き出し（`$subscribe`）を起こすため。
-  if (seq !== refreshSeq || !tab.value || tab.value.diff === diff) return
-  tab.value.diff = diff
+  if (seq !== refreshSeq || !tab.value || tab.value.opens !== opens) return
+  if (tab.value.diff !== diff) tab.value.diff = diff
+  if ((tab.value.ignoreSpace ?? false) !== ignoreSpace) tab.value.ignoreSpace = ignoreSpace
+}
+
+// --- 空白の違いを無視する（#453）---------------------------------------------
+
+/**
+ * 切り替えの取得が飛んでいるあいだ。二度押しで逆向きの取得を重ねない。**ref にしない**:
+ * 画面に出すものではなく、立て下ろしのたびに表ごと描き直すことになる。
+ */
+let togglingSpace = false
+
+/**
+ * 切り替えを出すか。**無視しても何も変わらない差分では出さない**: 未追跡のファイルは全行が
+ * 追加で、バイナリは行を持たない。**無視しているあいだは必ず出す**（戻す入口なので）。
+ *
+ * **バイナリかは `emptyState` で見る**（`isBinaryDiff` を直に読まない）。あちらは行がある
+ * 差分に使うと、本文にその語があるだけでボタンが消える（あの関数の doc）。
+ */
+const canIgnoreSpace = computed(() => {
+  const current = tab.value
+  if (!current) return false
+  return current.ignoreSpace === true || !(current.untracked || emptyState.value === 'binary')
+})
+
+/**
+ * 空白の違いを無視するかを切り替える。見方を変えるのは `refetch`（取り直せたときだけ）。
+ *
+ * コミットの差分もここで取り直す。ファイルの変更への追従（`refreshFromDisk`）は作業ツリーの
+ * ぶんしか来ないが、こちらは利用者が頼んだ取り直しなので出どころを選ばない。
+ */
+async function toggleIgnoreSpace() {
+  const current = tab.value
+  if (!current || togglingSpace) return
+  togglingSpace = true
+  try {
+    await refetch(!current.ignoreSpace)
+  } catch {
+    useStatusMessageStore().show({ text: t('diff.ignoreSpaceFailed'), variant: 'error' })
+  } finally {
+    togglingSpace = false
+  }
 }
 
 /** 見えていないあいだに来た変更。描かれるようになった時点で取り直す。 */
@@ -645,6 +721,7 @@ onUnmounted(() => {
         </template>
         <span v-else-if="emptyState === 'rename'">{{ t('diff.renameOnly') }}</span>
         <span v-else-if="emptyState === 'raw'">{{ tab.diff.slice(0, 200) }}</span>
+        <span v-else-if="emptyState === 'space'">{{ t('diff.noChangesBesidesSpace') }}</span>
         <span v-else>{{ t('diff.noChanges') }}</span>
       </div>
       <template v-else>
@@ -727,10 +804,6 @@ onUnmounted(() => {
       <div ref="hscrollEl" class="hscroll" :class="{ on: canScrollX }" @scroll="onHScroll">
         <div class="hscroll-inner"></div>
       </div>
-      <!-- 検索パネルと同じ角に出るので、開いているあいだは隠す。 -->
-      <div v-if="!showSearch" class="hover-toolbar" :class="{ prominent: canScrollX }">
-        <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
-      </div>
       <FindBar
         v-if="showSearch"
         ref="findBar"
@@ -742,6 +815,13 @@ onUnmounted(() => {
         @close="closeSearch"
       />
       </template>
+      <!-- 検索パネルと同じ角に出るので、開いているあいだは隠す。
+           **行が 1 つも無いときにも出す**（#453）: 空白だけの変更は、無視した時点で差分が
+           空になる。ここが消えると、戻すボタンごと無くなる。 -->
+      <div v-if="!showSearch" class="hover-toolbar" :class="{ prominent: canScrollX || tab.ignoreSpace }">
+        <IgnoreSpaceToggle v-if="canIgnoreSpace" :on="tab.ignoreSpace === true" @toggle="toggleIgnoreSpace" />
+        <WrapToggle v-if="!emptyState" :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
+      </div>
     </template>
   </div>
 </template>
@@ -905,12 +985,6 @@ onUnmounted(() => {
   color: var(--accent);
   font-family: inherit;
   font-size: 11px;
-}
-
-/* 横にスクロールできるときは折り返しボタンを出したままにする（#272）。既定の 6px の
-   スクロールバーは下端にあって気付きにくいので、切り替えられること自体を見せる。 */
-.hover-toolbar.prominent {
-  opacity: 1;
 }
 
 /* 折り返しあり（#272）。行の高さが可変になるので `.diff-row` の固定高も外す。 */

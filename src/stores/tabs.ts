@@ -1019,6 +1019,10 @@ export const useTabStore = defineStore('tabs', () => {
       existing.root = options.root
       existing.untracked = options.untracked
       existing.origPath = options.origPath
+      // 渡された差分は空白を無視していないので、見方も戻す（#453）。飛んでいる取得には、
+      // 差し替わったことを知らせる（`DiffTab.opens`）。
+      existing.ignoreSpace = false
+      existing.opens = (existing.opens ?? 0) + 1
       activeTabId.value = existing.id
       return existing.id
     }

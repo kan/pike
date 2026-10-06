@@ -121,6 +121,7 @@ pike/
 │   │   ├── HelpButton.vue       # 各 UI からマニュアル該当ページを開く「?」ボタン
 │   │   ├── RateMeters.vue       # 利用率の帯グラフ（StatusBar と状態タブで共有、#226）
 │   │   ├── ColorDot.vue         # プロジェクトカラーのドット（#121）
+│   │   ├── IgnoreSpaceToggle.vue  # 差分の空白の違いを無視するボタン（diff / 履歴 / コミットタブで共有、#453）
 │   │   ├── RenameNote.vue       # 「名前が変わった」見出し（diff タブと履歴タブで共有、#306）
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
@@ -208,6 +209,7 @@ pike/
 │   │   ├── useCopyOnSelect.ts # 選択した文字列をクリップボードへ（#342。#408 で常に / 毎回確認 / OFF の 3 値。値の定義は lib/copyOnSelect.ts）
 │   │   ├── useCsvSelection.ts # CSV プレビューの列・行の選択とタブ区切りのコピー（Excel 風）
 │   │   ├── useTerminalUrlLinks.ts # 出力の URL のリンク化を設定で付け外しする（#343）
+│   │   ├── useDiffWrap.ts  # 差分の行を折り返すか（履歴タブとコミットタブ、#453）
 │   │   ├── useDragResize.ts  # 横幅を変えるドラッグの配線（サイドバーの幅・diff の分割線、#297）
 │   │   ├── useTabDrag.ts     # タブを掴んでいるあいだの状態（2 本のタブバーで共有、#308）
 │   │   ├── useProjectAccent.ts # プロジェクトカラーを面として塗るための色の組（#298）

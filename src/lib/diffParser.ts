@@ -31,6 +31,15 @@ export interface DiffLine {
 }
 
 /**
+ * バイナリの差分か（`Binary files a/x and b/x differ`）。**行が 1 つも無い差分に対して聞くこと**:
+ * 文字列を探しているだけなので、本文にこの語を含むテキストの差分でも真になる。diff タブと
+ * 履歴タブが、空の差分に何を出すかを決めるのに使う。
+ */
+export function isBinaryDiff(raw: string): boolean {
+  return raw.includes('Binary files')
+}
+
+/**
  * リネーム（コピー）の見出し（#306）。
  *
  * **`parseDiff` では拾えない。** あちらは最初の `@@` より前を読み飛ばすが、リネームは

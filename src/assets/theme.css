@@ -250,6 +250,13 @@
   opacity: 1;
 }
 
+/* なぞらなくても出したままにする。**いつ立てるかは置いた側が決める**: 押せることを見せたい
+   とき（diff の横スクロール。下端の 6px のバーは気付きにくい）と、見方が変わっていることを
+   見せたいとき（空白の違いを無視している、#453）。 */
+.hover-toolbar.prominent {
+  opacity: 1;
+}
+
 /* いま開いているファイルの行（#274）。ファイルツリーと Git パネルが同じ印を使う。
    VSCode の explorer と同じく**行全体を塗る**（細い線だけでは、ざっと見て探せない）。
    ホバーや選択と混ざらないようアクセント由来の色にしてある。
@@ -636,6 +643,12 @@
 .tool-btn:disabled {
   opacity: 0.3;
   cursor: default;
+}
+
+/* 押した状態（切り替えのボタン）。部品として置くもの（`WrapToggle.vue` / `IgnoreSpaceToggle.vue`
+   の `toolbar`）も読むので、タブごとの scoped CSS に置かない。 */
+.tool-btn.active {
+  color: var(--accent);
 }
 
 /* 読み物の 1 段組み。`.md-body` の外枠で、行長と余白を決める。 */

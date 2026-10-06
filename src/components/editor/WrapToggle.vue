@@ -8,11 +8,13 @@
  * ヘッダは排他表示なので、片方だけ直しても目視では気付けない。
  *
  * 見た目は `theme.css` の `.editor-toggle`（隣に並ぶ `MinimapToggle.vue` と共有）。
+ * `toolbar` は、置き場が `.tool-btn` の並ぶ見出しのとき（コミットタブ。`IgnoreSpaceToggle.vue`
+ * と同じ切り替え）。
  */
 import { WrapText } from 'lucide-vue-next'
 import { useI18n } from '../../i18n'
 
-defineProps<{ on: boolean }>()
+defineProps<{ on: boolean; toolbar?: boolean }>()
 const emit = defineEmits<{ toggle: [] }>()
 
 const { t } = useI18n()
@@ -20,8 +22,7 @@ const { t } = useI18n()
 
 <template>
   <button
-    class="editor-toggle"
-    :class="{ active: on }"
+    :class="[toolbar ? 'tool-btn' : 'editor-toggle', { active: on }]"
     :title="on ? t('editor.wordWrapDisable') : t('editor.wordWrapEnable')"
     @click="emit('toggle')"
   >

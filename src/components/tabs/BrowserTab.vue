@@ -613,8 +613,4 @@ function openExternal() {
   height: min(844px, 100%);
   outline: 1px solid var(--border);
 }
-
-.tool-btn.active {
-  color: var(--accent);
-}
 </style>

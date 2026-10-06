@@ -908,6 +908,16 @@ pub async fn git_log(
     Ok(parse_log(&output))
 }
 
+/// 空白の違いを無視して差分を取るオプション（#453。diff タブの切り替え）。
+///
+/// **`-w`（`--ignore-all-space`）にしてある。** インデントの付け直しと行末の空白のどちらも
+/// 消えるのがこれで、GitHub の「Hide whitespace」も同じ。`-b` は空白の量の違いしか見ないので、
+/// `a=b` と `a = b` が残る。
+///
+/// **文脈行は新しい側の内容で出る**（実測）。diff タブの「省略された行の展開」（#285）は
+/// 文脈行を新しい側のファイルと突き合わせるので、このオプションを付けてもそのまま通る。
+const IGNORE_SPACE: &str = "-w";
+
 #[tauri::command]
 pub async fn git_diff(
     root: String,
@@ -917,10 +927,13 @@ pub async fn git_diff(
     untracked: bool,
     // リネーム / コピーの元の名前（`GitFileChange.origPath`、#306）。
     orig_path: Option<String>,
+    // 空白の違いを無視するか（#453、`IGNORE_SPACE`）。
+    ignore_space: bool,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
         // Untracked files have no diff against HEAD; synthesize a "new file"
         // diff via --no-index against the null device.
+        // 全行が追加なので、空白を無視しても出るものは変わらない。
         if untracked {
             let args = ["diff", "--no-index", "--", shell.null_device(), &path];
             let output = run_git_raw_stdout(&shell, &root, &args)?;
@@ -929,6 +942,9 @@ pub async fn git_diff(
         let mut args = vec!["diff"];
         if staged {
             args.push("--cached");
+        }
+        if ignore_space {
+            args.push(IGNORE_SPACE);
         }
         args.push("--");
         args.push(&path);
@@ -1501,28 +1517,25 @@ pub async fn git_commit_patch(
     shell: ShellConfig,
     hash: String,
     parent: Option<String>,
+    // 空白の違いを無視するか（#453、`IGNORE_SPACE`）。**空白だけが違うファイルは出力から
+    // 丸ごと消える**（ヘッダも出ない）ので、ファイルの一覧はこれを付けない側から作ること。
+    ignore_space: bool,
 ) -> Result<CommitPatch, String> {
     // コマンド行に入るので 16 進に限る（`-` で始まる値をオプションとして読ませない）。
     if !is_sha(&hash) || parent.as_deref().is_some_and(|p| !is_sha(p)) {
         return Err(format!("invalid commit id: {hash}"));
     }
     tokio::task::spawn_blocking(move || {
-        let output = match parent.as_deref() {
-            Some(parent) => run_git(&shell, &root, &["diff", "-M", parent, &hash])?,
-            None => run_git(
-                &shell,
-                &root,
-                &[
-                    "diff-tree",
-                    "-p",
-                    "-M",
-                    "-r",
-                    "--root",
-                    "--no-commit-id",
-                    &hash,
-                ],
-            )?,
+        let mut args = match parent.as_deref() {
+            Some(_) => vec!["diff", "-M"],
+            None => vec!["diff-tree", "-p", "-M", "-r", "--root", "--no-commit-id"],
         };
+        if ignore_space {
+            args.push(IGNORE_SPACE);
+        }
+        args.extend(parent.as_deref());
+        args.push(&hash);
+        let output = run_git(&shell, &root, &args)?;
         let (patch, truncated) = truncate_at_line(output, COMMIT_PATCH_MAX);
         Ok(CommitPatch { patch, truncated })
     })
@@ -1578,14 +1591,16 @@ pub async fn git_diff_commit(
     shell: ShellConfig,
     hash: String,
     path: String,
+    // 空白の違いを無視するか（#453、`IGNORE_SPACE`）。
+    ignore_space: bool,
 ) -> Result<String, String> {
     tokio::task::spawn_blocking(move || {
+        // 下の 3 つの呼び出しのどれにも同じように付ける（どれが答えるかはコミットの形で決まる）。
+        let space: &[&str] = if ignore_space { &[IGNORE_SPACE] } else { &[] };
         // **`--follow` でリネームを追う（#306、理由は `.claude/rules/git.md`）。** 呼び出し元の
         // 2 つ（履歴タブ・アウトラインの履歴）が元の名前を知らないので、`git_diff` と違って
         // pathspec を足す手が使えない。親を持たない最初のコミットもそのまま扱える。
-        let output = run_git(
-            &shell,
-            &root,
+        let log = [
             &[
                 "log",
                 NO_SHOW_SIGNATURE,
@@ -1593,11 +1608,12 @@ pub async fn git_diff_commit(
                 "-p",
                 "--format=%H",
                 "--max-count=1",
-                &hash,
-                "--",
-                &path,
             ],
-        )?;
+            space,
+            &[&hash, "--", &path],
+        ]
+        .concat();
+        let output = run_git(&shell, &root, &log)?;
         let patch = commit_patch(&output, &hash);
         if !patch.is_empty() {
             return Ok(truncate_diff(patch.to_owned()));
@@ -1610,13 +1626,14 @@ pub async fn git_diff_commit(
         // **失敗を空に潰さないこと。** 「変更なし」と出して終わると、#306 が直したのと同じ
         // 「静かに壊れる」形になる。`~1` が無い最初のコミットだけを `--root` で拾い、
         // それ以外のエラーは git の言い分をそのまま返す。
-        let output = match run_git(
-            &shell,
-            &root,
-            &["diff", &format!("{hash}~1"), &hash, "--", &path],
-        ) {
+        let parent = format!("{hash}~1");
+        let against_parent = [&["diff"], space, &[&parent, &hash, "--", &path]].concat();
+        let output = match run_git(&shell, &root, &against_parent) {
             Ok(o) => o,
-            Err(_) => run_git(&shell, &root, &["diff", "--root", &hash, "--", &path])?,
+            Err(_) => {
+                let from_root = [&["diff", "--root"], space, &[&hash, "--", &path]].concat();
+                run_git(&shell, &root, &from_root)?
+            }
         };
         Ok(truncate_diff(output))
     })

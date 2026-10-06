@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Copy, ExternalLink, RefreshCw, Rows2 } from 'lucide-vue-next'
 import { computed, onMounted, type Ref, ref, useTemplateRef, watch } from 'vue'
+import { useDiffWrap } from '../../composables/useDiffWrap'
 import { useDragResize } from '../../composables/useDragResize'
 import { useI18n } from '../../i18n'
 import { type PatchFile, type PatchLine, parsePatch } from '../../lib/commitPatch'
@@ -14,6 +15,8 @@ import { useProjectStore } from '../../stores/project'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import type { CommitTab as CommitTabDef } from '../../types/tab'
+import WrapToggle from '../editor/WrapToggle.vue'
+import IgnoreSpaceToggle from '../IgnoreSpaceToggle.vue'
 
 /**
  * コミット 1 つの中身（#374、#396 で 4 分割に）。Git パネルのグラフ表示で行を押すと開く。
@@ -45,7 +48,28 @@ const error = ref<string | null>(null)
 const loading = ref(false)
 /** 右に出しているファイル（パス）。取得のたびに先頭へ戻す。 */
 const selectedPath = ref<string | null>(null)
-const selected = computed(() => files.value.find((f) => f.path === selectedPath.value) ?? null)
+/**
+ * 空白の違いを無視して見るか（#453。git の `-w`）。ファイルを選び直しても保つ。タブを
+ * 開き直すと戻る。
+ */
+const ignoreSpace = ref(false)
+const { wrapOn, toggleWrap } = useDiffWrap()
+/**
+ * 空白を無視して取り直した差分（パス → ファイル）。初めて切り替えたときに取る。
+ *
+ * **ファイルの一覧（`files`）とは別に持つ。** `-w` を付けると、空白だけが違うファイルは
+ * 出力から丸ごと消える（ヘッダも出ない）。一覧をこちらから作ると、切り替えた瞬間に
+ * ファイルが一覧から消え、選んでいたものも見失う。一覧と件数は元の差分のまま、右の行だけを
+ * 差し替える。
+ */
+const spaceFiles = ref<Map<string, PatchFile> | null>(null)
+
+const selected = computed(() => {
+  const file = files.value.find((f) => f.path === selectedPath.value) ?? null
+  if (!file || !ignoreSpace.value || !spaceFiles.value) return file
+  // こちらに居ないファイルは、空白以外に変更が無い。
+  return { ...file, lines: spaceFiles.value.get(file.path)?.lines ?? [] }
+})
 
 const message = computed(() => tab.value?.message.trim() ?? '')
 const subject = computed(() => tab.value?.message.split('\n')[0] ?? '')
@@ -146,17 +170,61 @@ async function load() {
   if (!def || !project || loading.value) return
   loading.value = true
   try {
-    const res = await gitCommitPatch(def.root, project.shell, def.hash, def.parent)
+    // 空白を無視した側も、見ているなら一緒に取り直す（見ていなければ次に切り替えたときに
+    // 取る）。**2 本を並べて取り、同じところで書く**: 順に取ると、あいだに空白込みの行が
+    // 一度描かれてから差し替わる。
+    //
+    // **そちらの失敗でタブ全体をエラーにしない**（通常の差分は取れている）。見方を戻して
+    // 知らせる。戻さないと、ボタンは押された見た目なのに中身は無視していない差分になる。
+    const spaced = ignoreSpace.value
+      ? fetchSpaceFiles().catch((e: unknown) => {
+          statusMessage.show({ text: String(e), variant: 'error', durationMs: 6000 })
+          return null
+        })
+      : null
+    const [res, space] = await Promise.all([gitCommitPatch(def.root, project.shell, def.hash, def.parent), spaced])
     files.value = parsePatch(res.patch)
     // 取り直したら先頭のファイルを出す。**ここが `files` を書く唯一の場所**なので、
     // watcher を挟まずに並べて書く（初回も更新ボタンも `load()` を通る）。
     selectedPath.value = files.value[0]?.path ?? null
     truncated.value = res.truncated
     error.value = null
+    spaceFiles.value = space
+    if (!space) ignoreSpace.value = false
   } catch (e) {
     error.value = String(e)
   } finally {
     loading.value = false
+  }
+}
+
+/** 空白を無視した差分を取り寄せる（#453。パス → ファイル）。失敗は投げる。 */
+async function fetchSpaceFiles(): Promise<Map<string, PatchFile> | null> {
+  const def = tab.value
+  const project = projectStore.currentProject
+  if (!def || !project) return null
+  const res = await gitCommitPatch(def.root, project.shell, def.hash, def.parent, true)
+  return new Map(parsePatch(res.patch).map((f) => [f.path, f]))
+}
+
+/** 飛んでいる切り替え。二度押しで取得を重ねない。 */
+let togglingSpace = false
+
+/**
+ * 空白の違いを無視するかを切り替える。**取り寄せてから見方を変える**（先に変えると、
+ * 取れるまでのあいだ全ファイルが「空白以外の変更はありません」に見える）。
+ */
+async function toggleIgnoreSpace() {
+  if (togglingSpace) return
+  togglingSpace = true
+  try {
+    if (!ignoreSpace.value && !spaceFiles.value) spaceFiles.value = await fetchSpaceFiles()
+    // 取れなかった（タブが無い）なら変えない。戻す側はいつでも通す。
+    if (ignoreSpace.value || spaceFiles.value) ignoreSpace.value = !ignoreSpace.value
+  } catch (e) {
+    statusMessage.show({ text: String(e), variant: 'error', durationMs: 6000 })
+  } finally {
+    togglingSpace = false
   }
 }
 
@@ -273,13 +341,17 @@ onMounted(load)
       <div class="split-v drag-x-handle" @mousedown="leftDrag.start" />
 
       <!-- 右：選んだファイルの差分。 -->
-      <div class="commit-diff">
+      <div class="commit-diff" :class="{ nowrap: !wrapOn }">
         <template v-if="selected">
           <div class="diff-head">
             <span class="file-status" :style="{ color: gitStatusColor(selected.status) }">{{ selected.status }}</span>
             <span class="file-path" :title="selected.path">
               <template v-if="selected.oldPath">{{ selected.oldPath }} → </template>{{ selected.path }}
             </span>
+            <!-- 空白の違いを無視する（#453）。バイナリには行が無いので出さない。 -->
+            <IgnoreSpaceToggle v-if="!selected.binary" toolbar :on="ignoreSpace" @toggle="toggleIgnoreSpace" />
+            <!-- 折り返し。押せるのは行があるときだけ（上下に並べるボタンと同じ条件）。 -->
+            <WrapToggle v-if="canStack" toolbar :on="wrapOn" @toggle="toggleWrap" />
             <!-- 上下（新 / 旧）に分ける。押した状態は覚える（`pike:commit-split`）。 -->
             <button
               v-if="canStack"
@@ -292,7 +364,9 @@ onMounted(load)
             </button>
           </div>
           <div v-if="selected.binary" class="patch-note">{{ t('commitTab.binary') }}</div>
-          <div v-else-if="!selected.lines.length" class="patch-note">{{ t('commitTab.noContentChange') }}</div>
+          <div v-else-if="!selected.lines.length" class="patch-note">
+            {{ t(ignoreSpace ? 'diff.noChangesBesidesSpace' : 'commitTab.noContentChange') }}
+          </div>
           <!--
             上下に並べた表示（#396）。上が新しい側、下が古い側で、**行は統合形式のものを
             濾しただけ**（差分を取り直さない）。分割線は他の 2 本と同じ配線。
@@ -596,10 +670,6 @@ onMounted(load)
   overflow: auto;
 }
 
-.tool-btn.active {
-  color: var(--accent);
-}
-
 .commit-error {
   padding: 8px 12px;
   color: var(--danger);
@@ -647,6 +717,14 @@ onMounted(load)
   padding: 0 8px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* 折り返さない（#453）。表が最長行の幅まで広がり、外側（`.diff-scroll` / `.side-scroll`）が
+   横にスクロールする。1 枚の表を 1 つの領域に描いているだけなので、diff タブのような
+   左右の連動は要らない。 */
+.commit-diff.nowrap .code {
+  white-space: pre;
+  word-break: normal;
 }
 
 .add {
