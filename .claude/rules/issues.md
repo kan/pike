@@ -5,6 +5,7 @@ paths:
   - "src/components/panels/IssuesPanel.vue"
   - "src/components/tabs/IssueTab.vue"
   - "src/lib/issue*.ts"
+  - "src/types/issues.ts"
   - "src/composables/usePanelAvailability.ts"
 ---
 
@@ -131,6 +132,39 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
   載らない）。ヘッダの「+」は issue のときだけ（`newIssueUrl`）
   - **issue タブの 🤖 も PR ならレビューの依頼を送る。** タブに種類は持たせず、`detail.url` が
     `/pull/N` かで見分ける（`IssueTab.vue` の `ownUrl`。本文のリンクの判定と同じ解析を共有する。本文の `#123` から PR を開いた場合も同じ）
+
+## マージとクローズ（#450）
+- **右クリックメニューから、PR のマージとクローズ、issue のクローズを実行する。** 確認のダイアログは
+  `lib/issueActions.ts`、`gh` の実行・失敗の表示・一覧の取り直しは `issuesStore.act`（取得の状態と
+  同じ場所で、プロジェクトの切り替えと突き合わせる）、Rust 側は `issues_act`。**issue タブ（簡易表示）は
+  読み取り専用のまま**で、書き込みを持つのはパネルの行だけ
+- **対象は番号ではなく、一覧が返した URL で指す**（`gh pr merge <url>`）。一覧の取得は `--repo` を
+  渡さず cwd の解決に任せているが、状態を変える側まで任せると、fork で別のリポジトリの同じ番号に
+  当たりうる。**URL は Rust の `parse_target` が形を決め打ちで検証し、引用はしない**（通す文字集合が
+  bash でも `cmd /C` でもそのまま 1 引数になる。理由はあの関数の doc）
+- **バックエンドで走らせる。** 方式も理由も引数で渡すので `gh` は端末に何も聞かない。時間切れは
+  一覧より長い `ACTION_TIMEOUT`（切れた時点で GitHub 側では済んでいることがある）
+- **マージの方式は、許可されているものだけを確認ダイアログのボタンに並べる**（`issues_merge_methods`
+  ＝ `gh repo view`。`gh` の起動が 1 回増えるのは利用者の判断）。**聞くのはリポジトリごとに 1 回**で
+  （`methodsByRepo`。マージが失敗したら捨てて聞き直す）、往復のあいだに別のダイアログが開いていたら
+  確認を出さずに譲る。**`--delete-branch` は既定で渡さず、
+  チェックボックスで選ばせる**（`choiceWithOption`。このフラグは手元のブランチも消し、checkout 中なら
+  既定ブランチへ切り替える）
+- **draft・CI の失敗と実行中は、止めずに確認の文面で知らせる。** マージできるかを決めるのは
+  リポジトリの保護規則で、一覧からは分からない（コンフリクトも同じ）。断られたら `gh` の文面を出す
+- **失敗は `infoDialog` に出す**（`gh` の 1 行目と実行した行）。パネルのエラー帯は一覧の取得のもので、
+  取り直すと消える。**`gh` まで進んだら失敗しても取り直す**（断られる理由の多くは一覧が古いこと）。
+  **成功したら行を先に落としてから取り直す**（PR の一覧の取得は数秒かかり、済んだ行が残ると
+  もう一度押せる）
+- **実行中の印は `issuesStore.acting`** で、`loading` には混ぜない（あちらは `ensureLoaded` と
+  `refresh` の門番）。ヘッダの更新ボタンを回すのは 2 つを合わせた `busy`。**プロジェクトごとに持つ**
+  （`actingIn`。`gh pr merge` は長いと 1 分かかり、ウィンドウに 1 つだと切り替えた先まで塞ぐ）。
+  **確認を出す前から立て、立っているあいだメニューの項目は押せない**: 確認のあとで弾くと、
+  答えた操作が黙って捨てられる
+- **クローズにコメントは付けない**（利用者の判断。書き残すなら GitHub のページで）。issue の
+  クローズは理由（完了 / 対応しない）をボタンで選ぶ。子が open の親を閉じるときは件数を言うだけで
+  止めない（GitHub も止めない）
+- メニューの赤い項目は `theme.css` の `.panel-ctx-menu button.danger`
 
 ## sub-issue の木
 - **木は `parent` だけで組む**（`lib/issueTree.ts` の `buildIssueTree`）。`gh` は

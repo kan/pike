@@ -4,6 +4,7 @@ import { computed, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { injectIssuePrompt } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
+import { closeIssueOrPr, mergePullRequest } from '../../lib/issueActions'
 import { ISSUE_KIND_TEXT, issueAgentPrompt } from '../../lib/issuePrompt'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { useOverlay } from '../../lib/overlay'
@@ -298,6 +299,19 @@ function copyPrompt(issue: IssueSummary) {
           <div class="ctx-separator"></div>
           <button @click="runCtx(askAgent)">{{ t(text.action) }}</button>
           <button @click="runCtx(copyPrompt)">{{ t(text.copy) }}</button>
+          <!-- 状態を変える操作（#450）。どれも確認を挟む（`lib/issueActions.ts`）。クローズは
+               取り消しにくいので赤くする（Git の `--force-with-lease` と同じ扱い）。 -->
+          <div class="ctx-separator"></div>
+          <button v-if="issuesStore.kind === 'pr'" :disabled="issuesStore.acting" @click="runCtx(mergePullRequest)">
+            {{ t('issues.merge') }}
+          </button>
+          <button
+            class="danger"
+            :disabled="issuesStore.acting"
+            @click="runCtx((i) => closeIssueOrPr(issuesStore.kind, i))"
+          >
+            {{ t('issues.close') }}
+          </button>
         </div>
       </Teleport>
     </template>

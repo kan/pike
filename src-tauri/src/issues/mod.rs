@@ -16,6 +16,10 @@ use tauri::State;
 /// 既定の 30 秒より短くするが、遅い回線でも 1 回は諦めない程度に取ってある。
 const LIST_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// マージとクローズ（#450）の時間切れ。**一覧より長く取る**: 切れた時点で GitHub の側では
+/// 済んでいることがあり、そのとき出るのは「失敗した」という嘘になる。
+const ACTION_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// **`gh` が見つかったシェルをプロセス単位で覚える**（`SearchState.detected` と同じ形）。
 /// Pinia のストアはウィンドウごとなので、フロントだけで覚えると同じリポジトリを N 枚
 /// 開いたときに `gh --version` が N 回走る。WSL ではそれが `wsl.exe` の起動 N 回になる。
@@ -82,11 +86,152 @@ pub enum CheckState {
 /// 一覧の種類（#413）。**PR も同じ器で運ぶ**: パネルに出す列（番号・題名・作者・更新・
 /// ラベル）は issue と同じで、違うのは `gh` のサブコマンドと、片方にしか無いフィールド
 /// （issue の `parent`、PR の `isDraft`）だけ。
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ListKind {
     Issue,
     Pr,
+}
+
+/// PR のマージの方式（#450）。`gh pr merge` のフラグと 1 対 1。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MergeMethod {
+    Merge,
+    Squash,
+    Rebase,
+}
+
+impl MergeMethod {
+    fn flag(self) -> &'static str {
+        match self {
+            MergeMethod::Merge => "--merge",
+            MergeMethod::Squash => "--squash",
+            MergeMethod::Rebase => "--rebase",
+        }
+    }
+}
+
+/// issue をクローズする理由（#450）。GitHub の「完了」と「対応しない」。
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CloseReason {
+    Completed,
+    NotPlanned,
+}
+
+/// 一覧の行に対して実行する、状態を変える操作（#450）。
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum IssueAction {
+    Merge {
+        method: MergeMethod,
+        /// `--delete-branch`。**リモートだけでなく手元のブランチも消える**（checkout 中なら
+        /// 既定ブランチへ切り替わる）ので、既定では渡さず、確認ダイアログで選ばせる。
+        #[serde(rename = "deleteBranch")]
+        delete_branch: bool,
+    },
+    ClosePr,
+    CloseIssue {
+        reason: CloseReason,
+    },
+}
+
+impl IssueAction {
+    /// この操作が対象にする種類。URL の種類と合わないもの（issue をマージ、など）を断るのに使う。
+    fn kind(self) -> ListKind {
+        match self {
+            IssueAction::Merge { .. } | IssueAction::ClosePr => ListKind::Pr,
+            IssueAction::CloseIssue { .. } => ListKind::Issue,
+        }
+    }
+
+    /// 実行する行。`url` は `parse_target` を通したものだけを渡すこと（行にそのまま埋まる）。
+    ///
+    /// **方式は必ず引数で渡す。** 無いと `gh pr merge` は端末に方式を聞きに行き、Pike の
+    /// バックエンドは入力を返せない。
+    fn line(self, url: &str) -> String {
+        match self {
+            IssueAction::Merge {
+                method,
+                delete_branch,
+            } => {
+                let delete = if delete_branch {
+                    " --delete-branch"
+                } else {
+                    ""
+                };
+                format!("gh pr merge {url} {}{delete}", method.flag())
+            }
+            IssueAction::ClosePr => format!("gh pr close {url}"),
+            // 二重引用符は bash でも `cmd /C` でも 1 つの引数になる。
+            IssueAction::CloseIssue { reason } => {
+                let reason = match reason {
+                    CloseReason::Completed => "completed",
+                    CloseReason::NotPlanned => "\"not planned\"",
+                };
+                format!("gh issue close {url} --reason {reason}")
+            }
+        }
+    }
+}
+
+/// 一覧が返した issue / PR の URL を検証して、リポジトリの URL と種類に分ける（#450）。
+///
+/// **状態を変える操作は、番号ではなく URL を `gh` に渡す。** 番号だけだと対象のリポジトリは
+/// `gh` が cwd から決めるので、fork（`upstream` を既定に解決することがある）では一覧に出て
+/// いたものと別のリポジトリの同じ番号に当たりうる。URL なら一覧に出ていたそのものを指す。
+///
+/// **形を決め打ちで検証し、引用はしない。** 通すのは `https://<host>/<owner>/<repo>/
+/// (pull|issues)/<数字>` で、各部分は英数字と `-` `_` `.` だけ。この文字集合は bash でも
+/// `cmd /C` でもそのまま 1 つの引数になるので、シェルごとの引用（`ShellConfig::line_arg`）に
+/// 頼らずに済む。
+fn parse_target(url: &str) -> Option<(&str, ListKind)> {
+    // 後ろから 2 つ切り出すと、残りがリポジトリの URL。
+    let mut tail = url.rsplitn(3, '/');
+    let (number, segment, repo_url) = (tail.next()?, tail.next()?, tail.next()?);
+    if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let kind = match segment {
+        "pull" => ListKind::Pr,
+        "issues" => ListKind::Issue,
+        _ => return None,
+    };
+    // host / owner / repo のちょうど 3 つ。
+    let parts: Vec<&str> = repo_url.strip_prefix("https://")?.split('/').collect();
+    let safe = |s: &&str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    };
+    (parts.len() == 3 && parts.iter().all(safe)).then_some((repo_url, kind))
+}
+
+/// `gh repo view` が返す、リポジトリで許可されているマージの方式。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhMergeSettings {
+    #[serde(default)]
+    merge_commit_allowed: bool,
+    #[serde(default)]
+    squash_merge_allowed: bool,
+    #[serde(default)]
+    rebase_merge_allowed: bool,
+}
+
+impl GhMergeSettings {
+    /// 許可されている方式。**並びは GitHub のマージボタンと同じ**（先頭が既定の候補になる）。
+    fn methods(&self) -> Vec<MergeMethod> {
+        [
+            (self.merge_commit_allowed, MergeMethod::Merge),
+            (self.squash_merge_allowed, MergeMethod::Squash),
+            (self.rebase_merge_allowed, MergeMethod::Rebase),
+        ]
+        .into_iter()
+        .filter_map(|(allowed, method)| allowed.then_some(method))
+        .collect()
+    }
 }
 
 impl ListKind {
@@ -396,13 +541,82 @@ pub async fn issues_view(
         "gh issue view {number} \
          --json title,url,state,author,createdAt,body,labels,comments"
     );
+    tauri::async_runtime::spawn_blocking(move || run_gh_json(&shell, &root, &line))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// `run_gh` の stdout を JSON として読む（読み取りの `--json` 用。時間切れは一覧と同じ）。
+fn run_gh_json<T: serde::de::DeserializeOwned>(
+    shell: &ShellConfig,
+    root: &str,
+    line: &str,
+) -> Result<T, String> {
+    let stdout = run_gh(shell, root, line, LIST_TIMEOUT)?;
+    serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("failed to parse gh output: {e}\n{line}"))
+}
+
+/// `gh` の行を走らせて stdout を返す。**非 0 は `failure` の文面で `Err` にする**
+/// （失敗を値に載せる一覧だけは、これを通さず自前で組む）。
+fn run_gh(
+    shell: &ShellConfig,
+    root: &str,
+    line: &str,
+    timeout: Duration,
+) -> Result<String, String> {
+    let (code, stdout, stderr) = shell.run_shell_line(root, line, timeout)?;
+    if code != 0 {
+        return Err(failure(line, code, &stdout, &stderr));
+    }
+    Ok(stdout)
+}
+
+fn invalid_target(url: &str) -> String {
+    format!("unsupported issue or pull request URL: {url}")
+}
+
+/// リポジトリで許可されているマージの方式（#450）。確認ダイアログに並べるボタンを決める。
+///
+/// **許可されていない方式を選ばせない**ために、マージの前に 1 回聞く（`gh` の起動が 1 回
+/// 増える。利用者の判断）。聞く相手は PR の URL から導いたリポジトリで、cwd の解決には任せない
+/// （理由は `parse_target`）。
+#[tauri::command]
+pub async fn issues_merge_methods(
+    shell: ShellConfig,
+    root: String,
+    url: String,
+) -> Result<Vec<MergeMethod>, String> {
+    let Some((repo_url, ListKind::Pr)) = parse_target(&url) else {
+        return Err(invalid_target(&url));
+    };
+    let line = format!(
+        "gh repo view {repo_url} --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"
+    );
     tauri::async_runtime::spawn_blocking(move || {
-        let (code, stdout, stderr) = shell.run_shell_line(&root, &line, LIST_TIMEOUT)?;
-        if code != 0 {
-            return Err(failure(&line, code, &stdout, &stderr));
-        }
-        serde_json::from_str(stdout.trim())
-            .map_err(|e| format!("failed to parse gh output: {e}\n{line}"))
+        run_gh_json::<GhMergeSettings>(&shell, &root, &line).map(|s| s.methods())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// PR のマージとクローズ、issue のクローズ（#450）。**確認はフロントが済ませてから呼ぶ。**
+///
+/// **Pike のバックエンドで走らせる**（ターミナルのタブには出さない）。どの操作も引数だけで
+/// 決まり、`gh` は端末に何も聞かない。失敗は `Err` で返し、フロントがダイアログに出す。
+#[tauri::command]
+pub async fn issues_act(
+    shell: ShellConfig,
+    root: String,
+    url: String,
+    action: IssueAction,
+) -> Result<(), String> {
+    if parse_target(&url).map(|(_, kind)| kind) != Some(action.kind()) {
+        return Err(invalid_target(&url));
+    }
+    let line = action.line(&url);
+    tauri::async_runtime::spawn_blocking(move || {
+        run_gh(&shell, &root, &line, ACTION_TIMEOUT).map(|_| ())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -511,6 +725,87 @@ mod tests {
                         "updatedAt":"2026-01-01T00:00:00Z","author":null,"labels":[]}]"#;
         let issues = parse_list(json).unwrap();
         assert_eq!(issues[0].author, "");
+    }
+
+    /// 通すのは一覧が返す形の URL だけ（#450）。シェルに意味のある文字はどの位置でも断る。
+    #[test]
+    fn parses_only_well_formed_targets() {
+        assert_eq!(
+            parse_target("https://github.com/kan/pike/pull/12"),
+            Some(("https://github.com/kan/pike", ListKind::Pr))
+        );
+        assert_eq!(
+            parse_target("https://ghe.example.com/a-b/c_d.e/issues/450"),
+            Some(("https://ghe.example.com/a-b/c_d.e", ListKind::Issue))
+        );
+        for bad in [
+            "http://github.com/kan/pike/pull/12",
+            "https://github.com/kan/pike/pull/",
+            "https://github.com/kan/pike/pull/12/files",
+            "https://github.com/kan/pike/commit/12",
+            "https://github.com/kan/pike/pull/12;rm",
+            "https://github.com/kan/pi ke/pull/12",
+            "https://github.com/kan/$(x)/pull/12",
+            "https://github.com/kan/pike&x/issues/1",
+            "https://github.com//pike/issues/1",
+        ] {
+            assert_eq!(parse_target(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn builds_action_lines() {
+        let pr = "https://github.com/kan/pike/pull/12";
+        let merge = |method, delete_branch| IssueAction::Merge {
+            method,
+            delete_branch,
+        };
+        assert_eq!(
+            merge(MergeMethod::Squash, false).line(pr),
+            format!("gh pr merge {pr} --squash")
+        );
+        assert_eq!(
+            merge(MergeMethod::Merge, true).line(pr),
+            format!("gh pr merge {pr} --merge --delete-branch")
+        );
+        assert_eq!(IssueAction::ClosePr.line(pr), format!("gh pr close {pr}"));
+        let issue = "https://github.com/kan/pike/issues/450";
+        let close = |reason| IssueAction::CloseIssue { reason };
+        assert_eq!(
+            close(CloseReason::NotPlanned).line(issue),
+            format!("gh issue close {issue} --reason \"not planned\"")
+        );
+        assert_eq!(
+            close(CloseReason::Completed).line(issue),
+            format!("gh issue close {issue} --reason completed")
+        );
+    }
+
+    /// フロントが送る形（`types/issues.ts` の `IssueAction`）をそのまま読めること。
+    #[test]
+    fn deserializes_actions_from_the_frontend() {
+        let action: IssueAction =
+            serde_json::from_str(r#"{"type":"merge","method":"rebase","deleteBranch":true}"#)
+                .unwrap();
+        assert_eq!(action.line("u"), "gh pr merge u --rebase --delete-branch");
+        let action: IssueAction =
+            serde_json::from_str(r#"{"type":"closeIssue","reason":"notPlanned"}"#).unwrap();
+        assert_eq!(action.kind(), ListKind::Issue);
+        let action: IssueAction = serde_json::from_str(r#"{"type":"closePr"}"#).unwrap();
+        assert_eq!(action.kind(), ListKind::Pr);
+    }
+
+    /// 許可されている方式だけを、GitHub のボタンと同じ並びで返す。
+    #[test]
+    fn lists_allowed_merge_methods() {
+        let settings: GhMergeSettings = serde_json::from_str(
+            r#"{"mergeCommitAllowed":false,"rebaseMergeAllowed":true,"squashMergeAllowed":true}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            settings.methods(),
+            vec![MergeMethod::Squash, MergeMethod::Rebase]
+        );
     }
 
     #[test]

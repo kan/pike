@@ -14,7 +14,7 @@ import type {
   PullOption,
   PushOption,
 } from '../types/git'
-import type { IssueDetail, IssueKind, IssueListResult } from '../types/issues'
+import type { IssueAction, IssueDetail, IssueKind, IssueListResult, MergeMethod } from '../types/issues'
 import type { ProjectConfig } from '../types/project'
 import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
 import type { MenuAction, MenuShell, ShellType } from '../types/tab'
@@ -751,6 +751,14 @@ export async function issuesList(
 
 export async function issuesView(shell: ShellType, root: string, number: number): Promise<IssueDetail> {
   return invoke<IssueDetail>('issues_view', { shell, root, number })
+}
+
+export async function issuesMergeMethods(shell: ShellType, root: string, url: string): Promise<MergeMethod[]> {
+  return invoke<MergeMethod[]>('issues_merge_methods', { shell, root, url })
+}
+
+export async function issuesAct(shell: ShellType, root: string, url: string, action: IssueAction): Promise<void> {
+  return invoke<void>('issues_act', { shell, root, url, action })
 }
 
 // ブラウザのタブ（#368）。座標はウィンドウの client 領域の CSS ピクセル（論理ピクセル）。

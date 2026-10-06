@@ -1976,6 +1976,8 @@ pub fn run() {
             issues::issues_gh_available,
             issues::issues_list,
             issues::issues_view,
+            issues::issues_merge_methods,
+            issues::issues_act,
             browser::browser_open,
             favicon::browser_favicon,
             browser::browser_place,

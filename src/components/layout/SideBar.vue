@@ -369,7 +369,7 @@ const ICONS: { [P in SidebarPanel]: IconDef & { panel: P } } = {
     // GitHub の issue 記号（`CircleDot`）は他のアイコンに紛れて何のパネルか読めなかった
     // ので、TODO パネルが使っていたチェックリストに戻した（#278）。
     icon: ListTodo,
-    refresh: { run: () => issuesStore.refresh(), busy: () => issuesStore.loading },
+    refresh: { run: () => issuesStore.refresh(), busy: () => issuesStore.busy },
   },
   // ブラウザのタブのブックマークと閲覧履歴（#368）。タブの種別と同じアイコン。
   browser: { panel: 'browser', labelKey: 'sidebar.browser', icon: Globe },

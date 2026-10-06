@@ -783,6 +783,25 @@
   color: var(--on-accent);
 }
 
+/* 取り消しにくい項目（issue パネルのクローズ、#450）。 */
+.panel-ctx-menu button.danger {
+  color: var(--danger);
+}
+
+.panel-ctx-menu button.danger:hover {
+  background: var(--danger);
+  color: var(--on-accent);
+}
+
+/* 今は押せない項目（issue パネルで、前の操作が走っているあいだ。#450）。 */
+.panel-ctx-menu button:disabled,
+.panel-ctx-menu button.danger:disabled {
+  background: transparent;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  cursor: default;
+}
+
 .panel-ctx-menu .ctx-separator {
   height: 1px;
   margin: 4px 8px;

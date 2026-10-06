@@ -1,11 +1,14 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
+import { infoDialog } from '../composables/useConfirmDialog'
+import { t } from '../i18n'
 import { buildRepoLink } from '../lib/gitRemote'
 import { buildIssueTree, issueParentNumbers } from '../lib/issueTree'
 import { fuzzyMatch } from '../lib/paths'
 import { loadJson, saveJson } from '../lib/storage'
-import { issuesGhAvailable, issuesList } from '../lib/tauri'
-import type { IssueKind, IssueSummary } from '../types/issues'
+import { issuesAct, issuesGhAvailable, issuesList } from '../lib/tauri'
+import type { IssueAction, IssueKind, IssueSummary } from '../types/issues'
+import type { ShellType } from '../types/tab'
 import { useGitStore } from './git'
 import { useProjectStore } from './project'
 import { createShellProbe } from './shellProbe'
@@ -66,6 +69,21 @@ export const useIssuesStore = defineStore('issues', () => {
   const issues = computed(() => current.value.items)
   const error = computed(() => current.value.error)
   const loading = computed(() => current.value.loading)
+  /**
+   * マージやクローズ（#450）を実行している最中のプロジェクト。立てて下ろすのは `act` だけ。
+   * **プロジェクトごとに持つ**: `gh pr merge` は長いと 1 分かかるので、ウィンドウに 1 つだと、
+   * そのあいだに切り替えた先のプロジェクトでも更新ボタンが回り、メニューが押せなくなる。
+   */
+  const actingIn = reactive(new Set<string>())
+  /**
+   * 今のプロジェクトで実行中か。**`loading` に混ぜない**: あちらは「この種類の取得が飛んでいる」で、
+   * `ensureLoaded` と `refresh` の門番でもある。ヘッダの更新ボタンを回すのは 2 つを合わせた `busy`。
+   */
+  const acting = computed(() => {
+    const id = useProjectStore().currentProject?.id
+    return id !== undefined && actingIn.has(id)
+  })
+  const busy = computed(() => loading.value || acting.value)
   const filter = ref('')
 
   const view = ref<IssueView>(loadJson<IssueView>(VIEW_KEY, 'tree') === 'flat' ? 'flat' : 'tree')
@@ -219,9 +237,8 @@ export const useIssuesStore = defineStore('issues', () => {
    * 押せば戻る。逆に見つかっている状態で probe すると、一覧の前に外部プロセスをもう 1 本
    * 起こすだけになる。
    */
-  async function load(redetect: boolean): Promise<void> {
+  async function load(redetect: boolean, k: IssueKind = kind.value): Promise<void> {
     // 種類は呼んだ時点で固定する（取得中に切り替えても、応答は取りに行った側へ入る）。
-    const k = kind.value
     const list = lists[k]
     const mySeq = ++list.seq
     list.loading = true
@@ -278,6 +295,51 @@ export const useIssuesStore = defineStore('issues', () => {
     await load(false)
   }
 
+  /**
+   * 行の状態を変える操作（#450）を 1 つ実行する。`ask` が確認を出して操作を返し（断ったら
+   * null）、ここが `gh` を走らせる。確認の中身は `lib/issueActions.ts`。
+   *
+   * - **`ask` も実行中の枠に入れる**: マージは確認の前に `gh` の往復があり、そのあいだ何も
+   *   動いていないように見える。同じプロジェクトで 1 度に走るのは 1 つだけで、立っている
+   *   あいだパネルはメニューの項目を押せなくする
+   * - **シェルと root は呼んだ時点のものを使う**（確認のあいだにプロジェクトを切り替えられても、
+   *   操作は一覧を出していた側で走る）。対象は一覧が返した URL で指す（理由は Rust の `parse_target`）
+   * - **失敗は `gh` の文面をダイアログに出す**。パネルのエラー帯は一覧の取得のもので、取り直すと消える
+   * - **成功したら行を先に落としてから取り直す。** PR の一覧の取得は数秒かかり、そのあいだ
+   *   済んだ行が残ると、もう一度押せてしまう
+   * - **`gh` まで進んだら、失敗しても取り直す**（断られる理由の多くは一覧が古いこと）。
+   *   **種類は名指しする**: 確認のあいだにタブを切り替えられると、今の種類を取り直しても
+   *   操作した側は古いまま残る。別のプロジェクトへ移っていたら何もしない（`clear()` が捨てている）
+   */
+  async function act(
+    k: IssueKind,
+    item: IssueSummary,
+    ask: (shell: ShellType, root: string) => Promise<IssueAction | null>,
+  ): Promise<'done' | 'failed' | 'cancelled'> {
+    const projectStore = useProjectStore()
+    const project = projectStore.currentProject
+    if (!project || actingIn.has(project.id)) return 'cancelled'
+    const { id, shell } = project
+    const root = projectStore.activeRoot
+    const stillHere = () => projectStore.currentProject?.id === id
+    let attempted = false
+    actingIn.add(id)
+    try {
+      const action = await ask(shell, root)
+      if (!action) return 'cancelled'
+      attempted = true
+      await issuesAct(shell, root, item.url, action)
+      if (stillHere()) lists[k].items = lists[k].items.filter((i) => i.number !== item.number)
+      return 'done'
+    } catch (e) {
+      await infoDialog(t('issues.actionFailed', { error: String(e) }))
+      return 'failed'
+    } finally {
+      actingIn.delete(id)
+      if (attempted && stillHere()) void load(false, k)
+    }
+  }
+
   function clear() {
     for (const list of Object.values(lists)) {
       // **seq を進めてから下ろす。** 取得中に切り替えると、飛んでいる `gh` の応答は seq で
@@ -310,6 +372,9 @@ export const useIssuesStore = defineStore('issues', () => {
     issues,
     error,
     loading,
+    acting,
+    busy,
+    act,
     filter,
     rows,
     view,

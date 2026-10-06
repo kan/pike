@@ -133,15 +133,31 @@ export async function confirmDialog(msg: string): Promise<boolean> {
  * 呼び出し側が「何もしない」に倒せば済むものだけに使う（置き換わったのと断ったのを
  * 分けたいなら `confirmWithOption` の `displaced`）。
  */
-export function choiceDialog<T extends string>(msg: string, list: DialogChoice<T>[]): Promise<T | null> {
+export async function choiceDialog<T extends string>(msg: string, list: DialogChoice<T>[]): Promise<T | null> {
+  return (await choiceWithOption(msg, list, '')).value
+}
+
+/**
+ * チェックボックスを 1 つ添えた選択（#450 のマージ。方式をボタンで選び、ブランチの削除を
+ * チェックで選ぶ）。`confirmWithOption` と同じ関係で、文言が空ならチェックボックスは出ない
+ * ので、素の `choiceDialog` もここを通す。選ばなかったとき（`value` が `null`）の `checked` は
+ * 読まないこと。
+ */
+export async function choiceWithOption<T extends string>(
+  msg: string,
+  list: DialogChoice<T>[],
+  label: string,
+): Promise<{ value: T | null; checked: boolean }> {
   dismiss()
   message.value = msg
   mode.value = 'choice'
   choices.value = list
+  optionLabel.value = label
   visible.value = true
-  return new Promise<T | null>((resolve) => {
+  const value = await new Promise<T | null>((resolve) => {
     choiceValue = resolve as (value: string | null) => void
   })
+  return { value, checked: optionChecked.value }
 }
 
 export function infoDialog(msg: string): Promise<void> {

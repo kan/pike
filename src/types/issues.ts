@@ -27,6 +27,18 @@ export type CheckState = 'success' | 'failure' | 'pending'
 /** 一覧の種類（#413）。PR も同じ `IssueSummary` で運ぶ（Rust の `ListKind`）。 */
 export type IssueKind = 'issue' | 'pr'
 
+/** PR のマージの方式（#450）。Rust の `MergeMethod`。 */
+export type MergeMethod = 'merge' | 'squash' | 'rebase'
+
+/** 一覧の行に対して実行する、状態を変える操作（#450）。Rust の `IssueAction`。 */
+export type IssueAction =
+  | { type: 'merge'; method: MergeMethod; deleteBranch: boolean }
+  | { type: 'closePr' }
+  | { type: 'closeIssue'; reason: CloseReason }
+
+/** issue をクローズする理由（#450）。Rust の `CloseReason`。 */
+export type CloseReason = 'completed' | 'notPlanned'
+
 /** 1 件の issue（タブで読む用、#278）。書き込みは持たないので編集に要る情報は取らない。 */
 export interface IssueDetail {
   title: string
