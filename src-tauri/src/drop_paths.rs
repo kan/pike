@@ -14,9 +14,10 @@
 //! wry 自身の IPC も同じ WebMessageReceived を使うが、COM のイベントは
 //! 多重購読できるため共存する（プレフィックス不一致のメッセージは無視）。
 //!
-//! 型の注意: webview2-com 0.38 の COM 型は windows-core 0.61 系。本体で使う
-//! windows 0.62 とは別インスタンスなので、ここでは `windows_core`（0.61）の
-//! Interface / PWSTR を使う（Cargo.toml のコメント参照）。
+//! 型の注意: webview2-com の COM 型は、wry が使う版の windows-core のもの。
+//! 今は 0.39 / windows-core 0.62 系で本体の windows 0.62 と同じだが、wry の更新で
+//! ずれることがあるので、ここでは直接依存の `windows_core` の Interface / PWSTR を
+//! 使う（Cargo.toml のコメント参照）。
 
 use serde::Serialize;
 use tauri::{Emitter, Manager, WebviewWindow};

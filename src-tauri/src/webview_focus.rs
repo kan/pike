@@ -22,8 +22,8 @@
 //!
 //! **`unstable` を外したら、このモジュールも外す**（wry の転送と二重になる）。
 //!
-//! 型の注意は `drop_paths.rs` と同じ: コントローラは webview2-com（windows-core 0.61 系）、
-//! サブクラスの API は本体の windows 0.62。
+//! 型の注意は `drop_paths.rs` と同じ: コントローラは webview2-com（wry と同じ版の
+//! windows-core）、サブクラスの API は本体の windows 0.62。
 
 use tauri::WebviewWindow;
 use webview2_com::Microsoft::Web::WebView2::Win32::{

@@ -140,11 +140,12 @@ windows = { version = "0.62", features = [
     "Win32_System_Registry",
 ] }
 # drop_paths.rs の WebMessageReceived ブリッジ用。wry が同版を使っており
-# 新規の依存ツリー追加ではない（Cargo.lock に既存）。webview2-com の COM 型は
-# windows-core 0.61 系（本体の windows 0.62 とは別インスタンス）なので、
-# Interface trait / PWSTR はこちらの windows-core を合わせて使う。
-webview2-com = "0.38"
-windows-core = "0.61"
+# 新規の依存ツリー追加ではない（Cargo.lock に既存）。**wry が上げたら 2 つとも合わせる**
+# （tauri 2.12 / wry 0.57 で 0.38 → 0.39、windows-core 0.61 → 0.62）。合わせないと
+# wry が返す COM 型と別インスタンスになる。Interface trait / PWSTR は、本体の windows と
+# 版がずれても通るように、こちらの windows-core を使う。
+webview2-com = "0.39"
+windows-core = "0.62"
 # デスクトップ通知（#318）で使っていた `tauri-winrt-notification` は #334 で外した。
 # `launch` / `activationType` を書く口が無く、通知センターからのクリックを受けられない
 # （`toast/mod.rs` の doc）。今は `windows` crate の ToastNotification を直に叩く。
