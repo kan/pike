@@ -1,4 +1,13 @@
-import { MATRIX, openAgentStatus, prepare, setFakeProject, shoot } from '../support/prepare'
+import {
+  addTerminals,
+  MATRIX,
+  mockPtySpawnUniqueIds,
+  openAgentStatus,
+  prepare,
+  setAgentRuns,
+  setFakeProject,
+  shoot,
+} from '../support/prepare'
 
 // カードを 1 画面に収めるため、既定より縦を取る（layout.ts と同じ）。
 const FULL = { width: 1600, height: 1260 }
@@ -115,13 +124,41 @@ const OPENCODE = {
   fetchedAt: 1_786_500_000,
 }
 
+// エージェントが動いているターミナル（#437）。**3 つの状態を 1 枚に写す**: 状態タブを
+// 開いているあいだターミナルは非アクティブなので、タブバーには実行中の印と入力待ちの点が、
+// 本文には「ターミナルのセッション」の表が出る。
+const RUNS = [
+  {
+    title: 'claude',
+    run: { agent: 'claude', phase: 'running', context: { tokens: 84_200, window: 200_000 } },
+  },
+  {
+    title: 'claude (review)',
+    run: { agent: 'claude', phase: 'waiting', context: { tokens: 171_500, window: 200_000 } },
+    awaiting: true,
+  },
+  {
+    title: 'claude (docs)',
+    run: { agent: 'claude', phase: 'idle', context: { tokens: 23_900, window: 200_000 } },
+  },
+]
+
 describe('screenshots: agent status', () => {
   for (const { lang, theme } of MATRIX) {
     it(`agent-status ${lang} ${theme}`, async () => {
       await prepare({ lang, theme, ...FULL })
+      await mockPtySpawnUniqueIds()
       await setFakeProject()
+      await addTerminals(RUNS.map((r) => r.title))
       await openAgentStatus({ claude: CLAUDE, codex: CODEX, copilot: COPILOT, opencode: OPENCODE })
       await $('.agent-status').waitForDisplayed({ timeout: 10_000 })
+      await setAgentRuns(RUNS)
+      await $('.run-link').waitForDisplayed({ timeout: 10_000 })
+      // 実行中の印は回り続けるので、止めてから撮る（回転角が実行ごとに変わると、
+      // 中身が同じでも画像の差分が出る）。
+      await browser.execute(() => {
+        for (const el of document.querySelectorAll<HTMLElement>('.tab-running .spin')) el.style.animation = 'none'
+      })
       await shoot('agent-status', lang, theme)
     })
   }

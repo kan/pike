@@ -41,6 +41,7 @@ async function bootstrap() {
     const { useAgentUsageStore } = await import('./stores/agentUsage')
     const { useEditorInfo } = await import('./composables/useEditorInfo')
     const { ptyRouter } = await import('./composables/usePtyRouter')
+    const { dialogOpen, useConfirmDialog } = await import('./composables/useConfirmDialog')
     const { globalMode } = await import('./lib/window')
     const settings = useSettingsStore()
     const tabs = useTabStore()
@@ -93,6 +94,21 @@ async function bootstrap() {
           useAgentUsageStore(id as never).usage = usage as never
         }
         tabs.addAgentStatusTab()
+      },
+      // エージェントが動いているターミナル（#437）。実際は同梱の mod が知らせる状態を、
+      // タブへ直接差す。**状態タブを開いたあとに呼ぶこと**: 入力待ちの印はタブを選ぶと
+      // 下りるので、ターミナルを足している最中（足したものが選ばれる）に立てると消える。
+      addTerminals: (titles: string[]) => {
+        for (const title of titles) tabs.addTerminalTab({ shell: { kind: 'powershell' }, title })
+      },
+      setAgentRuns: (runs: Array<{ run: unknown; awaiting?: boolean }>) => {
+        const terminals = tabs.tabs.filter((t) => t.kind === 'terminal')
+        runs.forEach(({ run, awaiting }, i) => {
+          const tab = terminals[i]
+          if (!tab) return
+          tabs.setAgentRun(tab.id, run as never)
+          tabs.markTabAwaiting(tab.id, awaiting === true)
+        })
       },
       // シェル一覧ドロップダウン(▾)は globalMode か Windows プロジェクトでのみ出る。
       // WSL 検出でシェルプロファイルを揃えてから globalMode を立てる。
@@ -182,6 +198,10 @@ async function bootstrap() {
         project.showSwitcher = false
         project.showQuickOpen = false
         window.dispatchEvent(new MouseEvent('mousedown'))
+        // 確認ダイアログも閉じる（terminal-path-confirm は開いたまま撮って終わる）。残すと
+        // 次の撮影に写り込み、子 webview を使う画面（Vue のプレビュー）は「手前に浮くものが
+        // あるあいだは隠す」に当たって描かれない。
+        if (dialogOpen()) useConfirmDialog().respond(false)
       },
       // worktree セレクタは worktrees が 2 件以上の時だけ表示される。git_worktree_list を
       // モックした上でこれを呼ぶと一覧が入り StatusBar にセレクタが出る。

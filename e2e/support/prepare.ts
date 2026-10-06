@@ -237,6 +237,20 @@ export async function openPdf(opts: { path: string }): Promise<void> {
   }, opts)
 }
 
+// エージェントが動いているターミナルを並べる（#437。pty_spawn はモック前提）。
+// **`setAgentRuns` は状態タブを開いたあとに呼ぶ**（入力待ちの印は、タブを選ぶと下りる）。
+export async function addTerminals(titles: string[]): Promise<void> {
+  await browser.execute((t) => {
+    ;(window as unknown as { __pikeE2E?: { addTerminals?: (t: string[]) => void } }).__pikeE2E?.addTerminals?.(t)
+  }, titles)
+}
+
+export async function setAgentRuns(runs: Array<{ run: unknown; awaiting?: boolean }>): Promise<void> {
+  await browser.execute((r) => {
+    ;(window as unknown as { __pikeE2E?: { setAgentRuns?: (r: unknown) => void } }).__pikeE2E?.setAgentRuns?.(r)
+  }, runs)
+}
+
 // ターミナルタブを 1 枚開く（pty_spawn はモック前提。実プロセスは起動しない）。
 export async function openTerminal(): Promise<void> {
   await browser.execute(() => {
