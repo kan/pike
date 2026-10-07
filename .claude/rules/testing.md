@@ -13,6 +13,7 @@ paths:
   - 走らせるのは `tsx --test`（Node 標準の `node:test`）。**vitest は入れていない**: `tsx` は `check-shortcuts` で既に使っていて、依存を増やさずに済む
   - 置き場を `src/` の外にしているのは、`vue-tsc` の対象（`src/` の DOM 向けの設定）に `node:` の型を持ち込まないため。テストのファイル自体は型検査されない（`tsx` は型を剥がして走らせるだけ）
   - テストにしたいロジックは、ストアから切り出して `src/lib/` の純粋な関数にする（`lib/syncMerge.ts` が例）
+  - **例外として、ソースの綴りを見張るテストが 1 つある**（`tests/userSelect.test.ts`、#455）。`src/` の `.vue` / `.css` / `.ts` を読み、`user-select`（JS から要素のスタイルへ書く同じ指定を含む）を `none` 以外にする指定が `theme.css` の外に無いことを確かめる。専用の検査スクリプトを足さずに `just test-ts` と CI へ乗せるための置き場
 - PTY / Docker / git などの外部プロセス依存部分は統合テストの対象外
 - Vue コンポーネントのテストは当面スコープ外
 - PTY / tmux / bollard の接続検証は `src-tauri/src/bin/` に小さい検証バイナリを作って `cargo run --bin verify_xxx` で確認する

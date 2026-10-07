@@ -26,7 +26,7 @@ defineExpose({ host })
     <slot name="bar" />
     <div class="preview-frame-stage">
       <div ref="host" class="preview-frame-host">
-        <div v-if="message" class="preview-frame-message" :class="{ error }">{{ message }}</div>
+        <div v-if="message" class="preview-frame-message selectable" :class="{ error }">{{ message }}</div>
       </div>
     </div>
   </div>

@@ -155,6 +155,33 @@
   background: var(--selection-bg);
 }
 
+/* 文字を選択できるのは「読んで写す内容」だけ（#455）。**既定は選択できない**ので、UI 部品
+   （パネルの行・見出し・ボタン・メニュー）は何もしなくても選択されない。付け忘れたときの
+   症状が「UI が青く塗られる」ではなく「コピーできない」になり、気付きやすい側に倒れる。
+
+   内容を読む面には `.selectable` を付ける。**選択可に戻す入口はこのファイルだけ**で、
+   使い方の規範は `.claude/rules/frontend.md` の「文字の選択」が正本。
+   `-webkit-user-select` を併記するのは、WKWebView に接頭辞の無い綴りを読まない版があるため。
+   入力欄を明示的に戻すのは、WebKit が親の `none` を入力欄にも効かせることがあるため（#431）。 */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable]:not([contenteditable='false']),
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 内容の面に置いたボタンは内容ではない。 */
+.selectable button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* Thin overlay scrollbars */
 ::-webkit-scrollbar {
   width: var(--scrollbar-size);

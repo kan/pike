@@ -293,7 +293,7 @@ onMounted(load)
     <div v-if="tab" ref="rootRef" class="commit-split" :style="{ '--left-r': leftRatio, '--meta-r': metaRatio }">
       <div ref="leftRef" class="commit-left">
         <!-- 左上：メタとメッセージ。 -->
-        <div class="commit-head">
+        <div class="commit-head selectable">
           <div class="commit-meta">
             <button class="hash" :title="t('commitTab.copyHash')" @click="copyHash">
               <Copy :size="11" />{{ tab.hash.slice(0, 10) }}
@@ -317,7 +317,7 @@ onMounted(load)
             </template>
             <span v-if="!tab.parent" class="note">{{ t('commitTab.rootCommit') }}</span>
           </div>
-          <div v-if="error" class="commit-error">{{ error }}</div>
+          <div v-if="error" class="commit-error selectable">{{ error }}</div>
           <div v-else-if="loading && !files.length" class="commit-empty">{{ t('common.loading') }}</div>
           <div v-else-if="!files.length" class="commit-empty">{{ t('commitTab.noChanges') }}</div>
           <button
@@ -341,7 +341,7 @@ onMounted(load)
       <div class="split-v drag-x-handle" @mousedown="leftDrag.start" />
 
       <!-- 右：選んだファイルの差分。 -->
-      <div class="commit-diff" :class="{ nowrap: !wrapOn }">
+      <div class="commit-diff selectable" :class="{ nowrap: !wrapOn }">
         <template v-if="selected">
           <div class="diff-head">
             <span class="file-status" :style="{ color: gitStatusColor(selected.status) }">{{ selected.status }}</span>

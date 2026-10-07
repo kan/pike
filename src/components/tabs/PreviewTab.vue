@@ -345,7 +345,6 @@ function onKeyDown(e: KeyboardEvent) {
   position: absolute;
   top: 50%;
   left: 50%;
-  user-select: none;
   -webkit-user-drag: none;
 }
 

@@ -181,7 +181,7 @@ onMounted(async () => {
         <IgnoreSpaceToggle :on="ignoreSpace" @toggle="toggleIgnoreSpace" />
         <WrapToggle :on="wrapOn" @toggle="toggleWrap" />
       </div>
-      <div class="diff-area">
+      <div class="diff-area selectable">
         <div v-if="!selectedHash" class="status">{{ t('history.selectCommit') }}</div>
         <div v-else-if="diffLoading" class="status">{{ t('history.loadingDiff') }}</div>
         <template v-else>

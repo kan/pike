@@ -488,7 +488,7 @@ function openExternal() {
       </button>
       <HelpButton page="browser.md" :size="15" />
     </div>
-    <div v-if="error" class="browser-error">{{ error }}</div>
+    <div v-if="error" class="browser-error selectable">{{ error }}</div>
     <!-- ルールは子 webview を作った時点で固定される。変わったら作り直しを促す。 -->
     <div v-if="rulesStale" class="browser-notice">
       <span>{{ t('browser.siteRulesChanged') }}</span>

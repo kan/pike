@@ -116,7 +116,8 @@ const diagHover = hoverTooltip((view, pos) => {
     above: true,
     create() {
       const dom = document.createElement('div')
-      dom.className = 'cm-diag-tooltip'
+      // 指摘の文面は写して調べるもの。本文（`contenteditable`）の外に描かれるので自分で付ける（#455）。
+      dom.className = 'cm-diag-tooltip selectable'
       for (const r of ranges) {
         const row = document.createElement('div')
         row.className = 'cm-diag-tooltip-row'

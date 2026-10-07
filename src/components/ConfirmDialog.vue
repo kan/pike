@@ -39,7 +39,7 @@ function onKeydown(e: KeyboardEvent) {
   <Teleport to="body">
     <div v-if="visible" class="overlay ui-zoom" @click.self="respond(mode === 'info' ? true : false)" @keydown="onKeydown">
       <div class="dialog popup-surface">
-        <p class="dialog-message">{{ message }}</p>
+        <p class="dialog-message selectable">{{ message }}</p>
         <input
           v-if="mode === 'prompt'"
           ref="inputEl"
@@ -132,7 +132,6 @@ function onKeydown(e: KeyboardEvent) {
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-  user-select: none;
 }
 
 .dialog-actions {

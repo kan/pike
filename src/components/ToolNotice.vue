@@ -27,7 +27,7 @@ defineEmits<{ action: [] }>()
 <template>
   <div class="tool-notice" :class="{ boxed }" :title="detail ?? undefined">
     <Info v-if="boxed" :size="16" :stroke-width="1.5" />
-    <div class="notice-body">
+    <div class="notice-body selectable">
       <span>{{ text }}</span>
       <button v-if="actionLabel" class="notice-btn" @click="$emit('action')">
         {{ actionLabel }}

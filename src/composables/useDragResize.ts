@@ -38,7 +38,6 @@ export function useDragResize(handlers: DragResizeHandlers) {
     document.removeEventListener('mousemove', move)
     document.removeEventListener('mouseup', stop)
     document.body.style.cursor = ''
-    document.body.style.userSelect = ''
     handlers.onEnd?.()
   }
 
@@ -49,7 +48,8 @@ export function useDragResize(handlers: DragResizeHandlers) {
     document.addEventListener('mousemove', move)
     document.addEventListener('mouseup', stop)
     document.body.style.cursor = vertical ? 'row-resize' : 'col-resize'
-    document.body.style.userSelect = 'none'
+    // ドラッグ中の文字の選択を止めるのはこの 1 行（#455）。`body` は元から選択できず、
+    // `.selectable` の面は `body` の指定では止まらないので、スタイルの差し替えでは防げない。
     e.preventDefault()
   }
 

@@ -127,7 +127,7 @@ function onKeyDown(e: KeyboardEvent) {
           <span class="modal-title">{{ t('about.title') }}</span>
           <button class="modal-close" @click="visible = false">&times;</button>
         </div>
-        <div class="about-body">
+        <div class="about-body selectable">
           <div class="about-app">
             <div class="app-name">Pike</div>
             <div class="app-version">{{ updater.versionLabel.value }}</div>

@@ -227,7 +227,7 @@ onUnmounted(() => dockerStore.stopPolling())
         </div>
       </div>
 
-      <div v-if="dockerStore.error" class="error-msg">{{ dockerStore.error }}</div>
+      <div v-if="dockerStore.error" class="error-msg selectable">{{ dockerStore.error }}</div>
     </template>
   </div>
 </template>

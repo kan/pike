@@ -210,7 +210,7 @@ function sameRepoIssueNumber(href: string): number | null {
       </button>
     </div>
 
-    <div class="issue-body">
+    <div class="issue-body selectable">
       <div class="md-page md-body" @click="onContentClick">
         <!-- **読めていた中身は消さない**（パネルのエラー帯と同じ扱い）。更新が失敗しただけで
              読んでいた issue が消えると、開き直しても同じタブが返るので戻す手が無くなる。 -->

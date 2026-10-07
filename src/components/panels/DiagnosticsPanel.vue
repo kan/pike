@@ -53,7 +53,7 @@ watch(() => projectStore.currentProject?.id, runIfIdle)
   <!-- data-testid は E2E の撮影が待ち合わせに使う（`.claude/rules/build.md`）。 -->
   <div class="diag-panel" data-testid="diagnostics-panel">
     <div v-if="diagStore.running" class="status">{{ t('diagnostics.running') }}</div>
-    <div v-else-if="diagStore.error" class="status error">{{ diagStore.error }}</div>
+    <div v-else-if="diagStore.error" class="status error selectable">{{ diagStore.error }}</div>
     <div v-else-if="!diagStore.total && diagStore.lastRunAt" class="status">
       {{ t('diagnostics.noProblems') }}
     </div>
@@ -75,7 +75,7 @@ watch(() => projectStore.currentProject?.id, runIfIdle)
     <div
       v-for="prov in diagStore.providers.filter((p) => !p.ok)"
       :key="`err-${prov.name}-${prov.dir}`"
-      class="provider-error"
+      class="provider-error selectable"
       :title="`${prov.command}\n${prov.error ?? ''}`"
     >
       {{ prov.name }}<span v-if="prov.dir"> ({{ prov.dir }})</span>: {{ t('diagnostics.providerFailed') }}

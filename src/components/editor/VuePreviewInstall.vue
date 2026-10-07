@@ -24,7 +24,7 @@ const dir = computed(() => vuePreviewInstallDir(props.shell))
 </script>
 
 <template>
-  <div class="vue-preview-install">
+  <div class="vue-preview-install selectable">
     <p class="vue-preview-install-title">{{ t('vuePreview.missing') }}</p>
     <p>{{ t('vuePreview.installHint', { dir }) }}</p>
     <div class="vue-preview-install-actions">

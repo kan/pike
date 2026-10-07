@@ -720,12 +720,12 @@ onUnmounted(() => {
           <button class="open-file-btn" @click="openWorkingCopy">{{ t('diff.openCurrentFile') }}</button>
         </template>
         <span v-else-if="emptyState === 'rename'">{{ t('diff.renameOnly') }}</span>
-        <span v-else-if="emptyState === 'raw'">{{ tab.diff.slice(0, 200) }}</span>
+        <span v-else-if="emptyState === 'raw'" class="selectable">{{ tab.diff.slice(0, 200) }}</span>
         <span v-else-if="emptyState === 'space'">{{ t('diff.noChangesBesidesSpace') }}</span>
         <span v-else>{{ t('diff.noChanges') }}</span>
       </div>
       <template v-else>
-      <div class="diff-body">
+      <div class="diff-body selectable">
         <div ref="scrollEl" class="diff-scroll" @wheel="onWheel">
         <table class="diff-table" :class="{ wrap: wordWrapOn }">
           <!-- **列幅はここで決める。** `table-layout: fixed` は既定で最初の行から幅を取るので、

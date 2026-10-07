@@ -237,7 +237,7 @@ function copyPrompt(issue: IssueSummary) {
         未インストール・未認証・権限なしはどれも 0 件になるので、理由を出さないと「issue が
         無い」と見分けが付かない（`ProviderRun.error` と同じ考え方）。2 行目は実行した行。
       -->
-      <div v-if="issuesStore.error" class="error-strip">{{ issuesStore.error }}</div>
+      <div v-if="issuesStore.error" class="error-strip selectable">{{ issuesStore.error }}</div>
       <div v-if="emptyMessage" class="empty">{{ emptyMessage }}</div>
       <div
         v-for="row in rows"

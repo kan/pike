@@ -181,7 +181,7 @@ const chosenCount = computed(() => (isImport ? importChosenCount(choices.value) 
       </div>
     </header>
 
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="error" class="error selectable">{{ error }}</p>
     <p v-if="isImport && sync.importReview" class="hint">{{ t('sync.importFrom', { path: sync.importReview.path }) }}</p>
 
     <template v-if="items.length > 0">
@@ -208,7 +208,7 @@ const chosenCount = computed(() => (isImport ? importChosenCount(choices.value) 
               @click="choose(row.key, side)"
             >
               <span class="side-head">{{ t(side === 'local' ? 'sync.local' : TEXT.remote) }}</span>
-              <pre class="value">{{ row[side] }}</pre>
+              <pre class="value selectable">{{ row[side] }}</pre>
             </button>
           </div>
         </div>

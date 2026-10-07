@@ -719,7 +719,6 @@ onUnmounted(() => {
   padding: 0 8px;
   font-size: 12px;
   color: var(--text-active);
-  user-select: none;
 }
 
 .status-item {

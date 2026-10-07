@@ -299,7 +299,7 @@ onUnmounted(() => cancelAnchorReflow?.())
       </button>
     </div>
 
-    <div ref="containerRef" class="manual-body" @scroll="onScroll" @click="onClick">
+    <div ref="containerRef" class="manual-body selectable" @scroll="onScroll" @click="onClick">
       <div class="md-page md-body">
         <div v-if="error" class="manual-status error">
           {{ t('manual.loadError') }}<br /><code>{{ error }}</code>

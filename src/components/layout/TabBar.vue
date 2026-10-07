@@ -967,7 +967,6 @@ onUnmounted(() => {
   min-height: var(--tabbar-height);
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
-  user-select: none;
   position: relative;
 }
 

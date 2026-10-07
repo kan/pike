@@ -140,7 +140,7 @@ interface RunRow {
       </div>
     </header>
 
-    <div class="cards">
+    <div class="cards selectable">
       <section v-for="{ agent, usage, needsLogin, rows, cols, meters } in cards" :key="agent.id" class="card">
         <div class="card-head">
           <Bot :size="15" :stroke-width="2" />

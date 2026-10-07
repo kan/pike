@@ -1085,7 +1085,7 @@ const PREVIEW_LINES = [
                   :key="`${target.installKey}:${target.configDir}`"
                   class="setting-list-row"
                 >
-                  <code class="setting-list-name hook-dir">{{ target.configDir }}</code>
+                  <code class="setting-list-name hook-dir selectable">{{ target.configDir }}</code>
                   <span v-if="target.active" class="hook-badge">{{ t('settings.agentHookActive') }}</span>
                   <span v-if="target.registered" class="setting-hint hook-done" :title="target.command">{{ t('settings.agentHookRegistered') }}</span>
                   <button v-else class="add-cmd-btn" :disabled="hookBusy" :title="target.command" @click="editHook(target, false)">
@@ -1105,7 +1105,7 @@ const PREVIEW_LINES = [
               <p class="setting-hint hook-declared">
                 <span>
                   {{ t('settings.agentHookDeclared') }}:
-                  <code v-if="hookStatus.declared">{{ hookStatus.declared }}</code>
+                  <code v-if="hookStatus.declared" class="selectable">{{ hookStatus.declared }}</code>
                   <template v-else>{{ t('settings.agentHookPending') }}</template>
                 </span>
                 <button

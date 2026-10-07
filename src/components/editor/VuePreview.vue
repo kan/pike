@@ -300,7 +300,7 @@ defineExpose({ onSaved })
           <SlidersHorizontal :size="12" />{{ t('vuePreview.fillValues') }}
         </button>
       </div>
-      <ul v-if="showWarnings && warnings.length" class="vue-preview-warning-list">
+      <ul v-if="showWarnings && warnings.length" class="vue-preview-warning-list selectable">
         <li v-for="(w, i) in warnings" :key="i">{{ w }}</li>
       </ul>
       <VuePreviewForm
@@ -355,6 +355,5 @@ defineExpose({ onSaved })
   line-height: 1.5;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border);
-  user-select: text;
 }
 </style>

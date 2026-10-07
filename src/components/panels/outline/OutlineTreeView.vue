@@ -125,7 +125,6 @@ function iconFor(kind: OutlineKind): Component {
   font-size: 12px;
   border-radius: 3px;
   white-space: nowrap;
-  user-select: none;
 }
 
 .tree-item:hover {

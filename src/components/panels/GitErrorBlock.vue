@@ -67,8 +67,8 @@ async function askAgent() {
       </button>
     </div>
     <template v-if="kind">
-      <p class="git-error-summary">{{ t(`git.err.${kind}`) }}</p>
-      <p class="git-error-fix">{{ t(`git.errFix.${kind}`) }}</p>
+      <p class="git-error-summary selectable">{{ t(`git.err.${kind}`) }}</p>
+      <p class="git-error-fix selectable">{{ t(`git.errFix.${kind}`) }}</p>
     </template>
     <div class="git-error-actions">
       <!-- 鍵のパスフレーズで直る失敗のときだけ（#386）。伏せ字で受け取って ssh-agent に

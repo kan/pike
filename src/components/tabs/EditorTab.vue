@@ -2499,7 +2499,7 @@ onUnmounted(() => {
         {{ t('editor.dirNewWindow') }}
       </label>
     </div>
-    <div v-else-if="error" class="editor-status error">
+    <div v-else-if="error" class="editor-status error selectable">
       <span>{{ error }}</span>
       <button v-if="tab?.path && tab?.initialContent === undefined" class="error-retry" @click="reloadFromDisk">
         {{ t('editor.reload') }}
@@ -2525,7 +2525,7 @@ onUnmounted(() => {
       <div
         v-if="showPreview && !isMermaid && !ownPanePreview"
         ref="previewRef"
-        class="preview-pane"
+        class="preview-pane selectable"
         tabindex="-1"
         :class="{
           // rst にも `md-preview` を当てる（#284）。見出し・段落・リスト・コード・表の
@@ -2548,7 +2548,7 @@ onUnmounted(() => {
       <div
         v-if="showPreview && isMermaid"
         ref="mermaidRef"
-        class="preview-pane mermaid-preview"
+        class="preview-pane mermaid-preview selectable"
         tabindex="-1"
         :style="{ '--mermaid-zoom': mermaidZoom }"
       ></div>
@@ -2675,7 +2675,7 @@ onUnmounted(() => {
             <span>{{ t('json.stringPopup') }}</span>
             <button class="json-string-popup-close" @click="closeJsonStringPopup">×</button>
           </div>
-          <pre class="json-string-popup-body">{{ jsonStringPopup.content }}</pre>
+          <pre class="json-string-popup-body selectable">{{ jsonStringPopup.content }}</pre>
           <div v-if="jsonStringPopup.truncated" class="json-string-popup-footer">
             {{ t('json.stringTruncated', { max: String(JSON_POPUP_MAX_LEN) }) }}
           </div>
@@ -3624,7 +3624,6 @@ onUnmounted(() => {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  user-select: none;
 }
 
 .json-string-popup-close {

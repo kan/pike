@@ -44,7 +44,7 @@ onMounted(async () => {
   <div class="pdf-tab">
     <HelpButton page="editor-and-preview.md#pdf-プレビュー" :size="16" class="pdf-help" />
     <div v-if="loading" class="pdf-status">{{ t('common.loading') }}</div>
-    <div v-else-if="error" class="pdf-status error">{{ error }}</div>
+    <div v-else-if="error" class="pdf-status error selectable">{{ error }}</div>
     <iframe v-else :src="dataUrl" class="pdf-frame" />
   </div>
 </template>

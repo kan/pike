@@ -712,7 +712,6 @@ onUnmounted(() => {
   font-size: 12px;
   cursor: pointer;
   border-radius: 3px;
-  user-select: none;
   min-width: 0;
 }
 
