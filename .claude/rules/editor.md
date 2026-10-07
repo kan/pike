@@ -84,19 +84,21 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
     - **残りの方言（`mariaDB` / `msSQL` / `plSQL` 等）は入れない**（要望が出てから）
   - **Markdown のフェンスの中身も `EXT_MAP` で解析する（#344）。** `markdown()` に `codeLanguages` を渡す形で、**依存は増えない**（`@codemirror/language-data` は入れない）。別名表（`FENCE_ALIASES`）を実在するフェンス名から作った理由と、`Language` をキーごとにキャッシュする理由は `languages.ts` の doc が正本。プレビューのコードブロックの色付け（#359）は `preview.md`
     - **アウトラインにフェンスの中身は出ない。** `@lezer/markdown` はフェンスを**オーバーレイ**としてマウントし、`Tree.iterate` はオーバーレイに入らないため（`IterMode` の指定では変わらないことを実測で確認）。**`resolveInner` 系へ書き換えるときは要注意**: あちらは中へ入るので、```` ```md ```` に貼ったコード例の見出しが文書の構造に混ざる
-  - **shebang はアウトラインには効かない。** `langId` は `fileTypeKey(path)` で共通の判定を通るが、**1 行目を渡していない**ので shebang の段に届かない。効かせるなら `EditorTab.vue` が `langId` を作るところで 1 行目を渡すことになる
+  - **タブの種別は `EditorTab.vue` の `typeKey` の 1 つ（#456）。** `resolveLanguage` が言語・ラベルと一緒に決め、アウトラインの `langId`・定義ジャンプの `langId`・整形の種別がそれを読む。**それぞれで `fileTypeKey(path)` を呼び直さないこと**: 1 行目が渡らず、shebang で色の付いたファイルのアウトラインが空になる（#456 の不具合そのもの）。`lib/jumpTo/index.ts` の `guessLangId` は別のファイルをパスだけで見るので対象外
   - 判定は**開いたときと Save As の 1 回**。あとから shebang を書き足しても切り替わらない
   - **StatusBar から手動で上書きできる**。`fileTypeOverride` はタブ単位で
     セッションに残さない（`wordWrapOverride` / `minimapOverride` と同じ）。選択肢は
     `languageOptions()` が `EXT_MAP` から作り、**ラベルで畳む**（利用者に見せたいのは言語で
     あって拡張子ではない）。**ラベルを持たないキーは出さない**: 選んでも表示が `Plain Text` の
     ままで、切り替わったのか分からない
-    - **変えるのはハイライトだけ**。プレビューと Markdown の入力支援（`isMarkdown` / `isCsv` /
+    - **変えるのはハイライト・アウトライン・定義ジャンプ・整形の種別**（`typeKey` を読むもの、
+      #456。構文木を歩く抽出器は、木を作った言語と同じキーでないと何も拾えない）。
+      プレビューと Markdown の入力支援（`isMarkdown` / `isCsv` /
       `hasPreview`）は `tab.path` から導いたままにする。連動させると、プレビュー表示中に
       Plain Text を選んだときの `viewMode` の戻し先まで設計が要る。線引きはマニュアルにも書いた
   - StatusBar へ渡す操作は `EditorActions` の 1 オブジェクト。**登録が 2 箇所ある**（読み込み
     直後とタブ切替）ので、位置引数にすると片方で末尾が抜ける
-- **Save As は `tab.path` を書き換えるだけでビューを作り直さない**ので、ファイルの種類で決まるものは `tab.path` の watcher で張り直す。対象は**言語（`languageCompartment`）・入力支援のキー（`markdownCompartment`）・アウトラインの登録（`registerOutlineSource`）の 3 つ**。言語を入れ忘れると、無題バッファを `notes.md` として保存したときに「ツールバーとショートカットは効くのにハイライトも Enter の継続も無い」という半端な状態になる（Enter の継続は `@codemirror/lang-markdown` が持ち込むため）。アウトラインは登録時の path を焼き込むうえ、そのタブは既に active なので activeTabId の watcher では張り直されない
+- **Save As は `tab.path` を書き換えるだけでビューを作り直さない**ので、ファイルの種類で決まるものは `tab.path` の watcher で張り直す。対象は**言語（`languageCompartment`）・入力支援のキー（`markdownCompartment`）・アウトラインの登録（`registerOutlineSource`）の 3 つ**。言語を入れ忘れると、無題バッファを `notes.md` として保存したときに「ツールバーとショートカットは効くのにハイライトも Enter の継続も無い」という半端な状態になる（Enter の継続は `@codemirror/lang-markdown` が持ち込むため）。アウトラインは登録時の path と種別を焼き込むうえ、そのタブは既に active なので activeTabId の watcher では張り直されない（張り直すのは `applyLanguage`。StatusBar で言語を選んだときも同じ経路）
   - **compartment を 1 つにまとめないこと**。2 つは拡張リスト上の位置が違い、その順序が効いている: `defaultKeymap` が `Mod-i` を `selectParentSyntax` に割り当てているので、入力支援の keymap は**それより前に登録されている**から勝てる。言語は最後
   - diff ガター・Problems・ミニマップ・定義ジャンプは path を遅延で読むので張り直し不要（`hasFile` は無題バッファでも真になる）
 - Ctrl+S で保存、ダーティ表示（タブタイトルに `*`）。Ctrl+Z/Shift+Z で Undo/Redo
@@ -200,7 +202,7 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
 
 選択範囲、無ければファイル全体を整形する。実体は `lib/editorFormat.ts`（判断の正本はあのファイルの doc）。入口は右クリックの「整形 ›」、プリセットのキー（`editorChordsFor` の `format`）、パレット（`APP_ACTIONS` の `format`）の 3 つで、**段取り（種別の解決・区切り文字を聞く・整形・適用・通知）は `runFormat` の 1 つ**。入口を足すときもコンポーネントに段取りを書かない。
 
-- **StatusBar で選んだ言語（手動の上書き）が効くのは右クリックとキーだけ**。パレットは `useOutlineSource` の `langId`（パスから決めたもの）を使う既知の制約
+- **3 つの入口は同じ種別を使う**（`EditorTab.vue` の `typeKey`。shebang と StatusBar の手動の上書きを含む、#456）。パレットは `useOutlineSource` の `langId` 経由で同じ値を受け取る
 - **HTML / XML / CSS / JavaScript は `js-beautify`**。依存を足した理由は精度（`pre` / `script` / 閉じタグの要らない要素）。**動的 import で使うときだけ読む**（ビルドで約 100KB の別チャンクになる）。CommonJS なので、関数が `default` の下に入る読み込み方がある（Node の ESM）。型は同梱されないので `types/js-beautify.d.ts` に使う分だけ宣言した
 - **TypeScript と Vue をファイル種別の自動整形に入れないこと**。`js-beautify` は型引数を `Map < string, number[] >` に崩す。Vue は `<script lang="ts">` の中身が同じ経路で崩れる
 - **JSON は `JSON.stringify` で書き直さない**（`reindentJson` が文字の並びだけを見て字下げする）。往復すると 2^53 を超える整数の精度・重複したキー・`1.0` の書き方が黙って変わる。構文の検査にだけ `JSON.parse` を使う

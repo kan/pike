@@ -28,7 +28,18 @@ watch(
   },
 )
 
-watch([() => outlineSource.current.value?.tabId, debouncedVersion], () => recompute(), { immediate: true })
+// 種別とパスも見る（#456）。StatusBar で言語を選ぶ・Save As は同じタブのまま登録し直すだけで、
+// 未編集なら `version` も 0 のまま変わらないので、ここで拾わないと古い種別のアウトラインが残る。
+watch(
+  [
+    () => outlineSource.current.value?.tabId,
+    () => outlineSource.current.value?.langId,
+    () => outlineSource.current.value?.path,
+    debouncedVersion,
+  ],
+  () => recompute(),
+  { immediate: true },
+)
 
 function recompute() {
   const src = outlineSource.current.value
@@ -36,7 +47,8 @@ function recompute() {
     result.value = null
     return
   }
-  if (!src.path) {
+  // 無題のタブでも、StatusBar で言語を選んでいれば種別がある（#456）。
+  if (!src.path && !src.langId) {
     result.value = null
     return
   }

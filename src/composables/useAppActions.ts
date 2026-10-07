@@ -277,8 +277,8 @@ export function useAppActions(): Record<AppActionId, () => void> & {
       playMacro(view)
       view.focus()
     },
-    // クイック整形（#366）。種別は登録の `langId`（パスから決めたもの）で、StatusBar の手動の
-    // 上書きは知らない（上書きが効くのは右クリックとキーの入口）。
+    // クイック整形（#366）。種別は登録の `langId`（そのタブの種別。shebang と StatusBar の手動の
+    // 上書きを含む、#456）で、右クリックとキーの入口と同じ値になる。
     format: () => {
       const src = useOutlineSource().current.value
       if (src) void runFormat(src.view, 'auto', src.langId)

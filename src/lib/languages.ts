@@ -32,7 +32,7 @@ import { raku } from 'codemirror-lang-raku'
 // CM6 に公式の rst は無い（CM5 にはあった）ので、外部パッケージを足している。
 // 依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる（#284）。
 import { rst } from 'codemirror-lang-rst'
-import { type FileTypeKey, fileTypeKey, fileTypeLabel, fileTypeLabelOf } from './fileType'
+import { type FileTypeKey, fileTypeLabel } from './fileType'
 import { blade, erb, smarty, twig, xslate } from './templateModes'
 
 function legacy(mode: Parameters<typeof StreamLanguage.define>[0]): LanguageSupport {
@@ -286,13 +286,6 @@ export function languageByKey(key: string): LanguageSupport | null {
 
 /** キーの表示名。手動で選んだときの StatusBar はファイル名を見ないのでこちらを引く。 */
 export const languageLabelByKey = fileTypeLabel
-
-/** StatusBar に出すファイル種別。**`getLanguage` と同じキーを引く**（#347）。 */
-export const getLanguageLabel = fileTypeLabelOf
-
-export function getLanguage(filename: string, firstLine?: string): LanguageSupport | null {
-  return languageByKey(fileTypeKey(filename, firstLine))
-}
 
 /**
  * 手動で選べる言語の一覧（StatusBar のドロップダウン）。

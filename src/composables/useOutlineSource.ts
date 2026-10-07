@@ -5,7 +5,11 @@ export interface OutlineSource {
   tabId: string
   /** File path. Empty string for untitled tabs. */
   path: string
-  /** Lowercased file extension (e.g. 'ts', 'rs'). Empty for untitled. */
+  /**
+   * File type key (`fileTypeKey`, e.g. 'ts', 'rs'), including the shebang
+   * detection and the manual override from the StatusBar (#456). Empty when
+   * the type is unknown.
+   */
   langId: string
   /**
    * Live CodeMirror EditorView for syntaxTree access.

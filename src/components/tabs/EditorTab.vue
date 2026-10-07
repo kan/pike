@@ -55,7 +55,7 @@ import { formatFileSize, formatLineRange, lineRangeSuffix } from '../../lib/form
 import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel, matchChord } from '../../lib/keys'
-import { getLanguage, getLanguageLabel, languageByKey, languageLabelByKey } from '../../lib/languages'
+import { languageByKey, languageLabelByKey } from '../../lib/languages'
 import { footnotes } from '../../lib/markdownFootnotes'
 import { renderMermaid } from '../../lib/mermaid'
 import { openProjectPath, openWithDefaultApp } from '../../lib/openFile'
@@ -254,7 +254,7 @@ function registerOutlineSource() {
   outlineSource.set({
     tabId: props.tabId,
     path: tab.value.path ?? '',
-    langId: tab.value.path ? fileTypeKey(tab.value.path) : '',
+    langId: typeKey,
     view: editorView,
   })
 }
@@ -890,7 +890,7 @@ function updateCursorInfo() {
     col: pos - line.from + 1,
     encoding: currentEncoding.value,
     lineEnding: currentLineEnding.value,
-    fileType: langLabel,
+    fileType: languageLabelByKey(typeKey),
     fileTypeKey: fileTypeOverride.value,
     tabSize: settingsStore.editorTabSize,
     tabId: props.tabId,
@@ -1277,15 +1277,14 @@ const ctxFormatOpen = ref(false)
 
 /**
  * 整形する（段取りの実体は `lib/editorFormat.ts` の `runFormat`）。ここで渡すのは種別だけで、
- * **手動の上書き（StatusBar で選んだ言語）を優先する**。パレットの入口は上書きを知らない
- * （`useOutlineSource` の `langId` はパスから決めたもの）ので、上書きが効くのはこの 2 つの入口。
+ * **手動の上書き（StatusBar で選んだ言語）を含む `typeKey`** を使う。パレットの入口は
+ * `useOutlineSource` の `langId` を読むが、あれも同じ値なので 3 つの入口で種別は割れない。
  */
 function formatInTab(kind: FormatKind | 'auto') {
   closeCtxMenu()
   const view = editorView
   if (!view) return
-  const type = fileTypeOverride.value ?? fileTypeKey(tab.value?.path ?? '', firstLineOf(view.state.doc.line(1).text))
-  void runFormat(view, kind, type)
+  void runFormat(view, kind, typeKey)
 }
 
 /**
@@ -1503,19 +1502,6 @@ const markdownImages = useMarkdownImages(
 const ctxHasSelection = ref(false)
 
 /**
- * StatusBar に出すファイル種別（#312）。**判定の入力ではなく結果を控える。**
- *
- * ハイライトを決めるのは開いたときと Save As の 2 回だけなので、種別も同じ機会に決めた値を
- * 使わないと 2 つが食い違う。`updateCursorInfo` は打鍵のたびに走るため、そこでライブの
- * 1 行目から引き直すと、拡張子の無いファイルに `#!/bin/bash` を書き足したときに**種別だけ
- * 即座に Shell になり、本文はプレーンのまま**になる。
- *
- * **1 行目のほうを控える形にしない**こと: それだと「ライブの値を渡すな」という警告を
- * コメントで支え続けることになる。結果を持てば、渡せる入力が存在しないので誤用が書けない。
- */
-let langLabel = 'Plain Text'
-
-/**
  * 手動で選んだファイルタイプのキー（#312 の続き）。null なら自動判定。
  *
  * **タブ単位で、セッションには残さない**（`wordWrapOverride` / `minimapOverride` と同じ）。
@@ -1524,15 +1510,28 @@ let langLabel = 'Plain Text'
  */
 const fileTypeOverride = ref<string | null>(null)
 
+/**
+ * このタブの種別のキー（`fileTypeKey` の答え、または手動の上書き）。無題で上書きも無ければ空。
+ *
+ * **ハイライト・アウトライン・定義ジャンプ・整形はこの 1 つを読む**（#456）。それぞれが
+ * `fileTypeKey(path)` を呼び直すと 1 行目が渡らず、shebang で色の付いたファイルのアウトラインが
+ * 空になる。構文木を歩く抽出器（JSON・Raku）は、木を作った言語と同じキーでないと何も拾えない
+ * ので、手動の上書きもここに含める。StatusBar の種別の表示（#312）もここから引く。
+ *
+ * **判定の入力ではなく結果を控える。** ハイライトを決めるのは開いたときと Save As の 2 回だけ
+ * なので、種別も同じ機会に決めた値を使わないと 2 つが食い違う。`updateCursorInfo` は打鍵の
+ * たびに走るため、そこでライブの 1 行目から引き直すと、拡張子の無いファイルに `#!/bin/bash` を
+ * 書き足したときに**種別だけ即座に Shell になり、本文はプレーンのまま**になる。
+ *
+ * **1 行目のほうを控える形にしない**こと: それだと「ライブの値を渡すな」という警告を
+ * コメントで支え続けることになる。結果を持てば、渡せる入力が存在しないので誤用が書けない。
+ */
+let typeKey = ''
+
 /** 言語と種別を決め直す。**この 2 つは必ず一緒に更新する。** */
-function resolveLanguage(path: string | undefined, firstLine: string): ReturnType<typeof getLanguage> {
-  const key = fileTypeOverride.value
-  if (key) {
-    langLabel = languageLabelByKey(key)
-    return languageByKey(key)
-  }
-  langLabel = getLanguageLabel(path ?? '', firstLine)
-  return path ? getLanguage(path, firstLine) : null
+function resolveLanguage(path: string | undefined, firstLine: string): ReturnType<typeof languageByKey> {
+  typeKey = fileTypeOverride.value ?? (path ? fileTypeKey(path, firstLine) : '')
+  return languageByKey(typeKey)
 }
 
 /**
@@ -1554,11 +1553,12 @@ const editorActions: EditorActions = {
  * （`changeFileType` と Save As の watcher が呼ぶ。あちらは markdown の張り直しが加わる）。
  */
 function applyLanguage(path: string | undefined, extra: StateEffect<unknown>[] = []) {
-  // 上書きが立っていれば 1 行目は読まれないので、そのときは取りに行かない。
-  const firstLine = fileTypeOverride.value ? '' : firstLineOf(editorView?.state.doc.line(1).text ?? '')
-  const lang = resolveLanguage(path, firstLine)
+  const lang = resolveLanguage(path, firstLineOf(editorView?.state.doc.line(1).text ?? ''))
   editorView?.dispatch({ effects: [languageCompartment.reconfigure(lang ?? []), ...extra] })
   updateCursorInfo()
+  // アウトラインは登録時の path と種別を焼き込む。このタブは既に active なので、ここで渡し直さないと
+  // 誰も新しい値を渡さない。
+  if (tabStore.isTabFocused(props.tabId)) registerOutlineSource()
 }
 
 /**
@@ -1646,7 +1646,7 @@ function createEditorView(container: HTMLElement, content: string) {
             filePath: t.path,
             projectRoot: projectStore.activeRoot,
             shell: project.shell,
-            langId: fileTypeKey(t.path),
+            langId: typeKey,
           }
         },
         onJump: (target) => {
@@ -2341,10 +2341,8 @@ watch(
   () => tab.value?.path,
   (path) => {
     // 名前が変われば Markdown の入力支援も張り直す（表示だけの上書きと違う点。#312 の続き）。
+    // アウトラインの登録（path を焼き込む）は `applyLanguage` が張り直す。
     applyLanguage(path, [markdownCompartment.reconfigure(markdownAssist())])
-    // The outline panel was handed this tab's path when the view was built, and
-    // the tab is already active, so nothing else will hand it the new one.
-    if (tabStore.isTabFocused(props.tabId)) registerOutlineSource()
   },
 )
 
