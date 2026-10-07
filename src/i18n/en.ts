@@ -768,6 +768,11 @@ export default {
   'worktree.main': 'main',
   'worktree.detached': 'detached',
   'worktree.tooltip': 'Active worktree (file tree / git / search / tasks / docker follow this)',
+  'worktree.needsRepair': 'needs repair',
+  'worktree.needsRepairTooltip':
+    'This worktree was created in the other environment (WSL / Windows), so git in this shell cannot open it. Select it to repair',
+  'worktree.repairConfirm':
+    'The worktree "{name}" was created in the other environment (WSL / Windows), so git in this shell cannot open it.\n\nRecording its location as a relative path makes it open from both. Run this command in a terminal?\n\n{command}\n\nThis needs git 2.48 or later. Once it has run, older versions of git can no longer work with the worktrees of this repository.',
   'git.copyHash': 'Copy commit hash',
   'git.copyShortHash': 'Copy short hash',
   'git.copyMessage': 'Copy commit message',

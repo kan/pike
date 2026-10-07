@@ -763,6 +763,11 @@ export default {
   'worktree.main': 'main',
   'worktree.detached': 'detached',
   'worktree.tooltip': '参照中の worktree（file tree / git / search / tasks / docker が追従）',
+  'worktree.needsRepair': '要修復',
+  'worktree.needsRepairTooltip':
+    '別の環境（WSL / Windows）で作られた worktree です。このシェルの git からは開けません。選ぶと修復を案内します',
+  'worktree.repairConfirm':
+    'worktree「{name}」は別の環境（WSL / Windows）で作られていて、このシェルの git からは開けません。\n\n場所の記録を相対パスに直すと、どちらの環境からも開けるようになります。次のコマンドをターミナルで実行しますか？\n\n{command}\n\ngit 2.48 以降が必要です。実行すると、それより古い git ではこのリポジトリの worktree を扱えなくなります。',
   'git.copyHash': 'コミットハッシュをコピー',
   'git.copyShortHash': '短いハッシュをコピー',
   'git.copyMessage': 'コミットメッセージをコピー',

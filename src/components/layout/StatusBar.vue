@@ -598,12 +598,14 @@ onUnmounted(() => {
               v-for="w in worktreeStore.worktrees"
               :key="w.path"
               class="branch-option worktree-option"
-              :class="{ current: worktreeStore.isActive(w) }"
+              :class="{ current: worktreeStore.isActive(w), 'needs-repair': w.needsRepair }"
+              :title="w.needsRepair ? t('worktree.needsRepairTooltip') : undefined"
               @click="onSelectWorktree(w)"
             >
               <span class="worktree-name">
                 {{ basename(w.path) }}
                 <span class="worktree-branch">{{ worktreeBranchLabel(w) }}</span>
+                <span v-if="w.needsRepair" class="worktree-repair">{{ t('worktree.needsRepair') }}</span>
               </span>
               <span v-if="worktreeStore.isActive(w)" class="current-mark">*</span>
             </button>
@@ -1211,6 +1213,17 @@ onUnmounted(() => {
 .worktree-branch {
   font-size: 11px;
   color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 別の環境で作られていて開けない worktree（#454）。選ぶと修復を案内する。 */
+.worktree-option.needs-repair {
+  color: var(--text-secondary);
+}
+
+.worktree-repair {
+  font-size: 11px;
+  color: var(--danger);
   white-space: nowrap;
 }
 

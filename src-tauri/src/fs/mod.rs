@@ -1142,15 +1142,21 @@ fn test_paths_wsl(shell: &ShellConfig, paths: &[String], test: &str) -> Result<V
 /// (a WSL probe costs a `wsl.exe` launch, so per-path calls would be slow).
 #[tauri::command]
 pub async fn fs_dirs_exist(shell: ShellConfig, paths: Vec<String>) -> Result<Vec<bool>, String> {
-    tokio::task::spawn_blocking(move || match &shell {
-        ShellConfig::Wsl { .. } => dirs_exist_wsl(&shell, &paths),
+    tokio::task::spawn_blocking(move || dirs_exist(&shell, &paths))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// `fs_dirs_exist` の同期版。呼ぶ側が既に `spawn_blocking` の中に居るとき用
+/// （worktree の一覧、#454）。
+pub(crate) fn dirs_exist(shell: &ShellConfig, paths: &[String]) -> Result<Vec<bool>, String> {
+    match shell {
+        ShellConfig::Wsl { .. } => dirs_exist_wsl(shell, paths),
         _ => Ok(paths
             .iter()
             .map(|p| std::fs::metadata(p).map(|m| m.is_dir()).unwrap_or(false))
             .collect()),
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    }
 }
 
 fn dirs_exist_wsl(shell: &ShellConfig, paths: &[String]) -> Result<Vec<bool>, String> {

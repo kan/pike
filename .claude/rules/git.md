@@ -244,7 +244,13 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
   止めるのも自分で起こしたものだけ（`shutdown_all`）
 
 ## Git worktree 連動
-- `git_worktree_list` コマンド（`git worktree list --porcelain` をパース）が `{ path, branch, head, isBare, isDetached, isMain }[]` を返す。bare クローン構成では bare エントリを main 扱いせず**最初の非 bare** を `isMain` とし、`prunable`（ディレクトリ消失）worktree は一覧から除外
+- `git_worktree_list` コマンド（`git worktree list --porcelain` をパース）が `{ path, branch, head, isBare, isDetached, isMain, needsRepair }[]` を返す。bare クローン構成では bare エントリを main 扱いせず**最初の「bare でも要修復でもない」もの**を `isMain` とする
+- **`prunable` は「消えた」とは限らない（#454）。** git は worktree の場所を絶対パスで記録するので、WSL と Windows の片方で作った worktree は、もう片方の git から辿れずに `prunable` になる（Windows から見た `/mnt/c/…`。`git worktree list` には出るので、利用者には「一覧にあるのにセレクタに無い」と見える）。**落とすか残すかを決めるのは `git/mod.rs` の `settle_worktrees` の 1 か所**で、フロントは `needsRepair` を表示するだけ
+  - 別の環境のパスに読み替えられて（`foreign_worktree_path`）、**読み替えた先が実在する**ものは、`needs_repair` を立てて残す。セレクタには「要修復」で並ぶ。それ以外の `prunable` は本当に消えたものなので落とす。**形だけで決めない**: 作った環境で消されただけの worktree も同じ形をしている
+  - **判定は `prunable` より先にパスの形で行う。** WSL から見た Windows 製は `<gitdir>/worktrees/x/C:/…` という繋がれたパスになり、lock されている（Claude Code のエージェントの worktree）と `prunable` が付かない（実測）
+  - **読み替えるのは `/mnt/<ドライブ>` と `X:/` の対だけ。** UNC（`\\wsl.localhost\…`）で開いた WSL のプロジェクトや、automount の root を変えた distro は拾わず、従来どおり落ちる
+  - **選んでも切り替えない**（`setActiveWorktree` が `repairWorktree` へ回す）。そのパスで git を呼んでも、worktree 側の `.git` ファイルが相手の環境のパスを指していて「リポジトリではない」になる
+  - **修復は `git worktree repair --relative-paths <パス>` を確認のうえターミナルで流す**（`stores/worktree.ts` の `repairWorktree` が `runCommandTab` へ渡す）。**相対パスにする**のは、絶対パスのまま直すと今度は相手の環境から辿れなくなるため。相対にすれば両方から一覧も status も通る（git 2.55 の WSL / Windows で実測）。**自動では流さない**: `extensions.relativeWorktrees` が立ち、2.48 より古い git がそのリポジトリの worktree を扱えなくなる
 - **参照ルートの単一の真実**: `stores/project.ts` の `activeRoot`（非 null computed = `activeWorktreeRoot ?? currentProject.root ?? ''`）。file tree / git / search / tasks / docker、およびエディタの git 操作（diff ガター・History・定義ジャンプ・MD リンク解決）はすべて `project.root` ではなく `activeRoot` を参照する。root 相対操作で残る `project.root` 直参照は worktree 追従漏れのサイン
 - **「これから開くもの」も追従する（#269）**: 新規ターミナルの cwd（`useAppActions.openTerminal` / `useCliOpen` / セッション復元）・アップロード先（`.pike/uploads`）・usage の集計 root。**プロジェクトに固定しない**: どれも受け手はターミナルやエージェントの cwd で、そちらが worktree に居るなら基準が食い違う。固定すると (1) 貼り付いた `.pike/uploads/…` の相対パスがエージェントに届かない、(2) usage は cwd と root の一致で集計するので、worktree で作業しているあいだ数字が 0 になる
 - **走っているターミナルの基準は動かさない**: ドロップの相対パスはそのタブを開いた cwd を基準にする。ここで `activeRoot` を読み直すと、あとから worktree を切り替えたときに、走っているシェルへ届かないパスを送る

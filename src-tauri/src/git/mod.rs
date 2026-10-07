@@ -99,6 +99,9 @@ pub struct GitWorktree {
     pub is_detached: bool,
     /// The first entry reported by git is the repository's main working tree.
     pub is_main: bool,
+    /// 別の環境（WSL / Windows）で作られていて、このシェルの git からは開けない（#454）。
+    /// `path` はこのシェルから見た形に直してあり、`git worktree repair` に渡せる。
+    pub needs_repair: bool,
 }
 
 fn truncate_diff(output: String) -> String {
@@ -1090,26 +1093,27 @@ struct WorktreeRecord {
     is_prunable: bool,
 }
 
-fn parse_worktrees(output: &str) -> Vec<GitWorktree> {
+/// 各エントリと、git がその場所へ届かなかったか（`prunable`）の組を返す。
+///
+/// **`prunable` は「消えた」とは限らない**（#454）ので、ここでは落とさない。落とすか残すか、
+/// どれが main かは `settle_worktrees` が決める。
+fn parse_worktrees(output: &str) -> Vec<(GitWorktree, bool)> {
     let mut worktrees = Vec::new();
     let mut rec = WorktreeRecord::default();
 
     // `git worktree list --porcelain` emits blank-line-separated records.
-    // Prunable worktrees (directory gone / pruneable) are skipped: selecting one
-    // would point the panels at a missing path. `is_main` is assigned later to
-    // the first non-bare entry, since a bare-clone layout lists `bare` first.
-    let flush = |rec: &mut WorktreeRecord, worktrees: &mut Vec<GitWorktree>| {
+    let flush = |rec: &mut WorktreeRecord, worktrees: &mut Vec<(GitWorktree, bool)>| {
         if let Some(p) = rec.path.take() {
-            if !rec.is_prunable {
-                worktrees.push(GitWorktree {
-                    path: p,
-                    branch: rec.branch.take(),
-                    head: rec.head.take(),
-                    is_bare: rec.is_bare,
-                    is_detached: rec.is_detached,
-                    is_main: false,
-                });
-            }
+            let worktree = GitWorktree {
+                path: p,
+                branch: rec.branch.take(),
+                head: rec.head.take(),
+                is_bare: rec.is_bare,
+                is_detached: rec.is_detached,
+                is_main: false,
+                needs_repair: false,
+            };
+            worktrees.push((worktree, rec.is_prunable));
         }
         *rec = WorktreeRecord::default();
     };
@@ -1135,12 +1139,101 @@ fn parse_worktrees(output: &str) -> Vec<GitWorktree> {
     }
     // Final record may not be followed by a trailing blank line.
     flush(&mut rec, &mut worktrees);
+    worktrees
+}
 
-    // The repository's main working tree is the first non-bare entry.
-    if let Some(w) = worktrees.iter_mut().find(|w| !w.is_bare) {
+/// 別の環境で作られた worktree のパスを、`shell` から見た形に直す（#454）。直すものが
+/// 無ければ `None`。
+///
+/// git は worktree の場所を絶対パスで記録するので、WSL と Windows の片方で作った worktree は
+/// もう片方の git から辿れない。`git worktree list` が返すのは次の形で、どちらもそのままでは
+/// 開けない（git 2.55 で実測）:
+///
+/// - Windows のシェルから見た WSL 製: `/mnt/c/repo/.claude/worktrees/x`（`prunable` が付く）
+/// - WSL から見た Windows 製: `/mnt/c/repo/.git/worktrees/x/C:/repo/.claude/worktrees/x`
+///   （記録された `C:/…` を相対パスとして繋いだもの。lock されていると `prunable` は付かない）
+///
+/// **形だけで決めない。** 呼ぶ側（`settle_worktrees`）が、直した先が実在するかを確かめる。
+/// 作った環境で消されただけの worktree も同じ形をしている。
+///
+/// **読み替えるのは `/mnt/<ドライブ>` と `X:/` の対だけ。** UNC（`\\wsl.localhost\…`）で開いた
+/// WSL のプロジェクトや、automount の root を変えた distro は拾わず、従来どおり落ちる。
+fn foreign_worktree_path(path: &str, shell: &ShellConfig) -> Option<String> {
+    let drive_at = |s: &str| -> Option<(char, String)> {
+        let mut chars = s.chars();
+        let (drive, colon, sep) = (chars.next()?, chars.next()?, chars.next()?);
+        (drive.is_ascii_alphabetic() && colon == ':' && matches!(sep, '/' | '\\'))
+            .then(|| (drive, chars.as_str().replace('\\', "/")))
+    };
+    match shell {
+        ShellConfig::Unix { .. } => None,
+        ShellConfig::Wsl { .. } => {
+            // 繋がれた形は `<gitdir>/worktrees/<id>/` の直後から `C:/…` が始まる。
+            // **`X:/` を素で探さない**: Linux では `:` を含むディレクトリ名が合法。
+            const MARK: &str = "/worktrees/";
+            let tail = path.rfind(MARK).and_then(|i| {
+                let after_id = &path[i + MARK.len()..];
+                after_id.find('/').map(|j| &after_id[j + 1..])
+            });
+            let (drive, rest) = drive_at(path).or_else(|| tail.and_then(drive_at))?;
+            Some(format!("/mnt/{}/{rest}", drive.to_ascii_lowercase()))
+        }
+        _ => {
+            let rest = path.strip_prefix("/mnt/")?;
+            let mut chars = rest.chars();
+            let drive = chars.next().filter(char::is_ascii_alphabetic)?;
+            let rest = chars.as_str().strip_prefix('/')?;
+            Some(format!("{}:/{rest}", drive.to_ascii_uppercase()))
+        }
+    }
+}
+
+/// 読んだ一覧を、利用者に見せる形へ整える（#454）。
+///
+/// - 別の環境で作られていて、直した先が実在するものは `needs_repair` を立てて残す（パスも
+///   直す）。**黙って落とさない**: `git worktree list` には出るので、利用者には「一覧に
+///   あるのにセレクタに無い」と見える
+/// - 残りの `prunable` と、直した先が無いものは落とす（本当に消えた worktree）
+/// - `is_main` は、残ったうち最初の「bare でも要修復でもない」もの（bare クローンの構成は
+///   `bare` が先頭に来る）
+///
+/// **判定はここ 1 か所**。フロントは `needsRepair` を表示するだけで、`worktree_paths` も
+/// この結果を読む。`dirs_exist` を引数で受けるのはテストのため。
+fn settle_worktrees(
+    parsed: Vec<(GitWorktree, bool)>,
+    shell: &ShellConfig,
+    dirs_exist: impl FnOnce(&[String]) -> Vec<bool>,
+) -> Vec<GitWorktree> {
+    let native: Vec<Option<String>> = parsed
+        .iter()
+        .map(|(w, _)| foreign_worktree_path(&w.path, shell))
+        .collect();
+    // 普通のリポジトリでは 1 つも無いので、そのときは確かめに行かない（WSL では
+    // `wsl.exe` を 1 回起こすことになる。この一覧は 15 秒ごとに読まれる）。
+    let asked: Vec<String> = native.iter().flatten().cloned().collect();
+    let mut exist = if asked.is_empty() {
+        Vec::new()
+    } else {
+        dirs_exist(&asked)
+    }
+    .into_iter();
+
+    let mut list: Vec<GitWorktree> = parsed
+        .into_iter()
+        .zip(native)
+        .filter_map(|((mut w, prunable), native)| match native {
+            Some(path) => exist.next().unwrap_or(false).then(|| {
+                w.path = path;
+                w.needs_repair = true;
+                w
+            }),
+            None => (!prunable).then_some(w),
+        })
+        .collect();
+    if let Some(w) = list.iter_mut().find(|w| !w.is_bare && !w.needs_repair) {
         w.is_main = true;
     }
-    worktrees
+    list
 }
 
 #[tauri::command]
@@ -1155,7 +1248,13 @@ pub async fn git_worktree_list(
 
 /// `git worktree list` を走らせて読む。コマンドの腕と下の `worktree_paths` が共有する。
 fn worktree_list(shell: &ShellConfig, root: &str) -> Result<Vec<GitWorktree>, String> {
-    run_git(shell, root, &["worktree", "list", "--porcelain"]).map(|out| parse_worktrees(&out))
+    run_git(shell, root, &["worktree", "list", "--porcelain"]).map(|out| {
+        // 確かめられなかったときは「在る」に倒す（冷えた distro など）。消えた worktree が
+        // 要修復として 1 回余計に出るほうが、在るものを黙って落とすよりよい。
+        settle_worktrees(parse_worktrees(&out), shell, |paths| {
+            crate::fs::dirs_exist(shell, paths).unwrap_or_else(|_| vec![true; paths.len()])
+        })
+    })
 }
 
 /// `root` を含むリポジトリの worktree のパス（#432）。**同期で呼ぶ版**で、呼ぶ側が既に
@@ -1163,7 +1262,8 @@ fn worktree_list(shell: &ShellConfig, root: &str) -> Result<Vec<GitWorktree>, St
 ///
 /// **失敗は空**。git のリポジトリでない場所でも呼ばれるので、そのときは「worktree は無い」と
 /// 同じ扱いでよい。bare のエントリは作業ツリーではないので外す。消えた worktree
-/// （`prunable`）は `parse_worktrees` が元から落としている。
+/// （`prunable`）は `settle_worktrees` が落としている。別の環境で作られたもの
+/// （`needs_repair`）は残す: パスは直してあり、そこで動いたセッションの記録は読める。
 pub(crate) fn worktree_paths(shell: &ShellConfig, root: &str) -> Vec<String> {
     worktree_list(shell, root)
         .unwrap_or_default()
@@ -2053,7 +2153,7 @@ worktree /home/user/repo-det
 HEAD ccc333
 detached
 ";
-        let wts = parse_worktrees(out);
+        let wts = listed(out);
         assert_eq!(wts.len(), 3);
 
         assert_eq!(wts[0].path, "/home/user/repo");
@@ -2076,7 +2176,7 @@ detached
         let out = "worktree /repo
 HEAD aaa
 branch refs/heads/main";
-        let wts = parse_worktrees(out);
+        let wts = listed(out);
         assert_eq!(wts.len(), 1);
         assert_eq!(wts[0].branch.as_deref(), Some("main"));
         assert!(wts[0].is_main);
@@ -2091,7 +2191,7 @@ worktree /repo/main
 HEAD aaa
 branch refs/heads/main
 ";
-        let wts = parse_worktrees(out);
+        let wts = listed(out);
         assert_eq!(wts.len(), 2);
         assert!(wts[0].is_bare);
         assert!(
@@ -2167,8 +2267,89 @@ u AA N... 000000 100644 100644 100644 h1 h2 h3 both added.txt
         assert_eq!(commit_patch("", "abc123def"), "");
     }
 
+    /// 別の環境のパスを含まない一覧を、コマンドが返す形にする。
+    fn listed(out: &str) -> Vec<GitWorktree> {
+        settle_worktrees(parse_worktrees(out), &ShellConfig::Cmd, |p| {
+            vec![false; p.len()]
+        })
+    }
+
     #[test]
-    fn prunable_worktrees_are_skipped() {
+    fn foreign_worktrees_need_repair_when_their_directory_exists() {
+        // Windows のシェルから見た WSL 製。実在するものだけ残し、消えたものは落とす。
+        let out = "worktree C:/repo
+HEAD aaa
+branch refs/heads/main
+
+worktree /mnt/c/repo/.claude/worktrees/alive
+HEAD bbb
+branch refs/heads/alive
+prunable gitdir file points to non-existent location
+
+worktree /mnt/c/repo/.claude/worktrees/gone
+HEAD ccc
+branch refs/heads/gone
+prunable gitdir file points to non-existent location
+";
+        let wts = settle_worktrees(parse_worktrees(out), &ShellConfig::Pwsh, |paths| {
+            paths.iter().map(|p| p.ends_with("/alive")).collect()
+        });
+        assert_eq!(wts.len(), 2);
+        assert!(wts[0].is_main && !wts[0].needs_repair);
+        assert_eq!(wts[1].path, "C:/repo/.claude/worktrees/alive");
+        assert!(wts[1].needs_repair && !wts[1].is_main);
+    }
+
+    #[test]
+    fn locked_foreign_worktree_is_not_main() {
+        // WSL から見た Windows 製。lock されていると prunable が付かず、bare の構成では
+        // 最初の非 bare になりうる。main にしてはいけない。
+        let out = "worktree /mnt/c/repo/.bare
+bare
+
+worktree /mnt/c/repo/.bare/worktrees/x/C:/repo/x
+HEAD aaa
+branch refs/heads/x
+locked claude agent (pid 1)
+
+worktree /mnt/c/repo/main
+HEAD bbb
+branch refs/heads/main
+";
+        let shell = ShellConfig::Wsl {
+            distro: "Ubuntu".to_owned(),
+        };
+        let wts = settle_worktrees(parse_worktrees(out), &shell, |p| vec![true; p.len()]);
+        assert_eq!(wts.len(), 3);
+        assert_eq!(wts[1].path, "/mnt/c/repo/x");
+        assert!(wts[1].needs_repair && !wts[1].is_main);
+        assert!(wts[2].is_main);
+    }
+
+    #[test]
+    fn foreign_worktree_path_reads_only_the_other_environments_shape() {
+        let wsl = ShellConfig::Wsl {
+            distro: "Ubuntu".to_owned(),
+        };
+        let path = |p, s| foreign_worktree_path(p, s);
+        assert_eq!(path(r"D:\work\wt", &wsl).as_deref(), Some("/mnt/d/work/wt"));
+        assert_eq!(path("/mnt/c/repo/.claude/worktrees/x", &wsl), None);
+        // Linux では `:` を含むディレクトリ名が合法。
+        assert_eq!(path("/home/kan/work/a:/wt", &wsl), None);
+        assert_eq!(path("C:/repo/wt", &ShellConfig::Pwsh), None);
+        assert_eq!(path("/home/kan/repo-gone", &ShellConfig::GitBash), None);
+        assert_eq!(
+            path("/mnt/c/repo", &ShellConfig::Cmd).as_deref(),
+            Some("C:/repo")
+        );
+        let unix = ShellConfig::Unix {
+            program: String::new(),
+        };
+        assert_eq!(path("/mnt/c/repo", &unix), None);
+    }
+
+    #[test]
+    fn prunable_worktrees_are_dropped() {
         let out = "worktree /repo
 HEAD aaa
 branch refs/heads/main
@@ -2177,11 +2358,16 @@ worktree /repo-gone
 HEAD bbb
 branch refs/heads/gone
 prunable gitdir file points to non-existent location
+
+worktree /repo-locked
+HEAD ccc
+branch refs/heads/locked
+locked claude agent (pid 1)
 ";
-        let wts = parse_worktrees(out);
-        assert_eq!(wts.len(), 1);
-        assert_eq!(wts[0].path, "/repo");
+        let wts = listed(out);
+        assert_eq!(wts.len(), 2);
         assert!(wts[0].is_main);
+        assert_eq!(wts[1].path, "/repo-locked");
     }
 
     #[test]

@@ -87,4 +87,9 @@ export interface GitWorktree {
   isBare: boolean
   isDetached: boolean
   isMain: boolean
+  /**
+   * 別の環境（WSL / Windows）で作られていて、このシェルの git からは開けない（#454）。
+   * `path` はこのシェルから見た形に直してある。選んでも切り替えず、修復を案内する。
+   */
+  needsRepair: boolean
 }

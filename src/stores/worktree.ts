@@ -1,20 +1,26 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { confirmDialog } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
-import { normalizeSep, pathSep } from '../lib/paths'
+import { t } from '../i18n'
+import { basename, normalizeSep, pathSep } from '../lib/paths'
 import { gitWorktreeList } from '../lib/tauri'
 import type { GitWorktree } from '../types/git'
+import { quoteArg } from '../types/tab'
 import { useDiagnosticsStore } from './diagnostics'
 import { useDockerStore } from './docker'
 import { useFileTreeStore } from './fileTree'
 import { useGitStore } from './git'
 import { useProjectStore } from './project'
 import { useSearchStore } from './search'
+import { useTabStore } from './tabs'
 import { useTaskStore } from './tasks'
 
 export const useWorktreeStore = defineStore('worktree', () => {
   const worktrees = ref<GitWorktree[]>([])
   const loading = ref(false)
+  /** 修復のコマンドを流している worktree のパス（#454）。 */
+  const repairing = new Set<string>()
 
   // True once a repo with more than one worktree is detected — drives whether
   // the status-bar selector is worth showing at all.
@@ -63,6 +69,10 @@ export const useWorktreeStore = defineStore('worktree', () => {
     const projectStore = useProjectStore()
     const project = projectStore.currentProject
     if (!project) return
+    if (w.needsRepair) {
+      await repairWorktree(w)
+      return
+    }
 
     // Store null for the main worktree so the selector collapses to "main" and
     // session state stays clean; store the normalized path otherwise.
@@ -85,6 +95,31 @@ export const useWorktreeStore = defineStore('worktree', () => {
       tasks.refresh(),
       docker.refreshComposeProjects(),
     ])
+  }
+
+  /**
+   * 別の環境で作られた worktree の、場所の記録を直す（#454）。**確認してからターミナルで流す**:
+   * リポジトリの設定（`extensions.relativeWorktrees`）が変わり、2.48 より古い git からは
+   * worktree を読めなくなるので、黙っては実行しない。終わったら一覧を読み直す。
+   */
+  async function repairWorktree(w: GitWorktree) {
+    const projectStore = useProjectStore()
+    const project = projectStore.currentProject
+    // 走っているあいだは重ねない。一覧が読み直されるまで行は「要修復」のまま残る。
+    if (!project || repairing.has(w.path)) return
+    // **相対パスにする**（git 2.48 以降）。絶対パスのまま直すと、今度は相手の環境から辿れなくなる。
+    const command = `git worktree repair --relative-paths ${quoteArg(project.shell, w.path)}`
+    if (!(await confirmDialog(t('worktree.repairConfirm', { name: basename(w.path), command })))) return
+    // 確認を待つあいだにプロジェクトが替わっていたら流さない（別のプロジェクトのタブ列に開く）。
+    if (projectStore.currentProject?.id !== project.id) return
+    repairing.add(w.path)
+    useTabStore().runCommandTab(command, project.root, project.shell, {
+      keepOnError: true,
+      onExit: () => {
+        repairing.delete(w.path)
+        void loadWorktrees()
+      },
+    })
   }
 
   function reset() {

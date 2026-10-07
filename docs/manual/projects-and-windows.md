@@ -183,6 +183,9 @@ URL が登録されているプロジェクトは、名前の右に**雲アイ�
 
 - 起動時は常にメイン worktree から始まります（セッションをまたいで保持はしません）。
 - 同じウィンドウ内のターミナルで `git worktree add` した変更も、フォーカス連動のポーリングで一覧に反映されます。
+- **「要修復」と出る worktree**：WSL で作った worktree は Windows の git から開けず、その逆も開けません（git が場所を絶対パスで記録するためです）。たとえば WSL のエージェントが作った worktree を、PowerShell で開いたプロジェクトから見た場合です。選ぶと、場所の記録を相対パスに直すコマンド（`git worktree repair --relative-paths`）をターミナルで実行するか確認します。直したあとは、どちらの環境からも開けます。
+    - git 2.48 以降が必要です。実行すると、それより古い git ではそのリポジトリの worktree を扱えなくなります。
+    - 新しく作る worktree を最初から相対パスで記録するには、`git config --global worktree.useRelativePaths true` を設定します。
 
 ## セッションの永続化
 
