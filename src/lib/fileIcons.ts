@@ -16,6 +16,12 @@ const ICON_FALLBACK: Record<string, string> = Object.assign(Object.create(null),
   justfile: 'makefile',
   // Text::Xslate のテンプレート（#409）。`.tx` は向こうに無いので、Perl のアイコンを借りる。
   tx: 'perl',
+  // Raku（#452）。向こうは `.raku` / `.p6` / `.pm6` / `.pl6` に Perl のアイコンを当てるが、
+  // 残りは知らない（2.4.0 で確認）。同じ言語でアイコンが割れないよう揃える。
+  rakumod: 'perl',
+  pod6: 'perl',
+  rakutest: 'perl',
+  rakudoc: 'perl',
 })
 
 /** 名前で引いたアイコンの SVG。`getAllIcons()` は配列を毎回作るので 1 度だけ畳む。 */

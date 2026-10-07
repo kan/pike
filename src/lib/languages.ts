@@ -26,7 +26,10 @@ import { mySQL, pgSQL, sqlite, standardSQL } from '@codemirror/legacy-modes/mode
 import { swift } from '@codemirror/legacy-modes/mode/swift'
 import { toml } from '@codemirror/legacy-modes/mode/toml'
 import { xml as xmlMode } from '@codemirror/legacy-modes/mode/xml'
-// CM6 に公式の rst は無い（CM5 にはあった）ので、外部パッケージを 1 つだけ足している。
+// Raku（#452）。CM6 に公式のものも legacy のモードも無い（legacy の `perl` は Perl 5）。
+// Lezer 文法なので構文木が得られ、アウトライン（`outline/extractors/raku.ts`）もそこから引く。
+import { raku } from 'codemirror-lang-raku'
+// CM6 に公式の rst は無い（CM5 にはあった）ので、外部パッケージを足している。
 // 依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる（#284）。
 import { rst } from 'codemirror-lang-rst'
 import { type FileTypeKey, fileTypeKey, fileTypeLabel, fileTypeLabelOf } from './fileType'
@@ -78,6 +81,7 @@ const FENCE_ALIASES: Record<string, string> = table({
   python: 'py',
   ruby: 'rb',
   perl: 'pl',
+  perl6: 'raku',
   powershell: 'ps1',
   golang: 'go',
   csharp: 'cs',
@@ -191,6 +195,17 @@ const EXT_MAP = table({
   ndjson: () => json(),
   php: () => php(),
   phtml: () => php(),
+  // `raku()` は補完の定義も持ち込むが、Pike は `@codemirror/autocomplete` を入れていないので
+  // 何も起きない。`rakuLanguage` だけにしないのは、ブロックコメントの切り替え（Shift+Alt+A）の
+  // 括弧選びが `raku()` の側にあるため。差は minify 後で約 1KB（esbuild で実測）。
+  raku: () => raku(),
+  rakumod: () => raku(),
+  rakutest: () => raku(),
+  rakudoc: () => raku(),
+  p6: () => raku(),
+  pm6: () => raku(),
+  pl6: () => raku(),
+  pod6: () => raku(),
   // Legacy modes
   go: () => legacy(go),
   sh: () => legacy(shell),

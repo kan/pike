@@ -48,6 +48,16 @@ export const FILE_TYPE_LABELS = {
   rb: 'Ruby',
   pl: 'Perl',
   pm: 'Perl',
+  // Raku（旧 Perl 6、#452）。`p6` / `pm6` / `pl6` / `pod6` は改名前の拡張子で、今も残っている。
+  // **`.t` は入れない**（Perl 5 のテストと共有する拡張子で、中身を見ないと決まらない）。
+  raku: 'Raku',
+  rakumod: 'Raku',
+  rakutest: 'Raku',
+  rakudoc: 'Raku',
+  p6: 'Raku',
+  pm6: 'Raku',
+  pl6: 'Raku',
+  pod6: 'Raku',
   java: 'Java',
   kt: 'Kotlin',
   kts: 'Kotlin',
@@ -218,6 +228,10 @@ const SHEBANG_KEYS: Record<string, string> = Object.assign(Object.create(null), 
   python: 'py',
   ruby: 'rb',
   perl: 'pl',
+  // `perl6` は末尾の数字ごと載せる（落とすと `perl` に当たる。`shebangKey` が先に引く）。
+  raku: 'raku',
+  rakudo: 'raku',
+  perl6: 'raku',
   php: 'php',
   lua: 'lua',
   node: 'js',
@@ -247,7 +261,8 @@ export function firstLineOf(text: string): string {
  *
  * 規則は 2 つ。**先頭のパスの basename を取り、それが `env` なら続く最初の非オプション語を
  * 見る**（`#!/usr/bin/env -S deno run --allow-net` の `-S` もここで飛ぶ）。そして**末尾の
- * バージョンを落とす**（`python3` / `python3.11` → `python`）。
+ * バージョンを落とす**（`python3` / `python3.11` → `python`）。**落とす前の名前を先に引く**
+ * （#452）: `perl6` は数字までが名前で、落とすと Perl 5 に当たる。
  *
  * shebang のパスは常に POSIX なので、`paths.ts` の `basename`（`\` も切る）ではなく `/` だけで
  * 切る。行末の `\r`（CRLF）は `trim` が落とす。
@@ -264,7 +279,8 @@ function shebangKey(firstLine: string): string {
     while (tokens[i]?.startsWith('-')) i++
     name = interp(tokens[i])
   }
-  return SHEBANG_KEYS[name.replace(/[\d.]+$/, '').toLowerCase()] ?? ''
+  name = name.toLowerCase()
+  return SHEBANG_KEYS[name] ?? SHEBANG_KEYS[name.replace(/[\d.]+$/, '')] ?? ''
 }
 
 /**

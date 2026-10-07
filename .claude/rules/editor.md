@@ -55,6 +55,7 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
   - **判定の表に CodeMirror を import しない。** アイコンやアウトラインから、種別を知りたいだけのために言語モードの束を読み込ませないため
   - 優先順（名前 → 後ろ 2 セグメント → 拡張子 → 先頭セグメント → shebang）と、先頭セグメントで引く名前を絞る理由（`go.mod` の誤判定）は `fileTypeKey` の doc が正本
   - **shebang に載せるのは既に import 済みのモードだけ**（「軽さ最優先」。`fish` / `awk` はモードを増やすことになるので入れない）。`env` と `-S`、末尾のバージョン（`python3.11`）の扱いは `shebangKey` の doc が正本
+  - **Raku（#452）は外部パッケージの `codemirror-lang-raku`**（CM6 に公式のものも legacy のモードも無い。legacy の `perl` は Perl 5）。拡張子は `raku` / `rakumod` / `rakutest` / `rakudoc` と改名前の `p6` / `pm6` / `pl6` / `pod6`。**`.t` は入れない**（Perl 5 のテストと共有する）。shebang の `perl6` は末尾の数字を落とす前に引く（落とすと Perl 5 に当たる）
   - **テンプレートエンジン（ERB / Blade / Twig / Smarty / Text::Xslate、#409）は `lib/templateModes.ts` の `multiplex`。** legacy の `html` モードに、区切りの内側だけ別の StreamParser を差し込む（CM5 の multiplex と同じ手法）。依存は増やさない
     - **外側は `lang-html`（Lezer）ではなく legacy の `html`**。行の文字列を閉じの区切りの手前で切って（`withCut`）内側のモードに見せる手法は、StreamParser 同士でしか組めない
     - 中身は ERB だけ `ruby` のモード、残りは自前の小さな式のモード（`exprMode`。語彙を切り替えて使う）。**legacy-modes に PHP は無い**（`lang-php` は Lezer）ので、Blade も `exprMode`
@@ -255,7 +256,10 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
 - 進捗・結果は `stores/statusMessage.ts` 経由で StatusBar に表示（スピナー / 開いたファイル名 / 見つからない）
 
 ## アウトラインパネル（Outline）
-- `outline` サイドバーパネル。`lib/outline/` の言語別 extractor（18 言語: Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / YAML / JSON / Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile）でシンボルを抽出
+- `outline` サイドバーパネル。`lib/outline/` の言語別 extractor（19 言語: Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / Raku / YAML / JSON / Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile）でシンボルを抽出
+  - **Raku（#452）は `codemirror-lang-raku` の構文木から引く**（`extractors/raku.ts`）。宣言ノードの名前はライブラリの公開インターフェースだが、**0.x のあいだはマイナーバージョンで変わりうる**ので `^0.4.0` で縛ってある。上げるときは向こうの README の「Syntax tree」とリリースノートの Breaking changes を見て、`tests/rakuOutline.test.ts` を通す
+    - `unit class Foo;` は木の上では以降の宣言と兄弟なので、抽出器が子へ振り替える（判定は「`;` で終わる」で、`unit` の語は見ない）。`multi foo() { }` は宣言子の子ノードを持たないので sub として扱う
+    - `token c :sym<a>` の名前は空白ごと `c :sym<a>` で来るので、`:` の前の空白を詰めて `c:sym<a>` と同じ表示にする。`constant \x = 2` は名前のノードを持たないので出ない
 - カーソル位置追従ハイライト・祖先自動展開・scrollIntoView、タブ別スクロール位置保持
 - Outline / History 2 タブ構成（`OutlineTreeView.vue` / `OutlineHistoryView.vue`）。History はファイル別 git log を表示、行クリックで diff タブを開く
 - 行オフセットは `buildLineOffsets` / `lineStart` で O(N) 前計算（`composables/useOutlineSource.ts`）

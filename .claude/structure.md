@@ -280,7 +280,7 @@ pike/
 │   │   ├── editorJumpTo.ts  editorConflict.ts  editorDiagnostics.ts  editorMarkdown.ts
 │   │   ├── editorPresetKeys.ts # ショートカットのプリセットで変わる CodeMirror のキー（#261）
 │   │   ├── jumpTo/            # 定義ジャンプ（findInFile/parseImports/resolveImport/vueComponent/xslateInclude）
-│   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 18 言語）
+│   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 19 言語）
 │   └── assets/
 │       ├── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
 │       └── credits.json       # 依存のライセンス一覧（生成物。scripts/gen-credits.mjs、#420）

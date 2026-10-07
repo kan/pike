@@ -129,7 +129,7 @@
 
 ## アウトライン
 
-**🔭 アウトライン** アイコンで開きます。18 言語（Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / YAML / JSON / Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile）のシンボルを抽出して表示します。
+**🔭 アウトライン** アイコンで開きます。19 言語（Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / Raku / YAML / JSON / Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile）のシンボルを抽出して表示します。
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="img/outline-panel-light.png">
   <img alt="アウトラインパネル" src="img/outline-panel.png">

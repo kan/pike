@@ -10,6 +10,7 @@ import { markdownExtractor } from './extractors/markdown'
 import { perlExtractor } from './extractors/perl'
 import { phpExtractor } from './extractors/php'
 import { pythonExtractor } from './extractors/python'
+import { rakuExtractor } from './extractors/raku'
 import { rubyExtractor } from './extractors/ruby'
 import { rustExtractor } from './extractors/rust'
 import { swiftExtractor } from './extractors/swift'
@@ -76,6 +77,14 @@ const EXTRACTORS: Partial<Record<FileTypeKey, Extractor>> = {
   go: goExtractor,
   pl: perlExtractor,
   pm: perlExtractor,
+  raku: rakuExtractor,
+  rakumod: rakuExtractor,
+  rakutest: rakuExtractor,
+  rakudoc: rakuExtractor,
+  p6: rakuExtractor,
+  pm6: rakuExtractor,
+  pl6: rakuExtractor,
+  pod6: rakuExtractor,
   yaml: yamlExtractor,
   yml: yamlExtractor,
   json: jsonExtractor,
