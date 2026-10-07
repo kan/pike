@@ -98,13 +98,21 @@ function charDiff(oldStr: string, newStr: string): { left: DiffSegment[]; right:
   }
 }
 
-function findLastUnpairedDel(lines: DiffLine[]): number {
+/**
+ * 末尾に続く削除行のうち、まだ追加行と組になっていない**最初**のもの。
+ *
+ * **後ろから見て最初に当たったものを返さないこと。** 削除が 2 行以上続くと、追加行が
+ * 後ろの削除行から順に組になり、右の欄の並びが逆になる（行番号も 3, 2 の順で出る）。
+ * 組は前から埋まるので、未対の行は末尾にまとまっている。そこを遡り切った位置が答え。
+ */
+function findFirstUnpairedDel(lines: DiffLine[]): number {
+  let found = -1
   for (let i = lines.length - 1; i >= 0; i--) {
     const r = lines[i]
-    if (r.left.type === 'del' && r.right.type === 'empty') return i
-    if (r.left.type !== 'del') break
+    if (r.left.type !== 'del' || r.right.type !== 'empty') break
+    found = i
   }
-  return -1
+  return found
 }
 
 /**
@@ -159,16 +167,16 @@ export function parseDiff(raw: string, opts: { charLevel?: boolean } = {}): Diff
       })
     } else if (line.startsWith('+')) {
       rightNum++
-      const lastUnpaired = findLastUnpairedDel(result)
-      if (lastUnpaired !== -1) {
+      const unpaired = findFirstUnpairedDel(result)
+      if (unpaired !== -1) {
         if (charLevel) {
-          const oldText = result[lastUnpaired].left.segments.map((s) => s.text).join('')
+          const oldText = result[unpaired].left.segments.map((s) => s.text).join('')
           const newText = line.slice(1)
           const { left: leftSegs, right: rightSegs } = charDiff(oldText, newText)
-          result[lastUnpaired].left.segments = leftSegs
-          result[lastUnpaired].right = { num: rightNum, segments: rightSegs, type: 'add' }
+          result[unpaired].left.segments = leftSegs
+          result[unpaired].right = { num: rightNum, segments: rightSegs, type: 'add' }
         } else {
-          result[lastUnpaired].right = { num: rightNum, segments: plain(line.slice(1)), type: 'add' }
+          result[unpaired].right = { num: rightNum, segments: plain(line.slice(1)), type: 'add' }
         }
       } else {
         result.push({
