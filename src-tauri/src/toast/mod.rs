@@ -39,21 +39,21 @@ pub mod activation;
 
 #[cfg(windows)]
 mod imp {
-    use super::activation::{scheme, Activation};
+    use super::activation::{Activation, scheme};
     use std::path::PathBuf;
-    use std::sync::mpsc::{channel, Sender};
     use std::sync::OnceLock;
-    use windows::core::{Interface, GUID, HSTRING};
+    use std::sync::mpsc::{Sender, channel};
     use windows::Data::Xml::Dom::XmlDocument;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
     use windows::Win32::Foundation::PROPERTYKEY;
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, IPersistFile, CLSCTX_INPROC_SERVER,
-        COINIT_APARTMENTTHREADED, STGM_READWRITE,
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+        IPersistFile, STGM_READWRITE,
     };
     use windows::Win32::System::Variant::VT_LPWSTR;
     use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
     use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
-    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+    use windows::core::{GUID, HSTRING, Interface};
 
     /// `PKEY_AppUserModel_ID`。`windows` crate の PKEY 定数は別 feature に入っているので、
     /// `jumplist` の `PKEY_TITLE` と同じく値を直接書く。
@@ -241,8 +241,8 @@ mod imp {
     unsafe fn write_reg(path: &str, value: Option<&str>, data: &str) -> windows::core::Result<()> {
         unsafe {
             use windows::Win32::System::Registry::{
-                RegCloseKey, RegCreateKeyExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE,
-                REG_OPTION_NON_VOLATILE,
+                HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, RegCloseKey,
+                RegCreateKeyExW,
             };
             let mut key = HKEY::default();
             RegCreateKeyExW(
@@ -271,7 +271,7 @@ mod imp {
         data: &str,
     ) -> windows::core::Result<()> {
         unsafe {
-            use windows::Win32::System::Registry::{RegQueryValueExW, RegSetValueExW, REG_SZ};
+            use windows::Win32::System::Registry::{REG_SZ, RegQueryValueExW, RegSetValueExW};
             let name = value.map(HSTRING::from);
             let name = name
                 .as_ref()

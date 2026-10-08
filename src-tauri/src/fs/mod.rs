@@ -1,4 +1,4 @@
-use crate::types::{bash_quote, git_args, wait_with_timeout, ShellConfig};
+use crate::types::{ShellConfig, bash_quote, git_args, wait_with_timeout};
 use base64::Engine as _;
 use encoding_rs::Encoding;
 use serde::Serialize;

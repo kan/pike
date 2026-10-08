@@ -1,15 +1,15 @@
+use bollard::Docker;
 use bollard::models::{ContainerCreateBody, ContainerSummary, HostConfig, PortBinding};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, InspectContainerOptions, ListContainersOptions,
     RemoveContainerOptions, StartContainerOptions,
 };
-use bollard::Docker;
 use futures_util::TryStreamExt;
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::State;
 
-use super::{get_docker, instance_owner, DockerState};
+use super::{DockerState, get_docker, instance_owner};
 
 const SOCAT_IMAGE: &str = "alpine/socat:latest";
 pub(super) const TUNNEL_LABEL: &str = "pike.tunnel";

@@ -48,7 +48,7 @@ pub fn attach(window: &WebviewWindow) {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
             ICoreWebView2File, ICoreWebView2WebMessageReceivedEventArgs2,
         };
-        use webview2_com::{take_pwstr, WebMessageReceivedEventHandler};
+        use webview2_com::{WebMessageReceivedEventHandler, take_pwstr};
         use windows_core::Interface;
 
         let Ok(core) = webview.controller().CoreWebView2() else {

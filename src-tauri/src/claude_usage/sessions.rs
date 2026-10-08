@@ -7,8 +7,8 @@
 
 use super::{config, encode_project_path};
 // 題の切り方は 4 つのアダプタで共有する（`shorten` の doc）。ここに写しを持たない。
-use crate::agent_sessions::{shorten, AgentSession};
-use crate::types::{validate_slug, ShellConfig};
+use crate::agent_sessions::{AgentSession, shorten};
+use crate::types::{ShellConfig, validate_slug};
 use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -263,8 +263,8 @@ pub(crate) fn list_sessions(
 #[cfg(test)]
 mod tests {
     use super::{
-        raw_str_field, session_dirs, shorten, SessionDir, TranscriptScan, ENTRYPOINT_PAT,
-        GIT_BRANCH_PAT,
+        ENTRYPOINT_PAT, GIT_BRANCH_PAT, SessionDir, TranscriptScan, raw_str_field, session_dirs,
+        shorten,
     };
     use crate::agent_sessions::MAX_TITLE_CHARS;
 

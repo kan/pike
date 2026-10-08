@@ -2,7 +2,7 @@ pub mod config;
 pub mod rate;
 pub mod sessions;
 
-use crate::types::{cwd_matches_root, ShellConfig};
+use crate::types::{ShellConfig, cwd_matches_root};
 use config::ClaudeAccount;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -435,7 +435,7 @@ pub(crate) fn get_usage_for_project(
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_project_path, UsageAccumulator};
+    use super::{UsageAccumulator, encode_project_path};
 
     fn line(request_id: &str, msg_id: &str, model: &str, input: u64, output: u64) -> String {
         format!(

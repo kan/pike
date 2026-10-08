@@ -1,5 +1,5 @@
 use crate::fs::IGNORED_DIRS;
-use crate::types::{silent_command, ShellConfig};
+use crate::types::{ShellConfig, silent_command};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -234,28 +234,26 @@ fn spawn_flush_thread(
     app: AppHandle,
     watcher_id: String,
 ) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(100));
-        if *stop_flag.lock().unwrap() {
-            break;
-        }
-        let payload = {
-            let mut buf = buffer.lock().unwrap();
-            if buf.should_flush() {
-                buf.take()
-            } else {
-                None
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_millis(100));
+            if *stop_flag.lock().unwrap() {
+                break;
             }
-        };
-        if let Some((dirs, files)) = payload {
-            let _ = app.emit(
-                "fs_changed",
-                FsChangedPayload {
-                    watcher_id: watcher_id.clone(),
-                    changed_dirs: dirs,
-                    changed_files: files,
-                },
-            );
+            let payload = {
+                let mut buf = buffer.lock().unwrap();
+                if buf.should_flush() { buf.take() } else { None }
+            };
+            if let Some((dirs, files)) = payload {
+                let _ = app.emit(
+                    "fs_changed",
+                    FsChangedPayload {
+                        watcher_id: watcher_id.clone(),
+                        changed_dirs: dirs,
+                        changed_files: files,
+                    },
+                );
+            }
         }
     });
 }
@@ -484,7 +482,7 @@ fn start_wsl_watcher(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_watch_failure, WatchFailReason};
+    use super::{WatchFailReason, classify_watch_failure};
 
     /// 実測した文言（Windows + WSL、2026-09-21）に当たること。
     #[test]

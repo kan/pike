@@ -7,7 +7,7 @@
 //! caches the result — the CLI call takes 10s+ (it boots the full agent
 //! runtime) and must never run on every status-bar poll.
 
-use crate::types::{install_key, ShellConfig};
+use crate::types::{ShellConfig, install_key};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -454,8 +454,8 @@ fn cli_rate_limits_soon(
 #[cfg(test)]
 mod tests {
     use super::{
-        asks_for_login, needs_fetch, now_epoch, parse_usage_output, window_kind, CacheEntry,
-        ClaudeRateLimits,
+        CacheEntry, ClaudeRateLimits, asks_for_login, needs_fetch, now_epoch, parse_usage_output,
+        window_kind,
     };
 
     fn entry(active: bool, age_secs: u64) -> CacheEntry {

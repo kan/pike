@@ -30,14 +30,14 @@
 
 use crate::browser::{self, Bounds};
 use crate::fs::MAX_SIZE_CEILING;
-use crate::types::{into_lossy_string, ShellConfig};
+use crate::types::{ShellConfig, into_lossy_string};
 use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use tauri::http::{header, response::Builder, Request, Response, StatusCode};
+use tauri::http::{Request, Response, StatusCode, header, response::Builder};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{
     AppHandle, Emitter, EventTarget, Manager, Runtime, UriSchemeContext, UriSchemeResponder, Url,

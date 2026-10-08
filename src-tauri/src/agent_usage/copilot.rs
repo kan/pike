@@ -20,9 +20,9 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
 use crate::cache::{Evict, MtimeCache};
-use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
+use crate::types::{ShellConfig, cwd_matches_root, wsl_home_subdir_cached};
 
-use super::{fact, now_secs, AgentUsage, ACTIVE_WINDOW_SECS, RECENT_WINDOW_SECS};
+use super::{ACTIVE_WINDOW_SECS, AgentUsage, RECENT_WINDOW_SECS, fact, now_secs};
 
 /// 1 回の走査で読むセッションの上限。**新しい順に見る**ので、超えたぶんは古いもの。
 const MAX_SESSIONS: usize = 200;

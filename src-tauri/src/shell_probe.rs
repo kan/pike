@@ -35,7 +35,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::cache::{ProbeEntry, ProbeRegistry};
-use crate::types::{install_key, marker_values, ShellConfig, LOGIN_PROBE_TIMEOUT};
+use crate::types::{LOGIN_PROBE_TIMEOUT, ShellConfig, install_key, marker_values};
 
 /// 聞き直すまでの間隔。
 ///

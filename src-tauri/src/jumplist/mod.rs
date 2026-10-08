@@ -31,20 +31,20 @@
 
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::sync::mpsc::{channel, Sender};
 use std::sync::OnceLock;
+use std::sync::mpsc::{Sender, channel};
 
-use windows::core::{Interface, HSTRING};
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
 };
 use windows::Win32::UI::Shell::Common::{IObjectArray, IObjectCollection};
 use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 use windows::Win32::UI::Shell::{
-    DestinationList, EnumerableObjectCollection, ICustomDestinationList, IShellLinkW, ShellLink,
-    KDC_RECENT,
+    DestinationList, EnumerableObjectCollection, ICustomDestinationList, IShellLinkW, KDC_RECENT,
+    ShellLink,
 };
+use windows::core::{HSTRING, Interface};
 
 use crate::project;
 use crate::types::{MenuShell, ShellConfig};

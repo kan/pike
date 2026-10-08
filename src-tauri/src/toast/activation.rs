@@ -34,7 +34,7 @@
 // Windows の手元では 1 行も見えないので、`platform.md` が言う死角そのもの。
 #![cfg_attr(not(windows), allow(dead_code))]
 
-use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use std::fmt::Write as _;
 
 /// 通知を押されたときに開く URL の形。`focus` 以外の動作は今のところ無い。

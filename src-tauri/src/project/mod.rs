@@ -1,6 +1,6 @@
 pub mod transient;
 
-use crate::types::{silent_command, ShellConfig};
+use crate::types::{ShellConfig, silent_command};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;

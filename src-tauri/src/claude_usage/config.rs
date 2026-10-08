@@ -18,7 +18,7 @@
 
 use crate::cache::ProbeRegistry;
 use crate::types::{
-    install_key, wsl_home_cached, wsl_home_subdir_cached, wsl_native_to_unc, ShellConfig,
+    ShellConfig, install_key, wsl_home_cached, wsl_home_subdir_cached, wsl_native_to_unc,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -349,7 +349,7 @@ fn read_account(dir: &Path, overridden: bool) -> Option<Option<ClaudeAccount>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{envrc_value, expand_value, ClaudeAccount, ClaudeJson};
+    use super::{ClaudeAccount, ClaudeJson, envrc_value, expand_value};
 
     /// `.claude.json` の `oauthAccount` の実際のキー名（実ファイルから抜粋）。
     /// フィールド名と綴りが違うものがあるので、対応が崩れたら気付けるようにする。

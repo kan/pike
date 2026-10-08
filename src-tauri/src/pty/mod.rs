@@ -1,6 +1,6 @@
 use crate::types::ShellConfig;
 use percent_encoding::percent_decode_str;
-use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;

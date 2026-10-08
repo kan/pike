@@ -10,12 +10,12 @@
 
 #[cfg(windows)]
 mod imp {
-    use windows::core::HSTRING;
     use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, WIN32_ERROR};
     use windows::Win32::System::Registry::{
-        RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ,
-        RRF_RT_REG_BINARY, RRF_RT_REG_SZ,
+        HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_BINARY, RRF_RT_REG_SZ, RegDeleteKeyValueW,
+        RegGetValueW, RegSetKeyValueW,
     };
+    use windows::core::HSTRING;
 
     const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
     /// Windows の設定画面で切り替えたときの印。値は 12 バイトで、先頭のバイトが奇数なら無効。

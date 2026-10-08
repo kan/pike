@@ -17,7 +17,7 @@
 //! checks the whole module on top of dozens of linters, which is too heavy for
 //! the panel's automatic refresh.
 
-use crate::types::{first_line, ShellConfig};
+use crate::types::{ShellConfig, first_line};
 use serde::Serialize;
 use std::time::Duration;
 

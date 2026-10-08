@@ -12,7 +12,7 @@
 /// 属性を思い出す必要があり、忘れても壊れるのは非 Windows のビルドだけなので気付けない。
 #[cfg(windows)]
 mod imp {
-    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+    use portable_pty::{CommandBuilder, PtySize, native_pty_system};
     use std::io::{Read, Write};
     use std::time::Duration;
 
@@ -27,7 +27,7 @@ mod imp {
     fn snapshot() -> Vec<(u32, u32, String)> {
         use windows::Win32::Foundation::CloseHandle;
         use windows::Win32::System::Diagnostics::ToolHelp::{
-            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
             TH32CS_SNAPPROCESS,
         };
 

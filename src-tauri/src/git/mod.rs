@@ -1,6 +1,6 @@
 use crate::cache::ProbeRegistry;
 use crate::shell_probe::SSH_AUTH_SOCK;
-use crate::types::{git_args, git_bash_prefix, install_key, ShellConfig};
+use crate::types::{ShellConfig, git_args, git_bash_prefix, install_key};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;

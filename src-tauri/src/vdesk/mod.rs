@@ -25,11 +25,11 @@
 #[cfg(windows)]
 mod imp {
     use tauri::Window;
-    use windows::core::GUID;
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_ALL, COINIT_APARTMENTTHREADED,
+        CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoUninitialize,
     };
     use windows::Win32::UI::Shell::{IVirtualDesktopManager, VirtualDesktopManager};
+    use windows::core::GUID;
 
     /// デスクトップが決まっていないウィンドウ（最小化中・未表示）に返る値。
     const NULL_GUID: GUID = GUID::from_u128(0);

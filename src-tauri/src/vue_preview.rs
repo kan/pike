@@ -15,7 +15,7 @@
 
 use crate::cache::ProbeRegistry;
 use crate::html_preview::{self, PreviewState};
-use crate::types::{install_key, truncate_chars_tail, CommandProbe, ShellConfig};
+use crate::types::{CommandProbe, ShellConfig, install_key, truncate_chars_tail};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::State;
@@ -50,11 +50,7 @@ pub async fn vue_preview_available(
             answer = shell.probe_command(&root, "vue-preview");
             answer == CommandProbe::Found
         });
-        if found {
-            CommandProbe::Found
-        } else {
-            answer
-        }
+        if found { CommandProbe::Found } else { answer }
     })
     .await
     .map_err(|e| e.to_string())

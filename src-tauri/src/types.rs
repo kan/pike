@@ -326,13 +326,13 @@ fn identifiers_for(debug_build: bool) -> [&'static str; 2] {
 #[cfg(windows)]
 pub unsafe fn lpwstr_propvariant(s: &str) -> windows::core::Result<PROPVARIANT> {
     unsafe {
-        use windows::core::PWSTR;
         use windows::Win32::Foundation::E_OUTOFMEMORY;
         use windows::Win32::System::Com::CoTaskMemAlloc;
         use windows::Win32::System::Com::StructuredStorage::{
             PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
         };
         use windows::Win32::System::Variant::VT_LPWSTR;
+        use windows::core::PWSTR;
 
         let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
         let mem = CoTaskMemAlloc(wide.len() * 2) as *mut u16;
@@ -526,9 +526,9 @@ pub fn os_reveal(path: &str) -> Result<(), String> {
 pub fn os_open_url(url: &str) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use windows::core::{w, HSTRING};
         use windows::Win32::UI::Shell::ShellExecuteW;
         use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        use windows::core::{HSTRING, w};
 
         let file = HSTRING::from(url);
         // ShellExecuteW は成功したときだけ 32 より大きい値を返す（HINSTANCE 型なのは
@@ -954,11 +954,7 @@ impl ShellConfig {
 
     /// Path to the null device for this shell environment.
     pub fn null_device(&self) -> &'static str {
-        if self.is_posix() {
-            "/dev/null"
-        } else {
-            "NUL"
-        }
+        if self.is_posix() { "/dev/null" } else { "NUL" }
     }
 
     fn run_with_timeout(
@@ -1218,7 +1214,7 @@ fn decode_or(bytes: Vec<u8>, fallback: &'static encoding_rs::Encoding) -> String
 /// 西欧の OEM）は `None`**（置換文字で読む。これまでと同じ）。
 #[cfg(windows)]
 fn codepage_encoding(cp: u32) -> Option<&'static encoding_rs::Encoding> {
-    use encoding_rs::{Encoding, BIG5, EUC_KR, GBK, IBM866, SHIFT_JIS, UTF_8};
+    use encoding_rs::{BIG5, EUC_KR, Encoding, GBK, IBM866, SHIFT_JIS, UTF_8};
     match cp {
         932 => Some(SHIFT_JIS),
         936 => Some(GBK),

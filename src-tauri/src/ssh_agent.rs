@@ -28,7 +28,7 @@
 //! 付いたファイルを利用者のディスクへ恒久的に残す理由が無い。
 
 use crate::shell_probe::{self, SSH_AUTH_SOCK};
-use crate::types::{bash_quote, first_line, install_key, ShellConfig};
+use crate::types::{ShellConfig, bash_quote, first_line, install_key};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;

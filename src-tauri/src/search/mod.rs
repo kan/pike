@@ -1,4 +1,4 @@
-use crate::types::{spawn_capped_lines, ShellConfig};
+use crate::types::{ShellConfig, spawn_capped_lines};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -1024,12 +1024,14 @@ pub async fn search_replace_apply(
         let results = Mutex::new(Vec::with_capacity(edits.len()));
         std::thread::scope(|scope| {
             for _ in 0..REPLACE_WORKERS.min(edits.len()) {
-                scope.spawn(|| loop {
-                    let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let Some(edit) = edits.get(i) else { break };
-                    let r = replace_in_file(&shell, edit);
-                    if let Ok(mut all) = results.lock() {
-                        all.push(r);
+                scope.spawn(|| {
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(edit) = edits.get(i) else { break };
+                        let r = replace_in_file(&shell, edit);
+                        if let Ok(mut all) = results.lock() {
+                            all.push(r);
+                        }
                     }
                 });
             }
@@ -1273,9 +1275,11 @@ mod tests {
 
         // 更新を勧めるのは 13 以前だけ（14 は 24.04 の apt が配る版）。
         assert!(!old.outdated());
-        assert!(parse_rg_version("ripgrep 13.0.0")
-            .expect("version")
-            .outdated());
+        assert!(
+            parse_rg_version("ripgrep 13.0.0")
+                .expect("version")
+                .outdated()
+        );
 
         // pcre2 無しのビルド。`-pcre2` を `+pcre2` と読み違えない。
         let no_pcre = parse_rg_version("ripgrep 15.2.0\n\nfeatures:-pcre2\n").expect("version");

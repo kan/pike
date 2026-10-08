@@ -12,9 +12,9 @@
 //! いない）の文言はフロントの i18n が持つ。**文字列の綴りを Rust と TS で取り決めない**
 //! （`FileReadResult.too_large` と同じ判断）。
 
-use crate::types::{bash_quote, first_line, run_with_stdin, silent_command, RunError, ShellConfig};
+use crate::types::{RunError, ShellConfig, bash_quote, first_line, run_with_stdin, silent_command};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::Duration;
 
 /// Gist の中のファイル名。**同期ファイルの形はファイルの同期先と同じ**（`lib/syncFormat.ts`）。

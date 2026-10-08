@@ -54,7 +54,7 @@ pub(crate) fn attach(webview: &Webview) {
     let app = webview.app_handle().clone();
     let label = webview.label().to_owned();
     let _ = webview.with_webview(move |platform| unsafe {
-        use webview2_com::{take_pwstr, NavigationStartingEventHandler, SourceChangedEventHandler};
+        use webview2_com::{NavigationStartingEventHandler, SourceChangedEventHandler, take_pwstr};
 
         let Ok(core) = platform.controller().CoreWebView2() else {
             return;

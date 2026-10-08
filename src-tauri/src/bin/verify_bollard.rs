@@ -1,7 +1,7 @@
 //! Docker (bollard) 接続確認
 //! Usage: cargo run --bin verify_bollard
-use bollard::query_parameters::{ListContainersOptions, LogsOptions};
 use bollard::Docker;
+use bollard::query_parameters::{ListContainersOptions, LogsOptions};
 use futures_util::StreamExt;
 
 /// Connect to Docker with fallback strategy (same as musql):

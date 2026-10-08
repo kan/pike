@@ -19,9 +19,9 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use crate::types::{cwd_matches_root, install_key, ShellConfig, LOGIN_PROBE_TIMEOUT};
+use crate::types::{LOGIN_PROBE_TIMEOUT, ShellConfig, cwd_matches_root, install_key};
 
-use super::{fact, now_secs, AgentUsage, TokenRow, ACTIVE_WINDOW_SECS, RECENT_WINDOW_SECS};
+use super::{ACTIVE_WINDOW_SECS, AgentUsage, RECENT_WINDOW_SECS, TokenRow, fact, now_secs};
 
 /// `time_*` はミリ秒なので、共有の窓を ms に直して使う。
 const ACTIVE_WINDOW_MS: i64 = ACTIVE_WINDOW_SECS as i64 * 1000;
@@ -53,8 +53,7 @@ const JSON_MARKER: &str = "PIKEJSON";
 /// 200 件）で、一覧に要るのは `id` と `title` の 2 列だけ。別のクエリにすると、4 つの
 /// アダプタで唯一プロセスを起こす経路が、同じ行がキャッシュに乗っているのにもう 1 回
 /// `bash -lic` と node を上げることになる。
-const QUERY: &str =
-    "select id, title, directory, model, cost, tokens_input, tokens_output, tokens_reasoning, \
+const QUERY: &str = "select id, title, directory, model, cost, tokens_input, tokens_output, tokens_reasoning, \
      tokens_cache_read, tokens_cache_write, time_updated from session \
      order by time_updated desc limit 200";
 

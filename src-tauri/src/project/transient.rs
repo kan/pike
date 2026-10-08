@@ -30,7 +30,7 @@ use std::sync::Mutex;
 
 use tauri::{State, Window};
 
-use super::{read_all_projects, set_window_project, ProjectConfig, ProjectState};
+use super::{ProjectConfig, ProjectState, read_all_projects, set_window_project};
 use crate::types::ShellConfig;
 
 #[derive(Default)]

@@ -25,24 +25,24 @@
 #[cfg(windows)]
 mod imp {
     use std::path::PathBuf;
-    use windows::core::{Interface, GUID, HSTRING, PCWSTR, PWSTR};
     use windows::Data::Xml::Dom::XmlDocument;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
     use windows::Win32::Foundation::{E_OUTOFMEMORY, PROPERTYKEY};
     use windows::Win32::System::Com::StructuredStorage::{
         PROPVARIANT, PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
     };
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CoTaskMemAlloc, IPersistFile, CLSCTX_INPROC_SERVER,
-        COINIT_APARTMENTTHREADED,
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+        CoTaskMemAlloc, IPersistFile,
     };
     use windows::Win32::System::Registry::{
-        RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_WRITE,
-        REG_OPTION_NON_VOLATILE, REG_SZ,
+        HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
+        RegCreateKeyExW, RegSetValueExW,
     };
     use windows::Win32::System::Variant::{VT_CLSID, VT_LPWSTR};
     use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
     use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
-    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+    use windows::core::{GUID, HSTRING, Interface, PCWSTR, PWSTR};
 
     /// 検証で使う AUMID。開発版の identifier に合わせる（`types::app_identifier`）。
     const AUMID: &str = "com.pike.dev.debug";
@@ -81,11 +81,7 @@ mod imp {
     fn target_exe() -> PathBuf {
         let me = std::env::current_exe().expect("current_exe");
         let sibling = me.with_file_name("pike.exe");
-        if sibling.is_file() {
-            sibling
-        } else {
-            me
-        }
+        if sibling.is_file() { sibling } else { me }
     }
 
     fn init_com() -> bool {

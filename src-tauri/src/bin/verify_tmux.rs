@@ -1,6 +1,6 @@
 //! tmux セッション管理の確認
 //! Usage: cargo run --bin verify_tmux
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Read, Write};
 
 fn check_tmux_available() -> bool {
@@ -81,21 +81,23 @@ fn main() {
     let mut buf = [0u8; 4096];
     // Set a short timeout by reading in a thread
     let (tx, rx) = std::sync::mpsc::channel();
-    let read_thread = std::thread::spawn(move || loop {
-        match reader.read(&mut buf) {
-            Ok(0) => {
-                let _ = tx.send(None);
-                break;
-            }
-            Ok(n) => {
-                let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                if tx.send(Some(text)).is_err() {
+    let read_thread = std::thread::spawn(move || {
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => {
+                    let _ = tx.send(None);
                     break;
                 }
-            }
-            Err(_) => {
-                let _ = tx.send(None);
-                break;
+                Ok(n) => {
+                    let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                    if tx.send(Some(text)).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    let _ = tx.send(None);
+                    break;
+                }
             }
         }
     });

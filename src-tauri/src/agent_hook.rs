@@ -54,7 +54,7 @@
 
 use crate::agent_usage::AgentId;
 use crate::fs::{file_name_of, parent_dir_of};
-use crate::types::{bash_quote, cwd_under_root, epoch_secs, pike_config_dir_for, ShellConfig};
+use crate::types::{ShellConfig, bash_quote, cwd_under_root, epoch_secs, pike_config_dir_for};
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -1326,11 +1326,7 @@ fn remove_from_event(
 /// 必要がある（`edit_settings` は native パスの文字列一致で宛先を照合するので、片方だけ
 /// 変えると「候補にあるのに書けない」になる）。
 fn sep_of(shell: &ShellConfig) -> char {
-    if shell.is_posix() {
-        '/'
-    } else {
-        '\\'
-    }
+    if shell.is_posix() { '/' } else { '\\' }
 }
 
 /// 宛先の `settings.json`（**そのシェルから見た native パス**）。
@@ -1734,10 +1730,12 @@ mod tests {
         assert!(ensure_hook(&mut settings, "pike.exe agent-hook"));
 
         let notification = &settings["hooks"]["Notification"][0];
-        assert!(notification["matcher"]
-            .as_str()
-            .unwrap()
-            .contains("permission_prompt"));
+        assert!(
+            notification["matcher"]
+                .as_str()
+                .unwrap()
+                .contains("permission_prompt")
+        );
         assert_eq!(
             notification["hooks"][0]["command"],
             "pike.exe agent-hook --event=waiting"
@@ -1802,9 +1800,11 @@ mod tests {
         ensure_hook(&mut settings, "pike.exe agent-hook");
 
         let groups = settings["hooks"]["Notification"].as_array().unwrap();
-        assert!(groups
-            .iter()
-            .any(|g| g["hooks"][0]["command"] == "notify-send hi"));
+        assert!(
+            groups
+                .iter()
+                .any(|g| g["hooks"][0]["command"] == "notify-send hi")
+        );
     }
 
     /// #299 の版が書いた `SessionStart` だけの設定は「登録済み」ではない（#265）。

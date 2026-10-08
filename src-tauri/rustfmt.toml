@@ -14,4 +14,4 @@ max_width = 100
 # を直に呼ぶと edition 2015 として読まれ、let chain で構文エラーになる（#458）。
 # `style_edition` を変えるときも、全体を整形し直すコミットが要る。
 edition = "2024"
-style_edition = "2021"
+style_edition = "2024"

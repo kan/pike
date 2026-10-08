@@ -112,8 +112,8 @@ pub fn wait_signal_by_path(path: String, state: State<'_, WaitState>) -> bool {
 
 #[cfg(windows)]
 fn signal_event(name: &str) {
+    use windows::Win32::System::Threading::{EVENT_MODIFY_STATE, OpenEventW, SetEvent};
     use windows::core::HSTRING;
-    use windows::Win32::System::Threading::{OpenEventW, SetEvent, EVENT_MODIFY_STATE};
 
     unsafe {
         let hname = HSTRING::from(name);
@@ -134,7 +134,7 @@ fn signal_event(_name: &str) {}
 fn is_second_instance() -> bool {
     let mutex_name = encode_wide(&format!("{}{SI_MUTEX_SUFFIX}", app_id()));
     unsafe {
-        use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
+        use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError};
         use windows::Win32::System::Threading::CreateMutexW;
 
         let handle = CreateMutexW(None, true, windows::core::PCWSTR(mutex_name.as_ptr()));
@@ -215,8 +215,8 @@ pub fn try_wait_and_exit() {
     let abort_name = format!("{EVENT_ABORT_PREFIX}{wait_id}");
 
     let (done_event, abort_event) = unsafe {
-        use windows::core::HSTRING;
         use windows::Win32::System::Threading::CreateEventW;
+        use windows::core::HSTRING;
 
         let done = CreateEventW(None, true, false, &HSTRING::from(&done_name))
             .expect("CreateEventW failed for done event");
@@ -245,7 +245,7 @@ pub fn try_wait_and_exit() {
 
     let exit_code = unsafe {
         use windows::Win32::Foundation::CloseHandle;
-        use windows::Win32::System::Threading::{WaitForMultipleObjects, INFINITE};
+        use windows::Win32::System::Threading::{INFINITE, WaitForMultipleObjects};
 
         let handles = [done_event, abort_event];
         let result = WaitForMultipleObjects(&handles, false, INFINITE);
@@ -253,11 +253,7 @@ pub fn try_wait_and_exit() {
         let _ = CloseHandle(done_event);
         let _ = CloseHandle(abort_event);
 
-        if result.0 == 0 {
-            0
-        } else {
-            1
-        }
+        if result.0 == 0 { 0 } else { 1 }
     };
 
     std::process::exit(exit_code);
@@ -325,11 +321,11 @@ pub(crate) fn send_notice_to_first_instance(args: &[String]) {
 
 #[cfg(windows)]
 fn send_copydata(identifier: &str, args: &[String], cwd: &str, timeout_ms: Option<u32>) {
-    use windows::core::PCWSTR;
     use windows::Win32::System::DataExchange::COPYDATASTRUCT;
     use windows::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, SendMessageTimeoutW, SendMessageW, SMTO_ABORTIFHUNG, WM_COPYDATA,
+        FindWindowW, SMTO_ABORTIFHUNG, SendMessageTimeoutW, SendMessageW, WM_COPYDATA,
     };
+    use windows::core::PCWSTR;
 
     let class_name = encode_wide(&format!("{identifier}{SI_CLASS_SUFFIX}"));
     let window_name = encode_wide(&format!("{identifier}{SI_WINDOW_SUFFIX}"));

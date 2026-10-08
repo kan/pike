@@ -978,7 +978,7 @@ fn parse_rgb_triplet(s: &str) -> Option<(u8, u8, u8)> {
 unsafe fn set_per_pixel_alpha(hwnd: windows::Win32::Foundation::HWND, enable: bool) {
     unsafe {
         use windows::Win32::Graphics::Dwm::{
-            DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND,
+            DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND, DwmEnableBlurBehindWindow,
         };
         use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, HRGN};
 

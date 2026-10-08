@@ -7,7 +7,7 @@
 //! 正規化する**。常駐もポーリングもしない（外部プロセスの起動を定期実行に混ぜない）。
 
 use crate::cache::ProbeRegistry;
-use crate::types::{first_line, install_key, ShellConfig};
+use crate::types::{ShellConfig, first_line, install_key};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::State;

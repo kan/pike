@@ -10,7 +10,7 @@
 pub fn is_process_elevated() -> bool {
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::{
-        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+        GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation,
     };
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -98,9 +98,9 @@ pub fn open_elevated_terminal(shell: String, project_id: Option<String>) -> Resu
 
 #[cfg(windows)]
 fn run_elevated(exe: &std::path::Path, params: &[String]) -> Result<(), String> {
-    use windows::core::{HSTRING, PCWSTR};
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::{HSTRING, PCWSTR};
 
     // Defense in depth: every current param is a fixed literal or a validated
     // value (allowlisted shell kind, slug-checked project id) with no spaces or

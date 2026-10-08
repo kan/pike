@@ -1,7 +1,7 @@
 use crate::cache::{Evict, MtimeCache};
-use crate::types::{cwd_matches_root, wsl_home_subdir_cached, ShellConfig};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use crate::types::{ShellConfig, cwd_matches_root, wsl_home_subdir_cached};
 use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;

@@ -199,9 +199,11 @@ mod tests {
         let scripts = jira_scripts();
         assert_eq!(scripts.len(), JIRA_SCRIPTS.len());
         assert!(scripts[0].contains("window.JIRAPP = JIRAPP"));
-        assert!(scripts
-            .iter()
-            .all(|s| s.contains(r#"(location.hostname,["*.atlassian.net"]))return;"#)));
+        assert!(
+            scripts
+                .iter()
+                .all(|s| s.contains(r#"(location.hostname,["*.atlassian.net"]))return;"#))
+        );
     }
 
     #[test]

@@ -1201,12 +1201,14 @@ shown:
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].command, "just serve port=\"127.0.0.1:8080\"");
         // シェルに渡るのは名前なので、メタ文字を含むものは出さない
-        assert!(parse_justfile(
-            "a;rm -rf /:
+        assert!(
+            parse_justfile(
+                "a;rm -rf /:
     echo x
 "
-        )
-        .is_empty());
+            )
+            .is_empty()
+        );
     }
 
     #[test]
