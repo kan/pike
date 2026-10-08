@@ -260,26 +260,65 @@ function registerOutlineSource() {
 }
 
 const fileExt = computed(() => (tab.value ? extension(tab.value.path) : ''))
-const isMarkdown = computed(() => isMarkdownPath(tab.value?.path ?? ''))
-const isCsv = computed(() => fileExt.value === 'csv' || fileExt.value === 'tsv')
-const isMermaid = computed(() => fileExt.value === 'mermaid' || fileExt.value === 'mmd')
-const isSvg = computed(() => fileExt.value === 'svg')
-const isJson = computed(() => fileExt.value === 'json' || fileExt.value === 'jsonc')
-const isJsonl = computed(() => fileExt.value === 'jsonl' || fileExt.value === 'ndjson')
-const isRst = computed(() => fileExt.value === 'rst')
+
+/**
+ * 手動で選んだファイルタイプのキー（#312 の続き）。null なら自動判定。
+ *
+ * **タブ単位で、セッションには残さない**（`wordWrapOverride` / `minimapOverride` と同じ）。
+ * 判定を直す手段ではなく「いま見ているものを別の言語として読みたい」ための一時的な上書きなので、
+ * 開き直せば自動判定に戻る。
+ */
+const fileTypeOverride = ref<string | null>(null)
+
+/**
+ * プレビューの種別を決めるキー。**手動で選んだファイルタイプがあればそれ、無ければ拡張子**（#460）。
+ * 拡張子の無いメモや `.txt` を Markdown として選んだら、Markdown としてプレビューできる。
+ * 逆に `.md` を別の言語として選ぶと、そのあいだプレビューは出ない（「別の言語として読む」ので）。
+ *
+ * **連動させるのは本文から描くプレビューだけ。** 読むだけなので、選んだ種別で描いても何も
+ * 書き込まない。手動で選べるのは色付けのモードを持つ種別（`languageOptions`）なので、上書きで
+ * 届くのは Markdown・rst・SVG・JSON・JSON Lines。**CSV と Mermaid は一覧に無く、拡張子でしか
+ * 出ない**（別の種別を選ぶと消え、自動判定に戻すと戻る）。次の 2 つは上書きで増やさない:
+ * - **Markdown の入力支援**（`markdownAssistOn`）。貼り付けた画像の置き場や paste ハンドラの
+ *   ように、ファイルへの書き込みを伴う。色を選んだだけで `Ctrl+V` の書き込み先が変わらないようにする
+ * - **HTML と Vue のプレビュー**（`isHtmlPreview` / `isVueFile`）。保存したファイルを子 webview が
+ *   読むので、本文をどう読むかの上書きでは変わらない。別の種別を選んでいるあいだは出さない
+ *
+ * **値域が 2 つ混ざる**: 自動判定のときは拡張子、上書きのときは一覧の代表キー（ラベルで畳んだ
+ * もの。`html` / `md` / `json`）。別名（`htm`・`markdown`・`jsonc`）は下の述語が両方を受ける。
+ */
+const previewKey = computed(() => fileTypeOverride.value ?? fileExt.value)
+/**
+ * 名前どおりの種別として読んでいるか（別の種別を手動で選んでいないか）。**キーではなくラベルで
+ * 比べる**: 一覧のキーは代表の 1 本なので、`.htm` で「HTML」を選ぶとキーは `html` になり、
+ * 文字列の比較では「別の種別」に見える。
+ */
+const readAsNamed = computed(
+  () =>
+    fileTypeOverride.value === null || languageLabelByKey(fileTypeOverride.value) === languageLabelByKey(fileExt.value),
+)
+const isMarkdown = computed(() => previewKey.value === 'md' || previewKey.value === 'markdown')
+const isCsv = computed(() => previewKey.value === 'csv' || previewKey.value === 'tsv')
+const isMermaid = computed(() => previewKey.value === 'mermaid' || previewKey.value === 'mmd')
+const isSvg = computed(() => previewKey.value === 'svg')
+const isJson = computed(() => previewKey.value === 'json' || previewKey.value === 'jsonc')
+const isJsonl = computed(() => previewKey.value === 'jsonl' || previewKey.value === 'ndjson')
+const isRst = computed(() => previewKey.value === 'rst')
 /**
  * 子 webview に描くプレビュー（#399 の HTML は `HtmlPreview.vue`、#397 の Vue SFC は
  * `VuePreview.vue`）。**描くのは保存したファイル**なので、無題のバッファには出さない
  * （`hasFile` は無題でも真になるので path を見る）。DOM のプレビューに要る処理
  * （`previewHtml`・検索・先頭へ戻るボタン）は `ownPanePreview` で外す。
  */
-const isHtmlPreview = computed(() => (fileExt.value === 'html' || fileExt.value === 'htm') && !!tab.value?.path)
+const isHtmlPreview = computed(
+  () => (fileExt.value === 'html' || fileExt.value === 'htm') && !!tab.value?.path && readAsNamed.value,
+)
 /**
  * Vue SFC のプレビュー（#397）。**`vue-preview` が見つかったシェルの .vue にだけ描く**
  * （確かに無いシェルでは入れ方の案内、`isVueInstall`）。描画のルート（いちばん近い
  * package.json）は `VuePreview.vue` が探す。検出は下の watch。
  */
-const isVueFile = computed(() => fileExt.value === 'vue' && !!tab.value?.path)
+const isVueFile = computed(() => fileExt.value === 'vue' && !!tab.value?.path && readAsNamed.value)
 const isVuePreview = computed(() => isVueFile.value && vuePreviewStore.available(projectStore.shellForIO))
 // .vue を開いたら（シェルやプロジェクトが替わったら）vue-preview を探す。べき等で、答えを
 // 覚えているあいだは何もしない（`stores/vuePreview.ts`）。cwd は見つかるかに関係しないので、
@@ -446,7 +485,7 @@ const csvSort = ref<CsvSort | null>(null)
 const csvData = computed<CsvData | null>(() => {
   void debouncedDocVersion.value
   if (!isCsv.value || !showPreview.value || !editorView) return null
-  return parseCsv(editorView.state.doc.iterLines(), fileExt.value === 'tsv' ? '\t' : ',')
+  return parseCsv(editorView.state.doc.iterLines(), previewKey.value === 'tsv' ? '\t' : ',')
 })
 
 /** 並べ替えを当てた行。選択のコピーもこの並びで組み立てる。 */
@@ -697,8 +736,10 @@ async function renderMarkdownMermaid() {
   }
 }
 
-// Standalone mermaid: re-render on content or view mode changes
-watch([debouncedDocVersion, showPreview], () => {
+// Standalone mermaid: re-render on content or view mode changes.
+// `isMermaid` も見る: ファイルタイプを手動で選ぶと偽になり、自動判定に戻すと真に戻る（#460）。
+// 描く要素は `v-if` で作り直されるので、見ないと白紙のまま残る。
+watch([debouncedDocVersion, showPreview, isMermaid], () => {
   if (isMermaid.value && showPreview.value) renderStandaloneMermaid()
 })
 // 図の色は描いた時点のテーマで焼き込むので、ライト／ダークの切り替えでも描き直す（#417）
@@ -1441,7 +1482,13 @@ const markdownLinkPaste = useMarkdownLinkPaste()
 /** Is this a file to write Markdown into? Gates the toolbar and its shortcuts
  *  together — one without the other is a half-feature. Read-only tabs (a
  *  `git show` snapshot) get neither. */
-const markdownAssistOn = computed(() => isMarkdown.value && !isReadOnlyTab.value)
+// **名前が Markdown であることを必ず求める**（`isMarkdown` だけでは決めない）: 入力支援は
+// ファイルへ書き込むので、手動の上書きでは有効にしない（理由は `previewKey` の doc）。
+// **逆向きには従う**: `.md` を別の種別として読んでいるあいだは外す。ツールバーはプレビューの
+// 行に居るので、残すとボタンだけ消えてショートカットと paste ハンドラが働き続ける。
+const markdownAssistOn = computed(
+  () => isMarkdownPath(tab.value?.path ?? '') && isMarkdown.value && !isReadOnlyTab.value,
+)
 
 /** The Markdown assist bindings, or nothing when they do not apply here. */
 function markdownAssist() {
@@ -1502,15 +1549,6 @@ const markdownImages = useMarkdownImages(
 const ctxHasSelection = ref(false)
 
 /**
- * 手動で選んだファイルタイプのキー（#312 の続き）。null なら自動判定。
- *
- * **タブ単位で、セッションには残さない**（`wordWrapOverride` / `minimapOverride` と同じ）。
- * 判定を直す手段ではなく「いま見ているものを別の言語として読みたい」ための一時的な上書きなので、
- * 開き直せば自動判定に戻る。
- */
-const fileTypeOverride = ref<string | null>(null)
-
-/**
  * このタブの種別のキー（`fileTypeKey` の答え、または手動の上書き）。無題で上書きも無ければ空。
  *
  * **ハイライト・アウトライン・定義ジャンプ・整形はこの 1 つを読む**（#456）。それぞれが
@@ -1565,15 +1603,16 @@ function applyLanguage(path: string | undefined, extra: StateEffect<unknown>[] =
  * 手動で選んだ / 自動に戻した（#312 の続き）。**言語だけ差し替えて再読込はしない**:
  * 文字コードの変更（`reopenWithEncoding`）と違い、ディスクの中身の解釈は変わらない。
  *
- * **変わるのは表示だけで、プレビューと Markdown の入力支援は動かさない。** あれらが
- * `tab.path` から決まるのは、**ファイルへの書き込みを伴う**ため（貼り付けた画像をどこへ置くか、
- * 保存が何を出すか、どの paste ハンドラが走るか）。表示の上書きに連動させると、色を選んだだけで
- * `Ctrl+V` の書き込み先が変わることになる。この線引きはマニュアルにも書いてある。
+ * **本文から描くプレビューは選んだ種別に従う**（#460。`previewKey` を `fileTypeOverride` から
+ * 導いているので、ここで何もしなくても切り替わる）。プレビューが無い種別を選んだら、
+ * `hasPreview` の watcher が編集表示へ戻す。**Markdown の入力支援は、上書きでは有効にしない**
+ * （ファイルへの書き込みを伴う。線引きは `previewKey` の doc とマニュアル）。
  */
 function changeFileType(key: string | null) {
   if (fileTypeOverride.value === key) return
   fileTypeOverride.value = key
-  applyLanguage(tab.value?.path)
+  // 入力支援も張り直す（`.md` を別の種別として読むあいだは外れる。`markdownAssistOn`）。
+  applyLanguage(tab.value?.path, [markdownCompartment.reconfigure(markdownAssist())])
 }
 
 function createEditorView(container: HTMLElement, content: string) {

@@ -43,7 +43,7 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
 エディタ本体の規則は `editor.md`。
 
 ## Markdown の入力支援（#241）
-- コマンドは `lib/editorMarkdown.ts`、ボタン列は `components/editor/MarkdownToolbar.vue`。ツールバーは **Edit/Split/Preview と同じ行**に入れる（専用の行を足すとエディタの高さが約 28px 減る）。出す条件は `isMarkdown && showEditor && !readOnly`
+- コマンドは `lib/editorMarkdown.ts`、ボタン列は `components/editor/MarkdownToolbar.vue`。ツールバーは **Edit/Split/Preview と同じ行**に入れる（専用の行を足すとエディタの高さが約 28px 減る）。出す条件は `markdownAssistOn && showEditor`（名前が Markdown で、Markdown として読んでいて、読み取り専用でない。**`isMarkdown` だけでは決めない**: あちらは StatusBar で選んだファイルタイプに従うプレビューの判定で、入力支援はファイルへ書き込むので、名前が Markdown であることを必ず求める。#460）
 - **UI は `MarkdownAction` を emit するだけ**にして、`EditorView` は EditorTab が持ったままにする。ショートカットとボタンが同じ関数を通るので、片方だけ壊れることがない
 - **リスト継続・番号の自動インクリメント・URL 貼り付けのリンク化は書かない**。`@codemirror/lang-markdown` の `markdown()` が既定（`addKeymap` / `pasteURLAsLink`）で `Prec.high` の Enter / Backspace と paste ハンドラを入れており、自前で書くと同じキーを取り合う。**足りないのはトグル**（既存行を箇条書きにする / 外す）だけ
 - **`Mod-k` は binding の `stopPropagation: true` で解決する**。`useKeyboardShortcuts` の window リスナーはバブル段階なので、CodeMirror がそこで止めればグローバル側は無改造で済む（`defaultPrevented` ガードを足すと、他のキーの取り合いまで一括で変わる）。`runHandlers` は **コマンドが true を返したときだけ** `stopPropagation` するので、read-only タブや非 Markdown では `⌘K` はショートカット一覧に届く。**取り合いが残っているのは macOS だけ**で、Windows / Linux の一覧は `Ctrl+Shift+/`（#369。理由は `lib/shortcuts.ts` の行の隣）

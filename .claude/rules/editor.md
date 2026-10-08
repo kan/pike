@@ -93,9 +93,22 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
     ままで、切り替わったのか分からない
     - **変えるのはハイライト・アウトライン・定義ジャンプ・整形の種別**（`typeKey` を読むもの、
       #456。構文木を歩く抽出器は、木を作った言語と同じキーでないと何も拾えない）。
-      プレビューと Markdown の入力支援（`isMarkdown` / `isCsv` /
-      `hasPreview`）は `tab.path` から導いたままにする。連動させると、プレビュー表示中に
-      Plain Text を選んだときの `viewMode` の戻し先まで設計が要る。線引きはマニュアルにも書いた
+      **本文から描くプレビューも選んだ種別に従う**（#460。`EditorTab.vue` の `previewKey`＝
+      上書きがあればそれ、無ければ拡張子。`isMarkdown` / `isCsv` / `isJson` などがこれを読む）。
+      `.txt` を Markdown として選べばプレビューでき、プレビューの無い種別を選んだら
+      `hasPreview` の watcher が編集表示へ戻す
+      - 上書きで届くのは一覧にある種別（Markdown・rst・SVG・JSON・JSON Lines）。**CSV と
+        Mermaid は色付けのモードを持たず一覧に出ない**ので、拡張子でしか出ない
+      - **standalone の Mermaid の描き直しは `isMermaid` も契機にする**（別の種別を選んで戻すと
+        要素が作り直される）
+    - **上書きで増やさないものが 2 つある。** Markdown の入力支援（`markdownAssistOn`。
+      貼り付けた画像の置き場や paste ハンドラのように**ファイルへ書き込む**ので、色を選んだだけで
+      `Ctrl+V` の書き込み先を変えない。名前が Markdown で、かつ Markdown として読んでいるときだけ
+      有効＝`.md` を別の種別として読むあいだは外す。ツールバーだけ消えてキーが残る形にしない）と、
+      HTML / Vue のプレビュー（保存したファイルを子 webview が読むので、本文の読み方の上書きでは
+      変わらない。別の種別を選んでいるあいだは出さない＝`readAsNamed`）。線引きはマニュアルにも書いた
+    - **`readAsNamed` はキーではなくラベルで比べる。** 一覧のキーはラベルで畳んだ代表の 1 本
+      なので、`.htm` で「HTML」を選ぶとキーは `html` になる
   - StatusBar へ渡す操作は `EditorActions` の 1 オブジェクト。**登録が 2 箇所ある**（読み込み
     直後とタブ切替）ので、位置引数にすると片方で末尾が抜ける
 - **Save As は `tab.path` を書き換えるだけでビューを作り直さない**ので、ファイルの種類で決まるものは `tab.path` の watcher で張り直す。対象は**言語（`languageCompartment`）・入力支援のキー（`markdownCompartment`）・アウトラインの登録（`registerOutlineSource`）の 3 つ**。言語を入れ忘れると、無題バッファを `notes.md` として保存したときに「ツールバーとショートカットは効くのにハイライトも Enter の継続も無い」という半端な状態になる（Enter の継続は `@codemirror/lang-markdown` が持ち込むため）。アウトラインは登録時の path と種別を焼き込むうえ、そのタブは既に active なので activeTabId の watcher では張り直されない（張り直すのは `applyLanguage`。StatusBar で言語を選んだときも同じ経路）
