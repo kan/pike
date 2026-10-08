@@ -32,6 +32,7 @@ import { raku } from 'codemirror-lang-raku'
 // CM6 に公式の rst は無い（CM5 にはあった）ので、外部パッケージを足している。
 // 依存は `@lezer/highlight` だけで、壊れてもハイライトが崩れるにとどまる（#284）。
 import { rst } from 'codemirror-lang-rst'
+import { csvMode } from './csvMode'
 import { type FileTypeKey, fileTypeLabel } from './fileType'
 import { blade, erb, smarty, twig, xslate } from './templateModes'
 
@@ -183,6 +184,9 @@ const EXT_MAP = table({
   md: markdownSupport,
   markdown: markdownSupport,
   rst: () => rst(),
+  // 列ごとの色分け（Rainbow CSV と同じ見せ方、#461）。区切り文字だけが違う。
+  csv: () => legacy(csvMode(',')),
+  tsv: () => legacy(csvMode('\t')),
   yaml: () => yaml(),
   yml: () => yaml(),
   vue: vueSupport,
@@ -288,12 +292,12 @@ export function languageByKey(key: string): LanguageSupport | null {
  * 色付けのモードは持たないが、エディタにプレビューがある種別（#461）。ファイルタイプの一覧に
  * 出す。選ぶと Edit / Split / Preview が出るので、色が付かなくても切り替わったと分かる。
  *
- * **プレビューの有無そのものは `EditorTab.vue` が決める**（`previewKey` を読む `isCsv` /
- * `isMermaid`）。ここは「モードが無くても一覧に出す」キーを並べるだけで、あちらが受けない
- * キーを足すと、選んでも何も起きない項目になる。Mermaid は `mmd` もあるが、一覧はラベルで
- * 畳むので代表の 1 本で足りる。
+ * **プレビューの有無そのものは `EditorTab.vue` が決める**（`previewKey` を読む `isMermaid`）。
+ * ここは「モードが無くても一覧に出す」キーを並べるだけで、あちらが受けないキーを足すと、
+ * 選んでも何も起きない項目になる。Mermaid は `mmd` もあるが、一覧はラベルで畳むので代表の
+ * 1 本で足りる。CSV / TSV は列ごとの色分けのモードを持つので、ここには要らない。
  */
-const PREVIEW_ONLY_KEYS: readonly FileTypeKey[] = ['csv', 'tsv', 'mermaid']
+const PREVIEW_ONLY_KEYS: readonly FileTypeKey[] = ['mermaid']
 
 /** キーの表示名。手動で選んだときの StatusBar はファイル名を見ないのでこちらを引く。 */
 export const languageLabelByKey = fileTypeLabel
