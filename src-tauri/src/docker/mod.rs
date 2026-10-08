@@ -180,10 +180,10 @@ fn parse_compose_file(root: &str, path: &str, content: &str) -> Option<ComposePr
     struct ComposeFile {
         /// Top-level `name:` overrides the directory-derived project name.
         name: Option<String>,
-        services: Option<HashMap<String, serde_yaml::Value>>,
+        services: Option<HashMap<String, serde_yaml_ng::Value>>,
     }
 
-    let parsed: ComposeFile = serde_yaml::from_str(content).ok()?;
+    let parsed: ComposeFile = serde_yaml_ng::from_str(content).ok()?;
     let services = parsed.services?;
     if services.is_empty() {
         return None;

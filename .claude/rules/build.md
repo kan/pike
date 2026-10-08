@@ -80,6 +80,20 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   テストバイナリのリンクと、`just build`。release は `[profile.release]` が既定で
   デバッグ情報を持たないため対象外
 
+## リリースプロファイル
+
+**`[profile.release]` は cargo の既定のままにしてある。** `lto = true` / `codegen-units = 1` /
+`strip = true` を試して採らなかった（#458）。Windows・`tauri build --no-bundle`・フルビルドの実測:
+
+| | `pike.exe` | Rust のコンパイル |
+|---|---|---|
+| 既定（現在） | 27.6 MB | 4 分 34 秒 |
+| LTO ＋ `codegen-units = 1` ＋ `strip` | 25.0 MB | 10 分 25 秒 |
+
+サイズは 9.6% しか縮まず、コンパイルは約 2.3 倍になる。リリースは 2 つの OS を直列で回す
+（下の「CI/CD」）ので、延びるぶんが 2 回乗る。起動時間と実行速度は測っていない。
+`lto = "thin"` も測っていない。
+
 ## CSP と動的スタイル注入（本番ビルド限定の落とし穴）
 `tauri.conf.json` の `app.security.csp` を設定すると、**本番（埋め込み）ビルドでのみ** Tauri が `style-src` / `script-src` に nonce/hash を注入する（`tauri` クレートの `manager::set_csp` → `replace_csp_nonce`）。CSP 仕様上、**nonce か hash が directive に 1 つでも入ると同 directive の `'unsafe-inline'` は無視される**。
 

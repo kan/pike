@@ -15,7 +15,7 @@ bollard 経由の Docker API 連携、compose の探索、ログストリーム�
 ## Docker 統合
 - `bollard` クレートで Docker API に接続（named pipe → TCP:2375 → TCP:2376 フォールバック）
 - クライアントは `OnceCell` でキャッシュし、毎コマンドの再接続を回避
-- compose ファイルは `serde_yaml` でパースしてサービス一覧表示
+- compose ファイルは `serde_yaml_ng` でパースしてサービス一覧表示
 - **compose の探索範囲（#221）**: `docker_compose_discover` がプロジェクト直下＋サブディレクトリ 2 階層（`MAX_DEPTH`=3。walker は root 直下のファイルを深さ 1 と数える）を走査し、compose ファイルごとに `ComposeProject { dir, file, name, services }` を返す。探索は `fs::walk_files_by_name`、読み込みは `fs::batch_read_files`（WSL は 1 往復）と、タスク検出と同じ共有ヘルパーを使う。1 ディレクトリにつき 1 ファイル（`COMPOSE_FILE_NAMES` の順＝Compose 自身の優先順）に畳み、`MAX_COMPOSE_FILES`=50 で打ち切る。**タスク検出と違い rg 経由の `.gitignore` 尊重はしない**（`SearchState` を持ち込むほどの深さではないため）ので、`vendor/` の除外だけタスク側と同じ方法で明示的にやっている
   - **WSL の `find` は終了コードを見ない（#434）**。読めないディレクトリが 1 つあるだけで `find` は 1 を返すが、見つけたぶんは stdout に出している。コンテナが作るデータディレクトリ（MySQL の `.data/mysql` は所有者が別で 750）で普通に起き、`run_stdout` を通すと compose・タスク（rg が無いとき）・診断の探索が丸ごと空になる。実体は `fs::walk_files_by_name`
 - コンテナとサービスのマッチは **`com.docker.compose.project.working_dir` ラベルと `ComposeProject.dir` の一致が第一候補**（Compose 自身が記録した事実なので、`-p` / 環境変数や `.env` の `COMPOSE_PROJECT_NAME` でプロジェクト名を変えていても効く）。ラベルが無い古い Compose 由来のコンテナ向けに、`com.docker.compose.project` と**ディレクトリから導いた名前**の比較をフォールバックに残してある。導出は Compose の `NormalizeProjectName` と同じ（小文字化 → `[a-z0-9_-]` 以外を除去 → 先頭の `_`/`-` を落とす）で、compose ファイルに top-level `name:` があればそちらが優先。**ハイフンと `_` を落とさないこと**（`my-app` のようなディレクトリが 1 つもマッチしなくなる。実コンテナのラベルでもハイフンは残る）

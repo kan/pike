@@ -203,8 +203,10 @@ pub async fn detect_wsl_distros() -> Result<Vec<String>, String> {
     let raw = &output.stdout;
     let distros = if raw.len() >= 2 && raw.len() % 2 == 0 {
         let u16s: Vec<u16> = raw
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
             .collect();
         String::from_utf16_lossy(&u16s)
     } else {

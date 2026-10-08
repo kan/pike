@@ -431,7 +431,7 @@ fn cli_rate_limits_soon(
     let cached = cache().lock().unwrap().get(&key).cloned();
     let stale = cached
         .as_ref()
-        .map_or(true, |entry| needs_fetch(entry, session_active, logged_out));
+        .is_none_or(|entry| needs_fetch(entry, session_active, logged_out));
 
     if stale {
         // 既に走っていれば足さない（`fetch_lock` でも直列化されるが、待つスレッドを

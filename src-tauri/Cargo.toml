@@ -6,7 +6,11 @@ authors = ["Kan Fushihara <kan.fushihara@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/kan/pike"
 edition = "2021"
-rust-version = "1.77.2"
+# 依存の中でいちばん新しい要求（tauri 2.12 系列とそのプラグインが 1.90）に合わせる。
+# ここを下回る値を書いても、cargo は依存の `rust-version` で先に落とすので意味を持たない。
+# **tauri を上げたら見直す**（dependabot は依存の版だけを上げ、ここは動かさない。#458）。
+# README の「前提」にも同じ値がある。
+rust-version = "1.90"
 default-run = "pike"
 
 [lib]
@@ -49,7 +53,7 @@ single_char_pattern = "warn"
 e2e = ["dep:tauri-plugin-wdio-webdriver", "tauri/dynamic-acl"]
 
 [build-dependencies]
-tauri-build = { version = "2.6.3", features = [] }
+tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 # `preserve_order`: 読んだ JSON のキー順を保つ。利用者の `settings.json` へ hook を
@@ -63,7 +67,7 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 # `unstable` はブラウザのタブ（#368）の子 webview（`Window::add_child`）に要る。
-tauri = { version = "2.11.3", features = ["tray-icon", "unstable"] }
+tauri = { version = "2.12", features = ["tray-icon", "unstable"] }
 tauri-plugin-log = "2"
 portable-pty = "0.9"
 tokio = { version = "1", features = ["full"] }
@@ -72,7 +76,9 @@ bollard = "0.21"
 futures-util = "0.3"
 base64 = "0.23.0"
 encoding_rs = "0.8.35"
-serde_yaml = "0.9.34"
+# compose ファイルの解析（`docker/mod.rs`）。本家の `serde_yaml` は 0.9.34 で保守を終えた
+# （版の名前が `0.9.34+deprecated`）ので、API が同じ fork を使う（#458）。
+serde_yaml_ng = "0.10"
 toml = "1.0"
 tauri-plugin-window-state = "2.4.1"
 font-kit = "0.14.3"
@@ -90,12 +96,11 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # E2E 撮影 (issue #142)。`e2e` feature でのみ有効。本番ビルドには含まれない。
 #
-# **crates.io の 1.4.0 は tauri 2.12 でコンパイルできない**（webview2-com 0.38 を前提にして
-# いて、tauri が渡す 0.39 の型と食い違う。上流の webdriverio/desktop-mobile#684）。直した
-# コミットがまだ公開されていないので、そこを git で指す。**1.4.0 より新しい版が crates.io に
-# 出たら `version = "1"` に戻すこと。** 通常のビルドはこの依存を引かないので、気付けるのは
-# `just e2e-build` だけ（CI は撮影用のビルドを回さない）。
-tauri-plugin-wdio-webdriver = { git = "https://github.com/webdriverio/desktop-mobile", rev = "e4bdb66ec5b1d96b7fd766d70370a8e8361e0459", optional = true }
+# **下限は 1.5。** 1.4.0 は tauri 2.12 でコンパイルできない（webview2-com 0.38 を前提にして
+# いて、tauri が渡す 0.39 の型と食い違う。上流の webdriverio/desktop-mobile#684）。
+# 通常のビルドはこの依存を引かないので、壊れても気付けるのは `just e2e-build` だけ
+# （CI は撮影用のビルドを回さない）。
+tauri-plugin-wdio-webdriver = { version = "1.5", optional = true }
 
 # プロセス生存確認（`claude_usage::is_process_alive`）に `kill(pid, 0)` が要る。
 # Windows の `OpenProcess` に相当するものが std に無いため、非 Windows でだけ足す。
@@ -171,18 +176,9 @@ raw-window-handle = "0.6"
 [profile.dev.package."*"]
 debug = false
 
-[[bin]]
-name = "pike"
-path = "src/main.rs"
+# `[profile.release]` は書かない（cargo の既定のまま）。LTO を試して採らなかった経緯と
+# 実測は `.claude/rules/build.md` の「リリースプロファイル」を参照（#458）。
 
-[[bin]]
-name = "verify_pty"
-path = "src/bin/verify_pty.rs"
-
-[[bin]]
-name = "verify_tmux"
-path = "src/bin/verify_tmux.rs"
-
-[[bin]]
-name = "verify_bollard"
-path = "src/bin/verify_bollard.rs"
+# `[[bin]]` は書かない。`src/main.rs`（= `pike`）と `src/bin/*.rs`（検証バイナリ）は cargo が
+# 自動で拾う。以前は 3 つだけ並べてあり、後から足した `verify_busy` / `verify_toast` が
+# 載っていなかった（#458）。バイナリが複数あるので `default-run` は要る。

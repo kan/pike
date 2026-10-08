@@ -215,7 +215,7 @@ fn session_files(sessions_dir: &Path, max_age: Option<Duration>) -> Vec<(PathBuf
             // makes `duration_since` error; treat that as age 0 (= fresh) so a
             // genuinely-active session isn't dropped.
             let age = now.duration_since(modified).unwrap_or(Duration::ZERO);
-            if max_age.map_or(true, |w| age <= w) {
+            if max_age.is_none_or(|w| age <= w) {
                 out.push((path, modified));
             }
         }
