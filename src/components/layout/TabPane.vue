@@ -200,16 +200,24 @@ function resetSplit() {
       残さない）ので、ペインの div より後ろに置いてよい。むしろ後ろでなければならない:
       `to` はパッチの時点で `querySelector` されるので、行き先が先に DOM へ入っている必要がある。
     -->
+    <!--
+      **`v-memo` を外さないこと（#462）。** コンポーネントに `v-show` のようなディレクティブが
+      付いていると、Vue は親が描き直されるたびに、props が変わっていなくてもその子を必ず
+      描き直す（`shouldUpdateComponent` が `dirs` を見て true を返す）。この一覧はタブを
+      切り替えるたびに描き直されるので、素のままだと**開いている全タブ（保持中のプロジェクトの
+      ぶんも含む）の中身を、切替のたびに描き直す**。行き先・見えているか・種別が同じあいだは
+      vnode ごと使い回す（実測の数字は `.claude/rules/tabs.md`）。**この中で読む値を増やしたら、
+      memo の鍵にも足すこと。**
+    -->
     <template v-if="teleportReady">
-      <template v-for="tab in tabStore.tabs" :key="tab.id">
-        <Teleport :to="paneTarget(tab)">
-          <component
-            :is="TAB_COMPONENTS[tab.kind]"
-            :tab-id="tab.id"
-            v-show="tabStore.isTabVisible(tab.id)"
-          />
-        </Teleport>
-      </template>
+      <Teleport
+        v-for="tab in tabStore.tabs"
+        :key="tab.id"
+        v-memo="[paneTarget(tab), tabStore.isTabVisible(tab.id), tab.kind]"
+        :to="paneTarget(tab)"
+      >
+        <component :is="TAB_COMPONENTS[tab.kind]" :tab-id="tab.id" v-show="tabStore.isTabVisible(tab.id)" />
+      </Teleport>
     </template>
   </div>
 </template>

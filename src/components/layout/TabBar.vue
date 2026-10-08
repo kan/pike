@@ -511,6 +511,33 @@ function tabBind(tab: Tab) {
     active: tab.id === activeId.value,
     dragging: tab.id === dragTabId.value,
     dropSide: tab.id === dragOverTabId.value ? dragSide.value : null,
+    ...tabHandlers(tab),
+  }
+}
+
+/**
+ * タブ 1 枚ぶんのハンドラ。**タブごとに 1 度だけ作って使い回す**（#462）。
+ *
+ * 描くたびに作り直すと、関数が毎回別物になるので、Vue は全部の `TabItem` を「props が
+ * 変わった」とみなして描き直す。タブバーはタブを切り替えるたびに描き直されるので、切替 1 回の
+ * 時間がタブの枚数に比例して伸びていた（実測で 1 枚あたり約 0.4ms）。使い回せば、描き直すのは
+ * 選択が外れたタブと入ったタブの 2 枚だけになる。
+ *
+ * `WeakMap` なので、閉じたタブのぶんは勝手に消える。
+ */
+const handlerCache = new WeakMap<Tab, ReturnType<typeof makeTabHandlers>>()
+
+function tabHandlers(tab: Tab) {
+  let handlers = handlerCache.get(tab)
+  if (!handlers) {
+    handlers = makeTabHandlers(tab)
+    handlerCache.set(tab, handlers)
+  }
+  return handlers
+}
+
+function makeTabHandlers(tab: Tab) {
+  return {
     onSelect: () => tabStore.setActiveTab(tab.id),
     onClose: () => tabStore.closeTab(tab.id),
     onContextmenu: (e: MouseEvent) => {
