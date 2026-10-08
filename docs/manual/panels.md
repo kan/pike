@@ -246,6 +246,11 @@ docker compose exec -T golang make lint
 
 **CI** アイコンで開きます。リポジトリの CI の実行（run）を新しい順に一覧し、再実行や中止、失敗の調査の指示をここから出せます。
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/ci-light.png">
+  <img alt="CI パネル" src="img/ci.png">
+</picture>
+
 このアイコンは、次のどちらかを満たすときだけ出ます。
 
 - **GitHub Actions**：リポジトリに `.github/workflows/` があり、origin が GitHub で、[`gh`](https://cli.github.com/)（GitHub CLI）が入っている

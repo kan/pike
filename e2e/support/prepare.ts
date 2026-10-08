@@ -130,10 +130,12 @@ export async function mockInvoke(command: string, value: unknown): Promise<void>
 
 // 擬似プロジェクトを差して activeRoot を確定させ、invoke 駆動パネルを有効化する。
 /** `remoteUrl` を渡すのは issue パネルだけ（既定で付けると StatusBar の撮影が変わる）。 */
-export async function setFakeProject(opts?: { remoteUrl?: string }): Promise<void> {
+export async function setFakeProject(opts?: { remoteUrl?: string; root?: string }): Promise<void> {
   await browser.execute((o) => {
     ;(
-      window as unknown as { __pikeE2E?: { setFakeProject?: (o?: { remoteUrl?: string }) => void } }
+      window as unknown as {
+        __pikeE2E?: { setFakeProject?: (o?: { remoteUrl?: string; root?: string }) => void }
+      }
     ).__pikeE2E?.setFakeProject?.(o)
   }, opts)
 }

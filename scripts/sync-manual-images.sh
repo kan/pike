@@ -39,6 +39,7 @@ MAP=(
   "docker:docker-panel"
   "search:search-panel"
   "issues:issues-panel"
+  "ci:ci-panel"
   "tasks:tasks-panel"
   "command-palette:quickopen"
   "markdown-preview:markdown-preview"

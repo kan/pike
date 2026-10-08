@@ -135,12 +135,15 @@ async function bootstrap() {
       // invoke 駆動パネルが有効になる。データ自体はテスト側の invoke モックが返す。
       // `remoteUrl` は既定で持たせない。付けると StatusBar にリポジトリリンクが増えて
       // 既存の撮影が変わるので、要る spec（issue パネル）だけが渡す。
-      setFakeProject: (opts?: { remoteUrl?: string }) => {
+      // `root` を変えられるのは、root ごとに覚える検出（CI パネルの設定の有無、#457）を
+      // 撮影のモックで取り直させるため。全 spec が 1 つのアプリを共有するので、既定の root は
+      // 先行する spec がモック無しで聞いた答えを覚えている。
+      setFakeProject: (opts?: { remoteUrl?: string; root?: string }) => {
         project.showSwitcher = false
         project.currentProject = {
           id: 'e2e-demo',
           name: 'demo-app',
-          root: 'C:/Users/dev/demo-app',
+          root: opts?.root ?? 'C:/Users/dev/demo-app',
           shell: { kind: 'powershell' },
           pinnedTabs: [],
           lastOpened: '2026-01-01T00:00:00Z',

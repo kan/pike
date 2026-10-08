@@ -693,6 +693,93 @@ describe('screenshots: issues panel', () => {
   }
 })
 
+// --- CI パネル --------------------------------------------------------------
+// `gh` の実行結果を invoke モックで差す（#457）。パネルが出る条件は「CI の設定がある」と
+// 「origin が GitHub で `gh` がある」なので、`ci_configs` と `issues_gh_available` も差す。
+//
+// **実行中の run は入れない。** 状態のアイコンが回るので撮るたびに角度が変わるうえ、
+// ストアが 15 秒ごとの取り直しを始める。`createdAt` を 30 日以上前にするのは issue と同じ理由。
+const CI_RUN = { branch: 'main', event: 'push', rerunFailedIds: ['1'], failureLogCommand: '' }
+const CI_LIST = {
+  runs: [
+    {
+      ...CI_RUN,
+      id: '101',
+      title: 'feat(ci): CI パネルを追加する',
+      workflow: 'CI',
+      sha: '3eb0721',
+      state: 'failure',
+      createdAt: '2026-06-02T10:15:00Z',
+      url: 'https://github.com/kan/pike/actions/runs/101',
+      rerunIds: ['101'],
+    },
+    {
+      ...CI_RUN,
+      id: '100',
+      title: 'feat(ci): CI パネルを追加する',
+      workflow: 'Security Check',
+      sha: '3eb0721',
+      state: 'success',
+      createdAt: '2026-06-02T10:15:00Z',
+      url: 'https://github.com/kan/pike/actions/runs/100',
+      rerunIds: ['100'],
+    },
+    {
+      ...CI_RUN,
+      id: '99',
+      title: 'fix: 検索欄にフォーカスが入らない',
+      workflow: 'CI',
+      branch: 'fix/search-focus',
+      event: 'pull_request',
+      sha: '2bc78fd',
+      state: 'cancelled',
+      createdAt: '2026-06-01T18:40:00Z',
+      url: 'https://github.com/kan/pike/actions/runs/99',
+      rerunIds: ['99'],
+    },
+    {
+      ...CI_RUN,
+      id: '98',
+      title: 'Bump version to v0.60.1',
+      workflow: 'Release',
+      branch: 'v0.60.1',
+      sha: 'eb0d7a5',
+      state: 'success',
+      createdAt: '2026-05-30T09:05:00Z',
+      url: 'https://github.com/kan/pike/actions/runs/98',
+      rerunIds: ['98'],
+    },
+  ],
+  error: null,
+}
+const CI_JOBS = [
+  { id: '1', name: 'Check & Test (windows-latest)', group: '', state: 'failure', url: null },
+  { id: '2', name: 'Check & Test (macos-latest)', group: '', state: 'success', url: null },
+]
+
+describe('screenshots: ci panel', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`ci-panel ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('issues_gh_available', true)
+      await mockInvoke('ci_configs', { github: true, circleci: false })
+      await mockInvoke('ci_list', CI_LIST)
+      await mockInvoke('ci_jobs', CI_JOBS)
+      // **root を既定と変える。** CI の設定の有無は root ごとに覚えるので、既定の root だと
+      // 先行する spec がモック無しで聞いた「設定なし」が残っていて、パネルが出ない。
+      await setFakeProject({ remoteUrl: 'git@github.com:kan/pike.git', root: 'C:/Users/dev/ci-demo' })
+      await openEditor({ path: 'src/lib/tauri.ts', content: TAURI_TS })
+      await openPanel('ci')
+      await $('[data-testid="ci-panel"]').waitForDisplayed({ timeout: 10_000 })
+      await $('.ci-run').waitForDisplayed({ timeout: 10_000 })
+      // 失敗した run（先頭）を開いて、ジョブの内訳も写す。前の it で開いたままのことがある。
+      if (!(await $('.ci-job').isExisting())) await $('.ci-caret').click()
+      await $('.ci-job').waitForDisplayed({ timeout: 10_000 })
+      await shoot('ci-panel', lang, theme)
+    })
+  }
+})
+
 // --- プロジェクト パネル ----------------------------------------------------
 // #203 の見た目（グループ別表示・アイコン・現在のプロジェクトの塗り）を撮る。
 // パネルは mount 時に project_list / project_groups_list / fs_dirs_exist を呼ぶので、
