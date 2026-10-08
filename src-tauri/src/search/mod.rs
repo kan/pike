@@ -174,10 +174,10 @@ pub(crate) fn resolve_backend(
     cache: &Mutex<HashMap<String, SearchBackend>>,
 ) -> SearchBackend {
     let key = crate::types::install_key(shell);
-    if let Ok(map) = cache.lock() {
-        if let Some(b) = map.get(&key).filter(|b| !b.expired()) {
-            return b.clone();
-        }
+    if let Ok(map) = cache.lock()
+        && let Some(b) = map.get(&key).filter(|b| !b.expired())
+    {
+        return b.clone();
     }
     let backend = detect_backend(shell, bundled_rg);
     if let Ok(mut map) = cache.lock() {
@@ -301,10 +301,10 @@ pub async fn search_detect_backend(
     let cache = state.detected.clone();
     // **入れ直したあとは覚えた答えを捨てる**（ripgrep の導入・更新の導線）。キャッシュは
     // プロセスの寿命ぶん持つので、捨てないと再起動するまで古い rg（や grep）のまま。
-    if refresh.unwrap_or(false) {
-        if let Ok(mut map) = cache.lock() {
-            map.remove(&crate::types::install_key(&shell));
-        }
+    if refresh.unwrap_or(false)
+        && let Ok(mut map) = cache.lock()
+    {
+        map.remove(&crate::types::install_key(&shell));
     }
     let backend = tokio::task::spawn_blocking(move || resolve_backend(&shell, &bundled, &cache))
         .await

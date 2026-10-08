@@ -67,30 +67,30 @@ pub fn attach(window: &WebviewWindow) {
             };
 
             let mut entries = Vec::new();
-            if let Ok(args2) = args.cast::<ICoreWebView2WebMessageReceivedEventArgs2>() {
-                if let Ok(objects) = args2.AdditionalObjects() {
-                    let mut count = 0u32;
-                    if objects.Count(&mut count).is_ok() {
-                        for i in 0..count {
-                            let Ok(obj) = objects.GetValueAtIndex(i) else {
-                                continue;
-                            };
-                            let Ok(file) = obj.cast::<ICoreWebView2File>() else {
-                                continue;
-                            };
-                            let mut p = windows_core::PWSTR::null();
-                            if file.Path(&mut p).is_err() {
-                                continue;
-                            }
-                            let path = take_pwstr(p);
-                            if path.is_empty() {
-                                continue;
-                            }
-                            let is_dir = std::fs::metadata(&path)
-                                .map(|m| m.is_dir())
-                                .unwrap_or(false);
-                            entries.push(DropPathEntry { path, is_dir });
+            if let Ok(args2) = args.cast::<ICoreWebView2WebMessageReceivedEventArgs2>()
+                && let Ok(objects) = args2.AdditionalObjects()
+            {
+                let mut count = 0u32;
+                if objects.Count(&mut count).is_ok() {
+                    for i in 0..count {
+                        let Ok(obj) = objects.GetValueAtIndex(i) else {
+                            continue;
+                        };
+                        let Ok(file) = obj.cast::<ICoreWebView2File>() else {
+                            continue;
+                        };
+                        let mut p = windows_core::PWSTR::null();
+                        if file.Path(&mut p).is_err() {
+                            continue;
                         }
+                        let path = take_pwstr(p);
+                        if path.is_empty() {
+                            continue;
+                        }
+                        let is_dir = std::fs::metadata(&path)
+                            .map(|m| m.is_dir())
+                            .unwrap_or(false);
+                        entries.push(DropPathEntry { path, is_dir });
                     }
                 }
             }

@@ -498,7 +498,7 @@ pub async fn issues_list(
                 return IssueListResult {
                     issues: Vec::new(),
                     error: Some(format!("{e}\n{line}")),
-                }
+                };
             }
         };
         if code != 0 {

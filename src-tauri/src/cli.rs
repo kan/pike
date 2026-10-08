@@ -148,13 +148,12 @@ pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
     if let Some(id) = meaningful
         .iter()
         .find_map(|s| s.strip_prefix("--open-project="))
+        && crate::types::validate_slug(id, "project id").is_ok()
     {
-        if crate::types::validate_slug(id, "project id").is_ok() {
-            return CliAction::OpenProject {
-                id: id.to_owned(),
-                shell: shell_hint.clone(),
-            };
-        }
+        return CliAction::OpenProject {
+            id: id.to_owned(),
+            shell: shell_hint.clone(),
+        };
     }
 
     // `--terminal`: force global-mode terminal launch. On cold start the main

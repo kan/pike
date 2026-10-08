@@ -259,15 +259,15 @@ fn project_for_root<'a>(
 /// list is app state and the parser is deliberately free of it. Every caller of
 /// `parse_args` therefore has to apply this.
 fn as_project_dir(projects: &[project::ProjectConfig], action: cli::CliAction) -> cli::CliAction {
-    if let cli::CliAction::OpenFiles { files } = &action {
-        if let [f] = files.as_slice() {
-            if f.line.is_none() && project_for_root(projects, &f.path).is_some() {
-                return cli::CliAction::OpenDirectory {
-                    path: f.path.clone(),
-                    distro: f.distro.clone(),
-                };
-            }
-        }
+    if let cli::CliAction::OpenFiles { files } = &action
+        && let [f] = files.as_slice()
+        && f.line.is_none()
+        && project_for_root(projects, &f.path).is_some()
+    {
+        return cli::CliAction::OpenDirectory {
+            path: f.path.clone(),
+            distro: f.distro.clone(),
+        };
     }
     action
 }
@@ -493,10 +493,10 @@ fn build_project_window(
 }
 
 fn store_pending(app: &AppHandle, label: &str, action: cli::CliAction) {
-    if let Some(state) = app.try_state::<cli::CliState>() {
-        if let Ok(mut pending) = state.pending.lock() {
-            pending.insert(label.to_owned(), action);
-        }
+    if let Some(state) = app.try_state::<cli::CliState>()
+        && let Ok(mut pending) = state.pending.lock()
+    {
+        pending.insert(label.to_owned(), action);
     }
 }
 
@@ -592,11 +592,11 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
             //    → focus it, so a second `pike <dir>` never opens a duplicate.
             //    **`from_window` より先に見る**（#352）: 1 プロジェクト 1 ウィンドウを
             //    崩さない。叩いた当人のウィンドウが持っているなら、ここで前に出るだけ。
-            if let Some(id) = &existing {
-                if focus_project_window_anywhere(app, id, None) {
-                    log::debug!("[single-instance] dir: focus project window for {id}");
-                    return;
-                }
+            if let Some(id) = &existing
+                && focus_project_window_anywhere(app, id, None)
+            {
+                log::debug!("[single-instance] dir: focus project window for {id}");
+                return;
             }
 
             // 2. Pike のターミナルから叩かれた（#352）→ そのウィンドウで開く。
@@ -666,15 +666,15 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
                     // showing one owns its root just as much: `pike file.rs` from
                     // inside a directory opened without registering it must land
                     // there rather than in a new sidebar-less window.
-                    if let Some(root) = project_root_for_id(app, &projects, pid) {
-                        if files.iter().all(|f| is_under_root(&f.path, &root)) {
-                            log::debug!(
-                                "[single-instance] files: open in project window {}",
-                                w.label()
-                            );
-                            emit_action_to(app, w, &action);
-                            return;
-                        }
+                    if let Some(root) = project_root_for_id(app, &projects, pid)
+                        && files.iter().all(|f| is_under_root(&f.path, &root))
+                    {
+                        log::debug!(
+                            "[single-instance] files: open in project window {}",
+                            w.label()
+                        );
+                        emit_action_to(app, w, &action);
+                        return;
                     }
                 }
             }
@@ -976,31 +976,33 @@ fn parse_rgb_triplet(s: &str) -> Option<(u8, u8, u8)> {
 /// every user on the transparent one.
 #[cfg(windows)]
 unsafe fn set_per_pixel_alpha(hwnd: windows::Win32::Foundation::HWND, enable: bool) {
-    use windows::Win32::Graphics::Dwm::{
-        DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND,
-    };
-    use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, HRGN};
+    unsafe {
+        use windows::Win32::Graphics::Dwm::{
+            DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE, DWM_BLURBEHIND,
+        };
+        use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject, HRGN};
 
-    // 空リージョン = 「どこもブラーしない」= ウィンドウ全体が per-pixel alpha。
-    // tao の透過ウィンドウ生成と同じ指定にそろえてある。
-    let region = if enable {
-        CreateRectRgn(0, 0, -1, -1)
-    } else {
-        HRGN::default()
-    };
-    let bb = DWM_BLURBEHIND {
-        dwFlags: if enable {
-            DWM_BB_ENABLE | DWM_BB_BLURREGION
+        // 空リージョン = 「どこもブラーしない」= ウィンドウ全体が per-pixel alpha。
+        // tao の透過ウィンドウ生成と同じ指定にそろえてある。
+        let region = if enable {
+            CreateRectRgn(0, 0, -1, -1)
         } else {
-            DWM_BB_ENABLE
-        },
-        fEnable: enable.into(),
-        hRgnBlur: region,
-        fTransitionOnMaximized: false.into(),
-    };
-    let _ = DwmEnableBlurBehindWindow(hwnd, &bb);
-    if enable {
-        let _ = DeleteObject(region.into());
+            HRGN::default()
+        };
+        let bb = DWM_BLURBEHIND {
+            dwFlags: if enable {
+                DWM_BB_ENABLE | DWM_BB_BLURREGION
+            } else {
+                DWM_BB_ENABLE
+            },
+            fEnable: enable.into(),
+            hRgnBlur: region,
+            fTransitionOnMaximized: false.into(),
+        };
+        let _ = DwmEnableBlurBehindWindow(hwnd, &bb);
+        if enable {
+            let _ = DeleteObject(region.into());
+        }
     }
 }
 
@@ -1700,10 +1702,10 @@ pub fn run() {
                     }
                 }
             }
-            if !matches!(action, cli::CliAction::None) {
-                if let Some(state) = app.try_state::<cli::CliState>() {
-                    *state.initial_action.lock().unwrap() = Some(action);
-                }
+            if !matches!(action, cli::CliAction::None)
+                && let Some(state) = app.try_state::<cli::CliState>()
+            {
+                *state.initial_action.lock().unwrap() = Some(action);
             }
 
             // main の仮想デスクトップ（#317）。矩形は window-state プラグインが label で
@@ -1789,20 +1791,20 @@ pub fn run() {
                     // truth; draining it also removes the entry so the map can't
                     // leak, and removes the project the window actually shows
                     // (not the one its opaque label was minted for).
-                    if let Some(state) = window.try_state::<project::ProjectState>() {
-                        if let Some(pid) = project::take_window_project(&state, window.label()) {
-                            // A transient project (#230) lives exactly as long as
-                            // the window showing it, and was never in the open
-                            // list, so dropping the entry is the whole cleanup.
-                            let transient = window
-                                .try_state::<project::transient::TransientState>()
-                                .and_then(|t| t.remove(&pid));
-                            if transient.is_none() {
-                                // このウィンドウは既にマップから消えているので、
-                                // 生きているぶんを書き直せば足りる（#264）。
-                                if let Err(e) = project::write_open_windows(&state) {
-                                    log::warn!("Failed to rewrite the open window list: {e}");
-                                }
+                    if let Some(state) = window.try_state::<project::ProjectState>()
+                        && let Some(pid) = project::take_window_project(&state, window.label())
+                    {
+                        // A transient project (#230) lives exactly as long as
+                        // the window showing it, and was never in the open
+                        // list, so dropping the entry is the whole cleanup.
+                        let transient = window
+                            .try_state::<project::transient::TransientState>()
+                            .and_then(|t| t.remove(&pid));
+                        if transient.is_none() {
+                            // このウィンドウは既にマップから消えているので、
+                            // 生きているぶんを書き直せば足りる（#264）。
+                            if let Err(e) = project::write_open_windows(&state) {
+                                log::warn!("Failed to rewrite the open window list: {e}");
                             }
                         }
                     }
@@ -1825,11 +1827,11 @@ pub fn run() {
                     if let Some(state) = window.try_state::<watcher::WatcherState>() {
                         watcher::stop_all(&state);
                     }
-                    if let Some(state) = window.try_state::<docker::DockerState>() {
-                        if let Ok(mut streams) = state.log_streams.lock() {
-                            for (_, handle) in streams.drain() {
-                                handle.abort();
-                            }
+                    if let Some(state) = window.try_state::<docker::DockerState>()
+                        && let Ok(mut streams) = state.log_streams.lock()
+                    {
+                        for (_, handle) in streams.drain() {
+                            handle.abort();
                         }
                     }
                     // Only a hidden, logically closed main is left, and it cannot
@@ -1850,9 +1852,9 @@ pub fn run() {
                         let app = window.app_handle().clone();
                         tauri::async_runtime::spawn(async move {
                             loop {
-                                let gen = GENERATION.load(Ordering::Relaxed);
+                                let seen = GENERATION.load(Ordering::Relaxed);
                                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                                if GENERATION.load(Ordering::Relaxed) == gen {
+                                if GENERATION.load(Ordering::Relaxed) == seen {
                                     let _ = app.save_window_state(StateFlags::all());
                                     window_geom::record_all(&app);
                                     TASK_RUNNING.store(false, Ordering::Relaxed);

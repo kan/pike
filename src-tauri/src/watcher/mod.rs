@@ -153,10 +153,10 @@ fn report_watch_failure(
 
 fn path_contains_ignored(path: &Path) -> bool {
     path.components().any(|c| {
-        if let std::path::Component::Normal(name) = c {
-            if let Some(s) = name.to_str() {
-                return IGNORED_DIRS.contains(&s);
-            }
+        if let std::path::Component::Normal(name) = c
+            && let Some(s) = name.to_str()
+        {
+            return IGNORED_DIRS.contains(&s);
         }
         false
     })

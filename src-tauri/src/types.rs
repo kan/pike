@@ -136,13 +136,16 @@ pub const UNIX_EXTRA_PATH: &str = "$HOME/.local/bin:$HOME/bin:$HOME/.bun/bin:$HO
 /// 対話シェルを 1 本起こすことになり、rc が `exec tmux` するような環境で固まる。
 /// 静的な一覧で足りなければ、ユーザーはターミナルから起動できる。
 ///
+/// # Safety
+///
 /// **スレッドを起こす前に呼ぶこと**（`set_var` はプロセス全体を触る）。
 #[cfg(not(windows))]
-pub fn augment_process_path() {
+pub unsafe fn augment_process_path() {
     let home = std::env::var("HOME").unwrap_or_default();
     let current = std::env::var("PATH").unwrap_or_default();
     let next = augmented_path_with(&current, &home, |dir| std::path::Path::new(dir).is_dir());
-    std::env::set_var("PATH", next);
+    // SAFETY: 他のスレッドが無いことは呼び出し側が保証する（上の doc）。
+    unsafe { std::env::set_var("PATH", next) };
 }
 
 /// Windows 版は**自分の置き場（インストール先）を PATH に足す**（#370）。
@@ -164,8 +167,12 @@ pub fn augment_process_path() {
 /// （`agent_hook::hook_command` の「PATH の `pike.exe` はインストール版」が保たれる）。
 ///
 /// もう 1 つ `%USERPROFILE%\.local\bin`（`user_bin_dir`）も足す。
+///
+/// # Safety
+///
+/// スレッドを起こす前に呼ぶこと（`set_var` はプロセス全体を触る）。
 #[cfg(windows)]
-pub fn augment_process_path() {
+pub unsafe fn augment_process_path() {
     let install_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()));
@@ -178,7 +185,8 @@ pub fn augment_process_path() {
         }
     }
     if changed {
-        std::env::set_var("PATH", path);
+        // SAFETY: 他のスレッドが無いことは呼び出し側が保証する（上の doc）。
+        unsafe { std::env::set_var("PATH", path) };
     }
 }
 
@@ -317,33 +325,35 @@ fn identifiers_for(debug_build: bool) -> [&'static str; 2] {
 /// COM が初期化されたスレッドで呼ぶこと（`CoTaskMemAlloc` の前提）。
 #[cfg(windows)]
 pub unsafe fn lpwstr_propvariant(s: &str) -> windows::core::Result<PROPVARIANT> {
-    use windows::core::PWSTR;
-    use windows::Win32::Foundation::E_OUTOFMEMORY;
-    use windows::Win32::System::Com::CoTaskMemAlloc;
-    use windows::Win32::System::Com::StructuredStorage::{
-        PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
-    };
-    use windows::Win32::System::Variant::VT_LPWSTR;
+    unsafe {
+        use windows::core::PWSTR;
+        use windows::Win32::Foundation::E_OUTOFMEMORY;
+        use windows::Win32::System::Com::CoTaskMemAlloc;
+        use windows::Win32::System::Com::StructuredStorage::{
+            PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
+        };
+        use windows::Win32::System::Variant::VT_LPWSTR;
 
-    let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
-    let mem = CoTaskMemAlloc(wide.len() * 2) as *mut u16;
-    if mem.is_null() {
-        return Err(windows::core::Error::from(E_OUTOFMEMORY));
+        let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
+        let mem = CoTaskMemAlloc(wide.len() * 2) as *mut u16;
+        if mem.is_null() {
+            return Err(windows::core::Error::from(E_OUTOFMEMORY));
+        }
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), mem, wide.len());
+        Ok(PROPVARIANT {
+            Anonymous: PROPVARIANT_0 {
+                Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
+                    vt: VT_LPWSTR,
+                    wReserved1: 0,
+                    wReserved2: 0,
+                    wReserved3: 0,
+                    Anonymous: PROPVARIANT_0_0_0 {
+                        pwszVal: PWSTR(mem),
+                    },
+                }),
+            },
+        })
     }
-    std::ptr::copy_nonoverlapping(wide.as_ptr(), mem, wide.len());
-    Ok(PROPVARIANT {
-        Anonymous: PROPVARIANT_0 {
-            Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
-                vt: VT_LPWSTR,
-                wReserved1: 0,
-                wReserved2: 0,
-                wReserved3: 0,
-                Anonymous: PROPVARIANT_0_0_0 {
-                    pwszVal: PWSTR(mem),
-                },
-            }),
-        },
-    })
 }
 
 /// `PROPVARIANT`（`VT_CLSID`）を手組みする。ショートカットの
@@ -358,30 +368,32 @@ pub unsafe fn lpwstr_propvariant(s: &str) -> windows::core::Result<PROPVARIANT> 
 /// COM が初期化されたスレッドで呼ぶこと（`CoTaskMemAlloc` の前提）。
 #[cfg(windows)]
 pub unsafe fn clsid_propvariant(guid: windows::core::GUID) -> windows::core::Result<PROPVARIANT> {
-    use windows::Win32::Foundation::E_OUTOFMEMORY;
-    use windows::Win32::System::Com::CoTaskMemAlloc;
-    use windows::Win32::System::Com::StructuredStorage::{
-        PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
-    };
-    use windows::Win32::System::Variant::VT_CLSID;
+    unsafe {
+        use windows::Win32::Foundation::E_OUTOFMEMORY;
+        use windows::Win32::System::Com::CoTaskMemAlloc;
+        use windows::Win32::System::Com::StructuredStorage::{
+            PROPVARIANT_0, PROPVARIANT_0_0, PROPVARIANT_0_0_0,
+        };
+        use windows::Win32::System::Variant::VT_CLSID;
 
-    let mem =
-        CoTaskMemAlloc(std::mem::size_of::<windows::core::GUID>()) as *mut windows::core::GUID;
-    if mem.is_null() {
-        return Err(windows::core::Error::from(E_OUTOFMEMORY));
+        let mem =
+            CoTaskMemAlloc(std::mem::size_of::<windows::core::GUID>()) as *mut windows::core::GUID;
+        if mem.is_null() {
+            return Err(windows::core::Error::from(E_OUTOFMEMORY));
+        }
+        std::ptr::write(mem, guid);
+        Ok(PROPVARIANT {
+            Anonymous: PROPVARIANT_0 {
+                Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
+                    vt: VT_CLSID,
+                    wReserved1: 0,
+                    wReserved2: 0,
+                    wReserved3: 0,
+                    Anonymous: PROPVARIANT_0_0_0 { puuid: mem },
+                }),
+            },
+        })
     }
-    std::ptr::write(mem, guid);
-    Ok(PROPVARIANT {
-        Anonymous: PROPVARIANT_0 {
-            Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
-                vt: VT_CLSID,
-                wReserved1: 0,
-                wReserved2: 0,
-                wReserved3: 0,
-                Anonymous: PROPVARIANT_0_0_0 { puuid: mem },
-            }),
-        },
-    })
 }
 
 /// Tauri が `app_config_dir` に解決する場所を、`AppHandle` 無しで組み立てる。

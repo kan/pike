@@ -297,8 +297,7 @@ fn ssh_base(shell: &ShellConfig, root: &str) -> String {
         }
     }
     // 一度も読めていないときは `base` が空のまま＝「`core.sshCommand` は無い」として扱う。
-    let base = entry.answer().base.clone();
-    base
+    entry.answer().base.clone()
 }
 
 /// ネットワークの git を 1 回走らせた結果（#384）。
@@ -727,10 +726,10 @@ fn status_and_state_native(
 fn parse_state_records(rest: &str) -> StateFiles {
     let mut files = StateFiles::new();
     for ((name, _), record) in OP_STATE_FILES.iter().zip(rest.split(RS)) {
-        if let Some((exists, content)) = record.split_once(FS) {
-            if exists == "1" {
-                files.insert(name, content.to_owned());
-            }
+        if let Some((exists, content)) = record.split_once(FS)
+            && exists == "1"
+        {
+            files.insert(name, content.to_owned());
         }
     }
     files

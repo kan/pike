@@ -358,10 +358,10 @@ fn find_task_files_raw(
         args.push(CARGO_CONFIG_RG_GLOB);
         args.push("--");
         args.push(root);
-        if let Ok((code, stdout, _)) = shell.run(program, &args) {
-            if code == 0 || !stdout.is_empty() {
-                return stdout.lines().map(|l| l.to_owned()).collect();
-            }
+        if let Ok((code, stdout, _)) = shell.run(program, &args)
+            && (code == 0 || !stdout.is_empty())
+        {
+            return stdout.lines().map(|l| l.to_owned()).collect();
         }
     }
 

@@ -138,25 +138,29 @@ mod imp {
     /// ショートカットに既に入っている AUMID。**書いてあるかを見るためだけ**なので、
     /// 自分が書いた形（VT_LPWSTR）以外は「無い」でよい。
     unsafe fn current_aumid(store: &IPropertyStore) -> Option<String> {
-        let pv = store.GetValue(&PKEY_APPUSERMODEL_ID).ok()?;
-        let inner = &*pv.Anonymous.Anonymous;
-        if inner.vt != VT_LPWSTR {
-            return None;
+        unsafe {
+            let pv = store.GetValue(&PKEY_APPUSERMODEL_ID).ok()?;
+            let inner = &*pv.Anonymous.Anonymous;
+            if inner.vt != VT_LPWSTR {
+                return None;
+            }
+            let p = inner.Anonymous.pwszVal;
+            (!p.is_null()).then(|| p.to_string().ok()).flatten()
         }
-        let p = inner.Anonymous.pwszVal;
-        (!p.is_null()).then(|| p.to_string().ok()).flatten()
     }
 
     /// 既に入っている活性化 CLSID（#334）。AUMID と同じく、読むのは「書いてあるか」だけ。
     unsafe fn current_activator(store: &IPropertyStore) -> Option<GUID> {
-        use windows::Win32::System::Variant::VT_CLSID;
-        let pv = store.GetValue(&PKEY_TOAST_ACTIVATOR_CLSID).ok()?;
-        let inner = &*pv.Anonymous.Anonymous;
-        if inner.vt != VT_CLSID {
-            return None;
+        unsafe {
+            use windows::Win32::System::Variant::VT_CLSID;
+            let pv = store.GetValue(&PKEY_TOAST_ACTIVATOR_CLSID).ok()?;
+            let inner = &*pv.Anonymous.Anonymous;
+            if inner.vt != VT_CLSID {
+                return None;
+            }
+            let p = inner.Anonymous.puuid;
+            (!p.is_null()).then(|| *p)
         }
-        let p = inner.Anonymous.puuid;
-        (!p.is_null()).then(|| *p)
     }
 
     /// AUMID と活性化 CLSID を書いたショートカットを用意する。**冪等**で、既に両方
@@ -170,43 +174,45 @@ mod imp {
     /// doc）。だから「既に AUMID がある」だけで戻らないこと: #318 の版が書いた
     /// ショートカットには CLSID が無く、そのままでは通知センターからのクリックが死ぬ。
     unsafe fn ensure_shortcut(aumid: &str) -> windows::core::Result<()> {
-        let Some(path) = link_path() else {
-            return Ok(());
-        };
-        let wide_path = HSTRING::from(path.to_string_lossy().as_ref());
-        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
-        // どちらも同じオブジェクトへのインターフェースなので、1 回ずつ取れば足りる
-        // （`Load` はこのあとでよく、読む側も書く側も同じ `store` を見る）。
-        let file: IPersistFile = link.cast()?;
-        let store: IPropertyStore = link.cast()?;
-
-        if path.is_file() {
-            file.Load(&wide_path, STGM_READWRITE)?;
-            if current_aumid(&store).as_deref() == Some(aumid)
-                && current_activator(&store) == Some(TOAST_ACTIVATOR_CLSID)
-            {
+        unsafe {
+            let Some(path) = link_path() else {
                 return Ok(());
-            }
-        } else {
-            // 開発版はここを通る。インストール版で NSIS のショートカットを消した人も。
-            //
-            // **開発版のショートカットを消す経路は持たない。** `cargo clean` のあとは
-            // リンク先の無いショートカットがスタートメニューに残るが、消す先は
-            // `cargo run --bin verify_toast -- remove`（インストール版の `Pike.lnk` は
-            // NSIS のアンインストーラが持っていく）。
-            let exe = std::env::current_exe()?;
-            let exe = HSTRING::from(exe.to_string_lossy().as_ref());
-            link.SetPath(&exe)?;
-            link.SetIconLocation(&exe, 0)?;
-        }
+            };
+            let wide_path = HSTRING::from(path.to_string_lossy().as_ref());
+            let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+            // どちらも同じオブジェクトへのインターフェースなので、1 回ずつ取れば足りる
+            // （`Load` はこのあとでよく、読む側も書く側も同じ `store` を見る）。
+            let file: IPersistFile = link.cast()?;
+            let store: IPropertyStore = link.cast()?;
 
-        let pv = crate::types::lpwstr_propvariant(aumid)?;
-        store.SetValue(&PKEY_APPUSERMODEL_ID, &pv)?;
-        let pv = crate::types::clsid_propvariant(TOAST_ACTIVATOR_CLSID)?;
-        store.SetValue(&PKEY_TOAST_ACTIVATOR_CLSID, &pv)?;
-        store.Commit()?;
-        file.Save(&wide_path, true)?;
-        Ok(())
+            if path.is_file() {
+                file.Load(&wide_path, STGM_READWRITE)?;
+                if current_aumid(&store).as_deref() == Some(aumid)
+                    && current_activator(&store) == Some(TOAST_ACTIVATOR_CLSID)
+                {
+                    return Ok(());
+                }
+            } else {
+                // 開発版はここを通る。インストール版で NSIS のショートカットを消した人も。
+                //
+                // **開発版のショートカットを消す経路は持たない。** `cargo clean` のあとは
+                // リンク先の無いショートカットがスタートメニューに残るが、消す先は
+                // `cargo run --bin verify_toast -- remove`（インストール版の `Pike.lnk` は
+                // NSIS のアンインストーラが持っていく）。
+                let exe = std::env::current_exe()?;
+                let exe = HSTRING::from(exe.to_string_lossy().as_ref());
+                link.SetPath(&exe)?;
+                link.SetIconLocation(&exe, 0)?;
+            }
+
+            let pv = crate::types::lpwstr_propvariant(aumid)?;
+            store.SetValue(&PKEY_APPUSERMODEL_ID, &pv)?;
+            let pv = crate::types::clsid_propvariant(TOAST_ACTIVATOR_CLSID)?;
+            store.SetValue(&PKEY_TOAST_ACTIVATOR_CLSID, &pv)?;
+            store.Commit()?;
+            file.Save(&wide_path, true)?;
+            Ok(())
+        }
     }
 
     /// `pike://` を自分の exe に紐付ける（#334）。**冪等**で、同じ行が既に入っていれば
@@ -216,43 +222,47 @@ mod imp {
     /// インストーラではなくアプリ自身が書くのは、開発版と、既に入れてある版の両方を
     /// 同じ経路で賄うため（インストーラに足すと、更新しない限り登録されない）。
     unsafe fn ensure_protocol() -> windows::core::Result<()> {
-        let exe = std::env::current_exe()?;
-        let command = format!("\"{}\" \"%1\"", exe.to_string_lossy());
-        let root = format!(r"Software\Classes\{}", scheme());
-        // シェルが「URL のハンドラ」と見なすのに要る 2 つ。値の中身は表示用で、
-        // 判定に使われるのは `URL Protocol` が**在ること**だけ。**名前はショートカットと
-        // 揃える**（`Pike` / `Pike (dev)`）: identifier をそのまま書くと、レジストリを
-        // 覗いた人に `URL:com.pike.dev.debug Protocol` という綴りが見える。
-        let name = link_name().trim_end_matches(".lnk");
-        write_reg(&root, None, &format!("URL:{name} Protocol"))?;
-        write_reg(&root, Some("URL Protocol"), "")?;
-        write_reg(&format!(r"{root}\shell\open\command"), None, &command)
+        unsafe {
+            let exe = std::env::current_exe()?;
+            let command = format!("\"{}\" \"%1\"", exe.to_string_lossy());
+            let root = format!(r"Software\Classes\{}", scheme());
+            // シェルが「URL のハンドラ」と見なすのに要る 2 つ。値の中身は表示用で、
+            // 判定に使われるのは `URL Protocol` が**在ること**だけ。**名前はショートカットと
+            // 揃える**（`Pike` / `Pike (dev)`）: identifier をそのまま書くと、レジストリを
+            // 覗いた人に `URL:com.pike.dev.debug Protocol` という綴りが見える。
+            let name = link_name().trim_end_matches(".lnk");
+            write_reg(&root, None, &format!("URL:{name} Protocol"))?;
+            write_reg(&root, Some("URL Protocol"), "")?;
+            write_reg(&format!(r"{root}\shell\open\command"), None, &command)
+        }
     }
 
     /// HKCU の 1 つの値を書く（既に同じ値なら書かない）。`value` が `None` は既定値。
     unsafe fn write_reg(path: &str, value: Option<&str>, data: &str) -> windows::core::Result<()> {
-        use windows::Win32::System::Registry::{
-            RegCloseKey, RegCreateKeyExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE,
-            REG_OPTION_NON_VOLATILE,
-        };
-        let mut key = HKEY::default();
-        RegCreateKeyExW(
-            HKEY_CURRENT_USER,
-            &HSTRING::from(path),
-            None,
-            None,
-            REG_OPTION_NON_VOLATILE,
-            KEY_READ | KEY_WRITE,
-            None,
-            &mut key,
-            None,
-        )
-        .ok()?;
-        // **開いた鍵は必ず閉じる**（この関数は通知のたびには呼ばれないが、失敗しても
-        // 漏らさない形にしておく）。
-        let result = write_value(key, value, data);
-        let _ = RegCloseKey(key);
-        result
+        unsafe {
+            use windows::Win32::System::Registry::{
+                RegCloseKey, RegCreateKeyExW, HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE,
+                REG_OPTION_NON_VOLATILE,
+            };
+            let mut key = HKEY::default();
+            RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                &HSTRING::from(path),
+                None,
+                None,
+                REG_OPTION_NON_VOLATILE,
+                KEY_READ | KEY_WRITE,
+                None,
+                &mut key,
+                None,
+            )
+            .ok()?;
+            // **開いた鍵は必ず閉じる**（この関数は通知のたびには呼ばれないが、失敗しても
+            // 漏らさない形にしておく）。
+            let result = write_value(key, value, data);
+            let _ = RegCloseKey(key);
+            result
+        }
     }
 
     unsafe fn write_value(
@@ -260,43 +270,45 @@ mod imp {
         value: Option<&str>,
         data: &str,
     ) -> windows::core::Result<()> {
-        use windows::Win32::System::Registry::{RegQueryValueExW, RegSetValueExW, REG_SZ};
-        let name = value.map(HSTRING::from);
-        let name = name
-            .as_ref()
-            .map(|n| windows::core::PCWSTR(n.as_ptr()))
-            .unwrap_or(windows::core::PCWSTR::null());
-        // 同じ値なら書かない。レジストリは他人も見る場所なので、起動のたびに更新時刻を
-        // 動かさない。
-        let existing = {
-            // **`u16` のバッファで受ける。** `Vec<u8>` の先頭を `*const u16` として読むのは
-            // 未整列参照（実際のアロケータでは整列するが、仕様上は UB）。
-            // 入らなければ `ERROR_MORE_DATA` で失敗し、「違う値」として書き直すだけ
-            // （書く内容は同じなので実害は無い）。exe のパス 1 本ぶんの余裕は取る。
-            let mut buf = vec![0u16; 1024];
-            let mut size = (buf.len() * 2) as u32;
-            let ok = RegQueryValueExW(
-                key,
-                name,
-                None,
-                None,
-                Some(buf.as_mut_ptr() as *mut u8),
-                Some(&mut size),
-            )
-            .is_ok();
-            ok.then(|| {
-                let len = (size as usize / 2).min(buf.len());
-                String::from_utf16_lossy(&buf[..len])
-                    .trim_end_matches('\0')
-                    .to_owned()
-            })
-        };
-        if existing.as_deref() == Some(data) {
-            return Ok(());
+        unsafe {
+            use windows::Win32::System::Registry::{RegQueryValueExW, RegSetValueExW, REG_SZ};
+            let name = value.map(HSTRING::from);
+            let name = name
+                .as_ref()
+                .map(|n| windows::core::PCWSTR(n.as_ptr()))
+                .unwrap_or(windows::core::PCWSTR::null());
+            // 同じ値なら書かない。レジストリは他人も見る場所なので、起動のたびに更新時刻を
+            // 動かさない。
+            let existing = {
+                // **`u16` のバッファで受ける。** `Vec<u8>` の先頭を `*const u16` として読むのは
+                // 未整列参照（実際のアロケータでは整列するが、仕様上は UB）。
+                // 入らなければ `ERROR_MORE_DATA` で失敗し、「違う値」として書き直すだけ
+                // （書く内容は同じなので実害は無い）。exe のパス 1 本ぶんの余裕は取る。
+                let mut buf = vec![0u16; 1024];
+                let mut size = (buf.len() * 2) as u32;
+                let ok = RegQueryValueExW(
+                    key,
+                    name,
+                    None,
+                    None,
+                    Some(buf.as_mut_ptr() as *mut u8),
+                    Some(&mut size),
+                )
+                .is_ok();
+                ok.then(|| {
+                    let len = (size as usize / 2).min(buf.len());
+                    String::from_utf16_lossy(&buf[..len])
+                        .trim_end_matches('\0')
+                        .to_owned()
+                })
+            };
+            if existing.as_deref() == Some(data) {
+                return Ok(());
+            }
+            let wide: Vec<u16> = data.encode_utf16().chain(std::iter::once(0)).collect();
+            let bytes = std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
+            RegSetValueExW(key, name, None, REG_SZ, Some(bytes)).ok()
         }
-        let wide: Vec<u16> = data.encode_utf16().chain(std::iter::once(0)).collect();
-        let bytes = std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
-        RegSetValueExW(key, name, None, REG_SZ, Some(bytes)).ok()
     }
 
     /// 常駐スレッドへの送信口。初回の通知でスレッドを起こす。

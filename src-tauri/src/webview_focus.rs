@@ -66,16 +66,18 @@ unsafe extern "system" fn subclass_proc(
     _id: usize,
     refdata: usize,
 ) -> LRESULT {
-    let controller = refdata as *mut ICoreWebView2Controller;
-    match msg {
-        WM_SETFOCUS => {
-            let _ = (*controller).MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+    unsafe {
+        let controller = refdata as *mut ICoreWebView2Controller;
+        match msg {
+            WM_SETFOCUS => {
+                let _ = (*controller).MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+            }
+            WM_NCDESTROY => {
+                let _ = RemoveWindowSubclass(hwnd, Some(subclass_proc), SUBCLASS_ID);
+                drop(Box::from_raw(controller));
+            }
+            _ => {}
         }
-        WM_NCDESTROY => {
-            let _ = RemoveWindowSubclass(hwnd, Some(subclass_proc), SUBCLASS_ID);
-            drop(Box::from_raw(controller));
-        }
-        _ => {}
+        DefSubclassProc(hwnd, msg, wparam, lparam)
     }
-    DefSubclassProc(hwnd, msg, wparam, lparam)
 }

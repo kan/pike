@@ -1448,15 +1448,14 @@ fn status_for(shell: &ShellConfig, project_root: &str, distros: &[String]) -> Ho
         // 解決結果は既定の `~/.claude` で、そこは候補の列挙が拾う（拾わないのは
         // Claude Code を一度も起動していないディレクトリ）。読めるほうのパス（WSL なら
         // UNC）を native の位置へ置くと、distro の中で読み書きする今は開けない綴りになる。
-        if crate::types::install_key(&target_shell) == crate::types::install_key(shell) {
-            if let (Some(native), Some(read)) = (
+        if crate::types::install_key(&target_shell) == crate::types::install_key(shell)
+            && let (Some(native), Some(read)) = (
                 config.native_override.as_deref(),
                 config.read_path.as_deref(),
-            ) {
-                if !dirs.iter().any(|(_, p)| p == read) {
-                    dirs.insert(0, (native.to_owned(), read.to_path_buf()));
-                }
-            }
+            )
+            && !dirs.iter().any(|(_, p)| p == read)
+        {
+            dirs.insert(0, (native.to_owned(), read.to_path_buf()));
         }
         let command = hook_command(&target_shell);
         let install_key = crate::types::install_key(&target_shell);

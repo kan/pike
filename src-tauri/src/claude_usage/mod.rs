@@ -238,14 +238,12 @@ fn find_active_sessions(
     let mut candidates: Vec<SessionInfo> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().is_some_and(|e| e == "json") {
-            if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(info) = serde_json::from_str::<SessionInfo>(&content) {
-                    if cwd_matches_root(shell, &info.cwd, project_root) {
-                        candidates.push(info);
-                    }
-                }
-            }
+        if path.extension().is_some_and(|e| e == "json")
+            && let Ok(content) = fs::read_to_string(&path)
+            && let Ok(info) = serde_json::from_str::<SessionInfo>(&content)
+            && cwd_matches_root(shell, &info.cwd, project_root)
+        {
+            candidates.push(info);
         }
     }
 

@@ -277,10 +277,10 @@ fn read_account(codex_dir: &Path) -> Option<CodexAccount> {
     let Ok(mut map) = cache.lock() else {
         return read_account_uncached(codex_dir);
     };
-    if let Some((at, account)) = map.get(&key) {
-        if at.elapsed() < ACCOUNT_TTL {
-            return account.clone();
-        }
+    if let Some((at, account)) = map.get(&key)
+        && at.elapsed() < ACCOUNT_TTL
+    {
+        return account.clone();
     }
     let account = read_account_uncached(codex_dir);
     map.insert(key, (Instant::now(), account.clone()));
@@ -337,32 +337,32 @@ fn parse_session(path: &Path) -> Option<SessionAgg> {
         // `turn_context.payload.model` — keep the last one seen (model can be
         // switched mid-session).
         if line.contains("\"turn_context\"") && line.contains("\"model\"") {
-            if let Ok(v) = serde_json::from_str::<Value>(line) {
-                if let Some(m) = v["payload"]["model"].as_str() {
-                    model = Some(m.to_owned());
-                }
+            if let Ok(v) = serde_json::from_str::<Value>(line)
+                && let Some(m) = v["payload"]["model"].as_str()
+            {
+                model = Some(m.to_owned());
             }
             return true;
         }
 
         // token_count carries the cumulative `total_token_usage` plus account-wide
         // rate limits; keep the last occurrence.
-        if line.contains("\"token_count\"") {
-            if let Ok(v) = serde_json::from_str::<Value>(line) {
-                let tu = &v["payload"]["info"]["total_token_usage"];
-                if tu.is_object() {
-                    usage = Some(TokenUsage {
-                        input: tu["input_tokens"].as_u64().unwrap_or(0),
-                        cached_input: tu["cached_input_tokens"].as_u64().unwrap_or(0),
-                        output: tu["output_tokens"].as_u64().unwrap_or(0),
-                        reasoning: tu["reasoning_output_tokens"].as_u64().unwrap_or(0),
-                    });
-                }
-                let rl = &v["payload"]["rate_limits"];
-                if rl.is_object() {
-                    primary = parse_rate_window(&rl["primary"]);
-                    secondary = parse_rate_window(&rl["secondary"]);
-                }
+        if line.contains("\"token_count\"")
+            && let Ok(v) = serde_json::from_str::<Value>(line)
+        {
+            let tu = &v["payload"]["info"]["total_token_usage"];
+            if tu.is_object() {
+                usage = Some(TokenUsage {
+                    input: tu["input_tokens"].as_u64().unwrap_or(0),
+                    cached_input: tu["cached_input_tokens"].as_u64().unwrap_or(0),
+                    output: tu["output_tokens"].as_u64().unwrap_or(0),
+                    reasoning: tu["reasoning_output_tokens"].as_u64().unwrap_or(0),
+                });
+            }
+            let rl = &v["payload"]["rate_limits"];
+            if rl.is_object() {
+                primary = parse_rate_window(&rl["primary"]);
+                secondary = parse_rate_window(&rl["secondary"]);
             }
         }
         true
@@ -610,10 +610,10 @@ fn read_session_head(path: &Path) -> Option<SessionHead> {
             continue;
         };
         if head.title.is_empty() && line.contains("\"role\":\"user\"") {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-                if let Some(items) = v["payload"]["content"].as_array() {
-                    head.title = user_message_title(items).unwrap_or_default();
-                }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
+                && let Some(items) = v["payload"]["content"].as_array()
+            {
+                head.title = user_message_title(items).unwrap_or_default();
             }
             if !head.title.is_empty() {
                 break;

@@ -88,12 +88,11 @@ impl<T: Clone> MtimeCache<T> {
     /// ファイルを 2 つのスレッドが同時に読むことはありうるが、読みは副作用を持たないので
     /// 二重に払うだけで済む。
     pub fn get_or_read(&self, path: &Path, modified: SystemTime, read: impl FnOnce() -> T) -> T {
-        if let Ok(map) = self.entries.lock() {
-            if let Some((at, value)) = map.get(path) {
-                if *at == modified {
-                    return value.clone();
-                }
-            }
+        if let Ok(map) = self.entries.lock()
+            && let Some((at, value)) = map.get(path)
+            && *at == modified
+        {
+            return value.clone();
         }
         let value = read();
         if let Ok(mut map) = self.entries.lock() {

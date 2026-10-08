@@ -251,50 +251,52 @@ unsafe fn build_inner(
     projects: &[Entry],
     tasks: &[Entry],
 ) -> windows::core::Result<()> {
-    let list: ICustomDestinationList =
-        CoCreateInstance(&DestinationList, None, CLSCTX_INPROC_SERVER)?;
+    unsafe {
+        let list: ICustomDestinationList =
+            CoCreateInstance(&DestinationList, None, CLSCTX_INPROC_SERVER)?;
 
-    // BeginList はユーザーが「一覧から削除」した項目を返す。カスタムカテゴリに
-    // 同じ項目を再投入すると CommitList が失敗しうるので、引数で照合して除外する。
-    let mut min_slots: u32 = 0;
-    let removed: IObjectArray = list.BeginList(&mut min_slots)?;
-    let removed_args = removed_arg_set(&removed);
+        // BeginList はユーザーが「一覧から削除」した項目を返す。カスタムカテゴリに
+        // 同じ項目を再投入すると CommitList が失敗しうるので、引数で照合して除外する。
+        let mut min_slots: u32 = 0;
+        let removed: IObjectArray = list.BeginList(&mut min_slots)?;
+        let removed_args = removed_arg_set(&removed);
 
-    // 独自カテゴリ「プロジェクト」
-    if !projects.is_empty() {
+        // 独自カテゴリ「プロジェクト」
+        if !projects.is_empty() {
+            let coll: IObjectCollection =
+                CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
+            let mut added = 0u32;
+            for e in projects {
+                if removed_args.contains(&e.args) {
+                    continue;
+                }
+                let link = make_link(exe, &e.args, &e.title, Some(&e.tooltip), None)?;
+                coll.AddObject(&link)?;
+                added += 1;
+            }
+            if added > 0 {
+                // 失敗しても Tasks / Recent は生かす。
+                if let Err(err) = list.AppendCategory(&HSTRING::from(labels.projects), &coll) {
+                    log::warn!("[jumplist] AppendCategory failed: {err:?}");
+                }
+            }
+        }
+
+        // 既定の「最近開いたファイル」を復元（カスタムリストで消えるため）。
+        let _ = list.AppendKnownCategory(KDC_RECENT);
+
+        // Tasks カテゴリ（常に最下部に表示される）。シェルごとに 1 項目並べる。
         let coll: IObjectCollection =
             CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
-        let mut added = 0u32;
-        for e in projects {
-            if removed_args.contains(&e.args) {
-                continue;
-            }
-            let link = make_link(exe, &e.args, &e.title, Some(&e.tooltip), None)?;
+        for t in tasks {
+            let link = make_link(exe, &t.args, &t.title, Some(&t.tooltip), home)?;
             coll.AddObject(&link)?;
-            added += 1;
         }
-        if added > 0 {
-            // 失敗しても Tasks / Recent は生かす。
-            if let Err(err) = list.AppendCategory(&HSTRING::from(labels.projects), &coll) {
-                log::warn!("[jumplist] AppendCategory failed: {err:?}");
-            }
-        }
+        list.AddUserTasks(&coll)?;
+
+        list.CommitList()?;
+        Ok(())
     }
-
-    // 既定の「最近開いたファイル」を復元（カスタムリストで消えるため）。
-    let _ = list.AppendKnownCategory(KDC_RECENT);
-
-    // Tasks カテゴリ（常に最下部に表示される）。シェルごとに 1 項目並べる。
-    let coll: IObjectCollection =
-        CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
-    for t in tasks {
-        let link = make_link(exe, &t.args, &t.title, Some(&t.tooltip), home)?;
-        coll.AddObject(&link)?;
-    }
-    list.AddUserTasks(&coll)?;
-
-    list.CommitList()?;
-    Ok(())
 }
 
 /// `pike.exe <args>` を起動する IShellLinkW を作る。title は PKEY_Title に、
@@ -306,43 +308,47 @@ unsafe fn make_link(
     tooltip: Option<&str>,
     workdir: Option<&str>,
 ) -> windows::core::Result<IShellLinkW> {
-    let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
-    link.SetPath(&HSTRING::from(exe))?;
-    link.SetArguments(&HSTRING::from(args))?;
-    // アプリ本体のアイコンを流用。
-    link.SetIconLocation(&HSTRING::from(exe), 0)?;
-    if let Some(t) = tooltip {
-        link.SetDescription(&HSTRING::from(t))?;
-    }
-    if let Some(w) = workdir {
-        link.SetWorkingDirectory(&HSTRING::from(w))?;
-    }
+    unsafe {
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+        link.SetPath(&HSTRING::from(exe))?;
+        link.SetArguments(&HSTRING::from(args))?;
+        // アプリ本体のアイコンを流用。
+        link.SetIconLocation(&HSTRING::from(exe), 0)?;
+        if let Some(t) = tooltip {
+            link.SetDescription(&HSTRING::from(t))?;
+        }
+        if let Some(w) = workdir {
+            link.SetWorkingDirectory(&HSTRING::from(w))?;
+        }
 
-    let store: IPropertyStore = link.cast()?;
-    let title_pv = crate::types::lpwstr_propvariant(title)?;
-    store.SetValue(&PKEY_TITLE, &title_pv)?;
-    store.Commit()?;
-    Ok(link)
+        let store: IPropertyStore = link.cast()?;
+        let title_pv = crate::types::lpwstr_propvariant(title)?;
+        store.SetValue(&PKEY_TITLE, &title_pv)?;
+        store.Commit()?;
+        Ok(link)
+    }
 }
 
 /// BeginList が返した「ユーザーが削除した項目」の引数集合を作る。
 unsafe fn removed_arg_set(removed: &IObjectArray) -> HashSet<String> {
-    let mut set = HashSet::new();
-    let count = removed.GetCount().unwrap_or(0);
-    for i in 0..count {
-        let Ok(link) = removed.GetAt::<IShellLinkW>(i) else {
-            continue;
-        };
-        let mut buf = [0u16; 1024];
-        if link.GetArguments(&mut buf).is_ok() {
-            let s = String::from_utf16_lossy(&buf);
-            let s = s.trim_end_matches('\0');
-            if !s.is_empty() {
-                set.insert(s.to_owned());
+    unsafe {
+        let mut set = HashSet::new();
+        let count = removed.GetCount().unwrap_or(0);
+        for i in 0..count {
+            let Ok(link) = removed.GetAt::<IShellLinkW>(i) else {
+                continue;
+            };
+            let mut buf = [0u16; 1024];
+            if link.GetArguments(&mut buf).is_ok() {
+                let s = String::from_utf16_lossy(&buf);
+                let s = s.trim_end_matches('\0');
+                if !s.is_empty() {
+                    set.insert(s.to_owned());
+                }
             }
         }
+        set
     }
-    set
 }
 
 fn compute_sig(exe: &str, lang: &str, projects: &[Entry], tasks: &[Entry]) -> u64 {

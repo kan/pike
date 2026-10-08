@@ -95,45 +95,49 @@ mod imp {
     /// VT_LPWSTR の PROPVARIANT（`types::lpwstr_propvariant` と同じ手組み。crate の
     /// `From<&str>` は VT_BSTR になり、AUMID としては読まれない）。
     unsafe fn lpwstr_propvariant(s: &str) -> windows::core::Result<PROPVARIANT> {
-        let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
-        let mem = CoTaskMemAlloc(wide.len() * 2) as *mut u16;
-        if mem.is_null() {
-            return Err(windows::core::Error::from(E_OUTOFMEMORY));
+        unsafe {
+            let wide: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
+            let mem = CoTaskMemAlloc(wide.len() * 2) as *mut u16;
+            if mem.is_null() {
+                return Err(windows::core::Error::from(E_OUTOFMEMORY));
+            }
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), mem, wide.len());
+            Ok(PROPVARIANT {
+                Anonymous: PROPVARIANT_0 {
+                    Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
+                        vt: VT_LPWSTR,
+                        wReserved1: 0,
+                        wReserved2: 0,
+                        wReserved3: 0,
+                        Anonymous: PROPVARIANT_0_0_0 {
+                            pwszVal: PWSTR(mem),
+                        },
+                    }),
+                },
+            })
         }
-        std::ptr::copy_nonoverlapping(wide.as_ptr(), mem, wide.len());
-        Ok(PROPVARIANT {
-            Anonymous: PROPVARIANT_0 {
-                Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
-                    vt: VT_LPWSTR,
-                    wReserved1: 0,
-                    wReserved2: 0,
-                    wReserved3: 0,
-                    Anonymous: PROPVARIANT_0_0_0 {
-                        pwszVal: PWSTR(mem),
-                    },
-                }),
-            },
-        })
     }
 
     /// VT_CLSID の PROPVARIANT（`types::clsid_propvariant` と同じ）。
     unsafe fn clsid_propvariant(guid: GUID) -> windows::core::Result<PROPVARIANT> {
-        let mem = CoTaskMemAlloc(std::mem::size_of::<GUID>()) as *mut GUID;
-        if mem.is_null() {
-            return Err(windows::core::Error::from(E_OUTOFMEMORY));
+        unsafe {
+            let mem = CoTaskMemAlloc(std::mem::size_of::<GUID>()) as *mut GUID;
+            if mem.is_null() {
+                return Err(windows::core::Error::from(E_OUTOFMEMORY));
+            }
+            std::ptr::write(mem, guid);
+            Ok(PROPVARIANT {
+                Anonymous: PROPVARIANT_0 {
+                    Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
+                        vt: VT_CLSID,
+                        wReserved1: 0,
+                        wReserved2: 0,
+                        wReserved3: 0,
+                        Anonymous: PROPVARIANT_0_0_0 { puuid: mem },
+                    }),
+                },
+            })
         }
-        std::ptr::write(mem, guid);
-        Ok(PROPVARIANT {
-            Anonymous: PROPVARIANT_0 {
-                Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
-                    vt: VT_CLSID,
-                    wReserved1: 0,
-                    wReserved2: 0,
-                    wReserved3: 0,
-                    Anonymous: PROPVARIANT_0_0_0 { puuid: mem },
-                }),
-            },
-        })
     }
 
     /// 1: AUMID と活性化 CLSID を書いたショートカットを作る。
@@ -196,29 +200,31 @@ mod imp {
     }
 
     unsafe fn write_reg(path: &str, value: Option<&str>, data: &str) -> windows::core::Result<()> {
-        let mut key = HKEY::default();
-        RegCreateKeyExW(
-            HKEY_CURRENT_USER,
-            &HSTRING::from(path),
-            None,
-            None,
-            REG_OPTION_NON_VOLATILE,
-            KEY_WRITE,
-            None,
-            &mut key,
-            None,
-        )
-        .ok()?;
-        let name = value.map(HSTRING::from);
-        let name = name
-            .as_ref()
-            .map(|n| PCWSTR(n.as_ptr()))
-            .unwrap_or(PCWSTR::null());
-        let wide: Vec<u16> = data.encode_utf16().chain(std::iter::once(0)).collect();
-        let bytes = std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
-        let result = RegSetValueExW(key, name, None, REG_SZ, Some(bytes)).ok();
-        let _ = RegCloseKey(key);
-        result
+        unsafe {
+            let mut key = HKEY::default();
+            RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                &HSTRING::from(path),
+                None,
+                None,
+                REG_OPTION_NON_VOLATILE,
+                KEY_WRITE,
+                None,
+                &mut key,
+                None,
+            )
+            .ok()?;
+            let name = value.map(HSTRING::from);
+            let name = name
+                .as_ref()
+                .map(|n| PCWSTR(n.as_ptr()))
+                .unwrap_or(PCWSTR::null());
+            let wide: Vec<u16> = data.encode_utf16().chain(std::iter::once(0)).collect();
+            let bytes = std::slice::from_raw_parts(wide.as_ptr() as *const u8, wide.len() * 2);
+            let result = RegSetValueExW(key, name, None, REG_SZ, Some(bytes)).ok();
+            let _ = RegCloseKey(key);
+            result
+        }
     }
 
     /// ショートカットの後始末。

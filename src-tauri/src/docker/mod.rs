@@ -122,23 +122,21 @@ async fn try_connect(owner: String) -> Result<Docker, String> {
 
 async fn connect_any() -> Result<Docker, String> {
     let ping_timeout = std::time::Duration::from_secs(5);
-    if let Ok(docker) = Docker::connect_with_local_defaults() {
-        if tokio::time::timeout(ping_timeout, docker.ping())
+    if let Ok(docker) = Docker::connect_with_local_defaults()
+        && tokio::time::timeout(ping_timeout, docker.ping())
             .await
             .is_ok_and(|r| r.is_ok())
-        {
-            return Ok(docker);
-        }
+    {
+        return Ok(docker);
     }
     for port in [2375, 2376] {
         let url = format!("tcp://127.0.0.1:{port}");
-        if let Ok(docker) = Docker::connect_with_http(&url, 4, bollard::API_DEFAULT_VERSION) {
-            if tokio::time::timeout(ping_timeout, docker.ping())
+        if let Ok(docker) = Docker::connect_with_http(&url, 4, bollard::API_DEFAULT_VERSION)
+            && tokio::time::timeout(ping_timeout, docker.ping())
                 .await
                 .is_ok_and(|r| r.is_ok())
-            {
-                return Ok(docker);
-            }
+        {
+            return Ok(docker);
         }
     }
     Err("Docker is not reachable".into())
@@ -275,10 +273,8 @@ pub async fn docker_list_containers(
             .is_some_and(|l| l.contains_key(tunnel::TUNNEL_LABEL))
         {
             let running = c.state.as_ref().is_some_and(|s| s.to_string() == "running");
-            if running {
-                if let Some(t) = tunnel::tunnel_from_summary(&c, &owner) {
-                    result.tunnels.push(t);
-                }
+            if running && let Some(t) = tunnel::tunnel_from_summary(&c, &owner) {
+                result.tunnels.push(t);
             }
             continue;
         }

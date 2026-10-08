@@ -14,19 +14,13 @@ pub async fn font_list_monospace() -> Result<Vec<String>, String> {
         for family in &families {
             let handle =
                 source.select_best_match(&[FamilyName::Title(family.clone())], &Properties::new());
-            if let Ok(handle) = handle {
-                if let Ok(font) = handle.load() {
-                    if let Some(adv_m) = font.glyph_for_char('m').and_then(|g| font.advance(g).ok())
-                    {
-                        if let Some(adv_i) =
-                            font.glyph_for_char('i').and_then(|g| font.advance(g).ok())
-                        {
-                            if (adv_m.x() - adv_i.x()).abs() < 0.01 {
-                                monospace.push(family.clone());
-                            }
-                        }
-                    }
-                }
+            if let Ok(handle) = handle
+                && let Ok(font) = handle.load()
+                && let Some(adv_m) = font.glyph_for_char('m').and_then(|g| font.advance(g).ok())
+                && let Some(adv_i) = font.glyph_for_char('i').and_then(|g| font.advance(g).ok())
+                && (adv_m.x() - adv_i.x()).abs() < 0.01
+            {
+                monospace.push(family.clone());
             }
         }
 

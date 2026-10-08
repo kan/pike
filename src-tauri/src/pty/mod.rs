@@ -647,10 +647,10 @@ fn extract_osc7(
             let is_bel = bytes[i] == 0x07;
             let is_st = bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'\\';
             if is_bel || is_st {
-                if let Some(path) = parse_osc7_url(osc_buf) {
-                    if let Ok(mut cwd) = shared_cwd.lock() {
-                        *cwd = Some(path);
-                    }
+                if let Some(path) = parse_osc7_url(osc_buf)
+                    && let Ok(mut cwd) = shared_cwd.lock()
+                {
+                    *cwd = Some(path);
                 }
                 osc_buf.clear();
                 *in_osc7 = false;

@@ -10,20 +10,20 @@ use futures_util::StreamExt;
 /// 3. TCP 127.0.0.1:2376 (WSL2 dockerd encrypted)
 async fn connect_docker() -> Result<Docker, String> {
     // 1. Platform default (named pipe / DOCKER_HOST)
-    if let Ok(docker) = Docker::connect_with_local_defaults() {
-        if docker.ping().await.is_ok() {
-            println!("    Connected via local defaults (named pipe / DOCKER_HOST)");
-            return Ok(docker);
-        }
+    if let Ok(docker) = Docker::connect_with_local_defaults()
+        && docker.ping().await.is_ok()
+    {
+        println!("    Connected via local defaults (named pipe / DOCKER_HOST)");
+        return Ok(docker);
     }
     // 2. TCP fallback for WSL2 dockerd
     for port in [2375, 2376] {
         let url = format!("tcp://127.0.0.1:{}", port);
-        if let Ok(docker) = Docker::connect_with_http(&url, 4, bollard::API_DEFAULT_VERSION) {
-            if docker.ping().await.is_ok() {
-                println!("    Connected via TCP 127.0.0.1:{}", port);
-                return Ok(docker);
-            }
+        if let Ok(docker) = Docker::connect_with_http(&url, 4, bollard::API_DEFAULT_VERSION)
+            && docker.ping().await.is_ok()
+        {
+            println!("    Connected via TCP 127.0.0.1:{}", port);
+            return Ok(docker);
         }
     }
     Err("Docker is not reachable. Tried: named pipe, TCP :2375, TCP :2376".to_owned())
@@ -40,7 +40,9 @@ async fn main() {
         Err(e) => {
             eprintln!("    {}", e);
             eprintln!("    Ensure Docker is running and accessible.");
-            eprintln!("    For WSL2 without Docker Desktop, configure dockerd to listen on tcp://127.0.0.1:2375");
+            eprintln!(
+                "    For WSL2 without Docker Desktop, configure dockerd to listen on tcp://127.0.0.1:2375"
+            );
             return;
         }
     };

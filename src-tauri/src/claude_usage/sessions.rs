@@ -64,27 +64,26 @@ impl TranscriptScan {
         // gate that keeps the search off the huge lines around them.
         if line.len() <= MAX_TITLE_LINE_BYTES
             && (line.contains("\"ai-title\"") || line.contains("\"last-prompt\""))
+            && let Ok(t) = serde_json::from_str::<TitleLine>(line)
         {
-            if let Ok(t) = serde_json::from_str::<TitleLine>(line) {
-                // The title is written once and never revised; the prompt is
-                // rewritten every turn, so the latest one is the interesting one.
-                if self.ai_title.is_none() {
-                    self.ai_title = t.ai_title;
-                }
-                if t.last_prompt.is_some() {
-                    self.last_prompt = t.last_prompt;
-                }
+            // The title is written once and never revised; the prompt is
+            // rewritten every turn, so the latest one is the interesting one.
+            if self.ai_title.is_none() {
+                self.ai_title = t.ai_title;
+            }
+            if t.last_prompt.is_some() {
+                self.last_prompt = t.last_prompt;
             }
         }
-        if !self.interactive {
-            if let Some(entrypoint) = raw_str_field(line, ENTRYPOINT_PAT) {
-                // `-p` / SDK runs share the directory but resuming them in a
-                // terminal is not what the user is after.
-                if entrypoint != "cli" {
-                    return false;
-                }
-                self.interactive = true;
+        if !self.interactive
+            && let Some(entrypoint) = raw_str_field(line, ENTRYPOINT_PAT)
+        {
+            // `-p` / SDK runs share the directory but resuming them in a
+            // terminal is not what the user is after.
+            if entrypoint != "cli" {
+                return false;
             }
+            self.interactive = true;
         }
         if self.git_branch.is_none() {
             self.git_branch = raw_str_field(line, GIT_BRANCH_PAT).map(str::to_owned);

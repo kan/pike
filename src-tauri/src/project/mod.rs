@@ -410,10 +410,10 @@ pub fn read_all_projects(config_dir: &std::path::Path) -> Vec<ProjectConfig> {
     let mut projects = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path().join("project.json");
-        if let Ok(content) = fs::read_to_string(&path) {
-            if let Ok(config) = serde_json::from_str::<ProjectConfig>(&content) {
-                projects.push(config);
-            }
+        if let Ok(content) = fs::read_to_string(&path)
+            && let Ok(config) = serde_json::from_str::<ProjectConfig>(&content)
+        {
+            projects.push(config);
         }
     }
     projects

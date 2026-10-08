@@ -6,7 +6,8 @@ fn main() {
     // spawn が前提にするので、実際に spawn する経路（wait::* と run()）より前に広げる。
     // Windows ではインストール先を足す（インストーラ経由の起動は PATH 追記前の環境を継ぐ。#370）。
     // スレッドが立つ前でなければならない（set_var はプロセス全体を触る）。
-    app_lib::augment_process_path();
+    // SAFETY: `main` の最初の文で、まだスレッドを 1 つも起こしていない。
+    unsafe { app_lib::augment_process_path() };
 
     // エージェントの hook からの申告（#299）。**--wait の 2 つより先**に見る:
     // hook は Pike のターミナルの中で走るので PIKE_WINDOW_LABEL を持っており、

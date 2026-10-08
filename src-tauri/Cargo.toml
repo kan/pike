@@ -5,10 +5,13 @@ description = "Lightweight AI-coding-focused development environment"
 authors = ["Kan Fushihara <kan.fushihara@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/kan/pike"
-edition = "2021"
+edition = "2024"
 # 依存の中でいちばん新しい要求（tauri 2.12 系列とそのプラグインが 1.90）に合わせる。
 # ここを下回る値を書いても、cargo は依存の `rust-version` で先に落とすので意味を持たない。
 # **tauri を上げたら見直す**（dependabot は依存の版だけを上げ、ここは動かさない。#458）。
+#
+# **依存の解決にも効く。** edition 2024 の既定のリゾルバ（3）は、`cargo update` のときに
+# ここより新しい Rust を要求する版を避ける。上げ忘れると依存が黙って古い版に留まる。
 # README の「前提」にも同じ値がある。
 rust-version = "1.90"
 default-run = "pike"

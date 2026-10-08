@@ -227,10 +227,9 @@ fn walk_native(dir: &std::path::Path, walk: &Walk, depth: u32, results: &mut Vec
             // ディレクトリを指す symlink / ジャンクションは飛ばす（`file_type` はリンクを
             // 辿らないので、そのままだとファイルとして拾う）。**辿りはしない**: 循環しうる。
             && !(kind.is_symlink() && std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir()))
+            && let Ok(p) = entry.path().into_os_string().into_string()
         {
-            if let Ok(p) = entry.path().into_os_string().into_string() {
-                results.push(p);
-            }
+            results.push(p);
         }
         if results.len() >= walk.cap {
             return;
@@ -433,20 +432,20 @@ pub(crate) fn read_raw_bytes(
         ShellConfig::Wsl { .. } => {
             match shell.run_stdout("stat", &["-c", "%s", "--", path]) {
                 Ok(size_str) => {
-                    if let Ok(size) = size_str.trim().parse::<u64>() {
-                        if size > max_size {
-                            return Ok(RawRead::TooLarge(size));
-                        }
+                    if let Ok(size) = size_str.trim().parse::<u64>()
+                        && size > max_size
+                    {
+                        return Ok(RawRead::TooLarge(size));
                     }
                 }
                 Err(stat_err) => {
                     // Distinguish "missing file" (new-file editor) from other
                     // stat failures (permission, distro down, ...).
                     let script = format!("[ -e {} ]", crate::types::bash_quote(path));
-                    if let Ok((code, _, _)) = shell.run("bash", &["-c", &script]) {
-                        if code != 0 {
-                            return Ok(RawRead::Missing);
-                        }
+                    if let Ok((code, _, _)) = shell.run("bash", &["-c", &script])
+                        && code != 0
+                    {
+                        return Ok(RawRead::Missing);
                     }
                     return Err(stat_err);
                 }
@@ -708,13 +707,12 @@ pub async fn fs_read_file(
 }
 
 fn encode_content(content: &str, encoding_name: Option<&str>) -> Vec<u8> {
-    if let Some(name) = encoding_name {
-        if name != "UTF-8" {
-            if let Some(enc) = Encoding::for_label(name.as_bytes()) {
-                let (bytes, _, _) = enc.encode(content);
-                return bytes.into_owned();
-            }
-        }
+    if let Some(name) = encoding_name
+        && name != "UTF-8"
+        && let Some(enc) = Encoding::for_label(name.as_bytes())
+    {
+        let (bytes, _, _) = enc.encode(content);
+        return bytes.into_owned();
     }
     content.as_bytes().to_vec()
 }
@@ -877,10 +875,10 @@ pub async fn fs_read_file_base64(shell: ShellConfig, path: String) -> Result<Str
     tokio::task::spawn_blocking(move || match &shell {
         ShellConfig::Wsl { .. } => {
             let size_str = shell.run_stdout("stat", &["-c", "%s", "--", &path])?;
-            if let Ok(size) = size_str.trim().parse::<u64>() {
-                if size > MAX_SIZE {
-                    return Err("File too large (>10MB)".into());
-                }
+            if let Ok(size) = size_str.trim().parse::<u64>()
+                && size > MAX_SIZE
+            {
+                return Err("File too large (>10MB)".into());
             }
             let stdout = shell.run_stdout("base64", &["-w0", "--", &path])?;
             Ok(stdout.trim().to_owned())

@@ -107,7 +107,7 @@ fn run_gh(place: &GhPlace, args: &[&str], input: &str) -> Result<String, GistErr
         match run_with_stdin(cmd, input, TIMEOUT, "gh") {
             Ok(out) => out,
             Err(RunError::Spawn(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(GistError::GhMissing)
+                return Err(GistError::GhMissing);
             }
             Err(e) => return Err(e.to_string().into()),
         }

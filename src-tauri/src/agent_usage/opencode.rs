@@ -118,14 +118,12 @@ fn query(shell: &ShellConfig, root: &str, force: bool) -> Vec<Row> {
     static CACHE: OnceLock<QueryCache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     let key = install_key(shell);
-    if !force {
-        if let Ok(map) = cache.lock() {
-            if let Some((at, rows)) = map.get(&key) {
-                if at.elapsed() < QUERY_TTL {
-                    return rows.clone();
-                }
-            }
-        }
+    if !force
+        && let Ok(map) = cache.lock()
+        && let Some((at, rows)) = map.get(&key)
+        && at.elapsed() < QUERY_TTL
+    {
+        return rows.clone();
     }
     if !crate::shell_probe::agent_bins(shell, root, &["opencode".to_owned()]).contains("opencode") {
         return Vec::new();

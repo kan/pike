@@ -258,20 +258,20 @@ pub(crate) fn get_rate_limits(
     let key = cache_key(shell, config_dir.as_deref());
 
     let cached = cache().lock().unwrap().get(&key).cloned();
-    if let Some(entry) = &cached {
-        if !force && !needs_fetch(entry, session_active, logged_out) {
-            return entry.data.clone();
-        }
+    if let Some(entry) = &cached
+        && !force
+        && !needs_fetch(entry, session_active, logged_out)
+    {
+        return entry.data.clone();
     }
 
     let _guard = fetch_lock().lock().unwrap();
     // Double-check: another caller may have fetched while we waited on the lock.
-    if !force {
-        if let Some(entry) = cache().lock().unwrap().get(&key) {
-            if !needs_fetch(entry, session_active, logged_out) {
-                return entry.data.clone();
-            }
-        }
+    if !force
+        && let Some(entry) = cache().lock().unwrap().get(&key)
+        && !needs_fetch(entry, session_active, logged_out)
+    {
+        return entry.data.clone();
     }
 
     let mut result = run_usage_cli(shell, project_root, config_dir.as_deref(), logged_out);
@@ -283,12 +283,12 @@ pub(crate) fn get_rate_limits(
     // stay paced at TTL_ACTIVE.
     // **ログインを求められたときは古い値に戻さない**（#381）。その値はもう手に入らない
     // ことが確定していて、出し続けると「ログインが切れている」ことが見えなくなる。
-    if !result.active && !result.login_required {
-        if let Some(prev) = cached.map(|c| c.data).filter(|d| d.active) {
-            if now_epoch().saturating_sub(prev.fetched_at) < STALE_KEEP_MAX.as_secs() {
-                result = prev;
-            }
-        }
+    if !result.active
+        && !result.login_required
+        && let Some(prev) = cached.map(|c| c.data).filter(|d| d.active)
+        && now_epoch().saturating_sub(prev.fetched_at) < STALE_KEEP_MAX.as_secs()
+    {
+        result = prev;
     }
     cache().lock().unwrap().insert(
         key,

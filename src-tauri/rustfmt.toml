@@ -8,3 +8,10 @@
 # `src-tauri/src/bin/` の検証バイナリも対象。除外に使う `ignore` は nightly 限定なので、
 # stable の rustfmt では警告を出して無視される（＝実質選べない）。
 max_width = 100
+
+# `edition` は構文の解釈、`style_edition` は整形の規則（import の並べ方など）を決める。
+# `cargo fmt` は Cargo.toml の edition から両方を補うが、**どちらも明示する**: `rustfmt <file>`
+# を直に呼ぶと edition 2015 として読まれ、let chain で構文エラーになる（#458）。
+# `style_edition` を変えるときも、全体を整形し直すコミットが要る。
+edition = "2024"
+style_edition = "2021"

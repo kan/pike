@@ -39,10 +39,10 @@ pub async fn settings_sync_read(path: String) -> Result<Option<String>, String> 
 pub async fn settings_sync_write(path: String, content: String) -> Result<(), String> {
     tokio::task::spawn_blocking(move || {
         let target = Path::new(&path);
-        if let Some(parent) = target.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
+        if let Some(parent) = target.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         crate::fs::write_host_atomic(target, content.as_bytes())
     })
