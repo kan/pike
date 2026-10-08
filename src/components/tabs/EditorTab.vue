@@ -749,11 +749,13 @@ watch([debouncedDocVersion, showPreview, isMermaid], () => {
 // 図の色は描いた時点のテーマで焼き込むので、ライト／ダークの切り替えでも描き直す（#417）
 watch(
   () => settingsStore.darkMode,
-  () => {
-    if (!showPreview.value) return
-    if (isMermaid.value) renderStandaloneMermaid()
-    else if (isMarkdown.value) renderMarkdownMermaid()
-  },
+  // 隠れているタブは見せたときに描き直す（#462。図のレイアウトは重く、メインスレッドを塞ぐ）。
+  () =>
+    applyWhenVisible('mermaidTheme', 'preview', () => {
+      if (!showPreview.value) return
+      if (isMermaid.value) renderStandaloneMermaid()
+      else if (isMarkdown.value) renderMarkdownMermaid()
+    }),
 )
 /**
  * Give every <img> in the preview a source the webview is allowed to load.
@@ -890,7 +892,10 @@ watch(previewHtml, () => {
 // not the markup — re-run the pass instead of invalidating previewHtml, which
 // would also re-render every mermaid diagram.
 watch([() => settingsStore.allowedImageHosts, locale], () => {
-  if (isProsePreview.value) resolveMarkdownImages()
+  // 隠れているタブは見せたときに解決し直す（#462。ローカル画像 1 枚につき 1 回の IPC 読みが走る）。
+  applyWhenVisible('images', 'preview', () => {
+    if (isProsePreview.value) resolveMarkdownImages()
+  })
 })
 
 // Switching view mode re-creates the preview pane at the top — hide the
@@ -1306,7 +1311,8 @@ function refreshDiagnosticsLayer() {
 
 watch(
   () => diagStore.diagnostics,
-  () => refreshDiagnosticsLayer(),
+  // 診断は走るたびに全エディタタブへ届く。隠れているタブは見せたときに反映する（#462）。
+  () => applyWhenVisible('diagnostics', 'view', refreshDiagnosticsLayer),
 )
 
 // --- Context menu ---
@@ -1948,6 +1954,75 @@ function copyFromCsvMenu(m: CsvCellRef) {
   if (text) copyToClipboard(text, t('common.copied'))
 }
 
+/**
+ * 隠れているあいだに溜めた反映（#462）。**見えていないタブは、設定や診断が変わってもその場では
+ * 反映しない。** どれも開いているタブ全部（保持中のプロジェクトのぶんも含む）に届くので、
+ * その場で反映すると、設定を 1 つ変えるたびにタブの枚数ぶんの CodeMirror が張り直す。
+ *
+ * キーごとに最後の 1 つだけ残し、見せたとき（`isTabVisible` の watcher）に流す。**関数は流す
+ * 時点の値を読むこと**（溜めた時点の値を閉じ込めると、隠れているあいだに 2 回変わった設定の
+ * 古いほうを当てる）。
+ *
+ * **最初の読み込みは遅らせていない**（初めて見せるまで読まない案は #462 で見送った）。復元時の
+ * 一斉読み込みは減るが、復元後に各タブへ初めて切り替えたときにファイル読みと `git diff` を
+ * 待つことになり、#462 の主訴だった切替の速さを悪くする。
+ */
+const whenShown = new Map<string, Deferred>()
+
+/**
+ * 溜めた反映 1 つ。種類が 3 つあるのは、見せたときの流し方が違うため（`flushWhenShown`）。
+ * - `effects` … CodeMirror の張り直し。**まとめて 1 回の dispatch で流す**（タブを切り替えた
+ *   その場で流すので、設定ごとに別々のトランザクションにすると切替を待たせる）。読み直すなら
+ *   要らない（作り直すビューが、いまの設定で組まれる）
+ * - `view` … ビューに対する、張り直し以外の反映（診断・言語）。これも読み直すなら要らない
+ * - `preview` … プレビューの DOM に対する反映（Mermaid の色・画像）。**読み直しでは戻らない**
+ *   （本文が同じなら `previewHtml` が変わらず、描き直しの watcher が動かない）ので、
+ *   読み直したあとに流す
+ */
+type Deferred =
+  | { kind: 'effects'; effects: () => StateEffect<unknown> | StateEffect<unknown>[] }
+  | { kind: 'view' | 'preview'; apply: () => void }
+
+/** 見えていればその場で、隠れていれば見せたときに反映する。 */
+function applyWhenVisible(key: string, kind: 'view' | 'preview', apply: () => void) {
+  if (tabStore.isTabVisible(props.tabId)) apply()
+  else whenShown.set(key, { kind, apply })
+}
+
+/** `applyWhenVisible` の、CodeMirror の張り直し版。ビューがまだ無ければ何もしない。 */
+function reconfigureWhenVisible(key: string, effects: () => StateEffect<unknown> | StateEffect<unknown>[]) {
+  if (tabStore.isTabVisible(props.tabId)) editorView?.dispatch({ effects: effects() })
+  else whenShown.set(key, { kind: 'effects', effects })
+}
+
+/**
+ * 溜めた反映を流す（見せたとき）。`reloading` は、このあと外部変更の読み直しが走るか。
+ *
+ * **1 つが投げても残りを流す。** 溜めた表は先に空にするので、途中で抜けると残りは二度と
+ * 流れず、設定がもう一度変わるまでそのタブだけ古いまま残る。
+ */
+function flushWhenShown(reloading: boolean): Array<() => void> {
+  const pending = [...whenShown.values()]
+  whenShown.clear()
+  const guarded = (apply: () => void) => {
+    try {
+      apply()
+    } catch (e) {
+      console.error('[editor] deferred update failed', e)
+    }
+  }
+  const preview = pending.flatMap((d) => (d.kind === 'preview' ? [() => guarded(d.apply)] : []))
+  if (reloading) return preview
+  const effects: StateEffect<unknown>[] = []
+  for (const d of pending) {
+    if (d.kind === 'effects') guarded(() => effects.push(...[d.effects()].flat()))
+  }
+  if (effects.length > 0) guarded(() => editorView?.dispatch({ effects }))
+  for (const d of pending) if (d.kind === 'view') guarded(d.apply)
+  for (const apply of preview) apply()
+  return []
+}
+
 onMounted(async () => {
   document.addEventListener('keydown', onGlobalKeyDown)
   if (!editorRef.value || !tab.value) return
@@ -2322,11 +2397,16 @@ watch(
   (visible) => {
     if (!visible) return
     editorView?.requestMeasure()
+    // 隠れているあいだに溜めた反映（設定・診断など）をここで流す（`whenShown` の doc）。
+    // 読み直すなら、読み直しでは戻らないぶん（プレビューの DOM）だけが返ってくる。
+    const afterReload = flushWhenShown(reloadWhenShown)
     // 見えていないあいだに届いた外部変更を、ここで 1 回だけ読み直す（`reloadWhenShown` の doc）。
     // 隠れているタブは編集できないので、遅らせたあいだに未保存になっていることは無い。
     if (reloadWhenShown) {
       reloadWhenShown = false
-      void reopenWithEncoding(currentEncoding.value)
+      void reopenWithEncoding(currentEncoding.value).then(() => {
+        for (const apply of afterReload) apply()
+      })
     }
   },
 )
@@ -2350,59 +2430,53 @@ watch(
 
 // The conflict buttons' labels are baked into DOM when it is built, so switching
 // the UI language has to rebuild that extension (#223).
+//
+// **ここから下の設定への反応は、どれも `reconfigureWhenVisible` を通す**（#462）。設定は開いている
+// タブ全部に届くので、隠れているタブはその場で張り直さず、見せたときに 1 回だけ張り直す。
+// 渡す関数は**流す時点の値**から effect を組むこと（`whenShown` の doc）。
 watch(locale, () => {
-  if (!editorView) return
-  editorView.dispatch({ effects: conflictCompartment.reconfigure(conflictHighlight()) })
+  reconfigureWhenVisible('conflict', () => conflictCompartment.reconfigure(conflictHighlight()))
 })
 
 // Live-apply editor settings changes
 watch(
   () => settingsStore.effectiveEditorThemeName,
-  (name) => {
-    if (!editorView) return
-    editorView.dispatch({ effects: themeCompartment.reconfigure(getEditorTheme(name).extension) })
-  },
+  () =>
+    reconfigureWhenVisible('theme', () =>
+      themeCompartment.reconfigure(getEditorTheme(settingsStore.effectiveEditorThemeName).extension),
+    ),
 )
 
 // Window transparency (issue #162): re-apply the transparent-background override
 // when the backdrop mode toggles.
 watch(
   () => settingsStore.windowBackdrop,
-  () => {
-    if (!editorView) return
-    editorView.dispatch({ effects: backdropCompartment.reconfigure(backdropTheme()) })
-  },
+  () => reconfigureWhenVisible('backdrop', () => backdropCompartment.reconfigure(backdropTheme())),
 )
 
-watch(minimapOn, (on) => {
-  if (!editorView) return
-  editorView.dispatch({ effects: minimapCompartment.reconfigure(on ? minimap() : []) })
+watch(minimapOn, () => {
+  reconfigureWhenVisible('minimap', () => minimapCompartment.reconfigure(minimapOn.value ? minimap() : []))
 })
 
-watch(wordWrapOn, (on) => {
-  if (!editorView) return
-  editorView.dispatch({ effects: wordWrapCompartment.reconfigure(on ? EditorView.lineWrapping : []) })
+watch(wordWrapOn, () => {
+  reconfigureWhenVisible('wordWrap', () =>
+    wordWrapCompartment.reconfigure(wordWrapOn.value ? EditorView.lineWrapping : []),
+  )
 })
 
 watch(
   () => settingsStore.editorTabSize,
-  (size) => {
-    if (!editorView) return
-    editorView.dispatch({
-      effects: [
-        tabSizeCompartment.reconfigure(EditorState.tabSize.of(size)),
-        indentUnitCompartment.reconfigure(indentUnit.of(' '.repeat(size))),
-      ],
-    })
-  },
+  () =>
+    reconfigureWhenVisible('tabSize', () => [
+      tabSizeCompartment.reconfigure(EditorState.tabSize.of(settingsStore.editorTabSize)),
+      indentUnitCompartment.reconfigure(indentUnit.of(' '.repeat(settingsStore.editorTabSize))),
+    ]),
 )
 
 // キーのプリセット（#261）を変えたら、開いているタブのキーも張り直す。
 watch(
   () => settingsStore.shortcutPreset,
-  () => {
-    editorView?.dispatch({ effects: presetKeymapCompartment.reconfigure(presetKeymap(formatByType)) })
-  },
+  () => reconfigureWhenVisible('presetKeymap', () => presetKeymapCompartment.reconfigure(presetKeymap(formatByType))),
 )
 
 // `.sql` の方言（#358）を変えたら、開いているタブの言語も張り直す。**設定を流し込む側
@@ -2412,7 +2486,7 @@ watch(
 // 見ない）ので、「手動選択はこの設定に縛られない」もそのまま保たれる。
 watch(
   () => settingsStore.sqlDialect,
-  () => applyLanguage(tab.value?.path),
+  () => applyWhenVisible('sqlDialect', 'view', () => applyLanguage(tab.value?.path)),
 )
 
 // Save As names an untitled buffer, which is what decides its language: without
@@ -2431,8 +2505,7 @@ watch(
 watch(
   () => [settingsStore.editorFontName, settingsStore.editorFontSize],
   () => {
-    if (!editorView) return
-    editorView.dispatch({ effects: fontCompartment.reconfigure(fontTheme()) })
+    reconfigureWhenVisible('font', () => fontCompartment.reconfigure(fontTheme()))
   },
 )
 
