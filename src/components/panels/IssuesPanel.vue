@@ -228,7 +228,7 @@ function copyPrompt(issue: IssueSummary) {
       </div>
       <input
         v-model="issuesStore.filter"
-        class="filter"
+        class="panel-filter"
         type="text"
         :placeholder="t('issues.filterPlaceholder')"
         spellcheck="false"
@@ -237,7 +237,7 @@ function copyPrompt(issue: IssueSummary) {
         未インストール・未認証・権限なしはどれも 0 件になるので、理由を出さないと「issue が
         無い」と見分けが付かない（`ProviderRun.error` と同じ考え方）。2 行目は実行した行。
       -->
-      <div v-if="issuesStore.error" class="error-strip selectable">{{ issuesStore.error }}</div>
+      <div v-if="issuesStore.error" class="panel-error-strip selectable">{{ issuesStore.error }}</div>
       <div v-if="emptyMessage" class="empty">{{ emptyMessage }}</div>
       <div
         v-for="row in rows"
@@ -330,39 +330,7 @@ function copyPrompt(issue: IssueSummary) {
   margin: calc(-1 * var(--panel-pad) - 4px) calc(-1 * var(--panel-scrollbar-size)) 6px calc(-1 * var(--panel-pad));
 }
 
-/* `box-sizing` が無いと padding と枠のぶん（14px）親からはみ出し、横スクロールバーが出る。 */
-.filter {
-  box-sizing: border-box;
-  width: calc(100% - 16px);
-  margin: 4px 8px 6px;
-  padding: 4px 6px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-family: inherit;
-}
-
-.filter:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-/* 左に危険色の線、高さは頭を残して切る。 */
-.error-strip {
-  margin: 0 8px 6px;
-  padding: 4px 6px;
-  border-left: 2px solid var(--danger);
-  border-radius: 3px;
-  background: var(--bg-tertiary);
-  color: var(--danger);
-  font-size: 11px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 6em;
-  overflow: hidden;
-}
+/* 絞り込み欄とエラー帯は共有の `.panel-filter` / `.panel-error-strip`（`theme.css`）。 */
 
 .empty {
   padding: 12px;

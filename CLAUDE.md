@@ -48,6 +48,7 @@ macOS はローカルのシェルで開発できるところまで対応する�
 | `search.md` | 検索パネル・rg の検出・置換 |
 | `watcher.md` | ファイル監視 |
 | `issues.md` | issue パネルと issue タブ |
+| `ci.md` | CI パネル（GitHub Actions / CircleCI の実行の一覧・再実行・中止、#457） |
 | `panels.md` | 診断パネル（Problems）とタスクランナー |
 | `agent.md` | エージェントの一覧と起動・シェルへの問い合わせ（エージェントはターミナルで動かす、#275） |
 | `agent-hook.md` | 入力待ちの知らせ・デスクトップ通知・hook による申告・`CLAUDE_CONFIG_DIR` |
@@ -77,6 +78,7 @@ macOS はローカルのシェルで開発できるところまで対応する�
 │  │ 🔭 outline │                                         │
 │  │ ⚠ problems │                                         │
 │  │ ✅ issues   │                                         │
+│  │ 🔁 ci      │                                         │
 │  └────────────┘                                         │
 └──────────────┬──────────────────────────────────────────┘
                │ Tauri IPC (invoke / events)

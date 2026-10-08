@@ -44,6 +44,7 @@ import {
 import { ephemeralWindow, globalMode } from '../lib/window'
 import type { DeletedProject, ProjectConfig, SyncedProject } from '../types/project'
 import { buildShell, quoteArg, type ShellType, shellId, shellToPlatform } from '../types/tab'
+import { useCiStore } from './ci'
 import { useDiagnosticsStore } from './diagnostics'
 import { useIssuesStore } from './issues'
 import { useSearchStore } from './search'
@@ -1352,6 +1353,7 @@ export const useProjectStore = defineStore('project', () => {
     useDiagnosticsStore().clear()
     useTaskStore().clear()
     useIssuesStore().clear()
+    useCiStore().clear()
     // **エージェントの検出は捨てない**（#275）。あちらはシェルごとの表を持っていて、
     // 切り替え先のシェルが違えば別のキーを引くだけ。捨てると、有効な答えを消したうえで
     // 「タブが見えたら取り戻す」という後始末が要る。

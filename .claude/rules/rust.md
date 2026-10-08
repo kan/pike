@@ -27,7 +27,7 @@ paths:
 - Tauri コマンドは `async fn` を既定にし、戻り値は `Result<T, String>`。**ウィンドウを触るものと、状態を読むだけで即答できるものは同期の `fn`** にしてある（`project_for_window` / `focus_project_window` / `window_restore` / `window_close_quits_app` / `save_all_window_state` / `wait_signal_by_path` / `is_elevated` / `open_elevated_terminal`）
   - **ただしウィンドウを「作る」ものは必ず `async`**（同期コマンドから `build_window` を呼ぶと Windows でデッドロックする）。ウィンドウと webview を触るときの規則は `rust-window.md`
 - エラーは `map_err(|e| e.to_string())` で文字列化してフロントに返す
-- **グローバル状態は 1 つの `AppState` にまとめず、モジュールごとの型を個別に `manage` する**（`CliState` / `WaitState` / `PtyState` / `WatcherState` / `DockerState` / `ProjectState` / `TransientState` / `SearchState` / `PreviewState` / `IssuesState`。一覧の正本は `lib.rs` の `manage` の並び）。コマンドは `State<'_, PtyState>` のように要るものだけを受け取るので、引数の型がそのまま「このコマンドが触る状態」の宣言になる。共有する中身は `Arc<Mutex<>>` で包む
+- **グローバル状態は 1 つの `AppState` にまとめず、モジュールごとの型を個別に `manage` する**（`CliState` / `WaitState` / `PtyState` / `WatcherState` / `DockerState` / `ProjectState` / `TransientState` / `SearchState` / `PreviewState` / `IssuesState` / `CiState`。一覧の正本は `lib.rs` の `manage` の並び）。コマンドは `State<'_, PtyState>` のように要るものだけを受け取るので、引数の型がそのまま「このコマンドが触る状態」の宣言になる。共有する中身は `Arc<Mutex<>>` で包む
 
 ## 非同期
 - `tokio::runtime` は Tauri が管理するため、コマンド内で別途ランタイムを作らない

@@ -665,6 +665,7 @@ export const SIDEBAR_PANELS = [
   'projects',
   'tasks',
   'issues',
+  'ci',
   'browser',
 ] as const
 

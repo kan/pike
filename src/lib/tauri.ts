@@ -1,6 +1,7 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type { AgentSession } from '../types/agentSession'
 import type { AgentUsage } from '../types/agentUsage'
+import type { CiAction, CiConfigs, CiJob, CiListResult, CiProvider } from '../types/ci'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
@@ -754,6 +755,41 @@ export async function issuesMergeMethods(shell: ShellType, root: string, url: st
 
 export async function issuesAct(shell: ShellType, root: string, url: string, action: IssueAction): Promise<void> {
   return invoke<void>('issues_act', { shell, root, url, action })
+}
+
+// CI (#457)
+
+export async function ciConfigs(shell: ShellType, root: string): Promise<CiConfigs> {
+  return invoke<CiConfigs>('ci_configs', { shell, root })
+}
+
+export async function ciCircleciAvailable(shell: ShellType, root: string, force: boolean): Promise<boolean> {
+  return invoke<boolean>('ci_circleci_available', { shell, root, force })
+}
+
+export async function ciList(
+  shell: ShellType,
+  root: string,
+  provider: CiProvider,
+  limit: number,
+  branch: string | null,
+): Promise<CiListResult> {
+  return invoke<CiListResult>('ci_list', { shell, root, provider, limit, branch })
+}
+
+export async function ciJobs(shell: ShellType, root: string, provider: CiProvider, id: string): Promise<CiJob[]> {
+  return invoke<CiJob[]>('ci_jobs', { shell, root, provider, id })
+}
+
+/** `ids` は、再実行なら一覧が返した `rerunIds` / `rerunFailedIds`、中止なら run の id。 */
+export async function ciAct(
+  shell: ShellType,
+  root: string,
+  provider: CiProvider,
+  action: CiAction,
+  ids: string[],
+): Promise<void> {
+  return invoke<void>('ci_act', { shell, root, provider, action, ids })
 }
 
 // ブラウザのタブ（#368）。座標はウィンドウの client 領域の CSS ピクセル（論理ピクセル）。

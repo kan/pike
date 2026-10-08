@@ -389,6 +389,8 @@ export const useIssuesStore = defineStore('issues', () => {
     newIssueUrl,
     ruledOut,
     visible,
+    // CI パネル（#457）の更新ボタンが、`gh` を入れたあとの再検出に使う。
+    detect,
     refresh,
     ensureLoaded,
     clear,

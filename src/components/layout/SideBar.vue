@@ -26,6 +26,7 @@ const TasksPanel = defineAsyncComponent(() => import('../panels/TasksPanel.vue')
 const OutlinePanel = defineAsyncComponent(() => import('../panels/OutlinePanel.vue'))
 const DiagnosticsPanel = defineAsyncComponent(() => import('../panels/DiagnosticsPanel.vue'))
 const IssuesPanel = defineAsyncComponent(() => import('../panels/IssuesPanel.vue'))
+const CiPanel = defineAsyncComponent(() => import('../panels/CiPanel.vue'))
 const BrowserPanel = defineAsyncComponent(() => import('../panels/BrowserPanel.vue'))
 
 import {
@@ -52,6 +53,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Workflow,
 } from 'lucide-vue-next'
 import { confirmDialog, infoDialog } from '../../composables/useConfirmDialog'
 import { usePanelAvailability } from '../../composables/usePanelAvailability'
@@ -64,6 +66,7 @@ import { openUrlWithConfirm } from '../../lib/openUrl'
 import { useOverlay } from '../../lib/overlay'
 import { sideOf } from '../../lib/reorder'
 import { actionChord } from '../../lib/shortcuts'
+import { useCiStore } from '../../stores/ci'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useDockerStore } from '../../stores/docker'
 import { useIssuesStore } from '../../stores/issues'
@@ -92,6 +95,7 @@ const searchStore = useSearchStore()
 const diagStore = useDiagnosticsStore()
 const dockerStore = useDockerStore()
 const issuesStore = useIssuesStore()
+const ciStore = useCiStore()
 const { isPanelAvailable, isPanelRuledOut } = usePanelAvailability()
 const settingsStore = useSettingsStore()
 const shortcutsModal = useShortcutsModal()
@@ -371,6 +375,13 @@ const ICONS: { [P in SidebarPanel]: IconDef & { panel: P } } = {
     icon: ListTodo,
     refresh: { run: () => issuesStore.refresh(), busy: () => issuesStore.busy },
   },
+  // CI の実行の一覧（#457）。実行中の run があるあいだは自分で取り直すので、バッジは持たない。
+  ci: {
+    panel: 'ci',
+    labelKey: 'sidebar.ci',
+    icon: Workflow,
+    refresh: { run: () => ciStore.refresh(), busy: () => ciStore.busy },
+  },
   // ブラウザのタブのブックマークと閲覧履歴（#368）。タブの種別と同じアイコン。
   browser: { panel: 'browser', labelKey: 'sidebar.browser', icon: Globe },
 }
@@ -484,6 +495,7 @@ const PANEL_HELP: Record<SidebarPanel, string> = {
   outline: 'panels.md#アウトライン',
   diagnostics: 'panels.md#problems診断',
   issues: 'panels.md#issuegithub',
+  ci: 'panels.md#cigithub-actions--circleci',
   browser: 'browser.md#ブラウザパネル',
 }
 const panelHelp = computed(() => (sidebar.activePanel ? PANEL_HELP[sidebar.activePanel] : undefined))
@@ -669,6 +681,17 @@ onUnmounted(() => {
               <List v-else :size="14" :stroke-width="2" />
             </button>
           </template>
+          <!-- 今のブランチの run だけに絞る（#457）。絞っているあいだはボタンを塗る。 -->
+          <button
+            v-if="sidebar.activePanel === 'ci' && ciStore.visible"
+            class="header-btn"
+            :class="{ primary: ciStore.branchOnly }"
+            data-testid="ci-branch-only"
+            :title="t(ciStore.branchOnly ? 'ci.branchOnly' : 'ci.branchAll')"
+            @click="ciStore.setBranchOnly(!ciStore.branchOnly)"
+          >
+            <GitBranch :size="14" :stroke-width="2" />
+          </button>
           <template v-if="sidebar.activePanel === 'git'">
             <button
               class="header-btn"
@@ -728,6 +751,7 @@ onUnmounted(() => {
         <OutlinePanel v-else-if="sidebar.activePanel === 'outline'" />
         <DiagnosticsPanel v-else-if="sidebar.activePanel === 'diagnostics'" />
         <IssuesPanel v-else-if="sidebar.activePanel === 'issues'" />
+        <CiPanel v-else-if="sidebar.activePanel === 'ci'" />
         <BrowserPanel v-else-if="sidebar.activePanel === 'browser'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>

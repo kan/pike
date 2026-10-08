@@ -95,6 +95,8 @@ pike/
 │       │   └── tunnel.rs      # 未公開ポートへの socat ポートフォワード（#120）
 │       ├── issues/
 │       │   └── mod.rs         # gh 経由の GitHub issue 一覧（#278）
+│       ├── ci/
+│       │   └── mod.rs         # gh / circleci 経由の CI の実行の一覧・再実行・中止（#457）
 │       ├── search/
 │       │   └── mod.rs         # rg/grep バックエンド判定・検索・list_project_files
 │       ├── tasks.rs           # package.json/Makefile/deno.json/Cargo.toml のタスク再帰検出
@@ -110,7 +112,7 @@ pike/
 │   │   ├── agentSession.ts    # 再開できるセッション 1 件（#267）
 │   │   ├── js-beautify.d.ts   # js-beautify の型（同梱されないので使う 3 関数だけ宣言、#366）
 │   │   ├── diagnostics.ts  docker.ts
-│   │   ├── git.ts  search.ts  tasks.ts  issues.ts
+│   │   ├── git.ts  search.ts  tasks.ts  issues.ts  ci.ts
 │   ├── components/
 │   │   ├── ProjectSwitcher.vue  # fzf 風プロジェクト切替 + 新規作成モーダル
 │   │   ├── QuickOpen.vue        # Ctrl+P コマンドパレット（ファイル/>タスク/@タブ/:行/!ブランチ/?ヘルプ）
@@ -145,6 +147,7 @@ pike/
 │   │   │   ├── GitErrorBlock.vue  # Git パネル上部のエラー表示（閉じる・コピー・エージェントへの依頼、#436）
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）
+│   │   │   ├── CiPanel.vue        # CI の実行の一覧（GitHub Actions / CircleCI、#457）
 │   │   │   ├── BrowserPanel.vue   # ブラウザのタブの新しいタブ・ブックマーク・閲覧履歴（#368）
 │   │   │   ├── SiteRuleList.vue   # ドメインごとの JS と CSS のルールの一覧（設定画面、#368）
 │   │   │   ├── UpdateControls.vue # 更新の確認と適用のボタン（設定画面のバージョン情報と About で共有、#420）
@@ -187,6 +190,7 @@ pike/
 │   │   ├── sidebar.ts  settings.ts  project.ts
 │   │   ├── fileTree.ts  git.ts  search.ts  docker.ts  tasks.ts  worktree.ts
 │   │   ├── diagnostics.ts  issues.ts
+│   │   ├── ci.ts              # CI の実行の一覧と、実行中だけのポーリング（#457）
 │   │   ├── browser.ts         # ブラウザのタブの閲覧履歴（#368。マシンごと。ブックマークは settings.ts）
 │   │   ├── sync.ts            # 設定の同期の調停役（#403。同期するのは main だけ、衝突は保留して選ばせる）
 │   │   ├── agents.ts          # 使えるエージェントの検出（シェル単位、#275）
@@ -251,6 +255,8 @@ pike/
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278）
 │   │   ├── issuePrompt.ts    # エージェントに渡す issue の指示文（#336。注入とコピーで共有）
 │   │   ├── issueActions.ts   # issue パネルから PR のマージとクローズ・issue のクローズ（確認 → gh → 取り直し、#450）
+│   │   ├── ciPrompt.ts       # エージェントに渡す CI の失敗の調査の指示文（#457。注入とコピーで共有）
+│   │   ├── ciActions.ts      # CI パネルから run の再実行と中止（確認 → CLI → 取り直し、#457）
 │   │   ├── commitPatch.ts    # コミット全体の差分をファイルごとの統合形式の行に落とす（#374）
 │   │   ├── gitErrors.ts      # git のエラー文からよくある原因を見分ける（#436。案内の文言は i18n）
 │   │   ├── gitGraph.ts  gitRemote.ts  gitignore.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts

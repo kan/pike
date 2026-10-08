@@ -885,6 +885,42 @@ textarea,
   cursor: default;
 }
 
+/* パネル上部の絞り込み欄（issue パネルと CI パネルが共有。#457）。
+   `box-sizing` が無いと padding と枠のぶん（14px）親からはみ出し、横スクロールバーが出る。 */
+.panel-filter {
+  box-sizing: border-box;
+  width: calc(100% - 16px);
+  margin: 4px 8px 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+}
+
+.panel-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* 一覧の取得に失敗した理由を出す帯（同じ 2 つのパネルが共有）。左に危険色の線、高さは頭を
+   残して切る。 */
+.panel-error-strip {
+  margin: 0 8px 6px;
+  padding: 4px 6px;
+  border-left: 2px solid var(--danger);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--danger);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 6em;
+  overflow: hidden;
+}
+
 /* パネルの行の末尾に置く、ホバーで現れるボタン（Problems の 🤖 と issue の 🤖 が共有）。
    **`opacity` で隠す**（`display: none` にすると、ホバーのたびに行の幅が変わって隣の
    テキストの省略位置が動く）。出す契機は行のクラスが決めるので、置いた側に

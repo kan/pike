@@ -19,6 +19,7 @@ mod autostart;
 mod browser;
 mod browser_nav;
 mod cache;
+mod ci;
 mod claude_usage;
 mod cli;
 mod codex_usage;
@@ -1648,6 +1649,7 @@ pub fn run() {
                 )),
             });
             app.manage(issues::IssuesState::default());
+            app.manage(ci::CiState::default());
 
             // Parse initial CLI args and store for frontend to retrieve
             let args: Vec<String> = std::env::args().collect();
@@ -1977,6 +1979,11 @@ pub fn run() {
             issues::issues_view,
             issues::issues_merge_methods,
             issues::issues_act,
+            ci::ci_configs,
+            ci::ci_circleci_available,
+            ci::ci_list,
+            ci::ci_jobs,
+            ci::ci_act,
             browser::browser_open,
             favicon::browser_favicon,
             browser::browser_place,

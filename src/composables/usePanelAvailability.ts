@@ -1,3 +1,4 @@
+import { useCiStore } from '../stores/ci'
 import { useIssuesStore } from '../stores/issues'
 import type { SidebarPanel } from '../types/tab'
 
@@ -14,7 +15,7 @@ import type { SidebarPanel } from '../types/tab'
  * **`lib/shortcuts.ts` には置けない。** あちらは `stores/project.ts` から import される
  * ので、ストアを読むと循環する。だから composable がこの判定の層になる。
  *
- * 既定は「使える」。条件を持つのは今のところ issue パネルだけで、条件を持たないパネルを
+ * 既定は「使える」。条件を持つのは issue パネルと CI パネル（#457）だけで、条件を持たないパネルを
  * ここに並べても意味が無い（`.claude/rules/editor.md` の「パネルを開く行に `needsProject`
  * を付けない」は、プロジェクトの有無の話なのでこれとは別）。
  */
@@ -23,11 +24,14 @@ export function usePanelAvailability(): {
   isPanelRuledOut: (panel: SidebarPanel) => boolean
 } {
   const issuesStore = useIssuesStore()
+  const ciStore = useCiStore()
 
   function isPanelAvailable(panel: SidebarPanel): boolean {
     // issue（#278）は **origin が GitHub で、かつ `gh` があるときだけ**。片方だけで出すと、
     // 押しても必ず失敗する入口が並ぶ。
     if (panel === 'issues') return issuesStore.visible
+    // CI（#457）は、設定と CLI の両方がそろった CI が 1 つでもあるとき。
+    if (panel === 'ci') return ciStore.visible
     return true
   }
 
@@ -43,6 +47,7 @@ export function usePanelAvailability(): {
    */
   function isPanelRuledOut(panel: SidebarPanel): boolean {
     if (panel === 'issues') return issuesStore.ruledOut
+    if (panel === 'ci') return ciStore.ruledOut
     return false
   }
 
