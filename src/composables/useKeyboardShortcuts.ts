@@ -4,6 +4,7 @@ import { keyBindings, MODIFIERLESS_KEYS } from '../lib/shortcuts'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
 import { useAppActions } from './useAppActions'
+import { useOutlineSource } from './useOutlineSource'
 
 /**
  * ターミナルにフォーカスがあるとき Pike が先に取るキーの一覧と、その判定は
@@ -89,6 +90,24 @@ export function useKeyboardShortcuts() {
     const inPane = active && active !== document.body ? active.closest('.pane-content') : null
     const root = inPane ?? document.getElementById(`pane-${tabStore.focusedPane}`)
     if (!root) return false
+    // プレビューにフォーカスがあるなら、そのプレビューだけを選ぶ。分割表示でペインごと選ぶと、
+    // 隣のエディタの「描画済みの行」まで選択に混ざる。
+    const preview = active instanceof HTMLElement ? active.closest('.preview-pane') : null
+    if (preview) {
+      window.getSelection()?.selectAllChildren(preview)
+      return true
+    }
+    // **エディタが見えているペインでは、DOM ではなく CodeMirror に全選択させる。** CodeMirror は
+    // 見えている範囲の行しか DOM に持たないので、DOM を全選択してコピーすると、画面に出ている
+    // 数十行ぶんしかクリップボードに入らない。ファイルツリーから開いた直後やツールバーの
+    // ボタンを押した直後のように、エディタの外にフォーカスがあるとここへ来る。フォーカスも
+    // エディタへ移す（続く `Ctrl+C` を CodeMirror が受けて、文書全体をコピーする）。
+    const view = useOutlineSource().current.value?.view
+    if (view && view.dom.offsetParent !== null && root.contains(view.dom)) {
+      view.focus()
+      view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } })
+      return true
+    }
     window.getSelection()?.selectAllChildren(root)
     return true
   }
