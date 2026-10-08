@@ -90,15 +90,20 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
     セッションに残さない（`wordWrapOverride` / `minimapOverride` と同じ）。選択肢は
     `languageOptions()` が `EXT_MAP` から作り、**ラベルで畳む**（利用者に見せたいのは言語で
     あって拡張子ではない）。**ラベルを持たないキーは出さない**: 選んでも表示が `Plain Text` の
-    ままで、切り替わったのか分からない
+    ままで、切り替わったのか分からない。**モードもプレビューも無いキーも出さない**（下の #461）
     - **変えるのはハイライト・アウトライン・定義ジャンプ・整形の種別**（`typeKey` を読むもの、
       #456。構文木を歩く抽出器は、木を作った言語と同じキーでないと何も拾えない）。
       **本文から描くプレビューも選んだ種別に従う**（#460。`EditorTab.vue` の `previewKey`＝
       上書きがあればそれ、無ければ拡張子。`isMarkdown` / `isCsv` / `isJson` などがこれを読む）。
       `.txt` を Markdown として選べばプレビューでき、プレビューの無い種別を選んだら
       `hasPreview` の watcher が編集表示へ戻す
-      - 上書きで届くのは一覧にある種別（Markdown・rst・SVG・JSON・JSON Lines）。**CSV と
-        Mermaid は色付けのモードを持たず一覧に出ない**ので、拡張子でしか出ない
+      - 上書きで届くのは一覧にある種別（Markdown・rst・SVG・JSON・JSON Lines・CSV・TSV・
+        Mermaid）。**CSV / TSV / Mermaid は色付けのモードを持たないが一覧に出す**（#461。
+        `languages.ts` の `PREVIEW_ONLY_KEYS`）。プレビューが出るので、色が付かなくても
+        切り替わったと分かる。**一覧に出す条件は「モードがある、またはプレビューがある」**で、
+        どちらも無いキーは今も出さない。CSV と TSV は区切り文字が違うのでラベルを分けてある
+        （`.csv` で TSV を選べばタブ区切りで読む）。`FILE_TYPE_LABELS` に載せたので、これらの
+        ファイルは StatusBar でも種別を名乗る（以前は Plain Text）
       - **standalone の Mermaid の描き直しは `isMermaid` も契機にする**（別の種別を選んで戻すと
         要素が作り直される）
     - **上書きで増やさないものが 2 つある。** Markdown の入力支援（`markdownAssistOn`。

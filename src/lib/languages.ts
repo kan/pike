@@ -284,6 +284,17 @@ export function languageByKey(key: string): LanguageSupport | null {
   return EXT_MAP[key]?.() ?? null
 }
 
+/**
+ * 色付けのモードは持たないが、エディタにプレビューがある種別（#461）。ファイルタイプの一覧に
+ * 出す。選ぶと Edit / Split / Preview が出るので、色が付かなくても切り替わったと分かる。
+ *
+ * **プレビューの有無そのものは `EditorTab.vue` が決める**（`previewKey` を読む `isCsv` /
+ * `isMermaid`）。ここは「モードが無くても一覧に出す」キーを並べるだけで、あちらが受けない
+ * キーを足すと、選んでも何も起きない項目になる。Mermaid は `mmd` もあるが、一覧はラベルで
+ * 畳むので代表の 1 本で足りる。
+ */
+const PREVIEW_ONLY_KEYS: readonly FileTypeKey[] = ['csv', 'tsv', 'mermaid']
+
 /** キーの表示名。手動で選んだときの StatusBar はファイル名を見ないのでこちらを引く。 */
 export const languageLabelByKey = fileTypeLabel
 
@@ -292,13 +303,13 @@ export const languageLabelByKey = fileTypeLabel
  *
  * **ラベルで畳む。** `EXT_MAP` のキーは拡張子なので同じ言語に何本もある（`js` / `mjs` /
  * `jsx`、`py`、`sh` / `bash` / `zsh`…）。利用者に見せたいのは言語であって拡張子ではないので、
- * 同じラベルを持つキーは最初の 1 本を代表にする。**モードを持つキーだけを出す**: ラベルだけの
- * キー（アウトラインやアイコンのためにある種別）を選んでも、色が付かず切り替わったのか
- * 分からない。
+ * 同じラベルを持つキーは最初の 1 本を代表にする。**モードを持つキーと、プレビューを持つキー
+ * （`PREVIEW_ONLY_KEYS`）だけを出す**: どちらも無いキー（アウトラインやアイコンのためにある
+ * 種別）を選んでも、色も付かずプレビューも出ず、切り替わったのか分からない。
  */
 export function languageOptions(): { key: string; label: string }[] {
   const byLabel = new Map<string, string>()
-  for (const key of Object.keys(EXT_MAP)) {
+  for (const key of [...Object.keys(EXT_MAP), ...PREVIEW_ONLY_KEYS]) {
     const label = fileTypeLabel(key)
     if (label !== 'Plain Text' && !byLabel.has(label)) byLabel.set(label, key)
   }

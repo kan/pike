@@ -276,9 +276,10 @@ const fileTypeOverride = ref<string | null>(null)
  * 逆に `.md` を別の言語として選ぶと、そのあいだプレビューは出ない（「別の言語として読む」ので）。
  *
  * **連動させるのは本文から描くプレビューだけ。** 読むだけなので、選んだ種別で描いても何も
- * 書き込まない。手動で選べるのは色付けのモードを持つ種別（`languageOptions`）なので、上書きで
- * 届くのは Markdown・rst・SVG・JSON・JSON Lines。**CSV と Mermaid は一覧に無く、拡張子でしか
- * 出ない**（別の種別を選ぶと消え、自動判定に戻すと戻る）。次の 2 つは上書きで増やさない:
+ * 書き込まない。一覧（`languageOptions`）から選べるのは Markdown・rst・SVG・JSON・JSON Lines と、
+ * 色付けのモードを持たない CSV・TSV・Mermaid（#461。`languages.ts` の `PREVIEW_ONLY_KEYS`）。
+ * **そこへキーを足すなら、下の述語が受けることを確かめる**（受けないと、選んでも何も起きない）。
+ * 次の 2 つは上書きで増やさない:
  * - **Markdown の入力支援**（`markdownAssistOn`）。貼り付けた画像の置き場や paste ハンドラの
  *   ように、ファイルへの書き込みを伴う。色を選んだだけで `Ctrl+V` の書き込み先が変わらないようにする
  * - **HTML と Vue のプレビュー**（`isHtmlPreview` / `isVueFile`）。保存したファイルを子 webview が

@@ -80,6 +80,13 @@ export const FILE_TYPE_LABELS = {
   md: 'Markdown',
   markdown: 'Markdown',
   rst: 'reStructuredText',
+  // 色付けのモードは無いが、エディタにプレビューがある種別（#461）。ここに置くと StatusBar が
+  // 種別を名乗り、ファイルタイプの一覧からも選べる（`languages.ts` の `PREVIEW_ONLY_KEYS`）。
+  // **CSV と TSV はラベルを分ける**: 区切り文字が違うので、一覧でも別の項目にする。
+  csv: 'CSV',
+  tsv: 'TSV',
+  mermaid: 'Mermaid',
+  mmd: 'Mermaid',
   yaml: 'YAML',
   yml: 'YAML',
   toml: 'TOML',
