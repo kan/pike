@@ -338,23 +338,63 @@ export function mergeSyncItems(
     const k = parseItemKey(key)
     if (k[0] === 'project' && !tracked(k[1]) && !carried.has(key)) carried.set(key, v)
   }
+  // **追っていないものは並びでも据え置く**（#463）。手元の並びには居ないので、そのままだと
+  // `merge3` が後ろへ付け直し、他のマシンの並びでグループの末尾へ動く。baseline の並びでの
+  // 位置に差し込んでおく（baseline に無い、リモートが足したばかりのものは `merge3` の規則
+  // どおり後ろに付く）。
+  for (const [key, v] of base ?? []) {
+    const k = parseItemKey(key)
+    if (k[0] !== 'order' || k[1] !== 'projects') continue
+    const woven = weaveMissing(asList(carried.get(key)), asList(v), (id) => !tracked(id))
+    if (woven) carried.set(key, woven)
+  }
   // **この版の Pike が知らない設定のキーも「変えていない」**（新しい版が書いたキー）。手元に
   // 無いことを削除と読むと、古い版で同期するたびに新しい版の設定を消す。**表の 1 件
   // （`MAP_SETTING_KEYS`）は除く**: 表は知っているので、手元に無い件は消したもの。
   for (const key of new Set([...(base?.keys() ?? []), ...remote.keys()])) {
     const k = parseItemKey(key)
     if (k[0] !== 'setting' || isMapEntry(k) || carried.has(key)) continue
-    carried.set(key, base?.has(key) ? base.get(key) : remote.get(key))
+    carried.set(key, sharedValue(base, remote, key))
   }
   // **置き場所は作るときにだけ使う**（`CREATE_ONLY_FIELDS`）。既に共有されているプロジェクトでは
   // 手元の値の代わりに共有されている値を置き、比べる対象から外す。
   for (const [key] of local) {
     const k = parseItemKey(key)
     if (k[0] !== 'project' || k.length !== 3 || !CREATE_ONLY_FIELDS.has(k[2])) continue
-    const shared = base?.has(key) ? base.get(key) : remote.get(key)
+    const shared = sharedValue(base, remote, key)
     if (shared !== undefined) carried.set(key, shared)
   }
   return { ...merge3(base, carried, remote, MERGE_OPTIONS), base, local: carried, remote }
+}
+
+/**
+ * 共有されている値（baseline、無ければリモート）。**置き場所の置き換え（`mergeSyncItems`）と
+ * 食い違いの判定（`foreignProjectIds`）が同じ出典を読む**ための 1 つ。
+ */
+const sharedValue = (base: SyncItems | null, remote: SyncItems, key: string) =>
+  base?.has(key) ? base.get(key) : remote.get(key)
+
+/**
+ * `list` に無い `reference` の要素のうち `wanted` なものを、`reference` で直前に居る要素の
+ * 後ろへ差し込む（直前の要素がどれも無ければ先頭）。足すものが無ければ null。
+ */
+function weaveMissing(
+  list: readonly string[],
+  reference: readonly string[],
+  wanted: (id: string) => boolean,
+): string[] | null {
+  const out = [...list]
+  let added = false
+  let at = 0
+  for (const id of reference) {
+    const i = out.indexOf(id)
+    if (i !== -1) at = i + 1
+    else if (wanted(id)) {
+      out.splice(at++, 0, id)
+      added = true
+    }
+  }
+  return added ? out : null
 }
 
 /**
@@ -364,6 +404,42 @@ export function mergeSyncItems(
  * 動かないので、次の同期で手元の値が「変えた」ことになって交互に書き換わる。
  */
 const CREATE_ONLY_FIELDS: ReadonlySet<string> = new Set(['platform', 'path'] satisfies (keyof SyncedProject)[])
+
+/**
+ * 手元が持っている id のうち、**同じ id の共有エントリが別のプロジェクトを指しているもの**
+ * （#463）。呼び出し側はこれを手元から外してからマージする（`mergeSyncItems` の「追って
+ * いない」ものになり、共有のエントリには触らず、手元にも当てない）。
+ *
+ * 登録時の id にランダムな接尾辞を付ける前（#404 より前）は、id がディレクトリ名そのまま
+ * だった。同じ名前のリポジトリを WSL と Windows の両方へ clone していると、あるマシンでは
+ * WSL 側、別のマシンでは Windows 側が同じ id になり、2 台の別々のプロジェクトが 1 つの
+ * エントリを取り合う（片方で付けた名前や色が、もう片方の別のプロジェクトに付く）。
+ * `mergeSyncItems` は置き場所を共有の値に置き換えてから比べるので、そのままでは見えない。
+ *
+ * **見分けるのはプラットフォームだけ。** 相対パスはマシンごとに配置が違ってよい
+ * （`CREATE_ONLY_FIELDS`）ので、食い違っても別物とは言えない。
+ *
+ * **共有の側がこのホストで持てるプラットフォームのときだけ**（`holdable`）。持てないものは
+ * 持てるほうへ落として作る（#407）ので、macOS が `windows` のエントリを `unix` で持つのは
+ * 食い違いではない。
+ *
+ * `held` には削除の記録も渡す: 食い違う id の記録を削除として伝えると、他のマシンの別の
+ * プロジェクトを消す。プラットフォームを持たない古い記録は見分けられないので数えない。
+ */
+export function foreignProjectIds(
+  held: Iterable<{ id: string; platform?: string }>,
+  base: SyncItems | null,
+  remote: SyncItems,
+  holdable: (platform: string) => boolean,
+): Set<string> {
+  const out = new Set<string>()
+  for (const { id, platform } of held) {
+    if (platform === undefined) continue
+    const shared = sharedValue(base, remote, itemKey(['project', id, 'platform']))
+    if (typeof shared === 'string' && shared !== platform && holdable(shared)) out.add(id)
+  }
+  return out
+}
 
 /**
  * インポート（#403 の段階 5）。**取り込むファイルの値を手元に重ねたもの**をリモートとし、

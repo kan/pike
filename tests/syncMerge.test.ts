@@ -5,6 +5,7 @@ import { isRespelling } from '../src/lib/gitRemote.ts'
 import {
   categoryOf,
   DEFAULT_SYNC_CATEGORIES,
+  foreignProjectIds,
   fromItems,
   fromSyncFile,
   importSyncItems,
@@ -169,6 +170,52 @@ describe('プロジェクト', () => {
     )
     assert.equal(m.conflicts.length, 0)
     assert.equal(m.merged.get(pf('x', 'path')), 'src/x')
+  })
+})
+
+describe('同じ id が別のプロジェクトを指すとき（#463）', () => {
+  const onWindows = (platform: string) => platform === 'wsl' || platform === 'windows'
+  // 共有のエントリは WSL 側（別のマシンが名前を付けた）、手元の同じ id は Windows 側。
+  const shared = src({ projects: [proj('dotfiles', { platform: 'wsl', name: 'dotfiles_wsl' })] })
+  const here = src({ projects: [proj('dotfiles', { platform: 'windows', name: 'dotfiles' }), proj('other')] })
+  const foreign = (base: SyncSource | null, held: { id: string; platform?: string }[], remote: SyncSource) =>
+    foreignProjectIds(held, base && toItems(base), toItems(remote), onWindows)
+
+  test('プラットフォームが食い違う id だけを挙げる（baseline に無ければリモートで見る）', () => {
+    assert.deepEqual([...foreign(shared, here.projects, shared)], ['dotfiles'])
+    assert.deepEqual([...foreign(null, here.projects, shared)], ['dotfiles'])
+    // 共有されていないもの、プラットフォームが合っているものは挙げない。
+    assert.deepEqual([...foreign(null, here.projects, src({}))], [])
+    assert.deepEqual([...foreign(shared, shared.projects, shared)], [])
+  })
+
+  test('このホストが持てないプラットフォームのエントリは食い違いではない（#407 で落として作ったもの）', () => {
+    const fromWindows = src({ projects: [proj('x', { platform: 'windows' })] })
+    const held = [proj('x', { platform: 'unix' })]
+    assert.deepEqual([...foreignProjectIds(held, null, toItems(fromWindows), (p) => p === 'unix')], [])
+  })
+
+  test('プラットフォームの無い古い削除の記録は数えない', () => {
+    assert.deepEqual([...foreign(shared, [{ id: 'dotfiles' }], shared)], [])
+    assert.deepEqual([...foreign(shared, [{ id: 'dotfiles', platform: 'windows' }], shared)], ['dotfiles'])
+  })
+
+  test('手元から外してマージすると、共有のエントリは据え置かれ、手元の名前も出て行かない', () => {
+    const ids = foreign(shared, here.projects, shared)
+    const local = src({ projects: here.projects.filter((x) => !ids.has(x.id)) })
+    const m = merge(shared, local, shared)
+    assert.equal(m.conflicts.length, 0)
+    assert.equal(m.merged.get(pf('dotfiles', 'name')), 'dotfiles_wsl')
+    assert.equal(m.merged.get(pf('dotfiles', 'platform')), 'wsl')
+    assert.equal(m.merged.get(p('other')), true)
+  })
+
+  test('追っていないプロジェクトは、共有の並びでの位置も据え置く', () => {
+    const order = (ids: string[]) => src({ projects: ids.map((id, i) => proj(id, { order: i })) })
+    const both = order(['a', 'x', 'b'])
+    const m = merge(both, order(['a', 'b']), both)
+    assert.equal(m.conflicts.length, 0)
+    assert.deepEqual(m.merged.get(itemKey(['order', 'projects', ''])), ['a', 'x', 'b'])
   })
 })
 

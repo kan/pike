@@ -53,6 +53,10 @@ export function hostDefaultShell(): ShellType {
  */
 export const HOST_PLATFORMS: readonly ProjectPlatform[] = isWindowsHost ? ['wsl', 'windows'] : ['unix']
 
+/** このホストが持ちうるプラットフォームか（同期ファイルから来た、検証していない値にも使える）。 */
+export const isHostPlatform = (platform: string): platform is ProjectPlatform =>
+  (HOST_PLATFORMS as readonly string[]).includes(platform)
+
 /**
  * このホストで新規プロジェクトの既定にするプラットフォーム。Windows は従来どおり
  * WSL、macOS / Linux はローカル。フォームの初期値とリセット先が全部ここを通る。

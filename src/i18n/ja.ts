@@ -532,6 +532,8 @@ export default {
   'sync.conflictsCount': '衝突 {count} 件',
   'sync.openConflicts': '衝突を解消',
   'sync.originsAligned': '{count} 件のリポジトリの origin を同期された URL に合わせました。',
+  'sync.foreignProjects':
+    '次のプロジェクトは同期していません。同期先にある同じ id のエントリと、プラットフォーム（WSL / Windows）が違います: {names}',
   'sync.categories': '同期する対象',
   'sync.categoriesHint':
     'このマシンで同期する種類を選びます（この選択は同期しません）。外した種類は、同期ファイルの中身をそのまま残します。',

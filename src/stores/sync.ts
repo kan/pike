@@ -28,12 +28,14 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { t } from '../i18n'
 import { isRespelling } from '../lib/gitRemote'
+import { isHostPlatform } from '../lib/host'
 import { loadJson, saveJson } from '../lib/storage'
 import {
   categoryOf,
   DEFAULT_SYNC_CATEGORIES,
   DERIVED_SETTING_KEYS,
   type DerivedSettingKey,
+  foreignProjectIds,
   fromItems,
   fromSyncFile,
   importSyncItems,
@@ -140,6 +142,11 @@ interface SyncState {
   conflicts: SyncConflictView[]
   /** 前回同期した時点の内容が無い（初めての同期）。衝突の画面が説明を足す。 */
   firstSync: boolean
+  /**
+   * 同期から外している手元のプロジェクトの id（#463。同じ id の共有エントリが別の
+   * プラットフォームのプロジェクトを指している。`foreignProjectIds`）。設定画面が理由を出す。
+   */
+  foreignProjects: string[]
   categories: SyncCategory[]
   target: SyncTargetConfig
 }
@@ -278,6 +285,7 @@ export const useSyncStore = defineStore('sync', () => {
     lastSyncedAt: initialKey ? loadJson<string | null>(LAST_KEY_PREFIX + initialKey, null) : null,
     conflicts: [],
     firstSync: false,
+    foreignProjects: [],
     categories: loadSyncCategories(),
     target: initialTarget,
   })
@@ -348,6 +356,31 @@ export const useSyncStore = defineStore('sync', () => {
       groups: [...projectStore.groups],
     }
     return { snapshot, localSrc }
+  }
+
+  /**
+   * 手元から、同じ id の共有エントリが別のプロジェクトを指しているものを外す（#463。
+   * 判定は `foreignProjectIds`）。`shared` は共有されている内容（同期なら baseline と
+   * リモート、インポートなら取り込むファイル）。**同期とインポートがこの 1 つを通す**:
+   * 片方だけ外すと、もう片方の経路で名前や色がそろう。
+   *
+   * **外した結果に要るものを全部ここから返す**（呼び出し側が絞る前の一覧を持ち回らない
+   * ため。絞る前のものを `applyLocal` に渡すと、共有の値が手元の別のプロジェクトに当たる）。
+   *
+   * - `localSrc` … 外したあとの手元（マージにも反映にもこれを使う）
+   * - `deletedHere` … このマシンで消したものか。**食い違う id の削除の記録は数えない**
+   *   （削除として伝えると、他のマシンの別のプロジェクトを消す）
+   * - `dropped` … 外した手元のプロジェクトの id（設定画面が出す。削除の記録の id は、
+   *   知らせる相手が手元に居ないので入れない）
+   */
+  function dropForeign(all: SyncSource, base: SyncItems | null, remote: SyncItems) {
+    const foreign = foreignProjectIds([...all.projects, ...settings.deletedProjects], base, remote, isHostPlatform)
+    const kept = all.projects.filter((p) => !foreign.has(p.id))
+    return {
+      localSrc: { ...all, projects: kept },
+      deletedHere: (id: string) => settings.isProjectDeleted(id) && !foreign.has(id),
+      dropped: all.projects.filter((p) => foreign.has(p.id)).map((p) => p.id),
+    }
   }
 
   /** 導出のキー（古い版の Pike が読む）は今の値で入れ直す（`DERIVED_SETTING_KEYS`）。 */
@@ -442,14 +475,13 @@ export const useSyncStore = defineStore('sync', () => {
     // **プロジェクトの一覧が読み込み済みであることを確かめてから比べる。** 読み込みの前
     // （起動直後）に比べると、手元の一覧が空のまま「全部消した」と読まれて、他の PC からも消える。
     if (enabled.has('projects')) await projectStore.ensureListsLoaded()
-    const { snapshot, localSrc } = readLocal()
-    const m = mergeSyncItems(
-      storedBase && onlyCategories(storedBase, enabled),
-      onlyCategories(toItems(localSrc), enabled),
-      onlyCategories(remoteAll, enabled),
-      // このマシンで消したもの（削除の記録）は、全端末へ削除として伝える。
-      (id) => settings.isProjectDeleted(id),
-    )
+    const { snapshot, localSrc: all } = readLocal()
+    const base = storedBase && onlyCategories(storedBase, enabled)
+    const remote = onlyCategories(remoteAll, enabled)
+    // 同期する種類に絞ったものと比べる（プロジェクトを同期しないなら、外すものも無い）。
+    const { localSrc, deletedHere, dropped } = dropForeign(all, base, remote)
+    // このマシンで消したもの（削除の記録）は、全端末へ削除として伝える（`deletedHere`）。
+    const m = mergeSyncItems(base, onlyCategories(toItems(localSrc), enabled), remote, deletedHere)
     // 選んだ衝突は決着させる。残りは手元とリモートをそれぞれの値のまま残す。
     const forLocal = resolveSyncItems(m, choices, 'local')
     const forRemote = resolveSyncItems(m, choices, 'remote')
@@ -484,6 +516,7 @@ export const useSyncStore = defineStore('sync', () => {
       lastSyncedAt: now,
       conflicts: viewConflicts(pending, m),
       firstSync: storedBase === null,
+      foreignProjects: dropped,
     })
     return true
   }
@@ -549,6 +582,7 @@ export const useSyncStore = defineStore('sync', () => {
         message: '',
         conflicts: [],
         firstSync: false,
+        foreignProjects: [],
         lastSyncedAt: nextKey ? loadJson<string | null>(LAST_KEY_PREFIX + nextKey, null) : null,
       } satisfies Partial<SyncState>)
     }
@@ -583,10 +617,13 @@ export const useSyncStore = defineStore('sync', () => {
     const [raw] = await Promise.all([settingsSyncRead(path), projectStore.ensureListsLoaded()])
     if (raw === null) throw new Error(t('sync.importMissing'))
     const fileSrc = fromSyncFile(parseFile(raw))
-    const { localSrc } = readLocal()
+    const imported = toItems(fileSrc)
+    // 同じ id でも別のプロジェクトを指すエントリは、手元のものと比べない（#463）。手元から
+    // 外すと「手元に無いプロジェクト」になり、id が埋まっているので下の `creatable` にも入らない。
+    const { localSrc } = dropForeign(readLocal().localSrc, null, imported)
     // 手元で作られないプロジェクトは並べない（反映が黙って飛ばすもの。判定は反映と共有する）。
     const creatable = projectStore.creatableSyncedIds(fileSrc.projects)
-    const m = importSyncItems(toItems(localSrc), toItems(fileSrc), (id) => !creatable.has(id))
+    const m = importSyncItems(toItems(localSrc), imported, (id) => !creatable.has(id))
     importMerge = { m, localSrc }
     importReview.value = { path, items: viewConflicts(m.conflicts, m) }
     importMessage.value = ''
@@ -699,6 +736,7 @@ export const useSyncStore = defineStore('sync', () => {
     lastSyncedAt: computed(() => state.value.lastSyncedAt),
     conflicts: computed(() => state.value.conflicts),
     firstSync: computed(() => state.value.firstSync),
+    foreignProjects: computed(() => state.value.foreignProjects),
     categories: computed(() => state.value.categories),
     target: computed(() => state.value.target),
     hasTarget,

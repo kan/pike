@@ -303,6 +303,11 @@ const updater = useUpdater()
 
 const sync = useSyncStore()
 
+/** 同期から外しているプロジェクトの名前（#463。理由は `lib/syncFormat.ts` の `foreignProjectIds`）。 */
+const foreignProjectNames = computed(() =>
+  sync.foreignProjects.map((id) => projectStore.findProject(id)?.name ?? id).join(', '),
+)
+
 // --- 同期先（#403。マシンごと。持ち主は sync ストアで、main が同期する） ---
 
 const syncTargetOptions = SYNC_TARGET_KINDS.map((value) => ({ value, labelKey: `sync.target.${value}` }))
@@ -1469,6 +1474,10 @@ const PREVIEW_LINES = [
           </div>
           <p v-if="sync.hasTarget && projectStore.unsyncableProjects.length > 0" class="setting-hint">
             {{ t('settings.projectBaseOutside', { count: projectStore.unsyncableProjects.length }) }}
+          </p>
+          <!-- 同じ id の共有エントリが別のプラットフォームのプロジェクトを指している（#463）。 -->
+          <p v-if="foreignProjectNames" class="setting-hint">
+            {{ t('sync.foreignProjects', { names: foreignProjectNames }) }}
           </p>
         </SettingItem>
 

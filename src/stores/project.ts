@@ -4,7 +4,7 @@ import { confirmDialog, confirmWithOption, infoDialog } from '../composables/use
 import { locale, t } from '../i18n'
 import { restoreCommandFor } from '../lib/agents'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
-import { HOST_PLATFORMS, hostDefaultShell, isMacHost } from '../lib/host'
+import { HOST_PLATFORMS, hostDefaultShell, isHostPlatform, isMacHost } from '../lib/host'
 import { stripTrailingSep, wslNativeToUnc } from '../lib/paths'
 import {
   baseForPlatform,
@@ -920,7 +920,7 @@ export const useProjectStore = defineStore('project', () => {
     // WSL は distro が決まっていないと native パスを解決できない。
     const baseDirOf = (p: ProjectPlatform) => (p !== 'wsl' || base.wslDistro ? baseForPlatform(base, p) : '')
     if (!isProjectPlatform(entry.platform)) return null
-    if (HOST_PLATFORMS.includes(entry.platform)) {
+    if (isHostPlatform(entry.platform)) {
       const baseDir = baseDirOf(entry.platform)
       return baseDir ? { platform: entry.platform, baseDir, inferred: false } : null
     }
