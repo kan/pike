@@ -9,7 +9,7 @@ import { ArrowUp, RefreshCw, Smartphone } from 'lucide-vue-next'
 import { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
-import { confirmDialog, dialogOpen, promptDialog } from '../../composables/useConfirmDialog'
+import { choiceWithOption, confirmDialog, dialogOpen, promptDialog } from '../../composables/useConfirmDialog'
 import { type CsvCellRef, useCsvSelection } from '../../composables/useCsvSelection'
 import { type EditorActions, useEditorInfo } from '../../composables/useEditorInfo'
 import { markRecentlySaved } from '../../composables/useFsWatcher'
@@ -77,6 +77,7 @@ import { buildRstPreview } from '../../lib/rstPreview'
 import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
 import { editorChords } from '../../lib/shortcuts'
 import { createHeadingSlugger } from '../../lib/slug'
+import { loadJson, saveJson } from '../../lib/storage'
 import {
   type FileChunk,
   fsDirsExist,
@@ -228,6 +229,8 @@ const loadingMore = ref(false)
  */
 const hasMore = computed(() => !!partial.value && partial.value.nextOffset < partial.value.totalSize)
 const maxFileBytes = () => settingsStore.editorMaxFileSizeMb * 1024 * 1024
+/** 部分読み込み中のコピーの警告を「以降は出さない」にしたか（`warnPartialCopy`）。マシンローカル。 */
+const PARTIAL_COPY_KEY = 'pike:partial-copy-warned'
 let savedContent = ''
 const isDirty = ref(false)
 const currentEncoding = ref('UTF-8')
@@ -1186,6 +1189,43 @@ function loadMoreExtension() {
   })
 }
 
+/**
+ * 部分読み込み中のコピーが、読み込んだ範囲の末尾まで届いていたら知らせる。全選択して
+ * コピーすると、入るのは読み込んだ範囲だけで、ファイルの残りは入らない。黙っていると
+ * ファイル全体をコピーしたつもりになる（CSV の表が「全ページぶんをコピーする」と書いて
+ * あるのと同じで、見えている範囲とコピーされる範囲の食い違いを言う）。
+ *
+ * **コピーは止めない**（`false` を返して CodeMirror に任せる）。途中の数行を選んだだけの
+ * コピーには何も言わない。
+ *
+ * **ダイアログで知らせ、「以降は警告しない」を選べる**（利用者の判断。StatusBar だけだと
+ * 気付かない）。選んだあとは StatusBar にだけ出す。記録はマシンローカル（`PARTIAL_COPY_KEY`）で、
+ * **OK を押したときだけ書く**（Escape で閉じたときのチェックは読まない）。ほかのダイアログが
+ * 開いていたら割り込まず、StatusBar に出す。
+ */
+function warnPartialCopy(view: EditorView): boolean {
+  const p = partial.value
+  if (!p || !hasMore.value) return false
+  const end = view.state.doc.length
+  if (!view.state.selection.ranges.some((r) => !r.empty && r.to === end)) return false
+  const text = t('editor.partialCopy', {
+    loaded: formatFileSize(Math.min(p.nextOffset, p.totalSize)),
+    total: formatFileSize(p.totalSize),
+  })
+  if (loadJson<boolean>(PARTIAL_COPY_KEY, false) === true || dialogOpen()) {
+    statusMessageStore.show({ text, variant: 'warn', durationMs: 6000 })
+    return false
+  }
+  void choiceWithOption(
+    text,
+    [{ value: 'ok', label: t('common.ok'), primary: true }],
+    t('editor.partialCopyDontWarn'),
+  ).then(({ value, checked }) => {
+    if (value && checked) saveJson(PARTIAL_COPY_KEY, true)
+  })
+  return false
+}
+
 // 部分読み込みを使っていないタブ（ほとんど全部）では張り直さない。言語の切り替えは開いている
 // 全タブに届くので、空の行を空に張り直すだけの reconfigure がタブの数だけ走ることになる。
 watch([partial, loadingMore, locale], (_, [prevPartial]) => {
@@ -1629,6 +1669,7 @@ function createEditorView(container: HTMLElement, content: string) {
     highlightSelectionMatches(),
     conflictCompartment.of(conflictHighlight()),
     loadMoreCompartment.of(loadMoreExtension()),
+    EditorView.domEventHandlers({ copy: (_event, view) => warnPartialCopy(view) }),
     markdownCompartment.of(markdownAssist()),
     tabSizeCompartment.of(EditorState.tabSize.of(settingsStore.editorTabSize)),
     indentUnitCompartment.of(indentUnit.of(' '.repeat(settingsStore.editorTabSize))),

@@ -162,6 +162,8 @@ export default {
   'editor.openPartially': 'Load from the start (read-only)',
   'editor.revealInFolder': 'Show in Folder',
   'editor.partialLoaded': 'Showing the first {loaded} of {total}, read-only',
+  'editor.partialCopy': 'Copied only the loaded part (first {loaded} of {total}). Use "Load more" to read the rest',
+  'editor.partialCopyDontWarn': "Don't warn again",
   'editor.loadMore': 'Load more',
   'editor.loadMoreRemaining': 'Load more ({size} left)',
   'editor.reloadDiscardConfirm': 'Discard unsaved changes and reload from disk?',

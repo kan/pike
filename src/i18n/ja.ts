@@ -162,6 +162,9 @@ export default {
   'editor.openPartially': '先頭から読み込む（読み取り専用）',
   'editor.revealInFolder': 'フォルダを開く',
   'editor.partialLoaded': '{total} のうち先頭 {loaded} を読み取り専用で表示しています',
+  'editor.partialCopy':
+    '読み込んだ範囲だけをコピーしました（{total} のうち先頭 {loaded}）。残りは「続きを読む」で読み込めます',
+  'editor.partialCopyDontWarn': '以降は警告しない',
   'editor.loadMore': '続きを読む',
   'editor.loadMoreRemaining': '続きを読む（残り {size}）',
   'editor.reloadDiscardConfirm': '未保存の変更を破棄してディスクから読み直しますか？',
