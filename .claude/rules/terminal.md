@@ -34,6 +34,14 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
 - **PowerShell 7（pwsh、#127）**: Windows PowerShell 5（`ShellConfig::Powershell`）と併存する独立シェル種別 `ShellConfig::Pwsh` / `ShellType {kind:'pwsh'}`。`pty/mod.rs` の `find_pwsh()` が PATH → `C:\Program Files\PowerShell\7\pwsh.exe` → bare `pwsh.exe`（Store 版の実行エイリアス対策）の順で解決する。実在が確認できたものだけが要る呼び出し側は `find_pwsh_path`。`cls`/`;`/`$LASTEXITCODE` の PowerShell 系分岐は front `isPowershellFamily(kind)` で powershell/pwsh 共通化
 - 起動できるシェルの並びと表示/非表示（シェルプロファイル、#129）は `settings-ui.md`
 - **シェル未指定（`None`）の既定は OS で変わる**。Windows は WSL、macOS / Linux はログインシェル（`wsl.exe` が無いので WSL に落とすと即死する）
+- **復元したタブが真っ黒のまま残る件（#459）は原因が分かっていない。** 報告は「起動時に
+  見えていたタブで、キーにも反応せず、シェルの種類を問わず、直らない」。切り分けの記録だけ
+  入れてある（`TerminalTab.vue` の `SPAWN_STALL_MS` の doc と、`pty/mod.rs` の
+  `[pty] spawn start` / `done`）。**再発したらログの `[pty]` の行を見る**。原因が分かったら
+  Rust 側の 2 行は外してよい（ターミナルを開くたびに 2 行書く）
+  - 読んで見つけたが、この報告の症状とは合わないもの: spawn から `ptyRouter.register` までに
+    届いた出力は捨てられる（キーには反応するはず）。`pty_kill` は `sessions` のロックを握った
+    まま `PtySession` を落とす
 - 環境変数 `TERM=xterm-256color` を cmd 以外に設定
 - **WSL のターミナルに `BROWSER` を渡さない（#381 で見送った）**。Claude Code の `/login` のような「ブラウザを開く」は下の OSC 8 のリンクを押せば開く。`BROWSER` に Pike 自身を渡す形は次の 2 つで採らない
   - `cargo doc --open` や Python の `webbrowser` は URL ではなくローカルのパス（`file://`）を `$BROWSER` に渡すので、それが Pike のエディタで開く（xdg-open が動いていた環境では後退になる）

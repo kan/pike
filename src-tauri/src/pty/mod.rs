@@ -86,6 +86,12 @@ fn spawn_pty_with_command(
         msys,
         window_label,
     } = spec;
+    // 復元したタブが真っ黒のまま残る報告（#459）の切り分け用。フロントは `pty_spawn` が
+    // 戻らないと `[pty] spawn …: no response` を書くので、この 2 行と突き合わせると
+    // 「呼び出しが届いていない」「この関数の中で止まっている」「戻りが届いていない」を
+    // 分けられる。原因が分かったら外してよい。
+    let started = std::time::Instant::now();
+    log::info!("[pty] spawn start id={id} window={window_label} {cols}x{rows}");
     let pty_system = native_pty_system();
 
     let size = PtySize {
@@ -224,6 +230,10 @@ fn spawn_pty_with_command(
         }
     });
 
+    log::info!(
+        "[pty] spawn done id={id} {}ms",
+        started.elapsed().as_millis()
+    );
     Ok(PtySpawnResult { id })
 }
 

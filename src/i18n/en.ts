@@ -252,6 +252,7 @@ export default {
 
   // Terminal
   'terminal.failedSpawn': '[Failed to spawn PTY: {error}]',
+  'terminal.spawnWaiting': '[Waiting for the shell to start…]',
   'terminal.exited': '[Process exited with code {code}]',
   'terminal.wslElevationNotice': "Administrator doesn't apply inside WSL — use sudo for root.",
   'terminal.agentLaunch': 'Launch coding agent',

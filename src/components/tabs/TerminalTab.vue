@@ -29,7 +29,7 @@ import { isAbsolutePath } from '../../lib/paths'
 import { readableTextOn } from '../../lib/projectColors'
 import { rootKey } from '../../lib/projectPaths'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
-import { ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
+import { logFrontend, ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
 import {
   asPathHeader,
   findPathLinks,
@@ -56,6 +56,21 @@ const props = defineProps<{
 }>()
 
 const SPAWN_GRACE_PERIOD_MS = 2000
+
+/**
+ * 復元したタブが真っ黒のまま残る報告（#459）を切り分けるための見張り。**原因はまだ
+ * 分かっていない**ので、次に起きたときにログから 3 つを分けられるようにしてある:
+ *
+ * - `pty_spawn` が戻らない … `no response after` の行が出る（Rust 側の `[pty] spawn` の
+ *   行と突き合わせると、IPC が届いていないのか Rust の中で止まっているのかも分かる）
+ * - 戻ったが 1 バイトも出力が来ない … `no output` の行が出る
+ * - どちらの行も無いのに黒い … 出力は届いていて、描画が止まっている
+ *
+ * 5 秒は `lib/tauri.ts` の `inOrder` の見張り（#415）と同じ。冷えた WSL の起動は数秒
+ * かかるので、出力の側は長めに取る。
+ */
+const SPAWN_STALL_MS = 5_000
+const NO_OUTPUT_MS = 15_000
 
 /** xterm が Backspace として送るバイト。IME 確定直後の誤送出の判定にも使う。 */
 const DEL = '\x7f'
@@ -377,6 +392,9 @@ let searchAddon: SearchAddon | null = null
 let ptyId: string | null = null
 /** このターミナルを開いたときに、同梱の mod を読み込ませたか（#437）。設定の今の値ではない。 */
 let modLoaded = false
+/** `SPAWN_STALL_MS` / `NO_OUTPUT_MS` の見張り（#459）。用が済んだら null。 */
+let spawnWatchdog: ReturnType<typeof setTimeout> | null = null
+let outputWatchdog: ReturnType<typeof setTimeout> | null = null
 
 // --- 検索 ---------------------------------------------------------------------
 //
@@ -851,10 +869,23 @@ onMounted(async () => {
   modLoaded = spawnOpts.agentMod
 
   let spawnedAt = 0
+  // 戻らないまま黙って黒い画面で残さない（#459。`SPAWN_STALL_MS` の doc）。
+  const spawnAsked = performance.now()
+  const spawnLabel = `${spawnOpts.shell?.kind ?? 'default'} tab=${props.tabId}`
+  let spawnStalled = false
+  spawnWatchdog = setTimeout(() => {
+    spawnStalled = true
+    logFrontend('warn', `[pty] spawn ${spawnLabel}: no response after ${SPAWN_STALL_MS}ms`)
+    terminal?.write(`${t('terminal.spawnWaiting')}\r\n`)
+  }, SPAWN_STALL_MS)
   try {
     const result = await ptySpawn(cols, rows, spawnOpts)
     ptyId = result.id
     spawnedAt = Date.now()
+    if (spawnStalled) {
+      const ms = Math.round(performance.now() - spawnAsked)
+      logFrontend('warn', `[pty] spawn ${spawnLabel}: returned after ${ms}ms (pty=${ptyId})`)
+    }
     tabStore.setPtyId(props.tabId, ptyId)
     // 起動ボタンに何を出すか（#275）。待たない。
     detectAgents()
@@ -868,7 +899,17 @@ onMounted(async () => {
     // -1 indicates spawn failure so the badge distinguishes it from a real exit code
     tabStore.reportExit(props.tabId, -1)
     return
+  } finally {
+    if (spawnWatchdog) clearTimeout(spawnWatchdog)
+    spawnWatchdog = null
   }
+
+  // シェルは起動すれば必ず何か出す（プロンプトか、下で流す初期化行のエコー）。
+  const spawnedPtyId = ptyId
+  outputWatchdog = setTimeout(() => {
+    outputWatchdog = null
+    logFrontend('warn', `[pty] ${spawnLabel}: no output ${NO_OUTPUT_MS}ms after spawn (pty=${spawnedPtyId})`)
+  }, NO_OUTPUT_MS)
 
   // Bell-driven activity: TUIs (Claude Code, shells with `\a` in PS1, etc.)
   // ring BEL when they want attention. Marking activity on every byte of
@@ -882,6 +923,10 @@ onMounted(async () => {
   ptyRouter.register(
     ptyId,
     (data) => {
+      if (outputWatchdog) {
+        clearTimeout(outputWatchdog)
+        outputWatchdog = null
+      }
       termRef_.write(data)
       // 「今ちゃんと動いているか」の目安（#319）。**出力のたびに来る**ので、ここでは
       // 時刻を 1 つ置くだけ（`markTerminalOutput` の doc）。
@@ -949,7 +994,10 @@ onMounted(async () => {
     if (initLines.length > 0) {
       setTimeout(() => {
         termRef_.clear()
-        ptyWrite(currentPtyId, `${initLines.join('\r')}\r`).catch(() => {})
+        // 画面を消したあとでこれが届かないと、何も出ていないターミナルが残る（#459）。
+        ptyWrite(currentPtyId, `${initLines.join('\r')}\r`).catch((e) => {
+          logFrontend('warn', `[pty] ${spawnLabel}: init lines not written (pty=${currentPtyId}): ${String(e)}`)
+        })
       }, 100)
     }
   }
@@ -1239,6 +1287,8 @@ onUnmounted(() => {
   window.removeEventListener('mousedown', closeAgentMenu)
   window.removeEventListener('mousedown', closePromptMenu)
   if (resizeTimer) clearTimeout(resizeTimer)
+  if (spawnWatchdog) clearTimeout(spawnWatchdog)
+  if (outputWatchdog) clearTimeout(outputWatchdog)
   resizeObserver?.disconnect()
   unregisterTerminalPeek(props.tabId)
   if (ptyId) {

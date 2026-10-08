@@ -252,6 +252,7 @@ export default {
 
   // Terminal
   'terminal.failedSpawn': '[PTY の起動に失敗: {error}]',
+  'terminal.spawnWaiting': '[シェルの起動を待っています…]',
   'terminal.exited': '[プロセスが終了しました (コード {code})]',
   'terminal.wslElevationNotice': '管理者権限は WSL 内では効きません（root には sudo を使用）',
   'terminal.agentLaunch': 'コーディングエージェントを起動',
