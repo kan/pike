@@ -7,3 +7,6 @@
 
 # style: Rust 全体を cargo fmt に通す (#313)
 bc5a0f3544fdeacc72dcb03d5d56db48caada73c
+
+# style: Rust の整形を style edition 2024 に切り替える (#458)
+73cc7fcde0a98ff8042a836b955942558f65ffd9
