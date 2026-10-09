@@ -442,6 +442,31 @@ export function foreignProjectIds(
 }
 
 /**
+ * 同期から外れたプロジェクト（`foreignProjectIds`）を同期に戻すときの、寄せる先の候補（#463）。
+ * 共有されているエントリのうち、**同じリポジトリ（正規化した origin）を同じプラットフォームで
+ * 指していて、手元がまだ使っていない id のもの**。呼び出し側は手元の id をこの id へ
+ * 付け替える（`stores/project.ts` の `rejoinProject`）。
+ *
+ * - **プラットフォームをそろえる**のは、そろえないと付け替えた先でまた食い違って外れるため
+ * - **origin が無ければ候補を出さない**。名前やパスの一致では同じリポジトリと言えず、別物の
+ *   エントリへ寄せると #463 の取り合いを自分で作る
+ * - `taken` には、手元の一覧にある id と、このマシンで消した記録のある id を渡す（消したものの
+ *   id を使い回すと、そのエントリの削除を取り消すことになる）
+ *
+ * `normalize` を引数で受けるのは、このモジュールを origin の正規化の実装に依存させないため。
+ */
+export function rejoinCandidates(
+  project: Pick<SyncedProject, 'platform' | 'remoteUrl'>,
+  shared: readonly SyncedProject[],
+  taken: (id: string) => boolean,
+  normalize: (url: string | undefined) => string | null,
+): SyncedProject[] {
+  const remote = normalize(project.remoteUrl)
+  if (!remote) return []
+  return shared.filter((s) => s.platform === project.platform && !taken(s.id) && normalize(s.remoteUrl) === remote)
+}
+
+/**
  * インポート（#403 の段階 5）。**取り込むファイルの値を手元に重ねたもの**をリモートとし、
  * 手元と違う項目を全部「選ぶ対象」（`conflicts`）として並べる。`resolveSyncItems` に
  * `fallback: 'local'` で渡せば、選んだものだけを取り込んだ手元になる。

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { fsWatcher } from '../composables/useFsWatcher'
 import { pathSep } from '../lib/paths'
+import { PROJECT_KEY_PREFIX } from '../lib/projectStorage'
 import { loadJson, saveJson } from '../lib/storage'
 import type { FsEntry } from '../lib/tauri'
 import { fsListDir } from '../lib/tauri'
@@ -39,7 +40,7 @@ export const useFileTreeStore = defineStore('fileTree', () => {
   let saveTimer: ReturnType<typeof setTimeout> | null = null
 
   function storageKey(projectId: string): string {
-    return `pike:fileTree:expanded:${projectId}`
+    return PROJECT_KEY_PREFIX.treeExpanded + projectId
   }
 
   function saveExpanded() {

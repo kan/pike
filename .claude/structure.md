@@ -234,6 +234,7 @@ pike/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── errorLog.ts        # フロントの例外をログファイルへ流す受け口と間引き（#415）
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
+│   │   ├── projectStorage.ts # プロジェクト id を鍵に持つ localStorage の項目の表と、id の付け替えでの移し替え（#463）
 │   │   ├── reorder.ts        # ドラッグでの並べ替え（プロジェクト一覧とサイドバーのアイコン列、#364）
 │   │   ├── scrollFollow.ts   # 分割表示のスクロール同期の向き（跳ね返りを写し返さない、#465）
 │   │   ├── syncMerge.ts      # 設定の同期の 3-way マージ（#403。種別を知らない純粋な計算）

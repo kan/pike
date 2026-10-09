@@ -533,7 +533,17 @@ export default {
   'sync.openConflicts': '衝突を解消',
   'sync.originsAligned': '{count} 件のリポジトリの origin を同期された URL に合わせました。',
   'sync.foreignProjects':
-    '次のプロジェクトは同期していません。同期先にある同じ id のエントリと、プラットフォーム（WSL / Windows）が違います: {names}',
+    '次のプロジェクトは同期していません。同期先にある同じ id のエントリと、プラットフォーム（WSL / Windows）が違います。',
+  'sync.rejoin': '同期に戻す',
+  'sync.rejoinNew': '新しい id で同期に戻す',
+  'sync.rejoinConfirm':
+    '「{name}」を、同期先にある同じリポジトリのエントリ「{target}」として同期します。名前やカラーなどはそのエントリの値に変わります。id を付け替えるので、元には戻せません。',
+  'sync.rejoinNewConfirm':
+    '「{name}」に新しい id を付けて同期します。同期先に同じリポジトリのエントリが無いので、新しいエントリとして出て行きます。id を付け替えるので、元には戻せません。',
+  'sync.rejoinStale':
+    '「{name}」を同期に戻せませんでした。一覧が古くなっています。「今すぐ同期」を押してから、もう一度試してください。',
+  'sync.rejoinHeld':
+    '「{name}」を開いているウィンドウがあります。すべてのウィンドウで閉じて（保持も解除して）から、もう一度試してください。',
   'sync.categories': '同期する対象',
   'sync.categoriesHint':
     'このマシンで同期する種類を選びます（この選択は同期しません）。外した種類は、同期ファイルの中身をそのまま残します。',

@@ -303,10 +303,30 @@ const updater = useUpdater()
 
 const sync = useSyncStore()
 
-/** 同期から外しているプロジェクトの名前（#463。理由は `lib/syncFormat.ts` の `foreignProjectIds`）。 */
-const foreignProjectNames = computed(() =>
-  sync.foreignProjects.map((id) => projectStore.findProject(id)?.name ?? id).join(', '),
+/**
+ * 同期から外しているプロジェクト（#463。理由は `lib/syncFormat.ts` の `foreignProjectIds`）と、
+ * 同期に戻すときに寄せる先。候補が複数あるときだけ選ばせ、選んでいなければ先頭にする。
+ */
+const rejoinChoice = ref<Record<string, string>>({})
+const foreignProjects = computed(() =>
+  sync.foreignProjects.map((f) => {
+    const chosen = f.candidates.find((c) => c.id === rejoinChoice.value[f.id]) ?? f.candidates[0] ?? null
+    return { ...f, name: projectStore.findProject(f.id)?.name ?? f.id, target: chosen }
+  }),
 )
+
+/**
+ * 外したプロジェクトを同期に戻す。**確認を挟む**: 寄せる先があれば名前やカラーが共有の
+ * エントリの値に変わり、id の付け替えは元に戻す操作を持たない。実行は main（`sync.rejoin`）で、
+ * 結果は同期の状態の欄に出る。
+ */
+async function rejoinForeign(f: (typeof foreignProjects.value)[number]) {
+  const message = f.target
+    ? t('sync.rejoinConfirm', { name: f.name, target: f.target.name })
+    : t('sync.rejoinNewConfirm', { name: f.name })
+  if (!(await confirmDialog(message))) return
+  sync.rejoin(f.id, f.target?.id ?? null)
+}
 
 // --- 同期先（#403。マシンごと。持ち主は sync ストアで、main が同期する） ---
 
@@ -1476,9 +1496,27 @@ const PREVIEW_LINES = [
             {{ t('settings.projectBaseOutside', { count: projectStore.unsyncableProjects.length }) }}
           </p>
           <!-- 同じ id の共有エントリが別のプラットフォームのプロジェクトを指している（#463）。 -->
-          <p v-if="foreignProjectNames" class="setting-hint">
-            {{ t('sync.foreignProjects', { names: foreignProjectNames }) }}
-          </p>
+          <template v-if="foreignProjects.length > 0">
+            <p class="setting-hint">{{ t('sync.foreignProjects') }}</p>
+            <div class="setting-list" data-testid="sync-foreign-list">
+              <div v-for="f in foreignProjects" :key="f.id" class="setting-list-row">
+                <span class="setting-list-name">{{ f.name }}</span>
+                <!-- 寄せる先が複数ある（同じリポジトリのエントリが重複している）ときだけ選ばせる。 -->
+                <!-- `v-model` にしない: 選ぶ前は値が無く、欄が空のまま先頭の候補が使われる。 -->
+                <select
+                  v-if="f.candidates.length > 1"
+                  class="setting-select"
+                  :value="f.target?.id"
+                  @change="rejoinChoice[f.id] = ($event.target as HTMLSelectElement).value"
+                >
+                  <option v-for="c in f.candidates" :key="c.id" :value="c.id">{{ c.name }}（{{ c.id }}）</option>
+                </select>
+                <button class="setting-btn" :disabled="sync.syncing" @click="rejoinForeign(f)">
+                  {{ t(f.target ? 'sync.rejoin' : 'sync.rejoinNew') }}
+                </button>
+              </div>
+            </div>
+          </template>
         </SettingItem>
 
         <!-- 同期先に依らず使える（同期しないマシンでもバックアップは取れる）。 -->

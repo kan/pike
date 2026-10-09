@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { normalizeSep, toRelativePath } from '../lib/paths'
+import { PROJECT_ID_LIST_KEY, replaceProjectId } from '../lib/projectStorage'
 import { loadJson, saveJson } from '../lib/storage'
 import { diagnosticsRun } from '../lib/tauri'
 import type { Diagnostic, ProviderRun } from '../types/diagnostics'
@@ -11,7 +12,7 @@ import { useProjectStore } from './project'
  *  choice — and a per-project one, since a single global flag would start
  *  running another project's (possibly containerized) linter the moment its
  *  Problems panel opened. */
-const GOLANGCI_KEY = 'pike:diagnostics-golangci'
+const GOLANGCI_KEY = PROJECT_ID_LIST_KEY.golangci
 
 function loadGolangciProjects(): string[] {
   const raw = loadJson<unknown>(GOLANGCI_KEY, [])
@@ -161,6 +162,16 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     }
   }
 
+  /**
+   * プロジェクトの id が付け替えられた（#463）。保存したぶんは `moveProjectStorage` が移すので、
+   * ここはこのウィンドウの写しだけを直す（直さないと、次にトグルを押したときに古い一覧を
+   * 書き戻して、付け替えたプロジェクトの選択が消える）。
+   */
+  function renameProject(from: string, to: string) {
+    if (!golangciProjects.value.includes(from)) return
+    golangciProjects.value = replaceProjectId(golangciProjects.value, from, to)
+  }
+
   /** Add or drop golangci-lint for this project, then re-check with it. */
   function toggleGolangci() {
     const id = useProjectStore().currentProject?.id
@@ -222,6 +233,7 @@ export const useDiagnosticsStore = defineStore('diagnostics', () => {
     forFile,
     run,
     toggleGolangci,
+    renameProject,
     triggerAutoRun,
     clear,
   }

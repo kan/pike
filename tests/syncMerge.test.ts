@@ -1,7 +1,7 @@
 // 同期の 3-way マージ（#403）。`just test-ts` で走る（`tsx --test`、node:test）。
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { isRespelling } from '../src/lib/gitRemote.ts'
+import { isRespelling, normalizeRemoteUrl } from '../src/lib/gitRemote.ts'
 import {
   categoryOf,
   DEFAULT_SYNC_CATEGORIES,
@@ -13,6 +13,7 @@ import {
   mergeSyncItems,
   nextBaseline,
   parseItemKey,
+  rejoinCandidates,
   resolveSyncItems,
   type SyncSource,
   toItems,
@@ -442,6 +443,60 @@ describe('選択時にコピーの古い真偽値（#408）', () => {
     assert.equal(modeOf({ terminalCopyOnSelect: true, terminalCopyOnSelectMode: 'always' }), 'always')
     assert.equal(modeOf({ terminalCopyOnSelect: false, terminalCopyOnSelectMode: 'off' }), 'off')
     assert.equal(modeOf({ terminalCopyOnSelectMode: 'ask' }), 'ask')
+  })
+})
+
+describe('同期に戻す（#463）', () => {
+  const ssh = 'git@github.com:kan/dotfiles.git'
+  const https = 'https://github.com/kan/dotfiles'
+  const candidates = (
+    project: Pick<SyncedProject, 'platform' | 'remoteUrl'>,
+    shared: SyncedProject[],
+    taken: string[] = [],
+  ) => rejoinCandidates(project, shared, (id) => taken.includes(id), normalizeRemoteUrl).map((s) => s.id)
+
+  test('同じリポジトリを同じプラットフォームで指すエントリだけが候補になる', () => {
+    const shared = [
+      proj('dotfiles', { platform: 'wsl', remoteUrl: ssh }),
+      proj('dotfiles-89781', { platform: 'windows', remoteUrl: https }),
+      proj('other', { platform: 'windows', remoteUrl: 'https://github.com/kan/pike' }),
+    ]
+    // origin の書き方（ssh / https）が違っても同じリポジトリ。
+    assert.deepEqual(candidates({ platform: 'windows', remoteUrl: ssh }, shared), ['dotfiles-89781'])
+    assert.deepEqual(candidates({ platform: 'wsl', remoteUrl: https }, shared), ['dotfiles'])
+  })
+
+  test('手元が使っている id と、消した記録のある id は候補にしない', () => {
+    const shared = [proj('dotfiles-89781', { remoteUrl: https }), proj('dotfiles-24037', { remoteUrl: https })]
+    assert.deepEqual(candidates({ platform: 'windows', remoteUrl: https }, shared, ['dotfiles-89781']), [
+      'dotfiles-24037',
+    ])
+  })
+
+  test('origin が無ければ候補を出さない', () => {
+    const shared = [proj('dotfiles', { remoteUrl: undefined })]
+    assert.deepEqual(candidates({ platform: 'windows', remoteUrl: undefined }, shared), [])
+    assert.deepEqual(candidates({ platform: 'windows', remoteUrl: https }, shared), [])
+  })
+
+  test('寄せたあとの同期は何も変えず、元の id のエントリも据え置く', () => {
+    // 共有: `dotfiles` は WSL 側、`dotfiles-89781` は Windows 側。このマシンは `dotfiles` を
+    // Windows 側に使っていたので外れていた。id を `dotfiles-89781` へ付け替え、値もそろえた。
+    const wsl = proj('dotfiles', { platform: 'wsl', name: 'dotfiles_wsl', remoteUrl: ssh })
+    const win = proj('dotfiles-89781', { platform: 'windows', name: 'dotfiles_win', remoteUrl: https })
+    const shared = src({ projects: [wsl, win] })
+    const local = src({ projects: [{ ...win, path: 'elsewhere/dotfiles' }] })
+    const r = merge(shared, local, shared)
+    assert.deepEqual(r.conflicts, [])
+    const out = fromItems(resolveSyncItems(r, new Map(), 'remote')).projects
+    assert.deepEqual(
+      out.find((p) => p.id === 'dotfiles'),
+      wsl,
+    )
+    assert.deepEqual(
+      out.find((p) => p.id === 'dotfiles-89781'),
+      win,
+    )
   })
 })
 

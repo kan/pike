@@ -27,7 +27,7 @@ import { emit, listen } from '@tauri-apps/api/event'
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { t } from '../i18n'
-import { isRespelling } from '../lib/gitRemote'
+import { isRespelling, normalizeRemoteUrl } from '../lib/gitRemote'
 import { isHostPlatform } from '../lib/host'
 import { loadJson, saveJson } from '../lib/storage'
 import {
@@ -45,6 +45,7 @@ import {
   nextBaseline,
   onlyCategories,
   parseItemKey,
+  rejoinCandidates,
   resolveSyncItems,
   SYNC_CATEGORIES,
   type SyncCategory,
@@ -70,6 +71,7 @@ import {
   syncGistWrite,
 } from '../lib/tauri'
 import { isMainWindow, windowFocused } from '../lib/window'
+import type { SyncedProject } from '../types/project'
 import { useGitStore } from './git'
 import { type RemoteChange, useProjectStore } from './project'
 import { type PersistedSettings, useSettingsStore } from './settings'
@@ -131,6 +133,15 @@ export interface SyncConflictView extends SyncConflict {
 }
 
 /**
+ * 同期から外しているプロジェクト 1 件と、同期に戻すときに寄せる先の候補（`rejoinCandidates`）。
+ * 候補は共有されているエントリの id と名前だけを配る（中身は main が持つ）。
+ */
+export interface ForeignProject {
+  id: string
+  candidates: { id: string; name: string }[]
+}
+
+/**
  * 同期の状態。**main が持ち、他のウィンドウへ丸ごと配る。** 同期先と同期する種類も
  * ここに入れる: どのウィンドウからでも変えられるが、各ウィンドウが自分で読んだ値を持つと、
  * main は古い同期先で同期し続け、他のウィンドウの設定画面は古い選択を出し続ける。
@@ -143,10 +154,11 @@ interface SyncState {
   /** 前回同期した時点の内容が無い（初めての同期）。衝突の画面が説明を足す。 */
   firstSync: boolean
   /**
-   * 同期から外している手元のプロジェクトの id（#463。同じ id の共有エントリが別の
-   * プラットフォームのプロジェクトを指している。`foreignProjectIds`）。設定画面が理由を出す。
+   * 同期から外している手元のプロジェクト（#463。同じ id の共有エントリが別の
+   * プラットフォームのプロジェクトを指している。`foreignProjectIds`）。設定画面が理由と、
+   * 同期に戻す操作を出す。
    */
-  foreignProjects: string[]
+  foreignProjects: ForeignProject[]
   categories: SyncCategory[]
   target: SyncTargetConfig
 }
@@ -155,7 +167,11 @@ interface SyncState {
  * 他のウィンドウから main への依頼。`focus` は「そのウィンドウが前に出た」の知らせで、
  * 自動の同期は main のウィンドウでなくても、Pike が前に出たら他の PC の変更を拾う。
  */
-type SyncCommand = { kind: 'state' } | { kind: 'focus' } | { kind: 'sync'; choices?: [string, Side][] }
+type SyncCommand =
+  | { kind: 'state' }
+  | { kind: 'focus' }
+  | { kind: 'sync'; choices?: [string, Side][] }
+  | { kind: 'rejoin'; id: string; target: string | null }
 
 /** 同期先の読み書き。`revision` は「読んだときから変わっていないか」を比べる印。 */
 interface SyncBackend {
@@ -383,6 +399,64 @@ export const useSyncStore = defineStore('sync', () => {
     }
   }
 
+  /**
+   * 外したプロジェクトと、寄せる先の候補の中身（main だけが持つ。直近の同期で読んだ共有の
+   * エントリ）。**出典はこの 1 本**で、配る形（`ForeignProject`＝id と名前だけ）は
+   * `foreignView` がここから作る。
+   */
+  let foreign: { id: string; candidates: SyncedProject[] }[] = []
+
+  const foreignView = (): ForeignProject[] =>
+    foreign.map((f) => ({ id: f.id, candidates: f.candidates.map((s) => ({ id: s.id, name: s.name })) }))
+
+  /** 外したプロジェクトの候補を、読んだばかりのリモートから求める（`rejoinCandidates`）。 */
+  function findRejoinTargets(dropped: string[], all: SyncSource, remote: SyncItems) {
+    const shared = dropped.length > 0 ? fromItems(remote).projects : []
+    foreign = dropped.map((id) => {
+      const project = all.projects.find((p) => p.id === id)
+      const candidates = project
+        ? rejoinCandidates(project, shared, projectStore.isProjectIdTaken, normalizeRemoteUrl)
+        : []
+      return { id, candidates }
+    })
+  }
+
+  /**
+   * 外したプロジェクトを同期に戻す（main だけが呼ぶ。#463）。`target` は寄せる先の id で、
+   * 候補が無いときだけ null（新しい id を振る）。**候補は main が直近の同期で求めたものに
+   * 限る**: 依頼は他のウィンドウからも来るので、届いた id をそのまま信じると、別のプロジェクトの
+   * エントリへ寄せられる。付け替えたら続けて同期する（外れていたぶんがその場で入る）。
+   */
+  async function runRejoin(id: string, target: string | null) {
+    const name = projectStore.findProject(id)?.name ?? id
+    const fail = (message: string) => setState({ status: 'error', message })
+    const candidates = foreign.find((f) => f.id === id)?.candidates
+    const shared = target === null ? null : candidates?.find((s) => s.id === target)
+    // 頼んだ側の一覧が古い（黙って抜けると、押したのに何も起きないボタンになる）。
+    if (!candidates || shared === undefined || (shared === null && candidates.length > 0)) {
+      fail(t('sync.rejoinStale', { name }))
+      return
+    }
+    try {
+      const result = await projectStore.rejoinProject(id, shared)
+      if (result !== 'ok') {
+        fail(t(result === 'held' ? 'sync.rejoinHeld' : 'sync.rejoinStale', { name }))
+        return
+      }
+    } catch (e) {
+      fail(describeError(e))
+      return
+    }
+    // **一覧からここで外す。** 続く同期が失敗すると（オフライン、`gh` が未ログイン）一覧が
+    // 作り直されず、もう無い id の行が残って、押しても何も起きない。
+    foreign = foreign.filter((f) => f.id !== id)
+    setState({ foreignProjects: foreignView() })
+    // 付け替えは手元の一覧の変更でもあるので、変更の監視がこのあともう 1 回同期を予約する
+    // （中身が変わらなければ何も書かない）。`appliedAt` で黙らせない: あれは同期の反映の印で、
+    // 下の同期が失敗したときに、やり直す契機まで消してしまう。
+    await runSync(new Map())
+  }
+
   /** 導出のキー（古い版の Pike が読む）は今の値で入れ直す（`DERIVED_SETTING_KEYS`）。 */
   const derivedOf = (s: PersistedSettings) =>
     Object.fromEntries(DERIVED_SETTING_KEYS.map((k) => [k, s[k]])) as Pick<PersistedSettings, DerivedSettingKey>
@@ -510,13 +584,15 @@ export const useSyncStore = defineStore('sync', () => {
 
     const pending = m.conflicts.filter((c) => !choices.has(c.key))
     if (!isCurrent(backend)) return true
+    // 反映のあとに求める（この同期で作られたプロジェクトの id を候補から外すため）。
+    findRejoinTargets(dropped, all, remote)
     setState({
       status: pending.length > 0 ? 'conflicts' : 'synced',
       message: summary,
       lastSyncedAt: now,
       conflicts: viewConflicts(pending, m),
       firstSync: storedBase === null,
-      foreignProjects: dropped,
+      foreignProjects: foreignView(),
     })
     return true
   }
@@ -538,6 +614,15 @@ export const useSyncStore = defineStore('sync', () => {
   }
 
   const syncNow = () => resolveConflicts(new Map())
+
+  /** 外したプロジェクトを同期に戻す（#463。どのウィンドウからでも呼べる。実行は main）。 */
+  function rejoin(id: string, target: string | null): void {
+    if (isMainWindow()) {
+      chain = chain.then(() => runRejoin(id, target))
+      return
+    }
+    void emit(COMMAND_EVENT, { kind: 'rejoin', id, target } satisfies SyncCommand)
+  }
 
   /** マシンごとの設定を書いたあと、main に読み直して配り直してもらう。 */
   function afterLocalConfigChange() {
@@ -577,6 +662,7 @@ export const useSyncStore = defineStore('sync', () => {
     const nextKey = backendFor(target)?.key
     const patch: Partial<SyncState> = { categories: loadSyncCategories(), target }
     if (prevKey !== nextKey) {
+      foreign = []
       Object.assign(patch, {
         status: 'idle',
         message: '',
@@ -694,6 +780,7 @@ export const useSyncStore = defineStore('sync', () => {
       // 状態の問い合わせではマシンごとの設定も読み直す（他のウィンドウが書き換えた直後に来る）。
       if (cmd.kind === 'state') reloadConfig()
       else if (cmd.kind === 'focus') onFocus()
+      else if (cmd.kind === 'rejoin') rejoin(cmd.id, cmd.target)
       else resolveConflicts(new Map(cmd.choices ?? []))
     })
     // 起動時。プロジェクトの一覧の読み込みを待つ（`syncOnce` も確かめるが、起動の混雑を避ける）。
@@ -745,6 +832,7 @@ export const useSyncStore = defineStore('sync', () => {
     setTarget,
     createGist,
     syncNow,
+    rejoin,
     resolveConflicts,
     importReview,
     importMessage,

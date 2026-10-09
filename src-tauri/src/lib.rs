@@ -1921,6 +1921,7 @@ pub fn run() {
             project::project_get,
             project::project_create,
             project::project_update,
+            project::project_rename,
             project::project_delete,
             project::project_groups_list,
             project::project_groups_save,

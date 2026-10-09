@@ -80,6 +80,18 @@ fn store(app: &AppHandle, map: &HashMap<String, Geometry>) {
     let _ = std::fs::write(path, bytes);
 }
 
+/// プロジェクトの id を付け替えたとき（`project_rename`、#463）に、覚えていた位置を新しい
+/// id へ移す。移さないと、付け替えたあとの最初の 1 回だけ既定の大きさで開く。新しい id の
+/// 側に既に記録があれば、そちらを残す。
+pub fn rename_key(app: &AppHandle, from: &str, to: &str) {
+    let mut map = load(app);
+    let Some(geometry) = map.remove(from) else {
+        return;
+    };
+    map.entry(to.to_owned()).or_insert(geometry);
+    store(app, &map);
+}
+
 /// Geometry key for a window: the project it currently shows, or `GLOBAL_KEY` for
 /// a project-less one. `main` is recorded too, even though the plugin restores it
 /// by label: the first restored project opens in main, and without this its size

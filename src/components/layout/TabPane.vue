@@ -17,6 +17,7 @@
 import { computed, defineAsyncComponent, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useDragResize } from '../../composables/useDragResize'
 import { useI18n } from '../../i18n'
+import { PROJECT_KEY_PREFIX } from '../../lib/projectStorage'
 import { actionChord } from '../../lib/shortcuts'
 import { loadJson, saveJson } from '../../lib/storage'
 import { useProjectStore } from '../../stores/project'
@@ -103,7 +104,7 @@ function isPaneEmpty(pane: PaneId): boolean {
  */
 const SPLIT_MIN = 0.15
 const SPLIT_MAX = 0.85
-const splitKey = computed(() => `pike:split-ratio:${projectStore.currentProject?.id ?? 'global'}`)
+const splitKey = computed(() => PROJECT_KEY_PREFIX.splitRatio + (projectStore.currentProject?.id ?? 'global'))
 const splitRatio = ref(loadJson<number>(splitKey.value, 0.5))
 const rowRef = useTemplateRef<HTMLElement>('rowRef')
 

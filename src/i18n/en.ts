@@ -537,7 +537,16 @@ export default {
   'sync.openConflicts': 'Resolve conflicts',
   'sync.originsAligned': 'Updated the origin of {count} repository(ies) to the synced URL.',
   'sync.foreignProjects':
-    'These projects are not synced. The synced entry with the same id is on a different platform (WSL / Windows): {names}',
+    'These projects are not synced. The synced entry with the same id is on a different platform (WSL / Windows).',
+  'sync.rejoin': 'Sync again',
+  'sync.rejoinNew': 'Sync again with a new id',
+  'sync.rejoinConfirm':
+    'Sync "{name}" as the entry "{target}" that the sync target has for the same repository. Its name, color and other shared fields change to that entry\'s values. This changes the project id and cannot be undone.',
+  'sync.rejoinNewConfirm':
+    'Sync "{name}" under a new id. The sync target has no entry for the same repository, so it goes out as a new entry. This changes the project id and cannot be undone.',
+  'sync.rejoinStale': 'Could not sync "{name}" again: the list is out of date. Press "Sync now", then try again.',
+  'sync.rejoinHeld':
+    '"{name}" is open in a window. Close it in every window (and release it if it is held), then try again.',
   'sync.categories': 'What to sync',
   'sync.categoriesHint':
     'The kinds this machine syncs (this choice itself is not synced). Kinds you turn off are left as they are in the sync file.',

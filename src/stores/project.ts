@@ -15,6 +15,7 @@ import {
   relativeToBase,
   rootKey,
 } from '../lib/projectPaths'
+import { moveProjectStorage, PROJECT_KEY_PREFIX } from '../lib/projectStorage'
 import { menuActions } from '../lib/shortcuts'
 import { loadJson, pushRecent } from '../lib/storage'
 import { stableKey } from '../lib/syncMerge'
@@ -32,6 +33,7 @@ import {
   projectGroupsList,
   projectGroupsSave,
   projectList,
+  projectRename,
   projectSetParked,
   projectTransientBind,
   projectTransientCreate,
@@ -67,6 +69,9 @@ export interface SyncApplyResult {
   /** 同期で remote URL が変わったもの（呼び出し側が手元の origin をそろえる）。 */
   remoteChanged: RemoteChange[]
 }
+
+/** `rejoinProject` の結果（#463）。 */
+export type RejoinResult = 'ok' | 'held' | 'stale'
 
 /** 同期で remote URL が変わったプロジェクト（`SyncApplyResult.remoteChanged`）。 */
 export interface RemoteChange {
@@ -538,7 +543,7 @@ export const useProjectStore = defineStore('project', () => {
 
   function recentFilesKey(): string | null {
     const id = currentProject.value?.id
-    return id ? `pike:recent-files:${id}` : null
+    return id ? PROJECT_KEY_PREFIX.recentFiles + id : null
   }
 
   watch(
@@ -1492,13 +1497,21 @@ export const useProjectStore = defineStore('project', () => {
    * そのエントリの状態を黙って引き継ぐ。
    */
   function newProjectId(base: string): string {
-    const settings = useSettingsStore()
-    const taken = (id: string) => projects.value.some((p) => p.id === id) || settings.isProjectDeleted(id)
     for (;;) {
       const suffix = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => (b % 36).toString(36)).join('')
       const candidate = `${base}-${suffix}`
-      if (!taken(candidate)) return candidate
+      if (!isProjectIdTaken(candidate)) return candidate
     }
+  }
+
+  /**
+   * この id を手元の新しいプロジェクトに使えないか（手元の一覧にあるか、この端末で消した
+   * 記録がある）。**新しい id を振るとき（`newProjectId`）と、同期に戻すときの寄せる先
+   * （`stores/sync.ts` の `findRejoinTargets`、#463）が同じ判定を読む**: 片方だけ条件を足すと、
+   * 振るときには避ける id を、寄せる先としては勧めることになる。
+   */
+  function isProjectIdTaken(id: string): boolean {
+    return projects.value.some((p) => p.id === id) || useSettingsStore().isProjectDeleted(id)
   }
 
   async function addProject(config: ProjectConfig) {
@@ -1544,6 +1557,55 @@ export const useProjectStore = defineStore('project', () => {
     if (currentProject.value?.id === config.id) {
       currentProject.value = { ...config, lastSession: currentProject.value.lastSession }
     }
+  }
+
+  /**
+   * id の付け替え（`project_renamed`）をこのウィンドウの写しに当てる。付け替えたウィンドウ
+   * 自身と、知らせを受けた他のウィンドウの両方が通る。
+   *
+   * **付け替えられるのは、どのウィンドウも持っていないプロジェクトだけ**（Rust の
+   * `project_rename` が断る）なので、`currentProject`・タブの持ち主・保持の一覧に古い id は
+   * 居ない。動かすのは一覧だけで足りる（「root があるか」の答えは、一覧の id が変わったことで
+   * 走る `checkRoots` が取り直す）。
+   */
+  function applyRename(oldId: string, config: ProjectConfig) {
+    const idx = projects.value.findIndex((p) => p.id === oldId)
+    if (idx !== -1) projects.value[idx] = config
+    // 古い id を知らないウィンドウでは、新しい id のものが届いたのと同じに扱う。
+    else applyExternalUpdate(config)
+    useDiagnosticsStore().renameProject(oldId, config.id)
+  }
+
+  /**
+   * 同期から外れたプロジェクトを同期に戻す（#463）。id を `shared`（共有されている同じ
+   * リポジトリのエントリ）の id へ付け替え、**共有の項目（名前・カラーなど）もそのエントリの
+   * 値にそろえる**。既にあるエントリに加わる操作なので、手元の値を残すと次の同期が
+   * 「手元で変えた」と読んで、他のマシンの表示を書き換える。`shared` が無ければ新しい id を
+   * 振るだけ（次の同期で新しいエントリとして出て行く）。
+   *
+   * 削除して登録し直す形にしないのは、削除が記録を残し、その記録が同じリポジトリの
+   * 作り直しを止めるため（`planSyncedCreate`）。
+   *
+   * 戻り値は結果。`held` は、どれかのウィンドウがそのプロジェクトを持っている（開いているか、
+   * 保持している）。`stale` は、頼まれた内容がもう成り立たない（プロジェクトが無い、寄せる先を
+   * 手元の別のプロジェクトが使っている）。**2 つを分けて返す**のは、直し方が違うため
+   * （閉じるか、同期し直すか）。
+   */
+  async function rejoinProject(oldId: string, shared: SyncedProject | null): Promise<RejoinResult> {
+    if (!projects.value.some((p) => p.id === oldId)) return 'stale'
+    // 寄せる先を手元の別のプロジェクトが使っていたら、2 つを 1 つの id に畳むことになる。
+    if (shared && isProjectIdTaken(shared.id)) return 'stale'
+    // 元にするのはディスクの中身（`applySyncedProjects` と同じ理由。`project_rename` は全量を
+    // 書くので、このウィンドウの古い写しを使うと他のウィンドウが書いたセッションを巻き戻す）。
+    const project = await projectGet(oldId)
+    const config: ProjectConfig = shared
+      ? { ...project, ...Object.fromEntries(SYNCED_FIELDS.map((f) => [f, shared[f]])), id: shared.id }
+      : // id は 64 バイトまで（Rust の `validate_slug`）。接尾辞のぶんを空けておく。
+        { ...project, id: newProjectId(oldId.slice(0, 48)) }
+    if (!(await projectRename(oldId, config))) return 'held'
+    moveProjectStorage(localStorage, oldId, config.id)
+    applyRename(oldId, config)
+    return 'ok'
   }
 
   async function removeProject(id: string) {
@@ -1638,6 +1700,9 @@ export const useProjectStore = defineStore('project', () => {
     saveProject,
     applyExternalUpdate,
     applyExternalGroups,
+    applyRename,
+    rejoinProject,
+    isProjectIdTaken,
     removeProject,
     toggleSwitcher,
     toggleQuickOpen,

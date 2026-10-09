@@ -24,6 +24,11 @@ pub struct WindowProjects {
 }
 
 impl WindowProjects {
+    /// このウィンドウが `id` を持っているか（見せているものは `held` に入っている）。
+    pub fn holds(&self, id: &str) -> bool {
+        self.held.iter().any(|h| h == id)
+    }
+
     /// 保持しているうち、今見せていないもの。復元したウィンドウが起動時に引く。
     pub fn parked(&self) -> Vec<String> {
         self.held
@@ -397,7 +402,7 @@ pub fn seed_window_held(state: &ProjectState, window_label: &str, held: &[String
 pub fn window_holding(state: &ProjectState, id: &str) -> Option<(String, bool)> {
     let map = state.window_projects.lock().ok()?;
     map.iter()
-        .find(|(_, w)| w.held.iter().any(|h| h == id))
+        .find(|(_, w)| w.holds(id))
         .map(|(label, w)| (label.clone(), w.shown == id))
 }
 
@@ -497,6 +502,77 @@ pub async fn project_update(
     // the edit with stale data.
     emit_project_updated(&window, config);
     Ok(())
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectRenamedPayload {
+    source_label: String,
+    old_id: String,
+    config: ProjectConfig,
+}
+
+/// プロジェクトの id を付け替える（#463）。`config` は付け替えたあとの中身（`id` が新しい id）。
+///
+/// 同期から外れたプロジェクト（同じ id の共有エントリが別のプラットフォームを指している）を
+/// 同期に戻すための操作で、ディレクトリ名・`project.json` の `id`・ウィンドウ位置の鍵を移す。
+/// 削除して登録し直す形にしないのは、削除が記録を残し（フロントの `removeProject`）、その記録が
+/// 同じリポジトリの作り直しを止めるため。
+///
+/// **どれかのウィンドウが持っているあいだは付け替えない**（`Ok(false)`）。持っている
+/// ウィンドウでは、タブの持ち主・セッションの書き出し・id を見ている監視がすべて古い id を
+/// 握っていて、開いたまま差し替えると「別のプロジェクトへ切り替わった」として一斉に動く。
+/// 新しい id の側も見るのは、登録せずに開いたディレクトリ（#230）の id が同じ slug に
+/// なりうるため。**断る理由は文字列ではなく戻り値で返す**（文言はフロントが当てる）。
+#[tauri::command]
+pub async fn project_rename(
+    old_id: String,
+    config: ProjectConfig,
+    window: Window,
+    state: State<'_, ProjectState>,
+) -> Result<bool, String> {
+    validate_slug(&old_id, "Project ID")?;
+    validate_slug(&config.id, "Project ID")?;
+    let from = projects_dir(&state).join(&old_id);
+    let to = projects_dir(&state).join(&config.id);
+    if !project_file(&state, &old_id).exists() {
+        return Err(format!("Project '{old_id}' not found"));
+    }
+    // 大小だけが違う id も、Windows では同じディレクトリなのでここで止まる。
+    if to.exists() {
+        return Err(format!("Project '{}' already exists", config.id));
+    }
+    let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    {
+        // **確かめてから改名し終えるまで `window_projects` を握る。** あいだで手放すと、
+        // 確かめた直後に別のウィンドウが古い id を開き（ジャンプリスト・`pike <dir>`）、
+        // 持たれている id を付け替えることになる。握るのは改名 1 回のあいだだけ
+        // （`write_open_windows` が避けているのは、ファイルの書き込みのあいだ握り続けること）。
+        let map = state.window_projects.lock().map_err(|e| e.to_string())?;
+        if map
+            .values()
+            .any(|w| w.holds(&old_id) || w.holds(&config.id))
+        {
+            return Ok(false);
+        }
+        fs::rename(&from, &to).map_err(|e| e.to_string())?;
+    }
+    if let Err(e) = fs::write(project_file(&state, &config.id), content) {
+        // 中の `id` が古いままのディレクトリを新しい名前で残さない（`read_all_projects` は
+        // 中の `id` を信じるので、一覧には古い id で出て、開くと見つからない）。
+        let _ = fs::rename(&to, &from);
+        return Err(e.to_string());
+    }
+    crate::window_geom::rename_key(window.app_handle(), &old_id, &config.id);
+    let _ = window.app_handle().emit(
+        "project_renamed",
+        ProjectRenamedPayload {
+            source_label: window.label().to_owned(),
+            old_id,
+            config,
+        },
+    );
+    Ok(true)
 }
 
 #[tauri::command]

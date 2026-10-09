@@ -216,6 +216,14 @@ export async function projectUpdate(config: ProjectConfig): Promise<void> {
   return invoke('project_update', { config })
 }
 
+/**
+ * プロジェクトの id を付け替える（#463）。`config` は付け替えたあとの中身。どれかの
+ * ウィンドウが持っているあいだは付け替えず、false を返す。
+ */
+export async function projectRename(oldId: string, config: ProjectConfig): Promise<boolean> {
+  return invoke('project_rename', { oldId, config })
+}
+
 export async function projectDelete(id: string): Promise<void> {
   return invoke('project_delete', { id })
 }

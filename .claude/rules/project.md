@@ -141,7 +141,12 @@ backend の推測、色とアイコンは未設定。
   - **登録するときは `newProjectId` を通す**。一時プロジェクトの slug に**ランダムな接尾辞を付ける**（`dotfiles-k3f9x2`、#404）。**同期ファイルはプロジェクトを id で突き合わせる**ので、slug のままだと別々の端末で同じ名前のディレクトリを同期の前に登録したとき、中身の違う 2 つが同じ id になって名前や色が片方にそろう。手元の一覧をどれだけ見ても、まだ届いていない他の端末の id は避けられない
     - 手元の一覧と **hide 済みの id（#164、localStorage にある。Rust 側からは見えない）**も避ける。ぶつかったまま書くと、その sync エントリの identity を引き継いでしまう
     - id は登録で必ず変わるが、`projectAddOpen` が `window_projects` を張り直すので focus と CLI ルーティングは繋がったまま。**ウィンドウ geometry（#200）は一時プロジェクトの id で覚えたぶんを引き継がない**（登録後の id で覚え直す）
-    - **既存の id は変えない**（slug だけの id もそのまま使える）。変えると同期ファイルの上では別のプロジェクトになり、他の端末で重複する
+    - **既存の id は登録や更新のついでに変えない**（slug だけの id もそのまま使える）。変えると同期ファイルの上では別のプロジェクトになり、他の端末で重複する。変えてよいのは下の「id の付け替え」の 1 経路だけ
+  - **id の付け替え（#463）は `rejoinProject` → Rust の `project_rename` の 1 経路**。同期から外れたプロジェクトを同期に戻すためのもので、入口は設定画面だけ（`sync.md` の #463 の節）
+    - **どれかのウィンドウが持っている（開いている・保持している）プロジェクトは付け替えない**（`project_rename` が `window_projects` を見て `Ok(false)` を返す。**確かめてから改名し終えるまでロックを握る**: あいだで手放すと、確かめた直後に別のウィンドウが古い id を開ける）。持っているウィンドウでは `currentProject`・タブの持ち主・セッションの書き出し・id を鍵にした監視がすべて古い id を握っていて、開いたまま差し替えると「別のプロジェクトへ切り替わった」として一斉に動く。**この制約を外すなら、`registerTransientProject` と同じ付け替え（`renameProjectOwner`・`heldIds`・`projectAddOpen`）を全ウィンドウでやる必要がある**
+    - **移すものは 4 つ**: `projects/<id>/` のディレクトリ名と `project.json` の `id`（Rust）、`window-geometry.json` の鍵（`window_geom::rename_key`）、id を鍵に持つ localStorage の項目（`lib/projectStorage.ts` の `moveProjectStorage`）、各ウィンドウの一覧の写し（`project_renamed` → `applyRename`）。`last_project.txt` と `window_projects` は、持っているウィンドウが無いので出てこない
+    - **id を鍵にする localStorage の項目を足すときは、鍵を `lib/projectStorage.ts` の表から作る**。各ストアが鍵を自前の文字列で組むと、付け替えたプロジェクトでその項目だけが黙って初期値に戻る（`tests/projectStorage.test.ts` が `pike:…:` で終わる接頭辞の綴りを見張る）
+    - **残るもの**: 通知センターに残った古いトーストと、昇格して起動した別プロセス（#138）は古い id のまま。どちらも id が実在しなければ何もしない
   - フロントは `transientProject` ref に持ち、**`projects` 配列には入れない**。パネル / スイッチャー / ジャンプリスト / 同期 push はすべてあの配列を見ているので、入れないことがそのまま「出て行かない」になる（各所でフラグを見るのではなく）
   - 一時プロジェクトの id は**ディレクトリ名の slug**（登録済みと他の一時プロジェクトの両方に対して一意化）。uuid にしないのは、同じディレクトリを開き直したときにウィンドウ geometry（#200）を引き継ぐため。登録するとランダムな接尾辞が付く（上の `newProjectId`）
   - **同じディレクトリの 2 回目は既存ウィンドウを focus する**。`project_id_for_root` が登録済み一覧に続けて `TransientState` も引く。エントリはウィンドウの `Destroyed` で落とすので、「一致したのにウィンドウが無い」は起こらない
@@ -150,7 +155,7 @@ backend の推測、色とアイコンは未設定。
   - **聞くかどうかは設定で変えられる（#286）**: `registerDirectory` = `auto` / `ask`（既定）/ `never`。好みなので同期の対象。**粒度が 2 段あるのが要点**で、素の「いいえ」は**そのディレクトリだけ**を `transient-roots` に記録し、ダイアログの「今後は確認しない」にチェックが付いたときだけ**設定そのもの**を書き換える（答えに応じて `auto` / `never`）。チェックボックス付きの確認は `confirmWithOption`
   - **`openDirectory`（ProjectSwitcher・Ctrl+O）も設定に従う。** 開く操作を「登録するかの答え」とみなして聞かずに済ませると、設定の「確認する」が効かなくなる。聞く判断は `offerToRegisterDirectory` の 1 箇所に寄せてあり、`openDirectory` は switch のときだけそれを呼ぶ（window のときは新しいウィンドウが自分で adopt して聞く）
   - 例外は `EditorTab` のディレクトリ用の 2 択（`alreadyChose`）だけ。あそこは「ディレクトリを開く」と「プロジェクトとして開く」を並べた直後なので、聞き直すと同じことを 2 回聞くことになる。**この経路だけが `transient-roots` に先回りで記録する**
-  - 登録は `registerTransientProject`（ProjectPanel の一時バー）。**id をそのまま使う**ので `window_projects` が指す先が変わらず、focus も CLI ルーティングも繋がったまま
+  - 登録は `registerTransientProject`（ProjectPanel の一時バー）。id は変わる（上の `newProjectId`）が、`projectAddOpen` が `window_projects` を張り直すので、focus も CLI ルーティングも繋がったまま
 - **同一ウィンドウでのプロジェクト切り替えは、パネルの状態を明示的に捨てる**（`switchProject`）。プロジェクト単位のキャッシュを持つストアは `search` / `diagnostics` / `tasks` の 3 つで、どれも取得が重いので**切り替え時は捨てるだけ**にして、次に見た人が読み直す。ファイルツリー・git・docker は自分でプロジェクト id を watch する側なので、ここには出てこない
   - **捨てるだけでは「開きっぱなしのパネル」が直らない**: パネルは `activePanel` が変わったときにしか読み直さないので、開いたまま切り替えると空のまま座り続ける。**パネル側の watcher のキーにプロジェクト id も入れる**（TasksPanel、DiagnosticsPanel）。入れないと、tasks は前のプロジェクトの一覧を出し続け、そこから実行すると**前のプロジェクトのディレクトリでコマンドが走る**（`group.cwd` が前のもののため）。QuickOpen の `>` モードも同じ一覧を読む
   - **git の status は切り替え時に 1 回取る**（`startPolling`）。10 秒ポーリングに任せると、StatusBar がその間だけ前のプロジェクトのブランチと ahead/behind を出す。worktree 一覧と usage は元から startPolling の中で 1 回取っている

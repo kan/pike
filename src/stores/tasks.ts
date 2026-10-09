@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { basename, joinPath, pathSep } from '../lib/paths'
+import { PROJECT_KEY_PREFIX } from '../lib/projectStorage'
 import { loadJson, saveJson } from '../lib/storage'
 import { taskDiscover } from '../lib/tauri'
 import type { TaskDefinition, TaskGroup, TaskRunner } from '../types/tasks'
@@ -23,7 +24,7 @@ export const useTaskStore = defineStore('tasks', () => {
   let collapsedProjectId: string | null = null
 
   function collapseKey(projectId: string): string {
-    return `pike:tasks-collapsed:${projectId}`
+    return PROJECT_KEY_PREFIX.tasksCollapsed + projectId
   }
 
   /** 表示側が呼ぶ。プロジェクトが変わっていれば読み直す。 */

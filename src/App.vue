@@ -356,6 +356,11 @@ onMounted(async () => {
     if (event.payload.sourceLabel === ownLabel) return
     projectStore.applyExternalUpdate(event.payload.config)
   })
+  // id の付け替え（#463）。付け替えたウィンドウは自分で当て終えている。
+  listen<{ sourceLabel: string; oldId: string; config: ProjectConfig }>('project_renamed', (event) => {
+    if (event.payload.sourceLabel === ownLabel) return
+    projectStore.applyRename(event.payload.oldId, event.payload.config)
+  })
   // Same for the group list, which lives in its own file and would otherwise
   // only be current in the window that changed it.
   listen<{ sourceLabel: string; groups: string[] }>('project_groups_updated', (event) => {
