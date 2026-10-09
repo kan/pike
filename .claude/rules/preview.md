@@ -21,6 +21,7 @@ paths:
   - "src/lib/displayWidth.ts"
   - "src/lib/text.ts"
   - "src/lib/sanitizeHtml.ts"
+  - "src/lib/scrollFollow.ts"
   - "src/lib/externalImages.ts"
   - "src/lib/vuePreview.ts"
   - "src/stores/vuePreview.ts"
@@ -91,6 +92,10 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
 
 ## プレビュー拡張
 - CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）。Markdown は 3 モード、スクロール同期、250ms デバウンス
+- **分割表示のスクロール同期は、写した相手を「追従中」にして写し返さない（#465。`lib/scrollFollow.ts`）。** 相手へ書いた結果の scroll を利用者のスクロールとして写し返すと、操作中のペインが引き戻される。判断の実体はあのファイルの doc が正本
+  - **「書いた直後の 1 フレームだけ無視する」形に戻さないこと。** 相手の scroll が届くのは次のフレームで、フラグはその前に下りる（無視が 1 回も効かないことを Edge で実測）。`EditorTab.vue` の `suppressSyncFrame` が残っているのはアウトラインからのジャンプ用で、同期の跳ね返りは止めていない
+  - **跳ね返りは「書いた位置のまま届いた」と「追従中」の 2 つで見分ける。片方に減らさないこと**: 時間だけだと、メインスレッドが塞がって遅れた跳ね返りと、入力で追従を解いた直後の跳ね返りが通る。位置だけだと、CodeMirror が高さを測り直して自分でずらした scroll が通る
+  - **追従中のペインへの入力（ホイール・`pointerdown`・キー・タッチ）で追従を解く。** 受けるのは両ペインのテンプレートの `@….capture.passive` で、エディタ側は `scrollDOM` ではなく容器（`.editor-container`）で受ける（ミニマップがスクローラの外にある）
 - Markdown プレビュー内リンク: 外部 URL は confirm 付きで `open_url` 経由の外部ブラウザ起動、ローカルファイルはプロジェクトルート内に限定して EditorTab で開く（`resolveLocalPath` でディレクトリトラバーサル防止 + `decodeURIComponent` 対応）
 - **プレビューのコードブロックはエディタと同じ解析で色を付ける（#359）。** 実体は `lib/codeHighlight.ts` の `highlightCodeBlock` で、Markdown プレビュー・rst の `code-block`・issue タブ・マニュアルの 4 つが共有する（marked の 3 つは `markedCodeHighlight`、rst は `buildRstPreview` の引数）。**依存は増やしていない**（highlight.js / shiki は入れない）。判断の実体（配色をエディタのテーマに合わせる理由、class ではなくインラインの `style` で塗る理由、キャッシュ）はあのファイルの doc が正本
   - **テーマの配色は `EditorThemeDef.highlightStyle` から取る。** テーマを足すときはこの欄も要る（`makeTheme` が返す）

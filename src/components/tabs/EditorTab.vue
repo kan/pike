@@ -75,6 +75,7 @@ import {
 import { relativeToBase } from '../../lib/projectPaths'
 import { buildRstPreview } from '../../lib/rstPreview'
 import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
+import { createScrollFollow, type SyncPane } from '../../lib/scrollFollow'
 import { editorChords } from '../../lib/shortcuts'
 import { createHeadingSlugger } from '../../lib/slug'
 import { loadJson, saveJson } from '../../lib/storage'
@@ -244,6 +245,8 @@ const BACK_TO_TOP_THRESHOLD = 300
 const debouncedDocVersion = ref(0)
 let docVersionTimer: ReturnType<typeof setTimeout> | null = null
 let syncingScroll = false
+// 分割表示の同期の向き（#465。判断の実体は `lib/scrollFollow.ts` の doc）。
+const scrollFollow = createScrollFollow()
 
 function bumpDocVersion() {
   if (docVersionTimer) clearTimeout(docVersionTimer)
@@ -2056,9 +2059,9 @@ onMounted(async () => {
   }
 })
 
-/** Swallow the scroll event a programmatic scroll is about to fire, so the
- *  split-mode sync doesn't mirror it back onto the other pane. Call before the
- *  scroll assignment. */
+/** Keep the split-mode sync from mirroring scrolls for the rest of this frame.
+ *  アウトラインからのジャンプ専用。**同期が相手へ書いた結果の scroll はこれでは止まらない**
+ *  （届くのは次のフレーム。そちらは `scrollFollow` が受け持つ、#465）。 */
 function suppressSyncFrame() {
   syncingScroll = true
   requestAnimationFrame(() => {
@@ -2067,12 +2070,18 @@ function suppressSyncFrame() {
 }
 
 // Scroll sync
+/** `pane` のスクロールを、相手の同じ割合の位置へ写す（跳ね返りなら何もしない）。 */
+function mirrorScroll(pane: SyncPane, from: HTMLElement, to: HTMLElement) {
+  if (!scrollFollow.claim(pane, from.scrollTop)) return
+  const ratio = from.scrollTop / (from.scrollHeight - from.clientHeight || 1)
+  to.scrollTop = ratio * (to.scrollHeight - to.clientHeight)
+  // 読み直すのは、丸めと端での切り詰めのあとの値が要るため。
+  scrollFollow.wrote(pane === 'editor' ? 'preview' : 'editor', to.scrollTop)
+}
+
 function onEditorScroll() {
   if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return
-  const scroller = editorView.scrollDOM
-  const ratio = scroller.scrollTop / (scroller.scrollHeight - scroller.clientHeight || 1)
-  suppressSyncFrame()
-  previewRef.value.scrollTop = ratio * (previewRef.value.scrollHeight - previewRef.value.clientHeight)
+  mirrorScroll('editor', editorView.scrollDOM, previewRef.value)
 }
 
 function onPreviewScroll() {
@@ -2080,11 +2089,7 @@ function onPreviewScroll() {
   // before the split-only scroll-sync early-return below).
   if (previewRef.value) previewScrolled.value = previewRef.value.scrollTop > BACK_TO_TOP_THRESHOLD
   if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return
-  const preview = previewRef.value
-  const ratio = preview.scrollTop / (preview.scrollHeight - preview.clientHeight || 1)
-  suppressSyncFrame()
-  const scroller = editorView.scrollDOM
-  scroller.scrollTop = ratio * (scroller.scrollHeight - scroller.clientHeight)
+  mirrorScroll('preview', previewRef.value, editorView.scrollDOM)
 }
 
 /** Scroll behaviour for in-preview navigation (anchors, back-to-top). */
@@ -2660,7 +2665,17 @@ onUnmounted(() => {
       </button>
     </div>
     <div class="editor-body" :class="{ split: viewMode === 'split' }" v-show="!loading && !error && !isDirectory && tooLargeSize === null">
-      <div v-show="showEditor" ref="editorRef" class="editor-container" @contextmenu.prevent="onEditorContextMenu"></div>
+      <!-- 入力の 4 つは分割表示の同期の向き（#465）。プレビュー側と対。 -->
+      <div
+        v-show="showEditor"
+        ref="editorRef"
+        class="editor-container"
+        @contextmenu.prevent="onEditorContextMenu"
+        @wheel.capture.passive="scrollFollow.release('editor')"
+        @pointerdown.capture.passive="scrollFollow.release('editor')"
+        @keydown.capture.passive="scrollFollow.release('editor')"
+        @touchstart.capture.passive="scrollFollow.release('editor')"
+      ></div>
       <component
         :is="isHtmlPreview ? HtmlPreview : VuePreview"
         v-if="showPreview && webviewPreview && tab?.path"
@@ -2694,6 +2709,10 @@ onUnmounted(() => {
         }"
         v-html="previewHtml"
         @scroll="onPreviewScroll"
+        @wheel.capture.passive="scrollFollow.release('preview')"
+        @pointerdown.capture.passive="scrollFollow.release('preview')"
+        @keydown.capture.passive="scrollFollow.release('preview')"
+        @touchstart.capture.passive="scrollFollow.release('preview')"
         @click="onPreviewClick"
         @keydown="onPreviewKeydown"
         @contextmenu="onPreviewContextMenu"
