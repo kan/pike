@@ -61,6 +61,9 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
     opts.theme === 'dark',
   )
 
+  // 言語とウィンドウの大きさを決めたあとに確かめる（どちらも結果を変えうる）。
+  await assertCaptureEnvironment()
+
   // 擬似 root では実ファイル監視の起動が失敗し、FileTreePanel に
   // 「inotify-tools を入れて」の警告バナーが出る。startError はセッション共有の
   // グローバル状態で、root が同一だと watch(activeRoot) が再発火せず後から潰せない。
@@ -76,6 +79,71 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
 
   await injectStabilizeCss()
   await settle()
+}
+
+/**
+ * マニュアルの画像を撮る環境の前提（#466）。**どれも撮影機の側で決まり、リポジトリからは
+ * 固定できない**ので、食い違っていたら撮る前に落とす（気付かずに撮ると、見た目の違う画像が
+ * 既存の画像に混ざる）。
+ *
+ * - `dpr` … 画像は CSS ピクセルに表示倍率を掛けた大きさで保存される（1266×796 の内寸が
+ *   1899×1194 px）。倍率の違うモニタにウィンドウが出ると、画像の大きさごと変わる
+ * - `uiFont` … UI は `system-ui` なので、OS の表示言語とフォントの入り方で変わる。日本語の
+ *   Windows では Yu Gothic UI。漢字が中国語のフォント（Microsoft YaHei など）で描かれると、
+ *   字形も字幅も実際の画面と違う絵になる
+ * - `monoFont` … エディタとターミナルの既定の先頭（`stores/settings.ts` の `defaults()`）。
+ *   Pike は同梱しないので、入っていなければ次の候補で描かれる
+ * - `uiZoom` … UI の文字サイズは全体の拡大率として効く（既定の 13px で 1）。撮影用の
+ *   プロファイルに設定が残っていると、文字の大きさごと変わる
+ *
+ * **`prepare()` のたびに確かめる**（1 回の `execute` で済む）。ウィンドウは大きさを変えると
+ * 倍率の違うモニタへ移りうるので、最初の 1 回だけでは `FULL` / `HERO` の撮影を見逃す。
+ */
+const CAPTURE_ENV = { dpr: 1.5, uiFont: 'Yu Gothic UI', monoFont: 'PlemolJP Console NF', uiZoom: 1 }
+
+/** 前提を確かめずに撮る（別の環境で spec の動作だけ確かめたいとき）。画像は同期しないこと。 */
+const SKIP_ENV_CHECK = process.env.PIKE_E2E_ANY_ENV === '1'
+
+/** 同じ警告を `prepare()` のたびに出さない（`SKIP_ENV_CHECK` のとき）。 */
+let warnedCaptureEnvironment = false
+
+async function assertCaptureEnvironment(): Promise<void> {
+  const problems = await browser.execute((env) => {
+    // 「どのフォントで描かれたか」を読む API は無いので、同じ文の幅を比べる。**半角と全角を
+    // 混ぜる**: 全角だけだと、全角幅のフォントがどれも同じ幅になって見分けられない。
+    const TEXT = 'Pike mmmiii 0123 設定の同期、言語を直接確認する（終了）。エージェント'
+    const widthOf = (family: string) => {
+      const el = document.createElement('span')
+      el.style.cssText = `position:absolute;visibility:hidden;white-space:nowrap;font-size:40px;font-family:${family}`
+      el.textContent = TEXT
+      document.body.append(el)
+      const width = el.getBoundingClientRect().width
+      el.remove()
+      return width
+    }
+    // 入っているフォントは、後ろに何を並べても同じ幅で描かれる。入っていなければ後ろの
+    // 総称フォントに落ちるので、総称を変えると幅が変わる。**「存在しない名前と違う幅か」で
+    // 見ないこと**: 既定のフォントが調べたいフォントと同じ幅だと、入っているのに外れる。
+    const installed = (name: string) => widthOf(`"${name}", monospace`) === widthOf(`"${name}", serif`)
+    const out: string[] = []
+    if (widthOf('monospace') === widthOf('serif')) out.push('総称フォントの幅が同じで、フォントの有無を見分けられない')
+    if (window.devicePixelRatio !== env.dpr) {
+      out.push(`表示倍率が ${env.dpr} ではない（devicePixelRatio = ${window.devicePixelRatio}）`)
+    }
+    const ui = getComputedStyle(document.body).fontFamily
+    if (!installed(env.uiFont) || widthOf(ui) !== widthOf(`"${env.uiFont}"`)) {
+      out.push(`UI（${ui}）が ${env.uiFont} で描かれていない`)
+    }
+    if (!installed(env.monoFont)) out.push(`${env.monoFont} が入っていない`)
+    const zoom = Number(getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom'))
+    if (zoom !== env.uiZoom) out.push(`UI の拡大率が ${env.uiZoom} ではない（--ui-zoom = ${zoom}）`)
+    return out
+  }, CAPTURE_ENV)
+  if (problems.length === 0) return
+  const message = `撮影環境が前提と違う（e2e/README.md の「撮影環境の前提」）: ${problems.join(' / ')}`
+  if (!SKIP_ENV_CHECK) throw new Error(message)
+  if (!warnedCaptureEnvironment) console.warn(`[e2e] ${message}`)
+  warnedCaptureEnvironment = true
 }
 
 // アニメーション・トランジション・キャレット点滅を止める撮影用スタイル。
@@ -263,9 +331,10 @@ export async function openTerminal(): Promise<void> {
 /**
  * ホバーで開く UI（エージェントのサブメニュー、#267）を開く。
  *
- * **`moveTo()` は使えない。** 撮影ウィンドウは DPR 2 で、ドライバが動かす座標と webview の
- * CSS ピクセルが食い違うため、要素の中心へ動かしたつもりが別の場所を指す（実測: 1280px の
- * ウィンドウで `innerWidth` は 627）。撮りたいのは開いた状態なので、DOM のイベントを直接投げる。
+ * **`moveTo()` は使えない。** 撮影ウィンドウの DPR が 1 でないと、ドライバが動かす座標と
+ * webview の CSS ピクセルが食い違い、要素の中心へ動かしたつもりが別の場所を指す（DPR 2 の
+ * 環境での実測: 1280px のウィンドウで `innerWidth` は 627。今の撮影機は DPR 1.5、#466）。
+ * 撮りたいのは開いた状態なので、DOM のイベントを直接投げる。
  */
 export async function hoverElement(selector: string): Promise<void> {
   await browser.execute((sel) => {

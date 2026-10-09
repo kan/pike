@@ -106,8 +106,9 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 マニュアル画像（`docs/manual/img/`）の自動再撮影パイプライン。詳細・設計の正本は `e2e/README.md`。
 
 1. `just e2e-build`: 撮影用バイナリをビルド（`PIKE_E2E=1` + `--features e2e` + `tauri.e2e.conf.json`。identifier=`com.pike.e2e` で既存 Pike / dev 版と single-instance 衝突しない）
-2. `just e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ寸法は 3 クラス: クローズアップ＝既定 1280×832（内枠 1259×777）、全体レイアウト系（layout.ts の `FULL`）＝1600×1000（内枠 1578×945）、**外枠付きヒーロー（`HERO` = `FULL` の 2 倍）＝3200×2000（内枠 3179×1944）**
-   - `HERO` はプライマリモニタ（3413×1440）より縦が大きいが、WebView2 の撮影は画面外にはみ出した分も含めて撮れるので問題ない。DPR を上げる方向（`--force-device-scale-factor=2`）は撮影が CSS ピクセル基準で行われるため効かない（実測済み）
+2. `just e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ寸法は 3 クラス: クローズアップ＝既定 1280×832（内枠 1266×796）、全体レイアウト系（layout.ts の `FULL`）＝1600×1000（内枠 1586×964）、**外枠付きヒーロー（`HERO` = `FULL` の 2 倍）＝3200×2000（内枠 3186×1964）**。内枠は CSS ピクセルで、**画像はそれに表示倍率 1.5 を掛けた大きさ**（クローズアップで 1899×1194 px）
+   - **撮影環境の前提（表示倍率 1.5・UI は Yu Gothic UI・等幅は PlemolJP Console NF・UI の拡大率 1）は `prepare()` が毎回確かめ、食い違えば撮る前に落とす**（#466。`e2e/support/prepare.ts` の `assertCaptureEnvironment`、値は `CAPTURE_ENV`）。倍率の違うモニタにウィンドウが出ると画像の大きさが変わり、日本語の Windows 以外では UI のフォントが変わる。どれも撮影機の側で決まり、リポジトリからは固定できない。撮影機を替えたら `CAPTURE_ENV` と上の寸法を測り直す
+   - `HERO` はプライマリモニタ（3413×1440）より縦が大きいが、WebView2 の撮影は画面外にはみ出した分も含めて撮れるので問題ない。DPR を上げる方向（`--force-device-scale-factor=2`）は効かなかった（実測済み。理由は `e2e/README.md`）
    - **論理サイズを 2 倍にすると表示内容が増える**ぶん、フィクスチャが短いと下半分が空く。`HERO` を使う spec（overview / hero-editor / hero-git）のダミーデータは、この寸法で画面が埋まる量にしてある（README は 60 行超、ターミナルのセッションは 78 行、コミット履歴は 8 件）。寸法を変えたら埋まり方も見直す。**画面の中身を差し替えたときも同じ**（行数の少ないものに替えると、下半分が空いたまま README のヒーローに載る）
 > `just e2e-build` の出力を `| tail` などに通さないこと。Rust のコンパイルが落ちても
 > パイプ側の終了コード 0 が返り、**古いバイナリのまま撮影して気付けない**。
