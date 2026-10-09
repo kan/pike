@@ -338,12 +338,28 @@ pub async fn docker_restart(
 
 #[tauri::command]
 pub async fn docker_logs_start(
+    // ストリームの id。**フロントが決めて渡す**（#459 と同じ理由。`pty_spawn` の doc）: 下の
+    // タスクの最初の出力は、このコマンドの戻りより先にフロントへ届きうる。id を戻り値で
+    // 知らせる形だと、フロントはその出力の受け口をまだ登録できておらず、ログの先頭が欠ける。
+    stream_id: String,
     container_id: String,
     app: AppHandle,
     state: State<'_, DockerState>,
-) -> Result<String, String> {
+) -> Result<(), String> {
+    let stream_id = uuid::Uuid::parse_str(&stream_id)
+        .map_err(|_| "Invalid stream id".to_owned())?
+        .to_string();
     let docker = get_docker(&state).await?;
-    let stream_id = uuid::Uuid::new_v4().to_string();
+    // 使用中の id で始めると、下の `insert` が動いているストリームのハンドルを捨てる
+    // （止める手段が無くなる）。
+    if state
+        .log_streams
+        .lock()
+        .map_err(|e| e.to_string())?
+        .contains_key(&stream_id)
+    {
+        return Err(format!("Log stream '{stream_id}' already exists"));
+    }
     let sid = stream_id.clone();
 
     let opts = LogsOptions {
@@ -401,9 +417,9 @@ pub async fn docker_logs_start(
         .log_streams
         .lock()
         .map_err(|e| e.to_string())?
-        .insert(stream_id.clone(), handle);
+        .insert(stream_id, handle);
 
-    Ok(stream_id)
+    Ok(())
 }
 
 #[tauri::command]

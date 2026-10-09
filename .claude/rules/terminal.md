@@ -51,8 +51,8 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   - Rust は受けた id が UUID の形であることと、使用中でないことを確かめる
   - 再発の見張りは残してある（`TerminalTab.vue` の `SPAWN_STALL_MS` の doc）。ログに
     `[pty] … no output` が出たら、取りこぼしが別の経路で残っている
-  - **Docker ログ（`DockerLogsTab.vue`）は今も「戻り値で id を受けてから登録する」形**で、
-    先頭の数行を取りこぼしうる。あちらは返事を待つ相手がいないので固まりはしない
+  - Docker ログ（`DockerLogsTab.vue` と `docker_logs_start`）も同じ形にしてある。あちらは
+    返事を待つ相手がいないので固まりはしないが、ログの先頭が欠けていた
   - 読んで見つけたが、症状には結び付いていないもの: `pty_kill` は `sessions` のロックを握った
     まま `PtySession` を落とす
 - 環境変数 `TERM=xterm-256color` を cmd 以外に設定

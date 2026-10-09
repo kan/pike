@@ -1053,8 +1053,13 @@ export async function dockerRestart(containerId: string): Promise<void> {
   return invoke('docker_restart', { containerId })
 }
 
-export async function dockerLogsStart(containerId: string): Promise<string> {
-  return invoke<string>('docker_logs_start', { containerId })
+/**
+ * コンテナのログを流し始める。**`streamId` は呼ぶ側が決め（`crypto.randomUUID()`）、呼ぶ前に
+ * `dockerLogRouter.register(streamId, …)` を済ませておく**（`ptySpawn` と同じ理由、#459）。
+ * 出力はこの呼び出しが戻る前から届く。
+ */
+export async function dockerLogsStart(streamId: string, containerId: string): Promise<void> {
+  await invoke('docker_logs_start', { streamId, containerId })
 }
 
 export async function dockerLogsStop(streamId: string): Promise<void> {

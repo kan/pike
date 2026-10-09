@@ -26,6 +26,8 @@ const termRef = ref<HTMLDivElement>()
 let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let streamId: string | null = null
+/** 閉じられたか。ログの開始を待っているあいだに閉じられたことを、戻った側が知るため。 */
+let unmounted = false
 let resizeObserver: ResizeObserver | null = null
 let resizeTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -104,16 +106,30 @@ onMounted(async () => {
 
   terminal.onSelectionChange(() => copyOnSelect(() => terminal?.getSelection() ?? ''))
 
+  // **id はここで決め、始めるのを頼む前に受け口を登録する**（#459 と同じ理由）。出力は
+  // `docker_logs_start` が戻る前から届くので、戻り値で id を受けてから登録すると、ログの
+  // 先頭が受け口の無いまま届いて捨てられる。
+  const id = crypto.randomUUID()
+  const termRef_ = terminal
+  dockerLogRouter.register(
+    id,
+    (data) => termRef_.write(data),
+    () => termRef_.write(`\r\n${t('dockerLogs.ended')}\r\n`),
+  )
+  // 先に入れておく（待っているあいだに閉じられたら、`onUnmounted` が受け口を外して止める）。
+  streamId = id
   try {
-    streamId = await dockerLogsStart(tab.value.containerId)
-    const termRef_ = terminal
-    dockerLogRouter.register(
-      streamId,
-      (data) => termRef_.write(data),
-      () => termRef_.write(`\r\n${t('dockerLogs.ended')}\r\n`),
-    )
+    await dockerLogsStart(id, tab.value.containerId)
   } catch (e) {
-    terminal.write(`\r\n${t('dockerLogs.failedStart', { error: String(e) })}\r\n`)
+    dockerLogRouter.unregister(id)
+    streamId = null
+    terminal?.write(`\r\n${t('dockerLogs.failedStart', { error: String(e) })}\r\n`)
+  }
+  // 待っているあいだにタブが閉じられた。`onUnmounted` の停止は、まだ Rust に id が無くて
+  // 空振りしているかもしれないので、ここで止め直す。
+  if (unmounted) {
+    dockerLogsStop(id).catch(() => {})
+    return
   }
 
   resizeObserver = new ResizeObserver(() => {
@@ -124,6 +140,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  unmounted = true
   if (resizeTimer) clearTimeout(resizeTimer)
   resizeObserver?.disconnect()
   if (streamId) {
