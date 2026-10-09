@@ -428,6 +428,9 @@ export const useSyncStore = defineStore('sync', () => {
    * エントリへ寄せられる。付け替えたら続けて同期する（外れていたぶんがその場で入る）。
    */
   async function runRejoin(id: string, target: string | null) {
+    // 続けて 2 回頼まれた 2 回目（1 回目が付け替え済みで、その id はもう無い）。エラーに
+    // すると、成功した 1 回目の結果を「一覧が古い」で上書きする。
+    if (!projectStore.findProject(id)) return
     const name = projectStore.findProject(id)?.name ?? id
     const fail = (message: string) => setState({ status: 'error', message })
     const candidates = foreign.find((f) => f.id === id)?.candidates

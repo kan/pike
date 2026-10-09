@@ -2078,9 +2078,11 @@ function suppressSyncFrame() {
 function mirrorScroll(pane: SyncPane, from: HTMLElement, to: HTMLElement) {
   if (!scrollFollow.claim(pane, from.scrollTop)) return
   const ratio = from.scrollTop / (from.scrollHeight - from.clientHeight || 1)
+  const before = to.scrollTop
   to.scrollTop = ratio * (to.scrollHeight - to.clientHeight)
-  // 読み直すのは、丸めと端での切り詰めのあとの値が要るため。
-  scrollFollow.wrote(pane === 'editor' ? 'preview' : 'editor', to.scrollTop)
+  // 読み直すのは、丸めと端での切り詰めのあとの値が要るため。**動かなかったら覚えない**:
+  // scroll が出ないので使い切る契機が無く、あとで利用者がその位置から動かした scroll を落とす。
+  if (to.scrollTop !== before) scrollFollow.wrote(pane === 'editor' ? 'preview' : 'editor', to.scrollTop)
 }
 
 function onEditorScroll() {

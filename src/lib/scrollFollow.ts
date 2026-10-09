@@ -40,8 +40,9 @@ export function createScrollFollow(now: () => number = () => performance.now()) 
     claim(from: SyncPane, top: number): boolean {
       const expected = written[from]
       // 設定した値は端末のピクセルへ丸められるので、1px 未満の差は同じ位置として扱う。
-      if (expected !== null && Math.abs(top - expected) < 1) return false
+      // 覚えた位置は 1 回で使い切る（残すと、あとで利用者が同じ位置へ動かした scroll まで落とす）。
       written[from] = null
+      if (expected !== null && Math.abs(top - expected) < 1) return false
       if (follower === from && now() < until) return false
       follower = from === 'editor' ? 'preview' : 'editor'
       until = now() + FOLLOW_HOLD_MS

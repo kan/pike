@@ -51,6 +51,16 @@ describe('createScrollFollow', () => {
     assert.equal(follow.claim('editor', 50), false)
   })
 
+  test('覚えた位置は 1 回で使い切る（同じ位置へ利用者が動かした scroll は写す）', () => {
+    const { follow, advance } = setup()
+    follow.claim('preview', 100)
+    follow.wrote('editor', 50)
+    advance(16)
+    assert.equal(follow.claim('editor', 50), false)
+    advance(FOLLOW_HOLD_MS)
+    assert.equal(follow.claim('editor', 50), true)
+  })
+
   test('追従中のペインを利用者が動かしたら、その場で写せる', () => {
     const { follow, advance } = setup()
     follow.claim('preview', 100)
