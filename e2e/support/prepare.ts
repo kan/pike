@@ -361,8 +361,8 @@ export async function feedActiveTerminal(data: string): Promise<void> {
 }
 
 // PTY 系の invoke を一式モックして、実プロセスを起動させずにターミナルを撮れるようにする。
-// `pty_spawn` は呼ばれるたびユニークな id を返す（id 固定だと閉じたタブの unregister が
-// 新タブのハンドラを消す）。**残り 3 つとセットで置く**: 分けていたころは 3 spec が同じ
+// pty の id はフロントが決める（#459）ので、`pty_spawn` の戻り値は使われない。
+// **残り 3 つとセットで置く**: 分けていたころは 3 spec が同じ
 // 4 行を書き写していて、PTY のコマンドが増えるたびに直す場所が 3 つになっていた。
 export async function mockPtySpawnUniqueIds(): Promise<void> {
   const b = browser as unknown as {

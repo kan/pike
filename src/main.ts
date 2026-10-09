@@ -281,8 +281,7 @@ async function bootstrap() {
         ptyRouter.feed(id, data)
       },
       // アクティブなターミナルタブの ptyId を解決して合成出力を流す。
-      // pty_spawn がユニーク id を返す前提（id 固定だと閉じたタブの unregister と
-      // 競合してハンドラが消える）。
+      // id はタブごとにフロントが決める（#459）ので、閉じたタブの unregister と競合しない。
       feedActiveTerminal: (data: string) => {
         const active = tabs.tabs.find((t) => t.id === tabs.activeTabId)
         if (active?.kind === 'terminal' && active.ptyId) {

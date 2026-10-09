@@ -58,12 +58,12 @@ const props = defineProps<{
 const SPAWN_GRACE_PERIOD_MS = 2000
 
 /**
- * 復元したタブが真っ黒のまま残る報告（#459）を切り分けるための見張り。**原因はまだ
- * 分かっていない**ので、次に起きたときにログから 3 つを分けられるようにしてある:
+ * ターミナルが真っ黒のまま残ったときに、ログから理由を分けるための見張り（#459）。
  *
- * - `pty_spawn` が戻らない … `no response after` の行が出る（Rust 側の `[pty] spawn` の
- *   行と突き合わせると、IPC が届いていないのか Rust の中で止まっているのかも分かる）
- * - 戻ったが 1 バイトも出力が来ない … `no output` の行が出る
+ * - `pty_spawn` が戻らない … `no response after` の行が出て、画面に「待っています」を出す
+ * - 戻ったが 1 バイトも出力が来ない … `no output` の行が出る。**#459 の原因はこれだった**
+ *   （起動を待つあいだに届いた最初の出力を捨てていた。今は起動を頼む前に受け口を登録する）。
+ *   直したあとにこの行が出たら、取りこぼしが別の経路で残っている
  * - どちらの行も無いのに黒い … 出力は届いていて、描画が止まっている
  *
  * 5 秒は `lib/tauri.ts` の `inOrder` の見張り（#415）と同じ。冷えた WSL の起動は数秒
@@ -390,6 +390,12 @@ let terminal: Terminal | null = null
 let fitAddon: FitAddon | null = null
 let searchAddon: SearchAddon | null = null
 let ptyId: string | null = null
+/**
+ * `pty_spawn` の戻りを待っているあいだの pty の id（#459）。**`ptyId` と分けてある**: あちらは
+ * 「シェルが起動済み」の印で、リサイズや流し込みがそれを見て送る。起動を待つあいだに送るのは
+ * xterm の返事（`onData`）だけ。
+ */
+let spawningId: string | null = null
 /** このターミナルを開いたときに、同梱の mod を読み込ませたか（#437）。設定の今の値ではない。 */
 let modLoaded = false
 /** `SPAWN_STALL_MS` / `NO_OUTPUT_MS` の見張り（#459）。用が済んだら null。 */
@@ -878,50 +884,17 @@ onMounted(async () => {
     logFrontend('warn', `[pty] spawn ${spawnLabel}: no response after ${SPAWN_STALL_MS}ms`)
     terminal?.write(`${t('terminal.spawnWaiting')}\r\n`)
   }, SPAWN_STALL_MS)
-  try {
-    const result = await ptySpawn(cols, rows, spawnOpts)
-    ptyId = result.id
-    spawnedAt = Date.now()
-    if (spawnStalled) {
-      const ms = Math.round(performance.now() - spawnAsked)
-      logFrontend('warn', `[pty] spawn ${spawnLabel}: returned after ${ms}ms (pty=${ptyId})`)
-    }
-    tabStore.setPtyId(props.tabId, ptyId)
-    // 起動ボタンに何を出すか（#275）。待たない。
-    detectAgents()
-    // Admin window opening a WSL shell: elevation does not carry into WSL.
-    if (elevated.value && spawnOpts?.shell?.kind === 'wsl' && !wslElevationNoticed) {
-      wslElevationNoticed = true
-      statusMessage.show({ text: t('terminal.wslElevationNotice'), variant: 'warn', durationMs: 7000 })
-    }
-  } catch (e) {
-    terminal.write(`\r\n${t('terminal.failedSpawn', { error: String(e) })}\r\n`)
-    // -1 indicates spawn failure so the badge distinguishes it from a real exit code
-    tabStore.reportExit(props.tabId, -1)
-    return
-  } finally {
-    if (spawnWatchdog) clearTimeout(spawnWatchdog)
-    spawnWatchdog = null
-  }
 
-  // シェルは起動すれば必ず何か出す（プロンプトか、下で流す初期化行のエコー）。
-  const spawnedPtyId = ptyId
-  outputWatchdog = setTimeout(() => {
-    outputWatchdog = null
-    logFrontend('warn', `[pty] ${spawnLabel}: no output ${NO_OUTPUT_MS}ms after spawn (pty=${spawnedPtyId})`)
-  }, NO_OUTPUT_MS)
-
-  // Bell-driven activity: TUIs (Claude Code, shells with `\a` in PS1, etc.)
-  // ring BEL when they want attention. Marking activity on every byte of
-  // output was too noisy for agents that stream tokens continuously.
-  terminal.onBell(() => {
-    if (Date.now() - lastActivatedAt <= 500) return
-    tabStore.markTabActivity(props.tabId)
-  })
-
+  // **pty の id はここで決め、`pty_spawn` を頼む前に出力と入力の受け口を登録する**（#459）。
+  // Rust の読み取りスレッドは `pty_spawn` が戻る前から出力を送るので、id を戻り値で受け取って
+  // から登録する形だと、最初の出力を取りこぼす。Windows ではそれが conhost のカーソル位置の
+  // 問い合わせ（`ESC[6n`）で、xterm の返事が PTY へ戻らないとシェルが永久に起動しない。
+  const id = crypto.randomUUID()
+  spawningId = id
+  spawnedAt = Date.now()
   const termRef_ = terminal
   ptyRouter.register(
-    ptyId,
+    id,
     (data) => {
       if (outputWatchdog) {
         clearTimeout(outputWatchdog)
@@ -949,6 +922,77 @@ onMounted(async () => {
       }
     },
   )
+
+  // IME dedup: some IMEs (e.g. CorvusSKK) can fire both compositionend and
+  // input(insertText) for the same committed text, causing onData to trigger
+  // twice. Guard by rejecting identical non-ASCII data within 30ms.
+  let lastIMEData = ''
+  let lastIMETime = 0
+  terminal.onData((raw) => {
+    // 起動を待っているあいだも送る（上の問い合わせへの返事は `pty_spawn` が戻る前に出る）。
+    const target = ptyId ?? spawningId
+    if (!target) return
+    // 確定直後の 1 回だけ有効。差し替えた分の二重送出は下の dedup が吸収する。
+    const commit = pendingCommit
+    pendingCommit = null
+    const data = commit && raw === DEL && Date.now() - commit.at < COMMIT_DEL_WINDOW_MS ? commit.data : raw
+    if (hasNonAscii(data)) {
+      const now = Date.now()
+      if (data === lastIMEData && now - lastIMETime < 30) return
+      lastIMEData = data
+      lastIMETime = now
+    }
+    ptyWrite(target, data.replace(/\r\n/g, '\r')).catch(() => {})
+  })
+
+  try {
+    await ptySpawn(id, cols, rows, spawnOpts)
+  } catch (e) {
+    ptyRouter.unregister(id)
+    spawningId = null
+    terminal?.write(`\r\n${t('terminal.failedSpawn', { error: String(e) })}\r\n`)
+    // -1 indicates spawn failure so the badge distinguishes it from a real exit code
+    tabStore.reportExit(props.tabId, -1)
+    return
+  } finally {
+    if (spawnWatchdog) clearTimeout(spawnWatchdog)
+    spawnWatchdog = null
+  }
+  spawningId = null
+  // 待っているあいだにタブが閉じられた（`onUnmounted` が受け口を外している）。起動した
+  // シェルを持ち主の無いまま残さない。
+  if (!terminal) {
+    ptyKill(id).catch(() => {})
+    return
+  }
+  ptyId = id
+  if (spawnStalled) {
+    const ms = Math.round(performance.now() - spawnAsked)
+    logFrontend('warn', `[pty] spawn ${spawnLabel}: returned after ${ms}ms (pty=${ptyId})`)
+  }
+  tabStore.setPtyId(props.tabId, ptyId)
+  // 起動ボタンに何を出すか（#275）。待たない。
+  detectAgents()
+  // Admin window opening a WSL shell: elevation does not carry into WSL.
+  if (elevated.value && spawnOpts?.shell?.kind === 'wsl' && !wslElevationNoticed) {
+    wslElevationNoticed = true
+    statusMessage.show({ text: t('terminal.wslElevationNotice'), variant: 'warn', durationMs: 7000 })
+  }
+
+  // シェルは起動すれば必ず何か出す（プロンプトか、下で流す初期化行のエコー）。
+  const spawnedPtyId = ptyId
+  outputWatchdog = setTimeout(() => {
+    outputWatchdog = null
+    logFrontend('warn', `[pty] ${spawnLabel}: no output ${NO_OUTPUT_MS}ms after spawn (pty=${spawnedPtyId})`)
+  }, NO_OUTPUT_MS)
+
+  // Bell-driven activity: TUIs (Claude Code, shells with `\a` in PS1, etc.)
+  // ring BEL when they want attention. Marking activity on every byte of
+  // output was too noisy for agents that stream tokens continuously.
+  terminal.onBell(() => {
+    if (Date.now() - lastActivatedAt <= 500) return
+    tabStore.markTabActivity(props.tabId)
+  })
 
   if (tabData?.kind === 'terminal') {
     // 以下で流す OSC 7 のフックは bash 固有（`PROMPT_COMMAND` と `$BASH_COMMAND`）。
@@ -1004,26 +1048,6 @@ onMounted(async () => {
 
   lastCols = terminal.cols
   lastRows = terminal.rows
-
-  // IME dedup: some IMEs (e.g. CorvusSKK) can fire both compositionend and
-  // input(insertText) for the same committed text, causing onData to trigger
-  // twice. Guard by rejecting identical non-ASCII data within 30ms.
-  let lastIMEData = ''
-  let lastIMETime = 0
-  terminal.onData((raw) => {
-    if (!ptyId) return
-    // 確定直後の 1 回だけ有効。差し替えた分の二重送出は下の dedup が吸収する。
-    const commit = pendingCommit
-    pendingCommit = null
-    const data = commit && raw === DEL && Date.now() - commit.at < COMMIT_DEL_WINDOW_MS ? commit.data : raw
-    if (hasNonAscii(data)) {
-      const now = Date.now()
-      if (data === lastIMEData && now - lastIMETime < 30) return
-      lastIMEData = data
-      lastIMETime = now
-    }
-    ptyWrite(ptyId, data.replace(/\r\n/g, '\r')).catch(() => {})
-  })
 
   terminal.onTitleChange((raw) => {
     if (!raw) return
@@ -1291,6 +1315,9 @@ onUnmounted(() => {
   if (outputWatchdog) clearTimeout(outputWatchdog)
   resizeObserver?.disconnect()
   unregisterTerminalPeek(props.tabId)
+  // 起動を待っているあいだに閉じられた。シェルを止めるのは、戻りを受けた側（まだ id が
+  // Rust に無いかもしれないので、ここからは止められない）。
+  if (spawningId) ptyRouter.unregister(spawningId)
   if (ptyId) {
     ptyRouter.unregister(ptyId)
     ptyKill(ptyId).catch(() => {})

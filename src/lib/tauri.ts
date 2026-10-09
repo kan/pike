@@ -44,12 +44,18 @@ export interface PtySpawnResult {
   id: string
 }
 
+/**
+ * シェルを起動する。**`id` は呼ぶ側が決め（`crypto.randomUUID()`）、呼ぶ前に
+ * `ptyRouter.register(id, …)` を済ませておく**（#459）。出力はこの呼び出しが戻る前から届く。
+ */
 export async function ptySpawn(
+  id: string,
   cols: number,
   rows: number,
   opts?: { cwd?: string; shell?: ShellType; agentMod?: boolean },
-): Promise<PtySpawnResult> {
-  return invoke<PtySpawnResult>('pty_spawn', {
+): Promise<void> {
+  await invoke<PtySpawnResult>('pty_spawn', {
+    id,
     cols,
     rows,
     cwd: opts?.cwd ?? null,

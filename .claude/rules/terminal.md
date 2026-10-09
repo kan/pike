@@ -34,13 +34,26 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
 - **PowerShell 7（pwsh、#127）**: Windows PowerShell 5（`ShellConfig::Powershell`）と併存する独立シェル種別 `ShellConfig::Pwsh` / `ShellType {kind:'pwsh'}`。`pty/mod.rs` の `find_pwsh()` が PATH → `C:\Program Files\PowerShell\7\pwsh.exe` → bare `pwsh.exe`（Store 版の実行エイリアス対策）の順で解決する。実在が確認できたものだけが要る呼び出し側は `find_pwsh_path`。`cls`/`;`/`$LASTEXITCODE` の PowerShell 系分岐は front `isPowershellFamily(kind)` で powershell/pwsh 共通化
 - 起動できるシェルの並びと表示/非表示（シェルプロファイル、#129）は `settings-ui.md`
 - **シェル未指定（`None`）の既定は OS で変わる**。Windows は WSL、macOS / Linux はログインシェル（`wsl.exe` が無いので WSL に落とすと即死する）
-- **復元したタブが真っ黒のまま残る件（#459）は原因が分かっていない。** 報告は「起動時に
-  見えていたタブで、キーにも反応せず、シェルの種類を問わず、直らない」。切り分けの記録だけ
-  入れてある（`TerminalTab.vue` の `SPAWN_STALL_MS` の doc と、`pty/mod.rs` の
-  `[pty] spawn start` / `done`）。**再発したらログの `[pty]` の行を見る**。原因が分かったら
-  Rust 側の 2 行は外してよい（ターミナルを開くたびに 2 行書く）
-  - 読んで見つけたが、この報告の症状とは合わないもの: spawn から `ptyRouter.register` までに
-    届いた出力は捨てられる（キーには反応するはず）。`pty_kill` は `sessions` のロックを握った
+- **pty の id はフロントが決めて `pty_spawn` に渡し、呼ぶ前に出力と入力の受け口を登録する
+  （#459）。** 読み取りスレッドは `pty_spawn` が戻る前から出力を送るので、id を戻り値で受け
+  取ってから登録する形（以前の作り）だと、最初の出力が受け口の無いまま届いて捨てられる
+  - **捨てると、Windows ではシェルが永久に起動しない。** ConPTY は起動時にカーソル位置の
+    問い合わせ（`ESC[6n`）を出し、端末の返事が来るまで先へ進まない。それが最初の出力なので、
+    捨てると画面は真っ黒のまま、キーにも反応しなくなる（復元したタブで起きていた症状。
+    実機では、黒いタブに `ESC[1;1R` を貼り付けるとその場でプロンプトが出た）
+  - **入力の受け口（`terminal.onData`）も `pty_spawn` の前に登録する。** xterm の返事は
+    `onData` を通って PTY へ戻るので、出力の受け口だけ先にしても、返事が捨てられて同じことが
+    起きる。待っているあいだの宛先は `spawningId`（`ptyId` は「起動済み」の印で、リサイズや
+    流し込みがそれを見て送るので、戻るまで立てない）
+  - **`pty_spawn` の戻りを受けてから登録する順に戻さないこと。** 戻り値と出力のどちらが
+    先に届くかは決まっておらず、webview が混む起動直後（複数のタブの復元）ほど出力が先になる。
+    手元で 1 枚開いて試しても再現しない
+  - Rust は受けた id が UUID の形であることと、使用中でないことを確かめる
+  - 再発の見張りは残してある（`TerminalTab.vue` の `SPAWN_STALL_MS` の doc）。ログに
+    `[pty] … no output` が出たら、取りこぼしが別の経路で残っている
+  - **Docker ログ（`DockerLogsTab.vue`）は今も「戻り値で id を受けてから登録する」形**で、
+    先頭の数行を取りこぼしうる。あちらは返事を待つ相手がいないので固まりはしない
+  - 読んで見つけたが、症状には結び付いていないもの: `pty_kill` は `sessions` のロックを握った
     まま `PtySession` を落とす
 - 環境変数 `TERM=xterm-256color` を cmd 以外に設定
 - **WSL のターミナルに `BROWSER` を渡さない（#381 で見送った）**。Claude Code の `/login` のような「ブラウザを開く」は下の OSC 8 のリンクを押せば開く。`BROWSER` に Pike 自身を渡す形は次の 2 つで採らない

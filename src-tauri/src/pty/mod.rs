@@ -86,12 +86,16 @@ fn spawn_pty_with_command(
         msys,
         window_label,
     } = spec;
-    // 復元したタブが真っ黒のまま残る報告（#459）の切り分け用。フロントは `pty_spawn` が
-    // 戻らないと `[pty] spawn …: no response` を書くので、この 2 行と突き合わせると
-    // 「呼び出しが届いていない」「この関数の中で止まっている」「戻りが届いていない」を
-    // 分けられる。原因が分かったら外してよい。
-    let started = std::time::Instant::now();
-    log::info!("[pty] spawn start id={id} window={window_label} {cols}x{rows}");
+    // id は呼び出し側が決める（`pty_spawn` はフロントから受ける）。使用中の id で起こすと、
+    // 下の `insert` が動いているセッションを落とす。
+    if state
+        .sessions
+        .lock()
+        .map_err(|e| e.to_string())?
+        .contains_key(&id)
+    {
+        return Err(format!("PTY '{id}' already exists"));
+    }
     let pty_system = native_pty_system();
 
     let size = PtySize {
@@ -147,7 +151,10 @@ fn spawn_pty_with_command(
         });
     }
 
-    // Spawn reader thread to forward PTY output to frontend
+    // Spawn reader thread to forward PTY output to frontend.
+    //
+    // **このスレッドの最初の出力は、コマンドの戻り値より先にフロントへ届きうる**（#459）。
+    // だから `pty_spawn` は id をフロントから受け取り、フロントは呼ぶ前に受け口を登録する。
     let read_id = id.clone();
     let reader_flag = Arc::clone(&exit_emitted);
     std::thread::spawn(move || {
@@ -230,10 +237,6 @@ fn spawn_pty_with_command(
         }
     });
 
-    log::info!(
-        "[pty] spawn done id={id} {}ms",
-        started.elapsed().as_millis()
-    );
     Ok(PtySpawnResult { id })
 }
 
@@ -338,6 +341,11 @@ fn find_git_bash() -> Result<String, String> {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn pty_spawn(
+    // pty の id。**フロントが決めて渡す**（#459）。読み取りスレッドの最初の出力は、この
+    // コマンドの戻り値より先にフロントへ届きうる。id を戻り値で知らせる形だと、フロントは
+    // その出力の受け口をまだ登録できていない。Windows ではそれが conhost のカーソル位置の
+    // 問い合わせ（`ESC[6n`）で、返事が無いとシェルが永久に起動しない。
+    id: String,
     cols: u16,
     rows: u16,
     cwd: Option<String>,
@@ -422,7 +430,10 @@ pub async fn pty_spawn(
         Some(_) => busy::ProbeKind::Host,
     };
     let is_wsl = matches!(probe_kind, busy::ProbeKind::Wsl(_));
-    let id = uuid::Uuid::new_v4().to_string();
+    // 環境変数（`PIKE_PTY_ID`）とイベントの宛先に使うので、形を決めて受ける。
+    let id = uuid::Uuid::parse_str(&id)
+        .map_err(|_| "Invalid PTY id".to_owned())?
+        .to_string();
     let mod_env = if agent_mod {
         crate::agent_mod::pty_env(shell.as_ref())
     } else {

@@ -23,6 +23,11 @@ async function init() {
   })
 }
 
+/**
+ * pty の出力と終了の受け口を登録する。**`pty_spawn` を頼む前に呼ぶこと**（#459）: 受け口の
+ * 無い id に届いたものは捨てるので、起動してから登録すると最初の出力を取りこぼす。pty の id は
+ * 呼び出し側が決めて `pty_spawn` に渡す（`TerminalTab.vue`）。
+ */
 function register(ptyId: string, onOutput: OutputHandler, onExit: ExitHandler) {
   outputHandlers.set(ptyId, onOutput)
   exitHandlers.set(ptyId, onExit)
