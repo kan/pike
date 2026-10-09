@@ -1862,6 +1862,10 @@ function jumpToLine(lineNum?: number) {
 }
 
 function onGlobalKeyDown(e: KeyboardEvent) {
+  // **隠れているタブは何もしない（#462）。** このリスナーは開いているエディタのタブ全部
+  // （保持中のプロジェクトのぶんも含む）が `document` に張るので、打鍵 1 回でタブの枚数ぶん
+  // 走る。下の 2 つはどちらも見えているタブでしか起きない。
+  if (!tabStore.isTabVisible(props.tabId)) return
   if (e.key === 'Escape' && jsonStringPopup.value) {
     closeJsonStringPopup()
   }
@@ -2400,7 +2404,16 @@ watch(
 watch(
   () => tabStore.isTabVisible(props.tabId),
   (visible) => {
-    if (!visible) return
+    if (!visible) {
+      // **隠れたら、このタブが出していたものを畳む（#462）。** 3 つはどれも `body` へ
+      // `Teleport` した `position: fixed` なので、タブが隠れても画面に残る（`v-show` は
+      // 包みの `.tab-host` にしか効かない）。`useOverlay` に数えられているので、残ると
+      // ブラウザのタブの子 webview が隠れたままにもなる。
+      closeJsonStringPopup()
+      closeCtxMenu()
+      closeCsvMenu()
+      return
+    }
     editorView?.requestMeasure()
     // 隠れているあいだに溜めた反映（設定・診断など）をここで流す（`whenShown` の doc）。
     // 読み直すなら、読み直しでは戻らないぶん（プレビューの DOM）だけが返ってくる。

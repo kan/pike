@@ -11,7 +11,9 @@
  * ので、分割を開いた最初の描画で `v-if` が false になり、そこでも同じ作り直しが起きる。
  *
  * 全タブをマウントしたまま `v-show` で出し分けるのは従来どおり（#264）。違うのは条件で、
- * 分割すると「見えているタブ」は 2 枚になる（`tabStore.isTabVisible`）。
+ * 分割すると「見えているタブ」は 2 枚になる（`tabStore.isTabVisible`）。**出し入れを受けるのは
+ * 中身を包む `.tab-host` で、中身のコンポーネントには付けない**（#462。理由はテンプレートの
+ * コメント）。
  */
 
 import { computed, defineAsyncComponent, onMounted, ref, useTemplateRef, watch } from 'vue'
@@ -202,13 +204,17 @@ function resetSplit() {
       `to` はパッチの時点で `querySelector` されるので、行き先が先に DOM へ入っている必要がある。
     -->
     <!--
-      **`v-memo` を外さないこと（#462）。** コンポーネントに `v-show` のようなディレクティブが
-      付いていると、Vue は親が描き直されるたびに、props が変わっていなくてもその子を必ず
-      描き直す（`shouldUpdateComponent` が `dirs` を見て true を返す）。この一覧はタブを
-      切り替えるたびに描き直されるので、素のままだと**開いている全タブ（保持中のプロジェクトの
-      ぶんも含む）の中身を、切替のたびに描き直す**。行き先・見えているか・種別が同じあいだは
-      vnode ごと使い回す（実測の数字は `.claude/rules/tabs.md`）。**この中で読む値を増やしたら、
+      **`v-memo` を外さないこと（#462）。** この一覧はタブを切り替えるたびに描き直されるので、
+      素のままだと開いているタブ（保持中のプロジェクトのぶんも含む）の数だけ vnode を作り直す。
+      行き先・見えているか・種別が同じあいだは vnode ごと使い回す。**この中で読む値を増やしたら、
       memo の鍵にも足すこと。**
+
+      **出し入れ（`v-show`）は中身のコンポーネントではなく `.tab-host` に付ける（#462）。**
+      コンポーネントにディレクティブが付いていると、Vue は props が変わっていなくてもその子を
+      必ず描き直す（`shouldUpdateComponent` が `dirs` を見て true を返す）。切替で鍵が変わるのは
+      2 枚だけだが、**その 2 枚のパッチ自体が、マウント済みのタブの数に比例して重くなる**
+      （実測の数字は `.claude/rules/tabs.md`）。素の要素に移せばコンポーネントは更新されず、
+      見えるかどうかは `isTabVisible` の watcher が各タブへ伝える。
     -->
     <template v-if="teleportReady">
       <Teleport
@@ -217,7 +223,9 @@ function resetSplit() {
         v-memo="[paneTarget(tab), tabStore.isTabVisible(tab.id), tab.kind]"
         :to="paneTarget(tab)"
       >
-        <component :is="TAB_COMPONENTS[tab.kind]" :tab-id="tab.id" v-show="tabStore.isTabVisible(tab.id)" />
+        <div v-show="tabStore.isTabVisible(tab.id)" class="tab-host">
+          <component :is="TAB_COMPONENTS[tab.kind]" :tab-id="tab.id" />
+        </div>
       </Teleport>
     </template>
   </div>
@@ -274,6 +282,14 @@ function resetSplit() {
   flex: 1;
   position: relative;
   overflow: hidden;
+}
+
+/* タブの中身の包み。出し入れ（`v-show`）をここで受ける（#462）。寸法はペインと同じに
+   しておく（中身のルートは `position: absolute; inset: 0` か `height: 100%` のどちらかで、
+   どちらもこの矩形に対して同じ結果になる）。 */
+.tab-host {
+  position: absolute;
+  inset: 0;
 }
 
 .empty-state {
