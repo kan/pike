@@ -21,6 +21,7 @@ import { useAboutModal } from '../../composables/useAboutModal'
 import { useAgentUsage } from '../../composables/useAgentUsage'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useEditorInfo } from '../../composables/useEditorInfo'
+import { usePowerStatus } from '../../composables/usePowerStatus'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import type { AgentDef } from '../../lib/agents'
@@ -45,6 +46,7 @@ import type { GitWorktree } from '../../types/git'
 import HelpButton from '../HelpButton.vue'
 import RateMeters from '../RateMeters.vue'
 import StatusClock from './StatusClock.vue'
+import StatusPower from './StatusPower.vue'
 
 const { t } = useI18n()
 const { open: openAbout } = useAboutModal()
@@ -63,8 +65,15 @@ function toggleLanguage() {
 const themeView = computed(() => THEME_MODE_VIEW[settingsStore.themeMode])
 const themeTitle = computed(() => t('statusBar.themeHint', { mode: t(themeView.value.labelKey) }))
 
-/** 日付か時刻のどちらかを出す設定なら、右端に時計の組を置く。 */
+/**
+ * 右端の組（電源、日付と時刻。#467）。**組を出すかの述語は中身の `v-if` から組む**ので、
+ * 中身を足したときに空の組と区切りだけが残らない（`hasRepoInfo` と同じ判断）。
+ */
 const showClock = computed(() => settingsStore.statusBarDate !== 'off' || settingsStore.statusBarTime !== 'off')
+// 電源は、取れているときだけ数える（取れるまでと、取れなかったときは何も描かれない）。
+// **設定がオフのあいだは取りに行かない**（`usePowerStatus` は呼ばれたときに始める）。
+const showPower = computed(() => settingsStore.statusBarPower && usePowerStatus().value !== null)
+const hasSystemInfo = computed(() => showClock.value || showPower.value)
 
 /**
  * 「未登録」を押したときの登録（#373）。**確認を挟む**: この印が名乗っているのは状態で
@@ -711,9 +720,10 @@ onUnmounted(() => {
       >{{ updater.versionLabel.value }}</button>
     </div>
 
-    <!-- 日付と時刻（設定で出す）。OS のタスクバーの時計と同じ右下の隅に置く。 -->
-    <div v-if="showClock" class="status-group">
-      <StatusClock class="status-text" data-testid="statusbar-clock" />
+    <!-- 電源、日付と時刻（設定で出す、#467）。OS のタスクバーと同じ右下の隅に、同じ順で置く。 -->
+    <div v-if="hasSystemInfo" class="status-group">
+      <StatusPower v-if="showPower" class="status-text" data-testid="statusbar-power" />
+      <StatusClock v-if="showClock" class="status-text" data-testid="statusbar-clock" />
     </div>
   </div>
 </template>

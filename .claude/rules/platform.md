@@ -103,6 +103,11 @@ Pike の第一ターゲットは Windows で、macOS は**ローカルのシェ�
 | デスクトップ通知（#318） | WinRT のトーストと、AUMID を書いたスタートメニューのショートカット（`IShellLinkW` + `IPropertyStore`）。**そもそも入力待ちの知らせ（#265）が Windows 限定**（配送の WM_COPYDATA がそこにしか無い）なので、通知が要る場面も無い。`toast` の stub が何もしない |
 | ログイン時の起動（#419） | HKCU の `Run` キー。macOS のログイン項目は別の仕組み。`autostart` の stub が「しない」と答え、設定画面は `isWindowsHost` のときだけ項目を出す |
 
+**ステータスバーの電源の表示（#467）も macOS には無い**が、こちらは Rust の stub ではない。
+出典が webview の `navigator.getBattery` で、WKWebView がそれを持たないため。フロントの
+`powerStatusSupported`（`lib/statusPower.ts`）が設定画面の項目を畳み、表示のほうは
+値が取れないので何も出ない。
+
 `busy` 判定（#178）は**代替がある**ので実装してある: WSL の `/proc/*/environ` マーカー走査に
 あたるものが、ローカル Unix では `ps -Ao ppid=`（PID が同じ名前空間にあるのでマーカーが
 要らない）。**ホスト側の判定は `ProbeKind::Host` の 1 本**で、Windows の Toolhelp 走査と

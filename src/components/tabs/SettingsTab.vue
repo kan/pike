@@ -16,6 +16,7 @@ import { absoluteDate } from '../../lib/paths'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import type { ShortcutPreset } from '../../lib/shortcuts'
 import { formatStatusDate, STATUS_DATE_FORMATS, type StatusTimeFormat } from '../../lib/statusClock'
+import { powerStatusSupported } from '../../lib/statusPower'
 import { SYNC_CATEGORIES, type SyncCategory } from '../../lib/syncFormat'
 import {
   type AgentHookStatus,
@@ -865,6 +866,14 @@ const PREVIEW_LINES = [
         </SettingItem>
         <SettingItem label-key="settings.statusBarTime" hint-key="settings.statusBarTimeHint">
           <SettingToggle v-model="settings.statusBarTime" :options="STATUS_TIME_OPTIONS" />
+        </SettingItem>
+        <!-- 取れない webview（macOS の WKWebView）では項目ごと出さない。 -->
+        <SettingItem
+          v-if="powerStatusSupported"
+          label-key="settings.statusBarPower"
+          hint-key="settings.statusBarPowerHint"
+        >
+          <SettingToggle v-model="settings.statusBarPower" :options="ON_OFF" />
         </SettingItem>
       </SettingSection>
 

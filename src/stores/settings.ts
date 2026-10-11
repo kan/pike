@@ -243,22 +243,28 @@ const SETTINGS_CHANGED_EVENT = 'pike://settings-changed'
 // (machine-local, never synced) but still have to agree between the windows of
 // one machine, because any window can publish them to the OS menus (#240).
 const SHELL_PROFILES_CHANGED_EVENT = 'pike://shell-profiles-changed'
-// ステータスバーの日付と時刻の表記。**マシンローカル**（同期ファイルにも `pike:settings` にも
-// 入れない）: 時計が要るかはその端末の使い方（タスクバーを隠しているか、画面の広さ）で
-// 決まり、表記も端末の地域の設定に合わせたい。シェル一覧と同じく、同じマシンのウィンドウ
-// 同士では揃えるので、知らせだけは別に流す。
+// ステータスバーの右端の日付・時刻・電源（#467）。**マシンローカル**（同期ファイルにも
+// `pike:settings` にも入れない）: 要るかはその端末の使い方（タスクバーを隠しているか、
+// 画面の広さ、バッテリーで動く機械か）で決まり、表記も端末の地域の設定に合わせたい。
+// シェル一覧と同じく、同じマシンのウィンドウ同士では揃えるので、知らせだけは別に流す。
+// 鍵の名前が時計なのは、電源が後から加わったため。
 const STATUS_CLOCK_KEY = 'pike:status-clock'
 const STATUS_CLOCK_CHANGED_EVENT = 'pike://status-clock-changed'
 
-interface StatusClockSettings {
+interface StatusInfoSettings {
   date: StatusDateFormat
   time: StatusTimeFormat
+  power: boolean
 }
 
-/** 値の意味と、`off` を値に持たせる理由は `lib/statusClock.ts`。既定はどちらも `off`。 */
-function sanitizeStatusClock(v: unknown): StatusClockSettings {
+/** 日付と時刻の値の意味と、`off` を値に持たせる理由は `lib/statusClock.ts`。既定はどれも出さない。 */
+function sanitizeStatusInfo(v: unknown): StatusInfoSettings {
   const raw = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>
-  return { date: sanitizeStatusDateFormat(raw.date), time: sanitizeStatusTimeFormat(raw.time) }
+  return {
+    date: sanitizeStatusDateFormat(raw.date),
+    time: sanitizeStatusTimeFormat(raw.time),
+    power: raw.power === true,
+  }
 }
 const BROADCAST_DEBOUNCE_MS = 150
 // Base UI font size that maps to 100% (zoom = 1). The whole UI chrome is scaled
@@ -1484,25 +1490,27 @@ export const useSettingsStore = defineStore('settings', () => {
   const globalShell = ref<ShellType>(sanitizeGlobalShell(loadJson<unknown>(GLOBAL_SHELL_KEY, null)))
   watch(globalShell, (v) => saveJson(GLOBAL_SHELL_KEY, v), { deep: true })
 
-  // ステータスバーの日付と時刻（マシンローカル。理由は `STATUS_CLOCK_KEY` の隣）。
-  const savedClock = sanitizeStatusClock(loadJson<unknown>(STATUS_CLOCK_KEY, null))
-  const statusBarDate = ref<StatusDateFormat>(savedClock.date)
-  const statusBarTime = ref<StatusTimeFormat>(savedClock.time)
+  // ステータスバーの日付・時刻・電源（マシンローカル。理由は `STATUS_CLOCK_KEY` の隣）。
+  const savedStatusInfo = sanitizeStatusInfo(loadJson<unknown>(STATUS_CLOCK_KEY, null))
+  const statusBarDate = ref<StatusDateFormat>(savedStatusInfo.date)
+  const statusBarTime = ref<StatusTimeFormat>(savedStatusInfo.time)
+  const statusBarPower = ref(savedStatusInfo.power)
   // 他のウィンドウから来た値を当てているあいだは流し返さない（`applyingRemoteShells` と同じ）。
-  let applyingRemoteClock = false
-  watch([statusBarDate, statusBarTime], ([date, time]) => {
-    const payload: StatusClockSettings = { date, time }
+  let applyingRemoteStatusInfo = false
+  watch([statusBarDate, statusBarTime, statusBarPower], ([date, time, power]) => {
+    const payload: StatusInfoSettings = { date, time, power }
     saveJson(STATUS_CLOCK_KEY, payload)
-    if (!applyingRemoteClock) void emit(STATUS_CLOCK_CHANGED_EVENT, { from: windowLabel, payload })
+    if (!applyingRemoteStatusInfo) void emit(STATUS_CLOCK_CHANGED_EVENT, { from: windowLabel, payload })
   })
   listen<{ from: string; payload: unknown }>(STATUS_CLOCK_CHANGED_EVENT, (event) => {
     if (event.payload.from === windowLabel) return
-    const clock = sanitizeStatusClock(event.payload.payload)
-    applyingRemoteClock = true
-    statusBarDate.value = clock.date
-    statusBarTime.value = clock.time
+    const info = sanitizeStatusInfo(event.payload.payload)
+    applyingRemoteStatusInfo = true
+    statusBarDate.value = info.date
+    statusBarTime.value = info.time
+    statusBarPower.value = info.power
     void nextTick(() => {
-      applyingRemoteClock = false
+      applyingRemoteStatusInfo = false
     })
   })
 
@@ -2108,6 +2116,7 @@ export const useSettingsStore = defineStore('settings', () => {
     windowOpacity,
     statusBarDate,
     statusBarTime,
+    statusBarPower,
     surfaceAlpha,
     terminalSurfaceBg,
     agentLaunchers,

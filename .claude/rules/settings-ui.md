@@ -7,6 +7,9 @@ paths:
   - "src/lib/fontDetection.ts"
   - "src/lib/statusClock.ts"
   - "src/components/layout/StatusClock.vue"
+  - "src/lib/statusPower.ts"
+  - "src/components/layout/StatusPower.vue"
+  - "src/composables/usePowerStatus.ts"
   - "src-tauri/src/font.rs"
 ---
 
@@ -55,3 +58,9 @@ paths:
 - **日付と時刻は別々の設定で、どちらも `off` を値に持つ。** 「出すか」の真偽値と表記に割らない理由、表記を言語から切り離した理由、`Intl` に本体を整形させない理由は **`lib/statusClock.ts` の doc コメントが正本**
 - **更新は分の変わり目に合わせた `setTimeout` の張り直し**で、`setInterval` にしない。見えていないあいだも止めない。どちらも理由は `StatusClock.vue` の `tick` の隣
 - **`StatusBar.vue` に直に書かない**（あちらは打鍵のたびに再描画される）
+- **電源とバッテリー残量も同じ組に出す**（`statusBarPower`。同じ `pike:status-clock` に入れる）。表示は `components/layout/StatusPower.vue`、値は `composables/usePowerStatus.ts`、見せ方の規則は `lib/statusPower.ts`
+  - **出典は webview の `navigator.getBattery` で、Rust を通さない**（イベントで届くのでポーリングが要らない）。WKWebView に無いので、設定画面は `powerStatusSupported` で項目ごと畳む
+  - **状態は部品の中に持たせない。** `StatusBar.vue` は「出すものがあるか」で組ごと畳むので、取れているかを外から読めないと、取れなかったときに空の組と区切りだけが残る
+  - **「充電中」とは言わない。** API の `charging` は Chromium の Windows の実装では AC につながっているかで、充電の上限で止まっている機械と区別できない。つないでいればプラグのアイコンにする
+  - **バッテリーを持たない機械と「つないで 100%」も区別できない**ので、どちらもプラグのアイコンだけにする
+  - 色を変える境目は `POWER_WARN_PERCENT` / `POWER_DANGER_PERCENT`。**警告するのはバッテリーで動いているあいだだけ**

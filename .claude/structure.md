@@ -136,7 +136,8 @@ pike/
 │   │   │   ├── TabItem.vue    # タブバーの 1 枚（固定タブの列と通常の列で共有、#305）
 │   │   │   ├── TabIcon.vue    # タブの種別のアイコン（タブバーと溢れた一覧で共有、#400）
 │   │   │   ├── StatusBar.vue  # ブランチ/worktree セレクタ/ahead-behind/トークン使用量/エンコード/改行/repo リンク
-│   │   │   └── StatusClock.vue # ステータスバーの右端の日付と時刻（設定で出す。1 分ごとの更新を StatusBar から切り離す）
+│   │   │   ├── StatusClock.vue # ステータスバーの右端の日付と時刻（設定で出す。1 分ごとの更新を StatusBar から切り離す）
+│   │   │   └── StatusPower.vue # ステータスバーの右端の電源とバッテリー残量（設定で出す。`navigator.getBattery`、#467）
 │   │   ├── panels/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   ├── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除（GroupComboBox/ProjectListItem に分割）
@@ -221,6 +222,7 @@ pike/
 │   │   ├── useFocusPolling.ts # アクティブなあいだだけポーリングする共通部（#277）
 │   │   ├── usePanelAvailability.ts # サイドバーのパネルが使えるかの唯一の出典（#278）
 │   │   ├── useSettingsSearch.ts # 設定画面の絞り込み（#314。登録・一致・強調の切り分け）
+│   │   ├── usePowerStatus.ts # 電源とバッテリーの状態（#467。`navigator.getBattery` をイベントで受ける。状態はモジュールに 1 つ）
 │   │   ├── useDockerLogRouter.ts  useAgentUsage.ts
 │   │   ├── useBrowserRouter.ts # ブラウザのタブへの通知をラベルで振り分ける（#368。usePtyRouter と同じ形）
 │   │   ├── useChildWebview.ts # 子 webview の位置合わせ・隠す・閉じる（#399。ブラウザのタブと HTML / Vue のプレビューで共有）
@@ -275,6 +277,7 @@ pike/
 │   │   ├── externalImages.ts  # プレビューの外部画像のホスト判定と取得キャッシュ（#239）
 │   │   ├── terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
 │   │   ├── statusClock.ts     # ステータスバーの日付と時刻の表記（選択肢・整形・検証。言語を見るのは曜日だけ）
+│   │   ├── statusPower.ts     # ステータスバーの電源の見せ方（種別・残量の帯・色の境目。値を取るのは部品の側、#467）
 │   │   ├── themeModes.ts      # テーマのモードのアイコンと文言（設定画面とステータスバーで共有、#407）
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
 │   │   ├── openUrl.ts         # 外部ブラウザで URL を開く唯一の入口（確認とホストの許可、#311）
