@@ -135,7 +135,8 @@ pike/
 │   │   │   ├── TabBar.vue     # 1 ペインぶんのタブバー（+ / シェル選択 / 各種メニュー、#308）
 │   │   │   ├── TabItem.vue    # タブバーの 1 枚（固定タブの列と通常の列で共有、#305）
 │   │   │   ├── TabIcon.vue    # タブの種別のアイコン（タブバーと溢れた一覧で共有、#400）
-│   │   │   └── StatusBar.vue  # ブランチ/worktree セレクタ/ahead-behind/トークン使用量/エンコード/改行/repo リンク
+│   │   │   ├── StatusBar.vue  # ブランチ/worktree セレクタ/ahead-behind/トークン使用量/エンコード/改行/repo リンク
+│   │   │   └── StatusClock.vue # ステータスバーの右端の日付と時刻（設定で出す。1 分ごとの更新を StatusBar から切り離す）
 │   │   ├── panels/
 │   │   │   ├── FileTreePanel.vue  # ファイルツリー
 │   │   │   ├── ProjectPanel.vue   # プロジェクト一覧・登録・編集・削除（GroupComboBox/ProjectListItem に分割）
@@ -273,6 +274,7 @@ pike/
 │   │   ├── sanitizeHtml.ts    # DOMPurify に渡す URI スキームの許可（4 つのプレビューで共有、#311）
 │   │   ├── externalImages.ts  # プレビューの外部画像のホスト判定と取得キャッシュ（#239）
 │   │   ├── terminalLinks.ts  shellIcons.ts  projectColors.ts  projectIcons.ts  projectPaths.ts
+│   │   ├── statusClock.ts     # ステータスバーの日付と時刻の表記（選択肢・整形・検証。言語を見るのは曜日だけ）
 │   │   ├── themeModes.ts      # テーマのモードのアイコンと文言（設定画面とステータスバーで共有、#407）
 │   │   ├── openFile.ts        # 拡張子でタブ種別を振り分ける唯一の入口（editor/preview/pdf）
 │   │   ├── openUrl.ts         # 外部ブラウザで URL を開く唯一の入口（確認とホストの許可、#311）

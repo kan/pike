@@ -358,6 +358,13 @@ export default {
   'settings.uiFontDefault': 'システム既定',
   'settings.uiFontHint':
     'アプリ画面（サイドバー・タブ・パネル・ダイアログ）のフォントとサイズ。ターミナルとエディタは下の各自の設定が優先されます。',
+  'settings.statusBarDate': 'ステータスバーの日付',
+  'settings.statusBarDateHint':
+    'ステータスバーの右端に日付を出します。表記は言語の設定と別に選べます（曜日の名前だけ言語に従います）。タスクバーを隠して使うときの時計の代わりになります。',
+  'settings.statusBarTime': 'ステータスバーの時刻',
+  'settings.statusBarTimeHint': 'ステータスバーの右端に時刻を出します。日付と別に切り替えられます。',
+  'settings.statusBarTime24': '24 時間',
+  'settings.statusBarTime12': 'AM/PM',
   'settings.font': 'フォント',
   'settings.fontSize': 'フォントサイズ',
   'settings.editorFont': 'フォント',

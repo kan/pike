@@ -4,7 +4,7 @@ import { type Component, computed, nextTick, ref, useTemplateRef, watch } from '
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { provideSettingsSearch } from '../../composables/useSettingsSearch'
 import { useUpdater } from '../../composables/useUpdater'
-import { useI18n } from '../../i18n'
+import { locale, useI18n } from '../../i18n'
 import { AGENTS, type AgentLauncher, isLauncherVisible, launcherLabel } from '../../lib/agents'
 import { COPY_ON_SELECT_OPTIONS } from '../../lib/copyOnSelect'
 import { CSV_PAGE_SIZES } from '../../lib/csvPreview'
@@ -15,6 +15,7 @@ import { isWindowsHost } from '../../lib/host'
 import { absoluteDate } from '../../lib/paths'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import type { ShortcutPreset } from '../../lib/shortcuts'
+import { formatStatusDate, STATUS_DATE_FORMATS, type StatusTimeFormat } from '../../lib/statusClock'
 import { SYNC_CATEGORIES, type SyncCategory } from '../../lib/syncFormat'
 import {
   type AgentHookStatus,
@@ -165,6 +166,23 @@ const SQL_DIALECT_OPTIONS: { value: SqlDialect; labelKey: string }[] = [
   { value: 'pgsql', labelKey: 'settings.sqlDialectPgsql' },
   { value: 'sqlite', labelKey: 'settings.sqlDialectSqlite' },
 ]
+const STATUS_TIME_OPTIONS: { value: StatusTimeFormat; labelKey: string }[] = [
+  { value: 'off', labelKey: 'common.off' },
+  { value: 'h24', labelKey: 'settings.statusBarTime24' },
+  { value: 'h12', labelKey: 'settings.statusBarTime12' },
+]
+/**
+ * 日付の表記の選択肢。**名前を付けず、今日の日付をその表記で書いたものを見出しにする**
+ * （`2026/10/11 (日)` と書いてあれば説明が要らない）。曜日は UI の言語で出るので、
+ * 言語を切り替えたら組み直す。設定画面を開いたまま日付をまたいだときの古さは気にしない。
+ */
+const statusDateOptions = computed(() => {
+  const today = new Date()
+  return STATUS_DATE_FORMATS.map((value) => ({
+    value,
+    label: value === 'off' ? t('common.off') : formatStatusDate(value, today, locale.value),
+  }))
+})
 const DIFF_WORD_WRAP_OPTIONS: { value: DiffWordWrap; labelKey: string }[] = [
   { value: 'auto', labelKey: 'common.auto' },
   { value: 'on', labelKey: 'common.on' },
@@ -836,6 +854,17 @@ const PREVIEW_LINES = [
             />
             <span class="font-size-value" :style="{ fontSize: uiFontSizeDraft + 'px' }">{{ uiFontSizeDraft }}px</span>
           </div>
+        </SettingItem>
+
+        <!-- タスクバーを隠して使うときの時計の代わり。日付と時刻は別々に出せて、
+             どちらも「オフ」を選択肢に持つ（`lib/statusClock.ts`）。 -->
+        <SettingItem label-key="settings.statusBarDate" hint-key="settings.statusBarDateHint">
+          <select class="setting-select" v-model="settings.statusBarDate">
+            <option v-for="opt in statusDateOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          </select>
+        </SettingItem>
+        <SettingItem label-key="settings.statusBarTime" hint-key="settings.statusBarTimeHint">
+          <SettingToggle v-model="settings.statusBarTime" :options="STATUS_TIME_OPTIONS" />
         </SettingItem>
       </SettingSection>
 

@@ -19,6 +19,12 @@ import { emptyProjectBase, isProjectPlatform, type ProjectBase, rootKey } from '
 import { moveByKey } from '../lib/reorder'
 import { SEARCH_RESULT_VIEWS, type SearchResultView } from '../lib/searchResults'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
+import {
+  type StatusDateFormat,
+  type StatusTimeFormat,
+  sanitizeStatusDateFormat,
+  sanitizeStatusTimeFormat,
+} from '../lib/statusClock'
 import { loadJson, saveJson } from '../lib/storage'
 import { fontListAll, fontListMonospace, type SiteRulePayload } from '../lib/tauri'
 import { setWebviewTheme, systemDark, windowFocused, windowLabel } from '../lib/window'
@@ -237,6 +243,23 @@ const SETTINGS_CHANGED_EVENT = 'pike://settings-changed'
 // (machine-local, never synced) but still have to agree between the windows of
 // one machine, because any window can publish them to the OS menus (#240).
 const SHELL_PROFILES_CHANGED_EVENT = 'pike://shell-profiles-changed'
+// ステータスバーの日付と時刻の表記。**マシンローカル**（同期ファイルにも `pike:settings` にも
+// 入れない）: 時計が要るかはその端末の使い方（タスクバーを隠しているか、画面の広さ）で
+// 決まり、表記も端末の地域の設定に合わせたい。シェル一覧と同じく、同じマシンのウィンドウ
+// 同士では揃えるので、知らせだけは別に流す。
+const STATUS_CLOCK_KEY = 'pike:status-clock'
+const STATUS_CLOCK_CHANGED_EVENT = 'pike://status-clock-changed'
+
+interface StatusClockSettings {
+  date: StatusDateFormat
+  time: StatusTimeFormat
+}
+
+/** 値の意味と、`off` を値に持たせる理由は `lib/statusClock.ts`。既定はどちらも `off`。 */
+function sanitizeStatusClock(v: unknown): StatusClockSettings {
+  const raw = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>
+  return { date: sanitizeStatusDateFormat(raw.date), time: sanitizeStatusTimeFormat(raw.time) }
+}
 const BROADCAST_DEBOUNCE_MS = 150
 // Base UI font size that maps to 100% (zoom = 1). The whole UI chrome is scaled
 // proportionally via CSS `zoom`, so changing the size never breaks the layout.
@@ -1461,6 +1484,28 @@ export const useSettingsStore = defineStore('settings', () => {
   const globalShell = ref<ShellType>(sanitizeGlobalShell(loadJson<unknown>(GLOBAL_SHELL_KEY, null)))
   watch(globalShell, (v) => saveJson(GLOBAL_SHELL_KEY, v), { deep: true })
 
+  // ステータスバーの日付と時刻（マシンローカル。理由は `STATUS_CLOCK_KEY` の隣）。
+  const savedClock = sanitizeStatusClock(loadJson<unknown>(STATUS_CLOCK_KEY, null))
+  const statusBarDate = ref<StatusDateFormat>(savedClock.date)
+  const statusBarTime = ref<StatusTimeFormat>(savedClock.time)
+  // 他のウィンドウから来た値を当てているあいだは流し返さない（`applyingRemoteShells` と同じ）。
+  let applyingRemoteClock = false
+  watch([statusBarDate, statusBarTime], ([date, time]) => {
+    const payload: StatusClockSettings = { date, time }
+    saveJson(STATUS_CLOCK_KEY, payload)
+    if (!applyingRemoteClock) void emit(STATUS_CLOCK_CHANGED_EVENT, { from: windowLabel, payload })
+  })
+  listen<{ from: string; payload: unknown }>(STATUS_CLOCK_CHANGED_EVENT, (event) => {
+    if (event.payload.from === windowLabel) return
+    const clock = sanitizeStatusClock(event.payload.payload)
+    applyingRemoteClock = true
+    statusBarDate.value = clock.date
+    statusBarTime.value = clock.time
+    void nextTick(() => {
+      applyingRemoteClock = false
+    })
+  })
+
   // Base directory per platform (#164): the anchor that turns a synced,
   // base-relative project path into a real root here. Machine-local for the
   // same reason as globalShell — every PC lays its checkouts out differently.
@@ -2061,6 +2106,8 @@ export const useSettingsStore = defineStore('settings', () => {
     closeToTray,
     windowBackdrop,
     windowOpacity,
+    statusBarDate,
+    statusBarTime,
     surfaceAlpha,
     terminalSurfaceBg,
     agentLaunchers,

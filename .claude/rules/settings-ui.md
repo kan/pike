@@ -5,6 +5,8 @@ paths:
   - "src/composables/useSettingsSearch.ts"
   - "src/stores/settings.ts"
   - "src/lib/fontDetection.ts"
+  - "src/lib/statusClock.ts"
+  - "src/components/layout/StatusClock.vue"
   - "src-tauri/src/font.rs"
 ---
 
@@ -44,3 +46,12 @@ paths:
 - `syncShellProfiles(distros)` が `detect_wsl_distros` の結果と照合する（新規 distro は先頭に追加・消えた distro は除去・既存の順序と hidden は維持）。**空検出は過渡状態とみなし reconcile しない**（カスタマイズの消失を防ぐ）
 - `windowsShellOptions(currentKind?)` / `visibleWslDistros(detected, currentDistro?)` が hidden を除いた選択肢を返す（現在値は hidden でも残す）。`defaultWindowsShellKind()` は作成フォームの既定（powershell 優先）
 - `ensureVisiblePerCategory` で WSL/Windows の各カテゴリに最低 1 つは可視を保証する（UI の `canHideShellProfile` と二重ガード）。既定シェルは ▾ で hidden でも一覧に残す
+
+## ステータスバーの日付と時刻（#467）
+
+タスクバーを隠して使うときの時計の代わり。表示は `components/layout/StatusClock.vue`、表記の規則は `lib/statusClock.ts`、設定は `stores/settings.ts` の `statusBarDate` / `statusBarTime`（外観の節）。
+
+- **マシンローカル**（`pike:status-clock`。**同期ファイルにも `pike:settings` にも入れない**）。時計が要るかはその端末の使い方で決まるため。シェル一覧と同じく**クロスウィンドウ broadcast はする**（`pike://status-clock-changed`）
+- **日付と時刻は別々の設定で、どちらも `off` を値に持つ。** 「出すか」の真偽値と表記に割らない理由、表記を言語から切り離した理由、`Intl` に本体を整形させない理由は **`lib/statusClock.ts` の doc コメントが正本**
+- **更新は分の変わり目に合わせた `setTimeout` の張り直し**で、`setInterval` にしない。見えていないあいだも止めない。どちらも理由は `StatusClock.vue` の `tick` の隣
+- **`StatusBar.vue` に直に書かない**（あちらは打鍵のたびに再描画される）

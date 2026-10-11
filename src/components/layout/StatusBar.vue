@@ -44,6 +44,7 @@ import type { AgentUsage } from '../../types/agentUsage'
 import type { GitWorktree } from '../../types/git'
 import HelpButton from '../HelpButton.vue'
 import RateMeters from '../RateMeters.vue'
+import StatusClock from './StatusClock.vue'
 
 const { t } = useI18n()
 const { open: openAbout } = useAboutModal()
@@ -61,6 +62,9 @@ function toggleLanguage() {
  */
 const themeView = computed(() => THEME_MODE_VIEW[settingsStore.themeMode])
 const themeTitle = computed(() => t('statusBar.themeHint', { mode: t(themeView.value.labelKey) }))
+
+/** 日付か時刻のどちらかを出す設定なら、右端に時計の組を置く。 */
+const showClock = computed(() => settingsStore.statusBarDate !== 'off' || settingsStore.statusBarTime !== 'off')
 
 /**
  * 「未登録」を押したときの登録（#373）。**確認を挟む**: この印が名乗っているのは状態で
@@ -468,9 +472,9 @@ onUnmounted(() => {
     <div class="spacer"></div>
 
     <!--
-      右側は 4 つの組に分けて `|` で区切る（#383）。**区切りは後ろの組が描く**
+      右側は 5 つの組に分けて `|` で区切る（#383）。**区切りは後ろの組が描く**
       （`.status-group + .status-group::before`）ので、前の組が消えても区切りだけが残らない。
-      最後の組（言語 + バージョン）だけは条件を持たず常に出る。
+      テーマ + 言語 + バージョンの組だけは条件を持たず常に出る。
     -->
     <!-- Editor info -->
     <div v-if="editorInfo.current.value" class="status-group">
@@ -705,6 +709,11 @@ onUnmounted(() => {
         :title="t('statusBar.pikeVersion', { version: updater.appVersion.value })"
         @click="openAbout"
       >{{ updater.versionLabel.value }}</button>
+    </div>
+
+    <!-- 日付と時刻（設定で出す）。OS のタスクバーの時計と同じ右下の隅に置く。 -->
+    <div v-if="showClock" class="status-group">
+      <StatusClock class="status-text" data-testid="statusbar-clock" />
     </div>
   </div>
 </template>

@@ -358,6 +358,13 @@ export default {
   'settings.uiFontDefault': 'System Default',
   'settings.uiFontHint':
     'Font and size for the app interface (sidebar, tabs, panels, dialogs). The terminal and editor keep their own font settings below.',
+  'settings.statusBarDate': 'Status bar date',
+  'settings.statusBarDateHint':
+    'Shows the date at the right end of the status bar. The format is chosen independently of the language setting (only the weekday name follows the language). Useful as a clock when the taskbar is hidden.',
+  'settings.statusBarTime': 'Status bar time',
+  'settings.statusBarTimeHint': 'Shows the time at the right end of the status bar. Toggled independently of the date.',
+  'settings.statusBarTime24': '24-hour',
+  'settings.statusBarTime12': 'AM/PM',
   'settings.font': 'Font',
   'settings.fontSize': 'Font Size',
   'settings.editorFont': 'Font',
