@@ -146,7 +146,7 @@ pike/
      -- textlint --rule preset-ai-writing --rule preset-ja-technical-writing \
      README.md docs/manual/*.md CHANGELOG.md
    ```
-   （リポジトリに textlint は未導入。実行は npx で都度行う）
+   （リポジトリに textlint は未導入。実行は npx で都度行う。**この repo ではアカウント側の textlint 設定ではなく、このルールセットを使う**: 下の表記規約と据え置きの一覧がこれを前提にしている）
 
 2. **`japanese-tech-writing` スキル**（判断ベース）で、textlint が拾えない空句・冗長・演出・論証を点検する。
 
@@ -165,19 +165,24 @@ pike/
 
 ### コミット前チェック
 
-**コミットの前は、変更の規模に応じて次を実行し、指摘を反映してからコミットする。**
+**コミットの前は、変更の規模に応じて次を実行し、指摘の採否を決めて反映してからコミットする。**
 
 | 変更の規模 | 実行するもの |
 |---|---|
-| ある程度の規模の実装・修正 | `/code-review` → `simplify` → `just check` |
-| 軽微なコード修正 | `simplify` → `just check`（自明な 1 行修正などは直接コミットしてもよい） |
+| 大規模（新しいモジュールや機構の追加、複数ファイルにまたがる構造の変更） | `/simplify` → `/code-review medium` → `just check` |
+| 中規模（既存の構造の中でのロジックの追加や変更） | `/code-review medium` → `just check` |
+| 小規模（数行の修正、定数や文言の変更、分岐が増えない修正） | `just check`（自明な 1 行修正などは直接コミットしてもよい） |
 | ドキュメントのみ（`README.md` / `docs/manual/` / `CHANGELOG.md`） | 「ドキュメント校正ルール」の校正 ＋ `just check-docs` |
-| CLAUDE.md / `.claude/` 配下の md（rules・skills・structure.md）のみ | `just check-docs`（開発者向けなので日本語校正の対象外） |
+| CLAUDE.md / `.claude/` 配下の md（rules・skills・structure.md）のみ | `/claude-api prompt-audit <変更したファイル>` ＋ `just check-docs`（開発者向けなので日本語校正の対象外） |
 | バージョン bump のみ | 何も要らない |
 
-- **順序を守る**。`/code-review`（バグ探索）で挙がったものを直してから `simplify`（再利用・単純化・効率・抽象度の品質整理）を回す。simplify はバグを探さないので、先に回しても直すべきコードを整えるだけになる。
-- どちらもコードを書き換えるため、必ず**ユーザの動作確認より前**に実行する（ユーザは適用後のコードを試す）。
-- `/code-review` はスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
+スキルの使い方は、アカウント側の品質チェックのルール（config dir の rules にある quality-check）と同じにしてある。食い違いを見つけたら、アカウント側を正としてここを直す。
+
+- **順序を守り、直列で実行する**。`/simplify`（再利用・単純化・効率・抽象度の品質整理）の書き換えが終わってから `/code-review`（バグ探索）を起動する。`/code-review` を後にするのは、書き換えが済んだ最終形のコードをバグの観点で見るため。並列に動かすと、書き換え前のコードを見た指摘が返り、`/simplify` が入れた不具合も見逃す。
+- 中規模で `/simplify` を回さないのは、`/code-review` が再利用や簡素化の指摘も扱い、内容が重なるため。
+- **`/code-review` には effort を必ず `medium` と明示し、`--fix` を付けない。** 指摘は 1 件ずつ採否を決めて自分で反映し、採らなかったものは理由を添えてユーザーに報告する（`prompt-audit` の指摘も同じ扱い）。
+- `/simplify` の書き換えと `/code-review` の指摘の反映はコードを変えるため、必ず**ユーザの動作確認より前**に済ませる（ユーザは適用後のコードを試す）。
+- どのスキルも Claude がスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
 
 その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 9 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
 
@@ -231,7 +236,7 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 3. **`git push` は実行しない** — push の判断はユーザに委ねる（ユーザはローカル確認後に自分で push する運用）。**例外はリリース依頼時**（次項 5）
 4. ユーザから明示的に「PR にして」「ブランチ切って」等の指示があった場合のみ、その指示に従う
    - **外部からの PR も来る**。取り込むときは通常のコミット前チェックと同じ扱いで、
-     `/code-review` → `simplify` を回してから main へマージする。ロックファイルを共有する
+     `/simplify` → `/code-review medium` を回してから main へマージする。ロックファイルを共有する
      dependabot の PR は、1 件ずつマージするとリベース待ちが連鎖するので、ローカルでまとめて
      取り込んで push する（PR は依存が更新された時点で自動クローズされる）
 5. **リリース依頼は end-to-end で Claude が実行する**（push の個別確認は不要）。手順は `release` スキル
