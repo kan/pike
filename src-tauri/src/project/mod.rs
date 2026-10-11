@@ -128,6 +128,43 @@ pub struct ProjectConfig {
     pub golangci_command: Option<String>,
 }
 
+impl ProjectConfig {
+    /// パスを持つ欄へ `f` を当て、`Some` が返った欄を書き換える。**パスの欄の一覧はここ
+    /// 1 か所**で、ポータブル版（#451）が base からの相対へ書き換えるのに使う
+    /// （`portable::to_disk` / `from_disk`）。
+    ///
+    /// **パスを持つ欄を足したら、ここにも足す。** セッションの中身はフロントが決めて Rust は
+    /// `extra` で素通しするので、フロントの型（`src/types/project.ts` の `SessionTabDef`）に
+    /// 欄を足しても Rust は変えずに動く。足し忘れた欄は絶対パスのまま残り、フォルダを移した
+    /// あとで初めて古いパスを指す。
+    ///
+    /// いまの欄は root、エディタのタブのパス、エージェントを再開できる場所
+    /// （`agentSession.dir`。型に無い欄なので `extra` の中）。ターミナルの cwd は保存して
+    /// いない（復元は root から）。
+    pub fn map_paths(&mut self, f: impl Fn(&str) -> Option<String>) {
+        if let Some(next) = f(&self.root) {
+            self.root = next;
+        }
+        let Some(session) = self.last_session.as_mut() else {
+            return;
+        };
+        for tab in &mut session.tabs {
+            if let Some(next) = tab.path.as_deref().and_then(&f) {
+                tab.path = Some(next);
+            }
+            let dir = tab
+                .extra
+                .get_mut("agentSession")
+                .and_then(|session| session.get_mut("dir"));
+            if let Some(dir) = dir
+                && let Some(next) = dir.as_str().and_then(&f)
+            {
+                *dir = serde_json::Value::String(next);
+            }
+        }
+    }
+}
+
 fn projects_dir(state: &ProjectState) -> PathBuf {
     state.config_dir.join("projects")
 }
@@ -406,6 +443,35 @@ pub fn window_holding(state: &ProjectState, id: &str) -> Option<(String, bool)> 
         .map(|(label, w)| (label.clone(), w.shown == id))
 }
 
+/// `project.json` の中身を読む。**読むのはここ 1 か所**: ポータブル版（#451）は base からの
+/// 相対でパスを書いているので、ここを通さずに読むと相対のままの root が出て行く。
+fn parse_config(content: &str) -> Result<ProjectConfig, String> {
+    let mut config: ProjectConfig = serde_json::from_str(content).map_err(|e| e.to_string())?;
+    crate::portable::from_disk(&mut config);
+    Ok(config)
+}
+
+/// `project.json` に書く中身を作る（`parse_config` の対）。
+///
+/// **ポータブル版では base の外の root を断る**（#451）。フロントも登録の入口で止めているが、
+/// 編集フォームの root の書き換えや取り込みなど経路が多いので、書く 1 か所でも見る。
+fn serialize_config(config: &ProjectConfig) -> Result<String, String> {
+    if !crate::portable::can_register(&config.root) {
+        return Err(format!(
+            "'{}' is outside the portable folder and cannot be registered",
+            config.root
+        ));
+    }
+    // 写しを作るのはポータブル版だけ。セッションの書き出しは打鍵のあいだ毎秒来るうえ、
+    // 無題のタブの本文も抱えているので、書き換えるものが無いインストール版では写さない。
+    if !crate::portable::is_portable() {
+        return serde_json::to_string_pretty(config).map_err(|e| e.to_string());
+    }
+    let mut on_disk = config.clone();
+    crate::portable::to_disk(&mut on_disk);
+    serde_json::to_string_pretty(&on_disk).map_err(|e| e.to_string())
+}
+
 /// Read all project configs from the projects directory.
 pub fn read_all_projects(config_dir: &std::path::Path) -> Vec<ProjectConfig> {
     let dir = config_dir.join("projects");
@@ -416,7 +482,7 @@ pub fn read_all_projects(config_dir: &std::path::Path) -> Vec<ProjectConfig> {
     for entry in entries.flatten() {
         let path = entry.path().join("project.json");
         if let Ok(content) = fs::read_to_string(&path)
-            && let Ok(config) = serde_json::from_str::<ProjectConfig>(&content)
+            && let Ok(config) = parse_config(&content)
         {
             projects.push(config);
         }
@@ -445,7 +511,7 @@ pub async fn project_get(
     validate_slug(&id, "Project ID")?;
     let path = project_file(&state, &id);
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
+    parse_config(&content)
 }
 
 #[tauri::command]
@@ -455,9 +521,10 @@ pub async fn project_create(
     state: State<'_, ProjectState>,
 ) -> Result<ProjectConfig, String> {
     validate_slug(&config.id, "Project ID")?;
+    // フォルダを作る前に組む（断るときに空のフォルダを残さない）。
+    let content = serialize_config(&config)?;
     let dir = projects_dir(&state).join(&config.id);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     fs::write(project_file(&state, &config.id), content).map_err(|e| e.to_string())?;
     // 作ったことも `project_update` と同じ口で知らせる（#403）。同期するのは main だけなので、
     // 他のウィンドウで登録・取り込んだプロジェクトが main の一覧に入らないと、同期先へ出ない。
@@ -494,7 +561,7 @@ pub async fn project_update(
     if !path.exists() {
         return Err(format!("Project '{}' not found", config.id));
     }
-    let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    let content = serialize_config(&config)?;
     fs::write(path, content).map_err(|e| e.to_string())?;
 
     // Broadcast so other windows refresh their in-memory copy; without this,
@@ -542,7 +609,7 @@ pub async fn project_rename(
     if to.exists() {
         return Err(format!("Project '{}' already exists", config.id));
     }
-    let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    let content = serialize_config(&config)?;
     {
         // **確かめてから改名し終えるまで `window_projects` を握る。** あいだで手放すと、
         // 確かめた直後に別のウィンドウが古い id を開き（ジャンプリスト・`pike <dir>`）、

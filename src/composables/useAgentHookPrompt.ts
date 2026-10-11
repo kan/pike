@@ -35,6 +35,7 @@
 
 import { t } from '../i18n'
 import { isWindowsHost } from '../lib/host'
+import { isPortable } from '../lib/portable'
 import { loadAskedKeys, rememberAskedKey } from '../lib/storage'
 import { agentHookInstallMissing, agentHookStatus } from '../lib/tauri'
 import { isMainWindow } from '../lib/window'
@@ -100,6 +101,9 @@ export function modCarriesHooks(): boolean {
  * 黙って落とすと「承諾したのに入っていない」状態に気付く先が設定画面しか無くなる。
  */
 export async function offerAgentHook(opts?: { unreported?: HookPlace }): Promise<void> {
+  // ポータブル版は hook を登録しない（#451。同梱の mod だけを使う）ので、勧めもしない。
+  // 2 つの契機（プロジェクトの切り替えと、報告が来なかったとき）の両方がここを通る。
+  if (isPortable()) return
   const projectStore = useProjectStore()
   let place = opts?.unreported
   if (!place) {

@@ -366,6 +366,12 @@ function startEdit(id: string) {
 }
 
 async function onSaveEdit(updated: ProjectConfig) {
+  // root を書き換えられるのはこのフォームだけ。ポータブル版で base の外へ出したら（#451）、
+  // 理由を出してフォームを開いたままにする（Rust も同じ条件で断るが、あちらは英語の文字列）。
+  if (!projectStore.canRegisterRoot(updated.root)) {
+    projectStore.notifyCannotRegister()
+    return
+  }
   await projectStore.saveProject(updated)
   if (updated.group) await projectStore.addGroup(updated.group)
   editingId.value = null
@@ -386,7 +392,13 @@ async function onDelete(id: string) {
       <div class="transient-root" :title="projectStore.currentProject?.root">
         {{ projectStore.currentProject?.root }}
       </div>
-      <button class="add-btn transient-register" data-testid="register-directory" @click="projectStore.registerTransientProject()">
+      <!-- ポータブル版で base の外なら登録できないので出さない（#451）。 -->
+      <button
+        v-if="projectStore.canRegisterTransient"
+        class="add-btn transient-register"
+        data-testid="register-directory"
+        @click="projectStore.registerTransientProject()"
+      >
         <BookmarkPlus :size="14" :stroke-width="2" />{{ t('project.registerDirectory') }}
       </button>
     </div>

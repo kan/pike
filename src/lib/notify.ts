@@ -1,3 +1,5 @@
+import { isPortable } from './portable'
+
 export type NotifyFn = (title: string, body: string, onClick?: () => void) => void
 
 let cached: NotifyFn | null | undefined
@@ -17,7 +19,9 @@ let cached: NotifyFn | null | undefined
  */
 export async function resolveNotifier(): Promise<NotifyFn | null> {
   if (cached !== undefined) return cached
-  cached = await resolveNotifierInner()
+  // ポータブル版は OS の通知を出さない（#451。通知の送り主としてホストに記録が残る）。
+  // 許可も聞かない。
+  cached = isPortable() ? null : await resolveNotifierInner()
   return cached
 }
 

@@ -122,6 +122,15 @@ Developer ID 署名・公証済みで、updater の対象**（#283。詳細は `
 （片方のジョブが落ちたときに起きうる。理由は `.claude/rules/build.md`）。
 足りなければ公開せず、直してタグを打ち直す。
 
+**ポータブル版の zip（`Pike_X.Y.Z_x64-portable.zip`）がドラフトにあることも確認する**（#451）:
+
+```bash
+gh release view vX.Y.Z --repo kan/pike --json assets -q '.assets[].name'
+```
+
+Windows のジョブが tauri-action の直後に足す。zip の段が落ちると Windows のジョブごと失敗し、
+待機中の macOS のジョブも取り消されるので、そのときは直してタグを打ち直す。
+
 ### 8. リリースの公開
 
 ワークフロー完了後、GitHub Releases でドラフトを確認し、リリースノートを記載して公開する。

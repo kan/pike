@@ -2,6 +2,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { relaunch } from '@tauri-apps/plugin-process'
 import { check, type Update } from '@tauri-apps/plugin-updater'
 import { computed, markRaw, type Raw, ref } from 'vue'
+import { isPortable } from '../lib/portable'
 import { saveAllWindowState } from '../lib/tauri'
 import { useProjectStore } from '../stores/project'
 import { confirmBusyExit } from './useBusyExit'
@@ -71,6 +72,10 @@ export function useUpdater() {
 
   /** 確認し直して、結果の状態を返す。ダウンロード中は何もせず `'downloading'` を返す */
   async function checkForUpdate(): Promise<UpdateState> {
+    // ポータブル版は自分を更新しない（#451）。更新はインストーラを落として走らせる仕組みで、
+    // ポータブル版から適用するとインストール版が `%LOCALAPPDATA%` に入る。入口の UI も
+    // 畳んであるが、取りこぼしがあっても確認そのものが飛ばないようにここでも断つ。
+    if (isPortable()) return state.value
     if (state.value === 'downloading') return state.value
     state.value = 'checking'
     try {
@@ -110,7 +115,7 @@ export function useUpdater() {
 
   /** 起動時と、その後 1 時間ごとに黙って確認する。失敗は表示を変えない（手動の確認で見せる） */
   function startBackgroundCheck() {
-    if (backgroundStarted) return
+    if (backgroundStarted || isPortable()) return
     backgroundStarted = true
     const run = () => {
       if (busy.value) return
@@ -135,6 +140,8 @@ export function useUpdater() {
     updateVersion,
     errorMessage,
     hasUpdate,
+    /** 自分を更新できるか。ポータブル版（#451）は偽で、入口の UI はこれを見て畳む。 */
+    supported: !isPortable(),
     checkForUpdate,
     downloadAndInstall,
     startBackgroundCheck,

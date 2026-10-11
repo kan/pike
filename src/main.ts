@@ -3,6 +3,7 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import './assets/theme.css'
 import { installErrorLogging } from './lib/errorLog'
+import { initPortable } from './lib/portable'
 import { logFrontend } from './lib/tauri'
 
 async function bootstrap() {
@@ -20,6 +21,9 @@ async function bootstrap() {
       console.error('[e2e] setup failed (continuing to mount):', e)
     }
   }
+
+  // ストアを作る前に要る（理由は `lib/portable.ts`）。
+  await initPortable()
 
   const app = createApp(App)
   // mount より前に張る。起動直後の描画で出たエラーも残すため（#415）。

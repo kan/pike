@@ -282,6 +282,10 @@ const DEBUG_IDENTIFIER: &str = "com.pike.dev.debug";
 /// 判定は `cfg!(debug_assertions)`。`tauri build --config tauri.dev.conf.json`
 /// （identifier は `.debug` だが release プロファイル）だけは食い違うが、これは
 /// CSP の切り分け用の一時ビルドで、`wait.rs` も前から同じ前提で動いている。
+///
+/// **ポータブル版（#451）はフォルダごとの identifier を返す**（分岐は `app_identifiers` の
+/// 1 か所）。あちらは起動時に `app.config().identifier` を差し替えるので、ここが定数のままだと
+/// `--wait` もターミナルからの `pike` も相手のウィンドウを見つけられない。
 #[cfg(windows)]
 pub fn app_identifier() -> &'static str {
     app_identifiers()[0]
@@ -294,9 +298,15 @@ pub fn app_identifier() -> &'static str {
 /// hook のコマンド行は 1 本しか無く（申告と同じく開発版とインストール版で共有する）、
 /// どちらの exe が hook として走るかは登録した側で決まる一方、走っている Pike は
 /// もう一方でありうる。
+///
+/// **ポータブル版（#451）は自分だけ**。hook を `settings.json` に登録しないので、起こされる
+/// のは mod が絶対パスで渡した自分の exe で、相手も同じフォルダの Pike に決まっている。
 #[cfg(windows)]
-pub fn app_identifiers() -> [&'static str; 2] {
-    identifiers_for(cfg!(debug_assertions))
+pub fn app_identifiers() -> Vec<&'static str> {
+    match crate::portable::get() {
+        Some(portable) => vec![&portable.identifier],
+        None => identifiers_for(cfg!(debug_assertions)).to_vec(),
+    }
 }
 
 /// 並びの規則そのもの。**`cfg!` から切り離してあるのはテストのため**: テストは debug
@@ -402,7 +412,14 @@ pub unsafe fn clsid_propvariant(guid: windows::core::GUID) -> windows::core::Res
 /// **`AppHandle` を受け取らない解決経路**（`claude_usage::config::resolve`）の両方から
 /// 要る。identifier を引数で受けるのは、正しい値（`app.config().identifier`）を持って
 /// いる呼び出し元がそれを渡せるようにするため。
+///
+/// **ポータブル版（#451）は identifier に依らず `data` フォルダ**（`portable.rs`）。hook の
+/// 申告は固定の identifier で開発版とインストール版が共有するが、ポータブル版はそこへも
+/// 混ざらない。
 pub fn pike_config_dir_for(id: &str) -> Option<PathBuf> {
+    if let Some(portable) = crate::portable::get() {
+        return Some(portable.data.clone());
+    }
     #[cfg(windows)]
     {
         std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join(id))

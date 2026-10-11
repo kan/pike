@@ -66,6 +66,7 @@ mod jumplist {
 mod html_preview;
 mod http;
 mod page_title;
+mod portable;
 mod project;
 mod pty;
 mod remote_image;
@@ -1500,6 +1501,28 @@ async fn pick_save_file(default_name: Option<String>) -> Result<Option<String>, 
     dialog::save(default_name).await
 }
 
+/// 起動を続けられない理由を出して終わる。**Tauri が立ち上がる前**なので、ウィンドウも
+/// ログも無い（ログの置き場そのものを作れなかった場合に呼ばれる）。リリースビルドは
+/// コンソールを持たないので、Windows ではメッセージボックスで出す。
+fn fatal_startup_error(message: &str) -> ! {
+    eprintln!("{message}");
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+        use windows::core::HSTRING;
+        // SAFETY: 引数はどちらも呼び出しのあいだ生きている HSTRING。
+        unsafe {
+            MessageBoxW(
+                None,
+                &HSTRING::from(message),
+                &HSTRING::from("Pike"),
+                MB_OK | MB_ICONERROR,
+            );
+        }
+    }
+    std::process::exit(1);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Elevated relaunch (open_elevated_terminal) passes `--new-instance`: skip
@@ -1510,7 +1533,15 @@ pub fn run() {
 
     // Typed explicitly: bound to a variable, the runtime can no longer be inferred
     // from the `build()` call at the end.
-    let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+    let mut context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+    // ポータブル版（#451）は identifier とデータの置き場を差し替える。**下の 2 つより前**:
+    // `prune_plugin_state` も single-instance のプラグインも、差し替えたあとの値を読む。
+    if let Err(e) = portable::apply(&mut context) {
+        fatal_startup_error(&format!(
+            "Pike (portable) cannot write its data folder.\n\n{e}\n\n\
+             Move the Pike folder to a writable location."
+        ));
+    }
     // Before the window-state plugin loads its file into memory (#200): it writes
     // the whole cache back on every save, so pruning later would be undone.
     window_geom::prune_plugin_state(&context.config().identifier);
@@ -1542,8 +1573,14 @@ pub fn run() {
         }));
     }
 
+    // ポータブル版（#451）は updater を載せない。更新はインストーラを落として走らせる仕組み
+    // なので、適用するとインストール版がホストに入る。入口はフロントも畳んでいる
+    // （`useUpdater` の `supported`）が、あちらの判定は IPC の答えに依るので、ここでも断つ。
+    if !portable::is_portable() {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+
     builder
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_notification::init())
         // Only `main` has a stable label; project / global windows get a fresh
@@ -1886,6 +1923,7 @@ pub fn run() {
             tray_set_close_to_tray,
             window_set_backdrop,
             elevate::is_elevated,
+            portable::portable_info,
             elevate::open_elevated_terminal,
             save_all_window_state,
             tasks::task_discover,

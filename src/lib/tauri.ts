@@ -1093,6 +1093,11 @@ export async function openGlobalWindow(): Promise<void> {
   return invoke('open_global_window')
 }
 
+/** ポータブル版（#451）ならその base。違えば null。読む側は `lib/portable.ts`。 */
+export async function portableInfo(): Promise<{ base: string } | null> {
+  return invoke<{ base: string } | null>('portable_info')
+}
+
 /** Whether the current Pike process runs elevated (Windows administrator). */
 export async function isElevated(): Promise<boolean> {
   return invoke<boolean>('is_elevated')

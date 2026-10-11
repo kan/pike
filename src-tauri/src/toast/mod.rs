@@ -459,5 +459,11 @@ mod imp {
 /// 連れて行けるように通知そのものへ載せる（通知センターからは数時間後に押されうる）。
 #[tauri::command]
 pub fn toast_notify(pty: String, project: Option<String>, title: String, body: String) {
+    // ポータブル版（#451）はトーストを出さない。出すにはスタートメニューのショートカットと
+    // HKCU の `pike:` スキームが要り、どちらもホストに残る（スキームはインストール版の登録を
+    // 上書きする）。知らせはタスクバーの点滅とタブの印が担う。
+    if crate::portable::is_portable() {
+        return;
+    }
     imp::notify(pty, project, title, body);
 }

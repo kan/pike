@@ -125,7 +125,13 @@ struct Entry {
 /// ジャンプリストを再構築する。プロジェクト一覧とシェル一覧は呼び出し側
 /// （`menus_refresh`）が渡す（`types::MenuShell` を参照）。実際の COM 構築は専用
 /// STA スレッドに投げっぱなしにする（UI スレッドを塞がないため）。
+///
+/// **ポータブル版（#451）では何もしない。** ジャンプリストは Windows がユーザープロファイルに
+/// 覚えるので、ホストに残る。同じ導線はトレイのメニューにある。
 pub fn refresh(lang: &str, projects: &[project::ProjectConfig], shells: &[MenuShell]) {
+    if crate::portable::is_portable() {
+        return;
+    }
     let job = (
         lang.to_owned(),
         collect_entries(projects),

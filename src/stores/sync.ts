@@ -29,6 +29,7 @@ import { computed, ref, watch } from 'vue'
 import { t } from '../i18n'
 import { isRespelling, normalizeRemoteUrl } from '../lib/gitRemote'
 import { isHostPlatform } from '../lib/host'
+import { isPortable } from '../lib/portable'
 import { loadJson, saveJson } from '../lib/storage'
 import {
   categoryOf,
@@ -206,7 +207,11 @@ function sanitizeGhPlace(v: unknown): GhPlace {
 function loadTarget(): SyncTargetConfig {
   const filePath = loadJson<string>(FILE_PATH_KEY, '')
   const raw = loadJson<Partial<SyncTargetConfig> | null>(TARGET_KEY, null)
-  const kind: SyncTargetKind = isTargetKind(raw?.kind) ? raw.kind : filePath ? 'file' : 'none'
+  // ポータブル版（#451）は同期しない。**保存された値に依らず「なし」と読む**: 同期先を読む
+  // 口はここ 1 つなので、自動の同期も設定画面の出し分けもここで止まる。設定画面で隠すだけに
+  // すると、下の移行（パスが残っていれば `file`）が同期を始めうる。
+  const stored: SyncTargetKind = isTargetKind(raw?.kind) ? raw.kind : filePath ? 'file' : 'none'
+  const kind: SyncTargetKind = isPortable() ? 'none' : stored
   const gistId = typeof raw?.gistId === 'string' ? raw.gistId : ''
   return { kind, filePath, gistId, ghPlace: sanitizeGhPlace(raw?.ghPlace) }
 }

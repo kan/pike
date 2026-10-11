@@ -56,6 +56,7 @@ macOS はローカルのシェルで開発できるところまで対応する�
 | `docker.md` | bollard 連携・compose の探索・ログ・ポートフォワード |
 | `build.md` | 開発ビルド・本番ビルド限定の落とし穴（CSP）・E2E スクリーンショット・CI・セルフアップデート |
 | `platform.md` | Windows / macOS の分岐の作法・GUI プロセスの PATH・macOS で持たない機能・rg サイドカー |
+| `portable.md` | ポータブル版（判定・データの置き場と identifier・登録できる範囲とパスの相対化・止めてある機能・zip の配布、#451） |
 
 ---
 

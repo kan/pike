@@ -2664,7 +2664,12 @@ onUnmounted(() => {
         <button v-if="!directoryProject" @click="openDirectoryTab('directory')">
           {{ t('editor.dirOpenDirectory') }}
         </button>
-        <button class="choice-primary" @click="openDirectoryTab('project')">
+        <!-- 未登録で、登録もできない（ポータブル版で base の外、#451）なら出さない。 -->
+        <button
+          v-if="directoryProject || projectStore.canRegisterRoot(tab?.path ?? '')"
+          class="choice-primary"
+          @click="openDirectoryTab('project')"
+        >
           {{ directoryProject ? t('editor.dirOpenProject') : t('editor.dirOpenAsProject') }}
         </button>
       </div>

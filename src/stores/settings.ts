@@ -15,6 +15,7 @@ import { type SqlDialect, setSqlDialect } from '../lib/fileType'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { hexToRgba, isWebUrl } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
+import { portableBase } from '../lib/portable'
 import { emptyProjectBase, isProjectPlatform, type ProjectBase, rootKey } from '../lib/projectPaths'
 import { moveByKey } from '../lib/reorder'
 import { SEARCH_RESULT_VIEWS, type SearchResultView } from '../lib/searchResults'
@@ -1517,8 +1518,17 @@ export const useSettingsStore = defineStore('settings', () => {
   // Base directory per platform (#164): the anchor that turns a synced,
   // base-relative project path into a real root here. Machine-local for the
   // same reason as globalShell — every PC lays its checkouts out differently.
-  const projectBase = ref<ProjectBase>(sanitizeProjectBase(loadJson<unknown>(PROJECT_BASE_KEY, null)))
-  watch(projectBase, (v) => saveJson(PROJECT_BASE_KEY, v), { deep: true })
+  //
+  // **ポータブル版（#451）は実行ファイルのフォルダに固定**で、保存しない。Windows の base
+  // だけを持つので、WSL のプロジェクトは `relativeToBase` が常に「base の外」と答える
+  // （登録できない、という扱いがそこから出る。`stores/project.ts` の `canRegisterRoot`）。
+  const fixedBase = portableBase()
+  const projectBase = ref<ProjectBase>(
+    fixedBase === null
+      ? sanitizeProjectBase(loadJson<unknown>(PROJECT_BASE_KEY, null))
+      : { ...emptyProjectBase(), windows: fixedBase },
+  )
+  if (fixedBase === null) watch(projectBase, (v) => saveJson(PROJECT_BASE_KEY, v), { deep: true })
 
   // Projects deleted on this machine (#164 / #403). The sync passes each record on
   // as a deletion to every machine (`DeletedProject`). Stored per machine: the

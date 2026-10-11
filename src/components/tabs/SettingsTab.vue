@@ -13,6 +13,7 @@ import type { SqlDialect } from '../../lib/fileType'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
 import { absoluteDate } from '../../lib/paths'
+import { isPortable, portableBase } from '../../lib/portable'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
 import type { ShortcutPreset } from '../../lib/shortcuts'
 import { formatStatusDate, STATUS_DATE_FORMATS, type StatusTimeFormat } from '../../lib/statusClock'
@@ -383,6 +384,14 @@ async function openLogDir() {
   }
 }
 
+/**
+ * ポータブル版（#451）か。**ホストに登録を残す項目と、止めてある機能の項目を出さない**
+ * （ログイン時の起動・hook の登録・デスクトップ通知・同期先・更新の確認）。`v-if` で
+ * 消してよい「存在しない項目」の側（`settings-ui.md`）。起動中に変わらないので定数。
+ * 同期先より下の項目は、ストアが同期先を「なし」と読むことで畳まれる（`stores/sync.ts`）。
+ */
+const portable = isPortable()
+
 // ログイン時の起動（#419、Windows のみ）。正本はレジストリ（`autostart.rs`）で、設定のストアには
 // 持たない（マシンに結び付くうえ、Windows の設定画面からも切り替えられる）。開いたときと、
 // ウィンドウが前に出たとき（Windows の設定画面で切り替えて戻ってきた）に読み直す。
@@ -393,7 +402,7 @@ function loadAutostart() {
     .then((on) => (autostart.value = on))
     .catch(() => {})
 }
-if (isWindowsHost) {
+if (isWindowsHost && !portable) {
   loadAutostart()
   watch(windowFocused, (focused) => {
     if (focused) loadAutostart()
@@ -587,7 +596,8 @@ watch(
       distros.value.join(','),
     ].join('|'),
   () => {
-    if (tabStore.isTabVisible(props.tabId)) loadHookStatus()
+    // ポータブル版は hook の項目を出さない（#451）ので、状態も聞かない。
+    if (!portable && tabStore.isTabVisible(props.tabId)) loadHookStatus()
   },
   { immediate: true },
 )
@@ -795,7 +805,7 @@ const PREVIEW_LINES = [
           <SettingToggle v-model="settings.closeToTray" :options="ON_OFF" />
         </SettingItem>
 
-        <SettingItem v-if="isWindowsHost" label-key="settings.autostart" hint-key="settings.autostartHint">
+        <SettingItem v-if="isWindowsHost && !portable" label-key="settings.autostart" hint-key="settings.autostartHint">
           <SettingToggle v-model="autostartModel" :options="ON_OFF" />
           <span v-if="autostartError" class="setting-result setting-result-err">{{ autostartError }}</span>
         </SettingItem>
@@ -1139,7 +1149,7 @@ const PREVIEW_LINES = [
             呼べていることを意味しない（PATH に pike.exe が無い、等）。効いているかを
             言うのは申告のほうなので、両方を並べる。
           -->
-          <SettingItem label-key="settings.agentHook" hint-key="settings.agentHookHint" wide>
+          <SettingItem v-if="!portable" label-key="settings.agentHook" hint-key="settings.agentHookHint" wide>
             <p v-if="!projectStore.activeRoot" class="setting-hint">{{ t('settings.agentHookNoProject') }}</p>
             <template v-else-if="hookStatus">
               <div class="setting-list">
@@ -1213,7 +1223,7 @@ const PREVIEW_LINES = [
             項目」の側）。
           -->
           <SettingItem
-            v-if="isWindowsHost"
+            v-if="isWindowsHost && !portable"
             label-key="settings.desktopNotify"
             hint-key="settings.desktopNotifyHint"
           >
@@ -1389,7 +1399,7 @@ const PREVIEW_LINES = [
 
       <!-- Settings Sync -->
       <SettingSection v-bind="SECTIONS.sync">
-        <SettingItem label-key="sync.target.label" hint-key="settings.syncHint">
+        <SettingItem v-if="!portable" label-key="sync.target.label" hint-key="settings.syncHint">
           <SettingToggle
             data-testid="sync-target"
             :model-value="sync.target.kind"
@@ -1498,7 +1508,11 @@ const PREVIEW_LINES = [
           </SettingItem>
         </SettingGroup>
 
-        <SettingItem label-key="settings.projectBase" hint-key="settings.projectBaseHint" wide>
+        <!-- ポータブル版の base は実行ファイルのフォルダに固定（#451）。変えられないので見せるだけ。 -->
+        <SettingItem v-if="portable" label-key="settings.portableBase" hint-key="settings.portableBaseHint" wide>
+          <span class="version-value selectable">{{ portableBase() }}</span>
+        </SettingItem>
+        <SettingItem v-else label-key="settings.projectBase" hint-key="settings.projectBaseHint" wide>
           <!-- base はプラットフォームごとに要る。macOS / Linux のプロジェクトは
                platform='unix' なので、この欄が無いと 1 件も同期対象にならない。
                ホスト側の欄は `hostBase` が 1 つに畳んでいる（Windows か Unix か）。 -->
@@ -1581,8 +1595,10 @@ const PREVIEW_LINES = [
       <SettingSection v-bind="SECTIONS.about">
         <SettingItem label-key="settings.version">
           <span class="version-value">{{ updater.appVersion.value }}</span>
+          <span v-if="portable" class="setting-hint">{{ t('settings.portableTag') }}</span>
         </SettingItem>
-        <SettingItem label-key="settings.checkUpdate">
+        <!-- ポータブル版は自分を更新しない（#451。更新はインストーラが前提）。 -->
+        <SettingItem v-if="updater.supported" label-key="settings.checkUpdate">
           <UpdateControls />
         </SettingItem>
         <SettingItem label-key="settings.logFolder" hint-key="settings.logFolderHint">

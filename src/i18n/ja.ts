@@ -509,6 +509,10 @@ export default {
   'settings.projectBaseNoDistro': '（ディストロ未選択）',
   'settings.projectBaseLocal': 'ローカル',
   'settings.projectBaseOutside': '{count} 件のプロジェクトは base の外にあるため、このマシン専用です。',
+  'settings.portableBase': 'プロジェクトの置き場',
+  'settings.portableBaseHint':
+    'ポータブル版では、Pike のフォルダが base になります。プロジェクトとして登録できるのはこの中のディレクトリだけで、フォルダごと移しても開けます。外のディレクトリは登録せずに開けます。',
+  'settings.portableTag': 'ポータブル版',
 
   // Settings Sync (#403)
   'sync.target.label': '同期先',
@@ -828,6 +832,7 @@ export default {
   // Project Panel
   'project.registerFolder': 'ディレクトリを登録',
   'project.registeredHint': '「{name}」をプロジェクトとして登録しました。名前・色・アイコンは鉛筆から直せます',
+  'project.portableOutside': 'ポータブル版でプロジェクトとして登録できるのは、Pike のフォルダ（{base}）の中だけです',
   'project.registerCwd': 'このディレクトリをプロジェクトとして登録',
   'project.registerCwdNoTerminal': 'ターミナルのタブがありません',
   'project.registerCwdNoDir': 'ターミナルの現在のディレクトリが分かりませんでした',

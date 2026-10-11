@@ -58,6 +58,7 @@ Tauri v2（Rust + Vue / TypeScript）製。Windows を主対象としていま�
 |----------|------|
 | `Pike_x.x.x_x64-setup.exe` | Windows インストーラ（NSIS、推奨） |
 | `Pike_x.x.x_x64_en-US.msi` | Windows インストーラ（MSI） |
+| `Pike_x.x.x_x64-portable.zip` | Windows [ポータブル版](docs/manual/getting-started.md#ポータブル版)（インストール不要。設定をフォルダの中に持つ） |
 | `Pike_x.x.x_aarch64.dmg` | macOS（Apple Silicon） |
 
 インストール後に自動でアップデートを確認します。手動で確認するときは歯車メニュー →「更新を確認」から行えます。Windows 版と macOS 版のどちらも対象です。

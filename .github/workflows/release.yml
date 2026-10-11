@@ -86,6 +86,26 @@ jobs:
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
 
+      # ポータブル版（#451）。インストーラと同じ `pike.exe` に目印のファイルを添えた zip を、
+      # tauri-action が作ったドラフトへ足す。**`latest.json` には載せない**（ポータブル版は
+      # 自分を更新しない）ので、updater の経路には影響しない。
+      - name: Package and upload the portable zip
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          just package-portable
+          # スクリプトは出力先を空にしてから作るので、ここにあるのは今回の 1 件だけ。
+          shopt -s nullglob
+          zips=(artifacts/portable/*-portable.zip)
+          if [ ${#zips[@]} -ne 1 ]; then
+            echo "expected exactly one portable zip, found ${#zips[@]}: ${zips[*]-}" >&2
+            exit 1
+          fi
+          gh release upload "${{ github.ref_name }}" "${zips[0]}" --clobber --repo "$GITHUB_REPOSITORY"
+
       # **tauri が公証するのは `.app` だけ**（そのあと staple して、その `.app` から
       # `.dmg` を作る）。`.dmg` 自身は署名されるが公証には出されないので、
       # ダウンロードした利用者の Gatekeeper が配布物を弾く（`spctl` が

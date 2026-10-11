@@ -132,6 +132,8 @@ pub async fn autostart_get() -> Result<bool, String> {
 /// ログイン時の起動を切り替える。有効にすると、今動いている exe を登録する。
 #[tauri::command]
 pub async fn autostart_set(enabled: bool) -> Result<(), String> {
+    // ポータブル版（#451）は `Run` キーに書かない（フォルダを移すと壊れた登録が残る）。
+    crate::portable::ensure_installed()?;
     tokio::task::spawn_blocking(move || imp::set(enabled))
         .await
         .map_err(|e| e.to_string())?

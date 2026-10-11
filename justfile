@@ -46,6 +46,10 @@ build-web-dist:
 fetch-rg:
     bash scripts/download-rg.sh
 
+# ポータブル版の zip を artifacts/portable/ に作る（先に `just build`。#451）
+package-portable:
+    bash scripts/package-portable.sh
+
 # --- コミット前チェック ---
 
 # コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / クレジット照合 / TS のテスト / 整形 / clippy / test）

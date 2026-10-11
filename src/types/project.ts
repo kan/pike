@@ -65,6 +65,11 @@ export interface PinnedTabDef {
   autoStart?: string
 }
 
+/**
+ * **パスを持つ欄を足したら、Rust の `ProjectConfig::map_paths`（`project/mod.rs`）にも足す。**
+ * ポータブル版（#451）はあそこに挙げた欄だけを base からの相対で保存する。Rust はこの型の
+ * 欄を素通しするので、足し忘れてもどこも落ちない。
+ */
 export interface SessionTabDef {
   id: string
   kind: 'terminal' | 'editor' | 'browser'

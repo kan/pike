@@ -512,6 +512,10 @@ export default {
   'settings.projectBaseNoDistro': '(no distro)',
   'settings.projectBaseLocal': 'Local',
   'settings.projectBaseOutside': '{count} project(s) sit outside the base and stay on this machine.',
+  'settings.portableBase': 'Project location',
+  'settings.portableBaseHint':
+    'In the portable build the Pike folder is the base. Only directories inside it can be registered as projects, and they keep working when the folder is moved. Directories outside can be opened without registering.',
+  'settings.portableTag': 'Portable',
 
   // Settings Sync (#403)
   'sync.target.label': 'Sync with',
@@ -831,6 +835,8 @@ export default {
   // Project Panel
   'project.registerFolder': 'Register a directory',
   'project.registeredHint': 'Registered "{name}" as a project. Rename it or set a color and icon from the pencil',
+  'project.portableOutside':
+    'The portable build can only register directories inside the Pike folder ({base}) as projects',
   'project.registerCwd': 'Register this directory as a project',
   'project.registerCwdNoTerminal': 'No terminal tab',
   'project.registerCwdNoDir': "Could not tell the terminal's current directory",

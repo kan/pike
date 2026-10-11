@@ -20,7 +20,8 @@ pike/
 │   ├── check-docs.mjs         # ドキュメント整合チェック（just check-docs が呼ぶ）
 │   ├── check-shortcuts.ts     # マニュアルの早見表と実装の割り当ての照合（just check-shortcuts、#280）
 │   ├── gen-credits.mjs        # 依存のライセンス一覧を src/assets/credits.json に作る（just credits / check-credits、#420）
-│   └── make-icons.sh          # アイコン一式を icon.svg から作り直す（#256）
+│   ├── make-icons.sh          # アイコン一式を icon.svg から作り直す（#256）
+│   └── package-portable.sh    # ポータブル版の zip を作る（just package-portable、#451）
 ├── tests/                     # フロントの純粋なロジックのテスト（*.test.ts。just test-ts、#403）
 ├── src-tauri/
 │   ├── Cargo.toml
@@ -54,6 +55,7 @@ pike/
 │       ├── jira/              # Jira の拡張機能の JS（#380。jirapp から写した正本。site_rules.rs が include_str! で埋め込む）
 │       ├── http.rs            # 外部ホストへの取得の共通部（クライアント使い回し・上限付き読み）
 │       ├── page_title.rs      # 貼り付けた URL のページタイトル取得（Markdown リンク、#241）
+│       ├── portable.rs        # ポータブル版の判定・データの置き場・identifier・パスの相対化（#451）
 │       ├── favicon.rs         # ブラウザのタブに出すサイトのアイコンの取得（#400）
 │       ├── remote_image.rs    # 承認済みホストの画像取得（Markdown プレビュー、#239）
 │       ├── cache.rs           # mtime キャッシュと、キーごとの probe レジストリ（#315）
@@ -237,6 +239,7 @@ pike/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── errorLog.ts        # フロントの例外をログファイルへ流す受け口と間引き（#415）
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
+│   │   ├── portable.ts       # ポータブル版かどうかと base（Rust の答えの写し。mount の前に 1 回聞く、#451）
 │   │   ├── projectStorage.ts # プロジェクト id を鍵に持つ localStorage の項目の表と、id の付け替えでの移し替え（#463）
 │   │   ├── reorder.ts        # ドラッグでの並べ替え（プロジェクト一覧とサイドバーのアイコン列、#364）
 │   │   ├── scrollFollow.ts   # 分割表示のスクロール同期の向き（跳ね返りを写し返さない、#465）

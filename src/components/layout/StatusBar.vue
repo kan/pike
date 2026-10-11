@@ -88,9 +88,11 @@ const hasSystemInfo = computed(() => showClock.value || showPower.value)
  */
 async function registerTransient() {
   const root = projectStore.currentProject?.root ?? ''
-  if (await confirmDialog(t('statusBar.transientRegisterConfirm', { root }))) {
-    await projectStore.registerTransientProject()
-  }
+  // 登録できないもの（ポータブル版で base の外、#451）は確認を挟まない。断る理由は
+  // `registerTransientProject` が出す。
+  const confirmed =
+    !projectStore.canRegisterTransient || (await confirmDialog(t('statusBar.transientRegisterConfirm', { root })))
+  if (confirmed) await projectStore.registerTransientProject()
 }
 const gitStore = useGitStore()
 const worktreeStore = useWorktreeStore()

@@ -12,7 +12,8 @@ const updater = useUpdater()
 </script>
 
 <template>
-  <div class="setting-actions">
+  <!-- ポータブル版は自分を更新しない（#451）ので、ボタンごと出さない。 -->
+  <div v-if="updater.supported" class="setting-actions">
     <button v-if="updater.state.value === 'available'" class="setting-btn setting-btn-primary" @click="updater.downloadAndInstall">
       {{ t('settings.updateAndRestart') }}
     </button>

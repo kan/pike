@@ -1539,6 +1539,9 @@ fn edit_settings(
     config_dir: &str,
     edit: impl FnOnce(&mut serde_json::Value, &str) -> bool,
 ) -> Result<(), String> {
+    // ポータブル版（#451）は利用者の `settings.json` に触らない（同梱の mod だけを使う）。
+    // 書く行は実行ファイルの場所に依存し、フォルダを移すと死んだ行としてホストに残る。
+    crate::portable::ensure_installed()?;
     if !candidate_dirs(target_shell)
         .iter()
         .any(|(native, _)| native == config_dir)

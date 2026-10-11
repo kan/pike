@@ -586,11 +586,14 @@ onUnmounted(() => {
       <div class="icon-spacer" />
       <div class="gear-wrapper">
         <div v-if="showGearMenu" class="gear-menu popup-surface" @mousedown.stop>
-          <button class="gear-menu-item" @click="checkUpdate">
-            <span>{{ t('settings.checkUpdate') }}</span>
-            <span v-if="updater.hasUpdate.value" class="update-badge">NEW</span>
-          </button>
-          <div class="gear-menu-divider" />
+          <!-- ポータブル版は自分を更新しない（#451）。 -->
+          <template v-if="updater.supported">
+            <button class="gear-menu-item" @click="checkUpdate">
+              <span>{{ t('settings.checkUpdate') }}</span>
+              <span v-if="updater.hasUpdate.value" class="update-badge">NEW</span>
+            </button>
+            <div class="gear-menu-divider" />
+          </template>
           <button class="gear-menu-item" @click="openShortcuts">
             <span>{{ t('sidebar.keyboardShortcuts') }}</span>
             <span class="ctx-key">{{ actionChord('shortcuts') }}</span>

@@ -6,9 +6,11 @@ import { restoreCommandFor } from '../lib/agents'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
 import { HOST_PLATFORMS, hostDefaultShell, isHostPlatform, isMacHost } from '../lib/host'
 import { stripTrailingSep, wslNativeToUnc } from '../lib/paths'
+import { portableBase } from '../lib/portable'
 import {
   baseForPlatform,
   isProjectPlatform,
+  isSameOrUnder,
   joinBase,
   type ProjectBase,
   type ProjectPlatform,
@@ -486,6 +488,8 @@ export const useProjectStore = defineStore('project', () => {
   async function offerToRegisterDirectory(): Promise<void> {
     const project = transientProject.value
     if (!project || !isTransient.value) return
+    // 登録できないものを勧めない（#451）。設定が `auto` でも同じ。
+    if (!canRegisterRoot(project.root)) return
     const settings = useSettingsStore()
     if (settings.registerDirectory === 'never') return
     if (settings.registerDirectory === 'auto') {
@@ -585,7 +589,7 @@ export const useProjectStore = defineStore('project', () => {
     const settings = useSettingsStore()
     const target = mode ?? (globalMode.value ? 'window' : 'switch')
     const decided = opts?.alreadyChose === true
-    if (!decided && settings.registerDirectory === 'auto') {
+    if (!decided && settings.registerDirectory === 'auto' && canRegisterRoot(path)) {
       await openDirectoryAsProject(path, target)
       return
     }
@@ -671,6 +675,14 @@ export const useProjectStore = defineStore('project', () => {
       await openProject(existing.id, mode)
       return
     }
+    // ポータブル版で base の外（#451）。**登録せずに開く**: 選んだディレクトリを見られない
+    // まま終わらせない。既にこのウィンドウが開いているときと、ターミナルの現在地を登録
+    // しようとしたとき（`from`。頼まれたのは登録で、そこを開くことではない）は理由を出すだけ。
+    if (!canRegisterRoot(path)) {
+      notifyCannotRegister()
+      if (!from && !matchesTransient(path)) await openDirectory(path, mode, { alreadyChose: true })
+      return
+    }
     // **このウィンドウが登録せずに開いているディレクトリなら、それを登録する**（#373。
     // 理由は `matchesTransient` の doc）。**生のパスで先に引く**ので、当たるうちは
     // `projectTransientCreate` の往復ごと省ける。
@@ -711,6 +723,37 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /**
+   * `root` をプロジェクトとして登録できるか（#451）。**ポータブル版は base（実行ファイルの
+   * フォルダ）と同じか、その下だけ**。インストール版では常に真。
+   *
+   * WSL の native パス（`/home/...`）も UNC（`\\wsl.localhost\...`）も base の下には
+   * 来ないので、ここで落ちる。登録せずに開くことはできる（#230）。
+   *
+   * **判定の正本は Rust**（`portable.rs` の `can_register`。`project.json` を書く 1 か所が
+   * 同じ条件で断る）。こちらは、断られる前に登録の入口を畳んで理由を出すための写し。
+   */
+  function canRegisterRoot(root: string): boolean {
+    const base = portableBase()
+    if (base === null) return true
+    // `..` を含むパスは、文字列の上で下に見えても外を指しうる（Rust も同じく断る）。
+    if (/(^|[\\/])\.\.?([\\/]|$)/.test(root)) return false
+    return isSameOrUnder(base, root, 'windows')
+  }
+
+  /** このウィンドウが登録せずに開いているディレクトリを、登録できるか。登録の入口が読む。 */
+  const canRegisterTransient = computed(
+    () => isTransient.value && transientProject.value !== null && canRegisterRoot(transientProject.value.root),
+  )
+
+  function notifyCannotRegister() {
+    useStatusMessageStore().show({
+      text: t('project.portableOutside', { base: portableBase() ?? '' }),
+      variant: 'error',
+      durationMs: 8000,
+    })
+  }
+
+  /**
    * 登録したことの知らせ（#373）。**編集フォームは開かない**: 色やアイコンを付けない人に
    * 閉じる手間が増えるので、直したい人がプロジェクトパネルの鉛筆へ行く形にする。
    */
@@ -733,6 +776,10 @@ export const useProjectStore = defineStore('project', () => {
   async function registerTransientProject(): Promise<void> {
     const config = transientProject.value
     if (!config || !isTransient.value) return
+    if (!canRegisterRoot(config.root)) {
+      notifyCannotRegister()
+      return
+    }
     const stored = { ...config, id: newProjectId(config.id), lastOpened: new Date().toISOString() }
     await addProject(stored)
     await projectTransientDrop(config.id).catch(() => {})
@@ -1655,6 +1702,9 @@ export const useProjectStore = defineStore('project', () => {
     setHeldProjects,
     releaseProject,
     isTransient,
+    canRegisterRoot,
+    canRegisterTransient,
+    notifyCannotRegister,
     openDirectory,
     openDirectoryAsProject,
     recentDirs,
