@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.62.1] - 2026-10-12
+
+### Changes
+
+- **配布するファイルに、来歴の証明（Artifact attestations）を付けた**：ダウンロードしたファイルが、このリポジトリのリリース用ワークフローで作られたものかを確かめられます。コマンドは `gh attestation verify <ファイル> --repo kan/pike` です。対象は Windows のインストーラ 2 種とポータブル版の zip、macOS の `.dmg` です。手順はマニュアルの「はじめに」にあります (#468)
+
+### Bug Fixes
+
+- **CI の設定を足したリポジトリで、CI パネルのアイコンが出ない不具合を直した**：プロジェクトを開いたあとに `.github/workflows/` や `.circleci/` を足すと、ウィンドウを開き直すまで出ませんでした。設定の有無を開いたときの 1 回しか調べていなかったためです。別のプロジェクトを表示しているあいだに足した場合も、戻ったときに出ます
+
 ## [0.62.0] - 2026-10-11
 
 ### Features
