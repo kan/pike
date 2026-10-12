@@ -185,7 +185,7 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
     - **グロブは拡張子の末尾まで書く**（`nsis/*-setup.exe` / `msi/*.msi`）。`bundle/` には配布しない `.msi.zip` / `.nsis.zip` と各 `.sig` も並んでいるので、`msi/*` のように広く取ると関係ないファイルまで証明する
     - **グロブが 1 件も当たらなくても、他が当たればステップは通る。** 取りこぼしは CI では分からないので、公開前に 5 つとも検証する手順が `release` スキルに入っている
     - `.app.tar.gz` は手元では `Pike.app.tar.gz` で、リリース上の名前は tauri-action が付ける。証明に載る名前は手元のものになるが、検証はダイジェストで行うので通る
-    - **Immutable releases（リポジトリ設定）が有効かどうかは `gh api repos/kan/pike/immutable-releases` で確かめる**（#468 で attestation を足した時点では無効）。有効だと公開した時点で成果物とタグが不変になり、release attestation が自動で付く（`gh release verify`）。ドラフトに成果物を揃えてから公開する流れにそのまま乗るが、公開後は直せないので、公開前の確認が `release` スキルに入っている
+    - **Immutable releases（リポジトリ設定）を有効にしてある**（#468。効くのは v0.62.1 より後のリリースで、今の状態は `gh api repos/kan/pike/immutable-releases` で分かる）。公開した時点で成果物とタグが不変になり、release attestation が自動で付く（`gh release verify`）。ドラフトに成果物を揃えてから公開する流れにそのまま乗るが、**公開後は成果物の差し替えもタグの打ち直しもできない**ので、公開前の確認が `release` スキルに入っている。リリースノートの本文とタイトルは公開後も編集できる
     - **SLSA Build L3 は狙っていない。** ビルドを reusable workflow に切り出して、署名用の secrets と `contents: write` を持つジョブから分ける必要がある。上の合流ジョブへ移るときに合わせて検討する
   - **署名と公証の資格情報は GitHub Secrets の `APPLE_*` 7 つ**（`APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY` / `APPLE_TEAM_ID` / `APPLE_API_ISSUER` / `APPLE_API_KEY` / `APPLE_API_KEY_BASE64`）。**`notarytool` は鍵をファイルで受け取る**ので、`APPLE_API_KEY_BASE64` を書き出して `APPLE_API_KEY_PATH` を `GITHUB_ENV` 経由で渡す（`APPLE_API_KEY` は鍵そのものではなく Key ID）
   - **証明書を再発行するときは Developer Portal で G2 Sub-CA を選ぶ。** Xcode の「Manage Certificates → +」が作る Developer ID は G1 CA 由来で、G1 中間 CA 自身の失効日（2027-02-01）で頭打ちになる。G2 なら通常どおり 5 年
