@@ -10,6 +10,10 @@ jobs:
     name: Build & Release (${{ matrix.name }})
     permissions:
       contents: write
+      # Artifact attestations（#468）。署名は Actions の OIDC トークンで Sigstore の
+      # 短命証明書を取って行うので、鍵の secret は増えない。
+      id-token: write
+      attestations: write
     strategy:
       # 両ジョブが latest.json を上げるので直列にする（並列だと後から読んだ側が
       # もう片方を落とす）。fail-fast は既定のままにして、片方だけが載った
@@ -106,6 +110,19 @@ jobs:
           fi
           gh release upload "${{ github.ref_name }}" "${zips[0]}" --clobber --repo "$GITHUB_REPOSITORY"
 
+      # 来歴の証明（#468）。利用者が手でダウンロードするファイルだけを対象にする。
+      # `.sig` と `latest.json` は付けない（updater の経路は minisign の検証で足り、
+      # `latest.json` は 2 つのジョブが順に書き換えるので手元のファイルと最終形が合わない）。
+      # グロブは `.msi.zip` や `.sig` を拾わない形にしてある。理由は `.claude/rules/build.md`。
+      - name: Attest the Windows artifacts
+        if: runner.os == 'Windows'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/msi/*.msi
+            artifacts/portable/*-portable.zip
+
       # **tauri が公証するのは `.app` だけ**（そのあと staple して、その `.app` から
       # `.dmg` を作る）。`.dmg` 自身は署名されるが公証には出されないので、
       # ダウンロードした利用者の Gatekeeper が配布物を弾く（`spctl` が
@@ -136,3 +153,17 @@ jobs:
           # 弾かれたら失敗させる（set -e）。ここを通れば配布物として問題ない。
           spctl -a -vvv -t open --context context:primary-signature "$dmg"
           gh release upload "${{ github.ref_name }}" "$dmg" --clobber --repo "$GITHUB_REPOSITORY"
+
+      # **必ず staple のあとに置く**（#468）。staple は `.dmg` にチケットを書き足すので
+      # ダイジェストが変わる。前に置くと、差し替え前のファイルを証明することになり、
+      # 利用者が落とした `.dmg` の検証が通らない。
+      # `.app.tar.gz` は手元では `Pike.app.tar.gz` で、リリース上の名前
+      # （`Pike_X.Y.Z_aarch64.app.tar.gz`）は tauri-action が付ける。検証はダイジェストで
+      # 行うので、名前が違っても通る。
+      - name: Attest the macOS artifacts
+        if: runner.os == 'macOS'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/macos/*.app.tar.gz

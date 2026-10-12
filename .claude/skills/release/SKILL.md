@@ -131,6 +131,25 @@ gh release view vX.Y.Z --repo kan/pike --json assets -q '.assets[].name'
 Windows のジョブが tauri-action の直後に足す。zip の段が落ちると Windows のジョブごと失敗し、
 待機中の macOS のジョブも取り消されるので、そのときは直してタグを打ち直す。
 
+**手でダウンロードする 5 つのファイルに attestation（来歴の証明）が付いていることを確認する**（#468）。
+ドラフトから落として 1 つずつ検証する:
+
+```bash
+dir=$(mktemp -d)
+gh release download vX.Y.Z --repo kan/pike --dir "$dir" \
+  --pattern '*-setup.exe' --pattern '*.msi' --pattern '*-portable.zip' \
+  --pattern '*.dmg' --pattern '*.app.tar.gz'
+ls "$dir"   # 5 件あること
+for f in "$dir"/*; do
+  gh attestation verify "$f" --repo kan/pike \
+    --signer-workflow kan/pike/.github/workflows/release.yml || echo "FAILED: $f"
+done
+```
+
+**5 つとも通ること。** とくに `.dmg` は staple で差し替えたあとのファイルなので、attest の位置が
+ずれると `.dmg` だけ落ちる（理由は `.claude/rules/build.md`）。1 つでも落ちたら公開せず、
+直してタグを打ち直す。
+
 ### 8. リリースの公開
 
 ワークフロー完了後、GitHub Releases でドラフトを確認し、リリースノートを記載して公開する。
@@ -146,6 +165,18 @@ gh release edit vX.Y.Z --repo kan/pike --draft=false --notes "$(cat <<'EOF'
 
 EOF
 )"
+```
+
+**Immutable releases（リポジトリ設定、#468）が有効だと、公開した時点で成果物とタグが
+不変になる。** 公開後に `latest.json` の欠けや attestation の漏れに気付いても、成果物の差し替えも
+タグの打ち直しもできず、次のバージョンを出すしかない（消したリリースのタグ名も再利用できない）。
+**手順 7 の確認を済ませてから公開する。** リリースノートの本文とタイトルは公開後も編集できる。
+
+有効にしてある場合は、公開後に release attestation も確かめる:
+
+```bash
+gh api repos/kan/pike/immutable-releases -q .enabled   # true のときだけ
+gh release verify vX.Y.Z --repo kan/pike
 ```
 
 ### 注意事項

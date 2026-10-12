@@ -18,6 +18,20 @@ If you discover a security vulnerability, please report it responsibly:
 3. You will receive an acknowledgment within 48 hours.
 4. A fix will be released as soon as possible, typically within 7 days.
 
+## Verifying Downloads
+
+Release artifacts (the Windows installers, the portable zip, and the macOS `.dmg`) carry
+[GitHub Artifact Attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations)
+in releases after v0.62.0. To confirm that a file you downloaded was built from this repository
+by the release workflow, run:
+
+```bash
+gh attestation verify Pike_X.Y.Z_x64-setup.exe --repo kan/pike \
+  --signer-workflow kan/pike/.github/workflows/release.yml
+```
+
+In-app updates are verified separately, against the minisign public key embedded in the app.
+
 ## Scope
 
 The following are in scope:

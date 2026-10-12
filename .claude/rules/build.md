@@ -178,6 +178,15 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
     - **`fail-fast` は既定（true）のまま。** Windows が落ちれば待機中の macOS が取り消されるので、darwin だけの `latest.json` は作られない。**ただし逆向きは防げない**（Windows が成功したあとに macOS が落ちると、windows だけの `latest.json` がドラフトに残る）。だから**公開前に `platforms` を目視する**手順が `release` スキル（`.claude/skills/release/SKILL.md`）に入っている
     - 両方向を機械的に塞ぐなら、両ジョブを `uploadUpdaterJson: false` にして成果物だけ artifact に上げ、`needs: build` の合流ジョブで `latest.json` を**組み立てて** 1 回だけ上げる形になる。読んで書き直す構造が消えるうえ並列に戻せるが、YAML が 20 行ほど増えて手元で検証できない。**今は直列＋目視で回し、面倒が続くようなら移る**
   - **`.dmg` は tauri が公証しない。** 公証・staple するのは `.app` だけで、そのあとに作る `.dmg` は署名するだけ。配布物は `.dmg` なので、そのままだとダウンロードした利用者の Gatekeeper が弾く（`spctl -a -t open --context context:primary-signature` が `rejected / source=Unnotarized Developer ID` を返す。macOS 実機で確認）。tauri-action のあとに `xcrun notarytool submit` → `xcrun stapler staple` → `gh release upload --clobber` で差し替える
+  - **手でダウンロードする成果物には Artifact attestations（来歴の証明）を付ける**（#468。`actions/attest`）。updater は minisign、macOS は公証で守られているが、Releases から手で落とした Windows のインストーラや zip が「このリポジトリの、このワークフローで作られた」ことを確かめる手段が無かった。利用者は `gh attestation verify <ファイル> --repo kan/pike` で確かめる
+    - 対象は 5 つ: Windows の `-setup.exe` / `.msi` / `-portable.zip`、macOS の `.dmg` / `.app.tar.gz`。ジョブの `permissions` に `id-token: write` と `attestations: write` が要る（署名は OIDC と Sigstore の短命証明書なので、鍵の secret は増えない）
+    - **macOS の attest は staple のあとに置く。** staple は `.dmg` にチケットを書き足すのでダイジェストが変わる。前に置くと差し替え前のファイルを証明することになり、配布している `.dmg` の検証が通らない。Windows 側も zip を作ったあとに置く
+    - **`.sig` と `latest.json` は対象にしない。** updater の経路は minisign の検証で足りている。`latest.json` は 2 つのジョブが順にマージして書き換えるので、ジョブの手元のファイルと最終形が一致しない
+    - **グロブは拡張子の末尾まで書く**（`nsis/*-setup.exe` / `msi/*.msi`）。`bundle/` には配布しない `.msi.zip` / `.nsis.zip` と各 `.sig` も並んでいるので、`msi/*` のように広く取ると関係ないファイルまで証明する
+    - **グロブが 1 件も当たらなくても、他が当たればステップは通る。** 取りこぼしは CI では分からないので、公開前に 5 つとも検証する手順が `release` スキルに入っている
+    - `.app.tar.gz` は手元では `Pike.app.tar.gz` で、リリース上の名前は tauri-action が付ける。証明に載る名前は手元のものになるが、検証はダイジェストで行うので通る
+    - **Immutable releases（リポジトリ設定）が有効かどうかは `gh api repos/kan/pike/immutable-releases` で確かめる**（#468 で attestation を足した時点では無効）。有効だと公開した時点で成果物とタグが不変になり、release attestation が自動で付く（`gh release verify`）。ドラフトに成果物を揃えてから公開する流れにそのまま乗るが、公開後は直せないので、公開前の確認が `release` スキルに入っている
+    - **SLSA Build L3 は狙っていない。** ビルドを reusable workflow に切り出して、署名用の secrets と `contents: write` を持つジョブから分ける必要がある。上の合流ジョブへ移るときに合わせて検討する
   - **署名と公証の資格情報は GitHub Secrets の `APPLE_*` 7 つ**（`APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY` / `APPLE_TEAM_ID` / `APPLE_API_ISSUER` / `APPLE_API_KEY` / `APPLE_API_KEY_BASE64`）。**`notarytool` は鍵をファイルで受け取る**ので、`APPLE_API_KEY_BASE64` を書き出して `APPLE_API_KEY_PATH` を `GITHUB_ENV` 経由で渡す（`APPLE_API_KEY` は鍵そのものではなく Key ID）
   - **証明書を再発行するときは Developer Portal で G2 Sub-CA を選ぶ。** Xcode の「Manage Certificates → +」が作る Developer ID は G1 CA 由来で、G1 中間 CA 自身の失効日（2027-02-01）で頭打ちになる。G2 なら通常どおり 5 年
   - `macos-latest` は Apple Silicon なので**ホストのトリプルがそのまま `aarch64-apple-darwin`**。クロスビルドの指定は要らず、`just fetch-rg` も `rustc -vV` からその名前でサイドカーを取る。Intel 向けは配布しない
