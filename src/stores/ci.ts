@@ -2,11 +2,14 @@ import { defineStore } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
 import { infoDialog } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
+import { fsWatcher } from '../composables/useFsWatcher'
 import { t } from '../i18n'
+import { ciConfigsMayHaveChanged } from '../lib/ciConfigs'
 import { fuzzyMatch } from '../lib/paths'
 import { loadJson, saveJson } from '../lib/storage'
 import { ciAct, ciCircleciAvailable, ciConfigs, ciJobs, ciList } from '../lib/tauri'
 import type { CiAction, CiConfigs, CiJob, CiProvider, CiRun, CiState } from '../types/ci'
+import { shellToPlatform } from '../types/tab'
 import { useGitStore } from './git'
 import { useIssuesStore } from './issues'
 import { useProjectStore } from './project'
@@ -30,6 +33,12 @@ const POLL_MS = 15_000
  * サービスの側の一覧がまだ古く、「終わった run しか無い」と見えてポーリングが始まらない。
  */
 const WATCH_AFTER_ACT_MS = 60_000
+
+/**
+ * 設定のディレクトリが変わった知らせから、聞き直すまでの待ち。監視は 200ms 静かになるか
+ * 1 秒たつとまとめて送ってくる（`watcher.md`）ので、続けて届く知らせを 1 回に畳める長さにする。
+ */
+const RECHECK_DELAY_MS = 1000
 
 /** タブの並び。両方使えるリポジトリでは、覚えている選択が無ければ先頭を出す。 */
 const CI_PROVIDERS: readonly CiProvider[] = ['github', 'circleci']
@@ -86,8 +95,9 @@ export const useCiStore = defineStore('ci', () => {
 
   /**
    * リポジトリが持つ CI の設定（root ごと）。**覚えるのはウィンドウの寿命のあいだ**: WSL では
-   * 1 回聞くのに `wsl.exe` の起動が要るので、プロジェクトを行き来するたびに聞き直さない。
-   * 設定を足したあとは更新ボタン（`refresh`）が聞き直す。
+   * 1 回聞くのに `wsl.exe` の起動が要るので、設定があると分かっている root は、プロジェクトを
+   * 行き来しても聞き直さない。聞き直す契機は 3 つ: 監視の知らせ（下の `onFileChange`）、
+   * どちらの設定も無いと覚えている root へ戻ってきたとき（下の watch）、更新ボタン（`refresh`）。
    */
   const configsByRoot = reactive(new Map<string, CiConfigs>())
   /** 聞いている最中の root。同じ root に 2 本立てない。 */
@@ -192,26 +202,47 @@ export const useCiStore = defineStore('ci', () => {
   }
 
   /**
-   * 設定の有無と `circleci` を調べる。**べき等**（覚えていれば何もしない）。`force` は更新ボタンから。
+   * 設定の有無と `circleci` を調べる。**既定の `idle` はべき等**（覚えていれば何もしない）。
+   * `force` は更新ボタンから。`stale` は、覚えている設定の有無が古くなったかもしれないとき
+   * （下の監視の受け口）で、設定だけを必ず聞き直す。
+   *
+   * - **`stale` でも、覚えている答えは新しい答えが届くまで捨てない**（捨てると、そのあいだ
+   *   `configs` が null になってアイコンとパネルの中身が一瞬消える）
+   * - **`stale` で答えが変わらなかったら、そこで終わる**（CLI は探さない）。Windows では
+   *   ワークフローを保存するたびにここへ来るので（`ciConfigsMayHaveChanged` の doc）、
+   *   `circleci` の無いマシンで毎回プロセスを起こさない
    *
    * **`circleci` は設定があるリポジトリでしか探さない**（「検出のためだけに起動時へ `wsl.exe` を
    * 足さない」の例外にする範囲を、CircleCI を使うリポジトリに絞る）。`gh` は issue パネルの
    * 検出に任せ、`force` のときだけ、見つかっていなければ聞き直させる。
    */
-  async function detect(force = false): Promise<void> {
+  async function detect(mode: 'idle' | 'force' | 'stale' = 'idle'): Promise<void> {
     const project = projectStore.currentProject
     const key = rootKey.value
     if (!project || !key) return
     const root = projectStore.activeRoot
     const { shell } = project
+    const force = mode === 'force'
     // 更新ボタンでも、両方の設定が在ると分かっていれば聞き直さない（新しく見つかるものが無い）。
     const known = configsByRoot.get(key)
-    if (!known || (force && !(known.github && known.circleci))) {
+    if (!known || mode === 'stale' || (force && !(known.github && known.circleci))) {
+      if (mode === 'stale') {
+        // **走っている 1 本に相乗りしない**（その答えは変更の前に見たものかもしれない）。
+        // 終わるのを待って、あとからもう 1 本聞く。待つあいだに切り替えられたら聞かない
+        // （裏のプロジェクトのために `wsl.exe` を起こさない）。
+        await configsInFlight.get(key)
+        if (rootKey.value !== key) return
+      }
       let asking = configsInFlight.get(key)
       if (!asking) {
         asking = ciConfigs(shell, root)
-          .then((found) => void configsByRoot.set(key, found))
-          // 聞けなかったら何も覚えない（次に切り替えたときにまた聞く）。
+          .then((found) => {
+            // 同じ答えなら入れ替えない（`available` を無駄に起こさず、下で「変わったか」を
+            // 入れ物の同一性で見分けられる）。
+            const prev = configsByRoot.get(key)
+            if (prev?.github !== found.github || prev.circleci !== found.circleci) configsByRoot.set(key, found)
+          })
+          // 聞けなかったら何も覚えない（次に切り替えたときにまた聞く）。覚えていた答えは残す。
           .catch(() => {})
           .finally(() => configsInFlight.delete(key))
         configsInFlight.set(key, asking)
@@ -220,6 +251,7 @@ export const useCiStore = defineStore('ci', () => {
     }
     const found = configsByRoot.get(key)
     if (!found) return
+    if (mode === 'stale' && found === known) return
     const probes: Promise<void>[] = []
     if (found.circleci) probes.push(circleciProbe.ask(shell, root, force && !circleciAvailable.value))
     // origin が GitHub でないと確定しているなら `gh` は探さない（答えを使う者が居ない）。
@@ -318,7 +350,7 @@ export const useCiStore = defineStore('ci', () => {
     if (busy.value) return
     detecting.value = true
     try {
-      await detect(true)
+      await detect('force')
     } finally {
       detecting.value = false
     }
@@ -400,7 +432,52 @@ export const useCiStore = defineStore('ci', () => {
   watch(shouldPoll, (on) => (on ? polling.start() : polling.stop()), { immediate: true })
 
   // 検出もここで 1 回だけ張る（`stores/issues.ts` の watcher と同じ理由）。
-  watch([rootKey, currentShell], () => void detect(), { immediate: true })
+  //
+  // **どちらの設定も無いと覚えている root へ戻ってきたときは、聞き直す。** 監視が見ているのは
+  // 今の root だけなので、別のプロジェクトを見ているあいだに足された設定（裏のターミナルで
+  // エージェントが足したワークフロー）は、下の受け口には届かない。アイコンが出ていないので
+  // 更新ボタンも押せない。設定が 1 つでもあれば聞かない（アイコンが出ていて、更新ボタンが届く）。
+  watch(
+    [rootKey, currentShell],
+    () => {
+      const known = configs.value
+      void detect(known && !known.github && !known.circleci ? 'stale' : 'idle')
+    },
+    { immediate: true },
+  )
+
+  // 開いているあいだに設定のディレクトリが増減したら聞き直す。**更新ボタンだけに任せない**:
+  // あれはパネルの中にあり、設定が無いと覚えたリポジトリではアイコンごと出ていないので届かない
+  // （ワークフローを初めて足したリポジトリで、ウィンドウを開き直すまで CI が出なかった）。
+  // 監視が見ているのは今の root だけ。裏のプロジェクトのぶんは、戻ってきたときに上の watch が拾う。
+  //
+  // **知らせが落ち着くまで待ってから 1 回だけ聞く**（`RECHECK_DELAY_MS`）。ブランチの切り替えは
+  // 知らせが何回かに分かれて届くので、そのたびに聞くと WSL では `wsl.exe` が並ぶ。stash や
+  // rebase の途中で一瞬だけ消えるディレクトリを「無い」と覚えて、開いている CI パネルを
+  // 逃がす（`ruledOut`）ことも減る。
+  let recheckTimer: ReturnType<typeof setTimeout> | undefined
+  function scheduleRecheck() {
+    const key = rootKey.value
+    if (!key) return
+    clearTimeout(recheckTimer)
+    recheckTimer = setTimeout(() => {
+      // 待つあいだに切り替えられたら聞かない（切り替え先は `detect()` が自分で聞く）。
+      if (rootKey.value === key) void detect('stale')
+    }, RECHECK_DELAY_MS)
+  }
+  fsWatcher.onFileChange((files) => {
+    const project = projectStore.currentProject
+    if (!project) return
+    // **まだ答えを覚えていないあいだも見る**（どちらも無いものとして）。最初の問い合わせは
+    // WSL では数秒かかることがあり、そのあいだに足された設定を、変更の前に見た答えで
+    // 覚えてしまう。
+    const known = configs.value ?? { github: false, circleci: false }
+    const platform = shellToPlatform(project.shell)
+    if (ciConfigsMayHaveChanged(projectStore.activeRoot, files, known, platform)) scheduleRecheck()
+  })
+  // 張り直した監視は、止まっていたあいだの変更を知らない（`fsWatcher.restart` の doc）。
+  // 最初の問い合わせが失敗して何も覚えていないとき（distro が落ちていた等）も、ここで聞く。
+  fsWatcher.onRestart(scheduleRecheck)
 
   // ブランチの絞り込みが変わったら、取ってある一覧は別物になる。**両方の CI を捨てる**
   // （出していないほうは、次にタブを切り替えたときに `ensureLoaded` が取り直す）。

@@ -265,6 +265,7 @@ pike/
 │   │   ├── issueActions.ts   # issue パネルから PR のマージとクローズ・issue のクローズ（確認 → gh → 取り直し、#450）
 │   │   ├── ciPrompt.ts       # エージェントに渡す CI の失敗の調査の指示文（#457。注入とコピーで共有）
 │   │   ├── ciActions.ts      # CI パネルから run の再実行と中止（確認 → CLI → 取り直し、#457）
+│   │   ├── ciConfigs.ts      # 監視の変更から、CI の設定の有無を聞き直すかを決める述語
 │   │   ├── commitPatch.ts    # コミット全体の差分をファイルごとの統合形式の行に落とす（#374）
 │   │   ├── gitErrors.ts      # git のエラー文からよくある原因を見分ける（#436。案内の文言は i18n）
 │   │   ├── gitGraph.ts  gitRemote.ts  gitignore.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
