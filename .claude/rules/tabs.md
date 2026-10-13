@@ -142,7 +142,11 @@ paths:
   `project.json` には入れない。ペインの割り当てと選択は `lastSession.panes`（#308）で、
   **分割していたときだけ書く**（古い版の Pike は `activeTabId` しか読まない）
 - **ターミナルの複製は非対応**。xterm の `Terminal` は 1 つの DOM にしか描けず、2 つ目を
-  作れば別の PTY になる（Rust 側にバッファを持って再アタッチする案は #264 で不採用）
+  作れば別の PTY になる（Rust 側にバッファを持って再アタッチする案は #264 で不採用）。
+  **別のウィンドウへの移動（#469）は複製ではない**: 移動元の xterm を捨てて、移動先の
+  xterm が同じ PTY につなぐ（`terminal.md` の「別のウィンドウへの引き継ぎ」）。同じ手で
+  1 つの PTY に xterm を 2 つつなぐと、入力への返事（カーソル位置の問い合わせなど）が
+  2 重に返る
 
 ## タブバーへの OS ファイルドロップ
 - エクスプローラーからタブバーへの D&D。ファイル → `useCliOpen` の `openFileTarget`（export 済み。画像→Preview / pdf→Pdf / 他→Editor の拡張子ルーティング）、ディレクトリ → `addTerminalTab({ cwd, shell })`。**Windows プロジェクトとグローバルモードのみ有効**（WSL プロジェクトはエディタ I/O・ターミナル cwd の Windows→WSL パス変換が要るため無効）。ディレクトリの shell はプロジェクト default / グローバルは `globalShell`（WSL なら `defaultWindowsShellKind()` にフォールバック。Windows パスの cwd が WSL シェルでは捨てられるため）

@@ -19,6 +19,7 @@ import { useTabStore } from '../stores/tabs'
 import type { ShellType, SidebarPanel } from '../types/tab'
 import { confirmAndExit } from './useBusyExit'
 import { promptDialog } from './useConfirmDialog'
+import { openMoveProjectMenu } from './useMoveProjectMenu'
 import { useOutlineSource } from './useOutlineSource'
 import { useShortcutsModal } from './useShortcutsModal'
 import { type LiveTerminal, resolveTargetTerminal } from './useTerminalInject'
@@ -233,6 +234,18 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     // **表の行は引数を取らない**（`Record<AppActionId, () => void>`）が、タブの右クリック
     // メニューは相手のタブを渡す。戻り値の型が交差なので、どちらの呼び方も通る。
     registerTerminalCwd: (tab?: LiveTerminal) => void registerTerminalCwd(tab),
+    // 行き先を選ぶメニューを開くだけ（#469）。移せないもの（登録せずに開いたディレクトリ）は、
+    // 黙って何も起きないより理由を出す。
+    moveProject: () => {
+      const id = projectStore.currentProject?.id
+      if (!id) return
+      if (projectStore.canMoveProject(id)) openMoveProjectMenu(id)
+      // 理由を言えるのは一時プロジェクトだけ（管理者のウィンドウ #138 も移せないが、
+      // あちらに「登録してください」と出すと嘘になる）。
+      else if (projectStore.isTransient) {
+        useStatusMessageStore().show({ text: t('project.moveUnavailable'), variant: 'warn' })
+      }
+    },
     projectSwitcher: () => projectStore.toggleSwitcher(),
     newTerminal: () => openTerminal(),
     newFile: () => tabStore.addBlankEditorTab(),

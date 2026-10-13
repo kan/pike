@@ -26,6 +26,8 @@ paths:
 - **main ウィンドウ close → 設定 `closeToTray` が ON ならトレイに常駐（#161、`os-integration.md` の「システムトレイ」。既定は OFF）**。ON では main は破棄せず hide し、アプリは終了しない。実際の終了はトレイの「終了」（`app.exit`）のみ。子ウィンドウを全部閉じても hidden main が残るためアプリは常駐し続ける。**OFF でも main の close が他ウィンドウを道連れにすることは無い**（詳細は「システムトレイ」の #202 の bullet）
 - `window_holding` はマップが一致したウィンドウのラベルをそのまま返す（可視判定なし。`focus_project_window_anywhere` が、見せているなら `restore_window`、保持しているだけなら `OpenProject` を届ける、と分ける）。**非可視のヒットを stale とみなして閉じないこと**: ラベルが単発 uuid で `Destroyed` がマップを drain するので、非可視で残りうるのは hide 中の main だけ。閉じると main の close 経路に再入し、OFF 設定ではアプリが終了する（#202）
 - 子ウィンドウ close → `beforeunload` で session 保存 + PTY kill（ベストエフォート）
+- **プロジェクトはウィンドウのあいだを移せる（#469）**。`window_projects` の上の移動は `project::move_window_project` の 1 つで、移動元が見せていたものなら `shown` を空にし、何も残らなければエントリごと消す（次に何を見せるかは移動元のフロントが `project_add_open` で入れ直す）。全体の段取りは `project.md` の「別のウィンドウへの移動」
+  - **ラベルを作ってからウィンドウを作る**（`new_project_window_label`）。荷物と `window_projects` はウィンドウより先に置く必要があり（新しいウィンドウのフロントは `build_window` が戻る前に mount しうる）、どちらもラベルが鍵
 
 ## ウィンドウ状態永続化
 - `tauri-plugin-window-state` でウィンドウサイズ・位置・最大化状態を自動保存・復元。ただし**追跡するのは `main` ラベルだけ**（`with_filter`）

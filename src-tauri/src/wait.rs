@@ -169,7 +169,7 @@ pub fn try_forward_pty_origin_and_exit() {
     let has_payload = args
         .iter()
         .skip(1)
-        .any(|a| !a.starts_with("--wait-id=") && !a.starts_with("--from-window="));
+        .any(|a| !crate::cli::is_internal_flag(a));
     if !has_payload {
         return;
     }
@@ -180,6 +180,14 @@ pub fn try_forward_pty_origin_and_exit() {
 
     let mut augmented = args;
     augmented.push(format!("--from-window={label}"));
+    // ターミナルの id も添える（#469）。ラベルは spawn 時の値なので、プロジェクトを別の
+    // ウィンドウへ移したあとは古い。受け側は id から今の持ち主を引き、引けなければ
+    // ラベルに落ちる（`cli::extract_from_pty` の doc）。
+    if let Ok(pty_id) = std::env::var("PIKE_PTY_ID")
+        && !pty_id.is_empty()
+    {
+        augmented.push(format!("--from-pty={pty_id}"));
+    }
 
     let cwd = std::env::current_dir()
         .unwrap_or_default()

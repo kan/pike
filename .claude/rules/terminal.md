@@ -55,6 +55,16 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
     返事を待つ相手がいないので固まりはしないが、ログの先頭が欠けていた
   - 読んで見つけたが、症状には結び付いていないもの: `pty_kill` は `sessions` のロックを握った
     まま `PtySession` を落とす
+- **別のウィンドウへの引き継ぎ（#469）**: プロジェクトを別のウィンドウへ移すとき、ターミナルは PTY を止めずに持ち主のウィンドウだけを付け替え、移動先の新しい xterm が同じ pty id につなぐ。全体の段取りは `project.md` の「別のウィンドウへの移動」
+  - **画面は `@xterm/addon-serialize` で書き出して運ぶ**（`TerminalTab.vue` の `exportScreen`、受け渡しは `lib/terminalHandoff.ts`）。スクロールバック・代替画面・マウスなどのモードが入る。アドオンは移動のときだけ読み込む。**書き出したときと同じ大きさの xterm に書く**（折り返しの位置がそれで決まる）。つないだあとはリサイズの nudge で TUI 自身にも描き直させる
+  - **移動のあいだの出力は Rust が預かる**（`pty/mod.rs` の `Held`、`pty_hold` / `pty_resume`）。移動元は書き出した時点で受け取るのをやめ、移動先は受け口を登録するまで受け取れない（新しいウィンドウなら秒の単位）。「Rust はステートレスに」の例外だが、持つのは未配送のバイト列だけで、渡したら消える
+    - **預かり始めた印（`pty_held`）は、出力と同じ経路で、最後の出力のあとに届く**（`emit_output` が判定と emit を 1 つのロックの中で行う）。移動元は `ptyRouter.hold` でその印を待ってから書き出す。**`pty_hold` の戻りを待つだけにしないこと**: 戻り値はイベントと別の経路なので、戻った時点でまだ途中の出力がありうる
+    - **出力を送る経路を足すときは `emit_output` / `emit_exit` を通す**。`app.emit("pty_output", …)` を直に書くと、預かっているあいだの出力がそこだけ素通りし、移動元の捨てられる xterm へ届いて失われる
+  - **つなぐ側は「起こす」ための段取りを全部飛ばす**（`TerminalTab.vue` の `adoptId`）: `pty_spawn`・起動の見張り・初期化行と `autoStart`。`autoStart` をもう一度流すと、動いているエージェントの入力欄に起動行が打ち込まれる
+  - **渡したタブは unmount で PTY を止めない**（`takeTerminalHandedOff`）。`TerminalTab` は unmount のたびに自分の PTY を kill するので、印が無いと渡した先のシェルが止まる
+  - **持ち主の付け替え（`pty::reassign_window`）を忘れると 2 つ壊れる**: 移動元のウィンドウを閉じたときに `cleanup_for_window` が移した先のシェルを止め、エージェントの知らせ（`window_for_pty`）が移動元へ届く
+  - **シェルの環境変数 `PIKE_WINDOW_LABEL` は移しても変わらない**（spawn 時に焼いた値）。ターミナルから叩いた `pike` の宛先は `PIKE_PTY_ID` から引き直す（`os-integration.md` の `--from-pty`）
+  - 起動の途中のターミナル（pty の id が未確定）があるあいだは移さない。`runCommandTab` の `onExit` は移動元に残るので、移したタブの終了では呼ばれない
 - 環境変数 `TERM=xterm-256color` を cmd 以外に設定
 - **WSL のターミナルに `BROWSER` を渡さない（#381 で見送った）**。Claude Code の `/login` のような「ブラウザを開く」は下の OSC 8 のリンクを押せば開く。`BROWSER` に Pike 自身を渡す形は次の 2 つで採らない
   - `cargo doc --open` や Python の `webbrowser` は URL ではなくローカルのパス（`file://`）を `$BROWSER` に渡すので、それが Pike のエディタで開く（xdg-open が動いていた環境では後退になる）

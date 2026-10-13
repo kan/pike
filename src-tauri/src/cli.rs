@@ -121,17 +121,37 @@ pub fn extract_from_window(args: &[String]) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// `--from-pty=<id>`（`pike` を叩いたターミナルの `PIKE_PTY_ID`）を取り出す（#469）。
+///
+/// **`--from-window` より当てになる。** あちらの出どころ（`PIKE_WINDOW_LABEL`）はシェルを
+/// 起こしたときに環境へ焼いた値なので、プロジェクトを別のウィンドウへ移したあとは古い
+/// ウィンドウを指す。ターミナルの id は変わらないので、今の持ち主はそこから引ける
+/// （`pty::window_for_pty`）。
+pub fn extract_from_pty(args: &[String]) -> Option<String> {
+    args.iter()
+        .find_map(|a| a.strip_prefix("--from-pty=").map(|s| s.to_owned()))
+        .filter(|s| !s.is_empty())
+}
+
+/// Pike 自身が転送のときに足す引数か（利用者が打つものではない）。`parse_args` と
+/// `wait.rs` の「中身のある引数があるか」が同じ一覧を読む。**フラグを足したらここに足す**:
+/// 漏れると、`parse_args` ではフラグがファイル名として開かれ、`wait.rs` では引数なしの
+/// `pike` が転送される。
+pub fn is_internal_flag(arg: &str) -> bool {
+    ["--wait-id=", "--from-window=", "--from-pty="]
+        .iter()
+        .any(|prefix| arg.starts_with(prefix))
+}
+
 /// Parse raw CLI args (from std::env::args or single-instance callback).
 /// `cwd` is used to resolve relative paths.
 pub fn parse_args(args: &[String], cwd: &str) -> CliAction {
-    // Skip binary name and known flags (--wait, --wait-id=..., --from-window=...)
+    // Skip binary name and known flags (--wait, --wait-id=..., --from-window=..., --from-pty=...)
     let mut meaningful: Vec<&str> = args
         .iter()
         .skip(1)
         .map(|s| s.as_str())
-        .filter(|s| {
-            *s != "--wait" && !s.starts_with("--wait-id=") && !s.starts_with("--from-window=")
-        })
+        .filter(|s| *s != "--wait" && !is_internal_flag(s))
         .collect();
 
     // An explicit `--shell=<id>` pins the shell: the elevated relaunch paths
@@ -684,6 +704,26 @@ mod tests {
         // Missing flag yields None
         let none = vec!["pike.exe".to_owned(), "file.rs".to_owned()];
         assert_eq!(extract_from_window(&none), None);
+    }
+
+    #[test]
+    fn test_from_pty_flag_stripped_and_extracted() {
+        let args = vec![
+            "pike.exe".to_owned(),
+            "file.rs".to_owned(),
+            "--from-window=project-abc".to_owned(),
+            "--from-pty=0b0f4a52-5b3a-4c53-9d0f-1f2e3d4c5b6a".to_owned(),
+        ];
+        // ファイル引数として読まれない（読まれると 2 つ目のファイルになる）。
+        let f = expect_single_file(parse_args(&args, "C:\\project"));
+        assert!(f.path.contains("file.rs"), "got: {}", f.path);
+        assert_eq!(
+            extract_from_pty(&args),
+            Some("0b0f4a52-5b3a-4c53-9d0f-1f2e3d4c5b6a".to_owned())
+        );
+
+        let empty = vec!["pike.exe".to_owned(), "--from-pty=".to_owned()];
+        assert_eq!(extract_from_pty(&empty), None);
     }
 
     #[test]

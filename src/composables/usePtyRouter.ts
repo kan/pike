@@ -1,10 +1,20 @@
 import { listen } from '@tauri-apps/api/event'
+import { ptyHold } from '../lib/tauri'
 
 type OutputHandler = (data: string) => void
 type ExitHandler = (code: number) => void
 
 const outputHandlers = new Map<string, OutputHandler>()
 const exitHandlers = new Map<string, ExitHandler>()
+/** `hold` が待っている「預かり始めた」印（#469）。pty の id → 待ちを解く関数。 */
+const heldWaiters = new Map<string, () => void>()
+
+/**
+ * 印を待つのをやめるまで。印は先に出た出力の後ろに並ぶので、出力が流れ続けている
+ * ターミナルでは遅れる。**待ち切れなかったことは呼び出し側へ返す**（`hold` の戻り値）:
+ * 届いたことにして進むと、まだ途中の出力が画面にも預かりにも入らず欠ける。
+ */
+const HOLD_TIMEOUT_MS = 10_000
 
 let initialized = false
 
@@ -20,6 +30,10 @@ async function init() {
   await listen<{ id: string; code: number }>('pty_exit', (event) => {
     const { id, code } = event.payload
     exitHandlers.get(id)?.(code)
+  })
+
+  await listen<string>('pty_held', (event) => {
+    heldWaiters.get(event.payload)?.()
   })
 }
 
@@ -45,4 +59,32 @@ function feed(ptyId: string, data: string): void {
   outputHandlers.get(ptyId)?.(data)
 }
 
-export const ptyRouter = { init, register, unregister, feed }
+/**
+ * 出力を Rust に預からせ、**それより前の出力がこのウィンドウへ届き終わるまで待つ**（#469。
+ * プロジェクトを別のウィンドウへ移す前）。
+ *
+ * コマンドの戻りを待つだけでは足りない。出力はイベントで届き、戻り値とは別の経路なので、
+ * 戻った時点でまだ途中の出力がありうる。Rust は預かり始めた印（`pty_held`）を**出力と同じ
+ * 経路で、最後の出力のあとに**送るので、それを待てば画面を書き出してよい。
+ *
+ * 戻り値は「全部の印が届いたか」。偽でも Rust は預かり始めているので、呼び出し側は
+ * やめるなら `ptyResume` で戻す。
+ */
+async function hold(ptyIds: string[]): Promise<boolean> {
+  const marks = ptyIds.map(
+    (id) =>
+      new Promise<boolean>((resolve) => {
+        const done = (arrived: boolean) => {
+          heldWaiters.delete(id)
+          clearTimeout(timer)
+          resolve(arrived)
+        }
+        const timer = setTimeout(() => done(false), HOLD_TIMEOUT_MS)
+        heldWaiters.set(id, () => done(true))
+      }),
+  )
+  await ptyHold(ptyIds)
+  return (await Promise.all(marks)).every(Boolean)
+}
+
+export const ptyRouter = { init, register, unregister, feed, hold }

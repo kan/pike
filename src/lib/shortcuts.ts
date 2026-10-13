@@ -88,6 +88,8 @@ export const APP_ACTIONS = [
   { id: 'openDirectory', palette: 'project' },
   // ターミナルの現在地を登録する（#373。プロジェクトパネルの自動補完の置き換え）。
   { id: 'registerTerminalCwd', palette: 'project', labelKey: 'project.registerCwd' },
+  // 今見せているプロジェクトを別のウィンドウへ移す（#469）。行き先はメニューで選ぶ。
+  { id: 'moveProject', palette: 'project', labelKey: 'project.moveToWindow', needsProject: true },
   { id: 'newTerminal', palette: 'terminal' },
   { id: 'fontIncrease', palette: 'view' },
   { id: 'fontDecrease', palette: 'view' },

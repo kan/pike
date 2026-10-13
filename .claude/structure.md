@@ -128,6 +128,7 @@ pike/
 │   │   ├── RenameNote.vue       # 「名前が変わった」見出し（diff タブと履歴タブで共有、#306）
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
+│   │   ├── MoveProjectMenu.vue  # プロジェクトを別のウィンドウへ移すときの行き先のメニュー（#469）
 │   │   ├── WatcherNotice.vue    # ファイル監視の知らせの帯（ツリーと設定画面で共有、#385）
 │   │   ├── ToolNotice.vue       # 足りないツールの帯の見た目（ファイル監視と ripgrep で共有）
 │   │   ├── layout/
@@ -233,6 +234,7 @@ pike/
 │   │   ├── useOutlineSource.ts  useUpdater.ts  useTerminalInject.ts
 │   │   ├── usePreviewFind.ts # プレビューの検索（#360。数え直しと移動の契機）
 │   │   ├── useTerminalPeek.ts # 別プロジェクトのターミナルを外から覗く口（#319）
+│   │   ├── useMoveProjectMenu.ts # 「別のウィンドウへ移動」の行き先のメニューの開閉（#469。状態はモジュールに 1 つ）
 │   │   ├── useMarkdownImages.ts  # Markdown への画像挿入（選択/貼り付け/ドロップ、#241）
 │   │   ├── useMarkdownLinkPaste.ts # 貼り付けた URL をタイトル付きリンクにする（#241）
 │   ├── lib/
@@ -241,6 +243,7 @@ pike/
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── portable.ts       # ポータブル版かどうかと base（Rust の答えの写し。mount の前に 1 回聞く、#451）
 │   │   ├── projectStorage.ts # プロジェクト id を鍵に持つ localStorage の項目の表と、id の付け替えでの移し替え（#463）
+│   │   ├── terminalHandoff.ts # ターミナルを別のウィンドウへ引き継ぐ受け渡し口（#469。画面の書き出し・渡した印・受け取った画面）
 │   │   ├── reorder.ts        # ドラッグでの並べ替え（プロジェクト一覧とサイドバーのアイコン列、#364）
 │   │   ├── scrollFollow.ts   # 分割表示のスクロール同期の向き（跳ね返りを写し返さない、#465）
 │   │   ├── syncMerge.ts      # 設定の同期の 3-way マージ（#403。種別を知らない純粋な計算）

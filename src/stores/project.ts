@@ -1,6 +1,8 @@
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { confirmDialog, confirmWithOption, infoDialog } from '../composables/useConfirmDialog'
+import { ptyRouter } from '../composables/usePtyRouter'
 import { locale, t } from '../i18n'
 import { restoreCommandFor } from '../lib/agents'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
@@ -35,26 +37,30 @@ import {
   projectGroupsList,
   projectGroupsSave,
   projectList,
+  projectMoveToWindow,
   projectRename,
   projectSetParked,
+  projectTakeMoved,
   projectTransientBind,
   projectTransientCreate,
   projectTransientDrop,
   projectTransientGet,
   projectUpdate,
+  ptyResume,
   type WindowSession,
   windowRestore,
 } from '../lib/tauri'
-import { ephemeralWindow, globalMode } from '../lib/window'
+import { exportTerminalScreen } from '../lib/terminalHandoff'
+import { ephemeralWindow, globalMode, isMainWindow } from '../lib/window'
 import type { DeletedProject, ProjectConfig, SyncedProject } from '../types/project'
-import { buildShell, quoteArg, type ShellType, shellId, shellToPlatform } from '../types/tab'
+import { buildShell, isUnsavedEditor, quoteArg, type ShellType, shellId, shellToPlatform } from '../types/tab'
 import { useCiStore } from './ci'
 import { useDiagnosticsStore } from './diagnostics'
 import { useIssuesStore } from './issues'
 import { useSearchStore } from './search'
 import { useSettingsStore } from './settings'
 import { useStatusMessageStore } from './statusMessage'
-import { useTabStore } from './tabs'
+import { type MovedProject, useTabStore } from './tabs'
 import { useTaskStore } from './tasks'
 
 /** How `openProject` places a project. */
@@ -443,6 +449,15 @@ export const useProjectStore = defineStore('project', () => {
     if (mode === 'focusOrSwitch') await windowRestore().catch(() => {})
   }
 
+  /**
+   * このウィンドウの一覧に無いプロジェクトを、ディスクから 1 件だけ読んで足す（#352）。
+   * 別のウィンドウが登録した / 同期で入ったものを Rust から渡されたときに要る。無ければ何もしない。
+   */
+  async function readMissingProject(id: string) {
+    const fresh = await projectGet(id).catch(() => null)
+    if (fresh) projects.value = [...projects.value, fresh]
+  }
+
   /** Open a project this window was handed rather than picked: the startup
    *  restore, and the windows the backend opens for the jump list, the tray or a
    *  CLI launch. The offer to clone can only come after the window is showing
@@ -470,8 +485,7 @@ export const useProjectStore = defineStore('project', () => {
       // は既にある id しか差し替えないため、足さないと下の `switchProject` が黙って戻る。
       // **全件ではなく 1 件だけ読む**: 一覧の読み直しは `project.json` を全部開くので、
       // 「渡された id が無い」を直すには高すぎる。
-      const fresh = await projectGet(id).catch(() => null)
-      if (fresh) projects.value = [...projects.value, fresh]
+      await readMissingProject(id)
     }
     await switchProject(id, opts)
     ensureRootPresent(id, () => void switchProject(id, opts)).catch(() => {})
@@ -1367,7 +1381,6 @@ export const useProjectStore = defineStore('project', () => {
   ): Promise<boolean> {
     if (saveTimer) clearTimeout(saveTimer)
     const tabStore = useTabStore()
-    const searchStore = useSearchStore()
     // **一時プロジェクト（#230）の入れ替えはここが唯一の場所（#352）。** 呼び出し側で
     // `transientProject` を先に差し替えると、下の「離れる側の後始末」が自分自身を見て
     // 素通りする（`id !== id` にならない）。一時 → 一時の切り替えで、確認も
@@ -1401,15 +1414,7 @@ export const useProjectStore = defineStore('project', () => {
     // adds the single pinned-shell terminal, so skip session/pinned restore.
     const restore = opts?.restoreSession !== false
 
-    searchStore.clear()
-    useDiagnosticsStore().clear()
-    useTaskStore().clear()
-    useIssuesStore().clear()
-    useCiStore().clear()
-    // **エージェントの検出は捨てない**（#275）。あちらはシェルごとの表を持っていて、
-    // 切り替え先のシェルが違えば別のキーを引くだけ。捨てると、有効な答えを消したうえで
-    // 「タブが見えたら取り戻す」という後始末が要る。
-    activeWorktreeRoot.value = null
+    dropProjectCaches()
 
     // 切り替えではタブを捨てない（#264）。ターミナルのプロセスとエージェントのセッションを
     // 生かしたままパークし、戻ってきたらそのまま見せる。**復元するかは切り替える前に
@@ -1499,6 +1504,184 @@ export const useProjectStore = defineStore('project', () => {
       tabStore.addTerminalTab({ cwd: activeRoot.value, shell: project.shell })
     }
     return true
+  }
+
+  /**
+   * プロジェクト単位のキャッシュを捨てる。見せるプロジェクトが変わるとき（`switchProject`）と、
+   * 見せるものが無くなるとき（`leaveMovedProject`）が通る。
+   *
+   * **エージェントの検出は捨てない**（#275）。あちらはシェルごとの表を持っていて、
+   * 切り替え先のシェルが違えば別のキーを引くだけ。捨てると、有効な答えを消したうえで
+   * 「タブが見えたら取り戻す」という後始末が要る。
+   */
+  function dropProjectCaches() {
+    useSearchStore().clear()
+    useDiagnosticsStore().clear()
+    useTaskStore().clear()
+    useIssuesStore().clear()
+    useCiStore().clear()
+    activeWorktreeRoot.value = null
+  }
+
+  // --- 別のウィンドウへの移動（#469） ---------------------------------------------
+  //
+  // プロジェクトを、タブとターミナルのプロセスを生かしたまま別のウィンドウへ移す。
+  // 「消して別のウィンドウで開き直す」だと、そのあいだにターミナルとエージェントの
+  // セッションが止まる。
+  //
+  // ウィンドウごとに JS が別なので、運べるのは値だけ: タブ（`tabStore.exportProjectTabs`）と、
+  // ターミナルの画面（`lib/terminalHandoff.ts`）。PTY は Rust にあり、持ち主のウィンドウを
+  // 付け替える。順序は `moveProject` の中のコメントが正本。
+
+  /**
+   * このウィンドウから別のウィンドウへ移せるプロジェクトか。**このウィンドウが保持している
+   * もの**（`heldIds`。今見せているものを含む）に限る。
+   *
+   * **一時プロジェクト（#230）は移せない**（`heldIds` に入らない）。あれの寿命は見せている
+   * ウィンドウと結び付いていて（Rust の `Destroyed` が記録ごと落とす）、移すにはその
+   * 結び付きを付け替える口が要る。登録すれば移せる。
+   */
+  function canMoveProject(id: string): boolean {
+    return heldIds.value.includes(id) && !ephemeralWindow.value
+  }
+
+  /**
+   * プロジェクトを別のウィンドウへ移す。`target` はウィンドウのラベル（`projectWindowList` の
+   * 行）で、null なら新しいウィンドウ。
+   */
+  async function moveProject(id: string, target: string | null): Promise<void> {
+    // **同じプロジェクトの移動を重ねて始めない。** 新しいウィンドウの生成を待つあいだに
+    // 押し直されると、2 回目は Rust に断られ、その後始末（預からせた出力を戻す）が、
+    // もう移動先のものになったターミナルの出力を受け口の無いまま流して失わせる。
+    if (!canMoveProject(id) || moving.has(id)) return
+    moving.add(id)
+    try {
+      await runMove(id, target)
+    } finally {
+      moving.delete(id)
+    }
+  }
+
+  /** 移動の途中のプロジェクト（`moveProject` の二重起動の番人）。 */
+  const moving = new Set<string>()
+
+  async function runMove(id: string, target: string | null): Promise<void> {
+    const tabStore = useTabStore()
+    const status = useStatusMessageStore()
+    const owned = tabStore.tabsOfProject(id)
+    // 起動の途中のターミナルは pty の id がまだ確定していないので、持ち主を付け替えられない。
+    // 数百 ms で終わる状態なので、待つ仕掛けは持たずに押し直してもらう。
+    if (owned.some((tab) => tab.kind === 'terminal' && !tab.ptyId && tab.exitCode == null)) {
+      status.show({ text: t('project.moveSpawning'), variant: 'warn' })
+      return
+    }
+    // **編集中の中身は運ばない**（移動先は保存済みのファイルを開き直す）ので、先に聞く。
+    // 無題のタブは中身ごと運ぶので、ここには数えない。
+    const dirty = owned.filter((tab) => isUnsavedEditor(tab) && tab.path)
+    if (dirty.length > 0) {
+      const names = dirty.map((tab) => tab.title.slice(0, -2)).join(', ')
+      if (!(await confirmDialog(t('project.moveUnsaved', { names })))) return
+    }
+    // 今見せているものなら、離れる前のセッションを書いておく（以後に書くのは移動先）。
+    if (currentProject.value?.id === id) await saveSessionNow()
+
+    const moved = tabStore.exportProjectTabs(id)
+    const terminals = moved.tabs.flatMap((tab) => (tab.kind === 'terminal' && tab.ptyId ? [tab] : []))
+    const ptyIds = terminals.flatMap((tab) => tab.ptyId ?? [])
+    // 1. 出力を Rust に預からせる。ここから移動先がつなぐまでの出力は、失われずに
+    //    移動先へ流れる（新しいウィンドウなら生成を待つので、秒の単位になる）。
+    //    **預からせたあとは、どこで失敗しても必ず戻す**（下の catch）。戻さないと、
+    //    そのターミナルは入力だけ受けて何も出さなくなる。
+    const settled = await ptyRouter.hold(ptyIds)
+    try {
+      // 出力が流れ続けていて、預かる前のぶんが届き切らなかった。このまま書き出すと、
+      // 届いていないぶんが画面にも預かりにも入らず欠ける。
+      if (!settled) throw new Error(t('project.moveBusy'))
+      // 2. 預かり始めた時点の画面を書き出す。
+      const screens = Object.fromEntries(
+        await Promise.all(terminals.map(async (tab) => [tab.id, await exportTerminalScreen(tab.id)] as const)),
+      )
+      // 3. Rust がターミナルの持ち主と `window_projects` を移し、荷物を移動先へ預ける。
+      //    **タブを外すのはこれが成功してから**: 失敗したら、預からせた出力を戻すだけで
+      //    元のまま続けられる。
+      await projectMoveToWindow(id, target, ptyIds, { id, ...moved, screens } satisfies MovedProject)
+    } catch (e) {
+      await Promise.all(ptyIds.map((ptyId) => ptyResume(ptyId).catch(() => {})))
+      const error = e instanceof Error ? e.message : String(e)
+      status.show({ text: t('project.moveFailed', { error }), variant: 'error', durationMs: 8000 })
+      return
+    }
+    // 4. このウィンドウから外す（プロセスは止めない）。**外すのは運んだタブだけ**:
+    //    待っているあいだにそのプロジェクトで開かれたタブは荷物に入っていないので、
+    //    渡した扱いにすると誰のものでもないシェルが残る。
+    await leaveMovedProject(id, new Set(moved.tabs.map((tab) => tab.id)))
+  }
+
+  /**
+   * 移したプロジェクトを、このウィンドウから外す。今見せていたものなら行き先を決める:
+   * 保持しているものが他にあればその先頭へ切り替え、無ければ何も見せない状態にして、
+   * **子ウィンドウは閉じ、main はスイッチャーを出す**（利用者の判断。main を閉じると、
+   * トレイの設定しだいでアプリの終了に絡む）。
+   *
+   * **切り替えを先に済ませてからタブを外す。** 逆だと、外した瞬間にタブバーが空になり、
+   * 既定のターミナルを足す類の「タブが無い」への反応が、去るプロジェクトに対して走る。
+   */
+  async function leaveMovedProject(id: string, movedTabIds: Set<string>) {
+    const tabStore = useTabStore()
+    if (currentProject.value?.id === id) {
+      const next = heldProjects.value.find((p) => p.id !== id)
+      if (next) {
+        await switchProject(next.id)
+      } else {
+        if (saveTimer) clearTimeout(saveTimer)
+        dropProjectCaches()
+        currentProject.value = null
+        tabStore.setOwnerProject('')
+      }
+    }
+    forgetHeld(id)
+    tabStore.detachProjectTabs(id, movedTabIds)
+    // 運ばなかったタブ（移動のあいだに開かれたもの）は、持ち主が去ったので閉じる。
+    await tabStore.closeProjectTabs(id)
+    if (currentProject.value) return
+    if (isMainWindow()) {
+      showSwitcher.value = true
+      return
+    }
+    await getCurrentWindow()
+      .close()
+      .catch(() => {})
+  }
+
+  /**
+   * 別のウィンドウから移ってきたプロジェクトを受け取る。入口は 2 つで、どちらも Rust に
+   * 預けてある荷物を取りに行く: 既にあるウィンドウは知らせ（`project_moved_in`）を受けたとき、
+   * 移動のために作られたウィンドウは起動時（`App.vue`。**プロジェクトを開く前**に呼ぶ:
+   * 先にタブを受け取っておけば、`switchProject` がセッションを復元して二重にしない）。
+   *
+   * `show` は受け取ったプロジェクトへ切り替えてウィンドウを前に出す。移した本人は続きを
+   * そこでやるつもりなので、保持の一覧に入れただけでは「どこへ行ったか」を探させる。
+   */
+  async function receiveMovedProjects(opts?: { show?: boolean }): Promise<void> {
+    const arrived = await projectTakeMoved<MovedProject>().catch(() => [])
+    const tabStore = useTabStore()
+    let last: string | null = null
+    for (const moved of arrived) {
+      // このウィンドウの一覧が古いことがある（`adoptProject` の #352 と同じ）。
+      if (!findProject(moved.id)) await readMissingProject(moved.id)
+      tabStore.adoptProjectTabs(moved)
+      // 移すあいだに消されたプロジェクト。持ち主の居ないタブを残さない。
+      if (!findProject(moved.id)) {
+        await tabStore.closeProjectTabs(moved.id)
+        continue
+      }
+      // タブを 1 つも持たないプロジェクトも保持に載せる（#301。上の watch はタブを見る）。
+      if (!heldIds.value.includes(moved.id)) heldIds.value.push(moved.id)
+      last = moved.id
+    }
+    if (!opts?.show || !last) return
+    await switchProject(last)
+    await windowRestore().catch(() => {})
   }
 
   async function flushSession() {
@@ -1701,6 +1884,9 @@ export const useProjectStore = defineStore('project', () => {
     parkedProjectIds,
     setHeldProjects,
     releaseProject,
+    canMoveProject,
+    moveProject,
+    receiveMovedProjects,
     isTransient,
     canRegisterRoot,
     canRegisterTransient,

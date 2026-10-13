@@ -26,6 +26,65 @@ pub struct PtySession {
     window_label: String,
     /// タブを閉じる前に「シェル以外が動いているか」を調べる手段 (#178)
     busy: BusyProbe,
+    /// 出力を送らずに預かっているあいだの置き場（#469。`Held` の doc）。
+    hold: Arc<HoldSlot>,
+}
+
+/// 別のウィンドウへ移すあいだ、送らずに預かっている出力と終了コード（#469）。
+///
+/// **移動のあいだだけ持つ。** 移動元は画面を書き出した時点で受け取るのをやめ、移動先は
+/// 受け口を登録するまで受け取れない（新しいウィンドウなら生成を待つので秒の単位になる）。
+/// そのあいだの出力を捨てると、素のシェルのログが欠け、エスケープシーケンスの途中で
+/// 切れた TUI の画面が崩れる。`pty_resume` が中身を 1 回で流して空に戻す。
+///
+/// 「Rust はステートレスに」（CLAUDE.md）の例外だが、画面の状態は持たない。持つのは
+/// まだ誰にも渡していないバイト列だけで、渡したら消える。
+#[derive(Default)]
+struct Held {
+    data: String,
+    exit: Option<i32>,
+}
+
+/// 預かる出力の上限。移動先が受け取りに来ないまま出力が続いても、ここで頭から捨てる。
+const HOLD_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+type HoldSlot = Mutex<Option<Held>>;
+
+fn lock_hold(hold: &HoldSlot) -> std::sync::MutexGuard<'_, Option<Held>> {
+    hold.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// 出力を送るか、預かる。**判定と emit をロックの中で続けて行う**（#469）: 分けると、
+/// 読み取りスレッドが「預かっていない」と見たあとで `pty_hold` が印（`pty_held`）を送り、
+/// そのあとに出力が届く。移動元は印を見てから画面を書き出すので、その出力が失われる。
+fn emit_output(app: &AppHandle, hold: &HoldSlot, id: &str, data: &str) {
+    let mut slot = lock_hold(hold);
+    let Some(held) = slot.as_mut() else {
+        let _ = app.emit("pty_output", PtyOutputPayload { id, data });
+        return;
+    };
+    held.data.push_str(data);
+    if held.data.len() > HOLD_MAX_BYTES {
+        // **半分まで一度に削る。** 超えたぶんだけ削ると、以後は読み取りのたびに上限ぶんを
+        // 前へ詰めることになり、出力が流れ続けるターミナルで読み取りスレッドが詰まる。
+        let mut cut = held.data.len() - HOLD_MAX_BYTES / 2;
+        while !held.data.is_char_boundary(cut) {
+            cut += 1;
+        }
+        held.data.drain(..cut);
+    }
+}
+
+/// 終了を知らせるか、預かる（`emit_output` と同じ理由）。
+fn emit_exit(app: &AppHandle, hold: &HoldSlot, id: &str, code: i32) {
+    let mut slot = lock_hold(hold);
+    match slot.as_mut() {
+        Some(held) => held.exit = Some(code),
+        None => {
+            let _ = app.emit("pty_exit", PtyExitPayload { id, code });
+        }
+    }
 }
 
 impl Drop for PtySession {
@@ -119,6 +178,7 @@ fn spawn_pty_with_command(
 
     let shared_cwd = Arc::new(Mutex::new(cwd));
     let exit_emitted = Arc::new(AtomicBool::new(false));
+    let hold: Arc<HoldSlot> = Arc::new(Mutex::new(None));
 
     {
         let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
@@ -132,6 +192,7 @@ fn spawn_pty_with_command(
                 msys,
                 window_label,
                 busy,
+                hold: Arc::clone(&hold),
             },
         );
     }
@@ -143,10 +204,11 @@ fn spawn_pty_with_command(
         let wait_id = id.clone();
         let wait_app = app.clone();
         let exit_emitted_flag = Arc::clone(&exit_emitted);
+        let wait_hold = Arc::clone(&hold);
         std::thread::spawn(move || {
             let code = child.wait().map(|s| s.exit_code() as i32).unwrap_or(-1);
             if !exit_emitted_flag.swap(true, Ordering::SeqCst) {
-                let _ = wait_app.emit("pty_exit", PtyExitPayload { id: &wait_id, code });
+                emit_exit(&wait_app, &wait_hold, &wait_id, code);
             }
         });
     }
@@ -167,13 +229,7 @@ fn spawn_pty_with_command(
             match std::io::Read::read(&mut reader, &mut buf) {
                 Ok(0) => {
                     if !reader_flag.swap(true, Ordering::SeqCst) {
-                        let _ = app.emit(
-                            "pty_exit",
-                            PtyExitPayload {
-                                id: &read_id,
-                                code: 0,
-                            },
-                        );
+                        emit_exit(&app, &hold, &read_id, 0);
                     }
                     break;
                 }
@@ -197,25 +253,13 @@ fn spawn_pty_with_command(
                     if !valid.is_empty() {
                         // Parse OSC 7 sequences for CWD tracking
                         extract_osc7(valid, &mut in_osc7, &mut osc_buf, &shared_cwd);
-                        let _ = app.emit(
-                            "pty_output",
-                            PtyOutputPayload {
-                                id: &read_id,
-                                data: valid,
-                            },
-                        );
+                        emit_output(&app, &hold, &read_id, valid);
                     }
                     // Keep only incomplete trailing bytes (max 3 for UTF-8)
                     if remainder.len() > 4 {
                         // Not an incomplete sequence — flush as lossy
                         let lossy = String::from_utf8_lossy(remainder);
-                        let _ = app.emit(
-                            "pty_output",
-                            PtyOutputPayload {
-                                id: &read_id,
-                                data: &lossy,
-                            },
-                        );
+                        emit_output(&app, &hold, &read_id, &lossy);
                         carry.clear();
                     } else {
                         carry = remainder.to_vec();
@@ -223,13 +267,7 @@ fn spawn_pty_with_command(
                 }
                 Err(_) => {
                     if !reader_flag.swap(true, Ordering::SeqCst) {
-                        let _ = app.emit(
-                            "pty_exit",
-                            PtyExitPayload {
-                                id: &read_id,
-                                code: -1,
-                            },
-                        );
+                        emit_exit(&app, &hold, &read_id, -1);
                     }
                     break;
                 }
@@ -613,6 +651,87 @@ pub async fn pty_kill(id: String, state: State<'_, PtyState>) -> Result<(), Stri
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     sessions.remove(&id);
     Ok(())
+}
+
+/// 出力を送るのをやめて預かり始める（#469。別のウィンドウへ移す前に移動元が呼ぶ）。
+///
+/// **id ごとに `pty_held` を送る。** これより前の出力は全部その印より先に届くので、
+/// 移動元は印を受けてから画面を書き出せば取りこぼさない（順序の保証は `emit_output`）。
+/// 無い id にも印は送る（待っている側を止めないため。シェルが終わったタブがそれに当たる）。
+#[tauri::command]
+pub async fn pty_hold(
+    ids: Vec<String>,
+    app: AppHandle,
+    state: State<'_, PtyState>,
+) -> Result<(), String> {
+    let slots: Vec<(String, Option<Arc<HoldSlot>>)> = {
+        let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        ids.into_iter()
+            .map(|id| {
+                let slot = sessions.get(&id).map(|s| Arc::clone(&s.hold));
+                (id, slot)
+            })
+            .collect()
+    };
+    for (id, slot) in slots {
+        // ロックは emit のあとまで握る（判定と emit を続けて行う。`emit_output` の doc）。
+        let mut guard = slot.as_deref().map(lock_hold);
+        if let Some(held) = guard.as_mut() {
+            held.get_or_insert_with(Held::default);
+        }
+        let _ = app.emit("pty_held", &id);
+    }
+    Ok(())
+}
+
+/// 預かっていた出力を流して、送るのを再開する（#469）。移動先が受け口を登録してから呼ぶ。
+/// 移動に失敗したときは移動元が呼んで元へ戻す。預かっていなければ何もしない。
+#[tauri::command]
+pub async fn pty_resume(
+    id: String,
+    app: AppHandle,
+    state: State<'_, PtyState>,
+) -> Result<(), String> {
+    let hold = {
+        let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+        match sessions.get(&id) {
+            Some(session) => Arc::clone(&session.hold),
+            None => return Ok(()),
+        }
+    };
+    // 流し終えるまでロックを握る（`emit_output` と同じ理由。あいだに届いた出力が先に出ない）。
+    let mut slot = lock_hold(&hold);
+    if let Some(held) = slot.take() {
+        if !held.data.is_empty() {
+            let _ = app.emit(
+                "pty_output",
+                PtyOutputPayload {
+                    id: &id,
+                    data: &held.data,
+                },
+            );
+        }
+        if let Some(code) = held.exit {
+            let _ = app.emit("pty_exit", PtyExitPayload { id: &id, code });
+        }
+    }
+    Ok(())
+}
+
+/// ターミナルの持ち主のウィンドウを付け替える（#469）。
+///
+/// 持ち主は 2 つのことを決める: ウィンドウを閉じたときに一緒に止めるか
+/// （`cleanup_for_window`）と、エージェントの知らせをどのウィンドウへ届けるか
+/// （`window_for_pty`）。付け替えないと、移動元を閉じた瞬間に移した先のシェルが止まる。
+pub fn reassign_window(state: &PtyState, ids: &[String], label: &str) {
+    let Ok(mut sessions) = state.sessions.lock() else {
+        return;
+    };
+    for id in ids {
+        if let Some(session) = sessions.get_mut(id) {
+            session.window_label = label.to_owned();
+        }
+    }
 }
 
 /// そのターミナルを持つウィンドウのラベル（#265）。

@@ -29,7 +29,23 @@ import { isAbsolutePath } from '../../lib/paths'
 import { readableTextOn } from '../../lib/projectColors'
 import { rootKey } from '../../lib/projectPaths'
 import { pikeTakesTerminalKey } from '../../lib/shortcuts'
-import { logFrontend, ptyGetCwd, ptyKill, ptyPasteText, ptyResize, ptySpawn, ptyWrite } from '../../lib/tauri'
+import {
+  logFrontend,
+  ptyGetCwd,
+  ptyKill,
+  ptyPasteText,
+  ptyResize,
+  ptyResume,
+  ptySpawn,
+  ptyWrite,
+} from '../../lib/tauri'
+import {
+  registerTerminalExport,
+  type TerminalScreen,
+  takeIncomingTerminal,
+  takeTerminalHandedOff,
+  unregisterTerminalExport,
+} from '../../lib/terminalHandoff'
 import {
   asPathHeader,
   findPathLinks,
@@ -594,6 +610,31 @@ function doFit() {
   }
 }
 
+/**
+ * 画面を、別のウィンドウの xterm に書けば同じになる形で書き出す（#469。
+ * `lib/terminalHandoff.ts`）。スクロールバックと代替画面、マウスなどのモードまで入る。
+ *
+ * **アドオンは使うときだけ読み込む**（検索のアドオンと同じ理由に加えて、移動は稀な操作
+ * なので、ターミナルを開くたびに束へ含めない）。
+ *
+ * **先に書き込みを流し切る。** `terminal.write` は溜めてから解釈するので、届いた出力が
+ * まだ画面に反映されていないことがある。空の書き込みのコールバックは、それより前の
+ * ぶんが全部解釈されたあとに呼ばれる。
+ */
+async function exportScreen(): Promise<TerminalScreen | null> {
+  const term = terminal
+  if (!term) return null
+  const { SerializeAddon } = await import('@xterm/addon-serialize')
+  await new Promise<void>((resolve) => term.write('', resolve))
+  const addon = new SerializeAddon()
+  term.loadAddon(addon)
+  try {
+    return { cols: term.cols, rows: term.rows, data: addon.serialize() }
+  } finally {
+    addon.dispose()
+  }
+}
+
 // Shrink by 1 col then restore to trigger SIGWINCH, making TUI apps redraw
 function nudgePtyResize(delayMs: number) {
   if (!ptyId || !terminal || terminal.cols <= 1) return
@@ -746,6 +787,8 @@ onMounted(async () => {
   // 「まだ出力がありません」**になる。他のプロジェクトから覗きたいのは、まさに
   // そういうタブ。
   registerTerminalPeek(props.tabId, peekLines)
+  // 別のウィンドウへ移すときに画面を書き出す口（#469）。
+  registerTerminalExport(props.tabId, exportScreen)
 
   // IME robustness (xterm.js #6012 / the recurring "IME breaks until you switch
   // tabs" bug). xterm only clears the hidden textarea's committed IME text on
@@ -866,11 +909,21 @@ onMounted(async () => {
     return false
   })
 
+  const tabData = terminalTab()
+  // **別のウィンドウから運ばれてきたタブ（#469）は、シェルを起こさず既にある PTY へつなぐ。**
+  // 印は `takeIncomingTerminal` が返す値が undefined でないこと（画面は書き出せなければ null）。
+  // 以下、`adoptId` があるあいだは「起こす」ための段取り（見張り・初期化行）を全部飛ばす。
+  const incoming = takeIncomingTerminal(props.tabId)
+  const adoptId = incoming !== undefined ? (tabData?.ptyId ?? null) : null
+  // 画面は**書き出したときと同じ大きさ**の xterm に書く（折り返しの位置がそれで決まる）。
+  // PTY も今その大きさなので、見えるようになったときの測り直しまでこのままでよい。
+  if (adoptId && incoming) terminal.resize(incoming.cols, incoming.rows)
+
   const cols = terminal.cols
   const rows = terminal.rows
 
-  const tabData = terminalTab()
   // mod を読み込ませるかは spawn のたびに渡す（#437。効くのは次に開くターミナルから）。
+  // 運ばれてきたタブは起こしたときの値を知らないので、今の設定で代える。
   const spawnOpts = { cwd: tabData?.cwd, shell: tabData?.shell, agentMod: settingsStore.agentMod }
   modLoaded = spawnOpts.agentMod
 
@@ -879,19 +932,13 @@ onMounted(async () => {
   const spawnAsked = performance.now()
   const spawnLabel = `${spawnOpts.shell?.kind ?? 'default'} tab=${props.tabId}`
   let spawnStalled = false
-  spawnWatchdog = setTimeout(() => {
-    spawnStalled = true
-    logFrontend('warn', `[pty] spawn ${spawnLabel}: no response after ${SPAWN_STALL_MS}ms`)
-    terminal?.write(`${t('terminal.spawnWaiting')}\r\n`)
-  }, SPAWN_STALL_MS)
 
   // **pty の id はここで決め、`pty_spawn` を頼む前に出力と入力の受け口を登録する**（#459）。
   // Rust の読み取りスレッドは `pty_spawn` が戻る前から出力を送るので、id を戻り値で受け取って
   // から登録する形だと、最初の出力を取りこぼす。Windows ではそれが conhost のカーソル位置の
   // 問い合わせ（`ESC[6n`）で、xterm の返事が PTY へ戻らないとシェルが永久に起動しない。
-  const id = crypto.randomUUID()
+  const id = adoptId ?? crypto.randomUUID()
   spawningId = id
-  spawnedAt = Date.now()
   const termRef_ = terminal
   ptyRouter.register(
     id,
@@ -945,18 +992,35 @@ onMounted(async () => {
     ptyWrite(target, data.replace(/\r\n/g, '\r')).catch(() => {})
   })
 
-  try {
-    await ptySpawn(id, cols, rows, spawnOpts)
-  } catch (e) {
-    ptyRouter.unregister(id)
-    spawningId = null
-    terminal?.write(`\r\n${t('terminal.failedSpawn', { error: String(e) })}\r\n`)
-    // -1 indicates spawn failure so the badge distinguishes it from a real exit code
-    tabStore.reportExit(props.tabId, -1)
-    return
-  } finally {
-    if (spawnWatchdog) clearTimeout(spawnWatchdog)
-    spawnWatchdog = null
+  if (adoptId) {
+    // 運ばれてきた画面を書いてから、Rust が預かっていた出力を流させる（#469）。受け口は
+    // 上で登録済みで、xterm は書き込みを順に処理するので、画面 → 預かっていたぶん →
+    // 以後の出力、の順で入る。
+    if (incoming) terminal.write(incoming.data)
+    await ptyResume(id).catch(() => {})
+  } else {
+    // **起こすときだけの段取りはこの枝に置く**（運ばれてきたシェルには当てはまらない）。
+    // `spawnedAt` は 0 のままなら終了時の猶予の判定を必ず抜けるので、運ばれてきたシェルが
+    // すぐ終わっても「起動の失敗」と読まれない。
+    spawnedAt = Date.now()
+    spawnWatchdog = setTimeout(() => {
+      spawnStalled = true
+      logFrontend('warn', `[pty] spawn ${spawnLabel}: no response after ${SPAWN_STALL_MS}ms`)
+      terminal?.write(`${t('terminal.spawnWaiting')}\r\n`)
+    }, SPAWN_STALL_MS)
+    try {
+      await ptySpawn(id, cols, rows, spawnOpts)
+    } catch (e) {
+      ptyRouter.unregister(id)
+      spawningId = null
+      terminal?.write(`\r\n${t('terminal.failedSpawn', { error: String(e) })}\r\n`)
+      // -1 indicates spawn failure so the badge distinguishes it from a real exit code
+      tabStore.reportExit(props.tabId, -1)
+      return
+    } finally {
+      if (spawnWatchdog) clearTimeout(spawnWatchdog)
+      spawnWatchdog = null
+    }
   }
   spawningId = null
   // 待っているあいだにタブが閉じられた（`onUnmounted` が受け口を外している）。起動した
@@ -980,11 +1044,14 @@ onMounted(async () => {
   }
 
   // シェルは起動すれば必ず何か出す（プロンプトか、下で流す初期化行のエコー）。
+  // 運ばれてきたシェル（#469）は起動済みで、黙っているのが普通。
   const spawnedPtyId = ptyId
-  outputWatchdog = setTimeout(() => {
-    outputWatchdog = null
-    logFrontend('warn', `[pty] ${spawnLabel}: no output ${NO_OUTPUT_MS}ms after spawn (pty=${spawnedPtyId})`)
-  }, NO_OUTPUT_MS)
+  if (!adoptId) {
+    outputWatchdog = setTimeout(() => {
+      outputWatchdog = null
+      logFrontend('warn', `[pty] ${spawnLabel}: no output ${NO_OUTPUT_MS}ms after spawn (pty=${spawnedPtyId})`)
+    }, NO_OUTPUT_MS)
+  }
 
   // Bell-driven activity: TUIs (Claude Code, shells with `\a` in PS1, etc.)
   // ring BEL when they want attention. Marking activity on every byte of
@@ -994,7 +1061,9 @@ onMounted(async () => {
     tabStore.markTabActivity(props.tabId)
   })
 
-  if (tabData?.kind === 'terminal') {
+  // 運ばれてきたシェル（#469）には流さない。初期化は移動元で済んでいて、`autoStart` を
+  // もう一度走らせると、動いているエージェントの入力欄に起動行が打ち込まれる。
+  if (tabData?.kind === 'terminal' && !adoptId) {
     // 以下で流す OSC 7 のフックは bash 固有（`PROMPT_COMMAND` と `$BASH_COMMAND`）。
     // **シェル未指定を無条件に bash 扱いしないこと**: 未指定の既定はホストで変わり、
     // macOS では zsh になる。zsh は DEBUG トラップを実行するが `$BASH_COMMAND` を
@@ -1048,6 +1117,17 @@ onMounted(async () => {
 
   lastCols = terminal.cols
   lastRows = terminal.rows
+
+  // 運ばれてきたタブ（#469）が最初から見えているなら、ここで測り直して TUI に描き直させる
+  // （見えるようになったときの watcher は、最初から見えているタブでは発火しない）。運んだ
+  // 画面は移動元のウィンドウの大きさなので、大きさが違えば合わせ、同じでも nudge で
+  // 取りこぼしを直させる。隠れているタブは、見せたときの watcher が同じことをする。
+  if (adoptId && tabStore.isTabVisible(props.tabId)) {
+    afterTwoFrames(() => {
+      doFit()
+      nudgePtyResize(50)
+    })
+  }
 
   terminal.onTitleChange((raw) => {
     if (!raw) return
@@ -1315,12 +1395,16 @@ onUnmounted(() => {
   if (outputWatchdog) clearTimeout(outputWatchdog)
   resizeObserver?.disconnect()
   unregisterTerminalPeek(props.tabId)
+  unregisterTerminalExport(props.tabId)
+  // 別のウィンドウへ渡したタブ（#469）は、シェルを止めない（渡した先が使っている）。
+  // **印は必ず読んで消す**（`ptyId` の有無で分岐する前に）。残すと表に溜まる。
+  const handedOff = takeTerminalHandedOff(props.tabId)
   // 起動を待っているあいだに閉じられた。シェルを止めるのは、戻りを受けた側（まだ id が
   // Rust に無いかもしれないので、ここからは止められない）。
   if (spawningId) ptyRouter.unregister(spawningId)
   if (ptyId) {
     ptyRouter.unregister(ptyId)
-    ptyKill(ptyId).catch(() => {})
+    if (!handedOff) ptyKill(ptyId).catch(() => {})
   }
   terminal?.dispose()
   // Null out so the deferred window-focus rAF (and any other late callback)

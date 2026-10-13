@@ -8,6 +8,7 @@ import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import SideBar from './components/layout/SideBar.vue'
 import StatusBar from './components/layout/StatusBar.vue'
 import TabPane from './components/layout/TabPane.vue'
+import MoveProjectMenu from './components/MoveProjectMenu.vue'
 import ProjectSwitcher from './components/ProjectSwitcher.vue'
 import QuickOpen from './components/QuickOpen.vue'
 import { offerAgentHook } from './composables/useAgentHookPrompt'
@@ -294,12 +295,24 @@ onMounted(async () => {
   // エージェントの状態（#437）も同じ配送で届く。
   await Promise.all([ptyRouter.init(), dockerLogRouter.init(), fsWatcher.init(), initAgentNotice(), initAgentRun()])
 
+  // 別のウィンドウからプロジェクトが移ってきた（#469）。**起動の続きより前に張る**: このあと
+  // プロジェクトの復元を待つあいだに知らせが来ると、荷物が Rust に預けられたまま残り、
+  // そのターミナルは出力を預かられたまま黙る。荷物は取りに行く形（取り出しは 1 回きり）
+  // なので、下の起動時の受け取りと重なっても二重にはならない。
+  void getCurrentWindow().listen('project_moved_in', () => {
+    void projectStore.receiveMovedProjects({ show: true })
+  })
+
   // Which project this window shows comes from the backend window_projects map
   // (seeded at build), not the opaque label. null for main/global windows.
   // 見せているプロジェクトと、前回保持していたもの（#264）を 1 回で受け取る。
   const windowSession = await projectForWindow()
   if (windowSession) {
     await projectStore.loadProjects()
+    // 移動のために作られたウィンドウ（#469）は、**開く前に**タブを受け取る。先に開くと、
+    // `adoptProject` がタブの無いプロジェクトとしてセッションを復元し、運ばれてきた
+    // ターミナルと二重になる。他の経路では荷物が無く、何もしない。
+    await projectStore.receiveMovedProjects()
     // Handed the project (jump list, tray, another window), so it can be one the
     // sync file brought in and nobody cloned here yet (#212).
     await projectStore.adoptProject(windowSession.shown)
@@ -428,6 +441,9 @@ onMounted(async () => {
          in its own window (this window stays project-less). -->
     <ProjectSwitcher />
     <QuickOpen v-if="!globalMode" />
+    <!-- 入口（切替のプルダウン・プロジェクトパネル・パレット）がどれもプロジェクトを持つ
+         ウィンドウにしか無い。 -->
+    <MoveProjectMenu v-if="!globalMode" />
     <ConfirmDialog />
     <KeyboardShortcuts />
     <AboutDialog />

@@ -483,7 +483,7 @@ fn build_project_window(
     project_id: &str,
     pending: Option<cli::CliAction>,
 ) -> String {
-    let label = format!("{PROJECT_WINDOW_PREFIX}{}", uuid::Uuid::new_v4());
+    let label = new_project_window_label();
     if let Some(state) = app.try_state::<project::ProjectState>() {
         project::set_window_project(&state, &label, project_id);
     }
@@ -492,6 +492,10 @@ fn build_project_window(
     }
     let _ = build_window(app, &label, project_id);
     label
+}
+
+fn new_project_window_label() -> String {
+    format!("{PROJECT_WINDOW_PREFIX}{}", uuid::Uuid::new_v4())
 }
 
 fn store_pending(app: &AppHandle, label: &str, action: cli::CliAction) {
@@ -534,7 +538,14 @@ fn handle_second_instance(app: &AppHandle, args: &[String], cwd: &str) {
         return;
     }
     let wait_id = wait::extract_wait_id(args);
-    let from_window = cli::extract_from_window(args);
+    // 叩いたターミナルの今の持ち主を先に引く（#469）。`--from-window` はシェルを起こした
+    // ときのウィンドウで、プロジェクトを別のウィンドウへ移したあとは古い。
+    let from_window = cli::extract_from_pty(args)
+        .and_then(|pty_id| {
+            app.try_state::<pty::PtyState>()
+                .and_then(|state| pty::window_for_pty(&state, &pty_id))
+        })
+        .or_else(|| cli::extract_from_window(args));
     let action = cli::parse_args(args, cwd);
     // Both path-carrying shapes need the registered projects: to spot a root that
     // is not on this machine (`as_project_dir`) and to route to the window that
@@ -739,6 +750,91 @@ async fn open_project_window(
         project::seed_window_held(&state, &label, &held);
     }
     Ok(())
+}
+
+/// プロジェクトを、タブとターミナルを生かしたまま別のウィンドウへ移す（#469）。
+///
+/// `target` は移動先のウィンドウのラベルで、`None` なら新しいウィンドウを作る。`pty_ids` は
+/// そのプロジェクトのターミナル、`payload` は移動先のフロントが受け取る荷物（タブと画面。
+/// Rust は中身を読まない）。
+///
+/// **ここで動かすのは Rust が持ち主を決めているものだけ**: ターミナルの持ち主
+/// （`pty::reassign_window`）と `window_projects`。タブを外すのは、これが成功したあとの
+/// 移動元のフロント。順序がこうなのは、ターミナルの持ち主を先に移しておかないと、
+/// 移動元が空になって閉じたときに `Destroyed` の後始末がシェルごと止めるため。
+///
+/// **`async` のままにすること**（新しいウィンドウを作る。理由は `build_window` の doc）。
+#[tauri::command]
+async fn project_move_to_window(
+    project_id: String,
+    target: Option<String>,
+    pty_ids: Vec<String>,
+    payload: serde_json::Value,
+    window: Window,
+    app: AppHandle,
+) -> Result<(), String> {
+    types::validate_slug(&project_id, "Project ID")?;
+    let source = window.label().to_owned();
+    let state = app.state::<project::ProjectState>();
+    let pty_state = app.state::<pty::PtyState>();
+
+    // 既にあるウィンドウへ移すときは、受け取れるウィンドウに限る（`project::accepts_moves`。
+    // `project_window_list` が並べるものと同じ条件）。
+    if let Some(label) = &target {
+        let transient = app.state::<project::transient::TransientState>();
+        let accepts = state
+            .window_projects
+            .lock()
+            .map(|m| {
+                m.get(label)
+                    .is_some_and(|w| project::accepts_moves(w, &transient))
+            })
+            .unwrap_or(false);
+        if *label == source || !accepts || app.get_window(label).is_none() {
+            return Err("The destination window is no longer available".into());
+        }
+    }
+    let existing = target.is_some();
+    let label = target.unwrap_or_else(new_project_window_label);
+
+    // 荷物は**ウィンドウより先に**積む。新しいウィンドウのフロントは `build_window` が
+    // 戻る前に mount しうるので、あとから積むと最初の `project_take_moved` が空を返す。
+    // 戻り値（移動元が見せていたか）は、作れなかったときに元へ戻すための控え。
+    let Some(was_shown) =
+        project::move_window_project(&state, &project_id, &source, &label, !existing)
+    else {
+        return Err("This window does not hold the project".into());
+    };
+    pty::reassign_window(&pty_state, &pty_ids, &label);
+    project::push_pending_move(&state, &label, payload);
+
+    if existing {
+        let _ = app.emit_to(label.as_str(), "project_moved_in", ());
+    } else {
+        let _ = build_window(&app, &label, &project_id);
+    }
+    // **移動先がもう無ければ元へ戻す**（移動元はまだタブを外していない）。新しいウィンドウを
+    // 作れなかったときと、既にあるウィンドウが上の確認のあとで閉じられたとき。後者は
+    // そのウィンドウの `Destroyed` の後始末が、持ち主を付け替える前に走り終えているので、
+    // 戻さないと誰のものでもないシェルが出力を預かられたまま残る。
+    if app.get_window(&label).is_none() {
+        project::take_pending_moves(&state, &label);
+        pty::reassign_window(&pty_state, &pty_ids, &source);
+        project::move_window_project(&state, &project_id, &label, &source, was_shown);
+        log_open_windows_error(&state);
+        return Err("The destination window is no longer available".into());
+    }
+    // **記録の書き込みの失敗を、移動の失敗として返さない。** ここまで来たら移動は済んで
+    // いて、失敗と伝えるとフロントが預からせた出力を移動元へ戻し、同じターミナルを
+    // 2 つのウィンドウが持つことになる。
+    log_open_windows_error(&state);
+    Ok(())
+}
+
+fn log_open_windows_error(state: &project::ProjectState) {
+    if let Err(e) = project::write_open_windows(state) {
+        log::warn!("Failed to rewrite the open window list: {e}");
+    }
 }
 
 /// The project a window currently shows, plus the ones it holds (#264), from the
@@ -1662,6 +1758,7 @@ pub fn run() {
                 config_dir,
                 window_projects: std::sync::Mutex::new(HashMap::new()),
                 last_written_sessions: std::sync::Mutex::new(None),
+                pending_moves: std::sync::Mutex::new(HashMap::new()),
             });
             // Directories opened without registering them (#230). Managed here
             // because the cold-start CLI routing below already needs it.
@@ -1848,6 +1945,12 @@ pub fn run() {
                         }
                     }
 
+                    // 受け取られないまま残った移動の荷物（#469）。ターミナルの持ち主は
+                    // もうこのウィンドウなので、すぐ下の後始末が止める。
+                    if let Some(state) = window.try_state::<project::ProjectState>() {
+                        project::take_pending_moves(&state, window.label());
+                    }
+
                     if let Some(state) = window.try_state::<pty::PtyState>() {
                         pty::cleanup_for_window(&state, window.label());
                     }
@@ -1915,6 +2018,7 @@ pub fn run() {
             cli::cli_set_pending_action,
             wait::wait_signal_by_path,
             open_project_window,
+            project_move_to_window,
             project_for_window,
             focus_project_window,
             open_global_window,
@@ -1939,6 +2043,8 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_hold,
+            pty::pty_resume,
             pty::pty_is_busy,
             pty::pty_busy_count,
             app_exit,
@@ -1951,6 +2057,8 @@ pub fn run() {
             project::project_get_last,
             project::project_add_open,
             project::project_set_parked,
+            project::project_window_list,
+            project::project_take_moved,
             project::transient::project_transient_create,
             project::transient::project_transient_get,
             project::transient::project_transient_bind,

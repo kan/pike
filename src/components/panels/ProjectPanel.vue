@@ -3,6 +3,7 @@ import { BookmarkPlus, ChevronDown, ChevronRight, FolderPlus, Pencil, Plus, Sear
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { confirmDialog } from '../../composables/useConfirmDialog'
 import { useDragAndDrop } from '../../composables/useDragAndDrop'
+import { openMoveProjectMenu } from '../../composables/useMoveProjectMenu'
 import { useI18n } from '../../i18n'
 import { fuzzyMatch } from '../../lib/paths'
 import { insertAt, sideOf } from '../../lib/reorder'
@@ -377,6 +378,11 @@ async function onSaveEdit(updated: ProjectConfig) {
   editingId.value = null
 }
 
+/** 別のウィンドウへ移す（#469）。行き先は共有のメニューで選ぶ。 */
+function onMove(id: string, event: MouseEvent) {
+  openMoveProjectMenu(id, event.currentTarget)
+}
+
 async function onDelete(id: string) {
   const project = projectStore.projects.find((p) => p.id === id)
   if (!(await confirmDialog(t('project.confirmDelete', { name: project?.name ?? id })))) return
@@ -474,6 +480,7 @@ async function onDelete(id: string) {
           :dragging="draggedProject === row.project.id"
           :missing="projectStore.missingRoots.has(row.project.id)"
           :parked="projectStore.parkedProjectIds.includes(row.project.id)"
+          :movable="projectStore.canMoveProject(row.project.id)"
           :groups="projectStore.groups"
           :distros="distros"
           :group-label="row.groupLabel"
@@ -486,6 +493,7 @@ async function onDelete(id: string) {
           @save="onSaveEdit"
           @clone="projectStore.cloneProject(row.project.id)"
           @release="projectStore.releaseProject(row.project.id)"
+          @move="onMove(row.project.id, $event)"
           @delete="onDelete(row.project.id)"
           @drag-start="startDrag($event, projectKey(row.project.id))"
           @drag-end="endDrag"

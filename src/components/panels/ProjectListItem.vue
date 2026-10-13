@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Cloud, CloudDownload, ExternalLink, Pencil, PowerOff, Trash2 } from 'lucide-vue-next'
+import { ArrowRightFromLine, Cloud, CloudDownload, ExternalLink, Pencil, PowerOff, Trash2 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { defaultProjectPlatform } from '../../lib/host'
@@ -33,6 +33,8 @@ const props = defineProps<{
   missing: boolean
   /** このウィンドウがタブを保持したまま別のプロジェクトを見せている（#264）。 */
   parked: boolean
+  /** このウィンドウが持っていて、別のウィンドウへ移せる（#469。今見せているものを含む）。 */
+  movable: boolean
   groups: readonly string[]
   distros: readonly string[]
   /** Group name shown as a badge in the flat (recent) mode, where the rows are
@@ -54,6 +56,8 @@ const emit = defineEmits<{
   clone: []
   /** 保持しているタブを手放す（#264）。 */
   release: []
+  /** 別のウィンドウへ移す（#469）。行き先のメニューを押したボタンの横に出すので、イベントごと渡す。 */
+  move: [e: MouseEvent]
   'drag-start': [e: DragEvent]
   'drag-end': []
   'drag-over': [e: DragEvent]
@@ -187,6 +191,7 @@ function onSave() {
     </div>
     <div class="item-actions">
       <button v-if="parked" class="action-btn" :title="t('project.release')" @click.stop="emit('release')"><PowerOff :size="12" :stroke-width="2" /></button>
+      <button v-if="movable" class="action-btn" :title="t('project.moveToWindow')" @click.stop="emit('move', $event)"><ArrowRightFromLine :size="12" :stroke-width="2" /></button>
       <button v-if="missing && project.remoteUrl" class="action-btn" :title="t('project.clone', { url: project.remoteUrl })" @click.stop="emit('clone')"><CloudDownload :size="12" :stroke-width="2" /></button>
       <button class="action-btn" :title="t('project.openInNewWindow')" @click.stop="emit('open-window')"><ExternalLink :size="12" :stroke-width="2" /></button>
       <button class="action-btn" :title="t('project.edit')" @click.stop="emit('request-edit')"><Pencil :size="12" :stroke-width="2" /></button>

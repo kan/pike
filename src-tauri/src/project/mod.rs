@@ -29,6 +29,12 @@ impl WindowProjects {
         self.held.iter().any(|h| h == id)
     }
 
+    /// プロジェクトを見せているか（#469。移動先になれるウィンドウの条件）。グローバルモードと、
+    /// まだ何も開いていない main は偽。
+    pub fn shows_project(&self) -> bool {
+        !self.shown.is_empty()
+    }
+
     /// 保持しているうち、今見せていないもの。復元したウィンドウが起動時に引く。
     pub fn parked(&self) -> Vec<String> {
         self.held
@@ -46,6 +52,13 @@ pub struct ProjectState {
     pub window_projects: Mutex<HashMap<String, WindowProjects>>,
     /// `last_project.txt` に最後に書いた内容。同じものを書き直さないための控え。
     pub last_written_sessions: Mutex<Option<String>>,
+    /// 別のウィンドウから移ってきたプロジェクトの荷物（#469）。ウィンドウのラベル →
+    /// 受け取り待ちのぶん。**中身は読まない**（タブと画面はフロントのもの）。
+    ///
+    /// **イベントの payload にせず、受け取る側に取りに来させる。** 新しいウィンドウへ
+    /// 移すときは、相手の webview がまだ listen していない。既にあるウィンドウも同じ口で
+    /// 取るので、届け方が 1 つで済む。
+    pub pending_moves: Mutex<HashMap<String, Vec<serde_json::Value>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -433,6 +446,119 @@ pub fn seed_window_held(state: &ProjectState, window_label: &str, held: &[String
             push_held(entry, id);
         }
     }
+}
+
+/// プロジェクトを持っているウィンドウ 1 つ（#469 の移動先の一覧）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowEntry {
+    pub label: String,
+    pub shown: String,
+    /// 保持しているうち、今見せていないもの。
+    pub held: Vec<String>,
+}
+
+/// 別のウィンドウからプロジェクトを受け取れるウィンドウか（#469）。**登録済みの
+/// プロジェクトを見せているもの**に限る。
+///
+/// - プロジェクトを見せていないウィンドウ（グローバルモードと、まだ何も開いていない main）は
+///   外す。前者はプロジェクトの入れ物になれず、後者は名乗るものが無いので一覧に並べても選べない
+/// - 一時プロジェクト（#230）を見せているウィンドウも外す。受け取ったプロジェクトへ
+///   切り替えると一時プロジェクトから離れることになり、そのウィンドウのタブを全部閉じる
+///   確認が、移した側の操作で相手のウィンドウに出る
+pub fn accepts_moves(w: &WindowProjects, transient: &transient::TransientState) -> bool {
+    w.shows_project() && transient.get(&w.shown).is_none()
+}
+
+/// 呼んだウィンドウ以外の、プロジェクトを受け取れるウィンドウ（#469）。移動先の候補。
+///
+/// 条件は `accepts_moves`（受ける側の `project_move_to_window` も同じものを見る）。
+#[tauri::command]
+pub fn project_window_list(
+    window: Window,
+    state: State<'_, ProjectState>,
+    transient: State<'_, transient::TransientState>,
+) -> Vec<WindowEntry> {
+    let Ok(map) = state.window_projects.lock() else {
+        return Vec::new();
+    };
+    let mut entries: Vec<WindowEntry> = map
+        .iter()
+        .filter(|(label, w)| label.as_str() != window.label() && accepts_moves(w, &transient))
+        .map(|(label, w)| WindowEntry {
+            label: label.clone(),
+            shown: w.shown.clone(),
+            held: w.parked(),
+        })
+        .collect();
+    // `write_open_windows` と同じ並び（main が先頭、残りはラベル順）。`HashMap` の順の
+    // ままだと、開くたびに行が入れ替わる。
+    entries.sort_by(|a, b| {
+        (a.label != MAIN_WINDOW_LABEL, &a.label).cmp(&(b.label != MAIN_WINDOW_LABEL, &b.label))
+    });
+    entries
+}
+
+/// `window_projects` の上でプロジェクトを `from` から `to` へ移す（#469）。`from` が
+/// 持っていなければ何もせず `None`。移したら、`from` がそれを見せていたかを返す
+/// （呼び出し側が元へ戻すときに `show` として渡す。**別に読ませない**: 読みと変更の
+/// あいだに `project_add_open` が入ると、戻すときに誤った `shown` を書く）。
+///
+/// **移動元が見せていたものなら `shown` を空にする。** 次に何を見せるかは移動元のフロントが
+/// 決めて `project_add_open` で入れ直す。何も残らなければエントリごと消す（空の `shown` を
+/// 残すと、`write_open_windows` が保持の先頭を「見せていたもの」として書く）。
+///
+/// `show` は移動先が新しいウィンドウのとき（そのプロジェクトを見せて開く）。既にある
+/// ウィンドウへは保持として足し、切り替えるのは移動先のフロント。
+pub fn move_window_project(
+    state: &ProjectState,
+    id: &str,
+    from: &str,
+    to: &str,
+    show: bool,
+) -> Option<bool> {
+    let mut map = state.window_projects.lock().ok()?;
+    let source = map.get_mut(from).filter(|w| w.holds(id))?;
+    source.held.retain(|h| h != id);
+    let was_shown = source.shown == id;
+    if was_shown {
+        source.shown.clear();
+    }
+    if source.held.is_empty() {
+        map.remove(from);
+    }
+    let target = map.entry(to.to_owned()).or_default();
+    if show {
+        target.shown = id.to_owned();
+    }
+    push_held(target, id);
+    Some(was_shown)
+}
+
+/// 移ってきたプロジェクトの荷物を、受け取り待ちに積む（#469）。
+pub fn push_pending_move(state: &ProjectState, label: &str, payload: serde_json::Value) {
+    if let Ok(mut pending) = state.pending_moves.lock() {
+        pending.entry(label.to_owned()).or_default().push(payload);
+    }
+}
+
+/// 受け取り待ちの荷物を取り出す（#469）。ウィンドウが消えたときの後始末も兼ねる。
+pub fn take_pending_moves(state: &ProjectState, label: &str) -> Vec<serde_json::Value> {
+    state
+        .pending_moves
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.remove(label))
+        .unwrap_or_default()
+}
+
+/// このウィンドウへ移ってきたプロジェクトの荷物を受け取る（#469）。届いた順。
+#[tauri::command]
+pub fn project_take_moved(
+    window: Window,
+    state: State<'_, ProjectState>,
+) -> Vec<serde_json::Value> {
+    take_pending_moves(&state, window.label())
 }
 
 /// `id` を持っているウィンドウのラベルと、それを今見せているか。

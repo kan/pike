@@ -91,6 +91,19 @@ export async function ptyKill(id: string): Promise<void> {
 }
 
 /**
+ * 出力を送るのをやめて預からせる（#469。プロジェクトを別のウィンドウへ移す前）。
+ * **直に呼ばず `ptyRouter.hold` を通すこと**: あちらが、預かり始めた印（`pty_held`）まで待つ。
+ */
+export async function ptyHold(ids: string[]): Promise<void> {
+  return invoke('pty_hold', { ids })
+}
+
+/** 預からせていた出力を流して再開する（#469）。預かっていなければ何もしない。 */
+export async function ptyResume(id: string): Promise<void> {
+  return invoke('pty_resume', { id })
+}
+
+/**
  * Whether a process other than the shell itself is running in this terminal.
  * Backs the confirmation shown before closing a tab that would kill it (#178).
  */
@@ -196,6 +209,35 @@ export async function projectSetParked(ids: string[]): Promise<void> {
  */
 export async function projectForWindow(): Promise<WindowSession | null> {
   return invoke<WindowSession | null>('project_for_window')
+}
+
+/** プロジェクトを見せている他のウィンドウ 1 つ（#469 の移動先の候補）。 */
+export interface ProjectWindow extends WindowSession {
+  label: string
+}
+
+/** このウィンドウ以外の、プロジェクトを見せているウィンドウ（#469）。 */
+export async function projectWindowList(): Promise<ProjectWindow[]> {
+  return invoke<ProjectWindow[]>('project_window_list')
+}
+
+/**
+ * プロジェクトを別のウィンドウへ移す（#469）。`target` はウィンドウのラベルで、null なら
+ * 新しいウィンドウ。`payload` は移動先のフロントが `projectTakeMoved` で受け取る。
+ * **呼ぶのは `stores/project.ts` の `moveProject` だけ**（前後の段取りがあちらにある）。
+ */
+export async function projectMoveToWindow(
+  projectId: string,
+  target: string | null,
+  ptyIds: string[],
+  payload: unknown,
+): Promise<void> {
+  return invoke('project_move_to_window', { projectId, target, ptyIds, payload })
+}
+
+/** このウィンドウへ移ってきたプロジェクトの荷物を受け取る（#469）。届いた順。 */
+export async function projectTakeMoved<T>(): Promise<T[]> {
+  return invoke<T[]>('project_take_moved')
 }
 
 /** Focus the window already showing this project, if any; returns whether one

@@ -10,9 +10,10 @@
  * #264 のチップ列（タブバー左に保持中のぶんを横並び）の置き換え。あれは保持している数だけ
  * 横幅を取ってタブを圧迫していたので、常に 1 つのボタンに畳んでプルダウンへ移した。
  */
-import { ChevronDown, FolderOpen, Terminal, X } from 'lucide-vue-next'
+import { ArrowRightFromLine, ChevronDown, FolderOpen, Terminal, X } from 'lucide-vue-next'
 import { computed, onUnmounted, ref, useTemplateRef } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
+import { openMoveProjectMenu } from '../../composables/useMoveProjectMenu'
 import { useProjectAccent } from '../../composables/useProjectAccent'
 import { peekTerminal, terminalLastOutputAt } from '../../composables/useTerminalPeek'
 import { useI18n } from '../../i18n'
@@ -103,6 +104,15 @@ function release(id: string) {
 function openSwitcher() {
   closeMenu()
   projectStore.toggleSwitcher()
+}
+
+/**
+ * 別のウィンドウへ移す（#469）。行き先は共有のメニュー（`MoveProjectMenu`）で選ぶ。
+ * **一覧を閉じる前に開く**（あちらが押したボタンの位置を測る。閉じるとボタンごと消える）。
+ */
+function move(id: string, event: MouseEvent) {
+  openMoveProjectMenu(id, event.currentTarget)
+  closeMenu()
 }
 
 // --- ターミナルのチラ見（#319） ---
@@ -220,6 +230,18 @@ onUnmounted(() => {
         >
           <Terminal :size="12" :stroke-width="2" />
         </span>
+        <!--
+          別のウィンドウへ移す（#469）。**現在地の行にも出す**: 「このプロジェクトは
+          あっちのウィンドウで」と思うのは、たいてい今見ているもの。
+        -->
+        <button
+          v-if="projectStore.canMoveProject(entry.id)"
+          class="row-move"
+          :title="t('project.moveToWindow')"
+          @click.stop="move(entry.id, $event)"
+        >
+          <ArrowRightFromLine :size="12" :stroke-width="2" />
+        </button>
         <!--
           解除は現在地以外だけ（#264）。現在地に出すと「今見ているプロジェクトのタブを
           全部閉じる」になり、保持の解除とは別の操作になる。
@@ -414,7 +436,8 @@ onUnmounted(() => {
 
 /* 押せる大きさを確保する（アイコン 12px のままだと当たり判定が小さい）。**行の右端に
    貼り付けない**: `.row-name` の `flex: 1` で右へ寄るので、行の padding のぶんだけ内側に入る。 */
-.row-close {
+.row-close,
+.row-move {
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -427,6 +450,12 @@ onUnmounted(() => {
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
+}
+
+/* 壊す操作ではないので、チラ見のアイコンと同じ控えめなホバーにする（✕ の赤と分ける）。 */
+.row-move:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .row-close:hover {

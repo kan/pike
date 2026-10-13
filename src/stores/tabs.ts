@@ -9,6 +9,7 @@ import { displayHost, formatLineRange } from '../lib/format'
 import { MANUAL_INDEX } from '../lib/manual'
 import { basename, normalizeSep, toRelativePath } from '../lib/paths'
 import { ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
+import { markTerminalHandedOff, stashIncomingTerminal, type TerminalScreen } from '../lib/terminalHandoff'
 import { windowFocused } from '../lib/window'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
@@ -43,6 +44,24 @@ type PaneSelection = Record<PaneId, string | null>
 
 function emptySelection(): PaneSelection {
   return { left: null, right: null }
+}
+
+/** 別のウィンドウへ運ぶ、プロジェクト 1 つぶんのタブ（#469）。 */
+export interface MovedTabs {
+  tabs: Tab[]
+  /** ペインごとに選んでいたタブ。一度も見せていないプロジェクトでは null。 */
+  selection: PaneSelection | null
+  /** 右のペインにタブを置いていたか（移動先でも分割を立てる）。 */
+  split: boolean
+  /** チラ見の対象（#319）。 */
+  lastTerminalId: string | null
+}
+
+/** ウィンドウのあいだを渡る荷物（#469）。Rust は中身を読まずに預かる。 */
+export interface MovedProject extends MovedTabs {
+  id: string
+  /** ターミナルのタブ id（移動元での id）→ 画面。書き出せなければ null。 */
+  screens: Record<string, TerminalScreen | null>
 }
 
 export const useTabStore = defineStore('tabs', () => {
@@ -253,6 +272,14 @@ export const useTabStore = defineStore('tabs', () => {
       // 置き場も同じ理由でここで決める（#308）。開いたタブはフォーカスのあるペインに入る。
       pane: tab.pane ?? focusedPane.value,
     })
+  }
+
+  /**
+   * あるプロジェクトのタブ全部（見せていないものも含む）。**`tabs` を直に濾す読み手を
+   * ストアの外に増やさないための口**（#469 の移動が、運ぶ前の確認に使う）。
+   */
+  function tabsOfProject(id: string): Tab[] {
+    return tabs.value.filter((t) => t.projectId === id)
   }
 
   /** そのプロジェクトのタブを既に持っているか（＝切り替えても復元が要らない）。 */
@@ -1130,13 +1157,7 @@ export const useTabStore = defineStore('tabs', () => {
       }
     }
 
-    const idsToClose = new Set(toClose.map((t) => t.id))
-    const hadRight = rightHasTabs()
-    tabs.value = tabs.value.filter((t) => !idsToClose.has(t.id))
-
-    // 選択が消えたペインだけ選び直す（#308。生きていれば `reselect` が据え置く）。
-    for (const pane of PANES) reselect(pane)
-    collapseIfRightEmptied(hadRight)
+    dropTabs((t) => toClose.includes(t))
 
     if (shouldClose) {
       await getCurrentWindow()
@@ -1144,6 +1165,18 @@ export const useTabStore = defineStore('tabs', () => {
         .catch(() => {})
     }
     return true
+  }
+
+  /**
+   * タブを一覧から外して、選択と分割を整える。**後始末（PTY・確認）は呼び出し側**:
+   * 閉じる（`closeTabs`）と、別のウィンドウへ渡す（`detachProjectTabs`、#469）が通る。
+   */
+  function dropTabs(gone: (tab: Tab) => boolean) {
+    const hadRight = rightHasTabs()
+    tabs.value = tabs.value.filter((tab) => !gone(tab))
+    // 選択が消えたペインだけ選び直す（#308。生きていれば `reselect` が据え置く）。
+    for (const pane of PANES) reselect(pane)
+    collapseIfRightEmptied(hadRight)
   }
 
   /** Signal --wait processes for a file path; close window if any were waiting. */
@@ -1226,6 +1259,92 @@ export const useTabStore = defineStore('tabs', () => {
     const closed = await closeTabs(ids)
     if (closed) activeByProject.delete(projectId)
     return closed
+  }
+
+  /**
+   * あるプロジェクトのタブを、別のウィンドウへ運べる形で書き出す（#469）。**消さない**
+   * （外すのは、移動先が受け取れると決まったあとの `detachProjectTabs`）。
+   *
+   * **タブはそのまま運ぶ。** どの種別もタブの欄だけから組み立て直せるように出来ている
+   * （ターミナル以外は、移動先で開き直したのと同じになる）。ターミナルだけは PTY を
+   * 引き継ぐので、画面を別に運ぶ（`lib/terminalHandoff.ts`）。
+   *
+   * 直すのは 3 つ:
+   * - 無題のエディタは、打った中身を `initialContent` に写す（中身は `untitledContent` に
+   *   あって、タブの欄には作ったときの値しか無い）
+   * - 未保存のエディタの `*` を落とす（編集中の中身は運ばないので、移動先は保存済みの
+   *   ファイルを開く。`moveProject` が先に確認を出している）
+   * - その場かぎりの合図（`restore` / `focusRequested` / `reloadRequested`）を落とす
+   */
+  function exportProjectTabs(projectId: string): MovedTabs {
+    const moved = tabsOfProject(projectId).map((tab): Tab => {
+      if (tab.kind === 'terminal') return { ...tab, restore: undefined, focusRequested: undefined }
+      if (tab.kind !== 'editor') return { ...tab }
+      const copy = { ...tab, reloadRequested: undefined }
+      if (!tab.path) return { ...copy, initialContent: untitledContent.get(tab.id) ?? tab.initialContent }
+      return isUnsavedEditor(tab) ? { ...copy, title: tab.title.slice(0, -2) } : copy
+    })
+    // 今見せているプロジェクトなら、選択は `activeByPane` にある（`activeByProject` へ
+    // 写るのは切り替えて離れるとき）。
+    const selection =
+      ownerProjectId.value === projectId ? { ...activeByPane.value } : (activeByProject.get(projectId) ?? null)
+    return {
+      tabs: moved,
+      selection,
+      split: split.value && moved.some((tab) => tab.pane === 'right'),
+      lastTerminalId: lastTerminalByProject.get(projectId) ?? null,
+    }
+  }
+
+  /**
+   * あるプロジェクトのタブのうち `ids`（運んだもの）を、**プロセスを止めずに**このウィンドウから外す（#469）。
+   * ターミナルの PTY は移動先が引き継いでいるので、`closeProjectTabs` と違って kill しない
+   * （`TerminalTab` の unmount も、印を見て kill を飛ばす）。確認も出さない。
+   */
+  function detachProjectTabs(projectId: string, ids: Set<string>) {
+    for (const tab of tabs.value) {
+      if (!ids.has(tab.id)) continue
+      untitledContent.delete(tab.id)
+      // 終了を待っている呼び出し側（`runCommandTab` の `onExit`）は、このウィンドウに残る。
+      // プロセスは続いているので、終わったことにはせず待ちだけを外す。
+      exitHandlers.delete(tab.id)
+      if (tab.kind !== 'terminal') continue
+      markTerminalHandedOff(tab.id)
+      if (tab.ptyId) ptyRouter.unregister(tab.ptyId)
+    }
+    dropTabs((tab) => ids.has(tab.id))
+    activeByProject.delete(projectId)
+    lastTerminalByProject.delete(projectId)
+  }
+
+  /**
+   * 別のウィンドウから運ばれてきたタブを受け取る（#469）。**見せる相手は変えない**
+   * （保持中のプロジェクトのタブとして入る。切り替えるのは呼び出し側）。
+   *
+   * ターミナルは、タブを足す前に画面を `stashIncomingTerminal` へ置く。`TerminalTab` は
+   * mount したときにそれを見て、シェルを起こす代わりにタブの `ptyId` へつなぐ。
+   */
+  function adoptProjectTabs(moved: MovedProject) {
+    const { id: projectId, screens } = moved
+    // タブの id はウィンドウごとに振っているので、ぶつかったら振り直す。
+    const renamed = new Map<string, string>()
+    const taken = new Set(tabs.value.map((tab) => tab.id))
+    for (const tab of moved.tabs) {
+      const id = taken.has(tab.id) ? genId() : tab.id
+      renamed.set(tab.id, id)
+      taken.add(id)
+      if (tab.kind === 'terminal' && tab.ptyId) stashIncomingTerminal(id, screens[tab.id] ?? null)
+      if (tab.kind === 'editor' && !tab.path && tab.initialContent) untitledContent.set(id, tab.initialContent)
+      tabs.value.push({ ...tab, id, projectId })
+    }
+    const mapped = (id: string | null) => (id ? (renamed.get(id) ?? null) : null)
+    if (moved.selection) {
+      activeByProject.set(projectId, { left: mapped(moved.selection.left), right: mapped(moved.selection.right) })
+    }
+    const terminal = mapped(moved.lastTerminalId)
+    if (terminal) lastTerminalByProject.set(projectId, terminal)
+    // 分割は立てることはあっても落とさない（`beginSessionRestore` と同じ）。
+    if (moved.split) split.value = true
   }
 
   function cycleTab(direction: 'next' | 'prev') {
@@ -1427,6 +1546,10 @@ export const useTabStore = defineStore('tabs', () => {
     setOwnerProject,
     renameProjectOwner,
     closeProjectTabs,
+    tabsOfProject,
+    exportProjectTabs,
+    detachProjectTabs,
+    adoptProjectTabs,
     activeTabId,
     activeTab,
     lastTerminalId,
