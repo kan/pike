@@ -91,7 +91,8 @@ pike/
 │       ├── fs/
 │       │   └── mod.rs         # WSL/Windows 両対応ファイル操作・IGNORED_DIRS
 │       ├── git/
-│       │   └── mod.rs         # git CLI ブリッジ（status/log/diff/commit/push/pull 等）
+│       │   ├── mod.rs         # git CLI ブリッジ（status/log/diff/commit/push/pull 等）
+│       │   └── worktree.rs    # worktree の作成（gitignore 済みファイルのコピー込み）と削除（#478）
 │       ├── docker/
 │       │   ├── mod.rs         # bollard クライアント・compose パース・ログストリーム
 │       │   └── tunnel.rs      # 未公開ポートへの socat ポートフォワード（#120）
@@ -129,6 +130,7 @@ pike/
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── MoveProjectMenu.vue  # プロジェクトを別のウィンドウへ移すときの行き先のメニュー（#469）
+│   │   ├── CreateWorktreeDialog.vue # worktree の作成ダイアログ（名前・ベースブランチ・作成先、#478）
 │   │   ├── WatcherNotice.vue    # ファイル監視の知らせの帯（ツリーと設定画面で共有、#385）
 │   │   ├── ToolNotice.vue       # 足りないツールの帯の見た目（ファイル監視と ripgrep で共有）
 │   │   ├── layout/
@@ -241,6 +243,8 @@ pike/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── errorLog.ts        # フロントの例外をログファイルへ流す受け口と間引き（#415）
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
+│   │   ├── jsonc.ts          # コメント付き JSON の最小パーサ（tsconfig と .vscode/settings.json）
+│   │   ├── worktreeCreate.ts # worktree の作成先の解決と、持っていくファイルのパターンの読み取り（#478）
 │   │   ├── portable.ts       # ポータブル版かどうかと base（Rust の答えの写し。mount の前に 1 回聞く、#451）
 │   │   ├── projectStorage.ts # プロジェクト id を鍵に持つ localStorage の項目の表と、id の付け替えでの移し替え（#463）
 │   │   ├── terminalHandoff.ts # ターミナルを別のウィンドウへ引き継ぐ受け渡し口（#469。画面の書き出し・渡した印・受け取った画面）

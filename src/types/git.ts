@@ -92,4 +92,24 @@ export interface GitWorktree {
    * `path` はこのシェルから見た形に直してある。選んでも切り替えず、修復を案内する。
    */
   needsRepair: boolean
+  /** `git worktree lock` されていれば、その理由（理由が無ければ空文字）。削除の確認で知らせる。 */
+  locked: string | null
+}
+
+/** `git_worktree_remove` の結果（#478。Rust の `WorktreeRemoved`）。 */
+export interface GitWorktreeRemoved {
+  /** ブランチも消すよう頼んだのに消えなかったときの git の理由（マージされていない等）。 */
+  branchKept: string | null
+}
+
+/** `git_worktree_add` の結果（#478。Rust の `WorktreeAdded`）。 */
+export interface GitWorktreeAdded {
+  /** 作った worktree のパス（`~` は展開済み）。 */
+  path: string
+  /** コピーした単位の数（丸ごとコピーしたディレクトリは 1 つ）。 */
+  copied: number
+  /** コピーできなかったもの（root からの相対パス）。 */
+  failed: string[]
+  /** 補助の処理（`.git/info/exclude` への追記・コピーするものの列挙）の失敗。 */
+  warnings: string[]
 }

@@ -2155,6 +2155,8 @@ pub fn run() {
             git::git_commit,
             git::git_branch_list,
             git::git_worktree_list,
+            git::worktree::git_worktree_add,
+            git::worktree::git_worktree_remove,
             git::git_checkout,
             git::git_checkout_track,
             git::git_create_branch,

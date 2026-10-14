@@ -37,6 +37,7 @@ import {
 } from '../../lib/tauri'
 import { THEME_MODE_VIEW } from '../../lib/themeModes'
 import { windowFocused } from '../../lib/window'
+import { DEFAULT_WORKTREE_LOCATION } from '../../lib/worktreeCreate'
 import { useProjectStore } from '../../stores/project'
 import {
   type AgentNotifyMode,
@@ -813,6 +814,34 @@ const PREVIEW_LINES = [
         <!-- Docker パネルの compose 操作（#419）。確認ダイアログの「今後は確認しない」もここを書き換える。 -->
         <SettingItem label-key="settings.dockerComposeConfirm" hint-key="settings.dockerComposeConfirmHint">
           <SettingToggle v-model="settings.dockerComposeConfirm" :options="ON_OFF" />
+        </SettingItem>
+
+        <!-- worktree の作成先（#478）。マシンローカルで、Windows と WSL で欄を分ける（理由は
+             `stores/settings.ts` の `WorktreeLocation`）。打鍵ごとに他のウィンドウへ流さないよう、
+             確定（`change`）で書く。 -->
+        <SettingItem label-key="settings.worktreeLocation" hint-key="settings.worktreeLocationHint" wide>
+          <div class="sync-path-row">
+            <span class="base-label">{{ hostBase.label }}</span>
+            <input
+              :value="settings.worktreeLocation.host"
+              class="agent-cmd-input sync-path-input"
+              type="text"
+              spellcheck="false"
+              :placeholder="DEFAULT_WORKTREE_LOCATION"
+              @change="settings.worktreeLocation.host = ($event.target as HTMLInputElement).value.trim()"
+            />
+          </div>
+          <div v-if="isWindowsHost" class="sync-path-row">
+            <span class="base-label">WSL</span>
+            <input
+              :value="settings.worktreeLocation.wsl"
+              class="agent-cmd-input sync-path-input"
+              type="text"
+              spellcheck="false"
+              :placeholder="DEFAULT_WORKTREE_LOCATION"
+              @change="settings.worktreeLocation.wsl = ($event.target as HTMLInputElement).value.trim()"
+            />
+          </div>
         </SettingItem>
       </SettingSection>
 

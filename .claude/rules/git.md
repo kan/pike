@@ -4,6 +4,8 @@ paths:
   - "src-tauri/src/ssh_agent.rs"
   - "src/stores/git.ts"
   - "src/stores/worktree.ts"
+  - "src/lib/worktreeCreate.ts"
+  - "src/components/CreateWorktreeDialog.vue"
   - "src/types/git.ts"
   - "src/components/panels/GitPanel.vue"
   - "src/components/panels/GitErrorBlock.vue"
@@ -262,3 +264,90 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
 - ステータスバーの worktree セレクタ（`FolderGit2`、worktree が 2 つ以上の時のみ表示）。選択で 5 パネル + エディタを再読込
 - fs watcher は App.vue の `watch(activeRoot)` 単一所有で再ポイント（worktree 切替・プロジェクト切替の両方をカバー。リポジトリ外の worktree でも更新を取得）
 - 切替単位はウィンドウ（プロジェクト）ごとに 1 つ。起動時は常に main worktree（`activeWorktreeRoot=null`）から開始、セッション非永続。タブ切替による自動追従は未実装（agent を root で起動し内部で worktree を選ぶ運用では cwd ベース検出が効かないため手動セレクタを主軸とする。将来 agent タブ常用時に再検討）
+
+## worktree の作成（#478）
+
+ダイアログで名前とベースブランチを聞き、作って切り替え、そのルートでターミナルを開く。段取りは
+`stores/worktree.ts` の `createWorktree`、git の操作は `git/worktree.rs` の `git_worktree_add`
+（**判断の正本はあのファイルのモジュール doc**）、置き場所の解決とパターンの読み取りは
+`lib/worktreeCreate.ts`、ダイアログは `components/CreateWorktreeDialog.vue`。
+
+- **入口はステータスバーのメニューとパレット（`createWorktree`）。** worktree のセレクタが出ている
+  （2 つ以上ある）ときはそのプルダウンの下、出ていないときはブランチのプルダウンの下に置く。
+  ダイアログは `App.vue` に 1 つで、開閉は `worktreeStore.createDialogOpen`
+- **名前がそのままブランチ名**、ディレクトリ名は `/` を `-` に置き換えたもの（VS Code と同じ、
+  `worktreeDirName`）。**ブランチもディレクトリも、既にあればエラーにする**（利用者の判断。VS Code の
+  ように `-1` を付けて逃がさない）。Rust は `branch-exists` / `path-exists` の綴りで返し、文言は
+  ダイアログが i18n で出す
+- **ベースの既定は今いるブランチ**（worktree を切り替えているあいだはその worktree のもの。
+  porcelain v2 の `(detached)` なら HEAD の commit）。**リモートのブランチは検索したときだけ並べる**
+  （利用者の判断）。作るときは `--no-track` を付ける: リモートのブランチをベースにすると、git の既定は
+  名前の違う新しいブランチにそれを追跡させ、`git push` が `push.default=simple` で断られる
+- **基準は main の worktree**（`plannedPath` が作成先と一緒に返す）。**一覧がそのプロジェクトのものか
+  確かめてから引く**（`listedFor`）: 切り替えた直後は前のプロジェクトの一覧が残っていて、そのまま
+  引くと別のリポジトリに作る。ダイアログも、開いたままプロジェクトを切り替えたら閉じる。
+  別の worktree を選んでいるあいだに作っても、相対の置き場所の起点とコピーの元は main のまま
+- **置き場所は設定 `worktreeLocation` の 1 文字列**（Windows 用と WSL 用の 2 欄。macOS はホストの欄）。
+  絶対パスなら固定、相対なら repo のルートから、`~` はホーム、`${repoName}` は repo のディレクトリ名。
+  既定は VS Code と同じ `../${repoName}.worktrees`（`DEFAULT_WORKTREE_LOCATION`）
+  - **マシンローカル**（`pike:worktree-location`。同期しない）で、ウィンドウ同士は broadcast で揃える
+    （`pike://worktree-location-changed`）。設定画面の欄は `change` で書く（打鍵ごとに流さない）
+  - **`~` の展開だけは Rust**（`expand_home`）。WSL の `$HOME` は distro に聞かないと分からない
+  - **欄を分けた理由**: パスの書き方が違ううえ、WSL の worktree を `/mnt/c` 越しに Windows の
+    ディスクへ置くと遅い（利用者の判断。1 つの欄を読み替える案は採らなかった）
+- **repo の中に作ったら `.git/info/exclude` に置き場所のディレクトリを足す**（利用者の判断）。
+  `.gitignore` は触らない。判定は作ったあとの `git status` に**そのディレクトリ自身が `?? <rel>/` で
+  並ぶか**（まだ無いディレクトリは `check-ignore` で「ディレクトリにだけ効くパターン」と照合されない。
+  何か出たかで決めると、置き場所が追跡済みのディレクトリのとき中の変更に反応してそこごと exclude する）
+- **持っていくファイルは `.vscode/settings.json` の `git.worktreeIncludeFiles` と `.worktreeinclude`
+  の両方**（利用者の判断。前者が VS Code、後者が Claude Code・Conductor の作法で、どちらも
+  `.gitignore` 構文）。対象は「パターンに一致し、かつ git に無視されている untracked のファイル」
+  - **列挙は git に任せる**（`git ls-files --others --ignored`。パターンは `-x` で渡す。
+    `--exclude-from` はファイルが要り、WSL へ一時ファイルを渡す経路を持たない）
+  - **丸ごと無視されたディレクトリは、中身が全部選ばれていれば 1 単位でコピーする**（`plan_copy`。
+    VS Code と同じ）。`node_modules` を 1 ファイルずつ写すと、WSL では数万回の `cp` になる
+  - **宛先に既にあるものは触らない**: main では無視されていても、ベースのブランチでは追跡されている
+    ファイルがある。**ディレクトリの単位が宛先にあるときは失敗として返す**（混ぜてはコピーしない。
+    黙って飛ばすと、中の `.env` が来なかった理由が分からない）。途中で失敗したら作りかけを消す
+  - **置き場所が repo の中なら、その下は持っていかない**（exclude に足したあとは無視された
+    ディレクトリとして並び、`*` のような広いパターンでほかの worktree を丸ごと写す）
+  - **symlink は辿らずに symlink のまま写す**（`copy_tree`）。Windows の junction（pnpm）も
+    std では symlink に数えられ、辿ると祖先を指すもので再帰が止まらない。**単位の中を指す絶対パスの
+    リンクはコピー先へ付け替える**（junction は必ず絶対パスで、付け替えないと main の `.pnpm` を使い
+    続ける）。Windows で作れない（権限が無い）ときは失敗として返す
+  - **ファイルツリーの「コピー」（`fs_copy`）とは別物**にしてある。あちらは利用者が手で選んだものを
+    写すので、リンクを辿る従来の挙動のまま（寄せると開発者モードでない Windows で、junction を含む
+    フォルダのコピーが丸ごと失敗する）
+  - **コピーは best effort**。失敗は名前を返してステータスバーで知らせ、作成は失敗にしない
+  - **WSL は distro の中で `cp -a`**（1 回の `wsl.exe`）、他は `copy_tree` でコピーする
+  - **パターン側の `ls-files` は `--directory` で畳まない**。畳むと一部だけ選んだ無視された
+    ディレクトリの中身が列挙から消える（実測）。畳んだ一覧とパターンの一覧は並べて取り、**畳まない
+    全件の列挙は選ばれたファイルを持つディレクトリに絞る**（pathspec。絞らないと `.env` だけを持って
+    いくときも `target/` の全ファイルを並べる）
+  - `git.worktreeSymlinkFolders` と `runOn: worktreeCreated` のタスクは対象外（利用者の判断）
+- **作ったあとは一覧を読み直してから `setActiveWorktree` で切り替え、ターミナルを開く**。新規ターミナルの
+  cwd は `activeRoot` に追従する（#269）ので、切り替えたあとに `openTerminal` を呼べば worktree の
+  ルートで開く。作っているあいだにプロジェクトが替わっていたら切り替えず、ターミナルも開かない
+  （`createWorktree` が `switched` を返し、ダイアログがそれを見る。開くと別のプロジェクトのタブ列に出る）
+- 作成・コピー・削除の待ち時間は 10 分（`LONG_TIMEOUT`）。30 秒では大きいリポジトリのチェックアウトや
+  `node_modules` のコピーと削除が終わらない
+
+### 削除
+
+worktree セレクタの行のゴミ箱から消す。段取りは `stores/worktree.ts` の `removeWorktree`、git の操作は
+`git/worktree.rs` の `git_worktree_remove`。
+
+- **main・参照中・要修復の行にはゴミ箱を出さない**（参照中を消させないのは利用者の判断。先に切り替えて
+  もらう）。ストア側でも同じ条件で断る
+- **必ず確認を挟み、失うものを文面に書く**: 未コミットの変更と未追跡のファイルの数（その worktree の
+  `git status` をパスで数える。ステージと作業ツリーの両方に出る `MM` を二重に数えない）と、lock の理由
+  （`GitWorktree.locked`。`git worktree list` の `locked` 行）。gitignore 済みのファイルは git が確認
+  なしで消すので、そのことも書く
+- **`--force` はフロントが決める**: 変更があれば 1 回、lock されていれば 2 回（git は lock を 1 回では越えない。
+  実測）。変更を数えられなかったときは、変更のぶんの `--force` は付けない（git が断る）。**ただし lock の
+  `--force` はそれを越えるので、数えられなかったことを確認の文面に書く**（黙って消させない）
+- **ブランチは確認ダイアログのチェックボックスで選ばせる**（利用者の判断。既定は残す）。消すときは
+  `git branch -d`（`-D` にしない）で、取り込まれていないコミットがあれば残して `branchKept` で知らせる。
+  **文言に「マージ済み」と書かない**: `-d` が見るのは「コミットが main の worktree の HEAD から辿れるか」で、
+  コミットを足していないブランチも消える。「マージ済みのときだけ」と書くと、マージしていないのに消えたと
+  読める

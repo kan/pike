@@ -258,6 +258,29 @@ interface StatusInfoSettings {
   power: boolean
 }
 
+// worktree を作る場所（#478）。**マシンローカル**（同期ファイルにも `pike:settings` にも
+// 入れない）: 固定の場所はそのマシンのディスクの並びで決まる。値の読み方（相対・絶対・`~`・
+// `${repoName}`）は `lib/worktreeCreate.ts`。時計と同じく、同じマシンのウィンドウ同士は揃える。
+const WORKTREE_LOCATION_KEY = 'pike:worktree-location'
+const WORKTREE_LOCATION_CHANGED_EVENT = 'pike://worktree-location-changed'
+
+/**
+ * worktree の置き場所。**Windows と WSL で欄を分ける**（利用者の判断）: パスの書き方が違い、
+ * WSL の worktree を `/mnt/c` 越しに Windows のディスクへ置くと遅い。`host` はホストのシェル
+ * （Windows のシェル、macOS ではローカルのシェル）、`wsl` は WSL のプロジェクトが使う。
+ * 空なら既定（`DEFAULT_WORKTREE_LOCATION`）。
+ */
+export interface WorktreeLocation {
+  host: string
+  wsl: string
+}
+
+function sanitizeWorktreeLocation(v: unknown): WorktreeLocation {
+  const raw = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>
+  const str = (x: unknown) => (typeof x === 'string' ? x : '')
+  return { host: str(raw.host), wsl: str(raw.wsl) }
+}
+
 /** 日付と時刻の値の意味と、`off` を値に持たせる理由は `lib/statusClock.ts`。既定はどれも出さない。 */
 function sanitizeStatusInfo(v: unknown): StatusInfoSettings {
   const raw = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>
@@ -1515,6 +1538,33 @@ export const useSettingsStore = defineStore('settings', () => {
     })
   })
 
+  // worktree の置き場所（マシンローカル。理由は `WORKTREE_LOCATION_KEY` の隣）。
+  const worktreeLocation = ref<WorktreeLocation>(
+    sanitizeWorktreeLocation(loadJson<unknown>(WORKTREE_LOCATION_KEY, null)),
+  )
+  let applyingRemoteWorktreeLocation = false
+  watch(
+    worktreeLocation,
+    (v) => {
+      saveJson(WORKTREE_LOCATION_KEY, v)
+      if (!applyingRemoteWorktreeLocation) void emit(WORKTREE_LOCATION_CHANGED_EVENT, { from: windowLabel, payload: v })
+    },
+    { deep: true },
+  )
+  listen<{ from: string; payload: unknown }>(WORKTREE_LOCATION_CHANGED_EVENT, (event) => {
+    if (event.payload.from === windowLabel) return
+    applyingRemoteWorktreeLocation = true
+    worktreeLocation.value = sanitizeWorktreeLocation(event.payload.payload)
+    void nextTick(() => {
+      applyingRemoteWorktreeLocation = false
+    })
+  })
+
+  /** そのシェルのプロジェクトが使う置き場所の設定（空なら既定）。 */
+  function worktreeLocationFor(shell: ShellType): string {
+    return shell.kind === 'wsl' ? worktreeLocation.value.wsl : worktreeLocation.value.host
+  }
+
   // Base directory per platform (#164): the anchor that turns a synced,
   // base-relative project path into a real root here. Machine-local for the
   // same reason as globalShell — every PC lays its checkouts out differently.
@@ -2127,6 +2177,8 @@ export const useSettingsStore = defineStore('settings', () => {
     statusBarDate,
     statusBarTime,
     statusBarPower,
+    worktreeLocation,
+    worktreeLocationFor,
     surfaceAlpha,
     terminalSurfaceBg,
     agentLaunchers,

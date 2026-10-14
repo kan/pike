@@ -622,6 +622,67 @@ textarea,
   color: var(--text-active);
 }
 
+/* 入力を受けるダイアログの部品（確認ダイアログと worktree の作成、#478）。ボタンを `.btn` に
+   しないのは、エージェント状態タブと同期の衝突タブが同じ名前の別物を持つため。 */
+.dialog-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.dialog-input:focus {
+  border-color: var(--accent);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-btn {
+  padding: 5px 16px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.dialog-btn:hover:not(:disabled) {
+  background: var(--tab-hover-bg);
+}
+
+.dialog-btn:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.dialog-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dialog-btn-ok {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.dialog-btn-ok:hover:not(:disabled) {
+  filter: brightness(1.15);
+  background: var(--accent);
+}
+
 /* 文字だけのリンク風のボタン（Vue のプレビューの案内と About）。 */
 .link-btn {
   border: none;

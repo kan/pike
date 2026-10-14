@@ -146,6 +146,7 @@ const EXTERNAL_NAMES = [
   'subIssuesSummary', // gh の --json フィールド（使わない理由を issues.md が書くために出す）
   'transcript_path', // Claude Code の hook が stdin で渡すフィールド（#299）
   'webview_windows', // tauri の AppHandle（使ってはいけない理由として rust-window.md が出す、#368）
+  'worktreeSymlinkFolders', // VS Code の設定 `git.worktreeSymlinkFolders`（対象外にした理由として git.md が出す、#478）
   'BROWSER', // Linux の環境変数（渡さないと決めた理由として terminal.md が出す、#381）
   // このスクリプト自身の識別子。自分をコーパスから外している以上、外の名前と同じ扱いになる。
   'EXTERNAL_NAMES',

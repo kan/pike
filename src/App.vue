@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { nextTick, onMounted, watch } from 'vue'
 import AboutDialog from './components/AboutDialog.vue'
 import ConfirmDialog from './components/ConfirmDialog.vue'
+import CreateWorktreeDialog from './components/CreateWorktreeDialog.vue'
 import KeyboardShortcuts from './components/KeyboardShortcuts.vue'
 import SideBar from './components/layout/SideBar.vue'
 import StatusBar from './components/layout/StatusBar.vue'
@@ -444,6 +445,9 @@ onMounted(async () => {
     <!-- 入口（切替のプルダウン・プロジェクトパネル・パレット）がどれもプロジェクトを持つ
          ウィンドウにしか無い。 -->
     <MoveProjectMenu v-if="!globalMode" />
+    <!-- worktree の作成（#478）。入口（ステータスバーのメニュー・パレット）はプロジェクトを
+         持つウィンドウにしか無い。 -->
+    <CreateWorktreeDialog v-if="!globalMode" />
     <ConfirmDialog />
     <KeyboardShortcuts />
     <AboutDialog />

@@ -16,6 +16,7 @@ import { FONT_SIZE_DEFAULT, FONT_SIZE_MAX, FONT_SIZE_MIN, useSettingsStore } fro
 import { useSidebarStore } from '../stores/sidebar'
 import { useStatusMessageStore } from '../stores/statusMessage'
 import { useTabStore } from '../stores/tabs'
+import { useWorktreeStore } from '../stores/worktree'
 import type { ShellType, SidebarPanel } from '../types/tab'
 import { confirmAndExit } from './useBusyExit'
 import { promptDialog } from './useConfirmDialog'
@@ -324,6 +325,8 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     gitPull: () => void useGitStore().pull(),
     gitPush: () => void useGitStore().push(),
     gitRefresh: () => void useGitStore().refreshAll(),
+    // ダイアログは App.vue に 1 つ（#478）。入口はステータスバーのメニューとここ。
+    createWorktree: () => useWorktreeStore().openCreateDialog(),
     diagnosticsRun: () => void useDiagnosticsStore().run(),
     // 作業領域の分割（#308）。開いたときに何を右へ出すかまでストアが決める。
     toggleSplit: () => tabStore.toggleSplit(),

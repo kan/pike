@@ -278,4 +278,8 @@ Graph でコミットをクリックすると、そのコミットの中身を�
 
 複数 worktree を 1 ウィンドウで切り替えてレビューできます。ステータスバーの worktree セレクタで参照先を変えると、Git パネルを含む各パネルとエディタが選んだ worktree を参照します。詳しくは [プロジェクトとウィンドウ](projects-and-windows.md#git-worktree-の切り替え) を参照してください。
 
+新しいブランチの worktree は、ステータスバーのメニューかコマンドパレットの「worktree を作成...」から作れます。→ [worktree を作る](projects-and-windows.md#worktree-を作る)
+
+要らなくなった worktree は、worktree セレクタのメニューの行にあるゴミ箱から削除できます。→ [worktree を削除する](projects-and-windows.md#worktree-を削除する)
+
 関連: [エディタとプレビュー](editor-and-preview.md) / [サイドバーパネル](panels.md)

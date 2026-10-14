@@ -59,14 +59,14 @@ function onKeydown(e: KeyboardEvent) {
             v-for="c in choices"
             :key="c.value"
             :ref="(el) => { if (c.primary) okBtn = el as HTMLButtonElement | null }"
-            class="btn"
-            :class="c.primary ? 'btn-ok' : 'btn-cancel'"
+            class="dialog-btn"
+            :class="{ 'dialog-btn-ok': c.primary }"
             @click="choose(c.value)"
           >{{ c.label }}</button>
         </div>
         <div v-else class="dialog-actions">
-          <button v-if="mode !== 'info'" class="btn btn-cancel" @click="respond(false)">{{ t('common.cancel') }}</button>
-          <button ref="okBtn" class="btn btn-ok" @click="respond(true)">{{ t('common.ok') }}</button>
+          <button v-if="mode !== 'info'" class="dialog-btn" @click="respond(false)">{{ t('common.cancel') }}</button>
+          <button ref="okBtn" class="dialog-btn dialog-btn-ok" @click="respond(true)">{{ t('common.ok') }}</button>
         </div>
       </div>
     </div>
@@ -105,22 +105,9 @@ function onKeydown(e: KeyboardEvent) {
   white-space: pre-line;
 }
 
+/* 入力欄とボタンの見た目は `theme.css` の `.dialog-input` / `.dialog-btn`。 */
 .dialog-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 6px 8px;
   margin-bottom: 12px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-}
-
-.dialog-input:focus {
-  border-color: var(--accent);
 }
 
 /* 添えるチェックボックス（#286）。ボタンより先に読ませたいので本文とボタンのあいだ。 */
@@ -132,41 +119,5 @@ function onKeydown(e: KeyboardEvent) {
   color: var(--text-secondary);
   font-size: 12px;
   cursor: pointer;
-}
-
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.btn {
-  padding: 5px 16px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.btn:hover {
-  background: var(--tab-hover-bg);
-}
-
-.btn:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.btn-ok {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-
-.btn-ok:hover {
-  filter: brightness(1.15);
-  background: var(--accent);
 }
 </style>

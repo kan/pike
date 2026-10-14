@@ -974,7 +974,9 @@ impl ShellConfig {
         if self.is_posix() { "/dev/null" } else { "NUL" }
     }
 
-    fn run_with_timeout(
+    /// `run_raw` の待ち時間を選べる版。30 秒では足りない処理（worktree の作成とファイルの
+    /// コピー、#478）が使う。
+    pub(crate) fn run_with_timeout(
         &self,
         program: &str,
         args: &[&str],

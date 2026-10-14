@@ -129,6 +129,7 @@ export const APP_ACTIONS = [
   { id: 'gitPull', palette: 'git', labelKey: 'git.pull', needsProject: true },
   { id: 'gitPush', palette: 'git', labelKey: 'git.push', needsProject: true },
   { id: 'gitRefresh', palette: 'git', labelKey: 'common.refresh', needsProject: true },
+  { id: 'createWorktree', palette: 'git', labelKey: 'worktree.create', needsProject: true },
   // --- 作業領域の分割（#308）
   { id: 'toggleSplit', palette: 'view' },
   { id: 'focusOtherPane', palette: 'view' },

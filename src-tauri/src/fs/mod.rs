@@ -1165,6 +1165,25 @@ fn dirs_exist_wsl(shell: &ShellConfig, paths: &[String]) -> Result<Vec<bool>, St
     Ok(flags)
 }
 
+/// そこに何かがあるか。**リンク先の無い symlink も「ある」に数える**（その名前では作れない。
+/// `read_text` と同じ扱い）。WSL は distro の中で見る（UNC 越しの Windows API は WSL の
+/// symlink を辿れない）。
+pub(crate) fn path_exists(shell: &ShellConfig, path: &str) -> Result<bool, String> {
+    match shell {
+        ShellConfig::Wsl { .. } => {
+            let p = bash_quote(path);
+            // 無ければ 9 で抜ける。`wsl.exe` 自体の失敗（非 0）と区別するための番号。
+            let script = format!("if [ -e {p} ] || [ -L {p} ]; then exit 0; else exit 9; fi");
+            match shell.run("bash", &["-c", &script])? {
+                (0, _, _) => Ok(true),
+                (9, _, _) => Ok(false),
+                (_, _, stderr) => Err(stderr.trim().to_owned()),
+            }
+        }
+        _ => Ok(std::fs::symlink_metadata(path).is_ok()),
+    }
+}
+
 fn copy_dir_recursive(src: &str, dst: &str) -> Result<(), String> {
     std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
     for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {

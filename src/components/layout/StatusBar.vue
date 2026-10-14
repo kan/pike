@@ -13,8 +13,10 @@ import {
   Github,
   Gitlab,
   Loader2,
+  Plus,
   RefreshCw,
   ShieldCheck,
+  Trash2,
 } from 'lucide-vue-next'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useAboutModal } from '../../composables/useAboutModal'
@@ -268,6 +270,18 @@ function closeWorktrees() {
 async function onSelectWorktree(w: GitWorktree) {
   closeWorktrees()
   await worktreeStore.setActiveWorktree(w)
+}
+
+/** worktree の削除（#478）。確認ダイアログを出すので、先にプルダウンを閉じる。 */
+function onRemoveWorktree(w: GitWorktree) {
+  closeWorktrees()
+  void worktreeStore.removeWorktree(w)
+}
+
+/** worktree の作成（#478）。開いているプルダウンを閉じてからダイアログを出す。 */
+function onCreateWorktree(closeMenu: () => void) {
+  closeMenu()
+  worktreeStore.openCreateDialog()
 }
 
 function worktreeBranchLabel(w: GitWorktree): string {
@@ -609,22 +623,37 @@ onUnmounted(() => {
             <HelpButton page="git.md#worktree" :size="13" />
           </div>
           <div class="branch-list">
-            <button
-              v-for="w in worktreeStore.worktrees"
-              :key="w.path"
-              class="branch-option worktree-option"
-              :class="{ current: worktreeStore.isActive(w), 'needs-repair': w.needsRepair }"
-              :title="w.needsRepair ? t('worktree.needsRepairTooltip') : undefined"
-              @click="onSelectWorktree(w)"
-            >
-              <span class="worktree-name">
-                {{ basename(w.path) }}
-                <span class="worktree-branch">{{ worktreeBranchLabel(w) }}</span>
-                <span v-if="w.needsRepair" class="worktree-repair">{{ t('worktree.needsRepair') }}</span>
-              </span>
-              <span v-if="worktreeStore.isActive(w)" class="current-mark">*</span>
-            </button>
+            <!-- 行とゴミ箱は兄弟に置く（ボタンの中にボタンは置けない）。ゴミ箱は main・参照中・
+                 要修復の行には出さない（#478。参照中は先に切り替えてもらう）。 -->
+            <div v-for="w in worktreeStore.worktrees" :key="w.path" class="worktree-row">
+              <button
+                class="branch-option worktree-option"
+                :class="{ current: worktreeStore.isActive(w), 'needs-repair': w.needsRepair }"
+                :title="w.needsRepair ? t('worktree.needsRepairTooltip') : undefined"
+                @click="onSelectWorktree(w)"
+              >
+                <span class="worktree-name">
+                  {{ basename(w.path) }}
+                  <span class="worktree-branch">{{ worktreeBranchLabel(w) }}</span>
+                  <span v-if="w.needsRepair" class="worktree-repair">{{ t('worktree.needsRepair') }}</span>
+                </span>
+                <span v-if="worktreeStore.isActive(w)" class="current-mark">*</span>
+              </button>
+              <button
+                v-if="!w.isMain && !w.needsRepair && !worktreeStore.isActive(w)"
+                class="worktree-remove"
+                data-testid="worktree-remove"
+                :title="t('worktree.remove')"
+                @click="onRemoveWorktree(w)"
+              >
+                <Trash2 :size="12" :stroke-width="2" />
+              </button>
+            </div>
           </div>
+          <button class="dropdown-action" data-testid="worktree-create" @click="onCreateWorktree(closeWorktrees)">
+            <Plus :size="13" :stroke-width="2" />
+            <span>{{ t('worktree.create') }}</span>
+          </button>
         </div>
       </div>
 
@@ -684,6 +713,16 @@ onUnmounted(() => {
               class="branch-empty"
             >{{ t('git.noBranches') }}</div>
           </div>
+          <!-- worktree が 1 つのときはセレクタが出ないので、作成の入口はこちらに置く（#478）。 -->
+          <button
+            v-if="!worktreeStore.hasMultiple"
+            class="dropdown-action"
+            data-testid="worktree-create"
+            @click="onCreateWorktree(closeBranches)"
+          >
+            <Plus :size="13" :stroke-width="2" />
+            <span>{{ t('worktree.create') }}</span>
+          </button>
         </div>
       </div>
 
@@ -1252,5 +1291,57 @@ onUnmounted(() => {
   text-align: center;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+/* worktree の行とゴミ箱（#478）。ゴミ箱はなぞった行にだけ出す。 */
+.worktree-row {
+  display: flex;
+  align-items: center;
+}
+
+.worktree-row .worktree-option {
+  flex: 1;
+  min-width: 0;
+}
+
+.worktree-remove {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.worktree-row:hover .worktree-remove,
+.worktree-remove:focus-visible {
+  visibility: visible;
+}
+
+.worktree-remove:hover {
+  color: var(--danger);
+}
+
+/* 一覧の下に置く操作の行（worktree の作成、#478）。 */
+.dropdown-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dropdown-action:hover {
+  background: var(--tab-hover-bg);
 }
 </style>

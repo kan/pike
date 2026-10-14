@@ -1,3 +1,5 @@
+pub mod worktree;
+
 use crate::cache::ProbeRegistry;
 use crate::shell_probe::SSH_AUTH_SOCK;
 use crate::types::{ShellConfig, git_args, git_bash_prefix, install_key};
@@ -102,6 +104,9 @@ pub struct GitWorktree {
     /// 別の環境（WSL / Windows）で作られていて、このシェルの git からは開けない（#454）。
     /// `path` はこのシェルから見た形に直してあり、`git worktree repair` に渡せる。
     pub needs_repair: bool,
+    /// `git worktree lock` されていれば、その理由（理由が無ければ空文字）。削除の確認で
+    /// 知らせる（#478。Claude Code はエージェントの作業中の worktree を lock する）。
+    pub locked: Option<String>,
 }
 
 fn truncate_diff(output: String) -> String {
@@ -1090,6 +1095,7 @@ struct WorktreeRecord {
     is_bare: bool,
     is_detached: bool,
     is_prunable: bool,
+    locked: Option<String>,
 }
 
 /// 各エントリと、git がその場所へ届かなかったか（`prunable`）の組を返す。
@@ -1111,6 +1117,7 @@ fn parse_worktrees(output: &str) -> Vec<(GitWorktree, bool)> {
                 is_detached: rec.is_detached,
                 is_main: false,
                 needs_repair: false,
+                locked: rec.locked.take(),
             };
             worktrees.push((worktree, rec.is_prunable));
         }
@@ -1133,8 +1140,12 @@ fn parse_worktrees(output: &str) -> Vec<(GitWorktree, bool)> {
             rec.is_detached = true;
         } else if line == "prunable" || line.starts_with("prunable ") {
             rec.is_prunable = true;
+        } else if line == "locked" {
+            // lock されていても worktree としては有効（一覧から落とさない）。
+            rec.locked = Some(String::new());
+        } else if let Some(reason) = line.strip_prefix("locked ") {
+            rec.locked = Some(reason.to_owned());
         }
-        // `locked` annotations are ignored (a locked worktree is still valid).
     }
     // Final record may not be followed by a trailing blank line.
     flush(&mut rec, &mut worktrees);
@@ -2168,6 +2179,30 @@ detached
         assert_eq!(wts[2].path, "/home/user/repo-det");
         assert!(wts[2].branch.is_none());
         assert!(wts[2].is_detached);
+    }
+
+    /// lock は理由ごと拾い、一覧からは落とさない（#478 の削除の確認で知らせる）。
+    #[test]
+    fn parses_locked_worktrees() {
+        let out = "worktree /r
+HEAD aaa
+branch refs/heads/main
+
+worktree /r/.claude/worktrees/agent
+HEAD bbb
+branch refs/heads/worktree-agent
+locked claude agent agent-1
+
+worktree /r-wt/plain
+HEAD ccc
+branch refs/heads/plain
+locked
+";
+        let wts = listed(out);
+        assert_eq!(wts.len(), 3);
+        assert_eq!(wts[0].locked, None);
+        assert_eq!(wts[1].locked.as_deref(), Some("claude agent agent-1"));
+        assert_eq!(wts[2].locked.as_deref(), Some(""));
     }
 
     #[test]

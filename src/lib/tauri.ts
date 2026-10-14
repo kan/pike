@@ -12,6 +12,8 @@ import type {
   GitNetworkResult,
   GitStatusResult,
   GitWorktree,
+  GitWorktreeAdded,
+  GitWorktreeRemoved,
   PullOption,
   PushOption,
 } from '../types/git'
@@ -617,6 +619,37 @@ export async function gitBranchList(root: string, shell: ShellType): Promise<Git
 
 export async function gitWorktreeList(root: string, shell: ShellType): Promise<GitWorktree[]> {
   return invoke<GitWorktree[]>('git_worktree_list', { root, shell })
+}
+
+/**
+ * worktree を新しいブランチで作る（#478）。`root` は main の worktree、`include` は持っていく
+ * gitignore 済みのファイルのパターン。ブランチや置き場所が既にあるときは `'branch-exists'` /
+ * `'path-exists'` で reject する。
+ */
+export async function gitWorktreeAdd(
+  root: string,
+  shell: ShellType,
+  path: string,
+  branch: string,
+  base: string,
+  include: string[],
+): Promise<GitWorktreeAdded> {
+  return invoke<GitWorktreeAdded>('git_worktree_add', { root, shell, path, branch, base, include })
+}
+
+/**
+ * worktree を消す（#478）。`force` は未コミットの変更があっても消す、`locked` は lock を越えて
+ * 消す。`branch` を渡すと `git branch -d` も行う（消せなければ `branchKept` に理由が入る）。
+ */
+export async function gitWorktreeRemove(
+  root: string,
+  shell: ShellType,
+  path: string,
+  force: boolean,
+  locked: boolean,
+  branch: string | null,
+): Promise<GitWorktreeRemoved> {
+  return invoke<GitWorktreeRemoved>('git_worktree_remove', { root, shell, path, force, locked, branch })
 }
 
 export async function gitCheckout(root: string, shell: ShellType, branch: string): Promise<void> {
