@@ -214,6 +214,11 @@ Pike から新しいブランチの worktree を作れます。入口は 2 つ�
 
 ダイアログでは次のものを決めます。
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="img/worktree-create-light.png">
+  <img alt="worktree の作成ダイアログ" src="img/worktree-create.png">
+</picture>
+
 - **名前**：新しいブランチの名前になります。worktree のディレクトリ名は、名前の `/` を `-` に置き換えたものです（`feature/login` なら `feature-login`）。同じ名前のブランチや、作成先に同じ名前のディレクトリが既にあるときは作れません。
 - **ベースブランチ**：新しいブランチの起点です。既定は今いるブランチで、worktree を切り替えているあいだはその worktree のブランチです。検索欄に文字を入れると、リモートのブランチも候補に出ます。
 - **作成先**：設定から決まった場所を表示します。ダイアログでは変えられません。→ [設定（全般）](settings.md#全般)

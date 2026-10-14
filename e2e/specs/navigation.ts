@@ -38,6 +38,8 @@ const WORKTREES = [
     isBare: false,
     isDetached: false,
     isMain: true,
+    needsRepair: false,
+    locked: null,
   },
   {
     path: 'C:/Users/dev/demo-app-feature',
@@ -46,6 +48,8 @@ const WORKTREES = [
     isBare: false,
     isDetached: false,
     isMain: false,
+    needsRepair: false,
+    locked: null,
   },
 ]
 
@@ -64,6 +68,53 @@ describe('screenshots: worktree selector', () => {
       await selector.click()
       await $('.branch-dropdown').waitForDisplayed({ timeout: 10_000 })
       await shoot('worktree-selector', lang, theme)
+    })
+  }
+})
+
+// --- worktree の作成ダイアログ（#478）---------------------------------------
+const CREATE_GIT_STATUS = {
+  branch: 'main',
+  head: 'a1b2c3d',
+  isDirty: false,
+  staged: [],
+  unstaged: [],
+  conflicted: [],
+  ahead: 0,
+  behind: 0,
+}
+
+describe('screenshots: worktree create dialog', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`worktree-create ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await mockInvoke('git_worktree_list', WORKTREES)
+      // ダイアログはブランチ一覧を読み、リモートの更新（fetch）も走らせる。素通しさせると
+      // 実在しない擬似ルートで git が失敗し、一覧が空になる。
+      await mockInvoke('git_branch_list', BRANCHES)
+      await mockInvoke('git_status', CREATE_GIT_STATUS)
+      await mockInvoke('git_log', [])
+      await mockInvoke('git_fetch', null)
+      await setFakeProject()
+      await openEditor({ path: 'src/App.vue', content: APP_VUE })
+      // 作成の入口は git のリポジトリでだけ開く（`openCreateDialog` が status を見る）。
+      await setGitStatus(CREATE_GIT_STATUS)
+      await loadWorktrees()
+      const selector = await $('[data-testid="worktree-selector"]')
+      await selector.waitForDisplayed({ timeout: 10_000 })
+      await selector.click()
+      const create = await $('[data-testid="worktree-create"]')
+      await create.waitForDisplayed({ timeout: 10_000 })
+      await create.click()
+      const dialog = await $('[data-testid="create-worktree-dialog"]')
+      await dialog.waitForDisplayed({ timeout: 10_000 })
+      await $('#worktree-name').setValue('feature/login')
+      // ブランチの一覧（loadBranches → refreshRemoteBranches）が出そろうのを待つ。
+      await browser.waitUntil(async () => (await $$('[data-testid="create-worktree-dialog"] .branch-option').length) >= 2, {
+        timeout: 10_000,
+        timeoutMsg: 'branch list in the create dialog did not load',
+      })
+      await shoot('worktree-create', lang, theme)
     })
   }
 })

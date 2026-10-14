@@ -45,6 +45,7 @@ MAP=(
   "markdown-preview:markdown-preview"
   "image-viewer:image-viewer"
   "worktree-selector:worktree-selector"
+  "worktree-create:worktree-create"
   "branch-switcher:branch-switcher"
   "screen-layout:screen-layout"
   "global-editor:global-editor"
