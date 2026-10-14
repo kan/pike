@@ -517,9 +517,13 @@ const markers = computed(() => {
 })
 
 function iconTitle(item: IconDef) {
+  // 開けない理由は名前のあとに添える（#477。押しても何も起きない理由がそこで読める）。
+  const notes = [
+    markers.value[item.panel]?.title,
+    sidebar.panelBlocked(item.panel) ? t('sidebar.gitBlockedByBrowser') : undefined,
+  ].filter(Boolean)
   const base = t(item.labelKey)
-  const marker = markers.value[item.panel]
-  return marker ? `${base} (${marker.title})` : base
+  return notes.length > 0 ? `${base} (${notes.join(' / ')})` : base
 }
 
 let startWidth = 0
@@ -557,11 +561,13 @@ onUnmounted(() => {
         class="icon-button"
         :class="{
           active: sidebar.activePanel === item.panel,
+          blocked: sidebar.panelBlocked(item.panel),
           dragging: iconDragId === item.panel,
           'drop-top': iconDrop?.panel === item.panel && iconDrop.side === 'top',
           'drop-bottom': iconDrop?.panel === item.panel && iconDrop.side === 'bottom',
         }"
         :title="iconTitle(item)"
+        :aria-disabled="sidebar.panelBlocked(item.panel) || undefined"
         draggable="true"
         @click="sidebar.togglePanel(item.panel)"
         @contextmenu.prevent.stop="openIconMenu($event, item.panel)"
@@ -988,6 +994,14 @@ onUnmounted(() => {
 
 .icon-button.active {
   opacity: 1;
+}
+
+/* 今は開けないパネル（#477）。`disabled` にはしない: 右クリックの並べ替えとドラッグが
+   効かなくなる。押されたら `setPanel` が理由を出して断る。 */
+.icon-button.blocked,
+.icon-button.blocked:hover {
+  opacity: 0.25;
+  cursor: default;
 }
 
 /* ドラッグでの並べ替え（#364）。落とす位置は上下の端の線で示す（タブバーと同じ）。 */

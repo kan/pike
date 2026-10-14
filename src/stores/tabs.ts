@@ -249,6 +249,21 @@ export const useTabStore = defineStore('tabs', () => {
   }
 
   /**
+   * ブラウザのタブ（#368）がどちらかのペインに描かれているか（#477）。そのあいだ Git パネルは
+   * 開けない（`stores/sidebar.ts` の `panelBlocked`）。子 webview は Pike の DOM より手前に
+   * 描かれるので、Git パネルを開くとページを隠すしかなく、開けっぱなしだとずっと見えない。
+   *
+   * 見るのはペインごとの選択（`isTabVisible` と同じ規則）で、その id の種別を `tabs` から引く。
+   */
+  const browserTabVisible = computed(() =>
+    PANES.some((pane) => {
+      if (pane === 'right' && !split.value) return false
+      const id = activeByPane.value[pane]
+      return !!id && tabs.value.find((t) => t.id === id)?.kind === 'browser'
+    }),
+  )
+
+  /**
    * そのペインで選んでいるタブ（#308）。タブバーの強調とスクロールの追従が読む。
    * **`activeTabId` を読まないこと**: フォーカスの無いペインのバーまで「選択なし」に
    * なり、そちらのタブがどれも強調されなくなる。
@@ -1533,6 +1548,7 @@ export const useTabStore = defineStore('tabs', () => {
     paneOf,
     isTabVisible,
     isTabFocused,
+    browserTabVisible,
     activeInPane,
     toggleSplit,
     moveTabToPane,

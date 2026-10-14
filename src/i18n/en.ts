@@ -35,6 +35,7 @@ export default {
   'palette.help': 'Help',
   'sidebar.files': 'Files',
   'sidebar.git': 'Git',
+  'sidebar.gitBlockedByBrowser': 'Not available while a browser tab is shown',
   'sidebar.search': 'Search in Project',
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'Projects',
