@@ -11,6 +11,7 @@ use crate::agent_sessions::{AgentSession, shorten};
 use crate::types::{ShellConfig, validate_slug};
 use serde::Deserialize;
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -18,21 +19,26 @@ use std::time::UNIX_EPOCH;
 /// short `-p` runs (Pike's own `/usage` probe, hooks, review agents) that are
 /// rejected after a line or two, so the scan budget outruns the result budget.
 const MAX_SCAN_FILES: usize = 200;
-/// Bytes read from one transcript. The scan normally stops after a handful of
-/// lines; this bounds the exception (a session Claude never titled), which
-/// matters most for WSL, where the files come over the `\\wsl.localhost` share.
-const MAX_TRANSCRIPT_BYTES: usize = 1 << 20;
+/// 先頭から読む量の上限。普通は数行目の `entrypoint` と最初の題の行で止まるので、これは
+/// 題を持たない記録の歯止め。WSL では `\\wsl.localhost` 越しに読む。
+const MAX_HEAD_BYTES: u64 = 1 << 20;
+/// 題を探すために末尾から最初に読む量（#476）。題になる行（`custom-title` / `last-prompt`）は
+/// ターンごとに追記されるので、最新のものはたいてい末尾の近くにある。
+const TAIL_FIRST_BYTES: u64 = 64 * 1024;
+/// 末尾から遡る量の上限。最後のターンの出力が大きく、末尾の窓に題の行が無いときは、
+/// 窓を倍にしながらここまで遡る。
+const MAX_TAIL_BYTES: u64 = 2 << 20;
 /// Lines above this are tool results and pasted files, never a title record.
 const MAX_TITLE_LINE_BYTES: usize = 4096;
 const ENTRYPOINT_PAT: &str = "\"entrypoint\":\"";
 const GIT_BRANCH_PAT: &str = "\"gitBranch\":\"";
 
-/// `{"type":"ai-title","aiTitle":…}` / `{"type":"last-prompt","lastPrompt":…}`.
-/// Both are small standalone records whose values carry escapes and newlines,
-/// so — unlike the fields read by [`raw_str_field`] — they are worth parsing.
+/// 題になる行（`custom-title` / `ai-title` / `last-prompt`）。どれも小さな独立した行で、
+/// 値にエスケープや改行を含むので、[`raw_str_field`] で拾う欄と違って解析する価値がある。
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TitleLine {
+    custom_title: Option<String>,
     ai_title: Option<String>,
     last_prompt: Option<String>,
 }
@@ -48,32 +54,66 @@ fn raw_str_field<'a>(line: &'a str, pat: &str) -> Option<&'a str> {
 
 /// What the picker shows, accumulated one line at a time so the reader can walk
 /// a transcript on a single reused buffer instead of allocating per line.
+///
+/// **記録は 2 か所から読む**（#476。[`read_session`]）。対話のセッションか（`entrypoint`）と
+/// ブランチは先頭の数行にあり、題になる行はターンごとに追記されるので末尾にある。
 #[derive(Default)]
 struct TranscriptScan {
     interactive: bool,
     git_branch: Option<String>,
+    custom_title: Option<String>,
     ai_title: Option<String>,
     last_prompt: Option<String>,
 }
 
 impl TranscriptScan {
-    /// Returns `false` once there is nothing left to learn from the transcript.
-    fn add_line(&mut self, line: &str) -> bool {
-        // ai-title / last-prompt are small standalone records whose values carry
-        // escapes and newlines, so they are worth a real parse — behind a length
-        // gate that keeps the search off the huge lines around them.
-        if line.len() <= MAX_TITLE_LINE_BYTES
-            && (line.contains("\"ai-title\"") || line.contains("\"last-prompt\""))
-            && let Ok(t) = serde_json::from_str::<TitleLine>(line)
+    /// 題になる行なら覚える。**どれも後の行で上書きする**（`custom-title` は名前を付け直す
+    /// たび、`last-prompt` はターンごとに書き足されるので、最新の行が今の名前）。
+    ///
+    /// **本文の無い行は空振りとして飛ばす。** 最近の Claude Code は `last-prompt` を
+    /// `{"type":"last-prompt","leafUuid":…}` の形でも書き、`lastPrompt` を持たない。
+    fn add_title_line(&mut self, line: &str) {
+        // 長さで先に弾く: 周りの行はツールの結果や貼り付けたファイルで数 MB になる。
+        if line.len() > MAX_TITLE_LINE_BYTES
+            || !(line.contains("\"custom-title\"")
+                || line.contains("\"ai-title\"")
+                || line.contains("\"last-prompt\""))
         {
-            // The title is written once and never revised; the prompt is
-            // rewritten every turn, so the latest one is the interesting one.
-            if self.ai_title.is_none() {
-                self.ai_title = t.ai_title;
+            return;
+        }
+        let Ok(t) = serde_json::from_str::<TitleLine>(line) else {
+            return;
+        };
+        let keep = |slot: &mut Option<String>, value: Option<String>| {
+            if let Some(v) = value.filter(|v| !v.trim().is_empty()) {
+                *slot = Some(v);
             }
-            if t.last_prompt.is_some() {
-                self.last_prompt = t.last_prompt;
-            }
+        };
+        keep(&mut self.custom_title, t.custom_title);
+        keep(&mut self.ai_title, t.ai_title);
+        keep(&mut self.last_prompt, t.last_prompt);
+    }
+
+    fn has_title(&self) -> bool {
+        self.custom_title.is_some() || self.ai_title.is_some() || self.last_prompt.is_some()
+    }
+
+    /// 末尾から読んだ窓の題で上書きする（あちらのほうが新しい）。
+    fn take_titles_from(&mut self, newer: TranscriptScan) {
+        self.custom_title = newer.custom_title.or(self.custom_title.take());
+        self.ai_title = newer.ai_title.or(self.ai_title.take());
+        self.last_prompt = newer.last_prompt.or(self.last_prompt.take());
+    }
+
+    /// 先頭から読む 1 行。`false` を返したら先頭はもう読まなくてよい: 対話のセッションでは
+    /// ないと分かったか、対話のセッションで題も 1 つ取れた。
+    ///
+    /// **題が取れるまで読み続ける**（#476 の前と同じ止め方）。`ai-title` は最初の利用者の行の
+    /// 数行あとに 1 度だけ書かれるので、末尾の窓には入らないことが多い。
+    fn add_head_line(&mut self, line: &str) -> bool {
+        self.add_title_line(line);
+        if self.git_branch.is_none() {
+            self.git_branch = raw_str_field(line, GIT_BRANCH_PAT).map(str::to_owned);
         }
         if !self.interactive
             && let Some(entrypoint) = raw_str_field(line, ENTRYPOINT_PAT)
@@ -85,27 +125,52 @@ impl TranscriptScan {
             }
             self.interactive = true;
         }
-        if self.git_branch.is_none() {
-            self.git_branch = raw_str_field(line, GIT_BRANCH_PAT).map(str::to_owned);
-        }
-        // Claude writes its title a handful of lines in, so stopping there keeps
-        // a multi-MB session as cheap as a short one. Untitled sessions fall
-        // through to the byte budget in `read_session`.
-        !(self.interactive && self.ai_title.is_some())
+        !(self.interactive && self.has_title())
     }
 
     /// `None` means the session is not offered in the picker: either it is not
     /// an interactive run, or there is nothing to label it with.
+    ///
+    /// **題の優先は `custom-title` → `ai-title` → `last-prompt`**（#476）。`custom-title` は
+    /// 利用者やスキルが付けた名前で、`claude --resume` のピッカーもこれを出す。
     fn finish(self) -> Option<(String, Option<String>)> {
         if !self.interactive {
             return None;
         }
-        let title = shorten(&self.ai_title.or(self.last_prompt)?);
+        let title = self.custom_title.or(self.ai_title).or(self.last_prompt)?;
+        let title = shorten(&title);
         if title.is_empty() {
             return None;
         }
         Some((title, self.git_branch))
     }
+}
+
+/// `[start, end)` の範囲にある題の行を読む。
+///
+/// **1 バイト手前から読み、最初の 1 行を捨てる。** `start` が行の頭なら捨てるのは直前の
+/// 改行だけで、行の途中なら切れた残りを捨てる。先頭の読み取りが数えた位置（`head`）は
+/// CRLF や読めないバイトで実際の位置とずれうるので、行の頭だと決めつけない。
+///
+/// **`end` をまたぐ行は最後まで読む**（題の行の長さぶんだけ余分に読む）。切ると、後ろの
+/// 窓では途中から始まるので捨てられ、前の窓では壊れた JSON になって、どちらでも拾えない。
+fn scan_titles(file: &mut fs::File, start: u64, end: u64) -> TranscriptScan {
+    let mut scan = TranscriptScan::default();
+    let from = start.saturating_sub(1);
+    if file.seek(SeekFrom::Start(from)).is_err() {
+        return scan;
+    }
+    let limit = end - from + MAX_TITLE_LINE_BYTES as u64 + 1;
+    let mut first = start > 0;
+    crate::types::for_each_line(Read::take(file, limit), |line| {
+        if first {
+            first = false;
+        } else {
+            scan.add_title_line(line);
+        }
+        true
+    });
+    scan
 }
 
 /// `resume_dir` は置き場で決まる（[`session_dirs`]）ので、どこから読んだかを知っている
@@ -116,19 +181,41 @@ fn read_session(path: &Path, modified_at: u64, resume_dir: Option<&str>) -> Opti
     let id = path.file_stem()?.to_str()?;
     validate_slug(id, "session id").ok()?;
 
-    // バッファを使い回す読み方は `types::for_each_line`（#382 でここから切り出した。
-    // 同じ形を 4 つの利用者が手書きしていた）。
+    let mut file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
     let mut scan = TranscriptScan::default();
-    let mut read = 0;
-    crate::types::for_each_line(fs::File::open(path).ok()?, |line| {
-        // 上限は**読む前**に見る（元の `while read < MAX` と同じ順）。上限をまたいだ
-        // 1 行はそのまま処理して、次の行で止まる。
-        if read >= MAX_TRANSCRIPT_BYTES {
+
+    // 1. 先頭: 対話のセッションか、ブランチ、最初の題。バッファを使い回す読み方は
+    //    `types::for_each_line`（#382）。
+    let mut head = 0u64;
+    crate::types::for_each_line(&mut file, |line| {
+        // 上限は**読む前**に見る。上限をまたいだ 1 行はそのまま処理して、次の行で止まる。
+        if head >= MAX_HEAD_BYTES {
             return false;
         }
-        read += line.len() + 1;
-        scan.add_line(line)
+        head += line.len() as u64 + 1;
+        scan.add_head_line(line)
     });
+    if !scan.interactive {
+        return None;
+    }
+
+    // 2. 末尾: 新しい題（#476）。**先頭から読むだけでは届かない**: 作業が長く続くセッション
+    //    （worktree へ移るものが典型）は、`custom-title` や本文付きの `last-prompt` が数 MB 先に
+    //    しか無い。末尾の窓に題の行が無ければ（最後のターンの出力が大きい）、窓を倍にして
+    //    遡る。先頭で読んだところまでは遡らない。
+    let mut end = len;
+    let mut window = TAIL_FIRST_BYTES;
+    while end > head && len - end < MAX_TAIL_BYTES {
+        let start = end.saturating_sub(window).max(head);
+        let newer = scan_titles(&mut file, start, end);
+        if newer.has_title() {
+            scan.take_titles_from(newer);
+            break;
+        }
+        end = start;
+        window *= 2;
+    }
 
     let (title, git_branch) = scan.finish()?;
     Some(AgentSession {
@@ -263,10 +350,11 @@ pub(crate) fn list_sessions(
 #[cfg(test)]
 mod tests {
     use super::{
-        ENTRYPOINT_PAT, GIT_BRANCH_PAT, SessionDir, TranscriptScan, raw_str_field, session_dirs,
-        shorten,
+        AgentSession, ENTRYPOINT_PAT, GIT_BRANCH_PAT, MAX_HEAD_BYTES, SessionDir, TranscriptScan,
+        raw_str_field, read_session, session_dirs, shorten,
     };
     use crate::agent_sessions::MAX_TITLE_CHARS;
+    use std::fs;
 
     fn dir(slug: &str, resume_dir: Option<&str>) -> SessionDir {
         SessionDir {
@@ -341,12 +429,17 @@ mod tests {
         assert_eq!(session_dirs("/r", &[], false), [dir("-r", None)]);
     }
 
+    /// `read_session` と同じ読み方: 先頭の行を `entrypoint` が出るまで読み、残りを題として読む。
     fn scan(lines: &[&str]) -> Option<(String, Option<String>)> {
         let mut scan = TranscriptScan::default();
-        for line in lines {
-            if !scan.add_line(line) {
+        let mut rest = lines.iter();
+        for line in rest.by_ref() {
+            if !scan.add_head_line(line) {
                 break;
             }
+        }
+        for line in rest {
+            scan.add_title_line(line);
         }
         scan.finish()
     }
@@ -394,6 +487,106 @@ mod tests {
     fn skips_transcripts_without_a_title() {
         assert_eq!(scan(&[USER_LINE]), None);
         assert_eq!(scan(&[]), None);
+    }
+
+    #[test]
+    fn prefers_the_latest_custom_title() {
+        // `claude --resume` のピッカーと同じ名前（#476）。付け直したら新しいほう。
+        let got = scan(&[
+            USER_LINE,
+            r#"{"type":"ai-title","aiTitle":"Generated"}"#,
+            r#"{"type":"last-prompt","lastPrompt":"ask"}"#,
+            r#"{"type":"custom-title","customTitle":"COM-565 first"}"#,
+            r#"{"type":"agent-name","agentName":"COM-565 first"}"#,
+            r#"{"type":"custom-title","customTitle":"COM-565 renamed"}"#,
+        ]);
+        assert_eq!(got.unwrap().0, "COM-565 renamed");
+    }
+
+    #[test]
+    fn skips_last_prompt_lines_without_text() {
+        // 最近の記録は本文の無い `last-prompt` も書く（#476）。空振りとして前の値を残す。
+        let got = scan(&[
+            USER_LINE,
+            r#"{"type":"last-prompt","lastPrompt":"real ask"}"#,
+            r#"{"type":"last-prompt","leafUuid":"u1","sessionId":"s1"}"#,
+            r#"{"type":"last-prompt","lastPrompt":"  "}"#,
+        ]);
+        assert_eq!(got.unwrap().0, "real ask");
+        let none = scan(&[USER_LINE, r#"{"type":"last-prompt","leafUuid":"u1"}"#]);
+        assert_eq!(none, None);
+    }
+
+    /// 書いた記録を `read_session` で読む（テストごとに別のディレクトリを作って消す）。
+    fn read_file(name: &str, content: &str) -> Option<AgentSession> {
+        let dir = std::env::temp_dir().join(format!("pike-sessions-{}-{name}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{name}.jsonl"));
+        fs::write(&path, content).unwrap();
+        let got = read_session(&path, 0, None);
+        let _ = fs::remove_dir_all(&dir);
+        got
+    }
+
+    /// 題の行を持たない、1KB ほどの行を `bytes` ぶん。
+    fn filler(bytes: usize) -> String {
+        let line = format!(r#"{{"type":"assistant","text":"{}"}}"#, "x".repeat(1000));
+        format!("{line}\n").repeat(bytes / line.len() + 1)
+    }
+
+    #[test]
+    fn reads_the_title_from_the_end_of_a_long_transcript() {
+        // 題の行が先頭の上限より後ろにしか無い記録（#476 の worktree へ移ったセッション）。
+        let content = format!(
+            "{USER_LINE}\n{}{}\n",
+            filler(MAX_HEAD_BYTES as usize + 10_000),
+            r#"{"type":"custom-title","customTitle":"COM-565 work"}"#
+        );
+        let got = read_file("long-session", &content).unwrap();
+        assert_eq!(got.title, "COM-565 work");
+        assert_eq!(got.git_branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn keeps_an_early_ai_title_of_a_long_transcript() {
+        // `ai-title` は最初に 1 度だけ書かれる。末尾に題の行が無くても、先頭で拾える。
+        let content = format!(
+            "{USER_LINE}\n{}\n{}",
+            r#"{"type":"ai-title","aiTitle":"Generated"}"#,
+            filler(3 << 20)
+        );
+        assert_eq!(
+            read_file("early-title", &content).unwrap().title,
+            "Generated"
+        );
+    }
+
+    #[test]
+    fn walks_back_past_a_large_last_turn() {
+        // 最後のターンの出力が末尾の最初の窓より大きい。題の行はその手前にある。
+        let content = format!(
+            "{USER_LINE}\n{}{}\n{}",
+            filler(MAX_HEAD_BYTES as usize + 10_000),
+            r#"{"type":"last-prompt","lastPrompt":"before the big output"}"#,
+            filler(300_000)
+        );
+        assert_eq!(
+            read_file("large-last-turn", &content).unwrap().title,
+            "before the big output"
+        );
+    }
+
+    #[test]
+    fn reads_titles_between_the_head_and_the_tail_of_a_short_transcript() {
+        let content = format!(
+            "{USER_LINE}\n{}\n{}\n",
+            r#"{"type":"assistant","text":"hello"}"#,
+            r#"{"type":"last-prompt","lastPrompt":"short ask"}"#
+        );
+        assert_eq!(
+            read_file("short-session", &content).unwrap().title,
+            "short ask"
+        );
     }
 
     #[test]
