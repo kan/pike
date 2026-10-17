@@ -12,7 +12,7 @@ import {
   setSearchQuery,
 } from '@codemirror/search'
 import { StateEffect } from '@codemirror/state'
-import type { EditorView, Panel, ViewUpdate } from '@codemirror/view'
+import { EditorView, type Panel, type ViewUpdate } from '@codemirror/view'
 
 // Inline SVG icons (Lucide-based, 16x16)
 const ICON = {
@@ -33,6 +33,82 @@ const ICON = {
 
 /** Expand the replace row of an already-open panel (what `Ctrl+H` sends). */
 const revealReplace = StateEffect.define<null>()
+
+/** 本文の上の余白の既定値（base theme の `.cm-content` の `padding: 4px 0` と同じ）。 */
+const CONTENT_PAD_TOP = 4
+/** パネルの下端と本文の 1 行目のあいだに空ける隙間。 */
+const PANEL_GAP = 4
+const SPACE_VAR = '--search-panel-space'
+
+/** 開いている検索パネルが本文の上端を覆っている高さ（view ごと。閉じていれば無い）。 */
+const panelCover = new WeakMap<EditorView, number>()
+
+/**
+ * 検索パネルが開いているあいだ、本文の上の余白をパネルの下端まで広げる（#480）。
+ *
+ * パネルは本文の上に浮かせている（`.cm-search-custom` の `position: absolute`）ので、
+ * CodeMirror の上部パネルの器は高さを持たず、本文が押し下げられない。そのままだと先頭まで
+ * スクロールしても 1 行目がパネルの裏に隠れる。VS Code の検索ウィジェットと同じく、
+ * 文書の先頭に余白を足して避ける（スクロールすれば本文はパネルの下を通る）。
+ *
+ * **高さは実測する。** 置換の行を開くと高くなり、コンフリクトの解消バーのような別の上部
+ * パネルが出ていると、本文の上端（scroller）がそのぶん下がって覆う高さが減る。
+ * 本文の余白を変えてもパネルと scroller の大きさは動かないので、測り直しはループしない。
+ *
+ * **先頭から離れているときは、余白の増減と同じだけスクロール位置をずらす。** ずらさないと
+ * 開閉のたびに見えている本文が余白のぶん上下に跳ねる（CodeMirror のスクロールの固定は
+ * 行の位置で数えるので、padding の変化を補わない）。先頭にいるときだけ本文を押し下げる。
+ */
+function trackPanelCover(view: EditorView, dom: HTMLElement): () => void {
+  let space = CONTENT_PAD_TOP
+  const apply = (cover: number | null) => {
+    if (cover === null) panelCover.delete(view)
+    else panelCover.set(view, cover)
+    // 整数にする。CodeMirror は padding を `parseInt` で読む（`documentPadding`）ので、
+    // 小数のままだと描かれた位置と測った位置がずれ、クリックや行番号が 1px 未満ずれる。
+    const next = cover === null ? CONTENT_PAD_TOP : Math.max(CONTENT_PAD_TOP, cover + PANEL_GAP)
+    if (next === space) return
+    const scroller = view.scrollDOM
+    const atTop = scroller.scrollTop === 0
+    if (cover === null) view.dom.style.removeProperty(SPACE_VAR)
+    else view.dom.style.setProperty(SPACE_VAR, `${next}px`)
+    if (!atTop) scroller.scrollTop += next - space
+    space = next
+    // 行番号の位置も CodeMirror が測った padding に従うので、測り直させる。
+    view.requestMeasure()
+  }
+  const measure = () => {
+    const panel = dom.getBoundingClientRect()
+    // タブが `v-show` で隠れているあいだは 0 で届く。見えたときは大きさが 0 から変わるので
+    // もう一度届く。
+    if (panel.height === 0) return
+    apply(Math.max(0, Math.ceil(panel.bottom - view.scrollDOM.getBoundingClientRect().top)))
+  }
+  // 開いた直後のフレームから効かせる（ResizeObserver の初回は非同期で、`mount()` の直後に
+  // 走る検索のスクロールに間に合わない）。`mount()` の時点でパネルは DOM にある。
+  measure()
+  const observer = new ResizeObserver(measure)
+  observer.observe(dom)
+  observer.observe(view.scrollDOM)
+  return () => {
+    observer.disconnect()
+    apply(null)
+  }
+}
+
+// **本文の上の余白はこの規則が常に持つ**（パネルが閉じていれば base theme と同じ 4px）。
+// 開いているあいだだけ効く class にしないのは、`.cm-editor` の class を CodeMirror が
+// 書き直すため。テーマで `.cm-content` の上の余白を変えるときは `CONTENT_PAD_TOP` も直す。
+const panelSpace = [
+  EditorView.theme({
+    '.cm-content': { paddingTop: `var(${SPACE_VAR}, ${CONTENT_PAD_TOP}px)` },
+  }),
+  // 「次の一致」へ飛んだ先がパネルの裏に入らないよう、スクロールで見せる範囲からも外す。
+  EditorView.scrollMargins.of((view) => {
+    const cover = panelCover.get(view)
+    return cover ? { top: cover + PANEL_GAP } : null
+  }),
+]
 
 function createSearchPanel(view: EditorView): Panel {
   let showReplace = false
@@ -281,13 +357,20 @@ function createSearchPanel(view: EditorView): Panel {
   }
   toggleReplaceBtn.addEventListener('click', () => setReplace(!showReplace))
 
+  let untrackCover: (() => void) | null = null
+
   return {
     dom,
     top: true,
     mount() {
+      untrackCover = trackPanelCover(view, dom)
       searchInput.focus()
       searchInput.select()
       requestAnimationFrame(() => commitQuery())
+    },
+    destroy() {
+      untrackCover?.()
+      if (matchInfoTimer) clearTimeout(matchInfoTimer)
     },
     update(update: ViewUpdate) {
       if (update.transactions.some((tr) => tr.effects.some((e) => e.is(revealReplace)))) {
@@ -302,7 +385,7 @@ function createSearchPanel(view: EditorView): Panel {
 
 // Export the configured search extension with custom panel
 export function editorSearch() {
-  return search({ createPanel: createSearchPanel, top: true })
+  return [search({ createPanel: createSearchPanel, top: true }), panelSpace]
 }
 
 /**
