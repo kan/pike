@@ -86,7 +86,11 @@ toml = "1.0"
 tauri-plugin-window-state = "2.4.1"
 font-kit = "0.14.3"
 tauri-plugin-single-instance = "2.4.2"
-tauri-plugin-updater = "2.10.1"
+# `zip` 機能（既定で有効）は外す。Windows で zip に包んだ更新（Tauri v1 形式）を展開する
+# ためのもので、Pike の更新は署名付きの `.exe` / `.msi` をそのまま置く（`tauri.conf.json` の
+# `createUpdaterArtifacts: true`）ので通らない。macOS の `.app.tar.gz` はこの機能に依らず展開する。
+# 外せば zip クレートが依存から消え、そちらの脆弱性（RUSTSEC-2026-0367〜0369）を抱えない。
+tauri-plugin-updater = { version = "2.10.1", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-process = "2.3.1"
 notify = "8"
 percent-encoding = "2"
