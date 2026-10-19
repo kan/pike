@@ -526,7 +526,7 @@ checksum = "82f4b26e751e711a5302649417f2da046dce6391b2ea30a4820f37462314f0b9"
 dependencies = [
  "semver",
  "serde",
- "toml 1.1.7+spec-1.1.0",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]
@@ -1072,7 +1072,7 @@ dependencies = [
  "cc",
  "memchr",
  "rustc_version",
- "toml 1.1.7+spec-1.1.0",
+ "toml 1.1.8+spec-1.1.0",
  "vswhom",
  "winreg 0.56.0",
 ]
@@ -3209,7 +3209,7 @@ dependencies = [
  "tauri-plugin-wdio-webdriver",
  "tauri-plugin-window-state",
  "tokio",
- "toml 1.1.7+spec-1.1.0",
+ "toml 1.1.8+spec-1.1.0",
  "uuid",
  "webview2-com",
  "window-vibrancy",
@@ -4343,7 +4343,7 @@ dependencies = [
  "cfg-expr 0.20.10",
  "heck 0.5.0",
  "pkg-config",
- "toml 1.1.7+spec-1.1.0",
+ "toml 1.1.8+spec-1.1.0",
  "version-compare",
 ]
 
@@ -4779,7 +4779,7 @@ dependencies = [
  "serde_with",
  "swift-rs",
  "thiserror 2.0.21",
- "toml 1.1.7+spec-1.1.0",
+ "toml 1.1.8+spec-1.1.0",
  "url",
  "urlpattern",
  "uuid",
@@ -4794,7 +4794,7 @@ checksum = "cc65d45c68858bfe420dd29e834b5d15dbecf8a07a8a16cf4d532c7b1f69d4b6"
 dependencies = [
  "dunce",
  "embed-resource",
- "toml 1.1.7+spec-1.1.0",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]
@@ -4984,9 +4984,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.7+spec-1.1.0"
+version = "1.1.8+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7874cd34dd99040fc24e30923aa64a60a81ff3ddfe2b8129ccc84ba24949deed"
+checksum = "20489e00e4d8741d6be680764cc12e270655e375a20d1011e844a9c3379e678d"
 dependencies = [
  "indexmap 2.14.2",
  "serde_core",
@@ -5053,9 +5053,9 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.1.4+spec-1.1.0"
+version = "1.1.5+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bed810ee007d8e7f9cf20b4774e7198142fa27186e0f805871da7f3c39eaf333"
+checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow 1.0.4",
 ]
