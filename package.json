@@ -65,7 +65,7 @@
     "dompurify": "^3.4.16",
     "js-beautify": "^2.0.3",
     "lucide-vue-next": "^1.0.0",
-    "marked": "^18.0.9",
+    "marked": "^18.1.1",
     "material-file-icons": "^2.4.0",
     "mermaid": "^12.2.0",
     "pinia": "^4.0.3",
