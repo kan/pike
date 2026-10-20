@@ -4,10 +4,19 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # 既定の 5 件では、group を含めて PR が 5 件たまった時点で後続の更新が止まる
+    open-pull-requests-limit: 10
     cooldown:
       default-days: 7
       semver-major-days: 14
     ignore:
+      # WebdriverIO v10 は @wdio/tauri-service（peer が webdriverio ^9）が対応するまで
+      # 上げられない。単独の major PR（#491）は一式の major を混在させるだけなので止め、
+      # 移行は #494 でまとめて行う。#494 が片付いたらこの 2 件を外す
+      - dependency-name: "@wdio/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "webdriverio"
+        update-types: ["version-update:semver-major"]
       # TypeScript 7.0 はネイティブ (Go) 実装で typescript/lib/tsc を公開しないため、
       # それを require する vue-tsc (Volar) が起動できない。
       # Volar が使えるプログラマティック API は TS 7.1 で安定予定なので、
@@ -31,9 +40,16 @@ updates:
     directory: "/src-tauri"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
     cooldown:
       default-days: 7
       semver-major-days: 14
+    ignore:
+      # windows-core は wry が使う webview2-com と同じ版に揃える必要がある
+      # （Cargo.toml の webview2-com の行のコメント）。単独で上げると COM 型が別物になる。
+      # webview2-com が 0.100 系へ上がったら外し、webview2-com と一緒に上げる
+      - dependency-name: "windows-core"
+        versions: [">= 0.100"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
