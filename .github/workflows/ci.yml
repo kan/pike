@@ -26,26 +26,26 @@ jobs:
     steps:
       - if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
           components: clippy, rustfmt
 
-      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: swatinem/rust-cache@v2.9.2
         with:
           workspaces: "./src-tauri -> target"
           # OS ごとに分ける（分けないと 2 ジョブが同じキャッシュを取り合う）
           key: ${{ matrix.os }}
 
       # 各ステップの中身は justfile を正本にする（ローカルと同じコマンドが走る）
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      - uses: extractions/setup-just@v4.0.0
 
       - name: Download rg sidecar
         run: just fetch-rg

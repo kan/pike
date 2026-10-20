@@ -30,7 +30,7 @@ paths:
   直接呼ぶとファイルの実行ビットに依存するが、**Windows の Git Bash は shebang があれば実行ビットが
   無くても走らせてしまう**ので、Windows では気付けず macOS で `Permission denied` になる。
   実行ビットも立ててあるが、呼び方のほうが本命
-- CI での just 導入は `extractions/setup-just`（他の action と同じく SHA ピン留め）
+- CI での just 導入は `extractions/setup-just`（他の action と同じく lockfile で固定。下の「CI/CD」）
 
 ## クレジット（#420）
 - About（`components/AboutDialog.vue`）に出す依存のライセンス一覧は `scripts/gen-credits.mjs` が作る `src/assets/credits.json`。**生成物を commit する**（ビルドのたびに作ると、ビルドが cargo のレジストリと node_modules の中身に依存する）
@@ -197,4 +197,11 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   - `macos-latest` は Apple Silicon なので**ホストのトリプルがそのまま `aarch64-apple-darwin`**。クロスビルドの指定は要らず、`just fetch-rg` も `rustc -vV` からその名前でサイドカーを取る。Intel 向けは配布しない
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
 - `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
+
+### action の固定（workflow lockfile）
+- **action は `.github/workflows/actions.lock` でコミットに固定する**（GitHub Actions の workflow lockfile、public preview）。生成と更新は GitHub CLI の拡張 `gh actions-lock`（`gh extension install github/gh-actions-lock`）で行い、**手で編集しない**。推移的な依存（composite action が呼ぶ action。今は `extractions/setup-just` の中の `extractions/setup-crate`）と、参照先リポジトリの ID も記録される
+- **`uses:` には SHA を書かず、タグかブランチで書く**（`actions/checkout@v7.0.1`）。SHA を直接書くと `sha-as-ref` として lockfile に入らず、生成そのものが失敗する（解決できない参照が 1 つでもあると何も書き込まれない）
+- **`uses:` を足す・消す・ワークフローを足したら `gh actions-lock` を流し直し、lockfile も同じコミットに入れる。** 載っていない参照があると、そのワークフローはジョブが始まる前に `startup_failure` で止まる。コミット前の確認は `gh actions-lock --verify`（書き込まずに検査する。ネットワークに出る）
+- **タグの更新は Dependabot が lockfile ごと上げる**（github-actions の更新 PR が対応するエントリも作り直す）。`@v4` のような部分版は生成時に完全な版（`@v4.0.0`）へ書き換わる
+- **`dtolnay/rust-toolchain` は `@master` で参照する**（ツールチェーンは `toolchain: stable` の入力で選ぶ）。この action の `stable` などのブランチは上流で作り直されるため、以前に固定した SHA がどのブランチにもタグにも無くなっていて、lockfile が「上流の履歴に無いコミット」として拒否した。ブランチ参照は Dependabot が追わないので、上げるときは `gh actions-lock --relock` で全参照を解決し直し、`commit` の差分を確かめてからコミットする
 

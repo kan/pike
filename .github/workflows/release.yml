@@ -16,7 +16,7 @@ jobs:
     outputs:
       release-id: ${{ steps.draft.outputs.id }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
 
       - name: Create the draft
         id: draft
@@ -76,21 +76,21 @@ jobs:
             os: macos-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: lts/*
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
 
       # rust-cache は置かない（#505）。Actions のキャッシュは保存した ref とデフォルト
       # ブランチからしか読めず、リリースは毎回新しいタグで走るので、保存の時間だけがかかる。
 
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      - uses: extractions/setup-just@v4.0.0
 
       - name: Download rg sidecar
         run: just fetch-rg
@@ -111,7 +111,7 @@ jobs:
           chmod 600 ~/.private_keys/AuthKey.p8
           echo "APPLE_API_KEY_PATH=$HOME/.private_keys/AuthKey.p8" >> "$GITHUB_ENV"
 
-      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+      - uses: tauri-apps/tauri-action@v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -153,7 +153,7 @@ jobs:
       # グロブは `.msi.zip` や `.sig` を拾わない形にしてある。理由は `.claude/rules/build.md`。
       - name: Attest the Windows artifacts
         if: runner.os == 'Windows'
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        uses: actions/attest@v4.2.2
         with:
           subject-path: |
             src-tauri/target/release/bundle/nsis/*-setup.exe
@@ -199,7 +199,7 @@ jobs:
       # 行うので、名前が違っても通る。
       - name: Attest the macOS artifacts
         if: runner.os == 'macOS'
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        uses: actions/attest@v4.2.2
         with:
           subject-path: |
             src-tauri/target/release/bundle/dmg/*.dmg
@@ -213,7 +213,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
 
       # Node はランナーに入っているもので足りる（組み込みのモジュールしか使わない）。
       - name: Build and upload latest.json
