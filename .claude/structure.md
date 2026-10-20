@@ -21,7 +21,8 @@ pike/
 │   ├── check-shortcuts.ts     # マニュアルの早見表と実装の割り当ての照合（just check-shortcuts、#280）
 │   ├── gen-credits.mjs        # 依存のライセンス一覧を src/assets/credits.json に作る（just credits / check-credits、#420）
 │   ├── make-icons.sh          # アイコン一式を icon.svg から作り直す（#256）
-│   └── package-portable.sh    # ポータブル版の zip を作る（just package-portable、#451）
+│   ├── package-portable.sh    # ポータブル版の zip を作る（just package-portable、#451）
+│   └── updater-json.mjs       # ドラフトから latest.json を組み立て、署名を検証する（Release の updater-json ジョブ、#505）
 ├── tests/                     # フロントの純粋なロジックのテスト（*.test.ts。just test-ts、#403）
 ├── src-tauri/
 │   ├── Cargo.toml

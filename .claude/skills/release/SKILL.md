@@ -112,24 +112,25 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-タグ push で `Release` ワークフローが自動起動し、Windows と macOS(arm64) の 2 ジョブが
-**Windows → macOS の順に直列で**同じドラフトへ成果物をアップロードする。**macOS 版も
+タグ push で `Release` ワークフローが自動起動する。`draft`（ドラフトを 1 つ作る）→
+Windows と macOS(arm64) の 2 ジョブを**並列に**（成果物を同じドラフトへ上げる）→
+`updater-json`（`latest.json` を組み立てて上げる）の順に走る（#505）。**macOS 版も
 Developer ID 署名・公証済みで、updater の対象**（#283。詳細は `.claude/rules/build.md`）。
 
-**公開前に、ドラフトの `latest.json` の `platforms` に `windows-x86_64` と
-`darwin-aarch64` の両方があることを確認する。** 片方の OS しか載っていない
-`latest.json` を公開すると、もう片方の全クライアントが黙って更新を受け取れなくなる
-（片方のジョブが落ちたときに起きうる。理由は `.claude/rules/build.md`）。
-足りなければ公開せず、直してタグを打ち直す。
+**4 つのジョブがすべて success であることを確認する。** `updater-json` は両 OS のビルドが
+成功したときだけ走り、各 URL の実ファイルの署名を検証してから `latest.json` を上げる。
+`draft` が落ちたら、タグが `vX.Y.Z` の形か、`tauri.conf.json` の version と合っているかを見る。
+ビルドのどちらかが落ちたら、一時的な失敗なら落ちたジョブだけを再実行する
+（`gh run rerun <run-id> --failed`。`updater-json` もそのあと走る）。コードを直す必要があるなら、
+直してタグを打ち直す。
 
-**ポータブル版の zip（`Pike_X.Y.Z_x64-portable.zip`）がドラフトにあることも確認する**（#451）:
+**ドラフトに `latest.json` とポータブル版の zip（`Pike_X.Y.Z_x64-portable.zip`、#451）が
+あることを確認する。** `latest.json` の `platforms` に両 OS がそろうことは `updater-json` が
+保証するので、中身を開いて見る必要はない:
 
 ```bash
 gh release view vX.Y.Z --repo kan/pike --json assets -q '.assets[].name'
 ```
-
-Windows のジョブが tauri-action の直後に足す。zip の段が落ちると Windows のジョブごと失敗し、
-待機中の macOS のジョブも取り消されるので、そのときは直してタグを打ち直す。
 
 **手でダウンロードする 5 つのファイルに attestation（来歴の証明）が付いていることを確認する**（#468）。
 ドラフトから落として 1 つずつ検証する:
@@ -181,6 +182,6 @@ gh release verify vX.Y.Z --repo kan/pike
 
 ### 注意事項
 
-- `tauri-action` は `tauri.conf.json` の `version` をリリース名・タグ名の `__VERSION__` に埋め込む。**必ずタグを打つ前にバージョンを更新すること**
+- 成果物の名前は `tauri.conf.json` の `version` から付き、`draft` ジョブはタグ（`vX.Y.Z` の形だけ）と食い違えば止める。**必ずタグを打つ前にバージョンを更新すること**
 - `TAURI_SIGNING_PRIVATE_KEY` が GitHub Secrets に設定されていること（署名なしビルドは updater で検証失敗する）
-- タグを打ち直す場合: `git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z` → 修正後に再タグ
+- タグを打ち直す場合: `git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z` → 修正後に再タグ。前の実行のドラフトは消さなくてよい（`draft` ジョブが同じタグのドラフトを消してから作り直す）

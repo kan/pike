@@ -90,8 +90,8 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 | 既定（現在） | 27.6 MB | 4 分 34 秒 |
 | LTO ＋ `codegen-units = 1` ＋ `strip` | 25.0 MB | 10 分 25 秒 |
 
-サイズは 9.6% しか縮まず、コンパイルは約 2.3 倍になる。リリースは 2 つの OS を直列で回す
-（下の「CI/CD」）ので、延びるぶんが 2 回乗る。起動時間と実行速度は測っていない。
+サイズは 9.6% しか縮まず、コンパイルは約 2.3 倍になる。リリースの待ち時間は遅いほうの OS の
+ビルドで決まる（下の「CI/CD」）ので、延びたぶんがそのまま乗る。起動時間と実行速度は測っていない。
 `lto = "thin"` も測っていない。
 
 ## CSP と動的スタイル注入（本番ビルド限定の落とし穴）
@@ -170,27 +170,30 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   - **Windows だけが持つのは OS に依らない検査**（`just lint` / `fmt-check` / `check-docs` / `check-shortcuts` / `test-ts` / `build-web`）。2 回走らせても同じ結果にしかならない
   - **macOS 側は `just build-web-dist`（`vite build` だけ）→ `clippy` → `test`**。`generate_context!` が `dist/` を読むので Rust の検査にもフロントの成果物が要るが、型検査は Windows 側が済ませている
   - macOS ジョブを足した理由（`cfg` の向こう側が Windows のジョブからは 1 行も見えない）は `platform.md` の「キーボードショートカット」の末尾
-- `.github/workflows/release.yml`: タグ push (`v*`) で `tauri-action` が **Windows と macOS(arm64) の 2 ジョブ**を **`max-parallel: 1` で直列に**走らせ、同じタグのドラフトへ両方の成果物をアップロードする（2 つ目のジョブは既存のドラフトを見つけて追加する）
+- `.github/workflows/release.yml`: タグ push (`v*`) で **3 段のジョブ**が走る（#505）。`draft`（ドラフトを 1 つ作る）→ `build`（Windows と macOS(arm64) の 2 ジョブを**並列に**。`tauri-action` が成果物と `.sig` をそのドラフトへ上げる）→ `updater-json`（`latest.json` を組み立てて上げる）
   - **Windows のジョブはポータブル版の zip も足す**（#451。tauri-action の直後に `just package-portable` → `gh release upload`）。インストーラと同じ `pike.exe` を固めるだけなので、ビルドは増えない。`latest.json` には載らない。詳細は `portable.md`
   - **macOS も updater の経路に載せる**（#283 の Developer ID 署名と公証が前提。未署名だと Gatekeeper に隔離される）
-  - **`max-parallel: 1` で直列に走らせる。** 両ジョブが `latest.json` を上げるようになったので、並列だと取り合う。`tauri-action` はアップロード前にリリースの既存 `latest.json` を読んで `platforms` をマージするので、順に走れば 2 つの OS が 1 つのファイルに揃う。並列のままだと後から読んだ側がもう片方の書き込み前の内容を見て、そのプラットフォームを落としたファイルを上げうる。**失敗は静かで「その OS にだけ更新が来ない」という形でしか気付けない**
-    - 代償はリリースの所要時間がほぼ倍になること（各 OS 9 分前後なので直列で 18 分前後。`.dmg` の公証待ちがさらに乗る）
-    - **`fail-fast` は既定（true）のまま。** Windows が落ちれば待機中の macOS が取り消されるので、darwin だけの `latest.json` は作られない。**ただし逆向きは防げない**（Windows が成功したあとに macOS が落ちると、windows だけの `latest.json` がドラフトに残る）。だから**公開前に `platforms` を目視する**手順が `release` スキル（`.claude/skills/release/SKILL.md`）に入っている
-    - 両方向を機械的に塞ぐなら、両ジョブを `uploadUpdaterJson: false` にして成果物だけ artifact に上げ、`needs: build` の合流ジョブで `latest.json` を**組み立てて** 1 回だけ上げる形になる。読んで書き直す構造が消えるうえ並列に戻せるが、YAML が 20 行ほど増えて手元で検証できない。**今は直列＋目視で回し、面倒が続くようなら移る**
+  - **ドラフトは `draft` ジョブが先に 1 つだけ作り、ID（`releaseId`）を両ビルドに渡す。** tauri-action に `tagName` でドラフトを探させると、並列の 2 ジョブがどちらも「無い」と見て 2 つ作りうる。`draft` はタグが `vX.Y.Z` の形でないときと、`tauri.conf.json` の version と食い違うときに止める（成果物の名前は version から付くので、食い違うと別の名前のファイルが上がる）
+    - **同じタグのドラフトが残っていれば消してから作り直す**（ワークフローの丸ごとの再実行やタグの打ち直し）。ドラフトを常に 1 つにしておくと、タグ名で上げる段（ポータブル版の zip・`.dmg` の差し替え・`latest.json`）と `releaseId` で上げる tauri-action が同じドラフトに当たり、前の実行の `latest.json` も残らない。公開済みのリリースがあれば止める。**落ちたジョブだけの再実行では `draft` は走らない**ので、もう片方の OS の成果物は残る
+  - **`latest.json` は各ビルドに上げさせない**（`uploadUpdaterJson: false`）。`tauri-action` は既存の `latest.json` を読んで `platforms` をマージしてから上げ直す作りなので、並列だと後から読んだ側がもう片方の書き込み前の内容を見て、そのプラットフォームを落としたファイルを上げうる。**失敗は静かで「その OS にだけ更新が来ない」という形でしか気付けない**（以前は `max-parallel: 1` の直列でこれを避け、リリースに 18 分前後かかっていた）
+    - **`updater-json` は `needs: [draft, build]` で、両 OS が成功したときだけ走る。** `scripts/updater-json.mjs` がドラフトのアセットから組み立てるので、片方の OS だけが載った `latest.json` はできない
+    - **中身の形は tauri-action v1 の出力（`updaterJsonPreferNsis: true`）に合わせてある。** `platforms` は `windows-x86_64`（setup.exe）/ `windows-x86_64-nsis` / `windows-x86_64-msi` / `darwin-aarch64` / `darwin-aarch64-app` の 5 つで、`url` はブラウザ用ではなく API のアセット URL（`/repos/.../releases/assets/<id>`。updater は `Accept: application/octet-stream` を付けて取りに来る）。v0.65.0 のリリースに当てて、tauri-action が作ったものと `platforms` が一致することを確かめてある。tauri-action を上げて形が変わったら、スクリプトの表（`updaters`）も直す
+    - **書き出す前に、各 URL の実ファイルを落として `tauri.conf.json` の公開鍵で minisign の署名を検証する**（本体の署名、trusted comment の署名、trusted comment の `version:`）。公開後は Immutable releases で直せないので、updater が弾く `latest.json` はここで止める。gh の認証があれば手元でも `node scripts/updater-json.mjs <release-id> <出力先>` で同じことができる
+    - **`fail-fast: false` にしてある。** どちらかが落ちれば `updater-json` は走らないので、もう片方を止める理由が無い。落ちたジョブだけを再実行すれば済む
+  - **`rust-cache` は使わない**（#505）。Actions のキャッシュは保存した ref とデフォルトブランチからしか読めず、リリースは毎回新しいタグで走るので、復元は毎回 `No cache found.` で保存の時間（1 ジョブあたり 30〜75 秒）だけがかかっていた。main の CI のキャッシュはプロファイル（dev）が違うので使えない
   - **`.dmg` は tauri が公証しない。** 公証・staple するのは `.app` だけで、そのあとに作る `.dmg` は署名するだけ。配布物は `.dmg` なので、そのままだとダウンロードした利用者の Gatekeeper が弾く（`spctl -a -t open --context context:primary-signature` が `rejected / source=Unnotarized Developer ID` を返す。macOS 実機で確認）。tauri-action のあとに `xcrun notarytool submit` → `xcrun stapler staple` → `gh release upload --clobber` で差し替える
   - **手でダウンロードする成果物には Artifact attestations（来歴の証明）を付ける**（#468。`actions/attest`）。updater は minisign、macOS は公証で守られているが、Releases から手で落とした Windows のインストーラや zip が「このリポジトリの、このワークフローで作られた」ことを確かめる手段が無かった。利用者は `gh attestation verify <ファイル> --repo kan/pike` で確かめる
     - 対象は 5 つ: Windows の `-setup.exe` / `.msi` / `-portable.zip`、macOS の `.dmg` / `.app.tar.gz`。ジョブの `permissions` に `id-token: write` と `attestations: write` が要る（署名は OIDC と Sigstore の短命証明書なので、鍵の secret は増えない）
     - **macOS の attest は staple のあとに置く。** staple は `.dmg` にチケットを書き足すのでダイジェストが変わる。前に置くと差し替え前のファイルを証明することになり、配布している `.dmg` の検証が通らない。Windows 側も zip を作ったあとに置く
-    - **`.sig` と `latest.json` は対象にしない。** updater の経路は minisign の検証で足りている。`latest.json` は 2 つのジョブが順にマージして書き換えるので、ジョブの手元のファイルと最終形が一致しない
+    - **`.sig` と `latest.json` は対象にしない。** updater の経路は minisign の検証で足りている
     - **グロブは拡張子の末尾まで書く**（`nsis/*-setup.exe` / `msi/*.msi`）。`bundle/` には配布しない `.msi.zip` / `.nsis.zip` と各 `.sig` も並んでいるので、`msi/*` のように広く取ると関係ないファイルまで証明する
     - **グロブが 1 件も当たらなくても、他が当たればステップは通る。** 取りこぼしは CI では分からないので、公開前に 5 つとも検証する手順が `release` スキルに入っている
     - `.app.tar.gz` は手元では `Pike.app.tar.gz` で、リリース上の名前は tauri-action が付ける。証明に載る名前は手元のものになるが、検証はダイジェストで行うので通る
     - **Immutable releases（リポジトリ設定）を有効にしてある**（#468。効くのは v0.62.1 より後のリリースで、今の状態は `gh api repos/kan/pike/immutable-releases` で分かる）。公開した時点で成果物とタグが不変になり、release attestation が自動で付く（`gh release verify`）。ドラフトに成果物を揃えてから公開する流れにそのまま乗るが、**公開後は成果物の差し替えもタグの打ち直しもできない**ので、公開前の確認が `release` スキルに入っている。リリースノートの本文とタイトルは公開後も編集できる
-    - **SLSA Build L3 は狙っていない。** ビルドを reusable workflow に切り出して、署名用の secrets と `contents: write` を持つジョブから分ける必要がある。上の合流ジョブへ移るときに合わせて検討する
+    - **SLSA Build L3 は狙っていない。** ビルドを reusable workflow に切り出して、署名用の secrets と `contents: write` を持つジョブから分ける必要がある。今のビルドのジョブは署名用の secrets と `contents: write` を両方持っている
   - **署名と公証の資格情報は GitHub Secrets の `APPLE_*` 7 つ**（`APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY` / `APPLE_TEAM_ID` / `APPLE_API_ISSUER` / `APPLE_API_KEY` / `APPLE_API_KEY_BASE64`）。**`notarytool` は鍵をファイルで受け取る**ので、`APPLE_API_KEY_BASE64` を書き出して `APPLE_API_KEY_PATH` を `GITHUB_ENV` 経由で渡す（`APPLE_API_KEY` は鍵そのものではなく Key ID）
   - **証明書を再発行するときは Developer Portal で G2 Sub-CA を選ぶ。** Xcode の「Manage Certificates → +」が作る Developer ID は G1 CA 由来で、G1 中間 CA 自身の失効日（2027-02-01）で頭打ちになる。G2 なら通常どおり 5 年
   - `macos-latest` は Apple Silicon なので**ホストのトリプルがそのまま `aarch64-apple-darwin`**。クロスビルドの指定は要らず、`just fetch-rg` も `rustc -vV` からその名前でサイドカーを取る。Intel 向けは配布しない
-  - `rust-cache` の `key` を OS で分ける（分けないと 2 ジョブが同じキャッシュを取り合う）
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
 - `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
 

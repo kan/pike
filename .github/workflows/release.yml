@@ -6,8 +6,53 @@ on:
       - "v*"
 
 jobs:
+  # ドラフトは先に 1 つだけ作り、両 OS のビルドにその ID を渡す（#505。並列の 2 ジョブに
+  # タグから探させると 2 つ作りうる）。3 段の構成の理由は `.claude/rules/build.md`。
+  draft:
+    name: Create the draft release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release-id: ${{ steps.draft.outputs.id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Create the draft
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # 成果物の名前は tauri.conf.json の version から付くので、タグと食い違えば止める。
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          # updater-json.mjs と同じ形だけを通す（プレリリースのタグはビルドの前に止める）。
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "v$version" != "$TAG" ]; then
+            echo "tag $TAG must be vX.Y.Z and match the version in tauri.conf.json ($version)" >&2
+            exit 1
+          fi
+          # 同じタグのドラフトが残っていたら（再実行やタグの打ち直し）消してから作り直す。
+          # ドラフトを常に 1 つにしておくと、タグ名で上げる段と releaseId で上げる段が
+          # 同じドラフトに当たり、前の実行の latest.json やアセットも残らない。
+          releases=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq ".[] | select(.tag_name == \"$TAG\") | \"\(.id) \(.draft)\"")
+          while read -r old_id is_draft; do
+            [ -n "$old_id" ] || continue
+            if [ "$is_draft" != true ]; then
+              echo "release $TAG is already published" >&2
+              exit 1
+            fi
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$old_id"
+          done <<< "$releases"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "Pike v$version" --notes "See the assets to download and install."
+          id=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId -q .databaseId)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build & Release (${{ matrix.name }})
+    needs: draft
     permissions:
       contents: write
       # Artifact attestations（#468）。署名は Actions の OIDC トークンで Sigstore の
@@ -15,11 +60,9 @@ jobs:
       id-token: write
       attestations: write
     strategy:
-      # 両ジョブが latest.json を上げるので直列にする（並列だと後から読んだ側が
-      # もう片方を落とす）。fail-fast は既定のままにして、片方だけが載った
-      # latest.json をなるべく作らせない。理由は `.claude/rules/build.md`。
-      max-parallel: 1
-      fail-fast: true
+      # 2 つの OS を並列に走らせる（#505）。どちらかが落ちれば updater-json は走らないので、
+      # もう片方を止めず、落ちたジョブだけを再実行できるようにしておく。
+      fail-fast: false
       matrix:
         include:
           - name: Windows
@@ -41,11 +84,8 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: "./src-tauri -> target"
-          # 同じキャッシュキーを OS 間で共有しないように分ける。
-          key: ${{ matrix.os }}
+      # rust-cache は置かない（#505）。Actions のキャッシュは保存した ref とデフォルト
+      # ブランチからしか読めず、リリースは毎回新しいタグで走るので、保存の時間だけがかかる。
 
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
 
@@ -81,14 +121,9 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         with:
-          # 2 つ目のジョブは同じタグの既存ドラフトを見つけて、そこへ追加アップロードする。
-          tagName: v__VERSION__
-          releaseName: "Pike v__VERSION__"
-          releaseBody: "See the assets to download and install."
-          releaseDraft: true
-          prerelease: false
-          uploadUpdaterJson: true
-          updaterJsonPreferNsis: true
+          releaseId: ${{ needs.draft.outputs.release-id }}
+          # latest.json は updater-json のジョブが組み立てる。`.sig` はここで上げる（既定）。
+          uploadUpdaterJson: false
 
       # ポータブル版（#451）。インストーラと同じ `pike.exe` に目印のファイルを添えた zip を、
       # tauri-action が作ったドラフトへ足す。**`latest.json` には載せない**（ポータブル版は
@@ -111,8 +146,7 @@ jobs:
           gh release upload "${{ github.ref_name }}" "${zips[0]}" --clobber --repo "$GITHUB_REPOSITORY"
 
       # 来歴の証明（#468）。利用者が手でダウンロードするファイルだけを対象にする。
-      # `.sig` と `latest.json` は付けない（updater の経路は minisign の検証で足り、
-      # `latest.json` は 2 つのジョブが順に書き換えるので手元のファイルと最終形が合わない）。
+      # `.sig` と `latest.json` は付けない（updater の経路は minisign の検証で足りる）。
       # グロブは `.msi.zip` や `.sig` を拾わない形にしてある。理由は `.claude/rules/build.md`。
       - name: Attest the Windows artifacts
         if: runner.os == 'Windows'
@@ -167,3 +201,24 @@ jobs:
           subject-path: |
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/macos/*.app.tar.gz
+
+  # 両 OS の成果物がそろったドラフトから latest.json を組み立て、署名を検証して 1 回だけ上げる（#505）。
+  updater-json:
+    name: Upload latest.json
+    needs: [draft, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Node はランナーに入っているもので足りる（組み込みのモジュールしか使わない）。
+      - name: Build and upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ needs.draft.outputs.release-id }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          node scripts/updater-json.mjs "$RELEASE_ID" latest.json
+          gh release upload "$TAG" latest.json --clobber --repo "$GITHUB_REPOSITORY"
