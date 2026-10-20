@@ -28,8 +28,12 @@ const BLOCK_TAGS = new Set(
   ).split(' '),
 )
 
-/** 読めない文字を持つ要素。部分木ごと飛ばす。SVG の `<style>` は `SVG_PURIFY_OPTS` が通す。 */
-const SKIP_SELECTOR = 'style, script, [hidden]'
+/**
+ * 読めない文字を持つ要素。部分木ごと飛ばす。SVG の `<style>` は `SVG_PURIFY_OPTS` が通す。
+ * `.katex-mathml` は KaTeX が読み上げ用に置く MathML（#482）で、画面には出ていない。拾うと、
+ * 見えている数式と同じ文字が二重に数えられ、強調が何も無いところに付く。
+ */
+const SKIP_SELECTOR = 'style, script, [hidden], .katex-mathml'
 
 /** 1 つのコンテナの文字を 1 本につないだもの。DOM が変わるまで使い回す。 */
 export interface TextIndex {

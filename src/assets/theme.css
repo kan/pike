@@ -37,6 +37,12 @@
   /* エージェントの入力待ちの印（#265）。`--danger` の対で、注意ではなく「待っている」
      ことを言う色。タブとプロジェクトの 2 つのドットが共有する。 */
   --success: #73c991;
+  /* Markdown の alert（#482）。GitHub のダークテーマの色に合わせてある。 */
+  --alert-note: #4493f8;
+  --alert-tip: #3fb950;
+  --alert-important: #ab7df8;
+  --alert-warning: #d29922;
+  --alert-caution: #f85149;
   --git-add: #4ec9b0;
   --git-modify: #e2c08d;
   --git-delete: #f44747;
@@ -125,6 +131,11 @@
   --tab-hover-bg: rgb(var(--tab-hover-bg-rgb) / var(--surface-alpha));
   --danger: #d32f2f;
   --success: #388a34;
+  --alert-note: #0969da;
+  --alert-tip: #1a7f37;
+  --alert-important: #8250df;
+  --alert-warning: #9a6700;
+  --alert-caution: #d1242f;
   --git-add: #2e7d32;
   --git-modify: #e65100;
   --git-delete: #d32f2f;
@@ -833,6 +844,84 @@ textarea,
   border: none;
   border-top: 1px solid var(--border);
   margin: 1.4em 0;
+}
+
+/* GitHub の拡張書式（#482）。エディタのプレビュー（`.md-preview`）・issue タブ・マニュアルの
+   3 つが `v-html` で描く要素なので、scoped CSS ではなくここに 1 つだけ置く。 */
+.markdown-alert {
+  margin: 0.8em 0;
+  padding: 2px 16px;
+  border-left: 3px solid var(--alert-color);
+}
+.markdown-alert > :last-child {
+  margin-bottom: 0.5em;
+}
+.markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0.5em 0;
+  font-weight: 600;
+  color: var(--alert-color);
+}
+.markdown-alert-icon {
+  flex-shrink: 0;
+}
+.markdown-alert-note {
+  --alert-color: var(--alert-note);
+}
+.markdown-alert-tip {
+  --alert-color: var(--alert-tip);
+}
+.markdown-alert-important {
+  --alert-color: var(--alert-important);
+}
+.markdown-alert-warning {
+  --alert-color: var(--alert-warning);
+}
+.markdown-alert-caution {
+  --alert-color: var(--alert-caution);
+}
+
+/* 数式。KaTeX を当てる前と構文エラーのときは、ソースが文字のまま見える（`lib/markdownMath.ts`）。 */
+.math-display {
+  display: block;
+  margin: 0.8em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+.math-display .katex-display {
+  margin: 0;
+}
+.math-error {
+  color: var(--danger);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  text-decoration: underline wavy;
+  text-decoration-thickness: 1px;
+  cursor: help;
+}
+.math-display.math-error {
+  text-align: left;
+}
+
+/* `#123`（`lib/issueRefs.ts`）。issue タブで開くので `href` を持たず、既定ではリンクの
+   カーソルにならない。 */
+.issue-ref {
+  cursor: pointer;
+}
+
+/* カラーコードの色見本。地の色に溶けないよう枠を付ける。 */
+.color-swatch {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-left: 0.4em;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  vertical-align: middle;
 }
 
 /* 木の行の先頭に置く開閉の三角と、その空き枠（ファイルツリー・アウトライン・issue が共有）。

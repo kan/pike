@@ -10,6 +10,7 @@
  *
  * 拾わないもの:
  * - **語の途中**（`foo#1`）。直前の文字が空白か開き括弧のときだけ拾う
+ * - **リンクの文字の中**（`<a>` の入れ子になる）
  * - **`owner/repo#123` と `GH-123`**。別リポジトリは `gh issue view --repo` が要るうえ、
  *   タブの dedupe キー（番号 ＋ プロジェクト）が足りなくなる
  *
@@ -39,6 +40,8 @@ export function issueRefs(): MarkedExtension {
           return /#\d/.exec(src)?.index
         },
         tokenizer(src: string, tokens?: Tokens.Generic[]) {
+          // リンクの文字（`[#12 を参照](url)`）の中では拾わない。`<a>` の中に `<a>` ができる。
+          if (this.lexer.state.inLink) return undefined
           const m = REF_RE.exec(src)
           if (!m) return undefined
           // **直前の文字は 1 つ前のトークンの末尾から見る。** tokenizer は現在位置から

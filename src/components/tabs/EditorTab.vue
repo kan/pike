@@ -6,7 +6,7 @@ import { Compartment, EditorState, type StateEffect } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
 import DOMPurify from 'dompurify'
 import { ArrowUp, RefreshCw, Smartphone } from 'lucide-vue-next'
-import { Marked } from 'marked'
+import type { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { choiceWithOption, confirmDialog, dialogOpen, promptDialog } from '../../composables/useConfirmDialog'
@@ -19,7 +19,7 @@ import { type OutlineJump, useOutlineSource } from '../../composables/useOutline
 import { usePreviewFind } from '../../composables/usePreviewFind'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
-import { highlightCodeBlock, markedCodeHighlight } from '../../lib/codeHighlight'
+import { highlightCodeBlock } from '../../lib/codeHighlight'
 import {
   type CsvData,
   type CsvSort,
@@ -56,7 +56,8 @@ import { detectFrontmatter } from '../../lib/frontmatter'
 import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel, matchChord } from '../../lib/keys'
 import { languageByKey, languageLabelByKey } from '../../lib/languages'
-import { footnotes } from '../../lib/markdownFootnotes'
+import { previewParser } from '../../lib/markdownGfm'
+import { renderMath } from '../../lib/markdownMath'
 import { renderMermaid } from '../../lib/mermaid'
 import { openProjectPath, openWithDefaultApp } from '../../lib/openFile'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
@@ -72,7 +73,7 @@ import {
   pathSep,
   toRelativePath,
 } from '../../lib/paths'
-import { relativeToBase } from '../../lib/projectPaths'
+import { isSameOrUnder, relativeToBase } from '../../lib/projectPaths'
 import { buildRstPreview } from '../../lib/rstPreview'
 import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
 import { createScrollFollow, type SyncPane } from '../../lib/scrollFollow'
@@ -92,6 +93,7 @@ import {
 } from '../../lib/tauri'
 import { escapeHtml } from '../../lib/text'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
+import { useIssuesStore } from '../../stores/issues'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
@@ -111,22 +113,28 @@ import HelpButton from '../HelpButton.vue'
 // Own `marked` instances: the footnote extension (#241) belongs to this preview
 // and must not leak into the agent chat's Markdown.
 //
-// Two of them, because registering a block-level extension is not free. It puts
-// marked on its `startBlock` path, which copies the rest of the document once
-// per paragraph — quadratic in the file, on a preview that re-renders while you
-// type. Measured on concatenated manual pages: +13% at 49 KB, +136% at 390 KB,
-// all of it paid by documents that have no footnotes at all. One `includes`
-// keeps them on the plain parser.
-//
-// コードブロックの色付け（#359）は両方に入れる。テーマ名は描画のたびに読むので、
-// `previewHtml` がテーマに依存し、テーマを変えると組み直される。
+// 本文が要る block 拡張（脚注・行頭の `$$`）の組み合わせごとにインスタンスを分ける（#482。
+// 理由は `lib/markdownGfm.ts` の doc）。コードブロックの色付け（#359）はどれにも入れる。
+// テーマ名は描画のたびに読むので、`previewHtml` がテーマに依存し、テーマを変えると組み直される。
 const codeTheme = () => settingsStore.effectiveEditorThemeName
-const markedPlain = new Marked(markedCodeHighlight(codeTheme))
-const markedFootnotes = new Marked(footnotes(), markedCodeHighlight(codeTheme))
+const markdownParser = previewParser({ theme: codeTheme, footnotes: true })
 
-/** The parser this text needs. */
+/**
+ * The parser this text needs. `#123` は issue タブを開けるプロジェクト（origin が GitHub で `gh`
+ * がある）の、**そのプロジェクトの中のファイル**でだけリンクにする（#482）。開けないリンクと、
+ * 別のリポジトリの README の `#12` から今のプロジェクトの #12 を開くリンクを作らない。
+ * 無題のバッファは今のプロジェクトで書いているものとして扱う。
+ */
 function parserFor(text: string): Marked {
-  return text.includes('[^') ? markedFootnotes : markedPlain
+  return markdownParser(text, { issueRefs: issueRefsOn() })
+}
+
+function issueRefsOn(): boolean {
+  if (!issuesStore.visible) return false
+  const path = tab.value?.path
+  const project = projectStore.currentProject
+  if (!path) return true
+  return !!project && isSameOrUnder(projectStore.activeRoot, path, shellToPlatform(project.shell))
 }
 
 const { t, locale } = useI18n()
@@ -139,6 +147,7 @@ const editorInfo = useEditorInfo()
 const outlineSource = useOutlineSource()
 const statusMessageStore = useStatusMessageStore()
 const diagStore = useDiagnosticsStore()
+const issuesStore = useIssuesStore()
 
 // Dynamic compartments for settings that can change at runtime
 const themeCompartment = new Compartment()
@@ -726,6 +735,9 @@ async function renderMarkdownMermaid() {
   const run = ++markdownMermaidRun
   await nextTick()
   if (!previewRef.value) return
+  // 数式（#482）も DOM に入ってから KaTeX を当てる（理由は `lib/markdownMath.ts`）。テーマの
+  // 切り替えでも呼ばれるが、描いたものには印（`.math-done`）があるので何もしない。
+  void renderMath(previewRef.value)
   const targets = previewRef.value.querySelectorAll<HTMLElement>(
     'pre > code.language-mermaid, .mermaid-inline[data-mermaid-source]',
   )
@@ -2248,6 +2260,13 @@ async function onPreviewClick(e: MouseEvent) {
 
   const target = (e.target as HTMLElement).closest('a')
   if (!target) return
+  // `#123`（#482。`lib/issueRefs.ts` が付ける印で、`href` を持たない）は issue タブで開く。
+  const issue = target.dataset.issue
+  if (issue) {
+    e.preventDefault()
+    tabStore.addIssueTab(Number(issue))
+    return
+  }
   const href = target.getAttribute('href')
   if (!href) return
   e.preventDefault()

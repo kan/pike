@@ -115,6 +115,7 @@ pike/
 │   │   ├── agentUsage.ts      # 使用量の共通の形（#263。種別ごとの型を持たない）
 │   │   ├── agentSession.ts    # 再開できるセッション 1 件（#267）
 │   │   ├── js-beautify.d.ts   # js-beautify の型（同梱されないので使う 3 関数だけ宣言、#366）
+│   │   ├── markdown-it-emoji.d.ts  # 絵文字の対応表（`lib/data/full.mjs`）の型（#482）
 │   │   ├── diagnostics.ts  docker.ts
 │   │   ├── git.ts  search.ts  tasks.ts  issues.ts  ci.ts
 │   ├── components/
@@ -269,7 +270,7 @@ pike/
 │   │   ├── shortcuts.ts     # ショートカットの割り当て表（#254。キーの正本）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
-│   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278）
+│   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278。エディタのプレビューも使う、#482）
 │   │   ├── issuePrompt.ts    # エージェントに渡す issue の指示文（#336。注入とコピーで共有）
 │   │   ├── issueActions.ts   # issue パネルから PR のマージとクローズ・issue のクローズ（確認 → gh → 取り直し、#450）
 │   │   ├── ciPrompt.ts       # エージェントに渡す CI の失敗の調査の指示文（#457。注入とコピーで共有）
@@ -282,6 +283,8 @@ pike/
 │   │   ├── templateModes.ts   # テンプレートエンジンのハイライト（HTML に区切りの内側だけ別モードを差し込む、#409）
 │   │   ├── frontmatter.ts  frontmatterParse.ts  # Markdown フロントマターの範囲検出 / 値のパース（#229）
 │   │   ├── markdownFootnotes.ts  # プレビューの脚注（marked 拡張、#241）
+│   │   ├── markdownGfm.ts     # プレビューの marked を組む（要る block 拡張ごとにインスタンス。3 つのプレビューで共有、#482）
+│   │   ├── markdownAlerts.ts  markdownMath.ts  markdownEmoji.ts  markdownColors.ts  # GitHub の alert・数式（KaTeX は遅延読み込み）・絵文字・色見本（#482）
 │   │   ├── rstPreview.ts      # reStructuredText のプレビュー（自前の変換、#284）
 │   │   ├── vuePreview.ts      # Vue SFC のプレビューの純粋な部分（描き直す契機・案内のページ、#397）
 │   │   ├── displayWidth.ts    # 等幅フォントでの表示幅（diff の横幅と rst の表が共有、#284）

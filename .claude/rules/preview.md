@@ -14,7 +14,8 @@ paths:
   - "src/lib/codeHighlight.ts"
   - "src/lib/csvPreview.ts"
   - "src/lib/rstPreview.ts"
-  - "src/lib/markdownFootnotes.ts"
+  - "src/lib/markdown*.ts"
+  - "src/lib/issueRefs.ts"
   - "src/lib/frontmatter*.ts"
   - "src/lib/mermaid.ts"
   - "src/lib/domFind.ts"
@@ -84,11 +85,22 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - `remote_image` と違い**リダイレクトを追い、http も許す**（承認ホストの一覧が無いので不追従にする意味が無く、短縮 URL が普通に来る）。守るのは timeout / 512KB / `text/html` / 5 ホップまで
   - 失敗は全部 `Ok(None)`。URL は既に文書にあるので、呼び出し側が区別する意味が無い
 - 脚注は本文に `[^n]`、**ファイル末尾**に定義行を足してカーソルを定義側へ移す。`n` は既存の `[^数字]` の最大値 + 1
-- **プレビューの脚注は `lib/markdownFootnotes.ts`（marked 拡張）**。marked は GFM 脚注を持たず、しかも素通しにならない: `[^1]` は**注釈本文を href に持つリンク**になり、定義行はリンク定義として消える。EditorTab は自前の `new Marked(footnotes())` を持つ（グローバルの `marked.use` にすると他のプレビューにも入る）
+- **プレビューの脚注は `lib/markdownFootnotes.ts`（marked 拡張）**。marked は GFM 脚注を持たず、しかも素通しにならない: `[^1]` は**注釈本文を href に持つリンク**になり、定義行はリンク定義として消える。プレビューは自前の `Marked` のインスタンス（`lib/markdownGfm.ts` の `previewParser`）に入れ、脚注を使うのは EditorTab だけ（グローバルの `marked.use` にすると他の描画にも入る）
   - 定義は**書かれた場所にそのまま描く**（末尾に集めない）。ツールバーもユーザーもファイル末尾に足すので位置は同じで、トークンをまたぐ集計が要らない
   - **block の `start` は「行頭の定義」だけを返す**。marked は `start` に**先頭 1 文字を除いた src** を渡し、`index + 1` で段落を切る。`/^\[\^/m` にすると行の途中のオフセットを返してしまい、段落が 2 つに割れて再結合のときに改行が紛れ込む
   - 番号は**登場順**に振り、`hooks.preprocess` でパースごとにリセットする（プレビューは打鍵のたびに作り直される）。`id` を持つのは最初の参照だけ（同じ id を 2 回出さないため）
-- **プレビューの marked インスタンスは 2 つ**（`markedPlain` / `markedFootnotes`）で、`parserFor` が本文に `[^` があるかで選ぶ。block 拡張を 1 つでも登録すると marked は `startBlock` の経路に入り、**段落ごとに残り全文をコピーする**（文書サイズに対して二次オーダー。390KB の文書で +136%）。プレビューは打鍵のたびに作り直されるので、脚注を使わない文書にこれを払わせない
+- **プレビューの marked インスタンスは、本文が要る block 拡張の組み合わせごとに作る**（`lib/markdownGfm.ts` の `previewParser`。脚注の `[^` と行頭の `$$` を見る）。block 拡張を 1 つでも登録すると marked は `startBlock` の経路に入り、**段落ごとに残り全文をコピーする**（文書サイズに対して二次オーダー。390KB の文書で +136%）。プレビューは打鍵のたびに作り直されるので、使わない文書にこれを払わせない。**新しい記法を足すときも、block 拡張にせずに済むならそうする**（alert は組み込みの `blockquote` の tokenizer の差し替えで、この経路に入らない）
+
+## GitHub の拡張書式（#482）
+- alert（`lib/markdownAlerts.ts`）・数式（`lib/markdownMath.ts`）・絵文字（`lib/markdownEmoji.ts`）・カラーコード（`lib/markdownColors.ts`）を、**Markdown プレビュー・issue タブ・マニュアルの 3 つ**に同じ `previewParser` で入れる。見た目は `theme.css`（`v-html` の要素なので scoped にしない）、alert の色はテーマの `--alert-*`。判断の実体は各ファイルの doc が正本
+- **既存の marked 拡張は採っていない**（`marked-alert` は種類名の大文字小文字を区別する、`marked-katex-extension` は KaTeX を静的に import するので遅延読み込みにできず `` $`…`$ `` と ```` ```math ```` も扱わない、`marked-emoji` は対応表を持たない）
+- **数式は 2 段で描く**: marked は `.math` の印にソースを包んで出すだけで、DOM に入ったあとで `renderMath` が KaTeX を当てる（プレビューの watcher・issue タブの watcher・マニュアルの `postProcess`）。KaTeX は数式があるときだけ動的 import し、結果はキャッシュする
+  - **KaTeX の出力は DOMPurify に通さない。** DOMPurify は MathML の `semantics` / `annotation` を禁止リストに持っていて崩れる。`trust: false`（既定）の KaTeX は外へ出る命令を描かないので、そのまま入れてよい
+  - **`katex` の版は mermaid の依存と同じ系列にする**（npm が 1 つに畳み、配布物の KaTeX のチャンクが mermaid と共有になる。系列がずれると約 260KB のチャンクがもう 1 つ増える）。**今は `0.18.10` に固定してある**: 0.18.11 は「誤って破壊的変更を含めて出した」として非推奨で、0.19 は mermaid（`^0.18.0`）と畳めない。mermaid が 0.19 に上がったら固定を外して揃える
+  - フォントは CSS の参照から `vite.config.ts` の `katexWoff2Only` が woff / ttf を落とし、**woff2 だけを同梱する**（`font-src 'self' data:` のまま。CDN は使わない）
+  - プレビューの検索は KaTeX の読み上げ用の `.katex-mathml` を飛ばす（`lib/domFind.ts` の `SKIP_SELECTOR`。見えない文字に一致が付く）
+- **絵文字の対応表は `markdown-it-emoji` のデータ（`lib/data/full.mjs`）だけを使う**。中身は GitHub の gemoji と同じ名前の集合で、gemoji の npm 版より小さい。使うときだけ読み込み（`loadEmojiFor`）、読み終えたら読み込みを始めた computed が組み直される（表を `shallowRef` に持つ。マニュアルは待ってから描く）
+- **`#123` はエディタのプレビューでは issue タブを開けるとき（`issuesStore.visible`）の、プロジェクトの中のファイル（と無題のバッファ）だけリンクにする**（`EditorTab.vue` の `issueRefsOn`。外の README の `#12` から今のプロジェクトの #12 を開かない）。 マニュアルではリンクにしない（今のプロジェクトのリポジトリではない）。リンクの文字の中では拾わない（`lexer.state.inLink`）
 
 ## プレビュー拡張
 - CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）。Markdown は 3 モード、スクロール同期、250ms デバウンス

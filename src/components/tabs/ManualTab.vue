@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
 import { ArrowUp, Home, Moon, RefreshCw, Sun } from 'lucide-vue-next'
-import { Marked } from 'marked'
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from '../../i18n'
-import { markedCodeHighlight, rehighlightCodeBlocks } from '../../lib/codeHighlight'
+import { rehighlightCodeBlocks } from '../../lib/codeHighlight'
 import {
   DEFAULT_REF,
   fetchManual,
@@ -16,6 +15,9 @@ import {
   manualRawUrl,
   resolveManualPath,
 } from '../../lib/manual'
+import { loadEmojiFor } from '../../lib/markdownEmoji'
+import { previewParser } from '../../lib/markdownGfm'
+import { renderMath } from '../../lib/markdownMath'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
 import { createHeadingSlugger } from '../../lib/slug'
@@ -31,8 +33,11 @@ const settingsStore = useSettingsStore()
 /**
  * マニュアルを組む marked。**素のグローバル `marked` を使わず自前のインスタンスにする**
  * （#359 でコードブロックの色付けを足すため。グローバルに `use` すると他の描画にも漏れる）。
+ * GitHub の拡張書式（alert・数式・絵文字・カラーコード、#482）もエディタのプレビューと同じものを
+ * 入れる（`lib/markdownGfm.ts`）。マニュアルは GitHub でも読まれるので、同じ書き方が通る。
+ * `#123` はリンクにしない（マニュアルは今のプロジェクトのリポジトリを指していない）。
  */
-const md2html = new Marked(markedCodeHighlight(() => settingsStore.effectiveEditorThemeName))
+const md2html = previewParser({ theme: () => settingsStore.effectiveEditorThemeName })
 
 const tab = computed(() => tabStore.tabs.find((t): t is ManualTab => t.id === props.tabId && t.kind === 'manual'))
 const page = computed(() => tab.value?.page ?? MANUAL_INDEX)
@@ -127,7 +132,10 @@ async function render(path: string, force = false) {
     const md = await fetchManual(path, force)
     manualRef.value = await getManualRef() // resolved by fetchManual; memoized
     if (splitPage(page.value)[0] !== path) return // navigated away while fetching
-    html.value = DOMPurify.sanitize(md2html.parse(md) as string, { ALLOWED_URI_REGEXP })
+    // `html` は代入で組むので、絵文字の対応表（#482）は読み終えるのを待ってから描く。
+    await loadEmojiFor(md)
+    if (splitPage(page.value)[0] !== path) return
+    html.value = DOMPurify.sanitize(md2html(md).parse(md) as string, { ALLOWED_URI_REGEXP })
     await nextTick()
     postProcess(path)
     setTitle(path)
@@ -147,6 +155,8 @@ function resolveImgUrl(p: string, rel: string): string {
 function postProcess(p: string) {
   const c = containerRef.value
   if (!c) return
+  // 数式（#482）は描いたあとで KaTeX を当てる（理由は `lib/markdownMath.ts`）。
+  void renderMath(c)
   // Heading ids for in-page anchors.
   const slug = createHeadingSlugger()
   for (const h of c.querySelectorAll('h1, h2, h3, h4, h5, h6')) h.id = slug(h.textContent ?? '')

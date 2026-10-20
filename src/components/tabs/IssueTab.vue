@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
 import { Bot, ExternalLink, RefreshCw } from 'lucide-vue-next'
-import { Marked } from 'marked'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { injectIssuePrompt } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
-import { markedCodeHighlight } from '../../lib/codeHighlight'
 import { ISSUE_KIND_TEXT } from '../../lib/issuePrompt'
-import { issueRefs } from '../../lib/issueRefs'
+import { previewParser } from '../../lib/markdownGfm'
+import { renderMath } from '../../lib/markdownMath'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { relativeDate } from '../../lib/paths'
 import { projectColorValue, readableTextOn } from '../../lib/projectColors'
@@ -27,18 +26,18 @@ const tabStore = useTabStore()
 const projectStore = useProjectStore()
 
 /**
- * 本文を組む marked。**`#123` を別タブへのリンクにする拡張だけ入れる**（`lib/issueRefs.ts`）。
+ * 本文を組む marked。**`#123` を別タブへのリンクにする**（`lib/issueRefs.ts`）。GitHub の拡張書式
+ * （alert・数式・絵文字・カラーコード、#482）はエディタのプレビューと同じものを入れる
+ * （`lib/markdownGfm.ts`）。GitHub の本文はこれらの記法を普通に含む。
  * エディタのプレビューが持つフロントマター・mermaid・CSV の分岐は通さない: issue の本文は
- * ファイルではないので、そのどれも起こりえない。
+ * ファイルではないので、そのどれも起こりえない。**脚注も入れない**: 本文とコメントを別々に
+ * 描くので番号と id が重なり、`#fn-1` へのリンクも下の `onContentClick` に行き先が無い。
  *
  * コードブロックの色付け（#359）も入れる。テーマ名は描画のたびに読むので、本文とコメントの
  * computed がテーマに依存し、テーマを変えると組み直される。
  */
 const settingsStore = useSettingsStore()
-const md2html = new Marked(
-  issueRefs(),
-  markedCodeHighlight(() => settingsStore.effectiveEditorThemeName),
-)
+const md2html = previewParser({ theme: () => settingsStore.effectiveEditorThemeName })
 
 const detail = ref<IssueDetail | null>(null)
 const error = ref<string | null>(null)
@@ -72,7 +71,7 @@ async function load() {
 onMounted(load)
 
 /**
- * 本文とコメントの HTML。**`marked` の素のインスタンス**（マニュアルタブと同じ）で、
+ * 本文とコメントの HTML。上の `md2html`（マニュアルタブと同じ `previewParser`）で、
  * エディタのプレビューが持つフロントマター・mermaid・CSV の分岐は通さない: issue の本文は
  * ファイルではないので、そのどれも起こりえない。
  *
@@ -82,7 +81,7 @@ onMounted(load)
  * （見たいときは右上からブラウザで開く）。
  */
 function render(md: string): string {
-  return DOMPurify.sanitize(md2html.parse(md) as string, { ALLOWED_URI_REGEXP })
+  return DOMPurify.sanitize(md2html(md, { issueRefs: true }).parse(md) as string, { ALLOWED_URI_REGEXP })
 }
 
 const bodyHtml = computed(() => render(detail.value?.body ?? ''))
@@ -94,6 +93,16 @@ const bodyHtml = computed(() => render(detail.value?.body ?? ''))
  * テンプレートで直に呼ぶ。
  */
 const comments = computed(() => (detail.value?.comments ?? []).map((c) => ({ ...c, html: render(c.body) })))
+
+/** 数式（#482）は印を描いておき、DOM に入ってから KaTeX を当てる（理由は `lib/markdownMath.ts`）。 */
+const contentRef = useTemplateRef<HTMLElement>('content')
+watch(
+  [bodyHtml, comments],
+  () => {
+    if (contentRef.value) void renderMath(contentRef.value)
+  },
+  { flush: 'post' },
+)
 
 /** ラベルはタブでは名前ごと出す（幅があるので隠れない）。**色の検証を `projectColorValue` に
  *  委ねる理由は `IssuesPanel.vue` の `dotStyle` の doc が正本**（任意の CSS 値を style バインドへ
@@ -211,7 +220,7 @@ function sameRepoIssueNumber(href: string): number | null {
     </div>
 
     <div class="issue-body selectable">
-      <div class="md-page md-body" @click="onContentClick">
+      <div ref="content" class="md-page md-body" @click="onContentClick">
         <!-- **読めていた中身は消さない**（パネルのエラー帯と同じ扱い）。更新が失敗しただけで
              読んでいた issue が消えると、開き直しても同じタブが返るので戻す手が無くなる。 -->
         <div v-if="error" class="issue-status error">{{ error }}</div>
