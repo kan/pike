@@ -174,6 +174,7 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   - **Windows のジョブはポータブル版の zip も足す**（#451。tauri-action の直後に `just package-portable` → `gh release upload`）。インストーラと同じ `pike.exe` を固めるだけなので、ビルドは増えない。`latest.json` には載らない。詳細は `portable.md`
   - **macOS も updater の経路に載せる**（#283 の Developer ID 署名と公証が前提。未署名だと Gatekeeper に隔離される）
   - **ドラフトは `draft` ジョブが先に 1 つだけ作り、ID（`releaseId`）を両ビルドに渡す。** tauri-action に `tagName` でドラフトを探させると、並列の 2 ジョブがどちらも「無い」と見て 2 つ作りうる。`draft` はタグが `vX.Y.Z` の形でないときと、`tauri.conf.json` の version と食い違うときに止める（成果物の名前は version から付くので、食い違うと別の名前のファイルが上がる）
+    - **ドラフトの本文は `scripts/release-notes.mjs` が CHANGELOG の節から作る**（`## Pike vX.Y.Z` ＋節の本文）。`updater-json` はドラフトの本文を `latest.json` の `notes` に写すので、`notes` もこれになる。`latest.json` は公開前に上がって公開後は差し替えられないので、公開時に手で書いた本文では `notes` に届かない。節が無いか空なら止める
     - **同じタグのドラフトが残っていれば消してから作り直す**（ワークフローの丸ごとの再実行やタグの打ち直し）。ドラフトを常に 1 つにしておくと、タグ名で上げる段（ポータブル版の zip・`.dmg` の差し替え・`latest.json`）と `releaseId` で上げる tauri-action が同じドラフトに当たり、前の実行の `latest.json` も残らない。公開済みのリリースがあれば止める。**落ちたジョブだけの再実行では `draft` は走らない**ので、もう片方の OS の成果物は残る
   - **`latest.json` は各ビルドに上げさせない**（`uploadUpdaterJson: false`）。`tauri-action` は既存の `latest.json` を読んで `platforms` をマージしてから上げ直す作りなので、並列だと後から読んだ側がもう片方の書き込み前の内容を見て、そのプラットフォームを落としたファイルを上げうる。**失敗は静かで「その OS にだけ更新が来ない」という形でしか気付けない**（以前は `max-parallel: 1` の直列でこれを避け、リリースに 18 分前後かかっていた）
     - **`updater-json` は `needs: [draft, build]` で、両 OS が成功したときだけ走る。** `scripts/updater-json.mjs` がドラフトのアセットから組み立てるので、片方の OS だけが載った `latest.json` はできない

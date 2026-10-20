@@ -32,6 +32,9 @@ jobs:
             echo "tag $TAG must be vX.Y.Z and match the version in tauri.conf.json ($version)" >&2
             exit 1
           fi
+          # 本文は CHANGELOG の節から作る。latest.json の notes にもなる（updater-json.mjs が写す）。
+          notes="$RUNNER_TEMP/notes.md"
+          node scripts/release-notes.mjs "$version" > "$notes"
           # 同じタグのドラフトが残っていたら（再実行やタグの打ち直し）消してから作り直す。
           # ドラフトを常に 1 つにしておくと、タグ名で上げる段と releaseId で上げる段が
           # 同じドラフトに当たり、前の実行の latest.json やアセットも残らない。
@@ -46,7 +49,7 @@ jobs:
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$old_id"
           done <<< "$releases"
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
-            --title "Pike v$version" --notes "See the assets to download and install."
+            --title "Pike v$version" --notes-file "$notes"
           id=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId -q .databaseId)
           echo "id=$id" >> "$GITHUB_OUTPUT"
 

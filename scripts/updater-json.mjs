@@ -106,6 +106,7 @@ for (const { name, keys } of updaters) {
 
 const latest = {
   version,
+  // ドラフトの本文（draft ジョブが release-notes.mjs で CHANGELOG の節から作ったもの）
   notes: release.body ?? '',
   pub_date: new Date().toISOString(),
   platforms,

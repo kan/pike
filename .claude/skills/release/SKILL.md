@@ -6,7 +6,7 @@ description: Pike の新しいバージョンをリリースする（dependabot 
 # Pike のリリース手順
 
 **リリースの依頼は end-to-end の依頼。** バージョン bump のコミットだけでなく、`main` の push・
-タグ作成と push・Release ワークフローの完了待ち・ドラフトのリリースノート記載と公開までを
+タグ作成と push・Release ワークフローの完了待ち・ドラフトのリリースノートの確認と公開までを
 Claude が実行する。通常のコミット運用と異なり push の個別確認は要らない。CI の完了待ちは
 バックグラウンドの watch で行う。以下を順番に実行する。
 
@@ -68,7 +68,10 @@ git log --oneline <前回のタグ>..HEAD
 **記憶で書かないこと。** そのセッションで対応した issue を思い出して並べると、**前のリリース
 以降に積まれていた他の変更が丸ごと落ちる**。**公開してからでは直しても既読の人には届かない。**
 
-同じ一覧を後述の「8. リリースの公開」のリリースノートにも使う（片方だけ直すとずれる）。
+**この節がそのままリリースノートになる。** タグを push すると、`draft` ジョブが
+`scripts/release-notes.mjs` で節を抜き出してドラフトの本文にし、`updater-json` がそれを
+`latest.json` の `notes` に写す。節が無いか空なら `draft` ジョブが止まる。**`latest.json` の
+`notes` はタグの時点で決まり、公開後は差し替えられない**ので、節はタグを打つ前に仕上げる。
 
 その上で `CHANGELOG.md` の先頭に新しいセクションを追加し、**CLAUDE.md の「ドキュメント校正ルール」の校正を
 かける**（今回足した節だけが対象。過去の節は出荷済みの記録なので触らない）。
@@ -119,7 +122,8 @@ Developer ID 署名・公証済みで、updater の対象**（#283。詳細は `
 
 **4 つのジョブがすべて success であることを確認する。** `updater-json` は両 OS のビルドが
 成功したときだけ走り、各 URL の実ファイルの署名を検証してから `latest.json` を上げる。
-`draft` が落ちたら、タグが `vX.Y.Z` の形か、`tauri.conf.json` の version と合っているかを見る。
+`draft` が落ちたら、タグが `vX.Y.Z` の形か、`tauri.conf.json` の version と合っているか、
+タグのコミットの CHANGELOG に `## [X.Y.Z] - 日付` の節が 1 つだけあるかを見る（直したらタグを打ち直す）。
 ビルドのどちらかが落ちたら、一時的な失敗なら落ちたジョブだけを再実行する
 （`gh run rerun <run-id> --failed`。`updater-json` もそのあと走る）。コードを直す必要があるなら、
 直してタグを打ち直す。
@@ -153,25 +157,21 @@ done
 
 ### 8. リリースの公開
 
-ワークフロー完了後、GitHub Releases でドラフトを確認し、リリースノートを記載して公開する。
-**中身は CHANGELOG に足した節から起こす**（手順 3 の `git log` で洗い出したもの）。両方を
-別々に書くと、片方にしか無い項目ができる:
+ワークフロー完了後、ドラフトの本文（手順 3 の CHANGELOG の節から作られている）を確認して公開する。
+本文は手で書き直さない（手で直した本文は `latest.json` の `notes` に届かず、CHANGELOG ともずれる）。
+直したいところがあれば、公開せずに CHANGELOG を直してコミットし、**タグを打ち直す**
+（本文と `notes` はタグのコミットの CHANGELOG から作られるので、ワークフローの再実行だけでは変わらない）:
 
 ```bash
-gh release edit vX.Y.Z --repo kan/pike --draft=false --notes "$(cat <<'EOF'
-## Pike vX.Y.Z
-
-### Changes
-- ...
-
-EOF
-)"
+gh release view vX.Y.Z --repo kan/pike --json body -q .body
+gh release edit vX.Y.Z --repo kan/pike --draft=false
 ```
 
 **Immutable releases（リポジトリ設定、#468）が有効だと、公開した時点で成果物とタグが
 不変になる。** 公開後に `latest.json` の欠けや attestation の漏れに気付いても、成果物の差し替えも
 タグの打ち直しもできず、次のバージョンを出すしかない（消したリリースのタグ名も再利用できない）。
-**手順 7 の確認を済ませてから公開する。** リリースノートの本文とタイトルは公開後も編集できる。
+**手順 7 の確認を済ませてから公開する。** リリースノートの本文とタイトルは公開後も GitHub 上では
+編集できるが、`latest.json` の `notes` は変わらないので、本文は公開後も手で書き換えない。
 
 有効にしてある場合は、公開後に release attestation も確かめる:
 
