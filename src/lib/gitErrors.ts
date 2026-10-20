@@ -29,6 +29,7 @@ export type GitErrorKind =
   | 'dubiousOwnership'
   | 'nothingToCommit'
   | 'branchExists'
+  | 'branchInWorktree'
   | 'timeout'
 
 /**
@@ -57,6 +58,9 @@ const RULES: readonly (readonly [GitErrorKind, RegExp])[] = [
   ['dubiousOwnership', /detected dubious ownership/i],
   ['nothingToCommit', /nothing to commit|nothing added to commit|no changes added to commit/i],
   ['branchExists', /a branch named '.*' already exists/i],
+  // 別の worktree が使っているブランチへの checkout（#483）。git の版で文面が違うので両方を
+  // 拾う（2.55 は `is already used by worktree at`、古い版は `is already checked out at`）。
+  ['branchInWorktree', /is already used by worktree at '|is already checked out at '/i],
   // Pike 自身の打ち切り（`types.rs` の `wait_with_timeout`）。**`after` まで見る**:
   // ssh の `Connection timed out` は下の `network` で、直し方が違う。
   ['timeout', /timed out after \d+s/i],

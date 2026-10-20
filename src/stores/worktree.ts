@@ -71,6 +71,19 @@ export const useWorktreeStore = defineStore('worktree', () => {
     return normalizeSep(w.path, pathSep(projectStore.currentProject?.shell)) === override
   }
 
+  /**
+   * `branch` を checkout している、今見ているもの以外の worktree（#483）。git は同じブランチを
+   * 2 つの worktree で checkout させないので、あればそちらへ移るのが利用者の意図に沿う。
+   * 一覧は最後に読んだときのもの（古ければ checkout が失敗し、その失敗が知らせる）。
+   * **別のプロジェクトの一覧では答えない**（切り替え直後は読み直しが返るまで前の一覧が残る。
+   * 同じ名前のブランチがあると、別のリポジトリの worktree へ移してしまう）。
+   */
+  function worktreeUsingBranch(branch: string): GitWorktree | null {
+    const projectId = useProjectStore().currentProject?.id
+    if (!projectId || listedFor !== projectId) return null
+    return worktrees.value.find((w) => !w.isBare && w.branch === branch && !isActive(w)) ?? null
+  }
+
   async function loadWorktrees() {
     const projectStore = useProjectStore()
     const project = projectStore.currentProject
@@ -101,14 +114,17 @@ export const useWorktreeStore = defineStore('worktree', () => {
    * Re-point the file tree / git / search / tasks / docker (and the editor's
    * git surfaces) at `w`. `activeRoot` を見ている側（App.vue のファイル監視・root に
    * 依存する usage）は自分で追従するので、ここには出てこない。
+   *
+   * 切り替えたら `true`。要修復の worktree（修復を案内するだけ）とプロジェクトが無いときは
+   * `false`（#483。切り替えたと知らせる側が、その知らせを出し分ける）。
    */
-  async function setActiveWorktree(w: GitWorktree) {
+  async function setActiveWorktree(w: GitWorktree): Promise<boolean> {
     const projectStore = useProjectStore()
     const project = projectStore.currentProject
-    if (!project) return
+    if (!project) return false
     if (w.needsRepair) {
       await repairWorktree(w)
-      return
+      return false
     }
 
     // Store null for the main worktree so the selector collapses to "main" and
@@ -132,6 +148,7 @@ export const useWorktreeStore = defineStore('worktree', () => {
       tasks.refresh(),
       docker.refreshComposeProjects(),
     ])
+    return true
   }
 
   /**
@@ -306,6 +323,7 @@ export const useWorktreeStore = defineStore('worktree', () => {
     loading,
     hasMultiple,
     isActive,
+    worktreeUsingBranch,
     loadWorktrees,
     setActiveWorktree,
     createDialogOpen,

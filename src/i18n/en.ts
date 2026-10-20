@@ -745,6 +745,9 @@ export default {
   'git.err.timeout': 'git did not finish in time and was stopped.',
   'git.errFix.timeout':
     'It may be waiting for input, or the connection may be slow. Run the same operation in a terminal to see what is happening.',
+  'git.err.branchInWorktree': 'The branch you tried to switch to is in use by another worktree.',
+  'git.errFix.branchInWorktree':
+    'Switch to that worktree from the worktree selector in the status bar, or move that worktree to another branch and try again.',
   'git.enterPassphrase': 'Enter passphrase',
   'git.passphrasePrompt':
     'Enter the passphrase for your SSH key. It goes to ssh-agent, so you will not be asked again. Pike does not store it.',
@@ -800,6 +803,9 @@ export default {
   'git.noBranches': 'No matching branches',
   'git.remoteBranches': 'Remote branches',
   'git.checkoutRemoteHint': 'Create tracking branch {branch} and switch',
+  'git.branchInWorktreeHint': 'In use by worktree "{worktree}". Click to switch to that worktree',
+  'git.switchedToWorktree': 'Switched to worktree "{worktree}" ({branch} is in use there)',
+  'git.checkoutFailed': 'Could not switch to branch {branch} (see the Git panel).',
   'worktree.switch': 'Switch worktree',
   'worktree.main': 'main',
   'worktree.detached': 'detached',

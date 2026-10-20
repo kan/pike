@@ -397,7 +397,23 @@ const filteredRemoteBranches = computed(() => {
   return gitStore.remoteBranches.filter((b) => !local.has(localBranchName(b)) && (!q || b.toLowerCase().includes(q)))
 })
 
+/**
+ * 別の worktree が使っているブランチ → その worktree の名前（#483）。押すと checkout せず
+ * そちらへ移る（`gitStore.checkoutBranch`）ので、押す前にそれと分かるようにする。
+ */
+const worktreeNames = computed(() => {
+  const names = new Map<string, string>()
+  for (const b of gitStore.branches) {
+    const holder = worktreeStore.worktreeUsingBranch(b)
+    if (holder) names.set(b, basename(holder.path))
+  }
+  return names
+})
+
 async function openBranchSwitcher() {
+  // worktree の一覧も読み直す: 使用中の印はそれを見るので、古いと印が付かない。**待たない**
+  // （`git worktree list` は WSL で遅い）。読み終われば印が付く。
+  void worktreeStore.loadWorktrees()
   await gitStore.loadBranches()
   branchQuery.value = ''
   showBranches.value = true
@@ -482,6 +498,7 @@ onUnmounted(() => {
         v-if="statusMessageStore.visible"
         class="status-message"
         :class="`variant-${statusMessageStore.variant}`"
+        :title="statusMessageStore.text"
       >
         <component
           :is="statusIcon"
@@ -682,10 +699,15 @@ onUnmounted(() => {
               :key="b"
               class="branch-option"
               :class="{ current: b === gitStore.status?.branch }"
+              :title="worktreeNames.has(b) ? t('git.branchInWorktreeHint', { worktree: worktreeNames.get(b) ?? '' }) : undefined"
               @click="onSelectBranch(b)"
             >
               {{ b }}
               <span v-if="b === gitStore.status?.branch" class="current-mark">*</span>
+              <span v-else-if="worktreeNames.has(b)" class="worktree-mark">
+                <FolderGit2 :size="11" :stroke-width="2" />
+                {{ worktreeNames.get(b) }}
+              </span>
             </button>
             <template v-if="filteredRemoteBranches.length || gitStore.fetchingBranches">
               <div class="dropdown-label group">
@@ -1259,6 +1281,17 @@ onUnmounted(() => {
 
 .current-mark {
   color: var(--accent);
+}
+
+/* 別の worktree で使用中のブランチ（#483）。押すとその worktree へ移る */
+.worktree-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .worktree-name {

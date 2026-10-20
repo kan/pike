@@ -3,7 +3,9 @@ import { computed, type Ref, ref } from 'vue'
 import { confirmDialog, secretDialog } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
+import { classifyGitError } from '../lib/gitErrors'
 import { isRespelling } from '../lib/gitRemote'
+import { basename } from '../lib/paths'
 import {
   gitBranchList,
   gitCheckout,
@@ -37,6 +39,7 @@ import { chainOnSuccess, type ShellType } from '../types/tab'
 import { useProjectStore } from './project'
 import { useStatusMessageStore } from './statusMessage'
 import { useTabStore } from './tabs'
+import { useWorktreeStore } from './worktree'
 
 /**
  * Local branch a remote-tracking branch maps to (`origin/foo` → `foo`). Only for
@@ -131,8 +134,9 @@ export const useGitStore = defineStore('git', () => {
   }
 
   /**
-   * 失敗を記録するだけの版。ステータスバーに出さない経路（10 秒ごとのポーリング、
-   * ステージ・コミット・チェックアウト）が使う。**`failure` を直に代入しないこと**:
+   * 失敗を記録するだけの版。ステータスバーに原文を出さない経路（10 秒ごとのポーリング、
+   * ステージ・コミット・チェックアウト）が使う。チェックアウトは原文の代わりに要約を
+   * ステータスバーへ出す（`notifyCheckoutFailed`、#483）。**`failure` を直に代入しないこと**:
    * `root` を添えるのがここ 1 箇所で、添え忘れると `clearTransientError` の判定が
    * 素通りする。
    */
@@ -430,15 +434,22 @@ export const useGitStore = defineStore('git', () => {
    * **「始めた時点で前の失敗を下ろす」をここ 1 か所に置く。** 操作ごとに書くと、次に足す
    * 操作で落としても型にもテストにも掛からず、直したあとも古いエラーが残るだけになる。
    * pull / push は通さない（あちらは資格情報待ちも下ろし、失敗を値で受ける別の形）。
+   *
+   * `onFail` は帯に積んだあとで呼ぶ（ステータスバーにも出したい操作が、知らせ方を足す口。#483）。
    */
-  async function runAction(run: (root: string, shell: ShellType) => Promise<unknown>) {
+  async function runAction(
+    run: (root: string, shell: ShellType) => Promise<unknown>,
+    onFail?: (message: string) => void,
+  ) {
     const project = getProject()
     if (!project) return
     clearUnlessAuthPending()
     try {
       await run(getRoot(), project.shell)
     } catch (e) {
-      setFailure(String(e))
+      const message = String(e)
+      setFailure(message)
+      onFail?.(message)
     }
   }
 
@@ -809,11 +820,48 @@ export const useGitStore = defineStore('git', () => {
     }
   }
 
-  function checkoutBranch(branch: string) {
-    return runAction(async (root, shell) => {
-      await gitCheckout(root, shell, branch)
-      await Promise.all([refreshStatus(), refreshLog()])
-    })
+  /**
+   * ブランチを切り替える（#483）。ステータスバーのセレクターと QuickOpen の `!` が通る。
+   *
+   * **別の worktree が使っているブランチなら checkout せず、その worktree へ移る。** git は
+   * 同じブランチを 2 つの worktree で checkout させない（`is already used by worktree`）ので、
+   * 選んだ人がしたいのは「そのブランチで作業すること」で、それができる場所はそこしかない。
+   *
+   * **失敗はステータスバーにも出す。** セレクターを使う人の多くは Git パネルを閉じていて、
+   * 帯に積むだけだと「数秒後に元のブランチのまま」にしか見えない。原文は長いので出さず、
+   * 見分けられた原因の概要と、帯への案内だけを出す（帯の作法と同じ、`GitErrorBlock.vue`）。
+   */
+  async function checkoutBranch(branch: string) {
+    const worktrees = useWorktreeStore()
+    const holder = worktrees.worktreeUsingBranch(branch)
+    if (holder) {
+      // 他の操作と同じく、始めた時点で前の失敗を下ろす（前回の `branchInWorktree` の帯を残さない）。
+      clearUnlessAuthPending()
+      if (await worktrees.setActiveWorktree(holder)) {
+        useStatusMessageStore().show({
+          text: t('git.switchedToWorktree', { branch, worktree: basename(holder.path) }),
+        })
+      }
+      return
+    }
+    return runAction(
+      async (root, shell) => {
+        await gitCheckout(root, shell, branch)
+        await Promise.all([refreshStatus(), refreshLog()])
+      },
+      (message) => notifyCheckoutFailed(branch, message),
+    )
+  }
+
+  /**
+   * **ステータスバーの知らせは 1 行で、480px を超えると切れる**（全文はツールチップ）。
+   * 何が起きたかと Git パネルへの案内を先に置き、見分けた原因の概要は後ろに付ける。
+   */
+  function notifyCheckoutFailed(branch: string, message: string) {
+    const kind = classifyGitError(message)
+    const head = t('git.checkoutFailed', { branch })
+    const text = kind ? `${head} ${t(`git.err.${kind}`)}` : head
+    useStatusMessageStore().show({ text, variant: 'error', durationMs: 8000 })
   }
 
   /**
@@ -824,11 +872,15 @@ export const useGitStore = defineStore('git', () => {
   async function checkoutRemoteBranch(remoteBranch: string) {
     const local = localBranchName(remoteBranch)
     if (branches.value.includes(local)) return checkoutBranch(local)
-    return runAction(async (root, shell) => {
-      await gitCheckoutTrack(root, shell, remoteBranch)
-      // The new local branch has to show up in the switcher's local list.
-      await Promise.all([refreshStatus(), refreshLog(), loadBranches()])
-    })
+    return runAction(
+      async (root, shell) => {
+        await gitCheckoutTrack(root, shell, remoteBranch)
+        // The new local branch has to show up in the switcher's local list.
+        await Promise.all([refreshStatus(), refreshLog(), loadBranches()])
+      },
+      // 推測したローカル名（`localBranchName`）ではなく、選ばれたリモートの名前で言う。
+      (message) => notifyCheckoutFailed(remoteBranch, message),
+    )
   }
 
   async function fetchInBackground() {

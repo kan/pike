@@ -101,4 +101,12 @@ describe('classifyGitError', () => {
   test('同名のブランチ', () => {
     assert.equal(classifyGitError("fatal: a branch named 'topic' already exists"), 'branchExists')
   })
+
+  test('別の worktree で使用中のブランチ（新旧どちらの文面も）', () => {
+    assert.equal(
+      classifyGitError("fatal: 'feat' is already used by worktree at '/home/me/repo-feat'"),
+      'branchInWorktree',
+    )
+    assert.equal(classifyGitError("fatal: 'feat' is already checked out at '/home/me/repo-feat'"), 'branchInWorktree')
+  })
 })

@@ -8,11 +8,12 @@ import { useOverlay } from '../lib/overlay'
 import { basename, fuzzyMatch } from '../lib/paths'
 import { paletteActions } from '../lib/shortcuts'
 import { tabDisplayTitle } from '../lib/tabTitle'
-import { gitBranchList, gitCheckout, listProjectFiles } from '../lib/tauri'
+import { gitBranchList, listProjectFiles } from '../lib/tauri'
 import { useGitStore } from '../stores/git'
 import { useProjectStore } from '../stores/project'
 import { useTabStore } from '../stores/tabs'
 import { useTaskStore } from '../stores/tasks'
+import { useWorktreeStore } from '../stores/worktree'
 import type { TaskRunner } from '../types/tasks'
 
 const { t } = useI18n()
@@ -24,6 +25,7 @@ const tabStore = useTabStore()
 const appActions = useAppActions()
 const taskStore = useTaskStore()
 const gitStore = useGitStore()
+const worktreeStore = useWorktreeStore()
 
 // --- Mode detection ---
 type QuickOpenMode = 'file' | 'task' | 'tab' | 'line' | 'branch' | 'help'
@@ -335,11 +337,9 @@ function openSelected() {
     case 'branch': {
       const branch = filteredBranches.value[selectedIdx.value]
       if (!branch) return
-      const project = projectStore.currentProject
-      if (!project) return
-      gitCheckout(projectStore.activeRoot, project.shell, branch)
-        .then(() => gitStore.refreshStatus(true))
-        .catch(() => {})
+      // ステータスバーのセレクターと同じ入口を通す（#483。別の worktree が使っているブランチ
+      // ならそちらへ移り、失敗はステータスバーに出る）。
+      void gitStore.checkoutBranch(branch)
       break
     }
     case 'line': {
@@ -396,7 +396,11 @@ watch(
 
 // Load branches when entering branch mode
 watch(mode, (m) => {
-  if (m === 'branch' && branches.value.length === 0) loadBranches()
+  if (m !== 'branch') return
+  if (branches.value.length === 0) loadBranches()
+  // 選んだブランチを別の worktree が使っていればそちらへ移る（#483、`gitStore.checkoutBranch`）。
+  // その判定が見る一覧を読み直しておく（ステータスバーのセレクターと同じ）。
+  void worktreeStore.loadWorktrees()
 })
 
 // --- Keyboard navigation ---

@@ -742,6 +742,9 @@ export default {
   'git.errFix.branchExists': '別の名前にするか、既存のブランチへ切り替えてください。',
   'git.err.timeout': 'git が時間内に終わらなかったため、打ち切りました。',
   'git.errFix.timeout': '入力待ちか、通信が遅い可能性があります。ターミナルで同じ操作を実行すると状況を確認できます。',
+  'git.err.branchInWorktree': '切り替えようとしたブランチは、別の worktree で使用中です。',
+  'git.errFix.branchInWorktree':
+    'ステータスバーの worktree の切替でその worktree へ移るか、その worktree を別のブランチへ切り替えてから、もう一度切り替えてください。',
   'git.enterPassphrase': 'パスフレーズを入力',
   'git.passphrasePrompt':
     'SSH 鍵のパスフレーズを入力してください。ssh-agent に預けるので、次からは聞かれません。Pike はパスフレーズを保存しません。',
@@ -797,6 +800,9 @@ export default {
   'git.noBranches': 'ブランチが見つかりません',
   'git.remoteBranches': 'リモートブランチ',
   'git.checkoutRemoteHint': '追跡ブランチ {branch} を作成して切替',
+  'git.branchInWorktreeHint': 'worktree「{worktree}」で使用中です。押すとその worktree へ切り替えます',
+  'git.switchedToWorktree': 'worktree「{worktree}」へ切り替えました（{branch} はそこで使用中）',
+  'git.checkoutFailed': 'ブランチ {branch} へ切り替えられませんでした（詳しくは Git パネル）。',
   'worktree.switch': 'worktree を切替',
   'worktree.main': 'main',
   'worktree.detached': 'detached',
