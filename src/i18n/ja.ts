@@ -398,6 +398,9 @@ export default {
   'settings.terminalUrlLinksHint':
     '出力に出た URL を押せるようにします。外部ブラウザで開くときの確認は、この設定とは別に出ます（承認済みのホストを除く）。',
   'settings.terminalHelpButton': 'ヘルプボタン',
+  'settings.terminalBell': 'ベルを鳴らす',
+  'settings.terminalBellHint':
+    'ターミナルに BEL（\\a）が出力されたとき、OS の警告音を鳴らします。音量とサウンドは OS の設定に従います。エージェントが終わったときや入力待ちのときに BEL を出すことがあり、そのたびに鳴ります。',
   'settings.agentLaunchers': 'エージェントの起動行',
   'settings.agentLaunchersHint':
     'ターミナルの起動ボタンに出る行と、その並び順。上から見て最初に使える行が既定になり、ボタンを押すとそれが起動します。残りはメニューの「他のエージェント」に入ります。Claude Code・Codex・Copilot CLI・opencode はインストールされていれば使え、入っていなければ表示にしていてもメニューに出ません。「起動行を追加」で自分のコマンドを足せます（例: claude --model opus）。',

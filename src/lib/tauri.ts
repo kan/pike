@@ -1173,6 +1173,11 @@ export async function portableInfo(): Promise<{ base: string } | null> {
   return invoke<{ base: string } | null>('portable_info')
 }
 
+/** Play the OS's default alert sound for a terminal bell (#481). The gate is `lib/bell.ts`. */
+export async function systemBeep(): Promise<void> {
+  return invoke('system_beep')
+}
+
 /** Whether the current Pike process runs elevated (Windows administrator). */
 export async function isElevated(): Promise<boolean> {
   return invoke<boolean>('is_elevated')

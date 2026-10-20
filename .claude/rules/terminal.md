@@ -116,6 +116,12 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
     返す**（`useConfirmDialog` の `displaced`、#342）。分けないと、初回の確認が横取り
     されただけで設定が OFF に落ち、二度と聞かれない
 - ターミナルアクティビティ表示: 非アクティブタブが **BEL を受け取ると**ドット表示（`hasActivity`。`terminal.onBell` 経由で、全出力での点灯はトークンを流し続けるエージェントで鳴りっぱなしになるため採らない。タブ活性化直後 500ms のベルは無視）、プロセス終了で終了コードバッジ（`exitCode`）、非 pinned タブはプロセス終了 1 秒後に自動クローズ
+- **BEL の音（#481）**: **xterm.js は v5 から音を鳴らさない**（`bellStyle` / `bellSound` が無くなり、`onBell` を出すだけ）。Pike が同じ `onBell` で OS のシステム音を鳴らす（`bell.rs` の `system_beep`。Windows は `MessageBeep(MB_OK)`、macOS は `NSBeep`）。Pike 独自の音を持たないのは、OS の音量・ミュート・サウンドの設定にそのまま従わせるため
+  - 設定 `terminalBell`（既定 ON、同期の対象）。**ドットはこの設定と関係なく付ける**
+  - **間引きはウィンドウの中のタブをまたいで 1 つ**（`lib/bell.ts` の `ringBell`、`BELL_MIN_INTERVAL_MS`。判定は `errorLog.ts` の `createThrottle` を使い回す）。xterm は BEL ごとにイベントを出して自分では間引かない（バイナリを `cat` すると数百回来る）。**別のウィンドウとは間引き合わない**（webview ごとに JS の文脈が別）。重なっても OS の音が 2 回鳴るだけなので、Rust 側にプロセス全体の間引きは置いていない
+  - ドットと同じく、**タブを出した直後 500ms のベルでは鳴らさない**（描き直しで TUI が鳴らすもの）。猶予の起点 `lastActivatedAt` は **mount の時刻から始める**: 最初から見えているタブ（セッションの復元、#469 で移ってきたシェル）では見える／見えないの watcher が発火しないので、0 から始めると最初の描画のベルで鳴る
+  - **裏のタブ・別のプロジェクトのターミナルでも鳴らす**（Windows Terminal と同じ）。見えているかで絞らない
+  - `system_beep` が同期の `fn` なのは、Tauri が同期のコマンドをメインスレッドで動かし、`NSBeep`（AppKit）の要件をそれで満たすため
 
 ## ターミナルの検索
 - **`@xterm/addon-search` を使う**。折り返した行の結合とスクロールバックの走査を自前で持たないため。見た目は `components/editor/FindBar.vue`（diff タブ・プレビューと共有）。キーの受け方は `shortcuts.md` の `Ctrl+F` の項

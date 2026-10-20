@@ -1052,6 +1052,10 @@ const PREVIEW_LINES = [
           <SettingItem label-key="settings.rightClickPaste">
             <SettingToggle v-model="settings.terminalRightClickPaste" :options="ON_OFF" />
           </SettingItem>
+
+          <SettingItem label-key="settings.terminalBell" hint-key="settings.terminalBellHint">
+            <SettingToggle v-model="settings.terminalBell" :options="ON_OFF" />
+          </SettingItem>
         </SettingGroup>
 
         <SettingGroup title-key="settings.groupShell">

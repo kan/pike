@@ -38,6 +38,7 @@ pike/
 │       ├── agent_mod.rs       # 同梱の Claude Code の mod の配置と、読み込ませる環境変数（#437。本体は src-tauri/claude-mod/）
 │       ├── app_log.rs         # ログファイル（インストール版でも書く・フロントのエラーの受け口・フォルダを開く、#415）
 │       ├── autostart.rs       # ログイン時の起動（HKCU の Run キー、Windows のみ、#419）
+│       ├── bell.rs            # ターミナルの BEL で鳴らす OS のシステム音（MessageBeep / NSBeep、#481）
 │       ├── agent_sessions.rs  # 再開できる過去セッションの一覧（#267。出所は 4 つとも違う）
 │       ├── agent_usage/
 │       │   ├── mod.rs         # 使用量を種別に依らない形で返す（#263。id でアダプタへ振り分け）
@@ -242,6 +243,7 @@ pike/
 │   ├── lib/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── errorLog.ts        # フロントの例外をログファイルへ流す受け口と間引き（#415）
+│   │   ├── bell.ts            # ターミナルの BEL の音の間引き（ウィンドウの中のタブをまたいで 1 つ、#481）
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── jsonc.ts          # コメント付き JSON の最小パーサ（tsconfig と .vscode/settings.json）
 │   │   ├── worktreeCreate.ts # worktree の作成先の解決と、持っていくファイルのパターンの読み取り（#478）

@@ -19,6 +19,7 @@ import { ptyRouter } from '../../composables/usePtyRouter'
 import { markTerminalOutput, registerTerminalPeek, unregisterTerminalPeek } from '../../composables/useTerminalPeek'
 import { attachUrlLinks } from '../../composables/useTerminalUrlLinks'
 import { useI18n } from '../../i18n'
+import { ringBell } from '../../lib/bell'
 import { isMacHost, isWindowsHost } from '../../lib/host'
 // 一時的な調査用ログ（TODO「謎のバックスペース」）。原因が判明したら削除する。
 import { parkFocusForIme } from '../../lib/imeFocusPark'
@@ -38,6 +39,7 @@ import {
   ptyResume,
   ptySpawn,
   ptyWrite,
+  systemBeep,
 } from '../../lib/tauri'
 import {
   registerTerminalExport,
@@ -647,7 +649,9 @@ function nudgePtyResize(delayMs: number) {
 
 // Grace period: suppress hasActivity for bells arriving shortly after tab activation
 // (some TUIs ring the bell on focus/redraw).
-let lastActivatedAt = 0
+// mount の時刻から始める: 最初から見えているタブ（セッションの復元、別のウィンドウから
+// 移ってきたシェル #469）は下の watcher が発火しないので、0 だと最初の描画のベルで音が鳴る（#481）。
+let lastActivatedAt = Date.now()
 
 // Run `cb` after two animation frames. Used both to let a v-show transition
 // fully resolve before measuring, and for the IME readOnly bounce where each
@@ -1056,9 +1060,13 @@ onMounted(async () => {
   // Bell-driven activity: TUIs (Claude Code, shells with `\a` in PS1, etc.)
   // ring BEL when they want attention. Marking activity on every byte of
   // output was too noisy for agents that stream tokens continuously.
+  //
+  // 音（#481、`lib/bell.ts`）も同じ猶予を通す: タブを出した直後の描き直しで TUI が
+  // 鳴らすベルは、利用者が求めたものではない。
   terminal.onBell(() => {
     if (Date.now() - lastActivatedAt <= 500) return
     tabStore.markTabActivity(props.tabId)
+    if (settingsStore.terminalBell) ringBell(systemBeep)
   })
 
   // 運ばれてきたシェル（#469）には流さない。初期化は移動元で済んでいて、`autoStart` を

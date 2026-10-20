@@ -161,6 +161,8 @@ const EXTERNAL_NAMES = [
 const GONE_NAMES = [
   'AppState', // 1 つにまとめていない、と rust.md が書くための名前
   'CLAUDE_CONFIG_PATH', // issue の表題にあるが実在しない変数（agent-hook.md）
+  'bellStyle', // xterm.js が v5 で外したオプション。音を Pike が鳴らす理由として terminal.md が挙げる（#481）
+  'bellSound', // 同上
 ]
 
 const allowedNames = new Set([...EXTERNAL_NAMES, ...GONE_NAMES])

@@ -16,6 +16,7 @@ mod agent_usage;
 mod agents;
 mod app_log;
 mod autostart;
+mod bell;
 mod browser;
 mod browser_nav;
 mod cache;
@@ -2026,6 +2027,7 @@ pub fn run() {
             tray_set_tooltip,
             tray_set_close_to_tray,
             window_set_backdrop,
+            bell::system_beep,
             elevate::is_elevated,
             portable::portable_info,
             elevate::open_elevated_terminal,

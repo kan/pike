@@ -640,6 +640,14 @@ export interface PersistedSettings {
   terminalPathLinks: TerminalPathLinkMode
   terminalUrlLinks: boolean
   /**
+   * BEL（`\a`）で OS のシステム音を鳴らすか（#481）。
+   *
+   * **既定は true**（Windows Terminal など一般の端末と同じ。VS Code は既定で鳴らさない）。
+   * エージェントが終わったときや入力待ちに BEL を出すと、そのたびに鳴る。切りたい人のための設定。
+   * 裏のタブのアクティビティのドット（`markTabActivity`）はこの設定と関係なく付ける。
+   */
+  terminalBell: boolean
+  /**
    * Pike のターミナルで動く Claude Code に、同梱の mod を読み込ませるか（#437）。
    *
    * **既定は true。** mod は `settings.json` を書き換えずにアカウントの申告・入力待ちの
@@ -1260,6 +1268,7 @@ function defaults(): PersistedSettings {
     // リンク化は 2 つとも既定で入れたまま（従来の挙動）。パスは押したときに一拍置く（#343）。
     terminalPathLinks: 'confirm' as TerminalPathLinkMode,
     terminalUrlLinks: true,
+    terminalBell: true,
     agentMod: true,
     searchResultView: 'grouped' as SearchResultView,
     markdownFetchLinkTitle: false,
@@ -1349,6 +1358,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const terminalHelpButton = ref(saved.terminalHelpButton)
   const terminalPathLinks = ref(saved.terminalPathLinks)
   const terminalUrlLinks = ref(saved.terminalUrlLinks)
+  const terminalBell = ref(saved.terminalBell)
   const agentMod = ref(saved.agentMod)
   const searchResultView = ref<SearchResultView>(saved.searchResultView)
   const markdownFetchLinkTitle = ref(saved.markdownFetchLinkTitle)
@@ -1899,6 +1909,7 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalHelpButton: terminalHelpButton.value,
       terminalPathLinks: terminalPathLinks.value,
       terminalUrlLinks: terminalUrlLinks.value,
+      terminalBell: terminalBell.value,
       agentMod: agentMod.value,
       searchResultView: searchResultView.value,
       markdownFetchLinkTitle: markdownFetchLinkTitle.value,
@@ -1959,6 +1970,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalHelpButton.value = s.terminalHelpButton
     terminalPathLinks.value = s.terminalPathLinks
     terminalUrlLinks.value = s.terminalUrlLinks
+    terminalBell.value = s.terminalBell
     agentMod.value = s.agentMod
     searchResultView.value = s.searchResultView
     markdownFetchLinkTitle.value = s.markdownFetchLinkTitle
@@ -2087,6 +2099,7 @@ export const useSettingsStore = defineStore('settings', () => {
       terminalHelpButton,
       terminalPathLinks,
       terminalUrlLinks,
+      terminalBell,
       agentMod,
       searchResultView,
       markdownFetchLinkTitle,
@@ -2167,6 +2180,7 @@ export const useSettingsStore = defineStore('settings', () => {
     terminalHelpButton,
     terminalPathLinks,
     terminalUrlLinks,
+    terminalBell,
     agentMod,
     searchResultView,
     markdownFetchLinkTitle,
