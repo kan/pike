@@ -96,7 +96,7 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
 - **既存の marked 拡張は採っていない**（`marked-alert` は種類名の大文字小文字を区別する、`marked-katex-extension` は KaTeX を静的に import するので遅延読み込みにできず `` $`…`$ `` と ```` ```math ```` も扱わない、`marked-emoji` は対応表を持たない）
 - **数式は 2 段で描く**: marked は `.math` の印にソースを包んで出すだけで、DOM に入ったあとで `renderMath` が KaTeX を当てる（プレビューの watcher・issue タブの watcher・マニュアルの `postProcess`）。KaTeX は数式があるときだけ動的 import し、結果はキャッシュする
   - **KaTeX の出力は DOMPurify に通さない。** DOMPurify は MathML の `semantics` / `annotation` を禁止リストに持っていて崩れる。`trust: false`（既定）の KaTeX は外へ出る命令を描かないので、そのまま入れてよい
-  - **`katex` の版は mermaid の依存と同じ系列にする**（npm が 1 つに畳み、配布物の KaTeX のチャンクが mermaid と共有になる。系列がずれると約 260KB のチャンクがもう 1 つ増える）。**今は `0.18.10` に固定してある**: 0.18.11 は「誤って破壊的変更を含めて出した」として非推奨で、0.19 は mermaid（`^0.18.0`）と畳めない。mermaid が 0.19 に上がったら固定を外して揃える
+  - **`katex` は `0.18.10` に固定してある**: 0.18.11 は「誤って破壊的変更を含めて出した」として非推奨。固定の理由はこれだけで、他の依存と系列を揃える必要は無い。0.19 へ上げるときは数式の描画を確かめる
   - フォントは CSS の参照から `vite.config.ts` の `katexWoff2Only` が woff / ttf を落とし、**woff2 だけを同梱する**（`font-src 'self' data:` のまま。CDN は使わない）
   - プレビューの検索は KaTeX の読み上げ用の `.katex-mathml` を飛ばす（`lib/domFind.ts` の `SKIP_SELECTOR`。見えない文字に一致が付く）
 - **絵文字の対応表は `markdown-it-emoji` のデータ（`lib/data/full.mjs`）だけを使う**。中身は GitHub の gemoji と同じ名前の集合で、gemoji の npm 版より小さい。使うときだけ読み込み（`loadEmojiFor`）、読み終えたら読み込みを始めた computed が組み直される（表を `shallowRef` に持つ。マニュアルは待ってから描く）
@@ -144,12 +144,14 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **表は 4 種（grid / simple / `list-table` / `csv-table`）に対応する。** 桁の切り出しは `lib/displayWidth.ts` の `sliceByWidth`（rst の表は**表示幅**で桁を合わせるので、`slice` を code unit で行うと全角を含む表が崩れる）。同ファイルの `displayWidth` は diff タブの横幅の見積もり（#272）と共有する。**セルの結合には対応しない**: grid の途中の罫線で境界の桁が埋まっていたら結合とみなし、`null` を返して字面のまま出す側へ落とす
 - Mermaid (`.mermaid`/`.mmd`): `renderStandaloneMermaid` が `lib/mermaid.ts` の `renderMermaid` で SVG 描画（ズーム対応）
 - Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し、同じ `renderMermaid` で SVG に差し替え
-- **描画器は 2 つ（#417）**。1 行目の見出しが beautiful-mermaid の扱う 6 種（flowchart / state / sequence / class / ER / xychart）なら先にあちらで描き、それ以外と、あちらが投げた図は本家の mermaid に回す。判定は `isBeautifulDiagram`、判断の実体は `lib/mermaid.ts` の doc が正本
-  - **beautiful-mermaid の `<style>` は素のセレクタ**（`text { font-family }` など）なので、`scopeSvgStyles` が CSSOM で `#id` の下へ絞ってから埋める。絞らないとページ中の SVG に効く。`@scope` は古い WKWebView が規則ごと捨てるので使わない。Google Fonts の `@import` も同じ関数で落とす（CSP が止める）
-  - **配色は app のテーマから実際の色を読んで渡す**（`var()` を渡すと xychart の系列の色が既定の青に落ちる）。その代わりライト／ダークの切り替えで描き直しが要る: standalone は watcher が `darkMode` を見る。Markdown は描いた図が元のソースを `data-mermaid-source` に持ち、`darkMode` の watcher が `renderMarkdownMermaid` でそれを描き直す。**`previewHtml` に `darkMode` を読ませる形にしないこと**: 図だけの文書では HTML がテーマで変わらないので computed が同じ値を返し、watcher が動かない。本家もテーマを `dark` / `default` で切り替える
-  - **beautiful-mermaid の出力はキャッシュする**（`beautifulCache`、キーはテーマ・書体・ソース）。Markdown のプレビューは打鍵のたびに全部の図を描き直し、あちらは ELK のレイアウトを同期で回すので、無いと変わっていない図のぶんまでメインスレッドを塞ぐ。本家の出力は id が焼き込まれるので載せない
-  - **beautiful-mermaid は投げずに読み違えることがある**（空白を挟まない `A-->B` でエッジが消えてノードが `A--` になる、`click` がノードになる）。flowchart / state だけは描く前に `misreadsGraph` で `parseMermaid` の結果を見て、化けたノード名か本家にしか無い文があれば本家に回す
-  - **本家は 12 から既定のレイアウトが ELK、外観が `neo`**（11 までは dagre と `classic`）。`getMermaid` の `initialize` は `theme` しか渡さず、新しい既定のまま使う。11 の見た目に戻すなら `layout: 'dagre'` と `look: 'classic'` を足す。12 は ES2024 / Safari 17.4 以上を求めるので、古い macOS の WKWebView では本家に回った図が描けないことがある
+- **描画器は Pele（`pele`）1 つ（#508）**。Obsidian の Mermaid 互換の描画器で、Mermaid 12.1.0 の組み込みの全図種を描く。理由・渡すオプション・効かなくなった本家の機能・無害化は `lib/mermaid.ts` の doc が正本
+  - **本家の mermaid への後退は持たない。** 以前（#417）の振り分け・読み違いの検出・`<style>` の絞り込み・キャッシュ・テーマの切り替えでの描き直しは、どれも外した。前提は `tests/mermaid.test.ts` が見張る。**Pele の版を上げてこのテストが落ちたら、回避策を戻す前に Pele 側の退行を疑う**
+  - 配色は `theme.css` の `.pele` が `--pele-*` を Pike のテーマの変数につなぐ。**書体だけは CSS で渡さない**（理由は `lib/mermaid.ts`）ので、UI の書体を変えたら描き直す。Markdown の図は元のソースを `data-mermaid-source` に持ち、`renderMarkdownMermaid` がそこから描き直す。**`previewHtml` に書体を読ませる形にしないこと**: 図だけの文書では HTML が書体で変わらないので computed が同じ値を返し、watcher が動かない
+  - 系列の色（`--pele-series-1..8`）はつないでいない（Pele の既定の色のまま）。円グラフの割合のラベルは下地の色（`--pele-bg`）で描かれる
+  - 図の CSS は外側の svg だけに当てる（`.mermaid-inline > svg`）。architecture の図の印は入れ子の svg で、`height: auto` が当たると図全体の大きさに広がる
+  - 大きさ：Pele の図種ごとのチャンクは全部で約 0.7MB。以前の mermaid と beautiful-mermaid は合わせて約 6.4MB だった（どちらも `vite build` の `dist/assets` で測った値）
+  - レイアウトは Pele 独自で、本家の dagre / ELK とは配置が違う
+  - ラベルの `$$…$$` を KaTeX で組むなら、Pele の `math` に寸法つきの組版結果を返す関数を渡す（今は渡していない）
 - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
 - SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
 - **プレビューの検索（#360）**: `Ctrl+F` でプレビューの右上に `components/editor/FindBar.vue`（diff タブと共有）を出す。一致の求め方と強調は `lib/domFind.ts`、数え直しの契機は `composables/usePreviewFind.ts`。判断の実体はその 2 ファイルの doc が正本

@@ -9,9 +9,7 @@
  *
  * - **KaTeX は数式を含む文書を開いたときだけ読み込む**（本体約 260KB とフォント）。プレビューは
  *   同期の computed で組むので、marked の描画の中では読み込みを待てない。mermaid と同じ扱い。
- *   **版は mermaid が依存する KaTeX と同じ系列にそろえる**（`package.json` の `katex`）。npm が
- *   1 つに畳むので、配布物の KaTeX のチャンクも mermaid と共有の 1 つで済む（系列がずれると
- *   同じ大きさのチャンクがもう 1 つ増える）
+ *   版を固定している理由は `.claude/rules/preview.md` の数式の節
  * - **KaTeX の出力を DOMPurify に通さずに済む。** 出力は MathML と、寸法を持つインラインの
  *   `style` を大量に含み、プレビューの許可設定で通すと崩れる。KaTeX は `trust: false`（既定）で
  *   `\href` や `\htmlClass` のような外へ出る命令を描かないので、出力をそのまま入れてよい
@@ -169,7 +167,7 @@ type Rendered = { template: HTMLTemplateElement } | { error: string }
 
 /**
  * 描いた結果のキャッシュ。**プレビューは打鍵のたびに作り直される**ので、触っていない数式まで
- * 毎回組み直さない（mermaid の `beautifulCache` と同じ考え方）。編集中の式は打鍵ごとに別の
+ * 毎回組み直さない。編集中の式は打鍵ごとに別の
  * キーになって溜まるので、上限を超えたら丸ごと捨てる（`codeHighlight.ts` と同じ）。
  */
 const cache = new Map<string, Rendered>()

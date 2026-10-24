@@ -907,6 +907,22 @@ textarea,
   text-align: left;
 }
 
+/* Mermaid の図（Pele、#508）。SVG は色を `var(--pele-*)` で参照するだけなので、ここを
+   テーマの変数につなげば、ライト／ダークを切り替えても描き直さずに追従する（`lib/mermaid.ts`）。
+   **書体はここで渡さない**（`--pele-font`）: 文字幅を測る書体と揃えるため、描くときに渡している。
+   下地は透過の合成（`--surface-alpha`）を外した色にする。辺のラベルの下に敷く色なので、
+   透けると線がラベルの上に見える。 */
+.pele {
+  --pele-bg: rgb(var(--bg-primary-rgb));
+  --pele-fg: var(--text-primary);
+  --pele-muted: var(--text-secondary);
+  --pele-line: var(--text-secondary);
+  --pele-surface: rgb(var(--bg-secondary-rgb));
+  --pele-surface-alt: rgb(var(--bg-tertiary-rgb));
+  --pele-border: var(--border);
+  --pele-accent: var(--accent);
+}
+
 /* `#123`（`lib/issueRefs.ts`）。issue タブで開くので `href` を持たず、既定ではリンクの
    カーソルにならない。 */
 .issue-ref {

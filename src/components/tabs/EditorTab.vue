@@ -689,21 +689,23 @@ const previewHtml = computed(() => {
 
 const mermaidZoom = ref(1)
 
-/** 図を描いて `.mermaid-inline` に包む。元のソースは `data-mermaid-source` に持つ（描き直し用）。 */
+/** 図を描いて `.mermaid-inline` に包む。元のソースは `data-mermaid-source` に持つ（書体を変えたときの描き直し用）。 */
 async function mermaidDiagram(source: string, id: string): Promise<HTMLDivElement> {
-  const svg = await renderMermaid(source, id, {
-    dark: settingsStore.darkMode,
-    font: settingsStore.uiFontFamily,
-  })
+  const svg = await renderMermaid(source, id, settingsStore.uiFontFamilyCss)
   const wrapper = document.createElement('div')
   wrapper.className = 'mermaid-inline'
   wrapper.dataset.mermaidSource = source
-  // そのまま入れる（SVG_PURIFY_OPTS に通すと本家のラベルが消える。理由は `lib/mermaid.ts`）
-  wrapper.innerHTML = svg
+  wrapper.append(svg)
   return wrapper
 }
 
+/**
+ * **後から始まった描画が勝つ**（`standaloneMermaidRun`）。図種のチャンクを初めて読む描画は遅いので、
+ * 図種を書き換えた直後は前の描画があとから終わって新しい図を上書きしうる。
+ */
+let standaloneMermaidRun = 0
 async function renderStandaloneMermaid() {
+  const run = ++standaloneMermaidRun
   await nextTick()
   if (!mermaidRef.value || !editorView) return
   const source = editorView.state.doc.toString().trim()
@@ -713,8 +715,9 @@ async function renderStandaloneMermaid() {
   }
   try {
     const diagram = await mermaidDiagram(source, `mermaid-${props.tabId}-${Date.now()}`)
-    mermaidRef.value.replaceChildren(diagram)
+    if (run === standaloneMermaidRun) mermaidRef.value?.replaceChildren(diagram)
   } catch (e) {
+    if (run !== standaloneMermaidRun || !mermaidRef.value) return
     const pre = document.createElement('pre')
     pre.className = 'mermaid-render-error'
     pre.textContent = String(e)
@@ -723,20 +726,20 @@ async function renderStandaloneMermaid() {
 }
 
 /**
- * Markdown の中の ```mermaid``` を図に差し替える。描いた図は元のソースを `data-mermaid-source` に
- * 持ち、テーマの切り替えではそれを描き直す（#417）。`previewHtml` を作り直させて描き直す形は
- * 採れない: 図だけの文書では HTML がテーマで変わらず、computed が同じ値を返して watcher が動かない。
+ * Markdown の中の ```mermaid``` を図に差し替える。テーマを切り替えても描き直さない（色は
+ * CSS 変数で追従する。`lib/mermaid.ts`）。書体を変えたときは、描いた図が持つ元のソース
+ * （`data-mermaid-source`）から描き直す。`previewHtml` を作り直させる形は採れない: 図だけの文書では
+ * HTML が書体で変わらず、computed が同じ値を返して watcher が動かない。
  *
- * **後から始まった描画が前の描画を止める**（`markdownMermaidRun`）。`previewHtml` とテーマの
- * watcher が同じ切り替えで両方動くことがあり、打鍵が描画より速いと古いループが外れた要素を描き続ける。
+ * **後から始まった描画が前の描画を止める**（`markdownMermaidRun`）。描画は図ごとに待つ
+ * （図種のチャンクの読み込み）ので、打鍵が描画より速いと古いループが外れた要素を描き続ける。
  */
 let markdownMermaidRun = 0
 async function renderMarkdownMermaid() {
   const run = ++markdownMermaidRun
   await nextTick()
   if (!previewRef.value) return
-  // 数式（#482）も DOM に入ってから KaTeX を当てる（理由は `lib/markdownMath.ts`）。テーマの
-  // 切り替えでも呼ばれるが、描いたものには印（`.math-done`）があるので何もしない。
+  // 数式（#482）も DOM に入ってから KaTeX を当てる（理由は `lib/markdownMath.ts`）。
   void renderMath(previewRef.value)
   const targets = previewRef.value.querySelectorAll<HTMLElement>(
     'pre > code.language-mermaid, .mermaid-inline[data-mermaid-source]',
@@ -744,11 +747,11 @@ async function renderMarkdownMermaid() {
   let idx = 0
   for (const el of targets) {
     if (run !== markdownMermaidRun) return
-    const host = el.tagName === 'CODE' ? (el.parentElement as HTMLElement) : el
+    const host = el.tagName === 'CODE' ? el.parentElement : el
     const source = el.dataset.mermaidSource ?? (el.textContent ?? '').trim()
     try {
       const diagram = await mermaidDiagram(source, `md-mermaid-${props.tabId}-${idx++}-${Date.now()}`)
-      if (run === markdownMermaidRun) host.replaceWith(diagram)
+      if (run === markdownMermaidRun) host?.replaceWith(diagram)
     } catch {
       // Leave code block as-is on syntax error
     }
@@ -761,12 +764,12 @@ async function renderMarkdownMermaid() {
 watch([debouncedDocVersion, showPreview, isMermaid], () => {
   if (isMermaid.value && showPreview.value) renderStandaloneMermaid()
 })
-// 図の色は描いた時点のテーマで焼き込むので、ライト／ダークの切り替えでも描き直す（#417）
+// 書体はラベルの幅の計測に効くので、変わったら図を描き直す（色は CSS 変数で追従するので見ない）。
+// 隠れているタブは見せたときに描き直す（#462）。
 watch(
-  () => settingsStore.darkMode,
-  // 隠れているタブは見せたときに描き直す（#462。図のレイアウトは重く、メインスレッドを塞ぐ）。
+  () => settingsStore.uiFontFamilyCss,
   () =>
-    applyWhenVisible('mermaidTheme', 'preview', () => {
+    applyWhenVisible('mermaidFont', 'preview', () => {
       if (!showPreview.value) return
       if (isMermaid.value) renderStandaloneMermaid()
       else if (isMarkdown.value) renderMarkdownMermaid()
@@ -1994,7 +1997,7 @@ const whenShown = new Map<string, Deferred>()
  *   その場で流すので、設定ごとに別々のトランザクションにすると切替を待たせる）。読み直すなら
  *   要らない（作り直すビューが、いまの設定で組まれる）
  * - `view` … ビューに対する、張り直し以外の反映（診断・言語）。これも読み直すなら要らない
- * - `preview` … プレビューの DOM に対する反映（Mermaid の色・画像）。**読み直しでは戻らない**
+ * - `preview` … プレビューの DOM に対する反映（画像）。**読み直しでは戻らない**
  *   （本文が同じなら `previewHtml` が変わらず、描き直しの watcher が動かない）ので、
  *   読み直したあとに流す
  */
@@ -3207,7 +3210,8 @@ onUnmounted(() => {
   color: var(--text-primary);
 }
 .md-preview :deep(.mermaid-inline) { text-align: center; margin: 16px 0; }
-.md-preview :deep(.mermaid-inline svg) { max-width: 100%; height: auto; }
+/* 外側の svg だけ。Pele は architecture の図の中の印を入れ子の svg で描き、`height: auto` が当たると図全体の大きさに広がる。 */
+.md-preview :deep(.mermaid-inline > svg) { max-width: 100%; height: auto; }
 .md-preview :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
 .md-preview :deep(ul),
 .md-preview :deep(ol) { padding-left: 1.5em; }
@@ -3624,7 +3628,7 @@ onUnmounted(() => {
   transform-origin: top center;
 }
 
-.mermaid-preview :deep(.mermaid-inline svg) {
+.mermaid-preview :deep(.mermaid-inline > svg) {
   display: block;
   margin: 0 auto;
   height: auto;
