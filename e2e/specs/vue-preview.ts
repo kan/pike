@@ -59,8 +59,10 @@ const SFC_SOURCE = [
  * vue-preview の出力に見立てたページ。値を与えていない参照はプレースホルダ（参照式の末尾を
  * `{{ }}` で囲んだもの）で描かれる。文言（`$t`）は i18n のファイルから引かれる。
  *
- * 書体は撮影の前提の UI フォントを名指しする（#506。iframe の中には `SYSTEM_UI_FONT` が
- * 届かないので、英語版の Windows で撮っても日本語の Windows と同じ字形にするにはここで指す）。
+ * 書体は撮影の前提のフォントを名指しする（#506。iframe の中には `SYSTEM_UI_FONT` も撮影用の
+ * CSS も届かないので、英語版の Windows で撮っても日本語の Windows と同じ字形にするにはここで
+ * 指す）。ボタンは UA の既定の書体で描かれるので `inherit` にし、プレースホルダの等幅も
+ * `ui-monospace`（OS ごとに違う）ではなく撮影の前提の等幅フォントにする。
  */
 const PREVIEW_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
@@ -75,9 +77,9 @@ const PREVIEW_HTML = `<!doctype html>
   .bio { color: #334155; line-height: 1.6; }
   .meta { color: #64748b; font-size: 13px; }
   .follow { flex-shrink: 0; padding: 6px 14px; border: 1px solid #4f46e5; border-radius: 999px;
-    background: #fff; color: #4f46e5; font-size: 13px; }
+    background: #fff; color: #4f46e5; font-family: inherit; font-size: 13px; }
   .ph { padding: 0 3px; border-radius: 3px; background: #fef3c7; color: #92400e;
-    font-family: ui-monospace, monospace; font-size: 0.9em; }
+    font-family: "${CAPTURE_ENV.monoFont}", monospace; font-size: 0.9em; }
 </style></head><body>
   <article class="card">
     <div class="avatar"></div>

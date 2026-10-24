@@ -1,4 +1,5 @@
 import {
+  CAPTURE_ENV,
   MATRIX,
   mockInvoke,
   openDiff,
@@ -26,7 +27,8 @@ const IMAGE_SVG = [
   '  <rect width="420" height="280" fill="url(#g)"/>',
   '  <circle cx="130" cy="140" r="70" fill="#ffffff" opacity="0.85"/>',
   '  <rect x="230" y="80" width="120" height="120" rx="18" fill="#ffffff" opacity="0.85"/>',
-  '  <text x="210" y="255" font-size="20" font-family="sans-serif" text-anchor="middle" fill="#ffffff">Pike image viewer</text>',
+  // 書体は名指しする（#506。`sans-serif` は OS の表示言語で変わり、英語版の Windows では Arial になる）
+  `  <text x="210" y="255" font-size="20" font-family="${CAPTURE_ENV.uiFont}, sans-serif" text-anchor="middle" fill="#ffffff">Pike image viewer</text>`,
   '</svg>',
 ].join('')
 const IMAGE_DATA_URL = `data:image/svg+xml,${encodeURIComponent(IMAGE_SVG)}`

@@ -200,8 +200,13 @@ async function assertCaptureEnvironment(): Promise<void> {
 }
 
 // アニメーション・トランジション・キャレット点滅を止める撮影用スタイル。
+//
+// フォームの部品（ボタン・入力欄・選択）の書体も UI のフォントに揃える（#506）。`font-family` を
+// 書いていない部品は UA の既定の書体で描かれ、それは OS の表示言語で決まる（日本語の Windows では
+// UI のフォントと同じ Yu Gothic UI、英語版の CI のランナーでは別の書体になり、かなの字間が開く）。
+// `:where` にして、部品ごとに書いた指定（`font-family: inherit` など）には勝たないようにする。
 async function injectStabilizeCss(): Promise<void> {
-  await browser.execute(() => {
+  await browser.execute((uiFont) => {
     const id = 'wdio-screenshot-stabilize'
     if (document.getElementById(id)) return
     const style = document.createElement('style')
@@ -212,9 +217,12 @@ async function injectStabilizeCss(): Promise<void> {
       transition-duration: 0s !important;
       transition-delay: 0s !important;
       caret-color: transparent !important;
+    }
+    :where(button, input, select, textarea) {
+      font-family: "${uiFont}", system-ui, sans-serif;
     }`
     document.head.appendChild(style)
-  })
+  }, CAPTURE_ENV.uiFont)
 }
 
 // フォント読み込み完了と描画の安定を待つ。
