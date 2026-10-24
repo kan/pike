@@ -199,6 +199,7 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 - `.github/workflows/screenshots.yml`: **スクリーンショットを Windows ランナーで撮る試作**（#506。`workflow_dispatch` のみ）。撮影の前提（`CAPTURE_ENV`）を揃えてから `just e2e-build` → `just e2e` を流し、画像をアーティファクト `screenshots` に上げる。コミットはしない
   - **ランナーは英語版の Windows で画面は 100%**。**表示倍率は撮影用ビルドが自分で 1.5 に固定する**（`tauri.e2e.conf.json` の main ウィンドウの `additionalBrowserArgs` に `--force-device-scale-factor=1.5`。手元の拡大率 150% と同じ値なので、手元の絵は変わらない）
     - **環境変数 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` では効かなかった**（試作 1 回目で `devicePixelRatio` が 1 のまま）。wry がブラウザの引数を明示的に渡すため
+    - **同じ引数で `--lang=ja` も渡す**。総称の書体（`monospace` など）は文書の `lang`（`index.html` は `ja`）だけでなくブラウザの言語でも決まり、英語版のランナーでは英語の既定（Consolas 系）で描かれた。手元の WebView2 は元から日本語なので変わらない
     - **`additionalBrowserArgs` は wry の既定の引数（`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`）を置き換える**ので、設定の値にも並べてある
     - 設定の `app.windows` は配列なので、マージで丸ごと置き換わる。**`tauri.conf.json` の main ウィンドウの設定を変えたら、`tauri.e2e.conf.json` の写しも変える**（`tests/e2eConfig.test.ts` が食い違いを落とす）
     - **main 以外の webview（`build_window` と子 webview の 2 つ）にも同じ引数を渡す**（`lib.rs` の `e2e_browser_args`）。WebView2 は同じデータディレクトリの webview が同じ引数を持つことを求める
