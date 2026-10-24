@@ -9,8 +9,8 @@ name: Screenshots
 #   `--force-device-scale-factor=1.5` を渡す（`tauri.e2e.conf.json`。環境変数
 #   `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` では効かなかった）
 # - UI のフォント … ランナーは英語版の Windows で `system-ui` が Segoe UI になる。撮影用ビルドは
-#   Yu Gothic UI を名指しする（`lib/fontDetection.ts` の `SYSTEM_UI_FONT`）ので、ここでは
-#   フォント本体を日本語フォントの追加機能で入れる
+#   Yu Gothic UI を名指しする（`lib/fontDetection.ts` の `SYSTEM_UI_FONT`）。フォント本体は
+#   ランナーのイメージに最初から入っている
 # - 等幅フォント … PlemolJP Console NF をリリースの zip から入れる
 # - タイムゾーン … 相対日時（「昨日」）は日付の境目で変わるので日本時間に揃える
 #
@@ -55,48 +55,12 @@ jobs:
       - name: Set time zone to JST
         run: tzutil /s "Tokyo Standard Time"
 
-      # Yu Gothic UI は日本語の補助フォント（追加機能）に入っている（Yu Gothic / Meiryo / BIZ UD も
-      # 入る）。追加機能は Windows Update から落とすので 13 分ほどかかる。**入ったフォントの
-      # ファイルをキャッシュに置き**、2 回目からはそこから入れる
-      - name: Restore Japanese fonts
-        id: jpan-cache
-        uses: actions/cache/restore@v6.1.0
-        with:
-          path: ${{ runner.temp }}/jpan-fonts
-          key: jpan-fonts-windows-v1
-
-      - name: Install Japanese fonts (from cache)
-        if: steps.jpan-cache.outputs.cache-hit == 'true'
+      # Yu Gothic UI はランナーのイメージに最初から入っている。日本語の補助フォント（追加機能。
+      # Meiryo / BIZ UD / MS 明朝 / Noto など）は入れない（Windows Update から落とすので 15 分
+      # かかる）。そのぶん、日本語の字形の代わりに使われるフォントは手元と違いうる
+      - name: Check Yu Gothic UI
         shell: pwsh
-        run: |
-          pwsh scripts/install-fonts.ps1 "$env:RUNNER_TEMP/jpan-fonts"
-          if (-not (Test-Path "$env:WINDIR\Fonts\YuGothR.ttc")) { throw 'キャッシュに YuGothR.ttc（Yu Gothic UI）が無い。キーの版を上げて取り直す' }
-
-      # 入る前と後の %WINDIR%\Fonts を比べて、増えたファイルをキャッシュへ写す
-      - name: Install Japanese fonts (Windows Update)
-        if: steps.jpan-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $fontsDir = "$env:WINDIR\Fonts"
-          $before = Get-ChildItem $fontsDir -File | Select-Object -ExpandProperty Name
-          $r = Add-WindowsCapability -Online -Name 'Language.Fonts.Jpan~~~und-JPAN~0.0.1.0'
-          $r | Format-List Online, RestartNeeded
-          $cap = Get-WindowsCapability -Online -Name 'Language.Fonts.Jpan*'
-          $cap | Format-List Name, State
-          if ($cap.State -ne 'Installed') { throw "Language.Fonts.Jpan が入っていない（$($cap.State)）" }
-          $added = Get-ChildItem $fontsDir -File | Where-Object { $before -notcontains $_.Name }
-          $cache = Join-Path $env:RUNNER_TEMP 'jpan-fonts'
-          New-Item -ItemType Directory -Force $cache | Out-Null
-          $added | Copy-Item -Destination $cache
-          $added | Select-Object -ExpandProperty Name
-          if (-not (Test-Path (Join-Path $cache 'YuGothR.ttc'))) { throw 'YuGothR.ttc（Yu Gothic UI）が増えていない' }
-
-      - name: Save Japanese fonts
-        if: steps.jpan-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6.1.0
-        with:
-          path: ${{ runner.temp }}/jpan-fonts
-          key: jpan-fonts-windows-v1
+        run: if (-not (Test-Path "$env:WINDIR\Fonts\YuGothR.ttc")) { throw 'YuGothR.ttc（Yu Gothic UI）が無い' }
 
       - name: Install PlemolJP Console NF
         shell: pwsh
