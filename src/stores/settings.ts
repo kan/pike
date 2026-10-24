@@ -1228,7 +1228,8 @@ function ensureVisiblePerCategory(list: ShellProfile[]): ShellProfile[] {
   return list
 }
 
-function defaults(): PersistedSettings {
+/** 設定の既定値。撮影用ビルドが撮影のたびに設定を戻すのにも使う（`main.ts` の `resetState`）。 */
+export function defaults(): PersistedSettings {
   return {
     fontFamily: "'PlemolJP Console NF', 'Cascadia Code', 'Fira Code', monospace",
     fontSize: FONT_SIZE_DEFAULT,

@@ -197,10 +197,16 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   - `macos-latest` は Apple Silicon なので**ホストのトリプルがそのまま `aarch64-apple-darwin`**。クロスビルドの指定は要らず、`just fetch-rg` も `rustc -vV` からその名前でサイドカーを取る。Intel 向けは配布しない
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
 - `.github/workflows/screenshots.yml`: **スクリーンショットを Windows ランナーで撮る試作**（#506。`workflow_dispatch` のみ）。撮影の前提（`CAPTURE_ENV`）を揃えてから `just e2e-build` → `just e2e` を流し、画像をアーティファクト `screenshots` に上げる。コミットはしない
-  - **ランナーは英語版の Windows で画面は 100%**。倍率は `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` の `--force-device-scale-factor` で渡す。**OS の拡大率は 100% のままなので、`setWindowSize` の大きさでは WebView の内寸が手元の 1/1.5 になる**。`prepare()` の `fitInnerSize` が内寸を測って外形を合わせ直す（手元では最初から合っているので何もしない）。**wry の既定の引数（`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`）も並べる**: この環境変数がアプリ側の指定を置き換えるのか足すのかを確かめていないので、置き換える場合に既定で切ってある機能が戻らないようにしてある
-  - **UI のフォントは撮影用ビルドだけ Yu Gothic UI を名指しする**（`lib/fontDetection.ts` の `SYSTEM_UI_FONT`）。英語版では `system-ui` が Segoe UI になり、表示言語は変えられないため。フォント本体は `Add-WindowsCapability` の `Language.Fonts.Jpan` で入れる。**iframe の中（`e2e/specs/vue-preview.ts` のフィクスチャ）にはこの定数が届かない**ので、そちらは HTML に直に書いてある
-  - **iframe のフィクスチャは `CAPTURE_ENV.uiFont` を埋め込む**。`SYSTEM_UI_FONT`（アプリ側）と `CAPTURE_ENV.uiFont`（検査側）は別ファイルにあり、片方を変えたらもう片方も変える
-  - PlemolJP Console NF はリリースの zip（版はワークフローの `PLEMOLJP_VERSION`）をマシンのフォントとして入れ、`AddFontResourceW` と `FontCache` サービスの再起動で今のセッションにも見せる。WebView2 は DirectWrite でフォントを引くので、効いたかは `prepare()` の検査の警告で見る
+  - **ランナーは英語版の Windows で画面は 100%**。**表示倍率は撮影用ビルドが自分で 1.5 に固定する**（`tauri.e2e.conf.json` の main ウィンドウの `additionalBrowserArgs` に `--force-device-scale-factor=1.5`。手元の拡大率 150% と同じ値なので、手元の絵は変わらない）
+    - **環境変数 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` では効かなかった**（試作 1 回目で `devicePixelRatio` が 1 のまま）。wry がブラウザの引数を明示的に渡すため
+    - **`additionalBrowserArgs` は wry の既定の引数（`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`）を置き換える**ので、設定の値にも並べてある
+    - 設定の `app.windows` は配列なので、マージで丸ごと置き換わる。**`tauri.conf.json` の main ウィンドウの設定を変えたら、`tauri.e2e.conf.json` の写しも変える**（`tests/e2eConfig.test.ts` が食い違いを落とす）
+    - **main 以外の webview（`build_window` と子 webview の 2 つ）にも同じ引数を渡す**（`lib.rs` の `e2e_browser_args`）。WebView2 は同じデータディレクトリの webview が同じ引数を持つことを求める
+    - **OS の拡大率は 100% のままなので、`setWindowSize` の大きさでは WebView の内寸が手元の 1/1.5 になる**。`prepare()` の `fitInnerSize` が内寸を測って外形を合わせ直す（手元では最初から合っているので何もしない）
+  - **UI のフォントは撮影用ビルドだけ Yu Gothic UI を名指しする**（`lib/fontDetection.ts` の `SYSTEM_UI_FONT`）。英語版では `system-ui` が Segoe UI になり、表示言語は変えられないため。**iframe の中（`e2e/specs/vue-preview.ts` のフィクスチャ）にはこの定数が届かない**ので、そちらは `CAPTURE_ENV.uiFont` を埋め込む。`SYSTEM_UI_FONT`（アプリ側）と `CAPTURE_ENV.uiFont`（検査側）は別ファイルにあり、片方を変えたらもう片方も変える
+  - **Yu Gothic UI の本体は日本語の補助フォント（`Add-WindowsCapability` の `Language.Fonts.Jpan`）で、Windows Update から落とすので約 13 分かかる。** 初回に増えたフォントのファイルを Actions のキャッシュ（`jpan-fonts-windows-v1`）に置き、2 回目からはそこから入れる。キャッシュは 7 日使われないと消えるので、間が空くと 1 回だけ遅い回が出る
+  - フォントを入れるのは `scripts/install-fonts.ps1`（キャッシュから戻した日本語フォントと、PlemolJP Console NF の両方）。マシンのフォントとして写してレジストリに載せ、`AddFontResourceW` と `FontCache` サービスの再起動で今のセッションにも見せる。WebView2 は DirectWrite でフォントを引くので、効いたかは `prepare()` の検査の警告で見る。PlemolJP の版はワークフローの `PLEMOLJP_VERSION`
+  - **撮影のたびに、撮影機と先の撮影から持ち込まれる状態を消す**（`main.ts` の `resetState`。`prepare()` が呼ぶ）。設定を既定へ戻す（撮影用プロファイルに残った値）、「管理者」の表示を消す（CI のランナーは管理者で動く）、Git の状態を空にする、エージェントの使用量を空にする（撮影機の実際の Claude の使用量が写っていた。取得は `prepare()` が失敗させてある）。**手元の画像もこれで変わる**
   - **タイムゾーンを日本時間にする**（ランナーは UTC）。エージェントのメニューの相対日時（「昨日」）は日付の境目で変わる
 - `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
 

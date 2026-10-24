@@ -36,7 +36,8 @@ async function bootstrap() {
   // runtime capability が reload 後に失効し、フォーカス補助の警告が氾濫するため、
   // store の reactive ref を直接更新して即時反映させる。本番では分岐ごと除去される。
   if (__PIKE_E2E__) {
-    const { useSettingsStore } = await import('./stores/settings')
+    const { useSettingsStore, defaults: defaultSettings } = await import('./stores/settings')
+    const { AGENTS } = await import('./lib/agents')
     const { useTabStore } = await import('./stores/tabs')
     const { useProjectStore } = await import('./stores/project')
     const { useSidebarStore } = await import('./stores/sidebar')
@@ -46,7 +47,7 @@ async function bootstrap() {
     const { useEditorInfo } = await import('./composables/useEditorInfo')
     const { ptyRouter } = await import('./composables/usePtyRouter')
     const { dialogOpen, useConfirmDialog } = await import('./composables/useConfirmDialog')
-    const { globalMode } = await import('./lib/window')
+    const { elevated, globalMode } = await import('./lib/window')
     const settings = useSettingsStore()
     const tabs = useTabStore()
     const project = useProjectStore()
@@ -67,6 +68,17 @@ async function bootstrap() {
       }
     }
     ;(window as unknown as { __pikeE2E?: Record<string, unknown> }).__pikeE2E = {
+      // 撮影機と、先に走った撮影から持ち込まれる状態を消す（#506）。どれも手元と CI で
+      // 画像が食い違った元: 撮影用プロファイルに残った設定（トレイに残す等）、管理者として
+      // 動く CI のランナーの「管理者」表示、前の spec が差した Git の状態、撮影機の実際の
+      // Claude の使用量。使用量は `prepare()` が取得を先に失敗させてあるので、空にすれば
+      // ポーリングで戻らない。**言語とテーマより前に呼ぶ**（設定を既定に戻すので）。
+      resetState: () => {
+        settings.applySyncedSettings({ ...defaultSettings() })
+        elevated.value = false
+        useGitStore().status = null
+        for (const agent of AGENTS) useAgentUsageStore(agent.id).usage = null
+      },
       setLanguage: (lang: string) => {
         settings.language = lang
       },

@@ -411,6 +411,8 @@ fn current_desktop_windows(app: &AppHandle) -> Vec<Window> {
 /// **どちらか一方が消えても、もう一方のために残すこと。** 落ちても無音で、片方は確率的に、
 /// もう片方はコールドスタートかつ復元 2 枚以上のときだけ再現する。
 ///
+/// **撮影用ビルドでは main ウィンドウと同じブラウザの引数を渡す**（`e2e_browser_args`）。
+///
 /// **同期の Tauri コマンドから呼ばないこと。** `WebviewWindowBuilder::new` の doc が「Windows
 /// では同期コマンドとイベントハンドラの中でデッドロックする」と言っている。効いているのは
 /// **WebView2 の IPC 配送の内側で再入するな**という話（WebView2 の生成は `wait_with_pump` で
@@ -418,7 +420,13 @@ fn current_desktop_windows(app: &AppHandle) -> Vec<Window> {
 /// （setup / トレイ / single-instance が実際にそうしている）。ウィンドウを作るコマンド
 /// （`open_project_window` / `open_global_window`）が `async` なのはこれが理由。
 fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<Window, tauri::Error> {
-    let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
+    let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::default());
+    #[cfg(feature = "e2e")]
+    let builder = match e2e_browser_args(app) {
+        Some(args) => builder.additional_browser_args(&args),
+        None => builder,
+    };
+    let builder = builder
         .title("Pike")
         .inner_size(
             f64::from(window_geom::DEFAULT_LOGICAL_SIZE.0),
@@ -465,6 +473,22 @@ fn build_window(app: &AppHandle, label: &str, geom_key: &str) -> Result<Window, 
     // 環境ではあちらが表示前に済ませており、そこを削ると一瞬だけ今のデスクトップに見える。
     window_geom::restore_desktop(app, geom_key, &window);
     Ok(window)
+}
+
+/// 撮影用ビルドで webview に渡すブラウザの引数（#506）。値は `tauri.e2e.conf.json` の main
+/// ウィンドウの `additionalBrowserArgs`（表示倍率を 1.5 に固定する指定）で、写しは持たない。
+///
+/// **main 以外の webview（ウィンドウと子 webview）にも同じものを渡す。** WebView2 は同じ
+/// データディレクトリの webview が同じ引数を持つことを求めるので、main にだけ渡すと後から
+/// 作る webview の生成が失敗しうる。
+#[cfg(feature = "e2e")]
+pub(crate) fn e2e_browser_args<R: tauri::Runtime, M: Manager<R>>(m: &M) -> Option<String> {
+    m.config()
+        .app
+        .windows
+        .first()?
+        .additional_browser_args
+        .clone()
 }
 
 fn create_global_window(app: &AppHandle) -> String {

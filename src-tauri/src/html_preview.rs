@@ -434,6 +434,11 @@ pub async fn preview_open(
             on_new_window(&url);
             NewWindowResponse::Deny
         });
+    #[cfg(feature = "e2e")]
+    let builder = match crate::e2e_browser_args(&window) {
+        Some(args) => builder.additional_browser_args(&args),
+        None => builder,
+    };
     let rect = bounds.rect(&window);
     let result = window
         .add_child(builder, rect.position, rect.size)

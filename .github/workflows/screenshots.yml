@@ -5,8 +5,9 @@ name: Screenshots
 # 手元の撮影機（日本語の Windows・拡大率 150%）と同じ絵にするため、撮影機の側で決まる前提
 # （`e2e/support/prepare.ts` の `CAPTURE_ENV`）をここで揃える:
 #
-# - 表示倍率 1.5 … ランナーの画面は 100% 固定なので、WebView2 に
-#   `--force-device-scale-factor` を渡す（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`）
+# - 表示倍率 1.5 … ランナーの画面は 100% 固定。撮影用ビルドが WebView2 に
+#   `--force-device-scale-factor=1.5` を渡す（`tauri.e2e.conf.json`。環境変数
+#   `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` では効かなかった）
 # - UI のフォント … ランナーは英語版の Windows で `system-ui` が Segoe UI になる。撮影用ビルドは
 #   Yu Gothic UI を名指しする（`lib/fontDetection.ts` の `SYSTEM_UI_FONT`）ので、ここでは
 #   フォント本体を日本語フォントの追加機能で入れる
@@ -21,10 +22,6 @@ on:
         description: 撮影環境の前提が外れても警告だけで撮る（PIKE_E2E_ANY_ENV=1）
         type: boolean
         default: true
-      scale_factor:
-        description: WebView2 に渡す表示倍率（空にすると渡さない）
-        type: string
-        default: '1.5'
 
 permissions:
   contents: read
@@ -58,16 +55,48 @@ jobs:
       - name: Set time zone to JST
         run: tzutil /s "Tokyo Standard Time"
 
-      # Yu Gothic UI は日本語の補助フォントに入っている（Yu Gothic / Meiryo / BIZ UD も入る）
-      - name: Install Japanese fonts
+      # Yu Gothic UI は日本語の補助フォント（追加機能）に入っている（Yu Gothic / Meiryo / BIZ UD も
+      # 入る）。追加機能は Windows Update から落とすので 13 分ほどかかる。**入ったフォントの
+      # ファイルをキャッシュに置き**、2 回目からはそこから入れる
+      - name: Restore Japanese fonts
+        id: jpan-cache
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: ${{ runner.temp }}/jpan-fonts
+          key: jpan-fonts-windows-v1
+
+      - name: Install Japanese fonts (from cache)
+        if: steps.jpan-cache.outputs.cache-hit == 'true'
         shell: pwsh
         run: |
+          pwsh scripts/install-fonts.ps1 "$env:RUNNER_TEMP/jpan-fonts"
+          if (-not (Test-Path "$env:WINDIR\Fonts\YuGothR.ttc")) { throw 'キャッシュに YuGothR.ttc（Yu Gothic UI）が無い。キーの版を上げて取り直す' }
+
+      # 入る前と後の %WINDIR%\Fonts を比べて、増えたファイルをキャッシュへ写す
+      - name: Install Japanese fonts (Windows Update)
+        if: steps.jpan-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $fontsDir = "$env:WINDIR\Fonts"
+          $before = Get-ChildItem $fontsDir -File | Select-Object -ExpandProperty Name
           $r = Add-WindowsCapability -Online -Name 'Language.Fonts.Jpan~~~und-JPAN~0.0.1.0'
           $r | Format-List Online, RestartNeeded
           $cap = Get-WindowsCapability -Online -Name 'Language.Fonts.Jpan*'
           $cap | Format-List Name, State
           if ($cap.State -ne 'Installed') { throw "Language.Fonts.Jpan が入っていない（$($cap.State)）" }
-          if (-not (Test-Path "$env:WINDIR\Fonts\YuGothR.ttc")) { throw 'YuGothR.ttc（Yu Gothic UI）が無い' }
+          $added = Get-ChildItem $fontsDir -File | Where-Object { $before -notcontains $_.Name }
+          $cache = Join-Path $env:RUNNER_TEMP 'jpan-fonts'
+          New-Item -ItemType Directory -Force $cache | Out-Null
+          $added | Copy-Item -Destination $cache
+          $added | Select-Object -ExpandProperty Name
+          if (-not (Test-Path (Join-Path $cache 'YuGothR.ttc'))) { throw 'YuGothR.ttc（Yu Gothic UI）が増えていない' }
+
+      - name: Save Japanese fonts
+        if: steps.jpan-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: ${{ runner.temp }}/jpan-fonts
+          key: jpan-fonts-windows-v1
 
       - name: Install PlemolJP Console NF
         shell: pwsh
@@ -79,26 +108,9 @@ jobs:
           New-Item -ItemType Directory -Force $work | Out-Null
           gh release download $env:PLEMOLJP_VERSION -R yuru7/PlemolJP -p "PlemolJP_NF_$($env:PLEMOLJP_VERSION).zip" -D $work
           Expand-Archive -Path (Join-Path $work "PlemolJP_NF_$($env:PLEMOLJP_VERSION).zip") -DestinationPath $work
-          # GDI には AddFontResourceW で今のセッションに読み込ませる。WebView2 は DirectWrite で
-          # フォントを引くので、そちらが拾うかは撮影の前提の検査（`prepare()`）の警告で確かめる
-          Add-Type -Namespace Win32 -Name Font -MemberDefinition @'
-          [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] public static extern int AddFontResourceW(string file);
-          [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeoutW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
-          '@
-          $fonts = Get-ChildItem -Path $work -Recurse -Filter '*.ttf' | Where-Object { $_.Directory.Name -eq 'PlemolJPConsole_NF' }
-          if (-not $fonts) { throw 'PlemolJPConsole_NF の ttf が zip に無い' }
-          foreach ($f in $fonts) {
-            $dest = Join-Path "$env:WINDIR\Fonts" $f.Name
-            Copy-Item $f.FullName $dest -Force
-            New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
-              -Name "$($f.BaseName) (TrueType)" -Value $f.Name -PropertyType String -Force | Out-Null
-            [void][Win32.Font]::AddFontResourceW($dest)
-            Write-Host "installed $($f.Name)"
-          }
-          $r = [IntPtr]::Zero
-          [void][Win32.Font]::SendMessageTimeoutW([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 5000, [ref]$r)
-          # DirectWrite のフォントのキャッシュを作り直させる（Pike はまだ起動していない）
-          Restart-Service FontCache -Force
+          $dir = Get-ChildItem -Path $work -Recurse -Directory -Filter 'PlemolJPConsole_NF' | Select-Object -First 1
+          if (-not $dir) { throw 'PlemolJPConsole_NF が zip に無い' }
+          pwsh scripts/install-fonts.ps1 $dir.FullName
 
       # 撮影の前提が外れたときに原因を追えるよう、画面とフォントの状態を残す
       - name: Show capture environment
@@ -122,17 +134,9 @@ jobs:
         run: just e2e-build
 
       - name: Capture
-        shell: pwsh
         env:
           PIKE_E2E_ANY_ENV: ${{ inputs.any_env && '1' || '' }}
-          SCALE_FACTOR: ${{ inputs.scale_factor }}
-        run: |
-          # wry 既定の引数も並べる。この環境変数がアプリ側の指定を置き換える場合に、
-          # 既定で切ってある機能（PDF の別ウィンドウ表示など）が戻らないようにする
-          if ($env:SCALE_FACTOR) {
-            $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --force-device-scale-factor=$($env:SCALE_FACTOR)"
-          }
-          just e2e
+        run: just e2e
 
       - name: Upload screenshots
         if: always()

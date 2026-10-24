@@ -396,6 +396,11 @@ pub async fn browser_open(
                 emit_state(&webview, Some(payload.url().to_string()), None);
             }
         });
+    #[cfg(feature = "e2e")]
+    let builder = match crate::e2e_browser_args(&window) {
+        Some(args) => builder.additional_browser_args(&args),
+        None => builder,
+    };
     let rect = bounds.rect(&window);
     let view = window
         .add_child(builder, rect.position, rect.size)

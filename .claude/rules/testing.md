@@ -13,7 +13,8 @@ paths:
   - 走らせるのは `tsx --test`（Node 標準の `node:test`）。**vitest は入れていない**: `tsx` は `check-shortcuts` で既に使っていて、依存を増やさずに済む
   - 置き場を `src/` の外にしているのは、`vue-tsc` の対象（`src/` の DOM 向けの設定）に `node:` の型を持ち込まないため。テストのファイル自体は型検査されない（`tsx` は型を剥がして走らせるだけ）
   - テストにしたいロジックは、ストアから切り出して `src/lib/` の純粋な関数にする（`lib/syncMerge.ts` が例）
-  - **例外として、ソースの綴りを見張るテストが 2 つある**。専用の検査スクリプトを足さずに `just test-ts` と CI へ乗せるための置き場
+  - **例外として、ソースの綴りや設定を見張るテストが 3 つある**。専用の検査スクリプトを足さずに `just test-ts` と CI へ乗せるための置き場
+    - `tests/e2eConfig.test.ts`（#506）: `tauri.e2e.conf.json` が写した main ウィンドウの設定が、表示倍率の引数を除いて `tauri.conf.json` と同じであることを確かめる
     - `tests/userSelect.test.ts`（#455）: `src/` の `.vue` / `.css` / `.ts` を読み、`user-select`（JS から要素のスタイルへ書く同じ指定を含む）を `none` 以外にする指定が `theme.css` の外に無いことを確かめる
     - `tests/projectStorage.test.ts`（#463）: `src/` の `.vue` / `.ts` を読み、プロジェクト id を後ろに繋ぐ localStorage の鍵の接頭辞（`pike:…:`）が `lib/projectStorage.ts` の表の外に無いことを確かめる
 - PTY / Docker / git などの外部プロセス依存部分は統合テストの対象外

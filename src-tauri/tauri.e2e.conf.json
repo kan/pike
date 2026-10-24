@@ -1,6 +1,19 @@
 {
   "identifier": "com.pike.e2e",
   "app": {
-    "withGlobalTauri": true
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Pike",
+        "width": 800,
+        "height": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "transparent": true,
+        "backgroundColor": "#1e1e1e",
+        "dragDropEnabled": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --force-device-scale-factor=1.5"
+      }
+    ]
   }
 }

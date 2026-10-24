@@ -37,11 +37,18 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
     { timeout: 30_000, timeoutMsg: '__pikeE2E control API not exposed' },
   )
 
+  // 撮影機の実際の使用量を拾わせない（`resetState` が空にしたあと、ポーリングで戻らないように
+  // 先に取得を失敗させる。失敗はストアが黙って捨てる）。コマンド名は `agentUsageGet` が呼ぶもの。
+  await mockInvokeFailure('agent_usage')
   // 先行 spec が残したタブ（共有アプリセッションで media.ts の spec.pdf 等が残る）を
   // 閉じ、素のタブ状態から撮影する。clearAllTabs は非同期なので await する。
+  // 続けて撮影機と先の撮影から持ち込まれる状態を消す（`main.ts` の `resetState`）。
   await browser.execute(async () => {
-    const api = (window as unknown as { __pikeE2E?: { resetTabs?: () => Promise<void> } }).__pikeE2E
+    const api = (
+      window as unknown as { __pikeE2E?: { resetTabs?: () => Promise<void>; resetState?: () => void } }
+    ).__pikeE2E
     await api?.resetTabs?.()
+    api?.resetState?.()
   })
 
   await browser.execute(
@@ -240,6 +247,17 @@ export async function mockInvoke(command: string, value: unknown): Promise<void>
   }
   const m = await b.tauri.mock(command)
   await m.mockResolvedValue(value)
+}
+
+// invoke を失敗させる（撮影機の実際の値を取りに行かせない）。
+async function mockInvokeFailure(command: string): Promise<void> {
+  const b = browser as unknown as {
+    tauri: { mock: (c: string) => Promise<{ mockImplementation: (f: () => unknown) => Promise<void> }> }
+  }
+  const m = await b.tauri.mock(command)
+  await m.mockImplementation(() => {
+    throw new Error('e2e: unavailable')
+  })
 }
 
 // 擬似プロジェクトを差して activeRoot を確定させ、invoke 駆動パネルを有効化する。

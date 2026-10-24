@@ -979,9 +979,20 @@ describe('screenshots: stopped git operation', () => {
     const { lang, theme } = variant
     it(`git-operation ${lang} ${theme}`, async () => {
       await openGitPanel(variant)
-      await setGitStatus(GIT_STATUS_STOPPED)
-      await $('[data-testid="git-operation"]').waitForDisplayed({ timeout: 10_000 })
+      // **モックも差し替えてから差し込む。** パネルは開いた直後に `git_status` を取り直すので、
+      // 素のモックのままだと、その答えが差し込んだ状態を後から上書きする（遅い CI で落ちた）。
+      // 差し替える前に出た取り直しが後から届くこともあるので、出るまで差し込み直す。
+      await mockInvoke('git_status', GIT_STATUS_STOPPED)
+      await browser.waitUntil(
+        async () => {
+          await setGitStatus(GIT_STATUS_STOPPED)
+          return $('[data-testid="git-operation"]').isDisplayed()
+        },
+        { timeout: 10_000, interval: 500, timeoutMsg: 'git-operation banner not displayed' },
+      )
       await shoot('git-operation', lang, theme)
+      // 共有のアプリに止まった操作を残さない（後の撮影が素の Git の状態で始まるように）
+      await mockInvoke('git_status', GIT_STATUS)
     })
   }
 })
