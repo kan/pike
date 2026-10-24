@@ -11,6 +11,7 @@ import { basename, normalizeSep, toRelativePath } from '../lib/paths'
 import { ptyIsBusy, ptyKill, waitSignalByPath } from '../lib/tauri'
 import { markTerminalHandedOff, stashIncomingTerminal, type TerminalScreen } from '../lib/terminalHandoff'
 import { windowFocused } from '../lib/window'
+import type { GitLogEntry } from '../types/git'
 import type { LastSession, SessionTabDef } from '../types/project'
 import type {
   AgentRun,
@@ -934,6 +935,19 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  /** `git log` の 1 件からコミットタブを開く（Git パネルのグラフと、エディタの blame #510）。 */
+  function addCommitTabFromLog(entry: GitLogEntry, root: string): string {
+    return addCommitTab({
+      hash: entry.hash,
+      root,
+      parent: entry.parents[0] ?? null,
+      author: entry.author,
+      date: entry.date,
+      refs: entry.refs,
+      message: entry.message,
+    })
+  }
+
   /**
    * issue を 1 件開く（#278）。**番号ごとに 1 枚**なので、既に開いていればそれを見せる。
    * 題名は取ってきてから `IssueTab` が入れる（開く時点では番号しか分からない）。
@@ -1587,6 +1601,7 @@ export const useTabStore = defineStore('tabs', () => {
     addManualTab,
     addIssueTab,
     addCommitTab,
+    addCommitTabFromLog,
     addBrowserTab,
     addDiffTab,
     addPdfTab,

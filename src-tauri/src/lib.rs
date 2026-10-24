@@ -2174,6 +2174,8 @@ pub fn run() {
             git::git_show_file_base64,
             git::git_log_file,
             git::git_log_file_lines,
+            git::git_show_commit,
+            git::blame::git_blame,
             git::git_diff_commit,
             git::git_commit_patch,
             git::git_diff_lines,

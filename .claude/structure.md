@@ -95,6 +95,7 @@ pike/
 │       │   └── mod.rs         # WSL/Windows 両対応ファイル操作・IGNORED_DIRS
 │       ├── git/
 │       │   ├── mod.rs         # git CLI ブリッジ（status/log/diff/commit/push/pull 等）
+│       │   ├── blame.rs       # エディタの blame（`git blame --incremental` の読み取り、#510）
 │       │   └── worktree.rs    # worktree の作成（gitignore 済みファイルのコピー込み）と削除（#478）
 │       ├── docker/
 │       │   ├── mod.rs         # bollard クライアント・compose パース・ログストリーム
@@ -165,6 +166,7 @@ pike/
 │   │   │   ├── OutlinePanel.vue   # シンボルアウトライン
 │   │   │   └── outline/           # OutlineTreeView.vue / OutlineHistoryView.vue
 │   │   ├── editor/
+│   │   │   ├── BlameToggle.vue      # 行頭の blame の出し入れ（タブ単位、#510）
 │   │   │   ├── FindBar.vue          # タブ右上に浮く検索バー（diff タブ #176 とプレビュー #360 で共有）
 │   │   │   ├── HtmlPreview.vue      # HTML のプレビュー（#399。子 webview を Preview / Split の枠に重ねる）
 │   │   │   ├── MacroButtons.vue     # キーボードマクロの記録・再生ボタン（#180）
@@ -304,6 +306,7 @@ pike/
 │   │   ├── dropPaths.ts       # WebView2 経由でドロップされたファイルの実パス取得
 │   │   ├── imeFocusPark.ts    # ウィンドウが非アクティブのあいだ、DOM のフォーカスを置いておく入力欄（IME が切れたままになるのを防ぐ）
 │   │   ├── editorGitGutter.ts  editorMinimap.ts  editorThemes.ts  editorSearch.ts
+│   │   ├── editorBlame.ts    # blame の行末とガターの表示、保存後の編集で行を追いかける（#510）
 │   │   ├── editorFormat.ts   # クイック整形（#366。JSON / js-beautify / 行の整形）
 │   │   ├── editorLoadMore.ts # 部分読み込みの「続きを読む」を本文の末尾に出す（#362）
 │   │   ├── searchResults.ts  # 検索結果をファイルごとにまとめる・書き出しの書式とその読み戻し（#440）

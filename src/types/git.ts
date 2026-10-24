@@ -49,6 +49,24 @@ export interface GitLogEntry {
   message: string
 }
 
+/** blame に出てくるコミット 1 つ（#510。Rust の `git::blame::BlameCommit`）。 */
+export interface BlameCommit {
+  hash: string
+  author: string
+  /** committer date の UNIX 時刻（秒）。 */
+  time: number
+  /** コミットメッセージの 1 行目。 */
+  summary: string
+  /** まだコミットしていない行（作業ツリーにしか無い変更）。 */
+  uncommitted: boolean
+}
+
+/** ファイル 1 つの blame（#510）。`lines[i]` は i+1 行目のコミットの `commits` での添字。 */
+export interface GitBlame {
+  commits: BlameCommit[]
+  lines: number[]
+}
+
 /** Options offered by the pull/push button context menus (#179). Mirrors the
  *  Rust `PullOption` / `PushOption` enums, which map them to git flags. */
 export type FetchOption = 'all' | 'tags'

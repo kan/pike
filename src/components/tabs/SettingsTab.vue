@@ -1327,6 +1327,10 @@ const PREVIEW_LINES = [
             <SettingToggle v-model="settings.editorWordWrap" :options="ON_OFF" />
           </SettingItem>
 
+          <SettingItem label-key="settings.inlineBlame" hint-key="settings.inlineBlameHint">
+            <SettingToggle v-model="settings.editorInlineBlame" :options="ON_OFF" />
+          </SettingItem>
+
           <SettingItem label-key="settings.tabSize">
             <select
               class="setting-select setting-select-narrow"

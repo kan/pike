@@ -6,6 +6,7 @@ import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
   FetchOption,
+  GitBlame,
   GitBranches,
   GitFileChange,
   GitLogEntry,
@@ -739,6 +740,16 @@ export async function gitCommitPatch(
 
 export async function gitShowFile(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
   return invoke<string>('git_show_file', { root, shell, hash, path })
+}
+
+/** 保存済みのファイルを blame する（#510）。追跡外・repo の外では `null`。 */
+export async function gitBlame(root: string, shell: ShellType, path: string): Promise<GitBlame | null> {
+  return invoke<GitBlame | null>('git_blame', { root, shell, path })
+}
+
+/** コミット 1 つを `gitLog` と同じ形で引く（#510。blame からコミットタブを開くため）。 */
+export async function gitShowCommit(root: string, shell: ShellType, hash: string): Promise<GitLogEntry> {
+  return invoke<GitLogEntry>('git_show_commit', { root, shell, hash })
 }
 
 export async function gitLogFile(root: string, shell: ShellType, path: string, count?: number): Promise<GitLogEntry[]> {

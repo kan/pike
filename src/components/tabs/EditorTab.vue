@@ -29,6 +29,7 @@ import {
   renderCsvPage,
   sortCsvRows,
 } from '../../lib/csvPreview'
+import { blameField, editorBlame, hasBlame, requestBlame, setBlame } from '../../lib/editorBlame'
 import { conflictHighlight, hasConflictMarkers } from '../../lib/editorConflict'
 import { diagnosticsExtension, type EditorDiagnostic, setDiagnostics } from '../../lib/editorDiagnostics'
 import { FORMAT_MENU, type FormatKind, runFormat } from '../../lib/editorFormat'
@@ -88,11 +89,14 @@ import {
   fsReadFileChunk,
   fsRevealInExplorer,
   fsWriteFile,
+  gitBlame,
   gitDiffLines,
+  gitShowCommit,
   pickSaveFile,
 } from '../../lib/tauri'
 import { escapeHtml } from '../../lib/text'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
+import { useGitStore } from '../../stores/git'
 import { useIssuesStore } from '../../stores/issues'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
@@ -100,6 +104,7 @@ import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
 import { useVuePreviewStore } from '../../stores/vuePreview'
 import { type EditorTab, shellToPlatform } from '../../types/tab'
+import BlameToggle from '../editor/BlameToggle.vue'
 import FindBar from '../editor/FindBar.vue'
 import HtmlPreview from '../editor/HtmlPreview.vue'
 import MacroButtons from '../editor/MacroButtons.vue'
@@ -148,10 +153,13 @@ const outlineSource = useOutlineSource()
 const statusMessageStore = useStatusMessageStore()
 const diagStore = useDiagnosticsStore()
 const issuesStore = useIssuesStore()
+const gitStore = useGitStore()
 
 // Dynamic compartments for settings that can change at runtime
 const themeCompartment = new Compartment()
 const minimapCompartment = new Compartment()
+/** blame の表示（#510）。行末とガターの出し入れで張り直す。 */
+const blameCompartment = new Compartment()
 const wordWrapCompartment = new Compartment()
 const tabSizeCompartment = new Compartment()
 const indentUnitCompartment = new Compartment()
@@ -271,7 +279,23 @@ function registerOutlineSource() {
     path: tab.value.path ?? '',
     langId: typeKey,
     view: editorView,
+    toggleBlame,
   })
+}
+
+/**
+ * blame の表示を切り替える（#510。右クリックとパレットの入口）。行末は設定の既定をタブ単位で
+ * 上書きし、ガターはタブごとの出し入れ。blame を出せないタブ（`canBlame`）では何もしない。
+ */
+function toggleBlame(kind: 'inline' | 'gutter') {
+  if (!canBlame.value) return
+  if (kind === 'inline') inlineBlameOverride.value = !inlineBlameOn.value
+  else blameGutterOn.value = !blameGutterOn.value
+}
+
+function toggleBlameFromMenu(kind: 'inline' | 'gutter') {
+  closeCtxMenu()
+  toggleBlame(kind)
 }
 
 const fileExt = computed(() => (tab.value ? extension(tab.value.path) : ''))
@@ -1013,6 +1037,10 @@ async function save(overrideEncoding?: string, auto = false) {
     updateDirtyState()
     updateTitle()
     refreshDiffGutter()
+    // 自動保存では blame を取り直さない（打鍵が止まるたびに `git blame` が走る）。保存の
+    // 前後で行は変わらず、触った行は `blameField` が既に「未コミット」にしている。見送った
+    // 取得があればそれは取る（`blameStale`）。
+    if (!auto || blameStale) void refreshBlame()
     diagStore.triggerAutoRun()
     // 監視の届かないファイル（グローバルモード・プロジェクトの外）でも描き直す。
     webPreview.value?.onSaved()
@@ -1305,6 +1333,73 @@ async function refreshDiffGutter() {
   }
 }
 
+// --- blame（#510） ---
+/**
+ * 取得の通し番号。`requestBlame` と結果を対にして、追い越された古い結果を捨てる
+ * （`lib/editorBlame.ts` の `blameField` が番号で照合する）。
+ */
+let blameSeq = 0
+/** 取得中か、と、取得中に来た要求を 1 回に畳んだ印。`git blame` は履歴を歩くので重い。 */
+let blameRunning = false
+let blameAgain = false
+/**
+ * 未保存の変更があって取得を見送った印。次の保存で取る（**自動保存でも取る**。自動保存は
+ * 普段は blame を取り直さないので、これが無いと、変更中に表示を出した・コミットした場合に
+ * 人が保存するまで何も変わらない）。
+ */
+let blameStale = false
+
+/**
+ * 保存済みのファイルを blame して載せる。**未保存の変更があるあいだは取らない**: blame は
+ * ディスクのファイルに対するもので、本文と行が合わない（次の保存で取り直す）。取ったあとの
+ * 編集は `blameField` が追いかける。**走らせるのは 1 本ずつ**で、取得中の要求は終わってから
+ * 1 回だけ取り直す。
+ */
+async function refreshBlame() {
+  if (blameRunning) {
+    blameAgain = true
+    return
+  }
+  const view = editorView
+  const path = tab.value?.path
+  const project = projectStore.currentProject
+  // 拡張がまだ入っていない（隠れているタブで張り直しを待っている）なら、入ったときに取る。
+  if (!view || !path || !project || !view.state.field(blameField, false)) return
+  if (isDirty.value) {
+    blameStale = true
+    return
+  }
+  blameStale = false
+  const id = ++blameSeq
+  view.dispatch({ effects: requestBlame.of(id) })
+  blameRunning = true
+  let blame = null
+  try {
+    blame = await gitBlame(projectStore.activeRoot, project.shell, path)
+  } catch {
+    // git を起こせなかった。追跡外などと同じく、何も出さない
+  } finally {
+    blameRunning = false
+  }
+  if (editorView === view) view.dispatch({ effects: setBlame.of({ id, blame }) })
+  if (blameAgain) {
+    blameAgain = false
+    void refreshBlame()
+  }
+}
+
+/** blame の行からコミットタブを開く。blame は親や本文を持たないので、1 件引いてから開く。 */
+async function openBlameCommit(hash: string) {
+  const project = projectStore.currentProject
+  if (!project) return
+  const root = projectStore.activeRoot
+  try {
+    tabStore.addCommitTabFromLog(await gitShowCommit(root, project.shell, hash), root)
+  } catch {
+    statusMessageStore.show({ text: t('blame.openFailed'), variant: 'warn', durationMs: 2500 })
+  }
+}
+
 // --- Diagnostics squiggles ---
 // Push the subset of store diagnostics that belong to this file into the editor.
 let lastDiagCount = 0
@@ -1535,12 +1630,42 @@ const minimapOverride = ref<boolean | null>(null)
 const minimapOn = computed(() => minimapOverride.value ?? settingsStore.editorMinimap)
 
 /**
+ * 行末の blame（#510）も同じ形でタブ単位に上書きできる（入口は右クリックとパレット）。
+ * ガターの blame は既定を持たず、タブごとに出し入れするだけ（ファイル全体を見たいときに
+ * 一時的に出すもの）。どちらもセッションには残さない。
+ */
+const inlineBlameOverride = ref<boolean | null>(null)
+const inlineBlameOn = computed(() => inlineBlameOverride.value ?? settingsStore.editorInlineBlame)
+const blameGutterOn = ref(false)
+
+/**
  * 実ファイルのタブか。diff ガター・診断・ミニマップ・定義ジャンプはこれが真のときだけ入る
  * （`git show` のスナップショットは `initialContent` を持ち、ディスク上の状態と結び付かない）。
  * **ミニマップのボタンもこれで出し分ける**: 拡張が入っていないタブに出すと、押しても何も
  * 起きないボタンが点いたままになる。
  */
 const hasFile = computed(() => !!tab.value && !tab.value.initialContent)
+
+/**
+ * blame を出せるタブか（#510）。書けないタブは対象外: `git show` のスナップショットは
+ * ディスクのファイルと結び付かず、部分読み込み（#362）は行数が blame と合わない。無題の
+ * タブはパスが無い。プロジェクトの無いウィンドウ（グローバルモード）は git のルートを持たない。
+ */
+const canBlame = computed(
+  () => hasFile.value && !!tab.value?.path && !isReadOnlyTab.value && !!projectStore.currentProject,
+)
+
+/** blame の拡張を入れるか。**どちらの表示も要らなければ入れず、git blame も走らせない。** */
+const blameWanted = computed(() => canBlame.value && (inlineBlameOn.value || blameGutterOn.value))
+
+/** どちらの表示も要らなければ `editorBlame` が空を返す。 */
+function blameExtension() {
+  return editorBlame({
+    inline: canBlame.value && inlineBlameOn.value,
+    gutter: canBlame.value && blameGutterOn.value,
+    open: (hash) => void openBlameCommit(hash),
+  })
+}
 
 const markdownLinkPaste = useMarkdownLinkPaste()
 
@@ -1700,7 +1825,11 @@ function createEditorView(container: HTMLElement, content: string) {
     wordWrapCompartment.of(wordWrapOn.value ? EditorView.lineWrapping : []),
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
+        const wasDirty = isDirty.value
         updateDirtyState()
+        // 編集を戻して保存時の内容に戻ったら blame を取り直す（触った行に付いた「未コミット」は、
+        // 内容が戻っても印のまま残る）。保存は文書を変えないので、ここには来ない。
+        if (wasDirty && !isDirty.value) void refreshBlame()
         bumpDocVersion()
         outlineSource.bumpVersion(props.tabId)
         scheduleAutoSave()
@@ -1729,6 +1858,8 @@ function createEditorView(container: HTMLElement, content: string) {
 
   // Git diff gutter + diagnostics squiggles + minimap (only for real files)
   if (hasFile.value) {
+    // blame のガターは diff のガターより前（行番号の隣）に置く。diff の帯は本文に接していたい。
+    extensions.push(blameCompartment.of(blameExtension()))
     extensions.push(gitDiffGutter())
     extensions.push(diagnosticsExtension())
     extensions.push(minimapCompartment.of(minimapOn.value ? minimap() : []))
@@ -1839,6 +1970,7 @@ async function reopenWithEncoding(encoding?: string) {
     updateTitle()
     updateCursorInfo()
     refreshDiffGutter()
+    void refreshBlame()
     refreshDiagnosticsLayer()
     // previewHtml reads the (non-reactive) editorView — force a recompute so
     // the preview pane reflects the reloaded document.
@@ -2067,6 +2199,9 @@ onMounted(async () => {
     jumpToLine(tab.value?.initialLine)
     updateCursorInfo()
     refreshDiffGutter()
+    // 復元した隠れているタブでは、見せるまで blame を取らない（起動時にタブの数だけ
+    // `git blame` が並ぶ。diff ガターより重い）。
+    applyWhenVisible('blameLoad', 'view', () => void refreshBlame())
     refreshDiagnosticsLayer()
 
     if (tabStore.isTabFocused(props.tabId)) {
@@ -2496,6 +2631,38 @@ watch(
   () => reconfigureWhenVisible('backdrop', () => backdropCompartment.reconfigure(backdropTheme())),
 )
 
+// blame の表示の出し入れ（#510）。張り直したあと、まだ取っていなければ取る（拡張を外していた
+// あいだは blame を持たない）。`blameField` はモジュールに 1 つなので、行末とガターを
+// 入れ替えるだけなら取得済みのものが残る。隠れているタブは見せたときに 1 回だけ。
+watch([inlineBlameOn, blameGutterOn, canBlame], () =>
+  applyWhenVisible('blame', 'view', () => {
+    if (!editorView) return
+    editorView.dispatch({ effects: blameCompartment.reconfigure(blameExtension()) })
+    if (blameWanted.value && !hasBlame(editorView.state)) void refreshBlame()
+  }),
+)
+
+// コミットで HEAD が動いたら取り直す（未コミットだった行がコミット済みになる）。checkout で
+// ブランチを替えたときも同じ。未保存の変更があれば `refreshBlame` が見送り、次の保存で取る。
+//
+// **見た HEAD はルートと組で覚える**: プロジェクトや worktree を切り替えると、git の status は
+// 別のリポジトリのものに替わり、HEAD が動いたように見える。status が届くのはルートが
+// 替わったあとなので、2 つを 1 つの watcher で前後比較すると、届いた回を取り違える。
+let headSeen: { root: string; head: string } | null = null
+watch(
+  () => gitStore.status?.head,
+  (head) => {
+    // 保持している別のプロジェクトのタブ（#264）は、今の git の status とは別のリポジトリ。
+    if (!head) return
+    const owner = tabStore.tabs.find((t) => t.id === props.tabId)?.projectId
+    if (owner !== projectStore.currentProject?.id) return
+    const root = projectStore.activeRoot
+    const moved = headSeen?.root === root && headSeen.head !== head
+    headSeen = { root, head }
+    if (moved && blameWanted.value) applyWhenVisible('blameHead', 'view', () => void refreshBlame())
+  },
+)
+
 watch(minimapOn, () => {
   reconfigureWhenVisible('minimap', () => minimapCompartment.reconfigure(minimapOn.value ? minimap() : []))
 })
@@ -2592,6 +2759,7 @@ onUnmounted(() => {
       <MacroButtons v-if="showEditor && !isReadOnlyTab" @toggle="onMacroToggle" @play="onMacroPlay" />
       <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
       <MinimapToggle v-if="hasFile" :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
+      <BlameToggle v-if="canBlame" :on="blameGutterOn" @toggle="toggleBlame('gutter')" />
       <HelpButton page="editor-and-preview.md" :size="15" />
     </div>
     <!-- Plain editor header: breadcrumb + reload + help -->
@@ -2609,6 +2777,7 @@ onUnmounted(() => {
         <MacroButtons v-if="!isReadOnlyTab" @toggle="onMacroToggle" @play="onMacroPlay" />
         <WrapToggle :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
         <MinimapToggle v-if="hasFile" :on="minimapOn" @toggle="minimapOverride = !minimapOn" />
+        <BlameToggle v-if="canBlame" :on="blameGutterOn" @toggle="toggleBlame('gutter')" />
         <!-- Readonly snapshots (git show) carry initialContent — reloading from disk is meaningless there -->
         <button
           v-if="!tab?.readOnly && tab?.initialContent === undefined"
@@ -2871,6 +3040,14 @@ onUnmounted(() => {
         <button @click="openGitHistoryForLine" :disabled="!ctxLineRange">
           <span>{{ gitHistoryLineLabel }}</span>
         </button>
+        <template v-if="canBlame">
+          <button @click="toggleBlameFromMenu('inline')">
+            <span>{{ inlineBlameOn ? t('editor.blameInlineHide') : t('editor.blameInlineShow') }}</span>
+          </button>
+          <button @click="toggleBlameFromMenu('gutter')">
+            <span>{{ blameGutterOn ? t('editor.blameGutterHide') : t('editor.blameGutterShow') }}</span>
+          </button>
+        </template>
         </template>
       </div>
     </Teleport>

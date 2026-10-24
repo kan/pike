@@ -298,15 +298,7 @@ async function openCommitDiffTab(hash: string, path: string) {
  * 場所を持たない（レーンの線が行の高さを前提にしている）ので、中身はタブで見せる。
  */
 function openCommitTab(entry: GitLogEntry) {
-  tabStore.addCommitTab({
-    hash: entry.hash,
-    root: projectStore.activeRoot,
-    parent: entry.parents[0] ?? null,
-    author: entry.author,
-    date: entry.date,
-    refs: entry.refs,
-    message: entry.message,
-  })
+  tabStore.addCommitTabFromLog(entry, projectStore.activeRoot)
 }
 
 // --- 履歴の自動読み込み（#374） ------------------------------------------------

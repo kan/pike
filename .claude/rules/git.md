@@ -135,8 +135,9 @@ diff タブは `git-diff.md`、ブランチグラフとコミットタブは `gi
   （committer date）の 2 つだけ。rebase / cherry-pick / amend で更新されるのは後者なので、
   **その履歴に載った時刻**としてはこちらが近く、SourceTree の既定の Date 列とも揃う。
   `--date-order` の並びも committer date 基準なので、グラフの並びと表示が食い違わない。
-  **戻すなら 3 か所とも戻すこと**（`git_log` / `git_log_file` / `git_log_file_lines`）。
-  片方だけだと、同じコミットが Git パネルとファイル履歴で違う時刻に見える
+  **戻すなら全部戻すこと**（`git_log` / `git_log_file` / `git_log_file_lines` / `git_show_commit`
+  と、blame の `committer-time`）。片方だけだと、同じコミットが Git パネルとファイル履歴と
+  blame で違う時刻に見える
 - ツールチップ・コンテキストメニューの位置決め（#204）: 高さが中身次第で決まるので、**hidden で描画 → 実測 → 配置**の順に置く。配線は `composables/useAnchoredPopup.ts`（`useTemplateRef` で受けた要素を `nextTick` 後に計測し、`style` に位置と `visibility` を返す）、幾何は `lib/popupPosition.ts`（`placeNearAnchor` = 上優先・入らなければ下、`clampToViewport` = カーソル位置を画面内へ）。測るまで hidden なのは仮位置に 1 フレーム出てから飛ぶのを防ぐため（`display: none` は測れず、`opacity: 0` はクリックを拾う）。ウィンドウより高いメッセージは CSS の `max-height` で頭を残して切る（`pointer-events: none` なのでスクロールできない）。**CSS の anchor positioning は採らない**: Chromium 125+ が要るが Tauri は WebView2 のバージョンを固定できず、失敗しても例外ではなく「変な位置に出る」だけで気付けない。カーソル位置に開くメニューは**全部この composable を通す**（GitPanel のコミット/ファイル、FileTreePanel、TabPane のタブ/管理者、SideBar の pull-push、EditorTab）。**新しいメニューを足すときも同じ**（生の `clientX/clientY` を `style` に流すと画面端で見切れる）。SideBar の pull/push メニューだけは `.sidebar.ui-zoom` の内側にあり、UI ズームが 1 以外だと clamp が概算になる（座標系が zoom 倍される。既定の 1 では厳密）
 - git log フォーマット区切り: ASCII Unit Separator (`%x1f`) + Record Separator (`%x1e`) を使用（NUL だと `%D` が空のコミットでレコード区切りと衝突するため）
 

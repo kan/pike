@@ -582,6 +582,8 @@ export interface PersistedSettings {
   editorThemeName: string
   editorMinimap: boolean
   editorWordWrap: boolean
+  /** カーソル行の末尾に blame を出す（#510）。既定。タブごとに右クリックで上書きできる。 */
+  editorInlineBlame: boolean
   /** diff タブの折り返しの既定値。エディタとは別に決められる（#272）。 */
   diffWordWrap: DiffWordWrap
   /** キーボードショートカットのプリセット（#261）。 */
@@ -1245,6 +1247,7 @@ function defaults(): PersistedSettings {
     editorThemeName: 'One Dark',
     editorMinimap: true,
     editorWordWrap: false,
+    editorInlineBlame: false,
     diffWordWrap: 'auto',
     shortcutPreset: 'vscode',
     sqlDialect: 'standard',
@@ -1340,6 +1343,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const editorThemeName = ref(saved.editorThemeName)
   const editorMinimap = ref(saved.editorMinimap)
   const editorWordWrap = ref(saved.editorWordWrap)
+  const editorInlineBlame = ref(saved.editorInlineBlame)
   const diffWordWrap = ref(saved.diffWordWrap)
   const shortcutPreset = ref(saved.shortcutPreset)
   const sqlDialect = ref(saved.sqlDialect)
@@ -1889,6 +1893,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorThemeName: editorThemeName.value,
       editorMinimap: editorMinimap.value,
       editorWordWrap: editorWordWrap.value,
+      editorInlineBlame: editorInlineBlame.value,
       diffWordWrap: diffWordWrap.value,
       shortcutPreset: shortcutPreset.value,
       sqlDialect: sqlDialect.value,
@@ -1952,6 +1957,7 @@ export const useSettingsStore = defineStore('settings', () => {
     editorThemeName.value = s.editorThemeName
     editorMinimap.value = s.editorMinimap
     editorWordWrap.value = s.editorWordWrap
+    editorInlineBlame.value = s.editorInlineBlame
     diffWordWrap.value = s.diffWordWrap
     shortcutPreset.value = s.shortcutPreset
     sqlDialect.value = s.sqlDialect
@@ -2081,6 +2087,7 @@ export const useSettingsStore = defineStore('settings', () => {
       editorThemeName,
       editorMinimap,
       editorWordWrap,
+      editorInlineBlame,
       diffWordWrap,
       shortcutPreset,
       sqlDialect,
@@ -2161,6 +2168,7 @@ export const useSettingsStore = defineStore('settings', () => {
     autoEditorThemeName,
     editorMinimap,
     editorWordWrap,
+    editorInlineBlame,
     diffWordWrap,
     shortcutPreset,
     sqlDialect,

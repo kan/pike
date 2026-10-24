@@ -4,6 +4,7 @@ paths:
   - "src/components/editor/MacroButtons.vue"
   - "src/components/editor/WrapToggle.vue"
   - "src/components/editor/MinimapToggle.vue"
+  - "src/components/editor/BlameToggle.vue"
   - "src/components/tabs/EditorTab.vue"
   - "src/components/panels/FileTreePanel.vue"
   - "src/components/panels/OutlinePanel.vue"
@@ -239,6 +240,30 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
 - 未完成のコンフリクト領域（閉じ `>>>>>>>` がまだ無いもの）も `hasConflictMarkers` は true を返す。
   行頭に `<<<<<<< ` を書いた文書では自動保存が効かなくなるが、そのときはコンフリクトバーも
   出ているので気付ける。**安全側に倒したまま**にしてある
+
+## blame（#510）
+
+カーソル行の行末（設定 `editorInlineBlame`、既定 OFF）と、ファイル全体のガターの 2 つで出す。
+**UI の文言ではガターを「行頭」と呼ぶ**（利用者の判断。日本語の i18n とマニュアル）。
+表示と行の追いかけは `lib/editorBlame.ts`、git の呼び出しは `src-tauri/src/git/blame.rs`。
+**判断の実体は 2 つのファイルの doc が正本**。
+
+- **blame は保存済みのファイルに対して取り、取ったあとの編集はエディタの側で追いかける。
+  打鍵のたびに git を走らせない**（理由は `blame.rs` と `editorBlame.ts` の doc）
+- **取り直す契機は 5 つ**: 開いた（隠れているタブは見せたとき）・人が保存した（自動保存では
+  取らない。変更中に見送った取得があるときだけ取る）・読み直した・HEAD が動いた（今見ている
+  プロジェクトのタブだけ）・編集を戻して保存時の内容に戻った。**`git blame` は重いので、契機を
+  足すときは `refreshBlame` を通す**（1 本ずつ走らせ、未保存の変更があれば見送る）
+- **どちらの表示も要らなければ拡張を入れず、git blame も走らせない**（`blameWanted`）。出せるタブの
+  判定は `canBlame` の 1 つで、右クリックの項目・パレット・拡張が同じものを読む
+- **行末の表示は設定の既定をタブ単位で上書きできる**（`inlineBlameOverride`。`wordWrapOverride` と
+  同じ形でセッションには残さない）。**ガターは既定を持たない**（ファイル全体を見たいときに一時的に
+  出すもの）。入口は右クリックとパレット（`blameInline` / `blameGutter`）で、どちらも `toggleBlame` を通る。
+  ガターだけはエディタ右上のボタン（`BlameToggle.vue`）からも出し入れでき、折り返し・ミニマップの
+  ボタンと同じく**2 つのヘッダの両方に置く**
+- **クリックでコミットタブを開く**（`git_show_commit` で 1 件引いて `tabStore.addCommitTabFromLog`。
+  Git パネルのグラフと共有）
+- **日時は committer date**（`git.md` の日時の規則）
 
 ## キーボードマクロ（#180）
 

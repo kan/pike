@@ -297,6 +297,9 @@ export function useAppActions(): Record<AppActionId, () => void> & {
       const src = useOutlineSource().current.value
       if (src) void runFormat(src.view, 'auto', src.langId)
     },
+    // blame（#510）。表示の上書きはタブが持つので、登録された切り替えを呼ぶだけ。
+    blameInline: () => useOutlineSource().current.value?.toggleBlame('inline'),
+    blameGutter: () => useOutlineSource().current.value?.toggleBlame('gutter'),
     // macOS の ⌘Q。predefined の Quit と違い、走っているコマンドがあれば確認を挟む
     // （#178。閉じる経路と同じ確認で、ここだけ素通りすると全ウィンドウの PTY が黙って死ぬ）。
     quit: () => void confirmAndExit(),

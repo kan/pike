@@ -20,6 +20,11 @@ export interface OutlineSource {
    * `grep -rn useOutlineSource src/` で読み手を確かめること。
    */
   view: EditorView
+  /**
+   * blame の表示を切り替える（#510。パレットの入口）。表示の上書きはタブのコンポーネントが
+   * 持つので、`view` からは届かない。
+   */
+  toggleBlame: (kind: 'inline' | 'gutter') => void
   /** Bumped on every doc change. Watchers debounce on this. */
   version: number
 }

@@ -1,3 +1,4 @@
+pub mod blame;
 pub mod worktree;
 
 use crate::cache::ProbeRegistry;
@@ -81,9 +82,9 @@ pub struct GitLogEntry {
     /// 時刻**としてはこちらが近く、SourceTree の既定の Date 列とも揃う。`--date-order`
     /// の並びも committer date 基準なので、グラフの並びと表示が食い違わない。
     ///
-    /// **`%aI` に戻すなら 3 か所とも戻すこと**（`git_log` / `git_log_file` /
-    /// `git_log_file_lines`）。片方だけだと、同じコミットが Git パネルとファイル履歴で
-    /// 違う時刻に見える。
+    /// **`%aI` に戻すなら全部戻すこと**（`git_log` / `git_log_file` /
+    /// `git_log_file_lines` / `git_show_commit`、それに blame の `BlameCommit.time`）。
+    /// 片方だけだと、同じコミットが Git パネルとファイル履歴と blame で違う時刻に見える。
     pub date: String,
     pub message: String,
 }
@@ -541,6 +542,10 @@ fn parse_status(output: &str) -> GitStatusResult {
 /// コミットの差分も空になる。`git diff` は影響を受けないぶん気付きにくい。
 const NO_SHOW_SIGNATURE: &str = "--no-show-signature";
 
+/// `parse_log` が読む 6 欄の書式（`git_log` と `git_show_commit`）。欄の並びを変えるときは
+/// `parse_log` も直す。日時は committer date（理由は `GitLogEntry.date` の doc）。
+const LOG_FORMAT: &str = "--format=%H%x1f%P%x1f%D%x1f%an%x1f%cI%x1f%B%x1e";
+
 const FS: char = '\x1f';
 const RS: &str = "\x1e";
 
@@ -886,14 +891,7 @@ pub async fn git_log(
 ) -> Result<Vec<GitLogEntry>, String> {
     let n = count.unwrap_or(50).to_string();
     let output = tokio::task::spawn_blocking(move || {
-        let mut args = vec![
-            "log",
-            NO_SHOW_SIGNATURE,
-            // 日時は committer date（理由は `GitLogEntry.date` の doc）。
-            "--format=%H%x1f%P%x1f%D%x1f%an%x1f%cI%x1f%B%x1e",
-            "-n",
-            &n,
-        ];
+        let mut args = vec!["log", NO_SHOW_SIGNATURE, LOG_FORMAT, "-n", &n];
         // グラフ表示（#371）。`--all` にしないのは `refs/stash` を拾わないため（stash の
         // コミットは親を 2〜3 個持ち、無関係なレーンを足す）。HEAD は detached のときのため。
         //
@@ -1877,6 +1875,34 @@ pub async fn git_log_file_lines(
         entries.truncate(n as usize);
     }
     Ok(entries)
+}
+
+/// コミット 1 つを `git_log` と同じ形で返す（#510。blame の行からコミットタブを開くため）。
+/// blame が持つのは名前・時刻・件名だけで、タブには親・refs・本文も要る。
+#[tauri::command]
+pub async fn git_show_commit(
+    root: String,
+    shell: ShellConfig,
+    hash: String,
+) -> Result<GitLogEntry, String> {
+    // **ハッシュだけを受ける。** `-` で始まる値を通すと git のオプションとして読まれる。
+    if !is_sha(&hash) {
+        return Err("invalid commit hash".to_owned());
+    }
+    let output = tokio::task::spawn_blocking(move || {
+        run_git(
+            &shell,
+            &root,
+            &["log", NO_SHOW_SIGNATURE, LOG_FORMAT, "-n", "1", &hash, "--"],
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    parse_log(&output)
+        .into_iter()
+        .next()
+        .ok_or_else(|| "commit not found".to_owned())
 }
 
 /// ガターのホバーで見せる「消えた行」1 かたまり（#322）。

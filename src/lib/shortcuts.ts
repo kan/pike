@@ -111,6 +111,9 @@ export const APP_ACTIONS = [
   { id: 'macroPlay', palette: 'file' },
   // クイック整形（#366）。キーはプリセットで変わる CodeMirror 層（`editorChordsFor` の `format`）。
   { id: 'format', palette: 'file' },
+  // blame（#510）。今見えているエディタのタブで切り替える（右クリックと同じ）。キーは持たない。
+  { id: 'blameInline', palette: 'view' },
+  { id: 'blameGutter', palette: 'view' },
   { id: 'quit', labelKey: 'menu.quit' },
   // --- パネル（#270）。パレットから開ける。キーを持つのは検索だけ（`Mod+Shift+F`、#259）
   { id: 'panelFiles', palette: 'view', labelKey: 'sidebar.files', panel: 'files' },
