@@ -12,7 +12,7 @@
         "transparent": true,
         "backgroundColor": "#1e1e1e",
         "dragDropEnabled": false,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --force-device-scale-factor=1.5 --lang=ja"
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --force-device-scale-factor=1.5"
       }
     ]
   }
