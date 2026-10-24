@@ -26,6 +26,8 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
 
   await $('#app').waitForExist({ timeout: 30_000 })
 
+  await fitInnerSize(width, height)
+
   // e2e 制御 API が生えるまで待つ（mount 後に露出される）。
   await browser.waitUntil(
     async () =>
@@ -82,6 +84,50 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
 }
 
 /**
+ * ウィンドウの外形と WebView の内寸（CSS ピクセル）の差。手元の撮影機（拡大率 150%）で
+ * どのサイズクラスも同じ値だった（1280×832 → 1266×796、1600×1000 → 1586×964、
+ * 3200×2000 → 3186×1964）。
+ */
+const FRAME = { w: 14, h: 36 }
+
+/**
+ * WebView の内寸を、手元の撮影機で `setWindowSize(width, height)` したときと同じ CSS ピクセルに
+ * 合わせる（#506）。
+ *
+ * **OS の拡大率と表示倍率が違う環境で要る。** `setWindowSize` は OS の拡大率で測った大きさなので、
+ * 拡大率 100% の画面で WebView2 にだけ倍率 1.5 を渡す（CI の Windows ランナー）と、1280 の
+ * ウィンドウの内寸が約 853 になる。手元のように 2 つが一致していれば最初から合っており、何もしない。
+ *
+ * 外形 1 単位あたりの CSS ピクセルは OS の拡大率で決まり、JS からは読めないので、表示倍率
+ * （拡大率 100% のときの値）から始めて、実際に動いた量で測り直す。
+ */
+async function fitInnerSize(width: number, height: number): Promise<void> {
+  const target = { w: width - FRAME.w, h: height - FRAME.h }
+  const inner = () =>
+    browser.execute(() => ({ w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio }))
+  let cur = await inner()
+  let outer = { w: width, h: height }
+  const ratio = { w: cur.dpr, h: cur.dpr }
+  for (let i = 0; i < 4 && (cur.w !== target.w || cur.h !== target.h); i++) {
+    const next = {
+      w: outer.w + Math.round((target.w - cur.w) * ratio.w),
+      h: outer.h + Math.round((target.h - cur.h) * ratio.h),
+    }
+    await browser.setWindowSize(next.w, next.h)
+    await browser.pause(200)
+    const after = await inner()
+    if (after.w !== cur.w) ratio.w = (next.w - outer.w) / (after.w - cur.w)
+    if (after.h !== cur.h) ratio.h = (next.h - outer.h) / (after.h - cur.h)
+    outer = next
+    cur = after
+  }
+  if (cur.w === target.w && cur.h === target.h) return
+  const message = `WebView の内寸が ${target.w}×${target.h} にならない（${cur.w}×${cur.h}）`
+  if (!SKIP_ENV_CHECK) throw new Error(message)
+  console.warn(`[e2e] ${message}`)
+}
+
+/**
  * マニュアルの画像を撮る環境の前提（#466）。**どれも撮影機の側で決まり、リポジトリからは
  * 固定できない**ので、食い違っていたら撮る前に落とす（気付かずに撮ると、見た目の違う画像が
  * 既存の画像に混ざる）。
@@ -99,7 +145,7 @@ export async function prepare(opts: PrepareOptions): Promise<void> {
  * **`prepare()` のたびに確かめる**（1 回の `execute` で済む）。ウィンドウは大きさを変えると
  * 倍率の違うモニタへ移りうるので、最初の 1 回だけでは `FULL` / `HERO` の撮影を見逃す。
  */
-const CAPTURE_ENV = { dpr: 1.5, uiFont: 'Yu Gothic UI', monoFont: 'PlemolJP Console NF', uiZoom: 1 }
+export const CAPTURE_ENV = { dpr: 1.5, uiFont: 'Yu Gothic UI', monoFont: 'PlemolJP Console NF', uiZoom: 1 }
 
 /** 前提を確かめずに撮る（別の環境で spec の動作だけ確かめたいとき）。画像は同期しないこと。 */
 const SKIP_ENV_CHECK = process.env.PIKE_E2E_ANY_ENV === '1'

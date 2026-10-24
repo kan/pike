@@ -1,4 +1,4 @@
-import { MATRIX, mockInvoke, openEditor, prepare, setFakeProject, shoot } from '../support/prepare'
+import { CAPTURE_ENV, MATRIX, mockInvoke, openEditor, prepare, setFakeProject, shoot } from '../support/prepare'
 
 // Vue の SFC のプレビュー（#397）を撮る（#418）。
 //
@@ -58,10 +58,13 @@ const SFC_SOURCE = [
 /**
  * vue-preview の出力に見立てたページ。値を与えていない参照はプレースホルダ（参照式の末尾を
  * `{{ }}` で囲んだもの）で描かれる。文言（`$t`）は i18n のファイルから引かれる。
+ *
+ * 書体は撮影の前提の UI フォントを名指しする（#506。iframe の中には `SYSTEM_UI_FONT` が
+ * 届かないので、英語版の Windows で撮っても日本語の Windows と同じ字形にするにはここで指す）。
  */
 const PREVIEW_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
-  body { margin: 0; padding: 32px; font-family: system-ui, sans-serif; background: #fff; color: #0f172a; }
+  body { margin: 0; padding: 32px; font-family: "${CAPTURE_ENV.uiFont}", system-ui, sans-serif; background: #fff; color: #0f172a; }
   .card { display: flex; gap: 16px; align-items: flex-start; max-width: 460px; padding: 20px;
     border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06); }
   .avatar { flex-shrink: 0; width: 56px; height: 56px; border-radius: 50%; background: #c7d2fe; }

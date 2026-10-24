@@ -1,0 +1,143 @@
+name: Screenshots
+
+# マニュアルとヒーローのスクリーンショットを Windows ランナーで撮る試作（#506）。
+#
+# 手元の撮影機（日本語の Windows・拡大率 150%）と同じ絵にするため、撮影機の側で決まる前提
+# （`e2e/support/prepare.ts` の `CAPTURE_ENV`）をここで揃える:
+#
+# - 表示倍率 1.5 … ランナーの画面は 100% 固定なので、WebView2 に
+#   `--force-device-scale-factor` を渡す（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`）
+# - UI のフォント … ランナーは英語版の Windows で `system-ui` が Segoe UI になる。撮影用ビルドは
+#   Yu Gothic UI を名指しする（`lib/fontDetection.ts` の `SYSTEM_UI_FONT`）ので、ここでは
+#   フォント本体を日本語フォントの追加機能で入れる
+# - 等幅フォント … PlemolJP Console NF をリリースの zip から入れる
+# - タイムゾーン … 相対日時（「昨日」）は日付の境目で変わるので日本時間に揃える
+#
+# 撮った画像はアーティファクトに上げるだけで、コミットはしない。
+on:
+  workflow_dispatch:
+    inputs:
+      any_env:
+        description: 撮影環境の前提が外れても警告だけで撮る（PIKE_E2E_ANY_ENV=1）
+        type: boolean
+        default: true
+      scale_factor:
+        description: WebView2 に渡す表示倍率（空にすると渡さない）
+        type: string
+        default: '1.5'
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Capture screenshots
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - uses: swatinem/rust-cache@v2.9.2
+        with:
+          workspaces: "./src-tauri -> target"
+          # CI の check と分ける（あちらは e2e feature を入れずにビルドする）
+          key: e2e
+
+      - uses: extractions/setup-just@v4.0.0
+
+      - name: Set time zone to JST
+        run: tzutil /s "Tokyo Standard Time"
+
+      # Yu Gothic UI は日本語の補助フォントに入っている（Yu Gothic / Meiryo / BIZ UD も入る）
+      - name: Install Japanese fonts
+        shell: pwsh
+        run: |
+          $r = Add-WindowsCapability -Online -Name 'Language.Fonts.Jpan~~~und-JPAN~0.0.1.0'
+          $r | Format-List Online, RestartNeeded
+          $cap = Get-WindowsCapability -Online -Name 'Language.Fonts.Jpan*'
+          $cap | Format-List Name, State
+          if ($cap.State -ne 'Installed') { throw "Language.Fonts.Jpan が入っていない（$($cap.State)）" }
+          if (-not (Test-Path "$env:WINDIR\Fonts\YuGothR.ttc")) { throw 'YuGothR.ttc（Yu Gothic UI）が無い' }
+
+      - name: Install PlemolJP Console NF
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLEMOLJP_VERSION: v3.1.0
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'plemoljp'
+          New-Item -ItemType Directory -Force $work | Out-Null
+          gh release download $env:PLEMOLJP_VERSION -R yuru7/PlemolJP -p "PlemolJP_NF_$($env:PLEMOLJP_VERSION).zip" -D $work
+          Expand-Archive -Path (Join-Path $work "PlemolJP_NF_$($env:PLEMOLJP_VERSION).zip") -DestinationPath $work
+          # GDI には AddFontResourceW で今のセッションに読み込ませる。WebView2 は DirectWrite で
+          # フォントを引くので、そちらが拾うかは撮影の前提の検査（`prepare()`）の警告で確かめる
+          Add-Type -Namespace Win32 -Name Font -MemberDefinition @'
+          [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] public static extern int AddFontResourceW(string file);
+          [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeoutW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+          '@
+          $fonts = Get-ChildItem -Path $work -Recurse -Filter '*.ttf' | Where-Object { $_.Directory.Name -eq 'PlemolJPConsole_NF' }
+          if (-not $fonts) { throw 'PlemolJPConsole_NF の ttf が zip に無い' }
+          foreach ($f in $fonts) {
+            $dest = Join-Path "$env:WINDIR\Fonts" $f.Name
+            Copy-Item $f.FullName $dest -Force
+            New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
+              -Name "$($f.BaseName) (TrueType)" -Value $f.Name -PropertyType String -Force | Out-Null
+            [void][Win32.Font]::AddFontResourceW($dest)
+            Write-Host "installed $($f.Name)"
+          }
+          $r = [IntPtr]::Zero
+          [void][Win32.Font]::SendMessageTimeoutW([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 5000, [ref]$r)
+          # DirectWrite のフォントのキャッシュを作り直させる（Pike はまだ起動していない）
+          Restart-Service FontCache -Force
+
+      # 撮影の前提が外れたときに原因を追えるよう、画面とフォントの状態を残す
+      - name: Show capture environment
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          [System.Windows.Forms.Screen]::AllScreens | Format-List DeviceName, Bounds, Primary
+          tzutil /g
+          Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' |
+            Get-Member -MemberType NoteProperty |
+            Where-Object Name -Match 'Yu Gothic|PlemolJP' |
+            Select-Object -ExpandProperty Name
+
+      - name: Download rg sidecar
+        run: just fetch-rg
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build capture binary
+        run: just e2e-build
+
+      - name: Capture
+        shell: pwsh
+        env:
+          PIKE_E2E_ANY_ENV: ${{ inputs.any_env && '1' || '' }}
+          SCALE_FACTOR: ${{ inputs.scale_factor }}
+        run: |
+          # wry 既定の引数も並べる。この環境変数がアプリ側の指定を置き換える場合に、
+          # 既定で切ってある機能（PDF の別ウィンドウ表示など）が戻らないようにする
+          if ($env:SCALE_FACTOR) {
+            $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --force-device-scale-factor=$($env:SCALE_FACTOR)"
+          }
+          just e2e
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: screenshots
+          path: artifacts/screenshots/
+          if-no-files-found: warn

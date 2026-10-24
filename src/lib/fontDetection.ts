@@ -25,8 +25,21 @@ export function extractFontName(fontFamily: string): string {
   return match ? match[1] : fontFamily
 }
 
+/**
+ * OS の UI フォント（設定画面そのものと、UI フォントを「システムの既定」にしたときに使う）。
+ *
+ * **撮影用ビルドだけは Yu Gothic UI を名指しする**（#506）。CI の Windows ランナーは英語版で、
+ * `system-ui` が Segoe UI になる。表示言語は変えられないので、日本語の Windows と同じ絵になる
+ * よう名前で指す。日本語の Windows ではどちらも Yu Gothic UI で描かれるので、手元の撮影は
+ * 変わらない。通常ビルドでは `__PIKE_E2E__` が false 定数なので分岐ごと消える。
+ * 撮影の検査側の値は `e2e/support/prepare.ts` の `CAPTURE_ENV.uiFont` で、変えるなら両方変える。
+ */
+export const SYSTEM_UI_FONT = __PIKE_E2E__
+  ? '"Yu Gothic UI", system-ui, -apple-system, sans-serif'
+  : 'system-ui, -apple-system, sans-serif'
+
 /** Fallback stack for the app/UI (proportional) font. */
-export const UI_FONT_FALLBACK = 'system-ui, -apple-system, sans-serif'
+export const UI_FONT_FALLBACK = SYSTEM_UI_FONT
 
 /**
  * Build the CSS font-family value for the UI font.

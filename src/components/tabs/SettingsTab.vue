@@ -10,7 +10,7 @@ import { COPY_ON_SELECT_OPTIONS } from '../../lib/copyOnSelect'
 import { CSV_PAGE_SIZES } from '../../lib/csvPreview'
 import { EDITOR_THEMES } from '../../lib/editorThemes'
 import type { SqlDialect } from '../../lib/fileType'
-import { buildFontFamily } from '../../lib/fontDetection'
+import { buildFontFamily, SYSTEM_UI_FONT } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
 import { absoluteDate } from '../../lib/paths'
 import { isPortable, portableBase } from '../../lib/portable'
@@ -1662,7 +1662,7 @@ const PREVIEW_LINES = [
   color: var(--text-primary);
   /* Always show the settings screen itself in the system font, so it stays a
      stable, legible reference no matter which UI font the user picks. */
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: v-bind(SYSTEM_UI_FONT);
 }
 
 .settings-nav {

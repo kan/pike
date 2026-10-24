@@ -196,6 +196,12 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   - **証明書を再発行するときは Developer Portal で G2 Sub-CA を選ぶ。** Xcode の「Manage Certificates → +」が作る Developer ID は G1 CA 由来で、G1 中間 CA 自身の失効日（2027-02-01）で頭打ちになる。G2 なら通常どおり 5 年
   - `macos-latest` は Apple Silicon なので**ホストのトリプルがそのまま `aarch64-apple-darwin`**。クロスビルドの指定は要らず、`just fetch-rg` も `rustc -vV` からその名前でサイドカーを取る。Intel 向けは配布しない
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
+- `.github/workflows/screenshots.yml`: **スクリーンショットを Windows ランナーで撮る試作**（#506。`workflow_dispatch` のみ）。撮影の前提（`CAPTURE_ENV`）を揃えてから `just e2e-build` → `just e2e` を流し、画像をアーティファクト `screenshots` に上げる。コミットはしない
+  - **ランナーは英語版の Windows で画面は 100%**。倍率は `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` の `--force-device-scale-factor` で渡す。**OS の拡大率は 100% のままなので、`setWindowSize` の大きさでは WebView の内寸が手元の 1/1.5 になる**。`prepare()` の `fitInnerSize` が内寸を測って外形を合わせ直す（手元では最初から合っているので何もしない）。**wry の既定の引数（`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`）も並べる**: この環境変数がアプリ側の指定を置き換えるのか足すのかを確かめていないので、置き換える場合に既定で切ってある機能が戻らないようにしてある
+  - **UI のフォントは撮影用ビルドだけ Yu Gothic UI を名指しする**（`lib/fontDetection.ts` の `SYSTEM_UI_FONT`）。英語版では `system-ui` が Segoe UI になり、表示言語は変えられないため。フォント本体は `Add-WindowsCapability` の `Language.Fonts.Jpan` で入れる。**iframe の中（`e2e/specs/vue-preview.ts` のフィクスチャ）にはこの定数が届かない**ので、そちらは HTML に直に書いてある
+  - **iframe のフィクスチャは `CAPTURE_ENV.uiFont` を埋め込む**。`SYSTEM_UI_FONT`（アプリ側）と `CAPTURE_ENV.uiFont`（検査側）は別ファイルにあり、片方を変えたらもう片方も変える
+  - PlemolJP Console NF はリリースの zip（版はワークフローの `PLEMOLJP_VERSION`）をマシンのフォントとして入れ、`AddFontResourceW` と `FontCache` サービスの再起動で今のセッションにも見せる。WebView2 は DirectWrite でフォントを引くので、効いたかは `prepare()` の検査の警告で見る
+  - **タイムゾーンを日本時間にする**（ランナーは UTC）。エージェントのメニューの相対日時（「昨日」）は日付の境目で変わる
 - `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
 
 ### action の固定（workflow lockfile）
