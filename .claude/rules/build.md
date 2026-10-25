@@ -105,10 +105,12 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 ## E2E スクリーンショット自動化（#142）
 マニュアル画像（`docs/manual/img/`）の自動再撮影パイプライン。詳細・設計の正本は `e2e/README.md`。
 
+**リリース前の撮影は CI の `Screenshots` ワークフローで行う**（#506。下の「CI/CD」の `screenshots.yml`。手順は `release` スキルの手順 4）。撮影・同期・PR の作成までジョブが行う。下の 1〜4 は、手元で撮るとき（spec を書いている途中、CI が使えないとき）の手順。**ジョブが呼ぶのは 1〜2 と `just e2e-sync`（マニュアルとヒーローの 2 本）で、4 の目視確認は PR の画面で行う。**
+
 1. `just e2e-build`: 撮影用バイナリをビルド（`PIKE_E2E=1` + `--features e2e` + `tauri.e2e.conf.json`。identifier=`com.pike.e2e` で既存 Pike / dev 版と single-instance 衝突しない）
 2. `just e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ寸法は 3 クラス: クローズアップ＝既定 1280×832（内枠 1266×796）、全体レイアウト系（layout.ts の `FULL`）＝1600×1000（内枠 1586×964）、**外枠付きヒーロー（`HERO` = `FULL` の 2 倍）＝3200×2000（内枠 3186×1964）**。内枠は CSS ピクセルで、**画像はそれに表示倍率 1.5 を掛けた大きさ**（クローズアップで 1899×1194 px）
-   - **撮影環境の前提（表示倍率 1.5・UI は Yu Gothic UI・等幅は PlemolJP Console NF・UI の拡大率 1）は `prepare()` が毎回確かめ、食い違えば撮る前に落とす**（#466。`e2e/support/prepare.ts` の `assertCaptureEnvironment`、値は `CAPTURE_ENV`）。倍率の違うモニタにウィンドウが出ると画像の大きさが変わり、日本語の Windows 以外では UI のフォントが変わる。どれも撮影機の側で決まり、リポジトリからは固定できない。撮影機を替えたら `CAPTURE_ENV` と上の寸法を測り直す
-   - `HERO` はプライマリモニタ（3413×1440）より縦が大きいが、WebView2 の撮影は画面外にはみ出した分も含めて撮れるので問題ない。DPR を上げる方向（`--force-device-scale-factor=2`）は効かなかった（実測済み。理由は `e2e/README.md`）
+   - **撮影環境の前提（表示倍率 1.5・UI は Yu Gothic UI・等幅は PlemolJP Console NF・UI の拡大率 1）は `prepare()` が毎回確かめ、食い違えば撮る前に落とす**（#466。`e2e/support/prepare.ts` の `assertCaptureEnvironment`、値は `CAPTURE_ENV`）。値は手元の撮影機（日本語の Windows・拡大率 150%）で測ったもので、CI のランナー（英語版・100%）は `screenshots.yml` と撮影用ビルドがこれに揃える（倍率は `tauri.e2e.conf.json`、UI のフォントは `SYSTEM_UI_FONT`、等幅はワークフローが入れる）。前提を変えるなら `CAPTURE_ENV`・上の寸法・CI 側の揃え方を一緒に直す
+   - `HERO` は画面（手元の 3413×1440、CI の 1024×768）より大きいが、WebView2 の撮影は画面外にはみ出した分も含めて撮れるので問題ない（CI でも同じ大きさで撮れた）
    - **論理サイズを 2 倍にすると表示内容が増える**ぶん、フィクスチャが短いと下半分が空く。`HERO` を使う spec（overview / hero-editor / hero-git）のダミーデータは、この寸法で画面が埋まる量にしてある（README は 60 行超、ターミナルのセッションは 78 行、コミット履歴は 8 件）。寸法を変えたら埋まり方も見直す。**画面の中身を差し替えたときも同じ**（行数の少ないものに替えると、下半分が空いたまま README のヒーローに載る）
 > `just e2e-build` の出力を `| tail` などに通さないこと。Rust のコンパイルが落ちても
 > パイプ側の終了コード 0 が返り、**古いバイナリのまま撮影して気付けない**。
@@ -196,7 +198,16 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   - **証明書を再発行するときは Developer Portal で G2 Sub-CA を選ぶ。** Xcode の「Manage Certificates → +」が作る Developer ID は G1 CA 由来で、G1 中間 CA 自身の失効日（2027-02-01）で頭打ちになる。G2 なら通常どおり 5 年
   - `macos-latest` は Apple Silicon なので**ホストのトリプルがそのまま `aarch64-apple-darwin`**。クロスビルドの指定は要らず、`just fetch-rg` も `rustc -vV` からその名前でサイドカーを取る。Intel 向けは配布しない
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
-- `.github/workflows/screenshots.yml`: **スクリーンショットを Windows ランナーで撮る試作**（#506。`workflow_dispatch` のみ）。撮影の前提（`CAPTURE_ENV`）を揃えてから `just e2e-build` → `just e2e` を流し、画像をアーティファクト `screenshots` に上げる。コミットはしない
+- `.github/workflows/screenshots.yml`: **スクリーンショットを Windows ランナーで撮る**（#506。`workflow_dispatch` のみ。リリースの前に `release` スキルの手順 4 から起動する）。撮影の前提（`CAPTURE_ENV`）を揃えてから `just e2e-build` → `just e2e` を流し、画像をアーティファクト `screenshots` に上げる
+  - **`pr: true`（既定）なら `just e2e-sync` で同期し、差分があればブランチ `screenshots/vX.Y.Z` にコミットして PR を作る**（版は `tauri.conf.json`。撮り直したら同じブランチを force push して上書きし、PR は 1 つのまま）。差分が無ければ何もしない。マージは画像を PR の画面で確かめてから
+    - **main へ直接は書かない。** 画像の差分を GitHub の PR の画面で見比べられ、ボットのコミット（署名なし）を確かめずに main へ入れずに済む
+    - **リポジトリの設定「Allow GitHub Actions to create and approve pull requests」を有効にしてある**（PR を作るだけでも要る）。既定のトークンの権限は read のまま
+    - **書き込みの権限（`contents: write` / `pull-requests: write`）は PR を作るジョブ（`pull-request`、ubuntu）だけに付ける。** 撮影のジョブは依存（npm の postinstall、クレートの build.rs）とアプリを動かすので読み取りだけで走らせ（checkout も `persist-credentials: false`）、同期した `docs/manual/img/` をアーティファクト `manual-img` で渡す
+    - GITHUB_TOKEN で作った PR では CI が走らない（画像だけなので要らない）
+    - **`pr` は main から起動し、`any_env` と同時には使えない**（PR の base は main なので、他の ref から起動するとその ref の未マージのコミットが混ざる。前提の外れた画像は PR にしない）
+    - **続けて起動したら前の run を止める**（`concurrency`。同じブランチへ force push し合い、PR が 2 つできうる）
+    - **同期は `SYNC_STRICT=1` で回す**（`sync-*-images.sh` が撮影元の欠けで落ちる。欠けた画像は古いまま残り、PR の差分にも出ない）
+    - ヒーロー画像の枠の合成に ImageMagick が要るので、**公式の portable 版を版を固定して落とす**（ワークフローの `IMAGEMAGICK_VERSION`）。同期は合成結果をバイト単位で比べるので、版が変わると見た目が同じでもヒーロー 6 枚が差分になる
   - **ランナーは英語版の Windows で画面は 100%**。**表示倍率は撮影用ビルドが自分で 1.5 に固定する**（`tauri.e2e.conf.json` の main ウィンドウの `additionalBrowserArgs` に `--force-device-scale-factor=1.5`。手元の拡大率 150% と同じ値なので、手元の絵は変わらない）
     - **環境変数 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` では効かなかった**（試作 1 回目で `devicePixelRatio` が 1 のまま）。wry がブラウザの引数を明示的に渡すため
     - **`additionalBrowserArgs` は wry の既定の引数（`--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`）を置き換える**ので、設定の値にも並べてある

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Pike の新しいバージョンをリリースする（dependabot の取り込み → rg サイドカー確認 → bump → CHANGELOG → スクリーンショット → push → タグ → ドラフトの公開）。「リリースして」「vX.Y.Z を出して」と頼まれたときに使う。
+description: Pike の新しいバージョンをリリースする（dependabot の取り込み → rg サイドカー確認 → bump → CHANGELOG → push → CI でスクリーンショット → タグ → ドラフトの公開）。「リリースして」「vX.Y.Z を出して」と頼まれたときに使う。
 ---
 
 # Pike のリリース手順
@@ -8,7 +8,8 @@ description: Pike の新しいバージョンをリリースする（dependabot 
 **リリースの依頼は end-to-end の依頼。** バージョン bump のコミットだけでなく、`main` の push・
 タグ作成と push・Release ワークフローの完了待ち・ドラフトのリリースノートの確認と公開までを
 Claude が実行する。通常のコミット運用と異なり push の個別確認は要らない。CI の完了待ちは
-バックグラウンドの watch で行う。以下を順番に実行する。
+バックグラウンドの watch で行う。以下を順番に実行する（**例外は手順 5 で、手順 4 の撮影より前に行う**）。
+画像の PR（手順 4）のマージも Claude が行う。
 
 ### 0. dependabot の PR を取り込む
 
@@ -81,6 +82,37 @@ git log --oneline <前回のタグ>..HEAD
 **マイナー bump のリリースでは必ず撮り直す。** 画像には StatusBar のバージョンが写るので、
 **bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順。詳細は `.claude/rules/build.md`）。
 
+**撮影は CI の `Screenshots` ワークフローで行う**（#506）。撮影するのは main の HEAD なので、
+**先に手順 5（bump と CHANGELOG のコミットと push）を済ませてから起動する**。
+
+```bash
+gh workflow run screenshots.yml --ref main     # 既定で pr: true。起動した run の URL を出す
+gh run watch <URL の末尾の run id> --exit-status   # 12 分ほど
+```
+
+**run の id は `gh workflow run` が出す URL から取る。** 起動の直後に `gh run list -L 1` で引くと、
+新しい run が一覧に現れる前で、前回の完了済みの run を拾うことがある（`watch` がすぐ成功で終わる）。
+
+ジョブは撮影 → `just e2e-sync` → 差分があればブランチ `screenshots/vX.Y.Z` にコミットして
+PR（`docs: vX.Y.Z でスクリーンショットを撮り直す`）を作る。**差分が無ければ PR はできない**。
+
+1. PR の Files changed で画像を目視で確認する（バージョン表記と、その回で変えた UI が写っているか）。
+   **総称の `monospace` で描く箇所は手元の画像と字形が違う**（許容している。`build.md`）
+2. 問題なければ squash でマージして、手元へ取り込む:
+
+   ```bash
+   gh pr merge <番号> --squash --delete-branch
+   git pull --ff-only
+   ```
+
+3. 撮り直しが要るなら、直してから同じ手順でもう一度起動する（同じブランチを上書きし、PR は 1 つのまま）
+
+あわせてマニュアルを棚卸しする: 新機能の記載漏れ、`grep -rn Windows` でのプラットフォーム記述の
+古さ、「撮っているのに使われていない画像」（`.claude/rules/build.md` の comm のワンライナー）。
+
+**手元で撮るのは、CI が使えないときと spec を書いている途中だけ**（日本語の Windows・拡大率 150% が要る。
+`e2e/README.md` の「撮影環境の前提」）:
+
 ```bash
 just e2e-build           # 出力を | tail に通さないこと（落ちても 0 が返る）
 just e2e
@@ -88,11 +120,9 @@ just e2e-sync-check      # 差分を確認してから
 just e2e-sync            # マニュアルとヒーローの 2 本（枚数は各スクリプトが出す）
 ```
 
-同期したら、代表的な画像を目視で確認する（バージョン表記と、その回で変えた UI が写っているか）。
-あわせてマニュアルを棚卸しする: 新機能の記載漏れ、`grep -rn Windows` でのプラットフォーム記述の
-古さ、「撮っているのに使われていない画像」（`.claude/rules/build.md` の comm のワンライナー）。
-
-画像はバージョン bump とは別のコミットにする（`docs: vX.Y.Z でスクリーンショットを撮り直す`）。
+この場合、画像はバージョン bump とは別のコミットにし（`docs: vX.Y.Z でスクリーンショットを撮り直す`）、
+**手順 6 へ進む前に `git push origin main` する**（bump は手順 5 で push 済みなので、画像のコミットだけが
+手元に残る。手順 7 はタグしか push しない）。
 
 ### 5. コミット & プッシュ
 
@@ -103,6 +133,8 @@ git push origin main
 ```
 
 **2 つの lockfile を含めること**。忘れると作業ツリーに drift が残り、あとから `chore: Cargo.lock を vX.Y.Z に同期` という追加コミットが必要になる。
+
+**このコミットと push は手順 4 の撮影より前に行う**（CI が撮るのは push 済みの main）。画像の PR をマージしたら、手順 6 へ進む。
 
 ### 6. Security Check の確認
 

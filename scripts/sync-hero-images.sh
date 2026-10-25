@@ -80,4 +80,9 @@ done
 echo ""
 echo "対応 ${#MAP[@]} 画面 (dark + light): 更新 $updated / 同一 $same / ソース欠落 $missing"
 [ "$check" = 1 ] && echo "(--check: ドライラン。実配置は引数なしで実行)"
+# SYNC_STRICT=1 なら撮影元の欠けで落とす（理由は sync-manual-images.sh の同じ箇所）
+if [ "${SYNC_STRICT:-}" = 1 ] && [ "$missing" -gt 0 ]; then
+  echo "ソース欠落が $missing 件ある（SYNC_STRICT）" >&2
+  exit 1
+fi
 exit 0

@@ -126,6 +126,12 @@ done
 echo ""
 echo "対応 ${#MAP[@]} 画面 (dark + light): 更新 $updated / 同一 $same / ソース欠落 $missing"
 [ "$check" = 1 ] && echo "(--check: ドライラン。実コピーは引数なしで実行)"
+# SYNC_STRICT=1（CI の Screenshots ワークフロー、#506）なら撮影元の欠けで落とす。欠けた画像は
+# 古いまま残り、PR の差分にも出ないので気付けない。
+if [ "${SYNC_STRICT:-}" = 1 ] && [ "$missing" -gt 0 ]; then
+  echo "ソース欠落が $missing 件ある（SYNC_STRICT）" >&2
+  exit 1
+fi
 # 末尾が条件式のままだと、--check なしの通常実行で終了コードが 1 になり、
 # `sync-manual-images.sh && sync-hero-images.sh` のように繋いだとき後続が走らない。
 exit 0

@@ -1,6 +1,16 @@
 name: Screenshots
 
-# マニュアルとヒーローのスクリーンショットを Windows ランナーで撮る試作（#506）。
+# マニュアルとヒーローのスクリーンショットを Windows ランナーで撮る（#506）。リリースの前に
+# `release` スキルの手順 4 から起動する。
+#
+# `pr: true` なら `just e2e-sync` で `docs/manual/img/` へ同期し、差分があればブランチ
+# `screenshots/vX.Y.Z` にコミットして PR を作る（撮り直したら同じブランチを上書きする）。
+# 画像の差分は PR の画面で見てからマージする。`pr: false` なら撮った画像をアーティファクトに
+# 上げるだけ（spec の動作確認用）。
+#
+# **書き込みの権限は PR を作るジョブだけに付ける。** 撮影のジョブは依存（npm の postinstall、
+# クレートの build.rs）とアプリを動かすので、読み取り権限だけで走らせ、同期した画像を
+# アーティファクトで渡す。
 #
 # 手元の撮影機（日本語の Windows・拡大率 150%）と同じ絵にするため、撮影機の側で決まる前提
 # （`e2e/support/prepare.ts` の `CAPTURE_ENV`）をここで揃える:
@@ -13,18 +23,25 @@ name: Screenshots
 #   ランナーのイメージに最初から入っている
 # - 等幅フォント … PlemolJP Console NF をリリースの zip から入れる
 # - タイムゾーン … 相対日時（「昨日」）は日付の境目で変わるので日本時間に揃える
-#
-# 撮った画像はアーティファクトに上げるだけで、コミットはしない。
 on:
   workflow_dispatch:
     inputs:
-      any_env:
-        description: 撮影環境の前提が外れても警告だけで撮る（PIKE_E2E_ANY_ENV=1）
+      pr:
+        description: docs/manual/img へ同期して PR を作る
         type: boolean
         default: true
+      any_env:
+        description: 撮影環境の前提が外れても警告だけで撮る（PIKE_E2E_ANY_ENV=1。pr と同時には使えない）
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+# 続けて起動したら前の run を止める（同じブランチへ force push し合い、PR が 2 つできうる）
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
 
 jobs:
   capture:
@@ -32,8 +49,18 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
+      # 前提の外れた画像をマニュアルに入れない。PR の base は main なので、main 以外から
+      # 起動するとその ref の未マージのコミットが PR に混ざる
+      - name: Check inputs
+        if: inputs.pr && (inputs.any_env || github.ref != 'refs/heads/main')
+        run: |
+          echo "::error::pr は main から起動し、any_env と同時には使えない"
+          exit 1
+
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v7.1.0
         with:
@@ -109,3 +136,77 @@ jobs:
           name: screenshots
           path: artifacts/screenshots/
           if-no-files-found: warn
+
+      # ヒーロー画像の枠の合成（`scripts/frame-screenshot.sh`）に要る。**版を固定する**: 同期は
+      # 合成結果をバイト単位で比べるので、版が変わると見た目が同じでもヒーロー 6 枚が差分になる
+      - name: Install ImageMagick
+        if: inputs.pr
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGEMAGICK_VERSION: 7.1.2-34
+        run: |
+          $name = "ImageMagick-$($env:IMAGEMAGICK_VERSION)-portable-Q16-HDRI-x64"
+          $work = Join-Path $env:RUNNER_TEMP 'imagemagick'
+          gh release download $env:IMAGEMAGICK_VERSION -R ImageMagick/ImageMagick -p "$name.7z" -D $work
+          7z x (Join-Path $work "$name.7z") "-o$work\$name" | Out-Null
+          $exe = Get-ChildItem (Join-Path $work $name) -Recurse -Filter 'magick.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'magick.exe が無い' }
+          Add-Content $env:GITHUB_PATH $exe.DirectoryName
+
+      # 撮影元の欠けた画像があれば落とす（SYNC_STRICT。欠けたまま PR にすると、その画像だけ古い
+      # ままになり、PR の差分にも出ないので気付けない）
+      - name: Sync to docs
+        if: inputs.pr
+        env:
+          SYNC_STRICT: '1'
+        run: |
+          magick -version
+          just e2e-sync
+
+      - name: Upload synced images
+        if: inputs.pr
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: manual-img
+          path: docs/manual/img/
+          if-no-files-found: error
+
+  # 書き込みの権限を持つのはこのジョブだけ。依存を入れずに、画像を差し替えてコミットする
+  pull-request:
+    name: Open pull request
+    needs: capture
+    if: inputs.pr
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: manual-img
+          path: docs/manual/img/
+
+      # 差分が無ければ何もしない。版は bump 済みの tauri.conf.json から取る（画像に写る版と同じ）
+      - name: Commit and open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add docs/manual/img
+          if git diff --cached --quiet; then
+            echo "画像に差分が無い"
+            exit 0
+          fi
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          branch="screenshots/v$version"
+          title="docs: v$version でスクリーンショットを撮り直す"
+          git switch -c "$branch"
+          git -c user.name='github-actions[bot]' \
+            -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -m "$title"
+          git push --force origin "$branch"
+          if [ -z "$(gh pr list --head "$branch" --state open --json number -q '.[].number')" ]; then
+            gh pr create --base main --head "$branch" --title "$title" --body "Screenshots ワークフロー（${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}）で撮り直した画像。Files changed で差分を確かめてからマージする。"
+          fi
