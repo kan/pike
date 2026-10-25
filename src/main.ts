@@ -226,6 +226,9 @@ async function bootstrap() {
         // 次の撮影に写り込み、子 webview を使う画面（Vue のプレビュー）は「手前に浮くものが
         // あるあいだは隠す」に当たって描かれない。
         if (dialogOpen()) useConfirmDialog().respond(false)
+        // worktree の作成ダイアログも閉じる（worktree-create は開いたまま撮って終わる）。残すと
+        // 後の撮影（設定画面、Mermaid のプレビューなど）の上に重なって写る。
+        worktree.createDialogOpen = false
       },
       // worktree セレクタは worktrees が 2 件以上の時だけ表示される。git_worktree_list を
       // モックした上でこれを呼ぶと一覧が入り StatusBar にセレクタが出る。
