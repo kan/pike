@@ -245,6 +245,11 @@ async function bootstrap() {
         }
         tabs.addEditorTab({ path })
       },
+      // いま見ているエディタの blame の表示を切り替える（#510。パレットの切り替えと同じ経路）。
+      toggleBlame: async (kind: 'inline' | 'gutter') => {
+        const { useOutlineSource } = await import('./composables/useOutlineSource')
+        useOutlineSource().current.value?.toggleBlame(kind)
+      },
       openEditor: (opts: { path: string; content: string; viewMode?: 'edit' | 'split' | 'preview' }) => {
         project.showSwitcher = false
         for (const t of [...tabs.tabs]) {

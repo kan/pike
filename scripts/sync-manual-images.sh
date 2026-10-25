@@ -84,6 +84,8 @@ MAP=(
   "vue-preview:vue-preview"
   "vue-preview-form:vue-preview-form"
   "vue-preview-install:vue-preview-install"
+  # v0.66.0 で新しく撮るもの（#510）
+  "editor-blame:editor-blame"
 )
 
 check=0

@@ -1,4 +1,4 @@
-import { MATRIX, openEditor, openPanel, prepare, setFakeProject, shoot } from '../support/prepare'
+import { MATRIX, mockInvoke, openEditor, openPanel, prepare, setFakeProject, shoot } from '../support/prepare'
 
 // エディタ / Markdown プレビュー / アウトラインを決定的な内容で撮影する。
 // EditorTab は initialContent を渡すと fs_read_file を読まずその内容で描画するため、
@@ -141,6 +141,54 @@ describe('screenshots: conflict resolution', () => {
       // 領域ごとのボタンが出るまで待つ（decoration の構築は 1 フレーム遅れる）。
       await $('.cm-conflict-btn').waitForDisplayed({ timeout: 10_000 })
       await shoot('editor-conflict', lang, theme)
+    })
+  }
+})
+
+// --- blame（#510）-----------------------------------------------------------
+// blame は実ファイルのタブにしか出ない（`initialContent` で開いたタブは対象外）ので、
+// `fs_read_file` をモックしてディスクから開く形にする。`TS_SAMPLE` の 24 行に、最初の版・
+// 2 つの追加・未コミットの 1 行を割り当てる。日時は相対で出るので、撮った時刻から逆算する。
+const BLAME_PATH = 'C:/Users/dev/demo-app/src/stores/tasks.ts'
+const DAY = 24 * 60 * 60
+
+function blameFixture() {
+  const now = Math.floor(Date.now() / 1000)
+  const commits = [
+    { hash: 'a1'.repeat(20), author: 'Aoi Sato', time: now - 21 * DAY, summary: 'feat: タスクのストアを足す', uncommitted: false },
+    { hash: 'b2'.repeat(20), author: 'Ren Ito', time: now - 5 * DAY, summary: 'feat: 終わっていないタスクを数える', uncommitted: false },
+    { hash: 'c3'.repeat(20), author: 'Aoi Sato', time: now - 2 * DAY, summary: 'feat: タスクの完了を記録する', uncommitted: false },
+    { hash: '0'.repeat(40), author: 'Not Committed Yet', time: now, summary: '', uncommitted: true },
+  ]
+  // 1〜11 行が最初の版、12 行（pending）が 2 つ目、15 行が未コミット、18〜23 行（complete と return）が 3 つ目
+  const lines = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 3, 0, 0, 2, 2, 2, 2, 2, 2, 0]
+  return { commits, lines }
+}
+
+describe('screenshots: blame', () => {
+  for (const { lang, theme } of MATRIX) {
+    it(`editor-blame ${lang} ${theme}`, async () => {
+      await prepare({ lang, theme })
+      await setFakeProject()
+      await mockInvoke('fs_read_file', { content: TS_SAMPLE, encoding: 'UTF-8', isNew: false })
+      await mockInvoke('git_blame', blameFixture())
+      await browser.execute((p) => {
+        ;(
+          window as unknown as { __pikeE2E?: { openEditorFromDisk?: (p: string) => void } }
+        ).__pikeE2E?.openEditorFromDisk?.(p)
+      }, BLAME_PATH)
+      await $('.cm-editor').waitForDisplayed({ timeout: 10_000 })
+      // 行頭（ファイル全体）と行末（カーソルのある 1 行目）の両方を出す
+      for (const kind of ['gutter', 'inline'] as const) {
+        await browser.execute(async (k) => {
+          await (
+            window as unknown as { __pikeE2E?: { toggleBlame?: (k: string) => Promise<void> } }
+          ).__pikeE2E?.toggleBlame?.(k)
+        }, kind)
+      }
+      await $('.cm-blame-gutter-text').waitForDisplayed({ timeout: 10_000 })
+      await $('.cm-blame-inline').waitForDisplayed({ timeout: 10_000 })
+      await shoot('editor-blame', lang, theme)
     })
   }
 })
