@@ -165,6 +165,11 @@ async function bootstrap() {
           lastOpened: '2026-01-01T00:00:00Z',
           remoteUrl: opts?.remoteUrl,
         }
+        // Git の状態を今のモックで取り直す。ルートが前の撮影と同じだと取り直しが起きず、
+        // `resetState` が空にした状態のまま（ステータスバーのブランチが消える）になる。
+        // **終わるまで待たせる**: 待たないと、後から `setGitStatus` で差した状態を取り直しの
+        // 答えが上書きする。
+        return useGitStore().refreshStatus()
       },
       openPanel: (name: string) => {
         sidebar.openPanel(name as Exclude<typeof sidebar.activePanel, null>)

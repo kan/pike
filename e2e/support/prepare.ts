@@ -274,11 +274,12 @@ async function mockInvokeFailure(command: string): Promise<void> {
 
 // 擬似プロジェクトを差して activeRoot を確定させ、invoke 駆動パネルを有効化する。
 /** `remoteUrl` を渡すのは issue パネルだけ（既定で付けると StatusBar の撮影が変わる）。 */
+// Git の状態の取り直しが終わるまで待つ（`git_status` のモックはこれより前に置く）。
 export async function setFakeProject(opts?: { remoteUrl?: string; root?: string }): Promise<void> {
-  await browser.execute((o) => {
-    ;(
+  await browser.execute(async (o) => {
+    await (
       window as unknown as {
-        __pikeE2E?: { setFakeProject?: (o?: { remoteUrl?: string; root?: string }) => void }
+        __pikeE2E?: { setFakeProject?: (o?: { remoteUrl?: string; root?: string }) => Promise<void> }
       }
     ).__pikeE2E?.setFakeProject?.(o)
   }, opts)

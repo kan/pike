@@ -219,6 +219,7 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   - **Yu Gothic UI はランナーのイメージに最初から入っている**（日本語の補助フォントの追加機能で増えたファイルに `YuGoth*.ttc` は無かった）。**補助フォント（`Add-WindowsCapability` の `Language.Fonts.Jpan`。Meiryo / BIZ UD / MS 明朝 / Noto など）は入れない**: Windows Update から落とすので約 15 分かかる。ファイルを Actions のキャッシュに置く手は、公開リポジトリではフォークの PR のワークフローからも復元でき、Microsoft のフォントを取り出せる形になるので採らない。**そのぶん、日本語の字形の代わりに使われるフォントは手元と違いうる**（手元のプレビューのコードブロックの日本語は BIZ UDGothic。`e2e/README.md`）
   - PlemolJP Console NF を入れるのは `scripts/install-fonts.ps1`。マシンのフォントとして写してレジストリに載せ、`AddFontResourceW` と `FontCache` サービスの再起動で今のセッションにも見せる。WebView2 は DirectWrite でフォントを引くので、効いたかは `prepare()` の検査の警告で見る。PlemolJP の版はワークフローの `PLEMOLJP_VERSION`
   - **撮影のたびに、撮影機と先の撮影から持ち込まれる状態を消す**（`main.ts` の `resetState`。`prepare()` が呼ぶ）。設定を既定へ戻す（撮影用プロファイルに残った値）、「管理者」の表示を消す（CI のランナーは管理者で動く）、Git の状態を空にする、エージェントの使用量を空にする（撮影機の実際の Claude の使用量が写っていた。取得は `prepare()` が失敗させてある）。**手元の画像もこれで変わる**
+    - **Git の状態は `setFakeProject` が今のモックで取り直し、終わるまで待つ。** 擬似プロジェクトのルートは毎回同じなので、取り直しが起きないとステータスバーのブランチが空のまま写る（hero-editor で起きた）。`git_status` のモックは `setFakeProject` より前に置き、状態を直接差す（`setGitStatus`）ならその後に置く
   - **タイムゾーンを日本時間にする**（ランナーは UTC）。エージェントのメニューの相対日時（「昨日」）は日付の境目で変わる
 - `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
 
