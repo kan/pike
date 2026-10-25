@@ -62,6 +62,21 @@ jobs:
         with:
           persist-credentials: false
 
+      # 画像には StatusBar の版（tauri.conf.json）が写る。その版のタグが既にあるなら bump 前の
+      # main を撮ろうとしている（`release` スキルの手順 5 を手順 4 より前に済ませていない）。
+      # 前の版の画像で PR を作らない。試し撮りは pr: false で行う
+      - name: Check version is not released
+        if: inputs.pr
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/v$version" --silent 2>/dev/null; then
+            echo "::error::v$version のタグが既にある。bump して main に push してから起動する（試し撮りは pr: false）"
+            exit 1
+          fi
+
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: lts/*

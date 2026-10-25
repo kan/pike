@@ -95,6 +95,7 @@ gh run watch <URL の末尾の run id> --exit-status   # 12 分ほど
 
 ジョブは撮影 → `just e2e-sync` → 差分があればブランチ `screenshots/vX.Y.Z` にコミットして
 PR（`docs: vX.Y.Z でスクリーンショットを撮り直す`）を作る。**差分が無ければ PR はできない**。
+**main の版のタグが既にあると撮る前に止まる**（bump の push を忘れている）。手順 5 を済ませてから起動し直す。
 
 1. PR の Files changed で画像を目視で確認する（バージョン表記と、その回で変えた UI が写っているか）。
    **総称の `monospace` で描く箇所は手元の画像と字形が違う**（許容している。`build.md`）
