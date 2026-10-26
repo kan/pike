@@ -38,7 +38,7 @@ jobs:
           toolchain: stable
           components: clippy, rustfmt
 
-      - uses: swatinem/rust-cache@v2.9.2
+      - uses: swatinem/rust-cache@v2.9.3
         with:
           workspaces: "./src-tauri -> target"
           # OS ごとに分ける（分けないと 2 ジョブが同じキャッシュを取り合う）
