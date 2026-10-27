@@ -86,7 +86,7 @@ jobs:
         with:
           toolchain: stable
 
-      - uses: swatinem/rust-cache@v2.9.2
+      - uses: swatinem/rust-cache@v2.9.3
         with:
           workspaces: "./src-tauri -> target"
           # CI の check と分ける（あちらは e2e feature を入れずにビルドする）
