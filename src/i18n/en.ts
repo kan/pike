@@ -205,6 +205,14 @@ export default {
   'diff.expandStale': 'The file changed after this diff was generated',
   'diff.collapse': 'Collapse the {count} expanded lines',
   'diff.splitHandle': 'Drag to resize the panes (double-click to reset)',
+  'diff.previewShow': 'Compare as previews',
+  'diff.previewHide': 'Show the text diff',
+  'diff.previewBefore': 'Before',
+  'diff.previewAfter': 'After',
+  'diff.previewAdded': 'This file did not exist before the change',
+  'diff.previewDeleted': 'This file no longer exists after the change',
+  'diff.previewLoading': 'Loading…',
+  'diff.previewFailed': 'Could not read the file',
 
   // History
   'history.notFound': 'Not found',

@@ -206,6 +206,14 @@ export default {
   'diff.expandStale': 'この差分を作ったあとにファイルが変わっているため展開できません',
   'diff.collapse': '広げた {count} 行を折りたたむ',
   'diff.splitHandle': 'ドラッグで左右の幅を変える（ダブルクリックで半々に戻す）',
+  'diff.previewShow': 'プレビューで比較する',
+  'diff.previewHide': 'テキストの差分を表示する',
+  'diff.previewBefore': '変更前',
+  'diff.previewAfter': '変更後',
+  'diff.previewAdded': '変更前にはこのファイルがありません',
+  'diff.previewDeleted': '変更後にはこのファイルがありません',
+  'diff.previewLoading': '読み込み中…',
+  'diff.previewFailed': 'ファイルを読み込めませんでした',
 
   // History
   'history.notFound': '見つかりません',

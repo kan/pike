@@ -47,13 +47,42 @@ export function isBinaryDiff(raw: string): boolean {
  * 1 つも出ない**ので、それだけの差分は行が 0 件になる。
  */
 export function parseRename(raw: string): { from: string; to: string } | null {
-  // 最初の hunk より前しか見ない。本文まで舐めると、上限（100KB）の差分で 150 倍かかる
-  // うえ、本文の行が `rename from …` で始まっていれば拾ってしまう。
-  const hunk = raw.indexOf('\n@@')
-  const header = hunk === -1 ? raw : raw.slice(0, hunk)
+  const header = diffHeader(raw)
   const from = header.match(/^rename from (.+?)\r?$/m)
   const to = header.match(/^rename to (.+?)\r?$/m)
   return from && to ? { from: from[1], to: to[1] } : null
+}
+
+/**
+ * ファイルのヘッダ（最初の hunk より前）。**ヘッダの情報はここから読む**: 本文まで舐めると、
+ * 上限（100KB）の差分で 150 倍かかるうえ、本文の行が `rename from …` などで始まっていれば拾ってしまう。
+ */
+function diffHeader(raw: string): string {
+  const hunk = raw.indexOf('\n@@')
+  return hunk === -1 ? raw : raw.slice(0, hunk)
+}
+
+/** ファイルの追加・削除と、両側の blob（`index <old>..<new>` の短縮ハッシュ）。 */
+export interface DiffFileHeader {
+  added: boolean
+  deleted: boolean
+  oldBlob: string | null
+  newBlob: string | null
+}
+
+/**
+ * ファイルの追加・削除と blob を差分のヘッダから読む（#524。diff タブのプレビュー比較が、
+ * 無い側を決めることと、中身が変わっていない側を取り直さないことに使う）。
+ */
+export function parseFileHeader(raw: string): DiffFileHeader {
+  const header = diffHeader(raw)
+  const index = header.match(/^index ([0-9a-f]+)\.\.([0-9a-f]+)/m)
+  return {
+    added: /^new file mode /m.test(header),
+    deleted: /^deleted file mode /m.test(header),
+    oldBlob: index?.[1] ?? null,
+    newBlob: index?.[2] ?? null,
+  }
 }
 
 /**

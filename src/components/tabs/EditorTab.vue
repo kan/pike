@@ -4,9 +4,7 @@ import { indentUnit } from '@codemirror/language'
 import { highlightSelectionMatches } from '@codemirror/search'
 import { Compartment, EditorState, type StateEffect } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
-import DOMPurify from 'dompurify'
 import { ArrowUp, RefreshCw, Smartphone } from 'lucide-vue-next'
-import type { Marked } from 'marked'
 import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { choiceWithOption, confirmDialog, dialogOpen, promptDialog } from '../../composables/useConfirmDialog'
@@ -19,7 +17,6 @@ import { type OutlineJump, useOutlineSource } from '../../composables/useOutline
 import { usePreviewFind } from '../../composables/usePreviewFind'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
-import { highlightCodeBlock } from '../../lib/codeHighlight'
 import {
   type CsvData,
   type CsvSort,
@@ -49,43 +46,36 @@ import { editorPathJump } from '../../lib/editorPathJump'
 import { presetKeymap } from '../../lib/editorPresetKeys'
 import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
-import { imageHostOf, remoteImageDataUrl, retryRemoteImage } from '../../lib/externalImages'
-import { fileTypeKey, firstLineOf } from '../../lib/fileType'
+import { fileTypeKey, firstLineOf, previewKindOfKey } from '../../lib/fileType'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { formatFileSize, formatLineRange, lineRangeSuffix } from '../../lib/format'
-import { detectFrontmatter } from '../../lib/frontmatter'
-import { parseFrontmatter } from '../../lib/frontmatterParse'
 import { chordLabel, matchChord } from '../../lib/keys'
 import { languageByKey, languageLabelByKey } from '../../lib/languages'
-import { previewParser } from '../../lib/markdownGfm'
-import { renderMath } from '../../lib/markdownMath'
-import { renderMermaid } from '../../lib/mermaid'
 import { openProjectPath, openWithDefaultApp } from '../../lib/openFile'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import { useOverlay } from '../../lib/overlay'
+import { basename, dirname, extension, fileLineRef, isMarkdownPath, toRelativePath } from '../../lib/paths'
 import {
-  basename,
-  dirname,
-  extension,
-  fileLineRef,
-  isEmbeddableImage,
-  isMarkdownPath,
-  mimeType,
-  pathSep,
-  toRelativePath,
-} from '../../lib/paths'
-import { isSameOrUnder, relativeToBase } from '../../lib/projectPaths'
-import { buildRstPreview } from '../../lib/rstPreview'
-import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
-import { createScrollFollow, type SyncPane } from '../../lib/scrollFollow'
+  approveImageChip,
+  assignHeadingIds,
+  imageChipAt,
+  type PreviewPathBase,
+  renderMarkdownExtras,
+  renderMarkdownHtml,
+  renderMermaidInto,
+  renderRstHtml,
+  renderSvgHtml,
+  resolvePreviewImages,
+  resolvePreviewPath,
+} from '../../lib/previewRender'
+import { isSameOrUnder } from '../../lib/projectPaths'
+import { createScrollFollow } from '../../lib/scrollFollow'
 import { editorChords } from '../../lib/shortcuts'
-import { createHeadingSlugger } from '../../lib/slug'
 import { loadJson, saveJson } from '../../lib/storage'
 import {
   type FileChunk,
   fsDirsExist,
   fsReadFile,
-  fsReadFileBase64,
   fsReadFileChunk,
   fsRevealInExplorer,
   fsWriteFile,
@@ -115,25 +105,12 @@ import VuePreviewInstall from '../editor/VuePreviewInstall.vue'
 import WrapToggle from '../editor/WrapToggle.vue'
 import HelpButton from '../HelpButton.vue'
 
-// Own `marked` instances: the footnote extension (#241) belongs to this preview
-// and must not leak into the agent chat's Markdown.
-//
-// 本文が要る block 拡張（脚注・行頭の `$$`）の組み合わせごとにインスタンスを分ける（#482。
-// 理由は `lib/markdownGfm.ts` の doc）。コードブロックの色付け（#359）はどれにも入れる。
-// テーマ名は描画のたびに読むので、`previewHtml` がテーマに依存し、テーマを変えると組み直される。
-const codeTheme = () => settingsStore.effectiveEditorThemeName
-const markdownParser = previewParser({ theme: codeTheme, footnotes: true })
-
 /**
- * The parser this text needs. `#123` は issue タブを開けるプロジェクト（origin が GitHub で `gh`
- * がある）の、**そのプロジェクトの中のファイル**でだけリンクにする（#482）。開けないリンクと、
+ * `#123` は issue タブを開けるプロジェクト（origin が GitHub で `gh` がある）の、
+ * **そのプロジェクトの中のファイル**でだけリンクにする（#482）。開けないリンクと、
  * 別のリポジトリの README の `#12` から今のプロジェクトの #12 を開くリンクを作らない。
  * 無題のバッファは今のプロジェクトで書いているものとして扱う。
  */
-function parserFor(text: string): Marked {
-  return markdownParser(text, { issueRefs: issueRefsOn() })
-}
-
 function issueRefsOn(): boolean {
   if (!issuesStore.visible) return false
   const path = tab.value?.path
@@ -337,13 +314,15 @@ const readAsNamed = computed(
   () =>
     fileTypeOverride.value === null || languageLabelByKey(fileTypeOverride.value) === languageLabelByKey(fileExt.value),
 )
-const isMarkdown = computed(() => previewKey.value === 'md' || previewKey.value === 'markdown')
+/** 本文から描くプレビューのうち、diff タブと共有する 4 種（表は `previewKindOfKey`、#524）。 */
+const proseKind = computed(() => previewKindOfKey(previewKey.value))
+const isMarkdown = computed(() => proseKind.value === 'markdown')
 const isCsv = computed(() => previewKey.value === 'csv' || previewKey.value === 'tsv')
-const isMermaid = computed(() => previewKey.value === 'mermaid' || previewKey.value === 'mmd')
-const isSvg = computed(() => previewKey.value === 'svg')
+const isMermaid = computed(() => proseKind.value === 'mermaid')
+const isSvg = computed(() => proseKind.value === 'svg')
 const isJson = computed(() => previewKey.value === 'json' || previewKey.value === 'jsonc')
 const isJsonl = computed(() => previewKey.value === 'jsonl' || previewKey.value === 'ndjson')
-const isRst = computed(() => previewKey.value === 'rst')
+const isRst = computed(() => proseKind.value === 'rst')
 /**
  * 子 webview に描くプレビュー（#399 の HTML は `HtmlPreview.vue`、#397 の Vue SFC は
  * `VuePreview.vue`）。**描くのは保存したファイル**なので、無題のバッファには出さない
@@ -454,66 +433,6 @@ const breadcrumbSegments = computed(() => {
   if (!p) return []
   return toRelativePath(p, projectStore.activeRoot).split(/[/\\]/).filter(Boolean)
 })
-
-const SVG_PURIFY_OPTS = {
-  ADD_TAGS: [
-    'svg',
-    'g',
-    'path',
-    'rect',
-    'circle',
-    'line',
-    'polyline',
-    'polygon',
-    'text',
-    'tspan',
-    'defs',
-    'clipPath',
-    'use',
-    'marker',
-    'foreignObject',
-    'style',
-  ],
-  ADD_ATTR: [
-    'viewBox',
-    'xmlns',
-    'd',
-    'fill',
-    'stroke',
-    'stroke-width',
-    'transform',
-    'x',
-    'y',
-    'cx',
-    'cy',
-    'r',
-    'rx',
-    'ry',
-    'width',
-    'height',
-    'points',
-    'text-anchor',
-    'dominant-baseline',
-    'font-size',
-    'font-family',
-    'font-weight',
-    'clip-path',
-    'marker-end',
-    'refX',
-    'refY',
-    'orient',
-    'markerWidth',
-    'markerHeight',
-    'dx',
-    'dy',
-    'preserveAspectRatio',
-    'startOffset',
-    'data-id',
-    'data-node-id',
-    'data-look',
-  ],
-  ALLOWED_URI_REGEXP,
-}
 
 // --- CSV プレビュー（ページ送り・表示件数・並べ替え。判断の実体は `lib/csvPreview.ts`） ---
 /** 表示中のページ（0 始まり）。範囲外は描くときに寄せる。 */
@@ -647,41 +566,6 @@ function buildJsonlPreview(text: string): string {
  */
 let frontmatterOpen: boolean | null = null
 
-/**
- * Front matter fools CommonMark: the opening `---` is a thematic break and the closing
- * one underlines it into a setext heading, so the whole block lands in the body as an
- * `<h2>`. Slice it off and render it as metadata instead.
- */
-function buildMarkdownPreview(text: string): string {
-  const block = detectFrontmatter(text)
-  if (!block) return parserFor(text).parse(text) as string
-
-  const parsed = parseFrontmatter(block)
-  let cls = ''
-  let body: string
-  if (!parsed.ok) {
-    const message = parsed.reason === 'not-mapping' ? t('frontmatter.notMapping') : parsed.message
-    cls = ' frontmatter-invalid'
-    body = `<div class="frontmatter-error">${escapeHtml(message)}</div><pre>${escapeHtml(block.raw.trim())}</pre>`
-  } else if (parsed.entries.length === 0) {
-    body = `<div class="frontmatter-empty">${escapeHtml(t('frontmatter.empty'))}</div>`
-  } else {
-    const rows = parsed.entries
-      .map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`)
-      .join('')
-    body = `<table><tbody>${rows}</tbody></table>`
-  }
-  // Collapsed by default, but a block we couldn't parse is worth showing unasked.
-  const open = parsed.ok ? '' : ' open'
-  // **rst の `.. meta::` も同じマークアップを出す**（#302。`lib/rstPreview.ts` の `metaBlock`）。
-  // 下の `.md-preview :deep(.frontmatter > …)` は子結合子なので、ここの入れ子を変えると
-  // あちらが黙って素の `<details>` に戻る。`trackFrontmatterToggle` も両方が使う。
-  const label = `<summary>${escapeHtml(t('frontmatter.title'))}<span class="frontmatter-kind">${block.kind.toUpperCase()}</span></summary>`
-  const meta = `<details class="frontmatter${cls}"${open}>${label}${body}</details>`
-  const rest = text.slice(block.bodyFrom)
-  return meta + (parserFor(rest).parse(rest) as string)
-}
-
 const previewHtml = computed(() => {
   // CSV は `csvData` が本文を読み、本文の変更への依存もそちらが持つ（ページを動かしただけで
   // 全文を読み直さないように）。
@@ -697,31 +581,15 @@ const previewHtml = computed(() => {
   if (!showPreview.value || !editorView || ownPanePreview.value) return ''
   const text = editorView.state.doc.toString()
   if (isMermaid.value) return '' // rendered asynchronously
-  if (isSvg.value) return DOMPurify.sanitize(text, SVG_PURIFY_OPTS)
+  if (isSvg.value) return renderSvgHtml(text)
   if (isJson.value) return buildJsonPreview(text)
   if (isJsonl.value) return buildJsonlPreview(text)
-  // rst は SVG を出さない（mermaid も watcher で除外している）ので、`SVG_PURIFY_OPTS` の
-  // 追加許可（`foreignObject` や SVG の属性）を持ち込まない。
-  if (isRst.value) {
-    // テーマ名はここで読む（`code-block` を色付けするとき、この computed がテーマに依存するように）。
-    const theme = codeTheme()
-    const highlight = (code: string, lang: string) => highlightCodeBlock(code, lang, theme)
-    return DOMPurify.sanitize(buildRstPreview(text, highlight), { ALLOWED_URI_REGEXP })
-  }
-  return DOMPurify.sanitize(buildMarkdownPreview(text), SVG_PURIFY_OPTS)
+  // どちらもテーマ名を描画の中で読むので、この computed はテーマに依存する（変えると組み直される）。
+  if (isRst.value) return renderRstHtml(text)
+  return renderMarkdownHtml(text, issueRefsOn())
 })
 
 const mermaidZoom = ref(1)
-
-/** 図を描いて `.mermaid-inline` に包む。元のソースは `data-mermaid-source` に持つ（書体を変えたときの描き直し用）。 */
-async function mermaidDiagram(source: string, id: string): Promise<HTMLDivElement> {
-  const svg = await renderMermaid(source, id, settingsStore.uiFontFamilyCss)
-  const wrapper = document.createElement('div')
-  wrapper.className = 'mermaid-inline'
-  wrapper.dataset.mermaidSource = source
-  wrapper.append(svg)
-  return wrapper
-}
 
 /**
  * **後から始まった描画が勝つ**（`standaloneMermaidRun`）。図種のチャンクを初めて読む描画は遅いので、
@@ -732,54 +600,34 @@ async function renderStandaloneMermaid() {
   const run = ++standaloneMermaidRun
   await nextTick()
   if (!mermaidRef.value || !editorView) return
-  const source = editorView.state.doc.toString().trim()
-  if (!source) {
-    mermaidRef.value.innerHTML = ''
-    return
-  }
-  try {
-    const diagram = await mermaidDiagram(source, `mermaid-${props.tabId}-${Date.now()}`)
-    if (run === standaloneMermaidRun) mermaidRef.value?.replaceChildren(diagram)
-  } catch (e) {
-    if (run !== standaloneMermaidRun || !mermaidRef.value) return
-    const pre = document.createElement('pre')
-    pre.className = 'mermaid-render-error'
-    pre.textContent = String(e)
-    mermaidRef.value.replaceChildren(pre)
-  }
+  await renderMermaidInto(
+    mermaidRef.value,
+    editorView.state.doc.toString(),
+    `mermaid-${props.tabId}-${Date.now()}`,
+    settingsStore.uiFontFamilyCss,
+    () => run !== standaloneMermaidRun,
+  )
 }
 
 /**
- * Markdown の中の ```mermaid``` を図に差し替える。テーマを切り替えても描き直さない（色は
+ * Markdown の中の数式と ```mermaid``` を描く（`renderMarkdownExtras`）。テーマを切り替えても描き直さない（色は
  * CSS 変数で追従する。`lib/mermaid.ts`）。書体を変えたときは、描いた図が持つ元のソース
  * （`data-mermaid-source`）から描き直す。`previewHtml` を作り直させる形は採れない: 図だけの文書では
  * HTML が書体で変わらず、computed が同じ値を返して watcher が動かない。
  *
- * **後から始まった描画が前の描画を止める**（`markdownMermaidRun`）。描画は図ごとに待つ
- * （図種のチャンクの読み込み）ので、打鍵が描画より速いと古いループが外れた要素を描き続ける。
+ * **後から始まった描画が前の描画を止める**（`markdownExtrasRun`）。
  */
-let markdownMermaidRun = 0
-async function renderMarkdownMermaid() {
-  const run = ++markdownMermaidRun
+let markdownExtrasRun = 0
+async function renderPreviewExtras() {
+  const run = ++markdownExtrasRun
   await nextTick()
   if (!previewRef.value) return
-  // 数式（#482）も DOM に入ってから KaTeX を当てる（理由は `lib/markdownMath.ts`）。
-  void renderMath(previewRef.value)
-  const targets = previewRef.value.querySelectorAll<HTMLElement>(
-    'pre > code.language-mermaid, .mermaid-inline[data-mermaid-source]',
+  await renderMarkdownExtras(
+    previewRef.value,
+    `md-mermaid-${props.tabId}`,
+    settingsStore.uiFontFamilyCss,
+    () => run !== markdownExtrasRun,
   )
-  let idx = 0
-  for (const el of targets) {
-    if (run !== markdownMermaidRun) return
-    const host = el.tagName === 'CODE' ? el.parentElement : el
-    const source = el.dataset.mermaidSource ?? (el.textContent ?? '').trim()
-    try {
-      const diagram = await mermaidDiagram(source, `md-mermaid-${props.tabId}-${idx++}-${Date.now()}`)
-      if (run === markdownMermaidRun) host?.replaceWith(diagram)
-    } catch {
-      // Leave code block as-is on syntax error
-    }
-  }
 }
 
 // Standalone mermaid: re-render on content or view mode changes.
@@ -796,105 +644,24 @@ watch(
     applyWhenVisible('mermaidFont', 'preview', () => {
       if (!showPreview.value) return
       if (isMermaid.value) renderStandaloneMermaid()
-      else if (isMarkdown.value) renderMarkdownMermaid()
+      else if (isMarkdown.value) renderPreviewExtras()
     }),
 )
 /**
- * Give every <img> in the preview a source the webview is allowed to load.
- *
- * Neither kind can be loaded from the markup itself: the webview cannot read a
- * disk-relative path, and the CSP blocks remote hosts. Both end up as `data:`
- * URLs — local files through the usual file IPC, remote ones (#239) only for
- * hosts the user approved, with a chip offering to approve the rest.
+ * 相対パスを解く基準（このタブのファイルと、今のプロジェクト）。プロジェクトが無いときは null。
+ * 無題のバッファはパスが空なので、プロジェクトのルートが基準になる。
  */
+function previewPathBase(): PreviewPathBase | null {
+  const project = projectStore.currentProject
+  if (!project || !tab.value) return null
+  return { filePath: tab.value.path, root: projectStore.activeRoot, shell: project.shell }
+}
+
+/** プレビューの `<img>` を webview が読める `data:` URL にする（`resolvePreviewImages`）。 */
 async function resolveMarkdownImages() {
   await nextTick()
   const container = previewRef.value
-  if (!container) return
-  // A matching <source> outranks the <img> we resolve, and a remote srcset
-  // outranks its own src, so neither can be left to win.
-  for (const source of container.querySelectorAll('picture source')) source.remove()
-  const tasks: Promise<void>[] = []
-  for (const img of container.querySelectorAll('img')) {
-    img.removeAttribute('srcset')
-    const src = img.getAttribute('src')
-    if (!src || src.startsWith('data:')) continue
-    const host = imageHostOf(src)
-    if (host) {
-      tasks.push(resolveRemoteImage(img, src, host))
-      continue
-    }
-    // http: is neither loadable nor offerable — leave it as the markup had it.
-    if (/^https?:/i.test(src)) continue
-    tasks.push(resolveLocalImage(img, src))
-  }
-  // Independent reads: a slow host must not hold up the images next to it.
-  await Promise.all(tasks)
-}
-
-async function resolveLocalImage(img: HTMLImageElement, src: string) {
-  const project = projectStore.currentProject
-  if (!project || !tab.value) return
-  // `img.png?v=2` and `img.png#top` name the same file: the suffix tells a
-  // browser how to cache or where to scroll, and is no part of the path on disk.
-  const resolved = resolveLocalPath(src.replace(/[?#].*$/, '')) // stays within the project root
-  if (!resolved || !isEmbeddableImage(resolved)) return
-  try {
-    const base64 = await fsReadFileBase64(project.shell, resolved)
-    img.src = `data:${mimeType(resolved)};base64,${base64}`
-  } catch {
-    // leave the image broken if it can't be read
-  }
-}
-
-async function resolveRemoteImage(img: HTMLImageElement, url: string, host: string) {
-  // This pass also re-runs on approval, so start from a clean slate: the chip
-  // and the hiding are what the previous pass decided, not what the markup says.
-  const stale = img.nextElementSibling
-  if (stale?.classList.contains('external-image')) stale.remove()
-  // Hidden until we know what to show: the src in the markup is the remote one,
-  // which the CSP blocks — leaving it visible flashes a broken-image icon.
-  img.hidden = true
-  if (!settingsStore.allowedImageHosts.includes(host)) {
-    showImageChip(img, host, url, t('preview.externalImageShow', { host }))
-    return
-  }
-  const dataUrl = await remoteImageDataUrl(url)
-  if (dataUrl) {
-    img.src = dataUrl
-    img.hidden = false
-    return
-  }
-  // Fetch failed — say so on the chip, which retries when clicked.
-  showImageChip(img, host, url, t('preview.externalImageFailed', { host }))
-}
-
-/**
- * Stand a button carrying the host where an image the preview will not load
- * would have been. The <img> keeps its original src (the CSP is what stops the
- * request) and is only hidden, so the next pass can resolve it in place.
- */
-function showImageChip(img: HTMLImageElement, host: string, url: string, label: string) {
-  img.hidden = true
-  const btn = document.createElement('button')
-  btn.type = 'button'
-  btn.className = 'external-image'
-  btn.dataset.host = host
-  btn.dataset.url = url
-  btn.textContent = label
-  btn.title = t('preview.externalImageHint')
-  img.after(btn)
-}
-
-// Give preview headings GitHub-style ids so in-page `#anchor` links can scroll.
-async function assignHeadingIds() {
-  await nextTick()
-  const container = previewRef.value
-  if (!container) return
-  const slug = createHeadingSlugger()
-  for (const h of container.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
-    h.id = slug(h.textContent ?? '')
-  }
+  if (container) await resolvePreviewImages(container, previewPathBase())
 }
 
 /**
@@ -922,11 +689,16 @@ async function trackFrontmatterToggle() {
 watch(previewHtml, () => {
   // 選択の印は描画に焼き込んでいないので、作り直された表に付け直す。
   if (isCsv.value) void nextTick(csvSelection.paint)
-  if (isMarkdown.value) renderMarkdownMermaid()
+  if (isMarkdown.value) renderPreviewExtras()
   if (isProsePreview.value) {
     trackFrontmatterToggle()
-    resolveMarkdownImages()
-    assignHeadingIds()
+    void nextTick(() => {
+      const el = previewRef.value
+      if (!el) return
+      // Give preview headings GitHub-style ids so in-page `#anchor` links can scroll.
+      assignHeadingIds(el)
+      void resolvePreviewImages(el, previewPathBase())
+    })
   }
 })
 
@@ -2224,20 +1996,9 @@ function suppressSyncFrame() {
 }
 
 // Scroll sync
-/** `pane` のスクロールを、相手の同じ割合の位置へ写す（跳ね返りなら何もしない）。 */
-function mirrorScroll(pane: SyncPane, from: HTMLElement, to: HTMLElement) {
-  if (!scrollFollow.claim(pane, from.scrollTop)) return
-  const ratio = from.scrollTop / (from.scrollHeight - from.clientHeight || 1)
-  const before = to.scrollTop
-  to.scrollTop = ratio * (to.scrollHeight - to.clientHeight)
-  // 読み直すのは、丸めと端での切り詰めのあとの値が要るため。**動かなかったら覚えない**:
-  // scroll が出ないので使い切る契機が無く、あとで利用者がその位置から動かした scroll を落とす。
-  if (to.scrollTop !== before) scrollFollow.wrote(pane === 'editor' ? 'preview' : 'editor', to.scrollTop)
-}
-
 function onEditorScroll() {
   if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return
-  mirrorScroll('editor', editorView.scrollDOM, previewRef.value)
+  scrollFollow.mirror('editor', editorView.scrollDOM, previewRef.value)
 }
 
 function onPreviewScroll() {
@@ -2245,7 +2006,7 @@ function onPreviewScroll() {
   // before the split-only scroll-sync early-return below).
   if (previewRef.value) previewScrolled.value = previewRef.value.scrollTop > BACK_TO_TOP_THRESHOLD
   if (syncingScroll || viewMode.value !== 'split' || !previewRef.value || !editorView) return
-  mirrorScroll('preview', previewRef.value, editorView.scrollDOM)
+  scrollFollow.mirror('preview', previewRef.value, editorView.scrollDOM)
 }
 
 /** Scroll behaviour for in-preview navigation (anchors, back-to-top). */
@@ -2263,68 +2024,6 @@ function scrollPreviewToAnchor(id: string): boolean {
 
 function scrollPreviewToTop() {
   previewRef.value?.scrollTo({ top: 0, behavior: previewScrollBehavior() })
-}
-
-function resolveLocalPath(href: string): string | null {
-  const project = projectStore.currentProject
-  if (!project || !tab.value) return null
-
-  // Prevent opening arbitrary protocol handlers (mailto:, javascript:, data:, etc.)
-  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href) && !/^[a-zA-Z]:\\/.test(href)) return null
-
-  // Decode URL-encoded characters (%20 → space, etc.)
-  try {
-    href = decodeURIComponent(href)
-  } catch {
-    return null
-  }
-
-  const root = projectStore.activeRoot
-  const sep = pathSep(project.shell)
-
-  // Determine the directory containing the current file. A leading slash is
-  // repo-relative in Markdown (the way GitHub and VS Code read it) rather than
-  // a filesystem path, so resolving it against the file's own directory sent
-  // those images somewhere nothing lives.
-  const filePath = tab.value.path
-  const lastSep = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
-  const dir = href.startsWith('/') ? root : lastSep > 0 ? filePath.slice(0, lastSep) : root
-
-  // Normalize all separators to forward slash for resolution, then convert back
-  const joined = `${dir}/${href}`.replace(/\\/g, '/')
-  const parts = joined.split('/')
-
-  // Resolve . and .. segments, preserving leading empty string for absolute paths
-  const resolved: string[] = []
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i]
-    if (part === '.') continue
-    if (part === '' && i > 0) continue // skip empty parts except the leading one
-    if (part === '..') {
-      // Don't pop past the root (keep at least the drive letter or leading empty string)
-      if (resolved.length > 1) resolved.pop()
-    } else {
-      resolved.push(part)
-    }
-  }
-
-  const fullPath = resolved.join(sep)
-
-  // Security: ensure the resolved path is within the project root.
-  //
-  // **判定は `relativeToBase` に任せる**（区切りの正規化・末尾スラッシュ・Windows での
-  // 大小折り畳みを持っている）。ここへ書き写していたころは、プレビュー画像の内外判定
-  // （`useMarkdownImages` の `isOurs`）と別実装になっていて、`unix` を足したときに
-  // 両方へ別々に同じ手を入れる必要があった。
-  //
-  // `relativeToBase` は base 自身に対して null を返すので、末尾に 1 セグメント足して
-  // 聞く。root 自身も root の配下も真になり、外は偽のままになる。
-  const probe = `${fullPath}/probe`
-  if (relativeToBase(root, probe, shellToPlatform(project.shell)) === null) {
-    return null
-  }
-
-  return fullPath
 }
 
 /**
@@ -2364,22 +2063,11 @@ function onPreviewChange(e: Event) {
 async function onPreviewClick(e: MouseEvent) {
   if (isCsv.value && (handleCsvControls(e) || csvSelection.handleClick(e))) return
 
-  // Approve a host for external images (#239). The chips are rebuilt on every
-  // render, so the listener lives here rather than on each button.
-  const chip = (e.target as HTMLElement).closest<HTMLElement>('.external-image')
+  // Approve a host for external images (#239).
+  const chip = imageChipAt(e)
   if (chip) {
     e.preventDefault()
-    const host = chip.dataset.host
-    if (!host) return
-    // Already approved → the chip is a failed fetch; clicking it tries again.
-    if (settingsStore.allowedImageHosts.includes(host)) {
-      retryRemoteImage(chip.dataset.url ?? '')
-      resolveMarkdownImages()
-      return
-    }
-    if (await confirmDialog(t('confirm.allowImageHost', { host }))) {
-      settingsStore.allowImageHost(host)
-    }
+    await approveImageChip(chip, resolveMarkdownImages)
     return
   }
 
@@ -2428,7 +2116,8 @@ async function onPreviewClick(e: MouseEvent) {
   }
 
   // Local file link → resolve and open in editor
-  const resolved = resolveLocalPath(href)
+  const base = previewPathBase()
+  const resolved = base && resolvePreviewPath(href, base)
   if (resolved) {
     // Markdown → Markdown: keep the reader in the same preview/split mode.
     tabStore.addEditorTab({
@@ -3256,207 +2945,13 @@ onUnmounted(() => {
   height: 100%;
 }
 
-.md-preview {
+/* プレビューの見た目は `assets/preview.css`（diff タブのプレビュー比較と共有、#524）。ここに
+   置くのはペインとしての寸法だけ（エディタではペインそのものがスクロールする）。 */
+.md-preview,
+.svg-preview,
+.mermaid-preview {
   flex: 1;
   overflow: auto;
-  padding: 16px 24px;
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--text-primary);
-}
-
-.md-preview :deep(h1),
-.md-preview :deep(h2),
-.md-preview :deep(h3),
-.md-preview :deep(h4) {
-  color: var(--text-active);
-  margin: 1.2em 0 0.5em;
-  line-height: 1.3;
-}
-
-.md-preview :deep(h1) { font-size: 1.8em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
-.md-preview :deep(h2) { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
-.md-preview :deep(h3) { font-size: 1.15em; }
-
-.md-preview :deep(code) {
-  background: var(--bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-family: "PlemolJP Console NF", "Cascadia Code", monospace;
-  font-size: 0.9em;
-}
-
-.md-preview :deep(pre) {
-  background: var(--bg-tertiary);
-  padding: 12px 16px;
-  border-radius: 4px;
-  overflow-x: auto;
-}
-
-.md-preview :deep(pre code) {
-  background: transparent;
-  padding: 0;
-}
-
-.md-preview :deep(blockquote) {
-  border-left: 3px solid var(--accent);
-  margin: 0;
-  padding: 4px 16px;
-  color: var(--text-secondary);
-}
-
-.md-preview :deep(a) { color: var(--accent); }
-
-/* Footnotes (#241). The definitions render where they are written, so the rule
-   above the first one is what separates them from the body text; the `:not()`
-   picks the one that does not follow another footnote. */
-.md-preview :deep(.footnote-ref) { font-size: 0.75em; }
-.md-preview :deep(.footnote) {
-  font-size: 0.9em;
-  color: var(--text-secondary);
-  margin: 2px 0;
-}
-.md-preview :deep(.footnote:not(.footnote + .footnote)) {
-  margin-top: 16px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-.md-preview :deep(.footnote-num) { color: var(--text-primary); }
-.md-preview :deep(.footnote-back) { text-decoration: none; }
-
-.md-preview :deep(table) { border-collapse: collapse; width: 100%; }
-.md-preview :deep(th),
-.md-preview :deep(td) { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
-.md-preview :deep(th) { background: var(--bg-tertiary); }
-
-.md-preview :deep(img) { max-width: 100%; }
-
-/* rst 固有の要素（#284）。見出しや表は Markdown と同じ規則を使うので、ここには
-   Markdown に相当物が無いものだけを置く。 */
-.rst-preview :deep(.rst-admonition) {
-  margin: 0.8em 0;
-  padding: 8px 12px;
-  border-left: 3px solid var(--accent);
-  border-radius: 0 3px 3px 0;
-  background: var(--bg-tertiary);
-}
-
-.rst-preview :deep(.rst-admonition-title) {
-  margin: 0 0 4px;
-  color: var(--text-active);
-  font-weight: 600;
-  font-size: 0.9em;
-}
-
-/* 注意を促す種別は色を変える。docutils の分類に合わせて 2 段階だけ持つ。
-   黄色はテーマに変数が無いので、git diff ガターの「変更」と同じ値を直に置く
-   （あちらと同じく、両テーマで読める明度を選んである）。 */
-.rst-preview :deep(.rst-warning),
-.rst-preview :deep(.rst-caution),
-.rst-preview :deep(.rst-attention) { border-left-color: #d29922; }
-
-.rst-preview :deep(.rst-danger),
-.rst-preview :deep(.rst-error) { border-left-color: var(--danger); }
-
-/* フィールドリスト（`:key: value`）。値の幅を主にしたいので、キー側だけ詰める。 */
-.rst-preview :deep(.rst-fields) { width: auto; }
-.rst-preview :deep(.rst-fields th) { white-space: nowrap; width: 1%; }
-
-/* 脚注・引用は Markdown の脚注（#241）の見た目を共有する。段落を 2 つ以上持つ本文だけは
-   `buildRstPreview` を通るので `<p>` が入り、そのままだと番号・本文・戻りリンクが 3 行に
-   割れる。1 つ目の段落だけ番号と同じ行に置く。 */
-.rst-preview :deep(.footnote > p:first-of-type) {
-  display: inline;
-}
-
-/* Stand-in for an image whose host is not approved yet (#239). Sized like a
-   badge so a row of them keeps the surrounding line intact. */
-.md-preview :deep(.external-image) {
-  display: inline-block;
-  padding: 1px 6px;
-  border: 1px dashed var(--border);
-  border-radius: 3px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: 0.85em;
-  line-height: 1.6;
-  cursor: pointer;
-}
-.md-preview :deep(.external-image:hover) {
-  border-color: var(--accent);
-  color: var(--text-primary);
-}
-.md-preview :deep(.mermaid-inline) { text-align: center; margin: 16px 0; }
-/* 外側の svg だけ。Pele は architecture の図の中の印を入れ子の svg で描き、`height: auto` が当たると図全体の大きさに広がる。 */
-.md-preview :deep(.mermaid-inline > svg) { max-width: 100%; height: auto; }
-.md-preview :deep(hr) { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
-.md-preview :deep(ul),
-.md-preview :deep(ol) { padding-left: 1.5em; }
-
-.md-preview :deep(.frontmatter) {
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  margin-bottom: 1.2em;
-  font-size: 0.9em;
-}
-
-.md-preview :deep(.frontmatter > summary) {
-  cursor: pointer;
-  padding: 6px 12px;
-  color: var(--text-secondary);
-  user-select: none;
-}
-
-.md-preview :deep(.frontmatter-kind) {
-  margin-left: 8px;
-  font-size: 0.85em;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
-  opacity: 0.8;
-}
-
-.md-preview :deep(.frontmatter > table) {
-  border-top: 1px solid var(--border);
-}
-
-.md-preview :deep(.frontmatter th) {
-  width: 1%;
-  white-space: nowrap;
-  vertical-align: top;
-  font-weight: normal;
-  background: transparent;
-  color: var(--text-secondary);
-}
-
-.md-preview :deep(.frontmatter th),
-.md-preview :deep(.frontmatter td) {
-  border: none;
-  border-top: 1px solid var(--border);
-  padding: 4px 12px;
-}
-
-.md-preview :deep(.frontmatter > table tr:first-child th),
-.md-preview :deep(.frontmatter > table tr:first-child td) {
-  border-top: none;
-}
-
-.md-preview :deep(.frontmatter-empty) {
-  padding: 4px 12px 8px;
-  color: var(--text-secondary);
-}
-
-.md-preview :deep(.frontmatter-invalid) {
-  border-color: var(--danger);
-}
-
-.md-preview :deep(.frontmatter-error) {
-  padding: 4px 12px;
-  color: var(--danger);
-}
-
-.md-preview :deep(.frontmatter > pre) {
-  margin: 0 12px 12px;
 }
 
 .csv-preview {
@@ -3775,48 +3270,6 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 
-.svg-preview {
-  flex: 1;
-  overflow: auto;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 16px;
-  background: var(--bg-primary);
-}
-
-.svg-preview :deep(svg) {
-  max-width: 100%;
-  height: auto;
-}
-
-.mermaid-preview {
-  flex: 1;
-  overflow: auto;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 8px;
-}
-
-.mermaid-preview :deep(.mermaid-inline) {
-  width: 100%;
-  transform: scale(var(--mermaid-zoom, 1));
-  transform-origin: top center;
-}
-
-.mermaid-preview :deep(.mermaid-inline > svg) {
-  display: block;
-  margin: 0 auto;
-  height: auto;
-}
-
-.mermaid-preview :deep(.mermaid-render-error) {
-  color: var(--danger);
-  font-size: 13px;
-  white-space: pre-wrap;
-  font-family: monospace;
-}
 
 .editor-status {
   display: flex;

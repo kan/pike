@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { ChevronDown, ChevronsDownUp, ChevronUp } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { ChevronDown, ChevronsDownUp, ChevronUp, Eye } from 'lucide-vue-next'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useDragResize } from '../../composables/useDragResize'
 import { useI18n } from '../../i18n'
 import { type Expanded, expandDiff, type Gap, matchesDiff } from '../../lib/diffExpand'
 import { isBinaryDiff, parseDiff, parseRename } from '../../lib/diffParser'
 import { collectMatches, renderTokens } from '../../lib/diffSearch'
+import { newSideSource, readDiffSource } from '../../lib/diffSource'
 import { displayWidth } from '../../lib/displayWidth'
 import { horizontalReveal } from '../../lib/domFind'
+import { previewKindOf } from '../../lib/fileType'
 import { matchChord } from '../../lib/keys'
 import { openPathInTab } from '../../lib/openFile'
-import { joinPath, pathSep, repoPath } from '../../lib/paths'
-import { fsReadFile, gitDiff, gitDiffCommit, gitShowFile } from '../../lib/tauri'
+import { repoPath } from '../../lib/paths'
+import { gitDiff, gitDiffCommit } from '../../lib/tauri'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useStatusMessageStore } from '../../stores/statusMessage'
@@ -54,6 +56,35 @@ const emptyState = computed<'binary' | 'space' | 'rename' | 'raw' | 'none' | nul
   if (renamed.value) return 'rename'
   return tab.value.diff ? 'raw' : 'none'
 })
+
+// --- プレビューで比較する（#524）---------------------------------------------
+// 中身の取り寄せと描画は `DiffPreview.vue`。ここが持つのは「どちらを出すか」だけ。
+
+/**
+ * **プレビューを出すまで読み込まない。** 描き方の束（marked・DOMPurify・図・コードの色付け）を
+ * 連れてくるので、静的に import すると、テキストの差分しか見ない diff タブまでそれを払うことになる。
+ */
+const DiffPreview = defineAsyncComponent(() => import('../DiffPreview.vue'))
+
+/** このファイルをプレビューで比べられるなら、その種別。 */
+const previewKind = computed(() => (tab.value ? previewKindOf(tab.value.filePath) : null))
+
+/**
+ * 利用者が選んだ表示。null は既定（画像だけプレビュー）。**タブ単位でセッションには残さない**
+ * （折り返しの `wordWrapOverride` と同じ寿命）。同じタブは同じファイルを開き直すときにしか
+ * 使い回されない（`addDiffTab`）ので、開き直しても選んだ表示を保つ。
+ */
+const previewOverride = ref<boolean | null>(null)
+
+/**
+ * プレビューを出しているなら、その種別（出していなければ null）。**既定は画像だけ**: 画像の差分は
+ * バイナリでテキストに何も出ないが、Markdown などは行の差分のほうがどこを直したかを追いやすい。
+ */
+const previewShown = computed(() => {
+  const kind = previewKind.value
+  return kind && (previewOverride.value ?? kind === 'image') ? kind : null
+})
+const previewOn = computed(() => previewShown.value !== null)
 
 // --- 省略された行の展開（#285）---------------------------------------------
 // 計算そのものは `lib/diffExpand.ts`（純粋）。ここが持つのは取得（IPC）と操作だけ。
@@ -140,14 +171,8 @@ async function loadNewSide(silent = false): Promise<void> {
   }
   let text: string
   try {
-    if (t0.commitHash) {
-      text = await gitShowFile(root, shell, t0.commitHash, t0.filePath)
-    } else if (t0.staged) {
-      // 空のリビジョンは `git show :<path>`＝index の内容。ステージした側が「新しい側」。
-      text = await gitShowFile(root, shell, '', t0.filePath)
-    } else {
-      text = (await fsReadFile(shell, joinPath(root, t0.filePath, pathSep(shell)))).content
-    }
+    // 出どころごとの取得先（コミット / index / 作業ツリー）は `lib/diffSource.ts`。
+    text = await readDiffSource(root, shell, newSideSource(t0), 'text')
   } catch {
     fail('diff.expandFailed')
     return
@@ -519,6 +544,12 @@ function closeSearch() {
   showSearch.value = false
 }
 
+// 検索バーは表の側にあるので、プレビューに切り替えたら閉じる（開いたままだと、同じ角に出る
+// 切り替えのボタンが隠れたままになり、表へ戻れない）。
+watch(previewOn, (on) => {
+  if (on) closeSearch()
+})
+
 // Reset to the first match whenever the query or case mode changes.
 watch([query, caseSensitive], () => {
   currentIndex.value = 0
@@ -539,8 +570,10 @@ function onKeydown(e: KeyboardEvent) {
     // 打鍵の行き先のタブだけが受ける（#308。分割していると 2 枚が見えているので、
     // `isTabVisible` だと両方が同じキーを取り合う）。
     if (!tabStore.isTabFocused(props.tabId)) return
+    // **既定の動作は、プレビューのあいだも止める**（素通しにすると WebView の検索が開きうる）。
     e.preventDefault()
-    openSearch()
+    // プレビューで比べているあいだは、探す相手の表が無い（検索バーも出さない）。
+    if (!previewOn.value) openSearch()
   }
 }
 
@@ -714,7 +747,8 @@ onUnmounted(() => {
     <div v-if="!tab" class="empty">{{ t('diff.notFound') }}</div>
     <template v-else>
       <RenameNote v-if="renamed" :from="renamed.from" :to="renamed.to" />
-      <div v-if="emptyState" class="empty">
+      <DiffPreview v-if="previewShown" :tab="tab" :kind="previewShown" />
+      <div v-else-if="emptyState" class="empty">
         <template v-if="emptyState === 'binary'">
           <span>{{ t('diff.binary') }}</span>
           <button class="open-file-btn" @click="openWorkingCopy">{{ t('diff.openCurrentFile') }}</button>
@@ -818,9 +852,27 @@ onUnmounted(() => {
       <!-- 検索パネルと同じ角に出るので、開いているあいだは隠す。
            **行が 1 つも無いときにも出す**（#453）: 空白だけの変更は、無視した時点で差分が
            空になる。ここが消えると、戻すボタンごと無くなる。 -->
-      <div v-if="!showSearch" class="hover-toolbar" :class="{ prominent: canScrollX || tab.ignoreSpace }">
-        <IgnoreSpaceToggle v-if="canIgnoreSpace" :on="tab.ignoreSpace === true" @toggle="toggleIgnoreSpace" />
-        <WrapToggle v-if="!emptyState" :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
+      <div
+        v-if="!showSearch"
+        class="hover-toolbar"
+        :class="{ prominent: canScrollX || tab.ignoreSpace || previewOn }"
+      >
+        <!-- 空白と折り返しはテキストの差分の見方なので、プレビューのあいだは出さない。 -->
+        <template v-if="!previewOn">
+          <IgnoreSpaceToggle v-if="canIgnoreSpace" :on="tab.ignoreSpace === true" @toggle="toggleIgnoreSpace" />
+          <WrapToggle v-if="!emptyState" :on="wordWrapOn" @toggle="wordWrapOverride = !wordWrapOn" />
+        </template>
+        <!-- **プレビューのあいだは隠さない**（`prominent`）。画像は最初からプレビューで開くので、
+             ここが見えないとテキストの差分へ戻る入口に気付けない。 -->
+        <button
+          v-if="previewKind"
+          class="editor-toggle"
+          :class="{ active: previewOn }"
+          :title="previewOn ? t('diff.previewHide') : t('diff.previewShow')"
+          @click="previewOverride = !previewOn"
+        >
+          <Eye :size="14" :stroke-width="2" />
+        </button>
       </div>
     </template>
   </div>

@@ -3,6 +3,8 @@ paths:
   - "src/components/tabs/DiffTab.vue"
   - "src/components/tabs/HistoryTab.vue"
   - "src/components/RenameNote.vue"
+  - "src/components/DiffPreview.vue"
+  - "src/lib/diffSource.ts"
   - "src/lib/diff*.ts"
   - "src/composables/useDragResize.ts"
 ---
@@ -34,6 +36,45 @@ pathspec・`--follow`・`NO_SHOW_SIGNATURE`）は `git.md`。
   - **`addDiffTab` は呼び出し側から受ける。** ストアで `activeRoot` を読むと `project → tabs → project` の循環になる（`useActiveFile` と同じ理由）
 - **未追跡のタブは見方を保つ**（`--no-index` は追跡状態に依らずファイルの中身を全行の追加として出す）。途中で `git add` されても「このファイルの中身」を見せ続け、中身だけが最新になる。`staged` を焼き込むのと同じで、タブは開いたときの文脈を保つ
 - **差分が変われば展開状態（#285）と横位置は戻る。** 行がずれるので正しいが、自動保存（#262）を有効にして diff タブをエディタの隣に置くと、**打鍵が止まるたびに畳まれる**。引き継ぐには `Gap.key`（直後の hunk の `rawLines` での位置）を行番号ベースに作り替えることになるので、体感が問題になってから手を付ける
+
+## プレビューで比較する（#524）
+
+画像・Markdown・rst・SVG・Mermaid の差分では、右上のボタンで変更前後のプレビューを左右に並べる。
+表示は `components/DiffPreview.vue`（**プレビューを出すまで読み込まない**。`DiffTab.vue` の `defineAsyncComponent`）、
+描き方はエディタのプレビューと同じ `lib/previewRender.ts`（`preview.md`）。種別の判定は `lib/fileType.ts` の
+`previewKindOf`（`fileTypeKey` を通す）。
+
+- **既定は画像だけプレビュー**（`DiffTab.vue` の `previewOn`）。画像の差分はバイナリでテキストに
+  何も出ない。Markdown などは行の差分のほうがどこを直したかを追いやすいので、押したときだけ切り替える。
+  選んだ表示はタブ単位でセッションに残さない（`wordWrapOverride` と同じ）。プレビューのあいだは
+  ボタン列を隠さない（`prominent`。画像はプレビューで開くので、戻る入口が見えないと気付けない）
+- **左右の中身は差分の出どころから決まる**（`lib/diffSource.ts` の `diffSides`。省略行の展開の
+  `loadNewSide` も同じ規則の `newSideSource` を使う）。作業ツリーの差分は index → 作業ツリー、
+  ステージ済みは HEAD → index、コミットは親（`<hash>^`）→ そのコミット。**変更前は元の名前で引く**
+  （`parseRename` のヘッダ、無ければ `origPath`。コミットの差分は `origPath` を持たない）
+- **「無い」は差分のヘッダで決める**（`diffParser.ts` の `parseFileHeader` の `new file mode` /
+  `deleted file mode` と `untracked`）。取りに行って失敗したから無い、とすると、読めなかっただけの
+  ファイルを「追加された」と言うことになる。失敗は別の表示。**ヘッダは最初の `@@` より前だけを読む**
+  （本文の行を拾わない。`parseRename` と同じ）
+- **取り直しの契機は `tab.diff` の 1 つ。** ファイルの変更への追従は DiffTab が差分を取り直して代入するので、
+  それに乗れば「描かれていないタブでは取り直さない」もそのまま効く。取り直すあいだは前の中身を残す
+  （読み込み中の表示に戻すと、保存のたびに左右が一瞬白くなる）
+- **中身が変わっていない側は取り直さず、描き直さない。** 差分のヘッダの blob（`index <old>..<new>`）まで
+  同じなら同じ中身なので、保存のたびに index の側の `git show` を起こさない。左右は別々の `shallowRef` に
+  持つので、入れ替わらなかった側は HTML の組み立ても図の描き直しも走らない。blob が読めない側は毎回取り直す
+- **Markdown の相対パスの画像は、左右とも作業ツリーのファイルの位置から読む。** 過去の版の画像までは
+  取りに行かない（その版の画像を引くには、画像 1 枚ごとに `git show` を起こすことになる）
+- **リンクは必ず `preventDefault` する**（素通しすると webview がリンク先へ遷移する）。外部のリンクだけ
+  確認つきで開き、ローカルのファイルとアンカーは何もしない（見ているのは過去の版で、リンク先の版と対応しない）
+- **SVG のファイルは `<img>` で描く**（画像と同じ。エディタのプレビューは本文に直接埋める）。左右を同じ
+  文書に埋めると両側の id（`linearGradient` / `clipPath` / `marker`）が重なり、右の `url(#id)` が左の定義を
+  指して、変更後が変更前の色や形で描かれる。`<img>` なら 1 枚ずつ別の文書になる
+- スクロールは `lib/scrollFollow.ts` で左右を比率で連動させる（分割表示と同じ仕組み。左を `editor`、右を
+  `preview` の役に当てる）。左右の箱は `tabindex="-1"` でクリックするとフォーカスを持つ（キーでも動かせ、
+  キーで追従が解ける）
+- プレビューのあいだは `Ctrl+F` で検索バーを開かない（探す相手の表が無い）が、**既定の動作は止める**
+  （素通しにすると WebView の検索が開きうる）。切り替えたときに検索バーが開いていたら閉じる
+- 書体の変更では図だけを描き直す（画像は解き直さない。ローカル画像は 1 枚につき 1 回の IPC 読みになる）
 
 ## 空白の違いを無視する（#453）
 

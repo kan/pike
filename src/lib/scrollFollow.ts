@@ -23,7 +23,13 @@
  * すると、持ち替えた直後の scroll が捨てられ、そこで止まると 2 つのペインがずれたまま残る。
  */
 
+/**
+ * 同期する 2 つのペイン。名前は分割表示（エディタとプレビュー）の由来で、diff タブの
+ * プレビュー比較（#524）は左を `editor`、右を `preview` の役に当てて使う。
+ */
 export type SyncPane = 'editor' | 'preview'
+
+const other = (pane: SyncPane): SyncPane => (pane === 'editor' ? 'preview' : 'editor')
 
 /** 最後に写してから、相手の scroll を跳ね返りとみなす時間（ms）。 */
 export const FOLLOW_HOLD_MS = 150
@@ -32,7 +38,20 @@ export function createScrollFollow(now: () => number = () => performance.now()) 
   let follower: SyncPane | null = null
   let until = 0
   const written: Record<SyncPane, number | null> = { editor: null, preview: null }
-  return {
+  const follow = {
+    /**
+     * `pane`（`from`）のスクロールを、相手（`to`）の同じ割合の位置へ写す。跳ね返りなら何もしない。
+     * 分割表示と diff タブのプレビュー比較が共有する。
+     */
+    mirror(pane: SyncPane, from: HTMLElement, to: HTMLElement) {
+      if (!follow.claim(pane, from.scrollTop)) return
+      const ratio = from.scrollTop / (from.scrollHeight - from.clientHeight || 1)
+      const before = to.scrollTop
+      to.scrollTop = ratio * (to.scrollHeight - to.clientHeight)
+      // 読み直すのは、丸めと端での切り詰めのあとの値が要るため。**動かなかったら覚えない**:
+      // scroll が出ないので使い切る契機が無く、あとで利用者がその位置から動かした scroll を落とす。
+      if (to.scrollTop !== before) follow.wrote(other(pane), to.scrollTop)
+    },
     /**
      * 位置 `top` にいる `from` の scroll を相手へ写してよいか。写してよければ、相手を追従中に
      * する。写したら、相手に実際に入った位置を `wrote` で知らせる。
@@ -44,7 +63,7 @@ export function createScrollFollow(now: () => number = () => performance.now()) 
       written[from] = null
       if (expected !== null && Math.abs(top - expected) < 1) return false
       if (follower === from && now() < until) return false
-      follower = from === 'editor' ? 'preview' : 'editor'
+      follower = other(from)
       until = now() + FOLLOW_HOLD_MS
       return true
     },
@@ -57,4 +76,5 @@ export function createScrollFollow(now: () => number = () => performance.now()) 
       if (follower === pane) follower = null
     },
   }
+  return follow
 }

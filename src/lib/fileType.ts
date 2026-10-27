@@ -1,4 +1,4 @@
-import { basename } from './paths'
+import { basename, isImageFile } from './paths'
 
 /**
  * ファイル名（と任意で 1 行目）→ **種別のキー**（#347 / #348）。
@@ -361,6 +361,40 @@ export function fileTypeKey(filename: string, firstLine = ''): string {
   }
 
   return shebangKey(firstLine)
+}
+
+/**
+ * 本文から描くプレビューのうち、diff タブで変更前後を並べて比べられる種別（#524）と画像。
+ * CSV・JSON は表や整形で、変更前後を並べるならテキストの差分のほうが読める。HTML と Vue は
+ * 子 webview なので左右に 2 枚並べると重い。描き方は `lib/previewRender.ts`。
+ */
+export type PreviewKind = 'image' | 'markdown' | 'rst' | 'svg' | 'mermaid'
+
+/**
+ * 種別のキーから、本文のプレビューの種別。**エディタのプレビュー（StatusBar の上書きを
+ * 含むキー）と diff タブのプレビュー比較が同じ表を引く**（別々に持つと、別名を片方にだけ
+ * 足したときに「エディタでは描けるのに diff では比べられない」が起きる）。
+ */
+export function previewKindOfKey(key: string): Exclude<PreviewKind, 'image'> | null {
+  switch (key) {
+    case 'md':
+    case 'markdown':
+      return 'markdown'
+    case 'rst':
+      return 'rst'
+    case 'svg':
+      return 'svg'
+    case 'mermaid':
+    case 'mmd':
+      return 'mermaid'
+    default:
+      return null
+  }
+}
+
+/** パスから、diff タブで比べられるプレビューの種別。 */
+export function previewKindOf(path: string): PreviewKind | null {
+  return isImageFile(path) ? 'image' : previewKindOfKey(fileTypeKey(path))
 }
 
 /** キーの表示名。扱えないキーは `Plain Text`。 */

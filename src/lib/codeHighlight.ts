@@ -40,7 +40,8 @@ function kebab(name: string): string {
  * テーマの配色を、インラインの `style` に書ける形へ落とす。**テーマ 1 つにつき 1 回だけ**。
  *
  * **class を CSS へ差し込む形にしない。** プレビューの `pre` / `code` の既定の見た目は
- * scoped CSS（`.md-preview :deep(pre)`）で、詳細度が高いうえ、差し込んだ `<style>` が勝つかは
+ * 消費者ごとの CSS（エディタと diff タブは `assets/preview.css` の `.md-preview pre`、issue タブと
+ * マニュアルは `theme.css` の `.md-body`）にあり、差し込んだ `<style>` が勝つかは詳細度と
  * 読み込み順に依存する（開発ビルドと本番で順序が違う）。インラインなら競合が起きない。
  * `style` 属性は DOMPurify の既定で通り、CSP も `style-src` の `'unsafe-inline'` を残してある
  * （`.claude/rules/build.md`）。

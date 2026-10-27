@@ -1,0 +1,251 @@
+/* 本文から描くプレビューの見た目（エディタの Preview / Split と、diff タブのプレビュー比較 #524）。
+   **2 つが同じ見た目でなければならない**ので、ここに 1 つだけ置く（左右で描き方が違うと、
+   差分が無いのに違って見える）。どれも `v-html` か DOM を後から書き換えて描く。
+
+   **読み込むのは `lib/previewRender.ts`**（描き方と一緒に来る）。起動時の `theme.css` に置くと、
+   プレビューを一度も開かないセッションでも毎回読むことになる。
+
+   **置き場の寸法（`flex` / `overflow`）はここに書かない。** エディタではペインそのものが
+   スクロールし、diff では外側の箱がスクロールする。寸法は置いた側が決める。
+
+   `theme.css` の `.md-body`（マニュアルと issue タブ）とは別物: こちらはフロントマター・mermaid など
+   ファイル由来の要素を持つ。 */
+.md-preview {
+  padding: 16px 24px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.md-preview h1,
+.md-preview h2,
+.md-preview h3,
+.md-preview h4 {
+  color: var(--text-active);
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+}
+
+.md-preview h1 { font-size: 1.8em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.md-preview h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+.md-preview h3 { font-size: 1.15em; }
+
+.md-preview code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: "PlemolJP Console NF", "Cascadia Code", monospace;
+  font-size: 0.9em;
+}
+
+.md-preview pre {
+  background: var(--bg-tertiary);
+  padding: 12px 16px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.md-preview pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.md-preview blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 0;
+  padding: 4px 16px;
+  color: var(--text-secondary);
+}
+
+.md-preview a { color: var(--accent); }
+
+/* Footnotes (#241). The definitions render where they are written, so the rule
+   above the first one is what separates them from the body text; the `:not()`
+   picks the one that does not follow another footnote. */
+.md-preview .footnote-ref { font-size: 0.75em; }
+.md-preview .footnote {
+  font-size: 0.9em;
+  color: var(--text-secondary);
+  margin: 2px 0;
+}
+.md-preview .footnote:not(.footnote + .footnote) {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.md-preview .footnote-num { color: var(--text-primary); }
+.md-preview .footnote-back { text-decoration: none; }
+
+.md-preview table { border-collapse: collapse; width: 100%; }
+.md-preview th,
+.md-preview td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
+.md-preview th { background: var(--bg-tertiary); }
+
+.md-preview img { max-width: 100%; }
+
+/* rst 固有の要素（#284）。見出しや表は Markdown と同じ規則を使うので、ここには
+   Markdown に相当物が無いものだけを置く。 */
+.rst-preview .rst-admonition {
+  margin: 0.8em 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 3px 3px 0;
+  background: var(--bg-tertiary);
+}
+
+.rst-preview .rst-admonition-title {
+  margin: 0 0 4px;
+  color: var(--text-active);
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+/* 注意を促す種別は色を変える。docutils の分類に合わせて 2 段階だけ持つ。
+   黄色はテーマに変数が無いので、git diff ガターの「変更」と同じ値を直に置く
+   （あちらと同じく、両テーマで読める明度を選んである）。 */
+.rst-preview .rst-warning,
+.rst-preview .rst-caution,
+.rst-preview .rst-attention { border-left-color: #d29922; }
+
+.rst-preview .rst-danger,
+.rst-preview .rst-error { border-left-color: var(--danger); }
+
+/* フィールドリスト（`:key: value`）。値の幅を主にしたいので、キー側だけ詰める。 */
+.rst-preview .rst-fields { width: auto; }
+.rst-preview .rst-fields th { white-space: nowrap; width: 1%; }
+
+/* 脚注・引用は Markdown の脚注（#241）の見た目を共有する。段落を 2 つ以上持つ本文だけは
+   `buildRstPreview` を通るので `<p>` が入り、そのままだと番号・本文・戻りリンクが 3 行に
+   割れる。1 つ目の段落だけ番号と同じ行に置く。 */
+.rst-preview .footnote > p:first-of-type {
+  display: inline;
+}
+
+/* Stand-in for an image whose host is not approved yet (#239). Sized like a
+   badge so a row of them keeps the surrounding line intact. */
+.md-preview .external-image {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.md-preview .external-image:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+.md-preview .mermaid-inline { text-align: center; margin: 16px 0; }
+/* 外側の svg だけ。Pele は architecture の図の中の印を入れ子の svg で描き、`height: auto` が当たると図全体の大きさに広がる。 */
+.md-preview .mermaid-inline > svg { max-width: 100%; height: auto; }
+.md-preview hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+.md-preview ul,
+.md-preview ol { padding-left: 1.5em; }
+
+.md-preview .frontmatter {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  margin-bottom: 1.2em;
+  font-size: 0.9em;
+}
+
+.md-preview .frontmatter > summary {
+  cursor: pointer;
+  padding: 6px 12px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.md-preview .frontmatter-kind {
+  margin-left: 8px;
+  font-size: 0.85em;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.md-preview .frontmatter > table {
+  border-top: 1px solid var(--border);
+}
+
+.md-preview .frontmatter th {
+  width: 1%;
+  white-space: nowrap;
+  vertical-align: top;
+  font-weight: normal;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.md-preview .frontmatter th,
+.md-preview .frontmatter td {
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 4px 12px;
+}
+
+.md-preview .frontmatter > table tr:first-child th,
+.md-preview .frontmatter > table tr:first-child td {
+  border-top: none;
+}
+
+.md-preview .frontmatter-empty {
+  padding: 4px 12px 8px;
+  color: var(--text-secondary);
+}
+
+.md-preview .frontmatter-invalid {
+  border-color: var(--danger);
+}
+
+.md-preview .frontmatter-error {
+  padding: 4px 12px;
+  color: var(--danger);
+}
+
+.md-preview .frontmatter > pre {
+  margin: 0 12px 12px;
+}
+
+.svg-preview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 16px;
+  background: var(--bg-primary);
+}
+
+.svg-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-preview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8px;
+}
+
+.mermaid-preview .mermaid-inline {
+  width: 100%;
+  transform: scale(var(--mermaid-zoom, 1));
+  transform-origin: top center;
+}
+
+.mermaid-preview .mermaid-inline > svg {
+  display: block;
+  margin: 0 auto;
+  height: auto;
+}
+
+.mermaid-preview .mermaid-render-error {
+  color: var(--danger);
+  font-size: 13px;
+  white-space: pre-wrap;
+  font-family: monospace;
+}

@@ -23,6 +23,9 @@ paths:
   - "src/lib/text.ts"
   - "src/lib/sanitizeHtml.ts"
   - "src/lib/scrollFollow.ts"
+  - "src/lib/previewRender.ts"
+  - "src/assets/preview.css"
+  - "src/components/DiffPreview.vue"
   - "src/lib/externalImages.ts"
   - "src/lib/vuePreview.ts"
   - "src/stores/vuePreview.ts"
@@ -104,11 +107,18 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
 
 ## プレビュー拡張
 - CSV/TSV・Mermaid・JSON/JSONL・SVG・Markdown は専用タブではなく **`EditorTab` の Edit/Split/Preview トグル**で描画する（タブ種別は `editor`。`isCsv` / `isMermaid` / `isSvg` / `isJson` 等の computed で分岐）。Markdown は 3 モード、スクロール同期、250ms デバウンス
+- **Markdown・rst・SVG・Mermaid の描き方は `lib/previewRender.ts` に 1 つだけ置く（#524）。** エディタのプレビューと diff タブのプレビュー比較（`components/DiffPreview.vue`、`git-diff.md`）が同じものを呼ぶ。中身は「文字列 → 無害化した HTML」（`renderMarkdownHtml` / `renderRstHtml` / `renderSvgHtml`）と、描いた DOM の後処理（`renderMarkdownExtras`＝数式と図、`renderMermaidInto`、`resolvePreviewImages`、`assignHeadingIds`）。どのファイルを開いているか・いつ描き直すかの段取りは呼び出し側に残す。**例外は diff タブの SVG のファイル**で、左右の id が重ならないよう `<img>` で描く（`git-diff.md`）
+  - **見た目も共有する**: `.md-preview` / `.rst-preview` / `.svg-preview` / `.mermaid-preview` は `assets/preview.css`（`EditorTab.vue` の scoped CSS には置かない）。2 つで描き方か見た目が違うと、diff の左右が「差分が無いのに違って見える」
+    - **読み込むのは `previewRender.ts`**（`theme.css` には置かない）。描き方と一緒に来るので、プレビューを使う画面を開くまで起動時の CSS に載らない
+    - **共有の CSS には置き場の寸法（`flex` / `overflow`）を書かない。** エディタではペインそのものがスクロールし（`EditorTab.vue` の scoped CSS が足す）、diff では外側の箱がスクロールする。寸法を共有側に書くと、もう片方が打ち消すことになる
+  - **描けるかの判定は `lib/fileType.ts` の `previewKindOfKey`**（エディタの `isMarkdown` などと diff タブの `previewKindOf` が同じ表を引く）。`previewRender.ts` に置かないのは、描けるかを知りたいだけの diff タブにも描き方の束を読ませないため（diff タブは `DiffPreview.vue` をプレビューを出すときに遅延で読み込む）
+  - **Markdown のパーサは `previewRender.ts` がモジュールに 1 つ持つ**（脚注の拡張をエージェントのチャットの Markdown へ漏らさないため、自前のインスタンス）。`#123` をリンクにするかは `renderMarkdownHtml` の引数（決めるのは呼び出し側）
+  - **外部画像のチップの判定（`imageChipAt`）は同期で返す。** 呼び出し側はチップでなければ続けてリンクの `preventDefault` をするので、判定を `await` すると `preventDefault` がイベントの配送のあとになり、webview がリンク先へ遷移する（アプリが丸ごと置き換わる）。承認の本体（`approveImageChip`）だけが非同期
 - **分割表示のスクロール同期は、写した相手を「追従中」にして写し返さない（#465。`lib/scrollFollow.ts`）。** 相手へ書いた結果の scroll を利用者のスクロールとして写し返すと、操作中のペインが引き戻される。判断の実体はあのファイルの doc が正本
   - **「書いた直後の 1 フレームだけ無視する」形に戻さないこと。** 相手の scroll が届くのは次のフレームで、フラグはその前に下りる（無視が 1 回も効かないことを Edge で実測）。`EditorTab.vue` の `suppressSyncFrame` が残っているのはアウトラインからのジャンプ用で、同期の跳ね返りは止めていない
   - **跳ね返りは「書いた位置のまま届いた」と「追従中」の 2 つで見分ける。片方に減らさないこと**: 時間だけだと、メインスレッドが塞がって遅れた跳ね返りと、入力で追従を解いた直後の跳ね返りが通る。位置だけだと、CodeMirror が高さを測り直して自分でずらした scroll が通る
   - **追従中のペインへの入力（ホイール・`pointerdown`・キー・タッチ）で追従を解く。** 受けるのは両ペインのテンプレートの `@….capture.passive` で、エディタ側は `scrollDOM` ではなく容器（`.editor-container`）で受ける（ミニマップがスクローラの外にある）
-- Markdown プレビュー内リンク: 外部 URL は confirm 付きで `open_url` 経由の外部ブラウザ起動、ローカルファイルはプロジェクトルート内に限定して EditorTab で開く（`resolveLocalPath` でディレクトリトラバーサル防止 + `decodeURIComponent` 対応）
+- Markdown プレビュー内リンク: 外部 URL は confirm 付きで `open_url` 経由の外部ブラウザ起動、ローカルファイルはプロジェクトルート内に限定して EditorTab で開く（`lib/previewRender.ts` の `resolvePreviewPath` でディレクトリトラバーサル防止 + `decodeURIComponent` 対応。画像の解決も同じ関数を通る）
 - **プレビューのコードブロックはエディタと同じ解析で色を付ける（#359）。** 実体は `lib/codeHighlight.ts` の `highlightCodeBlock` で、Markdown プレビュー・rst の `code-block`・issue タブ・マニュアルの 4 つが共有する（marked の 3 つは `markedCodeHighlight`、rst は `buildRstPreview` の引数）。**依存は増やしていない**（highlight.js / shiki は入れない）。判断の実体（配色をエディタのテーマに合わせる理由、class ではなくインラインの `style` で塗る理由、キャッシュ）はあのファイルの doc が正本
   - **テーマの配色は `EditorThemeDef.highlightStyle` から取る。** テーマを足すときはこの欄も要る（`makeTheme` が返す）
   - **テーマ名は関数で受けて描画のたびに読む。** marked のインスタンスは先に作るので、値で渡すと作った時点のテーマに固まる。computed の中で読めばテーマへの依存が張られる。**マニュアルだけは `html` を `render` で代入している**ので、テーマの watcher で**コードブロックだけを DOM の上で塗り直す**（`rehighlightCodeBlocks`）。`render` を呼び直すと、作り直した画像が読み込むまで高さ 0 になって読んでいた位置がずれ、遷移中の取得とも競合する
@@ -138,7 +148,7 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
     半端に解けた値を採用しない理由と、循環の止め方は `collectContext` の `resolveSub` の
     doc コメントが正本
   - **`.. meta::` は本文ではなく文書のメタデータ**（docutils は `<meta>` タグにする）なので、折り畳みの表にして先頭へ出す（#302）。集める先を持てるのはルートの呼び出しだけなので、入れ子（アドモニションの中など）では拾わず字面で出る
-    - **Markdown のフロントマター（#229）と同じ `details.frontmatter` を使う**ので、CSS も開閉状態の復元（`trackFrontmatterToggle`）もそのまま効く。**あの watcher を Markdown 限定に戻さないこと**（打鍵のたびに開いた状態が閉じる）。CSS は `EditorTab.vue` の `.md-preview :deep(.frontmatter > …)` という子結合子なので、**Markdown 側でこのマークアップの入れ子を変えると rst のメタデータが黙って素の `<details>` に戻る**
+    - **Markdown のフロントマター（#229）と同じ `details.frontmatter` を使う**ので、CSS も開閉状態の復元（`trackFrontmatterToggle`）もそのまま効く。**あの watcher を Markdown 限定に戻さないこと**（打鍵のたびに開いた状態が閉じる）。CSS は `assets/preview.css` の `.md-preview .frontmatter > …` という子結合子なので、**Markdown 側でこのマークアップの入れ子を変えると rst のメタデータが黙って素の `<details>` に戻る**
   - **脚注と引用は Markdown プレビューの脚注（#241）と同じ HTML 構造で出す。** `md-preview` の CSS がそのまま当たるので、rst 側に見た目を書かずに済む。定義は**書かれた場所に描く**（`buildRstPreview` は入れ子でも呼ばれるので、末尾に集める先を決められない）
   - **エスケープ済みかどうかは `lib/text.ts` の `Html` 型で持つ。** 生の文字列を属性へ差し込む経路がコンパイルエラーになる。引用符を戻した文字列が属性から抜ける穴は、散文のコメントでは守れなかった
   - **表は 4 種（grid / simple / `list-table` / `csv-table`）に対応する。** 桁の切り出しは `lib/displayWidth.ts` の `sliceByWidth`（rst の表は**表示幅**で桁を合わせるので、`slice` を code unit で行うと全角を含む表が崩れる）。同ファイルの `displayWidth` は diff タブの横幅の見積もり（#272）と共有する。**セルの結合には対応しない**: grid の途中の罫線で境界の桁が埋まっていたら結合とみなし、`null` を返して字面のまま出す側へ落とす
@@ -146,14 +156,14 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
 - Markdown 内 mermaid: previewHtml 更新時に `code.language-mermaid` ブロックを検出し、同じ `renderMermaid` で SVG に差し替え
 - **描画器は Pele（`pele`）1 つ（#508）**。Obsidian の Mermaid 互換の描画器で、Mermaid 12.1.0 の組み込みの全図種を描く。理由・渡すオプション・効かなくなった本家の機能・無害化は `lib/mermaid.ts` の doc が正本
   - **本家の mermaid への後退は持たない。** 以前（#417）の振り分け・読み違いの検出・`<style>` の絞り込み・キャッシュ・テーマの切り替えでの描き直しは、どれも外した。前提は `tests/mermaid.test.ts` が見張る。**Pele の版を上げてこのテストが落ちたら、回避策を戻す前に Pele 側の退行を疑う**
-  - 配色は `theme.css` の `.pele` が `--pele-*` を Pike のテーマの変数につなぐ。**書体だけは CSS で渡さない**（理由は `lib/mermaid.ts`）ので、UI の書体を変えたら描き直す。Markdown の図は元のソースを `data-mermaid-source` に持ち、`renderMarkdownMermaid` がそこから描き直す。**`previewHtml` に書体を読ませる形にしないこと**: 図だけの文書では HTML が書体で変わらないので computed が同じ値を返し、watcher が動かない
+  - 配色は `theme.css` の `.pele` が `--pele-*` を Pike のテーマの変数につなぐ。**書体だけは CSS で渡さない**（理由は `lib/mermaid.ts`）ので、UI の書体を変えたら描き直す。Markdown の図は元のソースを `data-mermaid-source` に持ち、`renderMarkdownExtras`（エディタからは `renderPreviewExtras`）がそこから描き直す。**`previewHtml` に書体を読ませる形にしないこと**: 図だけの文書では HTML が書体で変わらないので computed が同じ値を返し、watcher が動かない
   - 系列の色（`--pele-series-1..8`）はつないでいない（Pele の既定の色のまま）。円グラフの割合のラベルは下地の色（`--pele-bg`）で描かれる
   - 図の CSS は外側の svg だけに当てる（`.mermaid-inline > svg`）。architecture の図の印は入れ子の svg で、`height: auto` が当たると図全体の大きさに広がる
   - 大きさ：Pele の図種ごとのチャンクは全部で約 0.7MB。以前の mermaid と beautiful-mermaid は合わせて約 6.4MB だった（どちらも `vite build` の `dist/assets` で測った値）
   - レイアウトは Pele 独自で、本家の dagre / ELK とは配置が違う
   - ラベルの `$$…$$` を KaTeX で組むなら、Pele の `math` に寸法つきの組版結果を返す関数を渡す（今は渡していない）
 - JSON/JSONL: キー/文字列/数値/bool/null を色分け、JSONL は 1000 件 truncate、`\n`/`\r` を含む文字列値クリックでデコード済みポップアップ
-- SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`。`IMAGE_EXTS` から除外し EditorTab で開く
+- SVG: `DOMPurify.sanitize` + `SVG_PURIFY_OPTS`（どちらも `lib/previewRender.ts` の `renderSvgHtml` の中）。`IMAGE_EXTS` から除外し EditorTab で開く
 - **プレビューの検索（#360）**: `Ctrl+F` でプレビューの右上に `components/editor/FindBar.vue`（diff タブと共有）を出す。一致の求め方と強調は `lib/domFind.ts`、数え直しの契機は `composables/usePreviewFind.ts`。判断の実体はその 2 ファイルの doc が正本
   - **相手は描画済みの DOM**。`v-html` のあとに mermaid・画像のチップが非同期に書き足されるので、`previewHtml` ではなく DOM の変化の監視（MutationObserver）で数え直す。**数え直しでは動かさない**（分割表示で打鍵のたびにプレビューが飛び、スクロールの同期でエディタまで動く）
   - **強調は CSS Custom Highlight API**（`::highlight(pike-find)` は `theme.css`）。`<mark>` で DOM を書き換えない。登録表は文書に 1 つなので、タブごとの範囲を `domFind.ts` のモジュールに集めて登録し直す。API の無い WebView では強調が出ないだけで、件数と移動は効く
@@ -208,9 +218,9 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **パース失敗は握り潰さず生テキストを `<pre>` で出す**（黙って消すと本文が消えたようにしか見えない）。この場合だけ `<details>` を開いた状態で出す
   - 開閉状態は `frontmatterOpen`（**ref ではなく素の変数**）に持ち、`trackFrontmatterToggle` が描画のたびに DOM へ復元する。`previewHtml` は編集のたびに HTML を作り直すので DOM 側だけに置くと打鍵で閉じるが、reactive にすると開閉のクリックごとに `previewHtml` が無効化され、mermaid の再描画とローカル画像 1 枚につき 1 回の IPC 読みが走る
 - **外部ドメインの画像（#239）**: README のバッジを出せるようにするためのドメイン単位のオプトイン。**CSP は広げない**（`img-src` は `'self' data: blob:` ＋マニュアル用の raw.githubusercontent.com のまま）。承認済みホストの画像だけ `remote_image_fetch` で取ってきて `data:` URL にする。承認は `settings` の `allowedImageHosts`（`pike:settings` に載るので同期・クロスウィンドウ broadcast の対象）
-  - **CSP を `https:` まで広げる案は採らない**。CSP は文書単位なので、プレビューのために緩めると**SVG プレビューとマニュアル**まで一緒に壁を失う。代わりに `resolveMarkdownImages` が**ローカル画像で既に使っている `data:` URL 化**に相乗りする（`fs_read_file_base64` の隣に `remote_image_fetch` を置いた形）
+  - **CSP を `https:` まで広げる案は採らない**。CSP は文書単位なので、プレビューのために緩めると**SVG プレビューとマニュアル**まで一緒に壁を失う。代わりに `resolvePreviewImages` が**ローカル画像で既に使っている `data:` URL 化**に相乗りする（`fs_read_file_base64` の隣に `remote_image_fetch` を置いた形）
   - この分担だと**実際に遮断しているのは CSP で、フロントの処理は見た目だけ**になる。取りこぼした経路があっても壊れた画像が出るだけで、黙って通信が飛ぶことはない
-  - **画像の解決はすべて `resolveMarkdownImages` の 1 パス**。ローカルと外部を分けると、同じ `<img>` を 2 回走査したうえに「どちらが後に src を書いたか」に依存する。読み込みは `Promise.all` で並列（遅いホストが隣の画像を待たせない）
+  - **画像の解決はすべて `resolvePreviewImages` の 1 パス**（エディタと diff タブのプレビュー比較が共有）。ローカルと外部を分けると、同じ `<img>` を 2 回走査したうえに「どちらが後に src を書いたか」に依存する。読み込みは `Promise.all` で並列（遅いホストが隣の画像を待たせない）
   - **`srcset` と `<picture><source>` は落とす**。ブラウザは `src` より先にそちらを見るので、残すと解決した `src` が使われない。挿入後に落として構わない（CSP が既にリクエストを止めている）
   - 対象は `https:` だけ。`http:` はバックエンドが弾くので承認する意味がなく、チップも出さない
   - **ローカル画像の解決は `resolveLocalImage` の 3 つのガードで決まる（#241）**: 拡張子の判定の前に `?` / `#` 以降を落とす、`paths.ts` の `isEmbeddableImage`（＝`isImageFile` + svg）で見る、`/` で始まる src はプロジェクトルート起点にする。**`IMAGE_EXTS` に svg を足さないこと**（あれはタブの振り分け用で、`.svg` は EditorTab で開く仕様）。`<img>` の中の SVG はスクリプトも外部参照も走らない（secure static mode）ので、`.svg` タブ側のサニタイズは要らない

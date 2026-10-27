@@ -697,7 +697,7 @@ function metaRows(body: string[]): string[] | null {
 
 /**
  * 文書の頭に出すメタデータの折り畳み（#302）。**Markdown のフロントマター（#229）と同じ
- * クラスを使う**: 見た目（`theme.css` ではなく `EditorTab` の `.md-preview :deep(.frontmatter)`）も、
+ * クラスを使う**: 見た目（`assets/preview.css` の `.md-preview .frontmatter`）も、
  * 開閉状態を打鍵のたびに復元する仕掛け（`trackFrontmatterToggle`）も、そのまま相乗りできる。
  * どちらも「本文ではない、文書に付いた key/value」を畳んで頭に出すという同じ役目。
  */

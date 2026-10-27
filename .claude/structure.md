@@ -132,6 +132,7 @@ pike/
 │   │   ├── ColorDot.vue         # プロジェクトカラーのドット（#121）
 │   │   ├── IgnoreSpaceToggle.vue  # 差分の空白の違いを無視するボタン（diff / 履歴 / コミットタブで共有、#453）
 │   │   ├── RenameNote.vue       # 「名前が変わった」見出し（diff タブと履歴タブで共有、#306）
+│   │   ├── DiffPreview.vue      # diff タブのプレビュー比較（変更前後を左右に描く、#524）
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── MoveProjectMenu.vue  # プロジェクトを別のウィンドウへ移すときの行き先のメニュー（#469）
@@ -290,6 +291,8 @@ pike/
 │   │   ├── markdownGfm.ts     # プレビューの marked を組む（要る block 拡張ごとにインスタンス。3 つのプレビューで共有、#482）
 │   │   ├── markdownAlerts.ts  markdownMath.ts  markdownEmoji.ts  markdownColors.ts  # GitHub の alert・数式（KaTeX は遅延読み込み）・絵文字・色見本（#482）
 │   │   ├── rstPreview.ts      # reStructuredText のプレビュー（自前の変換、#284）
+│   │   ├── previewRender.ts   # 本文から描くプレビューの部品（エディタと diff のプレビュー比較が共有、#524）
+│   │   ├── diffSource.ts      # diff タブの左右がどの版か（省略行の展開とプレビュー比較が共有、#524）
 │   │   ├── vuePreview.ts      # Vue SFC のプレビューの純粋な部分（描き直す契機・案内のページ、#397）
 │   │   ├── displayWidth.ts    # 等幅フォントでの表示幅（diff の横幅と rst の表が共有、#284）
 │   │   ├── text.ts            # HTML 組み立ての共有部（Html 型・エスケープ・CSV 分割、#284）と文字列の一致位置（`findRanges`）
@@ -318,6 +321,7 @@ pike/
 │   │   └── outline/           # アウトライン抽出（index.ts + extractors/ 19 言語）
 │   └── assets/
 │       ├── theme.css          # CSS Variables テーマ定義（ダーク/ライト）
+│       ├── preview.css        # 本文から描くプレビューの見た目（lib/previewRender.ts が読み込む、#524）
 │       └── credits.json       # 依存のライセンス一覧（生成物。scripts/gen-credits.mjs、#420）
 └── .claude/
     ├── structure.md       # このファイル
