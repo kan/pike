@@ -38,6 +38,8 @@ paths:
   - 本文を同梱していないパッケージは SPDX の標準文で補う（`standard`、版を固定した `SPDX_TEXT` から取る）。ripgrep の本文も GitHub から取るので、**作り直しはネットワークに出る**。`--check` は名前と版の集合しか見ないので出ない
   - **フロントは `?url` で資産として出して、About を開いたときに `fetch` する。** `import` すると起動時のバンドルに約 1MB 乗るうえ、`resolveJsonModule` で vue-tsc が巨大な JSON の型を推論する
 - 依存を変えたら `just credits` で作り直して同じコミットに入れる。忘れると `just check-credits`（CI では Windows のジョブ）が落ちる
+- **dependabot の PR では、照合が落ちても job を失敗にしない**（`ci.yml` の `continue-on-error`。判定は PR の作者）。一覧は版まで持つので、配布物に入る依存の更新は patch でも必ず食い違い、dependabot は作り直せない。取り込むとき（ローカルでまとめて取り込む運用）に作り直し、main への push では今までどおり落とす
+  - **CI が dependabot のブランチへ作り直した一覧を push する形は採らない**（人や bot が push したブランチは dependabot が rebase しなくなる）。照合を名前だけにする形も採らない（About に古い版が出たままになる）
 
 ## 開発ビルド
 - `just dev`（= `npm run tauri:dev`）で開発版を起動（`tauri.dev.conf.json` で identifier を `com.pike.dev.debug` に上書き）
