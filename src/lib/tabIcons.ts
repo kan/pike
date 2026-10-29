@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  FileDiff,
   FileInput,
   Gauge,
   GitCommitHorizontal,
@@ -44,6 +45,8 @@ export const TAB_KIND_ICONS: Record<Tab['kind'], Component | null> = {
   // サイドバーの issue パネルと同じアイコン（#278）。
   issue: ListTodo,
   commit: GitCommitHorizontal,
+  // 作業中の変更（#526）。Git パネルの CHANGES の見出しのボタンと同じアイコン。
+  changes: FileDiff,
   browser: Globe,
   editor: null,
   preview: null,

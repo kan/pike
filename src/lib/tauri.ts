@@ -738,6 +738,19 @@ export async function gitCommitPatch(
   return invoke<{ patch: string; truncated: boolean }>('git_commit_patch', { root, shell, hash, parent, ignoreSpace })
 }
 
+/** 作業中の変更の差分（#526）。未追跡のファイルは入らない（`gitDiff` の `untracked` で取る）。 */
+export async function gitWorkingPatch(
+  root: string,
+  shell: ShellType,
+  ignoreSpace = false,
+): Promise<{ staged: string; unstaged: string; truncated: boolean }> {
+  return invoke<{ staged: string; unstaged: string; truncated: boolean }>('git_working_patch', {
+    root,
+    shell,
+    ignoreSpace,
+  })
+}
+
 export async function gitShowFile(root: string, shell: ShellType, hash: string, path: string): Promise<string> {
   return invoke<string>('git_show_file', { root, shell, hash, path })
 }

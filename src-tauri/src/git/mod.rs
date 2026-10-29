@@ -1651,6 +1651,53 @@ pub async fn git_commit_patch(
     .map_err(|e| e.to_string())?
 }
 
+/// 作業中の変更の差分（#526、作業中の変更のタブ）。ステージ済み（index と HEAD）と
+/// 未ステージ（作業ツリーと index）を別々に持つ。同じファイルが両方に出ることがある（`MM`）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkingPatch {
+    pub staged: String,
+    pub unstaged: String,
+    /// どちらかを `COMMIT_PATCH_MAX` で打ち切ったか。
+    pub truncated: bool,
+}
+
+/// 作業中の変更をまとめて取る（#526）。**未追跡のファイルは入らない**（`git diff` は
+/// 追跡していないファイルを出さない）。タブがファイルを選んだときに `git_diff` の
+/// `untracked` で 1 つずつ取る（数が多いことがあり、全部を `--no-index` で回すと重い）。
+///
+/// 2 本の `git diff` は並べて走らせる（WSL では 1 本ごとに `wsl.exe` が立つので、順に
+/// 待つと倍かかる）。
+#[tauri::command]
+pub async fn git_working_patch(
+    root: String,
+    shell: ShellConfig,
+    // 空白の違いを無視するか（#453、`IGNORE_SPACE`）。
+    ignore_space: bool,
+) -> Result<WorkingPatch, String> {
+    let run = |staged: bool| {
+        let (root, shell) = (root.clone(), shell.clone());
+        tokio::task::spawn_blocking(move || {
+            let mut args = vec!["diff", "-M"];
+            if staged {
+                args.push("--cached");
+            }
+            if ignore_space {
+                args.push(IGNORE_SPACE);
+            }
+            run_git(&shell, &root, &args).map(|out| truncate_at_line(out, COMMIT_PATCH_MAX))
+        })
+    };
+    let (staged, unstaged) = tokio::join!(run(true), run(false));
+    let (staged, cut_staged) = staged.map_err(|e| e.to_string())??;
+    let (unstaged, cut_unstaged) = unstaged.map_err(|e| e.to_string())??;
+    Ok(WorkingPatch {
+        staged,
+        unstaged,
+        truncated: cut_staged || cut_unstaged,
+    })
+}
+
 #[tauri::command]
 pub async fn git_show_files(
     root: String,

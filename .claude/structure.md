@@ -133,6 +133,9 @@ pike/
 │   │   ├── IgnoreSpaceToggle.vue  # 差分の空白の違いを無視するボタン（diff / 履歴 / コミットタブで共有、#453）
 │   │   ├── RenameNote.vue       # 「名前が変わった」見出し（diff タブと履歴タブで共有、#306）
 │   │   ├── DiffPreview.vue      # diff タブのプレビュー比較（変更前後を左右に描く、#524）
+│   │   ├── PatchSplit.vue       # 一覧と 1 ファイルの差分の 3 分割（コミットタブと作業中の変更のタブで共有、#526）
+│   │   ├── PatchLines.vue       # 統合形式の差分の表 1 枚（PatchSplit の右のペイン、#526）
+│   │   ├── PatchFileRow.vue     # 変更されたファイルの一覧の 1 行（コミットタブと作業中の変更のタブ、#526）
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── MoveProjectMenu.vue  # プロジェクトを別のウィンドウへ移すときの行き先のメニュー（#469）
@@ -195,6 +198,7 @@ pike/
 │   │       ├── ManualTab.vue      # アプリ内マニュアル（docs/manual を F1 / ? ボタンで表示）
 │   │       ├── IssueTab.vue       # GitHub issue 1 件の読み取り専用表示（gh 経由、#278）
 │   │       ├── CommitTab.vue      # コミット 1 つのメッセージと全ファイルの差分（グラフ表示のクリック、#374）
+│   │       ├── ChangesTab.vue     # コミットされていない変更をコミットタブと同じ配置で見る（#526）
 │   │       ├── BrowserTab.vue     # 外部のページ（子 webview をタブの領域に重ねる、#368。試作）
 │   │       ├── AgentStatusTab.vue # エージェント状態（/status 相当。アカウント・レート・トークン、#226）
 │   │       ├── SyncConflictsTab.vue # 設定の同期の衝突を項目ごとに選ぶ（#403）
@@ -231,6 +235,7 @@ pike/
 │   │   ├── useTabDrag.ts     # タブを掴んでいるあいだの状態（2 本のタブバーで共有、#308）
 │   │   ├── useProjectAccent.ts # プロジェクトカラーを面として塗るための色の組（#298）
 │   │   ├── useActiveFile.ts  # いま見ているファイル（ツリーと Git パネルの強調、#274）
+│   │   ├── useGitFileActions.ts # 変更の行のファイル操作（破棄・アンステージ。Git パネルと作業中の変更のタブ、#526）
 │   │   ├── useFocusPolling.ts # アクティブなあいだだけポーリングする共通部（#277）
 │   │   ├── usePanelAvailability.ts # サイドバーのパネルが使えるかの唯一の出典（#278）
 │   │   ├── useSettingsSearch.ts # 設定画面の絞り込み（#314。登録・一致・強調の切り分け）

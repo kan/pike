@@ -40,6 +40,7 @@ const SyncConflictsTab = defineAsyncComponent(() => import('../tabs/SyncConflict
 const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const IssueTab = defineAsyncComponent(() => import('../tabs/IssueTab.vue'))
 const CommitTab = defineAsyncComponent(() => import('../tabs/CommitTab.vue'))
+const ChangesTab = defineAsyncComponent(() => import('../tabs/ChangesTab.vue'))
 const PdfTab = defineAsyncComponent(() => import('../tabs/PdfTab.vue'))
 const BrowserTab = defineAsyncComponent(() => import('../tabs/BrowserTab.vue'))
 
@@ -63,6 +64,7 @@ const TAB_COMPONENTS: Record<Tab['kind'], unknown> = {
   manual: ManualTab,
   issue: IssueTab,
   commit: CommitTab,
+  changes: ChangesTab,
   browser: BrowserTab,
 }
 

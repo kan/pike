@@ -57,6 +57,11 @@ function pathFromHeader(header: string): string {
   return i === -1 ? rest : rest.slice(i + 3)
 }
 
+/** パス（新しい側）でファイルを引ける形にする（コミットタブの空白無視と、作業中の変更のタブ #526）。 */
+export function patchFilesByPath(raw: string): Map<string, PatchFile> {
+  return new Map(parsePatch(raw).map((f) => [f.path, f]))
+}
+
 export function parsePatch(raw: string): PatchFile[] {
   const files: PatchFile[] = []
   let file: PatchFile | null = null
@@ -69,6 +74,13 @@ export function parsePatch(raw: string): PatchFile[] {
   // 当たって、実在しない行が 1 つ増える。
   if (rawLines[rawLines.length - 1] === '') rawLines.pop()
   for (const line of rawLines) {
+    // コンフリクト中のパスは combined diff（`diff --cc` / `diff --combined`）で出る（作業中の
+    // 変更の `git diff`、#526）。読めない形なので丸ごと飛ばす。**境目として扱わないと、続く行が
+    // 直前のファイルの行として積まれる**（`++<<<<<<<` が追加行に化け、行数も狂う）。
+    if (line.startsWith('diff --cc ') || line.startsWith('diff --combined ')) {
+      file = null
+      continue
+    }
     if (line.startsWith('diff --git ')) {
       file = { path: pathFromHeader(line), oldPath: null, status: 'M', binary: false, added: 0, removed: 0, lines: [] }
       files.push(file)

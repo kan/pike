@@ -538,6 +538,23 @@ export type CommitTab = {
 }
 
 /**
+ * まだコミットしていない変更を、コミットタブと同じ配置で見るタブ（#526）。Git パネルの
+ * グラフの先頭行と、変更の一覧の見出しから開く。**プロジェクトごとに 1 枚**で、セッションには
+ * 残さない（コミットタブと同じ）。
+ *
+ * **root を焼き込まない**（`CommitTab.root` / `DiffTab.root` と逆）。中身は Git パネルの
+ * `gitStore.status` と同じものを大きく見せる場所で、ステージやコミットも同じストアの操作
+ * （`activeRoot` に効く）を呼ぶ。root を固定すると、worktree を切り替えたときに一覧は古い
+ * worktree・操作は新しい worktree、という食い違いが起きる。
+ */
+export type ChangesTab = {
+  id: string
+  kind: 'changes'
+  title: string
+  pinned: boolean
+}
+
+/**
  * 外部のページを開くタブ（#368）。中身は Rust が作る子 webview で、タブの領域に重ねて
  * 描く（`BrowserTab.vue`・`src-tauri/src/browser.rs`）。
  *
@@ -620,6 +637,7 @@ export type Tab = (
   | ManualTab
   | IssueTab
   | CommitTab
+  | ChangesTab
   | BrowserTab
 ) &
   TabOwner &

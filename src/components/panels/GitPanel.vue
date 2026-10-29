@@ -1,30 +1,20 @@
 <script setup lang="ts">
-import { ArrowUp, Check, ChevronDown, ChevronRight, Minus, Plus, Undo2 } from 'lucide-vue-next'
+import { ArrowUp, Check, ChevronDown, ChevronRight, FileDiff, Minus, Plus, Undo2 } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useActiveFile } from '../../composables/useActiveFile'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { confirmDialog, infoDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useDragResize } from '../../composables/useDragResize'
+import { useGitFileActions } from '../../composables/useGitFileActions'
 import { useI18n } from '../../i18n'
 import { fileIconSvg } from '../../lib/fileIcons'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
 import { appendGitignoreLine, gitignoreEntry, hasGitignoreEntry } from '../../lib/gitignore'
 import { buildCommitLink } from '../../lib/gitRemote'
-import { openPathInTab } from '../../lib/openFile'
 import { openUrlWithConfirm } from '../../lib/openUrl'
-import {
-  absoluteDate,
-  basename,
-  extension,
-  gitStatusColor,
-  isImageFile,
-  mimeType,
-  relativeDate,
-  repoPath,
-} from '../../lib/paths'
+import { absoluteDate, basename, extension, gitStatusColor, isImageFile, mimeType, relativeDate } from '../../lib/paths'
 import { loadJson, saveJson } from '../../lib/storage'
 import {
-  fsDelete,
   fsReadFile,
   fsWriteFile,
   gitCreateBranch,
@@ -51,7 +41,7 @@ const tabStore = useTabStore()
 const sidebar = useSidebarStore()
 const statusMessage = useStatusMessageStore()
 
-const commitMsg = ref('')
+const { workingPath, openWorkingFile, discardFile, unstageFile } = useGitFileActions()
 const commitView = ref<'list' | 'graph'>('list')
 const initializing = ref(false)
 
@@ -89,6 +79,19 @@ const continueLabel = computed(() =>
 const continueBlocked = computed(() => (gitStore.status?.conflicted.length ?? 0) > 0)
 
 const graphRows = computed(() => buildGraph(gitStore.logEntries))
+
+/**
+ * 作業中の変更の件数（#526、グラフの先頭行に出す）。ステージ済みと未ステージの両方に出る
+ * ファイル（`MM`）は 1 つに数える。
+ */
+const changeCount = computed(() => {
+  const s = gitStore.status
+  if (!s) return 0
+  return new Set([...s.staged, ...s.unstaged, ...s.conflicted].map((f) => f.path)).size
+})
+
+/** HEAD のレーン（#526 の先頭行の点を置く列）。HEAD が取得範囲に無ければ左端。 */
+const headColumn = computed(() => graphRows.value.find((r) => r.hash === gitStore.status?.head)?.column ?? 0)
 
 // Compute set of unpushed commit hashes by following first-parent chain from HEAD
 const unpushedHashes = computed(() => {
@@ -173,40 +176,6 @@ function switchToList() {
 const expandedCommits = ref<Set<string>>(new Set())
 const commitFiles = ref<Record<string, GitFileChange[]>>({})
 
-async function onCommit() {
-  if (!commitMsg.value.trim() || !gitStore.status?.staged.length) return
-  await gitStore.commitChanges(commitMsg.value.trim())
-  commitMsg.value = ''
-}
-
-async function discardFile(file: GitFileChange) {
-  if (!(await confirmDialog(t('git.discardConfirm', { path: file.path })))) return
-  if (file.status === '?') {
-    const shell = projectStore.currentProject?.shell
-    const full = workingPath(file.path)
-    if (!shell || !full) return
-    await fsDelete(shell, full)
-    await gitStore.refreshStatus()
-  } else {
-    await gitStore.discardChanges([file.path])
-  }
-}
-
-async function unstageFile(file: GitFileChange) {
-  if (file.status === 'A') {
-    if (!(await confirmDialog(t('git.unstageNewConfirm', { path: file.path })))) return
-    const shell = projectStore.currentProject?.shell
-    const full = workingPath(file.path)
-    if (shell && full) {
-      await gitStore.unstageFiles([file])
-      await fsDelete(shell, full).catch(() => {})
-      await gitStore.refreshStatus()
-    }
-  } else {
-    await gitStore.unstageFiles([file])
-  }
-}
-
 /**
  * **`GitFileChange` をそのまま受ける。** untracked かどうかも元の名前（#306）も、呼び出し元が
  * 持っている 1 つの値から導ける。ばらして渡していたころは、`file.status === '?'` の導出が
@@ -224,18 +193,6 @@ async function openDiffTab(file: GitFileChange, staged: boolean) {
   const root = projectStore.activeRoot
   const diff = await gitDiff(root, project.shell, file.path, staged, untracked, file.origPath ?? null)
   tabStore.addDiffTab({ filePath: file.path, root, diff, staged, untracked, origPath: file.origPath })
-}
-
-/** 組み立ての規則と、`null` を返す理由は `lib/paths.ts` の `repoPath` の doc が正本。 */
-function workingPath(path: string): string | null {
-  return repoPath(projectStore.activeRoot, path, projectStore.currentProject?.shell)
-}
-
-// Open the working-tree copy of a file. For a conflicted one the editor is where
-// the markers get resolved, by hand or with the per-region buttons (#223).
-async function openWorkingFile(path: string) {
-  const full = workingPath(path)
-  if (full) await openPathInTab({ path: full })
 }
 
 /**
@@ -707,15 +664,15 @@ onUnmounted(() => {
       <!-- Commit -->
       <div class="commit-section">
         <textarea
-          v-model="commitMsg"
+          v-model="gitStore.commitDraft"
           class="commit-input"
           placeholder="Commit message..."
           rows="2"
         ></textarea>
         <button
           class="commit-btn"
-          :disabled="!commitMsg.trim() || !gitStore.status.staged.length"
-          @click="onCommit"
+          :disabled="!gitStore.commitDraft.trim() || !gitStore.status.staged.length || gitStore.committing"
+          @click="gitStore.commitChanges()"
         >{{ t('git.commit', { count: gitStore.status.staged.length }) }}</button>
         <div v-if="gitStore.status.ahead || gitStore.status.behind" class="sync-info">
           <span v-if="gitStore.status.ahead">{{ t('git.aheadInfo', { count: gitStore.status.ahead }) }}</span>
@@ -757,9 +714,15 @@ onUnmounted(() => {
       <div v-if="gitStore.status.staged.length" class="file-section">
         <div class="section-header">
           <span>{{ t('git.staged', { count: gitStore.status.staged.length }) }}</span>
-          <button class="section-action" @click="gitStore.unstageFiles(gitStore.status!.staged)">
-            {{ t('git.unstageAll') }}
-          </button>
+          <span class="section-actions">
+            <!-- 作業中の変更のタブ（#526）。未ステージの区画にも同じボタンがある。 -->
+            <button class="section-action icon" :title="t('git.openChangesTab')" @click="tabStore.addChangesTab()">
+              <FileDiff :size="12" />
+            </button>
+            <button class="section-action" @click="gitStore.unstageFiles(gitStore.status!.staged)">
+              {{ t('git.unstageAll') }}
+            </button>
+          </span>
         </div>
         <div
           v-for="file in gitStore.status.staged"
@@ -780,9 +743,14 @@ onUnmounted(() => {
       <div v-if="gitStore.status.unstaged.length" class="file-section">
         <div class="section-header">
           <span>{{ t('git.changes', { count: gitStore.status.unstaged.length }) }}</span>
-          <button class="section-action" @click="gitStore.stageFiles(gitStore.status!.unstaged.map(f => f.path))">
-            {{ t('git.stageAll') }}
-          </button>
+          <span class="section-actions">
+            <button class="section-action icon" :title="t('git.openChangesTab')" @click="tabStore.addChangesTab()">
+              <FileDiff :size="12" />
+            </button>
+            <button class="section-action" @click="gitStore.stageFiles(gitStore.status!.unstaged.map(f => f.path))">
+              {{ t('git.stageAll') }}
+            </button>
+          </span>
         </div>
         <div
           v-for="file in gitStore.status.unstaged"
@@ -864,6 +832,28 @@ onUnmounted(() => {
               @mousedown="onGraphResizeStart"
               @dblclick="graphMaxWidth = GRAPH_DEFAULT_MAX"
             ></div>
+            <!--
+              コミットされていない変更（#526）。SourceTree と同じくグラフの先頭に置き、押すと
+              作業中の変更のタブを開く。点は HEAD のレーンに白抜きで描く（まだコミットではない）。
+              HEAD が先頭の行とは限らない（他のブランチの新しいコミットが上に来る）ので線は引かない。
+            -->
+            <div v-if="changeCount" class="graph-row working-row" @click="tabStore.addChangesTab()">
+              <svg class="graph-svg" :height="ROW_HEIGHT">
+                <circle
+                  :cx="headColumn * LANE_WIDTH + LANE_WIDTH / 2"
+                  :cy="ROW_HEIGHT / 2"
+                  :r="DOT_RADIUS"
+                  fill="var(--bg-primary)"
+                  stroke="var(--text-secondary)"
+                  stroke-width="1.5"
+                  stroke-dasharray="2 1.5"
+                />
+              </svg>
+              <div class="graph-info">
+                <span class="graph-message working-message">{{ t('git.uncommittedChanges') }}</span>
+                <span class="graph-meta">{{ t('git.changeCount', { count: changeCount }) }}</span>
+              </div>
+            </div>
             <div
               v-for="row in graphRows"
               :key="row.hash"
@@ -1126,6 +1116,24 @@ onUnmounted(() => {
 .section-action:hover {
   background: var(--tab-hover-bg);
   color: var(--text-primary);
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.section-action.icon {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 4px;
+}
+
+/* コミットされていない変更の行（#526）。コミットではないので斜体で分ける。 */
+.working-message {
+  font-style: italic;
+  color: var(--text-secondary);
 }
 
 .file-item {

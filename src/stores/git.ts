@@ -483,11 +483,50 @@ export const useGitStore = defineStore('git', () => {
     })
   }
 
-  function commitChanges(message: string) {
+  /**
+   * 書きかけのコミットメッセージ（#526）。**Git パネルと作業中の変更のタブが同じ欄を共有する**
+   * ので、ストアに置く。片方で書いた続きをもう片方で書いてコミットできる。
+   *
+   * **root ごとに持つ。** 1 本にすると、プロジェクトや worktree を切り替えたときに別の
+   * リポジトリのメッセージが欄に残り、そのままコミットできてしまう。
+   */
+  const commitDrafts = ref<Record<string, string>>({})
+  const commitDraft = computed({
+    get: () => commitDrafts.value[getRoot()] ?? '',
+    set: (value: string) => {
+      commitDrafts.value[getRoot()] = value
+    },
+  })
+
+  /**
+   * `commitDraft` でコミットする。**欄を空にするのは通ったときだけ**（失敗で消すと、書いた
+   * メッセージを打ち直すことになる）。`onFail` は `runAction` と同じ口で、Git パネルの帯が
+   * 見えない場所（作業中の変更のタブ）から押したときの知らせに使う。
+   */
+  async function commitChanges(onFail?: (message: string) => void) {
+    const message = commitDraft.value.trim()
+    // **二度押しを通さない。** 欄は通るまで残すので、待っているあいだに押し直す（パネルと
+    // タブの両方から押す）と同じコミットが 2 本走り、2 本目が `index.lock` で失敗して帯を出す。
+    if (!message || !status.value?.staged.length || committing.value) return
+    committing.value = true
+    try {
+      await runCommit(message, onFail)
+    } finally {
+      committing.value = false
+    }
+  }
+
+  /** コミットの実行中か（ボタンを押せなくする。`commitChanges` のガード）。 */
+  const committing = ref(false)
+
+  function runCommit(message: string, onFail?: (message: string) => void) {
     return runAction(async (root, shell) => {
       await gitCommit(root, shell, message)
+      // 待っているあいだに書き足されていたら、それは次のコミットのぶんなので消さない。
+      // 見るのはコミットした root の欄（待っているあいだに切り替えられても取り違えない）。
+      if (commitDrafts.value[root]?.trim() === message) delete commitDrafts.value[root]
       await Promise.all([refreshStatus(), refreshLog()])
-    })
+    }, onFail)
   }
 
   /**
@@ -952,6 +991,8 @@ export const useGitStore = defineStore('git', () => {
     stageFiles,
     unstageFiles,
     discardChanges,
+    commitDraft,
+    committing,
     commitChanges,
     push,
     pull,

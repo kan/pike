@@ -2202,6 +2202,7 @@ pub fn run() {
             git::blame::git_blame,
             git::git_diff_commit,
             git::git_commit_patch,
+            git::git_working_patch,
             git::git_diff_lines,
             git::git_diff_working,
             font::font_list_monospace,

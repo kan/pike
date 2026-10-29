@@ -935,6 +935,22 @@ export const useTabStore = defineStore('tabs', () => {
     return id
   }
 
+  /**
+   * 作業中の変更のタブを開く（#526）。**プロジェクトごとに 1 枚**で、既に開いていればそれを
+   * 見せる。名前は `tabDisplayTitle` が i18n から引く（`title` は使わない）。
+   */
+  function addChangesTab(): string {
+    const existing = tabs.value.find((t) => t.kind === 'changes' && t.projectId === ownerProjectId.value)
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    pushTab({ id, kind: 'changes', title: '', pinned: false })
+    activeTabId.value = id
+    return id
+  }
+
   /** `git log` の 1 件からコミットタブを開く（Git パネルのグラフと、エディタの blame #510）。 */
   function addCommitTabFromLog(entry: GitLogEntry, root: string): string {
     return addCommitTab({
@@ -1602,6 +1618,7 @@ export const useTabStore = defineStore('tabs', () => {
     addIssueTab,
     addCommitTab,
     addCommitTabFromLog,
+    addChangesTab,
     addBrowserTab,
     addDiffTab,
     addPdfTab,
