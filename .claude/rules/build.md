@@ -205,7 +205,13 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
     - **main へ直接は書かない。** 画像の差分を GitHub の PR の画面で見比べられ、ボットのコミット（署名なし）を確かめずに main へ入れずに済む
     - **リポジトリの設定「Allow GitHub Actions to create and approve pull requests」を有効にしてある**（PR を作るだけでも要る）。既定のトークンの権限は read のまま
     - **書き込みの権限（`contents: write` / `pull-requests: write`）は PR を作るジョブ（`pull-request`、ubuntu）だけに付ける。** 撮影のジョブは依存（npm の postinstall、クレートの build.rs）とアプリを動かすので読み取りだけで走らせ（checkout も `persist-credentials: false`）、同期した `docs/manual/img/` をアーティファクト `manual-img` で渡す
-    - GITHUB_TOKEN で作った PR では CI が走らない（画像だけなので要らない）
+    - **画像だけの PR では CI と Security Check の run を作らない**（両ワークフローの `pull_request` の
+      `paths-ignore`）。ボット（GITHUB_TOKEN）が作った PR の run は承認待ち（`action_required`）で
+      止まり、承認せずにマージすると期限切れの `failure` になって PR に赤い×が残る（v0.66.0〜v0.68.0 で
+      実際に起きた。画面には「ワークフローファイルの問題」と出るが、run のページのエラーは
+      `required approval but was not approved before it expired`）。画像には CI の検査が要らないので、
+      承認して走らせる手順は足さない。**main に必須のステータスチェックを設定するなら、この除外と
+      噛み合わなくなる**（run が作られないチェックは待ちのまま残り、マージできない）
     - **画像に写る版は、CI がチェックアウトした main の `tauri.conf.json` で決まる。** だから `release` スキルは bump の push（手順 5）を撮影（手順 4）より前に置き、画像の PR をマージしてからタグを打つ。**その版のタグが既にあれば `pr: true` は撮る前に止める**（bump 前の main を撮ると、前の版の画像で PR ができる）。bump の push から PR のマージまで、main は「新しい版の番号に古い画像」になるが許容している
     - **`pr` は main から起動し、`any_env` と同時には使えない**（PR の base は main なので、他の ref から起動するとその ref の未マージのコミットが混ざる。前提の外れた画像は PR にしない）
     - **続けて起動したら前の run を止める**（`concurrency`。同じブランチへ force push し合い、PR が 2 つできうる）

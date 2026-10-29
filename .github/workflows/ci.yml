@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    # 画像だけの PR（Screenshots ワークフローが作る）では run を作らない。ボットが作った PR の
+    # run は承認待ちで止まり、承認せずにマージすると failure で残る（.claude/rules/build.md）
+    paths-ignore:
+      - "docs/manual/img/**"
 
 permissions:
   contents: read
