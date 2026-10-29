@@ -21,6 +21,25 @@
 //! #265）がこれまでどおり動く。両方が動く環境で通知が二重にならないよう、mod は自分が
 //! 動いている目印（`agent_hook::MOD_ENV`）を立て、settings 側の hook はそれを見て黙る。
 //!
+//! ## `classic.*` だけが飛ばされる環境（#527）
+//!
+//! Claude Code の組み込みのプラグイン `cc-plugin-sec-default` は、管理設定のあるマシンと
+//! Team / Enterprise の組織で自動でいちばん外側に置かれ、`classic.*` のイベントを利用者の
+//! mod の下の段へ直接送る（`next.to`）。**そのとき mod は読み込まれていても `classic.*` の
+//! hook だけが呼ばれない**（`session.start` / `turn.*` / `session.*` は届く）。
+//!
+//! - 目印は `classic.SessionStart` で立てるので、飛ばされる環境では立たず、settings の hook が
+//!   入力待ちの知らせと申告を運ぶ。**目印を classic 以外のイベントへ移さないこと**: 移すと
+//!   settings の hook まで黙り、知らせが何も届かなくなる
+//! - セッションの開始は、ターンの始まりに id が変わっていれば報告する（`register.ts` の
+//!   `reportSessionIfChanged`。`session.start` は `/clear` と `/resume` のあとに来ないので使わない）。
+//!   classic から来た開始だけが `--classic` を持ち、フロントはそれが届かないターミナルで
+//!   settings の hook の登録を勧める（`useAgentRun` の `expectAgentReport`）
+//! - レートの報告は、記録の場所を拾えていなければ設定ディレクトリを mod が組み立てて渡す
+//!   （`register.ts` の `configDirOf`）
+//! - **許可待ちの即時の知らせ（`classic.PermissionRequest`）には代わりが無い。** settings の
+//!   `Notification` hook から約 6 秒遅れで届き、タブの状態は `waiting` にならない
+//!
 //! ## 届かないもの
 //!
 //! - **Pike の外で起動した claude**。環境変数を渡すのが PTY の spawn なので

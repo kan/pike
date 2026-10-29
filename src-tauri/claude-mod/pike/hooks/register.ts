@@ -45,6 +45,35 @@ type Pike = {
 let transcriptPath: string | undefined
 let lastUsageAt = 0
 
+/**
+ * 開始を報告したセッション id。ターンの始まりに今の id と比べ、変わっていれば報告し直す
+ * （`reportSessionIfChanged`、#527）。
+ */
+let reportedSession: string | undefined
+
+/**
+ * 記録の場所が分からないときの設定ディレクトリ（#527）。Claude Code の組み込みの
+ * `cc-plugin-sec-default` が外側にいると、この mod の `classic.*` は飛ばされ、
+ * `transcriptPath` を拾う機会が無い。**Claude Code と同じ規則で組み立てる**:
+ * `CLAUDE_CONFIG_DIR` があればそれ、無ければホームの `.claude`。
+ *
+ * ホームは、`HOME` が POSIX のパスならそれ（WSL・macOS。WSL では `WSLENV` で
+ * `USERPROFILE` が渡っていることがあるので、そちらを先に見ない）。そうでなければ
+ * Windows で動く claude なので `USERPROFILE`（Claude Code の `os.homedir()` と同じ）。
+ */
+let configDirCache: string | undefined
+
+async function configDirOf($: EngineInterface): Promise<string | undefined> {
+  if (configDirCache) return configDirCache
+  const explicit = await $.env.get('CLAUDE_CONFIG_DIR')
+  if (explicit) return (configDirCache = explicit)
+  const posixHome = await $.env.get('HOME')
+  const home = posixHome?.startsWith('/') ? posixHome : (await $.env.get('USERPROFILE')) || posixHome
+  if (!home) return undefined
+  const sep = home.includes('\\') ? '\\' : '/'
+  return (configDirCache = `${home.replace(/[\\/]+$/, '')}${sep}.claude`)
+}
+
 /** 読めた結果は覚える。どれも Pike が PTY の環境に置いた値で、セッションの途中で変わらない。 */
 let pikeCache: Pike | undefined
 
@@ -110,7 +139,28 @@ async function reportResumed($: EngineInterface): Promise<void> {
 async function reportRunning($: EngineInterface): Promise<void> {
   awaitingPermission = false
   const pike = await liveOf($)
-  if (pike) void enqueue(() => report($, pike, ['--state=running'], {}))
+  if (!pike) return
+  await reportSessionIfChanged($, pike)
+  void enqueue(() => report($, pike, ['--state=running'], {}))
+}
+
+/**
+ * **classic の `SessionStart` が飛ばされる環境のための開始の報告**（#527）。セッション id は
+ * 固定タブの再開に要るので、ターンの始まりに今の id が報告済みのものと違えば送る。
+ * `session.start` で送らないのは、`/clear` と `/resume` のあとに来ないため（古い id のまま
+ * 次のターンを迎え、捨てた会話をタブが再開することになる）。ターンの始まりは classic の
+ * `SessionStart` より後なので、classic が届く環境では id が一致して何も送らない。
+ */
+async function reportSessionIfChanged($: EngineInterface, pike: Pike): Promise<void> {
+  let id: string
+  try {
+    id = await $.session.id()
+  } catch {
+    return
+  }
+  if (id === reportedSession) return
+  reportedSession = id
+  void enqueue(() => report($, pike, ['--state=session', `--session=${id}`], {}))
 }
 
 /**
@@ -148,7 +198,9 @@ export const register: Register = (on) => {
     transcriptPath = e.transcript_path
     // 申告（stdin）と、このターミナルでセッションが始まったことを 1 回で渡す。
     // 配送が無い環境では申告だけ（フラグ無しが申告。`agent_hook.rs` の `run_hook`）。
-    const flags = pike.live ? ['--state=session', `--session=${e.session_id}`] : []
+    // `--classic` は classic の hook が届いている証拠（`agent_hook.rs` の `AgentState::classic`）。
+    if (pike.live) reportedSession = e.session_id
+    const flags = pike.live ? ['--state=session', `--session=${e.session_id}`, '--classic'] : []
     void enqueue(() => report($, pike, flags, { transcript_path: e.transcript_path, cwd: e.cwd }))
     return next(e)
   })
@@ -216,11 +268,18 @@ export const register: Register = (on) => {
     // 枠が動いたときは早めに、そうでなければ間隔を空けて送る（「まだこの値」という鮮度のため）。
     const since = Date.now() - lastUsageAt
     const due = since >= (e.changed.includes('rateLimits') ? USAGE_CHANGED_MS : USAGE_INTERVAL_MS)
-    if (due && transcriptPath && e.rateLimits.length > 0) {
+    if (due && e.rateLimits.length > 0) {
       const pike = await pikeOf($)
-      if (pike) {
+      // 記録の場所を拾えていればそれを渡す（Rust はそちらを優先する）。拾えていなければ
+      // 組み立てた設定ディレクトリを渡す（`configDirOf`）。
+      const where = !pike
+        ? undefined
+        : transcriptPath
+          ? { transcript_path: transcriptPath }
+          : { config_dir: await configDirOf($) }
+      if (pike && where && (where.transcript_path || where.config_dir)) {
         lastUsageAt = Date.now()
-        void report($, pike, ['--usage'], { transcript_path: transcriptPath, rate_limits: e.rateLimits })
+        void report($, pike, ['--usage'], { ...where, rate_limits: e.rateLimits })
       }
     }
     return next(e)

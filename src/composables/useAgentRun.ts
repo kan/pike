@@ -34,6 +34,8 @@ interface AgentStateReport {
   root: string | null
   /** `ended` のとき、利用者が自分で抜けたか。 */
   left: boolean
+  /** `session` のとき、mod の classic の `SessionStart` から来たか（Rust の `AgentState::classic`）。 */
+  classic: boolean
 }
 
 /**
@@ -44,9 +46,14 @@ interface AgentStateReport {
 const REPORT_GRACE_MS = 60_000
 
 /**
- * 状態の報告が 1 度でも届いたターミナル（pty id）。**`agentRun` の有無では代用できない**:
- * あちらはセッションが終われば下りるので、「報告が来てから終わった」と「一度も来て
- * いない」を見分けられない。
+ * mod の classic の `SessionStart` から報告が 1 度でも届いたターミナル（pty id）。
+ * **`agentRun` の有無では代用できない**: あちらはセッションが終われば下りるので、
+ * 「報告が来てから終わった」と「一度も来ていない」を見分けられない。
+ *
+ * **数えるのは classic から来た開始だけ**（#527）。Claude Code の組み込みの
+ * `cc-plugin-sec-default` が外側にいると mod の `classic.*` は飛ばされ、`session.start` や
+ * `turn.*` の報告だけが届く。入力待ちの知らせと申告は classic のイベントでしか取れないので、
+ * そこで「mod が動いている」と見なすと、`settings.json` の hook が要るのに勧めなくなる。
  */
 const reported = new Set<string>()
 
@@ -63,7 +70,7 @@ export async function initAgentRun() {
 }
 
 function applyState(report: AgentStateReport) {
-  reported.add(report.ptyId)
+  if (report.classic) reported.add(report.ptyId)
   const tabStore = useTabStore()
   const tab = tabStore.terminalByPty(report.ptyId)
   if (!tab) return

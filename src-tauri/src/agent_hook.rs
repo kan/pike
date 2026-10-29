@@ -136,6 +136,9 @@ const MAX_PATH_VALUE: usize = 1024;
 /// `StateKind::Ended` に添える、利用者が自分でセッションを抜けた印（`AgentState::left`）。
 const LEFT_FLAG: &str = "--left";
 
+/// `StateKind::Session` に添える、classic の `SessionStart` から送った印（`AgentState::classic`）。
+const CLASSIC_FLAG: &str = "--classic";
+
 /// 同梱の mod がそのセッションで動いている目印（mod が自分で立てる環境変数）。
 ///
 /// **`settings.json` の hook は、これが立っていれば何もしない。** mod と settings の hook は
@@ -336,6 +339,14 @@ pub struct AgentState {
     /// そのときも `session.end` は来る。そこで「このタブのセッションは終わった」と覚えると、
     /// 次の起動で再開する相手（タブに結び付けたセッション id）を自分で消すことになる。
     pub left: bool,
+    /// `Session` のとき、classic の `SessionStart` から送ったか（#527）。
+    ///
+    /// **mod の `classic.*` の hook が実際に呼ばれている証拠。** Claude Code の組み込みの
+    /// `cc-plugin-sec-default` が外側にいると、利用者の mod の `classic.*` は飛ばされ、
+    /// `session.start` や `turn.*` だけが届く。そのとき入力待ちの知らせと申告を運べるのは
+    /// `settings.json` の hook だけなので、フロントはこの印が来ないターミナルで hook の
+    /// 登録を勧める（`useAgentRun` の `expectAgentReport`）。
+    pub classic: bool,
 }
 
 fn store_path() -> Option<PathBuf> {
@@ -433,8 +444,10 @@ fn report_state(kind: StateKind) {
             flags.push(format!("{prefix}{value}"));
         }
     }
-    if std::env::args().any(|a| a == LEFT_FLAG) {
-        flags.push(LEFT_FLAG.to_owned());
+    for flag in [LEFT_FLAG, CLASSIC_FLAG] {
+        if std::env::args().any(|a| a == flag) {
+            flags.push(flag.to_owned());
+        }
     }
     send_to_running_pike(flags);
 }
@@ -500,6 +513,10 @@ const MAX_USAGE_ENTRIES: usize = 50;
 #[derive(Debug, Deserialize)]
 struct UsagePayload {
     transcript_path: Option<String>,
+    /// `transcript_path` が無いときの設定ディレクトリ（#527）。mod が classic のイベントを
+    /// 受けられない環境では記録の場所を知る手段が無いので、Claude Code と同じ規則
+    /// （`CLAUDE_CONFIG_DIR`、無ければホームの `.claude`）で mod が組み立てて渡す。
+    config_dir: Option<String>,
     #[serde(default)]
     rate_limits: Vec<ReportedWindow>,
 }
@@ -543,11 +560,7 @@ fn record_usage(text: &str) {
     let Ok(payload) = serde_json::from_str::<UsagePayload>(text) else {
         return;
     };
-    let Some(config_dir) = payload
-        .transcript_path
-        .as_deref()
-        .and_then(config_dir_from_transcript)
-    else {
+    let Some(config_dir) = usage_config_dir(&payload) else {
         return;
     };
     let Some(path) = usage_store_path() else {
@@ -681,6 +694,7 @@ fn parse_state(args: &[String]) -> Option<AgentState> {
         context: find_flag(args, CONTEXT_FLAG).and_then(|v| ContextUsage::parse(&v)),
         root: find_flag_within(args, ROOT_FLAG, MAX_PATH_VALUE),
         left: args.iter().any(|a| a == LEFT_FLAG),
+        classic: args.iter().any(|a| a == CLASSIC_FLAG),
     })
 }
 
@@ -754,6 +768,21 @@ fn config_dir_from_transcript(transcript: &str) -> Option<String> {
     }
     let dir = parent_dir_of(projects);
     (!dir.is_empty()).then(|| dir.to_owned())
+}
+
+/// レートの報告の設定ディレクトリ。**記録の場所があればそちらを採る**（実際に書いている
+/// 場所なので確か）。無いときだけ mod が組み立てた `config_dir` を使う（#527）。
+fn usage_config_dir(payload: &UsagePayload) -> Option<String> {
+    if let Some(dir) = payload
+        .transcript_path
+        .as_deref()
+        .and_then(config_dir_from_transcript)
+    {
+        return Some(dir);
+    }
+    // 記録の場所と違い、中身は環境変数の値そのもの。ファイルへ書くので丈だけは見る。
+    let dir = payload.config_dir.as_deref()?.trim_end_matches(['/', '\\']);
+    (!dir.is_empty() && safe_value(dir, MAX_PATH_VALUE)).then(|| dir.to_owned())
 }
 
 /// 申告を書き足す。同じ (agent, インストール, cwd) は差し替える。
@@ -1686,6 +1715,24 @@ mod tests {
         assert_eq!(config_dir_from_transcript("abc.jsonl"), None);
     }
 
+    /// レートの報告は記録の場所を優先し、無いときだけ mod が組み立てた場所を使う（#527）。
+    #[test]
+    fn picks_the_config_dir_of_a_usage_report() {
+        let dir = |text: &str| usage_config_dir(&serde_json::from_str(text).unwrap());
+        assert_eq!(
+            dir(r#"{"transcript_path":"/home/kan/.claude-ai/projects/x/a.jsonl","config_dir":"/home/kan/.claude"}"#)
+                .as_deref(),
+            Some("/home/kan/.claude-ai")
+        );
+        assert_eq!(
+            dir(r#"{"config_dir":"C:\\Users\\kanfu\\.claude\\"}"#).as_deref(),
+            Some(r"C:\Users\kanfu\.claude")
+        );
+        assert_eq!(dir(r#"{"config_dir":""}"#), None);
+        assert_eq!(dir(r#"{"config_dir":"/home/kan/a\nb"}"#), None);
+        assert_eq!(dir("{}"), None);
+    }
+
     /// 既存のキーを残したまま `hooks.SessionStart` に足す。2 回目は書かない。
     #[test]
     fn adds_the_hook_without_touching_the_rest() {
@@ -1906,6 +1953,20 @@ mod tests {
             "--agent=claude"
         ]));
         assert!(!ended(&["--state=ended", "--pty=abc", "--agent=claude"]));
+
+        // classic の `SessionStart` から来た開始だけが印を持つ（#527）。
+        let classic = |rest: &[&str]| parse_state(&args(rest)).unwrap().classic;
+        assert!(classic(&[
+            "--state=session",
+            "--classic",
+            "--pty=abc",
+            "--agent=claude"
+        ]));
+        assert!(!classic(&[
+            "--state=session",
+            "--pty=abc",
+            "--agent=claude"
+        ]));
 
         // 許可の確認は状態と知らせを別々の 1 通で送るので、状態の側に契機は付かない。
         let waiting =

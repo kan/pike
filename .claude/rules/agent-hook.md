@@ -34,11 +34,18 @@ Claude Code と mod を止めている環境、届かないもの）。ここに
 - **二重に知らせない仕組みは mod が立てる環境変数**（`agent_hook::MOD_ENV`。理由はあの
   定数の doc）。**Pike が PTY の環境に立てる形にしないこと**。WSL へ渡すには `WSLENV` にも
   並べる（`agent_mod::WSLENV_NAMES`）
+- **mod の `classic.*` だけが飛ばされる環境がある**（#527。Claude Code の組み込みの
+  `cc-plugin-sec-default`。扱いの正本は `agent_mod.rs` の doc の同名の節）。**`classic.*` でしか
+  取れないもの（目印・申告・入力待ちと完了の知らせ・許可待ち）を、classic 以外のイベントへ
+  移さないこと**: 目印まで移ると settings の hook が黙り、何も届かなくなる。classic 以外へ
+  足してよいのは、settings の hook が運ばないもの（開始の報告のセッション id、レートの報告）だけ
 - **settings の hook の登録は残す**（mod が動かない環境と、Pike の外で起動した claude のため）
   - **登録の提案は、mod が運ぶ環境では「動いていないと分かったとき」だけ**
     （`useAgentHookPrompt` の `modCarriesHooks`）。プロジェクトの切り替えでは聞かず、Pike が
     起動した claude から状態の報告が `REPORT_GRACE_MS` 届かなかったときに聞く
-    （`useAgentRun` の `expectAgentReport`）。**手で打った `claude` は見張れない**（いつ
+    （`useAgentRun` の `expectAgentReport`）。**数えるのは classic の `SessionStart` から来た
+    開始（`--classic`）だけ**: `session.start` や `turn.*` の報告で数えると、`classic.*` が
+    飛ばされて settings の hook が要る環境で勧めなくなる。**手で打った `claude` は見張れない**（いつ
     起動したかを Pike が知らない）。その場合の入口は設定画面
   - **Windows 以外は従来どおり切り替えで聞く。** 気付くための報告が WM_COPYDATA で届くので、
     他の OS では「報告が来ない」が何も意味しない
