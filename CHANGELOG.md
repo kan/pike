@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Features
+
+- **issue パネルで、指定したラベルの付いた issue を隠せるようにした**：既定では `on-hold` の issue を一覧に出しません。パネルのヘッダの目のボタンで表示を切り替えられ、隠しているあいだはツールチップに件数が出ます (#531)
+    - 隠すラベルは設定の「issue パネルで隠すラベル」で変えられます。ラベル名を入力して Enter で足し、× で外します。空にするとボタンも出なくなります。
+    - PR の一覧では隠しません。
+
 ### Changes
 
 - **GitHub のページを、ブラウザのタブで開くようにした**：issue パネルの「+」（新規 issue）、issue の簡易表示の右上のボタン、Git パネルとコミットタブの「GitHub で開く」、歯車メニューの「GitHub」が対象です。開いたページでそのまま作業を続けられ、ログインの状態もブラウザのタブに残ります (#530)

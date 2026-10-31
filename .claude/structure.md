@@ -187,6 +187,7 @@ pike/
 │   │   │   ├── SettingGroup.vue    # セクションの中の小見出し
 │   │   │   ├── SettingItem.vue     # 1 項目（名前と説明を i18n キーで受けて描く）
 │   │   │   ├── SettingToggle.vue   # 並んだボタンから 1 つ選ぶ（ON/OFF・3 択）
+│   │   │   ├── SettingTagList.vue  # 文字列を 1 つずつタグとして足し外しする欄（#531。issue パネルで隠すラベル）
 │   │   │   └── HighlightText.vue   # 絞り込みに一致した部分の強調
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）
@@ -281,6 +282,7 @@ pike/
 │   │   ├── shortcuts.ts     # ショートカットの割り当て表（#254。キーの正本）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
+│   │   ├── issueLabels.ts    # issue パネルで隠すラベルの検証と判定（#531。設定画面の欄は SettingTagList.vue）
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278。エディタのプレビューも使う、#482）
 │   │   ├── issuePrompt.ts    # エージェントに渡す issue の指示文（#336。注入とコピーで共有）
 │   │   ├── issueActions.ts   # issue パネルから PR のマージとクローズ・issue のクローズ（確認 → gh → 取り直し、#450）

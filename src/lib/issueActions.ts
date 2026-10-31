@@ -109,7 +109,8 @@ async function askClosePr(pr: IssueSummary): Promise<IssueAction | null> {
 
 async function askCloseIssue(issue: IssueSummary): Promise<IssueAction | null> {
   // 子が open のまま親を閉じても GitHub は止めないので、こちらも止めずに件数だけ言う。
-  // 数えるのは木に出ている子（輪の扱いを含めて `indexIssues` に任せる）。
+  // 数えるのは取ってきた一覧にいる子（輪の扱いを含めて `indexIssues` に任せる）。**隠すラベル
+  // （#531）でパネルから外した子も数える**: 見えていなくても open のまま残るので、知らせる意味がある。
   const issues = useIssuesStore().issues
   const { parentOf } = indexIssues(issues)
   const children = issues.filter((i) => parentOf(i) === issue.number).length

@@ -356,6 +356,11 @@ export default {
   'settings.dockerComposeConfirm': 'Confirm compose commands',
   'settings.dockerComposeConfirmHint':
     'When on, Pike asks before running docker compose up / down from the Docker panel. Checking "Don\'t ask again" in that dialog turns this off.',
+  'settings.issueHiddenLabels': 'Labels to hide in the issue panel',
+  'settings.issueHiddenLabelsHint':
+    'Issues with any of these labels are left out of the issue panel list. Type a label name and press Enter to add it; click × to remove one. The eye button in the panel header toggles them. Leave this empty to remove the button.',
+  'settings.issueHiddenLabelsPlaceholder': 'Type a label name and press Enter',
+  'settings.tagRemove': 'Remove {name}',
   'settings.worktreeLocation': 'Where to create worktrees',
   'settings.worktreeLocationHint':
     'A relative path is read from the repository root, an absolute path is a fixed location. ~ is your home directory and ${repoName} is replaced with the repository directory name. When empty, ../${repoName}.worktrees is used. This setting is not synced.',
@@ -1351,6 +1356,9 @@ export default {
   'issues.noMatch': 'No matching issues',
   'issues.viewTree': 'Tree view (click for flat)',
   'issues.viewFlat': 'Flat view (click for tree)',
+  'issues.hiddenLabelsHidden': 'Hiding issues labeled {labels} ({count}; click to show)',
+  'issues.hiddenLabelsShown': 'Showing issues labeled {labels} too (click to hide)',
+  'issues.onlyHidden': 'Only issues with hidden labels match. Use the eye button in the header to show them',
   'issues.expandAll': 'Expand all',
   'issues.collapseAll': 'Collapse all',
   'issues.newIssue': 'New issue (opens in a browser tab)',

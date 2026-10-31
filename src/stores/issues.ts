@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { infoDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
 import { buildRepoLink } from '../lib/gitRemote'
+import { hasHiddenLabel, hiddenLabelSet } from '../lib/issueLabels'
 import { buildIssueTree, issueParentNumbers } from '../lib/issueTree'
 import { fuzzyMatch } from '../lib/paths'
 import { loadJson, saveJson } from '../lib/storage'
@@ -11,6 +12,7 @@ import type { IssueAction, IssueKind, IssueSummary } from '../types/issues'
 import type { ShellType } from '../types/tab'
 import { useGitStore } from './git'
 import { useProjectStore } from './project'
+import { useSettingsStore } from './settings'
 import { createShellProbe } from './shellProbe'
 
 /**
@@ -31,6 +33,13 @@ const VIEW_KEY = 'pike:issues-view'
 
 /** issue と PR のどちらを出すか（#413）。`VIEW_KEY` と同じくマシンローカルの好み。 */
 const KIND_KEY = 'pike:issues-kind'
+
+/**
+ * 隠すラベル（#531）の付いた issue を出すか。`VIEW_KEY` と同じくマシンローカルの好みで、
+ * 既定は出さない。**どのラベルを隠すかは設定（`issueHiddenLabels`、同期の対象）**で、
+ * ここはパネルでの一時的な見せ方だけ。
+ */
+const SHOW_HIDDEN_KEY = 'pike:issues-show-hidden'
 
 export type IssueView = 'tree' | 'flat'
 
@@ -87,6 +96,8 @@ export const useIssuesStore = defineStore('issues', () => {
   const filter = ref('')
 
   const view = ref<IssueView>(loadJson<IssueView>(VIEW_KEY, 'tree') === 'flat' ? 'flat' : 'tree')
+
+  const showHidden = ref(loadJson<boolean>(SHOW_HIDDEN_KEY, false) === true)
 
   /**
    * 畳んである親の番号。**永続化しない**: issue の番号は増え続けるので覚えると死んだ番号が
@@ -169,6 +180,32 @@ export const useIssuesStore = defineStore('issues', () => {
   const treeView = computed(() => kind.value === 'issue' && view.value === 'tree')
 
   /**
+   * 隠すラベル（#531）を使えるか。**issue のときだけ**（ラベルで寝かせる運用は issue のもの。
+   * PR の一覧は今までどおり全部出す）で、設定のラベルが空なら切り替えのボタンごと出さない。
+   */
+  const hiddenLabels = computed(() => hiddenLabelSet(useSettingsStore().issueHiddenLabels))
+  const hidingAvailable = computed(() => kind.value === 'issue' && hiddenLabels.value.size > 0)
+
+  /** 一覧を隠すラベルの有無で 1 回だけ振り分ける（件数と `listed` が同じ走査を共有する）。 */
+  const partition = computed(() => {
+    const shown: IssueSummary[] = []
+    const hidden: IssueSummary[] = []
+    if (!hidingAvailable.value) return { shown: issues.value, hidden }
+    for (const i of issues.value) (hasHiddenLabel(i.labels, hiddenLabels.value) ? hidden : shown).push(i)
+    return { shown, hidden }
+  })
+
+  /** 隠すラベルの付いた issue の数。切り替えのボタンのツールチップに出す。 */
+  const hiddenCount = computed(() => partition.value.hidden.length)
+
+  /**
+   * 木もフラットも、これを入力にする（`issues` を直に読まない）。**隠した issue は木からも抜く**:
+   * 子が残っていれば、親が一覧に居ない子と同じくトップレベルに出る（`buildIssueTree`）。
+   * 絞り込みの「一致した issue の祖先を残す」にも、隠した親は戻ってこない。
+   */
+  const listed = computed(() => (showHidden.value ? issues.value : partition.value.shown))
+
+  /**
    * 描く行。ツリーでは `parent` だけで組んで平らに落とし（`lib/issueTree.ts`）、フラットでは
    * 一致したものを取ってきた順（番号の降順。#357）に並べる。
    *
@@ -177,13 +214,22 @@ export const useIssuesStore = defineStore('issues', () => {
    */
   const rows = computed(() => {
     if (!treeView.value) {
-      return issues.value.filter(matcher.value).map((issue) => ({ issue, depth: 0, hasChildren: false }))
+      return listed.value.filter(matcher.value).map((issue) => ({ issue, depth: 0, hasChildren: false }))
     }
-    return buildIssueTree(issues.value, { matches: matcher.value, collapsed: collapsed.value })
+    return buildIssueTree(listed.value, { matches: matcher.value, collapsed: collapsed.value })
   })
 
+  /**
+   * 出す行が無いのは、隠したせいか。**絞り込みと組み合わせて見る**: 絞り込みに当たったのが
+   * 隠した issue だけのときも「一致しない」と言わない（目のボタンで出せることを伝える）。
+   * 空表示の判断はパネルが持つが、`listed` の条件はここにしか置かない。
+   */
+  const emptyBecauseHidden = computed(
+    () => !showHidden.value && rows.value.length === 0 && partition.value.hidden.some(matcher.value),
+  )
+
   /** 木の中で子を持つ親（全展開 / 全畳みの対象）。 */
-  const parentNumbers = computed(() => issueParentNumbers(issues.value))
+  const parentNumbers = computed(() => issueParentNumbers(listed.value))
 
   /**
    * 全展開 / 全畳みのボタンが次に何をするか（null＝畳める親が無いのでボタンを出さない）。
@@ -198,6 +244,11 @@ export const useIssuesStore = defineStore('issues', () => {
   function setView(next: IssueView) {
     view.value = next
     saveJson(VIEW_KEY, next)
+  }
+
+  function toggleShowHidden() {
+    showHidden.value = !showHidden.value
+    saveJson(SHOW_HIDDEN_KEY, showHidden.value)
   }
 
   /** 取得はパネルの watcher（`ensureLoaded`）に任せる。種類ごとに 1 回だけ取る。 */
@@ -379,6 +430,11 @@ export const useIssuesStore = defineStore('issues', () => {
     rows,
     view,
     setView,
+    showHidden,
+    toggleShowHidden,
+    hidingAvailable,
+    hiddenCount,
+    emptyBecauseHidden,
     treeView,
     kind,
     setKind,

@@ -128,7 +128,10 @@ const emptyMessage = computed(() => {
   // 失敗しているときは黙る。エラー帯の下に「open な issue はありません」を並べると、
   // その帯が防ぐはずだった「0 件との区別が付かない」に半分戻る。
   if (issuesStore.error) return null
-  return t(issuesStore.issues.length === 0 ? text.value.empty : text.value.noMatch)
+  if (issuesStore.issues.length === 0) return t(text.value.empty)
+  // 出せるのが隠すラベル（#531）の issue だけなら、「一致しない」とは言わない（ヘッダのボタンで出せる）。
+  if (issuesStore.emptyBecauseHidden) return t('issues.onlyHidden')
+  return t(text.value.noMatch)
 })
 
 /**

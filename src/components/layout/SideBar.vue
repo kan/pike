@@ -37,6 +37,8 @@ import {
   ChevronsUpDown,
   CircleAlert,
   Container,
+  Eye,
+  EyeOff,
   FilePlus,
   Files,
   FolderOpen,
@@ -172,6 +174,14 @@ const SYNC_MENUS: Record<SyncMenuKind, SyncAction[][]> = {
 }
 
 const syncGroups = computed(() => (syncMenu.value ? SYNC_MENUS[syncMenu.value.kind] : []))
+
+/** issue パネルの隠すラベル（#531）のボタンのツールチップ。対象のラベルと、隠している件数を出す。 */
+const hiddenLabelsTitle = computed(() => {
+  const labels = settingsStore.issueHiddenLabels.join(', ')
+  return issuesStore.showHidden
+    ? t('issues.hiddenLabelsShown', { labels })
+    : t('issues.hiddenLabelsHidden', { labels, count: String(issuesStore.hiddenCount) })
+})
 
 /** 「≡」は押し直すと閉じる（開く側は `mousedown.stop` で「外を押したら閉じる」を避けている）。 */
 function toggleMoreMenu(e: MouseEvent) {
@@ -689,6 +699,19 @@ onUnmounted(() => {
             >
               <ListTree v-if="issuesStore.view === 'tree'" :size="14" :stroke-width="2" />
               <List v-else :size="14" :stroke-width="2" />
+            </button>
+            <!-- 隠すラベル（#531）の issue を出すか。**塗るのは既定から外れた「表示している」とき**
+                 （利用者の判断。隠すのが既定なので、ふだんは塗らない）。設定のラベルが空なら出さない。 -->
+            <button
+              v-if="issuesStore.hidingAvailable"
+              class="header-btn"
+              :class="{ primary: issuesStore.showHidden }"
+              data-testid="issues-hidden-labels"
+              :title="hiddenLabelsTitle"
+              @click="issuesStore.toggleShowHidden()"
+            >
+              <EyeOff v-if="!issuesStore.showHidden" :size="14" :stroke-width="2" />
+              <Eye v-else :size="14" :stroke-width="2" />
             </button>
           </template>
           <!-- 今のブランチの run だけに絞る（#457）。絞っているあいだはボタンを塗る。 -->
