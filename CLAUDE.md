@@ -240,13 +240,18 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
    - 本文に `Closes #<番号>` を書く
    - **ラベルは issue に合わせて `enhancement`（機能）か `bug`（修正）を付ける。** tagpr は `enhancement` の付いた PR があれば次の版を minor に、無ければ patch にする（`.tagpr` の `minorLabels`）
    - **タイトルは squash したコミットの件名になる**ので、今までのコミットと同じ `feat(git): ...` の形で書く（GitHub が末尾に `(#PR 番号)` を足す）
-5. CI が通ったら、**ユーザーの承認を得てから** `gh pr merge <番号> --squash --delete-branch` でマージする（コミットの承認とは別に聞く）。マージしたら手元の main を `git pull --ff-only` で進める
-6. **外部からの PR も来る**。取り込むときは通常のコミット前チェックと同じ扱いで、
+5. **Copilot のレビューを待ち、指摘を 1 件ずつ採否を決める**（main 向けの PR に自動で付く。リポジトリのルールセット「copilot review」。draft と push ごとの再レビューは対象外）。`/code-review` と同じ扱いで、`--fix` 相当の一括反映はしない
+   - 指摘は `gh api repos/kan/pike/pulls/<番号>/comments`（行への指摘）と `gh pr view <番号> --comments`（全体のコメント）で読む
+   - 採った指摘はそのブランチで直して push する。直したら `just check` を通し直す。**挙動が変わる修正なら、ユーザーの動作確認を取り直す**
+   - 採らなかった指摘には、理由をその指摘への返信で書く（`gh api -X POST repos/kan/pike/pulls/<番号>/comments/<id>/replies -f body=...`）。ユーザーへの報告にも理由を添えて並べる
+   - push しても再レビューは走らない。直したあとにもう一度見てほしいときは、PR の画面からレビューを頼み直すようユーザーに頼む
+6. CI が通り、Copilot の指摘を片付けたら、**ユーザーの承認を得てから** `gh pr merge <番号> --squash --delete-branch` でマージする（コミットの承認とは別に聞く）。マージしたら手元の main を `git pull --ff-only` で進める
+7. **外部からの PR も来る**。取り込むときは通常のコミット前チェックと同じ扱いで、
    `/simplify` → `/code-review medium` を回してからマージする。ロックファイルを共有する
    dependabot の PR は、1 件ずつマージするとリベース待ちが連鎖するので、ローカルの 1 本のブランチに
    まとめて取り込み、その PR をマージする（元の PR は依存が更新された時点で自動クローズされる）。
    クレジットは作り直さない（リリース PR が作り直す）
-7. **リリース依頼は end-to-end で Claude が実行する**（リリース PR のマージなどの個別確認は不要）。手順は `release` スキル。リリース PR（ブランチは `tagpr-from-v<前回の版>`）は tagpr が main の push のたびに作り直すので、手で作らない
+8. **リリース依頼は end-to-end で Claude が実行する**（リリース PR のマージなどの個別確認は不要）。手順は `release` スキル。リリース PR（ブランチは `tagpr-from-v<前回の版>`）は tagpr が main の push のたびに作り直すので、手で作らない
 
 ### CHANGELOG の書き方
 

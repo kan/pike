@@ -68,6 +68,11 @@ gh workflow run tagpr.yml --ref main
 Files changed が、5 つの版の表記（`tauri.conf.json` / `package.json` / `Cargo.toml` / 2 つの lockfile）、
 `src/assets/credits.json`、`CHANGELOG.md` の見出しだけであることを確かめる。
 
+**リリース PR にも Copilot のレビューが付く**（ルールセットの条件が PR の向き先でしか絞れず、
+元のブランチで外せないため）。差分は上の生成物だけで、コードの中身は機能の PR で見てあるので、
+指摘は読むだけにする。版の食い違いのような生成物の誤りを指していたら、手で直さずに原因
+（`scripts/release-prepare.mjs` か main の CHANGELOG）を直す PR を作る。
+
 ### 3. CHANGELOG の節を確かめる
 
 **この節がそのままリリースノートになる。** マージすると `draft` ジョブが `scripts/release-notes.mjs` で
