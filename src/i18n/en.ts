@@ -1353,7 +1353,7 @@ export default {
   'issues.viewFlat': 'Flat view (click for tree)',
   'issues.expandAll': 'Expand all',
   'issues.collapseAll': 'Collapse all',
-  'issues.newIssue': 'New issue (opens in browser)',
+  'issues.newIssue': 'New issue (opens in a browser tab)',
   'issues.openInBrowser': 'Open in external browser',
   'issues.openBrowserTab': 'Open in browser tab',
   'issues.openTab': 'Open in quick view',

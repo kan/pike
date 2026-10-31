@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changes
+
+- **GitHub のページを、ブラウザのタブで開くようにした**：issue パネルの「+」（新規 issue）、issue の簡易表示の右上のボタン、Git パネルとコミットタブの「GitHub で開く」、歯車メニューの「GitHub」が対象です。開いたページでそのまま作業を続けられ、ログインの状態もブラウザのタブに残ります (#530)
+    - 外部ブラウザで開きたいときは、issue パネルの右クリックの「外部ブラウザで開く」か、ブラウザのタブのツールバーのボタンを使います。
+    - Markdown のプレビューやターミナルに出たリンク、Docker のポートフォワードは、これまでどおり外部ブラウザで開きます。
+
 ## [0.68.0] - 2026-10-29
 
 ### Features

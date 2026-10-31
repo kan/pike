@@ -11,7 +11,6 @@ import { fileIconSvg } from '../../lib/fileIcons'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
 import { appendGitignoreLine, gitignoreEntry, hasGitignoreEntry } from '../../lib/gitignore'
 import { buildCommitLink } from '../../lib/gitRemote'
-import { openUrlWithConfirm } from '../../lib/openUrl'
 import { absoluteDate, basename, extension, gitStatusColor, isImageFile, mimeType, relativeDate } from '../../lib/paths'
 import { loadJson, saveJson } from '../../lib/storage'
 import {
@@ -385,10 +384,11 @@ async function ctxCreateBranch() {
   }
 }
 
-async function ctxOpenOnRemote() {
+/** リモートのコミットのページはブラウザのタブで開く（StatusBar のリポジトリリンクと同じ。#530） */
+function ctxOpenOnRemote() {
   const link = commitLink.value
   closeCommitCtx()
-  if (link) await openUrlWithConfirm(link.url)
+  if (link) tabStore.addBrowserTab(link.url)
 }
 
 // File context menu (shared between CHANGES, CONFLICTS and COMMITS)

@@ -4,7 +4,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from '../../i18n'
 import { type PatchFile, parsePatch, patchFilesByPath } from '../../lib/commitPatch'
 import { buildCommitLink } from '../../lib/gitRemote'
-import { openUrlWithConfirm } from '../../lib/openUrl'
 import { absoluteDate, relativeDate } from '../../lib/paths'
 import { gitCommitPatch } from '../../lib/tauri'
 import { useGitStore } from '../../stores/git'
@@ -163,7 +162,7 @@ onMounted(load)
         v-if="commitLink"
         class="tool-btn"
         :title="t('commitTab.openRemote', { label: commitLink.label })"
-        @click="openUrlWithConfirm(commitLink.url)"
+        @click="tabStore.addBrowserTab(commitLink.url)"
       >
         <ExternalLink :size="14" />
       </button>
