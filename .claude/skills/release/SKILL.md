@@ -132,8 +132,14 @@ CI が使えるようになってから撮り直す。
   ```
 
 - **リリース PR の run はボット（GITHUB_TOKEN）が作った PR なので、承認待ち（`action_required`）で止まる。**
-  リリース PR の画面の承認ボタンで走らせ、通ることを確かめる（承認しないと期限切れで赤い×が残る）。
-  API で承認できるかは未確認なので、初回はユーザーに承認を頼み、できた方法をここに書き足す
+  撮影のコミットにも run ができる。**今の head（手順 4 の画像のコミット）の 2 本（CI と Security Check）だけを
+  API で承認し**、通ることを確かめる。古い head の run は承認しなくてよい（マージ後の判定には使わない）:
+
+  ```bash
+  gh run list --branch <ブランチ> -L 4 --json databaseId,workflowName,conclusion,headSha
+  gh api -X POST repos/kan/pike/actions/runs/<id>/approve   # 2 本それぞれ
+  gh run watch <id> --exit-status
+  ```
 
 ### 6. リリース PR のマージ
 
@@ -193,7 +199,7 @@ done
 **5 つとも通ること。** とくに `.dmg` は staple で差し替えたあとのファイルなので、attest の位置が
 ずれると `.dmg` だけ落ちる（理由は `.claude/rules/build.md`）。1 つでも落ちたら公開せず、
 直してタグを打ち直す。Release は tagpr の run から reusable workflow として呼ばれるが、署名者は
-`release.yml` のまま（`build.md`。#529 の初回のリリースで確かめる）。
+`release.yml` のまま（`build.md`。source の ref はタグではなく `refs/heads/main` になる）。
 
 ### 8. リリースの公開
 
