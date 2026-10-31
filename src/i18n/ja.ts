@@ -1350,7 +1350,7 @@ export default {
   'issues.viewFlat': 'フラット表示（クリックでツリーへ）',
   'issues.expandAll': 'すべて展開',
   'issues.collapseAll': 'すべて畳む',
-  'issues.newIssue': 'issue を作成（ブラウザで開く）',
+  'issues.newIssue': 'issue を作成（ブラウザのタブで開く）',
   'issues.openInBrowser': '外部ブラウザで開く',
   'issues.openBrowserTab': 'ブラウザのタブで開く',
   'issues.openTab': '簡易表示で開く',

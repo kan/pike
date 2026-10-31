@@ -113,8 +113,9 @@ function labelStyle(color: string): Record<string, string> {
   return { background: bg, color: readableTextOn(bg) }
 }
 
+/** 簡易表示から GitHub のページへ移る。パネルの行のクリックと同じくブラウザのタブで開く（#530） */
 function openInBrowser() {
-  if (detail.value) void openUrlWithConfirm(detail.value.url)
+  if (detail.value) tabStore.addBrowserTab(detail.value.url)
 }
 
 /**
@@ -214,7 +215,7 @@ function sameRepoIssueNumber(href: string): number | null {
         <RefreshCw :size="14" :stroke-width="2" :class="{ spin: loading }" />
       </button>
       <!-- 書き込み（コメント・クローズ）は持たないので、ブラウザへ逃がす（#278）。 -->
-      <button class="tool-btn" :disabled="!detail" :title="t('issues.openInBrowser')" @click="openInBrowser">
+      <button class="tool-btn" :disabled="!detail" :title="t('issues.openBrowserTab')" @click="openInBrowser">
         <ExternalLink :size="14" :stroke-width="2" />
       </button>
     </div>

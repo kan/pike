@@ -62,7 +62,6 @@ import { useShortcutsModal } from '../../composables/useShortcutsModal'
 import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import { PIKE_REPO_URL } from '../../lib/manual'
-import { openUrlWithConfirm } from '../../lib/openUrl'
 import { useOverlay } from '../../lib/overlay'
 import { sideOf } from '../../lib/reorder'
 import { actionChord } from '../../lib/shortcuts'
@@ -248,9 +247,10 @@ function openManual() {
   tabStore.addManualTab()
 }
 
-async function openGitHub() {
+/** Pike のリポジトリはブラウザのタブで開く（About のリンクと同じ。#530） */
+function openGitHub() {
   closeGearMenu()
-  await openUrlWithConfirm(PIKE_REPO_URL)
+  tabStore.addBrowserTab(PIKE_REPO_URL)
 }
 
 async function checkUpdate() {
@@ -659,12 +659,13 @@ onUnmounted(() => {
             :title="searchStore.backendInfo?.version ?? ''"
           >{{ searchStore.backend ?? '...' }}</span>
           <template v-if="sidebar.activePanel === 'issues' && issuesStore.visible">
-            <!-- 作成は Pike の中で持たないので、ブラウザの新規 issue ページへ逃がす。 -->
+            <!-- 作成は Pike の中で持たないので、GitHub の新規 issue ページをブラウザのタブで開く
+                 （行のクリックと同じ。#530）。 -->
             <button
               v-if="issuesStore.newIssueUrl"
               class="header-btn"
               :title="t('issues.newIssue')"
-              @click="openUrlWithConfirm(issuesStore.newIssueUrl)"
+              @click="tabStore.addBrowserTab(issuesStore.newIssueUrl)"
             >
               <Plus :size="14" :stroke-width="2" />
             </button>
