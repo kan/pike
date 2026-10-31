@@ -12,6 +12,7 @@ import { EDITOR_THEMES } from '../../lib/editorThemes'
 import type { SqlDialect } from '../../lib/fileType'
 import { buildFontFamily, SYSTEM_UI_FONT } from '../../lib/fontDetection'
 import { isWindowsHost } from '../../lib/host'
+import { sanitizeLabelList } from '../../lib/issueLabels'
 import { absoluteDate } from '../../lib/paths'
 import { isPortable, portableBase } from '../../lib/portable'
 import { SHELL_KIND_ICONS } from '../../lib/shellIcons'
@@ -85,6 +86,7 @@ import UpdateControls from '../panels/UpdateControls.vue'
 import SettingGroup from '../settings/SettingGroup.vue'
 import SettingItem from '../settings/SettingItem.vue'
 import SettingSection from '../settings/SettingSection.vue'
+import SettingTagList from '../settings/SettingTagList.vue'
 import SettingToggle from '../settings/SettingToggle.vue'
 import WatcherNotice from '../WatcherNotice.vue'
 
@@ -814,6 +816,17 @@ const PREVIEW_LINES = [
         <!-- Docker パネルの compose 操作（#419）。確認ダイアログの「今後は確認しない」もここを書き換える。 -->
         <SettingItem label-key="settings.dockerComposeConfirm" hint-key="settings.dockerComposeConfirmHint">
           <SettingToggle v-model="settings.dockerComposeConfirm" :options="ON_OFF" />
+        </SettingItem>
+
+        <!-- issue パネルで隠すラベル（#531）。1 つずつタグとして足す（ラベル名は空白もカンマも
+             含みうるので、区切り文字で分けない）。空にするとパネルのボタンも消える。 -->
+        <SettingItem label-key="settings.issueHiddenLabels" hint-key="settings.issueHiddenLabelsHint" wide>
+          <SettingTagList
+            v-model="settings.issueHiddenLabels"
+            :normalize="sanitizeLabelList"
+            placeholder-key="settings.issueHiddenLabelsPlaceholder"
+            testid="settings-issue-hidden-labels"
+          />
         </SettingItem>
 
         <!-- worktree の作成先（#478）。マシンローカルで、Windows と WSL で欄を分ける（理由は

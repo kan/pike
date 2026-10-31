@@ -15,6 +15,7 @@ import { type SqlDialect, setSqlDialect } from '../lib/fileType'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
 import { hexToRgba, isWebUrl } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
+import { sanitizeLabelList } from '../lib/issueLabels'
 import { portableBase } from '../lib/portable'
 import { emptyProjectBase, isProjectPlatform, type ProjectBase, rootKey } from '../lib/projectPaths'
 import { moveByKey } from '../lib/reorder'
@@ -706,6 +707,12 @@ export interface PersistedSettings {
    */
   dockerComposeConfirm: boolean
   /**
+   * issue パネルで隠すラベル（#531）。どれか 1 つでも付いた issue は、パネルの切り替えを
+   * 「表示」にするまで一覧に出さない。空ならパネルに切り替えのボタンも出さない。
+   * **同期の対象**（好み）。既定は `on-hold`。検証と判定は `lib/issueLabels.ts`。
+   */
+  issueHiddenLabels: string[]
+  /**
    * ブラウザのタブで Jira（`*.atlassian.net`）を開いたとき、jirapp から写した拡張機能（列の色分け・
    * キーのコピー・再読み込みなど）を入れるか（#380）。**同期の対象**（好み）。既定はオン。
    */
@@ -957,6 +964,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     windowOpacity: clampSize(s.windowOpacity, WINDOW_OPACITY_MIN, WINDOW_OPACITY_MAX, d.windowOpacity),
     allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
     allowedUrlHosts: sanitizeHostList(s.allowedUrlHosts),
+    issueHiddenLabels: sanitizeLabelList(s.issueHiddenLabels),
     sidebarIcons: sanitizeSidebarIcons(s.sidebarIcons),
     browserBookmarks: sanitizeBookmarks(s.browserBookmarks),
     browserSiteRules: sanitizeSiteRules(s.browserSiteRules),
@@ -1294,6 +1302,7 @@ export function defaults(): PersistedSettings {
     // 何もしていない人に勝手に出ることはない。
     desktopNotify: true,
     dockerComposeConfirm: true,
+    issueHiddenLabels: ['on-hold'],
     browserJiraFeatures: true,
     // 移行の入力と、同期ファイルへの後方互換の書き出しにしか使わない（`PersistedSettings`）。
     agentProfiles: AGENTS.map((a) => ({ id: a.id })),
@@ -1390,6 +1399,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const agentNotifyIdle = ref(saved.agentNotifyIdle)
   const desktopNotify = ref(saved.desktopNotify)
   const dockerComposeConfirm = ref(saved.dockerComposeConfirm)
+  const issueHiddenLabels = ref<string[]>(saved.issueHiddenLabels)
   const browserJiraFeatures = ref(saved.browserJiraFeatures)
   const browserJiraColumnColors = ref<Record<string, string>>(saved.browserJiraColumnColors)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
@@ -1928,6 +1938,7 @@ export const useSettingsStore = defineStore('settings', () => {
       agentNotifyIdle: agentNotifyIdle.value,
       desktopNotify: desktopNotify.value,
       dockerComposeConfirm: dockerComposeConfirm.value,
+      issueHiddenLabels: issueHiddenLabels.value,
       browserJiraFeatures: browserJiraFeatures.value,
       // 古い版の Pike が読む形も併記する（理由は `PersistedSettings` の宣言の隣）。
       ...legacyAgentFields(agentLaunchers.value),
@@ -1991,6 +2002,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentNotifyIdle.value = s.agentNotifyIdle
     desktopNotify.value = s.desktopNotify
     dockerComposeConfirm.value = s.dockerComposeConfirm
+    issueHiddenLabels.value = s.issueHiddenLabels
     browserJiraFeatures.value = s.browserJiraFeatures
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
@@ -2119,6 +2131,7 @@ export const useSettingsStore = defineStore('settings', () => {
       agentNotifyIdle,
       desktopNotify,
       dockerComposeConfirm,
+      issueHiddenLabels,
       browserJiraFeatures,
     ],
     onSettingsChanged,
@@ -2209,6 +2222,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentNotifyIdle,
     desktopNotify,
     dockerComposeConfirm,
+    issueHiddenLabels,
     browserJiraFeatures,
     agentPrompts,
     allowedImageHosts,

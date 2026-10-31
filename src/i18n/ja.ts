@@ -356,6 +356,11 @@ export default {
   'settings.dockerComposeConfirm': 'compose の操作を確認',
   'settings.dockerComposeConfirmHint':
     'オンのとき、Docker パネルで docker compose up / down を実行する前に確認します。確認ダイアログで「今後は確認せずに実行する」を選ぶとオフになります。',
+  'settings.issueHiddenLabels': 'issue パネルで隠すラベル',
+  'settings.issueHiddenLabelsHint':
+    'ここに並べたラベルが付いた issue を、issue パネルの一覧に出しません。ラベル名を入力して Enter で足し、× で外します。パネルのヘッダの目のボタンで表示を切り替えられます。空にするとボタンも出ません。',
+  'settings.issueHiddenLabelsPlaceholder': 'ラベル名を入力して Enter',
+  'settings.tagRemove': '{name} を外す',
   'settings.worktreeLocation': 'worktree の作成先',
   'settings.worktreeLocationHint':
     '相対パスはリポジトリのルートから、絶対パスは固定の場所として読みます。~ はホームディレクトリ、${repoName} はリポジトリのディレクトリ名に置き換えます。空のときは ../${repoName}.worktrees です。この設定は同期しません。',
@@ -1348,6 +1353,9 @@ export default {
   'issues.noMatch': '一致する issue はありません',
   'issues.viewTree': 'ツリー表示（クリックでフラットへ）',
   'issues.viewFlat': 'フラット表示（クリックでツリーへ）',
+  'issues.hiddenLabelsHidden': '{labels} の issue を隠しています（{count} 件。クリックで表示）',
+  'issues.hiddenLabelsShown': '{labels} の issue も表示しています（クリックで隠す）',
+  'issues.onlyHidden': '当てはまるのは、隠すラベルの付いた issue だけです。ヘッダの目のボタンで表示できます',
   'issues.expandAll': 'すべて展開',
   'issues.collapseAll': 'すべて畳む',
   'issues.newIssue': 'issue を作成（ブラウザのタブで開く）',
