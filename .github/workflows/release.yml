@@ -1,9 +1,25 @@
 name: Release
 
+# 通常は tagpr のワークフローがリリース PR のマージ後に呼ぶ（`workflow_call`、#529）。
+# tagpr は GITHUB_TOKEN でタグを打つので、タグの push では起動しない（`push.tags` は置かない）。
+# 打ってあるタグで丸ごとやり直すとき・手でタグを打ち直したときは `workflow_dispatch` で起動する。
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
+    inputs:
+      tag:
+        description: リリースするタグ（vX.Y.Z）
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: リリースするタグ（vX.Y.Z）
+        type: string
+        required: true
+
+# タグはここから取る。`github.ref_name` は呼び出し元のブランチ（main）なので使わない
+env:
+  TAG: ${{ inputs.tag }}
 
 jobs:
   # ドラフトは先に 1 つだけ作り、両 OS のビルドにその ID を渡す（#505。並列の 2 ジョブに
@@ -17,12 +33,13 @@ jobs:
       release-id: ${{ steps.draft.outputs.id }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
 
       - name: Create the draft
         id: draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           # 成果物の名前は tauri.conf.json の version から付くので、タグと食い違えば止める。
@@ -77,6 +94,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
 
       - uses: actions/setup-node@v7.1.0
         with:
@@ -146,7 +165,7 @@ jobs:
             echo "expected exactly one portable zip, found ${#zips[@]}: ${zips[*]-}" >&2
             exit 1
           fi
-          gh release upload "${{ github.ref_name }}" "${zips[0]}" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" "${zips[0]}" --clobber --repo "$GITHUB_REPOSITORY"
 
       # 来歴の証明（#468）。利用者が手でダウンロードするファイルだけを対象にする。
       # `.sig` と `latest.json` は付けない（updater の経路は minisign の検証で足りる）。
@@ -189,7 +208,7 @@ jobs:
           xcrun stapler staple "$dmg"
           # 弾かれたら失敗させる（set -e）。ここを通れば配布物として問題ない。
           spctl -a -vvv -t open --context context:primary-signature "$dmg"
-          gh release upload "${{ github.ref_name }}" "$dmg" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" "$dmg" --clobber --repo "$GITHUB_REPOSITORY"
 
       # **必ず staple のあとに置く**（#468）。staple は `.dmg` にチケットを書き足すので
       # ダイジェストが変わる。前に置くと、差し替え前のファイルを証明することになり、
@@ -214,13 +233,14 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
 
       # Node はランナーに入っているもので足りる（組み込みのモジュールしか使わない）。
       - name: Build and upload latest.json
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ needs.draft.outputs.release-id }}
-          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           node scripts/updater-json.mjs "$RELEASE_ID" latest.json

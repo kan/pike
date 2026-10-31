@@ -134,7 +134,7 @@ pike/
 
 **日本語のユーザー向けドキュメントを更新・追加したら、コミット前に必ず校正する。**
 
-- 対象：`README.md` / `docs/manual/` 配下 / `CHANGELOG.md`（リリース時に足す新しいセクション）
+- 対象：`README.md` / `docs/manual/` 配下 / `CHANGELOG.md`（PR で `## [Unreleased]` に足す項目）
 - 対象外：`CLAUDE.md` と `e2e/README.md`（どちらも密な技術メモで、読み手が開発者）、英語で書く `SECURITY.md`
 
 1. **textlint（機械チェック）** を npx で実行し、**今回書いた箇所**の ai-writing 系の指摘を 0 にする（既存の指摘は 4 を参照）:
@@ -158,7 +158,7 @@ pike/
 
 4. **据え置いてよい指摘**:
    - `no-mix-dearu-desumasu`（本文の「です・ます」と箇条書き・表セルの体言止めの混在）と、列挙が主因の `sentence-length`。マニュアルとして自然なので無理に潰さない。
-   - **CHANGELOG の過去セクション**。出荷済みの記録なので、表記の一括正規化（全角コロンへの統一など）以外は書き換えない。校正するのはそのリリースで足す節だけ。
+   - **CHANGELOG の過去セクション**。出荷済みの記録なので、表記の一括正規化（全角コロンへの統一など）以外は書き換えない。校正するのはその PR で足す項目だけ。
    - 誤検出の常連が 2 つある。UI 名やエスケープシーケンスに出るリテラルの `?`（`no-exclamation-question-mark`）と、行を折り返した括弧（`no-unmatched-pair` が閉じ括弧を見失う）。
 
 5. **見出しを変更したら、ページ内アンカー（`](#...)`）との整合を確認する**。Pike のプレビューは見出しテキストを「小文字化＋`[^\p{L}\p{N}_\s-]` 除去＋空白→ハイフン」で slug 化して `id` を振る（`src/lib/slug.ts`）。アンカーはこの slug 規則に一致させる。
@@ -171,10 +171,9 @@ pike/
 |---|---|
 | 大規模（新しいモジュールや機構の追加、複数ファイルにまたがる構造の変更） | `/simplify` → `/code-review medium` → `just check` |
 | 中規模（既存の構造の中でのロジックの追加や変更） | `/code-review medium` → `just check` |
-| 小規模（数行の修正、定数や文言の変更、分岐が増えない修正） | `just check`（自明な 1 行修正などは直接コミットしてもよい） |
+| 小規模（数行の修正、定数や文言の変更、分岐が増えない修正） | `just check`（自明な 1 行修正も PR にする） |
 | ドキュメントのみ（`README.md` / `docs/manual/` / `CHANGELOG.md`） | 「ドキュメント校正ルール」の校正 ＋ `just check-docs` |
 | CLAUDE.md / `.claude/` 配下の md（rules・skills・structure.md）のみ | `/claude-api prompt-audit <変更したファイル>` ＋ `just check-docs`（開発者向けなので日本語校正の対象外） |
-| バージョン bump のみ | 何も要らない |
 
 スキルの使い方は、アカウント側の品質チェックのルール（config dir の rules にある quality-check）と同じにしてある。食い違いを見つけたら、アカウント側を正としてここを直す。
 
@@ -184,13 +183,12 @@ pike/
 - `/simplify` の書き換えと `/code-review` の指摘の反映はコードを変えるため、必ず**ユーザの動作確認より前**に済ませる（ユーザは適用後のコードを試す）。
 - どのスキルも Claude がスキルとして実行できる。ユーザーが自分でコマンドを打つこともある。
 
-その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 9 つで、CI（`ci.yml`）も同じレシピを呼ぶ:
+その上でコミット前に **`just check`** を実行し、エラー・警告がゼロであることを確認する。中身は次の 8 つで、CI（`ci.yml`）も同じレシピを呼ぶ（クレジットの照合 `just check-credits` は入れていない。一覧はリリース PR が作り直すので、依存を更新した PR では作り直さない。#529）:
 
 - **Frontend**: `just lint`（= `npm run lint` = `biome check src/ tests/`）
 - **TypeScript 型検査**: `just typecheck`（= `npx vue-tsc --noEmit`。`tsc` ではなく `vue-tsc` を使うこと — Vue SFC の型チェックに必要）
 - **ドキュメント整合**: `just check-docs`（= `node scripts/check-docs.mjs`）
 - **ショートカット照合**: `just check-shortcuts`（= `tsx scripts/check-shortcuts.ts`。マニュアルの早見表と実装の割り当てを突き合わせる。#280）
-- **クレジット照合**: `just check-credits`（= `node scripts/gen-credits.mjs --check`。About に出す依存のライセンス一覧 `src/assets/credits.json` が lockfile と合っているか。**依存を変えたら `just credits` で作り直して同じコミットに入れる**。#420）
 - **TS のテスト**: `just test-ts`（= `tsx --test tests/*.test.ts`。Node 標準の `node:test` で、フロントの純粋なロジックだけを見る。#403）
 - **Rust の整形**: `just fmt-check`（= `src-tauri/` で `cargo fmt --check`。設定は `src-tauri/rustfmt.toml`。整形するときは `just fmt`。#313）
 - **Rust**: `just clippy`（= `src-tauri/` で `cargo clippy --all-targets -- -D warnings`。`--all-targets` が無いと `#[cfg(test)]` の中だけ素通りする。追加の lint は `src-tauri/Cargo.toml` の `[lints.clippy]`、#382）
@@ -222,24 +220,40 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 | キーボードショートカット | `docs/manual/shortcuts-and-cli.md` と `components/KeyboardShortcuts.vue` の一覧 |
 | `pike` CLI の引数・サブコマンド | `docs/manual/shortcuts-and-cli.md` |
 | 非自明な実装判断・定数・落とし穴 | `.claude/rules/` の該当ファイル（全体像・運用に関わるものは CLAUDE.md。数値は出典のコードを併記して drift を防ぐ） |
+| 利用者に届く変更すべて（機能・修正・依存の更新） | `CHANGELOG.md` の `## [Unreleased]`（下の「CHANGELOG の書き方」） |
 
 後の棚卸しでまとめて直すと漏れる。**実装したコミットで一緒に直す。**
 
 **プラットフォームを増やす変更は、OS を限定した記述（「Windows 専用」など）を横断的に古くする。**
 そういう変更では `grep -rn Windows` で全ドキュメントを一度洗う。
 
-### コミット & push 運用ルール
-個人開発のため、自分の変更に PR は作らない。Claude が変更を加えた場合は以下のフローを厳守:
+### コミット & PR 運用ルール
 
-1. **コミット前に必ずユーザの動作確認 OK を取る** — `cargo clippy` / `biome` / `vue-tsc` が通っていてもコミットしてはいけない。ユーザは GUI 上で実際に挙動を試す必要があるため、Claude が「テスト通った」だけで自動コミットすると確認前に履歴が確定してしまう。「コミットしていい？」と聞くか、ユーザが明示的に「コミットして」と言うまで待つ
-2. **`main` ブランチに直接コミット**（feature ブランチや PR は作らない）
-3. **`git push` は実行しない** — push の判断はユーザに委ねる（ユーザはローカル確認後に自分で push する運用）。**例外はリリース依頼時**（次項 5）
-4. ユーザから明示的に「PR にして」「ブランチ切って」等の指示があった場合のみ、その指示に従う
-   - **外部からの PR も来る**。取り込むときは通常のコミット前チェックと同じ扱いで、
-     `/simplify` → `/code-review medium` を回してから main へマージする。ロックファイルを共有する
-     dependabot の PR は、1 件ずつマージするとリベース待ちが連鎖するので、ローカルでまとめて
-     取り込んで push する（PR は依存が更新された時点で自動クローズされる）
-5. **リリース依頼は end-to-end で Claude が実行する**（push の個別確認は不要）。手順は `release` スキル
+**変更は issue ごとにブランチを切り、PR を作ってマージする**（#529）。**この repo はアカウント共通の
+ルールにある「GitHub の個人の repo は PR 運用なし」の例外**で、こちらを優先する。**main へ直接
+コミットも push もしない。** Claude が変更を加えた場合は以下のフローを厳守:
+
+1. 作業前に対象 issue を確認し、最新の main から `feature/<issue 番号>-<短い名前>`（バグ修正は `fix/`）のブランチを切る。issue の無い変更は、先に issue を立てるかをユーザーに確認する
+2. 利用者に届く変更は、同じブランチで `CHANGELOG.md` の `## [Unreleased]` に項目を足す（下の「CHANGELOG の書き方」）
+3. **コミット前に必ずユーザの動作確認 OK を取る** — `cargo clippy` / `biome` / `vue-tsc` が通っていてもコミットしてはいけない。ユーザは GUI 上で実際に挙動を試す必要があるため、Claude が「テスト通った」だけで自動コミットすると確認前に履歴が確定してしまう。「コミットしていい？」と聞くか、ユーザが明示的に「コミットして」と言うまで待つ
+4. コミットの承認を得たら、コミット → ブランチの push → `gh pr create` までを続けて行う（承認はこの 3 つをまとめて指す）
+   - 本文に `Closes #<番号>` を書く
+   - **ラベルは issue に合わせて `enhancement`（機能）か `bug`（修正）を付ける。** tagpr は `enhancement` の付いた PR があれば次の版を minor に、無ければ patch にする（`.tagpr` の `minorLabels`）
+   - **タイトルは squash したコミットの件名になる**ので、今までのコミットと同じ `feat(git): ...` の形で書く（GitHub が末尾に `(#PR 番号)` を足す）
+5. CI が通ったら、**ユーザーの承認を得てから** `gh pr merge <番号> --squash --delete-branch` でマージする（コミットの承認とは別に聞く）。マージしたら手元の main を `git pull --ff-only` で進める
+6. **外部からの PR も来る**。取り込むときは通常のコミット前チェックと同じ扱いで、
+   `/simplify` → `/code-review medium` を回してからマージする。ロックファイルを共有する
+   dependabot の PR は、1 件ずつマージするとリベース待ちが連鎖するので、ローカルの 1 本のブランチに
+   まとめて取り込み、その PR をマージする（元の PR は依存が更新された時点で自動クローズされる）。
+   クレジットは作り直さない（リリース PR が作り直す）
+7. **リリース依頼は end-to-end で Claude が実行する**（リリース PR のマージなどの個別確認は不要）。手順は `release` スキル。リリース PR（ブランチは `tagpr-from-v<前回の版>`）は tagpr が main の push のたびに作り直すので、手で作らない
+
+### CHANGELOG の書き方
+
+- **各 PR が `## [Unreleased]` の節に自分の項目を足す。** 節が無ければ、いちばん上の版の節の上に作る。中の小見出し（`### Features` / `### Bug Fixes` / `### Changes`）と項目の書式は過去の節に合わせ、末尾に issue 番号を `(#526)` の形で付ける
+- `## [Unreleased]` は常に 1 つ。**版と日付は書かない**。リリース PR で `scripts/release-prepare.mjs` が `## [X.Y.Z] - 日付` に書き換え、その節がリリースノートと `latest.json` の `notes` になる
+- `## [Unreleased]` が無いまま main が進むと、tagpr のワークフローのリリース PR の準備が失敗で終わる（リリースできない状態の印。利用者に届く PR が入れば解消する）
+- dependabot の取り込みは `### Changes` に「依存ライブラリを更新した（主なもの）」を 1 行足す
 
 ---
 
@@ -272,4 +286,4 @@ app_handle.emit("pty_output", PtyOutputPayload { id, data }).unwrap();
 ## リリース手順
 
 リリースを頼まれたら `release` スキル（`.claude/skills/release/SKILL.md`）の手順で進める。
-push・タグ・ドラフトの公開まで含めて Claude が実行する。
+tagpr が作るリリース PR の確認・撮影・マージから、ドラフトの公開までを Claude が実行する（#529）。

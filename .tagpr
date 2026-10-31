@@ -1,0 +1,16 @@
+# tagpr の設定（#529）。リリース PR を作り、マージされたらタグを打つ。
+# 流れは .claude/skills/release/SKILL.md、設計の理由は .claude/rules/build.md の「リリース PR（tagpr）」。
+[tagpr]
+	releaseBranch = main
+	vPrefix = true
+	# tagpr が書き換えるのは 1 ファイルだけにして、残りの版の表記と lockfile は
+	# postVersionCommand がそろえる。マージ後のタグもこのファイルの版から決まる
+	versionFile = src-tauri/tauri.conf.json
+	postVersionCommand = node scripts/release-prepare.mjs
+	# CHANGELOG は各 PR が `## [Unreleased]` に書く。tagpr の生成（PR タイトルの列挙）は使わない
+	changelog = false
+	# リリースは Release ワークフローの draft ジョブが作る。Immutable releases なので、
+	# tagpr が公開まで進めると成果物を足せなくなる
+	release = false
+	# 機能の PR は issue と同じ enhancement のラベルで minor に上げる。無ければ patch
+	minorLabels = enhancement

@@ -5,9 +5,6 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    # 画像だけの PR では run を作らない（理由は ci.yml の同じ箇所）
-    paths-ignore:
-      - "docs/manual/img/**"
   schedule:
     - cron: "0 9 * * 1" # Monday 9:00 UTC
 

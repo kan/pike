@@ -52,8 +52,9 @@ package-portable:
 
 # --- コミット前チェック ---
 
-# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / クレジット照合 / TS のテスト / 整形 / clippy / test）
-check: lint typecheck check-docs check-shortcuts check-credits test-ts fmt-check clippy test
+# コミット前チェック一式（lint / 型検査 / ドキュメント整合 / ショートカット照合 / TS のテスト / 整形 / clippy / test）。
+# クレジットの照合は入れない: リリース PR で作り直すので、依存を更新した main とは食い違ってよい（#529）
+check: lint typecheck check-docs check-shortcuts test-ts fmt-check clippy test
 
 # Biome（src/ と tests/）
 lint:
@@ -75,11 +76,12 @@ check-docs:
 check-shortcuts:
     npm run check:shortcuts
 
-# クレジット（src/assets/credits.json）が lockfile の依存と合っているか（#420。本文は読まない）
+# クレジット（src/assets/credits.json）が lockfile の依存と合っているか（#420。本文は読まない。
+# `just check` には入れていない。手で確かめたいとき用）
 check-credits:
     npm run check:credits
 
-# クレジットを作り直す（依存を変えたら。ライセンスの本文を取りにネットワークへ出ることがある）
+# クレジットを作り直す（ふだんはリリース PR が作り直す。ライセンスの本文を取りにネットワークへ出ることがある）
 credits:
     npm run credits
 
@@ -156,8 +158,6 @@ e2e-sync-check:
 
 # --- リリース ---
 
-# バージョンを上げる（3 ファイル + lockfile 2 つ）。CHANGELOG は手で書く
+# バージョンを上げる（3 ファイル + lockfile 2 つ）。ふだんはリリース PR が上げるので、手で使うのは試すときだけ（#529）
 bump VERSION:
     node scripts/bump-version.mjs {{VERSION}}
-    cd src-tauri && cargo check --quiet
-    npm install --package-lock-only
