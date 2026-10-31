@@ -1,0 +1,19 @@
+# GitHub の自動生成のリリースノートの設定。tagpr がリリース PR の本文に載せる「この版に入る PR の一覧」に
+# 使う（#529）。CHANGELOG とリリースノートの本文は CHANGELOG.md の節から作るので、ここでは決まらない。
+changelog:
+  exclude:
+    labels:
+      - tagpr
+  categories:
+    - title: Features
+      labels:
+        - enhancement
+    - title: Bug Fixes
+      labels:
+        - bug
+    - title: Dependencies
+      labels:
+        - dependencies
+    - title: Other Changes
+      labels:
+        - "*"

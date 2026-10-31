@@ -29,6 +29,10 @@ workflows:
         - 'actions/setup-node@v7.1.0'
         - 'dtolnay/rust-toolchain@master'
         - 'extractions/setup-just@v4.0.0'
+    '.github/workflows/tagpr.yml':
+        - 'actions/checkout@v7.0.1'
+        - 'actions/setup-node@v7.1.0'
+        - 'songmu/tagpr@v1.21.4'
 dependencies:
     'actions/attest@v4.2.2':
         ref: 'v4.2.2'
@@ -72,6 +76,11 @@ dependencies:
         repo_id: 258510356
         uses:
             - 'extractions/setup-crate@0551596312d4008a6dfbc4d3c38fa20eaef46d2d'
+    'songmu/tagpr@v1.21.4':
+        ref: 'v1.21.4'
+        commit: 'sha1-e1250d6c84e4425db82b5e90549d62dfe23e9ebe'
+        owner_id: 177122
+        repo_id: 524603982
     'swatinem/rust-cache@v2.9.3':
         ref: 'v2.9.3'
         commit: 'sha1-d1527c8f67ef9af357290475d4af4b0fab8f12e0'

@@ -1,0 +1,71 @@
+name: tagpr
+
+# リリース PR を作り、マージされたらタグを打ってリリースを走らせる（#529）。設定は `.tagpr`、
+# 手順は `release` スキル、設計の理由は `.claude/rules/build.md` の「リリース PR（tagpr）」。
+#
+# - main が進むたびに、bump・lockfile・CHANGELOG の見出し・クレジットを載せたリリース PR
+#   （ブランチ `tagpr-from-v<前回の版>`）を作り直す（`scripts/release-prepare.mjs`）
+# - リリース PR がマージされると、tagpr がタグを打ち、同じ run の `release` ジョブが
+#   Release ワークフローを呼ぶ。**GITHUB_TOKEN で打ったタグでは `on.push.tags` が起動しない**ので、
+#   タグの push には頼らない
+# - `workflow_dispatch` は、リリース PR にラベル（`tagpr:minor`）を付けたあとの作り直し用
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tagpr:
+    name: Prepare the release pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # tagpr どうしは並べない（同じリリース PR のブランチを作り直し合う）。止めもしない
+    # （タグを打った直後に止めると、成果物の無いタグが残る）。release ジョブは含めないので、
+    # ビルドの最中に来た push もリリース PR の作り直しを待たされない
+    concurrency:
+      group: tagpr
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    outputs:
+      tag: ${{ steps.tagpr.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: lts/*
+          cache: npm
+
+      # Rust はランナーに入っている stable を使う（`cargo update` と `cargo metadata` しか呼ばない）
+
+      # クレジットの作り直し（release-prepare.mjs）が node_modules のライセンスの本文を読む。
+      # **このジョブは書き込みの権限を持つので、依存のスクリプトを走らせない**（`--ignore-scripts`）。
+      # cargo の側も `cargo update` と `cargo metadata` だけで、build.rs は走らない
+      - name: Install frontend dependencies (no scripts)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - id: tagpr
+        uses: Songmu/tagpr@v1.21.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    name: Release
+    needs: tagpr
+    if: needs.tagpr.outputs.tag != ''
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tagpr.outputs.tag }}
+    secrets: inherit

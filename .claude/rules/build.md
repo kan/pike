@@ -21,7 +21,7 @@ paths:
 実体は `justfile`、`src-tauri/tauri*.conf.json`、`e2e/`、`scripts/`、`.github/workflows/`。
 
 ## タスクランナー（just、#231）
-- 開発タスクの入口は `justfile`。`just` でレシピ一覧、`just check` でコミット前チェック一式、`just bump X.Y.Z` でバージョン更新。CI の 3 ワークフローも同じレシピを呼ぶ（ステップは 1 レシピずつに分けてあるので、どこで落ちたかがステップ名で分かる）
+- 開発タスクの入口は `justfile`。`just` でレシピ一覧、`just check` でコミット前チェック一式、`just bump X.Y.Z` でバージョン更新（ふだんはリリース PR が上げるので、手で使うのは試すときだけ）。CI の 3 ワークフローも同じレシピを呼ぶ（ステップは 1 レシピずつに分けてあるので、どこで落ちたかがステップ名で分かる）
 - **レシピの実体は `package.json` の scripts に置いたまま**、just はその薄いファサードにしてある。tauri CLI や CI の慣習で npm 経由が要るもの（`npm run build` 等）を壊さないため。例外は `e2e-sync` 系で、こちらは `scripts/*.sh` を直接呼ぶ（理由は次の bullet）
 - **`set windows-shell := ["C:/Program Files/Git/bin/bash.exe", "-cu"]` が要る**。理由は 2 つで、(1) just の Windows 既定シェルは `sh -c` だが **`sh` はこのマシンの PATH に無い**（全レシピが即座に落ちる）、(2) PATH 上の `bash` は `C:\Windows\System32\bash.exe`＝**WSL ランチャ**で、そちらには Windows 側の node / tauri / ImageMagick が無い。Git Bash を指すと E2E の画像合成が使う `magick` も PATH で解決する
 - `cmd.exe /c` は候補から外した。**先頭が引用符の行を cmd が引用符ごと剥がす**ため、`"C:/Program Files/Git/bin/bash.exe" scripts/x.sh` が `'C:/Program' は…認識されていません` になる（実測）
@@ -37,8 +37,8 @@ paths:
   - 集める範囲は、リリースするターゲット（Windows x64 と macOS arm64）の通常の依存でたどれるクレート、package-lock.json の `dev` でないパッケージ、ripgrep。**build / dev の依存は含めない**（配布物に入らない）。ターゲットを増やしたら `RUST_TARGETS` も直す
   - 本文を同梱していないパッケージは SPDX の標準文で補う（`standard`、版を固定した `SPDX_TEXT` から取る）。ripgrep の本文も GitHub から取るので、**作り直しはネットワークに出る**。`--check` は名前と版の集合しか見ないので出ない
   - **フロントは `?url` で資産として出して、About を開いたときに `fetch` する。** `import` すると起動時のバンドルに約 1MB 乗るうえ、`resolveJsonModule` で vue-tsc が巨大な JSON の型を推論する
-- 依存を変えたら `just credits` で作り直して同じコミットに入れる。忘れると `just check-credits`（CI では Windows のジョブ）が落ちる
-- **dependabot の PR では、照合が落ちても job を失敗にしない**（`ci.yml` の `continue-on-error`。判定は PR の作者）。一覧は版まで持つので、配布物に入る依存の更新は patch でも必ず食い違い、dependabot は作り直せない。取り込むとき（ローカルでまとめて取り込む運用）に作り直し、main への push では今までどおり落とす
+- **一覧はリリース PR が作り直す**（#529。`scripts/release-prepare.mjs`。下の「リリース PR（tagpr）」）。依存を更新する PR では作り直さず、**`just check` と CI にも照合を入れない**（`just check-credits` は手で確かめるとき用に残してある）。一覧は版まで持つので、配布物に入る依存の更新は patch でも必ず食い違う
+  - 配布物はリリース PR をマージしたコミットから作るので、そこで作り直せば About と配布物の依存は合う。main の途中のコミットでは一覧が古くてよい
   - **CI が dependabot のブランチへ作り直した一覧を push する形は採らない**（人や bot が push したブランチは dependabot が rebase しなくなる）。照合を名前だけにする形も採らない（About に古い版が出たままになる）
 
 ## 開発ビルド
@@ -107,7 +107,7 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 ## E2E スクリーンショット自動化（#142）
 マニュアル画像（`docs/manual/img/`）の自動再撮影パイプライン。詳細・設計の正本は `e2e/README.md`。
 
-**リリース前の撮影は CI の `Screenshots` ワークフローで行う**（#506。下の「CI/CD」の `screenshots.yml`。手順は `release` スキルの手順 4）。撮影・同期・PR の作成までジョブが行う。下の 1〜4 は、手元で撮るとき（spec を書いている途中、CI が使えないとき）の手順。**ジョブが呼ぶのは 1〜2 と `just e2e-sync`（マニュアルとヒーローの 2 本）で、4 の目視確認は PR の画面で行う。**
+**リリース前の撮影は CI の `Screenshots` ワークフローで行う**（#506。下の「CI/CD」の `screenshots.yml`。手順は `release` スキル）。撮影・同期・リリース PR のブランチへのコミットまでジョブが行う。下の 1〜4 は、手元で撮るとき（spec を書いている途中、CI が使えないとき）の手順。**ジョブが呼ぶのは 1〜2 と `just e2e-sync`（マニュアルとヒーローの 2 本）で、4 の目視確認はリリース PR の画面で行う。**
 
 1. `just e2e-build`: 撮影用バイナリをビルド（`PIKE_E2E=1` + `--features e2e` + `tauri.e2e.conf.json`。identifier=`com.pike.e2e` で既存 Pike / dev 版と single-instance 衝突しない）
 2. `just e2e`: wdio 実行。`e2e/specs/*.ts` が ja/en × light/dark の 4 バリアントで `artifacts/screenshots/{画面}-{lang}-{theme}.png` に撮影（`artifacts/` は gitignore）。ウィンドウ寸法は 3 クラス: クローズアップ＝既定 1280×832（内枠 1266×796）、全体レイアウト系（layout.ts の `FULL`）＝1600×1000（内枠 1586×964）、**外枠付きヒーロー（`HERO` = `FULL` の 2 倍）＝3200×2000（内枠 3186×1964）**。内枠は CSS ピクセルで、**画像はそれに表示倍率 1.5 を掛けた大きさ**（クローズアップで 1899×1194 px）
@@ -140,7 +140,7 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   （`overview` と `hero-*` は `sync-hero-images.sh` の担当なので出てきてよい）
 - **待ち合わせに使うセレクタは `data-testid` を足す。** クラス名は見た目の都合で変わるが、
   testid は撮影のための契約として残る（例: `diagnostics-panel` / `git-operation`）
-- **画像には StatusBar のバージョンが写る**。`useUpdater` の `getVersion()` は `@tauri-apps/api` 経由で `tauri.conf.json` の version を読むため、`lib/tauri.ts` の invoke ラッパを通らず **E2E のモックでは差し替えられない**（`tauri.e2e.conf.json` で version を上書きするのは 2 箇所 bump の drift 要因なので採らない）。リリースに合わせて撮り直すときは **bump 済みのツリーで撮る**（bump → 撮影 → 同期 → タグ の順）
+- **画像には StatusBar のバージョンが写る**。`useUpdater` の `getVersion()` は `@tauri-apps/api` 経由で `tauri.conf.json` の version を読むため、`lib/tauri.ts` の invoke ラッパを通らず **E2E のモックでは差し替えられない**（`tauri.e2e.conf.json` で version を上書きするのは 2 箇所 bump の drift 要因なので採らない）。リリースに合わせて撮り直すときは **bump 済みのツリーで撮る**（bump 済みのリリース PR のブランチで撮影 → 同期 → マージでタグ の順）
 - ドロップダウンやトースト等、アニメーションを含む UI は**静止するまで待ってから撮る**（例: リモートブランチ取得中の `.spin-icon` が残ると実行ごとに回転角の差分が出る）。撮影に安定したセレクタが必要な場合は `data-testid` を足す（`worktree-selector` / `branch-selector`）
 - 撮影コードを本番ビルドに混入させない仕組み（`e2e` Cargo feature / vite define `__PIKE_E2E__` / `capabilities-runtime` の実行時登録）は `e2e/README.md` を参照
 
@@ -174,7 +174,8 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
   - **Windows だけが持つのは OS に依らない検査**（`just lint` / `fmt-check` / `check-docs` / `check-shortcuts` / `test-ts` / `build-web`）。2 回走らせても同じ結果にしかならない
   - **macOS 側は `just build-web-dist`（`vite build` だけ）→ `clippy` → `test`**。`generate_context!` が `dist/` を読むので Rust の検査にもフロントの成果物が要るが、型検査は Windows 側が済ませている
   - macOS ジョブを足した理由（`cfg` の向こう側が Windows のジョブからは 1 行も見えない）は `platform.md` の「キーボードショートカット」の末尾
-- `.github/workflows/release.yml`: タグ push (`v*`) で **3 段のジョブ**が走る（#505）。`draft`（ドラフトを 1 つ作る）→ `build`（Windows と macOS(arm64) の 2 ジョブを**並列に**。`tauri-action` が成果物と `.sig` をそのドラフトへ上げる）→ `updater-json`（`latest.json` を組み立てて上げる）
+- `.github/workflows/tagpr.yml`: main の push で tagpr がリリース PR を作り直し、リリース PR がマージされたらタグを打って `release.yml` を呼ぶ（#529。下の「リリース PR（tagpr）」）
+- `.github/workflows/release.yml`: **tagpr のワークフローから `workflow_call` で呼ばれ**、**3 段のジョブ**が走る（#505）。タグは入力の `tag` で受け取り、ワークフローの `env.TAG` に置く（手で起動するときは `workflow_dispatch` の `tag`。**`push.tags` は置かない**: tagpr のタグでは起動しないうえ、入口を増やすとタグの取り方が分かれる。`github.ref_name` は呼び出し元のブランチなので使わない。各ジョブの checkout もこのタグを明示する）。`draft`（ドラフトを 1 つ作る）→ `build`（Windows と macOS(arm64) の 2 ジョブを**並列に**。`tauri-action` が成果物と `.sig` をそのドラフトへ上げる）→ `updater-json`（`latest.json` を組み立てて上げる）
   - **Windows のジョブはポータブル版の zip も足す**（#451。tauri-action の直後に `just package-portable` → `gh release upload`）。インストーラと同じ `pike.exe` を固めるだけなので、ビルドは増えない。`latest.json` には載らない。詳細は `portable.md`
   - **macOS も updater の経路に載せる**（#283 の Developer ID 署名と公証が前提。未署名だと Gatekeeper に隔離される）
   - **ドラフトは `draft` ジョブが先に 1 つだけ作り、ID（`releaseId`）を両ビルドに渡す。** tauri-action に `tagName` でドラフトを探させると、並列の 2 ジョブがどちらも「無い」と見て 2 つ作りうる。`draft` はタグが `vX.Y.Z` の形でないときと、`tauri.conf.json` の version と食い違うときに止める（成果物の名前は version から付くので、食い違うと別の名前のファイルが上がる）
@@ -195,26 +196,19 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
     - **グロブが 1 件も当たらなくても、他が当たればステップは通る。** 取りこぼしは CI では分からないので、公開前に 5 つとも検証する手順が `release` スキルに入っている
     - `.app.tar.gz` は手元では `Pike.app.tar.gz` で、リリース上の名前は tauri-action が付ける。証明に載る名前は手元のものになるが、検証はダイジェストで行うので通る
     - **Immutable releases（リポジトリ設定）を有効にしてある**（#468。効くのは v0.62.1 より後のリリースで、今の状態は `gh api repos/kan/pike/immutable-releases` で分かる）。公開した時点で成果物とタグが不変になり、release attestation が自動で付く（`gh release verify`）。ドラフトに成果物を揃えてから公開する流れにそのまま乗るが、**公開後は成果物の差し替えもタグの打ち直しもできない**ので、公開前の確認が `release` スキルに入っている。リリースノートの本文とタイトルは公開後も編集できる
+    - **attestation の署名者は `release.yml` のまま**（`gh attestation verify --signer-workflow kan/pike/.github/workflows/release.yml` が通る）。reusable workflow で呼ばれても、証明書の Build Signer は呼ばれた側のワークフローになるため。一方で source の ref はタグではなく、呼び出し元の `refs/heads/main` になる。#529 の初回のリリースでこの 2 点を確かめる
     - **SLSA Build L3 は狙っていない。** ビルドを reusable workflow に切り出して、署名用の secrets と `contents: write` を持つジョブから分ける必要がある。今のビルドのジョブは署名用の secrets と `contents: write` を両方持っている
   - **署名と公証の資格情報は GitHub Secrets の `APPLE_*` 7 つ**（`APPLE_CERTIFICATE` / `APPLE_CERTIFICATE_PASSWORD` / `APPLE_SIGNING_IDENTITY` / `APPLE_TEAM_ID` / `APPLE_API_ISSUER` / `APPLE_API_KEY` / `APPLE_API_KEY_BASE64`）。**`notarytool` は鍵をファイルで受け取る**ので、`APPLE_API_KEY_BASE64` を書き出して `APPLE_API_KEY_PATH` を `GITHUB_ENV` 経由で渡す（`APPLE_API_KEY` は鍵そのものではなく Key ID）
   - **証明書を再発行するときは Developer Portal で G2 Sub-CA を選ぶ。** Xcode の「Manage Certificates → +」が作る Developer ID は G1 CA 由来で、G1 中間 CA 自身の失効日（2027-02-01）で頭打ちになる。G2 なら通常どおり 5 年
   - `macos-latest` は Apple Silicon なので**ホストのトリプルがそのまま `aarch64-apple-darwin`**。クロスビルドの指定は要らず、`just fetch-rg` も `rustc -vV` からその名前でサイドカーを取る。Intel 向けは配布しない
 - `.github/workflows/security.yml`: push/PR で `cargo audit` + `npm audit`、週次スケジュール実行
-- `.github/workflows/screenshots.yml`: **スクリーンショットを Windows ランナーで撮る**（#506。`workflow_dispatch` のみ。リリースの前に `release` スキルの手順 4 から起動する）。撮影の前提（`CAPTURE_ENV`）を揃えてから `just e2e-build` → `just e2e` を流し、画像をアーティファクト `screenshots` に上げる
-  - **`pr: true`（既定）なら `just e2e-sync` で同期し、差分があればブランチ `screenshots/vX.Y.Z` にコミットして PR を作る**（版は `tauri.conf.json`。撮り直したら同じブランチを force push して上書きし、PR は 1 つのまま）。差分が無ければ何もしない。マージは画像を PR の画面で確かめてから
-    - **main へ直接は書かない。** 画像の差分を GitHub の PR の画面で見比べられ、ボットのコミット（署名なし）を確かめずに main へ入れずに済む
-    - **リポジトリの設定「Allow GitHub Actions to create and approve pull requests」を有効にしてある**（PR を作るだけでも要る）。既定のトークンの権限は read のまま
-    - **書き込みの権限（`contents: write` / `pull-requests: write`）は PR を作るジョブ（`pull-request`、ubuntu）だけに付ける。** 撮影のジョブは依存（npm の postinstall、クレートの build.rs）とアプリを動かすので読み取りだけで走らせ（checkout も `persist-credentials: false`）、同期した `docs/manual/img/` をアーティファクト `manual-img` で渡す
-    - **画像だけの PR では CI と Security Check の run を作らない**（両ワークフローの `pull_request` の
-      `paths-ignore`）。ボット（GITHUB_TOKEN）が作った PR の run は承認待ち（`action_required`）で
-      止まり、承認せずにマージすると期限切れの `failure` になって PR に赤い×が残る（v0.66.0〜v0.68.0 で
-      実際に起きた。画面には「ワークフローファイルの問題」と出るが、run のページのエラーは
-      `required approval but was not approved before it expired`）。画像には CI の検査が要らないので、
-      承認して走らせる手順は足さない。**main に必須のステータスチェックを設定するなら、この除外と
-      噛み合わなくなる**（run が作られないチェックは待ちのまま残り、マージできない）
-    - **画像に写る版は、CI がチェックアウトした main の `tauri.conf.json` で決まる。** だから `release` スキルは bump の push（手順 5）を撮影（手順 4）より前に置き、画像の PR をマージしてからタグを打つ。**その版のタグが既にあれば `pr: true` は撮る前に止める**（bump 前の main を撮ると、前の版の画像で PR ができる）。bump の push から PR のマージまで、main は「新しい版の番号に古い画像」になるが許容している
-    - **`pr` は main から起動し、`any_env` と同時には使えない**（PR の base は main なので、他の ref から起動するとその ref の未マージのコミットが混ざる。前提の外れた画像は PR にしない）
-    - **続けて起動したら前の run を止める**（`concurrency`。同じブランチへ force push し合い、PR が 2 つできうる）
+- `.github/workflows/screenshots.yml`: **スクリーンショットを Windows ランナーで撮る**（#506。`workflow_dispatch` のみ。リリースの前に `release` スキルの手順から、リリース PR のブランチを ref にして起動する）。撮影の前提（`CAPTURE_ENV`）を揃えてから `just e2e-build` → `just e2e` を流し、画像をアーティファクト `screenshots` に上げる
+  - **`commit: true`（既定）なら `just e2e-sync` で同期し、差分があれば起動したブランチ（リリース PR の `tagpr-from-v<前回の版>`）へコミットを 1 つ積む**（#529）。差分が無ければ何もしない。画像はリリース PR の画面で確かめる
+    - **画像に写る版は、チェックアウトしたブランチの `tauri.conf.json` で決まる。** リリース PR のブランチは bump 済みなので、その版の画像になる。**`commit` はリリース PR のブランチからしか起動できず、`any_env` と同時には使えない**（main はリリース PR のマージまで前の版のまま。前提の外れた画像は積まない）。**その版のタグが既にあれば撮る前に止める**（マージ済みのブランチを撮ろうとしている）
+    - **tagpr は PR を作り直すときもこのコミットを引き継ぐ**（リリース PR のブランチに積んだ手のコミットを、作り直したブランチに載せ直す）。main の変更で UI が変わったら撮り直す
+    - **コミットは撮影したコミット（`github.sha`）の上に作って push する。** 撮影の 12 分のあいだに tagpr がブランチを作り直していれば fast-forward にならずに落ちるので、起動し直す（古いツリーで撮った画像を新しいブランチに載せない）
+    - **書き込みの権限（`contents: write`）はコミットするジョブ（`commit`、ubuntu）だけに付ける。** 撮影のジョブは依存（npm の postinstall、クレートの build.rs）とアプリを動かすので読み取りだけで走らせ（checkout も `persist-credentials: false`）、同期した `docs/manual/img/` をアーティファクト `manual-img` で渡す
+    - **続けて起動したら前の run を止める**（`concurrency`。同じブランチへ画像のコミットを 2 つ積みうる）
     - **同期は `SYNC_STRICT=1` で回す**（`sync-*-images.sh` が撮影元の欠けで落ちる。欠けた画像は古いまま残り、PR の差分にも出ない）
     - ヒーロー画像の枠の合成に ImageMagick が要るので、**公式の portable 版を版を固定して落とす**（ワークフローの `IMAGEMAGICK_VERSION`）。同期は合成結果をバイト単位で比べるので、版が変わると見た目が同じでもヒーロー 6 枚が差分になる
   - **ランナーは英語版の Windows で画面は 100%**。**表示倍率は撮影用ビルドが自分で 1.5 に固定する**（`tauri.e2e.conf.json` の main ウィンドウの `additionalBrowserArgs` に `--force-device-scale-factor=1.5`。手元の拡大率 150% と同じ値なので、手元の絵は変わらない）
@@ -231,6 +225,21 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
     - **Git の状態は `setFakeProject` が今のモックで取り直し、終わるまで待つ。** 擬似プロジェクトのルートは毎回同じなので、取り直しが起きないとステータスバーのブランチが空のまま写る（hero-editor で起きた）。`git_status` のモックは `setFakeProject` より前に置き、状態を直接差す（`setGitStatus`）ならその後に置く
   - **タイムゾーンを日本時間にする**（ランナーは UTC）。エージェントのメニューの相対日時（「昨日」）は日付の境目で変わる
 - `.github/dependabot.yml`: npm / Cargo / GitHub Actions の依存更新 PR を週次自動作成
+
+### リリース PR（tagpr、#529）
+- **リリースは [tagpr](https://github.com/Songmu/tagpr) のリリース PR をマージして始める。** main に push があるたびに `tagpr.yml` が、前のタグ以降の変更を載せたリリース PR を作り直す。**ブランチ名は `tagpr-from-v<前回の版>`**（v0.69.0 を出すリリース PR なら `tagpr-from-v0.68.0`。tagpr が今のタグから付ける）。マージすると、次の run がマージ後の main の先頭にタグを打ち、同じ run の `release` ジョブが `release.yml` を呼ぶ。設定は `.tagpr`、手順は `release` スキル
+- **リリース PR の中身は `scripts/release-prepare.mjs` がそろえる**（`.tagpr` の `postVersionCommand`）。tagpr が `versionFile` を書き換えた後に呼ばれ、残りの版の表記と 2 つの lockfile、CHANGELOG の見出し（`## [Unreleased]` → `## [X.Y.Z] - 日付`。日付は日本時間）、クレジットを作り直す。PR を作り直すたびに走るので、何度走っても同じ結果になるようにしてある
+  - **`versionFile` は `tauri.conf.json` の 1 つだけ。** tagpr はファイルの中の旧版の文字列を最初の 1 箇所だけ置き換えるので、依存の版を巻き込みうる `package.json` / `Cargo.toml` は、1 箇所だけ当たることを確かめる `bump-version.mjs` に任せる。**マージ後のタグもこのファイルの版から決まる**
+  - **lockfile はビルドせずに更新する**（`bump-version.mjs` が `cargo update --workspace` と `npm install --package-lock-only --ignore-scripts` を走らせる。どちらも pike 自身の版の行だけが変わることを確かめてある）。ランナーは ubuntu で、`cargo check` は webkit の開発パッケージが無いと通らない。`just bump` も同じスクリプトを呼ぶので、手で上げても同じ差分になる
+  - **コマンドが失敗しても tagpr はリリース PR を作り、ステップを失敗で終える。** `## [Unreleased]` が無いときもここで落ちるので、tagpr の run が赤ならリリース PR をマージしない
+- **版は PR のラベルで決まる。** マージ済みの PR に `enhancement` があれば minor（`.tagpr` の `minorLabels`）、無ければ patch。**版を変えたいときは `tauri.conf.json` を手で書き換えない**（残りのファイルがそろわない）。リリース PR に `tagpr:minor` を付けて `gh workflow run tagpr.yml` で作り直す
+- **CHANGELOG は tagpr に作らせない**（`changelog = false`）。tagpr の生成は PR タイトルを並べるだけなので、利用者向けの説明は各 PR が `## [Unreleased]` に書く（CLAUDE.md の「CHANGELOG の書き方」）。リリース PR の本文に出る PR の一覧は `.github/release.yml` の分類に従う
+- **GitHub のリリースも tagpr に作らせない**（`release = false`）。Immutable releases を有効にしてあるので、tagpr が公開すると成果物を足せなくなる。ドラフトは今までどおり `release.yml` の `draft` ジョブが作る
+- **トークンは GITHUB_TOKEN のまま**（GitHub App は作っていない）。GITHUB_TOKEN で打ったタグの push ではワークフローが起動しないので、`release.yml` を同じ run から `workflow_call` で呼ぶ。その代わり、**ボットが作ったリリース PR の CI と Security Check の run は承認待ち（`action_required`）で止まる。** リリース PR の画面で承認して走らせる。承認しないままだと期限切れの `failure` になる（画面には「ワークフローファイルの問題」と出るが、run のページのエラーは `required approval but was not approved before it expired`）
+- **tagpr のジョブは書き込みの権限（`contents` / `pull-requests`）を持つので、依存のコードを走らせない。** クレジットの作り直しに要る node_modules は `npm ci --ignore-scripts` で入れ、cargo は `cargo update` と `cargo metadata` だけで build.rs を走らせない
+- **`concurrency` は tagpr のジョブだけに付け、`cancel-in-progress: false`。** tagpr どうしが同じブランチを作り直し合わないように並べず、タグを打った直後に止めて成果物の無いタグを残さないように止めない。`release` ジョブは含めないので、ビルドの最中に来た push もリリース PR の作り直しを待たされない
+- **Rust のツールチェーンは入れない**（ランナーの stable を使う）。呼ぶのは `cargo update` と `cargo metadata` だけで、書き込みの権限を持つジョブに `@master` 参照の action を増やさない
+- **やり直し**: ビルドが落ちたら tagpr の run の落ちたジョブだけを再実行する（`gh run rerun <run-id> --failed`）。打ってあるタグで丸ごとやり直すなら `gh workflow run release.yml --ref main -f tag=vX.Y.Z`。コードを直してタグを打ち直すときは、直す PR をマージしてから手でタグを打って push し、同じく `workflow_dispatch` で起動する。タグを消したあいだに main が進むと、tagpr は前の版からの patch のリリース PR を作る。タグを打ち直したら、次の run が作り直す
 
 ### action の固定（workflow lockfile）
 - **action は `.github/workflows/actions.lock` でコミットに固定する**（GitHub Actions の workflow lockfile、public preview）。生成と更新は GitHub CLI の拡張 `gh actions-lock`（`gh extension install github/gh-actions-lock`）で行い、**手で編集しない**。推移的な依存（composite action が呼ぶ action。今は `extractions/setup-just` の中の `extractions/setup-crate`）と、参照先リポジトリの ID も記録される
