@@ -1,5 +1,6 @@
 import type { EditorView } from '@codemirror/view'
 import { shallowRef } from 'vue'
+import type { FileLinkMode } from '../lib/fileLink'
 
 export interface OutlineSource {
   tabId: string
@@ -25,6 +26,11 @@ export interface OutlineSource {
    * 持つので、`view` からは届かない。
    */
   toggleBlame: (kind: 'inline' | 'gutter') => void
+  /**
+   * カーソルの行（選択があればその範囲）をホスティングサービスで開く / リンクをコピーする
+   * （#540。パレットの入口）。押せるかの判定はタブが持つ（右クリックと同じ）。
+   */
+  shareFileLink: (mode: FileLinkMode) => void
   /** Bumped on every doc change. Watchers debounce on this. */
   version: number
 }

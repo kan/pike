@@ -61,6 +61,30 @@ export interface BlameCommit {
   uncommitted: boolean
 }
 
+/**
+ * エディタの行をホスティングサービスで開くための材料（#540。Rust の
+ * `git::file_link::FileLinkInfo`）。`path` が `null` なら HEAD のコミットに無いファイルで
+ * （未追跡・ステージしただけ・リポジトリの外）、他の欄は空。
+ */
+export interface FileLinkInfo {
+  /** リポジトリのトップからのパス（`/` 区切り）。 */
+  path: string | null
+  /** HEAD の完全な SHA。まだコミットが無ければ `null`。 */
+  head: string | null
+  /** HEAD のブランチ名。detached なら `null`。 */
+  branch: string | null
+  /** そのファイルが属するリポジトリの origin（サブモジュールなら親とは別）。 */
+  remoteUrl: string | null
+  /** HEAD がどこかのリモート追跡ブランチから辿れるか。 */
+  headPushed: boolean
+  /** `origin/<branch>` の SHA。無ければ `null`。 */
+  branchCommit: string | null
+  /** そのファイルが `origin/<branch>` にあるか。HEAD が push 済みなら見ない（`false`）。 */
+  branchHasFile: boolean
+  /** そのファイルに未コミットの変更があるか。 */
+  dirty: boolean
+}
+
 /** ファイル 1 つの blame（#510）。`lines[i]` は i+1 行目のコミットの `commits` での添字。 */
 export interface GitBlame {
   commits: BlameCommit[]

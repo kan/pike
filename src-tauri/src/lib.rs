@@ -2200,6 +2200,7 @@ pub fn run() {
             git::git_log_file_lines,
             git::git_show_commit,
             git::blame::git_blame,
+            git::file_link::git_file_link_info,
             git::git_diff_commit,
             git::git_commit_patch,
             git::git_working_patch,

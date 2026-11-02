@@ -53,6 +53,16 @@ export function terminalPlace(shellOverride?: ShellType): { cwd?: string; shell?
  *
  * ここに足したアクションは `KeyboardShortcuts.vue` とマニュアルにも反映する。
  */
+/**
+ * 今見えているエディタのカーソルの行をホスティングサービスで開く / リンクをコピーする（#540）。
+ * エディタのタブが前に無いときは、何も起きなかったと分かるように知らせる。
+ */
+function shareFileLinkOfEditor(mode: 'open' | 'copy') {
+  const src = useOutlineSource().current.value
+  if (src) src.shareFileLink(mode)
+  else useStatusMessageStore().show({ text: t('fileLink.unavailable'), variant: 'warn' })
+}
+
 export function useAppActions(): Record<AppActionId, () => void> & {
   /**
    * 新規ターミナル。**タブバーの「+」と ▾ もこれを通す**（`TabPane.vue`）。
@@ -300,6 +310,9 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     // blame（#510）。表示の上書きはタブが持つので、登録された切り替えを呼ぶだけ。
     blameInline: () => useOutlineSource().current.value?.toggleBlame('inline'),
     blameGutter: () => useOutlineSource().current.value?.toggleBlame('gutter'),
+    // ホスティングサービスで開く（#540）。段取りはタブの登録の先（`lib/fileLink.ts`）。
+    openFileOnRemote: () => shareFileLinkOfEditor('open'),
+    copyFileLink: () => shareFileLinkOfEditor('copy'),
     // macOS の ⌘Q。predefined の Quit と違い、走っているコマンドがあれば確認を挟む
     // （#178。閉じる経路と同じ確認で、ここだけ素通りすると全ウィンドウの PTY が黙って死ぬ）。
     quit: () => void confirmAndExit(),
