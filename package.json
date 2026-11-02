@@ -83,7 +83,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
-    "@tauri-apps/cli": "^2.12.3",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/mocha": "^10.0.10",
     "@vitejs/plugin-vue": "^6.0.10",
     "@wdio/cli": "^9.32.0",
