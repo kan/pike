@@ -189,6 +189,7 @@ pike/
 │   │   │   ├── SettingItem.vue     # 1 項目（名前と説明を i18n キーで受けて描く）
 │   │   │   ├── SettingToggle.vue   # 並んだボタンから 1 つ選ぶ（ON/OFF・3 択）
 │   │   │   ├── SettingTagList.vue  # 文字列を 1 つずつタグとして足し外しする欄（#531。issue パネルで隠すラベル）
+│   │   │   ├── ForgeHostList.vue   # 自前ホストの対応付けの欄（ホスト・サービス・web の URL・表示名を 1 行ずつ、#541）
 │   │   │   └── HighlightText.vue   # 絞り込みに一致した部分の強調
 │   │   └── tabs/
 │   │       ├── TerminalTab.vue    # xterm.js + PTY（autoStart 対応）

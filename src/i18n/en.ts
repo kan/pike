@@ -380,6 +380,19 @@ export default {
   'settings.issueHiddenLabelsHint':
     'Issues with any of these labels are left out of the issue panel list. Type a label name and press Enter to add it; click × to remove one. The eye button in the panel header toggles them. Leave this empty to remove the button.',
   'settings.issueHiddenLabelsPlaceholder': 'Type a label name and press Enter',
+  'settings.forgeHosts': 'Remote repository hosts',
+  'settings.forgeHostsHint':
+    'Tell Pike which service a host other than github.com is: GitHub Enterprise, a self-hosted GitLab, Bitbucket Data Center, and so on. SSH Host aliases (such as github.com-work) work too. Links (repository, commit, file lines) and the GitHub issue panel follow this mapping. Set the web URL when it differs from the host name or needs a port or path.',
+  'settings.forgeHostsHost': 'Host',
+  'settings.forgeHostsKind': 'Service',
+  'settings.forgeHostsWebBase': 'Web URL',
+  'settings.forgeHostsName': 'Display name',
+  'settings.forgeHostsHostPlaceholder': 'git.example.com',
+  'settings.forgeHostsWebBasePlaceholder': 'Defaults to https://<host>',
+  'settings.forgeHostsAdd': 'Add',
+  'settings.forgeHostsEmpty': 'The host cannot be empty. Use the trash button to remove a row.',
+  'settings.forgeHostsDuplicate': 'That host is already listed.',
+  'settings.forgeHostsBadWebBase': 'The web URL must start with https:// or http://.',
   'settings.tagRemove': 'Remove {name}',
   'settings.worktreeLocation': 'Where to create worktrees',
   'settings.worktreeLocationHint':

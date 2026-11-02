@@ -381,6 +381,19 @@ export default {
   'settings.issueHiddenLabelsHint':
     'ここに並べたラベルが付いた issue を、issue パネルの一覧に出しません。ラベル名を入力して Enter で足し、× で外します。パネルのヘッダの目のボタンで表示を切り替えられます。空にするとボタンも出ません。',
   'settings.issueHiddenLabelsPlaceholder': 'ラベル名を入力して Enter',
+  'settings.forgeHosts': 'リモートリポジトリのホスト',
+  'settings.forgeHostsHint':
+    'GitHub Enterprise・自前の GitLab・Bitbucket Data Center など、github.com 以外のホストをどのサービスとして扱うかを書きます。SSH の Host 別名（github.com-work など）も書けます。リンク（リポジトリ・コミット・ファイルの行）と、GitHub の issue パネルがこの対応で動きます。web の URL は、ホスト名と違うときやポート・パスが要るときに書きます。',
+  'settings.forgeHostsHost': 'ホスト',
+  'settings.forgeHostsKind': 'サービス',
+  'settings.forgeHostsWebBase': 'web の URL',
+  'settings.forgeHostsName': '表示名',
+  'settings.forgeHostsHostPlaceholder': 'git.example.com',
+  'settings.forgeHostsWebBasePlaceholder': '省略時は https://<ホスト>',
+  'settings.forgeHostsAdd': '追加',
+  'settings.forgeHostsEmpty': 'ホストを空にはできません。行を外すときはゴミ箱を押してください。',
+  'settings.forgeHostsDuplicate': 'そのホストはもう書いてあります。',
+  'settings.forgeHostsBadWebBase': 'web の URL は https:// か http:// で始めてください。',
   'settings.tagRemove': '{name} を外す',
   'settings.worktreeLocation': 'worktree の作成先',
   'settings.worktreeLocationHint':

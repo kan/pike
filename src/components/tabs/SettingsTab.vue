@@ -83,6 +83,7 @@ import AllowedHostList from '../panels/AllowedHostList.vue'
 import ProfileRow from '../panels/ProfileRow.vue'
 import SiteRuleList from '../panels/SiteRuleList.vue'
 import UpdateControls from '../panels/UpdateControls.vue'
+import ForgeHostList from '../settings/ForgeHostList.vue'
 import SettingGroup from '../settings/SettingGroup.vue'
 import SettingItem from '../settings/SettingItem.vue'
 import SettingSection from '../settings/SettingSection.vue'
@@ -827,6 +828,12 @@ const PREVIEW_LINES = [
             placeholder-key="settings.issueHiddenLabelsPlaceholder"
             testid="settings-issue-hidden-labels"
           />
+        </SettingItem>
+
+        <!-- 自前ホストの対応付け（#541）。GitHub Enterprise・社内の GitLab・Bitbucket Data Center と、
+             SSH の Host 別名を、どのサービスとして扱うかを書く。同期の対象。 -->
+        <SettingItem label-key="settings.forgeHosts" hint-key="settings.forgeHostsHint" wide>
+          <ForgeHostList v-model="settings.forgeHosts" />
         </SettingItem>
 
         <!-- worktree の作成先（#478）。マシンローカルで、Windows と WSL で欄を分ける（理由は

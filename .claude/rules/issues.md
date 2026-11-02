@@ -23,6 +23,17 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
   サービスを足すときは表に 1 行足す
   - Codeberg は `gitea` の種類（Forgejo で、URL の形が Gitea と同じ）。表示名はホストの側
     （`KNOWN_HOSTS` の `label`）で「Codeberg」のまま
+- **自前ホストは設定 `forgeHosts` で対応付ける**（段階 2。同期の対象）。`parseForge` は設定の対応付け →
+  公開ホスト（`KNOWN_HOSTS`）の順で引く。**ホスト名から推測しない**（名前に `gitlab` が入っていても GitLab
+  とはみなさない）
+  - **値は設定ストアが `setForgeHosts` で流し込む**（`lib/fileType.ts` の SQL の方言と同じ形）。`lib/forge.ts`
+    はストアから import されるので、あちらからストアを読むと循環する。`shallowRef` なので、`parseForge` を
+    呼ぶ computed は対応付けが変わると組み直される
+  - **知らない種類は消さない**（`sanitizeForgeHosts`）。新しい版の Pike が足した種類を古い版が消すと、同期で
+    ほかのマシンの設定まで消える。引くときに無視する
+  - **SSH の Host 別名でも `--repo` は渡さない。** `gh` は `~/.ssh/config` の別名を自分で解決する
+    （go-gh の `ssh` パッケージ）。git がその別名で push できる時点で定義はある。Pike の対応付けが要るのは、
+    リンクの web の URL（`webBase`）とパネルを出すかの判定だけ
 - **issue / PR のパネルを持つのは、表の `issues` があるサービスだけ**（今は GitHub）。値は
   Rust の `issues::Forge` と同じ綴り（型は `types/issues.ts` の `IssueForge`）で、issue の 4 つの
   コマンド（`issues_list` / `issues_view` / `issues_merge_methods` / `issues_act`）がこれを受け取る

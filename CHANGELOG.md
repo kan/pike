@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- **GitHub Enterprise や自前の GitLab などのホストを、設定で対応付けられるようにした**：設定の「リモートリポジトリのホスト」に、ホストとサービスの種類を書きます。書いたホストのリポジトリでは、ステータスバーのリンクや「{サービス名} で開く」が使えます。GitHub にしたホストでは issue パネルも使えます (#541)
+    - SSH の Host 別名（`github.com-work` など）と、Bitbucket Data Center にも対応します。ブラウザで開くページの頭が違うときは、web の URL も書きます。
+
 - **エディタで右クリックした行を、GitHub などのファイルのページで開けるようにした**：右クリックのメニューに「GitHub で開く」と「GitHub のリンクをコピー」を足しました。開く先はブラウザのタブです。範囲を選択しているときはその範囲を指します。行番号の上で右クリックしても使え、パレットからも呼べます (#540)
     - 対応するのは GitHub / GitLab / Bitbucket / Codeberg です。項目の名前はプロジェクトの origin のサービスに合わせて変わります。
     - リンクは HEAD のコミットを指すので、ブランチが後で進んでも同じ行を指します。まだ push していないときは、リモートの同じ名前のブランチで開くかを尋ねます。
