@@ -1,8 +1,120 @@
 // ホスティングサービスの表（#541）と、そこから組む URL。`just test-ts` で走る（`tsx --test`、node:test）。
 // ファイルの行（#540）の期待値の形は issue #540 の表（Git Web Links の handler のテストケースが出典）。
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
-import { buildCommitLink, buildFileLink, type FileLinkTarget, parseForge } from '../src/lib/forge.ts'
+import { afterEach, describe, test } from 'node:test'
+import {
+  buildCommitLink,
+  buildFileLink,
+  type FileLinkTarget,
+  type ForgeHost,
+  normalizeForgeHost,
+  parseForge,
+  sanitizeForgeHosts,
+  setForgeHosts,
+} from '../src/lib/forge.ts'
+
+describe('forge host mapping (#541 stage 2)', () => {
+  const use = (hosts: unknown) => setForgeHosts(sanitizeForgeHosts(hosts))
+  afterEach(() => setForgeHosts([]))
+
+  test('GitHub Enterprise and GitLab on custom hosts', () => {
+    use([
+      { host: 'GHE.example.com', kind: 'github' },
+      { host: 'git.example.com', kind: 'gitlab', name: '社内 GitLab' },
+    ])
+    const ghe = parseForge('git@ghe.example.com:team/app.git')
+    assert.equal(ghe?.kind, 'github')
+    assert.equal(ghe?.baseUrl, 'https://ghe.example.com/team/app')
+    assert.equal(ghe?.issues, 'github')
+    const gl = parseForge('https://git.example.com/a/b/c.git')
+    assert.equal(gl?.label, '社内 GitLab')
+    assert.equal(gl?.baseUrl, 'https://git.example.com/a/b/c')
+    assert.equal(gl?.issues, null)
+  })
+
+  test('an SSH Host alias points at the real web host', () => {
+    use([{ host: 'github.com-work', kind: 'github', webBase: 'https://github.com/' }])
+    const f = parseForge('git@github.com-work:kan/pike.git')
+    assert.equal(f?.baseUrl, 'https://github.com/kan/pike')
+    assert.equal(f?.label, 'GitHub')
+  })
+
+  test('the mapping wins over the public table, and works with or without the port', () => {
+    use([{ host: 'git.example.com', kind: 'gitea', webBase: 'https://git.example.com:3000' }])
+    assert.equal(parseForge('ssh://git@git.example.com:2222/o/r.git')?.baseUrl, 'https://git.example.com:3000/o/r')
+    use([{ host: 'git.example.com:2222', kind: 'gitea' }])
+    assert.equal(parseForge('ssh://git@git.example.com:2222/o/r.git')?.baseUrl, 'https://git.example.com/o/r')
+  })
+
+  test('an exact host:port entry wins over a portless one listed first', () => {
+    use([
+      { host: 'git.example.com', kind: 'gitlab' },
+      { host: 'git.example.com:2222', kind: 'gitea' },
+    ])
+    assert.equal(parseForge('ssh://git@git.example.com:2222/o/r.git')?.kind, 'gitea')
+    assert.equal(parseForge('git@git.example.com:o/r.git')?.kind, 'gitlab')
+  })
+
+  test('an https remote keeps its scheme and port for the default web URL; ssh drops it', () => {
+    use([{ host: 'git.example.com', kind: 'gitlab' }])
+    assert.equal(parseForge('https://git.example.com:8443/o/r.git')?.baseUrl, 'https://git.example.com:8443/o/r')
+    assert.equal(parseForge('http://git.example.com/o/r.git')?.baseUrl, 'http://git.example.com/o/r')
+    assert.equal(parseForge('ssh://git@git.example.com:2222/o/r.git')?.baseUrl, 'https://git.example.com/o/r')
+  })
+
+  test('public hosts are found through a remote with an explicit port', () => {
+    assert.equal(parseForge('ssh://git@github.com:22/kan/pike.git')?.baseUrl, 'https://github.com/kan/pike')
+  })
+
+  test('a pasted remote URL or user@host is reduced to the host', () => {
+    assert.equal(normalizeForgeHost('git@GHE.example.com:team/app.git'), 'ghe.example.com')
+    assert.equal(normalizeForgeHost('https://user@ghe.example.com/team/app'), 'ghe.example.com')
+    assert.equal(normalizeForgeHost('ssh://git@bb.example.com:7999/proj/app.git'), 'bb.example.com:7999')
+    assert.equal(normalizeForgeHost('bad host'), '')
+  })
+
+  test('Bitbucket Data Center', () => {
+    use([{ host: 'bb.example.com', kind: 'bitbucket-dc', webBase: 'https://bb.example.com/bitbucket' }])
+    const ssh = parseForge('ssh://git@bb.example.com:7999/proj/app.git')
+    assert.equal(ssh?.baseUrl, 'https://bb.example.com/bitbucket/projects/proj/repos/app')
+    const http = parseForge('https://bb.example.com/bitbucket/scm/proj/app.git')
+    assert.equal(http?.baseUrl, 'https://bb.example.com/bitbucket/projects/proj/repos/app')
+    assert.equal(
+      parseForge('ssh://git@bb.example.com:7999/~kan/dots.git')?.baseUrl,
+      'https://bb.example.com/bitbucket/users/kan/repos/dots',
+    )
+    const remote = 'ssh://git@bb.example.com:7999/proj/app.git'
+    assert.equal(
+      buildCommitLink(remote, 'abc')?.url,
+      'https://bb.example.com/bitbucket/projects/proj/repos/app/commits/abc',
+    )
+    assert.equal(
+      buildFileLink(remote, { commit: 'abc', path: 'src/a b.ts', range: { start: 10, end: 30 }, markdown: false })?.url,
+      'https://bb.example.com/bitbucket/projects/proj/repos/app/browse/src/a%20b.ts?at=abc#10-30',
+    )
+    assert.equal(
+      buildFileLink(remote, { commit: 'abc', branch: 'feature/x', path: 'a.ts', range: null, markdown: false })?.url,
+      'https://bb.example.com/bitbucket/projects/proj/repos/app/browse/a.ts?at=refs%2Fheads%2Ffeature%2Fx',
+    )
+  })
+
+  test('sanitize keeps unknown kinds (from a newer Pike) but they are not used', () => {
+    const hosts: ForgeHost[] = sanitizeForgeHosts([
+      { host: ' A.example.com ', kind: 'azure' },
+      { host: 'a.example.com', kind: 'github' },
+      { host: '', kind: 'github' },
+      { host: 'bad host', kind: 'github' },
+      { host: 'b.example.com', kind: 'github', webBase: 'ftp://x', name: '  ' },
+      'junk',
+    ])
+    assert.deepEqual(hosts, [
+      { host: 'a.example.com', kind: 'azure' },
+      { host: 'b.example.com', kind: 'github' },
+    ])
+    setForgeHosts(hosts)
+    assert.equal(parseForge('git@a.example.com:o/r.git'), null)
+  })
+})
 
 describe('parseForge', () => {
   test('known hosts', () => {

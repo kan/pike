@@ -40,6 +40,16 @@
 - **ログイン時に起動**（Windows のみ）：ON/OFF（既定は OFF）。ON のとき、Windows へのサインインと同時に Pike を起動します。Windows の「設定 > アプリ > スタートアップ」にも Pike が並び、そちらで切り替えた状態もこの項目に反映されます。この設定はマシンごとで、設定の同期には含みません。
 - **compose の操作を確認**：ON/OFF（既定は ON）。Docker パネルで `docker compose up -d` / `docker compose down` を実行する前に確認します。確認ダイアログの **今後は確認せずに実行する** をチェックすると OFF になります。→ [パネル（Docker）](panels.md#docker)
 - **issue パネルで隠すラベル**：既定は `on-hold`。ここに並べたラベルが付いた issue を、issue パネルの一覧に出しません。ラベル名を入力して Enter で足し、× で外します。空にすると、パネルの表示を切り替えるボタンも出なくなります。→ [パネル（Issue）](panels.md#issuegithub)
+- **リモートリポジトリのホスト**：公開のホスト（github.com・gitlab.com・bitbucket.org・codeberg.org）以外を、どのサービスとして扱うかを書きます。対象は GitHub Enterprise、自前の GitLab、Bitbucket Data Center、Gitea / Forgejo です。SSH の Host 別名（`github.com-work` など）にも使えます。1 行に次の 4 つを書き、**追加** で足し、ゴミ箱で外します。対応を書いたホストでは、ステータスバーのリポジトリのリンクと「{サービス名} で開く」（コミットとエディタの行）が使えます。サービスを GitHub にしたホストでは、issue パネルも使えます（`gh` がそのホストにログインしている必要があります）。
+    - **ホスト**：remote の URL に出てくるホスト名です。ポートの有無は問いません。remote の URL をそのまま貼ると、ホスト名だけを取り出します
+    - **サービス**：GitHub / GitLab / Bitbucket / Bitbucket Data Center / Gitea から選びます
+    - **web の URL**：ブラウザで開くページの頭です。省くと `https://<ホスト名>` を使います（remote が https のときは、そのポートも使います）。次のときに書きます
+        - Host 別名のとき（`https://github.com` を書く）
+        - web のポートが SSH と違うとき
+        - コンテキストパスがあるとき（Bitbucket Data Center の `https://bitbucket.example.com/bitbucket` など）
+    - **表示名**：メニューに出す名前です。省くとサービスの名前を使います
+    - Host 別名の issue パネルは、`gh` が `~/.ssh/config` の定義から本当のホストを引いて動きます。別名を `Include` した別のファイルにだけ書いていると、`gh` の版によっては引けないことがあります
+    - この設定は設定の同期に含みます
 - **worktree の作成先**：Pike から作る worktree の置き場所です。Windows（macOS ではローカル）と WSL で別々に書きます。相対パスはリポジトリのルートから、絶対パスは固定の場所として読みます。`~` はホームディレクトリ、`${repoName}` はリポジトリのディレクトリ名に置き換えます。空のとき（既定）は `../${repoName}.worktrees`、つまりリポジトリの隣の `<リポジトリ名>.worktrees` です。複数のリポジトリで固定の場所を使うときは、`D:\worktrees\${repoName}` のように `${repoName}` を入れると名前がぶつかりません。この設定はマシンごとで、設定の同期には含みません。→ [worktree を作る](projects-and-windows.md#worktree-を作る)
 
 ## 外観

@@ -5,17 +5,22 @@
  * origin URL を host と repo パス（前後のスラッシュと `.git` を落としたもの）に割る。
  * ホストは問わない: サービスの判定はこの上の層（`forge.ts` の `parseForge`）の仕事で、
  * `normalizeRemoteUrl` は自前ホストにも答える必要がある。null は「remote URL に見えない」。
+ *
+ * `scheme` は URL の形の remote のスキーム（`https` / `ssh` など。SCP 形式なら無い）。web の URL を
+ * 推すのに使う（http(s) の remote ならそのポートで web も配っている、SSH のポートは web と別）。
  */
-export function splitRemote(url: string | null | undefined): { host: string; path: string } | null {
+export function splitRemote(url: string | null | undefined): { host: string; path: string; scheme?: string } | null {
   const raw = url?.trim()
   if (!raw) return null
   let host: string
   let path: string
+  let scheme: string | undefined
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
     try {
       const u = new URL(raw)
       host = u.host
       path = u.pathname
+      scheme = u.protocol.replace(/:$/, '').toLowerCase()
     } catch {
       return null
     }
@@ -30,7 +35,7 @@ export function splitRemote(url: string | null | undefined): { host: string; pat
   }
   const repo = path.replace(/^\/+|\/+$/g, '').replace(/\.git$/i, '')
   if (!host || !repo) return null
-  return { host, path: repo }
+  return scheme ? { host, path: repo, scheme } : { host, path: repo }
 }
 
 /**

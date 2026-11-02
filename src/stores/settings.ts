@@ -13,6 +13,7 @@ import {
 import { CSV_PAGE_SIZE_DEFAULT, CSV_PAGE_SIZES } from '../lib/csvPreview'
 import { type SqlDialect, setSqlDialect } from '../lib/fileType'
 import { buildFontFamily, buildUiFontFamily, extractFontName } from '../lib/fontDetection'
+import { type ForgeHost, sanitizeForgeHosts, setForgeHosts } from '../lib/forge'
 import { hexToRgba, isWebUrl } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
 import { sanitizeLabelList } from '../lib/issueLabels'
@@ -713,6 +714,12 @@ export interface PersistedSettings {
    */
   issueHiddenLabels: string[]
   /**
+   * 自前ホストの対応付け（#541）。remote のホスト → サービスの種類（と web の URL・表示名）。
+   * **同期の対象**（どのホストが何のサービスかはマシンに依存しない）。検証は `lib/forge.ts` の
+   * `sanitizeForgeHosts`、使うのは同じファイルの `parseForge`（`setForgeHosts` で流し込む）。
+   */
+  forgeHosts: ForgeHost[]
+  /**
    * ブラウザのタブで Jira（`*.atlassian.net`）を開いたとき、jirapp から写した拡張機能（列の色分け・
    * キーのコピー・再読み込みなど）を入れるか（#380）。**同期の対象**（好み）。既定はオン。
    */
@@ -965,6 +972,7 @@ function sanitize(raw: Partial<PersistedSettings>): PersistedSettings {
     allowedImageHosts: sanitizeHostList(s.allowedImageHosts),
     allowedUrlHosts: sanitizeHostList(s.allowedUrlHosts),
     issueHiddenLabels: sanitizeLabelList(s.issueHiddenLabels),
+    forgeHosts: sanitizeForgeHosts(s.forgeHosts),
     sidebarIcons: sanitizeSidebarIcons(s.sidebarIcons),
     browserBookmarks: sanitizeBookmarks(s.browserBookmarks),
     browserSiteRules: sanitizeSiteRules(s.browserSiteRules),
@@ -1303,6 +1311,7 @@ export function defaults(): PersistedSettings {
     desktopNotify: true,
     dockerComposeConfirm: true,
     issueHiddenLabels: ['on-hold'],
+    forgeHosts: [],
     browserJiraFeatures: true,
     // 移行の入力と、同期ファイルへの後方互換の書き出しにしか使わない（`PersistedSettings`）。
     agentProfiles: AGENTS.map((a) => ({ id: a.id })),
@@ -1400,6 +1409,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const desktopNotify = ref(saved.desktopNotify)
   const dockerComposeConfirm = ref(saved.dockerComposeConfirm)
   const issueHiddenLabels = ref<string[]>(saved.issueHiddenLabels)
+  // 自前ホストの対応付け（#541）。**配列ごと差し替える**（設定画面も `sanitizeForgeHosts` を通した
+  // 新しい配列を書く）ので、浅い watch で足りる。
+  const forgeHosts = ref<ForgeHost[]>(saved.forgeHosts)
   const browserJiraFeatures = ref(saved.browserJiraFeatures)
   const browserJiraColumnColors = ref<Record<string, string>>(saved.browserJiraColumnColors)
   const agentPrompts = ref<AgentPrompt[]>(saved.agentPrompts)
@@ -1939,6 +1951,7 @@ export const useSettingsStore = defineStore('settings', () => {
       desktopNotify: desktopNotify.value,
       dockerComposeConfirm: dockerComposeConfirm.value,
       issueHiddenLabels: issueHiddenLabels.value,
+      forgeHosts: forgeHosts.value,
       browserJiraFeatures: browserJiraFeatures.value,
       // 古い版の Pike が読む形も併記する（理由は `PersistedSettings` の宣言の隣）。
       ...legacyAgentFields(agentLaunchers.value),
@@ -2003,6 +2016,7 @@ export const useSettingsStore = defineStore('settings', () => {
     desktopNotify.value = s.desktopNotify
     dockerComposeConfirm.value = s.dockerComposeConfirm
     issueHiddenLabels.value = s.issueHiddenLabels
+    forgeHosts.value = s.forgeHosts
     browserJiraFeatures.value = s.browserJiraFeatures
     agentPrompts.value = s.agentPrompts
     allowedImageHosts.value = s.allowedImageHosts
@@ -2143,6 +2157,7 @@ export const useSettingsStore = defineStore('settings', () => {
   watch(agentPrompts, onSettingsChanged, { deep: true })
   watch(allowedImageHosts, onSettingsChanged)
   watch(allowedUrlHosts, onSettingsChanged)
+  watch(forgeHosts, onSettingsChanged)
   watch(sidebarIcons, onSettingsChanged)
   watch(browserBookmarks, onSettingsChanged)
   watch(browserSiteRules, onSettingsChanged, { deep: true })
@@ -2155,6 +2170,9 @@ export const useSettingsStore = defineStore('settings', () => {
   // 同じ理由で `lib/fileType.ts` にも流し込む（#358）。**`immediate` が要る**: 起動直後に
   // 揃わないと、復元したタブが最初の 1 回だけ標準 SQL で開く。
   watch(sqlDialect, (v) => setSqlDialect(v), { immediate: true })
+  // 自前ホストの対応付けも同じく流し込む（#541。`lib/forge.ts` はストアから import されるので、
+  // あちらからは読めない）。`immediate` が要る: 起動直後のステータスバーと issue パネルが使う。
+  watch(forgeHosts, (v) => setForgeHosts(v), { immediate: true })
   // `data-theme` は解決結果に、pin はモードに追従する（キーが違う理由は `applyThemePin`）。
   watch(darkMode, applyDarkMode, { immediate: true })
   watch(themeMode, applyThemePin, { immediate: true })
@@ -2223,6 +2241,7 @@ export const useSettingsStore = defineStore('settings', () => {
     desktopNotify,
     dockerComposeConfirm,
     issueHiddenLabels,
+    forgeHosts,
     browserJiraFeatures,
     agentPrompts,
     allowedImageHosts,
