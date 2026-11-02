@@ -44,16 +44,6 @@ export function terminalPlace(shellOverride?: ShellType): { cwd?: string; shell?
 }
 
 /**
- * ショートカットと macOS メニューが共有するアクション表（#254）。
- *
- * 同じ操作の入口が 2 つある（window の keydown と、ネイティブメニューの
- * menu event）。**実装をここに 1 本だけ置き**、両方はキー／メニュー id からこの
- * id への対応表だけを持つ。片方にしか無い動作が生まれると、macOS では
- * メニューが正・Windows ではキーが正、という食い違いになる。
- *
- * ここに足したアクションは `KeyboardShortcuts.vue` とマニュアルにも反映する。
- */
-/**
  * 今見えているエディタのカーソルの行をホスティングサービスで開く / リンクをコピーする（#540）。
  * エディタのタブが前に無いときは、何も起きなかったと分かるように知らせる。
  */
@@ -63,6 +53,16 @@ function shareFileLinkOfEditor(mode: 'open' | 'copy') {
   else useStatusMessageStore().show({ text: t('fileLink.unavailable'), variant: 'warn' })
 }
 
+/**
+ * ショートカットと macOS メニューが共有するアクション表（#254）。
+ *
+ * 同じ操作の入口が 2 つある（window の keydown と、ネイティブメニューの
+ * menu event）。**実装をここに 1 本だけ置き**、両方はキー／メニュー id からこの
+ * id への対応表だけを持つ。片方にしか無い動作が生まれると、macOS では
+ * メニューが正・Windows ではキーが正、という食い違いになる。
+ *
+ * ここに足したアクションは `KeyboardShortcuts.vue` とマニュアルにも反映する。
+ */
 export function useAppActions(): Record<AppActionId, () => void> & {
   /**
    * 新規ターミナル。**タブバーの「+」と ▾ もこれを通す**（`TabPane.vue`）。
