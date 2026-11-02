@@ -2149,7 +2149,7 @@ pub fn run() {
             agent_hook::agent_hook_install_missing,
             agent_hook::agent_hook_uninstall,
             agent_hook::agent_hook_forget,
-            issues::issues_gh_available,
+            issues::issues_cli_available,
             issues::issues_list,
             issues::issues_view,
             issues::issues_merge_methods,

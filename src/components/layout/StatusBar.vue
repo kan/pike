@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   AlertTriangle,
-  Archive,
   Bot,
   Check,
   Circle,
@@ -10,8 +9,6 @@ import {
   FolderOpen,
   Gauge,
   GitBranch,
-  Github,
-  Gitlab,
   Loader2,
   Plus,
   RefreshCw,
@@ -28,8 +25,8 @@ import { useUpdater } from '../../composables/useUpdater'
 import { useI18n } from '../../i18n'
 import type { AgentDef } from '../../lib/agents'
 import { macroRecording, toggleMacroRecording } from '../../lib/editorMacro'
+import { parseForge } from '../../lib/forge'
 import { formatCost, formatTokens } from '../../lib/format'
-import { buildRepoLink } from '../../lib/gitRemote'
 import { languageOptions } from '../../lib/languages'
 import { useOverlay } from '../../lib/overlay'
 import { basename } from '../../lib/paths'
@@ -138,7 +135,7 @@ const hasAgentStatus = computed(() => agentEntries.value.length > 0)
  * **空の組の左に区切りだけが出る**（`usePanelAvailability` で「可否の述語は 1 箇所」を
  * 選んでいるのと同じ判断）。
  */
-const hasRepoInfo = computed(() => worktreeStore.hasMultiple || !!gitStore.status || !!repoLink.value)
+const hasRepoInfo = computed(() => worktreeStore.hasMultiple || !!gitStore.status || !!forge.value)
 
 /**
  * ヘッドラインの「25% / 5%」。**5h と週間だけ**に絞る（モデル別の枠まで並べると、
@@ -212,27 +209,15 @@ function openAgentStatus() {
   tabStore.addAgentStatusTab()
 }
 
-const repoLink = computed(() => buildRepoLink(gitStore.remoteUrl))
-const repoIcon = computed(() => {
-  switch (repoLink.value?.provider) {
-    case 'github':
-      return Github
-    case 'gitlab':
-      return Gitlab
-    case 'bitbucket':
-      return Archive
-    // codeberg は lucide に専用アイコンが無いため汎用 Git アイコンで代用
-    default:
-      return GitBranch
-  }
-})
+/** origin のサービス。リンクの URL・名前・アイコンはサービスの表（`lib/forge.ts`）から。 */
+const forge = computed(() => parseForge(gitStore.remoteUrl))
 
 /**
  * リポジトリのページをブラウザのタブ（#368）で開く。Pike の中でタブを開くだけなので、
  * 外部 URL を開く確認（`openUrlWithConfirm`）は挟まない（issue パネルの行のクリックと同じ）。
  */
 function openProjectRepo() {
-  if (repoLink.value) tabStore.addBrowserTab(repoLink.value.url)
+  if (forge.value) tabStore.addBrowserTab(forge.value.baseUrl)
 }
 
 // Refresh git status on project change (polling is managed by git store lifecycle in App.vue)
@@ -750,12 +735,12 @@ onUnmounted(() => {
 
       <!-- リポジトリはブランチの隣（#383）。 -->
       <button
-        v-if="repoLink"
+        v-if="forge"
         class="status-item clickable github-btn"
-        :title="t('statusBar.openProjectRepo', { provider: repoLink.label })"
+        :title="t('statusBar.openProjectRepo', { provider: forge.label })"
         @click="openProjectRepo"
       >
-        <component :is="repoIcon" :size="14" :stroke-width="1.5" />
+        <component :is="forge.icon" :size="14" :stroke-width="1.5" />
       </button>
     </div>
 

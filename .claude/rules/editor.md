@@ -180,7 +180,7 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
   - 対象の行は `computeContextLineRange`（選択があればその範囲、無ければ右クリックした行）。「この行の Git 履歴」と共有する
   - **可否は `tab.path` で見る（`hasFile` ではない）。** あれは `initialContent` の有無で、無題バッファは `addBlankEditorTab` が `initialContent: ''` で作るため**空文字が falsy で真になる**。参照に要るのは保存先のパスそのものなので、それを直に見る
   - **行の範囲はガターの右クリックでも取れる**（`computeContextLineRange`）。ガターの上では `posAtCoords` に頼らず、y から `lineBlockAtHeight` で行を引く
-- **「{サービス名} で開く」「リンクをコピー」（#540）**: 段取りは `lib/fileLink.ts` の `shareFileLink`（右クリックとパレットが共有）、URL は `lib/gitRemote.ts` の `buildFileLink`、git の情報は `src-tauri/src/git/file_link.rs`。判断の実体は 3 つのファイルの doc が正本
+- **「{サービス名} で開く」「リンクをコピー」（#540）**: 段取りは `lib/fileLink.ts` の `shareFileLink`（右クリックとパレットが共有）、URL は `lib/forge.ts` の `buildFileLink`、git の情報は `src-tauri/src/git/file_link.rs`。判断の実体は 3 つのファイルの doc が正本
   - **項目を出すかはプロジェクトの origin だけで決め、git はクリックしてから 1 回だけ走らせる**（メニューを開くたびに外部プロセスを起こさない。diff ガターの「on-demand で取りに行く形は採らない」と同じ方針）。押せるタブは `canBlame` と同じ
   - **git はファイルのディレクトリで走らせ、origin もそこで取る**（モノレポのサブディレクトリ・worktree・サブモジュール）。WSL は 1 回の `wsl.exe` に束ねる
   - **既定は SHA の permalink。** HEAD が未 push なら確認して `origin/<ブランチ>` で開くかを選ばせ、それも無ければ止める。**Pike から push はしない**。コピーも同じ確認を通す。未コミットの変更（未保存を含む）があれば、行がずれうることを確認の文に足す（diff で行を補正しない）

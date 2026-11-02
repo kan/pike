@@ -29,7 +29,7 @@ const CONFIGS_TIMEOUT: Duration = Duration::from_secs(10);
 /// `circleci` が見つかったシェルをプロセス単位で覚える（`IssuesState` と同じ形・同じ理由）。
 ///
 /// **`gh` はここで探さない。** GitHub Actions を出す条件は「origin が GitHub で `gh` がある」を
-/// 含み、それは issue パネルの条件そのものなので、フロントが `issues_gh_available` の答えを
+/// 含み、それは issue パネルの条件そのものなので、フロントが `issues_cli_available` の答えを
 /// 共有する（同じ問いを 2 つの入れ物で覚えると、`gh --version` が 2 回走る）。
 #[derive(Default)]
 pub struct CiState {
@@ -647,7 +647,7 @@ pub async fn ci_configs(shell: ShellConfig, root: String) -> Result<CiConfigs, S
     .map_err(|e| e.to_string())?
 }
 
-/// `circleci` が使えるか。覚え方は `issues_gh_available` と同じ（「見つかった」だけを覚え、
+/// `circleci` が使えるか。覚え方は `issues_cli_available` と同じ（「見つかった」だけを覚え、
 /// 同じ導入単位の probe は 1 本に畳む）。
 ///
 /// **フロントは `.circleci/config.yml` があるプロジェクトでしか呼ばない**（検出のためだけに

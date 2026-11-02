@@ -85,6 +85,11 @@ function emptyList(): ProviderList {
  * プロジェクトのシェルにその CLI がある。GitHub Actions は origin が GitHub であることも要る
  * （`gh` の検出ごと `issuesStore.visible` を借りる）。
  *
+ * **`issuesStore.visible` は「GitHub かつ `gh` がある」とは限らなくなった**（#541。issue パネルを
+ * 持つサービスかつ、その CLI がある）。今は GitHub しか該当しないので同じ答えになるが、GitLab を
+ * 足すとき（#541 の段階 3）はここを「GitHub の CLI が使えるか」を聞く形に直すこと。直さないと、
+ * `.github/workflows/` を持つ GitLab のリポジトリで GitHub Actions のタブが出て `gh run` が走る。
+ *
  * **取得はパネルを開いたとき・更新ボタン・実行中の run があるあいだのポーリング**（`shouldPoll`）。
  * issue パネルと違って定期実行を持つのは、run が終わるのを待つ使い方があるため（利用者の判断）。
  * 実行中のものが無ければ外部プロセスは起こさない。

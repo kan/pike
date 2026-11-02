@@ -1,8 +1,56 @@
-// ファイルの行を指す URL（#540）。`just test-ts` で走る（`tsx --test`、node:test）。
-// 期待値の形は issue #540 の表（Git Web Links の handler のテストケースが出典）。
+// ホスティングサービスの表（#541）と、そこから組む URL。`just test-ts` で走る（`tsx --test`、node:test）。
+// ファイルの行（#540）の期待値の形は issue #540 の表（Git Web Links の handler のテストケースが出典）。
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { buildFileLink, type FileLinkTarget } from '../src/lib/gitRemote.ts'
+import { buildCommitLink, buildFileLink, type FileLinkTarget, parseForge } from '../src/lib/forge.ts'
+
+describe('parseForge', () => {
+  test('known hosts', () => {
+    const gh = parseForge('git@github.com:kan/pike.git')
+    assert.equal(gh?.kind, 'github')
+    assert.equal(gh?.label, 'GitHub')
+    assert.equal(gh?.baseUrl, 'https://github.com/kan/pike')
+    assert.equal(parseForge('https://gitlab.com/g/sub/r.git')?.baseUrl, 'https://gitlab.com/g/sub/r')
+    assert.equal(parseForge('git@bitbucket.org:t/r.git')?.kind, 'bitbucket')
+  })
+
+  test('Codeberg is a Gitea forge but keeps its own name', () => {
+    const cb = parseForge('https://codeberg.org/o/r')
+    assert.equal(cb?.kind, 'gitea')
+    assert.equal(cb?.label, 'Codeberg')
+  })
+
+  test('only GitHub has the issue panel and a new-issue page', () => {
+    assert.equal(parseForge('https://github.com/kan/pike')?.issues, 'github')
+    assert.equal(parseForge('https://github.com/kan/pike')?.newIssueUrl, 'https://github.com/kan/pike/issues/new')
+    for (const r of ['https://gitlab.com/g/r', 'https://bitbucket.org/t/r', 'https://codeberg.org/o/r']) {
+      assert.equal(parseForge(r)?.issues, null, r)
+      assert.equal(parseForge(r)?.newIssueUrl, null, r)
+    }
+  })
+
+  test('unknown hosts and non-remotes', () => {
+    assert.equal(parseForge('https://example.com/a/b'), null)
+    assert.equal(parseForge('git@github.com-work:kan/pike.git'), null)
+    assert.equal(parseForge('C:\\src\\pike'), null)
+    assert.equal(parseForge('https://github.com/kan'), null)
+    assert.equal(parseForge(null), null)
+  })
+})
+
+describe('buildCommitLink', () => {
+  test('commit pages per forge', () => {
+    assert.equal(buildCommitLink('https://github.com/o/r', 'abc')?.url, 'https://github.com/o/r/commit/abc')
+    assert.equal(buildCommitLink('https://gitlab.com/o/r', 'abc')?.url, 'https://gitlab.com/o/r/-/commit/abc')
+    assert.equal(buildCommitLink('https://bitbucket.org/o/r', 'abc')?.url, 'https://bitbucket.org/o/r/commits/abc')
+    assert.equal(buildCommitLink('https://codeberg.org/o/r', 'abc')?.url, 'https://codeberg.org/o/r/commit/abc')
+  })
+
+  test('carries the host label', () => {
+    assert.equal(buildCommitLink('git@codeberg.org:o/r.git', 'abc')?.label, 'Codeberg')
+    assert.equal(buildCommitLink('https://example.com/o/r', 'abc'), null)
+  })
+})
 
 const SHA = '0123456789abcdef0123456789abcdef01234567'
 const BRANCH_SHA = 'fedcba9876543210fedcba9876543210fedcba98'

@@ -12,6 +12,7 @@ import { relativeDate } from '../../lib/paths'
 import { projectColorValue, readableTextOn } from '../../lib/projectColors'
 import { ALLOWED_URI_REGEXP } from '../../lib/sanitizeHtml'
 import { issuesView } from '../../lib/tauri'
+import { useIssuesStore } from '../../stores/issues'
 import { useProjectStore } from '../../stores/project'
 import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
@@ -52,10 +53,18 @@ const tab = computed(() => tabStore.tabs.find((t): t is IssueTabDef => t.id === 
 async function load() {
   const number = tab.value?.number
   const project = projectStore.currentProject
+  // どのサービスの CLI で読むか（#541）。issue パネルと同じ判定を使う。
+  const forge = useIssuesStore().forge
   if (number === undefined || !project || loading.value) return
+  // サービスが分からない（origin を聞き終えていない、issue を扱えない origin に変わった）ときは、
+  // 黙って空のまま残さず理由を出す。決まったら下の watch が読み直す（更新ボタンでも読める）。
+  if (!forge) {
+    error.value = t('issues.unavailable')
+    return
+  }
   loading.value = true
   try {
-    detail.value = await issuesView(project.shell, projectStore.activeRoot, number)
+    detail.value = await issuesView(forge, project.shell, projectStore.activeRoot, number)
     error.value = null
     // 題名は取ってきてから入れる（開いた時点では番号しか分からない）。**`setTabTitle` を
     // 通す**（エディタとターミナルも同じ）: あちらが「変わったときだけ書く」ガードを持って
@@ -69,6 +78,15 @@ async function load() {
 }
 
 onMounted(load)
+
+// サービスが後から決まったら、まだ読めていなければ読み直す（origin の解決が開いたあとに届く場合）。
+// 読めているタブは触らない（取得は開いたときと更新ボタンだけ、という上の方針のまま）。
+watch(
+  () => useIssuesStore().forge,
+  (forge) => {
+    if (forge && !detail.value) void load()
+  },
+)
 
 /**
  * 本文とコメントの HTML。上の `md2html`（マニュアルタブと同じ `previewParser`）で、

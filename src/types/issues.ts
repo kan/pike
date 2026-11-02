@@ -27,6 +27,13 @@ export type CheckState = 'success' | 'failure' | 'pending'
 /** 一覧の種類（#413）。PR も同じ `IssueSummary` で運ぶ（Rust の `ListKind`）。 */
 export type IssueKind = 'issue' | 'pr'
 
+/**
+ * issue / PR のパネルを持つサービス（#541。Rust の `issues::Forge` と同じ綴り）。認証を CLI に
+ * 任せられるサービスだけで、ほかはリンクだけ。どのサービスかはサービスの表（`lib/forge.ts`）の
+ * `issues` が決める。
+ */
+export type IssueForge = 'github'
+
 /** PR のマージの方式（#450）。Rust の `MergeMethod`。 */
 export type MergeMethod = 'merge' | 'squash' | 'rebase'
 
