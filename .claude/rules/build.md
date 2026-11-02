@@ -143,6 +143,12 @@ wall-clock は全再ビルドでディスクキャッシュが動くと 20% ほ�
 - **画像には StatusBar のバージョンが写る**。`useUpdater` の `getVersion()` は `@tauri-apps/api` 経由で `tauri.conf.json` の version を読むため、`lib/tauri.ts` の invoke ラッパを通らず **E2E のモックでは差し替えられない**（`tauri.e2e.conf.json` で version を上書きするのは 2 箇所 bump の drift 要因なので採らない）。リリースに合わせて撮り直すときは **bump 済みのツリーで撮る**（bump 済みのリリース PR のブランチで撮影 → 同期 → マージでタグ の順）
 - ドロップダウンやトースト等、アニメーションを含む UI は**静止するまで待ってから撮る**（例: リモートブランチ取得中の `.spin-icon` が残ると実行ごとに回転角の差分が出る）。撮影に安定したセレクタが必要な場合は `data-testid` を足す（`worktree-selector` / `branch-selector`）
 - 撮影コードを本番ビルドに混入させない仕組み（`e2e` Cargo feature / vite define `__PIKE_E2E__` / `capabilities-runtime` の実行時登録）は `e2e/README.md` を参照
+- **`@wdio/tauri-service` / `@wdio/tauri-plugin` を上げたら、`package.json` の `overrides` の `@wdio/native-utils` を、
+  その版が宣言する版に合わせる**（`npm view @wdio/tauri-service@<版> dependencies.@wdio/native-utils`）。固定は
+  2 つのパッケージ（と `@wdio/native-core`）の宣言の食い違いをそろえるためのもので、宣言が上がると古い固定の
+  ほうに新しい関数が無く、**撮影が起動の時点で落ちる**（v0.65 の 2.8.0、v0.70 の 2.8.1 で 2 回踏んだ）。
+  **E2E は `just check` にも PR の CI にも入っていない**ので、dependabot の CI が通っても気付けない。
+  取り込んだら `npm ls @wdio/native-utils` で 1 つの版にそろっていることを見る
 
 ## ログファイル（#415）
 - **インストール版でもログをファイルに書く**（`src-tauri/src/app_log.rs`）。リリースビルドは DevTools を開けず（`devtools` feature を入れていない）、以前はプラグインを開発版でしか登録していなかったので、Rust の `log::warn!` もフロントの例外もどこにも残らなかった（#411 が再現も調査もできなかった理由）
