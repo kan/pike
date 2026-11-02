@@ -17,7 +17,7 @@ paths:
 ## マルチウィンドウ
 - ProjectSwitcher の Ctrl+Enter または ProjectPanel の ExternalLink ボタンで新ウィンドウにプロジェクトを開く
 - ウィンドウラベルは**不透明な `project-{uuid}`**（`global-{uuid}` と同様）。プロジェクトとの対応は Rust の `ProjectState.window_projects`（label → 現在のプロジェクト id）が**唯一の真実**で、`build_project_window` が生成時に seed し、in-place の `switchProject` ごとに `project_add_open` が更新する（#175）。**ラベルから id をパースしない**。フロントは起動時に `project_for_window` コマンドで自ウィンドウのプロジェクトを取得する。ウィンドウ解決（フォーカス/新規・CLI ルーティング・破棄時の `last_project.txt` 掃除）はすべてこのマップ経由（`focus_project_window` / `focus_or_build_project_window` / `focus_project_window_anywhere` と、project 側の `window_holding`）。同一プロジェクトの二重起動は既存ウィンドウをフォーカス（マップで検出）
-- **ウィンドウラベル prefix を追加・変更したら `src-tauri/capabilities/default.json` の `windows` も更新すること**。ここはラベルのホワイトリストで、漏れると新ウィンドウで IPC（invoke / listen / set_title 等）が全部 permission エラーになり、App.vue の onMounted が途中で落ちてタブが一切開かない（DevTools コンソールの `not allowed on window "..."` が症状）
+- **ウィンドウラベル prefix を追加・変更したら `src-tauri/capabilities/default.json` の `windows` も更新すること**。ここはラベルのホワイトリストで、漏れると新ウィンドウで IPC（invoke / listen / set_title 等）が全部 permission エラーになり、App.vue の onMounted が途中で落ちてタブが一切開かない（DevTools コンソールの `not allowed on window "..."` が症状）。**`browser.rs` の `is_app_webview` も同じ並びを持つ**（#539。アプリのコマンドを Pike 本体の webview にだけ通す守り）。漏れると新しいウィンドウではアプリのコマンドが全部 `commands are not available to web pages` で断られる
 - **フロントからウィンドウの状態を変える操作も、同じファイルの `permissions` に 1 行要る。** `core:window:default` に入っているのは**読み取り系だけ**（`is_visible` / `theme` / `title` 等）なので、`show` / `unminimize` / `set_focus` のように状態を変えるものは明示的に許可する。**失敗は静かで**、コンソールに `not allowed` が出るだけでウィンドウが前に出ない
 - Tauri v2 の各ウィンドウは独立 JS コンテキスト → Pinia ストアは自然にウィンドウごとに分離
 - PTY/Docker イベントは `app.emit()` で全ウィンドウにブロードキャスト、ルーターが ID でフィルタ

@@ -24,8 +24,10 @@
 //!
 //! ラベルは `browser-preview-{uuid}`。`browser.rs` の `check_label` を通るので、位置
 //! 合わせ・再読み込み・閉じる（`browser_place` / `browser_history` / `browser_close`）は
-//! ブラウザのタブのコマンドをそのまま使う。capability の対象外であることも同じ
-//! （`browser.rs` のモジュール doc）。**登録の後始末はブラウザのタブの側に持ち込まない**:
+//! ブラウザのタブのコマンドをそのまま使う。capability の対象外であることも、アプリの
+//! コマンドを断られることも同じ（`browser.rs` のモジュール doc）。**このスキームは tauri から
+//! ローカルのオリジンに見える**ので、ページの JS からコマンドを呼べないのは、Pike 本体の
+//! ラベルにだけ通す `browser::app_webviews_only` のおかげ（#539）。**登録の後始末はブラウザのタブの側に持ち込まない**:
 //! 次の `preview_open` が、もう無い webview のぶんを落とす（`prune`）。
 
 use crate::browser::{self, Bounds};
