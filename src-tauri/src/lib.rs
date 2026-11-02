@@ -2034,7 +2034,9 @@ pub fn run() {
                 _ => {}
             }
         })
-        .invoke_handler(tauri::generate_handler![
+        // 子 webview（ブラウザのタブ・HTML のプレビュー）のページには、どのコマンドも
+        // 開かない（#539。理由は `browser::app_webviews_only`）。
+        .invoke_handler(browser::app_webviews_only(tauri::generate_handler![
             app_log::log_frontend,
             app_log::log_open_dir,
             autostart::autostart_get,
@@ -2208,7 +2210,7 @@ pub fn run() {
             font::font_list_monospace,
             font::font_list_all,
             agent_sessions::agent_sessions,
-        ])
+        ]))
         .build(context)
         .expect("error while running tauri application")
         .run(|app_handle, event| {

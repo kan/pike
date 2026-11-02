@@ -9,8 +9,13 @@
 //! フロントが決め、ここは言われたとおりに動かすだけにする（`BrowserTab.vue` が
 //! `getBoundingClientRect` を測って送る）。
 //!
-//! **外部のページに IPC は開かない。** 守りは 2 枚ある。
+//! **外部のページに IPC は開かない。** 守りは 3 枚ある。
 //!
+//! 0. **アプリのコマンドは `app_webviews_only` が Pike 本体のラベルだけに通す**（#539）。
+//!    下の 1 は plugin のコマンドしか守らない（アプリの ACL マニフェストが無いので、
+//!    ローカル扱いのオリジンからの独自コマンドは capability を見ずに通る）。HTML の
+//!    プレビューの独自スキームはローカル扱いなので、これが無いとページの JS から
+//!    全部のコマンドを呼べる
 //! 1. **`capabilities/default.json` が `windows` ではなく `webviews` で絞る**（#368）。
 //!    あそこの判定は `resolve_access` の
 //!    `cmd.webviews.any(matches(webview)) || cmd.windows.any(matches(window))` で、
@@ -76,6 +81,57 @@ struct BrowserStatePayload {
     /// 次のページの名前に書き換わる。
     #[serde(skip_serializing_if = "Option::is_none")]
     title_url: Option<String>,
+}
+
+/// Pike 本体の webview か（ラベルは Rust が付けるので、ページからは変えられない）。
+/// **並びは `capabilities/default.json` の `webviews` と同じにする。**
+fn is_app_webview(label: &str) -> bool {
+    label == "main"
+        || label.starts_with(crate::PROJECT_WINDOW_PREFIX)
+        || label.starts_with(crate::GLOBAL_PREFIX)
+}
+
+/// アプリのコマンドの入口に置く守り（#539）。**Pike 本体の webview 以外からの要求は、
+/// どのコマンドも受け付けない。**
+///
+/// **capability（モジュール doc の 1 枚目）はアプリのコマンドを守らない。** tauri は
+/// アプリの ACL マニフェストが無いとき、ローカルのオリジンからの独自コマンドを ACL を見ずに
+/// 通す（`Webview::on_message` の `has_app_acl_manifest || !is_local`）。そして
+/// **アプリが登録した独自スキームはローカル扱い**（`is_local_url`）なので、この守りが
+/// 無ければ、HTML のプレビュー（`http://pike-preview.localhost`）で動くページの JS から
+/// `__TAURI_INTERNALS__.invoke` で `fs_read_file` も `pty_spawn` も呼べる。注入される
+/// スクリプトは webview を選ばない（`prepare_pending_webview`）。
+///
+/// **断る側を並べず、通す側を並べる。** 子 webview の種類を足しても、ラベルの付け方を
+/// 間違えても、閉じた側に倒れる。コマンドを足しても漏れない。plugin のコマンドは
+/// `invoke_handler` を通らないが、あちらは常に ACL を見るので capability の `webviews` で
+/// 外れている。
+pub(crate) fn app_webviews_only<R: tauri::Runtime>(
+    handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        let label = invoke.message.webview_ref().label();
+        if !is_app_webview(label) {
+            warn_refused_once(label, invoke.message.command());
+            invoke
+                .resolver
+                .reject("commands are not available to web pages");
+            return true;
+        }
+        handler(invoke)
+    }
+}
+
+/// 断ったことをログに残す。**webview ごとに 1 回だけ**: ページがループで呼ぶと、毎回書けば
+/// ログが回り続けて調べたい行を押し出す。
+fn warn_refused_once(label: &str, command: &str) {
+    static WARNED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+    let mut warned = WARNED.lock().unwrap_or_else(|e| e.into_inner());
+    if warned.iter().any(|l| l == label) {
+        return;
+    }
+    warned.push(label.to_owned());
+    log::warn!("[browser] refused command `{command}` from {label} (further ones not logged)");
 }
 
 pub(crate) fn check_label(label: &str) -> Result<(), String> {
@@ -472,7 +528,7 @@ pub async fn browser_navigate(app: AppHandle, label: String, url: String) -> Res
 /// 契機だけをこちらから作る。
 ///
 /// 差し込むスクリプトから知らせる形は採れない。ブラウザのタブの子 webview は
-/// capability の対象外なので（モジュール doc）、ページから `invoke` は通らない。
+/// Pike 本体のラベルではないので、ページから `invoke` は通らない（`app_webviews_only`）。
 #[tauri::command]
 pub async fn browser_url(app: AppHandle, label: String) -> Result<String, String> {
     webview(&app, &label)?
@@ -507,6 +563,19 @@ pub async fn browser_close(app: AppHandle, label: String) -> Result<(), String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pike 本体だけを通し、子 webview（ブラウザのタブとプレビュー）は断る（#539）。
+    #[test]
+    fn only_app_webviews_get_commands() {
+        assert!(is_app_webview("main"));
+        assert!(is_app_webview("project-1a2b"));
+        assert!(is_app_webview("global-1a2b"));
+        assert!(!is_app_webview("browser-1a2b"));
+        assert!(!is_app_webview("browser-preview-1a2b"));
+        // 名前の一部に含むだけのものは通さない。
+        assert!(!is_app_webview("main-x"));
+        assert!(!is_app_webview("browser-project-1a2b"));
+    }
 
     #[test]
     fn label_must_carry_prefix() {
