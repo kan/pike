@@ -91,7 +91,7 @@
     "@wdio/mocha-framework": "^9.32.0",
     "@wdio/spec-reporter": "^9.32.0",
     "@wdio/tauri-plugin": "^1.5.0",
-    "@wdio/tauri-service": "^1.5.0",
+    "@wdio/tauri-service": "^1.5.1",
     "cross-env": "^10.1.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
