@@ -114,6 +114,73 @@ export function buildCommitLink(remoteUrl: string | null, hash: string): RemoteL
   return { url, label: parsed.label, provider: parsed.provider }
 }
 
+/** `buildFileLink` に渡す、どのファイルのどの行か（#540）。 */
+export interface FileLinkTarget {
+  /** リモートにあるコミットの完全な SHA。`branch` があるときは `origin/<branch>` のもの。 */
+  commit: string
+  /** ブランチ名で開くとき（HEAD が未 push）。無ければ `commit` の permalink。 */
+  branch?: string
+  /** リポジトリのトップからのパス（`/` 区切り）。 */
+  path: string
+  range: { start: number; end: number } | null
+  /** Markdown のファイル。レンダリングされると行のアンカーが効かないので、ソースの表示を頼む。 */
+  markdown: boolean
+}
+
+/** パスとブランチ名はセグメントごとに符号化する（`#` や空白を含む名前がある。`/` は残す）。 */
+function encodeSegments(s: string): string {
+  return s.split('/').map(encodeURIComponent).join('/')
+}
+
+/**
+ * ファイルの行を指す URL（#540）。サービスごとの形は issue #540 の表が出典
+ * （Git Web Links の handler のテストケース）。
+ *
+ * - Markdown のソース表示は GitHub と GitLab が `?plain=1`、Codeberg が `?display=source`。
+ *   **Bitbucket には無い**ので付けない（レンダリングされ、行へ飛ばないことがある）
+ * - **Bitbucket はブランチ名に `/` があると `src/` の直後に置けない**ので、パスには SHA を置き、
+ *   ブランチは `?at=` で渡す
+ */
+export function buildFileLink(remoteUrl: string | null, target: FileLinkTarget): RemoteLink | null {
+  const parsed = parseRemote(remoteUrl)
+  if (!parsed) return null
+  const path = encodeSegments(target.path)
+  const { branch, commit, range } = target
+  const ref = encodeSegments(branch ?? commit)
+  const start = range?.start
+  const multi = range !== null && range.end !== range.start
+  let url: string
+  let query = ''
+  let anchor = ''
+  switch (parsed.provider) {
+    case 'github':
+      url = `${parsed.baseUrl}/blob/${ref}/${path}`
+      if (target.markdown) query = '?plain=1'
+      if (range) anchor = multi ? `#L${start}-L${range.end}` : `#L${start}`
+      break
+    case 'gitlab':
+      url = `${parsed.baseUrl}/-/blob/${ref}/${path}`
+      if (target.markdown) query = '?plain=1'
+      if (range) anchor = multi ? `#L${start}-${range.end}` : `#L${start}`
+      break
+    case 'bitbucket':
+      if (branch?.includes('/')) {
+        url = `${parsed.baseUrl}/src/${commit}/${path}`
+        query = `?at=${encodeURIComponent(branch)}`
+      } else {
+        url = `${parsed.baseUrl}/src/${ref}/${path}`
+      }
+      if (range) anchor = multi ? `#lines-${start}:${range.end}` : `#lines-${start}`
+      break
+    case 'codeberg':
+      url = branch ? `${parsed.baseUrl}/src/branch/${ref}/${path}` : `${parsed.baseUrl}/src/commit/${commit}/${path}`
+      if (target.markdown) query = '?display=source'
+      if (range) anchor = multi ? `#L${start}-L${range.end}` : `#L${start}`
+      break
+  }
+  return { url: url + query + anchor, label: parsed.label, provider: parsed.provider }
+}
+
 export function buildRepoLink(remoteUrl: string | null): RemoteLink | null {
   const parsed = parseRemote(remoteUrl)
   if (!parsed) return null

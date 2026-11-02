@@ -46,6 +46,7 @@ import { editorPathJump } from '../../lib/editorPathJump'
 import { presetKeymap } from '../../lib/editorPresetKeys'
 import { editorSearch, searchKeymap } from '../../lib/editorSearch'
 import { getEditorTheme } from '../../lib/editorThemes'
+import { type FileLinkMode, fileLinkService, shareFileLink } from '../../lib/fileLink'
 import { fileTypeKey, firstLineOf, previewKindOfKey } from '../../lib/fileType'
 import { buildFontFamily } from '../../lib/fontDetection'
 import { formatFileSize, formatLineRange, lineRangeSuffix } from '../../lib/format'
@@ -257,7 +258,18 @@ function registerOutlineSource() {
     langId: typeKey,
     view: editorView,
     toggleBlame,
+    shareFileLink: (mode) => shareLink(mode, cursorLineRange()),
   })
+}
+
+/** カーソルの行（選択があればその範囲）。パレットから開くときの対象（#540）。 */
+function cursorLineRange(): { start: number; end: number } | null {
+  if (!editorView) return null
+  const { doc, selection } = editorView.state
+  const { from, to } = selection.main
+  // 次の行の先頭で終わる選択（Shift+↓ で行を選んだとき）は、その行を含めない。
+  const endPos = to > from && doc.lineAt(to).from === to ? to - 1 : to
+  return { start: doc.lineAt(from).number, end: doc.lineAt(endPos).number }
 }
 
 /**
@@ -1226,15 +1238,14 @@ async function onEditorContextMenu(e: MouseEvent) {
 
 function computeContextLineRange(e: MouseEvent): { start: number; end: number } | null {
   if (!editorView) return null
-  const sel = editorView.state.selection.main
-  if (!sel.empty) {
-    const start = editorView.state.doc.lineAt(sel.from).number
-    const end = editorView.state.doc.lineAt(sel.to).number
-    return { start, end }
-  }
-  const pos = editorView.posAtCoords({ x: e.clientX, y: e.clientY })
-  if (pos == null) return null
-  const line = editorView.state.doc.lineAt(pos).number
+  if (!editorView.state.selection.main.empty) return cursorLineRange()
+  // 欲しいのは行だけなので y から引く。x を使う `posAtCoords` だと、行番号のガターでの
+  // 右クリック（#540）で本文の外の x を受けて行を外す。
+  // 文書の末尾より下（短いファイルの空いたところ）は行に当てない。
+  const y = e.clientY - editorView.documentTop
+  if (y < 0 || y > editorView.contentHeight) return null
+  const block = editorView.lineBlockAtHeight(y)
+  const line = editorView.state.doc.lineAt(block.from).number
   return { start: line, end: line }
 }
 
@@ -1346,6 +1357,30 @@ function sendSelectionToTerminal() {
     if (sel.empty) return
     injectToTerminal(`${ref}\n${editorView.state.doc.sliceString(sel.from, sel.to)}`)
   })
+}
+
+/**
+ * 右クリックの「{サービス名} で開く」を出すときの名前（#540）。**出すかどうかはプロジェクトの
+ * origin だけで決める**（メニューを開くたびに git を走らせない）。ファイルが属するリポジトリの
+ * origin（サブモジュールなら別物）は、押してから `shareFileLink` が取る。
+ */
+const fileLinkLabel = computed(() => fileLinkService(gitStore.remoteUrl))
+
+/** 段取りは `lib/fileLink.ts`。押せるのは blame と同じタブ（実ファイル・書ける・プロジェクトあり）。 */
+function shareLink(mode: FileLinkMode, range: { start: number; end: number } | null) {
+  const path = tab.value?.path
+  // メニューでは押せないので、ここへ来るのはパレットから。黙って終えると何も起きなかったか分からない。
+  if (!canBlame.value || !path) {
+    statusMessageStore.show({ text: t('fileLink.unavailable'), variant: 'warn' })
+    return
+  }
+  void shareFileLink(mode, { shell: projectStore.shellForIO, path, range, unsaved: isDirty.value })
+}
+
+function shareLinkFromMenu(mode: FileLinkMode) {
+  const range = ctxLineRange.value
+  closeCtxMenu()
+  shareLink(mode, range)
 }
 
 function openGitHistory() {
@@ -2724,6 +2759,14 @@ onUnmounted(() => {
         <button @click="sendLineRefToTerminal" :disabled="!ctxLineRange || !tab?.path">
           <span>{{ t('editor.sendLineRefToTerminal') }}</span><span class="ctx-key">{{ ctxLineSuffix }}</span>
         </button>
+        <template v-if="fileLinkLabel">
+          <button @click="shareLinkFromMenu('open')" :disabled="!canBlame">
+            <span>{{ t('fileLink.open', { service: fileLinkLabel }) }}</span><span class="ctx-key">{{ ctxLineSuffix }}</span>
+          </button>
+          <button @click="shareLinkFromMenu('copy')" :disabled="!canBlame">
+            <span>{{ t('fileLink.copy', { service: fileLinkLabel }) }}</span><span class="ctx-key">{{ ctxLineSuffix }}</span>
+          </button>
+        </template>
         <div class="ctx-separator"></div>
         <button @click="openGitHistory"><span>{{ t('editor.gitHistory') }}</span><span class="ctx-key">{{ chordLabel('Alt+H') }}</span></button>
         <button @click="openGitHistoryForLine" :disabled="!ctxLineRange">

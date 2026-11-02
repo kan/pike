@@ -6,6 +6,7 @@ import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
   FetchOption,
+  FileLinkInfo,
   GitBlame,
   GitBranches,
   GitFileChange,
@@ -758,6 +759,14 @@ export async function gitShowFile(root: string, shell: ShellType, hash: string, 
 /** 保存済みのファイルを blame する（#510）。追跡外・repo の外では `null`。 */
 export async function gitBlame(root: string, shell: ShellType, path: string): Promise<GitBlame | null> {
   return invoke<GitBlame | null>('git_blame', { root, shell, path })
+}
+
+/**
+ * ファイルをホスティングサービスで開くための git の情報（#540）。`path` はそのシェルの作法の
+ * 絶対パスで、git はファイルのディレクトリで走る（プロジェクトのルートを渡さない）。
+ */
+export async function gitFileLinkInfo(shell: ShellType, path: string): Promise<FileLinkInfo> {
+  return invoke<FileLinkInfo>('git_file_link_info', { shell, path })
 }
 
 /** コミット 1 つを `gitLog` と同じ形で引く（#510。blame からコミットタブを開くため）。 */

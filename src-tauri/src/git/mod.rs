@@ -1,4 +1,5 @@
 pub mod blame;
+pub mod file_link;
 pub mod worktree;
 
 use crate::cache::ProbeRegistry;

@@ -179,6 +179,14 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
   - **コンポーネント側の入口は `withLineRef`**。参照を使う 3 つの項目（コピー・参照だけの注入・選択本文つきの注入）が通るので、メニューを閉じる契機と「参照を作れるか」の判定が 1 箇所に集まる
   - 対象の行は `computeContextLineRange`（選択があればその範囲、無ければ右クリックした行）。「この行の Git 履歴」と共有する
   - **可否は `tab.path` で見る（`hasFile` ではない）。** あれは `initialContent` の有無で、無題バッファは `addBlankEditorTab` が `initialContent: ''` で作るため**空文字が falsy で真になる**。参照に要るのは保存先のパスそのものなので、それを直に見る
+  - **行の範囲はガターの右クリックでも取れる**（`computeContextLineRange`）。ガターの上では `posAtCoords` に頼らず、y から `lineBlockAtHeight` で行を引く
+- **「{サービス名} で開く」「リンクをコピー」（#540）**: 段取りは `lib/fileLink.ts` の `shareFileLink`（右クリックとパレットが共有）、URL は `lib/gitRemote.ts` の `buildFileLink`、git の情報は `src-tauri/src/git/file_link.rs`。判断の実体は 3 つのファイルの doc が正本
+  - **項目を出すかはプロジェクトの origin だけで決め、git はクリックしてから 1 回だけ走らせる**（メニューを開くたびに外部プロセスを起こさない。diff ガターの「on-demand で取りに行く形は採らない」と同じ方針）。押せるタブは `canBlame` と同じ
+  - **git はファイルのディレクトリで走らせ、origin もそこで取る**（モノレポのサブディレクトリ・worktree・サブモジュール）。WSL は 1 回の `wsl.exe` に束ねる
+  - **既定は SHA の permalink。** HEAD が未 push なら確認して `origin/<ブランチ>` で開くかを選ばせ、それも無ければ止める。**Pike から push はしない**。コピーも同じ確認を通す。未コミットの変更（未保存を含む）があれば、行がずれうることを確認の文に足す（diff で行を補正しない）
+  - `gitStore.status` の `ahead` は使えない（上流の無いブランチでも 0 になる）。push 済みかは `git rev-list -1 HEAD --not --remotes=origin` で見る。**origin に限る**（リンクは origin に向けて作るので、upstream にだけある SHA は 404 になる）
+  - **ファイルは index ではなく HEAD の木で引く**（`ls-tree HEAD`）。ステージしただけのファイルはリモートに無い。ブランチで開くときも、そのファイルが `origin/<ブランチ>` にあるかを確かめる（未 push のコミットで足したファイルは無い）
+  - **ファイル名は `--literal-pathspecs` で渡す**（`foo[1].ts` が `foo1.ts` に一致し、1 行目が別のファイルになる）
 - ファイルツリーに git ステータス色表示（precomputed Map で O(1) ルックアップ）
 - **ツリーの行は選択できない（#431 → #455）**。選択できると、ダブルクリックでブラウザの単語選択が走って名前が半端に塗られる。今は行ごとの指定ではなく、`theme.css` の既定（`frontend.md` の「文字の選択」）で止まっている。リネームと新規作成の入力欄も同じ規則が戻す
 - **いま開いているファイルの強調（#274）**: 「どのファイルを見ているか」は `composables/useActiveFile.ts` の 1 箇所。**タブの種類で持ち方が違う**ので、そこで絶対パスに揃える（エディタ / プレビュー / PDF は絶対、diff と履歴はルート相対で、**繋ぐ相手はそのタブの `root`**。`activeRoot` ではない理由は `git-diff.md` の #321）。区切りも正規化する: git は常に `/` を返し、ファイルツリーはシェルの区切りを使うので、素の比較は Windows で一致しない。**ストアにしないこと**: タブとプロジェクトの両方を読むので、`stores/tabs.ts` に置くと `project → tabs → project` の循環になる。印は `theme.css` の `.active-file`（2 つのパネルで同じ見た目にするため）で、色は `--active-file-bg`。**行全体を塗る**（VSCode の explorer と同じ。細い線だけではざっと見て探せない）が、`selected`（ツリーで選んだ行）とは別の見た目にする。左端の線は inset の影で描く（行の左 padding が深さで変わるので `border-left` は使えない）

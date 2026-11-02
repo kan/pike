@@ -149,6 +149,26 @@ export default {
   'editor.sendToTerminal': 'Send to terminal',
   'editor.copyLineRef': 'Copy Reference',
   'editor.sendLineRefToTerminal': 'Send Reference to terminal',
+  'fileLink.open': 'Open on {service}',
+  'fileLink.copy': 'Copy {service} Link',
+  'fileLink.copied': 'Copied the {service} link',
+  'fileLink.failed': 'Could not make the link: {error}',
+  'fileLink.untracked':
+    'This file is not in the HEAD commit, so there is no link to make (it is not tracked by git, or not committed yet).',
+  'fileLink.notOnBranch':
+    'The HEAD commit has not been pushed, and this file is not on the remote branch {branch} either. There is no page to open.',
+  'fileLink.unknownRemote':
+    "The origin of this file's repository is not a supported service (GitHub / GitLab / Bitbucket / Codeberg).",
+  'fileLink.unavailable': 'Open a project file in an editor tab first (not available in read-only tabs)',
+  'fileLink.unpublished':
+    'The HEAD commit has not been pushed, and the remote has no branch of the same name. There is no page to open.',
+  'fileLink.unpushed':
+    'The HEAD commit has not been pushed yet. Use the remote branch {branch} instead? (Lines may have moved.)',
+  'fileLink.dirty': 'This file has uncommitted changes. Line numbers may differ from the remote.',
+  'fileLink.proceed.open': 'Open it anyway?',
+  'fileLink.proceed.copy': 'Copy the link anyway?',
+  'fileLink.useBranch.open': 'Open the Branch',
+  'fileLink.useBranch.copy': 'Copy the Branch Link',
   'editor.edit': 'Edit',
   'editor.split': 'Split',
   'editor.preview': 'Preview',
@@ -1180,6 +1200,8 @@ export default {
   'shortcuts.macroRecord': 'Start / stop recording a macro',
   'shortcuts.blameInline': 'Show / hide inline blame',
   'shortcuts.blameGutter': 'Show / hide blame in gutter',
+  'shortcuts.openFileOnRemote': 'Open the cursor line on GitHub etc.',
+  'shortcuts.copyFileLink': 'Copy a GitHub etc. link to the cursor line',
   'shortcuts.macroPlay': 'Play the macro',
   'shortcuts.toggleSplit': 'Split / Unsplit Workspace',
   'shortcuts.focusOtherPane': 'Focus Other Pane',

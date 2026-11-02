@@ -149,6 +149,27 @@ export default {
   'editor.sendToTerminal': 'ターミナルに送る',
   'editor.copyLineRef': '参照をコピー',
   'editor.sendLineRefToTerminal': '参照をターミナルに送る',
+  'fileLink.open': '{service} で開く',
+  'fileLink.copy': '{service} のリンクをコピー',
+  'fileLink.copied': '{service} のリンクをコピーしました',
+  'fileLink.failed': 'リンクを作れませんでした: {error}',
+  'fileLink.untracked':
+    'このファイルは HEAD のコミットに含まれていないため、リンクを作れません（git で管理していないか、まだコミットしていません）。',
+  'fileLink.notOnBranch':
+    'HEAD のコミットはまだ push されておらず、このファイルはリモートのブランチ {branch} にもありません。開けるページがありません。',
+  'fileLink.unknownRemote':
+    'このファイルのリポジトリの origin が、対応しているサービス（GitHub / GitLab / Bitbucket / Codeberg）ではありません。',
+  'fileLink.unavailable':
+    'エディタのタブで、プロジェクトのファイルを開いてから使ってください（読み取り専用のタブでは使えません）',
+  'fileLink.unpublished':
+    'HEAD のコミットはまだ push されておらず、リモートに同じ名前のブランチもありません。開けるページがありません。',
+  'fileLink.unpushed':
+    'HEAD のコミットはまだ push されていません。リモートのブランチ {branch} を使いますか？（行がずれていることがあります）',
+  'fileLink.dirty': 'このファイルにはコミットしていない変更があります。行番号がリモートとずれていることがあります。',
+  'fileLink.proceed.open': 'このまま開きますか？',
+  'fileLink.proceed.copy': 'このままリンクをコピーしますか？',
+  'fileLink.useBranch.open': 'ブランチで開く',
+  'fileLink.useBranch.copy': 'ブランチのリンクをコピー',
   'editor.edit': '編集',
   'editor.split': '分割',
   'editor.preview': 'プレビュー',
@@ -1177,6 +1198,8 @@ export default {
   'shortcuts.macroRecord': 'マクロの記録を開始 / 停止',
   'shortcuts.blameInline': '行末の blame を表示 / 隠す',
   'shortcuts.blameGutter': '行頭の blame を表示 / 隠す',
+  'shortcuts.openFileOnRemote': 'カーソルの行を GitHub などで開く',
+  'shortcuts.copyFileLink': 'カーソルの行の GitHub などのリンクをコピー',
   'shortcuts.macroPlay': 'マクロを再生',
   'shortcuts.toggleSplit': '作業領域を分割 / 解除',
   'shortcuts.focusOtherPane': '反対のペインへフォーカス',

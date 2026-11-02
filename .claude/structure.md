@@ -97,6 +97,7 @@ pike/
 │       ├── git/
 │       │   ├── mod.rs         # git CLI ブリッジ（status/log/diff/commit/push/pull 等）
 │       │   ├── blame.rs       # エディタの blame（`git blame --incremental` の読み取り、#510）
+│       │   ├── file_link.rs   # 行をホスティングサービスで開くための git の情報（ファイルのディレクトリで 1 回、#540）
 │       │   └── worktree.rs    # worktree の作成（gitignore 済みファイルのコピー込み）と削除（#478）
 │       ├── docker/
 │       │   ├── mod.rs         # bollard クライアント・compose パース・ログストリーム
@@ -291,6 +292,7 @@ pike/
 │   │   ├── ciConfigs.ts      # 監視の変更から、CI の設定の有無を聞き直すかを決める述語
 │   │   ├── commitPatch.ts    # コミット全体の差分をファイルごとの統合形式の行に落とす（#374）
 │   │   ├── gitErrors.ts      # git のエラー文からよくある原因を見分ける（#436。案内の文言は i18n）
+│   │   ├── fileLink.ts       # エディタの行を GitHub などで開く / リンクをコピーする段取り（未 push の確認込み、#540。URL は gitRemote.ts）
 │   │   ├── gitGraph.ts  gitRemote.ts  gitignore.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── csvMode.ts         # CSV / TSV の列ごとの色分け（Rainbow CSV と同じ見せ方、#461）
 │   │   ├── templateModes.ts   # テンプレートエンジンのハイライト（HTML に区切りの内側だけ別モードを差し込む、#409）
