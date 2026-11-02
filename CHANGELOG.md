@@ -16,6 +16,10 @@ All notable changes to this project will be documented in this file.
 - **HTML のプレビューで開いたページから、Pike の機能を呼び出せないようにした**：プレビューしたページのスクリプトから、ファイルを読み書きしたり、ターミナルを起動したりできました。プレビューとブラウザのタブで開いたページからの呼び出しは、すべて断ります (#539)
     - 信頼できないリポジトリの HTML をプレビューで開いた場合は、更新後にそのリポジトリと手元の環境に不審な変更が無いかを確かめてください。
 
+### Changes
+
+- 依存ライブラリを更新した（tauri、tokio、pele、katex、marked、codemirror ほか）
+
 ## [0.69.0] - 2026-10-31
 
 ### Features

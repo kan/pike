@@ -82,7 +82,7 @@
     "@puppeteer/browsers": "^3.2.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
+    "@biomejs/biome": "^2.6.4",
     "@tauri-apps/cli": "^2.12.4",
     "@types/mocha": "^10.0.10",
     "@vitejs/plugin-vue": "^6.0.10",
@@ -91,7 +91,7 @@
     "@wdio/mocha-framework": "^9.32.0",
     "@wdio/spec-reporter": "^9.32.0",
     "@wdio/tauri-plugin": "^1.5.1",
-    "@wdio/tauri-service": "^1.5.0",
+    "@wdio/tauri-service": "^1.5.1",
     "cross-env": "^10.1.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
