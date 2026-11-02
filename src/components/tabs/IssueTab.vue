@@ -57,7 +57,7 @@ async function load() {
   const forge = useIssuesStore().forge
   if (number === undefined || !project || loading.value) return
   // サービスが分からない（origin を聞き終えていない、issue を扱えない origin に変わった）ときは、
-  // 黙って空のまま残さず理由を出す。更新ボタンで読み直せる。
+  // 黙って空のまま残さず理由を出す。決まったら下の watch が読み直す（更新ボタンでも読める）。
   if (!forge) {
     error.value = t('issues.unavailable')
     return
@@ -78,6 +78,15 @@ async function load() {
 }
 
 onMounted(load)
+
+// サービスが後から決まったら、まだ読めていなければ読み直す（origin の解決が開いたあとに届く場合）。
+// 読めているタブは触らない（取得は開いたときと更新ボタンだけ、という上の方針のまま）。
+watch(
+  () => useIssuesStore().forge,
+  (forge) => {
+    if (forge && !detail.value) void load()
+  },
+)
 
 /**
  * 本文とコメントの HTML。上の `md2html`（マニュアルタブと同じ `previewParser`）で、
