@@ -68,7 +68,7 @@
     "markdown-it-emoji": "^3.1.0",
     "marked": "^18.1.2",
     "material-file-icons": "^2.4.0",
-    "pele": "^1.10.0",
+    "pele": "^1.10.1",
     "pinia": "^4.1.0",
     "smol-toml": "^1.9.1",
     "vue": "^3.5.44",
