@@ -292,7 +292,8 @@ pike/
 │   │   ├── ciConfigs.ts      # 監視の変更から、CI の設定の有無を聞き直すかを決める述語
 │   │   ├── commitPatch.ts    # コミット全体の差分をファイルごとの統合形式の行に落とす（#374）
 │   │   ├── gitErrors.ts      # git のエラー文からよくある原因を見分ける（#436。案内の文言は i18n）
-│   │   ├── fileLink.ts       # エディタの行を GitHub などで開く / リンクをコピーする段取り（未 push の確認込み、#540。URL は gitRemote.ts）
+│   │   ├── fileLink.ts       # エディタの行を GitHub などで開く / リンクをコピーする段取り（未 push の確認込み、#540。URL は forge.ts）
+│   │   ├── forge.ts          # ホスティングサービスの表（URL の形・アイコン・issue パネルを持つか）と parseForge（#541）。origin の分解は gitRemote.ts
 │   │   ├── gitGraph.ts  gitRemote.ts  gitignore.ts  diffParser.ts  diffExpand.ts  diffSearch.ts  languages.ts  mermaid.ts  popupPosition.ts
 │   │   ├── csvMode.ts         # CSV / TSV の列ごとの色分け（Rainbow CSV と同じ見せ方、#461）
 │   │   ├── templateModes.ts   # テンプレートエンジンのハイライト（HTML に区切りの内側だけ別モードを差し込む、#409）

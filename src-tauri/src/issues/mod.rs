@@ -20,13 +20,13 @@ const LIST_TIMEOUT: Duration = Duration::from_secs(20);
 /// 済んでいることがあり、そのとき出るのは「失敗した」という嘘になる。
 const ACTION_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// **`gh` が見つかったシェルをプロセス単位で覚える**（`SearchState.detected` と同じ形）。
+/// **CLI（`gh`）が見つかったシェルをプロセス単位で覚える**（`SearchState.detected` と同じ形）。
 /// Pinia のストアはウィンドウごとなので、フロントだけで覚えると同じリポジトリを N 枚
 /// 開いたときに `gh --version` が N 回走る。WSL ではそれが `wsl.exe` の起動 N 回になる。
 ///
-/// キーが**シェルの導入単位**なのは、WSL プロジェクトが見るのは distro の中の `gh`、
-/// Windows プロジェクトが見るのはホストのそれ、と答えが変わるため。**真になるのは
-/// 「見つかった」ときだけ**（理由は `issues_gh_available`）。
+/// キーが**CLI とシェルの導入単位の組**（`probe_key`）なのは、WSL プロジェクトが見るのは distro の
+/// 中の `gh`、Windows プロジェクトが見るのはホストのそれ、と答えが変わるため。**真になるのは
+/// 「見つかった」ときだけ**（理由は `issues_cli_available`）。
 ///
 /// **`shell_probe.rs` には畳んでいない**（#275 の宿題 3）。あちらがまとめているのは
 /// 対話ログインシェルを起こす問いで、費用は rc の評価にある。`gh --version` は
@@ -38,7 +38,85 @@ const ACTION_TIMEOUT: Duration = Duration::from_secs(60);
 /// 同じ distro を見に来た者だけのものになる。
 #[derive(Default)]
 pub struct IssuesState {
-    gh: ProbeRegistry<String, bool>,
+    clis: ProbeRegistry<String, bool>,
+}
+
+/// issue / PR を扱うサービス（#541。フロントのサービスの表の `issues` と同じ綴り）。
+///
+/// **コマンドの本体がサービスの差に触れる入口は `impl Forge` だけ**（CI の `ci::Provider` と
+/// 同じ形）。メソッドは行を組むか出力を読むだけで、走らせるのはコマンドの本体。コマンドの本体と
+/// フロントへ返す型（`IssueSummary` / `IssueDetail` / `IssueListResult`）はサービスで分岐しない。
+/// サービスを足すときは、ここの腕を足して、その CLI の JSON を同じ型へ読み替える。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Forge {
+    Github,
+}
+
+impl Forge {
+    /// 使う CLI。失敗の文面に出す。
+    fn cli(self) -> &'static str {
+        match self {
+            Forge::Github => "gh",
+        }
+    }
+
+    /// 一覧を取る行。
+    fn list_line(self, kind: ListKind, limit: u32) -> String {
+        match self {
+            Forge::Github => kind.gh_list_line(limit),
+        }
+    }
+
+    /// 一覧の出力を読む（番号の降順に並べるところまで）。
+    fn parse_list(self, stdout: &str) -> Result<Vec<IssueSummary>, serde_json::Error> {
+        match self {
+            Forge::Github => parse_gh_list(stdout),
+        }
+    }
+
+    /// 1 件を読む行。**番号は数値なので、シェルの行に埋めても注入の余地が無い。**
+    fn view_line(self, number: u64) -> String {
+        match self {
+            Forge::Github => format!(
+                "gh issue view {number} \
+                 --json title,url,state,author,createdAt,body,labels,comments"
+            ),
+        }
+    }
+
+    /// 一覧が返した URL を検証して、リポジトリの URL と種類に分ける（`parse_gh_target`）。
+    fn parse_target(self, url: &str) -> Option<(&str, ListKind)> {
+        match self {
+            Forge::Github => parse_gh_target(url),
+        }
+    }
+
+    /// リポジトリで許可されているマージの方式を聞く行。`repo_url` は `parse_target` の結果。
+    fn merge_methods_line(self, repo_url: &str) -> String {
+        match self {
+            Forge::Github => format!(
+                "gh repo view {repo_url} \
+                 --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"
+            ),
+        }
+    }
+
+    /// `merge_methods_line` の出力を読む。
+    fn parse_merge_methods(self, stdout: &str) -> Result<Vec<MergeMethod>, serde_json::Error> {
+        match self {
+            Forge::Github => {
+                serde_json::from_str::<GhMergeSettings>(stdout.trim()).map(|s| s.methods())
+            }
+        }
+    }
+
+    /// 状態を変える操作の行。`url` は `parse_target` を通したものだけを渡すこと。
+    fn act_line(self, action: IssueAction, url: &str) -> String {
+        match self {
+            Forge::Github => action.gh_line(url),
+        }
+    }
 }
 
 /// GitHub のラベル。**gh の JSON をそのまま受ける**ので `Deserialize` も持つ
@@ -146,11 +224,12 @@ impl IssueAction {
         }
     }
 
-    /// 実行する行。`url` は `parse_target` を通したものだけを渡すこと（行にそのまま埋まる）。
+    /// `gh` で実行する行。`url` は `parse_gh_target` を通したものだけを渡すこと（行にそのまま
+    /// 埋まる）。
     ///
     /// **方式は必ず引数で渡す。** 無いと `gh pr merge` は端末に方式を聞きに行き、Pike の
     /// バックエンドは入力を返せない。
-    fn line(self, url: &str) -> String {
+    fn gh_line(self, url: &str) -> String {
         match self {
             IssueAction::Merge {
                 method,
@@ -186,7 +265,7 @@ impl IssueAction {
 /// (pull|issues)/<数字>` で、各部分は英数字と `-` `_` `.` だけ。この文字集合は bash でも
 /// `cmd /C` でもそのまま 1 つの引数になるので、シェルごとの引用（`ShellConfig::line_arg`）に
 /// 頼らずに済む。
-fn parse_target(url: &str) -> Option<(&str, ListKind)> {
+fn parse_gh_target(url: &str) -> Option<(&str, ListKind)> {
     // 後ろから 2 つ切り出すと、残りがリポジトリの URL。
     let mut tail = url.rsplitn(3, '/');
     let (number, segment, repo_url) = (tail.next()?, tail.next()?, tail.next()?);
@@ -235,9 +314,9 @@ impl GhMergeSettings {
 }
 
 impl ListKind {
-    /// 実行する行。**フィールドは種類ごとに要求する**（`gh pr list` は `parent` を、
+    /// `gh` で一覧を取る行。**フィールドは種類ごとに要求する**（`gh pr list` は `parent` を、
     /// `gh issue list` は `isDraft` を知らず、渡すとエラーで落ちる）。
-    fn list_line(self, limit: u32) -> String {
+    fn gh_list_line(self, limit: u32) -> String {
         match self {
             ListKind::Issue => format!(
                 "gh issue list --state open --limit {limit} \
@@ -412,7 +491,7 @@ impl From<GhIssue> for IssueSummary {
 /// 並べるのは `createdAt` なので番号と割れうる。理由は `issues_list` の doc）。切り出して
 /// あるのは、呼び出し元とテスト 4 本が同じ 2 行を書き写さずに済み、順序を純粋な関数として
 /// テストできるため。
-fn parse_list(stdout: &str) -> Result<Vec<IssueSummary>, serde_json::Error> {
+fn parse_gh_list(stdout: &str) -> Result<Vec<IssueSummary>, serde_json::Error> {
     let mut issues: Vec<IssueSummary> = serde_json::from_str::<Vec<GhIssue>>(stdout.trim())?
         .into_iter()
         .map(IssueSummary::from)
@@ -424,15 +503,20 @@ fn parse_list(stdout: &str) -> Result<Vec<IssueSummary>, serde_json::Error> {
 /// 失敗の理由。**stderr を優先し、空なら stdout を見る**（`gh` は認証エラーを stderr に
 /// 出すが、シェル側の失敗は stdout に出ることがある）。どちらも空なら終了コードだけを言う。
 /// 実行した行を添えるのは、何が走ったか読めるようにするため。
-fn failure(line: &str, code: i32, stdout: &str, stderr: &str) -> String {
+fn failure(forge: Forge, line: &str, code: i32, stdout: &str, stderr: &str) -> String {
     let msg = first_line(stderr)
         .or_else(|| first_line(stdout))
-        .unwrap_or_else(|| format!("gh exited with code {code}"));
+        .unwrap_or_else(|| format!("{} exited with code {code}", forge.cli()));
     format!("{msg}\n{line}")
 }
 
-/// `gh` が使えるか。探し方（`--version` を一覧と同じ `run_shell_line` で走らせる）は
-/// `ShellConfig::has_command`（`vue-preview` の検出と共有）。
+/// 検出の答えを引くキー。同じシェルでも CLI が違えば答えが違う。
+fn probe_key(forge: Forge, shell: &ShellConfig) -> String {
+    format!("{}:{}", forge.cli(), install_key(shell))
+}
+
+/// そのサービスの CLI（`gh`）が使えるか。探し方（`--version` を一覧と同じ `run_shell_line` で
+/// 走らせる）は `ShellConfig::has_command`（`vue-preview` の検出と共有）。
 ///
 /// ここでは認証までは見ない: `gh auth status` をもう 1 回起こすことになるうえ、認証が
 /// 切れているかどうかは一覧の取得が返す `error` で分かる。ここで見たいのは
@@ -444,15 +528,16 @@ fn failure(line: &str, code: i32, stdout: &str, stderr: &str) -> String {
 /// 更新ボタンに手が届かない**。覚え方と、同じ導入単位への問い合わせを 1 本に畳むのは
 /// `cache::ProbeEntry::found`（`vue-preview` の検出と共有）。
 #[tauri::command]
-pub async fn issues_gh_available(
+pub async fn issues_cli_available(
+    forge: Forge,
     shell: ShellConfig,
     root: String,
     force: bool,
     state: State<'_, IssuesState>,
 ) -> Result<bool, String> {
-    let entry = state.gh.entry(install_key(&shell));
+    let entry = state.clis.entry(probe_key(forge, &shell));
     tauri::async_runtime::spawn_blocking(move || {
-        entry.found(force, || shell.has_command(&root, "gh"))
+        entry.found(force, || shell.has_command(&root, forge.cli()))
     })
     .await
     .map_err(|e| e.to_string())
@@ -484,13 +569,14 @@ pub async fn issues_gh_available(
 /// **PR（#413）も同じコマンドで取る**（`kind`）。並び・件数・失敗の扱いは issue と同じ。
 #[tauri::command]
 pub async fn issues_list(
+    forge: Forge,
     shell: ShellConfig,
     root: String,
     limit: u32,
     kind: ListKind,
 ) -> Result<IssueListResult, String> {
     // 引数はすべてこちらが決めた定数か数値なので、シェルの行に埋めても注入の余地が無い。
-    let line = kind.list_line(limit.clamp(1, 200));
+    let line = forge.list_line(kind, limit.clamp(1, 200));
     tauri::async_runtime::spawn_blocking(move || {
         let (code, stdout, stderr) = match shell.run_shell_line(&root, &line, LIST_TIMEOUT) {
             Ok(v) => v,
@@ -504,19 +590,19 @@ pub async fn issues_list(
         if code != 0 {
             return IssueListResult {
                 issues: Vec::new(),
-                error: Some(failure(&line, code, &stdout, &stderr)),
+                error: Some(failure(forge, &line, code, &stdout, &stderr)),
             };
         }
-        match parse_list(&stdout) {
+        match forge.parse_list(&stdout) {
             Ok(issues) => IssueListResult {
                 issues,
                 error: None,
             },
-            // 終了コード 0 なのに読めない出力は、`gh` の版が違うか、シェルの初期化が
+            // 終了コード 0 なのに読めない出力は、CLI の版が違うか、シェルの初期化が
             // 何かを stdout に混ぜたとき。黙って 0 件にせず理由として出す。
             Err(e) => IssueListResult {
                 issues: Vec::new(),
-                error: Some(format!("failed to parse gh output: {e}\n{line}")),
+                error: Some(parse_failure(forge, &e, &line)),
             },
         }
     })
@@ -524,42 +610,55 @@ pub async fn issues_list(
     .map_err(|e| e.to_string())
 }
 
-/// 1 件を読む（#278）。一覧と同じくプロジェクトのシェル・root で `gh` に任せる。
-///
-/// **番号は数値なので、シェルの行に埋めても注入の余地が無い。**
+fn parse_failure(forge: Forge, e: &serde_json::Error, line: &str) -> String {
+    format!("failed to parse {} output: {e}\n{line}", forge.cli())
+}
+
+/// 1 件を読む（#278）。一覧と同じくプロジェクトのシェル・root で CLI に任せる。
 ///
 /// **失敗は `Err` で返す**（一覧の `IssueListResult.error` と意図的に違う形）。あちらは
 /// 「0 件」と区別が付かないので理由を値に載せるが、タブは中身が無ければ何も出せないので、
 /// 呼び出し側が空と区別する必要が無い。
 #[tauri::command]
 pub async fn issues_view(
+    forge: Forge,
     shell: ShellConfig,
     root: String,
     number: u64,
 ) -> Result<IssueDetail, String> {
-    let line = format!(
-        "gh issue view {number} \
-         --json title,url,state,author,createdAt,body,labels,comments"
-    );
-    tauri::async_runtime::spawn_blocking(move || run_gh_json(&shell, &root, &line))
+    let line = forge.view_line(number);
+    tauri::async_runtime::spawn_blocking(move || run_cli_json(forge, &shell, &root, &line))
         .await
         .map_err(|e| e.to_string())?
 }
 
-/// `run_gh` の stdout を JSON として読む（読み取りの `--json` 用。時間切れは一覧と同じ）。
-fn run_gh_json<T: serde::de::DeserializeOwned>(
+/// `run_cli` の stdout を `parse` で読む（読み取りの `--json` 用。時間切れは一覧と同じ）。
+/// 読めなかったときの文面（`parse_failure`）をここ 1 か所に置く。
+fn run_cli_parse<T>(
+    forge: Forge,
+    shell: &ShellConfig,
+    root: &str,
+    line: &str,
+    parse: impl FnOnce(&str) -> Result<T, serde_json::Error>,
+) -> Result<T, String> {
+    let stdout = run_cli(forge, shell, root, line, LIST_TIMEOUT)?;
+    parse(stdout.trim()).map_err(|e| parse_failure(forge, &e, line))
+}
+
+/// JSON をそのまま型へ読む `run_cli_parse`。
+fn run_cli_json<T: serde::de::DeserializeOwned>(
+    forge: Forge,
     shell: &ShellConfig,
     root: &str,
     line: &str,
 ) -> Result<T, String> {
-    let stdout = run_gh(shell, root, line, LIST_TIMEOUT)?;
-    serde_json::from_str(stdout.trim())
-        .map_err(|e| format!("failed to parse gh output: {e}\n{line}"))
+    run_cli_parse(forge, shell, root, line, |s| serde_json::from_str(s))
 }
 
-/// `gh` の行を走らせて stdout を返す。**非 0 は `failure` の文面で `Err` にする**
+/// CLI の行を走らせて stdout を返す。**非 0 は `failure` の文面で `Err` にする**
 /// （失敗を値に載せる一覧だけは、これを通さず自前で組む）。
-fn run_gh(
+fn run_cli(
+    forge: Forge,
     shell: &ShellConfig,
     root: &str,
     line: &str,
@@ -567,7 +666,7 @@ fn run_gh(
 ) -> Result<String, String> {
     let (code, stdout, stderr) = shell.run_shell_line(root, line, timeout)?;
     if code != 0 {
-        return Err(failure(line, code, &stdout, &stderr));
+        return Err(failure(forge, line, code, &stdout, &stderr));
     }
     Ok(stdout)
 }
@@ -583,18 +682,19 @@ fn invalid_target(url: &str) -> String {
 /// （理由は `parse_target`）。
 #[tauri::command]
 pub async fn issues_merge_methods(
+    forge: Forge,
     shell: ShellConfig,
     root: String,
     url: String,
 ) -> Result<Vec<MergeMethod>, String> {
-    let Some((repo_url, ListKind::Pr)) = parse_target(&url) else {
+    let Some((repo_url, ListKind::Pr)) = forge.parse_target(&url) else {
         return Err(invalid_target(&url));
     };
-    let line = format!(
-        "gh repo view {repo_url} --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"
-    );
+    let line = forge.merge_methods_line(repo_url);
     tauri::async_runtime::spawn_blocking(move || {
-        run_gh_json::<GhMergeSettings>(&shell, &root, &line).map(|s| s.methods())
+        run_cli_parse(forge, &shell, &root, &line, |s| {
+            forge.parse_merge_methods(s)
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -606,17 +706,18 @@ pub async fn issues_merge_methods(
 /// 決まり、`gh` は端末に何も聞かない。失敗は `Err` で返し、フロントがダイアログに出す。
 #[tauri::command]
 pub async fn issues_act(
+    forge: Forge,
     shell: ShellConfig,
     root: String,
     url: String,
     action: IssueAction,
 ) -> Result<(), String> {
-    if parse_target(&url).map(|(_, kind)| kind) != Some(action.kind()) {
+    if forge.parse_target(&url).map(|(_, kind)| kind) != Some(action.kind()) {
         return Err(invalid_target(&url));
     }
-    let line = action.line(&url);
+    let line = forge.act_line(action, &url);
     tauri::async_runtime::spawn_blocking(move || {
-        run_gh(&shell, &root, &line, ACTION_TIMEOUT).map(|_| ())
+        run_cli(forge, &shell, &root, &line, ACTION_TIMEOUT).map(|_| ())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -634,7 +735,7 @@ mod tests {
            "number":308,"state":"OPEN","title":"分割","updatedAt":"2026-09-03T06:54:00Z",
            "url":"https://github.com/kan/pike/issues/308"}
         ]"#;
-        let issues = parse_list(json).unwrap();
+        let issues = parse_gh_list(json).unwrap();
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].number, 308);
         assert_eq!(issues[0].author, "kan");
@@ -649,7 +750,11 @@ mod tests {
           {"number":357,"title":"b","url":"u","updatedAt":"","author":null,"labels":[]},
           {"number":100,"title":"c","url":"u","updatedAt":"","author":null,"labels":[]}
         ]"#;
-        let numbers: Vec<u64> = parse_list(json).unwrap().iter().map(|i| i.number).collect();
+        let numbers: Vec<u64> = parse_gh_list(json)
+            .unwrap()
+            .iter()
+            .map(|i| i.number)
+            .collect();
         assert_eq!(numbers, vec![357, 100, 12]);
     }
 
@@ -664,7 +769,7 @@ mod tests {
            "author":{"login":"kan"},"labels":[],"parent":null}
         ]"#;
         // 番号で引く（`parse_list` は並べ替えるので、添字は入力の順を意味しない）。
-        let issues = parse_list(json).unwrap();
+        let issues = parse_gh_list(json).unwrap();
         let by = |n: u64| issues.iter().find(|i| i.number == n).unwrap();
         assert_eq!(by(299).parent, Some(275));
         assert_eq!(by(275).parent, None);
@@ -677,7 +782,7 @@ mod tests {
           {"number":2,"title":"d","url":"u","updatedAt":"","author":null,"labels":[],"isDraft":true},
           {"number":1,"title":"r","url":"u","updatedAt":"","author":null,"labels":[]}
         ]"#;
-        let issues = parse_list(json).unwrap();
+        let issues = parse_gh_list(json).unwrap();
         assert!(issues[0].draft);
         assert!(!issues[1].draft);
     }
@@ -705,7 +810,11 @@ mod tests {
           {"number":1,"title":"","url":"","updatedAt":"","author":null,"labels":[],
            "statusCheckRollup":null}
         ]"#;
-        let checks: Vec<_> = parse_list(json).unwrap().iter().map(|i| i.checks).collect();
+        let checks: Vec<_> = parse_gh_list(json)
+            .unwrap()
+            .iter()
+            .map(|i| i.checks)
+            .collect();
         assert_eq!(
             checks,
             vec![
@@ -723,7 +832,7 @@ mod tests {
     fn tolerates_missing_author() {
         let json = r#"[{"number":1,"title":"t","url":"u",
                         "updatedAt":"2026-01-01T00:00:00Z","author":null,"labels":[]}]"#;
-        let issues = parse_list(json).unwrap();
+        let issues = parse_gh_list(json).unwrap();
         assert_eq!(issues[0].author, "");
     }
 
@@ -731,11 +840,11 @@ mod tests {
     #[test]
     fn parses_only_well_formed_targets() {
         assert_eq!(
-            parse_target("https://github.com/kan/pike/pull/12"),
+            parse_gh_target("https://github.com/kan/pike/pull/12"),
             Some(("https://github.com/kan/pike", ListKind::Pr))
         );
         assert_eq!(
-            parse_target("https://ghe.example.com/a-b/c_d.e/issues/450"),
+            parse_gh_target("https://ghe.example.com/a-b/c_d.e/issues/450"),
             Some(("https://ghe.example.com/a-b/c_d.e", ListKind::Issue))
         );
         for bad in [
@@ -749,7 +858,7 @@ mod tests {
             "https://github.com/kan/pike&x/issues/1",
             "https://github.com//pike/issues/1",
         ] {
-            assert_eq!(parse_target(bad), None, "{bad}");
+            assert_eq!(parse_gh_target(bad), None, "{bad}");
         }
     }
 
@@ -760,25 +869,34 @@ mod tests {
             method,
             delete_branch,
         };
+        let line = |action, url| Forge::Github.act_line(action, url);
         assert_eq!(
-            merge(MergeMethod::Squash, false).line(pr),
+            line(merge(MergeMethod::Squash, false), pr),
             format!("gh pr merge {pr} --squash")
         );
         assert_eq!(
-            merge(MergeMethod::Merge, true).line(pr),
+            line(merge(MergeMethod::Merge, true), pr),
             format!("gh pr merge {pr} --merge --delete-branch")
         );
-        assert_eq!(IssueAction::ClosePr.line(pr), format!("gh pr close {pr}"));
+        assert_eq!(line(IssueAction::ClosePr, pr), format!("gh pr close {pr}"));
         let issue = "https://github.com/kan/pike/issues/450";
         let close = |reason| IssueAction::CloseIssue { reason };
         assert_eq!(
-            close(CloseReason::NotPlanned).line(issue),
+            line(close(CloseReason::NotPlanned), issue),
             format!("gh issue close {issue} --reason \"not planned\"")
         );
         assert_eq!(
-            close(CloseReason::Completed).line(issue),
+            line(close(CloseReason::Completed), issue),
             format!("gh issue close {issue} --reason completed")
         );
+    }
+
+    /// サービスの綴りはフロントの `IssueForge`（`types/issues.ts`）と同じ。
+    #[test]
+    fn deserializes_the_forge_from_the_frontend() {
+        let forge: Forge = serde_json::from_str(r#""github""#).unwrap();
+        assert_eq!(forge, Forge::Github);
+        assert_eq!(forge.cli(), "gh");
     }
 
     /// フロントが送る形（`types/issues.ts` の `IssueAction`）をそのまま読めること。
@@ -787,7 +905,10 @@ mod tests {
         let action: IssueAction =
             serde_json::from_str(r#"{"type":"merge","method":"rebase","deleteBranch":true}"#)
                 .unwrap();
-        assert_eq!(action.line("u"), "gh pr merge u --rebase --delete-branch");
+        assert_eq!(
+            Forge::Github.act_line(action, "u"),
+            "gh pr merge u --rebase --delete-branch"
+        );
         let action: IssueAction =
             serde_json::from_str(r#"{"type":"closeIssue","reason":"notPlanned"}"#).unwrap();
         assert_eq!(action.kind(), ListKind::Issue);
@@ -798,23 +919,30 @@ mod tests {
     /// 許可されている方式だけを、GitHub のボタンと同じ並びで返す。
     #[test]
     fn lists_allowed_merge_methods() {
-        let settings: GhMergeSettings = serde_json::from_str(
-            r#"{"mergeCommitAllowed":false,"rebaseMergeAllowed":true,"squashMergeAllowed":true}"#,
-        )
-        .unwrap();
+        let methods = Forge::Github
+            .parse_merge_methods(
+                r#"{"mergeCommitAllowed":false,"rebaseMergeAllowed":true,"squashMergeAllowed":true}"#,
+            )
+            .unwrap();
+        assert_eq!(methods, vec![MergeMethod::Squash, MergeMethod::Rebase]);
         assert_eq!(
-            settings.methods(),
-            vec![MergeMethod::Squash, MergeMethod::Rebase]
+            Forge::Github.merge_methods_line("https://github.com/kan/pike"),
+            "gh repo view https://github.com/kan/pike \
+             --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"
         );
     }
 
     #[test]
     fn failure_prefers_stderr_then_stdout_and_echoes_the_line() {
+        let gh = Forge::Github;
         assert_eq!(
-            failure("gh x", 1, "out", "  \nerr line\n"),
+            failure(gh, "gh x", 1, "out", "  \nerr line\n"),
             "err line\ngh x"
         );
-        assert_eq!(failure("gh x", 1, "\nout line", ""), "out line\ngh x");
-        assert_eq!(failure("gh x", 4, "", ""), "gh exited with code 4\ngh x");
+        assert_eq!(failure(gh, "gh x", 1, "\nout line", ""), "out line\ngh x");
+        assert_eq!(
+            failure(gh, "gh x", 4, "", ""),
+            "gh exited with code 4\ngh x"
+        );
     }
 }

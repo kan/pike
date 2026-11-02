@@ -65,10 +65,10 @@ function withCancel<T extends string>(list: DialogChoice<T>[]): DialogChoice<T |
  */
 export async function mergePullRequest(pr: IssueSummary): Promise<void> {
   const repo = pr.url.replace(/\/pull\/\d+$/, '')
-  const outcome = await useIssuesStore().act('pr', pr, async (shell, root) => {
+  const outcome = await useIssuesStore().act('pr', pr, async (shell, root, forge) => {
     let methods = methodsByRepo.get(repo)
     if (!methods) {
-      methods = await issuesMergeMethods(shell, root, pr.url)
+      methods = await issuesMergeMethods(forge, shell, root, pr.url)
       methodsByRepo.set(repo, methods)
       // 往復のあいだに別のダイアログが開いていたら譲る（`askOnce` と同じ扱い）。割り込むと
       // 相手の答えを奪ううえ、押そうとしていたボタンの位置にマージのボタンが出る。

@@ -7,12 +7,28 @@ paths:
   - "src/lib/issue*.ts"
   - "src/types/issues.ts"
   - "src/composables/usePanelAvailability.ts"
+  - "src/lib/forge.ts"
 ---
 
 # issue パネル（#278）実装ルール
 
 GitHub の open issue（と、切り替えて open PR。#413）を番号の降順に出す。実体は `src-tauri/src/issues/mod.rs`、
 `src/stores/issues.ts`、`src/components/panels/IssuesPanel.vue`。
+
+## サービスの表（#541）
+- **「どのサービスか」を答えるのは `lib/forge.ts` の `parseForge` の 1 つ。** サービスの差
+  （リポジトリ・コミット・ファイルの行の URL、ステータスバーのアイコン、新規 issue のページ、
+  issue パネルを持つか）は同じファイルの `FORGES` の表に閉じ込める。**呼び出し側に
+  `kind === 'github'` を書かない**（表の欄の `issues` / `newIssueUrl` / `icon` を読む）。
+  サービスを足すときは表に 1 行足す
+  - Codeberg は `gitea` の種類（Forgejo で、URL の形が Gitea と同じ）。表示名はホストの側
+    （`KNOWN_HOSTS` の `label`）で「Codeberg」のまま
+- **issue / PR のパネルを持つのは、表の `issues` があるサービスだけ**（今は GitHub）。値は
+  Rust の `issues::Forge` と同じ綴り（型は `types/issues.ts` の `IssueForge`）で、issue の 4 つの
+  コマンド（`issues_list` / `issues_view` / `issues_merge_methods` / `issues_act`）がこれを受け取る
+- **Rust はサービスの差を `impl Forge` の `match` に閉じ込める**（CI の `ci::Provider` と同じ形）。
+  コマンドの本体とフロントへ返す型（`IssueSummary` / `IssueDetail` / `IssueListResult`）は
+  サービスで分岐しない。サービスを足すときは、その CLI の JSON を同じ型へ読み替える
 
 ## 取得と検出
 - **`api.github.com` を直接叩かない。** CSP の緩和（`connect-src`）とトークンの保管が要る。
@@ -23,14 +39,15 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
 - **並びは番号の降順で固定する（#357）。** 更新順にすると、誰かが触るたびに行が動いて追えない。
   **並び替えの修飾子を渡さない**（`gh issue list` の既定が作成順の降順）。**判断の実体は
   `issues_list` の doc が正本**: `--search` を足すと検索 API 側へ回ること、番号と `createdAt` が
-  割れるので `parse_list` が並べ直すこと、`--limit` がサーバー側であるがゆえの代償（古い issue が窓から落ちる）
+  割れるので `parse_gh_list` が並べ直すこと、`--limit` がサーバー側であるがゆえの代償（古い issue が窓から落ちる）
   - **ツリー表示（既定）では、この並びのままにはならない。** `buildIssueTree` が子を親の位置へ
     引き寄せるため。番号の降順の列がそのまま出るのはフラット表示のほう
 - **未インストール・未認証・権限なしを「0 件」に見せない**（`ProviderRun.error` と同じ考え方）。
   どれも結果が空になるので、区別が付くよう `IssueListResult.error` に理由を入れる。**実行した
   行もそこへ畳む**: 成功時にも返る別のフィールドにすると、IPC が落ちた経路（フロントの catch）
   だけ古い行が残る。1 行の長さは `types.rs` の `first_line` が 200 文字で切る（`diagnostics` と共有）
-- **`gh` の検出は `issues_gh_available`。** 探し方は `ShellConfig::has_command`（`vue-preview` の
+- **`gh` の検出は `issues_cli_available`**（サービスを受け取り、その CLI を探す。答えは CLI とシェルの
+  導入単位の組で覚える）。探し方は `ShellConfig::has_command`（`vue-preview` の
   検出と共有）で、`--version` が存在確認を兼ね（`which` を別に叩かない）、
   **一覧と同じ `run_shell_line` を通す**（WSL では `WSL_EXTRA_PATH` が前置されるので
   `~/.local/bin` の `gh` も見つかる。素の `run` で探すと、探し方と走らせ方が食い違って
@@ -71,7 +88,7 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
   アイコンだけ隠すと残り 3 つから「使えません」しか出ないパネルが開く。`lib/shortcuts.ts` には
   置けない（`stores/project.ts` から import されるので循環する）ので、`APP_ACTIONS` の行は
   `panel` で「どのパネルか」だけを言い、可否は読む側が composable に聞く
-  - **`isGitHub` は永続化済みの `project.remoteUrl` を先に見る**。`gitStore.remoteUrl` は
+  - **サービスの判定（`stores/issues.ts` の `forge`）は永続化済みの `project.remoteUrl` を先に見る**。`gitStore.remoteUrl` は
     `git remote get-url` の往復が終わるまで null なので、そちらだけだとアイコン列が起動から
     数百 ms 遅れて増え、一度リフローする。git 側は補正役（リモートを付け替えたら勝つ）
   - **述語は 2 つある（#353）**: `isPanelAvailable`（今そのパネルを出してよいか）と
@@ -123,7 +140,7 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
   `.panel-tab` をアウトラインと共有する
 - **取得は `issues_list` の `kind` で分けるだけ**（`ListKind`）。PR も `IssueSummary` で運び、
   片方にしか無いフィールド（issue の `parent`、PR の `isDraft`＝`draft`）だけが違う。
-  **`--json` のフィールドは種類ごとに要求する**（`ListKind::list_line`）: `gh pr list` は
+  **`--json` のフィールドは種類ごとに要求する**（`ListKind::gh_list_line`）: `gh pr list` は
   `parent` を、`gh issue list` は `isDraft` を知らず、渡すとエラーで落ちる
 - **取得の状態（一覧・`error`・`loading`・`loaded`・seq）は種類ごとに持つ**（`stores/issues.ts` の
   `KindList`）。1 本を共有すると、issue の取得中に PR へ切り替えたとき PR の `ensureLoaded` が
@@ -153,7 +170,7 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
   読み取り専用のまま**で、書き込みを持つのはパネルの行だけ
 - **対象は番号ではなく、一覧が返した URL で指す**（`gh pr merge <url>`）。一覧の取得は `--repo` を
   渡さず cwd の解決に任せているが、状態を変える側まで任せると、fork で別のリポジトリの同じ番号に
-  当たりうる。**URL は Rust の `parse_target` が形を決め打ちで検証し、引用はしない**（通す文字集合が
+  当たりうる。**URL は Rust の `parse_gh_target` が形を決め打ちで検証し、引用はしない**（通す文字集合が
   bash でも `cmd /C` でもそのまま 1 引数になる。理由はあの関数の doc）
 - **バックエンドで走らせる。** 方式も理由も引数で渡すので `gh` は端末に何も聞かない。時間切れは
   一覧より長い `ACTION_TIMEOUT`（切れた時点で GitHub 側では済んでいることがある）

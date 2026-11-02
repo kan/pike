@@ -2,13 +2,13 @@ import { defineStore } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
 import { infoDialog } from '../composables/useConfirmDialog'
 import { t } from '../i18n'
-import { buildRepoLink } from '../lib/gitRemote'
+import { parseForge } from '../lib/forge'
 import { hasHiddenLabel, hiddenLabelSet } from '../lib/issueLabels'
 import { buildIssueTree, issueParentNumbers } from '../lib/issueTree'
 import { fuzzyMatch } from '../lib/paths'
 import { loadJson, saveJson } from '../lib/storage'
-import { issuesAct, issuesGhAvailable, issuesList } from '../lib/tauri'
-import type { IssueAction, IssueKind, IssueSummary } from '../types/issues'
+import { issuesAct, issuesCliAvailable, issuesList } from '../lib/tauri'
+import type { IssueAction, IssueForge, IssueKind, IssueSummary } from '../types/issues'
 import type { ShellType } from '../types/tab'
 import { useGitStore } from './git'
 import { useProjectStore } from './project'
@@ -117,48 +117,59 @@ export const useIssuesStore = defineStore('issues', () => {
    *
    * **TTL は持たない**（シェルが変わるまで有効）。`gh` を消す運用は無いので、見つかった
    * 答えを聞き直す理由が無い。
+   *
+   * 探す CLI はサービス（`forge`）で決まる。**ラッチのキーはシェルだけ**なので、CLI が 2 つに
+   * なったら（GitLab の `glab`）サービスもキーに含めること。
    */
-  const ghProbe = createShellProbe<boolean>((shell, root, force) => issuesGhAvailable(shell, root, force), {
-    keep: (found) => found,
-  })
+  const ghProbe = createShellProbe<boolean>(
+    (shell, root, force) => {
+      const f = forge.value
+      return f ? issuesCliAvailable(f, shell, root, force) : Promise.resolve(false)
+    },
+    { keep: (found) => found },
+  )
 
   /** 今のプロジェクトのシェル。検出のラッチを引くキー。 */
   const currentShell = computed(() => useProjectStore().currentProject?.shell ?? null)
 
   /**
-   * origin が GitHub か。**判定は `buildRepoLink` に任せる**（`lib/gitRemote.ts` が
-   * プロバイダの唯一の出典で、SCP 形式の origin もそこが解いている）。
+   * origin のサービス。**判定はサービスの表に任せる**（`lib/forge.ts` の `parseForge` が
+   * 唯一の出典で、SCP 形式の origin もそこが解いている）。
    *
    * **`project.remoteUrl`（永続化済み）を先に見る。** `gitStore.remoteUrl` は
    * `git remote get-url` の往復が終わるまで null なので、そちらだけを見ているとアイコンが
    * 起動から数百 ms 遅れて増え、アイコン列が一度リフローする。git 側は補正役で、
    * リモートを付け替えたときはそちらが勝つ。
    */
-  const repoLink = computed(() => buildRepoLink(useProjectStore().currentProject?.remoteUrl ?? useGitStore().remoteUrl))
+  const remote = computed(() => parseForge(useProjectStore().currentProject?.remoteUrl ?? useGitStore().remoteUrl))
 
-  const isGitHub = computed(() => repoLink.value?.provider === 'github')
+  /**
+   * issue / PR を扱うサービス（#541）。パネルを持たないサービス（表の `issues` が無い）と、
+   * origin が分からないときは null。Rust のコマンドへはこれを渡す。
+   */
+  const forge = computed<IssueForge | null>(() => remote.value?.issues ?? null)
 
   /**
    * **このプロジェクトでは issue を扱えないと確定した**か（#353）。開いているパネルを
    * 逃がしてよいかの判断（`usePanelAvailability`）がこれを読む。
    *
-   * **`isGitHub` の否定では駄目。** あれは「origin が GitHub でない」と「origin をまだ
-   * 聞いていない」を同じ false に潰すので、**聞き終える前に GitHub のプロジェクトでも
+   * **`forge` が null であることでは駄目。** あれは「origin が issue を扱えるサービスでない」と
+   * 「origin をまだ聞いていない」を同じ null に潰すので、**聞き終える前に GitHub のプロジェクトでも
    * ファイルツリーへ飛ぶ**（一時プロジェクトと、初めて開くプロジェクトは
    * `project.remoteUrl` を持たない）。**確定していないあいだは false に倒すこと。**
    */
   const ruledOut = computed(() => {
-    if (isGitHub.value) return false
+    if (forge.value) return false
     const project = useProjectStore().currentProject
     if (!project) return false
-    // 永続化済みの origin があるなら、それが GitHub でない時点で答えは出ている。
+    // 永続化済みの origin があるなら、それが issue を扱えるサービスでない時点で答えは出ている。
     return !!project.remoteUrl || useGitStore().remoteResolved
   })
 
   /** **今のシェルで**見つかっているか。シェルごとの表を引くので、切り替えて probe が
    *  返るまでのあいだ前のシェルの答えが `visible` に出ることはない。 */
   const ghAvailable = computed(() => ghProbe.answerFor(currentShell.value) === true)
-  const visible = computed(() => isGitHub.value && ghAvailable.value)
+  const visible = computed(() => !!forge.value && ghAvailable.value)
 
   /**
    * 絞り込みの述語。番号・タイトル・ラベル名をつないだ 1 本の文字列に、他のパネルと同じ共有
@@ -300,12 +311,13 @@ export const useIssuesStore = defineStore('issues', () => {
       // 叩いても、読めないエラー文が出るだけで誰の役にも立たない。
       const projectStore = useProjectStore()
       const project = projectStore.currentProject
-      if (!project || !visible.value) {
+      const f = forge.value
+      if (!project || !f || !visible.value) {
         list.items = []
         list.error = null
         return
       }
-      const result = await issuesList(project.shell, projectStore.activeRoot, LIMIT, k)
+      const result = await issuesList(f, project.shell, projectStore.activeRoot, LIMIT, k)
       if (mySeq !== list.seq) return
       list.items = result.issues
       list.error = result.error
@@ -331,7 +343,7 @@ export const useIssuesStore = defineStore('issues', () => {
    * 横から始める流れが無い。
    */
   const newIssueUrl = computed(() =>
-    isGitHub.value && kind.value === 'issue' ? `${repoLink.value?.url}/issues/new` : null,
+    forge.value && kind.value === 'issue' ? (remote.value?.newIssueUrl ?? null) : null,
   )
 
   /** 更新ボタン。`gh` の再検出を挟む。 */
@@ -365,21 +377,22 @@ export const useIssuesStore = defineStore('issues', () => {
   async function act(
     k: IssueKind,
     item: IssueSummary,
-    ask: (shell: ShellType, root: string) => Promise<IssueAction | null>,
+    ask: (shell: ShellType, root: string, forge: IssueForge) => Promise<IssueAction | null>,
   ): Promise<'done' | 'failed' | 'cancelled'> {
     const projectStore = useProjectStore()
     const project = projectStore.currentProject
-    if (!project || actingIn.has(project.id)) return 'cancelled'
+    const f = forge.value
+    if (!project || !f || actingIn.has(project.id)) return 'cancelled'
     const { id, shell } = project
     const root = projectStore.activeRoot
     const stillHere = () => projectStore.currentProject?.id === id
     let attempted = false
     actingIn.add(id)
     try {
-      const action = await ask(shell, root)
+      const action = await ask(shell, root, f)
       if (!action) return 'cancelled'
       attempted = true
-      await issuesAct(shell, root, item.url, action)
+      await issuesAct(f, shell, root, item.url, action)
       if (stillHere()) lists[k].items = lists[k].items.filter((i) => i.number !== item.number)
       return 'done'
     } catch (e) {
@@ -407,14 +420,14 @@ export const useIssuesStore = defineStore('issues', () => {
    * **検出はストアの setup で 1 回だけ張る**（`useFocusPolling` と同じ理由で、`start()` の
    * 中に置くとコンポーネントの scope に入ってマウント解除で黙って止まる）。
    *
-   * origin が GitHub だと分かってから探すので、GitHub 以外のプロジェクトでは `gh` を
+   * origin が issue を扱えるサービスだと分かってから探すので、それ以外のプロジェクトでは `gh` を
    * 1 度も起動しない。答えは Rust 側がプロセス単位で覚えるので、同じシェルのウィンドウを
    * 何枚開いても実際に走るのは 1 回。
    */
   watch(
-    [isGitHub, currentShell],
-    ([github]) => {
-      if (github) void detect()
+    [forge, currentShell],
+    ([f]) => {
+      if (f) void detect()
     },
     { immediate: true },
   )
@@ -443,6 +456,7 @@ export const useIssuesStore = defineStore('issues', () => {
     toggleAll,
     collapseAction,
     newIssueUrl,
+    forge,
     ruledOut,
     visible,
     // CI パネル（#457）の更新ボタンが、`gh` を入れたあとの再検出に使う。

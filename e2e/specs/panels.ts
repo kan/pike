@@ -681,7 +681,7 @@ describe('screenshots: issues panel', () => {
   for (const { lang, theme } of MATRIX) {
     it(`issues-panel ${lang} ${theme}`, async () => {
       await prepare({ lang, theme })
-      await mockInvoke('issues_gh_available', true)
+      await mockInvoke('issues_cli_available', true)
       await mockInvoke('issues_list', ISSUE_LIST)
       await setFakeProject({ remoteUrl: 'git@github.com:kan/pike.git' })
       await openEditor({ path: 'src/lib/tauri.ts', content: TAURI_TS })
@@ -695,7 +695,7 @@ describe('screenshots: issues panel', () => {
 
 // --- CI パネル --------------------------------------------------------------
 // `gh` の実行結果を invoke モックで差す（#457）。パネルが出る条件は「CI の設定がある」と
-// 「origin が GitHub で `gh` がある」なので、`ci_configs` と `issues_gh_available` も差す。
+// 「origin が GitHub で `gh` がある」なので、`ci_configs` と `issues_cli_available` も差す。
 //
 // **実行中の run は入れない。** 状態のアイコンが回るので撮るたびに角度が変わるうえ、
 // ストアが 15 秒ごとの取り直しを始める。`createdAt` を 30 日以上前にするのは issue と同じ理由。
@@ -761,7 +761,7 @@ describe('screenshots: ci panel', () => {
   for (const { lang, theme } of MATRIX) {
     it(`ci-panel ${lang} ${theme}`, async () => {
       await prepare({ lang, theme })
-      await mockInvoke('issues_gh_available', true)
+      await mockInvoke('issues_cli_available', true)
       await mockInvoke('ci_configs', { github: true, circleci: false })
       await mockInvoke('ci_list', CI_LIST)
       await mockInvoke('ci_jobs', CI_JOBS)

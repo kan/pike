@@ -1,27 +1,12 @@
-// origin URL から既知のホスティングサービスを検出し、コミット / リポジトリ TOP の URL を組み立てる。
-// 未知のホストは null を返し、UI 側で関連メニュー / ボタンを非表示にする。
-
-export type Provider = 'github' | 'gitlab' | 'bitbucket' | 'codeberg'
-
-const PROVIDERS: Record<string, { provider: Provider; label: string }> = {
-  'github.com': { provider: 'github', label: 'GitHub' },
-  'gitlab.com': { provider: 'gitlab', label: 'GitLab' },
-  'bitbucket.org': { provider: 'bitbucket', label: 'Bitbucket' },
-  'codeberg.org': { provider: 'codeberg', label: 'Codeberg' },
-}
-
-interface ParsedRemote {
-  provider: Provider
-  label: string
-  baseUrl: string
-}
+// origin の URL の分解と正規化。**Vue にもストアにも依存しない純粋な関数だけを置く**（同期の
+// マージとテストが読む）。ホスティングサービスの表と URL の組み立ては `forge.ts`（#541）。
 
 /**
  * origin URL を host と repo パス（前後のスラッシュと `.git` を落としたもの）に割る。
- * ホストは問わない: プロバイダの判定はこの上の層の仕事で、`normalizeRemoteUrl` は
- * 自前ホストにも答える必要がある。null は「remote URL に見えない」。
+ * ホストは問わない: サービスの判定はこの上の層（`forge.ts` の `parseForge`）の仕事で、
+ * `normalizeRemoteUrl` は自前ホストにも答える必要がある。null は「remote URL に見えない」。
  */
-function splitRemote(url: string | null | undefined): { host: string; path: string } | null {
+export function splitRemote(url: string | null | undefined): { host: string; path: string } | null {
   const raw = url?.trim()
   if (!raw) return null
   let host: string
@@ -48,22 +33,6 @@ function splitRemote(url: string | null | undefined): { host: string; path: stri
   return { host, path: repo }
 }
 
-function parseRemote(url: string | null): ParsedRemote | null {
-  const split = splitRemote(url)
-  if (!split) return null
-  const { host, path } = split
-
-  const meta = PROVIDERS[host]
-  if (!meta) return null
-
-  // owner/repo 形式想定 (GitLab はグループ多段あり)。`.git` は splitRemote が落とし済み
-  const segments = path.split('/').filter(Boolean)
-  if (segments.length < 2) return null
-  const repo = segments.pop() as string
-  const owner = segments.join('/')
-  return { ...meta, baseUrl: `https://${host}/${owner}/${repo}` }
-}
-
 /**
  * 同じリポジトリの origin URL が同じ文字列になるキー（`host/owner/repo`）。
  * `git@github.com:kan/pike.git` と `https://github.com/kan/pike` が一致する。
@@ -87,102 +56,4 @@ export function isRespelling(current: string | null | undefined, wanted: string 
   if (!current || !wanted || current === wanted) return false
   const key = normalizeRemoteUrl(current)
   return key !== null && key === normalizeRemoteUrl(wanted)
-}
-
-export interface RemoteLink {
-  url: string
-  label: string
-  provider: Provider
-}
-
-export function buildCommitLink(remoteUrl: string | null, hash: string): RemoteLink | null {
-  const parsed = parseRemote(remoteUrl)
-  if (!parsed) return null
-  let url: string
-  switch (parsed.provider) {
-    case 'github':
-    case 'codeberg':
-      url = `${parsed.baseUrl}/commit/${hash}`
-      break
-    case 'gitlab':
-      url = `${parsed.baseUrl}/-/commit/${hash}`
-      break
-    case 'bitbucket':
-      url = `${parsed.baseUrl}/commits/${hash}`
-      break
-  }
-  return { url, label: parsed.label, provider: parsed.provider }
-}
-
-/** `buildFileLink` に渡す、どのファイルのどの行か（#540）。 */
-export interface FileLinkTarget {
-  /** リモートにあるコミットの完全な SHA。`branch` があるときは `origin/<branch>` のもの。 */
-  commit: string
-  /** ブランチ名で開くとき（HEAD が未 push）。無ければ `commit` の permalink。 */
-  branch?: string
-  /** リポジトリのトップからのパス（`/` 区切り）。 */
-  path: string
-  range: { start: number; end: number } | null
-  /** Markdown のファイル。レンダリングされると行のアンカーが効かないので、ソースの表示を頼む。 */
-  markdown: boolean
-}
-
-/** パスとブランチ名はセグメントごとに符号化する（`#` や空白を含む名前がある。`/` は残す）。 */
-function encodeSegments(s: string): string {
-  return s.split('/').map(encodeURIComponent).join('/')
-}
-
-/**
- * ファイルの行を指す URL（#540）。サービスごとの形は issue #540 の表が出典
- * （Git Web Links の handler のテストケース）。
- *
- * - Markdown のソース表示は GitHub と GitLab が `?plain=1`、Codeberg が `?display=source`。
- *   **Bitbucket には無い**ので付けない（レンダリングされ、行へ飛ばないことがある）
- * - **Bitbucket はブランチ名に `/` があると `src/` の直後に置けない**ので、パスには SHA を置き、
- *   ブランチは `?at=` で渡す
- */
-export function buildFileLink(remoteUrl: string | null, target: FileLinkTarget): RemoteLink | null {
-  const parsed = parseRemote(remoteUrl)
-  if (!parsed) return null
-  const path = encodeSegments(target.path)
-  const { branch, commit, range } = target
-  const ref = encodeSegments(branch ?? commit)
-  const start = range?.start
-  const multi = range !== null && range.end !== range.start
-  let url: string
-  let query = ''
-  let anchor = ''
-  switch (parsed.provider) {
-    case 'github':
-      url = `${parsed.baseUrl}/blob/${ref}/${path}`
-      if (target.markdown) query = '?plain=1'
-      if (range) anchor = multi ? `#L${start}-L${range.end}` : `#L${start}`
-      break
-    case 'gitlab':
-      url = `${parsed.baseUrl}/-/blob/${ref}/${path}`
-      if (target.markdown) query = '?plain=1'
-      if (range) anchor = multi ? `#L${start}-${range.end}` : `#L${start}`
-      break
-    case 'bitbucket':
-      if (branch?.includes('/')) {
-        url = `${parsed.baseUrl}/src/${commit}/${path}`
-        query = `?at=${encodeURIComponent(branch)}`
-      } else {
-        url = `${parsed.baseUrl}/src/${ref}/${path}`
-      }
-      if (range) anchor = multi ? `#lines-${start}:${range.end}` : `#lines-${start}`
-      break
-    case 'codeberg':
-      url = branch ? `${parsed.baseUrl}/src/branch/${ref}/${path}` : `${parsed.baseUrl}/src/commit/${commit}/${path}`
-      if (target.markdown) query = '?display=source'
-      if (range) anchor = multi ? `#L${start}-L${range.end}` : `#L${start}`
-      break
-  }
-  return { url: url + query + anchor, label: parsed.label, provider: parsed.provider }
-}
-
-export function buildRepoLink(remoteUrl: string | null): RemoteLink | null {
-  const parsed = parseRemote(remoteUrl)
-  if (!parsed) return null
-  return { url: parsed.baseUrl, label: parsed.label, provider: parsed.provider }
 }

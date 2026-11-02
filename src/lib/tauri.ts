@@ -19,7 +19,7 @@ import type {
   PullOption,
   PushOption,
 } from '../types/git'
-import type { IssueAction, IssueDetail, IssueKind, IssueListResult, MergeMethod } from '../types/issues'
+import type { IssueAction, IssueDetail, IssueForge, IssueKind, IssueListResult, MergeMethod } from '../types/issues'
 import type { ProjectConfig } from '../types/project'
 import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
 import type { MenuAction, MenuShell, ShellType } from '../types/tab'
@@ -854,29 +854,54 @@ export async function agentDetect(shell: ShellType, root: string, bins: string[]
 
 // Issues (#278)
 
-export async function issuesGhAvailable(shell: ShellType, root: string, force: boolean): Promise<boolean> {
-  return invoke<boolean>('issues_gh_available', { shell, root, force })
+/** そのサービスの CLI（`gh`）が使えるか（#541）。答えは Rust が CLI とシェルの組で覚える。 */
+export async function issuesCliAvailable(
+  forge: IssueForge,
+  shell: ShellType,
+  root: string,
+  force: boolean,
+): Promise<boolean> {
+  return invoke<boolean>('issues_cli_available', { forge, shell, root, force })
 }
 
+// `forge` はどのサービスの CLI で扱うか（#541。サービスの表の `issues`）。
+
 export async function issuesList(
+  forge: IssueForge,
   shell: ShellType,
   root: string,
   limit: number,
   kind: IssueKind,
 ): Promise<IssueListResult> {
-  return invoke<IssueListResult>('issues_list', { shell, root, limit, kind })
+  return invoke<IssueListResult>('issues_list', { forge, shell, root, limit, kind })
 }
 
-export async function issuesView(shell: ShellType, root: string, number: number): Promise<IssueDetail> {
-  return invoke<IssueDetail>('issues_view', { shell, root, number })
+export async function issuesView(
+  forge: IssueForge,
+  shell: ShellType,
+  root: string,
+  number: number,
+): Promise<IssueDetail> {
+  return invoke<IssueDetail>('issues_view', { forge, shell, root, number })
 }
 
-export async function issuesMergeMethods(shell: ShellType, root: string, url: string): Promise<MergeMethod[]> {
-  return invoke<MergeMethod[]>('issues_merge_methods', { shell, root, url })
+export async function issuesMergeMethods(
+  forge: IssueForge,
+  shell: ShellType,
+  root: string,
+  url: string,
+): Promise<MergeMethod[]> {
+  return invoke<MergeMethod[]>('issues_merge_methods', { forge, shell, root, url })
 }
 
-export async function issuesAct(shell: ShellType, root: string, url: string, action: IssueAction): Promise<void> {
-  return invoke<void>('issues_act', { shell, root, url, action })
+export async function issuesAct(
+  forge: IssueForge,
+  shell: ShellType,
+  root: string,
+  url: string,
+  action: IssueAction,
+): Promise<void> {
+  return invoke<void>('issues_act', { forge, shell, root, url, action })
 }
 
 // CI (#457)

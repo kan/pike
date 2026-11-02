@@ -1,5 +1,5 @@
 // エディタの行をホスティングサービスで開く / リンクをコピーする（#540）。右クリックのメニューと
-// パレットが同じ `shareFileLink` を呼ぶ。URL の形は `gitRemote.ts` の `buildFileLink`、git の
+// パレットが同じ `shareFileLink` を呼ぶ。URL の形は `forge.ts` の `buildFileLink`、git の
 // 情報は Rust の `git_file_link_info`。
 //
 // - **既定は SHA の permalink。** ブランチ名で作ると、後でブランチが進んだときに別の行を指す
@@ -13,7 +13,7 @@ import { useStatusMessageStore } from '../stores/statusMessage'
 import { useTabStore } from '../stores/tabs'
 import type { FileLinkInfo } from '../types/git'
 import type { ShellType } from '../types/tab'
-import { buildFileLink, buildRepoLink } from './gitRemote'
+import { buildFileLink, parseForge } from './forge'
 import { isMarkdownPath } from './paths'
 import { gitFileLinkInfo } from './tauri'
 
@@ -30,7 +30,7 @@ export interface FileLinkRequest {
 
 /** メニューに出す名前（「{service} で開く」）。対応していない origin なら `null` で、項目を出さない。 */
 export function fileLinkService(remoteUrl: string | null): string | null {
-  return buildRepoLink(remoteUrl)?.label ?? null
+  return parseForge(remoteUrl)?.label ?? null
 }
 
 export async function shareFileLink(mode: FileLinkMode, req: FileLinkRequest): Promise<void> {
