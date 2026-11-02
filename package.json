@@ -82,7 +82,7 @@
     "@puppeteer/browsers": "^3.2.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
+    "@biomejs/biome": "^2.6.3",
     "@tauri-apps/cli": "^2.12.3",
     "@types/mocha": "^10.0.10",
     "@vitejs/plugin-vue": "^6.0.10",
