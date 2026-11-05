@@ -22,9 +22,10 @@ pike/
 │   ├── gen-credits.mjs        # 依存のライセンス一覧を src/assets/credits.json に作る（just credits / check-credits、#420）
 │   ├── make-icons.sh          # アイコン一式を icon.svg から作り直す（#256）
 │   ├── package-portable.sh    # ポータブル版の zip を作る（just package-portable、#451）
-│   ├── release-prepare.mjs    # リリース PR の中身（版・lockfile・CHANGELOG の見出し・クレジット）をそろえる（tagpr の postVersionCommand、#529）
+│   ├── release-prepare.mjs    # リリース PR の中身（CHANGELOG・版・lockfile・クレジット）をそろえる（tagpr の postVersionCommand、#529）
 │   ├── release-notes.mjs      # CHANGELOG の節からリリースノートの本文を作る（Release の draft ジョブ、#505）
-│   └── updater-json.mjs       # ドラフトから latest.json を組み立て、署名を検証する（Release の updater-json ジョブ、#505）
+│   ├── updater-json.mjs       # ドラフトから latest.json を組み立て、署名を検証する（Release の updater-json ジョブ、#505）
+│   └── tagpr/                 # kan/tagpr-scripts の subtree。CHANGELOG の読み書き（#562。中は編集しない）
 ├── tests/                     # フロントの純粋なロジックのテスト（*.test.ts。just test-ts、#403）
 ├── src-tauri/
 │   ├── Cargo.toml
