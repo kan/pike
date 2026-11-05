@@ -1,25 +1,29 @@
 name: Release
 
-# 通常は tagpr のワークフローがリリース PR のマージ後に呼ぶ（`workflow_call`、#529）。
-# tagpr は GITHUB_TOKEN でタグを打つので、タグの push では起動しない（`push.tags` は置かない）。
-# 打ってあるタグで丸ごとやり直すとき・手でタグを打ち直したときは `workflow_dispatch` で起動する。
+# **タグを ref にした `workflow_dispatch` で起動する**（#562）。通常はリリース PR のマージ後に、
+# tagpr のワークフローがタグを打ってから `gh workflow run release.yml --ref vX.Y.Z` で起動する。
+# 打ってあるタグで丸ごとやり直すとき・手でタグを打ち直したときも同じコマンドで起動する。
+#
+# - tagpr は GITHUB_TOKEN でタグを打つので、タグの push では起動しない（`push.tags` は置かない）。
+#   `workflow_dispatch` はその例外
+# - `workflow_call` で tagpr の run から呼ばない。呼ぶと run の ref が `refs/heads/main` になり、
+#   attestation の source ref もそれを名乗る。dispatch ならタグが残る（v0.70.0 までは呼んでいた）
+# - ワークフローの定義もタグの時点のものが使われる
 on:
-  workflow_call:
-    inputs:
-      tag:
-        description: リリースするタグ（vX.Y.Z）
-        type: string
-        required: true
   workflow_dispatch:
-    inputs:
-      tag:
-        description: リリースするタグ（vX.Y.Z）
-        type: string
-        required: true
 
-# タグはここから取る。`github.ref_name` は呼び出し元のブランチ（main）なので使わない
+permissions:
+  contents: read
+
+# 同じタグの実行を並べない（tagpr からの起動と手での再実行が重なると、draft ジョブが互いの
+# ドラフトを消し合う）。止めもしない（ビルドの途中で止めると、成果物の欠けたドラフトが残る）
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+# タグは起動した ref から取る。ブランチで起動したら draft ジョブが止める
 env:
-  TAG: ${{ inputs.tag }}
+  TAG: ${{ github.ref_name }}
 
 jobs:
   # ドラフトは先に 1 つだけ作り、両 OS のビルドにその ID を渡す（#505。並列の 2 ジョブに
@@ -32,9 +36,17 @@ jobs:
     outputs:
       release-id: ${{ steps.draft.outputs.id }}
     steps:
+      # ブランチで起動すると TAG がブランチ名になる。checkout は ref を指定しない
+      # （起動したタグのコミットを取る）
+      - name: Check that the run is on a tag
+        if: github.ref_type != 'tag'
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          echo "release.yml はタグで起動する（gh workflow run release.yml --ref vX.Y.Z）。起動した ref: $REF" >&2
+          exit 1
+
       - uses: actions/checkout@v7.0.1
-        with:
-          ref: refs/tags/${{ env.TAG }}
 
       - name: Create the draft
         id: draft
@@ -94,8 +106,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7.0.1
-        with:
-          ref: refs/tags/${{ env.TAG }}
 
       - uses: actions/setup-node@v7.1.0
         with:
@@ -233,8 +243,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7.0.1
-        with:
-          ref: refs/tags/${{ env.TAG }}
 
       # Node はランナーに入っているもので足りる（組み込みのモジュールしか使わない）。
       - name: Build and upload latest.json

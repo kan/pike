@@ -250,6 +250,7 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
    - 採らなかった指摘には、理由をその指摘への返信で書く（`gh api -X POST repos/kan/pike/pulls/<番号>/comments/<id>/replies -f body=...`）。ユーザーへの報告にも理由を添えて並べる
    - push しても再レビューは走らない。直したあとにもう一度見てほしいときは、PR の画面からレビューを頼み直すようユーザーに頼む
 6. CI が通り、Copilot の指摘を片付けたら、**ユーザーの承認を得てから** `gh pr merge <番号> --squash --delete-branch` でマージする（コミットの承認とは別に聞く）。マージしたら手元の main を `git pull --ff-only` で進める
+   - **例外：subtree の取り込み。** `scripts/tagpr/`（[kan/tagpr-scripts](https://github.com/kan/tagpr-scripts)、#562）を `git subtree add` / `pull` する PR は、**squash せずマージコミットでマージする**（`gh pr merge <番号> --merge --delete-branch`）。`git subtree` は前回の取り込みを自分が作ったコミットから探すので、squash すると次の pull が壊れる。取り込みは `-S` を付けて署名する（`git subtree` は `commit.gpgsign` を見ない）。取り込みは CHANGELOG に書かない。`git subtree` はその場でコミットを作るので、コミットの承認を得てから実行する。**`scripts/tagpr/` の中は編集しない**（kan/tagpr-scripts を直し、`git subtree pull -S --prefix=scripts/tagpr https://github.com/kan/tagpr-scripts.git main --squash` で取り込む）
 7. **外部からの PR も来る**。取り込むときは通常のコミット前チェックと同じ扱いで、
    `/simplify` → `/code-review medium` を回してからマージする。ロックファイルを共有する
    dependabot の PR は、1 件ずつマージするとリベース待ちが連鎖するので、ローカルの 1 本のブランチに
@@ -259,9 +260,10 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 
 ### CHANGELOG の書き方
 
-- **各 PR が `## [Unreleased]` の節に自分の項目を足す。** 節が無ければ、いちばん上の版の節の上に作る。中の小見出し（`### Features` / `### Bug Fixes` / `### Changes`）と項目の書式は過去の節に合わせ、末尾に issue 番号を `(#526)` の形で付ける
-- `## [Unreleased]` は常に 1 つ。**版と日付は書かない**。リリース PR で `scripts/release-prepare.mjs` が `## [X.Y.Z] - 日付` に書き換え、その節がリリースノートと `latest.json` の `notes` になる
-- `## [Unreleased]` が無いまま main が進むと、tagpr のワークフローのリリース PR の準備が失敗で終わる（リリースできない状態の印。利用者に届く PR が入れば解消する）
+- **各 PR が `## [Unreleased]` の節に自分の項目を足す。** 節はいちばん上の版の節の上に常にある（リリース PR が版の節を作るたびに、空の節を戻す）。中の小見出し（`### Features` / `### Bug Fixes` / `### Changes`）と項目の書式は過去の節に合わせ、末尾に issue 番号を `(#526)` の形で付ける
+- `## [Unreleased]` は常に 1 つ。**版と日付、末尾のリンクは書かない**。リリース PR で `scripts/release-prepare.mjs`（CHANGELOG の処理は `scripts/tagpr/`、#562）が `## [X.Y.Z] - 日付` に書き換え、空の `## [Unreleased]` を上に戻し、末尾のリンク定義の先頭に `[X.Y.Z]: https://github.com/kan/pike/releases/tag/vX.Y.Z` を足す（`[Unreleased]` のリンクは置かない）。その節がリリースノートと `latest.json` の `notes` になる
+- 節は、次の `## ` の見出しか、ファイル末尾のリンク定義のまとまりで終わる。項目の中のリンクはインラインで書く（参照リンクの定義は節の外にあるので、リリースノートではリンクにならない）。リリースノートでは、段落と項目の中の折り返しが 1 行につながる（日本語どうしと全角の句読点・括弧の前後は空白なし）。改行は LF
+- `## [Unreleased]` が空のまま main が進むと、tagpr のワークフローのリリース PR の準備が失敗で終わる（リリースの直後は毎回そうなる。リリースできない状態の印で、利用者に届く PR が入れば解消する）
 - dependabot の取り込みは `### Changes` に「依存ライブラリを更新した（主なもの）」を 1 行足す
 
 ---

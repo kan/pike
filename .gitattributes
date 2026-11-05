@@ -1,0 +1,3 @@
+# scripts/tagpr/ は CR を含む CHANGELOG を受け付けない（#562）。core.autocrlf=true の
+# Windows の作業ツリーでもリリースのスクリプトを手元で試せるように、LF で取り出す
+CHANGELOG.md text eol=lf
