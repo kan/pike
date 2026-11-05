@@ -13,7 +13,7 @@ description: Pike の新しいバージョンをリリースする（dependabot 
 **bump・lockfile・CHANGELOG の見出しとリンク・クレジットは tagpr が作るリリース PR に載る**（#529）。
 main に push があるたびに `tagpr.yml` がリリース PR を作り直し、
 `scripts/release-prepare.mjs` が中身をそろえる。仕組みと理由は `.claude/rules/build.md` の
-「リリース PR（tagpr）」。**`just bump` を手で走らせない。リリース PR のブランチへ手でコミットしない**
+「リリース PR（tagpr）」。**版の表記を手で書き換えない。リリース PR のブランチへ手でコミットしない**
 （画像のコミットは手順 4 のワークフローが積む）。
 
 ### 0. dependabot の PR を取り込む

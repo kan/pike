@@ -83,12 +83,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # **このジョブは書き込みの権限を持つので、依存のコードを走らせない**: `npm ci` はせず、
-      # `bump-version.mjs` が呼ぶのは `cargo update --workspace` と
-      # `npm install --package-lock-only --ignore-scripts` だけ。scripts/tagpr/ は Node の組み込みの
-      # モジュールしか使わない。Rust はランナーの stable を使う。
-      # Node は CI と同じ lts/* にそろえる（package-lock.json を書く npm の版で、書き出しが変わる）。
-      # キャッシュは使わない（別のワークフローが書いたキャッシュを、このジョブがコミットするものに混ぜない）
+      # **このジョブは書き込みの権限を持つので、依存のコードを走らせない。** 版は tagpr が書き、
+      # lockfile は scripts/tagpr/ が pike 自身の行だけを書き換える（#565）。npm も cargo も
+      # 呼ばないので Rust は入れない。Node は版を固定する（ランナーの既定の版が変わると、
+      # scripts/ が使う import.meta.dirname などが無い版に当たりうる）。キャッシュは使わない
+      # （別のワークフローが書いたキャッシュを、このジョブがコミットするものに混ぜない）
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: lts/*

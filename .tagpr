@@ -3,9 +3,11 @@
 [tagpr]
 	releaseBranch = main
 	vPrefix = true
-	# tagpr が書き換えるのは 1 ファイルだけにして、残りの版の表記と lockfile は
-	# postVersionCommand がそろえる。マージ後のタグもこのファイルの版から決まる
-	versionFile = src-tauri/tauri.conf.json
+	# 版の表記は 3 ファイルとも tagpr が書く（各ファイルで、今の版の文字列の最初の 1 か所）。
+	# lockfile（Cargo.lock / package-lock.json）は tagpr が触らないので、postVersionCommand が
+	# そろえる（#565）。マージ後のタグは先頭のファイルの版から決まるので、成果物の名前を
+	# 決める tauri.conf.json を先頭に置く
+	versionFile = src-tauri/tauri.conf.json,src-tauri/Cargo.toml,package.json
 	postVersionCommand = node scripts/release-prepare.mjs
 	# CHANGELOG は各 PR が `## [Unreleased]` に書く。tagpr の生成（PR タイトルの列挙）は使わない
 	changelog = false
