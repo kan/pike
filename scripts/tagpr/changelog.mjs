@@ -49,7 +49,9 @@ const FENCE = /^ *(`{3,}|~{3,})(.*)$/;
  */
 function scan(text) {
   if (text.includes('\r')) {
-    throw new ReleaseError('CHANGELOG.md has CR line endings; save it with LF');
+    throw new ReleaseError(
+      'CHANGELOG.md has CR line endings; save it with LF (on Windows, add `CHANGELOG.md text eol=lf` to .gitattributes)',
+    );
   }
   /** @type {string | null} 開いているフェンスの記号の並び */
   let open = null;
@@ -221,7 +223,8 @@ export function unwrapLines(body) {
       // 前の行の最後の文字と次の行の最初の文字（サロゲートペアも 1 文字に数える）
       const [last, first] = [[...head].at(-1), String.fromCodePoint(text.codePointAt(0))];
       const sep = (CJK.test(last) && CJK.test(first)) || CJK_PUNCT.test(last) || CJK_PUNCT.test(first) ? '' : ' ';
-      // 行末の空白は残す（強制改行の空白 2 つを消さない）
+      // 前の行の末尾の空白は落とす（強制改行の行はつながないので、普通の空白しか無い）。
+      // 次の行の末尾の空白は残す（強制改行の空白 2 つを消さない）
       prev.line = head + sep + line.trimStart();
       prev.joinable = !HARD_BREAK.test(line);
       return;

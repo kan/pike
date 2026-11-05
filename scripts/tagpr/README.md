@@ -4,8 +4,11 @@ The scripts that let [tagpr](https://github.com/Songmu/tagpr) release an npm pac
 `CHANGELOG.md` is written by hand. Shared by [lily](https://github.com/kan/lily),
 [wema](https://github.com/kan/wema) and [wema-kake](https://github.com/kan/wema-kake),
 which pull this repository in with `git subtree` at `scripts/tagpr/`.
-[roji](https://github.com/kan/roji), a Go project with no version file, uses only the
-CHANGELOG part (`--changelog-only`).
+The Go projects [roji](https://github.com/kan/roji),
+[notify-slack](https://github.com/kan/notify-slack) and [hokora](https://github.com/kan/hokora),
+which have no version file, and the Tauri apps [pike](https://github.com/kan/pike) and
+[musql](https://github.com/kan/musql), which bring their own version files up to date, use
+only the CHANGELOG part (`--changelog-only`).
 
 | File | Run by | Does |
 |---|---|---|
@@ -13,6 +16,7 @@ CHANGELOG part (`--changelog-only`).
 | `release-notes.mjs` | The publish workflow | Prints one section of `CHANGELOG.md`, to check that it exists before publishing and to use it as the GitHub release notes. Given a tag `vX.Y.Z` it prints `## [X.Y.Z]`; given a pre-release tag (`vX.Y.Z-rc.1`, tagged by hand on `main`) it prints `## [Unreleased]` |
 | `changelog.mjs` | (imported by both) | How a `CHANGELOG.md` is read and stamped. Written in one place so the release pull request and the publish never disagree. Knows nothing about npm |
 | `npm-lock.mjs` | (imported by `release-prepare.mjs`) | The `package.json` / `package-lock.json` part |
+| `cargo-lock.mjs` | (imported by `release-prepare.mjs`) | The `Cargo.toml` / `Cargo.lock` part, with `--cargo <dir>` |
 
 **Only Node's built-in modules.** The tagpr job holds a token that can push to the
 repository, so it runs no dependency code: no `npm ci`, nothing fetched at run time. That
@@ -23,9 +27,16 @@ Run both from the repository root: `CHANGELOG.md`, and for `release-prepare.mjs`
 `--changelog-only` also `package.json` and `package-lock.json` (lockfile version 2 or
 later), are read from the working directory.
 
-`release-prepare.mjs --changelog-only` touches `CHANGELOG.md` alone and reads neither
-`package.json` nor the lock, for a repository with no version file (`versionFile = -`) or
-one that brings its own version files and locks up to date in a wrapper of its own.
+`release-prepare.mjs --changelog-only` reads neither `package.json` nor its lock, for a
+repository with no npm package: one with no version file (`versionFile = -`), or one that
+brings its own version files and locks up to date in a wrapper of its own.
+
+`release-prepare.mjs --cargo <dir>` also brings `<dir>/Cargo.lock` to the version, with or
+without `--changelog-only`. tagpr writes the version into the files listed in
+`versionFile` but never into a `*.lock`, so list `<dir>/Cargo.toml` there: this checks that
+the `version` in its `[package]` table is the proposed one, then rewrites the version line
+of the package's own `[[package]]` entry in `Cargo.lock` (the one without a `source`).
+`cargo` is not run, so nothing is fetched. A `version.workspace = true` is not supported.
 
 ## What the CHANGELOG has to look like
 
@@ -50,7 +61,12 @@ one that brings its own version files and locks up to date in a wrapper of its o
   (`GITHUB_ACTIONS=true`), and the `origin` remote's anywhere else (GitHub only);
   `repository` in `package.json` is not read. There is no `[Unreleased]: .../compare/...` link; nothing
   would keep it up to date.
-- LF line endings.
+- LF line endings. In a repository worked on from Windows, keep Git from checking it out
+  with CRLF:
+
+  ```gitattributes
+  CHANGELOG.md text eol=lf
+  ```
 
 `release-prepare.mjs` checks everything before it writes anything, and writes nothing when
 it fails. It fails when:
@@ -77,6 +93,9 @@ it fails. It fails when:
   first: tag them in that order. With no tags at all (tagpr passes `v0.0.0`) the check is
   skipped, so a repository that released without tags can adopt tagpr.
 - `package.json` is not at the version tagpr proposes (not checked with `--changelog-only`).
+- With `--cargo <dir>`, the `[package]` version in `<dir>/Cargo.toml` is not the proposed
+  one, or `<dir>/Cargo.lock` does not have exactly one entry for the package without a
+  `source`.
 - The GitHub repository cannot be told: outside GitHub Actions, `origin` is missing or not
   on GitHub.
 
@@ -127,6 +146,14 @@ For a repository that keeps its version only in tags (Go, for example), set
 `versionFile = -` and `postVersionCommand = node scripts/tagpr/release-prepare.mjs --changelog-only`.
 [notify-slack's workflows](https://github.com/kan/notify-slack/tree/main/.github/workflows)
 are a complete example with GoReleaser.
+
+For a Tauri app, list every file that holds the version, and let `--cargo` bring
+`Cargo.lock` along (drop `--changelog-only` when `package.json` is in the list too):
+
+```ini
+	versionFile = src-tauri/tauri.conf.json,src-tauri/Cargo.toml
+	postVersionCommand = node scripts/tagpr/release-prepare.mjs --changelog-only --cargo src-tauri
+```
 
 ## Changing it
 
