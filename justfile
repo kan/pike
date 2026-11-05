@@ -155,9 +155,3 @@ e2e-sync:
 e2e-sync-check:
     bash scripts/sync-manual-images.sh --check
     bash scripts/sync-hero-images.sh --check
-
-# --- リリース ---
-
-# バージョンを上げる（3 ファイル + lockfile 2 つ）。ふだんはリリース PR が上げるので、手で使うのは試すときだけ（#529）
-bump VERSION:
-    node scripts/bump-version.mjs {{VERSION}}

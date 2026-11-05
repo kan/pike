@@ -1,3 +1,6 @@
-# scripts/tagpr/ は CR を含む CHANGELOG を受け付けない（#562）。core.autocrlf=true の
-# Windows の作業ツリーでもリリースのスクリプトを手元で試せるように、LF で取り出す
+# scripts/tagpr/ は CR を含む CHANGELOG と Cargo.lock を受け付けない（#562 / #565）。
+# core.autocrlf=true の Windows の作業ツリーでもリリースのスクリプトを手元で試せるように、
+# LF で取り出す。package-lock.json は読み直して LF で書き出すので、CRLF だと全行が差分になる
 CHANGELOG.md text eol=lf
+src-tauri/Cargo.lock text eol=lf
+package-lock.json text eol=lf

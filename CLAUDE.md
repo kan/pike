@@ -108,7 +108,7 @@ macOS はローカルのシェルで開発できるところまで対応する�
 pike/
 ├── CLAUDE.md / README.md / justfile
 ├── docs/manual/        # ユーザーマニュアル（画像は img/）
-├── scripts/            # bump・check-docs・check-shortcuts・rg の取得など
+├── scripts/            # リリース PR の準備・check-docs・check-shortcuts・rg の取得など
 ├── tests/              # フロントの純粋なロジックのテスト
 ├── src-tauri/src/      # Rust バックエンド
 ├── src/                # Vue/TypeScript フロント
