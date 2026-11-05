@@ -42,8 +42,10 @@ repository with no npm package: one with no version file (`versionFile = -`), or
 brings its own version files and locks up to date in a wrapper of its own.
 
 `release-prepare.mjs --cargo <dir>` also brings `<dir>/Cargo.lock` to the version, with or
-without `--changelog-only`. tagpr writes the version into the files listed in
-`versionFile` but never into a `*.lock`, so list `<dir>/Cargo.toml` there: this checks that
+without `--changelog-only`. List `<dir>/Cargo.toml` in `versionFile`, and not the lock:
+tagpr rewrites only the first occurrence of the current version in each file, which in a
+`Cargo.lock` can be a dependency at the same version (and in a `package-lock.json` leaves
+the second one behind). This checks that
 the `version` in its `[package]` table is the proposed one, then rewrites the version line
 of the package's own `[[package]]` entry in `Cargo.lock` (the one without a `source`).
 `cargo` is not run, so nothing is fetched. A `version.workspace = true` is not supported.
