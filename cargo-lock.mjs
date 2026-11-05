@@ -17,7 +17,7 @@ import { ReleaseError, readRootFile } from './changelog.mjs';
  * @param {string} text Cargo.toml の中身
  * @param {string} path メッセージに出すパス
  */
-function readPackage(text, path) {
+export function readPackage(text, path) {
   const lines = text.split('\n');
   // 表の見出しの行（`[x]` / `[[x]]`、後ろにコメントがあってもよい）。配列の続きの行
   // （`  ["a", "b"],`）は末尾が `]` で終わらないので当たらない

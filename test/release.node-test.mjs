@@ -60,11 +60,11 @@ const CARGO_OWN_ENTRY = 'name = "app"\nversion = "1.2.3"\ndep';
 const CARGO_LOCK_BUMPED = CARGO_LOCK.replace(CARGO_OWN_ENTRY, 'name = "app"\nversion = "1.2.4"\ndep');
 assert.notEqual(CARGO_LOCK_BUMPED, CARGO_LOCK);
 
-function makeRepo({ version = '1.2.4', changelog = MINIMAL, pkg = true, lock = true, origin = null, cargo = null } = {}) {
+function makeRepo({ version = '1.2.4', changelog = MINIMAL, pkg = true, lock = true, origin = null, cargo = null, files = {} } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'tagpr-scripts-'));
   dirs.push(dir);
   if (cargo !== null) {
-    mkdirSync(join(dir, 'app'));
+    mkdirSync(join(dir, 'app'), { recursive: true });
     if (cargo.toml !== null) writeFileSync(join(dir, 'app', 'Cargo.toml'), cargo.toml ?? CARGO_TOML);
     if (cargo.lock !== null) writeFileSync(join(dir, 'app', 'Cargo.lock'), cargo.lock ?? CARGO_LOCK);
   }
@@ -79,6 +79,12 @@ function makeRepo({ version = '1.2.4', changelog = MINIMAL, pkg = true, lock = t
     writeFileSync(join(dir, 'package-lock.json'), `${JSON.stringify(content, null, 2)}\n`);
   }
   writeFileSync(join(dir, 'CHANGELOG.md'), changelog);
+  // `.tagpr` や tauri.conf.json など、ほかに置くファイル（パス -> 中身）。最後に書くので、
+  // 上の既定のファイルも置き換えられる
+  for (const [name, content] of Object.entries(files)) {
+    mkdirSync(join(dir, name, '..'), { recursive: true });
+    writeFileSync(join(dir, name), content);
+  }
   return dir;
 }
 
@@ -262,6 +268,37 @@ for (const { name, opts, message, args, next, current, repository } of [
     args: ['--cargo', 'app'],
   },
   {
+    // tagpr が依存の版（"1.2.3"）を先に見つけて書き換え、自身の "version" が古いまま
+    name: 'a versionFile whose own version tagpr missed',
+    opts: {
+      files: {
+        '.tagpr': '[tagpr]\n\tversionFile = app/tauri.conf.json,package.json\n',
+        'app/tauri.conf.json': '{\n  "plugins": { "x": "1.2.4" },\n  "version": "1.2.3"\n}\n',
+      },
+    },
+    message: /app\/tauri\.conf\.json says 1\.2\.3, but tagpr proposes 1\.2\.4\. tagpr rewrites only the first occurrence/,
+  },
+  {
+    name: 'a versionFile that does not exist',
+    opts: { files: { '.tagpr': '[tagpr]\n\tversionFile = app/tauri.conf.json\n' } },
+    message: /app\/tauri\.conf\.json is in versionFile of \.tagpr, but does not exist/,
+  },
+  {
+    name: 'a versionFile that is not valid JSON',
+    opts: { files: { '.tagpr': '[tagpr]\n\tversionFile = app.json\n', 'app.json': '{ "version": "1.2.4", }\n' } },
+    message: /app\.json is not valid JSON/,
+  },
+  {
+    name: 'a versionFile without a top-level version',
+    opts: { files: { '.tagpr': '[tagpr]\n\tversionFile = app.json\n', 'app.json': '{ "expo": { "version": "1.2.4" } }\n' } },
+    message: /app\.json has no top-level "version" string/,
+  },
+  {
+    name: 'a versionFile that cannot be checked',
+    opts: { files: { '.tagpr': '[tagpr]\n\tversionFile = version.go\n', 'version.go': 'const version = "1.2.4"\n' } },
+    message: /version\.go is in versionFile of \.tagpr, but only \*\.json/,
+  },
+  {
     name: 'a missing Cargo.lock',
     opts: { cargo: { lock: null } },
     message: /app\/Cargo\.lock not found: --cargo <dir> needs Cargo\.toml and Cargo\.lock/,
@@ -291,6 +328,22 @@ test('prepare: --cargo brings only its own Cargo.lock entry to the version', () 
   const cargoOnly = makeRepo({ cargo: {}, pkg: false, lock: false });
   prepareAndRead(cargoOnly, ['--changelog-only', '--cargo', 'app']);
   assert.equal(read(cargoOnly, 'app/Cargo.lock'), CARGO_LOCK_BUMPED);
+});
+
+test('prepare: checks every versionFile in .tagpr', () => {
+  // musql の形。tauri.conf.json と Cargo.toml を tagpr が書き、npm のファイルは無い
+  const tagpr = '[tagpr]\n\tvPrefix = true\n\tversionFile = app/tauri.conf.json, app/Cargo.toml # comment\n';
+  const dir = makeRepo({
+    cargo: {},
+    pkg: false,
+    lock: false,
+    files: { '.tagpr': tagpr, 'app/tauri.conf.json': '{\n  "version": "1.2.4"\n}\n' },
+  });
+  prepareAndRead(dir, ['--changelog-only', '--cargo', 'app']);
+  assert.equal(read(dir, 'app/Cargo.lock'), CARGO_LOCK_BUMPED);
+  // 版をタグだけで持つ repo（versionFile = -）は何も確かめない
+  const go = makeRepo({ pkg: false, lock: false, files: { '.tagpr': '[tagpr]\n\tversionFile = -\n' } });
+  prepareAndRead(go, ['--changelog-only']);
 });
 
 test('prepare: --cargo reads other TOML spellings of [package]', () => {

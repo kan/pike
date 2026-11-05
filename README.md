@@ -6,9 +6,10 @@ The scripts that let [tagpr](https://github.com/Songmu/tagpr) release an npm pac
 which pull this repository in with `git subtree` at `scripts/tagpr/`.
 The Go projects [roji](https://github.com/kan/roji),
 [notify-slack](https://github.com/kan/notify-slack) and [hokora](https://github.com/kan/hokora),
-which have no version file, and the Tauri apps [pike](https://github.com/kan/pike) and
-[musql](https://github.com/kan/musql), which bring their own version files up to date, use
-only the CHANGELOG part (`--changelog-only`).
+which have no version file, use only the CHANGELOG part (`--changelog-only`). The Tauri apps
+[musql](https://github.com/kan/musql) (`--changelog-only --cargo src-tauri`) and
+[pike](https://github.com/kan/pike) (`--cargo src-tauri`, with `package.json` too) also
+bring `Cargo.lock` along.
 
 | File | Run by | Does |
 |---|---|---|
@@ -17,15 +18,24 @@ only the CHANGELOG part (`--changelog-only`).
 | `changelog.mjs` | (imported by both) | How a `CHANGELOG.md` is read and stamped. Written in one place so the release pull request and the publish never disagree. Knows nothing about npm |
 | `npm-lock.mjs` | (imported by `release-prepare.mjs`) | The `package.json` / `package-lock.json` part |
 | `cargo-lock.mjs` | (imported by `release-prepare.mjs`) | The `Cargo.toml` / `Cargo.lock` part, with `--cargo <dir>` |
+| `version-files.mjs` | (imported by `release-prepare.mjs`) | Checks that every `versionFile` in `.tagpr` is at the proposed version |
 
 **Only Node's built-in modules.** The tagpr job holds a token that can push to the
 repository, so it runs no dependency code: no `npm ci`, nothing fetched at run time. That
 is also why this is a subtree and not an npm package — the code is committed in each
 repository and reviewed in its diffs.
 
-Run both from the repository root: `CHANGELOG.md`, and for `release-prepare.mjs` without
-`--changelog-only` also `package.json` and `package-lock.json` (lockfile version 2 or
-later), are read from the working directory.
+Run both from the repository root: `CHANGELOG.md`, and for `release-prepare.mjs` also
+`.tagpr`, the files its `versionFile` lists, and without `--changelog-only` `package.json`
+and `package-lock.json` (lockfile version 2 or later), are read from the working directory.
+
+`release-prepare.mjs` reads `versionFile` from `.tagpr` (with `git config`) and checks that
+each file listed is at the proposed version: the top-level `"version"` of a `*.json`, the
+`[package]` `version` of a `Cargo.toml`. tagpr rewrites only the first occurrence of the
+current version in each file, so a dependency at the same version above the file's own
+version line would take the change and leave the real one behind, with nothing failing;
+the tag is then made from the first file's version. Other kinds of files cannot be checked
+and fail. With no `.tagpr`, or `versionFile = -`, nothing is checked.
 
 `release-prepare.mjs --changelog-only` reads neither `package.json` nor its lock, for a
 repository with no npm package: one with no version file (`versionFile = -`), or one that
@@ -92,6 +102,8 @@ it fails. It fails when:
   `1.2.4` never gets a tag). That is why the message lists every untagged section, oldest
   first: tag them in that order. With no tags at all (tagpr passes `v0.0.0`) the check is
   skipped, so a repository that released without tags can adopt tagpr.
+- A file in `versionFile` is not at the version tagpr proposes, or is not a `*.json` or a
+  `Cargo.toml`.
 - `package.json` is not at the version tagpr proposes (not checked with `--changelog-only`).
 - With `--cargo <dir>`, the `[package]` version in `<dir>/Cargo.toml` is not the proposed
   one, or `<dir>/Cargo.lock` does not have exactly one entry for the package without a
@@ -154,6 +166,9 @@ For a Tauri app, list every file that holds the version, and let `--cargo` bring
 	versionFile = src-tauri/tauri.conf.json,src-tauri/Cargo.toml
 	postVersionCommand = node scripts/tagpr/release-prepare.mjs --changelog-only --cargo src-tauri
 ```
+
+All of the files listed are checked, `tauri.conf.json` included, so a wrapper does not need
+to check them again.
 
 ## Changing it
 
