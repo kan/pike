@@ -9,6 +9,8 @@
  * `TAGPR_CURRENT_VERSION` は最新のタグ、`TAGPR_NEXT_VERSION` は tagpr が提案する版。
  * どちらも tagpr が渡す。
  *
+ * 0. `.tagpr` の `versionFile` の全部のファイルが、提案の版になっているかを確かめる
+ *    （`version-files.mjs`。tagpr は各ファイルで今の版の最初の 1 か所だけを書き換えるため）
  * 1. `package-lock.json` の版を `package.json` に揃える（`npm-lock.mjs`）。
  *    `--changelog-only` では `package.json` も lock も読まない（版のファイルが無い repo や、
  *    版と lock を自分のラッパーで揃える repo 向け）
@@ -32,6 +34,7 @@ import { parseArgs } from 'node:util';
 import { ReleaseError, changelogPath, currentGithubRepo, readRootFile, releaseDate, stampRelease } from './changelog.mjs';
 import { syncCargoLock } from './cargo-lock.mjs';
 import { lockPath, syncPackageLock } from './npm-lock.mjs';
+import { checkVersionFiles } from './version-files.mjs';
 
 /** `[--changelog-only] [--cargo <dir>]` を読む。知らない引数や値の無い `--cargo` は使い方を出して落とす */
 function readArgs(args) {
@@ -73,6 +76,7 @@ try {
 
   // --- 検査（ここでは何も書かない） ---
 
+  checkVersionFiles(version);
   const lock = changelogOnly ? null : syncPackageLock(version);
   const cargoLock = cargoDir === null ? null : syncCargoLock(version, cargoDir);
   const changelog = stampRelease(readRootFile(changelogPath), {
