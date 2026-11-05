@@ -7,7 +7,9 @@
  * 出ず、lock の自分の行だけを書き換える（`cargo update --workspace` と同じ結果になる）。
  */
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+// メッセージのパスを OS によらず `/` で出す（`.tagpr` の versionFile と同じ書き方）。
+// Windows でも `/` 区切りのパスで読める
+import { posix } from 'node:path';
 import { ReleaseError, readRootFile } from './changelog.mjs';
 
 /**
@@ -41,14 +43,16 @@ export function readPackage(text, path) {
 
 /**
  * `<dir>/Cargo.lock` の自分のパッケージの版を、tagpr が書き換えた `<dir>/Cargo.toml` の版に
- * 揃えた中身を返す。揃っていれば `null`。ファイルには書かない。**tagpr は `*.lock` を書き換えない。**
+ * 揃えた中身を返す。揃っていれば `null`。ファイルには書かない。**lock は tagpr に任せない**:
+ * tagpr は `*.lock` を自動では探さず、versionFile に書けば書き換えるが、今の版の最初の 1 か所だけ
+ * なので、同じ版の依存クレートの行に当たりうる。
  * @param {string} version tagpr が提案する版（`X.Y.Z`）
  * @param {string} dir Cargo.toml と Cargo.lock のあるディレクトリ（repo のルートからの相対パス）
  * @returns {{ path: string, text: string } | null}
  */
 export function syncCargoLock(version, dir) {
-  const manifestPath = join(dir, 'Cargo.toml');
-  const path = join(dir, 'Cargo.lock');
+  const manifestPath = posix.join(dir, 'Cargo.toml');
+  const path = posix.join(dir, 'Cargo.lock');
   // readRootFile の「ルートで実行せよ」は、ここでは原因と違うことが多い（lock が workspace の
   // ルートにある、など）ので、先に確かめて別のことを言う
   for (const p of [manifestPath, path]) {
