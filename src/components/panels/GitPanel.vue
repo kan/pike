@@ -3,6 +3,7 @@ import { ArrowUp, Check, ChevronDown, ChevronRight, FileDiff, Minus, Plus, Undo2
 import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
 import { useActiveFile } from '../../composables/useActiveFile'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
+import { childWebviewShown } from '../../composables/useChildWebview'
 import { confirmDialog, infoDialog, promptDialog } from '../../composables/useConfirmDialog'
 import { useDragResize } from '../../composables/useDragResize'
 import { useGitFileActions } from '../../composables/useGitFileActions'
@@ -11,6 +12,7 @@ import { fileIconSvg } from '../../lib/fileIcons'
 import { buildCommitLink } from '../../lib/forge'
 import { buildGraph, DOT_RADIUS, LANE_WIDTH, ROW_HEIGHT } from '../../lib/gitGraph'
 import { appendGitignoreLine, gitignoreEntry, hasGitignoreEntry } from '../../lib/gitignore'
+import { useOverlay } from '../../lib/overlay'
 import { absoluteDate, basename, extension, gitStatusColor, isImageFile, mimeType, relativeDate } from '../../lib/paths'
 import { loadJson, saveJson } from '../../lib/storage'
 import {
@@ -303,9 +305,18 @@ const {
   reset: resetTooltip,
 } = useAnchoredPopup(useTemplateRef<HTMLElement>('tooltipEl'))
 let tooltipTimer: ReturnType<typeof setTimeout> | null = null
+/**
+ * 出すツールチップの相手。**ブラウザのタブかプレビューのページが見えているあいだは出さない**
+ * （ページの下に隠れるため。#569）。出している最中にページが見えたときもここで消える。
+ */
+const tooltipCommit = computed(() => (childWebviewShown() ? null : hoveredCommit.value))
 
 function onCommitEnter(entry: GitLogEntry, e: MouseEvent) {
   if (tooltipTimer) clearTimeout(tooltipTimer)
+  tooltipTimer = null
+  // 出せないあいだは待ちも位置合わせもしない。見えたあとで覚えた行に出すと、要素が無いまま
+  // 位置を測るので位置が決まらず、見えないツールチップが残る。
+  if (childWebviewShown()) return
   const target = e.currentTarget as HTMLElement
   tooltipTimer = setTimeout(async () => {
     resetTooltip()
@@ -336,6 +347,8 @@ const commitLink = computed(() =>
 async function onCommitContext(e: MouseEvent, entry: GitLogEntry) {
   e.preventDefault()
   e.stopPropagation()
+  // メニューを開くとページが隠れるので、待っていたツールチップがメニューの横に出る。先に畳む。
+  onCommitLeave()
   // 同じメニューを開きっぱなしで右クリックされた場合に古い listener が残らないよう先に外す
   window.removeEventListener('mousedown', closeCommitCtx)
   resetCommitCtx()
@@ -413,11 +426,12 @@ type FileCtx =
   | { section: 'staged' | 'unstaged' | 'conflict'; file: GitFileChange }
   | { section: 'commit'; file: GitFileChange; hash: string }
 const fileCtx = ref<FileCtx | null>(null)
-// **このパネルは `useOverlay` に登録しない**（#396）。ここのポップアップ（ファイルと
-// コミットの右クリックメニュー、コミットのツールチップ）はどれもパネルが開いている
-// あいだにしか出ないが、**ブラウザのタブはこのパネルが開いているあいだずっと隠す**
-// ことにしたので、`BrowserTab.vue` の 1 つの条件が全部を覆う。ホバーで出入りする
-// ツールチップを数に入れると、行をなぞるたびにページが点滅する（理由はあちらの `shown`）。
+// 右クリックメニューは 2 つとも `useOverlay` に登録する（開いているあいだブラウザのタブと
+// プレビューのページを隠す）。**コミットのツールチップだけは登録しない**: ホバーで出入りする
+// ので、数に入れると行をなぞるたびにページが点滅する。代わりにページが見えているあいだは
+// 出さない（`tooltipCommit`、#569）。
+useOverlay(() => commitCtx.value !== null)
+useOverlay(() => fileCtx.value !== null)
 const {
   style: fileCtxStyle,
   placeAt: placeFileCtx,
@@ -429,6 +443,8 @@ const {
 async function onFileContext(e: MouseEvent, ctx: FileCtx) {
   e.preventDefault()
   e.stopPropagation()
+  // コミット配下のファイルの行はコミットの行の中にあるので、ツールチップを待っていることがある。
+  onCommitLeave()
   window.removeEventListener('mousedown', closeFileCtx)
   resetFileCtx()
   fileCtx.value = ctx
@@ -947,14 +963,14 @@ onUnmounted(() => {
     <!-- Commit tooltip -->
     <Teleport to="body">
       <div
-        v-if="hoveredCommit"
+        v-if="tooltipCommit"
         ref="tooltipEl"
         class="commit-tooltip popup-surface"
         :style="tooltipStyle"
       >
-        <div class="tooltip-meta">{{ hoveredCommit.hash.slice(0, 10) }}</div>
-        <div class="tooltip-meta">{{ hoveredCommit.author }} &middot; {{ absoluteDate(hoveredCommit.date) }}</div>
-        <div class="tooltip-message">{{ hoveredCommit.message }}</div>
+        <div class="tooltip-meta">{{ tooltipCommit.hash.slice(0, 10) }}</div>
+        <div class="tooltip-meta">{{ tooltipCommit.author }} &middot; {{ absoluteDate(tooltipCommit.date) }}</div>
+        <div class="tooltip-message">{{ tooltipCommit.message }}</div>
       </div>
     </Teleport>
 

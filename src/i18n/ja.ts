@@ -35,7 +35,6 @@ export default {
   'palette.help': 'ヘルプ',
   'sidebar.files': 'ファイル',
   'sidebar.git': 'Git',
-  'sidebar.gitBlockedByBrowser': 'ブラウザのタブを表示しているあいだは開けません',
   'sidebar.search': 'プロジェクト内を検索',
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'プロジェクト',
@@ -1152,8 +1151,6 @@ export default {
   'browser.siteRulesChanged': '差し込む JS と CSS の設定が変わりました。次のページ以降にも効かせるには開き直します',
   'browser.hiddenByOverlay':
     'メニューやダイアログを開いているあいだ、ページを一時的に隠しています。ページは Pike の画面より手前に描かれるため、隠さないとメニューが読めません。閉じると戻ります。',
-  'browser.hiddenByPanel':
-    'サイドバーで Git パネルを開いているあいだ、ページを一時的に隠しています。コミットのツールチップがページの下に隠れないようにするためです。パネルを閉じると戻ります。',
   'vuePreview.rendering':
     'vue-preview で描画しています（このプロジェクトで初めて描くときは、依存の準備に数十秒かかることがあります）',
   'vuePreview.renderingShort': '描画中…',

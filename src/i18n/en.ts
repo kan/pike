@@ -35,7 +35,6 @@ export default {
   'palette.help': 'Help',
   'sidebar.files': 'Files',
   'sidebar.git': 'Git',
-  'sidebar.gitBlockedByBrowser': 'Not available while a browser tab is shown',
   'sidebar.search': 'Search in Project',
   'sidebar.docker': 'Docker',
   'sidebar.projects': 'Projects',
@@ -1154,8 +1153,6 @@ export default {
     'The injected JS and CSS settings have changed. Reopen the page to apply them to later pages too',
   'browser.hiddenByOverlay':
     'The page is hidden while a menu or dialog is open. It is drawn in front of the Pike window, so it would cover the menu. It comes back when you close it.',
-  'browser.hiddenByPanel':
-    'The page is hidden while the Git panel is open in the sidebar, so commit tooltips are not covered by it. It comes back when you close the panel.',
   'vuePreview.rendering':
     'Rendering with vue-preview (the first render in a project can take tens of seconds while dependencies are prepared)',
   'vuePreview.renderingShort': 'Rendering…',
