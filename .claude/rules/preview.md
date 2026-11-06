@@ -176,7 +176,7 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **ラベルは `browser-preview-{uuid}`**。`browser-` の下に置いたので、位置合わせ・再読み込み・閉じるはブラウザのタブのコマンドを使う。**capability に足さない**（ブラウザのタブと同じく対象外に置く。`browser.rs` のモジュール doc）
   - **capability の対象外にしただけではアプリのコマンドは守れない（#539）。** tauri はアプリが登録した独自スキームをローカルのオリジンとして扱い、Pike はアプリの ACL マニフェストを持たないので、ローカルからの独自コマンドは capability を見ずに通る。守りが無ければ、ページの JS（`__TAURI_INTERNALS__` は子 webview にも注入される）から `fs_read_file` や `pty_spawn` を呼べる。**`lib.rs` の `invoke_handler` を包む `browser::app_webviews_only` が、Pike 本体のラベル（`main` / `project-*` / `global-*`）にだけ通している**。外さないこと。Pike 本体のウィンドウのラベルの接頭辞を変えたら、capability の `webviews` とあの関数の並びを一緒に直す
   - **仮想ファイル（`__pike/` の下）**: フロントが作った中身をディスクより先に同じ origin で返し、相対パスの CSS や画像はディスクへ落とす。Vue SFC のプレビュー（#397）が vue-preview の出力を置く場所。置き直すのは `preview_set_files` → `browser_history(reload)`
-  - **重ねる・隠す・閉じるは `composables/useChildWebview.ts`**（ブラウザのタブ・HTML・Vue のプレビューで共有）。位置合わせの直列化、変わらなければ送らない、隠すときはフレームを待たない、手前に浮くものと Git パネルで隠す、の 4 つがあそこにある。**子 webview を使うものを足すときも書き写さない**
+  - **重ねる・隠す・閉じるは `composables/useChildWebview.ts`**（ブラウザのタブ・HTML・Vue のプレビューで共有）。位置合わせの直列化、変わらなければ送らない、隠すときはフレームを待たない、手前に浮くものがあるあいだ隠す（Git パネルのツールチップはページが見えているあいだ出さない側で扱う、#569）、の 4 つがあそこにある。**子 webview を使うものを足すときも書き写さない**
   - **描くのは保存したファイル**。描き直しの契機は配信ルートの下の `fs_changed` で、`isRecentlySaved` は読まない（印を消費するのは App.vue だけ）。**いつ描き直すかは `composables/usePreviewRefresh.ts`**（HTML と Vue で共有）。呼び出し側が持つのは「何をするか」と「どのファイルが効くか」だけ
     - HTML で拾うのは**ページが読みうる拡張子**だけ（エージェントが `.ts` を書くたびに描き直し続けない）。`node_modules` などは監視の側（`IGNORED_DIRS`）が最初から捨てているので、ここで写しを持たない
     - **監視は今の `activeRoot` しか見ない**。配信ルートがその範囲に入っていない（プロジェクトの外の HTML、別プロジェクトで保持中のタブ、worktree の切り替え）ときだけ、`EditorTab.save()` の直後に描き直し、範囲から外れていたら戻ったときに 1 回描き直す。**範囲の中では保存の側から描き直さない**: Rust の監視は最長 1 秒まとめてから送るので、畳めずに 2 回描き直す

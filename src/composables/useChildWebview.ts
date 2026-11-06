@@ -1,10 +1,26 @@
-import { computed, onMounted, onUnmounted, type Ref, watch } from 'vue'
+import { computed, onMounted, onScopeDispose, onUnmounted, type Ref, ref, watch } from 'vue'
 import { useI18n } from '../i18n'
 import { overlayOpen } from '../lib/overlay'
 import { type BrowserBounds, browserClose, browserPlace } from '../lib/tauri'
-import { useSidebarStore } from '../stores/sidebar'
 import { useTabStore } from '../stores/tabs'
 import { type BrowserHandlers, browserRouter } from './useBrowserRouter'
+
+/** 今ページを重ねている子 webview の数。**直に触らないこと**（`useChildWebview` が対で増減する）。 */
+const shownCount = ref(0)
+
+/**
+ * 子 webview（ブラウザのタブ・HTML / Vue のプレビュー）がどこかでページを重ねているか（#569）。
+ *
+ * **Git パネルのコミットのツールチップはこれが真のあいだ出さない。** ツールチップはパネルの横＝
+ * タブの領域に出るので、ページの下に隠れる。`useOverlay` に登録してページのほうを隠すと、
+ * 行をなぞるたびにページが出入りして点滅する（#396）。以前はパネルを開いているあいだページを
+ * 隠していたが、それだとページを見ながら Git パネルを使えない。
+ *
+ * 関数にしてあるのは `overlayOpen()` と同じ理由（computed の中から呼んで依存を張らせる）。
+ */
+export function childWebviewShown(): boolean {
+  return shownCount.value > 0
+}
 
 /**
  * 子 webview（`Window::add_child`）を DOM の 1 要素の矩形に重ねて面倒を見る（#399）。
@@ -72,7 +88,6 @@ export function previewWebviewOptions(tabId: string): Pick<ChildWebviewOptions, 
 
 export function useChildWebview(opts: ChildWebviewOptions) {
   const { t } = useI18n()
-  const sidebar = useSidebarStore()
 
   const canCreate = opts.canCreate ?? (() => true)
   let label = opts.newLabel()
@@ -80,22 +95,32 @@ export function useChildWebview(opts: ChildWebviewOptions) {
   let disposed = false
 
   /**
-   * 重ねてよいか。描かれていて、手前に出るものが 1 つも無く、Git パネルも閉じているとき。
+   * 重ねてよいか。描かれていて、手前に出るものが 1 つも無いとき。
    *
-   * **「何が手前にあるか」の出典は `lib/overlay.ts` の 1 つ**（#396）。**Git パネルだけは、
-   * 開いているあいだずっと隠す**: コミットの行をなぞるだけでツールチップがパネルの横＝
-   * タブの領域に出るので、`useOverlay` に登録すると行をなぞるたびにページが出入りして点滅する。
+   * **「何が手前にあるか」の出典は `lib/overlay.ts` の 1 つ**（#396）。Git パネルのコミットの
+   * ツールチップは数に入れず、ツールチップのほうを出さない（`childWebviewShown`、#569）。
    */
-  const shown = computed(() => opts.visible() && !overlayOpen() && sidebar.activePanel !== 'git')
+  const shown = computed(() => opts.visible() && !overlayOpen())
 
   /**
-   * 隠しているあいだ、その場に出す案内（#396）。**理由で文言を分ける**: Git パネルは
-   * 開けっぱなしにできるので、閉じれば戻ることを言わないと戻し方が分からない。
+   * 子 webview を作り終えて持っているか（`state === 'ready'` の写し）。`state` は素の変数なので、
+   * 数える側が見られるように ref に写す。まだ作っていない（空のブラウザのタブ）・作れなかった
+   * ときはページが無いので数えない（ツールチップを止める理由が無い）。
    */
-  const hiddenNotice = computed(() => {
-    if (!opts.visible() || shown.value) return ''
-    return sidebar.activePanel === 'git' ? t('browser.hiddenByPanel') : t('browser.hiddenByOverlay')
-  })
+  const hasView = ref(false)
+
+  // ページを重ねているあいだ数える（`useOverlay` と同じ形。外れるときは `onScopeDispose` が戻す）。
+  let counted = false
+  const setCounted = (v: boolean) => {
+    if (v === counted) return
+    counted = v
+    shownCount.value += v ? 1 : -1
+  }
+  watch(() => shown.value && hasView.value, setCounted, { immediate: true })
+  onScopeDispose(() => setCounted(false))
+
+  /** 隠しているあいだ、その場に出す案内（#396）。隠すのはメニューやダイアログのあいだだけ。 */
+  const hiddenNotice = computed(() => (opts.visible() && !shown.value ? t('browser.hiddenByOverlay') : ''))
 
   function measure(): BrowserBounds | null {
     const el = opts.el.value
@@ -162,6 +187,7 @@ export function useChildWebview(opts: ChildWebviewOptions) {
         return
       }
       state = 'ready'
+      hasView.value = true
       // 作っているあいだに閉じられたら片付ける。
       if (disposed) {
         void browserClose(label)
@@ -200,6 +226,7 @@ export function useChildWebview(opts: ChildWebviewOptions) {
     label = next
     browserRouter.register(label, opts.handlers)
     state = nextState
+    hasView.value = nextState === 'ready'
     lastVisible = visible
     lastBoundsKey = ''
     opts.onReset?.()

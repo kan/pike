@@ -1,10 +1,6 @@
 import { defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
-import { t } from '../i18n'
+import { computed, ref } from 'vue'
 import { isSidebarPanel, type SidebarPanel } from '../types/tab'
-import { useSettingsStore } from './settings'
-import { useStatusMessageStore } from './statusMessage'
-import { useTabStore } from './tabs'
 
 const PANEL_WIDTH_KEY = 'pike:panelWidth'
 const ACTIVE_PANEL_KEY = 'pike:activePanel'
@@ -18,20 +14,6 @@ export const useSidebarStore = defineStore('sidebar', () => {
   const panelWidth = ref(parseInt(localStorage.getItem(PANEL_WIDTH_KEY) ?? '', 10) || DEFAULT_PANEL_WIDTH)
 
   const isPanelOpen = computed(() => activePanel.value !== null)
-
-  /**
-   * 今は開けないパネルか（#477）。**ブラウザのタブが見えているあいだの Git パネル**だけ。
-   *
-   * **判定をここに置くのは、入口が 3 つあるため**（アイコン列・パレット・キー）。どれも
-   * `togglePanel` / `openPanel` を通るので、ここで断れば全部に効く。アイコン列は同じ述語で
-   * 灰色にする。
-   *
-   * 「使えるか」（`usePanelAvailability`）には混ぜない。あちらが偽だとアイコンが列から消え、
-   * タブを切り替えるたびに下のアイコンが上下に動く。
-   */
-  function panelBlocked(panel: SidebarPanel): boolean {
-    return panel === 'git' && useTabStore().browserTabVisible
-  }
 
   function togglePanel(panel: SidebarPanel) {
     setPanel(activePanel.value === panel ? null : panel)
@@ -53,44 +35,7 @@ export const useSidebarStore = defineStore('sidebar', () => {
     activePanel.value = panel
   }
 
-  /**
-   * ブラウザのタブが見えたら、開いている Git パネルから逃がし、見えなくなったら戻す（#477）。
-   * Git パネルが開いているあいだは子 webview を隠すしかなく（`useChildWebview` の `shown`）、
-   * 開けっぱなしだとページがずっと見えない。
-   *
-   * **ストアに置く**（`SideBar.vue` ではなく）。サイドバーを描かないグローバルモードの
-   * ウィンドウでも、覚えている選択（マシンに 1 つ）が Git なら同じことが起き、そこには
-   * パネルを閉じる手段が無い。
-   *
-   * - **逃がすのは表示だけ**（`fallbackPanel`。覚えている選択は Git のまま）。行き先は
-   *   ブラウザのパネル、そのアイコンを隠していれば（#364）パネルを閉じた表示にする
-   *   （アイコンの無いパネルが開いたままだと、閉じる入口が無い）
-   * - **人が選び直したら戻さない**（`setPanel` が `displacedGit` を下ろす）。逃がした先と
-   *   同じパネルを人が選び直した場合も、それはもう人の選択
-   */
-  let displacedGit = false
-  watch(
-    () => useTabStore().browserTabVisible,
-    (visible) => {
-      if (visible && activePanel.value === 'git') {
-        const browserHidden = useSettingsStore().sidebarIcons.some((s) => s.panel === 'browser' && s.hidden)
-        fallbackPanel(browserHidden ? null : 'browser')
-        displacedGit = true
-      } else if (!visible && displacedGit) {
-        fallbackPanel('git')
-        displacedGit = false
-      }
-    },
-    { immediate: true },
-  )
-
   function setPanel(panel: SidebarPanel | null) {
-    // 開けないパネルは理由を出して断る（パレットやキーからは、灰色のアイコンが見えない）。
-    if (panel && panelBlocked(panel)) {
-      useStatusMessageStore().show({ text: t('sidebar.gitBlockedByBrowser'), variant: 'warn' })
-      return
-    }
-    displacedGit = false
     activePanel.value = panel
     if (panel) {
       localStorage.setItem(ACTIVE_PANEL_KEY, panel)
@@ -113,7 +58,6 @@ export const useSidebarStore = defineStore('sidebar', () => {
     activePanel,
     panelWidth,
     isPanelOpen,
-    panelBlocked,
     togglePanel,
     openPanel,
     setPanel,
