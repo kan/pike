@@ -265,8 +265,14 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
   - `.pike/` を作る側は **`lib/pikeDir.ts` の `ensurePikeDir`** を通す（`.gitignore` の設置込み）。手順を呼び出し側ごとに持つと複製になる
   - **usage の追従は `createUsageStore` が持つ**。工場側で `activeRoot` を watch し、取得中に root が変わったら結果を捨てて取り直す（`refreshGuard` は取得のあいだ立ちっぱなしなので、切り替え側から叩いても弾かれる）。**切り替え側から名指しで叩かないこと**: 「どの usage が root に依存するか」の知識が 2 箇所に分かれ、store を増やしたときに片方だけ漏れる。レートも同じ経路で追従する（取り直しても Rust のキャッシュが返す）
 - **追従させないもの**: worktree 一覧の取得（`gitWorktreeList` は main から引く）と `git.ts` の remoteUrl 記録（main のときだけ書く、が仕様）
-- `stores/worktree.ts`: worktree 一覧・`setActiveWorktree(w)`（`isMain` フラグで null/パスを決定。文字列一致に依存しない）・focus 連動ポーリング（`gitStore.status` が非 null の git リポジトリのみ。同一ウィンドウ内ターミナルでの `git worktree add` を反映、古い load 結果は projectId で stale ガード）
-- ステータスバーの worktree セレクタ（`FolderGit2`、worktree が 2 つ以上の時のみ表示）。選択で 5 パネル + エディタを再読込
+- `stores/worktree.ts`: worktree 一覧・`setActiveWorktree(w)`（`isMain` フラグで null/パスを決定。文字列一致に依存しない）・focus 連動ポーリング（`gitStore.status` が非 null の git リポジトリか、main 以外を参照しているときのみ。同一ウィンドウ内ターミナルでの `git worktree add` を反映、古い load 結果は projectId で stale ガード）
+- ステータスバーの worktree セレクタ（`FolderGit2`、`showSelector`＝worktree が 2 つ以上か、main 以外を参照しているときに表示）。選択で 5 パネル + エディタを再読込
+- **参照中の worktree が消えたら main へ戻す（#570）**。判断は `loadWorktrees` が一覧を読んだあとの `returnToMainIfGone`。**読み始めてから参照先が変わっていたら判断しない**（作った直後に切り替えたのに、作る前に読み始めた一覧が後から返ると、作ったばかりの worktree から main へ戻してしまう）
+  - **一覧に残っていても消えていることがある**: lock された worktree（Claude Code のエージェントのもの）は、ディレクトリを消しても `prunable` が付かず一覧に残る。そこで `gitStore.isRepo` が偽のときだけ `fsDirsExist` でディレクトリを確かめる（普段は確かめない。WSL では `wsl.exe` を起こす）
+  - **ポーリング（`poll`）は main 以外を参照しているあいだ、`gitStore.status` が null でも一覧を読む**。消えた worktree では `git status` が失敗して status が null になるので、「git リポジトリのときだけ読む」の条件のままだと戻す判断が永久に走らない
+  - **`isRepo` が偽になったら、ポーリングを待たずに一覧を読み直す**（ストアの `watch`）。git の status（10 秒ごと）が先に失敗し、そのあいだ Git パネルが消えた場所への `git init` を勧め続ける
+  - **戻す処理は一覧の読み込みの try の外で行う**。中に置くと、パネルの読み直しの失敗が catch に落ちて、読めた一覧を空にする
+  - 一覧の取得そのものが失敗したときは戻さず、**前の一覧を残す**（main から引くので、失敗は一時的なものとみなす。空にすると main の行が消えて手で戻れない）。そのあいだも `showSelector` がセレクタを出す
 - fs watcher は App.vue の `watch(activeRoot)` 単一所有で再ポイント（worktree 切替・プロジェクト切替の両方をカバー。リポジトリ外の worktree でも更新を取得）
 - 切替単位はウィンドウ（プロジェクト）ごとに 1 つ。起動時は常に main worktree（`activeWorktreeRoot=null`）から開始、セッション非永続。タブ切替による自動追従は未実装（agent を root で起動し内部で worktree を選ぶ運用では cwd ベース検出が効かないため手動セレクタを主軸とする。将来 agent タブ常用時に再検討）
 

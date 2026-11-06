@@ -212,7 +212,7 @@ EditorTab は `fs_read_file` を読まずその内容で描画するため、決
 `e2e/specs/navigation.ts`。いずれも簡単な invoke モック + `__pikeE2E` ヘルパーで撮る。
 
 - **worktree セレクタ**：`git_worktree_list` を 2 件以上でモック → `loadWorktrees()`
-  （`worktreeStore.loadWorktrees`）で一覧を入れると `hasMultiple=true` になり StatusBar に
+  （`worktreeStore.loadWorktrees`）で一覧を入れると `showSelector=true` になり StatusBar に
   セレクタ（`data-testid="worktree-selector"`）が出る。クリックで `.branch-dropdown` を開く。
 - **QuickOpen**：`list_project_files` をモック → `openQuickOpen()`（`showQuickOpen=true`）。
   `data-testid="quickopen"` のモーダルに `.quickopen-item` が並ぶ。

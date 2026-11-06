@@ -60,7 +60,7 @@ describe('screenshots: worktree selector', () => {
       await mockInvoke('git_worktree_list', WORKTREES)
       await setFakeProject()
       await openEditor({ path: 'src/App.vue', content: APP_VUE })
-      // 一覧を読み込むと hasMultiple=true になり StatusBar にセレクタが出る。
+      // 一覧を読み込むと showSelector=true になり StatusBar にセレクタが出る。
       await loadWorktrees()
       const selector = await $('[data-testid="worktree-selector"]')
       await selector.waitForDisplayed({ timeout: 10_000 })

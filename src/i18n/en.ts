@@ -907,6 +907,7 @@ export default {
   'worktree.removed': 'Deleted the worktree "{name}"',
   'worktree.branchKept': 'Deleted the worktree "{name}", but kept the branch "{branch}": {reason}',
   'worktree.removeFailed': 'Could not delete the worktree "{name}": {error}',
+  'worktree.gone': 'The worktree "{name}" no longer exists, so Pike switched back to main',
   'git.copyHash': 'Copy commit hash',
   'git.copyShortHash': 'Copy short hash',
   'git.copyMessage': 'Copy commit message',
