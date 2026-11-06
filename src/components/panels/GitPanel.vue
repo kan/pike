@@ -319,6 +319,9 @@ function onCommitEnter(entry: GitLogEntry, e: MouseEvent) {
   if (childWebviewShown()) return
   const target = e.currentTarget as HTMLElement
   tooltipTimer = setTimeout(async () => {
+    tooltipTimer = null
+    // 待っているあいだにページが見えた（ブラウザのタブへ切り替えた、など）ときも同じ理由で出さない。
+    if (childWebviewShown()) return
     resetTooltip()
     hoveredCommit.value = entry
     // **パネルの横に出す**（#374）。行の上下に出すと、展開したファイルの一覧や隣の行に
