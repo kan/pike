@@ -906,6 +906,7 @@ export default {
   'worktree.removed': 'worktree「{name}」を削除しました',
   'worktree.branchKept': 'worktree「{name}」を削除しましたが、ブランチ「{branch}」は残しました: {reason}',
   'worktree.removeFailed': 'worktree「{name}」を削除できませんでした: {error}',
+  'worktree.gone': '参照していた worktree「{name}」が見つからないので、main に戻しました',
   'git.copyHash': 'コミットハッシュをコピー',
   'git.copyShortHash': '短いハッシュをコピー',
   'git.copyMessage': 'コミットメッセージをコピー',

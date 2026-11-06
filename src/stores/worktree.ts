@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { confirmDialog, confirmWithOption } from '../composables/useConfirmDialog'
 import { useFocusPolling } from '../composables/useFocusPolling'
 import { t } from '../i18n'
 import { parseJsonc } from '../lib/jsonc'
 import { basename, joinPath, normalizeSep, pathSep } from '../lib/paths'
 import { rootKey } from '../lib/projectPaths'
-import { fsReadFile, gitStatus, gitWorktreeAdd, gitWorktreeList, gitWorktreeRemove } from '../lib/tauri'
+import { fsDirsExist, fsReadFile, gitStatus, gitWorktreeAdd, gitWorktreeList, gitWorktreeRemove } from '../lib/tauri'
 import { includeFromVscodeSettings, includeFromWorktreeInclude, resolveWorktreePath } from '../lib/worktreeCreate'
 import type { GitWorktree, GitWorktreeAdded } from '../types/git'
 import { quoteArg, type ShellType } from '../types/tab'
@@ -55,9 +55,12 @@ export const useWorktreeStore = defineStore('worktree', () => {
    */
   let listedFor: string | null = null
 
-  // True once a repo with more than one worktree is detected — drives whether
-  // the status-bar selector is worth showing at all.
-  const hasMultiple = computed(() => worktrees.value.length > 1)
+  /**
+   * ステータスバーに worktree のセレクタを出すか。worktree が 2 つ以上あるときと、main 以外を
+   * 参照しているとき（#570）。後者を外すと、参照中の worktree が消えて一覧が 1 つになったとき、
+   * main へ戻る入口が無くなる（戻すのは `loadWorktrees` だが、一覧を読めなかったときの逃げ道）。
+   */
+  const showSelector = computed(() => worktrees.value.length > 1 || useProjectStore().activeWorktreeRoot !== null)
 
   /**
    * Whether `w` is the worktree the panels currently reference. Compares by the
@@ -93,6 +96,10 @@ export const useWorktreeStore = defineStore('worktree', () => {
     }
     loading.value = true
     const projectId = project.id
+    // 読んでいるあいだに切り替えられたら、消えたかどうかをこの一覧では判断しない
+    // （作った直後の worktree へ切り替えたのに、作る前に読み始めた一覧が後から返る）。
+    const activeAtStart = projectStore.activeWorktreeRoot
+    let checkGone = false
     try {
       const sep = pathSep(project.shell)
       const list = await gitWorktreeList(project.root, project.shell)
@@ -100,14 +107,20 @@ export const useWorktreeStore = defineStore('worktree', () => {
       if (projectStore.currentProject?.id !== projectId) return
       worktrees.value = list.map((w) => ({ ...w, path: normalizeSep(w.path, sep) }))
       listedFor = projectId
+      checkGone = activeAtStart !== null && projectStore.activeWorktreeRoot === activeAtStart
     } catch {
-      if (projectStore.currentProject?.id === projectId) {
+      // main 以外を参照しているあいだは、読めなくても前の一覧を残す（#570）。空にすると
+      // セレクタに main の行が無くなり、手で戻る入口も消える。
+      const keep = projectStore.activeWorktreeRoot !== null && listedFor === projectId
+      if (projectStore.currentProject?.id === projectId && !keep) {
         worktrees.value = []
         listedFor = projectId
       }
     } finally {
       loading.value = false
     }
+    // 一覧の読み込みの外で行う。パネルの読み直しの失敗で、読めた一覧を消さない。
+    if (checkGone && activeAtStart !== null) await returnToMainIfGone(activeAtStart, project.shell)
   }
 
   /**
@@ -130,7 +143,41 @@ export const useWorktreeStore = defineStore('worktree', () => {
     // Store null for the main worktree so the selector collapses to "main" and
     // session state stays clean; store the normalized path otherwise.
     projectStore.activeWorktreeRoot = w.isMain ? null : normalizeSep(w.path, pathSep(project.shell))
+    await reloadPanels()
+    return true
+  }
 
+  /**
+   * 参照中の worktree（`active`）が消えていたら main へ戻す（#570）。消えた worktree を
+   * 見たままだと、ファイルツリーも Git パネルも空になる。一覧に main が無いとき（読めた一覧が
+   * 空など）も、プロジェクトのルートへ戻す。
+   *
+   * **一覧に残っていても消えていることがある**: lock された worktree（Claude Code のエージェントの
+   * もの）は、ディレクトリを消しても git が `prunable` を付けず、一覧に残る。そこで git がその
+   * 場所を読めていないとき（`isRepo` が偽）だけ、ディレクトリがあるかを確かめる（普段は確かめない。
+   * WSL では `wsl.exe` を 1 回起こすことになる）。
+   */
+  async function returnToMainIfGone(active: string, shell: ShellType) {
+    const listed = worktrees.value.some((w) => !w.needsRepair && isActive(w))
+    if (listed && useGitStore().isRepo) return
+    if (listed) {
+      const [exists] = await fsDirsExist(shell, [active]).catch(() => [true])
+      if (exists) return
+    }
+    const projectStore = useProjectStore()
+    // 確かめているあいだに切り替えられていたら、その選択を上書きしない。
+    if (projectStore.activeWorktreeRoot !== active) return
+    projectStore.activeWorktreeRoot = null
+    useStatusMessageStore().show({
+      text: t('worktree.gone', { name: basename(active) }),
+      variant: 'warn',
+      durationMs: 8000,
+    })
+    await reloadPanels()
+  }
+
+  /** `activeRoot` を見る 5 パネルとエディタの git まわりを読み直す。 */
+  async function reloadPanels() {
     const fileTree = useFileTreeStore()
     const git = useGitStore()
     const search = useSearchStore()
@@ -148,7 +195,6 @@ export const useWorktreeStore = defineStore('worktree', () => {
       tasks.refresh(),
       docker.refreshComposeProjects(),
     ])
-    return true
   }
 
   /**
@@ -307,11 +353,23 @@ export const useWorktreeStore = defineStore('worktree', () => {
   // Worktrees are usually added/removed from a terminal in the same window, so
   // poll while focused to keep the selector in sync without a project reswitch.
   // Skip the spawn for non-git projects (git status stays null there).
+  // main 以外を参照しているあいだは status が null でも読む（#570）。参照中の worktree が
+  // 消えると status が取れなくなり、ここで止めると main へ戻す判断が永久に走らない。
   function poll() {
-    if (useGitStore().status) loadWorktrees()
+    if (useGitStore().status || useProjectStore().activeWorktreeRoot !== null) loadWorktrees()
   }
 
   const polling = useFocusPolling([{ every: 15_000, tick: poll }])
+
+  // 参照中の worktree が消えると、git の status（10 秒ごと）が先に失敗して `isRepo` が偽になる
+  // （#570）。そこで一覧を読み直して戻す。15 秒のポーリングを待つと、そのあいだ Git パネルが
+  // 消えた場所への `git init` を勧め続ける。
+  watch(
+    () => useGitStore().isRepo,
+    (repo) => {
+      if (!repo && useProjectStore().activeWorktreeRoot !== null) void loadWorktrees()
+    },
+  )
 
   function startPolling() {
     loadWorktrees()
@@ -321,7 +379,7 @@ export const useWorktreeStore = defineStore('worktree', () => {
   return {
     worktrees,
     loading,
-    hasMultiple,
+    showSelector,
     isActive,
     worktreeUsingBranch,
     loadWorktrees,

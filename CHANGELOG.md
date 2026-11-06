@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **参照している worktree が消えたら、main の worktree へ戻すようにした**：消えた worktree を参照し続け、ファイルツリーと Git パネルが空になっていました。worktree が 1 つだけになるとセレクタも消えるので、プロジェクトを切り替えて戻るまで main に戻せませんでした。今は一覧を読み直したときに main へ戻し、ステータスバーで知らせます (#570)
+
 ## [0.70.0] - 2026-11-03
 
 ### Features

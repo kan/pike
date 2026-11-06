@@ -135,7 +135,7 @@ const hasAgentStatus = computed(() => agentEntries.value.length > 0)
  * **空の組の左に区切りだけが出る**（`usePanelAvailability` で「可否の述語は 1 箇所」を
  * 選んでいるのと同じ判断）。
  */
-const hasRepoInfo = computed(() => worktreeStore.hasMultiple || !!gitStore.status || !!forge.value)
+const hasRepoInfo = computed(() => worktreeStore.showSelector || !!gitStore.status || !!forge.value)
 
 /**
  * ヘッドラインの「25% / 5%」。**5h と週間だけ**に絞る（モデル別の枠まで並べると、
@@ -613,7 +613,7 @@ onUnmounted(() => {
 
     <!-- worktree / ブランチ / リポジトリは同じリポジトリの話なので 1 つの組にする。 -->
     <div v-if="hasRepoInfo" class="status-group">
-      <div v-if="worktreeStore.hasMultiple" class="branch-area">
+      <div v-if="worktreeStore.showSelector" class="branch-area">
         <button class="status-item clickable" data-testid="worktree-selector" :title="t('worktree.tooltip')" @click="openWorktreeSwitcher">
           <FolderGit2 :size="14" :stroke-width="2" class="branch-icon" />
           <span>{{ worktreeLabel }}</span>
@@ -722,7 +722,7 @@ onUnmounted(() => {
           </div>
           <!-- worktree が 1 つのときはセレクタが出ないので、作成の入口はこちらに置く（#478）。 -->
           <button
-            v-if="!worktreeStore.hasMultiple"
+            v-if="!worktreeStore.showSelector"
             class="dropdown-action"
             data-testid="worktree-create"
             @click="onCreateWorktree(closeBranches)"
