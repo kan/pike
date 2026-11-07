@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.70.1] - 2026-11-07
+
 ### Bug Fixes
 
 - **参照している worktree が消えたら、main の worktree へ戻すようにした**：消えた worktree を参照し続け、ファイルツリーと Git パネルが空になっていました。worktree が 1 つだけになるとセレクタも消えるので、プロジェクトを切り替えて戻るまで main に戻せませんでした。今は一覧を読み直したときに main へ戻し、ステータスバーで知らせます (#570)
@@ -1974,6 +1976,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.70.1]: https://github.com/kan/pike/releases/tag/v0.70.1
 [0.70.0]: https://github.com/kan/pike/releases/tag/v0.70.0
 [0.69.0]: https://github.com/kan/pike/releases/tag/v0.69.0
 [0.68.0]: https://github.com/kan/pike/releases/tag/v0.68.0
