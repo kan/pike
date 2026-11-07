@@ -8,7 +8,7 @@ name: tagpr
 #
 # - main が進むたびに、bump・lockfile・CHANGELOG の見出しとリンク・クレジットを載せたリリース PR
 #   （ブランチ `tagpr-from-v<前回の版>`）を作り直す（`scripts/release-prepare.mjs`）。run が落ちると
-#   リリース PR は draft になり、次に成功した run が ready に戻す
+#   リリース PR は draft になる（ready に戻す条件は README）
 # - リリース PR がマージされると、tagpr がタグを打ち、共通の workflow がそれを annotated に打ち直してから
 #   Release ワークフローをそのタグで起動する（`workflow_dispatch`）。**GITHUB_TOKEN で打った
 #   タグでは `on.push.tags` が起動しない**ので、タグの push には頼らない
@@ -67,8 +67,9 @@ jobs:
     if: ${{ !cancelled() }}
     # SHA は scripts/tagpr/ に取り込んだ kan/tagpr-scripts の commit（subtree の squash のコミットにある
     # `git-subtree-split`）。**subtree pull をする PR で一緒に上げる。** 別の repo の reusable workflow は
-    # actions.lock が固定しないので SHA で書き、Dependabot には上げさせない（dependabot.yml の ignore）
-    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@776734198ce4cade40332a9d1772ef8a2fd01c2f
+    # actions.lock が固定しないので SHA で書き、Dependabot には上げさせない（dependabot.yml の ignore）。
+    # 揃っているかは ci.yml の verify-subtree.mjs が PR で確かめる
+    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@966347b01e86b2aea4d71da0604588b17642b880
     # 共通の workflow が使える上限。GitHub は run の始めに、飛ばされるジョブの権限まで検査するので、
     # 4 つとも書く
     permissions:

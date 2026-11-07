@@ -54,8 +54,8 @@ gh run list --workflow tagpr.yml --branch main -L 3
 **ブランチ名は `tagpr-from-v<前回の版>`**（v0.69.0 を出すリリース PR なら `tagpr-from-v0.68.0`）。
 以下の `<ブランチ>` は上の一覧に出るブランチ名を使う。
 
-**最新の tagpr の run が success であること。** 落ちた run はリリース PR を draft にする（次に成功した
-run が ready に戻す）。失敗していたら、run の注釈（`postVersionCommand` の
+**最新の tagpr の run が success であること。** 落ちた run はリリース PR を draft にする（ready に戻す
+条件は `scripts/tagpr/README.md` の「The tagpr workflow」）。失敗していたら、run の注釈（`postVersionCommand` の
 失敗）を読む。多いのは `## [Unreleased]` が空のとき（リリースの直後は毎回そうなる）。直す PR を main に
 マージすると作り直される。`credits` ジョブ（クレジットの生成。ネットワークに出る）が落ちていたら、
 一時的な失敗ならその run を再実行する。「タグより新しい版の節がある」で落ちていたら、手順 6 の
@@ -183,26 +183,18 @@ Release の中は `draft`（ドラフトを 1 つ作る）→ `build`（Windows 
 （打たれていない版の上に次の版を重ねることになる）。
 
 置き換えた側の run は赤になり、版だけ上がったリリース PR が draft で残ることがある。**その PR は
-マージせず、タグが打たれた後に閉じる。** 共通の workflow は、成功した run でラベル `tagpr` の付いた
-draft をすべて ready に戻す（kan/tagpr-scripts#11）。閉じる前に push が入ると古いまま ready になるが、
-**ready になっていてもマージしない**。
+マージしない。** タグが打たれた後、main への push で成功した run がコメントを付けて閉じる（扱いの正本は
+`scripts/tagpr/README.md` の「The tagpr workflow」。kan/tagpr-scripts#11）。閉じられる前も、閉じた後に
+開き直しても、マージしない。
 
-**タグは打たれたのに Release の run が無いとき**は、tagpr の run を再実行しない（tagpr はタグを打ち直さず、
-起動もしない）。タグの種類を確かめて分ける:
+**タグは打たれたのに Release の run が無いとき**は、**そのマージの tagpr の run を再実行する**（tagpr
+は既にあるタグを受け入れるので、annotated への打ち直しと `release` ジョブがもう一度動く）。
+**Release の run が既に起動していたら再実行しない**（同じタグでもう一度起動する）。手順の正本は
+`scripts/tagpr/README.md` の「When the run of a merge made the tag but failed after it」。
 
-```bash
-git fetch --force origin tag vX.Y.Z && git cat-file -t vX.Y.Z   # tag なら annotated、commit なら lightweight
-```
-
-- **annotated**（`Start the release` ジョブだけが赤か skipped）: 起動だけが失敗している。
-  `gh workflow run release.yml --ref vX.Y.Z` で手で起動する
-- **lightweight**（annotated に打ち直すステップが落ちたか、その前に止まった）: 手で打ち直してから起動する。
-  pike の `release.yml` は `push: tags` を持たないので、タグの push だけでは起動しない（roji や lily と違う）:
-
-  ```bash
-  git tag -a -f -m "Release vX.Y.Z" vX.Y.Z 'vX.Y.Z^{commit}' && git push -f origin vX.Y.Z
-  gh workflow run release.yml --ref vX.Y.Z
-  ```
+再実行できないとき（30 日を過ぎた run）だけ、その README の手順で手で直す。**pike の `release.yml` は
+`push: tags` を持たないので、タグを手で push しても Release は起動しない**（roji や lily と違う）。
+lightweight のタグを打ち直したときも、最後に `gh workflow run release.yml --ref vX.Y.Z` で起動する。
 
 **タグが打たれ、Release の run のジョブ（`draft`、OS ごとの `build` と `bundle`、`attest`、
 `upload`、`updater-json`）がすべて success であることを確認する。** `updater-json` は両 OS のアセットが
@@ -293,8 +285,8 @@ gh release verify vX.Y.Z --repo kan/pike
 前の実行のドラフトは消さなくてよい（`draft` ジョブが同じタグのドラフトを消してから作り直す）。
 タグを消したあいだに main が進むと、その tagpr の run は「タグより新しい版の節がある」で赤になる
 （手順 2 の PR のマージでもそうなる）。タグを打ち直したら次の run から通るので、放っておいてよい。
-手順 2 の run が残した版だけ上がったリリース PR（draft）は、マージせず、手順 3 の後に閉じる。閉じる前に
-push が入ると、成功した run がこの PR を ready に戻す（kan/tagpr-scripts#11）。それでもマージしない。
+手順 2 の run が残した版だけ上がったリリース PR（draft）は、マージしない。手順 3 の後に main への push で
+成功した run が閉じる（kan/tagpr-scripts#11。`scripts/tagpr/README.md` の「The tagpr workflow」）。
 
 ### 注意事項
 
