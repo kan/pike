@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // リリース PR の中身をそろえる（tagpr の postVersionCommand、#529）。
 //
-//   TAGPR_CURRENT_VERSION=vX.Y.Z TAGPR_NEXT_VERSION=vX.Y.Z PIKE_CREDITS=<credits.json> \
+//   TAGPR_CURRENT_VERSION=vX.Y.Z TAGPR_NEXT_VERSION=vX.Y.Z TAGPR_ARTIFACT_DIR=<dir> \
 //     node scripts/release-prepare.mjs
 //
 // tagpr は `.tagpr` の versionFile（tauri.conf.json / Cargo.toml / package.json）の版を
@@ -12,16 +12,19 @@
 //    #562 / #565）。`.tagpr` の versionFile の 3 ファイルの版が提案と同じかを確かめ、Cargo.lock と
 //    package-lock.json の pike 自身の版をそろえ、CHANGELOG の `## [Unreleased]` を版の節にする。
 //    cargo も npm も呼ばない。`scripts/tagpr/` の中は編集しない
-// 2. クレジット（src/assets/credits.json）を PIKE_CREDITS のファイルで置き換える。
+// 2. クレジット（src/assets/credits.json）を TAGPR_ARTIFACT_DIR/credits.json で置き換える。
 //    **ここでは作らない。** 作るには依存のコード（node_modules）とネットワークが要るので、
-//    tagpr.yml の書き込みの権限を持たない credits ジョブが main のツリーで作り、artifact で渡す。
-//    一覧は Pike 自身を含まないので、版を上げる前のツリーで作っても同じものになる
-//    手元で試すときは、先に `just credits` を走らせて PIKE_CREDITS=src/assets/credits.json を渡す
+//    tagpr.yml の書き込みの権限を持たない credits ジョブが main のツリーで作り、artifact `credits` で
+//    渡す。kan/tagpr-scripts の共通の workflow がそれを展開し、そのディレクトリを TAGPR_ARTIFACT_DIR で
+//    渡す（#573。展開に失敗すると空になる）。一覧は Pike 自身を含まないので、版を上げる前のツリーで
+//    作っても同じものになる
+//    手元で試すときは、先に `just credits` を走らせて TAGPR_ARTIFACT_DIR=src/assets を渡す
 //
-// PIKE_CREDITS が無いか、1 が落ちたら（リリースの直後は `## [Unreleased]` が空なので毎回落ちる）、
+// TAGPR_ARTIFACT_DIR に credits.json が無いか、1 が落ちたら（リリースの直後は `## [Unreleased]` が空なので毎回落ちる）、
 // lockfile・CHANGELOG・クレジットを書き換えずに失敗で終える（1 は検査を
 // すべて済ませてから書く）。**3 ファイルの版は tagpr がこれより前に書き換えている**ので、tagpr が
-// 失敗しても作るリリース PR には版だけが上がる。tagpr の run が赤ならマージしない。
+// 失敗しても作るリリース PR には版だけが上がる。そのリリース PR は共通の workflow が draft にするが、
+// tagpr の run が赤ならマージしない。
 
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync } from 'node:fs'
@@ -37,9 +40,10 @@ function fail(message) {
 
 // 版の形と versionFile の版（TAGPR_NEXT_VERSION / TAGPR_CURRENT_VERSION）は scripts/tagpr/ が
 // 書き込みの前に確かめる
-const credits = process.env.PIKE_CREDITS ? resolve(process.env.PIKE_CREDITS) : ''
+const artifactDir = process.env.TAGPR_ARTIFACT_DIR ?? ''
+const credits = artifactDir ? resolve(artifactDir, 'credits.json') : ''
 if (!credits || !existsSync(credits)) {
-  fail(`PIKE_CREDITS に作り直したクレジットのファイルを渡してください: "${process.env.PIKE_CREDITS ?? ''}"`)
+  fail(`TAGPR_ARTIFACT_DIR に作り直したクレジット（credits.json）のあるディレクトリを渡してください: "${artifactDir}"`)
 }
 
 console.log('== CHANGELOG と lockfile')
@@ -55,5 +59,5 @@ console.log('\n== credits')
 if (credits === CREDITS) console.log('src/assets/credits.json をそのまま使う')
 else {
   copyFileSync(credits, CREDITS)
-  console.log(`${process.env.PIKE_CREDITS} -> src/assets/credits.json`)
+  console.log(`${credits} -> src/assets/credits.json`)
 }

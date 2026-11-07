@@ -54,7 +54,8 @@ gh run list --workflow tagpr.yml --branch main -L 3
 **ブランチ名は `tagpr-from-v<前回の版>`**（v0.69.0 を出すリリース PR なら `tagpr-from-v0.68.0`）。
 以下の `<ブランチ>` は上の一覧に出るブランチ名を使う。
 
-**最新の tagpr の run が success であること。** 失敗していたら、run の注釈（`postVersionCommand` の
+**最新の tagpr の run が success であること。** 落ちた run はリリース PR を draft にする（次に成功した
+run が ready に戻す）。失敗していたら、run の注釈（`postVersionCommand` の
 失敗）を読む。多いのは `## [Unreleased]` が空のとき（リリースの直後は毎回そうなる）。直す PR を main に
 マージすると作り直される。`credits` ジョブ（クレジットの生成。ネットワークに出る）が落ちていたら、
 一時的な失敗ならその run を再実行する。「タグより新しい版の節がある」で落ちていたら、手順 6 の
@@ -159,9 +160,10 @@ gh run list --workflow tagpr.yml --commit "$sha" --json databaseId,status -q '.[
 gh run watch <run id> --exit-status
 ```
 
-マージの push で走る tagpr の run が、**タグ `vX.Y.Z` を打ってから、同じ run の `release` ジョブで
-Release ワークフローをそのタグで起動する**（#562。`workflow_dispatch`。GITHUB_TOKEN で打ったタグの push
-では Release は起動しない）。Release は tagpr とは別の run になる:
+マージの push で走る tagpr の run が、**タグ `vX.Y.Z` を打ち、annotated に打ち直してから、同じ run の
+`release` ジョブで Release ワークフローをそのタグで起動する**（#562 / #573。どれも kan/tagpr-scripts の共通の
+workflow が行う。`workflow_dispatch`。GITHUB_TOKEN で打ったタグの push では Release は起動しない）。
+Release は tagpr とは別の run になる:
 
 ```bash
 gh run list --workflow release.yml --branch vX.Y.Z -L 1 --json databaseId,status
@@ -178,9 +180,27 @@ Release の中は `draft`（ドラフトを 1 つ作る）→ Windows と macOS(
 赤になっているが、再実行でタグが打たれれば次の run から通る。**新しいリリース PR をマージしてやり過ごさない**
 （打たれていない版の上に次の版を重ねることになる）。
 
-**タグは打たれたのに Release の run が無いとき**（tagpr の run の `Start the release` ジョブが赤か skipped）は、
-起動だけが失敗している。tagpr の run を再実行せず（タグを打ち直そうとする）、
-`gh workflow run release.yml --ref vX.Y.Z` で手で起動する。
+置き換えた側の run は赤になり、版だけ上がったリリース PR が draft で残ることがある。**その PR は
+マージせず、タグが打たれた後に閉じる。** 共通の workflow は、成功した run でラベル `tagpr` の付いた
+draft をすべて ready に戻す（kan/tagpr-scripts#11）。閉じる前に push が入ると古いまま ready になるが、
+**ready になっていてもマージしない**。
+
+**タグは打たれたのに Release の run が無いとき**は、tagpr の run を再実行しない（tagpr はタグを打ち直さず、
+起動もしない）。タグの種類を確かめて分ける:
+
+```bash
+git fetch --force origin tag vX.Y.Z && git cat-file -t vX.Y.Z   # tag なら annotated、commit なら lightweight
+```
+
+- **annotated**（`Start the release` ジョブだけが赤か skipped）: 起動だけが失敗している。
+  `gh workflow run release.yml --ref vX.Y.Z` で手で起動する
+- **lightweight**（annotated に打ち直すステップが落ちたか、その前に止まった）: 手で打ち直してから起動する。
+  pike の `release.yml` は `push: tags` を持たないので、タグの push だけでは起動しない（roji や lily と違う）:
+
+  ```bash
+  git tag -a -f -m "Release vX.Y.Z" vX.Y.Z 'vX.Y.Z^{commit}' && git push -f origin vX.Y.Z
+  gh workflow run release.yml --ref vX.Y.Z
+  ```
 
 **タグが打たれ、Release の run の 4 つのジョブがすべて success であることを確認する。** `updater-json` は
 両 OS のビルドが成功したときだけ走り、各 URL の実ファイルの署名を検証してから `latest.json` を上げる。
@@ -255,11 +275,11 @@ gh release verify vX.Y.Z --repo kan/pike
 
 1. タグを消す: `git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z`
 2. 直す PR を main にマージする（CHANGELOG を直すなら、main ではもう `## [X.Y.Z] - 日付` になっている節を直す）
-3. 直した main の先頭にタグを打って push し、Release を手で起動する（タグの push では起動しない）:
+3. 直した main の先頭に **annotated の**タグを打って push し、Release を手で起動する（タグの push では起動しない）:
 
    ```bash
    git switch main && git pull --ff-only
-   git tag vX.Y.Z
+   git tag -a -m "Release vX.Y.Z" vX.Y.Z
    git push origin vX.Y.Z
    gh workflow run release.yml --ref vX.Y.Z
    ```
@@ -267,6 +287,8 @@ gh release verify vX.Y.Z --repo kan/pike
 前の実行のドラフトは消さなくてよい（`draft` ジョブが同じタグのドラフトを消してから作り直す）。
 タグを消したあいだに main が進むと、その tagpr の run は「タグより新しい版の節がある」で赤になる
 （手順 2 の PR のマージでもそうなる）。タグを打ち直したら次の run から通るので、放っておいてよい。
+手順 2 の run が残した版だけ上がったリリース PR（draft）は、マージせず、手順 3 の後に閉じる。閉じる前に
+push が入ると、成功した run がこの PR を ready に戻す（kan/tagpr-scripts#11）。それでもマージしない。
 
 ### 注意事項
 
