@@ -2,10 +2,10 @@
 //! 確かめられない**（画面上のトーストとは別の経路を通る）ので、その道具。
 //!
 //! Usage:
-//!   cargo run --bin verify_toast -- shortcut   # AUMID + 活性化 CLSID 付きの .lnk を作る
-//!   cargo run --bin verify_toast -- protocol   # pike-dev:// を自分の exe に紐付ける
-//!   cargo run --bin verify_toast -- toast      # プロトコル活性化のトーストを出す
-//!   cargo run --bin verify_toast -- remove     # ショートカットを消す
+//!   cargo run --features verify --bin verify_toast -- shortcut   # AUMID + 活性化 CLSID 付きの .lnk を作る
+//!   cargo run --features verify --bin verify_toast -- protocol   # pike-dev:// を自分の exe に紐付ける
+//!   cargo run --features verify --bin verify_toast -- toast      # プロトコル活性化のトーストを出す
+//!   cargo run --features verify --bin verify_toast -- remove     # ショートカットを消す
 //!
 //! 確かめたいこと（#334）:
 //!   1. AUMID と `PKEY_AppUserModel_ToastActivatorCLSID` の両方を書いた `.lnk` を作れるか

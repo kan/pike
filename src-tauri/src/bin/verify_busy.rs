@@ -1,5 +1,5 @@
 //! ターミナルの「シェル以外のプロセスが動いているか」判定 (#178) の前提確認。
-//! Usage: cargo run --bin verify_busy
+//! Usage: cargo run --features verify --bin verify_busy
 //!
 //! 確かめたいこと:
 //!   1. ConPTY 配下の Windows シェルは、アイドル時に子プロセスを持たないか

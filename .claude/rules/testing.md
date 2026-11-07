@@ -17,9 +17,10 @@ paths:
     - `tests/e2eConfig.test.ts`（#506）: `tauri.e2e.conf.json` が写した main ウィンドウの設定が、表示倍率の引数を除いて `tauri.conf.json` と同じであることを確かめる
     - `tests/userSelect.test.ts`（#455）: `src/` の `.vue` / `.css` / `.ts` を読み、`user-select`（JS から要素のスタイルへ書く同じ指定を含む）を `none` 以外にする指定が `theme.css` の外に無いことを確かめる
     - `tests/projectStorage.test.ts`（#463）: `src/` の `.vue` / `.ts` を読み、プロジェクト id を後ろに繋ぐ localStorage の鍵の接頭辞（`pike:…:`）が `lib/projectStorage.ts` の表の外に無いことを確かめる
+    - `tests/verifyBins.test.ts`（#587）: `src-tauri/src/bin/` の bin がすべて `Cargo.toml` の `[[bin]]` に `required-features = ["verify"]` 付きで載っていることを確かめる（下の「検証バイナリの置き場」）
 - PTY / Docker / git などの外部プロセス依存部分は統合テストの対象外
 - Vue コンポーネントのテストは当面スコープ外
-- PTY / tmux / bollard の接続検証は `src-tauri/src/bin/` に小さい検証バイナリを作って `cargo run --bin verify_xxx` で確認する
+- PTY / tmux / bollard の接続検証は `src-tauri/src/bin/` に小さい検証バイナリを作って `cargo run --features verify --bin verify_xxx` で確認する
 
 ## 検証バイナリの置き場
 ```
@@ -36,5 +37,11 @@ src-tauri/src/bin/
                        # 同じく Windows 専用
 ```
 
-各バイナリは単独で `cargo run --bin verify_xxx` できるように `fn main()` を持つ。
+各バイナリは単独で `cargo run --features verify --bin verify_xxx` できるように `fn main()` を持つ。
 Tauri に依存しないこと。
+
+**検証バイナリは `Cargo.toml` の `[[bin]]` に 1 つずつ書き、`required-features = ["verify"]` を付ける**（#587）。
+tauri のバンドラは crate の bin をすべてインストーラと `.app` に同梱し、`required-features` を満たさない
+bin だけを飛ばす。付け忘れると、利用者の配布物に検証バイナリが入る（v0.70.1 まではそうなっていた）。
+書き忘れは `tests/verifyBins.test.ts` が `just check` で落とす。`just clippy` / `just test` は
+`--features verify` を付けて回すので、lint とテストの対象からは外れない。

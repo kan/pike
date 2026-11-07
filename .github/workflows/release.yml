@@ -168,9 +168,9 @@ jobs:
         run: just package-portable
 
       # bundle に渡すファイルを `release-assets.mjs handoff` の一覧のとおり、リポジトリと同じ配置で
-      # 1 つのディレクトリに写して上げる（crate の bin のすべて、sidecar の rg、Windows ではポータブル版の zip）。
-      # **バンドラは crate の bin をすべて同梱する**（`src/bin/` の検証バイナリも。今までのリリースも
-      # そうなっている）。bundle は同じ一覧のファイルしか受け取らない
+      # 1 つのディレクトリに写して上げる（`pike`、sidecar の rg、Windows ではポータブル版の zip）。
+      # 検証バイナリ（`src/bin/`）は `required-features` の陰にあり、ここでは作られずバンドラも
+      # 同梱しない（#587）。bundle は同じ一覧のファイルしか受け取らない
       - name: Stage the build output
         shell: bash
         run: |

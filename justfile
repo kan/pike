@@ -109,21 +109,24 @@ fmt-check:
 # しないので、`lib.rs` の `#[cfg(feature = "e2e")]` は今も lint されない。
 # 2 箇所だけなので `--all-features` のビルド時間を払っていない。e2e の側を
 # 増やすなら、ここを見直すこと。
+#
+# **`--features verify` が要る**（#587）。検証バイナリ（`src/bin/`）は `required-features` の
+# 陰にあり、付けないと `--all-targets` でも飛ばされる。clippy-deep と test も同じ
 [working-directory('src-tauri')]
 clippy:
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --features verify -- -D warnings
 
 # 棚卸し用の clippy（#382）。常時は当てない 3 つを足して見るだけで、`check` には
 # 入れない（誤検出があり、CI を落とすため）。理由は src-tauri/Cargo.toml の
 # `[lints.clippy]` の上のコメント。
 [working-directory('src-tauri')]
 clippy-deep:
-    cargo clippy --all-targets -- -W clippy::redundant_clone -W clippy::needless_collect -W clippy::assigning_clones
+    cargo clippy --all-targets --features verify -- -W clippy::redundant_clone -W clippy::needless_collect -W clippy::assigning_clones
 
-# Rust のユニットテスト
+# Rust のユニットテスト（検証バイナリもビルドされるよう `--features verify`。clippy のコメント）
 [working-directory('src-tauri')]
 test:
-    cargo test
+    cargo test --features verify
 
 # --- 監査（security ワークフローと同じ内容） ---
 

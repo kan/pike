@@ -89,7 +89,7 @@ identifier をフォルダごとにした理由、変わるものと止めるも
 
 - zip は `scripts/package-portable.sh`（`just package-portable`）が作る。中身は `pike.exe`・
   `rg.exe`・`portable.txt` を `Pike/` の 1 フォルダに入れたもの。**ファイルは名指しで入れる**
-  （`target/release/` には検証用の `verify_*.exe` も並ぶ）
+  （`--features verify` でビルドすると `target/release/` に検証用の `verify_*.exe` も並ぶ）
 - リリースのワークフローの Windows の `build` が `tauri build --no-bundle` の直後に作り、`upload` が
   ドラフトへ足す（`build.md` の「CI/CD」）。署名と `latest.json` には載せない
 - **WebView2 ランタイムは同梱しない**（インストーラは無ければ導入するが、zip にはその段が無い）。
