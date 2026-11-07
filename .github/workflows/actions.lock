@@ -33,6 +33,7 @@ workflows:
         - 'actions/setup-node@v7.1.0'
         - 'dtolnay/rust-toolchain@master'
         - 'extractions/setup-just@v4.0.0'
+    '.github/workflows/tagpr-label.yml': []
     '.github/workflows/tagpr.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
