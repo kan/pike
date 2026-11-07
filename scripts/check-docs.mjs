@@ -124,6 +124,7 @@ const EXTERNAL_NAMES = [
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）
   'WORK', // 同期ファイルの例に出てくるグループ名
   '__VERSION__', // tauri-action がタグ名に埋めるプレースホルダ
+  '__TAURI_BUNDLE_TYPE_VAR_UNKE', // tauri のバンドラが pike.exe に置く印（書き換えないことを確かめた値として build.md が出す、#585）
   '_keyDown', // xterm 内部
   'addKeymap', // @codemirror/lang-markdown のオプション
   'brotliDecompressSync', // node の zlib
