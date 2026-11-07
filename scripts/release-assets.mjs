@@ -6,6 +6,11 @@
 //   node scripts/release-assets.mjs collect <Windows|macOS> <出力先>   バンドラの出力を最終の名前で写す
 //   node scripts/release-assets.mjs check <ディレクトリ>               表のアセットがちょうどそろっているか
 //   node scripts/release-assets.mjs attest <ディレクトリ>              証明する対象のパスを 1 行ずつ出す
+//   node scripts/release-assets.mjs handoff <Windows|macOS> <triple>  build から bundle へ渡すファイルを 1 行ずつ出す
+//
+// **bundle は handoff の一覧にあるファイルしか受け取らない。** build のジョブは依存のコードを動かすので、
+// その出力（artifact）の中身は信用しない。一覧は checkout したリポジトリ（`src/bin/`）と triple から
+// 作るので、artifact の中身には左右されない（`tauri.conf.json` などを紛れ込ませて上書きできない）。
 //
 // 名前は `updater-json.mjs` が読むものと、これまでのリリースのアセットの名前に合わせてある。
 // **変えないこと。** バンドラが付ける名前のままでよいものは写すだけで、`Pike.app.tar.gz`（と `.sig`）
@@ -47,7 +52,7 @@ export function releaseAssets(version) {
       updater: ['windows-x86_64-msi'],
     },
     { os: 'Windows', from: `${BUNDLE}/msi/${win}_en-US.msi.sig`, name: `${win}_en-US.msi.sig` },
-    // ポータブル版（#451）。latest.json には載せない
+    // ポータブル版（#451）。latest.json には載せない。bundle が `tauri bundle` のあとに作る
     { os: 'Windows', from: `artifacts/portable/${win}-portable.zip`, name: `${win}-portable.zip`, attest: true },
     // staple したあとの `.dmg`（Release の bundle ジョブが公証して staple する）
     { os: 'macOS', from: `${BUNDLE}/dmg/${mac}.dmg`, name: `${mac}.dmg`, attest: true },
@@ -60,6 +65,27 @@ export function releaseAssets(version) {
     },
     { os: 'macOS', from: `${BUNDLE}/macos/${p}.app.tar.gz.sig`, name: `${mac}.app.tar.gz.sig` },
   ]
+}
+
+/**
+ * build から bundle へ渡すファイル（リポジトリのルートからの相対パス）。バンドラは crate の bin を
+ * すべて同梱する（`src/bin/` の検証バイナリも）ので全部を渡す。bin は cargo の自動検出と同じく
+ * `src/bin/<名前>.rs` と `src/bin/<名前>/main.rs` の両方を拾う。sidecar の rg はバンドラが
+ * `binaries/rg-<triple>` から取る。Windows では、ポータブル版の zip を作るスクリプトが読む
+ * `target/release/rg.exe` も渡す（zip はバンドラが書き換えたあとの `pike.exe` で作るので、bundle で作る）。
+ */
+export function handoffFiles(os, triple) {
+  const ext = os === 'Windows' ? '.exe' : ''
+  const binDir = join(root, 'src-tauri/src/bin')
+  const bins = readdirSync(binDir, { withFileTypes: true }).flatMap((e) => {
+    if (e.isFile() && e.name.endsWith('.rs')) return [e.name.slice(0, -3)]
+    if (e.isDirectory() && existsSync(join(binDir, e.name, 'main.rs'))) return [e.name]
+    return []
+  })
+  const files = ['pike', ...bins].map((b) => `src-tauri/target/release/${b}${ext}`)
+  files.push(`src-tauri/binaries/rg-${triple}${ext}`)
+  if (os === 'Windows') files.push('src-tauri/target/release/rg.exe')
+  return files
 }
 
 function fail(message) {
@@ -95,8 +121,14 @@ function main([command, ...args]) {
     if (!existsSync(dir)) fail(`${dir} がありません（artifact を落とせていない？）`)
     // actions/attest の subject-path に渡すので、OS に依らず `/` でつなぐ
     for (const { name } of assets.filter((a) => a.attest)) console.log(`${dir}/${name}`)
+  } else if (command === 'handoff') {
+    const [os, triple] = args
+    if (!['Windows', 'macOS'].includes(os) || !/^[a-z0-9_]+(-[a-z0-9_]+)+$/.test(triple ?? '')) {
+      fail(`usage: handoff <Windows|macOS> <triple>（受け取った値: ${os} ${triple}）`)
+    }
+    for (const file of handoffFiles(os, triple)) console.log(file)
   } else {
-    fail('usage: node scripts/release-assets.mjs <collect|check|attest> ...')
+    fail('usage: node scripts/release-assets.mjs <collect|check|attest|handoff> ...')
   }
 }
 

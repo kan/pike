@@ -159,38 +159,26 @@ jobs:
       - name: Compile
         run: npx tauri build --no-bundle
 
-      # ポータブル版（#451）。インストーラと同じ `pike.exe` と `rg.exe` に目印のファイルを
-      # 添えた zip。**`latest.json` には載せない**（ポータブル版は自分を更新しない）。
-      - name: Package the portable zip
-        if: runner.os == 'Windows'
-        shell: bash
-        run: just package-portable
-
-      # bundle のジョブが要るものだけを渡す。upload-artifact は実行ビットを落とすので tar にする
-      # （macOS の `pike` と sidecar の `rg`）。sidecar はバンドラが `binaries/` から取る。
+      # bundle に渡すファイルを `release-assets.mjs handoff` の一覧のとおり、リポジトリと同じ配置で
+      # 1 つのディレクトリに写して上げる（crate の bin のすべて、sidecar の rg）。
       # **バンドラは crate の bin をすべて同梱する**（`src/bin/` の検証バイナリも。今までのリリースも
-      # そうなっている）ので、`pike` だけでなく全部を渡す。tar のファイルは作業ディレクトリに相対で
-      # 置く（Windows の GNU tar は `D:\...` の `:` を別のホストの指定と読む）
-      - name: Pack the build output
+      # そうなっている）。bundle は同じ一覧のファイルしか受け取らない
+      - name: Stage the build output
         shell: bash
         run: |
           set -euo pipefail
-          ext=""
-          files=(src-tauri/binaries)
-          if [ "$RUNNER_OS" = Windows ]; then
-            ext=.exe
-            files+=(artifacts/portable)
-          fi
-          for bin in pike src-tauri/src/bin/*.rs; do
-            files+=("src-tauri/target/release/$(basename "$bin" .rs)$ext")
-          done
-          tar -cf build.tar "${files[@]}"
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          while read -r file; do
+            mkdir -p "handoff/$(dirname "$file")"
+            cp "$file" "handoff/$file"
+          done < <(node scripts/release-assets.mjs handoff "$RUNNER_OS" "$triple")
 
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: build-${{ runner.os }}
-          path: build.tar
-          retention-days: 3
+          path: handoff/
+          # 落ちたジョブだけの再実行（`gh run rerun --failed`）で bundle がまた落とすので、短くしない
+          retention-days: 30
           if-no-files-found: error
 
   # **インストーラを作って署名する。署名の鍵を持つが、依存のコードは動かさない**（#585）。
@@ -216,19 +204,38 @@ jobs:
         with:
           node-version: lts/*
 
-      - uses: actions/download-artifact@v8.0.2
-        with:
-          name: build-${{ runner.os }}
-
-      - name: Unpack the build output
-        shell: bash
-        run: tar -xf build.tar && rm build.tar
-
       # `tauri bundle` は cargo で target のディレクトリを調べる。ツールチェーンを入れる action は
       # このジョブでは使わず、ランナーに入っている rustup で build と同じ stable にそろえる
       - name: Set up the Rust toolchain
         shell: bash
         run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      # **build の出力は信用しない**（依存のコードが動いたジョブの出力）。作業ツリーの外に落とし、
+      # `release-assets.mjs handoff` の一覧にあるファイルだけを、通常のファイルであることを確かめてから
+      # 決まった場所へ写す。一覧は checkout したリポジトリと triple から作るので、artifact に
+      # `tauri.conf.json` などを紛れ込ませても作業ツリーは上書きされない（上書きされると、
+      # `beforeBundleCommand` を足すなどして、鍵を持つこのジョブで依存のコードを動かせてしまう）
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: build-${{ runner.os }}
+          path: ${{ runner.temp }}/handoff
+
+      - name: Take the build output
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          src="$RUNNER_TEMP/handoff"
+          while read -r file; do
+            if [ -L "$src/$file" ] || [ ! -f "$src/$file" ]; then
+              echo "$file が build の出力に無いか、通常のファイルではない" >&2
+              exit 1
+            fi
+            mkdir -p "$(dirname "$file")"
+            cp "$src/$file" "$file"
+            # upload-artifact は実行ビットを落とす（zip は除く）
+            case "$file" in *.zip) ;; *) chmod +x "$file" ;; esac
+          done < <(node scripts/release-assets.mjs handoff "$RUNNER_OS" "$triple")
 
       # tauri-cli を入れるため。install scripts は走らせない（このジョブで動く依存のコードは tauri-cli だけ）
       - name: Install the Tauri CLI (no scripts)
@@ -288,6 +295,15 @@ jobs:
           # 弾かれたら失敗させる（set -e）。ここを通れば配布物として問題ない。
           spctl -a -vvv -t open --context context:primary-signature "$dmg"
 
+      # ポータブル版（#451）。インストーラと同じ `pike.exe` と `rg.exe` に目印のファイルを
+      # 添えた zip。**`latest.json` には載せない**（ポータブル版は自分を更新しない）。
+      # **`tauri bundle` のあとで作る。** バンドラは `pike.exe` にバンドルの種類を書き込むので、
+      # インストーラと同じ `pike.exe` にするため。リポジトリのスクリプトで、依存のコードは動かない
+      - name: Package the portable zip
+        if: runner.os == 'Windows'
+        shell: bash
+        run: bash scripts/package-portable.sh
+
       # **リリースに上げる名前でそろえる。** 名前は `scripts/release-assets.mjs` の表が持ち、
       # 1 つずつ名指しして写し、欠けていれば止める（`bundle/` には配布しない `.msi.zip` なども
       # 並ぶので、グロブで集めない）。リポジトリのスクリプトで、依存のコードは動かない
@@ -298,7 +314,8 @@ jobs:
         with:
           name: release-${{ runner.os }}
           path: release-assets/
-          retention-days: 3
+          # 落ちたジョブだけの再実行で attest / upload がまた落とすので、短くしない
+          retention-days: 30
           if-no-files-found: error
 
   # **来歴の証明だけを行う**（#468 / #585）。`id-token: write` と `attestations: write` を持つのは
