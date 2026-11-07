@@ -52,8 +52,14 @@ export function releaseAssets(version) {
       updater: ['windows-x86_64-msi'],
     },
     { os: 'Windows', from: `${BUNDLE}/msi/${win}_en-US.msi.sig`, name: `${win}_en-US.msi.sig` },
-    // ポータブル版（#451）。latest.json には載せない。bundle が `tauri bundle` のあとに作る
-    { os: 'Windows', from: `artifacts/portable/${win}-portable.zip`, name: `${win}-portable.zip`, attest: true },
+    // ポータブル版（#451）。latest.json には載せない。build が作り、handoff で bundle へ渡す（`portable`）
+    {
+      os: 'Windows',
+      from: `artifacts/portable/${win}-portable.zip`,
+      name: `${win}-portable.zip`,
+      attest: true,
+      portable: true,
+    },
     // staple したあとの `.dmg`（Release の bundle ジョブが公証して staple する）
     { os: 'macOS', from: `${BUNDLE}/dmg/${mac}.dmg`, name: `${mac}.dmg`, attest: true },
     {
@@ -71,8 +77,7 @@ export function releaseAssets(version) {
  * build から bundle へ渡すファイル（リポジトリのルートからの相対パス）。バンドラは crate の bin を
  * すべて同梱する（`src/bin/` の検証バイナリも）ので全部を渡す。bin は cargo の自動検出と同じく
  * `src/bin/<名前>.rs` と `src/bin/<名前>/main.rs` の両方を拾う。sidecar の rg はバンドラが
- * `binaries/rg-<triple>` から取る。Windows では、ポータブル版の zip を作るスクリプトが読む
- * `target/release/rg.exe` も渡す（zip はバンドラが書き換えたあとの `pike.exe` で作るので、bundle で作る）。
+ * `binaries/rg-<triple>` から取る。Windows では build が作ったポータブル版の zip も渡す。
  */
 export function handoffFiles(os, triple) {
   const ext = os === 'Windows' ? '.exe' : ''
@@ -84,7 +89,7 @@ export function handoffFiles(os, triple) {
   })
   const files = ['pike', ...bins].map((b) => `src-tauri/target/release/${b}${ext}`)
   files.push(`src-tauri/binaries/rg-${triple}${ext}`)
-  if (os === 'Windows') files.push('src-tauri/target/release/rg.exe')
+  files.push(...releaseAssets().filter((a) => a.os === os && a.portable).map((a) => a.from))
   return files
 }
 

@@ -159,8 +159,16 @@ jobs:
       - name: Compile
         run: npx tauri build --no-bundle
 
+      # ポータブル版（#451）。インストーラと同じ `pike.exe` と `rg.exe` に目印のファイルを
+      # 添えた zip。**`latest.json` には載せない**（ポータブル版は自分を更新しない）。
+      # バンドラは作業ツリーの `pike.exe` を書き換えない（v0.70.1 で確かめた）ので、ここで作ってよい
+      - name: Package the portable zip
+        if: runner.os == 'Windows'
+        shell: bash
+        run: just package-portable
+
       # bundle に渡すファイルを `release-assets.mjs handoff` の一覧のとおり、リポジトリと同じ配置で
-      # 1 つのディレクトリに写して上げる（crate の bin のすべて、sidecar の rg）。
+      # 1 つのディレクトリに写して上げる（crate の bin のすべて、sidecar の rg、Windows ではポータブル版の zip）。
       # **バンドラは crate の bin をすべて同梱する**（`src/bin/` の検証バイナリも。今までのリリースも
       # そうなっている）。bundle は同じ一覧のファイルしか受け取らない
       - name: Stage the build output
@@ -233,7 +241,7 @@ jobs:
             fi
             mkdir -p "$(dirname "$file")"
             cp "$src/$file" "$file"
-            # upload-artifact は実行ビットを落とす（zip は除く）
+            # upload-artifact は実行ビットを落とすので付け直す（zip は除く）
             case "$file" in *.zip) ;; *) chmod +x "$file" ;; esac
           done < <(node scripts/release-assets.mjs handoff "$RUNNER_OS" "$triple")
 
@@ -294,15 +302,6 @@ jobs:
           xcrun stapler staple "$dmg"
           # 弾かれたら失敗させる（set -e）。ここを通れば配布物として問題ない。
           spctl -a -vvv -t open --context context:primary-signature "$dmg"
-
-      # ポータブル版（#451）。インストーラと同じ `pike.exe` と `rg.exe` に目印のファイルを
-      # 添えた zip。**`latest.json` には載せない**（ポータブル版は自分を更新しない）。
-      # **`tauri bundle` のあとで作る。** バンドラは `pike.exe` にバンドルの種類を書き込むので、
-      # インストーラと同じ `pike.exe` にするため。リポジトリのスクリプトで、依存のコードは動かない
-      - name: Package the portable zip
-        if: runner.os == 'Windows'
-        shell: bash
-        run: bash scripts/package-portable.sh
 
       # **リリースに上げる名前でそろえる。** 名前は `scripts/release-assets.mjs` の表が持ち、
       # 1 つずつ名指しして写し、欠けていれば止める（`bundle/` には配布しない `.msi.zip` なども
