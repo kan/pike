@@ -23,6 +23,7 @@ pike/
 │   ├── package-portable.sh    # ポータブル版の zip を作る（just package-portable、#451）
 │   ├── release-prepare.mjs    # リリース PR の中身（CHANGELOG・lockfile・クレジット）をそろえる（tagpr の postVersionCommand、#529）
 │   ├── release-notes.mjs      # CHANGELOG の節からリリースノートの本文を作る（Release の draft ジョブ、#505）
+│   ├── release-assets.mjs     # リリースのアセットの名前と性質の表。bundle・attest・upload・updater-json が引く（#585）
 │   ├── updater-json.mjs       # ドラフトから latest.json を組み立て、署名を検証する（Release の updater-json ジョブ、#505）
 │   └── tagpr/                 # kan/tagpr-scripts の subtree。CHANGELOG と lockfile の書き換え（#562 / #565。中は編集しない）
 ├── tests/                     # フロントの純粋なロジックのテスト（*.test.ts。just test-ts、#403）

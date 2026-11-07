@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ポータブル版の zip を作る（#451）。**先に `tauri build` を済ませておくこと**
-# （リリースのワークフローは tauri-action の直後に呼ぶ）。
+# （リリースのワークフローは `tauri build --no-bundle` の直後に呼ぶ）。
 #
 # 中身はインストーラと同じ `pike.exe` と `rg.exe`、それに目印の `portable.txt`。
 # 目印があると Pike はポータブル版として動く（`src-tauri/src/portable.rs`）。

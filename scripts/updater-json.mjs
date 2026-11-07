@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash, createPublicKey, verify } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { releaseAssets } from './release-assets.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const [releaseId, outPath] = process.argv.slice(2)
@@ -40,17 +41,11 @@ const { assets } = release
 const version = release.tag_name.replace(/^v/, '')
 if (!/^\d+\.\d+\.\d+$/.test(version)) fail(`タグ名がバージョンの形ではありません: ${release.tag_name}`)
 
-// updater が落とす成果物と、それを指す platforms のキー。キーの並びは tauri-action と同じ。
-// Windows は NSIS を主にする（`windows-x86_64` は setup.exe を指す）。
-const product = conf.productName
-const updaters = [
-  { name: `${product}_${version}_x64-setup.exe`, keys: ['windows-x86_64', 'windows-x86_64-nsis'] },
-  { name: `${product}_${version}_x64_en-US.msi`, keys: ['windows-x86_64-msi'] },
-  {
-    name: `${product}_${version}_aarch64.app.tar.gz`,
-    keys: ['darwin-aarch64', 'darwin-aarch64-app'],
-  },
-]
+// updater が落とす成果物と、それを指す platforms のキー。名前とキーは `release-assets.mjs` の表にある
+// （Windows は NSIS を主にする。`windows-x86_64` は setup.exe を指す）。
+const updaters = releaseAssets(version)
+  .filter((asset) => asset.updater)
+  .map(({ name, updater }) => ({ name, keys: updater }))
 
 /** minisign の鍵や署名の本体（base64 の行）をバイト列にする。`.sig` と pubkey はどちらも全体が base64。 */
 function minisignLines(base64) {
