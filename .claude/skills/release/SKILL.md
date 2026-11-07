@@ -170,8 +170,10 @@ gh run list --workflow release.yml --branch vX.Y.Z -L 1 --json databaseId,status
 gh run watch <run id> --exit-status
 ```
 
-Release の中は `draft`（ドラフトを 1 つ作る）→ Windows と macOS(arm64) の 2 ジョブを**並列に**
-（成果物を同じドラフトへ上げる）→ `updater-json`（`latest.json` を組み立てて上げる）の順に走る（#505）。
+Release の中は `draft`（ドラフトを 1 つ作る）→ `build`（Windows と macOS(arm64) を**並列に**コンパイル）→
+`bundle`（OS ごとにインストーラを作って署名する）→ `attest`（来歴の証明）と `upload`（アセットを
+ドラフトへ上げる）→ `updater-json`（`latest.json` を組み立てて上げる）の順に走る（#505 / #585）。
+ジョブを権限と鍵ごとに分けた理由は `.claude/rules/build.md`。
 **macOS 版も Developer ID 署名・公証済みで、updater の対象**（#283。詳細は `.claude/rules/build.md`）。
 
 **マージの tagpr の run が cancelled になっていたら**（待っている間に main へ push が来ると、GitHub は
@@ -202,13 +204,17 @@ git fetch --force origin tag vX.Y.Z && git cat-file -t vX.Y.Z   # tag なら ann
   gh workflow run release.yml --ref vX.Y.Z
   ```
 
-**タグが打たれ、Release の run の 4 つのジョブがすべて success であることを確認する。** `updater-json` は
-両 OS のビルドが成功したときだけ走り、各 URL の実ファイルの署名を検証してから `latest.json` を上げる。
+**タグが打たれ、Release の run のジョブ（`draft`、OS ごとの `build` と `bundle`、`attest`、
+`upload`、`updater-json`）がすべて success であることを確認する。** `updater-json` は両 OS のアセットが
+上がったときだけ走り、各 URL の実ファイルの署名を検証してから `latest.json` を上げる。
 
 - `draft` が落ちたら、タグで起動されているか、タグが `vX.Y.Z` の形か、`tauri.conf.json` の version と
   合っているか、タグのコミットの CHANGELOG に `## [X.Y.Z] - 日付` の節が 1 つだけあり空でないかを見る
-- ビルドのどちらかが落ちたら、一時的な失敗なら落ちたジョブだけを再実行する
-  （`gh run rerun <run-id> --failed`。`updater-json` もそのあと走る）
+- `build` か `bundle` のどちらかが落ちたら、一時的な失敗なら落ちたジョブだけを再実行する
+  （`gh run rerun <run-id> --failed`。後ろのジョブもそのあと走る）
+- `bundle` の「Collect the release assets」が落ちたら、バンドラが出すファイルの名前が変わっている
+  （tauri を上げたときなど）。`scripts/release-assets.mjs` の表の `from` を直す PR を作り、マージしてから
+  タグを打ち直す（`name` は変えない。`updater-json.mjs` が読む名前と、これまでのリリースのアセットの名前のため）
 - 打ってあるタグで丸ごとやり直すなら `gh workflow run release.yml --ref vX.Y.Z`（**`--ref` にはタグを渡す**。
   ブランチで起動すると `draft` が止める。`draft` が同じタグのドラフトを消してから作り直す）
 - コードや CHANGELOG を直す必要があるなら、下の「タグを打ち直す場合」
