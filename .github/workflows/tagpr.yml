@@ -70,7 +70,7 @@ jobs:
     # `git-subtree-split`）。**subtree pull をする PR で一緒に上げる。** 別の repo の reusable workflow は
     # actions.lock が固定しないので SHA で書き、Dependabot には上げさせない（dependabot.yml の ignore）。
     # 揃っているかは ci.yml の verify-subtree.mjs が PR で確かめる
-    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@231fe768bce55eb24fed1e10a4b27907ebf7a306
+    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@acd6fdd62871cc7acc6c33fc7e1ceb314e82e428
     # 共通の workflow が使える上限。GitHub は run の始めに、飛ばされるジョブの権限まで検査するので、
     # 4 つとも書く
     permissions:
