@@ -82,6 +82,7 @@ function main([command, ...args]) {
   } else if (command === 'check') {
     const [dir] = args
     if (!dir) fail('usage: check <ディレクトリ>')
+    if (!existsSync(dir)) fail(`${dir} がありません（artifact を落とせていない？）`)
     const have = readdirSync(dir).sort()
     const want = assets.map((a) => a.name).sort()
     if (have.join('\n') !== want.join('\n')) {
@@ -91,6 +92,7 @@ function main([command, ...args]) {
   } else if (command === 'attest') {
     const [dir] = args
     if (!dir) fail('usage: attest <ディレクトリ>')
+    if (!existsSync(dir)) fail(`${dir} がありません（artifact を落とせていない？）`)
     // actions/attest の subject-path に渡すので、OS に依らず `/` でつなぐ
     for (const { name } of assets.filter((a) => a.attest)) console.log(`${dir}/${name}`)
   } else {
