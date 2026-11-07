@@ -67,6 +67,12 @@ jobs:
         if: runner.os == 'Windows'
         run: just check-docs
 
+      # scripts/tagpr/ の subtree と、tagpr.yml が共通の workflow を呼ぶ行の SHA が揃っているか
+      # （kan/tagpr-scripts#10。OS に依らない。照合は commit した内容を見る）
+      - name: Check scripts/tagpr/ against the tagpr workflow pin
+        if: runner.os == 'Windows'
+        run: node scripts/tagpr/verify-subtree.mjs
+
       # Docs: マニュアルの「プリセット別の早見表」と実装の割り当て表の照合（#280）。
       # 実装を import して 4 通り（プリセット × プラットフォーム）を作るので、
       # Windows の runner でも macOS 側のずれを検出できる。
