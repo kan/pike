@@ -1,4 +1,6 @@
 # tagpr の設定（#529）。リリース PR を作り、マージされたらタグを打つ。
+# tagpr を動かすのは .github/workflows/tagpr.yml が呼ぶ kan/tagpr-scripts の共通の workflow（#573）。
+# 落ちた run でリリース PR を draft にすること、タグを annotated に打ち直すこと、release.yml の起動もそちらが行う。
 # 流れは .claude/skills/release/SKILL.md、設計の理由は .claude/rules/build.md の「リリース PR（tagpr）」。
 [tagpr]
 	releaseBranch = main
