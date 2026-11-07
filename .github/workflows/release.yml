@@ -168,18 +168,22 @@ jobs:
 
       # bundle のジョブが要るものだけを渡す。upload-artifact は実行ビットを落とすので tar にする
       # （macOS の `pike` と sidecar の `rg`）。sidecar はバンドラが `binaries/` から取る。
-      # tar のファイルは作業ディレクトリに相対で置く（Windows の GNU tar は `D:\...` の `:` を
-      # 別のホストの指定と読む）
+      # **バンドラは crate の bin をすべて同梱する**（`src/bin/` の検証バイナリも。今までのリリースも
+      # そうなっている）ので、`pike` だけでなく全部を渡す。tar のファイルは作業ディレクトリに相対で
+      # 置く（Windows の GNU tar は `D:\...` の `:` を別のホストの指定と読む）
       - name: Pack the build output
         shell: bash
         run: |
           set -euo pipefail
+          ext=""
           files=(src-tauri/binaries)
           if [ "$RUNNER_OS" = Windows ]; then
-            files+=(src-tauri/target/release/pike.exe artifacts/portable)
-          else
-            files+=(src-tauri/target/release/pike)
+            ext=.exe
+            files+=(artifacts/portable)
           fi
+          for bin in pike src-tauri/src/bin/*.rs; do
+            files+=("src-tauri/target/release/$(basename "$bin" .rs)$ext")
+          done
           tar -cf build.tar "${files[@]}"
 
       - uses: actions/upload-artifact@v7.0.2
