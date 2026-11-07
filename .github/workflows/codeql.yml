@@ -6,7 +6,9 @@ name: CodeQL
 #
 # 解析する言語のファイルと、workflow の設定が変わったときだけ回す。依存の更新（lockfile や
 # Cargo.toml / package.json だけの Dependabot の PR）やドキュメントの変更では回さない。依存の
-# 脆弱性は Dependabot alerts が見る。push と pull_request の paths は同じ一覧にそろえる。
+# 脆弱性は Dependabot alerts が見る。例外は `.github/workflows/actions.lock` で、`.github/workflows/**`
+# に含まれるので、action を上げる Dependabot の PR では回る（actions の解析の対象）。
+# push と pull_request の paths は同じ一覧にそろえる。
 on:
   push:
     branches: [main]
