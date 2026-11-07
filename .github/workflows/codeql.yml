@@ -1,0 +1,93 @@
+name: CodeQL
+
+# default setup ではなく workflow で回すのは、Rust を Windows と macOS の両方で解析するため。
+# default setup は Linux で解析するので、cfg(windows) / cfg(target_os = "macos") のコードを見ない
+# （musql と同じ理由。pike は両方の OS 専用のコードを持つ）。
+#
+# 解析する言語のファイルと、workflow の設定が変わったときだけ回す。依存の更新（lockfile や
+# Cargo.toml / package.json だけの Dependabot の PR）やドキュメントの変更では回さない。依存の
+# 脆弱性は Dependabot alerts が見る。例外は `.github/workflows/actions.lock` で、`.github/workflows/**`
+# に含まれるので、action を上げる Dependabot の PR では回る（actions の解析の対象）。
+# push と pull_request の paths は同じ一覧にそろえる。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.rs"
+      - "**/*.js"
+      - "**/*.mjs"
+      - "**/*.cjs"
+      - "**/*.ts"
+      - "**/*.mts"
+      - "**/*.cts"
+      - "**/*.vue"
+      - "**/*.html"
+      - ".github/workflows/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.rs"
+      - "**/*.js"
+      - "**/*.mjs"
+      - "**/*.cjs"
+      - "**/*.ts"
+      - "**/*.mts"
+      - "**/*.cts"
+      - "**/*.vue"
+      - "**/*.html"
+      - ".github/workflows/**"
+  schedule:
+    # 週次（毎週月曜 01:00 UTC）: コミットが無い期間もクエリの更新分を検査する
+    - cron: "0 1 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Rust は OS 専用のコードがあるので、実際のターゲットの両方で解析する。
+          # category は解析結果の置き場で、同じ category に上げると前の結果を置き換える。
+          # Rust は OS ごとに分け、ほかは default setup と同じ /language:<言語> にして、
+          # 既存のアラートとの対応を保つ。
+          - language: rust
+            os: windows-latest
+            category: /language:rust/os:windows
+          - language: rust
+            os: macos-latest
+            category: /language:rust/os:macos
+          - language: javascript-typescript
+            os: ubuntu-latest
+            category: /language:javascript-typescript
+          - language: actions
+            os: ubuntu-latest
+            category: /language:actions
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          # 3 言語ともビルド不要（Rust も build-mode: none で解析できる）。
+          build-mode: none
+          # 既定の suite より多くのセキュリティのクエリを含む security-extended にする
+          # （default setup の query_suite: extended と同じ）。誤検知は dismiss で扱う。
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4.39.1
+        with:
+          category: ${{ matrix.category }}

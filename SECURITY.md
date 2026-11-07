@@ -11,7 +11,8 @@
 If you discover a security vulnerability, please report it responsibly:
 
 1. **Do NOT open a public issue.**
-2. Email **kan.fushihara@gmail.com** with:
+2. Report it through GitHub's [Private vulnerability reporting](https://github.com/kan/pike/security/advisories/new).
+   Only the maintainer can see the report until a fix is published. Please include:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact
