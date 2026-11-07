@@ -35,6 +35,7 @@ paths:
 - `tasks` サイドバーパネル。`src-tauri/src/tasks.rs` の `task_discover` がプロジェクトルートを**最大深さ 5**（`MAX_DEPTH`）で再帰走査し、`package.json` / `Makefile` / `justfile` / `deno.json` / `Cargo.toml` を検出
 - **npm scripts と deno tasks の並びは、そのファイルに書いてある順**（アルファベット順ではない）。`serde_json` の `preserve_order`（#299 で `settings.json` のキー順を保つために入れた）はクレート全体に効くので、`Value` の object を `iter()` で回すここにも波及する。**意図した並びなので戻さない**（書き手が並べた順のほうが読みやすい）が、あの feature を外すとアルファベット順に戻る
 - **cargo（#122）**: 標準サブコマンド build/check/test/clippy/fmt + `[[bin]]` ごとの `run --bin {name}` を合成する。パースは `toml` クレート
+  - **`[[bin]]` に `required-features` があれば `--features a,b` を足す**（#587。cargo は無しでは走らせない。Pike 自身の検証バイナリがこの形）。feature 名も bin 名と同じ文字種検証に通し、通らなければその bin ごと出さない（フラグだけ落とすと押しても走らないタスクが並ぶ）
   - **Tauri 判定はマニフェスト隣の `tauri.conf.json` の存在**（tauri-cli 自身の契約。依存名スキャンだとプラグイン開発リポジトリ等で誤検出）で `tauri dev`/`tauri build` を追加。`src/main.rs` があれば `run`（`[[bin]]` 併存時は `run --bin {package名}`）。`tauri.conf.json`/`main.rs` は existence-only マーカーとしてグロブに含め content は読まない
   - **workspace メンバーは標準セットを出さない**（ルートと重複して洪水になるため。bins/tauri/run のみ）。`[package]`/`[workspace]` を持たない Cargo.toml は対象外
   - bin/package 名は Makefile と同じ文字種検証（英数 `-_.`）でシェルメタ文字注入を防止

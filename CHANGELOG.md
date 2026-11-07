@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **配布物から開発用の検証プログラムを外した**：Windows のインストーラと macOS の `Pike.app` に、`verify_` で始まる 5 つのプログラムが入っていました。開発者が動作を確かめるためのもので、Pike の動作には使っていません (#587)
+- **タスクパネルの `run --bin` に、要る `--features` を付けた**：cargo は、`required-features` のある bin を `--features` 無しでは実行しません。今は `--features` を付けたタスクを表示します (#587)
+
 ## [0.70.1] - 2026-11-07
 
 ### Bug Fixes

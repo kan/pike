@@ -197,7 +197,7 @@ mod imp {
                 //
                 // **開発版のショートカットを消す経路は持たない。** `cargo clean` のあとは
                 // リンク先の無いショートカットがスタートメニューに残るが、消す先は
-                // `cargo run --bin verify_toast -- remove`（インストール版の `Pike.lnk` は
+                // `cargo run --features verify --bin verify_toast -- remove`（インストール版の `Pike.lnk` は
                 // NSIS のアンインストーラが持っていく）。
                 let exe = std::env::current_exe()?;
                 let exe = HSTRING::from(exe.to_string_lossy().as_ref());

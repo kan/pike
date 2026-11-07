@@ -54,6 +54,11 @@ single_char_pattern = "warn"
 # のときだけ wdio WebDriver プラグインと dynamic-acl を有効化する。cfg(debug_assertions)
 # の target 依存はプロファイルを追従せず release にも混入するため、feature で制御する。
 e2e = ["dep:tauri-plugin-wdio-webdriver", "tauri/dynamic-acl"]
+# 検証バイナリ（`src/bin/`、下の `[[bin]]`）を作る。既定 OFF（#587）。**リリースのビルドで作らない
+# ため**: tauri のバンドラは crate の bin をすべてインストーラと `.app` に同梱するが、
+# `required-features` を満たさない bin は飛ばす。走らせるのは
+# `cargo run --features verify --bin verify_xxx`。`just clippy` / `just test` はこれを付けて回す
+verify = []
 
 [build-dependencies]
 tauri-build = { version = "2.7", features = [] }
@@ -190,6 +195,31 @@ debug = false
 # `[profile.release]` は書かない（cargo の既定のまま）。LTO を試して採らなかった経緯と
 # 実測は `.claude/rules/build.md` の「リリースプロファイル」を参照（#458）。
 
-# `[[bin]]` は書かない。`src/main.rs`（= `pike`）と `src/bin/*.rs`（検証バイナリ）は cargo が
-# 自動で拾う。以前は 3 つだけ並べてあり、後から足した `verify_busy` / `verify_toast` が
-# 載っていなかった（#458）。バイナリが複数あるので `default-run` は要る。
+# **検証バイナリ（`src/bin/`）は 1 つずつ `[[bin]]` に書き、`required-features = ["verify"]` を付ける**
+# （#587。上の `[features]` の `verify`）。書き忘れた bin は cargo が自動で拾い、リリースの配布物に
+# 同梱されてしまうので、`tests/verifyBins.test.ts` が `just check` で落とす。`src/main.rs`（= `pike`）は
+# cargo が自動で拾う。バイナリが複数あるので `default-run` は要る。
+[[bin]]
+name = "verify_bollard"
+path = "src/bin/verify_bollard.rs"
+required-features = ["verify"]
+
+[[bin]]
+name = "verify_busy"
+path = "src/bin/verify_busy.rs"
+required-features = ["verify"]
+
+[[bin]]
+name = "verify_pty"
+path = "src/bin/verify_pty.rs"
+required-features = ["verify"]
+
+[[bin]]
+name = "verify_tmux"
+path = "src/bin/verify_tmux.rs"
+required-features = ["verify"]
+
+[[bin]]
+name = "verify_toast"
+path = "src/bin/verify_toast.rs"
+required-features = ["verify"]

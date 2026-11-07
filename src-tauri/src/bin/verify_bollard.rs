@@ -1,5 +1,5 @@
 //! Docker (bollard) 接続確認
-//! Usage: cargo run --bin verify_bollard
+//! Usage: cargo run --features verify --bin verify_bollard
 use bollard::Docker;
 use bollard::query_parameters::{ListContainersOptions, LogsOptions};
 use futures_util::StreamExt;

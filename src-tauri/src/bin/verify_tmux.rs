@@ -1,5 +1,5 @@
 //! tmux セッション管理の確認
-//! Usage: cargo run --bin verify_tmux
+//! Usage: cargo run --features verify --bin verify_tmux
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Read, Write};
 

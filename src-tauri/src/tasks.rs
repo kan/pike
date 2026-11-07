@@ -645,6 +645,40 @@ fn is_safe_cargo_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
+/// Feature names in `required-features` may name a dependency's feature
+/// (`tokio/full`). `/` is not a shell metacharacter, so it is allowed here on
+/// top of the bin-name characters.
+fn is_safe_cargo_feature(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
+}
+
+/// `run --bin {name}` for one [[bin]], plus `--features a,b` when it declares
+/// `required-features` (cargo refuses to run it otherwise, #587). A bin whose
+/// name or feature names fail the shell-safety check is left out whole:
+/// dropping only the flag would offer a task that cannot run.
+fn bin_run_task(bin: &toml::Value) -> Option<String> {
+    let name = bin
+        .get("name")?
+        .as_str()
+        .filter(|n| is_safe_cargo_name(n))?;
+    let features: Vec<&str> = match bin.get("required-features") {
+        None => Vec::new(),
+        Some(v) => v
+            .as_array()?
+            .iter()
+            .map(|f| f.as_str().filter(|f| is_safe_cargo_feature(f)))
+            .collect::<Option<_>>()?,
+    };
+    Some(if features.is_empty() {
+        format!("run --bin {name}")
+    } else {
+        format!("run --bin {name} --features {}", features.join(","))
+    })
+}
+
 /// Cargo.toml has no user-defined task list, so synthesize the standard
 /// cargo subcommands (workspace roots and standalone packages only — members
 /// would duplicate them per crate), `tauri dev`/`tauri build` for Tauri apps,
@@ -656,15 +690,9 @@ fn cargo_tasks(doc: &toml::Table, ctx: &CargoContext) -> Vec<DiscoveredTask> {
         return vec![];
     }
 
-    let bins: Vec<&str> = doc
-        .get("bin")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|b| b.get("name")?.as_str())
-                .filter(|n| is_safe_cargo_name(n))
-                .collect()
-        })
+    let declared = doc.get("bin").and_then(|v| v.as_array());
+    let bins: Vec<String> = declared
+        .map(|arr| arr.iter().filter_map(bin_run_task).collect())
         .unwrap_or_default();
 
     let mut subs: Vec<String> = Vec::new();
@@ -677,7 +705,9 @@ fn cargo_tasks(doc: &toml::Table, ctx: &CargoContext) -> Vec<DiscoveredTask> {
         subs.push("tauri build".into());
     }
     if ctx.has_default_bin {
-        if bins.is_empty() {
+        // Judge by what the manifest declares, not by what survived the
+        // shell-safety check: with any [[bin]], plain `cargo run` is ambiguous
+        if declared.is_none_or(|arr| arr.is_empty()) {
             subs.push("run".into());
         } else if let Some(pkg) = package
             .and_then(|p| p.get("name"))
@@ -688,7 +718,7 @@ fn cargo_tasks(doc: &toml::Table, ctx: &CargoContext) -> Vec<DiscoveredTask> {
             subs.push(format!("run --bin {pkg}"));
         }
     }
-    subs.extend(bins.iter().map(|b| format!("run --bin {b}")));
+    subs.extend(bins);
 
     subs.into_iter()
         .map(|sub| DiscoveredTask {
@@ -942,6 +972,49 @@ name = 'verify_tmux'
     }
 
     #[test]
+    fn cargo_bin_required_features_are_passed() {
+        let doc = table(
+            r#"
+[package]
+name = "pike"
+
+[[bin]]
+name = "verify_pty"
+required-features = ["verify"]
+
+[[bin]]
+name = "both"
+required-features = ["a", "b-c"]
+
+[[bin]]
+name = "dep_feature"
+required-features = ["tokio/full"]
+
+[[bin]]
+name = "unsafe_feature"
+required-features = ["x; rm -rf /"]
+"#,
+        );
+        let names: Vec<String> = cargo_tasks(&doc, &ctx())
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        assert!(
+            names
+                .iter()
+                .any(|n| n == "run --bin verify_pty --features verify")
+        );
+        assert!(names.iter().any(|n| n == "run --bin both --features a,b-c"));
+        assert!(
+            names
+                .iter()
+                .any(|n| n == "run --bin dep_feature --features tokio/full")
+        );
+        // Not offered at all: without its feature the task could not run
+        assert!(!names.iter().any(|n| n.contains("unsafe_feature")));
+    }
+
+    #[test]
     fn cargo_unsafe_bin_name_is_excluded() {
         let doc = table("[package]\nname = \"x\"\n\n[[bin]]\nname = \"a; rm -rf /\"\n");
         let tasks = cargo_tasks(&doc, &ctx());
@@ -970,6 +1043,17 @@ name = 'verify_tmux'
             .collect();
         assert!(names.iter().any(|n| n == "run --bin cli"));
         assert!(names.iter().any(|n| n == "run --bin extra"));
+        assert!(!names.iter().any(|n| n == "run"));
+
+        // A [[bin]] that fails the safety check still makes plain run ambiguous
+        let doc = table(
+            "[package]\nname = \"cli\"\n\n[[bin]]\nname = \"x\"\nrequired-features = [\"a;b\"]\n",
+        );
+        let names: Vec<String> = cargo_tasks(&doc, &with_main)
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        assert!(names.iter().any(|n| n == "run --bin cli"));
         assert!(!names.iter().any(|n| n == "run"));
     }
 

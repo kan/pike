@@ -75,20 +75,15 @@ export function releaseAssets(version) {
 
 /**
  * build から bundle へ渡すファイル（リポジトリのルートからの相対パス）。バンドラは crate の bin を
- * すべて同梱する（`src/bin/` の検証バイナリも）ので全部を渡す。bin は cargo の自動検出と同じく
- * `src/bin/<名前>.rs` と `src/bin/<名前>/main.rs` の両方を拾う。sidecar の rg はバンドラが
- * `binaries/rg-<triple>` から取る。Windows では build が作ったポータブル版の zip も渡す。
+ * すべて同梱するが、検証バイナリ（`src/bin/`）は `required-features` の陰にあってリリースのビルドで
+ * 作られず、バンドラも飛ばす（#587）ので、渡す bin は `pike` だけ。陰に置き忘れた bin があると
+ * `tauri bundle` が「Failed to copy binary」で落ちる（その前に `tests/verifyBins.test.ts` が落とす）。
+ * sidecar の rg はバンドラが `binaries/rg-<triple>` から取る。Windows では build が作った
+ * ポータブル版の zip も渡す。
  */
 export function handoffFiles(os, triple) {
   const ext = os === 'Windows' ? '.exe' : ''
-  const binDir = join(root, 'src-tauri/src/bin')
-  const bins = readdirSync(binDir, { withFileTypes: true }).flatMap((e) => {
-    if (e.isFile() && e.name.endsWith('.rs')) return [e.name.slice(0, -3)]
-    if (e.isDirectory() && existsSync(join(binDir, e.name, 'main.rs'))) return [e.name]
-    return []
-  })
-  const files = ['pike', ...bins].map((b) => `src-tauri/target/release/${b}${ext}`)
-  files.push(`src-tauri/binaries/rg-${triple}${ext}`)
+  const files = [`src-tauri/target/release/pike${ext}`, `src-tauri/binaries/rg-${triple}${ext}`]
   files.push(...releaseAssets().filter((a) => a.os === os && a.portable).map((a) => a.from))
   return files
 }
