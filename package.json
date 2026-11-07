@@ -50,9 +50,9 @@
     "@lezer/highlight": "^1.2.5",
     "@replit/codemirror-minimap": "^0.5.2",
     "@tauri-apps/api": "^2.12.4",
-    "@tauri-apps/plugin-notification": "^2.7.0",
+    "@tauri-apps/plugin-notification": "^2.8.0",
     "@tauri-apps/plugin-process": "^2.4.0",
-    "@tauri-apps/plugin-updater": "^2.14.0",
+    "@tauri-apps/plugin-updater": "^2.14.1",
     "@tauri-apps/plugin-window-state": "^2.5.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
@@ -68,7 +68,7 @@
     "markdown-it-emoji": "^3.1.0",
     "marked": "^18.1.2",
     "material-file-icons": "^2.4.0",
-    "pele": "^1.10.1",
+    "pele": "^1.13.0",
     "pinia": "^4.1.0",
     "smol-toml": "^1.9.1",
     "vue": "^3.5.44",
@@ -96,7 +96,7 @@
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vite": "^8.3.5",
-    "vue-tsc": "^3.3.13",
+    "vue-tsc": "^3.3.14",
     "webdriverio": "^9.32.0"
   }
 }
