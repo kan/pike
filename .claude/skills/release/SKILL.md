@@ -56,18 +56,22 @@ gh run list --workflow tagpr.yml --branch main -L 3
 
 **最新の tagpr の run が success であること。** 落ちた run はリリース PR を draft にする（ready に戻す
 条件は `scripts/tagpr/README.md` の「The tagpr workflow」）。失敗していたら、run の注釈（`postVersionCommand` の
-失敗）を読む。多いのは `## [Unreleased]` が空のとき（リリースの直後は毎回そうなる）。直す PR を main に
-マージすると作り直される。`credits` ジョブ（クレジットの生成。ネットワークに出る）が落ちていたら、
+失敗）を読む。直す PR を main にマージすると作り直される。`## [Unreleased]` が空で出すものが無いときは、
+tagpr を走らせずに notice を出して success で終わる（リリースの直後はそうなる。リリース PR は作られない。
+kan/tagpr-scripts#13）。`credits` ジョブ（クレジットの生成。ネットワークに出る）が落ちていたら、
 一時的な失敗ならその run を再実行する。「タグより新しい版の節がある」で落ちていたら、手順 6 の
 「cancelled になっていたら」を見る。
 
 **版が正しいか**（PR のタイトルの `vX.Y.Z`）。機能の PR（`enhancement`）があれば minor、無ければ patch に
-なる。違うときは `tauri.conf.json` を手で直さず、ラベルを付けて作り直す:
+なる。違うときは `tauri.conf.json` を手で直さず、リリース PR にラベルを付ける:
 
 ```bash
 gh pr edit <番号> --add-label tagpr:minor
-gh workflow run tagpr.yml --ref main
 ```
+
+ラベルを付け外しすると、`tagpr-label.yml` がリリース PR を draft にして `tagpr.yml` を起動し、作り直させる
+（kan/tagpr-scripts#3）。**ラベルを変えたあとに `gh workflow run tagpr.yml` を手で重ねない。** 作り直しの run が
+成功して ready に戻ってから先へ進む。
 
 Files changed が、5 つの版の表記（`tauri.conf.json` / `package.json` / `Cargo.toml` / 2 つの lockfile）、
 `src/assets/credits.json`、`CHANGELOG.md` の見出しとリンク（版の節の見出し、その上に戻した空の
@@ -177,13 +181,16 @@ Release の中は `draft`（ドラフトを 1 つ作る）→ `build`（Windows 
 **macOS 版も Developer ID 署名・公証済みで、updater の対象**（#283。詳細は `.claude/rules/build.md`）。
 
 **マージの tagpr の run が cancelled になっていたら**（待っている間に main へ push が来ると、GitHub は
-古いほうを取り消す）、タグは打たれていない。その run を再実行する（`gh run rerun <run id>`。マージ
-コミットをチェックアウトしてタグを打つ）。後の push の tagpr の run は「タグより新しい版の節がある」で
-赤になっているが、再実行でタグが打たれれば次の run から通る。**新しいリリース PR をマージしてやり過ごさない**
-（打たれていない版の上に次の版を重ねることになる）。
+古いほうを取り消す）、タグは打たれていない。**次の tagpr の run が、取り消されたマージの run を再実行して
+タグを打たせる**（kan/tagpr-scripts#4。正本は `scripts/tagpr/README.md` の「A missed tag is made by
+re-running the run of its merge」）。マージコミットの tagpr の run（同じ run の新しい attempt）が success になり、
+タグが打たれ、Release が起動したことを見届ける。後の run が warning を出して「タグより新しい版の節がある」で
+赤になっていたら、再実行できなかった印なので、そのときだけマージコミットの run を手で再実行する
+（`gh run rerun <run id>`）。**新しいリリース PR をマージしてやり過ごさない**（打たれていない版の上に次の版を
+重ねることになる）。
 
-置き換えた側の run は赤になり、版だけ上がったリリース PR が draft で残ることがある。**その PR は
-マージしない。** タグが打たれた後、main への push で成功した run がコメントを付けて閉じる（扱いの正本は
+再実行できなかったときなどは、打たれていない版の上で作り直された、版だけ上がったリリース PR が draft で
+残ることがある。**その PR はマージしない。** タグが打たれた後、main への push で成功した run がコメントを付けて閉じる（扱いの正本は
 `scripts/tagpr/README.md` の「The tagpr workflow」。kan/tagpr-scripts#11）。閉じられる前も、閉じた後に
 開き直しても、マージしない。
 

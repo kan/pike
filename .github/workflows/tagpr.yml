@@ -12,7 +12,8 @@ name: tagpr
 # - リリース PR がマージされると、tagpr がタグを打ち、共通の workflow がそれを annotated に打ち直してから
 #   Release ワークフローをそのタグで起動する（`workflow_dispatch`）。**GITHUB_TOKEN で打った
 #   タグでは `on.push.tags` が起動しない**ので、タグの push には頼らない
-# - `workflow_dispatch` は、リリース PR にラベル（`tagpr:minor`）を付けたあとの作り直し用
+# - `workflow_dispatch` は作り直し用。リリース PR のラベル（`tagpr:minor`）を付け外ししたときは
+#   `tagpr-label.yml` がこれで起動する（kan/tagpr-scripts#3）。**名前と `workflow_dispatch:` を変えない**
 on:
   push:
     branches: [main]
@@ -69,7 +70,7 @@ jobs:
     # `git-subtree-split`）。**subtree pull をする PR で一緒に上げる。** 別の repo の reusable workflow は
     # actions.lock が固定しないので SHA で書き、Dependabot には上げさせない（dependabot.yml の ignore）。
     # 揃っているかは ci.yml の verify-subtree.mjs が PR で確かめる
-    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@966347b01e86b2aea4d71da0604588b17642b880
+    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@231fe768bce55eb24fed1e10a4b27907ebf7a306
     # 共通の workflow が使える上限。GitHub は run の始めに、飛ばされるジョブの権限まで検査するので、
     # 4 つとも書く
     permissions:

@@ -263,7 +263,7 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 - **各 PR が `## [Unreleased]` の節に自分の項目を足す。** 節はいちばん上の版の節の上に常にある（リリース PR が版の節を作るたびに、空の節を戻す）。中の小見出し（`### Features` / `### Bug Fixes` / `### Changes`）と項目の書式は過去の節に合わせ、末尾に issue 番号を `(#526)` の形で付ける
 - `## [Unreleased]` は常に 1 つ。**版と日付、末尾のリンクは書かない**。リリース PR で `scripts/release-prepare.mjs`（CHANGELOG の処理は `scripts/tagpr/`、#562）が `## [X.Y.Z] - 日付` に書き換え、空の `## [Unreleased]` を上に戻し、末尾のリンク定義の先頭に `[X.Y.Z]: https://github.com/kan/pike/releases/tag/vX.Y.Z` を足す（`[Unreleased]` のリンクは置かない）。その節がリリースノートと `latest.json` の `notes` になる
 - 節は、次の `## ` の見出しか、ファイル末尾のリンク定義のまとまりで終わる。項目の中のリンクはインラインで書く（参照リンクの定義は節の外にあるので、リリースノートではリンクにならない）。リリースノートでは、段落と項目の中の折り返しが 1 行につながる（日本語どうしと全角の句読点・括弧の前後は空白なし）。改行は LF
-- `## [Unreleased]` が空のまま main が進むと、tagpr のワークフローのリリース PR の準備が失敗で終わる（リリースの直後は毎回そうなる。リリースできない状態の印で、利用者に届く PR が入れば解消する）
+- `## [Unreleased]` が空のまま main が進んでも（リリースの直後）、tagpr のワークフローは tagpr を走らせず、notice を出して成功で終わる。リリース PR は利用者に届く PR が入ってから作られる（kan/tagpr-scripts#13）
 - dependabot の取り込みは `### Changes` に「依存ライブラリを更新した（主なもの）」を 1 行足す
 
 ---
