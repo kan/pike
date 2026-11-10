@@ -74,10 +74,25 @@ pub fn started_sock(shell: &ShellConfig) -> Option<String> {
     map.get(&install_key(shell)).map(|agent| agent.sock.clone())
 }
 
-/// そのシェルで使う agent のソケット。**Pike が起こしたものを先に見る**（理由は
-/// `started_sock`）。起こす前は利用者の agent がそのまま返る。
-fn sock_for(shell: &ShellConfig) -> Option<String> {
-    started_sock(shell).or_else(|| shell_probe::ssh_auth_sock(shell))
+/// 止まった agent の登録を表から捨てる（#596）。
+///
+/// **`sock` が今の登録と同じときだけ捨てる。** 確かめてからここへ来るまでロックを
+/// 手放しているので、そのあいだに別のウィンドウが新しい agent と入れ替えていることがある。
+/// 名前の一致だけで捨てると、入れ替わった生きた agent を表から落とし、`shutdown_all` の
+/// 対象から外してしまう。
+///
+/// **`kill` しない。** 止まった理由のほとんどは distro ごと落ちたこと（`wsl --shutdown`、
+/// スリープからの復帰など）で、起き直した distro では**同じ pid が別のプロセスに
+/// 振られている**ことがある。`ssh-agent -k` は `SSH_AGENT_PID` を信じて止めるので、
+/// 無関係なプロセスを止めかねない。
+fn forget(shell: &ShellConfig, sock: &str) {
+    let Ok(mut map) = agents().lock() else {
+        return;
+    };
+    let key = install_key(shell);
+    if map.get(&key).is_some_and(|agent| agent.sock == sock) {
+        map.remove(&key);
+    }
 }
 
 /// 鍵を agent に預ける。パスフレーズは子の標準入力で渡す。
@@ -214,8 +229,23 @@ const ASKPASS_SETUP: &str = "__pike_d=$(mktemp -d) || exit 1; \
 /// その agent が生きているとは限らない（ログアウトのあとに残った古いソケットが普通にある）。
 /// 確かめずに採ると、**Pike は自分の agent を永久に起こさない**まま `ssh-add` が
 /// 「agent に繋げません」で落ち続け、利用者には直す手立てが無い。
+///
+/// **Pike が起こした agent も同じく確かめる**（#596）。Pike を起動したまま distro が
+/// 落ちると agent は消えるが、表の登録は残る。止まった登録はここで捨てる（`settle_started`）。
+/// 残しておくと、下で起こした新しい agent を「既にある」と見て止め、止まった agent の
+/// ソケットを返し続ける。`git::network_env` も表を先に見るので、捨てたあとは新しく
+/// 登録したもの（無ければ利用者の agent）がリモートに触る git へ渡る。
 fn ensure(shell: &ShellConfig, dir: &str) -> Result<String, String> {
-    if let Some(sock) = sock_for(shell).filter(|sock| agent_reachable(shell, dir, sock)) {
+    // **Pike が起こしたものを先に見る**（理由は `started_sock`）。
+    if let Some(sock) = started_sock(shell) {
+        let reach = probe(shell, dir, &sock);
+        if let Some(sock) = settle_started(shell, sock, reach) {
+            return Ok(sock);
+        }
+    }
+    if let Some(sock) =
+        shell_probe::ssh_auth_sock(shell).filter(|sock| probe(shell, dir, sock) == Reach::Alive)
+    {
         return Ok(sock);
     }
     let (code, stdout, stderr) = shell.run_shell_line(dir, "ssh-agent -s", TIMEOUT)?;
@@ -237,7 +267,12 @@ fn ensure(shell: &ShellConfig, dir: &str) -> Result<String, String> {
     // distro に残る**（Pike を終了しても消えない）。
     //
     // **ロックを握ったまま起こす形は採らない**: `ssh-agent -s` は WSL では秒単位かかり、
-    // そのあいだ `sock_for` を読む全員（fetch / pull / push）が止まる。
+    // そのあいだ `started_sock` を読む全員（fetch / pull / push）が止まる。
+    //
+    // **ここで見つかる登録は確かめずに使う**（#596）。止まった登録は上で捨ててあり、表へ
+    // 入るのは起こした直後の agent だけなので、ここにあるのはふつう競り合った相手が
+    // 起こしたばかりのもの。そのあいだに distro が落ちていれば外れるが、そのときは次の
+    // `ensure` が捨て直す。
     let mut map = agents().lock().map_err(|_| "agent table poisoned")?;
     if let Some(existing) = map.get(&install_key(shell)) {
         let sock = existing.sock.clone();
@@ -269,24 +304,72 @@ fn kill(agent: &Agent) {
         .run_shell_line_env("/", &env, "ssh-agent -k", Duration::from_secs(3));
 }
 
+/// agent に繋がるかを確かめた答え（`probe`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// 繋がった（鍵の有無は問わない）。
+    Alive,
+    /// `ssh-add` が「繋げない」と答えた。
+    Dead,
+    /// 確かめられなかった（タイムアウト、`wsl.exe` の失敗、`cd` の失敗など）。
+    Unknown,
+}
+
+/// 確かめた答えを、表にある Pike の agent に当てはめる（#596）。使うソケットを返す。
+///
+/// **捨てるのは `Dead` のときだけ。** `Unknown` で捨てると、冷えた WSL のタイムアウト
+/// 1 回で**生きた agent を表から落とす**。落とした agent は `shutdown_all` の対象から外れ、
+/// 復号した鍵を抱えたまま Pike の終了後も distro に残る。`Unknown` のときは登録を
+/// そのまま使い、続く `ssh-add` の失敗で利用者に知らせる。
+fn settle_started(shell: &ShellConfig, sock: String, reach: Reach) -> Option<String> {
+    if reach == Reach::Dead {
+        forget(shell, &sock);
+        return None;
+    }
+    Some(sock)
+}
+
+/// Pike が起こした agent が止まっていたら、表から捨てる。捨てたら `true`（#596）。
+///
+/// **鍵の拒否でリモートに触る git が失敗したときだけ呼ぶ**（`git::run_git_network`）。
+/// 背景の fetch ごとに確かめると spawn が 1 本増える。
+pub fn drop_if_dead(shell: &ShellConfig, dir: &str, sock: &str) -> bool {
+    settle_started(shell, sock.to_owned(), probe(shell, dir, sock)).is_none()
+}
+
 /// その agent に繋がるか。**`ssh-add -l` の終了コード 2 が「繋げない」**（0 は鍵あり、
 /// 1 は鍵が無いだけで、どちらも生きている）。
 ///
-/// 余分な spawn が 1 つ増えるが、走るのは**人がパスフレーズを入力したときだけ**で、
-/// そのあとに控えているのは鍵の復号と pull のやり直し。
-fn agent_reachable(shell: &ShellConfig, dir: &str, sock: &str) -> bool {
+/// **終了コードは行の終了コードではなく、印を付けて標準出力で受け取る**（`reach_of`）。
+/// 行の終了コードだと、確かめる前に落ちた場合（`cd` の失敗、`wsl.exe` の失敗）と
+/// 「繋げない」が同じ 1 になり、生きた agent を止まったと読み違える。
+///
+/// 余分な spawn が 1 つ増えるが、走るのは**人がパスフレーズを入力したときと、鍵の拒否で
+/// 失敗したときだけ**。
+fn probe(shell: &ShellConfig, dir: &str, sock: &str) -> Reach {
     // **行が複合コマンドなので、前置ではなく `export` が要る**（`posix_script` がそうする）。
-    // `VAR=v cmd` の形は単純コマンドにしか付かないので、自分で組むと `[ $? -ne 2 ]` の
+    // `VAR=v cmd` の形は単純コマンドにしか付かないので、自分で組むと `echo` の
     // ほうへ効かない読み違えが起きうる。
     let env = [(SSH_AUTH_SOCK, sock)];
+    let line = format!("ssh-add -l >/dev/null 2>&1; echo \"{PROBE_MARK}$?\"");
     shell
-        .run_shell_line_env(
-            dir,
-            &env,
-            "ssh-add -l >/dev/null 2>&1; [ $? -ne 2 ]",
-            TIMEOUT,
-        )
-        .is_ok_and(|(code, _, _)| code == 0)
+        .run_shell_line_env(dir, &env, &line, TIMEOUT)
+        .map_or(Reach::Unknown, |(_, stdout, _)| reach_of(&stdout))
+}
+
+/// `probe` が終了コードの前に付ける印。**印を探す**のは、ログインシェルの rc が標準出力へ
+/// 何か書く環境があるため（行の先頭や末尾の位置では決めない）。
+const PROBE_MARK: &str = "pike-ssh-add:";
+
+fn reach_of(stdout: &str) -> Reach {
+    match stdout
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(PROBE_MARK))
+    {
+        Some("0" | "1") => Reach::Alive,
+        Some("2") => Reach::Dead,
+        _ => Reach::Unknown,
+    }
 }
 
 /// `ssh-agent -s` の出力から 1 つ取り出す。形は `NAME=value; export NAME;`。
@@ -333,6 +416,68 @@ mod tests {
     fn skips_the_bare_export_clause() {
         let out = "SSH_AUTH_SOCK=/tmp/a; export SSH_AUTH_SOCK;";
         assert_eq!(shell_var(out, SSH_AUTH_SOCK).as_deref(), Some("/tmp/a"));
+    }
+
+    fn register(shell: &ShellConfig, sock: &str) {
+        agents().lock().unwrap().insert(
+            install_key(shell),
+            Agent {
+                sock: sock.to_owned(),
+                pid: String::new(),
+                shell: shell.clone(),
+            },
+        );
+    }
+
+    /// 止まった登録は捨てる（#596）。**入れ替わった登録は捨てない**（確かめたあとに
+    /// 別のウィンドウが新しい agent を登録していることがある）。
+    ///
+    /// 表はプロセスに 1 つなので、ほかのテストと distro の名前を分ける。
+    #[test]
+    fn forgets_only_the_registration_that_was_found_dead() {
+        let shell = ShellConfig::Wsl {
+            distro: "pike-test-596".to_owned(),
+        };
+        register(&shell, "/tmp/ssh-new/agent.2");
+        forget(&shell, "/tmp/ssh-old/agent.1");
+        assert_eq!(
+            started_sock(&shell).as_deref(),
+            Some("/tmp/ssh-new/agent.2")
+        );
+
+        forget(&shell, "/tmp/ssh-new/agent.2");
+        assert_eq!(started_sock(&shell), None);
+    }
+
+    /// **捨てるのは「繋げない」と分かったときだけ**（#596）。確かめられなかったときに
+    /// 捨てると、生きた agent が `shutdown_all` の対象から外れる。
+    #[test]
+    fn settles_a_registration_only_when_it_is_known_dead() {
+        let shell = ShellConfig::Wsl {
+            distro: "pike-test-596-settle".to_owned(),
+        };
+        let sock = "/tmp/ssh-a/agent.1";
+        register(&shell, sock);
+        for reach in [Reach::Alive, Reach::Unknown] {
+            assert_eq!(
+                settle_started(&shell, sock.to_owned(), reach).as_deref(),
+                Some(sock)
+            );
+            assert_eq!(started_sock(&shell).as_deref(), Some(sock));
+        }
+        assert_eq!(settle_started(&shell, sock.to_owned(), Reach::Dead), None);
+        assert_eq!(started_sock(&shell), None);
+    }
+
+    /// 終了コードは印の付いた行から読む。rc の出力が混ざっても、印が無ければ分からない。
+    #[test]
+    fn reads_the_reach_out_of_the_probe_output() {
+        assert_eq!(reach_of("pike-ssh-add:0\n"), Reach::Alive);
+        assert_eq!(reach_of("pike-ssh-add:1\n"), Reach::Alive);
+        assert_eq!(reach_of("welcome\npike-ssh-add:2\n"), Reach::Dead);
+        // `cd` で落ちると印が出ない。
+        assert_eq!(reach_of(""), Reach::Unknown);
+        assert_eq!(reach_of("pike-ssh-add:127\n"), Reach::Unknown);
     }
 
     /// 鍵を解決する相手を URL から取り出す。
