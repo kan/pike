@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.70.2] - 2026-11-10
+
 ### Bug Fixes
 
 - **配布物から開発用の検証プログラムを外した**：Windows のインストーラと macOS の `Pike.app` に、`verify_` で始まる 5 つのプログラムが入っていました。開発者が動作を確かめるためのもので、Pike の動作には使っていません (#587)
@@ -1982,6 +1984,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.70.2]: https://github.com/kan/pike/releases/tag/v0.70.2
 [0.70.1]: https://github.com/kan/pike/releases/tag/v0.70.1
 [0.70.0]: https://github.com/kan/pike/releases/tag/v0.70.0
 [0.69.0]: https://github.com/kan/pike/releases/tag/v0.69.0
