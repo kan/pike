@@ -249,6 +249,16 @@ stdin を閉じるだけでは止まらない）が、`ssh-keygen` は askpass �
   聞いても何も進まない
 - **利用者が起こした agent には手を出さない。** Pike が起こすのは 1 つも届かないときだけで、
   止めるのも自分で起こしたものだけ（`shutdown_all`）
+- **Pike が起こした agent の登録は、止まっていたら捨てる（#596）。** Pike を起動した
+  まま distro が落ちると agent は消え、登録だけが残る。確かめる場所は 2 つ: `ensure`
+  （パスフレーズを受けたとき）と、`run_git_network` が鍵の拒否で失敗したとき（登録を捨てて
+  1 回やり直す）。`network_env` は確かめない（背景の fetch ごとに spawn が増える）
+  - **捨てるのは `ssh-add -l` が 2（繋げない）と答えたときだけ**（`Reach::Dead`）。確かめる
+    処理自体の失敗（タイムアウト、`cd` の失敗）で捨てると、生きた agent が `shutdown_all` の
+    対象から外れ、復号した鍵を抱えたまま残る
+  - **捨てるときに `ssh-agent -k` を打たない**（起き直した distro では同じ pid が別の
+    プロセスのものになっていることがある）。代償として、ソケットのファイルだけが消えて
+    プロセスが生きている場合（`/tmp` の掃除）は、その agent が残る
 
 ## Git worktree 連動
 - `git_worktree_list` コマンド（`git worktree list --porcelain` をパース）が `{ path, branch, head, isBare, isDetached, isMain, needsRepair }[]` を返す。bare クローン構成では bare エントリを main 扱いせず**最初の「bare でも要修復でもない」もの**を `isMain` とする

@@ -140,8 +140,9 @@ fn run_git(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<String, Str
 ///
 /// **名前で持つのは `GitNetworkResult::of` が引くため。** `AUTH_MARKERS` の添字で指して
 /// いると、表の先頭に 1 行足しただけで `ssh-add` の前置とパスフレーズのボタンが別の失敗
-/// （ホスト鍵・https）に付く。**走査するのは `of` の 1 か所**で、答えは `key_denied` として
-/// 2 つの消費者へ配る。
+/// （ホスト鍵・https）に付く。**利用者に見せる答えを作る走査は `of` の 1 か所**で、答えは
+/// `key_denied` として 2 つの消費者へ配る。もう 1 か所の `run_git_network` は、止まった
+/// agent でやり直すかを決めるためだけに見る（#596。やり直した結果を `of` が改めて読む）。
 const KEY_DENIED: &str = "Permission denied (publickey";
 
 // **フロントの `lib/gitErrors.ts` も同じ綴りを見ている**（#436。エラー表示の案内文を選ぶ表）。
@@ -170,17 +171,20 @@ fn needs_credentials(text: &str) -> bool {
 /// - `GIT_TERMINAL_PROMPT=0` … https のリモートで git 自身が利用者名を聞きに行くのを
 ///   止める。ssh 側の `BatchMode` と対で、**どの転送でも「聞かずに失敗する」に揃える**
 ///
-/// `user_sock` は利用者のログインシェルが持っている `SSH_AUTH_SOCK`（`run_git_network` が
-/// 1 回だけ引いて渡す。**あちらは同じ答えを `agent` の判定にも使う**ので、ここで引き直すと
-/// 同じ問いが 2 か所になる）。
-fn network_env(shell: &ShellConfig, user_sock: Option<&str>) -> Vec<(&'static str, String)> {
+/// `started` は Pike が起こした agent のソケット（`ssh_agent::started_sock`）、`user_sock` は
+/// 利用者のログインシェルが持っている `SSH_AUTH_SOCK`。どちらも `run_git_network` が引いて
+/// 渡す（**あちらは同じ答えを `agent` の判定と、止まった agent の始末にも使う**ので、ここで
+/// 引き直すと同じ問いが 2 か所になる）。
+fn network_env(started: Option<&str>, user_sock: Option<&str>) -> Vec<(&'static str, String)> {
     let mut env = vec![("GIT_TERMINAL_PROMPT", "0".to_owned())];
     // **Pike が起こした agent があればそちらが勝つ**（#386）。利用者の rc が古い（もう
     // 死んでいる）ソケットを export している環境で、起こした生きた agent が使われないと
     // 困るため。
-    let sock = crate::ssh_agent::started_sock(shell).or_else(|| user_sock.map(str::to_owned));
-    if let Some(sock) = sock {
-        env.push((SSH_AUTH_SOCK, sock));
+    //
+    // **ここでは生死を確かめない**（#596）。確かめると背景の fetch ごとに spawn が 1 本
+    // 増える。止まった agent の始末は、鍵の拒否で失敗したときに `run_git_network` が行う。
+    if let Some(sock) = started.or(user_sock) {
+        env.push((SSH_AUTH_SOCK, sock.to_owned()));
     }
     env
 }
@@ -345,8 +349,27 @@ fn run_git_network(shell: &ShellConfig, root: &str, args: &[&str]) -> Result<Net
     // で落ちる 1 行を足すだけになる。
     let user_sock = crate::shell_probe::ssh_auth_sock(shell);
     let agent = user_sock.is_some();
-    let env = network_env(shell, user_sock.as_deref());
-    let (code, stdout, stderr) = shell.run_env("git", &full, &env)?;
+    let started = crate::ssh_agent::started_sock(shell);
+    let env = network_env(started.as_deref(), user_sock.as_deref());
+    let (mut code, mut stdout, mut stderr) = shell.run_env("git", &full, &env)?;
+    // **Pike が起こした agent が止まっていたら、登録を捨てて 1 回だけやり直す**（#596）。
+    // Pike を起動したまま distro が落ちると、登録だけが残って止まった agent のソケットを
+    // 渡し続ける。パスフレーズの入力欄を経れば `ssh_agent::ensure` が入れ替えるが、
+    // 「ターミナルで実行」で利用者の agent に鍵を預けた場合や、利用者が自分の agent を
+    // 起こし直した場合はそこを通らない。やり直しは利用者の agent（無ければ agent なし）で
+    // 走るので、鍵がそちらにあれば通り、無ければ今までどおり入力欄が開く。
+    //
+    // **確かめるのは鍵の拒否で失敗したときだけ**（成功した fetch に spawn を足さない）。
+    if code != 0
+        && stderr.contains(KEY_DENIED)
+        && started
+            .as_deref()
+            .is_some_and(|sock| crate::ssh_agent::drop_if_dead(shell, root, sock))
+    {
+        let started = crate::ssh_agent::started_sock(shell);
+        let env = network_env(started.as_deref(), user_sock.as_deref());
+        (code, stdout, stderr) = shell.run_env("git", &full, &env)?;
+    }
     Ok(NetworkRun {
         code,
         stdout,
@@ -2167,6 +2190,25 @@ pub async fn git_diff_lines(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Pike が起こした agent が勝ち、捨てたあとは利用者の agent へ落ちる（#386 / #596）。
+    #[test]
+    fn network_env_prefers_the_started_agent_and_falls_back_to_the_users() {
+        let sock = |env: Vec<(&str, String)>| {
+            env.into_iter()
+                .find(|(k, _)| *k == SSH_AUTH_SOCK)
+                .map(|(_, v)| v)
+        };
+        assert_eq!(
+            sock(network_env(Some("/tmp/pike"), Some("/tmp/user"))).as_deref(),
+            Some("/tmp/pike")
+        );
+        assert_eq!(
+            sock(network_env(None, Some("/tmp/user"))).as_deref(),
+            Some("/tmp/user")
+        );
+        assert_eq!(sock(network_env(None, None)), None);
+    }
 
     /// 利用者の設定を潰さず、末尾に足すだけであること（#384）。
     #[test]

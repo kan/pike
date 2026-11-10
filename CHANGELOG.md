@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 - **配布物から開発用の検証プログラムを外した**：Windows のインストーラと macOS の `Pike.app` に、`verify_` で始まる 5 つのプログラムが入っていました。開発者が動作を確かめるためのもので、Pike の動作には使っていません (#587)
 - **タスクパネルの `run --bin` に、要る `--features` を付けた**：cargo は、`required-features` のある bin を `--features` 無しでは実行しません。今は `--features` を付けたタスクを表示します (#587)
+- **止まった ssh-agent を使い続けないようにした**：Pike を起動したまま WSL が再起動すると、Pike が起動した ssh-agent も止まります。これまでは止まった agent を使い続けていました。そのため、正しいパスフレーズを入れても `Permission denied (publickey)` で失敗し、Pike を起動し直すまで直りませんでした。今は止まった agent を捨てて、新しい agent に鍵を預けます (#596)
 
 ## [0.70.1] - 2026-11-07
 
