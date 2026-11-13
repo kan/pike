@@ -3,8 +3,11 @@
 /** 扱う CI。Rust の `Provider`。 */
 export type CiProvider = 'github' | 'circleci'
 
-/** run・ワークフロー・job の状態。Rust の `RunState`（待ちも `running` に入る）。 */
-export type CiState = 'running' | 'success' | 'failure' | 'cancelled' | 'skipped'
+/**
+ * run・ワークフロー・job の状態。Rust の `RunState`（待ちも `running` に入る）。`approval` は人の
+ * 承認を待って止まっているもの（#600）で、実行中には入れない（ポーリングしても変わらない）。
+ */
+export type CiState = 'running' | 'success' | 'failure' | 'cancelled' | 'skipped' | 'approval'
 
 export interface CiRun {
   /** GitHub は run の番号（数字の文字列）、CircleCI は run の UUID。 */
@@ -28,6 +31,8 @@ export interface CiRun {
   rerunIds: string[]
   /** 失敗した job だけを再実行するときの id。 */
   rerunFailedIds: string[]
+  /** 承認で CLI に渡す id（空なら承認できない。#600）。決めるのは Rust。 */
+  approveIds: string[]
   /** 失敗のログを取るコマンド（エージェントへの指示文に添える）。 */
   failureLogCommand: string
 }
@@ -52,4 +57,4 @@ export interface CiListResult {
 export type CiConfigs = Record<CiProvider, boolean>
 
 /** run に対する、状態を変える操作。Rust の `CiAction`。 */
-export type CiAction = { type: 'rerun'; failedOnly: boolean } | { type: 'cancel' }
+export type CiAction = { type: 'rerun'; failedOnly: boolean } | { type: 'cancel' } | { type: 'approve' }

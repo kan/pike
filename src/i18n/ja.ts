@@ -1443,6 +1443,7 @@ export default {
   'ci.stateFailure': '失敗',
   'ci.stateCancelled': '中止',
   'ci.stateSkipped': 'スキップ',
+  'ci.stateApproval': '承認待ち',
   'ci.openBrowserTab': 'ブラウザのタブで開く',
   'ci.openInBrowser': '外部ブラウザで開く',
   'ci.askFix': 'エージェントに失敗の調査を指示',
@@ -1455,6 +1456,9 @@ export default {
   'ci.rerunConfirm': '「{title}」（{branch}）を再実行しますか？すべてのジョブをやり直します。',
   'ci.rerunFailedConfirm': '「{title}」（{branch}）の失敗したジョブだけを再実行しますか？',
   'ci.cancelConfirm': '「{title}」（{branch}）を中止しますか？実行中のジョブも止まります。',
+  'ci.approve': '承認して実行…',
+  'ci.approveConfirm':
+    '「{title}」（{branch}）を承認して実行しますか？承認は取り消せません。fork の pull request なら、その変更のコードがワークフローで動きます。',
   'ci.actionFailed': '実行に失敗しました。\n{error}',
   // Outline
   'outline.empty': 'ファイルが開かれていません',

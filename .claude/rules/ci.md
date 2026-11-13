@@ -65,6 +65,17 @@ GitHub Actions と CircleCI。実体は `src-tauri/src/ci/mod.rs`、`src/stores/
 ## 2 つの CI を 1 つの器に畳む
 - 行は `CiRun`、内訳は `CiJob`、状態は `RunState`（`running` は待ちも含む）。語彙の対応は
   `RunState::of_github` / `of_circleci` が正本。**知らない結果は失敗に倒す**
+- **承認待ちは `approval`**（#600。GitHub の `conclusion: action_required`。実測では `status` は
+  `completed` で job は 0 件）。**実行中に入れない**: 人が承認するまで変わらないので、ポーリングの
+  対象にしない（承認したあとは `watchUntil` で追う）。失敗にも入れない（🤖 と調査の指示を出さない）
+  - **承認で渡す id も Rust が決めて行に載せる**（`CiRun.approve_ids`。再実行の id と同じ作法）。
+    GitHub は `gh run` に承認が無いので `gh api -X POST repos/{owner}/{repo}/actions/runs/<id>/approve`。
+    リポジトリは `gh` が cwd から決める（`ci_act` の doc と同じ理由）
+  - **扱わない承認が 2 つある**（どちらも返る値を実測できていない）。environment の保護ルール
+    （`status: waiting`）は実行中のまま、CircleCI の approval job は `approve_ids` が常に空で、
+    `CiAction::line` が `None` を返して `ci_act` が断る。足すときは実測した値で判定を書く
+  - **承認待ちの run は再実行の id を持たない**（まだ 1 度も走っていない）。Rust が `rerun_ids` を
+    空にして運び、メニューはいつもどおり配列で出し分ける。フロントで状態を見て塞がない
 - **単位が違う。** GitHub Actions の run はワークフロー 1 本の実行で、CircleCI の run（旧称
   pipeline）は複数のワークフローを束ねる。**再実行は GitHub が run、CircleCI がワークフロー**
   なので、**渡す id は Rust が決めて行に載せる**（`CiRun.rerun_ids` / `rerun_failed_ids`）。
@@ -119,7 +130,7 @@ GitHub Actions と CircleCI。実体は `src-tauri/src/ci/mod.rs`、`src/stores/
   `circleci run get <id> --failure-report`）
 - 絞り込み欄とエラー帯の見た目は `theme.css` の `.panel-filter` / `.panel-error-strip` を
   issue パネルと共有する
-- 再実行と中止は右クリックメニューから。確認は `lib/ciActions.ts`、実行は `ciStore.act`。
+- 承認・再実行・中止は右クリックメニューから。確認は `lib/ciActions.ts`、実行は `ciStore.act`。
   **済んだ行は落とさない**（issue のクローズと違い、行は残って状態が変わる）
 - ログを Pike の中で読むタブは持たない（利用者の判断。CI のページとエージェントに任せる）
 - **Bitbucket Pipelines は対象外。** 公式の CLI が無く、「取得を外部コマンドに任せる」という

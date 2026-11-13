@@ -928,7 +928,10 @@ export async function ciJobs(shell: ShellType, root: string, provider: CiProvide
   return invoke<CiJob[]>('ci_jobs', { shell, root, provider, id })
 }
 
-/** `ids` は、再実行なら一覧が返した `rerunIds` / `rerunFailedIds`、中止なら run の id。 */
+/**
+ * `ids` は、再実行なら一覧が返した `rerunIds` / `rerunFailedIds`、承認なら `approveIds`、
+ * 中止なら run の id。
+ */
 export async function ciAct(
   shell: ShellType,
   root: string,
