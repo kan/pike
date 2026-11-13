@@ -18,7 +18,13 @@ import { hexToRgba, isWebUrl } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
 import { sanitizeLabelList } from '../lib/issueLabels'
 import { portableBase } from '../lib/portable'
-import { emptyProjectBase, isProjectPlatform, type ProjectBase, rootKey } from '../lib/projectPaths'
+import {
+  emptyProjectBase,
+  isProjectPlatform,
+  type ProjectBase,
+  type ProjectPlatform,
+  rootKey,
+} from '../lib/projectPaths'
 import { moveByKey } from '../lib/reorder'
 import { SEARCH_RESULT_VIEWS, type SearchResultView } from '../lib/searchResults'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
@@ -1650,8 +1656,16 @@ export const useSettingsStore = defineStore('settings', () => {
     updateDeletedProjects((list) => (list.some((p) => deletedProjectKey(p) === key) ? list : [...list, entry]))
   }
 
-  function forgetDeletedProject(id: string) {
-    updateDeletedProjects((list) => list.filter((p) => p.id !== id))
+  /**
+   * 作り直すプロジェクトの記録を外す。**外すのは同じ id のうち、同じプラットフォームか同じ root の
+   * ものだけ**（#599）。同じ id の別のプロジェクト（Windows 版と WSL 版など）の記録は、
+   * `planSyncedCreate` の照合に要るので残す。
+   */
+  function forgetDeletedProject(id: string, platform: ProjectPlatform, root: string) {
+    const key = rootKey(root)
+    updateDeletedProjects((list) =>
+      list.filter((p) => p.id !== id || (p.platform !== platform && !(p.root && rootKey(p.root) === key))),
+    )
   }
 
   // **id で「消したか」を答える関数はここに置かない**（#599）。同じ id のプロジェクトが手元に

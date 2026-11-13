@@ -201,6 +201,15 @@ describe('同じ id が別のプロジェクトを指すとき（#463）', () =>
     assert.deepEqual([...foreign(shared, [{ id: 'dotfiles', platform: 'windows' }], shared)], ['dotfiles'])
   })
 
+  test('同じ id の記録が複数あれば、プラットフォームの合うものが 1 つでもあると挙げない（#599）', () => {
+    // 共有の dotfiles は wsl。Windows 版の記録だけなら食い違い、WSL 版の記録もあれば削除として伝える。
+    const windowsRecord = { id: 'dotfiles', platform: 'windows' }
+    const wslRecord = { id: 'dotfiles', platform: 'wsl' }
+    assert.deepEqual([...foreign(shared, [windowsRecord, wslRecord], shared)], [])
+    assert.deepEqual([...foreign(shared, [wslRecord, windowsRecord], shared)], [])
+    assert.deepEqual([...foreign(shared, [windowsRecord, { id: 'dotfiles' }], shared)], ['dotfiles'])
+  })
+
   test('手元から外してマージすると、共有のエントリは据え置かれ、手元の名前も出て行かない', () => {
     const ids = foreign(shared, here.projects, shared)
     const local = src({ projects: here.projects.filter((x) => !ids.has(x.id)) })

@@ -1139,7 +1139,7 @@ export const useProjectStore = defineStore('project', () => {
       if (plan.kind !== 'create') continue
       const { root, key, remote, platform } = plan
       // 衝突で「残す」を選んだ（手元で消していた）もの。記録を外して作り直す。
-      if (isDeletedHere(entry.id)) settings.forgetDeletedProject(entry.id)
+      if (isDeletedHere(entry.id)) settings.forgetDeletedProject(entry.id, platform, root)
       await addProject({
         id: entry.id,
         name: entry.name,
