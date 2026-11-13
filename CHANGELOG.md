@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.71.0] - 2026-11-13
+
 ### Features
 
 - **CI パネルで承認待ちの実行を区別し、Pike から承認できるようにした**：fork や GitHub Actions が作った pull request では、ワークフローが承認を待って止まります。これまではそれを失敗（赤の ×）として出していました。今は黄色の三角で出します。行の右クリックの「承認して実行…」で承認できます (#600)
@@ -1992,6 +1994,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.71.0]: https://github.com/kan/pike/releases/tag/v0.71.0
 [0.70.2]: https://github.com/kan/pike/releases/tag/v0.70.2
 [0.70.1]: https://github.com/kan/pike/releases/tag/v0.70.1
 [0.70.0]: https://github.com/kan/pike/releases/tag/v0.70.0
