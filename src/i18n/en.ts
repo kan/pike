@@ -1444,6 +1444,7 @@ export default {
   'ci.stateFailure': 'Failed',
   'ci.stateCancelled': 'Cancelled',
   'ci.stateSkipped': 'Skipped',
+  'ci.stateApproval': 'Awaiting approval',
   'ci.openBrowserTab': 'Open in browser tab',
   'ci.openInBrowser': 'Open in external browser',
   'ci.askFix': 'Ask the agent to investigate the failure',
@@ -1456,6 +1457,9 @@ export default {
   'ci.rerunConfirm': 'Rerun "{title}" ({branch})? Every job runs again.',
   'ci.rerunFailedConfirm': 'Rerun the failed jobs of "{title}" ({branch})?',
   'ci.cancelConfirm': 'Cancel "{title}" ({branch})? Jobs in progress are stopped.',
+  'ci.approve': 'Approve and run…',
+  'ci.approveConfirm':
+    'Approve and run "{title}" ({branch})? Approval cannot be undone. For a pull request from a fork, the workflow runs the code in that pull request.',
   'ci.actionFailed': 'The operation failed.\n{error}',
   // Outline
   'outline.empty': 'No file opened',

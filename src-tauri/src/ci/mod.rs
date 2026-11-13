@@ -137,12 +137,19 @@ pub enum RunState {
     Cancelled,
     /// 走らなかったもの（GitHub の `skipped` / `neutral`）。落ちていないので失敗に寄せない。
     Skipped,
+    /// 人の承認を待って止まっているもの（#600）。GitHub の `action_required`（bot や fork の
+    /// PR の workflow の承認）。**実行中に入れない**: 承認するまで何も進まないので、ポーリング
+    /// しても変わらない。失敗にも入れない: 落ちたのではなく、まだ走っていない。
+    Approval,
 }
 
 impl RunState {
     /// GitHub Actions。`status` が `completed` でなければ実行中（`queued` / `in_progress` /
     /// `waiting` / `requested` / `pending`）。**知らない `conclusion` は失敗に倒す**
-    /// （`timed_out` / `startup_failure` / `action_required` など。成功と読み違えるより安全）。
+    /// （`timed_out` / `startup_failure` など。成功と読み違えるより安全）。
+    ///
+    /// `action_required` は承認待ち（#600）。実測では `status` が `completed` で、job は 0 件。
+    /// environment の保護ルールの承認（`status: waiting`）は実測できていないので、実行中のまま。
     fn of_github(status: &str, conclusion: &str) -> Self {
         if status != "completed" {
             return RunState::Running;
@@ -151,6 +158,7 @@ impl RunState {
             "success" => RunState::Success,
             "cancelled" => RunState::Cancelled,
             "skipped" | "neutral" => RunState::Skipped,
+            "action_required" => RunState::Approval,
             _ => RunState::Failure,
         }
     }
@@ -232,6 +240,9 @@ pub struct CiRun {
     pub rerun_ids: Vec<String>,
     /// 失敗した job だけを再実行するときの id。
     pub rerun_failed_ids: Vec<String>,
+    /// 承認で CLI に渡す id（空なら承認できない。#600）。今は GitHub の承認待ちの run だけが
+    /// 自分の id を持つ。CircleCI の承認（approval job）は実測できていないので常に空。
+    pub approve_ids: Vec<String>,
     /// 失敗のログを取るコマンド。エージェントへの指示文に添える（Pike は走らせない）。
     pub failure_log_command: String,
 }
@@ -268,30 +279,41 @@ pub enum CiAction {
         failed_only: bool,
     },
     Cancel,
+    /// 承認待ちの run を承認して走らせる（#600）。
+    Approve,
 }
 
 impl CiAction {
     /// 実行する行。`id` は `valid_id` を通したものだけを渡すこと。
     ///
     /// **id が指すものは操作で違う**: CircleCI の再実行だけはワークフローの id で、それ以外は
-    /// run の id。再実行の id は一覧が `CiRun.rerun_ids` として返したものを、フロントが
-    /// そのまま渡す。
+    /// run の id。再実行と承認の id は一覧が `CiRun.rerun_ids` / `approve_ids` として返した
+    /// ものを、フロントがそのまま渡す。
     ///
     /// **確認を端末に聞かせない。** `circleci run cancel` は `--force` が無いと確認を出し、
     /// Pike のバックエンドは入力を返せない。
-    fn line(self, provider: Provider, id: &str) -> String {
-        match (provider, self) {
+    ///
+    /// **GitHub の承認は `gh api` で叩く**（`gh run` に承認のサブコマンドが無い）。リポジトリは
+    /// `{owner}/{repo}` の置き換えで `gh` が cwd から決める（ほかの操作が cwd に任せるのと同じ。
+    /// `ci_act` の doc）。波括弧は bash でも `cmd /C` でもそのまま渡る。CircleCI の承認は
+    /// 持たないので `None`。
+    fn line(self, provider: Provider, id: &str) -> Option<String> {
+        Some(match (provider, self) {
             (Provider::Github, CiAction::Rerun { failed_only }) => {
                 let failed = if failed_only { " --failed" } else { "" };
                 format!("gh run rerun {id}{failed}")
             }
             (Provider::Github, CiAction::Cancel) => format!("gh run cancel {id}"),
+            (Provider::Github, CiAction::Approve) => {
+                format!("gh api -X POST repos/{{owner}}/{{repo}}/actions/runs/{id}/approve")
+            }
             (Provider::Circleci, CiAction::Rerun { failed_only }) => {
                 let failed = if failed_only { " --from-failed" } else { "" };
                 format!("circleci workflow rerun {id}{failed}")
             }
             (Provider::Circleci, CiAction::Cancel) => format!("circleci run cancel {id} --force"),
-        }
+            (Provider::Circleci, CiAction::Approve) => return None,
+        })
     }
 }
 
@@ -322,10 +344,19 @@ struct GhRun {
 impl From<GhRun> for CiRun {
     fn from(g: GhRun) -> Self {
         let id = g.database_id.to_string();
+        let state = RunState::of_github(&g.status, &g.conclusion);
+        // 承認待ちの run は承認だけを持つ（まだ 1 度も走っていないので、再実行の対象が無い）。
+        // **フロントは配列が空かどうかでメニューを出し分ける**ので、状態で塞ぐのはここだけ。
+        let (rerun, approve) = if state == RunState::Approval {
+            (Vec::new(), vec![id.clone()])
+        } else {
+            (vec![id.clone()], Vec::new())
+        };
         CiRun {
             // run がワークフロー 1 本なので、再実行の対象はどちらも run そのもの。
-            rerun_ids: vec![id.clone()],
-            rerun_failed_ids: vec![id.clone()],
+            rerun_failed_ids: rerun.clone(),
+            rerun_ids: rerun,
+            approve_ids: approve,
             failure_log_command: Provider::Github.failure_log_line(&id),
             id,
             title: g.display_title,
@@ -333,7 +364,7 @@ impl From<GhRun> for CiRun {
             branch: g.head_branch,
             sha: g.head_sha.chars().take(7).collect(),
             event: g.event,
-            state: RunState::of_github(&g.status, &g.conclusion),
+            state,
             created_at: g.created_at,
             url: Some(g.url).filter(|u| !u.is_empty()),
         }
@@ -519,6 +550,7 @@ fn parse_circleci_runs(stdout: &str) -> Result<Vec<CiRun>, serde_json::Error> {
                 url: page.and_then(|w| circleci_workflow_url(w.id)),
                 rerun_ids: circleci_rerun_ids(&workflows, false),
                 rerun_failed_ids: circleci_rerun_ids(&workflows, true),
+                approve_ids: Vec::new(),
                 failure_log_command: Provider::Circleci.failure_log_line(&run.id),
                 id: run.id,
             }
@@ -780,7 +812,8 @@ pub async fn ci_act(
     let line = ids
         .iter()
         .map(|id| action.line(provider, id))
-        .collect::<Vec<_>>()
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| format!("unsupported CI action for {}", provider.bin()))?
         .join(" && ");
     tauri::async_runtime::spawn_blocking(move || {
         run_cli(provider, &shell, &root, &line, ACTION_TIMEOUT).map(|_| ())
@@ -814,6 +847,25 @@ mod tests {
         );
         assert_eq!(runs[1].state, RunState::Running);
         assert_eq!(runs[1].url, None);
+        // 承認の対象は承認待ちの run だけ。
+        assert!(runs.iter().all(|r| r.approve_ids.is_empty()));
+    }
+
+    /// 承認待ち（#600）は失敗ではなく `Approval` で、自分の id を承認の対象に持つ。形は実測
+    /// （bot が作った PR の CI。`status` は `completed`）。
+    #[test]
+    fn reads_github_runs_waiting_for_approval() {
+        let json = r#"[
+          {"conclusion":"action_required","createdAt":"2026-11-10T01:20:57Z","databaseId":42735144696,
+           "displayTitle":"Release for v0.70.2","event":"pull_request","headBranch":"tagpr-from-v0.70.1",
+           "headSha":"0123456789abcdef","status":"completed",
+           "url":"https://github.com/kan/pike/actions/runs/42735144696","workflowName":"CI"}
+        ]"#;
+        let runs = parse_github_runs(json).unwrap();
+        assert_eq!(runs[0].state, RunState::Approval);
+        assert_eq!(runs[0].approve_ids, vec!["42735144696".to_owned()]);
+        // まだ走っていないので、再実行の対象は持たない。
+        assert!(runs[0].rerun_ids.is_empty() && runs[0].rerun_failed_ids.is_empty());
     }
 
     /// 終わっていないものは `conclusion` に関わらず実行中。知らない結果は失敗に倒す。
@@ -832,6 +884,12 @@ mod tests {
             RunState::of_github("completed", "timed_out"),
             RunState::Failure
         );
+        assert_eq!(
+            RunState::of_github("completed", "action_required"),
+            RunState::Approval
+        );
+        // environment の承認（実測していない）は実行中のまま。
+        assert_eq!(RunState::of_github("waiting", ""), RunState::Running);
     }
 
     #[test]
@@ -1003,26 +1061,33 @@ mod tests {
             "circleci run list --json --limit 30 && circleci workflow list --json --limit 30"
         );
         let rerun = |failed_only| CiAction::Rerun { failed_only };
+        let some = |s: &str| Some(s.to_owned());
         assert_eq!(
             rerun(true).line(Provider::Github, "12"),
-            "gh run rerun 12 --failed"
+            some("gh run rerun 12 --failed")
         );
         assert_eq!(
             CiAction::Cancel.line(Provider::Github, "12"),
-            "gh run cancel 12"
+            some("gh run cancel 12")
+        );
+        assert_eq!(
+            CiAction::Approve.line(Provider::Github, "12"),
+            some("gh api -X POST repos/{owner}/{repo}/actions/runs/12/approve")
         );
         assert_eq!(
             rerun(false).line(Provider::Circleci, "ab-1"),
-            "circleci workflow rerun ab-1"
+            some("circleci workflow rerun ab-1")
         );
         assert_eq!(
             rerun(true).line(Provider::Circleci, "ab-1"),
-            "circleci workflow rerun ab-1 --from-failed"
+            some("circleci workflow rerun ab-1 --from-failed")
         );
         assert_eq!(
             CiAction::Cancel.line(Provider::Circleci, "ab-1"),
-            "circleci run cancel ab-1 --force"
+            some("circleci run cancel ab-1 --force")
         );
+        // CircleCI の承認は持たない（`ci_act` が断る）。
+        assert_eq!(CiAction::Approve.line(Provider::Circleci, "ab-1"), None);
     }
 
     /// フロントが送る形（`types/ci.ts` の `CiAction`）をそのまま読めること。
@@ -1031,11 +1096,19 @@ mod tests {
         let action: CiAction =
             serde_json::from_str(r#"{"type":"rerun","failedOnly":true}"#).unwrap();
         assert_eq!(
-            action.line(Provider::Github, "1"),
-            "gh run rerun 1 --failed"
+            action.line(Provider::Github, "1").as_deref(),
+            Some("gh run rerun 1 --failed")
         );
         let action: CiAction = serde_json::from_str(r#"{"type":"cancel"}"#).unwrap();
-        assert_eq!(action.line(Provider::Github, "1"), "gh run cancel 1");
+        assert_eq!(
+            action.line(Provider::Github, "1").as_deref(),
+            Some("gh run cancel 1")
+        );
+        let action: CiAction = serde_json::from_str(r#"{"type":"approve"}"#).unwrap();
+        assert_eq!(
+            action.line(Provider::Github, "1").as_deref(),
+            Some("gh api -X POST repos/{owner}/{repo}/actions/runs/1/approve")
+        );
     }
 
     /// `circleci` の失敗は stderr の JSON から理由を拾う。run が無いだけなら失敗にしない。

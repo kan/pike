@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { Bot, ChevronDown, ChevronRight, CircleCheck, CircleMinus, CircleSlash, CircleX, Loader } from 'lucide-vue-next'
+import {
+  AlertTriangle,
+  Bot,
+  ChevronDown,
+  ChevronRight,
+  CircleCheck,
+  CircleMinus,
+  CircleSlash,
+  CircleX,
+  Loader,
+} from 'lucide-vue-next'
 import { computed, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { injectToTerminal } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
-import { cancelCiRun, rerunCiRun } from '../../lib/ciActions'
+import { approveCiRun, cancelCiRun, rerunCiRun } from '../../lib/ciActions'
 import { ciAgentPrompt } from '../../lib/ciPrompt'
 import { openUrlWithConfirm } from '../../lib/openUrl'
 import { useOverlay } from '../../lib/overlay'
@@ -35,13 +45,17 @@ watch(
 /** タブに出す名前。固有名なので訳さない。 */
 const PROVIDER_LABEL: Record<CiProvider, string> = { github: 'GitHub Actions', circleci: 'CircleCI' }
 
-/** 状態のアイコンと文言。**色を付けるのは成功と失敗だけ**（ほかは結果ではないので注意を引かない）。 */
+/**
+ * 状態のアイコンと文言。**色を付けるのは成功・失敗・承認待ちだけ**（ほかは結果ではないので注意を
+ * 引かない）。承認待ち（#600）は、人が操作しないと先へ進まないので警告の色で出す。
+ */
 const STATE_ICON = {
   running: Loader,
   success: CircleCheck,
   failure: CircleX,
   cancelled: CircleSlash,
   skipped: CircleMinus,
+  approval: AlertTriangle,
 } as const
 const STATE_LABEL = {
   running: 'ci.stateRunning',
@@ -49,6 +63,7 @@ const STATE_LABEL = {
   failure: 'ci.stateFailure',
   cancelled: 'ci.stateCancelled',
   skipped: 'ci.stateSkipped',
+  approval: 'ci.stateApproval',
 } as const satisfies Record<CiState, string>
 
 type Row =
@@ -166,9 +181,9 @@ function runCtx(action: (run: CiRun) => void) {
 }
 
 /**
- * メニューに出す操作。**再実行は、渡す id がある run にだけ出す**（実行する側が読むのと同じ
- * 配列なので、「押せるのに対象が無い」が起きない）。実行中の run は再実行できず、終わった run は
- * 中止できない。
+ * メニューに出す操作。**再実行と承認は、渡す id がある run にだけ出す**（実行する側が読むのと
+ * 同じ配列なので、「押せるのに対象が無い」が起きない）。実行中の run は再実行できず、終わった run は
+ * 中止できない。承認待ちの run は再実行の id を持たない（Rust が空にして運ぶ）ので、再実行が出ない。
  */
 const ctxActions = computed(() => {
   const run = ctxRun.value
@@ -178,6 +193,7 @@ const ctxActions = computed(() => {
     rerun: done && run.rerunIds.length > 0,
     rerunFailed: run.state === 'failure' && run.rerunFailedIds.length > 0,
     cancel: !done,
+    approve: run.approveIds.length > 0,
     fix: run.state === 'failure',
   }
 })
@@ -282,9 +298,15 @@ const ctxActions = computed(() => {
           </template>
           <!-- 状態を変える操作。どれも確認を挟む（`lib/ciActions.ts`）。 -->
           <div
-            v-if="(ctxRun.url || ctxActions.fix) && (ctxActions.rerun || ctxActions.rerunFailed || ctxActions.cancel)"
+            v-if="
+              (ctxRun.url || ctxActions.fix) &&
+              (ctxActions.approve || ctxActions.rerun || ctxActions.rerunFailed || ctxActions.cancel)
+            "
             class="ctx-separator"
           ></div>
+          <button v-if="ctxActions.approve" :disabled="ciStore.acting" @click="runCtx(approveCiRun)">
+            {{ t('ci.approve') }}
+          </button>
           <button v-if="ctxActions.rerun" :disabled="ciStore.acting" @click="runCtx((r) => rerunCiRun(r, false))">
             {{ t('ci.rerun') }}
           </button>
@@ -340,7 +362,8 @@ const ctxActions = computed(() => {
   color: var(--text-primary);
 }
 
-/* 実行中・中止・スキップは色を付けない（結果ではないので、注意を引く理由が無い）。 */
+/* 実行中・中止・スキップは色を付けない（結果ではないので、注意を引く理由が無い）。
+   承認待ちは警告の色（`--alert-warning`。Markdown の WARNING の注記と同じ色で、ライトでも読める）。 */
 .ci-state {
   flex-shrink: 0;
   color: var(--text-secondary);
@@ -352,6 +375,10 @@ const ctxActions = computed(() => {
 
 .ci-state.failure {
   color: var(--danger);
+}
+
+.ci-state.approval {
+  color: var(--alert-warning);
 }
 
 /* 2 段（題名と、ワークフロー・ブランチ・時刻）。パネルの幅では 1 段に収まらない。 */

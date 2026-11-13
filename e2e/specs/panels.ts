@@ -699,7 +699,7 @@ describe('screenshots: issues panel', () => {
 //
 // **実行中の run は入れない。** 状態のアイコンが回るので撮るたびに角度が変わるうえ、
 // ストアが 15 秒ごとの取り直しを始める。`createdAt` を 30 日以上前にするのは issue と同じ理由。
-const CI_RUN = { branch: 'main', event: 'push', rerunFailedIds: ['1'], failureLogCommand: '' }
+const CI_RUN = { branch: 'main', event: 'push', rerunFailedIds: ['1'], approveIds: [], failureLogCommand: '' }
 const CI_LIST = {
   runs: [
     {
@@ -723,6 +723,23 @@ const CI_LIST = {
       createdAt: '2026-06-02T10:15:00Z',
       url: 'https://github.com/kan/pike/actions/runs/100',
       rerunIds: ['100'],
+    },
+    {
+      // 承認待ち（#600）。GitHub Actions が作った PR（tagpr のリリース PR）の CI は、承認するまで
+      // 走らない（実測）。再実行の id は持たない（Rust がそう運ぶ）。
+      ...CI_RUN,
+      id: '102',
+      title: 'Release for v0.60.2',
+      workflow: 'CI',
+      branch: 'tagpr-from-v0.60.1',
+      event: 'pull_request',
+      sha: '5d1e9a0',
+      state: 'approval',
+      createdAt: '2026-06-02T08:30:00Z',
+      url: 'https://github.com/kan/pike/actions/runs/102',
+      rerunIds: [],
+      rerunFailedIds: [],
+      approveIds: ['102'],
     },
     {
       ...CI_RUN,

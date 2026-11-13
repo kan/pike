@@ -4,7 +4,7 @@ import { useCiStore } from '../stores/ci'
 import type { CiRun } from '../types/ci'
 
 /**
- * CI パネルの行から実行する、状態を変える操作（#457）: 再実行と中止。**ここが持つのは確認の
+ * CI パネルの行から実行する、状態を変える操作（#457）: 再実行と中止と承認（#600）。**ここが持つのは確認の
  * ダイアログ**で、CLI の実行・失敗の表示・一覧の取り直しは `ciStore.act` が持つ
  * （`lib/issueActions.ts` と `issuesStore.act` の分け方と同じ）。
  *
@@ -28,6 +28,18 @@ export async function rerunCiRun(run: CiRun, failedOnly: boolean): Promise<void>
     const key = failedOnly ? 'ci.rerunFailedConfirm' : 'ci.rerunConfirm'
     return (await confirmDialog(t(key, describe(run)))) ? { action: { type: 'rerun', failedOnly }, ids } : null
   })
+}
+
+/**
+ * 承認待ちの run を承認して走らせる（#600）。**取り消せない**うえ、fork の PR ならその PR の
+ * コードがワークフローで走るので確認を挟む。渡す id は一覧が返したもの（`approveIds`）。
+ */
+export async function approveCiRun(run: CiRun): Promise<void> {
+  const ids = run.approveIds
+  if (ids.length === 0) return
+  await useCiStore().act(async () =>
+    (await confirmDialog(t('ci.approveConfirm', describe(run)))) ? { action: { type: 'approve' }, ids } : null,
+  )
 }
 
 /** 実行中の run を中止する。途中の job も止まるので確認を挟む。 */
