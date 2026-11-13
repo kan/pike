@@ -389,17 +389,21 @@ export const useSyncStore = defineStore('sync', () => {
    * ため。絞る前のものを `applyLocal` に渡すと、共有の値が手元の別のプロジェクトに当たる）。
    *
    * - `localSrc` … 外したあとの手元（マージにも反映にもこれを使う）
-   * - `deletedHere` … このマシンで消したものか。**食い違う id の削除の記録は数えない**
-   *   （削除として伝えると、他のマシンの別のプロジェクトを消す）
+   * - `deletedHere` … このマシンで消したものか。**食い違う id の削除の記録と、同じ id の
+   *   プロジェクトが手元にある記録は数えない**（削除として伝えると、他のマシンの別の
+   *   プロジェクトや、手元で生きているプロジェクトを消す）
    * - `dropped` … 外した手元のプロジェクトの id（設定画面が出す。削除の記録の id は、
    *   知らせる相手が手元に居ないので入れない）
    */
   function dropForeign(all: SyncSource, base: SyncItems | null, remote: SyncItems) {
-    const foreign = foreignProjectIds([...all.projects, ...settings.deletedProjects], base, remote, isHostPlatform)
+    // 削除の記録は、同じ id のプロジェクトが手元に無いものだけを数える（#599。`deletedRecords`）。
+    // 素の記録だと、生きているプロジェクトを「消した」として伝え、記録のプラットフォームで
+    // そのプロジェクトを同期から外しうる。
+    const foreign = foreignProjectIds([...all.projects, ...projectStore.deletedRecords], base, remote, isHostPlatform)
     const kept = all.projects.filter((p) => !foreign.has(p.id))
     return {
       localSrc: { ...all, projects: kept },
-      deletedHere: (id: string) => settings.isProjectDeleted(id) && !foreign.has(id),
+      deletedHere: (id: string) => projectStore.isDeletedHere(id) && !foreign.has(id),
       dropped: all.projects.filter((p) => foreign.has(p.id)).map((p) => p.id),
     }
   }
