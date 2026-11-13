@@ -69,4 +69,9 @@ paths:
   - **このホストが持てないプラットフォームのときだけ、持てるほうへ落とす**（#407 の `resolveCreatePlatform`）。macOS には `windows` / `wsl` のプロジェクトが存在しえないので、落とさないと Windows で登録したものが 1 件も materialize せず「同期したのに一覧が空」になる。**候補と順の出典は `lib/host.ts` の `HOST_PLATFORMS`**（Windows は `wsl` → `windows`、それ以外は `unix`）で、`defaultProjectPlatform` もその先頭を読む。同じ知識をここに書き写さないこと。**シェルも落とした先で組む**（`entry.platform` を渡すと macOS に動かない PowerShell のプロジェクトができる）。落とした先が同期ファイルへ書き戻らないのは `platform` が `CREATE_ONLY_FIELDS` だから
     - **持てるのに base が無いだけなら落とさない。** Windows で WSL の base しか設定していない人に、Windows 側のプロジェクトを WSL の下へ作るのは「設定していない」という選択を踏み越える。知らない platform（新しい版の Pike が書いたもの）も同じく落とさず、知っているマシンに任せる
   - root も origin も持たない古い削除の記録には、この照合は効かない
+  - **同じ id のプロジェクトが手元にある記録は、id での照合に数えない**（#599。`stores/project.ts` の `deletedRecords` / `isDeletedHere`）。削除は `project.json` ごと消すので、そういう記録は id を使い回した別のプロジェクトのもの。素の記録で照合すると、生きているプロジェクトが一覧から隠れ、同期で削除として他の端末へ伝わる。**一覧（パネル・スイッチャー）は記録で絞らない**。root と origin で照合する `planSyncedCreate` は素の記録を読む（id を問わない照合なので）
+    - **id で「消したか」を問う関数は `isDeletedHere` の 1 つだけ**。settings ストアに同じ問いの関数を戻さないこと（素の記録で答える口があると、新しい消費者がそちらを読んで #599 を踏み直す）
+    - **同じ id の記録は複数持てる**（重複の鍵は id・root・プラットフォーム。`settings.ts` の `deletedProjectKey`）。同じ id で削除し直したとき片方で置き換えると、消えたほうの root と origin が `planSyncedCreate` の照合から抜ける
+      - **作り直すときに外すのは、そのプロジェクトの記録だけ**（`forgetDeletedProject` は同じプラットフォームか同じ root の記録を外す）。id で丸ごと外すと、別のプロジェクトの照合も消える
+      - **食い違いの判定（`foreignProjectIds`）は id ごとにまとめる**。プラットフォームの合う記録が 1 つでもあれば挙げない。1 件ずつ判定すると、別のプラットフォームの記録が合っているほうの削除まで止める
 - **グループ一覧の broadcast が無いと、同期ファイルへ古いグループ一覧が出る**（経路は `project.md` のグループの節）

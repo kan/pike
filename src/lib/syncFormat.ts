@@ -425,6 +425,10 @@ const CREATE_ONLY_FIELDS: ReadonlySet<string> = new Set(['platform', 'path'] sat
  *
  * `held` には削除の記録も渡す: 食い違う id の記録を削除として伝えると、他のマシンの別の
  * プロジェクトを消す。プラットフォームを持たない古い記録は見分けられないので数えない。
+ *
+ * **id ごとに判定し、プラットフォームの合うものが 1 つでもあれば挙げない**（#599）。同じ id の
+ * 削除の記録は複数ありうる（Windows 版と WSL 版を消したなど）。1 件ずつ判定すると、共有の
+ * エントリと別のプラットフォームの記録が、合っているほうの削除まで止める。
  */
 export function foreignProjectIds(
   held: Iterable<{ id: string; platform?: string }>,
@@ -432,13 +436,15 @@ export function foreignProjectIds(
   remote: SyncItems,
   holdable: (platform: string) => boolean,
 ): Set<string> {
-  const out = new Set<string>()
+  const differs = new Set<string>()
+  const agrees = new Set<string>()
   for (const { id, platform } of held) {
     if (platform === undefined) continue
     const shared = sharedValue(base, remote, itemKey(['project', id, 'platform']))
-    if (typeof shared === 'string' && shared !== platform && holdable(shared)) out.add(id)
+    if (typeof shared === 'string' && shared !== platform && holdable(shared)) differs.add(id)
+    else agrees.add(id)
   }
-  return out
+  return new Set([...differs].filter((id) => !agrees.has(id)))
 }
 
 /**

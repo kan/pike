@@ -859,8 +859,34 @@ export const useProjectStore = defineStore('project', () => {
   // (only the base-relative part travels), shell, pinned tabs, session, recency,
   // and agent session ids.
 
-  /** Projects visible on this machine — hidden ones (#164) are filtered out. */
-  const visibleProjects = computed(() => projects.value.filter((p) => !useSettingsStore().isProjectDeleted(p.id)))
+  /**
+   * この端末で消したプロジェクトの記録（#164）のうち、**同じ id のプロジェクトが手元に無いもの**
+   * （#599）。削除は `project.json` ごと消す（`removeProject`）ので、同じ id の実体が手元にあれば、
+   * 記録は id を使い回した別のプロジェクトのもの（root もプラットフォームも違う）。
+   *
+   * **id で記録と照合する箇所はこれを読む**（同期の `deletedHere` と食い違いの判定。`stores/sync.ts`
+   * の `dropForeign`）。素の記録で照合すると、生きているプロジェクトを「消した」として他の端末へ
+   * 伝える。root と origin で照合する `planSyncedCreate` は素の記録を読む（同じリポジトリの
+   * 兄弟エントリを作り直さないための照合で、id は問わない）。
+   *
+   * 一覧（パネル・スイッチャー）は記録で絞らない。手元にあるものは消していないものだけなので、
+   * 絞ると、この食い違いのときに生きているプロジェクトが隠れるだけになる。
+   */
+  const deletedRecords = computed(() => {
+    const live = new Set(projects.value.map((p) => p.id))
+    return useSettingsStore().deletedProjects.filter((r) => !live.has(r.id))
+  })
+
+  const deletedIds = computed(() => new Set(deletedRecords.value.map((r) => r.id)))
+
+  /**
+   * この端末で消したプロジェクトか（`deletedRecords` の id）。**id で「消したか」を問う箇所は
+   * すべてこれを読む**（settings ストアには同じ問いの関数を置いていない）。同期のマージは
+   * 項目ごとに呼ぶので、毎回一覧を走査せずに集合で引く。
+   */
+  function isDeletedHere(id: string): boolean {
+    return deletedIds.value.has(id)
+  }
 
   /**
    * 最近開いた順の並び（#354）。スイッチャーとプロジェクトパネルの「最近開いた順」が
@@ -880,7 +906,7 @@ export const useProjectStore = defineStore('project', () => {
     return a.name.localeCompare(b.name)
   }
 
-  const recentProjects = computed(() => [...visibleProjects.value].sort(byRecency))
+  const recentProjects = computed(() => [...projects.value].sort(byRecency))
 
   /** Portable form of a project, or null when it cannot be shared: no base set
    *  for its platform, or a root outside that base. */
@@ -1113,7 +1139,7 @@ export const useProjectStore = defineStore('project', () => {
       if (plan.kind !== 'create') continue
       const { root, key, remote, platform } = plan
       // 衝突で「残す」を選んだ（手元で消していた）もの。記録を外して作り直す。
-      if (settings.isProjectDeleted(entry.id)) settings.forgetDeletedProject(entry.id)
+      if (isDeletedHere(entry.id)) settings.forgetDeletedProject(entry.id, platform, root)
       await addProject({
         id: entry.id,
         name: entry.name,
@@ -1741,7 +1767,7 @@ export const useProjectStore = defineStore('project', () => {
    * 振るときには避ける id を、寄せる先としては勧めることになる。
    */
   function isProjectIdTaken(id: string): boolean {
-    return projects.value.some((p) => p.id === id) || useSettingsStore().isProjectDeleted(id)
+    return projects.value.some((p) => p.id === id) || isDeletedHere(id)
   }
 
   async function addProject(config: ProjectConfig) {
@@ -1905,7 +1931,8 @@ export const useProjectStore = defineStore('project', () => {
     activeRoot,
     shellForIO,
     missingRoots,
-    visibleProjects,
+    deletedRecords,
+    isDeletedHere,
     recentProjects,
     byRecency,
     unsyncableProjects,

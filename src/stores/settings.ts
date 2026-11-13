@@ -18,7 +18,13 @@ import { hexToRgba, isWebUrl } from '../lib/format'
 import { hostDefaultShell, isWindowsHost } from '../lib/host'
 import { sanitizeLabelList } from '../lib/issueLabels'
 import { portableBase } from '../lib/portable'
-import { emptyProjectBase, isProjectPlatform, type ProjectBase, rootKey } from '../lib/projectPaths'
+import {
+  emptyProjectBase,
+  isProjectPlatform,
+  type ProjectBase,
+  type ProjectPlatform,
+  rootKey,
+} from '../lib/projectPaths'
 import { moveByKey } from '../lib/reorder'
 import { SEARCH_RESULT_VIEWS, type SearchResultView } from '../lib/searchResults'
 import { SHORTCUT_PRESETS, type ShortcutPreset, setShortcutPreset } from '../lib/shortcuts'
@@ -1148,6 +1154,14 @@ function sanitizeStringList(v: unknown): string[] {
 }
 
 /** Guard the machine-local hidden-project list against corrupt persisted values. */
+/**
+ * 削除の記録の重複を見分ける鍵。**id だけにしない**（#599）: id を使い回した別のプロジェクトを
+ * 消すと、同じ id の記録が root・プラットフォーム違いで 2 つできる。
+ */
+function deletedProjectKey(p: DeletedProject): string {
+  return `${p.id}\n${p.root ?? ''}\n${p.platform ?? ''}`
+}
+
 function sanitizeDeletedProjects(v: unknown): DeletedProject[] {
   if (!Array.isArray(v)) return []
   const out: DeletedProject[] = []
@@ -1162,15 +1176,18 @@ function sanitizeDeletedProjects(v: unknown): DeletedProject[] {
       remoteUrl?: unknown
       platform?: unknown
     }
-    if (typeof id !== 'string' || !id || seen.has(id)) continue
-    seen.add(id)
-    out.push({
+    if (typeof id !== 'string' || !id) continue
+    const entry: DeletedProject = {
       id,
       name: typeof name === 'string' ? name : id,
       root: typeof root === 'string' && root ? root : undefined,
       remoteUrl: typeof remoteUrl === 'string' && remoteUrl ? remoteUrl : undefined,
       platform: isProjectPlatform(platform) ? platform : undefined,
-    })
+    }
+    const key = deletedProjectKey(entry)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(entry)
   }
   return out
 }
@@ -1631,19 +1648,28 @@ export const useSettingsStore = defineStore('settings', () => {
     deletedProjects.value = mutate(sanitizeDeletedProjects(loadJson<unknown>(DELETED_PROJECTS_KEY, null)))
   }
 
+  // **同じ id の記録が既にあっても足す**（#599）。削除は `project.json` ごと消すので、同じ id の
+  // 記録が残っているのは id を使い回した別のプロジェクトのもの。どちらの root・origin・
+  // プラットフォームも `planSyncedCreate` の照合に要るので、片方で置き換えない。
   function recordDeletedProject(entry: DeletedProject) {
-    updateDeletedProjects((list) => (list.some((p) => p.id === entry.id) ? list : [...list, entry]))
+    const key = deletedProjectKey(entry)
+    updateDeletedProjects((list) => (list.some((p) => deletedProjectKey(p) === key) ? list : [...list, entry]))
   }
 
-  function forgetDeletedProject(id: string) {
-    updateDeletedProjects((list) => list.filter((p) => p.id !== id))
+  /**
+   * 作り直すプロジェクトの記録を外す。**外すのは同じ id のうち、同じプラットフォームか同じ root の
+   * ものだけ**（#599）。同じ id の別のプロジェクト（Windows 版と WSL 版など）の記録は、
+   * `planSyncedCreate` の照合に要るので残す。
+   */
+  function forgetDeletedProject(id: string, platform: ProjectPlatform, root: string) {
+    const key = rootKey(root)
+    updateDeletedProjects((list) =>
+      list.filter((p) => p.id !== id || (p.platform !== platform && !(p.root && rootKey(p.root) === key))),
+    )
   }
 
-  const deletedProjectIds = computed(() => new Set(deletedProjects.value.map((p) => p.id)))
-
-  function isProjectDeleted(id: string): boolean {
-    return deletedProjectIds.value.has(id)
-  }
+  // **id で「消したか」を答える関数はここに置かない**（#599）。同じ id のプロジェクトが手元に
+  // あるときの扱いは、一覧を持つ `stores/project.ts` の `isDeletedHere` が決める。
 
   // Directories opened without registering them (#230). Answering "no" to the
   // register prompt — or picking the switcher's "open a directory" entry — puts
@@ -2271,7 +2297,6 @@ export const useSettingsStore = defineStore('settings', () => {
     deletedProjects,
     recordDeletedProject,
     forgetDeletedProject,
-    isProjectDeleted,
     rememberTransientRoot,
     forgetTransientRoot,
     skipsRegisterPrompt,

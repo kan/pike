@@ -38,7 +38,7 @@ function matchesFilter(p: ProjectConfig): boolean {
   return fuzzyMatch(p.name, q) || fuzzyMatch(p.root, q) || fuzzyMatch(p.group ?? '', q)
 }
 
-const filteredProjects = computed<ProjectConfig[]>(() => projectStore.visibleProjects.filter(matchesFilter))
+const filteredProjects = computed<ProjectConfig[]>(() => projectStore.projects.filter(matchesFilter))
 
 /** 最近開いた順（#354）。**並びの規則はストアが持つ**（スイッチャーと共有）。 */
 const recentFiltered = computed<ProjectConfig[]>(() => [...filteredProjects.value].sort(projectStore.byRecency))
@@ -518,7 +518,7 @@ async function onDelete(id: string) {
       </div>
     </div>
 
-    <div v-if="projectStore.visibleProjects.length === 0" class="empty">
+    <div v-if="projectStore.projects.length === 0" class="empty">
       {{ t('project.noProjects') }}
     </div>
     <div v-else-if="filterText && filteredProjects.length === 0" class="empty">
