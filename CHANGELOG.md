@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changes
+
+- 依存ライブラリを更新した（vue、vite、marked、notify ほか）
+
 ## [0.71.0] - 2026-11-13
 
 ### Features
