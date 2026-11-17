@@ -32,7 +32,7 @@ import { useOverlay } from '../../lib/overlay'
 import { basename } from '../../lib/paths'
 import { traySetTooltip } from '../../lib/tauri'
 import { THEME_MODE_VIEW } from '../../lib/themeModes'
-import { type Meter, rateLevelClass, toMeter } from '../../lib/usageFormat'
+import { loginExpiryLabel, type Meter, rateLevelClass, toMeter } from '../../lib/usageFormat'
 import { elevated, globalMode, isMainWindow } from '../../lib/window'
 import { localBranchName, useGitStore } from '../../stores/git'
 import { useProjectStore } from '../../stores/project'
@@ -120,6 +120,7 @@ const {
   refreshing: agentRefreshing,
   refreshAll: refreshAgentUsage,
   needsLogin: agentsNeedingLogin,
+  expiringSoon: agentsExpiringSoon,
   login: loginAgent,
 } = useAgentUsage()
 
@@ -152,10 +153,11 @@ const headlineMeters = computed<Meter[]>(() => summaryMeters(agentHeadline.value
 
 /** ドロップダウンの行。**帯はここで 1 回だけ組む**（テンプレートで 2 回呼ばない）。 */
 const agentRows = computed(() =>
-  agentEntries.value.map(({ agent, usage, needsLogin }) => ({
+  agentEntries.value.map(({ agent, usage, needsLogin, loginExpiry }) => ({
     agent,
     usage,
     needsLogin,
+    loginExpiry,
     meters: summaryMeters(usage),
   })),
 )
@@ -164,7 +166,12 @@ const agentRows = computed(() =>
 const headlineTitle = computed(() => {
   const name = agentHeadline.value?.agent.label ?? ''
   const parts = headlineMeters.value.map((m) => `${m.label} ${m.percent.toFixed(0)}%`)
-  return parts.length ? `${name}: ${parts.join(' / ')}` : t('agentStatus.title')
+  const head = parts.length ? `${name}: ${parts.join(' / ')}` : t('agentStatus.title')
+  // 期限が近いエージェント（#604）。項目には印しか出ないので、何が近いかはここで言う。
+  const expiring = agentsExpiringSoon.value.flatMap(({ agent, loginExpiry }) =>
+    loginExpiry ? [`${agent.label}: ${t('agentStatus.loginExpirySoon', { when: loginExpiryLabel(loginExpiry) })}`] : [],
+  )
+  return [head, ...expiring].join('\n')
 })
 
 /**
@@ -559,6 +566,13 @@ onUnmounted(() => {
           </template>
         </template>
         <span v-else>{{ t('statusBar.agents') }}</span>
+        <!-- サインインの期限が近い（#604）。利用率は残したまま印だけ足す。中身はツールチップ。 -->
+        <AlertTriangle
+          v-if="!agentsNeedingLogin.length && agentsExpiringSoon.length"
+          :size="12"
+          :stroke-width="2"
+          class="rate-warn cc-expiry-mark"
+        />
       </button>
       <div v-if="showAgentStatus" class="status-dropdown cc-dropdown popup-surface" @mousedown.stop>
         <div class="dropdown-label">
@@ -579,7 +593,7 @@ onUnmounted(() => {
           使っているエージェントを順に出す（#263）。**種別の分岐を持たない**ので、
           レジストリに行を足すだけで増える。ここは要約だけで、内訳は状態タブへ。
         -->
-        <div v-for="{ agent, usage, needsLogin, meters } in agentRows" :key="agent.id" class="cc-agent">
+        <div v-for="{ agent, usage, needsLogin, loginExpiry, meters } in agentRows" :key="agent.id" class="cc-agent">
           <div class="cc-agent-name">
             <Bot :size="12" :stroke-width="2" />
             <span>{{ agent.label }}</span>
@@ -594,6 +608,10 @@ onUnmounted(() => {
           <div v-if="usage?.account?.email || usage?.account?.name" class="cc-account">
             <span class="cc-account-name">{{ usage.account.email ?? usage.account.name }}</span>
             <span v-if="usage.account.plan" class="cc-account-meta">{{ usage.account.plan }}</span>
+          </div>
+          <!-- サインインの期限（#604）。近ければ警告の色。 -->
+          <div v-if="loginExpiry" class="cc-expiry" :class="{ 'rate-warn': loginExpiry.soon }">
+            {{ t('agentStatus.loginExpiry') }} {{ loginExpiryLabel(loginExpiry) }}
           </div>
           <div v-if="usage?.total && usage.total.input + usage.total.output > 0" class="cc-summary">
             <span>{{ t('statusBar.ccIn') }} {{ formatTokens(usage.total.input) }}</span>
@@ -1136,6 +1154,18 @@ onUnmounted(() => {
 
 .cc-account-meta {
   color: var(--text-secondary);
+}
+
+/* サインインの期限（#604）。アカウントの行と同じ淡さで、近いときだけ `.rate-warn` が色を足す。 */
+.cc-expiry {
+  padding: 0 12px 2px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+/* 期限が近いときの印（#604）。利用率の数字と並ぶので、アイコンだけ少し詰める。 */
+.cc-expiry-mark {
+  flex: 0 0 auto;
 }
 
 .rate-refresh {

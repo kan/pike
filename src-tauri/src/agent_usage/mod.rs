@@ -158,6 +158,10 @@ pub struct AgentUsage {
     /// エージェントがログインを求めている（#381）。今は Claude だけが立てる
     /// （`claude -p "/usage"` の応答で分かる）。ログインのコマンドはフロントの表が持つ。
     pub login_required: bool,
+    /// サインインの期限（#604、ISO 8601）。今は Claude だけが入れる。期限を持たない
+    /// ログインと、ログインを求めているときは `None`。幅（最大 3 日早く切れる）と警告の
+    /// 判定はフロントの `lib/loginExpiry.ts`。
+    pub login_expires_at: Option<String>,
 }
 
 impl AgentUsage {
@@ -269,6 +273,8 @@ fn claude(shell: &ShellConfig, root: &str, force: bool) -> AgentUsage {
         // 表示の「いつ時点か」はこちらが持つ。
         fetched_at: rate.active.then_some(rate.fetched_at),
         login_required: rate.login_required,
+        // ログインを求めているときに期限が無いことは、`rate.rs` の `AuthStatus::expiry` が保証する。
+        login_expires_at: rate.login_expires_at,
     }
 }
 

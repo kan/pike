@@ -9,9 +9,10 @@
  * 以前は `claudeUsage` / `claudeRate` / `codexMeters` … と種別ごとの computed が並んでいて、
  * エージェントを増やすたびに 2 つの画面を書き足すことになっていた。
  */
-import { computed } from 'vue'
+import { computed, type Ref, ref } from 'vue'
 import { AGENTS, type AgentDef } from '../lib/agents'
 import { hostDefaultShell } from '../lib/host'
+import { type LoginExpiry, loginExpiry } from '../lib/loginExpiry'
 import { useAgentUsageStore } from '../stores/agentUsage'
 import { useTabStore } from '../stores/tabs'
 import type { AgentUsage } from '../types/agentUsage'
@@ -30,11 +31,40 @@ export interface AgentUsageEntry {
    * コマンドを表が持っていること。**読む側はこれだけを見る**（条件を画面ごとに書かない）。
    */
   needsLogin: boolean
+  /**
+   * サインインの期限（#604）。期限を持たないログイン・ログインを求めているときは `null`
+   * （後者は Rust 側が期限を運ばない）。残り日数は `expiryClock` が進むたびに数え直す。
+   */
+  loginExpiry: LoginExpiry | null
+}
+
+/** 残り日数を数え直す間隔。表示は日の単位なので粗くてよい。 */
+const EXPIRY_CLOCK_MS = 10 * 60 * 1000
+
+/**
+ * サインインの期限を数える時計（#604）。**computed の中で `Date.now()` を読むだけでは
+ * 数え直さない**（時刻に依存を張れず、使用量のストアは値が変わらなければ同じオブジェクトを
+ * 返す）。開いたままの Pike で日をまたいでも、残り日数と期限切れが進むようにする。
+ *
+ * **モジュールに 1 つ**（StatusBar と状態タブの 2 つが使う）。止めない: アプリの寿命と同じで、
+ * 10 分に 1 回 ref を書くだけ。
+ */
+let expiryClock: Ref<number> | null = null
+function useExpiryClock(): Ref<number> {
+  if (!expiryClock) {
+    const clock = ref(Date.now())
+    setInterval(() => {
+      clock.value = Date.now()
+    }, EXPIRY_CLOCK_MS)
+    expiryClock = clock
+  }
+  return expiryClock
 }
 
 export function useAgentUsage() {
   const stores = AGENTS.map((agent) => ({ agent, store: useAgentUsageStore(agent.id) }))
   const tabStore = useTabStore()
+  const clock = useExpiryClock()
 
   const entries = computed<AgentUsageEntry[]>(() =>
     stores.map(({ agent, store }) => {
@@ -43,6 +73,7 @@ export function useAgentUsage() {
         agent,
         usage,
         needsLogin: Boolean(usage?.loginRequired && agent.login),
+        loginExpiry: loginExpiry(usage?.loginExpiresAt, clock.value),
         hasData: Boolean(
           usage &&
             (usage.loginRequired ||
@@ -84,6 +115,12 @@ export function useAgentUsage() {
   const needsLogin = computed(() => visible.value.filter((e) => e.needsLogin))
 
   /**
+   * サインインの期限が近いエージェント（#604）。StatusBar の警告の印はこれを見る。
+   * ログインを求めているものは入れない（そちらは「要ログイン」が先に出る）。
+   */
+  const expiringSoon = computed(() => visible.value.filter((e) => e.loginExpiry?.soon && !e.needsLogin))
+
+  /**
    * ログインし直すターミナルを開く（#381）。**シェルと cwd は新規ターミナルと同じ決め方**
    * （`terminalPlace`）: 利用者が `claude` を包む起動ラッパー（`CLAUDE_CONFIG_DIR` を
    * repo ごとに被せる等）を使っていても、手で打つのと同じアカウントに入る。
@@ -101,5 +138,5 @@ export function useAgentUsage() {
     })
   }
 
-  return { entries, visible, headline, refreshing, refreshAll, needsLogin, login }
+  return { entries, visible, headline, refreshing, refreshAll, needsLogin, expiringSoon, login }
 }

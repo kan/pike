@@ -7,6 +7,7 @@
  */
 import { locale, t } from '../i18n'
 import type { AgentFactKey, UsageMeter } from '../types/agentUsage'
+import type { LoginExpiry } from './loginExpiry'
 
 /** One rate-limit bar. Agents report quotas differently; all normalize to this. */
 export interface Meter {
@@ -88,6 +89,24 @@ export function localizedResetLabel(resetsAt: string): string {
       return year ? `${year}/${m}/${day}` : `${m}/${day}`
     },
   )
+}
+
+/**
+ * サインインの期限の表示（#604）。「11/19〜11/22（残り 2〜5 日）」の形で、最も早い日を
+ * 過ぎていれば「11/22 まで（いつ切れてもおかしくありません）」、期限を過ぎていれば
+ * 「11/22 に期限を過ぎました」。**日付は端末の時刻帯**で書く（リセット時刻と同じ。Claude Code
+ * 本体は UTC の日付なので、1 日ずれることがある）。
+ */
+export function loginExpiryLabel(e: LoginExpiry): string {
+  const day = (d: Date) => d.toLocaleDateString(locale.value, { month: 'numeric', day: 'numeric' })
+  if (e.expired) return t('agentStatus.loginExpired', { to: day(e.expiresAt) })
+  if (e.daysToEarliest === 0) return t('agentStatus.loginExpiryDue', { to: day(e.expiresAt) })
+  return t('agentStatus.loginExpiryRange', {
+    from: day(e.earliest),
+    to: day(e.expiresAt),
+    min: String(e.daysToEarliest),
+    max: String(e.daysToExpiry),
+  })
 }
 
 /** Color emphasis for a usage percentage: yellow past 80%, red past 90%. */
