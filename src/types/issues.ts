@@ -19,10 +19,18 @@ export interface IssueSummary {
   draft: boolean
   /** PR の CI をまとめた状態（#413）。issue と、チェックが無い PR は null。 */
   checks: CheckState | null
+  /** PR のレビューをまとめた状態（#605）。issue と、承認も変更要求も無い PR は null。 */
+  review: ReviewState | null
 }
 
 /** Rust の `CheckState`。落ちたものが 1 つでもあれば failure、次に走っているものがあれば pending。 */
 export type CheckState = 'success' | 'failure' | 'pending'
+
+/**
+ * Rust の `ReviewState`（#605）。保護規則のあるリポジトリでは GitHub の判定、無ければ
+ * レビューした人の最新の状態から決める（変更要求が承認より勝つ）。
+ */
+export type ReviewState = 'approved' | 'changesRequested'
 
 /** 一覧の種類（#413）。PR も同じ `IssueSummary` で運ぶ（Rust の `ListKind`）。 */
 export type IssueKind = 'issue' | 'pr'
