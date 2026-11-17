@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Features
+
+- **Pull request の一覧で、ドラフトとレビューの状態をアイコンで見分けられるようにした**：これまでドラフトは題名が淡くなるだけで、ほかの pull request と見分けにくくなっていました。今は題名の前にドラフトのアイコンを付けます。あわせて、承認済みの pull request に緑の、変更要求がある pull request に赤の人のアイコンを、CI のアイコンの左に出します。レビューを必須にしていないリポジトリでも、書き込み権限のある人のレビューから決めて出します (#605)
+
 ### Changes
 
 - 依存ライブラリを更新した（vue、vite、marked、notify ほか）

@@ -1404,6 +1404,8 @@ export default {
   'issues.emptyPulls': 'open な pull request はありません',
   'issues.noMatchPulls': '一致する pull request はありません',
   'issues.draft': 'ドラフト',
+  'issues.reviewApproved': 'レビュー：承認済み',
+  'issues.reviewChangesRequested': 'レビュー：変更要求あり',
   'issues.checksSuccess': 'CI：成功',
   'issues.checksFailure': 'CI：失敗',
   'issues.checksPending': 'CI：実行中',

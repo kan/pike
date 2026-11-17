@@ -9,6 +9,7 @@
 use crate::cache::ProbeRegistry;
 use crate::types::{ShellConfig, first_line, install_key};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::Duration;
 use tauri::State;
 
@@ -147,6 +148,17 @@ pub struct IssueSummary {
     pub draft: bool,
     /// PR の CI の状態（#413）。issue と、チェックが 1 つも無い PR は `None`。
     pub checks: Option<CheckState>,
+    /// PR のレビューの状態（#605）。issue と、承認も変更要求も無い PR は `None`。
+    pub review: Option<ReviewState>,
+}
+
+/// PR のレビューを 1 つにまとめた状態（#605）。**行に出すのはアイコン 1 つ**なので、誰が
+/// 承認したかは運ばない（`CheckState` と同じ考え方）。決め方は `summarize_review`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReviewState {
+    Approved,
+    ChangesRequested,
 }
 
 /// PR のチェックを 1 つにまとめた状態（#413）。**行に出すのはアイコン 1 つ**なので、
@@ -324,7 +336,8 @@ impl ListKind {
             ),
             ListKind::Pr => format!(
                 "gh pr list --state open --limit {limit} \
-                 --json number,title,url,author,updatedAt,labels,isDraft,statusCheckRollup"
+                 --json number,title,url,author,updatedAt,labels,isDraft,statusCheckRollup,\
+                 reviewDecision,reviews"
             ),
         }
     }
@@ -427,6 +440,97 @@ struct GhIssue {
     /// `Option` で受ける。
     #[serde(default)]
     status_check_rollup: Option<Vec<GhCheck>>,
+    /// PR のレビューの判定（#605）。`APPROVED` / `CHANGES_REQUESTED` / `REVIEW_REQUIRED`。
+    /// **レビューを必須にしていないリポジトリでは空文字**（GitHub は保護規則があるときしか
+    /// 決めない）。issue では要求しないので来ない。
+    #[serde(default)]
+    review_decision: Option<String>,
+    /// その PR の全レビュー（#605）。`review_decision` が空のときだけ読む。
+    ///
+    /// **`latestReviews` ではなくこちらを取る。** あちらは人ごとの最新で、承認したあとに
+    /// スレッドへ返信する（コメントだけのレビューができる）と承認が消える。GitHub の
+    /// `latestOpinionatedReviews` はコメントを除くが、`gh pr list` は受け付けない。
+    /// 大きさと取得時間は `latestReviews` とほぼ同じだった（50 件で約 186KB、約 3.8 秒）。
+    #[serde(default)]
+    reviews: Option<Vec<GhReview>>,
+}
+
+/// `reviews` の 1 件。状態は `APPROVED` / `CHANGES_REQUESTED` / `COMMENTED` / `DISMISSED` /
+/// `PENDING`。
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhReview {
+    #[serde(default)]
+    author: Option<GhAuthor>,
+    /// `OWNER` / `MEMBER` / `COLLABORATOR` / `CONTRIBUTOR` / `NONE` など。
+    #[serde(default)]
+    author_association: String,
+    #[serde(default)]
+    state: String,
+    /// 並べ直すための時刻（ISO 8601 なので文字列のまま比べられる）。下書きは null。
+    #[serde(default)]
+    submitted_at: Option<String>,
+}
+
+impl GhReview {
+    /// 書き込み権限のある人のレビューか。**判定に数えるのはこの人たちだけ**（GitHub の PR の
+    /// 一覧も、権限の無い人の承認は判定に入れない）。外部の人が承認しただけで「承認済み」に
+    /// 見せない。
+    fn by_writer(&self) -> bool {
+        matches!(
+            self.author_association.as_str(),
+            "OWNER" | "MEMBER" | "COLLABORATOR"
+        )
+    }
+}
+
+/// レビューを 1 つにまとめる（#605）。
+///
+/// **`reviewDecision` に値があればそれに従う。** ブランチの保護規則（必要な承認の数、
+/// CODEOWNERS）を反映した GitHub 自身の判定で、`REVIEW_REQUIRED` は承認が足りていない
+/// （1 人が承認していても 2 人要るなど）ので何も出さない。
+///
+/// **空のとき（レビューを必須にしていないリポジトリ）はレビューから決める。** 書き込み
+/// 権限のある人ごとに、承認か変更要求の最新を取る。コメントだけのレビュー（Copilot や
+/// スレッドへの返信）と下書きは飛ばし、取り下げ（`DISMISSED`）はその人の判定を消す。
+/// 変更要求の人が 1 人でもいればそれ、いなくて承認の人がいれば承認。空のまま何も出さないと、
+/// 個人のリポジトリでは承認が一度も見えない。
+fn summarize_review(decision: Option<&str>, reviews: &[GhReview]) -> Option<ReviewState> {
+    match decision.unwrap_or_default() {
+        "APPROVED" => return Some(ReviewState::Approved),
+        "CHANGES_REQUESTED" => return Some(ReviewState::ChangesRequested),
+        "" => {}
+        _ => return None,
+    }
+    // `gh` は作成順で返すが、決め打ちせずに出した時刻で並べる（下書きは時刻を持たない）。
+    let mut ordered: Vec<&GhReview> = reviews
+        .iter()
+        .filter(|r| r.by_writer() && r.submitted_at.is_some())
+        .collect();
+    ordered.sort_by(|a, b| a.submitted_at.cmp(&b.submitted_at));
+    let mut latest: HashMap<&str, ReviewState> = HashMap::new();
+    for r in ordered {
+        let who = r.author.as_ref().map_or("", |a| a.login.as_str());
+        match r.state.as_str() {
+            "APPROVED" => {
+                latest.insert(who, ReviewState::Approved);
+            }
+            "CHANGES_REQUESTED" => {
+                latest.insert(who, ReviewState::ChangesRequested);
+            }
+            "DISMISSED" => {
+                latest.remove(who);
+            }
+            _ => {}
+        }
+    }
+    if latest.values().any(|s| *s == ReviewState::ChangesRequested) {
+        Some(ReviewState::ChangesRequested)
+    } else if latest.values().any(|s| *s == ReviewState::Approved) {
+        Some(ReviewState::Approved)
+    } else {
+        None
+    }
 }
 
 /// `statusCheckRollup` の 1 件。**2 つの形が混ざって来る**: GitHub Actions などの
@@ -483,6 +587,10 @@ impl From<GhIssue> for IssueSummary {
             parent: g.parent.map(|p| p.number),
             draft: g.is_draft,
             checks: summarize_checks(g.status_check_rollup.as_deref().unwrap_or_default()),
+            review: summarize_review(
+                g.review_decision.as_deref(),
+                g.reviews.as_deref().unwrap_or_default(),
+            ),
         }
     }
 }
@@ -785,6 +893,119 @@ mod tests {
         let issues = parse_gh_list(json).unwrap();
         assert!(issues[0].draft);
         assert!(!issues[1].draft);
+    }
+
+    /// レビューを 1 値にまとめる（#605）。`reviewDecision` に値があればそれに従い、空なら
+    /// 書き込み権限のある人ごとの、承認か変更要求の最新から決める。
+    #[test]
+    fn summarizes_the_review_of_pull_requests() {
+        use super::{GhAuthor, GhReview, ReviewState, summarize_review};
+        // (人, 権限, 状態) を、並べた順の時刻で作る。
+        let reviews = |list: &[(&str, &str, &str)]| -> Vec<GhReview> {
+            list.iter()
+                .enumerate()
+                .map(|(i, (who, assoc, state))| GhReview {
+                    author: Some(GhAuthor {
+                        login: (*who).to_owned(),
+                    }),
+                    author_association: (*assoc).to_owned(),
+                    state: (*state).to_owned(),
+                    submitted_at: Some(format!("2026-11-17T00:00:0{i}Z")),
+                })
+                .collect()
+        };
+        let approved = reviews(&[("a", "OWNER", "APPROVED")]);
+
+        // 保護規則のあるリポジトリ: GitHub の判定に従う。承認が足りなければ何も出さない。
+        assert_eq!(
+            summarize_review(Some("APPROVED"), &[]),
+            Some(ReviewState::Approved)
+        );
+        assert_eq!(
+            summarize_review(Some("CHANGES_REQUESTED"), &[]),
+            Some(ReviewState::ChangesRequested)
+        );
+        assert_eq!(summarize_review(Some("REVIEW_REQUIRED"), &approved), None);
+
+        // 保護規則の無いリポジトリ（空文字か欠落）: レビューから決める。
+        assert_eq!(
+            summarize_review(Some(""), &approved),
+            Some(ReviewState::Approved)
+        );
+        // 1 人でも変更要求なら変更要求。
+        assert_eq!(
+            summarize_review(
+                None,
+                &reviews(&[
+                    ("a", "OWNER", "APPROVED"),
+                    ("b", "MEMBER", "CHANGES_REQUESTED")
+                ])
+            ),
+            Some(ReviewState::ChangesRequested)
+        );
+        // 承認や変更要求のあとにコメントしても、判定は消えない。
+        assert_eq!(
+            summarize_review(
+                None,
+                &reviews(&[
+                    ("a", "COLLABORATOR", "CHANGES_REQUESTED"),
+                    ("a", "COLLABORATOR", "COMMENTED")
+                ])
+            ),
+            Some(ReviewState::ChangesRequested)
+        );
+        // 同じ人が変更要求のあとに承認したら承認（人ごとに最新を取る）。
+        assert_eq!(
+            summarize_review(
+                None,
+                &reviews(&[
+                    ("a", "OWNER", "CHANGES_REQUESTED"),
+                    ("a", "OWNER", "APPROVED")
+                ])
+            ),
+            Some(ReviewState::Approved)
+        );
+        // 取り下げたらその人の判定は消える。
+        assert_eq!(
+            summarize_review(
+                None,
+                &reviews(&[
+                    ("a", "OWNER", "CHANGES_REQUESTED"),
+                    ("a", "OWNER", "DISMISSED")
+                ])
+            ),
+            None
+        );
+        // 書き込み権限の無い人の承認と、コメントだけのレビュー（Copilot）は数えない。
+        assert_eq!(
+            summarize_review(
+                Some(""),
+                &reviews(&[
+                    ("x", "CONTRIBUTOR", "APPROVED"),
+                    ("copilot", "NONE", "COMMENTED")
+                ])
+            ),
+            None
+        );
+        assert_eq!(summarize_review(None, &[]), None);
+    }
+
+    /// `gh pr list` の JSON から読む（#605）。issue の一覧には 2 つのキーが来ない。
+    #[test]
+    fn reads_the_review_out_of_the_pr_list() {
+        let json = r#"[
+          {"number":3,"title":"a","url":"u","updatedAt":"","author":null,"labels":[],
+           "reviewDecision":"","reviews":[
+             {"author":{"login":"copilot-pull-request-reviewer"},"authorAssociation":"NONE","state":"COMMENTED","submittedAt":"2026-11-17T00:00:00Z"},
+             {"author":{"login":"k"},"authorAssociation":"OWNER","state":"APPROVED","submittedAt":"2026-11-17T00:00:01Z","body":"lgtm"}]},
+          {"number":2,"title":"b","url":"u","updatedAt":"","author":null,"labels":[],
+           "reviewDecision":"CHANGES_REQUESTED","reviews":[]},
+          {"number":1,"title":"c","url":"u","updatedAt":"","author":null,"labels":[]}
+        ]"#;
+        let issues = parse_gh_list(json).unwrap();
+        assert_eq!(issues[0].review, Some(super::ReviewState::Approved));
+        assert_eq!(issues[1].review, Some(super::ReviewState::ChangesRequested));
+        assert_eq!(issues[2].review, None);
     }
 
     /// CI のチェックを 1 値にまとめる（#413）。落ちたもの > 走っているもの > 成功、の順。

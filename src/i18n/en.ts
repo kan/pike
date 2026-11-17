@@ -1406,6 +1406,8 @@ export default {
   'issues.emptyPulls': 'No open pull requests',
   'issues.noMatchPulls': 'No matching pull requests',
   'issues.draft': 'Draft',
+  'issues.reviewApproved': 'Review: approved',
+  'issues.reviewChangesRequested': 'Review: changes requested',
   'issues.checksSuccess': 'CI: passed',
   'issues.checksFailure': 'CI: failed',
   'issues.checksPending': 'CI: running',

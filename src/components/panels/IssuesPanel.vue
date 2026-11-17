@@ -1,6 +1,16 @@
 <script setup lang="ts">
-import { Bot, ChevronDown, ChevronRight, CircleCheck, CircleDashed, CircleX } from 'lucide-vue-next'
-import { computed, ref, useTemplateRef, watch } from 'vue'
+import {
+  Bot,
+  ChevronDown,
+  ChevronRight,
+  CircleCheck,
+  CircleDashed,
+  CircleX,
+  GitPullRequestDraft,
+  UserCheck,
+  UserX,
+} from 'lucide-vue-next'
+import { type Component, computed, ref, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { injectIssuePrompt } from '../../composables/useTerminalInject'
 import { useI18n } from '../../i18n'
@@ -14,7 +24,7 @@ import { useIssuesStore } from '../../stores/issues'
 import { useProjectStore } from '../../stores/project'
 import { useSidebarStore } from '../../stores/sidebar'
 import { useTabStore } from '../../stores/tabs'
-import type { CheckState, IssueSummary } from '../../types/issues'
+import type { CheckState, IssueSummary, ReviewState } from '../../types/issues'
 
 const { t } = useI18n()
 const sidebar = useSidebarStore()
@@ -58,12 +68,23 @@ interface IssueRow {
  * PR の CI の状態（#413）のアイコンと文言。**行にはアイコンだけ**を出し、文言はツールチップに
  * 畳む（ラベルのドットと同じ理由で、パネルの幅ではタイトルが隠れる）。
  */
-const CHECK_ICON = { success: CircleCheck, failure: CircleX, pending: CircleDashed } as const
+const CHECK_ICON = {
+  success: CircleCheck,
+  failure: CircleX,
+  pending: CircleDashed,
+} as const satisfies Record<CheckState, Component>
 const CHECK_LABEL = {
   success: 'issues.checksSuccess',
   failure: 'issues.checksFailure',
   pending: 'issues.checksPending',
 } as const satisfies Record<CheckState, string>
+
+/** PR のレビューの状態（#605）。CI と同じく、行にはアイコンだけを出して文言はツールチップへ。 */
+const REVIEW_ICON = { approved: UserCheck, changesRequested: UserX } as const satisfies Record<ReviewState, Component>
+const REVIEW_LABEL = {
+  approved: 'issues.reviewApproved',
+  changesRequested: 'issues.reviewChangesRequested',
+} as const satisfies Record<ReviewState, string>
 
 /**
  * issue ごとの整形（相対時刻・ツールチップ・ラベル色）。**入力は一覧そのもの**で、絞り込みにも
@@ -84,6 +105,7 @@ const formatted = computed(() => {
         `#${issue.number} ${issue.title}`,
         `${issue.author} · ${since}`,
         issue.draft ? t('issues.draft') : '',
+        issue.review ? t(REVIEW_LABEL[issue.review]) : '',
         issue.checks ? t(CHECK_LABEL[issue.checks]) : '',
         names,
       ]
@@ -262,9 +284,22 @@ function copyPrompt(issue: IssueSummary) {
         </span>
         <span v-else-if="issuesStore.treeView" class="tree-chevron-space" />
         <span class="issue-number">#{{ row.issue.number }}</span>
-        <!-- ドラフトの PR は題名を淡くする（名前はツールチップ）。バッジを並べるとタイトルが隠れる。 -->
+        <!--
+          ドラフトの PR（#605）。題名を淡くするだけでは色の差しか手がかりが無いので、題名の前に
+          アイコンも出す。文字のバッジにしないのは、パネルの幅（既定 250px）ではタイトルが隠れるため。
+        -->
+        <GitPullRequestDraft v-if="row.issue.draft" class="issue-draft" :size="12" :stroke-width="2" />
         <span class="issue-title" :class="{ draft: row.issue.draft }">{{ row.issue.title }}</span>
         <span v-for="dot in row.dots" :key="dot.name" class="issue-dot" :style="dot.style" />
+        <!-- レビューの状態（#605）。CI の丸いアイコンと形を分けて、人のアイコンにする。 -->
+        <component
+          :is="REVIEW_ICON[row.issue.review]"
+          v-if="row.issue.review"
+          class="issue-review"
+          :class="row.issue.review"
+          :size="12"
+          :stroke-width="2"
+        />
         <component
           :is="CHECK_ICON[row.issue.checks]"
           v-if="row.issue.checks"
@@ -410,6 +445,25 @@ function copyPrompt(issue: IssueSummary) {
 }
 
 .issue-checks.failure {
+  color: var(--danger);
+}
+
+/* ドラフトの印（#605）。淡くした題名と同じ色で、題名の一部として読ませる。 */
+.issue-draft {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+/* レビューの状態（#605）。CI と同じ色の意味（緑が先へ進める、赤が止まっている）。 */
+.issue-review {
+  flex-shrink: 0;
+}
+
+.issue-review.approved {
+  color: var(--success);
+}
+
+.issue-review.changesRequested {
   color: var(--danger);
 }
 
