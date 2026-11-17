@@ -18,7 +18,7 @@ import type { AgentId } from '../../lib/agents'
 import { formatCost, formatTokens } from '../../lib/format'
 import { relativeTime } from '../../lib/paths'
 import { tabDisplayTitle } from '../../lib/tabTitle'
-import { agentFactLabel, fetchedAtLabel, rateLevelClass, toMeter } from '../../lib/usageFormat'
+import { agentFactLabel, fetchedAtLabel, loginExpiryLabel, rateLevelClass, toMeter } from '../../lib/usageFormat'
 import { useTabStore } from '../../stores/tabs'
 import type { TokenRow, UsageFact } from '../../types/agentUsage'
 import { isAgentWaiting } from '../../types/tab'
@@ -74,12 +74,13 @@ function columns(rows: TokenRow[]) {
  * `tokenRows` は合計しか無いとき新しい配列を作るので `:key` の参照も毎回変わる。
  */
 const cards = computed(() =>
-  visible.value.map(({ agent, usage, needsLogin }) => {
+  visible.value.map(({ agent, usage, needsLogin, loginExpiry }) => {
     const rows = usage ? tokenRows(usage) : []
     return {
       agent,
       usage,
       needsLogin,
+      loginExpiry,
       rows,
       cols: columns(rows),
       meters: (usage?.meters ?? []).map(toMeter),
@@ -141,7 +142,7 @@ interface RunRow {
     </header>
 
     <div class="cards selectable">
-      <section v-for="{ agent, usage, needsLogin, rows, cols, meters } in cards" :key="agent.id" class="card">
+      <section v-for="{ agent, usage, needsLogin, loginExpiry, rows, cols, meters } in cards" :key="agent.id" class="card">
         <div class="card-head">
           <Bot :size="15" :stroke-width="2" />
           <span>{{ agent.label }}</span>
@@ -166,6 +167,11 @@ interface RunRow {
           <template v-if="usage.account?.plan">
             <dt>{{ t('agentStatus.plan') }}</dt>
             <dd>{{ usage.account.plan }}</dd>
+          </template>
+          <!-- サインインの期限（#604）。最大 3 日早く切れるので幅で出す。近ければ警告の色。 -->
+          <template v-if="loginExpiry">
+            <dt>{{ t('agentStatus.loginExpiry') }}</dt>
+            <dd :class="{ 'rate-warn': loginExpiry.soon }">{{ loginExpiryLabel(loginExpiry) }}</dd>
           </template>
           <template v-for="f in usage.facts" :key="f.key">
             <dt>{{ agentFactLabel(f.key) }}</dt>
@@ -466,6 +472,11 @@ interface RunRow {
 
 .run-context .rate-danger {
   color: var(--danger);
+}
+
+/* サインインの期限が近い（#604）。利用率の警告と同じ色。 */
+.facts dd.rate-warn {
+  color: var(--git-modify);
 }
 
 /* 押すとそのターミナルへ移る。表の中なので、ボタンの見た目は持たせない。 */

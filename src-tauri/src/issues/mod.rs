@@ -473,10 +473,14 @@ struct GhReview {
 }
 
 impl GhReview {
-    /// 書き込み権限のある人のレビューか。**判定に数えるのはこの人たちだけ**（GitHub の PR の
-    /// 一覧も、権限の無い人の承認は判定に入れない）。外部の人が承認しただけで「承認済み」に
-    /// 見せない。
-    fn by_writer(&self) -> bool {
+    /// リポジトリの所有者・組織のメンバー・コラボレーターのレビューか。**判定に数えるのは
+    /// この人たちだけ**。外部の人が承認しただけで「承認済み」に見せない。
+    ///
+    /// **書き込み権限そのものは確かめない**（`authorAssociation` は関係の種類で、権限ではない。
+    /// 組織の既定の権限が読み取りなら、`MEMBER` でも書き込めない）。確かめるにはレビューした
+    /// 人ごとに `gh api` を起こすことになり、一覧の `gh` を 1 回に保つ判断（#413）に反する。
+    /// 保護規則の無いリポジトリでは GitHub 自身も判定を出さないので、これは目安として扱う。
+    fn by_repo_insider(&self) -> bool {
         matches!(
             self.author_association.as_str(),
             "OWNER" | "MEMBER" | "COLLABORATOR"
@@ -490,8 +494,8 @@ impl GhReview {
 /// CODEOWNERS）を反映した GitHub 自身の判定で、`REVIEW_REQUIRED` は承認が足りていない
 /// （1 人が承認していても 2 人要るなど）ので何も出さない。
 ///
-/// **空のとき（レビューを必須にしていないリポジトリ）はレビューから決める。** 書き込み
-/// 権限のある人ごとに、承認か変更要求の最新を取る。コメントだけのレビュー（Copilot や
+/// **空のとき（レビューを必須にしていないリポジトリ）はレビューから決める。** 所有者・
+/// 組織のメンバー・コラボレーター（`by_repo_insider`）ごとに、承認か変更要求の最新を取る。コメントだけのレビュー（Copilot や
 /// スレッドへの返信）と下書きは飛ばし、取り下げ（`DISMISSED`）はその人の判定を消す。
 /// 変更要求の人が 1 人でもいればそれ、いなくて承認の人がいれば承認。空のまま何も出さないと、
 /// 個人のリポジトリでは承認が一度も見えない。
@@ -505,7 +509,7 @@ fn summarize_review(decision: Option<&str>, reviews: &[GhReview]) -> Option<Revi
     // `gh` は作成順で返すが、決め打ちせずに出した時刻で並べる（下書きは時刻を持たない）。
     let mut ordered: Vec<&GhReview> = reviews
         .iter()
-        .filter(|r| r.by_writer() && r.submitted_at.is_some())
+        .filter(|r| r.by_repo_insider() && r.submitted_at.is_some())
         .collect();
     ordered.sort_by(|a, b| a.submitted_at.cmp(&b.submitted_at));
     let mut latest: HashMap<&str, ReviewState> = HashMap::new();
@@ -896,7 +900,7 @@ mod tests {
     }
 
     /// レビューを 1 値にまとめる（#605）。`reviewDecision` に値があればそれに従い、空なら
-    /// 書き込み権限のある人ごとの、承認か変更要求の最新から決める。
+    /// 所有者・組織のメンバー・コラボレーターごとの、承認か変更要求の最新から決める。
     #[test]
     fn summarizes_the_review_of_pull_requests() {
         use super::{GhAuthor, GhReview, ReviewState, summarize_review};
@@ -976,7 +980,7 @@ mod tests {
             ),
             None
         );
-        // 書き込み権限の無い人の承認と、コメントだけのレビュー（Copilot）は数えない。
+        // 外部の人（`CONTRIBUTOR`）の承認と、コメントだけのレビュー（Copilot）は数えない。
         assert_eq!(
             summarize_review(
                 Some(""),
@@ -986,6 +990,12 @@ mod tests {
                 ])
             ),
             None
+        );
+        // 権限そのものは確かめないので、組織のメンバーは読み取りだけでも数える（目安として
+        // 承知のうえ。`by_repo_insider` の doc）。
+        assert_eq!(
+            summarize_review(None, &reviews(&[("m", "MEMBER", "APPROVED")])),
+            Some(ReviewState::Approved)
         );
         assert_eq!(summarize_review(None, &[]), None);
     }

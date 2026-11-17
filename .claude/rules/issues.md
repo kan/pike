@@ -171,9 +171,14 @@ GitHub の open issue（と、切り替えて open PR。#413）を番号の降�
   - **`reviewDecision` に値があればそれに従う**（保護規則の承認の数や CODEOWNERS を反映した GitHub の
     判定。`REVIEW_REQUIRED` は何も出さない）。**空文字のとき（レビューを必須にしていないリポジトリ。
     pike もそう）は `reviews` から決める**。`reviewDecision` だけを見ると個人のリポジトリでは一度も出ない
-  - **書き込み権限のある人ごとに、承認か変更要求の最新を取る**（`GhReview::by_writer`）。コメントだけの
+  - **所有者・組織のメンバー・コラボレーターごとに、承認か変更要求の最新を取る**
+    （`GhReview::by_repo_insider`。`authorAssociation` が `OWNER` / `MEMBER` / `COLLABORATOR`）。コメントだけの
     レビュー（Copilot・スレッドへの返信）と下書きは飛ばし、取り下げはその人の判定を消す。1 人でも
     変更要求ならそれ、いなくて承認の人がいれば承認。外部の人の承認は数えない
+  - **書き込み権限そのものは確かめない**（`authorAssociation` は関係の種類で、読み取りだけの組織の
+    メンバーも `MEMBER`）。確かめるにはレビューした人ごとに `gh api` を起こすことになり、一覧の `gh` を
+    1 回に保つ判断に反する。保護規則の無いリポジトリでは GitHub 自身も判定を出さないので、目安として扱う。
+    マニュアルにもそう書いてある
   - **`latestReviews` は使わない**。人ごとの最新なので、承認のあとにスレッドへ返信すると（コメントだけの
     レビューができる）承認が消える。コメントを除く `latestOpinionatedReviews` は `gh pr list` が受け付けない
   - アイコンは人の形（`UserCheck` / `UserX`）。CI の丸いアイコンと並ぶので、形を分ける

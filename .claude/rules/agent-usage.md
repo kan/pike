@@ -5,6 +5,7 @@ paths:
   - "src-tauri/src/claude_usage/rate.rs"
   - "src-tauri/src/codex_usage/**"
   - "src/lib/usageFormat.ts"
+  - "src/lib/loginExpiry.ts"
   - "src/stores/agentUsage.ts"
   - "src/stores/usageStore.ts"
   - "src/types/agentUsage.ts"
@@ -132,6 +133,38 @@ Pike のターミナルで claude が動いているあいだ、同梱の mod（
   手で打つのと同じアカウントに入る（Pike が解決した設定ディレクトリを前置する形は採らない。
   シェルごとの引用が要るうえ、ラッパーの判断と二重になる）。終わったら `refreshUsage(true)` で
   取り直す
+
+### サインインの期限（#604）
+
+`claude auth status --json` の `loginExpiresAt`（2.1.318 から）を `ClaudeRateLimits.login_expires_at`
+→ `AgentUsage.login_expires_at` で運ぶ。アクセストークンの期限ではなく、サインインし直さずに
+更新し続けられる期限。
+
+- **`claude auth status` はレートの取得のたびに呼ぶ**（`run_usage_cli`）。期限はここからしか
+  取れない。軽いので `/usage` と同じ間隔で足りる。ログインしているかの判定に答えを使うのは、
+  帯が取れなかったときだけ（上の「ログイン切れ」の節）
+- **2 つの CLI は並べて走らせる**（`run_usage_cli` の `std::thread::scope`）。互いの結果を使わない
+  ので、直列にすると更新ボタンで `auth status` のぶん余分に待たせる
+- **期限は `loggedIn` が真のときだけ採る**（`AuthStatus::expiry`）。ログアウト済みの記録に
+  残った期限を「まだ使える」と読ませない。**「要ログインなら期限を出さない」はこの 1 か所が
+  保証する**（`login_required` が立つのは答えが無いか未ログインのときだけ）。下流で重ねて絞らない
+- **前回値に戻すとき、`auth status` が答えていれば期限は今回の答えを使う**（`get_rate_limits`。
+  答えたかは `ClaudeRateLimits.auth_answered`）。`/usage` が失敗しても `auth status` は答えている
+  ことがあり、延びた期限や、API キーへ切り替えて期限が無くなったことが古い値に隠れる。答えなかった
+  ときだけ前回の期限を残す
+- **幅と警告の判定は `lib/loginExpiry.ts`**（i18n を読まない純粋な関数。`tests/loginExpiry.test.ts`）。
+  実際には最大 `EARLY_EXPIRY_DAYS`（3 日）早く切れるので「最も早い日〜期限」で出し、最も早い日
+  までが `EXPIRY_WARN_DAYS`（7 日）以下なら警告にする。読めない値は `null`。**過ぎた期限は消さずに
+  `expired` で返す**（使用量は最長 1 時間ごとにしか取り直さないので、消すと「要ログイン」が出るまで
+  何も知らせない）
+- **残り日数は `useAgentUsage` の時計（`EXPIRY_CLOCK_MS`、10 分）で数え直す**。computed で
+  `Date.now()` を読むだけでは時刻に依存を張れず、ストアは値が変わらなければ同じオブジェクトを返す
+- **日付は端末の時刻帯**（`usageFormat.ts` の `loginExpiryLabel`。リセット時刻と同じ）。Claude Code
+  本体の警告は UTC の日付なので、1 日ずれることがある
+- 導出は `useAgentUsage` の entry の `loginExpiry` と `expiringSoon`。StatusBar の項目は、要ログインで
+  ないときだけ利用率の横に警告の印を足し、中身はツールチップ（`headlineTitle`）で言う
+- API キー・`CLAUDE_CODE_OAUTH_TOKEN`・期限の記録が無いログインでは CLI が返さない（欠けるか null）。
+  そのときは「不明」とも出さず、行ごと出さない
 
 ## Codex
 
