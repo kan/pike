@@ -60,4 +60,9 @@ export interface AgentUsage {
   fetchedAt: number | null
   /** エージェントがログインを求めている（#381）。ログインのコマンドは `AgentDef.login`。 */
   loginRequired: boolean
+  /**
+   * サインインの期限（#604、ISO 8601）。今は Claude だけが入れる。期限を持たないログイン
+   * （API キーなど）とログインを求めているときは `null`。読むのは `lib/loginExpiry.ts`。
+   */
+  loginExpiresAt: string | null
 }

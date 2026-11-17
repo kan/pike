@@ -284,6 +284,7 @@ pike/
 │   │   ├── agents.ts        # Pike が知っているエージェントの表（#275。id・起動コマンドの正本）
 │   │   ├── shortcuts.ts     # ショートカットの割り当て表（#254。キーの正本）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
+│   │   ├── loginExpiry.ts    # Claude Code のサインインの期限の幅・残り日数・警告の判定（#604。i18n を読まない）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
 │   │   ├── issueLabels.ts    # issue パネルで隠すラベルの検証と判定（#531。設定画面の欄は SettingTagList.vue）
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278。エディタのプレビューも使う、#482）

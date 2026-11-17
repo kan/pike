@@ -41,6 +41,15 @@ pub struct ClaudeRateLimits {
     /// 「帯が空」に畳まれていたので、ログインが切れても StatusBar は前回の値を出し続け、
     /// 2 時間後に黙って消えるだけだった。
     pub login_required: bool,
+    /// サインインの期限（#604。`claude auth status --json` の `loginExpiresAt`、ISO 8601）。
+    /// アクセストークンの期限ではなく、サインインし直さずに更新し続けられる期限。
+    /// API キーや `CLAUDE_CODE_OAUTH_TOKEN` のログインでは CLI が返さないので `None`。
+    pub login_expires_at: Option<String>,
+    /// この取得で `claude auth status` が答えたか（#604）。**期限が無いことと、聞けなかった
+    /// ことを分ける**ためだけに持つ（前回値に戻すとき、前者は「期限なし」を採り、後者は前回の
+    /// 期限を残す）。フロントには送らない。
+    #[serde(skip)]
+    pub auth_answered: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -153,19 +162,35 @@ fn needs_fetch(entry: &CacheEntry, session_active: bool, logged_out: bool) -> bo
     }
 }
 
-/// `claude auth status --json` の返り（#381）。読むのは 1 つだけ。
+/// `claude auth status --json` の返り（#381 / #604）。読むのは 2 つだけ。
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AuthStatus {
     logged_in: bool,
+    /// サインインの期限（2.1.318 から）。古い CLI と、期限を持たないログイン（API キー・
+    /// `CLAUDE_CODE_OAUTH_TOKEN`・期限の記録が無いログイン）では欠けるか null。
+    #[serde(default)]
+    login_expires_at: Option<String>,
 }
 
-/// CLI に「ログインしているか」を直接聞く（#381）。
+impl AuthStatus {
+    /// 表示してよい期限。**ログインしていないときの値は捨てる**（期限の残ったログアウト済みの
+    /// 記録を「まだ使える」と読ませない）。空の文字列も無いのと同じに扱う。
+    fn expiry(&self) -> Option<String> {
+        self.login_expires_at
+            .as_deref()
+            .filter(|s| self.logged_in && !s.trim().is_empty())
+            .map(str::to_owned)
+    }
+}
+
+/// CLI にログインの状態を直接聞く（#381 / #604）。
 ///
-/// **これが一番確かな印。** `/usage` の文言で見る形は、CLI が未ログインでも `/login` に
-/// 触れなくなった版（2.1.278）で丸ごと効かなくなった（`asks_for_login` の doc）。
+/// **ログインしているかの一番確かな印。** `/usage` の文言で見る形は、CLI が未ログインでも
+/// `/login` に触れなくなった版（2.1.278）で丸ごと効かなくなった（`asks_for_login` の doc）。
+/// サインインの期限（`loginExpiresAt`）もここからしか取れない。
 ///
-/// **`/usage` より桁違いに軽い**ので、取得のたびに一緒に起こしてよい（この開発機で
+/// **`/usage` より桁違いに軽い**ので、取得のたびに一緒に起こす（この開発機で
 /// Windows 0.28 秒 / WSL 0.71 秒、`claude -p "/usage"` は 3.8 秒）。あちらはエージェントの
 /// ランタイムを起こすが、こちらは手元の資格情報を読むだけ。
 ///
@@ -178,7 +203,7 @@ fn run_auth_status(
     shell: &ShellConfig,
     project_root: &str,
     config_dir: Option<&str>,
-) -> Option<bool> {
+) -> Option<AuthStatus> {
     let env: Vec<(&str, &str)> = config_dir
         .map(|d| ("CLAUDE_CONFIG_DIR", d))
         .into_iter()
@@ -186,13 +211,13 @@ fn run_auth_status(
     let (_code, stdout, _stderr) = shell
         .run_shell_line_env(project_root, &env, "claude auth status --json", CLI_TIMEOUT)
         .ok()?;
-    // `.bashrc` がバナーを出すことがあるので、JSON の始まりから読む。
+    parse_auth_status(&stdout)
+}
+
+/// `.bashrc` がバナーを出すことがあるので、JSON の始まりから読む。
+fn parse_auth_status(stdout: &str) -> Option<AuthStatus> {
     let start = stdout.find('{')?;
-    Some(
-        serde_json::from_str::<AuthStatus>(&stdout[start..])
-            .ok()?
-            .logged_in,
-    )
+    serde_json::from_str(&stdout[start..]).ok()
 }
 
 fn run_usage_cli(
@@ -212,8 +237,12 @@ fn run_usage_cli(
         .map(|d| ("CLAUDE_CONFIG_DIR", d))
         .into_iter()
         .collect();
-    let (windows, asked_login) =
-        match shell.run_shell_line_env(project_root, &env, &line, CLI_TIMEOUT) {
+    // **`claude auth status` は毎回、`/usage` と並べて走らせる**（#604）。サインインの期限は
+    // あちらからしか取れない。2 つは互いの結果を使わないので、直列にすると更新ボタンを
+    // 押した人が `auth status` のぶん（WSL で 0.7 秒ほど）余分に待つ。
+    let ((windows, asked_login), auth) = std::thread::scope(|s| {
+        let auth = s.spawn(|| run_auth_status(shell, project_root, config_dir));
+        let usage = match shell.run_shell_line_env(project_root, &env, &line, CLI_TIMEOUT) {
             Ok((_code, stdout, stderr)) => {
                 let windows = parse_usage_output(&stdout);
                 let asked = windows.is_empty() && asks_for_login(&stdout, &stderr);
@@ -221,16 +250,24 @@ fn run_usage_cli(
             }
             Err(_) => (Vec::new(), false),
         };
-    // **帯が取れたなら聞くまでもない**（ログインしていなければ取れない）。取れなかった
-    // ときだけ CLI に直接聞き、それも読めなければ `.claude.json` の印に落ちる。
+        (usage, auth.join().ok().flatten())
+    });
+    // ログインしているかは、**帯が取れたなら聞くまでもない**（ログインしていなければ
+    // 取れない）。取れなかったときだけ `auth status` の答えを使い、それも読めなければ
+    // `.claude.json` の印に落ちる。
     let login_required = windows.is_empty()
-        && run_auth_status(shell, project_root, config_dir)
-            .map_or(logged_out || asked_login, |logged_in| !logged_in);
+        && auth
+            .as_ref()
+            .map_or(logged_out || asked_login, |a| !a.logged_in);
     ClaudeRateLimits {
         active: !windows.is_empty(),
         fetched_at: now_epoch(),
         windows,
         login_required,
+        // ログインしていないときの期限は `expiry` が落とすので、`login_required` で
+        // 重ねて絞らない（立つのは答えが無いか未ログインのときだけで、どちらも期限は無い）。
+        login_expires_at: auth.as_ref().and_then(AuthStatus::expiry),
+        auth_answered: auth.is_some(),
     }
 }
 
@@ -288,7 +325,16 @@ pub(crate) fn get_rate_limits(
         && let Some(prev) = cached.map(|c| c.data).filter(|d| d.active)
         && now_epoch().saturating_sub(prev.fetched_at) < STALE_KEEP_MAX.as_secs()
     {
+        // **`claude auth status` が答えたなら、期限は今回の答えを使う**（#604）。帯が取れな
+        // かったのは `/usage` の失敗で、あちらは別に答えていることがある。サインインし直すと
+        // 期限が延び、API キーへ切り替えると期限が無くなるので、古い値に戻すとどちらも
+        // 見えない。答えなかったときだけ前回の期限を残す。
+        let fresh = (result.auth_answered, result.login_expires_at.take());
         result = prev;
+        if fresh.0 {
+            result.login_expires_at = fresh.1;
+            result.auth_answered = true;
+        }
     }
     cache().lock().unwrap().insert(
         key,
@@ -480,7 +526,7 @@ mod tests {
                  Current week (all models): 20% used\n\
                  Current week (Fable): 30% used\n",
             ),
-            login_required: false,
+            ..Default::default()
         };
         let reported = [
             ReportedWindow {
@@ -546,17 +592,34 @@ mod tests {
     #[test]
     fn reads_logged_in_out_of_auth_status() {
         let json = r#"{"loggedIn":true,"authMethod":"claude.ai","email":"k@example.com","subscriptionType":"max"}"#;
-        let parsed: super::AuthStatus = serde_json::from_str(json).unwrap();
+        let parsed = super::parse_auth_status(json).unwrap();
         assert!(parsed.logged_in);
+        // 期限を返さない古い CLI でも読める。
+        assert_eq!(parsed.expiry(), None);
 
         let out = format!(
             "On branch main
 {}",
             r#"{"loggedIn":false,"authMethod":"none"}"#
         );
-        let start = out.find('{').unwrap();
-        let parsed: super::AuthStatus = serde_json::from_str(&out[start..]).unwrap();
+        let parsed = super::parse_auth_status(&out).unwrap();
         assert!(!parsed.logged_in);
+    }
+
+    /// サインインの期限（#604）。2.1.326 の実際の出力から抜粋。
+    #[test]
+    fn reads_the_login_expiry_out_of_auth_status() {
+        let json = r#"{"loggedIn":true,"authMethod":"claude.ai","loginExpiresAt":"2026-11-21T23:45:11.205Z","storedClaudeAiLogin":true}"#;
+        assert_eq!(
+            super::parse_auth_status(json).unwrap().expiry().as_deref(),
+            Some("2026-11-21T23:45:11.205Z")
+        );
+        // API キーなど、期限を持たないログインでは null。
+        let json = r#"{"loggedIn":true,"authMethod":"api_key","loginExpiresAt":null}"#;
+        assert_eq!(super::parse_auth_status(json).unwrap().expiry(), None);
+        // ログアウト済みの記録に残った期限は出さない。
+        let json = r#"{"loggedIn":false,"loginExpiresAt":"2026-11-21T23:45:11.205Z"}"#;
+        assert_eq!(super::parse_auth_status(json).unwrap().expiry(), None);
     }
 
     /// ログアウトが分かっているのに残量を出している答えは、TTL を待たずに捨てる（#381）。
