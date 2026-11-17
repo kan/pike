@@ -9,8 +9,10 @@ import {
   shoot,
 } from '../support/prepare'
 
-// カードを 1 画面に収めるため、既定より縦を取る（layout.ts と同じ）。
-const FULL = { width: 1600, height: 1260 }
+// カードを 1 画面に収めるため、既定より縦を取る（layout.ts と同じ）。Claude のカードに
+// サインインの期限の行（#604）が増えたぶん、1260 から上げた。**行を足したら最後の opencode の
+// カードの表が下端で切れていないか、撮った画像で確かめる。**
+const FULL = { width: 1600, height: 1300 }
 
 // エージェント状態タブ（#226 / #263）を撮影する。
 // 集計は 30 秒ポーリング + 外部 CLI（`claude -p "/usage"` / `~/.codex` の走査 /
