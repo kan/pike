@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-11-17
+
 ### Features
 
 - **Claude Code のサインインの期限を表示するようにした**：エージェント状態タブとステータスバーのドロップダウンに、サインインし直さずに使い続けられる期限と残り日数を出します。実際には期限より最大 3 日早く切れることがあるので、「11/19〜11/22（残り 2〜5 日）」のように、最も早く切れうる日から期限までの幅で出します。最も早い日まで 7 日を切ると警告の色になり、ステータスバーのメーターにも警告の印が付きます。API キーなど、期限を持たない認証方式では出しません (#604)
@@ -2003,6 +2005,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.72.0]: https://github.com/kan/pike/releases/tag/v0.72.0
 [0.71.0]: https://github.com/kan/pike/releases/tag/v0.71.0
 [0.70.2]: https://github.com/kan/pike/releases/tag/v0.70.2
 [0.70.1]: https://github.com/kan/pike/releases/tag/v0.70.1
