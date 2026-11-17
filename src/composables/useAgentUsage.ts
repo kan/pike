@@ -22,8 +22,9 @@ export interface AgentUsageEntry {
   agent: AgentDef
   usage: AgentUsage | null
   /**
-   * 画面に出す価値があるか。**アカウントか、利用率か、トークンか、種別固有の値の
-   * どれかがある**こと。id しか無い応答（そのエージェントを使っていない）は出さない。
+   * 画面に出す価値があるか。**アカウントか、利用率か、トークンか、種別固有の値か、
+   * サインインの期限（#604）のどれかがある**こと。id しか無い応答（そのエージェントを
+   * 使っていない）は出さない。
    */
   hasData: boolean
   /**
@@ -69,14 +70,18 @@ export function useAgentUsage() {
   const entries = computed<AgentUsageEntry[]>(() =>
     stores.map(({ agent, store }) => {
       const usage = store.usage
+      const expiry = loginExpiry(usage?.loginExpiresAt, clock.value)
       return {
         agent,
         usage,
         needsLogin: Boolean(usage?.loginRequired && agent.login),
-        loginExpiry: loginExpiry(usage?.loginExpiresAt, clock.value),
+        loginExpiry: expiry,
+        // **期限だけでも出す**（#604）。`/usage` が落ちてアカウントも記録も読めないときでも、
+        // `auth status` の答えた期限と警告は消さない（警告が要るのはそういうときでもある）。
         hasData: Boolean(
           usage &&
             (usage.loginRequired ||
+              expiry ||
               usage.account?.email ||
               usage.account?.name ||
               usage.account?.plan ||
