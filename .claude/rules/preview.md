@@ -100,6 +100,7 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
 - **数式は 2 段で描く**: marked は `.math` の印にソースを包んで出すだけで、DOM に入ったあとで `renderMath` が KaTeX を当てる（プレビューの watcher・issue タブの watcher・マニュアルの `postProcess`）。KaTeX は数式があるときだけ動的 import し、結果はキャッシュする
   - **KaTeX の出力は DOMPurify に通さない。** DOMPurify は MathML の `semantics` / `annotation` を禁止リストに持っていて崩れる。`trust: false`（既定）の KaTeX は外へ出る命令を描かないので、そのまま入れてよい
   - **`katex` は `0.18.10` に固定してある**: 0.18.11 は「誤って破壊的変更を含めて出した」として非推奨。固定の理由はこれだけで、他の依存と系列を揃える必要は無い。0.19 へ上げるときは数式の描画を確かめる
+  - **`marked` は 18.1.3 に留めてある**（#620）。18.2.0 と 18.2.1 は、`previewParser` を通すと `'$a*' + '<!--x>'.repeat(n) + '$'` のような閉じていない HTML コメントの並びで処理時間が二次的に増える（n = 8000 で 18.1.3 は 4ms、18.2.0 は 226ms。n = 32000 で 3.5 秒以上）。プレビューは同期で描くので WebView が固まり、issue タブは他人の書いた本文をこのパーサで描く。**上げる前に、tsx で `previewParser({ theme: () => 'dark' })` にこの入力を通して測り、n を倍にして時間が倍程度で済むことを確かめる**（素の `marked.parse` ではどの版も二次的に増えるので、比べる相手にならない）
   - フォントは CSS の参照から `vite.config.ts` の `katexWoff2Only` が woff / ttf を落とし、**woff2 だけを同梱する**（`font-src 'self' data:` のまま。CDN は使わない）
   - プレビューの検索は KaTeX の読み上げ用の `.katex-mathml` を飛ばす（`lib/domFind.ts` の `SKIP_SELECTOR`。見えない文字に一致が付く）
 - **絵文字の対応表は `markdown-it-emoji` のデータ（`lib/data/full.mjs`）だけを使う**。中身は GitHub の gemoji と同じ名前の集合で、gemoji の npm 版より小さい。使うときだけ読み込み（`loadEmojiFor`）、読み終えたら読み込みを始めた computed が組み直される（表を `shallowRef` に持つ。マニュアルは待ってから描く）
