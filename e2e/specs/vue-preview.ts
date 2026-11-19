@@ -96,17 +96,24 @@ const PREVIEW_HTML = `<!doctype html>
 /** vue-preview が返す「fixture で与えられるもの」。フォームの欄になる。 */
 const INPUTS = {
   props: [
-    { name: 'user', types: ['User'] },
-    { name: 'compact', types: ['Boolean'], default: false },
+    { name: 'user', types: ['Object'], tsType: 'User' },
+    { name: 'compact', types: ['Boolean'], tsType: 'boolean', default: false },
   ],
   values: [{ name: 'followers' }],
   fixture: null,
+  presets: [{ name: 'compact=true', props: { compact: true } }],
 }
+
+/** art ファイル（`UserCard.art.vue`）の variant。帯に variant の選択が出る。 */
+const VARIANTS = [
+  { name: 'Default', default: true },
+  { name: 'Compact', default: false },
+]
 
 /** 子 webview を作る・置く・描き直すコマンドを空振りさせ、描画の結果だけを返す。 */
 async function mockVuePreview(available: 'found' | 'missing'): Promise<void> {
   await mockInvoke('vue_preview_available', available)
-  await mockInvoke('vue_preview_render', { deps: [], warnings: [], inputs: INPUTS })
+  await mockInvoke('vue_preview_render', { deps: [], warnings: [], inputs: INPUTS, variants: VARIANTS })
   // 描画のルート（いちばん近い package.json）。実物を探しに行かせない。
   await mockInvoke('fs_resolve_first_existing', 'C:/Users/dev/demo-app/package.json')
   for (const cmd of ['preview_open', 'preview_set_files', 'browser_place', 'browser_history', 'browser_close']) {

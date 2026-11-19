@@ -19,10 +19,15 @@
  * **マウント時の値を仮に埋めるフォーム**（props や `onMounted` で取るデータ）。欄は vue-preview の
  * `inputs`、入れた値はプロジェクトの `.pike/preview/` に fixture として置き、`--fixture` で渡す
  * （リポジトリには入らない）。置いてあるあいだは SFC の隣の `<name>.preview.json` より優先する。
+ *
+ * **variant と値の組（vue-preview 0.7、#628）は帯の select で選ぶ**。前回の出力に一覧
+ * （`variants` / `inputs.presets`）があるときだけ出し、選んだら `--variant` / `--preset` を
+ * 付けて描き直す。0.6 以前に渡すと知らない引数として失敗するので、一覧が無いときは渡さない。
+ * 選択（`choice`）はエディタのタブが持つ（Edit に切り替えてこのコンポーネントが外れても残す）。
  */
 
 import { AlertTriangle, LoaderCircle, SlidersHorizontal } from 'lucide-vue-next'
-import { computed, ref, useTemplateRef, watch } from 'vue'
+import { computed, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { previewWebviewOptions, useChildWebview } from '../../composables/useChildWebview'
 import { usePreviewRefresh } from '../../composables/usePreviewRefresh'
 import { useI18n } from '../../i18n'
@@ -47,8 +52,11 @@ import {
   type InputField,
   inputFields,
   pikeFixtureName,
+  reconcileChoice,
   VUE_PREVIEW_ENTRY,
+  type VueChoice,
   type VueInputs,
+  type VueVariant,
   vuePreviewMessagePage,
 } from '../../lib/vuePreview'
 import { useProjectStore } from '../../stores/project'
@@ -63,6 +71,8 @@ const props = defineProps<{
   /** スマートフォンの縦長の画面で見る（`HtmlPreview` と同じ）。 */
   mobile?: boolean
 }>()
+/** 帯で選んだ variant と値の組。持ち主はエディタのタブ（上の doc）。 */
+const choice = defineModel<VueChoice>('choice', { default: () => ({ variant: null, preset: null }) })
 const { t } = useI18n()
 const projectStore = useProjectStore()
 const vuePreviewStore = useVuePreviewStore()
@@ -98,6 +108,10 @@ const formValues = ref<Record<string, unknown> | null>(null)
 const showForm = ref(false)
 const fields = ref<InputField[]>([])
 const canFill = computed(() => !!inputs.value && inputs.value.props.length + inputs.value.values.length > 0)
+/** art ファイルの variant（前回の結果の `variants`。art ファイルが無い・古い vue-preview では null）。 */
+const variants = ref<VueVariant[] | null>(null)
+const presets = computed(() => inputs.value?.presets ?? [])
+const canChoose = computed(() => !!variants.value?.length || presets.value.length > 0)
 
 /** fixture（JSON のオブジェクト）を読む。無い・読めない・オブジェクトでないなら null。 */
 async function readFixture(shell: ShellType, path: string): Promise<Record<string, unknown> | null> {
@@ -145,15 +159,37 @@ const view = useChildWebview({
     deps = new Set()
     warnings.value = []
     inputs.value = null
+    variants.value = null
     showForm.value = false
   },
 })
 
-/** Save As で別のファイルになったら作り直す（`HtmlPreview` と同じ理由）。 */
+/**
+ * Save As で別のファイルになったら作り直す（`HtmlPreview` と同じ理由）。選んでいた variant と
+ * 値の組は、Edit のあいだの Save As も拾えるよう `EditorTab` が捨てる。
+ */
 watch(
   () => props.path,
   () => view.recreate(),
 )
+
+/**
+ * 今の選択。**読むのはこちら**: `choice` は親の v-model なので、書いてもその場では値が変わらず
+ * （親が描き直して prop が届いてから変わる）、書いた直後の描画が前の選択で走る。書くときは
+ * `setChoice` で両方へ書き、親が変えたとき（Save As で捨てた）は watch で受ける。
+ */
+const picked = shallowRef<VueChoice>(choice.value)
+watch(choice, (c) => (picked.value = c))
+function setChoice(c: VueChoice) {
+  picked.value = c
+  choice.value = c
+}
+
+/** 帯の select で選び直した。空の値は「選ばない」。 */
+function choose(key: keyof VueChoice, value: string) {
+  setChoice({ ...picked.value, [key]: value || null })
+  void render()
+}
 
 /**
  * 描いて置き直す。**走っているあいだの要求は 1 回に畳んで、終わってから描き直す**
@@ -185,9 +221,10 @@ async function renderOnce(s: Served) {
   const label = view.label()
   let result: VueRender | null = null
   let failure: string | null = null
+  const used = picked.value
   try {
     const fixture = formValues.value ? s.fixture : null
-    result = await vuePreviewRender(s.shell, s.root, s.rel, label, VUE_PREVIEW_ENTRY, fixture)
+    result = await vuePreviewRender(s.shell, s.root, s.rel, label, VUE_PREVIEW_ENTRY, fixture, used)
   } catch (e) {
     failure = String(e)
     // vue-preview が消えたのかもしれない。Rust は「見つかった」をプロセスの寿命ぶん覚えているので、
@@ -201,6 +238,20 @@ async function renderOnce(s: Served) {
   if (result) {
     deps = new Set(result.deps)
     inputs.value = result.inputs
+    variants.value = result.variants
+    // 一覧から消えた名前は「選ばない」に戻す（vue-preview は warning を出して、選ばないときと
+    // 同じに描いている）。描いているあいだに選び直していれば、そちらの描き直しに任せる。
+    if (picked.value === used) setChoice(reconcileChoice(used, result.variants, result.inputs))
+  } else if (picked.value === used) {
+    // 失敗した回は、知っている一覧に照らす。**一覧をまだ知らない**（Edit から戻って作り直した
+    // 直後。タブが覚えていた選択を渡している）なら選択を捨てて描き直す: 古い vue-preview は
+    // `--variant` を知らずに失敗し続け、一覧が届かないので select も出ず、外す手段が無くなる。
+    // 一覧にある名前のまま失敗したなら残す（art ファイルの誤りなど。select から外せる）。
+    const known = reconcileChoice(used, variants.value, inputs.value)
+    if (known !== used) {
+      setChoice(known)
+      again = true
+    }
   }
   warnings.value = result?.warnings ?? []
   try {
@@ -287,7 +338,27 @@ defineExpose({ onSaved })
 <template>
   <PreviewFrame ref="frame" :mobile="mobile" :message="message" :error="!!error">
     <template #bar>
-      <div v-if="rendering || warnings.length || canFill || formValues" class="vue-preview-bar">
+      <div v-if="rendering || warnings.length || canFill || canChoose || formValues" class="vue-preview-bar">
+        <select
+          v-if="variants?.length"
+          class="vue-preview-select"
+          :title="t('vuePreview.variant')"
+          :value="picked.variant ?? ''"
+          @change="choose('variant', ($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">{{ t('vuePreview.componentOnly') }}</option>
+          <option v-for="v in variants" :key="v.name" :value="v.name">{{ v.name }}</option>
+        </select>
+        <select
+          v-if="presets.length"
+          class="vue-preview-select"
+          :title="t('vuePreview.preset')"
+          :value="picked.preset ?? ''"
+          @change="choose('preset', ($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">{{ t('vuePreview.noPreset') }}</option>
+          <option v-for="p in presets" :key="p.name" :value="p.name">{{ p.name }}</option>
+        </select>
         <span v-if="rendering" class="vue-preview-status">
           <LoaderCircle :size="12" class="spin" />{{ t('vuePreview.renderingShort') }}
         </span>
@@ -328,6 +399,16 @@ defineExpose({ onSaved })
 
 .vue-preview-spacer {
   flex: 1;
+}
+
+.vue-preview-select {
+  max-width: 14em;
+  padding: 0 2px;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
 }
 
 .vue-preview-status,

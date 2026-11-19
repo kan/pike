@@ -34,7 +34,10 @@ const groups = computed(() => {
   ]
 })
 
-/** 欄名の下の添え書き：`prop · Boolean · 初期値 false`。 */
+/**
+ * 欄名の下の添え書き：`prop · Boolean · 初期値 false`。選べる値のある欄（select）は
+ * 「与えない」の項目に初期値が出ないので、ここで見せるのがすべて。
+ */
 function note(f: InputField): string {
   const initial = f.initial === null ? '' : `${t('vuePreview.initialValue')} ${f.initial}`
   return [f.kind === 'prop' ? 'prop' : '', f.types, initial].filter(Boolean).join(' · ')
@@ -52,7 +55,11 @@ function note(f: InputField): string {
             {{ f.name }}
             <small>{{ note(f) }}</small>
           </span>
-          <textarea v-model="f.text" rows="1" spellcheck="false" :placeholder="f.initial ?? ''" />
+          <select v-if="f.options" v-model="f.text">
+            <option value="">{{ t('vuePreview.notGiven') }}</option>
+            <option v-for="o in f.options" :key="o" :value="o">{{ o }}</option>
+          </select>
+          <textarea v-else v-model="f.text" rows="1" spellcheck="false" :placeholder="f.initial ?? ''" />
         </label>
       </component>
     </template>
@@ -109,7 +116,8 @@ function note(f: InputField): string {
   font-size: 10px;
 }
 
-.vue-preview-field textarea {
+.vue-preview-field textarea,
+.vue-preview-field select {
   width: 100%;
   min-height: 22px;
   resize: vertical;
