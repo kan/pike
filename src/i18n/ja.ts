@@ -43,6 +43,7 @@ export default {
   'sidebar.diagnostics': '問題',
   'sidebar.issues': 'Issue',
   'sidebar.ci': 'CI',
+  'sidebar.sessions': 'エージェントのセッション',
   'sidebar.browser': 'ブラウザ',
   'sidebar.hideIcon': '「{name}」を非表示',
   'sidebar.resetIcons': '並び順と表示を元に戻す',
@@ -1238,6 +1239,30 @@ export default {
   'shortcuts.mdListContinue': 'リスト・引用の継続（空の項目で解除）',
   'shortcuts.shellFirst': 'シェルに渡す（タブ操作と検索のキーを除く）',
   'shortcuts.shellFirstMac': 'シェルに渡す',
+
+  // このプロジェクトのアカウントで動いている Claude Code のセッション (#625)
+  'liveSessions.waiting': '返答待ち',
+  'liveSessions.busy': '稼働中',
+  'liveSessions.idle': 'アイドル',
+  'liveSessions.waitingFor': '待っているもの: {reason}',
+  'liveSessions.empty': 'このアカウントで動いている Claude Code のセッションはありません',
+  'liveSessions.noProject': 'プロジェクトを開くと、そのアカウントのセッションが並びます',
+  'liveSessions.details': '詳細',
+  'liveSessions.jump': '移動',
+  'liveSessions.jumpTab': 'クリックでそのターミナルへ移ります',
+  'liveSessions.jumpProject': 'クリックでそのプロジェクトへ移り、セッションのタブを開きます',
+  'liveSessions.jumpDir': 'クリックでそのディレクトリを開きます',
+  'liveSessions.unregistered': '未登録のディレクトリ',
+  'liveSessions.updated': '{when} に更新',
+  'liveSessions.menuJump': 'このセッションへ移動',
+  'liveSessions.menuNewWindow': '新しいウィンドウで開く',
+  'liveSessions.menuTerminal': 'そこでターミナルを開く',
+  'liveSessions.menuCopyId': 'セッション ID をコピー',
+  'liveSessions.menuCopyResume': '再開コマンドをコピー',
+  'liveSessions.menuCopyCwd': 'ディレクトリのパスをコピー',
+  'liveSessions.confirmResume':
+    '「{name}」は Pike のターミナル以外で動いています。このプロジェクトに新しいターミナルを開き、claude --resume でこのセッションを開きますか？\n\n元のプロセスは止まらないので、同じ会話を 2 か所で開くことになります。',
+  'liveSessions.startedAt': '{when} 起動',
 
   // エージェント状態パネル (#226)
   'agentStatus.title': 'エージェント状態',

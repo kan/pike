@@ -958,6 +958,24 @@ textarea,
   flex-shrink: 0;
 }
 
+/* 今動いている Claude Code のセッションの状態の点（#625。パネルと詳細のタブが共有）。返答待ちは
+   入力待ちの知らせ（#265）と同じ緑、稼働中は変更の色、アイドルは淡色。位置は置いた側が決める。 */
+.live-state-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.live-state-dot.waiting {
+  background: var(--success);
+}
+
+.live-state-dot.busy {
+  background: var(--git-modify);
+}
+
 /* パネルの右クリックメニュー（ファイルツリー・Git のファイル/コミット・issue が共有）。
    **幅だけは置いた側に残す**（項目のラベルの長さで決まるので、`.tree-chevron` の色と同じ
    「消費者ごとの差」）。キーの綴りを右に並べるメニュー（タブバー・エディタ）は別様式で、

@@ -174,8 +174,12 @@ fn scan_titles(file: &mut fs::File, start: u64, end: u64) -> TranscriptScan {
 }
 
 /// `resume_dir` は置き場で決まる（[`session_dirs`]）ので、どこから読んだかを知っている
-/// 呼び出し側が渡す。
-fn read_session(path: &Path, modified_at: u64, resume_dir: Option<&str>) -> Option<AgentSession> {
+/// 呼び出し側が渡す。稼働中のセッションの一覧（`live.rs`、#625）も題とブランチをここで読む。
+pub(super) fn read_session(
+    path: &Path,
+    modified_at: u64,
+    resume_dir: Option<&str>,
+) -> Option<AgentSession> {
     // The id is interpolated into a shell command line, and it comes from a
     // file name rather than from Claude itself — keep it to the id alphabet.
     let id = path.file_stem()?.to_str()?;
@@ -278,6 +282,35 @@ fn session_dirs(root: &str, worktrees: &[String], fold_case: bool) -> Vec<Sessio
         }
     }
     dirs
+}
+
+/// 1 つのセッションを再開できるディレクトリ（#625。動いているセッションの一覧から再開するとき）。
+/// `cwd` はそのセッションを起動した場所で、そこと、そのリポジトリの worktree のうち、記録が
+/// いちばん新しく書かれた場所を返す（途中で worktree へ移ったセッションは移動先でしか
+/// 再開できない。理由は [`session_dirs`] の doc）。起動した場所のままでよければ `None`。
+///
+/// **git を 1 回起こす**ので、押したときにだけ呼ぶ（ポーリングに載せない）。
+pub(crate) fn resume_dir_of(
+    shell: &ShellConfig,
+    claude_dir: &Path,
+    cwd: &str,
+    session_id: &str,
+) -> Option<String> {
+    validate_slug(session_id, "session id").ok()?;
+    let projects = claude_dir.join("projects");
+    let file = format!("{session_id}.jsonl");
+    session_dirs(
+        cwd,
+        &crate::git::worktree_paths(shell, cwd),
+        shell.is_windows(),
+    )
+    .into_iter()
+    .filter_map(|d| {
+        let meta = fs::metadata(projects.join(&d.slug).join(&file)).ok()?;
+        Some((modified_ms(&meta)?, d))
+    })
+    .max_by_key(|(modified, _)| *modified)
+    .and_then(|(_, d)| d.resume_dir)
 }
 
 fn modified_ms(meta: &fs::Metadata) -> Option<u64> {

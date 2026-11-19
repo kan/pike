@@ -334,6 +334,7 @@ export function useAppActions(): Record<AppActionId, () => void> & {
     panelDiagnostics: () => togglePanel('diagnostics'),
     panelIssues: () => togglePanel('issues'),
     panelCi: () => togglePanel('ci'),
+    panelSessions: () => togglePanel('sessions'),
     panelProjects: () => togglePanel('projects'),
     panelBrowser: () => togglePanel('browser'),
     // 失敗の通知はストア側（`setError`）。入口ごとに書くと、どれかが漏れる。

@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Bot,
   FileDiff,
   FileInput,
   Gauge,
@@ -39,6 +40,8 @@ export const TAB_KIND_ICONS: Record<Tab['kind'], Component | null> = {
   'docker-logs': ScrollText,
   settings: Settings,
   'agent-status': Gauge,
+  // サイドバーのセッションのパネルと同じアイコン（#625）。
+  'agent-sessions': Bot,
   'sync-conflicts': GitMerge,
   'sync-import': FileInput,
   manual: BookOpen,

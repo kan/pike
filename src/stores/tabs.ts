@@ -859,7 +859,10 @@ export const useTabStore = defineStore('tabs', () => {
    * タイトルは英語リテラル: 表示名は `tabDisplayTitle` が kind から i18n を引くので、
    * ここの値はフォールバック。
    */
-  function openSimpleSingleton(kind: 'agent-status' | 'sync-conflicts' | 'sync-import', title: string): string {
+  function openSimpleSingleton(
+    kind: 'agent-status' | 'agent-sessions' | 'sync-conflicts' | 'sync-import',
+    title: string,
+  ): string {
     const existing = tabs.value.find((t) => t.kind === kind)
     if (existing) {
       activeTabId.value = existing.id
@@ -873,6 +876,11 @@ export const useTabStore = defineStore('tabs', () => {
 
   function addAgentStatusTab(): string {
     return openSimpleSingleton('agent-status', 'Agent Status')
+  }
+
+  /** 今動いている Claude Code のセッションの詳細（#625）。 */
+  function addAgentSessionsTab(): string {
+    return openSimpleSingleton('agent-sessions', 'Agent Sessions')
   }
 
   /** 設定の同期の衝突を解消するタブ（#403）。 */
@@ -1596,6 +1604,7 @@ export const useTabStore = defineStore('tabs', () => {
     addDockerLogsTab,
     addSettingsTab,
     addAgentStatusTab,
+    addAgentSessionsTab,
     addSyncConflictsTab,
     addSyncImportTab,
     addManualTab,
