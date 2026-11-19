@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-11-19
+
 ### Features
 
 - **Claude Code のセッションを一覧するパネルを足した**：今のプロジェクトで使っているアカウントについて、動いているセッションを返答待ち・稼働中・アイドルに分けて並べます。Pike のほかのウィンドウや、Pike の外のターミナルで起動したセッションも入ります。行を押すと、そのセッションのターミナルのタブへ移ります。タブが無ければ、確認のあと、セッションのディレクトリで `claude --resume` してそのセッションを開きます。右クリックでは、新しいウィンドウで開く、そこでターミナルを開く、セッション ID と再開コマンドのコピーなども選べます。返答待ちのセッションがあると、サイドバーのアイコンに件数が出ます。パネルの「詳細」から、ディレクトリや起動した時刻も並べた一覧をタブで開けます (#625)
@@ -2010,6 +2012,7 @@ Initial public release.
 - **Multi-window** — open projects in separate windows
 - **Self-updater** — check for updates from settings, auto-download & restart
 
+[0.73.0]: https://github.com/kan/pike/releases/tag/v0.73.0
 [0.72.0]: https://github.com/kan/pike/releases/tag/v0.72.0
 [0.71.0]: https://github.com/kan/pike/releases/tag/v0.71.0
 [0.70.2]: https://github.com/kan/pike/releases/tag/v0.70.2
