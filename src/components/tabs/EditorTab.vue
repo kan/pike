@@ -5,7 +5,7 @@ import { highlightSelectionMatches } from '@codemirror/search'
 import { Compartment, EditorState, type StateEffect } from '@codemirror/state'
 import { EditorView, highlightActiveLine, keymap, lineNumbers } from '@codemirror/view'
 import { ArrowUp, RefreshCw, Smartphone } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, onUnmounted, ref, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
 import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { choiceWithOption, confirmDialog, dialogOpen, promptDialog } from '../../composables/useConfirmDialog'
 import { type CsvCellRef, useCsvSelection } from '../../composables/useCsvSelection'
@@ -381,7 +381,10 @@ const previewMobile = ref(false)
  * Vue のプレビューの帯で選んだ variant と値の組（#628）。Edit に切り替えて `VuePreview` が
  * 外れても残すためにタブが持つ。寿命は `previewMobile` と同じ。HTML のプレビューには渡さない。
  */
-const vueChoice = ref<VueChoice>({ variant: null, preset: null })
+// **shallowRef にすること**: `ref` は代入したオブジェクトを proxy に包むので、`VuePreview` へ
+// 戻ってくる値が書いた値と別物になり、あちらの「描いているあいだに選び直したか」の同一性の
+// 比較（`picked.value === used`）が常に偽になる。
+const vueChoice = shallowRef<VueChoice>({ variant: null, preset: null })
 // Save As で別のファイルになったら捨てる（元のファイルの art ファイルと props の名前）。Edit の
 // あいだの Save As もここで拾う（`VuePreview` は外れていて path の変化を見ない）。
 watch(

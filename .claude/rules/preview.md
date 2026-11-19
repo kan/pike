@@ -204,6 +204,7 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
     - **一覧が前回の出力に無ければ select を出さず、引数も渡さない。** 0.6 以前は知らない引数として描画ごと失敗する。タブが覚えていた選択を作り直した直後に渡して失敗したとき（一覧をまだ知らない）は、選択を捨てて描き直す（`renderOnce`。捨てないと一覧が届かず select も出ないので、外す手段が無くなる）
     - 値の組は「入力フォームの欄に入れる」形ではなく `--preset` にした（利用者の判断）。フォームの値（`--fixture`）は残り、その上に重なる
     - **選択（`VueChoice`）は `EditorTab` が持つ**（`vueChoice`。`previewMobile` と同じ寿命で、Edit に切り替えて `VuePreview` が外れても残す）。HTML のプレビューには渡さない（`vuePreviewModel` が空を返す）。Save As で `path` が変わったら `EditorTab` が捨てる（Edit のあいだの Save As も拾うため）
+    - **`vueChoice` は `shallowRef`**（`ref` だと代入したオブジェクトが proxy に包まれて戻り、下の `picked` の同一性の比較が常に外れる）
     - **`VuePreview` の中では v-model の `choice` を読まず、`picked` を読む。** v-model は書いてもその場では値が変わらない（親が描き直して prop が届いてから）ので、選んだ直後の描画が前の選択で走る。書くのは `setChoice` で両方へ
     - **一覧から消えた名前は描いたあとで「選ばない」に戻す**（`reconcileChoice`）。vue-preview は無い名前を warning にして選ばないときと同じに描くので、描き直さない。warning の文面では見分けない。描いているあいだに選び直していたら直さない（そちらの描き直しが後に来る）
     - フォームの `options`（リテラルの union）のある props の欄は select にする。値は JSON の文字列で持ち（`InputField.options`）、今の値が一覧に無ければ末尾に足す（選び直すまで消さない）。型の表示は `tsType` を `types` より優先する
