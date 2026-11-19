@@ -24,14 +24,26 @@ export function fixtureOf(rel: string): string {
  * ときに描き直せない）。
  */
 export function affectsVuePreview(rel: string, entry: string, deps: ReadonlySet<string>): boolean {
-  return rel === entry || deps.has(rel) || rel === fixtureOf(entry) || rel === CONFIG_FILE
+  return rel === entry || deps.has(rel) || rel === fixtureOf(entry) || rel === artOf(entry) || rel === CONFIG_FILE
 }
+
+/** SFC の隣の Musea の art ファイル（`<name>.art.vue`、#628）。vue-preview が variant を読む名前。 */
+export function artOf(rel: string): string {
+  return rel.replace(/\.vue$/i, '.art.vue')
+}
+
+/** props の値として選べるリテラル（vue-preview の `options`）。 */
+export type VueLiteral = string | number | boolean
 
 /** fixture で与えられるもの 1 つ（vue-preview の `--json` の `inputs`）。 */
 export interface VueInput {
   name: string
   /** 宣言された型（props だけ）。 */
   types?: string[]
+  /** 型で宣言した props の TS の型を書かれたとおりに（vue-preview 0.7 以降）。 */
+  tsType?: string
+  /** 型がリテラルの union のときの要素（vue-preview 0.7 以降）。 */
+  options?: VueLiteral[]
   /** 静的に読めた既定値・初期値。 */
   default?: unknown
   /** `call`: 関数呼び出しの戻り値から受け取った名前（`const store = useProjectStore()`。composable の関数やストア）。 */
@@ -45,6 +57,42 @@ export interface VueInputs {
   values: VueInput[]
   /** 使った fixture（描画のルートからの相対パス）。 */
   fixture: string | null
+  /**
+   * props の宣言から作った値の組（vue-preview 0.7 以降。古い版では無い）。`name` は
+   * `status=suspended` の形で、`--preset` に渡す。
+   */
+  presets?: { name: string; props: Record<string, unknown> }[]
+}
+
+/** art ファイルの variant 1 つ（`--json` の `variants`、vue-preview 0.7 以降）。 */
+export interface VueVariant {
+  name: string
+  /** Musea が最初に見せる variant。 */
+  default: boolean
+}
+
+/**
+ * 帯で選んだ variant と値の組（#628）。null は「選ばない」（コンポーネントだけ・値の組なし）。
+ * 選択の欄は前回の出力に一覧があるときだけ出すので、ここに入る名前はその一覧にあったもの。
+ */
+export interface VueChoice {
+  variant: string | null
+  preset: string | null
+}
+
+/**
+ * 描いた結果に照らして選択を直す。**一覧から消えた名前は null に戻す**（art ファイルから
+ * variant を消した、props の宣言を変えた）。vue-preview は無い名前を warning にして、選ばない
+ * ときと同じ描き方をするので、描き直さなくてよい。変わらなければ同じオブジェクトを返す。
+ */
+export function reconcileChoice(
+  choice: VueChoice,
+  variants: readonly VueVariant[] | null,
+  inputs: VueInputs | null,
+): VueChoice {
+  const variant = choice.variant !== null && variants?.some((v) => v.name === choice.variant) ? choice.variant : null
+  const preset = choice.preset !== null && inputs?.presets?.some((p) => p.name === choice.preset) ? choice.preset : null
+  return variant === choice.variant && preset === choice.preset ? choice : { variant, preset }
 }
 
 /**
@@ -63,11 +111,16 @@ export function pikeFixtureName(rel: string): string {
 export interface InputField {
   name: string
   kind: 'prop' | 'value' | 'call'
-  /** 宣言された型（`Boolean | String`）。無ければ空。 */
+  /** 宣言された型。TS の型（`'active' | 'invited'`）があればそれ、無ければ runtime の型（`Boolean | String`）。無ければ空。 */
   types: string
   /** 静的に読めた既定値・初期値を JSON で書いたもの。無ければ null。 */
   initial: string | null
   text: string
+  /**
+   * 選べる値を JSON で書いたもの（props の型がリテラルの union のとき）。あれば欄は select に
+   * する。今の値（`text`）が一覧に無ければ末尾に足す（選び直すまで消さない）。
+   */
+  options?: string[]
 }
 
 /**
@@ -78,13 +131,22 @@ export interface InputField {
 export function inputFields(inputs: VueInputs, current: Record<string, unknown>): InputField[] {
   // `in` ではなく自分のキーで見る（`constructor` のような名前がプロトタイプに当たる）
   const own = new Set(Object.keys(current))
-  const field = (input: VueInput, kind: InputField['kind']): InputField => ({
-    name: input.name,
-    kind,
-    types: input.types?.join(' | ') ?? '',
-    initial: input.default === undefined ? null : JSON.stringify(input.default),
-    text: own.has(input.name) ? JSON.stringify(current[input.name]) : '',
-  })
+  const field = (input: VueInput, kind: InputField['kind']): InputField => {
+    const text = own.has(input.name) ? JSON.stringify(current[input.name]) : ''
+    const f: InputField = {
+      name: input.name,
+      kind,
+      types: input.tsType ?? input.types?.join(' | ') ?? '',
+      initial: input.default === undefined ? null : JSON.stringify(input.default),
+      text,
+    }
+    if (input.options?.length) {
+      const options = input.options.map((o) => JSON.stringify(o))
+      if (text && !options.includes(text)) options.push(text)
+      f.options = options
+    }
+    return f
+  }
   const fields = [
     ...inputs.props.map((p) => field(p, 'prop')),
     ...inputs.values.filter((v) => v.origin !== 'call').map((v) => field(v, 'value')),

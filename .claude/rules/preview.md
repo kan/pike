@@ -199,7 +199,14 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
     - **ストアは「見つからない」も 60 秒覚える**（`gh` は覚えない）。検出が .vue を開くたびに撃たれるので、覚えないと入れていない大半の人が開くたびに `wsl.exe` を起こす
   - パスはシェルの行に埋めるので、引用は `ShellConfig::line_arg`（振り分けの隣。cmd では `%` と `"` を断る）
   - **プロジェクトのシェルで、SFC からいちばん近い `package.json` のディレクトリを cwd にして走らせる**（vue-preview の `--root`。探索は定義ジャンプの `findNearestUpward` で、今のプロジェクトのルートまで）。**プロジェクトのルートを使わないこと**: `app/` の下に Vue を置くリポジトリ（業務の sitter がそう）では、ルートに package.json が無くて描けない。node_modules がコンテナの中にしか無いプロジェクトでも、vue-preview がロックファイルから依存を自前のキャッシュへ入れて描く（vue-preview の REPORT V7）ので、**Pike は Docker を知らない**。その初回は 10〜30 秒かかるので、描画の時間切れは `RENDER_TIMEOUT`（300 秒）と長い
-  - 描き直す契機は、前回の結果の `deps` と、SFC 自身・**まだ無い fixture（`<name>.preview.json`）と `vue-preview.config.json`**（無いファイルは `deps` に載らないので、作ったときに描き直せない。`affectsVuePreview`）
+  - 描き直す契機は、前回の結果の `deps` と、SFC 自身・**まだ無い fixture（`<name>.preview.json`）と art ファイル（`<name>.art.vue`）と `vue-preview.config.json`**（無いファイルは `deps` に載らないので、作ったときに描き直せない。`affectsVuePreview`）
+  - **variant と値の組（vue-preview 0.7、#628）は帯の select で選び、`--variant` / `--preset` で渡す。** 一覧は前回の結果の `variants`（Rust は `inputs` と同じく解釈せずに中継）と `inputs.presets`
+    - **一覧が前回の出力に無ければ select を出さず、引数も渡さない。** 0.6 以前は知らない引数として描画ごと失敗する。タブが覚えていた選択を作り直した直後に渡して失敗したとき（一覧をまだ知らない）は、選択を捨てて描き直す（`renderOnce`。捨てないと一覧が届かず select も出ないので、外す手段が無くなる）
+    - 値の組は「入力フォームの欄に入れる」形ではなく `--preset` にした（利用者の判断）。フォームの値（`--fixture`）は残り、その上に重なる
+    - **選択（`VueChoice`）は `EditorTab` が持つ**（`vueChoice`。`previewMobile` と同じ寿命で、Edit に切り替えて `VuePreview` が外れても残す）。HTML のプレビューには渡さない（`vuePreviewModel` が空を返す）。Save As で `path` が変わったら `EditorTab` が捨てる（Edit のあいだの Save As も拾うため）
+    - **`VuePreview` の中では v-model の `choice` を読まず、`picked` を読む。** v-model は書いてもその場では値が変わらない（親が描き直して prop が届いてから）ので、選んだ直後の描画が前の選択で走る。書くのは `setChoice` で両方へ
+    - **一覧から消えた名前は描いたあとで「選ばない」に戻す**（`reconcileChoice`）。vue-preview は無い名前を warning にして選ばないときと同じに描くので、描き直さない。warning の文面では見分けない。描いているあいだに選び直していたら直さない（そちらの描き直しが後に来る）
+    - フォームの `options`（リテラルの union）のある props の欄は select にする。値は JSON の文字列で持ち（`InputField.options`）、今の値が一覧に無ければ末尾に足す（選び直すまで消さない）。型の表示は `tsType` を `types` より優先する
   - **描いているあいだの要求は 1 回に畳み、終わってから描き直す**（重ねると古い結果が後から届いて勝つ）。描いているあいだは前の結果を残し、帯に「描画中…」を出す。失敗は理由を子 webview の案内ページに出す（DOM の文言は子 webview の下に隠れる）
   - 案内のページの配色は `prefers-color-scheme` に合わせる（Pike のテーマの変数は別の文書に届かない）
   - **値を仮に入れるフォーム**：欄は vue-preview の `--json` の `inputs`（props と、描画中にテンプレートが参照した値）。Rust は `inputs` を**解釈せずに**中継する（`serde_json::Value`。欄の形を Rust に写すと、増えるたびに 2 か所を直すことになる）。欄の組み立てと入力の読み取りは `lib/vuePreview.ts` の `inputFields` / `fixtureFromFields`

@@ -1166,6 +1166,11 @@ export default {
   'vuePreview.apply': '適用',
   'vuePreview.clearValues': '入れた値を消す',
   'vuePreview.close': '閉じる',
+  'vuePreview.notGiven': '（与えない）',
+  'vuePreview.variant': 'art ファイルの variant で描く',
+  'vuePreview.componentOnly': 'コンポーネントだけ',
+  'vuePreview.preset': 'props の値の組を重ねて描く',
+  'vuePreview.noPreset': '値の組なし',
   'vuePreview.missing': 'Vue のプレビューには vue-preview が必要です',
   'vuePreview.installHint':
     'vue-preview は .vue のコンポーネントを 1 枚の HTML に描く外部コマンドです。GitHub から最新版を取り、このプロジェクトのシェルの {dir} に置きます。',

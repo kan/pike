@@ -3,11 +3,13 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   affectsVuePreview,
+  artOf,
   fixtureFromFields,
   fixtureOf,
   inputFields,
   pikeFixtureName,
   powershellEncoded,
+  reconcileChoice,
   vuePreviewInstallCommand,
   vuePreviewMessagePage,
 } from '../src/lib/vuePreview.ts'
@@ -44,6 +46,45 @@ test('フォームの欄は props、値、composable の値の順。今の値を
   )
 })
 
+test('型は TS の型を優先し、リテラルの union は選べる値（JSON）にする。一覧に無い今の値も残す', () => {
+  const inputs = {
+    props: [
+      { name: 'status', types: ['String'], tsType: "'active' | 'invited'", options: ['active', 'invited'] },
+      { name: 'size', types: ['Number'], tsType: '1 | 2', options: [1, 2] },
+      { name: 'rows', types: ['Array'], tsType: 'User[]' },
+    ],
+    values: [],
+    fixture: null,
+  }
+  const fields = inputFields(inputs, { size: 3 })
+  assert.deepEqual(
+    fields.map((f) => [f.name, f.types, f.options]),
+    [
+      ['status', "'active' | 'invited'", ['"active"', '"invited"']],
+      ['size', '1 | 2', ['1', '2', '3']],
+      ['rows', 'User[]', undefined],
+    ],
+  )
+})
+
+test('一覧から消えた variant と値の組は「選ばない」に戻す。変わらなければ同じオブジェクト', () => {
+  const variants = [{ name: 'Empty', default: true }]
+  const inputs = { props: [], values: [], fixture: null, presets: [{ name: 'open=true', props: { open: true } }] }
+  const kept = { variant: 'Empty', preset: 'open=true' }
+  assert.equal(reconcileChoice(kept, variants, inputs), kept)
+  assert.deepEqual(reconcileChoice({ variant: 'Gone', preset: 'open=true' }, variants, inputs), {
+    variant: null,
+    preset: 'open=true',
+  })
+  assert.deepEqual(reconcileChoice(kept, null, { ...inputs, presets: undefined }), { variant: null, preset: null })
+  const none = { variant: null, preset: null }
+  assert.equal(reconcileChoice(none, null, null), none)
+})
+
+test('art ファイルは SFC の隣の <name>.art.vue', () => {
+  assert.equal(artOf('src/components/UserTable.vue'), 'src/components/UserTable.art.vue')
+})
+
 test('プロトタイプにある名前（constructor）でも、入れていなければ欄は空', () => {
   const fields = inputFields({ props: [], values: [{ name: 'constructor' }], fixture: null }, {})
   assert.equal(fields[0].text, '')
@@ -73,6 +114,7 @@ test('描き直すのは SFC 自身・前回の deps・まだ無い fixture と�
     'src/components/StatusBadge.vue',
     'src/styles/main.css',
     'src/components/UserPage.preview.json',
+    'src/components/UserPage.art.vue',
     'vue-preview.config.json',
   ]) {
     assert.equal(affectsVuePreview(rel, entry, deps), true, rel)

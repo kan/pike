@@ -86,6 +86,7 @@ import {
   pickSaveFile,
 } from '../../lib/tauri'
 import { escapeHtml } from '../../lib/text'
+import type { VueChoice } from '../../lib/vuePreview'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useGitStore } from '../../stores/git'
 import { useIssuesStore } from '../../stores/issues'
@@ -376,6 +377,20 @@ const webPreview = useTemplateRef<{ onSaved: () => void }>('webPreview')
  * セッションには残さない（`viewMode` と同じ寿命）。
  */
 const previewMobile = ref(false)
+/**
+ * Vue のプレビューの帯で選んだ variant と値の組（#628）。Edit に切り替えて `VuePreview` が
+ * 外れても残すためにタブが持つ。寿命は `previewMobile` と同じ。HTML のプレビューには渡さない。
+ */
+const vueChoice = ref<VueChoice>({ variant: null, preset: null })
+// Save As で別のファイルになったら捨てる（元のファイルの art ファイルと props の名前）。Edit の
+// あいだの Save As もここで拾う（`VuePreview` は外れていて path の変化を見ない）。
+watch(
+  () => tab.value?.path,
+  () => (vueChoice.value = { variant: null, preset: null }),
+)
+const vuePreviewModel = computed(() =>
+  isVuePreview.value ? { choice: vueChoice.value, 'onUpdate:choice': (c: VueChoice) => (vueChoice.value = c) } : {},
+)
 
 /**
  * 本文を HTML として出すプレビュー（#284）。**画像の `data:` 化と見出し id を通す種別**という
@@ -2619,6 +2634,7 @@ onUnmounted(() => {
         :tab-id="props.tabId"
         :path="tab.path"
         :mobile="previewMobile"
+        v-bind="vuePreviewModel"
       />
       <VuePreviewInstall
         v-if="showPreview && isVueInstall && projectStore.shellForIO && tab?.path"

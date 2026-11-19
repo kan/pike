@@ -25,7 +25,7 @@ import type { ProjectConfig } from '../types/project'
 import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
 import type { MenuAction, MenuShell, ShellType } from '../types/tab'
 import type { LogLevel } from './errorLog'
-import type { VueInputs } from './vuePreview'
+import type { VueChoice, VueInputs, VueVariant } from './vuePreview'
 
 // invoke の唯一のチョークポイント。E2E 撮影ビルド (#142) では、パネルへ決定的な
 // ダミーデータを与えるため window.__wdio_mocks__（@wdio/tauri-service が
@@ -1145,12 +1145,15 @@ export interface VueRender {
   warnings: string[]
   /** fixture で与えられるもの（入力フォームの欄）。古い vue-preview では null。 */
   inputs: VueInputs | null
+  /** art ファイルの variant（vue-preview 0.7 以降で、art ファイルがあるときだけ）。 */
+  variants: VueVariant[] | null
 }
 
 /**
  * `path`（ルートからの相対パス）の SFC を、`root` を cwd にして描き、子 webview `label` の
  * 仮想ファイル `entry` に置く（HTML は IPC を通らない）。`fixture`（絶対パス）があれば
- * `--fixture` で渡す。再読み込みは呼び出し側。失敗は理由の文字列で投げる。
+ * `--fixture` で、`choice` の variant と値の組があれば `--variant` / `--preset` で渡す。
+ * 再読み込みは呼び出し側。失敗は理由の文字列で投げる。
  */
 export async function vuePreviewRender(
   shell: ShellType,
@@ -1159,8 +1162,18 @@ export async function vuePreviewRender(
   label: string,
   entry: string,
   fixture: string | null,
+  choice: VueChoice,
 ): Promise<VueRender> {
-  return invoke<VueRender>('vue_preview_render', { shell, root, path, label, entry, fixture })
+  return invoke<VueRender>('vue_preview_render', {
+    shell,
+    root,
+    path,
+    label,
+    entry,
+    fixture,
+    variant: choice.variant,
+    preset: choice.preset,
+  })
 }
 
 // Docker

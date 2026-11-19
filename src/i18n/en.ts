@@ -1168,6 +1168,11 @@ export default {
   'vuePreview.apply': 'Apply',
   'vuePreview.clearValues': 'Clear values',
   'vuePreview.close': 'Close',
+  'vuePreview.notGiven': '(not given)',
+  'vuePreview.variant': 'Render a variant from the art file',
+  'vuePreview.componentOnly': 'Component only',
+  'vuePreview.preset': 'Render with a set of prop values',
+  'vuePreview.noPreset': 'No preset',
   'vuePreview.missing': 'The Vue preview needs vue-preview',
   'vuePreview.installHint':
     'vue-preview is an external command that renders a .vue component into a single HTML page. Pike downloads the latest release from GitHub and places it in {dir} of this project’s shell.',

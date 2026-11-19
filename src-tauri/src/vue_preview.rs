@@ -70,6 +70,10 @@ struct Output {
     /// 増えるたびに 2 か所を直すことになる）。古い vue-preview では欠ける。
     #[serde(default)]
     inputs: Option<serde_json::Value>,
+    /// SFC の隣の Musea の art ファイル（`<Name>.art.vue`）の variant の一覧（vue-preview 0.7
+    /// 以降、#628）。art ファイルが無ければ欠ける。`inputs` と同じく解釈せずに渡す。
+    #[serde(default)]
+    variants: Option<serde_json::Value>,
 }
 
 /// フロントへ返すもの。**HTML は返さない**（`put_virtual` で置いてある）。
@@ -81,6 +85,7 @@ pub struct VueRender {
     deps: Vec<String>,
     warnings: Vec<String>,
     inputs: Option<serde_json::Value>,
+    variants: Option<serde_json::Value>,
 }
 
 /// 失敗の理由。**stderr を丸ごと返す**（先頭の 1 行ではない。`issues` の `failure` と方針が
@@ -98,6 +103,10 @@ fn failure(line: &str, code: i32, stdout: &str, stderr: &str) -> String {
 /// `path`（ルートからの相対パス、区切りは `/`）の SFC を描き、子 webview `label` の仮想
 /// ファイル `entry` に置く。再読み込みはフロントが呼ぶ。`fixture` はプレビューの入力フォームで
 /// 入れた値のファイル（`.pike/preview/` の下、絶対パス）で、あれば `--fixture` で渡す。
+/// `variant` / `preset` は帯で選んだ art ファイルの variant と値の組の名前（#628）で、あれば
+/// `--variant` / `--preset` で渡す。**0.6 以前の vue-preview は知らない引数として失敗する**ので、
+/// フロントは出力の一覧から選んだ名前だけを渡し、一覧を知らないまま失敗したら選択を捨てて
+/// 描き直す（`VuePreview.vue` の `renderOnce`）。
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn vue_preview_render(
@@ -107,16 +116,23 @@ pub async fn vue_preview_render(
     label: String,
     entry: String,
     fixture: Option<String>,
+    variant: Option<String>,
+    preset: Option<String>,
     preview: State<'_, PreviewState>,
 ) -> Result<VueRender, String> {
-    let fixture_arg = match &fixture {
-        Some(f) => format!(" --fixture {}", shell.line_arg(f)?),
-        None => String::new(),
-    };
-    let line = format!(
-        "vue-preview render {} --json{fixture_arg}",
-        shell.line_arg(&path)?
-    );
+    let mut line = format!("vue-preview render {} --json", shell.line_arg(&path)?);
+    for (flag, value) in [
+        ("--fixture", &fixture),
+        ("--variant", &variant),
+        ("--preset", &preset),
+    ] {
+        if let Some(v) = value {
+            line.push(' ');
+            line.push_str(flag);
+            line.push(' ');
+            line.push_str(&shell.line_arg(v)?);
+        }
+    }
     let out: Output = tauri::async_runtime::spawn_blocking(move || {
         let (code, stdout, stderr) = shell.run_shell_line(&root, &line, RENDER_TIMEOUT)?;
         if code != 0 {
@@ -132,6 +148,7 @@ pub async fn vue_preview_render(
         deps: out.deps,
         warnings: out.warnings,
         inputs: out.inputs,
+        variants: out.variants,
     })
 }
 
@@ -161,5 +178,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(r.deps, ["a.vue"]);
+        assert!(r.variants.is_none());
+        let r: Output =
+            serde_json::from_str(r#"{"html":"<p>","variants":[{"name":"Empty","default":true}]}"#)
+                .unwrap();
+        assert_eq!(r.variants.unwrap()[0]["name"], "Empty");
     }
 }
