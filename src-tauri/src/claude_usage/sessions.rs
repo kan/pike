@@ -284,6 +284,35 @@ fn session_dirs(root: &str, worktrees: &[String], fold_case: bool) -> Vec<Sessio
     dirs
 }
 
+/// 1 つのセッションを再開できるディレクトリ（#625。動いているセッションの一覧から再開するとき）。
+/// `cwd` はそのセッションを起動した場所で、そこと、そのリポジトリの worktree のうち、記録が
+/// いちばん新しく書かれた場所を返す（途中で worktree へ移ったセッションは移動先でしか
+/// 再開できない。理由は [`session_dirs`] の doc）。起動した場所のままでよければ `None`。
+///
+/// **git を 1 回起こす**ので、押したときにだけ呼ぶ（ポーリングに載せない）。
+pub(crate) fn resume_dir_of(
+    shell: &ShellConfig,
+    claude_dir: &Path,
+    cwd: &str,
+    session_id: &str,
+) -> Option<String> {
+    validate_slug(session_id, "session id").ok()?;
+    let projects = claude_dir.join("projects");
+    let file = format!("{session_id}.jsonl");
+    session_dirs(
+        cwd,
+        &crate::git::worktree_paths(shell, cwd),
+        shell.is_windows(),
+    )
+    .into_iter()
+    .filter_map(|d| {
+        let meta = fs::metadata(projects.join(&d.slug).join(&file)).ok()?;
+        Some((modified_ms(&meta)?, d))
+    })
+    .max_by_key(|(modified, _)| *modified)
+    .and_then(|(_, d)| d.resume_dir)
+}
+
 fn modified_ms(meta: &fs::Metadata) -> Option<u64> {
     let ms = meta
         .modified()

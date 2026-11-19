@@ -37,7 +37,7 @@ function run(action: (target: LiveSessionRow) => unknown) {
   if (target) void action(target)
 }
 
-defineExpose({ open })
+defineExpose({ open, close })
 </script>
 
 <template>

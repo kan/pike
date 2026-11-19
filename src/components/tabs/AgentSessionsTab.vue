@@ -6,20 +6,33 @@
  * （`stores/liveSessions.ts`）で、このタブが見えているあいだはストアが自分で短い間隔に切り替える。
  */
 import { ArrowRight, RefreshCw, SquareTerminal } from 'lucide-vue-next'
-import { computed, useTemplateRef } from 'vue'
+import { computed, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { LIVE_STATUS_ICONS } from '../../lib/liveSessionIcons'
 import { liveSessionJumpKey, liveStatusKey } from '../../lib/liveSessions'
 import { basename, stripTrailingSep } from '../../lib/paths'
 import { type LiveSessionRow, useLiveSessionsStore } from '../../stores/liveSessions'
 import { useProjectStore } from '../../stores/project'
+import { useTabStore } from '../../stores/tabs'
 import HelpButton from '../HelpButton.vue'
 import LiveSessionMenu from '../LiveSessionMenu.vue'
+
+const props = defineProps<{ tabId: string }>()
 
 const { t } = useI18n()
 const store = useLiveSessionsStore()
 const menu = useTemplateRef<InstanceType<typeof LiveSessionMenu>>('menu')
 const projectStore = useProjectStore()
+const tabStore = useTabStore()
+
+// 右クリックのメニューは body へ出しているので、タブが隠れたら自分で閉じる（`tabs.md` の
+// 「body へ Teleport したものは、隠れたときに自分で畳む」。残るとブラウザのタブも隠れたままになる）。
+watch(
+  () => tabStore.isTabVisible(props.tabId),
+  (visible) => {
+    if (!visible) menu.value?.close()
+  },
+)
 
 /** 見出しの横の要約（「返答待ち 1 · 稼働中 2」）。空のグループは言わない。 */
 const summary = computed(() =>

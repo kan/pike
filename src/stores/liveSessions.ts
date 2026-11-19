@@ -8,7 +8,14 @@ import { agentById } from '../lib/agents'
 import { deepestContaining, groupLiveSessions, liveSessionLabel, projectForCwd } from '../lib/liveSessions'
 import { relativeTime } from '../lib/paths'
 import { rootKey } from '../lib/projectPaths'
-import { agentLiveSessions, gitWorktreeList, projectWindowList, windowRestore } from '../lib/tauri'
+import {
+  agentLiveSessionResumeDir,
+  agentLiveSessions,
+  focusProjectWindow,
+  gitWorktreeList,
+  projectWindowList,
+  windowRestore,
+} from '../lib/tauri'
 import type { GitWorktree } from '../types/git'
 import type { LiveSession } from '../types/liveSession'
 import type { ProjectConfig } from '../types/project'
@@ -85,7 +92,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   const configDir = ref<string | null>(null)
   const account = ref<string | null>(null)
   const loading = ref(false)
-  /** 一覧がどのプロジェクトで読んだものか。切り替え直後に前のアカウントの一覧を出さない。 */
+  /** 一覧をどこで読んだか（`scope`）。切り替え直後に前のアカウントの一覧を出さない。 */
   const loadedFor = ref<string | null>(null)
   /**
    * 最後に取り直した時刻。**相対時刻の表示はこれに依存させる**（`since`）: 中身が同じなら
@@ -101,22 +108,33 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     return !!tab && tabStore.isTabVisible(tab.id)
   })
 
+  /**
+   * 一覧を読む場所の鍵（プロジェクトと、参照している worktree）。**アカウントは `activeRoot` で
+   * 解決する**（使用量の表示と同じ。worktree ごとに `CLAUDE_CONFIG_DIR` を変える構成で、選んだ
+   * worktree のアカウントになる）。これが変わったら一覧を捨てて読み直す。
+   */
+  const scope = computed(() => {
+    const project = projectStore.currentProject
+    return project ? `${project.id}\n${projectStore.activeRoot}` : null
+  })
+
   async function refresh() {
     const project = projectStore.currentProject
-    if (!project) return
+    const key = scope.value
+    if (!project || !key) return
     const mine = ++seq
     loading.value = true
     try {
-      const list = await agentLiveSessions(project.shell, project.root)
-      if (mine !== seq || projectStore.currentProject?.id !== project.id) return
+      const list = await agentLiveSessions(project.shell, projectStore.activeRoot)
+      if (mine !== seq || scope.value !== key) return
       const json = JSON.stringify(list.sessions)
-      if (json !== lastJson || loadedFor.value !== project.id) {
+      if (json !== lastJson || loadedFor.value !== key) {
         lastJson = json
         sessions.value = list.sessions
       }
       configDir.value = list.configDir
       account.value = list.account
-      loadedFor.value = project.id
+      loadedFor.value = key
       checkedAt.value = Date.now()
     } catch {
       // Rust は失敗を空の一覧で返すので、ここへ来るのは IPC そのものの失敗だけ。前の一覧を残す。
@@ -142,14 +160,14 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   const slowPolling = useFocusPolling([{ every: IDLE_POLL_MS, tick: poll }])
 
   watch(
-    () => projectStore.currentProject?.id ?? null,
-    (id) => {
+    scope,
+    (key) => {
       seq++
       sessions.value = []
       lastJson = ''
       loadedFor.value = null
       loading.value = false
-      if (id === null) {
+      if (key === null) {
         slowPolling.stop()
         return
       }
@@ -160,7 +178,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   )
 
   watch(
-    [() => projectStore.currentProject?.id ?? null, viewing],
+    [scope, viewing],
     ([id, v], old) => {
       if (id === null || !v) {
         fastPolling.stop()
@@ -211,7 +229,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
 
   const rows = computed<LiveSessionRow[]>(() => {
     const project = projectStore.currentProject
-    if (!project || loadedFor.value !== project.id) return []
+    if (!project || loadedFor.value !== scope.value) return []
     return sessions.value.map((s) => {
       const owner = projectForCwd(s.cwd, project.shell, candidates.value)
       return {
@@ -292,19 +310,21 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
       name: row.name ?? liveSessionLabel(row),
       action,
     }
-    if (owner.id !== project.id) await projectStore.openProject(owner.id, 'focusOrSwitch')
-    // **このウィンドウが見せているなら直に呼ぶ**（知らせは自分にも届くが、送ると 2 回動く）。
-    if (projectStore.currentProject?.id === owner.id) {
-      await reveal(payload)
-      return
+    if (owner.id !== project.id) {
+      // **このウィンドウが保持しているなら、ここで切り替えて待つ。** `focusOrSwitch` は保持している
+      // ウィンドウ（自分を含む）に切り替えを頼むだけで返るので、待てない。
+      // それ以外は、見せているか保持しているウィンドウを Rust に前へ出させる（`focusProjectWindow`
+      // が真）。**その答えで送り先の有無を決める**: 着いたウィンドウが知らせを受けて動く。
+      // どこにも無ければ、このウィンドウで開く（`switch`。root が無ければ clone を勧める）。
+      const local = projectStore.parkedProjectIds.includes(owner.id)
+      if (!local && (await focusProjectWindow(owner.id).catch(() => false))) {
+        void emit(REVEAL_EVENT, payload)
+        return
+      }
+      await projectStore.openProject(owner.id, 'switch')
     }
-    // 見せていなければ、そのプロジェクトを前に出したウィンドウへ頼む。**どのウィンドウも見せて
-    // いない・保持していないなら送らない**（切り替えが断られた。root が無く clone も断った、など）。
-    // 送ると、あとで利用者が自分で切り替えたときに頼まれていない確認やタブが出うる。
-    const elsewhere = await projectWindowList()
-      .then((list) => list.some((w) => w.shown === owner.id || w.held.includes(owner.id)))
-      .catch(() => false)
-    if (elsewhere) void emit(REVEAL_EVENT, payload)
+    // 切り替えが断られた（root が無く clone も断った、など）なら何もしない。
+    if (projectStore.currentProject?.id === owner.id) await reveal(payload)
   }
 
   /**
@@ -405,18 +425,28 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     const resume = agentById('claude')?.resume
     if (!resume) return
     if (!(await confirmDialog(t('liveSessions.confirmResume', { name: payload.name })))) return
+    // **待つたびに、まだそのプロジェクトに居るかを確かめる。** 別のプロジェクトへ移っていたら、
+    // worktree の切り替えもタブも、そのプロジェクトのものに付いてしまう。
+    const stillHere = () => projectStore.currentProject?.id === payload.projectId
+    if (!stillHere()) return
+    // **再開する場所は記録の書かれた場所**（途中で worktree へ移ったセッションは移動先でしか
+    // `--resume` が通らない。`agent_live_session_resume_dir` の doc）。分からなければ起動した場所。
+    const dir =
+      (await agentLiveSessionResumeDir(project.shell, projectStore.activeRoot, payload.cwd, payload.sessionId).catch(
+        () => null,
+      )) ?? payload.cwd
     const worktreeStore = useWorktreeStore()
     await worktreeStore.loadWorktrees()
+    if (!stillHere()) return
     const platform = shellToPlatform(project.shell)
     const target = deepestContaining(
       worktreeStore.worktrees.filter((w) => !w.isBare),
-      payload.cwd,
+      dir,
       (w) => w.path,
       () => platform,
     )
     if (target && !worktreeStore.isActive(target)) await worktreeStore.setActiveWorktree(target)
-    // 確認のあいだに別のプロジェクトへ移っていたら開かない（別のタブ列に出る）。
-    if (projectStore.currentProject?.id !== payload.projectId) return
+    if (!stillHere()) return
     // **確認のあいだにタブが見つかったら、そちらを選ぶ**（復元の直後は mod の報告が遅れて届く）。
     // 再開すると、確認が避けようとしている「同じ会話を 2 つのプロセスが持つ」になる。
     const appeared = tabBySession.value.get(payload.sessionId)
@@ -425,7 +455,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
       return
     }
     tabStore.addTerminalTab({
-      cwd: payload.cwd,
+      cwd: dir,
       shell: project.shell,
       autoStart: resume(payload.sessionId),
       title: payload.name,

@@ -1464,6 +1464,20 @@ export async function agentLiveSessions(shell: ShellType, projectRoot: string): 
   return invoke<LiveSessionList>('agent_live_sessions', { shell, projectRoot })
 }
 
+/**
+ * 動いているセッションを `claude --resume` できるディレクトリ（#625）。起動した場所（`cwd`）の
+ * ままでよければ null。途中で worktree へ移ったセッションは移動先を返す。git を起こすので、
+ * 押したときにだけ呼ぶ。
+ */
+export async function agentLiveSessionResumeDir(
+  shell: ShellType,
+  projectRoot: string,
+  cwd: string,
+  sessionId: string,
+): Promise<string | null> {
+  return invoke<string | null>('agent_live_session_resume_dir', { shell, projectRoot, cwd, sessionId })
+}
+
 // Claude Code の hook からのアカウント申告（#299）
 
 /**

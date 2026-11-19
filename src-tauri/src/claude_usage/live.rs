@@ -152,6 +152,23 @@ pub async fn agent_live_sessions(
     .map_err(|e| e.to_string())
 }
 
+/// 動いているセッションを再開できるディレクトリ（起動した場所の `cwd` のままでよければ `None`）。
+/// 一覧の行から `claude --resume` するときに呼ぶ。決め方は `sessions::resume_dir_of`。
+#[tauri::command]
+pub async fn agent_live_session_resume_dir(
+    shell: ShellConfig,
+    project_root: String,
+    cwd: String,
+    session_id: String,
+) -> Result<Option<String>, String> {
+    tokio::task::spawn_blocking(move || {
+        let dir = config::resolve(&shell, &project_root).read_path?;
+        sessions::resume_dir_of(&shell, &dir, &cwd, &session_id)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 fn list(shell: &ShellConfig, claude_dir: &Path) -> Vec<LiveSession> {
     let projects = claude_dir.join("projects");
     live_records(shell, claude_dir)
