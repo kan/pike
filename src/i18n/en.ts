@@ -43,6 +43,7 @@ export default {
   'sidebar.diagnostics': 'Problems',
   'sidebar.issues': 'Issues',
   'sidebar.ci': 'CI',
+  'sidebar.sessions': 'Agent Sessions',
   'sidebar.browser': 'Browser',
   'sidebar.hideIcon': 'Hide "{name}"',
   'sidebar.resetIcons': 'Reset order and visibility',
@@ -1240,6 +1241,30 @@ export default {
   'shortcuts.mdListContinue': 'Continue the list or quote (empty item ends it)',
   'shortcuts.shellFirst': 'Sent to the shell (except the tab and find keys)',
   'shortcuts.shellFirstMac': 'Sent to the shell',
+
+  // Running Claude Code sessions of this project's account (#625)
+  'liveSessions.waiting': 'Waiting for you',
+  'liveSessions.busy': 'Working',
+  'liveSessions.idle': 'Idle',
+  'liveSessions.waitingFor': 'Waiting: {reason}',
+  'liveSessions.empty': 'No Claude Code sessions are running on this account',
+  'liveSessions.noProject': 'Open a project to list the sessions of its account',
+  'liveSessions.details': 'Details',
+  'liveSessions.jump': 'Go',
+  'liveSessions.jumpTab': 'Click to switch to its terminal',
+  'liveSessions.jumpProject': "Click to go to its project and open the session's tab",
+  'liveSessions.jumpDir': 'Click to open its directory',
+  'liveSessions.unregistered': 'Not a registered project',
+  'liveSessions.updated': 'updated at {when}',
+  'liveSessions.menuJump': 'Go to this session',
+  'liveSessions.menuNewWindow': 'Open in new window',
+  'liveSessions.menuTerminal': 'Open terminal there',
+  'liveSessions.menuCopyId': 'Copy session ID',
+  'liveSessions.menuCopyResume': 'Copy resume command',
+  'liveSessions.menuCopyCwd': 'Copy directory path',
+  'liveSessions.confirmResume':
+    '"{name}" is running outside Pike\'s terminals. Open a new terminal in this project and open the session there with claude --resume?\n\nThe original process keeps running, so the same conversation will be open in two places.',
+  'liveSessions.startedAt': 'started {when}',
 
   // Agent status panel (#226)
   'agentStatus.title': 'Agent Status',

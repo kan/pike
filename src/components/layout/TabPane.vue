@@ -36,6 +36,7 @@ const HistoryTab = defineAsyncComponent(() => import('../tabs/HistoryTab.vue'))
 const DockerLogsTab = defineAsyncComponent(() => import('../tabs/DockerLogsTab.vue'))
 const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue'))
 const AgentStatusTab = defineAsyncComponent(() => import('../tabs/AgentStatusTab.vue'))
+const AgentSessionsTab = defineAsyncComponent(() => import('../tabs/AgentSessionsTab.vue'))
 const SyncConflictsTab = defineAsyncComponent(() => import('../tabs/SyncConflictsTab.vue'))
 const ManualTab = defineAsyncComponent(() => import('../tabs/ManualTab.vue'))
 const IssueTab = defineAsyncComponent(() => import('../tabs/IssueTab.vue'))
@@ -59,6 +60,7 @@ const TAB_COMPONENTS: Record<Tab['kind'], unknown> = {
   'docker-logs': DockerLogsTab,
   settings: SettingsTab,
   'agent-status': AgentStatusTab,
+  'agent-sessions': AgentSessionsTab,
   'sync-conflicts': SyncConflictsTab,
   'sync-import': SyncConflictsTab,
   manual: ManualTab,

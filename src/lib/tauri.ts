@@ -20,6 +20,7 @@ import type {
   PushOption,
 } from '../types/git'
 import type { IssueAction, IssueDetail, IssueForge, IssueKind, IssueListResult, MergeMethod } from '../types/issues'
+import type { LiveSessionList } from '../types/liveSession'
 import type { ProjectConfig } from '../types/project'
 import type { ReplaceFileEdit, ReplaceOutcome, SearchBackendInfo, SearchOptions, SearchResult } from '../types/search'
 import type { MenuAction, MenuShell, ShellType } from '../types/tab'
@@ -1453,6 +1454,14 @@ export async function agentUsageGet(
  */
 export async function agentSessionsList(id: string, shell: ShellType, projectRoot: string): Promise<AgentSession[]> {
   return invoke<AgentSession[]>('agent_sessions', { id, shell, projectRoot })
+}
+
+/**
+ * このプロジェクトのアカウントで今動いている Claude Code のセッション（#625）。セッションの
+ * パネルと詳細のタブがポーリングする。失敗は空の一覧で返る。
+ */
+export async function agentLiveSessions(shell: ShellType, projectRoot: string): Promise<LiveSessionList> {
+  return invoke<LiveSessionList>('agent_live_sessions', { shell, projectRoot })
 }
 
 // Claude Code の hook からのアカウント申告（#299）

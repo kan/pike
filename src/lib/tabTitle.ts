@@ -14,6 +14,7 @@ import type { SINGLETON_KINDS, Tab } from '../types/tab'
 /** 種別の一覧は `types/tab.ts` の `SINGLETON_KINDS` が正本。ここは名前の対応だけ持つ。 */
 const SINGLETON_TITLE_KEYS: Record<(typeof SINGLETON_KINDS)[number], string> = {
   'agent-status': 'agentStatus.title',
+  'agent-sessions': 'sidebar.sessions',
   'sync-conflicts': 'sync.conflictsTitle',
   'sync-import': 'sync.importTitle',
   settings: 'settings.title',

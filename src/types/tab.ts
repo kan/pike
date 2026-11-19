@@ -455,10 +455,14 @@ export type SettingsTab = {
   focusRequest?: { siteRuleId: string; at: number }
 }
 
-/** Singleton `/status` view for the agents (#226). */
+/**
+ * エージェントのシングルトンのタブ。`agent-status` は `/status` 相当（#226）、`agent-sessions` は
+ * 今動いている Claude Code のセッションの詳細（#625。簡易表示はサイドバーのパネル）。
+ * どちらも欄を持たないので型は 1 つ（`SyncConflictsTab` と同じ形）。
+ */
 export type AgentStatusTab = {
   id: string
-  kind: 'agent-status'
+  kind: 'agent-status' | 'agent-sessions'
   title: string
   pinned: boolean
 }
@@ -617,7 +621,14 @@ export type TabPlacement = {
  * `lib/tabTitle.ts`（名前を i18n から引く側）が同じ集合を別々に持っていたので、
  * 4 つ目を足したときに片方だけ直すと無言でずれる。
  */
-export const SINGLETON_KINDS = ['settings', 'agent-status', 'manual', 'sync-conflicts', 'sync-import'] as const
+export const SINGLETON_KINDS = [
+  'settings',
+  'agent-status',
+  'agent-sessions',
+  'manual',
+  'sync-conflicts',
+  'sync-import',
+] as const
 
 export function isSingletonTab(kind: Tab['kind']): boolean {
   return (SINGLETON_KINDS as readonly string[]).includes(kind)
@@ -684,6 +695,7 @@ export const SIDEBAR_PANELS = [
   'tasks',
   'issues',
   'ci',
+  'sessions',
   'browser',
 ] as const
 

@@ -83,6 +83,7 @@ pike/
 │       ├── claude_usage/
 │       │   ├── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
 │       │   ├── config.rs      # CLAUDE_CONFIG_DIR の解決とアカウント読み出し（#225）
+│       │   ├── live.rs        # 今動いているセッションの一覧（#625。`sessions/<pid>.json` と生存の照合）
 │       │   ├── rate.rs        # `claude -p "/usage"` のレート制限パース（#117）
 │       │   └── sessions.rs    # 再開できる過去セッションの Claude ぶんの収集（#220。口は agent_sessions.rs）
 │       ├── pty/
@@ -120,6 +121,7 @@ pike/
 │   │   ├── project.ts         # ProjectConfig・PinnedTabDef
 │   │   ├── agentUsage.ts      # 使用量の共通の形（#263。種別ごとの型を持たない）
 │   │   ├── agentSession.ts    # 再開できるセッション 1 件（#267）
+│   │   ├── liveSession.ts     # 今動いている Claude Code のセッション 1 件（#625）
 │   │   ├── js-beautify.d.ts   # js-beautify の型（同梱されないので使う 3 関数だけ宣言、#366）
 │   │   ├── markdown-it-emoji.d.ts  # 絵文字の対応表（`lib/data/full.mjs`）の型（#482）
 │   │   ├── diagnostics.ts  docker.ts
@@ -140,6 +142,7 @@ pike/
 │   │   ├── PatchLines.vue       # 統合形式の差分の表 1 枚（PatchSplit の右のペイン、#526）
 │   │   ├── PatchFileRow.vue     # 変更されたファイルの一覧の 1 行（コミットタブと作業中の変更のタブ、#526）
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
+│   │   ├── LiveSessionMenu.vue  # 今動いているセッションの右クリックメニュー（パネルと詳細のタブで共有、#625）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── MoveProjectMenu.vue  # プロジェクトを別のウィンドウへ移すときの行き先のメニュー（#469）
 │   │   ├── CreateWorktreeDialog.vue # worktree の作成ダイアログ（名前・ベースブランチ・作成先、#478）
@@ -167,6 +170,7 @@ pike/
 │   │   │   ├── DiagnosticsPanel.vue # Problems（外部リンタの結果・🤖 で修正依頼を注入）
 │   │   │   ├── IssuesPanel.vue    # GitHub issue の一覧（gh 経由、#278）
 │   │   │   ├── CiPanel.vue        # CI の実行の一覧（GitHub Actions / CircleCI、#457）
+│   │   │   ├── AgentSessionsPanel.vue # 今動いている Claude Code のセッションを状態ごとに並べ、押すと飛ぶ（#625）
 │   │   │   ├── BrowserPanel.vue   # ブラウザのタブの新しいタブ・ブックマーク・閲覧履歴（#368）
 │   │   │   ├── SiteRuleList.vue   # ドメインごとの JS と CSS のルールの一覧（設定画面、#368）
 │   │   │   ├── UpdateControls.vue # 更新の確認と適用のボタン（設定画面のバージョン情報と About で共有、#420）
@@ -206,6 +210,7 @@ pike/
 │   │       ├── ChangesTab.vue     # コミットされていない変更をコミットタブと同じ配置で見る（#526）
 │   │       ├── BrowserTab.vue     # 外部のページ（子 webview をタブの領域に重ねる、#368。試作）
 │   │       ├── AgentStatusTab.vue # エージェント状態（/status 相当。アカウント・レート・トークン、#226）
+│   │       ├── AgentSessionsTab.vue # 今動いている Claude Code のセッションの詳細の表（#625）
 │   │       ├── SyncConflictsTab.vue # 設定の同期の衝突を項目ごとに選ぶ（#403）
 │   │       └── SettingsTab.vue    # 設定画面（8 セクションの中身と左ナビ・絞り込みの入力欄、#314）
 │   ├── stores/
@@ -218,6 +223,7 @@ pike/
 │   │   ├── sync.ts            # 設定の同期の調停役（#403。同期するのは main だけ、衝突は保留して選ばせる）
 │   │   ├── agents.ts          # 使えるエージェントの検出（シェル単位、#275）
 │   │   ├── agentUsage.ts      # エージェントごとの使用量ストア（表 1 行につき 1 本、#263）
+│   │   ├── liveSessions.ts    # 今動いている Claude Code のセッションのポーリングと、セッションへ飛ぶ段取り（#625）
 │   │   ├── shellProbe.ts      # 「シェルごとに 1 回だけ聞いて覚える」の共通部（#275）
 │   │   ├── usageStore.ts      # createUsageStore ファクトリ（ポーリング基盤）
 │   │   ├── vuePreview.ts      # vue-preview の検出（シェル単位、#397）
@@ -285,6 +291,8 @@ pike/
 │   │   ├── shortcuts.ts     # ショートカットの割り当て表（#254。キーの正本）
 │   │   ├── usageFormat.ts    # レート枠の表示整形と `Meter` 型（StatusBar と状態タブで共有、#226）
 │   │   ├── loginExpiry.ts    # Claude Code のサインインの期限の幅・残り日数・警告の判定（#604。i18n を読まない）
+│   │   ├── liveSessions.ts   # 動いているセッションの状態ごとの並べ方と、cwd からプロジェクトを引く規則（#625）
+│   │   ├── liveSessionIcons.ts # 動いているセッションの状態のアイコン（#625。パネルと詳細のタブで共有）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
 │   │   ├── issueLabels.ts    # issue パネルで隠すラベルの検証と判定（#531。設定画面の欄は SettingTagList.vue）
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278。エディタのプレビューも使う、#482）

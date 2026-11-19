@@ -11,6 +11,14 @@ paths:
   - "src/types/agentSession.ts"
   - "src/composables/useAgentMenu.ts"
   - "src/components/AgentSessionsMenu.vue"
+  - "src-tauri/src/claude_usage/live.rs"
+  - "src/lib/liveSessions.ts"
+  - "src/lib/liveSessionIcons.ts"
+  - "src/stores/liveSessions.ts"
+  - "src/types/liveSession.ts"
+  - "src/components/panels/AgentSessionsPanel.vue"
+  - "src/components/LiveSessionMenu.vue"
+  - "src/components/tabs/AgentSessionsTab.vue"
 ---
 
 # エージェント実装ルール
@@ -66,6 +74,55 @@ paths:
   ごとに `CLAUDE_CONFIG_DIR` を変えている構成は拾わない
 - 他の 3 つ（Codex / Copilot / opencode）は対象外（#432 は Claude に絞った）。worktree で
   動かしたセッションが一覧に出るか、再開が場所に依るかは**未確認**
+
+## 今動いているセッションの一覧（#625）
+
+サイドバーのセッションのパネル（簡易）と、そこから開く詳細のタブ。**判断の正本は
+`claude_usage/live.rs` のモジュール doc**（出所・生存の照合・題の読み方）と `stores/liveSessions.ts`
+の `jump` の doc（飛び先の 3 段）。ここには規範だけ置く。
+
+- **出所は設定ディレクトリの `sessions/<pid>.json`**（Claude Code が状態を書き直す。`status` は
+  `busy` / `idle` / `waiting`）。**読むのは今のプロジェクトで解決した設定ディレクトリ 1 つ**
+  （利用者の判断）。他のアカウントのセッションは出さない。対象は Claude だけ
+- **このディレクトリを読む口は `live_records` の 1 つ**。使用量の集計（`find_active_sessions`）も
+  ここを通す。読み方や生存の確かめ方を、使用量の側に別に書かないこと
+- **ファイルは終わったセッションのぶんも残る。** pid が今も同じプロセスかを `procStart` で確かめる
+  （Windows は作成時刻の FILETIME、Linux は `/proc/<pid>/stat` の starttime。手元で一致を実測）。
+  **生きているかだけで済ませないこと**（pid は使い回される）。macOS は形式が未確認なので pid だけ
+  - **死んでいると分かった記録はファイルの mtime で覚えて読み直さない**（`DeadRecords`）。覚えて
+    よいのは確かな答え（`/proc` に無い・開始時刻が違う・その pid のプロセスが無い）だけで、
+    問い合わせの失敗（権限・一時的な失敗。`Verdict::Unknown`）と、解析できなかった記録（書き直しの
+    途中を読んだかもしれない）は覚えない。覚えると、書き直されないアイドルのセッションが消えたままになる
+- **予備のプロセス（`spare`）は読み口で落とす**（一覧にも使用量の `active` にも数えない）
+- **WSL の `/proc` は UNC 越しに読む**（ポーリングするので `wsl.exe` を起こさない）。見えない環境
+  だけ `alive_pids_wsl` へ落ちる
+- **ポーリングは見ているあいだ 5 秒、それ以外は 30 秒**（サイドバーのアイコンの返答待ちの件数の
+  ため）。30 秒のほうは常に回し、5 秒のほうを見ているあいだだけ足す（見ているかで張り直すと、
+  短い間隔で切り替えるたびに 30 秒を数え直す）。前の取得が返る前の回は飛ばす。どちらもウィンドウが前に出ているあいだだけ（`useFocusPolling`）。ふつうはプロセスを
+  起こさない（起こすのは `/proc` が UNC で見えない WSL だけ）ので、ここを `agent_sessions` の
+  「開いたときだけ」と揃えなくてよい。**題を読む記録は mtime で
+  覚える**（`transcript_title`）。ここをポーリングのたびに読み直す形にしない
+- **飛び先はタブ → 登録済みのプロジェクト → ディレクトリの順**（`jump`）。`cwd` を含むプロジェクトが
+  無ければ **git の main worktree から引き直す**（利用者の判断。リポジトリの外の worktree で動く
+  セッションを元のプロジェクトへ寄せる）。どれにも当たらなければ `openDirectory`（登録するかは設定）
+  - **別のウィンドウのタブは、そのウィンドウ自身に選ばせる**（`REVEAL_EVENT` を全ウィンドウへ送り、
+    そのプロジェクトを見せているウィンドウだけが動く）。送り側は、`focusOrSwitch` がどのウィンドウに
+    着いたかを知らない。**自分のウィンドウが見せているなら送らずに直に呼ぶ**（知らせは自分にも届くので、
+    両方だと 2 回動く）
+  - **セッションのタブは `agentRun.sessionId` → `agentSession.id` の順で引く**（`tabBySession`）。
+    後者は mod が動いていないタブや、復元の直後でまだ報告が無いタブを拾う
+  - **タブが無ければ、確認のあと `cwd` で `claude --resume <id>` のタブを開く**（利用者の判断。
+    `cwd` を含む worktree へも切り替える）。**確認を外さないこと**: 一覧に出ている時点でセッションは
+    どこかで動いているので、再開すると同じ会話を 2 つのプロセスが持つ
+  - **保持しているだけのウィンドウは、切り替わるまで待つ**（`REVEAL_WAIT_MS`）。Rust はそのウィンドウに
+    切り替えを頼むだけで返るので、知らせのほうが先に着きうる。**ほかのウィンドウが見せているなら
+    待たない**（`projectWindowList`）。待つと、あとで利用者が自分で切り替えたときに頼まれていない
+    確認やタブが出る
+  - **右クリックの「そこでターミナルを開く」も同じ経路**（`goTo` の `action: 'terminal'`。着いた
+    ウィンドウでシェルだけを開く）。メニューはパネルとタブで 1 つ（`LiveSessionMenu.vue`）で、操作の
+    実体はストアに置く（片方の画面にだけ項目を足さない）
+  - 受け口はストアにあるので、**ストアはサイドバー（`SideBar.vue` の件数）が作る**。サイドバーを
+    持たないウィンドウ（グローバルモード）はプロジェクトも持たないので、受ける必要が無い
 
 ## エージェントの一覧（#275 / #267）
 

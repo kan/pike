@@ -2211,6 +2211,7 @@ pub fn run() {
             font::font_list_monospace,
             font::font_list_all,
             agent_sessions::agent_sessions,
+            claude_usage::live::agent_live_sessions,
         ]))
         .build(context)
         .expect("error while running tauri application")

@@ -28,10 +28,12 @@ const DiagnosticsPanel = defineAsyncComponent(() => import('../panels/Diagnostic
 const IssuesPanel = defineAsyncComponent(() => import('../panels/IssuesPanel.vue'))
 const CiPanel = defineAsyncComponent(() => import('../panels/CiPanel.vue'))
 const BrowserPanel = defineAsyncComponent(() => import('../panels/BrowserPanel.vue'))
+const AgentSessionsPanel = defineAsyncComponent(() => import('../panels/AgentSessionsPanel.vue'))
 
 import {
   ArrowDown,
   ArrowUp,
+  Bot,
   Check,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -71,6 +73,7 @@ import { useCiStore } from '../../stores/ci'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useDockerStore } from '../../stores/docker'
 import { useIssuesStore } from '../../stores/issues'
+import { useLiveSessionsStore } from '../../stores/liveSessions'
 import { useSearchStore } from '../../stores/search'
 import { useSettingsStore } from '../../stores/settings'
 import { useSyncStore } from '../../stores/sync'
@@ -97,6 +100,9 @@ const diagStore = useDiagnosticsStore()
 const dockerStore = useDockerStore()
 const issuesStore = useIssuesStore()
 const ciStore = useCiStore()
+// アイコンの件数（返答待ち）を出すためにここで作る。飛んだ先のウィンドウでタブを前に出す
+// 受け口もこのストアにある（`stores/liveSessions.ts` の doc）。
+const liveSessions = useLiveSessionsStore()
 const { isPanelAvailable, isPanelRuledOut } = usePanelAvailability()
 const settingsStore = useSettingsStore()
 const shortcutsModal = useShortcutsModal()
@@ -392,6 +398,15 @@ const ICONS: { [P in SidebarPanel]: IconDef & { panel: P } } = {
     icon: Workflow,
     refresh: { run: () => ciStore.refresh(), busy: () => ciStore.busy },
   },
+  // 今動いている Claude Code のセッション（#625）。件数は返答待ちのものだけ（手を出さないと
+  // 進まないもの。稼働中とアイドルは数えても行動に繋がらない）。
+  sessions: {
+    panel: 'sessions',
+    labelKey: 'sidebar.sessions',
+    icon: Bot,
+    badge: () => (liveSessions.waitingCount > 0 ? { count: liveSessions.waitingCount } : null),
+    refresh: { run: () => void liveSessions.refresh(), busy: () => liveSessions.loading },
+  },
   // ブラウザのタブのブックマークと閲覧履歴（#368）。タブの種別と同じアイコン。
   browser: { panel: 'browser', labelKey: 'sidebar.browser', icon: Globe },
 }
@@ -506,6 +521,7 @@ const PANEL_HELP: Record<SidebarPanel, string> = {
   diagnostics: 'panels.md#problems診断',
   issues: 'panels.md#issuegithub',
   ci: 'panels.md#cigithub-actions--circleci',
+  sessions: 'terminal-and-agents.md#エージェントのセッション一覧',
   browser: 'browser.md#ブラウザパネル',
 }
 const panelHelp = computed(() => (sidebar.activePanel ? PANEL_HELP[sidebar.activePanel] : undefined))
@@ -779,6 +795,7 @@ onUnmounted(() => {
         <DiagnosticsPanel v-else-if="sidebar.activePanel === 'diagnostics'" />
         <IssuesPanel v-else-if="sidebar.activePanel === 'issues'" />
         <CiPanel v-else-if="sidebar.activePanel === 'ci'" />
+        <AgentSessionsPanel v-else-if="sidebar.activePanel === 'sessions'" />
         <BrowserPanel v-else-if="sidebar.activePanel === 'browser'" />
         <span v-else class="placeholder">{{ sidebar.activePanel }} panel (coming soon)</span>
       </div>

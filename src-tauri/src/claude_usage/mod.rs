@@ -1,11 +1,12 @@
 pub mod config;
+pub mod live;
 pub mod rate;
 pub mod sessions;
 
 use crate::types::{ShellConfig, cwd_matches_root};
 use config::ClaudeAccount;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -37,15 +38,6 @@ pub struct ModelUsage {
     pub cache_read_tokens: u64,
     pub cache_creation_tokens: u64,
     pub cost_usd: Option<f64>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SessionInfo {
-    pid: u64,
-    session_id: String,
-    cwd: String,
-    started_at: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,110 +140,16 @@ fn encode_project_path(root: &str) -> String {
         .collect()
 }
 
-#[cfg(windows)]
-fn is_process_alive(pid: u64) -> bool {
-    use windows::Win32::Foundation::CloseHandle;
-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
-
-    unsafe {
-        match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid as u32) {
-            Ok(handle) => {
-                let _ = CloseHandle(handle);
-                true
-            }
-            Err(_) => false,
-        }
-    }
-}
-
-/// macOS / Linux 版。`kill(pid, 0)` はシグナルを送らずに「その pid へ送れるか」だけを
-/// 見る、この問いの標準的な書き方。
-///
-/// **`false` を返すスタブに戻さないこと。** ここが常に false だと `alive_pids` が
-/// 常に空を返し、Claude usage の `active` が永久に false になる。その結果
-/// `claudeRate` の再取得が `TTL_ACTIVE`（5 分）ではなく `TTL_IDLE`（1 時間）で回り、
-/// セッション中でもレート表示が古いままになる。エラーも出ないので気付けない。
-/// Windows でしか動かなかったころは到達しない死にコードだったが、macOS 対応で
-/// 実際の挙動になった。
-#[cfg(not(windows))]
-fn is_process_alive(pid: u64) -> bool {
-    let Ok(p) = i32::try_from(pid) else {
-        return false;
-    };
-    if p <= 0 {
-        return false;
-    }
-    if unsafe { libc::kill(p, 0) } == 0 {
-        return true;
-    }
-    // 別ユーザーのプロセスは EPERM になるが、それは「生きている」ということ。
-    // 死んでいるときだけ ESRCH が返る。
-    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
-/// Set of still-running pids among `pids`. WSL goes through the distro (Linux
-/// pids are meaningless to the Windows process APIs); other shells use the
-/// Windows process API directly.
-fn alive_pids(shell: &ShellConfig, pids: &[u64]) -> HashSet<u64> {
-    match shell {
-        ShellConfig::Wsl { .. } => alive_pids_wsl(shell, pids),
-        _ => pids
-            .iter()
-            .copied()
-            .filter(|&p| is_process_alive(p))
-            .collect(),
-    }
-}
-
-/// One `wsl.exe` call that echoes each still-running pid. The trailing `; true`
-/// keeps the whole script's exit status 0 even when the last `kill -0` fails —
-/// otherwise `run_stdout` would treat it as an error and discard the stdout that
-/// already named the live pids.
-fn alive_pids_wsl(shell: &ShellConfig, pids: &[u64]) -> HashSet<u64> {
-    if pids.is_empty() {
-        return HashSet::new();
-    }
-    let checks = pids
-        .iter()
-        .map(|p| format!("kill -0 {p} 2>/dev/null && echo {p}"))
-        .collect::<Vec<_>>()
-        .join("; ");
-    let script = format!("{checks}; true");
-    let out = shell
-        .run_stdout("bash", &["-c", &script])
-        .unwrap_or_default();
-    out.lines()
-        .filter_map(|l| l.trim().parse::<u64>().ok())
-        .collect()
-}
-
+/// このプロジェクトのディレクトリで今動いているセッション。`sessions/<pid>.json` の読み方と
+/// 生存の確かめ方は、セッションの一覧（#625）と同じ `live::live_records` を通す。
 fn find_active_sessions(
     shell: &ShellConfig,
     claude_dir: &Path,
     project_root: &str,
-) -> Vec<SessionInfo> {
-    let sessions_dir = claude_dir.join("sessions");
-    let Ok(entries) = fs::read_dir(&sessions_dir) else {
-        return Vec::new();
-    };
-
-    let mut candidates: Vec<SessionInfo> = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_some_and(|e| e == "json")
-            && let Ok(content) = fs::read_to_string(&path)
-            && let Ok(info) = serde_json::from_str::<SessionInfo>(&content)
-            && cwd_matches_root(shell, &info.cwd, project_root)
-        {
-            candidates.push(info);
-        }
-    }
-
-    let pids: Vec<u64> = candidates.iter().map(|c| c.pid).collect();
-    let alive = alive_pids(shell, &pids);
-    candidates
+) -> Vec<live::SessionRecord> {
+    live::live_records(shell, claude_dir)
         .into_iter()
-        .filter(|c| alive.contains(&c.pid))
+        .filter(|r| r.session_id.is_some() && cwd_matches_root(shell, &r.cwd, project_root))
         .collect()
 }
 
@@ -358,14 +256,18 @@ fn usage_from_dir(shell: &ShellConfig, claude_dir: &Path, project_root: &str) ->
     let mut earliest_start: Option<u64> = None;
 
     for session in &sessions {
+        // `find_active_sessions` が id の無い記録を落としてある。
+        let Some(session_id) = session.session_id.as_deref() else {
+            continue;
+        };
         if first_session_id.is_none() {
-            first_session_id = Some(session.session_id.clone());
+            first_session_id = Some(session_id.to_owned());
         }
         if let Some(started) = session.started_at {
             earliest_start = Some(earliest_start.map_or(started, |e: u64| e.min(started)));
         }
 
-        let jsonl_path = projects_dir.join(format!("{}.jsonl", session.session_id));
+        let jsonl_path = projects_dir.join(format!("{session_id}.jsonl"));
         acc.add_file(&jsonl_path);
     }
     let all_by_model = acc.finish();

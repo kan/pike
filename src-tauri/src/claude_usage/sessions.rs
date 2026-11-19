@@ -174,8 +174,12 @@ fn scan_titles(file: &mut fs::File, start: u64, end: u64) -> TranscriptScan {
 }
 
 /// `resume_dir` は置き場で決まる（[`session_dirs`]）ので、どこから読んだかを知っている
-/// 呼び出し側が渡す。
-fn read_session(path: &Path, modified_at: u64, resume_dir: Option<&str>) -> Option<AgentSession> {
+/// 呼び出し側が渡す。稼働中のセッションの一覧（`live.rs`、#625）も題とブランチをここで読む。
+pub(super) fn read_session(
+    path: &Path,
+    modified_at: u64,
+    resume_dir: Option<&str>,
+) -> Option<AgentSession> {
     // The id is interpolated into a shell command line, and it comes from a
     // file name rather than from Claude itself — keep it to the id alphabet.
     let id = path.file_stem()?.to_str()?;
