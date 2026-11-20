@@ -119,6 +119,9 @@ const EXTERNAL_NAMES = [
   'MERGE_MSG', // git が書く状態ファイル（Pike は読まない）
   'ReadDirectoryChangesW', // Win32（notify クレート経由）
   'SSH_ASKPASS_REQUIRE', // OpenSSH 8.4+ の環境変数（採らなかった選択肢として git.md が出す）
+  'task_started', // Codex の rollout のイベント名（ターンの始まり。codex_usage/live.rs が読む、#633）
+  'task_complete', // 同上（ターンの終わり）
+  'turn_aborted', // 同上（中断したターン）
   'expiresAt', // Claude Code の .credentials.json のキー（Pike は読まない。#381 の調査の記録）
   'refreshTokenExpiresAt', // 同上
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）

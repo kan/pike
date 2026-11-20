@@ -194,7 +194,8 @@ Claude Code の `Notification` / `Stop` hook を登録し、**そのターミナ
 
 Claude Code はこの環境変数で `~/.claude` の位置ごと差し替える（`projects/` も `sessions/` も
 `.claude.json` もそこへ移る）ので、**集計・セッション一覧・レート取得の 3 つとも**
-`claude_usage/config.rs` の `resolve` を通す。検出の順と `.envrc` を評価しない理由はそのファイルの
+`claude_usage/config.rs` の `resolve` を通す（今動いているセッションの一覧は、今のプロジェクトの
+アカウントをこれで解決したうえで、申告とホーム直下の候補からほかのアカウントも読む。`agent.md` の #633）。検出の順と `.envrc` を評価しない理由はそのファイルの
 doc コメントが正本。issue の表題にある `CLAUDE_CONFIG_PATH` という変数は存在しない。
 
 - **解決の順は「hook の申告 → `.envrc` → シェルの環境変数 → 既定」**（#299）。先頭だけが**実際に

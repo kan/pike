@@ -203,6 +203,15 @@ export function wslNativeToUnc(distro: string, path: string): string {
 }
 
 /**
+ * そのシェルから見たパスを、Pike（Windows のプロセス）から開ける形にする。WSL の native パス
+ * （`/home/...`）だけ UNC にし、ほかはそのまま返す（フォルダ選択の初期位置と、今動いている
+ * セッションのディレクトリを開くとき。どちらも UNC から distro を読ませる）。
+ */
+export function openablePathForShell(shell: ShellType, path: string): string {
+  return shell.kind === 'wsl' && path.startsWith('/') ? wslNativeToUnc(shell.distro, path) : path
+}
+
+/**
  * `target` as seen from `fromDir`, `../` segments included.
  *
  * Unlike {@link toRelativePath}, which only strips a prefix, this one can climb

@@ -7,7 +7,7 @@ import { locale, t } from '../i18n'
 import { restoreCommandFor } from '../lib/agents'
 import { normalizeRemoteUrl } from '../lib/gitRemote'
 import { HOST_PLATFORMS, hostDefaultShell, isHostPlatform, isMacHost } from '../lib/host'
-import { stripTrailingSep, wslNativeToUnc } from '../lib/paths'
+import { openablePathForShell, stripTrailingSep } from '../lib/paths'
 import { portableBase } from '../lib/portable'
 import {
   baseForPlatform,
@@ -537,11 +537,7 @@ export const useProjectStore = defineStore('project', () => {
   function pickerStartDir(): string | undefined {
     const project = currentProject.value
     if (!project) return undefined
-    const root = project.root
-    if (project.shell.kind === 'wsl' && root.startsWith('/')) {
-      return wslNativeToUnc(project.shell.distro, root)
-    }
-    return root
+    return openablePathForShell(project.shell, project.root)
   }
 
   function trackRecentDir(path: string) {

@@ -976,6 +976,12 @@ textarea,
   background: var(--git-modify);
 }
 
+/* 最近（Codex の、動いているか分からないもの。#633）。アイドルと分けるため中を抜く。 */
+.live-state-dot.recent {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--text-secondary);
+}
+
 /* パネルの右クリックメニュー（ファイルツリー・Git のファイル/コミット・issue が共有）。
    **幅だけは置いた側に残す**（項目のラベルの長さで決まるので、`.tree-chevron` の色と同じ
    「消費者ごとの差」）。キーの綴りを右に並べるメニュー（タブバー・エディタ）は別様式で、

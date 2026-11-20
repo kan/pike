@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { groupLiveSessions, liveSessionJumpKey, liveSessionLabel, projectForCwd } from '../src/lib/liveSessions'
+import {
+  groupLiveSessions,
+  liveListKey,
+  liveListTitle,
+  liveSessionJumpKey,
+  liveSessionLabel,
+  projectForCwd,
+} from '../src/lib/liveSessions'
 import type { LiveSession } from '../src/types/liveSession'
 import type { ShellType } from '../src/types/tab'
 
@@ -64,6 +71,38 @@ test('名前は題 → Claude Code の名前 → ディレクトリ名の順', (
   assert.equal(liveSessionLabel({ title: '題', name: 'x-1', cwd: '/a/b' }), '題')
   assert.equal(liveSessionLabel({ title: null, name: 'x-1', cwd: '/a/b' }), 'x-1')
   assert.equal(liveSessionLabel({ title: null, name: null, cwd: 'C:\\a\\b\\' }), 'b')
+})
+
+test('最近（Codex）はアイドルの後ろに並ぶ', () => {
+  const groups = groupLiveSessions([session('a', 'recent', 5), session('b', 'busy', 1), session('c', 'idle', 2)])
+  assert.deepEqual(
+    groups.map((g) => g.status),
+    ['busy', 'idle', 'recent'],
+  )
+})
+
+test('アカウントの見出しはエージェント・アカウント（無ければ設定ディレクトリの名前）・環境', () => {
+  const list = {
+    agent: 'claude' as const,
+    shell: wsl,
+    account: 'a@example.com',
+    configDir: '\\\\wsl.localhost\\Ubuntu\\home\\me\\.claude',
+  }
+  assert.equal(liveListTitle(list, false), 'Claude Code · a@example.com')
+  assert.equal(liveListTitle(list, true), 'Claude Code · a@example.com · WSL: Ubuntu')
+  const codex = { agent: 'codex' as const, shell: pwsh, account: null, configDir: 'C:\\Users\\me\\.codex\\' }
+  assert.equal(liveListTitle(codex, true), 'Codex · .codex · Windows')
+})
+
+test('一覧の鍵は環境と設定ディレクトリで分かれる', () => {
+  const a = liveListKey({ agent: 'claude', shell: wsl, configDir: '/x' })
+  assert.notEqual(a, liveListKey({ agent: 'claude', shell: otherWsl, configDir: '/x' }))
+  assert.notEqual(a, liveListKey({ agent: 'codex', shell: wsl, configDir: '/x' }))
+  // シェルの種類が違っても、同じ環境（Windows）なら同じ鍵。
+  assert.equal(
+    liveListKey({ agent: 'claude', shell: pwsh, configDir: 'C:\\c' }),
+    liveListKey({ agent: 'claude', shell: { kind: 'cmd' }, configDir: 'C:\\c' }),
+  )
 })
 
 test('移り先の説明はタブ → プロジェクト → ディレクトリの順', () => {
