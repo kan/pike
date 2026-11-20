@@ -12,23 +12,20 @@
  */
 import { ArrowRightFromLine, ChevronDown, FolderOpen, Terminal, X } from 'lucide-vue-next'
 import { computed, onUnmounted, ref, useTemplateRef } from 'vue'
-import { useAnchoredPopup } from '../../composables/useAnchoredPopup'
 import { openMoveProjectMenu } from '../../composables/useMoveProjectMenu'
 import { useProjectAccent } from '../../composables/useProjectAccent'
-import { peekTerminal, terminalLastOutputAt } from '../../composables/useTerminalPeek'
+import type { TerminalPeekHandle } from '../../composables/useTerminalPeek'
 import { useI18n } from '../../i18n'
 import { useOverlay } from '../../lib/overlay'
-import { relativeTime } from '../../lib/paths'
 import { actionChord } from '../../lib/shortcuts'
 import { useProjectStore } from '../../stores/project'
-import { useSettingsStore } from '../../stores/settings'
 import { useTabStore } from '../../stores/tabs'
 import ColorDot from '../ColorDot.vue'
 import ProjectIcon from '../ProjectIcon.vue'
+import TerminalPeekPopup from '../TerminalPeekPopup.vue'
 
 const { t } = useI18n()
 const projectStore = useProjectStore()
-const settingsStore = useSettingsStore()
 const tabStore = useTabStore()
 const accent = useProjectAccent()
 
@@ -84,10 +81,9 @@ function closeMenu() {
   open.value = false
   window.removeEventListener('mousedown', closeMenu)
   // **チラ見も一緒に閉じる（#319）。** アイコンは一覧の中にあるので、ホバーしたまま
-  // 閉じると**アンカーごと消えて `mouseleave` が来ない**（消えたノードへの配送は
-  // ブラウザ任せ）。放っておくとポップアップが浮いたまま残り（`pointer-events: none`
-  // なので押して消せない）、500ms のポーリングも回り続ける。
-  stopPeek()
+  // 閉じると**アンカーごと消えて `mouseleave` が来ない**。部品も次の取り直しでアンカーの
+  // 消失に気付いて閉じるが、それを待たずにすぐ閉じる。
+  peek.value?.hide()
 }
 
 function choose(id: string) {
@@ -115,20 +111,15 @@ function move(id: string, event: MouseEvent) {
   closeMenu()
 }
 
-// --- ターミナルのチラ見（#319） ---
-
-/** 出す行数。プルダウンの横に出すので、画面を圧迫せずに「何をしているか」が読める長さ。 */
-const PEEK_LINES = 15
-/** ホバー中の取り直し。`snapshot` は 15 行の `translateToString` なので軽い。 */
-const PEEK_INTERVAL_MS = 500
+// --- ターミナルのチラ見（#319）。ポップアップの実体は `TerminalPeekPopup.vue`（#631 で切り出した） ---
 
 /**
  * ターミナルを持つプロジェクト（アイコンを出すかの判定）。
  *
  * **行の `v-if` から `terminalForProject` を呼ばないこと。** あれは `tabs`（パーク中も
  * 含む全部）を舐めるので、行ごとに O(タブ数)。しかもテンプレートの関数呼び出しは
- * 再描画のたびに走るので、**下のポーリングが 500ms ごとに全行ぶんの走査を起こす**。
- * computed なら `tabs` が変わったときだけ組み直せばよく、行あたりは `has` の 1 回で済む。
+ * 再描画のたびに走る。computed なら `tabs` が変わったときだけ組み直せばよく、行あたりは
+ * `has` の 1 回で済む。
  */
 const projectsWithTerminal = computed(() => {
   const ids = new Set<string>()
@@ -138,56 +129,19 @@ const projectsWithTerminal = computed(() => {
   return ids
 })
 
-const peekEl = useTemplateRef<HTMLElement>('peekEl')
-const peek = useAnchoredPopup(peekEl)
-/** チラ見しているプロジェクト。null なら出していない。 */
-const peekFor = ref<string | null>(null)
+const peek = useTemplateRef<TerminalPeekHandle>('peek')
 // 手前に浮くものは数える（#396。ブラウザのタブの子 webview を隠すため）。チラ見の
-// ポップアップは一覧の行から出るので、`open` が真のあいだにしか存在しない。
+// ポップアップは一覧の行から出るので、`open` が真のあいだにしか存在しない（だから
+// `TerminalPeekPopup` には `nested` を渡す）。
 useOverlay(() => open.value)
-/**
- * 見せている中身。**行と時刻を 1 つに持つ**（常に一緒に書き換わり、一緒に読まれる）。
- *
- * 時刻は文字列で持つ。`relativeTime` の結果を computed に置くと、元の値が変わらない
- * 限り再計算されず、**時間が経っても「たった今」のまま固まる**。
- */
-const peekContent = ref<{ lines: string[]; age: string | null }>({ lines: [], age: null })
-let peekTimer: ReturnType<typeof setInterval> | null = null
 
-function refreshPeek() {
-  const projectId = peekFor.value
-  const tabId = projectId ? tabStore.terminalForProject(projectId) : null
-  if (!tabId) {
-    peekContent.value = { lines: [], age: null }
-    return
-  }
-  const at = terminalLastOutputAt(tabId)
-  peekContent.value = { lines: peekTerminal(tabId, PEEK_LINES), age: at ? relativeTime(at) : null }
-}
-
-async function startPeek(projectId: string, event: MouseEvent) {
-  const anchor = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  peekFor.value = projectId
-  refreshPeek()
-  if (peekTimer) clearInterval(peekTimer)
-  peekTimer = setInterval(refreshPeek, PEEK_INTERVAL_MS)
-  // **横に出す**（`placeBesideAnchor`）。上下に出すと一覧そのものに重なって、どの行の
-  // ものか分からなくなる。
-  await peek.placeBeside(anchor)
-}
-
-function stopPeek() {
-  peekFor.value = null
-  peek.reset()
-  if (peekTimer) {
-    clearInterval(peekTimer)
-    peekTimer = null
-  }
+function startPeek(projectId: string, event: MouseEvent) {
+  // 対象は**そのプロジェクトで最後に選んでいたターミナル**。ホバー中にも変わりうるので、取り直すたびに引く。
+  void peek.value?.show(() => tabStore.terminalForProject(projectId), event.currentTarget as HTMLElement)
 }
 
 onUnmounted(() => {
   window.removeEventListener('mousedown', closeMenu)
-  if (peekTimer) clearInterval(peekTimer)
 })
 </script>
 
@@ -226,7 +180,7 @@ onUnmounted(() => {
           class="row-peek"
           :title="t('project.peek')"
           @mouseenter="startPeek(entry.id, $event)"
-          @mouseleave="stopPeek"
+          @mouseleave="peek?.hide()"
         >
           <Terminal :size="12" :stroke-width="2" />
         </span>
@@ -267,32 +221,11 @@ onUnmounted(() => {
       </button>
     </div>
     <!--
-      チラ見のポップアップ（#319）。**`body` へ出す。** この部品は `SideBar` / `TabBar` の
-      `.ui-zoom` の中に置かれ、UI のフォントサイズを既定から変えると `zoom` が 1 でなくなる。
-      そうすると `position: fixed` の基準がその祖先になり、`left` / `top` も測った矩形も
-      倍率ぶんずれる（`TabBar.vue` の管理者メニューが「.ui-zoom の外に置く」としているのと
-      同じ罠）。`pointer-events: none` なのは、マウスがアイコンの上にあるあいだだけ出るため。
-
-      **`Teleport` はルート要素の中に置く。** 外に出すとテンプレートのルートが 2 つになり、
-      親（`SideBar` / `TabBar`）が渡している `class` と `style` が自動継承されなくなる。
-      描く先は body のままなので、置き場所を中にしても目的は変わらない。
+      チラ見のポップアップ（#319）。中で `body` へ Teleport する（理由は部品の側）。
+      **ルート要素の中に置く。** 外に出すとテンプレートのルートが 2 つになり、親
+      （`SideBar` / `TabBar`）が渡している `class` と `style` が自動継承されなくなる。
     -->
-    <Teleport to="body">
-      <div v-if="peekFor" ref="peekEl" class="peek-popup popup-surface" :style="peek.style.value">
-        <div v-if="peekContent.age" class="peek-head">{{ peekContent.age }}</div>
-        <!--
-          **ターミナルと同じフォントで描く**（設定画面のプレビューと同じ形）。既定の
-          `monospace` のままだと、罫線・ブロック文字・全角の幅が xterm と揃わず、
-          TUI の画面が崩れて出る。
-        -->
-        <pre
-          v-if="peekContent.lines.length > 0"
-          class="peek-body"
-          :style="{ fontFamily: settingsStore.fontFamily }"
-        >{{ peekContent.lines.join('\n') }}</pre>
-        <div v-else class="peek-empty">{{ t('project.peekEmpty') }}</div>
-      </div>
-    </Teleport>
+    <TerminalPeekPopup ref="peek" nested />
   </div>
 </template>
 
@@ -485,42 +418,5 @@ onUnmounted(() => {
 .row-peek:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
-}
-
-.peek-popup {
-  position: fixed;
-  z-index: 1001; /* プルダウン（1000）の上 */
-  max-width: 60vw;
-  padding: 4px 0;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  /* マウスはアイコンの上にあるあいだだけ出るので、この矩形は当たり判定を持たない。 */
-  pointer-events: none;
-}
-
-.peek-head {
-  padding: 0 8px 2px;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
-.peek-body {
-  margin: 0;
-  padding: 0 8px;
-  /* font-family はターミナルの設定から流し込む（テンプレート側） */
-  font-size: 11px;
-  line-height: 1.35;
-  white-space: pre;
-  overflow: hidden;
-  color: var(--text-primary);
-}
-
-.peek-empty {
-  padding: 0 8px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-style: italic;
 }
 </style>

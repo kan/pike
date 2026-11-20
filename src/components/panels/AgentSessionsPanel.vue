@@ -4,7 +4,7 @@
  * 分けて並べ、行を押すとそのセッションの居る場所へ飛ぶ（`liveSessions.jump`）。詳細は
  * 専用のタブ（`AgentSessionsTab.vue`）。
  */
-import { ExternalLink, SquareTerminal } from 'lucide-vue-next'
+import { ExternalLink } from 'lucide-vue-next'
 import { useTemplateRef } from 'vue'
 import { useI18n } from '../../i18n'
 import { LIVE_STATUS_ICONS } from '../../lib/liveSessionIcons'
@@ -14,6 +14,7 @@ import { type LiveSessionRow, useLiveSessionsStore } from '../../stores/liveSess
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import LiveSessionMenu from '../LiveSessionMenu.vue'
+import TerminalPeekMark from '../TerminalPeekMark.vue'
 
 const { t } = useI18n()
 const store = useLiveSessionsStore()
@@ -73,8 +74,15 @@ function tooltip(row: LiveSessionRow): string {
             <div class="session-meta">{{ meta(row) }}</div>
             <div v-if="row.waitingFor" class="session-wait">{{ row.waitingFor }}</div>
           </div>
-          <!-- このウィンドウのターミナルで動いているもの。押すとそのタブへ移る。 -->
-          <SquareTerminal v-if="row.tabId" class="row-mark" :size="13" :stroke-width="2" />
+          <!--
+            このウィンドウのターミナルで動いているもの。押すとそのタブへ移る（行と同じ）。
+            ホバーするとターミナルの今の表示をチラ見する（#631）。
+          -->
+          <TerminalPeekMark
+            v-if="row.tabId"
+            class="row-mark"
+            :resolve="() => store.tabForSession(row.sessionId)"
+          />
         </div>
       </section>
       <LiveSessionMenu ref="menu" />
@@ -201,9 +209,8 @@ function tooltip(row: LiveSessionRow): string {
   color: var(--success);
 }
 
+/* 印の形は `TerminalPeekMark.vue`。ここは行の中の位置だけ。 */
 .row-mark {
-  flex-shrink: 0;
-  margin-top: 3px;
-  color: var(--text-secondary);
+  margin-top: 1px;
 }
 </style>

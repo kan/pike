@@ -241,6 +241,15 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     })
   })
 
+  /**
+   * セッションを動かしているこのウィンドウのタブ。行の `tabId` と同じ答えを、その時点のタブから引く
+   * （チラ見の取り直しが使う。#631。ホバーを始めたときに掴んだ行のオブジェクトは、一覧が組み直されても
+   * 差し替わらないので、その `tabId` を読み続けると閉じたタブを指したままになる）。
+   */
+  function tabForSession(sessionId: string): string | null {
+    return tabBySession.value.get(sessionId) ?? null
+  }
+
   const groups = computed(() => groupLiveSessions(rows.value))
   const waitingCount = computed(() => rows.value.filter((r) => r.status === 'waiting').length)
   /** 一覧が空のときに出す文言（i18n のキー）。最初の取得が返るまでは「読み込み中」。 */
@@ -481,6 +490,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     account,
     loading,
     rows,
+    tabForSession,
     groups,
     waitingCount,
     emptyKey,

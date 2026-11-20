@@ -143,6 +143,8 @@ pike/
 │   │   ├── PatchFileRow.vue     # 変更されたファイルの一覧の 1 行（コミットタブと作業中の変更のタブ、#526）
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── LiveSessionMenu.vue  # 今動いているセッションの右クリックメニュー（パネルと詳細のタブで共有、#625）
+│   │   ├── TerminalPeekPopup.vue # ターミナルのチラ見のポップアップ（プロジェクトのプルダウンとセッションの一覧で共有、#319 / #631）
+│   │   ├── TerminalPeekMark.vue  # ホバーでチラ見する印（セッションのパネルと詳細のタブで共有、#631）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── MoveProjectMenu.vue  # プロジェクトを別のウィンドウへ移すときの行き先のメニュー（#469）
 │   │   ├── CreateWorktreeDialog.vue # worktree の作成ダイアログ（名前・ベースブランチ・作成先、#478）

@@ -5,7 +5,7 @@
  * 収まらない欄（ディレクトリ・起動した時刻・pid・版）まで並べる。一覧はパネルと同じストア
  * （`stores/liveSessions.ts`）で、このタブが見えているあいだはストアが自分で短い間隔に切り替える。
  */
-import { ArrowRight, RefreshCw, SquareTerminal } from 'lucide-vue-next'
+import { ArrowRight, RefreshCw } from 'lucide-vue-next'
 import { computed, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { LIVE_STATUS_ICONS } from '../../lib/liveSessionIcons'
@@ -16,6 +16,7 @@ import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import HelpButton from '../HelpButton.vue'
 import LiveSessionMenu from '../LiveSessionMenu.vue'
+import TerminalPeekMark from '../TerminalPeekMark.vue'
 
 const props = defineProps<{ tabId: string }>()
 
@@ -27,6 +28,7 @@ const tabStore = useTabStore()
 
 // 右クリックのメニューは body へ出しているので、タブが隠れたら自分で閉じる（`tabs.md` の
 // 「body へ Teleport したものは、隠れたときに自分で畳む」。残るとブラウザのタブも隠れたままになる）。
+// チラ見（`TerminalPeekMark`）は、印が隠れたことを取り直しのたびに自分で見て閉じる。
 watch(
   () => tabStore.isTabVisible(props.tabId),
   (visible) => {
@@ -112,7 +114,8 @@ function startedLabel(ms: number | null): string | null {
           <div class="col-main selectable">
             <!-- 題が無いセッションは、1 列目の名前と同じものを繰り返さない。 -->
             <div v-if="row.title || row.tabId" class="title">
-              <SquareTerminal v-if="row.tabId" class="tab-mark" :size="13" :stroke-width="2" />
+              <!-- ホバーでターミナルの今の表示をチラ見する（#631。パネルと同じ印）。 -->
+              <TerminalPeekMark v-if="row.tabId" :resolve="() => store.tabForSession(row.sessionId)" />
               <span v-if="row.title">{{ row.title }}</span>
             </div>
             <div v-if="row.waitingFor" class="sub wait">
@@ -306,11 +309,6 @@ function startedLabel(ms: number | null): string | null {
   gap: 6px;
   color: var(--text-active);
   overflow-wrap: anywhere;
-}
-
-.tab-mark {
-  flex-shrink: 0;
-  color: var(--text-secondary);
 }
 
 .sub {
