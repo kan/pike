@@ -28,6 +28,9 @@ pub struct PtySession {
     busy: BusyProbe,
     /// 出力を送らずに預かっているあいだの置き場（#469。`Held` の doc）。
     hold: Arc<HoldSlot>,
+    /// シェルが終わったか（`pty_exit` を送ったら立つ）。ピン留めのタブや、失敗で残したタブは、
+    /// 終わったあとも `sessions` に残る（`open_wsl_distros` が数えないため）。
+    exited: Arc<AtomicBool>,
 }
 
 impl PtyState {
@@ -35,22 +38,39 @@ impl PtyState {
     /// 確かに動いている**（ターミナルの `wsl.exe` が保っている）ので、UNC 越しに読んでも distro を
     /// 起こさない。今動いているセッションの一覧（`agent_live.rs`、#633）が、読んでよい distro を
     /// 決めるのに使う。
+    ///
+    /// **シェルが終わったターミナルは数えない**（`exited`）。タブが残っていても `wsl.exe` は
+    /// もう distro を保っていないので、数えると止まった distro を読んで起こし続ける。
     pub(crate) fn open_wsl_distros(&self) -> Vec<String> {
         let Ok(sessions) = self.sessions.lock() else {
             return Vec::new();
         };
-        let mut out: Vec<String> = Vec::new();
-        for s in sessions.values() {
-            if let BusyProbe::Wsl {
-                distro: Some(d), ..
-            } = &s.busy
-                && !out.iter().any(|o| o.eq_ignore_ascii_case(d))
-            {
-                out.push(d.clone());
-            }
-        }
-        out
+        live_wsl_distros(
+            sessions
+                .values()
+                .map(|s| (&s.busy, s.exited.load(Ordering::SeqCst))),
+        )
     }
+}
+
+/// `(判定の手段, 終わったか)` の並びから、動いているターミナルの distro を重複なしで集める
+/// （`PtyState::open_wsl_distros` の中身。`PtySession` を組まずに試せるよう分けてある）。distro の名前は
+/// 大小を区別しない（`wsl -d ubuntu` も `Ubuntu` に当たる）。
+fn live_wsl_distros<'a>(terminals: impl Iterator<Item = (&'a BusyProbe, bool)>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for (busy, exited) in terminals {
+        if exited {
+            continue;
+        }
+        if let BusyProbe::Wsl {
+            distro: Some(d), ..
+        } = busy
+            && !out.iter().any(|o| o.eq_ignore_ascii_case(d))
+        {
+            out.push(d.clone());
+        }
+    }
+    out
 }
 
 /// 別のウィンドウへ移すあいだ、送らずに預かっている出力と終了コード（#469）。
@@ -216,6 +236,7 @@ fn spawn_pty_with_command(
                 window_label,
                 busy,
                 hold: Arc::clone(&hold),
+                exited: Arc::clone(&exit_emitted),
             },
         );
     }
@@ -851,4 +872,40 @@ fn parse_osc7_url(buf: &[u8]) -> Option<String> {
     let slash_pos = rest.find('/')?;
     let path = &rest[slash_pos..];
     Some(percent_decode_str(path).decode_utf8_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BusyProbe, live_wsl_distros};
+
+    fn wsl(distro: &str) -> BusyProbe {
+        BusyProbe::Wsl {
+            distro: Some(distro.to_owned()),
+            marker: String::new(),
+        }
+    }
+
+    /// 終わったターミナル（ピン留めで残したタブ）の distro は数えない。数えると、止まった distro を
+    /// 一覧のポーリングが UNC 越しに読んで起こし続ける（#633）。
+    #[test]
+    fn exited_terminals_do_not_keep_a_distro_listed() {
+        let ubuntu = wsl("Ubuntu");
+        let debian = wsl("Debian");
+        let terminals = [(&ubuntu, false), (&debian, true)];
+        assert_eq!(live_wsl_distros(terminals.into_iter()), vec!["Ubuntu"]);
+    }
+
+    /// 同じ distro の綴り違いは 1 つに畳み、名前の無いもの（既定の distro）とホストは数えない。
+    #[test]
+    fn folds_case_and_skips_unnamed_and_host() {
+        let a = wsl("Ubuntu");
+        let b = wsl("ubuntu");
+        let unnamed = BusyProbe::Wsl {
+            distro: None,
+            marker: String::new(),
+        };
+        let host = BusyProbe::Unavailable;
+        let terminals = [(&a, false), (&b, false), (&unnamed, false), (&host, false)];
+        assert_eq!(live_wsl_distros(terminals.into_iter()), vec!["Ubuntu"]);
+    }
 }

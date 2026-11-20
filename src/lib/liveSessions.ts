@@ -6,7 +6,7 @@
 
 import type { LiveSession, LiveSessionList, LiveStatus } from '../types/liveSession'
 import { installKey, type ShellType, shellToPlatform } from '../types/tab'
-import { agentById } from './agents'
+import { type AgentId, agentById } from './agents'
 import { basename, stripTrailingSep } from './paths'
 import { isSameOrUnder, type ProjectPlatform, rootKey } from './projectPaths'
 
@@ -106,6 +106,19 @@ export function livePlaceLabel(shell: ShellType): string {
  */
 export function liveRowKey(row: Pick<LiveSession, 'pid' | 'sessionId'>): string {
   return `${row.pid ?? ''}:${row.sessionId}`
+}
+
+/**
+ * セッションとターミナルのタブを突き合わせる鍵（#633）。**エージェント・環境・セッション id の組**:
+ * 一覧はアカウントと環境をまたぐので、id だけだと、同じ会話を写した別の環境の行がそのタブを指す。
+ * **Claude の設定ディレクトリは入れない**（タブはそれを知らない。mod の報告にも保存にも無い）。
+ * 同じ環境の同じエージェントで id が重なるのは、記録のディレクトリごと写したときだけ。
+ */
+export function liveSessionTabKey(agent: AgentId, shell: ShellType, sessionId: string): string {
+  // distro の名前は大小を区別しない（`wsl -d ubuntu` も `Ubuntu` に当たる。Rust の `environments` も
+  // 大小を無視して畳むので、一覧とタブで綴りが違いうる）。
+  const place = shell.kind === 'wsl' ? `wsl:${shell.distro.toLowerCase()}` : installKey(shell)
+  return `${agent}\n${place}\n${sessionId}`
 }
 
 /** 一覧を見分ける鍵（エージェント・環境・設定ディレクトリ）。描画の `key` と行の持ち主に使う。 */

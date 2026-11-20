@@ -6,6 +6,7 @@ import {
   liveListTitle,
   liveSessionJumpKey,
   liveSessionLabel,
+  liveSessionTabKey,
   projectForCwd,
 } from '../src/lib/liveSessions'
 import type { LiveSession } from '../src/types/liveSession'
@@ -103,6 +104,17 @@ test('一覧の鍵は環境と設定ディレクトリで分かれる', () => {
     liveListKey({ agent: 'claude', shell: pwsh, configDir: 'C:\\c' }),
     liveListKey({ agent: 'claude', shell: { kind: 'cmd' }, configDir: 'C:\\c' }),
   )
+})
+
+test('タブとの突き合わせはエージェントと環境も見る（同じ id の別の環境の行にタブを付けない）', () => {
+  const key = liveSessionTabKey('claude', wsl, 'abc')
+  assert.notEqual(key, liveSessionTabKey('claude', otherWsl, 'abc'))
+  assert.notEqual(key, liveSessionTabKey('claude', pwsh, 'abc'))
+  assert.notEqual(key, liveSessionTabKey('codex', wsl, 'abc'))
+  // distro の名前の大小は問わない（タブは `ubuntu`、一覧は `Ubuntu` でありうる）。
+  assert.equal(key, liveSessionTabKey('claude', { kind: 'wsl', distro: 'ubuntu' }, 'abc'))
+  // 同じ環境ならシェルの種類は問わない（タブは cmd、一覧はホストの既定の PowerShell）。
+  assert.equal(liveSessionTabKey('claude', pwsh, 'abc'), liveSessionTabKey('claude', { kind: 'cmd' }, 'abc'))
 })
 
 test('移り先の説明はタブ → プロジェクト → ディレクトリの順', () => {

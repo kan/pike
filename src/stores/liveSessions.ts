@@ -11,6 +11,7 @@ import {
   liveListKey,
   liveListTitle,
   liveSessionLabel,
+  liveSessionTabKey,
   projectForCwd,
 } from '../lib/liveSessions'
 import { openablePathForShell, relativeTime } from '../lib/paths'
@@ -26,7 +27,7 @@ import {
 import type { GitWorktree } from '../types/git'
 import type { LiveSession, LiveSessionList, LiveStatus } from '../types/liveSession'
 import type { ProjectConfig } from '../types/project'
-import { installKey, type ShellType, shellToPlatform, withEnv } from '../types/tab'
+import { installKey, type ShellType, shellToPlatform, type TabOwner, type TerminalTab, withEnv } from '../types/tab'
 import { useProjectStore } from './project'
 import { useSidebarStore } from './sidebar'
 import { useStatusMessageStore } from './statusMessage'
@@ -238,7 +239,8 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   )
 
   /**
-   * セッション id → このウィンドウのターミナルのタブ。保持中の他のプロジェクトのタブも含む。
+   * セッションの鍵（`liveSessionTabKey`。理由は `tabForSession` の doc）→ このウィンドウのターミナルの
+   * タブ。保持中の他のプロジェクトのタブも含む。
    *
    * **出所は 2 つで、今動いている報告を優先する。** `agentRun` は同梱の mod が知らせる今の
    * セッションで、`agentSession` はそのタブで最後に動いていたセッション（保存に載り、復元で
@@ -248,17 +250,38 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
    */
   const tabBySession = computed(() => {
     const map = new Map<string, string>()
-    for (const tab of tabStore.tabs) {
-      if (tab.kind !== 'terminal' || !tab.agentSession || map.has(tab.agentSession.id)) continue
-      const running = tab.agentRun?.sessionId
-      if (running && running !== tab.agentSession.id) continue
-      map.set(tab.agentSession.id, tab.id)
+    // タブの鍵。シェルを指定していないタブは、そのプロジェクトのシェルで開いている（保持中の別の
+    // プロジェクトも、登録していないディレクトリも。`findProject`）。**プロジェクトを引けないタブは
+    // 突き合わせない**（今のプロジェクトのシェルで代用すると、別の環境の鍵が付く）。
+    const keyOf = (tab: TerminalTab & TabOwner, agent: AgentId, id: string): string | null => {
+      const shell = tab.shell ?? (tab.projectId ? projectStore.findProject(tab.projectId)?.shell : undefined)
+      return shell ? liveSessionTabKey(agent, shell, id) : null
     }
     for (const tab of tabStore.tabs) {
-      if (tab.kind === 'terminal' && tab.agentRun?.sessionId) map.set(tab.agentRun.sessionId, tab.id)
+      if (tab.kind !== 'terminal' || !tab.agentSession) continue
+      const running = tab.agentRun?.sessionId
+      if (running && running !== tab.agentSession.id) continue
+      const key = keyOf(tab, tab.agentSession.agent, tab.agentSession.id)
+      if (key && !map.has(key)) map.set(key, tab.id)
+    }
+    for (const tab of tabStore.tabs) {
+      if (tab.kind !== 'terminal' || !tab.agentRun?.sessionId) continue
+      const key = keyOf(tab, tab.agentRun.agent, tab.agentRun.sessionId)
+      if (key) map.set(key, tab.id)
     }
     return map
   })
+
+  /**
+   * セッションを動かしているこのウィンドウのタブ。行の `tabId` と同じ答えを、その時点のタブから引く
+   * （チラ見の取り直しが使う。#631。ホバーを始めたときに掴んだ行のオブジェクトは、一覧が組み直されても
+   * 差し替わらないので、その `tabId` を読み続けると閉じたタブを指したままになる）。
+   *
+   * **突き合わせはエージェント・環境・セッション id の組で行う**（#633。理由は `liveSessionTabKey` の doc）。
+   */
+  function tabForSession(row: Pick<LiveSessionRow, 'agent' | 'shell' | 'sessionId'>): string | null {
+    return tabBySession.value.get(liveSessionTabKey(row.agent, row.shell, row.sessionId)) ?? null
+  }
 
   /**
    * セッションの居場所と突き合わせるプロジェクト。**今のプロジェクトは必ず入れる**: 登録せずに
@@ -287,7 +310,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
           configDir: list.configDir,
           configOverride: list.configOverride,
           project: owner,
-          tabId: tabBySession.value.get(s.sessionId) ?? null,
+          tabId: tabForSession({ agent: list.agent, shell: list.shell, sessionId: s.sessionId }),
           here: owner?.id === project.id,
         }
       }),
@@ -498,7 +521,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
       tabStore.addTerminalTab({ cwd: payload.cwd, shell })
       return
     }
-    const tabId = tabBySession.value.get(payload.sessionId)
+    const tabId = tabForSession(payload)
     if (tabId) {
       await focusSessionTab(tabId)
       return
@@ -534,7 +557,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     if (!stillHere()) return
     // **確認のあいだにタブが見つかったら、そちらを選ぶ**（復元の直後は mod の報告が遅れて届く）。
     // 再開すると、確認が避けようとしている「同じ会話を 2 つのプロセスが持つ」になる。
-    const appeared = tabBySession.value.get(payload.sessionId)
+    const appeared = tabForSession(payload)
     if (appeared) {
       await focusSessionTab(appeared)
       return
@@ -561,6 +584,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     account,
     loading,
     rows,
+    tabForSession,
     groups,
     sections,
     showHeadings,
