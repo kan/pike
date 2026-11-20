@@ -158,7 +158,8 @@ export function useCsvSelection(container: Ref<HTMLElement | undefined>, source:
   function selectedText(): string | null {
     const { data, rows, pageOffset } = source()
     if (!selection || !data) return null
-    const cells = (row: CsvRow) => cellsOf(row, data.delimiter)
+    // DB の NULL は空の欄にする（ファイルの CSV からは出てこない）。
+    const cells = (row: CsvRow) => cellsOf(row, data.delimiter).map((c) => c ?? '')
     if (selection.kind === 'rows') {
       const picked = [...selection.indices].sort((a, b) => a - b).flatMap((i) => rows[pageOffset + i] ?? [])
       return joinTsv(picked.map(cells))

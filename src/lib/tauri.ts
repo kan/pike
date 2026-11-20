@@ -2,6 +2,7 @@ import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type { AgentSession } from '../types/agentSession'
 import type { AgentUsage } from '../types/agentUsage'
 import type { CiAction, CiConfigs, CiJob, CiListResult, CiProvider } from '../types/ci'
+import type { DbContainerDefaults, DbDumpFormat, DbEngine, DbResult, DbTable, DbTarget } from '../types/db'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
@@ -1230,6 +1231,34 @@ export async function dockerTunnelStop(tunnelId: string): Promise<void> {
 
 export async function dockerContainerPorts(containerId: string): Promise<number[]> {
   return invoke<number[]>('docker_container_ports', { containerId })
+}
+
+// DB ビューワ（#632）。SQL は Rust が組む固定のものだけで、渡せるのはテーブル名だけ。
+
+export async function dbContainerDefaults(containerId: string, engine: DbEngine): Promise<DbContainerDefaults> {
+  return invoke<DbContainerDefaults>('db_container_defaults', { containerId, engine })
+}
+
+export async function dbDatabases(target: DbTarget): Promise<string[]> {
+  return invoke<string[]>('db_databases', { target })
+}
+
+export async function dbTables(target: DbTarget): Promise<DbTable[]> {
+  return invoke<DbTable[]>('db_tables', { target })
+}
+
+export async function dbSchema(target: DbTarget, table: string): Promise<DbResult> {
+  return invoke<DbResult>('db_schema', { target, table })
+}
+
+/** テーブルの先頭の行（上限は Rust の `ROW_LIMIT`。切ったら `truncated`）。 */
+export async function dbRows(target: DbTarget, table: string): Promise<DbResult> {
+  return invoke<DbResult>('db_rows', { target, table })
+}
+
+/** テーブル全体を `path`（ホストのパス）へ書き出し、書いた行数を返す。 */
+export async function dbDump(target: DbTarget, table: string, format: DbDumpFormat, path: string): Promise<number> {
+  return invoke<number>('db_dump', { target, table, format, path })
 }
 
 // Window

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Features
+
+- **MySQL と PostgreSQL の簡易 DB ビューワを足した**：Docker のコンテナ、WSL、ローカルの DB について、テーブルの一覧、中身、スキーマを表で見られます。表の操作（ページ送り、並べ替え、列や行の選択とコピー）は CSV プレビューと同じです。表示している結果は CSV か TSV でコピーでき、テーブル全体をファイルに保存できます。Docker パネルの DB のサービス行のアイコンか、コマンドパレットの「DB ビューワを開く」から開きます。接続には接続先の環境にある `mysql`（または `mariadb`）と `psql` を使い、コンテナではユーザー名やパスワードをコンテナの環境変数から読みます。SQL を入力して実行する機能と、データを書き換える機能はありません (#632)
+
 ## [0.73.0] - 2026-11-19
 
 ### Features

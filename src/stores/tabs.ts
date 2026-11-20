@@ -17,6 +17,7 @@ import type {
   AgentRun,
   BrowserTab,
   CommitTab,
+  DbTab,
   DiffTab,
   DockerLogsTab,
   EditorTab,
@@ -789,6 +790,23 @@ export const useTabStore = defineStore('tabs', () => {
       containerId: options.containerId,
       containerName: options.containerName,
     })
+    activeTabId.value = id
+    return id
+  }
+
+  /**
+   * DB ビューワ（#632）を開く。コンテナを渡すと、同じコンテナのタブがあればそれを前に出す。
+   * 渡さなければ（コマンドパレット）毎回新しいタブで、接続の画面から始まる。
+   */
+  function addDbTab(container?: DbTab['container']): string {
+    const existing =
+      container && tabs.value.find((t): t is DbTab => t.kind === 'db' && t.container?.id === container.id)
+    if (existing) {
+      activeTabId.value = existing.id
+      return existing.id
+    }
+    const id = genId()
+    pushTab({ id, kind: 'db', title: container ? container.name : 'DB', pinned: false, container })
     activeTabId.value = id
     return id
   }
@@ -1602,6 +1620,7 @@ export const useTabStore = defineStore('tabs', () => {
     addPreviewTab,
     addHistoryTab,
     addDockerLogsTab,
+    addDbTab,
     addSettingsTab,
     addAgentStatusTab,
     addAgentSessionsTab,

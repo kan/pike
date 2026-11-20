@@ -24,6 +24,7 @@ mod ci;
 mod claude_usage;
 mod cli;
 mod codex_usage;
+mod db;
 mod diagnostics;
 mod docker;
 /// タブバーへの OS ファイルドロップの実パス解決は WebView2 の COM API に依存する
@@ -2138,6 +2139,12 @@ pub fn run() {
             docker::tunnel::docker_tunnel_create,
             docker::tunnel::docker_tunnel_stop,
             docker::tunnel::docker_container_ports,
+            db::db_container_defaults,
+            db::db_databases,
+            db::db_tables,
+            db::db_schema,
+            db::db_rows,
+            db::db_dump,
             search::search_detect_backend,
             search::search_execute,
             search::search_replace_apply,

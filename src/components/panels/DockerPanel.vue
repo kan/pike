@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Cable, ExternalLink, Play, RefreshCw, ScrollText, Square, Terminal, Unplug } from 'lucide-vue-next'
+import { Cable, Database, ExternalLink, Play, RefreshCw, ScrollText, Square, Terminal, Unplug } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { promptDialog } from '../../composables/useConfirmDialog'
 import { useI18n } from '../../i18n'
+import { dbEngineOfImage } from '../../lib/dbViewer'
 import { openLocalTunnel } from '../../lib/openUrl'
 import { basename, joinPath, normalizeSep, pathSep } from '../../lib/paths'
 import { dockerContainerPorts, dockerDetectShell } from '../../lib/tauri'
@@ -80,6 +81,12 @@ async function openShell(containerId: string, containerName: string) {
   } catch (e) {
     dockerStore.error = String(e)
   }
+}
+
+/** DB のコンテナ（イメージ名で判定）を DB ビューワで開く（#632）。 */
+function openDb(containerId: string, containerName: string, image: string) {
+  const engine = dbEngineOfImage(image)
+  if (engine) tabStore.addDbTab({ id: containerId, name: containerName, engine })
 }
 
 function tunnelsFor(containerId: string | undefined) {
@@ -183,6 +190,11 @@ onUnmounted(() => dockerStore.stopPolling())
                   :title="t('docker.shell')"
                   @click="openShell(row.container.id, row.name)"
                 ><Terminal :size="12" :stroke-width="2" /></button>
+                <button
+                  v-if="row.container.state === 'running' && dbEngineOfImage(row.container.image)"
+                  :title="t('docker.openDb')"
+                  @click="openDb(row.container.id, row.name, row.container.image)"
+                ><Database :size="12" :stroke-width="2" /></button>
                 <button
                   v-if="row.container.state === 'running'"
                   :disabled="dockerStore.tunnelBusy.includes(row.container.id)"

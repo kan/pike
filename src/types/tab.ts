@@ -1,5 +1,6 @@
 import type { AgentId, AgentSessionRef } from '../lib/agents'
 import type { ProjectPlatform } from '../lib/projectPaths'
+import type { DbEngine } from './db'
 
 export type ShellType =
   | { kind: 'wsl'; distro: string }
@@ -379,6 +380,20 @@ export type DockerLogsTab = {
   containerName: string
 }
 
+/**
+ * 簡易 DB ビューワ（#632）。接続先・テーブル・表示（中身 / 列の定義）はタブの中で選ぶ。
+ * **セッションには残さない**（パスワードを持つうえ、接続はコンテナの寿命に縛られる）。
+ * `container` は Docker パネルの「DB を見る」から開いたときの接続先で、同じコンテナのタブが
+ * あればそれを前に出す。コマンドパレットから開くと無く、接続の画面から始まる。
+ */
+export type DbTab = {
+  id: string
+  kind: 'db'
+  title: string
+  pinned: boolean
+  container?: { id: string; name: string; engine: DbEngine }
+}
+
 export type DiffTab = {
   id: string
   kind: 'diff'
@@ -638,6 +653,7 @@ export type Tab = (
   | TerminalTab
   | EditorTab
   | DockerLogsTab
+  | DbTab
   | DiffTab
   | PreviewTab
   | HistoryTab

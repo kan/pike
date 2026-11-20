@@ -103,6 +103,8 @@ export const APP_ACTIONS = [
   { id: 'manual', palette: 'help' },
   // ブラウザのタブ（#368）。URL を聞いてから開く。
   { id: 'openBrowser', palette: 'view' },
+  // 簡易 DB ビューワ（#632）。接続先はタブの中で選ぶ。
+  { id: 'openDbViewer', palette: 'view' },
   { id: 'shortcuts', palette: 'help', labelKey: 'shortcuts.keyboardShortcuts' },
   { id: 'gitHistory' },
   // キーボードマクロ（#180）。キーは CodeMirror 層にあるので `keyBindings` には載せない

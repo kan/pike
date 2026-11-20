@@ -34,6 +34,7 @@ const EditorTab = defineAsyncComponent(() => import('../tabs/EditorTab.vue'))
 const PreviewTab = defineAsyncComponent(() => import('../tabs/PreviewTab.vue'))
 const HistoryTab = defineAsyncComponent(() => import('../tabs/HistoryTab.vue'))
 const DockerLogsTab = defineAsyncComponent(() => import('../tabs/DockerLogsTab.vue'))
+const DbTab = defineAsyncComponent(() => import('../tabs/DbTab.vue'))
 const SettingsTab = defineAsyncComponent(() => import('../tabs/SettingsTab.vue'))
 const AgentStatusTab = defineAsyncComponent(() => import('../tabs/AgentStatusTab.vue'))
 const AgentSessionsTab = defineAsyncComponent(() => import('../tabs/AgentSessionsTab.vue'))
@@ -58,6 +59,7 @@ const TAB_COMPONENTS: Record<Tab['kind'], unknown> = {
   diff: DiffTab,
   history: HistoryTab,
   'docker-logs': DockerLogsTab,
+  db: DbTab,
   settings: SettingsTab,
   'agent-status': AgentStatusTab,
   'agent-sessions': AgentSessionsTab,

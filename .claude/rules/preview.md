@@ -130,8 +130,9 @@ Markdown の入力支援、画像ビューワと PDF、外部ホストへの取�
   - **行はセルに分けないまま持つ**（`CsvRow.line`、分けるのは `cellsOf`）。本文は打鍵が止まるたびに読み直すので、全行をセルに分けると数 MB の CSV で編集が重くなる。分けるのは描くページの行・並べ替えの列・全体や列のコピーのときだけ
   - 表示件数は全タブ共通の設定なので、変わったら**どのタブもページを先頭に戻す**（同じページ番号が別の行を指すため）
   - **列の番号は `#` 列を数えない 0 始まりで統一する**（並べ替え・選択・右クリックのメニュー）。DOM のセルの位置（`#` 列が 0）から直すのは `useCsvSelection` の `domCol` だけ。表示件数の選択肢と既定値は `lib/csvPreview.ts` が持ち、設定ストアはそれを読んで検証する（`SHORTCUT_PRESETS` と同じ向き）
-  - **読み込み（`parseCsv`）・並べ替え（`sortCsvRows`）・1 ページの HTML（`renderCsvPage`）を分けてある**。EditorTab の computed も `csvData` → `csvRows` → `previewHtml` の 3 段で、ページを動かしても本文を読み直さない
-  - ページ送り・並べ替えのボタンは `v-html` の中に描き、`data-csv-*` の印で受ける（`handleCsvControls` / `onPreviewChange`）。**見出しのクリックは列の選択**なので、並べ替えはその中の小さなボタンと右クリックのメニュー。向きの記号は CSS の `::after`（文字にすると見出しのセルのコピーに混ざる）
+  - **読み込み（`parseCsv`）・並べ替え（`sortCsvRows`）・1 ページの HTML（`renderCsvPage`）を分けてある**。EditorTab の computed も `csvData` → `useCsvTable` の `rows` → `previewHtml` の 3 段で、ページを動かしても本文を読み直さない
+  - **ページ・並べ替え・選択・キーの状態と操作は `composables/useCsvTable.ts` に置き、DB ビューワ（#632、`db.md`）と共有する。** 見た目は `assets/csvTable.css`（表の器に `csv-preview` の class を付ける。寸法は置いた側が決める）。EditorTab が持つのは本文から表を読む `csvData`・部分読み込みの案内・右クリックのメニューだけ
+  - ページ送り・並べ替えのボタンは `v-html` の中に描き、`data-csv-*` の印で受ける（`useCsvTable` の `handleControls` / `handleChange`）。**見出しのクリックは列の選択**なので、並べ替えはその中の小さなボタンと右クリックのメニュー。向きの記号は CSS の `::after`（文字にすると見出しのセルのコピーに混ざる）
   - 並べ替えは空のセルを向きに関係なく末尾、数として読めるセルは数として比べる。並べ替えはタブごとで保存しない
   - **選択のコピーは描いた表ではなく読み込んだデータから組み立てる**（`useCsvSelection` の `source`）。全体と列は全ページぶん、行はページの中の位置。ページ・並べ方・件数が変わったら選択を捨てる。**全ページぶんをコピーすることはページの帯に書いてある**（`csv.copyAllPagesHint`）。見えている範囲とコピーされる範囲が食い違うため
   - **列・行の選択は `composables/useCsvSelection.ts` が自前で持つ**（ブラウザの文字選択は文書の並びに沿った 1 本の範囲で、1 列だけを選べない）。印は class で付け、`v-html` で作り直されたら `paint` で付け直す。コピーは `lib/text.ts` の `joinTsv`

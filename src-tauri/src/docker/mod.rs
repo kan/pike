@@ -142,7 +142,7 @@ async fn connect_any() -> Result<Docker, String> {
     Err("Docker is not reachable".into())
 }
 
-async fn get_docker(state: &DockerState) -> Result<Docker, String> {
+pub(crate) async fn get_docker(state: &DockerState) -> Result<Docker, String> {
     let owner = instance_owner(state);
     state
         .client
