@@ -1245,10 +1245,11 @@ export default {
   'shortcuts.shellFirst': 'シェルに渡す（タブ操作と検索のキーを除く）',
   'shortcuts.shellFirstMac': 'シェルに渡す',
 
-  // このプロジェクトのアカウントで動いている Claude Code のセッション (#625)
+  // 今動いているエージェントのセッション（アカウントごと） (#625 / #633)
   'liveSessions.waiting': '返答待ち',
   'liveSessions.busy': '稼働中',
   'liveSessions.idle': 'アイドル',
+  'liveSessions.recent': '最近',
   'liveSessions.waitingFor': '待っているもの: {reason}',
   'liveSessions.empty': 'このアカウントで動いている Claude Code のセッションはありません',
   'liveSessions.noProject': 'プロジェクトを開くと、そのアカウントのセッションが並びます',
@@ -1266,7 +1267,9 @@ export default {
   'liveSessions.menuCopyResume': '再開コマンドをコピー',
   'liveSessions.menuCopyCwd': 'ディレクトリのパスをコピー',
   'liveSessions.confirmResume':
-    '「{name}」は Pike のターミナル以外で動いています。このプロジェクトに新しいターミナルを開き、claude --resume でこのセッションを開きますか？\n\n元のプロセスは止まらないので、同じ会話を 2 か所で開くことになります。',
+    '「{name}」は Pike のターミナル以外で動いています。このプロジェクトに新しいターミナルを開き、{agent} でこのセッションを再開しますか？\n\n元のプロセスは止まらないので、同じ会話を 2 か所で開くことになります。',
+  'liveSessions.confirmResumeRecent':
+    'このプロジェクトに新しいターミナルを開き、{agent} で「{name}」を再開しますか？\n\nまだどこかで動いている場合は、同じ会話を 2 か所で開くことになります。',
   'liveSessions.startedAt': '{when} 起動',
 
   // エージェント状態パネル (#226)

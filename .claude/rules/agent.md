@@ -12,6 +12,8 @@ paths:
   - "src/composables/useAgentMenu.ts"
   - "src/components/AgentSessionsMenu.vue"
   - "src-tauri/src/claude_usage/live.rs"
+  - "src-tauri/src/agent_live.rs"
+  - "src-tauri/src/codex_usage/live.rs"
   - "src/lib/liveSessions.ts"
   - "src/lib/liveSessionIcons.ts"
   - "src/stores/liveSessions.ts"
@@ -70,21 +72,79 @@ paths:
   （再開できないものを並べない）
 - **git を 1 回起こす**。読むのはメニューを開いたときだけ、という前提（`agent_sessions.rs` の
   doc）の上に乗っている。ポーリングへ移すならここが費用になる
-- 設定ディレクトリは一覧を引いた場所で解決したもの 1 つを使う（`config::resolve`）。worktree
+- 設定ディレクトリは一覧を引いた場所で解決したもの 1 つを使う（`config::resolve`。再開のメニューの話で、
+  今動いているセッションの一覧は下の #633 の節のとおり複数のアカウントを読む）。worktree
   ごとに `CLAUDE_CONFIG_DIR` を変えている構成は拾わない
 - 他の 3 つ（Codex / Copilot / opencode）は対象外（#432 は Claude に絞った）。worktree で
   動かしたセッションが一覧に出るか、再開が場所に依るかは**未確認**
 
-## 今動いているセッションの一覧（#625）
+## 今動いているセッションの一覧（#625 / #633）
 
-サイドバーのセッションのパネル（簡易）と、そこから開く詳細のタブ。**判断の正本は
-`claude_usage/live.rs` のモジュール doc**（出所・生存の照合・題の読み方）と `stores/liveSessions.ts`
-の `jump` の doc（飛び先の 3 段）。ここには規範だけ置く。
+サイドバーのセッションのパネル（簡易）と、そこから開く詳細のタブ。**判断の正本は 3 つのモジュール
+doc**（`agent_live.rs` ＝どの環境とアカウントを読むか、`claude_usage/live.rs` ＝ Claude の出所・
+生存の照合・題、`codex_usage/live.rs` ＝ Codex の状態の推し方）と `stores/liveSessions.ts` の `jump` の
+doc（飛び先の 3 段）。ここには規範だけ置く。
 
-- **出所は設定ディレクトリの `sessions/<pid>.json`**（Claude Code が状態を書き直す。`status` は
-  `busy` / `idle` / `waiting`）。**読むのは今のプロジェクトで解決した設定ディレクトリ 1 つ**
-  （利用者の判断）。他のアカウントのセッションは出さない。対象は Claude だけ。**解決は
-  `activeRoot` で行う**（使用量と同じ。worktree を切り替えたら一覧を捨てて読み直す。`scope`）
+- **一覧はアカウント（エージェント × 環境 × 設定ディレクトリ）ごとの配列で返る**（#633。
+  `agent_live_sessions` → `LiveSessionList[]`）。**先頭は今のプロジェクトのアカウントで、これだけは
+  空でも返す。ほかはセッションがあるときだけ返す。** フロントは一覧が 1 つなら見出しを出さない
+  （`showHeadings`）。アカウントが 1 つで Codex を使っていなければ #625 と同じ見た目になるのは、
+  この 2 つの組み合わせで保っている。片方だけ崩さないこと
+- **Claude の出所は設定ディレクトリの `sessions/<pid>.json`**（Claude Code が状態を書き直す。`status` は
+  `busy` / `idle` / `waiting`）。**今のプロジェクトのアカウントの解決は `activeRoot` で行う**（使用量と
+  同じ。worktree を切り替えたら一覧を捨てて読み直す。`scope`）。使用量の集計（`find_active_sessions`）は
+  今のプロジェクトのアカウントのまま（広げたのは一覧だけ）
+- **アカウントの候補は 3 つ**（`agent_live.rs` の doc）: 今のプロジェクトの `config::resolve`、hook の
+  申告（`agent_hook::declared_config_dirs`。プロジェクトを問わない）、ホーム直下の `.claude*`
+  （`agent_hook::candidate_dirs`。hook の登録先の候補と同じ当て推量）。同じディレクトリは 1 つに畳む
+  （Windows のパスは大小を区別しない）。候補は環境ごとに 60 秒覚え、申告のファイルが動けば作り直す
+  - **登録済みのプロジェクトごとに `config::resolve` を払わない**（WSL では対話ログインシェルを起こす）。
+    `.envrc` でホームの外を指すアカウントは、申告が届くまで並ばない
+  - **古い申告を時刻で落とさない。** 見出しは「今セッションが動いているか」で出すので、使わなくなった
+    アカウントの申告が残っていても見出しは出ない（費用は `sessions/` の `read_dir` 1 回）。消えた
+    ディレクトリは実在の確認で落ちる
+  - 設定画面でディレクトリを足す逃げ道は作っていない（今の 3 つで拾えない構成の報告が来てから）
+- **環境は Windows のホストと WSL の両方**（利用者の要望）。今のプロジェクトの環境に、WSL のプロジェクト
+  ならホストを、どちらでも「Pike のターミナルが開いている distro」（`PtyState::open_wsl_distros`）を足す。
+  **止まっている distro は読まない**（UNC を読むと起動し、ポーリングで読み続けると止まらなくなる）
+  - **`wsl.exe --list --running` に聞く形は採らない。** ポーリングのたびにプロセスを起こすか、答えを
+    覚えるあいだに止まった distro を読んで起こすかになる（読むと動いている扱いになるので、次の
+    問い合わせも「動いている」と答え、起こし続ける）。代償は、Pike のターミナルを開いていない distro で
+    Pike の外から起動したセッションが並ばないこと
+  - distro のホームは `wsl_home_cached`（distro につき 1 回 `bash -c`。動いている distro なので起こさない）
+  - **生存の照合は環境ごとに別**（Windows のプロセスと各 distro の `/proc` は別の pid 空間）。一覧が
+    環境のシェル（`LiveSessionList.shell`）を持ち、照合もそのシェルで行う。**環境ごとにスレッドを分けて
+    読む**（`agent_live.rs` の `lists`。UNC 越しの往復が環境の数だけ直列に積み上がらないように）
+  - **行は自分の環境のシェルを持ち、照合・ターミナルを開くシェル・再開のディレクトリの問い合わせは
+    全部それで行う**（`LiveSessionRow.shell`）。プロジェクトのシェルで代用しない（WSL のセッションを
+    Windows のプロジェクトと取り違える）。プロジェクトが同じ環境なら、開くシェルはプロジェクトのもの
+    （利用者が選んだシェル）。プロジェクトの無い WSL のディレクトリは UNC にして開く（`lib/paths.ts` の `openablePathForShell`）
+- **別のアカウントの Claude のセッションは `CLAUDE_CONFIG_DIR`（表の `AgentDef.configEnv`）を付けて再開する**（`resumeLine`。
+  付けないと、開いたターミナルが見ているアカウントで `--resume` を探して見つからない）。値は
+  `LiveSessionList.configOverride`（そのシェルから見た形）で、**既定の `~/.claude` には付けない**
+  （付けると `.claude.json` の置き場が隣から中へ変わる。今のプロジェクトのアカウントも、申告が `~/.claude`
+  を指していれば付けない＝`is_default_dir`）。シェルごとの書き方は `types/tab.ts` の `withEnv`
+  - **既知の隙間**: 既定のアカウントのセッションを、シェルの rc が別の `CLAUDE_CONFIG_DIR` を export している
+    環境で再開すると、その値を継いで `--resume` が見つからない。変数を外す 1 行（`env -u` / `Remove-Item Env:`）を
+    シェルごとに足す手はあるが、報告が来てから
+- **既知の隙間（環境）**: Pike のターミナルのうち distro を名指ししないもの（シェル未指定の spawn と tmux の
+  spawn。`BusyProbe::Wsl` の `distro: None`）は数えない（名前を引くには `wsl.exe` が要る）。ふつうの WSL の
+  タブは distro を名指しして起動するので当たる
+- **Codex の出所は rollout**（`~/.codex/sessions/**/rollout-*.jsonl`、`codex_usage/live.rs`）。pid が無いので
+  状態は 2 つ: **稼働中**＝`ACTIVE_WINDOW_SECS` 以内に書かれ、かつ最後のターンが閉じていない
+  （`task_started` のあとに `task_complete` / `turn_aborted` が無い）、**最近**＝`RECENT_WINDOW_SECS`
+  以内の残り（10 件まで）。mtime だけで決めないこと（ターンを終えて入力を待っているセッションが 5 分
+  「稼働中」に出る）。走査はポーリングなので日付ディレクトリ 3 つだけ
+  - **返答待ちは出さない**: 入力待ちの知らせ（`agent_hook`）は Claude の hook と mod にしか無い。許可の
+    確認待ちも rollout からは確かに読めない。サイドバーの件数にも数えない
+  - **題は `session_index.jsonl` の `thread_name` → 最初のユーザー発話**。ブランチと版は `session_meta`
+    （`git.branch` / `cli_version`）。`name` に当たるものは無い
+  - **タブから引けない**（Codex のタブは `agentRun` / `agentSession` を報告しない）。移動は登録済みの
+    プロジェクト → ディレクトリへ落ち、Pike のターミナルで動いていても再開の確認が出る
+  - 再開は表の `AgentDef.resume`（`codex resume <id>`）。**ストアの `jump` / `reveal` にエージェント固有の
+    分岐を書かない**（アカウントを切り替える環境変数は表の `AgentDef.configEnv`、worktree の再開先は
+    Rust の `agent_live_session_resume_dir` が Codex の `~/.codex` に null を返すことで吸収している）
+  - **`CODEX_HOME` には対応しない**（使用量と再開の一覧も `~/.codex` 固定。揃えて足す）
 - **このディレクトリを読む口は `live_records` の 1 つ**。使用量の集計（`find_active_sessions`）も
   ここを通す。読み方や生存の確かめ方を、使用量の側に別に書かないこと
 - **ファイルは終わったセッションのぶんも残る。** pid が今も同じプロセスかを `procStart` で確かめる
@@ -103,6 +163,10 @@ paths:
   起こさない（起こすのは `/proc` が UNC で見えない WSL だけ）ので、ここを `agent_sessions` の
   「開いたときだけ」と揃えなくてよい。**題を読む記録は mtime で
   覚える**（`transcript_title`）。ここをポーリングのたびに読み直す形にしない
+  - **#633 で 1 回に読む量はアカウントと環境の数に比例する**が、間隔は据え置いた。1 アカウントぶんは
+    `sessions/` の `read_dir` と小さな JSON、生存の照合で、Codex は日付ディレクトリ 3 つの `read_dir` と
+    stat（中身は mtime で覚える）。ふつうはプロセスを起こさない。候補のアカウントは 60 秒覚えるので、
+    ホームの `read_dir` と `.claude.json` の読みは毎回は払わない
 - **飛び先はタブ → 登録済みのプロジェクト → ディレクトリの順**（`jump`）。`cwd` を含むプロジェクトが
   無ければ **git の main worktree から引き直す**（利用者の判断。リポジトリの外の worktree で動く
   セッションを元のプロジェクトへ寄せる）。どれにも当たらなければ `openDirectory`（登録するかは設定）
@@ -114,7 +178,8 @@ paths:
     両方だと 2 回動く）
   - **セッションのタブは `agentRun.sessionId` → `agentSession.id` の順で引く**（`tabBySession`）。
     後者は mod が動いていないタブや、復元の直後でまだ報告が無いタブを拾う
-  - **タブが無ければ、確認のあと `claude --resume <id>` のタブを開く**（利用者の判断。そこを含む
+  - **タブが無ければ、確認のあと再開のタブを開く**（`resumeLine`。`claude --resume <id>` か `codex resume <id>`、
+    別のアカウントなら環境変数付き。利用者の判断。そこを含む
     worktree へも切り替える）。**確認を外さないこと**: 一覧に出ている時点でセッションは
     どこかで動いているので、再開すると同じ会話を 2 つのプロセスが持つ
     - **開く場所は記録が最後に書かれた場所**（`agent_live_session_resume_dir`。`cwd` は起動した場所で、

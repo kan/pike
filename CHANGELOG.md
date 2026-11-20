@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Features
+
+- **セッションの一覧に、Claude Code のほかのアカウントと Codex のセッションも出すようにした**：`CLAUDE_CONFIG_DIR` でアカウントを使い分けていると、これまでは今のプロジェクトのアカウントのセッションしか出ませんでした。今はアカウントごとに見出しを分けて、動いているセッションを並べます。Codex のセッションも同じパネルとタブに出て、同じ右クリックメニューで移動と再開ができます。Windows のホストと WSL の両方を読むので、Windows のプロジェクトを開いていても WSL で動いているセッションが出ます。WSL は、今のプロジェクトの distro と Pike のターミナルを開いている distro だけを読みます。別のアカウントのセッションは `CLAUDE_CONFIG_DIR` を付けて、記録を書いた環境のシェルで再開します。アカウントが 1 つで Codex を使っていなければ、見た目は変わりません (#633)
+
 ## [0.73.0] - 2026-11-19
 
 ### Features

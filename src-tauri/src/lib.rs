@@ -10,6 +10,7 @@ mod appmenu {
 }
 /// エージェントの hook からの申告（#299）。`main.rs` が Tauri より前に呼ぶので pub。
 pub mod agent_hook;
+mod agent_live;
 mod agent_mod;
 mod agent_sessions;
 mod agent_usage;
@@ -2211,8 +2212,8 @@ pub fn run() {
             font::font_list_monospace,
             font::font_list_all,
             agent_sessions::agent_sessions,
-            claude_usage::live::agent_live_sessions,
-            claude_usage::live::agent_live_session_resume_dir,
+            agent_live::agent_live_sessions,
+            agent_live::agent_live_session_resume_dir,
         ]))
         .build(context)
         .expect("error while running tauri application")

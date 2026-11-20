@@ -203,6 +203,17 @@ pub(crate) fn shell_home(shell: &ShellConfig) -> Option<(String, PathBuf)> {
     }
 }
 
+/// シェルから見た設定ディレクトリ（`native`）の、Pike から読めるパス。**実在するディレクトリの
+/// ときだけ**返す（読めない値を採用しない、`resolve_uncached` の規則）。今動いているセッションの
+/// 一覧（`agent_live.rs`）が申告を読むときも同じ規則を通す。
+pub(crate) fn readable_dir(shell: &ShellConfig, native: &str) -> Option<PathBuf> {
+    let read = match shell {
+        ShellConfig::Wsl { distro } => wsl_native_to_unc(distro, native)?,
+        _ => PathBuf::from(native),
+    };
+    read.is_dir().then_some(read)
+}
+
 /// `(HOME, .envrc の Windows から読めるパス)`。
 fn home_and_envrc(shell: &ShellConfig, project_root: &str) -> (Option<String>, Option<PathBuf>) {
     let home = shell_home(shell).map(|(native, _)| native);
@@ -235,13 +246,8 @@ fn resolve_uncached(shell: &ShellConfig, project_root: &str) -> ClaudeConfig {
 
     // 実在を確認できたときだけ採用する。読めない値を `native_override` に残すと、
     // `claude` を起動する側がそれを export して別の場所を作らせてしまう。
-    let overridden = native.and_then(|native| {
-        let read = match shell {
-            ShellConfig::Wsl { distro } => wsl_native_to_unc(distro, &native),
-            _ => Some(PathBuf::from(&native)),
-        };
-        read.filter(|p| p.is_dir()).map(|read| (native, read))
-    });
+    let overridden =
+        native.and_then(|native| readable_dir(shell, &native).map(|read| (native, read)));
 
     let (native_override, read_path) = match overridden {
         Some((native, read)) => (Some(native), Some(read)),
@@ -345,6 +351,13 @@ fn read_account(dir: &Path, overridden: bool) -> Option<Option<ClaudeAccount>> {
     let text = std::fs::read_to_string(base.join(".claude.json")).ok()?;
     let parsed = serde_json::from_str::<ClaudeJson>(&text).ok()?;
     Some(parsed.oauth_account.map(Into::into))
+}
+
+/// その設定ディレクトリにログインしているアカウントのメールアドレス（#633）。`resolve` を
+/// 通らないアカウント（今のプロジェクト以外のもの）の見出しに使う。**キャッシュは呼び出し側**
+/// （`agent_live.rs` のアカウントの一覧が TTL で持つ）。場所の決め方は [`read_account`] と同じ。
+pub(crate) fn account_email(dir: &Path, overridden: bool) -> Option<String> {
+    read_account(dir, overridden).flatten()?.email
 }
 
 #[cfg(test)]

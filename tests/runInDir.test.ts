@@ -1,7 +1,7 @@
 // 「移って走らせて戻る」1 行の組み立て（#432）。`just test-ts` で走る（`tsx --test`、node:test）。
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { runInDir } from '../src/types/tab.ts'
+import { runInDir, withEnv } from '../src/types/tab.ts'
 
 const RESUME = 'claude --resume abc'
 
@@ -26,5 +26,26 @@ describe('runInDir', () => {
     const line = `Push-Location -LiteralPath 'C:/r/o''wt'; if ($?) { ${RESUME}; Pop-Location }`
     assert.equal(runInDir({ kind: 'powershell' }, "C:/r/o'wt", RESUME), line)
     assert.equal(runInDir({ kind: 'pwsh' }, "C:/r/o'wt", RESUME), line)
+  })
+})
+
+// 別のアカウントの Claude を再開する行（#633）。
+describe('withEnv', () => {
+  test('bash 系はそのコマンドにだけ付ける', () => {
+    assert.equal(
+      withEnv({ kind: 'wsl', distro: 'Ubuntu' }, 'CLAUDE_CONFIG_DIR', '/home/kan/.claude-ai', RESUME),
+      `CLAUDE_CONFIG_DIR='/home/kan/.claude-ai' ${RESUME}`,
+    )
+  })
+
+  test('cmd は set、PowerShell は $env: で付ける', () => {
+    assert.equal(
+      withEnv({ kind: 'cmd' }, 'CLAUDE_CONFIG_DIR', 'C:\\Users\\kan\\.claude-ai', RESUME),
+      `set "CLAUDE_CONFIG_DIR=C:\\Users\\kan\\.claude-ai" && ${RESUME}`,
+    )
+    assert.equal(
+      withEnv({ kind: 'pwsh' }, 'CLAUDE_CONFIG_DIR', "C:\\o'k", RESUME),
+      `$env:CLAUDE_CONFIG_DIR='C:\\o''k'; ${RESUME}`,
+    )
   })
 })

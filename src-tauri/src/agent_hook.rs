@@ -875,6 +875,29 @@ pub fn declared_config_dir(shell: &ShellConfig, project_root: &str) -> Option<St
         .map(|e| e.config_dir)
 }
 
+/// そのインストールで申告された Claude の設定ディレクトリ（native パス）。プロジェクトを
+/// 問わず、重複を除いて新しい順（#633。セッションの一覧がアカウントを集めるのに使う）。
+///
+/// **古い申告を時刻で落とさない。** 使わなくなったアカウントでも、呼び出し側は「今
+/// セッションが動いているか」しか見ないので、残っていても見出しは出ない（費用は
+/// `sessions/` の `read_dir` 1 回）。ディレクトリごと消えたものは呼び出し側の実在の確認で
+/// 落ちる。件数は `MAX_ENTRIES` が抑えている。
+pub(crate) fn declared_config_dirs(install: &str) -> Vec<String> {
+    let Some(path) = store_path() else {
+        return Vec::new();
+    };
+    let mut entries = read_store::<Store>(&path).entries;
+    entries.sort_by_key(|e| std::cmp::Reverse(e.at));
+    let mut out: Vec<String> = Vec::new();
+    for e in entries {
+        if e.agent == AGENT_CLAUDE.as_str() && e.install == install && !out.contains(&e.config_dir)
+        {
+            out.push(e.config_dir);
+        }
+    }
+    out
+}
+
 /// その申告がこのシェル・このプロジェクトのものか。
 ///
 /// `install` を持たない古い申告は、インストールを問わず cwd だけで突き合わせる。
@@ -1400,7 +1423,7 @@ fn looks_like_config_dir(read_path: &Path, name: &str) -> bool {
 /// 既定の `~/.claude` しか出てこない。実際に使っているのが `~/.claude-ai` なら、そこへ
 /// hook が入らないまま「登録済み」に見えて、申告は永久に届かない（ニワトリと卵）。
 /// アカウントごとに 1 つ登録する必要がある、というのは #299 の前提でもある。
-fn candidate_dirs(shell: &ShellConfig) -> Vec<(String, PathBuf)> {
+pub(crate) fn candidate_dirs(shell: &ShellConfig) -> Vec<(String, PathBuf)> {
     // ホームの解決（distro の中か、ホスト自身か）と UNC 化は `claude_usage::config` の
     // 持ち物。解決経路とここで別々に書くと、規則を変えたとき片方だけが直る。
     let Some((home_native, home_read)) = crate::claude_usage::config::shell_home(shell) else {

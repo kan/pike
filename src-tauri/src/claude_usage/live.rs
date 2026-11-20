@@ -3,10 +3,11 @@
 //! **出所は設定ディレクトリの `sessions/<pid>.json`。** Claude Code は対話のセッションごとに
 //! このファイルを置き、状態が変わるたびに書き直す（`status` は `busy` / `idle` / `waiting`、
 //! `waitingFor` は待っている理由の文言）。Pike のターミナルの外で起動した claude も、別の
-//! Pike のウィンドウのものも、同じ場所に並ぶ。**読むのは今のプロジェクトで解決した設定
-//! ディレクトリ 1 つ**（`config::resolve`）＝そのプロジェクトで使っているアカウントのぶん。
+//! Pike のウィンドウのものも、同じ場所に並ぶ。ここが読むのは**渡された設定ディレクトリ 1 つ**で、
+//! どのアカウント（設定ディレクトリ）とどの環境（Windows / WSL の distro）を読むかは
+//! `agent_live.rs` が決める（#633）。
 //!
-//! **このディレクトリを読む口はここの [`live_records`] 1 つ。** 一覧（[`agent_live_sessions`]）と
+//! **このディレクトリを読む口はここの [`live_records`] 1 つ。** 一覧（[`list`]）と
 //! 使用量の集計（`find_active_sessions`。動いているセッションの記録を集計する）が共有する。
 //! 「生きているセッションとは何か」の答えを 2 つ持たない。
 //!
@@ -34,9 +35,10 @@
 //! セッションは移動先に書かれていて見つからないので、題が無いまま並ぶ（名前は `name` がある）。
 //! ポーリングのたびに読み直さないよう、記録の mtime で覚える。
 
-use super::{config, encode_project_path, sessions};
+use super::{encode_project_path, sessions};
+use crate::agent_live::{LiveSession, LiveStatus};
 use crate::types::{ShellConfig, validate_slug};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -66,122 +68,30 @@ pub(super) struct SessionRecord {
     spare: bool,
 }
 
-/// セッションの状態。Claude Code の `status` をそのまま 3 つに写す。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum LiveStatus {
-    /// 許可の確認や質問への答えを待っている（Claude Code の `waiting`）。
-    Waiting,
-    /// ターンが動いている（`busy`）。
-    Busy,
-    /// 入力を待っている（`idle`）。**知らない値もここへ倒す**: 新しい状態が増えても、
-    /// 一覧から消すより「動いていない」に並べるほうが見つけやすい。
-    Idle,
-}
-
-impl LiveStatus {
-    fn of(raw: &str) -> Self {
-        match raw {
-            "waiting" => Self::Waiting,
-            "busy" => Self::Busy,
-            _ => Self::Idle,
-        }
+/// Claude Code の `status` を状態に写す。**知らない値は `Idle` へ倒す**（`LiveStatus::Idle` の doc）。
+fn status_of(raw: &str) -> LiveStatus {
+    match raw {
+        "waiting" => LiveStatus::Waiting,
+        "busy" => LiveStatus::Busy,
+        _ => LiveStatus::Idle,
     }
 }
 
-/// 一覧の 1 件。**並べ替えはフロント**（`lib/liveSessions.ts` の `groupLiveSessions`）。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LiveSession {
-    pub pid: u64,
-    pub session_id: String,
-    /// 起動したディレクトリ（そのシェルから見た形）。
-    pub cwd: String,
-    /// Claude Code が付けた名前（`pike-47` のような、ディレクトリ名＋短い id）。
-    pub name: Option<String>,
-    pub status: LiveStatus,
-    /// 待っている理由（`waiting` のときだけ。Claude Code の英語の文言のまま）。
-    pub waiting_for: Option<String>,
-    /// 起動した時刻（epoch ms）。
-    pub started_at: Option<u64>,
-    /// 状態が最後に変わった時刻（epoch ms）。無ければ記録の更新時刻。
-    pub status_since: Option<u64>,
-    pub version: Option<String>,
-    /// 記録から読んだ題（再開のメニューと同じ規則）。記録が見つからなければ無い。
-    pub title: Option<String>,
-    pub git_branch: Option<String>,
-}
-
-/// 一覧と、どのアカウントのものか。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LiveSessionList {
-    pub sessions: Vec<LiveSession>,
-    /// 読んだ設定ディレクトリ（Pike から読める形）。解決できなければ無い。
-    pub config_dir: Option<String>,
-    /// そのアカウントのメールアドレス（`.claude.json` から読めたとき）。
-    pub account: Option<String>,
-}
-
-/// 今のプロジェクトのアカウントで動いているセッション。
-///
-/// **失敗は空の一覧**（`Err` にしない）。設定ディレクトリが無いのと、セッションが 1 つも
-/// 動いていないのは、パネルの上では同じ見え方でよい。
-#[tauri::command]
-pub async fn agent_live_sessions(
-    shell: ShellConfig,
-    project_root: String,
-) -> Result<LiveSessionList, String> {
-    tokio::task::spawn_blocking(move || {
-        let config = config::resolve(&shell, &project_root);
-        let account = config.account.as_ref().and_then(|a| a.email.clone());
-        let Some(dir) = config.read_path else {
-            return LiveSessionList {
-                sessions: Vec::new(),
-                config_dir: None,
-                account,
-            };
-        };
-        LiveSessionList {
-            sessions: list(&shell, &dir),
-            config_dir: Some(dir.to_string_lossy().into_owned()),
-            account,
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-
-/// 動いているセッションを再開できるディレクトリ（起動した場所の `cwd` のままでよければ `None`）。
-/// 一覧の行から `claude --resume` するときに呼ぶ。決め方は `sessions::resume_dir_of`。
-#[tauri::command]
-pub async fn agent_live_session_resume_dir(
-    shell: ShellConfig,
-    project_root: String,
-    cwd: String,
-    session_id: String,
-) -> Result<Option<String>, String> {
-    tokio::task::spawn_blocking(move || {
-        let dir = config::resolve(&shell, &project_root).read_path?;
-        sessions::resume_dir_of(&shell, &dir, &cwd, &session_id)
-    })
-    .await
-    .map_err(|e| e.to_string())
-}
-
-fn list(shell: &ShellConfig, claude_dir: &Path) -> Vec<LiveSession> {
+/// その設定ディレクトリで動いているセッション。`shell` は**その記録を書いた環境**のシェル
+/// （生存の照合と WSL の `/proc` の場所がこれで決まる）。
+pub(crate) fn list(shell: &ShellConfig, claude_dir: &Path) -> Vec<LiveSession> {
     let projects = claude_dir.join("projects");
     live_records(shell, claude_dir)
         .into_iter()
         // `status` を持たないのは古い版の記録（手元の実測）。一覧には出さない。
         .filter_map(|r| {
-            let status = LiveStatus::of(r.status.as_deref()?);
+            let status = status_of(r.status.as_deref()?);
             let session_id = r.session_id?;
             validate_slug(&session_id, "session id").ok()?;
             let (title, git_branch) = transcript_title(&projects, &r.cwd, &session_id)
                 .map_or((None, None), |(t, b)| (Some(t), b));
             Some(LiveSession {
-                pid: r.pid,
+                pid: Some(r.pid),
                 cwd: r.cwd,
                 name: r.name,
                 status,
@@ -497,7 +407,7 @@ fn is_process_alive(pid: u64) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{LiveStatus, SessionRecord, proc_start_time};
+    use super::{LiveStatus, SessionRecord, proc_start_time, status_of};
 
     #[test]
     fn reads_the_start_time_after_the_command_name() {
@@ -510,10 +420,10 @@ mod tests {
 
     #[test]
     fn maps_unknown_states_to_idle() {
-        assert_eq!(LiveStatus::of("waiting"), LiveStatus::Waiting);
-        assert_eq!(LiveStatus::of("busy"), LiveStatus::Busy);
-        assert_eq!(LiveStatus::of("idle"), LiveStatus::Idle);
-        assert_eq!(LiveStatus::of("something-new"), LiveStatus::Idle);
+        assert_eq!(status_of("waiting"), LiveStatus::Waiting);
+        assert_eq!(status_of("busy"), LiveStatus::Busy);
+        assert_eq!(status_of("idle"), LiveStatus::Idle);
+        assert_eq!(status_of("something-new"), LiveStatus::Idle);
     }
 
     #[test]

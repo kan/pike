@@ -1247,10 +1247,11 @@ export default {
   'shortcuts.shellFirst': 'Sent to the shell (except the tab and find keys)',
   'shortcuts.shellFirstMac': 'Sent to the shell',
 
-  // Running Claude Code sessions of this project's account (#625)
+  // Running agent sessions, grouped by account (#625 / #633)
   'liveSessions.waiting': 'Waiting for you',
   'liveSessions.busy': 'Working',
   'liveSessions.idle': 'Idle',
+  'liveSessions.recent': 'Recent',
   'liveSessions.waitingFor': 'Waiting: {reason}',
   'liveSessions.empty': 'No Claude Code sessions are running on this account',
   'liveSessions.noProject': 'Open a project to list the sessions of its account',
@@ -1268,7 +1269,9 @@ export default {
   'liveSessions.menuCopyResume': 'Copy resume command',
   'liveSessions.menuCopyCwd': 'Copy directory path',
   'liveSessions.confirmResume':
-    '"{name}" is running outside Pike\'s terminals. Open a new terminal in this project and open the session there with claude --resume?\n\nThe original process keeps running, so the same conversation will be open in two places.',
+    '"{name}" is running outside Pike\'s terminals. Open a new terminal in this project and resume the session there with {agent}?\n\nThe original process keeps running, so the same conversation will be open in two places.',
+  'liveSessions.confirmResumeRecent':
+    'Open a new terminal in this project and resume "{name}" there with {agent}?\n\nIf it is still running somewhere, the same conversation will be open in two places.',
   'liveSessions.startedAt': 'started {when}',
 
   // Agent status panel (#226)

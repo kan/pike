@@ -1470,25 +1470,26 @@ export async function agentSessionsList(id: string, shell: ShellType, projectRoo
 }
 
 /**
- * このプロジェクトのアカウントで今動いている Claude Code のセッション（#625）。セッションの
- * パネルと詳細のタブがポーリングする。失敗は空の一覧で返る。
+ * 今動いているエージェントのセッションを、アカウント（エージェント × 環境 × 設定ディレクトリ）
+ * ごとに返す（#625 / #633）。先頭は今のプロジェクトのアカウント。セッションのパネルと詳細の
+ * タブがポーリングする。失敗は空の一覧で返る。
  */
-export async function agentLiveSessions(shell: ShellType, projectRoot: string): Promise<LiveSessionList> {
-  return invoke<LiveSessionList>('agent_live_sessions', { shell, projectRoot })
+export async function agentLiveSessions(shell: ShellType, projectRoot: string): Promise<LiveSessionList[]> {
+  return invoke<LiveSessionList[]>('agent_live_sessions', { shell, projectRoot })
 }
 
 /**
- * 動いているセッションを `claude --resume` できるディレクトリ（#625）。起動した場所（`cwd`）の
- * ままでよければ null。途中で worktree へ移ったセッションは移動先を返す。git を起こすので、
- * 押したときにだけ呼ぶ。
+ * 動いている Claude のセッションを `claude --resume` できるディレクトリ（#625）。起動した場所
+ * （`cwd`）のままでよければ null。途中で worktree へ移ったセッションは移動先を返す。git を
+ * 起こすので、押したときにだけ呼ぶ。`shell` と `configDir` は一覧（`LiveSessionList`）の値。
  */
 export async function agentLiveSessionResumeDir(
   shell: ShellType,
-  projectRoot: string,
+  configDir: string,
   cwd: string,
   sessionId: string,
 ): Promise<string | null> {
-  return invoke<string | null>('agent_live_session_resume_dir', { shell, projectRoot, cwd, sessionId })
+  return invoke<string | null>('agent_live_session_resume_dir', { shell, configDir, cwd, sessionId })
 }
 
 // Claude Code の hook からのアカウント申告（#299）

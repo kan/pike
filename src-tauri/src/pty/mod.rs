@@ -30,6 +30,29 @@ pub struct PtySession {
     hold: Arc<HoldSlot>,
 }
 
+impl PtyState {
+    /// Pike のターミナルが開いている WSL の distro（全ウィンドウ、重複なし）。**その distro は
+    /// 確かに動いている**（ターミナルの `wsl.exe` が保っている）ので、UNC 越しに読んでも distro を
+    /// 起こさない。今動いているセッションの一覧（`agent_live.rs`、#633）が、読んでよい distro を
+    /// 決めるのに使う。
+    pub(crate) fn open_wsl_distros(&self) -> Vec<String> {
+        let Ok(sessions) = self.sessions.lock() else {
+            return Vec::new();
+        };
+        let mut out: Vec<String> = Vec::new();
+        for s in sessions.values() {
+            if let BusyProbe::Wsl {
+                distro: Some(d), ..
+            } = &s.busy
+                && !out.iter().any(|o| o.eq_ignore_ascii_case(d))
+            {
+                out.push(d.clone());
+            }
+        }
+        out
+    }
+}
+
 /// 別のウィンドウへ移すあいだ、送らずに預かっている出力と終了コード（#469）。
 ///
 /// **移動のあいだだけ持つ。** 移動元は画面を書き出した時点で受け取るのをやめ、移動先は

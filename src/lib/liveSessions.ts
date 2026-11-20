@@ -4,16 +4,18 @@
  * （`tests/liveSessions.test.ts`）。
  */
 
-import type { LiveSession, LiveStatus } from '../types/liveSession'
+import type { LiveSession, LiveSessionList, LiveStatus } from '../types/liveSession'
 import { installKey, type ShellType, shellToPlatform } from '../types/tab'
+import { agentById } from './agents'
 import { basename, stripTrailingSep } from './paths'
 import { isSameOrUnder, type ProjectPlatform, rootKey } from './projectPaths'
 
 /**
  * グループの並び。**返答待ちが先頭**: 利用者が手を出さないと進まないものから見せる。次が
- * 稼働中（見守るもの）、最後がアイドル（今は何もしていないもの）。
+ * 稼働中（見守るもの）、アイドル（今は何もしていないもの）、最後が最近（Codex の、動いているか
+ * 分からないもの）。
  */
-const LIVE_STATUS_ORDER: readonly LiveStatus[] = ['waiting', 'busy', 'idle']
+const LIVE_STATUS_ORDER: readonly LiveStatus[] = ['waiting', 'busy', 'idle', 'recent']
 
 /** 状態の表示名（i18n のキー）。パネルとタブが共有する。 */
 export function liveStatusKey(status: LiveStatus): string {
@@ -76,6 +78,39 @@ export function projectForCwd<P extends { root: string; shell: ShellType }>(
 /** 一覧に出す名前。題が無ければ Claude Code の付けた名前、それも無ければディレクトリ名。 */
 export function liveSessionLabel(s: Pick<LiveSession, 'title' | 'name' | 'cwd'>): string {
   return s.title || s.name || basename(stripTrailingSep(s.cwd)) || s.cwd
+}
+
+/**
+ * アカウントの見出し（#633）。「Claude Code · alice@example.com」のように、エージェントの名前と
+ * アカウント（メールアドレス、無ければ設定ディレクトリの名前）を並べる。`withPlace` のときは
+ * 環境（`WSL: Ubuntu` / `Windows`）も足す（一覧が 2 つ以上の環境にまたがるときだけ要る）。
+ */
+export function liveListTitle(
+  list: Pick<LiveSessionList, 'agent' | 'shell' | 'account' | 'configDir'>,
+  withPlace: boolean,
+): string {
+  const who = list.account ?? basename(stripTrailingSep(list.configDir))
+  const place = withPlace ? livePlaceLabel(list.shell) : null
+  return [agentById(list.agent)?.label ?? list.agent, who, place].filter(Boolean).join(' · ')
+}
+
+/** 環境の短い名前。固有名詞なので i18n に出さない（`shellProfileLabel` と同じ扱い）。 */
+export function livePlaceLabel(shell: ShellType): string {
+  if (shell.kind === 'wsl') return `WSL: ${shell.distro}`
+  return shell.kind === 'unix' ? 'Local' : 'Windows'
+}
+
+/**
+ * 行の描画の鍵。**セッション id だけでは重なる**: `claude --resume` で同じ会話を 2 つ目のプロセスが
+ * 開くと、同じ id の記録が 2 つ並ぶ。pid は Codex に無いので、id と組にする。
+ */
+export function liveRowKey(row: Pick<LiveSession, 'pid' | 'sessionId'>): string {
+  return `${row.pid ?? ''}:${row.sessionId}`
+}
+
+/** 一覧を見分ける鍵（エージェント・環境・設定ディレクトリ）。描画の `key` と行の持ち主に使う。 */
+export function liveListKey(list: Pick<LiveSessionList, 'agent' | 'shell' | 'configDir'>): string {
+  return `${list.agent}\n${installKey(list.shell)}\n${list.configDir}`
 }
 
 /**

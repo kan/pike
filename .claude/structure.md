@@ -44,6 +44,7 @@ pike/
 │       ├── autostart.rs       # ログイン時の起動（HKCU の Run キー、Windows のみ、#419）
 │       ├── bell.rs            # ターミナルの BEL で鳴らす OS のシステム音（MessageBeep / NSBeep、#481）
 │       ├── agent_sessions.rs  # 再開できる過去セッションの一覧（#267。出所は 4 つとも違う）
+│       ├── agent_live.rs      # 今動いているセッションの一覧を、環境とアカウントごとに集める口（#633）
 │       ├── agent_usage/
 │       │   ├── mod.rs         # 使用量を種別に依らない形で返す（#263。id でアダプタへ振り分け）
 │       │   ├── copilot.rs     # Copilot の premium request（~/.copilot の events.jsonl）
@@ -79,11 +80,13 @@ pike/
 │       │   ├── mod.rs         # デスクトップ通知（#318、Windows 専用。押すとウィンドウが前に出る）
 │       │   └── activation.rs  # 押されたことを受ける `pike://` の組み立てと読み取り（#334）
 │       ├── diagnostics/mod.rs # 外部リンタ実行 → Problems パネル
-│       ├── codex_usage/mod.rs # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
+│       ├── codex_usage/
+│       │   ├── mod.rs         # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
+│       │   └── live.rs        # 今動いている Codex のセッション（#633。rollout の mtime とターンの印から推す）
 │       ├── claude_usage/
 │       │   ├── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
 │       │   ├── config.rs      # CLAUDE_CONFIG_DIR の解決とアカウント読み出し（#225）
-│       │   ├── live.rs        # 今動いているセッションの一覧（#625。`sessions/<pid>.json` と生存の照合）
+│       │   ├── live.rs        # 今動いている Claude のセッション（#625。`sessions/<pid>.json` と生存の照合）
 │       │   ├── rate.rs        # `claude -p "/usage"` のレート制限パース（#117）
 │       │   └── sessions.rs    # 再開できる過去セッションの Claude ぶんの収集（#220。口は agent_sessions.rs）
 │       ├── pty/

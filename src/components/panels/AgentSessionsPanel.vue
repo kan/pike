@@ -1,14 +1,14 @@
 <script setup lang="ts">
 /**
- * 今動いている Claude Code のセッションの簡易表示（#625）。返答待ち・稼働中・アイドルの順に
- * 分けて並べ、行を押すとそのセッションの居る場所へ飛ぶ（`liveSessions.jump`）。詳細は
- * 専用のタブ（`AgentSessionsTab.vue`）。
+ * 今動いているエージェントのセッションの簡易表示（#625 / #633）。アカウントの見出し（2 つ以上
+ * あるときだけ）の下に、返答待ち・稼働中・アイドル・最近の順に分けて並べ、行を押すとそのセッションの
+ * 居る場所へ飛ぶ（`liveSessions.jump`）。詳細は専用のタブ（`AgentSessionsTab.vue`）。
  */
 import { ExternalLink, SquareTerminal } from 'lucide-vue-next'
 import { useTemplateRef } from 'vue'
 import { useI18n } from '../../i18n'
 import { LIVE_STATUS_ICONS } from '../../lib/liveSessionIcons'
-import { liveSessionJumpKey, liveSessionLabel, liveStatusKey } from '../../lib/liveSessions'
+import { liveRowKey, liveSessionJumpKey, liveSessionLabel, liveStatusKey } from '../../lib/liveSessions'
 import { basename, stripTrailingSep } from '../../lib/paths'
 import { type LiveSessionRow, useLiveSessionsStore } from '../../stores/liveSessions'
 import { useProjectStore } from '../../stores/project'
@@ -45,38 +45,47 @@ function tooltip(row: LiveSessionRow): string {
     <div v-if="!projectStore.currentProject" class="empty">{{ t('liveSessions.noProject') }}</div>
     <template v-else>
       <div class="sessions-head">
-        <span class="account" :title="store.configDir ?? ''">{{ store.account ?? store.configDir ?? '' }}</span>
+        <!-- アカウントの見出しを出すときは、名前はそちらが言う（空の枠はボタンを右へ寄せるため残す）。 -->
+        <span class="account" :title="store.showHeadings ? undefined : (store.configDir ?? '')">
+          <template v-if="!store.showHeadings">{{ store.account ?? store.configDir ?? '' }}</template>
+        </span>
         <button class="detail-btn" data-testid="sessions-open-tab" @click="tabStore.addAgentSessionsTab()">
           <ExternalLink :size="12" :stroke-width="2" />
           <span>{{ t('liveSessions.details') }}</span>
         </button>
       </div>
-      <div v-if="store.groups.length === 0" class="empty">{{ t(store.emptyKey) }}</div>
-      <section v-for="group in store.groups" :key="group.status" class="group">
-        <div class="group-head" :class="group.status">
-          <component :is="LIVE_STATUS_ICONS[group.status]" :size="13" :stroke-width="2" />
-          <span>{{ t(liveStatusKey(group.status)) }}</span>
-          <span class="count">{{ group.sessions.length }}</span>
+      <div v-if="store.sections.length === 0" class="empty">{{ t(store.emptyKey) }}</div>
+      <div v-for="section in store.sections" :key="section.key" class="account-section">
+        <div v-if="store.showHeadings" class="account-head" :title="section.configDir">{{ section.title }}</div>
+        <div v-if="section.groups.length === 0" class="empty" :class="{ compact: store.showHeadings }">
+          {{ t(store.emptyKey) }}
         </div>
-        <div
-          v-for="row in group.sessions"
-          :key="row.pid"
-          class="session-row"
-          :class="{ here: row.here }"
-          :title="tooltip(row)"
-          @click="store.jump(row)"
-          @contextmenu="menu?.open($event, row)"
-        >
-          <span class="live-state-dot" :class="row.status" />
-          <div class="session-text">
-            <div class="session-title">{{ liveSessionLabel(row) }}</div>
-            <div class="session-meta">{{ meta(row) }}</div>
-            <div v-if="row.waitingFor" class="session-wait">{{ row.waitingFor }}</div>
+        <section v-for="group in section.groups" :key="group.status" class="group">
+          <div class="group-head" :class="group.status">
+            <component :is="LIVE_STATUS_ICONS[group.status]" :size="13" :stroke-width="2" />
+            <span>{{ t(liveStatusKey(group.status)) }}</span>
+            <span class="count">{{ group.sessions.length }}</span>
           </div>
-          <!-- このウィンドウのターミナルで動いているもの。押すとそのタブへ移る。 -->
-          <SquareTerminal v-if="row.tabId" class="row-mark" :size="13" :stroke-width="2" />
-        </div>
-      </section>
+          <div
+            v-for="row in group.sessions"
+            :key="liveRowKey(row)"
+            class="session-row"
+            :class="{ here: row.here }"
+            :title="tooltip(row)"
+            @click="store.jump(row)"
+            @contextmenu="menu?.open($event, row)"
+          >
+            <span class="live-state-dot" :class="row.status" />
+            <div class="session-text">
+              <div class="session-title">{{ liveSessionLabel(row) }}</div>
+              <div class="session-meta">{{ meta(row) }}</div>
+              <div v-if="row.waitingFor" class="session-wait">{{ row.waitingFor }}</div>
+            </div>
+            <!-- このウィンドウのターミナルで動いているもの。押すとそのタブへ移る。 -->
+            <SquareTerminal v-if="row.tabId" class="row-mark" :size="13" :stroke-width="2" />
+          </div>
+        </section>
+      </div>
       <LiveSessionMenu ref="menu" />
     </template>
   </div>
@@ -132,6 +141,27 @@ function tooltip(row: LiveSessionRow): string {
 
 .group + .group {
   margin-top: 6px;
+}
+
+.empty.compact {
+  padding: 2px 12px 6px;
+  text-align: left;
+}
+
+.account-section + .account-section {
+  margin-top: 10px;
+}
+
+/* アカウントの見出し（#633）。状態の見出しより 1 段上なので、線で区切って強めに出す。 */
+.account-head {
+  padding: 4px 12px;
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .group-head {
