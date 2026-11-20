@@ -431,6 +431,82 @@ export async function fsReadFileChunk(
   return invoke<FileChunk>('fs_read_file_chunk', { shell, path, offset, len, encoding: encoding ?? null })
 }
 
+// ── 大きなファイルビューア（#630、Rust の `fs/large.rs`） ──
+
+export interface LargeFileInfo {
+  id: string
+  size: number
+  encoding: string
+}
+
+export interface LargeFileStatus {
+  /** 索引を作り終えた範囲の行数。 */
+  lines: number
+  size: number
+  scanned: number
+  done: boolean
+  error: string | null
+}
+
+export interface LargeLines {
+  lines: string[]
+  /** 長すぎて切った行（`lines` の中の位置）。 */
+  cut: number[]
+}
+
+export interface LargeMatch {
+  line: number
+  /** 行頭からの位置（UTF-16 の単位）。 */
+  col: number
+  len: number
+  byte: number
+  byteEnd: number
+}
+
+export interface LargeCount {
+  count: number
+  truncated: boolean
+}
+
+export type LargeRefreshKind = 'unchanged' | 'appended' | 'reset'
+
+export async function largeFileOpen(shell: ShellType, path: string): Promise<LargeFileInfo> {
+  return invoke<LargeFileInfo>('large_file_open', { shell, path })
+}
+
+export async function largeFileStatus(id: string): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_status', { id })
+}
+
+export async function largeFileLines(id: string, start: number, count: number): Promise<LargeLines> {
+  return invoke<LargeLines>('large_file_lines', { id, start, count })
+}
+
+/** 次（`backward` なら前）の一致。起点は `fromByte`（前回の一致）か、無ければ `fromLine` の行頭。 */
+export async function largeFileFind(
+  id: string,
+  query: string,
+  caseSensitive: boolean,
+  fromLine: number,
+  fromByte: number | null,
+  backward: boolean,
+): Promise<LargeMatch | null> {
+  return invoke<LargeMatch | null>('large_file_find', { id, query, caseSensitive, fromLine, fromByte, backward })
+}
+
+/** 一致の数。後から始めた検索に止められたら `null`。 */
+export async function largeFileCount(id: string, query: string, caseSensitive: boolean): Promise<LargeCount | null> {
+  return invoke<LargeCount | null>('large_file_count', { id, query, caseSensitive })
+}
+
+export async function largeFileRefresh(id: string): Promise<LargeRefreshKind> {
+  return invoke<LargeRefreshKind>('large_file_refresh', { id })
+}
+
+export async function largeFileClose(id: string): Promise<void> {
+  return invoke('large_file_close', { id })
+}
+
 export async function fsWriteFile(shell: ShellType, path: string, content: string, encoding?: string): Promise<void> {
   return invoke('fs_write_file', { shell, path, content, encoding: encoding ?? null })
 }

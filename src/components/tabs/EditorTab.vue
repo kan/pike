@@ -99,6 +99,7 @@ import { type EditorTab, shellToPlatform } from '../../types/tab'
 import BlameToggle from '../editor/BlameToggle.vue'
 import FindBar from '../editor/FindBar.vue'
 import HtmlPreview from '../editor/HtmlPreview.vue'
+import LargeFileViewer from '../editor/LargeFileViewer.vue'
 import MacroButtons from '../editor/MacroButtons.vue'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import MinimapToggle from '../editor/MinimapToggle.vue'
@@ -207,6 +208,14 @@ const directoryProject = computed(() =>
  * 開き方（部分読み込み・ほかのアプリ）を選ばせる画面を出す。
  */
 const tooLargeSize = ref<number | null>(null)
+/**
+ * 上限を超えたファイルを大きなファイルビューア（#630、`LargeFileViewer.vue`）で見ているか。
+ * 立っているあいだは `tooLargeSize` の画面の代わりにビューアを出し、CodeMirror は作らない。
+ * **読み直しはビューアに渡す**（`reopenWithEncoding` の先頭）。素通しで読み直すとビューアが
+ * 作り直され、索引を最初から作り直すうえ読んでいた位置も失われる。
+ */
+const largeViewer = ref(false)
+const largeViewerRef = useTemplateRef<{ refresh: () => Promise<void> }>('largeViewerRef')
 /**
  * 先頭から少しずつ読んでいるとき（#362）。**このあいだは読み取り専用**: 保存すると、読んで
  * いない後半が消える。`nextOffset` は次に読むバイト位置。
@@ -1421,7 +1430,7 @@ const gitHistoryLineLabel = computed(() => {
 })
 
 /** 書けないタブ。git の過去の版と、部分読み込み中のファイル（#362）。**保存の可否もこれで見る**。 */
-const isReadOnlyTab = computed(() => (tab.value?.readOnly ?? false) || partial.value !== null)
+const isReadOnlyTab = computed(() => (tab.value?.readOnly ?? false) || partial.value !== null || largeViewer.value)
 
 // ツールバーのマクロのボタン（#180）。ボタンはフォーカスを奪わないが、プレビューを
 // 触ったあとなどエディタにフォーカスが無いこともあるので、押したら必ず戻す（記録は
@@ -1775,6 +1784,13 @@ function createEditorView(container: HTMLElement, content: string) {
 let loadSeq = 0
 
 async function reopenWithEncoding(encoding?: string) {
+  // 大きなファイルビューア（#630）では、読み直しはビューアが受け持つ（`largeViewer` の doc）。
+  // 外部変更の自動の読み直し（見えていないタブは見せたとき）・CLI・「再読み込み」が全部ここを
+  // 通る。ビューアは読み取り専用で未保存にならないので、外部変更はいつも自動で読み直す側に乗る。
+  if (largeViewer.value) {
+    await largeViewerRef.value?.refresh()
+    return
+  }
   if (!editorRef.value || !tab.value) return
   const seq = ++loadSeq
   loading.value = true
@@ -1845,7 +1861,13 @@ function onGlobalKeyDown(e: KeyboardEvent) {
   // （分割表示でどちらを探すかは、最後に触ったほうで決める）。プレビューだけの表示では
   // エディタが隠れているので、CodeMirror にキーが届くことは無い。
   // 子 webview のプレビュー（#399）は DOM の外なので、Pike の検索は届かない。
-  if (matchChord(e, 'Mod+F') && showPreview.value && !ownPanePreview.value && tabStore.isTabFocused(props.tabId)) {
+  if (
+    matchChord(e, 'Mod+F') &&
+    showPreview.value &&
+    !ownPanePreview.value &&
+    !largeViewer.value &&
+    tabStore.isTabFocused(props.tabId)
+  ) {
     if (showEditor.value && editorRef.value?.contains(document.activeElement)) return
     e.preventDefault()
     openPreviewFind()
@@ -2476,7 +2498,7 @@ onUnmounted(() => {
 
 <template>
   <div class="editor-tab">
-    <div v-if="hasPreview && !loading && !error" class="preview-toolbar">
+    <div v-if="hasPreview && !loading && !error && !largeViewer" class="preview-toolbar">
       <button class="preview-toggle" :class="{ active: viewMode === 'edit' }" @click="viewMode = 'edit'">{{ t('editor.edit') }}</button>
       <button class="preview-toggle" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'">{{ t('editor.split') }}</button>
       <button class="preview-toggle" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'">{{ t('editor.preview') }}</button>
@@ -2508,7 +2530,7 @@ onUnmounted(() => {
     <!-- パスの有無で出し分けない: 無題バッファにも折り返しの切り替えが要る
          （マニュアルは「タブごとに切り替えられる」と書いている）。パンくずだけを
          パスのあるときに出す。 -->
-    <div v-if="!hasPreview && !loading && !error" class="editor-header">
+    <div v-if="!hasPreview && !loading && !error && !largeViewer" class="editor-header">
       <div v-if="tab?.path" class="breadcrumb">
         <template v-for="(seg, i) in breadcrumbSegments" :key="i">
           <span v-if="i > 0" class="crumb-sep">›</span>
@@ -2566,6 +2588,14 @@ onUnmounted(() => {
       </div>
     </div>
     <div v-if="loading" class="editor-status">{{ t('common.loading') }}</div>
+    <!-- 上限を超えたファイルを、中身を持たずに全体を見せる（#630） -->
+    <LargeFileViewer
+      v-else-if="largeViewer && tooLargeSize !== null && tab?.path"
+      ref="largeViewerRef"
+      :path="tab.path"
+      :shell="shellForIO"
+      @open-default="openFileWithDefaultApp"
+    />
     <!-- 上限を超えたファイル（#362）。エラーにせず、開き方を選ばせる -->
     <div v-else-if="tooLargeSize !== null" class="editor-status choices">
       <div class="choice-path">{{ tab?.path }}</div>
@@ -2578,7 +2608,8 @@ onUnmounted(() => {
         }}
       </div>
       <div class="choice-actions">
-        <button class="choice-primary" @click="openPartially">{{ t('editor.openPartially') }}</button>
+        <button class="choice-primary" @click="largeViewer = true">{{ t('editor.openLargeViewer') }}</button>
+        <button @click="openPartially">{{ t('editor.openPartially') }}</button>
         <button @click="openFileWithDefaultApp">{{ t('common.openWithDefaultApp') }}</button>
         <button @click="revealInExplorer">{{ t('editor.revealInFolder') }}</button>
       </div>

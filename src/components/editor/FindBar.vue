@@ -18,6 +18,8 @@ const props = defineProps<{
   total: number
   /** 上限で数えるのをやめたか（件数に `+` を付ける）。 */
   truncated?: boolean
+  /** 数えている途中（大きなファイルビューアは Rust で数えるので、結果が後から届く。#630）。 */
+  busy?: boolean
 }>()
 const query = defineModel<string>('query', { required: true })
 const caseSensitive = defineModel<boolean>('caseSensitive', { required: true })
@@ -28,6 +30,7 @@ const input = useTemplateRef<HTMLInputElement>('input')
 
 const info = computed(() => {
   if (!query.value) return ''
+  if (props.busy) return t('search.searching')
   if (props.total === 0) return t('search.noResults')
   const count = `${props.total}${props.truncated ? '+' : ''}`
   // 位置が分からない（ターミナルの検索は上限を超えると現在位置を返さない）。

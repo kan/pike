@@ -95,7 +95,8 @@ pike/
 │       │   ├── mod.rs         # プロジェクト CRUD・WSL ディストロ検出・グループ永続化
 │       │   └── transient.rs   # 登録せずに開いたディレクトリのメモリ内プロジェクト（#230）
 │       ├── fs/
-│       │   └── mod.rs         # WSL/Windows 両対応ファイル操作・IGNORED_DIRS
+│       │   ├── mod.rs         # WSL/Windows 両対応ファイル操作・IGNORED_DIRS
+│       │   └── large.rs       # 大きなファイルビューアの読み取り経路（行の疎な索引・範囲読み・全体の検索、#630）
 │       ├── git/
 │       │   ├── mod.rs         # git CLI ブリッジ（status/log/diff/commit/push/pull 等）
 │       │   ├── blame.rs       # エディタの blame（`git blame --incremental` の読み取り、#510）
@@ -180,6 +181,7 @@ pike/
 │   │   │   ├── BlameToggle.vue      # 行頭の blame の出し入れ（タブ単位、#510）
 │   │   │   ├── FindBar.vue          # タブ右上に浮く検索バー（diff タブ #176 とプレビュー #360 で共有）
 │   │   │   ├── HtmlPreview.vue      # HTML のプレビュー（#399。子 webview を Preview / Split の枠に重ねる）
+│   │   │   ├── LargeFileViewer.vue  # 大きなファイルビューア（上限を超えたファイルを読み取り専用で全体まで、#630）
 │   │   │   ├── MacroButtons.vue     # キーボードマクロの記録・再生ボタン（#180）
 │   │   │   ├── MarkdownToolbar.vue  # Markdown 入力支援のボタン列（#241）
 │   │   │   ├── MinimapToggle.vue    # ミニマップの表示切り替え（タブ単位、#282）
@@ -265,6 +267,7 @@ pike/
 │   ├── lib/
 │   │   ├── fileIcons.ts  tabIcons.ts  fontDetection.ts  tauri.ts  window.ts  paths.ts  storage.ts  format.ts  notify.ts
 │   │   ├── errorLog.ts        # フロントの例外をログファイルへ流す受け口と間引き（#415）
+│   │   ├── largeFile.ts       # 大きなファイルビューアの行のキャッシュとスクロールの計算（#630）
 │   │   ├── bell.ts            # ターミナルの BEL の音の間引き（ウィンドウの中のタブをまたいで 1 つ、#481）
 │   │   ├── pikeDir.ts        # .pike/ の作成と .gitignore の設置（アップロードの置き場）
 │   │   ├── jsonc.ts          # コメント付き JSON の最小パーサ（tsconfig と .vscode/settings.json）

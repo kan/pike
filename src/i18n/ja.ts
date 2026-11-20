@@ -191,6 +191,15 @@ export default {
   'editor.tooLarge':
     'このファイルは {size} あり、エディタで開ける大きさ（{limit}）を超えています。上限は設定の「エディタ」で変えられます。',
   'editor.openPartially': '先頭から読み込む（読み取り専用）',
+  'editor.openLargeViewer': '大きなファイルビューアで開く（読み取り専用）',
+  'largeFile.badge': '大きなファイルビューア（読み取り専用）',
+  'largeFile.lines': '{lines} 行',
+  'largeFile.indexing': '索引を作成中 {percent}%',
+  'largeFile.gotoLine': '行へ移動',
+  'largeFile.find': '検索',
+  'largeFile.follow': '末尾に追従',
+  'largeFile.cut': '…（省略）',
+  'largeFile.cutHint': '長すぎる行なので、先頭の 64KB だけを表示しています',
   'editor.revealInFolder': 'フォルダを開く',
   'editor.partialLoaded': '{total} のうち先頭 {loaded} を読み取り専用で表示しています',
   'editor.partialCopy':

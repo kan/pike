@@ -1722,6 +1722,7 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol(html_preview::SCHEME, html_preview::handle)
         .manage(html_preview::PreviewState::default())
         .manage(vue_preview::VuePreviewState::default())
+        .manage(fs::large::LargeFileState::default())
         .manage(wait::WaitState {
             active: std::sync::Mutex::new(HashMap::new()),
         })
@@ -2117,6 +2118,13 @@ pub fn run() {
             fs::fs_open_in_explorer,
             fs::fs_reveal_in_explorer,
             fs::fs_read_file_chunk,
+            fs::large::large_file_open,
+            fs::large::large_file_status,
+            fs::large::large_file_lines,
+            fs::large::large_file_find,
+            fs::large::large_file_count,
+            fs::large::large_file_refresh,
+            fs::large::large_file_close,
             settings_sync::settings_sync_read,
             settings_sync::settings_sync_write,
             settings_gist::sync_gist_list,
