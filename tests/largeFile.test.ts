@@ -1,0 +1,198 @@
+// 大きなファイルビューア（#630）のキャッシュとスクロールの計算。`just test-ts` で走る（`tsx --test`、node:test）。
+import assert from 'node:assert/strict'
+import { describe, test } from 'node:test'
+import {
+  BLOCK_LINES,
+  blockIsShort,
+  blocksFor,
+  clampTop,
+  extendSelection,
+  LineBlockCache,
+  linesForEdit,
+  makeBlock,
+  rangeOnScreen,
+  revealTop,
+  selectionRange,
+  splitAt,
+  splitEditText,
+  thumbFor,
+  topFromThumb,
+  visibleSlice,
+} from '../src/lib/largeFile.ts'
+
+describe('blocksFor', () => {
+  test('見えている範囲を覆うブロックを返す', () => {
+    assert.deepEqual(blocksFor(0, 10, 1000), [0])
+    assert.deepEqual(blocksFor(BLOCK_LINES - 5, 10, 1000), [0, 1])
+    assert.deepEqual(blocksFor(BLOCK_LINES, BLOCK_LINES, 10_000), [1])
+  })
+  test('総行数の後ろは含めない', () => {
+    assert.deepEqual(blocksFor(0, 50, 3), [0])
+    assert.deepEqual(blocksFor(10, 50, 3), [])
+  })
+})
+
+describe('LineBlockCache', () => {
+  /** 2 つまでは収まり、3 つ目で溢れる上限。 */
+  const twoBlocks = (lines: string[]) => makeBlock(lines, []).cost * 2
+
+  test('上限を超えたら古いものから捨てる', () => {
+    const cache = new LineBlockCache(twoBlocks(['aaaa']))
+    cache.set(0, makeBlock(['aaaa'], []))
+    cache.set(1, makeBlock(['bbbb'], []))
+    cache.get(0) // 0 を新しくする
+    cache.set(2, makeBlock(['cccc'], []))
+    assert.ok(cache.has(0))
+    assert.ok(!cache.has(1))
+    assert.ok(cache.has(2))
+  })
+  test('keep に入れたブロックは捨てない', () => {
+    const cache = new LineBlockCache(1)
+    cache.set(0, makeBlock(['aaaa'], []))
+    cache.set(1, makeBlock(['bbbb'], []), new Set([0]))
+    assert.ok(cache.has(0))
+    assert.ok(cache.has(1))
+  })
+  test('空行だけのブロックも上限に数えて捨てる', () => {
+    const empty = Array.from({ length: BLOCK_LINES }, () => '')
+    const cache = new LineBlockCache(twoBlocks(empty))
+    for (let b = 0; b < 10; b++) cache.set(b, makeBlock(empty, []))
+    assert.equal([...Array(10).keys()].filter((b) => cache.has(b)).length, 2)
+    assert.ok(makeBlock(empty, []).cost > 0)
+  })
+  test('dropFrom はその行を含むブロックから後ろを捨てる', () => {
+    const cache = new LineBlockCache()
+    for (let b = 0; b < 4; b++) cache.set(b, makeBlock(['x'], []))
+    cache.dropFrom(BLOCK_LINES * 2 + 3)
+    assert.deepEqual(
+      [0, 1, 2, 3].map((b) => cache.has(b)),
+      [true, true, false, false],
+    )
+  })
+  test('切った行の印を持つ', () => {
+    const block = makeBlock(['a', 'b'], [1])
+    assert.ok(block.cut.has(1))
+    assert.ok(!block.cut.has(0))
+  })
+})
+
+describe('スクロール', () => {
+  test('top は 0 と「最後の行が下端に来る位置」のあいだに収める', () => {
+    assert.equal(clampTop(-3, 100, 10), 0)
+    assert.equal(clampTop(500, 100, 10), 90)
+    assert.equal(clampTop(5, 3, 10), 0)
+  })
+  test('つまみは最小の高さを持ち、端から端まで動く', () => {
+    const total = 10_000_000
+    const start = thumbFor(0, total, 40, 800)
+    assert.equal(start.size, 24)
+    assert.equal(start.offset, 0)
+    const end = thumbFor(total - 40, total, 40, 800)
+    assert.equal(end.offset, 800 - 24)
+  })
+  test('つまみの位置から top へ戻せる', () => {
+    const total = 10_000_000
+    const top = 1_234_567
+    const { offset } = thumbFor(top, total, 40, 800)
+    assert.ok(Math.abs(topFromThumb(offset, total, 40, 800) - top) < 1e-3)
+    assert.equal(topFromThumb(-10, total, 40, 800), 0)
+    assert.equal(topFromThumb(9999, total, 40, 800), total - 40)
+  })
+  test('収まるときはつまみが全体を占める', () => {
+    assert.deepEqual(thumbFor(0, 10, 40, 800), { size: 800, offset: 0 })
+    assert.equal(topFromThumb(100, 10, 40, 800), 0)
+  })
+  test('1 億行でも 1 行未満の移動が残る', () => {
+    const top = 99_999_000
+    assert.notEqual(clampTop(top + 0.05, 100_000_000, 40), top)
+  })
+})
+
+describe('編集', () => {
+  test('linesForEdit はキャッシュの行を集める', () => {
+    const cache = new LineBlockCache()
+    const lines = Array.from({ length: BLOCK_LINES }, (_, i) => `l${i}`)
+    cache.set(0, makeBlock(lines, [5]))
+    cache.set(1, makeBlock(['next'], []))
+    assert.deepEqual(linesForEdit(cache, 1, 2), ['l1', 'l2'])
+    // ブロックをまたぐ。
+    assert.deepEqual(linesForEdit(cache, BLOCK_LINES - 1, 2), [`l${BLOCK_LINES - 1}`, 'next'])
+  })
+  test('切った行があれば cut、読んでいない行があれば null', () => {
+    const cache = new LineBlockCache()
+    cache.set(0, makeBlock(['a', 'b', 'c', 'd', 'e', 'f'], [5]))
+    assert.equal(linesForEdit(cache, 4, 2), 'cut')
+    assert.equal(linesForEdit(cache, 5, 1), 'cut')
+    assert.equal(linesForEdit(cache, 6, 1), null)
+    assert.equal(linesForEdit(cache, BLOCK_LINES, 1), null)
+  })
+  test('splitEditText は CRLF と CR も改行にする', () => {
+    assert.deepEqual(splitEditText('a\r\nb\rc\nd'), ['a', 'b', 'c', 'd'])
+    assert.deepEqual(splitEditText(''), [''])
+    assert.deepEqual(splitEditText('x\n'), ['x', ''])
+  })
+})
+
+describe('blockIsShort', () => {
+  test('数えている途中に短く届いたブロックは、後ろに行ができたら読み直す', () => {
+    const block = (n: number, seenTotal: number) => ({ lines: new Array<string>(n).fill(''), seenTotal })
+    // ブロック 0 を、行数が 100 の時点で読んだ。行数が 300 に増えた。
+    assert.equal(blockIsShort(0, block(100, 100), 300), true)
+    // ファイルの末尾のブロックは短くてよい。
+    assert.equal(blockIsShort(1, block(44, BLOCK_LINES + 44), BLOCK_LINES + 44), false)
+    assert.equal(blockIsShort(0, block(BLOCK_LINES, 10_000), 10_000), false)
+    // 頼んだときから行数が増えていなければ、短いままでも読み直さない（縮んだファイル）。
+    assert.equal(blockIsShort(0, block(100, 300), 300), false)
+  })
+})
+
+describe('rangeOnScreen', () => {
+  test('描いている行に収まる範囲だけ', () => {
+    assert.equal(rangeOnScreen(105, 3, 100, 20, 10_000), true)
+    // 半端な 1 行（先頭 + rows）まで描いている。
+    assert.equal(rangeOnScreen(118, 3, 100.5, 20, 10_000), true)
+    assert.equal(rangeOnScreen(118, 4, 100, 20, 10_000), false)
+    assert.equal(rangeOnScreen(99, 2, 100, 20, 10_000), false)
+    assert.equal(rangeOnScreen(0, 0, 0, 20, 10_000), false)
+  })
+})
+
+describe('行の選択', () => {
+  test('どちらの向きに伸ばしても範囲は前から', () => {
+    assert.deepEqual(selectionRange({ anchor: 5, head: 2 }), { start: 2, count: 4 })
+    assert.deepEqual(selectionRange({ anchor: 7, head: 7 }), { start: 7, count: 1 })
+  })
+  test('選択が無ければ起点の行から選び始め、文書の範囲に収める', () => {
+    assert.deepEqual(extendSelection(null, 10, 11, 100), { anchor: 10, head: 11 })
+    assert.deepEqual(extendSelection({ anchor: 3, head: 4 }, 10, 1e9, 100), { anchor: 3, head: 99 })
+    assert.deepEqual(extendSelection({ anchor: 3, head: 4 }, 10, -5, 100), { anchor: 3, head: 0 })
+    assert.deepEqual(extendSelection(null, 0, 0, 0), { anchor: 0, head: 0 })
+  })
+  test('伸ばした先が見えるところまで送る', () => {
+    assert.equal(revealTop(100, 20, 110, 10_000), 100)
+    assert.equal(revealTop(100, 20, 120, 10_000), 101)
+    assert.equal(revealTop(100, 20, 50, 10_000), 50)
+    assert.equal(revealTop(0, 20, 9_999, 10_000), 9_980)
+  })
+})
+
+describe('visibleSlice', () => {
+  test('見えている行と前後の余白だけを描く', () => {
+    assert.deepEqual(visibleSlice(0, 100, 20, 10_000, 2), { start: 0, end: 8 })
+    assert.deepEqual(visibleSlice(2000, 100, 20, 10_000, 2), { start: 98, end: 108 })
+  })
+  test('末尾と空の一覧で範囲の外へ出ない', () => {
+    assert.deepEqual(visibleSlice(999_999, 100, 20, 30, 2), { start: 30, end: 30 })
+    assert.deepEqual(visibleSlice(0, 100, 20, 0), { start: 0, end: 0 })
+    assert.deepEqual(visibleSlice(-50, 100, 20, 3, 2), { start: 0, end: 3 })
+  })
+})
+
+describe('splitAt', () => {
+  test('一致の前後に分ける', () => {
+    assert.deepEqual(splitAt('foo needle bar', 4, 6), ['foo ', 'needle', ' bar'])
+  })
+  test('切った行の後ろの一致は空にする', () => {
+    assert.deepEqual(splitAt('abc', 10, 3), ['abc', '', ''])
+  })
+})

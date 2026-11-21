@@ -45,6 +45,7 @@ import { buildFontFamily } from '../../lib/fontDetection'
 import { formatFileSize, formatLineRange, lineRangeSuffix } from '../../lib/format'
 import { chordLabel, matchChord } from '../../lib/keys'
 import { languageByKey, languageLabelByKey } from '../../lib/languages'
+import type { LargeViewerInfo } from '../../lib/largeFile'
 import { openProjectPath, openWithDefaultApp } from '../../lib/openFile'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import { useOverlay } from '../../lib/overlay'
@@ -92,6 +93,7 @@ import { type EditorTab, shellToPlatform } from '../../types/tab'
 import BlameToggle from '../editor/BlameToggle.vue'
 import FindBar from '../editor/FindBar.vue'
 import HtmlPreview from '../editor/HtmlPreview.vue'
+import LargeFileViewer from '../editor/LargeFileViewer.vue'
 import MacroButtons from '../editor/MacroButtons.vue'
 import MarkdownToolbar from '../editor/MarkdownToolbar.vue'
 import MinimapToggle from '../editor/MinimapToggle.vue'
@@ -200,6 +202,21 @@ const directoryProject = computed(() =>
  * 開き方（部分読み込み・ほかのアプリ）を選ばせる画面を出す。
  */
 const tooLargeSize = ref<number | null>(null)
+/**
+ * 上限を超えたファイルを大きなファイルビューア（#630、`LargeFileViewer.vue`）で見ているか。
+ * 立っているあいだは `tooLargeSize` の画面の代わりにビューアを出し、CodeMirror は作らない。
+ * **読み直しはビューアに渡す**（`reopenWithEncoding` の先頭）。素通しで読み直すとビューアが
+ * 作り直され、索引を最初から作り直すうえ読んでいた位置も失われる。
+ */
+const largeViewer = ref(false)
+/** `save` は書いたら `true`（変わっていなければ書かずに `false`）。 */
+const largeViewerRef = useTemplateRef<{
+  refresh: () => Promise<void>
+  save: (encoding?: string) => Promise<boolean>
+  setEncoding: (encoding: string) => Promise<void>
+}>('largeViewerRef')
+/** ビューアが最後に知らせた StatusBar の中身（`onLargeViewerInfo`）。 */
+let largeViewerInfo: LargeViewerInfo | null = null
 /**
  * 先頭から少しずつ読んでいるとき（#362）。**このあいだは読み取り専用**: 保存すると、読んで
  * いない後半が消える。`nextOffset` は次に読むバイト位置。
@@ -732,6 +749,10 @@ function updateDirtyState() {
 }
 
 function updateCursorInfo() {
+  if (largeViewer.value) {
+    updateLargeViewerInfo()
+    return
+  }
   if (!editorView || !tab.value) return
   // StatusBar は 1 つしかないので、打鍵の行き先のタブだけが書く（#308）。
   if (!tabStore.isTabFocused(props.tabId)) return
@@ -750,10 +771,62 @@ function updateCursorInfo() {
   })
 }
 
+/**
+ * 大きなファイルビューア（#630）の StatusBar。**文字コードの指定は普通のエディタと同じ UI を使う**
+ * （StatusBar の 2 段のメニュー）。操作は `largeViewerActions` がビューアへ振り替え、選択肢は
+ * ビューアで扱える文字コードに絞る（Rust の `VIEWER_ENCODINGS` がビューア経由で届く）。列は
+ * ビューアにカーソルが無いので 1。
+ */
+function updateLargeViewerInfo() {
+  const info = largeViewerInfo
+  if (!info || !tab.value || !tabStore.isTabFocused(props.tabId)) return
+  editorInfo.update({
+    line: info.line,
+    col: 1,
+    encoding: info.encoding,
+    lineEnding: info.lineEnding,
+    fileType: languageLabelByKey(''),
+    fileTypeKey: null,
+    tabSize: settingsStore.editorTabSize,
+    tabId: props.tabId,
+    actions: largeViewerActions,
+    encodings: info.encodings,
+  })
+}
+
+function onLargeViewerInfo(info: LargeViewerInfo) {
+  // 文字コードと改行はビューアが持つ（`currentEncoding` には写さない。ビューアの読み直しと保存は
+  // あちらの今の文字コードを使う）。
+  largeViewerInfo = info
+  updateLargeViewerInfo()
+}
+
+/** ビューアの文字コードを指定して読み直す。索引と未保存の編集は残る（`LargeFileViewer` の `setEncoding`）。 */
+async function changeLargeViewerEncoding(encoding: string) {
+  try {
+    await largeViewerRef.value?.setEncoding(encoding)
+  } catch (e) {
+    statusMessageStore.show({ text: t('editor.encodingFailed', { error: String(e) }), variant: 'error' })
+  }
+}
+
+/** ビューアで持たない操作（改行の切り替えと種別の上書き）。何もせず、できないことを知らせる。 */
+function largeViewerUnsupported() {
+  statusMessageStore.show({ text: t('largeFile.statusUnsupported'), variant: 'info' })
+}
+
+const largeViewerActions: EditorActions = {
+  changeEncoding: (enc) => void changeLargeViewerEncoding(enc),
+  changeLineEnding: largeViewerUnsupported,
+  saveWithEncoding: (enc) => save(enc),
+  changeFileType: largeViewerUnsupported,
+}
+
 /** Shell config for file I/O. 判断の実体は `projectStore.shellForIO`（そこの doc を参照）。 */
 const shellForIO = computed(() => projectStore.shellForIO)
 
 async function save(overrideEncoding?: string, auto = false) {
+  if (largeViewer.value) return saveLargeViewer(overrideEncoding)
   if (!editorView || !tab.value || saving.value || isReadOnlyTab.value) return
 
   // Untitled tab: prompt for file path first
@@ -821,6 +894,45 @@ async function save(overrideEncoding?: string, auto = false) {
   }
 }
 
+/**
+ * 大きなファイルビューア（#630）の保存。`save()` の入口から分かれる（書くのはビューアの `save`＝
+ * Rust がピースの並びを一時ファイルへ書いて置き換える）。
+ *
+ * - **自動保存はしない**。止める条件は `maybeAutoSave` にある（`editor.md` の「保存の責任」の
+ *   決まり。止める条件は `save()` に書かない）
+ * - **自己書き込みの印（`markRecentlySaved`）は書き終えてから付ける**（普通の保存は書く前）。印は
+ *   短い時間で切れる（`useFsWatcher` の `SAVE_TTL_MS`）ので、数百 MB〜GB を書くあいだに切れて、
+ *   置き換えの知らせが外部変更に見える。置き換えの知らせは監視のまとめの時間のあとに届くので、
+ *   戻ってから付けても間に合う。**書かなかったら付けない**（付けると本物の外部変更を 1 回飲む）
+ * - 書いたら未保存の印をその場で下ろす（ビューアの状態の問い合わせを待つあいだに知らせが届いて
+ *   も、警告ではなく自動の読み直しに回り、変わっていないので何もしない）
+ * - **失敗は `error` に出さず StatusBar に出す**。`error` の画面はビューアより後ろの分岐なので
+ *   出ないうえ、未保存の編集を捨てる操作しか残らない形になる（自動保存の失敗と同じ理由）
+ */
+async function saveLargeViewer(encoding?: string) {
+  const path = tab.value?.path
+  if (!path || saving.value || !largeViewerRef.value) return
+  saving.value = true
+  try {
+    if (await largeViewerRef.value.save(encoding)) {
+      markRecentlySaved(path)
+      onLargeViewerDirty(false)
+    }
+    externalChangeNotice.value = null
+  } catch (e) {
+    statusMessageStore.show({ text: t('editor.saveFailed', { error: String(e) }), variant: 'error' })
+  } finally {
+    saving.value = false
+  }
+}
+
+/** ビューアの未保存の状態（ピースの並びが保存したときから変わったか）をタブの `*` に写す。 */
+function onLargeViewerDirty(dirty: boolean) {
+  if (dirty === isDirty.value) return
+  isDirty.value = dirty
+  updateTitle()
+}
+
 /** 自動保存が失敗している最中か。同じ失敗を契機のたびに通知しないための記憶。 */
 let autoSaveFailed = false
 
@@ -845,6 +957,9 @@ function maybeAutoSave() {
   if (settingsStore.autoSave === 'off') return
   if (!isDirty.value || saving.value) return
   if (!tab.value?.path || isReadOnlyTab.value) return
+  // 大きなファイルビューア（#630）は自動保存しない。数百 MB〜GB を書き直すので、フォーカスが
+  // 外れるたびや打鍵が止まるたびに走らせない（`saveLargeViewer`）。
+  if (largeViewer.value) return
   if (externalChangeNotice.value) return
   if (editorView && hasConflictMarkers(editorView.state)) return
   // 見えていないタブ（別プロジェクトのぶんを保持している、#264）では書かない。
@@ -976,6 +1091,19 @@ function applyChunk(chunk: FileChunk, requested: string | undefined): string {
     encoding: requested ?? (chunk.encoding === 'UTF-8' ? undefined : chunk.encoding),
   }
   return normalizeLineEndings(chunk.content)
+}
+
+/**
+ * 上限を超えたファイルを大きなファイルビューアで開く（#630）。**未保存の印を下ろす**: 編集を
+ * 捨てて読み直したらファイルが上限を超えていた、という流れでここへ来ると、捨てた編集の `*` が
+ * 残る。残すと外部変更が自動の読み直しではなく警告になり、閉じるときにも確認が出る。
+ */
+function openLargeViewer() {
+  largeViewer.value = true
+  if (isDirty.value) {
+    isDirty.value = false
+    updateTitle()
+  }
 }
 
 /**
@@ -1733,6 +1861,14 @@ function createEditorView(container: HTMLElement, content: string) {
 let loadSeq = 0
 
 async function reopenWithEncoding(encoding?: string) {
+  // 大きなファイルビューア（#630）では、読み直しはビューアが受け持つ（`largeViewer` の doc）。
+  // 外部変更の自動の読み直し（見えていないタブは見せたとき）・CLI・「再読み込み」が全部ここを
+  // 通る。ビューアの `refresh` は編集を捨てるので、未保存なら呼ぶ前に確かめる（外部変更は
+  // `isDirty` で警告のバーに回り、「再読み込み」は `reloadFromDisk` が確かめる）。
+  if (largeViewer.value) {
+    await largeViewerRef.value?.refresh()
+    return
+  }
   if (!editorRef.value || !tab.value) return
   const seq = ++loadSeq
   loading.value = true
@@ -1803,7 +1939,13 @@ function onGlobalKeyDown(e: KeyboardEvent) {
   // （分割表示でどちらを探すかは、最後に触ったほうで決める）。プレビューだけの表示では
   // エディタが隠れているので、CodeMirror にキーが届くことは無い。
   // 子 webview のプレビュー（#399）は DOM の外なので、Pike の検索は届かない。
-  if (matchChord(e, 'Mod+F') && showPreview.value && !ownPanePreview.value && tabStore.isTabFocused(props.tabId)) {
+  if (
+    matchChord(e, 'Mod+F') &&
+    showPreview.value &&
+    !ownPanePreview.value &&
+    !largeViewer.value &&
+    tabStore.isTabFocused(props.tabId)
+  ) {
     if (showEditor.value && editorRef.value?.contains(document.activeElement)) return
     e.preventDefault()
     openPreviewFind()
@@ -2245,10 +2387,11 @@ watch(
 watch(
   () => tabStore.isTabFocused(props.tabId),
   (focused) => {
-    if (focused && editorView) {
-      // 操作（`EditorActions`）は表示と一緒に `update` が運ぶので、別に登録しない。
+    if (focused && (editorView || largeViewer.value)) {
+      // 操作（`EditorActions`）は表示と一緒に `update` が運ぶので、別に登録しない。ビューアの
+      // ときは `updateCursorInfo` がビューアの表示へ振り分ける。
       updateCursorInfo()
-      registerOutlineSource()
+      if (editorView) registerOutlineSource()
     } else if (!focused) {
       // 降りるのは自分がアクティブでなくなったときだけ。**ただしこの条件には頼らない**:
       // watcher の走る順はマウント順なので、来たタブが update した後にここへ来ることがある。
@@ -2388,7 +2531,7 @@ onUnmounted(() => {
 
 <template>
   <div class="editor-tab">
-    <div v-if="hasPreview && !loading && !error" class="preview-toolbar">
+    <div v-if="hasPreview && !loading && !error && !largeViewer" class="preview-toolbar">
       <button class="preview-toggle" :class="{ active: viewMode === 'edit' }" @click="viewMode = 'edit'">{{ t('editor.edit') }}</button>
       <button class="preview-toggle" :class="{ active: viewMode === 'split' }" @click="viewMode = 'split'">{{ t('editor.split') }}</button>
       <button class="preview-toggle" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'">{{ t('editor.preview') }}</button>
@@ -2420,7 +2563,7 @@ onUnmounted(() => {
     <!-- パスの有無で出し分けない: 無題バッファにも折り返しの切り替えが要る
          （マニュアルは「タブごとに切り替えられる」と書いている）。パンくずだけを
          パスのあるときに出す。 -->
-    <div v-if="!hasPreview && !loading && !error" class="editor-header">
+    <div v-if="!hasPreview && !loading && !error && !largeViewer" class="editor-header">
       <div v-if="tab?.path" class="breadcrumb">
         <template v-for="(seg, i) in breadcrumbSegments" :key="i">
           <span v-if="i > 0" class="crumb-sep">›</span>
@@ -2478,6 +2621,18 @@ onUnmounted(() => {
       </div>
     </div>
     <div v-if="loading" class="editor-status">{{ t('common.loading') }}</div>
+    <!-- 上限を超えたファイルを、中身を持たずに全体を見せる（#630） -->
+    <LargeFileViewer
+      v-else-if="largeViewer && tooLargeSize !== null && tab?.path"
+      ref="largeViewerRef"
+      :path="tab.path"
+      :shell="shellForIO"
+      @open-default="openFileWithDefaultApp"
+      @dirty="onLargeViewerDirty"
+      @save="save()"
+      @reload="reloadFromDisk"
+      @info="onLargeViewerInfo"
+    />
     <!-- 上限を超えたファイル（#362）。エラーにせず、開き方を選ばせる -->
     <div v-else-if="tooLargeSize !== null" class="editor-status choices">
       <div class="choice-path">{{ tab?.path }}</div>
@@ -2490,7 +2645,8 @@ onUnmounted(() => {
         }}
       </div>
       <div class="choice-actions">
-        <button class="choice-primary" @click="openPartially">{{ t('editor.openPartially') }}</button>
+        <button class="choice-primary" @click="openLargeViewer">{{ t('editor.openLargeViewer') }}</button>
+        <button @click="openPartially">{{ t('editor.openPartially') }}</button>
         <button @click="openFileWithDefaultApp">{{ t('common.openWithDefaultApp') }}</button>
         <button @click="revealInExplorer">{{ t('editor.revealInFolder') }}</button>
       </div>

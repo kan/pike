@@ -1,3 +1,6 @@
+pub mod large;
+mod pieces;
+
 use crate::types::{ShellConfig, bash_quote, git_args, wait_with_timeout};
 use base64::Engine as _;
 use encoding_rs::Encoding;
@@ -838,15 +841,25 @@ pub fn write_bytes_atomic(shell: &ShellConfig, path: &str, bytes: &[u8]) -> Resu
 /// なので置き換わる）。**消してから改名する形にしないこと**: 失敗したときに宛先が
 /// 消えたまま残るうえ、読み手に「無い」瞬間を見せる。
 pub fn write_host_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    replace_host_atomic(path, |tmp| std::fs::write(tmp, bytes))
+}
+
+/// `write_host_atomic` の手順で、一時ファイルへの書き方だけを呼び出し側が決める（大きなファイル
+/// ビューアの保存は、中身を手元に持たずに流して書く。`large.rs` の `save_doc`）。
+pub(crate) fn replace_host_atomic<T>(
+    path: &std::path::Path,
+    write: impl FnOnce(&std::path::Path) -> std::io::Result<T>,
+) -> Result<T, String> {
     // `canonicalize` はリンクを辿る（存在しないファイルでは失敗するので、そのときは
     // 元のパス＝新規作成）。
     let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let tmp = target.with_extension(format!("pike-{}.tmp", std::process::id()));
-    let written = std::fs::write(&tmp, bytes).and_then(|()| {
+    let written = write(&tmp).and_then(|value| {
         if let Ok(meta) = std::fs::metadata(&target) {
             std::fs::set_permissions(&tmp, meta.permissions())?;
         }
-        std::fs::rename(&tmp, &target)
+        std::fs::rename(&tmp, &target)?;
+        Ok(value)
     });
     if written.is_err() {
         let _ = std::fs::remove_file(&tmp);

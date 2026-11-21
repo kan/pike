@@ -98,6 +98,11 @@ tauri-plugin-single-instance = "2.4.2"
 tauri-plugin-updater = { version = "2.10.1", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-process = "2.3.1"
 notify = "8"
+# 大きなファイルビューア（#630、`fs/large.rs`）。改行の索引（memchr）と、ファイル全体の検索
+# （regex の bytes 版。UTF-8 以外のファイルを生のバイト列で照合する）。どちらも既に依存グラフに
+# 入っている（tauri / tracing 経由）ので、新たに引くクレートは無い。
+memchr = "2"
+regex = "1"
 percent-encoding = "2"
 tauri-plugin-notification = "2"
 # Markdown プレビューの外部画像取得 (#239)。CSP を広げずに済ませるため、承認済み

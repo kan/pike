@@ -432,6 +432,178 @@ export async function fsReadFileChunk(
   return invoke<FileChunk>('fs_read_file_chunk', { shell, path, offset, len, encoding: encoding ?? null })
 }
 
+// ── 大きなファイルビューア（#630、Rust の `fs/large.rs`） ──
+
+export interface LargeFileInfo {
+  id: string
+  size: number
+  /** StatusBar で指定できる文字コード（Rust の `VIEWER_ENCODINGS`）。今の文字コードは `LargeFileStatus`。 */
+  encodings: string[]
+}
+
+export interface LargeFileStatus {
+  /** 文書の行数（編集していなければ、索引を作り終えた範囲の行数）。 */
+  lines: number
+  size: number
+  scanned: number
+  done: boolean
+  error: string | null
+  /** 保存したときから変わっているか。 */
+  dirty: boolean
+  canUndo: boolean
+  canRedo: boolean
+  saving: boolean
+  saveWritten: number
+  saveTotal: number
+  /** 今の文字コード（指定して開き直す・変えて保存するで替わる）。 */
+  encoding: string
+  lineEnding: 'LF' | 'CRLF'
+}
+
+export interface LargeLines {
+  lines: string[]
+  /** 長すぎて切った行（`lines` の中の位置）。 */
+  cut: number[]
+}
+
+export interface LargeMatch {
+  line: number
+  /** 行頭からの位置（UTF-16 の単位）。 */
+  col: number
+  len: number
+  byte: number
+  byteEnd: number
+}
+
+export interface LargeCount {
+  count: number
+  truncated: boolean
+}
+
+export type LargeRefreshKind = 'unchanged' | 'appended' | 'reset'
+
+export async function largeFileOpen(shell: ShellType, path: string): Promise<LargeFileInfo> {
+  return invoke<LargeFileInfo>('large_file_open', { shell, path })
+}
+
+export async function largeFileStatus(id: string): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_status', { id })
+}
+
+export async function largeFileLines(id: string, start: number, count: number): Promise<LargeLines> {
+  return invoke<LargeLines>('large_file_lines', { id, start, count })
+}
+
+/**
+ * 次（`backward` なら前）の一致。起点は文書の行 `fromLine` の中の `fromByte`（前回の一致の
+ * `byte` / `byteEnd`。無ければ行頭）。
+ */
+export async function largeFileFind(
+  id: string,
+  query: string,
+  caseSensitive: boolean,
+  fromLine: number,
+  fromByte: number | null,
+  backward: boolean,
+): Promise<LargeMatch | null> {
+  return invoke<LargeMatch | null>('large_file_find', { id, query, caseSensitive, fromLine, fromByte, backward })
+}
+
+/** 一致の数。後から始めた検索に止められたら `null`。 */
+export async function largeFileCount(id: string, query: string, caseSensitive: boolean): Promise<LargeCount | null> {
+  return invoke<LargeCount | null>('large_file_count', { id, query, caseSensitive })
+}
+
+export async function largeFileRefresh(id: string): Promise<LargeRefreshKind> {
+  return invoke<LargeRefreshKind>('large_file_refresh', { id })
+}
+
+export async function largeFileClose(id: string): Promise<void> {
+  return invoke('large_file_close', { id })
+}
+
+/** 検索結果の一覧の 1 件。位置は `LargeMatch` と同じで、文脈は一致の前・一致・後ろ。 */
+export interface LargeHit extends LargeMatch {
+  before: string
+  text: string
+  after: string
+}
+
+export interface LargeHits {
+  /** 前の問い合わせから後に見つけた一致（1 回に最大 2,000 件。Rust の `HITS_PER_POLL`）。 */
+  hits: LargeHit[]
+  /** これまでに見つけた数。 */
+  total: number
+  done: boolean
+  /** 上限（Rust の `MAX_HITS`）で打ち切った。 */
+  truncated: boolean
+  error: string | null
+}
+
+/** 検索結果の一覧を裏で作り始め、世代を返す。前の検索は止まる。 */
+export async function largeFileSearchStart(id: string, query: string, caseSensitive: boolean): Promise<number> {
+  return invoke<number>('large_file_search_start', { id, query, caseSensitive })
+}
+
+/**
+ * 一覧のうち、まだ受け取っていない分（受け取った分は Rust が手放す）。世代が違えば（新しい検索に
+ * 置き換わった）空で `done`。
+ */
+export async function largeFileSearchPoll(id: string, generation: number): Promise<LargeHits> {
+  return invoke<LargeHits>('large_file_search_poll', { id, generation })
+}
+
+/** 世代 `generation` の一覧がまだ今の一覧なら止める（後から始まった一覧は巻き込まない）。 */
+export async function largeFileSearchStop(id: string, generation: number): Promise<void> {
+  return invoke('large_file_search_stop', { id, generation })
+}
+
+/** 文書の行 `start` から `delete` 行を `insert` の行で置き換える。 */
+export async function largeFileEdit(
+  id: string,
+  start: number,
+  deleteCount: number,
+  insert: string[],
+): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_edit', { id, start, delete: deleteCount, insert })
+}
+
+export async function largeFileUndo(id: string): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_undo', { id })
+}
+
+export async function largeFileRedo(id: string): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_redo', { id })
+}
+
+/**
+ * 保存する（一時ファイルへ書いて置き換える）。終わるまで戻らない。進み具合は `largeFileStatus`。
+ * `encoding` を渡すと、その文字コードに変換して書く。
+ */
+export async function largeFileSave(id: string, encoding?: string): Promise<void> {
+  return invoke('large_file_save', { id, encoding: encoding ?? null })
+}
+
+export interface LargeCopy {
+  /** 行を `\n` でつないだ中身。上限（Rust の `MAX_COPY_BYTES`）を超えたら `null`。 */
+  text: string | null
+  /** 選んだ範囲の大きさ（バイト）。 */
+  bytes: number
+  limit: number
+  /** 行数を数えている途中だったので組み立てなかった（`text` は `null`）。 */
+  indexing: boolean
+}
+
+/** 文書の行 `start` から `count` 行の中身（コピー）。編集を反映した今の文書から Rust が作る。 */
+export async function largeFileCopy(id: string, start: number, count: number): Promise<LargeCopy> {
+  return invoke<LargeCopy>('large_file_copy', { id, start, count })
+}
+
+/** 指定した文字コードで読み直す（索引と未保存の編集は残る）。扱えない文字コードは断られる。 */
+export async function largeFileSetEncoding(id: string, encoding: string): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_set_encoding', { id, encoding })
+}
+
 export async function fsWriteFile(shell: ShellType, path: string, content: string, encoding?: string): Promise<void> {
   return invoke('fs_write_file', { shell, path, content, encoding: encoding ?? null })
 }

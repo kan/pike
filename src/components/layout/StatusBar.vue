@@ -517,7 +517,13 @@ onUnmounted(() => {
       <div class="status-dropdown-area">
         <button class="status-item clickable small" @click="toggleEncodingMenu">{{ editorInfo.current.value.encoding }}</button>
         <div v-if="showEncodingMenu" class="status-dropdown popup-surface" @mousedown.stop>
-          <button v-for="enc in encodings" :key="enc" @click="selectEncoding(enc)">{{ enc }}</button>
+          <button
+            v-for="enc in editorInfo.current.value.encodings ?? encodings"
+            :key="enc"
+            @click="selectEncoding(enc)"
+          >
+            {{ enc }}
+          </button>
         </div>
         <div v-if="showEncodingAction" class="status-dropdown popup-surface" @mousedown.stop>
           <div class="dropdown-label">{{ selectedEncoding }}</div>
