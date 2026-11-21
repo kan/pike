@@ -202,6 +202,7 @@ export default {
   'largeFile.copyTooLarge': '選んだ行が大きすぎるのでコピーしませんでした（{size}。上限は {limit}）',
   'largeFile.copyFailed': 'コピーできませんでした: {error}',
   'largeFile.copyAfterIndexing': '行数を数え終えてからコピーできます',
+  'largeFile.lineNotOnScreen': '画面に見えている行だけ編集できます。行をスクロールして見せてから押してください',
   'largeFile.selectionNotEditable': '画面の外まで選んだ行は、まとめて編集できません（行の削除とコピーはできます）',
   'largeFile.statusUnsupported': '大きなファイルビューアでは、改行コードとファイルの種類は切り替えられません',
   'largeFile.hits': '検索結果の一覧',

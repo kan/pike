@@ -3,12 +3,14 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   BLOCK_LINES,
+  blockIsShort,
   blocksFor,
   clampTop,
   extendSelection,
   LineBlockCache,
   linesForEdit,
   makeBlock,
+  rangeOnScreen,
   revealTop,
   selectionRange,
   splitAt,
@@ -128,6 +130,30 @@ describe('編集', () => {
     assert.deepEqual(splitEditText('a\r\nb\rc\nd'), ['a', 'b', 'c', 'd'])
     assert.deepEqual(splitEditText(''), [''])
     assert.deepEqual(splitEditText('x\n'), ['x', ''])
+  })
+})
+
+describe('blockIsShort', () => {
+  test('数えている途中に短く届いたブロックは、後ろに行ができたら読み直す', () => {
+    const block = (n: number, seenTotal: number) => ({ lines: new Array<string>(n).fill(''), seenTotal })
+    // ブロック 0 を、行数が 100 の時点で読んだ。行数が 300 に増えた。
+    assert.equal(blockIsShort(0, block(100, 100), 300), true)
+    // ファイルの末尾のブロックは短くてよい。
+    assert.equal(blockIsShort(1, block(44, BLOCK_LINES + 44), BLOCK_LINES + 44), false)
+    assert.equal(blockIsShort(0, block(BLOCK_LINES, 10_000), 10_000), false)
+    // 頼んだときから行数が増えていなければ、短いままでも読み直さない（縮んだファイル）。
+    assert.equal(blockIsShort(0, block(100, 300), 300), false)
+  })
+})
+
+describe('rangeOnScreen', () => {
+  test('描いている行に収まる範囲だけ', () => {
+    assert.equal(rangeOnScreen(105, 3, 100, 20, 10_000), true)
+    // 半端な 1 行（先頭 + rows）まで描いている。
+    assert.equal(rangeOnScreen(118, 3, 100.5, 20, 10_000), true)
+    assert.equal(rangeOnScreen(118, 4, 100, 20, 10_000), false)
+    assert.equal(rangeOnScreen(99, 2, 100, 20, 10_000), false)
+    assert.equal(rangeOnScreen(0, 0, 0, 20, 10_000), false)
   })
 })
 

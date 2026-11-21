@@ -22,6 +22,18 @@ export interface LargeViewerInfo {
 /** 1 回に読む行の数。キャッシュもこの単位で持つ。 */
 export const BLOCK_LINES = 256
 
+/**
+ * 読んだブロック `b` を、今の行数 `total` で読み直すべきか。行数を数えている途中は、Rust が数え
+ * 終えた行までしか返さないので、ブロックが短く届く。数え進めて後ろに行ができたら読み直す
+ * （キャッシュにあるからと読まずにおくと、後ろの行が空のまま残る）。**読み直すのは、頼んだときより
+ * 行数が増えたときだけ**: ファイルが縮んだ・読み取りが途中で切れたなどで短いままのブロックを、
+ * スクロールのたびに読み直さない。
+ */
+export function blockIsShort(b: number, block: Pick<LineBlock, 'lines' | 'seenTotal'>, total: number): boolean {
+  const len = block.lines.length
+  return len < BLOCK_LINES && b * BLOCK_LINES + len < total && block.seenTotal < total
+}
+
 /** キャッシュに置く量の上限（`LineBlock.cost` の合計。文字なら UTF-16 で約 64MB）。 */
 export const CACHE_MAX_COST = 32 * 1024 * 1024
 
@@ -38,12 +50,14 @@ export interface LineBlock {
   cut: Set<number>
   /** キャッシュの上限に数える量（文字数 + 行とブロックの持ち分）。 */
   cost: number
+  /** 頼んだときの文書の行数（`blockIsShort`）。 */
+  seenTotal: number
 }
 
-export function makeBlock(lines: string[], cut: number[]): LineBlock {
+export function makeBlock(lines: string[], cut: number[], seenTotal = Number.POSITIVE_INFINITY): LineBlock {
   let cost = BLOCK_COST + lines.length * LINE_COST
   for (const l of lines) cost += l.length
-  return { lines, cut: new Set(cut), cost }
+  return { lines, cut: new Set(cut), cost, seenTotal }
 }
 
 /**
@@ -145,6 +159,16 @@ export function extendSelection(sel: LineSelection | null, from: number, to: num
   const last = Math.max(0, total - 1)
   const clamp = (n: number) => Math.min(Math.max(0, Math.round(n)), last)
   return { anchor: clamp(sel ? sel.anchor : from), head: clamp(to) }
+}
+
+/**
+ * 行 `start` から `count` 行が、画面に描いている行（先頭 `top` から `rows` 行と、半端な 1 行）に
+ * 収まるか。入力欄は描いている行の位置に置くので、収まらない範囲は編集を始めない。
+ */
+export function rangeOnScreen(start: number, count: number, top: number, rows: number, total: number): boolean {
+  const first = Math.floor(top)
+  const end = Math.min(first + rows + 1, total)
+  return count > 0 && start >= first && start + count <= end
 }
 
 /** 行 `line` が見えるようにする先頭の行（見えていればそのまま）。 */

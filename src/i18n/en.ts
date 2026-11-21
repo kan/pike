@@ -201,6 +201,7 @@ export default {
   'largeFile.copyTooLarge': 'The selected lines are too large to copy ({size}; the limit is {limit})',
   'largeFile.copyFailed': 'Could not copy: {error}',
   'largeFile.copyAfterIndexing': 'Lines can be copied after the lines are counted',
+  'largeFile.lineNotOnScreen': 'Only lines on the screen can be edited. Scroll the line into view first',
   'largeFile.selectionNotEditable':
     'Lines selected beyond the screen cannot be edited together (you can still delete or copy them)',
   'largeFile.statusUnsupported': 'The large file viewer cannot switch the line ending or the file type',

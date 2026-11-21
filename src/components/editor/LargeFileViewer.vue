@@ -24,6 +24,7 @@ import { formatFileSize } from '../../lib/format'
 import { matchChord } from '../../lib/keys'
 import {
   BLOCK_LINES,
+  blockIsShort,
   blocksFor,
   clampTop,
   extendSelection,
@@ -34,6 +35,7 @@ import {
   linesForEdit,
   makeBlock,
   maxTop,
+  rangeOnScreen,
   revealTop,
   selectionRange,
   splitAt,
@@ -257,6 +259,9 @@ async function refresh() {
     // 件数は作り終えたときに `poll` が数え直す。
     resetLines(Math.max(0, before - 1))
   } else {
+    // 書きかけの入力欄も捨てる（未保存なら EditorTab が破棄を確かめてから呼ぶ）。残すと、確定した
+    // ときに作り直した後の中身の、同じ番号の別の行を書き換える。
+    editing.value = null
     onRenumbered(null)
   }
   restartPoll()
@@ -310,16 +315,20 @@ function ensureLoaded() {
   const needed = blocksFor(first, rows.value + BLOCK_LINES, total.value)
   const keep = new Set(needed)
   for (const b of needed) {
-    if (cache.has(b) || inflight.has(b)) continue
+    if (inflight.has(b)) continue
+    // 数えている途中に短く届いたブロックは、後ろに行ができたら読み直す（`blockIsShort`）。
+    const cached = cache.get(b)
+    if (cached && !blockIsShort(b, cached, total.value)) continue
     inflight.add(b)
     const id = docId
     const at = epoch
+    const seenTotal = total.value
     largeFileLines(id, b * BLOCK_LINES, BLOCK_LINES)
       .then((res) => {
         if (disposed || at !== epoch || id !== docId) return
-        // 索引を作っている途中でも、Rust は索引の先までファイルから読むので、ブロックが短いのは
-        // ファイルの末尾だけ。末尾が伸びたら `refresh` が最後のブロックを捨てる。
-        cache.set(b, makeBlock(res.lines, res.cut), keep)
+        // 数えている途中は、数え終えた行までの短いブロックが届く（後から届いた古い範囲の応答も
+        // 同じ）。短くても入れておき、行が増えたら次の `ensureLoaded` が読み直す。
+        cache.set(b, makeBlock(res.lines, res.cut, seenTotal), keep)
         cacheVersion.value++
         if (revealPending) void nextTick(revealMatchColumn)
       })
@@ -350,7 +359,13 @@ watch([() => Math.floor(top.value), rows, total], () => {
 
 // ── スクロール ──
 
+/**
+ * 先頭の行を動かす。**ホイール・キー・スクロールバー・行への移動は全部ここを通す。** 編集している
+ * あいだは動かさない（入力欄が画面の外へ出ると書きかけの行が描かれず、操作できなくなる。つまみの
+ * `pointerdown` は `preventDefault` するので、入力欄の blur による確定も起きない）。
+ */
 function scrollTo(next: number) {
+  if (editing.value) return
   top.value = clampTop(next, total.value, rows.value)
   following.value = total.value > rows.value && top.value >= maxTop(total.value, rows.value)
 }
@@ -365,8 +380,6 @@ function onWheel(e: WheelEvent) {
   // 横方向は本文の横スクロール（ブラウザ）に任せる。
   if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return
   e.preventDefault()
-  // **編集しているあいだは動かさない**（入力欄が画面の外へ出ると、書きかけの行が描かれなくなる）。
-  if (editing.value) return
   const lines =
     e.deltaMode === WheelEvent.DOM_DELTA_LINE
       ? e.deltaY
@@ -510,7 +523,7 @@ const editing = ref<{ start: number; count: number; original: string; text: stri
 const editable = computed(() => !!status.value?.done && !status.value.saving)
 /** 送った編集（`runEdit`）の待ち行列と、まだ応答の来ていない数。 */
 let editQueue: Promise<void> = Promise.resolve()
-let pendingEdits = 0
+const pendingEdits = ref(0)
 
 /** 選択の両端の行（`data-line`）から、選択が覆う行の範囲を求める。選択が本文の外なら `null`。 */
 function selectedLineRange(sel: Selection | null, pane: HTMLElement | null): { start: number; count: number } | null {
@@ -543,17 +556,21 @@ function startEdit(start: number, count: number) {
     return
   }
   // 前の編集の応答を待っているあいだは、行番号がずれる前のキャッシュで入力欄を作らない。
-  if (pendingEdits > 0) return
+  if (pendingEdits.value > 0) return
+  // 入力欄は描いている行の位置に置くので、画面の外にかかる範囲では始めない（読んであっても、
+  // 入力欄が描かれないまま編集中になる）。
+  if (!rangeOnScreen(start, count, top.value, rows.value, total.value)) {
+    // 選んだ範囲なら選択のせい、目印の行だけならその行が画面の外にある。
+    notice.value = t(lineSel.value ? 'largeFile.selectionNotEditable' : 'largeFile.lineNotOnScreen')
+    return
+  }
   const lines = linesForEdit(cache, start, count)
   if (lines === 'cut') {
     notice.value = t('largeFile.cutNotEditable')
     return
   }
-  if (lines === null) {
-    // 読んでいない行（画面の外まで選んだ範囲）は入力欄に入れられない。消すとコピーは範囲のまま効く。
-    if (lineSel.value) notice.value = t('largeFile.selectionNotEditable')
-    return
-  }
+  // まだ読み終えていない（届いたら押し直す）。
+  if (lines === null) return
   const text = lines.join('\n')
   editing.value = { start, count, original: text, text }
   markedLine.value = null
@@ -626,7 +643,7 @@ function runEdit(call: (id: string) => Promise<LargeFileStatus>, from: number): 
   // **捨てずに順に送る**（前の編集の応答を待っているあいだに確定した編集も、その後で送る）。
   // 入力欄を作るのは前の編集が終わってから（`startEdit` が `pendingEdits` を見る）なので、待たせた
   // 編集の行番号が前の編集でずれていることは無い。
-  pendingEdits++
+  pendingEdits.value++
   const run = editQueue.then(async () => {
     try {
       if (!docId) return
@@ -639,7 +656,7 @@ function runEdit(call: (id: string) => Promise<LargeFileStatus>, from: number): 
     } catch (err) {
       notice.value = String(err)
     } finally {
-      pendingEdits--
+      pendingEdits.value--
     }
   })
   editQueue = run
@@ -737,8 +754,16 @@ async function setEncoding(encoding: string) {
   ensureLoaded()
 }
 
+/**
+ * タブの `*` と、閉じるとき・外部変更のときの確認に使う「未保存か」。Rust に届いた編集だけでなく、
+ * **入力欄の書きかけと、送っている途中の編集も含める**（含めないと、書きかけのまま `Ctrl+W` で
+ * 閉じたときに確認なしで消え、外部変更も自動の読み直しに回って入力が消える）。
+ */
 watch(
-  () => status.value?.dirty ?? false,
+  () =>
+    (status.value?.dirty ?? false) ||
+    pendingEdits.value > 0 ||
+    (!!editing.value && editing.value.text !== editing.value.original),
   (dirty) => emit('dirty', dirty),
 )
 

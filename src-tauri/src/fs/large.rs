@@ -1777,7 +1777,16 @@ fn run_hit_search(doc: &LargeDoc, matcher: &Matcher, generation: u64) {
         }
         true
     };
-    let result = collect_doc_hits(doc, matcher, &cancelled, &push);
+    let room = || {
+        doc.hits
+            .lock()
+            .map_or(0, |list| MAX_HITS.saturating_sub(list.found))
+    };
+    let sink = HitSink {
+        push: &push,
+        room: &room,
+    };
+    let result = collect_doc_hits(doc, matcher, &cancelled, &sink);
     if let Ok(mut list) = doc.hits.lock()
         && list.generation == generation
     {
@@ -1788,13 +1797,20 @@ fn run_hit_search(doc: &LargeDoc, matcher: &Matcher, generation: u64) {
     }
 }
 
+/// 一覧の受け口。`push` は見つけた分を積み、上限に届いたら `false`（止める）。`room` は上限までの
+/// 残りの件数で、組み立てる側はそれを超えて文脈付きの一致を作らない。
+struct HitSink<'a> {
+    push: &'a dyn Fn(Vec<LargeHit>) -> bool,
+    room: &'a dyn Fn() -> usize,
+}
+
 /// 文書の一致を先頭から順に集め、窓 1 つ（入れた行のピースなら 1 つ）ごとに `push` へ渡す。
 /// `push` が `false` を返すか、止められたら終わる。
 fn collect_doc_hits(
     doc: &LargeDoc,
     matcher: &Matcher,
     cancelled: Cancelled,
-    push: &dyn Fn(Vec<LargeHit>) -> bool,
+    sink: &HitSink,
 ) -> Result<(), String> {
     let mut view = SearchView::open(doc, matcher)?;
     let pieces = view.table.pieces().to_vec();
@@ -1813,13 +1829,17 @@ fn collect_doc_hits(
                     (lo, hi),
                     doc_start,
                     cancelled,
-                    push,
+                    sink,
                 )
                 .map_err(|e| e.to_string())?
             }
-            added @ Piece::Added { .. } => {
-                push(added_hits(added.added(), &matcher.text, doc_start))
-            }
+            added @ Piece::Added { .. } => (sink.push)(added_hits(
+                added.added(),
+                &matcher.text,
+                doc_start,
+                cancelled,
+                (sink.room)(),
+            )),
         };
         if !go_on {
             return Ok(());
@@ -1838,7 +1858,7 @@ fn collect_source_hits<R: Read + Seek>(
     range: (u64, u64),
     first_line: u64,
     cancelled: Cancelled,
-    push: &dyn Fn(Vec<LargeHit>) -> bool,
+    sink: &HitSink,
 ) -> std::io::Result<bool> {
     let enc = matcher.encoding;
     let mut at = LineCursor {
@@ -1853,7 +1873,13 @@ fn collect_source_hits<R: Read + Seek>(
         let mut batch = Vec::with_capacity(w.matches.len());
         // 窓の中で文字の境目と分かっている最後の位置（窓の先頭・一致の末尾）。
         let mut boundary = (at.counted - w.pos) as usize;
+        // 一覧に積めるのは上限までの残り（`room`）。短い語が窓 1 枚に何百万件も当たっても、それ以上は
+        // 文脈を付けて組み立てない。
+        let room = (sink.room)();
         for &(ms, me) in w.matches {
+            if batch.len() >= room {
+                break;
+            }
             let abs = w.pos + ms as u64;
             at.advance(w, abs);
             let col = at.col_at(w, abs, enc);
@@ -1873,8 +1899,10 @@ fn collect_source_hits<R: Read + Seek>(
                 ctx_from = i.min(ms);
             }
             boundary = me;
-            let line_end = memchr::memchr(b'\n', &window[me..]).map_or(window.len(), |n| me + n);
-            let ctx_to = line_end.min(me + CONTEXT_BYTES);
+            // 後ろの文脈は `CONTEXT_BYTES` までなので、改行もその範囲だけで探す（窓の残り全体を
+            // 一致ごとに探すと、改行の無い長い行に一致が並んだとき二次の時間になる）。
+            let reach = (me + CONTEXT_BYTES).min(window.len());
+            let ctx_to = memchr::memchr(b'\n', &window[me..reach]).map_or(reach, |n| me + n);
             batch.push(hit_from_parts(
                 LargeMatch {
                     line: at.line,
@@ -1889,7 +1917,7 @@ fn collect_source_hits<R: Read + Seek>(
                 enc,
             ));
         }
-        if !batch.is_empty() && !push(batch) {
+        if !batch.is_empty() && !(sink.push)(batch) {
             return false;
         }
         // 次の窓の先頭まで改行と列を進めておく。UTF-8 の窓の境目は文字の途中に来るので、列は
@@ -1955,12 +1983,38 @@ impl LineCursor {
 }
 
 /// 編集で入れた行の一致。
-fn added_hits(lines: &[String], re: &regex::Regex, doc_start: u64) -> Vec<LargeHit> {
+///
+/// 元の行と同じく、組み立てるのは上限までの残り `room` 件まで（`HitSink`）で、止められたら
+/// そこで終える（大量に貼り付けた行を探しても、上限と止める合図が組み立ての途中で効く）。列は
+/// 同じ行の中で前の一致からの差分を足す（一致ごとに行頭から数え直さない）。
+fn added_hits(
+    lines: &[String],
+    re: &regex::Regex,
+    doc_start: u64,
+    cancelled: Cancelled,
+    room: usize,
+) -> Vec<LargeHit> {
     let mut out = Vec::new();
     for (k, text) in lines.iter().enumerate() {
+        if cancelled() {
+            break;
+        }
+        // 列を数え終えた位置（バイト）と、そこまでの列（UTF-16）。
+        let (mut counted, mut col) = (0usize, 0u64);
         for m in re.find_iter(text) {
+            if out.len() >= room {
+                return out;
+            }
+            col += text[counted..m.start()].encode_utf16().count() as u64;
+            counted = m.start();
             out.push(LargeHit {
-                at: added_match(text, doc_start + k as u64, m),
+                at: LargeMatch {
+                    line: doc_start + k as u64,
+                    col,
+                    len: m.as_str().encode_utf16().count() as u64,
+                    byte: m.start() as u64,
+                    byte_end: m.end() as u64,
+                },
                 before: tail_chars(&text[..m.start()], CONTEXT_BEFORE),
                 text: m.as_str().to_owned(),
                 after: text[m.end()..].chars().take(CONTEXT_AFTER).collect(),
@@ -1995,9 +2049,15 @@ fn hit_from_parts(
 }
 
 /// 末尾の `n` 文字。
+/// 後ろから数えるので、長い `s` でも末尾の `n` 文字ぶんしか見ない。
 fn tail_chars(s: &str, n: usize) -> String {
-    let count = s.chars().count();
-    s.chars().skip(count.saturating_sub(n)).collect()
+    if n == 0 {
+        return String::new();
+    }
+    match s.char_indices().rev().nth(n - 1) {
+        Some((i, _)) => s[i..].to_owned(),
+        None => s.to_owned(),
+    }
 }
 
 /// ファイルが変わったときの扱い。
@@ -2281,17 +2341,20 @@ fn write_doc(
     table: Option<PieceTable>,
     codec: (&'static Encoding, &'static Encoding),
 ) -> Result<Written, String> {
-    let (index, size, tail) = {
+    let (index, size, tail, mtime) = {
         let s = doc.state.read().map_err(|e| e.to_string())?;
         if !s.done {
             return Err(NOT_EDITABLE.into());
         }
-        (s.index.clone(), s.size, s.tail.clone())
+        (s.index.clone(), s.size, s.tail.clone(), s.mtime)
     };
     let table = table.unwrap_or_else(|| PieceTable::pristine(index.lines()));
     let mut src = File::open(&doc.path).map_err(|e| e.to_string())?;
-    let now = src.metadata().map_err(|e| e.to_string())?.len();
-    if now < size || read_tail(&mut src, size).map_err(|e| e.to_string())? != tail {
+    let meta = src.metadata().map_err(|e| e.to_string())?;
+    let now = meta.len();
+    if !source_unchanged(&mut src, (now, meta.modified().ok()), (size, mtime), &tail)
+        .map_err(|e| e.to_string())?
+    {
         return Err(SOURCE_CHANGED.into());
     }
     let write =
@@ -2300,6 +2363,27 @@ fn write_doc(
         ShellConfig::Wsl { .. } => replace_in_wsl(doc, write),
         _ => super::replace_host_atomic(&doc.path, write),
     }
+}
+
+/// 元のファイルが索引を作ったときのまま（末尾への追記を除く）か（`write_doc`）。`now` は今の
+/// （大きさ, 更新時刻）、`indexed` は索引を作り終えたときのもの。
+///
+/// - 縮んでいたら書き換え。末尾 `TAIL_LEN` が違っても書き換え
+/// - **同じ大きさなら更新時刻も見る**（`large_file_refresh` の見極めと同じ）。末尾の 4KB を残して
+///   先頭や途中だけを書き換えたファイルを、そのまま通さない
+/// - 大きくなっていれば追記とみなす。**既にある範囲が変わっていないかまでは確かめない**: 確かめる
+///   にはファイル全体を読み直すことになり、保存のたびに数百 MB〜GB を読む。追記は更新時刻を必ず
+///   進めるので、時刻では見分けられない（外部変更の取り込みと同じ割り切り）
+fn source_unchanged(
+    src: &mut File,
+    (now, now_mtime): (u64, Option<SystemTime>),
+    (size, mtime): (u64, Option<SystemTime>),
+    tail: &[u8],
+) -> std::io::Result<bool> {
+    if now < size || (now == size && mtime.is_some() && now_mtime != mtime) {
+        return Ok(false);
+    }
+    Ok(read_tail(src, size)? == tail)
 }
 
 /// WSL のファイルを置き換える。一時ファイルは UNC 越しに隣へ書き、置き換えは distro の中で行う
@@ -3051,6 +3135,54 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn saving_refuses_a_same_size_rewrite_that_keeps_the_tail() {
+        let tail = "t".repeat(TAIL_LEN as usize);
+        let (doc, path, dir) = open_temp(format!("old\n{tail}").as_bytes());
+        with_history(&doc, |h| h.edit(0, 1, strings(&["new"]))).unwrap();
+        // 先頭だけを同じ長さで書き換える（末尾の 4KB はそのまま）。
+        std::fs::write(&path, format!("OLD\n{tail}")).unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        assert_eq!(save_doc(&doc, None).unwrap_err(), SOURCE_CHANGED);
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn added_hits_stop_at_the_limit_and_count_columns_on() {
+        // 上限までの残り（ここでは 7 件）を超えて組み立てない。
+        let many = vec!["x".repeat(MAX_HITS + 5)];
+        assert_eq!(
+            added_hits(&many, &regex::Regex::new("x").unwrap(), 0, &never, 7).len(),
+            7
+        );
+        let lines = strings(&["aあa😀a"]);
+        let hits = added_hits(
+            &lines,
+            &regex::Regex::new("a").unwrap(),
+            7,
+            &never,
+            MAX_HITS,
+        );
+        let at: Vec<_> = hits.iter().map(|h| (h.at.line, h.at.col)).collect();
+        // 😀 は UTF-16 で 2。
+        assert_eq!(at, vec![(7, 0), (7, 2), (7, 5)]);
+        assert_eq!(hits[2].before, "aあa😀");
+    }
+
+    #[test]
+    fn tail_chars_counts_from_the_end() {
+        assert_eq!(tail_chars("abcあい", 3), "cあい");
+        assert_eq!(tail_chars("ab", 5), "ab");
+        assert_eq!(tail_chars("ab", 0), "");
+    }
+
     fn copy(doc: &LargeDoc, start: u64, count: u64) -> Option<String> {
         doc_text(doc, start, count, MAX_COPY_BYTES).unwrap().text
     }
@@ -3313,7 +3445,12 @@ mod tests {
             true
         };
         let mut cur = Cursor::new(bytes.as_ref());
-        collect_source_hits(&mut cur, &m, (0, bytes.len() as u64), 0, &never, &push).unwrap();
+        let room = || MAX_HITS;
+        let sink = HitSink {
+            push: &push,
+            room: &room,
+        };
+        collect_source_hits(&mut cur, &m, (0, bytes.len() as u64), 0, &never, &sink).unwrap();
         let hits = got.into_inner();
         assert_eq!(
             hits[0].before,
