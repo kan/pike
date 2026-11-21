@@ -15,8 +15,8 @@
  * 持たないもの（エディタとの違い）：文字単位のカーソルでの編集・自動保存・折り返し・ハイライト・
  * Git の差分ガター・アウトライン・ミニマップ。選択とコピーは描いている行（画面に見えている範囲）だけ。
  */
-import { ChevronsDown, RefreshCw, Search } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
+import { ChevronsDown, List, RefreshCw, Search, X } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, triggerRef, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { horizontalReveal } from '../../lib/domFind'
 import { buildFontFamily } from '../../lib/fontDetection'
@@ -35,11 +35,14 @@ import {
   splitEditText,
   thumbFor,
   topFromThumb,
+  visibleSlice,
 } from '../../lib/largeFile'
 import {
   type LargeCount,
   type LargeFileInfo,
   type LargeFileStatus,
+  type LargeHit,
+  type LargeHits,
   type LargeMatch,
   largeFileClose,
   largeFileCount,
@@ -50,6 +53,9 @@ import {
   largeFileRedo,
   largeFileRefresh,
   largeFileSave,
+  largeFileSearchPoll,
+  largeFileSearchStart,
+  largeFileSearchStop,
   largeFileStatus,
   largeFileUndo,
 } from '../../lib/tauri'
@@ -208,9 +214,12 @@ async function poll() {
     void refresh()
   } else if (find.value.open && find.value.query) {
     // 探すのも数えるのも索引を作り終えた範囲だけなので、作り終えたら件数を数え直す。
-    // まだ一致が無ければ探し直す（作っているあいだに打った問い合わせ）。
-    if (match.value) void recount()
-    else scheduleFind()
+    // まだ一致が無ければ探し直す（作っているあいだに打った問い合わせ）。一覧も、途中に始めた
+    // ものなら作り直す（追記を拾うたびに作り直すと、書き足され続けるログで全体を読み続ける）。
+    if (match.value) {
+      void recount()
+      if (hitsOpen.value && hitsPartial) void startHits()
+    } else scheduleFind()
   }
 }
 
@@ -233,12 +242,14 @@ async function refresh() {
   const kind = await largeFileRefresh(docId).catch(() => 'unchanged' as const)
   if (kind === 'unchanged') return
   if (kind === 'appended') {
-    // 一致の位置は変わらないので残す。件数は作り終えたときに `poll` が数え直す。
+    // 一致の位置は変わらないので残す（一覧も。追記された行は、検索し直すまで一覧に入らない）。
+    // 件数は作り終えたときに `poll` が数え直す。
     resetLines(Math.max(0, before - 1))
   } else {
     resetLines(null)
     // 走っている検索と件数は古い中身に対するもの。世代を進めて、届いても捨てる。
     invalidateFind()
+    markHitsStale()
   }
   restartPoll()
 }
@@ -258,11 +269,14 @@ onUnmounted(() => {
   if (findTimer) clearTimeout(findTimer)
   if (dragLoadTimer) clearTimeout(dragLoadTimer)
   if (recountTimer) clearTimeout(recountTimer)
+  if (hitsTimer) clearTimeout(hitsTimer)
   if (docId) void largeFileClose(docId)
 })
 
 const resizeObserver = new ResizeObserver(() => {
   bodyHeight.value = body.value?.clientHeight ?? 0
+  // 一覧の高さはウィンドウの高さの割合なので、本文と一緒に変わる。
+  if (hitsOpen.value) onHitsScroll()
 })
 
 // ── 行の読み込み ──
@@ -558,6 +572,7 @@ function runEdit(call: (id: string) => Promise<LargeFileStatus>, from: number): 
       resetLines(from)
       const reopen = find.value.open && !!find.value.query
       invalidateFind()
+      markHitsStale()
       if (reopen) scheduleRecount()
       top.value = clampTop(top.value, total.value, rows.value)
       ensureLoaded()
@@ -631,6 +646,8 @@ async function save(): Promise<boolean> {
     if (id === docId && !disposed) {
       resetLines(null)
       invalidateFind()
+      // 検索結果の一覧は残す: 保存は文書の行を変えない（一覧が古くなるのは編集した時点で、
+      // そこで `markHitsStale` 済み）。
       restartPoll()
     }
   }
@@ -703,6 +720,8 @@ function invalidateFind() {
 function closeFind() {
   find.value.open = false
   invalidateFind()
+  // 一覧は検索バーの問い合わせの結果なので、検索バーと一緒に閉じる。
+  closeHits()
   root.value?.focus()
 }
 
@@ -718,19 +737,196 @@ watch(
   () => [find.value.query, find.value.caseSensitive],
   () => {
     invalidateFind()
+    // 前の問い合わせの一覧は止めて捨てる（新しい一覧は `runFind` が始める）。
+    discardHits()
     if (find.value.open && find.value.query) scheduleFind()
   },
 )
 
 /**
- * 問い合わせが変わったとき。画面の先頭の行から次の一致を探し、並行して件数を数える。探すのも
- * 数えるのも索引を作り終えた範囲だけなので、作り終えたら `poll` が数え直す。
+ * 問い合わせが変わったとき。画面の先頭の行から次の一致を探し、並行して件数を数える。一覧を
+ * 開いていれば一覧も作り直す。探すのも数えるのも索引を作り終えた範囲だけなので、作り終えたら
+ * `poll` が数え直す。
  */
 async function runFind() {
   if (!docId || !find.value.query) return
   void recount()
+  if (hitsOpen.value) void startHits()
   await step(1, true)
 }
+
+// ── 検索結果の一覧 ──
+//
+// 検索バーの問い合わせの結果を、ファイル全体について裏で集めて並べる（Rust の
+// `large_file_search_start`）。見つかった分から出し、行を押すとその一致へ移る。プロジェクトの
+// 検索パネル（rg）とは対象が違う（あちらはプロジェクトのファイル群、こちらは開いている 1 つの
+// 大きなファイル）ので、入口は検索バーの隣に置き、パネルとは分けてある。
+
+/** 一覧を聞きに行く間隔（見つけた分を取りに行く）。 */
+const HITS_POLL_MS = 200
+
+const hitsOpen = ref(false)
+const hits = shallowRef<LargeHit[]>([])
+const hitsState = ref({ running: false, truncated: false, stale: false, error: null as string | null })
+/** 走らせている一覧の世代（Rust が返したもの）。0 なら走っていない。 */
+let hitsGeneration = 0
+let hitsTimer: ReturnType<typeof setTimeout> | null = null
+/** 今の一覧を、索引を作っている途中に始めたか。 */
+let hitsPartial = false
+/** 一覧を始めた・止めた回数。始めるのを待っているあいだに止められたことを知るため。 */
+let hitsSeq = 0
+
+function toggleHits() {
+  if (hitsOpen.value) {
+    closeHits()
+    return
+  }
+  hitsOpen.value = true
+  if (!find.value.open) openFind()
+  else if (find.value.query) void startHits()
+}
+
+function closeHits() {
+  hitsOpen.value = false
+  discardHits()
+}
+
+/** 走っている一覧を止めて、並べた分も捨てる。 */
+function discardHits() {
+  stopHits()
+  hits.value = []
+}
+
+function clearHitsTimer() {
+  if (hitsTimer) clearTimeout(hitsTimer)
+  hitsTimer = null
+}
+
+/** 一覧を作り始める。前の一覧は Rust の側で止まる（世代が進む）。 */
+async function startHits() {
+  const { query, caseSensitive } = find.value
+  if (!docId || !query) return
+  clearHitsTimer()
+  // 前の世代を先に外す。始めるのを待っているあいだに前の世代の問い合わせが返っても、空にした
+  // 一覧へ足さない（`pollHits` は世代が今のものでなければ捨てる）。
+  hitsGeneration = 0
+  const seq = ++hitsSeq
+  hits.value = []
+  hitsState.value = { running: true, truncated: false, stale: false, error: null }
+  // 索引を作っている途中に始めた一覧は、作り終えた範囲しか探さない。作り終えたら作り直す（`poll`）。
+  hitsPartial = indexing.value
+  const id = docId
+  try {
+    const generation = await largeFileSearchStart(id, query, caseSensitive)
+    if (seq !== hitsSeq || id !== docId) {
+      // 待っているあいだに止められた（問い合わせを消した・一覧を閉じた）か、次の一覧が始まった。
+      // 止められたのなら Rust の検索は走ったままなので止める（次の一覧の世代は巻き込まない）。
+      void largeFileSearchStop(id, generation)
+      return
+    }
+    hitsGeneration = generation
+    await pollHits()
+  } catch (err) {
+    hitsState.value = { ...hitsState.value, running: false, error: String(err) }
+  }
+}
+
+async function pollHits() {
+  hitsTimer = null
+  const generation = hitsGeneration
+  if (!docId || generation === 0 || disposed) return
+  let res: LargeHits
+  try {
+    // 渡された分は Rust の側で手放されるので、続きは前回の続きから届く。
+    res = await largeFileSearchPoll(docId, generation)
+  } catch (err) {
+    hitsState.value = { ...hitsState.value, running: false, error: String(err) }
+    return
+  }
+  if (generation !== hitsGeneration) return
+  if (res.hits.length > 0) {
+    // 配列を作り直さずに足す（上限まで受けても、受け取った件数ぶんしかコピーしない）。
+    hits.value.push(...res.hits)
+    triggerRef(hits)
+  }
+  const more = res.total > hits.value.length
+  hitsState.value = {
+    ...hitsState.value,
+    running: !res.done || more,
+    truncated: res.truncated,
+    error: res.error,
+  }
+  // 見つけたのに受け取っていない分があればすぐ、まだ探しているなら間を置いて聞き直す。
+  if (more) void pollHits()
+  else if (!res.done) hitsTimer = setTimeout(pollHits, HITS_POLL_MS)
+  else hitsGeneration = 0
+}
+
+/** 走っている一覧を止める（一覧は残す）。 */
+function stopHits() {
+  clearHitsTimer()
+  // 始めるのを待っている一覧は、返ってきたところで `startHits` が止める。
+  hitsSeq++
+  if (hitsGeneration !== 0 && docId) void largeFileSearchStop(docId, hitsGeneration)
+  hitsGeneration = 0
+  hitsState.value = { ...hitsState.value, running: false }
+}
+
+/**
+ * 文書が変わった（編集・取り消し・書き換えの取り込み）。**一覧の行番号は補正せず、古いことを
+ * 示して検索し直させる**（`editor.md` の「検索結果の一覧」に理由）。走っている検索は変わる前の
+ * 文書を探しているので止める。
+ */
+function markHitsStale() {
+  // 0 件の一覧も古くする（編集で一致する行ができたかもしれない）。
+  if (!hitsOpen.value || !find.value.query) return
+  stopHits()
+  hitsState.value = { ...hitsState.value, stale: true }
+}
+
+/**
+ * 一覧の行を押した。その一致へ移り、検索バーにフォーカスを置く（続けて Enter で次の一致へ進む。
+ * 本文にフォーカスがあると、Enter は行の編集を始める）。行は `mousedown` でフォーカスを奪わない。
+ */
+async function gotoHit(hit: LargeHit) {
+  findBar.value?.focus()
+  await showMatch(hit)
+}
+
+/** `m` を今の一致にして、その行と列が見えるところへ送る（次へ進む・一覧の行を押した）。 */
+async function showMatch(m: LargeMatch) {
+  match.value = m
+  revealPending = true
+  revealLine(m.line)
+  await nextTick()
+  revealMatchColumn()
+}
+
+const hitsBox = useTemplateRef<HTMLDivElement>('hitsBox')
+const hitsScroll = ref(0)
+const hitsViewport = ref(0)
+const hitsSlice = computed(() =>
+  visibleSlice(hitsScroll.value, hitsViewport.value, lineHeight.value, hits.value.length),
+)
+
+function onHitsScroll() {
+  hitsScroll.value = hitsBox.value?.scrollTop ?? 0
+  hitsViewport.value = hitsBox.value?.clientHeight ?? 0
+}
+
+watch(hitsOpen, async (open) => {
+  if (!open) return
+  await nextTick()
+  onHitsScroll()
+})
+
+const hitsSummary = computed(() => {
+  const n = hits.value.length.toLocaleString()
+  if (hitsState.value.error) return hitsState.value.error
+  if (hitsState.value.running) return t('largeFile.hitsSearching', { count: n })
+  if (hitsState.value.truncated) return t('largeFile.hitsTruncated', { count: n })
+  return t('largeFile.hitsCount', { count: n })
+})
 
 async function recount() {
   const { query, caseSensitive } = find.value
@@ -763,13 +959,8 @@ async function step(delta: number, fresh = false) {
   try {
     const found = await largeFileFind(docId, query, caseSensitive, fromLine, fromByte, delta < 0)
     if (seq !== stepSeq || querySeq !== findSeq) return
-    match.value = found
-    if (found) {
-      revealPending = true
-      revealLine(found.line)
-      await nextTick()
-      revealMatchColumn()
-    }
+    if (found) await showMatch(found)
+    else match.value = null
   } catch {
     // 後から始めた検索に止められた（Rust の `CANCELLED`）。結果はそちらが持ってくる。
   }
@@ -828,6 +1019,14 @@ defineExpose({ refresh, save, focus: () => root.value?.focus() })
         />
         <button class="editor-toggle" :title="t('largeFile.find')" @click="openFind">
           <Search :size="14" :stroke-width="2" />
+        </button>
+        <button
+          class="editor-toggle"
+          :class="{ active: hitsOpen }"
+          :title="t('largeFile.hits')"
+          @click="toggleHits"
+        >
+          <List :size="14" :stroke-width="2" />
         </button>
         <button
           class="editor-toggle"
@@ -916,6 +1115,45 @@ defineExpose({ refresh, save, focus: () => root.value?.focus() })
         @step="step"
         @close="closeFind"
       />
+    </div>
+    <!-- 検索結果の一覧（検索バーの問い合わせの結果。見つかった分から並べる） -->
+    <div v-if="hitsOpen && !openError" class="lv-hits">
+      <div class="lv-hits-header">
+        <span>{{ find.query ? hitsSummary : t('largeFile.hitsEmpty') }}</span>
+        <template v-if="hitsState.stale">
+          <span class="lv-error">{{ t('largeFile.hitsStale') }}</span>
+          <button class="lv-text-btn" @click="startHits">{{ t('largeFile.hitsRerun') }}</button>
+        </template>
+        <span class="lv-hits-spacer" />
+        <button class="editor-toggle" :title="t('search.close')" @click="closeHits">
+          <X :size="14" :stroke-width="2" />
+        </button>
+      </div>
+      <div
+        ref="hitsBox"
+        class="lv-hits-list"
+        :class="{ stale: hitsState.stale }"
+        :style="{ fontFamily, fontSize: `${settingsStore.editorFontSize}px`, '--lv-line': `${lineHeight}px` }"
+        @scroll="onHitsScroll"
+      >
+        <div :style="{ height: `${hits.length * lineHeight}px`, position: 'relative' }">
+          <div :style="{ transform: `translateY(${hitsSlice.start * lineHeight}px)` }">
+            <div
+              v-for="(hit, k) in hits.slice(hitsSlice.start, hitsSlice.end)"
+              :key="hitsSlice.start + k"
+              class="lv-hit"
+              :class="{ current: match && match.line === hit.line && match.byte === hit.byte }"
+              @mousedown.prevent
+              @click="gotoHit(hit)"
+            >
+              <span class="lv-hit-line">{{ hit.line + 1 }}</span>
+              <span class="lv-hit-text"
+                >{{ hit.before }}<span class="lv-match">{{ hit.text }}</span>{{ hit.after }}</span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -1104,5 +1342,71 @@ defineExpose({ refresh, save, focus: () => root.value?.focus() })
 
 .lv-thumb:hover {
   background: var(--scrollbar-thumb-hover);
+}
+
+.lv-hits {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  height: 30%;
+  min-height: 120px;
+  max-height: 360px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.lv-hits-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.lv-hits-spacer {
+  flex: 1;
+}
+
+.lv-hits-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  color: var(--text-primary);
+}
+
+.lv-hits-list.stale {
+  opacity: 0.6;
+}
+
+.lv-hit {
+  display: flex;
+  gap: 12px;
+  height: var(--lv-line);
+  line-height: var(--lv-line);
+  padding: 0 8px;
+  white-space: pre;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.lv-hit:hover {
+  background: var(--tab-hover-bg);
+}
+
+.lv-hit.current {
+  background: var(--selection-bg);
+}
+
+.lv-hit-line {
+  flex: none;
+  min-width: 6ch;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.lv-hit-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

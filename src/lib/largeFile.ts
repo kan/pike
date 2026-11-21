@@ -162,6 +162,24 @@ export function splitEditText(text: string): string[] {
   return text.split(/\r\n|\r|\n/)
 }
 
+/**
+ * 固定の高さの行を並べた一覧で、描く範囲（`start` から `end` の手前まで）。見えている分に前後
+ * `overscan` 行を足す（検索結果の一覧。1 万件をそのまま DOM に並べない）。
+ */
+export function visibleSlice(
+  scrollTop: number,
+  viewport: number,
+  rowHeight: number,
+  total: number,
+  overscan = 5,
+): { start: number; end: number } {
+  if (rowHeight <= 0 || total <= 0) return { start: 0, end: 0 }
+  const first = Math.floor(Math.max(0, scrollTop) / rowHeight)
+  const start = Math.max(0, first - overscan)
+  const end = Math.min(total, first + Math.ceil(viewport / rowHeight) + overscan + 1)
+  return { start: Math.min(start, end), end }
+}
+
 /** 行を一致の前・一致・後ろに分ける。範囲が行の外（切った行の後ろ）なら一致を空にする。 */
 export function splitAt(text: string, col: number, len: number): [string, string, string] {
   if (col >= text.length) return [text, '', '']

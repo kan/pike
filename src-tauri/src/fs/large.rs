@@ -133,6 +133,10 @@ struct LargeDoc {
     /// 件数を数える検索の世代。**探す検索とは分ける**: 数えている途中で Enter を押して次へ
     /// 進むと、同じ世代では数えるほうが止まり、件数が出なくなる。
     count_generation: AtomicU64,
+    /// 検索結果の一覧（`large_file_search_start`）。裏のスレッドが見つけた分から積み、フロントが
+    /// 間隔を置いて続きを取りに来る。世代は `hits_generation`（新しい検索で進め、古い検索は止まる）。
+    hits: Mutex<HitList>,
+    hits_generation: AtomicU64,
     /// 行を読むときに使い回すハンドル。WSL の UNC（9P）では開くだけで数 ms かかり、スクロールの
     /// たびに払うことになる。書き換えを拾ったら（`large_file_refresh` の `Reset`）捨てて開き直す。
     lines_file: Mutex<Option<File>>,
@@ -644,38 +648,83 @@ fn count_matches<R: Read + Seek>(
     limit: u64,
     cancelled: Cancelled,
 ) -> std::io::Result<Option<u64>> {
-    let mut pos = lo;
     let mut count = 0;
-    // 最後に数えた一致の末尾。**次の窓もここから照合する**: 窓ごとに照合をやり直すと、前の窓で
-    // 数えた一致と重なる候補（境目の手前の `ababa` で `aba`）を次の窓でもう一度数える。
+    let finished = scan_windows(source, matcher, (lo, hi), cancelled, |w| {
+        count += w.matches.len() as u64;
+        count < limit
+    })?;
+    Ok(if count >= limit {
+        Some(limit)
+    } else if finished {
+        Some(count)
+    } else {
+        None
+    })
+}
+
+/// `scan_windows` が渡す窓 1 枚。
+struct ScanWindow<'a> {
+    /// 窓の先頭（ファイルのバイト位置）。
+    pos: u64,
+    /// 窓の中身（次の窓と重なる `overlap` を含む）。
+    bytes: &'a [u8],
+    /// 次の窓の先頭（文字の境目）。
+    next: u64,
+    /// この窓から始まる一致（窓の中のバイトの範囲）。
+    matches: &'a [(usize, usize)],
+}
+
+/// `[lo, hi)` を窓に分けて読み、窓ごとにそこから始まる一致を `visit` へ渡す。`lo` は文字の境目
+/// （0 か行頭）であること。最後まで読めば `true`、止められたか `visit` が `false` を返せば `false`。
+///
+/// 一致はどれも 1 度だけ、始まる窓で渡す。**次の窓は最後に渡した一致の末尾から照合する**: 窓ごとに
+/// 照合をやり直すと、前の窓で渡した一致と重なる候補（境目の手前の `ababa` で `aba`）をもう一度渡す。
+fn scan_windows<R: Read + Seek>(
+    source: &mut R,
+    matcher: &Matcher,
+    (lo, hi): (u64, u64),
+    cancelled: Cancelled,
+    mut visit: impl FnMut(&ScanWindow) -> bool,
+) -> std::io::Result<bool> {
+    let mut pos = lo;
     let mut resume = lo;
     let mut window = Vec::new();
+    let mut matches = Vec::new();
     while pos < hi {
         if cancelled() {
-            return Ok(None);
+            return Ok(false);
         }
         let step = (SEARCH_BUF as u64).min(hi - pos);
-        let len = step + matcher.overlap as u64;
-        read_window(source, pos, len, &mut window)?;
+        read_window(source, pos, step + matcher.overlap as u64, &mut window)?;
         let from = resume.saturating_sub(pos) as usize;
-        // 重ねた部分から始まる一致は次の窓で数える。
-        for m in matcher
-            .matches(&window, from)
-            .take_while(|m| (m.start() as u64) < step)
-        {
-            count += 1;
-            resume = pos + m.end() as u64;
+        matches.clear();
+        // 重ねた部分から始まる一致は次の窓で渡す。
+        matches.extend(
+            matcher
+                .matches(&window, from)
+                .take_while(|m| (m.start() as u64) < step)
+                .map(|m| (m.start(), m.end())),
+        );
+        if let Some(&(_, end)) = matches.last() {
+            resume = pos + end as u64;
         }
-        if count >= limit {
-            return Ok(Some(limit));
+        let next = pos + aligned_end(&window, step as usize, matcher) as u64;
+        let w = ScanWindow {
+            pos,
+            bytes: &window,
+            next,
+            matches: &matches,
+        };
+        if !visit(&w) {
+            return Ok(false);
         }
-        pos += aligned_end(&window, step as usize, matcher) as u64;
+        pos = next;
     }
-    Ok(Some(count))
+    Ok(true)
 }
 
 /// 一致の位置。行と列はフロントの文字列（UTF-16）の単位。
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LargeMatch {
     /// 文書の行（編集のあとの行番号）。
@@ -860,6 +909,8 @@ fn open_doc(shell: ShellConfig, native: String) -> Result<Arc<LargeDoc>, String>
         generation: AtomicU64::new(1),
         find_generation: AtomicU64::new(0),
         count_generation: AtomicU64::new(0),
+        hits: Mutex::new(HitList::default()),
+        hits_generation: AtomicU64::new(0),
         lines_file: Mutex::new(None),
         history: Mutex::new(None),
         saving: AtomicBool::new(false),
@@ -1156,6 +1207,17 @@ impl<'a> SearchView<'a> {
     }
 }
 
+/// 編集で入れた行 `text`（文書の行 `line`）の中の一致の位置。
+fn added_match(text: &str, line: u64, m: regex::Match) -> LargeMatch {
+    LargeMatch {
+        line,
+        col: text[..m.start()].encode_utf16().count() as u64,
+        len: m.as_str().encode_utf16().count() as u64,
+        byte: m.start() as u64,
+        byte_end: m.end() as u64,
+    }
+}
+
 /// 編集で入れた行の中の一致。範囲はピースの中の `[lo, hi)`（行と、その行の UTF-8 のバイト）。
 fn find_in_added(
     lines: &[String],
@@ -1177,16 +1239,7 @@ fn find_in_added(
         };
         (from.min(text.len()), to.min(text.len()))
     };
-    let to_match = |k: usize, m: regex::Match| -> LargeMatch {
-        let text = &lines[k];
-        LargeMatch {
-            line: doc_start + k as u64,
-            col: text[..m.start()].encode_utf16().count() as u64,
-            len: m.as_str().encode_utf16().count() as u64,
-            byte: m.start() as u64,
-            byte_end: m.end() as u64,
-        }
-    };
+    let to_match = |k: usize, m: regex::Match| added_match(&lines[k], doc_start + k as u64, m);
     let ks: Box<dyn Iterator<Item = usize>> = if backward {
         Box::new((lo.0 as usize..=last).rev())
     } else {
@@ -1322,6 +1375,366 @@ pub async fn large_file_count(
         Ok(counted.map(|(count, truncated)| LargeCount { count, truncated }))
     })
     .await
+}
+
+// ── 検索結果の一覧（#630） ──────────────────────────────────────────
+
+/// 一覧に積む一致の上限。**一覧は一致へ移るためのもの**で、これを超える一致は検索語を
+/// 絞ってもらう（件数そのものは `large_file_count` が `MAX_COUNT` まで数える）。1 件は文脈込みで
+/// 数百バイトなので、上限まで積んでも Rust とフロントでそれぞれ数 MB に収まる。
+const MAX_HITS: usize = 10_000;
+/// `large_file_search_poll` が 1 回に返す最大の件数（IPC の 1 回を大きくしない）。
+const HITS_PER_POLL: usize = 2_000;
+/// 一致の前後に添える文脈（文字数）。
+const CONTEXT_BEFORE: usize = 40;
+const CONTEXT_AFTER: usize = 80;
+/// 文脈を切り出すときに一致の前後で見るバイト数（文字数の 4 倍。UTF-8 の 1 文字は最大 4 バイト）。
+const CONTEXT_BYTES: usize = CONTEXT_AFTER * 4;
+
+/// 一覧の 1 件。位置は `LargeMatch` と同じで、文脈は一致の前・一致・後ろ。
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct LargeHit {
+    #[serde(flatten)]
+    pub at: LargeMatch,
+    pub before: String,
+    pub text: String,
+    pub after: String,
+}
+
+#[derive(Default)]
+struct HitList {
+    generation: u64,
+    /// 見つけて、まだフロントへ渡していない分（渡した分は持ち続けない）。
+    hits: Vec<LargeHit>,
+    /// これまでに見つけた数（渡した分を含む）。
+    found: usize,
+    done: bool,
+    truncated: bool,
+    error: Option<String>,
+}
+
+/// 一覧の続き。
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LargeHits {
+    /// 前の問い合わせから後に見つけた一致（最大 `HITS_PER_POLL` 件）。
+    pub hits: Vec<LargeHit>,
+    /// これまでに見つけた数。
+    pub total: usize,
+    pub done: bool,
+    /// `MAX_HITS` で打ち切った。
+    pub truncated: bool,
+    pub error: Option<String>,
+}
+
+/// 検索を裏で始め、世代を返す。前の検索は止まる。見つけた分は `large_file_search_poll` で取る。
+#[tauri::command]
+pub fn large_file_search_start(
+    state: State<'_, LargeFileState>,
+    id: String,
+    query: String,
+    case_sensitive: bool,
+) -> Result<u64, String> {
+    let doc = state.get(&id)?;
+    let matcher = build_matcher(&query, case_sensitive, doc.encoding)?;
+    let generation = doc.hits_generation.fetch_add(1, Ordering::Relaxed) + 1;
+    *doc.hits.lock().map_err(|e| e.to_string())? = HitList {
+        generation,
+        done: query.is_empty(),
+        ..HitList::default()
+    };
+    if !query.is_empty() {
+        std::thread::spawn(move || run_hit_search(&doc, &matcher, generation));
+    }
+    Ok(generation)
+}
+
+/// 見つけた分のうち、まだ渡していないものを返す（渡した分は手放す）。世代が違えば（新しい検索に
+/// 置き換わった）空で返す。
+#[tauri::command]
+pub fn large_file_search_poll(
+    state: State<'_, LargeFileState>,
+    id: String,
+    generation: u64,
+) -> Result<LargeHits, String> {
+    let doc = state.get(&id)?;
+    let mut list = doc.hits.lock().map_err(|e| e.to_string())?;
+    if list.generation != generation {
+        return Ok(LargeHits {
+            done: true,
+            ..LargeHits::default()
+        });
+    }
+    let n = list.hits.len().min(HITS_PER_POLL);
+    Ok(LargeHits {
+        hits: list.hits.drain(..n).collect(),
+        total: list.found,
+        done: list.done,
+        truncated: list.truncated,
+        error: list.error.clone(),
+    })
+}
+
+/// 世代 `generation` の検索がまだ今の検索なら止める（一覧を閉じた・問い合わせを消した）。世代を
+/// 指定するのは、始めるのを待っているあいだに止められた検索を、後から始まった別の検索を巻き込まずに
+/// 止めるため。
+#[tauri::command]
+pub fn large_file_search_stop(
+    state: State<'_, LargeFileState>,
+    id: String,
+    generation: u64,
+) -> Result<(), String> {
+    let _ = state.get(&id)?.hits_generation.compare_exchange(
+        generation,
+        generation + 1,
+        Ordering::Relaxed,
+        Ordering::Relaxed,
+    );
+    Ok(())
+}
+
+/// 裏のスレッドの中身。ピースを先頭から順に探し、見つけた分を `hits` へ積む。
+fn run_hit_search(doc: &LargeDoc, matcher: &Matcher, generation: u64) {
+    let cancelled = || doc.hits_generation.load(Ordering::Relaxed) != generation;
+    // 見つけた分を積む。世代が変わっていたら積まない。上限に届いたら `false`（止める）。
+    let push = |batch: Vec<LargeHit>| -> bool {
+        let Ok(mut list) = doc.hits.lock() else {
+            return false;
+        };
+        if list.generation != generation {
+            return false;
+        }
+        let take = batch.len().min(MAX_HITS - list.found);
+        list.hits.extend(batch.into_iter().take(take));
+        list.found += take;
+        if list.found >= MAX_HITS {
+            list.truncated = true;
+            return false;
+        }
+        true
+    };
+    let result = collect_doc_hits(doc, matcher, &cancelled, &push);
+    if let Ok(mut list) = doc.hits.lock()
+        && list.generation == generation
+    {
+        list.done = true;
+        if let Err(e) = result {
+            list.error = Some(e);
+        }
+    }
+}
+
+/// 文書の一致を先頭から順に集め、窓 1 つ（入れた行のピースなら 1 つ）ごとに `push` へ渡す。
+/// `push` が `false` を返すか、止められたら終わる。
+fn collect_doc_hits(
+    doc: &LargeDoc,
+    matcher: &Matcher,
+    cancelled: Cancelled,
+    push: &dyn Fn(Vec<LargeHit>) -> bool,
+) -> Result<(), String> {
+    let mut view = SearchView::open(doc, matcher)?;
+    let pieces = view.table.pieces().to_vec();
+    for (i, piece) in pieces.iter().enumerate() {
+        if cancelled() {
+            return Ok(());
+        }
+        let doc_start = view.starts[i];
+        let go_on = match piece {
+            Piece::Source { start, count } => {
+                let lo = view.src_byte(*start).map_err(|e| e.to_string())?;
+                let hi = view.src_byte(start + count).map_err(|e| e.to_string())?;
+                collect_source_hits(
+                    &mut view.file,
+                    matcher,
+                    (lo, hi),
+                    doc_start,
+                    cancelled,
+                    push,
+                )
+                .map_err(|e| e.to_string())?
+            }
+            added @ Piece::Added { .. } => {
+                push(added_hits(added.added(), &matcher.text, doc_start))
+            }
+        };
+        if !go_on {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// 元のファイルの `[lo, hi)`（`lo` は行頭で、文書の行 `first_line`）の一致を、行と文脈を付けて
+/// 集める。行は窓を前から読みながら改行を数えて求める（一致ごとに索引から引き直さない）。列も
+/// 同じ行の中では前の一致からの差分を足していく（一致ごとに行頭から数え直すと、長い 1 行に一致が
+/// 並んだとき、一致の数 × 行の長さを読む）。
+fn collect_source_hits<R: Read + Seek>(
+    source: &mut R,
+    matcher: &Matcher,
+    range: (u64, u64),
+    first_line: u64,
+    cancelled: Cancelled,
+    push: &dyn Fn(Vec<LargeHit>) -> bool,
+) -> std::io::Result<bool> {
+    let enc = matcher.encoding;
+    let mut at = LineCursor {
+        line: first_line,
+        line_start: range.0,
+        counted: range.0,
+        col_from: range.0,
+        col: 0,
+    };
+    scan_windows(source, matcher, range, cancelled, |w| {
+        let window = w.bytes;
+        let mut batch = Vec::with_capacity(w.matches.len());
+        // 窓の中で文字の境目と分かっている最後の位置（窓の先頭・一致の末尾）。
+        let mut boundary = (at.counted - w.pos) as usize;
+        for &(ms, me) in w.matches {
+            let abs = w.pos + ms as u64;
+            at.advance(w, abs);
+            let col = at.col_at(w, abs, enc);
+            let line_start = at.line_start;
+            // 文脈は窓の中から切り出す。前の文脈は窓の先頭で切れることがある（4MB に 1 回で、
+            // そのために前の窓を持ち越すほどではない）。
+            let line_rel = line_start.saturating_sub(w.pos) as usize;
+            let mut ctx_from = ms.saturating_sub(CONTEXT_BYTES).max(line_rel);
+            if !matcher.is_utf8() {
+                // 2 バイトの文字の後ろのバイトから読むと、以降の文字が 1 バイトずれて化ける。
+                // 境目と分かっている位置から歩いて、文字の境目に合わせる（歩くのは一致と一致の
+                // あいだだけなので、窓 1 枚で合わせて窓の長さまで）。
+                let mut i = boundary.max(line_rel);
+                while i < ctx_from {
+                    i += sjis_char_len(window[i]);
+                }
+                ctx_from = i.min(ms);
+            }
+            boundary = me;
+            let line_end = memchr::memchr(b'\n', &window[me..]).map_or(window.len(), |n| me + n);
+            let ctx_to = line_end.min(me + CONTEXT_BYTES);
+            batch.push(hit_from_parts(
+                LargeMatch {
+                    line: at.line,
+                    col,
+                    len: utf16_len(&window[ms..me], enc),
+                    byte: abs - line_start,
+                    byte_end: w.pos + me as u64 - line_start,
+                },
+                &window[ctx_from..ms],
+                &window[ms..me],
+                &window[me..ctx_to],
+                enc,
+            ));
+        }
+        if !batch.is_empty() && !push(batch) {
+            return false;
+        }
+        // 次の窓の先頭まで改行と列を進めておく。UTF-8 の窓の境目は文字の途中に来るので、列は
+        // その文字の終わり（重ねて読んだ部分の中）まで進める。割れた文字を両側でデコードすると、
+        // U+FFFD として 2 度数える。
+        let mut carry = (w.next - w.pos) as usize;
+        if matcher.is_utf8() {
+            while carry < window.len() && window[carry] & 0xC0 == 0x80 {
+                carry += 1;
+            }
+        }
+        let carry = w.pos + carry as u64;
+        at.advance(w, carry);
+        at.col_at(w, carry, enc);
+        true
+    })
+}
+
+/// `collect_source_hits` が窓を進みながら持つ位置。`counted` までの改行を数え終えていて、その時点の
+/// 行が `line`、行頭が `line_start`。`col_from` の列が `col`（同じ行の中でだけ意味を持つ）。
+struct LineCursor {
+    line: u64,
+    line_start: u64,
+    counted: u64,
+    col_from: u64,
+    col: u64,
+}
+
+impl LineCursor {
+    /// 窓の中の `to`（`counted` 以後）まで改行を数える。
+    fn advance(&mut self, w: &ScanWindow, to: u64) {
+        if to <= self.counted {
+            return;
+        }
+        let rel = (self.counted - w.pos) as usize;
+        let seg = &w.bytes[rel..((to - w.pos) as usize).min(w.bytes.len())];
+        self.line += memchr::memchr_iter(b'\n', seg).count() as u64;
+        if let Some(n) = memchr::memrchr(b'\n', seg) {
+            self.line_start = w.pos + (rel + n + 1) as u64;
+            self.col_from = self.line_start;
+            self.col = 0;
+        }
+        self.counted = to;
+    }
+
+    /// 窓の中の `to`（今の行の中）の列。表示は `MAX_LINE_BYTES` で切るので、その後ろは
+    /// `COL_BEYOND_CUT`（`locate_match` と同じ）。そこから先は列を追わない。
+    fn col_at(&mut self, w: &ScanWindow, to: u64, encoding: &'static Encoding) -> u64 {
+        if to - self.line_start > MAX_LINE_BYTES as u64 {
+            return COL_BEYOND_CUT;
+        }
+        if to <= self.col_from {
+            return self.col;
+        }
+        // 切る位置より手前なら、`col_from` は前の窓の末尾まで進めてあるので窓の中にある。
+        let from = (self.col_from - w.pos) as usize;
+        let to_rel = ((to - w.pos) as usize).min(w.bytes.len());
+        // 表示と同じデコード（`utf16_len`）で数える。不正なバイトも画面と同じ数になる。
+        self.col += utf16_len(&w.bytes[from..to_rel], encoding);
+        self.col_from = to;
+        self.col
+    }
+}
+
+/// 編集で入れた行の一致。
+fn added_hits(lines: &[String], re: &regex::Regex, doc_start: u64) -> Vec<LargeHit> {
+    let mut out = Vec::new();
+    for (k, text) in lines.iter().enumerate() {
+        for m in re.find_iter(text) {
+            out.push(LargeHit {
+                at: added_match(text, doc_start + k as u64, m),
+                before: tail_chars(&text[..m.start()], CONTEXT_BEFORE),
+                text: m.as_str().to_owned(),
+                after: text[m.end()..].chars().take(CONTEXT_AFTER).collect(),
+            });
+        }
+    }
+    out
+}
+
+/// 位置とバイト列の文脈から 1 件を作る。切り出した端で割れた文字（U+FFFD）は落とす。
+fn hit_from_parts(
+    at: LargeMatch,
+    before: &[u8],
+    text: &[u8],
+    after: &[u8],
+    encoding: &'static Encoding,
+) -> LargeHit {
+    let decode = |b: &[u8]| decode_line(b, encoding);
+    let before = decode(before);
+    let after = decode(after);
+    LargeHit {
+        at,
+        before: tail_chars(before.trim_start_matches('\u{FFFD}'), CONTEXT_BEFORE),
+        text: decode(text),
+        after: after
+            .trim_end_matches('\u{FFFD}')
+            .trim_end_matches('\r')
+            .chars()
+            .take(CONTEXT_AFTER)
+            .collect(),
+    }
+}
+
+/// 末尾の `n` 文字。
+fn tail_chars(s: &str, n: usize) -> String {
+    let count = s.chars().count();
+    s.chars().skip(count.saturating_sub(n)).collect()
 }
 
 /// ファイルが変わったときの扱い。
@@ -1758,6 +2171,7 @@ pub fn large_file_close(state: State<'_, LargeFileState>, id: String) -> Result<
         doc.generation.fetch_add(1, Ordering::Relaxed);
         doc.find_generation.fetch_add(1, Ordering::Relaxed);
         doc.count_generation.fetch_add(1, Ordering::Relaxed);
+        doc.hits_generation.fetch_add(1, Ordering::Relaxed);
     }
     Ok(())
 }
@@ -2236,6 +2650,152 @@ mod tests {
             with_history(&doc, |h| h.edit(0, 1, Vec::new())).unwrap_err(),
             SAVING
         );
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 一覧の検索を同じスレッドで最後まで回し、積んだ一覧を返す。
+    fn hits_of(doc: &LargeDoc, q: &str) -> (Vec<LargeHit>, bool) {
+        let m = build_matcher(q, true, doc.encoding).unwrap();
+        let generation = doc.hits_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        *doc.hits.lock().unwrap() = HitList {
+            generation,
+            ..HitList::default()
+        };
+        run_hit_search(doc, &m, generation);
+        let list = doc.hits.lock().unwrap();
+        assert!(list.done && list.error.is_none());
+        (list.hits.clone(), list.truncated)
+    }
+
+    fn lines_of(hits: &[LargeHit]) -> Vec<u64> {
+        hits.iter().map(|h| h.at.line).collect()
+    }
+
+    #[test]
+    fn hit_list_numbers_lines_across_windows() {
+        // 窓（4MB）を何枚もまたぐファイル。`needle` の行番号が数え違わない。
+        let mut text = String::new();
+        let mut expected = Vec::new();
+        for i in 0..200_000u64 {
+            if i % 37_000 == 5 {
+                text.push_str("before needle after\n");
+                expected.push(i);
+            } else {
+                text.push_str("..........................\n");
+            }
+        }
+        assert!(text.len() > SEARCH_BUF);
+        let (doc, _, dir) = open_temp(text.as_bytes());
+        let (hits, truncated) = hits_of(&doc, "needle");
+        assert!(!truncated);
+        assert_eq!(lines_of(&hits), expected);
+        let h = &hits[0];
+        assert_eq!((h.at.col, h.at.len), (7, 6));
+        assert_eq!(
+            (h.before.as_str(), h.text.as_str(), h.after.as_str()),
+            ("before ", "needle", " after")
+        );
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hit_list_columns_carry_across_windows() {
+        // 窓の境目（`SEARCH_BUF`）の手前で始まる行の中に一致が 2 つ。列は境目をまたいで足していく。
+        let filler = "........\n";
+        let mut text = filler.repeat((SEARCH_BUF - 100) / filler.len());
+        let first = text.len();
+        text.push_str(&"あ".repeat(50));
+        text.push_str("needle");
+        text.push_str(&"b".repeat(30));
+        text.push_str("needle\n");
+        // 表示で切る長さより後ろの一致は、列を数えない。
+        text.push_str(&"c".repeat(MAX_LINE_BYTES + 10));
+        text.push_str("needle\n");
+        assert!(first < SEARCH_BUF && first + 150 > SEARCH_BUF);
+        let (doc, _, dir) = open_temp(text.as_bytes());
+        let (hits, _) = hits_of(&doc, "needle");
+        let line = (first / filler.len()) as u64;
+        let at: Vec<_> = hits.iter().map(|h| (h.at.line, h.at.col)).collect();
+        assert_eq!(at, vec![(line, 50), (line, 86), (line + 1, COL_BEYOND_CUT)]);
+        assert_eq!(hits[1].at.byte, 150 + 6 + 30);
+        // 前の文脈は窓の先頭で切れる（割れた文字は落とす）。
+        assert!(hits[0].before.chars().all(|c| c == 'あ'));
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hit_list_context_of_shift_jis_starts_on_a_character() {
+        // 一致の `CONTEXT_BYTES` 前が 2 バイトの文字の後ろのバイトに当たる並び。
+        let line = format!("a{}bneedle\n", "あ".repeat(200));
+        let (bytes, _, _) = encoding_rs::SHIFT_JIS.encode(&line);
+        let m = build_matcher("needle", true, encoding_rs::SHIFT_JIS).unwrap();
+        let got = std::cell::RefCell::new(Vec::new());
+        let push = |b: Vec<LargeHit>| {
+            got.borrow_mut().extend(b);
+            true
+        };
+        let mut cur = Cursor::new(bytes.as_ref());
+        collect_source_hits(&mut cur, &m, (0, bytes.len() as u64), 0, &never, &push).unwrap();
+        let hits = got.into_inner();
+        assert_eq!(
+            hits[0].before,
+            format!("{}b", "あ".repeat(CONTEXT_BEFORE - 1))
+        );
+        assert_eq!(hits[0].at.col, 202);
+    }
+
+    #[test]
+    fn hit_list_follows_the_edited_document() {
+        let (doc, _, dir) = open_temp(b"a x\nb\nc x\n");
+        with_history(&doc, |h| h.edit(1, 1, strings(&["new x", "y"]))).unwrap();
+        let (hits, _) = hits_of(&doc, "x");
+        // 文書は a x / new x / y / c x / ""。
+        assert_eq!(lines_of(&hits), vec![0, 1, 3]);
+        assert_eq!(hits[1].before, "new ");
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hit_list_stops_at_the_limit() {
+        let (doc, _, dir) = open_temp("x\n".repeat(MAX_HITS + 5).as_bytes());
+        let (hits, truncated) = hits_of(&doc, "x");
+        assert!(truncated);
+        assert_eq!(hits.len(), MAX_HITS);
+        assert_eq!(hits.last().unwrap().at.line, MAX_HITS as u64 - 1);
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hit_list_of_a_replaced_search_is_not_written() {
+        let (doc, _, dir) = open_temp(b"x\n");
+        let m = build_matcher("x", true, doc.encoding).unwrap();
+        // 世代 1 で始めた検索が、走り出す前に世代 2 に置き換わった。
+        *doc.hits.lock().unwrap() = HitList {
+            generation: 2,
+            ..HitList::default()
+        };
+        doc.hits_generation.store(2, Ordering::Relaxed);
+        run_hit_search(&doc, &m, 1);
+        let list = doc.hits.lock().unwrap();
+        assert!(list.hits.is_empty() && !list.done);
+        drop(list);
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn context_is_cut_to_whole_characters() {
+        let line = format!("{}needle{}", "あ".repeat(100), "い".repeat(200));
+        let (doc, _, dir) = open_temp(line.as_bytes());
+        let (hits, _) = hits_of(&doc, "needle");
+        assert_eq!(hits[0].before, "あ".repeat(CONTEXT_BEFORE));
+        assert_eq!(hits[0].after, "い".repeat(CONTEXT_AFTER));
+        assert_eq!(hits[0].at.col, 100);
         drop(doc);
         let _ = std::fs::remove_dir_all(&dir);
     }

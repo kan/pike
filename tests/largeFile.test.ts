@@ -12,6 +12,7 @@ import {
   splitEditText,
   thumbFor,
   topFromThumb,
+  visibleSlice,
 } from '../src/lib/largeFile.ts'
 
 describe('blocksFor', () => {
@@ -124,6 +125,18 @@ describe('編集', () => {
     assert.deepEqual(splitEditText('a\r\nb\rc\nd'), ['a', 'b', 'c', 'd'])
     assert.deepEqual(splitEditText(''), [''])
     assert.deepEqual(splitEditText('x\n'), ['x', ''])
+  })
+})
+
+describe('visibleSlice', () => {
+  test('見えている行と前後の余白だけを描く', () => {
+    assert.deepEqual(visibleSlice(0, 100, 20, 10_000, 2), { start: 0, end: 8 })
+    assert.deepEqual(visibleSlice(2000, 100, 20, 10_000, 2), { start: 98, end: 108 })
+  })
+  test('末尾と空の一覧で範囲の外へ出ない', () => {
+    assert.deepEqual(visibleSlice(999_999, 100, 20, 30, 2), { start: 30, end: 30 })
+    assert.deepEqual(visibleSlice(0, 100, 20, 0), { start: 0, end: 0 })
+    assert.deepEqual(visibleSlice(-50, 100, 20, 3, 2), { start: 0, end: 3 })
   })
 })
 

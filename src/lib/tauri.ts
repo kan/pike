@@ -517,6 +517,42 @@ export async function largeFileClose(id: string): Promise<void> {
   return invoke('large_file_close', { id })
 }
 
+/** 検索結果の一覧の 1 件。位置は `LargeMatch` と同じで、文脈は一致の前・一致・後ろ。 */
+export interface LargeHit extends LargeMatch {
+  before: string
+  text: string
+  after: string
+}
+
+export interface LargeHits {
+  /** 前の問い合わせから後に見つけた一致（1 回に最大 2,000 件。Rust の `HITS_PER_POLL`）。 */
+  hits: LargeHit[]
+  /** これまでに見つけた数。 */
+  total: number
+  done: boolean
+  /** 上限（Rust の `MAX_HITS`）で打ち切った。 */
+  truncated: boolean
+  error: string | null
+}
+
+/** 検索結果の一覧を裏で作り始め、世代を返す。前の検索は止まる。 */
+export async function largeFileSearchStart(id: string, query: string, caseSensitive: boolean): Promise<number> {
+  return invoke<number>('large_file_search_start', { id, query, caseSensitive })
+}
+
+/**
+ * 一覧のうち、まだ受け取っていない分（受け取った分は Rust が手放す）。世代が違えば（新しい検索に
+ * 置き換わった）空で `done`。
+ */
+export async function largeFileSearchPoll(id: string, generation: number): Promise<LargeHits> {
+  return invoke<LargeHits>('large_file_search_poll', { id, generation })
+}
+
+/** 世代 `generation` の一覧がまだ今の一覧なら止める（後から始まった一覧は巻き込まない）。 */
+export async function largeFileSearchStop(id: string, generation: number): Promise<void> {
+  return invoke('large_file_search_stop', { id, generation })
+}
+
 /** 文書の行 `start` から `delete` 行を `insert` の行で置き換える。 */
 export async function largeFileEdit(
   id: string,
