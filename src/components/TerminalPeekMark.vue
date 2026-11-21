@@ -10,15 +10,23 @@
  * 中なので `nested` を渡す。アイコンも行の部品に合わせてある）。
  */
 import { SquareTerminal } from 'lucide-vue-next'
-import { useTemplateRef } from 'vue'
+import { useTemplateRef, watch } from 'vue'
 import type { TerminalPeekHandle } from '../composables/useTerminalPeek'
 import { useI18n } from '../i18n'
 import TerminalPeekPopup from './TerminalPeekPopup.vue'
 
-const props = defineProps<{
-  /** 覗くタブの id を返す。取り直すたびに呼ばれる（`TerminalPeekHandle.show`）。 */
-  resolve: () => string | null
-}>()
+const props = withDefaults(
+  defineProps<{
+    /** 覗くタブの id を返す。取り直すたびに呼ばれる（`TerminalPeekHandle.show`）。 */
+    resolve: () => string | null
+    /**
+     * 覗かせるか。偽なら印だけを出し、ホバーしてもポップアップを出さない（どのターミナルを覗けば
+     * よいか確定できない行。`LiveSessionRow.peekable` の doc）。
+     */
+    peekable?: boolean
+  }>(),
+  { peekable: true },
+)
 
 const { t } = useI18n()
 const peek = useTemplateRef<TerminalPeekHandle>('peek')
@@ -28,12 +36,26 @@ const peek = useTemplateRef<TerminalPeekHandle>('peek')
  * 同じ印に別の行の `resolve` が渡ることがあり、掴んだままだと、ホバーのあいだ前の行のタブを覗き続ける。
  */
 function show(event: MouseEvent) {
+  if (!props.peekable) return
   void peek.value?.show(() => props.resolve(), event.currentTarget as HTMLElement)
 }
+
+// 開いたあとに覗かせない行へ変わったら（同じ会話の 2 つ目のプロセスが現れた）、その場で閉じる。
+watch(
+  () => props.peekable,
+  (now) => {
+    if (!now) peek.value?.hide()
+  },
+)
 </script>
 
 <template>
-  <span class="peek-mark" :title="t('project.peek')" @mouseenter="show" @mouseleave="peek?.hide()">
+  <span
+    class="peek-mark"
+    :title="props.peekable ? t('project.peek') : undefined"
+    @mouseenter="show"
+    @mouseleave="peek?.hide()"
+  >
     <SquareTerminal :size="13" :stroke-width="2" />
     <TerminalPeekPopup ref="peek" />
   </span>

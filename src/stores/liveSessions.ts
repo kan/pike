@@ -10,6 +10,7 @@ import {
   groupLiveSessions,
   liveListKey,
   liveListTitle,
+  livePlaceKey,
   liveSessionLabel,
   liveSessionTabKey,
   projectForCwd,
@@ -27,7 +28,7 @@ import {
 import type { GitWorktree } from '../types/git'
 import type { LiveSession, LiveSessionList, LiveStatus } from '../types/liveSession'
 import type { ProjectConfig } from '../types/project'
-import { installKey, type ShellType, shellToPlatform, type TabOwner, type TerminalTab, withEnv } from '../types/tab'
+import { type ShellType, shellToPlatform, type TabOwner, type TerminalTab, withEnv } from '../types/tab'
 import { useProjectStore } from './project'
 import { useSidebarStore } from './sidebar'
 import { useStatusMessageStore } from './statusMessage'
@@ -70,6 +71,13 @@ export interface LiveSessionRow extends LiveSession {
   project: ProjectConfig | null
   /** このウィンドウのターミナルのタブで動いていれば、その id。 */
   tabId: string | null
+  /**
+   * タブのターミナルをチラ見してよいか（#631 / #633）。**同じ会話の行が 2 つ以上あるときは偽**: 同じ会話を
+   * `--resume` で別のプロセスが開いていると、タブはどちらの行にも当たり、そのターミナルで動いているのが
+   * どちらのプロセスかを Pike は知らない（タブは Claude の pid を持たない）。覗くと別のプロセスの画面を
+   * 見せうるので、印は出すが覗かせない（タブへ移るのは同じ会話なので残す）。
+   */
+  peekable: boolean
   /** 今見ているプロジェクトのセッションか。 */
   here: boolean
 }
@@ -299,10 +307,19 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   const listRows = computed(() => {
     const project = projectStore.currentProject
     if (!project || loadedFor.value !== scope.value) return []
+    // 同じ鍵の行の数（同じ会話を `--resume` で 2 つ目のプロセスが開いたとき 2 以上になる）。
+    const sameKey = new Map<string, number>()
+    for (const list of lists.value) {
+      for (const s of list.sessions) {
+        const key = liveSessionTabKey(list.agent, list.shell, s.sessionId)
+        sameKey.set(key, (sameKey.get(key) ?? 0) + 1)
+      }
+    }
     return lists.value.map((list) => ({
       list,
       rows: list.sessions.map((s: LiveSession): LiveSessionRow => {
         const owner = projectForCwd(s.cwd, list.shell, candidates.value)
+        const tabId = tabForSession({ agent: list.agent, shell: list.shell, sessionId: s.sessionId })
         return {
           ...s,
           agent: list.agent,
@@ -310,7 +327,8 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
           configDir: list.configDir,
           configOverride: list.configOverride,
           project: owner,
-          tabId: tabForSession({ agent: list.agent, shell: list.shell, sessionId: s.sessionId }),
+          tabId,
+          peekable: !!tabId && sameKey.get(liveSessionTabKey(list.agent, list.shell, s.sessionId)) === 1,
           here: owner?.id === project.id,
         }
       }),
@@ -324,7 +342,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
    * 環境にまたがるときだけ。
    */
   const sections = computed<LiveSessionSection[]>(() => {
-    const places = new Set(listRows.value.map(({ list }) => installKey(list.shell)))
+    const places = new Set(listRows.value.map(({ list }) => livePlaceKey(list.shell)))
     return listRows.value.map(({ list, rows }) => ({
       key: liveListKey(list),
       title: liveListTitle(list, places.size > 1),
@@ -516,7 +534,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     await windowRestore().catch(() => {})
     // **シェルは、プロジェクトがセッションと同じ環境ならプロジェクトのもの**（利用者が選んだ
     // シェル。`projectForCwd` は同じ環境のプロジェクトしか返さないので、ふつうはこちら）。
-    const shell = installKey(project.shell) === installKey(payload.shell) ? project.shell : payload.shell
+    const shell = livePlaceKey(project.shell) === livePlaceKey(payload.shell) ? project.shell : payload.shell
     if (payload.action === 'terminal') {
       tabStore.addTerminalTab({ cwd: payload.cwd, shell })
       return

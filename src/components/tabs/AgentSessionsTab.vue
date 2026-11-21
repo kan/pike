@@ -127,7 +127,15 @@ function startedLabel(ms: number | null): string | null {
               <!-- 題が無いセッションは、1 列目の名前と同じものを繰り返さない。 -->
               <div v-if="row.title || row.tabId" class="title">
                 <!-- ホバーでターミナルの今の表示をチラ見する（#631。パネルと同じ印）。 -->
-                <TerminalPeekMark v-if="row.tabId" :resolve="() => store.tabForSession(row)" />
+                <!-- 押すとそのタブへ移る（パネルと違って行そのものは押せないので、印に付ける）。 -->
+                <TerminalPeekMark
+                  v-if="row.tabId"
+                  class="tab-mark"
+                  :title="t(liveSessionJumpKey(row))"
+                  :peekable="row.peekable"
+                  :resolve="() => store.tabForSession(row)"
+                  @click="store.jump(row)"
+                />
                 <span v-if="row.title">{{ row.title }}</span>
               </div>
               <div v-if="row.waitingFor" class="sub wait">
@@ -351,6 +359,11 @@ function startedLabel(ms: number | null): string | null {
   gap: 6px;
   color: var(--text-active);
   overflow-wrap: anywhere;
+}
+
+/* 印の形は `TerminalPeekMark.vue`。押すとタブへ移る（行の「移動」と同じ）。 */
+.tab-mark {
+  cursor: pointer;
 }
 
 .sub {

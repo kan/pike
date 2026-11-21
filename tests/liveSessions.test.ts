@@ -106,6 +106,13 @@ test('一覧の鍵は環境と設定ディレクトリで分かれる', () => {
   )
 })
 
+test('distro の名前の大小だけ違うプロジェクトとも照合する（パスの大小は区別したまま）', () => {
+  const projects = [{ id: 'repo', root: '/home/me/repo', shell: wsl }]
+  const lower: ShellType = { kind: 'wsl', distro: 'ubuntu' }
+  assert.equal(projectForCwd('/home/me/repo/src', lower, projects)?.id, 'repo')
+  assert.equal(projectForCwd('/home/me/Repo/src', lower, projects), null)
+})
+
 test('タブとの突き合わせはエージェントと環境も見る（同じ id の別の環境の行にタブを付けない）', () => {
   const key = liveSessionTabKey('claude', wsl, 'abc')
   assert.notEqual(key, liveSessionTabKey('claude', otherWsl, 'abc'))

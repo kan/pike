@@ -182,6 +182,12 @@ doc（飛び先の 3 段）。ここには規範だけ置く。
     `liveSessionTabKey`）。一覧はアカウントと環境をまたぐので、id だけだと別の環境の同じ id の行にタブの印が
     付く。**行の `tabId`・チラ見の `tabForSession`・着いたウィンドウの `reveal` は同じ鍵で引く**（片方だけ
     id で引かないこと）。Claude の設定ディレクトリは鍵に入れない（タブは知らない）
+  - **環境の比較は WSL の distro の名前の大小を区別しない**（`wsl -d ubuntu` も `Ubuntu` に当たる）。フロントは
+    `lib/liveSessions.ts` の `livePlaceKey`、Rust は `types::same_install` の 1 か所ずつに寄せてある（申告の照合
+    `matches_project` / `declared_config_dirs` も後者）。パスの比較は大小を区別したまま
+  - **同じ会話の行が 2 つ以上あるときは、印は出すがチラ見させない**（`LiveSessionRow.peekable`）。タブは
+    Claude の pid を持たないので、そのターミナルで動いているのがどちらのプロセスかを確定できない。タブへ
+    移るのは同じ会話なので残す
   - **タブが無ければ、確認のあと再開のタブを開く**（`resumeLine`。`claude --resume <id>` か `codex resume <id>`、
     別のアカウントなら環境変数付き。利用者の判断。そこを含む
     worktree へも切り替える）。**確認を外さないこと**: 一覧に出ている時点でセッションは

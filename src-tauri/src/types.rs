@@ -1612,6 +1612,14 @@ pub fn install_key(shell: &ShellConfig) -> String {
     }
 }
 
+/// 2 つの `install_key` が同じインストールか。**WSL の distro の名前は大小を区別しない**
+/// （`wsl -d ubuntu` も `Ubuntu` に当たる。シェルプロファイル・プロジェクト・hook のコマンド行で
+/// 綴りが違いうる）。ホストの鍵は小文字の定数なので、全体を大小無視で比べてよい。
+/// 鍵そのもの（キャッシュの鍵）は変えない。
+pub fn same_install(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
 /// Resolve (and cache per distro) a WSL distro's `$HOME`, as its native Linux path.
 pub fn wsl_home_cached(shell: &ShellConfig, distro: &str) -> Option<String> {
     static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();

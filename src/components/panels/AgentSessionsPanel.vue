@@ -86,7 +86,12 @@ function tooltip(row: LiveSessionRow): string {
               このウィンドウのターミナルで動いているもの。押すとそのタブへ移る（行と同じ）。
               ホバーするとターミナルの今の表示をチラ見する（#631）。
             -->
-            <TerminalPeekMark v-if="row.tabId" class="row-mark" :resolve="() => store.tabForSession(row)" />
+            <TerminalPeekMark
+              v-if="row.tabId"
+              class="row-mark"
+              :peekable="row.peekable"
+              :resolve="() => store.tabForSession(row)"
+            />
           </div>
         </section>
       </div>

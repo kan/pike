@@ -55,9 +55,20 @@ export function deepestContaining<T>(
 }
 
 /**
+ * セッションの環境を見分ける鍵（#633）。`installKey` と同じ区分で、**WSL の distro の名前だけ大小を
+ * 区別しない**（`wsl -d ubuntu` も `Ubuntu` に当たる。Rust の `environments` も大小を無視して畳むので、
+ * 一覧・タブ・プロジェクトで綴りが違いうる）。パスの比較は変えない（Linux のパスは大小を区別する）。
+ * 一覧の環境を比べるところは全部これを通す（`projectForCwd`・`liveSessionTabKey`・`liveListKey`・
+ * 見出しの環境の数）。
+ */
+export function livePlaceKey(shell: ShellType): string {
+  return shell.kind === 'wsl' ? `wsl:${shell.distro.toLowerCase()}` : installKey(shell)
+}
+
+/**
  * セッションの居るディレクトリ（`cwd`）を含む登録済みのプロジェクト（いちばん深いもの）。
  *
- * **同じ場所（`installKey`）のプロジェクトだけを見る**: `shell` は一覧を読んだアカウントの
+ * **同じ環境（`livePlaceKey`）のプロジェクトだけを見る**: `shell` は一覧を読んだアカウントの
  * シェルで、WSL のセッションの `/home/...` を Windows のプロジェクトと、別の distro の同じ
  * パスと取り違えない。
  */
@@ -66,9 +77,9 @@ export function projectForCwd<P extends { root: string; shell: ShellType }>(
   shell: ShellType,
   projects: readonly P[],
 ): P | null {
-  const place = installKey(shell)
+  const place = livePlaceKey(shell)
   return deepestContaining(
-    projects.filter((p) => installKey(p.shell) === place),
+    projects.filter((p) => livePlaceKey(p.shell) === place),
     cwd,
     (p) => p.root,
     (p) => shellToPlatform(p.shell),
@@ -115,15 +126,12 @@ export function liveRowKey(row: Pick<LiveSession, 'pid' | 'sessionId'>): string 
  * 同じ環境の同じエージェントで id が重なるのは、記録のディレクトリごと写したときだけ。
  */
 export function liveSessionTabKey(agent: AgentId, shell: ShellType, sessionId: string): string {
-  // distro の名前は大小を区別しない（`wsl -d ubuntu` も `Ubuntu` に当たる。Rust の `environments` も
-  // 大小を無視して畳むので、一覧とタブで綴りが違いうる）。
-  const place = shell.kind === 'wsl' ? `wsl:${shell.distro.toLowerCase()}` : installKey(shell)
-  return `${agent}\n${place}\n${sessionId}`
+  return `${agent}\n${livePlaceKey(shell)}\n${sessionId}`
 }
 
 /** 一覧を見分ける鍵（エージェント・環境・設定ディレクトリ）。描画の `key` と行の持ち主に使う。 */
 export function liveListKey(list: Pick<LiveSessionList, 'agent' | 'shell' | 'configDir'>): string {
-  return `${list.agent}\n${installKey(list.shell)}\n${list.configDir}`
+  return `${list.agent}\n${livePlaceKey(list.shell)}\n${list.configDir}`
 }
 
 /**
