@@ -1295,8 +1295,9 @@ pub fn for_each_line(source: impl Read, mut on_line: impl FnMut(&str) -> bool) {
     }
 }
 
-/// 覚えておく stderr の上限。理由を当てるのに要るのは先頭だけ。
-const STDERR_KEEP_MAX: usize = 64 * 1024;
+/// 覚えておく stderr の上限。理由を当てるのに要るのは先頭だけ。DB ビューワのコンテナの exec
+/// （`db::exec_drain`）も同じ上限を使う。
+pub const STDERR_KEEP_MAX: usize = 64 * 1024;
 
 /// 子プロセスの stderr を**最後まで吸いながら**、先頭 `STDERR_KEEP_MAX` バイトだけ残す。
 ///

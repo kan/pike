@@ -1,5 +1,6 @@
 import type { AgentId, AgentSessionRef } from '../lib/agents'
 import type { ProjectPlatform } from '../lib/projectPaths'
+import type { DbTarget } from './db'
 
 export type ShellType =
   | { kind: 'wsl'; distro: string }
@@ -397,6 +398,23 @@ export type DockerLogsTab = {
   containerName: string
 }
 
+/**
+ * 簡易 DB ビューワ（#632）。接続できた接続先を 1 つ持ち、テーブルと表示（中身 / 列の定義）を
+ * タブの中で選ぶ。接続先を選ぶのは DB パネルと接続のダイアログ（`stores/db.ts`）。
+ *
+ * **セッションには残さない**（`target` にパスワードが入りうるうえ、接続はコンテナの寿命に
+ * 縛られる）。`key` は `lib/dbViewer.ts` の `connectionKey` で、同じ接続先のタブがあれば
+ * それを前に出す。
+ */
+export type DbTab = {
+  id: string
+  kind: 'db'
+  title: string
+  pinned: boolean
+  target: DbTarget
+  key: string
+}
+
 export type DiffTab = {
   id: string
   kind: 'diff'
@@ -652,10 +670,20 @@ export function isSingletonTab(kind: Tab['kind']): boolean {
   return (SINGLETON_KINDS as readonly string[]).includes(kind)
 }
 
+/**
+ * 同じ接続先を開いている DB ビューワのタブ（#632。`key` は `connectionKey`）。**今のプロジェクトの
+ * タブだけを見る**: `tabs` には保持中の別プロジェクトのタブも入っているので、それを前に出すと
+ * タブバーに無いタブが選ばれ、選択と表示が食い違う（`addHistoryTab` などと同じ）。
+ */
+export function findDbTab(tabs: Tab[], key: string, projectId: string): (DbTab & TabOwner) | undefined {
+  return tabs.find((t): t is Tab & DbTab => t.kind === 'db' && t.key === key && t.projectId === projectId)
+}
+
 export type Tab = (
   | TerminalTab
   | EditorTab
   | DockerLogsTab
+  | DbTab
   | DiffTab
   | PreviewTab
   | HistoryTab
@@ -709,6 +737,7 @@ export const SIDEBAR_PANELS = [
   'search',
   'diagnostics',
   'docker',
+  'db',
   'projects',
   'tasks',
   'issues',
