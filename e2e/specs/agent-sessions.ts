@@ -82,11 +82,19 @@ describe('screenshots: agent sessions', () => {
     it(`agent-sessions ${lang} ${theme}`, async () => {
       await prepare({ lang, theme, ...FULL })
       await mockPtySpawnUniqueIds()
-      await mockInvoke('agent_live_sessions', {
-        sessions: sessions(Date.now()),
-        configDir: 'C:\\Users\\dev\\.claude',
-        account: 'dev@example.com',
-      })
+      // アカウントごとの一覧の配列（#633。`LiveSessionList[]`）。1 つだけなので見出しは出ない。
+      // `shell` は擬似プロジェクトとターミナルのタブと同じにする（行とタブの突き合わせに使う）
+      await mockInvoke('agent_live_sessions', [
+        {
+          agent: 'claude',
+          shell: { kind: 'powershell' },
+          configDir: 'C:\\Users\\dev\\.claude',
+          configOverride: null,
+          account: 'dev@example.com',
+          current: true,
+          sessions: sessions(Date.now()),
+        },
+      ])
       await setFakeProject()
       await addTerminals(['claude'])
       await setAgentRuns([
