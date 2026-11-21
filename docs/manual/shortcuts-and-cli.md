@@ -244,6 +244,10 @@ macOS では `Ctrl` + 英字と数字を**すべて**シェルへ渡します（
 | `Ctrl+Enter` | 編集を確定する（入力欄の外をクリックしても確定します） |
 | `Esc` | 編集を取り消す |
 | `Ctrl+Shift+K` | 選択した行を消す |
+| `Shift+↑` / `Shift+↓` / `Shift+PageUp` / `Shift+PageDown` / `Ctrl+Shift+Home` / `Ctrl+Shift+End` | 行の選択を伸ばす（画面の外まで。行番号のクリックと `Shift`+クリックでも選べます） |
+| `Ctrl+A` | すべての行を選ぶ |
+| `Ctrl+C` | 選んだ行をコピーする |
+| `Esc` | 行の選択を外す（編集中は編集を取り消す） |
 | `Ctrl+Z` / `Ctrl+Shift+Z` | 取り消し / やり直し |
 | `Ctrl+S` | 保存 |
 | `Ctrl+F` | 検索 |

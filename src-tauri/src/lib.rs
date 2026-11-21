@@ -2105,6 +2105,7 @@ pub fn run() {
             fs::large::large_file_redo,
             fs::large::large_file_save,
             fs::large::large_file_set_encoding,
+            fs::large::large_file_copy,
             fs::large::large_file_search_start,
             fs::large::large_file_search_poll,
             fs::large::large_file_search_stop,

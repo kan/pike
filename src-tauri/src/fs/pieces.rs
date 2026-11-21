@@ -196,6 +196,23 @@ impl PieceTable {
         None
     }
 
+    /// 文書の行 `start` から `count` 行に当たるピースを順に（ピース, ピースの中の先頭の行, 行数）で
+    /// 返す。文書の末尾で切る。
+    pub(crate) fn range(&self, start: u64, count: u64) -> impl Iterator<Item = (&Piece, u64, u64)> {
+        let (first, mut off) = self.locate(start).unwrap_or((self.pieces.len(), 0));
+        let mut left = count;
+        self.pieces[first..].iter().map_while(move |p| {
+            if left == 0 {
+                return None;
+            }
+            let want = (p.len() - off).min(left);
+            let item = (p, off, want);
+            left -= want;
+            off = 0;
+            Some(item)
+        })
+    }
+
     /// 各ピースの文書の上の先頭の行。
     pub(crate) fn starts(&self) -> Vec<u64> {
         let mut at = 0;
@@ -310,6 +327,21 @@ mod tests {
 
     fn added(lines: &[&str]) -> Piece {
         Piece::added_from(strings(lines))
+    }
+
+    #[test]
+    fn range_walks_the_pieces_that_cover_the_lines() {
+        let mut t = PieceTable::pristine(10);
+        t.replace(3, 2, strings(&["a", "b", "c"]));
+        // 文書は 元 0..3 / 入れた 3 行 / 元 5..10。
+        let got: Vec<_> = t
+            .range(2, 5)
+            .map(|(p, off, want)| (p.len(), off, want))
+            .collect();
+        assert_eq!(got, vec![(3, 2, 1), (3, 0, 3), (5, 0, 1)]);
+        assert_eq!(t.range(9, 100).map(|(_, _, n)| n).sum::<u64>(), 2);
+        assert_eq!(t.range(50, 3).count(), 0);
+        assert_eq!(t.range(0, 0).count(), 0);
     }
 
     #[test]

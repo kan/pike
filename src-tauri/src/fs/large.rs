@@ -1126,13 +1126,8 @@ fn doc_lines(doc: &LargeDoc, start: u64, count: u64) -> Result<LargeLines, Strin
         lines: Vec::new(),
         cut: Vec::new(),
     };
-    let Some((mut i, mut off)) = table.locate(start) else {
-        return Ok(out);
-    };
-    let pieces = table.pieces();
-    while (out.lines.len() as u64) < count && i < pieces.len() {
-        let want = (pieces[i].len() - off).min(count - out.lines.len() as u64);
-        match &pieces[i] {
+    for (piece, off, want) in table.range(start, count) {
+        match piece {
             Piece::Source { start: s, .. } => {
                 let (lines, cut) = read_source_lines(doc, s + off, want)?;
                 let read = lines.len() as u64;
@@ -1150,10 +1145,146 @@ fn doc_lines(doc: &LargeDoc, start: u64, count: u64) -> Result<LargeLines, Strin
                     .extend_from_slice(&added.added()[from..from + want as usize]);
             }
         }
-        i += 1;
-        off = 0;
     }
     Ok(out)
+}
+
+/// 1 回のコピーで組み立てる量の上限（元のバイト数）。
+///
+/// コピーの中身は IPC で 1 本の文字列として渡り、JS の文字列（UTF-16）になり、クリップボードにも
+/// 写されるので、同じ中身を 3〜4 倍の大きさで同時に持つ。32MB なら合わせて 200MB 前後に収まる。
+/// 普通のエディタで丸ごと開けるのが最大 50MB（`editorMaxFileSizeMb`）なので、その範囲のコピーは
+/// ほぼ通る。超えたら組み立てずに断る（途中までをコピーすると、全体をコピーしたつもりになる）。
+const MAX_COPY_BYTES: u64 = 32 << 20;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LargeCopy {
+    /// 行を `\n` でつないだ中身。上限を超えたら `None`（組み立てない）。
+    pub text: Option<String>,
+    /// 選んだ範囲の大きさ（元のバイト数の見積もり）。
+    pub bytes: u64,
+    pub limit: u64,
+    /// 行数を数えている途中だったので組み立てなかった（`text` は `None`）。エラー文で返さないのは、
+    /// フロントが綴りを読み分けずに自分の言葉で知らせるため。
+    pub indexing: bool,
+}
+
+/// 文書の行 `start` から `count` 行の中身（コピー）。今の文書（編集を反映したもの）から作り、
+/// 行は切らない（表示の `MAX_LINE_BYTES` の外も入る）。改行は `\n` にそろえる。
+#[tauri::command]
+pub async fn large_file_copy(
+    state: State<'_, LargeFileState>,
+    id: String,
+    start: u64,
+    count: u64,
+) -> Result<LargeCopy, String> {
+    let doc = state.get(&id)?;
+    blocking(move || doc_text(&doc, start, count, MAX_COPY_BYTES)).await
+}
+
+/// `large_file_copy` の中身。先に範囲のバイト数を索引から求め、`limit` を超えていれば読まない。
+fn doc_text(doc: &LargeDoc, start: u64, count: u64, limit: u64) -> Result<LargeCopy, String> {
+    let table = doc_table(doc)?;
+    let encoding = doc.encoding();
+    let mut file = File::open(&doc.path).map_err(|e| e.to_string())?;
+    let io = |e: std::io::Error| e.to_string();
+    let mut parts = Vec::new();
+    let mut bytes = 0u64;
+    {
+        // 範囲のバイト位置は読み取りのロックの中で求める（数え終えた索引は変わらないので、写さない。
+        // 行の多いファイルでは索引が百 MB 規模になる）。
+        let s = doc.state.read().map_err(|e| e.to_string())?;
+        // 数えている途中は最後の行がどこで終わるか決まらない（編集と同じく、数え終えてから）。
+        if !s.done {
+            return Ok(LargeCopy {
+                text: None,
+                bytes: 0,
+                limit,
+                indexing: true,
+            });
+        }
+        let (index, size) = (&s.index, s.index.scanned);
+        for (piece, off, want) in table.range(start, count) {
+            match piece {
+                Piece::Source { start: from, .. } => {
+                    let first = from + off;
+                    let a = src_line_byte(&mut file, index, size, first).map_err(io)?;
+                    let b = src_line_byte(&mut file, index, size, first + want).map_err(io)?;
+                    bytes += b - a;
+                    parts.push(Part::Source(a, b, first + want >= index.lines()));
+                }
+                added @ Piece::Added { .. } => {
+                    let lines = &added.added()[off as usize..(off + want) as usize];
+                    bytes += lines.iter().map(|l| l.len() as u64 + 1).sum::<u64>();
+                    parts.push(Part::Added(lines));
+                }
+            }
+        }
+    }
+    let text = if bytes > limit {
+        None
+    } else {
+        Some(join_parts(&mut file, encoding, parts).map_err(io)?)
+    };
+    Ok(LargeCopy {
+        text,
+        bytes,
+        limit,
+        indexing: false,
+    })
+}
+
+/// `doc_text` の区間。
+enum Part<'a> {
+    /// 元のファイルのバイトの範囲と、ファイルの最後の行まで届くか（最後の行は改行で終わらない）。
+    Source(u64, u64, bool),
+    Added(&'a [String]),
+}
+
+/// 区間をつないで中身にする（`doc_text`）。
+fn join_parts(
+    file: &mut File,
+    encoding: &'static Encoding,
+    parts: Vec<Part>,
+) -> std::io::Result<String> {
+    let mut text = String::new();
+    let mut raw = Vec::new();
+    for part in parts {
+        match part {
+            Part::Source(a, b, to_end) => {
+                read_window(file, a, b - a, &mut raw)?;
+                let decoded = encoding.decode_without_bom_handling(&raw).0;
+                // ファイルの先頭の BOM は文字ではないので入れない。
+                let decoded = if a == 0 {
+                    decoded.strip_prefix('\u{FEFF}').unwrap_or(&decoded)
+                } else {
+                    &decoded
+                };
+                // CRLF を LF にそろえながら足す（置き換えた文字列を別に作らない）。
+                for (k, seg) in decoded.split("\r\n").enumerate() {
+                    if k > 0 {
+                        text.push('\n');
+                    }
+                    text.push_str(seg);
+                }
+                // 元のファイルの最後の行は改行で終わらない（改行で終わるファイルなら、最後の行は
+                // 空の行）。ほかの行と同じく後ろに区切りを置く。
+                if to_end {
+                    text.push('\n');
+                }
+            }
+            Part::Added(lines) => {
+                for line in lines {
+                    text.push_str(line);
+                    text.push('\n');
+                }
+            }
+        }
+    }
+    // 行と行のあいだにだけ改行を置く（最後の行の後ろには置かない）。
+    text.pop();
+    Ok(text)
 }
 
 /// 元のファイルの行 `start` から `count` 行。行を読むハンドルは使い回す（`lines_file`）。
@@ -2916,6 +3047,48 @@ mod tests {
             strings(&["日本語", "書き換え", "末尾"])
         );
         assert_eq!(find(&doc, "末尾", (0, 0), false), Some((2, 0, 6)));
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn copy(doc: &LargeDoc, start: u64, count: u64) -> Option<String> {
+        doc_text(doc, start, count, MAX_COPY_BYTES).unwrap().text
+    }
+
+    #[test]
+    fn copy_joins_the_lines_of_the_edited_document() {
+        let (doc, _, dir) = open_temp(b"a\r\nb\r\nc\r\nd");
+        with_history(&doc, |h| h.edit(1, 1, strings(&["B1", "B2"]))).unwrap();
+        // 文書は a / B1 / B2 / c / d。改行は \n にそろえ、最後の行の後ろには付けない。
+        assert_eq!(copy(&doc, 0, 5).as_deref(), Some("a\nB1\nB2\nc\nd"));
+        assert_eq!(copy(&doc, 2, 2).as_deref(), Some("B2\nc"));
+        assert_eq!(copy(&doc, 4, 1).as_deref(), Some("d"));
+        // 範囲が文書の外へ出ても、ある分だけ。
+        assert_eq!(copy(&doc, 3, 100).as_deref(), Some("c\nd"));
+        assert_eq!(copy(&doc, 9, 1).as_deref(), Some(""));
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_keeps_long_lines_whole_and_ends_like_the_file() {
+        let long = "x".repeat(MAX_LINE_BYTES + 100);
+        let text = format!("\u{FEFF}{long}\nlast\n");
+        let (doc, _, dir) = open_temp(text.as_bytes());
+        // 表示は切る行も、コピーには丸ごと入る。先頭の BOM は入れない。
+        assert_eq!(copy(&doc, 0, 1), Some(long.clone()));
+        // 改行で終わるファイルの最後の行は空の行。
+        assert_eq!(copy(&doc, 1, 2).as_deref(), Some("last\n"));
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_refuses_a_range_over_the_limit() {
+        let (doc, _, dir) = open_temp("0123456789\n".repeat(10).as_bytes());
+        let over = doc_text(&doc, 0, 10, 50).unwrap();
+        assert_eq!((over.text, over.bytes, over.limit), (None, 110, 50));
+        assert!(doc_text(&doc, 0, 4, 50).unwrap().text.is_some());
         drop(doc);
         let _ = std::fs::remove_dir_all(&dir);
     }

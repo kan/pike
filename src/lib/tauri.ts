@@ -584,6 +584,21 @@ export async function largeFileSave(id: string, encoding?: string): Promise<void
   return invoke('large_file_save', { id, encoding: encoding ?? null })
 }
 
+export interface LargeCopy {
+  /** 行を `\n` でつないだ中身。上限（Rust の `MAX_COPY_BYTES`）を超えたら `null`。 */
+  text: string | null
+  /** 選んだ範囲の大きさ（バイト）。 */
+  bytes: number
+  limit: number
+  /** 行数を数えている途中だったので組み立てなかった（`text` は `null`）。 */
+  indexing: boolean
+}
+
+/** 文書の行 `start` から `count` 行の中身（コピー）。編集を反映した今の文書から Rust が作る。 */
+export async function largeFileCopy(id: string, start: number, count: number): Promise<LargeCopy> {
+  return invoke<LargeCopy>('large_file_copy', { id, start, count })
+}
+
 /** 指定した文字コードで読み直す（索引と未保存の編集は残る）。扱えない文字コードは断られる。 */
 export async function largeFileSetEncoding(id: string, encoding: string): Promise<LargeFileStatus> {
   return invoke<LargeFileStatus>('large_file_set_encoding', { id, encoding })

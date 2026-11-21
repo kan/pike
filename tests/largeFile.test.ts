@@ -5,9 +5,12 @@ import {
   BLOCK_LINES,
   blocksFor,
   clampTop,
+  extendSelection,
   LineBlockCache,
   linesForEdit,
   makeBlock,
+  revealTop,
+  selectionRange,
   splitAt,
   splitEditText,
   thumbFor,
@@ -125,6 +128,25 @@ describe('編集', () => {
     assert.deepEqual(splitEditText('a\r\nb\rc\nd'), ['a', 'b', 'c', 'd'])
     assert.deepEqual(splitEditText(''), [''])
     assert.deepEqual(splitEditText('x\n'), ['x', ''])
+  })
+})
+
+describe('行の選択', () => {
+  test('どちらの向きに伸ばしても範囲は前から', () => {
+    assert.deepEqual(selectionRange({ anchor: 5, head: 2 }), { start: 2, count: 4 })
+    assert.deepEqual(selectionRange({ anchor: 7, head: 7 }), { start: 7, count: 1 })
+  })
+  test('選択が無ければ起点の行から選び始め、文書の範囲に収める', () => {
+    assert.deepEqual(extendSelection(null, 10, 11, 100), { anchor: 10, head: 11 })
+    assert.deepEqual(extendSelection({ anchor: 3, head: 4 }, 10, 1e9, 100), { anchor: 3, head: 99 })
+    assert.deepEqual(extendSelection({ anchor: 3, head: 4 }, 10, -5, 100), { anchor: 3, head: 0 })
+    assert.deepEqual(extendSelection(null, 0, 0, 0), { anchor: 0, head: 0 })
+  })
+  test('伸ばした先が見えるところまで送る', () => {
+    assert.equal(revealTop(100, 20, 110, 10_000), 100)
+    assert.equal(revealTop(100, 20, 120, 10_000), 101)
+    assert.equal(revealTop(100, 20, 50, 10_000), 50)
+    assert.equal(revealTop(0, 20, 9_999, 10_000), 9_980)
   })
 })
 

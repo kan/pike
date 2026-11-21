@@ -145,6 +145,13 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: ['Mod+Enter'], label: t('shortcuts.largeFileCommit') },
       { keys: ['Esc'], label: t('shortcuts.largeFileCancel') },
       { keys: ['Mod+Shift+K'], label: t('shortcuts.largeFileDelete') },
+      {
+        keys: ['Shift+ArrowUp', 'Shift+ArrowDown', 'Shift+PageUp', 'Shift+PageDown', 'Mod+Shift+Home', 'Mod+Shift+End'],
+        label: t('shortcuts.largeFileExtend'),
+      },
+      { keys: ['Mod+A'], label: t('shortcuts.largeFileSelectAll') },
+      { keys: ['Mod+C'], label: t('shortcuts.largeFileCopy') },
+      { keys: ['Esc'], label: t('shortcuts.largeFileClearSelection') },
     ],
   },
 ])

@@ -26,12 +26,16 @@ import {
   BLOCK_LINES,
   blocksFor,
   clampTop,
+  extendSelection,
   type LargeViewerInfo,
   type LineBlock,
   LineBlockCache,
+  type LineSelection,
   linesForEdit,
   makeBlock,
   maxTop,
+  revealTop,
+  selectionRange,
   splitAt,
   splitEditText,
   thumbFor,
@@ -46,6 +50,7 @@ import {
   type LargeHits,
   type LargeMatch,
   largeFileClose,
+  largeFileCopy,
   largeFileCount,
   largeFileEdit,
   largeFileFind,
@@ -62,6 +67,7 @@ import {
   largeFileUndo,
 } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
+import { useStatusMessageStore } from '../../stores/statusMessage'
 import type { ShellType } from '../../types/tab'
 import HelpButton from '../HelpButton.vue'
 import FindBar from './FindBar.vue'
@@ -84,6 +90,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
+const statusMessageStore = useStatusMessageStore()
 
 /** 索引を作っているあいだ、進み具合を聞く間隔。 */
 const POLL_MS = 150
@@ -250,12 +257,23 @@ async function refresh() {
     // 件数は作り終えたときに `poll` が数え直す。
     resetLines(Math.max(0, before - 1))
   } else {
-    resetLines(null)
-    // 走っている検索と件数は古い中身に対するもの。世代を進めて、届いても捨てる。
-    invalidateFind()
-    markHitsStale()
+    onRenumbered(null)
   }
   restartPoll()
+}
+
+/**
+ * 行の番号が変わった（編集・取り消し・やり直し・外部の書き換え）。`from` より後ろの読んだ行
+ * （`null` なら全部）、一致と件数、一覧、行の選択は、どれも同じ番号が別の行を指すので捨てる
+ * （一覧は古いと示す）。**後始末を足すときはここに足す**。末尾への追記・保存・文字コードの
+ * 開き直しは番号が変わらないので、ここを通さずに要るものだけを捨てる。
+ */
+function onRenumbered(from: number | null) {
+  resetLines(from)
+  // 走っている検索と件数は古い中身に対するもの。世代を進めて、届いても捨てる。
+  invalidateFind()
+  markHitsStale()
+  clearLineSelection()
 }
 
 onMounted(() => {
@@ -383,6 +401,22 @@ function onKeydown(e: KeyboardEvent) {
     void (matchChord(e, 'Mod+Z') ? undo() : redo())
     return
   }
+  if (matchChord(e, 'Mod+A')) {
+    // ファイル全体の行を選ぶ（グローバルの `selectAllInPane` は `preventDefault` 済みなら素通し）。
+    e.preventDefault()
+    selectAllLines()
+    return
+  }
+  if (matchChord(e, 'Mod+C') && lineSel.value) {
+    e.preventDefault()
+    void copySelection()
+    return
+  }
+  if (e.key === 'Escape' && lineSel.value) {
+    e.preventDefault()
+    lineSel.value = null
+    return
+  }
   // ヘッダのボタンにフォーカスがあるときの Enter はボタンのもの。
   if (e.target instanceof HTMLButtonElement) return
   if (e.key === 'Enter' || e.key === 'F2') {
@@ -399,6 +433,21 @@ function onKeydown(e: KeyboardEvent) {
   }
   const page = Math.max(1, rows.value - 1)
   const mod = e.ctrlKey || e.metaKey
+  if (e.shiftKey && !e.altKey) {
+    // 選択を伸ばす（伸ばしている側の行から動かす）。
+    const head = lineSel.value?.head ?? selectionOrigin()
+    let to: number | null = null
+    if (e.key === 'ArrowDown') to = head + 1
+    else if (e.key === 'ArrowUp') to = head - 1
+    else if (e.key === 'PageDown') to = head + page
+    else if (e.key === 'PageUp') to = head - page
+    else if (e.key === 'Home' && mod) to = 0
+    else if (e.key === 'End' && mod) to = total.value - 1
+    if (to === null) return
+    e.preventDefault()
+    extendTo(to)
+    return
+  }
   let next: number | null = null
   if (e.key === 'ArrowDown') next = top.value + 1
   else if (e.key === 'ArrowUp') next = top.value - 1
@@ -474,11 +523,15 @@ function selectedLineRange(sel: Selection | null, pane: HTMLElement | null): { s
   const a = lineOf(sel.anchorNode)
   const b = lineOf(sel.focusNode)
   if (a === null || b === null) return null
-  return { start: Math.min(a, b), count: Math.abs(a - b) + 1 }
+  return selectionRange({ anchor: a, head: b })
 }
 
-/** 編集の対象の行。選択があればその行の範囲、無ければ移動した先の行。 */
+/**
+ * 編集・削除・コピーの対象の行。行の単位の選択（`lineSel`）があればその範囲、次に本文の文字の
+ * 選択が覆う行、無ければ目印の行。
+ */
 function targetLines(): { start: number; count: number } | null {
+  if (lineSel.value) return selectionRange(lineSel.value)
   const range = selectedLineRange(window.getSelection(), textPane.value)
   if (range) return range
   return markedLine.value === null ? null : { start: markedLine.value, count: 1 }
@@ -496,10 +549,15 @@ function startEdit(start: number, count: number) {
     notice.value = t('largeFile.cutNotEditable')
     return
   }
-  if (lines === null) return
+  if (lines === null) {
+    // 読んでいない行（画面の外まで選んだ範囲）は入力欄に入れられない。消すとコピーは範囲のまま効く。
+    if (lineSel.value) notice.value = t('largeFile.selectionNotEditable')
+    return
+  }
   const text = lines.join('\n')
   editing.value = { start, count, original: text, text }
   markedLine.value = null
+  lineSel.value = null
   window.getSelection()?.removeAllRanges()
   void nextTick(() => {
     const el = editTextarea
@@ -573,10 +631,8 @@ function runEdit(call: (id: string) => Promise<LargeFileStatus>, from: number): 
     try {
       if (!docId) return
       status.value = await call(docId)
-      resetLines(from)
       const reopen = find.value.open && !!find.value.query
-      invalidateFind()
-      markHitsStale()
+      onRenumbered(from)
       if (reopen) scheduleRecount()
       top.value = clampTop(top.value, total.value, rows.value)
       ensureLoaded()
@@ -711,8 +767,134 @@ function gotoLine() {
   if (!Number.isFinite(n) || total.value === 0) return
   const line = Math.min(Math.max(1, n), total.value) - 1
   markedLine.value = line
+  clearLineSelection()
   revealLine(line)
   root.value?.focus()
+}
+
+// ── 行の選択とコピー ──
+//
+// 画面の外まで行を選べるように、選択は**行番号だけ**で持つ（`LineSelection`）。本文の DOM には
+// 見えている行しか無いので、ブラウザの文字の選択では画面の外まで届かず、スクロールすると外れる。
+// 選んだ行の文字列はフロントに持ち込まず、コピーのときに Rust が今の文書から組み立てる
+// （`large_file_copy`）。行の中の一部だけを選ぶのは、今までどおりブラウザの文字の選択。
+
+const lineSel = ref<LineSelection | null>(null)
+const selBounds = computed(() => (lineSel.value ? selectionRange(lineSel.value) : null))
+/**
+ * 最後に押した行（Shift+クリックで伸ばすときの起点）。目印（`markedLine`）とは分ける: 目印は
+ * 選択と同じ色で塗るので、本文を押すたびに付けると選択と見分けられない。
+ */
+let clickedLine: number | null = null
+
+function clearLineSelection() {
+  lineSel.value = null
+  clickedLine = null
+}
+
+/**
+ * 行を選ぶ。**文字の選択はここで外す**（行の選択と文字の選択は同時に持たない。逆向きは本文を
+ * 押したときに `onLineMousedown` が行の選択を外す）。
+ */
+function selectLines(sel: LineSelection) {
+  lineSel.value = sel
+  window.getSelection()?.removeAllRanges()
+  // 目印は選択と同じ色なので、残すと選択が 2 か所あるように見える（対象になるのは選択だけ）。
+  markedLine.value = null
+}
+
+function inSelection(line: number): boolean {
+  const b = selBounds.value
+  return !!b && line >= b.start && line < b.start + b.count
+}
+
+/** 選択を伸ばし始める起点（最後に押した行、目印の行、画面の先頭の行の順）。 */
+function selectionOrigin(): number {
+  return clickedLine ?? markedLine.value ?? Math.floor(top.value)
+}
+
+/** 選択の `head` を `to` へ動かし、そこが見えるところまで送る。 */
+function extendTo(to: number) {
+  if (total.value === 0) return
+  const sel = extendSelection(lineSel.value, selectionOrigin(), to, total.value)
+  selectLines(sel)
+  scrollTo(revealTop(top.value, rows.value, sel.head, total.value))
+}
+
+/**
+ * 行を押した（本文と行番号の両方）。Shift を押していれば選択を伸ばす。行番号を押したらその行を
+ * 選ぶ。本文を押したら行の選択を外す（文字の選択はブラウザに任せる）。
+ */
+function onLineMousedown(e: MouseEvent) {
+  if (e.button !== 0 || editing.value) return
+  const row = (e.target as Element | null)?.closest<HTMLElement>('[data-line]')
+  if (!row) {
+    // 本文の行の無い所（最後の行の下）から文字の選択を始めても、行の選択は外す（同時に持たない）。
+    if (!e.shiftKey && e.currentTarget === textPane.value) lineSel.value = null
+    return
+  }
+  const line = Number(row.dataset.line)
+  const inGutter = !!row.closest('.lv-gutter')
+  if (e.shiftKey) {
+    e.preventDefault()
+    extendTo(line)
+    root.value?.focus()
+    return
+  }
+  clickedLine = line
+  if (inGutter) {
+    e.preventDefault()
+    selectLines({ anchor: line, head: line })
+    root.value?.focus()
+  } else {
+    // 起点（`clickedLine`）は残す: 続く Shift+クリックはここから伸ばす。
+    lineSel.value = null
+  }
+}
+
+function selectAllLines() {
+  if (total.value === 0) return
+  // 数えている途中に選ぶと、数え終えた行までで止まる（あとから伸びた行が入らないまま全部を
+  // 選んだつもりになる）。数え終えてからにする。
+  if (indexing.value) {
+    statusMessageStore.show({ text: t('largeFile.selectAllAfterIndexing'), variant: 'info' })
+    return
+  }
+  selectLines({ anchor: 0, head: total.value - 1 })
+}
+
+/**
+ * 選んだ行をコピーする。中身は Rust が組み立て（編集を反映した今の文書。表示で切った長い行も
+ * 丸ごと）、書き込みは他のコピーと同じ `navigator.clipboard.writeText`。上限（`MAX_COPY_BYTES`）を
+ * 超えたら書き込まずに知らせる（途中までを入れると、全部をコピーしたつもりになる）。
+ */
+async function copySelection() {
+  const sel = lineSel.value
+  if (!docId || !sel) return
+  if (indexing.value) {
+    statusMessageStore.show({ text: t('largeFile.copyAfterIndexing'), variant: 'info' })
+    return
+  }
+  const { start, count } = selectionRange(sel)
+  try {
+    const res = await largeFileCopy(docId, start, count)
+    if (res.indexing) {
+      // こちらの状態が届く前に、Rust が数え直しを始めていた（保存の直後など）。
+      statusMessageStore.show({ text: t('largeFile.copyAfterIndexing'), variant: 'info' })
+      return
+    }
+    if (res.text === null) {
+      statusMessageStore.show({
+        text: t('largeFile.copyTooLarge', { size: formatFileSize(res.bytes), limit: formatFileSize(res.limit) }),
+        variant: 'error',
+      })
+      return
+    }
+    await navigator.clipboard.writeText(res.text)
+    statusMessageStore.show({ text: t('largeFile.copied', { lines: count.toLocaleString() }), variant: 'info' })
+  } catch (err) {
+    statusMessageStore.show({ text: t('largeFile.copyFailed', { error: String(err) }), variant: 'error' })
+  }
 }
 
 /** 行が見えていなければ、画面の上から 3 分の 1 の位置に来るよう動かす。 */
@@ -1093,17 +1275,24 @@ defineExpose({ refresh, save, setEncoding, focus: () => root.value?.focus() })
       :style="{ fontFamily, fontSize: `${settingsStore.editorFontSize}px`, '--lv-line': `${lineHeight}px` }"
       @wheel="onWheel"
     >
-      <div class="lv-gutter" :style="{ width: `${gutterChars + 2}ch` }">
+      <div class="lv-gutter" :style="{ width: `${gutterChars + 2}ch` }" @mousedown="onLineMousedown">
         <div class="lv-rows" :style="{ transform: `translateY(${-offsetPx}px)` }">
           <template v-for="row in visibleRows" :key="row.line">
             <template v-if="row.edit">
               <div v-for="k in editLines" :key="`e${k}`" class="lv-num editing">{{ row.line + k }}</div>
             </template>
-            <div v-else class="lv-num" :class="{ marked: row.line === markedLine }">{{ row.line + 1 }}</div>
+            <div
+              v-else
+              class="lv-num"
+              :class="{ marked: row.line === markedLine, selected: inSelection(row.line) }"
+              :data-line="row.line"
+            >
+              {{ row.line + 1 }}
+            </div>
           </template>
         </div>
       </div>
-      <div ref="textPane" class="lv-text selectable">
+      <div ref="textPane" class="lv-text selectable" @mousedown="onLineMousedown">
         <div class="lv-rows" :style="{ transform: `translateY(${-offsetPx}px)` }">
           <template v-for="row in visibleRows" :key="row.line">
             <textarea
@@ -1119,7 +1308,7 @@ defineExpose({ refresh, save, setEncoding, focus: () => root.value?.focus() })
             <div
               v-else
               class="lv-line"
-              :class="{ marked: row.line === markedLine }"
+              :class="{ marked: row.line === markedLine, selected: inSelection(row.line) }"
               :data-line="row.line"
               @dblclick="row.parts && startEdit(row.line, 1)"
             >
@@ -1329,8 +1518,15 @@ defineExpose({ refresh, save, setEncoding, focus: () => root.value?.focus() })
 }
 
 .lv-num.marked,
-.lv-line.marked {
+.lv-line.marked,
+.lv-num.selected,
+.lv-line.selected {
   background: var(--selection-bg);
+}
+
+/* 行番号は押すと行を選ぶ。 */
+.lv-num {
+  cursor: pointer;
 }
 
 .lv-edit {

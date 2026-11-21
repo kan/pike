@@ -121,6 +121,39 @@ export function clampTop(top: number, total: number, rows: number): number {
   return Math.min(Math.max(0, top), maxTop(total, rows))
 }
 
+/**
+ * 行の単位の選択（#630）。**行番号だけを持つ**: 画面の外まで選んでも、選んだ行の文字列は
+ * フロントに持ち込まない（コピーの中身は Rust の `large_file_copy` が組み立てる）。`anchor` は
+ * 選び始めた行、`head` は伸ばしている側の行（どちらが前でもよい）。
+ */
+export interface LineSelection {
+  anchor: number
+  head: number
+}
+
+/** 選択が覆う行の範囲。 */
+export function selectionRange(sel: LineSelection): { start: number; count: number } {
+  const start = Math.min(sel.anchor, sel.head)
+  return { start, count: Math.abs(sel.head - sel.anchor) + 1 }
+}
+
+/**
+ * 選択の `head` を `to` へ動かす（Shift+矢印・Shift+クリックなど）。選択が無ければ `from`
+ * （目印の行、無ければ画面の先頭の行）から選び始める。行は文書の範囲に収める。
+ */
+export function extendSelection(sel: LineSelection | null, from: number, to: number, total: number): LineSelection {
+  const last = Math.max(0, total - 1)
+  const clamp = (n: number) => Math.min(Math.max(0, Math.round(n)), last)
+  return { anchor: clamp(sel ? sel.anchor : from), head: clamp(to) }
+}
+
+/** 行 `line` が見えるようにする先頭の行（見えていればそのまま）。 */
+export function revealTop(top: number, rows: number, line: number, total: number): number {
+  if (line < top) return clampTop(line, total, rows)
+  if (line >= Math.floor(top) + rows) return clampTop(line - rows + 1, total, rows)
+  return top
+}
+
 export interface Thumb {
   /** つまみの高さ（px）。 */
   size: number
