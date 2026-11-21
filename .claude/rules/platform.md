@@ -251,14 +251,39 @@ target_os = "macos")))`）はどちらのジョブにも出てこない**ので�
 
 ## ダイアログ
 
-フォルダ / ファイル選択は Windows が PowerShell + WinForms、macOS が `osascript` の
-`choose folder` / `choose file` / `choose file name`（`lib.rs`）。**キャンセルの見分け方が違う**:
-PowerShell 版は「空文字」、`osascript` は「終了コード 1」なので、成功したときだけ stdout を見る。
+フォルダ / ファイル選択は Windows がシェルのコモンアイテムダイアログ（`IFileOpenDialog` /
+`IFileSaveDialog`、フォルダは `FOS_PICKFOLDERS`。`src-tauri/src/dialog_win.rs`）、macOS が
+`osascript` の `choose folder` / `choose file` / `choose file name`（`lib.rs` の `mod dialog`）。
+**キャンセルはどちらも `Ok(None)` に畳む**: Windows は `Show` が返す `ERROR_CANCELLED` で見分ける。
+`osascript` は「終了コード 1」で見分け、成功したときだけ stdout を見る。
 
-**PowerShell の出力は UTF-8 に固定する**（`dialog::powershell` の先頭の
-`[Console]::OutputEncoding`）。パイプへの出力は既定でコンソールの文字コード（日本語の
-Windows では Shift_JIS）になり、選んだパスに日本語があると化ける。**化けたパスはその
-まま使われ**、化けた名前のフォルダやファイルが作られる。
+**Windows で PowerShell + WinForms に戻さないこと（#638）。** 以前は別プロセスの PowerShell
+（pwsh があればそちら、#271）で `OpenFileDialog` などを出していた。押してから見えるまでに
+2 秒前後かかり（pwsh の起動と `Add-Type -AssemblyName System.Windows.Forms`。Store 版の pwsh で
+実測 1.8〜2.8 秒、`powershell.exe` で 2.3 秒）、しかも**ダイアログが前面に出なかった**
+（owner が無く、前面にいないプロセスのウィンドウは Windows の前面のロックで前に出られない。
+Pike の裏に出て、押しても何も起きないように見える）。今は Pike のプロセスの中で、呼んだ
+ウィンドウを owner にして出すので、どちらも起きない。
+
+- **ダイアログごとに専用の STA スレッドを立てる**（`on_sta_thread`）。`Show` は閉じるまで戻らず、
+  中で自分のメッセージループを回す。メインスレッドに載せると Tauri のイベントループが入れ子の
+  ループの上で動き、WSL の UNC の解決で詰まったときにイベントループごと止まる（ジャンプリストの
+  「COM スレッド」と同じ形、`os-integration.md`）。tokio のブロッキング用のスレッドは使い回されるので
+  アパートメントを持ち込まない
+- **owner はコマンドの `window: Window` から取る**（`win32_hwnd`）。owner がある間はそのウィンドウが
+  無効になる（モーダル）。他のウィンドウはそのまま使える
+- **別スレッドでも入力キューは結合される**（owner がメインスレッドのウィンドウなので）。`Show` の中で
+  ダイアログのスレッドが詰まると Pike への入力も止まりうるので、**初期位置の解決は `Show` の前に
+  済ませる**（`dialog_win.rs` の doc）。解決を `Show` の後ろへ動かさないこと
+- **`FOS_FORCEFILESYSTEM` を必ず足す。** 無いと「PC」やライブラリのような場所も選べ、
+  `SIGDN_FILESYSPATH` でパスにできない
+- 初期位置は WinForms の挙動に合わせてある。ファイルを開くは `SetFolder(initial)`（開けなければ
+  既定の位置のまま出す）。フォルダ選択は pwsh の `FolderBrowserDialog.SelectedPath` と同じく
+  **親を開いて `initial` 自身を名前の欄に入れる**。保存は `default_name` を名前の欄に入れるだけ
+- パスは UTF-16 のまま受け取るので、文字コードの問題は起きない（PowerShell 版は出力を UTF-8 に
+  固定しないと日本語のパスが化けていた）
+- Rust のダイアログ crate（`rfd` / `tauri-plugin-dialog`）は足していない。`windows` crate は既に
+  直接の依存で、要る API は `Win32_UI_Shell` に揃っている
 
 **Windows のコンソールのプログラムの出力は `types::decode_console_output` で読む**
 （`ShellConfig` の `run` / `run_stdout` / `run_shell_line` はこれを通す。Windows 以外では
@@ -272,20 +297,18 @@ Shift_JIS のせいで UTF-8 の行まで化け、Problems の `path:line:col:` 
 Git Bash の場所は `where git` ではなく PATH を自分で歩いて探す（`find_pwsh_path` と同じ）。
 **プロセスを起こさずに済むなら、そもそも出力を読まない**のがいちばん確か。
 
-**Windows では pwsh があればそちらで出す**（#271）。PowerShell 7 は .NET 5+ なので、同じ
-`FolderBrowserDialog` がモダンなダイアログになり、アドレス欄でパスを打て、ナビゲーション
-ペインに WSL の「Linux」が出る。`powershell.exe`（.NET Framework）は旧式の「フォルダーの
-参照」ツリーで、UNC を打ち込む手段が無い。`pty::find_pwsh_path`（実在を確認する版）で探し、
-無ければ `powershell.exe` に落ちる。
+**フォルダ選択も旧式の「フォルダーの参照」ツリー（`SHBrowseForFolder`）にしないこと**（#271）。
+あれには UNC を打ち込む手段が無い。コモンアイテムダイアログはアドレス欄でパスを打て、
+ナビゲーションペインに WSL の「Linux」が出る（PowerShell 版のころは、`powershell.exe` の
+.NET Framework が旧式になるので pwsh を優先していた）。
 
 **WSL のディレクトリは UNC で選ぶ。** フォルダ選択に初期位置を渡せるようにしてあり
 （`pickFolder(initial)`）、WSL プロジェクトでは `wslNativeToUnc` で作った
 `wsl.localhost` の UNC を渡す。Windows のダイアログはこれをそのまま辿れるので、
 WSL 用の選択 UI を自前で作る必要はない。
 
-**cfg は「macOS かそれ以外か」で切らないこと。** それだと Linux が `powershell.exe` を起動しに行き、
-終了コード判定に当たって意味の分からないエラーになる（`powershell` という名前の別物が PATH に
-あれば、黙って「キャンセルされた」ことになる）。Windows / macOS / それ以外の 3 分岐で、
+**cfg は「macOS かそれ以外か」で切らないこと。** それだと Linux が Windows の実装（今は COM、
+以前は `powershell.exe` の起動）へ落ちる。Windows / macOS / それ以外の 3 分岐で、
 最後は `dialog::unsupported` が実装が無いことを言う。
 
 ## アプリアイコン（#256）

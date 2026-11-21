@@ -71,6 +71,7 @@ pike/
 │       ├── window_geom.rs     # プロジェクト単位のウィンドウ geometry（#200）と仮想デスクトップ（#317）
 │       ├── drop_paths.rs      # タブバーへの OS ファイルドロップの実パス解決（WebView2 COM）
 │       ├── webview_focus.rs   # ウィンドウが得たフォーカスを本体の webview へ渡す（#439、WebView2 COM）
+│       ├── dialog_win.rs      # ファイル / フォルダ選択のダイアログ（#638、Windows 専用 COM。入口は lib.rs の `mod dialog`）
 │       ├── vdesk/mod.rs       # 仮想デスクトップ（#317、Windows 専用 COM。他 OS は stub）
 │       ├── jumplist/mod.rs    # タスクバーのジャンプリスト（#160、Windows 専用 COM）
 │       ├── appmenu/mod.rs     # macOS のアプリケーションメニュー（#254、macOS 専用）

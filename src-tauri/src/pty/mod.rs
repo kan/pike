@@ -326,13 +326,12 @@ fn apply_pike_env(
 /// spawn failure in the terminal).
 fn find_pwsh() -> String {
     // 見つからなくても素の `pwsh.exe` に賭ける（Store 版の実行エイリアスは PATH 上の
-    // ファイルとして見えないことがある）。**確実に在るものが要る呼び出し側は
-    // `find_pwsh_path` を使うこと。**
+    // ファイルとして見えないことがある）。
     find_pwsh_path().unwrap_or_else(|| "pwsh.exe".to_owned())
 }
 
 /// 実在が確認できた pwsh のパス。無ければ `None`。
-pub(crate) fn find_pwsh_path() -> Option<String> {
+fn find_pwsh_path() -> Option<String> {
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
             let p = dir.join("pwsh.exe");
