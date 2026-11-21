@@ -31,7 +31,7 @@ PTY・シェル・xterm.js と、ターミナル上で動かすコーディン�
   - PowerShell: `powershell.exe -NoLogo`
   - Git Bash: `C:\Program Files\Git\bin\bash.exe --login`（自動検出）
   - Unix（macOS / Linux）: `$SHELL` を **`-l`（ログインシェル）** で起動する。GUI プロセスの PATH は最小なので、rc / profile を読ませないとターミナルから何も呼べない（`.claude/rules/platform.md` の「PATH」）
-- **PowerShell 7（pwsh、#127）**: Windows PowerShell 5（`ShellConfig::Powershell`）と併存する独立シェル種別 `ShellConfig::Pwsh` / `ShellType {kind:'pwsh'}`。`pty/mod.rs` の `find_pwsh()` が PATH → `C:\Program Files\PowerShell\7\pwsh.exe` → bare `pwsh.exe`（Store 版の実行エイリアス対策）の順で解決する。実在が確認できたものだけが要る呼び出し側は `find_pwsh_path`。`cls`/`;`/`$LASTEXITCODE` の PowerShell 系分岐は front `isPowershellFamily(kind)` で powershell/pwsh 共通化
+- **PowerShell 7（pwsh、#127）**: Windows PowerShell 5（`ShellConfig::Powershell`）と併存する独立シェル種別 `ShellConfig::Pwsh` / `ShellType {kind:'pwsh'}`。`pty/mod.rs` の `find_pwsh()` が PATH → `C:\Program Files\PowerShell\7\pwsh.exe` → bare `pwsh.exe`（Store 版の実行エイリアス対策）の順で解決する（PATH の探索は `find_pwsh_path`）。`cls`/`;`/`$LASTEXITCODE` の PowerShell 系分岐は front `isPowershellFamily(kind)` で powershell/pwsh 共通化
 - 起動できるシェルの並びと表示/非表示（シェルプロファイル、#129）は `settings-ui.md`
 - **シェル未指定（`None`）の既定は OS で変わる**。Windows は WSL、macOS / Linux はログインシェル（`wsl.exe` が無いので WSL に落とすと即死する）
 - **pty の id はフロントが決めて `pty_spawn` に渡し、呼ぶ前に出力と入力の受け口を登録する

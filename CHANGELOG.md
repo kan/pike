@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **Windows で、ファイルやフォルダを選ぶダイアログが出るまでに時間がかかっていたのを直した**：対象は「ファイルを開く…」とプロジェクトの追加のフォルダ選択、保存先の選択です。押してからダイアログが見えるまでに数秒かかり、何も起きないように見えることがありました。ダイアログを PowerShell 経由で出していたためで、Pike のウィンドウの裏に出ることもありました。今は Pike が Windows のダイアログを直接、ウィンドウの手前に出します (#638)
+
 ## [0.73.0] - 2026-11-19
 
 ### Features
