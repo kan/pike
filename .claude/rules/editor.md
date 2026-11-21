@@ -409,7 +409,7 @@ CodeMirror 6 のエディタ、ファイルツリー、保存、マクロと整�
 
 ## アウトラインパネル（Outline）
 - `outline` サイドバーパネル。`lib/outline/` の言語別 extractor（19 言語: Markdown / TypeScript+JSX / Vue / HTML / CSS+SCSS / Rust / Python / Go / Perl / Raku / YAML / JSON / Ruby / Kotlin / Swift / PHP / Dockerfile / TOML / Makefile）でシンボルを抽出
-  - **Raku（#452）は `codemirror-lang-raku` の構文木から引く**（`extractors/raku.ts`）。宣言ノードの名前はライブラリの公開インターフェースだが、**0.x のあいだはマイナーバージョンで変わりうる**ので `^0.4.0` で縛ってある。上げるときは向こうの README の「Syntax tree」とリリースノートの Breaking changes を見て、`tests/rakuOutline.test.ts` を通す
+  - **Raku（#452）は `codemirror-lang-raku` の構文木から引く**（`extractors/raku.ts`）。宣言ノードの名前はライブラリの公開インターフェースだが、**0.x のあいだはマイナーバージョンで変わりうる**ので `^0.5.0` で縛ってある。上げるときは向こうの README の「Syntax tree」とリリースノートの Breaking changes を見て、`tests/rakuOutline.test.ts` を通す
     - `unit class Foo;` は木の上では以降の宣言と兄弟なので、抽出器が子へ振り替える（判定は「`;` で終わる」で、`unit` の語は見ない）。`multi foo() { }` は宣言子の子ノードを持たないので sub として扱う
     - `token c :sym<a>` の名前は空白ごと `c :sym<a>` で来るので、`:` の前の空白を詰めて `c:sym<a>` と同じ表示にする。`constant \x = 2` は名前のノードを持たないので出ない
 - カーソル位置追従ハイライト・祖先自動展開・scrollIntoView、タブ別スクロール位置保持
