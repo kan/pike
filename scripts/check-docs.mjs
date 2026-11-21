@@ -122,6 +122,7 @@ const EXTERNAL_NAMES = [
   'SelectedPath', // WinForms の FolderBrowserDialog（初期位置の扱いを合わせた相手として platform.md が出す、#638）
   'SHBrowseForFolder', // Win32 の旧式のフォルダ選択（使わない理由として platform.md が出す、#271）
   'SSH_ASKPASS_REQUIRE', // OpenSSH 8.4+ の環境変数（採らなかった選択肢として git.md が出す）
+  'mysql_async', // 入れなかった DB ドライバのクレート（採らなかった選択肢として db.md が出す、#632）
   'expiresAt', // Claude Code の .credentials.json のキー（Pike は読まない。#381 の調査の記録）
   'refreshTokenExpiresAt', // 同上
   'SetWindowCompositionAttribute', // Win32（window-vibrancy 経由）

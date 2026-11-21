@@ -1,6 +1,7 @@
 import {
   BookOpen,
   Bot,
+  Database,
   FileDiff,
   FileInput,
   Gauge,
@@ -38,6 +39,8 @@ export function tabImageIcon(tab: Tab): string | null {
 export const TAB_KIND_ICONS: Record<Tab['kind'], Component | null> = {
   terminal: Terminal,
   'docker-logs': ScrollText,
+  // Docker パネルの「DB を見る」と同じアイコン（#632）。
+  db: Database,
   settings: Settings,
   'agent-status': Gauge,
   // サイドバーのセッションのパネルと同じアイコン（#625）。

@@ -21,6 +21,7 @@ const ProjectPanel = defineAsyncComponent(() => import('../panels/ProjectPanel.v
 const FileTreePanel = defineAsyncComponent(() => import('../panels/FileTreePanel.vue'))
 const GitPanel = defineAsyncComponent(() => import('../panels/GitPanel.vue'))
 const DockerPanel = defineAsyncComponent(() => import('../panels/DockerPanel.vue'))
+const DbPanel = defineAsyncComponent(() => import('../panels/DbPanel.vue'))
 const SearchPanel = defineAsyncComponent(() => import('../panels/SearchPanel.vue'))
 const TasksPanel = defineAsyncComponent(() => import('../panels/TasksPanel.vue'))
 const OutlinePanel = defineAsyncComponent(() => import('../panels/OutlinePanel.vue'))
@@ -39,6 +40,7 @@ import {
   ChevronsUpDown,
   CircleAlert,
   Container,
+  Database,
   Eye,
   EyeOff,
   FilePlus,
@@ -70,6 +72,7 @@ import { useOverlay } from '../../lib/overlay'
 import { sideOf } from '../../lib/reorder'
 import { actionChord } from '../../lib/shortcuts'
 import { useCiStore } from '../../stores/ci'
+import { useDbStore } from '../../stores/db'
 import { useDiagnosticsStore } from '../../stores/diagnostics'
 import { useDockerStore } from '../../stores/docker'
 import { useIssuesStore } from '../../stores/issues'
@@ -98,6 +101,7 @@ const gitStore = useGitStore()
 const searchStore = useSearchStore()
 const diagStore = useDiagnosticsStore()
 const dockerStore = useDockerStore()
+const dbStore = useDbStore()
 const issuesStore = useIssuesStore()
 const ciStore = useCiStore()
 // アイコンの件数（返答待ち）を出すためにここで作る。飛んだ先のウィンドウでタブを前に出す
@@ -376,6 +380,13 @@ const ICONS: { [P in SidebarPanel]: IconDef & { panel: P } } = {
     // compose が複数あると対象が一意に決まらないため、ここには置かない。
     refresh: { run: () => dockerStore.refreshContainers(true), busy: () => dockerStore.refreshing },
   },
+  // DB ビューワの接続先（#632）。DB タブのアイコンと同じ円筒。
+  db: {
+    panel: 'db',
+    labelKey: 'sidebar.db',
+    icon: Database,
+    refresh: { run: () => void dbStore.refresh(true), busy: () => dbStore.refreshing },
+  },
   projects: { panel: 'projects', labelKey: 'sidebar.projects', icon: FolderOpen },
   tasks: {
     panel: 'tasks',
@@ -515,6 +526,7 @@ const PANEL_HELP: Record<SidebarPanel, string> = {
   git: 'git.md',
   search: 'panels.md#検索ripgrep--grep',
   docker: 'panels.md#docker',
+  db: 'panels.md#db-ビューワ',
   projects: 'projects-and-windows.md',
   tasks: 'panels.md#タスクランナー',
   outline: 'panels.md#アウトライン',
@@ -790,6 +802,7 @@ onUnmounted(() => {
         <GitPanel v-else-if="sidebar.activePanel === 'git'" />
         <SearchPanel v-else-if="sidebar.activePanel === 'search'" />
         <DockerPanel v-else-if="sidebar.activePanel === 'docker'" />
+        <DbPanel v-else-if="sidebar.activePanel === 'db'" />
         <TasksPanel v-else-if="sidebar.activePanel === 'tasks'" ref="tasksRef" />
         <OutlinePanel v-else-if="sidebar.activePanel === 'outline'" />
         <DiagnosticsPanel v-else-if="sidebar.activePanel === 'diagnostics'" />
