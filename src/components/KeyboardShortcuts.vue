@@ -137,6 +137,16 @@ const sections = computed<ShortcutSection[]>(() => [
       { keys: ['r', 'Shift+R'], label: t('shortcuts.rotate') },
     ],
   },
+  {
+    // 大きなファイルビューア（#630）のキーは `LargeFileViewer.vue` の keydown が受ける。
+    title: t('shortcuts.largeFile'),
+    items: [
+      { keys: ['Enter', 'F2'], label: t('shortcuts.largeFileEdit') },
+      { keys: ['Mod+Enter'], label: t('shortcuts.largeFileCommit') },
+      { keys: ['Esc'], label: t('shortcuts.largeFileCancel') },
+      { keys: ['Mod+Shift+K'], label: t('shortcuts.largeFileDelete') },
+    ],
+  },
 ])
 </script>
 

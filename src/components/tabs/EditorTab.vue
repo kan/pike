@@ -215,7 +215,8 @@ const tooLargeSize = ref<number | null>(null)
  * 作り直され、索引を最初から作り直すうえ読んでいた位置も失われる。
  */
 const largeViewer = ref(false)
-const largeViewerRef = useTemplateRef<{ refresh: () => Promise<void> }>('largeViewerRef')
+/** `save` は書いたら `true`（変わっていなければ書かずに `false`）。 */
+const largeViewerRef = useTemplateRef<{ refresh: () => Promise<void>; save: () => Promise<boolean> }>('largeViewerRef')
 /**
  * 先頭から少しずつ読んでいるとき（#362）。**このあいだは読み取り専用**: 保存すると、読んで
  * いない後半が消える。`nextOffset` は次に読むバイト位置。
@@ -805,6 +806,7 @@ function updateCursorInfo() {
 const shellForIO = computed(() => projectStore.shellForIO)
 
 async function save(overrideEncoding?: string, auto = false) {
+  if (largeViewer.value) return saveLargeViewer()
   if (!editorView || !tab.value || saving.value || isReadOnlyTab.value) return
 
   // Untitled tab: prompt for file path first
@@ -872,6 +874,45 @@ async function save(overrideEncoding?: string, auto = false) {
   }
 }
 
+/**
+ * 大きなファイルビューア（#630）の保存。`save()` の入口から分かれる（書くのはビューアの `save`＝
+ * Rust がピースの並びを一時ファイルへ書いて置き換える）。
+ *
+ * - **自動保存はしない**。止める条件は `maybeAutoSave` にある（`editor.md` の「保存の責任」の
+ *   決まり。止める条件は `save()` に書かない）
+ * - **自己書き込みの印（`markRecentlySaved`）は書き終えてから付ける**（普通の保存は書く前）。印は
+ *   短い時間で切れる（`useFsWatcher` の `SAVE_TTL_MS`）ので、数百 MB〜GB を書くあいだに切れて、
+ *   置き換えの知らせが外部変更に見える。置き換えの知らせは監視のまとめの時間のあとに届くので、
+ *   戻ってから付けても間に合う。**書かなかったら付けない**（付けると本物の外部変更を 1 回飲む）
+ * - 書いたら未保存の印をその場で下ろす（ビューアの状態の問い合わせを待つあいだに知らせが届いて
+ *   も、警告ではなく自動の読み直しに回り、変わっていないので何もしない）
+ * - **失敗は `error` に出さず StatusBar に出す**。`error` の画面はビューアより後ろの分岐なので
+ *   出ないうえ、未保存の編集を捨てる操作しか残らない形になる（自動保存の失敗と同じ理由）
+ */
+async function saveLargeViewer() {
+  const path = tab.value?.path
+  if (!path || saving.value || !largeViewerRef.value) return
+  saving.value = true
+  try {
+    if (await largeViewerRef.value.save()) {
+      markRecentlySaved(path)
+      onLargeViewerDirty(false)
+    }
+    externalChangeNotice.value = null
+  } catch (e) {
+    statusMessageStore.show({ text: t('editor.saveFailed', { error: String(e) }), variant: 'error' })
+  } finally {
+    saving.value = false
+  }
+}
+
+/** ビューアの未保存の状態（ピースの並びが保存したときから変わったか）をタブの `*` に写す。 */
+function onLargeViewerDirty(dirty: boolean) {
+  if (dirty === isDirty.value) return
+  isDirty.value = dirty
+  updateTitle()
+}
+
 /** 自動保存が失敗している最中か。同じ失敗を契機のたびに通知しないための記憶。 */
 let autoSaveFailed = false
 
@@ -896,6 +937,9 @@ function maybeAutoSave() {
   if (settingsStore.autoSave === 'off') return
   if (!isDirty.value || saving.value) return
   if (!tab.value?.path || isReadOnlyTab.value) return
+  // 大きなファイルビューア（#630）は自動保存しない。数百 MB〜GB を書き直すので、フォーカスが
+  // 外れるたびや打鍵が止まるたびに走らせない（`saveLargeViewer`）。
+  if (largeViewer.value) return
   if (externalChangeNotice.value) return
   if (editorView && hasConflictMarkers(editorView.state)) return
   // 見えていないタブ（別プロジェクトのぶんを保持している、#264）では書かない。
@@ -1443,7 +1487,7 @@ const gitHistoryLineLabel = computed(() => {
 })
 
 /** 書けないタブ。git の過去の版と、部分読み込み中のファイル（#362）。**保存の可否もこれで見る**。 */
-const isReadOnlyTab = computed(() => (tab.value?.readOnly ?? false) || partial.value !== null || largeViewer.value)
+const isReadOnlyTab = computed(() => (tab.value?.readOnly ?? false) || partial.value !== null)
 
 // ツールバーのマクロのボタン（#180）。ボタンはフォーカスを奪わないが、プレビューを
 // 触ったあとなどエディタにフォーカスが無いこともあるので、押したら必ず戻す（記録は
@@ -1799,7 +1843,8 @@ let loadSeq = 0
 async function reopenWithEncoding(encoding?: string) {
   // 大きなファイルビューア（#630）では、読み直しはビューアが受け持つ（`largeViewer` の doc）。
   // 外部変更の自動の読み直し（見えていないタブは見せたとき）・CLI・「再読み込み」が全部ここを
-  // 通る。ビューアは読み取り専用で未保存にならないので、外部変更はいつも自動で読み直す側に乗る。
+  // 通る。ビューアの `refresh` は編集を捨てるので、未保存なら呼ぶ前に確かめる（外部変更は
+  // `isDirty` で警告のバーに回り、「再読み込み」は `reloadFromDisk` が確かめる）。
   if (largeViewer.value) {
     await largeViewerRef.value?.refresh()
     return
@@ -2608,6 +2653,9 @@ onUnmounted(() => {
       :path="tab.path"
       :shell="shellForIO"
       @open-default="openFileWithDefaultApp"
+      @dirty="onLargeViewerDirty"
+      @save="save()"
+      @reload="reloadFromDisk"
     />
     <!-- 上限を超えたファイル（#362）。エラーにせず、開き方を選ばせる -->
     <div v-else-if="tooLargeSize !== null" class="editor-status choices">

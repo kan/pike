@@ -96,7 +96,8 @@ pike/
 │       │   └── transient.rs   # 登録せずに開いたディレクトリのメモリ内プロジェクト（#230）
 │       ├── fs/
 │       │   ├── mod.rs         # WSL/Windows 両対応ファイル操作・IGNORED_DIRS
-│       │   └── large.rs       # 大きなファイルビューアの読み取り経路（行の疎な索引・範囲読み・全体の検索、#630）
+│       │   ├── large.rs       # 大きなファイルビューアの読み取り経路と保存（行の疎な索引・範囲読み・全体の検索、#630）
+│       │   └── pieces.rs      # 大きなファイルビューアの編集（行単位のピーステーブルと取り消しの履歴、#630）
 │       ├── git/
 │       │   ├── mod.rs         # git CLI ブリッジ（status/log/diff/commit/push/pull 等）
 │       │   ├── blame.rs       # エディタの blame（`git blame --incremental` の読み取り、#510）

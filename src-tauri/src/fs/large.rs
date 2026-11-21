@@ -16,6 +16,7 @@
 //! 行を割るのは UTF-8 でも Shift_JIS でも文字の途中にならない（`chunk_end` と同じ理由）ので、
 //! UTF-16 は開かない。
 
+use super::pieces::{History, Piece, PieceTable};
 use super::{BINARY_FILE_ERROR, BINARY_SNIFF_LEN, host_visible_path, utf16_bom};
 use crate::types::ShellConfig;
 use encoding_rs::Encoding;
@@ -24,7 +25,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::SystemTime;
 use tauri::State;
@@ -118,7 +119,11 @@ struct IndexState {
 }
 
 struct LargeDoc {
+    /// Rust の `std::fs` で開くパス（WSL は UNC）。
     path: PathBuf,
+    /// シェルの側のパスとシェル。WSL の保存は distro の中でリンクを辿って置き換える（`save_doc`）。
+    native: String,
+    shell: ShellConfig,
     encoding: &'static Encoding,
     state: RwLock<IndexState>,
     /// 索引のスレッドの世代。閉じた・作り直したら進め、古いスレッドはそれを見て止まる。
@@ -131,6 +136,17 @@ struct LargeDoc {
     /// 行を読むときに使い回すハンドル。WSL の UNC（9P）では開くだけで数 ms かかり、スクロールの
     /// たびに払うことになる。書き換えを拾ったら（`large_file_refresh` の `Reset`）捨てて開き直す。
     lines_file: Mutex<Option<File>>,
+    /// 編集の履歴（`pieces.rs`）。**編集していないあいだは `None`**: 文書は索引を作り終えた
+    /// 範囲そのもので、行数は索引とともに伸びる（`doc_table`）。編集は索引を作り終えてから
+    /// 受け付け、最初の編集のときに今の行数で作る（`with_history`）。読み直しと保存で `None` に戻す。
+    history: Mutex<Option<History>>,
+    /// 編集で入れた行を書くときの改行（開いたときの先頭の行に合わせる）。
+    eol: &'static [u8],
+    /// 保存している途中か。保存のあいだは編集を受け付けない。
+    saving: AtomicBool,
+    /// 保存の進み具合（書いたバイト数 / 書く見込みのバイト数）。
+    save_written: AtomicU64,
+    save_total: AtomicU64,
 }
 
 /// 開いている大きなファイル。キーは `large_file_open` が返す id。
@@ -355,6 +371,8 @@ fn read_lines<R: Read + Seek>(
 /// 検索に使う照合器と、窓の読み方に要るもの。
 struct Matcher {
     re: regex::bytes::Regex,
+    /// 編集で入れた行（`String`）に当てる照合器。こちらは常に Unicode の文字で照合する。
+    text: regex::Regex,
     encoding: &'static Encoding,
     /// 窓どうしを重ねる幅（`overlap_of`）。
     overlap: usize,
@@ -472,8 +490,13 @@ fn build_matcher(
     encoding: &'static Encoding,
 ) -> Result<Matcher, String> {
     let re = build_regex(query, case_sensitive, encoding)?;
+    let text = regex::RegexBuilder::new(&regex::escape(query))
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| e.to_string())?;
     Ok(Matcher {
         re,
+        text,
         encoding,
         overlap: overlap_of(query),
     })
@@ -611,25 +634,28 @@ fn find_backward<R: Read + Seek>(
     Ok(None)
 }
 
-/// ファイル全体の一致の数（`MAX_COUNT` で打ち切る）。止められたら `None`。
+/// `[lo, hi)` から始まる一致の数（`limit` で頭打ち）。止められたら `None`。`lo` は文字の境目
+/// （0 か行頭）であること。
 fn count_matches<R: Read + Seek>(
     source: &mut R,
     matcher: &Matcher,
-    size: u64,
+    lo: u64,
+    hi: u64,
+    limit: u64,
     cancelled: Cancelled,
-) -> std::io::Result<Option<(u64, bool)>> {
-    let mut pos = 0;
+) -> std::io::Result<Option<u64>> {
+    let mut pos = lo;
     let mut count = 0;
     // 最後に数えた一致の末尾。**次の窓もここから照合する**: 窓ごとに照合をやり直すと、前の窓で
     // 数えた一致と重なる候補（境目の手前の `ababa` で `aba`）を次の窓でもう一度数える。
-    let mut resume = 0u64;
+    let mut resume = lo;
     let mut window = Vec::new();
-    while pos < size {
+    while pos < hi {
         if cancelled() {
             return Ok(None);
         }
-        let step = (SEARCH_BUF as u64).min(size - pos);
-        let len = (step + matcher.overlap as u64).min(size - pos);
+        let step = (SEARCH_BUF as u64).min(hi - pos);
+        let len = step + matcher.overlap as u64;
         read_window(source, pos, len, &mut window)?;
         let from = resume.saturating_sub(pos) as usize;
         // 重ねた部分から始まる一致は次の窓で数える。
@@ -640,23 +666,25 @@ fn count_matches<R: Read + Seek>(
             count += 1;
             resume = pos + m.end() as u64;
         }
-        if count >= MAX_COUNT {
-            return Ok(Some((MAX_COUNT, true)));
+        if count >= limit {
+            return Ok(Some(limit));
         }
         pos += aligned_end(&window, step as usize, matcher) as u64;
     }
-    Ok(Some((count, false)))
+    Ok(Some(count))
 }
 
 /// 一致の位置。行と列はフロントの文字列（UTF-16）の単位。
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LargeMatch {
+    /// 文書の行（編集のあとの行番号）。
     pub line: u64,
     /// 行頭からの位置（UTF-16 の単位）。
     pub col: u64,
     pub len: u64,
-    /// 次の検索の起点に使うバイトの範囲。
+    /// 次の検索の起点に使う、行の中のバイトの範囲（その行の保存のされ方での位置。フロントは
+    /// 解釈せずに返すだけ）。
     pub byte: u64,
     pub byte_end: u64,
 }
@@ -672,7 +700,7 @@ fn utf16_len(bytes: &[u8], encoding: &'static Encoding) -> u64 {
 /// 表示の外の列。フロントの `splitAt` は行の長さ以上の列を「一致を塗らない」として扱う。
 const COL_BEYOND_CUT: u64 = u32::MAX as u64;
 
-/// バイトの範囲を行と列へ直す。手前のチェックポイント（最大 `STRIDE` 行前）から一致の始まりまでを
+/// バイトの範囲を元のファイルの行と列へ直す。手前のチェックポイント（最大 `STRIDE` 行前）から一致の始まりまでを
 /// 流し読みして改行を数える。**まとめて読まない**: 1 行が数百 MB のファイル（1 行の JSON）では、
 /// チェックポイントから一致までがファイルの大半になる。
 fn locate_match<R: Read + Seek>(
@@ -708,12 +736,26 @@ fn locate_match<R: Read + Seek>(
     };
     read_window(source, start, end - start, &mut bytes)?;
     Ok(LargeMatch {
+        // 元のファイルの行。文書の行へは呼び出し側が直す（`search_doc`）。
         line: cp_line + newlines,
         col,
         len: utf16_len(&bytes, encoding),
-        byte: start,
-        byte_end: end,
+        byte: start - line_start,
+        byte_end: end - line_start,
     })
+}
+
+/// 元のファイルの行 `line` の先頭のバイト位置。行数より後ろは `size`（索引を作り終えた範囲の末尾）。
+fn src_line_byte<R: Read + Seek>(
+    source: R,
+    index: &LineIndex,
+    size: u64,
+    line: u64,
+) -> std::io::Result<u64> {
+    if line >= index.lines() {
+        return Ok(size);
+    }
+    Ok(line_start_byte(source, index, line)?.unwrap_or(size))
 }
 
 /// 行の先頭のバイト位置。
@@ -741,15 +783,22 @@ pub struct LargeFileInfo {
     pub encoding: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct LargeFileStatus {
-    /// 索引を作り終えた範囲の行数。
+    /// 文書の行数（編集していなければ、索引を作り終えた範囲の行数）。
     pub lines: u64,
     pub size: u64,
     pub scanned: u64,
     pub done: bool,
     pub error: Option<String>,
+    /// 保存したときから変わっているか。
+    pub dirty: bool,
+    pub can_undo: bool,
+    pub can_redo: bool,
+    pub saving: bool,
+    pub save_written: u64,
+    pub save_total: u64,
 }
 
 /// ブロッキングの処理を `spawn_blocking` に逃がす（`rust.md` の非同期）。
@@ -768,10 +817,7 @@ pub async fn large_file_open(
     shell: ShellConfig,
     path: String,
 ) -> Result<LargeFileInfo, String> {
-    // WSL のファイルは `\\wsl.localhost\` の UNC を `std::fs` で読む。他の `fs` のように
-    // `wsl.exe` のコマンドで運ぶと、行を頼むたびにプロセスが立つ。
-    let path = PathBuf::from(host_visible_path(&shell, path));
-    let doc = blocking(move || open_doc(path)).await?;
+    let doc = blocking(move || open_doc(shell, path)).await?;
     let info = LargeFileInfo {
         id: uuid::Uuid::new_v4().to_string(),
         size: doc.state.read().map_err(|e| e.to_string())?.size,
@@ -786,7 +832,10 @@ pub async fn large_file_open(
 }
 
 /// ファイルを開いて文字コードを決め、索引のスレッドを立てる（`large_file_open` の中身）。
-fn open_doc(path: PathBuf) -> Result<Arc<LargeDoc>, String> {
+fn open_doc(shell: ShellConfig, native: String) -> Result<Arc<LargeDoc>, String> {
+    // WSL のファイルは `\\wsl.localhost\` の UNC を `std::fs` で読む。他の `fs` のように
+    // `wsl.exe` のコマンドで運ぶと、行を頼むたびにプロセスが立つ。
+    let path = PathBuf::from(host_visible_path(&shell, native.clone()));
     let mut file = File::open(&path).map_err(|e| e.to_string())?;
     let size = file.metadata().map_err(|e| e.to_string())?.len();
     let mut head = Vec::new();
@@ -796,7 +845,10 @@ fn open_doc(path: PathBuf) -> Result<Arc<LargeDoc>, String> {
         .map_err(|e| e.to_string())?;
     let doc = Arc::new(LargeDoc {
         path,
+        native,
+        shell,
         encoding: sniff_encoding(&head)?,
+        eol: eol_of(&head),
         state: RwLock::new(IndexState {
             index: LineIndex::new(),
             size,
@@ -809,25 +861,66 @@ fn open_doc(path: PathBuf) -> Result<Arc<LargeDoc>, String> {
         find_generation: AtomicU64::new(0),
         count_generation: AtomicU64::new(0),
         lines_file: Mutex::new(None),
+        history: Mutex::new(None),
+        saving: AtomicBool::new(false),
+        save_written: AtomicU64::new(0),
+        save_total: AtomicU64::new(0),
     });
     spawn_indexer(&doc, 1);
     Ok(doc)
 }
 
-/// 索引の進み具合。フロントは作り終えるまで間隔を置いて聞く。
+/// 先頭の行の改行（CRLF か LF）。改行が無ければ LF。
+fn eol_of(head: &[u8]) -> &'static [u8] {
+    match memchr::memchr(b'\n', head) {
+        Some(i) if i > 0 && head[i - 1] == b'\r' => b"\r\n",
+        _ => b"\n",
+    }
+}
+
+/// 今の文書のピースの並び。編集していなければ、索引を作り終えた範囲の行そのもの。
+fn doc_table(doc: &LargeDoc) -> Result<PieceTable, String> {
+    if let Some(h) = doc.history.lock().map_err(|e| e.to_string())?.as_ref() {
+        return Ok(h.current().clone());
+    }
+    let lines = doc.state.read().map_err(|e| e.to_string())?.index.lines();
+    Ok(PieceTable::pristine(lines))
+}
+
+/// 索引の進み具合と、編集・保存の状態。フロントは索引を作り終えるまで（保存のあいだも）間隔を
+/// 置いて聞く。
 #[tauri::command]
 pub fn large_file_status(
     state: State<'_, LargeFileState>,
     id: String,
 ) -> Result<LargeFileStatus, String> {
     let doc = state.get(&id)?;
+    doc_status(&doc)
+}
+
+fn doc_status(doc: &LargeDoc) -> Result<LargeFileStatus, String> {
+    // 進み具合の問い合わせのたびに走るので、ピースの並びを写さない。
+    let edited = doc
+        .history
+        .lock()
+        .map_err(|e| e.to_string())?
+        .as_ref()
+        .map(|h| (h.current().len(), h.dirty(), h.can_undo(), h.can_redo()));
     let s = doc.state.read().map_err(|e| e.to_string())?;
+    let (lines, dirty, can_undo, can_redo) =
+        edited.unwrap_or((s.index.lines(), false, false, false));
     Ok(LargeFileStatus {
-        lines: s.index.lines(),
+        lines,
         size: s.size,
         scanned: s.index.scanned,
         done: s.done,
         error: s.error.clone(),
+        dirty,
+        can_undo,
+        can_redo,
+        saving: doc.saving.load(Ordering::Relaxed),
+        save_written: doc.save_written.load(Ordering::Relaxed),
+        save_total: doc.save_total.load(Ordering::Relaxed),
     })
 }
 
@@ -843,8 +936,50 @@ pub async fn large_file_lines(
     blocking(move || doc_lines(&doc, start, count)).await
 }
 
-/// `large_file_lines` の中身。
+/// `large_file_lines` の中身。文書の行を、ピースごとに元のファイルか編集で入れた行から集める。
 fn doc_lines(doc: &LargeDoc, start: u64, count: u64) -> Result<LargeLines, String> {
+    let table = doc_table(doc)?;
+    let count = count.min(MAX_LINES_PER_CALL);
+    let mut out = LargeLines {
+        lines: Vec::new(),
+        cut: Vec::new(),
+    };
+    let Some((mut i, mut off)) = table.locate(start) else {
+        return Ok(out);
+    };
+    let pieces = table.pieces();
+    while (out.lines.len() as u64) < count && i < pieces.len() {
+        let want = (pieces[i].len() - off).min(count - out.lines.len() as u64);
+        match &pieces[i] {
+            Piece::Source { start: s, .. } => {
+                let (lines, cut) = read_source_lines(doc, s + off, want)?;
+                let read = lines.len() as u64;
+                let base = out.lines.len() as u32;
+                out.cut.extend(cut.into_iter().map(|c| base + c));
+                out.lines.extend(lines);
+                // 索引の外（作っている途中）か、ファイルが縮んだ。続きは無い。
+                if read < want {
+                    break;
+                }
+            }
+            added @ Piece::Added { .. } => {
+                let from = off as usize;
+                out.lines
+                    .extend_from_slice(&added.added()[from..from + want as usize]);
+            }
+        }
+        i += 1;
+        off = 0;
+    }
+    Ok(out)
+}
+
+/// 元のファイルの行 `start` から `count` 行。行を読むハンドルは使い回す（`lines_file`）。
+fn read_source_lines(
+    doc: &LargeDoc,
+    start: u64,
+    count: u64,
+) -> Result<(Vec<String>, Vec<u32>), String> {
     let located = doc
         .state
         .read()
@@ -852,34 +987,24 @@ fn doc_lines(doc: &LargeDoc, start: u64, count: u64) -> Result<LargeLines, Strin
         .index
         .locate(start);
     let Some((byte, skip)) = located else {
-        return Ok(LargeLines {
-            lines: Vec::new(),
-            cut: Vec::new(),
-        });
+        return Ok((Vec::new(), Vec::new()));
     };
     let mut slot = doc.lines_file.lock().map_err(|e| e.to_string())?;
     let file = match &mut *slot {
         Some(file) => file,
         empty => empty.insert(File::open(&doc.path).map_err(|e| e.to_string())?),
     };
-    let read = read_lines(
-        file,
-        doc.encoding,
-        byte,
-        skip,
-        count.min(MAX_LINES_PER_CALL),
-    );
+    let read = read_lines(file, doc.encoding, byte, skip, count);
     // 読めなかったハンドルは捨て、次は開き直す（ネットワーク越しの切断など）。
     if read.is_err() {
         *slot = None;
     }
-    let (lines, cut) = read.map_err(|e| e.to_string())?;
-    Ok(LargeLines { lines, cut })
+    read.map_err(|e| e.to_string())
 }
 
-/// 次（`backward` なら前）の一致を探す。起点は `from_byte`（前回の一致）か、無ければ `from_line`
-/// の行頭。末尾（先頭）まで無ければ反対の端から起点まで回り込む。次の `large_file_find` に
-/// 止められたら `CANCELLED` のエラーで返す。
+/// 次（`backward` なら前）の一致を探す。起点は文書の行 `from_line` の中の `from_byte`（前回の
+/// 一致の `byte` / `byte_end`。無ければ行頭）。末尾（先頭）まで無ければ反対の端から起点まで
+/// 回り込む。次の `large_file_find` に止められたら `CANCELLED` のエラーで返す。
 #[tauri::command]
 pub async fn large_file_find(
     state: State<'_, LargeFileState>,
@@ -896,49 +1021,273 @@ pub async fn large_file_find(
     }
     let generation = doc.find_generation.fetch_add(1, Ordering::Relaxed) + 1;
     blocking(move || {
-        // 索引は写しを持つ（1GB のログで約 1MB）。読み取りのロックを検索のあいだ握ると、外部変更の
-        // `large_file_refresh` が書き込みのロックを待ち、その後ろで行の読み込みまで止まる。
-        // **探すのは索引を作り終えた範囲**（`scanned`）。その外の一致は行に直せない。書き足され
-        // 続けるログでは追記のたびに索引の続きを作るので、作り終えるのを待つと検索が効かない。
+        let matcher = build_matcher(&query, case_sensitive, doc.encoding)?;
+        let cancelled = || doc.find_generation.load(Ordering::Relaxed) != generation;
+        search_doc(
+            &doc,
+            &matcher,
+            (from_line, from_byte.unwrap_or(0)),
+            backward,
+            &cancelled,
+        )
+    })
+    .await
+}
+
+/// 文書の上の位置。行と、その行の中のバイト（`LargeMatch::byte` と同じ単位）。
+type Pos = (u64, u64);
+
+/// 検索に使う文書の写し。
+///
+/// **索引は写しを持つ**（1GB のログで約 1MB）。読み取りのロックを検索のあいだ握ると、外部変更の
+/// `large_file_refresh` が書き込みのロックを待ち、その後ろで行の読み込みまで止まる。**探すのは
+/// 索引を作り終えた範囲**（`scanned`）。その外の一致は行に直せない。書き足され続けるログでは
+/// 追記のたびに索引の続きを作るので、作り終えるのを待つと検索が効かない。
+///
+/// 一致はピースをまたがない（問い合わせは改行を含まず、ピースは行の単位）ので、ピースごとに探す。
+struct SearchView<'a> {
+    index: LineIndex,
+    size: u64,
+    table: PieceTable,
+    starts: Vec<u64>,
+    file: File,
+    matcher: &'a Matcher,
+    encoding: &'static Encoding,
+}
+
+impl<'a> SearchView<'a> {
+    fn open(doc: &LargeDoc, matcher: &'a Matcher) -> Result<Self, String> {
+        let table = doc_table(doc)?;
         let (index, size) = {
             let s = doc.state.read().map_err(|e| e.to_string())?;
             (s.index.clone(), s.index.scanned)
         };
-        let matcher = build_matcher(&query, case_sensitive, doc.encoding)?;
-        let mut file = File::open(&doc.path).map_err(|e| e.to_string())?;
-        let from = match from_byte {
-            Some(b) => b.min(size),
-            None => line_start_byte(&mut file, &index, from_line)
-                .map_err(|e| e.to_string())?
-                .unwrap_or(0),
-        };
-        let cancelled = || doc.find_generation.load(Ordering::Relaxed) != generation;
-        // 起点から端まで探し、無ければ反対の端から起点まで回り込む。
-        let (search, first, wrap): (FindFn<File>, _, _) = if backward {
-            (find_backward, (0, from), (from, size))
-        } else {
-            (find_forward, (from, size), (0, from))
-        };
-        let found = match search(&mut file, &matcher, first.0, first.1, size, &cancelled) {
-            Ok(None) if !cancelled() => {
-                search(&mut file, &matcher, wrap.0, wrap.1, size, &cancelled)
+        Ok(Self {
+            starts: table.starts(),
+            table,
+            index,
+            size,
+            file: File::open(&doc.path).map_err(|e| e.to_string())?,
+            matcher,
+            encoding: doc.encoding,
+        })
+    }
+
+    fn src_byte(&mut self, line: u64) -> std::io::Result<u64> {
+        src_line_byte(&mut self.file, &self.index, self.size, line)
+    }
+
+    /// ピース `i` の中の `[lo, hi)`（ピースの中の行とバイト）から始まる、最初（`backward` なら
+    /// 最後）の一致。
+    fn find_in_piece(
+        &mut self,
+        i: usize,
+        lo: Pos,
+        hi: Pos,
+        backward: bool,
+        cancelled: Cancelled,
+    ) -> std::io::Result<Option<LargeMatch>> {
+        let piece = self.table.pieces()[i].clone();
+        let doc_start = self.starts[i];
+        match piece {
+            Piece::Source { start, count } => {
+                let lo_abs = self.src_byte(start + lo.0)? + lo.1;
+                let hi_abs = if hi.0 >= count {
+                    self.src_byte(start + count)?
+                } else {
+                    self.src_byte(start + hi.0)? + hi.1
+                };
+                if lo_abs >= hi_abs {
+                    return Ok(None);
+                }
+                let search: FindFn<File> = if backward {
+                    find_backward
+                } else {
+                    find_forward
+                };
+                let found = search(
+                    &mut self.file,
+                    self.matcher,
+                    lo_abs,
+                    hi_abs,
+                    self.size,
+                    cancelled,
+                )?;
+                let Some((a, b)) = found else {
+                    return Ok(None);
+                };
+                let mut m = locate_match(&mut self.file, &self.index, self.encoding, a, b)?;
+                m.line = doc_start + (m.line - start);
+                Ok(Some(m))
             }
-            other => other,
+            added @ Piece::Added { .. } => Ok(find_in_added(
+                added.added(),
+                &self.matcher.text,
+                doc_start,
+                lo,
+                hi,
+                backward,
+            )),
         }
-        .map_err(|e| e.to_string())?;
-        // 止められた検索は「見つからない」と区別して返す（後から届いた古い結果で、新しい一致を
-        // 消さないように）。
-        if found.is_none() && cancelled() {
+    }
+
+    /// ピース `i` の一致の数（`limit` で打ち切る）。止められたら `None`。
+    fn count_in_piece(
+        &mut self,
+        i: usize,
+        limit: u64,
+        cancelled: Cancelled,
+    ) -> std::io::Result<Option<u64>> {
+        match self.table.pieces()[i].clone() {
+            Piece::Source { start, count } => {
+                let lo = self.src_byte(start)?;
+                let hi = self.src_byte(start + count)?;
+                count_matches(&mut self.file, self.matcher, lo, hi, limit, cancelled)
+            }
+            added @ Piece::Added { .. } => Ok(Some(
+                added
+                    .added()
+                    .iter()
+                    .map(|l| self.matcher.text.find_iter(l).count() as u64)
+                    .sum::<u64>()
+                    .min(limit),
+            )),
+        }
+    }
+}
+
+/// 編集で入れた行の中の一致。範囲はピースの中の `[lo, hi)`（行と、その行の UTF-8 のバイト）。
+fn find_in_added(
+    lines: &[String],
+    re: &regex::Regex,
+    doc_start: u64,
+    lo: Pos,
+    hi: Pos,
+    backward: bool,
+) -> Option<LargeMatch> {
+    // 入れた行のピースは空にしない（`Piece::Added`）。
+    let last = (hi.0 as usize).min(lines.len() - 1);
+    let region = |k: usize| -> (usize, usize) {
+        let text = &lines[k];
+        let from = if k as u64 == lo.0 { lo.1 as usize } else { 0 };
+        let to = if k as u64 == hi.0 {
+            hi.1 as usize
+        } else {
+            text.len()
+        };
+        (from.min(text.len()), to.min(text.len()))
+    };
+    let to_match = |k: usize, m: regex::Match| -> LargeMatch {
+        let text = &lines[k];
+        LargeMatch {
+            line: doc_start + k as u64,
+            col: text[..m.start()].encode_utf16().count() as u64,
+            len: m.as_str().encode_utf16().count() as u64,
+            byte: m.start() as u64,
+            byte_end: m.end() as u64,
+        }
+    };
+    let ks: Box<dyn Iterator<Item = usize>> = if backward {
+        Box::new((lo.0 as usize..=last).rev())
+    } else {
+        Box::new(lo.0 as usize..=last)
+    };
+    for k in ks {
+        let (from, to) = region(k);
+        let text = &lines[k];
+        let m = if backward {
+            re.find_iter(text)
+                .filter(|m| m.start() >= from && m.start() < to)
+                .last()
+        } else {
+            // 起点が文字の途中なら、次の文字の境目から探す。
+            let from = (from..=text.len())
+                .find(|&i| text.is_char_boundary(i))
+                .unwrap_or(text.len());
+            re.find_at(text, from).filter(|m| m.start() < to)
+        };
+        if let Some(m) = m {
+            return Some(to_match(k, m));
+        }
+    }
+    None
+}
+
+/// 起点から文書の端まで探し、無ければ反対の端から起点まで回り込む（`large_file_find` の中身）。
+/// 止められた検索は「見つからない」と区別して `CANCELLED` のエラーで返す（後から届いた古い結果で、
+/// 新しい一致を消さないように）。
+fn search_doc(
+    doc: &LargeDoc,
+    matcher: &Matcher,
+    from: Pos,
+    backward: bool,
+    cancelled: Cancelled,
+) -> Result<Option<LargeMatch>, String> {
+    let mut view = SearchView::open(doc, matcher)?;
+    let n = view.table.pieces().len();
+    let (si, start) = match view.table.locate(from.0) {
+        Some((i, off)) => (i, (off, from.1)),
+        None => (0, (0, 0)),
+    };
+    let end_of = |view: &SearchView, i: usize| (view.table.pieces()[i].len(), 0);
+    let mut passes = Vec::new();
+    if backward {
+        for i in (0..=si).rev() {
+            let hi = if i == si { start } else { end_of(&view, i) };
+            passes.push((i, (0, 0), hi));
+        }
+        for i in (si..n).rev() {
+            let lo = if i == si { start } else { (0, 0) };
+            passes.push((i, lo, end_of(&view, i)));
+        }
+    } else {
+        for i in si..n {
+            let lo = if i == si { start } else { (0, 0) };
+            passes.push((i, lo, end_of(&view, i)));
+        }
+        for i in 0..=si {
+            let hi = if i == si { start } else { end_of(&view, i) };
+            passes.push((i, (0, 0), hi));
+        }
+    }
+    for (i, lo, hi) in passes {
+        if cancelled() {
             return Err(CANCELLED.into());
         }
-        match found {
-            Some((start, end)) => locate_match(&mut file, &index, doc.encoding, start, end)
-                .map(Some)
-                .map_err(|e| e.to_string()),
-            None => Ok(None),
+        let found = view
+            .find_in_piece(i, lo, hi, backward, cancelled)
+            .map_err(|e| e.to_string())?;
+        if found.is_some() {
+            return Ok(found);
         }
-    })
-    .await
+    }
+    if cancelled() {
+        return Err(CANCELLED.into());
+    }
+    Ok(None)
+}
+
+/// 文書の一致の数（`MAX_COUNT` で打ち切る）。止められたら `None`（`large_file_count` の中身）。
+fn count_doc(
+    doc: &LargeDoc,
+    matcher: &Matcher,
+    cancelled: Cancelled,
+) -> Result<Option<(u64, bool)>, String> {
+    let mut view = SearchView::open(doc, matcher)?;
+    let mut total = 0;
+    for i in 0..view.table.pieces().len() {
+        let Some(n) = view
+            .count_in_piece(i, MAX_COUNT - total, cancelled)
+            .map_err(|e| e.to_string())?
+        else {
+            return Ok(None);
+        };
+        total += n;
+        if total >= MAX_COUNT {
+            return Ok(Some((MAX_COUNT, true)));
+        }
+    }
+    Ok(Some((total, false)))
 }
 
 #[derive(Serialize)]
@@ -965,14 +1314,11 @@ pub async fn large_file_count(
     }
     let generation = doc.count_generation.fetch_add(1, Ordering::Relaxed) + 1;
     blocking(move || {
-        // 数えるのも索引を作り終えた範囲（`large_file_find` と同じ）。作っている途中なら途中までの
-        // 数で、フロントは作り終えてから数え直す。
-        let size = doc.state.read().map_err(|e| e.to_string())?.index.scanned;
+        // 数えるのも索引を作り終えた範囲（`SearchView`）。作っている途中なら途中までの数で、
+        // フロントは作り終えてから数え直す。
         let matcher = build_matcher(&query, case_sensitive, doc.encoding)?;
-        let mut file = File::open(&doc.path).map_err(|e| e.to_string())?;
         let cancelled = || doc.count_generation.load(Ordering::Relaxed) != generation;
-        let counted =
-            count_matches(&mut file, &matcher, size, &cancelled).map_err(|e| e.to_string())?;
+        let counted = count_doc(&doc, &matcher, &cancelled)?;
         Ok(counted.map(|(count, truncated)| LargeCount { count, truncated }))
     })
     .await
@@ -1001,8 +1347,25 @@ pub async fn large_file_refresh(
     blocking(move || refresh_doc(&doc)).await
 }
 
-/// `large_file_refresh` の中身。
+/// `large_file_refresh` の中身。**編集は捨てる**: フロントがこれを呼ぶのは、未保存の変更が無い
+/// とき（外部変更の自動の読み直し）か、変更を捨てると確かめたあと（「再読み込み」）だけ
+/// （`EditorTab` の外部変更の扱い。`editor.md` の「保存の責任」）。**編集を捨てたら、ファイルの
+/// 変わり方に関わらず `Reset` を返す**（フロントは読んだ行を全部捨てて読み直す。追記の
+/// `Appended` では末尾のブロックしか捨てないので、編集した行が画面に残る）。
 fn refresh_doc(doc: &Arc<LargeDoc>) -> Result<RefreshKind, String> {
+    let discarded = {
+        let mut history = doc.history.lock().map_err(|e| e.to_string())?;
+        // 保存と重ならないよう、`saving` は履歴のロックの中で見る（`save_doc`）。
+        if doc.saving.load(Ordering::Relaxed) {
+            return Ok(RefreshKind::Unchanged);
+        }
+        history.take().is_some()
+    };
+    let kind = reindex_if_changed(doc)?;
+    Ok(if discarded { RefreshKind::Reset } else { kind })
+}
+
+fn reindex_if_changed(doc: &Arc<LargeDoc>) -> Result<RefreshKind, String> {
     let mut file = File::open(&doc.path).map_err(|e| e.to_string())?;
     let meta = file.metadata().map_err(|e| e.to_string())?;
     let new_size = meta.len();
@@ -1029,23 +1392,363 @@ fn refresh_doc(doc: &Arc<LargeDoc>) -> Result<RefreshKind, String> {
             return Ok(kind);
         }
         if kind == RefreshKind::Reset {
-            s.index = LineIndex::new();
+            s.reset(new_size);
+        } else {
+            s.size = new_size;
+            s.done = false;
+            s.error = None;
         }
-        s.size = new_size;
-        s.done = false;
-        s.error = None;
         (kind, doc.generation.fetch_add(1, Ordering::Relaxed) + 1)
     };
-    // **追記でも行を読むハンドルは開き直す。** 古い中身に書き足した一時ファイルを rename で
-    // 差し替える書き方は、末尾が同じなので追記に見える。索引と検索はパスで開き直すので新しい
-    // ファイルを読むが、持っているハンドルは古いファイルを指したままになる。状態のロックを
-    // 放してから捨てる（行を読んでいるあいだ `lines_file` は握られていて、待つと進み具合の
-    // 問い合わせまで止まる）。
+    restart_indexer(doc, generation);
+    Ok(kind)
+}
+
+impl IndexState {
+    /// 索引を最初から作り直す状態にする（書き換えを拾ったときと、保存のあと）。
+    fn reset(&mut self, size: u64) {
+        *self = IndexState {
+            index: LineIndex::new(),
+            size,
+            done: false,
+            error: None,
+            mtime: None,
+            tail: Vec::new(),
+        };
+    }
+}
+
+/// 状態を書き換えたロック（`generation` はその中で進めた値）を放したあと、索引のスレッドを立てる。
+///
+/// **行を読むハンドルは毎回開き直す**（追記でも）。古い中身に書き足した一時ファイルを rename で
+/// 差し替える書き方は、末尾が同じなので追記に見える。索引と検索はパスで開き直すので新しい
+/// ファイルを読むが、持っているハンドルは古いファイルを指したままになる。状態のロックを
+/// 放してから捨てる（行を読んでいるあいだ `lines_file` は握られていて、待つと進み具合の
+/// 問い合わせまで止まる）。
+fn restart_indexer(doc: &Arc<LargeDoc>, generation: u64) {
     if let Ok(mut slot) = doc.lines_file.lock() {
         *slot = None;
     }
     spawn_indexer(doc, generation);
-    Ok(kind)
+}
+
+/// 索引を作り終えるまでと、保存のあいだは編集できない。
+const NOT_EDITABLE: &str = "The file cannot be edited until indexing finishes";
+const SAVING: &str = "The file is being saved";
+
+/// 編集の履歴を触る（編集・取り消し・やり直し）。編集できる状態かを確かめ、最初の編集の前に
+/// 今の行数で履歴を作り直す（`LargeDoc::history` の doc）。
+///
+/// **`saving` は履歴のロックを握ったまま見る。** `save_doc` も同じロックの中で `saving` を立てて
+/// 文書を写すので、保存が写したあとに編集が入って、ファイルにも履歴にも残らないことが無い。
+fn with_history(doc: &LargeDoc, f: impl FnOnce(&mut History)) -> Result<LargeFileStatus, String> {
+    {
+        let mut history = doc.history.lock().map_err(|e| e.to_string())?;
+        if doc.saving.load(Ordering::SeqCst) {
+            return Err(SAVING.into());
+        }
+        let lines = {
+            let s = doc.state.read().map_err(|e| e.to_string())?;
+            if !s.done {
+                return Err(NOT_EDITABLE.into());
+            }
+            s.index.lines()
+        };
+        f(history.get_or_insert_with(|| History::new(lines)));
+    }
+    doc_status(doc)
+}
+
+/// 文書の行 `start` から `delete` 行を `insert` の行で置き換える。
+#[tauri::command]
+pub async fn large_file_edit(
+    state: State<'_, LargeFileState>,
+    id: String,
+    start: u64,
+    delete: u64,
+    insert: Vec<String>,
+) -> Result<LargeFileStatus, String> {
+    let doc = state.get(&id)?;
+    // 貼り付けた行の大きさに上限は無いので、メインスレッドで動かさない（`rust.md` の基本方針）。
+    blocking(move || with_history(&doc, |h| h.edit(start, delete, insert))).await
+}
+
+#[tauri::command]
+pub async fn large_file_undo(
+    state: State<'_, LargeFileState>,
+    id: String,
+) -> Result<LargeFileStatus, String> {
+    let doc = state.get(&id)?;
+    blocking(move || with_history(&doc, History::undo)).await
+}
+
+#[tauri::command]
+pub async fn large_file_redo(
+    state: State<'_, LargeFileState>,
+    id: String,
+) -> Result<LargeFileStatus, String> {
+    let doc = state.get(&id)?;
+    blocking(move || with_history(&doc, History::redo)).await
+}
+
+/// 保存できないときのエラー。開いたあとにファイルが（末尾への追記ではなく）書き換えられた。
+/// 元の行はファイルから読むので、書き換えられたあとに書き出すと、別の中身が混ざる。
+const SOURCE_CHANGED: &str =
+    "The file was changed outside Pike after it was opened. Reload it before saving.";
+
+/// 保存できないときのエラー。書き換えた行に、ファイルの文字コードで表せない文字がある。
+const UNMAPPABLE: &str =
+    "An edited line has characters that cannot be written in the file's encoding.";
+
+/// 保存する。一時ファイルへ書き出してから置き換える。置き換えたファイルの索引は書きながら作る。
+#[tauri::command]
+pub async fn large_file_save(state: State<'_, LargeFileState>, id: String) -> Result<(), String> {
+    let doc = state.get(&id)?;
+    blocking(move || save_doc(&doc)).await
+}
+
+/// `large_file_save` の中身。
+///
+/// - **書き出す前に、元のファイルが開いたとき（索引を作ったとき）のままかを確かめる**。元の行は
+///   保存のときにファイルから写すので、書き換えられていたら別の中身が混ざる。末尾への追記なら
+///   元の行はそのままなので保存できる（追記された部分は文書に入っていないので、書き出すと消える。
+///   外部変更の警告の「上書き」と同じ意味になる）
+/// - **一時ファイルに書いてから rename で置き換える**（途中で落ちても書きかけのファイルが残らない）。
+///   symlink はリンク先へ書き、元の権限を写す。ホストのファイルは `replace_host_atomic`、WSL の
+///   ファイルは `replace_in_wsl`（UNC 越しの `std::fs` では WSL の symlink を辿れず、mode も写せない）
+/// - 元のファイルの行は改行ごとバイトのまま写す（改行コードも文字コードも変えない）。編集で入れた
+///   行は開いたときの文字コードと改行（`eol`）で書く。その文字コードで表せない文字があれば断る
+///   （`UNMAPPABLE`。encoding_rs は `&#NNNN;` に置き換えて書く）
+/// - **置き換えたファイルの索引は、書きながら作る**（`IndexingWriter`）。読み直すと、1GB を書いた
+///   あとに同じ 1GB をもう一度読むことになり、そのあいだ編集もできない
+/// - **`saving` は履歴のロックの中で立て、同じロックの中で文書を写す**（`with_history` の doc）
+fn save_doc(doc: &Arc<LargeDoc>) -> Result<(), String> {
+    let table = {
+        let history = doc.history.lock().map_err(|e| e.to_string())?;
+        if doc.saving.swap(true, Ordering::SeqCst) {
+            return Err(SAVING.into());
+        }
+        history.as_ref().map(|h| h.current().clone())
+    };
+    let result = write_doc(doc, table);
+    if let Ok(written) = &result {
+        // 置き換えたファイルが新しい文書。元のファイルの行の位置と編集の履歴はもう使えない。
+        if let Ok(mut history) = doc.history.lock() {
+            *history = None;
+        }
+        let mtime = std::fs::metadata(&doc.path)
+            .ok()
+            .and_then(|m| m.modified().ok());
+        if let Ok(mut s) = doc.state.write() {
+            // 走っている索引のスレッドは無い（索引を作り終えてから保存する）が、念のため止める。
+            doc.generation.fetch_add(1, Ordering::Relaxed);
+            *s = IndexState {
+                index: written.index.clone(),
+                size: written.index.scanned,
+                done: true,
+                error: None,
+                mtime,
+                tail: written.tail.clone(),
+            };
+        }
+        if let Ok(mut slot) = doc.lines_file.lock() {
+            *slot = None;
+        }
+    }
+    doc.saving.store(false, Ordering::SeqCst);
+    result.map(|_| ())
+}
+
+/// 書き出したファイルの索引と末尾（`IndexingWriter` が書きながら作る）。
+struct Written {
+    index: LineIndex,
+    tail: Vec<u8>,
+}
+
+/// 書き出す。`table` は保存を始めたときの文書（`None` なら編集していない＝元のファイルそのもの）。
+fn write_doc(doc: &LargeDoc, table: Option<PieceTable>) -> Result<Written, String> {
+    let (index, size, tail) = {
+        let s = doc.state.read().map_err(|e| e.to_string())?;
+        if !s.done {
+            return Err(NOT_EDITABLE.into());
+        }
+        (s.index.clone(), s.size, s.tail.clone())
+    };
+    let table = table.unwrap_or_else(|| PieceTable::pristine(index.lines()));
+    let mut src = File::open(&doc.path).map_err(|e| e.to_string())?;
+    let now = src.metadata().map_err(|e| e.to_string())?.len();
+    if now < size || read_tail(&mut src, size).map_err(|e| e.to_string())? != tail {
+        return Err(SOURCE_CHANGED.into());
+    }
+    let write = |tmp: &std::path::Path| write_pieces(doc, &table, &index, size, &mut src, tmp);
+    match doc.shell {
+        ShellConfig::Wsl { .. } => replace_in_wsl(doc, write),
+        _ => super::replace_host_atomic(&doc.path, write),
+    }
+}
+
+/// WSL のファイルを置き換える。一時ファイルは UNC 越しに隣へ書き、置き換えは distro の中で行う
+/// （`readlink -f` でリンク先を求め、`chmod --reference` で mode を写してから `mv`）。手順は
+/// `write_bytes_atomic` の WSL の腕と同じ。
+fn replace_in_wsl<T>(
+    doc: &LargeDoc,
+    write: impl FnOnce(&std::path::Path) -> std::io::Result<T>,
+) -> Result<T, String> {
+    let tmp_native = format!("{}.pike-{}.tmp", doc.native, std::process::id());
+    let tmp_host = PathBuf::from(host_visible_path(&doc.shell, tmp_native.clone()));
+    let written = write(&tmp_host).map_err(|e| e.to_string());
+    let moved = written.and_then(|value| {
+        let p = crate::types::bash_quote(&doc.native);
+        let t = crate::types::bash_quote(&tmp_native);
+        let script = format!(
+            "set -e; d=$(readlink -f -- {p} 2>/dev/null) || d={p}; \
+             [ -e \"$d\" ] && chmod --reference=\"$d\" -- {t} 2>/dev/null || :; \
+             mv -f -- {t} \"$d\""
+        );
+        match doc.shell.run("bash", &["-c", &script])? {
+            (0, _, _) => Ok(value),
+            (_, _, stderr) => Err(format!("Failed to replace the file: {stderr}")),
+        }
+    });
+    if moved.is_err() {
+        let _ = std::fs::remove_file(&tmp_host);
+    }
+    moved
+}
+
+/// 書いたバイトから、新しいファイルの索引と末尾を作りながら書く。
+struct IndexingWriter {
+    out: std::io::BufWriter<File>,
+    index: LineIndex,
+    tail: Vec<u8>,
+}
+
+impl IndexingWriter {
+    fn write_all(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        use std::io::Write;
+        self.out.write_all(bytes)?;
+        self.index.feed(bytes);
+        self.tail.extend_from_slice(bytes);
+        let keep = TAIL_LEN as usize;
+        if self.tail.len() > keep * 2 {
+            self.tail.drain(..self.tail.len() - keep);
+        }
+        Ok(())
+    }
+
+    /// 書き切ってディスクへ流し、索引と末尾を返す。
+    fn finish(self) -> std::io::Result<Written> {
+        let IndexingWriter {
+            out,
+            index,
+            mut tail,
+        } = self;
+        out.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+        let keep = TAIL_LEN as usize;
+        if tail.len() > keep {
+            tail.drain(..tail.len() - keep);
+        }
+        Ok(Written { index, tail })
+    }
+}
+
+/// ピースの並びを `tmp` へ書き出す。行と行のあいだにだけ改行を置く（文書の最後の行の後ろには
+/// 置かない。元のファイルが改行で終わっていれば、最後の行は空の行として文書に入っている）。
+fn write_pieces(
+    doc: &LargeDoc,
+    table: &PieceTable,
+    index: &LineIndex,
+    size: u64,
+    src: &mut File,
+    tmp: &std::path::Path,
+) -> std::io::Result<Written> {
+    let src_lines = index.lines();
+    // 元の行の範囲（バイト）を先に求める。進み具合の分母にも書き出しにも使う。編集で入れた行は
+    // 文字数で見積もる。
+    let mut ranges = Vec::with_capacity(table.pieces().len());
+    let mut total = 0u64;
+    for p in table.pieces() {
+        let range = match p {
+            Piece::Source { start, count } => {
+                let a = src_line_byte(&mut *src, index, size, *start)?;
+                let b = src_line_byte(&mut *src, index, size, start + count)?;
+                total += b - a;
+                (a, b)
+            }
+            added @ Piece::Added { .. } => {
+                total += added
+                    .added()
+                    .iter()
+                    .map(|l| l.len() as u64 + 2)
+                    .sum::<u64>();
+                (0, 0)
+            }
+        };
+        ranges.push(range);
+    }
+    doc.save_total.store(total, Ordering::Relaxed);
+    doc.save_written.store(0, Ordering::Relaxed);
+    let mut out = IndexingWriter {
+        out: std::io::BufWriter::with_capacity(INDEX_BUF, File::create(tmp)?),
+        index: LineIndex::new(),
+        tail: Vec::new(),
+    };
+    let mut buf = vec![0u8; INDEX_BUF];
+    let last = table.pieces().len().saturating_sub(1);
+    // 直前に書いたものが改行で終わっていないか（次の行の前に改行が要るか）。
+    let mut need_eol = false;
+    for (i, (p, &(a, mut b))) in table.pieces().iter().zip(&ranges).enumerate() {
+        if need_eol {
+            out.write_all(doc.eol)?;
+        }
+        match p {
+            Piece::Source { start, count } => {
+                // 元のファイルの最後の行を含まない範囲は、最後の行の改行まで含む。
+                let ends_with_eol = start + count < src_lines;
+                if ends_with_eol && i == last {
+                    b -= eol_len_before(src, b)?;
+                }
+                src.seek(SeekFrom::Start(a))?;
+                let mut reader = Read::by_ref(src).take(b - a);
+                loop {
+                    let n = reader.read(&mut buf)?;
+                    if n == 0 {
+                        break;
+                    }
+                    out.write_all(&buf[..n])?;
+                    doc.save_written.fetch_add(n as u64, Ordering::Relaxed);
+                }
+                need_eol = !ends_with_eol;
+            }
+            added @ Piece::Added { .. } => {
+                for (k, line) in added.added().iter().enumerate() {
+                    if k > 0 {
+                        out.write_all(doc.eol)?;
+                    }
+                    let (bytes, _, unmappable) = doc.encoding.encode(line);
+                    if unmappable {
+                        return Err(std::io::Error::other(UNMAPPABLE));
+                    }
+                    out.write_all(&bytes)?;
+                    doc.save_written
+                        .fetch_add(line.len() as u64 + 2, Ordering::Relaxed);
+                }
+                need_eol = true;
+            }
+        }
+    }
+    out.finish()
+}
+
+/// `end` の直前の改行のバイト数（CRLF なら 2）。
+fn eol_len_before(src: &mut File, end: u64) -> std::io::Result<u64> {
+    if end < 2 {
+        return Ok(end.min(1));
+    }
+    src.seek(SeekFrom::Start(end - 2))?;
+    let mut two = [0u8; 2];
+    src.read_exact(&mut two)?;
+    Ok(if &two == b"\r\n" { 2 } else { 1 })
 }
 
 /// 閉じる。索引のスレッドと検索も止める。
@@ -1169,6 +1872,19 @@ mod tests {
         false
     }
 
+    /// ファイル全体の一致の数。
+    fn count_all<R: Read + Seek>(
+        source: &mut R,
+        matcher: &Matcher,
+        size: u64,
+        cancelled: Cancelled,
+    ) -> std::io::Result<Option<(u64, bool)>> {
+        Ok(
+            count_matches(source, matcher, 0, size, MAX_COUNT, cancelled)?
+                .map(|n| (n, n >= MAX_COUNT)),
+        )
+    }
+
     #[test]
     fn find_wraps_and_maps_to_line_and_utf16_column() {
         let text = format!("{}xx 😀 Needle\n{}", numbered(200), numbered(10));
@@ -1223,7 +1939,7 @@ mod tests {
         let re = build_matcher("needle", true, encoding_rs::UTF_8).unwrap();
         let mut cur = Cursor::new(&bytes[..]);
         assert_eq!(
-            count_matches(&mut cur, &re, size, &never).unwrap(),
+            count_all(&mut cur, &re, size, &never).unwrap(),
             Some((2, false))
         );
         let first = (SEARCH_BUF as u64 - 3, SEARCH_BUF as u64 + 3);
@@ -1259,12 +1975,12 @@ mod tests {
         let mut cur = Cursor::new(bytes.as_ref());
         let backslash = build_matcher("\\", true, encoding_rs::SHIFT_JIS).unwrap();
         assert_eq!(
-            count_matches(&mut cur, &backslash, size, &never).unwrap(),
+            count_all(&mut cur, &backslash, size, &never).unwrap(),
             Some((1, false))
         );
         let a = build_matcher("a", false, encoding_rs::SHIFT_JIS).unwrap();
         assert_eq!(
-            count_matches(&mut cur, &a, size, &never).unwrap(),
+            count_all(&mut cur, &a, size, &never).unwrap(),
             Some((1, false))
         );
         // 大文字小文字を畳んでも、「ア」が別のカタカナ（0x83 0x61）に当たらない。
@@ -1274,7 +1990,7 @@ mod tests {
         let ka = build_matcher("ア", false, encoding_rs::SHIFT_JIS).unwrap();
         let n = swapped.len() as u64;
         assert_eq!(
-            count_matches(&mut Cursor::new(&swapped[..]), &ka, n, &never).unwrap(),
+            count_all(&mut Cursor::new(&swapped[..]), &ka, n, &never).unwrap(),
             Some((0, false))
         );
     }
@@ -1288,7 +2004,7 @@ mod tests {
         let mut cur = Cursor::new(bytes.as_ref());
         let aa = build_matcher("AA", true, encoding_rs::SHIFT_JIS).unwrap();
         assert_eq!(
-            count_matches(&mut cur, &aa, size, &never).unwrap(),
+            count_all(&mut cur, &aa, size, &never).unwrap(),
             Some((1, false))
         );
         assert_eq!(
@@ -1309,7 +2025,7 @@ mod tests {
         let a = build_matcher("A", true, encoding_rs::SHIFT_JIS).unwrap();
         let mut cur = Cursor::new(&bytes[..]);
         assert_eq!(
-            count_matches(&mut cur, &a, size, &never).unwrap(),
+            count_all(&mut cur, &a, size, &never).unwrap(),
             Some((0, false))
         );
         assert_eq!(
@@ -1330,7 +2046,7 @@ mod tests {
         let size = bytes.len() as u64;
         let aba = build_matcher("aba", true, encoding_rs::UTF_8).unwrap();
         assert_eq!(
-            count_matches(&mut Cursor::new(&bytes[..]), &aba, size, &never).unwrap(),
+            count_all(&mut Cursor::new(&bytes[..]), &aba, size, &never).unwrap(),
             Some((1, false))
         );
     }
@@ -1343,13 +2059,210 @@ mod tests {
         }
     }
 
+    /// 一時ディレクトリに `bytes` のファイルを作って開き、索引を作り終えるまで待つ。
+    fn open_temp(bytes: &[u8]) -> (Arc<LargeDoc>, PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("pike-large-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("log.txt");
+        std::fs::write(&path, bytes).unwrap();
+        let doc = open_doc(
+            ShellConfig::host_default(),
+            path.to_string_lossy().into_owned(),
+        )
+        .unwrap();
+        wait_indexed(&doc);
+        (doc, path, dir)
+    }
+
+    fn strings(lines: &[&str]) -> Vec<String> {
+        lines.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    fn find(doc: &LargeDoc, q: &str, from: Pos, backward: bool) -> Option<(u64, u64, u64)> {
+        let m = build_matcher(q, true, doc.encoding).unwrap();
+        search_doc(doc, &m, from, backward, &never)
+            .unwrap()
+            .map(|m| (m.line, m.col, m.byte_end))
+    }
+
+    #[test]
+    fn edits_read_search_and_save_through_the_piece_table() {
+        let (doc, path, dir) = open_temp(b"l0\nl1\nl2\nl3\n");
+        let status = with_history(&doc, |h| h.edit(1, 1, strings(&["X", "Y"]))).unwrap();
+        assert!(status.dirty && status.can_undo);
+        assert_eq!(status.lines, 6);
+        assert_eq!(
+            doc_lines(&doc, 0, 10).unwrap().lines,
+            vec!["l0", "X", "Y", "l2", "l3", ""]
+        );
+        // 行番号は編集のあとの文書の行。元の行と入れた行の両方を探す。
+        assert_eq!(find(&doc, "l3", (0, 0), false), Some((4, 0, 2)));
+        assert_eq!(find(&doc, "Y", (0, 0), false), Some((2, 0, 1)));
+        // 回り込み。
+        assert_eq!(find(&doc, "X", (3, 0), false), Some((1, 0, 1)));
+        assert_eq!(find(&doc, "l2", (2, 0), true), Some((3, 0, 2)));
+        let m = build_matcher("l", true, doc.encoding).unwrap();
+        assert_eq!(count_doc(&doc, &m, &never).unwrap(), Some((3, false)));
+
+        save_doc(&doc).unwrap();
+        let saved = std::fs::read(&path).unwrap();
+        assert_eq!(saved, b"l0\nX\nY\nl2\nl3\n");
+        // 書きながら作った索引は、書いたファイルを読み直して作る索引と同じ。
+        {
+            let s = doc.state.read().unwrap();
+            assert!(s.done);
+            let fresh = index_of(&saved, 3);
+            assert_eq!(s.index.checkpoints, fresh.checkpoints);
+            assert_eq!(s.index.lines(), fresh.lines());
+            assert_eq!(s.size, saved.len() as u64);
+            assert_eq!(s.tail, saved);
+        }
+        // 保存したあとの外部変更の見極めも効く（変わっていなければ何もしない）。
+        assert_eq!(refresh_doc(&doc).unwrap(), RefreshKind::Unchanged);
+        let status = doc_status(&doc).unwrap();
+        assert!(!status.dirty && !status.can_undo);
+        assert_eq!(
+            doc_lines(&doc, 0, 10).unwrap().lines,
+            vec!["l0", "X", "Y", "l2", "l3", ""]
+        );
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_keeps_crlf_and_the_missing_final_newline() {
+        let (doc, path, dir) = open_temp(b"a\r\nb\r\nc");
+        with_history(&doc, |h| h.edit(1, 1, strings(&["B"]))).unwrap();
+        save_doc(&doc).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"a\r\nB\r\nc");
+        wait_indexed(&doc);
+        // 最後の行を消すと、手前の行の改行も残らない。
+        with_history(&doc, |h| h.edit(2, 1, Vec::new())).unwrap();
+        save_doc(&doc).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"a\r\nB");
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn added_lines_are_written_in_the_file_encoding() {
+        let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode("日本\n語\n");
+        let (doc, path, dir) = open_temp(&sjis);
+        assert_eq!(doc.encoding, encoding_rs::SHIFT_JIS);
+        with_history(&doc, |h| h.edit(1, 1, strings(&["エラー"]))).unwrap();
+        assert_eq!(find(&doc, "エラー", (0, 0), false), Some((1, 0, 9)));
+        save_doc(&doc).unwrap();
+        let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("日本\nエラー\n");
+        assert_eq!(std::fs::read(&path).unwrap(), expected.as_ref());
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn undo_back_to_the_saved_version_is_not_dirty() {
+        let (doc, _, dir) = open_temp(b"a\nb\n");
+        with_history(&doc, |h| h.edit(0, 1, strings(&["A"]))).unwrap();
+        let status = with_history(&doc, |h| {
+            h.undo();
+        })
+        .unwrap();
+        assert!(!status.dirty && status.can_redo);
+        assert_eq!(doc_lines(&doc, 0, 10).unwrap().lines, vec!["a", "b", ""]);
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_refuses_a_file_rewritten_outside() {
+        let (doc, path, dir) = open_temp(b"one\ntwo\n");
+        with_history(&doc, |h| h.edit(0, 1, strings(&["ONE"]))).unwrap();
+        std::fs::write(&path, b"uno\ndos\n").unwrap();
+        assert_eq!(save_doc(&doc).unwrap_err(), SOURCE_CHANGED);
+        // 書き換えは残り、編集もまだ持っている。
+        assert_eq!(std::fs::read(&path).unwrap(), b"uno\ndos\n");
+        assert!(doc_status(&doc).unwrap().dirty);
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn refresh_discards_edits_even_when_the_file_is_unchanged() {
+        let (doc, _, dir) = open_temp(b"a\nb\n");
+        with_history(&doc, |h| h.edit(0, 1, strings(&["A"]))).unwrap();
+        assert_eq!(refresh_doc(&doc).unwrap(), RefreshKind::Reset);
+        assert!(!doc_status(&doc).unwrap().dirty);
+        assert_eq!(doc_lines(&doc, 0, 10).unwrap().lines, vec!["a", "b", ""]);
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discarding_edits_resets_even_when_the_file_was_appended() {
+        let (doc, path, dir) = open_temp(b"a\nb\n");
+        with_history(&doc, |h| h.edit(0, 1, strings(&["A"]))).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        std::io::Write::write_all(&mut f, b"c\n").unwrap();
+        drop(f);
+        assert_eq!(refresh_doc(&doc).unwrap(), RefreshKind::Reset);
+        wait_indexed(&doc);
+        assert_eq!(
+            doc_lines(&doc, 0, 10).unwrap().lines,
+            vec!["a", "b", "c", ""]
+        );
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_refuses_characters_the_encoding_cannot_write() {
+        let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode("日本\n");
+        let (doc, path, dir) = open_temp(&sjis);
+        with_history(&doc, |h| h.edit(0, 1, strings(&["😀"]))).unwrap();
+        assert_eq!(save_doc(&doc).unwrap_err(), UNMAPPABLE);
+        assert_eq!(std::fs::read(&path).unwrap(), sjis.as_ref());
+        assert!(doc_status(&doc).unwrap().dirty);
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn edits_are_refused_while_saving() {
+        let (doc, _, dir) = open_temp(b"a\n");
+        doc.saving.store(true, Ordering::SeqCst);
+        assert_eq!(
+            with_history(&doc, |h| h.edit(0, 1, Vec::new())).unwrap_err(),
+            SAVING
+        );
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn edits_wait_for_the_index() {
+        let (doc, _, dir) = open_temp(b"a\n");
+        doc.state.write().unwrap().done = false;
+        assert_eq!(
+            with_history(&doc, |h| h.edit(0, 1, Vec::new())).unwrap_err(),
+            NOT_EDITABLE
+        );
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn refresh_reopens_the_line_handle_when_the_file_is_replaced_by_rename() {
         let dir = std::env::temp_dir().join(format!("pike-large-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("log.txt");
         std::fs::write(&path, "a\nb\n").unwrap();
-        let doc = open_doc(path.clone()).unwrap();
+        let doc = open_doc(
+            ShellConfig::host_default(),
+            path.to_string_lossy().into_owned(),
+        )
+        .unwrap();
         wait_indexed(&doc);
         assert_eq!(doc_lines(&doc, 0, 10).unwrap().lines, vec!["a", "b", ""]);
         // 古い中身に書き足した一時ファイルで差し替える（末尾が同じなので追記に見える）。
@@ -1387,6 +2300,6 @@ mod tests {
         let bytes = b"needle";
         let re = build_matcher("needle", true, encoding_rs::UTF_8).unwrap();
         let mut cur = Cursor::new(&bytes[..]);
-        assert_eq!(count_matches(&mut cur, &re, 6, &|| true).unwrap(), None);
+        assert_eq!(count_all(&mut cur, &re, 6, &|| true).unwrap(), None);
     }
 }

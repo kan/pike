@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * 大きなファイルビューア（#630）。エディタの上限を超えたファイルを、読み取り専用で全体を見せる。
+ * 大きなファイルビューア（#630）。エディタの上限を超えたファイルを、全体まで見せて、行の単位で
+ * 編集・保存できるようにする。
  *
  * **CodeMirror を使わない。** CodeMirror は文書を丸ごと JS の文字列として持つが、V8 の文字列は
  * 約 5.4 億文字が上限で 1GB のファイルは 1 本の文字列にならない（IPC の戻り値も同じ）。100MB でも
@@ -8,8 +9,11 @@
  * ここでは Rust の行の索引（`fs/large.rs`）から見えている行だけを読み、見えている行だけを描く。
  * スクロールの計算とキャッシュは `lib/largeFile.ts`。
  *
- * 持たないもの（エディタとの違い）：編集・保存・折り返し・ハイライト・Git の差分ガター・
- * アウトライン・ミニマップ。選択とコピーは描いている行（画面に見えている範囲）だけ。
+ * 編集は行の単位（下の「編集」の節）。文書は Rust のピーステーブル（`fs/pieces.rs`）が持ち、
+ * 編集で入れた行だけがメモリに載る。
+ *
+ * 持たないもの（エディタとの違い）：文字単位のカーソルでの編集・自動保存・折り返し・ハイライト・
+ * Git の差分ガター・アウトライン・ミニマップ。選択とコピーは描いている行（画面に見えている範囲）だけ。
  */
 import { ChevronsDown, RefreshCw, Search } from 'lucide-vue-next'
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, useTemplateRef, watch } from 'vue'
@@ -24,9 +28,11 @@ import {
   clampTop,
   type LineBlock,
   LineBlockCache,
+  linesForEdit,
   makeBlock,
   maxTop,
   splitAt,
+  splitEditText,
   thumbFor,
   topFromThumb,
 } from '../../lib/largeFile'
@@ -37,11 +43,15 @@ import {
   type LargeMatch,
   largeFileClose,
   largeFileCount,
+  largeFileEdit,
   largeFileFind,
   largeFileLines,
   largeFileOpen,
+  largeFileRedo,
   largeFileRefresh,
+  largeFileSave,
   largeFileStatus,
+  largeFileUndo,
 } from '../../lib/tauri'
 import { useSettingsStore } from '../../stores/settings'
 import type { ShellType } from '../../types/tab'
@@ -49,7 +59,18 @@ import HelpButton from '../HelpButton.vue'
 import FindBar from './FindBar.vue'
 
 const props = defineProps<{ path: string; shell: ShellType }>()
-const emit = defineEmits<{ openDefault: [] }>()
+const emit = defineEmits<{
+  openDefault: []
+  /** 保存したときから変わっているか（タブの `*`）。 */
+  dirty: [dirty: boolean]
+  /** `Ctrl+S`。保存の段取りは EditorTab の `save()` が持ち、こちらの `save` を呼び返す。 */
+  save: []
+  /**
+   * 「再読み込み」のボタン。**ここで `refresh` を呼ばない**: 読み直すと編集を捨てるので、未保存なら
+   * 確かめる EditorTab の `reloadFromDisk` を通す（あちらが `refresh` を呼び返す）。
+   */
+  reload: []
+}>()
 
 const { t } = useI18n()
 const settingsStore = useSettingsStore()
@@ -99,11 +120,14 @@ interface Row {
   /** まだ読んでいなければ `null`。読んだ行は一致の前・一致・後ろに分けて持つ。 */
   parts: [string, string, string] | null
   cut: boolean
+  /** 編集している行の範囲の先頭（ここに入力欄を描き、範囲の残りの行は描かない）。 */
+  edit?: true
 }
 
 const visibleRows = computed<Row[]>(() => {
   void cacheVersion.value
   const m = match.value
+  const e = editing.value
   const first = Math.floor(top.value)
   const last = Math.min(first + rows.value + 1, total.value)
   const out: Row[] = []
@@ -111,6 +135,11 @@ const visibleRows = computed<Row[]>(() => {
   let blockNo = -1
   let block: LineBlock | undefined
   for (let line = first; line < last; line++) {
+    if (e && line === e.start) {
+      out.push({ line, parts: null, cut: false, edit: true })
+      line += e.count - 1
+      continue
+    }
     if (Math.floor(line / BLOCK_LINES) !== blockNo) {
       blockNo = Math.floor(line / BLOCK_LINES)
       block = cache.get(blockNo)
@@ -147,6 +176,8 @@ async function open() {
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 /** 索引を作っている途中に届いた外部変更。作り終えてから拾い直す。 */
 let refreshPending = false
+/** 保存を頼んでから戻るまで（`save`）。 */
+let savingLocal = false
 
 /** 進み具合を聞けなかった回数。続けて `POLL_RETRIES` 回失敗したら聞くのをやめる。 */
 let pollFailures = 0
@@ -169,7 +200,8 @@ async function poll() {
   if (following.value) top.value = maxTop(total.value, rows.value)
   else if (status.value.done) top.value = clampTop(top.value, total.value, rows.value)
   ensureLoaded()
-  if (!status.value.done) {
+  // 保存のあいだも聞く（進み具合を出す）。
+  if (!status.value.done || status.value.saving || savingLocal) {
     pollTimer = setTimeout(poll, POLL_MS)
   } else if (refreshPending) {
     refreshPending = false
@@ -200,17 +232,14 @@ async function refresh() {
   const before = total.value
   const kind = await largeFileRefresh(docId).catch(() => 'unchanged' as const)
   if (kind === 'unchanged') return
-  epoch++
-  inflight.clear()
   if (kind === 'appended') {
     // 一致の位置は変わらないので残す。件数は作り終えたときに `poll` が数え直す。
-    cache.dropFrom(Math.max(0, before - 1))
+    resetLines(Math.max(0, before - 1))
   } else {
-    cache.clear()
+    resetLines(null)
     // 走っている検索と件数は古い中身に対するもの。世代を進めて、届いても捨てる。
     invalidateFind()
   }
-  cacheVersion.value++
   restartPoll()
 }
 
@@ -228,6 +257,7 @@ onUnmounted(() => {
   if (pollTimer) clearTimeout(pollTimer)
   if (findTimer) clearTimeout(findTimer)
   if (dragLoadTimer) clearTimeout(dragLoadTimer)
+  if (recountTimer) clearTimeout(recountTimer)
   if (docId) void largeFileClose(docId)
 })
 
@@ -299,6 +329,8 @@ function onWheel(e: WheelEvent) {
   // 横方向は本文の横スクロール（ブラウザ）に任せる。
   if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return
   e.preventDefault()
+  // **編集しているあいだは動かさない**（入力欄が画面の外へ出ると、書きかけの行が描かれなくなる）。
+  if (editing.value) return
   const lines =
     e.deltaMode === WheelEvent.DOM_DELTA_LINE
       ? e.deltaY
@@ -309,6 +341,18 @@ function onWheel(e: WheelEvent) {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  if (matchChord(e, 'Mod+S')) {
+    // 編集中なら確定してから保存する。保存の段取りは EditorTab の `save()`（`editor.md` の
+    // 「保存の責任」）。
+    e.preventDefault()
+    e.stopPropagation()
+    void commitEdit().then(() => emit('save'))
+    return
+  }
+  if (e.target instanceof HTMLTextAreaElement) {
+    onEditKeydown(e)
+    return
+  }
   if (matchChord(e, 'Mod+F')) {
     e.preventDefault()
     e.stopPropagation()
@@ -316,6 +360,25 @@ function onKeydown(e: KeyboardEvent) {
     return
   }
   if (e.target instanceof HTMLInputElement) return
+  if (matchChord(e, 'Mod+Z') || matchChord(e, 'Mod+Shift+Z') || matchChord(e, 'Mod+Y')) {
+    e.preventDefault()
+    void (matchChord(e, 'Mod+Z') ? undo() : redo())
+    return
+  }
+  // ヘッダのボタンにフォーカスがあるときの Enter はボタンのもの。
+  if (e.target instanceof HTMLButtonElement) return
+  if (e.key === 'Enter' || e.key === 'F2') {
+    e.preventDefault()
+    const range = targetLines()
+    if (range) startEdit(range.start, range.count)
+    return
+  }
+  if (matchChord(e, 'Mod+Shift+K')) {
+    e.preventDefault()
+    const range = targetLines()
+    if (range) void deleteLines(range.start, range.count)
+    return
+  }
   const page = Math.max(1, rows.value - 1)
   const mod = e.ctrlKey || e.metaKey
   let next: number | null = null
@@ -361,6 +424,222 @@ function onTrackDown(e: PointerEvent) {
   const offset = e.clientY - rect.top - thumb.value.size / 2
   scrollTo(topFromThumb(offset, total.value, rows.value, bodyHeight.value))
 }
+
+// ── 編集 ──
+//
+// 文書は Rust のピーステーブル（`fs/pieces.rs`）で持ち、ここは「どの行をどう置き換えるか」を送る
+// だけ。編集は行の単位で、入力欄（`textarea`）に対象の行を入れて書き換え、確定したらその行の範囲を
+// 入力欄の行で置き換える。入力欄に入れるのは画面に見えている行だけなので、文書全体が JS の文字列に
+// なることは無い。
+
+/** 入力欄の要素。`v-for` の中に置くので、`useTemplateRef` ではなく関数の ref で受ける（配列になる）。 */
+let editTextarea: HTMLTextAreaElement | null = null
+function setEditTextarea(el: unknown) {
+  editTextarea = el instanceof HTMLTextAreaElement ? el : null
+}
+/** 編集している行の範囲と、入力欄の中身。確定（`commitEdit`）か取り消し（`cancelEdit`）で消える。 */
+const editing = ref<{ start: number; count: number; original: string; text: string } | null>(null)
+/** 編集できるか。索引を作り終えるまでと、保存のあいだはできない（Rust も断る）。 */
+const editable = computed(() => !!status.value?.done && !status.value.saving)
+/** 送った編集（`runEdit`）の待ち行列と、まだ応答の来ていない数。 */
+let editQueue: Promise<void> = Promise.resolve()
+let pendingEdits = 0
+
+/** 選択の両端の行（`data-line`）から、選択が覆う行の範囲を求める。選択が本文の外なら `null`。 */
+function selectedLineRange(sel: Selection | null, pane: HTMLElement | null): { start: number; count: number } | null {
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !pane) return null
+  const lineOf = (node: Node | null): number | null => {
+    const el = node instanceof Element ? node : (node?.parentElement ?? null)
+    const row = el?.closest<HTMLElement>('.lv-line')
+    return row && pane.contains(row) ? Number(row.dataset.line) : null
+  }
+  const a = lineOf(sel.anchorNode)
+  const b = lineOf(sel.focusNode)
+  if (a === null || b === null) return null
+  return { start: Math.min(a, b), count: Math.abs(a - b) + 1 }
+}
+
+/** 編集の対象の行。選択があればその行の範囲、無ければ移動した先の行。 */
+function targetLines(): { start: number; count: number } | null {
+  const range = selectedLineRange(window.getSelection(), textPane.value)
+  if (range) return range
+  return markedLine.value === null ? null : { start: markedLine.value, count: 1 }
+}
+
+function startEdit(start: number, count: number) {
+  if (!editable.value || editing.value) {
+    if (!editable.value) notice.value = t('largeFile.notEditable')
+    return
+  }
+  // 前の編集の応答を待っているあいだは、行番号がずれる前のキャッシュで入力欄を作らない。
+  if (pendingEdits > 0) return
+  const lines = linesForEdit(cache, start, count)
+  if (lines === 'cut') {
+    notice.value = t('largeFile.cutNotEditable')
+    return
+  }
+  if (lines === null) return
+  const text = lines.join('\n')
+  editing.value = { start, count, original: text, text }
+  markedLine.value = null
+  window.getSelection()?.removeAllRanges()
+  void nextTick(() => {
+    const el = editTextarea
+    if (!el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  })
+}
+
+function cancelEdit() {
+  editing.value = null
+  root.value?.focus()
+}
+
+/** 入力欄の中身で置き換える。変わっていなければ何も送らない。 */
+async function commitEdit() {
+  const e = editing.value
+  if (!e) return
+  editing.value = null
+  if (e.text !== e.original) await applyEdit(e.start, e.count, splitEditText(e.text))
+  root.value?.focus()
+}
+
+function onEditKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelEdit()
+  } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault()
+    void commitEdit()
+  } else if (e.key === 'Tab' && !e.shiftKey) {
+    // フォーカスを移さずにタブ文字を入れる。
+    e.preventDefault()
+    const el = e.target as HTMLTextAreaElement
+    el.setRangeText('\t', el.selectionStart, el.selectionEnd, 'end')
+    if (editing.value) editing.value.text = el.value
+  }
+}
+
+async function deleteLines(start: number, count: number) {
+  if (!editable.value) {
+    notice.value = t('largeFile.notEditable')
+    return
+  }
+  await applyEdit(start, count, [])
+}
+
+function applyEdit(start: number, count: number, insert: string[]) {
+  return runEdit((id) => largeFileEdit(id, start, count, insert), start)
+}
+
+function undo() {
+  // 変わった範囲は Rust が返さないので、読んだ行は全部読み直す（見えている数ブロックだけ）。
+  return status.value?.canUndo ? runEdit(largeFileUndo, 0) : undefined
+}
+
+function redo() {
+  return status.value?.canRedo ? runEdit(largeFileRedo, 0) : undefined
+}
+
+/**
+ * 編集・取り消し・やり直しを 1 つずつ送り、終わったら `from` より後ろの行を読み直す（位置が
+ * 変わった）。一致の位置も変わるので捨てる（件数だけ数え直し、画面は動かさない）。
+ */
+function runEdit(call: (id: string) => Promise<LargeFileStatus>, from: number): Promise<void> {
+  // **捨てずに順に送る**（前の編集の応答を待っているあいだに確定した編集も、その後で送る）。
+  // 入力欄を作るのは前の編集が終わってから（`startEdit` が `pendingEdits` を見る）なので、待たせた
+  // 編集の行番号が前の編集でずれていることは無い。
+  pendingEdits++
+  const run = editQueue.then(async () => {
+    try {
+      if (!docId) return
+      status.value = await call(docId)
+      resetLines(from)
+      const reopen = find.value.open && !!find.value.query
+      invalidateFind()
+      if (reopen) scheduleRecount()
+      top.value = clampTop(top.value, total.value, rows.value)
+      ensureLoaded()
+    } catch (err) {
+      notice.value = String(err)
+    } finally {
+      pendingEdits--
+    }
+  })
+  editQueue = run
+  return run
+}
+
+/** 読んだ行を捨てる（`from` を含むブロックから後ろ。`null` なら全部）。読みかけの結果も捨てる。 */
+function resetLines(from: number | null) {
+  epoch++
+  inflight.clear()
+  if (from === null) cache.clear()
+  else cache.dropFrom(from)
+  cacheVersion.value++
+}
+
+/**
+ * 編集のあとの件数の数え直しは、編集が止まってから 1 回だけ（数え直しはファイル全体を読む）。
+ */
+const RECOUNT_DEBOUNCE_MS = 800
+let recountTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleRecount() {
+  if (recountTimer) clearTimeout(recountTimer)
+  recountTimer = setTimeout(() => {
+    recountTimer = null
+    void recount()
+  }, RECOUNT_DEBOUNCE_MS)
+}
+
+/** 画面の上の短い知らせ（編集できない理由・保存の失敗など）。編集を始めたら消える。 */
+const notice = ref<string | null>(null)
+watch(editing, (e) => {
+  if (e) notice.value = null
+})
+
+// ── 保存 ──
+
+const saveProgress = computed(() => {
+  const s = status.value
+  if (!s?.saving || s.saveTotal === 0) return 0
+  return Math.min(100, Math.floor((s.saveWritten / s.saveTotal) * 100))
+})
+
+/**
+ * 保存する（EditorTab の `save()` が呼ぶ）。一時ファイルへ書いてから置き換え、置き換えたファイルの
+ * 索引を作り直す。保存のあいだは編集を受け付けない（Rust も断る）。失敗したら投げる。
+ */
+async function save(): Promise<boolean> {
+  if (!docId) return false
+  await commitEdit()
+  // 確定した編集を送り終えてから書く。
+  await editQueue
+  // 変わっていなければ書かない（数百 MB を同じ中身で書き直さない）。
+  if (!status.value?.dirty) return false
+  const id = docId
+  // 進み具合は Rust の `saving` で出すが、立つのは保存が始まってから。それまでに届いた状態で
+  // 聞くのをやめないよう、こちらでも保存中の印を持つ（`poll`）。
+  savingLocal = true
+  restartPoll()
+  try {
+    await largeFileSave(id)
+    return true
+  } finally {
+    savingLocal = false
+    if (id === docId && !disposed) {
+      resetLines(null)
+      invalidateFind()
+      restartPoll()
+    }
+  }
+}
+
+watch(
+  () => status.value?.dirty ?? false,
+  (dirty) => emit('dirty', dirty),
+)
 
 // ── 行へ移動 ──
 
@@ -478,9 +757,11 @@ async function step(delta: number, fresh = false) {
   const seq = ++stepSeq
   const querySeq = findSeq
   const cur = fresh ? null : match.value
+  // 起点は前回の一致（その行の中のバイト）、無ければ画面の先頭の行の行頭。
+  const fromLine = cur ? cur.line : Math.floor(top.value)
   const fromByte = cur ? (delta > 0 ? cur.byteEnd : cur.byte) : null
   try {
-    const found = await largeFileFind(docId, query, caseSensitive, Math.floor(top.value), fromByte, delta < 0)
+    const found = await largeFileFind(docId, query, caseSensitive, fromLine, fromByte, delta < 0)
     if (seq !== stepSeq || querySeq !== findSeq) return
     match.value = found
     if (found) {
@@ -514,7 +795,10 @@ const findBusy = computed(() => counting.value && !match.value && !count.value)
 /** 件数に `+` を付けるか。上限で打ち切ったときと、索引を作っている途中（数えたのは途中まで）。 */
 const findTruncated = computed(() => !!count.value?.truncated || indexing.value)
 
-defineExpose({ refresh, focus: () => root.value?.focus() })
+/** 編集している範囲の、入力欄の中の行数（入力欄の高さと行番号の数）。 */
+const editLines = computed(() => (editing.value ? splitEditText(editing.value.text).length : 0))
+
+defineExpose({ refresh, save, focus: () => root.value?.focus() })
 </script>
 
 <template>
@@ -527,7 +811,9 @@ defineExpose({ refresh, focus: () => root.value?.focus() })
           <span v-if="status">{{ t('largeFile.lines', { lines: total.toLocaleString() }) }}</span>
           <span>{{ info.encoding }}</span>
           <span v-if="indexing" class="lv-progress">{{ t('largeFile.indexing', { percent: String(progress) }) }}</span>
+          <span v-if="status?.saving" class="lv-progress">{{ t('largeFile.saving', { percent: String(saveProgress) }) }}</span>
           <span v-if="status?.error" class="lv-error">{{ status.error }}</span>
+          <span v-if="notice" class="lv-error selectable">{{ notice }}</span>
         </template>
       </div>
       <div class="lv-actions">
@@ -551,7 +837,7 @@ defineExpose({ refresh, focus: () => root.value?.focus() })
         >
           <ChevronsDown :size="14" :stroke-width="2" />
         </button>
-        <button class="editor-toggle" :title="t('editor.reloadFromDisk')" @click="refresh">
+        <button class="editor-toggle" :title="t('editor.reloadFromDisk')" @click="emit('reload')">
           <RefreshCw :size="14" :stroke-width="2" />
         </button>
         <button class="lv-text-btn" @click="emit('openDefault')">{{ t('common.openWithDefaultApp') }}</button>
@@ -568,14 +854,34 @@ defineExpose({ refresh, focus: () => root.value?.focus() })
     >
       <div class="lv-gutter" :style="{ width: `${gutterChars + 2}ch` }">
         <div class="lv-rows" :style="{ transform: `translateY(${-offsetPx}px)` }">
-          <div v-for="row in visibleRows" :key="row.line" class="lv-num" :class="{ marked: row.line === markedLine }">
-            {{ row.line + 1 }}
-          </div>
+          <template v-for="row in visibleRows" :key="row.line">
+            <template v-if="row.edit">
+              <div v-for="k in editLines" :key="`e${k}`" class="lv-num editing">{{ row.line + k }}</div>
+            </template>
+            <div v-else class="lv-num" :class="{ marked: row.line === markedLine }">{{ row.line + 1 }}</div>
+          </template>
         </div>
       </div>
       <div ref="textPane" class="lv-text selectable">
         <div class="lv-rows" :style="{ transform: `translateY(${-offsetPx}px)` }">
-          <div v-for="row in visibleRows" :key="row.line" class="lv-line" :class="{ marked: row.line === markedLine }">
+          <template v-for="row in visibleRows" :key="row.line">
+            <textarea
+              v-if="row.edit && editing"
+              :ref="setEditTextarea"
+              v-model="editing.text"
+              class="lv-edit"
+              spellcheck="false"
+              wrap="off"
+              :style="{ height: `${editLines * lineHeight}px` }"
+              @blur="commitEdit"
+            />
+            <div
+              v-else
+              class="lv-line"
+              :class="{ marked: row.line === markedLine }"
+              :data-line="row.line"
+              @dblclick="row.parts && startEdit(row.line, 1)"
+            >
             <template v-if="row.parts">
               <span>{{ row.parts[0] }}</span><span v-if="row.parts[1]" class="lv-match">{{ row.parts[1] }}</span><span>{{ row.parts[2] }}</span><span
                 v-if="row.cut"
@@ -584,7 +890,8 @@ defineExpose({ refresh, focus: () => root.value?.focus() })
                 >{{ t('largeFile.cut') }}</span
               >
             </template>
-          </div>
+            </div>
+          </template>
         </div>
       </div>
       <div v-if="total > rows" ref="track" class="lv-track" @pointerdown="onTrackDown">
@@ -744,6 +1051,28 @@ defineExpose({ refresh, focus: () => root.value?.focus() })
 .lv-num.marked,
 .lv-line.marked {
   background: var(--selection-bg);
+}
+
+.lv-edit {
+  display: block;
+  width: 100%;
+  min-width: 100%;
+  margin: 0;
+  padding: 0 0 0 4px;
+  border: none;
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: var(--lv-line);
+  white-space: pre;
+  overflow: hidden;
+  resize: none;
+}
+
+.lv-num.editing {
+  color: var(--accent);
 }
 
 .lv-match {

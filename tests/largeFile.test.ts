@@ -6,8 +6,10 @@ import {
   blocksFor,
   clampTop,
   LineBlockCache,
+  linesForEdit,
   makeBlock,
   splitAt,
+  splitEditText,
   thumbFor,
   topFromThumb,
 } from '../src/lib/largeFile.ts'
@@ -97,6 +99,31 @@ describe('スクロール', () => {
   test('1 億行でも 1 行未満の移動が残る', () => {
     const top = 99_999_000
     assert.notEqual(clampTop(top + 0.05, 100_000_000, 40), top)
+  })
+})
+
+describe('編集', () => {
+  test('linesForEdit はキャッシュの行を集める', () => {
+    const cache = new LineBlockCache()
+    const lines = Array.from({ length: BLOCK_LINES }, (_, i) => `l${i}`)
+    cache.set(0, makeBlock(lines, [5]))
+    cache.set(1, makeBlock(['next'], []))
+    assert.deepEqual(linesForEdit(cache, 1, 2), ['l1', 'l2'])
+    // ブロックをまたぐ。
+    assert.deepEqual(linesForEdit(cache, BLOCK_LINES - 1, 2), [`l${BLOCK_LINES - 1}`, 'next'])
+  })
+  test('切った行があれば cut、読んでいない行があれば null', () => {
+    const cache = new LineBlockCache()
+    cache.set(0, makeBlock(['a', 'b', 'c', 'd', 'e', 'f'], [5]))
+    assert.equal(linesForEdit(cache, 4, 2), 'cut')
+    assert.equal(linesForEdit(cache, 5, 1), 'cut')
+    assert.equal(linesForEdit(cache, 6, 1), null)
+    assert.equal(linesForEdit(cache, BLOCK_LINES, 1), null)
+  })
+  test('splitEditText は CRLF と CR も改行にする', () => {
+    assert.deepEqual(splitEditText('a\r\nb\rc\nd'), ['a', 'b', 'c', 'd'])
+    assert.deepEqual(splitEditText(''), [''])
+    assert.deepEqual(splitEditText('x\n'), ['x', ''])
   })
 })
 

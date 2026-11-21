@@ -140,6 +140,28 @@ export function topFromThumb(offset: number, total: number, rows: number, track:
   return clampTop((Math.min(Math.max(0, offset), free) / free) * maxTop(total, rows), total, rows)
 }
 
+/**
+ * 編集する行の中身をキャッシュから集める。まだ読んでいない行があれば `null`、64KB で切った行
+ * （`cut`）があれば `'cut'`（切った行を書き換えると、表示していない後ろが消える）。
+ */
+export function linesForEdit(cache: LineBlockCache, start: number, count: number): string[] | 'cut' | null {
+  const out: string[] = []
+  for (let line = start; line < start + count; line++) {
+    const block = cache.get(Math.floor(line / BLOCK_LINES))
+    const i = line % BLOCK_LINES
+    const text = block?.lines[i]
+    if (block === undefined || text === undefined) return null
+    if (block.cut.has(i)) return 'cut'
+    out.push(text)
+  }
+  return out
+}
+
+/** 入力欄の中身を行に分ける。貼り付けた CRLF / CR も改行として扱う。 */
+export function splitEditText(text: string): string[] {
+  return text.split(/\r\n|\r|\n/)
+}
+
 /** 行を一致の前・一致・後ろに分ける。範囲が行の外（切った行の後ろ）なら一致を空にする。 */
 export function splitAt(text: string, col: number, len: number): [string, string, string] {
   if (col >= text.length) return [text, '', '']

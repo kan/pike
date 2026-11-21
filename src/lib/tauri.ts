@@ -440,12 +440,19 @@ export interface LargeFileInfo {
 }
 
 export interface LargeFileStatus {
-  /** 索引を作り終えた範囲の行数。 */
+  /** 文書の行数（編集していなければ、索引を作り終えた範囲の行数）。 */
   lines: number
   size: number
   scanned: number
   done: boolean
   error: string | null
+  /** 保存したときから変わっているか。 */
+  dirty: boolean
+  canUndo: boolean
+  canRedo: boolean
+  saving: boolean
+  saveWritten: number
+  saveTotal: number
 }
 
 export interface LargeLines {
@@ -482,7 +489,10 @@ export async function largeFileLines(id: string, start: number, count: number): 
   return invoke<LargeLines>('large_file_lines', { id, start, count })
 }
 
-/** 次（`backward` なら前）の一致。起点は `fromByte`（前回の一致）か、無ければ `fromLine` の行頭。 */
+/**
+ * 次（`backward` なら前）の一致。起点は文書の行 `fromLine` の中の `fromByte`（前回の一致の
+ * `byte` / `byteEnd`。無ければ行頭）。
+ */
 export async function largeFileFind(
   id: string,
   query: string,
@@ -505,6 +515,29 @@ export async function largeFileRefresh(id: string): Promise<LargeRefreshKind> {
 
 export async function largeFileClose(id: string): Promise<void> {
   return invoke('large_file_close', { id })
+}
+
+/** 文書の行 `start` から `delete` 行を `insert` の行で置き換える。 */
+export async function largeFileEdit(
+  id: string,
+  start: number,
+  deleteCount: number,
+  insert: string[],
+): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_edit', { id, start, delete: deleteCount, insert })
+}
+
+export async function largeFileUndo(id: string): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_undo', { id })
+}
+
+export async function largeFileRedo(id: string): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_redo', { id })
+}
+
+/** 保存する（一時ファイルへ書いて置き換える）。終わるまで戻らない。進み具合は `largeFileStatus`。 */
+export async function largeFileSave(id: string): Promise<void> {
+  return invoke('large_file_save', { id })
 }
 
 export async function fsWriteFile(shell: ShellType, path: string, content: string, encoding?: string): Promise<void> {
