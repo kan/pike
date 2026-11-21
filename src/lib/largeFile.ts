@@ -9,6 +9,16 @@
  * スクロールが丸めで消えない。
  */
 
+/** ビューアが StatusBar に出すもの（`LargeFileViewer` の `info`）。 */
+export interface LargeViewerInfo {
+  encoding: string
+  lineEnding: 'LF' | 'CRLF'
+  /** 1 始まり。 */
+  line: number
+  /** 指定できる文字コード（Rust の `VIEWER_ENCODINGS`。UTF-16 などは入らない）。 */
+  encodings: readonly string[]
+}
+
 /** 1 回に読む行の数。キャッシュもこの単位で持つ。 */
 export const BLOCK_LINES = 256
 

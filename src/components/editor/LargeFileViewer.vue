@@ -26,6 +26,7 @@ import {
   BLOCK_LINES,
   blocksFor,
   clampTop,
+  type LargeViewerInfo,
   type LineBlock,
   LineBlockCache,
   linesForEdit,
@@ -56,6 +57,7 @@ import {
   largeFileSearchPoll,
   largeFileSearchStart,
   largeFileSearchStop,
+  largeFileSetEncoding,
   largeFileStatus,
   largeFileUndo,
 } from '../../lib/tauri'
@@ -76,6 +78,8 @@ const emit = defineEmits<{
    * 確かめる EditorTab の `reloadFromDisk` を通す（あちらが `refresh` を呼び返す）。
    */
   reload: []
+  /** StatusBar に出すもの（文字コード・改行・行）。変わったときに送る。 */
+  info: [info: LargeViewerInfo]
 }>()
 
 const { t } = useI18n()
@@ -625,21 +629,23 @@ const saveProgress = computed(() => {
 /**
  * 保存する（EditorTab の `save()` が呼ぶ）。一時ファイルへ書いてから置き換え、置き換えたファイルの
  * 索引を作り直す。保存のあいだは編集を受け付けない（Rust も断る）。失敗したら投げる。
+ * `encoding` を渡すと、その文字コードに変換して書く（StatusBar の「このエンコードで保存」）。
  */
-async function save(): Promise<boolean> {
+async function save(encoding?: string): Promise<boolean> {
   if (!docId) return false
   await commitEdit()
   // 確定した編集を送り終えてから書く。
   await editQueue
-  // 変わっていなければ書かない（数百 MB を同じ中身で書き直さない）。
-  if (!status.value?.dirty) return false
+  // 変わっていなければ書かない（数百 MB を同じ中身で書き直さない）。文字コードを変えるなら書く。
+  const convert = encoding !== undefined && encoding !== status.value?.encoding
+  if (!status.value?.dirty && !convert) return false
   const id = docId
   // 進み具合は Rust の `saving` で出すが、立つのは保存が始まってから。それまでに届いた状態で
   // 聞くのをやめないよう、こちらでも保存中の印を持つ（`poll`）。
   savingLocal = true
   restartPoll()
   try {
-    await largeFileSave(id)
+    await largeFileSave(id, convert ? encoding : undefined)
     return true
   } finally {
     savingLocal = false
@@ -647,10 +653,32 @@ async function save(): Promise<boolean> {
       resetLines(null)
       invalidateFind()
       // 検索結果の一覧は残す: 保存は文書の行を変えない（一覧が古くなるのは編集した時点で、
-      // そこで `markHitsStale` 済み）。
+      // そこで `markHitsStale` 済み）。変換したなら一覧の位置（バイト）は古いので古くする。
+      if (convert) markHitsStale()
       restartPoll()
     }
   }
+}
+
+/**
+ * 指定した文字コードで読み直す（StatusBar の「このエンコードで開き直す」）。**索引も未保存の編集も
+ * 残す**（理由は Rust の `large_file_set_encoding`）。読んだ行・一致・件数・一覧は古い文字コードの
+ * ものなので捨てて、見ている位置で読み直す。失敗したら投げる（UTF-16 など扱えない文字コード）。
+ */
+async function setEncoding(encoding: string) {
+  if (!docId || encoding === status.value?.encoding) return
+  await commitEdit()
+  await editQueue
+  const id = docId
+  const next = await largeFileSetEncoding(id, encoding)
+  if (id !== docId || disposed) return
+  status.value = next
+  resetLines(null)
+  const reopen = find.value.open && !!find.value.query
+  invalidateFind()
+  markHitsStale()
+  if (reopen) scheduleFind()
+  ensureLoaded()
 }
 
 watch(
@@ -663,6 +691,20 @@ watch(
 const gotoInput = ref('')
 /** 移動した先の行。目印に塗る。 */
 const markedLine = ref<number | null>(null)
+
+/**
+ * StatusBar に出す今の文字コードと改行と行（EditorTab が `EditorInfo` に写す）。行は目印の行、
+ * 無ければ画面の先頭の行。**配列の要素ごとに比べるので、送るのは値が変わったときだけ**
+ * （スクロールの途中で行が変わらないフレームでは送らない）。
+ */
+watch(
+  () => [status.value?.encoding, status.value?.lineEnding, (markedLine.value ?? Math.floor(top.value)) + 1] as const,
+  ([encoding, lineEnding, line]) => {
+    if (encoding && lineEnding && info.value) {
+      emit('info', { encoding, lineEnding, line, encodings: info.value.encodings })
+    }
+  },
+)
 
 function gotoLine() {
   const n = Number.parseInt(gotoInput.value, 10)
@@ -989,7 +1031,7 @@ const findTruncated = computed(() => !!count.value?.truncated || indexing.value)
 /** 編集している範囲の、入力欄の中の行数（入力欄の高さと行番号の数）。 */
 const editLines = computed(() => (editing.value ? splitEditText(editing.value.text).length : 0))
 
-defineExpose({ refresh, save, focus: () => root.value?.focus() })
+defineExpose({ refresh, save, setEncoding, focus: () => root.value?.focus() })
 </script>
 
 <template>
@@ -1000,7 +1042,7 @@ defineExpose({ refresh, save, focus: () => root.value?.focus() })
         <template v-if="info">
           <span>{{ formatFileSize(info.size) }}</span>
           <span v-if="status">{{ t('largeFile.lines', { lines: total.toLocaleString() }) }}</span>
-          <span>{{ info.encoding }}</span>
+          <span v-if="status">{{ status.encoding }}</span>
           <span v-if="indexing" class="lv-progress">{{ t('largeFile.indexing', { percent: String(progress) }) }}</span>
           <span v-if="status?.saving" class="lv-progress">{{ t('largeFile.saving', { percent: String(saveProgress) }) }}</span>
           <span v-if="status?.error" class="lv-error">{{ status.error }}</span>

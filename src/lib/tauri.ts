@@ -437,7 +437,8 @@ export async function fsReadFileChunk(
 export interface LargeFileInfo {
   id: string
   size: number
-  encoding: string
+  /** StatusBar で指定できる文字コード（Rust の `VIEWER_ENCODINGS`）。今の文字コードは `LargeFileStatus`。 */
+  encodings: string[]
 }
 
 export interface LargeFileStatus {
@@ -454,6 +455,9 @@ export interface LargeFileStatus {
   saving: boolean
   saveWritten: number
   saveTotal: number
+  /** 今の文字コード（指定して開き直す・変えて保存するで替わる）。 */
+  encoding: string
+  lineEnding: 'LF' | 'CRLF'
 }
 
 export interface LargeLines {
@@ -572,9 +576,17 @@ export async function largeFileRedo(id: string): Promise<LargeFileStatus> {
   return invoke<LargeFileStatus>('large_file_redo', { id })
 }
 
-/** 保存する（一時ファイルへ書いて置き換える）。終わるまで戻らない。進み具合は `largeFileStatus`。 */
-export async function largeFileSave(id: string): Promise<void> {
-  return invoke('large_file_save', { id })
+/**
+ * 保存する（一時ファイルへ書いて置き換える）。終わるまで戻らない。進み具合は `largeFileStatus`。
+ * `encoding` を渡すと、その文字コードに変換して書く。
+ */
+export async function largeFileSave(id: string, encoding?: string): Promise<void> {
+  return invoke('large_file_save', { id, encoding: encoding ?? null })
+}
+
+/** 指定した文字コードで読み直す（索引と未保存の編集は残る）。扱えない文字コードは断られる。 */
+export async function largeFileSetEncoding(id: string, encoding: string): Promise<LargeFileStatus> {
+  return invoke<LargeFileStatus>('large_file_set_encoding', { id, encoding })
 }
 
 export async function fsWriteFile(shell: ShellType, path: string, content: string, encoding?: string): Promise<void> {

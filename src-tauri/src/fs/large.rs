@@ -124,7 +124,9 @@ struct LargeDoc {
     /// シェルの側のパスとシェル。WSL の保存は distro の中でリンクを辿って置き換える（`save_doc`）。
     native: String,
     shell: ShellConfig,
-    encoding: &'static Encoding,
+    /// 文字コード。開いたときに先頭で決め、指定して開き直す（`large_file_set_encoding`）・変えて
+    /// 保存する（`large_file_save`）で替わる。読むのは `LargeDoc::encoding`。
+    encoding: RwLock<&'static Encoding>,
     state: RwLock<IndexState>,
     /// 索引のスレッドの世代。閉じた・作り直したら進め、古いスレッドはそれを見て止まる。
     generation: AtomicU64,
@@ -153,6 +155,25 @@ struct LargeDoc {
     save_total: AtomicU64,
 }
 
+impl LargeDoc {
+    /// 今の文字コード。**呼ぶたびに読む**ので、1 つの処理（検索・保存）の中では最初に 1 回だけ
+    /// 読んで使い回す（途中で替わると、窓ごとに別の文字コードで読むことになる）。
+    fn encoding(&self) -> &'static Encoding {
+        *self.encoding.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn set_encoding(&self, encoding: &'static Encoding) {
+        *self.encoding.write().unwrap_or_else(|e| e.into_inner()) = encoding;
+    }
+
+    /// 走っている検索（次の一致・件数・一覧）を止める。どれも世代が進んだのを見て止まる。
+    fn cancel_searches(&self) {
+        self.find_generation.fetch_add(1, Ordering::Relaxed);
+        self.count_generation.fetch_add(1, Ordering::Relaxed);
+        self.hits_generation.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// 開いている大きなファイル。キーは `large_file_open` が返す id。
 #[derive(Default)]
 pub struct LargeFileState {
@@ -178,10 +199,13 @@ fn read_tail(file: &mut File, size: u64) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
+/// UTF-16 のファイルを断るときのエラー。
+const UTF16_UNSUPPORTED: &str = "UTF-16 files cannot be opened in the large file viewer";
+
 /// 先頭のバイト列から文字コードを決める。UTF-16 とバイナリは開かない。
 fn sniff_encoding(head: &[u8]) -> Result<&'static Encoding, String> {
     if utf16_bom(head).is_some() {
-        return Err("UTF-16 files cannot be opened in the large file viewer".into());
+        return Err(UTF16_UNSUPPORTED.into());
     }
     if head.iter().take(BINARY_SNIFF_LEN).any(|&b| b == 0) {
         return Err(BINARY_FILE_ERROR.into());
@@ -192,6 +216,72 @@ fn sniff_encoding(head: &[u8]) -> Result<&'static Encoding, String> {
         Err(e) if e.error_len().is_none() => encoding_rs::UTF_8,
         Err(_) => encoding_rs::SHIFT_JIS,
     })
+}
+
+/// 指定された文字コード（StatusBar の名前）を、ビューアで扱えるものに限って引く。
+///
+/// **扱えるのは、改行が 1 バイトの `0x0A` で、それが文字の途中に現れない文字コードだけ。** 索引は
+/// `0x0A` の位置を数え、行は 1 行ずつ別にデコードし、検索は問い合わせをそのバイト列にして照合する。
+/// - UTF-8・Shift_JIS・EUC-JP と 1 バイトの文字コード（ISO-8859-1 は encoding_rs では
+///   Windows-1252）。Shift_JIS と EUC-JP は 2 バイト目以降に `0x0A` を使わない
+/// - **UTF-16 は断る**。改行は 2 バイトで、`0x0A` のバイトは別の文字（U+010A、U+0A00〜U+0AFF など）の
+///   半分にも現れる。行の切れ目を数え直す索引と、検索の窓を 2 バイトに揃える仕組みが別に要る
+/// - **ISO-2022-JP は断る**。エスケープで切り替える状態を持つので、行を単独でデコードできず、
+///   問い合わせのバイト列も直前の状態で変わる
+///
+/// StatusBar の選択肢はこの一覧（`VIEWER_ENCODINGS`）をフロントへ渡して作る。
+fn viewer_encoding(label: &str) -> Result<&'static Encoding, String> {
+    let encoding = Encoding::for_label(label.as_bytes())
+        .ok_or_else(|| format!("Unknown encoding: {label}"))?;
+    if encoding == encoding_rs::UTF_16LE || encoding == encoding_rs::UTF_16BE {
+        return Err(UTF16_UNSUPPORTED.into());
+    }
+    if VIEWER_ENCODINGS.contains(&encoding) {
+        return Ok(encoding);
+    }
+    Err(format!(
+        "{} cannot be used in the large file viewer",
+        encoding.name()
+    ))
+}
+
+/// ビューアで指定できる文字コード（`viewer_encoding` の条件に合うもの）。`large_file_open` が
+/// 名前（`Encoding::name`）にしてフロントへ渡し、StatusBar の選択肢になる。**名前は状態の
+/// `encoding` と同じ綴り**なので、フロントは選んだものが今の文字コードかを文字列で比べられる
+/// （ISO-8859-1 は encoding_rs では windows-1252 と同じものなので、並べない）。
+const VIEWER_ENCODINGS: &[&Encoding] = &[
+    encoding_rs::UTF_8,
+    encoding_rs::SHIFT_JIS,
+    encoding_rs::EUC_JP,
+    encoding_rs::WINDOWS_1252,
+];
+
+/// 1 文字のバイト数を先行バイトから数える文字コードの、1 文字のバイト数。改行の直後は必ず文字の
+/// 境目なので、そこから数えれば境目が分かる（`Matches`・`aligned_end`）。
+fn char_len(encoding: &'static Encoding, b: u8) -> usize {
+    if encoding == encoding_rs::SHIFT_JIS {
+        // 先行バイトなら 2。
+        if (0x81..=0x9F).contains(&b) || (0xE0..=0xFC).contains(&b) {
+            2
+        } else {
+            1
+        }
+    } else if encoding == encoding_rs::EUC_JP {
+        // 0x8F は補助漢字（3 バイト）、0x8E は半角カナ（2 バイト）。2 バイト目以降は 0xA1〜0xFE。
+        match b {
+            0x8F => 3,
+            0x8E | 0xA1..=0xFE => 2,
+            _ => 1,
+        }
+    } else {
+        1
+    }
+}
+
+/// 文字の境目を数えて確かめる必要があるか。UTF-8 の照合器は文字の途中からは当たらず、1 バイトの
+/// 文字コードはどこも境目。
+fn needs_boundary(encoding: &'static Encoding) -> bool {
+    encoding == encoding_rs::SHIFT_JIS || encoding == encoding_rs::EUC_JP
 }
 
 fn poisoned<E: std::fmt::Display>(e: E) -> std::io::Error {
@@ -426,7 +516,7 @@ impl<'a> Iterator for Matches<'a> {
             let found = self.matcher.re.find_at(self.window, self.at)?;
             // 空の一致は起こらない（問い合わせが空なら探さない）が、念のため前へ進める。
             let next_at = found.end().max(found.start() + 1);
-            if self.matcher.is_utf8() {
+            if !needs_boundary(self.matcher.encoding) {
                 self.at = next_at;
                 return Some(found);
             }
@@ -441,7 +531,7 @@ impl<'a> Iterator for Matches<'a> {
                 self.cursor += n + 1;
             }
             while self.cursor < start {
-                self.cursor += sjis_char_len(self.window[self.cursor]);
+                self.cursor += char_len(self.matcher.encoding, self.window[self.cursor]);
             }
             if self.cursor == start {
                 self.at = next_at;
@@ -452,23 +542,14 @@ impl<'a> Iterator for Matches<'a> {
     }
 }
 
-/// Shift_JIS の 1 文字のバイト数（先行バイトなら 2）。
-fn sjis_char_len(b: u8) -> usize {
-    if (0x81..=0x9F).contains(&b) || (0xE0..=0xFC).contains(&b) {
-        2
-    } else {
-        1
-    }
-}
-
 /// 窓の先頭（境目）から数えて、`pos` 以後で最初の文字の境目。次の窓の先頭に使う。
 fn aligned_end(window: &[u8], pos: usize, matcher: &Matcher) -> usize {
-    if matcher.is_utf8() {
+    if !needs_boundary(matcher.encoding) {
         return pos;
     }
     let mut i = memchr::memrchr(b'\n', &window[..pos.min(window.len())]).map_or(0, |n| n + 1);
     while i < pos {
-        i += sjis_char_len(window[i]);
+        i += char_len(matcher.encoding, window[i]);
     }
     i
 }
@@ -477,7 +558,7 @@ fn aligned_end(window: &[u8], pos: usize, matcher: &Matcher) -> usize {
 /// 限らないので、最初の改行の直後から照合する（その手前は次の窓が受け持つ）。窓の中に改行が
 /// 無い（窓より長い行）ときは先頭を境目とみなす。
 fn aligned_start(window: &[u8], limit: usize, matcher: &Matcher) -> usize {
-    if matcher.is_utf8() {
+    if !needs_boundary(matcher.encoding) {
         return 0;
     }
     match memchr::memchr(b'\n', &window[..limit.min(window.len())]) {
@@ -529,7 +610,16 @@ fn build_regex(
             continue;
         }
         let mut utf8 = [0; 4];
-        let (bytes, _, _) = encoding.encode(c.encode_utf8(&mut utf8));
+        let (bytes, _, unmappable) = encoding.encode(c.encode_utf8(&mut utf8));
+        if unmappable {
+            // ファイルの文字コードで表せない文字は、元の行には現れない。encoding_rs が返す
+            // `&#NNNN;` で照合すると、その文字列そのものに当たる。元の行には当たらない照合器
+            // （1 バイト読んだあとに先頭は来ない）にする。編集で入れた行は `Matcher::text` が探す。
+            return regex::bytes::RegexBuilder::new(r"(?s-u:.)\A")
+                .unicode(false)
+                .build()
+                .map_err(|e| e.to_string());
+        }
         for b in bytes.iter() {
             let _ = write!(pattern, "\\x{b:02x}");
         }
@@ -829,7 +919,8 @@ fn line_start_byte<R: Read + Seek>(
 pub struct LargeFileInfo {
     pub id: String,
     pub size: u64,
-    pub encoding: String,
+    /// StatusBar で指定できる文字コード（`VIEWER_ENCODINGS`）。今の文字コードは `LargeFileStatus`。
+    pub encodings: Vec<&'static str>,
 }
 
 #[derive(Serialize, Debug)]
@@ -848,6 +939,10 @@ pub struct LargeFileStatus {
     pub saving: bool,
     pub save_written: u64,
     pub save_total: u64,
+    /// 今の文字コード（指定して開き直す・変えて保存するで替わる）。
+    pub encoding: String,
+    /// 改行（開いたときの先頭の行のもの。編集で入れた行もこれで書く）。
+    pub line_ending: &'static str,
 }
 
 /// ブロッキングの処理を `spawn_blocking` に逃がす（`rust.md` の非同期）。
@@ -870,7 +965,7 @@ pub async fn large_file_open(
     let info = LargeFileInfo {
         id: uuid::Uuid::new_v4().to_string(),
         size: doc.state.read().map_err(|e| e.to_string())?.size,
-        encoding: doc.encoding.name().to_owned(),
+        encodings: VIEWER_ENCODINGS.iter().map(|e| e.name()).collect(),
     };
     state
         .docs
@@ -896,7 +991,7 @@ fn open_doc(shell: ShellConfig, native: String) -> Result<Arc<LargeDoc>, String>
         path,
         native,
         shell,
-        encoding: sniff_encoding(&head)?,
+        encoding: RwLock::new(sniff_encoding(&head)?),
         eol: eol_of(&head),
         state: RwLock::new(IndexState {
             index: LineIndex::new(),
@@ -972,7 +1067,43 @@ fn doc_status(doc: &LargeDoc) -> Result<LargeFileStatus, String> {
         saving: doc.saving.load(Ordering::Relaxed),
         save_written: doc.save_written.load(Ordering::Relaxed),
         save_total: doc.save_total.load(Ordering::Relaxed),
+        encoding: doc.encoding().name().to_owned(),
+        line_ending: if doc.eol == b"\r\n" { "CRLF" } else { "LF" },
     })
+}
+
+/// 指定した文字コードで読み直す（StatusBar の「このエンコードで開き直す」）。返すのは今の状態。
+///
+/// - **索引は作り直さない。** 扱える文字コードはどれも改行が同じ 1 バイトの `0x0A` なので
+///   （`viewer_encoding`）、行の切れ目は変わらない。替わるのは行のデコードと検索の照合だけ
+/// - **未保存の編集は残す。** ピースの並びは行の範囲と、編集で入れた行（文字列）でできていて、
+///   どちらも文字コードに依らない。元の行は新しい文字コードで読み、入れた行は保存のときに新しい
+///   文字コードで書く。普通のエディタは開き直すと文書を作り直すので編集が消えるが、こちらは
+///   消す理由が無い
+/// - 走っている検索（次の一致・件数・一覧）は止める。古い文字コードの照合器で探している
+/// - 保存のあいだは断る（書き出しは始めたときの文字コードで行を読み書きしている）
+#[tauri::command]
+pub async fn large_file_set_encoding(
+    state: State<'_, LargeFileState>,
+    id: String,
+    encoding: String,
+) -> Result<LargeFileStatus, String> {
+    let doc = state.get(&id)?;
+    let encoding = viewer_encoding(&encoding)?;
+    // 履歴のロックは編集が握っていることがあるので、メインスレッドで待たない。
+    blocking(move || {
+        {
+            // 保存は履歴のロックの中で `saving` を立てる（`save_doc`）。同じロックの中で見る。
+            let _history = doc.history.lock().map_err(|e| e.to_string())?;
+            if doc.saving.load(Ordering::SeqCst) {
+                return Err(SAVING.into());
+            }
+            doc.set_encoding(encoding);
+        }
+        doc.cancel_searches();
+        doc_status(&doc)
+    })
+    .await
 }
 
 /// 行 `start` から最大 `count` 行を読む。索引を作り終えた範囲の外なら空で返す。
@@ -1045,7 +1176,7 @@ fn read_source_lines(
         Some(file) => file,
         empty => empty.insert(File::open(&doc.path).map_err(|e| e.to_string())?),
     };
-    let read = read_lines(file, doc.encoding, byte, skip, count);
+    let read = read_lines(file, doc.encoding(), byte, skip, count);
     // 読めなかったハンドルは捨て、次は開き直す（ネットワーク越しの切断など）。
     if read.is_err() {
         *slot = None;
@@ -1072,7 +1203,7 @@ pub async fn large_file_find(
     }
     let generation = doc.find_generation.fetch_add(1, Ordering::Relaxed) + 1;
     blocking(move || {
-        let matcher = build_matcher(&query, case_sensitive, doc.encoding)?;
+        let matcher = build_matcher(&query, case_sensitive, doc.encoding())?;
         let cancelled = || doc.find_generation.load(Ordering::Relaxed) != generation;
         search_doc(
             &doc,
@@ -1119,8 +1250,9 @@ impl<'a> SearchView<'a> {
             index,
             size,
             file: File::open(&doc.path).map_err(|e| e.to_string())?,
+            // 照合器を作ったときの文字コード（検索の途中で開き直されても、窓ごとに読み替えない）。
+            encoding: matcher.encoding,
             matcher,
-            encoding: doc.encoding,
         })
     }
 
@@ -1369,7 +1501,7 @@ pub async fn large_file_count(
     blocking(move || {
         // 数えるのも索引を作り終えた範囲（`SearchView`）。作っている途中なら途中までの数で、
         // フロントは作り終えてから数え直す。
-        let matcher = build_matcher(&query, case_sensitive, doc.encoding)?;
+        let matcher = build_matcher(&query, case_sensitive, doc.encoding())?;
         let cancelled = || doc.count_generation.load(Ordering::Relaxed) != generation;
         let counted = count_doc(&doc, &matcher, &cancelled)?;
         Ok(counted.map(|(count, truncated)| LargeCount { count, truncated }))
@@ -1437,7 +1569,7 @@ pub fn large_file_search_start(
     case_sensitive: bool,
 ) -> Result<u64, String> {
     let doc = state.get(&id)?;
-    let matcher = build_matcher(&query, case_sensitive, doc.encoding)?;
+    let matcher = build_matcher(&query, case_sensitive, doc.encoding())?;
     let generation = doc.hits_generation.fetch_add(1, Ordering::Relaxed) + 1;
     *doc.hits.lock().map_err(|e| e.to_string())? = HitList {
         generation,
@@ -1599,13 +1731,13 @@ fn collect_source_hits<R: Read + Seek>(
             // そのために前の窓を持ち越すほどではない）。
             let line_rel = line_start.saturating_sub(w.pos) as usize;
             let mut ctx_from = ms.saturating_sub(CONTEXT_BYTES).max(line_rel);
-            if !matcher.is_utf8() {
+            if needs_boundary(enc) {
                 // 2 バイトの文字の後ろのバイトから読むと、以降の文字が 1 バイトずれて化ける。
                 // 境目と分かっている位置から歩いて、文字の境目に合わせる（歩くのは一致と一致の
                 // あいだだけなので、窓 1 枚で合わせて窓の長さまで）。
                 let mut i = boundary.max(line_rel);
                 while i < ctx_from {
-                    i += sjis_char_len(window[i]);
+                    i += char_len(enc, window[i]);
                 }
                 ctx_from = i.min(ms);
             }
@@ -1913,11 +2045,26 @@ const SOURCE_CHANGED: &str =
 const UNMAPPABLE: &str =
     "An edited line has characters that cannot be written in the file's encoding.";
 
+/// 文字コードを変えて保存できないときのエラー。元のファイルの行に、今の文字コードとして読めない
+/// バイトがある。置き換え文字（U+FFFD）にして書くと、元のバイトが戻せなくなる。
+const MALFORMED: &str =
+    "The file has bytes that are not valid in the current encoding, so it cannot be converted.";
+
+/// 文字コードを変えて保存できないときのエラー。元のファイルの行に、変換先で表せない文字がある。
+const UNCONVERTIBLE: &str = "The file has characters that cannot be written in the new encoding.";
+
 /// 保存する。一時ファイルへ書き出してから置き換える。置き換えたファイルの索引は書きながら作る。
+/// `encoding` を渡すとその文字コードで書き、以後の文書もその文字コードになる（StatusBar の
+/// 「このエンコードで保存」）。
 #[tauri::command]
-pub async fn large_file_save(state: State<'_, LargeFileState>, id: String) -> Result<(), String> {
+pub async fn large_file_save(
+    state: State<'_, LargeFileState>,
+    id: String,
+    encoding: Option<String>,
+) -> Result<(), String> {
     let doc = state.get(&id)?;
-    blocking(move || save_doc(&doc)).await
+    let target = encoding.as_deref().map(viewer_encoding).transpose()?;
+    blocking(move || save_doc(&doc, target)).await
 }
 
 /// `large_file_save` の中身。
@@ -1930,20 +2077,30 @@ pub async fn large_file_save(state: State<'_, LargeFileState>, id: String) -> Re
 ///   symlink はリンク先へ書き、元の権限を写す。ホストのファイルは `replace_host_atomic`、WSL の
 ///   ファイルは `replace_in_wsl`（UNC 越しの `std::fs` では WSL の symlink を辿れず、mode も写せない）
 /// - 元のファイルの行は改行ごとバイトのまま写す（改行コードも文字コードも変えない）。編集で入れた
-///   行は開いたときの文字コードと改行（`eol`）で書く。その文字コードで表せない文字があれば断る
+///   行は今の文字コードと改行（`eol`）で書く。その文字コードで表せない文字があれば断る
 ///   （`UNMAPPABLE`。encoding_rs は `&#NNNN;` に置き換えて書く）
+/// - **`target` が今の文字コードと違えば、元の行も変換して書く**（`transcode_range`）。改行は
+///   どの文字コードでも同じバイト（`viewer_encoding`）なので、そのまま流れる。今の文字コードとして
+///   読めないバイト（`MALFORMED`）と、変換先で表せない文字（`UNCONVERTIBLE`）があれば断る。
+///   黙って置き換え文字にすると、元のバイトが戻せない。encoding_rs の変換は 1GB で Shift_JIS →
+///   UTF-8 が約 0.7 秒、UTF-8 → Shift_JIS が約 7 秒（ディスクの読み書きを除く。#630 の計測）
 /// - **置き換えたファイルの索引は、書きながら作る**（`IndexingWriter`）。読み直すと、1GB を書いた
 ///   あとに同じ 1GB をもう一度読むことになり、そのあいだ編集もできない
 /// - **`saving` は履歴のロックの中で立て、同じロックの中で文書を写す**（`with_history` の doc）
-fn save_doc(doc: &Arc<LargeDoc>) -> Result<(), String> {
-    let table = {
+fn save_doc(doc: &Arc<LargeDoc>, target: Option<&'static Encoding>) -> Result<(), String> {
+    let (table, from) = {
         let history = doc.history.lock().map_err(|e| e.to_string())?;
         if doc.saving.swap(true, Ordering::SeqCst) {
             return Err(SAVING.into());
         }
-        history.as_ref().map(|h| h.current().clone())
+        // 文字コードも同じロックの中で読む（開き直しは同じロックの中で `saving` を見る）。
+        (
+            history.as_ref().map(|h| h.current().clone()),
+            doc.encoding(),
+        )
     };
-    let result = write_doc(doc, table);
+    let to = target.unwrap_or(from);
+    let result = write_doc(doc, table, (from, to));
     if let Ok(written) = &result {
         // 置き換えたファイルが新しい文書。元のファイルの行の位置と編集の履歴はもう使えない。
         if let Ok(mut history) = doc.history.lock() {
@@ -1963,9 +2120,17 @@ fn save_doc(doc: &Arc<LargeDoc>) -> Result<(), String> {
                 mtime,
                 tail: written.tail.clone(),
             };
+            // **文字コードは索引と一緒に替える**（同じ書き込みのロックの中）。先に替えると、その
+            // あいだの読み込みと検索が、古いファイルを新しい文字コードで読む。
+            doc.set_encoding(to);
         }
         if let Ok(mut slot) = doc.lines_file.lock() {
             *slot = None;
+        }
+        // 文字コードを変えたなら、古い文字コードの照合器で探している検索を止める（普通の保存では
+        // 止めない。検索結果の一覧は保存をまたいで残す）。
+        if from != to {
+            doc.cancel_searches();
         }
     }
     doc.saving.store(false, Ordering::SeqCst);
@@ -1979,7 +2144,12 @@ struct Written {
 }
 
 /// 書き出す。`table` は保存を始めたときの文書（`None` なら編集していない＝元のファイルそのもの）。
-fn write_doc(doc: &LargeDoc, table: Option<PieceTable>) -> Result<Written, String> {
+/// `codec` は（今の文字コード, 書く文字コード）。
+fn write_doc(
+    doc: &LargeDoc,
+    table: Option<PieceTable>,
+    codec: (&'static Encoding, &'static Encoding),
+) -> Result<Written, String> {
     let (index, size, tail) = {
         let s = doc.state.read().map_err(|e| e.to_string())?;
         if !s.done {
@@ -1993,7 +2163,8 @@ fn write_doc(doc: &LargeDoc, table: Option<PieceTable>) -> Result<Written, Strin
     if now < size || read_tail(&mut src, size).map_err(|e| e.to_string())? != tail {
         return Err(SOURCE_CHANGED.into());
     }
-    let write = |tmp: &std::path::Path| write_pieces(doc, &table, &index, size, &mut src, tmp);
+    let write =
+        |tmp: &std::path::Path| write_pieces(doc, &table, (&index, size), &mut src, codec, tmp);
     match doc.shell {
         ShellConfig::Wsl { .. } => replace_in_wsl(doc, write),
         _ => super::replace_host_atomic(&doc.path, write),
@@ -2070,9 +2241,9 @@ impl IndexingWriter {
 fn write_pieces(
     doc: &LargeDoc,
     table: &PieceTable,
-    index: &LineIndex,
-    size: u64,
+    (index, size): (&LineIndex, u64),
     src: &mut File,
+    (from, to): (&'static Encoding, &'static Encoding),
     tmp: &std::path::Path,
 ) -> std::io::Result<Written> {
     let src_lines = index.lines();
@@ -2107,10 +2278,12 @@ fn write_pieces(
         tail: Vec::new(),
     };
     let mut buf = vec![0u8; INDEX_BUF];
+    // 文字コードを変えて書くときだけ（元の行の範囲を変換する）。
+    let mut codec = (from != to).then(|| Transcoder::new(from, to));
     let last = table.pieces().len().saturating_sub(1);
     // 直前に書いたものが改行で終わっていないか（次の行の前に改行が要るか）。
     let mut need_eol = false;
-    for (i, (p, &(a, mut b))) in table.pieces().iter().zip(&ranges).enumerate() {
+    for (i, (p, &(mut a, mut b))) in table.pieces().iter().zip(&ranges).enumerate() {
         if need_eol {
             out.write_all(doc.eol)?;
         }
@@ -2121,14 +2294,25 @@ fn write_pieces(
                 if ends_with_eol && i == last {
                     b -= eol_len_before(src, b)?;
                 }
+                if let Some(c) = &mut codec {
+                    c.reset();
+                    // UTF-8 の BOM は文字ではなく印なので、ほかの文字コードへは写さない（U+FEFF は
+                    // Shift_JIS などで表せず、変換が断られる）。UTF-8 どうしは変換しないので残る。
+                    if a == 0 && from == encoding_rs::UTF_8 && has_utf8_bom(src, b)? {
+                        a = 3;
+                    }
+                }
                 src.seek(SeekFrom::Start(a))?;
                 let mut reader = Read::by_ref(src).take(b - a);
                 loop {
                     let n = reader.read(&mut buf)?;
+                    match &mut codec {
+                        Some(c) => out.write_all(c.feed(&buf[..n], n == 0)?)?,
+                        None => out.write_all(&buf[..n])?,
+                    }
                     if n == 0 {
                         break;
                     }
-                    out.write_all(&buf[..n])?;
                     doc.save_written.fetch_add(n as u64, Ordering::Relaxed);
                 }
                 need_eol = !ends_with_eol;
@@ -2138,7 +2322,7 @@ fn write_pieces(
                     if k > 0 {
                         out.write_all(doc.eol)?;
                     }
-                    let (bytes, _, unmappable) = doc.encoding.encode(line);
+                    let (bytes, _, unmappable) = to.encode(line);
                     if unmappable {
                         return Err(std::io::Error::other(UNMAPPABLE));
                     }
@@ -2151,6 +2335,87 @@ fn write_pieces(
         }
     }
     out.finish()
+}
+
+/// 元のファイルの行の範囲を、別の文字コードへ流しながら変換する（`write_pieces`）。文字が読んだ塊の
+/// 切れ目で割れても、デコーダが持ち越す。範囲は行頭から始まるので、範囲ごとに `reset` で
+/// デコーダとエンコーダだけを作り直す（バッファは使い回す）。
+struct Transcoder {
+    from: &'static Encoding,
+    to: &'static Encoding,
+    decoder: encoding_rs::Decoder,
+    encoder: encoding_rs::Encoder,
+    text: String,
+    out: Vec<u8>,
+}
+
+impl Transcoder {
+    fn new(from: &'static Encoding, to: &'static Encoding) -> Self {
+        Self {
+            from,
+            to,
+            decoder: from.new_decoder_without_bom_handling(),
+            encoder: to.new_encoder(),
+            text: String::new(),
+            out: Vec::new(),
+        }
+    }
+
+    fn reset(&mut self) {
+        self.decoder = self.from.new_decoder_without_bom_handling();
+        self.encoder = self.to.new_encoder();
+    }
+
+    /// `bytes` を変換したバイト列。`last` なら持ち越した分も吐き出す（割れたまま終われば `MALFORMED`）。
+    fn feed(&mut self, bytes: &[u8], last: bool) -> std::io::Result<&[u8]> {
+        use encoding_rs::{DecoderResult, EncoderResult};
+        self.text.clear();
+        // 最悪の長さを先に取っておけば、1 回の呼び出しで入力を読み切る（`OutputFull` にならない）。
+        let need = self
+            .decoder
+            .max_utf8_buffer_length_without_replacement(bytes.len())
+            .ok_or_else(|| std::io::Error::other("too large to convert"))?;
+        self.text.reserve(need);
+        let (result, _) =
+            self.decoder
+                .decode_to_string_without_replacement(bytes, &mut self.text, last);
+        match result {
+            DecoderResult::InputEmpty => {}
+            DecoderResult::Malformed(..) => return Err(std::io::Error::other(MALFORMED)),
+            DecoderResult::OutputFull => return Err(std::io::Error::other("conversion stalled")),
+        }
+        // UTF-8 へは、デコードした文字列がそのまま書くバイト列（エンコーダで写し直さない）。
+        if self.to == encoding_rs::UTF_8 {
+            return Ok(self.text.as_bytes());
+        }
+        self.out.clear();
+        let need = self
+            .encoder
+            .max_buffer_length_from_utf8_without_replacement(self.text.len())
+            .ok_or_else(|| std::io::Error::other("too large to convert"))?;
+        self.out.reserve(need);
+        let (result, _) = self.encoder.encode_from_utf8_to_vec_without_replacement(
+            &self.text,
+            &mut self.out,
+            last,
+        );
+        match result {
+            EncoderResult::InputEmpty => Ok(&self.out),
+            EncoderResult::Unmappable(_) => Err(std::io::Error::other(UNCONVERTIBLE)),
+            EncoderResult::OutputFull => Err(std::io::Error::other("conversion stalled")),
+        }
+    }
+}
+
+/// ファイルの先頭（`end` までの範囲）が UTF-8 の BOM か。
+fn has_utf8_bom(src: &mut File, end: u64) -> std::io::Result<bool> {
+    if end < 3 {
+        return Ok(false);
+    }
+    src.seek(SeekFrom::Start(0))?;
+    let mut head = [0u8; 3];
+    src.read_exact(&mut head)?;
+    Ok(head == [0xEF, 0xBB, 0xBF])
 }
 
 /// `end` の直前の改行のバイト数（CRLF なら 2）。
@@ -2169,9 +2434,7 @@ fn eol_len_before(src: &mut File, end: u64) -> std::io::Result<u64> {
 pub fn large_file_close(state: State<'_, LargeFileState>, id: String) -> Result<(), String> {
     if let Some(doc) = state.docs.lock().map_err(|e| e.to_string())?.remove(&id) {
         doc.generation.fetch_add(1, Ordering::Relaxed);
-        doc.find_generation.fetch_add(1, Ordering::Relaxed);
-        doc.count_generation.fetch_add(1, Ordering::Relaxed);
-        doc.hits_generation.fetch_add(1, Ordering::Relaxed);
+        doc.cancel_searches();
     }
     Ok(())
 }
@@ -2493,7 +2756,7 @@ mod tests {
     }
 
     fn find(doc: &LargeDoc, q: &str, from: Pos, backward: bool) -> Option<(u64, u64, u64)> {
-        let m = build_matcher(q, true, doc.encoding).unwrap();
+        let m = build_matcher(q, true, doc.encoding()).unwrap();
         search_doc(doc, &m, from, backward, &never)
             .unwrap()
             .map(|m| (m.line, m.col, m.byte_end))
@@ -2515,10 +2778,10 @@ mod tests {
         // 回り込み。
         assert_eq!(find(&doc, "X", (3, 0), false), Some((1, 0, 1)));
         assert_eq!(find(&doc, "l2", (2, 0), true), Some((3, 0, 2)));
-        let m = build_matcher("l", true, doc.encoding).unwrap();
+        let m = build_matcher("l", true, doc.encoding()).unwrap();
         assert_eq!(count_doc(&doc, &m, &never).unwrap(), Some((3, false)));
 
-        save_doc(&doc).unwrap();
+        save_doc(&doc, None).unwrap();
         let saved = std::fs::read(&path).unwrap();
         assert_eq!(saved, b"l0\nX\nY\nl2\nl3\n");
         // 書きながら作った索引は、書いたファイルを読み直して作る索引と同じ。
@@ -2547,12 +2810,12 @@ mod tests {
     fn save_keeps_crlf_and_the_missing_final_newline() {
         let (doc, path, dir) = open_temp(b"a\r\nb\r\nc");
         with_history(&doc, |h| h.edit(1, 1, strings(&["B"]))).unwrap();
-        save_doc(&doc).unwrap();
+        save_doc(&doc, None).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"a\r\nB\r\nc");
         wait_indexed(&doc);
         // 最後の行を消すと、手前の行の改行も残らない。
         with_history(&doc, |h| h.edit(2, 1, Vec::new())).unwrap();
-        save_doc(&doc).unwrap();
+        save_doc(&doc, None).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"a\r\nB");
         drop(doc);
         let _ = std::fs::remove_dir_all(&dir);
@@ -2562,12 +2825,151 @@ mod tests {
     fn added_lines_are_written_in_the_file_encoding() {
         let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode("日本\n語\n");
         let (doc, path, dir) = open_temp(&sjis);
-        assert_eq!(doc.encoding, encoding_rs::SHIFT_JIS);
+        assert_eq!(doc.encoding(), encoding_rs::SHIFT_JIS);
         with_history(&doc, |h| h.edit(1, 1, strings(&["エラー"]))).unwrap();
         assert_eq!(find(&doc, "エラー", (0, 0), false), Some((1, 0, 9)));
-        save_doc(&doc).unwrap();
+        save_doc(&doc, None).unwrap();
         let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("日本\nエラー\n");
         assert_eq!(std::fs::read(&path).unwrap(), expected.as_ref());
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 文書の行を `start` から `count` 行、今の文字コードで読む（テスト用）。
+    fn text_lines(doc: &LargeDoc, start: u64, count: u64) -> Vec<String> {
+        doc_lines(doc, start, count).unwrap().lines
+    }
+
+    #[test]
+    fn viewer_encodings_are_the_ascii_compatible_ones() {
+        // フロントへ渡す一覧は、どれも指定できる。
+        for ok in VIEWER_ENCODINGS {
+            assert_eq!(viewer_encoding(ok.name()).unwrap(), *ok);
+        }
+        assert!(viewer_encoding("shift_jis").is_ok());
+        assert_eq!(
+            viewer_encoding("ISO-8859-1").unwrap(),
+            encoding_rs::WINDOWS_1252
+        );
+        assert_eq!(viewer_encoding("UTF-16LE").unwrap_err(), UTF16_UNSUPPORTED);
+        assert_eq!(viewer_encoding("UTF-16BE").unwrap_err(), UTF16_UNSUPPORTED);
+        assert!(viewer_encoding("ISO-2022-JP").is_err());
+        assert!(viewer_encoding("Big5").is_err());
+        assert!(viewer_encoding("nope").is_err());
+    }
+
+    #[test]
+    fn reopening_with_an_encoding_keeps_the_index_and_the_edits() {
+        // 先頭で Shift_JIS と判定される EUC-JP のファイル。
+        let (euc, _, _) = encoding_rs::EUC_JP.encode("日本語\nエラー発生\n末尾\n");
+        let (doc, path, dir) = open_temp(&euc);
+        assert_eq!(doc.encoding(), encoding_rs::SHIFT_JIS);
+        with_history(&doc, |h| h.edit(2, 1, strings(&["書き換え"]))).unwrap();
+        doc.set_encoding(viewer_encoding("EUC-JP").unwrap());
+        assert_eq!(
+            text_lines(&doc, 0, 4),
+            strings(&["日本語", "エラー発生", "書き換え", ""])
+        );
+        // 検索も新しい文字コードで照合する。
+        assert_eq!(find(&doc, "エラー", (0, 0), false), Some((1, 0, 6)));
+        // 入れた行は新しい文字コードで書く。
+        save_doc(&doc, None).unwrap();
+        let (expected, _, _) = encoding_rs::EUC_JP.encode("日本語\nエラー発生\n書き換え\n");
+        assert_eq!(std::fs::read(&path).unwrap(), expected.as_ref());
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn euc_jp_search_does_not_start_inside_a_character() {
+        // 「ああ」は EUC-JP で A4 A2 A4 A2。1 バイトずらした A2 A4 も別の文字のバイト列なので、
+        // その文字で探すと、境目を見ない照合は 2 バイト目から当たる。
+        let (a, _, _) = encoding_rs::EUC_JP.encode("あ");
+        let text = [&a[..], &a[..], b"\n"].concat();
+        let shifted = [a[1], a[0]];
+        let decoy = encoding_rs::EUC_JP
+            .decode_without_bom_handling(&shifted)
+            .0
+            .into_owned();
+        assert!(!decoy.contains('\u{FFFD}'));
+        let m = build_matcher(&decoy, true, encoding_rs::EUC_JP).unwrap();
+        assert_eq!(m.matches(&text, 0).count(), 0, "{decoy}");
+        // 境目から始まる一致は当たる。
+        let m = build_matcher("あ", true, encoding_rs::EUC_JP).unwrap();
+        assert_eq!(m.matches(&text, 0).count(), 2);
+    }
+
+    #[test]
+    fn saving_with_another_encoding_converts_every_line() {
+        let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode("日本語\r\nエラー\r\n末尾");
+        let (doc, path, dir) = open_temp(&sjis);
+        with_history(&doc, |h| h.edit(1, 1, strings(&["書き換え"]))).unwrap();
+        save_doc(&doc, Some(encoding_rs::UTF_8)).unwrap();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            "日本語\r\n書き換え\r\n末尾".as_bytes()
+        );
+        // 以後の文書は新しい文字コードで、索引も書いたファイルのもの。
+        assert_eq!(doc.encoding(), encoding_rs::UTF_8);
+        assert_eq!(
+            text_lines(&doc, 0, 3),
+            strings(&["日本語", "書き換え", "末尾"])
+        );
+        assert_eq!(find(&doc, "末尾", (0, 0), false), Some((2, 0, 6)));
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn converting_drops_the_utf8_bom() {
+        let mut bytes = vec![0xEF, 0xBB, 0xBF];
+        bytes.extend_from_slice("日本\n語\n".as_bytes());
+        let (doc, path, dir) = open_temp(&bytes);
+        save_doc(&doc, Some(encoding_rs::SHIFT_JIS)).unwrap();
+        let (expected, _, _) = encoding_rs::SHIFT_JIS.encode("日本\n語\n");
+        assert_eq!(std::fs::read(&path).unwrap(), expected.as_ref());
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_query_the_encoding_cannot_write_finds_nothing_in_the_file() {
+        // windows-1252 に「あ」は無い。encoding_rs の置き換え（`&#12354;`）の文字列に当てない。
+        let (doc, _, dir) = open_temp(b"&#12354;\nplain\n");
+        doc.set_encoding(encoding_rs::WINDOWS_1252);
+        assert_eq!(find(&doc, "あ", (0, 0), false), None);
+        let m = build_matcher("あ", true, doc.encoding()).unwrap();
+        assert_eq!(count_doc(&doc, &m, &never).unwrap(), Some((0, false)));
+        // 編集で入れた行の中は探す。
+        with_history(&doc, |h| h.edit(1, 1, strings(&["あ"]))).unwrap();
+        assert_eq!(find(&doc, "あ", (0, 0), false), Some((1, 0, 3)));
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn converting_refuses_what_cannot_be_written_or_read() {
+        // 変換先で表せない文字（絵文字は Shift_JIS に無い）。元のファイルはそのまま。
+        let (doc, path, dir) = open_temp("ok\n😀\n".as_bytes());
+        assert_eq!(
+            save_doc(&doc, Some(encoding_rs::SHIFT_JIS)).unwrap_err(),
+            UNCONVERTIBLE
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), "ok\n😀\n".as_bytes());
+        assert_eq!(doc.encoding(), encoding_rs::UTF_8);
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
+        // 今の文字コードとして読めないバイト（UTF-8 と判定した先頭の後ろに壊れた並び）。
+        let mut bytes = "ok\n".repeat(10).into_bytes();
+        let head = bytes.len();
+        bytes.extend_from_slice(&[0xFF, 0xFE, b'\n']);
+        let (doc, path, dir) = open_temp(&bytes);
+        doc.set_encoding(encoding_rs::UTF_8);
+        assert_eq!(
+            save_doc(&doc, Some(encoding_rs::SHIFT_JIS)).unwrap_err(),
+            MALFORMED
+        );
+        assert_eq!(std::fs::read(&path).unwrap().len(), head + 3);
         drop(doc);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2591,7 +2993,7 @@ mod tests {
         let (doc, path, dir) = open_temp(b"one\ntwo\n");
         with_history(&doc, |h| h.edit(0, 1, strings(&["ONE"]))).unwrap();
         std::fs::write(&path, b"uno\ndos\n").unwrap();
-        assert_eq!(save_doc(&doc).unwrap_err(), SOURCE_CHANGED);
+        assert_eq!(save_doc(&doc, None).unwrap_err(), SOURCE_CHANGED);
         // 書き換えは残り、編集もまだ持っている。
         assert_eq!(std::fs::read(&path).unwrap(), b"uno\ndos\n");
         assert!(doc_status(&doc).unwrap().dirty);
@@ -2635,7 +3037,7 @@ mod tests {
         let (sjis, _, _) = encoding_rs::SHIFT_JIS.encode("日本\n");
         let (doc, path, dir) = open_temp(&sjis);
         with_history(&doc, |h| h.edit(0, 1, strings(&["😀"]))).unwrap();
-        assert_eq!(save_doc(&doc).unwrap_err(), UNMAPPABLE);
+        assert_eq!(save_doc(&doc, None).unwrap_err(), UNMAPPABLE);
         assert_eq!(std::fs::read(&path).unwrap(), sjis.as_ref());
         assert!(doc_status(&doc).unwrap().dirty);
         drop(doc);
@@ -2656,7 +3058,7 @@ mod tests {
 
     /// 一覧の検索を同じスレッドで最後まで回し、積んだ一覧を返す。
     fn hits_of(doc: &LargeDoc, q: &str) -> (Vec<LargeHit>, bool) {
-        let m = build_matcher(q, true, doc.encoding).unwrap();
+        let m = build_matcher(q, true, doc.encoding()).unwrap();
         let generation = doc.hits_generation.fetch_add(1, Ordering::Relaxed) + 1;
         *doc.hits.lock().unwrap() = HitList {
             generation,
@@ -2773,7 +3175,7 @@ mod tests {
     #[test]
     fn hit_list_of_a_replaced_search_is_not_written() {
         let (doc, _, dir) = open_temp(b"x\n");
-        let m = build_matcher("x", true, doc.encoding).unwrap();
+        let m = build_matcher("x", true, doc.encoding()).unwrap();
         // 世代 1 で始めた検索が、走り出す前に世代 2 に置き換わった。
         *doc.hits.lock().unwrap() = HitList {
             generation: 2,

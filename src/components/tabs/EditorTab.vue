@@ -45,6 +45,7 @@ import { buildFontFamily } from '../../lib/fontDetection'
 import { formatFileSize, formatLineRange, lineRangeSuffix } from '../../lib/format'
 import { chordLabel, matchChord } from '../../lib/keys'
 import { languageByKey, languageLabelByKey } from '../../lib/languages'
+import type { LargeViewerInfo } from '../../lib/largeFile'
 import { openProjectPath, openWithDefaultApp } from '../../lib/openFile'
 import { isExternalLink, openUrlWithConfirm } from '../../lib/openUrl'
 import { useOverlay } from '../../lib/overlay'
@@ -209,7 +210,13 @@ const tooLargeSize = ref<number | null>(null)
  */
 const largeViewer = ref(false)
 /** `save` は書いたら `true`（変わっていなければ書かずに `false`）。 */
-const largeViewerRef = useTemplateRef<{ refresh: () => Promise<void>; save: () => Promise<boolean> }>('largeViewerRef')
+const largeViewerRef = useTemplateRef<{
+  refresh: () => Promise<void>
+  save: (encoding?: string) => Promise<boolean>
+  setEncoding: (encoding: string) => Promise<void>
+}>('largeViewerRef')
+/** ビューアが最後に知らせた StatusBar の中身（`onLargeViewerInfo`）。 */
+let largeViewerInfo: LargeViewerInfo | null = null
 /**
  * 先頭から少しずつ読んでいるとき（#362）。**このあいだは読み取り専用**: 保存すると、読んで
  * いない後半が消える。`nextOffset` は次に読むバイト位置。
@@ -742,6 +749,10 @@ function updateDirtyState() {
 }
 
 function updateCursorInfo() {
+  if (largeViewer.value) {
+    updateLargeViewerInfo()
+    return
+  }
   if (!editorView || !tab.value) return
   // StatusBar は 1 つしかないので、打鍵の行き先のタブだけが書く（#308）。
   if (!tabStore.isTabFocused(props.tabId)) return
@@ -760,11 +771,62 @@ function updateCursorInfo() {
   })
 }
 
+/**
+ * 大きなファイルビューア（#630）の StatusBar。**文字コードの指定は普通のエディタと同じ UI を使う**
+ * （StatusBar の 2 段のメニュー）。操作は `largeViewerActions` がビューアへ振り替え、選択肢は
+ * ビューアで扱える文字コードに絞る（Rust の `VIEWER_ENCODINGS` がビューア経由で届く）。列は
+ * ビューアにカーソルが無いので 1。
+ */
+function updateLargeViewerInfo() {
+  const info = largeViewerInfo
+  if (!info || !tab.value || !tabStore.isTabFocused(props.tabId)) return
+  editorInfo.update({
+    line: info.line,
+    col: 1,
+    encoding: info.encoding,
+    lineEnding: info.lineEnding,
+    fileType: languageLabelByKey(''),
+    fileTypeKey: null,
+    tabSize: settingsStore.editorTabSize,
+    tabId: props.tabId,
+    actions: largeViewerActions,
+    encodings: info.encodings,
+  })
+}
+
+function onLargeViewerInfo(info: LargeViewerInfo) {
+  // 文字コードと改行はビューアが持つ（`currentEncoding` には写さない。ビューアの読み直しと保存は
+  // あちらの今の文字コードを使う）。
+  largeViewerInfo = info
+  updateLargeViewerInfo()
+}
+
+/** ビューアの文字コードを指定して読み直す。索引と未保存の編集は残る（`LargeFileViewer` の `setEncoding`）。 */
+async function changeLargeViewerEncoding(encoding: string) {
+  try {
+    await largeViewerRef.value?.setEncoding(encoding)
+  } catch (e) {
+    statusMessageStore.show({ text: t('editor.encodingFailed', { error: String(e) }), variant: 'error' })
+  }
+}
+
+/** ビューアで持たない操作（改行の切り替えと種別の上書き）。何もせず、できないことを知らせる。 */
+function largeViewerUnsupported() {
+  statusMessageStore.show({ text: t('largeFile.statusUnsupported'), variant: 'info' })
+}
+
+const largeViewerActions: EditorActions = {
+  changeEncoding: (enc) => void changeLargeViewerEncoding(enc),
+  changeLineEnding: largeViewerUnsupported,
+  saveWithEncoding: (enc) => save(enc),
+  changeFileType: largeViewerUnsupported,
+}
+
 /** Shell config for file I/O. 判断の実体は `projectStore.shellForIO`（そこの doc を参照）。 */
 const shellForIO = computed(() => projectStore.shellForIO)
 
 async function save(overrideEncoding?: string, auto = false) {
-  if (largeViewer.value) return saveLargeViewer()
+  if (largeViewer.value) return saveLargeViewer(overrideEncoding)
   if (!editorView || !tab.value || saving.value || isReadOnlyTab.value) return
 
   // Untitled tab: prompt for file path first
@@ -847,12 +909,12 @@ async function save(overrideEncoding?: string, auto = false) {
  * - **失敗は `error` に出さず StatusBar に出す**。`error` の画面はビューアより後ろの分岐なので
  *   出ないうえ、未保存の編集を捨てる操作しか残らない形になる（自動保存の失敗と同じ理由）
  */
-async function saveLargeViewer() {
+async function saveLargeViewer(encoding?: string) {
   const path = tab.value?.path
   if (!path || saving.value || !largeViewerRef.value) return
   saving.value = true
   try {
-    if (await largeViewerRef.value.save()) {
+    if (await largeViewerRef.value.save(encoding)) {
       markRecentlySaved(path)
       onLargeViewerDirty(false)
     }
@@ -2325,10 +2387,11 @@ watch(
 watch(
   () => tabStore.isTabFocused(props.tabId),
   (focused) => {
-    if (focused && editorView) {
-      // 操作（`EditorActions`）は表示と一緒に `update` が運ぶので、別に登録しない。
+    if (focused && (editorView || largeViewer.value)) {
+      // 操作（`EditorActions`）は表示と一緒に `update` が運ぶので、別に登録しない。ビューアの
+      // ときは `updateCursorInfo` がビューアの表示へ振り分ける。
       updateCursorInfo()
-      registerOutlineSource()
+      if (editorView) registerOutlineSource()
     } else if (!focused) {
       // 降りるのは自分がアクティブでなくなったときだけ。**ただしこの条件には頼らない**:
       // watcher の走る順はマウント順なので、来たタブが update した後にここへ来ることがある。
@@ -2568,6 +2631,7 @@ onUnmounted(() => {
       @dirty="onLargeViewerDirty"
       @save="save()"
       @reload="reloadFromDisk"
+      @info="onLargeViewerInfo"
     />
     <!-- 上限を超えたファイル（#362）。エラーにせず、開き方を選ばせる -->
     <div v-else-if="tooLargeSize !== null" class="editor-status choices">
