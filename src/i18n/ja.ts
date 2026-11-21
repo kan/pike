@@ -1250,6 +1250,7 @@ export default {
   'liveSessions.busy': '稼働中',
   'liveSessions.idle': 'アイドル',
   'liveSessions.recent': '最近',
+  'liveSessions.allAccounts': 'すべて',
   'liveSessions.waitingFor': '待っているもの: {reason}',
   'liveSessions.empty': 'このアカウントで動いている Claude Code のセッションはありません',
   'liveSessions.noProject': 'プロジェクトを開くと、そのアカウントのセッションが並びます',

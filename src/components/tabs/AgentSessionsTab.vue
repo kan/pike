@@ -6,11 +6,19 @@
  * （`stores/liveSessions.ts`）で、このタブが見えているあいだはストアが自分で短い間隔に切り替える。
  */
 import { ArrowRight, RefreshCw } from 'lucide-vue-next'
-import { computed, useTemplateRef, watch } from 'vue'
+import { computed, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { LIVE_STATUS_ICONS } from '../../lib/liveSessionIcons'
-import { liveRowKey, liveSessionJumpKey, liveStatusKey } from '../../lib/liveSessions'
+import {
+  groupLiveSessions,
+  LIVE_TAB_ACCOUNT_KEY,
+  liveRowKey,
+  liveSessionJumpKey,
+  liveStatusKey,
+  selectedSections,
+} from '../../lib/liveSessions'
 import { basename, stripTrailingSep } from '../../lib/paths'
+import { loadJson, saveJson } from '../../lib/storage'
 import { type LiveSessionRow, useLiveSessionsStore } from '../../stores/liveSessions'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
@@ -36,9 +44,35 @@ watch(
   },
 )
 
-/** 見出しの横の要約（「返答待ち 1 · 稼働中 2」）。空のグループは言わない。 */
+/**
+ * 選んでいるアカウント（`liveListKey`。null は「すべて」。#633）。localStorage に置き、次に開いたときも
+ * 引き継ぐ（マシンの中だけ）。**一覧から消えたアカウントを選んでいたら「すべて」を出す**が、保存した値は
+ * 消さない（そのアカウントでまたセッションが動き出せば戻る）。
+ */
+const selected = ref<string | null>(loadSelected())
+function loadSelected(): string | null {
+  const v = loadJson<unknown>(LIVE_TAB_ACCOUNT_KEY, null)
+  return typeof v === 'string' ? v : null
+}
+function selectAccount(key: string | null) {
+  selected.value = key
+  saveJson(LIVE_TAB_ACCOUNT_KEY, key)
+}
+/** 出すアカウント。一覧が 1 つなら切り替えを出さないので、全部（＝その 1 つ）。 */
+const shownSections = computed(() =>
+  store.showHeadings ? selectedSections(store.sections, selected.value) : store.sections,
+)
+/** 切り替えで選ばれて見えているもの（選んでいたアカウントが消えていれば「すべて」）。 */
+const shownKey = computed(() => (store.sections.some((s) => s.key === selected.value) ? selected.value : null))
+
+/**
+ * 見出しの横の要約（「返答待ち 1 · 稼働中 2」）。空のグループは言わない。**数えるのは出しているアカウント**
+ * （切り替えで 1 つを選んでいれば、そのアカウントだけ）。
+ */
 const summary = computed(() =>
-  store.groups.map((g) => `${t(liveStatusKey(g.status))} ${g.sessions.length}`).join(' · '),
+  groupLiveSessions(shownSections.value.flatMap((s) => s.groups.flatMap((g) => g.sessions)))
+    .map((g) => `${t(liveStatusKey(g.status))} ${g.sessions.length}`)
+    .join(' · '),
 )
 
 /** 1 列目の名前。Claude Code が付けた名前、無ければディレクトリ名。 */
@@ -92,9 +126,34 @@ function startedLabel(ms: number | null): string | null {
         <span v-if="store.configDir" class="mono">{{ store.configDir }}</span>
       </p>
 
+      <!-- アカウントの切り替え（#633。2 つ以上あるときだけ）。「すべて」は見出し付きで全部を並べる。 -->
+      <div v-if="store.showHeadings" class="account-switch">
+        <button
+          :aria-pressed="shownKey === null"
+          :class="{ active: shownKey === null }"
+          @click="selectAccount(null)"
+        >
+          {{ t('liveSessions.allAccounts') }}
+        </button>
+        <button
+          v-for="section in store.sections"
+          :key="section.key"
+          :aria-pressed="shownKey === section.key"
+          :class="{ active: shownKey === section.key }"
+          :title="section.configDir"
+          @click="selectAccount(section.key)"
+        >
+          <span class="switch-title">{{ section.title }}</span>
+          <span v-if="section.waiting > 0" class="switch-waiting">
+            <component :is="LIVE_STATUS_ICONS.waiting" :size="12" :stroke-width="2" />{{ section.waiting }}
+          </span>
+          <span class="switch-count">{{ section.total }}</span>
+        </button>
+      </div>
+
       <p v-if="store.sections.length === 0" class="empty">{{ t(store.emptyKey) }}</p>
 
-      <div v-for="section in store.sections" :key="section.key" class="account-section">
+      <div v-for="section in shownSections" :key="section.key" class="account-section">
         <!-- アカウントの見出し（2 つ以上あるときだけ。#633）。設定ディレクトリも添える。 -->
         <div v-if="store.showHeadings" class="account-head selectable">
           <span class="account-title">{{ section.title }}</span>
@@ -254,6 +313,59 @@ function startedLabel(ms: number | null): string | null {
 
 .group + .group {
   margin-top: 22px;
+}
+
+/* アカウントの切り替え（#633）。選んでいるものだけ地を塗る。 */
+.account-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 1100px;
+  margin: 8px 0 20px;
+}
+
+.account-switch button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 360px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.account-switch button:hover {
+  color: var(--text-active);
+}
+
+.account-switch button.active {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 返答待ちは状態の見出しと同じ緑。選んでいるものの上では読める色に振り替える。 */
+.switch-waiting {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--success);
+}
+
+.account-switch button.active .switch-waiting,
+.account-switch button.active .switch-count {
+  color: var(--on-accent-muted);
 }
 
 /* アカウントの見出し（#633）。状態の見出しより 1 段上。 */

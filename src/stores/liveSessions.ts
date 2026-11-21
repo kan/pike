@@ -100,6 +100,10 @@ export interface LiveSessionSection {
   title: string
   configDir: string
   groups: { status: LiveStatus; sessions: LiveSessionRow[] }[]
+  /** セッションの数（折り畳んだ見出しにも出す）。 */
+  total: number
+  /** そのうち返答待ちの数。 */
+  waiting: number
 }
 
 /**
@@ -348,12 +352,12 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
       title: liveListTitle(list, places.size > 1),
       configDir: list.configDir,
       groups: groupLiveSessions(rows),
+      total: rows.length,
+      waiting: rows.filter((r) => r.status === 'waiting').length,
     }))
   })
   /** 見出しを出すか。一覧が 1 つなら出さない（#625 のころと同じ見た目）。 */
   const showHeadings = computed(() => sections.value.length > 1)
-  /** 全アカウントを合わせた状態ごとのグループ（詳細のタブの見出しの横の要約）。 */
-  const groups = computed(() => groupLiveSessions(rows.value))
   /** サイドバーのアイコンの件数。**全アカウントの合計**（Codex は返答待ちを持たない）。 */
   const waitingCount = computed(() => rows.value.filter((r) => r.status === 'waiting').length)
   /** 一覧が空のときに出す文言（i18n のキー）。最初の取得が返るまでは「読み込み中」。 */
@@ -603,7 +607,6 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     loading,
     rows,
     tabForSession,
-    groups,
     sections,
     showHeadings,
     waitingCount,

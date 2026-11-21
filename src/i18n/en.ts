@@ -1252,6 +1252,7 @@ export default {
   'liveSessions.busy': 'Working',
   'liveSessions.idle': 'Idle',
   'liveSessions.recent': 'Recent',
+  'liveSessions.allAccounts': 'All',
   'liveSessions.waitingFor': 'Waiting: {reason}',
   'liveSessions.empty': 'No Claude Code sessions are running on this account',
   'liveSessions.noProject': 'Open a project to list the sessions of its account',

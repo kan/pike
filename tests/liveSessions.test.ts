@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  asKeyList,
   groupLiveSessions,
   liveListKey,
   liveListTitle,
@@ -8,6 +9,8 @@ import {
   liveSessionLabel,
   liveSessionTabKey,
   projectForCwd,
+  selectedSections,
+  withCollapsedKey,
 } from '../src/lib/liveSessions'
 import type { LiveSession } from '../src/types/liveSession'
 import type { ShellType } from '../src/types/tab'
@@ -103,6 +106,38 @@ test('一覧の鍵は環境と設定ディレクトリで分かれる', () => {
   assert.equal(
     liveListKey({ agent: 'claude', shell: pwsh, configDir: 'C:\\c' }),
     liveListKey({ agent: 'claude', shell: { kind: 'cmd' }, configDir: 'C:\\c' }),
+  )
+})
+
+test('折り畳みはなりたい状態を渡し、古いものから捨てる', () => {
+  assert.deepEqual(withCollapsedKey(['a'], 'b', true), ['a', 'b'])
+  // 既に畳んでいるものを畳んでも、2 つにならない（別のウィンドウが先に畳んでいた）。
+  assert.deepEqual(withCollapsedKey(['a', 'b'], 'a', true), ['b', 'a'])
+  assert.deepEqual(withCollapsedKey(['a', 'b'], 'a', false), ['b'])
+  assert.deepEqual(withCollapsedKey([], 'a', false), [])
+  const many = Array.from({ length: 50 }, (_, i) => `k${i}`)
+  const next = withCollapsedKey(many, 'new', true)
+  assert.equal(next.length, 50)
+  assert.equal(next[0], 'k1')
+  assert.equal(next[49], 'new')
+  // 手で編集された値は捨てる。
+  assert.deepEqual(asKeyList(['a', 1, null, 'b']), ['a', 'b'])
+  assert.deepEqual(asKeyList('a'), [])
+})
+
+test('選んだアカウントが一覧に無ければ全部を出す', () => {
+  const sections = [{ key: 'a' }, { key: 'b' }]
+  assert.deepEqual(
+    selectedSections(sections, 'b').map((s) => s.key),
+    ['b'],
+  )
+  assert.deepEqual(
+    selectedSections(sections, null).map((s) => s.key),
+    ['a', 'b'],
+  )
+  assert.deepEqual(
+    selectedSections(sections, 'gone').map((s) => s.key),
+    ['a', 'b'],
   )
 })
 

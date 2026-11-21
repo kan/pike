@@ -134,6 +134,38 @@ export function liveListKey(list: Pick<LiveSessionList, 'agent' | 'shell' | 'con
   return `${list.agent}\n${livePlaceKey(list.shell)}\n${list.configDir}`
 }
 
+/** パネルで折り畳んだアカウント（`liveListKey` の並び）の置き場（#633。マシンの中だけで同期しない）。 */
+export const LIVE_COLLAPSED_KEY = 'pike:live-sessions-collapsed'
+/** 詳細のタブで選んでいるアカウント（`liveListKey`。`null` は「すべて」）の置き場（#633）。 */
+export const LIVE_TAB_ACCOUNT_KEY = 'pike:live-sessions-account'
+/** 覚えておく折り畳みの数。使わなくなったアカウントの鍵が溜まり続けないよう、古いものから捨てる。 */
+const MAX_COLLAPSED = 50
+
+/** 保存した値を鍵の並びとして読む（手で編集された値や版の違う Pike が書いた値は捨てる）。 */
+export function asKeyList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+}
+
+/**
+ * 折り畳みの並びで `key` を畳んだ（`collapse`）／開いた新しい並び。**切り替えではなく、なりたい状態を
+ * 渡す**: 呼ぶ側は保存先を読み直してから渡すので、別のウィンドウが先に畳んでいると、切り替えでは
+ * 押した本人の見ている向きと逆になる。畳んだものは末尾に足し、`MAX_COLLAPSED` を超えたら先頭
+ * （いちばん前に畳んだもの）から捨てる。
+ */
+export function withCollapsedKey(keys: readonly string[], key: string, collapse: boolean): string[] {
+  const rest = keys.filter((k) => k !== key)
+  return collapse ? [...rest, key].slice(-MAX_COLLAPSED) : rest
+}
+
+/**
+ * 詳細のタブに出すアカウント。`selected` が今の一覧に無ければ（そのアカウントのセッションが終わった）
+ * 「すべて」として扱う。**保存した値は消さない**（またセッションが動き出せば、そのアカウントに戻る）。
+ */
+export function selectedSections<T extends { key: string }>(sections: readonly T[], selected: string | null): T[] {
+  const one = selected ? sections.find((s) => s.key === selected) : undefined
+  return one ? [one] : [...sections]
+}
+
 /**
  * 押したときにどこへ移るかの説明（i18n のキー）。行き先の決め方は `stores/liveSessions.ts` の
  * `jump` が正本で、ここはその 3 段をそのまま言う。
