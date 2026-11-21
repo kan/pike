@@ -44,6 +44,7 @@ pike/
 │       ├── autostart.rs       # ログイン時の起動（HKCU の Run キー、Windows のみ、#419）
 │       ├── bell.rs            # ターミナルの BEL で鳴らす OS のシステム音（MessageBeep / NSBeep、#481）
 │       ├── agent_sessions.rs  # 再開できる過去セッションの一覧（#267。出所は 4 つとも違う）
+│       ├── agent_live.rs      # 今動いているセッションの一覧を、環境とアカウントごとに集める口（#633）
 │       ├── agent_usage/
 │       │   ├── mod.rs         # 使用量を種別に依らない形で返す（#263。id でアダプタへ振り分け）
 │       │   ├── copilot.rs     # Copilot の premium request（~/.copilot の events.jsonl）
@@ -80,11 +81,13 @@ pike/
 │       │   ├── mod.rs         # デスクトップ通知（#318、Windows 専用。押すとウィンドウが前に出る）
 │       │   └── activation.rs  # 押されたことを受ける `pike://` の組み立てと読み取り（#334）
 │       ├── diagnostics/mod.rs # 外部リンタ実行 → Problems パネル
-│       ├── codex_usage/mod.rs # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
+│       ├── codex_usage/
+│       │   ├── mod.rs         # 間接 Codex（CLI）のトークン使用量集計（~/.codex 解析）
+│       │   └── live.rs        # 今動いている Codex のセッション（#633。rollout の mtime とターンの印から推す）
 │       ├── claude_usage/
 │       │   ├── mod.rs         # Claude Code のトークン使用量集計（~/.claude ログ解析）
 │       │   ├── config.rs      # CLAUDE_CONFIG_DIR の解決とアカウント読み出し（#225）
-│       │   ├── live.rs        # 今動いているセッションの一覧（#625。`sessions/<pid>.json` と生存の照合）
+│       │   ├── live.rs        # 今動いている Claude のセッション（#625。`sessions/<pid>.json` と生存の照合）
 │       │   ├── rate.rs        # `claude -p "/usage"` のレート制限パース（#117）
 │       │   └── sessions.rs    # 再開できる過去セッションの Claude ぶんの収集（#220。口は agent_sessions.rs）
 │       ├── pty/
@@ -148,6 +151,9 @@ pike/
 │   │   ├── PatchFileRow.vue     # 変更されたファイルの一覧の 1 行（コミットタブと作業中の変更のタブ、#526）
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── LiveSessionMenu.vue  # 今動いているセッションの右クリックメニュー（パネルと詳細のタブで共有、#625）
+│   │   ├── LiveAccountHeading.vue  # セッションの一覧のアカウントの見出し（エージェントと環境をアイコンで、#633）
+│   │   ├── TerminalPeekPopup.vue # ターミナルのチラ見のポップアップ（プロジェクトのプルダウンとセッションの一覧で共有、#319 / #631）
+│   │   ├── TerminalPeekMark.vue  # ホバーでチラ見する印（セッションのパネルと詳細のタブで共有、#631）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
 │   │   ├── MoveProjectMenu.vue  # プロジェクトを別のウィンドウへ移すときの行き先のメニュー（#469）
 │   │   ├── CreateWorktreeDialog.vue # worktree の作成ダイアログ（名前・ベースブランチ・作成先、#478）
@@ -304,6 +310,8 @@ pike/
 │   │   ├── loginExpiry.ts    # Claude Code のサインインの期限の幅・残り日数・警告の判定（#604。i18n を読まない）
 │   │   ├── liveSessions.ts   # 動いているセッションの状態ごとの並べ方と、cwd からプロジェクトを引く規則（#625）
 │   │   ├── liveSessionIcons.ts # 動いているセッションの状態のアイコン（#625。パネルと詳細のタブで共有）
+│   │   ├── agentIcons.ts      # エージェント → アイコン（#633。`shellIcons.ts` と同じ形）
+│   │   ├── brandIcons.ts      # 各社のロゴ（Simple Icons の CC0 のものから path を写した）と Windows の四角（#633）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
 │   │   ├── issueLabels.ts    # issue パネルで隠すラベルの検証と判定（#531。設定画面の欄は SettingTagList.vue）
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278。エディタのプレビューも使う、#482）

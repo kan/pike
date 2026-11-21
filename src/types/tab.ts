@@ -167,6 +167,24 @@ export function runInDir(shell: ShellType, dir: string, command: string): string
 }
 
 /**
+ * 環境変数を 1 つ付けて `command` を走らせる 1 行（#633。別のアカウントの Claude のセッションを
+ * `CLAUDE_CONFIG_DIR` を付けて再開する）。
+ *
+ * - bash 系は `NAME=value command`（その 1 コマンドにだけ効く）
+ * - cmd は `set "NAME=value" && command`（`types.rs` の `run_shell_line_env` と同じ形）
+ * - PowerShell は `$env:NAME=value; command`
+ *
+ * **cmd と PowerShell では、そのシェルにも残る**（1 コマンドだけに付ける書き方が無い）。
+ * 再開のために開く新しいタブで使うので、そのシェルが同じアカウントを見続けても困らない。
+ * `name` は呼び出し側の定数だけを渡す（引用しない）。
+ */
+export function withEnv(shell: ShellType, name: string, value: string, command: string): string {
+  if (shell.kind === 'cmd') return `set "${name}=${value.replace(/"/g, '')}" && ${command}`
+  if (isPowershellFamily(shell.kind)) return `$env:${name}=${quoteArg(shell, value)}; ${command}`
+  return `${name}=${quoteArg(shell, value)} ${command}`
+}
+
+/**
  * Quote one argument of a command line for the given shell, so paths and URLs
  * with spaces (or `$`, backticks, …) reach the program unmangled. Single quotes
  * are literal in both bash and PowerShell — cmd.exe only understands double

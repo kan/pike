@@ -1,3 +1,5 @@
+pub(crate) mod live;
+
 use crate::cache::{Evict, MtimeCache};
 use crate::types::{ShellConfig, cwd_matches_root, wsl_home_subdir_cached};
 use base64::Engine as _;
@@ -195,10 +197,17 @@ fn latest_day_dirs(sessions_dir: &Path, n: usize) -> Vec<PathBuf> {
 /// `max_age` は集計だけが渡す（`RECENT_WINDOW_SECS`）。**再開の一覧は `None`**（#267。
 /// 古いセッションこそ出したいので窓で切らない）。窓を固定していたころ、一覧側はこの
 /// 関数を丸ごと書き写していて、未来 mtime の扱いの説明が片方にしか無かった。
-fn session_files(sessions_dir: &Path, max_age: Option<Duration>) -> Vec<(PathBuf, SystemTime)> {
+///
+/// `days` は走査する日付ディレクトリの数。集計と再開の一覧は `SCAN_DAY_DIRS`、今動いている
+/// セッションの一覧（`live.rs`）はポーリングするので少なく渡す。
+fn session_files(
+    sessions_dir: &Path,
+    days: usize,
+    max_age: Option<Duration>,
+) -> Vec<(PathBuf, SystemTime)> {
     let now = SystemTime::now();
     let mut out = Vec::new();
-    for day in latest_day_dirs(sessions_dir, SCAN_DAY_DIRS) {
+    for day in latest_day_dirs(sessions_dir, days) {
         let Ok(entries) = fs::read_dir(&day) else {
             continue;
         };
@@ -388,7 +397,11 @@ pub(crate) fn get_usage_for_project(
     let sessions_dir = codex_dir.join("sessions");
 
     let account = read_account(&codex_dir);
-    let mut files = session_files(&sessions_dir, Some(Duration::from_secs(RECENT_WINDOW_SECS)));
+    let mut files = session_files(
+        &sessions_dir,
+        SCAN_DAY_DIRS,
+        Some(Duration::from_secs(RECENT_WINDOW_SECS)),
+    );
     if files.is_empty() {
         return Ok(CodexUsageResult {
             account,
@@ -505,7 +518,7 @@ pub(crate) fn list_sessions(
     };
     // **窓では切らない**（集計と違い、再開したいのは古いセッション）。走査する日付
     // ディレクトリの数（`SCAN_DAY_DIRS`）と `MAX_SCAN_SESSION_FILES` が上限を決める。
-    let mut files = session_files(&dir.join("sessions"), None);
+    let mut files = session_files(&dir.join("sessions"), SCAN_DAY_DIRS, None);
     files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
 
     let mut out = Vec::new();
@@ -567,6 +580,10 @@ struct SessionHead {
     id: String,
     cwd: String,
     title: String,
+    /// 起動したときのブランチ（`session_meta.git.branch`）。今動いている一覧（`live.rs`）が使う。
+    git_branch: Option<String>,
+    /// 記録を書いた Codex の版（`session_meta.cli_version`）。
+    version: Option<String>,
 }
 
 /// 1 つの rollout の先頭だけ読む。**全部は読まない**（1 ファイルが数 MB になる）。
@@ -606,6 +623,8 @@ fn read_session_head(path: &Path) -> Option<SessionHead> {
                     .to_owned(),
                 cwd: meta["cwd"].as_str()?.to_owned(),
                 title: String::new(),
+                git_branch: meta["git"]["branch"].as_str().map(str::to_owned),
+                version: meta["cli_version"].as_str().map(str::to_owned),
             });
             continue;
         };

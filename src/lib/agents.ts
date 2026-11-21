@@ -67,6 +67,12 @@ export interface AgentDef {
    */
   resume: (sessionId: string) => string
   /**
+   * アカウント（設定ディレクトリ）を切り替える環境変数（#633）。別のアカウントのセッションを
+   * 再開するとき、これに設定ディレクトリを入れて `resume` を走らせる（`stores/liveSessions.ts` の
+   * `resumeLine`）。**持たないエージェントは省く**（Codex の `CODEX_HOME` は未対応）。
+   */
+  configEnv?: string
+  /**
    * ログインし直すコマンド（#381）。使用量が `loginRequired` を返したとき、StatusBar と
    * 状態タブのボタンがこれをターミナルタブで走らせる。**持たないエージェントは省く**
    * （ログインが切れたことを知る手段が今は Claude の `/usage` しか無い）。
@@ -84,6 +90,7 @@ export const AGENTS: AgentDef[] = [
       { label: 'Claude Code (continue)', command: 'claude --continue' },
     ],
     resume: (id) => `claude --resume ${id}`,
+    configEnv: 'CLAUDE_CONFIG_DIR',
     login: 'claude auth login',
   },
   {

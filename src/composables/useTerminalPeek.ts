@@ -24,6 +24,17 @@
  */
 export type TerminalSnapshot = (lines: number) => string[]
 
+/**
+ * チラ見のポップアップ（`TerminalPeekPopup.vue`）が `defineExpose` で出す口。呼ぶ側は
+ * `useTemplateRef<TerminalPeekHandle>` で受ける（`InstanceType<typeof …>` で受けると、テンプレートでも
+ * 使っている import を biome が型だけの import と見なして警告する）。
+ */
+export interface TerminalPeekHandle {
+  /** `resolve` は取り直すたびに呼ばれ、覗くタブの id を返す（無ければ null で「まだ出力がありません」）。 */
+  show: (resolve: () => string | null, anchor: HTMLElement) => Promise<void>
+  hide: () => void
+}
+
 /** タブ id → 覗く口。`TerminalTab` が mount / unmount で出し入れする。 */
 const sources = new Map<string, TerminalSnapshot>()
 

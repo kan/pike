@@ -1,21 +1,31 @@
 <script setup lang="ts">
 /**
- * 今動いている Claude Code のセッションの詳細（#625）。簡易表示はサイドバーのパネル
- * （`AgentSessionsPanel.vue`）で、こちらは状態ごとの見出しの下に 1 セッション 1 行で、パネルの幅に
- * 収まらない欄（ディレクトリ・起動した時刻・pid・版）まで並べる。一覧はパネルと同じストア
+ * 今動いているエージェントのセッションの詳細（#625 / #633）。簡易表示はサイドバーのパネル
+ * （`AgentSessionsPanel.vue`）で、こちらはアカウントの見出し（2 つ以上あるときだけ）と状態ごとの
+ * 見出しの下に 1 セッション 1 行で、パネルの幅に収まらない欄（ディレクトリ・起動した時刻・pid・版）まで並べる。一覧はパネルと同じストア
  * （`stores/liveSessions.ts`）で、このタブが見えているあいだはストアが自分で短い間隔に切り替える。
  */
-import { ArrowRight, RefreshCw, SquareTerminal } from 'lucide-vue-next'
-import { computed, useTemplateRef, watch } from 'vue'
+import { ArrowRight, RefreshCw } from 'lucide-vue-next'
+import { computed, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from '../../i18n'
 import { LIVE_STATUS_ICONS } from '../../lib/liveSessionIcons'
-import { liveSessionJumpKey, liveStatusKey } from '../../lib/liveSessions'
+import {
+  groupLiveSessions,
+  LIVE_TAB_ACCOUNT_KEY,
+  liveRowKey,
+  liveSessionJumpKey,
+  liveStatusKey,
+  selectedSections,
+} from '../../lib/liveSessions'
 import { basename, stripTrailingSep } from '../../lib/paths'
+import { loadJson, saveJson } from '../../lib/storage'
 import { type LiveSessionRow, useLiveSessionsStore } from '../../stores/liveSessions'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import HelpButton from '../HelpButton.vue'
+import LiveAccountHeading from '../LiveAccountHeading.vue'
 import LiveSessionMenu from '../LiveSessionMenu.vue'
+import TerminalPeekMark from '../TerminalPeekMark.vue'
 
 const props = defineProps<{ tabId: string }>()
 
@@ -27,6 +37,7 @@ const tabStore = useTabStore()
 
 // 右クリックのメニューは body へ出しているので、タブが隠れたら自分で閉じる（`tabs.md` の
 // 「body へ Teleport したものは、隠れたときに自分で畳む」。残るとブラウザのタブも隠れたままになる）。
+// チラ見（`TerminalPeekMark`）はここで閉じなくてよい（印が隠れたことを、取り直しのたびに部品が自分で見る）。
 watch(
   () => tabStore.isTabVisible(props.tabId),
   (visible) => {
@@ -34,14 +45,45 @@ watch(
   },
 )
 
-/** 見出しの横の要約（「返答待ち 1 · 稼働中 2」）。空のグループは言わない。 */
+/**
+ * 選んでいるアカウント（`liveListKey`。null は「すべて」。#633）。localStorage に置き、次に開いたときも
+ * 引き継ぐ（マシンの中だけ）。**一覧から消えたアカウントを選んでいたら「すべて」を出す**が、保存した値は
+ * 消さない（そのアカウントでまたセッションが動き出せば戻る）。
+ */
+const selected = ref<string | null>(loadSelected())
+function loadSelected(): string | null {
+  const v = loadJson<unknown>(LIVE_TAB_ACCOUNT_KEY, null)
+  return typeof v === 'string' ? v : null
+}
+function selectAccount(key: string | null) {
+  selected.value = key
+  saveJson(LIVE_TAB_ACCOUNT_KEY, key)
+}
+/** 出すアカウント。一覧が 1 つなら切り替えを出さないので、全部（＝その 1 つ）。 */
+const shownSections = computed(() =>
+  store.showHeadings ? selectedSections(store.sections, selected.value) : store.sections,
+)
+/** 切り替えで選ばれて見えているもの（選んでいたアカウントが消えていれば「すべて」）。 */
+const shownKey = computed(() => (store.sections.some((s) => s.key === selected.value) ? selected.value : null))
+
+/**
+ * 見出しの横の要約（「返答待ち 1 · 稼働中 2」）。空のグループは言わない。**数えるのは出しているアカウント**
+ * （切り替えで 1 つを選んでいれば、そのアカウントだけ）。
+ */
 const summary = computed(() =>
-  store.groups.map((g) => `${t(liveStatusKey(g.status))} ${g.sessions.length}`).join(' · '),
+  groupLiveSessions(shownSections.value.flatMap((s) => s.groups.flatMap((g) => g.sessions)))
+    .map((g) => `${t(liveStatusKey(g.status))} ${g.sessions.length}`)
+    .join(' · '),
 )
 
 /** 1 列目の名前。Claude Code が付けた名前、無ければディレクトリ名。 */
 function handle(row: LiveSessionRow): string {
   return row.name ?? basename(stripTrailingSep(row.cwd))
+}
+
+/** 1 列目の 2 段目。pid（Codex は持たない）と版。 */
+function subline(row: LiveSessionRow): string {
+  return [row.pid !== null && `pid ${row.pid}`, row.version && `v${row.version}`].filter(Boolean).join(' · ')
 }
 
 /**
@@ -80,64 +122,106 @@ function startedLabel(ms: number | null): string | null {
 
     <p v-if="!projectStore.currentProject" class="empty">{{ t('liveSessions.noProject') }}</p>
     <template v-else>
-      <p v-if="store.account || store.configDir" class="account selectable">
+      <p v-if="!store.showHeadings && (store.account || store.configDir)" class="account selectable">
         <span v-if="store.account">{{ store.account }}</span>
         <span v-if="store.configDir" class="mono">{{ store.configDir }}</span>
       </p>
 
-      <p v-if="store.groups.length === 0" class="empty">{{ t(store.emptyKey) }}</p>
-
-      <section v-for="group in store.groups" :key="group.status" class="group">
-        <h2 class="group-head" :class="group.status">
-          <component :is="LIVE_STATUS_ICONS[group.status]" :size="14" :stroke-width="2" />
-          <span>{{ t(liveStatusKey(group.status)) }}</span>
-          <span class="count">{{ group.sessions.length }}</span>
-        </h2>
-        <div
-          v-for="row in group.sessions"
-          :key="row.pid"
-          class="row"
-          :class="{ here: row.here }"
-          @contextmenu="menu?.open($event, row)"
+      <!-- アカウントの切り替え（#633。2 つ以上あるときだけ）。「すべて」は見出し付きで全部を並べる。 -->
+      <div v-if="store.showHeadings" class="account-switch">
+        <button
+          :aria-pressed="shownKey === null"
+          :class="{ active: shownKey === null }"
+          @click="selectAccount(null)"
         >
-          <div class="col-handle">
-            <span class="live-state-dot" :class="row.status" />
-            <div class="handle-text selectable">
-              <div class="handle mono" :title="row.sessionId">{{ handle(row) }}</div>
-              <div class="sub mono">
-                {{ [`pid ${row.pid}`, row.version && `v${row.version}`].filter(Boolean).join(' · ') }}
+          {{ t('liveSessions.allAccounts') }}
+        </button>
+        <button
+          v-for="section in store.sections"
+          :key="section.key"
+          :aria-pressed="shownKey === section.key"
+          :class="{ active: shownKey === section.key }"
+          :title="`${section.title}\n${section.configDir}`"
+          @click="selectAccount(section.key)"
+        >
+          <LiveAccountHeading class="switch-title" :heading="section.heading" />
+          <span v-if="section.waiting > 0" class="switch-waiting">
+            <component :is="LIVE_STATUS_ICONS.waiting" :size="12" :stroke-width="2" />{{ section.waiting }}
+          </span>
+          <span class="switch-count">{{ section.total }}</span>
+        </button>
+      </div>
+
+      <p v-if="store.sections.length === 0" class="empty">{{ t(store.emptyKey) }}</p>
+
+      <div v-for="section in shownSections" :key="section.key" class="account-section">
+        <!-- アカウントの見出し（2 つ以上あるときだけ。#633）。設定ディレクトリも添える。 -->
+        <div v-if="store.showHeadings" class="account-head selectable" :title="section.title">
+          <LiveAccountHeading class="account-title" :heading="section.heading" :size="14" />
+          <span class="mono">{{ section.configDir }}</span>
+        </div>
+        <p v-if="section.groups.length === 0" class="empty" :class="{ compact: store.showHeadings }">
+          {{ t(store.emptyKey) }}
+        </p>
+        <section v-for="group in section.groups" :key="group.status" class="group">
+          <h2 class="group-head" :class="group.status">
+            <component :is="LIVE_STATUS_ICONS[group.status]" :size="14" :stroke-width="2" />
+            <span>{{ t(liveStatusKey(group.status)) }}</span>
+            <span class="count">{{ group.sessions.length }}</span>
+          </h2>
+          <div
+            v-for="row in group.sessions"
+            :key="liveRowKey(row)"
+            class="row"
+            :class="{ here: row.here }"
+            @contextmenu="menu?.open($event, row)"
+          >
+            <div class="col-handle">
+              <span class="live-state-dot" :class="row.status" />
+              <div class="handle-text selectable">
+                <div class="handle mono" :title="row.sessionId">{{ handle(row) }}</div>
+                <div class="sub mono">{{ subline(row) }}</div>
               </div>
             </div>
-          </div>
-          <div class="col-main selectable">
-            <!-- 題が無いセッションは、1 列目の名前と同じものを繰り返さない。 -->
-            <div v-if="row.title || row.tabId" class="title">
-              <SquareTerminal v-if="row.tabId" class="tab-mark" :size="13" :stroke-width="2" />
-              <span v-if="row.title">{{ row.title }}</span>
+            <div class="col-main selectable">
+              <!-- 題が無いセッションは、1 列目の名前と同じものを繰り返さない。 -->
+              <div v-if="row.title || row.tabId" class="title">
+                <!-- ホバーでターミナルの今の表示をチラ見する（#631。パネルと同じ印）。 -->
+                <!-- 押すとそのタブへ移る（パネルと違って行そのものは押せないので、印に付ける）。 -->
+                <TerminalPeekMark
+                  v-if="row.tabId"
+                  class="tab-mark"
+                  :title="t(liveSessionJumpKey(row))"
+                  :peekable="row.peekable"
+                  :resolve="() => store.tabForSession(row)"
+                  @click="store.jump(row)"
+                />
+                <span v-if="row.title">{{ row.title }}</span>
+              </div>
+              <div v-if="row.waitingFor" class="sub wait">
+                {{ t('liveSessions.waitingFor', { reason: row.waitingFor }) }}
+              </div>
+              <div class="sub mono">{{ row.cwd }}</div>
             </div>
-            <div v-if="row.waitingFor" class="sub wait">
-              {{ t('liveSessions.waitingFor', { reason: row.waitingFor }) }}
+            <div class="col-place selectable">
+              <div :class="{ muted: !row.project }">{{ row.project?.name ?? t('liveSessions.unregistered') }}</div>
+              <div v-if="row.gitBranch" class="sub branch">{{ row.gitBranch }}</div>
             </div>
-            <div class="sub mono">{{ row.cwd }}</div>
-          </div>
-          <div class="col-place selectable">
-            <div :class="{ muted: !row.project }">{{ row.project?.name ?? t('liveSessions.unregistered') }}</div>
-            <div v-if="row.gitBranch" class="sub branch">{{ row.gitBranch }}</div>
-          </div>
-          <div class="col-time">
-            <div>{{ store.since(row.statusSince) ?? '—' }}</div>
-            <div v-if="startedLabel(row.startedAt)" class="sub">
-              {{ t('liveSessions.startedAt', { when: startedLabel(row.startedAt) ?? '' }) }}
+            <div class="col-time">
+              <div>{{ store.since(row.statusSince) ?? '—' }}</div>
+              <div v-if="startedLabel(row.startedAt)" class="sub">
+                {{ t('liveSessions.startedAt', { when: startedLabel(row.startedAt) ?? '' }) }}
+              </div>
+            </div>
+            <div class="col-jump">
+              <button class="jump" :title="t(liveSessionJumpKey(row))" @click="store.jump(row)">
+                <span>{{ t('liveSessions.jump') }}</span>
+                <ArrowRight :size="13" :stroke-width="2" />
+              </button>
             </div>
           </div>
-          <div class="col-jump">
-            <button class="jump" :title="t(liveSessionJumpKey(row))" @click="store.jump(row)">
-              <span>{{ t('liveSessions.jump') }}</span>
-              <ArrowRight :size="13" :stroke-width="2" />
-            </button>
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
       <LiveSessionMenu ref="menu" />
     </template>
   </div>
@@ -232,6 +316,86 @@ function startedLabel(ms: number | null): string | null {
   margin-top: 22px;
 }
 
+/* アカウントの切り替え（#633）。選んでいるものだけ地を塗る。 */
+.account-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 1100px;
+  margin: 8px 0 20px;
+}
+
+.account-switch button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 360px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.account-switch button:hover {
+  color: var(--text-active);
+}
+
+.account-switch button.active {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 中身（アイコンとアカウント）は `LiveAccountHeading.vue`。省略はあちらの `who` が持つ。 */
+.switch-title {
+  min-width: 0;
+}
+
+/* 返答待ちは状態の見出しと同じ緑。選んでいるものの上では読める色に振り替える。 */
+.switch-waiting {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--success);
+}
+
+.account-switch button.active .switch-waiting,
+.account-switch button.active .switch-count {
+  color: var(--on-accent-muted);
+}
+
+/* アカウントの見出し（#633）。状態の見出しより 1 段上。 */
+.account-section {
+  max-width: 1100px;
+}
+
+.account-section + .account-section {
+  margin-top: 30px;
+}
+
+.account-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.account-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-active);
+}
+
+.empty.compact {
+  margin: 0;
+}
+
 /* 状態の見出し。パネルと同じアイコン。下の線で行の並びと区切る。 */
 .group-head {
   display: flex;
@@ -308,9 +472,9 @@ function startedLabel(ms: number | null): string | null {
   overflow-wrap: anywhere;
 }
 
+/* 印の形は `TerminalPeekMark.vue`。押すとタブへ移る（行の「移動」と同じ）。 */
 .tab-mark {
-  flex-shrink: 0;
-  color: var(--text-secondary);
+  cursor: pointer;
 }
 
 .sub {

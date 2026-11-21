@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { groupLiveSessions, liveSessionJumpKey, liveSessionLabel, projectForCwd } from '../src/lib/liveSessions'
+import {
+  asKeyList,
+  groupLiveSessions,
+  liveListHeading,
+  liveListKey,
+  liveListTitle,
+  liveSessionJumpKey,
+  liveSessionLabel,
+  liveSessionTabKey,
+  panelLiveOrder,
+  projectForCwd,
+  selectedSections,
+  stableLiveOrder,
+  withCollapsedKey,
+  wslLogoOf,
+} from '../src/lib/liveSessions'
 import type { LiveSession } from '../src/types/liveSession'
 import type { ShellType } from '../src/types/tab'
 
@@ -64,6 +79,140 @@ test('名前は題 → Claude Code の名前 → ディレクトリ名の順', (
   assert.equal(liveSessionLabel({ title: '題', name: 'x-1', cwd: '/a/b' }), '題')
   assert.equal(liveSessionLabel({ title: null, name: 'x-1', cwd: '/a/b' }), 'x-1')
   assert.equal(liveSessionLabel({ title: null, name: null, cwd: 'C:\\a\\b\\' }), 'b')
+})
+
+test('最近（Codex）はアイドルの後ろに並ぶ', () => {
+  const groups = groupLiveSessions([session('a', 'recent', 5), session('b', 'busy', 1), session('c', 'idle', 2)])
+  assert.deepEqual(
+    groups.map((g) => g.status),
+    ['busy', 'idle', 'recent'],
+  )
+})
+
+test('アカウントの見出しはエージェント・アカウント（無ければ設定ディレクトリの名前）・環境', () => {
+  const list = {
+    agent: 'claude' as const,
+    shell: wsl,
+    account: 'a@example.com',
+    configDir: '\\\\wsl.localhost\\Ubuntu\\home\\me\\.claude',
+  }
+  assert.equal(liveListTitle(list, false), 'Claude Code · a@example.com')
+  assert.equal(liveListTitle(list, true), 'Claude Code · a@example.com · WSL: Ubuntu')
+  const codex = { agent: 'codex' as const, shell: pwsh, account: null, configDir: 'C:\\Users\\me\\.codex\\' }
+  assert.equal(liveListTitle(codex, true), 'Codex · .codex · Windows')
+})
+
+test('一覧の鍵は環境と設定ディレクトリで分かれる', () => {
+  const a = liveListKey({ agent: 'claude', shell: wsl, configDir: '/x' })
+  assert.notEqual(a, liveListKey({ agent: 'claude', shell: otherWsl, configDir: '/x' }))
+  assert.notEqual(a, liveListKey({ agent: 'codex', shell: wsl, configDir: '/x' }))
+  // シェルの種類が違っても、同じ環境（Windows）なら同じ鍵。
+  assert.equal(
+    liveListKey({ agent: 'claude', shell: pwsh, configDir: 'C:\\c' }),
+    liveListKey({ agent: 'claude', shell: { kind: 'cmd' }, configDir: 'C:\\c' }),
+  )
+})
+
+test('折り畳みはなりたい状態を渡し、古いものから捨てる', () => {
+  assert.deepEqual(withCollapsedKey(['a'], 'b', true), ['a', 'b'])
+  // 既に畳んでいるものを畳んでも、2 つにならない（別のウィンドウが先に畳んでいた）。
+  assert.deepEqual(withCollapsedKey(['a', 'b'], 'a', true), ['b', 'a'])
+  assert.deepEqual(withCollapsedKey(['a', 'b'], 'a', false), ['b'])
+  assert.deepEqual(withCollapsedKey([], 'a', false), [])
+  const many = Array.from({ length: 50 }, (_, i) => `k${i}`)
+  const next = withCollapsedKey(many, 'new', true)
+  assert.equal(next.length, 50)
+  assert.equal(next[0], 'k1')
+  assert.equal(next[49], 'new')
+  // 手で編集された値は捨てる。
+  assert.deepEqual(asKeyList(['a', 1, null, 'b']), ['a', 'b'])
+  assert.deepEqual(asKeyList('a'), [])
+})
+
+test('アカウントは今のプロジェクトのものを先頭に、残りは鍵の順で並ぶ（届いた順に依らない）', () => {
+  const a = { key: 'claude\nwsl:ubuntu\n/b', current: false }
+  const b = { key: 'claude\nwsl:ubuntu\n/a', current: false }
+  const cur = { key: 'codex\nwindows\nC:', current: true }
+  assert.deepEqual(
+    stableLiveOrder([a, cur, b]).map((s) => s.key),
+    [cur.key, b.key, a.key],
+  )
+  assert.deepEqual(
+    stableLiveOrder([b, a, cur]).map((s) => s.key),
+    [cur.key, b.key, a.key],
+  )
+})
+
+test('パネルでは畳んだアカウントを下にまとめ、今のプロジェクトのものも畳めば下へ回る', () => {
+  const sections = [
+    { key: 'claude\nwindows\nb', current: false },
+    { key: 'claude\nwindows\na', current: true },
+    { key: 'claude\nwindows\nc', current: false },
+  ]
+  const collapsed = new Set(['claude\nwindows\na', 'claude\nwindows\nc'])
+  assert.deepEqual(
+    panelLiveOrder(sections, (k) => collapsed.has(k)).map((s) => s.key.slice(-1)),
+    ['b', 'a', 'c'],
+  )
+  assert.deepEqual(
+    panelLiveOrder(sections, () => false).map((s) => s.key.slice(-1)),
+    ['a', 'b', 'c'],
+  )
+})
+
+test('見出しの部品はエージェントと環境を分け、distro の名前は必要なときだけ持つ', () => {
+  const list = { agent: 'claude' as const, shell: wsl, account: null, configDir: '/home/me/.claude-ai/' }
+  const h = liveListHeading(list, true, false)
+  assert.equal(h.agentLabel, 'Claude Code')
+  assert.deepEqual(h.place, { kind: 'wsl', label: 'WSL: Ubuntu', distro: 'Ubuntu', logo: 'ubuntu', showDistro: false })
+  assert.equal(h.who, '.claude-ai')
+  assert.equal(h.label, 'Claude Code · .claude-ai · WSL: Ubuntu')
+  const both = liveListHeading(list, true, true).place
+  assert.equal(both?.kind === 'wsl' && both.showDistro, true)
+  assert.equal(liveListHeading(list, false, true).place, null)
+  assert.deepEqual(liveListHeading({ ...list, shell: pwsh }, true, true).place, { kind: 'windows', label: 'Windows' })
+})
+
+test('WSL の distro は名前の先頭でロゴを選び、知らないものは Tux にする', () => {
+  assert.equal(wslLogoOf('Ubuntu-22.04'), 'ubuntu')
+  assert.equal(wslLogoOf('ubuntu'), 'ubuntu')
+  assert.equal(wslLogoOf('kali-linux'), 'kali')
+  assert.equal(wslLogoOf('Debian'), 'linux')
+  assert.equal(wslLogoOf(''), 'linux')
+})
+
+test('選んだアカウントが一覧に無ければ全部を出す', () => {
+  const sections = [{ key: 'a' }, { key: 'b' }]
+  assert.deepEqual(
+    selectedSections(sections, 'b').map((s) => s.key),
+    ['b'],
+  )
+  assert.deepEqual(
+    selectedSections(sections, null).map((s) => s.key),
+    ['a', 'b'],
+  )
+  assert.deepEqual(
+    selectedSections(sections, 'gone').map((s) => s.key),
+    ['a', 'b'],
+  )
+})
+
+test('distro の名前の大小だけ違うプロジェクトとも照合する（パスの大小は区別したまま）', () => {
+  const projects = [{ id: 'repo', root: '/home/me/repo', shell: wsl }]
+  const lower: ShellType = { kind: 'wsl', distro: 'ubuntu' }
+  assert.equal(projectForCwd('/home/me/repo/src', lower, projects)?.id, 'repo')
+  assert.equal(projectForCwd('/home/me/Repo/src', lower, projects), null)
+})
+
+test('タブとの突き合わせはエージェントと環境も見る（同じ id の別の環境の行にタブを付けない）', () => {
+  const key = liveSessionTabKey('claude', wsl, 'abc')
+  assert.notEqual(key, liveSessionTabKey('claude', otherWsl, 'abc'))
+  assert.notEqual(key, liveSessionTabKey('claude', pwsh, 'abc'))
+  assert.notEqual(key, liveSessionTabKey('codex', wsl, 'abc'))
+  // distro の名前の大小は問わない（タブは `ubuntu`、一覧は `Ubuntu` でありうる）。
+  assert.equal(key, liveSessionTabKey('claude', { kind: 'wsl', distro: 'ubuntu' }, 'abc'))
+  // 同じ環境ならシェルの種類は問わない（タブは cmd、一覧はホストの既定の PowerShell）。
+  assert.equal(liveSessionTabKey('claude', pwsh, 'abc'), liveSessionTabKey('claude', { kind: 'cmd' }, 'abc'))
 })
 
 test('移り先の説明はタブ → プロジェクト → ディレクトリの順', () => {
