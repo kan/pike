@@ -3,13 +3,16 @@ import { test } from 'node:test'
 import {
   asKeyList,
   groupLiveSessions,
+  liveListHeading,
   liveListKey,
   liveListTitle,
   liveSessionJumpKey,
   liveSessionLabel,
   liveSessionTabKey,
+  panelLiveOrder,
   projectForCwd,
   selectedSections,
+  stableLiveOrder,
   withCollapsedKey,
 } from '../src/lib/liveSessions'
 import type { LiveSession } from '../src/types/liveSession'
@@ -123,6 +126,49 @@ test('折り畳みはなりたい状態を渡し、古いものから捨てる',
   // 手で編集された値は捨てる。
   assert.deepEqual(asKeyList(['a', 1, null, 'b']), ['a', 'b'])
   assert.deepEqual(asKeyList('a'), [])
+})
+
+test('アカウントは今のプロジェクトのものを先頭に、残りは鍵の順で並ぶ（届いた順に依らない）', () => {
+  const a = { key: 'claude\nwsl:ubuntu\n/b', current: false }
+  const b = { key: 'claude\nwsl:ubuntu\n/a', current: false }
+  const cur = { key: 'codex\nwindows\nC:', current: true }
+  assert.deepEqual(
+    stableLiveOrder([a, cur, b]).map((s) => s.key),
+    [cur.key, b.key, a.key],
+  )
+  assert.deepEqual(
+    stableLiveOrder([b, a, cur]).map((s) => s.key),
+    [cur.key, b.key, a.key],
+  )
+})
+
+test('パネルでは畳んだアカウントを下にまとめ、今のプロジェクトのものも畳めば下へ回る', () => {
+  const sections = [
+    { key: 'claude\nwindows\nb', current: false },
+    { key: 'claude\nwindows\na', current: true },
+    { key: 'claude\nwindows\nc', current: false },
+  ]
+  const collapsed = new Set(['claude\nwindows\na', 'claude\nwindows\nc'])
+  assert.deepEqual(
+    panelLiveOrder(sections, (k) => collapsed.has(k)).map((s) => s.key.slice(-1)),
+    ['b', 'a', 'c'],
+  )
+  assert.deepEqual(
+    panelLiveOrder(sections, () => false).map((s) => s.key.slice(-1)),
+    ['a', 'b', 'c'],
+  )
+})
+
+test('見出しの部品はエージェントと環境を分け、distro の名前は必要なときだけ持つ', () => {
+  const list = { agent: 'claude' as const, shell: wsl, account: null, configDir: '/home/me/.claude-ai/' }
+  const h = liveListHeading(list, true, false)
+  assert.equal(h.agentLabel, 'Claude Code')
+  assert.deepEqual(h.place, { kind: 'wsl', label: 'WSL: Ubuntu', distro: null })
+  assert.equal(h.who, '.claude-ai')
+  assert.equal(h.label, 'Claude Code · .claude-ai · WSL: Ubuntu')
+  assert.equal(liveListHeading(list, true, true).place?.distro, 'Ubuntu')
+  assert.equal(liveListHeading(list, false, true).place, null)
+  assert.equal(liveListHeading({ ...list, shell: pwsh }, true, true).place?.kind, 'windows')
 })
 
 test('選んだアカウントが一覧に無ければ全部を出す', () => {

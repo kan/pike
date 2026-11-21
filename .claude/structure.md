@@ -146,6 +146,7 @@ pike/
 │   │   ├── PatchFileRow.vue     # 変更されたファイルの一覧の 1 行（コミットタブと作業中の変更のタブ、#526）
 │   │   ├── AgentSessionsMenu.vue # 「最近のセッション」の行とサブメニュー（起動メニューの 2 か所で共有、#267）
 │   │   ├── LiveSessionMenu.vue  # 今動いているセッションの右クリックメニュー（パネルと詳細のタブで共有、#625）
+│   │   ├── LiveAccountHeading.vue  # セッションの一覧のアカウントの見出し（エージェントと環境をアイコンで、#633）
 │   │   ├── TerminalPeekPopup.vue # ターミナルのチラ見のポップアップ（プロジェクトのプルダウンとセッションの一覧で共有、#319 / #631）
 │   │   ├── TerminalPeekMark.vue  # ホバーでチラ見する印（セッションのパネルと詳細のタブで共有、#631）
 │   │   ├── ProjectIcon.vue      # プロジェクトの絵文字アイコン（#203）
@@ -298,6 +299,7 @@ pike/
 │   │   ├── loginExpiry.ts    # Claude Code のサインインの期限の幅・残り日数・警告の判定（#604。i18n を読まない）
 │   │   ├── liveSessions.ts   # 動いているセッションの状態ごとの並べ方と、cwd からプロジェクトを引く規則（#625）
 │   │   ├── liveSessionIcons.ts # 動いているセッションの状態のアイコン（#625。パネルと詳細のタブで共有）
+│   │   ├── agentIcons.ts      # エージェント → アイコン（#633。`shellIcons.ts` と同じ形）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
 │   │   ├── issueLabels.ts    # issue パネルで隠すラベルの検証と判定（#531。設定画面の欄は SettingTagList.vue）
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278。エディタのプレビューも使う、#482）

@@ -8,12 +8,15 @@ import { type AgentId, agentById } from '../lib/agents'
 import {
   deepestContaining,
   groupLiveSessions,
+  type LiveListHeading,
+  liveListHeading,
   liveListKey,
   liveListTitle,
   livePlaceKey,
   liveSessionLabel,
   liveSessionTabKey,
   projectForCwd,
+  stableLiveOrder,
 } from '../lib/liveSessions'
 import { openablePathForShell, relativeTime } from '../lib/paths'
 import { rootKey } from '../lib/projectPaths'
@@ -98,6 +101,10 @@ type RevealPayload = Pick<
 export interface LiveSessionSection {
   key: string
   title: string
+  /** 見出しの部品（エージェントと環境はアイコン。`LiveAccountHeading.vue` が描く）。 */
+  heading: LiveListHeading
+  /** 今のプロジェクトのアカウントか（並びの先頭にする。`stableLiveOrder`）。 */
+  current: boolean
   configDir: string
   groups: { status: LiveStatus; sessions: LiveSessionRow[] }[]
   /** セッションの数（折り畳んだ見出しにも出す）。 */
@@ -342,19 +349,26 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   const rows = computed(() => listRows.value.flatMap((l) => l.rows))
 
   /**
-   * アカウントの見出しごとのグループ。見出しに環境（`WSL: Ubuntu`）を足すのは、一覧が 2 つ以上の
-   * 環境にまたがるときだけ。
+   * アカウントの見出しごとのグループ。並びは固定の順（`stableLiveOrder`。Rust が返す順は動く）。
+   * 見出しに環境を足すのは、一覧が 2 つ以上の環境にまたがるときだけ。distro の名前を文字で添えるのは、
+   * WSL の distro が 2 つ以上あるときだけ（アイコンが同じなので）。
    */
   const sections = computed<LiveSessionSection[]>(() => {
     const places = new Set(listRows.value.map(({ list }) => livePlaceKey(list.shell)))
-    return listRows.value.map(({ list, rows }) => ({
+    const distros = new Set(
+      listRows.value.flatMap(({ list }) => (list.shell.kind === 'wsl' ? [livePlaceKey(list.shell)] : [])),
+    )
+    const all = listRows.value.map(({ list, rows }) => ({
       key: liveListKey(list),
       title: liveListTitle(list, places.size > 1),
+      heading: liveListHeading(list, places.size > 1, distros.size > 1),
+      current: list.current,
       configDir: list.configDir,
       groups: groupLiveSessions(rows),
       total: rows.length,
       waiting: rows.filter((r) => r.status === 'waiting').length,
     }))
+    return stableLiveOrder(all)
   })
   /** 見出しを出すか。一覧が 1 つなら出さない（#625 のころと同じ見た目）。 */
   const showHeadings = computed(() => sections.value.length > 1)

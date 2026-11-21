@@ -5,7 +5,7 @@
  * 居る場所へ飛ぶ（`liveSessions.jump`）。詳細は専用のタブ（`AgentSessionsTab.vue`）。
  */
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-vue-next'
-import { onUnmounted, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, onUnmounted, ref, useTemplateRef } from 'vue'
 import { useI18n } from '../../i18n'
 import { LIVE_STATUS_ICONS } from '../../lib/liveSessionIcons'
 import {
@@ -15,6 +15,7 @@ import {
   liveSessionJumpKey,
   liveSessionLabel,
   liveStatusKey,
+  panelLiveOrder,
   withCollapsedKey,
 } from '../../lib/liveSessions'
 import { basename, stripTrailingSep } from '../../lib/paths'
@@ -22,6 +23,7 @@ import { loadJson, saveJson } from '../../lib/storage'
 import { type LiveSessionRow, useLiveSessionsStore } from '../../stores/liveSessions'
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
+import LiveAccountHeading from '../LiveAccountHeading.vue'
 import LiveSessionMenu from '../LiveSessionMenu.vue'
 import TerminalPeekMark from '../TerminalPeekMark.vue'
 
@@ -38,11 +40,21 @@ const tabStore = useTabStore()
  */
 const collapsed = ref<string[]>(asKeyList(loadJson<unknown>(LIVE_COLLAPSED_KEY, [])))
 const isCollapsed = (key: string) => collapsed.value.includes(key)
-function toggleCollapsed(key: string) {
+function toggleCollapsed(key: string, event: MouseEvent) {
   const next = withCollapsedKey(asKeyList(loadJson<unknown>(LIVE_COLLAPSED_KEY, [])), key, !isCollapsed(key))
   saveJson(LIVE_COLLAPSED_KEY, next)
   collapsed.value = next
+  // 畳むと見出しが下へ動く（`panelLiveOrder`）。動かすときに DOM の要素が付け直され、フォーカスが外れるので、
+  // 押した見出しへ戻す（キーボードで続けて操作できるように）。
+  const button = event.currentTarget as HTMLElement | null
+  void nextTick(() => button?.focus())
 }
+/**
+ * アカウントの並び。開いているものを固定の順で並べ、その下に畳んだものをまとめる（`panelLiveOrder`）。
+ * 畳んだものはセッションの状態で動かない。
+ */
+const orderedSections = computed(() => panelLiveOrder(store.sections, isCollapsed))
+
 // 別のウィンドウで畳んだ・開いたぶんも写す（`storage` は書いたウィンドウ以外に届く）。写さないと、
 // 次にここで押したとき、その変化が押していない見出しにまとめて現れる。
 function onStorage(e: StorageEvent) {
@@ -85,17 +97,17 @@ function tooltip(row: LiveSessionRow): string {
         </button>
       </div>
       <div v-if="store.sections.length === 0" class="empty">{{ t(store.emptyKey) }}</div>
-      <div v-for="section in store.sections" :key="section.key" class="account-section">
+      <div v-for="section in orderedSections" :key="section.key" class="account-section">
         <!-- アカウントの見出し。押すと中身を開閉する（#633。畳んでも件数と返答待ちの数は見える）。 -->
         <button
           v-if="store.showHeadings"
           class="account-head"
-          :title="section.configDir"
+          :title="`${section.title}\n${section.configDir}`"
           :aria-expanded="!isCollapsed(section.key)"
-          @click="toggleCollapsed(section.key)"
+          @click="toggleCollapsed(section.key, $event)"
         >
           <component :is="isCollapsed(section.key) ? ChevronRight : ChevronDown" :size="12" :stroke-width="2" />
-          <span class="account-title">{{ section.title }}</span>
+          <LiveAccountHeading class="account-title" :heading="section.heading" />
           <span v-if="section.waiting > 0" class="account-waiting" :title="t('liveSessions.waiting')">
             <component :is="LIVE_STATUS_ICONS.waiting" :size="11" :stroke-width="2" />
             {{ section.waiting }}
@@ -230,12 +242,9 @@ function tooltip(row: LiveSessionRow): string {
   background: var(--bg-tertiary);
 }
 
+/* 中身（アイコンとアカウント）は `LiveAccountHeading.vue`。ここは行の中で伸ばすだけ。 */
 .account-title {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* 畳んでいても返答待ちが分かるように、状態の見出しと同じ緑で出す。 */

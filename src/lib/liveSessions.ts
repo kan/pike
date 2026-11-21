@@ -111,6 +111,78 @@ export function livePlaceLabel(shell: ShellType): string {
   return shell.kind === 'unix' ? 'Local' : 'Windows'
 }
 
+/** 見出しの環境の種類。アイコンを選ぶのに使う（`components/LiveAccountHeading.vue`）。 */
+export type LivePlaceKind = 'wsl' | 'windows' | 'local'
+
+/**
+ * アカウントの見出しの部品（#633）。パネルの見出し・詳細のタブの見出し・切り替えのボタンが共有する
+ * （描くのは `components/LiveAccountHeading.vue`）。**エージェントと環境はアイコンで出し、文字は `label`
+ * （`title` と読み上げ）に持たせる**。アカウントを見分ける部分（`who`）は文字のまま。
+ *
+ * - `withPlace`：一覧が 2 つ以上の環境にまたがるときだけ環境を出す
+ * - `withDistro`：WSL の distro が 2 つ以上あるときだけ distro の名前を文字で添える（アイコンが同じなので、
+ *   名前が無いと見分けられない）
+ */
+export interface LiveListHeading {
+  agent: AgentId
+  /** エージェントの表示名（`AgentDef.label`）。 */
+  agentLabel: string
+  place: { kind: LivePlaceKind; label: string; distro: string | null } | null
+  /** アカウントを見分ける部分。メールアドレス、無ければ設定ディレクトリの名前。 */
+  who: string
+  /** 全部を文字にしたもの（`liveListTitle` と同じ）。 */
+  label: string
+}
+
+export function liveListHeading(
+  list: Pick<LiveSessionList, 'agent' | 'shell' | 'account' | 'configDir'>,
+  withPlace: boolean,
+  withDistro: boolean,
+): LiveListHeading {
+  const shell = list.shell
+  const kind: LivePlaceKind = shell.kind === 'wsl' ? 'wsl' : shell.kind === 'unix' ? 'local' : 'windows'
+  return {
+    agent: list.agent,
+    agentLabel: agentById(list.agent)?.label ?? list.agent,
+    place: withPlace
+      ? {
+          kind,
+          label: livePlaceLabel(shell),
+          distro: withDistro && shell.kind === 'wsl' ? shell.distro : null,
+        }
+      : null,
+    who: list.account ?? basename(stripTrailingSep(list.configDir)),
+    label: liveListTitle(list, withPlace),
+  }
+}
+
+/**
+ * アカウントの並び（#633）。**セッションの状態や、Rust が返す順では動かない固定の順**: 今のプロジェクトの
+ * アカウントを先頭に、残りは `liveListKey` の順（エージェント → 環境 → 設定ディレクトリ）。
+ *
+ * Rust が返す順は申告の新しい順（`declared_config_dirs`。`SessionStart` のたびに書き直される）を含み、
+ * 今のプロジェクト以外のアカウントはセッションがあるときだけ現れるので、別のアカウントでセッションを
+ * 始めるたびに並びが入れ替わる。並びはフロントで決め直す。
+ */
+export function stableLiveOrder<T extends { key: string; current: boolean }>(sections: readonly T[]): T[] {
+  return [...sections].sort((a, b) => {
+    if (a.current !== b.current) return a.current ? -1 : 1
+    return a.key < b.key ? -1 : a.key > b.key ? 1 : 0
+  })
+}
+
+/**
+ * パネルの並び（#633）。開いているアカウントを `stableLiveOrder` で並べ、その下に折り畳んだアカウントを
+ * 同じ順でまとめる。今のプロジェクトのアカウントも、畳まれていれば畳んだほうに入る。
+ */
+export function panelLiveOrder<T extends { key: string; current: boolean }>(
+  sections: readonly T[],
+  isCollapsed: (key: string) => boolean,
+): T[] {
+  const ordered = stableLiveOrder(sections)
+  return [...ordered.filter((s) => !isCollapsed(s.key)), ...ordered.filter((s) => isCollapsed(s.key))]
+}
+
 /**
  * 行の描画の鍵。**セッション id だけでは重なる**: `claude --resume` で同じ会話を 2 つ目のプロセスが
  * 開くと、同じ id の記録が 2 つ並ぶ。pid は Codex に無いので、id と組にする。

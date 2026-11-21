@@ -23,6 +23,7 @@ import { type LiveSessionRow, useLiveSessionsStore } from '../../stores/liveSess
 import { useProjectStore } from '../../stores/project'
 import { useTabStore } from '../../stores/tabs'
 import HelpButton from '../HelpButton.vue'
+import LiveAccountHeading from '../LiveAccountHeading.vue'
 import LiveSessionMenu from '../LiveSessionMenu.vue'
 import TerminalPeekMark from '../TerminalPeekMark.vue'
 
@@ -140,10 +141,10 @@ function startedLabel(ms: number | null): string | null {
           :key="section.key"
           :aria-pressed="shownKey === section.key"
           :class="{ active: shownKey === section.key }"
-          :title="section.configDir"
+          :title="`${section.title}\n${section.configDir}`"
           @click="selectAccount(section.key)"
         >
-          <span class="switch-title">{{ section.title }}</span>
+          <LiveAccountHeading class="switch-title" :heading="section.heading" />
           <span v-if="section.waiting > 0" class="switch-waiting">
             <component :is="LIVE_STATUS_ICONS.waiting" :size="12" :stroke-width="2" />{{ section.waiting }}
           </span>
@@ -155,8 +156,8 @@ function startedLabel(ms: number | null): string | null {
 
       <div v-for="section in shownSections" :key="section.key" class="account-section">
         <!-- アカウントの見出し（2 つ以上あるときだけ。#633）。設定ディレクトリも添える。 -->
-        <div v-if="store.showHeadings" class="account-head selectable">
-          <span class="account-title">{{ section.title }}</span>
+        <div v-if="store.showHeadings" class="account-head selectable" :title="section.title">
+          <LiveAccountHeading class="account-title" :heading="section.heading" :size="14" />
           <span class="mono">{{ section.configDir }}</span>
         </div>
         <p v-if="section.groups.length === 0" class="empty" :class="{ compact: store.showHeadings }">
@@ -348,11 +349,9 @@ function startedLabel(ms: number | null): string | null {
   border-color: var(--accent);
 }
 
+/* 中身（アイコンとアカウント）は `LiveAccountHeading.vue`。省略はあちらの `who` が持つ。 */
 .switch-title {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* 返答待ちは状態の見出しと同じ緑。選んでいるものの上では読める色に振り替える。 */
@@ -379,7 +378,7 @@ function startedLabel(ms: number | null): string | null {
 
 .account-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   margin: 0 0 12px;
