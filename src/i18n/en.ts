@@ -1158,6 +1158,11 @@ export default {
   'db.user': 'User',
   'db.password': 'Password',
   'db.passwordFromContainer': "From the container's environment",
+  'db.askDatabase': 'Connected, but no database is selected. Choose the database to view.',
+  'db.askNoUserDatabases':
+    'Connected, but there is no database to view (system databases are not listed). Enter a database name, or create one and connect again.',
+  'db.askDatabaseName':
+    'Connected, but no database is selected, and the list of databases could not be read. Enter a database name.',
   'db.passwordNotSaved': 'The password is kept only in the DB tab it opens, and is never saved.',
   'db.database': 'Database',
   'db.connect': 'Connect',

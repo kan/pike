@@ -2,7 +2,7 @@ import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 import type { AgentSession } from '../types/agentSession'
 import type { AgentUsage } from '../types/agentUsage'
 import type { CiAction, CiConfigs, CiJob, CiListResult, CiProvider } from '../types/ci'
-import type { DbContainerDefaults, DbDumpFormat, DbEngine, DbResult, DbTable, DbTarget } from '../types/db'
+import type { DbContainerDefaults, DbDumpFormat, DbEngine, DbProbe, DbResult, DbTarget } from '../types/db'
 import type { DiagnosticsResult } from '../types/diagnostics'
 import type { ComposeProject, ContainerListResult, TunnelInfo } from '../types/docker'
 import type {
@@ -1239,12 +1239,12 @@ export async function dbContainerDefaults(containerId: string, engine: DbEngine)
   return invoke<DbContainerDefaults>('db_container_defaults', { containerId, engine })
 }
 
-export async function dbDatabases(target: DbTarget): Promise<string[]> {
-  return invoke<string[]>('db_databases', { target })
-}
-
-export async function dbTables(target: DbTarget): Promise<DbTable[]> {
-  return invoke<DbTable[]>('db_tables', { target })
+/**
+ * 接続を確かめ、今の DB・DB の一覧・テーブルの一覧をまとめて返す（`stores/db.ts` の `open` と
+ * DB タブの読み直し）。テーブルの一覧が取れなければ失敗で返す。
+ */
+export async function dbProbe(target: DbTarget): Promise<DbProbe> {
+  return invoke<DbProbe>('db_probe', { target })
 }
 
 export async function dbSchema(target: DbTarget, table: string): Promise<DbResult> {

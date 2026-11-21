@@ -42,4 +42,13 @@ export interface DbContainerDefaults {
   hasPassword: boolean
 }
 
+/** つないでみた結果（Rust の `db::DbProbe`）。 */
+export interface DbProbe {
+  /** 今の DB。MySQL で DB を選ばずにつないだときは null。 */
+  current: string | null
+  /** 見られる DB の一覧（システムの DB を除く）。取れなかったときは null（空の一覧とは別）。 */
+  databases: string[] | null
+  tables: DbTable[]
+}
+
 export type DbDumpFormat = 'csv' | 'tsv'

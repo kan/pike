@@ -99,7 +99,21 @@ function onKeydown(e: KeyboardEvent) {
           </label>
           <label class="db-field">
             <span>{{ t('db.database') }}</span>
-            <input v-model="db.dialog.form.database" class="dialog-input" type="text" spellcheck="false" :disabled="busy" />
+            <!-- つながったが DB を選んでいなかったときは、見られる DB を候補に出す（`judgeProbe`）。
+                 選択欄にしないのは、一覧に出さないシステムの DB も打ち込めるようにするため。 -->
+            <input
+              v-model="db.dialog.form.database"
+              class="dialog-input"
+              type="text"
+              spellcheck="false"
+              list="db-connect-database-choices"
+              data-testid="db-connect-database"
+              :placeholder="db.dialog.databaseChoices.length ? t('db.pickDatabase') : ''"
+              :disabled="busy"
+            />
+            <datalist id="db-connect-database-choices">
+              <option v-for="name in db.dialog.databaseChoices" :key="name" :value="name" />
+            </datalist>
           </label>
           <p class="db-hint">{{ t('db.passwordNotSaved') }}</p>
           <p v-if="db.dialog.error" class="db-error selectable">{{ db.dialog.error }}</p>

@@ -6,7 +6,7 @@
  */
 
 import { t } from '../i18n'
-import type { DbDumpFormat, DbEngine, DbResult, DbTarget, DbVia } from '../types/db'
+import type { DbDumpFormat, DbEngine, DbProbe, DbResult, DbTarget, DbVia } from '../types/db'
 import { type ShellType, shellFromId, shellId, shellProfileLabel } from '../types/tab'
 import type { CsvData } from './csvPreview'
 
@@ -330,6 +330,44 @@ export function upsertSaved(list: DbSavedConnection[], s: DbSavedConnection): Db
 /** 保存した接続を消す。 */
 export function removeSaved(list: DbSavedConnection[], key: string): DbSavedConnection[] {
   return list.filter((x) => savedKey(x) !== key)
+}
+
+/**
+ * つないでみた結果（`DbProbe`）をどう扱うか。
+ *
+ * - `ok`：DB が決まっている。タブを開く（テーブルが無くても開く。DB を選んだうえで空なのは
+ *   正しい状態で、タブの中で DB を切り替えられる）
+ * - `pick`：DB を選ばずにつないだが、見られる DB がちょうど 1 つ。それを選んでつなぎ直す
+ *   （選び方が 1 通りしか無いので、聞かずに進める）
+ * - `ask`：DB を選ばずにつないで、選びようが決まらない。接続のダイアログで DB 名を聞く
+ *   （`reason` で文言を変え、`choices` を選択肢に出す）
+ *
+ * **DB の一覧が取れないこと（`databases` が null）と、DB が無いこと（空の一覧）を分ける。**
+ * 前者は権限などで一覧を見せてもらえないだけなので、DB 名を入れればつながりうる。
+ */
+export type DbProbeVerdict =
+  | { kind: 'ok' }
+  | { kind: 'pick'; database: string }
+  | { kind: 'ask'; reason: 'noDatabase' | 'noUserDatabases' | 'noDatabaseList'; choices: string[] }
+
+export function judgeProbe(probe: DbProbe): DbProbeVerdict {
+  if (probe.current) return { kind: 'ok' }
+  const dbs = probe.databases
+  if (dbs === null) return { kind: 'ask', reason: 'noDatabaseList', choices: [] }
+  if (dbs.length === 0) return { kind: 'ask', reason: 'noUserDatabases', choices: [] }
+  if (dbs.length === 1) return { kind: 'pick', database: dbs[0] }
+  return { kind: 'ask', reason: 'noDatabase', choices: dbs }
+}
+
+/** `ask` のときにダイアログへ出す文言。 */
+export function probeAskText(reason: Extract<DbProbeVerdict, { kind: 'ask' }>['reason']): string {
+  return t(
+    reason === 'noDatabase'
+      ? 'db.askDatabase'
+      : reason === 'noUserDatabases'
+        ? 'db.askNoUserDatabases'
+        : 'db.askDatabaseName',
+  )
 }
 
 /** エラーの文言。クライアントが無いときは、どこに何が無いかを言う。 */

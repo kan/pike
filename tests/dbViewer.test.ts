@@ -10,6 +10,7 @@ import {
   dbEngineOfImage,
   dbResultToCsv,
   formatDbResult,
+  judgeProbe,
   missingClients,
   parseDatabaseUrl,
   parseSavedConnections,
@@ -227,6 +228,18 @@ test('保存した接続は同じものを 1 つにまとめて先頭へ寄せ�
     [],
   )
   assert.deepEqual(parseSavedConnections({}), [])
+})
+
+test('つながっても DB を選んでいなければタブを開かず、選び方が 1 通りなら自動で選ぶ', () => {
+  const probe = (current: string | null, databases: string[] | null) => ({ current, databases, tables: [] })
+  // DB が決まっていれば、テーブルが無くても開く（空の DB は正しい状態）。
+  assert.deepEqual(judgeProbe(probe('app', [])), { kind: 'ok' })
+  // DB を選ばずにつないだ（`MYSQL_DATABASE` の無いコンテナに root でつないだときなど）。
+  assert.deepEqual(judgeProbe(probe(null, ['app'])), { kind: 'pick', database: 'app' })
+  assert.deepEqual(judgeProbe(probe(null, ['a', 'b'])), { kind: 'ask', reason: 'noDatabase', choices: ['a', 'b'] })
+  assert.deepEqual(judgeProbe(probe(null, [])), { kind: 'ask', reason: 'noUserDatabases', choices: [] })
+  // 一覧が取れないのは「DB が無い」ではない（権限が無いだけかもしれない）。
+  assert.deepEqual(judgeProbe(probe(null, null)), { kind: 'ask', reason: 'noDatabaseList', choices: [] })
 })
 
 test('クライアントが無いエラーを見分ける', () => {

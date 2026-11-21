@@ -427,6 +427,16 @@ impl Session {
             .collect())
     }
 
+    /// 見られる DB の一覧（システムの DB を除く。`sql::databases_sql`）。
+    async fn databases(&mut self) -> Result<Vec<String>, String> {
+        let result = self.query(&sql::databases_sql(self.engine), None).await?;
+        Ok(result
+            .rows
+            .into_iter()
+            .filter_map(|r| r.into_iter().next().flatten())
+            .collect())
+    }
+
     /// **テーブル名は一覧に有るものだけを受ける**（フロントから任意の文字列を SQL に混ぜる経路を
     /// 作らない）。引用（`sql::quote_ident` / `string_literal`）だけでも破れないが、受け口を一覧に
     /// 限っておけば、引用の漏れがあっても届く名前が無い。返すのは修飾に使うスキーマ。
@@ -643,28 +653,45 @@ pub async fn db_container_defaults(
     Ok(container_defaults(&env, engine))
 }
 
-#[tauri::command]
-pub async fn db_databases(
-    target: DbTarget,
-    state: State<'_, DockerState>,
-) -> Result<Vec<String>, String> {
-    let mut session = Session::open(&state, &target).await?;
-    let result = session
-        .query(&sql::databases_sql(target.engine), None)
-        .await?;
-    Ok(result
-        .rows
-        .into_iter()
-        .filter_map(|r| r.into_iter().next().flatten())
-        .collect())
+/// つないでみた結果（`db_probe`）。フロントはこれで「つながったが見るものが無い」を見分ける
+/// （`lib/dbViewer.ts` の `judgeProbe`）。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbProbe {
+    /// 今の DB。MySQL で DB を選ばずにつないだときは None。
+    current: Option<String>,
+    /// 見られる DB の一覧（システムの DB を除く）。**取れなかったときは None**（権限が無いなど）。
+    /// 空の一覧（DB が無い）と区別するため、失敗を空に畳まない。
+    databases: Option<Vec<String>>,
+    tables: Vec<DbTable>,
 }
 
+/// 接続を確かめ、今の DB・DB の一覧・テーブルの一覧を 1 つの `Session` で返す（コンテナの inspect と
+/// クライアントの解決は 1 回。問い合わせはクライアントを起こし直すので最大 3 回流れる）。
+/// 今の DB の問い合わせが接続の確認を兼ね、失敗すれば接続の失敗として返す。今の DB が無ければ
+/// テーブルの一覧は問い合わせない（空になるだけなので）。
 #[tauri::command]
-pub async fn db_tables(
-    target: DbTarget,
-    state: State<'_, DockerState>,
-) -> Result<Vec<DbTable>, String> {
-    Session::open(&state, &target).await?.tables().await
+pub async fn db_probe(target: DbTarget, state: State<'_, DockerState>) -> Result<DbProbe, String> {
+    let mut session = Session::open(&state, &target).await?;
+    let current = session
+        .query(&sql::current_database_sql(target.engine), None)
+        .await?
+        .rows
+        .into_iter()
+        .next()
+        .and_then(|r| r.into_iter().next().flatten())
+        .filter(|s| !s.is_empty());
+    let tables = if current.is_some() {
+        session.tables().await?
+    } else {
+        Vec::new()
+    };
+    let databases = session.databases().await.ok();
+    Ok(DbProbe {
+        current,
+        databases,
+        tables,
+    })
 }
 
 #[tauri::command]

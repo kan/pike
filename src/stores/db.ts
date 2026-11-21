@@ -21,12 +21,15 @@ import {
   type DbCandidate,
   type DbConnCandidate,
   type DbConnForm,
+  type DbProbeVerdict,
   type DbSavedConnection,
   dbCandidatesFromEnv,
   dbEngineOfImage,
   dbErrorText,
   describeShellTarget,
+  judgeProbe,
   parseSavedConnections,
+  probeAskText,
   removeSaved,
   targetToSaved,
   upsertSaved,
@@ -34,8 +37,8 @@ import {
 import { joinPath, pathSep } from '../lib/paths'
 import { PROJECT_KEY_PREFIX } from '../lib/projectStorage'
 import { loadJson, saveJson } from '../lib/storage'
-import { dbContainerDefaults, dbDatabases, dbTables, fsReadFile } from '../lib/tauri'
-import type { DbTable, DbTarget } from '../types/db'
+import { dbContainerDefaults, dbProbe, fsReadFile } from '../lib/tauri'
+import type { DbProbe, DbTarget } from '../types/db'
 import type { ShellType } from '../types/tab'
 import { useDockerStore } from './docker'
 import { useProjectStore } from './project'
@@ -56,15 +59,15 @@ export interface DbDialogState {
    * シェルを後から変えていても、行が指していたシェルで試し直す）、それ以外はプロジェクトのシェル。
    */
   shell: ShellType
+  /** DB 名の欄の選択肢（つながったが DB を選んでいなかったとき、見られる DB の一覧）。 */
+  databaseChoices: string[]
   /** 「接続先を変える」から開いたときの DB タブ（つなげたらそのタブの接続先を差し替える）。 */
   tabId?: string
 }
 
 /** つないだときに読んだ一覧。開いた DB タブが 1 回だけ使う（同じ問い合わせを繰り返さない）。 */
-export interface DbPrefetched {
+export interface DbPrefetched extends DbProbe {
   tabId: string
-  tables: DbTable[]
-  databases: string[]
 }
 
 export const useDbStore = defineStore('db', () => {
@@ -198,7 +201,7 @@ export const useDbStore = defineStore('db', () => {
    */
   async function open(
     target: DbTarget,
-    opts: { tabId?: string; fromDialog?: boolean; save?: boolean } = {},
+    opts: { tabId?: string; fromDialog?: boolean; save?: boolean; picked?: boolean } = {},
   ): Promise<boolean> {
     const key = connectionKey(target)
     // 同じ接続先のタブが既にあれば前に出すだけ（つなぎ直さない）。そのタブには入れたパスワードや
@@ -209,21 +212,50 @@ export const useDbStore = defineStore('db', () => {
     // エラーを出す（待っているあいだに別のダイアログを開かれていたら、そちらには触らない）。
     const ownDialog = opts.fromDialog ? dialog.value : null
     try {
-      // テーブルの一覧で接続を確かめ、DB の一覧も並べて取る（どちらもタブが最初に要る）。
-      const [tables, databases] = await Promise.all([dbTables(target), dbDatabases(target).catch(() => [] as string[])])
+      // 接続を確かめ、今の DB・DB の一覧・テーブルの一覧を 1 回で取る（どれもタブが最初に要る）。
+      const probe = await dbProbe(target)
+      // **つながっても見るものが無い（DB を選ばずにつないだ）なら、タブを開かずに聞く。**
+      // DB 名の指定が無く、コンテナに `MYSQL_DATABASE` も無いとき、空のタブが開いていた。
+      const judged = judgeProbe(probe)
+      // 選んでつなぎ直すのは 1 回だけ（DB 名がクライアントに効かずに、また選ばれていない状態で
+      // 戻ってきたら、繰り返さずに聞く）。
+      const verdict: DbProbeVerdict =
+        judged.kind === 'pick' && opts.picked
+          ? { kind: 'ask', reason: 'noDatabase', choices: [judged.database] }
+          : judged
+      if (verdict.kind === 'pick') {
+        connecting.value = null
+        return await open({ ...target, database: verdict.database }, { ...opts, picked: true })
+      }
+      if (verdict.kind === 'ask') {
+        const notice = probeAskText(verdict.reason)
+        if (ownDialog) {
+          if (dialog.value === ownDialog) {
+            ownDialog.error = notice
+            ownDialog.databaseChoices = verdict.choices
+          }
+        } else {
+          openDialog(target, { error: notice, tabId: opts.tabId, databaseChoices: verdict.choices })
+        }
+        return false
+      }
       const s = opts.save === false ? null : targetToSaved(target)
       if (s) persist(upsertSaved(saved.value, s))
       const title = titleOf(target)
       const id = opts.tabId
         ? tabStore.retargetDbTab(opts.tabId, target, key, title)
         : tabStore.addDbTab(target, key, title)
-      prefetched = { tabId: id, tables, databases }
+      prefetched = { tabId: id, ...probe }
       if (ownDialog && dialog.value === ownDialog) dialog.value = null
       return true
     } catch (e) {
       const error = dbErrorText(e, target)
       if (ownDialog) {
-        if (dialog.value === ownDialog) ownDialog.error = error
+        if (dialog.value === ownDialog) {
+          ownDialog.error = error
+          // つながらなかった接続先の DB の一覧は当てにならない。
+          ownDialog.databaseChoices = []
+        }
       } else {
         openDialog(target, { error, tabId: opts.tabId })
       }
@@ -236,7 +268,7 @@ export const useDbStore = defineStore('db', () => {
   // --- 接続のダイアログ ---
 
   /** ダイアログを開く。`from` があればその接続先で欄を埋める。 */
-  function openDialog(from?: DbTarget, opts: { error?: string; tabId?: string } = {}) {
+  function openDialog(from?: DbTarget, opts: { error?: string; tabId?: string; databaseChoices?: string[] } = {}) {
     dialog.value = {
       route: SHELL_ROUTE,
       form: {
@@ -250,6 +282,7 @@ export const useDbStore = defineStore('db', () => {
       error: opts.error ?? null,
       containerHasPassword: false,
       shell: from?.via.kind === 'shell' ? from.via.shell : projectStore.shellForIO,
+      databaseChoices: opts.databaseChoices ?? [],
       tabId: opts.tabId,
     }
     if (from?.via.kind === 'container') void setRoute(from.via.containerId)
@@ -264,6 +297,8 @@ export const useDbStore = defineStore('db', () => {
     if (!d) return
     d.route = route
     d.containerHasPassword = false
+    // DB の選択肢は前の接続先のもの。
+    d.databaseChoices = []
     const c = route === SHELL_ROUTE ? undefined : dbContainers.value.find((x) => x.id === route)
     if (!c) return
     d.form.engine = c.engine

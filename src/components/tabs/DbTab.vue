@@ -18,7 +18,7 @@ import { useCsvTable } from '../../composables/useCsvTable'
 import { useI18n } from '../../i18n'
 import { dbErrorText, dbResultToCsv, ENGINE_LABELS, formatDbResult } from '../../lib/dbViewer'
 import { hostDefaultShell } from '../../lib/host'
-import { dbDatabases, dbDump, dbRows, dbSchema, dbTables, fsWriteFile, pickSaveFile } from '../../lib/tauri'
+import { dbDump, dbProbe, dbRows, dbSchema, fsWriteFile, pickSaveFile } from '../../lib/tauri'
 import { useDbStore } from '../../stores/db'
 import { useStatusMessageStore } from '../../stores/statusMessage'
 import { useTabStore } from '../../stores/tabs'
@@ -36,6 +36,8 @@ const tab = computed(() => tabStore.tabs.find((x): x is DbTab => x.id === props.
 const target = computed(() => tab.value?.target)
 
 const databases = ref<string[]>([])
+/** 今つながっている DB（接続先に DB 名が無いときは、サーバーが選んだもの）。 */
+const currentDatabase = ref<string | null>(null)
 const tables = ref<DbTable[]>([])
 const tableFilter = ref('')
 const selectedTable = ref<string | null>(null)
@@ -64,12 +66,16 @@ async function loadTables(to: DbTarget) {
   selectedTable.value = null
   result.value = null
   try {
-    const pre = db.takePrefetched(props.tabId)
-    const [dbs, list] = pre
-      ? [pre.databases, pre.tables]
-      : await Promise.all([dbDatabases(to).catch(() => [] as string[]), dbTables(to)])
+    // 読み直しも `db_probe` の 1 回（ストアの `open` と同じ問い合わせ）。DB の一覧が取れない
+    // （`databases` が null）ときは、切り替えの欄に今の DB だけを出す。テーブルの一覧は読めて
+    // いるので、タブは止めない。
+    const pre = db.takePrefetched(props.tabId) ?? (await dbProbe(to))
+    const [dbs, list] = [pre.databases ?? [], pre.tables]
     if (my !== seq) return
-    const current = to.database
+    // DB 名を指定せずにつないだときも、サーバーが選んだ DB（`MYSQL_DATABASE` や PostgreSQL の既定）を
+    // 切り替えの欄に出す。
+    const current = to.database || pre.current
+    currentDatabase.value = current ?? null
     databases.value = current && !dbs.includes(current) ? [current, ...dbs] : dbs
     tables.value = list
     void nextTick(() => filterInput.value?.focus())
@@ -95,7 +101,7 @@ async function switchDatabase(select: HTMLSelectElement) {
   // 接続を押し出すため）。
   const ok = await db.open({ ...tb.target, database: select.value }, { tabId: tb.id, save: false })
   // 接続先が変わらなければ Vue は選択欄を描き直さないので、選んだ値を自分で戻す。
-  if (!ok) select.value = tb.target.database ?? ''
+  if (!ok) select.value = currentDatabase.value ?? ''
 }
 
 const filteredTables = computed(() => {
@@ -209,11 +215,11 @@ function changeConnection() {
         <select
           v-if="databases.length"
           class="db-db"
-          :value="target?.database ?? ''"
+          :value="currentDatabase ?? ''"
           :title="t('db.database')"
           @change="switchDatabase($event.target as HTMLSelectElement)"
         >
-          <option v-if="!target?.database" value="" disabled>{{ t('db.pickDatabase') }}</option>
+          <option v-if="!currentDatabase" value="" disabled>{{ t('db.pickDatabase') }}</option>
           <option v-for="d in databases" :key="d" :value="d">{{ d }}</option>
         </select>
         <input

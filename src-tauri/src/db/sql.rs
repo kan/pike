@@ -131,7 +131,17 @@ fn pg_copy(select: &str) -> String {
     format!("COPY ({select}) TO STDOUT WITH (FORMAT csv, HEADER, FORCE_QUOTE *)")
 }
 
-/// DB の一覧。MySQL のシステムの DB は出さない。
+/// 今つながっている DB の名前（1 行 1 列）。MySQL は DB を選ばずにつなぐと NULL になる
+/// （DB 名の指定が無く、コンテナの環境変数にも `MYSQL_DATABASE` が無いとき）。
+pub fn current_database_sql(engine: Engine) -> String {
+    match engine {
+        Engine::Mysql => "SELECT DATABASE() AS name".to_owned(),
+        Engine::Postgres => pg_copy("SELECT current_database() AS name"),
+    }
+}
+
+/// DB の一覧。MySQL のシステムの DB（`information_schema` / `mysql` / `performance_schema` / `sys`）と、
+/// PostgreSQL のテンプレートの DB は出さない。
 pub fn databases_sql(engine: Engine) -> String {
     match engine {
         Engine::Mysql => "SELECT SCHEMA_NAME AS name FROM information_schema.SCHEMATA \
@@ -454,6 +464,20 @@ mod tests {
     #[test]
     fn pg_literals_escape_quote_and_backslash() {
         assert_eq!(string_literal(Engine::Postgres, "a'b\\c"), "E'a''b\\\\c'");
+    }
+
+    #[test]
+    fn current_database_reads_one_cell() {
+        // MySQL は DB を選ばずにつなぐと NULL を返す（batch の出力では `NULL`、読むと None）。
+        assert_eq!(
+            current_database_sql(Engine::Mysql),
+            "SELECT DATABASE() AS name"
+        );
+        let out = read_all(Engine::Mysql, &[b"name\nNULL\n"]);
+        assert_eq!(out, vec![vec![s("name")], vec![None]]);
+        assert!(
+            current_database_sql(Engine::Postgres).starts_with("COPY (SELECT current_database()")
+        );
     }
 
     #[test]

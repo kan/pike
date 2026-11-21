@@ -1157,6 +1157,10 @@ export default {
   'db.user': 'ユーザー',
   'db.password': 'パスワード',
   'db.passwordFromContainer': 'コンテナの環境変数から読む',
+  'db.askDatabase': '接続できましたが、DB が選ばれていません。見る DB を選んでください',
+  'db.askNoUserDatabases':
+    '接続できましたが、見られる DB がありません（システムの DB は一覧に出しません）。DB 名を入れるか、DB を作ってから接続し直してください',
+  'db.askDatabaseName': '接続できましたが、DB が選ばれていません。DB の一覧も取れなかったので、DB 名を入れてください',
   'db.passwordNotSaved': 'パスワードは開いた DB タブにだけ持ち、保存しません',
   'db.database': 'DB 名',
   'db.connect': '接続',
