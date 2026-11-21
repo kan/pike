@@ -22,6 +22,11 @@ import { useSettingsStore } from '../stores/settings'
 import { useCsvSelection } from './useCsvSelection'
 import '../assets/csvTable.css'
 
+/**
+ * **`data` と `partial` は、この composable を呼んだその場で評価される**（表の HTML を watch する
+ * ため）。中で読む値は呼び出しより前に定義しておくこと。後ろの `const` を読むと TDZ の
+ * `ReferenceError` で呼び出し側の setup ごと落ちる。
+ */
 export interface CsvTableOptions {
   /** 表を描く器（`v-html` の要素）。 */
   container: Ref<HTMLElement | undefined>

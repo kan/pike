@@ -10,6 +10,7 @@ import {
   missingClients,
   parseDatabaseUrl,
 } from '../src/lib/dbViewer'
+import { findDbTab, type Tab } from '../src/types/tab'
 
 test('イメージ名から DB の種類を当てる', () => {
   assert.equal(dbEngineOfImage('mysql:8'), 'mysql')
@@ -85,6 +86,10 @@ test('DATABASE_URL を読む', () => {
     database: 'app',
   })
   assert.equal(parseDatabaseUrl('mysql://root@localhost/app')?.port, null)
+  // 角括弧の IPv6 は 1 つのホストとして読み、角括弧を外す。
+  const v6 = parseDatabaseUrl('postgresql://u:pw@[::1]:5432/app')
+  assert.deepEqual([v6?.host, v6?.port, v6?.database, v6?.password], ['::1', 5432, 'app', 'pw'])
+  assert.equal(parseDatabaseUrl('mysql://[fe80::1%25eth0]/db')?.host, 'fe80::1%25eth0')
   assert.equal(parseDatabaseUrl('redis://localhost:6379'), null)
   assert.equal(parseDatabaseUrl('not a url'), null)
 })
@@ -112,6 +117,21 @@ test('.env から候補を拾う', () => {
   )
   // 引用符で囲んだ値は、中の `#` を残して後ろのコメントだけ捨てる。
   assert.equal(got[2].password, 'se#cret')
+})
+
+test('同じコンテナの DB タブは今のプロジェクトのものだけを使い回す', () => {
+  const tab = (id: string, projectId: string): Tab => ({
+    id,
+    kind: 'db',
+    title: 'db',
+    pinned: false,
+    container: { id: 'c1', name: 'db', engine: 'mysql' },
+    projectId,
+  })
+  const tabs = [tab('a', 'project-a'), tab('b', 'project-b')]
+  assert.equal(findDbTab(tabs, 'c1', 'project-b')?.id, 'b')
+  assert.equal(findDbTab(tabs, 'c1', 'project-c'), undefined)
+  assert.equal(findDbTab(tabs, 'c2', 'project-a'), undefined)
 })
 
 test('クライアントが無いエラーを見分ける', () => {

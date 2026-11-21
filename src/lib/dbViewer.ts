@@ -108,9 +108,12 @@ const URL_ENGINES: Record<string, DbEngine> = {
  * ドライバの指定なので無視する。読めなければ null。
  */
 export function parseDatabaseUrl(url: string, source = 'DATABASE_URL'): DbConnCandidate | null {
-  const m = /^([a-z0-9]+)(?:\+[a-z0-9]+)?:\/\/(?:([^:@/]*)(?::([^@/]*))?@)?([^:/?#]*)(?::(\d+))?(?:\/([^?#]*))?/i.exec(
-    url.trim(),
-  )
+  // ホストは角括弧の IPv6（`[::1]`）か、`:` `/` `?` `#` を含まない名前。IPv6 の角括弧は URL の
+  // 書き方なので、クライアントへ渡す値からは外す（`--host=::1`）。
+  const m =
+    /^([a-z0-9]+)(?:\+[a-z0-9]+)?:\/\/(?:([^:@/]*)(?::([^@/]*))?@)?(?:\[([^\]/?#]*)\]|([^:/?#]*))(?::(\d+))?(?:\/([^?#]*))?/i.exec(
+      url.trim(),
+    )
   if (!m) return null
   const engine = URL_ENGINES[m[1].toLowerCase()]
   if (!engine) return null
@@ -126,9 +129,9 @@ export function parseDatabaseUrl(url: string, source = 'DATABASE_URL'): DbConnCa
     engine,
     user: dec(m[2]),
     password: dec(m[3]),
-    host: dec(m[4]),
-    port: m[5] ? Number(m[5]) : null,
-    database: dec(m[6]),
+    host: m[4] ?? dec(m[5]),
+    port: m[6] ? Number(m[6]) : null,
+    database: dec(m[7]),
   }
 }
 

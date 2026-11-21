@@ -240,10 +240,14 @@ impl RecordReader {
     }
 
     pub fn push(&mut self, bytes: &[u8], out: &mut impl FnMut(Vec<Cell>)) {
-        self.pending.extend_from_slice(bytes);
-        let Some(last_nl) = self.pending.iter().rposition(|&b| b == b'\n') else {
+        // **探すのは届いた塊だけ。** 溜めてある `pending` には改行が残っていないので、溜めたぶんまで
+        // 毎回探すと、改行の無い巨大な値（長い TEXT や BLOB）で塊の数の二乗に比例して遅くなる。
+        let Some(at) = bytes.iter().rposition(|&b| b == b'\n') else {
+            self.pending.extend_from_slice(bytes);
             return;
         };
+        let last_nl = self.pending.len() + at;
+        self.pending.extend_from_slice(bytes);
         let rest = self.pending.split_off(last_nl + 1);
         let complete = std::mem::replace(&mut self.pending, rest);
         let text = String::from_utf8_lossy(&complete);
@@ -518,6 +522,20 @@ mod tests {
         assert_eq!(out[2], vec![s("2"), s("tab\there"), s("line1\nline2")]);
         assert_eq!(out[3], vec![s("3"), None, s("")]);
         assert_eq!(out[4], vec![s("4"), s("ba\\ck"), s("\0x")]);
+    }
+
+    #[test]
+    fn a_long_line_without_newlines_is_read_once() {
+        // 改行の無い 8MB の値を 64KB ずつ渡す（コンテナの exec と同じ届き方）。改行を探すのは届いた
+        // 塊だけなので、溜めた値の途中で行を割ったり、塊をまたぐ改行を取りこぼしたりしない。
+        let value = "x".repeat(8 * 1024 * 1024);
+        let body = format!("c\n{value}\nend\n");
+        let chunks: Vec<&[u8]> = body.as_bytes().chunks(64 * 1024).collect();
+        let out = read_all(Engine::Mysql, &chunks);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0], vec![s("c")]);
+        assert_eq!(out[1][0].as_deref().map(str::len), Some(value.len()));
+        assert_eq!(out[2], vec![s("end")]);
     }
 
     #[test]

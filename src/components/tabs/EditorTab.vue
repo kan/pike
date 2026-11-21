@@ -436,9 +436,21 @@ watch(hasPreview, (has) => {
 // プレビューの検索（#360）。standalone の mermaid は別の要素に描くので、そちらを相手にする。
 const findTarget = computed(() => (isMermaid.value ? mermaidRef.value : previewRef.value))
 const previewFind = usePreviewFind(findTarget, props.tabId)
+// --- CSV プレビュー（判断の実体は `lib/csvPreview.ts` と `useCsvTable`） ---
+/** 本文を読んだもの。本文が変わったときだけ読み直す（ページを動かしても読み直さない）。 */
+const csvData = computed<CsvData | null>(() => {
+  void debouncedDocVersion.value
+  if (!isCsv.value || !showPreview.value || !editorView) return null
+  return parseCsv(editorView.state.doc.iterLines(), previewKey.value === 'tsv' ? '\t' : ',')
+})
+
 /**
  * CSV プレビューの表（ページ送り・表示件数・並べ替え・列と行の選択）。状態と操作は DB ビューワと
  * 共有する `useCsvTable` が持ち、ここは本文から表を読む（`csvData`）ところだけを持つ。
+ *
+ * **`csvData` と、`data` / `partial` が読む値はすべてこの呼び出しより前に定義しておく。**
+ * `useCsvTable` は表の HTML を watch するので、呼んだその場で `data()` と `partial()` を評価する。
+ * 後ろで `const` 定義したものを読むと TDZ の `ReferenceError` になり、タブの setup ごと落ちる。
  */
 const csvTable = useCsvTable({
   container: previewRef,
@@ -461,14 +473,6 @@ const breadcrumbSegments = computed(() => {
   const p = tab.value?.path
   if (!p) return []
   return toRelativePath(p, projectStore.activeRoot).split(/[/\\]/).filter(Boolean)
-})
-
-// --- CSV プレビュー（判断の実体は `lib/csvPreview.ts` と `useCsvTable`） ---
-/** 本文を読んだもの。本文が変わったときだけ読み直す（ページを動かしても読み直さない）。 */
-const csvData = computed<CsvData | null>(() => {
-  void debouncedDocVersion.value
-  if (!isCsv.value || !showPreview.value || !editorView) return null
-  return parseCsv(editorView.state.doc.iterLines(), previewKey.value === 'tsv' ? '\t' : ',')
 })
 
 /** 右クリックした列で並べ替える。 */

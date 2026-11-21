@@ -33,7 +33,7 @@ import type {
   TabOwner,
   TerminalTab,
 } from '../types/tab'
-import { canReorderTabs, isSingletonTab, isUnsavedEditor, PANES } from '../types/tab'
+import { canReorderTabs, findDbTab, isSingletonTab, isUnsavedEditor, PANES } from '../types/tab'
 
 let counter = 0
 
@@ -799,8 +799,7 @@ export const useTabStore = defineStore('tabs', () => {
    * 渡さなければ（コマンドパレット）毎回新しいタブで、接続の画面から始まる。
    */
   function addDbTab(container?: DbTab['container']): string {
-    const existing =
-      container && tabs.value.find((t): t is DbTab => t.kind === 'db' && t.container?.id === container.id)
+    const existing = container && findDbTab(tabs.value, container.id, ownerProjectId.value)
     if (existing) {
       activeTabId.value = existing.id
       return existing.id

@@ -714,7 +714,9 @@ pub async fn db_dump(
 ) -> Result<u64, String> {
     let mut session = Session::open(&state, &target).await?;
     let schema = session.ensure_table(&table).await?;
-    let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    let dest = std::path::PathBuf::from(&path);
+    let tmp = temp_path_for(&dest);
+    let file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
     let sink = FileSink {
         out: std::io::BufWriter::new(file),
         format,
@@ -733,11 +735,35 @@ pub async fn db_dump(
         Ok::<u64, String>(sink.records.saturating_sub(1))
     }
     .await;
-    // 失敗したら書きかけのファイルを残さない（書き出し済みのように見えるため）。
-    if written.is_err() {
-        let _ = std::fs::remove_file(&path);
+    finish_temp(&tmp, &dest, written)
+}
+
+/// 書き出しの一時ファイル（保存先と同じディレクトリ。同じボリュームなので rename で置き換えられる）。
+fn temp_path_for(dest: &std::path::Path) -> std::path::PathBuf {
+    let name = dest
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    dest.with_file_name(format!(".{name}.pike-{}.tmp", uuid::Uuid::new_v4()))
+}
+
+/// **書き終えてから保存先を置き換える。** 既にあるファイルを保存先に選んだとき、書き出しが途中で
+/// 落ちても前の中身を残すため（保存先へ直に書くと、開いた時点で切り詰めてしまう）。失敗したら
+/// 一時ファイルだけを消す。`rename` は Windows でも既存のファイルを置き換える。
+fn finish_temp<T>(
+    tmp: &std::path::Path,
+    dest: &std::path::Path,
+    written: Result<T, String>,
+) -> Result<T, String> {
+    let result = written.and_then(|v| {
+        std::fs::rename(tmp, dest)
+            .map(|()| v)
+            .map_err(|e| e.to_string())
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(tmp);
     }
-    written
+    result
 }
 
 #[cfg(test)]
@@ -746,6 +772,30 @@ mod tests {
 
     fn env(vars: &[&str]) -> Vec<String> {
         vars.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_failed_dump_keeps_the_previous_file() {
+        let dir = std::env::temp_dir().join(format!("pike-db-dump-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dest = dir.join("t.csv");
+        std::fs::write(&dest, "old").unwrap();
+
+        // 失敗：保存先は前の中身のまま、一時ファイルは残らない。
+        let tmp = temp_path_for(&dest);
+        std::fs::write(&tmp, "half").unwrap();
+        assert!(finish_temp::<u64>(&tmp, &dest, Err("timed out".to_owned())).is_err());
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "old");
+        assert!(!tmp.exists());
+
+        // 成功：既にあるファイルを置き換える。
+        let tmp = temp_path_for(&dest);
+        std::fs::write(&tmp, "new").unwrap();
+        assert_eq!(finish_temp(&tmp, &dest, Ok(3u64)), Ok(3));
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "new");
+        assert!(!tmp.exists());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

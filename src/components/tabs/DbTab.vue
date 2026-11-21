@@ -461,7 +461,8 @@ watch(connected, (c) => {
             <option value="csv">CSV</option>
             <option value="tsv">TSV</option>
           </select>
-          <button type="button" :title="t('db.copyHint')" :disabled="!result" @click="copyResult">
+          <!-- 読み込み中は前の表の結果が残っているので、保存と同じく押させない。 -->
+          <button type="button" :title="t('db.copyHint')" :disabled="!result || loading" @click="copyResult">
             <Copy :size="13" :stroke-width="2" /><span>{{ t('db.copy') }}</span>
           </button>
           <button

@@ -649,6 +649,17 @@ export function isSingletonTab(kind: Tab['kind']): boolean {
   return (SINGLETON_KINDS as readonly string[]).includes(kind)
 }
 
+/**
+ * 同じコンテナを開いている DB ビューワのタブ（#632）。**今のプロジェクトのタブだけを見る**:
+ * `tabs` には保持中の別プロジェクトのタブも入っているので、それを前に出すとタブバーに無いタブが
+ * 選ばれ、選択と表示が食い違う（`addHistoryTab` などと同じ）。
+ */
+export function findDbTab(tabs: Tab[], containerId: string, projectId: string): (DbTab & TabOwner) | undefined {
+  return tabs.find(
+    (t): t is Tab & DbTab => t.kind === 'db' && t.container?.id === containerId && t.projectId === projectId,
+  )
+}
+
 export type Tab = (
   | TerminalTab
   | EditorTab
