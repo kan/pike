@@ -11,7 +11,8 @@
  */
 import type { Component } from 'vue'
 import { AGENT_ICONS } from '../lib/agentIcons'
-import type { LiveListHeading, LivePlaceKind } from '../lib/liveSessions'
+import { WindowsSquares, WSL_LOGOS } from '../lib/brandIcons'
+import type { LiveListHeading } from '../lib/liveSessions'
 import { SHELL_KIND_ICONS } from '../lib/shellIcons'
 
 defineProps<{
@@ -20,11 +21,13 @@ defineProps<{
   size?: number
 }>()
 
-/** 環境のアイコン。シェルのアイコン（`SHELL_KIND_ICONS`）から、その環境のシェルのものを充てる。 */
-const PLACE_ICONS: Record<LivePlaceKind, Component> = {
-  wsl: SHELL_KIND_ICONS.wsl,
-  windows: SHELL_KIND_ICONS.powershell,
-  local: SHELL_KIND_ICONS.unix,
+/**
+ * 環境のアイコン。WSL は distro のロゴ（知らない distro は Tux。`wslLogoOf` → `WSL_LOGOS`）、Windows は 4 つの四角、
+ * ホスト（macOS / Linux）はシェルのアイコン（`SHELL_KIND_ICONS.unix`。ホストは 1 つしか出ないので見分けは要らない）。
+ */
+function placeIcon(place: NonNullable<LiveListHeading['place']>): Component {
+  if (place.kind === 'wsl') return WSL_LOGOS[place.logo]
+  return place.kind === 'windows' ? WindowsSquares : SHELL_KIND_ICONS.unix
 }
 </script>
 
@@ -40,14 +43,16 @@ const PLACE_ICONS: Record<LivePlaceKind, Component> = {
     />
     <template v-if="heading.place">
       <component
-        :is="PLACE_ICONS[heading.place.kind]"
+        :is="placeIcon(heading.place)"
         class="live-account-icon"
         :size="size ?? 12"
         :stroke-width="2"
         role="img"
         :aria-label="heading.place.label"
       />
-      <span v-if="heading.place.distro" class="live-account-distro">{{ heading.place.distro }}</span>
+      <span v-if="heading.place.kind === 'wsl' && heading.place.showDistro" class="live-account-distro">
+        {{ heading.place.distro }}
+      </span>
     </template>
     <span class="live-account-who">{{ heading.who }}</span>
   </span>

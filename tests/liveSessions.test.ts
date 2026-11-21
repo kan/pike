@@ -14,6 +14,7 @@ import {
   selectedSections,
   stableLiveOrder,
   withCollapsedKey,
+  wslLogoOf,
 } from '../src/lib/liveSessions'
 import type { LiveSession } from '../src/types/liveSession'
 import type { ShellType } from '../src/types/tab'
@@ -163,12 +164,21 @@ test('見出しの部品はエージェントと環境を分け、distro の名�
   const list = { agent: 'claude' as const, shell: wsl, account: null, configDir: '/home/me/.claude-ai/' }
   const h = liveListHeading(list, true, false)
   assert.equal(h.agentLabel, 'Claude Code')
-  assert.deepEqual(h.place, { kind: 'wsl', label: 'WSL: Ubuntu', distro: null })
+  assert.deepEqual(h.place, { kind: 'wsl', label: 'WSL: Ubuntu', distro: 'Ubuntu', logo: 'ubuntu', showDistro: false })
   assert.equal(h.who, '.claude-ai')
   assert.equal(h.label, 'Claude Code · .claude-ai · WSL: Ubuntu')
-  assert.equal(liveListHeading(list, true, true).place?.distro, 'Ubuntu')
+  const both = liveListHeading(list, true, true).place
+  assert.equal(both?.kind === 'wsl' && both.showDistro, true)
   assert.equal(liveListHeading(list, false, true).place, null)
-  assert.equal(liveListHeading({ ...list, shell: pwsh }, true, true).place?.kind, 'windows')
+  assert.deepEqual(liveListHeading({ ...list, shell: pwsh }, true, true).place, { kind: 'windows', label: 'Windows' })
+})
+
+test('WSL の distro は名前の先頭でロゴを選び、知らないものは Tux にする', () => {
+  assert.equal(wslLogoOf('Ubuntu-22.04'), 'ubuntu')
+  assert.equal(wslLogoOf('ubuntu'), 'ubuntu')
+  assert.equal(wslLogoOf('kali-linux'), 'kali')
+  assert.equal(wslLogoOf('Debian'), 'linux')
+  assert.equal(wslLogoOf(''), 'linux')
 })
 
 test('選んだアカウントが一覧に無ければ全部を出す', () => {

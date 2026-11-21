@@ -300,6 +300,7 @@ pike/
 │   │   ├── liveSessions.ts   # 動いているセッションの状態ごとの並べ方と、cwd からプロジェクトを引く規則（#625）
 │   │   ├── liveSessionIcons.ts # 動いているセッションの状態のアイコン（#625。パネルと詳細のタブで共有）
 │   │   ├── agentIcons.ts      # エージェント → アイコン（#633。`shellIcons.ts` と同じ形）
+│   │   ├── brandIcons.ts      # 各社のロゴ（Simple Icons の CC0 のものから path を写した）と Windows の四角（#633）
 │   │   ├── issueTree.ts      # issue の親子を `parent` だけで組んで平らに落とす（#278）
 │   │   ├── issueLabels.ts    # issue パネルで隠すラベルの検証と判定（#531。設定画面の欄は SettingTagList.vue）
 │   │   ├── issueRefs.ts      # 本文の `#123` を別 issue タブへのリンクにする（marked 拡張、#278。エディタのプレビューも使う、#482）

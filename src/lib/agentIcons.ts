@@ -4,15 +4,21 @@
  * `AGENTS`）にエージェントを足すと型エラーで気付く。
  *
  * `lib/agents.ts` から分けてあるのは、あちらを Node のテストから読むため（lucide は Vue を読み込む。
- * `lib/liveSessionIcons.ts` と同じ理由）。各社のロゴは lucide に無いので、形の近い汎用のアイコンを充てる。
+ * `lib/liveSessionIcons.ts` と同じ理由）。
+ *
+ * **ロゴがあるものはロゴ**（`lib/brandIcons.ts`。Simple Icons の CC0 のものだけを写す）。無いものは lucide の
+ * 汎用のアイコンのまま:
+ * - Codex：OpenAI のロゴは Simple Icons に収録されていない（取り下げられている）
+ * - Copilot CLI：GitHub Copilot のロゴは Simple Icons では MIT で、表記の義務があるので写していない
  */
-import { Asterisk, Bot, Code, Hexagon } from 'lucide-vue-next'
+import { Bot, Hexagon } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import type { AgentId } from './agents'
+import { ClaudeLogo, OpenCodeLogo } from './brandIcons'
 
 export const AGENT_ICONS: Record<AgentId, Component> = {
-  claude: Asterisk,
+  claude: ClaudeLogo,
   codex: Hexagon,
   copilot: Bot,
-  opencode: Code,
+  opencode: OpenCodeLogo,
 }

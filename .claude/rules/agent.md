@@ -102,6 +102,9 @@ doc（飛び先の 3 段）。ここには規範だけ置く。
     別のウィンドウの変化は `storage` イベントで写す（写さないと、次に押したときに押していない見出しが
     まとめて開閉する）。使わなくなったアカウントの鍵が溜まらないよう、50 件で古いものから捨てる
   - 詳細のタブの見出しの横の要約は、出しているアカウントだけを数える
+  - **選んでいたアカウントが一覧から消えたら「すべて」を出すが、保存した値は消さない**（`selectedSections`。
+    そのアカウントでまたセッションが動けば戻る）
+  - サイドバーのアイコンの返答待ちの件数は、折り畳みや切り替えに関わらず全アカウントの合計
 - **アカウントの並びはフロントで固定の順に決め直す**（`lib/liveSessions.ts` の `stableLiveOrder`）。今の
   プロジェクトのアカウントを先頭に、残りは `liveListKey` の順。**Rust が返す順をそのまま使わないこと**: 申告の
   新しい順（`declared_config_dirs`。`SessionStart` のたびに書き直される）を含み、今のプロジェクト以外の
@@ -109,13 +112,21 @@ doc（飛び先の 3 段）。ここには規範だけ置く。
   - **パネルでは、畳んだアカウントを開いているものの下にまとめる**（`panelLiveOrder`。どちらの中も同じ固定の
     順）。今のプロジェクトのアカウントも、畳まれていれば下へ回る。詳細のタブの切り替えのボタンも同じ固定の順
 - **見出しのエージェントと環境はアイコンで出す**（`liveListHeading` の部品を `components/LiveAccountHeading.vue`
-  が描く。パネルの見出し・詳細のタブの見出し・切り替えのボタンで共有する）。アイコンの出典はエージェントが
-  `lib/agentIcons.ts` の `AGENT_ICONS`、環境が `lib/shellIcons.ts` の `SHELL_KIND_ICONS`。文字は `title` と
-  `aria-label` に持たせる。**アカウントを見分ける部分（メールアドレス、設定ディレクトリの名前）は文字のまま**。
-  WSL の distro が 2 つ以上あるときは、同じアイコンでは見分けられないので distro の名前も文字で添える
-  - **選んでいたアカウントが一覧から消えたら「すべて」を出すが、保存した値は消さない**（`selectedSections`。
-    そのアカウントでまたセッションが動けば戻る）
-  - サイドバーのアイコンの返答待ちの件数は、折り畳みや切り替えに関わらず全アカウントの合計
+  が描く。パネルの見出し・詳細のタブの見出し・切り替えのボタンで共有する）。エージェントは `lib/agentIcons.ts` の
+  `AGENT_ICONS`、環境は `LiveAccountHeading.vue` の `placeIcon`（WSL は `wslLogoOf` → `WSL_LOGOS` で distro のロゴ、知らない
+  distro は Tux。Windows は 4 つの四角）。文字は `aria-label` と、置いた側の器の `title` に持たせる。
+  **アカウントを見分ける部分（メールアドレス、設定ディレクトリの名前）は文字のまま**。WSL の distro が 2 つ以上
+  あるときは、ロゴが同じこともあるので distro の名前も文字で添える
+  - **ロゴは Simple Icons から path だけを写す**（`lib/brandIcons.ts`。依存は増やさない。版と元のファイル名は
+    あのファイルの doc）。**写すのは Simple Icons のデータで個別のライセンスが付いていないもの（パッケージの
+    CC0）だけ**で、そのためクレジット（`src/assets/credits.json`）には足していない。MIT や CC-BY-SA の付いた
+    もの（GitHub Copilot、Debian、Rocky Linux）と独自のもの（Fedora）は表記の義務があるので写さず、lucide か
+    Tux のまま。OpenAI と Microsoft のロゴは Simple Icons に無い（Windows の四角は自前の図形）
+  - CC0 で外れるのは著作権の表記だけで、**各社の商標の規定は別に残る**。単色にする以外の改変をせず、
+    そのエージェントや distro を指す見出しの中だけで使う
+  - ロゴは単色（`currentColor`）で、元の 24×24 の path を変えずに使う（形を変えない。周りに 2 ずつ余白を足し、
+    余白付きの線の lucide と並べたときの大きさをそろえる）。lucide と同じ `size` / `stroke-width` を受ける部品に
+    してあるので、`<component :is>` で入れ替えられる
 - **Claude の出所は設定ディレクトリの `sessions/<pid>.json`**（Claude Code が状態を書き直す。`status` は
   `busy` / `idle` / `waiting`）。**今のプロジェクトのアカウントの解決は `activeRoot` で行う**（使用量と
   同じ。worktree を切り替えたら一覧を捨てて読み直す。`scope`）。使用量の集計（`find_active_sessions`）は

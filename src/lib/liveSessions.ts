@@ -111,8 +111,26 @@ export function livePlaceLabel(shell: ShellType): string {
   return shell.kind === 'unix' ? 'Local' : 'Windows'
 }
 
-/** 見出しの環境の種類。アイコンを選ぶのに使う（`components/LiveAccountHeading.vue`）。 */
-export type LivePlaceKind = 'wsl' | 'windows' | 'local'
+/**
+ * 見出しの環境。WSL のときだけ distro を持つ（ロゴを選ぶのと、`showDistro` のとき文字で添えるのに使う）。
+ */
+export type LivePlace =
+  | { kind: 'wsl'; label: string; distro: string; logo: WslLogo; showDistro: boolean }
+  | { kind: 'windows' | 'local'; label: string }
+
+/** ロゴを写してある distro（`lib/brandIcons.ts`）。ほかは `linux`（Tux）。 */
+export type WslLogo = 'ubuntu' | 'arch' | 'opensuse' | 'alpine' | 'kali' | 'linux'
+
+/**
+ * WSL の distro の名前 → ロゴの種類。名前の先頭（大小を問わない）で当てる（`Ubuntu-22.04` も `ubuntu`）。
+ * **知らない distro は `linux`（Tux）**（Debian・Fedora・Rocky など、写していないものも含む）。種類から
+ * コンポーネントへの写像は `lib/brandIcons.ts` の `WSL_LOGOS`（ここは Vue を読まない）。
+ */
+export function wslLogoOf(distro: string): WslLogo {
+  const name = distro.toLowerCase()
+  const known: WslLogo[] = ['ubuntu', 'arch', 'opensuse', 'alpine', 'kali']
+  return known.find((prefix) => name.startsWith(prefix)) ?? 'linux'
+}
 
 /**
  * アカウントの見出しの部品（#633）。パネルの見出し・詳細のタブの見出し・切り替えのボタンが共有する
@@ -127,7 +145,8 @@ export interface LiveListHeading {
   agent: AgentId
   /** エージェントの表示名（`AgentDef.label`）。 */
   agentLabel: string
-  place: { kind: LivePlaceKind; label: string; distro: string | null } | null
+  /** 環境（`withPlace` のときだけ）。 */
+  place: LivePlace | null
   /** アカウントを見分ける部分。メールアドレス、無ければ設定ディレクトリの名前。 */
   who: string
   /** 全部を文字にしたもの（`liveListTitle` と同じ）。 */
@@ -140,17 +159,15 @@ export function liveListHeading(
   withDistro: boolean,
 ): LiveListHeading {
   const shell = list.shell
-  const kind: LivePlaceKind = shell.kind === 'wsl' ? 'wsl' : shell.kind === 'unix' ? 'local' : 'windows'
+  const label = livePlaceLabel(shell)
+  const place: LivePlace =
+    shell.kind === 'wsl'
+      ? { kind: 'wsl', label, distro: shell.distro, logo: wslLogoOf(shell.distro), showDistro: withDistro }
+      : { kind: shell.kind === 'unix' ? 'local' : 'windows', label }
   return {
     agent: list.agent,
     agentLabel: agentById(list.agent)?.label ?? list.agent,
-    place: withPlace
-      ? {
-          kind,
-          label: livePlaceLabel(shell),
-          distro: withDistro && shell.kind === 'wsl' ? shell.distro : null,
-        }
-      : null,
+    place: withPlace ? place : null,
     who: list.account ?? basename(stripTrailingSep(list.configDir)),
     label: liveListTitle(list, withPlace),
   }
