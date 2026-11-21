@@ -190,6 +190,11 @@ fn run_indexer(doc: Arc<LargeDoc>, generation: u64) {
             let s = doc.state.read().map_err(poisoned)?;
             (s.index.scanned, s.size)
         };
+        // **更新時刻と末尾は読み始める前に控える。** 読み終えた時点のものを控えると、読んでいる
+        // あいだに書き換えられたファイル（索引の前半が古い中身、後半が新しい中身）が、次の
+        // `large_file_refresh` で「変わっていない」に見えて直らない。
+        let mtime = file.metadata()?.modified().ok();
+        let tail_before = read_tail(&mut file, size)?;
         file.seek(SeekFrom::Start(from))?;
         let mut reader = file.take(size - from);
         let mut buf = vec![0u8; INDEX_BUF];
@@ -204,18 +209,23 @@ fn run_indexer(doc: Arc<LargeDoc>, generation: u64) {
             }
             s.index.feed(&buf[..n]);
         }
-        // 読み終えたら、追記を見分けるための末尾と更新時刻を控える。
         let mut file = reader.into_inner();
         let tail = read_tail(&mut file, size)?;
-        let mtime = file.metadata().ok().and_then(|m| m.modified().ok());
         let mut s = doc.state.write().map_err(poisoned)?;
         if stale() {
             return Ok(());
         }
         // 途中でファイルが縮むと読めたぶんが `size` に届かない。届いたぶんを大きさにする。
         s.size = s.index.scanned;
-        s.tail = tail;
-        s.mtime = mtime;
+        if tail == tail_before {
+            s.tail = tail;
+            s.mtime = mtime;
+        } else {
+            // 読んでいるあいだに書き換えられた。何も控えず、次の `large_file_refresh` で作り直す
+            // （空の末尾は追記の判定に一致しない）。末尾への追記はこの範囲の外なので、ここに来ない。
+            s.tail = Vec::new();
+            s.mtime = None;
+        }
         Ok(())
     })();
     if let Ok(mut s) = doc.state.write()
@@ -351,11 +361,106 @@ struct Matcher {
 }
 
 impl Matcher {
-    /// 窓の中の一致。文字の途中から始まるもの（`is_char_start`）は除く。
-    fn matches<'a>(&'a self, window: &'a [u8]) -> impl Iterator<Item = regex::bytes::Match<'a>> {
-        self.re
-            .find_iter(window)
-            .filter(move |m| is_char_start(window, m.start(), self.encoding))
+    /// 窓の `from` から後ろの一致（重ならないもの）。**窓の先頭は文字の境目であること**
+    /// （`aligned_end` / `aligned_start` で揃える）。`from` は境目でなくてよい。
+    fn matches<'a>(&'a self, window: &'a [u8], from: usize) -> Matches<'a> {
+        Matches {
+            matcher: self,
+            window,
+            at: from,
+            cursor: 0,
+        }
+    }
+
+    fn is_utf8(&self) -> bool {
+        self.encoding == encoding_rs::UTF_8
+    }
+}
+
+/// `Matcher::matches` の中身。
+///
+/// **Shift_JIS は文字の途中から始まる候補を捨て、捨てた候補の 1 バイト後ろから照合し直す。**
+/// 2 バイト目に ASCII の範囲（0x40〜0x7E）を使うので、`\` や英字の問い合わせが漢字の 2 バイト目に
+/// 当たる。`find_iter` の結果を後から捨てる形だと、捨てた候補と重なる本物の一致（「アAA」の `AA`）
+/// を見落とす。境目かどうかは `cursor`（直前に確かめた境目）から先行バイトを数えて前へ進めるので、
+/// 窓 1 つにつき線形で済む。UTF-8 の照合器は文字の途中からは当たらないので数えない。
+struct Matches<'a> {
+    matcher: &'a Matcher,
+    window: &'a [u8],
+    /// 次に照合を始める位置。
+    at: usize,
+    /// 文字の境目と分かっている位置（`at` 以下）。
+    cursor: usize,
+}
+
+impl<'a> Iterator for Matches<'a> {
+    type Item = regex::bytes::Match<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.at > self.window.len() {
+                return None;
+            }
+            let found = self.matcher.re.find_at(self.window, self.at)?;
+            // 空の一致は起こらない（問い合わせが空なら探さない）が、念のため前へ進める。
+            let next_at = found.end().max(found.start() + 1);
+            if self.matcher.is_utf8() {
+                self.at = next_at;
+                return Some(found);
+            }
+            let start = found.start();
+            if self.cursor > start {
+                // 前の候補で境目の先まで数えた（2 バイト文字の 2 バイト目から始まる候補）。
+                self.at = start + 1;
+                continue;
+            }
+            // 改行の直後は必ず境目。数える範囲を短くする。
+            if let Some(n) = memchr::memrchr(b'\n', &self.window[self.cursor..start]) {
+                self.cursor += n + 1;
+            }
+            while self.cursor < start {
+                self.cursor += sjis_char_len(self.window[self.cursor]);
+            }
+            if self.cursor == start {
+                self.at = next_at;
+                return Some(found);
+            }
+            self.at = start + 1;
+        }
+    }
+}
+
+/// Shift_JIS の 1 文字のバイト数（先行バイトなら 2）。
+fn sjis_char_len(b: u8) -> usize {
+    if (0x81..=0x9F).contains(&b) || (0xE0..=0xFC).contains(&b) {
+        2
+    } else {
+        1
+    }
+}
+
+/// 窓の先頭（境目）から数えて、`pos` 以後で最初の文字の境目。次の窓の先頭に使う。
+fn aligned_end(window: &[u8], pos: usize, matcher: &Matcher) -> usize {
+    if matcher.is_utf8() {
+        return pos;
+    }
+    let mut i = memchr::memrchr(b'\n', &window[..pos.min(window.len())]).map_or(0, |n| n + 1);
+    while i < pos {
+        i += sjis_char_len(window[i]);
+    }
+    i
+}
+
+/// 窓の中で、最初の文字の境目と分かる位置（`limit` より手前）。後ろへ探す窓は先頭が境目とは
+/// 限らないので、最初の改行の直後から照合する（その手前は次の窓が受け持つ）。窓の中に改行が
+/// 無い（窓より長い行）ときは先頭を境目とみなす。
+fn aligned_start(window: &[u8], limit: usize, matcher: &Matcher) -> usize {
+    if matcher.is_utf8() {
+        return 0;
+    }
+    match memchr::memchr(b'\n', &window[..limit.min(window.len())]) {
+        Some(n) if n + 1 < limit => n + 1,
+        _ => 0,
     }
 }
 
@@ -408,27 +513,6 @@ fn build_regex(
         .map_err(|e| e.to_string())
 }
 
-/// `pos` が文字の境目か。UTF-8 の照合器は文字単位で当てるので常に真。Shift_JIS は 2 バイト目に
-/// ASCII の範囲（0x40〜0x7E）を使うので、`\` や英字の問い合わせが漢字の 2 バイト目に当たる。行頭
-/// （改行の直後）は必ず境目なので、そこから先行バイトを数えて確かめる。窓の中に行頭が無い（窓より
-/// 長い行）ときは窓の先頭から数える。
-fn is_char_start(window: &[u8], pos: usize, encoding: &'static Encoding) -> bool {
-    if encoding == encoding_rs::UTF_8 {
-        return true;
-    }
-    let mut i = memchr::memrchr(b'\n', &window[..pos]).map_or(0, |n| n + 1);
-    while i < pos {
-        let b = window[i];
-        // Shift_JIS の先行バイト。後ろに 1 バイト続く。
-        i += if (0x81..=0x9F).contains(&b) || (0xE0..=0xFC).contains(&b) {
-            2
-        } else {
-            1
-        };
-    }
-    i == pos
-}
-
 /// 窓どうしを重ねる幅。大文字小文字を畳むと一致の長さが問い合わせと変わりうる（`K` と
 /// KELVIN SIGN）ので、1 文字 4 バイトで見積もる。
 fn overlap_of(query: &str) -> usize {
@@ -458,7 +542,8 @@ fn read_window<R: Read + Seek>(
 type FindFn<R> =
     fn(&mut R, &Matcher, u64, u64, u64, Cancelled) -> std::io::Result<Option<(u64, u64)>>;
 
-/// `[lo, hi)` から始まる最初の一致（バイトの範囲）。止められたら `None`。
+/// `[lo, hi)` から始まる最初の一致（バイトの範囲）。止められたら `None`。`lo` は文字の境目
+/// （0・行頭・前の一致の末尾）であること。次の窓の先頭も境目に揃える（`aligned_end`）。
 fn find_forward<R: Read + Seek>(
     source: &mut R,
     matcher: &Matcher,
@@ -476,10 +561,14 @@ fn find_forward<R: Read + Seek>(
         let step = (SEARCH_BUF as u64).min(hi - pos);
         let len = (step + matcher.overlap as u64).min(size.saturating_sub(pos));
         read_window(source, pos, len, &mut window)?;
-        if let Some(m) = matcher.matches(&window).find(|m| (m.start() as u64) < step) {
+        if let Some(m) = matcher
+            .matches(&window, 0)
+            .take_while(|m| (m.start() as u64) < step)
+            .next()
+        {
             return Ok(Some((pos + m.start() as u64, pos + m.end() as u64)));
         }
-        pos += step;
+        pos += aligned_end(&window, step as usize, matcher) as u64;
     }
     Ok(None)
 }
@@ -502,15 +591,22 @@ fn find_backward<R: Read + Seek>(
         let start = end.saturating_sub(SEARCH_BUF as u64).max(lo);
         let len = (end - start + matcher.overlap as u64).min(size.saturating_sub(start));
         read_window(source, start, len, &mut window)?;
-        let limit = end - start;
+        let limit = (end - start) as usize;
+        // `lo` は境目（0・行頭・前の一致の始まり）。それ以外の窓の先頭は文字の途中でありうる。
+        let base = if start == lo {
+            0
+        } else {
+            aligned_start(&window, limit, matcher)
+        };
         if let Some(m) = matcher
-            .matches(&window)
-            .filter(|m| (m.start() as u64) < limit)
+            .matches(&window[base..], 0)
+            .take_while(|m| m.start() + base < limit)
             .last()
         {
-            return Ok(Some((start + m.start() as u64, start + m.end() as u64)));
+            let s = start + (base + m.start()) as u64;
+            return Ok(Some((s, s + m.len() as u64)));
         }
-        end = start;
+        end = start + base as u64;
     }
     Ok(None)
 }
@@ -524,6 +620,9 @@ fn count_matches<R: Read + Seek>(
 ) -> std::io::Result<Option<(u64, bool)>> {
     let mut pos = 0;
     let mut count = 0;
+    // 最後に数えた一致の末尾。**次の窓もここから照合する**: 窓ごとに照合をやり直すと、前の窓で
+    // 数えた一致と重なる候補（境目の手前の `ababa` で `aba`）を次の窓でもう一度数える。
+    let mut resume = 0u64;
     let mut window = Vec::new();
     while pos < size {
         if cancelled() {
@@ -532,16 +631,19 @@ fn count_matches<R: Read + Seek>(
         let step = (SEARCH_BUF as u64).min(size - pos);
         let len = (step + matcher.overlap as u64).min(size - pos);
         read_window(source, pos, len, &mut window)?;
-        // 重ねた部分から始まる一致は次の窓で数える。窓の中の一致は重ならないので、前の一致の
-        // 途中から始まる一致を二重に数えることもない（`find_iter` が左から重ねずに拾う）。
-        count += matcher
-            .matches(&window)
+        let from = resume.saturating_sub(pos) as usize;
+        // 重ねた部分から始まる一致は次の窓で数える。
+        for m in matcher
+            .matches(&window, from)
             .take_while(|m| (m.start() as u64) < step)
-            .count() as u64;
+        {
+            count += 1;
+            resume = pos + m.end() as u64;
+        }
         if count >= MAX_COUNT {
             return Ok(Some((MAX_COUNT, true)));
         }
-        pos += step;
+        pos += aligned_end(&window, step as usize, matcher) as u64;
     }
     Ok(Some((count, false)))
 }
@@ -669,20 +771,32 @@ pub async fn large_file_open(
     // WSL のファイルは `\\wsl.localhost\` の UNC を `std::fs` で読む。他の `fs` のように
     // `wsl.exe` のコマンドで運ぶと、行を頼むたびにプロセスが立つ。
     let path = PathBuf::from(host_visible_path(&shell, path));
-    let (encoding, size, path) = blocking(move || {
-        let mut file = File::open(&path).map_err(|e| e.to_string())?;
-        let size = file.metadata().map_err(|e| e.to_string())?.len();
-        let mut head = Vec::new();
-        (&mut file)
-            .take(SNIFF_LEN as u64)
-            .read_to_end(&mut head)
-            .map_err(|e| e.to_string())?;
-        Ok((sniff_encoding(&head)?, size, path))
-    })
-    .await?;
+    let doc = blocking(move || open_doc(path)).await?;
+    let info = LargeFileInfo {
+        id: uuid::Uuid::new_v4().to_string(),
+        size: doc.state.read().map_err(|e| e.to_string())?.size,
+        encoding: doc.encoding.name().to_owned(),
+    };
+    state
+        .docs
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(info.id.clone(), doc);
+    Ok(info)
+}
+
+/// ファイルを開いて文字コードを決め、索引のスレッドを立てる（`large_file_open` の中身）。
+fn open_doc(path: PathBuf) -> Result<Arc<LargeDoc>, String> {
+    let mut file = File::open(&path).map_err(|e| e.to_string())?;
+    let size = file.metadata().map_err(|e| e.to_string())?.len();
+    let mut head = Vec::new();
+    (&mut file)
+        .take(SNIFF_LEN as u64)
+        .read_to_end(&mut head)
+        .map_err(|e| e.to_string())?;
     let doc = Arc::new(LargeDoc {
         path,
-        encoding,
+        encoding: sniff_encoding(&head)?,
         state: RwLock::new(IndexState {
             index: LineIndex::new(),
             size,
@@ -697,17 +811,7 @@ pub async fn large_file_open(
         lines_file: Mutex::new(None),
     });
     spawn_indexer(&doc, 1);
-    let id = uuid::Uuid::new_v4().to_string();
-    state
-        .docs
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(id.clone(), doc);
-    Ok(LargeFileInfo {
-        id,
-        size,
-        encoding: encoding.name().to_owned(),
-    })
+    Ok(doc)
 }
 
 /// 索引の進み具合。フロントは作り終えるまで間隔を置いて聞く。
@@ -736,39 +840,41 @@ pub async fn large_file_lines(
     count: u64,
 ) -> Result<LargeLines, String> {
     let doc = state.get(&id)?;
-    blocking(move || {
-        let located = doc
-            .state
-            .read()
-            .map_err(|e| e.to_string())?
-            .index
-            .locate(start);
-        let Some((byte, skip)) = located else {
-            return Ok(LargeLines {
-                lines: Vec::new(),
-                cut: Vec::new(),
-            });
-        };
-        let mut slot = doc.lines_file.lock().map_err(|e| e.to_string())?;
-        let file = match &mut *slot {
-            Some(file) => file,
-            empty => empty.insert(File::open(&doc.path).map_err(|e| e.to_string())?),
-        };
-        let read = read_lines(
-            file,
-            doc.encoding,
-            byte,
-            skip,
-            count.min(MAX_LINES_PER_CALL),
-        );
-        // 読めなかったハンドルは捨て、次は開き直す（ネットワーク越しの切断など）。
-        if read.is_err() {
-            *slot = None;
-        }
-        let (lines, cut) = read.map_err(|e| e.to_string())?;
-        Ok(LargeLines { lines, cut })
-    })
-    .await
+    blocking(move || doc_lines(&doc, start, count)).await
+}
+
+/// `large_file_lines` の中身。
+fn doc_lines(doc: &LargeDoc, start: u64, count: u64) -> Result<LargeLines, String> {
+    let located = doc
+        .state
+        .read()
+        .map_err(|e| e.to_string())?
+        .index
+        .locate(start);
+    let Some((byte, skip)) = located else {
+        return Ok(LargeLines {
+            lines: Vec::new(),
+            cut: Vec::new(),
+        });
+    };
+    let mut slot = doc.lines_file.lock().map_err(|e| e.to_string())?;
+    let file = match &mut *slot {
+        Some(file) => file,
+        empty => empty.insert(File::open(&doc.path).map_err(|e| e.to_string())?),
+    };
+    let read = read_lines(
+        file,
+        doc.encoding,
+        byte,
+        skip,
+        count.min(MAX_LINES_PER_CALL),
+    );
+    // 読めなかったハンドルは捨て、次は開き直す（ネットワーク越しの切断など）。
+    if read.is_err() {
+        *slot = None;
+    }
+    let (lines, cut) = read.map_err(|e| e.to_string())?;
+    Ok(LargeLines { lines, cut })
 }
 
 /// 次（`backward` なら前）の一致を探す。起点は `from_byte`（前回の一致）か、無ければ `from_line`
@@ -892,49 +998,54 @@ pub async fn large_file_refresh(
     id: String,
 ) -> Result<RefreshKind, String> {
     let doc = state.get(&id)?;
-    blocking(move || {
-        let mut file = File::open(&doc.path).map_err(|e| e.to_string())?;
-        let meta = file.metadata().map_err(|e| e.to_string())?;
-        let new_size = meta.len();
-        let mtime = meta.modified().ok();
-        // **見極めから書き換えまでを 1 つの書き込みのロックで行う。** 読み取りのロックで見極めると、
-        // 外部変更の知らせと「再読み込み」が重なったときに両方が `done` を見て索引のスレッドを
-        // 2 本立て、同じ追記を 2 回流し込む。
-        let (kind, generation) = {
-            let mut s = doc.state.write().map_err(|e| e.to_string())?;
-            if !s.done {
-                return Ok(RefreshKind::Unchanged);
-            }
-            let kind = if new_size == s.size && mtime == s.mtime {
-                RefreshKind::Unchanged
-            } else if new_size > s.size
-                && s.error.is_none()
-                && read_tail(&mut file, s.size).map_err(|e| e.to_string())? == s.tail
-            {
-                RefreshKind::Appended
-            } else {
-                RefreshKind::Reset
-            };
-            if kind == RefreshKind::Unchanged {
-                return Ok(kind);
-            }
-            if kind == RefreshKind::Reset {
-                s.index = LineIndex::new();
-                // 別のファイルに置き換えられた（rename で差し替える書き方）なら、持っている
-                // ハンドルは古い中身を指している。
-                if let Ok(mut slot) = doc.lines_file.lock() {
-                    *slot = None;
-                }
-            }
-            s.size = new_size;
-            s.done = false;
-            s.error = None;
-            (kind, doc.generation.fetch_add(1, Ordering::Relaxed) + 1)
+    blocking(move || refresh_doc(&doc)).await
+}
+
+/// `large_file_refresh` の中身。
+fn refresh_doc(doc: &Arc<LargeDoc>) -> Result<RefreshKind, String> {
+    let mut file = File::open(&doc.path).map_err(|e| e.to_string())?;
+    let meta = file.metadata().map_err(|e| e.to_string())?;
+    let new_size = meta.len();
+    let mtime = meta.modified().ok();
+    // **見極めから書き換えまでを 1 つの書き込みのロックで行う。** 読み取りのロックで見極めると、
+    // 外部変更の知らせと「再読み込み」が重なったときに両方が `done` を見て索引のスレッドを
+    // 2 本立て、同じ追記を 2 回流し込む。
+    let (kind, generation) = {
+        let mut s = doc.state.write().map_err(|e| e.to_string())?;
+        if !s.done {
+            return Ok(RefreshKind::Unchanged);
+        }
+        let kind = if new_size == s.size && mtime == s.mtime {
+            RefreshKind::Unchanged
+        } else if new_size > s.size
+            && s.error.is_none()
+            && read_tail(&mut file, s.size).map_err(|e| e.to_string())? == s.tail
+        {
+            RefreshKind::Appended
+        } else {
+            RefreshKind::Reset
         };
-        spawn_indexer(&doc, generation);
-        Ok(kind)
-    })
-    .await
+        if kind == RefreshKind::Unchanged {
+            return Ok(kind);
+        }
+        if kind == RefreshKind::Reset {
+            s.index = LineIndex::new();
+        }
+        s.size = new_size;
+        s.done = false;
+        s.error = None;
+        (kind, doc.generation.fetch_add(1, Ordering::Relaxed) + 1)
+    };
+    // **追記でも行を読むハンドルは開き直す。** 古い中身に書き足した一時ファイルを rename で
+    // 差し替える書き方は、末尾が同じなので追記に見える。索引と検索はパスで開き直すので新しい
+    // ファイルを読むが、持っているハンドルは古いファイルを指したままになる。状態のロックを
+    // 放してから捨てる（行を読んでいるあいだ `lines_file` は握られていて、待つと進み具合の
+    // 問い合わせまで止まる）。
+    if let Ok(mut slot) = doc.lines_file.lock() {
+        *slot = None;
+    }
+    spawn_indexer(doc, generation);
+    Ok(kind)
 }
 
 /// 閉じる。索引のスレッドと検索も止める。
@@ -1166,6 +1277,93 @@ mod tests {
             count_matches(&mut Cursor::new(&swapped[..]), &ka, n, &never).unwrap(),
             Some((0, false))
         );
+    }
+
+    #[test]
+    fn shift_jis_rejected_candidates_do_not_hide_an_overlapping_match() {
+        // 「ア」(83 41) + "AA"。1 バイト目からの "AA" は「ア」の 2 バイト目から始まる偽物で、
+        // 本物は 2 バイト目から。
+        let (bytes, _, _) = encoding_rs::SHIFT_JIS.encode("アAA");
+        let size = bytes.len() as u64;
+        let mut cur = Cursor::new(bytes.as_ref());
+        let aa = build_matcher("AA", true, encoding_rs::SHIFT_JIS).unwrap();
+        assert_eq!(
+            count_matches(&mut cur, &aa, size, &never).unwrap(),
+            Some((1, false))
+        );
+        assert_eq!(
+            find_forward(&mut cur, &aa, 0, size, size, &never).unwrap(),
+            Some((2, 4))
+        );
+    }
+
+    #[test]
+    fn shift_jis_windows_start_on_a_char_boundary() {
+        // "a" のあとに「ア」(83 41) を並べると、偶数の位置が 2 バイト目の `A` になる。窓の区切り
+        // （`SEARCH_BUF`、偶数）も 2 バイト目に当たるが、そこを `A` と読まない。
+        let mut bytes = vec![b'a'];
+        while bytes.len() < SEARCH_BUF + 64 {
+            bytes.extend_from_slice(&[0x83, 0x41]);
+        }
+        let size = bytes.len() as u64;
+        let a = build_matcher("A", true, encoding_rs::SHIFT_JIS).unwrap();
+        let mut cur = Cursor::new(&bytes[..]);
+        assert_eq!(
+            count_matches(&mut cur, &a, size, &never).unwrap(),
+            Some((0, false))
+        );
+        assert_eq!(
+            find_forward(&mut cur, &a, 0, size, size, &never).unwrap(),
+            None
+        );
+        assert_eq!(
+            find_backward(&mut cur, &a, 0, size, size, &never).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn count_does_not_recount_an_overlap_across_windows() {
+        // 窓の区切りの 2 バイト手前から "ababa"。重ならずに数えると "aba" は 1 件。
+        let mut bytes = vec![b'.'; SEARCH_BUF - 2];
+        bytes.extend_from_slice(b"ababa");
+        let size = bytes.len() as u64;
+        let aba = build_matcher("aba", true, encoding_rs::UTF_8).unwrap();
+        assert_eq!(
+            count_matches(&mut Cursor::new(&bytes[..]), &aba, size, &never).unwrap(),
+            Some((1, false))
+        );
+    }
+
+    fn wait_indexed(doc: &LargeDoc) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !doc.state.read().unwrap().done {
+            assert!(std::time::Instant::now() < deadline, "indexing timed out");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn refresh_reopens_the_line_handle_when_the_file_is_replaced_by_rename() {
+        let dir = std::env::temp_dir().join(format!("pike-large-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("log.txt");
+        std::fs::write(&path, "a\nb\n").unwrap();
+        let doc = open_doc(path.clone()).unwrap();
+        wait_indexed(&doc);
+        assert_eq!(doc_lines(&doc, 0, 10).unwrap().lines, vec!["a", "b", ""]);
+        // 古い中身に書き足した一時ファイルで差し替える（末尾が同じなので追記に見える）。
+        let tmp = dir.join("log.txt.tmp");
+        std::fs::write(&tmp, "a\nb\nc\n").unwrap();
+        std::fs::rename(&tmp, &path).unwrap();
+        assert_eq!(refresh_doc(&doc).unwrap(), RefreshKind::Appended);
+        wait_indexed(&doc);
+        assert_eq!(
+            doc_lines(&doc, 0, 10).unwrap().lines,
+            vec!["a", "b", "c", ""]
+        );
+        drop(doc);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

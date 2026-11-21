@@ -25,8 +25,11 @@ describe('blocksFor', () => {
 })
 
 describe('LineBlockCache', () => {
-  test('文字数の上限を超えたら古いものから捨てる', () => {
-    const cache = new LineBlockCache(10)
+  /** 2 つまでは収まり、3 つ目で溢れる上限。 */
+  const twoBlocks = (lines: string[]) => makeBlock(lines, []).cost * 2
+
+  test('上限を超えたら古いものから捨てる', () => {
+    const cache = new LineBlockCache(twoBlocks(['aaaa']))
     cache.set(0, makeBlock(['aaaa'], []))
     cache.set(1, makeBlock(['bbbb'], []))
     cache.get(0) // 0 を新しくする
@@ -36,11 +39,18 @@ describe('LineBlockCache', () => {
     assert.ok(cache.has(2))
   })
   test('keep に入れたブロックは捨てない', () => {
-    const cache = new LineBlockCache(5)
+    const cache = new LineBlockCache(1)
     cache.set(0, makeBlock(['aaaa'], []))
     cache.set(1, makeBlock(['bbbb'], []), new Set([0]))
     assert.ok(cache.has(0))
     assert.ok(cache.has(1))
+  })
+  test('空行だけのブロックも上限に数えて捨てる', () => {
+    const empty = Array.from({ length: BLOCK_LINES }, () => '')
+    const cache = new LineBlockCache(twoBlocks(empty))
+    for (let b = 0; b < 10; b++) cache.set(b, makeBlock(empty, []))
+    assert.equal([...Array(10).keys()].filter((b) => cache.has(b)).length, 2)
+    assert.ok(makeBlock(empty, []).cost > 0)
   })
   test('dropFrom はその行を含むブロックから後ろを捨てる', () => {
     const cache = new LineBlockCache()
@@ -54,7 +64,7 @@ describe('LineBlockCache', () => {
   test('切った行の印を持つ', () => {
     const block = makeBlock(['a', 'b'], [1])
     assert.ok(block.cut.has(1))
-    assert.equal(block.chars, 2)
+    assert.ok(!block.cut.has(0))
   })
 })
 

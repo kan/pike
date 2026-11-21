@@ -1030,6 +1030,19 @@ function applyChunk(chunk: FileChunk, requested: string | undefined): string {
 }
 
 /**
+ * 上限を超えたファイルを大きなファイルビューアで開く（#630）。**未保存の印を下ろす**: 編集を
+ * 捨てて読み直したらファイルが上限を超えていた、という流れでここへ来ると、捨てた編集の `*` が
+ * 残る。残すと外部変更が自動の読み直しではなく警告になり、閉じるときにも確認が出る。
+ */
+function openLargeViewer() {
+  largeViewer.value = true
+  if (isDirty.value) {
+    isDirty.value = false
+    updateTitle()
+  }
+}
+
+/**
  * 上限を超えたファイルを、先頭から読み取り専用で開く（#362）。エンコードは自動判定に戻す。
  * ここで立てる `partial` は「部分読み込みで読み直す」の印で、中身は `loadContent` が埋める。
  */
@@ -2608,7 +2621,7 @@ onUnmounted(() => {
         }}
       </div>
       <div class="choice-actions">
-        <button class="choice-primary" @click="largeViewer = true">{{ t('editor.openLargeViewer') }}</button>
+        <button class="choice-primary" @click="openLargeViewer">{{ t('editor.openLargeViewer') }}</button>
         <button @click="openPartially">{{ t('editor.openPartially') }}</button>
         <button @click="openFileWithDefaultApp">{{ t('common.openWithDefaultApp') }}</button>
         <button @click="revealInExplorer">{{ t('editor.revealInFolder') }}</button>

@@ -12,31 +12,39 @@
 /** 1 回に読む行の数。キャッシュもこの単位で持つ。 */
 export const BLOCK_LINES = 256
 
-/** キャッシュに置く文字数の上限（UTF-16 の単位。約 64MB）。 */
-export const CACHE_MAX_CHARS = 32 * 1024 * 1024
+/** キャッシュに置く量の上限（`LineBlock.cost` の合計。文字なら UTF-16 で約 64MB）。 */
+export const CACHE_MAX_COST = 32 * 1024 * 1024
+
+/**
+ * 1 行・1 ブロックを持つだけでかかる量（文字数に換算）。**文字数だけで数えない**: 空行だけの
+ * ブロックが 0 になり、どれだけ溜まっても捨てられない（配列・文字列・Map の項目は残る）。
+ */
+const LINE_COST = 32
+const BLOCK_COST = 1024
 
 export interface LineBlock {
   lines: string[]
   /** 長すぎて切った行（ブロックの中の位置）。 */
   cut: Set<number>
-  chars: number
+  /** キャッシュの上限に数える量（文字数 + 行とブロックの持ち分）。 */
+  cost: number
 }
 
 export function makeBlock(lines: string[], cut: number[]): LineBlock {
-  let chars = 0
-  for (const l of lines) chars += l.length
-  return { lines, cut: new Set(cut), chars }
+  let cost = BLOCK_COST + lines.length * LINE_COST
+  for (const l of lines) cost += l.length
+  return { lines, cut: new Set(cut), cost }
 }
 
 /**
- * 行のブロックの LRU。上限は件数ではなく文字数で決める（1 行が 64KB まであるので、件数で
+ * 行のブロックの LRU。上限は件数ではなく量（`cost`）で決める（1 行が 64KB まであるので、件数で
  * 縛ると長い行のファイルでメモリが読めない）。
  */
 export class LineBlockCache {
   private blocks = new Map<number, LineBlock>()
-  private chars = 0
+  private cost = 0
 
-  constructor(private readonly maxChars = CACHE_MAX_CHARS) {}
+  constructor(private readonly maxCost = CACHE_MAX_COST) {}
 
   get(block: number): LineBlock | undefined {
     const b = this.blocks.get(block)
@@ -56,16 +64,16 @@ export class LineBlockCache {
   set(block: number, data: LineBlock, keep: ReadonlySet<number> = new Set()) {
     const old = this.blocks.get(block)
     if (old) {
-      this.chars -= old.chars
+      this.cost -= old.cost
       this.blocks.delete(block)
     }
     this.blocks.set(block, data)
-    this.chars += data.chars
+    this.cost += data.cost
     for (const [k, b] of this.blocks) {
-      if (this.chars <= this.maxChars) break
+      if (this.cost <= this.maxCost) break
       if (k === block || keep.has(k)) continue
       this.blocks.delete(k)
-      this.chars -= b.chars
+      this.cost -= b.cost
     }
   }
 
@@ -75,13 +83,13 @@ export class LineBlockCache {
     for (const [k, b] of this.blocks) {
       if (k < first) continue
       this.blocks.delete(k)
-      this.chars -= b.chars
+      this.cost -= b.cost
     }
   }
 
   clear() {
     this.blocks.clear()
-    this.chars = 0
+    this.cost = 0
   }
 }
 

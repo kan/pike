@@ -163,7 +163,11 @@ async function poll() {
     if (++pollFailures < POLL_RETRIES) pollTimer = setTimeout(poll, POLL_MS * 10)
     return
   }
+  // 追従していなくても、作り終えたら範囲に収める（ログを切り詰めて行数が減ると、先頭の行が末尾より
+  // 後ろに残る）。**作っている途中は収めない**: 作り直しの最初は行数が 0 に近く、見ていた位置が
+  // 先頭へ飛んだまま戻らない。
   if (following.value) top.value = maxTop(total.value, rows.value)
+  else if (status.value.done) top.value = clampTop(top.value, total.value, rows.value)
   ensureLoaded()
   if (!status.value.done) {
     pollTimer = setTimeout(poll, POLL_MS)
@@ -199,10 +203,12 @@ async function refresh() {
   epoch++
   inflight.clear()
   if (kind === 'appended') {
+    // 一致の位置は変わらないので残す。件数は作り終えたときに `poll` が数え直す。
     cache.dropFrom(Math.max(0, before - 1))
   } else {
     cache.clear()
-    match.value = null
+    // 走っている検索と件数は古い中身に対するもの。世代を進めて、届いても捨てる。
+    invalidateFind()
   }
   cacheVersion.value++
   restartPoll()
@@ -395,12 +401,29 @@ function openFind() {
     return
   }
   find.value.open = true
+  // 閉じたときに一致と件数は捨てたが、問い合わせは残してある。残っていれば探し直す（問い合わせの
+  // watch は値が変わらないので動かない）。
+  if (find.value.query) scheduleFind()
+}
+
+/**
+ * 一致と件数を捨て、待っている検索・走っている検索の結果も捨てる（世代を進める）。閉じたときと、
+ * 書き換えを拾ったとき。
+ */
+function invalidateFind() {
+  if (findTimer) clearTimeout(findTimer)
+  findTimer = null
+  findSeq++
+  stepSeq++
+  revealPending = false
+  match.value = null
+  count.value = null
+  counting.value = false
 }
 
 function closeFind() {
   find.value.open = false
-  match.value = null
-  count.value = null
+  invalidateFind()
   root.value?.focus()
 }
 
@@ -415,10 +438,8 @@ function scheduleFind() {
 watch(
   () => [find.value.query, find.value.caseSensitive],
   () => {
-    match.value = null
-    count.value = null
-    findSeq++
-    if (find.value.query) scheduleFind()
+    invalidateFind()
+    if (find.value.open && find.value.query) scheduleFind()
   },
 )
 
